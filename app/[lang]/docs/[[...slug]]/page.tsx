@@ -13,10 +13,10 @@ import PythonEditor from "@/components/python-editor"
 import Script from "next/script"
 
 export default async function Page(props: {
-  params: Promise<{ slug?: string[] }>
+  params: Promise<{ slug?: string[], lang: string }>
 }) {
   const params = await props.params
-  const page = source.getPage(params.slug) as unknown as {
+  const page = source.getPage(params.slug, params.lang) as unknown as { 
     data: {
       title: string
       description: string
@@ -86,10 +86,10 @@ export async function generateStaticParams() {
 }
 
 export async function generateMetadata(props: {
-  params: Promise<{ slug?: string[] }>
+  params: Promise<{ slug?: string[], lang: string }>
 }) {
   const params = await props.params
-  const page = source.getPage(params.slug) as unknown as {
+  const page = source.getPage(params.slug, params.lang) as unknown as {
     data: {
       title: string
       description: string
