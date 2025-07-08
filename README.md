@@ -3,6 +3,8 @@
 > 专为开发者设计的编程语言转换学习平台，通过对比学习快速掌握新语言
 
 [![Next.js](https://img.shields.io/badge/Next.js-15.3+-black.svg)](https://nextjs.org)
+[![React](https://img.shields.io/badge/React-19.0+-blue.svg)](https://react.dev)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.8+-blue.svg)](https://www.typescriptlang.org)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
@@ -18,6 +20,7 @@ LangShift.dev 是一个专门为开发者设计的编程语言转换学习平台
 - 理解不同语言的语法特性和设计哲学
 - 构建多语言开发能力
 - 学会在不同语言间迁移开发思维
+- 掌握现代开发工具和最佳实践
 
 ## 🌐 支持的语言转换
 
@@ -26,64 +29,46 @@ LangShift.dev 是一个专门为开发者设计的编程语言转换学习平台
 - 语法映射：变量、函数、类、异步编程
 - 生态系统对比：npm vs pip、Node.js vs Python
 - 实战项目：Web 开发、数据处理、自动化脚本
+- 高级特性：类型注解、装饰器、上下文管理器
+
+**📚 [查看详细学习指南 →](./content/docs/js2py/README.md)**
 
 ### 🔄 JavaScript ↔ Rust
 - 从 JavaScript 开发者视角学习 Rust
 - 内存管理：垃圾回收 vs 所有权系统
 - 类型系统：动态类型 vs 静态类型
 - 性能优化：解释执行 vs 编译优化
+- 并发编程：事件循环 vs 零成本抽象
+
+**📚 [查看详细学习指南 →](./content/docs/js2rust/README.md)**
 
 ### 🚀 更多语言支持计划中...
 - TypeScript ↔ Go
 - Python ↔ Rust
 - JavaScript ↔ Go
+- Python ↔ TypeScript
 
-## 📚 学习模块结构
+## 📚 学习模块概览
 
-### 🚀 模块 0：语言转换学习法
-- 为什么需要学习多种编程语言？
-- 语言转换学习的核心方法论
-- 环境搭建与工具配置
-- 第一个跨语言项目：Hello, World!
+每个语言转换模块都包含 13 个渐进式学习模块：
 
-### 🧱 模块 1：基础语法映射
-- 变量声明与作用域对比
-- 数据类型与结构映射
-- 控制流语句对比
-- 函数定义与调用方式
+- **模块 0**: 语言介绍与学习方法
+- **模块 1-4**: 基础语法与核心概念
+- **模块 5-7**: 实战应用与工具链
+- **模块 8**: 综合实战项目
+- **模块 9-12**: 高级主题与最佳实践
 
-### 🧰 模块 2：模块化与项目组织
-- 包管理与依赖系统对比
-- 模块导入导出机制
-- 项目结构规范
-- 构建工具与开发环境
-
-### 🧠 模块 3：编程范式对比
-- 面向对象编程实现差异
-- 函数式编程特性对比
-- 异步编程模型对比
-- 错误处理机制
-
-### 🌍 模块 4：生态系统与工具链
-- 标准库与第三方库对比
-- 开发工具与 IDE 配置
-- 调试与测试工具
-- 部署与运维实践
-
-### 🧪 模块 5：实战项目
-- 跨语言项目架构设计
-- 性能优化策略对比
-- 最佳实践与设计模式
-- 团队协作与代码规范
+详细的学习内容请查看各模块的专门文档。
 
 ## 🛠️ 技术栈
 
 ### 平台技术
-- **框架**: Next.js 15+ (App Router)
-- **文档**: Fumadocs + MDX
-- **样式**: Tailwind CSS
-- **代码编辑器**: Monaco Editor
-- **国际化**: 支持中英文
+- **框架**: Next.js 15.3+ (App Router)
+- **文档**: Fumadocs 15.6+ + MDX
+- **样式**: Tailwind CSS 4.0+
+- **代码编辑器**: Monaco Editor + Pyodide
+- **国际化**: 支持中英文繁体中文
+- **搜索**: Orama 全文搜索
 
 ### 语言运行时
 - **Python**: Pyodide (浏览器端 Python)
@@ -91,9 +76,17 @@ LangShift.dev 是一个专门为开发者设计的编程语言转换学习平台
 - **Rust**: WebAssembly (计划中)
 
 ### 开发工具
-- **搜索**: Orama
-- **类型检查**: TypeScript
-- **代码质量**: ESLint, Prettier
+- **类型检查**: TypeScript 5.8+
+- **代码质量**: ESLint 9.30+, Prettier 3.5+
+- **构建优化**: Turbopack
+- **性能监控**: 内置性能监控组件
+
+### 特色功能
+- **交互式代码编辑器**: 支持多语言语法高亮和实时执行
+- **代码对比模式**: 并排显示不同语言的实现
+- **性能监控**: 实时监控代码执行性能
+- **虚拟化编辑器**: 优化大量代码的渲染性能
+- **滚动编码**: 交互式代码演示
 
 ## 🚀 快速开始
 
@@ -124,6 +117,31 @@ LangShift.dev 是一个专门为开发者设计的编程语言转换学习平台
 4. **访问项目**
    打开浏览器访问 [http://localhost:3000](http://localhost:3000)
 
+### 开发命令
+
+```bash
+# 开发模式 (使用 Turbopack)
+pnpm dev
+
+# 构建生产版本
+pnpm build
+
+# 启动生产服务器
+pnpm start
+
+# 代码检查
+pnpm lint
+
+# 类型检查
+pnpm type-check
+
+# SEO 检查
+pnpm seo-check
+
+# 构建分析
+pnpm analyze
+```
+
 ## 📁 项目结构
 
 ```
@@ -132,19 +150,43 @@ langshift.dev/
 │   └── [lang]/            # 国际化路由
 │       ├── (home)/        # 首页
 │       ├── docs/          # 文档页面
-│       └── intro/         # 介绍页面
+│       ├── intro/         # 介绍页面
+│       └── layout.tsx     # 布局组件
 ├── components/            # React 组件
 │   ├── python-editor.tsx  # Python 代码编辑器
+│   ├── virtualized-editor.tsx # 虚拟化编辑器
 │   ├── side-by-side-code.tsx # 对比代码组件
-│   └── ...
+│   ├── scrollycoding.tsx # 滚动编码组件
+│   ├── monaco-manager.tsx # Monaco 编辑器管理
+│   ├── editor-performance-monitor.tsx # 性能监控
+│   ├── seo-head.tsx      # SEO 头部组件
+│   ├── seo-doc-page.tsx  # 文档页面 SEO
+│   ├── analytics.tsx     # 分析组件
+│   └── annotations/      # 注释组件
 ├── content/              # 文档内容
 │   └── docs/            # 文档目录
 │       ├── js2py/       # JavaScript → Python
+│       │   ├── README.md # 模块介绍
+│       │   └── .cursorrules # 模块规范
 │       ├── js2rust/     # JavaScript → Rust
+│       │   ├── README.md # 模块介绍
+│       │   └── .cursorrules # 模块规范
 │       └── ...
 ├── lib/                 # 工具函数
-├── styles/              # 样式文件
-└── README.md           # 项目说明
+│   ├── i18n.ts         # 国际化配置
+│   ├── seo-structured-data.ts # SEO 结构化数据
+│   └── source.ts       # 源码配置
+├── messages/           # 国际化消息
+│   ├── en.json        # 英文
+│   ├── zh-cn.json     # 简体中文
+│   └── zh-tw.json     # 繁体中文
+├── styles/            # 样式文件
+├── middleware.ts      # 中间件配置
+├── next.config.mjs   # Next.js 配置
+├── source.config.ts  # Fumadocs 配置
+├── tsconfig.json     # TypeScript 配置
+├── README.md         # 项目说明（本文件）
+└── .cursorrules      # 全局开发规范
 ```
 
 ## 🎯 学习建议
@@ -154,6 +196,8 @@ langshift.dev/
 3. **动手实践**: 每个概念都要动手写代码验证
 4. **项目驱动**: 通过实战项目巩固所学知识
 5. **循序渐进**: 按照模块顺序学习，打好基础
+6. **性能关注**: 理解不同语言的性能特性
+7. **最佳实践**: 学习各语言的编码规范和最佳实践
 
 ## 🌟 特色功能
 
@@ -161,16 +205,49 @@ langshift.dev/
 - 支持多种编程语言语法高亮
 - 实时代码执行和错误提示
 - 代码对比模式，直观显示差异
+- 性能监控和优化建议
+- 虚拟化渲染，支持大量代码
 
 ### 📚 结构化学习路径
 - 模块化课程设计
 - 渐进式难度递增
 - 丰富的代码示例和练习题
+- 实战项目驱动学习
+- 多语言内容支持
 
 ### 🌍 多语言支持
-- 中英文双语界面
+- 中英文繁体中文三语界面
 - 国际化文档内容
 - 本地化学习体验
+- 语言检测和自动跳转
+
+### 🔍 智能搜索
+- 全文搜索功能
+- 多语言搜索支持
+- 搜索结果高亮
+- 搜索历史记录
+
+### 📊 性能优化
+- 图片优化和懒加载
+- 代码分割和按需加载
+- 缓存策略优化
+- SEO 友好设计
+
+## 📖 文档结构
+
+本项目采用分层文档结构：
+
+### 根级文档
+- **README.md** (本文件) - 项目整体介绍和快速开始
+- **.cursorrules** - 全局开发规范和 AI 助手行为准则
+
+### 模块级文档
+每个语言转换模块都有自己的专门文档：
+- **README.md** - 模块详细介绍和学习指南
+- **.cursorrules** - 模块特定的开发规范
+
+### 文档模板
+- **docs/module-documentation-template.md** - 新模块创建指南
 
 ## 🤝 贡献指南
 
@@ -188,6 +265,15 @@ langshift.dev/
 - 📝 文档改进
 - 🌍 国际化翻译
 - 🎨 UI/UX 优化
+- 🚀 性能优化
+- 🧪 测试用例
+
+### 开发规范
+- 遵循 TypeScript 严格模式
+- 使用 ESLint 和 Prettier
+- 编写单元测试
+- 遵循 Git 提交规范
+- 更新相关文档
 
 ## 📄 许可证
 
@@ -199,10 +285,10 @@ langshift.dev/
 
 ## 📞 联系我们
 
-- 项目主页: [GitHub](https://github.com/erweixin/langshift.dev)
-- 问题反馈: [Issues](https://github.com/erweixin/langshift.dev/issues)
-- 讨论交流: [Discussions](https://github.com/erweixin/langshift.dev/discussions)
+- 项目主页: [https://langshift.dev](https://langshift.dev)
+- 问题反馈: [GitHub Issues](https://github.com/erweixin/langshift.dev/issues)
+- 功能建议: [GitHub Discussions](https://github.com/erweixin/langshift.dev/discussions)
 
 ---
 
-⭐ 如果这个项目对你有帮助，请给我们一个 Star！
+**让编程语言学习变得简单高效！** 🚀
