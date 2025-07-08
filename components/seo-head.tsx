@@ -1,6 +1,4 @@
-'use client'
-
-import { useEffect } from 'react'
+import Head from 'next/head'
 
 interface SEOHeadProps {
   title?: string
@@ -8,65 +6,88 @@ interface SEOHeadProps {
   keywords?: string[]
   canonical?: string
   noindex?: boolean
+  ogImage?: string
+  ogType?: string
+  twitterCard?: string
+  structuredData?: object
+  lang?: string
 }
 
 export function SEOHead({
-  title,
-  description,
-  keywords = [],
+  title = 'LangShift.dev - 编程语言转换学习平台',
+  description = 'LangShift.dev 是专门为开发者设计的编程语言转换学习平台。通过对比不同编程语言的语法特性和概念映射，帮助开发者快速掌握新语言。',
+  keywords = ['编程语言', '语言学习', 'JavaScript', 'Python', 'Rust', '开发者', '代码对比', '语法转换'],
   canonical,
-  noindex = false
+  noindex = false,
+  ogImage = '/og-image.png',
+  ogType = 'website',
+  twitterCard = 'summary_large_image',
+  structuredData,
+  lang = 'zh-CN'
 }: SEOHeadProps) {
-  useEffect(() => {
-    // 动态更新页面标题
-    if (title) {
-      document.title = title
-    }
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://langshift.dev'
+  const fullCanonical = canonical ? `${siteUrl}${canonical}` : siteUrl
 
-    // 更新 meta 描述
-    let metaDescription = document.querySelector('meta[name="description"]')
-    if (!metaDescription) {
-      metaDescription = document.createElement('meta')
-      metaDescription.setAttribute('name', 'description')
-      document.head.appendChild(metaDescription)
-    }
-    if (description) {
-      metaDescription.setAttribute('content', description)
-    }
-
-    // 更新关键词
-    let metaKeywords = document.querySelector('meta[name="keywords"]')
-    if (!metaKeywords) {
-      metaKeywords = document.createElement('meta')
-      metaKeywords.setAttribute('name', 'keywords')
-      document.head.appendChild(metaKeywords)
-    }
-    if (keywords.length > 0) {
-      metaKeywords.setAttribute('content', keywords.join(', '))
-    }
-
-    // 设置 canonical 链接
-    if (canonical) {
-      let canonicalLink = document.querySelector('link[rel="canonical"]')
-      if (!canonicalLink) {
-        canonicalLink = document.createElement('link')
-        canonicalLink.setAttribute('rel', 'canonical')
-        document.head.appendChild(canonicalLink)
-      }
-      canonicalLink.setAttribute('href', canonical)
-    }
-
-    // 设置 robots
-    if (noindex) {
-      let metaRobots = document.querySelector('meta[name="robots"]')
-      if (!metaRobots) {
-        metaRobots = document.createElement('meta')
-        metaRobots.setAttribute('name', 'robots')
-        document.head.appendChild(metaRobots)
-      }
-      metaRobots.setAttribute('content', 'noindex, nofollow')
-    }
-  }, [title, description, keywords, canonical, noindex])
-
-  return null
+  return (
+    <Head>
+      {/* 基础 SEO 标签 */}
+      <title>{title}</title>
+      <meta name="description" content={description} />
+      <meta name="keywords" content={keywords.join(', ')} />
+      <meta name="author" content="LangShift.dev" />
+      <meta name="robots" content={noindex ? 'noindex, nofollow' : 'index, follow'} />
+      <link rel="canonical" href={fullCanonical} />
+      
+      {/* 语言和编码 */}
+      <meta charSet="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <meta httpEquiv="Content-Language" content={lang} />
+      
+      {/* Open Graph */}
+      <meta property="og:title" content={title} />
+      <meta property="og:description" content={description} />
+      <meta property="og:type" content={ogType} />
+      <meta property="og:url" content={fullCanonical} />
+      <meta property="og:image" content={`${siteUrl}${ogImage}`} />
+      <meta property="og:image:width" content="1200" />
+      <meta property="og:image:height" content="630" />
+      <meta property="og:site_name" content="LangShift.dev" />
+      <meta property="og:locale" content={lang} />
+      
+      {/* Twitter Cards */}
+      <meta name="twitter:card" content={twitterCard} />
+      <meta name="twitter:title" content={title} />
+      <meta name="twitter:description" content={description} />
+      <meta name="twitter:image" content={`${siteUrl}${ogImage}`} />
+      <meta name="twitter:site" content="@langshift_dev" />
+      <meta name="twitter:creator" content="@langshift_dev" />
+      
+      {/* 其他重要 meta 标签 */}
+      <meta name="theme-color" content="#1e293b" />
+      <meta name="color-scheme" content="light dark" />
+      <meta name="application-name" content="LangShift.dev" />
+      <meta name="apple-mobile-web-app-title" content="LangShift.dev" />
+      <meta name="apple-mobile-web-app-capable" content="yes" />
+      <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+      
+      {/* 结构化数据 */}
+      {structuredData && (
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify(structuredData)
+          }}
+        />
+      )}
+      
+      {/* 预连接优化 */}
+      <link rel="preconnect" href="https://fonts.googleapis.com" />
+      <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+      <link rel="preconnect" href="https://cdn.jsdelivr.net" />
+      
+      {/* DNS 预取 */}
+      <link rel="dns-prefetch" href="//www.google-analytics.com" />
+      <link rel="dns-prefetch" href="//cdn.jsdelivr.net" />
+    </Head>
+  )
 } 
