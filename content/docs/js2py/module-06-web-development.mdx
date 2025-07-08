@@ -1,0 +1,274 @@
+---
+title: "Python Web 开发：FastAPI 指南"
+description: "从 JavaScript (Node.js/Express) 开发者视角，深入学习 Python 的现代 Web 框架 FastAPI。"
+---
+
+## 1. 引言
+
+### 从 Express 到 FastAPI
+
+作为一名 JavaScript 开发者，你很可能对 `Node.js` 和 `Express` 非常熟悉。它们是构建快速、可扩展的网络应用的强大组合。当你转向 Python 时，你会发现 `FastAPI` 是一个非常相似且同样强大的选择。
+
+`FastAPI` 是一个现代、快速（高性能）的 Web 框架，用于构建 API。它的设计灵感来源于 `Flask` 和 `Express`，并充分利用了 Python 的类型提示和异步功能。
+
+**核心概念类比**
+
+| Python (FastAPI) | JavaScript (Express) | 主要功能 |
+| --- | --- | --- |
+| **FastAPI** | `Express` | Web 框架核心 |
+| **Uvicorn/Hypercorn** | `node` / `pm2` | 应用服务器 |
+| **Pydantic 模型** | Joi / Zod / 手动验证 | 数据验证和序列化 |
+| **依赖注入** | 中间件 / 服务类 | 管理依赖和共享逻辑 |
+| **`async def`** | `async` 函数 | 异步请求处理 |
+
+> 💡 **学习策略**：将 FastAPI 视为一个“带类型的、异步优先的 Express”。许多概念，如路由、请求、响应和中间件，都会让你感到非常熟悉。
+
+## 2. 第一个 FastAPI 应用
+
+让我们从一个经典的 "Hello, World!" 示例开始，对比 `FastAPI` 和 `Express` 的基本结构。
+
+<PythonEditor title="Hello, World: FastAPI vs. Express" compare={true}>
+```javascript !! js
+// JavaScript (Express)
+// server.js
+const express = require('express');
+const app = express();
+const port = 3000;
+
+app.get('/', (req, res) => {
+  res.send('Hello, World!');
+});
+
+app.listen(port, () => {
+  console.log(`Server is running at http://localhost:${port}`);
+});
+```
+
+```python !! py
+# Python (FastAPI)
+# main.py
+from fastapi import FastAPI
+
+app = FastAPI()
+
+@app.get("/")
+def read_root():
+    return {"message": "Hello, World!"}
+
+# 运行服务器 (在命令行中):
+# uvicorn main:app --reload
+```
+</PythonEditor>
+
+## 3. 路由与请求处理
+
+### 3.1 路径参数
+
+<PythonEditor title="路径参数对比" compare={true}>
+```javascript !! js
+// JavaScript (Express)
+app.get('/items/:itemId', (req, res) => {
+  const itemId = req.params.itemId;
+  res.json({ item_id: itemId });
+});
+```
+
+```python !! py
+# Python (FastAPI)
+from fastapi import FastAPI
+
+app = FastAPI()
+
+@app.get("/items/{item_id}")
+def read_item(item_id: int):
+    return {"item_id": item_id}
+```
+</PythonEditor>
+
+### 3.2 查询参数
+
+<PythonEditor title="查询参数对比" compare={true}>
+```javascript !! js
+// JavaScript (Express)
+app.get('/items', (req, res) => {
+  const skip = req.query.skip || 0;
+  const limit = req.query.limit || 10;
+  res.json({ skip, limit });
+});
+```
+
+```python !! py
+# Python (FastAPI)
+from fastapi import FastAPI
+
+app = FastAPI()
+
+@app.get("/items/")
+def read_items(skip: int = 0, limit: int = 10):
+    return {"skip": skip, "limit": limit}
+```
+</PythonEditor>
+
+### 3.3 请求体
+
+`FastAPI` 使用 `Pydantic` 模型来定义请求体，这使得数据验证、序列化和文档生成变得非常简单。
+
+<PythonEditor title="请求体对比" compare={true}>
+```javascript !! js
+// JavaScript (Express)
+app.use(express.json());
+
+app.post('/items', (req, res) => {
+  const { name, price } = req.body;
+  // 手动验证
+  if (!name || !price) {
+    return res.status(400).json({ error: 'Missing name or price' });
+  }
+  res.json({ name, price });
+});
+```
+
+```python !! py
+# Python (FastAPI)
+from fastapi import FastAPI
+from pydantic import BaseModel
+
+class Item(BaseModel):
+    name: str
+    price: float
+    is_offer: bool | None = None
+
+app = FastAPI()
+
+@app.post("/items/")
+def create_item(item: Item):
+    return item
+```
+</PythonEditor>
+
+## 4. 数据验证与 Pydantic
+
+`Pydantic` 是 `FastAPI` 的核心优势之一。它提供了强大的数据验证功能，类似于 `TypeScript` 的类型系统加上 `Zod` 或 `Joi` 的运行时验证。
+
+<PythonEditor title="数据验证对比" compare={true}>
+```typescript !! ts
+// TypeScript (with Zod for runtime validation)
+import { z } from 'zod';
+
+const UserSchema = z.object({
+  username: z.string().min(3),
+  email: z.string().email(),
+  age: z.number().optional(),
+});
+
+type User = z.infer<typeof UserSchema>;
+
+function createUser(user: unknown): User {
+  return UserSchema.parse(user);
+}
+```
+
+```python !! py
+# Python (with Pydantic)
+from pydantic import BaseModel, Field, EmailStr
+
+class User(BaseModel):
+    username: str = Field(min_length=3)
+    email: EmailStr
+    age: int | None = None
+
+def create_user(user_data: dict) -> User:
+    return User(**user_data)
+```
+</PythonEditor>
+
+## 5. 依赖注入
+
+`FastAPI` 的依赖注入系统非常强大，可以轻松地管理数据库连接、认证和授权等共享逻辑。
+
+<PythonEditor title="依赖注入对比" compare={true}>
+```javascript !! js
+// JavaScript (Express middleware)
+function getDb(req, res, next) {
+  req.db = new Database();
+  next();
+}
+
+function requireAuth(req, res, next) {
+  if (!req.headers.authorization) {
+    return res.status(401).send('Unauthorized');
+  }
+  req.user = getUserFromToken(req.headers.authorization);
+  next();
+}
+
+app.get('/profile', getDb, requireAuth, (req, res) => {
+  res.json({ user: req.user });
+});
+```
+
+```python !! py
+# Python (FastAPI dependencies)
+from fastapi import Depends, FastAPI, HTTPException, status
+
+app = FastAPI()
+
+class Database:
+    def __init__(self): ...
+
+def get_db():
+    db = Database()
+    try:
+        yield db
+    finally:
+        # close db connection
+        pass
+
+async def get_current_user(token: str = Depends(oauth2_scheme)):
+    # ... (logic to get user from token)
+    return user
+
+@app.get("/profile")
+async def read_profile(current_user: User = Depends(get_current_user), db: Database = Depends(get_db)):
+    return {"user": current_user}
+```
+</PythonEditor>
+
+## 6. 异步支持
+
+`FastAPI` 是一个异步优先的框架，可以轻松地处理异步任务，如数据库查询、API 调用等。
+
+<PythonEditor title="异步处理对比" compare={true}>
+```javascript !! js
+// JavaScript (Express)
+app.get('/data', async (req, res) => {
+  try {
+    const data = await fetch('https://api.example.com/data').then(r => r.json());
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch data' });
+  }
+});
+```
+
+```python !! py
+# Python (FastAPI)
+import httpx
+from fastapi import FastAPI
+
+app = FastAPI()
+
+@app.get("/data")
+async def get_data():
+    async with httpx.AsyncClient() as client:
+        response = await client.get("https://api.example.com/data")
+        response.raise_for_status()
+        return response.json()
+```
+</PythonEditor>
+
+## 7. 总结
+
+`FastAPI` 为从 `JavaScript/Express` 背景过渡而来的 Python 开发者提供了一个熟悉而强大的 Web 开发体验。通过利用类型提示、异步和依赖注入，`FastAPI` 可以帮助你构建健壮、高性能的 API。
+
+现在你已经掌握了 `FastAPI` 的基础知识，可以开始构建自己的 Python Web 应用了！

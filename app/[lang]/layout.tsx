@@ -2,6 +2,7 @@ import '@/styles/global.css';
 
 import { I18nProvider, type Translations } from 'fumadocs-ui/i18n';
 import { RootProvider } from 'fumadocs-ui/provider';
+import Script from 'next/script';
 
 const zhCn: Partial<Translations> = {
   search: '簡體中文',
@@ -41,6 +42,17 @@ export default async function RootLayout({
 
   return (
     <html lang={lang}>
+           <head>
+        <Script
+          src="https://cdn.jsdelivr.net/pyodide/v0.27.0/full/pyodide.js"
+          strategy="beforeInteractive"
+        />
+        <link rel="icon" href="/favicon.ico" />
+        <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+        <link rel="manifest" href="/manifest.json" />
+        <meta name="theme-color" content="#1e293b" />
+        <meta name="color-scheme" content="light dark" />
+      </head>
       <body>
         <I18nProvider
           locale={lang}

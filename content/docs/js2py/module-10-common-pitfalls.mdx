@@ -1,0 +1,200 @@
+---
+title: "模块 10: 常见陷阱"
+description: "从 JavaScript 开发者视角，解析 Python 中常见的概念陷阱和易错点。"
+---
+
+## 1. 引言
+
+当你从一种语言切换到另一种时，最棘手的往往不是新语法，而是一些看似相同但行为却截然不同的“陷阱”。这些细微的差异可能会导致难以察觉的 bug 和困惑。
+
+本模块专门为你——从 JavaScript 过渡到 Python 的开发者——梳理了一些最常见的概念陷阱。
+
+> 💡 **学习策略**：不要死记硬背。理解每个陷阱背后的“为什么”，并将其与 JavaScript 的行为进行对比，这样你才能在实际编码中自然而然地避开它们。
+
+## 2. 真值 (Truthy) 与假值 (Falsy)
+
+在 Python 中，空的集合类型（如列表、字典、元组）被认为是“假值”(Falsy)。这与 JavaScript 的行为有显著不同，在 JS 中，空数组 `[]` 和空对象 `{}` 都是“真值”(Truthy)。
+
+<PythonEditor title="真值与假值对比" compare={true}>
+```javascript !! js
+// JavaScript
+if ([]) {
+  console.log("空数组在 JS 中是 truthy"); // 会被打印
+}
+
+if ({}) {
+  console.log("空对象在 JS 中是 truthy"); // 会被打印
+}
+
+if ("") {
+  console.log("空字符串是 falsy"); // 不会被打印
+}
+
+if (0) {
+  console.log("0 是 falsy"); // 不会被打印
+}
+```
+
+```python !! py
+# Python
+if []:
+    print("空列表在 Python 中是 Falsy")  # 不会被打印
+else:
+    print("空列表为假")
+
+if {}:
+    print("空字典在 Python 中是 Falsy")  # 不会被打印
+else:
+    print("空字典为假")
+
+if "":
+    print("空字符串是 Falsy")  # 不会被打印
+else:
+    print("空字符串为假")
+
+if 0:
+    print("0 是 Falsy")  # 不会被打印
+else:
+    print("0 为假")
+```
+</PythonEditor>
+
+## 3. `this` vs `self`
+
+在 JavaScript 的类方法中，`this` 是一个关键字，其指向在函数调用时确定。而在 Python 的实例方法中，第一个参数（按照惯例命名为 `self`）显式地代表实例本身，它不是一个关键字。
+
+<PythonEditor title="this vs. self 对比" compare={true}>
+```javascript !! js
+// JavaScript
+class Counter {
+  constructor() {
+    this.count = 0;
+  }
+
+  increment() {
+    this.count++;
+    console.log(this.count);
+  }
+}
+
+const counter = new Counter();
+counter.increment(); // 1
+```
+
+```python !! py
+# Python
+class Counter:
+    def __init__(self):
+        self.count = 0
+
+    def increment(self):  # `self` 必须作为第一个参数显式传递
+        self.count += 1
+        print(self.count)
+
+counter = Counter()
+counter.increment()  # 1
+```
+</PythonEditor>
+
+## 4. 变量作用域
+
+JavaScript (ES6+) 拥有块级作用域（由 `{}` 界定），而 Python 的作用域是基于函数（或类、模块）的。在 `for` 循环等代码块中定义的变量，在 Python 中会“泄漏”到外部作用域。
+
+<PythonEditor title="作用域对比" compare={true}>
+```javascript !! js
+// JavaScript (块级作用域)
+for (let i = 0; i < 3; i++) {
+  console.log(i);
+}
+// console.log(i); // ReferenceError: i is not defined
+
+if (true) {
+  const blockVar = 'hello';
+}
+// console.log(blockVar); // ReferenceError: blockVar is not defined
+```
+
+```python !! py
+# Python (函数级作用域)
+for i in range(3):
+    print(i)
+
+print(f"循环结束后，i 仍然存在: {i}") # 输出: 循环结束后，i 仍然存在: 2
+
+if True:
+    block_var = 'hello'
+
+print(f"if 块结束后，变量仍然存在: {block_var}") # 输出: if 块结束后，变量仍然存在: hello
+```
+</PythonEditor>
+
+## 5. 可变默认参数
+
+这是一个 Python 中非常经典且臭名昭著的“陷阱”。如果函数的默认参数是一个可变对象（如列表或字典），那么这个对象会在所有调用之间共享。这与 JavaScript 的行为完全不同。
+
+<PythonEditor title="可变默认参数对比" compare={true}>
+```javascript !! js
+// JavaScript
+function append(item, arr = []) {
+  arr.push(item);
+  return arr;
+}
+
+console.log(append(1)); // [1]
+console.log(append(2)); // [2] (每次调用都创建一个新的空数组)
+```
+
+```python !! py
+# Python (错误的方式)
+def append_bad(item, arr=[]):
+    arr.append(item)
+    return arr
+
+print(append_bad(1))  # [1]
+print(append_bad(2))  # [1, 2] (列表被所有调用共享！)
+
+# 正确的方式
+def append_good(item, arr=None):
+    if arr is None:
+        arr = []
+    arr.append(item)
+    return arr
+
+print(append_good(1)) # [1]
+print(append_good(2)) # [2]
+```
+</PythonEditor>
+
+## 6. `null`/`undefined` vs `None`
+
+JavaScript 中有两个表示“无”的值：`null`（表示“有意设置的空值”）和 `undefined`（表示“未定义”）。在 Python 中，只有一个对应的概念：`None`。
+
+<PythonEditor title="null/undefined vs. None" compare={true}>
+```javascript !! js
+// JavaScript
+let a; // undefined
+let b = null; // null
+
+function greet(name) {
+  // 如果不传参数，name 是 undefined
+  console.log(name);
+}
+```
+
+```python !! py
+# Python
+a = None  # 只有 None
+
+def greet(name=None):
+    # 通常使用 None 作为默认值
+    print(name)
+
+# 检查是否为 None
+if a is None:
+    print("a is None")
+```
+</PythonEditor>
+
+## 7. 总结
+
+理解并掌握这些差异，将帮助你更快地写出健壮、无意外的 Python 代码。当你遇到意料之外的行为时，不妨回过头来看看这个列表，检查是否踩中了其中的某个“陷阱”。
