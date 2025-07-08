@@ -1,5 +1,6 @@
 import { SEOHead } from '@/components/seo-head';
 import { courseStructuredData } from '@/lib/seo-structured-data';
+import { getTranslations, type SupportedLanguage } from '@/messages';
 import Link from 'next/link';
 
 interface HomePageProps {
@@ -7,32 +8,21 @@ interface HomePageProps {
 }
 
 export default async function HomePage({ params }: HomePageProps) {
-  const lang = (await params).lang;
-  const isChinese = lang === 'zh-cn' || lang === 'zh-tw';
+  const lang = (await params).lang as SupportedLanguage;
+  const t = getTranslations(lang);
   
-  const seoTitle = isChinese 
-    ? 'LangShift.dev - 编程语言转换学习平台' 
-    : 'LangShift.dev - Programming Language Learning Platform';
-  const seoDescription = isChinese
-    ? 'LangShift.dev 是专门为开发者设计的编程语言转换学习平台。通过对比不同编程语言的语法特性和概念映射，帮助开发者快速掌握新语言。支持 JavaScript 到 Python、Rust 等多种语言转换学习。'
-    : 'LangShift.dev is a programming language learning platform designed for developers. Learn new languages through syntax comparison and concept mapping. Support JavaScript to Python, Rust and more.';
-
   const courses = [
     {
       name: 'js2py',
-      title: isChinese ? 'JavaScript 到 Python' : 'JavaScript to Python',
-      description: isChinese 
-        ? '从 JavaScript 开发者视角学习 Python，掌握语法转换和概念映射'
-        : 'Learn Python from a JavaScript developer perspective',
+      title: t.home.courses.js2py.title,
+      description: t.home.courses.js2py.description,
       icon: '🐍',
       color: 'bg-green-500',
     },
     {
       name: 'js2rust',
-      title: isChinese ? 'JavaScript 到 Rust' : 'JavaScript to Rust',
-      description: isChinese 
-        ? '从 JavaScript 开发者视角学习 Rust，理解内存安全和系统编程'
-        : 'Learn Rust from a JavaScript developer perspective',
+      title: t.home.courses.js2rust.title,
+      description: t.home.courses.js2rust.description,
       icon: '🦀',
       color: 'bg-orange-500',
     },
@@ -52,12 +42,9 @@ export default async function HomePage({ params }: HomePageProps) {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
       <SEOHead
-        title={seoTitle}
-        description={seoDescription}
-        keywords={isChinese 
-          ? ['编程语言', '语言学习', 'JavaScript', 'Python', 'Rust', '开发者', '代码对比', '语法转换', '在线学习']
-          : ['programming languages', 'language learning', 'JavaScript', 'Python', 'Rust', 'developers', 'code comparison', 'syntax conversion', 'online learning']
-        }
+        title={t.home.seo.title}
+        description={t.home.seo.description}
+        keywords={t.home.seo.keywords}
         ogType="website"
         structuredData={courseStructuredDataList}
       />
@@ -69,8 +56,8 @@ export default async function HomePage({ params }: HomePageProps) {
           __html: JSON.stringify({
             "@context": "https://schema.org",
             "@type": "ItemList",
-            "name": isChinese ? "编程语言转换课程" : "Programming Language Conversion Courses",
-            "description": seoDescription,
+            "name": t.home.structuredData.courseList,
+            "description": t.home.seo.description,
             "numberOfItems": courses.length,
             "itemListElement": courses.map((course, index) => ({
               "@type": "ListItem",
@@ -95,20 +82,14 @@ export default async function HomePage({ params }: HomePageProps) {
         <div className="text-center mb-16">
           <h1 className="text-5xl md:text-7xl font-bold text-white mb-6">
             <span className="bg-gradient-to-r from-blue-400 to-purple-600 bg-clip-text text-transparent">
-              LangShift.dev
+              {t.home.hero.title}
             </span>
           </h1>
           <p className="text-xl md:text-2xl text-slate-300 mb-8 max-w-3xl mx-auto">
-            {isChinese 
-              ? '专门为开发者设计的编程语言转换学习平台'
-              : 'Programming language learning platform designed for developers'
-            }
+            {t.home.hero.subtitle}
           </p>
           <p className="text-lg text-slate-400 max-w-2xl mx-auto">
-            {isChinese 
-              ? '通过对比不同编程语言的语法特性和概念映射，帮助开发者快速掌握新语言'
-              : 'Learn new languages through syntax comparison and concept mapping'
-            }
+            {t.home.hero.description}
           </p>
         </div>
 
@@ -134,7 +115,7 @@ export default async function HomePage({ params }: HomePageProps) {
                 </p>
                 <div className="mt-6 flex items-center text-blue-400 group-hover:text-blue-300 transition-colors">
                   <span className="mr-2">
-                    {isChinese ? '开始学习' : 'Start Learning'}
+                    {t.home.courses.startLearning}
                   </span>
                   <svg className="w-5 h-5 transform group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
@@ -148,7 +129,7 @@ export default async function HomePage({ params }: HomePageProps) {
         {/* 特色功能 */}
         <div className="mt-20 text-center">
           <h2 className="text-3xl font-bold text-white mb-12">
-            {isChinese ? '平台特色' : 'Platform Features'}
+            {t.home.features.title}
           </h2>
           <div className="grid md:grid-cols-3 gap-8 max-w-5xl mx-auto">
             <div className="text-center">
@@ -158,13 +139,10 @@ export default async function HomePage({ params }: HomePageProps) {
                 </svg>
               </div>
               <h3 className="text-xl font-semibold text-white mb-2">
-                {isChinese ? '交互式代码编辑器' : 'Interactive Code Editor'}
+                {t.home.features.codeEditor.title}
               </h3>
               <p className="text-slate-400">
-                {isChinese 
-                  ? '实时运行代码，即时查看结果'
-                  : 'Run code in real-time and see results instantly'
-                }
+                {t.home.features.codeEditor.description}
               </p>
             </div>
             <div className="text-center">
@@ -174,13 +152,10 @@ export default async function HomePage({ params }: HomePageProps) {
                 </svg>
               </div>
               <h3 className="text-xl font-semibold text-white mb-2">
-                {isChinese ? '语法对比学习' : 'Syntax Comparison'}
+                {t.home.features.syntaxComparison.title}
               </h3>
               <p className="text-slate-400">
-                {isChinese 
-                  ? '并排对比不同语言的语法差异'
-                  : 'Side-by-side syntax comparison between languages'
-                }
+                {t.home.features.syntaxComparison.description}
               </p>
             </div>
             <div className="text-center">
@@ -190,13 +165,10 @@ export default async function HomePage({ params }: HomePageProps) {
                 </svg>
               </div>
               <h3 className="text-xl font-semibold text-white mb-2">
-                {isChinese ? '渐进式学习路径' : 'Progressive Learning Path'}
+                {t.home.features.learningPath.title}
               </h3>
               <p className="text-slate-400">
-                {isChinese 
-                  ? '从基础到高级的完整学习体系'
-                  : 'Complete learning system from basics to advanced'
-                }
+                {t.home.features.learningPath.description}
               </p>
             </div>
           </div>
