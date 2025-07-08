@@ -41,7 +41,7 @@ export default async function RootLayout({
   const lang = (await params).lang;
 
   return (
-    <html lang={lang}>
+    <html lang={lang} suppressHydrationWarning>
            <head>
         <Script
           src="https://cdn.jsdelivr.net/pyodide/v0.27.0/full/pyodide.js"
