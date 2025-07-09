@@ -1,0 +1,599 @@
+---
+title: "模块系统与构建工具"
+description: "学习 Rust 的模块系统、包管理和项目结构，对比 JavaScript 的模块化开发"
+---
+
+# 模块系统与构建工具
+
+## 📖 学习目标
+
+了解 Rust 的模块系统和包管理工具 Cargo，学会如何组织 Rust 项目结构，并理解与 JavaScript 模块系统的差异。
+
+---
+
+## 🎯 模块系统对比
+
+### JavaScript 的模块系统
+
+JavaScript 使用 ES6 模块语法：
+
+<UniversalEditor title="JavaScript 模块系统" compare={true}>
+```javascript !! js
+// math.js - 导出模块
+export const PI = 3.14159;
+
+export function add(a, b) {
+    return a + b;
+}
+
+export function multiply(a, b) {
+    return a * b;
+}
+
+// 默认导出
+export default class Calculator {
+    constructor() {
+        this.result = 0;
+    }
+    
+    add(x) {
+        this.result += x;
+        return this;
+    }
+    
+    getResult() {
+        return this.result;
+    }
+}
+
+// utils.js - 另一个模块
+export function formatNumber(num) {
+    return num.toFixed(2);
+}
+
+// main.js - 导入模块
+import Calculator, { add, multiply, PI } from './math.js';
+import { formatNumber } from './utils.js';
+
+console.log(PI); // 3.14159
+console.log(add(5, 3)); // 8
+console.log(multiply(4, 2)); // 8
+
+const calc = new Calculator();
+calc.add(10).add(5);
+console.log(calc.getResult()); // 15
+
+console.log(formatNumber(3.14159)); // "3.14"
+```
+</UniversalEditor>
+
+### Rust 的模块系统
+
+Rust 使用 `mod` 和 `use` 关键字管理模块：
+
+<UniversalEditor title="Rust 模块系统" compare={true}>
+```rust !! rs
+// lib.rs - 主模块文件
+mod math; // 声明 math 模块
+mod utils; // 声明 utils 模块
+
+// 重新导出模块内容
+pub use math::{add, multiply, PI, Calculator};
+pub use utils::format_number;
+
+// math.rs - 数学模块
+pub const PI: f64 = 3.14159;
+
+pub fn add(a: i32, b: i32) -> i32 {
+    a + b
+}
+
+pub fn multiply(a: i32, b: i32) -> i32 {
+    a * b
+}
+
+// 结构体（类似 JavaScript 的类）
+pub struct Calculator {
+    result: i32,
+}
+
+impl Calculator {
+    // 构造函数
+    pub fn new() -> Self {
+        Calculator { result: 0 }
+    }
+    
+    pub fn add(&mut self, x: i32) -> &mut Self {
+        self.result += x;
+        self
+    }
+    
+    pub fn get_result(&self) -> i32 {
+        self.result
+    }
+}
+
+// utils.rs - 工具模块
+pub fn format_number(num: f64) -> String {
+    format!("{:.2}", num)
+}
+
+// main.rs - 主程序
+use crate::math::{add, multiply, PI, Calculator};
+use crate::utils::format_number;
+
+fn main() {
+    println!("PI = {}", PI); // PI = 3.14159
+    println!("add(5, 3) = {}", add(5, 3)); // add(5, 3) = 8
+    println!("multiply(4, 2) = {}", multiply(4, 2)); // multiply(4, 2) = 8
+    
+    let mut calc = Calculator::new();
+    calc.add(10).add(5);
+    println!("calc result = {}", calc.get_result()); // calc result = 15
+    
+    println!("formatted: {}", format_number(3.14159)); // formatted: 3.14
+}
+```
+</UniversalEditor>
+
+### 模块系统差异
+
+1. **文件组织**: Rust 使用 `mod` 声明模块，JavaScript 使用文件路径
+2. **可见性**: Rust 需要显式声明 `pub` 来公开函数和结构体
+3. **导入语法**: Rust 使用 `use` 关键字，JavaScript 使用 `import`
+4. **默认导出**: Rust 没有默认导出概念，需要显式导入
+
+---
+
+## 📦 包管理系统对比
+
+### JavaScript 的 npm
+
+<UniversalEditor title="JavaScript 包管理" compare={true}>
+```javascript !! js
+// package.json
+{
+  "name": "langshift-project",
+  "version": "1.0.0",
+  "description": "JavaScript 到 Rust 学习项目",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "test": "jest",
+    "build": "webpack"
+  },
+  "dependencies": {
+    "lodash": "^4.17.21",
+    "express": "^4.18.2"
+  },
+  "devDependencies": {
+    "jest": "^29.5.0",
+    "webpack": "^5.88.0"
+  }
+}
+
+// 安装依赖
+// npm install lodash express
+// npm install --save-dev jest webpack
+
+// 使用依赖
+import _ from 'lodash';
+import express from 'express';
+
+const app = express();
+const numbers = [1, 2, 3, 4, 5];
+const sum = _.sum(numbers);
+
+console.log(sum); // 15
+```
+</UniversalEditor>
+
+### Rust 的 Cargo
+
+<UniversalEditor title="Rust 包管理" compare={true}>
+```rust !! rs
+// Cargo.toml - 项目配置文件
+[package]
+name = "langshift-project"
+version = "0.1.0"
+edition = "2021"
+authors = ["Your Name <your.email@example.com>"]
+description = "JavaScript 到 Rust 学习项目"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+tokio = { version = "1.0", features = ["full"] }
+reqwest = { version = "0.11", features = ["json"] }
+
+[dev-dependencies]
+tokio-test = "0.4"
+
+# 安装依赖
+# cargo add serde tokio reqwest
+# cargo add --dev tokio-test
+
+// main.rs - 使用依赖
+use serde::{Deserialize, Serialize};
+use tokio;
+
+#[derive(Serialize, Deserialize)]
+struct User {
+    name: String,
+    age: u32,
+}
+
+#[tokio::main]
+async fn main() {
+    let user = User {
+        name: String::from("Rust"),
+        age: 25,
+    };
+    
+    // 序列化为 JSON
+    let json = serde_json::to_string(&user).unwrap();
+    println!("JSON: {}", json);
+    
+    // 异步任务
+    tokio::spawn(async {
+        println!("异步任务执行中...");
+    });
+}
+```
+</UniversalEditor>
+
+### 包管理差异
+
+1. **配置文件**: npm 使用 `package.json`，Cargo 使用 `Cargo.toml`
+2. **依赖管理**: Cargo 的依赖管理更严格，版本冲突处理更好
+3. **构建工具**: Cargo 集成了构建、测试、文档生成等功能
+4. **特性系统**: Rust 支持条件编译和特性标志
+
+---
+
+## 🏗️ 项目结构对比
+
+### JavaScript 项目结构
+
+```
+javascript-project/
+├── package.json
+├── package-lock.json
+├── node_modules/
+├── src/
+│   ├── index.js
+│   ├── math.js
+│   ├── utils.js
+│   └── components/
+│       ├── calculator.js
+│       └── formatter.js
+├── tests/
+│   ├── math.test.js
+│   └── utils.test.js
+├── dist/
+├── .gitignore
+└── README.md
+```
+
+### Rust 项目结构
+
+```
+rust-project/
+├── Cargo.toml
+├── Cargo.lock
+├── src/
+│   ├── main.rs          # 二进制程序入口
+│   ├── lib.rs           # 库入口
+│   ├── math.rs
+│   ├── utils.rs
+│   └── components/
+│       ├── mod.rs       # 子模块声明
+│       ├── calculator.rs
+│       └── formatter.rs
+├── tests/
+│   ├── integration_test.rs
+│   └── common/
+│       └── mod.rs
+├── examples/
+│   └── basic_usage.rs
+├── benches/
+│   └── benchmark.rs
+├── .gitignore
+└── README.md
+```
+
+---
+
+## 🔧 Cargo 命令对比
+
+### npm 常用命令
+
+<UniversalEditor title="npm 命令" compare={true}>
+```bash !! bash
+# 初始化项目
+npm init
+npm init -y
+
+# 安装依赖
+npm install lodash
+npm install --save-dev jest
+
+# 运行脚本
+npm start
+npm test
+npm run build
+
+# 发布包
+npm publish
+
+# 查看包信息
+npm list
+npm outdated
+```
+</UniversalEditor>
+
+### Cargo 常用命令
+
+<UniversalEditor title="Cargo 命令" compare={true}>
+```bash !! bash
+# 创建新项目
+cargo new my-project
+cargo new --lib my-library
+
+# 构建项目
+cargo build
+cargo build --release  # 发布版本
+
+# 运行项目
+cargo run
+cargo run --release
+
+# 运行测试
+cargo test
+cargo test --release
+
+# 检查代码
+cargo check
+cargo clippy
+
+# 格式化代码
+cargo fmt
+
+# 生成文档
+cargo doc
+cargo doc --open
+
+# 发布包
+cargo publish
+
+# 添加依赖
+cargo add serde
+cargo add --dev tokio-test
+
+# 更新依赖
+cargo update
+```
+</UniversalEditor>
+
+---
+
+## 📚 模块组织最佳实践
+
+### 创建模块层次结构
+
+<UniversalEditor title="模块层次结构" compare={true}>
+```rust !! rs
+// src/lib.rs - 主库文件
+pub mod math;           // 数学模块
+pub mod utils;          // 工具模块
+pub mod components;     // 组件模块
+
+// 重新导出常用功能
+pub use math::{add, multiply};
+pub use utils::format_number;
+pub use components::calculator::Calculator;
+
+// src/math.rs - 数学模块
+pub mod basic;      // 基础数学
+pub mod advanced;   // 高级数学
+
+pub use basic::{add, subtract};
+pub use advanced::{multiply, divide};
+
+// src/math/basic.rs
+pub fn add(a: i32, b: i32) -> i32 {
+    a + b
+}
+
+pub fn subtract(a: i32, b: i32) -> i32 {
+    a - b
+}
+
+// src/math/advanced.rs
+pub fn multiply(a: i32, b: i32) -> i32 {
+    a * b
+}
+
+pub fn divide(a: i32, b: i32) -> Result<i32, String> {
+    if b == 0 {
+        Err("除数不能为零".to_string())
+    } else {
+        Ok(a / b)
+    }
+}
+
+// src/components/mod.rs - 组件模块声明
+pub mod calculator;
+pub mod formatter;
+
+// src/components/calculator.rs
+pub struct Calculator {
+    result: f64,
+}
+
+impl Calculator {
+    pub fn new() -> Self {
+        Calculator { result: 0.0 }
+    }
+    
+    pub fn add(&mut self, x: f64) -> &mut Self {
+        self.result += x;
+        self
+    }
+    
+    pub fn get_result(&self) -> f64 {
+        self.result
+    }
+}
+
+// main.rs - 使用模块
+use langshift_project::{add, multiply, Calculator, format_number};
+
+fn main() {
+    println!("5 + 3 = {}", add(5, 3));
+    println!("4 * 2 = {}", multiply(4, 2));
+    
+    let mut calc = Calculator::new();
+    calc.add(10.5).add(5.5);
+    println!("计算结果: {}", calc.get_result());
+    
+    println!("格式化: {}", format_number(3.14159));
+}
+```
+</UniversalEditor>
+
+---
+
+## 🎯 练习题
+
+### 练习 1: 创建模块结构
+
+创建一个 Rust 项目，包含以下模块：
+- `math`: 基础数学运算
+- `utils`: 工具函数
+- `models`: 数据模型
+
+<details>
+<summary>查看答案</summary>
+
+```rust
+// src/lib.rs
+pub mod math;
+pub mod utils;
+pub mod models;
+
+// src/math.rs
+pub fn add(a: i32, b: i32) -> i32 {
+    a + b
+}
+
+pub fn multiply(a: i32, b: i32) -> i32 {
+    a * b
+}
+
+// src/utils.rs
+pub fn format_string(s: &str) -> String {
+    format!("[{}]", s)
+}
+
+// src/models.rs
+#[derive(Debug)]
+pub struct User {
+    pub name: String,
+    pub age: u32,
+}
+
+impl User {
+    pub fn new(name: String, age: u32) -> Self {
+        User { name, age }
+    }
+}
+```
+
+</details>
+
+### 练习 2: 配置 Cargo.toml
+
+为项目添加以下依赖：
+- `serde` 用于序列化
+- `tokio` 用于异步编程
+- `reqwest` 用于 HTTP 请求
+
+<details>
+<summary>查看答案</summary>
+
+```toml
+[package]
+name = "my-project"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+tokio = { version = "1.0", features = ["full"] }
+reqwest = { version = "0.11", features = ["json"] }
+```
+
+</details>
+
+### 练习 3: 模块导入导出
+
+创建一个模块，导出多个函数，并在 main.rs 中使用：
+
+<details>
+<summary>查看答案</summary>
+
+```rust
+// src/calculator.rs
+pub fn add(a: f64, b: f64) -> f64 {
+    a + b
+}
+
+pub fn subtract(a: f64, b: f64) -> f64 {
+    a - b
+}
+
+pub fn multiply(a: f64, b: f64) -> f64 {
+    a * b
+}
+
+// src/lib.rs
+pub mod calculator;
+
+// main.rs
+use my_project::calculator::{add, subtract, multiply};
+
+fn main() {
+    println!("5.5 + 3.2 = {}", add(5.5, 3.2));
+    println!("10.0 - 4.5 = {}", subtract(10.0, 4.5));
+    println!("6.0 * 2.5 = {}", multiply(6.0, 2.5));
+}
+```
+
+</details>
+
+---
+
+## 📝 总结
+
+在这一章中，我们学习了：
+
+1. **模块系统**: Rust 使用 `mod` 和 `use` 管理模块，比 JavaScript 更严格
+2. **包管理**: Cargo 是 Rust 的包管理工具，功能比 npm 更集成
+3. **项目结构**: Rust 项目有标准的目录结构
+4. **依赖管理**: Cargo.toml 配置文件管理项目依赖
+5. **构建工具**: Cargo 集成了构建、测试、文档等功能
+
+### 关键要点
+
+- Rust 的模块系统更注重可见性和组织性
+- Cargo 是 Rust 生态系统的核心工具
+- 项目结构遵循 Rust 约定
+- 依赖管理更严格，避免版本冲突
+
+### 下一步学习
+
+在下一章中，我们将深入学习 Rust 的所有权系统，这是 Rust 最核心的概念，也是与 JavaScript 最大的差异所在。
+
+---
+
+**继续学习**: [所有权与内存模型](./module-03-ownership-memory.zh-cn.mdx) 

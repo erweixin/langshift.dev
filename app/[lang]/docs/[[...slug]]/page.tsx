@@ -11,6 +11,7 @@ import { Code } from "@/components/code"
 import { SideBySideCode } from "@/components/side-by-side-code"
 import PythonEditor from "@/components/python-editor"
 import Script from "next/script"
+import UniversalEditor from "@/components/universal-editor"
 
 export default async function Page(props: {
   params: Promise<{ slug?: string[], lang: string }>
@@ -74,7 +75,7 @@ export default async function Page(props: {
         <DocsTitle>{page.data.title}</DocsTitle>
         <DocsDescription>{page.data.description}</DocsDescription>
         <DocsBody>
-          <MDX components={{ ...defaultMdxComponents, Code, SideBySideCode, PythonEditor }} />
+          <MDX components={{ ...defaultMdxComponents, Code, SideBySideCode, PythonEditor, UniversalEditor }} />
         </DocsBody>
       </DocsPage>
     </>

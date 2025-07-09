@@ -1,0 +1,1254 @@
+---
+title: "系统级编程与高级主题"
+description: "学习 Rust 的系统级编程特性，包括 unsafe 代码、宏系统、性能优化和底层编程"
+---
+
+# 系统级编程与高级主题
+
+## 📖 学习目标
+
+理解 Rust 的系统级编程特性，学会使用 unsafe 代码、宏系统、性能优化技术，掌握底层编程概念。
+
+---
+
+## 🎯 系统级编程对比
+
+### JavaScript 的高级抽象
+
+JavaScript 运行在虚拟机中，提供高级抽象：
+
+<UniversalEditor title="JavaScript 高级抽象" compare={true}>
+```javascript !! js
+// JavaScript 高级抽象示例
+class MemoryManager {
+    constructor() {
+        this.memory = new Map();
+        this.gcStats = {
+            collections: 0,
+            freedMemory: 0
+        };
+    }
+    
+    // 分配内存（JavaScript 自动管理）
+    allocate(key, data) {
+        this.memory.set(key, data);
+        console.log(`分配内存: ${key}`);
+    }
+    
+    // 释放内存（JavaScript 自动垃圾回收）
+    deallocate(key) {
+        this.memory.delete(key);
+        console.log(`释放内存: ${key}`);
+    }
+    
+    // 手动触发垃圾回收（仅在某些环境中可用）
+    forceGarbageCollection() {
+        if (global.gc) {
+            global.gc();
+            this.gcStats.collections++;
+            console.log('强制垃圾回收');
+        }
+    }
+    
+    // 内存使用统计
+    getMemoryUsage() {
+        if (process.memoryUsage) {
+            const usage = process.memoryUsage();
+            return {
+                rss: usage.rss,
+                heapUsed: usage.heapUsed,
+                heapTotal: usage.heapTotal,
+                external: usage.external
+            };
+        }
+        return null;
+    }
+}
+
+// 使用示例
+const memoryManager = new MemoryManager();
+
+// 分配大量数据
+for (let i = 0; i < 1000; i++) {
+    memoryManager.allocate(`key${i}`, {
+        id: i,
+        data: 'x'.repeat(1000), // 1KB 数据
+        timestamp: Date.now()
+    });
+}
+
+console.log('内存使用情况:', memoryManager.getMemoryUsage());
+
+// 释放部分数据
+for (let i = 0; i < 500; i++) {
+    memoryManager.deallocate(`key${i}`);
+}
+
+// 强制垃圾回收
+memoryManager.forceGarbageCollection();
+
+console.log('垃圾回收后内存使用:', memoryManager.getMemoryUsage());
+
+// 底层操作模拟（JavaScript 限制）
+class LowLevelOperations {
+    // 模拟指针操作（JavaScript 没有真正的指针）
+    createPointer() {
+        return {
+            address: Math.random().toString(16),
+            value: null,
+            dereference() {
+                return this.value;
+            },
+            assign(value) {
+                this.value = value;
+            }
+        };
+    }
+    
+    // 模拟内存布局
+    createMemoryLayout() {
+        return {
+            stack: [],
+            heap: new Map(),
+            allocateOnStack(value) {
+                this.stack.push(value);
+                return this.stack.length - 1;
+            },
+            allocateOnHeap(key, value) {
+                this.heap.set(key, value);
+                return key;
+            }
+        };
+    }
+    
+    // 模拟系统调用
+    systemCall(operation, data) {
+        console.log(`系统调用: ${operation}`, data);
+        // 在实际环境中，这些操作会被 JavaScript 引擎处理
+        return {
+            success: true,
+            result: `模拟 ${operation} 结果`,
+            timestamp: Date.now()
+        };
+    }
+}
+
+// 使用底层操作
+const lowLevel = new LowLevelOperations();
+
+const pointer = lowLevel.createPointer();
+pointer.assign("Hello, World!");
+console.log("指针值:", pointer.dereference());
+
+const memory = lowLevel.createMemoryLayout();
+const stackAddr = memory.allocateOnStack(42);
+const heapAddr = memory.allocateOnHeap("dynamic", "data");
+
+console.log("栈地址:", stackAddr, "值:", memory.stack[stackAddr]);
+console.log("堆地址:", heapAddr, "值:", memory.heap.get(heapAddr));
+
+// 模拟系统调用
+const syscall = lowLevel.systemCall("read", { file: "test.txt", size: 1024 });
+console.log("系统调用结果:", syscall);
+```
+</UniversalEditor>
+
+### Rust 的系统级编程
+
+Rust 提供直接的内存控制和系统级访问：
+
+<UniversalEditor title="Rust 系统级编程" compare={true}>
+```rust !! rs
+use std::alloc::{alloc, dealloc, Layout};
+use std::ptr;
+use std::mem;
+
+// 自定义内存管理器
+struct MemoryManager {
+    allocations: std::collections::HashMap<usize, Layout>,
+    total_allocated: usize,
+}
+
+impl MemoryManager {
+    fn new() -> Self {
+        Self {
+            allocations: HashMap::new(),
+            total_allocated: 0,
+        }
+    }
+    
+    // 手动分配内存
+    unsafe fn allocate(&mut self, size: usize) -> *mut u8 {
+        let layout = Layout::from_size_align(size, 8).unwrap();
+        let ptr = alloc(layout);
+        
+        if !ptr.is_null() {
+            self.allocations.insert(ptr as usize, layout);
+            self.total_allocated += size;
+            println!("分配内存: {} 字节，地址: {:p}", size, ptr);
+        }
+        
+        ptr
+    }
+    
+    // 手动释放内存
+    unsafe fn deallocate(&mut self, ptr: *mut u8) {
+        if let Some(layout) = self.allocations.remove(&(ptr as usize)) {
+            dealloc(ptr, layout);
+            self.total_allocated -= layout.size();
+            println!("释放内存: {} 字节，地址: {:p}", layout.size(), ptr);
+        }
+    }
+    
+    // 获取内存使用统计
+    fn get_stats(&self) -> (usize, usize) {
+        (self.total_allocated, self.allocations.len())
+    }
+}
+
+// 智能指针实现
+struct SmartPtr<T> {
+    ptr: *mut T,
+    manager: *mut MemoryManager,
+}
+
+impl<T> SmartPtr<T> {
+    unsafe fn new(value: T, manager: &mut MemoryManager) -> Self {
+        let size = mem::size_of::<T>();
+        let ptr = manager.allocate(size) as *mut T;
+        
+        if !ptr.is_null() {
+            ptr::write(ptr, value);
+        }
+        
+        Self {
+            ptr,
+            manager: manager as *mut MemoryManager,
+        }
+    }
+    
+    fn get(&self) -> Option<&T> {
+        if self.ptr.is_null() {
+            None
+        } else {
+            unsafe { Some(&*self.ptr) }
+        }
+    }
+    
+    fn get_mut(&mut self) -> Option<&mut T> {
+        if self.ptr.is_null() {
+            None
+        } else {
+            unsafe { Some(&mut *self.ptr) }
+        }
+    }
+}
+
+impl<T> Drop for SmartPtr<T> {
+    fn drop(&mut self) {
+        if !self.ptr.is_null() {
+            unsafe {
+                ptr::drop_in_place(self.ptr);
+                (*self.manager).deallocate(self.ptr as *mut u8);
+            }
+        }
+    }
+}
+
+// 内存布局控制
+#[repr(C)]
+struct MemoryLayout {
+    data: [u8; 64],
+    metadata: u32,
+}
+
+impl MemoryLayout {
+    fn new() -> Self {
+        Self {
+            data: [0; 64],
+            metadata: 0,
+        }
+    }
+    
+    fn size(&self) -> usize {
+        mem::size_of::<Self>()
+    }
+    
+    fn align(&self) -> usize {
+        mem::align_of::<Self>()
+    }
+}
+
+// 系统调用模拟
+#[cfg(unix)]
+mod system_calls {
+    use std::ffi::CString;
+    
+    extern "C" {
+        fn write(fd: i32, buf: *const u8, count: usize) -> isize;
+        fn read(fd: i32, buf: *mut u8, count: usize) -> isize;
+    }
+    
+    pub fn sys_write(fd: i32, data: &[u8]) -> isize {
+        unsafe {
+            write(fd, data.as_ptr(), data.len())
+        }
+    }
+    
+    pub fn sys_read(fd: i32, buffer: &mut [u8]) -> isize {
+        unsafe {
+            read(fd, buffer.as_mut_ptr(), buffer.len())
+        }
+    }
+}
+
+fn main() {
+    // 使用自定义内存管理器
+    let mut manager = MemoryManager::new();
+    
+    // 分配内存
+    let ptr1 = unsafe { manager.allocate(1024) };
+    let ptr2 = unsafe { manager.allocate(512) };
+    
+    // 写入数据
+    unsafe {
+        ptr::write_bytes(ptr1, 0x42, 1024);
+        ptr::write_bytes(ptr2, 0xAA, 512);
+    }
+    
+    // 使用智能指针
+    let mut smart_ptr = unsafe { SmartPtr::new(42, &mut manager) };
+    println!("智能指针值: {:?}", smart_ptr.get());
+    
+    if let Some(value) = smart_ptr.get_mut() {
+        *value = 100;
+        println!("修改后值: {:?}", smart_ptr.get());
+    }
+    
+    // 内存布局
+    let layout = MemoryLayout::new();
+    println!("内存布局大小: {} 字节", layout.size());
+    println!("内存对齐: {} 字节", layout.align());
+    
+    // 释放内存
+    unsafe {
+        manager.deallocate(ptr1);
+        manager.deallocate(ptr2);
+    }
+    
+    let (total, count) = manager.get_stats();
+    println!("内存统计: 总分配 {} 字节，{} 个分配", total, count);
+    
+    // 系统调用（仅在 Unix 系统上）
+    #[cfg(unix)]
+    {
+        let message = b"Hello from Rust system call!\n";
+        let result = system_calls::sys_write(1, message);
+        println!("系统调用结果: {}", result);
+    }
+}
+```
+</UniversalEditor>
+
+### 系统级编程差异
+
+1. **内存控制**: Rust 提供直接内存控制，JavaScript 自动管理
+2. **性能**: Rust 零成本抽象，JavaScript 有运行时开销
+3. **安全性**: Rust 编译时保证内存安全，JavaScript 运行时检查
+4. **系统访问**: Rust 可以直接调用系统 API，JavaScript 受沙箱限制
+
+---
+
+## ⚠️ Unsafe 代码
+
+### 何时使用 Unsafe
+
+<UniversalEditor title="Unsafe 代码使用" compare={true}>
+```rust !! rs
+// 安全的 Rust 代码
+fn safe_function() -> i32 {
+    let x = 42;
+    x * 2
+}
+
+// 需要 unsafe 的场景
+fn unsafe_examples() {
+    // 1. 解引用原始指针
+    let x = 42;
+    let raw_ptr = &x as *const i32;
+    
+    unsafe {
+        let value = *raw_ptr; // 解引用原始指针需要 unsafe
+        println!("解引用值: {}", value);
+    }
+    
+    // 2. 调用 unsafe 函数
+    unsafe {
+        let ptr = std::ptr::null_mut::<i32>();
+        // 调用 C 函数或其他 unsafe 函数
+    }
+    
+    // 3. 访问或修改静态可变变量
+    static mut COUNTER: i32 = 0;
+    
+    unsafe {
+        COUNTER += 1;
+        println!("计数器: {}", COUNTER);
+    }
+    
+    // 4. 实现 unsafe trait
+    unsafe trait UnsafeTrait {
+        fn unsafe_method(&self);
+    }
+    
+    struct UnsafeStruct;
+    
+    unsafe impl UnsafeTrait for UnsafeStruct {
+        fn unsafe_method(&self) {
+            println!("这是 unsafe 方法");
+        }
+    }
+}
+
+// 安全的抽象包装 unsafe 代码
+struct SafeWrapper {
+    data: Vec<i32>,
+}
+
+impl SafeWrapper {
+    fn new() -> Self {
+        Self { data: Vec::new() }
+    }
+    
+    fn push(&mut self, value: i32) {
+        self.data.push(value);
+    }
+    
+    fn get(&self, index: usize) -> Option<&i32> {
+        self.data.get(index)
+    }
+    
+    // 内部使用 unsafe 但对外提供安全接口
+    fn get_unchecked(&self, index: usize) -> &i32 {
+        unsafe {
+            // 调用者必须确保 index 在有效范围内
+            self.data.get_unchecked(index)
+        }
+    }
+    
+    fn as_ptr(&self) -> *const i32 {
+        self.data.as_ptr()
+    }
+    
+    fn len(&self) -> usize {
+        self.data.len()
+    }
+}
+
+// 自定义内存分配器
+struct CustomAllocator {
+    memory: Vec<u8>,
+    allocated: std::collections::HashMap<usize, usize>, // 地址 -> 大小
+}
+
+impl CustomAllocator {
+    fn new(size: usize) -> Self {
+        Self {
+            memory: vec![0; size],
+            allocated: HashMap::new(),
+        }
+    }
+    
+    // 分配内存
+    fn allocate(&mut self, size: usize) -> Option<*mut u8> {
+        // 简单的首次适配算法
+        let mut current_pos = 0;
+        
+        while current_pos + size <= self.memory.len() {
+            let mut can_allocate = true;
+            
+            // 检查是否有冲突的分配
+            for (&addr, &alloc_size) in &self.allocated {
+                if current_pos < addr + alloc_size && current_pos + size > addr {
+                    current_pos = addr + alloc_size;
+                    can_allocate = false;
+                    break;
+                }
+            }
+            
+            if can_allocate {
+                self.allocated.insert(current_pos, size);
+                return Some(self.memory.as_mut_ptr().add(current_pos));
+            }
+        }
+        
+        None
+    }
+    
+    // 释放内存
+    fn deallocate(&mut self, ptr: *mut u8) {
+        let addr = unsafe { ptr.offset_from(self.memory.as_ptr()) } as usize;
+        self.allocated.remove(&addr);
+    }
+    
+    // 获取内存使用情况
+    fn get_usage(&self) -> (usize, usize) {
+        let total_allocated: usize = self.allocated.values().sum();
+        (total_allocated, self.allocated.len())
+    }
+}
+
+// 使用自定义分配器
+fn custom_allocator_example() {
+    let mut allocator = CustomAllocator::new(1024);
+    
+    // 分配内存
+    if let Some(ptr1) = allocator.allocate(64) {
+        println!("分配 64 字节，地址: {:p}", ptr1);
+        
+        // 写入数据
+        unsafe {
+            ptr::write_bytes(ptr1, 0x42, 64);
+        }
+        
+        // 分配更多内存
+        if let Some(ptr2) = allocator.allocate(128) {
+            println!("分配 128 字节，地址: {:p}", ptr2);
+            
+            unsafe {
+                ptr::write_bytes(ptr2, 0xAA, 128);
+            }
+            
+            // 释放内存
+            allocator.deallocate(ptr2);
+            println!("释放第二个分配");
+        }
+        
+        allocator.deallocate(ptr1);
+        println!("释放第一个分配");
+    }
+    
+    let (total, count) = allocator.get_usage();
+    println!("最终使用情况: {} 字节，{} 个分配", total, count);
+}
+
+fn main() {
+    unsafe_examples();
+    
+    let mut wrapper = SafeWrapper::new();
+    wrapper.push(1);
+    wrapper.push(2);
+    wrapper.push(3);
+    
+    // 安全访问
+    if let Some(value) = wrapper.get(1) {
+        println!("安全访问: {}", value);
+    }
+    
+    // 不安全但快速的访问（调用者负责边界检查）
+    if wrapper.len() > 1 {
+        let value = wrapper.get_unchecked(1);
+        println!("不安全访问: {}", value);
+    }
+    
+    custom_allocator_example();
+}
+```
+</UniversalEditor>
+
+---
+
+## 🔧 宏系统
+
+### 声明宏和过程宏
+
+<UniversalEditor title="宏系统" compare={true}>
+```rust !! rs
+// 声明宏 (macro_rules!)
+macro_rules! vec_init {
+    // 空向量
+    () => {
+        Vec::new()
+    };
+    
+    // 单个元素重复 n 次
+    ($elem:expr; $n:expr) => {
+        {
+            let mut vec = Vec::new();
+            vec.resize($n, $elem);
+            vec
+        }
+    };
+    
+    // 多个元素
+    ($($x:expr),*) => {
+        {
+            let mut vec = Vec::new();
+            $(vec.push($x);)*
+            vec
+        }
+    };
+    
+    // 带尾随逗号
+    ($($x:expr,)*) => {
+        vec_init!($($x),*)
+    };
+}
+
+// 条件编译宏
+macro_rules! debug_print {
+    ($($arg:tt)*) => {
+        #[cfg(debug_assertions)]
+        println!($($arg)*);
+    };
+}
+
+// 递归宏
+macro_rules! count_exprs {
+    () => (0);
+    ($head:expr) => (1);
+    ($head:expr, $($tail:expr),*) => (1 + count_exprs!($($tail),*));
+}
+
+// 重复宏
+macro_rules! create_struct {
+    ($name:ident { $($field:ident: $type:ty),* }) => {
+        struct $name {
+            $($field: $type),*
+        }
+        
+        impl $name {
+            fn new($($field: $type),*) -> Self {
+                Self {
+                    $($field),*
+                }
+            }
+        }
+    };
+}
+
+// 过程宏（需要单独的 crate）
+// 这里展示如何使用过程宏
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Serialize, Deserialize)]
+struct User {
+    id: u32,
+    name: String,
+    email: String,
+}
+
+// 自定义派生宏（简化版）
+macro_rules! derive_debug {
+    ($name:ident) => {
+        impl std::fmt::Debug for $name {
+            fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                write!(f, "{} {{ ... }}", stringify!($name))
+            }
+        }
+    };
+}
+
+// 函数式宏
+macro_rules! hash_map {
+    ($($key:expr => $value:expr),*) => {
+        {
+            let mut map = std::collections::HashMap::new();
+            $(map.insert($key, $value);)*
+            map
+        }
+    };
+}
+
+// 属性宏（简化版）
+macro_rules! route {
+    ($method:expr, $path:expr) => {
+        // 这里会生成路由处理代码
+        println!("注册路由: {} {}", $method, $path);
+    };
+}
+
+fn main() {
+    // 使用声明宏
+    let empty_vec = vec_init!();
+    let repeated_vec = vec_init![42; 5];
+    let normal_vec = vec_init![1, 2, 3, 4, 5];
+    let trailing_comma_vec = vec_init![1, 2, 3,];
+    
+    println!("空向量: {:?}", empty_vec);
+    println!("重复向量: {:?}", repeated_vec);
+    println!("普通向量: {:?}", normal_vec);
+    println!("尾随逗号向量: {:?}", trailing_comma_vec);
+    
+    // 使用条件编译宏
+    debug_print!("这是调试信息");
+    
+    // 使用递归宏
+    let count = count_exprs!(1, 2, 3, 4, 5);
+    println!("表达式数量: {}", count);
+    
+    // 使用结构体创建宏
+    create_struct!(Point {
+        x: f64,
+        y: f64
+    });
+    
+    let point = Point::new(3.0, 4.0);
+    println!("点: ({}, {})", point.x, point.y);
+    
+    // 使用派生宏
+    struct SimpleStruct {
+        value: i32,
+    }
+    
+    derive_debug!(SimpleStruct);
+    
+    let simple = SimpleStruct { value: 42 };
+    println!("简单结构体: {:?}", simple);
+    
+    // 使用函数式宏
+    let map = hash_map! {
+        "a" => 1,
+        "b" => 2,
+        "c" => 3
+    };
+    println!("哈希映射: {:?}", map);
+    
+    // 使用属性宏
+    route!("GET", "/users");
+    route!("POST", "/users");
+    
+    // 序列化示例
+    let user = User {
+        id: 1,
+        name: "Alice".to_string(),
+        email: "alice@example.com".to_string(),
+    };
+    
+    let json = serde_json::to_string(&user).unwrap();
+    println!("序列化结果: {}", json);
+    
+    let deserialized: User = serde_json::from_str(&json).unwrap();
+    println!("反序列化结果: {:?}", deserialized);
+}
+
+// 高级宏：实现 DSL（领域特定语言）
+macro_rules! html {
+    () => { String::new() };
+    
+    ($tag:ident { $($content:tt)* }) => {
+        {
+            let mut html = String::new();
+            html.push_str(&format!("<{}>", stringify!($tag)));
+            html.push_str(&html!($($content)*));
+            html.push_str(&format!("</{}>", stringify!($tag)));
+            html
+        }
+    };
+    
+    ($text:expr) => {
+        $text.to_string()
+    };
+    
+    ($($content:tt)*) => {
+        {
+            let mut html = String::new();
+            $(html.push_str(&html!($content));)*
+            html
+        }
+    };
+}
+
+fn html_example() {
+    let page = html! {
+        html {
+            head {
+                title { "我的网页" }
+            }
+            body {
+                h1 { "欢迎" }
+                p { "这是一个使用宏生成的 HTML" }
+            }
+        }
+    };
+    
+    println!("生成的 HTML:\n{}", page);
+}
+```
+</UniversalEditor>
+
+---
+
+## ⚡ 性能优化
+
+### 性能优化技术
+
+<UniversalEditor title="性能优化" compare={true}>
+```rust !! rs
+use std::time::Instant;
+use std::collections::HashMap;
+
+// 1. 内存布局优化
+#[repr(C)]
+struct OptimizedStruct {
+    a: u64,    // 8 字节
+    b: u32,    // 4 字节
+    c: u8,     // 1 字节
+    // 编译器会自动添加 3 字节填充
+}
+
+#[repr(C)]
+struct UnoptimizedStruct {
+    a: u8,     // 1 字节
+    b: u64,    // 8 字节
+    c: u32,    // 4 字节
+    // 编译器会添加 7 字节填充
+}
+
+// 2. 零拷贝优化
+fn zero_copy_example() {
+    let data = vec![1, 2, 3, 4, 5];
+    
+    // 避免不必要的克隆
+    let reference = &data; // 零拷贝
+    let slice = &data[1..4]; // 零拷贝
+    
+    // 使用迭代器避免分配
+    let sum: i32 = data.iter().sum(); // 零拷贝迭代
+    let doubled: Vec<i32> = data.iter().map(|x| x * 2).collect(); // 需要分配
+}
+
+// 3. 缓存友好的数据结构
+struct CacheFriendlyArray {
+    data: Vec<f64>,
+    size: usize,
+}
+
+impl CacheFriendlyArray {
+    fn new(size: usize) -> Self {
+        Self {
+            data: vec![0.0; size],
+            size,
+        }
+    }
+    
+    // 顺序访问（缓存友好）
+    fn sum_sequential(&self) -> f64 {
+        self.data.iter().sum()
+    }
+    
+    // 随机访问（缓存不友好）
+    fn sum_random(&self) -> f64 {
+        let mut indices: Vec<usize> = (0..self.size).collect();
+        // 打乱索引
+        for i in 0..self.size {
+            indices.swap(i, (i * 7) % self.size);
+        }
+        
+        indices.iter().map(|&i| self.data[i]).sum()
+    }
+}
+
+// 4. 内联优化
+#[inline(always)]
+fn fast_add(a: i32, b: i32) -> i32 {
+    a + b
+}
+
+#[inline(never)]
+fn slow_function(a: i32, b: i32) -> i32 {
+    // 复杂的计算
+    let mut result = 0;
+    for i in 0..1000 {
+        result += a * b + i;
+    }
+    result
+}
+
+// 5. SIMD 优化
+#[cfg(target_arch = "x86_64")]
+use std::arch::x86_64::*;
+
+#[cfg(target_arch = "x86_64")]
+unsafe fn simd_add(a: &[f32], b: &[f32], result: &mut [f32]) {
+    let len = a.len().min(b.len()).min(result.len());
+    
+    for i in (0..len).step_by(4) {
+        let a_vec = _mm_loadu_ps(a.as_ptr().add(i));
+        let b_vec = _mm_loadu_ps(b.as_ptr().add(i));
+        let sum_vec = _mm_add_ps(a_vec, b_vec);
+        _mm_storeu_ps(result.as_mut_ptr().add(i), sum_vec);
+    }
+}
+
+// 6. 内存池
+struct MemoryPool {
+    blocks: Vec<Vec<u8>>,
+    block_size: usize,
+    free_blocks: Vec<usize>,
+}
+
+impl MemoryPool {
+    fn new(block_size: usize, initial_blocks: usize) -> Self {
+        let mut blocks = Vec::with_capacity(initial_blocks);
+        let mut free_blocks = Vec::with_capacity(initial_blocks);
+        
+        for i in 0..initial_blocks {
+            blocks.push(vec![0; block_size]);
+            free_blocks.push(i);
+        }
+        
+        Self {
+            blocks,
+            block_size,
+            free_blocks,
+        }
+    }
+    
+    fn allocate(&mut self) -> Option<&mut [u8]> {
+        if let Some(block_index) = self.free_blocks.pop() {
+            Some(&mut self.blocks[block_index])
+        } else {
+            // 创建新块
+            let new_index = self.blocks.len();
+            self.blocks.push(vec![0; self.block_size]);
+            Some(&mut self.blocks[new_index])
+        }
+    }
+    
+    fn deallocate(&mut self, block: &mut [u8]) {
+        // 在实际实现中，需要找到对应的块索引
+        // 这里简化处理
+        if let Some(index) = self.blocks.iter().position(|b| b.as_ptr() == block.as_ptr()) {
+            self.free_blocks.push(index);
+        }
+    }
+}
+
+// 7. 性能基准测试
+fn benchmark_examples() {
+    let size = 1_000_000;
+    
+    // 测试内存布局
+    let start = Instant::now();
+    let optimized: Vec<OptimizedStruct> = (0..size)
+        .map(|i| OptimizedStruct { a: i as u64, b: i as u32, c: i as u8 })
+        .collect();
+    let optimized_time = start.elapsed();
+    
+    let start = Instant::now();
+    let unoptimized: Vec<UnoptimizedStruct> = (0..size)
+        .map(|i| UnoptimizedStruct { a: i as u8, b: i as u64, c: i as u32 })
+        .collect();
+    let unoptimized_time = start.elapsed();
+    
+    println!("优化结构体时间: {:?}", optimized_time);
+    println!("未优化结构体时间: {:?}", unoptimized_time);
+    
+    // 测试缓存友好性
+    let array = CacheFriendlyArray::new(1_000_000);
+    
+    let start = Instant::now();
+    let sequential_sum = array.sum_sequential();
+    let sequential_time = start.elapsed();
+    
+    let start = Instant::now();
+    let random_sum = array.sum_random();
+    let random_time = start.elapsed();
+    
+    println!("顺序访问时间: {:?}, 结果: {}", sequential_time, sequential_sum);
+    println!("随机访问时间: {:?}, 结果: {}", random_time, random_sum);
+    
+    // 测试内联优化
+    let start = Instant::now();
+    let mut fast_result = 0;
+    for i in 0..1_000_000 {
+        fast_result += fast_add(i, i);
+    }
+    let fast_time = start.elapsed();
+    
+    let start = Instant::now();
+    let mut slow_result = 0;
+    for i in 0..1000 {
+        slow_result += slow_function(i, i);
+    }
+    let slow_time = start.elapsed();
+    
+    println!("快速函数时间: {:?}, 结果: {}", fast_time, fast_result);
+    println!("慢速函数时间: {:?}, 结果: {}", slow_time, slow_result);
+}
+
+fn main() {
+    zero_copy_example();
+    benchmark_examples();
+    
+    // 使用内存池
+    let mut pool = MemoryPool::new(1024, 10);
+    
+    if let Some(block1) = pool.allocate() {
+        println!("分配块 1，大小: {}", block1.len());
+        
+        if let Some(block2) = pool.allocate() {
+            println!("分配块 2，大小: {}", block2.len());
+            pool.deallocate(block2);
+            println!("释放块 2");
+        }
+        
+        pool.deallocate(block1);
+        println!("释放块 1");
+    }
+    
+    // SIMD 示例
+    #[cfg(target_arch = "x86_64")]
+    {
+        let a = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
+        let b = vec![2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0];
+        let mut result = vec![0.0; 8];
+        
+        unsafe {
+            simd_add(&a, &b, &mut result);
+        }
+        
+        println!("SIMD 结果: {:?}", result);
+    }
+}
+```
+</UniversalEditor>
+
+---
+
+## 🎯 练习题
+
+### 练习 1: 实现自定义智能指针
+
+创建一个引用计数的智能指针：
+
+<details>
+<summary>查看答案</summary>
+
+```rust
+use std::sync::{Arc, Mutex};
+
+struct RefCounted<T> {
+    data: Arc<Mutex<T>>,
+}
+
+impl<T> RefCounted<T> {
+    fn new(data: T) -> Self {
+        Self {
+            data: Arc::new(Mutex::new(data)),
+        }
+    }
+    
+    fn get(&self) -> Option<T>
+    where
+        T: Clone,
+    {
+        self.data.lock().ok().map(|guard| (*guard).clone())
+    }
+    
+    fn set(&self, value: T) -> Result<(), String> {
+        self.data
+            .lock()
+            .map(|mut guard| *guard = value)
+            .map_err(|_| "无法获取锁".to_string())
+    }
+    
+    fn strong_count(&self) -> usize {
+        Arc::strong_count(&self.data)
+    }
+}
+
+impl<T> Clone for RefCounted<T> {
+    fn clone(&self) -> Self {
+        Self {
+            data: Arc::clone(&self.data),
+        }
+    }
+}
+
+fn main() {
+    let ptr1 = RefCounted::new(42);
+    println!("引用计数: {}", ptr1.strong_count());
+    
+    let ptr2 = ptr1.clone();
+    println!("引用计数: {}", ptr1.strong_count());
+    
+    ptr1.set(100).unwrap();
+    println!("ptr1 值: {:?}", ptr1.get());
+    println!("ptr2 值: {:?}", ptr2.get());
+}
+```
+
+</details>
+
+### 练习 2: 创建性能优化的数据结构
+
+实现一个缓存友好的矩阵乘法：
+
+<details>
+<summary>查看答案</summary>
+
+```rust
+struct Matrix {
+    data: Vec<f64>,
+    rows: usize,
+    cols: usize,
+}
+
+impl Matrix {
+    fn new(rows: usize, cols: usize) -> Self {
+        Self {
+            data: vec![0.0; rows * cols],
+            rows,
+            cols,
+        }
+    }
+    
+    fn get(&self, row: usize, col: usize) -> f64 {
+        self.data[row * self.cols + col]
+    }
+    
+    fn set(&mut self, row: usize, col: usize, value: f64) {
+        self.data[row * self.cols + col] = value;
+    }
+    
+    // 缓存友好的矩阵乘法
+    fn multiply(&self, other: &Matrix) -> Option<Matrix> {
+        if self.cols != other.rows {
+            return None;
+        }
+        
+        let mut result = Matrix::new(self.rows, other.cols);
+        
+        // 使用分块乘法优化缓存性能
+        let block_size = 32;
+        
+        for i in (0..self.rows).step_by(block_size) {
+            for j in (0..other.cols).step_by(block_size) {
+                for k in (0..self.cols).step_by(block_size) {
+                    // 处理当前块
+                    let i_end = (i + block_size).min(self.rows);
+                    let j_end = (j + block_size).min(other.cols);
+                    let k_end = (k + block_size).min(self.cols);
+                    
+                    for ii in i..i_end {
+                        for jj in j..j_end {
+                            let mut sum = 0.0;
+                            for kk in k..k_end {
+                                sum += self.get(ii, kk) * other.get(kk, jj);
+                            }
+                            result.set(ii, jj, result.get(ii, jj) + sum);
+                        }
+                    }
+                }
+            }
+        }
+        
+        Some(result)
+    }
+}
+
+fn main() {
+    let mut a = Matrix::new(100, 100);
+    let mut b = Matrix::new(100, 100);
+    
+    // 初始化矩阵
+    for i in 0..100 {
+        for j in 0..100 {
+            a.set(i, j, (i + j) as f64);
+            b.set(i, j, (i * j) as f64);
+        }
+    }
+    
+    if let Some(result) = a.multiply(&b) {
+        println!("矩阵乘法完成，结果矩阵大小: {}x{}", result.rows, result.cols);
+    }
+}
+```
+
+</details>
+
+### 练习 3: 实现自定义宏
+
+创建一个用于生成测试代码的宏：
+
+<details>
+<summary>查看答案</summary>
+
+```rust
+macro_rules! generate_tests {
+    ($test_name:ident, $input:expr, $expected:expr) => {
+        #[test]
+        fn $test_name() {
+            let result = $input;
+            assert_eq!(result, $expected);
+        }
+    };
+    
+    ($test_name:ident, $input:expr, $expected:expr, $($extra_assert:expr);*) => {
+        #[test]
+        fn $test_name() {
+            let result = $input;
+            assert_eq!(result, $expected);
+            $($extra_assert;)*
+        }
+    };
+}
+
+fn add(a: i32, b: i32) -> i32 {
+    a + b
+}
+
+fn multiply(a: i32, b: i32) -> i32 {
+    a * b
+}
+
+// 使用宏生成测试
+generate_tests!(test_add, add(2, 3), 5);
+generate_tests!(test_multiply, multiply(4, 5), 20);
+generate_tests!(
+    test_add_with_extra,
+    add(10, 20),
+    30,
+    assert!(add(10, 20) > 0);
+    assert!(add(10, 20) < 100)
+);
+
+fn main() {
+    println!("运行测试...");
+    test_add();
+    test_multiply();
+    test_add_with_extra();
+    println!("所有测试通过！");
+}
+```
+
+</details>
+
+---
+
+## 📝 总结
+
+在这一章中，我们学习了 Rust 的系统级编程特性：
+
+1. **系统级编程**: 直接内存控制和系统访问
+2. **Unsafe 代码**: 何时使用和如何安全地使用
+3. **宏系统**: 声明宏和过程宏的使用
+4. **性能优化**: 内存布局、缓存友好性和 SIMD
+5. **与 JavaScript 对比**: 底层控制 vs 高级抽象
+
+### 关键要点
+
+- Rust 提供零成本抽象和系统级控制
+- Unsafe 代码需要谨慎使用，确保安全性
+- 宏系统提供强大的代码生成能力
+- 性能优化需要理解底层硬件特性
+
+### 下一步学习
+
+在下一章中，我们将学习 Rust 的实战项目，通过完整的项目来巩固所学知识。
+
+---
+
+**继续学习**: [实战项目驱动](./module-09-projects.zh-cn.mdx) 
