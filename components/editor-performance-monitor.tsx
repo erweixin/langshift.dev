@@ -112,7 +112,7 @@ export function EditorPerformanceMonitor({
         clearInterval(intervalRef.current)
       }
     }
-  }, [isMonitoring, updateMetrics, onMetricsUpdate, metrics])
+  }, [isMonitoring, updateMetrics, onMetricsUpdate, metrics, getMemoryUsage])
 
   useEffect(() => {
     // 自动开始监控

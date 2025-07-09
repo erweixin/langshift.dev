@@ -34,8 +34,8 @@ export function Scrollycoding(props: unknown) {
       <div className="w-1/2 bg-card">
         <div className="top-16 sticky overflow-auto">
           <Selection
-            from={steps.map((step) => (
-              <Code codeblock={step.code} />
+            from={steps.map((step, index) => (
+              <Code key={index} codeblock={step.code} />
             ))}
           />
         </div>
