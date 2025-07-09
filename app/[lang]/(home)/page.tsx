@@ -4,6 +4,7 @@ import { courseStructuredData } from '@/lib/seo-structured-data';
 import { getTranslations, type SupportedLanguage } from '@/messages';
 import Link from 'next/link';
 import { ArrowRight, Code, Sparkles, Zap, Target, Users, BookOpen, Rocket, CheckCircle, Star, Play } from 'lucide-react';
+import { Header } from '@/components/header';
 
 interface HomePageProps {
   params: Promise<{ lang: string }>;
@@ -55,6 +56,8 @@ export default async function HomePage({ params }: HomePageProps) {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
+      <Header lang={lang} />
+      
       <SEOHead
         title={t.home.seo.title}
         description={t.home.seo.description}
@@ -92,7 +95,7 @@ export default async function HomePage({ params }: HomePageProps) {
       />
 
       {/* Hero Section - 重新设计 */}
-      <div className="relative overflow-hidden">
+      <div className="relative overflow-hidden pt-16">
         {/* 动态背景 */}
         <div className="absolute inset-0">
           <div className="absolute inset-0 bg-gradient-to-br from-blue-600/10 via-purple-600/10 to-pink-600/10"></div>
