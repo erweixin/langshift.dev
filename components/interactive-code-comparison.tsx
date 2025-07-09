@@ -15,7 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
-import { ArrowRight, Code, Loader2, Monitor, Sparkles, Zap, TrendingUp, Layers, GitBranch, ChevronRight, Play, Copy, Check } from 'lucide-react';
+import { Code, Loader2, Monitor, Sparkles, Zap, TrendingUp, Layers, GitBranch, ChevronRight, Copy, Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export function InteractiveCodeComparison({ lang }: { lang: SupportedLanguage }) {
