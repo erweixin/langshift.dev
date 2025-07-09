@@ -2,9 +2,10 @@
 
 > 专为开发者设计的编程语言转换学习平台，通过对比学习快速掌握新语言
 
-[![Next.js](https://img.shields.io/badge/Next.js-15.3+-black.svg)](https://nextjs.org)
-[![React](https://img.shields.io/badge/React-19.0+-blue.svg)](https://react.dev)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.8+-blue.svg)](https://www.typescriptlang.org)
+[![Next.js](https://img.shields.io/badge/Next.js-15.3.5-black.svg)](https://nextjs.org)
+[![React](https://img.shields.io/badge/React-19.0.0-blue.svg)](https://react.dev)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.8.2-blue.svg)](https://www.typescriptlang.org)
+[![Fumadocs](https://img.shields.io/badge/Fumadocs-15.6.1-purple.svg)](https://fumadocs.vercel.app)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
@@ -24,21 +25,23 @@ LangShift.dev 是一个专门为开发者设计的编程语言转换学习平台
 
 ## 🌐 支持的语言转换
 
-### 🔄 JavaScript ↔ Python
+### 🔄 JavaScript ↔ Python ✅ (已完成)
 - 从 JavaScript 开发者视角学习 Python
 - 语法映射：变量、函数、类、异步编程
 - 生态系统对比：npm vs pip、Node.js vs Python
 - 实战项目：Web 开发、数据处理、自动化脚本
 - 高级特性：类型注解、装饰器、上下文管理器
+- **包含 13 个完整学习模块**
 
 **📚 [查看详细学习指南 →](./content/docs/js2py/README.md)**
 
-### 🔄 JavaScript ↔ Rust
+### 🔄 JavaScript ↔ Rust 🚧 (开发中)
 - 从 JavaScript 开发者视角学习 Rust
 - 内存管理：垃圾回收 vs 所有权系统
 - 类型系统：动态类型 vs 静态类型
 - 性能优化：解释执行 vs 编译优化
 - 并发编程：事件循环 vs 零成本抽象
+- **基础框架已完成，内容开发中**
 
 **📚 [查看详细学习指南 →](./content/docs/js2rust/README.md)**
 
@@ -50,25 +53,36 @@ LangShift.dev 是一个专门为开发者设计的编程语言转换学习平台
 
 ## 📚 学习模块概览
 
-每个语言转换模块都包含 13 个渐进式学习模块：
-
-- **模块 0**: 语言介绍与学习方法
-- **模块 1-4**: 基础语法与核心概念
-- **模块 5-7**: 实战应用与工具链
+### JavaScript → Python (已完成)
+- **模块 0**: Python 介绍与学习方法
+- **模块 1**: 基础语法对比
+- **模块 2**: 模块系统与包管理
+- **模块 3**: 面向对象与函数式编程
+- **模块 4**: 异步编程
+- **模块 5**: 代码质量、测试与类型注解
+- **模块 6**: Web 开发
+- **模块 7**: 数据处理与自动化
 - **模块 8**: 综合实战项目
-- **模块 9-12**: 高级主题与最佳实践
+- **模块 9**: 高级主题
+- **模块 10**: 常见陷阱与解决方案
+- **模块 11**: Pythonic 代码风格
+- **模块 12**: 类型注解详解
+
+### JavaScript → Rust (开发中)
+- 基础框架已完成
+- 内容开发进行中
 
 详细的学习内容请查看各模块的专门文档。
 
 ## 🛠️ 技术栈
 
 ### 平台技术
-- **框架**: Next.js 15.3+ (App Router)
-- **文档**: Fumadocs 15.6+ + MDX
-- **样式**: Tailwind CSS 4.0+
-- **代码编辑器**: Monaco Editor + Pyodide
+- **框架**: Next.js 15.3.5 (App Router)
+- **文档**: Fumadocs 15.6.1 + MDX
+- **样式**: Tailwind CSS 4.0.9
+- **代码编辑器**: Monaco Editor 4.7.0 + Pyodide
 - **国际化**: 支持中英文繁体中文
-- **搜索**: Orama 全文搜索
+- **搜索**: Orama 3.1.1 全文搜索
 
 ### 语言运行时
 - **Python**: Pyodide (浏览器端 Python)
@@ -76,8 +90,8 @@ LangShift.dev 是一个专门为开发者设计的编程语言转换学习平台
 - **Rust**: WebAssembly (计划中)
 
 ### 开发工具
-- **类型检查**: TypeScript 5.8+
-- **代码质量**: ESLint 9.30+, Prettier 3.5+
+- **类型检查**: TypeScript 5.8.2
+- **代码质量**: ESLint 9.30.1, Prettier 3.5.3
 - **构建优化**: Turbopack
 - **性能监控**: 内置性能监控组件
 
@@ -87,6 +101,7 @@ LangShift.dev 是一个专门为开发者设计的编程语言转换学习平台
 - **性能监控**: 实时监控代码执行性能
 - **虚拟化编辑器**: 优化大量代码的渲染性能
 - **滚动编码**: 交互式代码演示
+- **SEO 优化**: 结构化数据和搜索引擎优化
 
 ## 🚀 快速开始
 
@@ -115,7 +130,7 @@ LangShift.dev 是一个专门为开发者设计的编程语言转换学习平台
    ```
 
 4. **访问项目**
-   打开浏览器访问 [http://localhost:3000](http://localhost:3000)
+   打开浏览器访问 [http://localhost:8000](http://localhost:8000)
 
 ### 开发命令
 
@@ -159,23 +174,27 @@ langshift.dev/
 │   ├── scrollycoding.tsx # 滚动编码组件
 │   ├── monaco-manager.tsx # Monaco 编辑器管理
 │   ├── editor-performance-monitor.tsx # 性能监控
+│   ├── interactive-code-comparison.tsx # 交互式代码对比
 │   ├── seo-head.tsx      # SEO 头部组件
 │   ├── seo-doc-page.tsx  # 文档页面 SEO
 │   ├── analytics.tsx     # 分析组件
-│   └── annotations/      # 注释组件
+│   ├── annotations/      # 注释组件
+│   └── ui/              # UI 组件库
 ├── content/              # 文档内容
 │   └── docs/            # 文档目录
-│       ├── js2py/       # JavaScript → Python
+│       ├── js2py/       # JavaScript → Python (已完成)
 │       │   ├── README.md # 模块介绍
-│       │   └── .cursorrules # 模块规范
-│       ├── js2rust/     # JavaScript → Rust
+│       │   ├── .cursorrules # 模块规范
+│       │   └── module-*.mdx # 13个学习模块
+│       ├── js2rust/     # JavaScript → Rust (开发中)
 │       │   ├── README.md # 模块介绍
 │       │   └── .cursorrules # 模块规范
 │       └── ...
 ├── lib/                 # 工具函数
 │   ├── i18n.ts         # 国际化配置
 │   ├── seo-structured-data.ts # SEO 结构化数据
-│   └── source.ts       # 源码配置
+│   ├── source.ts       # 源码配置
+│   └── utils.ts        # 工具函数
 ├── messages/           # 国际化消息
 │   ├── en.json        # 英文
 │   ├── zh-cn.json     # 简体中文
