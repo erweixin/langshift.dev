@@ -5,5 +5,5 @@ export default createI18nMiddleware(i18n);
 
 export const config = {
   // 排除根路径 `/`，只匹配其它路径
-  matcher: ['/((?!api|_next/static|_next/image|favicon.ico|$).*)'],
+  matcher: ['/((?!api|_next/static|_next/image|favicon.ico|$|sitemap.xml|Robots.txt).*)'],
 };

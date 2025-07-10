@@ -6,8 +6,77 @@ import Link from 'next/link';
 import { ArrowRight, Code, Sparkles, Zap, Target, Users, BookOpen, Rocket, CheckCircle, Star, Play } from 'lucide-react';
 import { Header } from '@/components/header';
 import { headers } from 'next/headers';
+import { Metadata } from 'next';
+import { redirect } from 'next/navigation';
 
-// 获取用户首选语言
+// 生成静态元数据 - 使用默认语言
+export async function generateMetadata(): Promise<Metadata> {
+  const t = getTranslations('zh-cn'); // 使用简体中文作为默认
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://langshift.dev';
+
+  return {
+    title: t.home.seo.title,
+    description: t.home.seo.description,
+    keywords: t.home.seo.keywords,
+    authors: [{ name: 'LangShift.dev' }],
+    creator: 'LangShift.dev',
+    publisher: 'LangShift.dev',
+    robots: {
+      index: true,
+      follow: true,
+      googleBot: {
+        index: true,
+        follow: true,
+        'max-video-preview': -1,
+        'max-image-preview': 'large',
+        'max-snippet': -1,
+      },
+    },
+    alternates: {
+      canonical: siteUrl,
+      languages: {
+        'zh-CN': `${siteUrl}/zh-cn`,
+        'zh-TW': `${siteUrl}/zh-tw`,
+        'en': `${siteUrl}/en`,
+        'x-default': siteUrl,
+      },
+    },
+    openGraph: {
+      title: t.home.seo.title,
+      description: t.home.seo.description,
+      url: siteUrl,
+      siteName: 'LangShift.dev',
+      locale: 'zh_CN',
+      type: 'website',
+      images: [
+        {
+          url: `${siteUrl}/og-image.png`,
+          width: 1200,
+          height: 630,
+          alt: 'LangShift.dev - 编程语言转换学习平台',
+        },
+      ],
+    },
+    twitter: {
+      card: 'summary_large_image',
+      title: t.home.seo.title,
+      description: t.home.seo.description,
+      images: [`${siteUrl}/og-image.png`],
+      creator: '@langshift_dev',
+      site: '@langshift_dev',
+    },
+    other: {
+      'theme-color': '#1e293b',
+      'color-scheme': 'light dark',
+      'application-name': 'LangShift.dev',
+      'apple-mobile-web-app-title': 'LangShift.dev',
+      'apple-mobile-web-app-capable': 'yes',
+      'apple-mobile-web-app-status-bar-style': 'default',
+    },
+  };
+}
+
+// 获取用户首选语言 - 用于服务端重定向
 async function getPreferredLanguage(): Promise<SupportedLanguage> {
   const headersList = await headers();
   const acceptLanguage = headersList.get('accept-language') || '';
@@ -29,8 +98,13 @@ async function getPreferredLanguage(): Promise<SupportedLanguage> {
 }
 
 export default async function HomePage() {
-  const lang = await getPreferredLanguage();
-  const t = getTranslations(lang);
+  // 检测用户语言并重定向到对应的语言页面
+  const preferredLang = await getPreferredLanguage();
+  if (preferredLang !== 'zh-cn') {
+    redirect(`/${preferredLang}`);
+  }
+
+  const t = getTranslations('zh-cn'); // 使用简体中文作为默认
 
   const courses = [
     {
@@ -65,7 +139,7 @@ export default async function HomePage() {
     courseStructuredData({
       name: course.title,
       description: course.description,
-      url: `https://langshift.dev/${lang}/${course.name}`,
+      url: `https://langshift.dev/zh-cn/${course.name}`,
       provider: 'LangShift.dev',
       courseMode: 'online',
       educationalLevel: 'intermediate',
@@ -74,17 +148,8 @@ export default async function HomePage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
-      <Header lang={lang} />
+      <Header lang="zh-cn" />
       
-      <SEOHead
-        title={t.home.seo.title}
-        description={t.home.seo.description}
-        keywords={t.home.seo.keywords}
-        ogType="website"
-        structuredData={courseStructuredDataList}
-        showAlternateLinks={true}
-      />
-
       {/* 结构化数据 */}
       <script
         type="application/ld+json"
@@ -102,7 +167,7 @@ export default async function HomePage() {
                 "@type": "Course",
                 "name": course.title,
                 "description": course.description,
-                "url": `https://langshift.dev/${lang}/${course.name}`,
+                "url": `https://langshift.dev/zh-cn/${course.name}`,
                 "provider": {
                   "@type": "Organization",
                   "name": "LangShift.dev"
@@ -110,6 +175,39 @@ export default async function HomePage() {
               }
             }))
           })
+        }}
+      />
+
+      {/* 语言重定向脚本 - 客户端检测 */}
+      <script
+        dangerouslySetInnerHTML={{
+          __html: `
+            (function() {
+              // 只在客户端执行
+              if (typeof window === 'undefined') return;
+              
+              // 检查是否已经重定向过
+              if (sessionStorage.getItem('langRedirected')) return;
+              
+              // 获取用户首选语言
+              const userLang = navigator.language || navigator.userLanguage || 'zh-CN';
+              const lang = userLang.toLowerCase();
+              
+              // 确定目标语言
+              let targetLang = 'zh-cn';
+              if (lang.startsWith('zh-tw')) {
+                targetLang = 'zh-tw';
+              } else if (lang.startsWith('en')) {
+                targetLang = 'en';
+              }
+              
+              // 如果不是默认语言，进行重定向
+              if (targetLang !== 'zh-cn') {
+                sessionStorage.setItem('langRedirected', 'true');
+                window.location.href = '/' + targetLang;
+              }
+            })();
+          `
         }}
       />
 
@@ -170,7 +268,7 @@ export default async function HomePage() {
             {/* CTA 按钮 */}
             <div className="flex flex-col sm:flex-row gap-4 justify-center mb-16">
               <Link
-                href={`/${lang}/js2py`}
+                href={`/zh-cn/js2py`}
                 className="group inline-flex items-center px-8 py-4 bg-gradient-to-r from-blue-500 to-purple-600 text-white font-semibold rounded-xl hover:from-blue-600 hover:to-purple-700 transition-all duration-300 transform hover:scale-105 shadow-lg hover:shadow-xl"
               >
                 <Play className="w-5 h-5 mr-2" />
@@ -178,7 +276,7 @@ export default async function HomePage() {
                 <ArrowRight className="w-5 h-5 ml-2 transform group-hover:translate-x-1 transition-transform" />
               </Link>
               <Link
-                href={`/${lang}/docs`}
+                href={`/zh-cn/docs`}
                 className="inline-flex items-center px-8 py-4 border border-slate-600 text-slate-300 font-semibold rounded-xl hover:bg-slate-800 hover:text-white transition-all duration-300 backdrop-blur-sm"
               >
                 <BookOpen className="w-5 h-5 mr-2" />
@@ -241,7 +339,7 @@ export default async function HomePage() {
               <div className="absolute -bottom-4 -right-4 w-6 h-6 bg-gradient-to-br from-green-500 to-emerald-600 rounded-full opacity-60"></div>
               
               <div className="bg-gradient-to-br from-slate-800/50 to-slate-900/50 backdrop-blur-sm border border-slate-700/50 rounded-3xl p-8 shadow-2xl">
-                <InteractiveCodeComparison lang={lang} />
+                <InteractiveCodeComparison lang="zh-cn" />
               </div>
             </div>
           </div>
@@ -304,7 +402,7 @@ export default async function HomePage() {
             {courses.map((course) => (
               <Link
                 key={course.name}
-                href={`/${lang}/${course.name}`}
+                href={`/zh-cn/${course.name}`}
                 className="group block"
               >
                 <div className={`relative overflow-hidden ${course.bgColor} ${course.borderColor} border backdrop-blur-sm rounded-3xl p-8 hover:scale-105 transition-all duration-500`}>
@@ -488,7 +586,7 @@ export default async function HomePage() {
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
               <Link
-                href={`/${lang}/js2py`}
+                href={`/zh-cn/js2py`}
                 className="group inline-flex items-center px-8 py-4 bg-gradient-to-r from-blue-500 to-purple-600 text-white font-semibold rounded-xl hover:from-blue-600 hover:to-purple-700 transition-all duration-300 transform hover:scale-105 shadow-lg"
               >
                 <Play className="w-5 h-5 mr-2" />
@@ -496,7 +594,7 @@ export default async function HomePage() {
                 <ArrowRight className="w-5 h-5 ml-2 transform group-hover:translate-x-1 transition-transform" />
               </Link>
               <Link
-                href={`/${lang}/docs`}
+                href={`/zh-cn/docs`}
                 className="inline-flex items-center px-8 py-4 border border-slate-600 text-slate-300 font-semibold rounded-xl hover:bg-slate-800 hover:text-white transition-all duration-300"
               >
                 <BookOpen className="w-5 h-5 mr-2" />

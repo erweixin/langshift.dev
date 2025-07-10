@@ -25,6 +25,12 @@ const config = {
     optimizePackageImports: ['@monaco-editor/react', 'fumadocs-ui'],
   },
   
+  // 压缩配置
+  compress: true,
+  
+  // 启用 gzip 压缩
+  poweredByHeader: false,
+  
   // 头部配置
   async headers() {
     return [

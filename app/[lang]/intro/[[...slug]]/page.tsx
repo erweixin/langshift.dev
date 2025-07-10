@@ -1,4 +1,5 @@
 import Link from "next/link"
+import { source } from "@/lib/source"
 
 export default function HomePage() {
   return (
@@ -301,4 +302,8 @@ export default function HomePage() {
       </section>
     </main>
   )
+}
+
+export async function generateStaticParams() {
+  return source.generateParams()
 }
