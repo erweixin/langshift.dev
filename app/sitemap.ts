@@ -92,21 +92,21 @@ export default function sitemap(): MetadataRoute.Sitemap {
     courseModules.flatMap(module => [
       // 英文版本
       {
-        url: `${baseUrl}/${course.name}/${module}`,
+        url: `${baseUrl}/${module}/${course.name}`,
         lastModified: currentDate,
         changeFrequency: 'monthly' as const,
         priority: 0.8,
       },
       // 简体中文版本
       {
-        url: `${baseUrl}/zh-cn/${course.name}/${module}`,
+        url: `${baseUrl}/zh-cn/${module}/${course.name}`,
         lastModified: currentDate,
         changeFrequency: 'monthly' as const,
         priority: 0.8,
       },
       // 繁体中文版本
       {
-        url: `${baseUrl}/zh-tw/${course.name}/${module}`,
+        url: `${baseUrl}/zh-tw/${module}/${course.name}`,
         lastModified: currentDate,
         changeFrequency: 'monthly' as const,
         priority: 0.8,
