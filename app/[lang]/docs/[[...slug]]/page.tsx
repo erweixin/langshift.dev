@@ -104,8 +104,11 @@ export async function generateMetadata(props: {
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://langshift.dev'
   const canonical = params.slug ? `${siteUrl}/${params.lang}/docs/${params.slug.join('/')}` : `${siteUrl}/${params.lang}/docs`
 
+  // 优化标题，移除域名
+  const pageTitle = page.data.title.replace(/^LangShift\.dev\s*[-–—]\s*/, '')
+
   return {
-    title: page.data.title,
+    title: pageTitle,
     description: page.data.description,
     keywords: keywords,
     authors: [{ name: 'LangShift.dev' }],
@@ -132,7 +135,7 @@ export async function generateMetadata(props: {
       },
     },
     openGraph: {
-      title: page.data.title,
+      title: pageTitle,
       description: page.data.description,
       url: canonical,
       siteName: 'LangShift.dev',
@@ -143,17 +146,25 @@ export async function generateMetadata(props: {
           url: `${siteUrl}/og-image.png`,
           width: 1200,
           height: 630,
-          alt: page.data.title,
+          alt: pageTitle,
         },
       ],
     },
     twitter: {
       card: 'summary_large_image',
-      title: page.data.title,
+      title: pageTitle,
       description: page.data.description,
       images: [`${siteUrl}/og-image.png`],
       creator: '@langshift_dev',
       site: '@langshift_dev',
     },
-  }
+    other: {
+      'theme-color': '#1e293b',
+      'color-scheme': 'light dark',
+      'application-name': 'LangShift.dev',
+      'apple-mobile-web-app-title': 'LangShift.dev',
+      'apple-mobile-web-app-capable': 'yes',
+      'apple-mobile-web-app-status-bar-style': 'default',
+    },
+  };
 }

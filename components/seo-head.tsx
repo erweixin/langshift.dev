@@ -15,7 +15,7 @@ interface SEOHeadProps {
 }
 
 export function SEOHead({
-  title = 'LangShift.dev - 编程语言转换学习平台',
+  title = '编程语言转换学习平台',
   description = 'LangShift.dev 是专门为开发者设计的编程语言转换学习平台。通过对比不同编程语言的语法特性和概念映射，帮助开发者快速掌握新语言。',
   keywords = ['编程语言', '语言学习', 'JavaScript', 'Python', 'Rust', '开发者', '代码对比', '语法转换'],
   canonical,

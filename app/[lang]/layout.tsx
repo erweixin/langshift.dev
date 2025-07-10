@@ -46,11 +46,11 @@ export default async function RootLayout({
   
   const seoLang = isChinese ? 'zh-CN' : 'en-US';
   const seoTitle = isChinese 
-    ? 'LangShift.dev - 编程语言转换学习平台' 
-    : 'LangShift.dev - Programming Language Learning Platform';
+    ? '编程语言转换学习平台' 
+    : 'Programming Language Learning Platform';
   const seoDescription = isChinese
     ? 'LangShift.dev 是专门为开发者设计的编程语言转换学习平台。通过对比不同编程语言的语法特性和概念映射，帮助开发者快速掌握新语言。'
-    : 'LangShift.dev is a programming language learning platform designed for developers. Learn new languages through syntax comparison and concept mapping.';
+    : 'Learn new programming languages faster through syntax comparison and concept mapping. Designed for developers who want to leverage existing knowledge to master Python, Rust and more with interactive code editors and progressive learning paths.';
 
   return (
     <html lang={lang} suppressHydrationWarning>
@@ -102,6 +102,7 @@ export default async function RootLayout({
                 ? ['编程语言', '语言学习', 'JavaScript', 'Python', 'Rust', '开发者', '代码对比', '语法转换']
                 : ['programming languages', 'language learning', 'JavaScript', 'Python', 'Rust', 'developers', 'code comparison', 'syntax conversion']
               }
+              showAlternateLinks={true}
             />
             {children}
             <Analytics 

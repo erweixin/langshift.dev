@@ -49,7 +49,7 @@ export async function generateMetadata(): Promise<Metadata> {
           url: `${siteUrl}/og-image.png`,
           width: 1200,
           height: 630,
-          alt: 'LangShift.dev - 编程语言转换学习平台',
+          alt: '编程语言转换学习平台',
         },
       ],
     },

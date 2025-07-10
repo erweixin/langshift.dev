@@ -65,7 +65,7 @@ export async function generateMetadata({ params }: { params: Promise<{ lang: str
           url: `${siteUrl}/og-image.png`,
           width: 1200,
           height: 630,
-          alt: 'LangShift.dev - 编程语言转换学习平台',
+          alt: supportedLang === 'zh-cn' ? '编程语言转换学习平台' : 'Programming Language Learning Platform',
         },
       ],
     },
