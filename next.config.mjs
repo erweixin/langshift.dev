@@ -74,16 +74,16 @@ const config = {
     ];
   },
   
-  // 重定向配置
-  async redirects() {
-    return [
-      {
-        source: '/',
-        destination: '/zh-cn',
-        permanent: false,
-      },
-    ];
-  },
+  // 重定向配置 - 已移除根路径重定向，改为智能语言检测
+  // async redirects() {
+  //   return [
+  //     {
+  //       source: '/',
+  //       destination: '/zh-cn',
+  //       permanent: false,
+  //     },
+  //   ];
+  // },
   
   // 环境变量
   env: {

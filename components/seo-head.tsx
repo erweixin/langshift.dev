@@ -11,6 +11,7 @@ interface SEOHeadProps {
   twitterCard?: string
   structuredData?: object
   lang?: string
+  showAlternateLinks?: boolean
 }
 
 export function SEOHead({
@@ -23,7 +24,8 @@ export function SEOHead({
   ogType = 'website',
   twitterCard = 'summary_large_image',
   structuredData,
-  lang = 'zh-CN'
+  lang = 'zh-CN',
+  showAlternateLinks = false
 }: SEOHeadProps) {
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://langshift.dev'
   const fullCanonical = canonical ? `${siteUrl}${canonical}` : siteUrl
@@ -37,6 +39,16 @@ export function SEOHead({
       <meta name="author" content="LangShift.dev" />
       <meta name="robots" content={noindex ? 'noindex, nofollow' : 'index, follow'} />
       <link rel="canonical" href={fullCanonical} />
+      
+      {/* 多语言 alternate 链接 */}
+      {showAlternateLinks && (
+        <>
+          <link rel="alternate" href={`${siteUrl}/zh-cn`} hrefLang="zh-CN" />
+          <link rel="alternate" href={`${siteUrl}/zh-tw`} hrefLang="zh-TW" />
+          <link rel="alternate" href={`${siteUrl}/en`} hrefLang="en" />
+          <link rel="alternate" href={siteUrl} hrefLang="x-default" />
+        </>
+      )}
       
       {/* 语言和编码 */}
       <meta charSet="utf-8" />

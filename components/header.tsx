@@ -24,7 +24,7 @@ export function Header({ lang }: HeaderProps) {
 
   const currentLanguage = languages.find(l => l.code === lang);
 
-  const navItems = [];
+  const navItems: { href: string; label: string }[] = [];
 
   const getLanguageUrl = (languageCode: string) => {
     const pathWithoutLang = pathname.replace(/^\/[^\/]+/, '');

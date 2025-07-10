@@ -16,13 +16,19 @@ export default function sitemap(): MetadataRoute.Sitemap {
       url: `${baseUrl}/zh-cn`,
       lastModified: currentDate,
       changeFrequency: 'daily' as const,
-      priority: 1,
+      priority: 0.9,
     },
     {
       url: `${baseUrl}/zh-tw`,
       lastModified: currentDate,
       changeFrequency: 'daily' as const,
-      priority: 1,
+      priority: 0.9,
+    },
+    {
+      url: `${baseUrl}/en`,
+      lastModified: currentDate,
+      changeFrequency: 'daily' as const,
+      priority: 0.9,
     },
   ]
 

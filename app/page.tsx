@@ -5,13 +5,31 @@ import { getTranslations, type SupportedLanguage } from '@/messages';
 import Link from 'next/link';
 import { ArrowRight, Code, Sparkles, Zap, Target, Users, BookOpen, Rocket, CheckCircle, Star, Play } from 'lucide-react';
 import { Header } from '@/components/header';
+import { headers } from 'next/headers';
 
-interface HomePageProps {
-  params: Promise<{ lang: string }>;
+// 获取用户首选语言
+async function getPreferredLanguage(): Promise<SupportedLanguage> {
+  const headersList = await headers();
+  const acceptLanguage = headersList.get('accept-language') || '';
+  
+  // 解析 Accept-Language 头
+  const languages = acceptLanguage
+    .split(',')
+    .map(lang => lang.split(';')[0].trim().toLowerCase());
+  
+  // 按优先级匹配语言
+  for (const lang of languages) {
+    if (lang.startsWith('zh-tw')) return 'zh-tw';
+    if (lang.startsWith('zh-cn') || lang.startsWith('zh')) return 'zh-cn';
+    if (lang.startsWith('en')) return 'en';
+  }
+  
+  // 默认返回简体中文
+  return 'zh-cn';
 }
 
-export default async function HomePage({ params }: HomePageProps) {
-  const lang = (await params).lang as SupportedLanguage;
+export default async function HomePage() {
+  const lang = await getPreferredLanguage();
   const t = getTranslations(lang);
 
   const courses = [
@@ -64,6 +82,7 @@ export default async function HomePage({ params }: HomePageProps) {
         keywords={t.home.seo.keywords}
         ogType="website"
         structuredData={courseStructuredDataList}
+        showAlternateLinks={true}
       />
 
       {/* 结构化数据 */}
