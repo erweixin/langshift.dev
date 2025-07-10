@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useState, useCallback } from 'react';
 import { Menu, X, Globe, ChevronDown } from 'lucide-react';
+import { trackLanguageSwitch } from '@/components/analytics';
 
 interface HeaderProps {
   lang: SupportedLanguage;
@@ -88,7 +89,13 @@ export function Header({ lang }: HeaderProps) {
                           ? 'bg-blue-500/20 text-blue-400'
                           : 'text-slate-300 hover:bg-slate-700/50 hover:text-white'
                       }`}
-                      onClick={() => setIsLanguageOpen(false)}
+                      onClick={() => {
+                        setIsLanguageOpen(false);
+                        // 追踪语言切换事件
+                        if (lang !== language.code) {
+                          trackLanguageSwitch(lang, language.code);
+                        }
+                      }}
                     >
                       <span className="text-lg">{language.flag}</span>
                       <span className="font-medium">{language.name}</span>

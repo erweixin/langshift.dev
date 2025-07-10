@@ -7,7 +7,10 @@ interface AnalyticsProps {
   gtmId?: string
 }
 
-export function Analytics({ gaId, gtmId }: AnalyticsProps) {
+export function Analytics({ 
+  gaId = process.env.NEXT_PUBLIC_GA_ID || 'G-F8EL781P96', 
+  gtmId 
+}: AnalyticsProps) {
   if (!gaId && !gtmId) {
     return null
   }
@@ -20,6 +23,7 @@ export function Analytics({ gaId, gtmId }: AnalyticsProps) {
           <Script
             src={`https://www.googletagmanager.com/gtag/js?id=${gaId}`}
             strategy="afterInteractive"
+            id="google-analytics-script"
           />
           <Script id="google-analytics" strategy="afterInteractive">
             {`
@@ -32,6 +36,17 @@ export function Analytics({ gaId, gtmId }: AnalyticsProps) {
                 custom_map: {
                   'custom_parameter_1': 'course_name',
                   'custom_parameter_2': 'language'
+                },
+                // 优化配置
+                anonymize_ip: true,
+                allow_google_signals: false,
+                allow_ad_personalization_signals: false,
+                // 自定义维度
+                custom_map: {
+                  'dimension1': 'course_name',
+                  'dimension2': 'language',
+                  'dimension3': 'module_name',
+                  'dimension4': 'user_type'
                 }
               });
             `}
@@ -68,7 +83,7 @@ export function Analytics({ gaId, gtmId }: AnalyticsProps) {
 // 页面浏览事件追踪
 export function trackPageView(url: string, title: string) {
   if (typeof window !== 'undefined' && window.gtag) {
-    window.gtag('config', process.env.NEXT_PUBLIC_GA_ID, {
+    window.gtag('config', process.env.NEXT_PUBLIC_GA_ID || 'G-F8EL781P96', {
       page_title: title,
       page_location: url,
     })
@@ -79,6 +94,10 @@ export function trackPageView(url: string, title: string) {
 export function trackEvent(eventName: string, parameters: Record<string, unknown> = {}) {
   if (typeof window !== 'undefined' && window.gtag) {
     window.gtag('event', eventName, parameters)
+    // 开发环境下的调试信息
+    if (process.env.NODE_ENV === 'development') {
+      console.log('GA Event:', eventName, parameters)
+    }
   }
 }
 
@@ -88,6 +107,9 @@ export function trackCourseProgress(courseName: string, moduleName: string, prog
     course_name: courseName,
     module_name: moduleName,
     progress_percentage: progress,
+    // 自定义维度
+    dimension1: courseName,
+    dimension3: moduleName,
   })
 }
 
@@ -96,6 +118,8 @@ export function trackCodeExecution(language: string, success: boolean) {
   trackEvent('code_execution', {
     programming_language: language,
     execution_success: success,
+    // 自定义维度
+    dimension2: language,
   })
 }
 
@@ -104,6 +128,23 @@ export function trackSearch(query: string, resultsCount: number) {
   trackEvent('search', {
     search_term: query,
     results_count: resultsCount,
+  })
+}
+
+// 语言切换事件追踪
+export function trackLanguageSwitch(fromLang: string, toLang: string) {
+  trackEvent('language_switch', {
+    from_language: fromLang,
+    to_language: toLang,
+    dimension2: toLang,
+  })
+}
+
+// 编辑器使用事件追踪
+export function trackEditorUsage(editorType: string, action: string) {
+  trackEvent('editor_usage', {
+    editor_type: editorType,
+    action: action,
   })
 }
 

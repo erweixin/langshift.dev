@@ -3,6 +3,7 @@ import * as React from 'react'
 import { useState, useEffect, ReactNode, Suspense } from 'react'
 import { useMonacoManager } from './monaco-manager'
 import { VirtualizedEditor } from './virtualized-editor'
+import { trackCodeExecution, trackEditorUsage } from '@/components/analytics'
 
 interface CodeBlock {
   language: string
@@ -562,6 +563,9 @@ export default function UniversalEditor(params: UniversalEditorProps) {
     setOutput('')
     setError('')
     
+    // 追踪编辑器使用
+    trackEditorUsage('universal-editor', 'code-execution')
+    
     try {
       // 按需加载运行时
       let runtime = runtimes.get(language)
@@ -575,6 +579,8 @@ export default function UniversalEditor(params: UniversalEditorProps) {
           setError(`${language} 环境初始化失败`)
           setLoadingStates(prev => new Map(prev.set(language, false)))
           setIsRunning(false)
+          // 追踪执行失败
+          trackCodeExecution(language, false)
           return
         } finally {
           setLoadingStates(prev => new Map(prev.set(language, false)))
@@ -589,11 +595,17 @@ export default function UniversalEditor(params: UniversalEditorProps) {
       }
       if (result.error) {
         setError(result.error)
+        // 追踪执行失败
+        trackCodeExecution(language, false)
       } else {
         setOutput(result.output)
+        // 追踪执行成功
+        trackCodeExecution(language, true)
       }
     } catch (err: any) {
       setError(err.message || '代码执行出错')
+      // 追踪执行失败
+      trackCodeExecution(language, false)
     } finally {
       setIsRunning(false)
     }
