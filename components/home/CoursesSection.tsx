@@ -28,7 +28,7 @@ export function CoursesSection({ lang, translations, courses, isDefaultPage }: C
           {courses.map((course) => (
             <Link
               key={course.name}
-              href={isDefaultPage ? "#courses" : `/${lang}/docs/${course.name}`}
+              href={`/${lang}/docs/${course.name}`}
               className="group block"
             >
               <div className={`relative overflow-hidden ${course.bgColor} ${course.borderColor} border backdrop-blur-sm rounded-3xl p-8 hover:scale-105 transition-all duration-500`}>

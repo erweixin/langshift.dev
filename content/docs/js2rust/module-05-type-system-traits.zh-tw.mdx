@@ -1,0 +1,290 @@
+---
+title: "型別系統與特徵"
+description: "學習 Rust 的靜態型別系統、特徵（Traits）和泛型，對比 JavaScript 的動態型別系統"
+---
+
+# 型別系統與特徵
+
+## 📖 學習目標
+
+理解 Rust 的靜態型別系統和特徵系統，學會使用泛型和特徵約束，對比 JavaScript 的動態型別系統。
+
+---
+
+## 🎯 型別系統對比
+
+### JavaScript 的動態型別
+
+JavaScript 是動態型別語言，型別在執行時確定：
+
+<UniversalEditor title="JavaScript 動態型別" compare={true}>
+```javascript !! js
+// JavaScript 動態型別範例
+function add(a, b) {
+    return a + b;
+}
+
+// 可以傳遞任何型別的參數
+console.log(add(5, 3));        // 8 (數字)
+console.log(add("Hello", " World")); // "Hello World" (字串)
+console.log(add(5, "3"));      // "53" (字串拼接)
+console.log(add([1, 2], [3, 4])); // "1,23,4" (陣列轉字串)
+
+// 執行時型別檢查
+function processData(data) {
+    if (typeof data === 'number') {
+        return data * 2;
+    } else if (typeof data === 'string') {
+        return data.toUpperCase();
+    } else if (Array.isArray(data)) {
+        return data.length;
+    } else {
+        return "未知型別";
+    }
+}
+
+console.log(processData(10));      // 20
+console.log(processData("hello")); // "HELLO"
+console.log(processData([1, 2, 3])); // 3
+
+// 型別轉換
+let value = "42";
+let number = parseInt(value); // 顯式轉換
+let result = value * 1;       // 隱式轉換
+console.log(typeof number, number); // "number" 42
+console.log(typeof result, result); // "number" 42
+
+// 動態屬性
+let obj = {};
+obj.name = "Rust";           // 動態新增屬性
+obj.age = 25;
+obj.sayHello = function() {  // 動態新增方法
+    return `Hello, I'm ${this.name}`;
+};
+
+console.log(obj.sayHello()); // "Hello, I'm Rust"
+```
+</UniversalEditor>
+
+### Rust 的靜態型別
+
+Rust 是靜態型別語言，型別在編譯時確定：
+
+<UniversalEditor title="Rust 靜態型別" compare={true}>
+```rust !! rs
+// Rust 靜態型別範例
+fn add(a: i32, b: i32) -> i32 {
+    a + b
+}
+
+// 只能傳遞指定型別的參數
+fn main_add() {
+    println!("{}", add(5, 3)); // 8
+}
+
+// 這些會導致編譯錯誤：
+// println!("{}", add("Hello", "World")); // 錯誤：型別不符
+// println!("{}", add(5, "3")); // 錯誤：型別不符
+
+// 使用泛型處理不同型別
+fn process_data<T>(data: T) -> String 
+where
+    T: std::fmt::Display,
+{
+    format!("處理後的資料: {}", data)
+}
+
+// 或使用特徵物件
+trait Processable {
+    fn process(&self) -> String;
+}
+
+impl Processable for i32 {
+    fn process(&self) -> String {
+        format!("數字: {}", self * 2)
+    }
+}
+
+impl Processable for String {
+    fn process(&self) -> String {
+        format!("字串: {}", self.to_uppercase())
+    }
+}
+
+impl Processable for Vec<i32> {
+    fn process(&self) -> String {
+        format!("陣列長度: {}", self.len())
+    }
+}
+
+fn process_with_trait(data: &dyn Processable) -> String {
+    data.process()
+}
+
+// 型別轉換
+fn type_conversion() {
+    let value = "42";
+    let number: i32 = value.parse().unwrap(); // 顯式轉換
+    println!("轉換後的數字: {}", number);
+    
+    // 使用 as 進行型別轉換
+    let float: f64 = 42.0;
+    let integer: i32 = float as i32;
+    println!("浮點數轉整數: {}", integer);
+}
+
+// 結構體定義
+struct User {
+    name: String,
+    age: u32,
+}
+
+impl User {
+    fn new(name: String, age: u32) -> Self {
+        User { name, age }
+    }
+    
+    fn say_hello(&self) -> String {
+        format!("Hello, I'm {}", self.name)
+    }
+}
+
+fn main() {
+    main_add();
+
+    // 注意：Vec<i32> 未直接實作 Display
+    // 需要自訂實作才能與 process_data 一起使用
+    println!("{}", process_data(10));
+    println!("{}", process_data("hello".to_string()));
+    
+    // 使用特徵物件
+    println!("{}", process_with_trait(&42));
+    println!("{}", process_with_trait(&"hello".to_string()));
+    println!("{}", process_with_trait(&vec![1, 2, 3]));
+    
+    type_conversion();
+    
+    // 使用結構體
+    let user = User::new("Rust".to_string(), 25);
+    println!("{}", user.say_hello());
+}
+```
+</UniversalEditor>
+
+### 型別系統差異
+
+1.  **靜態 vs 動態**: Rust 編譯時檢查型別，JavaScript 執行時檢查
+2.  **型別安全**: Rust 防止型別錯誤，JavaScript 允許型別轉換
+3.  **效能**: Rust 零成本抽象，JavaScript 有執行時開銷
+4.  **開發體驗**: Rust 編譯時錯誤提示，JavaScript 執行時錯誤
+
+---
+
+## 🔧 特徵（Traits）系統
+
+### 特徵定義與實作
+
+<UniversalEditor title="特徵系統" compare={true}>
+```rust !! rs
+// 定義特徵（類似其他語言的介面概念）
+trait Printable {
+    fn print(&self);
+    fn get_description(&self) -> String {
+        String::from("預設描述") // 預設實作
+    }
+}
+
+// 為不同型別實作特徵
+struct Book {
+    title: String,
+    author: String,
+    pages: u32,
+}
+
+impl Printable for Book {
+    fn print(&self) {
+        println!("書名: {}, 作者: {}, 頁數: {}", 
+                 self.title, self.author, self.pages);
+    }
+    
+    fn get_description(&self) -> String {
+        format!("《{}》由{}編寫，共{}頁", 
+                self.title, self.author, self.pages)
+    }
+}
+
+struct Movie {
+    title: String,
+    director: String,
+    duration: u32,
+}
+
+impl Printable for Movie {
+    fn print(&self) {
+        println!("電影: {}, 導演: {}, 時長: {}分鐘", 
+                 self.title, self.director, self.duration);
+    }
+}
+
+// 使用特徵約束
+fn print_item<T: Printable>(item: &T) {
+    item.print();
+    println!("描述: {}", item.get_description());
+}
+
+// 特徵作為參數
+fn print_multiple_items(items: &[&dyn Printable]) {
+    for item in items {
+        item.print();
+    }
+}
+
+// 特徵作為傳回值
+fn create_printable(is_book: bool) -> Box<dyn Printable> {
+    if is_book {
+        Box::new(Book {
+            title: String::from("Rust 程式設計"),
+            author: String::from("Steve Klabnik"),
+            pages: 500,
+        })
+    } else {
+        Box::new(Movie {
+            title: String::from("Rust 紀錄片"),
+            director: String::from("Graydon Hoare"),
+            duration: 120,
+        })
+    }
+}
+
+fn main() {
+    let book = Book {
+        title: "Rust for Rustaceans".into(),
+        author: "Jon Gjengset".into(),
+        pages: 400,
+    };
+    
+    let movie = Movie {
+        title: "Crab-ivating Adventures".into(),
+        director: "Ferris".into(),
+        duration: 90,
+    };
+    
+    print_item(&book);
+    print_item(&movie);
+    
+    let items: Vec<&dyn Printable> = vec![&book, &movie];
+    print_multiple_items(&items);
+    
+    let printable_item = create_printable(true);
+    printable_item.print();
+}
+```
+</UniversalEditor>
+
+### 特徵的關鍵概念
+
+1.  **共享行為**: 特徵定義了一組型別必須實作的方法。
+2.  **Ad-hoc 多型**: 允許將不同型別視為相同的特徵。
+3.  **預設實作**: 特徵可以提供方法的預設實作。
+4.  **特徵約束**: 強制泛型型別必須實作特定的特徵。
+5.  **特徵物件**: 使用 `dyn Trait` 在執行時進行動態分派。 

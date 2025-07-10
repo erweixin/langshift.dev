@@ -12,6 +12,7 @@ import { SideBySideCode } from "@/components/side-by-side-code"
 import PythonEditor from "@/components/python-editor"
 import Script from "next/script"
 import UniversalEditor from "@/components/universal-editor"
+import { generateKeywordsFromSlug } from "@/lib/seo-keywords"
 
 export default async function Page(props: {
   params: Promise<{ slug?: string[], lang: string }>
@@ -98,8 +99,61 @@ export async function generateMetadata(props: {
   }
   if (!page) notFound()
 
+  // 生成页面关键词
+  const keywords = generateKeywordsFromSlug(params.slug, params.lang)
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://langshift.dev'
+  const canonical = params.slug ? `${siteUrl}/${params.lang}/docs/${params.slug.join('/')}` : `${siteUrl}/${params.lang}/docs`
+
   return {
     title: page.data.title,
     description: page.data.description,
+    keywords: keywords,
+    authors: [{ name: 'LangShift.dev' }],
+    creator: 'LangShift.dev',
+    publisher: 'LangShift.dev',
+    robots: {
+      index: true,
+      follow: true,
+      googleBot: {
+        index: true,
+        follow: true,
+        'max-video-preview': -1,
+        'max-image-preview': 'large',
+        'max-snippet': -1,
+      },
+    },
+    alternates: {
+      canonical: canonical,
+      languages: {
+        'zh-CN': `${siteUrl}/zh-cn/docs/${params.slug?.join('/') || ''}`,
+        'zh-TW': `${siteUrl}/zh-tw/docs/${params.slug?.join('/') || ''}`,
+        'en': `${siteUrl}/en/docs/${params.slug?.join('/') || ''}`,
+        'x-default': `${siteUrl}/zh-cn/docs/${params.slug?.join('/') || ''}`,
+      },
+    },
+    openGraph: {
+      title: page.data.title,
+      description: page.data.description,
+      url: canonical,
+      siteName: 'LangShift.dev',
+      locale: params.lang === 'zh-cn' ? 'zh_CN' : params.lang === 'zh-tw' ? 'zh_TW' : 'en_US',
+      type: 'article',
+      images: [
+        {
+          url: `${siteUrl}/og-image.png`,
+          width: 1200,
+          height: 630,
+          alt: page.data.title,
+        },
+      ],
+    },
+    twitter: {
+      card: 'summary_large_image',
+      title: page.data.title,
+      description: page.data.description,
+      images: [`${siteUrl}/og-image.png`],
+      creator: '@langshift_dev',
+      site: '@langshift_dev',
+    },
   }
 }

@@ -1,0 +1,411 @@
+---
+title: "Systems Programming and Advanced Topics"
+description: "Learn about Rust's systems programming features, including unsafe code, the macro system, performance optimization, and low-level programming."
+---
+
+# Systems Programming and Advanced Topics
+
+## 📖 Learning Objectives
+
+Understand Rust's systems-level programming features, learn to use unsafe code, the macro system, performance optimization techniques, and grasp low-level programming concepts.
+
+---
+
+## 🎯 Systems-Level Programming Comparison
+
+### JavaScript's High-Level Abstraction
+
+JavaScript runs in a virtual machine, providing high-level abstractions:
+
+<UniversalEditor title="JavaScript High-Level Abstraction" compare={true}>
+```javascript !! js
+// Example of JavaScript's high-level abstraction
+class MemoryManager {
+    constructor() {
+        this.memory = new Map();
+        this.gcStats = {
+            collections: 0,
+            freedMemory: 0
+        };
+    }
+    
+    // Allocate memory (managed automatically by JavaScript)
+    allocate(key, data) {
+        this.memory.set(key, data);
+        console.log(`Allocating memory for: ${key}`);
+    }
+    
+    // Deallocate memory (handled by automatic garbage collection)
+    deallocate(key) {
+        this.memory.delete(key);
+        console.log(`Deallocating memory for: ${key}`);
+    }
+    
+    // Manually trigger garbage collection (only available in some environments)
+    forceGarbageCollection() {
+        if (global.gc) {
+            global.gc();
+            this.gcStats.collections++;
+            console.log('Forcing garbage collection');
+        }
+    }
+    
+    // Memory usage statistics
+    getMemoryUsage() {
+        if (process.memoryUsage) {
+            const usage = process.memoryUsage();
+            return {
+                rss: usage.rss,
+                heapUsed: usage.heapUsed,
+                heapTotal: usage.heapTotal,
+                external: usage.external
+            };
+        }
+        return null;
+    }
+}
+
+// Usage example
+const memoryManager = new MemoryManager();
+
+// Allocate a large amount of data
+for (let i = 0; i < 1000; i++) {
+    memoryManager.allocate(`key${i}`, {
+        id: i,
+        data: 'x'.repeat(1000), // 1KB of data
+        timestamp: Date.now()
+    });
+}
+
+console.log('Memory usage:', memoryManager.getMemoryUsage());
+
+// Deallocate some data
+for (let i = 0; i < 500; i++) {
+    memoryManager.deallocate(`key${i}`);
+}
+
+// Force garbage collection
+memoryManager.forceGarbageCollection();
+
+console.log('Memory usage after GC:', memoryManager.getMemoryUsage());
+
+// Simulating low-level operations (limited in JavaScript)
+class LowLevelOperations {
+    // Simulate pointer operations (no real pointers in JavaScript)
+    createPointer() {
+        return {
+            address: Math.random().toString(16),
+            value: null,
+            dereference() {
+                return this.value;
+            },
+            assign(value) {
+                this.value = value;
+            }
+        };
+    }
+    
+    // Simulate memory layout
+    createMemoryLayout() {
+        return {
+            stack: [],
+            heap: new Map(),
+            allocateOnStack(value) {
+                this.stack.push(value);
+                return this.stack.length - 1;
+            },
+            allocateOnHeap(key, value) {
+                this.heap.set(key, value);
+                return key;
+            }
+        };
+    }
+    
+    // Simulate system calls
+    systemCall(operation, data) {
+        console.log(`System call: ${operation}`, data);
+        // In a real environment, these operations are handled by the JS engine
+        return {
+            success: true,
+            result: `Simulated result of ${operation}`,
+            timestamp: Date.now()
+        };
+    }
+}
+
+// Using low-level operations
+const lowLevel = new LowLevelOperations();
+
+const pointer = lowLevel.createPointer();
+pointer.assign("Hello, World!");
+console.log("Pointer value:", pointer.dereference());
+
+const memory = lowLevel.createMemoryLayout();
+const stackAddr = memory.allocateOnStack(42);
+const heapAddr = memory.allocateOnHeap("dynamic", "data");
+
+console.log("Stack address:", stackAddr, "Value:", memory.stack[stackAddr]);
+console.log("Heap address:", heapAddr, "Value:", memory.heap.get(heapAddr));
+
+// Simulate a system call
+const syscall = lowLevel.systemCall("read", { file: "test.txt", size: 1024 });
+console.log("System call result:", syscall);
+```
+</UniversalEditor>
+
+### Rust's Systems-Level Programming
+
+Rust provides direct memory control and system-level access:
+
+<UniversalEditor title="Rust Systems-Level Programming" compare={true}>
+```rust !! rs
+use std::alloc::{alloc, dealloc, Layout};
+use std::collections::HashMap;
+use std::ptr;
+use std::mem;
+
+// Custom memory manager
+struct MemoryManager {
+    allocations: HashMap<usize, Layout>,
+    total_allocated: usize,
+}
+
+impl MemoryManager {
+    fn new() -> Self {
+        Self {
+            allocations: HashMap::new(),
+            total_allocated: 0,
+        }
+    }
+    
+    // Manually allocate memory
+    unsafe fn allocate(&mut self, size: usize, align: usize) -> *mut u8 {
+        let layout = Layout::from_size_align(size, align).unwrap();
+        let ptr = alloc(layout);
+        
+        if !ptr.is_null() {
+            self.allocations.insert(ptr as usize, layout);
+            self.total_allocated += size;
+            println!("Allocated {} bytes at {:p}", size, ptr);
+        }
+        
+        ptr
+    }
+    
+    // Manually deallocate memory
+    unsafe fn deallocate(&mut self, ptr: *mut u8) {
+        if let Some(layout) = self.allocations.remove(&(ptr as usize)) {
+            dealloc(ptr, layout);
+            self.total_allocated -= layout.size();
+            println!("Deallocated {} bytes from {:p}", layout.size(), ptr);
+        }
+    }
+    
+    // Get memory usage statistics
+    fn get_stats(&self) -> (usize, usize) {
+        (self.total_allocated, self.allocations.len())
+    }
+}
+
+// Smart pointer implementation
+struct SmartPtr<T> {
+    ptr: *mut T,
+    manager: *mut MemoryManager,
+}
+
+impl<T> SmartPtr<T> {
+    unsafe fn new(value: T, manager: &mut MemoryManager) -> Self {
+        let size = mem::size_of::<T>();
+        let align = mem::align_of::<T>();
+        let ptr = manager.allocate(size, align) as *mut T;
+        
+        if !ptr.is_null() {
+            ptr::write(ptr, value);
+        }
+        
+        Self {
+            ptr,
+            manager: manager as *mut MemoryManager,
+        }
+    }
+    
+    fn get(&self) -> Option<&T> {
+        if self.ptr.is_null() { None } else { unsafe { Some(&*self.ptr) } }
+    }
+    
+    fn get_mut(&mut self) -> Option<&mut T> {
+        if self.ptr.is_null() { None } else { unsafe { Some(&mut *self.ptr) } }
+    }
+}
+
+impl<T> Drop for SmartPtr<T> {
+    fn drop(&mut self) {
+        if !self.ptr.is_null() {
+            unsafe {
+                ptr::drop_in_place(self.ptr);
+                (*self.manager).deallocate(self.ptr as *mut u8);
+            }
+        }
+    }
+}
+
+fn main() {
+    let mut manager = MemoryManager::new();
+
+    // Allocate memory and use smart pointers
+    unsafe {
+        let mut data1 = SmartPtr::new(100i32, &mut manager);
+        let mut data2 = SmartPtr::new([0u8; 1024], &mut manager);
+        
+        if let Some(val) = data1.get_mut() {
+            *val = 200;
+        }
+        
+        println!("Value of data1: {:?}", data1.get());
+        println!("Stats: {} bytes, {} allocations", manager.get_stats().0, manager.get_stats().1);
+    } // data1 and data2 are dropped here, deallocating memory
+    
+    println!("Stats after drop: {} bytes, {} allocations", manager.get_stats().0, manager.get_stats().1);
+}
+```
+</UniversalEditor>
+
+### Systems Programming Differences
+
+1.  **Memory Management**: Rust allows manual memory management with `unsafe`, while JavaScript has automatic garbage collection.
+2.  **Pointers**: Rust has real pointers, while JavaScript does not.
+3.  **Performance**: Rust offers fine-grained control over performance, while JavaScript's performance is managed by its engine.
+4.  **Safety**: Rust's `unsafe` block allows bypassing safety checks, requiring careful handling.
+
+---
+
+## 🔧 The Macro System
+
+### Procedural vs. Declarative Macros
+
+<UniversalEditor title="Rust Macro System" compare={true}>
+```rust !! rs
+// Declarative macro (macro_rules!)
+macro_rules! my_vec {
+    ( $( $x:expr ),* ) => {
+        {
+            let mut temp_vec = Vec::new();
+            $(
+                temp_vec.push($x);
+            )*
+            temp_vec
+        }
+    };
+}
+
+// Procedural macro (custom derive)
+// This requires a separate crate with `proc-macro = true`
+// in Cargo.toml.
+/*
+extern crate proc_macro;
+use proc_macro::TokenStream;
+use quote::quote;
+use syn;
+
+#[proc_macro_derive(MyTrait)]
+pub fn my_trait_derive(input: TokenStream) -> TokenStream {
+    let ast = syn::parse(input).unwrap();
+    impl_my_trait(&ast)
+}
+
+fn impl_my_trait(ast: &syn::DeriveInput) -> TokenStream {
+    let name = &ast.ident;
+    let gen = quote! {
+        impl MyTrait for #name {
+            fn hello_macro() {
+                println!("Hello, Macro! My name is {}!", stringify!(#name));
+            }
+        }
+    };
+    gen.into()
+}
+*/
+
+trait MyTrait {
+    fn hello_macro();
+}
+
+// Using the declarative macro
+fn use_declarative_macro() {
+    let v = my_vec![1, 2, 3];
+    println!("{:?}", v);
+}
+
+// Using the procedural macro (conceptual)
+// #[derive(MyTrait)]
+// struct MyStruct;
+
+fn main() {
+    use_declarative_macro();
+    // MyStruct::hello_macro();
+}
+```
+</UniversalEditor>
+
+### Key Concepts of Macros
+
+1.  **Code Generation**: Macros write code at compile time, reducing boilerplate.
+2.  **Declarative Macros**: Use `macro_rules!` for simple pattern-based macros.
+3.  **Procedural Macros**: More powerful macros for custom derives, attributes, and function-like macros.
+4.  **Domain-Specific Languages (DSLs)**: Macros can be used to create embedded DSLs.
+
+---
+
+## ⚡ Performance Optimization
+
+### Benchmarking and Profiling
+
+<UniversalEditor title="Performance Optimization in Rust" compare={true}>
+```rust !! rs
+// Using Criterion for benchmarking
+// This requires `criterion` in [dev-dependencies]
+/*
+use criterion::{black_box, criterion_group, criterion_main, Criterion};
+
+fn fibonacci(n: u64) -> u64 {
+    match n {
+        0 => 1,
+        1 => 1,
+        n => fibonacci(n - 1) + fibonacci(n - 2),
+    }
+}
+
+fn criterion_benchmark(c: &mut Criterion) {
+    c.bench_function("fib 20", |b| b.iter(|| fibonacci(black_box(20))));
+}
+
+criterion_group!(benches, criterion_benchmark);
+criterion_main!(benches);
+*/
+
+// Using `perf` for profiling (Linux)
+// 1. cargo build --release
+// 2. perf record ./target/release/my_app
+// 3. perf report
+
+// Zero-cost abstractions example
+fn use_iterator() {
+    let numbers = vec![1, 2, 3, 4, 5];
+    // This iterator chain compiles down to efficient machine code
+    let sum: i32 = numbers.iter().map(|&x| x * 2).filter(|&x| x > 5).sum();
+    println!("Sum: {}", sum);
+}
+
+fn main() {
+    use_iterator();
+}
+```
+</UniversalEditor>
+
+### Optimization Techniques
+
+1.  **Benchmarking**: Use tools like Criterion to measure performance.
+2.  **Profiling**: Use tools like `perf` to identify performance bottlenecks.
+3.  **Release Mode**: Always compile with `--release` for production builds.
+4.  **Zero-Cost Abstractions**: Use high-level features like iterators, which are compiled to efficient code.
+5.  **Data Structures**: Choose the right data structures for the job. 

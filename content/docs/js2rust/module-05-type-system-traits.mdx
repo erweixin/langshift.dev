@@ -1,0 +1,291 @@
+---
+title: "Type System and Traits"
+description: "Learn about Rust's static type system, traits, and generics, comparing them with JavaScript's dynamic type system."
+---
+
+# Type System and Traits
+
+## 📖 Learning Objectives
+
+Understand Rust's static type system and trait system, learn how to use generics and trait bounds, and compare them with JavaScript's dynamic type system.
+
+---
+
+## 🎯 Type System Comparison
+
+### JavaScript's Dynamic Typing
+
+JavaScript is a dynamically typed language, where types are determined at runtime:
+
+<UniversalEditor title="JavaScript Dynamic Typing" compare={true}>
+```javascript !! js
+// Example of JavaScript's dynamic typing
+function add(a, b) {
+    return a + b;
+}
+
+// You can pass arguments of any type
+console.log(add(5, 3));        // 8 (number)
+console.log(add("Hello", " World")); // "Hello World" (string)
+console.log(add(5, "3"));      // "53" (string concatenation)
+console.log(add([1, 2], [3, 4])); // "1,23,4" (array to string)
+
+// Runtime type checking
+function processData(data) {
+    if (typeof data === 'number') {
+        return data * 2;
+    } else if (typeof data === 'string') {
+        return data.toUpperCase();
+    } else if (Array.isArray(data)) {
+        return data.length;
+    } else {
+        return "Unknown type";
+    }
+}
+
+console.log(processData(10));      // 20
+console.log(processData("hello")); // "HELLO"
+console.log(processData([1, 2, 3])); // 3
+
+// Type conversion
+let value = "42";
+let number = parseInt(value); // Explicit conversion
+let result = value * 1;       // Implicit conversion
+console.log(typeof number, number); // "number" 42
+console.log(typeof result, result); // "number" 42
+
+// Dynamic properties
+let obj = {};
+obj.name = "Rust";           // Dynamically add a property
+obj.age = 25;
+obj.sayHello = function() {  // Dynamically add a method
+    return `Hello, I'm ${this.name}`;
+};
+
+console.log(obj.sayHello()); // "Hello, I'm Rust"
+```
+</UniversalEditor>
+
+### Rust's Static Typing
+
+Rust is a statically typed language, where types are determined at compile time:
+
+<UniversalEditor title="Rust Static Typing" compare={true}>
+```rust !! rs
+// Example of Rust's static typing
+fn add(a: i32, b: i32) -> i32 {
+    a + b
+}
+
+// You can only pass arguments of the specified type
+fn main_add() {
+    println!("{}", add(5, 3)); // 8
+}
+
+// These would cause compilation errors:
+// println!("{}", add("Hello", "World")); // Error: type mismatch
+// println!("{}", add(5, "3")); // Error: type mismatch
+
+// Using generics to handle different types
+fn process_data<T>(data: T) -> String 
+where
+    T: std::fmt::Display,
+{
+    format!("Processed data: {}", data)
+}
+
+// Or using trait objects
+trait Processable {
+    fn process(&self) -> String;
+}
+
+impl Processable for i32 {
+    fn process(&self) -> String {
+        format!("Number: {}", self * 2)
+    }
+}
+
+impl Processable for String {
+    fn process(&self) -> String {
+        format!("String: {}", self.to_uppercase())
+    }
+}
+
+impl Processable for Vec<i32> {
+    fn process(&self) -> String {
+        format!("Array length: {}", self.len())
+    }
+}
+
+fn process_with_trait(data: &dyn Processable) -> String {
+    data.process()
+}
+
+// Type conversion
+fn type_conversion() {
+    let value = "42";
+    let number: i32 = value.parse().unwrap(); // Explicit conversion
+    println!("Converted number: {}", number);
+    
+    // Using 'as' for type casting
+    let float: f64 = 42.0;
+    let integer: i32 = float as i32;
+    println!("Float to integer: {}", integer);
+}
+
+// Struct definition
+struct User {
+    name: String,
+    age: u32,
+}
+
+impl User {
+    fn new(name: String, age: u32) -> Self {
+        User { name, age }
+    }
+    
+    fn say_hello(&self) -> String {
+        format!("Hello, I'm {}", self.name)
+    }
+}
+
+fn main() {
+    main_add();
+
+    // Using a generic function
+    // Note: Vec<i32> does not implement Display directly
+    // You would need a custom implementation to use it with process_data
+    println!("{}", process_data(10));
+    println!("{}", process_data("hello".to_string()));
+    
+    // Using trait objects
+    println!("{}", process_with_trait(&42));
+    println!("{}", process_with_trait(&"hello".to_string()));
+    println!("{}", process_with_trait(&vec![1, 2, 3]));
+    
+    type_conversion();
+    
+    // Using a struct
+    let user = User::new("Rust".to_string(), 25);
+    println!("{}", user.say_hello());
+}
+```
+</UniversalEditor>
+
+### Type System Differences
+
+1.  **Static vs. Dynamic**: Rust checks types at compile time; JavaScript checks at runtime.
+2.  **Type Safety**: Rust prevents type errors, while JavaScript allows type coercion.
+3.  **Performance**: Rust has zero-cost abstractions; JavaScript has runtime overhead.
+4.  **Developer Experience**: Rust provides compile-time error feedback; JavaScript has runtime errors.
+
+---
+
+## 🔧 The Trait System
+
+### Defining and Implementing Traits
+
+<UniversalEditor title="The Trait System" compare={true}>
+```rust !! rs
+// Define a trait (similar to an interface in other languages)
+trait Printable {
+    fn print(&self);
+    fn get_description(&self) -> String {
+        String::from("Default description") // Default implementation
+    }
+}
+
+// Implement the trait for different types
+struct Book {
+    title: String,
+    author: String,
+    pages: u32,
+}
+
+impl Printable for Book {
+    fn print(&self) {
+        println!("Book: {}, Author: {}, Pages: {}", 
+                 self.title, self.author, self.pages);
+    }
+    
+    fn get_description(&self) -> String {
+        format!("'{}' written by {}, {} pages long", 
+                self.title, self.author, self.pages)
+    }
+}
+
+struct Movie {
+    title: String,
+    director: String,
+    duration: u32,
+}
+
+impl Printable for Movie {
+    fn print(&self) {
+        println!("Movie: {}, Director: {}, Duration: {} minutes", 
+                 self.title, self.director, self.duration);
+    }
+}
+
+// Using trait bounds
+fn print_item<T: Printable>(item: &T) {
+    item.print();
+    println!("Description: {}", item.get_description());
+}
+
+// Traits as parameters
+fn print_multiple_items(items: &[&dyn Printable]) {
+    for item in items {
+        item.print();
+    }
+}
+
+// Traits as return types
+fn create_printable(is_book: bool) -> Box<dyn Printable> {
+    if is_book {
+        Box::new(Book {
+            title: String::from("The Rust Programming Language"),
+            author: String::from("Steve Klabnik"),
+            pages: 500,
+        })
+    } else {
+        Box::new(Movie {
+            title: String::from("The Rust Documentary"),
+            director: String::from("Graydon Hoare"),
+            duration: 120,
+        })
+    }
+}
+
+fn main() {
+    let book = Book {
+        title: "Rust for Rustaceans".into(),
+        author: "Jon Gjengset".into(),
+        pages: 400,
+    };
+    
+    let movie = Movie {
+        title: "Crab-ivating Adventures".into(),
+        director: "Ferris".into(),
+        duration: 90,
+    };
+    
+    print_item(&book);
+    print_item(&movie);
+    
+    let items: Vec<&dyn Printable> = vec![&book, &movie];
+    print_multiple_items(&items);
+    
+    let printable_item = create_printable(true);
+    printable_item.print();
+}
+```
+</UniversalEditor>
+
+### Key Concepts of Traits
+
+1.  **Shared Behavior**: Traits define a set of methods that a type must implement.
+2.  **Ad-hoc Polymorphism**: Allows different types to be treated as the same trait.
+3.  **Default Implementation**: Traits can provide default method implementations.
+4.  **Trait Bounds**: Enforce that a generic type must implement a specific trait.
+5.  **Trait Objects**: Use `dyn Trait` for dynamic dispatch at runtime. 

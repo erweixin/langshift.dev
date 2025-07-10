@@ -1,0 +1,410 @@
+---
+title: "系統級程式設計與進階主題"
+description: "學習 Rust 的系統級程式設計特性，包括 unsafe 程式碼、巨集系統、效能最佳化和底層程式設計"
+---
+
+# 系統級程式設計與進階主題
+
+## 📖 學習目標
+
+理解 Rust 的系統級程式設計特性，學會使用 unsafe 程式碼、巨集系統、效能最佳化技術，掌握底層程式設計概念。
+
+---
+
+## 🎯 系統級程式設計對比
+
+### JavaScript 的高階抽象
+
+JavaScript 執行在虛擬機器中，提供高階抽象：
+
+<UniversalEditor title="JavaScript 高階抽象" compare={true}>
+```javascript !! js
+// JavaScript 高階抽象範例
+class MemoryManager {
+    constructor() {
+        this.memory = new Map();
+        this.gcStats = {
+            collections: 0,
+            freedMemory: 0
+        };
+    }
+    
+    // 分配記憶體（JavaScript 自動管理）
+    allocate(key, data) {
+        this.memory.set(key, data);
+        console.log(`分配記憶體: ${key}`);
+    }
+    
+    // 釋放記憶體（JavaScript 自動垃圾回收）
+    deallocate(key) {
+        this.memory.delete(key);
+        console.log(`釋放記憶體: ${key}`);
+    }
+    
+    // 手動觸發垃圾回收（僅在某些環境中可用）
+    forceGarbageCollection() {
+        if (global.gc) {
+            global.gc();
+            this.gcStats.collections++;
+            console.log('強制垃圾回收');
+        }
+    }
+    
+    // 記憶體使用統計
+    getMemoryUsage() {
+        if (process.memoryUsage) {
+            const usage = process.memoryUsage();
+            return {
+                rss: usage.rss,
+                heapUsed: usage.heapUsed,
+                heapTotal: usage.heapTotal,
+                external: usage.external
+            };
+        }
+        return null;
+    }
+}
+
+// 使用範例
+const memoryManager = new MemoryManager();
+
+// 分配大量資料
+for (let i = 0; i < 1000; i++) {
+    memoryManager.allocate(`key${i}`, {
+        id: i,
+        data: 'x'.repeat(1000), // 1KB 資料
+        timestamp: Date.now()
+    });
+}
+
+console.log('記憶體使用情況:', memoryManager.getMemoryUsage());
+
+// 釋放部分資料
+for (let i = 0; i < 500; i++) {
+    memoryManager.deallocate(`key${i}`);
+}
+
+// 強制垃圾回收
+memoryManager.forceGarbageCollection();
+
+console.log('垃圾回收後記憶體使用:', memoryManager.getMemoryUsage());
+
+// 底層操作模擬（JavaScript 限制）
+class LowLevelOperations {
+    // 模擬指標操作（JavaScript 沒有真正的指標）
+    createPointer() {
+        return {
+            address: Math.random().toString(16),
+            value: null,
+            dereference() {
+                return this.value;
+            },
+            assign(value) {
+                this.value = value;
+            }
+        };
+    }
+    
+    // 模擬記憶體佈局
+    createMemoryLayout() {
+        return {
+            stack: [],
+            heap: new Map(),
+            allocateOnStack(value) {
+                this.stack.push(value);
+                return this.stack.length - 1;
+            },
+            allocateOnHeap(key, value) {
+                this.heap.set(key, value);
+                return key;
+            }
+        };
+    }
+    
+    // 模擬系統呼叫
+    systemCall(operation, data) {
+        console.log(`系統呼叫: ${operation}`, data);
+        // 在實際環境中，這些操作會被 JavaScript 引擎處理
+        return {
+            success: true,
+            result: `模擬 ${operation} 結果`,
+            timestamp: Date.now()
+        };
+    }
+}
+
+// 使用底層操作
+const lowLevel = new LowLevelOperations();
+
+const pointer = lowLevel.createPointer();
+pointer.assign("Hello, World!");
+console.log("指標值:", pointer.dereference());
+
+const memory = lowLevel.createMemoryLayout();
+const stackAddr = memory.allocateOnStack(42);
+const heapAddr = memory.allocateOnHeap("dynamic", "data");
+
+console.log("堆疊位址:", stackAddr, "值:", memory.stack[stackAddr]);
+console.log("堆積位址:", heapAddr, "值:", memory.heap.get(heapAddr));
+
+// 模擬系統呼叫
+const syscall = lowLevel.systemCall("read", { file: "test.txt", size: 1024 });
+console.log("系統呼叫結果:", syscall);
+```
+</UniversalEditor>
+
+### Rust 的系統級程式設計
+
+Rust 提供直接的記憶體控制和系統級存取：
+
+<UniversalEditor title="Rust 系統級程式設計" compare={true}>
+```rust !! rs
+use std::alloc::{alloc, dealloc, Layout};
+use std::collections::HashMap;
+use std::ptr;
+use std::mem;
+
+// 自訂記憶體管理器
+struct MemoryManager {
+    allocations: HashMap<usize, Layout>,
+    total_allocated: usize,
+}
+
+impl MemoryManager {
+    fn new() -> Self {
+        Self {
+            allocations: HashMap::new(),
+            total_allocated: 0,
+        }
+    }
+    
+    // 手動分配記憶體
+    unsafe fn allocate(&mut self, size: usize, align: usize) -> *mut u8 {
+        let layout = Layout::from_size_align(size, align).unwrap();
+        let ptr = alloc(layout);
+        
+        if !ptr.is_null() {
+            self.allocations.insert(ptr as usize, layout);
+            self.total_allocated += size;
+            println!("分配記憶體: {} 位元組，位址: {:p}", size, ptr);
+        }
+        
+        ptr
+    }
+    
+    // 手動釋放記憶體
+    unsafe fn deallocate(&mut self, ptr: *mut u8) {
+        if let Some(layout) = self.allocations.remove(&(ptr as usize)) {
+            dealloc(ptr, layout);
+            self.total_allocated -= layout.size();
+            println!("釋放記憶體: {} 位元組，位址: {:p}", layout.size(), ptr);
+        }
+    }
+    
+    // 取得記憶體使用統計
+    fn get_stats(&self) -> (usize, usize) {
+        (self.total_allocated, self.allocations.len())
+    }
+}
+
+// 智慧指標實作
+struct SmartPtr<T> {
+    ptr: *mut T,
+    manager: *mut MemoryManager,
+}
+
+impl<T> SmartPtr<T> {
+    unsafe fn new(value: T, manager: &mut MemoryManager) -> Self {
+        let size = mem::size_of::<T>();
+        let align = mem::align_of::<T>();
+        let ptr = manager.allocate(size, align) as *mut T;
+        
+        if !ptr.is_null() {
+            ptr::write(ptr, value);
+        }
+        
+        Self {
+            ptr,
+            manager: manager as *mut MemoryManager,
+        }
+    }
+    
+    fn get(&self) -> Option<&T> {
+        if self.ptr.is_null() { None } else { unsafe { Some(&*self.ptr) } }
+    }
+    
+    fn get_mut(&mut self) -> Option<&mut T> {
+        if self.ptr.is_null() { None } else { unsafe { Some(&mut *self.ptr) } }
+    }
+}
+
+impl<T> Drop for SmartPtr<T> {
+    fn drop(&mut self) {
+        if !self.ptr.is_null() {
+            unsafe {
+                ptr::drop_in_place(self.ptr);
+                (*self.manager).deallocate(self.ptr as *mut u8);
+            }
+        }
+    }
+}
+
+fn main() {
+    let mut manager = MemoryManager::new();
+
+    // 分配記憶體並使用智慧指標
+    unsafe {
+        let mut data1 = SmartPtr::new(100i32, &mut manager);
+        let mut data2 = SmartPtr::new([0u8; 1024], &mut manager);
+        
+        if let Some(val) = data1.get_mut() {
+            *val = 200;
+        }
+        
+        println!("data1 的值: {:?}", data1.get());
+        println!("統計: {} 位元組, {} 個分配", manager.get_stats().0, manager.get_stats().1);
+    } // data1 和 data2 在此被丟棄，釋放記憶體
+    
+    println!("丟棄後統計: {} 位元組, {} 個分配", manager.get_stats().0, manager.get_stats().1);
+}
+```
+</UniversalEditor>
+
+### 系統程式設計差異
+
+1.  **記憶體管理**: Rust 允許使用 `unsafe` 進行手動記憶體管理，而 JavaScript 有自動垃圾回收。
+2.  **指標**: Rust 有真正的指標，而 JavaScript 沒有。
+3.  **效能**: Rust 提供對效能的精細控制，而 JavaScript 的效能由其引擎管理。
+4.  **安全性**: Rust 的 `unsafe` 區塊允許繞過安全檢查，需要謹慎處理。
+
+---
+
+## 🔧 巨集系統
+
+### 程序性 vs. 宣告式巨集
+
+<UniversalEditor title="Rust 巨集系統" compare={true}>
+```rust !! rs
+// 宣告式巨集 (macro_rules!)
+macro_rules! my_vec {
+    ( $( $x:expr ),* ) => {
+        {
+            let mut temp_vec = Vec::new();
+            $(
+                temp_vec.push($x);
+            )*
+            temp_vec
+        }
+    };
+}
+
+// 程序性巨集 (自訂 derive)
+// 這需要在 Cargo.toml 中新增一個 crate 並設定 `proc-macro = true`
+/*
+extern crate proc_macro;
+use proc_macro::TokenStream;
+use quote::quote;
+use syn;
+
+#[proc_macro_derive(MyTrait)]
+pub fn my_trait_derive(input: TokenStream) -> TokenStream {
+    let ast = syn::parse(input).unwrap();
+    impl_my_trait(&ast)
+}
+
+fn impl_my_trait(ast: &syn::DeriveInput) -> TokenStream {
+    let name = &ast.ident;
+    let gen = quote! {
+        impl MyTrait for #name {
+            fn hello_macro() {
+                println!("Hello, Macro! My name is {}!", stringify!(#name));
+            }
+        }
+    };
+    gen.into()
+}
+*/
+
+trait MyTrait {
+    fn hello_macro();
+}
+
+// 使用宣告式巨集
+fn use_declarative_macro() {
+    let v = my_vec![1, 2, 3];
+    println!("{:?}", v);
+}
+
+// 使用程序性巨集 (概念性)
+// #[derive(MyTrait)]
+// struct MyStruct;
+
+fn main() {
+    use_declarative_macro();
+    // MyStruct::hello_macro();
+}
+```
+</UniversalEditor>
+
+### 巨集的關鍵概念
+
+1.  **程式碼產生**: 巨集在編譯時寫入程式碼，減少樣板程式碼。
+2.  **宣告式巨集**: 使用 `macro_rules!` 進行簡單的模式匹配巨集。
+3.  **程序性巨集**: 功能更強大的巨集，用於自訂 derive、屬性和函式型巨集。
+4.  **領域特定語言 (DSLs)**: 巨集可用於建立嵌入式 DSL。
+
+---
+
+## ⚡ 效能最佳化
+
+### 基準測試與分析
+
+<UniversalEditor title="Rust 效能最佳化" compare={true}>
+```rust !! rs
+// 使用 Criterion 進行基準測試
+// 這需要在 [dev-dependencies] 中加入 `criterion`
+/*
+use criterion::{black_box, criterion_group, criterion_main, Criterion};
+
+fn fibonacci(n: u64) -> u64 {
+    match n {
+        0 => 1,
+        1 => 1,
+        n => fibonacci(n - 1) + fibonacci(n - 2),
+    }
+}
+
+fn criterion_benchmark(c: &mut Criterion) {
+    c.bench_function("fib 20", |b| b.iter(|| fibonacci(black_box(20))));
+}
+
+criterion_group!(benches, criterion_benchmark);
+criterion_main!(benches);
+*/
+
+// 使用 `perf` 進行分析 (Linux)
+// 1. cargo build --release
+// 2. perf record ./target/release/my_app
+// 3. perf report
+
+// 零成本抽象範例
+fn use_iterator() {
+    let numbers = vec![1, 2, 3, 4, 5];
+    // 這個迭代器鏈會編譯成高效的機器碼
+    let sum: i32 = numbers.iter().map(|&x| x * 2).filter(|&x| x > 5).sum();
+    println!("總和: {}", sum);
+}
+
+fn main() {
+    use_iterator();
+}
+```
+</UniversalEditor>
+
+### 最佳化技術
+
+1.  **基準測試**: 使用 Criterion 等工具測量效能。
+2.  **分析**: 使用 `perf` 等工具找出效能瓶頸。
+3.  **發行模式**: 總是使用 `--release` 編譯生產版本。
+4.  **零成本抽象**: 使用高階特性，如迭代器，它們會被編譯成高效的程式碼。
+5.  **資料結構**: 為工作選擇正確的資料結構。 

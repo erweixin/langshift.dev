@@ -1,5 +1,7 @@
 import Link from "next/link"
 import { source } from "@/lib/source"
+import { generateKeywordsFromSlug } from "@/lib/seo-keywords"
+import { notFound } from "next/navigation"
 
 export default function HomePage() {
   return (
@@ -306,4 +308,75 @@ export default function HomePage() {
 
 export async function generateStaticParams() {
   return source.generateParams()
+}
+
+export async function generateMetadata(props: {
+  params: Promise<{ slug?: string[], lang: string }>
+}) {
+  const params = await props.params
+  const page = source.getPage(params.slug, params.lang) as unknown as {
+    data: {
+      title: string
+      description: string
+    }
+  }
+  if (!page) notFound()
+
+  // 生成页面关键词
+  const keywords = generateKeywordsFromSlug(params.slug, params.lang)
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://langshift.dev'
+  const canonical = params.slug ? `${siteUrl}/${params.lang}/intro/${params.slug.join('/')}` : `${siteUrl}/${params.lang}/intro`
+
+  return {
+    title: page.data.title,
+    description: page.data.description,
+    keywords: keywords,
+    authors: [{ name: 'LangShift.dev' }],
+    creator: 'LangShift.dev',
+    publisher: 'LangShift.dev',
+    robots: {
+      index: true,
+      follow: true,
+      googleBot: {
+        index: true,
+        follow: true,
+        'max-video-preview': -1,
+        'max-image-preview': 'large',
+        'max-snippet': -1,
+      },
+    },
+    alternates: {
+      canonical: canonical,
+      languages: {
+        'zh-CN': `${siteUrl}/zh-cn/intro/${params.slug?.join('/') || ''}`,
+        'zh-TW': `${siteUrl}/zh-tw/intro/${params.slug?.join('/') || ''}`,
+        'en': `${siteUrl}/en/intro/${params.slug?.join('/') || ''}`,
+        'x-default': `${siteUrl}/zh-cn/intro/${params.slug?.join('/') || ''}`,
+      },
+    },
+    openGraph: {
+      title: page.data.title,
+      description: page.data.description,
+      url: canonical,
+      siteName: 'LangShift.dev',
+      locale: params.lang === 'zh-cn' ? 'zh_CN' : params.lang === 'zh-tw' ? 'zh_TW' : 'en_US',
+      type: 'article',
+      images: [
+        {
+          url: `${siteUrl}/og-image.png`,
+          width: 1200,
+          height: 630,
+          alt: page.data.title,
+        },
+      ],
+    },
+    twitter: {
+      card: 'summary_large_image',
+      title: page.data.title,
+      description: page.data.description,
+      images: [`${siteUrl}/og-image.png`],
+      creator: '@langshift_dev',
+      site: '@langshift_dev',
+    },
+  }
 }
