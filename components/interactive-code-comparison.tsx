@@ -27,12 +27,12 @@ import { getTranslations, SupportedLanguage } from '@/messages';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { 
-  codeExamples, 
-  languageConfigs, 
+  getCodeExamples,
+  getLanguageConfigs,
   getLanguageConfig,
   getAvailableCombinations,
   type CodeExample 
-} from './code-examples-config';
+} from './code-examples';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -53,6 +53,7 @@ export function InteractiveCodeComparison({ lang }: { lang: SupportedLanguage })
     setIsLoading(true);
     
     const timer = setTimeout(() => {
+      const codeExamples = getCodeExamples(lang);
       const key = `${initialLanguage}-${targetLanguage}`;
       const reverseKey = `${targetLanguage}-${initialLanguage}`;
 
@@ -79,7 +80,7 @@ export function InteractiveCodeComparison({ lang }: { lang: SupportedLanguage })
     }, 200);
 
     return () => clearTimeout(timer);
-  }, [initialLanguage, targetLanguage]);
+  }, [initialLanguage, targetLanguage, lang]);
 
   const handleLanguageChange = (type: 'initial' | 'target', value: string) => {
     if (type === 'initial') {
@@ -99,8 +100,13 @@ export function InteractiveCodeComparison({ lang }: { lang: SupportedLanguage })
     }
   };
 
-  const initialConfig = getLanguageConfig(initialLanguage);
-  const targetConfig = getLanguageConfig(targetLanguage);
+  const initialConfig = getLanguageConfig(lang, initialLanguage);
+  const targetConfig = getLanguageConfig(lang, targetLanguage);
+
+  // 如果配置不存在，使用默认值
+  if (!initialConfig || !targetConfig) {
+    return <div>Loading...</div>;
+  }
 
   return (
     <div className="space-y-4">
@@ -127,7 +133,7 @@ export function InteractiveCodeComparison({ lang }: { lang: SupportedLanguage })
                 <SelectValue placeholder={t.home.interactiveCodeComparison.sourceLanguage} />
               </SelectTrigger>
               <SelectContent className="bg-black/95 border-white/10 backdrop-blur-xl">
-                {languageConfigs.map((config) => (
+                {getLanguageConfigs(lang).map((config) => (
                   <SelectItem key={config.value} value={config.value} className="text-white hover:bg-white/10 focus:bg-white/10">
                     <span className="flex items-center gap-2">
                       <span className="text-base">{config.icon}</span>
@@ -153,7 +159,7 @@ export function InteractiveCodeComparison({ lang }: { lang: SupportedLanguage })
                 <SelectValue placeholder={t.home.interactiveCodeComparison.targetLanguage} />
               </SelectTrigger>
               <SelectContent className="bg-black/95 border-white/10 backdrop-blur-xl">
-                {languageConfigs.map((config) => (
+                {getLanguageConfigs(lang).map((config) => (
                   <SelectItem key={config.value} value={config.value} className="text-white hover:bg-white/10 focus:bg-white/10">
                     <span className="flex items-center gap-2">
                       <span className="text-base">{config.icon}</span>
@@ -234,15 +240,6 @@ export function InteractiveCodeComparison({ lang }: { lang: SupportedLanguage })
                     {copiedCode === 'left' ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
                   </Button>
                 </div>
-                
-                {currentComparison.description && (
-                  <div className="mb-2 p-2 bg-gradient-to-r from-blue-500/10 to-transparent rounded border border-blue-500/20">
-                    <p className="text-xs text-white/80 flex items-start gap-2">
-                      <Sparkles className="w-3 h-3 mt-0.5 text-blue-400 flex-shrink-0" />
-                      {currentComparison.description}
-                    </p>
-                  </div>
-                )}
                 
                 <div className="relative group">
                   <div className="absolute inset-0 bg-gradient-to-r from-blue-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-lg pointer-events-none"></div>
@@ -345,11 +342,17 @@ export function InteractiveCodeComparison({ lang }: { lang: SupportedLanguage })
                 <h4 className="text-sm font-medium text-white/60">{t.home.interactiveCodeComparison.recommendedCombinations}</h4>
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-w-xl mx-auto">
-                {getAvailableCombinations().slice(0, 6).map((key) => {
+                {getAvailableCombinations(lang).slice(0, 6).map((key) => {
                   const [left, right] = key.split('-');
-                  const leftConfig = getLanguageConfig(left);
-                  const rightConfig = getLanguageConfig(right);
-                  const example = codeExamples[key];
+                  const leftConfig = getLanguageConfig(lang, left);
+                  const rightConfig = getLanguageConfig(lang, right);
+                  const example = getCodeExamples(lang)[key];
+                  
+                  // 跳过无效的配置
+                  if (!leftConfig || !rightConfig) {
+                    return null;
+                  }
+                  
                   return (
                     <Button
                       key={key}
