@@ -1,0 +1,706 @@
+---
+title: "錯誤處理與型別安全"
+description: "學習 Rust 的錯誤處理機制，包括 Result、Option 型別和錯誤傳播，對比 JavaScript 的異常處理"
+---
+
+# 錯誤處理與型別安全
+
+## 📖 學習目標
+
+理解 Rust 的錯誤處理哲學，學會使用 `Result` 和 `Option` 型別，掌握錯誤傳播模式，對比 JavaScript 的異常處理機制。
+
+---
+
+## 🎯 錯誤處理哲學對比
+
+### JavaScript 的異常處理
+
+JavaScript 使用 try-catch 機制處理異常：
+
+<UniversalEditor title="JavaScript 異常處理" compare={true}>
+```javascript !! js
+// JavaScript 異常處理
+function divide(a, b) {
+    if (b === 0) {
+        throw new Error("除數不能為零");
+    }
+    return a / b;
+}
+
+function processData(data) {
+    if (!data) {
+        throw new Error("資料不能為空");
+    }
+    return data.toUpperCase();
+}
+
+// 使用 try-catch 處理異常
+try {
+    const result1 = divide(10, 2);
+    console.log("除法結果:", result1);
+    
+    const result2 = divide(10, 0); // 拋出異常
+    console.log("這個不會執行");
+} catch (error) {
+    console.log("捕獲到異常:", error.message);
+}
+
+// 異步異常處理
+async function fetchData(url) {
+    try {
+        const response = await fetch(url);
+        if (!response.ok) {
+            throw new Error(`HTTP 錯誤: ${response.status}`);
+        }
+        return await response.json();
+    } catch (error) {
+        console.log("網路請求失敗:", error.message);
+        return null;
+    }
+}
+
+// Promise 異常處理
+function asyncOperation() {
+    return new Promise((resolve, reject) => {
+        setTimeout(() => {
+            const random = Math.random();
+            if (random > 0.5) {
+                resolve("操作成功");
+            }
+            else {
+                reject(new Error("操作失敗"));
+            }
+        }, 1000);
+    });
+}
+
+asyncOperation()
+    .then(result => console.log("成功:", result))
+    .catch(error => console.log("失敗:", error.message));
+
+// 可選鏈和空值合併
+function getUserName(user) {
+    // 傳統方式
+    if (user && user.profile && user.profile.name) {
+        return user.profile.name;
+    }
+    return "未知用戶";
+    
+    // 現代方式
+    // return user?.profile?.name ?? "未知用戶";
+}
+
+// 函數可能返回 null 或 undefined
+function findUser(id) {
+    const users = [
+        { id: 1, name: "Alice" },
+        { id: 2, name: "Bob" }
+    ];
+    
+    const user = users.find(u => u.id === id);
+    return user || null; // 可能返回 null
+}
+
+const user = findUser(3);
+if (user) {
+    console.log("找到用戶:", user.name);
+} else {
+    console.log("用戶不存在");
+}
+```
+</UniversalEditor>
+
+### Rust 的錯誤處理
+
+Rust 使用型別系統處理錯誤，沒有異常機制：
+
+<UniversalEditor title="Rust 錯誤處理" compare={true}>
+```rust !! rs
+// Rust 錯誤處理 - 使用 Result 型別
+fn divide(a: f64, b: f64) -> Result<f64, String> {
+    if b == 0.0 {
+        Err("除數不能為零".to_string())
+    } else {
+        Ok(a / b)
+    }
+}
+
+fn process_data(data: &str) -> Result<String, String> {
+    if data.is_empty() {
+        return Err("資料不能為空".to_string());
+    }
+    Ok(data.to_uppercase())
+}
+
+// 使用 match 處理 Result
+fn handle_division() {
+    match divide(10.0, 2.0) {
+        Ok(result) => println!("除法結果: {}", result),
+        Err(error) => println!("錯誤: {}", error),
+    }
+    
+    match divide(10.0, 0.0) {
+        Ok(result) => println!("結果: {}", result),
+        Err(error) => println!("錯誤: {}", error),
+    }
+}
+
+// 使用 if let 簡化處理
+fn handle_division_simple() {
+    if let Ok(result) = divide(10.0, 2.0) {
+        println!("除法結果: {}", result);
+    }
+    
+    if let Err(error) = divide(10.0, 0.0) {
+        println!("錯誤: {}", error);
+    }
+}
+
+// 使用 unwrap 和 expect（不推薦在生產程式碼中使用）
+fn handle_division_unwrap() {
+    let result = divide(10.0, 2.0).unwrap(); // 成功時返回值，失敗時 panic
+    println!("結果: {}", result);
+    
+    let result = divide(10.0, 0.0).expect("除法失敗"); // 失敗時 panic 並顯示訊息
+    println!("結果: {}", result);
+}
+
+// 使用 ? 操作符傳播錯誤
+fn process_operations() -> Result<(), String> {
+    let result1 = divide(10.0, 2.0)?; // 如果失敗，立即返回錯誤
+    println!("第一個結果: {}", result1);
+    
+    let result2 = process_data("hello")?;
+    println!("第二個結果: {}", result2);
+    
+    Ok(()) // 成功時返回 ()
+}
+
+fn main() {
+    handle_division();
+    handle_division_simple();
+    
+    // 處理可能 panic 的程式碼
+    match std::panic::catch_unwind(|| {
+        handle_division_unwrap();
+    }) {
+        Ok(_) => println!("操作成功"),
+        Err(_) => println!("操作失敗，發生 panic"),
+    }
+    
+    // 處理返回 Result 的函數
+    if let Err(error) = process_operations() {
+        println!("處理操作時出錯: {}", error);
+    }
+}
+```
+</UniversalEditor>
+
+### 錯誤處理差異
+
+1. **異常 vs 型別**: JavaScript 使用異常，Rust 使用型別系統
+2. **執行時 vs 編譯時**: JavaScript 執行時檢查，Rust 編譯時檢查
+3. **可恢復 vs 不可恢復**: Rust 區分可恢復錯誤（Result）和不可恢復錯誤（panic）
+4. **顯式 vs 隱式**: Rust 強制顯式處理錯誤，JavaScript 可以忽略異常
+
+---
+
+## 📦 Option 型別
+
+### 處理可能為空的值
+
+<UniversalEditor title="Option 型別" compare={true}>
+```rust !! rs
+// Option 型別 - 處理可能為空的值
+fn find_user(id: u32) -> Option<User> {
+    let users = vec![
+        User { id: 1, name: String::from("Alice") },
+        User { id: 2, name: String::from("Bob") },
+    ];
+    
+    users.into_iter().find(|user| user.id == id)
+}
+
+fn get_user_name(user: &User) -> &str {
+    &user.name
+}
+
+// 使用 match 處理 Option
+fn handle_user_match(id: u32) {
+    match find_user(id) {
+        Some(user) => println!("找到用戶: {}", get_user_name(&user)),
+        None => println!("用戶不存在"),
+    }
+}
+
+// 使用 if let 簡化處理
+fn handle_user_if_let(id: u32) {
+    if let Some(user) = find_user(id) {
+        println!("找到用戶: {}", get_user_name(&user));
+    } else {
+        println!("用戶不存在");
+    }
+}
+
+// 使用 map 和 and_then 進行鏈式操作
+fn handle_user_chain(id: u32) {
+    let user_name = find_user(id)
+        .map(|user| get_user_name(&user).to_string())
+        .unwrap_or_else(|| "未知用戶".to_string());
+    
+    println!("用戶名: {}", user_name);
+}
+
+// 使用 unwrap 和 expect（謹慎使用）
+fn handle_user_unwrap(id: u32) {
+    let user = find_user(id).unwrap(); // 如果為 None 則 panic
+    println!("用戶: {}", get_user_name(&user));
+    
+    let user = find_user(id).expect("用戶應該存在"); // 自定義 panic 訊息
+    println!("用戶: {}", get_user_name(&user));
+}
+
+// Option 的實用方法
+fn option_methods() {
+    let value: Option<i32> = Some(42);
+    let none_value: Option<i32> = None;
+    
+    // unwrap_or - 提供預設值
+    println!("值: {}", value.unwrap_or(0)); // 42
+    println!("值: {}", none_value.unwrap_or(0)); // 0
+    
+    // unwrap_or_else - 使用閉包提供預設值
+    println!("值: {}", none_value.unwrap_or_else(|| {
+        println!("計算預設值");
+        100
+    }));
+    
+    // map - 轉換值
+    let doubled = value.map(|x| x * 2);
+    println!("加倍: {:?}", doubled); // Some(84)
+    
+    // and_then - 鏈式操作
+    let result = value.and_then(|x| {
+        if x > 40 {
+            Some(x.to_string())
+        } else {
+            None
+        }
+    });
+    println!("結果: {:?}", result); // Some("42")
+    
+    // filter - 過濾值
+    let filtered = value.filter(|&x| x > 50);
+    println!("過濾後: {:?}", filtered); // None
+}
+
+struct User {
+    id: u32,
+    name: String,
+}
+
+fn main() {
+    handle_user_match(1);
+    handle_user_match(3);
+    
+    handle_user_if_let(1);
+    handle_user_if_let(3);
+    
+    handle_user_chain(1);
+    handle_user_chain(3);
+    
+    option_methods();
+}
+```
+</UniversalEditor>
+
+---
+
+## 🔄 Result 型別
+
+### 處理可能失敗的操作
+
+<UniversalEditor title="Result 型別" compare={true}>
+```rust !! rs
+// 自定義錯誤型別
+#[derive(Debug)]
+enum AppError {
+    DivisionByZero,
+    InvalidInput(String),
+    NetworkError(String),
+    DatabaseError(String),
+}
+
+impl std::fmt::Display for AppError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            AppError::DivisionByZero => write!(f, "除數不能為零"),
+            AppError::InvalidInput(msg) => write!(f, "無效輸入: {}", msg),
+            AppError::NetworkError(msg) => write!(f, "網路錯誤: {}", msg),
+            AppError::DatabaseError(msg) => write!(f, "資料庫錯誤: {}", msg),
+        }
+    }
+}
+
+// 實現 std::error::Error trait
+impl std::error::Error for AppError {}
+
+// 使用自定義錯誤型別
+fn divide_with_custom_error(a: f64, b: f64) -> Result<f64, AppError> {
+    if b == 0.0 {
+        Err(AppError::DivisionByZero)
+    } else {
+        Ok(a / b)
+    }
+}
+
+fn validate_input(input: &str) -> Result<String, AppError> {
+    if input.is_empty() {
+        return Err(AppError::InvalidInput("資料不能為空".to_string()));
+    }
+    
+    if input.len() < 3 {
+        return Err(AppError::InvalidInput("輸入長度至少為3".to_string()));
+    }
+    
+    Ok(input.to_string())
+}
+
+// 模擬網路請求
+fn fetch_data(url: &str) -> Result<String, AppError> {
+    if url.is_empty() {
+        return Err(AppError::NetworkError("URL 不能為空".to_string()));
+    }
+    
+    if url.contains("error") {
+        return Err(AppError::NetworkError("模擬網路錯誤".to_string()));
+    }
+    
+    Ok(format!("從 {} 獲取的資料", url))
+}
+
+// 錯誤傳播
+fn process_data_chain(input: &str, url: &str) -> Result<String, AppError> {
+    // 使用 ? 操作符傳播錯誤
+    let validated_input = validate_input(input)?;
+    let data = fetch_data(url)?;
+    
+    Ok(format!("處理後的資料: {} + {}", validated_input, data))
+}
+
+// 使用 map 和 map_err 轉換錯誤
+fn process_with_map(input: &str) -> Result<String, AppError> {
+    validate_input(input)
+        .map(|s| s.to_uppercase())
+        .map_err(|e| AppError::InvalidInput(format!("驗證失敗: {}", e)))
+}
+
+// 使用 and_then 進行鏈式操作
+fn process_with_and_then(input: &str) -> Result<String, AppError> {
+    validate_input(input)
+        .and_then(|s| {
+            if s.len() > 10 {
+                Ok(s)
+            } else {
+                Err(AppError::InvalidInput("輸入太短".to_string()))
+            }
+        })
+        .map(|s| format!("處理結果: {}", s))
+}
+
+// 組合多個 Result
+fn combine_results() -> Result<(), AppError> {
+    let result1 = divide_with_custom_error(10.0, 2.0)?;
+    let result2 = validate_input("hello")?;
+    let result3 = fetch_data("https://example.com")?;
+    
+    println!("所有操作成功: {}, {}, {}", result1, result2, result3);
+    Ok(())
+}
+
+fn main() {
+    // 處理自定義錯誤
+    match divide_with_custom_error(10.0, 0.0) {
+        Ok(result) => println!("結果: {}", result),
+        Err(error) => println!("錯誤: {}", error),
+    }
+    
+    // 使用 ? 操作符
+    if let Err(error) = process_data_chain("hello", "https://example.com") {
+        println!("處理失敗: {}", error);
+    }
+    
+    // 使用 map 和 and_then
+    match process_with_map("hi") {
+        Ok(result) => println!("成功: {}", result),
+        Err(error) => println!("失敗: {}", error),
+    }
+    
+    match process_with_and_then("very long input string") {
+        Ok(result) => println!("成功: {}", result),
+        Err(error) => println!("失敗: {}", error),
+    }
+    
+    // 組合多個操作
+    if let Err(error) = combine_results() {
+        println!("組合操作失敗: {}", error);
+    }
+}
+```
+</UniversalEditor>
+
+---
+
+## 🎯 錯誤處理最佳實踐
+
+### 錯誤處理模式對比
+
+<UniversalEditor title="錯誤處理模式" compare={true}>
+```javascript !! js
+// JavaScript 錯誤處理模式
+class ValidationError extends Error {
+    constructor(message) {
+        super(message);
+        this.name = 'ValidationError';
+    }
+}
+
+class NetworkError extends Error {
+    constructor(message) {
+        super(message);
+        this.name = 'NetworkError';
+    }
+}
+
+// 函數可能拋出異常
+function processUserData(userData) {
+    if (!userData.name) {
+        throw new ValidationError('用戶名不能為空');
+    }
+    
+    if (userData.age < 0) {
+        throw new ValidationError('年齡不能為負數');
+    }
+    
+    return {
+        ...userData,
+        processed: true
+    };
+}
+
+// 異步函數錯誤處理
+async function fetchUserData(userId) {
+    try {
+        const response = await fetch(`/api/users/${userId}`);
+        if (!response.ok) {
+            throw new NetworkError(`HTTP ${response.status}`);
+        }
+        return await response.json();
+    } catch (error) {
+        if (error instanceof NetworkError) {
+            console.log('網路錯誤:', error.message);
+        } else {
+            console.log('未知錯誤:', error.message);
+        }
+        throw error; // 重新拋出
+    }
+}
+
+// 使用 try-catch 處理
+async function handleUser(userId, userData) {
+    try {
+        const processedData = processUserData(userData);
+        const fetchedData = await fetchUserData(userId);
+        
+        return {
+            ...processedData,
+            ...fetchedData
+        };
+    } catch (error) {
+        if (error instanceof ValidationError) {
+            console.log('驗證錯誤:', error.message);
+            return null;
+        } else if (error instanceof NetworkError) {
+            console.log('網路錯誤:', error.message);
+            return null;
+        } else {
+            console.log('未知錯誤:', error.message);
+            throw error;
+        }
+    }
+}
+
+// 使用 Promise 鏈
+function processWithPromise(userData) {
+    return Promise.resolve(userData)
+        .then(data => {
+            if (!data.name) {
+                throw new ValidationError('用戶名不能為空');
+            }
+            return data;
+        })
+        .then(data => {
+            return {
+                ...data,
+                processed: true
+            };
+        })
+        .catch(error => {
+            if (error instanceof ValidationError) {
+                console.log('驗證失敗:', error.message);
+                return null;
+            }
+            throw error;
+        });
+}
+```
+
+```rust !! rs
+// Rust 錯誤處理模式
+use std::error::Error;
+use std::fmt;
+
+// 自定義錯誤型別
+#[derive(Debug)]
+enum AppError {
+    ValidationError(String),
+    NetworkError(String),
+    DatabaseError(String),
+}
+
+impl fmt::Display for AppError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            AppError::ValidationError(msg) => write!(f, "驗證錯誤: {}", msg),
+            AppError::NetworkError(msg) => write!(f, "網路錯誤: {}", msg),
+            AppError::DatabaseError(msg) => write!(f, "資料庫錯誤: {}", msg),
+        }
+    }
+}
+
+impl Error for AppError {}
+
+// 函數返回 Result
+fn process_user_data(user_data: UserData) -> Result<UserData, AppError> {
+    if user_data.name.is_empty() {
+        return Err(AppError::ValidationError("用戶名不能為空".to_string()));
+    }
+    
+    if user_data.age < 0 {
+        return Err(AppError::ValidationError("年齡不能為負數".to_string()));
+    }
+    
+    Ok(UserData {
+        processed: true,
+        ..user_data
+    })
+}
+
+// 異步函數錯誤處理
+async fn fetch_user_data(user_id: u32) -> Result<UserData, AppError> {
+    // 模擬網路請求
+    if user_id == 0 {
+        return Err(AppError::NetworkError("無效的用戶ID".to_string()));
+    }
+    
+    // 模擬成功響應
+    Ok(UserData {
+        id: user_id,
+        name: format!("用戶{}", user_id),
+        age: 25,
+        processed: false,
+    })
+}
+
+// 使用 ? 操作符處理錯誤
+async fn handle_user(user_id: u32, user_data: UserData) -> Result<UserData, AppError> {
+    let processed_data = process_user_data(user_data)?;
+    let fetched_data = fetch_user_data(user_id).await?;
+    
+    Ok(UserData {
+        id: fetched_data.id,
+        name: processed_data.name,
+        age: processed_data.age,
+        processed: true,
+    })
+}
+
+// 使用 map 和 map_err 轉換錯誤
+fn process_with_transformation(user_data: UserData) -> Result<UserData, AppError> {
+    process_user_data(user_data)
+        .map(|data| UserData {
+            name: data.name.to_uppercase(),
+            ..data
+        })
+        .map_err(|e| match e {
+            AppError::ValidationError(msg) => AppError::ValidationError(format!("處理失敗: {}", msg)),
+            _ => e,
+        })
+}
+
+// 使用 and_then 進行鏈式操作
+fn process_with_chain(user_data: UserData) -> Result<UserData, AppError> {
+    process_user_data(user_data)
+        .and_then(|data| {
+            if data.name.len() > 10 {
+                Ok(data)
+            } else {
+                Err(AppError::ValidationError("用戶名太短".to_string()))
+            }
+        })
+        .map(|data| UserData {
+            name: format!("處理後的_{}", data.name),
+            ..data
+        })
+}
+
+#[derive(Debug, Clone)]
+struct UserData {
+    id: u32,
+    name: String,
+    age: i32,
+    processed: bool,
+}
+
+#[tokio::main]
+async fn main() {
+    let user_data = UserData {
+        id: 0,
+        name: "Alice".to_string(),
+        age: 25,
+        processed: false,
+    };
+    
+    // 處理錯誤
+    match handle_user(1, user_data.clone()).await {
+        Ok(result) => println!("成功: {:?}", result),
+        Err(error) => println!("失敗: {}", error),
+    }
+    
+    // 使用轉換
+    match process_with_transformation(user_data.clone()) {
+        Ok(result) => println!("轉換成功: {:?}", result),
+        Err(error) => println!("轉換失敗: {}", error),
+    }
+    
+    // 使用鏈式操作
+    match process_with_chain(user_data) {
+        Ok(result) => println!("鏈式處理成功: {:?}", result),
+        Err(error) => println!("鏈式處理失敗: {}", error),
+    }
+}
+```
+</UniversalEditor>
+
+### 進階錯誤處理函式庫
+
+在實際專案中，為了更方便地定義和處理錯誤，Rust 社群提供了許多優秀的錯誤處理函式庫，例如：
+
+*   **`thiserror`**: 用於簡化自定義錯誤型別的定義，特別是當錯誤需要包含額外資訊或從其他錯誤型別派生時。它透過巨集自動實現 `Display` 和 `Error` trait。
+*   **`anyhow`**: 用於簡化錯誤傳播，特別是在應用程式層程式碼中。它提供了一個簡單的 `Result` 型別別名 `anyhow::Result<T>`，並允許你輕鬆地將各種錯誤型別轉換為 `anyhow::Error`。
+
+這些函式庫可以大大減少錯誤處理的樣板程式碼，提高程式碼的可讀性和可維護性。
+
+---
+
+## 🎯 練習題

@@ -1,0 +1,619 @@
+---
+title: "Web Development in Practice"
+description: "Learn to build web applications with Rust, including Axum framework, database operations, and API design, contrasting with JavaScript's web development"
+---
+
+# Web Development in Practice
+
+## 📖 Learning Objectives
+
+Learn to build web applications with Rust, master the Axum framework, database operations, API design, and deployment, contrasting with JavaScript's web development ecosystem.
+
+---
+
+## 🎯 Web Framework Comparison
+
+### JavaScript's Web Development
+
+JavaScript uses frameworks like Express.js:
+
+<UniversalEditor title="JavaScript Web Development" compare={true}>
+```javascript !! js
+// Express.js Web Application
+const express = require('express');
+const app = express();
+const port = 3000;
+
+// Middleware
+app.use(express.json());
+app.use(express.static('public'));
+
+// In-memory data store
+let users = [
+    { id: 1, name: 'Alice', email: 'alice@example.com' },
+    { id: 2, name: 'Bob', email: 'bob@example.com' }
+];
+
+// Route definition
+app.get('/', (req, res) => {
+    res.json({ message: 'Hello from Express!' });
+});
+
+// GET all users
+app.get('/api/users', (req, res) => {
+    res.json(users);
+});
+
+// GET single user
+app.get('/api/users/:id', (req, res) => {
+    const id = parseInt(req.params.id);
+    const user = users.find(u => u.id === id);
+    
+    if (!user) {
+        return res.status(404).json({ error: 'User not found' });
+    }
+    
+    res.json(user);
+});
+
+// POST create user
+app.post('/api/users', (req, res) => {
+    const { name, email } = req.body;
+    
+    if (!name || !email) {
+        return res.status(400).json({ error: 'Name and email are required' });
+    }
+    
+    const newUser = {
+        id: users.length + 1,
+        name,
+        email
+    };
+    
+    users.push(newUser);
+    res.status(201).json(newUser);
+});
+
+// PUT update user
+app.put('/api/users/:id', (req, res) => {
+    const id = parseInt(req.params.id);
+    const { name, email } = req.body;
+    
+    const userIndex = users.findIndex(u => u.id === id);
+    if (userIndex === -1) {
+        return res.status(404).json({ error: 'User not found' });
+    }
+    
+    users[userIndex] = { ...users[userIndex], name, email };
+    res.json(users[userIndex]);
+});
+
+// DELETE user
+app.delete('/api/users/:id', (req, res) => {
+    const id = parseInt(req.params.id);
+    const userIndex = users.findIndex(u => u.id === id);
+    
+    if (userIndex === -1) {
+        return res.status(404).json({ error: 'User not found' });
+    }
+    
+    users.splice(userIndex, 1);
+    res.status(204).send();
+});
+
+// Error handling middleware
+app.use((err, req, res, next) => {
+    console.error(err.stack);
+    res.status(500).json({ error: 'Internal server error' });
+});
+
+// 404 handling
+app.use((req, res) => {
+    res.status(404).json({ error: 'Route not found' });
+});
+
+app.listen(port, () => {
+    console.log(`Server running at http://localhost:${port}`);
+});
+
+// Asynchronous route example
+app.get('/api/async-data', async (req, res) => {
+    try {
+        // Simulate asynchronous operation
+        const data = await new Promise(resolve => {
+            setTimeout(() => {
+                resolve({ message: 'Asynchronous data', timestamp: Date.now() });
+            }, 1000);
+        });
+        
+        res.json(data);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Middleware example
+const authMiddleware = (req, res, next) => {
+    const token = req.headers.authorization;
+    
+    if (!token) {
+        return res.status(401).json({ error: 'Missing authentication token' });
+    }
+    
+    // Token validation logic
+    req.user = { id: 1, name: 'Authenticated User' };
+    next();
+};
+
+app.get('/api/protected', authMiddleware, (req, res) => {
+    res.json({ message: 'Protected route', user: req.user });
+});
+```
+</UniversalEditor>
+
+### Rust's Web Development
+
+Rust uses the Axum framework:
+
+<UniversalEditor title="Rust Web Development" compare={true}>
+```rust !! rs
+use axum::{
+    extract::{Path, State},
+    http::StatusCode,
+    response::Json,
+    routing::{get, post, put, delete},
+    Router,
+};
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+use tokio::sync::RwLock;
+
+// Data model
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct User {
+    id: u32,
+    name: String,
+    email: String,
+}
+
+// Application state
+#[derive(Clone)]
+struct AppState {
+    users: Arc<RwLock<HashMap<u32, User>>>,
+}
+
+impl AppState {
+    fn new() -> Self {
+        let mut users = HashMap::new();
+        users.insert(1, User {
+            id: 1,
+            name: String::from("Alice"),
+            email: String::from("alice@example.com"),
+        });
+        users.insert(2, User {
+            id: 2,
+            name: String::from("Bob"),
+            email: String::from("bob@example.com"),
+        });
+        
+        AppState {
+            users: Arc::new(RwLock::new(users)),
+        }
+    }
+}
+
+// Request and response types
+#[derive(Debug, Deserialize)]
+struct CreateUserRequest {
+    name: String,
+    email: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct UpdateUserRequest {
+    name: Option<String>,
+    email: Option<String>,
+}
+
+// Route handlers
+async fn root() -> Json<serde_json::Value> {
+    Json(serde_json::json!({
+        "message": "Hello from Axum!"
+    }))
+}
+
+async fn get_users(State(state): State<AppState>) -> Json<Vec<User>> {
+    let users = state.users.read().await;
+    let user_list: Vec<User> = users.values().cloned().collect();
+    Json(user_list)
+}
+
+async fn get_user(
+    State(state): State<AppState>,
+    Path(id): Path<u32>,
+) -> Result<Json<User>, StatusCode> {
+    let users = state.users.read().await;
+    
+    if let Some(user) = users.get(&id) {
+        Ok(Json(user.clone()))
+    } else {
+        Err(StatusCode::NOT_FOUND)
+    }
+}
+
+async fn create_user(
+    State(state): State<AppState>,
+    Json(payload): Json<CreateUserRequest>,
+) -> Result<Json<User>, StatusCode> {
+    if payload.name.is_empty() || payload.email.is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    
+    let mut users = state.users.write().await;
+    let new_id = users.keys().max().unwrap_or(&0) + 1;
+    
+    let new_user = User {
+        id: new_id,
+        name: payload.name,
+        email: payload.email,
+    };
+    
+    users.insert(new_id, new_user.clone());
+    Ok(Json(new_user))
+}
+
+async fn update_user(
+    State(state): State<AppState>,
+    Path(id): Path<u32>,
+    Json(payload): Json<UpdateUserRequest>,
+) -> Result<Json<User>, StatusCode> {
+    let mut users = state.users.write().await;
+    
+    if let Some(user) = users.get_mut(&id) {
+        if let Some(name) = payload.name {
+            user.name = name;
+        }
+        if let Some(email) = payload.email {
+            user.email = email;
+        }
+        Ok(Json(user.clone()))
+    } else {
+        Err(StatusCode::NOT_FOUND)
+    }
+}
+
+async fn delete_user(
+    State(state): State<AppState>,
+    Path(id): Path<u32>,
+) -> StatusCode {
+    let mut users = state.users.write().await;
+    
+    if users.remove(&id).is_some() {
+        StatusCode::NO_CONTENT
+    } else {
+        StatusCode::NOT_FOUND
+    }
+}
+
+// Asynchronous data route
+async fn async_data() -> Json<serde_json::Value> {
+    // Simulate asynchronous operation
+    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+    
+    Json(serde_json::json!({
+        "message": "Asynchronous data",
+        "timestamp": chrono::Utc::now().timestamp()
+    }))
+}
+
+// Authentication middleware
+async fn auth_middleware(
+    headers: axum::http::HeaderMap,
+) -> Result<(), StatusCode> {
+    if let Some(auth_header) = headers.get("authorization") {
+        if auth_header.to_str().unwrap_or("").starts_with("Bearer ") {
+            return Ok(());
+        }
+    }
+    Err(StatusCode::UNAUTHORIZED)
+}
+
+async fn protected_route() -> Json<serde_json::Value> {
+    Json(serde_json::json!({
+        "message": "Protected route",
+        "user": {
+            "id": 1,
+            "name": "Authenticated User"
+        }
+    }))
+}
+
+// Create router
+fn create_router() -> Router {
+    let state = AppState::new();
+    
+    Router::new()
+        .route("/", get(root))
+        .route("/api/users", get(get_users))
+        .route("/api/users", post(create_user))
+        .route("/api/users/:id", get(get_user))
+        .route("/api/users/:id", put(update_user))
+        .route("/api/users/:id", delete(delete_user))
+        .route("/api/async-data", get(async_data))
+        .route("/api/protected", get(protected_route))
+        .with_state(state)
+}
+
+#[tokio::main]
+async fn main() {
+    let app = create_router();
+    
+    println!("Server running at http://localhost:3000");
+    
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:3000")
+        .await
+        .unwrap();
+    
+    axum::serve(listener, app).await.unwrap();
+}
+```
+</UniversalEditor>
+
+### Web Framework Differences
+
+1. **Performance**: Rust compiles to machine code, higher performance
+2. **Type Safety**: Rust compile-time checks, JavaScript runtime checks
+3. **Memory Safety**: Rust no data races, JavaScript single-threaded event loop
+4. **Ecosystem**: JavaScript ecosystem more mature, Rust ecosystem rapidly growing
+
+---
+
+## 🗄️ Database Operations
+
+### Using SQLx for Database Operations
+
+<UniversalEditor title="Database Operations" compare={true}>
+```rust !! rs
+use sqlx::{postgres::PgPoolOptions, PgPool, Row};
+use serde::{Deserialize, Serialize};
+
+// Data model
+#[derive(Debug, Serialize, Deserialize)]
+struct User {
+    id: Option<i32>,
+    name: String,
+    email: String,
+    created_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+// Database operations
+struct UserRepository {
+    pool: PgPool,
+}
+
+impl UserRepository {
+    fn new(pool: PgPool) -> Self {
+        Self { pool }
+    }
+    
+    async fn create_user(&self, user: &User) -> Result<User, sqlx::Error> {
+        let row = sqlx::query_as!(
+            User,
+            r#"
+            INSERT INTO users (name, email)
+            VALUES ($1, $2)
+            RETURNING id, name, email, created_at
+            "#,
+            user.name,
+            user.email
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        
+        Ok(row)
+    }
+    
+    async fn get_user(&self, id: i32) -> Result<Option<User>, sqlx::Error> {
+        let user = sqlx::query_as!(
+            User,
+            r#"
+            SELECT id, name, email, created_at
+            FROM users
+            WHERE id = $1
+            "#,
+            id
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+        
+        Ok(user)
+    }
+    
+    async fn get_all_users(&self) -> Result<Vec<User>, sqlx::Error> {
+        let users = sqlx::query_as!(
+            User,
+            r#"
+            SELECT id, name, email, created_at
+            FROM users
+            ORDER BY created_at DESC
+            "#
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        
+        Ok(users)
+    }
+    
+    async fn update_user(&self, id: i32, user: &User) -> Result<Option<User>, sqlx::Error> {
+        let updated_user = sqlx::query_as!(
+            User,
+            r#"
+            UPDATE users
+            SET name = $1, email = $2
+            WHERE id = $3
+            RETURNING id, name, email, created_at
+            "#,
+            user.name,
+            user.email,
+            id
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+        
+        Ok(updated_user)
+    }
+    
+    async fn delete_user(&self, id: i32) -> Result<bool, sqlx::Error> {
+        let result = sqlx::query!(
+            r#"
+            DELETE FROM users
+            WHERE id = $1
+            "#,
+            id
+        )
+        .execute(&self.pool)
+        .await?;
+        
+        Ok(result.rows_affected() > 0)
+    }
+}
+
+// Application state
+#[derive(Clone)]
+struct AppState {
+    user_repo: UserRepository,
+}
+
+// Route handlers
+async fn create_user_handler(
+    State(state): State<AppState>,
+    Json(user): Json<User>,
+) -> Result<Json<User>, StatusCode> {
+    let created_user = state.user_repo
+        .create_user(&user)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    
+    Ok(Json(created_user))
+}
+
+async fn get_user_handler(
+    State(state): State<AppState>,
+    Path(id): Path<i32>,
+) -> Result<Json<User>, StatusCode> {
+    let user = state.user_repo
+        .get_user(id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+    
+    Ok(Json(user))
+}
+
+async fn get_users_handler(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<User>>, StatusCode> {
+    let users = state.user_repo
+        .get_all_users()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    
+    Ok(Json(users))
+}
+
+async fn update_user_handler(
+    State(state): State<AppState>,
+    Path(id): Path<i32>,
+    Json(user): Json<User>,
+) -> Result<Json<User>, StatusCode> {
+    let updated_user = state.user_repo
+        .update_user(id, &user)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+    
+    Ok(Json(updated_user))
+}
+
+async fn delete_user_handler(
+    State(state): State<AppState>,
+    Path(id): Path<i32>,
+) -> StatusCode {
+    let deleted = state.user_repo
+        .delete_user(id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    
+    if deleted {
+        StatusCode::NO_CONTENT
+    } else {
+        StatusCode::NOT_FOUND
+    }
+}
+
+// Database initialization
+async fn init_database(pool: &PgPool) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS users (
+            id SERIAL PRIMARY KEY,
+            name VARCHAR(255) NOT NULL,
+            email VARCHAR(255) UNIQUE NOT NULL,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        )
+        "#
+    )
+    .execute(pool)
+    .await?;
+    
+    Ok(())
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Database connection
+    let database_url = std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://user:password@localhost/rust_web".to_string());
+    
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&database_url)
+        .await?;
+    
+    // Initialize database
+    init_database(&pool).await?;
+    
+    // Create application state
+    let user_repo = UserRepository::new(pool);
+    let state = AppState { user_repo };
+    
+    // Create router
+    let app = Router::new()
+        .route("/api/users", post(create_user_handler))
+        .route("/api/users", get(get_users_handler))
+        .route("/api/users/:id", get(get_user_handler))
+        .route("/api/users/:id", put(update_user_handler))
+        .route("/api/users/:id", delete(delete_user_handler))
+        .with_state(state);
+    
+    println!("Server running at http://localhost:3000");
+    
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:3000")
+        .await
+        .unwrap();
+    
+    axum::serve(listener, app).await.unwrap();
+    
+    Ok(())
+}
+```
+</UniversalEditor>
+
+### Production Error Handling Tips
+
+In production environments, operations like database connections and initialization should have more robust error handling. For example, use `Result` and `Box<dyn std::error::Error>` to catch and propagate all possible errors, rather than simply using `unwrap()` or `expect()`. This ensures that the application can fail gracefully or provide meaningful error messages when encountering database issues.
+
+---
+
+## 🔐 Authentication & Authorization

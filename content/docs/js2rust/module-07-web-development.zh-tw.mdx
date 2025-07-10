@@ -1,0 +1,619 @@
+---
+title: "Web 開發實戰"
+description: "學習使用 Rust 進行 Web 開發，包括 Axum 框架、資料庫操作和 API 設計，對比 JavaScript 的 Web 開發"
+---
+
+# Web 開發實戰
+
+## 📖 學習目標
+
+學會使用 Rust 建構 Web 應用程式，掌握 Axum 框架、資料庫操作、API 設計和部署，對比 JavaScript 的 Web 開發生態。
+
+---
+
+## 🎯 Web 框架對比
+
+### JavaScript 的 Web 開發
+
+JavaScript 使用 Express.js 等框架：
+
+<UniversalEditor title="JavaScript Web 開發" compare={true}>
+```javascript !! js
+// Express.js Web 應用程式
+const express = require('express');
+const app = express();
+const port = 3000;
+
+// 中間件
+app.use(express.json());
+app.use(express.static('public'));
+
+// 記憶體資料儲存
+let users = [
+    { id: 1, name: 'Alice', email: 'alice@example.com' },
+    { id: 2, name: 'Bob', email: 'bob@example.com' }
+];
+
+// 路由定義
+app.get('/', (req, res) => {
+    res.json({ message: 'Hello from Express!' });
+});
+
+// GET 獲取所有用戶
+app.get('/api/users', (req, res) => {
+    res.json(users);
+});
+
+// GET 獲取單個用戶
+app.get('/api/users/:id', (req, res) => {
+    const id = parseInt(req.params.id);
+    const user = users.find(u => u.id === id);
+    
+    if (!user) {
+        return res.status(404).json({ error: '用戶未找到' });
+    }
+    
+    res.json(user);
+});
+
+// POST 建立用戶
+app.post('/api/users', (req, res) => {
+    const { name, email } = req.body;
+    
+    if (!name || !email) {
+        return res.status(400).json({ error: '姓名和電子郵件是必需的' });
+    }
+    
+    const newUser = {
+        id: users.length + 1,
+        name,
+        email
+    };
+    
+    users.push(newUser);
+    res.status(201).json(newUser);
+});
+
+// PUT 更新用戶
+app.put('/api/users/:id', (req, res) => {
+    const id = parseInt(req.params.id);
+    const { name, email } = req.body;
+    
+    const userIndex = users.findIndex(u => u.id === id);
+    if (userIndex === -1) {
+        return res.status(404).json({ error: '用戶未找到' });
+    }
+    
+    users[userIndex] = { ...users[userIndex], name, email };
+    res.json(users[userIndex]);
+});
+
+// DELETE 刪除用戶
+app.delete('/api/users/:id', (req, res) => {
+    const id = parseInt(req.params.id);
+    const userIndex = users.findIndex(u => u.id === id);
+    
+    if (userIndex === -1) {
+        return res.status(404).json({ error: '用戶未找到' });
+    }
+    
+    users.splice(userIndex, 1);
+    res.status(204).send();
+});
+
+// 錯誤處理中間件
+app.use((err, req, res, next) => {
+    console.error(err.stack);
+    res.status(500).json({ error: '伺服器內部錯誤' });
+});
+
+// 404 處理
+app.use((req, res) => {
+    res.status(404).json({ error: '路由未找到' });
+});
+
+app.listen(port, () => {
+    console.log(`伺服器運行在 http://localhost:${port}`);
+});
+
+// 異步路由範例
+app.get('/api/async-data', async (req, res) => {
+    try {
+        // 模擬異步操作
+        const data = await new Promise(resolve => {
+            setTimeout(() => {
+                resolve({ message: '異步資料', timestamp: Date.now() });
+            }, 1000);
+        });
+        
+        res.json(data);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// 中間件範例
+const authMiddleware = (req, res, next) => {
+    const token = req.headers.authorization;
+    
+    if (!token) {
+        return res.status(401).json({ error: '缺少認證令牌' });
+    }
+    
+    // 令牌驗證邏輯
+    req.user = { id: 1, name: 'Authenticated User' };
+    next();
+};
+
+app.get('/api/protected', authMiddleware, (req, res) => {
+    res.json({ message: '受保護的路由', user: req.user });
+});
+```
+</UniversalEditor>
+
+### Rust 的 Web 開發
+
+Rust 使用 Axum 框架：
+
+<UniversalEditor title="Rust Web 開發" compare={true}>
+```rust !! rs
+use axum::{
+    extract::{Path, State},
+    http::StatusCode,
+    response::Json,
+    routing::{get, post, put, delete},
+    Router,
+};
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+use tokio::sync::RwLock;
+
+// 資料模型
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct User {
+    id: u32,
+    name: String,
+    email: String,
+}
+
+// 應用程式狀態
+#[derive(Clone)]
+struct AppState {
+    users: Arc<RwLock<HashMap<u32, User>>>,
+}
+
+impl AppState {
+    fn new() -> Self {
+        let mut users = HashMap::new();
+        users.insert(1, User {
+            id: 1,
+            name: String::from("Alice"),
+            email: String::from("alice@example.com"),
+        });
+        users.insert(2, User {
+            id: 2,
+            name: String::from("Bob"),
+            email: String::from("bob@example.com"),
+        });
+        
+        AppState {
+            users: Arc::new(RwLock::new(users)),
+        }
+    }
+}
+
+// 請求和響應型別
+#[derive(Debug, Deserialize)]
+struct CreateUserRequest {
+    name: String,
+    email: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct UpdateUserRequest {
+    name: Option<String>,
+    email: Option<String>,
+}
+
+// 路由處理函數
+async fn root() -> Json<serde_json::Value> {
+    Json(serde_json::json!({
+        "message": "Hello from Axum!"
+    }))
+}
+
+async fn get_users(State(state): State<AppState>) -> Json<Vec<User>> {
+    let users = state.users.read().await;
+    let user_list: Vec<User> = users.values().cloned().collect();
+    Json(user_list)
+}
+
+async fn get_user(
+    State(state): State<AppState>,
+    Path(id): Path<u32>,
+) -> Result<Json<User>, StatusCode> {
+    let users = state.users.read().await;
+    
+    if let Some(user) = users.get(&id) {
+        Ok(Json(user.clone()))
+    } else {
+        Err(StatusCode::NOT_FOUND)
+    }
+}
+
+async fn create_user(
+    State(state): State<AppState>,
+    Json(payload): Json<CreateUserRequest>,
+) -> Result<Json<User>, StatusCode> {
+    if payload.name.is_empty() || payload.email.is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    
+    let mut users = state.users.write().await;
+    let new_id = users.keys().max().unwrap_or(&0) + 1;
+    
+    let new_user = User {
+        id: new_id,
+        name: payload.name,
+        email: payload.email,
+    };
+    
+    users.insert(new_id, new_user.clone());
+    Ok(Json(new_user))
+}
+
+async fn update_user(
+    State(state): State<AppState>,
+    Path(id): Path<u32>,
+    Json(payload): Json<UpdateUserRequest>,
+) -> Result<Json<User>, StatusCode> {
+    let mut users = state.users.write().await;
+    
+    if let Some(user) = users.get_mut(&id) {
+        if let Some(name) = payload.name {
+            user.name = name;
+        }
+        if let Some(email) = payload.email {
+            user.email = email;
+        }
+        Ok(Json(user.clone()))
+    } else {
+        Err(StatusCode::NOT_FOUND)
+    }
+}
+
+async fn delete_user(
+    State(state): State<AppState>,
+    Path(id): Path<u32>,
+) -> StatusCode {
+    let mut users = state.users.write().await;
+    
+    if users.remove(&id).is_some() {
+        StatusCode::NO_CONTENT
+    } else {
+        StatusCode::NOT_FOUND)
+    }
+}
+
+// 異步資料路由
+async fn async_data() -> Json<serde_json::Value> {
+    // 模擬異步操作
+    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+    
+    Json(serde_json::json!({
+        "message": "異步資料",
+        "timestamp": chrono::Utc::now().timestamp()
+    }))
+}
+
+// 認證中間件
+async fn auth_middleware(
+    headers: axum::http::HeaderMap,
+) -> Result<(), StatusCode> {
+    if let Some(auth_header) = headers.get("authorization") {
+        if auth_header.to_str().unwrap_or("").starts_with("Bearer ") {
+            return Ok(());
+        }
+    }
+    Err(StatusCode::UNAUTHORIZED)
+}
+
+async fn protected_route() -> Json<serde_json::Value> {
+    Json(serde_json::json!({
+        "message": "受保護的路由",
+        "user": {
+            "id": 1,
+            "name": "Authenticated User"
+        }
+    }))
+}
+
+// 建立路由
+fn create_router() -> Router {
+    let state = AppState::new();
+    
+    Router::new()
+        .route("/", get(root))
+        .route("/api/users", get(get_users))
+        .route("/api/users", post(create_user))
+        .route("/api/users/:id", get(get_user))
+        .route("/api/users/:id", put(update_user))
+        .route("/api/users/:id", delete(delete_user))
+        .route("/api/async-data", get(async_data))
+        .route("/api/protected", get(protected_route))
+        .with_state(state)
+}
+
+#[tokio::main]
+async fn main() {
+    let app = create_router();
+    
+    println!("伺服器運行在 http://localhost:3000");
+    
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:3000")
+        .await
+        .unwrap();
+    
+    axum::serve(listener, app).await.unwrap();
+}
+```
+</UniversalEditor>
+
+### Web 框架差異
+
+1. **效能**: Rust 編譯到機器碼，效能更高
+2. **型別安全**: Rust 編譯時檢查，JavaScript 執行時檢查
+3. **記憶體安全**: Rust 無資料競爭，JavaScript 單執行緒事件循環
+4. **生態系統**: JavaScript 生態更成熟，Rust 生態正在快速發展
+
+---
+
+## 🗄️ 資料庫操作
+
+### 使用 SQLx 進行資料庫操作
+
+<UniversalEditor title="資料庫操作" compare={true}>
+```rust !! rs
+use sqlx::{postgres::PgPoolOptions, PgPool, Row};
+use serde::{Deserialize, Serialize};
+
+// 資料模型
+#[derive(Debug, Serialize, Deserialize)]
+struct User {
+    id: Option<i32>,
+    name: String,
+    email: String,
+    created_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+// 資料庫操作
+struct UserRepository {
+    pool: PgPool,
+}
+
+impl UserRepository {
+    fn new(pool: PgPool) -> Self {
+        Self { pool }
+    }
+    
+    async fn create_user(&self, user: &User) -> Result<User, sqlx::Error> {
+        let row = sqlx::query_as!(
+            User,
+            r#"
+            INSERT INTO users (name, email)
+            VALUES ($1, $2)
+            RETURNING id, name, email, created_at
+            "#,
+            user.name,
+            user.email
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        
+        Ok(row)
+    }
+    
+    async fn get_user(&self, id: i32) -> Result<Option<User>, sqlx::Error> {
+        let user = sqlx::query_as!(
+            User,
+            r#"
+            SELECT id, name, email, created_at
+            FROM users
+            WHERE id = $1
+            "#,
+            id
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+        
+        Ok(user)
+    }
+    
+    async fn get_all_users(&self) -> Result<Vec<User>, sqlx::Error> {
+        let users = sqlx::query_as!(
+            User,
+            r#"
+            SELECT id, name, email, created_at
+            FROM users
+            ORDER BY created_at DESC
+            "#
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        
+        Ok(users)
+    }
+    
+    async fn update_user(&self, id: i32, user: &User) -> Result<Option<User>, sqlx::Error> {
+        let updated_user = sqlx::query_as!(
+            User,
+            r#"
+            UPDATE users
+            SET name = $1, email = $2
+            WHERE id = $3
+            RETURNING id, name, email, created_at
+            "#,
+            user.name,
+            user.email,
+            id
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+        
+        Ok(updated_user)
+    }
+    
+    async fn delete_user(&self, id: i32) -> Result<bool, sqlx::Error> {
+        let result = sqlx::query!(
+            r#"
+            DELETE FROM users
+            WHERE id = $1
+            "#,
+            id
+        )
+        .execute(&self.pool)
+        .await?;
+        
+        Ok(result.rows_affected() > 0)
+    }
+}
+
+// 應用程式狀態
+#[derive(Clone)]
+struct AppState {
+    user_repo: UserRepository,
+}
+
+// 路由處理函數
+async fn create_user_handler(
+    State(state): State<AppState>,
+    Json(user): Json<User>,
+) -> Result<Json<User>, StatusCode> {
+    let created_user = state.user_repo
+        .create_user(&user)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    
+    Ok(Json(created_user))
+}
+
+async fn get_user_handler(
+    State(state): State<AppState>,
+    Path(id): Path<i32>,
+) -> Result<Json<User>, StatusCode> {
+    let user = state.user_repo
+        .get_user(id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+    
+    Ok(Json(user))
+}
+
+async fn get_users_handler(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<User>>, StatusCode> {
+    let users = state.user_repo
+        .get_all_users()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    
+    Ok(Json(users))
+}
+
+async fn update_user_handler(
+    State(state): State<AppState>,
+    Path(id): Path<i32>,
+    Json(user): Json<User>,
+) -> Result<Json<User>, StatusCode> {
+    let updated_user = state.user_repo
+        .update_user(id, &user)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+    
+    Ok(Json(updated_user))
+}
+
+async fn delete_user_handler(
+    State(state): State<AppState>,
+    Path(id): Path<i32>,
+) -> StatusCode {
+    let deleted = state.user_repo
+        .delete_user(id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    
+    if deleted {
+        StatusCode::NO_CONTENT
+    } else {
+        StatusCode::NOT_FOUND
+    }
+}
+
+// 資料庫初始化
+async fn init_database(pool: &PgPool) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS users (
+            id SERIAL PRIMARY KEY,
+            name VARCHAR(255) NOT NULL,
+            email VARCHAR(255) UNIQUE NOT NULL,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        )
+        "#
+    )
+    .execute(pool)
+    .await?;
+    
+    Ok(())
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // 資料庫連接
+    let database_url = std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://user:password@localhost/rust_web".to_string());
+    
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&database_url)
+        .await?;
+    
+    // 初始化資料庫
+    init_database(&pool).await?;
+    
+    // 建立應用程式狀態
+    let user_repo = UserRepository::new(pool);
+    let state = AppState { user_repo };
+    
+    // 建立路由
+    let app = Router::new()
+        .route("/api/users", post(create_user_handler))
+        .route("/api/users", get(get_users_handler))
+        .route("/api/users/:id", get(get_user_handler))
+        .route("/api/users/:id", put(update_user_handler))
+        .route("/api/users/:id", delete(delete_user_handler))
+        .with_state(state);
+    
+    println!("伺服器運行在 http://localhost:3000");
+    
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:3000")
+        .await
+        .unwrap();
+    
+    axum::serve(listener, app).await.unwrap();
+    
+    Ok(())
+}
+```
+</UniversalEditor>
+
+### 生產環境錯誤處理提示
+
+在生產環境中，資料庫連接和初始化等操作應該進行更健壯的錯誤處理，例如使用 `Result` 和 `Box<dyn std::error.Error>` 來捕獲和傳播所有可能的錯誤，而不是簡單地使用 `unwrap()` 或 `expect()`。這樣可以確保應用程式在遇到資料庫問題時能夠優雅地失敗或提供有意義的錯誤訊息。
+
+---
+
+## 🔐 認證與授權

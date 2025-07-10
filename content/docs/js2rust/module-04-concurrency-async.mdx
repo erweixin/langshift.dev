@@ -1,157 +1,157 @@
 ---
-title: "并发与异步模型"
-description: "学习 Rust 的并发编程、异步模型和多线程安全，对比 JavaScript 的事件循环机制"
+title: "Concurrency & Asynchronous Model"
+description: "Learn Rust's concurrency, asynchronous model, and multi-threading safety, contrasting with JavaScript's event loop mechanism"
 ---
 
-# 并发与异步模型
+# Concurrency & Asynchronous Model
 
-## 📖 学习目标
+## 📖 Learning Objectives
 
-理解 Rust 的并发编程模型，包括多线程、异步编程和线程安全机制，对比 JavaScript 的单线程事件循环模型。
+Understand Rust's concurrency model, including multi-threading, asynchronous programming, and thread safety mechanisms, contrasting with JavaScript's single-threaded event loop model.
 
 ---
 
-## 🎯 执行模型对比
+## 🎯 Execution Model Comparison
 
-### JavaScript 的事件循环
+### JavaScript's Event Loop
 
-JavaScript 使用单线程事件循环模型：
+JavaScript uses a single-threaded event loop model:
 
-<UniversalEditor title="JavaScript 事件循环" compare={true}>
+<UniversalEditor title="JavaScript Event Loop" compare={true}>
 ```javascript !! js
-// JavaScript 单线程事件循环
-console.log("开始执行");
+// JavaScript Single-threaded Event Loop
+console.log("Start execution");
 
-// 同步代码
+// Synchronous code
 const result = 1 + 2;
-console.log("同步计算:", result);
+console.log("Synchronous calculation:", result);
 
-// 异步代码 - 微任务
+// Asynchronous code - Microtask
 Promise.resolve().then(() => {
-    console.log("微任务 1");
+    console.log("Microtask 1");
 });
 
-// 异步代码 - 宏任务
+// Asynchronous code - Macrotask
 setTimeout(() => {
-    console.log("宏任务 1");
+    console.log("Macrotask 1");
 }, 0);
 
-// 更多微任务
+// More microtasks
 Promise.resolve().then(() => {
-    console.log("微任务 2");
+    console.log("Microtask 2");
 });
 
-console.log("结束执行");
+console.log("End execution");
 
-// 输出顺序：
-// 开始执行
-// 同步计算: 3
-// 结束执行
-// 微任务 1
-// 微任务 2
-// 宏任务 1
+// Output order:
+// Start execution
+// Synchronous calculation: 3
+// End execution
+// Microtask 1
+// Microtask 2
+// Macrotask 1
 
-// 异步函数
+// Asynchronous function
 async function fetchData() {
-    console.log("开始获取数据");
+    console.log("Start fetching data");
     
-    // 模拟网络请求
+    // Simulate network request
     const response = await new Promise(resolve => {
         setTimeout(() => {
             resolve({ data: "Hello from server" });
         }, 1000);
     });
     
-    console.log("数据获取完成:", response.data);
+    console.log("Data fetched:", response.data);
     return response.data;
 }
 
-// 调用异步函数
+// Call asynchronous function
 fetchData().then(data => {
-    console.log("处理数据:", data);
+    console.log("Processing data:", data);
 });
 
-console.log("继续执行其他代码");
+console.log("Continue executing other code");
 
-// 并发处理（实际上是并发，不是并行）
+// Concurrent processing (actually concurrency, not parallelism)
 async function processItems(items) {
     const promises = items.map(async (item) => {
-        // 模拟异步处理
+        // Simulate asynchronous processing
         await new Promise(resolve => setTimeout(resolve, 100));
         return `processed_${item}`;
     });
     
     const results = await Promise.all(promises);
-    console.log("所有项目处理完成:", results);
+    console.log("All items processed:", results);
 }
 
 processItems([1, 2, 3, 4, 5]);
 ```
 </UniversalEditor>
 
-虽然 JavaScript 本身是单线程的，但可以通过 **Web Workers** 实现多线程并发，将耗时的计算任务放到后台线程执行，避免阻塞主线程。这类似于 Rust 的多线程，但 Web Workers 之间不能直接共享内存，需要通过消息传递进行通信。
+Although JavaScript is single-threaded, multi-threaded concurrency can be achieved through **Web Workers**, which offload time-consuming computation tasks to background threads, preventing the main thread from being blocked. This is similar to Rust's multi-threading, but Web Workers cannot directly share memory and require communication via message passing.
 
-### Rust 的多线程模型
+### Rust's Multi-threading Model
 
-Rust 支持真正的多线程并行执行：
+Rust supports true multi-threaded parallel execution:
 
-<UniversalEditor title="Rust 多线程" compare={true}>
+<UniversalEditor title="Rust Multi-threading" compare={true}>
 ```rust !! rs
 use std::thread;
 use std::time::Duration;
 
 fn main() {
-    println!("开始执行");
+    println!("Start execution");
     
-    // 同步代码
+    // Synchronous code
     let result = 1 + 2;
-    println!("同步计算: {}", result);
+    println!("Synchronous calculation: {}", result);
     
-    // 创建线程
+    // Create thread
     let handle = thread::spawn(|| {
-        println!("线程 1 开始执行");
+        println!("Thread 1 started");
         thread::sleep(Duration::from_millis(100));
-        println!("线程 1 执行完成");
+        println!("Thread 1 finished");
     });
     
-    // 主线程继续执行
-    println!("主线程继续执行");
+    // Main thread continues execution
+    println!("Main thread continues execution");
     
-    // 等待线程完成
+    // Wait for thread to finish
     handle.join().unwrap();
-    println!("所有线程执行完成");
+    println!("All threads finished");
 }
 
-// 多线程数据处理
+// Multi-threaded data processing
 fn process_items_parallel(items: Vec<i32>) {
     let handles: Vec<_> = items.into_iter().map(|item| {
         thread::spawn(move || {
-            // 模拟处理时间
+            // Simulate processing time
             thread::sleep(Duration::from_millis(100));
             format!("processed_{}", item)
         })
     }).collect();
     
-    // 收集所有线程的结果
+    // Collect results from all threads
     let results: Vec<String> = handles.into_iter()
         .map(|handle| handle.join().unwrap())
         .collect();
     
-    println!("所有项目处理完成: {:?}", results);
+    println!("All items processed: {:?}", results);
 }
 
-// 使用线程池
+// Using thread pool
 use std::sync::mpsc;
 
 fn main() {
     let (tx, rx) = mpsc::channel();
     
-    // 发送线程
+    // Sender thread
     thread::spawn(move || {
         let messages = vec![
-            String::from("消息 1"),
-            String::from("消息 2"),
-            String::from("消息 3"),
+            String::from("Message 1"),
+            String::from("Message 2"),
+            String::from("Message 3"),
         ];
         
         for msg in messages {
@@ -160,33 +160,33 @@ fn main() {
         }
     });
     
-    // 接收线程
+    // Receiver thread
     for received in rx {
-        println!("收到: {}", received);
+        println!("Received: {}", received);
     }
 }
 ```
 </UniversalEditor>
 
-### 执行模型差异
+### Execution Model Differences
 
-1. **单线程 vs 多线程**: JavaScript 单线程事件循环，Rust 支持多线程并行
-2. **并发 vs 并行**: JavaScript 并发非并行，Rust 可以真正并行
-3. **内存安全**: JavaScript 运行时检查，Rust 编译时保证线程安全
-4. **性能**: JavaScript 受单线程限制，Rust 可以充分利用多核
+1. **Single-threaded vs Multi-threaded**: JavaScript single-threaded event loop, Rust supports multi-threaded parallelism
+2. **Concurrency vs Parallelism**: JavaScript concurrency not parallelism, Rust can truly parallelize
+3. **Memory Safety**: JavaScript runtime checks, Rust compile-time guarantees thread safety
+4. **Performance**: JavaScript limited by single-thread, Rust can fully utilize multi-core
 
 ---
 
-## 🔒 线程安全与所有权
+## 🔒 Thread Safety & Ownership
 
-### 共享状态管理
+### Shared State Management
 
-<UniversalEditor title="线程安全" compare={true}>
+<UniversalEditor title="Thread Safety" compare={true}>
 ```rust !! rs
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-// 线程安全的计数器
+// Thread-safe counter
 struct SafeCounter {
     count: Mutex<i32>,
 }
@@ -212,7 +212,7 @@ fn main() {
     let counter = Arc::new(SafeCounter::new());
     let mut handles = vec![];
     
-    // 创建多个线程同时增加计数器
+    // Create multiple threads to increment counter simultaneously
     for _ in 0..10 {
         let counter = Arc::clone(&counter);
         let handle = thread::spawn(move || {
@@ -223,15 +223,15 @@ fn main() {
         handles.push(handle);
     }
     
-    // 等待所有线程完成
+    // Wait for all threads to complete
     for handle in handles {
         handle.join().unwrap();
     }
     
-    println!("最终计数: {}", counter.get_count()); // 应该是 1000
+    println!("Final count: {}", counter.get_count()); // Should be 1000
 }
 
-// 使用 RwLock 进行读写分离
+// Using RwLock for read/write separation
 use std::sync::RwLock;
 
 struct DataStore {
@@ -260,21 +260,21 @@ fn main() {
     let store = Arc::new(DataStore::new());
     let mut handles = vec![];
     
-    // 写入线程
+    // Writer threads
     for i in 0..5 {
         let store = Arc::clone(&store);
         let handle = thread::spawn(move || {
-            store.write(format!("数据 {}", i));
+            store.write(format!("Data {}", i));
         });
         handles.push(handle);
     }
     
-    // 读取线程
+    // Reader threads
     for _ in 0..3 {
         let store = Arc::clone(&store);
         let handle = thread::spawn(move || {
             let data = store.read();
-            println!("读取到数据: {:?}", data);
+            println!("Data read: {:?}", data);
         });
         handles.push(handle);
     }
@@ -288,52 +288,52 @@ fn main() {
 
 ---
 
-## ⚡ 异步编程
+## ⚡ Asynchronous Programming
 
-### Rust 的异步编程
+### Rust's Asynchronous Programming
 
-<UniversalEditor title="Rust 异步编程" compare={true}>
+<UniversalEditor title="Rust Asynchronous Programming" compare={true}>
 ```rust !! rs
 use tokio;
 use std::time::Duration;
 
-// 异步函数
+// Asynchronous function
 async fn fetch_data() -> String {
-    println!("开始获取数据");
+    println!("Start fetching data");
     
-    // 模拟网络请求
+    // Simulate network request
     tokio::time::sleep(Duration::from_secs(1)).await;
     
-    println!("数据获取完成");
+    println!("Data fetched");
     String::from("Hello from server")
 }
 
-// 异步主函数
+// Asynchronous main function
 #[tokio::main]
 async fn main() {
-    println!("开始执行");
+    println!("Start execution");
     
-    // 调用异步函数
+    // Call asynchronous function
     let data = fetch_data().await;
-    println!("处理数据: {}", data);
+    println!("Processing data: {}", data);
     
-    println!("继续执行其他代码");
+    println!("Continue executing other code");
 }
 
-// 并发异步任务
+// Concurrent asynchronous tasks
 async fn process_items_async(items: Vec<i32>) -> Vec<String> {
     let mut handles = vec![];
     
     for item in items {
         let handle = tokio::spawn(async move {
-            // 模拟异步处理
+            // Simulate asynchronous processing
             tokio::time::sleep(Duration::from_millis(100)).await;
             format!("processed_{}", item)
         });
         handles.push(handle);
     }
     
-    // 等待所有任务完成
+    // Wait for all tasks to complete
     let mut results = vec![];
     for handle in handles {
         let result = handle.await.unwrap();
@@ -347,32 +347,32 @@ async fn process_items_async(items: Vec<i32>) -> Vec<String> {
 async fn main() {
     let items = vec![1, 2, 3, 4, 5];
     let results = process_items_async(items).await;
-    println!("所有项目处理完成: {:?}", results);
+    println!("All items processed: {:?}", results);
 }
 
-// 异步通道
+// Asynchronous channel
 use tokio::sync::mpsc;
 
 async fn async_channel_example() {
     let (tx, mut rx) = mpsc::channel(100);
     
-    // 发送任务
-    let sender = tokio::spawn(async move {
+    // Sender task
+    let producer = tokio::spawn(async move {
         for i in 0..10 {
-            tx.send(format!("消息 {}", i)).await.unwrap();
+            tx.send(format!("Message {}", i)).await.unwrap();
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
     });
     
-    // 接收任务
-    let receiver = tokio::spawn(async move {
+    // Receiver task
+    let consumer = tokio::spawn(async move {
         while let Some(message) = rx.recv().await {
-            println!("收到: {}", message);
+            println!("Received: {}", message);
         }
     });
     
-    // 等待两个任务完成
-    let _ = tokio::join!(sender, receiver);
+    // Wait for both tasks to complete
+    let _ = tokio::join!(producer, consumer);
 }
 
 #[tokio::main]
@@ -382,16 +382,16 @@ async fn main() {
 ```
 </UniversalEditor>
 
-### 异步与多线程对比
+### Asynchronous vs Multi-threading Comparison
 
-<UniversalEditor title="异步 vs 多线程" compare={true}>
+<UniversalEditor title="Async vs Multi-threading" compare={true}>
 ```rust !! rs
 use std::time::Duration;
 use tokio;
 
-// 多线程版本 - 适合 CPU 密集型任务
+// Multi-threaded version - suitable for CPU-bound tasks
 fn cpu_intensive_task() -> i32 {
-    // 模拟 CPU 密集型计算
+    // Simulate CPU-bound computation
     let mut result = 0;
     for i in 0..1_000_000 {
         result += i;
@@ -409,18 +409,18 @@ fn multi_threaded_example() {
     }).collect();
     
     let results: Vec<i32> = handles.into_iter()
-        .map(|h| h.join().unwrap())
+        .map(|handle| handle.join().unwrap())
         .collect();
     
     let duration = start.elapsed();
-    println!("多线程耗时: {:?}, 结果: {:?}", duration, results);
+    println!("Multi-threaded time: {:?}, Result: {:?}", duration, results);
 }
 
-// 异步版本 - 适合 I/O 密集型任务
+// Asynchronous version - suitable for I/O-bound tasks
 async fn io_intensive_task() -> String {
-    // 模拟 I/O 操作
+    // Simulate I/O operation
     tokio::time::sleep(Duration::from_millis(100)).await;
-    String::from("I/O 任务完成")
+    String::from("I/O task complete")
 }
 
 async fn async_example() {
@@ -438,12 +438,12 @@ async fn async_example() {
         .collect();
     
     let duration = start.elapsed();
-    println!("异步耗时: {:?}, 处理了 {} 个任务", duration, results.len());
+    println!("Async time: {:?}, Processed {} tasks", duration, results.len());
 }
 
 #[tokio::main]
 async fn main() {
-    // 比较两种方法
+    // Compare both methods
     multi_threaded_example();
     async_example().await;
 }
@@ -452,25 +452,25 @@ async fn main() {
 
 ---
 
-## 🎯 并发模式对比
+## 🎯 Concurrency Patterns Comparison
 
-### JavaScript 的并发模式
+### JavaScript's Concurrency Patterns
 
-<UniversalEditor title="JavaScript 并发模式" compare={true}>
+<UniversalEditor title="JavaScript Concurrency Patterns" compare={true}>
 ```javascript !! js
-// JavaScript 的并发模式
+// JavaScript Concurrency Patterns
 class DataStore {
     constructor() {
         this.data = [];
         this.promise = Promise.resolve();
     }
     
-    // 使用 Promise 链确保顺序执行
+    // Use Promise chain to ensure sequential execution
     async write(item) {
         this.promise = this.promise.then(async () => {
             await new Promise(resolve => setTimeout(resolve, 100));
             this.data.push(item);
-            console.log(`写入: ${item}`);
+            console.log(`Write: ${item}`);
         });
         return this.promise;
     }
@@ -481,25 +481,25 @@ class DataStore {
     }
 }
 
-// 使用示例
+// Usage example
 async function javascript_concurrency() {
     const store = new DataStore();
     
-    // 并发写入
+    // Concurrent writes
     const writePromises = [];
     for (let i = 0; i < 5; i++) {
-        writePromises.push(store.write(`数据 ${i}`));
+        writePromises.push(store.write(`Data ${i}`));
     }
     
-    // 等待所有写入完成
+    // Wait for all writes to complete
     await Promise.all(writePromises);
     
-    // 读取数据
+    // Read data
     const data = await store.read();
-    console.log("读取到数据:", data);
+    console.log("Data read:", data);
 }
 
-// Worker 线程（类似 Rust 的多线程）
+// Worker Threads (similar to Rust's multi-threading)
 if (typeof Worker !== 'undefined') {
     const worker = new Worker(`
         self.onmessage = function(e) {
@@ -509,7 +509,7 @@ if (typeof Worker !== 'undefined') {
     `);
     
     worker.onmessage = function(e) {
-        console.log("Worker 计算结果:", e.data);
+        console.log("Worker calculation result:", e.data);
     };
     
     worker.postMessage(42);
@@ -519,14 +519,14 @@ javascript_concurrency();
 ```
 </UniversalEditor>
 
-### Rust 的并发模式
+### Rust's Concurrency Patterns
 
-<UniversalEditor title="Rust 并发模式" compare={true}>
+<UniversalEditor title="Rust Concurrency Patterns" compare={true}>
 ```rust !! rs
 use std::sync::{Arc, Mutex};
 use tokio::sync::RwLock;
 
-// 线程安全的异步数据存储
+// Thread-safe asynchronous data store
 struct AsyncDataStore {
     data: Arc<RwLock<Vec<String>>>,
 }
@@ -542,7 +542,7 @@ impl AsyncDataStore {
         let mut data = self.data.write().await;
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         data.push(item);
-        println!("写入: {}", item);
+        println!("Write: {}", item);
     }
     
     async fn read(&self) -> Vec<String> {
@@ -555,27 +555,27 @@ impl AsyncDataStore {
 async fn rust_concurrency() {
     let store = Arc::new(AsyncDataStore::new());
     
-    // 并发写入
+    // Concurrent writes
     let mut write_handles = vec![];
     for i in 0..5 {
         let store = Arc::clone(&store);
         let handle = tokio::spawn(async move {
-            store.write(format!("数据 {}", i)).await;
+            store.write(format!("Data {}", i)).await;
         });
         write_handles.push(handle);
     }
     
-    // 等待所有写入完成
+    // Wait for all writes to complete
     for handle in write_handles {
         handle.await.unwrap();
     }
     
-    // 读取数据
+    // Read data
     let data = store.read().await;
-    println!("读取到数据: {:?}", data);
+    println!("Data read: {:?}", data);
 }
 
-// 使用 rayon 进行并行计算
+// Using rayon for parallel computation
 use rayon::prelude::*;
 
 fn parallel_computation() {
@@ -583,20 +583,20 @@ fn parallel_computation() {
     
     let start = std::time::Instant::now();
     
-    // 并行计算
+    // Parallel computation
     let sum: i64 = numbers.par_iter()
         .map(|&x| x as i64)
         .sum();
     
     let duration = start.elapsed();
-    println!("并行计算耗时: {:?}, 结果: {}", duration, sum);
+    println!("Parallel computation time: {:?}, Result: {}", duration, sum);
 }
 
 fn main() {
-    // 运行异步并发示例
+    // Run asynchronous concurrency example
     rust_concurrency();
     
-    // 运行并行计算示例
+    // Run parallel computation example
     parallel_computation();
 }
 ```
@@ -604,14 +604,14 @@ fn main() {
 
 ---
 
-## 🎯 练习题
+## 🎯 Exercises
 
-### 练习 1: 线程安全计数器
+### Exercise 1: Thread-Safe Counter
 
-创建一个线程安全的计数器，支持多个线程同时增加计数：
+Create a thread-safe counter that supports multiple threads incrementing the count simultaneously:
 
 <details>
-<summary>查看答案</summary>
+<summary>View Answer</summary>
 
 ```rust
 use std::sync::{Arc, Mutex};
@@ -656,18 +656,18 @@ fn main() {
         handle.join().unwrap();
     }
     
-    println!("最终计数: {}", counter.get_count()); // 应该是 1000
+    println!("Final count: {}", counter.get_count()); // Should be 1000
 }
 ```
 
 </details>
 
-### 练习 2: 异步任务处理
+### Exercise 2: Asynchronous Task Processing
 
-创建一个异步函数，并发处理多个任务并收集结果：
+Create an asynchronous function that concurrently processes multiple tasks and collects the results:
 
 <details>
-<summary>查看答案</summary>
+<summary>View Answer</summary>
 
 ```rust
 use tokio;
@@ -675,7 +675,7 @@ use std::time::Duration;
 
 async fn process_task(id: i32) -> String {
     tokio::time::sleep(Duration::from_millis(100)).await;
-    format!("任务 {} 完成", id)
+    format!("Task {} complete", id)
 }
 
 async fn process_all_tasks() -> Vec<String> {
@@ -700,18 +700,18 @@ async fn process_all_tasks() -> Vec<String> {
 #[tokio::main]
 async fn main() {
     let results = process_all_tasks().await;
-    println!("所有任务完成: {:?}", results);
+    println!("All tasks complete: {:?}", results);
 }
 ```
 
 </details>
 
-### 练习 3: 生产者消费者模式
+### Exercise 3: Producer-Consumer Pattern
 
-实现一个生产者消费者模式，使用通道进行线程间通信：
+Implement a producer-consumer pattern using channels for inter-thread communication:
 
 <details>
-<summary>查看答案</summary>
+<summary>View Answer</summary>
 
 ```rust
 use std::sync::mpsc;
@@ -721,18 +721,18 @@ use std::time::Duration;
 fn producer_consumer() {
     let (tx, rx) = mpsc::channel();
     
-    // 生产者
+    // Producer
     let producer = thread::spawn(move || {
         for i in 0..10 {
-            tx.send(format!("产品 {}", i)).unwrap();
+            tx.send(format!("Product {}", i)).unwrap();
             thread::sleep(Duration::from_millis(100));
         }
     });
     
-    // 消费者
+    // Consumer
     let consumer = thread::spawn(move || {
         for received in rx {
-            println!("消费: {}", received);
+            println!("Consumed: {}", received);
         }
     });
     
@@ -749,27 +749,27 @@ fn main() {
 
 ---
 
-## 📝 总结
+## 📝 Summary
 
-在这一章中，我们学习了 Rust 的并发和异步编程：
+In this chapter, we learned about Rust's concurrency and asynchronous programming:
 
-1. **执行模型**: Rust 支持真正的多线程并行，JavaScript 是单线程事件循环
-2. **线程安全**: Rust 通过所有权系统在编译时保证线程安全
-3. **异步编程**: Rust 的 async/await 语法与 JavaScript 类似
-4. **并发模式**: 使用 Arc、Mutex、RwLock 等类型安全地共享状态
-5. **性能选择**: 多线程适合 CPU 密集型，异步适合 I/O 密集型
+1. **Execution Model**: Rust supports true multi-threaded parallelism, JavaScript is single-threaded event loop
+2. **Thread Safety**: Rust guarantees thread safety at compile time through the ownership system
+3. **Asynchronous Programming**: Rust's async/await syntax is similar to JavaScript
+4. **Concurrency Patterns**: Safely share state using types like Arc, Mutex, RwLock
+5. **Performance Choice**: Multi-threading for CPU-bound, asynchronous for I/O-bound
 
-### 关键要点
+### Key Takeaways
 
-- Rust 的所有权系统确保线程安全
-- 异步编程提供高性能的 I/O 处理
-- 选择合适的并发模型很重要
-- 编译时检查避免运行时错误
+- Rust's ownership system ensures thread safety
+- Asynchronous programming provides high-performance I/O handling
+- Choosing the right concurrency model is important
+- Compile-time checks prevent runtime errors
 
-### 下一步学习
+### Next Steps
 
-在下一章中，我们将学习 Rust 的类型系统和特征（Traits），了解如何构建可复用的抽象。
+In the next chapter, we will learn about Rust's type system and traits, and how to build reusable abstractions.
 
 ---
 
-**继续学习**: [类型系统与特征](./module-05-type-system-traits.zh-cn.mdx) 
+**Continue Learning**: [Type System & Traits](./module-05-type-system-traits.mdx)

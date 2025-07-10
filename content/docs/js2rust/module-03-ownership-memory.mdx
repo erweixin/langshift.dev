@@ -1,0 +1,617 @@
+---
+title: "Ownership & Memory Model"
+description: "Deep dive into Rust's ownership system, borrowing rules, and memory management, contrasting with JavaScript's garbage collection"
+---
+
+# Ownership & Memory Model
+
+## 📖 Learning Objectives
+
+Understand Rust's ownership system, its most fundamental concept. We will start from JavaScript's memory management and gradually understand how Rust ensures memory safety through compile-time checks.
+
+---
+
+## 🎯 Memory Management Comparison
+
+### JavaScript's Garbage Collection
+
+JavaScript uses an automatic garbage collection mechanism:
+
+<UniversalEditor title="JavaScript Memory Management" compare={true}>
+```javascript !! js
+// JavaScript Memory Management Example
+function createUser() {
+    let user = {
+        name: "Alice",
+        age: 25,
+        preferences: {
+            theme: "dark",
+            language: "en-US"
+        }
+    };
+    
+    // Create a reference to user
+    let userRef = user;
+    
+    // Modify user object
+    user.age = 26;
+    console.log(userRef.age); // 26 - Reference points to the same object
+    
+    // Create new object, userRef points to new object
+    userRef = {
+        name: "Bob",
+        age: 30
+    };
+    
+    // Original user object still exists
+    console.log(user.name); // "Alice"
+    console.log(userRef.name); // "Bob"
+    
+    // When function ends, if no reference points to object, garbage collector cleans up memory
+}
+
+createUser();
+
+// Reference passing for arrays and objects
+let numbers = [1, 2, 3];
+let numbersCopy = numbers; // Copy reference, not data
+
+numbersCopy.push(4);
+console.log(numbers); // [1, 2, 3, 4] - Same array
+console.log(numbersCopy); // [1, 2, 3, 4] - Same array
+
+// Deep copy
+let deepCopy = JSON.parse(JSON.stringify(numbers));
+deepCopy.push(5);
+console.log(numbers); // [1, 2, 3, 4] - Original array unchanged
+console.log(deepCopy); // [1, 2, 3, 4, 5] - New array
+```
+</UniversalEditor>
+
+### Rust's Ownership System
+
+Rust uses the ownership system to manage memory at compile time:
+
+<UniversalEditor title="Rust Ownership System" compare={true}>
+```rust !! rs
+// Rust Ownership System Example
+fn create_user() {
+    let user = User {
+        name: String::from("Alice"),
+        age: 25,
+        preferences: Preferences {
+            theme: String::from("dark"),
+            language: String::from("en-US"),
+        },
+    };
+    
+    // Ownership transfer: user's ownership moves to user_ref
+    let user_ref = user;
+    
+    // This line will cause a compile error! user has been moved
+    // println!("{}", user.name); // Error: use of moved value
+    
+    // Can modify user_ref
+    let mut user_ref = user_ref;
+    user_ref.age = 26;
+    println!("{}", user_ref.age); // 26
+    
+    // Create new User
+    let new_user = User {
+        name: String::from("Bob"),
+        age: 30,
+        preferences: Preferences {
+            theme: String::from("light"),
+            language: String::from("en-US"),
+        },
+    };
+    
+    // user_ref points to new object
+    let user_ref = new_user;
+    println!("{}", user_ref.name); // "Bob"
+}
+
+// Define structs
+struct User {
+    name: String,
+    age: u32,
+    preferences: Preferences,
+}
+
+struct Preferences {
+    theme: String,
+    language: String,
+}
+
+// Ownership of vectors (similar to JavaScript arrays)
+fn vector_ownership() {
+    let mut numbers = vec![1, 2, 3];
+    let numbers_ref = &mut numbers; // Mutable borrow
+    
+    numbers_ref.push(4);
+    println!("{:?}", numbers); // [1, 2, 3, 4]
+    
+    // Create deep copy
+    let deep_copy = numbers.clone();
+    println!("{:?}", deep_copy); // [1, 2, 3, 4]
+    
+    // Modify original array
+    numbers.push(5);
+    println!("{:?}", numbers); // [1, 2, 3, 4, 5]
+    println!("{:?}", deep_copy); // [1, 2, 3, 4] - Deep copy unchanged
+}
+
+fn main() {
+    create_user();
+    vector_ownership();
+}
+```
+</UniversalEditor>
+
+### Memory Management Differences
+
+1. **Automatic vs Manual**: JavaScript automatic garbage collection, Rust compile-time checks
+2. **Reference Semantics**: JavaScript objects passed by reference, Rust by ownership transfer
+3. **Memory Safety**: JavaScript runtime checks, Rust compile-time guarantees
+4. **Performance**: JavaScript has garbage collection overhead, Rust zero-cost abstractions
+
+---
+
+## 🔄 Ownership Rules
+
+### Rust's Ownership Rules
+
+Rust has three core ownership rules:
+
+<UniversalEditor title="Ownership Rules" compare={true}>
+```rust !! rs
+// Rule 1: Each value in Rust has an owner.
+// Data in Rust is of two types:
+// 1. Data that owns its value (e.g., String, Vec): The default behavior is "move". After ownership is transferred, the original variable becomes invalid.
+// 2. Data that implements the Copy Trait (e.g., integers, floats, booleans, characters, fixed-size arrays): The default behavior is "copy". After copying, the original variable remains valid.
+fn rule_one() {
+    // String type: default behavior is move
+    let s1 = String::from("hello"); // s1 is the owner
+    let s2 = s1; // Ownership moves from s1 to s2
+    // println!("{}", s1); // Error: s1 has been moved, cannot be used anymore
+    println!("{}", s2); // Correct: s2 is now the owner
+
+    // i32 type: implements Copy Trait, default behavior is copy
+    let x = 5; // x is the owner
+    let y = x; // The value of x is copied to y, x remains valid
+    println!("x = {}, y = {}", x, y); // Correct: both x and y can be used
+}
+
+// Rule 2: There can only be one owner at a time.
+fn rule_two() {
+    let s1 = String::from("hello");
+    let s2 = s1; // s1's ownership moves to s2
+    // let s3 = s1; // Error: s1 has been moved
+    let s3 = s2; // Correct: s2's ownership moves to s3
+}
+
+// Rule 3: When the owner goes out of scope, the value will be dropped.
+fn rule_three() {
+    {
+        let s = String::from("hello"); // s comes into scope
+        // Use s
+        println!("{}", s);
+    } // s goes out of scope, memory is freed
+    // println!("{}", s); // Error: s has been freed
+}
+
+// Ownership in functions
+fn take_ownership(some_string: String) {
+    println!("{}", some_string);
+} // some_string goes out of scope, memory is freed
+
+fn make_copy(some_integer: i32) {
+    println!("{}", some_integer);
+} // some_integer goes out of scope, but i32 is a Copy type, no freeing needed
+
+fn main() {
+    rule_one();
+    rule_two();
+    rule_three();
+    
+    let s = String::from("hello");
+    take_ownership(s); // s's ownership moves into the function
+    // println!("{}", s); // Error: s has been moved
+    
+    let x = 5;
+    make_copy(x); // x is copied into the function
+    println!("{}", x); // Correct: x is still valid
+}
+```
+</UniversalEditor>
+
+---
+
+## 🔗 Borrowing & References
+
+### Immutable Borrows
+
+<UniversalEditor title="Immutable Borrows" compare={true}>
+```rust !! rs
+// Immutable borrows (similar to JavaScript's read-only references)
+fn calculate_length(s: &String) -> usize {
+    s.len() // Returns string length
+} // s goes out of scope, but since it's just a borrow, no memory is freed
+
+fn main() {
+    let s1 = String::from("hello");
+    let len = calculate_length(&s1); // Pass a reference to s1
+    println!("'{}'s length is {}", s1, len); // s1 is still valid
+    
+    // Multiple immutable borrows
+    let s = String::from("hello");
+    let r1 = &s; // Immutable borrow
+    let r2 = &s; // Another immutable borrow
+    let r3 = &s; // Third immutable borrow
+    
+    println!("{}, {}, {}", r1, r2, r3); // Can use multiple immutable borrows simultaneously
+}
+```
+</UniversalEditor>
+
+### Mutable Borrows
+
+<UniversalEditor title="Mutable Borrows" compare={true}>
+```rust !! rs
+// Mutable borrows (similar to JavaScript's writable references)
+fn change(some_string: &mut String) {
+    some_string.push_str(", world");
+}
+
+fn main() {
+    let mut s = String::from("hello");
+    change(&mut s); // Pass a mutable reference
+    println!("{}", s); // "hello, world"
+    
+    // Restrictions on mutable borrows
+    let mut s = String::from("hello");
+    
+    let r1 = &mut s; // First mutable borrow
+    // let r2 = &mut s; // Error: cannot have multiple mutable borrows simultaneously
+    // let r3 = &s; // Error: cannot have mutable and immutable borrows simultaneously
+    
+    println!("{}", r1); // Use r1
+    // r1 goes out of scope here
+    
+    let r2 = &mut s; // Now can create a second mutable borrow
+    let r3 = &s; // Can also create an immutable borrow
+    println!("{}, {}", r2, r3);
+}
+```
+</UniversalEditor>
+
+### Borrowing Rules
+
+<UniversalEditor title="Borrowing Rules" compare={true}>
+```rust !! rs
+// Summary of Borrowing Rules
+fn borrowing_rules() {
+    let mut data = vec![1, 2, 3, 4, 5];
+    
+    // Rule 1: At any given time, you can have either one mutable reference or any number of immutable references.
+    let ref1 = &data; // Immutable reference
+    let ref2 = &data; // Another immutable reference
+    // let ref3 = &mut data; // Error: cannot have mutable and immutable references simultaneously
+    
+    println!("{:?}, {:?}", ref1, ref2); // Use immutable references
+    
+    // After immutable references go out of scope, you can create a mutable reference
+    let ref3 = &mut data; // Now a mutable reference can be created
+    ref3.push(6);
+    println!("{:?}", ref3);
+    
+    // Rule 2: References must always be valid (no dangling references).
+    // This rule is automatically handled by Rust's lifetime system.
+}
+
+// Example of dangling reference (this will cause a compile error)
+/*
+fn dangle() -> &String {
+    let s = String::from("hello");
+    &s // Error: returns a reference to a local variable
+} // s goes out of scope, memory is freed, but a reference to it is returned
+*/
+
+// Correct way
+fn no_dangle() -> String {
+    let s = String::from("hello");
+    s // Return ownership, not a reference
+}
+
+fn main() {
+    borrowing_rules();
+    
+    let s = no_dangle();
+    println!("{}", s);
+}
+```
+</UniversalEditor>
+
+---
+
+## 📏 Lifetimes
+
+### Lifetime Annotations
+
+<UniversalEditor title="Lifetimes" compare={true}>
+```rust !! rs
+// Lifetime Annotations
+fn longest<'a>(x: &'a str, y: &'a str) -> &'a str {
+    if x.len() > y.len() {
+        x
+    } else {
+        y
+    }
+}
+
+fn main() {
+    let string1 = String::from("abcd");
+    let string2 = "xyz";
+    
+    let result = longest(string1.as_str(), string2);
+    println!("The longest string is {}", result);
+    
+    // Lifetime annotations ensure the returned reference is valid within the lifetime of the parameters
+}
+
+// Lifetimes in structs
+struct ImportantExcerpt<'a> {
+    part: &'a str,
+}
+
+fn main() {
+    let novel = String::from("Call me Ishmael. Some years ago...");
+    let first_sentence = novel.split('.').next().unwrap();
+    let i = ImportantExcerpt {
+        part: first_sentence,
+    };
+    
+    println!("{}", i.part);
+}
+
+// Lifetime Elision Rules
+fn first_word(s: &str) -> &str {
+    let bytes = s.as_bytes();
+    
+    for (i, &item) in bytes.iter().enumerate() {
+        if item == b' ' {
+            return &s[0..i];
+        }
+    }
+    
+    &s[..]
+}
+
+// The function above is equivalent to:
+fn first_word_explicit<'a>(s: &'a str) -> &'a str {
+    // Same function body
+    s
+}
+```
+</UniversalEditor>
+
+---
+
+## 🎯 Ownership & JavaScript Comparison
+
+### Data Passing Comparison
+
+<UniversalEditor title="Data Passing Comparison" compare={true}>
+```javascript !! js
+// Object passing in JavaScript
+function modifyUser(user) {
+    user.age += 1; // Directly modify original object
+    return user;
+}
+
+let user = { name: "Alice", age: 25 };
+let modifiedUser = modifyUser(user);
+
+console.log(user.age); // 26 - Original object modified
+console.log(modifiedUser.age); // 26 - Same object
+console.log(user === modifiedUser); // true - Same reference
+
+// Array passing
+function addToArray(arr) {
+    arr.push("new item");
+    return arr;
+}
+
+let numbers = [1, 2, 3];
+let newNumbers = addToArray(numbers);
+
+console.log(numbers); // [1, 2, 3, "new item"]
+console.log(newNumbers); // [1, 2, 3, "new item"]
+console.log(numbers === newNumbers); // true
+```
+
+```rust !! rs
+// Ownership transfer in Rust
+fn modify_user(mut user: User) -> User {
+    user.age += 1; // Modify struct
+    user
+}
+
+fn main() {
+    let user = User {
+        name: String::from("Alice"),
+        age: 25,
+    };
+    
+    let modified_user = modify_user(user);
+    // println!("{}", user.age); // Error: user has been moved
+    
+    println!("{}", modified_user.age); // 26
+}
+
+// Use reference to avoid ownership transfer
+fn modify_user_ref(user: &mut User) {
+    user.age += 1; // Modify via reference
+}
+
+fn main() {
+    let mut user = User {
+        name: String::from("Alice"),
+        age: 25,
+    };
+    
+    modify_user_ref(&mut user);
+    println!("{}", user.age); // 26 - user is still valid
+}
+
+// Vector passing
+fn add_to_vector(mut vec: Vec<i32>) -> Vec<i32> {
+    vec.push(4);
+    vec
+}
+
+fn main() {
+    let numbers = vec![1, 2, 3];
+    let new_numbers = add_to_vector(numbers);
+    // println!("{:?}", numbers); // Error: numbers has been moved
+    println!("{:?}", new_numbers); // [1, 2, 3, 4]
+}
+
+// Use reference
+fn add_to_vector_ref(vec: &mut Vec<i32>) {
+    vec.push(4);
+}
+
+fn main() {
+    let mut numbers = vec![1, 2, 3];
+    add_to_vector_ref(&mut numbers);
+    println!("{:?}", numbers); // [1, 2, 3, 4]
+}
+```
+</UniversalEditor>
+
+---
+
+## 🎯 Exercises
+
+### Exercise 1: Ownership Transfer
+
+Analyze the following code and identify where ownership transfer occurs:
+
+```rust
+fn main() {
+    let s1 = String::from("hello");
+    let s2 = s1;
+    let s3 = s2.clone();
+    
+    println!("s2: {}", s2);
+    println!("s3: {}", s3);
+}
+```
+
+<details>
+<summary>View Answer</summary>
+
+1. `let s2 = s1;` - Ownership of s1 moves to s2
+2. `let s3 = s2.clone();` - s2 is cloned, s3 gets ownership of new data
+3. s2 is still valid because clone creates new data
+
+</details>
+
+### Exercise 2: Borrowing Rules
+
+Fix the borrowing error in the following code:
+
+```rust
+fn main() {
+    let mut data = vec![1, 2, 3];
+    let ref1 = &data;
+    let ref2 = &mut data;
+    println!("{:?}, {:?}", ref1, ref2);
+}
+```
+
+<details>
+<summary>View Answer</summary>
+
+```rust
+fn main() {
+    let mut data = vec![1, 2, 3];
+    let ref1 = &data;
+    let ref2 = &data; // Changed to immutable reference
+    println!("{:?}, {:?}", ref1, ref2);
+    
+    // Or use immutable reference first, then mutable reference
+    let mut data = vec![1, 2, 3];
+    let ref1 = &data;
+    println!("{:?}", ref1);
+    let ref2 = &mut data; // Now a mutable reference can be created
+    ref2.push(4);
+    println!("{:?}", ref2);
+}
+```
+
+</details>
+
+### Exercise 3: Lifetimes
+
+Add the correct lifetime annotations to the following function:
+
+```rust
+fn longest(x: &str, y: &str) -> &str {
+    if x.len() > y.len() {
+        x
+    } else {
+        y
+    }
+}
+```
+
+<details>
+<summary>View Answer</summary>
+
+```rust
+fn longest<'a>(x: &'a str, y: &'a str) -> &'a str {
+    if x.len() > y.len() {
+        x
+    } else {
+        y
+    }
+}
+```
+
+</details>
+
+---
+
+## 📝 Summary
+
+In this chapter, we deeply learned about Rust's ownership system:
+
+1. **Ownership Rules**: Each value has one owner, and the value is dropped when the owner goes out of scope.
+2. **Borrowing System**: Borrow data through references, avoiding ownership transfer.
+3. **Borrowing Rules**: At any given time, you can have either one mutable reference or multiple immutable references.
+4. **Lifetimes**: Ensure references are valid for their duration.
+5. **Comparison with JavaScript**: Rust compile-time checks vs JavaScript runtime garbage collection.
+
+### Key Takeaways
+
+- The ownership system is at the core of Rust's memory safety.
+- The borrowing system allows using data without transferring ownership.
+- The lifetime system ensures references are always valid.
+- These concepts are checked at compile time with zero runtime overhead.
+
+### Common Pitfalls
+
+1. **Use after move**: Value cannot be used after being moved.
+2. **Simultaneous borrows**: Cannot have mutable and immutable borrows simultaneously.
+3. **Dangling references**: Returning a reference to a local variable.
+4. **Lifetime mismatch**: Reference lifetimes do not match.
+
+### Next Steps
+
+In the next chapter, we will learn about Rust's concurrency and asynchronous programming models, and how to safely handle multi-threading and asynchronous operations.
+
+---
+
+**Continue Learning**: [Concurrency & Asynchronous Model](./module-04-concurrency-async.mdx)

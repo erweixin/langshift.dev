@@ -1,0 +1,705 @@
+---
+title: "Error Handling & Type Safety"
+description: "Learn Rust's error handling mechanisms, including Result, Option types, and error propagation, contrasting with JavaScript's exception handling"
+---
+
+# Error Handling & Type Safety
+
+## 📖 Learning Objectives
+
+Understand Rust's error handling philosophy, learn to use `Result` and `Option` types, master error propagation patterns, and contrast with JavaScript's exception handling mechanism.
+
+---
+
+## 🎯 Error Handling Philosophy Comparison
+
+### JavaScript's Exception Handling
+
+JavaScript uses the try-catch mechanism for exception handling:
+
+<UniversalEditor title="JavaScript Exception Handling" compare={true}>
+```javascript !! js
+// JavaScript Exception Handling
+function divide(a, b) {
+    if (b === 0) {
+        throw new Error("Division by zero");
+    }
+    return a / b;
+}
+
+function processData(data) {
+    if (!data) {
+        throw new Error("Data cannot be empty");
+    }
+    return data.toUpperCase();
+}
+
+// Use try-catch to handle exceptions
+try {
+    const result1 = divide(10, 2);
+    console.log("Division result:", result1);
+    
+    const result2 = divide(10, 0); // Throws exception
+    console.log("This will not execute");
+} catch (error) {
+    console.log("Caught exception:", error.message);
+}
+
+// Asynchronous exception handling
+async function fetchData(url) {
+    try {
+        const response = await fetch(url);
+        if (!response.ok) {
+            throw new Error(`HTTP Error: ${response.status}`);
+        }
+        return await response.json();
+    } catch (error) {
+        console.log("Network request failed:", error.message);
+        return null;
+    }
+}
+
+// Promise exception handling
+function asyncOperation() {
+    return new Promise((resolve, reject) => {
+        setTimeout(() => {
+            const random = Math.random();
+            if (random > 0.5) {
+                resolve("Operation successful");
+            } else {
+                reject(new Error("Operation failed"));
+            }
+        }, 1000);
+    });
+}
+
+asyncOperation()
+    .then(result => console.log("Success:", result))
+    .catch(error => console.log("Failure:", error.message));
+
+// Optional chaining and nullish coalescing
+function getUserName(user) {
+    // Traditional way
+    if (user && user.profile && user.profile.name) {
+        return user.profile.name;
+    }
+    return "Unknown user";
+    
+    // Modern way
+    // return user?.profile?.name ?? "Unknown user";
+}
+
+// Function might return null or undefined
+function findUser(id) {
+    const users = [
+        { id: 1, name: "Alice" },
+        { id: 2, name: "Bob" }
+    ];
+    
+    const user = users.find(u => u.id === id);
+    return user || null; // Might return null
+}
+
+const user = findUser(3);
+if (user) {
+    console.log("User found:", user.name);
+} else {
+    console.log("User not found");
+}
+```
+</UniversalEditor>
+
+### Rust's Error Handling
+
+Rust uses the type system for error handling, without exceptions:
+
+<UniversalEditor title="Rust Error Handling" compare={true}>
+```rust !! rs
+// Rust Error Handling - Using Result Type
+fn divide(a: f64, b: f64) -> Result<f64, String> {
+    if b == 0.0 {
+        Err("Division by zero".to_string())
+    } else {
+        Ok(a / b)
+    }
+}
+
+fn process_data(data: &str) -> Result<String, String> {
+    if data.is_empty() {
+        return Err("Data cannot be empty".to_string());
+    }
+    Ok(data.to_uppercase())
+}
+
+// Use match to handle Result
+fn handle_division() {
+    match divide(10.0, 2.0) {
+        Ok(result) => println!("Division result: {}", result),
+        Err(error) => println!("Error: {}", error),
+    }
+    
+    match divide(10.0, 0.0) {
+        Ok(result) => println!("Result: {}", result),
+        Err(error) => println!("Error: {}", error),
+    }
+}
+
+// Use if let to simplify handling
+fn handle_division_simple() {
+    if let Ok(result) = divide(10.0, 2.0) {
+        println!("Division result: {}", result);
+    }
+    
+    if let Err(error) = divide(10.0, 0.0) {
+        println!("Error: {}", error);
+    }
+}
+
+// Use unwrap and expect (not recommended in production code)
+fn handle_division_unwrap() {
+    let result = divide(10.0, 2.0).unwrap(); // Returns value on success, panics on failure
+    println!("Result: {}", result);
+    
+    let result = divide(10.0, 0.0).expect("Division failed"); // Panics with message on failure
+    println!("Result: {}", result);
+}
+
+// Use ? operator to propagate errors
+fn process_operations() -> Result<(), String> {
+    let result1 = divide(10.0, 2.0)?; // If fails, immediately return error
+    println!("First result: {}", result1);
+    
+    let result2 = process_data("hello")?;
+    println!("Second result: {}", result2);
+    
+    Ok(()) // Return () on success
+}
+
+fn main() {
+    handle_division();
+    handle_division_simple();
+    
+    // Handle potentially panicking code
+    match std::panic::catch_unwind(|| {
+        handle_division_unwrap();
+    }) {
+        Ok(_) => println!("Operation successful"),
+        Err(_) => println!("Operation failed, panicked"),
+    }
+    
+    // Handle function returning Result
+    if let Err(error) = process_operations() {
+        println!("Error processing operation: {}", error);
+    }
+}
+```
+</UniversalEditor>
+
+### Error Handling Differences
+
+1. **Exceptions vs Types**: JavaScript uses exceptions, Rust uses type system
+2. **Runtime vs Compile-time**: JavaScript runtime checks, Rust compile-time checks
+3. **Recoverable vs Unrecoverable**: Rust distinguishes recoverable errors (Result) and unrecoverable errors (panic)
+4. **Explicit vs Implicit**: Rust forces explicit error handling, JavaScript can ignore exceptions
+
+---
+
+## 📦 Option Type
+
+### Handling Potentially Empty Values
+
+<UniversalEditor title="Option Type" compare={true}>
+```rust !! rs
+// Option Type - Handling potentially empty values
+fn find_user(id: u32) -> Option<User> {
+    let users = vec![
+        User { id: 1, name: String::from("Alice") },
+        User { id: 2, name: String::from("Bob") },
+    ];
+    
+    users.into_iter().find(|user| user.id == id)
+}
+
+fn get_user_name(user: &User) -> &str {
+    &user.name
+}
+
+// Use match to handle Option
+fn handle_user_match(id: u32) {
+    match find_user(id) {
+        Some(user) => println!("User found: {}", get_user_name(&user)),
+        None => println!("User not found"),
+    }
+}
+
+// Use if let to simplify handling
+fn handle_user_if_let(id: u32) {
+    if let Some(user) = find_user(id) {
+        println!("User found: {}", get_user_name(&user));
+    } else {
+        println!("User not found");
+    }
+}
+
+// Use map and and_then for chaining operations
+fn handle_user_chain(id: u32) {
+    let user_name = find_user(id)
+        .map(|user| get_user_name(&user).to_string())
+        .unwrap_or_else(|| "Unknown user".to_string());
+    
+    println!("Username: {}", user_name);
+}
+
+// Use unwrap and expect (use with caution)
+fn handle_user_unwrap(id: u32) {
+    let user = find_user(id).unwrap(); // Panics if None
+    println!("User: {}", get_user_name(&user));
+    
+    let user = find_user(id).expect("User should exist"); // Panics with custom message
+    println!("User: {}", get_user_name(&user));
+}
+
+// Option utility methods
+fn option_methods() {
+    let value: Option<i32> = Some(42);
+    let none_value: Option<i32> = None;
+    
+    // unwrap_or - Provide default value
+    println!("Value: {}", value.unwrap_or(0)); // 42
+    println!("Value: {}", none_value.unwrap_or(0)); // 0
+    
+    // unwrap_or_else - Use closure to provide default value
+    println!("Value: {}", none_value.unwrap_or_else(|| {
+        println!("Calculating default value");
+        100
+    }));
+    
+    // map - Transform value
+    let doubled = value.map(|x| x * 2);
+    println!("Doubled: {:?}", doubled); // Some(84)
+    
+    // and_then - Chain operations
+    let result = value.and_then(|x| {
+        if x > 40 {
+            Some(x.to_string())
+        } else {
+            None
+        }
+    });
+    println!("Result: {:?}", result); // Some("42")
+    
+    // filter - Filter value
+    let filtered = value.filter(|&x| x > 50);
+    println!("Filtered: {:?}", filtered); // None
+}
+
+struct User {
+    id: u32,
+    name: String,
+}
+
+fn main() {
+    handle_user_match(1);
+    handle_user_match(3);
+    
+    handle_user_if_let(1);
+    handle_user_if_let(3);
+    
+    handle_user_chain(1);
+    handle_user_chain(3);
+    
+    option_methods();
+}
+```
+</UniversalEditor>
+
+---
+
+## 🔄 Result Type
+
+### Handling Potentially Failing Operations
+
+<UniversalEditor title="Result Type" compare={true}>
+```rust !! rs
+// Custom error type
+#[derive(Debug)]
+enum AppError {
+    DivisionByZero,
+    InvalidInput(String),
+    NetworkError(String),
+    DatabaseError(String),
+}
+
+impl std::fmt::Display for AppError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            AppError::DivisionByZero => write!(f, "Division by zero"),
+            AppError::InvalidInput(msg) => write!(f, "Invalid input: {}", msg),
+            AppError::NetworkError(msg) => write!(f, "Network error: {}", msg),
+            AppError::DatabaseError(msg) => write!(f, "Database error: {}", msg),
+        }
+    }
+}
+
+// Implement std::error::Error trait
+impl std::error::Error for AppError {}
+
+// Use custom error type
+fn divide_with_custom_error(a: f64, b: f64) -> Result<f64, AppError> {
+    if b == 0.0 {
+        Err(AppError::DivisionByZero)
+    } else {
+        Ok(a / b)
+    }
+}
+
+fn validate_input(input: &str) -> Result<String, AppError> {
+    if input.is_empty() {
+        return Err(AppError::InvalidInput("Input cannot be empty".to_string()));
+    }
+    
+    if input.len() < 3 {
+        return Err(AppError::InvalidInput("Input length must be at least 3".to_string()));
+    }
+    
+    Ok(input.to_string())
+}
+
+// Simulate network request
+fn fetch_data(url: &str) -> Result<String, AppError> {
+    if url.is_empty() {
+        return Err(AppError::NetworkError("URL cannot be empty".to_string()));
+    }
+    
+    if url.contains("error") {
+        return Err(AppError::NetworkError("Simulated network error".to_string()));
+    }
+    
+    Ok(format!("Data fetched from {}", url))
+}
+
+// Error propagation
+fn process_data_chain(input: &str, url: &str) -> Result<String, AppError> {
+    // Use ? operator to propagate errors
+    let validated_input = validate_input(input)?;
+    let data = fetch_data(url)?;
+    
+    Ok(format!("Processed data: {} + {}", validated_input, data))
+}
+
+// Use map and map_err to transform errors
+fn process_with_map(input: &str) -> Result<String, AppError> {
+    validate_input(input)
+        .map(|s| s.to_uppercase())
+        .map_err(|e| AppError::InvalidInput(format!("Validation failed: {}", e)))
+}
+
+// Use and_then for chaining operations
+fn process_with_and_then(input: &str) -> Result<String, AppError> {
+    validate_input(input)
+        .and_then(|s| {
+            if s.len() > 10 {
+                Ok(s)
+            } else {
+                Err(AppError::InvalidInput("Input too short".to_string()))
+            }
+        })
+        .map(|s| format!("Processed result: {}", s))
+}
+
+// Combine multiple Results
+fn combine_results() -> Result<(), AppError> {
+    let result1 = divide_with_custom_error(10.0, 2.0)?;
+    let result2 = validate_input("hello")?;
+    let result3 = fetch_data("https://example.com")?;
+    
+    println!("All operations successful: {}, {}, {}", result1, result2, result3);
+    Ok(())
+}
+
+fn main() {
+    // Handle custom errors
+    match divide_with_custom_error(10.0, 0.0) {
+        Ok(result) => println!("Result: {}", result),
+        Err(error) => println!("Error: {}", error),
+    }
+    
+    // Use ? operator
+    if let Err(error) = process_data_chain("hello", "https://example.com") {
+        println!("Processing failed: {}", error);
+    }
+    
+    // Use map and and_then
+    match process_with_map("hi") {
+        Ok(result) => println!("Success: {}", result),
+        Err(error) => println!("Failure: {}", error),
+    }
+    
+    match process_with_and_then("very long input string") {
+        Ok(result) => println!("Success: {}", result),
+        Err(error) => println!("Failure: {}", error),
+    }
+    
+    // Combine multiple operations
+    if let Err(error) = combine_results() {
+        println!("Combined operations failed: {}", error);
+    }
+}
+```
+</UniversalEditor>
+
+---
+
+## 🎯 Best Practices for Error Handling
+
+### Error Handling Patterns Comparison
+
+<UniversalEditor title="Error Handling Patterns" compare={true}>
+```javascript !! js
+// JavaScript Error Handling Patterns
+class ValidationError extends Error {
+    constructor(message) {
+        super(message);
+        this.name = 'ValidationError';
+    }
+}
+
+class NetworkError extends Error {
+    constructor(message) {
+        super(message);
+        this.name = 'NetworkError';
+    }
+}
+
+// Function might throw exception
+function processUserData(userData) {
+    if (!userData.name) {
+        throw new ValidationError('Username cannot be empty');
+    }
+    
+    if (userData.age < 0) {
+        throw new ValidationError('Age cannot be negative');
+    }
+    
+    return {
+        ...userData,
+        processed: true
+    };
+}
+
+// Asynchronous function error handling
+async function fetchUserData(userId) {
+    try {
+        const response = await fetch(`/api/users/${userId}`);
+        if (!response.ok) {
+            throw new NetworkError(`HTTP ${response.status}`);
+        }
+        return await response.json();
+    } catch (error) {
+        if (error instanceof NetworkError) {
+            console.log('Network error:', error.message);
+        } else {
+            console.log('Unknown error:', error.message);
+        }
+        throw error; // Re-throw
+    }
+}
+
+// Use try-catch to handle
+async function handleUser(userId, userData) {
+    try {
+        const processedData = processUserData(userData);
+        const fetchedData = await fetchUserData(userId);
+        
+        return {
+            ...processedData,
+            ...fetchedData
+        };
+    } catch (error) {
+        if (error instanceof ValidationError) {
+            console.log('Validation error:', error.message);
+            return null;
+        } else if (error instanceof NetworkError) {
+            console.log('Network error:', error.message);
+            return null;
+        } else {
+            console.log('Unknown error:', error.message);
+            throw error;
+        }
+    }
+}
+
+// Use Promise chain
+function processWithPromise(userData) {
+    return Promise.resolve(userData)
+        .then(data => {
+            if (!data.name) {
+                throw new ValidationError('Username cannot be empty');
+            }
+            return data;
+        })
+        .then(data => {
+            return {
+                ...data,
+                processed: true
+            };
+        })
+        .catch(error => {
+            if (error instanceof ValidationError) {
+                console.log('Validation failed:', error.message);
+                return null;
+            }
+            throw error;
+        });
+}
+```
+
+```rust !! rs
+// Rust Error Handling Patterns
+use std::error::Error;
+use std::fmt;
+
+// Custom error type
+#[derive(Debug)]
+enum AppError {
+    ValidationError(String),
+    NetworkError(String),
+    DatabaseError(String),
+}
+
+impl fmt::Display for AppError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            AppError::ValidationError(msg) => write!(f, "Validation error: {}", msg),
+            AppError::NetworkError(msg) => write!(f, "Network error: {}", msg),
+            AppError::DatabaseError(msg) => write!(f, "Database error: {}", msg),
+        }
+    }
+}
+
+impl Error for AppError {}
+
+// Function returns Result
+fn process_user_data(user_data: UserData) -> Result<UserData, AppError> {
+    if user_data.name.is_empty() {
+        return Err(AppError::ValidationError("Username cannot be empty".to_string()));
+    }
+    
+    if user_data.age < 0 {
+        return Err(AppError::ValidationError("Age cannot be negative".to_string()));
+    }
+    
+    Ok(UserData {
+        processed: true,
+        ..user_data
+    })
+}
+
+// Asynchronous function error handling
+async fn fetch_user_data(user_id: u32) -> Result<UserData, AppError> {
+    // Simulate network request
+    if user_id == 0 {
+        return Err(AppError::NetworkError("Invalid user ID".to_string()));
+    }
+    
+    // Simulate successful response
+    Ok(UserData {
+        id: user_id,
+        name: format!("User{}", user_id),
+        age: 25,
+        processed: false,
+    })
+}
+
+// Use ? operator to handle errors
+async fn handle_user(user_id: u32, user_data: UserData) -> Result<UserData, AppError> {
+    let processed_data = process_user_data(user_data)?;
+    let fetched_data = fetch_user_data(user_id).await?;
+    
+    Ok(UserData {
+        id: fetched_data.id,
+        name: processed_data.name,
+        age: processed_data.age,
+        processed: true,
+    })
+}
+
+// Use map and map_err to transform errors
+fn process_with_transformation(user_data: UserData) -> Result<UserData, AppError> {
+    process_user_data(user_data)
+        .map(|data| UserData {
+            name: data.name.to_uppercase(),
+            ..data
+        })
+        .map_err(|e| match e {
+            AppError::ValidationError(msg) => AppError::ValidationError(format!("Processing failed: {}", msg)),
+            _ => e,
+        })
+}
+
+// Use and_then for chaining operations
+fn process_with_chain(user_data: UserData) -> Result<UserData, AppError> {
+    process_user_data(user_data)
+        .and_then(|data| {
+            if data.name.len() > 10 {
+                Ok(data)
+            } else {
+                Err(AppError::ValidationError("Username too short".to_string()))
+            }
+        })
+        .map(|data| UserData {
+            name: format!("Processed_{}", data.name),
+            ..data
+        })
+}
+
+#[derive(Debug, Clone)]
+struct UserData {
+    id: u32,
+    name: String,
+    age: i32,
+    processed: bool,
+}
+
+#[tokio::main]
+async fn main() {
+    let user_data = UserData {
+        id: 0,
+        name: "Alice".to_string(),
+        age: 25,
+        processed: false,
+    };
+    
+    // Handle errors
+    match handle_user(1, user_data.clone()).await {
+        Ok(result) => println!("Success: {:?}", result),
+        Err(error) => println!("Failure: {}", error),
+    }
+    
+    // Use transformation
+    match process_with_transformation(user_data.clone()) {
+        Ok(result) => println!("Transformation successful: {:?}", result),
+        Err(error) => println!("Transformation failed: {}", error),
+    }
+    
+    // Use chaining
+    match process_with_chain(user_data) {
+        Ok(result) => println!("Chaining successful: {:?}", result),
+        Err(error) => println!("Chaining failed: {}", error),
+    }
+}
+```
+</UniversalEditor>
+
+### Advanced Error Handling Libraries
+
+In real-world projects, to simplify error definition and handling, the Rust community provides excellent error handling libraries, such as:
+
+*   **`thiserror`**: Simplifies the definition of custom error types, especially when errors need to contain additional information or derive from other error types. It automatically implements `Display` and `Error` traits via macros.
+*   **`anyhow`**: Simplifies error propagation, especially in application-level code. It provides a simple `Result` type alias `anyhow::Result<T>` and allows you to easily convert various error types to `anyhow::Error`.
+
+These libraries can significantly reduce boilerplate code for error handling, improving code readability and maintainability.
+
+---
+
+## 🎯 Exercises

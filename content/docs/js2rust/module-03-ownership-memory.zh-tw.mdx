@@ -1,0 +1,617 @@
+---
+title: "所有權與記憶體模型"
+description: "深入學習 Rust 的所有權系統、借用規則和記憶體管理，理解與 JavaScript 垃圾回收的差異"
+---
+
+# 所有權與記憶體模型
+
+## 📖 學習目標
+
+理解 Rust 的所有權系統，這是 Rust 最核心的概念。我們將從 JavaScript 的記憶體管理出發，逐步理解 Rust 如何透過編譯時檢查確保記憶體安全。
+
+---
+
+## 🎯 記憶體管理對比
+
+### JavaScript 的垃圾回收
+
+JavaScript 使用自動垃圾回收機制：
+
+<UniversalEditor title="JavaScript 記憶體管理" compare={true}>
+```javascript !! js
+// JavaScript 記憶體管理範例
+function createUser() {
+    let user = {
+        name: "Alice",
+        age: 25,
+        preferences: {
+            theme: "dark",
+            language: "zh-TW"
+        }
+    };
+    
+    // 建立對 user 的引用
+    let userRef = user;
+    
+    // 修改 user 物件
+    user.age = 26;
+    console.log(userRef.age); // 26 - 引用指向同一個物件
+    
+    // 建立新物件，userRef 指向新物件
+    userRef = {
+        name: "Bob",
+        age: 30
+    };
+    
+    // 原來的 user 物件仍然存在
+    console.log(user.name); // "Alice"
+    console.log(userRef.name); // "Bob"
+    
+    // 當函數結束時，如果沒有引用指向物件，垃圾回收器會清理記憶體
+}
+
+createUser();
+
+// 陣列和物件的引用傳遞
+let numbers = [1, 2, 3];
+let numbersCopy = numbers; // 複製引用，不是資料
+
+numbersCopy.push(4);
+console.log(numbers); // [1, 2, 3, 4] - 同一個陣列
+console.log(numbersCopy); // [1, 2, 3, 4] - 同一個陣列
+
+// 深層複製
+let deepCopy = JSON.parse(JSON.stringify(numbers));
+deepCopy.push(5);
+console.log(numbers); // [1, 2, 3, 4] - 原陣列不變
+console.log(deepCopy); // [1, 2, 3, 4, 5] - 新陣列
+```
+</UniversalEditor>
+
+### Rust 的所有權系統
+
+Rust 使用所有權系統在編譯時管理記憶體：
+
+<UniversalEditor title="Rust 所有權系統" compare={true}>
+```rust !! rs
+// Rust 所有權系統範例
+fn create_user() {
+    let user = User {
+        name: String::from("Alice"),
+        age: 25,
+        preferences: Preferences {
+            theme: String::from("dark"),
+            language: String::from("zh-TW"),
+        },
+    };
+    
+    // 所有權轉移：user 的所有權移動到 user_ref
+    let user_ref = user;
+    
+    // 這行程式碼會編譯錯誤！user 已經被移動
+    // println!("{}", user.name); // 錯誤：use of moved value
+    
+    // 可以修改 user_ref
+    let mut user_ref = user_ref;
+    user_ref.age = 26;
+    println!("{}", user_ref.age); // 26
+    
+    // 建立新的 User
+    let new_user = User {
+        name: String::from("Bob"),
+        age: 30,
+        preferences: Preferences {
+            theme: String::from("light"),
+            language: String::from("en-US"),
+        },
+    };
+    
+    // user_ref 指向新物件
+    let user_ref = new_user;
+    println!("{}", user_ref.name); // "Bob"
+}
+
+// 定義結構體
+struct User {
+    name: String,
+    age: u32,
+    preferences: Preferences,
+}
+
+struct Preferences {
+    theme: String,
+    language: String,
+}
+
+// 向量（類似 JavaScript 陣列）的所有權
+fn vector_ownership() {
+    let mut numbers = vec![1, 2, 3];
+    let numbers_ref = &mut numbers; // 可變借用
+    
+    numbers_ref.push(4);
+    println!("{:?}", numbers); // [1, 2, 3, 4]
+    
+    // 建立深層複製
+    let deep_copy = numbers.clone();
+    println!("{:?}", deep_copy); // [1, 2, 3, 4]
+    
+    // 修改原陣列
+    numbers.push(5);
+    println!("{:?}", numbers); // [1, 2, 3, 4, 5]
+    println!("{:?}", deep_copy); // [1, 2, 3, 4] - 深層複製不變
+}
+
+fn main() {
+    create_user();
+    vector_ownership();
+}
+```
+</UniversalEditor>
+
+### 記憶體管理差異
+
+1. **自動 vs 手動**: JavaScript 自動垃圾回收，Rust 編譯時檢查
+2. **引用語義**: JavaScript 物件透過引用傳遞，Rust 透過所有權轉移
+3. **記憶體安全**: JavaScript 執行時檢查，Rust 編譯時保證
+4. **效能**: JavaScript 有垃圾回收開銷，Rust 零成本抽象
+
+---
+
+## 🔄 所有權規則
+
+### Rust 的所有權規則
+
+Rust 有三個核心所有權規則：
+
+<UniversalEditor title="所有權規則" compare={true}>
+```rust !! rs
+// 規則 1: 每個值都有一個所有者。
+// Rust 中的資料分為兩種：
+// 1. 擁有所有權的資料 (如 String, Vec): 預設行為是「移動」 (move)。當所有權轉移後，原變數失效。
+// 2. 實現了 Copy Trait 的資料 (如整數、浮點數、布林值、字元、固定大小陣列): 預設行為是「複製」 (copy)。複製後，原變數仍然有效。
+fn rule_one() {
+    // String 類型：預設行為是移動
+    let s1 = String::from("hello"); // s1 是所有者
+    let s2 = s1; // 所有權從 s1 移動到 s2
+    // println!("{}", s1); // 錯誤：s1 已經被移動，不能再使用
+    println!("{}", s2); // 正確：s2 現在是所有者
+
+    // i32 類型：實現了 Copy Trait，預設行為是複製
+    let x = 5; // x 是所有者
+    let y = x; // x 的值被複製給 y，x 仍然有效
+    println!("x = {}, y = {}", x, y); // 正確：x 和 y 都可以使用
+}
+
+// 規則 2: 同一時間只能有一個所有者
+fn rule_two() {
+    let s1 = String::from("hello");
+    let s2 = s1; // s1 的所有權移動到 s2
+    // let s3 = s1; // 錯誤：s1 已經被移動
+    let s3 = s2; // 正確：s2 的所有權移動到 s3
+}
+
+// 規則 3: 當所有者離開作用域時，值被丟棄
+fn rule_three() {
+    {
+        let s = String::from("hello"); // s 進入作用域
+        // 使用 s
+        println!("{}", s);
+    } // s 離開作用域，記憶體被釋放
+    // println!("{}", s); // 錯誤：s 已經被釋放
+}
+
+// 函數中的所有權
+fn take_ownership(some_string: String) {
+    println!("{}", some_string);
+} // some_string 離開作用域，記憶體被釋放
+
+fn make_copy(some_integer: i32) {
+    println!("{}", some_integer);
+} // some_integer 離開作用域，但 i32 是 Copy 類型，不需要釋放
+
+fn main() {
+    rule_one();
+    rule_two();
+    rule_three();
+    
+    let s = String::from("hello");
+    take_ownership(s); // s 的所有權移動到函數中
+    // println!("{}", s); // 錯誤：s 已經被移動
+    
+    let x = 5;
+    make_copy(x); // x 被複製到函數中
+    println!("{}", x); // 正確：x 仍然有效
+}
+```
+</UniversalEditor>
+
+---
+
+## 🔗 借用與引用
+
+### 不可變借用
+
+<UniversalEditor title="不可變借用" compare={true}>
+```rust !! rs
+// 不可變借用（類似 JavaScript 的只讀引用）
+fn calculate_length(s: &String) -> usize {
+    s.len() // 返回字串長度
+} // s 離開作用域，但因為它只是借用，不會釋放記憶體
+
+fn main() {
+    let s1 = String::from("hello");
+    let len = calculate_length(&s1); // 傳遞 s1 的引用
+    println!("'{}' 的長度是 {}", s1, len); // s1 仍然有效
+    
+    // 多個不可變借用
+    let s = String::from("hello");
+    let r1 = &s; // 不可變借用
+    let r2 = &s; // 另一個不可變借用
+    let r3 = &s; // 第三個不可變借用
+    
+    println!("{}, {}, {}", r1, r2, r3); // 可以同時使用多個不可變借用
+}
+```
+</UniversalEditor>
+
+### 可變借用
+
+<UniversalEditor title="可變借用" compare={true}>
+```rust !! rs
+// 可變借用（類似 JavaScript 的可寫引用）
+fn change(some_string: &mut String) {
+    some_string.push_str(", world");
+}
+
+fn main() {
+    let mut s = String::from("hello");
+    change(&mut s); // 傳遞可變引用
+    println!("{}", s); // "hello, world"
+    
+    // 可變借用的限制
+    let mut s = String::from("hello");
+    
+    let r1 = &mut s; // 第一個可變借用
+    // let r2 = &mut s; // 錯誤：不能同時有多個可變借用
+    // let r3 = &s; // 錯誤：不能同時有可變和不可變借用
+    
+    println!("{}", r1); // 使用 r1
+    // r1 在這裡離開作用域
+    
+    let r2 = &mut s; // 現在可以建立第二個可變借用
+    let r3 = &s; // 也可以建立不可變借用
+    println!("{}, {}", r2, r3);
+}
+```
+</UniversalEditor>
+
+### 借用規則
+
+<UniversalEditor title="借用規則" compare={true}>
+```rust !! rs
+// 借用規則總結
+fn borrowing_rules() {
+    let mut data = vec![1, 2, 3, 4, 5];
+    
+    // 規則 1: 同一時間只能有一個可變引用或多個不可變引用
+    let ref1 = &data; // 不可變引用
+    let ref2 = &data; // 另一個不可變引用
+    // let ref3 = &mut data; // 錯誤：不能同時有可變和不可變引用
+    
+    println!("{:?}, {:?}", ref1, ref2); // 使用不可變引用
+    
+    // 不可變引用離開作用域後，可以建立可變引用
+    let ref3 = &mut data; // 現在可以建立可變引用
+    ref3.push(6);
+    println!("{:?}", ref3);
+    
+    // 規則 2: 引用必須總是有效的（不能有懸垂引用）
+    // 這個規則在 Rust 中透過生命週期系統自動處理
+}
+
+// 懸垂引用的例子（這會導致編譯錯誤）
+/*
+fn dangle() -> &String {
+    let s = String::from("hello");
+    &s // 錯誤：返回對局部變數的引用
+} // s 離開作用域，記憶體被釋放，但返回了對它的引用
+*/
+
+// 正確的做法
+fn no_dangle() -> String {
+    let s = String::from("hello");
+    s // 返回所有權，而不是引用
+}
+
+fn main() {
+    borrowing_rules();
+    
+    let s = no_dangle();
+    println!("{}", s);
+}
+```
+</UniversalEditor>
+
+---
+
+## 📏 生命週期
+
+### 生命週期註解
+
+<UniversalEditor title="生命週期" compare={true}>
+```rust !! rs
+// 生命週期註解
+fn longest<'a>(x: &'a str, y: &'a str) -> &'a str {
+    if x.len() > y.len() {
+        x
+    } else {
+        y
+    }
+}
+
+fn main() {
+    let string1 = String::from("abcd");
+    let string2 = "xyz";
+    
+    let result = longest(string1.as_str(), string2);
+    println!("最長的字串是 {}", result);
+    
+    // 生命週期註解確保返回的引用在參數的生命週期內有效
+}
+
+// 結構體中的生命週期
+struct ImportantExcerpt<'a> {
+    part: &'a str,
+}
+
+fn main() {
+    let novel = String::from("Call me Ishmael. Some years ago...");
+    let first_sentence = novel.split('.').next().unwrap();
+    let i = ImportantExcerpt {
+        part: first_sentence,
+    };
+    
+    println!("{}", i.part);
+}
+
+// 生命週期省略規則
+fn first_word(s: &str) -> &str {
+    let bytes = s.as_bytes();
+    
+    for (i, &item) in bytes.iter().enumerate() {
+        if item == b' ' {
+            return &s[0..i];
+        }
+    }
+    
+    &s[..]
+}
+
+// 上面的函數等同於：
+fn first_word_explicit<'a>(s: &'a str) -> &'a str {
+    // 函數體相同
+    s
+}
+```
+</UniversalEditor>
+
+---
+
+## 🎯 所有權與 JavaScript 對比
+
+### 資料傳遞對比
+
+<UniversalEditor title="資料傳遞對比" compare={true}>
+```javascript !! js
+// JavaScript 中的物件傳遞
+function modifyUser(user) {
+    user.age += 1; // 直接修改原物件
+    return user;
+}
+
+let user = { name: "Alice", age: 25 };
+let modifiedUser = modifyUser(user);
+
+console.log(user.age); // 26 - 原物件被修改
+console.log(modifiedUser.age); // 26 - 同一個物件
+console.log(user === modifiedUser); // true - 同一個引用
+
+// 陣列傳遞
+function addToArray(arr) {
+    arr.push("new item");
+    return arr;
+}
+
+let numbers = [1, 2, 3];
+let newNumbers = addToArray(numbers);
+
+console.log(numbers); // [1, 2, 3, "new item"]
+console.log(newNumbers); // [1, 2, 3, "new item"]
+console.log(numbers === newNumbers); // true
+```
+
+```rust !! rs
+// Rust 中的所有權轉移
+fn modify_user(mut user: User) -> User {
+    user.age += 1; // 修改結構體
+    user
+}
+
+fn main() {
+    let user = User {
+        name: String::from("Alice"),
+        age: 25,
+    };
+    
+    let modified_user = modify_user(user);
+    // println!("{}", user.age); // 錯誤：user 已經被移動
+    
+    println!("{}", modified_user.age); // 26
+}
+
+// 使用引用避免所有權轉移
+fn modify_user_ref(user: &mut User) {
+    user.age += 1; // 透過引用修改
+}
+
+fn main() {
+    let mut user = User {
+        name: String::from("Alice"),
+        age: 25,
+    };
+    
+    modify_user_ref(&mut user);
+    println!("{}", user.age); // 26 - user 仍然有效
+}
+
+// 向量傳遞
+fn add_to_vector(mut vec: Vec<i32>) -> Vec<i32> {
+    vec.push(4);
+    vec
+}
+
+fn main() {
+    let numbers = vec![1, 2, 3];
+    let new_numbers = add_to_vector(numbers);
+    // println!("{:?}", numbers); // 錯誤：numbers 已經被移動
+    println!("{:?}", new_numbers); // [1, 2, 3, 4]
+}
+
+// 使用引用
+fn add_to_vector_ref(vec: &mut Vec<i32>) {
+    vec.push(4);
+}
+
+fn main() {
+    let mut numbers = vec![1, 2, 3];
+    add_to_vector_ref(&mut numbers);
+    println!("{:?}", numbers); // [1, 2, 3, 4]
+}
+```
+</UniversalEditor>
+
+---
+
+## 🎯 練習題
+
+### 練習 1: 所有權轉移
+
+分析以下程式碼，指出哪些地方會發生所有權轉移：
+
+```rust
+fn main() {
+    let s1 = String::from("hello");
+    let s2 = s1;
+    let s3 = s2.clone();
+    
+    println!("s2: {}", s2);
+    println!("s3: {}", s3);
+}
+```
+
+<details>
+<summary>查看答案</summary>
+
+1. `let s2 = s1;` - s1 的所有權移動到 s2
+2. `let s3 = s2.clone();` - s2 被複製，s3 獲得新資料的所有權
+3. s2 仍然有效，因為 clone 建立了新的資料
+
+</details>
+
+### 練習 2: 借用規則
+
+修復以下程式碼中的借用錯誤：
+
+```rust
+fn main() {
+    let mut data = vec![1, 2, 3];
+    let ref1 = &data;
+    let ref2 = &mut data;
+    println!("{:?}, {:?}", ref1, ref2);
+}
+```
+
+<details>
+<summary>查看答案</summary>
+
+```rust
+fn main() {
+    let mut data = vec![1, 2, 3];
+    let ref1 = &data;
+    let ref2 = &data; // 改為不可變引用
+    println!("{:?}, {:?}", ref1, ref2);
+    
+    // 或者先使用不可變引用，再使用可變引用
+    let mut data = vec![1, 2, 3];
+    let ref1 = &data;
+    println!("{:?}", ref1);
+    let ref2 = &mut data; // 現在可以使用可變引用
+    ref2.push(4);
+    println!("{:?}", ref2);
+}
+```
+
+</details>
+
+### 練習 3: 生命週期
+
+為以下函數添加正確的生命週期註解：
+
+```rust
+fn longest(x: &str, y: &str) -> &str {
+    if x.len() > y.len() {
+        x
+    } else {
+        y
+    }
+}
+```
+
+<details>
+<summary>查看答案</summary>
+
+```rust
+fn longest<'a>(x: &'a str, y: &'a str) -> &'a str {
+    if x.len() > y.len() {
+        x
+    } else {
+        y
+    }
+}
+```
+
+</details>
+
+---
+
+## 📝 總結
+
+在這一章中，我們深入學習了 Rust 的所有權系統：
+
+1. **所有權規則**: 每個值只有一個所有者，所有者離開作用域時值被丟棄
+2. **借用系統**: 透過引用借用資料，避免所有權轉移
+3. **借用規則**: 同一時間只能有一個可變引用或多個不可變引用
+4. **生命週期**: 確保引用在有效期內使用
+5. **與 JavaScript 對比**: Rust 編譯時檢查 vs JavaScript 執行時垃圾回收
+
+### 關鍵要點
+
+- 所有權系統是 Rust 記憶體安全的核心
+- 借用系統允許在不轉移所有權的情況下使用資料
+- 生命週期系統確保引用始終有效
+- 這些概念在編譯時檢查，執行時零開銷
+
+### 常見陷阱
+
+1. **移動後使用**: 值被移動後不能再使用
+2. **同時借用**: 不能同時有可變和不可變借用
+3. **懸垂引用**: 返回對局部變數的引用
+4. **生命週期不匹配**: 引用生命週期不匹配
+
+### 下一步學習
+
+在下一章中，我們將學習 Rust 的並發和異步程式設計模型，了解如何安全地處理多執行緒和異步操作。
+
+---
+
+**繼續學習**: [並發與異步模型](./module-04-concurrency-async.zh-tw.mdx)
