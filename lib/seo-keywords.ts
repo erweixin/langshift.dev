@@ -264,7 +264,7 @@ export function generateKeywordsFromSlug(slug?: string[], lang: string = 'zh-cn'
   }
   
   const course = slug[0]; // 第一个路径段通常是课程名称
-  const module = slug.length > 1 ? slug[1] : undefined;
+  const moduleName = slug.length > 1 ? slug[1] : undefined;
   
-  return generatePageKeywords(course, module, lang);
+  return generatePageKeywords(course, moduleName, lang);
 } 
