@@ -3,7 +3,7 @@
 import { getTranslations, type SupportedLanguage } from '@/messages';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { Menu, X, Globe, ChevronDown } from 'lucide-react';
 
 interface HeaderProps {
@@ -26,10 +26,10 @@ export function Header({ lang }: HeaderProps) {
 
   const navItems: { href: string; label: string }[] = [];
 
-  const getLanguageUrl = (languageCode: string) => {
+  const getLanguageUrl = useCallback((languageCode: string) => {
     const pathWithoutLang = pathname.replace(/^\/[^\/]+/, '');
     return `/${languageCode}${pathWithoutLang}`;
-  };
+  }, [pathname]);
 
   return (
     <header className="fixed top-0 left-0 right-0 z-50 bg-slate-900/80 backdrop-blur-md border-b border-slate-700/50">
