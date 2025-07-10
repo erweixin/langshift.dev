@@ -14,7 +14,7 @@ export function Logo() {
       >
         <circle cx={12} cy={12} r={12} fill="currentColor" />
       </svg>
-      Snekroll
+      langShift
     </div>
   );
 }
