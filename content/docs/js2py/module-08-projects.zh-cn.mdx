@@ -1,0 +1,248 @@
+---
+title: "Python 实战项目"
+description: "通过构建真实世界的项目，巩固你的 Python 技能，并将所学知识融会贯通。"
+---
+
+## 1. 引言
+
+### 从理论到实践
+
+你已经学习了 Python 的基础语法、Web 开发、数据处理等核心知识。现在，是时候将这些知识应用到真实世界的项目中了。通过动手实践，你将更深刻地理解 Python 的强大之处，并获得宝贵的开发经验。
+
+本模块将提供几个不同领域的实战项目，每个项目都将综合运用前面模块学到的技能，并提供与 JavaScript/Node.js 实现的对比思路。
+
+> 💡 **学习策略**：选择一个你最感兴趣的项目开始。尝试独立完成它，遇到问题时，回顾前面的模块或查阅官方文档。关键在于“做”而不是“看”。
+
+## 2. 项目一：URL 缩短服务
+
+### 项目描述
+
+构建一个功能齐全的 URL 缩短服务，类似于 `bit.ly`。用户可以提交一个长 URL，服务会返回一个短 URL。当访问短 URL 时，应重定向到原始的长 URL。
+
+**核心功能**
+
+*   使用 FastAPI 构建 API 端点。
+*   使用 Pydantic 进行数据验证。
+*   使用 SQLite 或其他数据库存储 URL 映射。
+*   生成唯一的短 URL 标识符。
+*   实现重定向逻辑。
+
+<PythonEditor title="URL 缩短服务：FastAPI 实现思路" compare={true}>
+```javascript !! js
+// JavaScript (Express + nanoid)
+const express = require('express');
+const { nanoid } = require('nanoid');
+
+const app = express();
+app.use(express.json());
+
+const urlDatabase = {}; // 简单内存存储
+
+app.post('/shorten', (req, res) => {
+  const { longUrl } = req.body;
+  const shortId = nanoid(7);
+  urlDatabase[shortId] = longUrl;
+  res.json({ shortUrl: `http://localhost:3000/${shortId}` });
+});
+
+app.get('/:shortId', (req, res) => {
+  const longUrl = urlDatabase[req.params.shortId];
+  if (longUrl) {
+    res.redirect(longUrl);
+  } else {
+    res.status(404).send('Not Found');
+  }
+});
+
+app.listen(3000);
+```
+
+```python !! py
+# Python (FastAPI + SQLite)
+import secrets
+import sqlite3
+from fastapi import FastAPI, HTTPException, Depends
+from pydantic import BaseModel
+from starlette.responses import RedirectResponse
+
+# -- 数据库设置 --
+DATABASE_URL = "urls.db"
+
+def get_db():
+    conn = sqlite3.connect(DATABASE_URL)
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+# -- Pydantic 模型 --
+class URLBase(BaseModel):
+    target_url: str
+
+class URLInfo(URLBase):
+    is_active: bool
+    clicks: int
+
+# -- FastAPI 应用 --
+app = FastAPI()
+
+@app.post("/shorten")
+def create_url(url: URLBase, db: sqlite3.Connection = Depends(get_db)):
+    short_id = secrets.token_urlsafe(5)
+    # ... (将 short_id 和 url.target_url 存入数据库)
+    return {"short_url": f"http://localhost:8000/{short_id}"}
+
+@app.get("/{short_id}")
+def forward_to_target_url(short_id: str, db: sqlite3.Connection = Depends(get_db)):
+    # ... (从数据库中查找 long_url)
+    # ... (更新点击次数)
+    # return RedirectResponse(long_url)
+    pass
+```
+</PythonEditor>
+
+## 3. 项目二：命令行天气应用
+
+### 项目描述
+
+创建一个命令行工具，用户可以输入城市名称，程序将从天气 API (如 OpenWeatherMap) 获取并显示当前的天气信息。
+
+**核心功能**
+
+*   使用 `argparse` 或 `typer` 解析命令行参数。
+*   使用 `httpx` 或 `requests` 调用第三方 API。
+*   处理 API 响应 (JSON)。
+*   在终端中格式化并显示天气信息。
+
+<PythonEditor title="命令行天气应用：Python 实现思路" compare={true}>
+```javascript !! js
+// JavaScript (Node.js + axios + yargs)
+const axios = require('axios');
+const yargs = require('yargs/yargs');
+const { hideBin } = require('yargs/helpers');
+
+const argv = yargs(hideBin(process.argv)).argv;
+
+async function getWeather(city) {
+  try {
+    const apiKey = 'YOUR_API_KEY';
+    const url = `https://api.openweathermap.org/data/2.5/weather?q=${city}&appid=${apiKey}`;
+    const response = await axios.get(url);
+    console.log(`Weather in ${city}:`);
+    console.log(`- Temp: ${response.data.main.temp}°K`);
+    console.log(`- Description: ${response.data.weather[0].description}`);
+  } catch (error) {
+    console.error('Error fetching weather data');
+  }
+}
+
+if (argv.city) {
+  getWeather(argv.city);
+}
+```
+
+```python !! py
+# Python (Typer + httpx)
+import typer
+import httpx
+
+API_KEY = "YOUR_API_KEY"
+
+def main(city: str):
+    """获取并显示指定城市的天气信息"""
+    url = f"https://api.openweathermap.org/data/2.5/weather?q={city}&appid={API_KEY}"
+    try:
+        with httpx.Client() as client:
+            response = client.get(url)
+            response.raise_for_status()
+            data = response.json()
+            print(f"Weather in {city}:")
+            print(f"- Temp: {data['main']['temp']}°K")
+            print(f"- Description: {data['weather'][0]['description']}")
+    except httpx.HTTPStatusError as e:
+        print(f"Error: Unable to fetch weather data for {city}. {e.response.status_code}")
+    except Exception as e:
+        print(f"An error occurred: {e}")
+
+if __name__ == "__main__":
+    typer.run(main)
+
+# 运行: python weather_app.py London
+```
+</PythonEditor>
+
+## 4. 项目三：数据分析与可视化报告
+
+### 项目描述
+
+从一个 CSV 数据集（例如，关于销售、电影或任何你感兴趣的主题）中提取、分析数据，并生成一个简单的 HTML 报告，其中包含关键指标和图表。
+
+**核心功能**
+
+*   使用 `pandas` 读取和清洗 CSV 数据。
+*   进行数据聚合和分析（例如，计算平均值、总和、分组）。
+*   使用 `matplotlib` 或 `seaborn` 创建图表（如条形图、折线图）。
+*   将图表保存为图片。
+*   使用 `jinja2` 模板引擎生成 HTML 报告。
+
+<PythonEditor title="数据分析报告：Python 实现思路" compare={true}>
+```javascript !! js
+// JavaScript (Node.js + danfo.js + chart.js)
+// 这个过程在 Node.js 中相对繁琐，通常需要多个库的配合，
+// 并且图表生成通常在客户端完成。
+// 伪代码思路：
+// 1. 使用 danfo.js 或类似库读取 CSV。
+// 2. 进行数据操作。
+// 3. 将数据传递给一个模板引擎 (e.g., EJS)。
+// 4. 在模板中，使用 Chart.js 的脚本来渲染图表。
+```
+
+```python !! py
+# Python (Pandas + Matplotlib + Jinja2)
+import pandas as pd
+import matplotlib.pyplot as plt
+from jinja2 import Environment, FileSystemLoader
+
+# 1. 数据分析
+df = pd.read_csv("sales_data.csv")
+total_sales = df["sales"].sum()
+top_products = df.groupby("product")["sales"].sum().nlargest(5)
+
+# 2. 创建图表
+plt.figure()
+top_products.plot(kind="bar")
+plt.title("Top 5 Products by Sales")
+plt.savefig("top_products.png")
+
+# 3. 生成 HTML 报告
+env = Environment(loader=FileSystemLoader('.'))
+template = env.get_template("report_template.html")
+
+html_content = template.render(
+    total_sales=total_sales,
+    top_products_table=top_products.to_html()
+)
+
+with open("report.html", "w") as f:
+    f.write(html_content)
+
+# report_template.html (Jinja2 模板)
+# <!DOCTYPE html>
+# <html>
+# <head><title>Sales Report</title></head>
+# <body>
+#   <h1>Sales Report</h1>
+#   <p>Total Sales: {{ total_sales }}</p>
+#   <h2>Top Products</h2>
+#   {{ top_products_table|safe }}
+#   <img src="top_products.png">
+# </body>
+# </html>
+```
+</PythonEditor>
+
+## 5. 总结
+
+完成这些项目后，你将不仅仅是一个“知道”Python 的人，而是一个能够“使用”Python 解决实际问题的人。你的技能将得到极大的提升，并且你将对 Python 生态系统有更深入的了解。
+
+不要止步于此！尝试扩展这些项目，添加新功能，或者寻找你自己的项目想法。编程学习的最好方式就是不断地创造和实践。

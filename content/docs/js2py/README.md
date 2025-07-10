@@ -1,117 +1,117 @@
 ---
-title: JavaScript 到 Python 转换学习模块
-description: 专为有 JavaScript 基础的开发者设计的 Python 学习模块，通过对比学习快速掌握 Python 编程
+title: JavaScript to Python Learning Module
+description: A Python learning module designed for developers with a JavaScript background, enabling rapid mastery of Python programming through comparative learning.
 ---
 
-# JavaScript 到 Python 转换学习模块
+# JavaScript to Python Learning Module
 
-## 📖 模块概述
+## 📖 Module Overview
 
-本模块专为有 JavaScript 基础的开发者设计，通过对比学习的方式，帮助你快速掌握 Python 编程。我们采用"从已知到未知"的学习方法，让你能够利用已有的 JavaScript 知识来理解 Python 概念。
+This module is specially designed for developers with a JavaScript background. Through a comparative learning approach, it helps you quickly master Python programming. We adopt a "from known to unknown" learning method, allowing you to leverage your existing JavaScript knowledge to understand Python concepts.
 
-## 🎯 学习目标
+## 🎯 Learning Objectives
 
-- 掌握 Python 基础语法和概念
-- 理解 JavaScript 和 Python 的语法差异
-- 学会 Python 的惯用写法和最佳实践
-- 能够独立开发 Python 项目
-- 理解两种语言的设计哲学差异
+- Master basic Python syntax and concepts
+- Understand the syntax differences between JavaScript and Python
+- Learn Pythonic idioms and best practices
+- Be able to independently develop Python projects
+- Understand the design philosophy differences between the two languages
 
-## 📚 学习模块
+## 📚 Learning Modules
 
-### 🚀 模块 0：Python 介绍与语言转换学习法
-- Python 生态系统概览
-- 语言转换学习的核心方法论
-- 环境搭建与工具配置
-- 第一个跨语言项目：Hello, World!
+### 🚀 Module 0: Python Introduction & Language Transition Learning Method
+- Python ecosystem overview
+- Core methodology of language transition learning
+- Environment setup and tool configuration
+- First cross-language project: Hello, World!
 
-### 🧱 模块 1：语法对比与映射
-- 变量声明与作用域对比
-- 数据类型与结构映射
-- 控制流语句对比
-- 函数定义与调用方式
-- 错误处理机制对比
+### 🧱 Module 1: Syntax Comparison & Mapping
+- Variable declaration and scope comparison
+- Data types and structure mapping
+- Control flow statement comparison
+- Function definition and invocation
+- Error handling mechanism comparison
 
-### 🧰 模块 2：模块化与项目组织
-- 包管理与依赖系统对比
-- 模块导入导出机制
-- 项目结构规范
-- 构建工具与开发环境
-- 虚拟环境管理
+### 🧰 Module 2: Modularity & Project Organization
+- Package management and dependency system comparison
+- Module import/export mechanisms
+- Project structure standards
+- Build tools and development environment
+- Virtual environment management
 
-### 🧠 模块 3：面向对象与函数式编程
-- 面向对象编程实现差异
-- 函数式编程特性对比
-- 设计模式在不同语言中的实现
-- 继承与组合模式对比
-- 高阶函数与闭包
+### 🧠 Module 3: Object-Oriented & Functional Programming
+- Differences in object-oriented programming implementation
+- Comparison of functional programming features
+- Implementation of design patterns in different languages
+- Inheritance vs. composition comparison
+- Higher-order functions and closures
 
-### 🌍 模块 4：异步编程模型
-- 事件循环 vs 协程
-- Promise vs async/await
-- 并发编程模式
-- 异步 I/O 操作
-- 性能优化策略
+### 🌍 Module 4: Asynchronous Programming Models
+- Event loop vs. coroutines
+- Promise vs. async/await
+- Concurrent programming patterns
+- Asynchronous I/O operations
+- Performance optimization strategies
 
-### 🧪 模块 5：代码质量与测试
-- 类型系统对比
-- 静态分析工具
-- 单元测试框架
-- 代码覆盖率
-- 持续集成实践
+### 🧪 Module 5: Code Quality & Testing
+- Type system comparison
+- Static analysis tools
+- Unit testing frameworks
+- Code coverage
+- Continuous integration practices
 
-### 🌐 模块 6：Web 开发实战
-- Web 框架对比
-- API 设计与实现
-- 前端集成方案
-- 数据库操作
-- 部署与运维
+### 🌐 Module 6: Web Development in Practice
+- Web framework comparison
+- API design and implementation
+- Frontend integration solutions
+- Database operations
+- Deployment and operations
 
-### 📊 模块 7：数据处理与自动化
-- 数据处理库对比
-- 文件操作与 I/O
-- 网络请求处理
-- 自动化脚本编写
-- 性能优化技巧
+### 📊 Module 7: Data Processing & Automation
+- Data processing library comparison
+- File operations and I/O
+- Network request handling
+- Automation script writing
+- Performance optimization techniques
 
-### 🎯 模块 8：实战项目
-- 跨语言项目架构设计
-- 微服务架构实现
-- 性能优化策略对比
-- 最佳实践与设计模式
-- 团队协作与代码规范
+### 🎯 Module 8: Practical Projects
+- Cross-language project architecture design
+- Microservices architecture implementation
+- Performance optimization strategy comparison
+- Best practices and design patterns
+- Team collaboration and code standards
 
-### 🚀 模块 9：高级主题
-- 元编程技术
-- 内存管理优化
-- 并发编程高级特性
-- 系统编程技巧
-- 跨平台开发
+### 🚀 Module 9: Advanced Topics
+- Metaprogramming techniques
+- Memory management optimization
+- Advanced concurrency features
+- Systems programming techniques
+- Cross-platform development
 
-### ⚠️ 模块 10：常见陷阱与解决方案
-- 语言特性陷阱
-- 性能问题诊断
-- 调试技巧
-- 错误处理最佳实践
-- 代码重构策略
+### ⚠️ Module 10: Common Pitfalls & Solutions
+- Language feature pitfalls
+- Performance issue diagnosis
+- Debugging techniques
+- Error handling best practices
+- Code refactoring strategies
 
-### 🐍 模块 11：Pythonic 代码风格
-- Python 最佳实践
-- 代码风格指南
-- 性能优化技巧
-- 可读性提升方法
-- 社区规范
+### 🐍 Module 11: Pythonic Code Style
+- Python best practices
+- Code style guides
+- Performance optimization techniques
+- Readability improvement methods
+- Community standards
 
-### 📝 模块 12：类型注解详解
-- 类型系统设计
-- 静态类型检查
-- 类型注解最佳实践
-- 工具链集成
-- 渐进式类型化
+### 📝 Module 12: Detailed Type Annotations
+- Type system design
+- Static type checking
+- Type annotation best practices
+- Toolchain integration
+- Gradual typing
 
-## 🔄 核心概念对比
+## 🔄 Core Concept Comparison
 
-### 变量声明
+### Variable Declaration
 ```javascript
 // JavaScript
 let name = "LangShift";
@@ -123,10 +123,10 @@ var oldWay = "deprecated";
 # Python
 name = "LangShift"
 version = "1.0.0"
-# Python 没有 const，但可以通过命名约定表示常量
+# Python has no const, but constants can be indicated by naming conventions
 ```
 
-### 函数定义
+### Function Definition
 ```javascript
 // JavaScript
 function greet(name) {
@@ -141,11 +141,11 @@ const greetArrow = (name) => `Hello, ${name}!`;
 def greet(name):
     return f"Hello, {name}!"
 
-# Python 没有箭头函数，但有 lambda
+# Python has no arrow functions, but it has lambda
 greet_lambda = lambda name: f"Hello, {name}!"
 ```
 
-### 类定义
+### Class Definition
 ```javascript
 // JavaScript
 class Person {
@@ -169,69 +169,69 @@ class Person:
         return f"Hello, I'm {self.name}"
 ```
 
-## 🛠️ 开发环境
+## 🛠️ Development Environment
 
-### 推荐工具
-- **IDE**: PyCharm, VS Code (Python 扩展)
-- **包管理**: pip, poetry
-- **虚拟环境**: venv, conda
-- **代码质量**: flake8, black, mypy
-- **测试框架**: pytest, unittest
+### Recommended Tools
+- **IDE**: PyCharm, VS Code (with Python extension)
+- **Package Management**: pip, poetry
+- **Virtual Environment**: venv, conda
+- **Code Quality**: flake8, black, mypy
+- **Testing Framework**: pytest, unittest
 
-### 环境搭建
+### Environment Setup
 ```bash
-# 创建虚拟环境
+# Create a virtual environment
 python -m venv langshift-env
 
-# 激活虚拟环境
+# Activate the virtual environment
 # Windows
 langshift-env\Scripts\activate
 # macOS/Linux
 source langshift-env/bin/activate
 
-# 安装依赖
+# Install dependencies
 pip install -r requirements.txt
 ```
 
-## 📊 性能特性对比
+## 📊 Performance Characteristics Comparison
 
-### 执行模型
-- **JavaScript**: 解释执行，JIT 编译优化
-- **Python**: 解释执行，CPython 字节码
+### Execution Model
+- **JavaScript**: Interpreted, JIT compilation optimization
+- **Python**: Interpreted, CPython bytecode
 
-### 内存管理
-- **JavaScript**: 垃圾回收，自动内存管理
-- **Python**: 引用计数 + 垃圾回收
+### Memory Management
+- **JavaScript**: Garbage collection, automatic memory management
+- **Python**: Reference counting + garbage collection
 
-### 并发模型
-- **JavaScript**: 单线程事件循环，异步非阻塞
-- **Python**: 多线程/多进程，GIL 限制
+### Concurrency Model
+- **JavaScript**: Single-threaded event loop, asynchronous non-blocking
+- **Python**: Multi-threading/multi-processing, GIL limitation
 
-## 🎯 学习建议
+## 🎯 Learning Suggestions
 
-1. **对比思维**: 始终从 JavaScript 视角理解 Python 概念
-2. **动手实践**: 每个概念都要在编辑器中运行验证
-3. **项目驱动**: 通过实战项目巩固所学知识
-4. **性能关注**: 理解两种语言的性能特性差异
-5. **最佳实践**: 学习 Python 的惯用写法和社区规范
+1.  **Comparative Thinking**: Always understand Python concepts from a JavaScript perspective.
+2.  **Hands-on Practice**: Run and verify every concept in the editor.
+3.  **Project-Driven**: Consolidate knowledge through practical projects.
+4.  **Performance Focus**: Understand the performance differences between the two languages.
+5.  **Best Practices**: Learn Pythonic idioms and community standards.
 
-## 🔗 相关资源
+## 🔗 Related Resources
 
-- [Python 官方文档](https://docs.python.org/)
-- [PEP 8 代码风格指南](https://www.python.org/dev/peps/pep-0008/)
-- [Python 包索引 (PyPI)](https://pypi.org/)
-- [Real Python 教程](https://realpython.com/)
+- [Python Official Documentation](https://docs.python.org/)
+- [PEP 8 – Style Guide for Python Code](https://www.python.org/dev/peps/pep-0008/)
+- [Python Package Index (PyPI)](https://pypi.org/)
+- [Real Python Tutorials](https://realpython.com/)
 
-## 🤝 贡献指南
+## 🤝 Contribution Guide
 
-欢迎为这个模块贡献内容！
+Contributions to this module are welcome!
 
-1. 确保代码示例在编辑器中可运行
-2. 提供 JavaScript 和 Python 的对比实现
-3. 添加详细的中文注释
-4. 包含性能分析和最佳实践
-5. 遵循项目的代码风格规范
+1.  Ensure code examples are runnable in the editor.
+2.  Provide comparative implementations for JavaScript and Python.
+3.  Add detailed English comments.
+4.  Include performance analysis and best practices.
+5.  Follow the project's code style guidelines.
 
 ---
 
-**让 Python 学习变得简单高效！** 🐍 
+**Making Python learning simple and efficient!** 🐍
