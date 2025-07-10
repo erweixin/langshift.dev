@@ -1,5 +1,27 @@
 'use client';
 
+/**
+ * 交互式代码对比组件 - 国际化版本
+ * 
+ * 支持的语言：
+ * - 简体中文 (zh-cn)
+ * - 繁体中文 (zh-tw) 
+ * - 英文 (en)
+ * 
+ * 国际化键：
+ * - t.home.interactiveCodeComparison.title: 组件标题
+ * - t.home.interactiveCodeComparison.realtime: 实时标签
+ * - t.home.interactiveCodeComparison.sourceLanguage: 源语言占位符
+ * - t.home.interactiveCodeComparison.targetLanguage: 目标语言占位符
+ * - t.home.interactiveCodeComparison.generatingComparison: 生成对比提示
+ * - t.home.interactiveCodeComparison.noComparisonContent: 无内容标题
+ * - t.home.interactiveCodeComparison.noComparisonDescription: 无内容描述
+ * - t.home.interactiveCodeComparison.recommendedCombinations: 推荐组合标题
+ * - t.home.interactiveCodeComparison.difficulty.*: 难度等级
+ * - t.home.interactiveCodeComparison.copyCode: 复制代码提示
+ * - t.home.interactiveCodeComparison.codeCopied: 代码已复制提示
+ */
+
 import React, { useState, useEffect } from 'react';
 import { getTranslations, SupportedLanguage } from '@/messages';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -89,11 +111,11 @@ export function InteractiveCodeComparison({ lang }: { lang: SupportedLanguage })
             <div className="p-1.5 bg-gradient-to-br from-blue-500/20 to-purple-500/20 rounded-lg border border-blue-500/30">
               <Code className="w-4 h-4 text-blue-400" />
             </div>
-            <span className="text-sm font-semibold text-white">语言转换器</span>
+            <span className="text-sm font-semibold text-white">{t.home.interactiveCodeComparison.title}</span>
           </div>
           <Badge variant="outline" className="bg-emerald-500/10 border-emerald-500/30 text-emerald-400 text-xs px-2 py-1">
             <Zap className="w-3 h-3 mr-1" />
-            实时
+            {t.home.interactiveCodeComparison.realtime}
           </Badge>
         </div>
 
@@ -102,7 +124,7 @@ export function InteractiveCodeComparison({ lang }: { lang: SupportedLanguage })
           <div className="flex-1">
             <Select value={initialLanguage} onValueChange={(value) => handleLanguageChange('initial', value)}>
               <SelectTrigger className="h-9 bg-white/5 border-white/10 text-white hover:bg-white/10 focus:ring-2 focus:ring-blue-500/50 transition-all duration-200 text-sm">
-                <SelectValue placeholder="源语言" />
+                <SelectValue placeholder={t.home.interactiveCodeComparison.sourceLanguage} />
               </SelectTrigger>
               <SelectContent className="bg-black/95 border-white/10 backdrop-blur-xl">
                 {languageConfigs.map((config) => (
@@ -128,7 +150,7 @@ export function InteractiveCodeComparison({ lang }: { lang: SupportedLanguage })
           <div className="flex-1">
             <Select value={targetLanguage} onValueChange={(value) => handleLanguageChange('target', value)}>
               <SelectTrigger className="h-9 bg-white/5 border-white/10 text-white hover:bg-white/10 focus:ring-2 focus:ring-emerald-500/50 transition-all duration-200 text-sm">
-                <SelectValue placeholder="目标语言" />
+                <SelectValue placeholder={t.home.interactiveCodeComparison.targetLanguage} />
               </SelectTrigger>
               <SelectContent className="bg-black/95 border-white/10 backdrop-blur-xl">
                 {languageConfigs.map((config) => (
@@ -153,7 +175,7 @@ export function InteractiveCodeComparison({ lang }: { lang: SupportedLanguage })
               <Loader2 className="w-12 h-12 mx-auto mb-4 animate-spin text-blue-400" />
               <div className="absolute inset-0 bg-gradient-to-r from-blue-500/20 to-emerald-500/20 rounded-full blur-2xl opacity-20 animate-pulse"></div>
             </div>
-            <p className="text-white font-medium">生成代码对比中...</p>
+            <p className="text-white font-medium">{t.home.interactiveCodeComparison.generatingComparison}</p>
           </div>
         ) : currentComparison ? (
           <div className="bg-black/40 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl overflow-hidden">
@@ -177,8 +199,9 @@ export function InteractiveCodeComparison({ lang }: { lang: SupportedLanguage })
                       variant={currentComparison.difficulty as any}
                       className="text-xs px-2 py-0.5 font-medium"
                     >
-                      {currentComparison.difficulty === 'beginner' ? '初级' :
-                       currentComparison.difficulty === 'intermediate' ? '中级' : '高级'}
+                      {currentComparison.difficulty === 'beginner' ? t.home.interactiveCodeComparison.difficulty.beginner :
+                       currentComparison.difficulty === 'intermediate' ? t.home.interactiveCodeComparison.difficulty.intermediate : 
+                       t.home.interactiveCodeComparison.difficulty.advanced}
                     </Badge>
                   )}
                   {currentComparison.category && (
@@ -206,6 +229,7 @@ export function InteractiveCodeComparison({ lang }: { lang: SupportedLanguage })
                     size="sm"
                     onClick={() => copyToClipboard(currentComparison.leftCode, 'left')}
                     className="h-6 w-6 p-0 text-white/60 hover:text-white hover:bg-white/10"
+                    title={t.home.interactiveCodeComparison.copyCode}
                   >
                     {copiedCode === 'left' ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
                   </Button>
@@ -266,6 +290,7 @@ export function InteractiveCodeComparison({ lang }: { lang: SupportedLanguage })
                     size="sm"
                     onClick={() => copyToClipboard(currentComparison.rightCode, 'right')}
                     className="h-6 w-6 p-0 text-white/60 hover:text-white hover:bg-white/10"
+                    title={t.home.interactiveCodeComparison.copyCode}
                   >
                     {copiedCode === 'right' ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
                   </Button>
@@ -309,15 +334,15 @@ export function InteractiveCodeComparison({ lang }: { lang: SupportedLanguage })
                 <Monitor className="w-12 h-12 mx-auto mb-3 text-white/40" />
                 <div className="absolute inset-0 bg-gradient-to-r from-white/10 to-white/5 rounded-full blur-xl opacity-30"></div>
               </div>
-              <h3 className="text-lg font-semibold mb-1 text-white">暂无对比内容</h3>
-              <p className="text-white/60 text-sm">请选择支持的语言组合</p>
+              <h3 className="text-lg font-semibold mb-1 text-white">{t.home.interactiveCodeComparison.noComparisonContent}</h3>
+              <p className="text-white/60 text-sm">{t.home.interactiveCodeComparison.noComparisonDescription}</p>
             </div>
             
             {/* 推荐组合 */}
             <div className="mt-4">
               <div className="flex items-center justify-center gap-2 mb-3">
                 <TrendingUp className="w-4 h-4 text-white/40" />
-                <h4 className="text-sm font-medium text-white/60">推荐组合</h4>
+                <h4 className="text-sm font-medium text-white/60">{t.home.interactiveCodeComparison.recommendedCombinations}</h4>
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-w-xl mx-auto">
                 {getAvailableCombinations().slice(0, 6).map((key) => {
@@ -342,8 +367,9 @@ export function InteractiveCodeComparison({ lang }: { lang: SupportedLanguage })
                       </div>
                       {example?.difficulty && (
                         <Badge variant={example.difficulty as any} className="text-xs px-1 py-0.5">
-                          {example.difficulty === 'beginner' ? '初级' :
-                           example.difficulty === 'intermediate' ? '中级' : '高级'}
+                          {example.difficulty === 'beginner' ? t.home.interactiveCodeComparison.difficulty.beginner :
+                           example.difficulty === 'intermediate' ? t.home.interactiveCodeComparison.difficulty.intermediate : 
+                           t.home.interactiveCodeComparison.difficulty.advanced}
                         </Badge>
                       )}
                     </Button>
