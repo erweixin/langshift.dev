@@ -14,7 +14,7 @@
 - `index.zh-tw.mdx` (繁体中文首页)
 - `meta.json` (模块元数据)
 
-#### 核心模块文档（每个都有中英文版本）
+#### 核心模块文档（每个都有中英繁体版本）
 1. `module-00-go-introduction.mdx` - Go 语言介绍
 2. `module-01-syntax-comparison.mdx` - 语法对比与映射
 3. `module-02-package-system.mdx` - 包管理系统与模块化
@@ -42,23 +42,22 @@
 
 ## 2. 配置文件更新
 
-### 路由配置
-- **文件**: `app/[lang]/docs/layout.config.tsx`
-  - 添加 js2go 路由配置
-  - 确保多语言路由支持
+代码对比使用以下格式。
+```mdx
+<UniversalEditor title="示例标题" compare={true}>
+```javascript !! js
+// JavaScript 代码
+let name = "LangShift";
+console.log(name);
+```
 
-- **文件**: `app/[lang]/intro/layout.config.tsx`
-  - 添加介绍页面配置
-  - 更新导航结构
-
-### 文档源配置
-- **文件**: `source.config.ts`
-  - 添加 js2go 文档源配置
-  - 配置多语言支持
-
-- **文件**: `lib/source.ts`
-  - 更新相关逻辑以支持新模块
-  - 确保文档索引正常工作
+```rust !! rs
+// Rust 代码
+let name = "LangShift";
+println!("{}", name);
+```
+</UniversalEditor>
+```
 
 ## 3. 代码编辑器支持
 

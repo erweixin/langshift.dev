@@ -160,10 +160,22 @@
 
 ## 10. 文档模板
 
-### 参考模板
-- 使用 `docs/module-documentation-template.md` 作为创建新模块的模板
-- 确保遵循项目的文档结构和内容规范
-- 保持与现有模块的一致性
+代码对比使用以下格式。
+```mdx
+<UniversalEditor title="示例标题" compare={true}>
+```javascript !! js
+// JavaScript 代码
+let name = "LangShift";
+console.log(name);
+```
+
+```rust !! rs
+// Rust 代码
+let name = "LangShift";
+println!("{}", name);
+```
+</UniversalEditor>
+```
 
 ## 关键考虑点
 
