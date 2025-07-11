@@ -97,7 +97,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
         'module-14-projects',
       ],
     },
-  ])
+  ]
 
   // 课程首页
   const coursePages = languageCourses.flatMap(course => [
