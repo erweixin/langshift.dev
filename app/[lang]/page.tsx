@@ -125,6 +125,19 @@ export default async function LanguageHomePage({ params }: { params: Promise<{ l
       borderColor: 'border-orange-500/20',
       gradient: 'from-orange-400/20 to-red-500/20',
     },
+    {
+      name: 'js2cpp',
+      title: t.home.courses.js2cpp.title,
+      description: t.home.courses.js2cpp.description,
+      features: t.home.courses.js2cpp.features,
+      duration: t.home.courses.js2cpp.duration,
+      level: t.home.courses.js2cpp.level,
+      icon: 'C++',
+      color: 'from-blue-500 to-indigo-600',
+      bgColor: 'bg-blue-500/10',
+      borderColor: 'border-blue-500/20',
+      gradient: 'from-blue-400/20 to-indigo-500/20',
+    },
   ];
 
   // 生成结构化数据

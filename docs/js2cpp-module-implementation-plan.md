@@ -14,7 +14,7 @@
 - `index.zh-tw.mdx` (繁体中文首页)
 - `meta.json` (模块元数据)
 
-#### 核心模块文档（每个都有中英文版本）
+#### 核心模块文档（每个都有简体繁体英文版本）
 1. `module-00-cpp-introduction.mdx` - C++ 语言介绍
 2. `module-01-syntax-comparison.mdx` - 语法对比基础
 3. `module-02-memory-management.mdx` - 内存管理（重点模块）
@@ -119,23 +119,6 @@
 
 ## 2. 配置文件更新
 
-### 路由配置
-- **文件**: `app/[lang]/docs/layout.config.tsx`
-  - 添加 js2cpp 路由配置
-  - 确保多语言路由支持
-
-- **文件**: `app/[lang]/intro/layout.config.tsx`
-  - 添加介绍页面配置
-  - 更新导航结构
-
-### 文档源配置
-- **文件**: `source.config.ts`
-  - 添加 js2cpp 文档源配置
-  - 配置多语言支持
-
-- **文件**: `lib/source.ts`
-  - 更新相关逻辑以支持新模块
-  - 确保文档索引正常工作
 
 ## 3. 代码编辑器支持
 
@@ -182,6 +165,7 @@
 ## 6. 导航和 UI
 
 ### 首页更新
+要求设计风格和原有内容保持一致
 - **文件**: `components/home/CoursesSection.tsx`
   - 添加 js2cpp 课程卡片
   - 更新课程展示
@@ -294,7 +278,7 @@
 ## 技术实现细节
 
 ### C++ 运行时环境
-- 使用 Emscripten 编译 C++ 代码为 WebAssembly
+- 使用 Emscripten 编译 C++ 代码为 WebAssembly 或者使用在线编译器
 - 集成 Clang 编译器前端
 - 支持标准 C++ 库
 - 提供调试和错误信息
