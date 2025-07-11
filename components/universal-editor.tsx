@@ -85,6 +85,8 @@ class LanguageRuntimeManager {
         return this.loadCppRuntime()
       case 'java':
         return this.loadJavaRuntime()
+      case 'go':
+        return this.loadGoRuntime()
       default:
         throw new Error(`不支持的语言: ${language}`)
     }
@@ -242,6 +244,39 @@ class LanguageRuntimeManager {
     }
   }
 
+  private async loadGoRuntime(): Promise<any> {
+    // 使用在线 Go 编译器 API
+    return {
+      execute: async (code: string) => {
+        try {
+          // 这里可以集成在线 Go 编译器 API
+          // 例如 Go Playground API 或其他在线编译器
+          const response = await fetch('https://play.golang.org/compile', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: `body=${encodeURIComponent(code)}`,
+          })
+          
+          const result = await response.json()
+          if (result.Errors) {
+            return {
+              output: '',
+              error: result.Errors
+            }
+          }
+          return {
+            output: result.Events?.[0]?.Message || '',
+            error: null
+          }
+        } catch (error: any) {
+          return { output: '', error: error.message }
+        }
+      }
+    }
+  }
+
   private async preloadBasicPythonLibraries(pyodide: any) {
     try {
       // 只预加载基础库，这些库很小且常用
@@ -312,7 +347,7 @@ class LanguageRuntimeManager {
   }
 
   getSupportedLanguages(): string[] {
-    return ['python', 'javascript', 'typescript', 'rust', 'cpp', 'java']
+    return ['python', 'javascript', 'typescript', 'rust', 'cpp', 'java', 'go']
   }
 
   // 检查是否需要加载运行时
@@ -435,6 +470,12 @@ const languageConfig = {
     extension: 'java',
     monacoLanguage: 'java',
     runtime: 'java'
+  },
+  go: {
+    name: 'Go',
+    extension: 'go',
+    monacoLanguage: 'go',
+    runtime: 'go'
   }
 }
 

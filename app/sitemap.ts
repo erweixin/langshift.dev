@@ -97,6 +97,27 @@ export default function sitemap(): MetadataRoute.Sitemap {
         'module-14-projects',
       ],
     },
+    {
+      name: 'js2go',
+      title: 'JavaScript 到 Go 转换学习',
+      priority: 0.9,
+      modules: [
+        'module-00-go-introduction',
+        'module-01-syntax-comparison',
+        'module-02-package-system',
+        'module-03-types-interfaces',
+        'module-04-concurrency-goroutines',
+        'module-05-channels-select',
+        'module-06-error-handling',
+        'module-07-web-development',
+        'module-08-microservices',
+        'module-09-cloud-native',
+        'module-10-testing-debugging',
+        'module-11-projects',
+        'module-12-common-pitfalls',
+        'module-13-idiomatic-go',
+      ],
+    },
   ]
 
   // 课程首页

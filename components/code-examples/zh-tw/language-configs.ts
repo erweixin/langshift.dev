@@ -41,4 +41,12 @@ export const languageConfigs: LanguageConfig[] = [
     syntax: 'cpp',
     description: '高效能的系統編程語言'
   },
+  {
+    value: 'go',
+    label: 'Go',
+    icon: '🐹',
+    color: 'bg-cyan-500',
+    syntax: 'go',
+    description: '簡潔高效的並發編程語言'
+  },
 ]; 

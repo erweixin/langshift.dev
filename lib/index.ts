@@ -40,4 +40,17 @@ export const getCourses = (t: TranslationKeys) => ([
     borderColor: 'border-blue-500/20',
     gradient: 'from-blue-400/20 to-indigo-500/20',
   },
+  {
+    name: 'js2go',
+    title: t.home.courses.js2go.title,
+    description: t.home.courses.js2go.description,
+    features: t.home.courses.js2go.features,
+    duration: t.home.courses.js2go.duration,
+    level: t.home.courses.js2go.level,
+    icon: '🐹',
+    color: 'from-cyan-500 to-blue-600',
+    bgColor: 'bg-cyan-500/10',
+    borderColor: 'border-cyan-500/20',
+    gradient: 'from-cyan-400/20 to-blue-500/20',
+  },
 ]);

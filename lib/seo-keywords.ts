@@ -77,6 +77,23 @@ export const courseKeywords = {
       'performance optimization', 'STL', 'Modern C++', 'C++11', 'C++17', 
       'C++20', 'templates', 'RAII', 'smart pointers', 'object-oriented', 'low-level programming'
     ]
+  },
+  'js2go': {
+    'zh-cn': [
+      'JavaScript', 'Go', 'Golang', '并发编程', '系统编程', '微服务',
+      '云原生', 'Goroutines', 'Channels', '性能优化', 'Web开发',
+      'API开发', 'Docker', 'Kubernetes', 'Go Modules', '泛型'
+    ],
+    'zh-tw': [
+      'JavaScript', 'Go', 'Golang', '並發程式設計', '系統程式設計', '微服務',
+      '雲原生', 'Goroutines', 'Channels', '效能優化', 'Web開發',
+      'API開發', 'Docker', 'Kubernetes', 'Go Modules', '泛型'
+    ],
+    'en': [
+      'JavaScript', 'Go', 'Golang', 'concurrent programming', 'systems programming', 'microservices',
+      'cloud-native', 'Goroutines', 'Channels', 'performance optimization', 'web development',
+      'API development', 'Docker', 'Kubernetes', 'Go Modules', 'generics'
+    ]
   }
 };
 

@@ -33,6 +33,15 @@ export const js2cppCourseData = {
   educationalLevel: "Advanced"
 };
 
+export const js2goCourseData = {
+  name: "JavaScript to Go Tutorial",
+  description: "Learn Go from a JavaScript developer perspective, focusing on concurrency, systems programming, and cloud-native development.",
+  url: "https://langshift.dev/docs/js2go",
+  provider: "LangShift.dev",
+  courseMode: "online",
+  educationalLevel: "Intermediate"
+};
+
 export const courseStructuredData = (courseData: {
   name: string
   description: string
