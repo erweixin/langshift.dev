@@ -75,7 +75,25 @@ export default function sitemap(): MetadataRoute.Sitemap {
         'module-11-idiomatic-rust-style',
       ],
     },
-  ]
+    {
+      name: 'js2cpp',
+      title: 'JavaScript 到 C++ 转换学习',
+      priority: 0.9,
+      modules: [
+        'intro',
+        'module-00-cpp-introduction',
+        'module-01-syntax-comparison',
+        'module-02-memory-management',
+        'module-03-oop-templates',
+        'module-04-stl-containers',
+        'module-05-error-handling',
+        'module-06-performance-optimization',
+        'module-07-systems-programming',
+        'module-08-modern-cpp',
+        'module-09-projects',
+      ],
+    },
+  ])
 
   // 课程首页
   const coursePages = languageCourses.flatMap(course => [

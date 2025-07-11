@@ -33,4 +33,12 @@ export const languageConfigs: LanguageConfig[] = [
     syntax: 'rust',
     description: '記憶體安全的系統編程語言'
   },
+  {
+    value: 'cpp',
+    label: 'C++',
+    icon: '🚀',
+    color: 'bg-blue-700',
+    syntax: 'cpp',
+    description: '高效能的系統編程語言'
+  },
 ]; 

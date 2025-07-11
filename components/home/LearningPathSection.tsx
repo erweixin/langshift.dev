@@ -1,11 +1,7 @@
 import { CheckCircle } from 'lucide-react';
 import { type SupportedLanguage } from '@/messages';
-
-interface LearningPathSectionProps {
-  lang: SupportedLanguage;
-  translations: any;
-  isDefaultPage: boolean;
-}
+import { getLanguageConfig } from './language-configs';
+import type { LearningPathSectionProps } from './LearningPathSection.types';
 
 export function LearningPathSection({ lang, translations, isDefaultPage }: LearningPathSectionProps) {
   const t = translations;
@@ -74,29 +70,32 @@ export function LearningPathSection({ lang, translations, isDefaultPage }: Learn
             </p>
           </div>
           <div className="grid md:grid-cols-2 gap-8">
-            {Object.entries(t.home.learningPath.languageSpecificFeatures).map(([key, feature]: [string, any], index: number) => (
-              <div key={key} className="relative group">
-                <div className="absolute inset-0 bg-gradient-to-br from-slate-800/50 to-slate-900/50 rounded-2xl blur-xl opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
-                <div className="relative bg-slate-800/30 backdrop-blur-sm border border-slate-700/50 rounded-2xl p-8 hover:scale-105 transition-all duration-300">
-                  <div className={`w-16 h-16 bg-gradient-to-br ${index === 0 ? 'from-green-500 to-emerald-500' : 'from-orange-500 to-red-500'} rounded-2xl flex items-center justify-center mb-6 shadow-lg`}>
-                    <span className="text-2xl">{index === 0 ? '🐍' : '🦀'}</span>
-                  </div>
-                  <h4 className="text-2xl font-bold text-white mb-6">
-                    {feature.title}
-                  </h4>
-                  <div className="space-y-4">
-                    {feature.highlights.map((highlight: string, highlightIndex: number) => (
-                      <div key={highlightIndex} className="flex items-start">
-                        <div className={`w-6 h-6 bg-gradient-to-br ${index === 0 ? 'from-green-500 to-emerald-500' : 'from-orange-500 to-red-500'} rounded-full flex items-center justify-center mr-4 mt-1 flex-shrink-0 shadow-sm`}>
-                          <CheckCircle className="w-3 h-3 text-white" />
+            {Object.entries(t.home.learningPath.languageSpecificFeatures).filter(([key]) => ['js2cpp', 'js2py', 'js2rust'].includes(key)).map(([key, feature]: [string, any]) => {
+              const languageConfig = getLanguageConfig(key);
+              return (
+                <div key={key} className="relative group">
+                  <div className="absolute inset-0 bg-gradient-to-br from-slate-800/50 to-slate-900/50 rounded-2xl blur-xl opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+                  <div className="relative bg-slate-800/30 backdrop-blur-sm border border-slate-700/50 rounded-2xl p-8 hover:scale-105 transition-all duration-300">
+                    <div className={`w-16 h-16 bg-gradient-to-br ${languageConfig.gradient} rounded-2xl flex items-center justify-center mb-6 shadow-lg`}>
+                      <span className="text-2xl">{languageConfig.icon}</span>
+                    </div>
+                    <h4 className="text-2xl font-bold text-white mb-6">
+                      {feature.title}
+                    </h4>
+                    <div className="space-y-4">
+                      {feature.highlights.map((highlight: string, highlightIndex: number) => (
+                        <div key={highlightIndex} className="flex items-start">
+                          <div className={`w-6 h-6 bg-gradient-to-br ${languageConfig.gradient} rounded-full flex items-center justify-center mr-4 mt-1 flex-shrink-0 shadow-sm`}>
+                            <CheckCircle className="w-3 h-3 text-white" />
+                          </div>
+                          <span className="text-slate-300 leading-relaxed">{highlight}</span>
                         </div>
-                        <span className="text-slate-300 leading-relaxed">{highlight}</span>
-                      </div>
-                    ))}
+                      ))}
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 

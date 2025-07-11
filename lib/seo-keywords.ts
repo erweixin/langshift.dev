@@ -60,6 +60,23 @@ export const courseKeywords = {
       'zero-cost abstractions', 'ownership system', 'lifetimes', 
       'error handling', 'type system', 'traits', 'macros'
     ]
+  },
+  'js2cpp': {
+    'zh-cn': [
+      'JavaScript', 'C++', '系统编程', '内存管理', '性能优化',
+      'STL', '现代C++', 'C++11', 'C++17', 'C++20', '模板', 'RAII',
+      '智能指针', '面向对象', '底层编程'
+    ],
+    'zh-tw': [
+      'JavaScript', 'C++', '系統編程', '內存管理', '性能優化',
+      'STL', '現代C++', 'C++11', 'C++17', 'C++20', '模板', 'RAII',
+      '智能指針', '面向對象', '底層編程'
+    ],
+    'en': [
+      'JavaScript', 'C++', 'systems programming', 'memory management', 
+      'performance optimization', 'STL', 'Modern C++', 'C++11', 'C++17', 
+      'C++20', 'templates', 'RAII', 'smart pointers', 'object-oriented', 'low-level programming'
+    ]
   }
 };
 

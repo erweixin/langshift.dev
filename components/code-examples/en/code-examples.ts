@@ -397,5 +397,47 @@ main();`,
     tags: ['Error Handling', 'Result Type', 'Async/Await', 'File I/O'],
     difficulty: 'advanced',
     category: 'Error Handling'
+  },
+  'js-cpp': {
+    leftCode: `// JavaScript: Dynamic Typing
+// The same function can accept different types of arguments
+function add(a, b) {
+  return a + b;
+}
+
+// 1. Used for number addition
+console.log('5 + 10 =', add(5, 10));
+
+// 2. Used for string concatenation
+console.log('"Hello, " + "World!" =', add('Hello, ', 'World!'));`,
+    rightCode: `#include <iostream>
+#include <string>
+
+// C++: Static Typing and Templates
+// Use templates to generate specialized functions for different types
+template <typename T>
+T add(T a, T b) {
+  return a + b;
+}
+
+int main() {
+  // 1. Used for integer addition (T is deduced as int)
+  std::cout << "5 + 10 = " << add(5, 10) << std::endl;
+
+  // 2. Used for string concatenation (T is deduced as std::string)
+  std::cout << "\"Hello, \" + \"World!\" = " 
+            << add(std::string("Hello, "), std::string("World!")) 
+            << std::endl;
+            
+  return 0;
+}`,
+    leftLanguage: 'javascript',
+    rightLanguage: 'cpp',
+    titleLeft: 'JavaScript',
+    titleRight: 'C++',
+    description: 'A comparison of function definitions and type systems, highlighting JavaScript\'s dynamic typing versus C++\'s static typing and templates.',
+    tags: ['Type System', 'Functions', 'Templates', 'Dynamic vs Static'],
+    difficulty: 'beginner',
+    category: 'Core Concepts'
   }
-}; 
+};
