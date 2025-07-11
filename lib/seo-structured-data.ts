@@ -24,6 +24,15 @@ export const organizationStructuredData = {
   ]
 };
 
+export const js2cppCourseData = {
+  name: "JavaScript to C++ Tutorial",
+  description: "Master C++ from a JavaScript background, focusing on performance, memory management, and systems programming.",
+  url: "https://langshift.dev/docs/js2cpp",
+  provider: "LangShift.dev",
+  courseMode: "online",
+  educationalLevel: "Advanced"
+};
+
 export const courseStructuredData = (courseData: {
   name: string
   description: string

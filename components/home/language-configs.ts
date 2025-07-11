@@ -15,7 +15,7 @@ export const LANGUAGE_CONFIGS: LanguageConfigMap = {
     description: '从 JavaScript 到 Rust 的转换学习'
   },
   js2cpp: {
-    icon: '⚡',
+    icon: '🚀',
     gradient: 'from-blue-500 to-indigo-500',
     name: 'C++',
     description: '从 JavaScript 到 C++ 的转换学习'

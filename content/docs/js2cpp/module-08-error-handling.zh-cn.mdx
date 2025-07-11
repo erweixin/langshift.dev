@@ -1,0 +1,195 @@
+---
+title: 错误处理和异常
+---
+
+错误处理是健壮软件开发的关键环节。C++ 通过异常提供强大的错误处理机制，允许将错误处理代码与正常程序逻辑分离。这与 JavaScript 更常见的返回值和用于异步操作的 `try...catch` 块有显著不同。
+
+## 异常处理机制 (`try-catch-throw`)
+
+在 C++ 中，异常用于信号和处理程序执行期间发生的异常情况或错误。异常处理的核心组件是：
+
+*   **`throw`：** 用于信号异常情况。当错误发生时，会 `throw` 一个异常。
+*   **`try` 块：** 可能发生异常的代码块。此块内的代码会受到监控，以检测异常。
+*   **`catch` 块：** 处理特定类型异常的代码块。如果在 `try` 块内抛出异常，程序会跳转到适当的 `catch` 块。
+
+<UniversalEditor title="异常处理比较" compare={true}>
+```javascript !! js
+// JavaScript: try...catch 处理错误
+function divide(a, b) {
+  if (b === 0) {
+    throw new Error("除数不能为零。");
+  }
+  return a / b;
+}
+
+try {
+  let result = divide(10, 0);
+  console.log(result);
+} catch (error) {
+  console.error("捕获到错误:", error.message);
+}
+
+console.log("程序继续执行...");
+```
+
+```cpp !! cpp
+// C++: try...catch...throw 处理异常
+#include <iostream>
+#include <stdexcept> // For std::runtime_error
+
+double divide(double a, double b) {
+  if (b == 0) {
+    throw std::runtime_error("除数不能为零。");
+  }
+  return a / b;
+}
+
+int main() {
+  try {
+    double result = divide(10, 0);
+    // std::cout << result << std::endl;
+  } catch (const std::runtime_error& e) { // 捕获特定异常类型
+    // std::cerr << "捕获到错误: " << e.what() << std::endl;
+  } catch (...) { // 捕获任何其他异常 (通用捕获)
+    // std::cerr << "捕获到未知错误。" << std::endl;
+  }
+
+  // std::cout << "程序继续执行..." << std::endl;
+
+  return 0;
+}
+```
+</UniversalEditor>
+
+## 异常安全保证
+
+在设计可能抛出异常的函数时，考虑**异常安全保证**非常重要。这些保证描述了如果抛出异常时程序的 상태：
+
+1.  **不抛出保证 (最强)：** 函数永远不会抛出异常。
+2.  **强保证：** 如果抛出异常，程序的状态保持不变（就像从未调用过函数一样）。
+3.  **基本保证：** 如果抛出异常，程序保持在有效状态，但确切状态未指定。
+4.  **无保证 (最弱)：** 如果抛出异常，对程序状态没有任何保证。
+
+## 错误码 vs. 异常
+
+历史上，C 语言风格的编程通常使用**错误码**（返回一个特殊值来指示错误）进行错误处理。虽然简单，但这种方法可能导致代码冗长且容易忽略错误。
+
+**异常**在现代 C++ 中通常用于异常情况，因为：
+*   它们将错误处理逻辑与正常代码流程分离。
+*   它们沿着调用堆栈传播，直到被捕获，防止错误被忽略。
+*   它们可以携带更多关于错误的信息。
+
+## RAII (资源获取即初始化) 资源管理
+
+**RAII** 是 C++ 中用于安全管理资源（如内存、文件句柄、网络连接）的基本惯用语。它指出资源获取应在构造函数中发生，资源释放应在析构函数中发生。当对象超出作用域时（无论是正常情况还是由于异常），其析构函数都会自动调用，确保资源得到正确清理。
+
+这对于异常尤其重要，因为它保证即使异常绕过正常函数出口点，资源也能得到释放。
+
+<UniversalEditor title="RAII 示例" compare={true}>
+```javascript !! js
+// JavaScript: 自动资源管理 (例如，使用 async/await 和 finally 处理文件句柄)
+async function processFile(filePath) {
+  let fileHandle;
+  try {
+    fileHandle = await openFile(filePath);
+    // 处理文件
+    console.log("文件已处理。");
+  } catch (error) {
+    console.error("处理文件时发生错误:", error.message);
+  } finally {
+    if (fileHandle) {
+      await closeFile(fileHandle); // 确保文件已关闭
+      console.log("文件已关闭。");
+    }
+  }
+}
+
+// processFile("data.txt");
+```
+
+```cpp !! cpp
+// C++: RAII 处理文件
+#include <fstream> // For std::ofstream
+#include <iostream>
+
+class FileLogger {
+public:
+  FileLogger(const std::string& filename) : file(filename) {
+    if (!file.is_open()) {
+      throw std::runtime_error("无法打开文件: " + filename);
+    }
+    // std::cout << "FileLogger 已打开: " << filename << std::endl;
+  }
+
+  ~FileLogger() {
+    if (file.is_open()) {
+      file.close();
+      // std::cout << "FileLogger 已关闭。" << std::endl;
+    }
+  }
+
+  void write(const std::string& message) {
+    file << message << std::endl;
+  }
+
+private:
+  std::ofstream file;
+};
+
+void doSomethingWithFile() {
+  try {
+    FileLogger logger("log.txt"); // 资源在构造函数中获取
+    logger.write("第一条消息。");
+    // 模拟错误
+    // throw std::runtime_error("文件操作期间模拟错误。");
+    logger.write("第二条消息。");
+  } catch (const std::runtime_error& e) {
+    // std::cerr << "错误: " << e.what() << std::endl;
+  } // logger 的析构函数在此处调用，自动关闭文件
+}
+
+int main() {
+  // doSomethingWithFile();
+  return 0;
+}
+```
+</UniversalEditor>
+
+## 与 JavaScript 错误处理的比较
+
+JavaScript 主要使用 `Error` 对象和 `try...catch` 块进行同步错误处理。对于异步操作，Promise 和 `async/await` 与 `try...catch` 结合使用很常见。
+
+| 特性           | JavaScript                               | C++                                      |
+| :---------------- | :--------------------------------------- | :--------------------------------------- |
+| **机制**     | `Error` 对象、`throw`、`try...catch`  | 异常 (`throw`、`try...catch`)      |
+| **资源管理**| 自动 (GC)、`finally` 用于显式清理 | 手动、RAII (资源获取即初始化) |
+| **错误类型**   | 内置 `Error` 类型 (例如，`TypeError`、`ReferenceError`)、自定义 `Error` 子类 | 标准异常 (`std::runtime_error`、`std::bad_alloc`)、自定义异常类 |
+| **传播**   | 沿着调用堆栈传播直到被捕获           | 沿着调用堆栈传播直到被捕获           |
+| **性能**   | 对于简单错误通常开销较小 | 如果异常频繁抛出，可能会产生性能开销 (由于栈展开) |
+
+
+## 异常处理最佳实践
+
+1.  **按值抛出，按引用捕获：** 将异常作为对象抛出（按值），并按常量引用捕获（`const std::exception&` 或 `const MyException&`）。这可以避免切片和不必要的复制。
+2.  **先捕获特定异常：** 在更通用的异常类型之前捕获更特定的异常类型。
+3.  **使用 `std::exception` 层次结构：** 从 `std::exception` 或其子类（例如，`std::runtime_error`、`std::logic_error`）派生自定义异常类。
+4.  **避免在析构函数中抛出：** 从析构函数中抛出异常可能导致 `std::terminate`，如果另一个异常已经活跃。
+5.  **将异常用于异常情况：** 不要将异常用于正常程序流程或预期情况。例如，不要使用异常来信号用户输入了无效输入；而是使用验证和返回值。
+6.  **RAII 是关键：** 利用 RAII 确保资源清理，即使发生异常。
+
+## 常见异常处理陷阱
+
+*   **按值捕获：** 如果按基类类型捕获派生异常，可能导致对象切片。
+*   **忽略异常：** 不捕获异常可能导致程序终止。
+*   **过度使用异常：** 将异常用于非异常情况可能会损害性能并使代码难以阅读。
+*   **未处理所有异常：** 通用 `catch (...)` 可以作为最后的手段，但特定处理程序更好。
+
+---
+
+### 练习题：
+1.  描述 `try`、`catch` 和 `throw` 关键字在 C++ 异常处理中的作用。它们如何协同工作来管理错误？
+2.  什么是 RAII，为什么它被认为是 C++ 中资源管理的基本惯用语？提供一个示例，说明 RAII 如何帮助确保资源清理，即使发生异常。
+3.  比较和对比 C++ 的异常处理机制与 JavaScript 的错误处理。它们在方法上的主要差异是什么？
+
+### 项目构想：
+*   创建一个简单的 C++ 程序，模拟文件处理工具。实现可能失败的函数（例如，`openFile`、`readFile`、`writeFile`）。使用 C++ 异常处理文件未找到、权限被拒绝或磁盘已满等错误。确保所有资源（文件句柄）都使用 RAII 原则正确关闭，即使发生异常。

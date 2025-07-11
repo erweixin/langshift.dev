@@ -1,0 +1,43 @@
+import { TranslationKeys } from "@/messages";
+
+export const getCourses = (t: TranslationKeys) => ([
+  {
+    name: 'js2py',
+    title: t.home.courses.js2py.title,
+    description: t.home.courses.js2py.description,
+    features: t.home.courses.js2py.features,
+    duration: t.home.courses.js2py.duration,
+    level: t.home.courses.js2py.level,
+    icon: '🐍',
+    color: 'from-green-500 to-emerald-600',
+    bgColor: 'bg-green-500/10',
+    borderColor: 'border-green-500/20',
+    gradient: 'from-green-400/20 to-emerald-500/20',
+  },
+  {
+    name: 'js2rust',
+    title: t.home.courses.js2rust.title,
+    description: t.home.courses.js2rust.description,
+    features: t.home.courses.js2rust.features,
+    duration: t.home.courses.js2rust.duration,
+    level: t.home.courses.js2rust.level,
+    icon: '🦀',
+    color: 'from-orange-500 to-red-600',
+    bgColor: 'bg-orange-500/10',
+    borderColor: 'border-orange-500/20',
+    gradient: 'from-orange-400/20 to-red-500/20',
+  },
+  {
+    name: 'js2cpp',
+    title: t.home.courses.js2cpp.title,
+    description: t.home.courses.js2cpp.description,
+    features: t.home.courses.js2cpp.features,
+    duration: t.home.courses.js2cpp.duration,
+    level: t.home.courses.js2cpp.level,
+    icon: '🚀',
+    color: 'from-blue-500 to-indigo-600',
+    bgColor: 'bg-blue-500/10',
+    borderColor: 'border-blue-500/20',
+    gradient: 'from-blue-400/20 to-indigo-500/20',
+  },
+]);

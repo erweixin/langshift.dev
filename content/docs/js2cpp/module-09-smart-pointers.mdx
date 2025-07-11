@@ -1,0 +1,235 @@
+---
+title: Smart Pointers
+---
+
+Smart pointers are objects that behave like raw pointers but provide automatic memory management, significantly reducing the risk of memory leaks and dangling pointers. They are a cornerstone of modern C++ programming, embodying the RAII (Resource Acquisition Is Initialization) principle. This module will explore the three main types of smart pointers (`unique_ptr`, `shared_ptr`, `weak_ptr`) and compare their memory management approach with JavaScript's garbage collection.
+
+## `unique_ptr` Exclusive Ownership
+
+`std::unique_ptr` is a smart pointer that owns the object it points to exclusively. This means that only one `unique_ptr` can point to a given object at any time. When the `unique_ptr` goes out of scope, the object it owns is automatically deleted.
+
+*   **Exclusive Ownership:** Cannot be copied, only moved.
+*   **Lightweight:** Minimal overhead, similar to a raw pointer.
+*   **Use Case:** When you need a single owner for a dynamically allocated object.
+
+<UniversalEditor title="unique_ptr vs. Raw Pointer" compare={true}>
+```javascript !! js
+// JavaScript: Object lifetime managed by GC
+let obj1 = { data: "Hello" };
+let obj2 = obj1; // obj2 now references the same object
+
+obj1 = null; // obj2 still holds a reference
+console.log(obj2.data); // "Hello"
+
+obj2 = null; // Object becomes eligible for GC
+```
+
+```cpp !! cpp
+// C++: std::unique_ptr
+#include <iostream>
+#include <memory> // For std::unique_ptr
+
+class MyClass {
+public:
+  MyClass() { /* std::cout << "MyClass constructed" << std::endl; */ }
+  ~MyClass() { /* std::cout << "MyClass destroyed" << std::endl; */ }
+  void greet() { /* std::cout << "Hello from MyClass!" << std::endl; */ }
+};
+
+void processUniquePtr() {
+  // Create a unique_ptr
+  std::unique_ptr<MyClass> ptr1(new MyClass());
+  // ptr1->greet();
+
+  // Cannot copy unique_ptr
+  // std::unique_ptr<MyClass> ptr2 = ptr1; // Compile error
+
+  // Can move unique_ptr
+  std::unique_ptr<MyClass> ptr3 = std::move(ptr1); // Ownership transferred to ptr3
+  // ptr3->greet();
+  // ptr1 is now null
+
+} // When ptr3 goes out of scope, MyClass object is destroyed
+
+int main() {
+  // processUniquePtr();
+  return 0;
+}
+```
+</UniversalEditor>
+
+## `shared_ptr` Shared Ownership
+
+`std::shared_ptr` is a smart pointer that allows multiple `shared_ptr` instances to own the same object. It uses a reference count to keep track of how many `shared_ptr`s are pointing to the object. The object is deleted only when the last `shared_ptr` owning it is destroyed or reset.
+
+*   **Shared Ownership:** Can be copied.
+*   **Reference Counting:** Manages object lifetime based on the number of owners.
+*   **Use Case:** When multiple parts of your code need to share ownership of an object.
+
+<UniversalEditor title="shared_ptr vs. Multiple References" compare={true}>
+```javascript !! js
+// JavaScript: Multiple references to the same object
+let data = { value: 100 };
+let ref1 = data;
+let ref2 = data;
+
+console.log(ref1.value); // 100
+console.log(ref2.value); // 100
+
+ref1 = null; // data is still referenced by ref2
+console.log(ref2.value); // 100
+
+ref2 = null; // data is now eligible for GC
+```
+
+```cpp !! cpp
+// C++: std::shared_ptr
+#include <iostream>
+#include <memory> // For std::shared_ptr
+
+class Resource {
+public:
+  Resource() { /* std::cout << "Resource acquired" << std::endl; */ }
+  ~Resource() { /* std::cout << "Resource released" << std::endl; */ }
+};
+
+void consumer(std::shared_ptr<Resource> res) {
+  // std::cout << "Resource in consumer. Use count: " << res.use_count() << std::endl;
+} // res goes out of scope, reference count decreases
+
+int main() {
+  std::shared_ptr<Resource> ptr1(new Resource());
+  // std::cout << "Initial use count: " << ptr1.use_count() << std::endl; // 1
+
+  std::shared_ptr<Resource> ptr2 = ptr1; // Copying increases use count
+  // std::cout << "After copy, use count: " << ptr1.use_count() << std::endl; // 2
+
+  consumer(ptr1); // Pass by value, increases use count temporarily
+  // std::cout << "After consumer, use count: " << ptr1.use_count() << std::endl; // 2
+
+  ptr1.reset(); // Decreases use count
+  // std::cout << "After ptr1 reset, use count: " << ptr2.use_count() << std::endl; // 1
+
+} // When ptr2 goes out of scope, Resource is destroyed (use count becomes 0)
+```
+</UniversalEditor>
+
+## `weak_ptr` Weak References
+
+`std::weak_ptr` is a non-owning smart pointer. It holds a "weak" reference to an object managed by a `shared_ptr` without increasing the reference count. This is primarily used to break **circular references** that would otherwise prevent objects from being deleted.
+
+*   **Non-owning:** Does not affect the object's lifetime.
+*   **Use Case:** To break circular dependencies between `shared_ptr`s.
+*   **Access:** Must be converted to a `shared_ptr` using `lock()` before accessing the managed object. If the object has been deleted, `lock()` returns a null `shared_ptr`.
+
+## Smart Pointers vs. Raw Pointers
+
+| Feature           | Raw Pointer                              | Smart Pointer (`unique_ptr`, `shared_ptr`) |
+| :---------------- | :--------------------------------------- | :--------------------------------------- |
+| **Memory Mgmt.**  | Manual (`new`/`delete`)                  | Automatic (RAII)                         |
+| **Ownership**     | No explicit ownership semantics          | Explicit ownership semantics             |
+| **Safety**        | Prone to memory leaks, dangling pointers, double-free | Significantly reduces memory errors      |
+| **Overhead**      | Minimal                                  | Small overhead (e.g., reference count for `shared_ptr`) |
+| **Use Case**      | Low-level memory access, C-style APIs    | Modern C++ memory management             |
+
+**Rule of Thumb:** Prefer smart pointers over raw pointers for managing dynamically allocated memory unless there's a compelling reason not to (e.g., interfacing with C APIs).
+
+## Circular Reference Issues
+
+A **circular reference** occurs when two or more `shared_ptr`s hold references to each other, forming a cycle. This prevents their reference counts from ever reaching zero, leading to a memory leak.
+
+<UniversalEditor title="Circular Reference Example" compare={true}>
+```javascript !! js
+// JavaScript: Circular references are handled by GC (mark-and-sweep)
+class Node {
+  constructor(value) {
+    this.value = value;
+    this.next = null;
+    this.prev = null;
+  }
+}
+
+let nodeA = new Node("A");
+let nodeB = new Node("B");
+
+nodeA.next = nodeB;
+nodeB.prev = nodeA; // Circular reference
+
+// When nodeA and nodeB are no longer reachable from root, GC collects them.
+nodeA = null;
+nodeB = null;
+```
+
+```cpp !! cpp
+// C++: Circular Reference with shared_ptr (and how weak_ptr solves it)
+#include <iostream>
+#include <memory>
+
+class B; // Forward declaration
+
+class A {
+public:
+  std::shared_ptr<B> b_ptr;
+  A() { /* std::cout << "A constructed" << std::endl; */ }
+  ~A() { /* std::cout << "A destroyed" << std::endl; */ }
+};
+
+class B {
+public:
+  // std::shared_ptr<A> a_ptr; // This would cause a circular reference
+  std::weak_ptr<A> a_ptr; // Use weak_ptr to break the cycle
+  B() { /* std::cout << "B constructed" << std::endl; */ }
+  ~B() { /* std::cout << "B destroyed" << std::endl; */ }
+};
+
+void createCircularReference() {
+  std::shared_ptr<A> a = std::make_shared<A>();
+  std::shared_ptr<B> b = std::make_shared<B>();
+
+  a->b_ptr = b;
+  b->a_ptr = a; // If a_ptr was shared_ptr, this would be a cycle
+
+  // std::cout << "A use count: " << a.use_count() << std::endl; // 1 (if b->a_ptr is weak_ptr)
+  // std::cout << "B use count: " << b.use_count() << std::endl; // 1
+
+} // a and b go out of scope, objects are destroyed because weak_ptr doesn't increase count
+
+int main() {
+  // createCircularReference();
+  return 0;
+}
+```
+</UniversalEditor>
+
+## Smart Pointer Best Practices
+
+1.  **Prefer `unique_ptr` by default:** If you need exclusive ownership, `unique_ptr` is the most efficient and safest choice.
+2.  **Use `shared_ptr` for shared ownership:** When multiple entities need to share ownership of an object, `shared_ptr` is appropriate.
+3.  **Break cycles with `weak_ptr`:** Always use `weak_ptr` to resolve circular references between `shared_ptr`s.
+4.  **Use `std::make_unique` and `std::make_shared`:** These factory functions are preferred over direct `new` for creating smart pointers. They provide exception safety and can be more efficient.
+5.  **Avoid `get()` and raw pointers:** Only use `get()` to obtain a raw pointer when absolutely necessary (e.g., interfacing with C APIs), and be extremely careful about its lifetime.
+6.  **Don't mix raw `new`/`delete` with smart pointers:** Once an object is managed by a smart pointer, let the smart pointer handle its lifetime.
+
+## Comparison with JavaScript Garbage Collection
+
+JavaScript relies on **garbage collection (GC)** for automatic memory management. The GC periodically identifies and reclaims memory that is no longer reachable by the program. This approach simplifies memory management for developers, as they don't need to explicitly allocate or deallocate memory.
+
+| Feature           | JavaScript (GC)                          | C++ (Smart Pointers)                     |
+| :---------------- | :--------------------------------------- | :--------------------------------------- |
+| **Mechanism**     | Automatic, runtime (mark-and-sweep, reference counting, etc.) | Automatic, compile-time/runtime (RAII, reference counting for `shared_ptr`) |
+| **Control**       | Less direct control over memory          | Fine-grained control over object lifetime |
+| **Determinism**   | Non-deterministic (GC runs at unpredictable times) | Deterministic (object destroyed when smart pointer goes out of scope) |
+| **Performance**   | GC pauses can introduce latency          | Predictable performance, minimal overhead |
+| **Circular Refs.**| Handled by modern GCs (e.g., mark-and-sweep) | Requires `weak_ptr` to break cycles      |
+
+While JavaScript's GC offers convenience, C++ smart pointers provide deterministic destruction and fine-grained control, which is crucial for performance-critical applications and resource management where immediate release is necessary (e.g., file handles, network connections).
+
+---
+
+### Practice Questions:
+1.  Explain the concept of exclusive ownership as implemented by `std::unique_ptr`. When would you choose `unique_ptr` over `shared_ptr`?
+2.  How does `std::shared_ptr` manage object lifetime? Describe a scenario where `std::weak_ptr` is necessary to prevent memory leaks.
+3.  Compare and contrast C++ smart pointers with JavaScript's garbage collection. Discuss the advantages and disadvantages of each approach.
+
+### Project Idea:
+*   Implement a simple graph data structure (nodes and edges) using `std::shared_ptr` for nodes. Introduce a scenario where a circular reference might occur (e.g., a bidirectional edge between two nodes). Then, modify your implementation to use `std::weak_ptr` to break the circular reference and ensure proper memory deallocation.

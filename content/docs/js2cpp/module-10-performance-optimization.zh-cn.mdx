@@ -1,0 +1,219 @@
+---
+title: 性能优化
+---
+
+C++ 以其性能能力而闻名，它提供了对硬件和内存的精细控制，这使得优化显著。本模块探讨了编写高性能 C++ 代码的各种技术，并将其与 JavaScript 的性能特性进行了对比。
+
+## 编译器优化选项
+
+现代 C++ 编译器（如 GCC、Clang、MSVC）提供了各种优化标志，可以显著提高编译代码的性能。这些优化在编译时执行。
+
+*   `-O0`：无优化。最快的编译，适用于调试。
+*   `-O1`：基本优化。减少代码大小和执行时间，而不会显著增加编译时间。
+*   `-O2`：更多优化。启用几乎所有支持的优化，这些优化不涉及空间-速度权衡。
+*   `-O3`：激进优化。启用所有 `-O2` 优化以及其他可能增加代码大小或编译时间的优化。
+*   `-Os`：优化大小。优先考虑较小的代码大小而不是执行速度。
+*   `-Ofast`：启用所有 `-O3` 优化，并启用不严格符合标准（例如，浮点优化可能破坏严格 IEEE 754 规范）的优化。
+
+<UniversalEditor title="编译器优化示例" compare={true}>
+```javascript !! js
+// JavaScript: 运行时没有直接的编译器优化标志。
+// 性能由 JIT 编译器和引擎优化管理。
+function calculateSum(n) {
+  let sum = 0;
+  for (let i = 0; i < n; i++) {
+    sum += i;
+  }
+  return sum;
+}
+
+// console.time("sum");
+// calculateSum(100000000);
+// console.timeEnd("sum");
+```
+
+```cpp !! cpp
+// C++: 编译器优化
+#include <iostream>
+
+long long calculateSum(int n) {
+  long long sum = 0;
+  for (int i = 0; i < n; i++) {
+    sum += i;
+  }
+  return sum;
+}
+
+int main() {
+  // 编译时使用: g++ -O3 your_program.cpp -o your_program
+  // 然后运行: ./your_program
+  // std::cout << "Sum: " << calculateSum(100000000) << std::endl;
+  return 0;
+}
+```
+</UniversalEditor>
+
+## 内存布局优化
+
+高效的内存访问对于性能至关重要，尤其是由于 CPU 缓存。优化数据结构以获得更好的内存局部性可以显著减少缓存未命中并提高性能。
+
+*   **缓存局部性：** 在内存中排列数据，使频繁访问的项彼此靠近。
+*   **结构填充：** 编译器可能会在结构中添加填充以使成员在内存边界上对齐，这会影响大小和缓存性能。使用 `pragma pack` 或重新排序成员以最小化填充。
+*   **结构数组 (AoS) vs. 数组结构 (SoA)：**
+    *   **AoS：** `struct Point { float x, y, z; }; Point points[N];` (适用于访问单个对象的所有成员)。
+    *   **SoA：** `struct Points { float x[N], y[N], z[N]; };` (适用于访问许多对象中的单个成员，对于向量化操作具有更好的缓存性能)。
+
+<UniversalEditor title="内存布局示例" compare={true}>
+```javascript !! js
+// JavaScript: 内存布局由引擎管理，直接控制较少。
+// 对象通常分配在堆上。
+class Point {
+  constructor(x, y) {
+    this.x = x;
+    this.y = y;
+  }
+}
+
+const points = [];
+for (let i = 0; i < 1000; i++) {
+  points.push(new Point(i, i * 2));
+}
+
+// 如果对象分散在内存中，访问 points[i].x 和 points[i].y 可能会导致缓存未命中。
+```
+
+```cpp !! cpp
+// C++: 内存布局优化
+#include <iostream>
+#include <vector>
+
+// 结构数组 (AoS)
+struct PointAoS {
+  float x, y;
+};
+
+// 数组结构 (SoA)
+struct PointSoA {
+  std::vector<float> x_coords;
+  std::vector<float> y_coords;
+};
+
+int main() {
+  // AoS 示例
+  std::vector<PointAoS> points_aos(1000);
+  for (int i = 0; i < 1000; ++i) {
+    points_aos[i] = { (float)i, (float)i * 2 };
+  }
+
+  // SoA 示例
+  PointSoA points_soa;
+  points_soa.x_coords.resize(1000);
+  points_soa.y_coords.resize(1000);
+  for (int i = 0; i < 1000; ++i) {
+    points_soa.x_coords[i] = (float)i;
+    points_soa.y_coords[i] = (float)i * 2;
+  }
+
+  // 如果只需要 x，则在 SoA 中迭代 x_coords 更具缓存友好性。
+  return 0;
+}
+```
+</UniversalEditor>
+
+## 内联函数和模板优化
+
+### 内联函数
+
+*   `inline` 关键字是给编译器的一个提示，将函数调用替换为函数体直接在调用点。这避免了函数调用的开销（栈帧设置、跳转等）。
+*   最适合小型、频繁调用的函数。
+*   编译器最终决定是否内联函数。
+
+### 模板优化
+
+*   模板启用泛型编程，但它们也允许编译器在编译时为特定类型生成高度优化的代码。这称为**单态化**。
+*   例如，`std::vector<int>` 和 `std::vector<double>` 是不同的类型，编译器可以优化每个实例化独立。
+
+<UniversalEditor title="内联和模板优化" compare={true}>
+```javascript !! js
+// JavaScript: JIT 编译器动态处理内联和优化。
+function add(a, b) {
+  return a + b;
+}
+
+// 如果频繁调用，JIT 编译器可能会内联此函数。
+let result = add(5, 3);
+```
+
+```cpp !! cpp
+// C++: 内联函数和模板
+#include <iostream>
+
+inline int add(int a, int b) {
+  return a + b;
+}
+
+template <typename T>
+T multiply(T a, T b) {
+  return a * b;
+}
+
+int main() {
+  // int sum = add(5, 3); // 编译器可能会内联此调用
+  // double product = multiply(2.5, 4.0); // 编译器为 double 生成特定代码
+  return 0;
+}
+```
+</UniversalEditor>
+
+## 缓存友好代码设计
+
+编写缓存友好代码意味着组织数据和算法以最大化**缓存命中**并最小化**缓存未命中**。CPU 以块（缓存行）获取数据，因此按顺序访问数据或以符合缓存行的模式访问数据是有益的。
+
+*   **顺序访问：** 顺序迭代数组/向量，而不是跳跃式访问。
+*   **数据结构：** 选择促进局部性的数据结构（例如，对于顺序访问，`std::vector` 优于 `std::list`）。
+*   **避免伪共享：** 在多线程编程中，确保不同线程频繁修改的变量不在同一个缓存行中。
+
+## 性能分析工具使用
+
+为了有效地优化 C++ 代码，你需要识别性能瓶颈。分析工具对于此至关重要。
+
+*   **`gprof` (GNU 分析器)：** CPU 时间的基本调用图和平面分析。
+*   **`perf` (Linux 性能事件)：** 用于分析 CPU 性能计数器、缓存未命中、分支预测等的强大工具。
+*   **Valgrind (Cachegrind, Callgrind)：** 内存和缓存分析，调用图生成。
+*   **Intel VTune Amplifier：** 适用于 Intel CPU 的商业分析器，提供对 CPU 和内存性能的深入洞察。
+*   **Visual Studio 分析器 (Windows)：** Visual Studio 中内置的分析工具。
+
+这些工具可帮助你精确找出程序花费大部分时间的位置，从而有效地集中优化工作。
+
+## 与 JavaScript 性能的比较
+
+| 特性           | JavaScript                               | C++                                      |
+| :---------------- | :--------------------------------------- | :--------------------------------------- |
+| **执行模型**| 解释型/JIT 编译                 | 编译为原生机器码          |
+| **内存控制**| 自动 (垃圾回收)           | 手动/智能指针 (精细控制) |
+| **性能**   | 对于 Web/UI 通常良好，但对于 CPU 密集型任务可能较慢 | 对于 CPU 密集型、低延迟和系统级任务表现出色 |
+| **优化**  | 依赖 JIT 编译器启发式        | 明确的编译器标志、手动内存/数据布局、算法选择 |
+| **确定性**   | GC 暂停可能引入不可预测的延迟 | 更具确定性的性能           |
+
+C++ 提供了卓越的原始性能，因为它编译为原生代码并直接访问内存。JavaScript 的性能在很大程度上依赖于其 JIT 编译器的复杂性，这些编译器可以执行令人印象深刻的优化，但仍在受管运行时环境的限制内运行。
+
+## 优化最佳实践
+
+1.  **先分析：** 不要过早优化。使用分析工具识别实际瓶颈。
+2.  **算法和数据结构选择：** 为你的问题选择最有效的算法和数据结构（例如，`std::unordered_map` 用于快速查找，`std::vector` 用于顺序访问）。
+3.  **最小化内存分配：** 动态内存分配（`new`/`delete`）比栈分配慢。尽可能重复使用内存，或为性能关键部分使用自定义分配器。
+4.  **缓存感知：** 设计数据结构和访问模式以最大化缓存命中。
+5.  **避免热路径中的虚函数：** 虚函数调用涉及虚表查找，这可能比直接调用稍慢。如果性能至关重要且多态性不是严格必需的，请避免使用虚函数。
+6.  **正确使用 `const`：** `const` 正确性可以启用更多编译器优化。
+7.  **移动语义：** 利用移动构造函数和移动赋值运算符 (C++11+) 以避免不必要的深层复制，尤其是在处理大型对象时。
+8.  **并行：** 对于多核系统，利用多线程 (`std::thread`、OpenMP、TBB) 或 GPU 计算 (CUDA、OpenCL) 进行可并行化的任务。
+
+---
+
+### 练习题：
+1.  解释 C++ 性能中编译器优化标志（例如，`-O3`）的作用。它们与 JavaScript 的运行时优化有何不同？
+2.  描述内存布局如何影响 C++ 的性能。提供一个缓存友好数据访问模式的示例。
+3.  何时会在 C++ 中使用 `inline` 函数？其优点和潜在缺点是什么？
+
+### 项目构想：
+*   创建一个 C++ 程序，实现两个版本的矩阵乘法算法：一个朴素实现和一个针对缓存局部性优化的实现（例如，使用块矩阵乘法或转置一个矩阵）。使用分析工具（如 `perf` 或 Valgrind 的 Cachegrind）来测量和比较它们对于大型矩阵的性能。记录你的发现并根据缓存行为解释性能差异。

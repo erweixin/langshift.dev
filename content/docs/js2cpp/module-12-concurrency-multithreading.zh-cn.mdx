@@ -1,0 +1,297 @@
+---
+title: 并发和多线程
+---
+
+并发和多线程对于构建高性能和响应式应用程序至关重要，尤其是在 C++ 中，可以直接控制线程。虽然 JavaScript 主要为单线程（异步操作由事件循环处理），但 C++ 提供了强大的机制来实现真正的并行，允许同时运行多个任务。
+
+## 多线程基本概念
+
+*   **进程：** 具有自己内存空间的独立执行单元。
+*   **线程：** 进程内部的轻量级执行单元。同一进程内的线程共享相同的内存空间，这允许高效的数据共享，但也引入了竞争条件等挑战。
+*   **并发：** 能够同时执行多个任务（例如，通过在单一核心上快速切换任务）。
+*   **并行：** 能够真正同时执行多个任务（例如，通过在不同的 CPU 核心上运行任务）。
+*   **竞争条件：** 多个线程同时访问和修改共享数据，最终结果取决于其执行不可预测的时序的情况。
+*   **死锁：** 两个或多个线程无限期地阻塞，等待彼此释放资源的情况。
+
+## `std::thread` 用法
+
+C++11 引入了 `std::thread` 用于创建和管理线程。它提供了一种简单且可移植的方式来启动新的执行流程。
+
+<UniversalEditor title="std::thread 用法比较" compare={true}>
+```javascript !! js
+// JavaScript: 异步操作 (模拟并发)
+function simulateTask(name, duration) {
+  console.log(`${name} 已启动。`);
+  setTimeout(() => {
+    console.log(`${name} 已完成。`);
+  }, duration);
+}
+
+console.log("主线程已启动。");
+simulateTask("任务 A", 2000);
+simulateTask("任务 B", 1000);
+console.log("主线程已完成。");
+// 输出顺序不严格依序
+```
+
+```cpp !! cpp
+// C++: std::thread
+#include <iostream>
+#include <thread> // For std::thread
+#include <chrono> // For std::chrono::seconds
+
+void taskA() {
+  // std::cout << "任务 A 已启动。" << std::endl;
+  std::this_thread::sleep_for(std::chrono::seconds(2)); // 模拟工作
+  // std::cout << "任务 A 已完成。" << std::endl;
+}
+
+void taskB() {
+  // std::cout << "任务 B 已启动。" << std::endl;
+  std::this_thread::sleep_for(std::chrono::seconds(1)); // 模拟工作
+  // std::cout << "任务 B 已完成。" << std::endl;
+}
+
+int main() {
+  // std::cout << "主线程已启动。" << std::endl;
+
+  std::thread t1(taskA); // 在新线程中启动 taskA
+  std::thread t2(taskB); // 在另一个新线程中启动 taskB
+
+  // 等待线程完成
+  t1.join(); // 阻塞主线程直到 t1 完成
+  t2.join(); // 阻塞主线程直到 t2 完成
+
+  // std::cout << "主线程已完成。" << std::endl;
+
+  return 0;
+}
+```
+</UniversalEditor>
+
+## 互斥锁和条件变量
+
+当多个线程共享数据时，需要机制来防止竞争条件并确保数据完整性。
+
+### 互斥锁 (`std::mutex`)
+
+*   **互斥锁** (mutual exclusion) 是一种同步原语，用于保护共享数据免受多个线程的并发访问。一次只能有一个线程获取互斥锁。
+*   **`lock()`：** 获取互斥锁。如果已锁定，调用线程将阻塞。
+*   **`unlock()`：** 释放互斥锁。
+*   **`std::lock_guard` / `std::unique_lock`：** 互斥锁的 RAII 包装器，确保它们在超出作用域时自动解锁，即使发生异常。
+
+<UniversalEditor title="互斥锁用法比较" compare={true}>
+```javascript !! js
+// JavaScript: 没有直接的互斥锁。并发由事件循环管理。
+// 共享状态通常避免或通过仔细的异步模式管理。
+let counter = 0;
+
+function incrementCounter(id) {
+  // 在真实 Node.js 场景中，这可能是由多个请求访问的共享资源，
+  // 需要仔细的异步处理。
+  // 对于简单内存内计数器，它是单线程的。
+  for (let i = 0; i < 100000; i++) {
+    counter++;
+  }
+  console.log(`线程 ${id} 已完成。计数器: ${counter}`);
+}
+
+// simulateTask("A", 0);
+// simulateTask("B", 0);
+// console.log("最终计数器 (在多线程 JS 环境中可能不正确):", counter);
+```
+
+```cpp !! cpp
+// C++: std::mutex
+#include <iostream>
+#include <thread>
+#include <mutex> // For std::mutex
+
+int counter = 0;
+std::mutex mtx; // 保护计数器的互斥锁
+
+void incrementCounter() {
+  for (int i = 0; i < 100000; ++i) {
+    mtx.lock(); // 获取锁
+    counter++;
+    mtx.unlock(); // 释放锁
+  }
+}
+
+void incrementCounterSafe() {
+  for (int i = 0; i < 100000; ++i) {
+    std::lock_guard<std::mutex> lock(mtx); // RAII 锁
+    counter++;
+  }
+}
+
+int main() {
+  // 没有互斥锁 (潜在的竞争条件)
+  // std::thread t1(incrementCounter);
+  // std::thread t2(incrementCounter);
+  // t1.join();
+  // t2.join();
+  // std::cout << "最终计数器 (没有互斥锁): " << counter << std::endl; // 可能不是 200000
+
+  counter = 0; // 重置以用于安全版本
+  std::thread t3(incrementCounterSafe);
+  std::thread t4(incrementCounterSafe);
+  t3.join();
+  t4.join();
+  // std::cout << "最终计数器 (有互斥锁): " << counter << std::endl; // 应该为 200000
+
+  return 0;
+}
+```
+</UniversalEditor>
+
+### 条件变量 (`std::condition_variable`)
+
+*   **条件变量**用于根据特定条件同步线程。它们允许线程等待直到条件变为真，并在条件改变时收到通知。
+*   通常与互斥锁一起使用，以保护条件所依赖的共享数据。
+
+## 原子操作 (`std::atomic`)
+
+**原子操作**是保证完全且不可分割地执行的操作，即使在多线程存在的情况下也是如此。它们对于简单、单变量更新很有用，在这种情况下，互斥锁可能过于繁重。
+
+*   `std::atomic<int>`：为整数提供原子操作。
+*   `fetch_add`、`compare_exchange_weak` 等操作是原子的。
+
+<UniversalEditor title="原子操作比较" compare={true}>
+```javascript !! js
+// JavaScript: 没有直接的共享内存原子操作。
+// Web Workers 通过消息传递进行通信，而不是共享内存。
+// Atomics API 存在于 SharedArrayBuffer，但它用于特定用例。
+let count = 0;
+
+function increment() {
+  for (let i = 0; i < 100000; i++) {
+    count++;
+  }
+}
+
+// 在单线程 JS 环境中，这没问题。
+// 在多线程 (例如，带有 SharedArrayBuffer 的 Web Workers) 中，Atomics 将是必需的。
+```
+
+```cpp !! cpp
+// C++: std::atomic
+#include <iostream>
+#include <thread>
+#include <atomic> // For std::atomic
+
+std::atomic<int> atomic_counter(0);
+
+void incrementAtomicCounter() {
+  for (int i = 0; i < 100000; ++i) {
+    atomic_counter++; // 原子递增
+  }
+}
+
+int main() {
+  std::thread t1(incrementAtomicCounter);
+  std::thread t2(incrementAtomicCounter);
+
+  t1.join();
+  t2.join();
+
+  // std::cout << "最终原子计数器: " << atomic_counter << std::endl; // 应该为 200000
+
+  return 0;
+}
+```
+</UniversalEditor>
+
+## 异步编程 (`async/await`)
+
+虽然 C++ 具有传统的多线程，但现代 C++（C++11 onwards）也提供了促进异步编程的功能，类似于 JavaScript 的 `async/await`。
+
+*   **`std::future` 和 `std::promise`：** 用于从异步操作获取结果。
+*   **`std::async`：** 启动异步任务并返回一个 `std::future`，该 `std::future` 最终将保存结果。
+*   **协程 (C++20)：** 用于编写看起来同步的异步代码的更高级功能。
+
+<UniversalEditor title="异步编程比较" compare={true}>
+```javascript !! js
+// JavaScript: async/await
+function fetchData() {
+  return new Promise(resolve => {
+    setTimeout(() => {
+      resolve("数据已获取！");
+    }, 1500);
+  });
+}
+
+async function processData() {
+  console.log("开始获取数据...");
+  const data = await fetchData(); // 暂停执行直到 Promise 解析
+  console.log(data);
+  console.log("数据处理完成。");
+}
+
+// processData();
+// console.log("这在数据获取之前运行。");
+```
+
+```cpp !! cpp
+// C++: std::async 和 std::future
+#include <iostream>
+#include <future> // For std::async, std::future
+#include <chrono>
+#include <thread>
+
+std::string fetchData() {
+  // std::this_thread::sleep_for(std::chrono::seconds(1)); // 模拟网络延迟
+  return "数据已获取！";
+}
+
+int main() {
+  // std::cout << "开始获取数据..." << std::endl;
+
+  // 异步启动 fetchData
+  std::future<std::string> future_data = std::async(std::launch::async, fetchData);
+
+  // 在数据获取期间执行其他工作
+  // std::cout << "这在数据获取之前运行。" << std::endl;
+
+  // 获取结果 (阻塞直到数据准备就绪)
+  // std::string data = future_data.get();
+  // std::cout << data << std::endl;
+  // std::cout << "数据处理完成。" << std::endl;
+
+  return 0;
+}
+```
+</UniversalEditor>
+
+## 线程池设计
+
+**线程池**是预先初始化线程的集合，可用于执行任务。任务不是为每个任务创建一个新线程，而是提交到线程池，由可用的线程拾取并执行任务。这减少了线程创建和销毁的开销，提高了具有许多短生命周期任务的应用程序的性能。
+
+**优点：**
+*   减少线程创建/销毁的开销。
+*   管理活动线程的数量，防止资源耗尽。
+*   提高响应性。
+
+## 与 JavaScript 异步编程的比较
+
+JavaScript 的并发模型基于**单线程事件循环**。虽然它可以处理许多操作并发（例如，网络请求、计时器）而不会阻塞主线程，但它通过异步回调、Promise 和 `async/await` 实现了这一点，而不是真正的并行。
+
+| 特性           | JavaScript (事件循环、Async/Await)     | C++ (多线程、Async/Future)       |
+| :---------------- | :--------------------------------------- | :--------------------------------------- |
+| **并发**   | 通过非阻塞 I/O 和事件循环实现 | 通过多线程实现真正的并行    |
+| **共享内存** | 有限 (Web Workers 通过消息传递，SharedArrayBuffer 通过 Atomics) | 直接共享内存访问 (需要同步) |
+| **同步**| 通过事件循环隐式，SharedArrayBuffer 显式 | 显式 (互斥锁、条件变量、原子操作) |
+| **复杂性**    | 对于基本异步任务更简单            | 由于显式的线程管理和同步而更复杂 |
+| **用例**     | UI 响应性、I/O 密集型任务       | CPU 密集型任务、高性能计算、实时系统 |
+
+C++ 提供了对线程和内存进行精细控制的工具，实现真正的并行和计算密集型任务的最大性能。然而，这种能力伴随着管理同步和避免常见并发陷阱的责任。
+
+---
+
+### 练习题：
+1.  解释并发和并行之间的区别。C++ 如何实现并行，JavaScript 如何实现并发？
+2.  什么是竞争条件，互斥锁如何帮助在 C++ 中防止它？提供一个简单的 C++ 代码示例，演示 `std::mutex` 的使用。
+3.  描述 C++ 中 `std::async` 和 `std::future` 的用途。它们如何促进异步编程，这与 JavaScript 的 `async/await` 如何比较？
+
+### 项目构想：
+*   在 C++ 中实现一个简单的多线程素数计算器。将要检查的数字范围分配给多个线程。使用 `std::thread` 创建线程，并使用 `std::mutex` 或 `std::atomic` 安全地收集每个线程找到的素数。将其执行时间与单线程版本进行比较。

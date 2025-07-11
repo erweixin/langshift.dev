@@ -1,0 +1,318 @@
+---
+title: Modern C++ Features
+---
+
+C++ has undergone significant evolution since C++11, with new standards (C++14, C++17, C++20, C++23) introducing powerful features that make the language safer, more expressive, and more productive. These modern features often provide alternatives to older, more error-prone idioms and bring C++ closer to the convenience offered by languages like JavaScript, while retaining its performance advantages.
+
+## C++11/14/17/20 New Features Overview
+
+Here's a brief overview of some key features introduced in recent C++ standards:
+
+*   **C++11:** Lambda expressions, `auto` keyword, rvalue references and move semantics, `nullptr`, `std::thread`, `std::chrono`, `std::unique_ptr`, `std::shared_ptr`, range-based for loops, initializer lists.
+*   **C++14:** Generic lambdas, `constexpr` improvements, variable templates.
+*   **C++17:** Structured bindings, `if constexpr`, `std::optional`, `std::variant`, `std::string_view`, parallel algorithms.
+*   **C++20:** Concepts, Ranges, Coroutines, Modules, `std::span`, `std::jthread`.
+
+## Lambda Expressions
+
+**Lambda expressions** (or just "lambdas") are anonymous functions that can be defined inline and used where a function object is expected. They are incredibly useful for short, localized operations, especially with algorithms.
+
+*   **Syntax:** `[capture_list](parameters) -> return_type { body }`
+*   **Capture List:** Specifies variables from the surrounding scope that the lambda can access.
+
+<UniversalEditor title="Lambda Expression Comparison" compare={true}>
+```javascript !! js
+// JavaScript: Anonymous functions / Arrow functions
+const numbers = [1, 2, 3, 4, 5];
+
+// Anonymous function
+const doubled = numbers.map(function(num) {
+  return num * 2;
+});
+console.log(doubled); // [2, 4, 6, 8, 10]
+
+// Arrow function (more concise)
+const sum = numbers.reduce((acc, num) => acc + num, 0);
+console.log(sum); // 15
+
+let factor = 10;
+const multiplyByFactor = numbers.map(num => num * factor); // Captures 'factor'
+console.log(multiplyByFactor); // [10, 20, 30, 40, 50]
+```
+
+```cpp !! cpp
+// C++: Lambda Expressions (C++11+)
+#include <iostream>
+#include <vector>
+#include <algorithm> // For std::transform, std::for_each
+#include <numeric>   // For std::accumulate
+
+int main() {
+  std::vector<int> numbers = {1, 2, 3, 4, 5};
+
+  // Lambda for doubling elements
+  std::vector<int> doubled(numbers.size());
+  std::transform(numbers.begin(), numbers.end(), doubled.begin(),
+                 [](int num) { return num * 2; });
+  // for (int n : doubled) { std::cout << n << " "; }
+  // std::cout << std::endl;
+
+  // Lambda for summing elements
+  int sum = std::accumulate(numbers.begin(), numbers.end(), 0,
+                            [](int acc, int num) { return acc + num; });
+  // std::cout << "Sum: " << sum << std::endl;
+
+  // Lambda with capture by value
+  int factor = 10;
+  std::vector<int> multiplied(numbers.size());
+  std::transform(numbers.begin(), numbers.end(), multiplied.begin(),
+                 [factor](int num) { return num * factor; });
+  // for (int n : multiplied) { std::cout << n << " "; }
+  // std::cout << std::endl;
+
+  // Lambda with capture by reference
+  int total = 0;
+  std::for_each(numbers.begin(), numbers.end(),
+                [&total](int num) { total += num; });
+  // std::cout << "Total (captured by reference): " << total << std::endl;
+
+  return 0;
+}
+```
+</UniversalEditor>
+
+## Move Semantics and Rvalue References
+
+**Move semantics** (C++11) allow for efficient transfer of resources (like dynamically allocated memory) from one object to another without expensive deep copies. This is achieved through **rvalue references** (`&&`).
+
+*   **Lvalue:** An expression that refers to a memory location and has an identity (e.g., a variable).
+*   **Rvalue:** An expression that does not refer to a memory location and has no identity (e.g., a temporary object, a literal).
+*   **`std::move`:** Casts an lvalue to an rvalue reference, indicating that its resources can be moved.
+
+<UniversalEditor title="Move Semantics Comparison" compare={true}>
+```javascript !! js
+// JavaScript: Objects are always passed by reference (or value for primitives).
+// Assignment of objects involves copying references, not deep copies.
+let arr1 = [1, 2, 3];
+let arr2 = arr1; // arr2 now points to the same array as arr1
+
+arr1 = []; // arr1 now points to a new empty array, arr2 still points to [1,2,3]
+console.log(arr2); // [1, 2, 3]
+
+// To simulate move, you'd manually clear the source:
+let largeData1 = { data: new Array(1000000).fill(0) };
+let largeData2 = largeData1; // Copy reference
+largeData1 = null; // Effectively "moves" ownership by nulling out source
+// console.log(largeData2.data.length); // 1000000
+```
+
+```cpp !! cpp
+// C++: Move Semantics (C++11+)
+#include <iostream>
+#include <vector>
+#include <utility> // For std::move
+
+class MyVector {
+public:
+  int* data;
+  size_t size;
+
+  // Constructor
+  MyVector(size_t s) : size(s) {
+    data = new int[size];
+    // std::cout << "MyVector constructed, size: " << size << std::endl;
+  }
+
+  // Copy Constructor
+  MyVector(const MyVector& other) : size(other.size) {
+    data = new int[size];
+    std::copy(other.data, other.data + size, data);
+    // std::cout << "MyVector copied, size: " << size << std::endl;
+  }
+
+  // Move Constructor (takes rvalue reference)
+  MyVector(MyVector&& other) noexcept : data(other.data), size(other.size) {
+    other.data = nullptr; // Nullify source pointer
+    other.size = 0;
+    // std::cout << "MyVector moved, size: " << size << std::endl;
+  }
+
+  // Destructor
+  ~MyVector() {
+    delete[] data;
+    // std::cout << "MyVector destroyed, size: " << size << std::endl;
+  }
+};
+
+int main() {
+  MyVector vec1(1000); // Regular construction
+  // MyVector vec2 = vec1; // Calls copy constructor (expensive)
+  MyVector vec3 = std::move(vec1); // Calls move constructor (efficient)
+  // vec1 is now in a valid but unspecified state (data is nullptr, size is 0)
+
+  return 0;
+}
+```
+</UniversalEditor>
+
+## `auto` Keyword and Type Deduction
+
+The `auto` keyword (C++11) allows the compiler to deduce the type of a variable from its initializer. This can lead to more concise and readable code, especially with complex types.
+
+<UniversalEditor title="auto Keyword Comparison" compare={true}>
+```javascript !! js
+// JavaScript: All variable declarations use 'var', 'let', or 'const'.
+// Types are dynamically inferred.
+let count = 10; // Type is number
+const message = "Hello"; // Type is string
+
+let complexObject = { id: 1, name: "Test" }; // Type is object
+```
+
+```cpp !! cpp
+// C++: auto Keyword (C++11+)
+#include <iostream>
+#include <vector>
+#include <map>
+
+int main() {
+  auto count = 10; // count is deduced as int
+  auto message = "Hello"; // message is deduced as const char*
+  auto pi = 3.14159; // pi is deduced as double
+
+  std::vector<int> numbers = {1, 2, 3};
+  // Iterating with auto for iterators
+  for (auto it = numbers.begin(); it != numbers.end(); ++it) {
+    // std::cout << *it << " ";
+  }
+  // std::cout << std::endl;
+
+  std::map<std::string, int> ages = {{"Alice", 30}, {"Bob", 25}};
+  // Iterating over map elements (pair of const string and int)
+  for (auto const& [name, age] : ages) { // C++17 structured binding with auto
+    // std::cout << name << ": " << age << std::endl;
+  }
+
+  return 0;
+}
+```
+</UniversalEditor>
+
+## Range-based for Loop
+
+The **range-based for loop** (C++11) provides a simpler and more readable way to iterate over elements of a range (like containers, arrays, or initializer lists) without explicitly using iterators.
+
+<UniversalEditor title="Range-based for Loop Comparison" compare={true}>
+```javascript !! js
+// JavaScript: for...of loop
+const colors = ["red", "green", "blue"];
+for (const color of colors) {
+  console.log(color);
+}
+
+// forEach method
+colors.forEach(color => console.log(color));
+```
+
+```cpp !! cpp
+// C++: Range-based for Loop (C++11+)
+#include <iostream>
+#include <vector>
+#include <string>
+
+int main() {
+  std::vector<std::string> colors = {"red", "green", "blue"};
+
+  // Iterate by value (creates a copy)
+  for (std::string color : colors) {
+    // std::cout << color << std::endl;
+  }
+
+  // Iterate by const reference (preferred for efficiency and avoiding modification)
+  for (const std::string& color : colors) {
+    // std::cout << color << std::endl;
+  }
+
+  // Iterate by reference (to modify elements)
+  for (std::string& color : colors) {
+    color += "!"; // Modify the element in the vector
+    // std::cout << color << std::endl;
+  }
+
+  return 0;
+}
+```
+</UniversalEditor>
+
+## Initializer Lists
+
+**Initializer lists** (C++11) provide a uniform way to initialize objects, especially containers. They use curly braces `{}`.
+
+<UniversalEditor title="Initializer List Comparison" compare={true}>
+```javascript !! js
+// JavaScript: Array literals and object literals
+const numbers = [1, 2, 3]; // Array literal
+const person = { name: "Alice", age: 30 }; // Object literal
+```
+
+```cpp !! cpp
+// C++: Initializer Lists (C++11+)
+#include <iostream>
+#include <vector>
+#include <map>
+#include <string>
+
+class Point {
+public:
+  int x, y;
+  Point(int px, int py) : x(px), y(py) {}
+};
+
+int main() {
+  // Initializing a vector
+  std::vector<int> numbers = {1, 2, 3, 4, 5};
+  // for (int n : numbers) { std::cout << n << " "; }
+  // std::cout << std::endl;
+
+  // Initializing a map
+  std::map<std::string, int> ages = {
+    {"Alice", 30},
+    {"Bob", 25},
+    {"Charlie", 35}
+  };
+  // for (const auto& pair : ages) {
+  //   std::cout << pair.first << ": " << pair.second << std::endl;
+  // }
+
+  // Initializing a custom class (if it has an initializer list constructor)
+  // Point p = {10, 20}; // Requires a constructor that takes std::initializer_list or direct initialization
+  // std::cout << "Point: (" << p.x << ", " << p.y << ")" << std::endl;
+
+  return 0;
+}
+```
+</UniversalEditor>
+
+## Comparison with JavaScript Modern Features
+
+Many modern C++ features aim to provide similar levels of expressiveness and convenience found in JavaScript, while maintaining C++'s core strengths.
+
+| Feature           | JavaScript Equivalent(s)                 | C++ Modern Feature                       |
+| :---------------- | :--------------------------------------- | :--------------------------------------- |
+| **Anonymous Func.**| Arrow Functions, Anonymous Functions     | Lambda Expressions                       |
+| **Type Deduction**| Dynamic Typing, `let`/`const`            | `auto` Keyword                           |
+| **Iteration**     | `for...of`, `forEach`                    | Range-based for Loop                     |
+| **Resource Mgmt.**| Garbage Collection, `finally`            | Move Semantics, Smart Pointers (RAII)    |
+| **Data Init.**    | Array/Object Literals                    | Initializer Lists                        |
+
+While JavaScript achieves much of its flexibility through dynamic typing and runtime interpretation, modern C++ achieves similar expressiveness through compile-time features (templates, `auto`, lambdas) and explicit resource management (move semantics, smart pointers). This allows C++ to offer both high-level abstractions and low-level control, often with superior performance.
+
+---
+
+### Practice Questions:
+1.  What are lambda expressions in C++? Provide an example of how they can simplify code compared to traditional function objects.
+2.  Explain the concept of move semantics and rvalue references. How do they contribute to performance optimization in C++?
+3.  Describe the benefits of using the `auto` keyword and range-based for loops in modern C++ code. How do they improve readability and conciseness?
+
+### Project Idea:
+*   Refactor an existing C++ program (or write a new one) that processes a collection of data (e.g., a `std::vector` of custom objects). Utilize modern C++ features such as lambda expressions for custom sorting or filtering, `auto` for type deduction, and range-based for loops for iteration. If applicable, demonstrate the use of move semantics when transferring ownership of large objects.

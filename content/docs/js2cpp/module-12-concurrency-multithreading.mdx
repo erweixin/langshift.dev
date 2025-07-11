@@ -1,0 +1,297 @@
+---
+title: Concurrency and Multithreading
+---
+
+Concurrency and multithreading are essential concepts for building high-performance and responsive applications, especially in C++ where direct control over threads is available. While JavaScript is primarily single-threaded (with asynchronous operations handled by an event loop), C++ offers robust mechanisms for true parallelism, allowing multiple tasks to run simultaneously.
+
+## Multi-threading Basic Concepts
+
+*   **Process:** An independent execution unit with its own memory space.
+*   **Thread:** A lightweight execution unit within a process. Threads within the same process share the same memory space, which allows for efficient data sharing but also introduces challenges like race conditions.
+*   **Concurrency:** The ability to execute multiple tasks seemingly at the same time (e.g., by rapidly switching between tasks on a single core).
+*   **Parallelism:** The ability to execute multiple tasks truly simultaneously (e.g., by running tasks on different CPU cores).
+*   **Race Condition:** A situation where multiple threads access and modify shared data concurrently, and the final outcome depends on the unpredictable timing of their execution.
+*   **Deadlock:** A situation where two or more threads are blocked indefinitely, waiting for each other to release resources.
+
+## `std::thread` Usage
+
+C++11 introduced `std::thread` for creating and managing threads. It provides a simple and portable way to launch new execution flows.
+
+<UniversalEditor title="std::thread Usage Comparison" compare={true}>
+```javascript !! js
+// JavaScript: Asynchronous operations (simulating concurrency)
+function simulateTask(name, duration) {
+  console.log(`${name} started.`);
+  setTimeout(() => {
+    console.log(`${name} finished.`);
+  }, duration);
+}
+
+console.log("Main thread started.");
+simulateTask("Task A", 2000);
+simulateTask("Task B", 1000);
+console.log("Main thread finished.");
+// Output order is not strictly sequential due to async nature
+```
+
+```cpp !! cpp
+// C++: std::thread
+#include <iostream>
+#include <thread> // For std::thread
+#include <chrono> // For std::chrono::seconds
+
+void taskA() {
+  // std::cout << "Task A started." << std::endl;
+  std::this_thread::sleep_for(std::chrono::seconds(2)); // Simulate work
+  // std::cout << "Task A finished." << std::endl;
+}
+
+void taskB() {
+  // std::cout << "Task B started." << std::endl;
+  std::this_thread::sleep_for(std::chrono::seconds(1)); // Simulate work
+  // std::cout << "Task B finished." << std::endl;
+}
+
+int main() {
+  // std::cout << "Main thread started." << std::endl;
+
+  std::thread t1(taskA); // Launch taskA in a new thread
+  std::thread t2(taskB); // Launch taskB in another new thread
+
+  // Wait for threads to complete
+  t1.join(); // Blocks main thread until t1 finishes
+  t2.join(); // Blocks main thread until t2 finishes
+
+  // std::cout << "Main thread finished." << std::endl;
+
+  return 0;
+}
+```
+</UniversalEditor>
+
+## Mutexes and Condition Variables
+
+When multiple threads share data, mechanisms are needed to prevent race conditions and ensure data integrity.
+
+### Mutexes (`std::mutex`)
+
+*   A **mutex** (mutual exclusion) is a synchronization primitive that protects shared data from concurrent access by multiple threads. Only one thread can acquire a mutex at a time.
+*   **`lock()`:** Acquires the mutex. If already locked, the calling thread blocks.
+*   **`unlock()`:** Releases the mutex.
+*   **`std::lock_guard` / `std::unique_lock`:** RAII wrappers for mutexes, ensuring they are automatically unlocked when they go out of scope, even if an exception occurs.
+
+<UniversalEditor title="Mutex Usage Comparison" compare={true}>
+```javascript !! js
+// JavaScript: No direct mutexes. Concurrency is managed by event loop.
+// Shared state is typically avoided or managed with careful async patterns.
+let counter = 0;
+
+function incrementCounter(id) {
+  // In a real-world Node.js scenario, this might be a shared resource
+  // accessed by multiple requests, requiring careful async handling.
+  // For simple in-memory counter, it's single-threaded.
+  for (let i = 0; i < 100000; i++) {
+    counter++;
+  }
+  console.log(`Thread ${id} finished. Counter: ${counter}`);
+}
+
+// simulateTask("A", 0);
+// simulateTask("B", 0);
+// console.log("Final Counter (may be incorrect in multi-threaded JS env):", counter);
+```
+
+```cpp !! cpp
+// C++: std::mutex
+#include <iostream>
+#include <thread>
+#include <mutex> // For std::mutex
+
+int counter = 0;
+std::mutex mtx; // Mutex to protect the counter
+
+void incrementCounter() {
+  for (int i = 0; i < 100000; ++i) {
+    mtx.lock(); // Acquire lock
+    counter++;
+    mtx.unlock(); // Release lock
+  }
+}
+
+void incrementCounterSafe() {
+  for (int i = 0; i < 100000; ++i) {
+    std::lock_guard<std::mutex> lock(mtx); // RAII lock
+    counter++;
+  }
+}
+
+int main() {
+  // Without mutex (potential race condition)
+  // std::thread t1(incrementCounter);
+  // std::thread t2(incrementCounter);
+  // t1.join();
+  // t2.join();
+  // std::cout << "Final Counter (without mutex): " << counter << std::endl; // May not be 200000
+
+  counter = 0; // Reset for safe version
+  std::thread t3(incrementCounterSafe);
+  std::thread t4(incrementCounterSafe);
+  t3.join();
+  t4.join();
+  // std::cout << "Final Counter (with mutex): " << counter << std::endl; // Should be 200000
+
+  return 0;
+}
+```
+</UniversalEditor>
+
+### Condition Variables (`std::condition_variable`)
+
+*   **Condition variables** are used to synchronize threads based on a specific condition. They allow threads to wait until a condition becomes true and to be notified when the condition changes.
+*   Typically used with a mutex to protect the shared data that the condition depends on.
+
+## Atomic Operations (`std::atomic`)
+
+**Atomic operations** are operations that are guaranteed to be performed completely and indivisibly, even in the presence of multiple threads. They are useful for simple, single-variable updates where a mutex might be overkill.
+
+*   `std::atomic<int>`: Provides atomic operations for an integer.
+*   Operations like `fetch_add`, `compare_exchange_weak` are atomic.
+
+<UniversalEditor title="Atomic Operations Comparison" compare={true}>
+```javascript !! js
+// JavaScript: No direct atomic operations for shared memory.
+// Web Workers communicate via message passing, not shared memory.
+// Atomics API exists for SharedArrayBuffer, but it's for specific use cases.
+let count = 0;
+
+function increment() {
+  for (let i = 0; i < 100000; i++) {
+    count++;
+  }
+}
+
+// In a single-threaded JS environment, this is fine.
+// In a multi-threaded (e.g., Web Workers with SharedArrayBuffer), Atomics would be needed.
+```
+
+```cpp !! cpp
+// C++: std::atomic
+#include <iostream>
+#include <thread>
+#include <atomic> // For std::atomic
+
+std::atomic<int> atomic_counter(0);
+
+void incrementAtomicCounter() {
+  for (int i = 0; i < 100000; ++i) {
+    atomic_counter++; // Atomic increment
+  }
+}
+
+int main() {
+  std::thread t1(incrementAtomicCounter);
+  std::thread t2(incrementAtomicCounter);
+
+  t1.join();
+  t2.join();
+
+  // std::cout << "Final Atomic Counter: " << atomic_counter << std::endl; // Should be 200000
+
+  return 0;
+}
+```
+</UniversalEditor>
+
+## Asynchronous Programming (`async/await`)
+
+While C++ has traditional multithreading, modern C++ (C++11 onwards) also offers features that facilitate asynchronous programming, similar to JavaScript's `async/await`.
+
+*   **`std::future` and `std::promise`:** Used to get a result from an asynchronous operation.
+*   **`std::async`:** Launches an asynchronous task and returns a `std::future` that will eventually hold the result.
+*   **Coroutines (C++20):** A more advanced feature for writing asynchronous code that looks synchronous.
+
+<UniversalEditor title="Asynchronous Programming Comparison" compare={true}>
+```javascript !! js
+// JavaScript: async/await
+function fetchData() {
+  return new Promise(resolve => {
+    setTimeout(() => {
+      resolve("Data fetched!");
+    }, 1500);
+  });
+}
+
+async function processData() {
+  console.log("Start fetching data...");
+  const data = await fetchData(); // Pause execution until promise resolves
+  console.log(data);
+  console.log("Data processing complete.");
+}
+
+// processData();
+// console.log("This runs before data is fetched.");
+```
+
+```cpp !! cpp
+// C++: std::async and std::future
+#include <iostream>
+#include <future> // For std::async, std::future
+#include <chrono>
+#include <thread>
+
+std::string fetchData() {
+  // std::this_thread::sleep_for(std::chrono::seconds(1)); // Simulate network delay
+  return "Data fetched!";
+}
+
+int main() {
+  // std::cout << "Start fetching data..." << std::endl;
+
+  // Launch fetchData asynchronously
+  std::future<std::string> future_data = std::async(std::launch::async, fetchData);
+
+  // Do other work while data is being fetched
+  // std::cout << "This runs before data is fetched." << std::endl;
+
+  // Get the result (blocks until data is ready)
+  // std::string data = future_data.get();
+  // std::cout << data << std::endl;
+  // std::cout << "Data processing complete." << std::endl;
+
+  return 0;
+}
+```
+</UniversalEditor>
+
+## Thread Pool Design
+
+A **thread pool** is a collection of pre-initialized threads that are available to execute tasks. Instead of creating a new thread for each task, tasks are submitted to the thread pool, and an available thread picks up and executes the task. This reduces the overhead of thread creation and destruction, improving performance for applications with many short-lived tasks.
+
+**Benefits:**
+*   Reduced overhead of thread creation/destruction.
+*   Manages the number of active threads, preventing resource exhaustion.
+*   Improved responsiveness.
+
+## Comparison with JavaScript Asynchronous Programming
+
+JavaScript's concurrency model is based on a **single-threaded event loop**. While it can handle many operations concurrently (e.g., network requests, timers) without blocking the main thread, it achieves this through asynchronous callbacks, Promises, and `async/await`, not true parallelism.
+
+| Feature           | JavaScript (Event Loop, Async/Await)     | C++ (Multithreading, Async/Future)       |
+| :---------------- | :--------------------------------------- | :--------------------------------------- |
+| **Concurrency**   | Achieved via non-blocking I/O and event loop | True parallelism via multiple threads    |
+| **Shared Memory** | Limited (Web Workers with message passing, SharedArrayBuffer with Atomics) | Direct shared memory access (requires synchronization) |
+| **Synchronization**| Implicit via event loop, explicit for SharedArrayBuffer | Explicit (mutexes, condition variables, atomics) |
+| **Complexity**    | Simpler for basic async tasks            | More complex due to explicit thread management and synchronization |
+| **Use Cases**     | UI responsiveness, I/O-bound tasks       | CPU-bound tasks, high-performance computing, real-time systems |
+
+C++ provides the tools for fine-grained control over threads and memory, enabling true parallelism and maximum performance for computationally intensive tasks. However, this power comes with the responsibility of managing synchronization and avoiding common concurrency pitfalls.
+
+---
+
+### Practice Questions:
+1.  Explain the difference between concurrency and parallelism. How does C++ achieve parallelism, and how does JavaScript achieve concurrency?
+2.  What is a race condition, and how can mutexes help prevent it in C++? Provide a simple C++ code example demonstrating the use of `std::mutex`.
+3.  Describe the purpose of `std::async` and `std::future` in C++. How do they facilitate asynchronous programming, and how does this compare to JavaScript's `async/await`?
+
+### Project Idea:
+*   Implement a simple multi-threaded prime number calculator in C++. Divide the range of numbers to check among several threads. Use `std::thread` to create threads and `std::mutex` or `std::atomic` to safely collect the prime numbers found by each thread. Compare the execution time with a single-threaded version.

@@ -1,0 +1,297 @@
+---
+title: 並發和多執行緒
+---
+
+並發和多執行緒對於建構高性能和響應式應用程式至關重要，尤其是在 C++ 中，可以直接控制執行緒。雖然 JavaScript 主要為單執行緒（非同步操作由事件循環處理），但 C++ 提供了強大的機制來實現真正的並行，允許同時運行多個任務。
+
+## 多執行緒基本概念
+
+*   **進程：** 具有自己記憶體空間的獨立執行單元。
+*   **執行緒：** 進程內部的輕量級執行單元。同一進程內的執行緒共享相同的記憶體空間，這允許高效的資料共享，但也引入了競爭條件等挑戰。
+*   **並發：** 能夠同時執行多個任務（例如，透過在單一核心上快速切換任務）。
+*   **並行：** 能夠真正同時執行多個任務（例如，透過在不同的 CPU 核心上運行任務）。
+*   **競爭條件：** 多個執行緒同時存取和修改共享資料，最終結果取決於其執行不可預測的時序的情況。
+*   **死鎖：** 兩個或多個執行緒無限期地阻塞，等待彼此釋放資源的情況。
+
+## `std::thread` 用法
+
+C++11 引入了 `std::thread` 用於建立和管理執行緒。它提供了一種簡單且可移植的方式來啟動新的執行流程。
+
+<UniversalEditor title="std::thread 用法比較" compare={true}>
+```javascript !! js
+// JavaScript: 非同步操作 (模擬並發)
+function simulateTask(name, duration) {
+  console.log(`${name} 已啟動。`);
+  setTimeout(() => {
+    console.log(`${name} 已完成。`);
+  }, duration);
+}
+
+console.log("主執行緒已啟動。");
+simulateTask("任務 A", 2000);
+simulateTask("任務 B", 1000);
+console.log("主執行緒已完成。");
+// 由於非同步性質，輸出順序不嚴格依序
+```
+
+```cpp !! cpp
+// C++: std::thread
+#include <iostream>
+#include <thread> // For std::thread
+#include <chrono> // For std::chrono::seconds
+
+void taskA() {
+  // std::cout << "任務 A 已啟動。" << std::endl;
+  std::this_thread::sleep_for(std::chrono::seconds(2)); // 模擬工作
+  // std::cout << "任務 A 已完成。" << std::endl;
+}
+
+void taskB() {
+  // std::cout << "任務 B 已啟動。" << std::endl;
+  std::this_thread::sleep_for(std::chrono::seconds(1)); // 模擬工作
+  // std::cout << "任務 B 已完成。" << std::endl;
+}
+
+int main() {
+  // std::cout << "主執行緒已啟動。" << std::endl;
+
+  std::thread t1(taskA); // 在新執行緒中啟動 taskA
+  std::thread t2(taskB); // 在另一個新執行緒中啟動 taskB
+
+  // 等待執行緒完成
+  t1.join(); // 阻塞主執行緒直到 t1 完成
+  t2.join(); // 阻塞主執行緒直到 t2 完成
+
+  // std::cout << "主執行緒已完成。" << std::endl;
+
+  return 0;
+}
+```
+</UniversalEditor>
+
+## 互斥鎖和條件變數
+
+當多個執行緒共享資料時，需要機制來防止競爭條件並確保資料完整性。
+
+### 互斥鎖 (`std::mutex`)
+
+*   **互斥鎖** (mutual exclusion) 是一種同步原語，用於保護共享資料免受多個執行緒的並發存取。一次只能有一個執行緒獲取互斥鎖。
+*   **`lock()`：** 獲取互斥鎖。如果已鎖定，呼叫執行緒將阻塞。
+*   **`unlock()`：** 釋放互斥鎖。
+*   **`std::lock_guard` / `std::unique_lock`：** 互斥鎖的 RAII 包裝器，確保它們在超出作用域時自動解鎖，即使發生例外。
+
+<UniversalEditor title="互斥鎖用法比較" compare={true}>
+```javascript !! js
+// JavaScript: 沒有直接的互斥鎖。並發由事件循環管理。
+// 共享狀態通常避免或透過仔細的非同步模式管理。
+let counter = 0;
+
+function incrementCounter(id) {
+  // 在真實的 Node.js 場景中，這可能是由多個請求存取的共享資源，
+  // 需要仔細的非同步處理。
+  // 對於簡單的記憶體內計數器，它是單執行緒的。
+  for (let i = 0; i < 100000; i++) {
+    counter++;
+  }
+  console.log(`執行緒 ${id} 已完成。計數器: ${counter}`);
+}
+
+// simulateTask("A", 0);
+// simulateTask("B", 0);
+// console.log("最終計數器 (在多執行緒 JS 環境中可能不正確):", counter);
+```
+
+```cpp !! cpp
+// C++: std::mutex
+#include <iostream>
+#include <thread>
+#include <mutex> // For std::mutex
+
+int counter = 0;
+std::mutex mtx; // 保護計數器的互斥鎖
+
+void incrementCounter() {
+  for (int i = 0; i < 100000; ++i) {
+    mtx.lock(); // 獲取鎖
+    counter++;
+    mtx.unlock(); // 釋放鎖
+  }
+}
+
+void incrementCounterSafe() {
+  for (int i = 0; i < 100000; ++i) {
+    std::lock_guard<std::mutex> lock(mtx); // RAII 鎖
+    counter++;
+  }
+}
+
+int main() {
+  // 沒有互斥鎖 (潛在的競爭條件)
+  // std::thread t1(incrementCounter);
+  // std::thread t2(incrementCounter);
+  // t1.join();
+  // t2.join();
+  // std::cout << "最終計數器 (沒有互斥鎖): " << counter << std::endl; // 可能不是 200000
+
+  counter = 0; // 重置以用於安全版本
+  std::thread t3(incrementCounterSafe);
+  std::thread t4(incrementCounterSafe);
+  t3.join();
+  t4.join();
+  // std::cout << "最終計數器 (有互斥鎖): " << counter << std::endl; // 應該是 200000
+
+  return 0;
+}
+```
+</UniversalEditor>
+
+### 條件變數 (`std::condition_variable`)
+
+*   **條件變數**用於根據特定條件同步執行緒。它們允許執行緒等待直到條件變為真，並在條件改變時收到通知。
+*   通常與互斥鎖一起使用，以保護條件所依賴的共享資料。
+
+## 原子操作 (`std::atomic`)
+
+**原子操作**是保證完全且不可分割地執行的操作，即使在多個執行緒存在的情況下也是如此。它們對於簡單的單變數更新很有用，在這種情況下，互斥鎖可能過於繁重。
+
+*   `std::atomic<int>`：為整數提供原子操作。
+*   `fetch_add`、`compare_exchange_weak` 等操作是原子的。
+
+<UniversalEditor title="原子操作比較" compare={true}>
+```javascript !! js
+// JavaScript: 沒有直接的共享記憶體原子操作。
+// Web Workers 透過訊息傳遞進行通訊，而不是共享記憶體。
+// Atomics API 存在於 SharedArrayBuffer，但它用於特定用例。
+let count = 0;
+
+function increment() {
+  for (let i = 0; i < 100000; i++) {
+    count++;
+  }
+}
+
+// 在單執行緒 JS 環境中，這沒問題。
+// 在多執行緒 (例如，帶有 SharedArrayBuffer 的 Web Workers) 中，需要 Atomics。
+```
+
+```cpp !! cpp
+// C++: std::atomic
+#include <iostream>
+#include <thread>
+#include <atomic> // For std::atomic
+
+std::atomic<int> atomic_counter(0);
+
+void incrementAtomicCounter() {
+  for (int i = 0; i < 100000; ++i) {
+    atomic_counter++; // 原子遞增
+  }
+}
+
+int main() {
+  std::thread t1(incrementAtomicCounter);
+  std::thread t2(incrementAtomicCounter);
+
+  t1.join();
+  t2.join();
+
+  // std::cout << "最終原子計數器: " << atomic_counter << std::endl; // 應該是 200000
+
+  return 0;
+}
+```
+</UniversalEditor>
+
+## 非同步程式設計 (`async/await`)
+
+雖然 C++ 具有傳統的多執行緒，但現代 C++（C++11 起）也提供了促進非同步程式設計的功能，類似於 JavaScript 的 `async/await`。
+
+*   **`std::future` 和 `std::promise`：** 用於從非同步操作獲取結果。
+*   **`std::async`：** 啟動非同步任務並返回一個 `std::future`，該 `std::future` 最終將保存結果。
+*   **協程 (C++20)：** 用於編寫看起來同步的非同步程式碼的更高級功能。
+
+<UniversalEditor title="非同步程式設計比較" compare={true}>
+```javascript !! js
+// JavaScript: async/await
+function fetchData() {
+  return new Promise(resolve => {
+    setTimeout(() => {
+      resolve("資料已獲取！");
+    }, 1500);
+  });
+}
+
+async function processData() {
+  console.log("開始獲取資料...");
+  const data = await fetchData(); // 暫停執行直到 Promise 解析
+  console.log(data);
+  console.log("資料處理完成。");
+}
+
+// processData();
+// console.log("這在資料獲取之前運行。");
+```
+
+```cpp !! cpp
+// C++: std::async 和 std::future
+#include <iostream>
+#include <future> // For std::async, std::future
+#include <chrono>
+#include <thread>
+
+std::string fetchData() {
+  // std::this_thread::sleep_for(std::chrono::seconds(1)); // 模擬網路延遲
+  return "資料已獲取！";
+}
+
+int main() {
+  // std::cout << "開始獲取資料..." << std::endl;
+
+  // 非同步啟動 fetchData
+  std::future<std::string> future_data = std::async(std::launch::async, fetchData);
+
+  // 在資料獲取期間執行其他工作
+  // std::cout << "這在資料獲取之前運行。" << std::endl;
+
+  // 獲取結果 (阻塞直到資料準備就緒)
+  // std::string data = future_data.get();
+  // std::cout << data << std::endl;
+  // std::cout << "資料處理完成。" << std::endl;
+
+  return 0;
+}
+```
+</UniversalEditor>
+
+## 執行緒池設計
+
+**執行緒池**是預先初始化執行緒的集合，可用於執行任務。任務不是為每個任務建立一個新執行緒，而是提交到執行緒池，由可用的執行緒拾取並執行任務。這減少了執行緒建立和銷毀的開銷，提高了具有許多短生命週期任務的應用程式的性能。
+
+**優點：**
+*   減少執行緒建立/銷毀的開銷。
+*   管理活動執行緒的數量，防止資源耗盡。
+*   提高響應性。
+
+## 與 JavaScript 非同步程式設計的比較
+
+JavaScript 的並發模型基於**單執行緒事件循環**。雖然它可以處理許多操作並發（例如，網路請求、計時器）而不會阻塞主執行緒，但它透過非同步回呼、Promise 和 `async/await` 實現了這一點，而不是真正的並行。
+
+| 特性           | JavaScript (事件循環、Async/Await)     | C++ (多執行緒、Async/Future)       |
+| :---------------- | :--------------------------------------- | :--------------------------------------- |
+| **並發**   | 透過非阻塞 I/O 和事件循環實現 | 透過多個執行緒實現真正的並行    |
+| **共享記憶體** | 有限 (Web Workers 透過訊息傳遞，SharedArrayBuffer 透過 Atomics) | 直接共享記憶體存取 (需要同步) |
+| **同步**| 透過事件循環隱式，SharedArrayBuffer 明確 | 明確 (互斥鎖、條件變數、原子操作) |
+| **複雜性**    | 對於基本非同步任務更簡單            | 由於明確的執行緒管理和同步而更複雜 |
+| **用例**     | UI 響應性、I/O 密集型任務       | CPU 密集型任務、高性能計算、即時系統 |
+
+C++ 提供了對執行緒和記憶體進行精細控制的工具，實現真正的並行和計算密集型任務的最大性能。然而，這種能力伴隨著管理同步和避免常見並發陷阱的責任。
+
+---
+
+### 練習題：
+1.  解釋並發和並行之間的區別。C++ 如何實現並行，JavaScript 如何實現並發？
+2.  什麼是競爭條件，互斥鎖如何幫助在 C++ 中防止它？提供一個簡單的 C++ 程式碼範例，演示 `std::mutex` 的使用。
+3.  描述 C++ 中 `std::async` 和 `std::future` 的用途。它們如何促進非同步程式設計，這與 JavaScript 的 `async/await` 如何比較？
+
+### 專案構想：
+*   在 C++ 中實作一個簡單的多執行緒質數計算器。將要檢查的數字範圍分配給多個執行緒。使用 `std::thread` 建立執行緒，並使用 `std::mutex` 或 `std::atomic` 安全地收集每個執行緒找到的質數。將其執行時間與單執行緒版本進行比較。

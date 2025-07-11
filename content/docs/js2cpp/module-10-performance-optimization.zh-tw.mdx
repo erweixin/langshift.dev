@@ -1,0 +1,219 @@
+---
+title: 性能優化
+---
+
+C++ 以其性能能力而聞名，它提供了對硬體和記憶體的精細控制，這使得優化顯著。本模組探討了編寫高性能 C++ 程式碼的各種技術，並將其與 JavaScript 的性能特性進行了對比。
+
+## 編譯器優化選項
+
+現代 C++ 編譯器（如 GCC、Clang、MSVC）提供了各種優化標誌，可以顯著提高編譯程式碼的性能。這些優化在編譯時執行。
+
+*   `-O0`：無優化。最快的編譯，適用於偵錯。
+*   `-O1`：基本優化。減少程式碼大小和執行時間，而不會顯著增加編譯時間。
+*   `-O2`：更多優化。啟用幾乎所有支援的優化，這些優化不涉及空間-速度權衡。
+*   `-O3`：激進優化。啟用所有 `-O2` 優化以及其他可能增加程式碼大小或編譯時間的優化。
+*   `-Os`：優化大小。優先考慮較小的程式碼大小而不是執行速度。
+*   `-Ofast`：啟用所有 `-O3` 優化，並啟用不嚴格符合標準的優化（例如，可能破壞嚴格 IEEE 754 規範的浮點優化）。
+
+<UniversalEditor title="編譯器優化範例" compare={true}>
+```javascript !! js
+// JavaScript: 運行時沒有直接的編譯器優化標誌。
+// 性能由 JIT 編譯器和引擎優化管理。
+function calculateSum(n) {
+  let sum = 0;
+  for (let i = 0; i < n; i++) {
+    sum += i;
+  }
+  return sum;
+}
+
+// console.time("sum");
+// calculateSum(100000000);
+// console.timeEnd("sum");
+```
+
+```cpp !! cpp
+// C++: 編譯器優化
+#include <iostream>
+
+long long calculateSum(int n) {
+  long long sum = 0;
+  for (int i = 0; i < n; i++) {
+    sum += i;
+  }
+  return sum;
+}
+
+int main() {
+  // 編譯時使用: g++ -O3 your_program.cpp -o your_program
+  // 然後運行: ./your_program
+  // std::cout << "Sum: " << calculateSum(100000000) << std::endl;
+  return 0;
+}
+```
+</UniversalEditor>
+
+## 記憶體佈局優化
+
+高效的記憶體存取對於性能至關重要，尤其是由於 CPU 快取。優化資料結構以獲得更好的記憶體局部性可以顯著減少快取未命中並提高性能。
+
+*   **快取局部性：** 在記憶體中排列資料，使頻繁存取的項目彼此靠近。
+*   **結構填充：** 編譯器可能會在結構中新增填充以使成員在記憶體邊界上對齊，這會影響大小和快取性能。使用 `pragma pack` 或重新排序成員以最小化填充。
+*   **結構陣列 (AoS) vs. 陣列結構 (SoA)：**
+    *   **AoS：** `struct Point { float x, y, z; }; Point points[N];` (適用於存取單一物件的所有成員)。
+    *   **SoA：** `struct Points { float x[N], y[N], z[N]; };` (適用於存取許多物件中的單一成員，對於向量化操作具有更好的快取性能)。
+
+<UniversalEditor title="記憶體佈局範例" compare={true}>
+```javascript !! js
+// JavaScript: 記憶體佈局由引擎管理，直接控制較少。
+// 物件通常分配在堆上。
+class Point {
+  constructor(x, y) {
+    this.x = x;
+    this.y = y;
+  }
+}
+
+const points = [];
+for (let i = 0; i < 1000; i++) {
+  points.push(new Point(i, i * 2));
+}
+
+// 如果物件分散在記憶體中，存取 points[i].x 和 points[i].y 可能會導致快取未命中。
+```
+
+```cpp !! cpp
+// C++: 記憶體佈局優化
+#include <iostream>
+#include <vector>
+
+// 結構陣列 (AoS)
+struct PointAoS {
+  float x, y;
+};
+
+// 陣列結構 (SoA)
+struct PointSoA {
+  std::vector<float> x_coords;
+  std::vector<float> y_coords;
+};
+
+int main() {
+  // AoS 範例
+  std::vector<PointAoS> points_aos(1000);
+  for (int i = 0; i < 1000; ++i) {
+    points_aos[i] = { (float)i, (float)i * 2 };
+  }
+
+  // SoA 範例
+  PointSoA points_soa;
+  points_soa.x_coords.resize(1000);
+  points_soa.y_coords.resize(1000);
+  for (int i = 0; i < 1000; ++i) {
+    points_soa.x_coords[i] = (float)i;
+    points_soa.y_coords[i] = (float)i * 2;
+  }
+
+  // 如果只需要 x，則在 SoA 中迭代 x_coords 更具快取友好性。
+  return 0;
+}
+```
+</UniversalEditor>
+
+## 內聯函式和模板優化
+
+### 內聯函式
+
+*   `inline` 關鍵字是給編譯器的一個提示，將函式呼叫替換為函式體直接在呼叫點。這避免了函式呼叫的開銷（堆疊框架設定、跳轉等）。
+*   最適合小型、頻繁呼叫的函式。
+*   編譯器最終決定是否內聯函式。
+
+### 模板優化
+
+*   模板啟用泛型程式設計，但它們也允許編譯器在編譯時為特定類型生成高度優化的程式碼。這稱為**單態化**。
+*   例如，`std::vector<int>` 和 `std::vector<double>` 是不同的類型，編譯器可以獨立優化每個實例化。
+
+<UniversalEditor title="內聯和模板優化" compare={true}>
+```javascript !! js
+// JavaScript: JIT 編譯器動態處理內聯和優化。
+function add(a, b) {
+  return a + b;
+}
+
+// 如果頻繁呼叫，JIT 編譯器可能會內聯此函式。
+let result = add(5, 3);
+```
+
+```cpp !! cpp
+// C++: 內聯函式和模板
+#include <iostream>
+
+inline int add(int a, int b) {
+  return a + b;
+}
+
+template <typename T>
+T multiply(T a, T b) {
+  return a * b;
+}
+
+int main() {
+  // int sum = add(5, 3); // 編譯器可能會內聯此呼叫
+  // double product = multiply(2.5, 4.0); // 編譯器為 double 生成特定程式碼
+  return 0;
+}
+```
+</UniversalEditor>
+
+## 快取友好程式碼設計
+
+編寫快取友好程式碼意味著組織資料和演算法以最大化**快取命中**並最小化**快取未命中**。CPU 以區塊（快取行）獲取資料，因此按順序存取資料或以符合快取行的模式存取資料是有益的。
+
+*   **順序存取：** 順序迭代陣列/向量，而不是跳躍式存取。
+*   **資料結構：** 選擇促進局部性的資料結構（例如，對於順序存取，`std::vector` 優於 `std::list`）。
+*   **避免偽共享：** 在多執行緒程式設計中，確保不同執行緒頻繁修改的變數不在同一個快取行中。
+
+## 性能分析工具使用
+
+為了有效地優化 C++ 程式碼，你需要識別性能瓶頸。分析工具對於此至關重要。
+
+*   **`gprof` (GNU 分析器)：** CPU 時間的基本呼叫圖和平面分析。
+*   **`perf` (Linux 性能事件)：** 用於分析 CPU 性能計數器、快取未命中、分支預測等的強大工具。
+*   **Valgrind (Cachegrind, Callgrind)：** 記憶體和快取分析，呼叫圖生成。
+*   **Intel VTune Amplifier：** 適用於 Intel CPU 的商業分析器，提供對 CPU 和記憶體性能的深入洞察。
+*   **Visual Studio 分析器 (Windows)：** Visual Studio 中內建的分析工具。
+
+這些工具可幫助你精確找出程式花費大部分時間的位置，從而有效地集中優化工作。
+
+## 與 JavaScript 性能的比較
+
+| 特性           | JavaScript                               | C++                                      |
+| :---------------- | :--------------------------------------- | :--------------------------------------- |
+| **執行模型**| 解釋型/JIT 編譯                 | 編譯為原生機器碼          |
+| **記憶體控制**| 自動 (垃圾回收)           | 手動/智能指針 (精細控制) |
+| **性能**   | 對於 Web/UI 通常良好，但對於 CPU 密集型任務可能較慢 | 對於 CPU 密集型、低延遲和系統級任務表現出色 |
+| **優化**  | 依賴 JIT 編譯器啟發式        | 明確的編譯器標誌、手動記憶體/資料佈局、演算法選擇 |
+| **確定性**   | GC 暫停可能引入不可預測的延遲 | 更具確定性的性能           |
+
+C++ 由於其編譯為原生程式碼和直接記憶體存取，提供了卓越的原始性能。JavaScript 的性能在很大程度上依賴於其 JIT 編譯器的複雜性，這些編譯器可以執行令人印象深刻的優化，但仍在受管運行時環境的限制內運行。
+
+## 優化最佳實踐
+
+1.  **先分析：** 不要過早優化。使用分析工具識別實際瓶頸。
+2.  **演算法和資料結構選擇：** 為你的問題選擇最有效的演算法和資料結構（例如，`std::unordered_map` 用於快速查找，`std::vector` 用於順序存取）。
+3.  **最小化記憶體分配：** 動態記憶體分配（`new`/`delete`）比堆疊分配慢。盡可能重複使用記憶體，或為性能關鍵部分使用自訂分配器。
+4.  **快取感知：** 設計資料結構和存取模式以最大化快取命中。
+5.  **避免熱路徑中的虛擬函式：** 虛擬函式呼叫涉及虛擬表查找，這可能比直接呼叫稍慢。如果性能至關重要且不需要多態性，請避免使用虛擬函式。
+6.  **正確使用 `const`：** `const` 正確性可以啟用更多編譯器優化。
+7.  **移動語義：** 利用移動建構函式和移動賦值運算子 (C++11+) 以避免不必要的深層複製，尤其是在處理大型物件時。
+8.  **並行：** 對於多核心系統，利用多執行緒 (`std::thread`、OpenMP、TBB) 或 GPU 計算 (CUDA、OpenCL) 進行可並行化的任務。
+
+---
+
+### 練習題：
+1.  解釋 C++ 性能中編譯器優化標誌（例如，`-O3`）的作用。它們與 JavaScript 的運行時優化有何不同？
+2.  描述記憶體佈局如何影響 C++ 的性能。提供一個快取友好資料存取模式的範例。
+3.  何時會在 C++ 中使用 `inline` 函式？其優點和潛在缺點是什麼？
+
+### 專案構想：
+*   在 C++ 中實作兩個版本的矩陣乘法演算法：一個簡單的實作和一個針對快取局部性優化的實作（例如，使用區塊矩陣乘法或轉置一個矩陣）。使用分析工具（如 `perf` 或 Valgrind 的 Cachegrind）來測量和比較它們對於大型矩陣的性能。記錄你的發現並根據快取行為解釋性能差異。
