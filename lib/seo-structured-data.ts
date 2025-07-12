@@ -42,6 +42,15 @@ export const js2goCourseData = {
   educationalLevel: "Intermediate"
 };
 
+export const js2swiftCourseData = {
+  name: "JavaScript to Swift Tutorial",
+  description: "Learn Swift from a JavaScript developer perspective, focusing on type safety, iOS development, and protocol-oriented programming.",
+  url: "https://langshift.dev/docs/js2swift",
+  provider: "LangShift.dev",
+  courseMode: "online",
+  educationalLevel: "Intermediate"
+};
+
 export const courseStructuredData = (courseData: {
   name: string
   description: string

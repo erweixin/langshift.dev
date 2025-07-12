@@ -53,4 +53,17 @@ export const getCourses = (t: TranslationKeys) => ([
     borderColor: 'border-cyan-500/20',
     gradient: 'from-cyan-400/20 to-blue-500/20',
   },
+  {
+    name: 'js2swift',
+    title: t.home.courses.js2swift.title,
+    description: t.home.courses.js2swift.description,
+    features: t.home.courses.js2swift.features,
+    duration: t.home.courses.js2swift.duration,
+    level: t.home.courses.js2swift.level,
+    icon: '🍎',
+    color: 'from-pink-500 to-purple-600',
+    bgColor: 'bg-pink-500/10',
+    borderColor: 'border-pink-500/20',
+    gradient: 'from-pink-400/20 to-purple-500/20',
+  },
 ]);

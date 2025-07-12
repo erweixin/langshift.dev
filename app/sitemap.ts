@@ -118,6 +118,33 @@ export default function sitemap(): MetadataRoute.Sitemap {
         'module-13-idiomatic-go',
       ],
     },
+    {
+      name: 'js2swift',
+      title: 'JavaScript 到 Swift 转换学习',
+      priority: 0.9,
+      modules: [
+        'module-00-swift-introduction',
+        'module-01-syntax-comparison',
+        'module-02-types-optionals',
+        'module-03-functions-closures',
+        'module-04-collections',
+        'module-05-control-flow',
+        'module-06-classes-structures',
+        'module-07-protocols-extensions',
+        'module-08-enums-pattern-matching',
+        'module-09-generics',
+        'module-10-memory-management',
+        'module-11-error-handling',
+        'module-12-concurrency',
+        'module-13-swiftui-framework',
+        'module-14-ios-development',
+        'module-15-projects',
+        'module-16-common-pitfalls',
+        'module-17-idiomatic-swift',
+        'module-18-advanced-topics',
+        'module-19-performance-optimization',
+      ],
+    },
   ]
 
   // 课程首页

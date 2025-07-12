@@ -49,4 +49,12 @@ export const languageConfigs: LanguageConfig[] = [
     syntax: 'go',
     description: 'Simple and efficient concurrent programming language'
   },
+  {
+    value: 'swift',
+    label: 'Swift',
+    icon: '🍎',
+    color: 'bg-pink-500',
+    syntax: 'swift',
+    description: 'Modern, safe, and fast programming language for iOS/macOS'
+  },
 ]; 

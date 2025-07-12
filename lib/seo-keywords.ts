@@ -94,6 +94,23 @@ export const courseKeywords = {
       'cloud-native', 'Goroutines', 'Channels', 'performance optimization', 'web development',
       'API development', 'Docker', 'Kubernetes', 'Go Modules', 'generics'
     ]
+  },
+  'js2swift': {
+    'zh-cn': [
+      'JavaScript', 'Swift', 'iOS开发', 'macOS开发', '移动开发',
+      '类型安全', '可选类型', '协议导向编程', 'SwiftUI', 'UIKit',
+      'ARC内存管理', 'Xcode', 'App Store', '移动应用', '声明式UI'
+    ],
+    'zh-tw': [
+      'JavaScript', 'Swift', 'iOS開發', 'macOS開發', '移動開發',
+      '型別安全', '可選型別', '協議導向程式設計', 'SwiftUI', 'UIKit',
+      'ARC記憶體管理', 'Xcode', 'App Store', '移動應用', '宣告式UI'
+    ],
+    'en': [
+      'JavaScript', 'Swift', 'iOS development', 'macOS development', 'mobile development',
+      'type safety', 'optionals', 'protocol-oriented programming', 'SwiftUI', 'UIKit',
+      'ARC memory management', 'Xcode', 'App Store', 'mobile apps', 'declarative UI'
+    ]
   }
 };
 
