@@ -1,12 +1,161 @@
 ---
-title: "common pitfalls"
-description: "Coming soon"
+title: "常见陷阱与解决方案"
+description: "Go 开发常见陷阱、JS 对比、解决方案与最佳实践。"
 ---
 
-# common pitfalls
+# 常见陷阱与解决方案
 
-This module is currently under development.
+本模块总结 Go 开发中常见的陷阱和误区，并与 JavaScript 进行对比，帮助你规避常见问题，提升代码质量。
 
-## Coming Soon
+## 1. 并发编程陷阱
 
-Content will be added soon.
+### 死锁
+<UniversalEditor title="死锁示例" compare={true}>
+```javascript !! js
+// JavaScript: 死锁较少见，常见为回调地狱
+function a(cb) { cb(); }
+function b(cb) { cb(); }
+a(() => b(() => console.log('done')));
+```
+
+```go !! go
+// Go: 死锁示例
+package main
+func main() {
+  ch := make(chan int)
+  ch <- 1 // 死锁：无接收方
+}
+```
+</UniversalEditor>
+
+#### 解决方案
+- Go: 使用带缓冲通道或 select，避免无接收方
+- JS: 合理使用 Promise/async，避免回调嵌套
+
+---
+
+### 竞态条件
+<UniversalEditor title="竞态条件对比" compare={true}>
+```javascript !! js
+// JavaScript: 多线程竞态需 worker/atomics
+// ... 省略 ...
+```
+
+```go !! go
+// Go: 竞态条件
+package main
+import (
+  "fmt"
+  "sync"
+)
+var x int
+func main() {
+  var wg sync.WaitGroup
+  for i := 0; i < 1000; i++ {
+    wg.Add(1)
+    go func() {
+      x++ // 非线程安全
+      wg.Done()
+    }()
+  }
+  wg.Wait()
+  fmt.Println(x)
+}
+```
+</UniversalEditor>
+
+#### 解决方案
+- Go: 使用 sync.Mutex 或原子操作
+- JS: 单线程避免大部分竞态
+
+---
+
+## 2. 内存泄漏问题
+
+<UniversalEditor title="内存泄漏对比" compare={true}>
+```javascript !! js
+// JavaScript: 闭包引用导致内存泄漏
+function foo() {
+  let arr = [];
+  return function() { arr.push(1); };
+}
+```
+
+```go !! go
+// Go: goroutine 泄漏
+package main
+func leak() chan int {
+  ch := make(chan int)
+  go func() {
+    // 永远阻塞
+    ch <- 1
+  }()
+  return ch
+}
+```
+</UniversalEditor>
+
+#### 解决方案
+- Go: 及时关闭 channel，避免 goroutine 泄漏
+- JS: 注意闭包和事件监听解绑
+
+---
+
+## 3. 性能优化误区
+
+- 过早优化，导致代码复杂
+- 滥用反射、interface{}，影响性能
+- 忽视内存分配和 GC
+
+#### 最佳实践
+- 先保证正确性，再优化性能
+- 使用 pprof 分析性能瓶颈
+- 合理使用类型和数据结构
+
+---
+
+## 4. 错误处理陷阱
+
+<UniversalEditor title="错误处理对比" compare={true}>
+```javascript !! js
+// JavaScript: try-catch
+try {
+  throw new Error('fail');
+} catch(e) {
+  console.log(e.message);
+}
+```
+
+```go !! go
+// Go: 错误返回值
+package main
+import "errors"
+func foo() error {
+  return errors.New("fail")
+}
+func main() {
+  if err := foo(); err != nil {
+    println(err.Error())
+  }
+}
+```
+</UniversalEditor>
+
+#### 解决方案
+- Go: 明确处理每个错误，避免忽略
+- JS: 合理使用 try-catch，注意异步错误
+
+---
+
+## 5. 包管理问题
+
+- Go: go.mod/go.sum 不同步，依赖冲突
+- JS: node_modules 冲突、锁文件不一致
+
+#### 最佳实践
+- Go: 使用 go mod tidy 保持依赖整洁
+- JS: 锁定依赖版本，定期清理
+
+---
+
+> 建议结合实际项目多做练习，遇到问题及时查阅官方文档和社区经验。

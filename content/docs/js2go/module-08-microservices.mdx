@@ -1,12 +1,780 @@
 ---
-title: "microservices"
-description: "Coming soon"
+title: Microservices Architecture
 ---
 
-# microservices
+Go is particularly well-suited for microservices due to its simplicity, performance, and excellent support for concurrent programming. This module explores microservices architecture from a JavaScript developer's perspective, covering gRPC, service discovery, configuration management, and distributed tracing.
 
-This module is currently under development.
+## Microservices Overview
 
-## Coming Soon
+- **Architecture Style:** Small, independent services communicating over network
+- **Go Advantages:** Lightweight binaries, fast startup, excellent concurrency
+- **Key Components:** gRPC, service discovery, configuration management, monitoring
+- **Common Patterns:** API Gateway, Circuit Breaker, Event Sourcing, CQRS
 
-Content will be added soon.
+## gRPC Service Development
+
+gRPC is a high-performance RPC framework that uses Protocol Buffers for serialization.
+
+<UniversalEditor title="gRPC Service Definition" compare={true}>
+```javascript !! js
+// JavaScript: REST API with Express
+const express = require('express');
+const app = express();
+app.use(express.json());
+
+app.get('/api/users/:id', (req, res) => {
+  const userId = req.params.id;
+  // Fetch user data
+  res.json({ id: userId, name: 'John Doe', email: 'john@example.com' });
+});
+
+app.post('/api/users', (req, res) => {
+  const userData = req.body;
+  // Create user
+  res.status(201).json({ id: 1, ...userData });
+});
+
+app.listen(3000);
+```
+
+```go !! go
+// Go: gRPC service definition (proto file)
+// user.proto
+syntax = "proto3";
+
+package user;
+
+service UserService {
+  rpc GetUser(GetUserRequest) returns (User);
+  rpc CreateUser(CreateUserRequest) returns (User);
+}
+
+message GetUserRequest {
+  string user_id = 1;
+}
+
+message CreateUserRequest {
+  string name = 1;
+  string email = 2;
+}
+
+message User {
+  string id = 1;
+  string name = 2;
+  string email = 3;
+}
+```
+</UniversalEditor>
+
+## gRPC Server Implementation
+
+<UniversalEditor title="gRPC Server Implementation" compare={true}>
+```javascript !! js
+// JavaScript: gRPC server with @grpc/grpc-js
+const grpc = require('@grpc/grpc-js');
+const protoLoader = require('@grpc/proto-loader');
+
+const packageDefinition = protoLoader.loadSync('./user.proto');
+const userProto = grpc.loadPackageDefinition(packageDefinition).user;
+
+const users = new Map();
+
+const server = new grpc.Server();
+server.addService(userProto.UserService.service, {
+  getUser: (call, callback) => {
+    const userId = call.request.user_id;
+    const user = users.get(userId);
+    if (user) {
+      callback(null, user);
+    } else {
+      callback({ code: grpc.status.NOT_FOUND });
+    }
+  },
+  createUser: (call, callback) => {
+    const userData = call.request;
+    const user = { id: Date.now().toString(), ...userData };
+    users.set(user.id, user);
+    callback(null, user);
+  }
+});
+
+server.bindAsync('0.0.0.0:50051', grpc.ServerCredentials.createInsecure(), () => {
+  server.start();
+  console.log('gRPC server running on port 50051');
+});
+```
+
+```go !! go
+// Go: gRPC server implementation
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"net"
+
+	pb "github.com/your-org/user-service/proto"
+	"google.golang.org/grpc"
+)
+
+type server struct {
+	pb.UnimplementedUserServiceServer
+	users map[string]*pb.User
+}
+
+func (s *server) GetUser(ctx context.Context, req *pb.GetUserRequest) (*pb.User, error) {
+	user, exists := s.users[req.UserId]
+	if !exists {
+		return nil, fmt.Errorf("user not found")
+	}
+	return user, nil
+}
+
+func (s *server) CreateUser(ctx context.Context, req *pb.CreateUserRequest) (*pb.User, error) {
+	user := &pb.User{
+		Id:    fmt.Sprintf("%d", len(s.users)+1),
+		Name:  req.Name,
+		Email: req.Email,
+	}
+	s.users[user.Id] = user
+	return user, nil
+}
+
+func main() {
+	lis, err := net.Listen("tcp", ":50051")
+	if err != nil {
+		log.Fatalf("failed to listen: %v", err)
+	}
+	s := grpc.NewServer()
+	pb.RegisterUserServiceServer(s, &server{users: make(map[string]*pb.User)})
+	
+	log.Printf("gRPC server listening at %v", lis.Addr())
+	if err := s.Serve(lis); err != nil {
+		log.Fatalf("failed to serve: %v", err)
+	}
+}
+```
+</UniversalEditor>
+
+## Service Discovery
+
+Service discovery allows services to find and communicate with each other dynamically.
+
+<UniversalEditor title="Service Discovery with Consul" compare={true}>
+```javascript !! js
+// JavaScript: Service registration with Consul
+const consul = require('consul')();
+
+// Register service
+consul.agent.service.register({
+  name: 'user-service',
+  id: 'user-service-1',
+  port: 3000,
+  check: {
+    http: 'http://localhost:3000/health',
+    interval: '10s'
+  }
+}, (err) => {
+  if (err) throw err;
+  console.log('Service registered with Consul');
+});
+
+// Discover service
+consul.catalog.service.nodes('user-service', (err, result) => {
+  if (err) throw err;
+  console.log('Available user services:', result);
+});
+```
+
+```go !! go
+// Go: Service discovery with Consul
+package main
+
+import (
+	"fmt"
+	"log"
+	"time"
+
+	"github.com/hashicorp/consul/api"
+)
+
+type ServiceRegistry struct {
+	client *api.Client
+}
+
+func NewServiceRegistry() (*ServiceRegistry, error) {
+	config := api.DefaultConfig()
+	client, err := api.NewClient(config)
+	if err != nil {
+		return nil, err
+	}
+	return &ServiceRegistry{client: client}, nil
+}
+
+func (sr *ServiceRegistry) RegisterService(name, id, address string, port int) error {
+	registration := &api.AgentServiceRegistration{
+		ID:      id,
+		Name:    name,
+		Address: address,
+		Port:    port,
+		Check: &api.AgentServiceCheck{
+			HTTP:                           fmt.Sprintf("http://%s:%d/health", address, port),
+			Interval:                       "10s",
+			Timeout:                        "5s",
+			DeregisterCriticalServiceAfter: "30s",
+		},
+	}
+	return sr.client.Agent().ServiceRegister(registration)
+}
+
+func (sr *ServiceRegistry) DiscoverService(name string) ([]*api.ServiceEntry, error) {
+	services, _, err := sr.client.Health().Service(name, "", true, nil)
+	if err != nil {
+		return nil, err
+	}
+	return services, nil
+}
+
+func main() {
+	registry, err := NewServiceRegistry()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Register service
+	err = registry.RegisterService("user-service", "user-service-1", "localhost", 50051)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Discover services
+	services, err := registry.DiscoverService("user-service")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	for _, service := range services {
+		fmt.Printf("Service: %s, Address: %s:%d\n", 
+			service.Service.Service, service.Service.Address, service.Service.Port)
+	}
+}
+```
+</UniversalEditor>
+
+## Configuration Management
+
+Centralized configuration management is crucial for microservices.
+
+<UniversalEditor title="Configuration Management" compare={true}>
+```javascript !! js
+// JavaScript: Configuration with environment variables
+const config = {
+  port: process.env.PORT || 3000,
+  database: {
+    host: process.env.DB_HOST || 'localhost',
+    port: process.env.DB_PORT || 5432,
+    name: process.env.DB_NAME || 'users',
+    user: process.env.DB_USER || 'postgres',
+    password: process.env.DB_PASSWORD || 'password'
+  },
+  redis: {
+    host: process.env.REDIS_HOST || 'localhost',
+    port: process.env.REDIS_PORT || 6379
+  },
+  jwt: {
+    secret: process.env.JWT_SECRET || 'your-secret-key'
+  }
+};
+
+// Using dotenv for local development
+require('dotenv').config();
+```
+
+```go !! go
+// Go: Configuration management with Viper
+package main
+
+import (
+	"fmt"
+	"log"
+
+	"github.com/spf13/viper"
+)
+
+type Config struct {
+	Port     int    `mapstructure:"port"`
+	Database DatabaseConfig `mapstructure:"database"`
+	Redis    RedisConfig    `mapstructure:"redis"`
+	JWT      JWTConfig      `mapstructure:"jwt"`
+}
+
+type DatabaseConfig struct {
+	Host     string `mapstructure:"host"`
+	Port     int    `mapstructure:"port"`
+	Name     string `mapstructure:"name"`
+	User     string `mapstructure:"user"`
+	Password string `mapstructure:"password"`
+}
+
+type RedisConfig struct {
+	Host string `mapstructure:"host"`
+	Port int    `mapstructure:"port"`
+}
+
+type JWTConfig struct {
+	Secret string `mapstructure:"secret"`
+}
+
+func LoadConfig() (*Config, error) {
+	viper.SetConfigName("config")
+	viper.SetConfigType("yaml")
+	viper.AddConfigPath(".")
+	viper.AddConfigPath("./config")
+	
+	// Environment variables
+	viper.AutomaticEnv()
+	viper.SetEnvPrefix("APP")
+	
+	// Default values
+	viper.SetDefault("port", 8080)
+	viper.SetDefault("database.host", "localhost")
+	viper.SetDefault("database.port", 5432)
+	viper.SetDefault("redis.host", "localhost")
+	viper.SetDefault("redis.port", 6379)
+	
+	if err := viper.ReadInConfig(); err != nil {
+		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
+			return nil, err
+		}
+	}
+	
+	var config Config
+	if err := viper.Unmarshal(&config); err != nil {
+		return nil, err
+	}
+	
+	return &config, nil
+}
+
+func main() {
+	config, err := LoadConfig()
+	if err != nil {
+		log.Fatal(err)
+	}
+	
+	fmt.Printf("Server will run on port %d\n", config.Port)
+	fmt.Printf("Database: %s:%d/%s\n", 
+		config.Database.Host, config.Database.Port, config.Database.Name)
+}
+```
+</UniversalEditor>
+
+## Distributed Tracing
+
+Distributed tracing helps monitor and debug microservices interactions.
+
+<UniversalEditor title="Distributed Tracing with OpenTelemetry" compare={true}>
+```javascript !! js
+// JavaScript: OpenTelemetry tracing
+const { trace, context } = require('@opentelemetry/api');
+const { NodeTracerProvider } = require('@opentelemetry/sdk-trace-node');
+const { JaegerExporter } = require('@opentelemetry/exporter-jaeger');
+
+const provider = new NodeTracerProvider();
+const exporter = new JaegerExporter({
+  endpoint: 'http://localhost:14268/api/traces'
+});
+
+provider.addSpanProcessor(new SimpleSpanProcessor(exporter));
+trace.setGlobalTracerProvider(provider);
+
+const tracer = trace.getTracer('user-service');
+
+// Create span
+const span = tracer.startSpan('get-user');
+span.setAttribute('user.id', userId);
+
+try {
+  // Business logic
+  const user = await getUser(userId);
+  span.setStatus({ code: SpanStatusCode.OK });
+  return user;
+} catch (error) {
+  span.setStatus({ code: SpanStatusCode.ERROR, message: error.message });
+  throw error;
+} finally {
+  span.end();
+}
+```
+
+```go !! go
+// Go: OpenTelemetry tracing
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/exporters/jaeger"
+	"go.opentelemetry.io/otel/sdk/resource"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	semconv "go.opentelemetry.io/otel/semconv/v1.17.0"
+	"go.opentelemetry.io/otel/trace"
+)
+
+func initTracer() (*sdktrace.TracerProvider, error) {
+	exporter, err := jaeger.New(jaeger.WithCollectorEndpoint(
+		jaeger.WithEndpoint("http://localhost:14268/api/traces"),
+	))
+	if err != nil {
+		return nil, err
+	}
+
+	resource := resource.NewWithAttributes(
+		semconv.SchemaURL,
+		semconv.ServiceName("user-service"),
+		semconv.ServiceVersion("1.0.0"),
+	)
+
+	tp := sdktrace.NewTracerProvider(
+		sdktrace.WithBatcher(exporter),
+		sdktrace.WithResource(resource),
+	)
+	otel.SetTracerProvider(tp)
+	return tp, nil
+}
+
+func getUser(ctx context.Context, userID string) (*User, error) {
+	tracer := otel.Tracer("user-service")
+	ctx, span := tracer.Start(ctx, "get-user")
+	defer span.End()
+
+	span.SetAttributes(
+		attribute.String("user.id", userID),
+	)
+
+	// Business logic
+	user, err := fetchUserFromDatabase(ctx, userID)
+	if err != nil {
+		span.RecordError(err)
+		return nil, err
+	}
+
+	span.SetAttributes(
+		attribute.String("user.name", user.Name),
+		attribute.String("user.email", user.Email),
+	)
+
+	return user, nil
+}
+
+func main() {
+	tp, err := initTracer()
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer func() {
+		if err := tp.Shutdown(context.Background()); err != nil {
+			log.Printf("Error shutting down tracer provider: %v", err)
+		}
+	}()
+
+	ctx := context.Background()
+	user, err := getUser(ctx, "123")
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Printf("User: %+v\n", user)
+}
+```
+</UniversalEditor>
+
+## Circuit Breaker Pattern
+
+Circuit breakers prevent cascading failures in distributed systems.
+
+<UniversalEditor title="Circuit Breaker Implementation" compare={true}>
+```javascript !! js
+// JavaScript: Circuit breaker with opossum
+const CircuitBreaker = require('opossum');
+
+const breaker = new CircuitBreaker(async (userId) => {
+  // Simulate external service call
+  const response = await fetch(`http://user-service/users/${userId}`);
+  if (!response.ok) {
+    throw new Error('Service unavailable');
+  }
+  return response.json();
+}, {
+  timeout: 3000,
+  errorThresholdPercentage: 50,
+  resetTimeout: 30000
+});
+
+breaker.fallback(() => ({ id: 'fallback', name: 'Default User' }));
+breaker.on('open', () => console.log('Circuit breaker opened'));
+breaker.on('close', () => console.log('Circuit breaker closed'));
+
+// Usage
+try {
+  const user = await breaker.fire('123');
+  console.log(user);
+} catch (error) {
+  console.error('Service call failed:', error);
+}
+```
+
+```go !! go
+// Go: Circuit breaker with gobreaker
+package main
+
+import (
+	"fmt"
+	"log"
+	"time"
+
+	"github.com/sony/gobreaker"
+)
+
+type UserService struct {
+	breaker *gobreaker.CircuitBreaker
+}
+
+func NewUserService() *UserService {
+	cb := gobreaker.NewCircuitBreaker(gobreaker.Settings{
+		Name:        "user-service",
+		MaxRequests: 3,
+		Interval:    10 * time.Second,
+		Timeout:     60 * time.Second,
+		ReadyToTrip: func(counts gobreaker.Counts) bool {
+			failureRatio := float64(counts.TotalFailures) / float64(counts.Requests)
+			return counts.Requests >= 3 && failureRatio >= 0.6
+		},
+		OnStateChange: func(name string, from gobreaker.State, to gobreaker.State) {
+			log.Printf("Circuit breaker %s: %s -> %s", name, from, to)
+		},
+	})
+
+	return &UserService{breaker: cb}
+}
+
+func (us *UserService) GetUser(userID string) (*User, error) {
+	result, err := us.breaker.Execute(func() (interface{}, error) {
+		// Simulate external service call
+		return fetchUserFromService(userID)
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	if user, ok := result.(*User); ok {
+		return user, nil
+	}
+	return nil, fmt.Errorf("invalid result type")
+}
+
+func fetchUserFromService(userID string) (*User, error) {
+	// Simulate service call
+	time.Sleep(100 * time.Millisecond)
+	
+	// Simulate occasional failures
+	if userID == "error" {
+		return nil, fmt.Errorf("service unavailable")
+	}
+	
+	return &User{ID: userID, Name: "John Doe", Email: "john@example.com"}, nil
+}
+
+func main() {
+	service := NewUserService()
+	
+	// Test circuit breaker
+	for i := 0; i < 5; i++ {
+		user, err := service.GetUser("123")
+		if err != nil {
+			log.Printf("Error: %v", err)
+		} else {
+			log.Printf("User: %+v", user)
+		}
+		time.Sleep(1 * time.Second)
+	}
+}
+```
+</UniversalEditor>
+
+## API Gateway
+
+API Gateway provides a single entry point for client applications.
+
+<UniversalEditor title="API Gateway with Gin" compare={true}>
+```javascript !! js
+// JavaScript: API Gateway with Express
+const express = require('express');
+const { createProxyMiddleware } = require('http-proxy-middleware');
+const rateLimit = require('express-rate-limit');
+
+const app = express();
+
+// Rate limiting
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100 // limit each IP to 100 requests per windowMs
+});
+app.use(limiter);
+
+// Authentication middleware
+app.use('/api/*', (req, res, next) => {
+  const token = req.headers.authorization;
+  if (!token) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  next();
+});
+
+// Route to user service
+app.use('/api/users', createProxyMiddleware({
+  target: 'http://user-service:50051',
+  changeOrigin: true,
+  pathRewrite: { '^/api/users': '/users' }
+}));
+
+// Route to order service
+app.use('/api/orders', createProxyMiddleware({
+  target: 'http://order-service:50052',
+  changeOrigin: true,
+  pathRewrite: { '^/api/orders': '/orders' }
+}));
+
+app.listen(3000);
+```
+
+```go !! go
+// Go: API Gateway with Gin
+package main
+
+import (
+	"net/http"
+	"net/http/httputil"
+	"net/url"
+
+	"github.com/gin-gonic/gin"
+	"golang.org/x/time/rate"
+)
+
+type ServiceRoute struct {
+	Path   string
+	Target string
+}
+
+type APIGateway struct {
+	routes []ServiceRoute
+	limiter *rate.Limiter
+}
+
+func NewAPIGateway() *APIGateway {
+	return &APIGateway{
+		routes: []ServiceRoute{
+			{Path: "/api/users", Target: "http://user-service:50051"},
+			{Path: "/api/orders", Target: "http://order-service:50052"},
+		},
+		limiter: rate.NewLimiter(rate.Limit(100), 100), // 100 requests per second
+	}
+}
+
+func (ag *APIGateway) authMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		token := c.GetHeader("Authorization")
+		if token == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+			c.Abort()
+			return
+		}
+		c.Next()
+	}
+}
+
+func (ag *APIGateway) rateLimitMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !ag.limiter.Allow() {
+			c.JSON(http.StatusTooManyRequests, gin.H{"error": "Rate limit exceeded"})
+			c.Abort()
+			return
+		}
+		c.Next()
+	}
+}
+
+func (ag *APIGateway) proxyMiddleware(servicePath, targetURL string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		target, err := url.Parse(targetURL)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid target"})
+			return
+		}
+
+		proxy := httputil.NewSingleHostReverseProxy(target)
+		proxy.ServeHTTP(c.Writer, c.Request)
+	}
+}
+
+func (ag *APIGateway) SetupRoutes(r *gin.Engine) {
+	// Global middleware
+	r.Use(ag.rateLimitMiddleware())
+	r.Use(ag.authMiddleware())
+
+	// Service routes
+	for _, route := range ag.routes {
+		r.Any(route.Path+"/*path", ag.proxyMiddleware(route.Path, route.Target))
+	}
+}
+
+func main() {
+	gateway := NewAPIGateway()
+	r := gin.Default()
+	gateway.SetupRoutes(r)
+	r.Run(":8080")
+}
+```
+</UniversalEditor>
+
+## Comparison: Go vs JavaScript for Microservices
+
+| Feature           | Go                                    | JavaScript (Node.js)              |
+|-------------------|---------------------------------------|-----------------------------------|
+| Performance       | High, compiled binary                 | Good, V8 engine                  |
+| Memory Usage      | Low, efficient                        | Higher, garbage collected        |
+| Concurrency       | Goroutines, channels                  | Event loop, async/await          |
+| gRPC Support      | Excellent, native                     | Good, with libraries             |
+| Service Discovery | Consul, etcd, Kubernetes              | Consul, etcd, Kubernetes         |
+| Configuration     | Viper, environment variables          | dotenv, config libraries         |
+| Tracing           | OpenTelemetry, Jaeger                 | OpenTelemetry, Jaeger            |
+| Circuit Breaker   | gobreaker, hystrix-go                 | opossum, hystrix                 |
+| API Gateway       | Gin, Echo, custom                     | Express, Fastify, custom         |
+| Deployment        | Docker, Kubernetes, binary            | Docker, Kubernetes, Node.js      |
+
+## Best Practices
+
+- Use gRPC for service-to-service communication
+- Implement proper error handling and retry logic
+- Use circuit breakers to prevent cascading failures
+- Centralize configuration management
+- Implement distributed tracing for observability
+- Use API Gateway for client-facing APIs
+- Design for failure and implement graceful degradation
+- Use health checks and readiness probes
+- Implement proper logging and monitoring
+- Use service mesh for advanced traffic management
+
+---
+
+### Practice Questions
+1. How does gRPC differ from REST APIs in terms of performance and features?
+2. Explain the circuit breaker pattern and when to use it.
+3. What are the benefits of using an API Gateway in microservices architecture?
+
+### Project Idea
+Build a simple microservices application with three services: User Service, Order Service, and API Gateway. Implement gRPC communication, service discovery with Consul, and distributed tracing with OpenTelemetry. Deploy the services using Docker and test the circuit breaker pattern.

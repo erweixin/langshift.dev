@@ -1,12 +1,272 @@
 ---
-title: "projects"
-description: "Coming soon"
+title: "实战项目与综合应用"
+description: "Go 实战项目案例与 JS 对比，涵盖 Web API、微服务、并发数据处理、云原生等。"
 ---
 
-# projects
+# 实战项目与综合应用
 
-This module is currently under development.
+本模块通过多个典型项目，帮助你将 Go 语言知识应用于实际开发，并与 JavaScript 进行对比。每个项目都包含项目结构说明、JS/Go 对比代码、性能分析和实战建议。
 
-## Coming Soon
+## 1. Web API 项目
 
-Content will be added soon.
+### 项目结构
+- 路由与控制器
+- 数据库集成
+- 中间件
+
+<UniversalEditor title="用户管理 API" compare={true}>
+```javascript !! js
+// JavaScript: Express 实现简单用户 API
+const express = require('express');
+const app = express();
+app.use(express.json());
+app.get('/users/:id', (req, res) => {
+  // 查询用户
+  res.json({ id: req.params.id, name: '张三' });
+});
+app.listen(3000);
+```
+
+```go !! go
+// Go: Gin 实现简单用户 API
+package main
+import (
+  "github.com/gin-gonic/gin"
+)
+func main() {
+  r := gin.Default()
+  r.GET("/users/:id", func(c *gin.Context) {
+    c.JSON(200, gin.H{"id": c.Param("id"), "name": "张三"})
+  })
+  r.Run(":3000")
+}
+```
+</UniversalEditor>
+
+### 性能分析
+- Go 启动快、并发高效，适合高并发 API 服务
+- JS (Node.js) 单线程事件循环，适合 IO 密集型
+
+### 练习题
+- 用 Go 实现带 JWT 鉴权的 API
+- 用 JS 实现分页查询
+
+---
+
+## 2. 微服务项目
+
+### 项目结构
+- gRPC 服务
+- 服务注册与发现
+- 配置中心
+
+<UniversalEditor title="gRPC 用户服务" compare={true}>
+```javascript !! js
+// JavaScript: gRPC 服务（@grpc/grpc-js）
+// ... 省略，见 module-08-microservices ...
+```
+
+```go !! go
+// Go: gRPC 服务实现
+// ... 省略，见 module-08-microservices ...
+```
+</UniversalEditor>
+
+### 性能分析
+- Go 原生支持 gRPC，序列化高效
+- JS 生态丰富，适合快速原型
+
+### 练习题
+- 用 Go 实现服务健康检查
+- 用 JS 实现服务注册
+
+---
+
+## 3. 并发数据处理项目
+
+### 项目结构
+- 多任务并发处理
+- 结果聚合
+
+<UniversalEditor title="并发数据处理" compare={true}>
+```javascript !! js
+// JavaScript: Promise.all 并发处理
+const tasks = [1,2,3].map(i => fetch(`/api/${i}`));
+Promise.all(tasks).then(console.log);
+```
+
+```go !! go
+// Go: Goroutine + Channel 并发处理
+package main
+import (
+  "fmt"
+  "sync"
+)
+func main() {
+  var wg sync.WaitGroup
+  results := make(chan int, 3)
+  for i := 1; i <= 3; i++ {
+    wg.Add(1)
+    go func(i int) {
+      defer wg.Done()
+      // 模拟数据处理
+      results <- i * 10
+    }(i)
+  }
+  wg.Wait()
+  close(results)
+  for r := range results {
+    fmt.Println(r)
+  }
+}
+```
+</UniversalEditor>
+
+### 性能分析
+- Go 并发模型更适合 CPU 密集型任务
+- JS 并发适合 IO 密集型
+
+### 练习题
+- 用 Go 实现 worker pool
+- 用 JS 实现并发限流
+
+---
+
+## 4. 云原生应用项目
+
+### 项目结构
+- Docker 容器化
+- Kubernetes 部署
+- 日志与监控
+
+<UniversalEditor title="Dockerfile 对比" compare={true}>
+```javascript !! js
+# Node.js Dockerfile
+FROM node:18
+WORKDIR /app
+COPY . .
+RUN npm install
+CMD ["node", "index.js"]
+```
+
+```go !! go
+# Go Dockerfile
+FROM golang:1.21 AS builder
+WORKDIR /app
+COPY . .
+RUN go build -o app
+FROM alpine:latest
+WORKDIR /root/
+COPY --from=builder /app/app .
+CMD ["./app"]
+```
+</UniversalEditor>
+
+### 性能分析
+- Go 二进制体积小，启动快，易于云原生部署
+- JS 需依赖 Node 运行时
+
+### 练习题
+- 用 Go 实现 Prometheus 指标采集
+- 用 JS 实现简单健康检查
+
+---
+
+## 5. 实时聊天应用
+
+### 项目结构
+- WebSocket 通信
+- 消息广播
+
+<UniversalEditor title="WebSocket 聊天" compare={true}>
+```javascript !! js
+// JavaScript: ws 实现 WebSocket 聊天
+const WebSocket = require('ws');
+const wss = new WebSocket.Server({ port: 8080 });
+wss.on('connection', ws => {
+  ws.on('message', msg => {
+    wss.clients.forEach(client => {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(msg);
+      }
+    });
+  });
+});
+```
+
+```go !! go
+// Go: Gorilla WebSocket 聊天
+package main
+import (
+  "github.com/gorilla/websocket"
+  "net/http"
+)
+var upgrader = websocket.Upgrader{}
+func handler(w http.ResponseWriter, r *http.Request) {
+  c, _ := upgrader.Upgrade(w, r, nil)
+  defer c.Close()
+  for {
+    _, msg, err := c.ReadMessage()
+    if err != nil { break }
+    c.WriteMessage(websocket.TextMessage, msg)
+  }
+}
+func main() {
+  http.HandleFunc("/ws", handler)
+  http.ListenAndServe(":8080", nil)
+}
+```
+</UniversalEditor>
+
+### 性能分析
+- Go 并发处理连接更高效
+- JS 生态丰富，开发便捷
+
+### 练习题
+- 用 Go 实现消息持久化
+- 用 JS 实现前端聊天室
+
+---
+
+## 6. 分布式任务调度系统
+
+### 项目结构
+- 定时任务
+- 分布式调度
+
+<UniversalEditor title="定时任务对比" compare={true}>
+```javascript !! js
+// JavaScript: node-cron 定时任务
+const cron = require('node-cron');
+cron.schedule('* * * * *', () => {
+  console.log('每分钟执行一次');
+});
+```
+
+```go !! go
+// Go: cron 定时任务
+package main
+import (
+  "github.com/robfig/cron/v3"
+  "fmt"
+)
+func main() {
+  c := cron.New()
+  c.AddFunc("* * * * *", func() { fmt.Println("每分钟执行一次") })
+  c.Start()
+  select{} // 阻塞主线程
+}
+```
+</UniversalEditor>
+
+### 性能分析
+- Go 适合高并发任务调度
+- JS 适合轻量级定时任务
+
+### 练习题
+- 用 Go 实现分布式任务队列
+- 用 JS 实现任务状态监控
+
+---
+
+> 你可以选择任意项目进行实战练习，建议结合云原生和并发特性，体验 Go 的工程优势。

@@ -1,12 +1,956 @@
 ---
-title: "types interfaces"
-description: "Coming soon"
+title: Type System and Interfaces
 ---
 
-# types interfaces
+This module explores Go's type system and interfaces, which are fundamental to Go's design philosophy. Go's type system is statically typed but with some dynamic features through interfaces, providing a balance between safety and flexibility that differs significantly from JavaScript's dynamic typing.
 
-This module is currently under development.
+## Go's Type System Overview
 
-## Coming Soon
+Go is a statically typed language, meaning types are checked at compile time. This provides better performance, earlier error detection, and clearer code documentation compared to JavaScript's dynamic typing.
 
-Content will be added soon.
+### Static vs Dynamic Typing
+
+<UniversalEditor title="Type System Comparison" compare={true}>
+```javascript !! js
+// JavaScript: Dynamic typing
+let value = 42;           // number
+console.log(typeof value); // "number"
+
+value = "hello";          // string
+console.log(typeof value); // "string"
+
+value = { name: "John" }; // object
+console.log(typeof value); // "object"
+
+// Types are checked at runtime
+function processData(data) {
+    return data.length; // Works for strings, arrays, but fails for numbers
+}
+
+processData("hello"); // 5
+processData([1, 2, 3]); // 3
+processData(42); // TypeError: data.length is not a function
+```
+
+```go !! go
+// Go: Static typing
+package main
+
+import "fmt"
+
+func main() {
+    var value int = 42
+    fmt.Printf("Type: %T, Value: %v\n", value, value) // Type: int, Value: 42
+    
+    // value = "hello" // Compilation error: cannot use "hello" (type string) as int
+    
+    // Types are checked at compile time
+    processData("hello") // Works
+    processData([]int{1, 2, 3}) // Works
+    // processData(42) // Compilation error: cannot use 42 (type int) as string
+}
+
+func processData(data string) {
+    fmt.Println(len(data))
+}
+```
+</UniversalEditor>
+
+## Basic Types
+
+Go provides a rich set of basic types that are more explicit than JavaScript's primitive types.
+
+### Numeric Types
+
+<UniversalEditor title="Numeric Types Comparison" compare={true}>
+```javascript !! js
+// JavaScript: Single number type (64-bit floating point)
+let integer = 42;
+let float = 3.14;
+let bigInt = 9007199254740991n; // BigInt for large integers
+
+console.log(typeof integer); // "number"
+console.log(typeof float);   // "number"
+console.log(typeof bigInt);  // "bigint"
+
+// All numbers are 64-bit floating point (except BigInt)
+console.log(Number.MAX_SAFE_INTEGER); // 9007199254740991
+```
+
+```go !! go
+// Go: Multiple numeric types for different use cases
+package main
+
+import "fmt"
+
+func main() {
+    // Integer types
+    var int8Val int8 = 127        // 8-bit signed integer (-128 to 127)
+    var int16Val int16 = 32767    // 16-bit signed integer
+    var int32Val int32 = 2147483647 // 32-bit signed integer
+    var int64Val int64 = 9223372036854775807 // 64-bit signed integer
+    var intVal int = 42           // Platform-dependent (32 or 64 bits)
+    
+    // Unsigned integer types
+    var uint8Val uint8 = 255      // 8-bit unsigned integer (0 to 255)
+    var uint16Val uint16 = 65535  // 16-bit unsigned integer
+    var uint32Val uint32 = 4294967295 // 32-bit unsigned integer
+    var uint64Val uint64 = 18446744073709551615 // 64-bit unsigned integer
+    var uintVal uint = 42         // Platform-dependent
+    
+    // Floating point types
+    var float32Val float32 = 3.14 // 32-bit floating point
+    var float64Val float64 = 3.14159265359 // 64-bit floating point
+    
+    // Complex types
+    var complex64Val complex64 = 3 + 4i  // 64-bit complex number
+    var complex128Val complex128 = 3 + 4i // 128-bit complex number
+    
+    fmt.Printf("int8: %T, uint8: %T, float32: %T\n", int8Val, uint8Val, float32Val)
+}
+```
+</UniversalEditor>
+
+### String and Boolean Types
+
+<UniversalEditor title="String and Boolean Types Comparison" compare={true}>
+```javascript !! js
+// JavaScript: String and Boolean
+let str = "Hello, World!";
+let bool = true;
+
+console.log(typeof str);  // "string"
+console.log(typeof bool); // "boolean"
+
+// String operations
+console.log(str.length);           // 13
+console.log(str.toUpperCase());    // "HELLO, WORLD!"
+console.log(str.includes("World")); // true
+
+// Boolean operations
+console.log(!bool);                // false
+console.log(bool && true);         // true
+console.log(bool || false);        // true
+```
+
+```go !! go
+// Go: String and Boolean
+package main
+
+import (
+    "fmt"
+    "strings"
+)
+
+func main() {
+    var str string = "Hello, World!"
+    var boolVal bool = true
+    
+    fmt.Printf("str type: %T, bool type: %T\n", str, boolVal)
+    
+    // String operations
+    fmt.Println(len(str))                    // 13
+    fmt.Println(strings.ToUpper(str))        // "HELLO, WORLD!"
+    fmt.Println(strings.Contains(str, "World")) // true
+    
+    // Boolean operations
+    fmt.Println(!boolVal)                    // false
+    fmt.Println(boolVal && true)             // true
+    fmt.Println(boolVal || false)            // true
+    
+    // String is immutable in Go
+    // str[0] = 'h' // Compilation error: cannot assign to str[0]
+}
+```
+</UniversalEditor>
+
+## Composite Types
+
+Go provides several composite types that allow you to group values together.
+
+### Arrays and Slices
+
+<UniversalEditor title="Arrays and Slices Comparison" compare={true}>
+```javascript !! js
+// JavaScript: Arrays (dynamic)
+let arr = [1, 2, 3, 4, 5];
+console.log(arr.length); // 5
+
+// Dynamic resizing
+arr.push(6);             // [1, 2, 3, 4, 5, 6]
+arr.pop();               // [1, 2, 3, 4, 5]
+arr.splice(1, 2);        // [1, 4, 5]
+
+// Array methods
+let doubled = arr.map(x => x * 2);     // [2, 8, 10]
+let sum = arr.reduce((a, b) => a + b); // 10
+
+// Slicing
+let slice = arr.slice(1, 3);           // [4, 5]
+```
+
+```go !! go
+// Go: Arrays (fixed size) and Slices (dynamic)
+package main
+
+import "fmt"
+
+func main() {
+    // Arrays: fixed size
+    var arr [5]int = [5]int{1, 2, 3, 4, 5}
+    fmt.Println(len(arr)) // 5
+    
+    // Cannot resize arrays
+    // arr = append(arr, 6) // Compilation error: cannot use append with array
+    
+    // Slices: dynamic size
+    var slice []int = []int{1, 2, 3, 4, 5}
+    fmt.Println(len(slice)) // 5
+    
+    // Dynamic resizing
+    slice = append(slice, 6) // [1, 2, 3, 4, 5, 6]
+    slice = slice[:len(slice)-1] // Remove last element: [1, 2, 3, 4, 5]
+    
+    // Slicing
+    subSlice := slice[1:3] // [2, 3]
+    
+    // Array to slice conversion
+    sliceFromArray := arr[:] // Convert array to slice
+    
+    fmt.Printf("Array: %v, Slice: %v\n", arr, slice)
+}
+```
+</UniversalEditor>
+
+### Maps
+
+<UniversalEditor title="Maps Comparison" compare={true}>
+```javascript !! js
+// JavaScript: Objects and Maps
+let obj = { name: "John", age: 30 };
+let map = new Map();
+map.set("name", "John");
+map.set("age", 30);
+
+console.log(obj.name);           // "John"
+console.log(map.get("name"));    // "John"
+
+// Object operations
+obj.city = "New York";           // Add property
+delete obj.age;                  // Remove property
+console.log("name" in obj);      // true
+
+// Map operations
+map.set("city", "New York");     // Add key-value
+map.delete("age");               // Remove key
+console.log(map.has("name"));    // true
+```
+
+```go !! go
+// Go: Maps
+package main
+
+import "fmt"
+
+func main() {
+    // Map declaration and initialization
+    var m map[string]int = make(map[string]int)
+    m["name"] = 1
+    m["age"] = 30
+    
+    // Or using literal syntax
+    person := map[string]interface{}{
+        "name": "John",
+        "age":  30,
+        "city": "New York",
+    }
+    
+    // Access values
+    fmt.Println(person["name"]) // "John"
+    
+    // Check if key exists
+    if age, exists := person["age"]; exists {
+        fmt.Printf("Age: %v\n", age)
+    }
+    
+    // Add/update values
+    person["country"] = "USA"
+    
+    // Delete values
+    delete(person, "age")
+    
+    // Iterate over map
+    for key, value := range person {
+        fmt.Printf("%s: %v\n", key, value)
+    }
+}
+```
+</UniversalEditor>
+
+### Structs
+
+<UniversalEditor title="Structs Comparison" compare={true}>
+```javascript !! js
+// JavaScript: Objects and Classes
+let person = {
+    name: "John",
+    age: 30,
+    city: "New York"
+};
+
+// ES6 Classes
+class Person {
+    constructor(name, age, city) {
+        this.name = name;
+        this.age = age;
+        this.city = city;
+    }
+    
+    greet() {
+        return `Hello, I'm ${this.name}`;
+    }
+}
+
+let john = new Person("John", 30, "New York");
+console.log(john.greet()); // "Hello, I'm John"
+
+// Object destructuring
+let { name, age } = person;
+console.log(name, age); // "John" 30
+```
+
+```go !! go
+// Go: Structs
+package main
+
+import "fmt"
+
+// Struct definition
+type Person struct {
+    Name string
+    Age  int
+    City string
+}
+
+// Method on struct
+func (p Person) Greet() string {
+    return fmt.Sprintf("Hello, I'm %s", p.Name)
+}
+
+// Method with pointer receiver (can modify struct)
+func (p *Person) SetAge(age int) {
+    p.Age = age
+}
+
+func main() {
+    // Create struct instance
+    person := Person{
+        Name: "John",
+        Age:  30,
+        City: "New York",
+    }
+    
+    // Access fields
+    fmt.Println(person.Name) // "John"
+    
+    // Call methods
+    fmt.Println(person.Greet()) // "Hello, I'm John"
+    
+    // Modify struct
+    person.SetAge(31)
+    fmt.Println(person.Age) // 31
+    
+    // Struct embedding (composition)
+    type Employee struct {
+        Person
+        Salary float64
+    }
+    
+    emp := Employee{
+        Person: Person{Name: "Jane", Age: 25, City: "Boston"},
+        Salary: 50000,
+    }
+    
+    // Access embedded struct's methods
+    fmt.Println(emp.Greet()) // "Hello, I'm Jane"
+}
+```
+</UniversalEditor>
+
+## Interfaces
+
+Interfaces are one of Go's most powerful features, providing a way to define behavior without implementation details.
+
+### Interface Basics
+
+<UniversalEditor title="Interface Basics Comparison" compare={true}>
+```javascript !! js
+// JavaScript: Duck typing (implicit interfaces)
+function processData(data) {
+    if (typeof data.length === 'number' && typeof data[0] !== 'undefined') {
+        return data.length;
+    }
+    return 0;
+}
+
+// Any object with 'length' property works
+console.log(processData([1, 2, 3]));     // 3
+console.log(processData("hello"));       // 5
+console.log(processData({ length: 10 })); // 10
+
+// ES6 Classes with methods
+class Shape {
+    area() {
+        return 0;
+    }
+}
+
+class Circle extends Shape {
+    constructor(radius) {
+        super();
+        this.radius = radius;
+    }
+    
+    area() {
+        return Math.PI * this.radius ** 2;
+    }
+}
+
+let circle = new Circle(5);
+console.log(circle.area()); // 78.54...
+```
+
+```go !! go
+// Go: Explicit interfaces
+package main
+
+import (
+    "fmt"
+    "math"
+)
+
+// Interface definition
+type Measurable interface {
+    Area() float64
+}
+
+// Struct implementing the interface
+type Circle struct {
+    Radius float64
+}
+
+// Method implementation
+func (c Circle) Area() float64 {
+    return math.Pi * c.Radius * c.Radius
+}
+
+type Rectangle struct {
+    Width  float64
+    Height float64
+}
+
+func (r Rectangle) Area() float64 {
+    return r.Width * r.Height
+}
+
+// Function that works with any type implementing Measurable
+func processShape(m Measurable) {
+    fmt.Printf("Area: %.2f\n", m.Area())
+}
+
+func main() {
+    circle := Circle{Radius: 5}
+    rectangle := Rectangle{Width: 4, Height: 6}
+    
+    // Both types implement Measurable interface
+    processShape(circle)    // Area: 78.54
+    processShape(rectangle) // Area: 24.00
+    
+    // Interface satisfaction is implicit
+    var m Measurable = circle
+    fmt.Printf("Type: %T, Area: %.2f\n", m, m.Area())
+}
+```
+</UniversalEditor>
+
+### Interface Composition
+
+<UniversalEditor title="Interface Composition Comparison" compare={true}>
+```javascript !! js
+// JavaScript: Object composition and mixins
+const Movable = {
+    move() {
+        return "Moving...";
+    }
+};
+
+const Drawable = {
+    draw() {
+        return "Drawing...";
+    }
+};
+
+// Mixin pattern
+class GameObject {
+    constructor() {
+        Object.assign(this, Movable, Drawable);
+    }
+}
+
+let gameObj = new GameObject();
+console.log(gameObj.move());  // "Moving..."
+console.log(gameObj.draw());  // "Drawing..."
+
+// Or using composition
+class Sprite {
+    constructor() {
+        this.movable = Movable;
+        this.drawable = Drawable;
+    }
+    
+    move() {
+        return this.movable.move();
+    }
+    
+    draw() {
+        return this.drawable.draw();
+    }
+}
+```
+
+```go !! go
+// Go: Interface composition
+package main
+
+import "fmt"
+
+// Base interfaces
+type Movable interface {
+    Move() string
+}
+
+type Drawable interface {
+    Draw() string
+}
+
+// Composed interface
+type GameObject interface {
+    Movable
+    Drawable
+}
+
+// Implementation
+type Sprite struct {
+    X, Y int
+}
+
+func (s *Sprite) Move() string {
+    s.X += 1
+    s.Y += 1
+    return fmt.Sprintf("Moving to (%d, %d)", s.X, s.Y)
+}
+
+func (s Sprite) Draw() string {
+    return fmt.Sprintf("Drawing at (%d, %d)", s.X, s.Y)
+}
+
+// Function that works with any GameObject
+func updateGameObject(obj GameObject) {
+    fmt.Println(obj.Move())
+    fmt.Println(obj.Draw())
+}
+
+func main() {
+    sprite := &Sprite{X: 0, Y: 0}
+    updateGameObject(sprite)
+    
+    // Interface composition allows for flexible design
+    var movable Movable = sprite
+    var drawable Drawable = sprite
+    var gameObj GameObject = sprite
+    
+    fmt.Println(movable.Move())  // Can only call Move()
+    fmt.Println(drawable.Draw()) // Can only call Draw()
+    fmt.Println(gameObj.Move())  // Can call both Move() and Draw()
+    fmt.Println(gameObj.Draw())
+}
+```
+</UniversalEditor>
+
+### Empty Interface
+
+<UniversalEditor title="Empty Interface Comparison" compare={true}>
+```javascript !! js
+// JavaScript: Dynamic typing allows any value
+function processAnyValue(value) {
+    if (typeof value === 'string') {
+        return value.toUpperCase();
+    } else if (typeof value === 'number') {
+        return value * 2;
+    } else if (Array.isArray(value)) {
+        return value.length;
+    } else if (typeof value === 'object') {
+        return Object.keys(value).length;
+    }
+    return "Unknown type";
+}
+
+console.log(processAnyValue("hello"));     // "HELLO"
+console.log(processAnyValue(42));          // 84
+console.log(processAnyValue([1, 2, 3]));   // 3
+console.log(processAnyValue({a: 1, b: 2})); // 2
+```
+
+```go !! go
+// Go: Empty interface (interface{}) accepts any type
+package main
+
+import (
+    "fmt"
+    "reflect"
+)
+
+// Empty interface can hold any value
+func processAnyValue(value interface{}) {
+    switch v := value.(type) {
+    case string:
+        fmt.Printf("String: %s\n", v)
+    case int:
+        fmt.Printf("Integer: %d\n", v)
+    case []int:
+        fmt.Printf("Slice: %v (length: %d)\n", v, len(v))
+    case map[string]int:
+        fmt.Printf("Map: %v (keys: %d)\n", v, len(v))
+    default:
+        fmt.Printf("Unknown type: %T\n", v)
+    }
+}
+
+func main() {
+    processAnyValue("hello")           // String: hello
+    processAnyValue(42)                // Integer: 42
+    processAnyValue([]int{1, 2, 3})    // Slice: [1 2 3] (length: 3)
+    processAnyValue(map[string]int{"a": 1, "b": 2}) // Map: map[a:1 b:2] (keys: 2)
+    
+    // Using reflect package for more dynamic behavior
+    var value interface{} = "hello"
+    fmt.Printf("Type: %v, Value: %v\n", reflect.TypeOf(value), reflect.ValueOf(value))
+}
+```
+</UniversalEditor>
+
+## Type Assertions and Type Switches
+
+Go provides mechanisms to work with interface types dynamically.
+
+### Type Assertions
+
+<UniversalEditor title="Type Assertions Comparison" compare={true}>
+```javascript !! js
+// JavaScript: Type checking and casting
+function processValue(value) {
+    if (typeof value === 'string') {
+        return value.toUpperCase();
+    } else if (Array.isArray(value)) {
+        return value.join(', ');
+    } else if (typeof value === 'object' && value !== null) {
+        return JSON.stringify(value);
+    }
+    return String(value);
+}
+
+console.log(processValue("hello"));     // "HELLO"
+console.log(processValue([1, 2, 3]));   // "1, 2, 3"
+console.log(processValue({a: 1}));      // '{"a":1}'
+console.log(processValue(42));          // "42"
+```
+
+```go !! go
+// Go: Type assertions
+package main
+
+import (
+    "encoding/json"
+    "fmt"
+    "strconv"
+)
+
+func processValue(value interface{}) string {
+    // Type assertion with comma ok idiom
+    if str, ok := value.(string); ok {
+        return str
+    }
+    
+    if arr, ok := value.([]int); ok {
+        return fmt.Sprintf("%v", arr)
+    }
+    
+    if m, ok := value.(map[string]int); ok {
+        if jsonBytes, err := json.Marshal(m); err == nil {
+            return string(jsonBytes)
+        }
+    }
+    
+    if num, ok := value.(int); ok {
+        return strconv.Itoa(num)
+    }
+    
+    return "unknown type"
+}
+
+func main() {
+    fmt.Println(processValue("hello"))                    // "hello"
+    fmt.Println(processValue([]int{1, 2, 3}))            // "[1 2 3]"
+    fmt.Println(processValue(map[string]int{"a": 1}))    // '{"a":1}'
+    fmt.Println(processValue(42))                        // "42"
+    
+    // Type assertion without comma ok (panics if wrong type)
+    var value interface{} = "hello"
+    str := value.(string) // Safe assertion
+    fmt.Println(str)      // "hello"
+    
+    // This would panic:
+    // num := value.(int) // panic: interface conversion
+}
+```
+</UniversalEditor>
+
+### Type Switches
+
+<UniversalEditor title="Type Switches Comparison" compare={true}>
+```javascript !! js
+// JavaScript: Switch with typeof
+function describeType(value) {
+    switch (typeof value) {
+        case 'string':
+            return `String: "${value}"`;
+        case 'number':
+            return `Number: ${value}`;
+        case 'boolean':
+            return `Boolean: ${value}`;
+        case 'object':
+            if (Array.isArray(value)) {
+                return `Array with ${value.length} elements`;
+            } else if (value === null) {
+                return 'Null';
+            } else {
+                return 'Object';
+            }
+        default:
+            return 'Unknown type';
+    }
+}
+
+console.log(describeType("hello"));     // "String: \"hello\""
+console.log(describeType(42));          // "Number: 42"
+console.log(describeType(true));        // "Boolean: true"
+console.log(describeType([1, 2, 3]));   // "Array with 3 elements"
+console.log(describeType({a: 1}));      // "Object"
+```
+
+```go !! go
+// Go: Type switches
+package main
+
+import "fmt"
+
+func describeType(value interface{}) string {
+    switch v := value.(type) {
+    case string:
+        return fmt.Sprintf("String: %q", v)
+    case int:
+        return fmt.Sprintf("Integer: %d", v)
+    case bool:
+        return fmt.Sprintf("Boolean: %t", v)
+    case []int:
+        return fmt.Sprintf("Slice with %d elements", len(v))
+    case map[string]int:
+        return fmt.Sprintf("Map with %d keys", len(v))
+    case nil:
+        return "Nil"
+    default:
+        return fmt.Sprintf("Unknown type: %T", v)
+    }
+}
+
+func main() {
+    fmt.Println(describeType("hello"))                    // String: "hello"
+    fmt.Println(describeType(42))                        // Integer: 42
+    fmt.Println(describeType(true))                      // Boolean: true
+    fmt.Println(describeType([]int{1, 2, 3}))            // Slice with 3 elements
+    fmt.Println(describeType(map[string]int{"a": 1}))    // Map with 1 keys
+    fmt.Println(describeType(nil))                       // Nil
+    
+    // Type switches can also be used for control flow
+    var values []interface{} = []interface{}{"hello", 42, true, []int{1, 2}}
+    
+    for _, value := range values {
+        switch v := value.(type) {
+        case string:
+            fmt.Printf("Processing string: %s\n", v)
+        case int:
+            fmt.Printf("Processing integer: %d\n", v)
+        case bool:
+            fmt.Printf("Processing boolean: %t\n", v)
+        case []int:
+            fmt.Printf("Processing slice: %v\n", v)
+        }
+    }
+}
+```
+</UniversalEditor>
+
+## Type Embedding and Composition
+
+Go uses composition over inheritance, achieved through struct embedding.
+
+<UniversalEditor title="Type Embedding Comparison" compare={true}>
+```javascript !! js
+// JavaScript: Class inheritance and composition
+class Animal {
+    constructor(name) {
+        this.name = name;
+    }
+    
+    speak() {
+        return `${this.name} makes a sound`;
+    }
+}
+
+class Dog extends Animal {
+    constructor(name) {
+        super(name);
+    }
+    
+    speak() {
+        return `${this.name} barks`;
+    }
+    
+    fetch() {
+        return `${this.name} fetches the ball`;
+    }
+}
+
+// Composition
+class Walker {
+    walk() {
+        return "Walking...";
+    }
+}
+
+class Swimmer {
+    swim() {
+        return "Swimming...";
+    }
+}
+
+class Duck {
+    constructor(name) {
+        this.name = name;
+        this.walker = new Walker();
+        this.swimmer = new Swimmer();
+    }
+    
+    walk() {
+        return this.walker.walk();
+    }
+    
+    swim() {
+        return this.swimmer.swim();
+    }
+}
+
+let dog = new Dog("Rex");
+let duck = new Duck("Donald");
+console.log(dog.speak()); // "Rex barks"
+console.log(duck.walk()); // "Walking..."
+```
+
+```go !! go
+// Go: Struct embedding (composition)
+package main
+
+import "fmt"
+
+// Base struct
+type Animal struct {
+    Name string
+}
+
+func (a Animal) Speak() string {
+    return fmt.Sprintf("%s makes a sound", a.Name)
+}
+
+// Embedding Animal in Dog
+type Dog struct {
+    Animal // Embedded struct
+}
+
+func (d Dog) Speak() string {
+    return fmt.Sprintf("%s barks", d.Name)
+}
+
+func (d Dog) Fetch() string {
+    return fmt.Sprintf("%s fetches the ball", d.Name)
+}
+
+// Composition with multiple embedded types
+type Walker struct{}
+
+func (w Walker) Walk() string {
+    return "Walking..."
+}
+
+type Swimmer struct{}
+
+func (s Swimmer) Swim() string {
+    return "Swimming..."
+}
+
+type Duck struct {
+    Animal
+    Walker
+    Swimmer
+}
+
+func main() {
+    dog := Dog{Animal{Name: "Rex"}}
+    duck := Duck{
+        Animal: Animal{Name: "Donald"},
+        Walker: Walker{},
+        Swimmer: Swimmer{},
+    }
+    
+    fmt.Println(dog.Speak()) // "Rex barks"
+    fmt.Println(dog.Fetch()) // "Rex fetches the ball"
+    fmt.Println(duck.Walk()) // "Walking..."
+    fmt.Println(duck.Swim()) // "Swimming..."
+    
+    // Interface satisfaction through embedding
+    type Speaker interface {
+        Speak() string
+    }
+    
+    var speakers []Speaker = []Speaker{dog, duck}
+    for _, speaker := range speakers {
+        fmt.Println(speaker.Speak())
+    }
+}
+```
+</UniversalEditor>
+
+---
+
+### Practice Questions:
+1. Explain the difference between Go's static typing and JavaScript's dynamic typing. What are the advantages and disadvantages of each approach?
+2. How do Go interfaces differ from JavaScript's duck typing? Provide examples of when each approach is beneficial.
+3. Describe Go's struct embedding and how it compares to JavaScript's class inheritance. When would you use each approach?
+4. Create a Go program that demonstrates interface composition, type assertions, and type switches with practical examples.
+
+### Project Idea:
+* Build a simple shape calculator in Go that uses interfaces to handle different geometric shapes (Circle, Rectangle, Triangle). Implement area and perimeter calculations, and use type switches to handle different shape types. Compare this with a JavaScript implementation using classes and inheritance.
+
+### Next Steps:
+* Learn about Go's concurrency features with goroutines and channels
+* Explore Go's error handling patterns and best practices
+* Understand Go's package management and module system

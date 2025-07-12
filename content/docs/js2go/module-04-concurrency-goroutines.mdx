@@ -1,12 +1,851 @@
 ---
-title: "concurrency goroutines"
-description: "Coming soon"
+title: Concurrency and Goroutines
 ---
 
-# concurrency goroutines
+Go's concurrency model is one of its most distinctive features, built around the concept of goroutines and channels. Unlike JavaScript's single-threaded event loop or C++'s complex threading model, Go provides a simple yet powerful approach to concurrent programming with the motto "Don't communicate by sharing memory; share memory by communicating."
 
-This module is currently under development.
+## Concurrency vs. Parallelism
 
-## Coming Soon
+**Concurrency** is the ability to handle multiple tasks by interleaving their execution, while **parallelism** is the ability to execute multiple tasks simultaneously on different CPU cores.
 
-Content will be added soon.
+- **JavaScript**: Primarily concurrent through the event loop, with limited parallelism through Web Workers
+- **Go**: Both concurrent (goroutines) and parallel (can utilize multiple CPU cores)
+
+## Goroutines: Lightweight Threads
+
+Goroutines are Go's way of handling concurrent operations. They are lightweight threads managed by the Go runtime, not the operating system.
+
+<UniversalEditor title="Goroutine vs JavaScript Async Comparison" compare={true}>
+```javascript !! js
+// JavaScript: Asynchronous operations with callbacks/promises
+function simulateTask(name, duration) {
+  console.log(`${name} started`);
+  return new Promise(resolve => {
+    setTimeout(() => {
+      console.log(`${name} finished`);
+      resolve();
+    }, duration);
+  });
+}
+
+async function main() {
+  console.log("Main started");
+  
+  // Start tasks concurrently
+  const task1 = simulateTask("Task A", 2000);
+  const task2 = simulateTask("Task B", 1000);
+  
+  // Wait for both to complete
+  await Promise.all([task1, task2]);
+  
+  console.log("Main finished");
+}
+
+main();
+```
+
+```go !! go
+// Go: Goroutines
+package main
+
+import (
+	"fmt"
+	"time"
+)
+
+func simulateTask(name string, duration time.Duration) {
+	fmt.Printf("%s started\n", name)
+	time.Sleep(duration)
+	fmt.Printf("%s finished\n", name)
+}
+
+func main() {
+	fmt.Println("Main started")
+	
+	// Start goroutines (concurrent execution)
+	go simulateTask("Task A", 2*time.Second)
+	go simulateTask("Task B", 1*time.Second)
+	
+	// Wait for goroutines to complete
+	time.Sleep(3 * time.Second)
+	
+	fmt.Println("Main finished")
+}
+```
+</UniversalEditor>
+
+## Goroutine Lifecycle
+
+### Creating Goroutines
+
+Goroutines are created using the `go` keyword followed by a function call:
+
+<UniversalEditor title="Goroutine Creation Examples" compare={true}>
+```javascript !! js
+// JavaScript: Different ways to create async operations
+function task1() {
+  console.log("Task 1 executing");
+}
+
+function task2(param) {
+  console.log("Task 2 with param:", param);
+}
+
+// Method 1: Promise
+const promise1 = new Promise(resolve => {
+  task1();
+  resolve();
+});
+
+// Method 2: setTimeout
+setTimeout(() => task2("hello"), 0);
+
+// Method 3: async/await
+async function asyncTask() {
+  await new Promise(resolve => setTimeout(resolve, 100));
+  task1();
+}
+```
+
+```go !! go
+// Go: Different ways to create goroutines
+package main
+
+import (
+	"fmt"
+	"time"
+)
+
+func task1() {
+	fmt.Println("Task 1 executing")
+}
+
+func task2(param string) {
+	fmt.Println("Task 2 with param:", param)
+}
+
+func main() {
+	// Method 1: Anonymous function
+	go func() {
+		task1()
+	}()
+	
+	// Method 2: Named function
+	go task2("hello")
+	
+	// Method 3: Function with parameters
+	go func(name string) {
+		fmt.Println("Hello from", name)
+	}("goroutine")
+	
+	// Wait for goroutines to complete
+	time.Sleep(100 * time.Millisecond)
+}
+```
+</UniversalEditor>
+
+### Goroutine Synchronization
+
+Unlike JavaScript's Promise-based synchronization, Go uses channels and sync primitives:
+
+<UniversalEditor title="Synchronization Comparison" compare={true}>
+```javascript !! js
+// JavaScript: Promise-based synchronization
+function worker(id) {
+  return new Promise(resolve => {
+    setTimeout(() => {
+      console.log(`Worker ${id} completed`);
+      resolve(id);
+    }, Math.random() * 1000);
+  });
+}
+
+async function main() {
+  console.log("Starting workers...");
+  
+  // Start multiple workers
+  const promises = [];
+  for (let i = 0; i < 3; i++) {
+    promises.push(worker(i));
+  }
+  
+  // Wait for all to complete
+  const results = await Promise.all(promises);
+  console.log("All workers completed:", results);
+}
+
+main();
+```
+
+```go !! go
+// Go: Channel-based synchronization
+package main
+
+import (
+	"fmt"
+	"math/rand"
+	"time"
+)
+
+func worker(id int, done chan<- int) {
+	time.Sleep(time.Duration(rand.Intn(1000)) * time.Millisecond)
+	fmt.Printf("Worker %d completed\n", id)
+	done <- id // Send result to channel
+}
+
+func main() {
+	fmt.Println("Starting workers...")
+	
+	// Create channel for synchronization
+	done := make(chan int, 3)
+	
+	// Start multiple workers
+	for i := 0; i < 3; i++ {
+		go worker(i, done)
+	}
+	
+	// Wait for all to complete
+	var results []int
+	for i := 0; i < 3; i++ {
+		result := <-done // Receive from channel
+		results = append(results, result)
+	}
+	
+	fmt.Println("All workers completed:", results)
+}
+```
+</UniversalEditor>
+
+## Channels: Communication Between Goroutines
+
+Channels are Go's primary mechanism for communication between goroutines. They provide a safe way to share data without explicit locking.
+
+### Basic Channel Operations
+
+<UniversalEditor title="Channel Basics" compare={true}>
+```javascript !! js
+// JavaScript: Simulating channel-like communication with events
+class EventChannel {
+  constructor() {
+    this.listeners = [];
+  }
+  
+  send(data) {
+    this.listeners.forEach(callback => callback(data));
+  }
+  
+  receive(callback) {
+    this.listeners.push(callback);
+  }
+}
+
+// Usage
+const channel = new EventChannel();
+
+// Receiver
+channel.receive(data => {
+  console.log("Received:", data);
+});
+
+// Sender
+setTimeout(() => {
+  channel.send("Hello from sender");
+}, 1000);
+```
+
+```go !! go
+// Go: Channel communication
+package main
+
+import (
+	"fmt"
+	"time"
+)
+
+func main() {
+	// Create a channel
+	ch := make(chan string)
+	
+	// Goroutine that sends data
+	go func() {
+		time.Sleep(1 * time.Second)
+		ch <- "Hello from sender" // Send data to channel
+	}()
+	
+	// Main goroutine receives data
+	message := <-ch // Receive data from channel
+	fmt.Println("Received:", message)
+}
+```
+</UniversalEditor>
+
+### Buffered vs Unbuffered Channels
+
+<UniversalEditor title="Buffered vs Unbuffered Channels" compare={true}>
+```javascript !! js
+// JavaScript: No direct equivalent, but can simulate with queues
+class BufferedChannel {
+  constructor(bufferSize) {
+    this.buffer = [];
+    this.maxSize = bufferSize;
+    this.waitingReceivers = [];
+  }
+  
+  send(data) {
+    if (this.buffer.length < this.maxSize) {
+      this.buffer.push(data);
+      if (this.waitingReceivers.length > 0) {
+        const receiver = this.waitingReceivers.shift();
+        receiver(this.buffer.shift());
+      }
+    } else {
+      // Buffer full - would block in Go
+      console.log("Buffer full, would block");
+    }
+  }
+  
+  receive() {
+    return new Promise(resolve => {
+      if (this.buffer.length > 0) {
+        resolve(this.buffer.shift());
+      } else {
+        this.waitingReceivers.push(resolve);
+      }
+    });
+  }
+}
+```
+
+```go !! go
+// Go: Buffered vs Unbuffered channels
+package main
+
+import (
+	"fmt"
+	"time"
+)
+
+func main() {
+	// Unbuffered channel (synchronous)
+	unbuffered := make(chan string)
+	
+	// Buffered channel (asynchronous up to buffer size)
+	buffered := make(chan string, 2)
+	
+	// Unbuffered channel example
+	go func() {
+		fmt.Println("Sending to unbuffered channel...")
+		unbuffered <- "Hello" // This will block until someone receives
+		fmt.Println("Sent to unbuffered channel")
+	}()
+	
+	time.Sleep(100 * time.Millisecond)
+	message := <-unbuffered
+	fmt.Println("Received from unbuffered:", message)
+	
+	// Buffered channel example
+	fmt.Println("Sending to buffered channel...")
+	buffered <- "First message"  // Won't block
+	buffered <- "Second message" // Won't block
+	fmt.Println("Sent to buffered channel")
+	
+	// Receive from buffered channel
+	fmt.Println("Received:", <-buffered)
+	fmt.Println("Received:", <-buffered)
+}
+```
+</UniversalEditor>
+
+## Select Statement
+
+The `select` statement allows goroutines to wait on multiple channel operations:
+
+<UniversalEditor title="Select Statement" compare={true}>
+```javascript !! js
+// JavaScript: Simulating select with Promise.race
+function createChannel(name, delay) {
+  return new Promise(resolve => {
+    setTimeout(() => {
+      resolve(`Data from ${name}`);
+    }, delay);
+  });
+}
+
+async function main() {
+  console.log("Waiting for first available channel...");
+  
+  // Simulate select with Promise.race
+  const result = await Promise.race([
+    createChannel("A", 2000),
+    createChannel("B", 1000),
+    createChannel("C", 1500)
+  ]);
+  
+  console.log("First result:", result);
+}
+```
+
+```go !! go
+// Go: Select statement
+package main
+
+import (
+	"fmt"
+	"time"
+)
+
+func createChannel(name string, delay time.Duration) chan string {
+	ch := make(chan string)
+	go func() {
+		time.Sleep(delay)
+		ch <- fmt.Sprintf("Data from %s", name)
+	}()
+	return ch
+}
+
+func main() {
+	fmt.Println("Waiting for first available channel...")
+	
+	// Create multiple channels
+	chA := createChannel("A", 2*time.Second)
+	chB := createChannel("B", 1*time.Second)
+	chC := createChannel("C", 1500*time.Millisecond)
+	
+	// Select waits for first available channel
+	select {
+	case msg := <-chA:
+		fmt.Println("Received from A:", msg)
+	case msg := <-chB:
+		fmt.Println("Received from B:", msg)
+	case msg := <-chC:
+		fmt.Println("Received from C:", msg)
+	}
+}
+```
+</UniversalEditor>
+
+## Common Concurrency Patterns
+
+### Worker Pool Pattern
+
+<UniversalEditor title="Worker Pool Pattern" compare={true}>
+```javascript !! js
+// JavaScript: Worker pool with Promise.all
+class WorkerPool {
+  constructor(size) {
+    this.size = size;
+    this.workers = [];
+  }
+  
+  async processTasks(tasks) {
+    const results = [];
+    
+    // Process tasks in batches
+    for (let i = 0; i < tasks.length; i += this.size) {
+      const batch = tasks.slice(i, i + this.size);
+      const batchPromises = batch.map(task => this.worker(task));
+      const batchResults = await Promise.all(batchPromises);
+      results.push(...batchResults);
+    }
+    
+    return results;
+  }
+  
+  async worker(task) {
+    // Simulate work
+    await new Promise(resolve => setTimeout(resolve, Math.random() * 1000));
+    return `Processed: ${task}`;
+  }
+}
+
+// Usage
+const pool = new WorkerPool(3);
+const tasks = Array.from({length: 10}, (_, i) => `Task ${i}`);
+pool.processTasks(tasks).then(results => {
+  console.log("All tasks completed:", results);
+});
+```
+
+```go !! go
+// Go: Worker pool with goroutines and channels
+package main
+
+import (
+	"fmt"
+	"math/rand"
+	"sync"
+	"time"
+)
+
+type WorkerPool struct {
+	workerCount int
+	tasks       chan string
+	results     chan string
+	wg          sync.WaitGroup
+}
+
+func NewWorkerPool(workerCount int) *WorkerPool {
+	return &WorkerPool{
+		workerCount: workerCount,
+		tasks:       make(chan string, workerCount),
+		results:     make(chan string, workerCount),
+	}
+}
+
+func (wp *WorkerPool) Start() {
+	for i := 0; i < wp.workerCount; i++ {
+		wp.wg.Add(1)
+		go wp.worker(i)
+	}
+}
+
+func (wp *WorkerPool) worker(id int) {
+	defer wp.wg.Done()
+	
+	for task := range wp.tasks {
+		// Simulate work
+		time.Sleep(time.Duration(rand.Intn(1000)) * time.Millisecond)
+		wp.results <- fmt.Sprintf("Worker %d processed: %s", id, task)
+	}
+}
+
+func (wp *WorkerPool) Submit(tasks []string) {
+	// Submit all tasks
+	for _, task := range tasks {
+		wp.tasks <- task
+	}
+	close(wp.tasks)
+}
+
+func (wp *WorkerPool) CollectResults() []string {
+	var results []string
+	
+	// Collect results in a separate goroutine
+	go func() {
+		for result := range wp.results {
+			results = append(results, result)
+		}
+	}()
+	
+	// Wait for all workers to finish
+	wp.wg.Wait()
+	close(wp.results)
+	
+	return results
+}
+
+func main() {
+	pool := NewWorkerPool(3)
+	pool.Start()
+	
+	tasks := []string{"Task 0", "Task 1", "Task 2", "Task 3", "Task 4"}
+	pool.Submit(tasks)
+	
+	results := pool.CollectResults()
+	fmt.Println("All tasks completed:", results)
+}
+```
+</UniversalEditor>
+
+### Pipeline Pattern
+
+<UniversalEditor title="Pipeline Pattern" compare={true}>
+```javascript !! js
+// JavaScript: Pipeline with async functions
+async function stage1(data) {
+  await new Promise(resolve => setTimeout(resolve, 100));
+  return data.map(x => x * 2);
+}
+
+async function stage2(data) {
+  await new Promise(resolve => setTimeout(resolve, 100));
+  return data.map(x => x + 1);
+}
+
+async function stage3(data) {
+  await new Promise(resolve => setTimeout(resolve, 100));
+  return data.filter(x => x > 5);
+}
+
+async function pipeline(input) {
+  const result1 = await stage1(input);
+  const result2 = await stage2(result1);
+  const result3 = await stage3(result2);
+  return result3;
+}
+
+// Usage
+pipeline([1, 2, 3, 4, 5]).then(result => {
+  console.log("Pipeline result:", result);
+});
+```
+
+```go !! go
+// Go: Pipeline with channels
+package main
+
+import (
+	"fmt"
+	"time"
+)
+
+func stage1(input <-chan int) <-chan int {
+	output := make(chan int)
+	go func() {
+		defer close(output)
+		for value := range input {
+			time.Sleep(100 * time.Millisecond)
+			output <- value * 2
+		}
+	}()
+	return output
+}
+
+func stage2(input <-chan int) <-chan int {
+	output := make(chan int)
+	go func() {
+		defer close(output)
+		for value := range input {
+			time.Sleep(100 * time.Millisecond)
+			output <- value + 1
+		}
+	}()
+	return output
+}
+
+func stage3(input <-chan int) <-chan int {
+	output := make(chan int)
+	go func() {
+		defer close(output)
+		for value := range input {
+			time.Sleep(100 * time.Millisecond)
+			if value > 5 {
+				output <- value
+			}
+		}
+	}()
+	return output
+}
+
+func main() {
+	// Create input channel
+	input := make(chan int)
+	
+	// Build pipeline
+	output := stage3(stage2(stage1(input)))
+	
+	// Send input data
+	go func() {
+		defer close(input)
+		for i := 1; i <= 5; i++ {
+			input <- i
+		}
+	}()
+	
+	// Collect results
+	var results []int
+	for result := range output {
+		results = append(results, result)
+	}
+	
+	fmt.Println("Pipeline result:", results)
+}
+```
+</UniversalEditor>
+
+## Goroutine Best Practices
+
+### 1. Always Handle Goroutine Lifecycle
+
+<UniversalEditor title="Goroutine Lifecycle Management" compare={true}>
+```javascript !! js
+// JavaScript: Promise lifecycle management
+async function controlledAsync() {
+  const controller = new AbortController();
+  
+  const promise = new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      resolve("Task completed");
+    }, 5000);
+    
+    controller.signal.addEventListener('abort', () => {
+      clearTimeout(timeout);
+      reject(new Error("Task cancelled"));
+    });
+  });
+  
+  // Cancel after 2 seconds
+  setTimeout(() => {
+    controller.abort();
+  }, 2000);
+  
+  try {
+    const result = await promise;
+    console.log(result);
+  } catch (error) {
+    console.log("Error:", error.message);
+  }
+}
+```
+
+```go !! go
+// Go: Goroutine lifecycle management
+package main
+
+import (
+	"context"
+	"fmt"
+	"time"
+)
+
+func controlledGoroutine(ctx context.Context) {
+	select {
+	case <-time.After(5 * time.Second):
+		fmt.Println("Task completed")
+	case <-ctx.Done():
+		fmt.Println("Task cancelled:", ctx.Err())
+	}
+}
+
+func main() {
+	// Create context with cancellation
+	ctx, cancel := context.WithCancel(context.Background())
+	
+	// Start goroutine
+	go controlledGoroutine(ctx)
+	
+	// Cancel after 2 seconds
+	time.Sleep(2 * time.Second)
+	cancel()
+	
+	// Wait a bit to see the result
+	time.Sleep(1 * time.Second)
+}
+```
+</UniversalEditor>
+
+### 2. Avoid Goroutine Leaks
+
+<UniversalEditor title="Preventing Goroutine Leaks" compare={true}>
+```javascript !! js
+// JavaScript: Proper cleanup of async operations
+class ResourceManager {
+  constructor() {
+    this.active = new Set();
+  }
+  
+  async startTask(id) {
+    const task = this.createTask(id);
+    this.active.add(task);
+    
+    try {
+      await task;
+    } finally {
+      this.active.delete(task);
+    }
+  }
+  
+  async createTask(id) {
+    return new Promise(resolve => {
+      setTimeout(() => {
+        console.log(`Task ${id} completed`);
+        resolve();
+      }, Math.random() * 1000);
+    });
+  }
+  
+  getActiveCount() {
+    return this.active.size;
+  }
+}
+```
+
+```go !! go
+// Go: Preventing goroutine leaks
+package main
+
+import (
+	"fmt"
+	"sync"
+	"time"
+)
+
+type ResourceManager struct {
+	active map[int]bool
+	mutex  sync.RWMutex
+}
+
+func NewResourceManager() *ResourceManager {
+	return &ResourceManager{
+		active: make(map[int]bool),
+	}
+}
+
+func (rm *ResourceManager) StartTask(id int) {
+	rm.mutex.Lock()
+	rm.active[id] = true
+	rm.mutex.Unlock()
+	
+	// Ensure cleanup happens
+	defer func() {
+		rm.mutex.Lock()
+		delete(rm.active, id)
+		rm.mutex.Unlock()
+	}()
+	
+	// Simulate work
+	time.Sleep(time.Duration(id*100) * time.Millisecond)
+	fmt.Printf("Task %d completed\n", id)
+}
+
+func (rm *ResourceManager) GetActiveCount() int {
+	rm.mutex.RLock()
+	defer rm.mutex.RUnlock()
+	return len(rm.active)
+}
+
+func main() {
+	rm := NewResourceManager()
+	
+	// Start multiple tasks
+	for i := 1; i <= 5; i++ {
+		go rm.StartTask(i)
+	}
+	
+	// Wait for tasks to complete
+	time.Sleep(1 * time.Second)
+	
+	fmt.Printf("Active tasks: %d\n", rm.GetActiveCount())
+}
+```
+</UniversalEditor>
+
+## Performance Considerations
+
+### Goroutine vs Thread Comparison
+
+| Aspect | Goroutines | OS Threads |
+|--------|------------|------------|
+| **Memory** | ~2KB stack | ~1MB stack |
+| **Creation** | ~0.3μs | ~17μs |
+| **Context Switch** | ~0.2μs | ~1.7μs |
+| **Concurrency** | Millions | Thousands |
+
+### When to Use Goroutines
+
+- **I/O-bound operations**: Network requests, file operations
+- **CPU-bound operations**: Mathematical computations (with proper coordination)
+- **Event handling**: Processing multiple events concurrently
+- **Background tasks**: Cleanup, monitoring, logging
+
+---
+
+### Practice Questions:
+1. What is the difference between concurrency and parallelism in Go?
+2. How do goroutines differ from OS threads in terms of resource usage?
+3. Explain the difference between buffered and unbuffered channels.
+4. When would you use a `select` statement instead of a simple channel receive?
+5. What are some common patterns for preventing goroutine leaks?
+
+### Project Idea:
+Create a web crawler that uses goroutines to fetch multiple URLs concurrently, with proper error handling and rate limiting. The crawler should use channels to coordinate between workers and collect results.

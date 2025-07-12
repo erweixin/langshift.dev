@@ -1,12 +1,1093 @@
 ---
-title: "channels select"
-description: "Coming soon"
+title: Channel 和 Select 深入
 ---
 
-# channels select
+Channel 和 `select` 语句是 Go 并发模型的核心。虽然前面的模块涵盖了基础知识，但本模块探索了使 Go 并发模型如此强大和富有表现力的高级模式和技巧。
 
-This module is currently under development.
+## Channel 方向性
 
-## Coming Soon
+Go channel 可以是定向的，允许你指定 channel 是用于发送、接收还是两者兼有。这提供了编译时安全性，并使代码意图更清晰。
 
-Content will be added soon.
+<UniversalEditor title="Channel 方向性" compare={true}>
+```javascript !! js
+// JavaScript: 没有直接等价物，但可以用不同接口模拟
+class ReadOnlyChannel {
+  constructor(channel) {
+    this.channel = channel;
+  }
+  
+  receive() {
+    return this.channel.receive();
+  }
+}
+
+class WriteOnlyChannel {
+  constructor(channel) {
+    this.channel = channel;
+  }
+  
+  send(data) {
+    return this.channel.send(data);
+  }
+}
+
+// 使用
+const baseChannel = new EventChannel();
+const readOnly = new ReadOnlyChannel(baseChannel);
+const writeOnly = new WriteOnlyChannel(baseChannel);
+```
+
+```go !! go
+// Go: Channel 方向性
+package main
+
+import (
+	"fmt"
+	"time"
+)
+
+// sendOnly: 只能向 channel 发送
+func sender(ch chan<- string) {
+	ch <- "来自发送者的问候"
+	close(ch) // 可以关闭 channel
+}
+
+// receiveOnly: 只能从 channel 接收
+func receiver(ch <-chan string) {
+	msg := <-ch
+	fmt.Println("收到:", msg)
+	// 不能发送: ch <- "test" // 编译错误
+	// 不能关闭: close(ch) // 编译错误
+}
+
+// bidirectional: 既可以发送也可以接收
+func processor(ch chan string) {
+	msg := <-ch // 可以接收
+	ch <- "已处理: " + msg // 可以发送
+}
+
+func main() {
+	// 双向 channel
+	ch := make(chan string)
+	
+	// 传递给具有特定方向性的函数
+	go sender(ch)
+	receiver(ch)
+	
+	// 创建一个新的 channel 用于处理
+	procCh := make(chan string)
+	go processor(procCh)
+	procCh <- "测试消息"
+	result := <-procCh
+	fmt.Println("结果:", result)
+}
+```
+</UniversalEditor>
+
+## 高级 Select 模式
+
+### 带 Default 的 Select
+
+`select` 中的 `default` 分支允许非阻塞的 channel 操作：
+
+<UniversalEditor title="带 Default 的 Select" compare={true}>
+```javascript !! js
+// JavaScript: 模拟非阻塞操作
+class NonBlockingChannel {
+  constructor() {
+    this.buffer = [];
+    this.listeners = [];
+  }
+  
+  send(data) {
+    if (this.listeners.length > 0) {
+      const listener = this.listeners.shift();
+      listener(data);
+      return true;
+    } else {
+      this.buffer.push(data);
+      return false;
+    }
+  }
+  
+  receive() {
+    if (this.buffer.length > 0) {
+      return this.buffer.shift();
+    } else {
+      return null; // 非阻塞
+    }
+  }
+  
+  receiveAsync(callback) {
+    if (this.buffer.length > 0) {
+      callback(this.buffer.shift());
+    } else {
+      this.listeners.push(callback);
+    }
+  }
+}
+
+// 使用
+const ch = new NonBlockingChannel();
+
+// 非阻塞发送
+const sent = ch.send("hello");
+console.log("发送:", sent);
+
+// 非阻塞接收
+const received = ch.receive();
+console.log("接收:", received);
+```
+
+```go !! go
+// Go: 使用 default 进行非阻塞操作
+package main
+
+import (
+	"fmt"
+	"time"
+)
+
+func nonBlockingSend(ch chan<- string, value string) bool {
+	select {
+	case ch <- value:
+		return true // 成功发送
+	default:
+		return false // Channel 满了或没有接收者
+	}
+}
+
+func nonBlockingReceive(ch <-chan string) (string, bool) {
+	select {
+	case value := <-ch:
+		return value, true // 成功接收
+	default:
+		return "", false // Channel 为空或没有发送者
+	}
+}
+
+func main() {
+	// 缓冲 channel
+	ch := make(chan string, 2)
+	
+	// 非阻塞发送
+	if sent := nonBlockingSend(ch, "first"); sent {
+		fmt.Println("成功发送 first")
+	}
+	
+	if sent := nonBlockingSend(ch, "second"); sent {
+		fmt.Println("成功发送 second")
+	}
+	
+	// 尝试向满的 channel 发送（非阻塞）
+	if sent := nonBlockingSend(ch, "third"); !sent {
+		fmt.Println("发送 third 失败 - channel 满了")
+	}
+	
+	// 非阻塞接收
+	if value, received := nonBlockingReceive(ch); received {
+		fmt.Println("收到:", value)
+	}
+	
+	// 尝试从空的 channel 接收（非阻塞）
+	if value, received := nonBlockingReceive(ch); !received {
+		fmt.Println("没有可用数据")
+	} else {
+		fmt.Println("收到:", value)
+	}
+}
+```
+</UniversalEditor>
+
+### 带超时的 Select
+
+使用 `select` 和 `time.After` 提供超时功能：
+
+<UniversalEditor title="带超时的 Select" compare={true}>
+```javascript !! js
+// JavaScript: 带超时的 Promise
+function withTimeout(promise, timeoutMs) {
+  const timeoutPromise = new Promise((_, reject) => {
+    setTimeout(() => reject(new Error('Timeout')), timeoutMs);
+  });
+  
+  return Promise.race([promise, timeoutPromise]);
+}
+
+// 使用
+async function fetchWithTimeout(url, timeoutMs) {
+  try {
+    const response = await withTimeout(fetch(url), timeoutMs);
+    return await response.text();
+  } catch (error) {
+    if (error.message === 'Timeout') {
+      console.log('请求超时');
+    } else {
+      console.log('请求失败:', error.message);
+    }
+  }
+}
+
+// 模拟异步操作
+const slowOperation = new Promise(resolve => {
+  setTimeout(() => resolve('操作完成'), 3000);
+});
+
+withTimeout(slowOperation, 1000)
+  .then(result => console.log(result))
+  .catch(error => console.log('错误:', error.message));
+```
+
+```go !! go
+// Go: 带超时的 Select
+package main
+
+import (
+	"fmt"
+	"time"
+)
+
+func operationWithTimeout(operation func() string, timeout time.Duration) (string, error) {
+	// 为结果创建一个 channel
+	resultCh := make(chan string, 1)
+	
+	// 在 goroutine 中运行操作
+	go func() {
+		result := operation()
+		resultCh <- result
+	}()
+	
+	// 等待结果或超时
+	select {
+	case result := <-resultCh:
+		return result, nil
+	case <-time.After(timeout):
+		return "", fmt.Errorf("操作在 %v 后超时", timeout)
+	}
+}
+
+func slowOperation() string {
+	time.Sleep(3 * time.Second)
+	return "操作完成"
+}
+
+func main() {
+	// 尝试短超时
+	result, err := operationWithTimeout(slowOperation, 1*time.Second)
+	if err != nil {
+		fmt.Println("错误:", err)
+	} else {
+		fmt.Println("结果:", result)
+	}
+	
+	// 尝试长超时
+	result, err = operationWithTimeout(slowOperation, 5*time.Second)
+	if err != nil {
+		fmt.Println("错误:", err)
+	} else {
+		fmt.Println("结果:", result)
+	}
+}
+```
+</UniversalEditor>
+
+## Channel 模式
+
+### Fan-Out 模式
+
+Fan-out 模式将工作从一个 channel 分发到多个工作线程：
+
+<UniversalEditor title="Fan-Out 模式" compare={true}>
+```javascript !! js
+// JavaScript: 使用 Promise.all 的 Fan-out
+class FanOut {
+  constructor(workerCount) {
+    this.workerCount = workerCount;
+  }
+  
+  async process(tasks) {
+    const workers = [];
+    
+    // 创建工作线程
+    for (let i = 0; i < this.workerCount; i++) {
+      workers.push(this.createWorker(i));
+    }
+    
+    // 在工作线程间分发任务
+    const promises = [];
+    for (let i = 0; i < tasks.length; i++) {
+      const workerIndex = i % this.workerCount;
+      promises.push(workers[workerIndex](tasks[i]));
+    }
+    
+    return Promise.all(promises);
+  }
+  
+  createWorker(id) {
+    return async (task) => {
+      // 模拟工作
+      await new Promise(resolve => setTimeout(resolve, Math.random() * 1000));
+      return `工作线程 ${id} 处理了: ${task}`;
+    };
+  }
+}
+
+// 使用
+const fanOut = new FanOut(3);
+const tasks = Array.from({length: 10}, (_, i) => `任务 ${i}`);
+fanOut.process(tasks).then(results => {
+  console.log("所有任务完成:", results);
+});
+```
+
+```go !! go
+// Go: Fan-out 模式
+package main
+
+import (
+	"fmt"
+	"math/rand"
+	"sync"
+	"time"
+)
+
+func fanOut(input <-chan string, workerCount int) []<-chan string {
+	outputs := make([]chan string, workerCount)
+	
+	// 创建输出 channels
+	for i := 0; i < workerCount; i++ {
+		outputs[i] = make(chan string)
+	}
+	
+	// 启动工作线程
+	var wg sync.WaitGroup
+	for i := 0; i < workerCount; i++ {
+		wg.Add(1)
+		go worker(i, input, outputs[i], &wg)
+	}
+	
+	// 当所有工作线程完成时关闭输出 channels
+	go func() {
+		wg.Wait()
+		for _, output := range outputs {
+			close(output)
+		}
+	}()
+	
+	// 转换为只读 channels
+	result := make([]<-chan string, workerCount)
+	for i, output := range outputs {
+		result[i] = output
+	}
+	
+	return result
+}
+
+func worker(id int, input <-chan string, output chan<- string, wg *sync.WaitGroup) {
+	defer wg.Done()
+	
+	for task := range input {
+		// 模拟工作
+		time.Sleep(time.Duration(rand.Intn(1000)) * time.Millisecond)
+		output <- fmt.Sprintf("工作线程 %d 处理了: %s", id, task)
+	}
+}
+
+func main() {
+	// 创建输入 channel
+	input := make(chan string)
+	
+	// 启动 fan-out
+	outputs := fanOut(input, 3)
+	
+	// 发送任务
+	go func() {
+		defer close(input)
+		for i := 0; i < 10; i++ {
+			input <- fmt.Sprintf("任务 %d", i)
+		}
+	}()
+	
+	// 从所有工作线程收集结果
+	var results []string
+	for _, output := range outputs {
+		for result := range output {
+			results = append(results, result)
+		}
+	}
+	
+	fmt.Println("所有任务完成:", results)
+}
+```
+</UniversalEditor>
+
+### Fan-In 模式
+
+Fan-in 模式将多个 channels 合并为一个：
+
+<UniversalEditor title="Fan-In 模式" compare={true}>
+```javascript !! js
+// JavaScript: 使用 Promise.race 或 Promise.all 的 Fan-in
+class FanIn {
+  constructor() {
+    this.output = [];
+  }
+  
+  async collect(promises) {
+    // 收集所有完成的结果
+    const results = [];
+    
+    // 为每个输入创建一个 promise
+    const inputPromises = promises.map((promise, index) => 
+      promise.then(result => ({ index, result }))
+    );
+    
+    // 收集到达的结果
+    while (inputPromises.length > 0) {
+      const { index, result } = await Promise.race(inputPromises);
+      results.push(result);
+      inputPromises.splice(index, 1);
+    }
+    
+    return results;
+  }
+}
+
+// 使用
+const fanIn = new FanIn();
+const promises = [
+  new Promise(resolve => setTimeout(() => resolve("结果 1"), 1000)),
+  new Promise(resolve => setTimeout(() => resolve("结果 2"), 500)),
+  new Promise(resolve => setTimeout(() => resolve("结果 3"), 1500))
+];
+
+fanIn.collect(promises).then(results => {
+  console.log("所有结果:", results);
+});
+```
+
+```go !! go
+// Go: Fan-in 模式
+package main
+
+import (
+	"fmt"
+	"math/rand"
+	"sync"
+	"time"
+)
+
+func fanIn(channels ...<-chan string) <-chan string {
+	output := make(chan string)
+	var wg sync.WaitGroup
+	
+	// 为每个输入 channel 启动一个 goroutine
+	for _, ch := range channels {
+		wg.Add(1)
+		go func(input <-chan string) {
+			defer wg.Done()
+			for value := range input {
+				output <- value
+			}
+		}(ch)
+	}
+	
+	// 当所有输入 channels 关闭时关闭输出
+	go func() {
+		wg.Wait()
+		close(output)
+	}()
+	
+	return output
+}
+
+func producer(id int) <-chan string {
+	output := make(chan string)
+	
+	go func() {
+		defer close(output)
+		for i := 0; i < 3; i++ {
+			time.Sleep(time.Duration(rand.Intn(1000)) * time.Millisecond)
+			output <- fmt.Sprintf("生产者 %d: 项目 %d", id, i)
+		}
+	}()
+	
+	return output
+}
+
+func main() {
+	// 创建多个生产者
+	producer1 := producer(1)
+	producer2 := producer(2)
+	producer3 := producer(3)
+	
+	// Fan-in 所有生产者
+	combined := fanIn(producer1, producer2, producer3)
+	
+	// 收集所有结果
+	var results []string
+	for result := range combined {
+		results = append(results, result)
+		fmt.Println("收到:", result)
+	}
+	
+	fmt.Println("收集了所有结果:", len(results))
+}
+```
+</UniversalEditor>
+
+## Channel 组合
+
+### 带错误处理的管道
+
+构建具有错误处理的健壮管道：
+
+<UniversalEditor title="带错误处理的管道" compare={true}>
+```javascript !! js
+// JavaScript: 带错误处理的管道
+class Pipeline {
+  constructor() {
+    this.stages = [];
+  }
+  
+  addStage(stage) {
+    this.stages.push(stage);
+    return this;
+  }
+  
+  async process(input) {
+    let current = input;
+    
+    for (const stage of this.stages) {
+      try {
+        current = await stage(current);
+      } catch (error) {
+        console.error('管道阶段失败:', error);
+        throw error;
+      }
+    }
+    
+    return current;
+  }
+}
+
+// 使用
+const pipeline = new Pipeline()
+  .addStage(async (data) => {
+    if (data.some(x => x < 0)) {
+      throw new Error('不允许负数');
+    }
+    return data.map(x => x * 2);
+  })
+  .addStage(async (data) => {
+    return data.filter(x => x > 5);
+  })
+  .addStage(async (data) => {
+    return data.reduce((sum, x) => sum + x, 0);
+  });
+
+// 测试有效数据
+pipeline.process([1, 2, 3, 4, 5])
+  .then(result => console.log('结果:', result))
+  .catch(error => console.log('错误:', error.message));
+
+// 测试无效数据
+pipeline.process([1, -2, 3, 4, 5])
+  .then(result => console.log('结果:', result))
+  .catch(error => console.log('错误:', error.message));
+```
+
+```go !! go
+// Go: 带错误处理的管道
+package main
+
+import (
+	"fmt"
+	"time"
+)
+
+type PipelineStage func(<-chan int) (<-chan int, <-chan error)
+
+func stage1(input <-chan int) (<-chan int, <-chan error) {
+	output := make(chan int)
+	errors := make(chan error)
+	
+	go func() {
+		defer close(output)
+		defer close(errors)
+		
+		for value := range input {
+			if value < 0 {
+				errors <- fmt.Errorf("不允许负数: %d", value)
+				continue
+			}
+			output <- value * 2
+		}
+	}()
+	
+	return output, errors
+}
+
+func stage2(input <-chan int) (<-chan int, <-chan error) {
+	output := make(chan int)
+	errors := make(chan error)
+	
+	go func() {
+		defer close(output)
+		defer close(errors)
+		
+		for value := range input {
+			if value > 5 {
+				output <- value
+			}
+		}
+	}()
+	
+	return output, errors
+}
+
+func stage3(input <-chan int) (<-chan int, <-chan error) {
+	output := make(chan int)
+	errors := make(chan error)
+	
+	go func() {
+		defer close(output)
+		defer close(errors)
+		
+		sum := 0
+		count := 0
+		for value := range input {
+			sum += value
+			count++
+		}
+		
+		if count > 0 {
+			output <- sum
+		}
+	}()
+	
+	return output, errors
+}
+
+func main() {
+	// 创建输入 channel
+	input := make(chan int)
+	
+	// 构建管道
+	stage1Out, stage1Err := stage1(input)
+	stage2Out, stage2Err := stage2(stage1Out)
+	stage3Out, stage3Err := stage3(stage2Out)
+	
+	// 发送测试数据
+	go func() {
+		defer close(input)
+		testData := []int{1, 2, 3, 4, 5}
+		for _, value := range testData {
+			input <- value
+		}
+	}()
+	
+	// 收集结果和错误
+	var results []int
+	var errors []error
+	
+	// 从最终阶段收集
+	for result := range stage3Out {
+		results = append(results, result)
+	}
+	
+	// 从所有阶段收集错误
+	for err := range stage1Err {
+		errors = append(errors, err)
+	}
+	for err := range stage2Err {
+		errors = append(errors, err)
+	}
+	for err := range stage3Err {
+		errors = append(errors, err)
+	}
+	
+	fmt.Println("结果:", results)
+	if len(errors) > 0 {
+		fmt.Println("错误:", errors)
+	}
+}
+```
+</UniversalEditor>
+
+## Context 和取消
+
+使用 context 和 channels 进行取消：
+
+<UniversalEditor title="Context 和取消" compare={true}>
+```javascript !! js
+// JavaScript: 使用 AbortController 进行取消
+class CancellablePipeline {
+  constructor() {
+    this.controller = new AbortController();
+  }
+  
+  async process(data, signal) {
+    const results = [];
+    
+    for (const item of data) {
+      // 检查是否已取消
+      if (signal.aborted) {
+        throw new Error('管道已取消');
+      }
+      
+      // 模拟工作
+      await new Promise(resolve => setTimeout(resolve, 100));
+      results.push(item * 2);
+    }
+    
+    return results;
+  }
+  
+  cancel() {
+    this.controller.abort();
+  }
+}
+
+// 使用
+const pipeline = new CancellablePipeline();
+
+// 开始处理
+const processPromise = pipeline.process([1, 2, 3, 4, 5], pipeline.controller.signal);
+
+// 200ms 后取消
+setTimeout(() => {
+  pipeline.cancel();
+}, 200);
+
+processPromise
+  .then(results => console.log('结果:', results))
+  .catch(error => console.log('错误:', error.message));
+```
+
+```go !! go
+// Go: 使用 context 和 channels 进行取消
+package main
+
+import (
+	"context"
+	"fmt"
+	"time"
+)
+
+func processWithContext(ctx context.Context, input <-chan int) <-chan int {
+	output := make(chan int)
+	
+	go func() {
+		defer close(output)
+		
+		for {
+			select {
+			case value := <-input:
+				// 模拟工作
+				time.Sleep(100 * time.Millisecond)
+				output <- value * 2
+			case <-ctx.Done():
+				fmt.Println("处理已取消:", ctx.Err())
+				return
+			}
+		}
+	}()
+	
+	return output
+}
+
+func main() {
+	// 创建带超时的 context
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	
+	// 创建输入 channel
+	input := make(chan int)
+	
+	// 开始处理
+	output := processWithContext(ctx, input)
+	
+	// 发送数据
+	go func() {
+		defer close(input)
+		for i := 1; i <= 10; i++ {
+			select {
+			case input <- i:
+				fmt.Printf("发送: %d\n", i)
+			case <-ctx.Done():
+				fmt.Println("发送已取消")
+				return
+			}
+		}
+	}()
+	
+	// 收集结果
+	var results []int
+	for {
+		select {
+		case result := <-output:
+			results = append(results, result)
+			fmt.Printf("收到: %d\n", result)
+		case <-ctx.Done():
+			fmt.Println("收集已取消")
+			goto done
+		}
+	}
+	
+done:
+	fmt.Printf("收集了 %d 个结果\n", len(results))
+}
+```
+</UniversalEditor>
+
+## Channel 最佳实践
+
+### 1. 始终由发送者关闭 Channel
+
+<UniversalEditor title="Channel 关闭最佳实践" compare={true}>
+```javascript !! js
+// JavaScript: 资源清理模式
+class ResourceManager {
+  constructor() {
+    this.resources = new Set();
+    this.closed = false;
+  }
+  
+  addResource(resource) {
+    if (this.closed) {
+      throw new Error('管理器已关闭');
+    }
+    this.resources.add(resource);
+  }
+  
+  close() {
+    if (this.closed) return;
+    
+    this.closed = true;
+    // 清理所有资源
+    for (const resource of this.resources) {
+      resource.cleanup();
+    }
+    this.resources.clear();
+  }
+  
+  isClosed() {
+    return this.closed;
+  }
+}
+```
+
+```go !! go
+// Go: Channel 关闭最佳实践
+package main
+
+import (
+	"fmt"
+	"sync"
+)
+
+type SafeChannel struct {
+	ch     chan string
+	closed bool
+	mutex  sync.RWMutex
+}
+
+func NewSafeChannel(bufferSize int) *SafeChannel {
+	return &SafeChannel{
+		ch: make(chan string, bufferSize),
+	}
+}
+
+func (sc *SafeChannel) Send(value string) error {
+	sc.mutex.RLock()
+	defer sc.mutex.RUnlock()
+	
+	if sc.closed {
+		return fmt.Errorf("channel 已关闭")
+	}
+	
+	sc.ch <- value
+	return nil
+}
+
+func (sc *SafeChannel) Receive() (string, bool) {
+	value, ok := <-sc.ch
+	return value, ok
+}
+
+func (sc *SafeChannel) Close() {
+	sc.mutex.Lock()
+	defer sc.mutex.Unlock()
+	
+	if !sc.closed {
+		sc.closed = true
+		close(sc.ch)
+	}
+}
+
+func (sc *SafeChannel) IsClosed() bool {
+	sc.mutex.RLock()
+	defer sc.mutex.RUnlock()
+	return sc.closed
+}
+
+func main() {
+	ch := NewSafeChannel(5)
+	
+	// 发送一些数据
+	ch.Send("Hello")
+	ch.Send("World")
+	
+	// 关闭 channel
+	ch.Close()
+	
+	// 尝试在关闭后发送
+	if err := ch.Send("Test"); err != nil {
+		fmt.Println("错误:", err)
+	}
+	
+	// 接收剩余数据
+	for {
+		if value, ok := ch.Receive(); ok {
+			fmt.Println("收到:", value)
+		} else {
+			break
+		}
+	}
+}
+```
+</UniversalEditor>
+
+### 2. 避免 Channel 泄漏
+
+<UniversalEditor title="防止 Channel 泄漏" compare={true}>
+```javascript !! js
+// JavaScript: 防止资源泄漏
+class ChannelManager {
+  constructor() {
+    this.channels = new Set();
+  }
+  
+  createChannel() {
+    const channel = new EventChannel();
+    this.channels.add(channel);
+    return channel;
+  }
+  
+  closeAll() {
+    for (const channel of this.channels) {
+      channel.close();
+    }
+    this.channels.clear();
+  }
+  
+  cleanup() {
+    this.closeAll();
+  }
+}
+```
+
+```go !! go
+// Go: 防止 channel 泄漏
+package main
+
+import (
+	"fmt"
+	"sync"
+	"time"
+)
+
+type ChannelManager struct {
+	channels map[string]chan string
+	mutex    sync.RWMutex
+}
+
+func NewChannelManager() *ChannelManager {
+	return &ChannelManager{
+		channels: make(map[string]chan string),
+	}
+}
+
+func (cm *ChannelManager) CreateChannel(id string) chan string {
+	cm.mutex.Lock()
+	defer cm.mutex.Unlock()
+	
+	ch := make(chan string, 10)
+	cm.channels[id] = ch
+	return ch
+}
+
+func (cm *ChannelManager) CloseChannel(id string) {
+	cm.mutex.Lock()
+	defer cm.mutex.Unlock()
+	
+	if ch, exists := cm.channels[id]; exists {
+		close(ch)
+		delete(cm.channels, id)
+	}
+}
+
+func (cm *ChannelManager) CloseAll() {
+	cm.mutex.Lock()
+	defer cm.mutex.Unlock()
+	
+	for id, ch := range cm.channels {
+		close(ch)
+		delete(cm.channels, id)
+	}
+}
+
+func (cm *ChannelManager) GetChannelCount() int {
+	cm.mutex.RLock()
+	defer cm.mutex.RUnlock()
+	return len(cm.channels)
+}
+
+func main() {
+	manager := NewChannelManager()
+	
+	// 创建 channels
+	ch1 := manager.CreateChannel("worker1")
+	ch2 := manager.CreateChannel("worker2")
+	
+	fmt.Printf("活跃 channels: %d\n", manager.GetChannelCount())
+	
+	// 使用 channels
+	go func() {
+		ch1 <- "来自 worker1 的问候"
+		time.Sleep(100 * time.Millisecond)
+		manager.CloseChannel("worker1")
+	}()
+	
+	go func() {
+		ch2 <- "来自 worker2 的问候"
+		time.Sleep(100 * time.Millisecond)
+		manager.CloseChannel("worker2")
+	}()
+	
+	// 接收消息
+	msg1 := <-ch1
+	msg2 := <-ch2
+	
+	fmt.Println("收到:", msg1, msg2)
+	fmt.Printf("活跃 channels: %d\n", manager.GetChannelCount())
+	
+	// 清理
+	manager.CloseAll()
+	fmt.Printf("清理后活跃 channels: %d\n", manager.GetChannelCount())
+}
+```
+</UniversalEditor>
+
+---
+
+### 练习题:
+1. 只发送 channel 和只接收 channel 有什么区别？
+2. `select` 中的 `default` 分支如何实现非阻塞操作？
+3. 解释 fan-out 和 fan-in 模式以及何时使用每种模式。
+4. 如何使用 channels 和 `select` 实现超时功能？
+5. 关闭 channels 和防止泄漏有哪些最佳实践？
+
+### 项目想法:
+创建一个使用 channels 将传入请求分发到多个工作 goroutine 的负载均衡器。负载均衡器应该实现健康检查、优雅关闭和请求超时处理，使用本模块中学到的模式。

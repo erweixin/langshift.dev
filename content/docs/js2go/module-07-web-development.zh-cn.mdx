@@ -1,12 +1,245 @@
 ---
-title: "web development"
-description: "Coming soon"
+title: Web 开发
 ---
 
-# web development
+Go 在高性能 Web 服务器和 API 构建领域应用广泛。其标准库提供了强大的 HTTP、路由和 JSON 处理能力，Gin、Echo 等主流框架则带来更高级的抽象。本模块将从 JavaScript/Node.js 开发者视角，系统介绍 Go Web 开发，配合实用代码对比和最佳实践。
 
-This module is currently under development.
+## Go Web 开发概览
 
-## Coming Soon
+- **标准库：** `net/http` 用于 HTTP 服务器、路由、中间件
+- **主流框架：** Gin、Echo、Fiber、Chi
+- **核心特性：** 简洁、高性能、静态类型、并发
+- **常见场景：** RESTful API、微服务、静态文件服务、实时服务
 
-Content will be added soon.
+## Hello World：最小 HTTP 服务器
+
+<UniversalEditor title="Hello World Web 服务器" compare={true}>
+```javascript !! js
+// Node.js：最小 HTTP 服务器
+const http = require('http');
+
+const server = http.createServer((req, res) => {
+  res.writeHead(200, { 'Content-Type': 'text/plain' });
+  res.end('Hello, World!');
+});
+
+server.listen(3000, () => {
+  console.log('服务器运行在 http://localhost:3000/');
+});
+```
+
+```go !! go
+// Go：最小 HTTP 服务器
+package main
+
+import (
+	"fmt"
+	"net/http"
+)
+
+func handler(w http.ResponseWriter, r *http.Request) {
+	fmt.Fprintln(w, "Hello, World!")
+}
+
+func main() {
+	http.HandleFunc("/", handler)
+	fmt.Println("服务器运行在 http://localhost:3000/")
+	http.ListenAndServe(":3000", nil)
+}
+```
+</UniversalEditor>
+
+## 路由与参数
+
+Go 标准库提供基础路由，复杂路由推荐使用 Gin、Echo 等框架。
+
+<UniversalEditor title="路由示例" compare={true}>
+```javascript !! js
+// Node.js 使用 Express
+const express = require('express');
+const app = express();
+
+app.get('/hello/:name', (req, res) => {
+  res.json({ message: `Hello, ${req.params.name}!` });
+});
+
+app.listen(3000);
+```
+
+```go !! go
+// Go 使用 Gin 框架
+package main
+
+import (
+	"github.com/gin-gonic/gin"
+)
+
+func main() {
+	r := gin.Default()
+	r.GET("/hello/:name", func(c *gin.Context) {
+		name := c.Param("name")
+		c.JSON(200, gin.H{"message": "Hello, " + name + "!"})
+	})
+	r.Run(":3000")
+}
+```
+</UniversalEditor>
+
+## 处理 JSON 请求与响应
+
+<UniversalEditor title="JSON API 示例" compare={true}>
+```javascript !! js
+// Node.js：JSON API
+const express = require('express');
+const app = express();
+app.use(express.json());
+
+app.post('/api/user', (req, res) => {
+  const user = req.body;
+  res.json({ id: 1, ...user });
+});
+
+app.listen(3000);
+```
+
+```go !! go
+// Go：JSON API
+package main
+
+import (
+	"encoding/json"
+	"net/http"
+)
+
+type User struct {
+	Name string `json:"name"`
+	Age  int    `json:"age"`
+}
+
+func userHandler(w http.ResponseWriter, r *http.Request) {
+	var user User
+	if err := json.NewDecoder(r.Body).Decode(&user); err != nil {
+		http.Error(w, "无效的 JSON", http.StatusBadRequest)
+		return
+	}
+	userResponse := struct {
+		ID int    `json:"id"`
+		Name string `json:"name"`
+		Age  int    `json:"age"`
+	}{ID: 1, Name: user.Name, Age: user.Age}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(userResponse)
+}
+
+func main() {
+	http.HandleFunc("/api/user", userHandler)
+	http.ListenAndServe(":3000", nil)
+}
+```
+</UniversalEditor>
+
+## 静态文件服务
+
+<UniversalEditor title="静态文件服务" compare={true}>
+```javascript !! js
+// Node.js：使用 Express 提供静态文件
+const express = require('express');
+const app = express();
+app.use(express.static('public'));
+app.listen(3000);
+```
+
+```go !! go
+// Go：静态文件服务
+package main
+
+import (
+	"net/http"
+)
+
+func main() {
+	fs := http.FileServer(http.Dir("./public"))
+	http.Handle("/", fs)
+	http.ListenAndServe(":3000", nil)
+}
+```
+</UniversalEditor>
+
+## 中间件
+
+Go 中间件通常通过处理器包装实现，Gin/Echo 等框架提供便捷的中间件机制。
+
+<UniversalEditor title="中间件示例" compare={true}>
+```javascript !! js
+// Node.js：Express 中间件
+const express = require('express');
+const app = express();
+
+function logger(req, res, next) {
+  console.log(`${req.method} ${req.url}`);
+  next();
+}
+
+app.use(logger);
+app.get('/', (req, res) => res.send('Hello'));
+app.listen(3000);
+```
+
+```go !! go
+// Go：Gin 框架中间件
+package main
+
+import (
+	"github.com/gin-gonic/gin"
+	"log"
+)
+
+func Logger() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		log.Printf("%s %s", c.Request.Method, c.Request.URL.Path)
+		c.Next()
+	}
+}
+
+func main() {
+	r := gin.Default()
+	r.Use(Logger())
+	r.GET("/", func(c *gin.Context) {
+		c.String(200, "Hello")
+	})
+	r.Run(":3000")
+}
+```
+</UniversalEditor>
+
+## Go 与 JavaScript/Node.js 对比
+
+| 特性         | Go（net/http, Gin）         | JavaScript（Node.js, Express） |
+|--------------|-----------------------------|-------------------------------|
+| 类型系统     | 静态强类型                  | 动态弱类型                    |
+| 并发模型     | goroutine、channel          | 事件循环、async/await         |
+| 性能         | 高，编译型                  | 良好，解释型                  |
+| 路由         | 标准库基础，Gin 丰富         | Express、Koa、Fastify          |
+| 中间件       | 处理器包装，Gin/Echo        | Express/Koa 中间件             |
+| JSON 处理    | encoding/json，结构体标签    | JSON.parse/stringify，body-parser |
+| 静态文件     | FileServer                  | express.static                 |
+| 错误处理     | 显式，error 值              | try/catch，错误中间件          |
+
+## 最佳实践
+
+- 使用 context 传递请求作用域数据和取消信号
+- 输入校验与过滤
+- 显式处理错误并返回合适状态码
+- 使用中间件实现日志、认证、CORS 等
+- 复杂项目优先选用 Gin、Echo 等框架
+- 为处理器和中间件编写测试
+
+---
+
+### 练习题
+1. Go 的 `net/http` 与 Node.js 的 HTTP 模块有何不同？
+2. 分别展示 Go 和 Node.js 如何处理 JSON 请求与响应。
+3. 为什么实际项目中推荐使用 Gin 或 Echo，而不是只用标准库？
+
+### 项目实战
+用 Go 实现一个简单的 RESTful API，支持资源（如任务或用户）的 CRUD 操作，包含路由、JSON 处理和日志中间件。并与 Node.js/Express 版本进行对比。
