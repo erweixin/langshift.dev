@@ -87,6 +87,8 @@ class LanguageRuntimeManager {
         return this.loadJavaRuntime()
       case 'go':
         return this.loadGoRuntime()
+      case 'swift':
+        return this.loadSwiftRuntime()
       default:
         throw new Error(`不支持的语言: ${language}`)
     }
@@ -277,6 +279,40 @@ class LanguageRuntimeManager {
     }
   }
 
+  private async loadSwiftRuntime(): Promise<any> {
+    // 使用本地 API 代理 Paiza.io 在线 Swift 编译器
+    return {
+      execute: async (code: string) => {
+        try {
+          const response = await fetch('/api/swift', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ code })
+          })
+          
+          if (!response.ok) {
+            throw new Error(`API 请求失败: ${response.status}`)
+          }
+          
+          const result = await response.json()
+          return {
+            output: result.output || '',
+            error: result.error || null
+          }
+          
+        } catch (error: any) {
+          console.error('Swift 执行错误:', error)
+          return { 
+            output: '', 
+            error: `Swift 执行失败: ${error.message}` 
+          }
+        }
+      }
+    }
+  }
+
   private async preloadBasicPythonLibraries(pyodide: any) {
     try {
       // 只预加载基础库，这些库很小且常用
@@ -347,7 +383,7 @@ class LanguageRuntimeManager {
   }
 
   getSupportedLanguages(): string[] {
-    return ['python', 'javascript', 'typescript', 'rust', 'cpp', 'java', 'go']
+    return ['python', 'javascript', 'typescript', 'rust', 'cpp', 'java', 'go', 'swift']
   }
 
   // 检查是否需要加载运行时
@@ -476,6 +512,12 @@ const languageConfig = {
     extension: 'go',
     monacoLanguage: 'go',
     runtime: 'go'
+  },
+  swift: {
+    name: 'Swift',
+    extension: 'swift',
+    monacoLanguage: 'swift',
+    runtime: 'swift'
   }
 }
 
