@@ -1,0 +1,863 @@
+---
+title: "协议和扩展 - 协议导向编程"
+description: "学习 Swift 协议和扩展：协议基础、扩展、协议导向编程，与 JavaScript 对比"
+---
+
+# 协议和扩展：协议导向编程
+
+在本模块中，我们探索 Swift 强大的协议系统和扩展，它们构成了协议导向编程的基础。我们将这种方法与 JavaScript 的接口模式和混入进行对比。
+
+## 目录
+- [介绍：协议 vs 接口](#介绍协议-vs-接口)
+- [基本协议](#基本协议)
+- [协议扩展](#协议扩展)
+- [协议导向编程](#协议导向编程)
+- [扩展](#扩展)
+- [泛型协议](#泛型协议)
+- [协议组合](#协议组合)
+- [高级协议特性](#高级协议特性)
+- [练习题](#练习题)
+- [关键要点](#关键要点)
+
+## 介绍：协议 vs 接口
+
+Swift 协议比传统接口更强大，支持默认实现、关联类型和协议组合。
+
+| 特性                 | JavaScript 接口 | Swift 协议 |
+|----------------------|-----------------|------------|
+| 默认实现             | 否              | 是（扩展） |
+| 关联类型             | 否              | 是         |
+| 协议组合             | 否              | 是         |
+| 值类型               | 否              | 是         |
+| Self 要求            | 否              | 是         |
+| 协议扩展             | 否              | 是         |
+| 泛型约束             | 否              | 是         |
+
+## 基本协议
+
+<UniversalEditor title="基本协议对比" compare={true}>
+```javascript !! js
+// JavaScript：没有内置接口，但可以使用鸭子类型
+class Drawable {
+    draw() {
+        throw new Error("draw() 必须被实现");
+    }
+}
+
+class Circle {
+    constructor(radius) {
+        this.radius = radius;
+    }
+    draw() {
+        console.log(`绘制半径为 ${this.radius} 的圆`);
+    }
+}
+
+// 手动接口检查
+function isDrawable(obj) {
+    return typeof obj.draw === 'function';
+}
+
+const circle = new Circle(5);
+if (isDrawable(circle)) {
+    circle.draw();
+}
+```
+
+```swift !! swift
+// Swift：正式的协议系统
+protocol Drawable {
+    func draw()
+}
+
+struct Circle: Drawable {
+    var radius: Double
+    
+    func draw() {
+        print("绘制半径为 \(radius) 的圆")
+    }
+}
+
+// 协议遵循在编译时检查
+let circle = Circle(radius: 5)
+circle.draw()
+```
+</UniversalEditor>
+
+### 带属性的协议
+
+<UniversalEditor title="带属性的协议" compare={true}>
+```javascript !! js
+// JavaScript：模拟带属性的协议
+class Vehicle {
+    constructor() {
+        if (this.constructor === Vehicle) {
+            throw new Error("Vehicle 是抽象的");
+        }
+    }
+    
+    get wheels() {
+        throw new Error("wheels 必须被实现");
+    }
+    
+    start() {
+        throw new Error("start() 必须被实现");
+    }
+}
+
+class Car extends Vehicle {
+    get wheels() {
+        return 4;
+    }
+    
+    start() {
+        console.log("汽车启动中...");
+    }
+}
+
+const car = new Car();
+console.log(car.wheels); // 4
+car.start(); // 汽车启动中...
+```
+
+```swift !! swift
+// Swift：带属性的协议
+protocol Vehicle {
+    var wheels: Int { get }
+    func start()
+}
+
+struct Car: Vehicle {
+    var wheels: Int {
+        return 4
+    }
+    
+    func start() {
+        print("汽车启动中...")
+    }
+}
+
+let car = Car()
+print(car.wheels) // 4
+car.start() // 汽车启动中...
+```
+</UniversalEditor>
+
+## 协议扩展
+
+Swift 协议扩展提供默认实现，JavaScript 无法原生做到。
+
+<UniversalEditor title="协议扩展" compare={true}>
+```javascript !! js
+// JavaScript：没有协议扩展，必须手动实现
+class Animal {
+    constructor(name) {
+        this.name = name;
+    }
+    
+    speak() {
+        console.log(`${this.name} 发出声音`);
+    }
+    
+    // 基类中的默认实现
+    describe() {
+        console.log(`这是 ${this.name}，一只 ${this.constructor.name}`);
+    }
+}
+
+class Dog extends Animal {
+    speak() {
+        console.log(`${this.name} 汪汪叫`);
+    }
+}
+
+const dog = new Dog("Buddy");
+dog.speak(); // Buddy 汪汪叫
+dog.describe(); // 这是 Buddy，一只 Dog
+```
+
+```swift !! swift
+// Swift：带默认实现的协议扩展
+protocol Animal {
+    var name: String { get }
+    func speak()
+}
+
+extension Animal {
+    // 默认实现
+    func speak() {
+        print("\(name) 发出声音")
+    }
+    
+    func describe() {
+        print("这是 \(name)，一个 \(type(of: self))")
+    }
+}
+
+struct Dog: Animal {
+    let name: String
+    
+    func speak() {
+        print("\(name) 汪汪叫")
+    }
+}
+
+let dog = Dog(name: "Buddy")
+dog.speak() // Buddy 汪汪叫
+dog.describe() // 这是 Buddy，一个 Dog
+```
+</UniversalEditor>
+
+## 协议导向编程
+
+Swift 鼓励协议导向编程而非类继承。
+
+<UniversalEditor title="协议导向编程" compare={true}>
+```javascript !! js
+// JavaScript：基于类的方法
+class Logger {
+    log(message) {
+        console.log(`[日志] ${message}`);
+    }
+}
+
+class ErrorLogger extends Logger {
+    log(message) {
+        console.log(`[错误] ${message}`);
+    }
+}
+
+class FileLogger extends Logger {
+    log(message) {
+        console.log(`[文件] ${message}`);
+    }
+}
+
+// 使用混入模拟多重继承
+const TimestampMixin = {
+    logWithTimestamp(message) {
+        const timestamp = new Date().toISOString();
+        this.log(`[${timestamp}] ${message}`);
+    }
+};
+
+Object.assign(ErrorLogger.prototype, TimestampMixin);
+const errorLogger = new ErrorLogger();
+errorLogger.logWithTimestamp("出现了问题");
+```
+
+```swift !! swift
+// Swift：协议导向方法
+protocol Logger {
+    func log(_ message: String)
+}
+
+extension Logger {
+    func logWithTimestamp(_ message: String) {
+        let timestamp = ISO8601DateFormatter().string(from: Date())
+        log("[\(timestamp)] \(message)")
+    }
+}
+
+struct ConsoleLogger: Logger {
+    func log(_ message: String) {
+        print("[日志] \(message)")
+    }
+}
+
+struct ErrorLogger: Logger {
+    func log(_ message: String) {
+        print("[错误] \(message)")
+    }
+}
+
+struct FileLogger: Logger {
+    func log(_ message: String) {
+        print("[文件] \(message)")
+    }
+}
+
+let errorLogger = ErrorLogger()
+errorLogger.logWithTimestamp("出现了问题")
+```
+</UniversalEditor>
+
+## 扩展
+
+Swift 扩展允许向现有类型添加功能，类似于 JavaScript 的原型扩展。
+
+<UniversalEditor title="扩展对比" compare={true}>
+```javascript !! js
+// JavaScript：原型扩展
+String.prototype.reverse = function() {
+    return this.split('').reverse().join('');
+};
+
+Array.prototype.sum = function() {
+    return this.reduce((sum, num) => sum + num, 0);
+};
+
+const text = "Hello";
+console.log(text.reverse()); // olleH
+
+const numbers = [1, 2, 3, 4, 5];
+console.log(numbers.sum()); // 15
+
+// 扩展内置对象（不推荐）
+Number.prototype.isEven = function() {
+    return this % 2 === 0;
+};
+
+console.log((4).isEven()); // true
+```
+
+```swift !! swift
+// Swift：扩展
+extension String {
+    func reverse() -> String {
+        return String(self.reversed())
+    }
+}
+
+extension Array where Element == Int {
+    func sum() -> Int {
+        return self.reduce(0, +)
+    }
+}
+
+let text = "Hello"
+print(text.reverse()) // olleH
+
+let numbers = [1, 2, 3, 4, 5]
+print(numbers.sum()) // 15
+
+// 使用计算属性扩展
+extension Int {
+    var isEven: Bool {
+        return self % 2 == 0
+    }
+}
+
+print(4.isEven) // true
+```
+</UniversalEditor>
+
+### 扩展自定义类型
+
+<UniversalEditor title="扩展自定义类型" compare={true}>
+```javascript !! js
+// JavaScript：向现有类添加方法
+class Person {
+    constructor(name, age) {
+        this.name = name;
+        this.age = age;
+    }
+}
+
+// 类定义后添加方法
+Person.prototype.getInfo = function() {
+    return `${this.name} 今年 ${this.age} 岁`;
+};
+
+Person.prototype.isAdult = function() {
+    return this.age >= 18;
+};
+
+const person = new Person("Alice", 25);
+console.log(person.getInfo()); // Alice 今年 25 岁
+console.log(person.isAdult()); // true
+```
+
+```swift !! swift
+// Swift：通过扩展添加功能
+struct Person {
+    let name: String
+    let age: Int
+}
+
+// 通过扩展添加功能
+extension Person {
+    func getInfo() -> String {
+        return "\(name) 今年 \(age) 岁"
+    }
+    
+    var isAdult: Bool {
+        return age >= 18
+    }
+}
+
+let person = Person(name: "Alice", age: 25)
+print(person.getInfo()) // Alice 今年 25 岁
+print(person.isAdult) // true
+```
+</UniversalEditor>
+
+## 泛型协议
+
+Swift 支持带关联类型的泛型协议，JavaScript 无法做到。
+
+<UniversalEditor title="泛型协议" compare={true}>
+```javascript !! js
+// JavaScript：没有泛型协议，但可以在类中使用泛型
+class Container {
+    constructor(value) {
+        this.value = value;
+    }
+    
+    getValue() {
+        return this.value;
+    }
+    
+    setValue(value) {
+        this.value = value;
+    }
+}
+
+class NumberContainer extends Container {
+    constructor(value) {
+        super(value);
+    }
+    
+    add(other) {
+        return new NumberContainer(this.value + other.value);
+    }
+}
+
+const numContainer = new NumberContainer(5);
+const result = numContainer.add(new NumberContainer(3));
+console.log(result.getValue()); // 8
+```
+
+```swift !! swift
+// Swift：带关联类型的泛型协议
+protocol Container {
+    associatedtype Item
+    var value: Item { get set }
+    func getValue() -> Item
+    mutating func setValue(_ value: Item)
+}
+
+struct NumberContainer: Container {
+    typealias Item = Int
+    var value: Int
+    
+    func getValue() -> Int {
+        return value
+    }
+    
+    mutating func setValue(_ value: Int) {
+        self.value = value
+    }
+    
+    func add(_ other: NumberContainer) -> NumberContainer {
+        return NumberContainer(value: value + other.value)
+    }
+}
+
+var numContainer = NumberContainer(value: 5)
+let result = numContainer.add(NumberContainer(value: 3))
+print(result.getValue()) // 8
+```
+</UniversalEditor>
+
+## 协议组合
+
+Swift 允许组合多个协议，JavaScript 无法正式做到。
+
+<UniversalEditor title="协议组合" compare={true}>
+```javascript !! js
+// JavaScript：没有正式协议组合，但可以检查多个方法
+function isDrawableAndMovable(obj) {
+    return typeof obj.draw === 'function' && 
+           typeof obj.move === 'function';
+}
+
+class Shape {
+    constructor(x, y) {
+        this.x = x;
+        this.y = y;
+    }
+    
+    draw() {
+        console.log(`在 (${this.x}, ${this.y}) 绘制`);
+    }
+    
+    move(dx, dy) {
+        this.x += dx;
+        this.y += dy;
+    }
+}
+
+const shape = new Shape(0, 0);
+if (isDrawableAndMovable(shape)) {
+    shape.draw();
+    shape.move(10, 10);
+    shape.draw();
+}
+```
+
+```swift !! swift
+// Swift：协议组合
+protocol Drawable {
+    func draw()
+}
+
+protocol Movable {
+    mutating func move(dx: Double, dy: Double)
+}
+
+struct Shape: Drawable & Movable {
+    var x: Double
+    var y: Double
+    
+    func draw() {
+        print("在 (\(x), \(y)) 绘制")
+    }
+    
+    mutating func move(dx: Double, dy: Double) {
+        x += dx
+        y += dy
+    }
+}
+
+var shape = Shape(x: 0, y: 0)
+shape.draw()
+shape.move(dx: 10, dy: 10)
+shape.draw()
+```
+</UniversalEditor>
+
+## 高级协议特性
+
+### Self 要求
+
+<UniversalEditor title="Self 要求" compare={true}>
+```javascript !! js
+// JavaScript：没有 self 要求，但可以使用 instanceof
+class Animal {
+    clone() {
+        return new this.constructor();
+    }
+}
+
+class Dog extends Animal {
+    constructor() {
+        super();
+        this.type = "Dog";
+    }
+}
+
+const dog = new Dog();
+const clonedDog = dog.clone();
+console.log(clonedDog instanceof Dog); // true
+console.log(clonedDog.type); // "Dog"
+```
+
+```swift !! swift
+// Swift：协议中的 Self 要求
+protocol Cloneable {
+    func clone() -> Self
+}
+
+class Animal: Cloneable {
+    func clone() -> Self {
+        return type(of: self).init()
+    }
+    
+    required init() {}
+}
+
+class Dog: Animal {
+    var type: String = "Dog"
+}
+
+let dog = Dog()
+let clonedDog = dog.clone()
+print(type(of: clonedDog) == Dog.self) // true
+print(clonedDog.type) // "Dog"
+```
+</UniversalEditor>
+
+### 协议见证表
+
+<UniversalEditor title="协议见证表" compare={true}>
+```javascript !! js
+// JavaScript：没有协议见证表，动态分发
+class Logger {
+    log(message) {
+        console.log(`[日志] ${message}`);
+    }
+}
+
+class ErrorLogger extends Logger {
+    log(message) {
+        console.log(`[错误] ${message}`);
+    }
+}
+
+function logMessage(logger, message) {
+    logger.log(message); // 动态分发
+}
+
+const errorLogger = new ErrorLogger();
+logMessage(errorLogger, "测试消息");
+```
+
+```swift !! swift
+// Swift：协议见证表实现高效分发
+protocol Logger {
+    func log(_ message: String)
+}
+
+struct ConsoleLogger: Logger {
+    func log(_ message: String) {
+        print("[日志] \(message)")
+    }
+}
+
+struct ErrorLogger: Logger {
+    func log(_ message: String) {
+        print("[错误] \(message)")
+    }
+}
+
+func logMessage(_ logger: Logger, _ message: String) {
+    logger.log(message) // 通过见证表静态分发
+}
+
+let errorLogger = ErrorLogger()
+logMessage(errorLogger, "测试消息")
+```
+</UniversalEditor>
+
+## 练习题
+
+### 练习 1：创建插件系统
+
+<UniversalEditor title="练习 1：插件系统" compare={true}>
+```javascript !! js
+// JavaScript 解答
+class Plugin {
+    constructor(name) {
+        this.name = name;
+    }
+    
+    execute() {
+        throw new Error("execute() 必须被实现");
+    }
+}
+
+class TextPlugin extends Plugin {
+    constructor(name, text) {
+        super(name);
+        this.text = text;
+    }
+    
+    execute() {
+        console.log(`插件 ${this.name}: ${this.text}`);
+    }
+}
+
+class MathPlugin extends Plugin {
+    constructor(name, operation) {
+        super(name);
+        this.operation = operation;
+    }
+    
+    execute() {
+        const result = eval(this.operation);
+        console.log(`插件 ${this.name}: ${this.operation} = ${result}`);
+    }
+}
+
+class PluginManager {
+    constructor() {
+        this.plugins = [];
+    }
+    
+    addPlugin(plugin) {
+        this.plugins.push(plugin);
+    }
+    
+    runAll() {
+        this.plugins.forEach(plugin => plugin.execute());
+    }
+}
+
+const manager = new PluginManager();
+manager.addPlugin(new TextPlugin("问候", "Hello World"));
+manager.addPlugin(new MathPlugin("计算器", "2 + 3 * 4"));
+manager.runAll();
+```
+
+```swift !! swift
+// Swift 解答
+protocol Plugin {
+    var name: String { get }
+    func execute()
+}
+
+struct TextPlugin: Plugin {
+    let name: String
+    let text: String
+    
+    func execute() {
+        print("插件 \(name): \(text)")
+    }
+}
+
+struct MathPlugin: Plugin {
+    let name: String
+    let operation: String
+    
+    func execute() {
+        // 简单数学求值（实际应用中，使用适当的解析器）
+        let result = evaluate(operation)
+        print("插件 \(name): \(operation) = \(result)")
+    }
+    
+    private func evaluate(_ expression: String) -> Int {
+        // 简化的求值 - 实际使用适当的表达式解析器
+        return 0 // 占位符
+    }
+}
+
+class PluginManager {
+    private var plugins: [Plugin] = []
+    
+    func addPlugin(_ plugin: Plugin) {
+        plugins.append(plugin)
+    }
+    
+    func runAll() {
+        plugins.forEach { $0.execute() }
+    }
+}
+
+let manager = PluginManager()
+manager.addPlugin(TextPlugin(name: "问候", text: "Hello World"))
+manager.addPlugin(MathPlugin(name: "计算器", operation: "2 + 3 * 4"))
+manager.runAll()
+```
+</UniversalEditor>
+
+### 练习 2：实现数据源模式
+
+<UniversalEditor title="练习 2：数据源模式" compare={true}>
+```javascript !! js
+// JavaScript 解答
+class DataSource {
+    getData() {
+        throw new Error("getData() 必须被实现");
+    }
+}
+
+class ArrayDataSource extends DataSource {
+    constructor(data) {
+        super();
+        this.data = data;
+    }
+    
+    getData() {
+        return this.data;
+    }
+}
+
+class FileDataSource extends DataSource {
+    constructor(filename) {
+        super();
+        this.filename = filename;
+    }
+    
+    getData() {
+        // 模拟文件读取
+        return [`来自 ${this.filename} 的数据`];
+    }
+}
+
+class DataProcessor {
+    constructor(dataSource) {
+        this.dataSource = dataSource;
+    }
+    
+    process() {
+        const data = this.dataSource.getData();
+        return data.map(item => `已处理: ${item}`);
+    }
+}
+
+const arraySource = new ArrayDataSource([1, 2, 3, 4, 5]);
+const processor = new DataProcessor(arraySource);
+console.log(processor.process());
+```
+
+```swift !! swift
+// Swift 解答
+protocol DataSource {
+    func getData() -> [String]
+}
+
+struct ArrayDataSource: DataSource {
+    let data: [String]
+    
+    func getData() -> [String] {
+        return data
+    }
+}
+
+struct FileDataSource: DataSource {
+    let filename: String
+    
+    func getData() -> [String] {
+        // 模拟文件读取
+        return ["来自 \(filename) 的数据"]
+    }
+}
+
+class DataProcessor {
+    let dataSource: DataSource
+    
+    init(dataSource: DataSource) {
+        self.dataSource = dataSource
+    }
+    
+    func process() -> [String] {
+        let data = dataSource.getData()
+        return data.map { "已处理: \($0)" }
+    }
+}
+
+let arraySource = ArrayDataSource(data: ["1", "2", "3", "4", "5"])
+let processor = DataProcessor(dataSource: arraySource)
+print(processor.process())
+```
+</UniversalEditor>
+
+## 关键要点
+
+### Swift 协议优势
+1. **默认实现**：协议扩展提供默认行为
+2. **值类型支持**：协议适用于类和结构体
+3. **类型安全**：编译时检查协议遵循
+4. **组合**：可以组合多个协议
+5. **关联类型**：带类型约束的泛型协议
+6. **性能**：通过见证表静态分发
+
+### 与 JavaScript 的关键差异
+1. **正式系统**：Swift 有正式协议系统 vs JavaScript 鸭子类型
+2. **扩展**：Swift 协议扩展 vs JavaScript 原型扩展
+3. **类型安全**：编译时 vs 运行时检查
+4. **组合**：协议组合 vs 手动接口检查
+5. **泛型**：关联类型 vs 无泛型协议
+6. **性能**：静态分发 vs 动态分发
+
+### 最佳实践
+1. **优先使用协议而非类**以获得灵活性
+2. **使用协议扩展**提供默认实现
+3. **利用协议组合**满足复杂需求
+4. **考虑关联类型**用于泛型协议
+5. **使用扩展**向现有类型添加功能
+6. **从一开始就设计协议导向编程**
+
+### 下一步
+在下一个模块中，我们将探索 Swift 中的错误处理，包括 Result 类型、抛出函数，以及它们与 JavaScript 的 try-catch 和 Promise 模式的对比。 

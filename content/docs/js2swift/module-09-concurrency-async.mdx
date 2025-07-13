@@ -1,0 +1,1178 @@
+---
+title: "Concurrency and Async Programming - async/await, Actors"
+description: "Learn Swift concurrency: async/await, actors, structured concurrency, task groups, and comparison with JavaScript"
+---
+
+# Concurrency and Async Programming: async/await, Actors
+
+In this module, we explore Swift's modern concurrency system, including async/await, actors, structured concurrency, and task groups. We'll compare these approaches with JavaScript's Promise-based and callback-based concurrency patterns.
+
+## Table of Contents
+- [Introduction: Concurrency Models](#introduction-concurrency-models)
+- [Async/Await Basics](#asyncawait-basics)
+- [Structured Concurrency](#structured-concurrency)
+- [Actors](#actors)
+- [Task Groups](#task-groups)
+- [Async Sequences](#async-sequences)
+- [Advanced Concurrency](#advanced-concurrency)
+- [Exercises](#exercises)
+- [Key Takeaways](#key-takeaways)
+
+## Introduction: Concurrency Models
+
+Swift's modern concurrency system provides a safer and more efficient approach compared to traditional threading and JavaScript's event loop.
+
+| Feature              | JavaScript | Swift |
+|----------------------|------------|-------|
+| Async/Await          | ES2022     | Swift 5.5+ |
+| Structured Concurrency| No         | Yes |
+| Actors               | No         | Yes |
+| Task Groups          | Manual     | Built-in |
+| Cancellation         | Manual     | Automatic |
+| Data Races           | Possible   | Prevented |
+| Memory Safety        | Runtime    | Compile-time |
+
+## Async/Await Basics
+
+<UniversalEditor title="Async/Await Comparison" compare={true}>
+```javascript !! js
+// JavaScript: Promise-based async/await
+function fetchUserData(id) {
+    return new Promise((resolve, reject) => {
+        setTimeout(() => {
+            if (id > 0) {
+                resolve({ id, name: "John Doe", email: "john@example.com" });
+            } else {
+                reject(new Error("User not found"));
+            }
+        }, 1000);
+    });
+}
+
+function fetchUserPosts(userId) {
+    return new Promise((resolve, reject) => {
+        setTimeout(() => {
+            if (userId > 0) {
+                resolve([{ id: 1, title: "First Post" }]);
+            } else {
+                reject(new Error("Posts not found"));
+            }
+        }, 500);
+    });
+}
+
+async function loadUserProfile(userId) {
+    try {
+        console.log("Loading user data...");
+        const user = await fetchUserData(userId);
+        console.log("Loading user posts...");
+        const posts = await fetchUserPosts(user.id);
+        return { user, posts };
+    } catch (error) {
+        console.error("Failed to load profile:", error.message);
+        throw error;
+    }
+}
+
+// Usage
+loadUserProfile(1)
+    .then(profile => console.log("Profile loaded:", profile))
+    .catch(error => console.error("Error:", error.message));
+```
+
+```swift !! swift
+// Swift: Native async/await
+func fetchUserData(id: Int) async throws -> User {
+    try await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
+    
+    guard id > 0 else {
+        throw NetworkError.userNotFound
+    }
+    
+    return User(id: id, name: "John Doe", email: "john@example.com")
+}
+
+func fetchUserPosts(userId: Int) async throws -> [Post] {
+    try await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
+    
+    guard userId > 0 else {
+        throw NetworkError.postsNotFound
+    }
+    
+    return [Post(id: 1, title: "First Post")]
+}
+
+func loadUserProfile(userId: Int) async throws -> (user: User, posts: [Post]) {
+    print("Loading user data...")
+    let user = try await fetchUserData(id: userId)
+    print("Loading user posts...")
+    let posts = try await fetchUserPosts(userId: user.id)
+    return (user, posts)
+}
+
+// Usage
+Task {
+    do {
+        let profile = try await loadUserProfile(userId: 1)
+        print("Profile loaded:", profile)
+    } catch {
+        print("Error:", error)
+    }
+}
+```
+</UniversalEditor>
+
+### Concurrent Execution
+
+<UniversalEditor title="Concurrent Execution" compare={true}>
+```javascript !! js
+// JavaScript: Concurrent execution with Promise.all
+async function loadUserDataConcurrently(userId) {
+    try {
+        const [user, posts, settings] = await Promise.all([
+            fetchUserData(userId),
+            fetchUserPosts(userId),
+            fetchUserSettings(userId)
+        ]);
+        
+        return { user, posts, settings };
+    } catch (error) {
+        console.error("Failed to load data:", error.message);
+        throw error;
+    }
+}
+
+function fetchUserSettings(userId) {
+    return new Promise((resolve, reject) => {
+        setTimeout(() => {
+            if (userId > 0) {
+                resolve({ theme: "dark", notifications: true });
+            } else {
+                reject(new Error("Settings not found"));
+            }
+        }, 300);
+    });
+}
+
+// Usage
+loadUserDataConcurrently(1)
+    .then(data => console.log("All data loaded:", data))
+    .catch(error => console.error("Error:", error.message));
+```
+
+```swift !! swift
+// Swift: Concurrent execution with async let
+func loadUserDataConcurrently(userId: Int) async throws -> (user: User, posts: [Post], settings: UserSettings) {
+    async let user = fetchUserData(id: userId)
+    async let posts = fetchUserPosts(userId: userId)
+    async let settings = fetchUserSettings(userId: userId)
+    
+    return try await (user, posts, settings)
+}
+
+func fetchUserSettings(userId: Int) async throws -> UserSettings {
+    try await Task.sleep(nanoseconds: 300_000_000) // 0.3 seconds
+    
+    guard userId > 0 else {
+        throw NetworkError.settingsNotFound
+    }
+    
+    return UserSettings(theme: "dark", notifications: true)
+}
+
+struct UserSettings {
+    let theme: String
+    let notifications: Bool
+}
+
+// Usage
+Task {
+    do {
+        let data = try await loadUserDataConcurrently(userId: 1)
+        print("All data loaded:", data)
+    } catch {
+        print("Error:", error)
+    }
+}
+```
+</UniversalEditor>
+
+## Structured Concurrency
+
+Swift's structured concurrency ensures that child tasks are properly managed and cancelled when their parent is cancelled.
+
+<UniversalEditor title="Structured Concurrency" compare={true}>
+```javascript !! js
+// JavaScript: Manual task management
+class TaskManager {
+    constructor() {
+        this.tasks = new Set();
+    }
+    
+    async runTask(taskFn) {
+        const task = taskFn();
+        this.tasks.add(task);
+        
+        try {
+            const result = await task;
+            this.tasks.delete(task);
+            return result;
+        } catch (error) {
+            this.tasks.delete(task);
+            throw error;
+        }
+    }
+    
+    async cancelAll() {
+        const promises = Array.from(this.tasks).map(task => {
+            // JavaScript doesn't have built-in task cancellation
+            // This is a simplified example
+            return Promise.resolve();
+        });
+        await Promise.all(promises);
+        this.tasks.clear();
+    }
+}
+
+const manager = new TaskManager();
+
+async function processData() {
+    const task1 = manager.runTask(async () => {
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        return "Task 1 completed";
+    });
+    
+    const task2 = manager.runTask(async () => {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        return "Task 2 completed";
+    });
+    
+    try {
+        const [result1, result2] = await Promise.all([task1, task2]);
+        console.log(result1, result2);
+    } catch (error) {
+        console.error("Error:", error);
+    }
+}
+
+processData();
+```
+
+```swift !! swift
+// Swift: Structured concurrency with automatic cancellation
+func processData() async {
+    async let task1 = performTask(name: "Task 1", duration: 2.0)
+    async let task2 = performTask(name: "Task 2", duration: 1.0)
+    
+    do {
+        let (result1, result2) = try await (task1, task2)
+        print(result1, result2)
+    } catch {
+        print("Error:", error)
+    }
+}
+
+func performTask(name: String, duration: TimeInterval) async throws -> String {
+    try await Task.sleep(nanoseconds: UInt64(duration * 1_000_000_000))
+    
+    // Check for cancellation
+    try Task.checkCancellation()
+    
+    return "\(name) completed"
+}
+
+// Usage with cancellation
+Task {
+    let task = Task {
+        await processData()
+    }
+    
+    // Cancel after 1.5 seconds
+    try await Task.sleep(nanoseconds: 1_500_000_000)
+    task.cancel()
+}
+```
+</UniversalEditor>
+
+## Actors
+
+Swift actors provide thread-safe access to mutable state, preventing data races.
+
+<UniversalEditor title="Actors Comparison" compare={true}>
+```javascript !! js
+// JavaScript: Manual synchronization with locks
+class BankAccount {
+    constructor(initialBalance) {
+        this.balance = initialBalance;
+        this.lock = false;
+    }
+    
+    async withdraw(amount) {
+        // Manual lock implementation
+        while (this.lock) {
+            await new Promise(resolve => setTimeout(resolve, 10));
+        }
+        
+        this.lock = true;
+        try {
+            if (this.balance >= amount) {
+                this.balance -= amount;
+                return { success: true, newBalance: this.balance };
+            } else {
+                return { success: false, error: "Insufficient funds" };
+            }
+        } finally {
+            this.lock = false;
+        }
+    }
+    
+    async deposit(amount) {
+        while (this.lock) {
+            await new Promise(resolve => setTimeout(resolve, 10));
+        }
+        
+        this.lock = true;
+        try {
+            this.balance += amount;
+            return { success: true, newBalance: this.balance };
+        } finally {
+            this.lock = false;
+        }
+    }
+    
+    async getBalance() {
+        while (this.lock) {
+            await new Promise(resolve => setTimeout(resolve, 10));
+        }
+        
+        this.lock = true;
+        try {
+            return this.balance;
+        } finally {
+            this.lock = false;
+        }
+    }
+}
+
+const account = new BankAccount(1000);
+
+async function performTransactions() {
+    const [result1, result2] = await Promise.all([
+        account.withdraw(500),
+        account.deposit(200)
+    ]);
+    
+    console.log("Withdraw result:", result1);
+    console.log("Deposit result:", result2);
+    console.log("Final balance:", await account.getBalance());
+}
+
+performTransactions();
+```
+
+```swift !! swift
+// Swift: Actors with automatic synchronization
+actor BankAccount {
+    private var balance: Double
+    
+    init(initialBalance: Double) {
+        self.balance = initialBalance
+    }
+    
+    func withdraw(amount: Double) async -> (success: Bool, newBalance: Double, error: String?) {
+        guard balance >= amount else {
+            return (false, balance, "Insufficient funds")
+        }
+        
+        balance -= amount
+        return (true, balance, nil)
+    }
+    
+    func deposit(amount: Double) async -> (success: Bool, newBalance: Double) {
+        balance += amount
+        return (true, balance)
+    }
+    
+    func getBalance() async -> Double {
+        return balance
+    }
+}
+
+let account = BankAccount(initialBalance: 1000)
+
+func performTransactions() async {
+    async let withdrawResult = account.withdraw(amount: 500)
+    async let depositResult = account.deposit(amount: 200)
+    
+    let (withdraw, deposit) = await (withdrawResult, depositResult)
+    
+    print("Withdraw result:", withdraw)
+    print("Deposit result:", deposit)
+    print("Final balance:", await account.getBalance())
+}
+
+Task {
+    await performTransactions()
+}
+```
+</UniversalEditor>
+
+## Task Groups
+
+Swift task groups allow you to manage multiple concurrent tasks with shared cancellation and error handling.
+
+<UniversalEditor title="Task Groups" compare={true}>
+```javascript !! js
+// JavaScript: Manual task group management
+class TaskGroup {
+    constructor() {
+        this.tasks = [];
+        this.results = [];
+        this.errors = [];
+    }
+    
+    async addTask(taskFn) {
+        const task = taskFn().then(
+            result => this.results.push(result),
+            error => this.errors.push(error)
+        );
+        this.tasks.push(task);
+    }
+    
+    async waitForAll() {
+        await Promise.allSettled(this.tasks);
+        return {
+            results: this.results,
+            errors: this.errors
+        };
+    }
+    
+    async cancelAll() {
+        // JavaScript doesn't have built-in task cancellation
+        this.tasks = [];
+        this.results = [];
+        this.errors = [];
+    }
+}
+
+async function processMultipleItems(items) {
+    const group = new TaskGroup();
+    
+    for (const item of items) {
+        group.addTask(async () => {
+            await new Promise(resolve => setTimeout(resolve, 100));
+            return `Processed: ${item}`;
+        });
+    }
+    
+    const { results, errors } = await group.waitForAll();
+    console.log("Results:", results);
+    console.log("Errors:", errors);
+}
+
+processMultipleItems(["A", "B", "C", "D"]);
+```
+
+```swift !! swift
+// Swift: Task groups with automatic management
+func processMultipleItems(_ items: [String]) async {
+    await withTaskGroup(of: String.self) { group in
+        for item in items {
+            group.addTask {
+                try await Task.sleep(nanoseconds: 100_000_000)
+                return "Processed: \(item)"
+            }
+        }
+        
+        var results: [String] = []
+        for await result in group {
+            results.append(result)
+        }
+        
+        print("Results:", results)
+    }
+}
+
+// Task group with error handling
+func processWithErrorHandling(_ items: [String]) async {
+    await withThrowingTaskGroup(of: String.self) { group in
+        for item in items {
+            group.addTask {
+                try await Task.sleep(nanoseconds: 100_000_000)
+                
+                if item == "B" {
+                    throw ProcessingError.invalidItem(item)
+                }
+                
+                return "Processed: \(item)"
+            }
+        }
+        
+        do {
+            var results: [String] = []
+            for try await result in group {
+                results.append(result)
+            }
+            print("Results:", results)
+        } catch {
+            print("Error:", error)
+        }
+    }
+}
+
+enum ProcessingError: Error {
+    case invalidItem(String)
+}
+
+// Usage
+Task {
+    await processMultipleItems(["A", "B", "C", "D"])
+    await processWithErrorHandling(["A", "B", "C", "D"])
+}
+```
+</UniversalEditor>
+
+## Async Sequences
+
+Swift async sequences provide a way to iterate over asynchronous data streams.
+
+<UniversalEditor title="Async Sequences" compare={true}>
+```javascript !! js
+// JavaScript: Async iterators and generators
+async function* generateNumbers(start, end) {
+    for (let i = start; i <= end; i++) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+        yield i;
+    }
+}
+
+async function* generateUserData(userIds) {
+    for (const id of userIds) {
+        try {
+            const user = await fetchUserData(id);
+            yield user;
+        } catch (error) {
+            console.error(`Failed to fetch user ${id}:`, error.message);
+        }
+    }
+}
+
+async function processAsyncSequence() {
+    // Process numbers
+    for await (const num of generateNumbers(1, 5)) {
+        console.log("Number:", num);
+    }
+    
+    // Process user data
+    const userIds = [1, 2, 3, 4, 5];
+    for await (const user of generateUserData(userIds)) {
+        console.log("User:", user.name);
+    }
+}
+
+processAsyncSequence();
+```
+
+```swift !! swift
+// Swift: Async sequences with built-in support
+struct NumberGenerator: AsyncSequence {
+    typealias Element = Int
+    
+    let start: Int
+    let end: Int
+    
+    init(start: Int, end: Int) {
+        self.start = start
+        self.end = end
+    }
+    
+    func makeAsyncIterator() -> AsyncIterator {
+        return AsyncIterator(start: start, end: end)
+    }
+    
+    struct AsyncIterator: AsyncIteratorProtocol {
+        var current: Int
+        let end: Int
+        
+        init(start: Int, end: Int) {
+            self.current = start
+            self.end = end
+        }
+        
+        mutating func next() async -> Int? {
+            guard current <= end else { return nil }
+            
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            let value = current
+            current += 1
+            return value
+        }
+    }
+}
+
+struct UserDataGenerator: AsyncSequence {
+    typealias Element = User
+    
+    let userIds: [Int]
+    
+    func makeAsyncIterator() -> AsyncIterator {
+        return AsyncIterator(userIds: userIds)
+    }
+    
+    struct AsyncIterator: AsyncIteratorProtocol {
+        let userIds: [Int]
+        var index = 0
+        
+        mutating func next() async -> User? {
+            guard index < userIds.count else { return nil }
+            
+            let id = userIds[index]
+            index += 1
+            
+            do {
+                return try await fetchUserData(id: id)
+            } catch {
+                print("Failed to fetch user \(id):", error)
+                return nil
+            }
+        }
+    }
+}
+
+func processAsyncSequence() async {
+    // Process numbers
+    for await num in NumberGenerator(start: 1, end: 5) {
+        print("Number:", num)
+    }
+    
+    // Process user data
+    let userIds = [1, 2, 3, 4, 5]
+    for await user in UserDataGenerator(userIds: userIds) {
+        print("User:", user.name)
+    }
+}
+
+Task {
+    await processAsyncSequence()
+}
+```
+</UniversalEditor>
+
+## Advanced Concurrency
+
+### Continuations and Callback Integration
+
+<UniversalEditor title="Continuations" compare={true}>
+```javascript !! js
+// JavaScript: Promise-based callback integration
+function legacyCallbackFunction(callback) {
+    setTimeout(() => {
+        callback(null, "Data from callback");
+    }, 1000);
+}
+
+function promisifyCallback() {
+    return new Promise((resolve, reject) => {
+        legacyCallbackFunction((error, result) => {
+            if (error) {
+                reject(error);
+            } else {
+                resolve(result);
+            }
+        });
+    });
+}
+
+async function useLegacyFunction() {
+    try {
+        const result = await promisifyCallback();
+        console.log("Result:", result);
+    } catch (error) {
+        console.error("Error:", error);
+    }
+}
+
+useLegacyFunction();
+```
+
+```swift !! swift
+// Swift: Continuations for callback integration
+func legacyCallbackFunction(completion: @escaping (Result<String, Error>) -> Void) {
+    DispatchQueue.global().asyncAfter(deadline: .now() + 1.0) {
+        completion(.success("Data from callback"))
+    }
+}
+
+func useLegacyFunction() async throws -> String {
+    return try await withCheckedThrowingContinuation { continuation in
+        legacyCallbackFunction { result in
+            continuation.resume(with: result)
+        }
+    }
+}
+
+// Usage
+Task {
+    do {
+        let result = try await useLegacyFunction()
+        print("Result:", result)
+    } catch {
+        print("Error:", error)
+    }
+}
+```
+</UniversalEditor>
+
+### Custom Executors
+
+<UniversalEditor title="Custom Executors" compare={true}>
+```javascript !! js
+// JavaScript: Custom execution contexts
+class CustomExecutor {
+    constructor(concurrency = 1) {
+        this.queue = [];
+        this.running = 0;
+        this.concurrency = concurrency;
+    }
+    
+    async execute(task) {
+        return new Promise((resolve, reject) => {
+            this.queue.push({ task, resolve, reject });
+            this.processQueue();
+        });
+    }
+    
+    async processQueue() {
+        if (this.running >= this.concurrency || this.queue.length === 0) {
+            return;
+        }
+        
+        this.running++;
+        const { task, resolve, reject } = this.queue.shift();
+        
+        try {
+            const result = await task();
+            resolve(result);
+        } catch (error) {
+            reject(error);
+        } finally {
+            this.running--;
+            this.processQueue();
+        }
+    }
+}
+
+const executor = new CustomExecutor(2);
+
+async function runTasks() {
+    const tasks = [
+        () => new Promise(resolve => setTimeout(() => resolve("Task 1"), 1000)),
+        () => new Promise(resolve => setTimeout(() => resolve("Task 2"), 500)),
+        () => new Promise(resolve => setTimeout(() => resolve("Task 3"), 800))
+    ];
+    
+    const results = await Promise.all(tasks.map(task => executor.execute(task)));
+    console.log("Results:", results);
+}
+
+runTasks();
+```
+
+```swift !! swift
+// Swift: Custom executors with structured concurrency
+actor CustomExecutor {
+    private var queue: [(task: () async throws -> String, continuation: CheckedContinuation<String, Error>)] = []
+    private var running = 0
+    private let concurrency: Int
+    
+    init(concurrency: Int = 1) {
+        self.concurrency = concurrency
+    }
+    
+    func execute(_ task: @escaping () async throws -> String) async throws -> String {
+        return try await withCheckedThrowingContinuation { continuation in
+            queue.append((task, continuation))
+            Task {
+                await processQueue()
+            }
+        }
+    }
+    
+    private func processQueue() async {
+        guard running < concurrency, !queue.isEmpty else { return }
+        
+        running += 1
+        let (task, continuation) = queue.removeFirst()
+        
+        do {
+            let result = try await task()
+            continuation.resume(returning: result)
+        } catch {
+            continuation.resume(throwing: error)
+        }
+        
+        running -= 1
+        await processQueue()
+    }
+}
+
+let executor = CustomExecutor(concurrency: 2)
+
+func runTasks() async {
+    let tasks = [
+        { try await Task.sleep(nanoseconds: 1_000_000_000); return "Task 1" },
+        { try await Task.sleep(nanoseconds: 500_000_000); return "Task 2" },
+        { try await Task.sleep(nanoseconds: 800_000_000); return "Task 3" }
+    ]
+    
+    async let results = withTaskGroup(of: String.self) { group in
+        for task in tasks {
+            group.addTask {
+                try await executor.execute(task)
+            }
+        }
+        
+        var results: [String] = []
+        for await result in group {
+            results.append(result)
+        }
+        return results
+    }
+    
+    print("Results:", await results)
+}
+
+Task {
+    await runTasks()
+}
+```
+</UniversalEditor>
+
+## Exercises
+
+### Exercise 1: Concurrent Data Processing
+
+<UniversalEditor title="Exercise 1: Concurrent Data Processing" compare={true}>
+```javascript !! js
+// JavaScript solution
+class DataProcessor {
+    constructor(concurrency = 3) {
+        this.concurrency = concurrency;
+        this.semaphore = concurrency;
+    }
+    
+    async processItem(item) {
+        await this.acquireSemaphore();
+        try {
+            // Simulate processing
+            await new Promise(resolve => setTimeout(resolve, 100));
+            return `Processed: ${item}`;
+        } finally {
+            this.releaseSemaphore();
+        }
+    }
+    
+    async acquireSemaphore() {
+        while (this.semaphore <= 0) {
+            await new Promise(resolve => setTimeout(resolve, 10));
+        }
+        this.semaphore--;
+    }
+    
+    releaseSemaphore() {
+        this.semaphore++;
+    }
+    
+    async processBatch(items) {
+        const tasks = items.map(item => this.processItem(item));
+        return Promise.all(tasks);
+    }
+}
+
+async function processDataConcurrently() {
+    const processor = new DataProcessor(3);
+    const items = Array.from({ length: 10 }, (_, i) => `Item ${i + 1}`);
+    
+    console.log("Starting concurrent processing...");
+    const start = Date.now();
+    
+    const results = await processor.processBatch(items);
+    
+    const duration = Date.now() - start;
+    console.log(`Processing completed in ${duration}ms`);
+    console.log("Results:", results);
+}
+
+processDataConcurrently();
+```
+
+```swift !! swift
+// Swift solution
+actor DataProcessor {
+    private var semaphore: Int
+    private let maxConcurrency: Int
+    
+    init(concurrency: Int = 3) {
+        self.maxConcurrency = concurrency
+        self.semaphore = concurrency
+    }
+    
+    func processItem(_ item: String) async -> String {
+        await acquireSemaphore()
+        defer { Task { await releaseSemaphore() } }
+        
+        // Simulate processing
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        return "Processed: \(item)"
+    }
+    
+    private func acquireSemaphore() async {
+        while semaphore <= 0 {
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+        semaphore -= 1
+    }
+    
+    private func releaseSemaphore() {
+        semaphore += 1
+    }
+    
+    func processBatch(_ items: [String]) async -> [String] {
+        await withTaskGroup(of: String.self) { group in
+            for item in items {
+                group.addTask {
+                    await self.processItem(item)
+                }
+            }
+            
+            var results: [String] = []
+            for await result in group {
+                results.append(result)
+            }
+            return results
+        }
+    }
+}
+
+func processDataConcurrently() async {
+    let processor = DataProcessor(concurrency: 3)
+    let items = (1...10).map { "Item \($0)" }
+    
+    print("Starting concurrent processing...")
+    let start = Date()
+    
+    let results = await processor.processBatch(items)
+    
+    let duration = Date().timeIntervalSince(start) * 1000
+    print("Processing completed in \(Int(duration))ms")
+    print("Results:", results)
+}
+
+Task {
+    await processDataConcurrently()
+}
+```
+</UniversalEditor>
+
+### Exercise 2: Real-time Data Stream Processing
+
+<UniversalEditor title="Exercise 2: Real-time Data Stream" compare={true}>
+```javascript !! js
+// JavaScript solution
+class DataStream {
+    constructor() {
+        this.subscribers = new Set();
+        this.isRunning = false;
+    }
+    
+    subscribe(callback) {
+        this.subscribers.add(callback);
+        return () => this.subscribers.delete(callback);
+    }
+    
+    async start() {
+        this.isRunning = true;
+        let counter = 0;
+        
+        while (this.isRunning) {
+            const data = { id: counter++, timestamp: Date.now(), value: Math.random() };
+            
+            // Notify all subscribers
+            const promises = Array.from(this.subscribers).map(callback => 
+                callback(data).catch(error => console.error("Subscriber error:", error))
+            );
+            
+            await Promise.all(promises);
+            await new Promise(resolve => setTimeout(resolve, 100));
+        }
+    }
+    
+    stop() {
+        this.isRunning = false;
+    }
+}
+
+class DataProcessor {
+    constructor() {
+        this.processedCount = 0;
+    }
+    
+    async process(data) {
+        await new Promise(resolve => setTimeout(resolve, 50));
+        this.processedCount++;
+        
+        if (data.value > 0.8) {
+            console.log(`High value detected: ${data.value}`);
+        }
+        
+        return `Processed ${this.processedCount}: ${data.value}`;
+    }
+    
+    getStats() {
+        return { processedCount: this.processedCount };
+    }
+}
+
+async function runDataStream() {
+    const stream = new DataStream();
+    const processor = new DataProcessor();
+    
+    // Subscribe to stream
+    const unsubscribe = stream.subscribe(async (data) => {
+        const result = await processor.process(data);
+        console.log(result);
+    });
+    
+    // Start stream
+    const streamTask = stream.start();
+    
+    // Stop after 2 seconds
+    setTimeout(() => {
+        stream.stop();
+        console.log("Final stats:", processor.getStats());
+    }, 2000);
+    
+    await streamTask;
+}
+
+runDataStream();
+```
+
+```swift !! swift
+// Swift solution
+actor DataStream {
+    private var subscribers: [(Data) async -> Void] = []
+    private var isRunning = false
+    
+    func subscribe(_ callback: @escaping (Data) async -> Void) {
+        subscribers.append(callback)
+    }
+    
+    func start() async {
+        isRunning = true
+        var counter = 0
+        
+        while isRunning {
+            let data = Data(id: counter, timestamp: Date(), value: Double.random())
+            counter += 1
+            
+            // Notify all subscribers
+            await withTaskGroup(of: Void.self) { group in
+                for subscriber in subscribers {
+                    group.addTask {
+                        await subscriber(data)
+                    }
+                }
+            }
+            
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
+    }
+    
+    func stop() {
+        isRunning = false
+    }
+}
+
+struct Data {
+    let id: Int
+    let timestamp: Date
+    let value: Double
+}
+
+actor DataProcessor {
+    private var processedCount = 0
+    
+    func process(_ data: Data) async -> String {
+        try? await Task.sleep(nanoseconds: 50_000_000)
+        processedCount += 1
+        
+        if data.value > 0.8 {
+            print("High value detected: \(data.value)")
+        }
+        
+        return "Processed \(processedCount): \(data.value)"
+    }
+    
+    func getStats() -> (processedCount: Int) {
+        return (processedCount: processedCount)
+    }
+}
+
+func runDataStream() async {
+    let stream = DataStream()
+    let processor = DataProcessor()
+    
+    // Subscribe to stream
+    await stream.subscribe { data in
+        let result = await processor.process(data)
+        print(result)
+    }
+    
+    // Start stream
+    async let streamTask = stream.start()
+    
+    // Stop after 2 seconds
+    try? await Task.sleep(nanoseconds: 2_000_000_000)
+    await stream.stop()
+    
+    let stats = await processor.getStats()
+    print("Final stats:", stats)
+    
+    await streamTask
+}
+
+Task {
+    await runDataStream()
+}
+```
+</UniversalEditor>
+
+## Key Takeaways
+
+### Swift Concurrency Advantages
+1. **Structured Concurrency**: Automatic task lifecycle management
+2. **Data Race Prevention**: Actors provide compile-time safety
+3. **Cancellation**: Built-in cancellation support
+4. **Performance**: Efficient task scheduling and execution
+5. **Memory Safety**: Automatic memory management for concurrent code
+6. **Integration**: Seamless integration with existing code
+
+### Key Differences from JavaScript
+1. **Task Management**: Structured vs manual task management
+2. **Data Safety**: Actors vs manual synchronization
+3. **Cancellation**: Automatic vs manual cancellation
+4. **Performance**: Native vs event loop-based execution
+5. **Memory Safety**: Compile-time vs runtime safety
+6. **Integration**: Native vs callback-based integration
+
+### Best Practices
+1. **Use structured concurrency** for task management
+2. **Leverage actors** for shared mutable state
+3. **Implement proper cancellation** in long-running tasks
+4. **Use task groups** for concurrent operations
+5. **Prefer async sequences** for data streams
+6. **Handle errors appropriately** in concurrent code
+
+### Next Steps
+In the next module, we'll explore Swift's memory management and performance optimization techniques, including ARC, value types, and performance profiling, comparing them with JavaScript's garbage collection and optimization strategies. 
