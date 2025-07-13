@@ -1,0 +1,521 @@
+# 模組 15：Swift 風格指南
+
+## 概述
+
+本模組涵蓋 Swift 特定的慣用法、最佳實踐和編碼約定，幫助你編寫更符合 Swift 風格且高效的程式碼。理解這些模式將使你的 Swift 程式碼更易讀、更易維護且效能更優。
+
+## 學習目標
+
+- 學習 Swift 特定的慣用法和模式
+- 理解 Swift 編碼約定和風格指南
+- 掌握 Swift 效能和可讀性的最佳實踐
+- 應用 Swift 特定的設計模式
+- 編寫符合 Swift 風格的程式碼
+
+---
+
+## 15.1 Swift 命名約定
+
+### 15.1.1 變數和函數命名
+
+**JavaScript 風格**
+```javascript
+// JavaScript 使用 camelCase
+const userName = "John";
+const userAge = 25;
+const isActive = true;
+
+function getUserData() { }
+function processUserInput() { }
+```
+
+**Swift 風格**
+```swift
+// Swift 使用 camelCase 但有不同的約定
+let userName = "John"
+let userAge = 25
+let isActive = true
+
+func getUserData() { }
+func processUserInput() { }
+
+// Swift 偏好描述性名稱
+let numberOfItems = 10 // 不是 numItems
+let maximumValue = 100 // 不是 maxVal
+```
+
+### 15.1.2 類型命名
+
+**JavaScript**
+```javascript
+// JavaScript 使用 PascalCase 命名類
+class UserProfile { }
+class DataProcessor { }
+```
+
+**Swift**
+```swift
+// Swift 使用 PascalCase 命名類型
+struct UserProfile { }
+class DataProcessor { }
+enum NetworkError { }
+protocol DataSource { }
+```
+
+---
+
+## 15.2 Swift 慣用法
+
+### 15.2.1 可選綁定
+
+**JavaScript（空值檢查）**
+```javascript
+function processUser(user) {
+    if (user && user.name) {
+        console.log(user.name);
+        return user.name.length;
+    }
+    return 0;
+}
+```
+
+**Swift（可選綁定）**
+```swift
+func processUser(_ user: User?) -> Int {
+    guard let user = user, let name = user.name else {
+        return 0
+    }
+    print(name)
+    return name.count
+}
+
+// 使用 if let 的替代方案
+func processUser(_ user: User?) -> Int {
+    if let user = user, let name = user.name {
+        print(name)
+        return name.count
+    }
+    return 0
+}
+```
+
+### 15.2.2 集合操作
+
+**JavaScript**
+```javascript
+const numbers = [1, 2, 3, 4, 5];
+const doubled = numbers.map(x => x * 2);
+const filtered = numbers.filter(x => x > 2);
+const sum = numbers.reduce((acc, x) => acc + x, 0);
+```
+
+**Swift**
+```swift
+let numbers = [1, 2, 3, 4, 5]
+let doubled = numbers.map { $0 * 2 }
+let filtered = numbers.filter { $0 > 2 }
+let sum = numbers.reduce(0, +)
+
+// Swift 特有：compactMap 處理可選類型
+let optionalNumbers = ["1", "2", "abc", "3"]
+let validNumbers = optionalNumbers.compactMap { Int($0) }
+```
+
+---
+
+## 15.3 Swift 特定模式
+
+### 15.3.1 屬性觀察器
+
+**JavaScript（Getters/Setters）**
+```javascript
+class User {
+    constructor() {
+        this._name = '';
+    }
+    
+    get name() {
+        return this._name;
+    }
+    
+    set name(value) {
+        this._name = value;
+        this.updateDisplay();
+    }
+}
+```
+
+**Swift（屬性觀察器）**
+```swift
+class User {
+    var name: String = "" {
+        didSet {
+            updateDisplay()
+        }
+        willSet {
+            print("正在將名稱從 \(name) 更改為 \(newValue)")
+        }
+    }
+}
+```
+
+### 15.3.2 計算屬性
+
+**JavaScript**
+```javascript
+class Rectangle {
+    constructor(width, height) {
+        this.width = width;
+        this.height = height;
+    }
+    
+    get area() {
+        return this.width * this.height;
+    }
+}
+```
+
+**Swift**
+```swift
+struct Rectangle {
+    let width: Double
+    let height: Double
+    
+    var area: Double {
+        return width * height
+    }
+    
+    // 唯讀計算屬性
+    var isSquare: Bool {
+        return width == height
+    }
+}
+```
+
+---
+
+## 15.4 錯誤處理模式
+
+### 15.4.1 自定義錯誤類型
+
+**JavaScript**
+```javascript
+class ValidationError extends Error {
+    constructor(message, field) {
+        super(message);
+        this.name = 'ValidationError';
+        this.field = field;
+    }
+}
+```
+
+**Swift**
+```swift
+enum ValidationError: Error {
+    case invalidEmail(String)
+    case invalidAge(Int)
+    case missingField(String)
+    
+    var localizedDescription: String {
+        switch self {
+        case .invalidEmail(let email):
+            return "郵箱格式無效: \(email)"
+        case .invalidAge(let age):
+            return "年齡必須為正數，得到: \(age)"
+        case .missingField(let field):
+            return "缺少必需欄位: \(field)"
+        }
+    }
+}
+```
+
+### 15.4.2 Result 類型
+
+**JavaScript（基於 Promise）**
+```javascript
+async function fetchUser(id) {
+    try {
+        const response = await fetch(`/api/users/${id}`);
+        if (!response.ok) {
+            throw new Error('User not found');
+        }
+        return await response.json();
+    } catch (error) {
+        throw error;
+    }
+}
+```
+
+**Swift（Result 類型）**
+```swift
+func fetchUser(id: Int) async -> Result<User, NetworkError> {
+    do {
+        let url = URL(string: "https://api.example.com/users/\(id)")!
+        let (data, response) = try await URLSession.shared.data(from: url)
+        
+        guard let httpResponse = response as? HTTPURLResponse,
+              httpResponse.statusCode == 200 else {
+            return .failure(.invalidResponse)
+        }
+        
+        let user = try JSONDecoder().decode(User.self, from: data)
+        return .success(user)
+    } catch {
+        return .failure(.networkError(error))
+    }
+}
+```
+
+---
+
+## 15.5 效能最佳實踐
+
+### 15.5.1 值類型 vs 引用類型
+
+**Swift（優先使用結構體）**
+```swift
+// ✅ 好：對簡單資料使用結構體
+struct Point {
+    var x: Double
+    var y: Double
+}
+
+// ✅ 好：對複雜行為使用類
+class DataManager {
+    private var cache: [String: Any] = [:]
+    
+    func getData(for key: String) -> Any? {
+        return cache[key]
+    }
+}
+```
+
+### 15.5.2 懶載入屬性
+
+**Swift**
+```swift
+class ExpensiveObject {
+    lazy var expensiveComputation: String = {
+        // 只在首次存取時計算
+        return performExpensiveOperation()
+    }()
+    
+    private func performExpensiveOperation() -> String {
+        // 模擬昂貴操作
+        return "計算結果"
+    }
+}
+```
+
+---
+
+## 15.6 Swift 特定功能
+
+### 15.6.1 擴展
+
+**Swift**
+```swift
+// 擴展現有類型
+extension String {
+    var isEmail: Bool {
+        let emailRegex = "[A-Z0-9a-z._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,64}"
+        return NSPredicate(format: "SELF MATCHES %@", emailRegex).evaluate(with: self)
+    }
+    
+    func truncated(to length: Int) -> String {
+        return count > length ? String(prefix(length)) + "..." : self
+    }
+}
+
+// 使用擴展實現協議
+extension User: Equatable {
+    static func == (lhs: User, rhs: User) -> Bool {
+        return lhs.id == rhs.id
+    }
+}
+```
+
+### 15.6.2 帶約束的泛型
+
+**Swift**
+```swift
+// 帶約束的泛型函數
+func findMax<T: Comparable>(_ items: [T]) -> T? {
+    return items.max()
+}
+
+// 帶多個約束的泛型類型
+struct Cache<Key: Hashable, Value> {
+    private var storage: [Key: Value] = [:]
+    
+    mutating func set(_ value: Value, for key: Key) {
+        storage[key] = value
+    }
+    
+    func get(_ key: Key) -> Value? {
+        return storage[key]
+    }
+}
+```
+
+---
+
+## 15.7 程式碼組織
+
+### 15.7.1 檔案結構
+
+**Swift 檔案組織**
+```swift
+// 1. 匯入
+import Foundation
+import UIKit
+
+// 2. 協議定義
+protocol DataSource {
+    func fetchData() async throws -> [String]
+}
+
+// 3. 主類型定義
+class DataManager: DataSource {
+    // MARK: - 屬性
+    private let cache = NSCache<NSString, NSArray>()
+    
+    // MARK: - 初始化
+    init() {
+        setupCache()
+    }
+    
+    // MARK: - 公共方法
+    func fetchData() async throws -> [String] {
+        // 實現
+        return []
+    }
+    
+    // MARK: - 私有方法
+    private func setupCache() {
+        cache.countLimit = 100
+    }
+}
+```
+
+### 15.7.2 存取控制
+
+**Swift**
+```swift
+public class PublicAPI {
+    public init() { }
+    
+    public func publicMethod() { }
+    
+    internal func internalMethod() { }
+    
+    private func privateMethod() { }
+}
+
+// 檔案私有存取
+fileprivate struct InternalHelper {
+    func helperMethod() { }
+}
+```
+
+---
+
+## 15.8 文件
+
+### 15.8.1 Swift 文件註釋
+
+**Swift**
+```swift
+/// 系統中的用戶
+struct User {
+    /// 用戶的唯一識別碼
+    let id: UUID
+    
+    /// 用戶的顯示名稱
+    var name: String
+    
+    /// 用戶的郵箱地址
+    var email: String
+    
+    /// 使用指定資訊建立新用戶
+    /// - Parameters:
+    ///   - name: 用戶的顯示名稱
+    ///   - email: 用戶的郵箱地址
+    /// - Returns: 新的 User 實例
+    init(name: String, email: String) {
+        self.id = UUID()
+        self.name = name
+        self.email = email
+    }
+    
+    /// 驗證用戶的郵箱地址
+    /// - Returns: 如果郵箱有效返回 `true`，否則返回 `false`
+    func validateEmail() -> Bool {
+        return email.contains("@")
+    }
+}
+```
+
+---
+
+## 15.9 練習
+
+### 練習 1：Swift 慣用法
+將這個 JavaScript 程式碼轉換為使用 Swift 慣用法：
+
+```javascript
+function processUsers(users) {
+    const validUsers = users.filter(user => user && user.name);
+    const names = validUsers.map(user => user.name);
+    const uniqueNames = [...new Set(names)];
+    return uniqueNames.sort();
+}
+```
+
+### 練習 2：錯誤處理
+建立一個演示正確錯誤處理的 Swift 函數：
+
+```swift
+// 建立一個讀取檔案並解析 JSON 的函數
+// 使用正確的錯誤類型和 Result 類型
+```
+
+### 練習 3：屬性觀察器
+建立一個使用屬性觀察器驗證資料的 Swift 類：
+
+```swift
+// 建立一個帶有屬性觀察器的 User 類
+// 設定郵箱時驗證郵箱格式
+// 記錄名稱屬性的更改
+```
+
+---
+
+## 15.10 關鍵要點
+
+- **命名**：使用描述性名稱並遵循 Swift 約定
+- **可選類型**：始終安全處理可選類型並使用可選綁定
+- **值類型**：盡可能優先使用結構體而不是類
+- **擴展**：使用擴展組織程式碼並新增功能
+- **錯誤處理**：正確使用 Swift 的錯誤處理系統
+- **文件**：使用 Swift 文件註釋記錄程式碼
+- **效能**：使用懶載入屬性和值類型獲得更好效能
+
+---
+
+## 15.11 Swift 風格檢查清單
+
+- [ ] 變數和函數使用 camelCase
+- [ ] 類型使用 PascalCase
+- [ ] 安全處理可選類型
+- [ ] 使用 guard 語句進行早期返回
+- [ ] 盡可能優先使用結構體而不是類
+- [ ] 使用擴展組織程式碼
+- [ ] 記錄公共 API
+- [ ] 使用適當的存取控制
+- [ ] 遵循 Swift 命名約定
+- [ ] 適當使用 Swift 特定功能
+
+---
+
+恭喜！你已經完成了 JavaScript 到 Swift 的學習路徑。你現在對 Swift 開發有了堅實的基礎，並理解了 JavaScript 和 Swift 之間的關鍵差異和相似之處。 

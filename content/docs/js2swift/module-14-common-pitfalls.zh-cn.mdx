@@ -1,0 +1,452 @@
+# 模块 14：常见陷阱
+
+## 概述
+
+从 JavaScript 转向 Swift 时，开发者经常会遇到特定的陷阱和误解。本模块识别最常见的问题并提供解决方案，帮助你避免这些陷阱。
+
+## 学习目标
+
+- 识别从 JavaScript 转换到 Swift 时的常见陷阱
+- 理解 Swift 的类型系统和内存管理
+- 学习错误处理的最佳实践
+- 避免常见的语法和语义错误
+- 培养 Swift 特定的思维方式
+
+---
+
+## 14.1 类型系统陷阱
+
+### 14.1.1 可选类型处理
+
+**JavaScript（有问题）**
+```javascript
+// JavaScript 允许 undefined/null 而不需要显式处理
+function processUser(user) {
+    return user.name; // 可能是 undefined
+}
+```
+
+**Swift（正确）**
+```swift
+// Swift 需要显式处理可选类型
+func processUser(_ user: User?) -> String? {
+    return user?.name // 安全的可选链
+}
+
+// 或者强制解包（危险）
+func processUser(_ user: User?) -> String {
+    return user!.name // 如果 user 是 nil 会崩溃
+}
+
+// 最佳实践：使用 guard 或 if let
+func processUser(_ user: User?) -> String {
+    guard let user = user else {
+        return "未知用户"
+    }
+    return user.name
+}
+```
+
+### 14.1.2 类型推断 vs 显式类型
+
+**JavaScript**
+```javascript
+// JavaScript 是动态类型
+let value = 42; // number
+value = "hello"; // string - 允许
+```
+
+**Swift**
+```swift
+// Swift 是静态类型
+var value = 42 // Int
+// value = "hello" // 编译错误
+var value2: Any = 42
+value2 = "hello" // 需要显式的 Any 类型
+```
+
+---
+
+## 14.2 内存管理问题
+
+### 14.2.1 循环引用
+
+**JavaScript（自动垃圾回收）**
+```javascript
+// JavaScript 自动处理内存
+class Parent {
+    constructor() {
+        this.child = null;
+    }
+}
+
+class Child {
+    constructor(parent) {
+        this.parent = parent; // 没有内存问题
+    }
+}
+```
+
+**Swift（ARC）**
+```swift
+// Swift 需要仔细管理内存
+class Parent {
+    var child: Child?
+    
+    deinit {
+        print("Parent 已释放")
+    }
+}
+
+class Child {
+    weak var parent: Parent? // 使用 weak 避免循环引用
+    
+    deinit {
+        print("Child 已释放")
+    }
+}
+```
+
+### 14.2.2 值类型 vs 引用类型
+
+**JavaScript（一切都是引用）**
+```javascript
+// JavaScript 对象总是引用
+let obj1 = { name: "John" };
+let obj2 = obj1;
+obj2.name = "Jane";
+console.log(obj1.name); // "Jane" - 都指向同一个对象
+```
+
+**Swift（默认值类型）**
+```swift
+// Swift 结构体是值类型
+struct Person {
+    var name: String
+}
+
+var person1 = Person(name: "John")
+var person2 = person1
+person2.name = "Jane"
+print(person1.name) // "John" - 不同的副本
+
+// 类是引用类型
+class PersonClass {
+    var name: String
+    
+    init(name: String) {
+        self.name = name
+    }
+}
+
+var person3 = PersonClass(name: "John")
+var person4 = person3
+person4.name = "Jane"
+print(person3.name) // "Jane" - 同一个引用
+```
+
+---
+
+## 14.3 错误处理差异
+
+### 14.3.1 Try-Catch vs Do-Catch
+
+**JavaScript**
+```javascript
+try {
+    const result = riskyOperation();
+    console.log(result);
+} catch (error) {
+    console.error("错误:", error.message);
+}
+```
+
+**Swift**
+```swift
+do {
+    let result = try riskyOperation()
+    print(result)
+} catch {
+    print("错误: \(error)")
+}
+
+// 或者使用 try? 获得可选结果
+if let result = try? riskyOperation() {
+    print(result)
+}
+```
+
+### 14.3.2 错误传播
+
+**JavaScript**
+```javascript
+function processData() {
+    try {
+        return parseData();
+    } catch (error) {
+        throw new Error("处理失败: " + error.message);
+    }
+}
+```
+
+**Swift**
+```swift
+func processData() throws -> String {
+    do {
+        return try parseData()
+    } catch {
+        throw ProcessingError.failed(underlying: error)
+    }
+}
+```
+
+---
+
+## 14.4 集合和数组差异
+
+### 14.4.1 可变性
+
+**JavaScript**
+```javascript
+// JavaScript 数组总是可变的
+const arr = [1, 2, 3];
+arr.push(4); // 即使使用 const 也能工作
+```
+
+**Swift**
+```swift
+// Swift 数组可以是不可变的
+let arr = [1, 2, 3]
+// arr.append(4) // 编译错误
+
+var mutableArr = [1, 2, 3]
+mutableArr.append(4) // 可以工作
+```
+
+### 14.4.2 数组方法
+
+**JavaScript**
+```javascript
+// JavaScript 数组方法
+const numbers = [1, 2, 3, 4, 5];
+const doubled = numbers.map(x => x * 2);
+const filtered = numbers.filter(x => x > 2);
+```
+
+**Swift**
+```swift
+// Swift 数组方法
+let numbers = [1, 2, 3, 4, 5]
+let doubled = numbers.map { $0 * 2 }
+let filtered = numbers.filter { $0 > 2 }
+```
+
+---
+
+## 14.5 函数和闭包差异
+
+### 14.5.1 函数签名
+
+**JavaScript**
+```javascript
+// JavaScript 函数很灵活
+function add(a, b) {
+    return a + b;
+}
+
+add(1, 2); // 3
+add("1", "2"); // "12"
+```
+
+**Swift**
+```swift
+// Swift 函数是类型安全的
+func add(_ a: Int, _ b: Int) -> Int {
+    return a + b
+}
+
+add(1, 2) // 3
+// add("1", "2") // 编译错误
+```
+
+### 14.5.2 闭包 vs 箭头函数
+
+**JavaScript**
+```javascript
+// JavaScript 箭头函数
+const multiply = (a, b) => a * b;
+const numbers = [1, 2, 3];
+const doubled = numbers.map(x => x * 2);
+```
+
+**Swift**
+```swift
+// Swift 闭包
+let multiply: (Int, Int) -> Int = { a, b in a * b }
+let numbers = [1, 2, 3]
+let doubled = numbers.map { $0 * 2 }
+```
+
+---
+
+## 14.6 常见语法错误
+
+### 14.6.1 分号
+
+**JavaScript**
+```javascript
+// JavaScript 分号是可选的但推荐使用
+let x = 1
+let y = 2;
+```
+
+**Swift**
+```swift
+// Swift 不使用分号（除非一行多个语句）
+let x = 1
+let y = 2
+let z = 3; let w = 4 // 只在需要时使用
+```
+
+### 14.6.2 变量声明
+
+**JavaScript**
+```javascript
+// JavaScript 变量声明
+var oldWay = "已弃用";
+let modernWay = "推荐";
+const constant = "不可变";
+```
+
+**Swift**
+```swift
+// Swift 变量声明
+var mutable = "可以改变"
+let constant = "不能改变"
+```
+
+---
+
+## 14.7 避免陷阱的最佳实践
+
+### 14.7.1 始终安全处理可选类型
+
+```swift
+// ❌ 错误 - 强制解包
+let name = user!.name
+
+// ✅ 正确 - 安全解包
+if let name = user?.name {
+    print(name)
+}
+
+// ✅ 更好 - Guard 语句
+guard let name = user?.name else {
+    return
+}
+print(name)
+```
+
+### 14.7.2 使用强类型系统
+
+```swift
+// ❌ 错误 - 使用 Any
+var data: Any = 42
+data = "hello"
+
+// ✅ 正确 - 具体类型
+var number: Int = 42
+var text: String = "hello"
+```
+
+### 14.7.3 正确的错误处理
+
+```swift
+// ❌ 错误 - 忽略错误
+let _ = try? riskyOperation()
+
+// ✅ 正确 - 适当处理错误
+do {
+    let result = try riskyOperation()
+    // 使用结果
+} catch {
+    // 适当处理错误
+    print("错误: \(error)")
+}
+```
+
+---
+
+## 14.8 练习
+
+### 练习 1：可选类型处理
+将这个 JavaScript 代码转换为 Swift，并正确处理可选类型：
+
+```javascript
+function getUserName(user) {
+    if (user && user.profile && user.profile.name) {
+        return user.profile.name;
+    }
+    return "Unknown";
+}
+```
+
+### 练习 2：错误处理
+将这个 JavaScript 错误处理转换为 Swift：
+
+```javascript
+function processFile(filename) {
+    try {
+        const content = readFile(filename);
+        return parseContent(content);
+    } catch (error) {
+        if (error.code === 'ENOENT') {
+            throw new Error('File not found');
+        }
+        throw error;
+    }
+}
+```
+
+### 练习 3：内存管理
+识别这个 Swift 代码中潜在的内存泄漏并修复：
+
+```swift
+class ViewController {
+    var dataManager: DataManager?
+    
+    func setup() {
+        dataManager = DataManager()
+        dataManager?.delegate = self
+    }
+}
+
+class DataManager {
+    var delegate: ViewController?
+}
+```
+
+---
+
+## 14.9 关键要点
+
+- **类型安全**：Swift 的类型系统防止许多运行时错误
+- **内存管理**：理解 ARC 并避免循环引用
+- **可选类型**：始终安全处理可选类型
+- **错误处理**：正确使用 Swift 的错误处理系统
+- **值类型**：尽可能优先使用结构体而不是类
+- **不可变性**：默认使用 `let`，需要时使用 `var`
+
+---
+
+## 14.10 常见调试技巧
+
+1. **使用 Xcode 调试器**：设置断点并检查变量
+2. **打印调试**：使用 `print()` 和 `debugPrint()`
+3. **断言**：使用 `assert()` 和 `precondition()` 进行调试
+4. **类型检查**：使用 `type(of:)` 在运行时检查类型
+5. **内存调试**：使用 Instruments 检测内存泄漏
+
+---
+
+在下一个模块中，我们将探索 Swift 特定的惯用法和最佳实践，让你的代码更符合 Swift 风格且更高效。 

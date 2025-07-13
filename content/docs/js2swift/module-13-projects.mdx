@@ -1,0 +1,272 @@
+# Module 13: Project Practice - Cross-Platform Todo List
+
+## Overview
+
+In this module, you will build a cross-platform Todo List application using both JavaScript and Swift. This project will help you understand how to structure real-world applications, manage state, handle user input, and persist data in both languages. You will also see how asynchronous operations and UI updates differ between JavaScript (React) and Swift (SwiftUI).
+
+## Learning Objectives
+
+- Design and implement a Todo List app in both JavaScript and Swift
+- Compare data modeling, UI, and state management
+- Handle asynchronous operations and data persistence
+- Apply best practices for error handling and performance
+- Practice cross-language engineering thinking
+
+---
+
+## 13.1 Data Model Design
+
+### JavaScript (React)
+<CodeEditor
+  title="JS: Todo Model"
+  description="A simple Todo model in JavaScript (TypeScript)"
+  code={`
+// TypeScript interface for a Todo item
+export interface Todo {
+  id: string;
+  text: string;
+  completed: boolean;
+  createdAt: number;
+}
+`}
+  language="typescript"
+/>
+
+### Swift
+<CodeEditor
+  title="Swift: Todo Model"
+  description="A simple Todo model in Swift"
+  code={`
+import Foundation
+
+struct Todo: Identifiable, Codable {
+    let id: UUID
+    var text: String
+    var completed: Bool
+    let createdAt: Date
+}
+`}
+  language="swift"
+/>
+
+---
+
+## 13.2 UI and State Management
+
+### JavaScript (React)
+<CodeEditor
+  title="JS: Todo List Component"
+  description="React functional component for Todo List"
+  code={`
+import React, { useState } from 'react';
+import { Todo } from './TodoModel';
+
+export function TodoList() {
+  const [todos, setTodos] = useState<Todo[]>([]);
+  const [input, setInput] = useState('');
+
+  function addTodo() {
+    if (!input.trim()) return;
+    setTodos([
+      ...todos,
+      {
+        id: Date.now().toString(),
+        text: input,
+        completed: false,
+        createdAt: Date.now(),
+      },
+    ]);
+    setInput('');
+  }
+
+  function toggleTodo(id: string) {
+    setTodos(todos =>
+      todos.map(todo =>
+        todo.id === id ? { ...todo, completed: !todo.completed } : todo
+      )
+    );
+  }
+
+  return (
+    <div>
+      <input value={input} onChange={e => setInput(e.target.value)} />
+      <button onClick={addTodo}>Add</button>
+      <ul>
+        {todos.map(todo => (
+          <li key={todo.id}>
+            <label>
+              <input
+                type="checkbox"
+                checked={todo.completed}
+                onChange={() => toggleTodo(todo.id)}
+              />
+              {todo.text}
+            </label>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+`}
+  language="typescript"
+/>
+
+### Swift (SwiftUI)
+<CodeEditor
+  title="Swift: Todo List View"
+  description="SwiftUI view for Todo List"
+  code={`
+import SwiftUI
+
+struct TodoListView: View {
+    @State private var todos: [Todo] = []
+    @State private var input: String = ""
+
+    var body: some View {
+        VStack {
+            HStack {
+                TextField("Enter todo", text: $input)
+                Button("Add") {
+                    guard !input.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+                    todos.append(Todo(id: UUID(), text: input, completed: false, createdAt: Date()))
+                    input = ""
+                }
+            }
+            List {
+                ForEach($todos) { $todo in
+                    HStack {
+                        Button(action: { todo.completed.toggle() }) {
+                            Image(systemName: todo.completed ? "checkmark.square" : "square")
+                        }
+                        Text(todo.text)
+                    }
+                }
+            }
+        }
+        .padding()
+    }
+}
+`}
+  language="swift"
+/>
+
+---
+
+## 13.3 Data Persistence
+
+### JavaScript (LocalStorage)
+<CodeEditor
+  title="JS: Persist Todos"
+  description="Persist todos using localStorage"
+  code={`
+import { useEffect } from 'react';
+
+function usePersistedTodos() {
+  const [todos, setTodos] = React.useState<Todo[]>(() => {
+    const saved = localStorage.getItem('todos');
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  useEffect(() => {
+    localStorage.setItem('todos', JSON.stringify(todos));
+  }, [todos]);
+
+  return [todos, setTodos] as const;
+}
+`}
+  language="typescript"
+/>
+
+### Swift (UserDefaults)
+<CodeEditor
+  title="Swift: Persist Todos"
+  description="Persist todos using UserDefaults"
+  code={`
+extension Array where Element == Todo {
+    func saveToUserDefaults() {
+        if let data = try? JSONEncoder().encode(self) {
+            UserDefaults.standard.set(data, forKey: "todos")
+        }
+    }
+
+    static func loadFromUserDefaults() -> [Todo] {
+        if let data = UserDefaults.standard.data(forKey: "todos"),
+           let todos = try? JSONDecoder().decode([Todo].self, from: data) {
+            return todos
+        }
+        return []
+    }
+}
+`}
+  language="swift"
+/>
+
+---
+
+## 13.4 Async Operations (Simulated)
+
+### JavaScript (Async/Await)
+<CodeEditor
+  title="JS: Simulate Async Save"
+  description="Simulate async save with Promise"
+  code={`
+function saveTodosAsync(todos) {
+  return new Promise(resolve => {
+    setTimeout(() => {
+      localStorage.setItem('todos', JSON.stringify(todos));
+      resolve();
+    }, 500);
+  });
+}
+`}
+  language="typescript"
+/>
+
+### Swift (Async/Await)
+<CodeEditor
+  title="Swift: Simulate Async Save"
+  description="Simulate async save with Task.sleep"
+  code={`
+func saveTodosAsync(_ todos: [Todo]) async {
+    try? await Task.sleep(nanoseconds: 500_000_000)
+    if let data = try? JSONEncoder().encode(todos) {
+        UserDefaults.standard.set(data, forKey: "todos")
+    }
+}
+`}
+  language="swift"
+/>
+
+---
+
+## 13.5 Error Handling & Best Practices
+
+- Always validate user input before saving
+- Handle errors gracefully (try/catch in JS, do/catch in Swift)
+- Use type-safe models and avoid force unwrapping in Swift
+- Keep UI responsive during async operations
+- Persist data after every change
+
+---
+
+## 13.6 Exercises
+
+1. **Add Edit and Delete Functionality**: Implement editing and deleting todos in both JS and Swift.
+2. **Add Filtering**: Add a filter to show all, completed, or active todos.
+3. **Sync with Cloud**: (Advanced) Simulate syncing todos with a remote server using async/await.
+4. **Performance**: Profile and optimize the list rendering for large todo lists.
+
+---
+
+## 13.7 Key Takeaways
+
+- Real-world apps require careful state and data management
+- SwiftUI and React have similar declarative paradigms but differ in syntax and data flow
+- Async/await patterns are available in both languages
+- Data persistence is platform-specific but conceptually similar
+- Error handling and user experience are critical for robust apps
+
+---
+
+In the next module, we will discuss common pitfalls and best practices when translating between JavaScript and Swift. 

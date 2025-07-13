@@ -1,0 +1,914 @@
+# 模块 12: 高级特性
+
+## 概述
+
+在掌握了 Swift 的基础概念后，让我们深入探索一些高级特性，这些特性让 Swift 成为一个强大而灵活的编程语言。我们将学习泛型、协议关联类型、属性包装器、宏等高级概念。
+
+## 学习目标
+
+- 理解泛型的概念和用法
+- 掌握协议关联类型
+- 学习属性包装器的使用
+- 了解 Swift 宏系统
+- 掌握元编程技巧
+- 理解高级类型系统特性
+
+## 12.1 泛型 (Generics)
+
+### 12.1.1 基础泛型
+
+泛型允许我们编写可以处理多种类型的代码，而不需要为每种类型编写重复的代码。
+
+<CodeEditor
+  title="基础泛型对比"
+  description="展示 JavaScript 和 Swift 中泛型的基本用法"
+  code={`
+// JavaScript - 使用 TypeScript 泛型
+function identity<T>(arg: T): T {
+    return arg;
+}
+
+// 使用泛型函数
+const num = identity<number>(42);
+const str = identity<string>("hello");
+
+// 泛型接口
+interface Container<T> {
+    value: T;
+    getValue(): T;
+}
+
+class NumberContainer implements Container<number> {
+    constructor(public value: number) {}
+    
+    getValue(): number {
+        return this.value;
+    }
+}
+
+// Swift - 泛型函数
+func identity<T>(_ arg: T) -> T {
+    return arg
+}
+
+// 使用泛型函数
+let num = identity(42)
+let str = identity("hello")
+
+// 泛型类型
+struct Container<T> {
+    let value: T
+    
+    func getValue() -> T {
+        return value
+    }
+}
+
+// 使用泛型类型
+let numberContainer = Container(value: 42)
+let stringContainer = Container(value: "hello")
+`}
+  language="swift"
+/>
+
+### 12.1.2 泛型约束
+
+Swift 允许我们对泛型类型添加约束，确保类型满足特定要求。
+
+<CodeEditor
+  title="泛型约束对比"
+  description="展示如何为泛型添加类型约束"
+  code={`
+// JavaScript - 使用 TypeScript 约束
+interface Comparable {
+    compareTo(other: any): number;
+}
+
+function findMax<T extends Comparable>(items: T[]): T {
+    if (items.length === 0) {
+        throw new Error("Array is empty");
+    }
+    
+    let max = items[0];
+    for (let i = 1; i < items.length; i++) {
+        if (items[i].compareTo(max) > 0) {
+            max = items[i];
+        }
+    }
+    return max;
+}
+
+class Number implements Comparable {
+    constructor(private value: number) {}
+    
+    compareTo(other: Number): number {
+        return this.value - other.value;
+    }
+}
+
+// Swift - 泛型约束
+protocol Comparable {
+    static func < (lhs: Self, rhs: Self) -> Bool
+}
+
+func findMax<T: Comparable>(_ items: [T]) -> T? {
+    guard !items.isEmpty else { return nil }
+    
+    var max = items[0]
+    for item in items.dropFirst() {
+        if item > max {
+            max = item
+        }
+    }
+    return max
+}
+
+// 使用协议约束
+extension Array where Element: Comparable {
+    func findMax() -> Element? {
+        return findMax(self)
+    }
+}
+
+// 使用
+let numbers = [3, 1, 4, 1, 5, 9, 2, 6]
+let maxNumber = numbers.findMax() // 9
+`}
+  language="swift"
+/>
+
+### 12.1.3 关联类型
+
+Swift 的协议可以定义关联类型，这是泛型协议的核心特性。
+
+<CodeEditor
+  title="关联类型示例"
+  description="展示协议关联类型的使用"
+  code={`
+// JavaScript - 模拟关联类型（使用 TypeScript）
+interface Iterator<T> {
+    next(): { value: T; done: boolean };
+}
+
+interface Iterable<T> {
+    [Symbol.iterator](): Iterator<T>;
+}
+
+class ArrayIterator<T> implements Iterator<T> {
+    private index = 0;
+    
+    constructor(private array: T[]) {}
+    
+    next(): { value: T; done: boolean } {
+        if (this.index < this.array.length) {
+            return {
+                value: this.array[this.index++],
+                done: false
+            };
+        }
+        return { value: undefined as any, done: true };
+    }
+}
+
+// Swift - 使用关联类型
+protocol IteratorProtocol {
+    associatedtype Element
+    mutating func next() -> Element?
+}
+
+protocol Sequence {
+    associatedtype Element
+    associatedtype Iterator: IteratorProtocol where Iterator.Element == Element
+    
+    func makeIterator() -> Iterator
+}
+
+// 实现序列
+struct ArrayIterator<T>: IteratorProtocol {
+    typealias Element = T
+    
+    private let array: [T]
+    private var index: Int
+    
+    init(_ array: [T]) {
+        self.array = array
+        self.index = 0
+    }
+    
+    mutating func next() -> T? {
+        guard index < array.count else { return nil }
+        defer { index += 1 }
+        return array[index]
+    }
+}
+
+struct MyArray<T>: Sequence {
+    typealias Element = T
+    typealias Iterator = ArrayIterator<T>
+    
+    private let elements: [T]
+    
+    init(_ elements: [T]) {
+        self.elements = elements
+    }
+    
+    func makeIterator() -> ArrayIterator<T> {
+        return ArrayIterator(elements)
+    }
+}
+
+// 使用
+let myArray = MyArray([1, 2, 3, 4, 5])
+for element in myArray {
+    print(element)
+}
+`}
+  language="swift"
+/>
+
+## 12.2 属性包装器 (Property Wrappers)
+
+属性包装器是 Swift 5.1 引入的强大特性，允许我们封装属性访问逻辑。
+
+<CodeEditor
+  title="属性包装器基础"
+  description="展示属性包装器的基本用法"
+  code={`
+// JavaScript - 使用 getter/setter 模拟
+class User {
+    constructor() {
+        this._name = '';
+    }
+    
+    get name() {
+        return this._name;
+    }
+    
+    set name(value) {
+        if (value.length < 2) {
+            throw new Error('Name must be at least 2 characters');
+        }
+        this._name = value;
+    }
+}
+
+// Swift - 属性包装器
+@propertyWrapper
+struct ValidatedString {
+    private var value: String
+    private let validator: (String) -> Bool
+    
+    init(wrappedValue: String, validator: @escaping (String) -> Bool) {
+        self.value = wrappedValue
+        self.validator = validator
+    }
+    
+    var wrappedValue: String {
+        get { value }
+        set {
+            guard validator(newValue) else {
+                fatalError("Validation failed")
+            }
+            value = newValue
+        }
+    }
+}
+
+// 使用属性包装器
+struct User {
+    @ValidatedString(validator: { $0.count >= 2 })
+    var name: String = ""
+    
+    @ValidatedString(validator: { $0.contains("@") })
+    var email: String = ""
+}
+
+var user = User()
+user.name = "John" // 成功
+// user.name = "A" // 运行时错误
+`}
+  language="swift"
+/>
+
+### 12.2.1 高级属性包装器
+
+<CodeEditor
+  title="高级属性包装器"
+  description="展示更复杂的属性包装器用法"
+  code={`
+// JavaScript - 使用 Proxy 实现类似功能
+class Observable {
+    constructor(value) {
+        this._value = value;
+        this._observers = [];
+    }
+    
+    get value() {
+        return this._value;
+    }
+    
+    set value(newValue) {
+        const oldValue = this._value;
+        this._value = newValue;
+        this._observers.forEach(observer => observer(newValue, oldValue));
+    }
+    
+    observe(callback) {
+        this._observers.push(callback);
+    }
+}
+
+// Swift - 可观察属性包装器
+@propertyWrapper
+class Observable<Value> {
+    private var value: Value
+    private var observers: [(Value, Value) -> Void] = []
+    
+    init(wrappedValue: Value) {
+        self.value = wrappedValue
+    }
+    
+    var wrappedValue: Value {
+        get { value }
+        set {
+            let oldValue = value
+            value = newValue
+            observers.forEach { $0(newValue, oldValue) }
+        }
+    }
+    
+    func observe(_ callback: @escaping (Value, Value) -> Void) {
+        observers.append(callback)
+    }
+}
+
+// 使用可观察属性
+class DataModel {
+    @Observable var count: Int = 0
+    @Observable var name: String = ""
+}
+
+let model = DataModel()
+model.$count.observe { newValue, oldValue in
+    print("Count changed from \\(oldValue) to \\(newValue)")
+}
+
+model.count = 42 // 触发观察者
+`}
+  language="swift"
+/>
+
+## 12.3 宏系统 (Macros)
+
+Swift 5.9 引入了强大的宏系统，允许在编译时生成代码。
+
+<CodeEditor
+  title="宏系统基础"
+  description="展示 Swift 宏的基本用法"
+  code={`
+// JavaScript - 使用装饰器（需要 Babel 支持）
+function log(target, propertyKey, descriptor) {
+    const originalMethod = descriptor.value;
+    
+    descriptor.value = function(...args) {
+        console.log(\`Calling \${propertyKey} with args:\`, args);
+        const result = originalMethod.apply(this, args);
+        console.log(\`\${propertyKey} returned:\`, result);
+        return result;
+    };
+    
+    return descriptor;
+}
+
+class Calculator {
+    @log
+    add(a, b) {
+        return a + b;
+    }
+}
+
+// Swift - 使用宏
+@attached(member)
+macro Logged() = #externalMacro(
+    module: "LoggingMacros",
+    type: "LoggedMacro"
+)
+
+// 使用宏
+@Logged
+struct Calculator {
+    func add(_ a: Int, _ b: Int) -> Int {
+        return a + b
+    }
+    
+    func multiply(_ a: Int, _ b: Int) -> Int {
+        return a * b
+    }
+}
+
+// 宏会自动生成日志代码
+let calc = Calculator()
+let result = calc.add(5, 3) // 自动记录调用和结果
+`}
+  language="swift"
+/>
+
+### 12.3.1 自定义宏
+
+<CodeEditor
+  title="自定义宏实现"
+  description="展示如何创建自定义宏"
+  code={`
+// Swift - 自定义宏实现
+import SwiftCompilerPlugin
+import SwiftSyntax
+import SwiftSyntaxBuilder
+import SwiftSyntaxMacros
+
+public struct StringifyMacro: ExpressionMacro {
+    public static func expansion(
+        of node: some FreestandingMacroExpansionSyntax,
+        in context: some MacroExpansionContext
+    ) -> ExprSyntax {
+        guard let argument = node.argumentList.first?.expression else {
+            fatalError("compiler bug: the macro does not have any arguments")
+        }
+        
+        return """
+        (\\(argument), \\(literal: argument.description))
+        """
+    }
+}
+
+// 使用自定义宏
+#stringify(x + y) // 展开为 (x + y, "x + y")
+
+// 另一个示例：自动生成 Equatable 实现
+@attached(member, names: named(==))
+macro AutoEquatable() = #externalMacro(
+    module: "AutoEquatableMacros",
+    type: "AutoEquatableMacro"
+)
+
+@AutoEquatable
+struct Point {
+    let x: Int
+    let y: Int
+}
+
+// 自动生成 == 方法
+let p1 = Point(x: 1, y: 2)
+let p2 = Point(x: 1, y: 2)
+print(p1 == p2) // true
+`}
+  language="swift"
+/>
+
+## 12.4 元编程 (Metaprogramming)
+
+Swift 提供了强大的元编程能力，允许在编译时和运行时操作类型。
+
+<CodeEditor
+  title="元编程示例"
+  description="展示 Swift 的元编程特性"
+  code={`
+// JavaScript - 运行时元编程
+class Metadata {
+    static getPropertyNames(obj) {
+        return Object.getOwnPropertyNames(obj);
+    }
+    
+    static getMethods(obj) {
+        return Object.getOwnPropertyNames(obj)
+            .filter(name => typeof obj[name] === 'function');
+    }
+    
+    static createProxy(target, handler) {
+        return new Proxy(target, handler);
+    }
+}
+
+// Swift - 编译时元编程
+import Foundation
+
+// 使用 Mirror 进行运行时反射
+struct Person {
+    let name: String
+    let age: Int
+    let email: String
+}
+
+let person = Person(name: "John", age: 30, email: "john@example.com")
+let mirror = Mirror(reflecting: person)
+
+print("Properties of Person:")
+for child in mirror.children {
+    if let label = child.label {
+        print("\\(label): \\(child.value)")
+    }
+}
+
+// 使用 KeyPath 进行类型安全的属性访问
+struct User {
+    let name: String
+    let age: Int
+}
+
+let users = [
+    User(name: "Alice", age: 25),
+    User(name: "Bob", age: 30),
+    User(name: "Charlie", age: 35)
+]
+
+// 使用 KeyPath 进行排序
+let sortedByName = users.sorted { user1, user2 in
+    user1[keyPath: \\.name] < user2[keyPath: \\.name]
+}
+
+let sortedByAge = users.sorted { user1, user2 in
+    user1[keyPath: \\.age] < user2[keyPath: \\.age]
+}
+
+// 使用 KeyPath 进行映射
+let names = users.map(\\.name)
+let ages = users.map(\\.age)
+`}
+  language="swift"
+/>
+
+## 12.5 高级类型系统特性
+
+### 12.5.1 不透明类型 (Opaque Types)
+
+<CodeEditor
+  title="不透明类型"
+  description="展示不透明类型的使用"
+  code={`
+// JavaScript - 使用接口隐藏实现细节
+interface Shape {
+    area(): number;
+}
+
+class Circle implements Shape {
+    constructor(private radius: number) {}
+    
+    area(): number {
+        return Math.PI * this.radius * this.radius;
+    }
+}
+
+class Rectangle implements Shape {
+    constructor(private width: number, private height: number) {}
+    
+    area(): number {
+        return this.width * this.height;
+    }
+}
+
+function createShape(type: 'circle' | 'rectangle', ...args: number[]): Shape {
+    if (type === 'circle') {
+        return new Circle(args[0]);
+    } else {
+        return new Rectangle(args[0], args[1]);
+    }
+}
+
+// Swift - 使用不透明类型
+protocol Shape {
+    func area() -> Double
+}
+
+struct Circle: Shape {
+    let radius: Double
+    
+    func area() -> Double {
+        return .pi * radius * radius
+    }
+}
+
+struct Rectangle: Shape {
+    let width: Double
+    let height: Double
+    
+    func area() -> Double {
+        return width * height
+    }
+}
+
+// 不透明类型隐藏具体实现
+func createShape(_ type: String, _ args: Double...) -> some Shape {
+    switch type {
+    case "circle":
+        return Circle(radius: args[0])
+    case "rectangle":
+        return Rectangle(width: args[0], height: args[1])
+    default:
+        fatalError("Unknown shape type")
+    }
+}
+
+// 使用不透明类型
+let shape = createShape("circle", 5.0)
+print(shape.area()) // 78.54...
+`}
+  language="swift"
+/>
+
+### 12.5.2 存在类型 (Existential Types)
+
+<CodeEditor
+  title="存在类型"
+  description="展示存在类型的使用"
+  code={`
+// JavaScript - 使用接口类型
+interface Animal {
+    makeSound(): string;
+    move(): string;
+}
+
+class Dog implements Animal {
+    makeSound(): string {
+        return "Woof!";
+    }
+    
+    move(): string {
+        return "Running on four legs";
+    }
+}
+
+class Bird implements Animal {
+    makeSound(): string {
+        return "Tweet!";
+    }
+    
+    move(): string {
+        return "Flying";
+    }
+}
+
+function describeAnimal(animal: Animal): string {
+    return \`\${animal.makeSound()} - \${animal.move()}\`;
+}
+
+// Swift - 使用存在类型
+protocol Animal {
+    func makeSound() -> String
+    func move() -> String
+}
+
+struct Dog: Animal {
+    func makeSound() -> String {
+        return "Woof!"
+    }
+    
+    func move() -> String {
+        return "Running on four legs"
+    }
+}
+
+struct Bird: Animal {
+    func makeSound() -> String {
+        return "Tweet!"
+    }
+    
+    func move() -> String {
+        return "Flying"
+    }
+}
+
+// 存在类型允许存储任何遵循协议的类型
+func describeAnimal(_ animal: any Animal) -> String {
+    return "\\(animal.makeSound()) - \\(animal.move())"
+}
+
+// 使用存在类型
+let animals: [any Animal] = [Dog(), Bird()]
+for animal in animals {
+    print(describeAnimal(animal))
+}
+`}
+  language="swift"
+/>
+
+## 12.6 练习
+
+### 练习 1: 泛型容器
+
+创建一个泛型容器，支持添加、删除和查找元素：
+
+<CodeEditor
+  title="泛型容器练习"
+  description="实现一个泛型容器类"
+  code={`
+// 实现一个泛型容器
+struct Container<T: Equatable> {
+    private var elements: [T] = []
+    
+    // 添加元素
+    mutating func add(_ element: T) {
+        elements.append(element)
+    }
+    
+    // 删除元素
+    mutating func remove(_ element: T) -> Bool {
+        if let index = elements.firstIndex(of: element) {
+            elements.remove(at: index)
+            return true
+        }
+        return false
+    }
+    
+    // 查找元素
+    func contains(_ element: T) -> Bool {
+        return elements.contains(element)
+    }
+    
+    // 获取所有元素
+    var allElements: [T] {
+        return elements
+    }
+    
+    // 元素数量
+    var count: Int {
+        return elements.count
+    }
+}
+
+// 测试代码
+var container = Container<Int>()
+container.add(1)
+container.add(2)
+container.add(3)
+
+print(container.contains(2)) // true
+print(container.remove(2)) // true
+print(container.contains(2)) // false
+print(container.count) // 2
+`}
+  language="swift"
+/>
+
+### 练习 2: 属性包装器
+
+创建一个属性包装器来验证数值范围：
+
+<CodeEditor
+  title="范围验证属性包装器"
+  description="实现一个验证数值范围的属性包装器"
+  code={`
+// 实现范围验证属性包装器
+@propertyWrapper
+struct Ranged<T: Comparable> {
+    private var value: T
+    private let range: ClosedRange<T>
+    
+    init(wrappedValue: T, range: ClosedRange<T>) {
+        self.range = range
+        if range.contains(wrappedValue) {
+            self.value = wrappedValue
+        } else {
+            fatalError("Value \\(wrappedValue) is not in range \\(range)")
+        }
+    }
+    
+    var wrappedValue: T {
+        get { value }
+        set {
+            guard range.contains(newValue) else {
+                fatalError("Value \\(newValue) is not in range \\(range)")
+            }
+            value = newValue
+        }
+    }
+}
+
+// 使用范围验证
+struct GameCharacter {
+    @Ranged(range: 0...100)
+    var health: Int = 100
+    
+    @Ranged(range: 0...100)
+    var mana: Int = 50
+    
+    @Ranged(range: 1...50)
+    var level: Int = 1
+}
+
+// 测试
+var character = GameCharacter()
+print(character.health) // 100
+character.health = 75 // 成功
+// character.health = 150 // 运行时错误
+`}
+  language="swift"
+/>
+
+### 练习 3: 协议关联类型
+
+创建一个通用的数据存储协议：
+
+<CodeEditor
+  title="数据存储协议"
+  description="实现一个使用关联类型的数据存储协议"
+  code={`
+// 定义数据存储协议
+protocol DataStorage {
+    associatedtype Key: Hashable
+    associatedtype Value
+    
+    func store(_ value: Value, for key: Key)
+    func retrieve(for key: Key) -> Value?
+    func remove(for key: Key)
+    func clear()
+}
+
+// 内存存储实现
+class MemoryStorage<Key: Hashable, Value>: DataStorage {
+    private var storage: [Key: Value] = [:]
+    
+    func store(_ value: Value, for key: Key) {
+        storage[key] = value
+    }
+    
+    func retrieve(for key: Key) -> Value? {
+        return storage[key]
+    }
+    
+    func remove(for key: Key) {
+        storage.removeValue(forKey: key)
+    }
+    
+    func clear() {
+        storage.removeAll()
+    }
+}
+
+// 文件存储实现
+class FileStorage<Key: Hashable, Value: Codable>: DataStorage {
+    private let filename: String
+    
+    init(filename: String) {
+        self.filename = filename
+    }
+    
+    func store(_ value: Value, for key: Key) {
+        // 实现文件存储逻辑
+        print("Storing \\(value) for key \\(key) in file \\(filename)")
+    }
+    
+    func retrieve(for key: Key) -> Value? {
+        // 实现文件读取逻辑
+        print("Retrieving value for key \\(key) from file \\(filename)")
+        return nil
+    }
+    
+    func remove(for key: Key) {
+        print("Removing value for key \\(key) from file \\(filename)")
+    }
+    
+    func clear() {
+        print("Clearing all data from file \\(filename)")
+    }
+}
+
+// 使用数据存储
+let memoryStorage = MemoryStorage<String, Int>()
+memoryStorage.store(42, for: "answer")
+print(memoryStorage.retrieve(for: "answer")) // Optional(42)
+
+let fileStorage = FileStorage<String, String>(filename: "data.json")
+fileStorage.store("Hello", for: "greeting")
+`}
+  language="swift"
+/>
+
+## 12.7 关键要点
+
+### 泛型
+- 泛型允许编写可重用的类型安全代码
+- 使用约束确保类型满足特定要求
+- 关联类型让协议更加灵活
+
+### 属性包装器
+- 封装属性访问逻辑
+- 提供验证、观察、缓存等功能
+- 简化重复代码
+
+### 宏系统
+- 编译时代码生成
+- 减少样板代码
+- 提高开发效率
+
+### 元编程
+- 运行时反射和类型操作
+- KeyPath 提供类型安全的属性访问
+- 不透明类型和存在类型提供类型抽象
+
+### 高级类型系统
+- 不透明类型隐藏实现细节
+- 存在类型允许存储协议类型
+- 强大的类型安全保证
+
+## 下一步
+
+在下一个模块中，我们将通过实际项目来应用这些高级特性，构建完整的 Swift 应用程序。 

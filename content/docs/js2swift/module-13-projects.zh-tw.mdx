@@ -1,0 +1,272 @@
+# 模組 13：專案實戰 - 跨平台 Todo List
+
+## 概述
+
+本模組將帶你用 JavaScript 和 Swift 分別實現一個跨平台 Todo List 應用。透過該專案，你將深入理解實際工程中資料建模、UI 互動、狀態管理、非同步操作和資料持久化的異同，掌握兩種語言的工程實踐。
+
+## 學習目標
+
+- 設計並實現 Todo List 應用（JS/Swift）
+- 對比資料建模、UI 和狀態管理
+- 掌握非同步操作與資料持久化
+- 學習錯誤處理與效能優化最佳實踐
+- 培養跨語言工程思維
+
+---
+
+## 13.1 資料模型設計
+
+### JavaScript（React）
+<CodeEditor
+  title="JS：Todo 資料模型"
+  description="JavaScript（TypeScript）中的 Todo 資料結構"
+  code={`
+// TypeScript Todo 項介面
+export interface Todo {
+  id: string;
+  text: string;
+  completed: boolean;
+  createdAt: number;
+}
+`}
+  language="typescript"
+/>
+
+### Swift
+<CodeEditor
+  title="Swift：Todo 資料模型"
+  description="Swift 中的 Todo 資料結構"
+  code={`
+import Foundation
+
+struct Todo: Identifiable, Codable {
+    let id: UUID
+    var text: String
+    var completed: Bool
+    let createdAt: Date
+}
+`}
+  language="swift"
+/>
+
+---
+
+## 13.2 UI 與狀態管理
+
+### JavaScript（React）
+<CodeEditor
+  title="JS：Todo List 元件"
+  description="React 函式元件實現 Todo List"
+  code={`
+import React, { useState } from 'react';
+import { Todo } from './TodoModel';
+
+export function TodoList() {
+  const [todos, setTodos] = useState<Todo[]>([]);
+  const [input, setInput] = useState('');
+
+  function addTodo() {
+    if (!input.trim()) return;
+    setTodos([
+      ...todos,
+      {
+        id: Date.now().toString(),
+        text: input,
+        completed: false,
+        createdAt: Date.now(),
+      },
+    ]);
+    setInput('');
+  }
+
+  function toggleTodo(id: string) {
+    setTodos(todos =>
+      todos.map(todo =>
+        todo.id === id ? { ...todo, completed: !todo.completed } : todo
+      )
+    );
+  }
+
+  return (
+    <div>
+      <input value={input} onChange={e => setInput(e.target.value)} />
+      <button onClick={addTodo}>新增</button>
+      <ul>
+        {todos.map(todo => (
+          <li key={todo.id}>
+            <label>
+              <input
+                type="checkbox"
+                checked={todo.completed}
+                onChange={() => toggleTodo(todo.id)}
+              />
+              {todo.text}
+            </label>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+`}
+  language="typescript"
+/>
+
+### Swift（SwiftUI）
+<CodeEditor
+  title="Swift：Todo List 視圖"
+  description="SwiftUI 實現 Todo List 視圖"
+  code={`
+import SwiftUI
+
+struct TodoListView: View {
+    @State private var todos: [Todo] = []
+    @State private var input: String = ""
+
+    var body: some View {
+        VStack {
+            HStack {
+                TextField("輸入待辦事項", text: $input)
+                Button("新增") {
+                    guard !input.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+                    todos.append(Todo(id: UUID(), text: input, completed: false, createdAt: Date()))
+                    input = ""
+                }
+            }
+            List {
+                ForEach($todos) { $todo in
+                    HStack {
+                        Button(action: { todo.completed.toggle() }) {
+                            Image(systemName: todo.completed ? "checkmark.square" : "square")
+                        }
+                        Text(todo.text)
+                    }
+                }
+            }
+        }
+        .padding()
+    }
+}
+`}
+  language="swift"
+/>
+
+---
+
+## 13.3 資料持久化
+
+### JavaScript（localStorage）
+<CodeEditor
+  title="JS：持久化 Todos"
+  description="使用 localStorage 持久化 todos"
+  code={`
+import { useEffect } from 'react';
+
+function usePersistedTodos() {
+  const [todos, setTodos] = React.useState<Todo[]>(() => {
+    const saved = localStorage.getItem('todos');
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  useEffect(() => {
+    localStorage.setItem('todos', JSON.stringify(todos));
+  }, [todos]);
+
+  return [todos, setTodos] as const;
+}
+`}
+  language="typescript"
+/>
+
+### Swift（UserDefaults）
+<CodeEditor
+  title="Swift：持久化 Todos"
+  description="使用 UserDefaults 持久化 todos"
+  code={`
+extension Array where Element == Todo {
+    func saveToUserDefaults() {
+        if let data = try? JSONEncoder().encode(self) {
+            UserDefaults.standard.set(data, forKey: "todos")
+        }
+    }
+
+    static func loadFromUserDefaults() -> [Todo] {
+        if let data = UserDefaults.standard.data(forKey: "todos"),
+           let todos = try? JSONDecoder().decode([Todo].self, from: data) {
+            return todos
+        }
+        return []
+    }
+}
+`}
+  language="swift"
+/>
+
+---
+
+## 13.4 非同步操作（模擬）
+
+### JavaScript（Async/Await）
+<CodeEditor
+  title="JS：模擬非同步保存"
+  description="用 Promise 模擬非同步保存"
+  code={`
+function saveTodosAsync(todos) {
+  return new Promise(resolve => {
+    setTimeout(() => {
+      localStorage.setItem('todos', JSON.stringify(todos));
+      resolve();
+    }, 500);
+  });
+}
+`}
+  language="typescript"
+/>
+
+### Swift（Async/Await）
+<CodeEditor
+  title="Swift：模擬非同步保存"
+  description="用 Task.sleep 模擬非同步保存"
+  code={`
+func saveTodosAsync(_ todos: [Todo]) async {
+    try? await Task.sleep(nanoseconds: 500_000_000)
+    if let data = try? JSONEncoder().encode(todos) {
+        UserDefaults.standard.set(data, forKey: "todos")
+    }
+}
+`}
+  language="swift"
+/>
+
+---
+
+## 13.5 錯誤處理與最佳實踐
+
+- 保存前務必驗證用戶輸入
+- 合理處理錯誤（JS 用 try/catch，Swift 用 do/catch）
+- Swift 避免強制解包，保持類型安全
+- 非同步操作時保持 UI 響應
+- 每次變更後及時持久化資料
+
+---
+
+## 13.6 練習題
+
+1. **實現編輯與刪除功能**：為 JS 和 Swift 版本分別添加編輯和刪除 Todo 的功能。
+2. **添加篩選功能**：實現全部、已完成、未完成篩選。
+3. **雲端同步（進階）**：用 async/await 模擬與遠端伺服器同步。
+4. **效能優化**：為大量資料列表做渲染優化。
+
+---
+
+## 13.7 關鍵要點
+
+- 實際專案需關注狀態與資料管理
+- SwiftUI 與 React 都是宣告式 UI，但語法和資料流不同
+- 兩種語言都支援 async/await
+- 資料持久化方式不同但思想類似
+- 錯誤處理和用戶體驗決定應用健壯性
+
+---
+
+下一個模組將介紹 JS 與 Swift 互譯時的常見陷阱與最佳實踐。 

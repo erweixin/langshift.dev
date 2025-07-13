@@ -1,0 +1,1866 @@
+---
+title: "Memory Management and Performance Optimization - ARC, Value Types"
+description: "Learn Swift memory management: ARC, value types, performance optimization, and comparison with JavaScript garbage collection"
+---
+
+# Memory Management and Performance Optimization: ARC, Value Types
+
+In this module, we explore Swift's memory management system, including Automatic Reference Counting (ARC), value types, performance optimization techniques, and profiling tools. We'll compare these approaches with JavaScript's garbage collection and optimization strategies.
+
+## Table of Contents
+- [Introduction: Memory Management Models](#introduction-memory-management-models)
+- [Automatic Reference Counting (ARC)](#automatic-reference-counting-arc)
+- [Value Types vs Reference Types](#value-types-vs-reference-types)
+- [Memory Safety](#memory-safety)
+- [Performance Optimization](#performance-optimization)
+- [Profiling and Analysis](#profiling-and-analysis)
+- [Advanced Memory Management](#advanced-memory-management)
+- [Exercises](#exercises)
+- [Key Takeaways](#key-takeaways)
+
+## Introduction: Memory Management Models
+
+Swift and JavaScript use fundamentally different memory management approaches, each with their own advantages and trade-offs.
+
+| Feature              | JavaScript | Swift |
+|----------------------|------------|-------|
+| Memory Management    | Garbage Collection | ARC |
+| Memory Safety        | Runtime     | Compile-time |
+| Performance Predictability | Variable | Predictable |
+| Memory Leaks         | Possible    | Prevented |
+| Value Types          | Limited     | Full Support |
+| Reference Counting    | No          | Yes |
+| Compile-time Checks   | No          | Yes |
+
+## Automatic Reference Counting (ARC)
+
+Swift's ARC automatically manages memory by tracking references to objects and deallocating them when no longer needed.
+
+<UniversalEditor title="ARC vs Garbage Collection" compare={true}>
+```javascript !! js
+// JavaScript: Garbage Collection
+class User {
+    constructor(name, email) {
+        this.name = name;
+        this.email = email;
+        this.friends = [];
+    }
+    
+    addFriend(friend) {
+        this.friends.push(friend);
+        friend.friends.push(this); // Potential circular reference
+    }
+    
+    removeFriend(friend) {
+        const index = this.friends.indexOf(friend);
+        if (index > -1) {
+            this.friends.splice(index, 1);
+        }
+    }
+}
+
+// Circular reference example
+const user1 = new User("Alice", "alice@example.com");
+const user2 = new User("Bob", "bob@example.com");
+
+user1.addFriend(user2);
+user2.addFriend(user1);
+
+// Memory leak potential - circular references
+// Garbage collector may not clean up immediately
+console.log("Users created with potential memory leak");
+
+// Manual cleanup required
+user1.removeFriend(user2);
+user2.removeFriend(user1);
+
+// Variables can be set to null to help GC
+user1 = null;
+user2 = null;
+```
+
+```swift !! swift
+// Swift: Automatic Reference Counting
+class User {
+    let name: String
+    let email: String
+    var friends: [User] = []
+    
+    init(name: String, email: String) {
+        self.name = name
+        self.email = email
+    }
+    
+    func addFriend(_ friend: User) {
+        friends.append(friend)
+        friend.friends.append(self) // ARC handles circular references
+    }
+    
+    func removeFriend(_ friend: User) {
+        if let index = friends.firstIndex(where: { $0 === friend }) {
+            friends.remove(at: index)
+        }
+    }
+    
+    deinit {
+        print("User \(name) is being deallocated")
+    }
+}
+
+// ARC automatically manages memory
+var user1: User? = User(name: "Alice", email: "alice@example.com")
+var user2: User? = User(name: "Bob", email: "bob@example.com")
+
+user1?.addFriend(user2!)
+user2?.addFriend(user1!)
+
+print("Users created with ARC management")
+
+// ARC automatically deallocates when references are removed
+user1 = nil
+user2 = nil
+
+// Output: "User Alice is being deallocated"
+// Output: "User Bob is being deallocated"
+```
+</UniversalEditor>
+
+### Strong, Weak, and Unowned References
+
+<UniversalEditor title="Reference Types" compare={true}>
+```javascript !! js
+// JavaScript: Manual reference management
+class Parent {
+    constructor(name) {
+        this.name = name;
+        this.children = [];
+    }
+    
+    addChild(child) {
+        this.children.push(child);
+        child.parent = this; // Strong reference - potential memory leak
+    }
+    
+    removeChild(child) {
+        const index = this.children.indexOf(child);
+        if (index > -1) {
+            this.children.splice(index, 1);
+            child.parent = null; // Manual cleanup
+        }
+    }
+}
+
+class Child {
+    constructor(name) {
+        this.name = name;
+        this.parent = null;
+    }
+}
+
+// Memory leak example
+const parent = new Parent("John");
+const child = new Child("Jane");
+
+parent.addChild(child);
+
+// Circular reference created
+console.log("Parent has child:", parent.children.length);
+console.log("Child has parent:", child.parent.name);
+
+// Manual cleanup required
+parent.removeChild(child);
+parent = null;
+child = null;
+```
+
+```swift !! swift
+// Swift: Strong, weak, and unowned references
+class Parent {
+    let name: String
+    var children: [Child] = []
+    
+    init(name: String) {
+        self.name = name
+    }
+    
+    func addChild(_ child: Child) {
+        children.append(child)
+        child.parent = self // Strong reference
+    }
+    
+    func removeChild(_ child: Child) {
+        if let index = children.firstIndex(where: { $0 === child }) {
+            children.remove(at: index)
+            child.parent = nil
+        }
+    }
+    
+    deinit {
+        print("Parent \(name) is being deallocated")
+    }
+}
+
+class Child {
+    let name: String
+    weak var parent: Parent? // Weak reference - prevents retain cycle
+    
+    init(name: String) {
+        self.name = name
+    }
+    
+    deinit {
+        print("Child \(name) is being deallocated")
+    }
+}
+
+// ARC automatically handles weak references
+var parent: Parent? = Parent(name: "John")
+var child: Child? = Child(name: "Jane")
+
+parent?.addChild(child!)
+
+print("Parent has child:", parent?.children.count ?? 0)
+print("Child has parent:", child?.parent?.name ?? "None")
+
+// Automatic cleanup with weak references
+parent = nil
+child = nil
+
+// Output: "Parent John is being deallocated"
+// Output: "Child Jane is being deallocated"
+```
+</UniversalEditor>
+
+## Value Types vs Reference Types
+
+Swift's value types provide predictable performance and eliminate many memory management issues.
+
+<UniversalEditor title="Value vs Reference Types" compare={true}>
+```javascript !! js
+// JavaScript: Primitive types and object references
+// Primitive types (value semantics)
+let number1 = 42;
+let number2 = number1;
+number2 = 100;
+console.log("number1:", number1); // 42 (unchanged)
+console.log("number2:", number2); // 100
+
+// Object types (reference semantics)
+let person1 = { name: "Alice", age: 30 };
+let person2 = person1;
+person2.age = 31;
+console.log("person1.age:", person1.age); // 31 (changed)
+console.log("person2.age:", person2.age); // 31
+
+// Arrays (reference semantics)
+let array1 = [1, 2, 3];
+let array2 = array1;
+array2.push(4);
+console.log("array1:", array1); // [1, 2, 3, 4] (changed)
+console.log("array2:", array2); // [1, 2, 3, 4]
+
+// Manual copying for value semantics
+let person3 = { ...person1 }; // Shallow copy
+person3.age = 32;
+console.log("person1.age:", person1.age); // 31 (unchanged)
+console.log("person3.age:", person3.age); // 32
+
+// Deep copying requires manual implementation
+function deepCopy(obj) {
+    return JSON.parse(JSON.stringify(obj));
+}
+
+let deepPerson = deepCopy(person1);
+deepPerson.age = 33;
+console.log("person1.age:", person1.age); // 31 (unchanged)
+console.log("deepPerson.age:", deepPerson.age); // 33
+```
+
+```swift !! swift
+// Swift: Value types and reference types
+// Value types (structs, enums, primitives)
+struct Person {
+    var name: String
+    var age: Int
+}
+
+var person1 = Person(name: "Alice", age: 30)
+var person2 = person1
+person2.age = 31
+
+print("person1.age:", person1.age) // 30 (unchanged)
+print("person2.age:", person2.age) // 31
+
+// Arrays (value types in Swift)
+var array1 = [1, 2, 3]
+var array2 = array1
+array2.append(4)
+
+print("array1:", array1) // [1, 2, 3] (unchanged)
+print("array2:", array2) // [1, 2, 3, 4]
+
+// Reference types (classes)
+class User {
+    var name: String
+    var age: Int
+    
+    init(name: String, age: Int) {
+        self.name = name
+        self.age = age
+    }
+}
+
+var user1 = User(name: "Bob", age: 25)
+var user2 = user1
+user2.age = 26
+
+print("user1.age:", user1.age) // 26 (changed)
+print("user2.age:", user2.age) // 26
+
+// Automatic copying for value types
+let person3 = person1 // Automatic copy
+person3.age = 32
+print("person1.age:", person1.age) // 30 (unchanged)
+print("person3.age:", person3.age) // 32
+```
+</UniversalEditor>
+
+### Copy-on-Write Optimization
+
+<UniversalEditor title="Copy-on-Write" compare={true}>
+```javascript !! js
+// JavaScript: No built-in copy-on-write optimization
+class OptimizedArray {
+    constructor() {
+        this.data = [];
+        this.referenceCount = 1;
+    }
+    
+    // Manual copy-on-write implementation
+    copy() {
+        if (this.referenceCount > 1) {
+            // Create new copy when multiple references exist
+            const newArray = new OptimizedArray();
+            newArray.data = [...this.data];
+            newArray.referenceCount = 1;
+            this.referenceCount--;
+            return newArray;
+        } else {
+            // Share reference when only one reference exists
+            this.referenceCount++;
+            return this;
+        }
+    }
+    
+    push(item) {
+        if (this.referenceCount > 1) {
+            // Create copy before modification
+            const copy = this.copy();
+            copy.data.push(item);
+            return copy;
+        } else {
+            this.data.push(item);
+            return this;
+        }
+    }
+    
+    get length() {
+        return this.data.length;
+    }
+}
+
+// Usage example
+const array1 = new OptimizedArray();
+array1.push(1);
+array1.push(2);
+
+const array2 = array1.copy(); // Shares reference
+console.log("array1 length:", array1.length); // 2
+console.log("array2 length:", array2.length); // 2
+
+const array3 = array2.push(3); // Creates copy
+console.log("array2 length:", array2.length); // 2 (unchanged)
+console.log("array3 length:", array3.length); // 3
+```
+
+```swift !! swift
+// Swift: Built-in copy-on-write optimization
+var array1 = [1, 2, 3, 4, 5]
+var array2 = array1 // No copy yet - shared reference
+
+print("array1 address:", Unmanaged.passUnretained(array1 as AnyObject).toOpaque())
+print("array2 address:", Unmanaged.passUnretained(array2 as AnyObject).toOpaque())
+
+// Same address - shared reference
+array2.append(6) // Copy-on-write triggers here
+
+print("After modification:")
+print("array1:", array1) // [1, 2, 3, 4, 5] (unchanged)
+print("array2:", array2) // [1, 2, 3, 4, 5, 6]
+
+// Custom copy-on-write implementation
+struct OptimizedData {
+    private var _data: [Int]
+    private var _copyOnWrite: Bool = false
+    
+    init(_ data: [Int]) {
+        self._data = data
+    }
+    
+    mutating func append(_ value: Int) {
+        if _copyOnWrite {
+            _data = _data + [value]
+            _copyOnWrite = false
+        } else {
+            _data.append(value)
+        }
+    }
+    
+    var count: Int {
+        return _data.count
+    }
+    
+    var data: [Int] {
+        mutating get {
+            _copyOnWrite = true
+            return _data
+        }
+    }
+}
+
+var data1 = OptimizedData([1, 2, 3])
+var data2 = data1
+
+print("Before modification:")
+print("data1 count:", data1.count)
+print("data2 count:", data2.count)
+
+data2.append(4)
+
+print("After modification:")
+print("data1 count:", data1.count) // 3 (unchanged)
+print("data2 count:", data2.count) // 4
+```
+</UniversalEditor>
+
+## Memory Safety
+
+Swift provides compile-time memory safety guarantees that prevent common memory-related bugs.
+
+<UniversalEditor title="Memory Safety" compare={true}>
+```javascript !! js
+// JavaScript: Runtime memory safety
+class UnsafeArray {
+    constructor() {
+        this.data = [];
+    }
+    
+    set(index, value) {
+        // No bounds checking - potential runtime error
+        this.data[index] = value;
+    }
+    
+    get(index) {
+        // No bounds checking - returns undefined if out of bounds
+        return this.data[index];
+    }
+    
+    remove(index) {
+        // No bounds checking - can cause issues
+        this.data.splice(index, 1);
+    }
+}
+
+const unsafeArray = new UnsafeArray();
+
+// Runtime errors possible
+try {
+    unsafeArray.set(100, "value"); // No error, but creates sparse array
+    console.log("Value at 100:", unsafeArray.get(100)); // "value"
+    console.log("Value at 50:", unsafeArray.get(50)); // undefined
+    
+    unsafeArray.remove(200); // No error, but does nothing
+} catch (error) {
+    console.error("Runtime error:", error);
+}
+
+// Manual bounds checking required
+class SafeArray {
+    constructor() {
+        this.data = [];
+    }
+    
+    set(index, value) {
+        if (index < 0 || index >= this.data.length) {
+            throw new Error(`Index ${index} out of bounds`);
+        }
+        this.data[index] = value;
+    }
+    
+    get(index) {
+        if (index < 0 || index >= this.data.length) {
+            throw new Error(`Index ${index} out of bounds`);
+        }
+        return this.data[index];
+    }
+}
+```
+
+```swift !! swift
+// Swift: Compile-time memory safety
+struct SafeArray {
+    private var data: [Int] = []
+    
+    mutating func set(_ value: Int, at index: Int) {
+        // Compile-time bounds checking
+        guard index >= 0 && index < data.count else {
+            fatalError("Index \(index) out of bounds")
+        }
+        data[index] = value
+    }
+    
+    func get(_ index: Int) -> Int {
+        // Compile-time bounds checking
+        guard index >= 0 && index < data.count else {
+            fatalError("Index \(index) out of bounds")
+        }
+        return data[index]
+    }
+    
+    mutating func append(_ value: Int) {
+        data.append(value)
+    }
+    
+    var count: Int {
+        return data.count
+    }
+}
+
+var safeArray = SafeArray()
+safeArray.append(1)
+safeArray.append(2)
+safeArray.append(3)
+
+// Compile-time safety
+print("Value at index 1:", safeArray.get(1)) // 2
+
+// This would cause a compile-time error if we tried to access out of bounds
+// let value = safeArray.get(10) // Compile error
+
+// Optionals for safe access
+extension SafeArray {
+    func safeGet(_ index: Int) -> Int? {
+        guard index >= 0 && index < data.count else {
+            return nil
+        }
+        return data[index]
+    }
+}
+
+if let value = safeArray.safeGet(1) {
+    print("Safe value:", value)
+} else {
+    print("Index out of bounds")
+}
+```
+</UniversalEditor>
+
+### Memory Access Patterns
+
+<UniversalEditor title="Memory Access Patterns" compare={true}>
+```javascript !! js
+// JavaScript: Dynamic memory allocation
+class MemoryIntensive {
+    constructor() {
+        this.largeArray = new Array(1000000).fill(0);
+        this.objects = [];
+    }
+    
+    addObject() {
+        // Dynamic allocation - no control over memory layout
+        this.objects.push({
+            id: this.objects.length,
+            data: new Array(1000).fill(Math.random())
+        });
+    }
+    
+    removeObject(index) {
+        // Manual cleanup required
+        if (index >= 0 && index < this.objects.length) {
+            this.objects.splice(index, 1);
+        }
+    }
+    
+    // Memory fragmentation possible
+    processData() {
+        const results = [];
+        for (let i = 0; i < this.largeArray.length; i += 1000) {
+            results.push(this.largeArray.slice(i, i + 1000));
+        }
+        return results;
+    }
+}
+
+const memoryIntensive = new MemoryIntensive();
+
+// Memory usage monitoring (approximate)
+console.log("Initial memory usage");
+for (let i = 0; i < 100; i++) {
+    memoryIntensive.addObject();
+}
+
+console.log("After adding objects");
+memoryIntensive.removeObject(50);
+
+console.log("After removing object");
+// Manual garbage collection hint (not guaranteed)
+if (global.gc) {
+    global.gc();
+}
+```
+
+```swift !! swift
+// Swift: Predictable memory layout and allocation
+struct MemoryIntensive {
+    private var largeArray: [Int]
+    private var objects: [DataObject]
+    
+    init() {
+        self.largeArray = Array(repeating: 0, count: 1_000_000)
+        self.objects = []
+    }
+    
+    mutating func addObject() {
+        // Contiguous memory allocation
+        let newObject = DataObject(
+            id: objects.count,
+            data: Array(repeating: Int.random(in: 0...1000), count: 1000)
+        )
+        objects.append(newObject)
+    }
+    
+    mutating func removeObject(at index: Int) {
+        // Automatic cleanup
+        guard index >= 0 && index < objects.count else { return }
+        objects.remove(at: index)
+    }
+    
+    // Efficient memory access patterns
+    func processData() -> [[Int]] {
+        var results: [[Int]] = []
+        results.reserveCapacity(largeArray.count / 1000) // Pre-allocate
+        
+        for i in stride(from: 0, to: largeArray.count, by: 1000) {
+            let end = min(i + 1000, largeArray.count)
+            results.append(Array(largeArray[i..<end]))
+        }
+        return results
+    }
+}
+
+struct DataObject {
+    let id: Int
+    let data: [Int]
+}
+
+var memoryIntensive = MemoryIntensive()
+
+// Memory usage is predictable
+print("Initial memory usage")
+for i in 0..<100 {
+    memoryIntensive.addObject()
+}
+
+print("After adding objects")
+memoryIntensive.removeObject(at: 50)
+
+print("After removing object")
+// Automatic memory management
+```
+</UniversalEditor>
+
+## Performance Optimization
+
+### Compiler Optimizations
+
+<UniversalEditor title="Compiler Optimizations" compare={true}>
+```javascript !! js
+// JavaScript: Runtime optimizations
+class OptimizedCalculator {
+    constructor() {
+        this.cache = new Map();
+    }
+    
+    // JIT optimization potential
+    calculateSum(numbers) {
+        let sum = 0;
+        for (let i = 0; i < numbers.length; i++) {
+            sum += numbers[i];
+        }
+        return sum;
+    }
+    
+    // Caching for expensive operations
+    expensiveCalculation(input) {
+        if (this.cache.has(input)) {
+            return this.cache.get(input);
+        }
+        
+        // Simulate expensive calculation
+        let result = 0;
+        for (let i = 0; i < 1000000; i++) {
+            result += Math.sqrt(i) * Math.sin(i);
+        }
+        
+        this.cache.set(input, result);
+        return result;
+    }
+    
+    // Inline optimization potential
+    inlineCalculation(a, b, c) {
+        return a * b + c;
+    }
+}
+
+const calculator = new OptimizedCalculator();
+
+// Performance measurement
+console.time('sum calculation');
+const sum = calculator.calculateSum(Array.from({length: 1000000}, (_, i) => i));
+console.timeEnd('sum calculation');
+
+console.time('expensive calculation');
+const result = calculator.expensiveCalculation(42);
+console.timeEnd('expensive calculation');
+```
+
+```swift !! swift
+// Swift: Compile-time optimizations
+struct OptimizedCalculator {
+    private var cache: [Int: Double] = [:]
+    
+    // Compiler can optimize loops
+    func calculateSum(_ numbers: [Int]) -> Int {
+        var sum = 0
+        for number in numbers {
+            sum += number
+        }
+        return sum
+    }
+    
+    // Inline optimization
+    @inlinable
+    func inlineCalculation(a: Int, b: Int, c: Int) -> Int {
+        return a * b + c
+    }
+    
+    // Caching with value semantics
+    mutating func expensiveCalculation(_ input: Int) -> Double {
+        if let cached = cache[input] {
+            return cached
+        }
+        
+        // Simulate expensive calculation
+        var result: Double = 0
+        for i in 0..<1_000_000 {
+            result += sqrt(Double(i)) * sin(Double(i))
+        }
+        
+        cache[input] = result
+        return result
+    }
+}
+
+var calculator = OptimizedCalculator()
+
+// Performance measurement
+let startTime = CFAbsoluteTimeGetCurrent()
+let sum = calculator.calculateSum(Array(0..<1_000_000))
+let endTime = CFAbsoluteTimeGetCurrent()
+print("Sum calculation time: \((endTime - startTime) * 1000)ms")
+
+let startTime2 = CFAbsoluteTimeGetCurrent()
+let result = calculator.expensiveCalculation(42)
+let endTime2 = CFAbsoluteTimeGetCurrent()
+print("Expensive calculation time: \((endTime2 - startTime2) * 1000)ms")
+```
+</UniversalEditor>
+
+### Memory Layout Optimization
+
+<UniversalEditor title="Memory Layout Optimization" compare={true}>
+```javascript !! js
+// JavaScript: No control over memory layout
+class UnoptimizedData {
+    constructor() {
+        this.id = 0;
+        this.name = "";
+        this.email = "";
+        this.age = 0;
+        this.isActive = false;
+        this.lastLogin = null;
+        this.preferences = {};
+    }
+}
+
+// Memory layout is determined by JavaScript engine
+const users = [];
+for (let i = 0; i < 10000; i++) {
+    users.push(new UnoptimizedData());
+}
+
+// No control over object property ordering
+// No control over memory alignment
+// No control over cache locality
+
+console.log("Created", users.length, "user objects");
+console.log("Memory layout is engine-dependent");
+```
+
+```swift !! swift
+// Swift: Control over memory layout
+struct OptimizedData {
+    // Contiguous memory layout
+    let id: Int64
+    let age: Int32
+    let isActive: Bool
+    let name: String
+    let email: String
+    let lastLogin: Date?
+    let preferences: [String: String]
+}
+
+// Memory layout is predictable and optimized
+var users: [OptimizedData] = []
+users.reserveCapacity(10_000) // Pre-allocate memory
+
+for i in 0..<10_000 {
+    let user = OptimizedData(
+        id: Int64(i),
+        age: Int32.random(in: 18...80),
+        isActive: Bool.random(),
+        name: "User\(i)",
+        email: "user\(i)@example.com",
+        lastLogin: Date(),
+        preferences: [:]
+    )
+    users.append(user)
+}
+
+print("Created \(users.count) user objects")
+print("Memory layout is predictable and optimized")
+
+// Struct of Arrays pattern for better cache locality
+struct UserData {
+    var ids: [Int64]
+    var ages: [Int32]
+    var isActive: [Bool]
+    var names: [String]
+    
+    init(capacity: Int) {
+        ids = []
+        ages = []
+        isActive = []
+        names = []
+        
+        ids.reserveCapacity(capacity)
+        ages.reserveCapacity(capacity)
+        isActive.reserveCapacity(capacity)
+        names.reserveCapacity(capacity)
+    }
+}
+
+var userData = UserData(capacity: 10_000)
+// Better cache locality for bulk operations
+```
+</UniversalEditor>
+
+## Profiling and Analysis
+
+### Performance Measurement
+
+<UniversalEditor title="Performance Measurement" compare={true}>
+```javascript !! js
+// JavaScript: Performance measurement
+class PerformanceProfiler {
+    constructor() {
+        this.metrics = new Map();
+    }
+    
+    startTimer(name) {
+        this.metrics.set(name, {
+            startTime: performance.now(),
+            endTime: null,
+            duration: null
+        });
+    }
+    
+    endTimer(name) {
+        const metric = this.metrics.get(name);
+        if (metric) {
+            metric.endTime = performance.now();
+            metric.duration = metric.endTime - metric.startTime;
+        }
+    }
+    
+    getMetrics() {
+        const results = {};
+        for (const [name, metric] of this.metrics) {
+            results[name] = metric.duration;
+        }
+        return results;
+    }
+    
+    // Memory usage measurement (approximate)
+    getMemoryUsage() {
+        if (performance.memory) {
+            return {
+                used: performance.memory.usedJSHeapSize,
+                total: performance.memory.totalJSHeapSize,
+                limit: performance.memory.jsHeapSizeLimit
+            };
+        }
+        return null;
+    }
+}
+
+const profiler = new PerformanceProfiler();
+
+// Profile different operations
+profiler.startTimer('array_creation');
+const largeArray = Array.from({length: 1000000}, (_, i) => i);
+profiler.endTimer('array_creation');
+
+profiler.startTimer('array_processing');
+const sum = largeArray.reduce((acc, val) => acc + val, 0);
+profiler.endTimer('array_processing');
+
+console.log('Performance metrics:', profiler.getMetrics());
+console.log('Memory usage:', profiler.getMemoryUsage());
+```
+
+```swift !! swift
+// Swift: Performance measurement
+import Foundation
+
+class PerformanceProfiler {
+    private var metrics: [String: (startTime: CFAbsoluteTime, endTime: CFAbsoluteTime?, duration: CFTimeInterval?)] = [:]
+    
+    func startTimer(_ name: String) {
+        metrics[name] = (CFAbsoluteTimeGetCurrent(), nil, nil)
+    }
+    
+    func endTimer(_ name: String) {
+        guard var metric = metrics[name] else { return }
+        metric.endTime = CFAbsoluteTimeGetCurrent()
+        metric.duration = metric.endTime! - metric.startTime
+        metrics[name] = metric
+    }
+    
+    func getMetrics() -> [String: CFTimeInterval] {
+        var results: [String: CFTimeInterval] = [:]
+        for (name, metric) in metrics {
+            if let duration = metric.duration {
+                results[name] = duration
+            }
+        }
+        return results
+    }
+    
+    // Memory usage measurement
+    func getMemoryUsage() -> (used: Int, total: Int) {
+        var info = mach_task_basic_info()
+        var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size)/4
+        
+        let kerr: kern_return_t = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: 1) {
+                task_info(mach_task_self_,
+                         task_flavor_t(MACH_TASK_BASIC_INFO),
+                         $0,
+                         &count)
+            }
+        }
+        
+        if kerr == KERN_SUCCESS {
+            return (Int(info.resident_size), Int(info.virtual_size))
+        }
+        return (0, 0)
+    }
+}
+
+let profiler = PerformanceProfiler()
+
+// Profile different operations
+profiler.startTimer("array_creation")
+let largeArray = Array(0..<1_000_000)
+profiler.endTimer("array_creation")
+
+profiler.startTimer("array_processing")
+let sum = largeArray.reduce(0, +)
+profiler.endTimer("array_processing")
+
+print("Performance metrics:", profiler.getMetrics())
+print("Memory usage:", profiler.getMemoryUsage())
+```
+</UniversalEditor>
+
+## Advanced Memory Management
+
+### Memory Pools and Custom Allocators
+
+<UniversalEditor title="Memory Pools" compare={true}>
+```javascript !! js
+// JavaScript: Manual memory pool implementation
+class MemoryPool {
+    constructor(size, itemSize) {
+        this.pool = new ArrayBuffer(size);
+        this.itemSize = itemSize;
+        this.freeList = [];
+        this.used = new Set();
+        
+        // Initialize free list
+        for (let i = 0; i < size; i += itemSize) {
+            this.freeList.push(i);
+        }
+    }
+    
+    allocate() {
+        if (this.freeList.length === 0) {
+            throw new Error("Memory pool exhausted");
+        }
+        
+        const offset = this.freeList.pop();
+        this.used.add(offset);
+        return new DataView(this.pool, offset, this.itemSize);
+    }
+    
+    free(dataView) {
+        const offset = dataView.byteOffset;
+        if (this.used.has(offset)) {
+            this.used.delete(offset);
+            this.freeList.push(offset);
+        }
+    }
+    
+    getUsage() {
+        return {
+            total: this.pool.byteLength,
+            used: this.used.size * this.itemSize,
+            free: this.freeList.length * this.itemSize
+        };
+    }
+}
+
+// Usage example
+const pool = new MemoryPool(1024 * 1024, 64); // 1MB pool, 64-byte items
+
+const item1 = pool.allocate();
+const item2 = pool.allocate();
+
+console.log("Pool usage:", pool.getUsage());
+
+pool.free(item1);
+console.log("After freeing item1:", pool.getUsage());
+```
+
+```swift !! swift
+// Swift: Memory pool with value semantics
+struct MemoryPool {
+    private var pool: UnsafeMutableRawBufferPointer
+    private var freeList: [Int]
+    private var used: Set<Int>
+    private let itemSize: Int
+    
+    init(size: Int, itemSize: Int) {
+        self.pool = UnsafeMutableRawBufferPointer.allocate(
+            byteCount: size,
+            alignment: MemoryLayout<Int>.alignment
+        )
+        self.itemSize = itemSize
+        self.freeList = []
+        self.used = []
+        
+        // Initialize free list
+        for i in stride(from: 0, to: size, by: itemSize) {
+            freeList.append(i)
+        }
+    }
+    
+    mutating func allocate() -> UnsafeMutableRawPointer? {
+        guard let offset = freeList.popLast() else {
+            return nil // Pool exhausted
+        }
+        
+        used.insert(offset)
+        return pool.baseAddress?.advanced(by: offset)
+    }
+    
+    mutating func free(_ pointer: UnsafeMutableRawPointer) {
+        let offset = pointer - pool.baseAddress!
+        if used.contains(offset) {
+            used.remove(offset)
+            freeList.append(offset)
+        }
+    }
+    
+    func getUsage() -> (total: Int, used: Int, free: Int) {
+        let usedBytes = used.count * itemSize
+        let freeBytes = freeList.count * itemSize
+        return (pool.count, usedBytes, freeBytes)
+    }
+    
+    deinit {
+        pool.deallocate()
+    }
+}
+
+// Usage example
+var pool = MemoryPool(size: 1024 * 1024, itemSize: 64) // 1MB pool, 64-byte items
+
+let item1 = pool.allocate()
+let item2 = pool.allocate()
+
+print("Pool usage:", pool.getUsage())
+
+if let item1 = item1 {
+    pool.free(item1)
+}
+print("After freeing item1:", pool.getUsage())
+```
+</UniversalEditor>
+
+### Weak References and Retain Cycles
+
+<UniversalEditor title="Retain Cycles" compare={true}>
+```javascript !! js
+// JavaScript: Manual retain cycle prevention
+class Node {
+    constructor(value) {
+        this.value = value;
+        this.next = null;
+        this.prev = null;
+    }
+    
+    // Manual cleanup to prevent memory leaks
+    destroy() {
+        if (this.next) {
+            this.next.prev = null;
+            this.next = null;
+        }
+        if (this.prev) {
+            this.prev.next = null;
+            this.prev = null;
+        }
+    }
+}
+
+class LinkedList {
+    constructor() {
+        this.head = null;
+        this.tail = null;
+    }
+    
+    addNode(value) {
+        const node = new Node(value);
+        
+        if (!this.head) {
+            this.head = node;
+            this.tail = node;
+        } else {
+            node.prev = this.tail;
+            this.tail.next = node;
+            this.tail = node;
+        }
+        
+        return node;
+    }
+    
+    removeNode(node) {
+        if (node.prev) {
+            node.prev.next = node.next;
+        } else {
+            this.head = node.next;
+        }
+        
+        if (node.next) {
+            node.next.prev = node.prev;
+        } else {
+            this.tail = node.prev;
+        }
+        
+        node.destroy();
+    }
+    
+    clear() {
+        let current = this.head;
+        while (current) {
+            const next = current.next;
+            current.destroy();
+            current = next;
+        }
+        this.head = null;
+        this.tail = null;
+    }
+}
+
+// Usage with manual cleanup
+const list = new LinkedList();
+const node1 = list.addNode("A");
+const node2 = list.addNode("B");
+const node3 = list.addNode("C");
+
+console.log("List created");
+list.removeNode(node2);
+console.log("Node B removed");
+
+list.clear();
+console.log("List cleared");
+```
+
+```swift !! swift
+// Swift: Automatic retain cycle prevention with weak references
+class Node {
+    let value: String
+    weak var next: Node?
+    weak var prev: Node?
+    
+    init(value: String) {
+        self.value = value
+    }
+    
+    deinit {
+        print("Node \(value) is being deallocated")
+    }
+}
+
+class LinkedList {
+    private weak var head: Node?
+    private weak var tail: Node?
+    
+    func addNode(_ value: String) -> Node {
+        let node = Node(value: value)
+        
+        if head == nil {
+            head = node
+            tail = node
+        } else {
+            node.prev = tail
+            tail?.next = node
+            tail = node
+        }
+        
+        return node
+    }
+    
+    func removeNode(_ node: Node) {
+        if node.prev != nil {
+            node.prev?.next = node.next
+        } else {
+            head = node.next
+        }
+        
+        if node.next != nil {
+            node.next?.prev = node.prev
+        } else {
+            tail = node.prev
+        }
+    }
+    
+    func clear() {
+        head = nil
+        tail = nil
+    }
+}
+
+// Usage with automatic memory management
+let list = LinkedList()
+let node1 = list.addNode("A")
+let node2 = list.addNode("B")
+let node3 = list.addNode("C")
+
+print("List created")
+list.removeNode(node2)
+print("Node B removed")
+
+list.clear()
+print("List cleared")
+
+// Automatic deallocation when references are removed
+```
+</UniversalEditor>
+
+### Memory-Efficient Data Structures
+
+<UniversalEditor title="Memory-Efficient Data Structures" compare={true}>
+```javascript !! js
+// JavaScript: Memory-efficient data structures
+class CompactArray {
+    constructor() {
+        this.data = new Uint32Array(1000); // Fixed-size array
+        this.length = 0;
+    }
+    
+    push(value) {
+        if (this.length >= this.data.length) {
+            // Expand array
+            const newData = new Uint32Array(this.data.length * 2);
+            newData.set(this.data);
+            this.data = newData;
+        }
+        this.data[this.length++] = value;
+    }
+    
+    pop() {
+        if (this.length > 0) {
+            return this.data[--this.length];
+        }
+        return undefined;
+    }
+    
+    get(index) {
+        if (index >= 0 && index < this.length) {
+            return this.data[index];
+        }
+        return undefined;
+    }
+    
+    // Memory usage optimization
+    shrink() {
+        if (this.length < this.data.length / 2) {
+            const newData = new Uint32Array(this.length);
+            newData.set(this.data.subarray(0, this.length));
+            this.data = newData;
+        }
+    }
+}
+
+class BitSet {
+    constructor(size) {
+        this.data = new Uint32Array(Math.ceil(size / 32));
+        this.size = size;
+    }
+    
+    set(index) {
+        if (index >= 0 && index < this.size) {
+            const arrayIndex = Math.floor(index / 32);
+            const bitIndex = index % 32;
+            this.data[arrayIndex] |= (1 << bitIndex);
+        }
+    }
+    
+    clear(index) {
+        if (index >= 0 && index < this.size) {
+            const arrayIndex = Math.floor(index / 32);
+            const bitIndex = index % 32;
+            this.data[arrayIndex] &= ~(1 << bitIndex);
+        }
+    }
+    
+    test(index) {
+        if (index >= 0 && index < this.size) {
+            const arrayIndex = Math.floor(index / 32);
+            const bitIndex = index % 32;
+            return (this.data[arrayIndex] & (1 << bitIndex)) !== 0;
+        }
+        return false;
+    }
+}
+
+// Usage
+const compactArray = new CompactArray();
+for (let i = 0; i < 100; i++) {
+    compactArray.push(i);
+}
+
+const bitSet = new BitSet(1000);
+bitSet.set(42);
+console.log("Bit 42 is set:", bitSet.test(42));
+```
+
+```swift !! swift
+// Swift: Memory-efficient data structures
+struct CompactArray {
+    private var data: [UInt32]
+    private var count: Int
+    
+    init(initialCapacity: Int = 1000) {
+        self.data = Array(repeating: 0, count: initialCapacity)
+        self.count = 0
+    }
+    
+    mutating func append(_ value: UInt32) {
+        if count >= data.count {
+            data.reserveCapacity(data.count * 2)
+            data.append(contentsOf: Array(repeating: 0, count: data.count))
+        }
+        data[count] = value
+        count += 1
+    }
+    
+    mutating func removeLast() -> UInt32? {
+        guard count > 0 else { return nil }
+        count -= 1
+        return data[count]
+    }
+    
+    func get(_ index: Int) -> UInt32? {
+        guard index >= 0 && index < count else { return nil }
+        return data[index]
+    }
+    
+    // Memory usage optimization
+    mutating func shrink() {
+        if count < data.count / 2 {
+            data = Array(data[0..<count])
+        }
+    }
+}
+
+struct BitSet {
+    private var data: [UInt32]
+    private let size: Int
+    
+    init(size: Int) {
+        self.size = size
+        self.data = Array(repeating: 0, count: (size + 31) / 32)
+    }
+    
+    mutating func set(_ index: Int) {
+        guard index >= 0 && index < size else { return }
+        let arrayIndex = index / 32
+        let bitIndex = index % 32
+        data[arrayIndex] |= (1 << bitIndex)
+    }
+    
+    mutating func clear(_ index: Int) {
+        guard index >= 0 && index < size else { return }
+        let arrayIndex = index / 32
+        let bitIndex = index % 32
+        data[arrayIndex] &= ~(1 << bitIndex)
+    }
+    
+    func test(_ index: Int) -> Bool {
+        guard index >= 0 && index < size else { return false }
+        let arrayIndex = index / 32
+        let bitIndex = index % 32
+        return (data[arrayIndex] & (1 << bitIndex)) != 0
+    }
+}
+
+// Usage
+var compactArray = CompactArray()
+for i in 0..<100 {
+    compactArray.append(UInt32(i))
+}
+
+var bitSet = BitSet(size: 1000)
+bitSet.set(42)
+print("Bit 42 is set:", bitSet.test(42))
+```
+</UniversalEditor>
+
+## Exercises
+
+### Exercise 1: Memory-Efficient Cache Implementation
+
+<UniversalEditor title="Exercise 1: Memory-Efficient Cache" compare={true}>
+```javascript !! js
+// JavaScript solution
+class LRUCache {
+    constructor(capacity) {
+        this.capacity = capacity;
+        this.cache = new Map();
+        this.head = null;
+        this.tail = null;
+    }
+    
+    get(key) {
+        if (this.cache.has(key)) {
+            const node = this.cache.get(key);
+            this.moveToFront(node);
+            return node.value;
+        }
+        return -1;
+    }
+    
+    put(key, value) {
+        if (this.cache.has(key)) {
+            const node = this.cache.get(key);
+            node.value = value;
+            this.moveToFront(node);
+        } else {
+            const newNode = { key, value, prev: null, next: null };
+            this.cache.set(key, newNode);
+            this.addToFront(newNode);
+            
+            if (this.cache.size > this.capacity) {
+                this.removeLRU();
+            }
+        }
+    }
+    
+    moveToFront(node) {
+        if (node === this.head) return;
+        
+        // Remove from current position
+        if (node.prev) node.prev.next = node.next;
+        if (node.next) node.next.prev = node.prev;
+        if (node === this.tail) this.tail = node.prev;
+        
+        this.addToFront(node);
+    }
+    
+    addToFront(node) {
+        node.next = this.head;
+        node.prev = null;
+        if (this.head) this.head.prev = node;
+        this.head = node;
+        if (!this.tail) this.tail = node;
+    }
+    
+    removeLRU() {
+        if (!this.tail) return;
+        
+        this.cache.delete(this.tail.key);
+        if (this.tail.prev) {
+            this.tail.prev.next = null;
+            this.tail = this.tail.prev;
+        } else {
+            this.head = null;
+            this.tail = null;
+        }
+    }
+    
+    getMemoryUsage() {
+        return {
+            size: this.cache.size,
+            capacity: this.capacity,
+            memoryEstimate: this.cache.size * 100 // Rough estimate
+        };
+    }
+}
+
+// Usage
+const cache = new LRUCache(3);
+cache.put(1, "A");
+cache.put(2, "B");
+cache.put(3, "C");
+console.log("Cache size:", cache.getMemoryUsage().size);
+cache.put(4, "D"); // Evicts key 1
+console.log("After eviction:", cache.getMemoryUsage().size);
+```
+
+```swift !! swift
+// Swift solution
+class LRUCache {
+    private let capacity: Int
+    private var cache: [Int: Node]
+    private var head: Node?
+    private var tail: Node?
+    
+    init(capacity: Int) {
+        self.capacity = capacity
+        self.cache = [:]
+    }
+    
+    func get(_ key: Int) -> String? {
+        guard let node = cache[key] else { return nil }
+        moveToFront(node)
+        return node.value
+    }
+    
+    func put(_ key: Int, _ value: String) {
+        if let node = cache[key] {
+            node.value = value
+            moveToFront(node)
+        } else {
+            let newNode = Node(key: key, value: value)
+            cache[key] = newNode
+            addToFront(newNode)
+            
+            if cache.count > capacity {
+                removeLRU()
+            }
+        }
+    }
+    
+    private func moveToFront(_ node: Node) {
+        guard node !== head else { return }
+        
+        // Remove from current position
+        node.prev?.next = node.next
+        node.next?.prev = node.prev
+        if node === tail { tail = node.prev }
+        
+        addToFront(node)
+    }
+    
+    private func addToFront(_ node: Node) {
+        node.next = head
+        node.prev = nil
+        head?.prev = node
+        head = node
+        if tail == nil { tail = node }
+    }
+    
+    private func removeLRU() {
+        guard let tail = tail else { return }
+        
+        cache.removeValue(forKey: tail.key)
+        if let prev = tail.prev {
+            prev.next = nil
+            self.tail = prev
+        } else {
+            head = nil
+            self.tail = nil
+        }
+    }
+    
+    func getMemoryUsage() -> (size: Int, capacity: Int, memoryEstimate: Int) {
+        return (cache.count, capacity, cache.count * 100) // Rough estimate
+    }
+}
+
+class Node {
+    let key: Int
+    var value: String
+    var prev: Node?
+    var next: Node?
+    
+    init(key: Int, value: String) {
+        self.key = key
+        self.value = value
+    }
+}
+
+// Usage
+let cache = LRUCache(capacity: 3)
+cache.put(1, "A")
+cache.put(2, "B")
+cache.put(3, "C")
+print("Cache size:", cache.getMemoryUsage().size)
+cache.put(4, "D") // Evicts key 1
+print("After eviction:", cache.getMemoryUsage().size)
+```
+</UniversalEditor>
+
+### Exercise 2: Memory Profiling and Optimization
+
+<UniversalEditor title="Exercise 2: Memory Profiling" compare={true}>
+```javascript !! js
+// JavaScript solution
+class MemoryProfiler {
+    constructor() {
+        this.snapshots = [];
+        this.currentSnapshot = null;
+    }
+    
+    startSnapshot(name) {
+        this.currentSnapshot = {
+            name,
+            startTime: performance.now(),
+            startMemory: this.getMemoryUsage(),
+            allocations: new Map()
+        };
+    }
+    
+    endSnapshot() {
+        if (!this.currentSnapshot) return;
+        
+        this.currentSnapshot.endTime = performance.now();
+        this.currentSnapshot.endMemory = this.getMemoryUsage();
+        this.currentSnapshot.duration = 
+            this.currentSnapshot.endTime - this.currentSnapshot.startTime;
+        this.currentSnapshot.memoryDelta = 
+            this.currentSnapshot.endMemory - this.currentSnapshot.startMemory;
+        
+        this.snapshots.push(this.currentSnapshot);
+        this.currentSnapshot = null;
+    }
+    
+    trackAllocation(key, size) {
+        if (this.currentSnapshot) {
+            const current = this.currentSnapshot.allocations.get(key) || 0;
+            this.currentSnapshot.allocations.set(key, current + size);
+        }
+    }
+    
+    getMemoryUsage() {
+        if (performance.memory) {
+            return performance.memory.usedJSHeapSize;
+        }
+        return 0;
+    }
+    
+    generateReport() {
+        return this.snapshots.map(snapshot => ({
+            name: snapshot.name,
+            duration: snapshot.duration,
+            memoryDelta: snapshot.memoryDelta,
+            allocations: Object.fromEntries(snapshot.allocations)
+        }));
+    }
+}
+
+// Usage example
+const profiler = new MemoryProfiler();
+
+profiler.startSnapshot("array_operations");
+const arrays = [];
+for (let i = 0; i < 1000; i++) {
+    const array = new Array(1000).fill(i);
+    arrays.push(array);
+    profiler.trackAllocation("arrays", 1000 * 8); // Rough estimate
+}
+profiler.endSnapshot();
+
+profiler.startSnapshot("object_operations");
+const objects = [];
+for (let i = 0; i < 1000; i++) {
+    const obj = { id: i, data: new Array(100).fill(i) };
+    objects.push(obj);
+    profiler.trackAllocation("objects", 100 * 8 + 100); // Rough estimate
+}
+profiler.endSnapshot();
+
+console.log("Memory profiling report:", profiler.generateReport());
+```
+
+```swift !! swift
+// Swift solution
+import Foundation
+
+class MemoryProfiler {
+    private var snapshots: [Snapshot] = []
+    private var currentSnapshot: Snapshot?
+    
+    struct Snapshot {
+        let name: String
+        let startTime: CFAbsoluteTime
+        var endTime: CFAbsoluteTime?
+        let startMemory: Int
+        var endMemory: Int?
+        var duration: CFTimeInterval?
+        var memoryDelta: Int?
+        var allocations: [String: Int]
+    }
+    
+    func startSnapshot(_ name: String) {
+        currentSnapshot = Snapshot(
+            name: name,
+            startTime: CFAbsoluteTimeGetCurrent(),
+            startMemory: getMemoryUsage(),
+            allocations: [:]
+        )
+    }
+    
+    func endSnapshot() {
+        guard var snapshot = currentSnapshot else { return }
+        
+        snapshot.endTime = CFAbsoluteTimeGetCurrent()
+        snapshot.endMemory = getMemoryUsage()
+        snapshot.duration = snapshot.endTime! - snapshot.startTime
+        snapshot.memoryDelta = snapshot.endMemory! - snapshot.startMemory
+        
+        snapshots.append(snapshot)
+        currentSnapshot = nil
+    }
+    
+    func trackAllocation(_ key: String, _ size: Int) {
+        guard var snapshot = currentSnapshot else { return }
+        snapshot.allocations[key, default: 0] += size
+        currentSnapshot = snapshot
+    }
+    
+    func getMemoryUsage() -> Int {
+        var info = mach_task_basic_info()
+        var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size)/4
+        
+        let kerr: kern_return_t = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: 1) {
+                task_info(mach_task_self_,
+                         task_flavor_t(MACH_TASK_BASIC_INFO),
+                         $0,
+                         &count)
+            }
+        }
+        
+        if kerr == KERN_SUCCESS {
+            return Int(info.resident_size)
+        }
+        return 0
+    }
+    
+    func generateReport() -> [String: Any] {
+        return snapshots.map { snapshot in
+            [
+                "name": snapshot.name,
+                "duration": snapshot.duration ?? 0,
+                "memoryDelta": snapshot.memoryDelta ?? 0,
+                "allocations": snapshot.allocations
+            ]
+        }
+    }
+}
+
+// Usage example
+let profiler = MemoryProfiler()
+
+profiler.startSnapshot("array_operations")
+var arrays: [[Int]] = []
+for i in 0..<1000 {
+    let array = Array(repeating: i, count: 1000)
+    arrays.append(array)
+    profiler.trackAllocation("arrays", 1000 * MemoryLayout<Int>.size)
+}
+profiler.endSnapshot()
+
+profiler.startSnapshot("object_operations")
+var objects: [(id: Int, data: [Int])] = []
+for i in 0..<1000 {
+    let obj = (id: i, data: Array(repeating: i, count: 100))
+    objects.append(obj)
+    profiler.trackAllocation("objects", 100 * MemoryLayout<Int>.size + 100)
+}
+profiler.endSnapshot()
+
+print("Memory profiling report:", profiler.generateReport())
+```
+</UniversalEditor>
+
+## Key Takeaways
+
+### Swift Memory Management Advantages
+1. **Predictable Performance**: ARC provides consistent memory management overhead
+2. **Compile-time Safety**: Memory safety checks prevent common bugs
+3. **Value Types**: Eliminate many memory management issues
+4. **Automatic Cleanup**: No manual memory management required
+5. **Performance Optimization**: Compiler can optimize memory access patterns
+6. **Memory Layout Control**: Predictable and efficient memory layout
+
+### Key Differences from JavaScript
+1. **Memory Management**: ARC vs Garbage Collection
+2. **Performance Predictability**: Consistent vs Variable performance
+3. **Memory Safety**: Compile-time vs Runtime safety
+4. **Value Types**: Full support vs Limited support
+5. **Memory Layout**: Controllable vs Engine-dependent
+6. **Optimization**: Compile-time vs Runtime optimization
+
+### Best Practices
+1. **Use value types** when possible for better performance
+2. **Avoid retain cycles** with weak and unowned references
+3. **Profile memory usage** to identify bottlenecks
+4. **Optimize memory layout** for cache locality
+5. **Use appropriate data structures** for memory efficiency
+6. **Monitor ARC behavior** in performance-critical code
+
+### Performance Optimization Tips
+1. **Pre-allocate collections** when size is known
+2. **Use structs** for small, frequently-copied data
+3. **Avoid unnecessary object creation** in loops
+4. **Profile and measure** before optimizing
+5. **Use appropriate reference types** (strong, weak, unowned)
+6. **Consider memory pools** for high-frequency allocations
+
+### Next Steps
+In the next module, we'll explore Swift's systems programming capabilities, including low-level memory access, C interoperability, and system-level programming, comparing them with JavaScript's limitations in these areas. 

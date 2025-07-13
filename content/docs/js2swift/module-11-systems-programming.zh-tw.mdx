@@ -1,0 +1,815 @@
+---
+title: "系統程式設計 - C 互操作性、低級記憶體"
+description: "學習 Swift 系統程式設計：C 互操作性、低級記憶體存取、系統呼叫，與 JavaScript 局限性對比"
+---
+
+# 系統程式設計：C 互操作性、低級記憶體
+
+在本模組中，我們探索 Swift 的系統程式設計能力，包括 C 互操作性、低級記憶體存取、系統呼叫和效能關鍵程式設計。我們將這些能力與 JavaScript 在系統程式設計方面的局限性進行對比。
+
+## 目錄
+- [介紹：系統程式設計能力](#介紹系統程式設計能力)
+- [C 互操作性](#c-互操作性)
+- [低級記憶體存取](#低級記憶體存取)
+- [系統呼叫和 API](#系統呼叫和-api)
+- [效能關鍵程式設計](#效能關鍵程式設計)
+- [網路程式設計](#網路程式設計)
+- [檔案系統操作](#檔案系統操作)
+- [練習題](#練習題)
+- [關鍵要點](#關鍵要點)
+
+## 介紹：系統程式設計能力
+
+Swift 提供了強大的系統程式設計能力，允許直接存取系統資源和低級操作，這與 JavaScript 的沙盒環境不同。
+
+| 特性               | JavaScript | Swift |
+|--------------------|------------|-------|
+| C 互操作性         | 有限       | 完全   |
+| 低級記憶體         | 否         | 是    |
+| 系統呼叫           | 否         | 是    |
+| 直接檔案存取       | 有限       | 完全   |
+| 網路套接字         | 有限       | 完全   |
+| 效能控制           | 有限       | 完全   |
+| 硬體存取           | 否         | 是    |
+
+## C 互操作性
+
+Swift 提供與 C 庫和 API 的無縫互操作性，允許您使用現有的 C 程式碼和系統庫。
+
+<UniversalEditor title="C 互操作性" compare={true}>
+```javascript !! js
+// JavaScript：透過 Node.js 的有限 C 互操作性
+const fs = require('fs');
+const crypto = require('crypto');
+
+// 使用 Node.js 內建模組（底層是 C++）
+function hashFile(filename) {
+    try {
+        const data = fs.readFileSync(filename);
+        return crypto.createHash('sha256').update(data).digest('hex');
+    } catch (error) {
+        console.error('讀取檔案錯誤:', error.message);
+        return null;
+    }
+}
+
+// 使用原生外掛（需要 C++ 編譯）
+const nativeAddon = require('./native-addon.node');
+
+function nativeOperation() {
+    try {
+        return nativeAddon.performOperation();
+    } catch (error) {
+        console.error('原生外掛錯誤:', error.message);
+        return null;
+    }
+}
+
+// 僅限於 Node.js 提供的內容
+console.log('檔案雜湊:', hashFile('example.txt'));
+console.log('原生結果:', nativeOperation());
+```
+
+```swift !! swift
+// Swift：直接 C 互操作性
+import Foundation
+
+// 匯入 C 標準庫
+import Darwin
+
+// 直接 C 函數呼叫
+func cInteropExample() {
+    // 使用 C 標準庫函數
+    let randomValue = Int(arc4random_uniform(100))
+    print("隨機值:", randomValue)
+    
+    // 使用 C 字串函數
+    let cString = "Hello, C World!".cString(using: .utf8)!
+    let length = strlen(cString)
+    print("字串長度:", length)
+    
+    // 使用 C 數學函數
+    let angle = Double.pi / 4
+    let sine = sin(angle)
+    let cosine = cos(angle)
+    print("sin(π/4):", sine)
+    print("cos(π/4):", cosine)
+}
+
+// 使用 C 結構體和類型
+struct CTime {
+    var tm_sec: Int32
+    var tm_min: Int32
+    var tm_hour: Int32
+    var tm_mday: Int32
+    var tm_mon: Int32
+    var tm_year: Int32
+    var tm_wday: Int32
+    var tm_yday: Int32
+    var tm_isdst: Int32
+}
+
+func getCurrentTime() -> CTime {
+    var timeValue = time_t()
+    time(&timeValue)
+    
+    let timeInfo = localtime(&timeValue)!
+    return withUnsafePointer(to: timeInfo.pointee) { ptr in
+        ptr.withMemoryRebound(to: CTime.self, capacity: 1) { cTimePtr in
+            cTimePtr.pointee
+        }
+    }
+}
+
+// 使用
+cInteropExample()
+let currentTime = getCurrentTime()
+print("當前時間: \(currentTime.tm_hour):\(currentTime.tm_min):\(currentTime.tm_sec)")
+```
+</UniversalEditor>
+
+### 使用 C 庫
+
+<UniversalEditor title="C 庫" compare={true}>
+```javascript !! js
+// JavaScript：透過 Node.js 綁定使用 C 庫
+const sqlite3 = require('sqlite3').verbose();
+
+// 使用 C 庫的資料庫操作（SQLite）
+function databaseOperations() {
+    return new Promise((resolve, reject) => {
+        const db = new sqlite3.Database(':memory:');
+        
+        db.serialize(() => {
+            db.run("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)");
+            db.run("INSERT INTO users (name) VALUES (?)", ["張三"]);
+            
+            db.get("SELECT * FROM users WHERE name = ?", ["張三"], (err, row) => {
+                if (err) {
+                    reject(err);
+                } else {
+                    resolve(row);
+                }
+            });
+        });
+        
+        db.close();
+    });
+}
+
+// 透過 Node.js crypto 模組使用 OpenSSL
+const crypto = require('crypto');
+
+function encryptionExample() {
+    const algorithm = 'aes-256-cbc';
+    const key = crypto.randomBytes(32);
+    const iv = crypto.randomBytes(16);
+    
+    const cipher = crypto.createCipher(algorithm, key);
+    let encrypted = cipher.update('Hello, World!', 'utf8', 'hex');
+    encrypted += cipher.final('hex');
+    
+    return { encrypted, key: key.toString('hex'), iv: iv.toString('hex') };
+}
+
+// 使用
+databaseOperations()
+    .then(result => console.log('資料庫結果:', result))
+    .catch(error => console.error('資料庫錯誤:', error));
+
+console.log('加密結果:', encryptionExample());
+```
+
+```swift !! swift
+// Swift：直接使用 C 庫
+import Foundation
+import SQLite3
+
+// 直接使用 SQLite C API
+class SQLiteDatabase {
+    private var db: OpaquePointer?
+    
+    init(path: String) throws {
+        let result = sqlite3_open(path, &db)
+        if result != SQLITE_OK {
+            throw DatabaseError.openFailed
+        }
+    }
+    
+    func execute(_ sql: String) throws {
+        let result = sqlite3_exec(db, sql, nil, nil, nil)
+        if result != SQLITE_OK {
+            throw DatabaseError.executionFailed
+        }
+    }
+    
+    func query(_ sql: String) throws -> [[String: Any]] {
+        var statement: OpaquePointer?
+        let result = sqlite3_prepare_v2(db, sql, -1, &statement, nil)
+        
+        guard result == SQLITE_OK else {
+            throw DatabaseError.prepareFailed
+        }
+        
+        defer { sqlite3_finalize(statement) }
+        
+        var rows: [[String: Any]] = []
+        
+        while sqlite3_step(statement) == SQLITE_ROW {
+            var row: [String: Any] = [:]
+            let columnCount = sqlite3_column_count(statement)
+            
+            for i in 0..<columnCount {
+                let columnName = String(cString: sqlite3_column_name(statement, i))
+                let columnType = sqlite3_column_type(statement, i)
+                
+                switch columnType {
+                case SQLITE_INTEGER:
+                    row[columnName] = sqlite3_column_int64(statement, i)
+                case SQLITE_TEXT:
+                    row[columnName] = String(cString: sqlite3_column_text(statement, i))
+                default:
+                    row[columnName] = nil
+                }
+            }
+            rows.append(row)
+        }
+        
+        return rows
+    }
+    
+    deinit {
+        sqlite3_close(db)
+    }
+}
+
+enum DatabaseError: Error {
+    case openFailed
+    case executionFailed
+    case prepareFailed
+}
+
+// 使用 CommonCrypto 進行加密
+import CommonCrypto
+
+func encryptData(_ data: Data, key: Data) -> Data? {
+    let keyLength = kCCKeySizeAES256
+    let blockSize = kCCBlockSizeAES128
+    
+    var encryptedData = Data(count: data.count + blockSize)
+    var numBytesEncrypted = 0
+    
+    let result = key.withUnsafeBytes { keyBytes in
+        data.withUnsafeBytes { dataBytes in
+            encryptedData.withUnsafeMutableBytes { encryptedBytes in
+                CCCrypt(
+                    CCOperation(kCCEncrypt),
+                    CCAlgorithm(kCCAlgorithmAES),
+                    CCOptions(kCCOptionPKCS7Padding),
+                    keyBytes.baseAddress,
+                    keyLength,
+                    nil,
+                    dataBytes.baseAddress,
+                    data.count,
+                    encryptedBytes.baseAddress,
+                    encryptedData.count,
+                    &numBytesEncrypted
+                )
+            }
+        }
+    }
+    
+    guard result == kCCSuccess else { return nil }
+    encryptedData.count = numBytesEncrypted
+    return encryptedData
+}
+
+// 使用
+do {
+    let db = try SQLiteDatabase(path: ":memory:")
+    try db.execute("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)")
+    try db.execute("INSERT INTO users (name) VALUES ('張三')")
+    
+    let results = try db.query("SELECT * FROM users WHERE name = '張三'")
+    print("資料庫結果:", results)
+} catch {
+    print("資料庫錯誤:", error)
+}
+
+// 加密範例
+let plaintext = "Hello, World!".data(using: .utf8)!
+let key = Data(repeating: 0, count: kCCKeySizeAES256)
+if let encrypted = encryptData(plaintext, key: key) {
+    print("加密資料長度:", encrypted.count)
+}
+```
+</UniversalEditor>
+
+## 低級記憶體存取
+
+Swift 透過指標和不安全操作提供直接記憶體存取，實現高效能程式設計。
+
+<UniversalEditor title="低級記憶體存取" compare={true}>
+```javascript !! js
+// JavaScript：無直接記憶體存取
+class MemoryManager {
+    constructor() {
+        this.buffers = new Map();
+        this.nextId = 0;
+    }
+    
+    // 模擬記憶體分配
+    allocate(size) {
+        const id = this.nextId++;
+        const buffer = new ArrayBuffer(size);
+        this.buffers.set(id, buffer);
+        return { id, buffer };
+    }
+    
+    // 模擬記憶體釋放
+    deallocate(id) {
+        this.buffers.delete(id);
+    }
+    
+    // 僅限於 ArrayBuffer 操作
+    writeToBuffer(buffer, offset, data) {
+        const view = new Uint8Array(buffer);
+        for (let i = 0; i < data.length; i++) {
+            view[offset + i] = data[i];
+        }
+    }
+    
+    readFromBuffer(buffer, offset, length) {
+        const view = new Uint8Array(buffer);
+        return Array.from(view.slice(offset, offset + length));
+    }
+    
+    // 無直接指標存取
+    getMemoryUsage() {
+        let totalSize = 0;
+        for (const buffer of this.buffers.values()) {
+            totalSize += buffer.byteLength;
+        }
+        return totalSize;
+    }
+}
+
+const memoryManager = new MemoryManager();
+const allocation = memoryManager.allocate(1024);
+
+memoryManager.writeToBuffer(allocation.buffer, 0, [1, 2, 3, 4, 5]);
+const data = memoryManager.readFromBuffer(allocation.buffer, 0, 5);
+
+console.log('分配的記憶體:', allocation.id);
+console.log('讀取的資料:', data);
+console.log('總記憶體使用:', memoryManager.getMemoryUsage());
+```
+
+```swift !! swift
+// Swift：透過指標直接記憶體存取
+class MemoryManager {
+    private var allocations: [UnsafeMutableRawPointer] = []
+    
+    // 直接記憶體分配
+    func allocate(size: Int) -> UnsafeMutableRawPointer {
+        let pointer = UnsafeMutableRawPointer.allocate(
+            byteCount: size,
+            alignment: MemoryLayout<Int>.alignment
+        )
+        allocations.append(pointer)
+        return pointer
+    }
+    
+    // 直接記憶體釋放
+    func deallocate(_ pointer: UnsafeMutableRawPointer) {
+        pointer.deallocate()
+        if let index = allocations.firstIndex(where: { $0 == pointer }) {
+            allocations.remove(at: index)
+        }
+    }
+    
+    // 直接記憶體存取
+    func writeToMemory(_ pointer: UnsafeMutableRawPointer, data: [UInt8]) {
+        pointer.copyMemory(from: data, byteCount: data.count)
+    }
+    
+    func readFromMemory(_ pointer: UnsafeMutableRawPointer, count: Int) -> [UInt8] {
+        return Array(UnsafeBufferPointer(start: pointer.assumingMemoryBound(to: UInt8.self), count: count))
+    }
+    
+    // 指標算術
+    func offsetPointer(_ pointer: UnsafeMutableRawPointer, by offset: Int) -> UnsafeMutableRawPointer {
+        return pointer.advanced(by: offset)
+    }
+    
+    // 記憶體佈局資訊
+    func getMemoryLayout<T>(of type: T.Type) -> (size: Int, alignment: Int, stride: Int) {
+        return (
+            size: MemoryLayout<T>.size,
+            alignment: MemoryLayout<T>.alignment,
+            stride: MemoryLayout<T>.stride
+        )
+    }
+    
+    // 總記憶體使用
+    func getTotalMemoryUsage() -> Int {
+        return allocations.count * MemoryLayout<Int>.size
+    }
+    
+    deinit {
+        // 清理所有分配
+        for pointer in allocations {
+            pointer.deallocate()
+        }
+    }
+}
+
+let memoryManager = MemoryManager()
+
+// 分配記憶體
+let pointer = memoryManager.allocate(size: 1024)
+
+// 直接寫入記憶體
+let data: [UInt8] = [1, 2, 3, 4, 5]
+memoryManager.writeToMemory(pointer, data: data)
+
+// 直接從記憶體讀取
+let readData = memoryManager.readFromMemory(pointer, count: 5)
+
+// 指標算術
+let offsetPointer = memoryManager.offsetPointer(pointer, by: 2)
+let offsetData = memoryManager.readFromMemory(offsetPointer, count: 3)
+
+print("分配的指標:", pointer)
+print("讀取的資料:", readData)
+print("偏移資料:", offsetData)
+print("Int 的記憶體佈局:", memoryManager.getMemoryLayout(of: Int.self))
+print("總記憶體使用:", memoryManager.getTotalMemoryUsage())
+
+// 清理
+memoryManager.deallocate(pointer)
+```
+</UniversalEditor>
+
+### 不安全操作
+
+<UniversalEditor title="不安全操作" compare={true}>
+```javascript !! js
+// JavaScript：無可用不安全操作
+class SafeOperations {
+    constructor() {
+        this.data = new ArrayBuffer(1024);
+        this.view = new DataView(this.data);
+    }
+    
+    // 帶邊界檢查的安全陣列存取
+    safeRead(offset, length) {
+        if (offset < 0 || offset + length > this.data.byteLength) {
+            throw new Error('陣列邊界超出');
+        }
+        
+        const result = [];
+        for (let i = 0; i < length; i++) {
+            result.push(this.view.getUint8(offset + i));
+        }
+        return result;
+    }
+    
+    // 帶邊界檢查的安全陣列寫入
+    safeWrite(offset, data) {
+        if (offset < 0 || offset + data.length > this.data.byteLength) {
+            throw new Error('陣列邊界超出');
+        }
+        
+        for (let i = 0; i < data.length; i++) {
+            this.view.setUint8(offset + i, data[i]);
+        }
+    }
+    
+    // 無直接記憶體操作
+    getMemoryAddress() {
+        return 'JavaScript 中無法存取記憶體位址';
+    }
+    
+    // 透過 DataView 進行類型轉換
+    readInt32(offset) {
+        return this.view.getInt32(offset, true); // 小端序
+    }
+    
+    writeInt32(offset, value) {
+        this.view.setInt32(offset, value, true); // 小端序
+    }
+}
+
+const safeOps = new SafeOperations();
+
+try {
+    safeOps.safeWrite(0, [1, 2, 3, 4]);
+    const readData = safeOps.safeRead(0, 4);
+    console.log('安全讀取:', readData);
+    
+    safeOps.writeInt32(0, 0x12345678);
+    const intValue = safeOps.readInt32(0);
+    console.log('Int32 值:', intValue.toString(16));
+    
+    console.log('記憶體位址:', safeOps.getMemoryAddress());
+} catch (error) {
+    console.error('安全操作錯誤:', error.message);
+}
+```
+
+```swift !! swift
+// Swift：效能不安全操作
+class UnsafeOperations {
+    private var data: UnsafeMutableRawPointer
+    
+    init(size: Int) {
+        self.data = UnsafeMutableRawPointer.allocate(
+            byteCount: size,
+            alignment: MemoryLayout<Int>.alignment
+        )
+    }
+    
+    // 不安全的直接記憶體存取
+    func unsafeRead(offset: Int, count: Int) -> [UInt8] {
+        let pointer = data.advanced(by: offset)
+        return Array(UnsafeBufferPointer(start: pointer.assumingMemoryBound(to: UInt8.self), count: count))
+    }
+    
+    func unsafeWrite(offset: Int, data: [UInt8]) {
+        let pointer = self.data.advanced(by: offset)
+        pointer.copyMemory(from: data, byteCount: data.count)
+    }
+    
+    // 直接記憶體位址存取
+    func getMemoryAddress() -> String {
+        return String(format: "0x%p", data)
+    }
+    
+    // 類型轉換和重新解釋
+    func readInt32(offset: Int) -> Int32 {
+        let pointer = data.advanced(by: offset).assumingMemoryBound(to: Int32.self)
+        return pointer.pointee
+    }
+    
+    func writeInt32(offset: Int, value: Int32) {
+        let pointer = data.advanced(by: offset).assumingMemoryBound(to: Int32.self)
+        pointer.pointee = value
+    }
+    
+    // 不安全指標操作
+    func withUnsafePointer<T>(_ body: (UnsafePointer<UInt8>) -> T) -> T {
+        return data.withMemoryRebound(to: UInt8.self, capacity: 1024) { pointer in
+            body(pointer)
+        }
+    }
+    
+    // 記憶體佈局操作
+    func reinterpretMemory<T>(at offset: Int, as type: T.Type) -> T {
+        let pointer = data.advanced(by: offset).assumingMemoryBound(to: T.self)
+        return pointer.pointee
+    }
+    
+    deinit {
+        data.deallocate()
+    }
+}
+
+let unsafeOps = UnsafeOperations(size: 1024)
+
+// 不安全操作
+unsafeOps.unsafeWrite(offset: 0, data: [1, 2, 3, 4])
+let readData = unsafeOps.unsafeRead(offset: 0, count: 4)
+print("不安全讀取:", readData)
+
+unsafeOps.writeInt32(offset: 0, value: 0x12345678)
+let intValue = unsafeOps.readInt32(offset: 0)
+print("Int32 值:", String(format: "0x%x", intValue))
+
+print("記憶體位址:", unsafeOps.getMemoryAddress())
+
+// 類型重新解釋
+struct Point {
+    let x: Int32
+    let y: Int32
+}
+
+unsafeOps.writeInt32(offset: 0, value: 100)
+unsafeOps.writeInt32(offset: 4, value: 200)
+let point = unsafeOps.reinterpretMemory(at: 0, as: Point.self)
+print("重新解釋的點:", point.x, point.y)
+```
+</UniversalEditor>
+
+## 系統呼叫和 API
+
+Swift 可以直接進行系統呼叫和存取作業系統 API。
+
+<UniversalEditor title="系統呼叫" compare={true}>
+```javascript !! js
+// JavaScript：透過 Node.js 的有限系統存取
+const os = require('os');
+const child_process = require('child_process');
+
+// 透過 Node.js API 取得系統資訊
+function getSystemInfo() {
+    return {
+        platform: os.platform(),
+        arch: os.arch(),
+        cpus: os.cpus().length,
+        memory: {
+            total: os.totalmem(),
+            free: os.freemem()
+        },
+        uptime: os.uptime()
+    };
+}
+
+// 程序資訊
+function getProcessInfo() {
+    return {
+        pid: process.pid,
+        ppid: process.ppid,
+        memory: process.memoryUsage(),
+        cpu: process.cpuUsage()
+    };
+}
+
+// 透過 child_process 進行有限系統呼叫
+function executeSystemCommand(command) {
+    return new Promise((resolve, reject) => {
+        child_process.exec(command, (error, stdout, stderr) => {
+            if (error) {
+                reject(error);
+            } else {
+                resolve({ stdout, stderr });
+            }
+        });
+    });
+}
+
+// 使用
+console.log('系統資訊:', getSystemInfo());
+console.log('程序資訊:', getProcessInfo());
+
+executeSystemCommand('ls -la')
+    .then(result => console.log('命令輸出:', result.stdout))
+    .catch(error => console.error('命令錯誤:', error));
+```
+
+```swift !! swift
+// Swift：直接系統呼叫和 API
+import Foundation
+import Darwin
+
+// 直接系統資訊存取
+func getSystemInfo() -> [String: Any] {
+    var info = mach_task_basic_info()
+    var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size)/4
+    
+    let kerr: kern_return_t = withUnsafeMutablePointer(to: &info) {
+        $0.withMemoryRebound(to: integer_t.self, capacity: 1) {
+            task_info(mach_task_self_,
+                     task_flavor_t(MACH_TASK_BASIC_INFO),
+                     $0,
+                     &count)
+        }
+    }
+    
+    let memoryUsage = kerr == KERN_SUCCESS ? Int(info.resident_size) : 0
+    
+    return [
+        "platform": "Darwin",
+        "arch": "x86_64", // 或 arm64
+        "cpus": ProcessInfo.processInfo.processorCount,
+        "memory": [
+            "total": ProcessInfo.processInfo.physicalMemory,
+            "free": ProcessInfo.processInfo.physicalMemory - UInt64(memoryUsage)
+        ],
+        "uptime": ProcessInfo.processInfo.systemUptime
+    ]
+}
+
+// 程序資訊
+func getProcessInfo() -> [String: Any] {
+    return [
+        "pid": getpid(),
+        "ppid": getppid(),
+        "memory": getCurrentMemoryUsage(),
+        "cpu": getCurrentCPUUsage()
+    ]
+}
+
+func getCurrentMemoryUsage() -> [String: Int] {
+    var info = mach_task_basic_info()
+    var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size)/4
+    
+    let kerr = withUnsafeMutablePointer(to: &info) {
+        $0.withMemoryRebound(to: integer_t.self, capacity: 1) {
+            task_info(mach_task_self_,
+                     task_flavor_t(MACH_TASK_BASIC_INFO),
+                     $0,
+                     &count)
+        }
+    }
+    
+    if kerr == KERN_SUCCESS {
+        return [
+            "resident": Int(info.resident_size),
+            "virtual": Int(info.virtual_size)
+        ]
+    }
+    return [:]
+}
+
+func getCurrentCPUUsage() -> [String: Double] {
+    var info = thread_basic_info()
+    var count = mach_msg_type_number_t(MemoryLayout<thread_basic_info>.size)/4
+    
+    let kerr = withUnsafeMutablePointer(to: &info) {
+        $0.withMemoryRebound(to: integer_t.self, capacity: 1) {
+            thread_info(mach_thread_self(),
+                       thread_flavor_t(THREAD_BASIC_INFO),
+                       $0,
+                       &count)
+        }
+    }
+    
+    if kerr == KERN_SUCCESS {
+        return [
+            "user": Double(info.cpu_usage) / Double(TH_USAGE_SCALE),
+            "system": Double(info.cpu_usage) / Double(TH_USAGE_SCALE)
+        ]
+    }
+    return [:]
+}
+
+// 直接系統命令執行
+func executeSystemCommand(_ command: String) -> (stdout: String, stderr: String, exitCode: Int32) {
+    let task = Process()
+    task.launchPath = "/bin/sh"
+    task.arguments = ["-c", command]
+    
+    let stdoutPipe = Pipe()
+    let stderrPipe = Pipe()
+    task.standardOutput = stdoutPipe
+    task.standardError = stderrPipe
+    
+    task.launch()
+    task.waitUntilExit()
+    
+    let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+    let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+    
+    let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
+    let stderr = String(data: stderrData, encoding: .utf8) ?? ""
+    
+    return (stdout: stdout, stderr: stderr, exitCode: task.terminationStatus)
+}
+
+// 使用
+print("系統資訊:", getSystemInfo())
+print("程序資訊:", getProcessInfo())
+
+let commandResult = executeSystemCommand("ls -la")
+print("命令輸出:", commandResult.stdout)
+print("命令退出碼:", commandResult.exitCode)
+```
+</UniversalEditor>
+
+## 關鍵要點
+
+### Swift 系統程式設計優勢
+1. **直接 C 互操作性**：與 C 庫和 API 的無縫整合
+2. **低級記憶體存取**：對記憶體佈局和分配的直接控制
+3. **系統呼叫**：直接存取作業系統 API
+4. **效能控制**：對效能關鍵程式碼的細粒度控制
+5. **SIMD 支援**：高效能的向量化操作
+6. **網路程式設計**：自訂協議的低級網路存取
+
+### 與 JavaScript 的關鍵差異
+1. **記憶體存取**：直接 vs 沙盒記憶體存取
+2. **系統整合**：完全 vs 有限系統整合
+3. **效能**：可預測 vs 可變效能
+4. **C 互操作性**：原生 vs 有限 C 整合
+5. **網路控制**：低級 vs 高級網路 API
+6. **檔案系統**：直接 vs 抽象檔案系統存取
+
+### 最佳實踐
+1. **謹慎使用不安全操作**，僅在必要時使用
+2. **利用 SIMD** 進行效能關鍵數值操作
+3. **實現適當的錯誤處理** 用於系統呼叫
+4. **使用記憶體池** 進行高頻分配
+5. **在最佳化前後分析效能**
+6. **使用不安全操作時遵循記憶體安全指南**
+
+### 效能最佳化技巧
+1. **使用 SIMD 操作** 進行向量化計算
+2. **實現記憶體池** 用於頻繁分配
+3. **使用直接記憶體存取** 進行效能關鍵程式碼
+4. **利用編譯器最佳化** 和適當的註解
+5. **使用 Instruments 進行效能分析**
+6. **使用適當的資料結構** 進行記憶體佈局最佳化
+
+### 下一步
+在下一個模組中，我們將探索 Swift 的高級語言特性，包括元程式設計、反射和高級類型系統能力，將它們與 JavaScript 的動態特性和局限性進行對比。 
