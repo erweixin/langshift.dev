@@ -151,7 +151,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
   const coursePages = languageCourses.flatMap(course => [
     // 英文版本
     {
-      url: `${baseUrl}/docs/${course.name}`,
+      url: `${baseUrl}/en/docs/${course.name}`,
       lastModified: currentDate,
       changeFrequency: 'weekly' as const,
       priority: course.priority,
@@ -177,7 +177,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
     course.modules.flatMap(module => [
       // 英文版本
       {
-        url: `${baseUrl}/docs/${course.name}/${module}`,
+        url: `${baseUrl}/en/docs/${course.name}/${module}`,
         lastModified: currentDate,
         changeFrequency: 'monthly' as const,
         priority: 0.8,
