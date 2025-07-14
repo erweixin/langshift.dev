@@ -60,6 +60,57 @@ export const courseKeywords = {
       'zero-cost abstractions', 'ownership system', 'lifetimes', 
       'error handling', 'type system', 'traits', 'macros'
     ]
+  },
+  'js2cpp': {
+    'zh-cn': [
+      'JavaScript', 'C++', '系统编程', '内存管理', '性能优化',
+      'STL', '现代C++', 'C++11', 'C++17', 'C++20', '模板', 'RAII',
+      '智能指针', '面向对象', '底层编程'
+    ],
+    'zh-tw': [
+      'JavaScript', 'C++', '系統編程', '內存管理', '性能優化',
+      'STL', '現代C++', 'C++11', 'C++17', 'C++20', '模板', 'RAII',
+      '智能指針', '面向對象', '底層編程'
+    ],
+    'en': [
+      'JavaScript', 'C++', 'systems programming', 'memory management', 
+      'performance optimization', 'STL', 'Modern C++', 'C++11', 'C++17', 
+      'C++20', 'templates', 'RAII', 'smart pointers', 'object-oriented', 'low-level programming'
+    ]
+  },
+  'js2go': {
+    'zh-cn': [
+      'JavaScript', 'Go', 'Golang', '并发编程', '系统编程', '微服务',
+      '云原生', 'Goroutines', 'Channels', '性能优化', 'Web开发',
+      'API开发', 'Docker', 'Kubernetes', 'Go Modules', '泛型'
+    ],
+    'zh-tw': [
+      'JavaScript', 'Go', 'Golang', '並發程式設計', '系統程式設計', '微服務',
+      '雲原生', 'Goroutines', 'Channels', '效能優化', 'Web開發',
+      'API開發', 'Docker', 'Kubernetes', 'Go Modules', '泛型'
+    ],
+    'en': [
+      'JavaScript', 'Go', 'Golang', 'concurrent programming', 'systems programming', 'microservices',
+      'cloud-native', 'Goroutines', 'Channels', 'performance optimization', 'web development',
+      'API development', 'Docker', 'Kubernetes', 'Go Modules', 'generics'
+    ]
+  },
+  'js2swift': {
+    'zh-cn': [
+      'JavaScript', 'Swift', 'iOS开发', 'macOS开发', '移动开发',
+      '类型安全', '可选类型', '协议导向编程', 'SwiftUI', 'UIKit',
+      'ARC内存管理', 'Xcode', 'App Store', '移动应用', '声明式UI'
+    ],
+    'zh-tw': [
+      'JavaScript', 'Swift', 'iOS開發', 'macOS開發', '移動開發',
+      '型別安全', '可選型別', '協議導向程式設計', 'SwiftUI', 'UIKit',
+      'ARC記憶體管理', 'Xcode', 'App Store', '移動應用', '宣告式UI'
+    ],
+    'en': [
+      'JavaScript', 'Swift', 'iOS development', 'macOS development', 'mobile development',
+      'type safety', 'optionals', 'protocol-oriented programming', 'SwiftUI', 'UIKit',
+      'ARC memory management', 'Xcode', 'App Store', 'mobile apps', 'declarative UI'
+    ]
   }
 };
 
@@ -192,6 +243,83 @@ export const moduleKeywords = {
       'zh-cn': ['Rust风格', '代码规范', '最佳实践', '惯用写法', '代码优化'],
       'zh-tw': ['Rust風格', '程式碼規範', '最佳實踐', '慣用寫法', '程式碼優化'],
       'en': ['Rust style', 'code conventions', 'best practices', 'idiomatic code', 'code optimization']
+    }
+  },
+  'js2cpp': {
+    'module-00-cpp-introduction': {
+      'zh-cn': ['C++介绍', '历史', '设计哲学', '编译型', '解释型', '应用场景', '开发环境', '第一个程序', '编译链接'],
+      'zh-tw': ['C++介紹', '歷史', '設計哲學', '編譯型', '解釋型', '應用場景', '開發環境', '第一個程式', '編譯連結'],
+      'en': ['C++ introduction', 'history', 'design philosophy', 'compiled', 'interpreted', 'use cases', 'development environment', 'first program', 'compilation linking']
+    },
+    'module-01-syntax-comparison': {
+      'zh-cn': ['语法对比', '变量声明', '类型系统', '控制流', '函数', '作用域', '生命周期', '数据类型', '运算符', '命名空间'],
+      'zh-tw': ['語法對比', '變數宣告', '類型系統', '控制流', '函式', '作用域', '生命週期', '資料類型', '運算符', '命名空間'],
+      'en': ['syntax comparison', 'variable declaration', 'type system', 'control flow', 'functions', 'scope', 'lifetime', 'data types', 'operators', 'namespaces']
+    },
+    'module-02-memory-management': {
+      'zh-cn': ['内存管理', '栈内存', '堆内存', '内存泄漏', 'RAII', '内存布局', '调试内存'],
+      'zh-tw': ['記憶體管理', '堆疊記憶體', '堆積記憶體', '記憶體洩漏', 'RAII', '記憶體佈局', '偵錯記憶體'],
+      'en': ['memory management', 'stack memory', 'heap memory', 'memory leak', 'RAII', 'memory layout', 'debug memory']
+    },
+    'module-03-pointers-references': {
+      'zh-cn': ['指针', '引用', '指针算术', '函数指针', '指针错误', 'JavaScript引用对比'],
+      'zh-tw': ['指標', '引用', '指標算術', '函式指標', '指標錯誤', 'JavaScript引用對比'],
+      'en': ['pointers', 'references', 'pointer arithmetic', 'function pointers', 'pointer errors', 'JavaScript reference comparison']
+    },
+    'module-04-oop-basics': {
+      'zh-cn': ['面向对象', '类', '对象', '构造函数', '析构函数', '封装', '继承', '多态', '虚函数', '原型链对比'],
+      'zh-tw': ['物件導向', '類別', '物件', '建構函式', '解構函式', '封裝', '繼承', '多型', '虛擬函式', '原型鏈對比'],
+      'en': ['object-oriented programming', 'classes', 'objects', 'constructors', 'destructors', 'encapsulation', 'inheritance', 'polymorphism', 'virtual functions', 'prototype chain comparison']
+    },
+    'module-05-templates-generics': {
+      'zh-cn': ['模板', '泛型编程', '函数模板', '类模板', '模板特化', '可变参数模板', '模板元编程', 'JavaScript泛型对比'],
+      'zh-tw': ['模板', '泛型程式設計', '函式模板', '類別模板', '模板特化', '可變參數模板', '模板元程式設計', 'JavaScript泛型對比'],
+      'en': ['templates', 'generic programming', 'function templates', 'class templates', 'template specialization', 'variadic templates', 'template metaprogramming', 'JavaScript generics comparison']
+    },
+    'module-06-stl-containers': {
+      'zh-cn': ['STL容器', 'vector', 'list', 'deque', 'map', 'set', 'unordered_map', '容器适配器', '迭代器', '容器性能', 'JavaScript数组对象对比'],
+      'zh-tw': ['STL容器', 'vector', 'list', 'deque', 'map', 'set', 'unordered_map', '容器適配器', '迭代器', '容器性能', 'JavaScript陣列物件對比'],
+      'en': ['STL containers', 'vector', 'list', 'deque', 'map', 'set', 'unordered_map', 'container adapters', 'iterators', 'container performance', 'JavaScript array object comparison']
+    },
+    'module-07-stl-algorithms': {
+      'zh-cn': ['STL算法', '排序算法', '查找算法', '修改算法', '数值算法', 'JavaScript数组方法对比', '算法性能'],
+      'zh-tw': ['STL演算法', '排序演算法', '查找演算法', '修改演算法', '數值演算法', 'JavaScript陣列方法對比', '演算法性能'],
+      'en': ['STL algorithms', 'sorting algorithms', 'searching algorithms', 'modifying algorithms', 'numeric algorithms', 'JavaScript array methods comparison', 'algorithm performance']
+    },
+    'module-08-error-handling': {
+      'zh-cn': ['错误处理', '异常', 'try-catch-throw', '异常安全', '错误码', 'RAII', 'JavaScript错误处理对比', '异常陷阱'],
+      'zh-tw': ['錯誤處理', '例外', 'try-catch-throw', '例外安全', '錯誤碼', 'RAII', 'JavaScript錯誤處理對比', '例外陷阱'],
+      'en': ['error handling', 'exceptions', 'try-catch-throw', 'exception safety', 'error codes', 'RAII', 'JavaScript error handling comparison', 'exception pitfalls']
+    },
+    'module-09-smart-pointers': {
+      'zh-cn': ['智能指针', 'unique_ptr', 'shared_ptr', 'weak_ptr', '原始指针', '循环引用', 'JavaScript垃圾回收对比'],
+      'zh-tw': ['智能指標', 'unique_ptr', 'shared_ptr', 'weak_ptr', '原始指標', '循環引用', 'JavaScript垃圾回收對比'],
+      'en': ['smart pointers', 'unique_ptr', 'shared_ptr', 'weak_ptr', 'raw pointers', 'circular references', 'JavaScript garbage collection comparison']
+    },
+    'module-10-performance-optimization': {
+      'zh-cn': ['性能优化', '编译器优化', '内存布局', '内联函数', '模板优化', '缓存友好', '性能分析工具', 'JavaScript性能对比'],
+      'zh-tw': ['效能優化', '編譯器優化', '記憶體佈局', '內聯函式', '模板優化', '快取友好', '效能分析工具', 'JavaScript效能對比'],
+      'en': ['performance optimization', 'compiler optimization', 'memory layout', 'inline functions', 'template optimization', 'cache-friendly', 'performance analysis tools', 'JavaScript performance comparison']
+    },
+    'module-11-modern-cpp-features': {
+      'zh-cn': ['现代C++', 'C++11', 'C++14', 'C++17', 'C++20', 'Lambda', '移动语义', '右值引用', 'auto', '范围for', '初始化列表', 'JavaScript现代特性对比'],
+      'zh-tw': ['現代C++', 'C++11', 'C++14', 'C++17', 'C++20', 'Lambda', '移動語義', '右值引用', 'auto', '範圍for', '初始化列表', 'JavaScript現代特性對比'],
+      'en': ['Modern C++', 'C++11', 'C++14', 'C++17', 'C++20', 'Lambda expressions', 'move semantics', 'rvalue references', 'auto keyword', 'range-based for loop', 'initializer lists', 'JavaScript modern features comparison']
+    },
+    'module-12-concurrency-multithreading': {
+      'zh-cn': ['并发', '多线程', 'std::thread', '互斥锁', '条件变量', '原子操作', '异步编程', '线程池', 'JavaScript异步编程对比'],
+      'zh-tw': ['並發', '多執行緒', 'std::thread', '互斥鎖', '條件變數', '原子操作', '非同步程式設計', '執行緒池', 'JavaScript非同步程式設計對比'],
+      'en': ['concurrency', 'multithreading', 'std::thread', 'mutexes', 'condition variables', 'atomic operations', 'asynchronous programming', 'thread pool', 'JavaScript async programming comparison']
+    },
+    'module-13-systems-programming': {
+      'zh-cn': ['系统编程', '文件I/O', '网络编程', '进程间通信', '系统调用', '跨平台开发', '底层内存操作', 'JavaScript系统编程对比'],
+      'zh-tw': ['系統程式設計', '檔案I/O', '網路程式設計', '行程間通訊', '系統呼叫', '跨平台開發', '低階記憶體操作', 'JavaScript系統程式設計對比'],
+      'en': ['systems programming', 'file I/O', 'network programming', 'inter-process communication', 'system calls', 'cross-platform development', 'low-level memory operations', 'JavaScript systems programming comparison']
+    },
+    'module-14-projects': {
+      'zh-cn': ['实战项目', '数据处理系统', '游戏引擎', '系统工具', '网络服务器', '项目架构', '性能优化实践', '部署'],
+      'zh-tw': ['實戰專案', '資料處理系統', '遊戲引擎', '系統工具', '網路伺服器', '專案架構', '效能優化實踐', '部署'],
+      'en': ['practical projects', 'data processing system', 'game engine', 'system tools', 'network server', 'project architecture', 'performance optimization practices', 'deployment']
     }
   }
 };

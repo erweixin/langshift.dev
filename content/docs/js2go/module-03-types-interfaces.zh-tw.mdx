@@ -1,0 +1,956 @@
+---
+title: 型別系統與介面
+---
+
+本模組探討 Go 的型別系統和介面，這是 Go 設計哲學的基礎。Go 的型別系統是靜態型別的，但透過介面提供了一些動態特性，在安全性和靈活性之間取得了平衡，這與 JavaScript 的動態型別有顯著不同。
+
+## Go 型別系統概述
+
+Go 是一種靜態型別語言，意味著型別在編譯時檢查。與 JavaScript 的動態型別相比，這提供了更好的效能、更早的錯誤檢測和更清晰的程式碼文件。
+
+### 靜態型別 vs 動態型別
+
+<UniversalEditor title="型別系統對比" compare={true}>
+```javascript !! js
+// JavaScript: 動態型別
+let value = 42;           // number
+console.log(typeof value); // "number"
+
+value = "hello";          // string
+console.log(typeof value); // "string"
+
+value = { name: "John" }; // object
+console.log(typeof value); // "object"
+
+// 型別在執行時檢查
+function processData(data) {
+    return data.length; // 對字串、陣列有效，但對數字失敗
+}
+
+processData("hello"); // 5
+processData([1, 2, 3]); // 3
+processData(42); // TypeError: data.length is not a function
+```
+
+```go !! go
+// Go: 靜態型別
+package main
+
+import "fmt"
+
+func main() {
+    var value int = 42
+    fmt.Printf("Type: %T, Value: %v\n", value, value) // Type: int, Value: 42
+    
+    // value = "hello" // 編譯錯誤: cannot use "hello" (type string) as int
+    
+    // 型別在編譯時檢查
+    processData("hello") // 有效
+    processData([]int{1, 2, 3}) // 有效
+    // processData(42) // 編譯錯誤: cannot use 42 (type int) as string
+}
+
+func processData(data string) {
+    fmt.Println(len(data))
+}
+```
+</UniversalEditor>
+
+## 基本型別
+
+Go 提供了比 JavaScript 原始型別更豐富的顯式基本型別集合。
+
+### 數值型別
+
+<UniversalEditor title="數值型別對比" compare={true}>
+```javascript !! js
+// JavaScript: 單一數字型別 (64位浮點數)
+let integer = 42;
+let float = 3.14;
+let bigInt = 9007199254740991n; // BigInt 用於大整數
+
+console.log(typeof integer); // "number"
+console.log(typeof float);   // "number"
+console.log(typeof bigInt);  // "bigint"
+
+// 所有數字都是 64 位浮點數 (除了 BigInt)
+console.log(Number.MAX_SAFE_INTEGER); // 9007199254740991
+```
+
+```go !! go
+// Go: 多種數值型別用於不同用例
+package main
+
+import "fmt"
+
+func main() {
+    // 整數型別
+    var int8Val int8 = 127        // 8位有符號整數 (-128 到 127)
+    var int16Val int16 = 32767    // 16位有符號整數
+    var int32Val int32 = 2147483647 // 32位有符號整數
+    var int64Val int64 = 9223372036854775807 // 64位有符號整數
+    var intVal int = 42           // 平台相關 (32 或 64 位)
+    
+    // 無符號整數型別
+    var uint8Val uint8 = 255      // 8位無符號整數 (0 到 255)
+    var uint16Val uint16 = 65535  // 16位無符號整數
+    var uint32Val uint32 = 4294967295 // 32位無符號整數
+    var uint64Val uint64 = 18446744073709551615 // 64位無符號整數
+    var uintVal uint = 42         // 平台相關
+    
+    // 浮點型別
+    var float32Val float32 = 3.14 // 32位浮點數
+    var float64Val float64 = 3.14159265359 // 64位浮點數
+    
+    // 複數型別
+    var complex64Val complex64 = 3 + 4i  // 64位複數
+    var complex128Val complex128 = 3 + 4i // 128位複數
+    
+    fmt.Printf("int8: %T, uint8: %T, float32: %T\n", int8Val, uint8Val, float32Val)
+}
+```
+</UniversalEditor>
+
+### 字串和布林型別
+
+<UniversalEditor title="字串和布林型別對比" compare={true}>
+```javascript !! js
+// JavaScript: 字串和布林值
+let str = "Hello, World!";
+let bool = true;
+
+console.log(typeof str);  // "string"
+console.log(typeof bool); // "boolean"
+
+// 字串操作
+console.log(str.length);           // 13
+console.log(str.toUpperCase());    // "HELLO, WORLD!"
+console.log(str.includes("World")); // true
+
+// 布林操作
+console.log(!bool);                // false
+console.log(bool && true);         // true
+console.log(bool || false);        // true
+```
+
+```go !! go
+// Go: 字串和布林值
+package main
+
+import (
+    "fmt"
+    "strings"
+)
+
+func main() {
+    var str string = "Hello, World!"
+    var boolVal bool = true
+    
+    fmt.Printf("str type: %T, bool type: %T\n", str, boolVal)
+    
+    // 字串操作
+    fmt.Println(len(str))                    // 13
+    fmt.Println(strings.ToUpper(str))        // "HELLO, WORLD!"
+    fmt.Println(strings.Contains(str, "World")) // true
+    
+    // 布林操作
+    fmt.Println(!boolVal)                    // false
+    fmt.Println(boolVal && true)             // true
+    fmt.Println(boolVal || false)            // true
+    
+    // Go 中的字串是不可變的
+    // str[0] = 'h' // 編譯錯誤: cannot assign to str[0]
+}
+```
+</UniversalEditor>
+
+## 複合型別
+
+Go 提供了幾種複合型別，允許將值組合在一起。
+
+### 陣列和切片
+
+<UniversalEditor title="陣列和切片對比" compare={true}>
+```javascript !! js
+// JavaScript: 陣列 (動態)
+let arr = [1, 2, 3, 4, 5];
+console.log(arr.length); // 5
+
+// 動態調整大小
+arr.push(6);             // [1, 2, 3, 4, 5, 6]
+arr.pop();               // [1, 2, 3, 4, 5]
+arr.splice(1, 2);        // [1, 4, 5]
+
+// 陣列方法
+let doubled = arr.map(x => x * 2);     // [2, 8, 10]
+let sum = arr.reduce((a, b) => a + b); // 10
+
+// 切片
+let slice = arr.slice(1, 3);           // [4, 5]
+```
+
+```go !! go
+// Go: 陣列 (固定大小) 和切片 (動態)
+package main
+
+import "fmt"
+
+func main() {
+    // 陣列: 固定大小
+    var arr [5]int = [5]int{1, 2, 3, 4, 5}
+    fmt.Println(len(arr)) // 5
+    
+    // 無法調整陣列大小
+    // arr = append(arr, 6) // 編譯錯誤: cannot use append with array
+    
+    // 切片: 動態大小
+    var slice []int = []int{1, 2, 3, 4, 5}
+    fmt.Println(len(slice)) // 5
+    
+    // 動態調整大小
+    slice = append(slice, 6) // [1, 2, 3, 4, 5, 6]
+    slice = slice[:len(slice)-1] // 移除最後一個元素: [1, 2, 3, 4, 5]
+    
+    // 切片操作
+    subSlice := slice[1:3] // [2, 3]
+    
+    // 陣列到切片的轉換
+    sliceFromArray := arr[:] // 將陣列轉換為切片
+    
+    fmt.Printf("Array: %v, Slice: %v\n", arr, slice)
+}
+```
+</UniversalEditor>
+
+### 映射
+
+<UniversalEditor title="映射對比" compare={true}>
+```javascript !! js
+// JavaScript: 物件和映射
+let obj = { name: "John", age: 30 };
+let map = new Map();
+map.set("name", "John");
+map.set("age", 30);
+
+console.log(obj.name);           // "John"
+console.log(map.get("name"));    // "John"
+
+// 物件操作
+obj.city = "New York";           // 新增屬性
+delete obj.age;                  // 刪除屬性
+console.log("name" in obj);      // true
+
+// 映射操作
+map.set("city", "New York");     // 新增鍵值對
+map.delete("age");               // 刪除鍵
+console.log(map.has("name"));    // true
+```
+
+```go !! go
+// Go: 映射
+package main
+
+import "fmt"
+
+func main() {
+    // 映射宣告和初始化
+    var m map[string]int = make(map[string]int)
+    m["name"] = 1
+    m["age"] = 30
+    
+    // 或使用字面量語法
+    person := map[string]interface{}{
+        "name": "John",
+        "age":  30,
+        "city": "New York",
+    }
+    
+    // 存取值
+    fmt.Println(person["name"]) // "John"
+    
+    // 檢查鍵是否存在
+    if age, exists := person["age"]; exists {
+        fmt.Printf("Age: %v\n", age)
+    }
+    
+    // 新增/更新值
+    person["country"] = "USA"
+    
+    // 刪除值
+    delete(person, "age")
+    
+    // 遍歷映射
+    for key, value := range person {
+        fmt.Printf("%s: %v\n", key, value)
+    }
+}
+```
+</UniversalEditor>
+
+### 結構體
+
+<UniversalEditor title="結構體對比" compare={true}>
+```javascript !! js
+// JavaScript: 物件和類
+let person = {
+    name: "John",
+    age: 30,
+    city: "New York"
+};
+
+// ES6 類
+class Person {
+    constructor(name, age, city) {
+        this.name = name;
+        this.age = age;
+        this.city = city;
+    }
+    
+    greet() {
+        return `Hello, I'm ${this.name}`;
+    }
+}
+
+let john = new Person("John", 30, "New York");
+console.log(john.greet()); // "Hello, I'm John"
+
+// 物件解構
+let { name, age } = person;
+console.log(name, age); // "John" 30
+```
+
+```go !! go
+// Go: 結構體
+package main
+
+import "fmt"
+
+// 結構體定義
+type Person struct {
+    Name string
+    Age  int
+    City string
+}
+
+// 結構體上的方法
+func (p Person) Greet() string {
+    return fmt.Sprintf("Hello, I'm %s", p.Name)
+}
+
+// 帶指標接收者的方法 (可以修改結構體)
+func (p *Person) SetAge(age int) {
+    p.Age = age
+}
+
+func main() {
+    // 建立結構體實例
+    person := Person{
+        Name: "John",
+        Age:  30,
+        City: "New York",
+    }
+    
+    // 存取欄位
+    fmt.Println(person.Name) // "John"
+    
+    // 呼叫方法
+    fmt.Println(person.Greet()) // "Hello, I'm John"
+    
+    // 修改結構體
+    person.SetAge(31)
+    fmt.Println(person.Age) // 31
+    
+    // 結構體嵌入 (組合)
+    type Employee struct {
+        Person
+        Salary float64
+    }
+    
+    emp := Employee{
+        Person: Person{Name: "Jane", Age: 25, City: "Boston"},
+        Salary: 50000,
+    }
+    
+    // 存取嵌入結構體的方法
+    fmt.Println(emp.Greet()) // "Hello, I'm Jane"
+}
+```
+</UniversalEditor>
+
+## 介面
+
+介面是 Go 最強大的特性之一，提供了一種定義行為而不涉及實作細節的方式。
+
+### 介面基礎
+
+<UniversalEditor title="介面基礎對比" compare={true}>
+```javascript !! js
+// JavaScript: 鴨子型別 (隱式介面)
+function processData(data) {
+    if (typeof data.length === 'number' && typeof data[0] !== 'undefined') {
+        return data.length;
+    }
+    return 0;
+}
+
+// 任何具有 'length' 屬性的物件都可以工作
+console.log(processData([1, 2, 3]));     // 3
+console.log(processData("hello"));       // 5
+console.log(processData({ length: 10 })); // 10
+
+// ES6 類和方法
+class Shape {
+    area() {
+        return 0;
+    }
+}
+
+class Circle extends Shape {
+    constructor(radius) {
+        super();
+        this.radius = radius;
+    }
+    
+    area() {
+        return Math.PI * this.radius ** 2;
+    }
+}
+
+let circle = new Circle(5);
+console.log(circle.area()); // 78.54...
+```
+
+```go !! go
+// Go: 顯式介面
+package main
+
+import (
+    "fmt"
+    "math"
+)
+
+// 介面定義
+type Measurable interface {
+    Area() float64
+}
+
+// 實作介面的結構體
+type Circle struct {
+    Radius float64
+}
+
+// 方法實作
+func (c Circle) Area() float64 {
+    return math.Pi * c.Radius * c.Radius
+}
+
+type Rectangle struct {
+    Width  float64
+    Height float64
+}
+
+func (r Rectangle) Area() float64 {
+    return r.Width * r.Height
+}
+
+// 與任何實作 Measurable 的型別一起工作的函數
+func processShape(m Measurable) {
+    fmt.Printf("Area: %.2f\n", m.Area())
+}
+
+func main() {
+    circle := Circle{Radius: 5}
+    rectangle := Rectangle{Width: 4, Height: 6}
+    
+    // 兩種型別都實作了 Measurable 介面
+    processShape(circle)    // Area: 78.54
+    processShape(rectangle) // Area: 24.00
+    
+    // 介面滿足是隱式的
+    var m Measurable = circle
+    fmt.Printf("Type: %T, Area: %.2f\n", m, m.Area())
+}
+```
+</UniversalEditor>
+
+### 介面組合
+
+<UniversalEditor title="介面組合對比" compare={true}>
+```javascript !! js
+// JavaScript: 物件組合和混入
+const Movable = {
+    move() {
+        return "Moving...";
+    }
+};
+
+const Drawable = {
+    draw() {
+        return "Drawing...";
+    }
+};
+
+// 混入模式
+class GameObject {
+    constructor() {
+        Object.assign(this, Movable, Drawable);
+    }
+}
+
+let gameObj = new GameObject();
+console.log(gameObj.move());  // "Moving..."
+console.log(gameObj.draw());  // "Drawing..."
+
+// 或使用組合
+class Sprite {
+    constructor() {
+        this.movable = Movable;
+        this.drawable = Drawable;
+    }
+    
+    move() {
+        return this.movable.move();
+    }
+    
+    draw() {
+        return this.drawable.draw();
+    }
+}
+```
+
+```go !! go
+// Go: 介面組合
+package main
+
+import "fmt"
+
+// 基礎介面
+type Movable interface {
+    Move() string
+}
+
+type Drawable interface {
+    Draw() string
+}
+
+// 組合介面
+type GameObject interface {
+    Movable
+    Drawable
+}
+
+// 實作
+type Sprite struct {
+    X, Y int
+}
+
+func (s *Sprite) Move() string {
+    s.X += 1
+    s.Y += 1
+    return fmt.Sprintf("Moving to (%d, %d)", s.X, s.Y)
+}
+
+func (s Sprite) Draw() string {
+    return fmt.Sprintf("Drawing at (%d, %d)", s.X, s.Y)
+}
+
+// 與任何 GameObject 一起工作的函數
+func updateGameObject(obj GameObject) {
+    fmt.Println(obj.Move())
+    fmt.Println(obj.Draw())
+}
+
+func main() {
+    sprite := &Sprite{X: 0, Y: 0}
+    updateGameObject(sprite)
+    
+    // 介面組合允許靈活的設計
+    var movable Movable = sprite
+    var drawable Drawable = sprite
+    var gameObj GameObject = sprite
+    
+    fmt.Println(movable.Move())  // 只能呼叫 Move()
+    fmt.Println(drawable.Draw()) // 只能呼叫 Draw()
+    fmt.Println(gameObj.Move())  // 可以呼叫 Move() 和 Draw()
+    fmt.Println(gameObj.Draw())
+}
+```
+</UniversalEditor>
+
+### 空介面
+
+<UniversalEditor title="空介面對比" compare={true}>
+```javascript !! js
+// JavaScript: 動態型別允許任何值
+function processAnyValue(value) {
+    if (typeof value === 'string') {
+        return value.toUpperCase();
+    } else if (typeof value === 'number') {
+        return value * 2;
+    } else if (Array.isArray(value)) {
+        return value.length;
+    } else if (typeof value === 'object') {
+        return Object.keys(value).length;
+    }
+    return "Unknown type";
+}
+
+console.log(processAnyValue("hello"));     // "HELLO"
+console.log(processAnyValue(42));          // 84
+console.log(processAnyValue([1, 2, 3]));   // 3
+console.log(processAnyValue({a: 1, b: 2})); // 2
+```
+
+```go !! go
+// Go: 空介面 (interface{}) 接受任何型別
+package main
+
+import (
+    "fmt"
+    "reflect"
+)
+
+// 空介面可以儲存任何值
+func processAnyValue(value interface{}) {
+    switch v := value.(type) {
+    case string:
+        fmt.Printf("String: %s\n", v)
+    case int:
+        fmt.Printf("Integer: %d\n", v)
+    case []int:
+        fmt.Printf("Slice: %v (length: %d)\n", v, len(v))
+    case map[string]int:
+        fmt.Printf("Map: %v (keys: %d)\n", v, len(v))
+    default:
+        fmt.Printf("Unknown type: %T\n", v)
+    }
+}
+
+func main() {
+    processAnyValue("hello")           // String: hello
+    processAnyValue(42)                // Integer: 42
+    processAnyValue([]int{1, 2, 3})    // Slice: [1 2 3] (length: 3)
+    processAnyValue(map[string]int{"a": 1, "b": 2}) // Map: map[a:1 b:2] (keys: 2)
+    
+    // 使用 reflect 包進行更動態的行為
+    var value interface{} = "hello"
+    fmt.Printf("Type: %v, Value: %v\n", reflect.TypeOf(value), reflect.ValueOf(value))
+}
+```
+</UniversalEditor>
+
+## 型別斷言和型別開關
+
+Go 提供了與介面型別動態工作的機制。
+
+### 型別斷言
+
+<UniversalEditor title="型別斷言對比" compare={true}>
+```javascript !! js
+// JavaScript: 型別檢查和轉換
+function processValue(value) {
+    if (typeof value === 'string') {
+        return value.toUpperCase();
+    } else if (Array.isArray(value)) {
+        return value.join(', ');
+    } else if (typeof value === 'object' && value !== null) {
+        return JSON.stringify(value);
+    }
+    return String(value);
+}
+
+console.log(processValue("hello"));     // "HELLO"
+console.log(processValue([1, 2, 3]));   // "1, 2, 3"
+console.log(processValue({a: 1}));      // '{"a":1}'
+console.log(processValue(42));          // "42"
+```
+
+```go !! go
+// Go: 型別斷言
+package main
+
+import (
+    "encoding/json"
+    "fmt"
+    "strconv"
+)
+
+func processValue(value interface{}) string {
+    // 帶逗號 ok 慣用法的型別斷言
+    if str, ok := value.(string); ok {
+        return str
+    }
+    
+    if arr, ok := value.([]int); ok {
+        return fmt.Sprintf("%v", arr)
+    }
+    
+    if m, ok := value.(map[string]int); ok {
+        if jsonBytes, err := json.Marshal(m); err == nil {
+            return string(jsonBytes)
+        }
+    }
+    
+    if num, ok := value.(int); ok {
+        return strconv.Itoa(num)
+    }
+    
+    return "unknown type"
+}
+
+func main() {
+    fmt.Println(processValue("hello"))                    // "hello"
+    fmt.Println(processValue([]int{1, 2, 3}))            // "[1 2 3]"
+    fmt.Println(processValue(map[string]int{"a": 1}))    // '{"a":1}'
+    fmt.Println(processValue(42))                        // "42"
+    
+    // 不帶逗號 ok 的型別斷言 (如果型別錯誤會 panic)
+    var value interface{} = "hello"
+    str := value.(string) // 安全斷言
+    fmt.Println(str)      // "hello"
+    
+    // 這會 panic:
+    // num := value.(int) // panic: interface conversion
+}
+```
+</UniversalEditor>
+
+### 型別開關
+
+<UniversalEditor title="型別開關對比" compare={true}>
+```javascript !! js
+// JavaScript: 帶 typeof 的 switch
+function describeType(value) {
+    switch (typeof value) {
+        case 'string':
+            return `String: "${value}"`;
+        case 'number':
+            return `Number: ${value}`;
+        case 'boolean':
+            return `Boolean: ${value}`;
+        case 'object':
+            if (Array.isArray(value)) {
+                return `Array with ${value.length} elements`;
+            } else if (value === null) {
+                return 'Null';
+            } else {
+                return 'Object';
+            }
+        default:
+            return 'Unknown type';
+    }
+}
+
+console.log(describeType("hello"));     // "String: \"hello\""
+console.log(describeType(42));          // "Number: 42"
+console.log(describeType(true));        // "Boolean: true"
+console.log(describeType([1, 2, 3]));   // "Array with 3 elements"
+console.log(describeType({a: 1}));      // "Object"
+```
+
+```go !! go
+// Go: 型別開關
+package main
+
+import "fmt"
+
+func describeType(value interface{}) string {
+    switch v := value.(type) {
+    case string:
+        return fmt.Sprintf("String: %q", v)
+    case int:
+        return fmt.Sprintf("Integer: %d", v)
+    case bool:
+        return fmt.Sprintf("Boolean: %t", v)
+    case []int:
+        return fmt.Sprintf("Slice with %d elements", len(v))
+    case map[string]int:
+        return fmt.Sprintf("Map with %d keys", len(v))
+    case nil:
+        return "Nil"
+    default:
+        return fmt.Sprintf("Unknown type: %T", v)
+    }
+}
+
+func main() {
+    fmt.Println(describeType("hello"))                    // String: "hello"
+    fmt.Println(describeType(42))                        // Integer: 42
+    fmt.Println(describeType(true))                      // Boolean: true
+    fmt.Println(describeType([]int{1, 2, 3}))            // Slice with 3 elements
+    fmt.Println(describeType(map[string]int{"a": 1}))    // Map with 1 keys
+    fmt.Println(describeType(nil))                       // Nil
+    
+    // 型別開關也可以用於控制流
+    var values []interface{} = []interface{}{"hello", 42, true, []int{1, 2}}
+    
+    for _, value := range values {
+        switch v := value.(type) {
+        case string:
+            fmt.Printf("Processing string: %s\n", v)
+        case int:
+            fmt.Printf("Processing integer: %d\n", v)
+        case bool:
+            fmt.Printf("Processing boolean: %t\n", v)
+        case []int:
+            fmt.Printf("Processing slice: %v\n", v)
+        }
+    }
+}
+```
+</UniversalEditor>
+
+## 型別嵌入和組合
+
+Go 使用組合而不是繼承，透過結構體嵌入實現。
+
+<UniversalEditor title="型別嵌入對比" compare={true}>
+```javascript !! js
+// JavaScript: 類繼承和組合
+class Animal {
+    constructor(name) {
+        this.name = name;
+    }
+    
+    speak() {
+        return `${this.name} makes a sound`;
+    }
+}
+
+class Dog extends Animal {
+    constructor(name) {
+        super(name);
+    }
+    
+    speak() {
+        return `${this.name} barks`;
+    }
+    
+    fetch() {
+        return `${this.name} fetches the ball`;
+    }
+}
+
+// 組合
+class Walker {
+    walk() {
+        return "Walking...";
+    }
+}
+
+class Swimmer {
+    swim() {
+        return "Swimming...";
+    }
+}
+
+class Duck {
+    constructor(name) {
+        this.name = name;
+        this.walker = new Walker();
+        this.swimmer = new Swimmer();
+    }
+    
+    walk() {
+        return this.walker.walk();
+    }
+    
+    swim() {
+        return this.swimmer.swim();
+    }
+}
+
+let dog = new Dog("Rex");
+let duck = new Duck("Donald");
+console.log(dog.speak()); // "Rex barks"
+console.log(duck.walk()); // "Walking..."
+```
+
+```go !! go
+// Go: 結構體嵌入 (組合)
+package main
+
+import "fmt"
+
+// 基礎結構體
+type Animal struct {
+    Name string
+}
+
+func (a Animal) Speak() string {
+    return fmt.Sprintf("%s makes a sound", a.Name)
+}
+
+// 在 Dog 中嵌入 Animal
+type Dog struct {
+    Animal // 嵌入結構體
+}
+
+func (d Dog) Speak() string {
+    return fmt.Sprintf("%s barks", d.Name)
+}
+
+func (d Dog) Fetch() string {
+    return fmt.Sprintf("%s fetches the ball", d.Name)
+}
+
+// 多嵌入型別的組合
+type Walker struct{}
+
+func (w Walker) Walk() string {
+    return "Walking..."
+}
+
+type Swimmer struct{}
+
+func (s Swimmer) Swim() string {
+    return "Swimming..."
+}
+
+type Duck struct {
+    Animal
+    Walker
+    Swimmer
+}
+
+func main() {
+    dog := Dog{Animal{Name: "Rex"}}
+    duck := Duck{
+        Animal: Animal{Name: "Donald"},
+        Walker: Walker{},
+        Swimmer: Swimmer{},
+    }
+    
+    fmt.Println(dog.Speak()) // "Rex barks"
+    fmt.Println(dog.Fetch()) // "Rex fetches the ball"
+    fmt.Println(duck.Walk()) // "Walking..."
+    fmt.Println(duck.Swim()) // "Swimming..."
+    
+    // 透過嵌入實現介面滿足
+    type Speaker interface {
+        Speak() string
+    }
+    
+    var speakers []Speaker = []Speaker{dog, duck}
+    for _, speaker := range speakers {
+        fmt.Println(speaker.Speak())
+    }
+}
+```
+</UniversalEditor>
+
+---
+
+### 練習題：
+1. 解釋 Go 的靜態型別與 JavaScript 動態型別的區別。每種方法的優缺點是什麼？
+2. Go 介面與 JavaScript 的鴨子型別有何不同？提供每種方法有益的場景範例。
+3. 描述 Go 的結構體嵌入以及它與 JavaScript 類繼承的比較。何時使用每種方法？
+4. 建立一個 Go 程式，演示介面組合、型別斷言和型別開關的實際範例。
+
+### 專案想法：
+* 在 Go 中建構一個簡單的形狀計算器，使用介面處理不同的幾何形狀（圓形、矩形、三角形）。實作面積和周長計算，並使用型別開關處理不同的形狀型別。與使用類和繼承的 JavaScript 實作進行比較。
+
+### 下一步：
+* 學習 Go 的並發特性：goroutines 和 channels
+* 探索 Go 的錯誤處理模式和最佳實踐
+* 理解 Go 的套件管理和模組系統

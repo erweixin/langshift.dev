@@ -1,0 +1,161 @@
+---
+title: "Common Pitfalls and Solutions"
+description: "Go development common pitfalls, JS comparison, solutions and best practices."
+---
+
+# Common Pitfalls and Solutions
+
+This module summarizes common traps and misconceptions in Go development, compares them with JavaScript, and helps you avoid common problems to improve code quality.
+
+## 1. Concurrency Programming Pitfalls
+
+### Deadlock
+<UniversalEditor title="Deadlock Example" compare={true}>
+```javascript !! js
+// JavaScript: Deadlocks are rare, common as callback hell
+function a(cb) { cb(); }
+function b(cb) { cb(); }
+a(() => b(() => console.log('done')));
+```
+
+```go !! go
+// Go: Deadlock example
+package main
+func main() {
+  ch := make(chan int)
+  ch <- 1 // Deadlock: no receiver
+}
+```
+</UniversalEditor>
+
+#### Solutions
+- Go: Use buffered channels or select to avoid no receiver
+- JS: Use Promise/async properly to avoid callback nesting
+
+---
+
+### Race Conditions
+<UniversalEditor title="Race Condition Comparison" compare={true}>
+```javascript !! js
+// JavaScript: Multi-threading race conditions need worker/atomics
+// ... omitted ...
+```
+
+```go !! go
+// Go: Race condition
+package main
+import (
+  "fmt"
+  "sync"
+)
+var x int
+func main() {
+  var wg sync.WaitGroup
+  for i := 0; i < 1000; i++ {
+    wg.Add(1)
+    go func() {
+      x++ // Not thread-safe
+      wg.Done()
+    }()
+  }
+  wg.Wait()
+  fmt.Println(x)
+}
+```
+</UniversalEditor>
+
+#### Solutions
+- Go: Use sync.Mutex or atomic operations
+- JS: Single-threaded avoids most race conditions
+
+---
+
+## 2. Memory Leak Issues
+
+<UniversalEditor title="Memory Leak Comparison" compare={true}>
+```javascript !! js
+// JavaScript: Closure references causing memory leaks
+function foo() {
+  let arr = [];
+  return function() { arr.push(1); };
+}
+```
+
+```go !! go
+// Go: goroutine leak
+package main
+func leak() chan int {
+  ch := make(chan int)
+  go func() {
+    // Forever blocked
+    ch <- 1
+  }()
+  return ch
+}
+```
+</UniversalEditor>
+
+#### Solutions
+- Go: Close channels timely to avoid goroutine leaks
+- JS: Pay attention to closures and event listener unbinding
+
+---
+
+## 3. Performance Optimization Misconceptions
+
+- Premature optimization leading to complex code
+- Overuse of reflection and interface{} affecting performance
+- Ignoring memory allocation and GC
+
+#### Best Practices
+- Ensure correctness first, then optimize performance
+- Use pprof to analyze performance bottlenecks
+- Use types and data structures appropriately
+
+---
+
+## 4. Error Handling Pitfalls
+
+<UniversalEditor title="Error Handling Comparison" compare={true}>
+```javascript !! js
+// JavaScript: try-catch
+try {
+  throw new Error('fail');
+} catch(e) {
+  console.log(e.message);
+}
+```
+
+```go !! go
+// Go: Error return values
+package main
+import "errors"
+func foo() error {
+  return errors.New("fail")
+}
+func main() {
+  if err := foo(); err != nil {
+    println(err.Error())
+  }
+}
+```
+</UniversalEditor>
+
+#### Solutions
+- Go: Handle each error explicitly, avoid ignoring
+- JS: Use try-catch properly, pay attention to async errors
+
+---
+
+## 5. Package Management Issues
+
+- Go: go.mod/go.sum out of sync, dependency conflicts
+- JS: node_modules conflicts, lock file inconsistencies
+
+#### Best Practices
+- Go: Use go mod tidy to keep dependencies clean
+- JS: Lock dependency versions, clean up regularly
+
+---
+
+> It's recommended to practice with real projects and consult official documentation and community experience when encountering problems. 

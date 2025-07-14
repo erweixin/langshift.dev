@@ -1,0 +1,258 @@
+---
+title: 系統程式設計
+---
+
+系統程式設計涉及編寫直接與電腦硬體和作業系統互動的軟體。C++ 是系統程式設計的主要語言，因為它具有低階記憶體存取、性能和對系統資源的控制。本模組將涵蓋檔案 I/O、網路程式設計、行程間通訊和系統呼叫等基本概念，並強調 C++ 與 JavaScript 高階抽象的差異。
+
+## 檔案 I/O 操作
+
+C++ 透過 `<fstream>` 函式庫提供了強大的檔案輸入和輸出機制。這允許程式讀取和寫入本機檔案系統上的檔案。
+
+*   `std::ifstream`：用於從檔案讀取。
+*   `std::ofstream`：用於寫入檔案。
+*   `std::fstream`：用於讀取和寫入。
+
+<UniversalEditor title="檔案 I/O 比較" compare={true}>
+```javascript !! js
+// JavaScript (Node.js): 使用 fs 模組進行檔案 I/O (預設為非同步)
+const fs = require('fs');
+
+// 寫入檔案
+fs.writeFile('example.txt', 'Hello from JavaScript!', (err) => {
+  if (err) throw err;
+  console.log('檔案寫入成功。');
+});
+
+// 從檔案讀取
+fs.readFile('example.txt', 'utf8', (err, data) => {
+  if (err) throw err;
+  console.log('檔案內容:', data);
+});
+
+// 同步版本 (在 Node.js 中較不常見)
+// try {
+//   fs.writeFileSync('sync_example.txt', '同步寫入。');
+//   const data = fs.readFileSync('sync_example.txt', 'utf8');
+//   console.log('同步檔案內容:', data);
+// } catch (err) {
+//   console.error('同步檔案錯誤:', err);
+// }
+```
+
+```cpp !! cpp
+// C++: 使用 <fstream> 進行檔案 I/O
+#include <iostream>
+#include <fstream> // For file stream operations
+#include <string>
+
+int main() {
+  // 寫入檔案
+  std::ofstream outFile("example.txt"); // 開啟檔案以供寫入
+  if (outFile.is_open()) {
+    outFile << "Hello from C++!\n";
+    outFile << "This is a new line.\n";
+    outFile.close(); // 關閉檔案
+    // std::cout << "檔案寫入成功。" << std::endl;
+  } else {
+    // std::cerr << "無法開啟檔案以供寫入。" << std::endl;
+  }
+
+  // 從檔案讀取
+  std::ifstream inFile("example.txt"); // 開啟檔案以供讀取
+  if (inFile.is_open()) {
+    std::string line;
+    // while (std::getline(inFile, line)) { // 逐行讀取
+    //   std::cout << "檔案內容: " << line << std::endl;
+    // }
+    inFile.close();
+  } else {
+    // std::cerr << "無法開啟檔案以供讀取。" << std::endl;
+  }
+
+  return 0;
+}
+```
+</UniversalEditor>
+
+## 網路程式設計基礎
+
+C++ 提供了對網路通訊端點的低階存取，可以直接透過網路進行通訊。這通常是透過系統特定的 API（例如 Windows 上的 Winsock 或類 Unix 系統上的 Berkeley 通訊端點）或跨平台函式庫來完成的。
+
+### 通訊端點
+
+*   **通訊端點：** 用於在電腦網路中傳送或接收資料的端點。
+*   **類型：** 串流通訊端點 (TCP) 用於可靠、面向連線的通訊；資料包通訊端點 (UDP) 用於不可靠、無連線的通訊。
+
+<UniversalEditor title="基本通訊端點程式設計 (概念性)" compare={true}>
+```javascript !! js
+// JavaScript (Node.js): 高階網路 API (例如 http, net 模組)
+const http = require('http');
+
+// 簡單的 HTTP 伺服器
+// http.createServer((req, res) => {
+//   res.writeHead(200, { 'Content-Type': 'text/plain' });
+//   res.end('Hello World\n');
+// }).listen(3000, '127.0.0.1', () => {
+//   console.log('伺服器運行於 http://127.0.0.1:3000/');
+// });
+
+// 簡單的 HTTP 用戶端
+// http.get('http://127.0.0.1:3000', (res) => {
+//   let data = '';
+//   res.on('data', (chunk) => { data += chunk; });
+//   res.on('end', () => { console.log('用戶端收到:', data); });
+// }).on('error', (e) => { console.error(`發生錯誤: ${e.message}`); });
+```
+
+```cpp !! cpp
+// C++: 基本通訊端點程式設計 (概念性 - 需要平台特定標頭)
+// 此範例高度簡化且為概念性。實際的通訊端點程式設計涉及更多錯誤處理、設定和平台特定細節。
+
+// #include <iostream>
+// #include <string>
+// #include <sys/socket.h> // For socket, connect, send, recv (Unix-like)
+// #include <arpa/inet.h>  // For inet_addr (Unix-like)
+// #include <unistd.h>   // For close (Unix-like)
+
+// int main() {
+//   // 建立通訊端點
+//   int sock = socket(AF_INET, SOCK_STREAM, 0);
+//   if (sock == -1) { /* std::cerr << "無法建立通訊端點" << std::endl; */ return 1; }
+
+//   // 準備 sockaddr_in 結構
+//   sockaddr_in server;
+//   server.sin_addr.s_addr = inet_addr("127.0.0.1");
+//   server.sin_family = AF_INET;
+//   server.sin_port = htons(8888);
+
+//   // 連接到遠端伺服器
+//   if (connect(sock, (sockaddr*)&server, sizeof(server)) < 0) {
+//     // std::cerr << "連線錯誤" << std::endl; return 1;
+//   }
+//   // std::cout << "已連線" << std::endl;
+
+//   // 傳送一些資料
+//   std::string message = "Hello from C++ client!";
+//   if (send(sock, message.c_str(), message.length(), 0) < 0) {
+//     // std::cerr << "傳送失敗" << std::endl; return 1;
+//   }
+//   // std::cout << "資料已傳送\n" << std::endl;
+
+//   // 從伺服器接收回覆
+//   char server_reply[2000];
+//   if (recv(sock, server_reply, 2000, 0) < 0) {
+//     // std::cerr << "接收失敗" << std::endl;
+//   }
+//   // std::cout << "已收到回覆\n" << server_reply << std::endl;
+
+//   close(sock);
+//   return 0;
+// }
+```
+</UniversalEditor>
+
+## 行程間通訊 (IPC)
+
+IPC 機制允許不同的行程通訊並同步其動作。C++ 可以利用各種作業系統級別的 IPC 方法。
+
+*   **管道：** 相關行程之間的單向通訊通道。
+*   **共享記憶體：** 最快的 IPC，允許行程直接存取共同的記憶體區域。
+*   **訊息佇列：** 行程透過系統佇列交換訊息。
+*   **號誌：** 用於控制對共享資源存取的同步原語。
+*   **通訊端點：** 也可用於不相關行程之間的 IPC，甚至在不同的機器上。
+
+## 系統呼叫介面
+
+C++ 程式可以直接呼叫**系統呼叫**，以請求作業系統核心的服務。這些呼叫提供了對檔案系統操作、行程管理和網路通訊等低階功能的存取。
+
+*   **`open()`、`read()`、`write()`、`close()`：** 低階檔案操作。
+*   **`fork()`、`exec()`、`wait()`：** 行程建立和管理。
+*   **`socket()`、`bind()`、`listen()`、`accept()`、`connect()`：** 網路通訊端點操作。
+
+## 跨平台開發考量
+
+雖然 C++ 提供了低階控制，但系統程式設計通常涉及平台特定的 API。為了編寫跨平台程式碼，開發人員通常使用：
+
+*   **標準 C++ 函式庫：** 提供平台獨立的功能（例如，`std::thread`、`std::filesystem` (C++17)）。
+*   **跨平台函式庫：** 像 Boost.Asio (網路)、Qt (GUI、網路、檔案系統) 或 POCO C++ 函式庫這樣的函式庫抽象了作業系統的差異。
+*   **條件編譯：** 使用預處理器指令（`#ifdef`、`#ifndef`）來包含平台特定的程式碼。
+
+## 低階記憶體操作
+
+C++ 允許透過指標直接操作記憶體，從而實現高度優化和專門的記憶體操作。這包括：
+
+*   **原始記憶體分配：** `malloc`/`free` (來自 C) 或 `new`/`delete`。
+*   **放置 new：** 在預先分配的記憶體位置建構物件。
+*   **位元操作：** 直接操作資料類型中的個別位元。
+*   **記憶體映射：** 將檔案或裝置直接映射到行程的位址空間。
+
+<UniversalEditor title="低階記憶體操作 (概念性)" compare={true}>
+```javascript !! js
+// JavaScript: 沒有直接的低階記憶體存取。
+// 記憶體由垃圾回收器管理。
+// ArrayBuffer 和 TypedArrays 提供二進位資料操作，
+// 但沒有直接的記憶體位址。
+const buffer = new ArrayBuffer(16); // 16 位元組
+const view = new DataView(buffer);
+
+view.setInt32(0, 12345, true); // 在偏移量 0 處寫入 32 位元整數
+console.log(view.getInt32(0, true)); // 讀回它
+```
+
+```cpp !! cpp
+// C++: 低階記憶體操作
+#include <iostream>
+#include <cstring> // For memcpy
+
+int main() {
+  // 原始記憶體分配和操作
+  char* buffer = new char[10]; // 分配 10 位元組
+  // std::memset(buffer, 0, 10); // 初始化為零
+
+  int value = 12345;
+  // std::memcpy(buffer, &value, sizeof(int)); // 將 int 的位元組複製到緩衝區
+
+  // int retrieved_value;
+  // std::memcpy(&retrieved_value, buffer, sizeof(int)); // 將位元組複製回 int
+  // std::cout << "檢索到的值: " << retrieved_value << std::endl;
+
+  delete[] buffer; // 釋放
+
+  // 位元操作
+  unsigned char flags = 0b00001101; // 範例旗標: 8, 4, 1 已設定
+  // std::cout << "旗標: " << (int)flags << std::endl;
+  // if (flags & (1 << 2)) { // 檢查第 3 位元 (值 4) 是否已設定
+  //   std::cout << "第三位元已設定。" << std::endl;
+  // }
+
+  return 0;
+}
+```
+</UniversalEditor>
+
+## 與 JavaScript 系統程式設計的比較
+
+JavaScript，特別是在瀏覽器環境中，是高度沙盒化的，對底層作業系統或硬體的直接存取非常有限。Node.js 將 JavaScript 的功能擴展到伺服器端，提供了檔案系統存取、網路和行程管理等 API，但這些通常是建立在 C++ 或 C 程式碼之上的高階抽象。
+
+| 特性           | JavaScript (Node.js)                     | C++                                      |
+| :---------------- | :--------------------------------------- | :--------------------------------------- |
+| **檔案 I/O**      | 高階 `fs` 模組 (非同步/同步)      | 低階 `open`/`read`/`write`、`fstream` |
+| **網路**    | 高階 `net`、`http` 模組         | 低階通訊端點 (平台特定 API) |
+| **IPC**           | 子行程、訊息傳遞         | 管道、共享記憶體、訊息佇列、通訊端點 |
+| **系統呼叫**  | 透過 Node.js 運行時間接           | 透過 C/C++ 函式庫直接呼叫    |
+| **記憶體存取** | 由 GC 管理，`ArrayBuffer` 用於二進位資料 | 直接指標操作，手動分配 |
+| **性能**   | 對於 I/O 密集型良好，對於 CPU 密集型較差   | 對於 CPU 密集型、低延遲、直接硬體互動表現出色 |
+
+C++ 是作業系統、嵌入式系統、裝置驅動程式和高性能伺服器應用程式的首選語言，在這些領域中，直接硬體互動、精確記憶體控制和最大性能至關重要。JavaScript，即使是 Node.js，也運行在更高的抽象層次上，優先考慮開發人員生產力和安全性，而不是原始系統控制。
+
+---
+
+### 練習題：
+1.  描述 C++ 中高階檔案 I/O（如 `std::ofstream`）和低階檔案 I/O（如 `open`/`read`/`write` 系統呼叫）之間的區別。何時會選擇其中一個？
+2.  解釋網路程式設計中通訊端點的概念。C++ 的網路程式設計方法與 JavaScript（例如，在 Node.js 中）有何不同？
+3.  什麼是系統呼叫，為什麼它們在系統程式設計中很重要？提供一個通常需要系統呼叫的任務範例。
+
+### 專案構想：
+*   在 C++ 中實作一個簡單的命令行工具，將一個檔案的內容複製到另一個檔案。你的程式應接受兩個命令行參數：來源檔案路徑和目標檔案路徑。使用 `std::ifstream` 和 `std::ofstream` 進行檔案操作。新增錯誤處理，例如檔案未找到或無法寫入目標。對於進階挑戰，嘗試使用低階 `open`、`read` 和 `write` 系統呼叫來實作它。
+
+```

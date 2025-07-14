@@ -1,0 +1,683 @@
+---
+title: "云原生开发与部署"
+description: "Go 云原生开发模式、容器化、Kubernetes 部署和云服务集成，从 JavaScript 开发者视角探索。"
+---
+
+# 云原生开发与部署
+
+Go 语言天然适合云原生开发，因为它具有小巧的二进制文件、快速的启动时间和优秀的并发编程支持。本模块从 JavaScript 开发者的视角探索云原生开发模式、容器化、Kubernetes 部署和云服务集成。
+
+## 云原生概述
+
+- **原则：** 微服务、容器、编排、CI/CD、可观测性
+- **Go 优势：** 小巧的二进制文件、快速启动、低内存占用、静态链接
+- **关键技术：** Docker、Kubernetes、Helm、Prometheus、Grafana
+- **云平台：** AWS、GCP、Azure、DigitalOcean、Heroku
+
+## Docker 容器化
+
+Docker 容器为 Go 应用程序提供一致、隔离的环境。
+
+<UniversalEditor title="Dockerfile 对比" compare={true}>
+```javascript !! js
+// JavaScript: Node.js 应用程序的 Dockerfile
+FROM node:18-alpine
+
+WORKDIR /app
+
+# 复制包文件
+COPY package*.json ./
+
+# 安装依赖
+RUN npm ci --only=production
+
+# 复制应用程序代码
+COPY . .
+
+# 暴露端口
+EXPOSE 3000
+
+# 启动应用程序
+CMD ["npm", "start"]
+```
+
+```dockerfile !! dockerfile
+# Go: Go 应用程序的 Dockerfile
+FROM golang:1.21-alpine AS builder
+
+WORKDIR /app
+
+# 复制 go mod 文件
+COPY go.mod go.sum ./
+
+# 下载依赖
+RUN go mod download
+
+# 复制源代码
+COPY . .
+
+# 构建应用程序
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o main .
+
+# 最终阶段
+FROM alpine:latest
+
+RUN apk --no-cache add ca-certificates
+
+WORKDIR /root/
+
+# 从构建阶段复制二进制文件
+COPY --from=builder /app/main .
+
+# 暴露端口
+EXPOSE 8080
+
+# 运行二进制文件
+CMD ["./main"]
+```
+</UniversalEditor>
+
+## 多阶段 Docker 构建
+
+多阶段构建创建更小、更安全的容器。
+
+<UniversalEditor title="多阶段 Docker 构建" compare={true}>
+```javascript !! js
+// JavaScript: 多阶段 Dockerfile
+FROM node:18-alpine AS builder
+
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci
+
+COPY . .
+RUN npm run build
+
+FROM node:18-alpine AS production
+WORKDIR /app
+
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/package*.json ./
+RUN npm ci --only=production
+
+EXPOSE 3000
+CMD ["npm", "start"]
+```
+
+```dockerfile !! dockerfile
+# Go: 带安全性的多阶段 Dockerfile
+FROM golang:1.21-alpine AS builder
+
+# 安装 git 和 ca-certificates
+RUN apk add --no-cache git ca-certificates
+
+WORKDIR /app
+
+# 复制 go mod 文件
+COPY go.mod go.sum ./
+
+# 下载依赖
+RUN go mod download
+
+# 复制源代码
+COPY . .
+
+# 使用安全标志构建
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+    -ldflags="-w -s" \
+    -a -installsuffix cgo \
+    -o main .
+
+# 使用最小镜像的最终阶段
+FROM scratch
+
+# 复制 ca-certificates 用于 HTTPS
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+
+# 复制二进制文件
+COPY --from=builder /app/main .
+
+EXPOSE 8080
+
+CMD ["./main"]
+```
+</UniversalEditor>
+
+## 开发环境的 Docker Compose
+
+Docker Compose 简化了多服务的本地开发。
+
+<UniversalEditor title="Docker Compose 配置" compare={true}>
+```yaml !! yaml
+# JavaScript: Node.js 应用的 docker-compose.yml
+version: '3.8'
+
+services:
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=development
+      - DATABASE_URL=postgresql://user:pass@db:5432/myapp
+    depends_on:
+      - db
+      - redis
+
+  db:
+    image: postgres:15
+    environment:
+      - POSTGRES_DB=myapp
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=pass
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+volumes:
+  postgres_data:
+```
+
+```yaml !! yaml
+# Go: Go 应用的 docker-compose.yml
+version: '3.8'
+
+services:
+  app:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      - APP_ENV=development
+      - DATABASE_URL=postgresql://user:pass@db:5432/myapp
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - db
+      - redis
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  db:
+    image: postgres:15
+    environment:
+      - POSTGRES_DB=myapp
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=pass
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d myapp"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+```
+</UniversalEditor>
+
+## Kubernetes 部署
+
+Kubernetes 提供了强大的容器编排能力。
+
+<UniversalEditor title="Kubernetes 部署配置" compare={true}>
+```yaml !! yaml
+# JavaScript: Node.js 应用的 Kubernetes 部署
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nodejs-app
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: nodejs-app
+  template:
+    metadata:
+      labels:
+        app: nodejs-app
+    spec:
+      containers:
+      - name: nodejs-app
+        image: nodejs-app:latest
+        ports:
+        - containerPort: 3000
+        env:
+        - name: NODE_ENV
+          value: "production"
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: db-secret
+              key: url
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 3000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+```
+
+```yaml !! yaml
+# Go: Go 应用的 Kubernetes 部署
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: go-app
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: go-app
+  template:
+    metadata:
+      labels:
+        app: go-app
+    spec:
+      containers:
+      - name: go-app
+        image: go-app:latest
+        ports:
+        - containerPort: 8080
+        env:
+        - name: APP_ENV
+          value: "production"
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: db-secret
+              key: url
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
+            memory: "128Mi"
+            cpu: "100m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+```
+</UniversalEditor>
+
+## 服务网格集成
+
+Istio 等服务网格提供了高级的网络功能。
+
+<UniversalEditor title="Istio 配置" compare={true}>
+```yaml !! yaml
+# JavaScript: Node.js 应用的 Istio VirtualService
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: nodejs-app
+spec:
+  hosts:
+  - nodejs-app.example.com
+  gateways:
+  - nodejs-gateway
+  http:
+  - route:
+    - destination:
+        host: nodejs-app
+        port:
+          number: 3000
+      weight: 100
+    retries:
+      attempts: 3
+      perTryTimeout: 2s
+    timeout: 10s
+    fault:
+      delay:
+        percentage:
+          value: 5
+        fixedDelay: 2s
+```
+
+```yaml !! yaml
+# Go: Go 应用的 Istio VirtualService
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: go-app
+spec:
+  hosts:
+  - go-app.example.com
+  gateways:
+  - go-gateway
+  http:
+  - route:
+    - destination:
+        host: go-app
+        port:
+          number: 8080
+      weight: 100
+    retries:
+      attempts: 3
+      perTryTimeout: 1s
+    timeout: 5s
+    fault:
+      delay:
+        percentage:
+          value: 2
+        fixedDelay: 1s
+    corsPolicy:
+      allowOrigins:
+      - exact: "https://example.com"
+      allowMethods:
+      - GET
+      - POST
+      - PUT
+      - DELETE
+      allowHeaders:
+      - authorization
+      - content-type
+```
+</UniversalEditor>
+
+## 监控和可观测性
+
+Prometheus 和 Grafana 提供了强大的监控能力。
+
+<UniversalEditor title="Prometheus 指标收集" compare={true}>
+```javascript !! js
+// JavaScript: Prometheus 指标收集
+const prometheus = require('prom-client');
+const express = require('express');
+
+const app = express();
+
+// 创建指标
+const httpRequestDurationMicroseconds = new prometheus.Histogram({
+  name: 'http_request_duration_seconds',
+  help: 'Duration of HTTP requests in seconds',
+  labelNames: ['method', 'route', 'status_code'],
+  buckets: [0.1, 0.5, 1, 2, 5]
+});
+
+const httpRequestsTotal = new prometheus.Counter({
+  name: 'http_requests_total',
+  help: 'Total number of HTTP requests',
+  labelNames: ['method', 'route', 'status_code']
+});
+
+// 中间件
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    const duration = Date.now() - start;
+    httpRequestDurationMicroseconds
+      .labels(req.method, req.route?.path || req.path, res.statusCode)
+      .observe(duration / 1000);
+    httpRequestsTotal
+      .labels(req.method, req.route?.path || req.path, res.statusCode)
+      .inc();
+  });
+  next();
+});
+
+// 指标端点
+app.get('/metrics', async (req, res) => {
+  res.set('Content-Type', prometheus.register.contentType);
+  res.end(await prometheus.register.metrics());
+});
+
+app.listen(3000);
+```
+
+```go !! go
+// Go: Prometheus 指标收集
+package main
+
+import (
+	"net/http"
+	"time"
+
+	"github.com/gin-gonic/gin"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+)
+
+var (
+	httpRequestsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "http_requests_total",
+			Help: "Total number of HTTP requests",
+		},
+		[]string{"method", "route", "status_code"},
+	)
+
+	httpRequestDuration = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "http_request_duration_seconds",
+			Help:    "Duration of HTTP requests in seconds",
+			Buckets: prometheus.DefBuckets,
+		},
+		[]string{"method", "route", "status_code"},
+	)
+)
+
+func init() {
+	prometheus.MustRegister(httpRequestsTotal)
+	prometheus.MustRegister(httpRequestDuration)
+}
+
+func prometheusMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		start := time.Now()
+		c.Next()
+		duration := time.Since(start).Seconds()
+
+		httpRequestsTotal.WithLabelValues(
+			c.Request.Method,
+			c.FullPath(),
+			string(rune(c.Writer.Status())),
+		).Inc()
+
+		httpRequestDuration.WithLabelValues(
+			c.Request.Method,
+			c.FullPath(),
+			string(rune(c.Writer.Status())),
+		).Observe(duration)
+	}
+}
+
+func main() {
+	r := gin.Default()
+	r.Use(prometheusMiddleware())
+
+	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
+	r.GET("/health", func(c *gin.Context) {
+		c.JSON(200, gin.H{"status": "ok"})
+	})
+
+	r.Run(":8080")
+}
+```
+</UniversalEditor>
+
+## CI/CD 流水线
+
+GitHub Actions 提供了强大的 CI/CD 能力。
+
+<UniversalEditor title="GitHub Actions 配置" compare={true}>
+```yaml !! yaml
+# JavaScript: Node.js 应用的 GitHub Actions
+name: Node.js CI/CD
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+        cache: 'npm'
+    - run: npm ci
+    - run: npm test
+    - run: npm run lint
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+    - uses: actions/checkout@v3
+    - uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+        cache: 'npm'
+    - run: npm ci
+    - run: npm run build
+    - name: Build Docker image
+      run: docker build -t nodejs-app:${{ github.sha }} .
+    - name: Push to registry
+      run: |
+        echo ${{ secrets.DOCKER_PASSWORD }} | docker login -u ${{ secrets.DOCKER_USERNAME }} --password-stdin
+        docker push nodejs-app:${{ github.sha }}
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+    - uses: actions/checkout@v3
+    - name: Deploy to Kubernetes
+      run: |
+        kubectl set image deployment/nodejs-app nodejs-app=nodejs-app:${{ github.sha }}
+```
+
+```yaml !! yaml
+# Go: Go 应用的 GitHub Actions
+name: Go CI/CD
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - uses: actions/setup-go@v4
+      with:
+        go-version: '1.21'
+        cache: true
+    - run: go mod download
+    - run: go test -v ./...
+    - run: go vet ./...
+    - run: go fmt ./...
+    - run: golangci-lint run
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+    - uses: actions/checkout@v3
+    - uses: actions/setup-go@v4
+      with:
+        go-version: '1.21'
+        cache: true
+    - run: go mod download
+    - name: Build for multiple platforms
+      run: |
+        GOOS=linux GOARCH=amd64 go build -o go-app-linux-amd64 .
+        GOOS=darwin GOARCH=amd64 go build -o go-app-darwin-amd64 .
+        GOOS=windows GOARCH=amd64 go build -o go-app-windows-amd64.exe .
+    - name: Build Docker image
+      run: docker build -t go-app:${{ github.sha }} .
+    - name: Push to registry
+      run: |
+        echo ${{ secrets.DOCKER_PASSWORD }} | docker login -u ${{ secrets.DOCKER_USERNAME }} --password-stdin
+        docker push go-app:${{ github.sha }}
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+    - uses: actions/checkout@v3
+    - name: Deploy to Kubernetes
+      run: |
+        kubectl set image deployment/go-app go-app=go-app:${{ github.sha }}
+```
+</UniversalEditor>
+
+## 云原生最佳实践
+
+### 安全性
+- 使用非 root 用户运行容器
+- 扫描容器镜像漏洞
+- 实施网络策略
+- 使用 secrets 管理敏感信息
+
+### 性能优化
+- 使用多阶段构建减小镜像大小
+- 实施健康检查和就绪探针
+- 配置资源限制
+- 使用水平 Pod 自动扩缩容
+
+### 可观测性
+- 实施结构化日志记录
+- 配置分布式追踪
+- 设置告警和监控
+- 使用服务网格进行流量管理
+
+> 云原生开发是现代应用程序的标准实践。Go 语言的设计理念使其成为云原生开发的理想选择，特别是在微服务架构和容器化部署方面。 

@@ -397,5 +397,47 @@ main();`,
     tags: ['錯誤處理', 'Result 類型', 'Async/Await', '檔案 I/O'],
     difficulty: 'advanced',
     category: '錯誤處理'
+  },
+  'js-cpp': {
+    leftCode: `// JavaScript: 動態類型
+// 同一個函數可以接受不同類型的參數
+function add(a, b) {
+  return a + b;
+}
+
+// 1. 用於數字加法
+console.log('5 + 10 =', add(5, 10));
+
+// 2. 用於字串拼接
+console.log('"Hello, " + "World!" =', add('Hello, ', 'World!'));`,
+    rightCode: `#include <iostream>
+#include <string>
+
+// C++: 靜態類型與模板
+// 使用模板來為不同類型生成專用的函數
+template <typename T>
+T add(T a, T b) {
+  return a + b;
+}
+
+int main() {
+  // 1. 用於整數加法 (T 被推導為 int)
+  std::cout << "5 + 10 = " << add(5, 10) << std::endl;
+
+  // 2. 用於字串拼接 (T 被推導為 std::string)
+  std::cout << "\"Hello, \" + \"World!\" = " 
+            << add(std::string("Hello, "), std::string("World!")) 
+            << std::endl;
+            
+  return 0;
+}`,
+    leftLanguage: 'javascript',
+    rightLanguage: 'cpp',
+    titleLeft: 'JavaScript',
+    titleRight: 'C++',
+    description: '函數定義和類型系統的比較，突顯 JavaScript 的動態類型與 C++ 的靜態類型和模板。',
+    tags: ['類型系統', '函數', '模板', '動態 vs 靜態'],
+    difficulty: 'beginner',
+    category: '核心概念'
   }
-}; 
+};

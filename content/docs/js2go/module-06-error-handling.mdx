@@ -1,0 +1,847 @@
+---
+title: Error Handling
+---
+
+Error handling in Go follows a unique philosophy that emphasizes explicit error checking over exceptions. Unlike JavaScript's `try...catch` mechanism or C++'s exception handling, Go treats errors as values that must be explicitly handled. This approach promotes clearer code flow and makes error handling more predictable.
+
+## Go's Error Philosophy
+
+Go's error handling is based on the principle that **errors are values, not exceptions**. This means:
+
+- Errors are returned as values from functions
+- Errors must be explicitly checked and handled
+- No automatic exception propagation
+- Clear, predictable control flow
+- No hidden error paths
+
+This philosophy differs significantly from JavaScript's exception-based approach:
+
+<UniversalEditor title="Error Handling Philosophy Comparison" compare={true}>
+```javascript !! js
+// JavaScript: Exception-based error handling
+function divide(a, b) {
+  if (b === 0) {
+    throw new Error("Division by zero");
+  }
+  return a / b;
+}
+
+function processData() {
+  try {
+    const result = divide(10, 0);
+    console.log("Result:", result);
+  } catch (error) {
+    console.error("Error occurred:", error.message);
+    // Error handling is separate from normal flow
+  }
+}
+
+// processData();
+```
+
+```go !! go
+// Go: Value-based error handling
+package main
+
+import (
+	"errors"
+	"fmt"
+)
+
+func divide(a, b float64) (float64, error) {
+	if b == 0 {
+		return 0, errors.New("division by zero")
+	}
+	return a / b, nil
+}
+
+func processData() {
+	result, err := divide(10, 0)
+	if err != nil {
+		fmt.Printf("Error occurred: %v\n", err)
+		return
+	}
+	fmt.Printf("Result: %v\n", result)
+}
+
+func main() {
+	processData()
+}
+```
+</UniversalEditor>
+
+## The `error` Interface
+
+In Go, errors are represented by the built-in `error` interface:
+
+```go
+type error interface {
+    Error() string
+}
+```
+
+Any type that implements the `Error() string` method satisfies the `error` interface. This simple design allows for flexible error types while maintaining consistency.
+
+<UniversalEditor title="Custom Error Types" compare={true}>
+```javascript !! js
+// JavaScript: Custom error classes
+class ValidationError extends Error {
+  constructor(message, field) {
+    super(message);
+    this.name = 'ValidationError';
+    this.field = field;
+  }
+}
+
+class NetworkError extends Error {
+  constructor(message, statusCode) {
+    super(message);
+    this.name = 'NetworkError';
+    this.statusCode = statusCode;
+  }
+}
+
+function validateUser(user) {
+  if (!user.name) {
+    throw new ValidationError('Name is required', 'name');
+  }
+  if (!user.email) {
+    throw new ValidationError('Email is required', 'email');
+  }
+}
+
+try {
+  validateUser({});
+} catch (error) {
+  if (error instanceof ValidationError) {
+    console.log(`Validation error in field ${error.field}: ${error.message}`);
+  }
+}
+```
+
+```go !! go
+// Go: Custom error types
+package main
+
+import (
+	"fmt"
+)
+
+// Custom error types
+type ValidationError struct {
+	Field   string
+	Message string
+}
+
+func (e ValidationError) Error() string {
+	return fmt.Sprintf("validation error in field %s: %s", e.Field, e.Message)
+}
+
+type NetworkError struct {
+	StatusCode int
+	Message    string
+}
+
+func (e NetworkError) Error() string {
+	return fmt.Sprintf("network error %d: %s", e.StatusCode, e.Message)
+}
+
+func validateUser(user map[string]string) error {
+	if user["name"] == "" {
+		return ValidationError{Field: "name", Message: "name is required"}
+	}
+	if user["email"] == "" {
+		return ValidationError{Field: "email", Message: "email is required"}
+	}
+	return nil
+}
+
+func main() {
+	user := map[string]string{}
+	
+	err := validateUser(user)
+	if err != nil {
+		switch e := err.(type) {
+		case ValidationError:
+			fmt.Printf("Validation error in field %s: %s\n", e.Field, e.Message)
+		default:
+			fmt.Printf("Unknown error: %v\n", err)
+		}
+	}
+}
+```
+</UniversalEditor>
+
+## Error Handling Patterns
+
+### 1. Explicit Error Checking
+
+The most common pattern in Go is to check errors immediately after function calls:
+
+<UniversalEditor title="Explicit Error Checking" compare={true}>
+```javascript !! js
+// JavaScript: Try-catch pattern
+async function processFile(filename) {
+  try {
+    const content = await readFile(filename);
+    const processed = await processContent(content);
+    await writeFile(filename + '.processed', processed);
+    console.log('File processed successfully');
+  } catch (error) {
+    console.error('Error processing file:', error.message);
+  }
+}
+```
+
+```go !! go
+// Go: Explicit error checking
+package main
+
+import (
+	"fmt"
+	"os"
+)
+
+func processFile(filename string) error {
+	// Read file
+	content, err := os.ReadFile(filename)
+	if err != nil {
+		return fmt.Errorf("failed to read file: %w", err)
+	}
+	
+	// Process content
+	processed, err := processContent(content)
+	if err != nil {
+		return fmt.Errorf("failed to process content: %w", err)
+	}
+	
+	// Write file
+	err = os.WriteFile(filename+".processed", processed, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to write file: %w", err)
+	}
+	
+	fmt.Println("File processed successfully")
+	return nil
+}
+
+func processContent(content []byte) ([]byte, error) {
+	// Simulate processing
+	return content, nil
+}
+
+func main() {
+	err := processFile("data.txt")
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+	}
+}
+```
+</UniversalEditor>
+
+### 2. Error Wrapping with `fmt.Errorf`
+
+Go 1.13 introduced error wrapping with the `%w` verb, allowing you to add context while preserving the original error:
+
+<UniversalEditor title="Error Wrapping" compare={true}>
+```javascript !! js
+// JavaScript: Error chaining
+class DatabaseError extends Error {
+  constructor(message, originalError) {
+    super(message);
+    this.name = 'DatabaseError';
+    this.cause = originalError;
+  }
+}
+
+async function getUser(id) {
+  try {
+    const user = await db.query('SELECT * FROM users WHERE id = ?', [id]);
+    return user;
+  } catch (error) {
+    throw new DatabaseError('Failed to fetch user', error);
+  }
+}
+```
+
+```go !! go
+// Go: Error wrapping with fmt.Errorf
+package main
+
+import (
+	"errors"
+	"fmt"
+)
+
+func getUser(id int) (map[string]interface{}, error) {
+	user, err := dbQuery("SELECT * FROM users WHERE id = ?", id)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch user: %w", err)
+	}
+	return user, nil
+}
+
+func dbQuery(query string, args ...interface{}) (map[string]interface{}, error) {
+	// Simulate database error
+	return nil, errors.New("connection timeout")
+}
+
+func main() {
+	user, err := getUser(123)
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+		
+		// Unwrap the original error
+		var dbErr error
+		if errors.Unwrap(err) != nil {
+			dbErr = errors.Unwrap(err)
+			fmt.Printf("Original error: %v\n", dbErr)
+		}
+	}
+}
+```
+</UniversalEditor>
+
+### 3. Sentinel Errors
+
+Sentinel errors are predefined error values used to represent specific error conditions:
+
+<UniversalEditor title="Sentinel Errors" compare={true}>
+```javascript !! js
+// JavaScript: Error constants
+const ERR_NOT_FOUND = new Error('Resource not found');
+const ERR_PERMISSION_DENIED = new Error('Permission denied');
+const ERR_INVALID_INPUT = new Error('Invalid input');
+
+function findUser(id) {
+  if (id < 0) {
+    throw ERR_INVALID_INPUT;
+  }
+  if (id > 1000) {
+    throw ERR_NOT_FOUND;
+  }
+  return { id, name: 'User' + id };
+}
+
+try {
+  const user = findUser(2000);
+} catch (error) {
+  if (error === ERR_NOT_FOUND) {
+    console.log('User not found');
+  } else if (error === ERR_INVALID_INPUT) {
+    console.log('Invalid user ID');
+  }
+}
+```
+
+```go !! go
+// Go: Sentinel errors
+package main
+
+import (
+	"errors"
+	"fmt"
+)
+
+// Sentinel errors
+var (
+	ErrNotFound          = errors.New("resource not found")
+	ErrPermissionDenied  = errors.New("permission denied")
+	ErrInvalidInput      = errors.New("invalid input")
+)
+
+func findUser(id int) (map[string]interface{}, error) {
+	if id < 0 {
+		return nil, ErrInvalidInput
+	}
+	if id > 1000 {
+		return nil, ErrNotFound
+	}
+	return map[string]interface{}{
+		"id":   id,
+		"name": fmt.Sprintf("User%d", id),
+	}, nil
+}
+
+func main() {
+	user, err := findUser(2000)
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrNotFound):
+			fmt.Println("User not found")
+		case errors.Is(err, ErrInvalidInput):
+			fmt.Println("Invalid user ID")
+		default:
+			fmt.Printf("Unknown error: %v\n", err)
+		}
+		return
+	}
+	
+	fmt.Printf("Found user: %v\n", user)
+}
+```
+</UniversalEditor>
+
+## Error Handling Best Practices
+
+### 1. Don't Ignore Errors
+
+Always check and handle errors appropriately:
+
+<UniversalEditor title="Error Handling Best Practices" compare={true}>
+```javascript !! js
+// JavaScript: Proper error handling
+async function processData() {
+  try {
+    const data = await fetchData();
+    const result = await processData(data);
+    return result;
+  } catch (error) {
+    // Log the error
+    console.error('Failed to process data:', error);
+    // Re-throw or handle appropriately
+    throw error;
+  }
+}
+```
+
+```go !! go
+// Go: Proper error handling
+package main
+
+import (
+	"fmt"
+	"log"
+)
+
+func processData() error {
+	data, err := fetchData()
+	if err != nil {
+		// Log the error
+		log.Printf("Failed to fetch data: %v", err)
+		// Return the error
+		return fmt.Errorf("failed to fetch data: %w", err)
+	}
+	
+	result, err := processData(data)
+	if err != nil {
+		log.Printf("Failed to process data: %v", err)
+		return fmt.Errorf("failed to process data: %w", err)
+	}
+	
+	fmt.Printf("Processed result: %v\n", result)
+	return nil
+}
+
+func fetchData() (string, error) {
+	return "data", nil
+}
+
+func processData(data string) (string, error) {
+	return "processed " + data, nil
+}
+```
+</UniversalEditor>
+
+### 2. Use `errors.Is` and `errors.As`
+
+For error comparison and type checking:
+
+<UniversalEditor title="Error Comparison" compare={true}>
+```javascript !! js
+// JavaScript: Error type checking
+class NetworkError extends Error {
+  constructor(message, statusCode) {
+    super(message);
+    this.name = 'NetworkError';
+    this.statusCode = statusCode;
+  }
+}
+
+async function makeRequest() {
+  try {
+    const response = await fetch('/api/data');
+    if (!response.ok) {
+      throw new NetworkError('Request failed', response.status);
+    }
+    return await response.json();
+  } catch (error) {
+    if (error instanceof NetworkError) {
+      console.log(`Network error with status: ${error.statusCode}`);
+    } else {
+      console.log('Other error:', error.message);
+    }
+  }
+}
+```
+
+```go !! go
+// Go: Error comparison with errors.Is and errors.As
+package main
+
+import (
+	"errors"
+	"fmt"
+)
+
+type NetworkError struct {
+	StatusCode int
+	Message    string
+}
+
+func (e NetworkError) Error() string {
+	return fmt.Sprintf("network error %d: %s", e.StatusCode, e.Message)
+}
+
+func makeRequest() error {
+	// Simulate network error
+	return NetworkError{StatusCode: 404, Message: "Not found"}
+}
+
+func main() {
+	err := makeRequest()
+	
+	// Check for specific error type
+	var netErr NetworkError
+	if errors.As(err, &netErr) {
+		fmt.Printf("Network error with status: %d\n", netErr.StatusCode)
+	} else {
+		fmt.Printf("Other error: %v\n", err)
+	}
+}
+```
+</UniversalEditor>
+
+## Comparison with JavaScript Error Handling
+
+| Feature           | JavaScript                               | Go                                      |
+| :---------------- | :--------------------------------------- | :--------------------------------------- |
+| **Mechanism**     | Exceptions (`throw`, `try...catch`)      | Error values (returned from functions)  |
+| **Error Types**   | `Error` objects, custom error classes    | `error` interface, custom error types   |
+| **Propagation**   | Automatic up the call stack              | Manual (must be returned and checked)   |
+| **Control Flow**  | Can bypass normal flow                   | Always explicit, predictable flow       |
+| **Performance**   | Stack unwinding overhead                 | No overhead (just value passing)        |
+| **Async Handling**| `async/await` with `try...catch`         | Same pattern for both sync and async    |
+| **Error Context** | Error chaining with `cause`              | Error wrapping with `fmt.Errorf`        |
+
+## Common Error Handling Patterns
+
+### 1. Early Return Pattern
+
+Return early when errors occur to avoid deep nesting:
+
+<UniversalEditor title="Early Return Pattern" compare={true}>
+```javascript !! js
+// JavaScript: Early return with try-catch
+async function processUser(userId) {
+  try {
+    const user = await fetchUser(userId);
+    if (!user) {
+      throw new Error('User not found');
+    }
+    
+    const profile = await fetchProfile(user.profileId);
+    if (!profile) {
+      throw new Error('Profile not found');
+    }
+    
+    const settings = await fetchSettings(user.settingsId);
+    if (!settings) {
+      throw new Error('Settings not found');
+    }
+    
+    return { user, profile, settings };
+  } catch (error) {
+    console.error('Error processing user:', error.message);
+    throw error;
+  }
+}
+```
+
+```go !! go
+// Go: Early return pattern
+package main
+
+import (
+	"errors"
+	"fmt"
+)
+
+func processUser(userID int) (map[string]interface{}, error) {
+	// Early return on error
+	user, err := fetchUser(userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch user: %w", err)
+	}
+	
+	profile, err := fetchProfile(user["profileId"].(int))
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch profile: %w", err)
+	}
+	
+	settings, err := fetchSettings(user["settingsId"].(int))
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch settings: %w", err)
+	}
+	
+	return map[string]interface{}{
+		"user":     user,
+		"profile":  profile,
+		"settings": settings,
+	}, nil
+}
+
+func fetchUser(id int) (map[string]interface{}, error) {
+	if id <= 0 {
+		return nil, errors.New("invalid user ID")
+	}
+	return map[string]interface{}{
+		"id":         id,
+		"profileId":  123,
+		"settingsId": 456,
+	}, nil
+}
+
+func fetchProfile(id int) (map[string]interface{}, error) {
+	return map[string]interface{}{"id": id, "name": "Profile"}, nil
+}
+
+func fetchSettings(id int) (map[string]interface{}, error) {
+	return map[string]interface{}{"id": id, "theme": "dark"}, nil
+}
+```
+</UniversalEditor>
+
+### 2. Error Aggregation
+
+Collect multiple errors and return them together:
+
+<UniversalEditor title="Error Aggregation" compare={true}>
+```javascript !! js
+// JavaScript: Error aggregation
+class ValidationErrors extends Error {
+  constructor(errors) {
+    super('Multiple validation errors occurred');
+    this.name = 'ValidationErrors';
+    this.errors = errors;
+  }
+}
+
+function validateUser(user) {
+  const errors = [];
+  
+  if (!user.name) {
+    errors.push('Name is required');
+  }
+  if (!user.email) {
+    errors.push('Email is required');
+  }
+  if (user.age < 0) {
+    errors.push('Age must be positive');
+  }
+  
+  if (errors.length > 0) {
+    throw new ValidationErrors(errors);
+  }
+}
+
+try {
+  validateUser({ age: -5 });
+} catch (error) {
+  if (error instanceof ValidationErrors) {
+    console.log('Validation errors:', error.errors);
+  }
+}
+```
+
+```go !! go
+// Go: Error aggregation
+package main
+
+import (
+	"errors"
+	"fmt"
+	"strings"
+)
+
+type ValidationErrors struct {
+	Errors []string
+}
+
+func (e ValidationErrors) Error() string {
+	return fmt.Sprintf("validation errors: %s", strings.Join(e.Errors, "; "))
+}
+
+func validateUser(user map[string]interface{}) error {
+	var errors []string
+	
+	if user["name"] == "" {
+		errors = append(errors, "name is required")
+	}
+	if user["email"] == "" {
+		errors = append(errors, "email is required")
+	}
+	if age, ok := user["age"].(int); ok && age < 0 {
+		errors = append(errors, "age must be positive")
+	}
+	
+	if len(errors) > 0 {
+		return ValidationErrors{Errors: errors}
+	}
+	
+	return nil
+}
+
+func main() {
+	user := map[string]interface{}{
+		"age": -5,
+	}
+	
+	err := validateUser(user)
+	if err != nil {
+		var valErr ValidationErrors
+		if errors.As(err, &valErr) {
+			fmt.Println("Validation errors:", valErr.Errors)
+		}
+	}
+}
+```
+</UniversalEditor>
+
+## Error Handling in Concurrent Code
+
+Error handling becomes more complex in concurrent scenarios:
+
+<UniversalEditor title="Concurrent Error Handling" compare={true}>
+```javascript !! js
+// JavaScript: Promise.all with error handling
+async function processMultipleUsers(userIds) {
+  try {
+    const promises = userIds.map(id => fetchUser(id));
+    const users = await Promise.all(promises);
+    return users;
+  } catch (error) {
+    console.error('Error processing users:', error);
+    throw error;
+  }
+}
+
+// Handle individual errors
+async function processUsersWithIndividualErrors(userIds) {
+  const results = await Promise.allSettled(
+    userIds.map(id => fetchUser(id))
+  );
+  
+  const successful = results
+    .filter(result => result.status === 'fulfilled')
+    .map(result => result.value);
+    
+  const failed = results
+    .filter(result => result.status === 'rejected')
+    .map(result => result.reason);
+    
+  return { successful, failed };
+}
+```
+
+```go !! go
+// Go: Concurrent error handling
+package main
+
+import (
+	"fmt"
+	"sync"
+)
+
+func processMultipleUsers(userIDs []int) ([]map[string]interface{}, error) {
+	var wg sync.WaitGroup
+	users := make([]map[string]interface{}, len(userIDs))
+	errors := make([]error, len(userIDs))
+	
+	for i, id := range userIDs {
+		wg.Add(1)
+		go func(index int, userID int) {
+			defer wg.Done()
+			user, err := fetchUser(userID)
+			if err != nil {
+				errors[index] = err
+				return
+			}
+			users[index] = user
+		}(i, id)
+	}
+	
+	wg.Wait()
+	
+	// Check for any errors
+	for _, err := range errors {
+		if err != nil {
+			return nil, fmt.Errorf("failed to process users: %w", err)
+		}
+	}
+	
+	return users, nil
+}
+
+func processUsersWithIndividualErrors(userIDs []int) ([]map[string]interface{}, []error) {
+	var wg sync.WaitGroup
+	users := make([]map[string]interface{}, len(userIDs))
+	errors := make([]error, len(userIDs))
+	
+	for i, id := range userIDs {
+		wg.Add(1)
+		go func(index int, userID int) {
+			defer wg.Done()
+			user, err := fetchUser(userID)
+			if err != nil {
+				errors[index] = err
+				return
+			}
+			users[index] = user
+		}(i, id)
+	}
+	
+	wg.Wait()
+	
+	// Filter successful and failed results
+	var successful []map[string]interface{}
+	var failed []error
+	
+	for i, user := range users {
+		if user != nil {
+			successful = append(successful, user)
+		} else {
+			failed = append(failed, errors[i])
+		}
+	}
+	
+	return successful, failed
+}
+
+func fetchUser(id int) (map[string]interface{}, error) {
+	if id <= 0 {
+		return nil, fmt.Errorf("invalid user ID: %d", id)
+	}
+	return map[string]interface{}{
+		"id":   id,
+		"name": fmt.Sprintf("User%d", id),
+	}, nil
+}
+```
+</UniversalEditor>
+
+---
+
+### Practice Questions:
+1. Explain the difference between Go's error handling approach and JavaScript's exception-based error handling. What are the advantages and disadvantages of each?
+2. How does error wrapping with `fmt.Errorf` work in Go? Provide an example of when and why you would use it.
+3. Describe the early return pattern in Go error handling and explain why it's considered a best practice.
+
+### Project Idea:
+Create a simple file processing utility in Go that demonstrates various error handling patterns. The utility should:
+- Read configuration from a file
+- Process multiple files concurrently
+- Handle different types of errors (file not found, permission denied, invalid format)
+- Use error wrapping to provide context
+- Implement proper error aggregation for validation errors
+- Compare the implementation with a JavaScript version using try-catch

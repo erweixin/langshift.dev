@@ -125,7 +125,7 @@ export function InteractiveCodeComparison({ lang }: { lang: SupportedLanguage })
           </Badge>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-col lg:flex-row">
           {/* 初始语言选择 */}
           <div className="flex-1">
             <Select value={initialLanguage} onValueChange={(value) => handleLanguageChange('initial', value)}>
@@ -188,7 +188,7 @@ export function InteractiveCodeComparison({ lang }: { lang: SupportedLanguage })
             {/* 头部信息栏 */}
             <div className="bg-gradient-to-r from-white/5 to-white/10 border-b border-white/10 p-3">
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3 flex-col lg:flex-row">
                   <div className="flex items-center gap-2">
                     <div className={cn("w-2 h-2 rounded-full", initialConfig.color)}></div>
                     <span className="text-sm font-medium text-white">{initialConfig.label}</span>

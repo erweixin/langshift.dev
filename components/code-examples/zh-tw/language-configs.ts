@@ -33,4 +33,28 @@ export const languageConfigs: LanguageConfig[] = [
     syntax: 'rust',
     description: '記憶體安全的系統編程語言'
   },
+  {
+    value: 'cpp',
+    label: 'C++',
+    icon: '🚀',
+    color: 'bg-blue-700',
+    syntax: 'cpp',
+    description: '高效能的系統編程語言'
+  },
+  {
+    value: 'go',
+    label: 'Go',
+    icon: '🐹',
+    color: 'bg-cyan-500',
+    syntax: 'go',
+    description: '簡潔高效的並發編程語言'
+  },
+  {
+    value: 'swift',
+    label: 'Swift',
+    icon: '🍎',
+    color: 'bg-pink-500',
+    syntax: 'swift',
+    description: '現代、安全、快速的 iOS/macOS 編程語言'
+  },
 ]; 

@@ -1,0 +1,716 @@
+---
+title: 套件系統與模組化
+---
+
+本模組探討 Go 的套件系統和模組管理，這是組織和建構 Go 程式碼的基礎。與 JavaScript 的模組系統不同，Go 使用獨特的方法進行套件管理和依賴解析。
+
+## 理解 Go 套件
+
+Go 中的**套件**是一種將相關程式碼分組在一起的方式。每個 Go 檔案都屬於一個套件，套件是程式碼組織和重用的主要機制。
+
+### 套件宣告
+
+每個 Go 檔案都必須以套件宣告開始，這決定了套件名。
+
+<UniversalEditor title="套件宣告對比" compare={true}>
+```javascript !! js
+// JavaScript: 模組系統 (ES6)
+// file: math.js
+export const PI = 3.14159;
+export function add(a, b) {
+    return a + b;
+}
+export function multiply(a, b) {
+    return a * b;
+}
+
+// file: main.js
+import { PI, add, multiply } from './math.js';
+console.log(PI);
+console.log(add(5, 3));
+```
+
+```go !! go
+// Go: 套件系統
+// file: math/math.go
+package math
+
+const PI = 3.14159
+
+func Add(a, b int) int {
+    return a + b
+}
+
+func Multiply(a, b int) int {
+    return a * b
+}
+
+// file: main.go
+package main
+
+import (
+    "fmt"
+    "./math" // 匯入本地套件
+)
+
+func main() {
+    fmt.Println(math.PI)
+    fmt.Println(math.Add(5, 3))
+    fmt.Println(math.Multiply(4, 6))
+}
+```
+</UniversalEditor>
+
+## Go 模組 vs JavaScript 套件管理器
+
+Go 模組是 Go 中管理依賴的現代方式，類似於 JavaScript 中的 npm/yarn，但有一些關鍵差異。
+
+### 模組初始化
+
+<UniversalEditor title="模組初始化對比" compare={true}>
+```javascript !! js
+// JavaScript: npm/yarn 初始化
+// package.json (由 npm init 建立)
+{
+  "name": "my-project",
+  "version": "1.0.0",
+  "dependencies": {
+    "express": "^4.18.2",
+    "lodash": "^4.17.21"
+  },
+  "devDependencies": {
+    "jest": "^29.5.0"
+  }
+}
+
+// 安裝依賴
+// npm install
+// 或
+// yarn install
+```
+
+```go !! go
+// Go: 模組初始化
+// go.mod (由 go mod init 建立)
+module my-project
+
+go 1.21
+
+require (
+    github.com/gin-gonic/gin v1.9.1
+    github.com/go-sql-driver/mysql v1.7.1
+)
+
+// 初始化模組
+// go mod init my-project
+
+// 新增依賴
+// go get github.com/gin-gonic/gin
+// go get github.com/go-sql-driver/mysql
+```
+</UniversalEditor>
+
+## 套件組織和結構
+
+Go 有特定的約定來組織套件和專案。
+
+### 標準專案佈局
+
+<UniversalEditor title="專案結構對比" compare={true}>
+```javascript !! js
+// JavaScript: 典型專案結構
+my-project/
+├── package.json
+├── node_modules/
+├── src/
+│   ├── components/
+│   │   ├── Header.js
+│   │   └── Footer.js
+│   ├── utils/
+│   │   ├── math.js
+│   │   └── helpers.js
+│   └── main.js
+├── tests/
+│   └── test.js
+└── README.md
+```
+
+```go !! go
+// Go: 標準專案結構
+my-project/
+├── go.mod
+├── go.sum
+├── cmd/
+│   └── main.go
+├── internal/
+│   ├── handlers/
+│   │   └── user.go
+│   └── models/
+│       └── user.go
+├── pkg/
+│   ├── math/
+│   │   └── math.go
+│   └── utils/
+│       └── helpers.go
+├── api/
+│   └── routes.go
+├── tests/
+│   └── math_test.go
+└── README.md
+```
+</UniversalEditor>
+
+## 匯入系統
+
+Go 的匯入系統比 JavaScript 更嚴格，需要顯式匯入並遵循特定約定。
+
+### 匯入類型和用法
+
+<UniversalEditor title="匯入系統對比" compare={true}>
+```javascript !! js
+// JavaScript: 各種匯入樣式
+// 預設匯入
+import express from 'express';
+
+// 命名匯入
+import { useState, useEffect } from 'react';
+
+// 命名空間匯入
+import * as math from './math.js';
+
+// 動態匯入
+const module = await import('./dynamic-module.js');
+
+// 解構重命名
+import { add as addNumbers } from './math.js';
+
+// 預設和命名匯入
+import defaultExport, { namedExport } from './module.js';
+```
+
+```go !! go
+// Go: 匯入系統
+package main
+
+import (
+    // 標準庫匯入
+    "fmt"
+    "net/http"
+    "time"
+    
+    // 第三方匯入
+    "github.com/gin-gonic/gin"
+    "github.com/go-sql-driver/mysql"
+    
+    // 本地匯入
+    "./internal/handlers"
+    "./pkg/math"
+)
+
+// 帶別名的匯入
+import (
+    mymath "./pkg/math"
+)
+
+// 帶點的匯入（將所有名稱帶入當前作用域）
+import (
+    . "./pkg/math" // 現在可以直接使用 Add() 而不是 math.Add()
+)
+
+// 帶底線的匯入（僅用於副作用）
+import (
+    _ "github.com/go-sql-driver/mysql" // 註冊 MySQL 驅動
+)
+
+func main() {
+    fmt.Println("Hello, Go!")
+    fmt.Println(math.Add(5, 3))
+    fmt.Println(mymath.Multiply(4, 6))
+}
+```
+</UniversalEditor>
+
+## 套件可見性和匯出
+
+Go 使用大小寫來控制可見性，與 JavaScript 的顯式匯出/匯入系統不同。
+
+<UniversalEditor title="可見性規則對比" compare={true}>
+```javascript !! js
+// JavaScript: 顯式匯出
+// file: utils.js
+export const publicVariable = "我是公開的";
+export function publicFunction() {
+    return "我是公開的";
+}
+
+const privateVariable = "我是私有的";
+function privateFunction() {
+    return "我是私有的";
+}
+
+// 預設匯出
+export default function mainFunction() {
+    return "我是預設匯出";
+}
+
+// file: main.js
+import mainFunction, { publicVariable, publicFunction } from './utils.js';
+```
+
+```go !! go
+// Go: 基於大小寫的可見性
+// file: utils/utils.go
+package utils
+
+// 匯出的（大寫）
+var PublicVariable = "我是公開的"
+func PublicFunction() string {
+    return "我是公開的"
+}
+
+// 未匯出的（小寫）
+var privateVariable = "我是私有的"
+func privateFunction() string {
+    return "我是私有的"
+}
+
+// file: main.go
+package main
+
+import (
+    "fmt"
+    "./utils"
+)
+
+func main() {
+    fmt.Println(utils.PublicVariable)    // ✅ 可存取
+    fmt.Println(utils.PublicFunction())  // ✅ 可存取
+    // fmt.Println(utils.privateVariable) // ❌ 不可存取
+    // fmt.Println(utils.privateFunction()) // ❌ 不可存取
+}
+```
+</UniversalEditor>
+
+## Go 模組和依賴管理
+
+Go 模組提供了具有版本控制和可重現建構的現代依賴管理方法。
+
+### 模組檔案
+
+<UniversalEditor title="模組檔案對比" compare={true}>
+```javascript !! js
+// JavaScript: package.json 和 package-lock.json
+// package.json
+{
+  "name": "my-app",
+  "version": "1.0.0",
+  "dependencies": {
+    "express": "^4.18.2",
+    "lodash": "^4.17.21"
+  },
+  "devDependencies": {
+    "jest": "^29.5.0"
+  },
+  "scripts": {
+    "start": "node index.js",
+    "test": "jest"
+  }
+}
+
+// package-lock.json (自動產生)
+// 包含確切版本和依賴樹
+```
+
+```go !! go
+// Go: go.mod 和 go.sum
+// go.mod
+module my-app
+
+go 1.21
+
+require (
+    github.com/gin-gonic/gin v1.9.1
+    github.com/go-sql-driver/mysql v1.7.1
+)
+
+require (
+    github.com/bytedance/sonic v1.9.1 // indirect
+    github.com/chenzhuoyu/base64x v0.0.0-20221115062448-fe3a3abad311 // indirect
+    // ... 更多間接依賴
+)
+
+// go.sum (自動產生)
+// 包含用於可重現建構的加密雜湊
+github.com/bytedance/sonic v1.9.1 h1:6iJ6NqdoxCDr6mbY8h18oSO+cShGSMRGCEo7F2h0x8s=
+github.com/bytedance/sonic v1.9.1/go.mod h1:i736AoUSYt75HyZLoJW9ERYxcy6eaN6h4BZXU064P/U=
+// ... 更多雜湊
+```
+</UniversalEditor>
+
+### 依賴管理命令
+
+<UniversalEditor title="依賴管理命令" compare={true}>
+```javascript !! js
+// JavaScript: npm/yarn 命令
+// 安裝依賴
+npm install
+yarn install
+
+// 新增新依賴
+npm install express
+yarn add express
+
+// 新增開發依賴
+npm install --save-dev jest
+yarn add --dev jest
+
+// 移除依賴
+npm uninstall lodash
+yarn remove lodash
+
+// 更新依賴
+npm update
+yarn upgrade
+
+// 列出依賴
+npm list
+yarn list
+```
+
+```go !! go
+// Go: go mod 命令
+// 初始化模組
+go mod init my-project
+
+// 新增依賴
+go get github.com/gin-gonic/gin
+go get github.com/go-sql-driver/mysql@v1.7.1
+
+// 移除未使用的依賴
+go mod tidy
+
+// 下載依賴
+go mod download
+
+// 驗證依賴
+go mod verify
+
+// 列出依賴
+go list -m all
+
+// 更新依賴
+go get -u github.com/gin-gonic/gin
+go get -u all
+```
+</UniversalEditor>
+
+## 套件類型和約定
+
+Go 有幾種具有特定目的和約定的套件類型。
+
+### Main 套件
+
+`main` 套件在 Go 中是特殊的 - 它是可執行程式的進入點。
+
+<UniversalEditor title="Main 套件範例" compare={true}>
+```javascript !! js
+// JavaScript: 進入點
+// file: index.js
+const express = require('express');
+const app = express();
+
+app.get('/', (req, res) => {
+    res.send('Hello World!');
+});
+
+app.listen(3000, () => {
+    console.log('Server running on port 3000');
+});
+
+// package.json
+{
+  "scripts": {
+    "start": "node index.js"
+  }
+}
+```
+
+```go !! go
+// Go: Main 套件
+// file: main.go
+package main
+
+import (
+    "fmt"
+    "net/http"
+)
+
+func main() {
+    http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+        fmt.Fprintf(w, "Hello World!")
+    })
+    
+    fmt.Println("Server running on port 3000")
+    http.ListenAndServe(":3000", nil)
+}
+
+// 建構和執行
+// go build
+// ./my-app
+```
+</UniversalEditor>
+
+### 函式庫套件
+
+函式庫套件是可以被其他套件匯入的可重用程式碼。
+
+<UniversalEditor title="函式庫套件範例" compare={true}>
+```javascript !! js
+// JavaScript: 函式庫模組
+// file: math-utils.js
+export class Calculator {
+    static add(a, b) {
+        return a + b;
+    }
+    
+    static multiply(a, b) {
+        return a * b;
+    }
+}
+
+export const PI = 3.14159;
+export const E = 2.71828;
+
+// file: main.js
+import { Calculator, PI } from './math-utils.js';
+console.log(Calculator.add(5, 3));
+console.log(PI);
+```
+
+```go !! go
+// Go: 函式庫套件
+// file: math/calculator.go
+package math
+
+const PI = 3.14159
+const E = 2.71828
+
+type Calculator struct{}
+
+func (c *Calculator) Add(a, b float64) float64 {
+    return a + b
+}
+
+func (c *Calculator) Multiply(a, b float64) float64 {
+    return a * b
+}
+
+// 靜態方法（套件級函數）
+func Add(a, b float64) float64 {
+    return a + b
+}
+
+func Multiply(a, b float64) float64 {
+    return a * b
+}
+
+// file: main.go
+package main
+
+import (
+    "fmt"
+    "./math"
+)
+
+func main() {
+    calc := &math.Calculator{}
+    fmt.Println(calc.Add(5, 3))
+    fmt.Println(math.Add(5, 3)) // 靜態函數
+    fmt.Println(math.PI)
+}
+```
+</UniversalEditor>
+
+## 內部套件
+
+Go 有一個特殊的 `internal` 目錄，用於只能在同一模組內使用的套件。
+
+<UniversalEditor title="內部套件範例" compare={true}>
+```javascript !! js
+// JavaScript: 無內建內部概念
+// 約定：使用底線前綴或放在私有目錄中
+// file: _internal/helpers.js
+export function internalHelper() {
+    return "internal";
+}
+
+// file: main.js
+import { internalHelper } from './_internal/helpers.js';
+// 注意：這只是約定，不是語言強制執行的
+```
+
+```go !! go
+// Go: 內部套件（由編譯器強制執行）
+// file: internal/helpers/helpers.go
+package helpers
+
+func InternalHelper() string {
+    return "internal"
+}
+
+// file: main.go
+package main
+
+import (
+    "fmt"
+    "./internal/helpers" // ✅ 可以從 internal 匯入
+)
+
+func main() {
+    fmt.Println(helpers.InternalHelper())
+}
+
+// file: another-module/main.go
+package main
+
+import (
+    "fmt"
+    "github.com/user/my-project/internal/helpers" // ❌ 無法從另一個模組的 internal 匯入
+)
+
+func main() {
+    // 這會導致編譯錯誤
+    fmt.Println(helpers.InternalHelper())
+}
+```
+</UniversalEditor>
+
+## Vendor 目錄和依賴管理
+
+Go 支援供應商依賴，用於離線開發和可重現建構。
+
+<UniversalEditor title="Vendor 目錄範例" compare={true}>
+```javascript !! js
+// JavaScript: 無內建供應商功能
+// 約定：使用 npm pack 或複製 node_modules
+// npm pack 建立包含依賴的壓縮包
+// npm pack express
+
+// 或手動複製依賴
+// cp -r node_modules vendor/
+```
+
+```go !! go
+// Go: Vendor 目錄
+// 建立包含依賴的 vendor 目錄
+go mod vendor
+
+// 這會建立：
+my-project/
+├── go.mod
+├── go.sum
+├── vendor/
+│   ├── github.com/
+│   │   └── gin-gonic/
+│   │       └── gin/
+│   │           ├── go.mod
+│   │           └── *.go
+│   └── modules.txt
+└── main.go
+
+// 使用供應商依賴建構
+go build -mod=vendor
+
+// 或設定環境變數
+export GOFLAGS="-mod=vendor"
+go build
+```
+</UniversalEditor>
+
+## 工作區支援 (Go 1.18+)
+
+Go 工作區允許在單個工作區中管理多個模組，類似於 JavaScript 單體倉庫。
+
+<UniversalEditor title="工作區範例" compare={true}>
+```javascript !! js
+// JavaScript: 帶工作區的單體倉庫
+// package.json (根目錄)
+{
+  "name": "my-monorepo",
+  "workspaces": [
+    "packages/*"
+  ],
+  "private": true
+}
+
+// packages/app/package.json
+{
+  "name": "@my-org/app",
+  "dependencies": {
+    "@my-org/utils": "workspace:*"
+  }
+}
+
+// packages/utils/package.json
+{
+  "name": "@my-org/utils",
+  "version": "1.0.0"
+}
+```
+
+```go !! go
+// Go: 工作區 (Go 1.18+)
+// go.work (根目錄)
+go 1.21
+
+use (
+    ./app
+    ./utils
+    ./shared
+)
+
+// app/go.mod
+module my-org/app
+
+go 1.21
+
+require my-org/utils v0.0.0
+
+replace my-org/utils => ../utils
+
+// utils/go.mod
+module my-org/utils
+
+go 1.21
+
+// shared/go.mod
+module my-org/shared
+
+go 1.21
+
+// 初始化工作區
+go work init ./app ./utils ./shared
+
+// 向工作區新增模組
+go work use ./new-module
+
+// 從工作區移除模組
+go work edit -dropuse ./old-module
+```
+</UniversalEditor>
+
+---
+
+### 練習題：
+1. 解釋 Go 的套件系統與 JavaScript 模組系統的區別。每種方法的優缺點是什麼？
+2. Go 中 `internal` 目錄的意義是什麼，它與 JavaScript 處理私有模組的方法有何不同？
+3. Go 基於大小寫的可見性系統如何工作，它與 JavaScript 的顯式匯出/匯入系統相比如何？
+4. 建立一個具有多個套件的 Go 模組，並演示如何使用標準 Go 專案佈局組織程式碼。
+
+### 專案想法：
+* 使用 Go 模組建構一個簡單的 Web 應用程式。為處理器、模型和實用程式建立單獨的套件。使用標準 Go 專案佈局，演示正確的套件組織、依賴管理和模組結構。
+
+### 下一步：
+* 學習 Go 的型別系統和介面
+* 探索 Go 強大的並發特性：goroutines 和 channels
+* 理解 Go 的錯誤處理模式和最佳實踐

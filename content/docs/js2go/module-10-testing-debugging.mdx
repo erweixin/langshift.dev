@@ -1,0 +1,1265 @@
+---
+title: Testing and Debugging
+---
+
+Go has excellent built-in support for testing, with a comprehensive testing framework that includes unit tests, benchmarks, and fuzzy testing. This module explores Go's testing ecosystem from a JavaScript developer's perspective, covering testing patterns, debugging techniques, and performance analysis.
+
+## Go Testing Overview
+
+- **Built-in Testing:** `testing` package with no external dependencies
+- **Test Functions:** Functions starting with `Test` prefix
+- **Benchmark Functions:** Functions starting with `Benchmark` prefix
+- **Fuzzy Testing:** Go 1.18+ feature for automated test generation
+- **Coverage:** Built-in code coverage analysis
+- **Test Helpers:** Utilities for common testing patterns
+
+## Unit Testing
+
+Go's testing framework is simple yet powerful, with no external dependencies required.
+
+<UniversalEditor title="Unit Testing Comparison" compare={true}>
+```javascript !! js
+// JavaScript: Jest unit testing
+const { add, multiply, divide } = require('./math');
+
+describe('Math functions', () => {
+  test('add should add two numbers', () => {
+    expect(add(2, 3)).toBe(5);
+    expect(add(-1, 1)).toBe(0);
+    expect(add(0, 0)).toBe(0);
+  });
+
+  test('multiply should multiply two numbers', () => {
+    expect(multiply(2, 3)).toBe(6);
+    expect(multiply(-2, 3)).toBe(-6);
+    expect(multiply(0, 5)).toBe(0);
+  });
+
+  test('divide should handle division by zero', () => {
+    expect(() => divide(10, 0)).toThrow('Division by zero');
+    expect(divide(10, 2)).toBe(5);
+  });
+});
+
+// math.js
+function add(a, b) {
+  return a + b;
+}
+
+function multiply(a, b) {
+  return a * b;
+}
+
+function divide(a, b) {
+  if (b === 0) {
+    throw new Error('Division by zero');
+  }
+  return a / b;
+}
+
+module.exports = { add, multiply, divide };
+```
+
+```go !! go
+// Go: Unit testing with testing package
+package math
+
+import "testing"
+
+func TestAdd(t *testing.T) {
+	tests := []struct {
+		name     string
+		a, b     int
+		expected int
+	}{
+		{"positive numbers", 2, 3, 5},
+		{"negative and positive", -1, 1, 0},
+		{"zero values", 0, 0, 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := Add(tt.a, tt.b)
+			if result != tt.expected {
+				t.Errorf("Add(%d, %d) = %d; want %d", tt.a, tt.b, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestMultiply(t *testing.T) {
+	tests := []struct {
+		name     string
+		a, b     int
+		expected int
+	}{
+		{"positive numbers", 2, 3, 6},
+		{"negative and positive", -2, 3, -6},
+		{"zero value", 0, 5, 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := Multiply(tt.a, tt.b)
+			if result != tt.expected {
+				t.Errorf("Multiply(%d, %d) = %d; want %d", tt.a, tt.b, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestDivide(t *testing.T) {
+	t.Run("valid division", func(t *testing.T) {
+		result, err := Divide(10, 2)
+		if err != nil {
+			t.Errorf("Divide(10, 2) returned error: %v", err)
+		}
+		if result != 5 {
+			t.Errorf("Divide(10, 2) = %f; want 5", result)
+		}
+	})
+
+	t.Run("division by zero", func(t *testing.T) {
+		_, err := Divide(10, 0)
+		if err == nil {
+			t.Error("Divide(10, 0) should return error")
+		}
+		if err.Error() != "division by zero" {
+			t.Errorf("Divide(10, 0) error = %v; want 'division by zero'", err)
+		}
+	})
+}
+
+// math.go
+func Add(a, b int) int {
+	return a + b
+}
+
+func Multiply(a, b int) int {
+	return a * b
+}
+
+func Divide(a, b int) (float64, error) {
+	if b == 0 {
+		return 0, fmt.Errorf("division by zero")
+	}
+	return float64(a) / float64(b), nil
+}
+```
+</UniversalEditor>
+
+## Table-Driven Tests
+
+Table-driven tests are a Go idiom for testing multiple scenarios efficiently.
+
+<UniversalEditor title="Table-Driven Tests" compare={true}>
+```javascript !! js
+// JavaScript: Table-driven tests with Jest
+const { validateEmail, validatePassword } = require('./validation');
+
+describe('Validation functions', () => {
+  describe('validateEmail', () => {
+    const testCases = [
+      { input: 'test@example.com', expected: true },
+      { input: 'invalid-email', expected: false },
+      { input: '@example.com', expected: false },
+      { input: 'test@', expected: false },
+      { input: '', expected: false },
+      { input: null, expected: false }
+    ];
+
+    testCases.forEach(({ input, expected }) => {
+      test(`should validate "${input}" as ${expected}`, () => {
+        expect(validateEmail(input)).toBe(expected);
+      });
+    });
+  });
+
+  describe('validatePassword', () => {
+    const testCases = [
+      { input: 'Password123!', expected: true },
+      { input: 'short', expected: false },
+      { input: 'nouppercase123!', expected: false },
+      { input: 'NOLOWERCASE123!', expected: false },
+      { input: 'NoNumbers!', expected: false },
+      { input: 'NoSpecial123', expected: false }
+    ];
+
+    testCases.forEach(({ input, expected }) => {
+      test(`should validate "${input}" as ${expected}`, () => {
+        expect(validatePassword(input)).toBe(expected);
+      });
+    });
+  });
+});
+```
+
+```go !! go
+// Go: Table-driven tests
+package validation
+
+import (
+	"regexp"
+	"testing"
+	"unicode"
+)
+
+func TestValidateEmail(t *testing.T) {
+	tests := []struct {
+		name     string
+		email    string
+		expected bool
+	}{
+		{"valid email", "test@example.com", true},
+		{"invalid email", "invalid-email", false},
+		{"missing local part", "@example.com", false},
+		{"missing domain", "test@", false},
+		{"empty string", "", false},
+		{"nil input", "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ValidateEmail(tt.email)
+			if result != tt.expected {
+				t.Errorf("ValidateEmail(%q) = %v; want %v", tt.email, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestValidatePassword(t *testing.T) {
+	tests := []struct {
+		name     string
+		password string
+		expected bool
+	}{
+		{"valid password", "Password123!", true},
+		{"too short", "short", false},
+		{"no uppercase", "nouppercase123!", false},
+		{"no lowercase", "NOLOWERCASE123!", false},
+		{"no numbers", "NoSpecial!", false},
+		{"no special chars", "NoSpecial123", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ValidatePassword(tt.password)
+			if result != tt.expected {
+				t.Errorf("ValidatePassword(%q) = %v; want %v", tt.password, result, tt.expected)
+			}
+		})
+	}
+}
+
+// validation.go
+func ValidateEmail(email string) bool {
+	if email == "" {
+		return false
+	}
+	
+	emailRegex := regexp.MustCompile(`^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`)
+	return emailRegex.MatchString(email)
+}
+
+func ValidatePassword(password string) bool {
+	if len(password) < 8 {
+		return false
+	}
+	
+	var (
+		hasUpper   bool
+		hasLower   bool
+		hasNumber  bool
+		hasSpecial bool
+	)
+	
+	for _, char := range password {
+		switch {
+		case unicode.IsUpper(char):
+			hasUpper = true
+		case unicode.IsLower(char):
+			hasLower = true
+		case unicode.IsNumber(char):
+			hasNumber = true
+		case unicode.IsPunct(char) || unicode.IsSymbol(char):
+			hasSpecial = true
+		}
+	}
+	
+	return hasUpper && hasLower && hasNumber && hasSpecial
+}
+```
+</UniversalEditor>
+
+## Benchmark Testing
+
+Benchmarks help measure and optimize performance.
+
+<UniversalEditor title="Benchmark Testing" compare={true}>
+```javascript !! js
+// JavaScript: Benchmark testing with benchmark.js
+const Benchmark = require('benchmark');
+const { fibonacci, fibonacciMemo } = require('./fibonacci');
+
+const suite = new Benchmark.Suite;
+
+suite
+  .add('fibonacci recursive', function() {
+    fibonacci(20);
+  })
+  .add('fibonacci memoized', function() {
+    fibonacciMemo(20);
+  })
+  .on('cycle', function(event) {
+    console.log(String(event.target));
+  })
+  .on('complete', function() {
+    console.log('Fastest is ' + this.filter('fastest').map('name'));
+  })
+  .run({ 'async': true });
+
+// fibonacci.js
+function fibonacci(n) {
+  if (n <= 1) return n;
+  return fibonacci(n - 1) + fibonacci(n - 2);
+}
+
+const memo = new Map();
+function fibonacciMemo(n) {
+  if (n <= 1) return n;
+  if (memo.has(n)) return memo.get(n);
+  
+  const result = fibonacciMemo(n - 1) + fibonacciMemo(n - 2);
+  memo.set(n, result);
+  return result;
+}
+
+module.exports = { fibonacci, fibonacciMemo };
+```
+
+```go !! go
+// Go: Benchmark testing
+package fibonacci
+
+import (
+	"testing"
+)
+
+func BenchmarkFibonacciRecursive(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		FibonacciRecursive(20)
+	}
+}
+
+func BenchmarkFibonacciMemo(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		FibonacciMemo(20)
+	}
+}
+
+func BenchmarkFibonacciIterative(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		FibonacciIterative(20)
+	}
+}
+
+// Benchmark with different input sizes
+func BenchmarkFibonacciSizes(b *testing.B) {
+	benchmarks := []struct {
+		name string
+		n    int
+	}{
+		{"small", 10},
+		{"medium", 20},
+		{"large", 30},
+	}
+
+	for _, bm := range benchmarks {
+		b.Run(bm.name, func(b *testing.B) {
+			for i := 0; i < b.N; i++ {
+				FibonacciIterative(bm.n)
+			}
+		})
+	}
+}
+
+// fibonacci.go
+func FibonacciRecursive(n int) int {
+	if n <= 1 {
+		return n
+	}
+	return FibonacciRecursive(n-1) + FibonacciRecursive(n-2)
+}
+
+var memo = make(map[int]int)
+
+func FibonacciMemo(n int) int {
+	if n <= 1 {
+		return n
+	}
+	
+	if result, exists := memo[n]; exists {
+		return result
+	}
+	
+	result := FibonacciMemo(n-1) + FibonacciMemo(n-2)
+	memo[n] = result
+	return result
+}
+
+func FibonacciIterative(n int) int {
+	if n <= 1 {
+		return n
+	}
+	
+	a, b := 0, 1
+	for i := 2; i <= n; i++ {
+		a, b = b, a+b
+	}
+	return b
+}
+```
+</UniversalEditor>
+
+## Fuzzy Testing (Go 1.18+)
+
+Fuzzy testing automatically generates test cases to find edge cases and bugs.
+
+<UniversalEditor title="Fuzzy Testing" compare={true}>
+```javascript !! js
+// JavaScript: Property-based testing with fast-check
+const fc = require('fast-check');
+const { reverse, sort } = require('./array-utils');
+
+describe('Array utilities with property-based testing', () => {
+  test('reverse should be its own inverse', () => {
+    fc.assert(
+      fc.property(fc.array(fc.integer()), (arr) => {
+        const reversed = reverse(arr);
+        const doubleReversed = reverse(reversed);
+        return JSON.stringify(arr) === JSON.stringify(doubleReversed);
+      })
+    );
+  });
+
+  test('sort should be idempotent', () => {
+    fc.assert(
+      fc.property(fc.array(fc.integer()), (arr) => {
+        const sorted = sort(arr);
+        const sortedTwice = sort(sorted);
+        return JSON.stringify(sorted) === JSON.stringify(sortedTwice);
+      })
+    );
+  });
+
+  test('sort should maintain length', () => {
+    fc.assert(
+      fc.property(fc.array(fc.integer()), (arr) => {
+        return sort(arr).length === arr.length;
+      })
+    );
+  });
+});
+
+// array-utils.js
+function reverse(arr) {
+  return [...arr].reverse();
+}
+
+function sort(arr) {
+  return [...arr].sort((a, b) => a - b);
+}
+
+module.exports = { reverse, sort };
+```
+
+```go !! go
+// Go: Fuzzy testing
+package arrayutils
+
+import (
+	"reflect"
+	"sort"
+	"testing"
+)
+
+func FuzzReverse(f *testing.F) {
+	testcases := []string{"Hello, world", " ", "!12345"}
+	for _, tc := range testcases {
+		f.Add(tc) // Use f.Add to provide a seed corpus
+	}
+	
+	f.Fuzz(func(t *testing.T, orig string) {
+		rev := Reverse(orig)
+		doubleRev := Reverse(rev)
+		if orig != doubleRev {
+			t.Errorf("Before: %q, after: %q", orig, doubleRev)
+		}
+		
+		// Check that the string is valid UTF-8
+		if !utf8.ValidString(rev) {
+			t.Errorf("Reverse produced invalid UTF-8 string %q", rev)
+		}
+	})
+}
+
+func FuzzSort(f *testing.F) {
+	testcases := [][]int{
+		{1, 2, 3},
+		{3, 2, 1},
+		{1},
+		{},
+	}
+	
+	for _, tc := range testcases {
+		f.Add(tc)
+	}
+	
+	f.Fuzz(func(t *testing.T, input []int) {
+		sorted := Sort(input)
+		
+		// Check that sort is idempotent
+		sortedTwice := Sort(sorted)
+		if !reflect.DeepEqual(sorted, sortedTwice) {
+			t.Errorf("Sort is not idempotent: %v != %v", sorted, sortedTwice)
+		}
+		
+		// Check that length is preserved
+		if len(sorted) != len(input) {
+			t.Errorf("Sort changed length: %d != %d", len(sorted), len(input))
+		}
+		
+		// Check that result is sorted
+		for i := 1; i < len(sorted); i++ {
+			if sorted[i] < sorted[i-1] {
+				t.Errorf("Sort result is not sorted: %v", sorted)
+			}
+		}
+	})
+}
+
+// array-utils.go
+func Reverse(s string) string {
+	runes := []rune(s)
+	for i, j := 0, len(runes)-1; i < j; i, j = i+1, j-1 {
+		runes[i], runes[j] = runes[j], runes[i]
+	}
+	return string(runes)
+}
+
+func Sort(slice []int) []int {
+	result := make([]int, len(slice))
+	copy(result, slice)
+	sort.Ints(result)
+	return result
+}
+```
+</UniversalEditor>
+
+## Test Helpers and Utilities
+
+<UniversalEditor title="Test Helpers" compare={true}>
+```javascript !! js
+// JavaScript: Test helpers and utilities
+const { expect } = require('chai');
+const sinon = require('sinon');
+
+// Test helper for creating mock users
+function createMockUser(overrides = {}) {
+  return {
+    id: '123',
+    name: 'John Doe',
+    email: 'john@example.com',
+    age: 30,
+    ...overrides
+  };
+}
+
+// Test helper for async operations
+async function wait(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// Custom matcher for API responses
+function expectApiResponse(res, statusCode = 200) {
+  expect(res).to.have.status(statusCode);
+  expect(res.body).to.be.an('object');
+  expect(res.body).to.have.property('success');
+}
+
+describe('User API', () => {
+  let clock;
+  
+  beforeEach(() => {
+    clock = sinon.useFakeTimers();
+  });
+  
+  afterEach(() => {
+    clock.restore();
+  });
+  
+  it('should create user', async () => {
+    const userData = createMockUser({ name: 'Jane Doe' });
+    
+    const res = await request(app)
+      .post('/api/users')
+      .send(userData)
+      .expect(201);
+    
+    expectApiResponse(res, 201);
+    expect(res.body.data).to.have.property('id');
+    expect(res.body.data.name).to.equal('Jane Doe');
+  });
+});
+```
+
+```go !! go
+// Go: Test helpers and utilities
+package testutils
+
+import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+	"time"
+
+	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// TestHelper provides common testing utilities
+type TestHelper struct {
+	t *testing.T
+}
+
+func NewTestHelper(t *testing.T) *TestHelper {
+	return &TestHelper{t: t}
+}
+
+// CreateMockUser creates a mock user for testing
+func (th *TestHelper) CreateMockUser(overrides map[string]interface{}) map[string]interface{} {
+	user := map[string]interface{}{
+		"id":    "123",
+		"name":  "John Doe",
+		"email": "john@example.com",
+		"age":   30,
+	}
+	
+	for key, value := range overrides {
+		user[key] = value
+	}
+	
+	return user
+}
+
+// Wait simulates waiting for async operations
+func (th *TestHelper) Wait(duration time.Duration) {
+	time.Sleep(duration)
+}
+
+// ExpectAPIResponse validates API response structure
+func (th *TestHelper) ExpectAPIResponse(w *httptest.ResponseRecorder, expectedStatus int) {
+	assert.Equal(th.t, expectedStatus, w.Code)
+	
+	var response map[string]interface{}
+	err := json.Unmarshal(w.Body.Bytes(), &response)
+	require.NoError(th.t, err)
+	
+	assert.Contains(th.t, response, "success")
+}
+
+// CreateTestGinContext creates a test Gin context
+func (th *TestHelper) CreateTestGinContext() (*gin.Context, *httptest.ResponseRecorder) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	return c, w
+}
+
+// Test with helpers
+func TestUserAPI(t *testing.T) {
+	helper := NewTestHelper(t)
+	
+	t.Run("create user", func(t *testing.T) {
+		c, w := helper.CreateTestGinContext()
+		
+		userData := helper.CreateMockUser(map[string]interface{}{
+			"name": "Jane Doe",
+		})
+		
+		// Convert to JSON
+		jsonData, _ := json.Marshal(userData)
+		c.Request = httptest.NewRequest("POST", "/api/users", bytes.NewBuffer(jsonData))
+		c.Request.Header.Set("Content-Type", "application/json")
+		
+		// Call handler
+		CreateUserHandler(c)
+		
+		// Validate response
+		helper.ExpectAPIResponse(w, http.StatusCreated)
+		
+		var response map[string]interface{}
+		json.Unmarshal(w.Body.Bytes(), &response)
+		
+		data := response["data"].(map[string]interface{})
+		assert.Contains(t, data, "id")
+		assert.Equal(t, "Jane Doe", data["name"])
+	})
+}
+```
+</UniversalEditor>
+
+## Performance Profiling
+
+<UniversalEditor title="Performance Profiling" compare={true}>
+```javascript !! js
+// JavaScript: Performance profiling
+const { performance } = require('perf_hooks');
+
+// CPU profiling
+function profileFunction(fn, iterations = 1000) {
+  const start = performance.now();
+  
+  for (let i = 0; i < iterations; i++) {
+    fn();
+  }
+  
+  const end = performance.now();
+  const avgTime = (end - start) / iterations;
+  
+  console.log(`Function executed ${iterations} times`);
+  console.log(`Total time: ${end - start}ms`);
+  console.log(`Average time: ${avgTime}ms`);
+  
+  return avgTime;
+}
+
+// Memory profiling
+function profileMemory(fn) {
+  const memBefore = process.memoryUsage();
+  const start = performance.now();
+  
+  fn();
+  
+  const end = performance.now();
+  const memAfter = process.memoryUsage();
+  
+  console.log(`Execution time: ${end - start}ms`);
+  console.log(`Memory delta: ${memAfter.heapUsed - memBefore.heapUsed} bytes`);
+  
+  return {
+    time: end - start,
+    memoryDelta: memAfter.heapUsed - memBefore.heapUsed
+  };
+}
+
+// Usage
+function expensiveOperation() {
+  let result = 0;
+  for (let i = 0; i < 1000000; i++) {
+    result += Math.sqrt(i);
+  }
+  return result;
+}
+
+profileFunction(expensiveOperation);
+profileMemory(expensiveOperation);
+```
+
+```go !! go
+// Go: Performance profiling
+package profiling
+
+import (
+	"fmt"
+	"log"
+	"os"
+	"runtime"
+	"runtime/pprof"
+	"time"
+)
+
+// CPUProfiler provides CPU profiling utilities
+type CPUProfiler struct {
+	file *os.File
+}
+
+func NewCPUProfiler(filename string) (*CPUProfiler, error) {
+	file, err := os.Create(filename)
+	if err != nil {
+		return nil, err
+	}
+	
+	return &CPUProfiler{file: file}, nil
+}
+
+func (cp *CPUProfiler) Start() error {
+	return pprof.StartCPUProfile(cp.file)
+}
+
+func (cp *CPUProfiler) Stop() {
+	pprof.StopCPUProfile()
+	cp.file.Close()
+}
+
+// MemoryProfiler provides memory profiling utilities
+type MemoryProfiler struct {
+	file *os.File
+}
+
+func NewMemoryProfiler(filename string) (*MemoryProfiler, error) {
+	file, err := os.Create(filename)
+	if err != nil {
+		return nil, err
+	}
+	
+	return &MemoryProfiler{file: file}, nil
+}
+
+func (mp *MemoryProfiler) WriteProfile() error {
+	return pprof.WriteHeapProfile(mp.file)
+}
+
+func (mp *MemoryProfiler) Close() {
+	mp.file.Close()
+}
+
+// ProfileFunction profiles a function execution
+func ProfileFunction(fn func(), iterations int) time.Duration {
+	start := time.Now()
+	
+	for i := 0; i < iterations; i++ {
+		fn()
+	}
+	
+	duration := time.Since(start)
+	avgTime := duration / time.Duration(iterations)
+	
+	fmt.Printf("Function executed %d times\n", iterations)
+	fmt.Printf("Total time: %v\n", duration)
+	fmt.Printf("Average time: %v\n", avgTime)
+	
+	return avgTime
+}
+
+// ProfileMemory profiles memory usage
+func ProfileMemory(fn func()) (time.Duration, uint64) {
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+	memBefore := m.Alloc
+	
+	start := time.Now()
+	fn()
+	duration := time.Since(start)
+	
+	runtime.ReadMemStats(&m)
+	memAfter := m.Alloc
+	memDelta := memAfter - memBefore
+	
+	fmt.Printf("Execution time: %v\n", duration)
+	fmt.Printf("Memory delta: %d bytes\n", memDelta)
+	
+	return duration, memDelta
+}
+
+// Usage example
+func ExpensiveOperation() {
+	result := 0.0
+	for i := 0; i < 1000000; i++ {
+		result += float64(i) * float64(i)
+	}
+}
+
+func main() {
+	// CPU profiling
+	cpuProf, err := NewCPUProfiler("cpu.prof")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer cpuProf.Stop()
+	
+	cpuProf.Start()
+	ProfileFunction(ExpensiveOperation, 100)
+	
+	// Memory profiling
+	memProf, err := NewMemoryProfiler("memory.prof")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer memProf.Close()
+	
+	ProfileMemory(ExpensiveOperation)
+	memProf.WriteProfile()
+}
+```
+</UniversalEditor>
+
+## Debugging Techniques
+
+<UniversalEditor title="Debugging Techniques" compare={true}>
+```javascript !! js
+// JavaScript: Debugging techniques
+const debug = require('debug')('app:debug');
+
+// Debug logging
+function processUser(user) {
+  debug('Processing user:', user);
+  
+  if (!user.name) {
+    debug('User missing name');
+    throw new Error('User name is required');
+  }
+  
+  debug('User processed successfully');
+  return { ...user, processed: true };
+}
+
+// Error handling with stack traces
+function handleError(error) {
+  console.error('Error occurred:', error.message);
+  console.error('Stack trace:', error.stack);
+  
+  // Log to external service
+  logToService({
+    message: error.message,
+    stack: error.stack,
+    timestamp: new Date().toISOString()
+  });
+}
+
+// Conditional debugging
+const DEBUG = process.env.NODE_ENV === 'development';
+
+function debugLog(message, data) {
+  if (DEBUG) {
+    console.log(`[DEBUG] ${message}:`, data);
+  }
+}
+
+// Usage
+try {
+  const user = { id: 1, email: 'test@example.com' };
+  const result = processUser(user);
+  debugLog('Result', result);
+} catch (error) {
+  handleError(error);
+}
+```
+
+```go !! go
+// Go: Debugging techniques
+package debugging
+
+import (
+	"fmt"
+	"log"
+	"os"
+	"runtime"
+	"time"
+)
+
+// DebugLogger provides debug logging functionality
+type DebugLogger struct {
+	enabled bool
+	prefix  string
+}
+
+func NewDebugLogger(prefix string) *DebugLogger {
+	return &DebugLogger{
+		enabled: os.Getenv("DEBUG") == "true",
+		prefix:  prefix,
+	}
+}
+
+func (dl *DebugLogger) Log(format string, args ...interface{}) {
+	if dl.enabled {
+		log.Printf("[%s] %s", dl.prefix, fmt.Sprintf(format, args...))
+	}
+}
+
+// ErrorHandler provides error handling utilities
+type ErrorHandler struct {
+	logger *log.Logger
+}
+
+func NewErrorHandler() *ErrorHandler {
+	return &ErrorHandler{
+		logger: log.New(os.Stderr, "[ERROR] ", log.LstdFlags),
+	}
+}
+
+func (eh *ErrorHandler) HandleError(err error) {
+	if err == nil {
+		return
+	}
+	
+	eh.logger.Printf("Error occurred: %v", err)
+	
+	// Get stack trace
+	var buf [4096]byte
+	n := runtime.Stack(buf[:], false)
+	eh.logger.Printf("Stack trace:\n%s", buf[:n])
+	
+	// Log to external service (simulated)
+	eh.logToService(err)
+}
+
+func (eh *ErrorHandler) logToService(err error) {
+	// Simulate logging to external service
+	logEntry := map[string]interface{}{
+		"message":   err.Error(),
+		"timestamp": time.Now().Format(time.RFC3339),
+		"level":     "error",
+	}
+	
+	// In real implementation, send to logging service
+	fmt.Printf("Logging to service: %+v\n", logEntry)
+}
+
+// ProcessUser demonstrates debugging techniques
+func ProcessUser(user map[string]interface{}) (map[string]interface{}, error) {
+	debugger := NewDebugLogger("ProcessUser")
+	errorHandler := NewErrorHandler()
+	
+	debugger.Log("Processing user: %+v", user)
+	
+	// Check required fields
+	if name, exists := user["name"]; !exists || name == "" {
+		debugger.Log("User missing name")
+		err := fmt.Errorf("user name is required")
+		errorHandler.HandleError(err)
+		return nil, err
+	}
+	
+	debugger.Log("User processed successfully")
+	
+	result := make(map[string]interface{})
+	for k, v := range user {
+		result[k] = v
+	}
+	result["processed"] = true
+	
+	return result, nil
+}
+
+// Usage example
+func main() {
+	// Enable debug logging
+	os.Setenv("DEBUG", "true")
+	
+	user := map[string]interface{}{
+		"id":    1,
+		"email": "test@example.com",
+		// Missing name
+	}
+	
+	result, err := ProcessUser(user)
+	if err != nil {
+		log.Printf("Failed to process user: %v", err)
+		return
+	}
+	
+	fmt.Printf("Processed user: %+v\n", result)
+}
+```
+</UniversalEditor>
+
+## Test Coverage
+
+<UniversalEditor title="Test Coverage Analysis" compare={true}>
+```javascript !! js
+// JavaScript: Test coverage with Istanbul/nyc
+// package.json
+{
+  "scripts": {
+    "test": "jest",
+    "test:coverage": "jest --coverage",
+    "test:coverage:html": "jest --coverage --coverageReporters=html"
+  },
+  "jest": {
+    "collectCoverageFrom": [
+      "src/**/*.js",
+      "!src/**/*.test.js",
+      "!src/**/*.spec.js"
+    ],
+    "coverageThreshold": {
+      "global": {
+        "branches": 80,
+        "functions": 80,
+        "lines": 80,
+        "statements": 80
+      }
+    }
+  }
+}
+
+// Example test with coverage
+const { Calculator } = require('./calculator');
+
+describe('Calculator', () => {
+  let calc;
+  
+  beforeEach(() => {
+    calc = new Calculator();
+  });
+  
+  test('should add two numbers', () => {
+    expect(calc.add(2, 3)).toBe(5);
+  });
+  
+  test('should subtract two numbers', () => {
+    expect(calc.subtract(5, 3)).toBe(2);
+  });
+  
+  test('should multiply two numbers', () => {
+    expect(calc.multiply(4, 3)).toBe(12);
+  });
+  
+  test('should divide two numbers', () => {
+    expect(calc.divide(10, 2)).toBe(5);
+  });
+  
+  test('should handle division by zero', () => {
+    expect(() => calc.divide(10, 0)).toThrow('Division by zero');
+  });
+});
+```
+
+```go !! go
+// Go: Test coverage analysis
+package calculator
+
+import (
+	"fmt"
+	"testing"
+)
+
+// Run tests with coverage
+// go test -cover
+// go test -coverprofile=coverage.out
+// go tool cover -html=coverage.out -o coverage.html
+// go test -cover -covermode=atomic -coverprofile=coverage.out
+
+func TestCalculator(t *testing.T) {
+	calc := NewCalculator()
+	
+	t.Run("addition", func(t *testing.T) {
+		result := calc.Add(2, 3)
+		if result != 5 {
+			t.Errorf("Add(2, 3) = %d; want 5", result)
+		}
+	})
+	
+	t.Run("subtraction", func(t *testing.T) {
+		result := calc.Subtract(5, 3)
+		if result != 2 {
+			t.Errorf("Subtract(5, 3) = %d; want 2", result)
+		}
+	})
+	
+	t.Run("multiplication", func(t *testing.T) {
+		result := calc.Multiply(4, 3)
+		if result != 12 {
+			t.Errorf("Multiply(4, 3) = %d; want 12", result)
+		}
+	})
+	
+	t.Run("division", func(t *testing.T) {
+		result, err := calc.Divide(10, 2)
+		if err != nil {
+			t.Errorf("Divide(10, 2) returned error: %v", err)
+		}
+		if result != 5 {
+			t.Errorf("Divide(10, 2) = %d; want 5", result)
+		}
+	})
+	
+	t.Run("division by zero", func(t *testing.T) {
+		_, err := calc.Divide(10, 0)
+		if err == nil {
+			t.Error("Divide(10, 0) should return error")
+		}
+		if err.Error() != "division by zero" {
+			t.Errorf("Divide(10, 0) error = %v; want 'division by zero'", err)
+		}
+	})
+}
+
+// calculator.go
+type Calculator struct{}
+
+func NewCalculator() *Calculator {
+	return &Calculator{}
+}
+
+func (c *Calculator) Add(a, b int) int {
+	return a + b
+}
+
+func (c *Calculator) Subtract(a, b int) int {
+	return a - b
+}
+
+func (c *Calculator) Multiply(a, b int) int {
+	return a * b
+}
+
+func (c *Calculator) Divide(a, b int) (int, error) {
+	if b == 0 {
+		return 0, fmt.Errorf("division by zero")
+	}
+	return a / b, nil
+}
+
+// Coverage threshold check
+func TestCoverage(t *testing.T) {
+	// This test ensures we maintain good test coverage
+	// Run with: go test -cover -covermode=atomic -coverprofile=coverage.out
+	// Then check coverage percentage
+	t.Skip("Coverage check - run with coverage flags")
+}
+```
+</UniversalEditor>
+
+## Comparison: Go vs JavaScript Testing
+
+| Feature           | Go                                    | JavaScript (Node.js)              |
+|-------------------|---------------------------------------|-----------------------------------|
+| Built-in Testing  | Yes, `testing` package               | No, requires external libraries   |
+| Test Functions    | `Test*` functions                    | Various frameworks (Jest, Mocha)  |
+| Benchmarking      | Built-in `Benchmark*` functions      | Requires external libraries       |
+| Fuzzy Testing     | Built-in (Go 1.18+)                  | Property-based testing libraries  |
+| Coverage          | Built-in `-cover` flag               | Requires Istanbul/nyc             |
+| Test Helpers      | Simple, no external dependencies     | Rich ecosystem of testing tools   |
+| Performance       | Excellent, low overhead              | Good, but higher overhead         |
+| Parallel Testing  | Built-in `t.Parallel()`              | Framework dependent               |
+| Mocking           | Interface-based, simple              | Rich mocking libraries            |
+| Assertions        | Simple, manual assertions            | Rich assertion libraries          |
+
+## Best Practices
+
+- Write tests before or alongside code (TDD)
+- Use table-driven tests for multiple scenarios
+- Keep tests simple and focused
+- Use descriptive test names
+- Test both success and failure cases
+- Use benchmarks to identify performance bottlenecks
+- Maintain high test coverage (80%+)
+- Use fuzzy testing for edge case discovery
+- Profile performance-critical code
+- Use proper error handling in tests
+- Keep test data separate from test logic
+- Use test helpers for common patterns
+
+---
+
+### Practice Questions
+1. How does Go's built-in testing framework differ from JavaScript testing libraries?
+2. What are the benefits of table-driven tests in Go?
+3. How do you use fuzzy testing to find edge cases in your code?
+
+### Project Idea
+Build a comprehensive test suite for a Go web application, including unit tests, integration tests, benchmarks, and fuzzy tests. Implement proper test coverage reporting and performance profiling.

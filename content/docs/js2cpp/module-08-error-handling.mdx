@@ -1,0 +1,195 @@
+---
+title: Error Handling and Exceptions
+---
+
+Error handling is a crucial aspect of robust software development. C++ provides a powerful mechanism for error handling through exceptions, which allow for the separation of error-handling code from normal program logic. This differs significantly from JavaScript's more common use of return values and `try...catch` blocks for asynchronous operations.
+
+## Exception Handling Mechanism (`try-catch-throw`)
+
+In C++, exceptions are used to signal and handle exceptional conditions or errors that occur during program execution. The core components of exception handling are:
+
+*   **`throw`:** Used to signal an exceptional condition. When an error occurs, an exception is `throw`n.
+*   **`try` block:** A block of code where exceptions might occur. Code within this block is monitored for exceptions.
+*   **`catch` block:** A block of code that handles a specific type of exception. If an exception is thrown within a `try` block, the program jumps to the appropriate `catch` block.
+
+<UniversalEditor title="Exception Handling Comparison" compare={true}>
+```javascript !! js
+// JavaScript: try...catch for errors
+function divide(a, b) {
+  if (b === 0) {
+    throw new Error("Division by zero is not allowed.");
+  }
+  return a / b;
+}
+
+try {
+  let result = divide(10, 0);
+  console.log(result);
+} catch (error) {
+  console.error("Caught an error:", error.message);
+}
+
+console.log("Program continues...");
+```
+
+```cpp !! cpp
+// C++: try...catch...throw for exceptions
+#include <iostream>
+#include <stdexcept> // For std::runtime_error
+
+double divide(double a, double b) {
+  if (b == 0) {
+    throw std::runtime_error("Division by zero is not allowed.");
+  }
+  return a / b;
+}
+
+int main() {
+  try {
+    double result = divide(10, 0);
+    // std::cout << result << std::endl;
+  } catch (const std::runtime_error& e) { // Catch a specific exception type
+    // std::cerr << "Caught an error: " << e.what() << std::endl;
+  } catch (...) { // Catch any other exception (generic catch-all)
+    // std::cerr << "Caught an unknown error." << std::endl;
+  }
+
+  // std::cout << "Program continues..." << std::endl;
+
+  return 0;
+}
+```
+</UniversalEditor>
+
+## Exception Safety Guarantees
+
+When designing functions that might throw exceptions, it's important to consider **exception safety guarantees**. These describe the state of the program if an exception is thrown:
+
+1.  **No-throw guarantee (strongest):** The function will never throw an exception.
+2.  **Strong guarantee:** If an exception is thrown, the state of the program remains unchanged (as if the function was never called).
+3.  **Basic guarantee:** If an exception is thrown, the program remains in a valid state, but the exact state is unspecified.
+4.  **No guarantee (weakest):** No guarantees about the program state if an exception is thrown.
+
+## Error Codes vs. Exceptions
+
+Historically, C-style programming often used **error codes** (returning a special value to indicate an error) for error handling. While simple, this approach can lead to verbose code and easily overlooked errors.
+
+**Exceptions** are generally preferred in modern C++ for exceptional conditions because:
+*   They separate error-handling logic from normal code flow.
+*   They propagate up the call stack until caught, preventing errors from being ignored.
+*   They can carry more information about the error.
+
+## RAII (Resource Acquisition Is Initialization) Resource Management
+
+**RAII** is a fundamental C++ idiom for managing resources (like memory, file handles, network connections) safely. It states that resource acquisition should happen in a constructor and resource release in a destructor. When an object goes out of scope (either normally or due to an exception), its destructor is automatically called, ensuring resources are properly cleaned up.
+
+This is particularly important with exceptions, as it guarantees resource release even if an exception bypasses normal function exit points.
+
+<UniversalEditor title="RAII Example" compare={true}>
+```javascript !! js
+// JavaScript: Automatic resource management (e.g., file handles with async/await and finally)
+async function processFile(filePath) {
+  let fileHandle;
+  try {
+    fileHandle = await openFile(filePath);
+    // Process file
+    console.log("File processed.");
+  } catch (error) {
+    console.error("Error processing file:", error.message);
+  } finally {
+    if (fileHandle) {
+      await closeFile(fileHandle); // Ensure file is closed
+      console.log("File closed.");
+    }
+  }
+}
+
+// processFile("data.txt");
+```
+
+```cpp !! cpp
+// C++: RAII for file handling
+#include <fstream> // For std::ofstream
+#include <iostream>
+
+class FileLogger {
+public:
+  FileLogger(const std::string& filename) : file(filename) {
+    if (!file.is_open()) {
+      throw std::runtime_error("Could not open file: " + filename);
+    }
+    // std::cout << "FileLogger opened: " << filename << std::endl;
+  }
+
+  ~FileLogger() {
+    if (file.is_open()) {
+      file.close();
+      // std::cout << "FileLogger closed." << std::endl;
+    }
+  }
+
+  void write(const std::string& message) {
+    file << message << std::endl;
+  }
+
+private:
+  std::ofstream file;
+};
+
+void doSomethingWithFile() {
+  try {
+    FileLogger logger("log.txt"); // Resource acquired in constructor
+    logger.write("First message.");
+    // Simulate an error
+    // throw std::runtime_error("Simulated error during file operation.");
+    logger.write("Second message.");
+  } catch (const std::runtime_error& e) {
+    // std::cerr << "Error: " << e.what() << std::endl;
+  } // Destructor of logger is called here, closing the file automatically
+}
+
+int main() {
+  // doSomethingWithFile();
+  return 0;
+}
+```
+</UniversalEditor>
+
+## Comparison with JavaScript Error Handling
+
+JavaScript primarily uses `Error` objects and `try...catch` blocks for synchronous error handling. For asynchronous operations, Promises and `async/await` with `try...catch` are common.
+
+| Feature           | JavaScript                               | C++                                      |
+| :---------------- | :--------------------------------------- | :--------------------------------------- |
+| **Mechanism**     | `Error` objects, `throw`, `try...catch`  | Exceptions (`throw`, `try...catch`)      |
+| **Resource Mgmt.**| Automatic (GC), `finally` for explicit cleanup | Manual, RAII (Resource Acquisition Is Initialization) |
+| **Error Types**   | Built-in `Error` types (e.g., `TypeError`, `ReferenceError`), custom `Error` subclasses | Standard exceptions (`std::runtime_error`, `std::bad_alloc`), custom exception classes |
+| **Propagation**   | Up the call stack until caught           | Up the call stack until caught           |
+| **Performance**   | Generally less overhead for simple errors | Can have performance overhead if exceptions are thrown frequently (due to stack unwinding) |
+
+
+## Exception Handling Best Practices
+
+1.  **Throw by Value, Catch by Reference:** Throw exceptions as objects (by value) and catch them by constant reference (`const std::exception&` or `const MyException&`). This avoids slicing and unnecessary copying.
+2.  **Catch Specific Exceptions First:** Catch more specific exception types before more general ones.
+3.  **Use `std::exception` Hierarchy:** Derive custom exception classes from `std::exception` or its subclasses (e.g., `std::runtime_error`, `std::logic_error`).
+4.  **Avoid Throwing in Destructors:** Throwing an exception from a destructor can lead to `std::terminate` if another exception is already active.
+5.  **Use Exceptions for Exceptional Conditions:** Don't use exceptions for normal program flow or expected conditions. For example, don't use an exception to signal that a user entered invalid input; use validation and return values instead.
+6.  **RAII is Key:** Leverage RAII to ensure resource cleanup even when exceptions occur.
+
+## Common Exception Handling Traps
+
+*   **Catching by Value:** Can lead to object slicing if catching a derived exception by a base class type.
+*   **Ignoring Exceptions:** Not catching exceptions can lead to program termination.
+*   **Overuse of Exceptions:** Using exceptions for non-exceptional conditions can hurt performance and make code harder to read.
+*   **Not Handling All Exceptions:** A generic `catch (...)` can be useful as a last resort, but specific handlers are better.
+
+---
+
+### Practice Questions:
+1.  Describe the `try`, `catch`, and `throw` keywords in C++ exception handling. How do they work together to manage errors?
+2.  What is RAII, and why is it considered a fundamental idiom for resource management in C++? Provide an example of how RAII helps ensure resource cleanup even when exceptions occur.
+3.  Compare and contrast C++'s exception handling mechanism with JavaScript's error handling. What are the main differences in their approaches?
+
+### Project Idea:
+*   Create a simple C++ program that simulates a file processing utility. Implement functions that might fail (e.g., `openFile`, `readFile`, `writeFile`). Use C++ exceptions to handle errors like file not found, permission denied, or disk full. Ensure that all resources (file handles) are properly closed using RAII principles, even if an exception occurs.

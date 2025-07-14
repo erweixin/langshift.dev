@@ -1,0 +1,780 @@
+---
+title: 微服務架構
+---
+
+Go 特別適合構建微服務，因為它具有簡潔性、高效能和出色的並發程式設計支援。本模組從 JavaScript 開發者的角度探索微服務架構，涵蓋 gRPC、服務發現、配置管理和分散式追蹤。
+
+## 微服務概述
+
+- **架構風格：** 小型、獨立的服務透過網路通訊
+- **Go 優勢：** 輕量級二進位檔案、快速啟動、出色的並發性
+- **核心元件：** gRPC、服務發現、配置管理、監控
+- **常見模式：** API 閘道、熔斷器、事件溯源、CQRS
+
+## gRPC 服務開發
+
+gRPC 是一個高效能的 RPC 框架，使用 Protocol Buffers 進行序列化。
+
+<UniversalEditor title="gRPC 服務定義" compare={true}>
+```javascript !! js
+// JavaScript: 使用 Express 的 REST API
+const express = require('express');
+const app = express();
+app.use(express.json());
+
+app.get('/api/users/:id', (req, res) => {
+  const userId = req.params.id;
+  // 獲取使用者資料
+  res.json({ id: userId, name: 'John Doe', email: 'john@example.com' });
+});
+
+app.post('/api/users', (req, res) => {
+  const userData = req.body;
+  // 建立使用者
+  res.status(201).json({ id: 1, ...userData });
+});
+
+app.listen(3000);
+```
+
+```go !! go
+// Go: gRPC 服務定義（proto 檔案）
+// user.proto
+syntax = "proto3";
+
+package user;
+
+service UserService {
+  rpc GetUser(GetUserRequest) returns (User);
+  rpc CreateUser(CreateUserRequest) returns (User);
+}
+
+message GetUserRequest {
+  string user_id = 1;
+}
+
+message CreateUserRequest {
+  string name = 1;
+  string email = 2;
+}
+
+message User {
+  string id = 1;
+  string name = 2;
+  string email = 3;
+}
+```
+</UniversalEditor>
+
+## gRPC 伺服器實現
+
+<UniversalEditor title="gRPC 伺服器實現" compare={true}>
+```javascript !! js
+// JavaScript: 使用 @grpc/grpc-js 的 gRPC 伺服器
+const grpc = require('@grpc/grpc-js');
+const protoLoader = require('@grpc/proto-loader');
+
+const packageDefinition = protoLoader.loadSync('./user.proto');
+const userProto = grpc.loadPackageDefinition(packageDefinition).user;
+
+const users = new Map();
+
+const server = new grpc.Server();
+server.addService(userProto.UserService.service, {
+  getUser: (call, callback) => {
+    const userId = call.request.user_id;
+    const user = users.get(userId);
+    if (user) {
+      callback(null, user);
+    } else {
+      callback({ code: grpc.status.NOT_FOUND });
+    }
+  },
+  createUser: (call, callback) => {
+    const userData = call.request;
+    const user = { id: Date.now().toString(), ...userData };
+    users.set(user.id, user);
+    callback(null, user);
+  }
+});
+
+server.bindAsync('0.0.0.0:50051', grpc.ServerCredentials.createInsecure(), () => {
+  server.start();
+  console.log('gRPC 伺服器執行在連接埠 50051');
+});
+```
+
+```go !! go
+// Go: gRPC 伺服器實現
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"net"
+
+	pb "github.com/your-org/user-service/proto"
+	"google.golang.org/grpc"
+)
+
+type server struct {
+	pb.UnimplementedUserServiceServer
+	users map[string]*pb.User
+}
+
+func (s *server) GetUser(ctx context.Context, req *pb.GetUserRequest) (*pb.User, error) {
+	user, exists := s.users[req.UserId]
+	if !exists {
+		return nil, fmt.Errorf("使用者未找到")
+	}
+	return user, nil
+}
+
+func (s *server) CreateUser(ctx context.Context, req *pb.CreateUserRequest) (*pb.User, error) {
+	user := &pb.User{
+		Id:    fmt.Sprintf("%d", len(s.users)+1),
+		Name:  req.Name,
+		Email: req.Email,
+	}
+	s.users[user.Id] = user
+	return user, nil
+}
+
+func main() {
+	lis, err := net.Listen("tcp", ":50051")
+	if err != nil {
+		log.Fatalf("監聽失敗: %v", err)
+	}
+	s := grpc.NewServer()
+	pb.RegisterUserServiceServer(s, &server{users: make(map[string]*pb.User)})
+	
+	log.Printf("gRPC 伺服器監聽位址: %v", lis.Addr())
+	if err := s.Serve(lis); err != nil {
+		log.Fatalf("服務失敗: %v", err)
+	}
+}
+```
+</UniversalEditor>
+
+## 服務發現
+
+服務發現允許服務動態地找到並相互通訊。
+
+<UniversalEditor title="使用 Consul 的服務發現" compare={true}>
+```javascript !! js
+// JavaScript: 使用 Consul 的服務註冊
+const consul = require('consul')();
+
+// 註冊服務
+consul.agent.service.register({
+  name: 'user-service',
+  id: 'user-service-1',
+  port: 3000,
+  check: {
+    http: 'http://localhost:3000/health',
+    interval: '10s'
+  }
+}, (err) => {
+  if (err) throw err;
+  console.log('服務已註冊到 Consul');
+});
+
+// 發現服務
+consul.catalog.service.nodes('user-service', (err, result) => {
+  if (err) throw err;
+  console.log('可用的使用者服務:', result);
+});
+```
+
+```go !! go
+// Go: 使用 Consul 的服務發現
+package main
+
+import (
+	"fmt"
+	"log"
+	"time"
+
+	"github.com/hashicorp/consul/api"
+)
+
+type ServiceRegistry struct {
+	client *api.Client
+}
+
+func NewServiceRegistry() (*ServiceRegistry, error) {
+	config := api.DefaultConfig()
+	client, err := api.NewClient(config)
+	if err != nil {
+		return nil, err
+	}
+	return &ServiceRegistry{client: client}, nil
+}
+
+func (sr *ServiceRegistry) RegisterService(name, id, address string, port int) error {
+	registration := &api.AgentServiceRegistration{
+		ID:      id,
+		Name:    name,
+		Address: address,
+		Port:    port,
+		Check: &api.AgentServiceCheck{
+			HTTP:                           fmt.Sprintf("http://%s:%d/health", address, port),
+			Interval:                       "10s",
+			Timeout:                        "5s",
+			DeregisterCriticalServiceAfter: "30s",
+		},
+	}
+	return sr.client.Agent().ServiceRegister(registration)
+}
+
+func (sr *ServiceRegistry) DiscoverService(name string) ([]*api.ServiceEntry, error) {
+	services, _, err := sr.client.Health().Service(name, "", true, nil)
+	if err != nil {
+		return nil, err
+	}
+	return services, nil
+}
+
+func main() {
+	registry, err := NewServiceRegistry()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// 註冊服務
+	err = registry.RegisterService("user-service", "user-service-1", "localhost", 50051)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// 發現服務
+	services, err := registry.DiscoverService("user-service")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	for _, service := range services {
+		fmt.Printf("服務: %s, 位址: %s:%d\n", 
+			service.Service.Service, service.Service.Address, service.Service.Port)
+	}
+}
+```
+</UniversalEditor>
+
+## 配置管理
+
+集中式配置管理對微服務至關重要。
+
+<UniversalEditor title="配置管理" compare={true}>
+```javascript !! js
+// JavaScript: 使用環境變數的配置
+const config = {
+  port: process.env.PORT || 3000,
+  database: {
+    host: process.env.DB_HOST || 'localhost',
+    port: process.env.DB_PORT || 5432,
+    name: process.env.DB_NAME || 'users',
+    user: process.env.DB_USER || 'postgres',
+    password: process.env.DB_PASSWORD || 'password'
+  },
+  redis: {
+    host: process.env.REDIS_HOST || 'localhost',
+    port: process.env.REDIS_PORT || 6379
+  },
+  jwt: {
+    secret: process.env.JWT_SECRET || 'your-secret-key'
+  }
+};
+
+// 使用 dotenv 進行本地開發
+require('dotenv').config();
+```
+
+```go !! go
+// Go: 使用 Viper 的配置管理
+package main
+
+import (
+	"fmt"
+	"log"
+
+	"github.com/spf13/viper"
+)
+
+type Config struct {
+	Port     int    `mapstructure:"port"`
+	Database DatabaseConfig `mapstructure:"database"`
+	Redis    RedisConfig    `mapstructure:"redis"`
+	JWT      JWTConfig      `mapstructure:"jwt"`
+}
+
+type DatabaseConfig struct {
+	Host     string `mapstructure:"host"`
+	Port     int    `mapstructure:"port"`
+	Name     string `mapstructure:"name"`
+	User     string `mapstructure:"user"`
+	Password string `mapstructure:"password"`
+}
+
+type RedisConfig struct {
+	Host string `mapstructure:"host"`
+	Port int    `mapstructure:"port"`
+}
+
+type JWTConfig struct {
+	Secret string `mapstructure:"secret"`
+}
+
+func LoadConfig() (*Config, error) {
+	viper.SetConfigName("config")
+	viper.SetConfigType("yaml")
+	viper.AddConfigPath(".")
+	viper.AddConfigPath("./config")
+	
+	// 環境變數
+	viper.AutomaticEnv()
+	viper.SetEnvPrefix("APP")
+	
+	// 預設值
+	viper.SetDefault("port", 8080)
+	viper.SetDefault("database.host", "localhost")
+	viper.SetDefault("database.port", 5432)
+	viper.SetDefault("redis.host", "localhost")
+	viper.SetDefault("redis.port", 6379)
+	
+	if err := viper.ReadInConfig(); err != nil {
+		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
+			return nil, err
+		}
+	}
+	
+	var config Config
+	if err := viper.Unmarshal(&config); err != nil {
+		return nil, err
+	}
+	
+	return &config, nil
+}
+
+func main() {
+	config, err := LoadConfig()
+	if err != nil {
+		log.Fatal(err)
+	}
+	
+	fmt.Printf("伺服器將在連接埠 %d 上執行\n", config.Port)
+	fmt.Printf("資料庫: %s:%d/%s\n", 
+		config.Database.Host, config.Database.Port, config.Database.Name)
+}
+```
+</UniversalEditor>
+
+## 分散式追蹤
+
+分散式追蹤有助於監控和除錯微服務互動。
+
+<UniversalEditor title="使用 OpenTelemetry 的分散式追蹤" compare={true}>
+```javascript !! js
+// JavaScript: OpenTelemetry 追蹤
+const { trace, context } = require('@opentelemetry/api');
+const { NodeTracerProvider } = require('@opentelemetry/sdk-trace-node');
+const { JaegerExporter } = require('@opentelemetry/exporter-jaeger');
+
+const provider = new NodeTracerProvider();
+const exporter = new JaegerExporter({
+  endpoint: 'http://localhost:14268/api/traces'
+});
+
+provider.addSpanProcessor(new SimpleSpanProcessor(exporter));
+trace.setGlobalTracerProvider(provider);
+
+const tracer = trace.getTracer('user-service');
+
+// 建立 span
+const span = tracer.startSpan('get-user');
+span.setAttribute('user.id', userId);
+
+try {
+  // 業務邏輯
+  const user = await getUser(userId);
+  span.setStatus({ code: SpanStatusCode.OK });
+  return user;
+} catch (error) {
+  span.setStatus({ code: SpanStatusCode.ERROR, message: error.message });
+  throw error;
+} finally {
+  span.end();
+}
+```
+
+```go !! go
+// Go: OpenTelemetry 追蹤
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/exporters/jaeger"
+	"go.opentelemetry.io/otel/sdk/resource"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	semconv "go.opentelemetry.io/otel/semconv/v1.17.0"
+	"go.opentelemetry.io/otel/trace"
+)
+
+func initTracer() (*sdktrace.TracerProvider, error) {
+	exporter, err := jaeger.New(jaeger.WithCollectorEndpoint(
+		jaeger.WithEndpoint("http://localhost:14268/api/traces"),
+	))
+	if err != nil {
+		return nil, err
+	}
+
+	resource := resource.NewWithAttributes(
+		semconv.SchemaURL,
+		semconv.ServiceName("user-service"),
+		semconv.ServiceVersion("1.0.0"),
+	)
+
+	tp := sdktrace.NewTracerProvider(
+		sdktrace.WithBatcher(exporter),
+		sdktrace.WithResource(resource),
+	)
+	otel.SetTracerProvider(tp)
+	return tp, nil
+}
+
+func getUser(ctx context.Context, userID string) (*User, error) {
+	tracer := otel.Tracer("user-service")
+	ctx, span := tracer.Start(ctx, "get-user")
+	defer span.End()
+
+	span.SetAttributes(
+		attribute.String("user.id", userID),
+	)
+
+	// 業務邏輯
+	user, err := fetchUserFromDatabase(ctx, userID)
+	if err != nil {
+		span.RecordError(err)
+		return nil, err
+	}
+
+	span.SetAttributes(
+		attribute.String("user.name", user.Name),
+		attribute.String("user.email", user.Email),
+	)
+
+	return user, nil
+}
+
+func main() {
+	tp, err := initTracer()
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer func() {
+		if err := tp.Shutdown(context.Background()); err != nil {
+			log.Printf("關閉追蹤提供者時出錯: %v", err)
+		}
+	}()
+
+	ctx := context.Background()
+	user, err := getUser(ctx, "123")
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Printf("使用者: %+v\n", user)
+}
+```
+</UniversalEditor>
+
+## 熔斷器模式
+
+熔斷器防止分散式系統中的級聯故障。
+
+<UniversalEditor title="熔斷器實現" compare={true}>
+```javascript !! js
+// JavaScript: 使用 opossum 的熔斷器
+const CircuitBreaker = require('opossum');
+
+const breaker = new CircuitBreaker(async (userId) => {
+  // 模擬外部服務呼叫
+  const response = await fetch(`http://user-service/users/${userId}`);
+  if (!response.ok) {
+    throw new Error('服務不可用');
+  }
+  return response.json();
+}, {
+  timeout: 3000,
+  errorThresholdPercentage: 50,
+  resetTimeout: 30000
+});
+
+breaker.fallback(() => ({ id: 'fallback', name: '預設使用者' }));
+breaker.on('open', () => console.log('熔斷器開啟'));
+breaker.on('close', () => console.log('熔斷器關閉'));
+
+// 使用
+try {
+  const user = await breaker.fire('123');
+  console.log(user);
+} catch (error) {
+  console.error('服務呼叫失敗:', error);
+}
+```
+
+```go !! go
+// Go: 使用 gobreaker 的熔斷器
+package main
+
+import (
+	"fmt"
+	"log"
+	"time"
+
+	"github.com/sony/gobreaker"
+)
+
+type UserService struct {
+	breaker *gobreaker.CircuitBreaker
+}
+
+func NewUserService() *UserService {
+	cb := gobreaker.NewCircuitBreaker(gobreaker.Settings{
+		Name:        "user-service",
+		MaxRequests: 3,
+		Interval:    10 * time.Second,
+		Timeout:     60 * time.Second,
+		ReadyToTrip: func(counts gobreaker.Counts) bool {
+			failureRatio := float64(counts.TotalFailures) / float64(counts.Requests)
+			return counts.Requests >= 3 && failureRatio >= 0.6
+		},
+		OnStateChange: func(name string, from gobreaker.State, to gobreaker.State) {
+			log.Printf("熔斷器 %s: %s -> %s", name, from, to)
+		},
+	})
+
+	return &UserService{breaker: cb}
+}
+
+func (us *UserService) GetUser(userID string) (*User, error) {
+	result, err := us.breaker.Execute(func() (interface{}, error) {
+		// 模擬外部服務呼叫
+		return fetchUserFromService(userID)
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	if user, ok := result.(*User); ok {
+		return user, nil
+	}
+	return nil, fmt.Errorf("無效的結果類型")
+}
+
+func fetchUserFromService(userID string) (*User, error) {
+	// 模擬服務呼叫
+	time.Sleep(100 * time.Millisecond)
+	
+	// 模擬偶爾的故障
+	if userID == "error" {
+		return nil, fmt.Errorf("服務不可用")
+	}
+	
+	return &User{ID: userID, Name: "John Doe", Email: "john@example.com"}, nil
+}
+
+func main() {
+	service := NewUserService()
+	
+	// 測試熔斷器
+	for i := 0; i < 5; i++ {
+		user, err := service.GetUser("123")
+		if err != nil {
+			log.Printf("錯誤: %v", err)
+		} else {
+			log.Printf("使用者: %+v", user)
+		}
+		time.Sleep(1 * time.Second)
+	}
+}
+```
+</UniversalEditor>
+
+## API 閘道
+
+API 閘道為客戶端應用程式提供單一入口點。
+
+<UniversalEditor title="使用 Gin 的 API 閘道" compare={true}>
+```javascript !! js
+// JavaScript: 使用 Express 的 API 閘道
+const express = require('express');
+const { createProxyMiddleware } = require('http-proxy-middleware');
+const rateLimit = require('express-rate-limit');
+
+const app = express();
+
+// 速率限制
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 分鐘
+  max: 100 // 限制每個 IP 在 windowMs 內最多 100 個請求
+});
+app.use(limiter);
+
+// 身份驗證中間件
+app.use('/api/*', (req, res, next) => {
+  const token = req.headers.authorization;
+  if (!token) {
+    return res.status(401).json({ error: '未授權' });
+  }
+  next();
+});
+
+// 路由到使用者服務
+app.use('/api/users', createProxyMiddleware({
+  target: 'http://user-service:50051',
+  changeOrigin: true,
+  pathRewrite: { '^/api/users': '/users' }
+}));
+
+// 路由到訂單服務
+app.use('/api/orders', createProxyMiddleware({
+  target: 'http://order-service:50052',
+  changeOrigin: true,
+  pathRewrite: { '^/api/orders': '/orders' }
+}));
+
+app.listen(3000);
+```
+
+```go !! go
+// Go: 使用 Gin 的 API 閘道
+package main
+
+import (
+	"net/http"
+	"net/http/httputil"
+	"net/url"
+
+	"github.com/gin-gonic/gin"
+	"golang.org/x/time/rate"
+)
+
+type ServiceRoute struct {
+	Path   string
+	Target string
+}
+
+type APIGateway struct {
+	routes []ServiceRoute
+	limiter *rate.Limiter
+}
+
+func NewAPIGateway() *APIGateway {
+	return &APIGateway{
+		routes: []ServiceRoute{
+			{Path: "/api/users", Target: "http://user-service:50051"},
+			{Path: "/api/orders", Target: "http://order-service:50052"},
+		},
+		limiter: rate.NewLimiter(rate.Limit(100), 100), // 每秒 100 個請求
+	}
+}
+
+func (ag *APIGateway) authMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		token := c.GetHeader("Authorization")
+		if token == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "未授權"})
+			c.Abort()
+			return
+		}
+		c.Next()
+	}
+}
+
+func (ag *APIGateway) rateLimitMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !ag.limiter.Allow() {
+			c.JSON(http.StatusTooManyRequests, gin.H{"error": "超出速率限制"})
+			c.Abort()
+			return
+		}
+		c.Next()
+	}
+}
+
+func (ag *APIGateway) proxyMiddleware(servicePath, targetURL string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		target, err := url.Parse(targetURL)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "無效的目標"})
+			return
+		}
+
+		proxy := httputil.NewSingleHostReverseProxy(target)
+		proxy.ServeHTTP(c.Writer, c.Request)
+	}
+}
+
+func (ag *APIGateway) SetupRoutes(r *gin.Engine) {
+	// 全域中間件
+	r.Use(ag.rateLimitMiddleware())
+	r.Use(ag.authMiddleware())
+
+	// 服務路由
+	for _, route := range ag.routes {
+		r.Any(route.Path+"/*path", ag.proxyMiddleware(route.Path, route.Target))
+	}
+}
+
+func main() {
+	gateway := NewAPIGateway()
+	r := gin.Default()
+	gateway.SetupRoutes(r)
+	r.Run(":8080")
+}
+```
+</UniversalEditor>
+
+## 對比：Go vs JavaScript 微服務
+
+| 特性             | Go                                    | JavaScript (Node.js)              |
+|------------------|---------------------------------------|-----------------------------------|
+| 效能             | 高，編譯二進位檔案                     | 良好，V8 引擎                     |
+| 記憶體使用       | 低，高效                              | 較高，垃圾回收                    |
+| 並發             | Goroutines，通道                      | 事件迴圈，async/await             |
+| gRPC 支援        | 優秀，原生                            | 良好，需要庫支援                  |
+| 服務發現         | Consul，etcd，Kubernetes              | Consul，etcd，Kubernetes          |
+| 配置             | Viper，環境變數                       | dotenv，配置庫                    |
+| 追蹤             | OpenTelemetry，Jaeger                 | OpenTelemetry，Jaeger             |
+| 熔斷器           | gobreaker，hystrix-go                 | opossum，hystrix                  |
+| API 閘道         | Gin，Echo，自訂                       | Express，Fastify，自訂            |
+| 部署             | Docker，Kubernetes，二進位檔案        | Docker，Kubernetes，Node.js       |
+
+## 最佳實踐
+
+- 使用 gRPC 進行服務間通訊
+- 實現適當的錯誤處理和重試邏輯
+- 使用熔斷器防止級聯故障
+- 集中化配置管理
+- 實現分散式追蹤以提高可觀測性
+- 使用 API 閘道處理面向客戶端的 API
+- 設計時考慮故障並實現優雅降級
+- 使用健康檢查和就緒探針
+- 實現適當的日誌記錄和監控
+- 使用服務網格進行進階流量管理
+
+---
+
+### 練習題
+1. gRPC 在效能和特性方面與 REST API 有何不同？
+2. 解釋熔斷器模式以及何時使用它。
+3. 在微服務架構中使用 API 閘道有什麼好處？
+
+### 專案想法
+構建一個簡單的微服務應用程式，包含三個服務：使用者服務、訂單服務和 API 閘道。實現 gRPC 通訊、使用 Consul 的服務發現以及使用 OpenTelemetry 的分散式追蹤。使用 Docker 部署服務並測試熔斷器模式。

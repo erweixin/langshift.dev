@@ -1,0 +1,1893 @@
+---
+title: "Systems Programming - C Interoperability, Low-level Memory"
+description: "Learn Swift systems programming: C interoperability, low-level memory access, system calls, and comparison with JavaScript limitations"
+---
+
+# Systems Programming: C Interoperability, Low-level Memory
+
+In this module, we explore Swift's systems programming capabilities, including C interoperability, low-level memory access, system calls, and performance-critical programming. We'll compare these capabilities with JavaScript's limitations in systems programming.
+
+## Table of Contents
+- [Introduction: Systems Programming Capabilities](#introduction-systems-programming-capabilities)
+- [C Interoperability](#c-interoperability)
+- [Low-level Memory Access](#low-level-memory-access)
+- [System Calls and APIs](#system-calls-and-apis)
+- [Performance-Critical Programming](#performance-critical-programming)
+- [Network Programming](#network-programming)
+- [File System Operations](#file-system-operations)
+- [Exercises](#exercises)
+- [Key Takeaways](#key-takeaways)
+
+## Introduction: Systems Programming Capabilities
+
+Swift provides powerful systems programming capabilities that allow direct access to system resources and low-level operations, unlike JavaScript's sandboxed environment.
+
+| Feature              | JavaScript | Swift |
+|----------------------|------------|-------|
+| C Interoperability   | Limited    | Full   |
+| Low-level Memory     | No         | Yes    |
+| System Calls         | No         | Yes    |
+| Direct File Access   | Limited    | Full   |
+| Network Sockets      | Limited    | Full   |
+| Performance Control  | Limited    | Full   |
+| Hardware Access      | No         | Yes    |
+
+## C Interoperability
+
+Swift provides seamless interoperability with C libraries and APIs, allowing you to use existing C code and system libraries.
+
+<UniversalEditor title="C Interoperability" compare={true}>
+```javascript !! js
+// JavaScript: Limited C interoperability through Node.js
+const fs = require('fs');
+const crypto = require('crypto');
+
+// Using Node.js built-in modules (C++ under the hood)
+function hashFile(filename) {
+    try {
+        const data = fs.readFileSync(filename);
+        return crypto.createHash('sha256').update(data).digest('hex');
+    } catch (error) {
+        console.error('Error reading file:', error.message);
+        return null;
+    }
+}
+
+// Using native addons (requires C++ compilation)
+const nativeAddon = require('./native-addon.node');
+
+function nativeOperation() {
+    try {
+        return nativeAddon.performOperation();
+    } catch (error) {
+        console.error('Native addon error:', error.message);
+        return null;
+    }
+}
+
+// Limited to what Node.js provides
+console.log('File hash:', hashFile('example.txt'));
+console.log('Native result:', nativeOperation());
+```
+
+```swift !! swift
+// Swift: Direct C interoperability
+import Foundation
+
+// Import C standard library
+import Darwin
+
+// Direct C function calls
+func cInteropExample() {
+    // Using C standard library functions
+    let randomValue = Int(arc4random_uniform(100))
+    print("Random value:", randomValue)
+    
+    // Using C string functions
+    let cString = "Hello, C World!".cString(using: .utf8)!
+    let length = strlen(cString)
+    print("String length:", length)
+    
+    // Using C math functions
+    let angle = Double.pi / 4
+    let sine = sin(angle)
+    let cosine = cos(angle)
+    print("sin(π/4):", sine)
+    print("cos(π/4):", cosine)
+}
+
+// Using C structs and types
+struct CTime {
+    var tm_sec: Int32
+    var tm_min: Int32
+    var tm_hour: Int32
+    var tm_mday: Int32
+    var tm_mon: Int32
+    var tm_year: Int32
+    var tm_wday: Int32
+    var tm_yday: Int32
+    var tm_isdst: Int32
+}
+
+func getCurrentTime() -> CTime {
+    var timeValue = time_t()
+    time(&timeValue)
+    
+    let timeInfo = localtime(&timeValue)!
+    return withUnsafePointer(to: timeInfo.pointee) { ptr in
+        ptr.withMemoryRebound(to: CTime.self, capacity: 1) { cTimePtr in
+            cTimePtr.pointee
+        }
+    }
+}
+
+// Usage
+cInteropExample()
+let currentTime = getCurrentTime()
+print("Current time: \(currentTime.tm_hour):\(currentTime.tm_min):\(currentTime.tm_sec)")
+```
+</UniversalEditor>
+
+### Using C Libraries
+
+<UniversalEditor title="C Libraries" compare={true}>
+```javascript !! js
+// JavaScript: Using C libraries through Node.js bindings
+const sqlite3 = require('sqlite3').verbose();
+
+// Database operations using C library (SQLite)
+function databaseOperations() {
+    return new Promise((resolve, reject) => {
+        const db = new sqlite3.Database(':memory:');
+        
+        db.serialize(() => {
+            db.run("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)");
+            db.run("INSERT INTO users (name) VALUES (?)", ["John Doe"]);
+            
+            db.get("SELECT * FROM users WHERE name = ?", ["John Doe"], (err, row) => {
+                if (err) {
+                    reject(err);
+                } else {
+                    resolve(row);
+                }
+            });
+        });
+        
+        db.close();
+    });
+}
+
+// Using OpenSSL through Node.js crypto module
+const crypto = require('crypto');
+
+function encryptionExample() {
+    const algorithm = 'aes-256-cbc';
+    const key = crypto.randomBytes(32);
+    const iv = crypto.randomBytes(16);
+    
+    const cipher = crypto.createCipher(algorithm, key);
+    let encrypted = cipher.update('Hello, World!', 'utf8', 'hex');
+    encrypted += cipher.final('hex');
+    
+    return { encrypted, key: key.toString('hex'), iv: iv.toString('hex') };
+}
+
+// Usage
+databaseOperations()
+    .then(result => console.log('Database result:', result))
+    .catch(error => console.error('Database error:', error));
+
+console.log('Encryption result:', encryptionExample());
+```
+
+```swift !! swift
+// Swift: Direct C library usage
+import Foundation
+import SQLite3
+
+// Direct SQLite C API usage
+class SQLiteDatabase {
+    private var db: OpaquePointer?
+    
+    init(path: String) throws {
+        let result = sqlite3_open(path, &db)
+        if result != SQLITE_OK {
+            throw DatabaseError.openFailed
+        }
+    }
+    
+    func execute(_ sql: String) throws {
+        let result = sqlite3_exec(db, sql, nil, nil, nil)
+        if result != SQLITE_OK {
+            throw DatabaseError.executionFailed
+        }
+    }
+    
+    func query(_ sql: String) throws -> [[String: Any]] {
+        var statement: OpaquePointer?
+        let result = sqlite3_prepare_v2(db, sql, -1, &statement, nil)
+        
+        guard result == SQLITE_OK else {
+            throw DatabaseError.prepareFailed
+        }
+        
+        defer { sqlite3_finalize(statement) }
+        
+        var rows: [[String: Any]] = []
+        
+        while sqlite3_step(statement) == SQLITE_ROW {
+            var row: [String: Any] = [:]
+            let columnCount = sqlite3_column_count(statement)
+            
+            for i in 0..<columnCount {
+                let columnName = String(cString: sqlite3_column_name(statement, i))
+                let columnType = sqlite3_column_type(statement, i)
+                
+                switch columnType {
+                case SQLITE_INTEGER:
+                    row[columnName] = sqlite3_column_int64(statement, i)
+                case SQLITE_TEXT:
+                    row[columnName] = String(cString: sqlite3_column_text(statement, i))
+                default:
+                    row[columnName] = nil
+                }
+            }
+            rows.append(row)
+        }
+        
+        return rows
+    }
+    
+    deinit {
+        sqlite3_close(db)
+    }
+}
+
+enum DatabaseError: Error {
+    case openFailed
+    case executionFailed
+    case prepareFailed
+}
+
+// Using CommonCrypto for encryption
+import CommonCrypto
+
+func encryptData(_ data: Data, key: Data) -> Data? {
+    let keyLength = kCCKeySizeAES256
+    let blockSize = kCCBlockSizeAES128
+    
+    var encryptedData = Data(count: data.count + blockSize)
+    var numBytesEncrypted = 0
+    
+    let result = key.withUnsafeBytes { keyBytes in
+        data.withUnsafeBytes { dataBytes in
+            encryptedData.withUnsafeMutableBytes { encryptedBytes in
+                CCCrypt(
+                    CCOperation(kCCEncrypt),
+                    CCAlgorithm(kCCAlgorithmAES),
+                    CCOptions(kCCOptionPKCS7Padding),
+                    keyBytes.baseAddress,
+                    keyLength,
+                    nil,
+                    dataBytes.baseAddress,
+                    data.count,
+                    encryptedBytes.baseAddress,
+                    encryptedData.count,
+                    &numBytesEncrypted
+                )
+            }
+        }
+    }
+    
+    guard result == kCCSuccess else { return nil }
+    encryptedData.count = numBytesEncrypted
+    return encryptedData
+}
+
+// Usage
+do {
+    let db = try SQLiteDatabase(path: ":memory:")
+    try db.execute("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)")
+    try db.execute("INSERT INTO users (name) VALUES ('John Doe')")
+    
+    let results = try db.query("SELECT * FROM users WHERE name = 'John Doe'")
+    print("Database results:", results)
+} catch {
+    print("Database error:", error)
+}
+
+// Encryption example
+let plaintext = "Hello, World!".data(using: .utf8)!
+let key = Data(repeating: 0, count: kCCKeySizeAES256)
+if let encrypted = encryptData(plaintext, key: key) {
+    print("Encrypted data length:", encrypted.count)
+}
+```
+</UniversalEditor>
+
+## Low-level Memory Access
+
+Swift provides direct access to memory through pointers and unsafe operations, enabling high-performance programming.
+
+<UniversalEditor title="Low-level Memory Access" compare={true}>
+```javascript !! js
+// JavaScript: No direct memory access
+class MemoryManager {
+    constructor() {
+        this.buffers = new Map();
+        this.nextId = 0;
+    }
+    
+    // Simulated memory allocation
+    allocate(size) {
+        const id = this.nextId++;
+        const buffer = new ArrayBuffer(size);
+        this.buffers.set(id, buffer);
+        return { id, buffer };
+    }
+    
+    // Simulated memory deallocation
+    deallocate(id) {
+        this.buffers.delete(id);
+    }
+    
+    // Limited to ArrayBuffer operations
+    writeToBuffer(buffer, offset, data) {
+        const view = new Uint8Array(buffer);
+        for (let i = 0; i < data.length; i++) {
+            view[offset + i] = data[i];
+        }
+    }
+    
+    readFromBuffer(buffer, offset, length) {
+        const view = new Uint8Array(buffer);
+        return Array.from(view.slice(offset, offset + length));
+    }
+    
+    // No direct pointer access
+    getMemoryUsage() {
+        let totalSize = 0;
+        for (const buffer of this.buffers.values()) {
+            totalSize += buffer.byteLength;
+        }
+        return totalSize;
+    }
+}
+
+const memoryManager = new MemoryManager();
+const allocation = memoryManager.allocate(1024);
+
+memoryManager.writeToBuffer(allocation.buffer, 0, [1, 2, 3, 4, 5]);
+const data = memoryManager.readFromBuffer(allocation.buffer, 0, 5);
+
+console.log('Allocated memory:', allocation.id);
+console.log('Read data:', data);
+console.log('Total memory usage:', memoryManager.getMemoryUsage());
+```
+
+```swift !! swift
+// Swift: Direct memory access with pointers
+class MemoryManager {
+    private var allocations: [UnsafeMutableRawPointer] = []
+    
+    // Direct memory allocation
+    func allocate(size: Int) -> UnsafeMutableRawPointer {
+        let pointer = UnsafeMutableRawPointer.allocate(
+            byteCount: size,
+            alignment: MemoryLayout<Int>.alignment
+        )
+        allocations.append(pointer)
+        return pointer
+    }
+    
+    // Direct memory deallocation
+    func deallocate(_ pointer: UnsafeMutableRawPointer) {
+        pointer.deallocate()
+        if let index = allocations.firstIndex(where: { $0 == pointer }) {
+            allocations.remove(at: index)
+        }
+    }
+    
+    // Direct memory access
+    func writeToMemory(_ pointer: UnsafeMutableRawPointer, data: [UInt8]) {
+        pointer.copyMemory(from: data, byteCount: data.count)
+    }
+    
+    func readFromMemory(_ pointer: UnsafeMutableRawPointer, count: Int) -> [UInt8] {
+        return Array(UnsafeBufferPointer(start: pointer.assumingMemoryBound(to: UInt8.self), count: count))
+    }
+    
+    // Pointer arithmetic
+    func offsetPointer(_ pointer: UnsafeMutableRawPointer, by offset: Int) -> UnsafeMutableRawPointer {
+        return pointer.advanced(by: offset)
+    }
+    
+    // Memory layout information
+    func getMemoryLayout<T>(of type: T.Type) -> (size: Int, alignment: Int, stride: Int) {
+        return (
+            size: MemoryLayout<T>.size,
+            alignment: MemoryLayout<T>.alignment,
+            stride: MemoryLayout<T>.stride
+        )
+    }
+    
+    // Total memory usage
+    func getTotalMemoryUsage() -> Int {
+        return allocations.count * MemoryLayout<Int>.size
+    }
+    
+    deinit {
+        // Clean up all allocations
+        for pointer in allocations {
+            pointer.deallocate()
+        }
+    }
+}
+
+let memoryManager = MemoryManager()
+
+// Allocate memory
+let pointer = memoryManager.allocate(size: 1024)
+
+// Write data directly to memory
+let data: [UInt8] = [1, 2, 3, 4, 5]
+memoryManager.writeToMemory(pointer, data: data)
+
+// Read data directly from memory
+let readData = memoryManager.readFromMemory(pointer, count: 5)
+
+// Pointer arithmetic
+let offsetPointer = memoryManager.offsetPointer(pointer, by: 2)
+let offsetData = memoryManager.readFromMemory(offsetPointer, count: 3)
+
+print("Allocated pointer:", pointer)
+print("Read data:", readData)
+print("Offset data:", offsetData)
+print("Memory layout of Int:", memoryManager.getMemoryLayout(of: Int.self))
+print("Total memory usage:", memoryManager.getTotalMemoryUsage())
+
+// Clean up
+memoryManager.deallocate(pointer)
+```
+</UniversalEditor>
+
+### Unsafe Operations
+
+<UniversalEditor title="Unsafe Operations" compare={true}>
+```javascript !! js
+// JavaScript: No unsafe operations available
+class SafeOperations {
+    constructor() {
+        this.data = new ArrayBuffer(1024);
+        this.view = new DataView(this.data);
+    }
+    
+    // Safe array access with bounds checking
+    safeRead(offset, length) {
+        if (offset < 0 || offset + length > this.data.byteLength) {
+            throw new Error('Array bounds exceeded');
+        }
+        
+        const result = [];
+        for (let i = 0; i < length; i++) {
+            result.push(this.view.getUint8(offset + i));
+        }
+        return result;
+    }
+    
+    // Safe array write with bounds checking
+    safeWrite(offset, data) {
+        if (offset < 0 || offset + data.length > this.data.byteLength) {
+            throw new Error('Array bounds exceeded');
+        }
+        
+        for (let i = 0; i < data.length; i++) {
+            this.view.setUint8(offset + i, data[i]);
+        }
+    }
+    
+    // No direct memory manipulation
+    getMemoryAddress() {
+        return 'Memory address not accessible in JavaScript';
+    }
+    
+    // Type conversion through DataView
+    readInt32(offset) {
+        return this.view.getInt32(offset, true); // little-endian
+    }
+    
+    writeInt32(offset, value) {
+        this.view.setInt32(offset, value, true); // little-endian
+    }
+}
+
+const safeOps = new SafeOperations();
+
+try {
+    safeOps.safeWrite(0, [1, 2, 3, 4]);
+    const readData = safeOps.safeRead(0, 4);
+    console.log('Safe read:', readData);
+    
+    safeOps.writeInt32(0, 0x12345678);
+    const intValue = safeOps.readInt32(0);
+    console.log('Int32 value:', intValue.toString(16));
+    
+    console.log('Memory address:', safeOps.getMemoryAddress());
+} catch (error) {
+    console.error('Safe operation error:', error.message);
+}
+```
+
+```swift !! swift
+// Swift: Unsafe operations for performance
+class UnsafeOperations {
+    private var data: UnsafeMutableRawPointer
+    
+    init(size: Int) {
+        self.data = UnsafeMutableRawPointer.allocate(
+            byteCount: size,
+            alignment: MemoryLayout<Int>.alignment
+        )
+    }
+    
+    // Unsafe direct memory access
+    func unsafeRead(offset: Int, count: Int) -> [UInt8] {
+        let pointer = data.advanced(by: offset)
+        return Array(UnsafeBufferPointer(start: pointer.assumingMemoryBound(to: UInt8.self), count: count))
+    }
+    
+    func unsafeWrite(offset: Int, data: [UInt8]) {
+        let pointer = self.data.advanced(by: offset)
+        pointer.copyMemory(from: data, byteCount: data.count)
+    }
+    
+    // Direct memory address access
+    func getMemoryAddress() -> String {
+        return String(format: "0x%p", data)
+    }
+    
+    // Type casting and reinterpretation
+    func readInt32(offset: Int) -> Int32 {
+        let pointer = data.advanced(by: offset).assumingMemoryBound(to: Int32.self)
+        return pointer.pointee
+    }
+    
+    func writeInt32(offset: Int, value: Int32) {
+        let pointer = data.advanced(by: offset).assumingMemoryBound(to: Int32.self)
+        pointer.pointee = value
+    }
+    
+    // Unsafe pointer operations
+    func withUnsafePointer<T>(_ body: (UnsafePointer<UInt8>) -> T) -> T {
+        return data.withMemoryRebound(to: UInt8.self, capacity: 1024) { pointer in
+            body(pointer)
+        }
+    }
+    
+    // Memory layout manipulation
+    func reinterpretMemory<T>(at offset: Int, as type: T.Type) -> T {
+        let pointer = data.advanced(by: offset).assumingMemoryBound(to: T.self)
+        return pointer.pointee
+    }
+    
+    deinit {
+        data.deallocate()
+    }
+}
+
+let unsafeOps = UnsafeOperations(size: 1024)
+
+// Unsafe operations
+unsafeOps.unsafeWrite(offset: 0, data: [1, 2, 3, 4])
+let readData = unsafeOps.unsafeRead(offset: 0, count: 4)
+print("Unsafe read:", readData)
+
+unsafeOps.writeInt32(offset: 0, value: 0x12345678)
+let intValue = unsafeOps.readInt32(offset: 0)
+print("Int32 value:", String(format: "0x%x", intValue))
+
+print("Memory address:", unsafeOps.getMemoryAddress())
+
+// Type reinterpretation
+struct Point {
+    let x: Int32
+    let y: Int32
+}
+
+unsafeOps.writeInt32(offset: 0, value: 100)
+unsafeOps.writeInt32(offset: 4, value: 200)
+let point = unsafeOps.reinterpretMemory(at: 0, as: Point.self)
+print("Reinterpreted point:", point.x, point.y)
+```
+</UniversalEditor>
+
+## System Calls and APIs
+
+Swift can make direct system calls and access operating system APIs.
+
+<UniversalEditor title="System Calls" compare={true}>
+```javascript !! js
+// JavaScript: Limited system access through Node.js
+const os = require('os');
+const child_process = require('child_process');
+
+// System information through Node.js APIs
+function getSystemInfo() {
+    return {
+        platform: os.platform(),
+        arch: os.arch(),
+        cpus: os.cpus().length,
+        memory: {
+            total: os.totalmem(),
+            free: os.freemem()
+        },
+        uptime: os.uptime()
+    };
+}
+
+// Process information
+function getProcessInfo() {
+    return {
+        pid: process.pid,
+        ppid: process.ppid,
+        memory: process.memoryUsage(),
+        cpu: process.cpuUsage()
+    };
+}
+
+// Limited system calls through child_process
+function executeSystemCommand(command) {
+    return new Promise((resolve, reject) => {
+        child_process.exec(command, (error, stdout, stderr) => {
+            if (error) {
+                reject(error);
+            } else {
+                resolve({ stdout, stderr });
+            }
+        });
+    });
+}
+
+// Usage
+console.log('System info:', getSystemInfo());
+console.log('Process info:', getProcessInfo());
+
+executeSystemCommand('ls -la')
+    .then(result => console.log('Command output:', result.stdout))
+    .catch(error => console.error('Command error:', error));
+```
+
+```swift !! swift
+// Swift: Direct system calls and APIs
+import Foundation
+import Darwin
+
+// Direct system information access
+func getSystemInfo() -> [String: Any] {
+    var info = mach_task_basic_info()
+    var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size)/4
+    
+    let kerr: kern_return_t = withUnsafeMutablePointer(to: &info) {
+        $0.withMemoryRebound(to: integer_t.self, capacity: 1) {
+            task_info(mach_task_self_,
+                     task_flavor_t(MACH_TASK_BASIC_INFO),
+                     $0,
+                     &count)
+        }
+    }
+    
+    let memoryUsage = kerr == KERN_SUCCESS ? Int(info.resident_size) : 0
+    
+    return [
+        "platform": "Darwin",
+        "arch": "x86_64", // or arm64
+        "cpus": ProcessInfo.processInfo.processorCount,
+        "memory": [
+            "total": ProcessInfo.processInfo.physicalMemory,
+            "free": ProcessInfo.processInfo.physicalMemory - UInt64(memoryUsage)
+        ],
+        "uptime": ProcessInfo.processInfo.systemUptime
+    ]
+}
+
+// Process information
+func getProcessInfo() -> [String: Any] {
+    return [
+        "pid": getpid(),
+        "ppid": getppid(),
+        "memory": getCurrentMemoryUsage(),
+        "cpu": getCurrentCPUUsage()
+    ]
+}
+
+func getCurrentMemoryUsage() -> [String: Int] {
+    var info = mach_task_basic_info()
+    var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size)/4
+    
+    let kerr = withUnsafeMutablePointer(to: &info) {
+        $0.withMemoryRebound(to: integer_t.self, capacity: 1) {
+            task_info(mach_task_self_,
+                     task_flavor_t(MACH_TASK_BASIC_INFO),
+                     $0,
+                     &count)
+        }
+    }
+    
+    if kerr == KERN_SUCCESS {
+        return [
+            "resident": Int(info.resident_size),
+            "virtual": Int(info.virtual_size)
+        ]
+    }
+    return [:]
+}
+
+func getCurrentCPUUsage() -> [String: Double] {
+    var info = thread_basic_info()
+    var count = mach_msg_type_number_t(MemoryLayout<thread_basic_info>.size)/4
+    
+    let kerr = withUnsafeMutablePointer(to: &info) {
+        $0.withMemoryRebound(to: integer_t.self, capacity: 1) {
+            thread_info(mach_thread_self(),
+                       thread_flavor_t(THREAD_BASIC_INFO),
+                       $0,
+                       &count)
+        }
+    }
+    
+    if kerr == KERN_SUCCESS {
+        return [
+            "user": Double(info.cpu_usage) / Double(TH_USAGE_SCALE),
+            "system": Double(info.cpu_usage) / Double(TH_USAGE_SCALE)
+        ]
+    }
+    return [:]
+}
+
+// Direct system command execution
+func executeSystemCommand(_ command: String) -> (stdout: String, stderr: String, exitCode: Int32) {
+    let task = Process()
+    task.launchPath = "/bin/sh"
+    task.arguments = ["-c", command]
+    
+    let stdoutPipe = Pipe()
+    let stderrPipe = Pipe()
+    task.standardOutput = stdoutPipe
+    task.standardError = stderrPipe
+    
+    task.launch()
+    task.waitUntilExit()
+    
+    let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+    let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+    
+    let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
+    let stderr = String(data: stderrData, encoding: .utf8) ?? ""
+    
+    return (stdout: stdout, stderr: stderr, exitCode: task.terminationStatus)
+}
+
+// Usage
+print("System info:", getSystemInfo())
+print("Process info:", getProcessInfo())
+
+let commandResult = executeSystemCommand("ls -la")
+print("Command output:", commandResult.stdout)
+print("Command exit code:", commandResult.exitCode)
+```
+</UniversalEditor>
+
+## Performance-Critical Programming
+
+Swift enables high-performance programming through direct memory access, compiler optimizations, and low-level control.
+
+<UniversalEditor title="Performance-Critical Programming" compare={true}>
+```javascript !! js
+// JavaScript: Limited performance control
+class PerformanceCalculator {
+    constructor() {
+        this.cache = new Map();
+    }
+    
+    // Optimized array operations
+    optimizedArraySum(array) {
+        let sum = 0;
+        const length = array.length;
+        
+        // Manual loop optimization
+        for (let i = 0; i < length; i++) {
+            sum += array[i];
+        }
+        return sum;
+    }
+    
+    // Cached calculations
+    expensiveCalculation(input) {
+        if (this.cache.has(input)) {
+            return this.cache.get(input);
+        }
+        
+        // Simulate expensive operation
+        let result = 0;
+        for (let i = 0; i < 1000000; i++) {
+            result += Math.sqrt(i) * Math.sin(i);
+        }
+        
+        this.cache.set(input, result);
+        return result;
+    }
+    
+    // Limited memory control
+    createTypedArray(size) {
+        return new Float64Array(size);
+    }
+    
+    // Performance measurement
+    measurePerformance(operation) {
+        const start = performance.now();
+        const result = operation();
+        const end = performance.now();
+        return { result, duration: end - start };
+    }
+}
+
+const calculator = new PerformanceCalculator();
+
+// Performance test
+const largeArray = new Array(1000000).fill(1);
+const result = calculator.measurePerformance(() => 
+    calculator.optimizedArraySum(largeArray)
+);
+
+console.log('Sum result:', result.result);
+console.log('Performance time:', result.duration, 'ms');
+```
+
+```swift !! swift
+// Swift: High-performance programming with direct control
+class PerformanceCalculator {
+    private var cache: [Int: Double] = [:]
+    
+    // Optimized array operations with SIMD
+    func optimizedArraySum(_ array: [Double]) -> Double {
+        var sum: Double = 0
+        
+        // Use SIMD for vectorized operations
+        let simdArray = array.withUnsafeBufferPointer { buffer in
+            buffer.map { Double($0) }
+        }
+        
+        // Manual loop optimization
+        let count = array.count
+        for i in 0..<count {
+            sum += array[i]
+        }
+        return sum
+    }
+    
+    // Inline optimization
+    @inlinable
+    func fastCalculation(_ a: Double, _ b: Double) -> Double {
+        return a * b + a + b
+    }
+    
+    // Cached calculations with value semantics
+    mutating func expensiveCalculation(_ input: Int) -> Double {
+        if let cached = cache[input] {
+            return cached
+        }
+        
+        // Simulate expensive operation
+        var result: Double = 0
+        for i in 0..<1_000_000 {
+            result += sqrt(Double(i)) * sin(Double(i))
+        }
+        
+        cache[input] = result
+        return result
+    }
+    
+    // Direct memory allocation
+    func createContiguousArray<T>(_ elements: [T]) -> ContiguousArray<T> {
+        return ContiguousArray(elements)
+    }
+    
+    // Performance measurement with high precision
+    func measurePerformance<T>(_ operation: () -> T) -> (result: T, duration: CFTimeInterval) {
+        let startTime = CFAbsoluteTimeGetCurrent()
+        let result = operation()
+        let endTime = CFAbsoluteTimeGetCurrent()
+        return (result, (endTime - startTime) * 1000)
+    }
+    
+    // Memory layout optimization
+    func getOptimalMemoryLayout<T>(for type: T.Type) -> (size: Int, alignment: Int) {
+        return (MemoryLayout<T>.size, MemoryLayout<T>.alignment)
+    }
+}
+
+var calculator = PerformanceCalculator()
+
+// Performance test
+let largeArray = Array(repeating: 1.0, count: 1_000_000)
+let result = calculator.measurePerformance {
+    calculator.optimizedArraySum(largeArray)
+}
+
+print("Sum result:", result.result)
+print("Performance time:", result.duration, "ms")
+
+// Memory layout information
+let layout = calculator.getOptimalMemoryLayout(for: Double.self)
+print("Double memory layout - size:", layout.size, "alignment:", layout.alignment)
+```
+</UniversalEditor>
+
+### SIMD and Vectorization
+
+<UniversalEditor title="SIMD Operations" compare={true}>
+```javascript !! js
+// JavaScript: Limited SIMD support through WebAssembly
+class SIMDCalculator {
+    constructor() {
+        this.vectorSize = 4;
+    }
+    
+    // Manual vector operations
+    vectorAdd(a, b) {
+        const result = new Float32Array(this.vectorSize);
+        for (let i = 0; i < this.vectorSize; i++) {
+            result[i] = a[i] + b[i];
+        }
+        return result;
+    }
+    
+    vectorMultiply(a, b) {
+        const result = new Float32Array(this.vectorSize);
+        for (let i = 0; i < this.vectorSize; i++) {
+            result[i] = a[i] * b[i];
+        }
+        return result;
+    }
+    
+    // Batch processing
+    batchVectorOperations(arrays) {
+        const results = [];
+        for (const array of arrays) {
+            const processed = this.processVector(array);
+            results.push(processed);
+        }
+        return results;
+    }
+    
+    processVector(vector) {
+        const result = new Float32Array(vector.length);
+        for (let i = 0; i < vector.length; i++) {
+            result[i] = Math.sqrt(vector[i] * vector[i] + 1);
+        }
+        return result;
+    }
+}
+
+const simdCalc = new SIMDCalculator();
+
+const vector1 = new Float32Array([1, 2, 3, 4]);
+const vector2 = new Float32Array([5, 6, 7, 8]);
+
+const sum = simdCalc.vectorAdd(vector1, vector2);
+const product = simdCalc.vectorMultiply(vector1, vector2);
+
+console.log('Vector sum:', Array.from(sum));
+console.log('Vector product:', Array.from(product));
+```
+
+```swift !! swift
+// Swift: Native SIMD support
+import simd
+
+class SIMDCalculator {
+    // Native SIMD types
+    func vectorAdd(_ a: simd_float4, _ b: simd_float4) -> simd_float4 {
+        return a + b
+    }
+    
+    func vectorMultiply(_ a: simd_float4, _ b: simd_float4) -> simd_float4 {
+        return a * b
+    }
+    
+    func vectorDot(_ a: simd_float4, _ b: simd_float4) -> Float {
+        return simd_dot(a, b)
+    }
+    
+    func vectorLength(_ vector: simd_float4) -> Float {
+        return simd_length(vector)
+    }
+    
+    // Matrix operations
+    func matrixMultiply(_ a: simd_float4x4, _ b: simd_float4x4) -> simd_float4x4 {
+        return a * b
+    }
+    
+    // Batch processing with SIMD
+    func batchVectorOperations(_ vectors: [simd_float4]) -> [simd_float4] {
+        return vectors.map { vector in
+            // SIMD-optimized operations
+            let normalized = simd_normalize(vector)
+            let scaled = normalized * 2.0
+            return scaled
+        }
+    }
+    
+    // SIMD-optimized mathematical functions
+    func fastSqrt(_ values: [Float]) -> [Float] {
+        return values.map { simd_fast_sqrt($0) }
+    }
+    
+    func fastInverse(_ values: [Float]) -> [Float] {
+        return values.map { simd_fast_inverse($0) }
+    }
+}
+
+let simdCalc = SIMDCalculator()
+
+let vector1 = simd_float4(1, 2, 3, 4)
+let vector2 = simd_float4(5, 6, 7, 8)
+
+let sum = simdCalc.vectorAdd(vector1, vector2)
+let product = simdCalc.vectorMultiply(vector1, vector2)
+let dotProduct = simdCalc.vectorDot(vector1, vector2)
+let length = simdCalc.vectorLength(vector1)
+
+print("Vector sum:", sum)
+print("Vector product:", product)
+print("Dot product:", dotProduct)
+print("Vector length:", length)
+
+// Matrix operations
+let matrix1 = simd_float4x4(diagonal: simd_float4(1, 1, 1, 1))
+let matrix2 = simd_float4x4(diagonal: simd_float4(2, 2, 2, 2))
+let resultMatrix = simdCalc.matrixMultiply(matrix1, matrix2)
+
+print("Matrix result:", resultMatrix)
+```
+</UniversalEditor>
+
+## Network Programming
+
+Swift provides low-level network programming capabilities for high-performance networking.
+
+<UniversalEditor title="Network Programming" compare={true}>
+```javascript !! js
+// JavaScript: High-level network APIs
+const net = require('net');
+const http = require('http');
+
+// TCP server
+class NetworkServer {
+    constructor(port) {
+        this.server = net.createServer();
+        this.port = port;
+        this.clients = new Set();
+    }
+    
+    start() {
+        this.server.on('connection', (socket) => {
+            this.clients.add(socket);
+            
+            socket.on('data', (data) => {
+                const message = data.toString();
+                console.log('Received:', message);
+                
+                // Echo back
+                socket.write(`Echo: ${message}`);
+            });
+            
+            socket.on('close', () => {
+                this.clients.delete(socket);
+            });
+        });
+        
+        this.server.listen(this.port, () => {
+            console.log(`Server listening on port ${this.port}`);
+        });
+    }
+    
+    stop() {
+        this.server.close();
+    }
+}
+
+// HTTP server
+const httpServer = http.createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.end('Hello, World!');
+});
+
+httpServer.listen(8080, () => {
+    console.log('HTTP server listening on port 8080');
+});
+
+// TCP client
+function createTCPClient(port) {
+    const client = net.createConnection(port, 'localhost', () => {
+        console.log('Connected to server');
+        client.write('Hello, Server!');
+    });
+    
+    client.on('data', (data) => {
+        console.log('Server response:', data.toString());
+        client.end();
+    });
+    
+    return client;
+}
+
+// Usage
+const server = new NetworkServer(3000);
+server.start();
+
+setTimeout(() => {
+    const client = createTCPClient(3000);
+}, 1000);
+```
+
+```swift !! swift
+// Swift: Low-level network programming
+import Foundation
+import Network
+
+// Modern Network framework
+class NetworkServer {
+    private var listener: NWListener?
+    private var connections: [NWConnection] = []
+    
+    func start(port: UInt16) {
+        let endpoint = NWEndpoint.hostPort(
+            host: NWEndpoint.Host("localhost"),
+            port: NWEndpoint.Port(integerLiteral: port)
+        )
+        
+        let parameters = NWParameters.tcp
+        listener = try? NWListener(using: parameters, on: endpoint)
+        
+        listener?.stateUpdateHandler = { state in
+            switch state {
+            case .ready:
+                print("Server listening on port \(port)")
+            case .failed(let error):
+                print("Server failed:", error)
+            default:
+                break
+            }
+        }
+        
+        listener?.newConnectionHandler = { connection in
+            self.handleNewConnection(connection)
+        }
+        
+        listener?.start(queue: .main)
+    }
+    
+    private func handleNewConnection(_ connection: NWConnection) {
+        connections.append(connection)
+        
+        connection.stateUpdateHandler = { state in
+            switch state {
+            case .ready:
+                self.receiveData(from: connection)
+            case .failed(let error):
+                print("Connection failed:", error)
+                self.removeConnection(connection)
+            default:
+                break
+            }
+        }
+        
+        connection.start(queue: .main)
+    }
+    
+    private func receiveData(from connection: NWConnection) {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { data, _, isComplete, error in
+            if let data = data, let message = String(data: data, encoding: .utf8) {
+                print("Received:", message)
+                
+                // Echo back
+                let response = "Echo: \(message)"
+                if let responseData = response.data(using: .utf8) {
+                    connection.send(content: responseData, completion: .contentProcessed { error in
+                        if let error = error {
+                            print("Send error:", error)
+                        }
+                    })
+                }
+            }
+            
+            if !isComplete {
+                self.receiveData(from: connection)
+            }
+        }
+    }
+    
+    private func removeConnection(_ connection: NWConnection) {
+        if let index = connections.firstIndex(where: { $0 === connection }) {
+            connections.remove(at: index)
+        }
+    }
+    
+    func stop() {
+        listener?.cancel()
+        for connection in connections {
+            connection.cancel()
+        }
+        connections.removeAll()
+    }
+}
+
+// HTTP server using URLSession
+class HTTPServer {
+    private var server: URLSession?
+    
+    func start() {
+        let configuration = URLSessionConfiguration.default
+        server = URLSession(configuration: configuration)
+        
+        // Handle HTTP requests
+        let task = server?.dataTask(with: URL(string: "http://localhost:8080")!) { data, response, error in
+            if let data = data, let response = String(data: data, encoding: .utf8) {
+                print("HTTP response:", response)
+            }
+        }
+        task?.resume()
+    }
+}
+
+// TCP client
+class NetworkClient {
+    private var connection: NWConnection?
+    
+    func connect(to host: String, port: UInt16) {
+        let endpoint = NWEndpoint.hostPort(
+            host: NWEndpoint.Host(host),
+            port: NWEndpoint.Port(integerLiteral: port)
+        )
+        
+        connection = NWConnection(to: endpoint, using: .tcp)
+        
+        connection?.stateUpdateHandler = { state in
+            switch state {
+            case .ready:
+                print("Connected to server")
+                self.sendMessage("Hello, Server!")
+            case .failed(let error):
+                print("Connection failed:", error)
+            default:
+                break
+            }
+        }
+        
+        connection?.start(queue: .main)
+    }
+    
+    private func sendMessage(_ message: String) {
+        guard let data = message.data(using: .utf8) else { return }
+        
+        connection?.send(content: data, completion: .contentProcessed { error in
+            if let error = error {
+                print("Send error:", error)
+            }
+        })
+    }
+    
+    func disconnect() {
+        connection?.cancel()
+    }
+}
+
+// Usage
+let server = NetworkServer()
+server.start(port: 3000)
+
+DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+    let client = NetworkClient()
+    client.connect(to: "localhost", port: 3000)
+}
+```
+</UniversalEditor>
+
+## File System Operations
+
+Swift provides direct file system access with low-level control.
+
+<UniversalEditor title="File System Operations" compare={true}>
+```javascript !! js
+// JavaScript: High-level file system APIs
+const fs = require('fs').promises;
+const path = require('path');
+
+class FileSystemManager {
+    async readFile(filePath) {
+        try {
+            const data = await fs.readFile(filePath, 'utf8');
+            return data;
+        } catch (error) {
+            console.error('Read error:', error.message);
+            return null;
+        }
+    }
+    
+    async writeFile(filePath, data) {
+        try {
+            await fs.writeFile(filePath, data, 'utf8');
+            return true;
+        } catch (error) {
+            console.error('Write error:', error.message);
+            return false;
+        }
+    }
+    
+    async copyFile(source, destination) {
+        try {
+            await fs.copyFile(source, destination);
+            return true;
+        } catch (error) {
+            console.error('Copy error:', error.message);
+            return false;
+        }
+    }
+    
+    async getFileStats(filePath) {
+        try {
+            const stats = await fs.stat(filePath);
+            return {
+                size: stats.size,
+                isFile: stats.isFile(),
+                isDirectory: stats.isDirectory(),
+                created: stats.birthtime,
+                modified: stats.mtime
+            };
+        } catch (error) {
+            console.error('Stats error:', error.message);
+            return null;
+        }
+    }
+    
+    async listDirectory(dirPath) {
+        try {
+            const files = await fs.readdir(dirPath);
+            return files;
+        } catch (error) {
+            console.error('List error:', error.message);
+            return [];
+        }
+    }
+}
+
+// Usage
+const fileManager = new FileSystemManager();
+
+async function fileOperations() {
+    // Write file
+    await fileManager.writeFile('test.txt', 'Hello, World!');
+    
+    // Read file
+    const content = await fileManager.readFile('test.txt');
+    console.log('File content:', content);
+    
+    // Get file stats
+    const stats = await fileManager.getFileStats('test.txt');
+    console.log('File stats:', stats);
+    
+    // List directory
+    const files = await fileManager.listDirectory('.');
+    console.log('Directory files:', files);
+}
+
+fileOperations();
+```
+
+```swift !! swift
+// Swift: Low-level file system access
+import Foundation
+
+class FileSystemManager {
+    // Direct file operations
+    func readFile(at path: String) throws -> Data {
+        return try Data(contentsOf: URL(fileURLWithPath: path))
+    }
+    
+    func writeFile(_ data: Data, to path: String) throws {
+        try data.write(to: URL(fileURLWithPath: path))
+    }
+    
+    func copyFile(from source: String, to destination: String) throws {
+        try FileManager.default.copyItem(atPath: source, toPath: destination)
+    }
+    
+    // File attributes and metadata
+    func getFileAttributes(at path: String) throws -> [FileAttributeKey: Any] {
+        return try FileManager.default.attributesOfItem(atPath: path)
+    }
+    
+    func getFileSize(at path: String) throws -> Int64 {
+        let attributes = try getFileAttributes(at: path)
+        return attributes[.size] as? Int64 ?? 0
+    }
+    
+    // Directory operations
+    func listDirectory(at path: String) throws -> [String] {
+        return try FileManager.default.contentsOfDirectory(atPath: path)
+    }
+    
+    func createDirectory(at path: String) throws {
+        try FileManager.default.createDirectory(atPath: path, withIntermediateDirectories: true)
+    }
+    
+    // Low-level file operations
+    func openFileForReading(at path: String) throws -> FileHandle {
+        return try FileHandle(forReadingFrom: URL(fileURLWithPath: path))
+    }
+    
+    func openFileForWriting(at path: String) throws -> FileHandle {
+        return try FileHandle(forWritingTo: URL(fileURLWithPath: path))
+    }
+    
+    // Memory-mapped files
+    func createMemoryMappedFile(at path: String, size: Int) throws -> Data {
+        let url = URL(fileURLWithPath: path)
+        return try Data(contentsOf: url, options: .alwaysMapped)
+    }
+    
+    // File monitoring
+    func monitorFile(at path: String, handler: @escaping (String) -> Void) -> DispatchSourceFileSystemObject? {
+        let fileDescriptor = open(path, O_EVTONLY)
+        guard fileDescriptor >= 0 else { return nil }
+        
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fileDescriptor,
+            eventMask: .write,
+            queue: .global()
+        )
+        
+        source.setEventHandler {
+            handler(path)
+        }
+        
+        source.setCancelHandler {
+            close(fileDescriptor)
+        }
+        
+        source.resume()
+        return source
+    }
+    
+    // Performance-optimized file operations
+    func readFileInChunks(at path: String, chunkSize: Int = 4096) throws -> AsyncStream<Data> {
+        let fileHandle = try openFileForReading(at: path)
+        
+        return AsyncStream { continuation in
+            Task {
+                defer {
+                    try? fileHandle.close()
+                    continuation.finish()
+                }
+                
+                while let data = try? fileHandle.read(upToCount: chunkSize), !data.isEmpty {
+                    continuation.yield(data)
+                }
+            }
+        }
+    }
+}
+
+// Usage
+let fileManager = FileSystemManager()
+
+do {
+    // Write file
+    let testData = "Hello, World!".data(using: .utf8)!
+    try fileManager.writeFile(testData, to: "test.txt")
+    
+    // Read file
+    let content = try fileManager.readFile(at: "test.txt")
+    print("File content:", String(data: content, encoding: .utf8) ?? "")
+    
+    // Get file attributes
+    let attributes = try fileManager.getFileAttributes(at: "test.txt")
+    print("File size:", attributes[.size] ?? 0)
+    
+    // List directory
+    let files = try fileManager.listDirectory(at: ".")
+    print("Directory files:", files)
+    
+    // Monitor file changes
+    let monitor = fileManager.monitorFile(at: "test.txt") { path in
+        print("File changed:", path)
+    }
+    
+    // Clean up
+    monitor?.cancel()
+    
+} catch {
+    print("File operation error:", error)
+}
+```
+</UniversalEditor>
+
+## Exercises
+
+### Exercise 1: High-Performance Data Processing
+
+<UniversalEditor title="Exercise 1: High-Performance Data Processing" compare={true}>
+```javascript !! js
+// JavaScript solution
+class DataProcessor {
+    constructor() {
+        this.buffer = new ArrayBuffer(1024 * 1024); // 1MB buffer
+        this.view = new DataView(this.buffer);
+    }
+    
+    processData(data) {
+        const startTime = performance.now();
+        
+        // Process data in chunks
+        const chunkSize = 1000;
+        const results = [];
+        
+        for (let i = 0; i < data.length; i += chunkSize) {
+            const chunk = data.slice(i, i + chunkSize);
+            const processed = this.processChunk(chunk);
+            results.push(...processed);
+        }
+        
+        const endTime = performance.now();
+        return {
+            results,
+            processingTime: endTime - startTime
+        };
+    }
+    
+    processChunk(chunk) {
+        return chunk.map(value => {
+            // Simulate expensive processing
+            return Math.sqrt(value * value + 1) * Math.sin(value);
+        });
+    }
+    
+    // Memory-efficient processing
+    processLargeDataset(size) {
+        const data = new Float64Array(size);
+        for (let i = 0; i < size; i++) {
+            data[i] = Math.random();
+        }
+        
+        return this.processData(Array.from(data));
+    }
+}
+
+// Usage
+const processor = new DataProcessor();
+const result = processor.processLargeDataset(100000);
+
+console.log('Processing time:', result.processingTime, 'ms');
+console.log('Results count:', result.results.length);
+```
+
+```swift !! swift
+// Swift solution
+class DataProcessor {
+    private var buffer: UnsafeMutableRawPointer
+    
+    init() {
+        self.buffer = UnsafeMutableRawPointer.allocate(
+            byteCount: 1024 * 1024, // 1MB buffer
+            alignment: MemoryLayout<Double>.alignment
+        )
+    }
+    
+    func processData(_ data: [Double]) -> (results: [Double], processingTime: CFTimeInterval) {
+        let startTime = CFAbsoluteTimeGetCurrent()
+        
+        // Process data in chunks with SIMD optimization
+        let chunkSize = 1000
+        var results: [Double] = []
+        results.reserveCapacity(data.count)
+        
+        for i in stride(from: 0, to: data.count, by: chunkSize) {
+            let end = min(i + chunkSize, data.count)
+            let chunk = Array(data[i..<end])
+            let processed = processChunk(chunk)
+            results.append(contentsOf: processed)
+        }
+        
+        let endTime = CFAbsoluteTimeGetCurrent()
+        return (results, (endTime - startTime) * 1000)
+    }
+    
+    private func processChunk(_ chunk: [Double]) -> [Double] {
+        return chunk.map { value in
+            // SIMD-optimized processing
+            return sqrt(value * value + 1) * sin(value)
+        }
+    }
+    
+    // Memory-efficient processing with direct memory access
+    func processLargeDataset(size: Int) -> (results: [Double], processingTime: CFTimeInterval) {
+        let data = (0..<size).map { _ in Double.random(in: 0...1) }
+        return processData(data)
+    }
+    
+    // SIMD-optimized batch processing
+    func processBatchSIMD(_ data: [simd_double4]) -> [simd_double4] {
+        return data.map { vector in
+            let squared = vector * vector
+            let sqrtResult = simd_sqrt(squared + simd_double4(1, 1, 1, 1))
+            return sqrtResult * simd_sin(vector)
+        }
+    }
+    
+    deinit {
+        buffer.deallocate()
+    }
+}
+
+// Usage
+let processor = DataProcessor()
+let result = processor.processLargeDataset(size: 100_000)
+
+print("Processing time:", result.processingTime, "ms")
+print("Results count:", result.results.count)
+
+// SIMD batch processing
+let simdData = (0..<1000).map { _ in
+    simd_double4(Double.random(in: 0...1),
+                 Double.random(in: 0...1),
+                 Double.random(in: 0...1),
+                 Double.random(in: 0...1))
+}
+let simdResults = processor.processBatchSIMD(simdData)
+print("SIMD results count:", simdResults.count)
+```
+</UniversalEditor>
+
+### Exercise 2: Network Performance Testing
+
+<UniversalEditor title="Exercise 2: Network Performance Testing" compare={true}>
+```javascript !! js
+// JavaScript solution
+const net = require('net');
+
+class NetworkTester {
+    constructor() {
+        this.results = [];
+    }
+    
+    async testConnection(host, port, messageSize = 1024) {
+        return new Promise((resolve, reject) => {
+            const startTime = performance.now();
+            const client = net.createConnection(port, host);
+            
+            const message = 'A'.repeat(messageSize);
+            let receivedData = '';
+            
+            client.on('connect', () => {
+                client.write(message);
+            });
+            
+            client.on('data', (data) => {
+                receivedData += data.toString();
+            });
+            
+            client.on('end', () => {
+                const endTime = performance.now();
+                const duration = endTime - startTime;
+                
+                resolve({
+                    duration,
+                    messageSize,
+                    throughput: (messageSize * 2) / (duration / 1000) // bytes per second
+                });
+            });
+            
+            client.on('error', (error) => {
+                reject(error);
+            });
+        });
+    }
+    
+    async runPerformanceTest(host, port, iterations = 10) {
+        const results = [];
+        
+        for (let i = 0; i < iterations; i++) {
+            try {
+                const result = await this.testConnection(host, port);
+                results.push(result);
+                console.log(`Test ${i + 1}: ${result.duration.toFixed(2)}ms, ${result.throughput.toFixed(2)} B/s`);
+            } catch (error) {
+                console.error(`Test ${i + 1} failed:`, error.message);
+            }
+        }
+        
+        return this.analyzeResults(results);
+    }
+    
+    analyzeResults(results) {
+        const durations = results.map(r => r.duration);
+        const throughputs = results.map(r => r.throughput);
+        
+        return {
+            averageDuration: durations.reduce((a, b) => a + b, 0) / durations.length,
+            averageThroughput: throughputs.reduce((a, b) => a + b, 0) / throughputs.length,
+            minDuration: Math.min(...durations),
+            maxDuration: Math.max(...durations),
+            totalTests: results.length
+        };
+    }
+}
+
+// Usage
+const tester = new NetworkTester();
+
+async function runTests() {
+    const results = await tester.runPerformanceTest('localhost', 3000);
+    console.log('Performance analysis:', results);
+}
+
+runTests();
+```
+
+```swift !! swift
+// Swift solution
+import Foundation
+import Network
+
+class NetworkTester {
+    private var results: [NetworkResult] = []
+    
+    struct NetworkResult {
+        let duration: CFTimeInterval
+        let messageSize: Int
+        let throughput: Double
+    }
+    
+    func testConnection(host: String, port: UInt16, messageSize: Int = 1024) async throws -> NetworkResult {
+        let startTime = CFAbsoluteTimeGetCurrent()
+        
+        let endpoint = NWEndpoint.hostPort(
+            host: NWEndpoint.Host(host),
+            port: NWEndpoint.Port(integerLiteral: port)
+        )
+        
+        let connection = NWConnection(to: endpoint, using: .tcp)
+        
+        return try await withCheckedThrowingContinuation { continuation in
+            connection.stateUpdateHandler = { state in
+                switch state {
+                case .ready:
+                    let message = String(repeating: "A", count: messageSize)
+                    guard let data = message.data(using: .utf8) else {
+                        continuation.resume(throwing: NetworkError.invalidData)
+                        return
+                    }
+                    
+                    connection.send(content: data, completion: .contentProcessed { error in
+                        if let error = error {
+                            continuation.resume(throwing: error)
+                            return
+                        }
+                        
+                        // Receive response
+                        connection.receive(minimumIncompleteLength: 1, maximumLength: messageSize * 2) { data, _, isComplete, error in
+                            let endTime = CFAbsoluteTimeGetCurrent()
+                            let duration = (endTime - startTime) * 1000
+                            let throughput = Double(messageSize * 2) / (duration / 1000)
+                            
+                            let result = NetworkResult(
+                                duration: duration,
+                                messageSize: messageSize,
+                                throughput: throughput
+                            )
+                            
+                            continuation.resume(returning: result)
+                            connection.cancel()
+                        }
+                    })
+                    
+                case .failed(let error):
+                    continuation.resume(throwing: error)
+                default:
+                    break
+                }
+            }
+            
+            connection.start(queue: .global())
+        }
+    }
+    
+    func runPerformanceTest(host: String, port: UInt16, iterations: Int = 10) async -> PerformanceAnalysis {
+        var results: [NetworkResult] = []
+        
+        for i in 0..<iterations {
+            do {
+                let result = try await testConnection(host: host, port: port)
+                results.append(result)
+                print("Test \(i + 1): \(String(format: "%.2f", result.duration))ms, \(String(format: "%.2f", result.throughput)) B/s")
+            } catch {
+                print("Test \(i + 1) failed:", error)
+            }
+        }
+        
+        return analyzeResults(results)
+    }
+    
+    private func analyzeResults(_ results: [NetworkResult]) -> PerformanceAnalysis {
+        let durations = results.map { $0.duration }
+        let throughputs = results.map { $0.throughput }
+        
+        return PerformanceAnalysis(
+            averageDuration: durations.reduce(0, +) / Double(durations.count),
+            averageThroughput: throughputs.reduce(0, +) / Double(throughputs.count),
+            minDuration: durations.min() ?? 0,
+            maxDuration: durations.max() ?? 0,
+            totalTests: results.count
+        )
+    }
+}
+
+struct PerformanceAnalysis {
+    let averageDuration: Double
+    let averageThroughput: Double
+    let minDuration: Double
+    let maxDuration: Double
+    let totalTests: Int
+}
+
+enum NetworkError: Error {
+    case invalidData
+}
+
+// Usage
+let tester = NetworkTester()
+
+Task {
+    let results = await tester.runPerformanceTest(host: "localhost", port: 3000)
+    print("Performance analysis:", results)
+}
+```
+</UniversalEditor>
+
+## Key Takeaways
+
+### Swift Systems Programming Advantages
+1. **Direct C Interoperability**: Seamless integration with C libraries and APIs
+2. **Low-level Memory Access**: Direct control over memory layout and allocation
+3. **System Calls**: Direct access to operating system APIs
+4. **Performance Control**: Fine-grained control over performance-critical code
+5. **SIMD Support**: Native vectorized operations for high performance
+6. **Network Programming**: Low-level network access for custom protocols
+
+### Key Differences from JavaScript
+1. **Memory Access**: Direct vs Sandboxed memory access
+2. **System Integration**: Full vs Limited system integration
+3. **Performance**: Predictable vs Variable performance
+4. **C Interoperability**: Native vs Limited C integration
+5. **Network Control**: Low-level vs High-level network APIs
+6. **File System**: Direct vs Abstracted file system access
+
+### Best Practices
+1. **Use unsafe operations carefully** and only when necessary
+2. **Leverage SIMD** for performance-critical numerical operations
+3. **Implement proper error handling** for system calls
+4. **Use memory pools** for high-frequency allocations
+5. **Profile performance** before and after optimizations
+6. **Follow memory safety guidelines** when using unsafe operations
+
+### Performance Optimization Tips
+1. **Use SIMD operations** for vectorized computations
+2. **Implement memory pools** for frequent allocations
+3. **Use direct memory access** for performance-critical code
+4. **Leverage compiler optimizations** with appropriate annotations
+5. **Profile with Instruments** for performance analysis
+6. **Use appropriate data structures** for memory layout optimization
+
+### Next Steps
+In the next module, we'll explore Swift's advanced language features, including metaprogramming, reflection, and advanced type system capabilities, comparing them with JavaScript's dynamic features and limitations. 

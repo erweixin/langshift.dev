@@ -1,0 +1,847 @@
+---
+title: 错误处理
+---
+
+Go 的错误处理遵循独特的哲学，强调显式错误检查而非异常处理。与 JavaScript 的 `try...catch` 机制或 C++ 的异常处理不同，Go 将错误视为必须显式处理的值。这种方法促进了更清晰的代码流程，使错误处理更加可预测。
+
+## Go 的错误处理哲学
+
+Go 的错误处理基于**错误是值，不是异常**的原则。这意味着：
+
+- 错误作为值从函数返回
+- 错误必须显式检查和处理
+- 没有自动异常传播
+- 清晰、可预测的控制流程
+- 没有隐藏的错误路径
+
+这种哲学与 JavaScript 基于异常的方法有显著不同：
+
+<UniversalEditor title="错误处理哲学对比" compare={true}>
+```javascript !! js
+// JavaScript: 基于异常的错误处理
+function divide(a, b) {
+  if (b === 0) {
+    throw new Error("除零错误");
+  }
+  return a / b;
+}
+
+function processData() {
+  try {
+    const result = divide(10, 0);
+    console.log("结果:", result);
+  } catch (error) {
+    console.error("发生错误:", error.message);
+    // 错误处理与正常流程分离
+  }
+}
+
+// processData();
+```
+
+```go !! go
+// Go: 基于值的错误处理
+package main
+
+import (
+	"errors"
+	"fmt"
+)
+
+func divide(a, b float64) (float64, error) {
+	if b == 0 {
+		return 0, errors.New("除零错误")
+	}
+	return a / b, nil
+}
+
+func processData() {
+	result, err := divide(10, 0)
+	if err != nil {
+		fmt.Printf("发生错误: %v\n", err)
+		return
+	}
+	fmt.Printf("结果: %v\n", result)
+}
+
+func main() {
+	processData()
+}
+```
+</UniversalEditor>
+
+## `error` 接口
+
+在 Go 中，错误由内置的 `error` 接口表示：
+
+```go
+type error interface {
+    Error() string
+}
+```
+
+任何实现了 `Error() string` 方法的类型都满足 `error` 接口。这种简单的设计允许灵活的错误类型，同时保持一致性。
+
+<UniversalEditor title="自定义错误类型" compare={true}>
+```javascript !! js
+// JavaScript: 自定义错误类
+class ValidationError extends Error {
+  constructor(message, field) {
+    super(message);
+    this.name = 'ValidationError';
+    this.field = field;
+  }
+}
+
+class NetworkError extends Error {
+  constructor(message, statusCode) {
+    super(message);
+    this.name = 'NetworkError';
+    this.statusCode = statusCode;
+  }
+}
+
+function validateUser(user) {
+  if (!user.name) {
+    throw new ValidationError('姓名是必需的', 'name');
+  }
+  if (!user.email) {
+    throw new ValidationError('邮箱是必需的', 'email');
+  }
+}
+
+try {
+  validateUser({});
+} catch (error) {
+  if (error instanceof ValidationError) {
+    console.log(`字段 ${error.field} 的验证错误: ${error.message}`);
+  }
+}
+```
+
+```go !! go
+// Go: 自定义错误类型
+package main
+
+import (
+	"fmt"
+)
+
+// 自定义错误类型
+type ValidationError struct {
+	Field   string
+	Message string
+}
+
+func (e ValidationError) Error() string {
+	return fmt.Sprintf("字段 %s 的验证错误: %s", e.Field, e.Message)
+}
+
+type NetworkError struct {
+	StatusCode int
+	Message    string
+}
+
+func (e NetworkError) Error() string {
+	return fmt.Sprintf("网络错误 %d: %s", e.StatusCode, e.Message)
+}
+
+func validateUser(user map[string]string) error {
+	if user["name"] == "" {
+		return ValidationError{Field: "name", Message: "姓名是必需的"}
+	}
+	if user["email"] == "" {
+		return ValidationError{Field: "email", Message: "邮箱是必需的"}
+	}
+	return nil
+}
+
+func main() {
+	user := map[string]string{}
+	
+	err := validateUser(user)
+	if err != nil {
+		switch e := err.(type) {
+		case ValidationError:
+			fmt.Printf("字段 %s 的验证错误: %s\n", e.Field, e.Message)
+		default:
+			fmt.Printf("未知错误: %v\n", err)
+		}
+	}
+}
+```
+</UniversalEditor>
+
+## 错误处理模式
+
+### 1. 显式错误检查
+
+Go 中最常见的模式是在函数调用后立即检查错误：
+
+<UniversalEditor title="显式错误检查" compare={true}>
+```javascript !! js
+// JavaScript: Try-catch 模式
+async function processFile(filename) {
+  try {
+    const content = await readFile(filename);
+    const processed = await processContent(content);
+    await writeFile(filename + '.processed', processed);
+    console.log('文件处理成功');
+  } catch (error) {
+    console.error('处理文件时出错:', error.message);
+  }
+}
+```
+
+```go !! go
+// Go: 显式错误检查
+package main
+
+import (
+	"fmt"
+	"os"
+)
+
+func processFile(filename string) error {
+	// 读取文件
+	content, err := os.ReadFile(filename)
+	if err != nil {
+		return fmt.Errorf("读取文件失败: %w", err)
+	}
+	
+	// 处理内容
+	processed, err := processContent(content)
+	if err != nil {
+		return fmt.Errorf("处理内容失败: %w", err)
+	}
+	
+	// 写入文件
+	err = os.WriteFile(filename+".processed", processed, 0644)
+	if err != nil {
+		return fmt.Errorf("写入文件失败: %w", err)
+	}
+	
+	fmt.Println("文件处理成功")
+	return nil
+}
+
+func processContent(content []byte) ([]byte, error) {
+	// 模拟处理
+	return content, nil
+}
+
+func main() {
+	err := processFile("data.txt")
+	if err != nil {
+		fmt.Printf("错误: %v\n", err)
+	}
+}
+```
+</UniversalEditor>
+
+### 2. 使用 `fmt.Errorf` 进行错误包装
+
+Go 1.13 引入了使用 `%w` 动词的错误包装，允许您添加上下文同时保留原始错误：
+
+<UniversalEditor title="错误包装" compare={true}>
+```javascript !! js
+// JavaScript: 错误链
+class DatabaseError extends Error {
+  constructor(message, originalError) {
+    super(message);
+    this.name = 'DatabaseError';
+    this.cause = originalError;
+  }
+}
+
+async function getUser(id) {
+  try {
+    const user = await db.query('SELECT * FROM users WHERE id = ?', [id]);
+    return user;
+  } catch (error) {
+    throw new DatabaseError('获取用户失败', error);
+  }
+}
+```
+
+```go !! go
+// Go: 使用 fmt.Errorf 进行错误包装
+package main
+
+import (
+	"errors"
+	"fmt"
+)
+
+func getUser(id int) (map[string]interface{}, error) {
+	user, err := dbQuery("SELECT * FROM users WHERE id = ?", id)
+	if err != nil {
+		return nil, fmt.Errorf("获取用户失败: %w", err)
+	}
+	return user, nil
+}
+
+func dbQuery(query string, args ...interface{}) (map[string]interface{}, error) {
+	// 模拟数据库错误
+	return nil, errors.New("连接超时")
+}
+
+func main() {
+	user, err := getUser(123)
+	if err != nil {
+		fmt.Printf("错误: %v\n", err)
+		
+		// 解包原始错误
+		var dbErr error
+		if errors.Unwrap(err) != nil {
+			dbErr = errors.Unwrap(err)
+			fmt.Printf("原始错误: %v\n", dbErr)
+		}
+	}
+}
+```
+</UniversalEditor>
+
+### 3. 哨兵错误
+
+哨兵错误是用于表示特定错误条件的预定义错误值：
+
+<UniversalEditor title="哨兵错误" compare={true}>
+```javascript !! js
+// JavaScript: 错误常量
+const ERR_NOT_FOUND = new Error('资源未找到');
+const ERR_PERMISSION_DENIED = new Error('权限被拒绝');
+const ERR_INVALID_INPUT = new Error('无效输入');
+
+function findUser(id) {
+  if (id < 0) {
+    throw ERR_INVALID_INPUT;
+  }
+  if (id > 1000) {
+    throw ERR_NOT_FOUND;
+  }
+  return { id, name: 'User' + id };
+}
+
+try {
+  const user = findUser(2000);
+} catch (error) {
+  if (error === ERR_NOT_FOUND) {
+    console.log('用户未找到');
+  } else if (error === ERR_INVALID_INPUT) {
+    console.log('无效的用户ID');
+  }
+}
+```
+
+```go !! go
+// Go: 哨兵错误
+package main
+
+import (
+	"errors"
+	"fmt"
+)
+
+// 哨兵错误
+var (
+	ErrNotFound          = errors.New("资源未找到")
+	ErrPermissionDenied  = errors.New("权限被拒绝")
+	ErrInvalidInput      = errors.New("无效输入")
+)
+
+func findUser(id int) (map[string]interface{}, error) {
+	if id < 0 {
+		return nil, ErrInvalidInput
+	}
+	if id > 1000 {
+		return nil, ErrNotFound
+	}
+	return map[string]interface{}{
+		"id":   id,
+		"name": fmt.Sprintf("User%d", id),
+	}, nil
+}
+
+func main() {
+	user, err := findUser(2000)
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrNotFound):
+			fmt.Println("用户未找到")
+		case errors.Is(err, ErrInvalidInput):
+			fmt.Println("无效的用户ID")
+		default:
+			fmt.Printf("未知错误: %v\n", err)
+		}
+		return
+	}
+	
+	fmt.Printf("找到用户: %v\n", user)
+}
+```
+</UniversalEditor>
+
+## 错误处理最佳实践
+
+### 1. 不要忽略错误
+
+始终适当地检查和处理错误：
+
+<UniversalEditor title="错误处理最佳实践" compare={true}>
+```javascript !! js
+// JavaScript: 正确的错误处理
+async function processData() {
+  try {
+    const data = await fetchData();
+    const result = await processData(data);
+    return result;
+  } catch (error) {
+    // 记录错误
+    console.error('处理数据失败:', error);
+    // 重新抛出或适当处理
+    throw error;
+  }
+}
+```
+
+```go !! go
+// Go: 正确的错误处理
+package main
+
+import (
+	"fmt"
+	"log"
+)
+
+func processData() error {
+	data, err := fetchData()
+	if err != nil {
+		// 记录错误
+		log.Printf("获取数据失败: %v", err)
+		// 返回错误
+		return fmt.Errorf("获取数据失败: %w", err)
+	}
+	
+	result, err := processData(data)
+	if err != nil {
+		log.Printf("处理数据失败: %v", err)
+		return fmt.Errorf("处理数据失败: %w", err)
+	}
+	
+	fmt.Printf("处理结果: %v\n", result)
+	return nil
+}
+
+func fetchData() (string, error) {
+	return "data", nil
+}
+
+func processData(data string) (string, error) {
+	return "processed " + data, nil
+}
+```
+</UniversalEditor>
+
+### 2. 使用 `errors.Is` 和 `errors.As`
+
+用于错误比较和类型检查：
+
+<UniversalEditor title="错误比较" compare={true}>
+```javascript !! js
+// JavaScript: 错误类型检查
+class NetworkError extends Error {
+  constructor(message, statusCode) {
+    super(message);
+    this.name = 'NetworkError';
+    this.statusCode = statusCode;
+  }
+}
+
+async function makeRequest() {
+  try {
+    const response = await fetch('/api/data');
+    if (!response.ok) {
+      throw new NetworkError('请求失败', response.status);
+    }
+    return await response.json();
+  } catch (error) {
+    if (error instanceof NetworkError) {
+      console.log(`网络错误，状态码: ${error.statusCode}`);
+    } else {
+      console.log('其他错误:', error.message);
+    }
+  }
+}
+```
+
+```go !! go
+// Go: 使用 errors.Is 和 errors.As 进行错误比较
+package main
+
+import (
+	"errors"
+	"fmt"
+)
+
+type NetworkError struct {
+	StatusCode int
+	Message    string
+}
+
+func (e NetworkError) Error() string {
+	return fmt.Sprintf("网络错误 %d: %s", e.StatusCode, e.Message)
+}
+
+func makeRequest() error {
+	// 模拟网络错误
+	return NetworkError{StatusCode: 404, Message: "未找到"}
+}
+
+func main() {
+	err := makeRequest()
+	
+	// 检查特定错误类型
+	var netErr NetworkError
+	if errors.As(err, &netErr) {
+		fmt.Printf("网络错误，状态码: %d\n", netErr.StatusCode)
+	} else {
+		fmt.Printf("其他错误: %v\n", err)
+	}
+}
+```
+</UniversalEditor>
+
+## 与 JavaScript 错误处理的对比
+
+| 特性           | JavaScript                               | Go                                      |
+| :------------- | :--------------------------------------- | :--------------------------------------- |
+| **机制**       | 异常 (`throw`, `try...catch`)            | 错误值（从函数返回）                     |
+| **错误类型**   | `Error` 对象，自定义错误类                | `error` 接口，自定义错误类型             |
+| **传播**       | 自动向上传播调用栈                       | 手动（必须返回和检查）                   |
+| **控制流程**   | 可以绕过正常流程                         | 始终显式，可预测的流程                   |
+| **性能**       | 栈展开开销                               | 无开销（只是值传递）                     |
+| **异步处理**   | 使用 `try...catch` 的 `async/await`      | 同步和异步的相同模式                     |
+| **错误上下文** | 使用 `cause` 的错误链                    | 使用 `fmt.Errorf` 的错误包装            |
+
+## 常见错误处理模式
+
+### 1. 早期返回模式
+
+当错误发生时提前返回，避免深层嵌套：
+
+<UniversalEditor title="早期返回模式" compare={true}>
+```javascript !! js
+// JavaScript: 使用 try-catch 的早期返回
+async function processUser(userId) {
+  try {
+    const user = await fetchUser(userId);
+    if (!user) {
+      throw new Error('用户未找到');
+    }
+    
+    const profile = await fetchProfile(user.profileId);
+    if (!profile) {
+      throw new Error('配置文件未找到');
+    }
+    
+    const settings = await fetchSettings(user.settingsId);
+    if (!settings) {
+      throw new Error('设置未找到');
+    }
+    
+    return { user, profile, settings };
+  } catch (error) {
+    console.error('处理用户时出错:', error.message);
+    throw error;
+  }
+}
+```
+
+```go !! go
+// Go: 早期返回模式
+package main
+
+import (
+	"errors"
+	"fmt"
+)
+
+func processUser(userID int) (map[string]interface{}, error) {
+	// 错误时早期返回
+	user, err := fetchUser(userID)
+	if err != nil {
+		return nil, fmt.Errorf("获取用户失败: %w", err)
+	}
+	
+	profile, err := fetchProfile(user["profileId"].(int))
+	if err != nil {
+		return nil, fmt.Errorf("获取配置文件失败: %w", err)
+	}
+	
+	settings, err := fetchSettings(user["settingsId"].(int))
+	if err != nil {
+		return nil, fmt.Errorf("获取设置失败: %w", err)
+	}
+	
+	return map[string]interface{}{
+		"user":     user,
+		"profile":  profile,
+		"settings": settings,
+	}, nil
+}
+
+func fetchUser(id int) (map[string]interface{}, error) {
+	if id <= 0 {
+		return nil, errors.New("无效的用户ID")
+	}
+	return map[string]interface{}{
+		"id":         id,
+		"profileId":  123,
+		"settingsId": 456,
+	}, nil
+}
+
+func fetchProfile(id int) (map[string]interface{}, error) {
+	return map[string]interface{}{"id": id, "name": "Profile"}, nil
+}
+
+func fetchSettings(id int) (map[string]interface{}, error) {
+	return map[string]interface{}{"id": id, "theme": "dark"}, nil
+}
+```
+</UniversalEditor>
+
+### 2. 错误聚合
+
+收集多个错误并一起返回：
+
+<UniversalEditor title="错误聚合" compare={true}>
+```javascript !! js
+// JavaScript: 错误聚合
+class ValidationErrors extends Error {
+  constructor(errors) {
+    super('发生多个验证错误');
+    this.name = 'ValidationErrors';
+    this.errors = errors;
+  }
+}
+
+function validateUser(user) {
+  const errors = [];
+  
+  if (!user.name) {
+    errors.push('姓名是必需的');
+  }
+  if (!user.email) {
+    errors.push('邮箱是必需的');
+  }
+  if (user.age < 0) {
+    errors.push('年龄必须为正数');
+  }
+  
+  if (errors.length > 0) {
+    throw new ValidationErrors(errors);
+  }
+}
+
+try {
+  validateUser({ age: -5 });
+} catch (error) {
+  if (error instanceof ValidationErrors) {
+    console.log('验证错误:', error.errors);
+  }
+}
+```
+
+```go !! go
+// Go: 错误聚合
+package main
+
+import (
+	"errors"
+	"fmt"
+	"strings"
+)
+
+type ValidationErrors struct {
+	Errors []string
+}
+
+func (e ValidationErrors) Error() string {
+	return fmt.Sprintf("验证错误: %s", strings.Join(e.Errors, "; "))
+}
+
+func validateUser(user map[string]interface{}) error {
+	var errors []string
+	
+	if user["name"] == "" {
+		errors = append(errors, "姓名是必需的")
+	}
+	if user["email"] == "" {
+		errors = append(errors, "邮箱是必需的")
+	}
+	if age, ok := user["age"].(int); ok && age < 0 {
+		errors = append(errors, "年龄必须为正数")
+	}
+	
+	if len(errors) > 0 {
+		return ValidationErrors{Errors: errors}
+	}
+	
+	return nil
+}
+
+func main() {
+	user := map[string]interface{}{
+		"age": -5,
+	}
+	
+	err := validateUser(user)
+	if err != nil {
+		var valErr ValidationErrors
+		if errors.As(err, &valErr) {
+			fmt.Println("验证错误:", valErr.Errors)
+		}
+	}
+}
+```
+</UniversalEditor>
+
+## 并发代码中的错误处理
+
+错误处理在并发场景中变得更加复杂：
+
+<UniversalEditor title="并发错误处理" compare={true}>
+```javascript !! js
+// JavaScript: Promise.all 与错误处理
+async function processMultipleUsers(userIds) {
+  try {
+    const promises = userIds.map(id => fetchUser(id));
+    const users = await Promise.all(promises);
+    return users;
+  } catch (error) {
+    console.error('处理用户时出错:', error);
+    throw error;
+  }
+}
+
+// 处理个别错误
+async function processUsersWithIndividualErrors(userIds) {
+  const results = await Promise.allSettled(
+    userIds.map(id => fetchUser(id))
+  );
+  
+  const successful = results
+    .filter(result => result.status === 'fulfilled')
+    .map(result => result.value);
+    
+  const failed = results
+    .filter(result => result.status === 'rejected')
+    .map(result => result.reason);
+    
+  return { successful, failed };
+}
+```
+
+```go !! go
+// Go: 并发错误处理
+package main
+
+import (
+	"fmt"
+	"sync"
+)
+
+func processMultipleUsers(userIDs []int) ([]map[string]interface{}, error) {
+	var wg sync.WaitGroup
+	users := make([]map[string]interface{}, len(userIDs))
+	errors := make([]error, len(userIDs))
+	
+	for i, id := range userIDs {
+		wg.Add(1)
+		go func(index int, userID int) {
+			defer wg.Done()
+			user, err := fetchUser(userID)
+			if err != nil {
+				errors[index] = err
+				return
+			}
+			users[index] = user
+		}(i, id)
+	}
+	
+	wg.Wait()
+	
+	// 检查是否有错误
+	for _, err := range errors {
+		if err != nil {
+			return nil, fmt.Errorf("处理用户失败: %w", err)
+		}
+	}
+	
+	return users, nil
+}
+
+func processUsersWithIndividualErrors(userIDs []int) ([]map[string]interface{}, []error) {
+	var wg sync.WaitGroup
+	users := make([]map[string]interface{}, len(userIDs))
+	errors := make([]error, len(userIDs))
+	
+	for i, id := range userIDs {
+		wg.Add(1)
+		go func(index int, userID int) {
+			defer wg.Done()
+			user, err := fetchUser(userID)
+			if err != nil {
+				errors[index] = err
+				return
+			}
+			users[index] = user
+		}(i, id)
+	}
+	
+	wg.Wait()
+	
+	// 过滤成功和失败的结果
+	var successful []map[string]interface{}
+	var failed []error
+	
+	for i, user := range users {
+		if user != nil {
+			successful = append(successful, user)
+		} else {
+			failed = append(failed, errors[i])
+		}
+	}
+	
+	return successful, failed
+}
+
+func fetchUser(id int) (map[string]interface{}, error) {
+	if id <= 0 {
+		return nil, fmt.Errorf("无效的用户ID: %d", id)
+	}
+	return map[string]interface{}{
+		"id":   id,
+		"name": fmt.Sprintf("User%d", id),
+	}, nil
+}
+```
+</UniversalEditor>
+
+---
+
+### 练习题：
+1. 解释 Go 的错误处理方法与 JavaScript 基于异常的错误处理之间的区别。每种方法的优缺点是什么？
+2. Go 中使用 `fmt.Errorf` 的错误包装是如何工作的？提供一个何时以及为什么使用它的例子。
+3. 描述 Go 错误处理中的早期返回模式，并解释为什么它被认为是最佳实践。
+
+### 项目想法：
+创建一个简单的 Go 文件处理工具，演示各种错误处理模式。该工具应该：
+- 从文件读取配置
+- 并发处理多个文件
+- 处理不同类型的错误（文件未找到、权限被拒绝、无效格式）
+- 使用错误包装提供上下文
+- 为验证错误实现适当的错误聚合
+- 与使用 try-catch 的 JavaScript 版本进行比较

@@ -2,6 +2,7 @@ import { getTranslations, type SupportedLanguage } from '@/messages';
 import { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { HomePage } from '@/components/home/HomePage';
+import { getCourses } from '@/lib';
 
 // 支持的语言
 const supportedLanguages: SupportedLanguage[] = ['zh-cn', 'zh-tw', 'en'];
@@ -98,35 +99,7 @@ export default async function LanguageHomePage({ params }: { params: Promise<{ l
 
   const t = getTranslations(supportedLang);
 
-  const courses = [
-    {
-      name: 'js2py',
-      title: t.home.courses.js2py.title,
-      description: t.home.courses.js2py.description,
-      features: t.home.courses.js2py.features,
-      duration: t.home.courses.js2py.duration,
-      level: t.home.courses.js2py.level,
-      icon: '🐍',
-      color: 'from-green-500 to-emerald-600',
-      bgColor: 'bg-green-500/10',
-      borderColor: 'border-green-500/20',
-      gradient: 'from-green-400/20 to-emerald-500/20',
-    },
-    {
-      name: 'js2rust',
-      title: t.home.courses.js2rust.title,
-      description: t.home.courses.js2rust.description,
-      features: t.home.courses.js2rust.features,
-      duration: t.home.courses.js2rust.duration,
-      level: t.home.courses.js2rust.level,
-      icon: '🦀',
-      color: 'from-orange-500 to-red-600',
-      bgColor: 'bg-orange-500/10',
-      borderColor: 'border-orange-500/20',
-      gradient: 'from-orange-400/20 to-red-500/20',
-    },
-  ];
-
+  const courses = getCourses(t);
   // 生成结构化数据
   const structuredData = JSON.stringify({
     "@context": "https://schema.org",

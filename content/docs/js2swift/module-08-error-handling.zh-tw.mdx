@@ -1,0 +1,1062 @@
+---
+title: "錯誤處理 - Result 類型、拋出函式"
+description: "學習 Swift 錯誤處理：Result 類型、拋出函式、非同步錯誤處理，與 JavaScript 對比"
+---
+
+# 錯誤處理：Result 類型、拋出函式
+
+在本模組中，我們探索 Swift 全面的錯誤處理系統，包括 Result 類型、拋出函式和非同步錯誤處理。我們將這些方法與 JavaScript 的 try-catch 和 Promise 模式進行對比。
+
+## 目錄
+- [介紹：錯誤處理方法](#介紹錯誤處理方法)
+- [基本錯誤處理](#基本錯誤處理)
+- [Result 類型](#result-類型)
+- [拋出函式](#拋出函式)
+- [非同步錯誤處理](#非同步錯誤處理)
+- [自訂錯誤類型](#自訂錯誤類型)
+- [錯誤傳播](#錯誤傳播)
+- [進階錯誤處理](#進階錯誤處理)
+- [練習題](#練習題)
+- [關鍵要點](#關鍵要點)
+
+## 介紹：錯誤處理方法
+
+Swift 提供多種錯誤處理機制，而 JavaScript 主要使用異常和 Promise。
+
+| 特性               | JavaScript | Swift |
+|--------------------|------------|-------|
+| 異常處理           | try-catch  | do-catch |
+| Result 類型        | 手動實現   | 內建   |
+| 非同步錯誤         | Promise    | async/await |
+| 錯誤類型           | 動態       | 類型化 |
+| 錯誤傳播           | 手動       | 自動   |
+| 可選錯誤           | 否         | 是（try?） |
+| 強制錯誤處理       | 否         | 是（try!） |
+
+## 基本錯誤處理
+
+<UniversalEditor title="基本錯誤處理對比" compare={true}>
+```javascript !! js
+// JavaScript：使用異常的 try-catch
+function divide(a, b) {
+    if (b === 0) {
+        throw new Error("除零錯誤");
+    }
+    return a / b;
+}
+
+function safeDivide(a, b) {
+    try {
+        const result = divide(a, b);
+        console.log("結果:", result);
+        return result;
+    } catch (error) {
+        console.error("錯誤:", error.message);
+        return null;
+    }
+}
+
+safeDivide(10, 2); // 結果: 5
+safeDivide(10, 0); // 錯誤: 除零錯誤
+```
+
+```swift !! swift
+// Swift：使用拋出函式的 do-catch
+enum DivisionError: Error {
+    case divisionByZero
+}
+
+func divide(_ a: Double, by b: Double) throws -> Double {
+    guard b != 0 else {
+        throw DivisionError.divisionByZero
+    }
+    return a / b
+}
+
+func safeDivide(_ a: Double, by b: Double) -> Double? {
+    do {
+        let result = try divide(a, by: b)
+        print("結果:", result)
+        return result
+    } catch {
+        print("錯誤:", error)
+        return nil
+    }
+}
+
+safeDivide(10, by: 2) // 結果: 5.0
+safeDivide(10, by: 0) // 錯誤: divisionByZero
+```
+</UniversalEditor>
+
+## Result 類型
+
+Swift 的 Result 類型提供了類型安全的方式來處理成功和失敗情況。
+
+<UniversalEditor title="Result 類型對比" compare={true}>
+```javascript !! js
+// JavaScript：手動 Result 模式
+class Result {
+    constructor(isSuccess, value, error) {
+        this.isSuccess = isSuccess;
+        this.value = value;
+        this.error = error;
+    }
+    
+    static success(value) {
+        return new Result(true, value, null);
+    }
+    
+    static failure(error) {
+        return new Result(false, null, error);
+    }
+    
+    map(fn) {
+        if (this.isSuccess) {
+            return Result.success(fn(this.value));
+        }
+        return this;
+    }
+    
+    flatMap(fn) {
+        if (this.isSuccess) {
+            return fn(this.value);
+        }
+        return this;
+    }
+}
+
+function fetchUser(id) {
+    if (id > 0) {
+        return Result.success({ id, name: "張三" });
+    } else {
+        return Result.failure(new Error("無效的使用者 ID"));
+    }
+}
+
+const result = fetchUser(1);
+result.map(user => user.name)
+      .flatMap(name => Result.success(name.toUpperCase()));
+```
+
+```swift !! swift
+// Swift：內建 Result 類型
+enum UserError: Error {
+    case invalidId
+    case userNotFound
+}
+
+func fetchUser(id: Int) -> Result<User, UserError> {
+    guard id > 0 else {
+        return .failure(.invalidId)
+    }
+    return .success(User(id: id, name: "張三"))
+}
+
+struct User {
+    let id: Int
+    let name: String
+}
+
+let result = fetchUser(id: 1)
+    .map { $0.name }
+    .flatMap { name in
+        Result.success(name.uppercased())
+    }
+
+switch result {
+case .success(let name):
+    print("使用者名稱:", name)
+case .failure(let error):
+    print("錯誤:", error)
+}
+```
+</UniversalEditor>
+
+## 拋出函式
+
+Swift 的拋出函式提供自動錯誤傳播。
+
+<UniversalEditor title="拋出函式" compare={true}>
+```javascript !! js
+// JavaScript：手動錯誤傳播
+function validateEmail(email) {
+    if (!email.includes('@')) {
+        throw new Error("無效的郵箱格式");
+    }
+    return email;
+}
+
+function validatePassword(password) {
+    if (password.length < 8) {
+        throw new Error("密碼太短");
+    }
+    return password;
+}
+
+function createUser(email, password) {
+    try {
+        const validEmail = validateEmail(email);
+        const validPassword = validatePassword(password);
+        return { email: validEmail, password: validPassword };
+    } catch (error) {
+        throw new Error(`使用者建立失敗: ${error.message}`);
+    }
+}
+
+try {
+    const user = createUser("test@example.com", "password123");
+    console.log("使用者已建立:", user);
+} catch (error) {
+    console.error("錯誤:", error.message);
+}
+```
+
+```swift !! swift
+// Swift：自動錯誤傳播
+enum ValidationError: Error {
+    case invalidEmail
+    case passwordTooShort
+    case userCreationFailed
+}
+
+func validateEmail(_ email: String) throws -> String {
+    guard email.contains("@") else {
+        throw ValidationError.invalidEmail
+    }
+    return email
+}
+
+func validatePassword(_ password: String) throws -> String {
+    guard password.count >= 8 else {
+        throw ValidationError.passwordTooShort
+    }
+    return password
+}
+
+func createUser(email: String, password: String) throws -> User {
+    let validEmail = try validateEmail(email)
+    let validPassword = try validatePassword(password)
+    return User(id: 1, name: validEmail)
+}
+
+do {
+    let user = try createUser(email: "test@example.com", password: "password123")
+    print("使用者已建立:", user)
+} catch {
+    print("錯誤:", error)
+}
+```
+</UniversalEditor>
+
+## 非同步錯誤處理
+
+Swift 的 async/await 為非同步操作提供清晰的錯誤處理。
+
+<UniversalEditor title="非同步錯誤處理" compare={true}>
+```javascript !! js
+// JavaScript：基於 Promise 的錯誤處理
+function fetchUserData(id) {
+    return new Promise((resolve, reject) => {
+        setTimeout(() => {
+            if (id > 0) {
+                resolve({ id, name: "張三", email: "zhang@example.com" });
+            } else {
+                reject(new Error("使用者未找到"));
+            }
+        }, 1000);
+    });
+}
+
+function fetchUserPosts(userId) {
+    return new Promise((resolve, reject) => {
+        setTimeout(() => {
+            if (userId > 0) {
+                resolve([{ id: 1, title: "第一篇貼文" }]);
+            } else {
+                reject(new Error("貼文未找到"));
+            }
+        }, 500);
+    });
+}
+
+async function loadUserProfile(userId) {
+    try {
+        const user = await fetchUserData(userId);
+        const posts = await fetchUserPosts(user.id);
+        return { user, posts };
+    } catch (error) {
+        console.error("載入資料失敗:", error.message);
+        throw error;
+    }
+}
+
+loadUserProfile(1)
+    .then(profile => console.log("資料已載入:", profile))
+    .catch(error => console.error("錯誤:", error.message));
+```
+
+```swift !! swift
+// Swift：async/await 錯誤處理
+enum NetworkError: Error {
+    case userNotFound
+    case postsNotFound
+    case networkError
+}
+
+func fetchUserData(id: Int) async throws -> User {
+    try await Task.sleep(nanoseconds: 1_000_000_000) // 1 秒
+    
+    guard id > 0 else {
+        throw NetworkError.userNotFound
+    }
+    
+    return User(id: id, name: "張三")
+}
+
+func fetchUserPosts(userId: Int) async throws -> [Post] {
+    try await Task.sleep(nanoseconds: 500_000_000) // 0.5 秒
+    
+    guard userId > 0 else {
+        throw NetworkError.postsNotFound
+    }
+    
+    return [Post(id: 1, title: "第一篇貼文")]
+}
+
+struct Post {
+    let id: Int
+    let title: String
+}
+
+func loadUserProfile(userId: Int) async throws -> (user: User, posts: [Post]) {
+    let user = try await fetchUserData(id: userId)
+    let posts = try await fetchUserPosts(userId: user.id)
+    return (user, posts)
+}
+
+// 使用
+Task {
+    do {
+        let profile = try await loadUserProfile(userId: 1)
+        print("資料已載入:", profile)
+    } catch {
+        print("錯誤:", error)
+    }
+}
+```
+</UniversalEditor>
+
+## 自訂錯誤類型
+
+Swift 允許建立具有豐富資訊的自訂錯誤類型。
+
+<UniversalEditor title="自訂錯誤類型" compare={true}>
+```javascript !! js
+// JavaScript：自訂錯誤類
+class ValidationError extends Error {
+    constructor(message, field, value) {
+        super(message);
+        this.name = 'ValidationError';
+        this.field = field;
+        this.value = value;
+    }
+}
+
+class NetworkError extends Error {
+    constructor(message, statusCode, url) {
+        super(message);
+        this.name = 'NetworkError';
+        this.statusCode = statusCode;
+        this.url = url;
+    }
+}
+
+function validateUser(user) {
+    const errors = [];
+    
+    if (!user.name || user.name.length < 2) {
+        errors.push(new ValidationError("姓名太短", "name", user.name));
+    }
+    
+    if (!user.email || !user.email.includes('@')) {
+        errors.push(new ValidationError("無效郵箱", "email", user.email));
+    }
+    
+    if (errors.length > 0) {
+        throw new AggregateError(errors, "驗證失敗");
+    }
+    
+    return user;
+}
+
+try {
+    validateUser({ name: "張", email: "invalid" });
+} catch (error) {
+    if (error instanceof AggregateError) {
+        error.errors.forEach(err => {
+            console.error(`${err.field}: ${err.message}`);
+        });
+    }
+}
+```
+
+```swift !! swift
+// Swift：帶關聯值的自訂錯誤類型
+enum ValidationError: Error, LocalizedError {
+    case nameTooShort(String)
+    case invalidEmail(String)
+    case ageOutOfRange(Int)
+    
+    var errorDescription: String? {
+        switch self {
+        case .nameTooShort(let name):
+            return "姓名 '\(name)' 太短（最少 2 個字元）"
+        case .invalidEmail(let email):
+            return "無效的郵箱格式: \(email)"
+        case .ageOutOfRange(let age):
+            return "年齡 \(age) 超出範圍（必須是 18-120）"
+        }
+    }
+}
+
+enum NetworkError: Error {
+    case invalidURL(String)
+    case serverError(Int)
+    case timeout
+}
+
+struct User {
+    let name: String
+    let email: String
+    let age: Int
+}
+
+func validateUser(_ user: User) throws {
+    var errors: [ValidationError] = []
+    
+    if user.name.count < 2 {
+        errors.append(.nameTooShort(user.name))
+    }
+    
+    if !user.email.contains("@") {
+        errors.append(.invalidEmail(user.email))
+    }
+    
+    if user.age < 18 || user.age > 120 {
+        errors.append(.ageOutOfRange(user.age))
+    }
+    
+    if !errors.isEmpty {
+        throw errors.first! // 為簡單起見拋出第一個錯誤
+    }
+}
+
+do {
+    try validateUser(User(name: "張", email: "invalid", age: 15))
+} catch let error as ValidationError {
+    print("驗證錯誤:", error.localizedDescription)
+} catch {
+    print("未知錯誤:", error)
+}
+```
+</UniversalEditor>
+
+## 錯誤傳播
+
+Swift 提供 `try`、`try?` 和 `try!` 的自動錯誤傳播。
+
+<UniversalEditor title="錯誤傳播" compare={true}>
+```javascript !! js
+// JavaScript：手動錯誤傳播
+function processData(data) {
+    try {
+        const parsed = JSON.parse(data);
+        const validated = validateData(parsed);
+        const processed = transformData(validated);
+        return processed;
+    } catch (error) {
+        console.error("處理失敗:", error.message);
+        return null;
+    }
+}
+
+function validateData(data) {
+    if (!data.id) {
+        throw new Error("缺少 ID");
+    }
+    return data;
+}
+
+function transformData(data) {
+    return {
+        ...data,
+        processed: true,
+        timestamp: new Date().toISOString()
+    };
+}
+
+const result = processData('{"id": 1, "name": "test"}');
+console.log(result);
+```
+
+```swift !! swift
+// Swift：自動錯誤傳播
+enum ProcessingError: Error {
+    case invalidJSON
+    case missingID
+    case transformationFailed
+}
+
+func processData(_ data: String) -> Result<ProcessedData, ProcessingError> {
+    // 解析 JSON
+    guard let jsonData = data.data(using: .utf8),
+          let parsed = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else {
+        return .failure(.invalidJSON)
+    }
+    
+    // 驗證資料
+    guard let validated = try? validateData(parsed) else {
+        return .failure(.missingID)
+    }
+    
+    // 轉換資料
+    guard let processed = try? transformData(validated) else {
+        return .failure(.transformationFailed)
+    }
+    
+    return .success(processed)
+}
+
+func validateData(_ data: [String: Any]) throws -> [String: Any] {
+    guard data["id"] != nil else {
+        throw ProcessingError.missingID
+    }
+    return data
+}
+
+func transformData(_ data: [String: Any]) throws -> ProcessedData {
+    return ProcessedData(
+        id: data["id"] as! Int,
+        name: data["name"] as! String,
+        processed: true,
+        timestamp: Date()
+    )
+}
+
+struct ProcessedData {
+    let id: Int
+    let name: String
+    let processed: Bool
+    let timestamp: Date
+}
+
+let result = processData("{\"id\": 1, \"name\": \"test\"}")
+switch result {
+case .success(let data):
+    print("已處理:", data)
+case .failure(let error):
+    print("錯誤:", error)
+}
+```
+</UniversalEditor>
+
+## 進階錯誤處理
+
+### 錯誤恢復和重試邏輯
+
+<UniversalEditor title="錯誤恢復和重試" compare={true}>
+```javascript !! js
+// JavaScript：指數退避重試邏輯
+async function fetchWithRetry(url, maxRetries = 3) {
+    let lastError;
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+            const response = await fetch(url);
+            if (response.ok) {
+                return await response.json();
+            } else {
+                throw new Error(`HTTP ${response.status}`);
+            }
+        } catch (error) {
+            lastError = error;
+            console.log(`嘗試 ${attempt} 失敗:`, error.message);
+            
+            if (attempt < maxRetries) {
+                const delay = Math.pow(2, attempt) * 1000; // 指數退避
+                await new Promise(resolve => setTimeout(resolve, delay));
+            }
+        }
+    }
+    
+    throw lastError;
+}
+
+// 使用
+fetchWithRetry('https://api.example.com/data')
+    .then(data => console.log('成功:', data))
+    .catch(error => console.error('所有嘗試都失敗:', error.message));
+```
+
+```swift !! swift
+// Swift：使用 Result 類型的重試邏輯
+enum FetchError: Error {
+    case networkError(Error)
+    case httpError(Int)
+    case maxRetriesExceeded
+}
+
+func fetchWithRetry(url: URL, maxRetries: Int = 3) async -> Result<Data, FetchError> {
+    var lastError: FetchError?
+    
+    for attempt in 1...maxRetries {
+        do {
+            let (data, response) = try await URLSession.shared.data(from: url)
+            
+            if let httpResponse = response as? HTTPURLResponse {
+                if httpResponse.statusCode == 200 {
+                    return .success(data)
+                } else {
+                    throw FetchError.httpError(httpResponse.statusCode)
+                }
+            }
+            
+            return .success(data)
+        } catch {
+            lastError = error as? FetchError ?? .networkError(error)
+            print("嘗試 \(attempt) 失敗:", error)
+            
+            if attempt < maxRetries {
+                let delay = pow(2.0, Double(attempt)) * 1_000_000_000 // 指數退避
+                try? await Task.sleep(nanoseconds: UInt64(delay))
+            }
+        }
+    }
+    
+    return .failure(lastError ?? .maxRetriesExceeded)
+}
+
+// 使用
+Task {
+    let result = await fetchWithRetry(url: URL(string: "https://api.example.com/data")!)
+    switch result {
+    case .success(let data):
+        print("成功:", data)
+    case .failure(let error):
+        print("所有嘗試都失敗:", error)
+    }
+}
+```
+</UniversalEditor>
+
+### 使用可選值的錯誤處理
+
+<UniversalEditor title="使用可選值的錯誤處理" compare={true}>
+```javascript !! js
+// JavaScript：空值合併和可選鏈
+function getUserName(user) {
+    return user?.name ?? "未知";
+}
+
+function getNestedValue(obj, path) {
+    return path.split('.').reduce((current, key) => {
+        return current?.[key] ?? null;
+    }, obj);
+}
+
+const user = { profile: { name: "張三" } };
+const name = getNestedValue(user, "profile.name"); // "張三"
+const email = getNestedValue(user, "profile.email"); // null
+
+// 安全陣列存取
+function getArrayElement(arr, index) {
+    return arr?.[index] ?? null;
+}
+
+const numbers = [1, 2, 3];
+console.log(getArrayElement(numbers, 1)); // 2
+console.log(getArrayElement(numbers, 10)); // null
+```
+
+```swift !! swift
+// Swift：使用 nil 合併的可選值處理
+func getUserName(_ user: User?) -> String {
+    return user?.name ?? "未知"
+}
+
+func getNestedValue<T>(_ obj: [String: Any], path: String) -> T? {
+    let keys = path.split(separator: ".")
+    var current: Any? = obj
+    
+    for key in keys {
+        if let dict = current as? [String: Any] {
+            current = dict[String(key)]
+        } else {
+            return nil
+        }
+    }
+    
+    return current as? T
+}
+
+let user: [String: Any] = ["profile": ["name": "張三"]]
+let name: String? = getNestedValue(user, path: "profile.name") // "張三"
+let email: String? = getNestedValue(user, path: "profile.email") // nil
+
+// 安全陣列存取
+func getArrayElement<T>(_ array: [T], at index: Int) -> T? {
+    return array.indices.contains(index) ? array[index] : nil
+}
+
+let numbers = [1, 2, 3]
+print(getArrayElement(numbers, at: 1)) // Optional(2)
+print(getArrayElement(numbers, at: 10)) // nil
+```
+</UniversalEditor>
+
+## 練習題
+
+### 練習 1：帶錯誤處理的檔案處理
+
+<UniversalEditor title="練習 1：檔案處理" compare={true}>
+```javascript !! js
+// JavaScript 解答
+class FileProcessor {
+    constructor() {
+        this.processedFiles = 0;
+        this.errors = [];
+    }
+    
+    async processFile(filename) {
+        try {
+            // 模擬檔案讀取
+            const content = await this.readFile(filename);
+            const processed = this.processContent(content);
+            this.processedFiles++;
+            return processed;
+        } catch (error) {
+            this.errors.push({ filename, error: error.message });
+            throw error;
+        }
+    }
+    
+    async readFile(filename) {
+        // 模擬非同步檔案讀取
+        return new Promise((resolve, reject) => {
+            setTimeout(() => {
+                if (filename.endsWith('.txt')) {
+                    resolve(`${filename} 的內容`);
+                } else {
+                    reject(new Error(`不支援的檔案類型: ${filename}`));
+                }
+            }, 100);
+        });
+    }
+    
+    processContent(content) {
+        if (!content || content.length === 0) {
+            throw new Error("檔案內容為空");
+        }
+        return content.toUpperCase();
+    }
+    
+    getStats() {
+        return {
+            processed: this.processedFiles,
+            errors: this.errors.length,
+            errorDetails: this.errors
+        };
+    }
+}
+
+async function processFiles(filenames) {
+    const processor = new FileProcessor();
+    const results = [];
+    
+    for (const filename of filenames) {
+        try {
+            const result = await processor.processFile(filename);
+            results.push({ filename, success: true, data: result });
+        } catch (error) {
+            results.push({ filename, success: false, error: error.message });
+        }
+    }
+    
+    console.log("統計:", processor.getStats());
+    return results;
+}
+
+processFiles(['file1.txt', 'file2.txt', 'file3.pdf']);
+```
+
+```swift !! swift
+// Swift 解答
+enum FileError: Error {
+    case fileNotFound(String)
+    case unsupportedType(String)
+    case emptyContent
+    case processingFailed
+}
+
+struct FileStats {
+    let processed: Int
+    let errors: Int
+    let errorDetails: [(filename: String, error: Error)]
+}
+
+class FileProcessor {
+    private var processedFiles = 0
+    private var errors: [(filename: String, error: Error)] = []
+    
+    func processFile(_ filename: String) async throws -> String {
+        do {
+            let content = try await readFile(filename)
+            let processed = try processContent(content)
+            processedFiles += 1
+            return processed
+        } catch {
+            errors.append((filename, error))
+            throw error
+        }
+    }
+    
+    private func readFile(_ filename: String) async throws -> String {
+        // 模擬非同步檔案讀取
+        try await Task.sleep(nanoseconds: 100_000_000) // 0.1 秒
+        
+        guard filename.hasSuffix(".txt") else {
+            throw FileError.unsupportedType(filename)
+        }
+        
+        return "\(filename) 的內容"
+    }
+    
+    private func processContent(_ content: String) throws -> String {
+        guard !content.isEmpty else {
+            throw FileError.emptyContent
+        }
+        return content.uppercased()
+    }
+    
+    func getStats() -> FileStats {
+        return FileStats(
+            processed: processedFiles,
+            errors: errors.count,
+            errorDetails: errors
+        )
+    }
+}
+
+func processFiles(_ filenames: [String]) async -> [(filename: String, success: Bool, data: String?, error: Error?)] {
+    let processor = FileProcessor()
+    var results: [(filename: String, success: Bool, data: String?, error: Error?)] = []
+    
+    for filename in filenames {
+        do {
+            let result = try await processor.processFile(filename)
+            results.append((filename, true, result, nil))
+        } catch {
+            results.append((filename, false, nil, error))
+        }
+    }
+    
+    let stats = processor.getStats()
+    print("統計: 已處理 \(stats.processed), 錯誤 \(stats.errors)")
+    return results
+}
+
+// 使用
+Task {
+    let results = await processFiles(["file1.txt", "file2.txt", "file3.pdf"])
+    for result in results {
+        if result.success {
+            print("\(result.filename): \(result.data!)")
+        } else {
+            print("\(result.filename): 錯誤 - \(result.error!)")
+        }
+    }
+}
+```
+</UniversalEditor>
+
+### 練習 2：帶錯誤處理的 API 客戶端
+
+<UniversalEditor title="練習 2：API 客戶端" compare={true}>
+```javascript !! js
+// JavaScript 解答
+class APIClient {
+    constructor(baseURL) {
+        this.baseURL = baseURL;
+        this.retryCount = 3;
+    }
+    
+    async request(endpoint, options = {}) {
+        const url = `${this.baseURL}${endpoint}`;
+        let lastError;
+        
+        for (let attempt = 1; attempt <= this.retryCount; attempt++) {
+            try {
+                const response = await fetch(url, {
+                    ...options,
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...options.headers
+                    }
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                return await response.json();
+            } catch (error) {
+                lastError = error;
+                console.log(`嘗試 ${attempt} 失敗:`, error.message);
+                
+                if (attempt < this.retryCount) {
+                    await this.delay(Math.pow(2, attempt) * 1000);
+                }
+            }
+        }
+        
+        throw lastError;
+    }
+    
+    delay(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
+    }
+    
+    async getUsers() {
+        return this.request('/users');
+    }
+    
+    async createUser(userData) {
+        return this.request('/users', {
+            method: 'POST',
+            body: JSON.stringify(userData)
+        });
+    }
+}
+
+// 使用
+const client = new APIClient('https://api.example.com');
+client.getUsers()
+    .then(users => console.log('使用者:', users))
+    .catch(error => console.error('取得使用者失敗:', error.message));
+```
+
+```swift !! swift
+// Swift 解答
+enum APIError: Error {
+    case invalidURL
+    case networkError(Error)
+    case httpError(Int)
+    case invalidResponse
+    case decodingError
+    case maxRetriesExceeded
+}
+
+struct User: Codable {
+    let id: Int
+    let name: String
+    let email: String
+}
+
+class APIClient {
+    private let baseURL: String
+    private let retryCount: Int
+    
+    init(baseURL: String, retryCount: Int = 3) {
+        self.baseURL = baseURL
+        self.retryCount = retryCount
+    }
+    
+    func request<T: Codable>(_ endpoint: String, method: String = "GET", body: Data? = nil) async throws -> T {
+        guard let url = URL(string: baseURL + endpoint) else {
+            throw APIError.invalidURL
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = body
+        
+        var lastError: APIError?
+        
+        for attempt in 1...retryCount {
+            do {
+                let (data, response) = try await URLSession.shared.data(for: request)
+                
+                if let httpResponse = response as? HTTPURLResponse {
+                    guard httpResponse.statusCode == 200 else {
+                        throw APIError.httpError(httpResponse.statusCode)
+                    }
+                }
+                
+                let decoded = try JSONDecoder().decode(T.self, from: data)
+                return decoded
+            } catch {
+                lastError = error as? APIError ?? .networkError(error)
+                print("嘗試 \(attempt) 失敗:", error)
+                
+                if attempt < retryCount {
+                    try await Task.sleep(nanoseconds: UInt64(pow(2.0, Double(attempt)) * 1_000_000_000))
+                }
+            }
+        }
+        
+        throw lastError ?? .maxRetriesExceeded
+    }
+    
+    func getUsers() async throws -> [User] {
+        return try await request("/users")
+    }
+    
+    func createUser(_ user: User) async throws -> User {
+        let data = try JSONEncoder().encode(user)
+        return try await request("/users", method: "POST", body: data)
+    }
+}
+
+// 使用
+let client = APIClient(baseURL: "https://api.example.com")
+Task {
+    do {
+        let users = try await client.getUsers()
+        print("使用者:", users)
+    } catch {
+        print("取得使用者失敗:", error)
+    }
+}
+```
+</UniversalEditor>
+
+## 關鍵要點
+
+### Swift 錯誤處理優勢
+1. **類型安全**：錯誤在編譯時類型化並檢查
+2. **自動傳播**：`try` 關鍵字自動傳播錯誤
+3. **Result 類型**：內建成功/失敗處理
+4. **非同步整合**：與 async/await 無縫錯誤處理
+5. **自訂錯誤**：具有關聯值的豐富錯誤類型
+6. **多種策略**：try、try?、try! 用於不同用例
+
+### 與 JavaScript 的關鍵差異
+1. **錯誤類型**：Swift 有類型化錯誤 vs JavaScript 動態錯誤
+2. **傳播**：自動 vs 手動錯誤傳播
+3. **Result 類型**：內建 vs 手動實現
+4. **非同步處理**：原生 async/await vs Promise 鏈
+5. **錯誤恢復**：多種恢復策略 vs 僅 try-catch
+6. **效能**：編譯時檢查 vs 執行時檢查
+
+### 最佳實踐
+1. **使用 Result 類型**處理可能失敗的操作
+2. **建立自訂錯誤類型**包含有意義的資訊
+3. **利用自動傳播**使用拋出函式
+4. **在適當級別處理錯誤**在應用程式中
+5. **使用 async/await**進行清晰的非同步錯誤處理
+6. **考慮錯誤恢復策略**提供更好的使用者體驗
+
+### 下一步
+在下一個模組中，我們將探索 Swift 的並發和非同步程式設計特性，包括 async/await、actors 和結構化並發，將它們與 JavaScript 的基於 Promise 和回調的方法進行對比。 

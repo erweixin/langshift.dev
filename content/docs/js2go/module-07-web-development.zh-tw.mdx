@@ -1,0 +1,245 @@
+---
+title: Web 開發
+---
+
+Go 在高效能 Web 伺服器與 API 領域應用廣泛。其標準庫提供強大的 HTTP、路由與 JSON 處理能力，Gin、Echo 等主流框架則帶來更高層抽象。本模組將從 JavaScript/Node.js 開發者視角，系統介紹 Go Web 開發，並配合實用代碼對比與最佳實踐。
+
+## Go Web 開發概覽
+
+- **標準庫：** `net/http` 用於 HTTP 伺服器、路由、中介軟體
+- **主流框架：** Gin、Echo、Fiber、Chi
+- **核心特性：** 簡潔、高效能、靜態型別、並發
+- **常見場景：** RESTful API、微服務、靜態檔案服務、即時服務
+
+## Hello World：最小 HTTP 伺服器
+
+<UniversalEditor title="Hello World Web 伺服器" compare={true}>
+```javascript !! js
+// Node.js：最小 HTTP 伺服器
+const http = require('http');
+
+const server = http.createServer((req, res) => {
+  res.writeHead(200, { 'Content-Type': 'text/plain' });
+  res.end('Hello, World!');
+});
+
+server.listen(3000, () => {
+  console.log('伺服器運行於 http://localhost:3000/');
+});
+```
+
+```go !! go
+// Go：最小 HTTP 伺服器
+package main
+
+import (
+	"fmt"
+	"net/http"
+)
+
+func handler(w http.ResponseWriter, r *http.Request) {
+	fmt.Fprintln(w, "Hello, World!")
+}
+
+func main() {
+	http.HandleFunc("/", handler)
+	fmt.Println("伺服器運行於 http://localhost:3000/")
+	http.ListenAndServe(":3000", nil)
+}
+```
+</UniversalEditor>
+
+## 路由與參數
+
+Go 標準庫提供基礎路由，複雜路由建議使用 Gin、Echo 等框架。
+
+<UniversalEditor title="路由範例" compare={true}>
+```javascript !! js
+// Node.js 使用 Express
+const express = require('express');
+const app = express();
+
+app.get('/hello/:name', (req, res) => {
+  res.json({ message: `Hello, ${req.params.name}!` });
+});
+
+app.listen(3000);
+```
+
+```go !! go
+// Go 使用 Gin 框架
+package main
+
+import (
+	"github.com/gin-gonic/gin"
+)
+
+func main() {
+	r := gin.Default()
+	r.GET("/hello/:name", func(c *gin.Context) {
+		name := c.Param("name")
+		c.JSON(200, gin.H{"message": "Hello, " + name + "!"})
+	})
+	r.Run(":3000")
+}
+```
+</UniversalEditor>
+
+## 處理 JSON 請求與回應
+
+<UniversalEditor title="JSON API 範例" compare={true}>
+```javascript !! js
+// Node.js：JSON API
+const express = require('express');
+const app = express();
+app.use(express.json());
+
+app.post('/api/user', (req, res) => {
+  const user = req.body;
+  res.json({ id: 1, ...user });
+});
+
+app.listen(3000);
+```
+
+```go !! go
+// Go：JSON API
+package main
+
+import (
+	"encoding/json"
+	"net/http"
+)
+
+type User struct {
+	Name string `json:"name"`
+	Age  int    `json:"age"`
+}
+
+func userHandler(w http.ResponseWriter, r *http.Request) {
+	var user User
+	if err := json.NewDecoder(r.Body).Decode(&user); err != nil {
+		http.Error(w, "無效的 JSON", http.StatusBadRequest)
+		return
+	}
+	userResponse := struct {
+		ID int    `json:"id"`
+		Name string `json:"name"`
+		Age  int    `json:"age"`
+	}{ID: 1, Name: user.Name, Age: user.Age}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(userResponse)
+}
+
+func main() {
+	http.HandleFunc("/api/user", userHandler)
+	http.ListenAndServe(":3000", nil)
+}
+```
+</UniversalEditor>
+
+## 靜態檔案服務
+
+<UniversalEditor title="靜態檔案服務" compare={true}>
+```javascript !! js
+// Node.js：使用 Express 提供靜態檔案
+const express = require('express');
+const app = express();
+app.use(express.static('public'));
+app.listen(3000);
+```
+
+```go !! go
+// Go：靜態檔案服務
+package main
+
+import (
+	"net/http"
+)
+
+func main() {
+	fs := http.FileServer(http.Dir("./public"))
+	http.Handle("/", fs)
+	http.ListenAndServe(":3000", nil)
+}
+```
+</UniversalEditor>
+
+## 中介軟體（Middleware）
+
+Go 中介軟體通常以處理器包裝實現，Gin/Echo 等框架提供便捷的中介軟體機制。
+
+<UniversalEditor title="中介軟體範例" compare={true}>
+```javascript !! js
+// Node.js：Express 中介軟體
+const express = require('express');
+const app = express();
+
+function logger(req, res, next) {
+  console.log(`${req.method} ${req.url}`);
+  next();
+}
+
+app.use(logger);
+app.get('/', (req, res) => res.send('Hello'));
+app.listen(3000);
+```
+
+```go !! go
+// Go：Gin 框架中介軟體
+package main
+
+import (
+	"github.com/gin-gonic/gin"
+	"log"
+)
+
+func Logger() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		log.Printf("%s %s", c.Request.Method, c.Request.URL.Path)
+		c.Next()
+	}
+}
+
+func main() {
+	r := gin.Default()
+	r.Use(Logger())
+	r.GET("/", func(c *gin.Context) {
+		c.String(200, "Hello")
+	})
+	r.Run(":3000")
+}
+```
+</UniversalEditor>
+
+## Go 與 JavaScript/Node.js 對比
+
+| 特性         | Go（net/http, Gin）         | JavaScript（Node.js, Express） |
+|--------------|-----------------------------|-------------------------------|
+| 型別系統     | 靜態強型別                  | 動態弱型別                    |
+| 並發模型     | goroutine、channel          | 事件迴圈、async/await         |
+| 效能         | 高，編譯型                  | 良好，直譯型                  |
+| 路由         | 標準庫基礎，Gin 豐富         | Express、Koa、Fastify          |
+| 中介軟體     | 處理器包裝，Gin/Echo        | Express/Koa 中介軟體           |
+| JSON 處理    | encoding/json，結構標籤      | JSON.parse/stringify，body-parser |
+| 靜態檔案     | FileServer                  | express.static                 |
+| 錯誤處理     | 顯式，error 值              | try/catch，錯誤中介軟體        |
+
+## 最佳實踐
+
+- 使用 context 傳遞請求作用域資料與取消信號
+- 輸入驗證與過濾
+- 顯式處理錯誤並返回合適狀態碼
+- 使用中介軟體實現日誌、認證、CORS 等
+- 複雜專案優先選用 Gin、Echo 等框架
+- 為處理器與中介軟體編寫測試
+
+---
+
+### 練習題
+1. Go 的 `net/http` 與 Node.js 的 HTTP 模組有何不同？
+2. 分別展示 Go 和 Node.js 如何處理 JSON 請求與回應。
+3. 為什麼實際專案中推薦使用 Gin 或 Echo，而不是只用標準庫？
+
+### 專案實戰
+用 Go 實作一個簡單的 RESTful API，支援資源（如任務或使用者）的 CRUD 操作，包含路由、JSON 處理與日誌中介軟體。並與 Node.js/Express 版本進行對比。

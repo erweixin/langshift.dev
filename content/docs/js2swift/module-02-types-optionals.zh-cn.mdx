@@ -1,0 +1,1019 @@
+---
+title: "Swift 类型系统和可选类型"
+description: "掌握 Swift 的类型系统和可选类型，从 JavaScript 角度理解类型安全、nil 处理和类型推断。"
+---
+
+## 1. 介绍
+
+### 为什么类型系统很重要
+
+Swift 的类型系统是其最强大的特性之一，提供编译时安全性，防止许多常见的编程错误。作为 JavaScript 开发者，你习惯了动态类型，但 Swift 的静态类型系统将帮助你编写更可靠、更易维护的代码。
+
+**主要学习目标：**
+- 理解 Swift 的静态类型系统 vs JavaScript 的动态类型
+- 掌握可选类型和 nil 安全性
+- 学习类型推断和类型注解
+- 探索类型转换和类型检查
+- 培养类型安全编程实践
+
+## 2. 类型系统基础
+
+### 2.1 静态 vs 动态类型
+
+Swift 使用静态类型，这意味着类型在编译时检查，与 JavaScript 的动态类型不同。
+
+<UniversalEditor title="静态 vs 动态类型" compare={true}>
+```javascript !! js
+// JavaScript - 动态类型
+let value = "Hello";         // 字符串
+console.log(typeof value);   // "string"
+
+value = 42;                  // 现在是数字
+console.log(typeof value);   // "number"
+
+value = true;                // 现在是布尔值
+console.log(typeof value);   // "boolean"
+
+value = [1, 2, 3];          // 现在是数组
+console.log(typeof value);   // "object"
+
+// 运行时类型检查
+function processValue(val) {
+    if (typeof val === "string") {
+        return val.toUpperCase();
+    } else if (typeof val === "number") {
+        return val * 2;
+    } else {
+        return "Unknown type";
+    }
+}
+
+console.log(processValue("hello")); // "HELLO"
+console.log(processValue(5));       // 10
+console.log(processValue(true));    // "Unknown type"
+```
+
+```swift !! swift
+// Swift - 静态类型
+var value: String = "Hello"         // 显式字符串类型
+print(type(of: value))              // String
+
+// 这些会导致编译错误：
+// value = 42                        // Error: Cannot assign value of type 'Int' to type 'String'
+// value = true                      // Error: Cannot assign value of type 'Bool' to type 'String'
+// value = [1, 2, 3]                // Error: Cannot assign value of type '[Int]' to type 'String'
+
+// 编译时类型检查
+func processValue(_ val: String) -> String {
+    return val.uppercased()
+}
+
+func processValue(_ val: Int) -> Int {
+    return val * 2
+}
+
+// 基于类型的函数重载
+print(processValue("hello"))        // "HELLO"
+print(processValue(5))              // 10
+// processValue(true)               // Error: No matching function found
+```
+</UniversalEditor>
+
+### 2.2 基本类型对比
+
+Swift 比 JavaScript 有更具体的类型，提供更好的精度和安全性。
+
+<UniversalEditor title="基本类型对比" compare={true}>
+```javascript !! js
+// JavaScript 基本类型
+let stringValue = "Hello";          // String
+let numberValue = 42;               // Number (浮点数)
+let booleanValue = true;            // Boolean
+let arrayValue = [1, 2, 3];         // Array
+let objectValue = { name: "John" }; // Object
+let nullValue = null;               // null
+let undefinedValue = undefined;     // undefined
+
+// 类型检查
+console.log(typeof stringValue);    // "string"
+console.log(typeof numberValue);    // "number"
+console.log(typeof booleanValue);   // "boolean"
+console.log(typeof arrayValue);     // "object"
+console.log(typeof objectValue);    // "object"
+console.log(typeof nullValue);      // "object" (JavaScript 特性)
+console.log(typeof undefinedValue); // "undefined"
+
+// 类型强制转换
+console.log("5" + 3);               // "53" (字符串连接)
+console.log("5" - 3);               // 2 (数值减法)
+console.log(true + 1);              // 2 (布尔值转数字)
+```
+
+```swift !! swift
+// Swift 基本类型
+let stringValue: String = "Hello"           // String
+let intValue: Int = 42                      // Integer
+let doubleValue: Double = 42.0              // Double (浮点数)
+let floatValue: Float = 42.0                // Float (32位)
+let booleanValue: Bool = true               // Boolean
+let arrayValue: [Int] = [1, 2, 3]          // Int 数组
+let dictionaryValue: [String: String] = ["name": "John"] // Dictionary
+let characterValue: Character = "A"         // 单个字符
+
+// 类型检查
+print(type(of: stringValue))    // String
+print(type(of: intValue))       // Int
+print(type(of: doubleValue))    // Double
+print(type(of: booleanValue))   // Bool
+print(type(of: arrayValue))     // Array<Int>
+print(type(of: dictionaryValue)) // Dictionary<String, String>
+
+// 没有隐式类型转换
+// print("5" + 3)               // Error: Cannot convert value of type 'Int' to expected argument type 'String'
+print("5" + String(3))          // "53" (显式转换)
+print(5 + 3)                    // 8 (数值加法)
+```
+</UniversalEditor>
+
+## 3. 可选类型
+
+### 3.1 理解可选类型
+
+可选类型是 Swift 处理值缺失的方式，类似于 JavaScript 中的 `null` 和 `undefined`，但更安全。
+
+<UniversalEditor title="可选类型介绍" compare={true}>
+```javascript !! js
+// JavaScript null/undefined 处理
+let name = "John";
+let age = 25;
+let email = null;           // 明确没有值
+let phone = undefined;      // 未定义值
+
+// 不安全访问 - 可能导致运行时错误
+function getLength(str) {
+    return str.length;      // 如果 str 是 null/undefined 会抛出错误
+}
+
+// 安全访问检查
+function safeGetLength(str) {
+    if (str !== null && str !== undefined) {
+        return str.length;
+    }
+    return 0;
+}
+
+// 现代 JavaScript 可选链
+function modernGetLength(str) {
+    return str?.length ?? 0;  // 安全访问和空值合并
+}
+
+console.log(safeGetLength(name));   // 4
+console.log(safeGetLength(email));  // 0
+console.log(modernGetLength(phone)); // 0
+```
+
+```swift !! swift
+// Swift 可选类型
+let name: String = "John"
+let age: Int = 25
+let email: String? = nil           // 可选字符串 (可以是 nil)
+let phone: String? = nil           // 可选字符串 (可以是 nil)
+
+// 不安全访问 - 如果 nil 会崩溃
+// let emailLength = email.count   // Error: Value of optional type 'String?' must be unwrapped
+
+// 安全访问和可选绑定
+func getLength(_ str: String?) -> Int {
+    if let unwrappedStr = str {
+        return unwrappedStr.count
+    }
+    return 0
+}
+
+// 安全访问和空值合并
+func modernGetLength(_ str: String?) -> Int {
+    return str?.count ?? 0
+}
+
+print(getLength(name))      // 4
+print(getLength(email))     // 0
+print(modernGetLength(phone)) // 0
+```
+</UniversalEditor>
+
+### 3.2 可选类型声明和解包
+
+Swift 提供多种安全处理可选类型的方式。
+
+<UniversalEditor title="可选类型声明和解包" compare={true}>
+```javascript !! js
+// JavaScript 可选模式
+let optionalValue = null;
+let defaultValue = "Default";
+
+// 检查 null/undefined
+if (optionalValue !== null && optionalValue !== undefined) {
+    console.log(optionalValue);
+} else {
+    console.log(defaultValue);
+}
+
+// 使用逻辑或 (但要小心假值)
+let result = optionalValue || defaultValue;
+console.log(result); // "Default"
+
+// 使用空值合并 (现代 JavaScript)
+let safeResult = optionalValue ?? defaultValue;
+console.log(safeResult); // "Default"
+
+// 可选链
+let user = {
+    profile: {
+        name: "John",
+        email: null
+    }
+};
+
+console.log(user?.profile?.name);  // "John"
+console.log(user?.profile?.email); // null
+console.log(user?.profile?.email?.length); // undefined
+```
+
+```swift !! swift
+// Swift 可选类型声明和解包
+let optionalValue: String? = nil
+let defaultValue = "Default"
+
+// 可选绑定 (if let)
+if let unwrappedValue = optionalValue {
+    print(unwrappedValue)
+} else {
+    print(defaultValue)
+}
+
+// Guard 语句
+func processOptional(_ value: String?) {
+    guard let unwrappedValue = value else {
+        print("Value is nil")
+        return
+    }
+    print("Processing: \(unwrappedValue)")
+}
+
+// 空值合并运算符
+let result = optionalValue ?? defaultValue
+print(result) // "Default"
+
+// 可选链
+struct Profile {
+    let name: String
+    let email: String?
+}
+
+struct User {
+    let profile: Profile?
+}
+
+let user = User(profile: Profile(name: "John", email: nil))
+
+print(user.profile?.name)           // Optional("John")
+print(user.profile?.email)          // nil
+print(user.profile?.email?.count)   // nil
+
+// 强制解包 (谨慎使用)
+let forcedValue = user.profile!.name // 如果 profile 是 nil 会崩溃
+```
+</UniversalEditor>
+
+### 3.3 隐式解包可选类型
+
+Swift 提供隐式解包可选类型，用于你确信值会存在的情况。
+
+<UniversalEditor title="隐式解包可选类型" compare={true}>
+```javascript !! js
+// JavaScript - 没有直接等价物，但类似模式
+let config = {
+    apiUrl: "https://api.example.com",
+    timeout: 5000
+};
+
+// 假设 config 总是有这些属性
+function makeRequest() {
+    // 我们假设 config.apiUrl 存在
+    console.log(`Making request to ${config.apiUrl}`);
+    
+    // 但在实践中仍需要检查
+    if (!config.apiUrl) {
+        throw new Error("API URL is required");
+    }
+}
+
+// 现代 JavaScript 默认参数
+function safeMakeRequest(apiUrl = config.apiUrl) {
+    if (!apiUrl) {
+        throw new Error("API URL is required");
+    }
+    console.log(`Making request to ${apiUrl}`);
+}
+```
+
+```swift !! swift
+// Swift 隐式解包可选类型
+let config: [String: String] = [
+    "apiUrl": "https://api.example.com",
+    "timeout": "5000"
+]
+
+// 隐式解包可选类型 - 假设值存在
+let apiUrl: String! = config["apiUrl"]
+
+func makeRequest() {
+    // 可以直接使用 apiUrl 而无需解包
+    print("Making request to \(apiUrl)")
+    
+    // 但如果 apiUrl 是 nil 会崩溃
+    // 谨慎使用！
+}
+
+// 更安全的方法和常规可选类型
+func safeMakeRequest() {
+    guard let apiUrl = config["apiUrl"] else {
+        print("API URL is required")
+        return
+    }
+    print("Making request to \(apiUrl)")
+}
+
+// iOS 开发中的隐式解包可选类型
+// @IBOutlet weak var label: UILabel!  // 假设 outlet 会被连接
+```
+</UniversalEditor>
+
+## 4. 类型推断
+
+### 4.1 Swift 的类型推断
+
+Swift 通常可以自动确定类型，减少显式类型注解的需要。
+
+<UniversalEditor title="类型推断" compare={true}>
+```javascript !! js
+// JavaScript 类型推断 (运行时)
+let message = "Hello";       // 推断为字符串
+let count = 42;              // 推断为数字
+let isActive = true;         // 推断为布尔值
+let items = [1, 2, 3];       // 推断为数组
+let person = { name: "John" }; // 推断为对象
+
+// 类型可以在运行时改变
+message = 123;               // 现在是数字
+count = "forty-two";         // 现在是字符串
+
+// 函数参数类型不推断
+function processData(data) {
+    // 没有编译时类型检查
+    return data.length;      // 对字符串、数组有效，但对数字无效
+}
+
+console.log(processData("hello")); // 5
+console.log(processData([1, 2, 3])); // 3
+console.log(processData(42)); // undefined (运行时错误)
+```
+
+```swift !! swift
+// Swift 类型推断 (编译时)
+let message = "Hello"        // 推断为 String
+let count = 42               // 推断为 Int
+let isActive = true          // 推断为 Bool
+let items = [1, 2, 3]        // 推断为 [Int]
+let person = ["name": "John"] // 推断为 [String: String]
+
+// 类型推断后不能改变
+// message = 123             // Error: Cannot assign value of type 'Int' to type 'String'
+// count = "forty-two"       // Error: Cannot assign value of type 'String' to type 'Int'
+
+// 函数参数类型从使用中推断
+func processData(_ data: String) -> Int {
+    return data.count
+}
+
+func processData(_ data: [Int]) -> Int {
+    return data.count
+}
+
+print(processData("hello"))  // 5
+print(processData([1, 2, 3])) // 3
+// processData(42)           // Error: No matching function found
+```
+</UniversalEditor>
+
+### 4.2 类型注解
+
+显式类型注解可以使代码更清晰，帮助早期捕获错误。
+
+<UniversalEditor title="类型注解" compare={true}>
+```javascript !! js
+// JavaScript - 没有静态类型注解 (没有 TypeScript)
+let name = "John";
+let age = 25;
+let scores = [85, 90, 78];
+
+// 使用 TypeScript (对比)
+// let name: string = "John";
+// let age: number = 25;
+// let scores: number[] = [85, 90, 78];
+
+// 没有类型检查的函数参数
+function calculateAverage(numbers) {
+    const sum = numbers.reduce((acc, num) => acc + num, 0);
+    return sum / numbers.length;
+}
+
+// 运行时类型检查
+function safeCalculateAverage(numbers) {
+    if (!Array.isArray(numbers)) {
+        throw new Error("Input must be an array");
+    }
+    
+    if (numbers.length === 0) {
+        return 0;
+    }
+    
+    const sum = numbers.reduce((acc, num) => {
+        if (typeof num !== 'number') {
+            throw new Error("All elements must be numbers");
+        }
+        return acc + num;
+    }, 0);
+    
+    return sum / numbers.length;
+}
+
+console.log(calculateAverage([1, 2, 3, 4, 5])); // 3
+console.log(safeCalculateAverage([1, 2, 3, 4, 5])); // 3
+```
+
+```swift !! swift
+// Swift - 显式类型注解
+let name: String = "John"
+let age: Int = 25
+let scores: [Int] = [85, 90, 78]
+
+// 显式类型的函数
+func calculateAverage(_ numbers: [Int]) -> Double {
+    guard !numbers.isEmpty else { return 0.0 }
+    
+    let sum = numbers.reduce(0, +)
+    return Double(sum) / Double(numbers.count)
+}
+
+// 可选返回类型的函数
+func findFirstEven(_ numbers: [Int]) -> Int? {
+    return numbers.first { $0 % 2 == 0 }
+}
+
+// 多返回类型的函数
+func analyzeNumbers(_ numbers: [Int]) -> (min: Int, max: Int, average: Double) {
+    let min = numbers.min() ?? 0
+    let max = numbers.max() ?? 0
+    let average = calculateAverage(numbers)
+    
+    return (min: min, max: max, average: average)
+}
+
+print(calculateAverage([1, 2, 3, 4, 5])) // 3.0
+print(findFirstEven([1, 3, 5, 2, 4])) // Optional(2)
+let analysis = analyzeNumbers([1, 2, 3, 4, 5])
+print("Min: \(analysis.min), Max: \(analysis.max), Avg: \(analysis.average)")
+```
+</UniversalEditor>
+
+## 5. 类型转换
+
+### 5.1 类型转换方法
+
+Swift 需要显式类型转换，防止意外的数据丢失。
+
+<UniversalEditor title="类型转换" compare={true}>
+```javascript !! js
+// JavaScript 类型转换 (隐式和显式)
+let stringNum = "42";
+let actualNum = 42;
+let floatNum = 42.5;
+
+// 隐式转换 (可能有问题)
+console.log(stringNum + actualNum);     // "4242" (字符串连接)
+console.log(stringNum - actualNum);     // 0 (数值减法)
+console.log(actualNum + floatNum);      // 84.5 (数值加法)
+
+// 显式转换
+console.log(Number(stringNum));         // 42
+console.log(String(actualNum));         // "42"
+console.log(Boolean(actualNum));        // true
+console.log(parseInt("42.5"));          // 42
+console.log(parseFloat("42.5"));        // 42.5
+
+// 数组转换
+console.log(Array.from("hello"));       // ["h", "e", "l", "l", "o"]
+console.log([...new Set([1, 2, 2, 3])]); // [1, 2, 3]
+
+// 对象转换
+console.log(Object.keys({a: 1, b: 2})); // ["a", "b"]
+console.log(Object.values({a: 1, b: 2})); // [1, 2]
+```
+
+```swift !! swift
+// Swift 类型转换 (仅显式)
+let stringNum = "42"
+let actualNum = 42
+let floatNum = 42.5
+
+// 没有隐式转换
+// print(stringNum + actualNum)         // Error: Cannot convert value of type 'Int' to expected argument type 'String'
+
+// 显式转换
+print(Int(stringNum) ?? 0)              // 42 (带空值合并)
+print(String(actualNum))                // "42"
+print(Bool(actualNum))                  // true
+print(Double(actualNum))                // 42.0
+
+// 字符串转数字转换
+if let number = Int("42.5") {
+    print(number)                       // 不会打印 (转换失败)
+}
+if let number = Double("42.5") {
+    print(number)                       // 42.5
+}
+
+// 数组转换
+let charArray = Array("hello")          // ["h", "e", "l", "l", "o"]
+let uniqueArray = Array(Set([1, 2, 2, 3])) // [1, 2, 3]
+
+// 字典转换
+let dict = ["a": 1, "b": 2]
+print(Array(dict.keys))                 // ["a", "b"]
+print(Array(dict.values))               // [1, 2]
+```
+</UniversalEditor>
+
+### 5.2 类型检查
+
+Swift 提供编译时类型检查和运行时类型检查功能。
+
+<UniversalEditor title="类型检查" compare={true}>
+```javascript !! js
+// JavaScript 类型检查
+function processValue(value) {
+    // 运行时类型检查
+    if (typeof value === "string") {
+        return value.toUpperCase();
+    } else if (typeof value === "number") {
+        return value * 2;
+    } else if (Array.isArray(value)) {
+        return value.length;
+    } else if (typeof value === "object" && value !== null) {
+        return Object.keys(value).length;
+    } else {
+        return "Unknown type";
+    }
+}
+
+// 实例检查
+function checkInstance(value) {
+    if (value instanceof Array) {
+        return "Array";
+    } else if (value instanceof Date) {
+        return "Date";
+    } else if (value instanceof RegExp) {
+        return "RegExp";
+    } else {
+        return "Other";
+    }
+}
+
+console.log(processValue("hello"));     // "HELLO"
+console.log(processValue(5));           // 10
+console.log(processValue([1, 2, 3]));   // 3
+console.log(processValue({a: 1, b: 2})); // 2
+
+console.log(checkInstance([1, 2, 3]));  // "Array"
+console.log(checkInstance(new Date())); // "Date"
+```
+
+```swift !! swift
+// Swift 类型检查
+func processValue(_ value: Any) -> String {
+    // 运行时类型检查和类型转换
+    if let stringValue = value as? String {
+        return stringValue.uppercased()
+    } else if let intValue = value as? Int {
+        return String(intValue * 2)
+    } else if let arrayValue = value as? [Any] {
+        return String(arrayValue.count)
+    } else if let dictValue = value as? [String: Any] {
+        return String(dictValue.count)
+    } else {
+        return "Unknown type"
+    }
+}
+
+// 使用 switch 语句的类型检查
+func checkType(_ value: Any) -> String {
+    switch value {
+    case is String:
+        return "String"
+    case is Int:
+        return "Int"
+    case is [Any]:
+        return "Array"
+    case is [String: Any]:
+        return "Dictionary"
+    default:
+        return "Other"
+    }
+}
+
+// 使用模式匹配的类型检查
+func processWithPattern(_ value: Any) -> String {
+    switch value {
+    case let string as String:
+        return "String: \(string)"
+    case let number as Int:
+        return "Int: \(number)"
+    case let array as [Any]:
+        return "Array with \(array.count) elements"
+    default:
+        return "Unknown type"
+    }
+}
+
+print(processValue("hello"))            // "HELLO"
+print(processValue(5))                  // "10"
+print(processValue([1, 2, 3]))          // "3"
+print(processValue(["a": 1, "b": 2]))   // "2"
+
+print(checkType("hello"))               // "String"
+print(checkType(42))                    // "Int"
+print(processWithPattern([1, 2, 3]))    // "Array with 3 elements"
+```
+</UniversalEditor>
+
+## 6. 类型别名和自定义类型
+
+### 6.1 类型别名
+
+Swift 允许你创建类型别名以提高代码可读性。
+
+<UniversalEditor title="类型别名" compare={true}>
+```javascript !! js
+// JavaScript - 没有直接类型别名，但类似模式
+// 使用常量作为类型名
+const UserId = String;
+const UserAge = Number;
+const UserEmail = String;
+
+// 使用 JSDoc 进行类型文档
+/**
+ * @typedef {Object} User
+ * @property {string} id
+ * @property {string} name
+ * @property {number} age
+ * @property {string} email
+ */
+
+/**
+ * @param {User} user
+ * @returns {string}
+ */
+function formatUser(user) {
+    return `${user.name} (${user.age}) - ${user.email}`;
+}
+
+// 使用 TypeScript (对比)
+// type UserId = string;
+// type UserAge = number;
+// type UserEmail = string;
+
+// interface User {
+//     id: UserId;
+//     name: string;
+//     age: UserAge;
+//     email: UserEmail;
+// }
+
+const user = {
+    id: "123",
+    name: "John",
+    age: 25,
+    email: "john@example.com"
+};
+
+console.log(formatUser(user));
+```
+
+```swift !! swift
+// Swift 类型别名
+typealias UserId = String
+typealias UserAge = Int
+typealias UserEmail = String
+
+// 在结构体中使用类型别名
+struct User {
+    let id: UserId
+    let name: String
+    let age: UserAge
+    let email: UserEmail
+}
+
+// 使用类型别名的函数
+func formatUser(_ user: User) -> String {
+    return "\(user.name) (\(user.age)) - \(user.email)"
+}
+
+// 复杂类型的类型别名
+typealias UserList = [User]
+typealias UserDictionary = [UserId: User]
+typealias UserFilter = (User) -> Bool
+
+// 使用复杂类型别名
+func filterUsers(_ users: UserList, by filter: UserFilter) -> UserList {
+    return users.filter(filter)
+}
+
+func findUser(by id: UserId, in users: UserDictionary) -> User? {
+    return users[id]
+}
+
+let user = User(
+    id: "123",
+    name: "John",
+    age: 25,
+    email: "john@example.com"
+)
+
+print(formatUser(user))
+
+// 闭包的类型别名
+typealias CompletionHandler = (Result<User, Error>) -> Void
+typealias NetworkCallback = (Data?, Error?) -> Void
+```
+</UniversalEditor>
+
+## 7. 练习
+
+### 练习 1: 可选类型处理
+
+<UniversalEditor title="练习 1: 可选类型处理" compare={true}>
+```javascript !! js
+// JavaScript 可选类型处理练习
+function processUserData(userData) {
+    // 处理可能缺失的用户数据
+    const name = userData?.name || "Unknown";
+    const age = userData?.age || 0;
+    const email = userData?.email || "No email";
+    
+    return {
+        displayName: name,
+        ageGroup: age < 18 ? "Minor" : age < 65 ? "Adult" : "Senior",
+        hasEmail: email !== "No email"
+    };
+}
+
+function safeStringLength(str) {
+    // 处理 null/undefined 字符串
+    if (str === null || str === undefined) {
+        return 0;
+    }
+    return str.length;
+}
+
+function findFirstPositive(numbers) {
+    // 找到第一个正数或返回 null
+    for (let num of numbers) {
+        if (num > 0) {
+            return num;
+        }
+    }
+    return null;
+}
+
+// 测试函数
+console.log(processUserData({ name: "John", age: 25, email: "john@example.com" }));
+console.log(processUserData({ name: "Jane", age: 16 }));
+console.log(processUserData(null));
+
+console.log(safeStringLength("hello")); // 5
+console.log(safeStringLength(null)); // 0
+
+console.log(findFirstPositive([-1, -2, 3, -4, 5])); // 3
+console.log(findFirstPositive([-1, -2, -3])); // null
+```
+
+```swift !! swift
+// Swift 可选类型处理练习
+struct UserData {
+    let name: String?
+    let age: Int?
+    let email: String?
+}
+
+func processUserData(_ userData: UserData?) -> (displayName: String, ageGroup: String, hasEmail: Bool) {
+    // 处理可能缺失的用户数据
+    let name = userData?.name ?? "Unknown"
+    let age = userData?.age ?? 0
+    let email = userData?.email
+    
+    let ageGroup: String
+    if age < 18 {
+        ageGroup = "Minor"
+    } else if age < 65 {
+        ageGroup = "Adult"
+    } else {
+        ageGroup = "Senior"
+    }
+    
+    return (
+        displayName: name,
+        ageGroup: ageGroup,
+        hasEmail: email != nil
+    )
+}
+
+func safeStringLength(_ str: String?) -> Int {
+    // 处理可选字符串
+    return str?.count ?? 0
+}
+
+func findFirstPositive(_ numbers: [Int]) -> Int? {
+    // 找到第一个正数或返回 nil
+    return numbers.first { $0 > 0 }
+}
+
+// 测试函数
+let user1 = UserData(name: "John", age: 25, email: "john@example.com")
+let user2 = UserData(name: "Jane", age: 16, email: nil)
+let user3: UserData? = nil
+
+print(processUserData(user1))
+print(processUserData(user2))
+print(processUserData(user3))
+
+print(safeStringLength("hello")) // 5
+print(safeStringLength(nil)) // 0
+
+print(findFirstPositive([-1, -2, 3, -4, 5])) // Optional(3)
+print(findFirstPositive([-1, -2, -3])) // nil
+```
+</UniversalEditor>
+
+### 练习 2: 类型转换和检查
+
+<UniversalEditor title="练习 2: 类型转换和检查" compare={true}>
+```javascript !! js
+// JavaScript 类型转换练习
+function convertToNumber(value) {
+    const num = Number(value);
+    return isNaN(num) ? null : num;
+}
+
+function convertToString(value) {
+    if (value === null || value === undefined) {
+        return "null";
+    }
+    return String(value);
+}
+
+function validateUserInput(input) {
+    const errors = [];
+    
+    if (typeof input.name !== "string" || input.name.trim() === "") {
+        errors.push("Name must be a non-empty string");
+    }
+    
+    if (typeof input.age !== "number" || input.age < 0 || input.age > 150) {
+        errors.push("Age must be a number between 0 and 150");
+    }
+    
+    if (typeof input.email !== "string" || !input.email.includes("@")) {
+        errors.push("Email must be a valid email address");
+    }
+    
+    return errors;
+}
+
+// 测试函数
+console.log(convertToNumber("42")); // 42
+console.log(convertToNumber("abc")); // null
+console.log(convertToNumber("42.5")); // 42.5
+
+console.log(convertToString(42)); // "42"
+console.log(convertToString(null)); // "null"
+console.log(convertToString([1, 2, 3])); // "1,2,3"
+
+const validInput = { name: "John", age: 25, email: "john@example.com" };
+const invalidInput = { name: "", age: "25", email: "invalid-email" };
+
+console.log(validateUserInput(validInput)); // []
+console.log(validateUserInput(invalidInput)); // ["Name must be a non-empty string", "Age must be a number between 0 and 150", "Email must be a valid email address"]
+```
+
+```swift !! swift
+// Swift 类型转换练习
+func convertToNumber(_ value: String) -> Int? {
+    return Int(value)
+}
+
+func convertToString(_ value: Any) -> String {
+    if let optionalValue = value as? Optional<Any> {
+        return "nil"
+    }
+    return String(describing: value)
+}
+
+struct UserInput {
+    let name: String
+    let age: Int
+    let email: String
+}
+
+func validateUserInput(_ input: UserInput) -> [String] {
+    var errors: [String] = []
+    
+    if input.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        errors.append("Name must be a non-empty string")
+    }
+    
+    if input.age < 0 || input.age > 150 {
+        errors.append("Age must be a number between 0 and 150")
+    }
+    
+    if !input.email.contains("@") {
+        errors.append("Email must be a valid email address")
+    }
+    
+    return errors
+}
+
+// 测试函数
+print(convertToNumber("42")) // Optional(42)
+print(convertToNumber("abc")) // nil
+print(convertToNumber("42.5")) // nil (Int 转换对小数失败)
+
+print(convertToString(42)) // "42"
+print(convertToString(nil as String?)) // "nil"
+print(convertToString([1, 2, 3])) // "[1, 2, 3]"
+
+let validInput = UserInput(name: "John", age: 25, email: "john@example.com")
+let invalidInput = UserInput(name: "", age: 200, email: "invalid-email")
+
+print(validateUserInput(validInput)) // []
+print(validateUserInput(invalidInput)) // ["Name must be a non-empty string", "Age must be a number between 0 and 150", "Email must be a valid email address"]
+```
+</UniversalEditor>
+
+## 8. 关键要点
+
+### 8.1 类型系统优势
+
+| 特性 | JavaScript | Swift | 优势 |
+|---|---|---|---|
+| **类型安全** | 运行时检查 | 编译时检查 | 在执行前捕获错误 |
+| **性能** | 动态分发 | 静态分发 | 更好的性能 |
+| **工具支持** | 有限的 IDE 支持 | 丰富的 IDE 支持 | 更好的自动完成和重构 |
+| **文档** | 注释/JSDoc | 类型注解 | 自文档化代码 |
+| **重构** | 容易出错 | 安全 | 自信的代码更改 |
+
+### 8.2 可选类型最佳实践
+
+1. **使用可选类型表示缺失值**: 不要使用哨兵值如 `-1` 或 `""`
+2. **优先使用可选绑定**: 使用 `if let` 和 `guard let` 而不是强制解包
+3. **使用空值合并**: `??` 运算符提供默认值
+4. **避免强制解包**: 只在绝对确定时使用 `!`
+5. **使用可选链**: `?.` 安全属性访问
+6. **返回可选类型**: 当函数可能没有结果时
+
+### 8.3 类型安全最佳实践
+
+1. **使用类型注解**: 显式类型提高代码清晰度
+2. **利用类型推断**: 当明显时让 Swift 推断类型
+3. **使用类型别名**: 复杂类型和更好的可读性
+4. **优先强类型**: 使用具体类型而不是 `Any`
+5. **安全处理可选类型**: 始终考虑 nil 情况
+6. **使用类型检查**: `is` 和 `as?` 进行运行时类型检查
+
+### 8.4 常见陷阱
+
+1. **强制解包**: 不检查 nil 就使用 `!`
+2. **忽略可选类型**: 不处理 nil 的可能性
+3. **类型 Any**: 在具体类型更好时使用 `Any`
+4. **隐式转换**: 期望自动类型转换
+5. **运行时错误**: 不有效使用编译时类型检查
+
+## 9. 下一步
+
+在下一个模块中，我们将详细探索函数和闭包，包括：
+- 函数类型和高阶函数
+- 闭包语法和捕获语义
+- 函数重载和默认参数
+- Swift 中的函数式编程模式
+
+这个 Swift 类型系统基础将为你准备更高级的概念，帮助你编写更安全、更可靠的代码。 

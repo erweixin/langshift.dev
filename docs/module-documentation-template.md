@@ -174,7 +174,7 @@ def greet(name):
 
 ### 编辑器组件使用
 ```mdx
-<PythonEditor title="示例标题" compare={true}>
+<UniversalEditor title="示例标题" compare={true}>
 ```{源语言扩展名} !! {源语言标识}
 // {源语言} 代码
 console.log("Hello World");
@@ -184,7 +184,7 @@ console.log("Hello World");
 // {目标语言} 代码
 print("Hello World")
 ```
-</PythonEditor>
+</UniversalEditor>
 ```
 
 ### 代码注释要求
@@ -358,24 +358,6 @@ lastModified: 2024-01-15
 author: LangShift.dev
 ---
 
-import { SEODocPage, BreadcrumbNav } from '@/components/seo-doc-page';
-
-<SEODocPage
-  title="{源语言} 到 {目标语言} 转换学习"
-  description="从 {源语言} 开发者视角学习 {目标语言}，掌握语法转换和概念映射。"
-  keywords={['{源语言}', '{目标语言}', '编程语言', '语法转换', '开发者学习', '代码对比']}
-  courseName="{源语言} 到 {目标语言}"
-  lang="zh-CN"
-  lastModified="2024-01-15"
-/>
-
-<BreadcrumbNav
-  items={[
-    { name: '首页', href: '/zh-cn' },
-    { name: '{源语言} 到 {目标语言}', href: '/zh-cn/{source}2{target}' }
-  ]}
-/>
-
 # {源语言} 到 {目标语言} 转换学习
 
 欢迎来到 LangShift.dev 的 {源语言} 到 {目标语言} 转换学习课程！
@@ -392,7 +374,7 @@ import { SEODocPage, BreadcrumbNav } from '@/components/seo-doc-page';
 
 让我们从一个简单的 Hello World 示例开始：
 
-<PythonEditor title="Hello World 对比" compare={true}>
+<UniversalEditor title="Hello World 对比" compare={true}>
 ```{源语言扩展名} !! {源语言标识}
 // {源语言}
 console.log("Hello, World!");
@@ -402,7 +384,7 @@ console.log("Hello, World!");
 // {目标语言}
 print("Hello, World!")
 ```
-</PythonEditor>
+</UniversalEditor>
 ```
 
 ## 总结

@@ -1,0 +1,1178 @@
+---
+title: "並發和非同步程式設計 - async/await、Actors"
+description: "學習 Swift 並發：async/await、actors、結構化並發、任務組，與 JavaScript 對比"
+---
+
+# 並發和非同步程式設計：async/await、Actors
+
+在本模組中，我們探索 Swift 的現代並發系統，包括 async/await、actors、結構化並發和任務組。我們將這些方法與 JavaScript 的基於 Promise 和回調的並發模式進行對比。
+
+## 目錄
+- [介紹：並發模型](#介紹並發模型)
+- [Async/Await 基礎](#asyncawait-基礎)
+- [結構化並發](#結構化並發)
+- [Actors](#actors)
+- [任務組](#任務組)
+- [非同步序列](#非同步序列)
+- [進階並發](#進階並發)
+- [練習題](#練習題)
+- [關鍵要點](#關鍵要點)
+
+## 介紹：並發模型
+
+Swift 的現代並發系統相比傳統執行緒和 JavaScript 的事件迴圈提供了更安全、更高效的方法。
+
+| 特性               | JavaScript | Swift |
+|--------------------|------------|-------|
+| Async/Await        | ES2022     | Swift 5.5+ |
+| 結構化並發         | 否         | 是    |
+| Actors             | 否         | 是    |
+| 任務組             | 手動       | 內建   |
+| 取消               | 手動       | 自動   |
+| 資料競爭           | 可能       | 預防   |
+| 記憶體安全         | 執行時     | 編譯時 |
+
+## Async/Await 基礎
+
+<UniversalEditor title="Async/Await 對比" compare={true}>
+```javascript !! js
+// JavaScript：基於 Promise 的 async/await
+function fetchUserData(id) {
+    return new Promise((resolve, reject) => {
+        setTimeout(() => {
+            if (id > 0) {
+                resolve({ id, name: "張三", email: "zhang@example.com" });
+            } else {
+                reject(new Error("使用者未找到"));
+            }
+        }, 1000);
+    });
+}
+
+function fetchUserPosts(userId) {
+    return new Promise((resolve, reject) => {
+        setTimeout(() => {
+            if (userId > 0) {
+                resolve([{ id: 1, title: "第一篇貼文" }]);
+            } else {
+                reject(new Error("貼文未找到"));
+            }
+        }, 500);
+    });
+}
+
+async function loadUserProfile(userId) {
+    try {
+        console.log("正在載入使用者資料...");
+        const user = await fetchUserData(userId);
+        console.log("正在載入使用者貼文...");
+        const posts = await fetchUserPosts(user.id);
+        return { user, posts };
+    } catch (error) {
+        console.error("載入資料失敗:", error.message);
+        throw error;
+    }
+}
+
+// 使用
+loadUserProfile(1)
+    .then(profile => console.log("資料已載入:", profile))
+    .catch(error => console.error("錯誤:", error.message));
+```
+
+```swift !! swift
+// Swift：原生 async/await
+func fetchUserData(id: Int) async throws -> User {
+    try await Task.sleep(nanoseconds: 1_000_000_000) // 1 秒
+    
+    guard id > 0 else {
+        throw NetworkError.userNotFound
+    }
+    
+    return User(id: id, name: "張三", email: "zhang@example.com")
+}
+
+func fetchUserPosts(userId: Int) async throws -> [Post] {
+    try await Task.sleep(nanoseconds: 500_000_000) // 0.5 秒
+    
+    guard userId > 0 else {
+        throw NetworkError.postsNotFound
+    }
+    
+    return [Post(id: 1, title: "第一篇貼文")]
+}
+
+func loadUserProfile(userId: Int) async throws -> (user: User, posts: [Post]) {
+    print("正在載入使用者資料...")
+    let user = try await fetchUserData(id: userId)
+    print("正在載入使用者貼文...")
+    let posts = try await fetchUserPosts(userId: user.id)
+    return (user, posts)
+}
+
+// 使用
+Task {
+    do {
+        let profile = try await loadUserProfile(userId: 1)
+        print("資料已載入:", profile)
+    } catch {
+        print("錯誤:", error)
+    }
+}
+```
+</UniversalEditor>
+
+### 並發執行
+
+<UniversalEditor title="並發執行" compare={true}>
+```javascript !! js
+// JavaScript：使用 Promise.all 並發執行
+async function loadUserDataConcurrently(userId) {
+    try {
+        const [user, posts, settings] = await Promise.all([
+            fetchUserData(userId),
+            fetchUserPosts(userId),
+            fetchUserSettings(userId)
+        ]);
+        
+        return { user, posts, settings };
+    } catch (error) {
+        console.error("載入資料失敗:", error.message);
+        throw error;
+    }
+}
+
+function fetchUserSettings(userId) {
+    return new Promise((resolve, reject) => {
+        setTimeout(() => {
+            if (userId > 0) {
+                resolve({ theme: "dark", notifications: true });
+            } else {
+                reject(new Error("設定未找到"));
+            }
+        }, 300);
+    });
+}
+
+// 使用
+loadUserDataConcurrently(1)
+    .then(data => console.log("所有資料已載入:", data))
+    .catch(error => console.error("錯誤:", error.message));
+```
+
+```swift !! swift
+// Swift：使用 async let 並發執行
+func loadUserDataConcurrently(userId: Int) async throws -> (user: User, posts: [Post], settings: UserSettings) {
+    async let user = fetchUserData(id: userId)
+    async let posts = fetchUserPosts(userId: userId)
+    async let settings = fetchUserSettings(userId: userId)
+    
+    return try await (user, posts, settings)
+}
+
+func fetchUserSettings(userId: Int) async throws -> UserSettings {
+    try await Task.sleep(nanoseconds: 300_000_000) // 0.3 秒
+    
+    guard userId > 0 else {
+        throw NetworkError.settingsNotFound
+    }
+    
+    return UserSettings(theme: "dark", notifications: true)
+}
+
+struct UserSettings {
+    let theme: String
+    let notifications: Bool
+}
+
+// 使用
+Task {
+    do {
+        let data = try await loadUserDataConcurrently(userId: 1)
+        print("所有資料已載入:", data)
+    } catch {
+        print("錯誤:", error)
+    }
+}
+```
+</UniversalEditor>
+
+## 結構化並發
+
+Swift 的結構化並發確保子任務在父任務被取消時得到適當管理和取消。
+
+<UniversalEditor title="結構化並發" compare={true}>
+```javascript !! js
+// JavaScript：手動任務管理
+class TaskManager {
+    constructor() {
+        this.tasks = new Set();
+    }
+    
+    async runTask(taskFn) {
+        const task = taskFn();
+        this.tasks.add(task);
+        
+        try {
+            const result = await task;
+            this.tasks.delete(task);
+            return result;
+        } catch (error) {
+            this.tasks.delete(task);
+            throw error;
+        }
+    }
+    
+    async cancelAll() {
+        const promises = Array.from(this.tasks).map(task => {
+            // JavaScript 沒有內建的任務取消
+            // 這是一個簡化的範例
+            return Promise.resolve();
+        });
+        await Promise.all(promises);
+        this.tasks.clear();
+    }
+}
+
+const manager = new TaskManager();
+
+async function processData() {
+    const task1 = manager.runTask(async () => {
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        return "任務 1 完成";
+    });
+    
+    const task2 = manager.runTask(async () => {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        return "任務 2 完成";
+    });
+    
+    try {
+        const [result1, result2] = await Promise.all([task1, task2]);
+        console.log(result1, result2);
+    } catch (error) {
+        console.error("錯誤:", error);
+    }
+}
+
+processData();
+```
+
+```swift !! swift
+// Swift：帶自動取消的結構化並發
+func processData() async {
+    async let task1 = performTask(name: "任務 1", duration: 2.0)
+    async let task2 = performTask(name: "任務 2", duration: 1.0)
+    
+    do {
+        let (result1, result2) = try await (task1, task2)
+        print(result1, result2)
+    } catch {
+        print("錯誤:", error)
+    }
+}
+
+func performTask(name: String, duration: TimeInterval) async throws -> String {
+    try await Task.sleep(nanoseconds: UInt64(duration * 1_000_000_000))
+    
+    // 檢查取消
+    try Task.checkCancellation()
+    
+    return "\(name) 完成"
+}
+
+// 帶取消的使用
+Task {
+    let task = Task {
+        await processData()
+    }
+    
+    // 1.5 秒後取消
+    try await Task.sleep(nanoseconds: 1_500_000_000)
+    task.cancel()
+}
+```
+</UniversalEditor>
+
+## Actors
+
+Swift actors 提供對可變狀態的執行緒安全存取，防止資料競爭。
+
+<UniversalEditor title="Actors 對比" compare={true}>
+```javascript !! js
+// JavaScript：手動同步和鎖
+class BankAccount {
+    constructor(initialBalance) {
+        this.balance = initialBalance;
+        this.lock = false;
+    }
+    
+    async withdraw(amount) {
+        // 手動鎖實現
+        while (this.lock) {
+            await new Promise(resolve => setTimeout(resolve, 10));
+        }
+        
+        this.lock = true;
+        try {
+            if (this.balance >= amount) {
+                this.balance -= amount;
+                return { success: true, newBalance: this.balance };
+            } else {
+                return { success: false, error: "餘額不足" };
+            }
+        } finally {
+            this.lock = false;
+        }
+    }
+    
+    async deposit(amount) {
+        while (this.lock) {
+            await new Promise(resolve => setTimeout(resolve, 10));
+        }
+        
+        this.lock = true;
+        try {
+            this.balance += amount;
+            return { success: true, newBalance: this.balance };
+        } finally {
+            this.lock = false;
+        }
+    }
+    
+    async getBalance() {
+        while (this.lock) {
+            await new Promise(resolve => setTimeout(resolve, 10));
+        }
+        
+        this.lock = true;
+        try {
+            return this.balance;
+        } finally {
+            this.lock = false;
+        }
+    }
+}
+
+const account = new BankAccount(1000);
+
+async function performTransactions() {
+    const [result1, result2] = await Promise.all([
+        account.withdraw(500),
+        account.deposit(200)
+    ]);
+    
+    console.log("提款結果:", result1);
+    console.log("存款結果:", result2);
+    console.log("最終餘額:", await account.getBalance());
+}
+
+performTransactions();
+```
+
+```swift !! swift
+// Swift：帶自動同步的 Actors
+actor BankAccount {
+    private var balance: Double
+    
+    init(initialBalance: Double) {
+        self.balance = initialBalance
+    }
+    
+    func withdraw(amount: Double) async -> (success: Bool, newBalance: Double, error: String?) {
+        guard balance >= amount else {
+            return (false, balance, "餘額不足")
+        }
+        
+        balance -= amount
+        return (true, balance, nil)
+    }
+    
+    func deposit(amount: Double) async -> (success: Bool, newBalance: Double) {
+        balance += amount
+        return (true, balance)
+    }
+    
+    func getBalance() async -> Double {
+        return balance
+    }
+}
+
+let account = BankAccount(initialBalance: 1000)
+
+func performTransactions() async {
+    async let withdrawResult = account.withdraw(amount: 500)
+    async let depositResult = account.deposit(amount: 200)
+    
+    let (withdraw, deposit) = await (withdrawResult, depositResult)
+    
+    print("提款結果:", withdraw)
+    print("存款結果:", deposit)
+    print("最終餘額:", await account.getBalance())
+}
+
+Task {
+    await performTransactions()
+}
+```
+</UniversalEditor>
+
+## 任務組
+
+Swift 任務組允許您管理多個並發任務，共享取消和錯誤處理。
+
+<UniversalEditor title="任務組" compare={true}>
+```javascript !! js
+// JavaScript：手動任務組管理
+class TaskGroup {
+    constructor() {
+        this.tasks = [];
+        this.results = [];
+        this.errors = [];
+    }
+    
+    async addTask(taskFn) {
+        const task = taskFn().then(
+            result => this.results.push(result),
+            error => this.errors.push(error)
+        );
+        this.tasks.push(task);
+    }
+    
+    async waitForAll() {
+        await Promise.allSettled(this.tasks);
+        return {
+            results: this.results,
+            errors: this.errors
+        };
+    }
+    
+    async cancelAll() {
+        // JavaScript 沒有內建的任務取消
+        this.tasks = [];
+        this.results = [];
+        this.errors = [];
+    }
+}
+
+async function processMultipleItems(items) {
+    const group = new TaskGroup();
+    
+    for (const item of items) {
+        group.addTask(async () => {
+            await new Promise(resolve => setTimeout(resolve, 100));
+            return `已處理: ${item}`;
+        });
+    }
+    
+    const { results, errors } = await group.waitForAll();
+    console.log("結果:", results);
+    console.log("錯誤:", errors);
+}
+
+processMultipleItems(["A", "B", "C", "D"]);
+```
+
+```swift !! swift
+// Swift：帶自動管理的任務組
+func processMultipleItems(_ items: [String]) async {
+    await withTaskGroup(of: String.self) { group in
+        for item in items {
+            group.addTask {
+                try await Task.sleep(nanoseconds: 100_000_000)
+                return "已處理: \(item)"
+            }
+        }
+        
+        var results: [String] = []
+        for await result in group {
+            results.append(result)
+        }
+        
+        print("結果:", results)
+    }
+}
+
+// 帶錯誤處理的任務組
+func processWithErrorHandling(_ items: [String]) async {
+    await withThrowingTaskGroup(of: String.self) { group in
+        for item in items {
+            group.addTask {
+                try await Task.sleep(nanoseconds: 100_000_000)
+                
+                if item == "B" {
+                    throw ProcessingError.invalidItem(item)
+                }
+                
+                return "已處理: \(item)"
+            }
+        }
+        
+        do {
+            var results: [String] = []
+            for try await result in group {
+                results.append(result)
+            }
+            print("結果:", results)
+        } catch {
+            print("錯誤:", error)
+        }
+    }
+}
+
+enum ProcessingError: Error {
+    case invalidItem(String)
+}
+
+// 使用
+Task {
+    await processMultipleItems(["A", "B", "C", "D"])
+    await processWithErrorHandling(["A", "B", "C", "D"])
+}
+```
+</UniversalEditor>
+
+## 非同步序列
+
+Swift 非同步序列提供了一種遍歷非同步資料流的方法。
+
+<UniversalEditor title="非同步序列" compare={true}>
+```javascript !! js
+// JavaScript：非同步迭代器和生成器
+async function* generateNumbers(start, end) {
+    for (let i = start; i <= end; i++) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+        yield i;
+    }
+}
+
+async function* generateUserData(userIds) {
+    for (const id of userIds) {
+        try {
+            const user = await fetchUserData(id);
+            yield user;
+        } catch (error) {
+            console.error(`取得使用者 ${id} 失敗:`, error.message);
+        }
+    }
+}
+
+async function processAsyncSequence() {
+    // 處理數字
+    for await (const num of generateNumbers(1, 5)) {
+        console.log("數字:", num);
+    }
+    
+    // 處理使用者資料
+    const userIds = [1, 2, 3, 4, 5];
+    for await (const user of generateUserData(userIds)) {
+        console.log("使用者:", user.name);
+    }
+}
+
+processAsyncSequence();
+```
+
+```swift !! swift
+// Swift：帶內建支援的非同步序列
+struct NumberGenerator: AsyncSequence {
+    typealias Element = Int
+    
+    let start: Int
+    let end: Int
+    
+    init(start: Int, end: Int) {
+        self.start = start
+        self.end = end
+    }
+    
+    func makeAsyncIterator() -> AsyncIterator {
+        return AsyncIterator(start: start, end: end)
+    }
+    
+    struct AsyncIterator: AsyncIteratorProtocol {
+        var current: Int
+        let end: Int
+        
+        init(start: Int, end: Int) {
+            self.current = start
+            self.end = end
+        }
+        
+        mutating func next() async -> Int? {
+            guard current <= end else { return nil }
+            
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            let value = current
+            current += 1
+            return value
+        }
+    }
+}
+
+struct UserDataGenerator: AsyncSequence {
+    typealias Element = User
+    
+    let userIds: [Int]
+    
+    func makeAsyncIterator() -> AsyncIterator {
+        return AsyncIterator(userIds: userIds)
+    }
+    
+    struct AsyncIterator: AsyncIteratorProtocol {
+        let userIds: [Int]
+        var index = 0
+        
+        mutating func next() async -> User? {
+            guard index < userIds.count else { return nil }
+            
+            let id = userIds[index]
+            index += 1
+            
+            do {
+                return try await fetchUserData(id: id)
+            } catch {
+                print("取得使用者 \(id) 失敗:", error)
+                return nil
+            }
+        }
+    }
+}
+
+func processAsyncSequence() async {
+    // 處理數字
+    for await num in NumberGenerator(start: 1, end: 5) {
+        print("數字:", num)
+    }
+    
+    // 處理使用者資料
+    let userIds = [1, 2, 3, 4, 5]
+    for await user in UserDataGenerator(userIds: userIds) {
+        print("使用者:", user.name)
+    }
+}
+
+Task {
+    await processAsyncSequence()
+}
+```
+</UniversalEditor>
+
+## 進階並發
+
+### Continuations 和回調整合
+
+<UniversalEditor title="Continuations" compare={true}>
+```javascript !! js
+// JavaScript：基於 Promise 的回調整合
+function legacyCallbackFunction(callback) {
+    setTimeout(() => {
+        callback(null, "來自回調的資料");
+    }, 1000);
+}
+
+function promisifyCallback() {
+    return new Promise((resolve, reject) => {
+        legacyCallbackFunction((error, result) => {
+            if (error) {
+                reject(error);
+            } else {
+                resolve(result);
+            }
+        });
+    });
+}
+
+async function useLegacyFunction() {
+    try {
+        const result = await promisifyCallback();
+        console.log("結果:", result);
+    } catch (error) {
+        console.error("錯誤:", error);
+    }
+}
+
+useLegacyFunction();
+```
+
+```swift !! swift
+// Swift：用於回調整合的 Continuations
+func legacyCallbackFunction(completion: @escaping (Result<String, Error>) -> Void) {
+    DispatchQueue.global().asyncAfter(deadline: .now() + 1.0) {
+        completion(.success("來自回調的資料"))
+    }
+}
+
+func useLegacyFunction() async throws -> String {
+    return try await withCheckedThrowingContinuation { continuation in
+        legacyCallbackFunction { result in
+            continuation.resume(with: result)
+        }
+    }
+}
+
+// 使用
+Task {
+    do {
+        let result = try await useLegacyFunction()
+        print("結果:", result)
+    } catch {
+        print("錯誤:", error)
+    }
+}
+```
+</UniversalEditor>
+
+### 自訂執行器
+
+<UniversalEditor title="自訂執行器" compare={true}>
+```javascript !! js
+// JavaScript：自訂執行上下文
+class CustomExecutor {
+    constructor(concurrency = 1) {
+        this.queue = [];
+        this.running = 0;
+        this.concurrency = concurrency;
+    }
+    
+    async execute(task) {
+        return new Promise((resolve, reject) => {
+            this.queue.push({ task, resolve, reject });
+            this.processQueue();
+        });
+    }
+    
+    async processQueue() {
+        if (this.running >= this.concurrency || this.queue.length === 0) {
+            return;
+        }
+        
+        this.running++;
+        const { task, resolve, reject } = this.queue.shift();
+        
+        try {
+            const result = await task();
+            resolve(result);
+        } catch (error) {
+            reject(error);
+        } finally {
+            this.running--;
+            this.processQueue();
+        }
+    }
+}
+
+const executor = new CustomExecutor(2);
+
+async function runTasks() {
+    const tasks = [
+        () => new Promise(resolve => setTimeout(() => resolve("任務 1"), 1000)),
+        () => new Promise(resolve => setTimeout(() => resolve("任務 2"), 500)),
+        () => new Promise(resolve => setTimeout(() => resolve("任務 3"), 800))
+    ];
+    
+    const results = await Promise.all(tasks.map(task => executor.execute(task)));
+    console.log("結果:", results);
+}
+
+runTasks();
+```
+
+```swift !! swift
+// Swift：帶結構化並發的自訂執行器
+actor CustomExecutor {
+    private var queue: [(task: () async throws -> String, continuation: CheckedContinuation<String, Error>)] = []
+    private var running = 0
+    private let concurrency: Int
+    
+    init(concurrency: Int = 1) {
+        self.concurrency = concurrency
+    }
+    
+    func execute(_ task: @escaping () async throws -> String) async throws -> String {
+        return try await withCheckedThrowingContinuation { continuation in
+            queue.append((task, continuation))
+            Task {
+                await processQueue()
+            }
+        }
+    }
+    
+    private func processQueue() async {
+        guard running < concurrency, !queue.isEmpty else { return }
+        
+        running += 1
+        let (task, continuation) = queue.removeFirst()
+        
+        do {
+            let result = try await task()
+            continuation.resume(returning: result)
+        } catch {
+            continuation.resume(throwing: error)
+        }
+        
+        running -= 1
+        await processQueue()
+    }
+}
+
+let executor = CustomExecutor(concurrency: 2)
+
+func runTasks() async {
+    let tasks = [
+        { try await Task.sleep(nanoseconds: 1_000_000_000); return "任務 1" },
+        { try await Task.sleep(nanoseconds: 500_000_000); return "任務 2" },
+        { try await Task.sleep(nanoseconds: 800_000_000); return "任務 3" }
+    ]
+    
+    async let results = withTaskGroup(of: String.self) { group in
+        for task in tasks {
+            group.addTask {
+                try await executor.execute(task)
+            }
+        }
+        
+        var results: [String] = []
+        for await result in group {
+            results.append(result)
+        }
+        return results
+    }
+    
+    print("結果:", await results)
+}
+
+Task {
+    await runTasks()
+}
+```
+</UniversalEditor>
+
+## 練習題
+
+### 練習 1：並發資料處理
+
+<UniversalEditor title="練習 1：並發資料處理" compare={true}>
+```javascript !! js
+// JavaScript 解答
+class DataProcessor {
+    constructor(concurrency = 3) {
+        this.concurrency = concurrency;
+        this.semaphore = concurrency;
+    }
+    
+    async processItem(item) {
+        await this.acquireSemaphore();
+        try {
+            // 模擬處理
+            await new Promise(resolve => setTimeout(resolve, 100));
+            return `已處理: ${item}`;
+        } finally {
+            this.releaseSemaphore();
+        }
+    }
+    
+    async acquireSemaphore() {
+        while (this.semaphore <= 0) {
+            await new Promise(resolve => setTimeout(resolve, 10));
+        }
+        this.semaphore--;
+    }
+    
+    releaseSemaphore() {
+        this.semaphore++;
+    }
+    
+    async processBatch(items) {
+        const tasks = items.map(item => this.processItem(item));
+        return Promise.all(tasks);
+    }
+}
+
+async function processDataConcurrently() {
+    const processor = new DataProcessor(3);
+    const items = Array.from({ length: 10 }, (_, i) => `項目 ${i + 1}`);
+    
+    console.log("開始並發處理...");
+    const start = Date.now();
+    
+    const results = await processor.processBatch(items);
+    
+    const duration = Date.now() - start;
+    console.log(`處理完成，耗時 ${duration}ms`);
+    console.log("結果:", results);
+}
+
+processDataConcurrently();
+```
+
+```swift !! swift
+// Swift 解答
+actor DataProcessor {
+    private var semaphore: Int
+    private let maxConcurrency: Int
+    
+    init(concurrency: Int = 3) {
+        self.maxConcurrency = concurrency
+        self.semaphore = concurrency
+    }
+    
+    func processItem(_ item: String) async -> String {
+        await acquireSemaphore()
+        defer { Task { await releaseSemaphore() } }
+        
+        // 模擬處理
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        return "已處理: \(item)"
+    }
+    
+    private func acquireSemaphore() async {
+        while semaphore <= 0 {
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+        semaphore -= 1
+    }
+    
+    private func releaseSemaphore() {
+        semaphore += 1
+    }
+    
+    func processBatch(_ items: [String]) async -> [String] {
+        await withTaskGroup(of: String.self) { group in
+            for item in items {
+                group.addTask {
+                    await self.processItem(item)
+                }
+            }
+            
+            var results: [String] = []
+            for await result in group {
+                results.append(result)
+            }
+            return results
+        }
+    }
+}
+
+func processDataConcurrently() async {
+    let processor = DataProcessor(concurrency: 3)
+    let items = (1...10).map { "項目 \($0)" }
+    
+    print("開始並發處理...")
+    let start = Date()
+    
+    let results = await processor.processBatch(items)
+    
+    let duration = Date().timeIntervalSince(start) * 1000
+    print("處理完成，耗時 \(Int(duration))ms")
+    print("結果:", results)
+}
+
+Task {
+    await processDataConcurrently()
+}
+```
+</UniversalEditor>
+
+### 練習 2：即時資料流處理
+
+<UniversalEditor title="練習 2：即時資料流" compare={true}>
+```javascript !! js
+// JavaScript 解答
+class DataStream {
+    constructor() {
+        this.subscribers = new Set();
+        this.isRunning = false;
+    }
+    
+    subscribe(callback) {
+        this.subscribers.add(callback);
+        return () => this.subscribers.delete(callback);
+    }
+    
+    async start() {
+        this.isRunning = true;
+        let counter = 0;
+        
+        while (this.isRunning) {
+            const data = { id: counter++, timestamp: Date.now(), value: Math.random() };
+            
+            // 通知所有訂閱者
+            const promises = Array.from(this.subscribers).map(callback => 
+                callback(data).catch(error => console.error("訂閱者錯誤:", error))
+            );
+            
+            await Promise.all(promises);
+            await new Promise(resolve => setTimeout(resolve, 100));
+        }
+    }
+    
+    stop() {
+        this.isRunning = false;
+    }
+}
+
+class DataProcessor {
+    constructor() {
+        this.processedCount = 0;
+    }
+    
+    async process(data) {
+        await new Promise(resolve => setTimeout(resolve, 50));
+        this.processedCount++;
+        
+        if (data.value > 0.8) {
+            console.log(`檢測到高值: ${data.value}`);
+        }
+        
+        return `已處理 ${this.processedCount}: ${data.value}`;
+    }
+    
+    getStats() {
+        return { processedCount: this.processedCount };
+    }
+}
+
+async function runDataStream() {
+    const stream = new DataStream();
+    const processor = new DataProcessor();
+    
+    // 訂閱流
+    const unsubscribe = stream.subscribe(async (data) => {
+        const result = await processor.process(data);
+        console.log(result);
+    });
+    
+    // 啟動流
+    const streamTask = stream.start();
+    
+    // 2 秒後停止
+    setTimeout(() => {
+        stream.stop();
+        console.log("最終統計:", processor.getStats());
+    }, 2000);
+    
+    await streamTask;
+}
+
+runDataStream();
+```
+
+```swift !! swift
+// Swift 解答
+actor DataStream {
+    private var subscribers: [(Data) async -> Void] = []
+    private var isRunning = false
+    
+    func subscribe(_ callback: @escaping (Data) async -> Void) {
+        subscribers.append(callback)
+    }
+    
+    func start() async {
+        isRunning = true
+        var counter = 0
+        
+        while isRunning {
+            let data = Data(id: counter, timestamp: Date(), value: Double.random())
+            counter += 1
+            
+            // 通知所有訂閱者
+            await withTaskGroup(of: Void.self) { group in
+                for subscriber in subscribers {
+                    group.addTask {
+                        await subscriber(data)
+                    }
+                }
+            }
+            
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
+    }
+    
+    func stop() {
+        isRunning = false
+    }
+}
+
+struct Data {
+    let id: Int
+    let timestamp: Date
+    let value: Double
+}
+
+actor DataProcessor {
+    private var processedCount = 0
+    
+    func process(_ data: Data) async -> String {
+        try? await Task.sleep(nanoseconds: 50_000_000)
+        processedCount += 1
+        
+        if data.value > 0.8 {
+            print("檢測到高值: \(data.value)")
+        }
+        
+        return "已處理 \(processedCount): \(data.value)"
+    }
+    
+    func getStats() -> (processedCount: Int) {
+        return (processedCount: processedCount)
+    }
+}
+
+func runDataStream() async {
+    let stream = DataStream()
+    let processor = DataProcessor()
+    
+    // 訂閱流
+    await stream.subscribe { data in
+        let result = await processor.process(data)
+        print(result)
+    }
+    
+    // 啟動流
+    async let streamTask = stream.start()
+    
+    // 2 秒後停止
+    try? await Task.sleep(nanoseconds: 2_000_000_000)
+    await stream.stop()
+    
+    let stats = await processor.getStats()
+    print("最終統計:", stats)
+    
+    await streamTask
+}
+
+Task {
+    await runDataStream()
+}
+```
+</UniversalEditor>
+
+## 關鍵要點
+
+### Swift 並發優勢
+1. **結構化並發**：自動任務生命週期管理
+2. **資料競爭預防**：Actors 提供編譯時安全
+3. **取消**：內建取消支援
+4. **效能**：高效的任務排程和執行
+5. **記憶體安全**：並發程式碼的自動記憶體管理
+6. **整合**：與現有程式碼的無縫整合
+
+### 與 JavaScript 的關鍵差異
+1. **任務管理**：結構化 vs 手動任務管理
+2. **資料安全**：Actors vs 手動同步
+3. **取消**：自動 vs 手動取消
+4. **效能**：原生 vs 基於事件迴圈的執行
+5. **記憶體安全**：編譯時 vs 執行時安全
+6. **整合**：原生 vs 基於回調的整合
+
+### 最佳實踐
+1. **使用結構化並發**進行任務管理
+2. **利用 actors**處理共享可變狀態
+3. **在長時間執行的任務中實現適當的取消**
+4. **使用任務組**進行並發操作
+5. **優先使用非同步序列**處理資料流
+6. **在並發程式碼中適當處理錯誤**
+
+### 下一步
+在下一個模組中，我們將探索 Swift 的記憶體管理和效能最佳化技術，包括 ARC、值類型和效能分析，將它們與 JavaScript 的垃圾回收和最佳化策略進行對比。 

@@ -1,0 +1,1051 @@
+---
+title: Cloud Native Development
+---
+
+Go is a natural fit for cloud-native development due to its small binary size, fast startup times, and excellent support for concurrent programming. This module explores cloud-native development patterns, containerization, Kubernetes deployment, and cloud service integration from a JavaScript developer's perspective.
+
+## Cloud Native Overview
+
+- **Principles:** Microservices, containers, orchestration, CI/CD, observability
+- **Go Advantages:** Small binaries, fast startup, low memory footprint, static linking
+- **Key Technologies:** Docker, Kubernetes, Helm, Prometheus, Grafana
+- **Cloud Platforms:** AWS, GCP, Azure, DigitalOcean, Heroku
+
+## Containerization with Docker
+
+Docker containers provide consistent, isolated environments for Go applications.
+
+<UniversalEditor title="Dockerfile Comparison" compare={true}>
+```javascript !! js
+// JavaScript: Dockerfile for Node.js application
+FROM node:18-alpine
+
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+
+# Install dependencies
+RUN npm ci --only=production
+
+# Copy application code
+COPY . .
+
+# Expose port
+EXPOSE 3000
+
+# Start application
+CMD ["npm", "start"]
+```
+
+```dockerfile !! dockerfile
+# Go: Dockerfile for Go application
+FROM golang:1.21-alpine AS builder
+
+WORKDIR /app
+
+# Copy go mod files
+COPY go.mod go.sum ./
+
+# Download dependencies
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# Build the application
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o main .
+
+# Final stage
+FROM alpine:latest
+
+RUN apk --no-cache add ca-certificates
+
+WORKDIR /root/
+
+# Copy the binary from builder stage
+COPY --from=builder /app/main .
+
+# Expose port
+EXPOSE 8080
+
+# Run the binary
+CMD ["./main"]
+```
+</UniversalEditor>
+
+## Multi-stage Docker Builds
+
+Multi-stage builds create smaller, more secure containers.
+
+<UniversalEditor title="Multi-stage Docker Build" compare={true}>
+```javascript !! js
+// JavaScript: Multi-stage Dockerfile
+FROM node:18-alpine AS builder
+
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci
+
+COPY . .
+RUN npm run build
+
+FROM node:18-alpine AS production
+WORKDIR /app
+
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/package*.json ./
+RUN npm ci --only=production
+
+EXPOSE 3000
+CMD ["npm", "start"]
+```
+
+```dockerfile !! dockerfile
+# Go: Multi-stage Dockerfile with security
+FROM golang:1.21-alpine AS builder
+
+# Install git and ca-certificates
+RUN apk add --no-cache git ca-certificates
+
+WORKDIR /app
+
+# Copy go mod files
+COPY go.mod go.sum ./
+
+# Download dependencies
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# Build with security flags
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+    -ldflags="-w -s" \
+    -a -installsuffix cgo \
+    -o main .
+
+# Final stage with minimal image
+FROM scratch
+
+# Copy ca-certificates for HTTPS
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+
+# Copy the binary
+COPY --from=builder /app/main .
+
+EXPOSE 8080
+
+CMD ["./main"]
+```
+</UniversalEditor>
+
+## Docker Compose for Development
+
+Docker Compose simplifies local development with multiple services.
+
+<UniversalEditor title="Docker Compose Configuration" compare={true}>
+```yaml !! yaml
+# JavaScript: docker-compose.yml for Node.js app
+version: '3.8'
+
+services:
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=development
+      - DATABASE_URL=postgresql://user:pass@db:5432/myapp
+    depends_on:
+      - db
+      - redis
+
+  db:
+    image: postgres:15
+    environment:
+      - POSTGRES_DB=myapp
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=pass
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+volumes:
+  postgres_data:
+```
+
+```yaml !! yaml
+# Go: docker-compose.yml for Go app
+version: '3.8'
+
+services:
+  app:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      - APP_ENV=development
+      - DATABASE_URL=postgresql://user:pass@db:5432/myapp
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - db
+      - redis
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  db:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_DB=myapp
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=pass
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d myapp"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  postgres_data:
+```
+</UniversalEditor>
+
+## Kubernetes Deployment
+
+Kubernetes provides orchestration for containerized applications.
+
+<UniversalEditor title="Kubernetes Deployment" compare={true}>
+```yaml !! yaml
+# JavaScript: Kubernetes deployment for Node.js
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nodejs-app
+  labels:
+    app: nodejs-app
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: nodejs-app
+  template:
+    metadata:
+      labels:
+        app: nodejs-app
+    spec:
+      containers:
+      - name: nodejs-app
+        image: myapp:latest
+        ports:
+        - containerPort: 3000
+        env:
+        - name: NODE_ENV
+          value: "production"
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: db-secret
+              key: url
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 3000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+```
+
+```yaml !! yaml
+# Go: Kubernetes deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: go-app
+  labels:
+    app: go-app
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: go-app
+  template:
+    metadata:
+      labels:
+        app: go-app
+    spec:
+      containers:
+      - name: go-app
+        image: myapp:latest
+        ports:
+        - containerPort: 8080
+        env:
+        - name: APP_ENV
+          value: "production"
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: db-secret
+              key: url
+        - name: REDIS_URL
+          valueFrom:
+            secretKeyRef:
+              name: redis-secret
+              key: url
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
+            memory: "128Mi"
+            cpu: "100m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+```
+</UniversalEditor>
+
+## Service and Ingress Configuration
+
+<UniversalEditor title="Kubernetes Service and Ingress" compare={true}>
+```yaml !! yaml
+# JavaScript: Service and Ingress
+apiVersion: v1
+kind: Service
+metadata:
+  name: nodejs-service
+spec:
+  selector:
+    app: nodejs-app
+  ports:
+  - protocol: TCP
+    port: 80
+    targetPort: 3000
+  type: ClusterIP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: nodejs-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  rules:
+  - host: myapp.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: nodejs-service
+            port:
+              number: 80
+```
+
+```yaml !! yaml
+# Go: Service and Ingress
+apiVersion: v1
+kind: Service
+metadata:
+  name: go-service
+spec:
+  selector:
+    app: go-app
+  ports:
+  - protocol: TCP
+    port: 80
+    targetPort: 8080
+  type: ClusterIP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: go-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  tls:
+  - hosts:
+    - myapp.example.com
+    secretName: myapp-tls
+  rules:
+  - host: myapp.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: go-service
+            port:
+              number: 80
+```
+</UniversalEditor>
+
+## Health Checks and Readiness Probes
+
+<UniversalEditor title="Health Check Implementation" compare={true}>
+```javascript !! js
+// JavaScript: Health check endpoints
+const express = require('express');
+const app = express();
+
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.status(200).json({
+    status: 'healthy',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime()
+  });
+});
+
+// Readiness check endpoint
+app.get('/ready', async (req, res) => {
+  try {
+    // Check database connection
+    await checkDatabaseConnection();
+    // Check Redis connection
+    await checkRedisConnection();
+    
+    res.status(200).json({
+      status: 'ready',
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    res.status(503).json({
+      status: 'not ready',
+      error: error.message
+    });
+  }
+});
+
+app.listen(3000);
+```
+
+```go !! go
+// Go: Health check implementation
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"time"
+
+	"github.com/gin-gonic/gin"
+)
+
+type HealthStatus struct {
+	Status    string    `json:"status"`
+	Timestamp time.Time `json:"timestamp"`
+	Uptime    float64   `json:"uptime"`
+}
+
+type ReadinessStatus struct {
+	Status    string    `json:"status"`
+	Timestamp time.Time `json:"timestamp"`
+	Checks    map[string]string `json:"checks,omitempty"`
+}
+
+func healthHandler(c *gin.Context) {
+	status := HealthStatus{
+		Status:    "healthy",
+		Timestamp: time.Now(),
+		Uptime:    time.Since(startTime).Seconds(),
+	}
+	c.JSON(http.StatusOK, status)
+}
+
+func readinessHandler(c *gin.Context) {
+	checks := make(map[string]string)
+	
+	// Check database
+	if err := checkDatabase(); err != nil {
+		checks["database"] = err.Error()
+	} else {
+		checks["database"] = "ok"
+	}
+	
+	// Check Redis
+	if err := checkRedis(); err != nil {
+		checks["redis"] = err.Error()
+	} else {
+		checks["redis"] = "ok"
+	}
+	
+	// Check if all services are ready
+	allReady := true
+	for _, status := range checks {
+		if status != "ok" {
+			allReady = false
+			break
+		}
+	}
+	
+	if allReady {
+		status := ReadinessStatus{
+			Status:    "ready",
+			Timestamp: time.Now(),
+		}
+		c.JSON(http.StatusOK, status)
+	} else {
+		status := ReadinessStatus{
+			Status:    "not ready",
+			Timestamp: time.Now(),
+			Checks:    checks,
+		}
+		c.JSON(http.StatusServiceUnavailable, status)
+	}
+}
+
+func checkDatabase() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	
+	// Simulate database check
+	return db.PingContext(ctx)
+}
+
+func checkRedis() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	
+	// Simulate Redis check
+	return redis.Ping(ctx).Err()
+}
+
+func main() {
+	r := gin.Default()
+	r.GET("/health", healthHandler)
+	r.GET("/ready", readinessHandler)
+	r.Run(":8080")
+}
+```
+</UniversalEditor>
+
+## Monitoring and Observability
+
+<UniversalEditor title="Prometheus Metrics" compare={true}>
+```javascript !! js
+// JavaScript: Prometheus metrics with prom-client
+const express = require('express');
+const prometheus = require('prom-client');
+
+const app = express();
+
+// Create metrics
+const httpRequestDurationMicroseconds = new prometheus.Histogram({
+  name: 'http_request_duration_seconds',
+  help: 'Duration of HTTP requests in seconds',
+  labelNames: ['method', 'route', 'status_code'],
+  buckets: [0.1, 0.5, 1, 2, 5]
+});
+
+const httpRequestsTotal = new prometheus.Counter({
+  name: 'http_requests_total',
+  help: 'Total number of HTTP requests',
+  labelNames: ['method', 'route', 'status_code']
+});
+
+// Metrics endpoint
+app.get('/metrics', async (req, res) => {
+  res.set('Content-Type', prometheus.register.contentType);
+  res.end(await prometheus.register.metrics());
+});
+
+// Middleware to collect metrics
+app.use((req, res, next) => {
+  const start = Date.now();
+  
+  res.on('finish', () => {
+    const duration = (Date.now() - start) / 1000;
+    const labels = {
+      method: req.method,
+      route: req.route?.path || req.path,
+      status_code: res.statusCode
+    };
+    
+    httpRequestDurationMicroseconds.observe(labels, duration);
+    httpRequestsTotal.inc(labels);
+  });
+  
+  next();
+});
+
+app.listen(3000);
+```
+
+```go !! go
+// Go: Prometheus metrics with prometheus/client_golang
+package main
+
+import (
+	"net/http"
+	"time"
+
+	"github.com/gin-gonic/gin"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+)
+
+var (
+	httpRequestsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "http_requests_total",
+			Help: "Total number of HTTP requests",
+		},
+		[]string{"method", "route", "status_code"},
+	)
+
+	httpRequestDuration = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "http_request_duration_seconds",
+			Help:    "Duration of HTTP requests in seconds",
+			Buckets: prometheus.DefBuckets,
+		},
+		[]string{"method", "route", "status_code"},
+	)
+
+	httpRequestsInFlight = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "http_requests_in_flight",
+			Help: "Current number of HTTP requests being processed",
+		},
+	)
+)
+
+func init() {
+	prometheus.MustRegister(httpRequestsTotal)
+	prometheus.MustRegister(httpRequestDuration)
+	prometheus.MustRegister(httpRequestsInFlight)
+}
+
+func metricsMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		start := time.Now()
+		
+		httpRequestsInFlight.Inc()
+		defer httpRequestsInFlight.Dec()
+		
+		c.Next()
+		
+		duration := time.Since(start).Seconds()
+		
+		status := fmt.Sprintf("%d", c.Writer.Status())
+		route := c.FullPath()
+		if route == "" {
+			route = c.Request.URL.Path
+		}
+		
+		httpRequestsTotal.WithLabelValues(c.Request.Method, route, status).Inc()
+		httpRequestDuration.WithLabelValues(c.Request.Method, route, status).Observe(duration)
+	}
+}
+
+func main() {
+	r := gin.Default()
+	
+	// Add metrics middleware
+	r.Use(metricsMiddleware())
+	
+	// Metrics endpoint
+	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
+	
+	// Application routes
+	r.GET("/", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"message": "Hello, World!"})
+	})
+	
+	r.Run(":8080")
+}
+```
+</UniversalEditor>
+
+## CI/CD Pipeline
+
+<UniversalEditor title="GitHub Actions CI/CD" compare={true}>
+```yaml !! yaml
+# JavaScript: GitHub Actions for Node.js
+name: Node.js CI/CD
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        node-version: [16.x, 18.x, 20.x]
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Use Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v3
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'
+    
+    - name: Install dependencies
+      run: npm ci
+    
+    - name: Run tests
+      run: npm test
+    
+    - name: Run linting
+      run: npm run lint
+
+  build-and-deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v2
+    
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v4
+      with:
+        context: .
+        push: true
+        tags: myapp:latest
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+```
+
+```yaml !! yaml
+# Go: GitHub Actions for Go
+name: Go CI/CD
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        go-version: [1.20, 1.21]
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Go ${{ matrix.go-version }}
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ matrix.go-version }}
+        cache: true
+    
+    - name: Install dependencies
+      run: go mod download
+    
+    - name: Run tests
+      run: go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
+    
+    - name: Run linting
+      run: |
+        go install golang.org/x/lint/golint@latest
+        golint -set_exit_status ./...
+    
+    - name: Run security scan
+      run: |
+        go install golang.org/x/vuln/cmd/govulncheck@latest
+        govulncheck ./...
+    
+    - name: Upload coverage
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.txt
+
+  build-and-deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v2
+    
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v4
+      with:
+        context: .
+        push: true
+        tags: myapp:latest
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        platforms: linux/amd64,linux/arm64
+    
+    - name: Deploy to Kubernetes
+      run: |
+        echo "${{ secrets.KUBECONFIG }}" | base64 -d > kubeconfig.yaml
+        export KUBECONFIG=kubeconfig.yaml
+        kubectl set image deployment/go-app go-app=myapp:latest
+```
+</UniversalEditor>
+
+## Cloud Service Integration
+
+<UniversalEditor title="AWS SDK Integration" compare={true}>
+```javascript !! js
+// JavaScript: AWS SDK integration
+const AWS = require('aws-sdk');
+const express = require('express');
+
+const app = express();
+
+// Configure AWS
+AWS.config.update({
+  region: process.env.AWS_REGION || 'us-east-1'
+});
+
+const s3 = new AWS.S3();
+const dynamodb = new AWS.DynamoDB.DocumentClient();
+
+// S3 file upload
+app.post('/upload', async (req, res) => {
+  try {
+    const { filename, content } = req.body;
+    
+    const params = {
+      Bucket: process.env.S3_BUCKET,
+      Key: filename,
+      Body: content,
+      ContentType: 'text/plain'
+    };
+    
+    const result = await s3.upload(params).promise();
+    res.json({ url: result.Location });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// DynamoDB operations
+app.post('/user', async (req, res) => {
+  try {
+    const { id, name, email } = req.body;
+    
+    const params = {
+      TableName: process.env.DYNAMODB_TABLE,
+      Item: { id, name, email, createdAt: new Date().toISOString() }
+    };
+    
+    await dynamodb.put(params).promise();
+    res.json({ message: 'User created successfully' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.listen(3000);
+```
+
+```go !! go
+// Go: AWS SDK integration
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"os"
+	"time"
+
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/gin-gonic/gin"
+)
+
+type User struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Email     string `json:"email"`
+	CreatedAt string `json:"createdAt"`
+}
+
+type UploadRequest struct {
+	Filename string `json:"filename"`
+	Content  string `json:"content"`
+}
+
+var (
+	s3Client    *s3.Client
+	dynamoClient *dynamodb.Client
+)
+
+func init() {
+	cfg, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion("us-east-1"))
+	if err != nil {
+		panic(err)
+	}
+	
+	s3Client = s3.NewFromConfig(cfg)
+	dynamoClient = dynamodb.NewFromConfig(cfg)
+}
+
+func uploadHandler(c *gin.Context) {
+	var req UploadRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	
+	_, err := s3Client.PutObject(context.TODO(), &s3.PutObjectInput{
+		Bucket:      aws.String(os.Getenv("S3_BUCKET")),
+		Key:         aws.String(req.Filename),
+		Body:        strings.NewReader(req.Content),
+		ContentType: aws.String("text/plain"),
+	})
+	
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	
+	url := fmt.Sprintf("https://%s.s3.amazonaws.com/%s", os.Getenv("S3_BUCKET"), req.Filename)
+	c.JSON(http.StatusOK, gin.H{"url": url})
+}
+
+func createUserHandler(c *gin.Context) {
+	var user User
+	if err := c.ShouldBindJSON(&user); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	
+	user.CreatedAt = time.Now().UTC().Format(time.RFC3339)
+	
+	_, err := dynamoClient.PutItem(context.TODO(), &dynamodb.PutItemInput{
+		TableName: aws.String(os.Getenv("DYNAMODB_TABLE")),
+		Item: map[string]types.AttributeValue{
+			"id":        &types.AttributeValueMemberS{Value: user.ID},
+			"name":      &types.AttributeValueMemberS{Value: user.Name},
+			"email":     &types.AttributeValueMemberS{Value: user.Email},
+			"createdAt": &types.AttributeValueMemberS{Value: user.CreatedAt},
+		},
+	})
+	
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	
+	c.JSON(http.StatusOK, gin.H{"message": "User created successfully"})
+}
+
+func main() {
+	r := gin.Default()
+	
+	r.POST("/upload", uploadHandler)
+	r.POST("/user", createUserHandler)
+	
+	r.Run(":8080")
+}
+```
+</UniversalEditor>
+
+## Comparison: Go vs JavaScript for Cloud Native
+
+| Feature           | Go                                    | JavaScript (Node.js)              |
+|-------------------|---------------------------------------|-----------------------------------|
+| Binary Size       | Small, single executable              | Large, includes runtime           |
+| Startup Time      | Fast, milliseconds                   | Slower, seconds                   |
+| Memory Usage      | Low, predictable                     | Higher, garbage collected         |
+| Container Size    | Small, scratch/alpine base           | Larger, node base image           |
+| Resource Limits   | Easy to set and predict              | Harder to predict                 |
+| Cold Start        | Excellent                            | Good with optimizations           |
+| AWS Lambda        | Native support, fast                 | Good, larger package size         |
+| Kubernetes        | Excellent fit                        | Good fit                          |
+| Monitoring        | Built-in metrics                     | Requires additional libraries     |
+| Security          | Static linking, minimal attack surface | Dynamic, larger attack surface   |
+
+## Best Practices
+
+- Use multi-stage Docker builds for smaller images
+- Implement proper health checks and readiness probes
+- Set appropriate resource limits and requests
+- Use secrets for sensitive configuration
+- Implement proper logging and monitoring
+- Use horizontal pod autoscaling
+- Implement graceful shutdown handling
+- Use service mesh for advanced traffic management
+- Implement proper backup and disaster recovery
+- Use GitOps for deployment automation
+
+---
+
+### Practice Questions
+1. How does Go's static linking benefit cloud-native deployments?
+2. What are the advantages of using multi-stage Docker builds?
+3. How do you implement proper health checks in Go applications?
+
+### Project Idea
+Build a cloud-native Go application with Docker containerization, Kubernetes deployment, Prometheus monitoring, and AWS service integration. Implement CI/CD pipeline with GitHub Actions and deploy to a cloud Kubernetes cluster.

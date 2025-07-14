@@ -1,0 +1,245 @@
+---
+title: Web Development
+---
+
+Go is widely used for building high-performance web servers and APIs. Its standard library provides powerful primitives for HTTP, routing, and JSON handling, while popular frameworks like Gin and Echo offer higher-level abstractions. This module introduces Go web development from the perspective of JavaScript/Node.js developers, with practical code comparisons and best practices.
+
+## Go Web Development Overview
+
+- **Standard Library:** `net/http` for HTTP servers, routing, middleware
+- **Popular Frameworks:** Gin, Echo, Fiber, Chi
+- **Key Features:** Simplicity, performance, static typing, concurrency
+- **Common Use Cases:** RESTful APIs, microservices, static file serving, real-time services
+
+## Hello World: Minimal HTTP Server
+
+<UniversalEditor title="Hello World Web Server" compare={true}>
+```javascript !! js
+// Node.js: Minimal HTTP server
+const http = require('http');
+
+const server = http.createServer((req, res) => {
+  res.writeHead(200, { 'Content-Type': 'text/plain' });
+  res.end('Hello, World!');
+});
+
+server.listen(3000, () => {
+  console.log('Server running at http://localhost:3000/');
+});
+```
+
+```go !! go
+// Go: Minimal HTTP server
+package main
+
+import (
+	"fmt"
+	"net/http"
+)
+
+func handler(w http.ResponseWriter, r *http.Request) {
+	fmt.Fprintln(w, "Hello, World!")
+}
+
+func main() {
+	http.HandleFunc("/", handler)
+	fmt.Println("Server running at http://localhost:3000/")
+	http.ListenAndServe(":3000", nil)
+}
+```
+</UniversalEditor>
+
+## Routing and Parameters
+
+Go's standard library provides basic routing. For more advanced routing, use frameworks like Gin or Echo.
+
+<UniversalEditor title="Routing Example" compare={true}>
+```javascript !! js
+// Node.js with Express
+const express = require('express');
+const app = express();
+
+app.get('/hello/:name', (req, res) => {
+  res.json({ message: `Hello, ${req.params.name}!` });
+});
+
+app.listen(3000);
+```
+
+```go !! go
+// Go with Gin framework
+package main
+
+import (
+	"github.com/gin-gonic/gin"
+)
+
+func main() {
+	r := gin.Default()
+	r.GET("/hello/:name", func(c *gin.Context) {
+		name := c.Param("name")
+		c.JSON(200, gin.H{"message": "Hello, " + name + "!"})
+	})
+	r.Run(":3000")
+}
+```
+</UniversalEditor>
+
+## Handling JSON Requests and Responses
+
+<UniversalEditor title="JSON API Example" compare={true}>
+```javascript !! js
+// Node.js: JSON API
+const express = require('express');
+const app = express();
+app.use(express.json());
+
+app.post('/api/user', (req, res) => {
+  const user = req.body;
+  res.json({ id: 1, ...user });
+});
+
+app.listen(3000);
+```
+
+```go !! go
+// Go: JSON API
+package main
+
+import (
+	"encoding/json"
+	"net/http"
+)
+
+type User struct {
+	Name string `json:"name"`
+	Age  int    `json:"age"`
+}
+
+func userHandler(w http.ResponseWriter, r *http.Request) {
+	var user User
+	if err := json.NewDecoder(r.Body).Decode(&user); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+	userResponse := struct {
+		ID int    `json:"id"`
+		Name string `json:"name"`
+		Age  int    `json:"age"`
+	}{ID: 1, Name: user.Name, Age: user.Age}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(userResponse)
+}
+
+func main() {
+	http.HandleFunc("/api/user", userHandler)
+	http.ListenAndServe(":3000", nil)
+}
+```
+</UniversalEditor>
+
+## Serving Static Files
+
+<UniversalEditor title="Static File Serving" compare={true}>
+```javascript !! js
+// Node.js: Serve static files with Express
+const express = require('express');
+const app = express();
+app.use(express.static('public'));
+app.listen(3000);
+```
+
+```go !! go
+// Go: Serve static files
+package main
+
+import (
+	"net/http"
+)
+
+func main() {
+	fs := http.FileServer(http.Dir("./public"))
+	http.Handle("/", fs)
+	http.ListenAndServe(":3000", nil)
+}
+```
+</UniversalEditor>
+
+## Middleware
+
+Middleware in Go is typically implemented as handler wrappers. Frameworks like Gin/Echo provide convenient middleware support.
+
+<UniversalEditor title="Middleware Example" compare={true}>
+```javascript !! js
+// Node.js: Express middleware
+const express = require('express');
+const app = express();
+
+function logger(req, res, next) {
+  console.log(`${req.method} ${req.url}`);
+  next();
+}
+
+app.use(logger);
+app.get('/', (req, res) => res.send('Hello'));
+app.listen(3000);
+```
+
+```go !! go
+// Go: Middleware with Gin
+package main
+
+import (
+	"github.com/gin-gonic/gin"
+	"log"
+)
+
+func Logger() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		log.Printf("%s %s", c.Request.Method, c.Request.URL.Path)
+		c.Next()
+	}
+}
+
+func main() {
+	r := gin.Default()
+	r.Use(Logger())
+	r.GET("/", func(c *gin.Context) {
+		c.String(200, "Hello")
+	})
+	r.Run(":3000")
+}
+```
+</UniversalEditor>
+
+## Comparison: Go vs JavaScript/Node.js
+
+| Feature         | Go (`net/http`, Gin)         | JavaScript (Node.js, Express) |
+|-----------------|------------------------------|-------------------------------|
+| Typing          | Static, strong               | Dynamic, weak                 |
+| Concurrency     | Goroutines, channels         | Event loop, async/await       |
+| Performance     | High, compiled               | Good, interpreted             |
+| Routing         | Basic in stdlib, rich in Gin | Express, Koa, Fastify         |
+| Middleware      | Handler wrappers, Gin/Echo   | Express/Koa middleware        |
+| JSON Handling   | encoding/json, struct tags   | JSON.parse/stringify, body-parser |
+| Static Files    | FileServer                   | express.static                |
+| Error Handling  | Explicit, error values       | try/catch, error middleware   |
+
+## Best Practices
+
+- Use context for request-scoped values and cancellation
+- Validate and sanitize input
+- Handle errors explicitly and return proper status codes
+- Use middleware for logging, authentication, CORS, etc.
+- Prefer frameworks (Gin, Echo) for complex projects
+- Write tests for handlers and middleware
+
+---
+
+### Practice Questions
+1. How does Go's `net/http` differ from Node.js's HTTP module?
+2. Show how to handle JSON requests and responses in Go and Node.js.
+3. What are the advantages of using Gin or Echo over the standard library?
+
+### Project Idea
+Build a simple RESTful API in Go that supports CRUD operations for a resource (e.g., tasks or users). Implement routing, JSON handling, and middleware for logging. Compare your implementation with a Node.js/Express version.

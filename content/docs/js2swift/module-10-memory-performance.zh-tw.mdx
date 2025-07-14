@@ -1,0 +1,710 @@
+---
+title: "記憶體管理和效能最佳化 - ARC、值類型"
+description: "學習 Swift 記憶體管理：ARC、值類型、效能最佳化，與 JavaScript 垃圾回收對比"
+---
+
+# 記憶體管理和效能最佳化：ARC、值類型
+
+在本模組中，我們探索 Swift 的記憶體管理系統，包括自動參考計數（ARC）、值類型、效能最佳化技術和分析工具。我們將這些方法與 JavaScript 的垃圾回收和最佳化策略進行對比。
+
+## 目錄
+- [介紹：記憶體管理模型](#介紹記憶體管理模型)
+- [自動參考計數（ARC）](#自動參考計數arc)
+- [值類型 vs 參考類型](#值類型-vs-參考類型)
+- [記憶體安全](#記憶體安全)
+- [效能最佳化](#效能最佳化)
+- [分析和分析](#分析和分析)
+- [進階記憶體管理](#進階記憶體管理)
+- [練習題](#練習題)
+- [關鍵要點](#關鍵要點)
+
+## 介紹：記憶體管理模型
+
+Swift 和 JavaScript 使用根本不同的記憶體管理方法，每種方法都有其自身的優勢和權衡。
+
+| 特性               | JavaScript | Swift |
+|--------------------|------------|-------|
+| 記憶體管理         | 垃圾回收   | ARC   |
+| 記憶體安全         | 執行時     | 編譯時 |
+| 效能可預測性       | 可變       | 可預測 |
+| 記憶體洩漏         | 可能       | 預防   |
+| 值類型             | 有限       | 完全支援 |
+| 參考計數           | 否         | 是    |
+| 編譯時檢查         | 否         | 是    |
+
+## 自動參考計數（ARC）
+
+Swift 的 ARC 透過追蹤物件的參考來自動管理記憶體，當不再需要時釋放它們。
+
+<UniversalEditor title="ARC vs 垃圾回收" compare={true}>
+```javascript !! js
+// JavaScript：垃圾回收
+class User {
+    constructor(name, email) {
+        this.name = name;
+        this.email = email;
+        this.friends = [];
+    }
+    
+    addFriend(friend) {
+        this.friends.push(friend);
+        friend.friends.push(this); // 潛在的循環參考
+    }
+    
+    removeFriend(friend) {
+        const index = this.friends.indexOf(friend);
+        if (index > -1) {
+            this.friends.splice(index, 1);
+        }
+    }
+}
+
+// 循環參考範例
+const user1 = new User("張三", "zhang@example.com");
+const user2 = new User("李四", "li@example.com");
+
+user1.addFriend(user2);
+user2.addFriend(user1);
+
+// 記憶體洩漏潛在風險 - 循環參考
+// 垃圾回收器可能不會立即清理
+console.log("建立了具有潛在記憶體洩漏的使用者");
+
+// 需要手動清理
+user1.removeFriend(user2);
+user2.removeFriend(user1);
+
+// 變數可以設定為 null 來幫助 GC
+user1 = null;
+user2 = null;
+```
+
+```swift !! swift
+// Swift：自動參考計數
+class User {
+    let name: String
+    let email: String
+    var friends: [User] = []
+    
+    init(name: String, email: String) {
+        self.name = name
+        self.email = email
+    }
+    
+    func addFriend(_ friend: User) {
+        friends.append(friend)
+        friend.friends.append(self) // ARC 處理循環參考
+    }
+    
+    func removeFriend(_ friend: User) {
+        if let index = friends.firstIndex(where: { $0 === friend }) {
+            friends.remove(at: index)
+        }
+    }
+    
+    deinit {
+        print("使用者 \(name) 正在被釋放")
+    }
+}
+
+// ARC 自動管理記憶體
+var user1: User? = User(name: "張三", email: "zhang@example.com")
+var user2: User? = User(name: "李四", email: "li@example.com")
+
+user1?.addFriend(user2!)
+user2?.addFriend(user1!)
+
+print("建立了具有 ARC 管理的使用者")
+
+// ARC 在參考被移除時自動釋放
+user1 = nil
+user2 = nil
+
+// 輸出："使用者 張三 正在被釋放"
+// 輸出："使用者 李四 正在被釋放"
+```
+</UniversalEditor>
+
+### 強參考、弱參考和無主參考
+
+<UniversalEditor title="參考類型" compare={true}>
+```javascript !! js
+// JavaScript：手動參考管理
+class Parent {
+    constructor(name) {
+        this.name = name;
+        this.children = [];
+    }
+    
+    addChild(child) {
+        this.children.push(child);
+        child.parent = this; // 強參考 - 潛在記憶體洩漏
+    }
+    
+    removeChild(child) {
+        const index = this.children.indexOf(child);
+        if (index > -1) {
+            this.children.splice(index, 1);
+            child.parent = null; // 手動清理
+        }
+    }
+}
+
+class Child {
+    constructor(name) {
+        this.name = name;
+        this.parent = null;
+    }
+}
+
+// 記憶體洩漏範例
+const parent = new Parent("王五");
+const child = new Child("小王");
+
+parent.addChild(child);
+
+// 建立了循環參考
+console.log("父級有子級:", parent.children.length);
+console.log("子級有父級:", child.parent.name);
+
+// 需要手動清理
+parent.removeChild(child);
+parent = null;
+child = null;
+```
+
+```swift !! swift
+// Swift：強參考、弱參考和無主參考
+class Parent {
+    let name: String
+    var children: [Child] = []
+    
+    init(name: String) {
+        self.name = name
+    }
+    
+    func addChild(_ child: Child) {
+        children.append(child)
+        child.parent = self // 強參考
+    }
+    
+    func removeChild(_ child: Child) {
+        if let index = children.firstIndex(where: { $0 === child }) {
+            children.remove(at: index)
+            child.parent = nil
+        }
+    }
+    
+    deinit {
+        print("父級 \(name) 正在被釋放")
+    }
+}
+
+class Child {
+    let name: String
+    weak var parent: Parent? // 弱參考 - 防止循環參考
+    
+    init(name: String) {
+        self.name = name
+    }
+    
+    deinit {
+        print("子級 \(name) 正在被釋放")
+    }
+}
+
+// ARC 自動處理弱參考
+var parent: Parent? = Parent(name: "王五")
+var child: Child? = Child(name: "小王")
+
+parent?.addChild(child!)
+
+print("父級有子級:", parent?.children.count ?? 0)
+print("子級有父級:", child?.parent?.name ?? "無")
+
+// 弱參考的自動清理
+parent = nil
+child = nil
+
+// 輸出："父級 王五 正在被釋放"
+// 輸出："子級 小王 正在被釋放"
+```
+</UniversalEditor>
+
+## 值類型 vs 參考類型
+
+Swift 的值類型提供可預測的效能並消除許多記憶體管理問題。
+
+<UniversalEditor title="值類型 vs 參考類型" compare={true}>
+```javascript !! js
+// JavaScript：原始類型和物件參考
+// 原始類型（值語義）
+let number1 = 42;
+let number2 = number1;
+number2 = 100;
+console.log("number1:", number1); // 42（未改變）
+console.log("number2:", number2); // 100
+
+// 物件類型（參考語義）
+let person1 = { name: "張三", age: 30 };
+let person2 = person1;
+person2.age = 31;
+console.log("person1.age:", person1.age); // 31（已改變）
+console.log("person2.age:", person2.age); // 31
+
+// 陣列（參考語義）
+let array1 = [1, 2, 3];
+let array2 = array1;
+array2.push(4);
+console.log("array1:", array1); // [1, 2, 3, 4]（已改變）
+console.log("array2:", array2); // [1, 2, 3, 4]
+
+// 手動複製以實現值語義
+let person3 = { ...person1 }; // 淺拷貝
+person3.age = 32;
+console.log("person1.age:", person1.age); // 31（未改變）
+console.log("person3.age:", person3.age); // 32
+
+// 深拷貝需要手動實現
+function deepCopy(obj) {
+    return JSON.parse(JSON.stringify(obj));
+}
+
+let deepPerson = deepCopy(person1);
+deepPerson.age = 33;
+console.log("person1.age:", person1.age); // 31（未改變）
+console.log("deepPerson.age:", deepPerson.age); // 33
+```
+
+```swift !! swift
+// Swift：值類型和參考類型
+// 值類型（結構體、列舉、原始類型）
+struct Person {
+    var name: String
+    var age: Int
+}
+
+var person1 = Person(name: "張三", age: 30)
+var person2 = person1
+person2.age = 31
+
+print("person1.age:", person1.age) // 30（未改變）
+print("person2.age:", person2.age) // 31
+
+// 陣列（Swift 中的值類型）
+var array1 = [1, 2, 3]
+var array2 = array1
+array2.append(4)
+
+print("array1:", array1) // [1, 2, 3]（未改變）
+print("array2:", array2) // [1, 2, 3, 4]
+
+// 參考類型（類別）
+class User {
+    var name: String
+    var age: Int
+    
+    init(name: String, age: Int) {
+        self.name = name
+        self.age = age
+    }
+}
+
+var user1 = User(name: "李四", age: 25)
+var user2 = user1
+user2.age = 26
+
+print("user1.age:", user1.age) // 26（已改變）
+print("user2.age:", user2.age) // 26
+
+// 值類型的自動複製
+let person3 = person1 // 自動複製
+person3.age = 32
+print("person1.age:", person1.age) // 30（未改變）
+print("person3.age:", person3.age) // 32
+```
+</UniversalEditor>
+
+### 寫時複製最佳化
+
+<UniversalEditor title="寫時複製" compare={true}>
+```javascript !! js
+// JavaScript：無內建寫時複製最佳化
+class OptimizedArray {
+    constructor() {
+        this.data = [];
+        this.referenceCount = 1;
+    }
+    
+    // 手動寫時複製實現
+    copy() {
+        if (this.referenceCount > 1) {
+            // 當存在多個參考時建立新副本
+            const newArray = new OptimizedArray();
+            newArray.data = [...this.data];
+            newArray.referenceCount = 1;
+            this.referenceCount--;
+            return newArray;
+        } else {
+            // 當只有一個參考時共享參考
+            this.referenceCount++;
+            return this;
+        }
+    }
+    
+    push(item) {
+        if (this.referenceCount > 1) {
+            // 修改前建立副本
+            const copy = this.copy();
+            copy.data.push(item);
+            return copy;
+        } else {
+            this.data.push(item);
+            return this;
+        }
+    }
+    
+    get length() {
+        return this.data.length;
+    }
+}
+
+// 使用範例
+const array1 = new OptimizedArray();
+array1.push(1);
+array1.push(2);
+
+const array2 = array1.copy(); // 共享參考
+console.log("array1 length:", array1.length); // 2
+console.log("array2 length:", array2.length); // 2
+
+const array3 = array2.push(3); // 建立副本
+console.log("array2 length:", array2.length); // 2（未改變）
+console.log("array3 length:", array3.length); // 3
+```
+
+```swift !! swift
+// Swift：內建寫時複製最佳化
+var array1 = [1, 2, 3, 4, 5]
+var array2 = array1 // 尚未複製 - 共享參考
+
+print("array1 位址:", Unmanaged.passUnretained(array1 as AnyObject).toOpaque())
+print("array2 位址:", Unmanaged.passUnretained(array2 as AnyObject).toOpaque())
+
+// 相同位址 - 共享參考
+array2.append(6) // 寫時複製在此觸發
+
+print("修改後:")
+print("array1:", array1) // [1, 2, 3, 4, 5]（未改變）
+print("array2:", array2) // [1, 2, 3, 4, 5, 6]
+
+// 自訂寫時複製實現
+struct OptimizedData {
+    private var _data: [Int]
+    private var _copyOnWrite: Bool = false
+    
+    init(_ data: [Int]) {
+        self._data = data
+    }
+    
+    mutating func append(_ value: Int) {
+        if _copyOnWrite {
+            _data = _data + [value]
+            _copyOnWrite = false
+        } else {
+            _data.append(value)
+        }
+    }
+    
+    var count: Int {
+        return _data.count
+    }
+    
+    var data: [Int] {
+        mutating get {
+            _copyOnWrite = true
+            return _data
+        }
+    }
+}
+
+var data1 = OptimizedData([1, 2, 3])
+var data2 = data1
+
+print("修改前:")
+print("data1 count:", data1.count)
+print("data2 count:", data2.count)
+
+data2.append(4)
+
+print("修改後:")
+print("data1 count:", data1.count) // 3（未改變）
+print("data2 count:", data2.count) // 4
+```
+</UniversalEditor>
+
+## 記憶體安全
+
+Swift 提供編譯時記憶體安全保證，防止常見的記憶體相關錯誤。
+
+<UniversalEditor title="記憶體安全" compare={true}>
+```javascript !! js
+// JavaScript：執行時記憶體安全
+class UnsafeArray {
+    constructor() {
+        this.data = [];
+    }
+    
+    set(index, value) {
+        // 無邊界檢查 - 潛在的執行時錯誤
+        this.data[index] = value;
+    }
+    
+    get(index) {
+        // 無邊界檢查 - 如果越界返回 undefined
+        return this.data[index];
+    }
+    
+    remove(index) {
+        // 無邊界檢查 - 可能導致問題
+        this.data.splice(index, 1);
+    }
+}
+
+const unsafeArray = new UnsafeArray();
+
+// 可能的執行時錯誤
+try {
+    unsafeArray.set(100, "value"); // 無錯誤，但建立稀疏陣列
+    console.log("索引 100 的值:", unsafeArray.get(100)); // "value"
+    console.log("索引 50 的值:", unsafeArray.get(50)); // undefined
+    
+    unsafeArray.remove(200); // 無錯誤，但不做任何事
+} catch (error) {
+    console.error("執行時錯誤:", error);
+}
+
+// 需要手動邊界檢查
+class SafeArray {
+    constructor() {
+        this.data = [];
+    }
+    
+    set(index, value) {
+        if (index < 0 || index >= this.data.length) {
+            throw new Error(`索引 ${index} 越界`);
+        }
+        this.data[index] = value;
+    }
+    
+    get(index) {
+        if (index < 0 || index >= this.data.length) {
+            throw new Error(`索引 ${index} 越界`);
+        }
+        return this.data[index];
+    }
+}
+```
+
+```swift !! swift
+// Swift：編譯時記憶體安全
+struct SafeArray {
+    private var data: [Int] = []
+    
+    mutating func set(_ value: Int, at index: Int) {
+        // 編譯時邊界檢查
+        guard index >= 0 && index < data.count else {
+            fatalError("索引 \(index) 越界")
+        }
+        data[index] = value
+    }
+    
+    func get(_ index: Int) -> Int {
+        // 編譯時邊界檢查
+        guard index >= 0 && index < data.count else {
+            fatalError("索引 \(index) 越界")
+        }
+        return data[index]
+    }
+    
+    mutating func append(_ value: Int) {
+        data.append(value)
+    }
+    
+    var count: Int {
+        return data.count
+    }
+}
+
+var safeArray = SafeArray()
+safeArray.append(1)
+safeArray.append(2)
+safeArray.append(3)
+
+// 編譯時安全
+print("索引 1 的值:", safeArray.get(1)) // 2
+
+// 這會導致編譯時錯誤如果我們嘗試存取越界
+// let value = safeArray.get(10) // 編譯錯誤
+
+// 可選類型用於安全存取
+extension SafeArray {
+    func safeGet(_ index: Int) -> Int? {
+        guard index >= 0 && index < data.count else {
+            return nil
+        }
+        return data[index]
+    }
+}
+
+if let value = safeArray.safeGet(1) {
+    print("安全值:", value)
+} else {
+    print("索引越界")
+}
+```
+</UniversalEditor>
+
+## 效能最佳化
+
+### 編譯器最佳化
+
+<UniversalEditor title="編譯器最佳化" compare={true}>
+```javascript !! js
+// JavaScript：執行時最佳化
+class OptimizedCalculator {
+    constructor() {
+        this.cache = new Map();
+    }
+    
+    // JIT 最佳化潛力
+    calculateSum(numbers) {
+        let sum = 0;
+        for (let i = 0; i < numbers.length; i++) {
+            sum += numbers[i];
+        }
+        return sum;
+    }
+    
+    // 昂貴操作的快取
+    expensiveCalculation(input) {
+        if (this.cache.has(input)) {
+            return this.cache.get(input);
+        }
+        
+        // 模擬昂貴計算
+        let result = 0;
+        for (let i = 0; i < 1000000; i++) {
+            result += Math.sqrt(i) * Math.sin(i);
+        }
+        
+        this.cache.set(input, result);
+        return result;
+    }
+    
+    // 內聯最佳化潛力
+    inlineCalculation(a, b, c) {
+        return a * b + c;
+    }
+}
+
+const calculator = new OptimizedCalculator();
+
+// 效能測量
+console.time('sum calculation');
+const sum = calculator.calculateSum(Array.from({length: 1000000}, (_, i) => i));
+console.timeEnd('sum calculation');
+
+console.time('expensive calculation');
+const result = calculator.expensiveCalculation(42);
+console.timeEnd('expensive calculation');
+```
+
+```swift !! swift
+// Swift：編譯時最佳化
+struct OptimizedCalculator {
+    private var cache: [Int: Double] = [:]
+    
+    // 編譯器可以最佳化迴圈
+    func calculateSum(_ numbers: [Int]) -> Int {
+        var sum = 0
+        for number in numbers {
+            sum += number
+        }
+        return sum
+    }
+    
+    // 內聯最佳化
+    @inlinable
+    func inlineCalculation(a: Int, b: Int, c: Int) -> Int {
+        return a * b + c
+    }
+    
+    // 值語義的快取
+    mutating func expensiveCalculation(_ input: Int) -> Double {
+        if let cached = cache[input] {
+            return cached
+        }
+        
+        // 模擬昂貴計算
+        var result: Double = 0
+        for i in 0..<1_000_000 {
+            result += sqrt(Double(i)) * sin(Double(i))
+        }
+        
+        cache[input] = result
+        return result
+    }
+}
+
+var calculator = OptimizedCalculator()
+
+// 效能測量
+let startTime = CFAbsoluteTimeGetCurrent()
+let sum = calculator.calculateSum(Array(0..<1_000_000))
+let endTime = CFAbsoluteTimeGetCurrent()
+print("求和計算時間: \((endTime - startTime) * 1000)ms")
+
+let startTime2 = CFAbsoluteTimeGetCurrent()
+let result = calculator.expensiveCalculation(42)
+let endTime2 = CFAbsoluteTimeGetCurrent()
+print("昂貴計算時間: \((endTime2 - startTime2) * 1000)ms")
+```
+</UniversalEditor>
+
+## 關鍵要點
+
+### Swift 記憶體管理優勢
+1. **可預測效能**：ARC 提供一致的記憶體管理開銷
+2. **編譯時安全**：記憶體安全檢查防止常見錯誤
+3. **值類型**：消除許多記憶體管理問題
+4. **自動清理**：無需手動記憶體管理
+5. **效能最佳化**：編譯器可以最佳化記憶體存取模式
+6. **記憶體佈局控制**：可預測和高效的記憶體佈局
+
+### 與 JavaScript 的關鍵差異
+1. **記憶體管理**：ARC vs 垃圾回收
+2. **效能可預測性**：一致 vs 可變效能
+3. **記憶體安全**：編譯時 vs 執行時安全
+4. **值類型**：完全支援 vs 有限支援
+5. **記憶體佈局**：可控 vs 引擎依賴
+6. **最佳化**：編譯時 vs 執行時最佳化
+
+### 最佳實踐
+1. **盡可能使用值類型**以獲得更好的效能
+2. **使用弱參考和無主參考避免循環參考**
+3. **分析記憶體使用**以識別瓶頸
+4. **最佳化記憶體佈局**以提高快取局部性
+5. **使用適當的資料結構**以提高記憶體效率
+6. **在效能關鍵程式碼中監控 ARC 行為**
+
+### 效能最佳化技巧
+1. **在已知大小時預分配集合**
+2. **對小的、頻繁複製的資料使用結構體**
+3. **在迴圈中避免不必要的物件建立**
+4. **在最佳化前進行分析和測量**
+5. **使用適當的參考類型**（強參考、弱參考、無主參考）
+6. **考慮高頻分配的記憶體池**
+
+### 下一步
+在下一個模組中，我們將探索 Swift 的系統程式設計能力，包括低級記憶體存取、C 互操作性和系統級程式設計，將它們與 JavaScript 在這些領域的局限性進行對比。 

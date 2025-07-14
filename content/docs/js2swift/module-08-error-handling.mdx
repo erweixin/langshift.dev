@@ -1,0 +1,1062 @@
+---
+title: "Error Handling - Result Type, Throwing Functions"
+description: "Learn Swift error handling: Result type, throwing functions, async error handling, and comparison with JavaScript"
+---
+
+# Error Handling: Result Type, Throwing Functions
+
+In this module, we explore Swift's comprehensive error handling system, including the Result type, throwing functions, and async error handling. We'll compare these approaches with JavaScript's try-catch and Promise patterns.
+
+## Table of Contents
+- [Introduction: Error Handling Approaches](#introduction-error-handling-approaches)
+- [Basic Error Handling](#basic-error-handling)
+- [Result Type](#result-type)
+- [Throwing Functions](#throwing-functions)
+- [Async Error Handling](#async-error-handling)
+- [Custom Error Types](#custom-error-types)
+- [Error Propagation](#error-propagation)
+- [Advanced Error Handling](#advanced-error-handling)
+- [Exercises](#exercises)
+- [Key Takeaways](#key-takeaways)
+
+## Introduction: Error Handling Approaches
+
+Swift provides multiple error handling mechanisms, while JavaScript primarily uses exceptions and Promises.
+
+| Feature              | JavaScript | Swift |
+|----------------------|------------|-------|
+| Exception Handling   | try-catch  | do-catch |
+| Result Type          | Manual     | Built-in |
+| Async Errors         | Promise    | async/await |
+| Error Types          | Dynamic    | Typed |
+| Error Propagation    | Manual     | Automatic |
+| Optional Errors      | No         | Yes (try?) |
+| Forced Error Handling | No         | Yes (try!) |
+
+## Basic Error Handling
+
+<UniversalEditor title="Basic Error Handling Comparison" compare={true}>
+```javascript !! js
+// JavaScript: try-catch with exceptions
+function divide(a, b) {
+    if (b === 0) {
+        throw new Error("Division by zero");
+    }
+    return a / b;
+}
+
+function safeDivide(a, b) {
+    try {
+        const result = divide(a, b);
+        console.log("Result:", result);
+        return result;
+    } catch (error) {
+        console.error("Error:", error.message);
+        return null;
+    }
+}
+
+safeDivide(10, 2); // Result: 5
+safeDivide(10, 0); // Error: Division by zero
+```
+
+```swift !! swift
+// Swift: do-catch with throwing functions
+enum DivisionError: Error {
+    case divisionByZero
+}
+
+func divide(_ a: Double, by b: Double) throws -> Double {
+    guard b != 0 else {
+        throw DivisionError.divisionByZero
+    }
+    return a / b
+}
+
+func safeDivide(_ a: Double, by b: Double) -> Double? {
+    do {
+        let result = try divide(a, by: b)
+        print("Result:", result)
+        return result
+    } catch {
+        print("Error:", error)
+        return nil
+    }
+}
+
+safeDivide(10, by: 2) // Result: 5.0
+safeDivide(10, by: 0) // Error: divisionByZero
+```
+</UniversalEditor>
+
+## Result Type
+
+Swift's Result type provides a type-safe way to handle success and failure cases.
+
+<UniversalEditor title="Result Type Comparison" compare={true}>
+```javascript !! js
+// JavaScript: Manual Result pattern
+class Result {
+    constructor(isSuccess, value, error) {
+        this.isSuccess = isSuccess;
+        this.value = value;
+        this.error = error;
+    }
+    
+    static success(value) {
+        return new Result(true, value, null);
+    }
+    
+    static failure(error) {
+        return new Result(false, null, error);
+    }
+    
+    map(fn) {
+        if (this.isSuccess) {
+            return Result.success(fn(this.value));
+        }
+        return this;
+    }
+    
+    flatMap(fn) {
+        if (this.isSuccess) {
+            return fn(this.value);
+        }
+        return this;
+    }
+}
+
+function fetchUser(id) {
+    if (id > 0) {
+        return Result.success({ id, name: "John Doe" });
+    } else {
+        return Result.failure(new Error("Invalid user ID"));
+    }
+}
+
+const result = fetchUser(1);
+result.map(user => user.name)
+      .flatMap(name => Result.success(name.toUpperCase()));
+```
+
+```swift !! swift
+// Swift: Built-in Result type
+enum UserError: Error {
+    case invalidId
+    case userNotFound
+}
+
+func fetchUser(id: Int) -> Result<User, UserError> {
+    guard id > 0 else {
+        return .failure(.invalidId)
+    }
+    return .success(User(id: id, name: "John Doe"))
+}
+
+struct User {
+    let id: Int
+    let name: String
+}
+
+let result = fetchUser(id: 1)
+    .map { $0.name }
+    .flatMap { name in
+        Result.success(name.uppercased())
+    }
+
+switch result {
+case .success(let name):
+    print("User name:", name)
+case .failure(let error):
+    print("Error:", error)
+}
+```
+</UniversalEditor>
+
+## Throwing Functions
+
+Swift's throwing functions provide automatic error propagation.
+
+<UniversalEditor title="Throwing Functions" compare={true}>
+```javascript !! js
+// JavaScript: Manual error propagation
+function validateEmail(email) {
+    if (!email.includes('@')) {
+        throw new Error("Invalid email format");
+    }
+    return email;
+}
+
+function validatePassword(password) {
+    if (password.length < 8) {
+        throw new Error("Password too short");
+    }
+    return password;
+}
+
+function createUser(email, password) {
+    try {
+        const validEmail = validateEmail(email);
+        const validPassword = validatePassword(password);
+        return { email: validEmail, password: validPassword };
+    } catch (error) {
+        throw new Error(`User creation failed: ${error.message}`);
+    }
+}
+
+try {
+    const user = createUser("test@example.com", "password123");
+    console.log("User created:", user);
+} catch (error) {
+    console.error("Error:", error.message);
+}
+```
+
+```swift !! swift
+// Swift: Automatic error propagation
+enum ValidationError: Error {
+    case invalidEmail
+    case passwordTooShort
+    case userCreationFailed
+}
+
+func validateEmail(_ email: String) throws -> String {
+    guard email.contains("@") else {
+        throw ValidationError.invalidEmail
+    }
+    return email
+}
+
+func validatePassword(_ password: String) throws -> String {
+    guard password.count >= 8 else {
+        throw ValidationError.passwordTooShort
+    }
+    return password
+}
+
+func createUser(email: String, password: String) throws -> User {
+    let validEmail = try validateEmail(email)
+    let validPassword = try validatePassword(password)
+    return User(id: 1, name: validEmail)
+}
+
+do {
+    let user = try createUser(email: "test@example.com", password: "password123")
+    print("User created:", user)
+} catch {
+    print("Error:", error)
+}
+```
+</UniversalEditor>
+
+## Async Error Handling
+
+Swift's async/await provides clean error handling for asynchronous operations.
+
+<UniversalEditor title="Async Error Handling" compare={true}>
+```javascript !! js
+// JavaScript: Promise-based error handling
+function fetchUserData(id) {
+    return new Promise((resolve, reject) => {
+        setTimeout(() => {
+            if (id > 0) {
+                resolve({ id, name: "John Doe", email: "john@example.com" });
+            } else {
+                reject(new Error("User not found"));
+            }
+        }, 1000);
+    });
+}
+
+function fetchUserPosts(userId) {
+    return new Promise((resolve, reject) => {
+        setTimeout(() => {
+            if (userId > 0) {
+                resolve([{ id: 1, title: "First Post" }]);
+            } else {
+                reject(new Error("Posts not found"));
+            }
+        }, 500);
+    });
+}
+
+async function loadUserProfile(userId) {
+    try {
+        const user = await fetchUserData(userId);
+        const posts = await fetchUserPosts(user.id);
+        return { user, posts };
+    } catch (error) {
+        console.error("Failed to load profile:", error.message);
+        throw error;
+    }
+}
+
+loadUserProfile(1)
+    .then(profile => console.log("Profile loaded:", profile))
+    .catch(error => console.error("Error:", error.message));
+```
+
+```swift !! swift
+// Swift: async/await error handling
+enum NetworkError: Error {
+    case userNotFound
+    case postsNotFound
+    case networkError
+}
+
+func fetchUserData(id: Int) async throws -> User {
+    try await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
+    
+    guard id > 0 else {
+        throw NetworkError.userNotFound
+    }
+    
+    return User(id: id, name: "John Doe")
+}
+
+func fetchUserPosts(userId: Int) async throws -> [Post] {
+    try await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
+    
+    guard userId > 0 else {
+        throw NetworkError.postsNotFound
+    }
+    
+    return [Post(id: 1, title: "First Post")]
+}
+
+struct Post {
+    let id: Int
+    let title: String
+}
+
+func loadUserProfile(userId: Int) async throws -> (user: User, posts: [Post]) {
+    let user = try await fetchUserData(id: userId)
+    let posts = try await fetchUserPosts(userId: user.id)
+    return (user, posts)
+}
+
+// Usage
+Task {
+    do {
+        let profile = try await loadUserProfile(userId: 1)
+        print("Profile loaded:", profile)
+    } catch {
+        print("Error:", error)
+    }
+}
+```
+</UniversalEditor>
+
+## Custom Error Types
+
+Swift allows creating custom error types with rich information.
+
+<UniversalEditor title="Custom Error Types" compare={true}>
+```javascript !! js
+// JavaScript: Custom error classes
+class ValidationError extends Error {
+    constructor(message, field, value) {
+        super(message);
+        this.name = 'ValidationError';
+        this.field = field;
+        this.value = value;
+    }
+}
+
+class NetworkError extends Error {
+    constructor(message, statusCode, url) {
+        super(message);
+        this.name = 'NetworkError';
+        this.statusCode = statusCode;
+        this.url = url;
+    }
+}
+
+function validateUser(user) {
+    const errors = [];
+    
+    if (!user.name || user.name.length < 2) {
+        errors.push(new ValidationError("Name too short", "name", user.name));
+    }
+    
+    if (!user.email || !user.email.includes('@')) {
+        errors.push(new ValidationError("Invalid email", "email", user.email));
+    }
+    
+    if (errors.length > 0) {
+        throw new AggregateError(errors, "Validation failed");
+    }
+    
+    return user;
+}
+
+try {
+    validateUser({ name: "J", email: "invalid" });
+} catch (error) {
+    if (error instanceof AggregateError) {
+        error.errors.forEach(err => {
+            console.error(`${err.field}: ${err.message}`);
+        });
+    }
+}
+```
+
+```swift !! swift
+// Swift: Custom error types with associated values
+enum ValidationError: Error, LocalizedError {
+    case nameTooShort(String)
+    case invalidEmail(String)
+    case ageOutOfRange(Int)
+    
+    var errorDescription: String? {
+        switch self {
+        case .nameTooShort(let name):
+            return "Name '\(name)' is too short (minimum 2 characters)"
+        case .invalidEmail(let email):
+            return "Invalid email format: \(email)"
+        case .ageOutOfRange(let age):
+            return "Age \(age) is out of range (must be 18-120)"
+        }
+    }
+}
+
+enum NetworkError: Error {
+    case invalidURL(String)
+    case serverError(Int)
+    case timeout
+}
+
+struct User {
+    let name: String
+    let email: String
+    let age: Int
+}
+
+func validateUser(_ user: User) throws {
+    var errors: [ValidationError] = []
+    
+    if user.name.count < 2 {
+        errors.append(.nameTooShort(user.name))
+    }
+    
+    if !user.email.contains("@") {
+        errors.append(.invalidEmail(user.email))
+    }
+    
+    if user.age < 18 || user.age > 120 {
+        errors.append(.ageOutOfRange(user.age))
+    }
+    
+    if !errors.isEmpty {
+        throw errors.first! // Throw first error for simplicity
+    }
+}
+
+do {
+    try validateUser(User(name: "J", email: "invalid", age: 15))
+} catch let error as ValidationError {
+    print("Validation error:", error.localizedDescription)
+} catch {
+    print("Unknown error:", error)
+}
+```
+</UniversalEditor>
+
+## Error Propagation
+
+Swift provides automatic error propagation with `try`, `try?`, and `try!`.
+
+<UniversalEditor title="Error Propagation" compare={true}>
+```javascript !! js
+// JavaScript: Manual error propagation
+function processData(data) {
+    try {
+        const parsed = JSON.parse(data);
+        const validated = validateData(parsed);
+        const processed = transformData(validated);
+        return processed;
+    } catch (error) {
+        console.error("Processing failed:", error.message);
+        return null;
+    }
+}
+
+function validateData(data) {
+    if (!data.id) {
+        throw new Error("Missing ID");
+    }
+    return data;
+}
+
+function transformData(data) {
+    return {
+        ...data,
+        processed: true,
+        timestamp: new Date().toISOString()
+    };
+}
+
+const result = processData('{"id": 1, "name": "test"}');
+console.log(result);
+```
+
+```swift !! swift
+// Swift: Automatic error propagation
+enum ProcessingError: Error {
+    case invalidJSON
+    case missingID
+    case transformationFailed
+}
+
+func processData(_ data: String) -> Result<ProcessedData, ProcessingError> {
+    // Parse JSON
+    guard let jsonData = data.data(using: .utf8),
+          let parsed = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else {
+        return .failure(.invalidJSON)
+    }
+    
+    // Validate data
+    guard let validated = try? validateData(parsed) else {
+        return .failure(.missingID)
+    }
+    
+    // Transform data
+    guard let processed = try? transformData(validated) else {
+        return .failure(.transformationFailed)
+    }
+    
+    return .success(processed)
+}
+
+func validateData(_ data: [String: Any]) throws -> [String: Any] {
+    guard data["id"] != nil else {
+        throw ProcessingError.missingID
+    }
+    return data
+}
+
+func transformData(_ data: [String: Any]) throws -> ProcessedData {
+    return ProcessedData(
+        id: data["id"] as! Int,
+        name: data["name"] as! String,
+        processed: true,
+        timestamp: Date()
+    )
+}
+
+struct ProcessedData {
+    let id: Int
+    let name: String
+    let processed: Bool
+    let timestamp: Date
+}
+
+let result = processData("{\"id\": 1, \"name\": \"test\"}")
+switch result {
+case .success(let data):
+    print("Processed:", data)
+case .failure(let error):
+    print("Error:", error)
+}
+```
+</UniversalEditor>
+
+## Advanced Error Handling
+
+### Error Recovery and Retry Logic
+
+<UniversalEditor title="Error Recovery and Retry" compare={true}>
+```javascript !! js
+// JavaScript: Retry logic with exponential backoff
+async function fetchWithRetry(url, maxRetries = 3) {
+    let lastError;
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+            const response = await fetch(url);
+            if (response.ok) {
+                return await response.json();
+            } else {
+                throw new Error(`HTTP ${response.status}`);
+            }
+        } catch (error) {
+            lastError = error;
+            console.log(`Attempt ${attempt} failed:`, error.message);
+            
+            if (attempt < maxRetries) {
+                const delay = Math.pow(2, attempt) * 1000; // Exponential backoff
+                await new Promise(resolve => setTimeout(resolve, delay));
+            }
+        }
+    }
+    
+    throw lastError;
+}
+
+// Usage
+fetchWithRetry('https://api.example.com/data')
+    .then(data => console.log('Success:', data))
+    .catch(error => console.error('All attempts failed:', error.message));
+```
+
+```swift !! swift
+// Swift: Retry logic with Result type
+enum FetchError: Error {
+    case networkError(Error)
+    case httpError(Int)
+    case maxRetriesExceeded
+}
+
+func fetchWithRetry(url: URL, maxRetries: Int = 3) async -> Result<Data, FetchError> {
+    var lastError: FetchError?
+    
+    for attempt in 1...maxRetries {
+        do {
+            let (data, response) = try await URLSession.shared.data(from: url)
+            
+            if let httpResponse = response as? HTTPURLResponse {
+                if httpResponse.statusCode == 200 {
+                    return .success(data)
+                } else {
+                    throw FetchError.httpError(httpResponse.statusCode)
+                }
+            }
+            
+            return .success(data)
+        } catch {
+            lastError = error as? FetchError ?? .networkError(error)
+            print("Attempt \(attempt) failed:", error)
+            
+            if attempt < maxRetries {
+                let delay = pow(2.0, Double(attempt)) * 1_000_000_000 // Exponential backoff
+                try? await Task.sleep(nanoseconds: UInt64(delay))
+            }
+        }
+    }
+    
+    return .failure(lastError ?? .maxRetriesExceeded)
+}
+
+// Usage
+Task {
+    let result = await fetchWithRetry(url: URL(string: "https://api.example.com/data")!)
+    switch result {
+    case .success(let data):
+        print("Success:", data)
+    case .failure(let error):
+        print("All attempts failed:", error)
+    }
+}
+```
+</UniversalEditor>
+
+### Error Handling with Optionals
+
+<UniversalEditor title="Error Handling with Optionals" compare={true}>
+```javascript !! js
+// JavaScript: Null coalescing and optional chaining
+function getUserName(user) {
+    return user?.name ?? "Unknown";
+}
+
+function getNestedValue(obj, path) {
+    return path.split('.').reduce((current, key) => {
+        return current?.[key] ?? null;
+    }, obj);
+}
+
+const user = { profile: { name: "John" } };
+const name = getNestedValue(user, "profile.name"); // "John"
+const email = getNestedValue(user, "profile.email"); // null
+
+// Safe array access
+function getArrayElement(arr, index) {
+    return arr?.[index] ?? null;
+}
+
+const numbers = [1, 2, 3];
+console.log(getArrayElement(numbers, 1)); // 2
+console.log(getArrayElement(numbers, 10)); // null
+```
+
+```swift !! swift
+// Swift: Optional handling with nil coalescing
+func getUserName(_ user: User?) -> String {
+    return user?.name ?? "Unknown"
+}
+
+func getNestedValue<T>(_ obj: [String: Any], path: String) -> T? {
+    let keys = path.split(separator: ".")
+    var current: Any? = obj
+    
+    for key in keys {
+        if let dict = current as? [String: Any] {
+            current = dict[String(key)]
+        } else {
+            return nil
+        }
+    }
+    
+    return current as? T
+}
+
+let user: [String: Any] = ["profile": ["name": "John"]]
+let name: String? = getNestedValue(user, path: "profile.name") // "John"
+let email: String? = getNestedValue(user, path: "profile.email") // nil
+
+// Safe array access
+func getArrayElement<T>(_ array: [T], at index: Int) -> T? {
+    return array.indices.contains(index) ? array[index] : nil
+}
+
+let numbers = [1, 2, 3]
+print(getArrayElement(numbers, at: 1)) // Optional(2)
+print(getArrayElement(numbers, at: 10)) // nil
+```
+</UniversalEditor>
+
+## Exercises
+
+### Exercise 1: File Processing with Error Handling
+
+<UniversalEditor title="Exercise 1: File Processing" compare={true}>
+```javascript !! js
+// JavaScript solution
+class FileProcessor {
+    constructor() {
+        this.processedFiles = 0;
+        this.errors = [];
+    }
+    
+    async processFile(filename) {
+        try {
+            // Simulate file reading
+            const content = await this.readFile(filename);
+            const processed = this.processContent(content);
+            this.processedFiles++;
+            return processed;
+        } catch (error) {
+            this.errors.push({ filename, error: error.message });
+            throw error;
+        }
+    }
+    
+    async readFile(filename) {
+        // Simulate async file reading
+        return new Promise((resolve, reject) => {
+            setTimeout(() => {
+                if (filename.endsWith('.txt')) {
+                    resolve(`Content of ${filename}`);
+                } else {
+                    reject(new Error(`Unsupported file type: ${filename}`));
+                }
+            }, 100);
+        });
+    }
+    
+    processContent(content) {
+        if (!content || content.length === 0) {
+            throw new Error("Empty file content");
+        }
+        return content.toUpperCase();
+    }
+    
+    getStats() {
+        return {
+            processed: this.processedFiles,
+            errors: this.errors.length,
+            errorDetails: this.errors
+        };
+    }
+}
+
+async function processFiles(filenames) {
+    const processor = new FileProcessor();
+    const results = [];
+    
+    for (const filename of filenames) {
+        try {
+            const result = await processor.processFile(filename);
+            results.push({ filename, success: true, data: result });
+        } catch (error) {
+            results.push({ filename, success: false, error: error.message });
+        }
+    }
+    
+    console.log("Stats:", processor.getStats());
+    return results;
+}
+
+processFiles(['file1.txt', 'file2.txt', 'file3.pdf']);
+```
+
+```swift !! swift
+// Swift solution
+enum FileError: Error {
+    case fileNotFound(String)
+    case unsupportedType(String)
+    case emptyContent
+    case processingFailed
+}
+
+struct FileStats {
+    let processed: Int
+    let errors: Int
+    let errorDetails: [(filename: String, error: Error)]
+}
+
+class FileProcessor {
+    private var processedFiles = 0
+    private var errors: [(filename: String, error: Error)] = []
+    
+    func processFile(_ filename: String) async throws -> String {
+        do {
+            let content = try await readFile(filename)
+            let processed = try processContent(content)
+            processedFiles += 1
+            return processed
+        } catch {
+            errors.append((filename, error))
+            throw error
+        }
+    }
+    
+    private func readFile(_ filename: String) async throws -> String {
+        // Simulate async file reading
+        try await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
+        
+        guard filename.hasSuffix(".txt") else {
+            throw FileError.unsupportedType(filename)
+        }
+        
+        return "Content of \(filename)"
+    }
+    
+    private func processContent(_ content: String) throws -> String {
+        guard !content.isEmpty else {
+            throw FileError.emptyContent
+        }
+        return content.uppercased()
+    }
+    
+    func getStats() -> FileStats {
+        return FileStats(
+            processed: processedFiles,
+            errors: errors.count,
+            errorDetails: errors
+        )
+    }
+}
+
+func processFiles(_ filenames: [String]) async -> [(filename: String, success: Bool, data: String?, error: Error?)] {
+    let processor = FileProcessor()
+    var results: [(filename: String, success: Bool, data: String?, error: Error?)] = []
+    
+    for filename in filenames {
+        do {
+            let result = try await processor.processFile(filename)
+            results.append((filename, true, result, nil))
+        } catch {
+            results.append((filename, false, nil, error))
+        }
+    }
+    
+    let stats = processor.getStats()
+    print("Stats: processed \(stats.processed), errors \(stats.errors)")
+    return results
+}
+
+// Usage
+Task {
+    let results = await processFiles(["file1.txt", "file2.txt", "file3.pdf"])
+    for result in results {
+        if result.success {
+            print("\(result.filename): \(result.data!)")
+        } else {
+            print("\(result.filename): Error - \(result.error!)")
+        }
+    }
+}
+```
+</UniversalEditor>
+
+### Exercise 2: API Client with Error Handling
+
+<UniversalEditor title="Exercise 2: API Client" compare={true}>
+```javascript !! js
+// JavaScript solution
+class APIClient {
+    constructor(baseURL) {
+        this.baseURL = baseURL;
+        this.retryCount = 3;
+    }
+    
+    async request(endpoint, options = {}) {
+        const url = `${this.baseURL}${endpoint}`;
+        let lastError;
+        
+        for (let attempt = 1; attempt <= this.retryCount; attempt++) {
+            try {
+                const response = await fetch(url, {
+                    ...options,
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...options.headers
+                    }
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                return await response.json();
+            } catch (error) {
+                lastError = error;
+                console.log(`Attempt ${attempt} failed:`, error.message);
+                
+                if (attempt < this.retryCount) {
+                    await this.delay(Math.pow(2, attempt) * 1000);
+                }
+            }
+        }
+        
+        throw lastError;
+    }
+    
+    delay(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
+    }
+    
+    async getUsers() {
+        return this.request('/users');
+    }
+    
+    async createUser(userData) {
+        return this.request('/users', {
+            method: 'POST',
+            body: JSON.stringify(userData)
+        });
+    }
+}
+
+// Usage
+const client = new APIClient('https://api.example.com');
+client.getUsers()
+    .then(users => console.log('Users:', users))
+    .catch(error => console.error('Failed to fetch users:', error.message));
+```
+
+```swift !! swift
+// Swift solution
+enum APIError: Error {
+    case invalidURL
+    case networkError(Error)
+    case httpError(Int)
+    case invalidResponse
+    case decodingError
+    case maxRetriesExceeded
+}
+
+struct User: Codable {
+    let id: Int
+    let name: String
+    let email: String
+}
+
+class APIClient {
+    private let baseURL: String
+    private let retryCount: Int
+    
+    init(baseURL: String, retryCount: Int = 3) {
+        self.baseURL = baseURL
+        self.retryCount = retryCount
+    }
+    
+    func request<T: Codable>(_ endpoint: String, method: String = "GET", body: Data? = nil) async throws -> T {
+        guard let url = URL(string: baseURL + endpoint) else {
+            throw APIError.invalidURL
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = body
+        
+        var lastError: APIError?
+        
+        for attempt in 1...retryCount {
+            do {
+                let (data, response) = try await URLSession.shared.data(for: request)
+                
+                if let httpResponse = response as? HTTPURLResponse {
+                    guard httpResponse.statusCode == 200 else {
+                        throw APIError.httpError(httpResponse.statusCode)
+                    }
+                }
+                
+                let decoded = try JSONDecoder().decode(T.self, from: data)
+                return decoded
+            } catch {
+                lastError = error as? APIError ?? .networkError(error)
+                print("Attempt \(attempt) failed:", error)
+                
+                if attempt < retryCount {
+                    try await Task.sleep(nanoseconds: UInt64(pow(2.0, Double(attempt)) * 1_000_000_000))
+                }
+            }
+        }
+        
+        throw lastError ?? .maxRetriesExceeded
+    }
+    
+    func getUsers() async throws -> [User] {
+        return try await request("/users")
+    }
+    
+    func createUser(_ user: User) async throws -> User {
+        let data = try JSONEncoder().encode(user)
+        return try await request("/users", method: "POST", body: data)
+    }
+}
+
+// Usage
+let client = APIClient(baseURL: "https://api.example.com")
+Task {
+    do {
+        let users = try await client.getUsers()
+        print("Users:", users)
+    } catch {
+        print("Failed to fetch users:", error)
+    }
+}
+```
+</UniversalEditor>
+
+## Key Takeaways
+
+### Swift Error Handling Advantages
+1. **Type Safety**: Errors are typed and checked at compile time
+2. **Automatic Propagation**: `try` keyword automatically propagates errors
+3. **Result Type**: Built-in success/failure handling
+4. **Async Integration**: Seamless error handling with async/await
+5. **Custom Errors**: Rich error types with associated values
+6. **Multiple Strategies**: try, try?, try! for different use cases
+
+### Key Differences from JavaScript
+1. **Error Types**: Swift has typed errors vs JavaScript dynamic errors
+2. **Propagation**: Automatic vs manual error propagation
+3. **Result Type**: Built-in vs manual implementation
+4. **Async Handling**: Native async/await vs Promise chains
+5. **Error Recovery**: Multiple recovery strategies vs try-catch only
+6. **Performance**: Compile-time checking vs runtime checking
+
+### Best Practices
+1. **Use Result type** for operations that can fail
+2. **Create custom error types** with meaningful information
+3. **Leverage automatic propagation** with throwing functions
+4. **Handle errors at appropriate levels** in your application
+5. **Use async/await** for clean asynchronous error handling
+6. **Consider error recovery strategies** for better user experience
+
+### Next Steps
+In the next module, we'll explore Swift's concurrency and async programming features, including async/await, actors, and structured concurrency, comparing them with JavaScript's Promise-based and callback approaches. 

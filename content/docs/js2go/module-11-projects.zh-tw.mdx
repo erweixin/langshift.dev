@@ -1,0 +1,272 @@
+---
+title: "實戰專案與綜合應用"
+description: "Go 實戰專案案例與 JS 對比，涵蓋 Web API、微服務、並發資料處理、雲原生等。"
+---
+
+# 實戰專案與綜合應用
+
+本模組通過多個典型專案，幫助你將 Go 語言知識應用於實際開發，並與 JavaScript 進行對比。每個專案都包含專案結構說明、JS/Go 對比程式碼、效能分析和實戰建議。
+
+## 1. Web API 專案
+
+### 專案結構
+- 路由與控制器
+- 資料庫整合
+- 中介軟體
+
+<UniversalEditor title="使用者管理 API" compare={true}>
+```javascript !! js
+// JavaScript: Express 實現簡單使用者 API
+const express = require('express');
+const app = express();
+app.use(express.json());
+app.get('/users/:id', (req, res) => {
+  // 查詢使用者
+  res.json({ id: req.params.id, name: '張三' });
+});
+app.listen(3000);
+```
+
+```go !! go
+// Go: Gin 實現簡單使用者 API
+package main
+import (
+  "github.com/gin-gonic/gin"
+)
+func main() {
+  r := gin.Default()
+  r.GET("/users/:id", func(c *gin.Context) {
+    c.JSON(200, gin.H{"id": c.Param("id"), "name": "張三"})
+  })
+  r.Run(":3000")
+}
+```
+</UniversalEditor>
+
+### 效能分析
+- Go 啟動快、並發高效，適合高並發 API 服務
+- JS (Node.js) 單執行緒事件迴圈，適合 IO 密集型
+
+### 練習題
+- 用 Go 實現帶 JWT 鑑權的 API
+- 用 JS 實現分頁查詢
+
+---
+
+## 2. 微服務專案
+
+### 專案結構
+- gRPC 服務
+- 服務註冊與發現
+- 配置中心
+
+<UniversalEditor title="gRPC 使用者服務" compare={true}>
+```javascript !! js
+// JavaScript: gRPC 服務（@grpc/grpc-js）
+// ... 省略，見 module-08-microservices ...
+```
+
+```go !! go
+// Go: gRPC 服務實現
+// ... 省略，見 module-08-microservices ...
+```
+</UniversalEditor>
+
+### 效能分析
+- Go 原生支援 gRPC，序列化高效
+- JS 生態豐富，適合快速原型
+
+### 練習題
+- 用 Go 實現服務健康檢查
+- 用 JS 實現服務註冊
+
+---
+
+## 3. 並發資料處理專案
+
+### 專案結構
+- 多任務並發處理
+- 結果聚合
+
+<UniversalEditor title="並發資料處理" compare={true}>
+```javascript !! js
+// JavaScript: Promise.all 並發處理
+const tasks = [1,2,3].map(i => fetch(`/api/${i}`));
+Promise.all(tasks).then(console.log);
+```
+
+```go !! go
+// Go: Goroutine + Channel 並發處理
+package main
+import (
+  "fmt"
+  "sync"
+)
+func main() {
+  var wg sync.WaitGroup
+  results := make(chan int, 3)
+  for i := 1; i <= 3; i++ {
+    wg.Add(1)
+    go func(i int) {
+      defer wg.Done()
+      // 模擬資料處理
+      results <- i * 10
+    }(i)
+  }
+  wg.Wait()
+  close(results)
+  for r := range results {
+    fmt.Println(r)
+  }
+}
+```
+</UniversalEditor>
+
+### 效能分析
+- Go 並發模型更適合 CPU 密集型任務
+- JS 並發適合 IO 密集型
+
+### 練習題
+- 用 Go 實現 worker pool
+- 用 JS 實現並發限流
+
+---
+
+## 4. 雲原生應用專案
+
+### 專案結構
+- Docker 容器化
+- Kubernetes 部署
+- 日誌與監控
+
+<UniversalEditor title="Dockerfile 對比" compare={true}>
+```javascript !! js
+# Node.js Dockerfile
+FROM node:18
+WORKDIR /app
+COPY . .
+RUN npm install
+CMD ["node", "index.js"]
+```
+
+```go !! go
+# Go Dockerfile
+FROM golang:1.21 AS builder
+WORKDIR /app
+COPY . .
+RUN go build -o app
+FROM alpine:latest
+WORKDIR /root/
+COPY --from=builder /app/app .
+CMD ["./app"]
+```
+</UniversalEditor>
+
+### 效能分析
+- Go 二進制體積小，啟動快，易於雲原生部署
+- JS 需依賴 Node 執行時
+
+### 練習題
+- 用 Go 實現 Prometheus 指標採集
+- 用 JS 實現簡單健康檢查
+
+---
+
+## 5. 即時聊天應用
+
+### 專案結構
+- WebSocket 通訊
+- 訊息廣播
+
+<UniversalEditor title="WebSocket 聊天" compare={true}>
+```javascript !! js
+// JavaScript: ws 實現 WebSocket 聊天
+const WebSocket = require('ws');
+const wss = new WebSocket.Server({ port: 8080 });
+wss.on('connection', ws => {
+  ws.on('message', msg => {
+    wss.clients.forEach(client => {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(msg);
+      }
+    });
+  });
+});
+```
+
+```go !! go
+// Go: Gorilla WebSocket 聊天
+package main
+import (
+  "github.com/gorilla/websocket"
+  "net/http"
+)
+var upgrader = websocket.Upgrader{}
+func handler(w http.ResponseWriter, r *http.Request) {
+  c, _ := upgrader.Upgrade(w, r, nil)
+  defer c.Close()
+  for {
+    _, msg, err := c.ReadMessage()
+    if err != nil { break }
+    c.WriteMessage(websocket.TextMessage, msg)
+  }
+}
+func main() {
+  http.HandleFunc("/ws", handler)
+  http.ListenAndServe(":8080", nil)
+}
+```
+</UniversalEditor>
+
+### 效能分析
+- Go 並發處理連線更高效
+- JS 生態豐富，開發便捷
+
+### 練習題
+- 用 Go 實現訊息持久化
+- 用 JS 實現前端聊天室
+
+---
+
+## 6. 分散式任務排程系統
+
+### 專案結構
+- 定時任務
+- 分散式排程
+
+<UniversalEditor title="定時任務對比" compare={true}>
+```javascript !! js
+// JavaScript: node-cron 定時任務
+const cron = require('node-cron');
+cron.schedule('* * * * *', () => {
+  console.log('每分鐘執行一次');
+});
+```
+
+```go !! go
+// Go: cron 定時任務
+package main
+import (
+  "github.com/robfig/cron/v3"
+  "fmt"
+)
+func main() {
+  c := cron.New()
+  c.AddFunc("* * * * *", func() { fmt.Println("每分鐘執行一次") })
+  c.Start()
+  select{} // 阻塞主執行緒
+}
+```
+</UniversalEditor>
+
+### 效能分析
+- Go 適合高並發任務排程
+- JS 適合輕量級定時任務
+
+### 練習題
+- 用 Go 實現分散式任務佇列
+- 用 JS 實現任務狀態監控
+
+---
+
+> 你可以選擇任意專案進行實戰練習，建議結合雲原生和並發特性，體驗 Go 的工程優勢。 

@@ -1,0 +1,863 @@
+---
+title: "協議和擴展 - 協議導向程式設計"
+description: "學習 Swift 協議和擴展：協議基礎、擴展、協議導向程式設計，與 JavaScript 對比"
+---
+
+# 協議和擴展：協議導向程式設計
+
+在本模組中，我們探索 Swift 強大的協議系統和擴展，它們構成了協議導向程式設計的基礎。我們將這種方法與 JavaScript 的介面模式和混入進行對比。
+
+## 目錄
+- [介紹：協議 vs 介面](#介紹協議-vs-介面)
+- [基本協議](#基本協議)
+- [協議擴展](#協議擴展)
+- [協議導向程式設計](#協議導向程式設計)
+- [擴展](#擴展)
+- [泛型協議](#泛型協議)
+- [協議組合](#協議組合)
+- [進階協議特性](#進階協議特性)
+- [練習題](#練習題)
+- [關鍵要點](#關鍵要點)
+
+## 介紹：協議 vs 介面
+
+Swift 協議比傳統介面更強大，支援預設實現、關聯類型和協議組合。
+
+| 特性                 | JavaScript 介面 | Swift 協議 |
+|----------------------|-----------------|------------|
+| 預設實現             | 否              | 是（擴展） |
+| 關聯類型             | 否              | 是         |
+| 協議組合             | 否              | 是         |
+| 值類型               | 否              | 是         |
+| Self 要求            | 否              | 是         |
+| 協議擴展             | 否              | 是         |
+| 泛型約束             | 否              | 是         |
+
+## 基本協議
+
+<UniversalEditor title="基本協議對比" compare={true}>
+```javascript !! js
+// JavaScript：沒有內建介面，但可以使用鴨子類型
+class Drawable {
+    draw() {
+        throw new Error("draw() 必須被實現");
+    }
+}
+
+class Circle {
+    constructor(radius) {
+        this.radius = radius;
+    }
+    draw() {
+        console.log(`繪製半徑為 ${this.radius} 的圓`);
+    }
+}
+
+// 手動介面檢查
+function isDrawable(obj) {
+    return typeof obj.draw === 'function';
+}
+
+const circle = new Circle(5);
+if (isDrawable(circle)) {
+    circle.draw();
+}
+```
+
+```swift !! swift
+// Swift：正式的協議系統
+protocol Drawable {
+    func draw()
+}
+
+struct Circle: Drawable {
+    var radius: Double
+    
+    func draw() {
+        print("繪製半徑為 \(radius) 的圓")
+    }
+}
+
+// 協議遵循在編譯時檢查
+let circle = Circle(radius: 5)
+circle.draw()
+```
+</UniversalEditor>
+
+### 帶屬性的協議
+
+<UniversalEditor title="帶屬性的協議" compare={true}>
+```javascript !! js
+// JavaScript：模擬帶屬性的協議
+class Vehicle {
+    constructor() {
+        if (this.constructor === Vehicle) {
+            throw new Error("Vehicle 是抽象的");
+        }
+    }
+    
+    get wheels() {
+        throw new Error("wheels 必須被實現");
+    }
+    
+    start() {
+        throw new Error("start() 必須被實現");
+    }
+}
+
+class Car extends Vehicle {
+    get wheels() {
+        return 4;
+    }
+    
+    start() {
+        console.log("汽車啟動中...");
+    }
+}
+
+const car = new Car();
+console.log(car.wheels); // 4
+car.start(); // 汽車啟動中...
+```
+
+```swift !! swift
+// Swift：帶屬性的協議
+protocol Vehicle {
+    var wheels: Int { get }
+    func start()
+}
+
+struct Car: Vehicle {
+    var wheels: Int {
+        return 4
+    }
+    
+    func start() {
+        print("汽車啟動中...")
+    }
+}
+
+let car = Car()
+print(car.wheels) // 4
+car.start() // 汽車啟動中...
+```
+</UniversalEditor>
+
+## 協議擴展
+
+Swift 協議擴展提供預設實現，JavaScript 無法原生做到。
+
+<UniversalEditor title="協議擴展" compare={true}>
+```javascript !! js
+// JavaScript：沒有協議擴展，必須手動實現
+class Animal {
+    constructor(name) {
+        this.name = name;
+    }
+    
+    speak() {
+        console.log(`${this.name} 發出聲音`);
+    }
+    
+    // 基類中的預設實現
+    describe() {
+        console.log(`這是 ${this.name}，一隻 ${this.constructor.name}`);
+    }
+}
+
+class Dog extends Animal {
+    speak() {
+        console.log(`${this.name} 汪汪叫`);
+    }
+}
+
+const dog = new Dog("Buddy");
+dog.speak(); // Buddy 汪汪叫
+dog.describe(); // 這是 Buddy，一隻 Dog
+```
+
+```swift !! swift
+// Swift：帶預設實現的協議擴展
+protocol Animal {
+    var name: String { get }
+    func speak()
+}
+
+extension Animal {
+    // 預設實現
+    func speak() {
+        print("\(name) 發出聲音")
+    }
+    
+    func describe() {
+        print("這是 \(name)，一個 \(type(of: self))")
+    }
+}
+
+struct Dog: Animal {
+    let name: String
+    
+    func speak() {
+        print("\(name) 汪汪叫")
+    }
+}
+
+let dog = Dog(name: "Buddy")
+dog.speak() // Buddy 汪汪叫
+dog.describe() // 這是 Buddy，一個 Dog
+```
+</UniversalEditor>
+
+## 協議導向程式設計
+
+Swift 鼓勵協議導向程式設計而非類繼承。
+
+<UniversalEditor title="協議導向程式設計" compare={true}>
+```javascript !! js
+// JavaScript：基於類的方法
+class Logger {
+    log(message) {
+        console.log(`[日誌] ${message}`);
+    }
+}
+
+class ErrorLogger extends Logger {
+    log(message) {
+        console.log(`[錯誤] ${message}`);
+    }
+}
+
+class FileLogger extends Logger {
+    log(message) {
+        console.log(`[檔案] ${message}`);
+    }
+}
+
+// 使用混入模擬多重繼承
+const TimestampMixin = {
+    logWithTimestamp(message) {
+        const timestamp = new Date().toISOString();
+        this.log(`[${timestamp}] ${message}`);
+    }
+};
+
+Object.assign(ErrorLogger.prototype, TimestampMixin);
+const errorLogger = new ErrorLogger();
+errorLogger.logWithTimestamp("出現了問題");
+```
+
+```swift !! swift
+// Swift：協議導向方法
+protocol Logger {
+    func log(_ message: String)
+}
+
+extension Logger {
+    func logWithTimestamp(_ message: String) {
+        let timestamp = ISO8601DateFormatter().string(from: Date())
+        log("[\(timestamp)] \(message)")
+    }
+}
+
+struct ConsoleLogger: Logger {
+    func log(_ message: String) {
+        print("[日誌] \(message)")
+    }
+}
+
+struct ErrorLogger: Logger {
+    func log(_ message: String) {
+        print("[錯誤] \(message)")
+    }
+}
+
+struct FileLogger: Logger {
+    func log(_ message: String) {
+        print("[檔案] \(message)")
+    }
+}
+
+let errorLogger = ErrorLogger()
+errorLogger.logWithTimestamp("出現了問題")
+```
+</UniversalEditor>
+
+## 擴展
+
+Swift 擴展允許向現有類型添加功能，類似於 JavaScript 的原型擴展。
+
+<UniversalEditor title="擴展對比" compare={true}>
+```javascript !! js
+// JavaScript：原型擴展
+String.prototype.reverse = function() {
+    return this.split('').reverse().join('');
+};
+
+Array.prototype.sum = function() {
+    return this.reduce((sum, num) => sum + num, 0);
+};
+
+const text = "Hello";
+console.log(text.reverse()); // olleH
+
+const numbers = [1, 2, 3, 4, 5];
+console.log(numbers.sum()); // 15
+
+// 擴展內建物件（不推薦）
+Number.prototype.isEven = function() {
+    return this % 2 === 0;
+};
+
+console.log((4).isEven()); // true
+```
+
+```swift !! swift
+// Swift：擴展
+extension String {
+    func reverse() -> String {
+        return String(self.reversed())
+    }
+}
+
+extension Array where Element == Int {
+    func sum() -> Int {
+        return self.reduce(0, +)
+    }
+}
+
+let text = "Hello"
+print(text.reverse()) // olleH
+
+let numbers = [1, 2, 3, 4, 5]
+print(numbers.sum()) // 15
+
+// 使用計算屬性擴展
+extension Int {
+    var isEven: Bool {
+        return self % 2 == 0
+    }
+}
+
+print(4.isEven) // true
+```
+</UniversalEditor>
+
+### 擴展自訂類型
+
+<UniversalEditor title="擴展自訂類型" compare={true}>
+```javascript !! js
+// JavaScript：向現有類添加方法
+class Person {
+    constructor(name, age) {
+        this.name = name;
+        this.age = age;
+    }
+}
+
+// 類定義後添加方法
+Person.prototype.getInfo = function() {
+    return `${this.name} 今年 ${this.age} 歲`;
+};
+
+Person.prototype.isAdult = function() {
+    return this.age >= 18;
+};
+
+const person = new Person("Alice", 25);
+console.log(person.getInfo()); // Alice 今年 25 歲
+console.log(person.isAdult()); // true
+```
+
+```swift !! swift
+// Swift：通過擴展添加功能
+struct Person {
+    let name: String
+    let age: Int
+}
+
+// 通過擴展添加功能
+extension Person {
+    func getInfo() -> String {
+        return "\(name) 今年 \(age) 歲"
+    }
+    
+    var isAdult: Bool {
+        return age >= 18
+    }
+}
+
+let person = Person(name: "Alice", age: 25)
+print(person.getInfo()) // Alice 今年 25 歲
+print(person.isAdult) // true
+```
+</UniversalEditor>
+
+## 泛型協議
+
+Swift 支援帶關聯類型的泛型協議，JavaScript 無法做到。
+
+<UniversalEditor title="泛型協議" compare={true}>
+```javascript !! js
+// JavaScript：沒有泛型協議，但可以在類中使用泛型
+class Container {
+    constructor(value) {
+        this.value = value;
+    }
+    
+    getValue() {
+        return this.value;
+    }
+    
+    setValue(value) {
+        this.value = value;
+    }
+}
+
+class NumberContainer extends Container {
+    constructor(value) {
+        super(value);
+    }
+    
+    add(other) {
+        return new NumberContainer(this.value + other.value);
+    }
+}
+
+const numContainer = new NumberContainer(5);
+const result = numContainer.add(new NumberContainer(3));
+console.log(result.getValue()); // 8
+```
+
+```swift !! swift
+// Swift：帶關聯類型的泛型協議
+protocol Container {
+    associatedtype Item
+    var value: Item { get set }
+    func getValue() -> Item
+    mutating func setValue(_ value: Item)
+}
+
+struct NumberContainer: Container {
+    typealias Item = Int
+    var value: Int
+    
+    func getValue() -> Int {
+        return value
+    }
+    
+    mutating func setValue(_ value: Int) {
+        self.value = value
+    }
+    
+    func add(_ other: NumberContainer) -> NumberContainer {
+        return NumberContainer(value: value + other.value)
+    }
+}
+
+var numContainer = NumberContainer(value: 5)
+let result = numContainer.add(NumberContainer(value: 3))
+print(result.getValue()) // 8
+```
+</UniversalEditor>
+
+## 協議組合
+
+Swift 允許組合多個協議，JavaScript 無法正式做到。
+
+<UniversalEditor title="協議組合" compare={true}>
+```javascript !! js
+// JavaScript：沒有正式協議組合，但可以檢查多個方法
+function isDrawableAndMovable(obj) {
+    return typeof obj.draw === 'function' && 
+           typeof obj.move === 'function';
+}
+
+class Shape {
+    constructor(x, y) {
+        this.x = x;
+        this.y = y;
+    }
+    
+    draw() {
+        console.log(`在 (${this.x}, ${this.y}) 繪製`);
+    }
+    
+    move(dx, dy) {
+        this.x += dx;
+        this.y += dy;
+    }
+}
+
+const shape = new Shape(0, 0);
+if (isDrawableAndMovable(shape)) {
+    shape.draw();
+    shape.move(10, 10);
+    shape.draw();
+}
+```
+
+```swift !! swift
+// Swift：協議組合
+protocol Drawable {
+    func draw()
+}
+
+protocol Movable {
+    mutating func move(dx: Double, dy: Double)
+}
+
+struct Shape: Drawable & Movable {
+    var x: Double
+    var y: Double
+    
+    func draw() {
+        print("在 (\(x), \(y)) 繪製")
+    }
+    
+    mutating func move(dx: Double, dy: Double) {
+        x += dx
+        y += dy
+    }
+}
+
+var shape = Shape(x: 0, y: 0)
+shape.draw()
+shape.move(dx: 10, dy: 10)
+shape.draw()
+```
+</UniversalEditor>
+
+## 進階協議特性
+
+### Self 要求
+
+<UniversalEditor title="Self 要求" compare={true}>
+```javascript !! js
+// JavaScript：沒有 self 要求，但可以使用 instanceof
+class Animal {
+    clone() {
+        return new this.constructor();
+    }
+}
+
+class Dog extends Animal {
+    constructor() {
+        super();
+        this.type = "Dog";
+    }
+}
+
+const dog = new Dog();
+const clonedDog = dog.clone();
+console.log(clonedDog instanceof Dog); // true
+console.log(clonedDog.type); // "Dog"
+```
+
+```swift !! swift
+// Swift：協議中的 Self 要求
+protocol Cloneable {
+    func clone() -> Self
+}
+
+class Animal: Cloneable {
+    func clone() -> Self {
+        return type(of: self).init()
+    }
+    
+    required init() {}
+}
+
+class Dog: Animal {
+    var type: String = "Dog"
+}
+
+let dog = Dog()
+let clonedDog = dog.clone()
+print(type(of: clonedDog) == Dog.self) // true
+print(clonedDog.type) // "Dog"
+```
+</UniversalEditor>
+
+### 協議見證表
+
+<UniversalEditor title="協議見證表" compare={true}>
+```javascript !! js
+// JavaScript：沒有協議見證表，動態分發
+class Logger {
+    log(message) {
+        console.log(`[日誌] ${message}`);
+    }
+}
+
+class ErrorLogger extends Logger {
+    log(message) {
+        console.log(`[錯誤] ${message}`);
+    }
+}
+
+function logMessage(logger, message) {
+    logger.log(message); // 動態分發
+}
+
+const errorLogger = new ErrorLogger();
+logMessage(errorLogger, "測試訊息");
+```
+
+```swift !! swift
+// Swift：協議見證表實現高效分發
+protocol Logger {
+    func log(_ message: String)
+}
+
+struct ConsoleLogger: Logger {
+    func log(_ message: String) {
+        print("[日誌] \(message)")
+    }
+}
+
+struct ErrorLogger: Logger {
+    func log(_ message: String) {
+        print("[錯誤] \(message)")
+    }
+}
+
+func logMessage(_ logger: Logger, _ message: String) {
+    logger.log(message) // 通過見證表靜態分發
+}
+
+let errorLogger = ErrorLogger()
+logMessage(errorLogger, "測試訊息")
+```
+</UniversalEditor>
+
+## 練習題
+
+### 練習 1：建立插件系統
+
+<UniversalEditor title="練習 1：插件系統" compare={true}>
+```javascript !! js
+// JavaScript 解答
+class Plugin {
+    constructor(name) {
+        this.name = name;
+    }
+    
+    execute() {
+        throw new Error("execute() 必須被實現");
+    }
+}
+
+class TextPlugin extends Plugin {
+    constructor(name, text) {
+        super(name);
+        this.text = text;
+    }
+    
+    execute() {
+        console.log(`插件 ${this.name}: ${this.text}`);
+    }
+}
+
+class MathPlugin extends Plugin {
+    constructor(name, operation) {
+        super(name);
+        this.operation = operation;
+    }
+    
+    execute() {
+        const result = eval(this.operation);
+        console.log(`插件 ${this.name}: ${this.operation} = ${result}`);
+    }
+}
+
+class PluginManager {
+    constructor() {
+        this.plugins = [];
+    }
+    
+    addPlugin(plugin) {
+        this.plugins.push(plugin);
+    }
+    
+    runAll() {
+        this.plugins.forEach(plugin => plugin.execute());
+    }
+}
+
+const manager = new PluginManager();
+manager.addPlugin(new TextPlugin("問候", "Hello World"));
+manager.addPlugin(new MathPlugin("計算器", "2 + 3 * 4"));
+manager.runAll();
+```
+
+```swift !! swift
+// Swift 解答
+protocol Plugin {
+    var name: String { get }
+    func execute()
+}
+
+struct TextPlugin: Plugin {
+    let name: String
+    let text: String
+    
+    func execute() {
+        print("插件 \(name): \(text)")
+    }
+}
+
+struct MathPlugin: Plugin {
+    let name: String
+    let operation: String
+    
+    func execute() {
+        // 簡單數學求值（實際應用中，使用適當的解析器）
+        let result = evaluate(operation)
+        print("插件 \(name): \(operation) = \(result)")
+    }
+    
+    private func evaluate(_ expression: String) -> Int {
+        // 簡化的求值 - 實際使用適當的運算式解析器
+        return 0 // 佔位符
+    }
+}
+
+class PluginManager {
+    private var plugins: [Plugin] = []
+    
+    func addPlugin(_ plugin: Plugin) {
+        plugins.append(plugin)
+    }
+    
+    func runAll() {
+        plugins.forEach { $0.execute() }
+    }
+}
+
+let manager = PluginManager()
+manager.addPlugin(TextPlugin(name: "問候", text: "Hello World"))
+manager.addPlugin(MathPlugin(name: "計算器", operation: "2 + 3 * 4"))
+manager.runAll()
+```
+</UniversalEditor>
+
+### 練習 2：實現資料源模式
+
+<UniversalEditor title="練習 2：資料源模式" compare={true}>
+```javascript !! js
+// JavaScript 解答
+class DataSource {
+    getData() {
+        throw new Error("getData() 必須被實現");
+    }
+}
+
+class ArrayDataSource extends DataSource {
+    constructor(data) {
+        super();
+        this.data = data;
+    }
+    
+    getData() {
+        return this.data;
+    }
+}
+
+class FileDataSource extends DataSource {
+    constructor(filename) {
+        super();
+        this.filename = filename;
+    }
+    
+    getData() {
+        // 模擬檔案讀取
+        return [`來自 ${this.filename} 的資料`];
+    }
+}
+
+class DataProcessor {
+    constructor(dataSource) {
+        this.dataSource = dataSource;
+    }
+    
+    process() {
+        const data = this.dataSource.getData();
+        return data.map(item => `已處理: ${item}`);
+    }
+}
+
+const arraySource = new ArrayDataSource([1, 2, 3, 4, 5]);
+const processor = new DataProcessor(arraySource);
+console.log(processor.process());
+```
+
+```swift !! swift
+// Swift 解答
+protocol DataSource {
+    func getData() -> [String]
+}
+
+struct ArrayDataSource: DataSource {
+    let data: [String]
+    
+    func getData() -> [String] {
+        return data
+    }
+}
+
+struct FileDataSource: DataSource {
+    let filename: String
+    
+    func getData() -> [String] {
+        // 模擬檔案讀取
+        return ["來自 \(filename) 的資料"]
+    }
+}
+
+class DataProcessor {
+    let dataSource: DataSource
+    
+    init(dataSource: DataSource) {
+        self.dataSource = dataSource
+    }
+    
+    func process() -> [String] {
+        let data = dataSource.getData()
+        return data.map { "已處理: \($0)" }
+    }
+}
+
+let arraySource = ArrayDataSource(data: ["1", "2", "3", "4", "5"])
+let processor = DataProcessor(dataSource: arraySource)
+print(processor.process())
+```
+</UniversalEditor>
+
+## 關鍵要點
+
+### Swift 協議優勢
+1. **預設實現**：協議擴展提供預設行為
+2. **值類型支援**：協議適用於類和結構體
+3. **類型安全**：編譯時檢查協議遵循
+4. **組合**：可以組合多個協議
+5. **關聯類型**：帶類型約束的泛型協議
+6. **效能**：通過見證表靜態分發
+
+### 與 JavaScript 的關鍵差異
+1. **正式系統**：Swift 有正式協議系統 vs JavaScript 鴨子類型
+2. **擴展**：Swift 協議擴展 vs JavaScript 原型擴展
+3. **類型安全**：編譯時 vs 執行時檢查
+4. **組合**：協議組合 vs 手動介面檢查
+5. **泛型**：關聯類型 vs 無泛型協議
+6. **效能**：靜態分發 vs 動態分發
+
+### 最佳實踐
+1. **優先使用協議而非類**以獲得靈活性
+2. **使用協議擴展**提供預設實現
+3. **利用協議組合**滿足複雜需求
+4. **考慮關聯類型**用於泛型協議
+5. **使用擴展**向現有類型添加功能
+6. **從一開始就設計協議導向程式設計**
+
+### 下一步
+在下一個模組中，我們將探索 Swift 中的錯誤處理，包括 Result 類型、拋出函式，以及它們與 JavaScript 的 try-catch 和 Promise 模式的對比。 

@@ -1,0 +1,851 @@
+---
+title: 并发和 Goroutine
+---
+
+Go 的并发模型是其最显著的特性之一，围绕 goroutine 和 channel 的概念构建。与 JavaScript 的单线程事件循环或 C++ 的复杂线程模型不同，Go 提供了一种简单而强大的并发编程方法，其座右铭是"不要通过共享内存来通信；要通过通信来共享内存"。
+
+## 并发 vs 并行
+
+**并发**是通过交错执行来处理多个任务的能力，而**并行**是在不同 CPU 核心上同时执行多个任务的能力。
+
+- **JavaScript**: 主要通过事件循环实现并发，通过 Web Workers 实现有限的并行
+- **Go**: 既支持并发（goroutine）也支持并行（可以利用多个 CPU 核心）
+
+## Goroutine: 轻量级线程
+
+Goroutine 是 Go 处理并发操作的方式。它们是由 Go 运行时管理的轻量级线程，而不是操作系统。
+
+<UniversalEditor title="Goroutine vs JavaScript 异步对比" compare={true}>
+```javascript !! js
+// JavaScript: 使用回调/promise 的异步操作
+function simulateTask(name, duration) {
+  console.log(`${name} 开始`);
+  return new Promise(resolve => {
+    setTimeout(() => {
+      console.log(`${name} 完成`);
+      resolve();
+    }, duration);
+  });
+}
+
+async function main() {
+  console.log("主程序开始");
+  
+  // 并发启动任务
+  const task1 = simulateTask("任务 A", 2000);
+  const task2 = simulateTask("任务 B", 1000);
+  
+  // 等待两个任务都完成
+  await Promise.all([task1, task2]);
+  
+  console.log("主程序结束");
+}
+
+main();
+```
+
+```go !! go
+// Go: Goroutine
+package main
+
+import (
+	"fmt"
+	"time"
+)
+
+func simulateTask(name string, duration time.Duration) {
+	fmt.Printf("%s 开始\n", name)
+	time.Sleep(duration)
+	fmt.Printf("%s 完成\n", name)
+}
+
+func main() {
+	fmt.Println("主程序开始")
+	
+	// 启动 goroutine（并发执行）
+	go simulateTask("任务 A", 2*time.Second)
+	go simulateTask("任务 B", 1*time.Second)
+	
+	// 等待 goroutine 完成
+	time.Sleep(3 * time.Second)
+	
+	fmt.Println("主程序结束")
+}
+```
+</UniversalEditor>
+
+## Goroutine 生命周期
+
+### 创建 Goroutine
+
+Goroutine 使用 `go` 关键字后跟函数调用来创建：
+
+<UniversalEditor title="Goroutine 创建示例" compare={true}>
+```javascript !! js
+// JavaScript: 创建异步操作的不同方式
+function task1() {
+  console.log("任务 1 执行中");
+}
+
+function task2(param) {
+  console.log("任务 2 带参数:", param);
+}
+
+// 方法 1: Promise
+const promise1 = new Promise(resolve => {
+  task1();
+  resolve();
+});
+
+// 方法 2: setTimeout
+setTimeout(() => task2("hello"), 0);
+
+// 方法 3: async/await
+async function asyncTask() {
+  await new Promise(resolve => setTimeout(resolve, 100));
+  task1();
+}
+```
+
+```go !! go
+// Go: 创建 goroutine 的不同方式
+package main
+
+import (
+	"fmt"
+	"time"
+)
+
+func task1() {
+	fmt.Println("任务 1 执行中")
+}
+
+func task2(param string) {
+	fmt.Println("任务 2 带参数:", param)
+}
+
+func main() {
+	// 方法 1: 匿名函数
+	go func() {
+		task1()
+	}()
+	
+	// 方法 2: 命名函数
+	go task2("hello")
+	
+	// 方法 3: 带参数的函数
+	go func(name string) {
+		fmt.Println("来自", name, "的问候")
+	}("goroutine")
+	
+	// 等待 goroutine 完成
+	time.Sleep(100 * time.Millisecond)
+}
+```
+</UniversalEditor>
+
+### Goroutine 同步
+
+与 JavaScript 基于 Promise 的同步不同，Go 使用 channel 和同步原语：
+
+<UniversalEditor title="同步对比" compare={true}>
+```javascript !! js
+// JavaScript: 基于 Promise 的同步
+function worker(id) {
+  return new Promise(resolve => {
+    setTimeout(() => {
+      console.log(`工作线程 ${id} 完成`);
+      resolve(id);
+    }, Math.random() * 1000);
+  });
+}
+
+async function main() {
+  console.log("启动工作线程...");
+  
+  // 启动多个工作线程
+  const promises = [];
+  for (let i = 0; i < 3; i++) {
+    promises.push(worker(i));
+  }
+  
+  // 等待所有线程完成
+  const results = await Promise.all(promises);
+  console.log("所有工作线程完成:", results);
+}
+
+main();
+```
+
+```go !! go
+// Go: 基于 channel 的同步
+package main
+
+import (
+	"fmt"
+	"math/rand"
+	"time"
+)
+
+func worker(id int, done chan<- int) {
+	time.Sleep(time.Duration(rand.Intn(1000)) * time.Millisecond)
+	fmt.Printf("工作线程 %d 完成\n", id)
+	done <- id // 发送结果到 channel
+}
+
+func main() {
+	fmt.Println("启动工作线程...")
+	
+	// 创建用于同步的 channel
+	done := make(chan int, 3)
+	
+	// 启动多个工作线程
+	for i := 0; i < 3; i++ {
+		go worker(i, done)
+	}
+	
+	// 等待所有线程完成
+	var results []int
+	for i := 0; i < 3; i++ {
+		result := <-done // 从 channel 接收
+		results = append(results, result)
+	}
+	
+	fmt.Println("所有工作线程完成:", results)
+}
+```
+</UniversalEditor>
+
+## Channel: Goroutine 间的通信
+
+Channel 是 Go 中 goroutine 间通信的主要机制。它们提供了一种安全的数据共享方式，无需显式锁定。
+
+### 基本 Channel 操作
+
+<UniversalEditor title="Channel 基础" compare={true}>
+```javascript !! js
+// JavaScript: 使用事件模拟 channel 式通信
+class EventChannel {
+  constructor() {
+    this.listeners = [];
+  }
+  
+  send(data) {
+    this.listeners.forEach(callback => callback(data));
+  }
+  
+  receive(callback) {
+    this.listeners.push(callback);
+  }
+}
+
+// 使用
+const channel = new EventChannel();
+
+// 接收者
+channel.receive(data => {
+  console.log("收到:", data);
+});
+
+// 发送者
+setTimeout(() => {
+  channel.send("来自发送者的问候");
+}, 1000);
+```
+
+```go !! go
+// Go: Channel 通信
+package main
+
+import (
+	"fmt"
+	"time"
+)
+
+func main() {
+	// 创建一个 channel
+	ch := make(chan string)
+	
+	// 发送数据的 goroutine
+	go func() {
+		time.Sleep(1 * time.Second)
+		ch <- "来自发送者的问候" // 发送数据到 channel
+	}()
+	
+	// 主 goroutine 接收数据
+	message := <-ch // 从 channel 接收数据
+	fmt.Println("收到:", message)
+}
+```
+</UniversalEditor>
+
+### 缓冲 vs 无缓冲 Channel
+
+<UniversalEditor title="缓冲 vs 无缓冲 Channel" compare={true}>
+```javascript !! js
+// JavaScript: 没有直接等价物，但可以用队列模拟
+class BufferedChannel {
+  constructor(bufferSize) {
+    this.buffer = [];
+    this.maxSize = bufferSize;
+    this.waitingReceivers = [];
+  }
+  
+  send(data) {
+    if (this.buffer.length < this.maxSize) {
+      this.buffer.push(data);
+      if (this.waitingReceivers.length > 0) {
+        const receiver = this.waitingReceivers.shift();
+        receiver(this.buffer.shift());
+      }
+    } else {
+      // 缓冲区满 - 在 Go 中会阻塞
+      console.log("缓冲区满，会阻塞");
+    }
+  }
+  
+  receive() {
+    return new Promise(resolve => {
+      if (this.buffer.length > 0) {
+        resolve(this.buffer.shift());
+      } else {
+        this.waitingReceivers.push(resolve);
+      }
+    });
+  }
+}
+```
+
+```go !! go
+// Go: 缓冲 vs 无缓冲 channel
+package main
+
+import (
+	"fmt"
+	"time"
+)
+
+func main() {
+	// 无缓冲 channel（同步）
+	unbuffered := make(chan string)
+	
+	// 缓冲 channel（在缓冲区大小内异步）
+	buffered := make(chan string, 2)
+	
+	// 无缓冲 channel 示例
+	go func() {
+		fmt.Println("发送到无缓冲 channel...")
+		unbuffered <- "Hello" // 这会阻塞直到有人接收
+		fmt.Println("已发送到无缓冲 channel")
+	}()
+	
+	time.Sleep(100 * time.Millisecond)
+	message := <-unbuffered
+	fmt.Println("从无缓冲 channel 收到:", message)
+	
+	// 缓冲 channel 示例
+	fmt.Println("发送到缓冲 channel...")
+	buffered <- "第一条消息"  // 不会阻塞
+	buffered <- "第二条消息" // 不会阻塞
+	fmt.Println("已发送到缓冲 channel")
+	
+	// 从缓冲 channel 接收
+	fmt.Println("收到:", <-buffered)
+	fmt.Println("收到:", <-buffered)
+}
+```
+</UniversalEditor>
+
+## Select 语句
+
+`select` 语句允许 goroutine 等待多个 channel 操作：
+
+<UniversalEditor title="Select 语句" compare={true}>
+```javascript !! js
+// JavaScript: 使用 Promise.race 模拟 select
+function createChannel(name, delay) {
+  return new Promise(resolve => {
+    setTimeout(() => {
+      resolve(`来自 ${name} 的数据`);
+    }, delay);
+  });
+}
+
+async function main() {
+  console.log("等待第一个可用的 channel...");
+  
+  // 使用 Promise.race 模拟 select
+  const result = await Promise.race([
+    createChannel("A", 2000),
+    createChannel("B", 1000),
+    createChannel("C", 1500)
+  ]);
+  
+  console.log("第一个结果:", result);
+}
+```
+
+```go !! go
+// Go: Select 语句
+package main
+
+import (
+	"fmt"
+	"time"
+)
+
+func createChannel(name string, delay time.Duration) chan string {
+	ch := make(chan string)
+	go func() {
+		time.Sleep(delay)
+		ch <- fmt.Sprintf("来自 %s 的数据", name)
+	}()
+	return ch
+}
+
+func main() {
+	fmt.Println("等待第一个可用的 channel...")
+	
+	// 创建多个 channel
+	chA := createChannel("A", 2*time.Second)
+	chB := createChannel("B", 1*time.Second)
+	chC := createChannel("C", 1500*time.Millisecond)
+	
+	// Select 等待第一个可用的 channel
+	select {
+	case msg := <-chA:
+		fmt.Println("从 A 收到:", msg)
+	case msg := <-chB:
+		fmt.Println("从 B 收到:", msg)
+	case msg := <-chC:
+		fmt.Println("从 C 收到:", msg)
+	}
+}
+```
+</UniversalEditor>
+
+## 常见并发模式
+
+### 工作池模式
+
+<UniversalEditor title="工作池模式" compare={true}>
+```javascript !! js
+// JavaScript: 使用 Promise.all 的工作池
+class WorkerPool {
+  constructor(size) {
+    this.size = size;
+    this.workers = [];
+  }
+  
+  async processTasks(tasks) {
+    const results = [];
+    
+    // 分批处理任务
+    for (let i = 0; i < tasks.length; i += this.size) {
+      const batch = tasks.slice(i, i + this.size);
+      const batchPromises = batch.map(task => this.worker(task));
+      const batchResults = await Promise.all(batchPromises);
+      results.push(...batchResults);
+    }
+    
+    return results;
+  }
+  
+  async worker(task) {
+    // 模拟工作
+    await new Promise(resolve => setTimeout(resolve, Math.random() * 1000));
+    return `已处理: ${task}`;
+  }
+}
+
+// 使用
+const pool = new WorkerPool(3);
+const tasks = Array.from({length: 10}, (_, i) => `任务 ${i}`);
+pool.processTasks(tasks).then(results => {
+  console.log("所有任务完成:", results);
+});
+```
+
+```go !! go
+// Go: 使用 goroutine 和 channel 的工作池
+package main
+
+import (
+	"fmt"
+	"math/rand"
+	"sync"
+	"time"
+)
+
+type WorkerPool struct {
+	workerCount int
+	tasks       chan string
+	results     chan string
+	wg          sync.WaitGroup
+}
+
+func NewWorkerPool(workerCount int) *WorkerPool {
+	return &WorkerPool{
+		workerCount: workerCount,
+		tasks:       make(chan string, workerCount),
+		results:     make(chan string, workerCount),
+	}
+}
+
+func (wp *WorkerPool) Start() {
+	for i := 0; i < wp.workerCount; i++ {
+		wp.wg.Add(1)
+		go wp.worker(i)
+	}
+}
+
+func (wp *WorkerPool) worker(id int) {
+	defer wp.wg.Done()
+	
+	for task := range wp.tasks {
+		// 模拟工作
+		time.Sleep(time.Duration(rand.Intn(1000)) * time.Millisecond)
+		wp.results <- fmt.Sprintf("工作线程 %d 处理了: %s", id, task)
+	}
+}
+
+func (wp *WorkerPool) Submit(tasks []string) {
+	// 提交所有任务
+	for _, task := range tasks {
+		wp.tasks <- task
+	}
+	close(wp.tasks)
+}
+
+func (wp *WorkerPool) CollectResults() []string {
+	var results []string
+	
+	// 在单独的 goroutine 中收集结果
+	go func() {
+		for result := range wp.results {
+			results = append(results, result)
+		}
+	}()
+	
+	// 等待所有工作线程完成
+	wp.wg.Wait()
+	close(wp.results)
+	
+	return results
+}
+
+func main() {
+	pool := NewWorkerPool(3)
+	pool.Start()
+	
+	tasks := []string{"任务 0", "任务 1", "任务 2", "任务 3", "任务 4"}
+	pool.Submit(tasks)
+	
+	results := pool.CollectResults()
+	fmt.Println("所有任务完成:", results)
+}
+```
+</UniversalEditor>
+
+### 管道模式
+
+<UniversalEditor title="管道模式" compare={true}>
+```javascript !! js
+// JavaScript: 使用异步函数的管道
+async function stage1(data) {
+  await new Promise(resolve => setTimeout(resolve, 100));
+  return data.map(x => x * 2);
+}
+
+async function stage2(data) {
+  await new Promise(resolve => setTimeout(resolve, 100));
+  return data.map(x => x + 1);
+}
+
+async function stage3(data) {
+  await new Promise(resolve => setTimeout(resolve, 100));
+  return data.filter(x => x > 5);
+}
+
+async function pipeline(input) {
+  const result1 = await stage1(input);
+  const result2 = await stage2(result1);
+  const result3 = await stage3(result2);
+  return result3;
+}
+
+// 使用
+pipeline([1, 2, 3, 4, 5]).then(result => {
+  console.log("管道结果:", result);
+});
+```
+
+```go !! go
+// Go: 使用 channel 的管道
+package main
+
+import (
+	"fmt"
+	"time"
+)
+
+func stage1(input <-chan int) <-chan int {
+	output := make(chan int)
+	go func() {
+		defer close(output)
+		for value := range input {
+			time.Sleep(100 * time.Millisecond)
+			output <- value * 2
+		}
+	}()
+	return output
+}
+
+func stage2(input <-chan int) <-chan int {
+	output := make(chan int)
+	go func() {
+		defer close(output)
+		for value := range input {
+			time.Sleep(100 * time.Millisecond)
+			output <- value + 1
+		}
+	}()
+	return output
+}
+
+func stage3(input <-chan int) <-chan int {
+	output := make(chan int)
+	go func() {
+		defer close(output)
+		for value := range input {
+			time.Sleep(100 * time.Millisecond)
+			if value > 5 {
+				output <- value
+			}
+		}
+	}()
+	return output
+}
+
+func main() {
+	// 创建输入 channel
+	input := make(chan int)
+	
+	// 构建管道
+	output := stage3(stage2(stage1(input)))
+	
+	// 发送输入数据
+	go func() {
+		defer close(input)
+		for i := 1; i <= 5; i++ {
+			input <- i
+		}
+	}()
+	
+	// 收集结果
+	var results []int
+	for result := range output {
+		results = append(results, result)
+	}
+	
+	fmt.Println("管道结果:", results)
+}
+```
+</UniversalEditor>
+
+## Goroutine 最佳实践
+
+### 1. 始终处理 Goroutine 生命周期
+
+<UniversalEditor title="Goroutine 生命周期管理" compare={true}>
+```javascript !! js
+// JavaScript: Promise 生命周期管理
+async function controlledAsync() {
+  const controller = new AbortController();
+  
+  const promise = new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      resolve("任务完成");
+    }, 5000);
+    
+    controller.signal.addEventListener('abort', () => {
+      clearTimeout(timeout);
+      reject(new Error("任务取消"));
+    });
+  });
+  
+  // 2秒后取消
+  setTimeout(() => {
+    controller.abort();
+  }, 2000);
+  
+  try {
+    const result = await promise;
+    console.log(result);
+  } catch (error) {
+    console.log("错误:", error.message);
+  }
+}
+```
+
+```go !! go
+// Go: Goroutine 生命周期管理
+package main
+
+import (
+	"context"
+	"fmt"
+	"time"
+)
+
+func controlledGoroutine(ctx context.Context) {
+	select {
+	case <-time.After(5 * time.Second):
+		fmt.Println("任务完成")
+	case <-ctx.Done():
+		fmt.Println("任务取消:", ctx.Err())
+	}
+}
+
+func main() {
+	// 创建带取消功能的 context
+	ctx, cancel := context.WithCancel(context.Background())
+	
+	// 启动 goroutine
+	go controlledGoroutine(ctx)
+	
+	// 2秒后取消
+	time.Sleep(2 * time.Second)
+	cancel()
+	
+	// 等待一下看结果
+	time.Sleep(1 * time.Second)
+}
+```
+</UniversalEditor>
+
+### 2. 避免 Goroutine 泄漏
+
+<UniversalEditor title="防止 Goroutine 泄漏" compare={true}>
+```javascript !! js
+// JavaScript: 正确清理异步操作
+class ResourceManager {
+  constructor() {
+    this.active = new Set();
+  }
+  
+  async startTask(id) {
+    const task = this.createTask(id);
+    this.active.add(task);
+    
+    try {
+      await task;
+    } finally {
+      this.active.delete(task);
+    }
+  }
+  
+  async createTask(id) {
+    return new Promise(resolve => {
+      setTimeout(() => {
+        console.log(`任务 ${id} 完成`);
+        resolve();
+      }, Math.random() * 1000);
+    });
+  }
+  
+  getActiveCount() {
+    return this.active.size;
+  }
+}
+```
+
+```go !! go
+// Go: 防止 goroutine 泄漏
+package main
+
+import (
+	"fmt"
+	"sync"
+	"time"
+)
+
+type ResourceManager struct {
+	active map[int]bool
+	mutex  sync.RWMutex
+}
+
+func NewResourceManager() *ResourceManager {
+	return &ResourceManager{
+		active: make(map[int]bool),
+	}
+}
+
+func (rm *ResourceManager) StartTask(id int) {
+	rm.mutex.Lock()
+	rm.active[id] = true
+	rm.mutex.Unlock()
+	
+	// 确保清理发生
+	defer func() {
+		rm.mutex.Lock()
+		delete(rm.active, id)
+		rm.mutex.Unlock()
+	}()
+	
+	// 模拟工作
+	time.Sleep(time.Duration(id*100) * time.Millisecond)
+	fmt.Printf("任务 %d 完成\n", id)
+}
+
+func (rm *ResourceManager) GetActiveCount() int {
+	rm.mutex.RLock()
+	defer rm.mutex.RUnlock()
+	return len(rm.active)
+}
+
+func main() {
+	rm := NewResourceManager()
+	
+	// 启动多个任务
+	for i := 1; i <= 5; i++ {
+		go rm.StartTask(i)
+	}
+	
+	// 等待任务完成
+	time.Sleep(1 * time.Second)
+	
+	fmt.Printf("活跃任务数: %d\n", rm.GetActiveCount())
+}
+```
+</UniversalEditor>
+
+## 性能考虑
+
+### Goroutine vs 线程对比
+
+| 方面 | Goroutine | 操作系统线程 |
+|------|-----------|-------------|
+| **内存** | ~2KB 栈 | ~1MB 栈 |
+| **创建** | ~0.3μs | ~17μs |
+| **上下文切换** | ~0.2μs | ~1.7μs |
+| **并发数** | 百万级 | 千级 |
+
+### 何时使用 Goroutine
+
+- **I/O 密集型操作**: 网络请求、文件操作
+- **CPU 密集型操作**: 数学计算（需要适当协调）
+- **事件处理**: 并发处理多个事件
+- **后台任务**: 清理、监控、日志记录
+
+---
+
+### 练习题:
+1. Go 中并发和并行有什么区别？
+2. Goroutine 在资源使用方面与操作系统线程有何不同？
+3. 解释缓冲 channel 和无缓冲 channel 的区别。
+4. 什么时候使用 `select` 语句而不是简单的 channel 接收？
+5. 防止 goroutine 泄漏有哪些常见模式？
+
+### 项目想法:
+创建一个使用 goroutine 并发获取多个 URL 的网络爬虫，包含适当的错误处理和速率限制。爬虫应该使用 channel 来协调工作线程并收集结果。

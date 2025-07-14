@@ -1,0 +1,830 @@
+---
+title: "測試與除錯最佳實踐"
+description: "Go 測試生態系統、除錯技術和效能分析，從 JavaScript 開發者視角探索。"
+---
+
+# 測試與除錯最佳實踐
+
+Go 語言具有優秀的內建測試支援，包含全面的測試框架，涵蓋單元測試、基準測試和模糊測試。本模組從 JavaScript 開發者的視角探索 Go 的測試生態系統，涵蓋測試模式、除錯技術和效能分析。
+
+## Go 測試概述
+
+- **內建測試：** 無需外部依賴的 `testing` 包
+- **測試函數：** 以 `Test` 前綴開頭的函數
+- **基準測試函數：** 以 `Benchmark` 前綴開頭的函數
+- **模糊測試：** Go 1.18+ 的自動化測試生成功能
+- **覆蓋率：** 內建程式碼覆蓋率分析
+- **測試助手：** 常見測試模式的實用工具
+
+## 單元測試
+
+Go 的測試框架簡單而強大，無需外部依賴。
+
+<UniversalEditor title="單元測試對比" compare={true}>
+```javascript !! js
+// JavaScript: Jest 單元測試
+const { add, multiply, divide } = require('./math');
+
+describe('Math functions', () => {
+  test('add should add two numbers', () => {
+    expect(add(2, 3)).toBe(5);
+    expect(add(-1, 1)).toBe(0);
+    expect(add(0, 0)).toBe(0);
+  });
+
+  test('multiply should multiply two numbers', () => {
+    expect(multiply(2, 3)).toBe(6);
+    expect(multiply(-2, 3)).toBe(-6);
+    expect(multiply(0, 5)).toBe(0);
+  });
+
+  test('divide should handle division by zero', () => {
+    expect(() => divide(10, 0)).toThrow('Division by zero');
+    expect(divide(10, 2)).toBe(5);
+  });
+});
+
+// math.js
+function add(a, b) {
+  return a + b;
+}
+
+function multiply(a, b) {
+  return a * b;
+}
+
+function divide(a, b) {
+  if (b === 0) {
+    throw new Error('Division by zero');
+  }
+  return a / b;
+}
+
+module.exports = { add, multiply, divide };
+```
+
+```go !! go
+// Go: 使用 testing 包的單元測試
+package math
+
+import "testing"
+
+func TestAdd(t *testing.T) {
+	tests := []struct {
+		name     string
+		a, b     int
+		expected int
+	}{
+		{"positive numbers", 2, 3, 5},
+		{"negative and positive", -1, 1, 0},
+		{"zero values", 0, 0, 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := Add(tt.a, tt.b)
+			if result != tt.expected {
+				t.Errorf("Add(%d, %d) = %d; want %d", tt.a, tt.b, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestMultiply(t *testing.T) {
+	tests := []struct {
+		name     string
+		a, b     int
+		expected int
+	}{
+		{"positive numbers", 2, 3, 6},
+		{"negative and positive", -2, 3, -6},
+		{"zero value", 0, 5, 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := Multiply(tt.a, tt.b)
+			if result != tt.expected {
+				t.Errorf("Multiply(%d, %d) = %d; want %d", tt.a, tt.b, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestDivide(t *testing.T) {
+	t.Run("valid division", func(t *testing.T) {
+		result, err := Divide(10, 2)
+		if err != nil {
+			t.Errorf("Divide(10, 2) returned error: %v", err)
+		}
+		if result != 5 {
+			t.Errorf("Divide(10, 2) = %f; want 5", result)
+		}
+	})
+
+	t.Run("division by zero", func(t *testing.T) {
+		_, err := Divide(10, 0)
+		if err == nil {
+			t.Error("Divide(10, 0) should return error")
+		}
+		if err.Error() != "division by zero" {
+			t.Errorf("Divide(10, 0) error = %v; want 'division by zero'", err)
+		}
+	})
+}
+
+// math.go
+func Add(a, b int) int {
+	return a + b
+}
+
+func Multiply(a, b int) int {
+	return a * b
+}
+
+func Divide(a, b int) (float64, error) {
+	if b == 0 {
+		return 0, fmt.Errorf("division by zero")
+	}
+	return float64(a) / float64(b), nil
+}
+```
+</UniversalEditor>
+
+## 表格驅動測試
+
+表格驅動測試是 Go 中高效測試多種場景的慣用法。
+
+<UniversalEditor title="表格驅動測試" compare={true}>
+```javascript !! js
+// JavaScript: 使用 Jest 的表格驅動測試
+const { validateEmail, validatePassword } = require('./validation');
+
+describe('Validation functions', () => {
+  describe('validateEmail', () => {
+    const testCases = [
+      { input: 'test@example.com', expected: true },
+      { input: 'invalid-email', expected: false },
+      { input: '@example.com', expected: false },
+      { input: 'test@', expected: false },
+      { input: '', expected: false },
+      { input: null, expected: false }
+    ];
+
+    testCases.forEach(({ input, expected }) => {
+      test(`should validate "${input}" as ${expected}`, () => {
+        expect(validateEmail(input)).toBe(expected);
+      });
+    });
+  });
+
+  describe('validatePassword', () => {
+    const testCases = [
+      { input: 'Password123!', expected: true },
+      { input: 'short', expected: false },
+      { input: 'nouppercase123!', expected: false },
+      { input: 'NOLOWERCASE123!', expected: false },
+      { input: 'NoNumbers!', expected: false },
+      { input: 'NoSpecial123', expected: false }
+    ];
+
+    testCases.forEach(({ input, expected }) => {
+      test(`should validate "${input}" as ${expected}`, () => {
+        expect(validatePassword(input)).toBe(expected);
+      });
+    });
+  });
+});
+```
+
+```go !! go
+// Go: 表格驅動測試
+package validation
+
+import (
+	"regexp"
+	"testing"
+)
+
+func TestValidateEmail(t *testing.T) {
+	tests := []struct {
+		name     string
+		email    string
+		expected bool
+	}{
+		{"valid email", "test@example.com", true},
+		{"invalid email", "invalid-email", false},
+		{"missing local part", "@example.com", false},
+		{"missing domain", "test@", false},
+		{"empty string", "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ValidateEmail(tt.email)
+			if result != tt.expected {
+				t.Errorf("ValidateEmail(%q) = %v; want %v", tt.email, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestValidatePassword(t *testing.T) {
+	tests := []struct {
+		name     string
+		password string
+		expected bool
+	}{
+		{"valid password", "Password123!", true},
+		{"too short", "short", false},
+		{"no uppercase", "nouppercase123!", false},
+		{"no lowercase", "NOLOWERCASE123!", false},
+		{"no numbers", "NoSpecial!", false},
+		{"no special chars", "NoSpecial123", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ValidatePassword(tt.password)
+			if result != tt.expected {
+				t.Errorf("ValidatePassword(%q) = %v; want %v", tt.password, result, tt.expected)
+			}
+		})
+	}
+}
+
+// validation.go
+func ValidateEmail(email string) bool {
+	if email == "" {
+		return false
+	}
+	emailRegex := regexp.MustCompile(`^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`)
+	return emailRegex.MatchString(email)
+}
+
+func ValidatePassword(password string) bool {
+	if len(password) < 8 {
+		return false
+	}
+	
+	var hasUpper, hasLower, hasNumber, hasSpecial bool
+	for _, char := range password {
+		switch {
+		case char >= 'A' && char <= 'Z':
+			hasUpper = true
+		case char >= 'a' && char <= 'z':
+			hasLower = true
+		case char >= '0' && char <= '9':
+			hasNumber = true
+		case char >= 33 && char <= 47 || char >= 58 && char <= 64:
+			hasSpecial = true
+		}
+	}
+	
+	return hasUpper && hasLower && hasNumber && hasSpecial
+}
+```
+</UniversalEditor>
+
+## 基準測試
+
+Go 的基準測試功能強大，可以測量程式碼效能。
+
+<UniversalEditor title="基準測試對比" compare={true}>
+```javascript !! js
+// JavaScript: 使用 Jest 的基準測試
+const { fibonacci } = require('./math');
+
+describe('Fibonacci performance', () => {
+  test('fibonacci(10) performance', () => {
+    const start = performance.now();
+    const result = fibonacci(10);
+    const end = performance.now();
+    
+    expect(result).toBe(55);
+    expect(end - start).toBeLessThan(1); // 應該在 1ms 內完成
+  });
+});
+
+// 或者使用專門的基準測試庫
+const Benchmark = require('benchmark');
+const suite = new Benchmark.Suite;
+
+suite
+  .add('fibonacci(10)', function() {
+    fibonacci(10);
+  })
+  .on('cycle', function(event) {
+    console.log(String(event.target));
+  })
+  .on('complete', function() {
+    console.log('Fastest is ' + this.filter('fastest').map('name'));
+  })
+  .run({ 'async': true });
+```
+
+```go !! go
+// Go: 基準測試
+package math
+
+import "testing"
+
+func BenchmarkFibonacci(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		Fibonacci(10)
+	}
+}
+
+func BenchmarkFibonacciRecursive(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		FibonacciRecursive(10)
+	}
+}
+
+func BenchmarkFibonacciMemoized(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		FibonacciMemoized(10)
+	}
+}
+
+// 比較基準測試
+func BenchmarkFibonacciComparison(b *testing.B) {
+	b.Run("iterative", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			Fibonacci(10)
+		}
+	})
+	
+	b.Run("recursive", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			FibonacciRecursive(10)
+		}
+	})
+	
+	b.Run("memoized", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			FibonacciMemoized(10)
+		}
+	})
+}
+
+// math.go
+func Fibonacci(n int) int {
+	if n <= 1 {
+		return n
+	}
+	
+	a, b := 0, 1
+	for i := 2; i <= n; i++ {
+		a, b = b, a+b
+	}
+	return b
+}
+
+func FibonacciRecursive(n int) int {
+	if n <= 1 {
+		return n
+	}
+	return FibonacciRecursive(n-1) + FibonacciRecursive(n-2)
+}
+
+var memo = make(map[int]int)
+
+func FibonacciMemoized(n int) int {
+	if n <= 1 {
+		return n
+	}
+	
+	if val, exists := memo[n]; exists {
+		return val
+	}
+	
+	memo[n] = FibonacciMemoized(n-1) + FibonacciMemoized(n-2)
+	return memo[n]
+}
+```
+</UniversalEditor>
+
+## 模糊測試
+
+Go 1.18+ 引入了模糊測試，可以自動生成測試用例。
+
+<UniversalEditor title="模糊測試" compare={true}>
+```javascript !! js
+// JavaScript: 模糊測試（需要專門的庫）
+const { reverseString } = require('./string');
+
+// 使用 fast-check 進行模糊測試
+const fc = require('fast-check');
+
+describe('String operations', () => {
+  test('reverse string property', () => {
+    fc.assert(
+      fc.property(fc.string(), (str) => {
+        const reversed = reverseString(str);
+        const doubleReversed = reverseString(reversed);
+        return doubleReversed === str;
+      })
+    );
+  });
+});
+```
+
+```go !! go
+// Go: 模糊測試
+package stringops
+
+import (
+	"strings"
+	"testing"
+	"unicode/utf8"
+)
+
+func FuzzReverse(f *testing.F) {
+	testcases := []string{"Hello, world", " ", "!12345"}
+	for _, tc := range testcases {
+		f.Add(tc) // 使用 f.Add 添加種子語料庫
+	}
+	
+	f.Fuzz(func(t *testing.T, orig string) {
+		rev := Reverse(orig)
+		doubleRev := Reverse(rev)
+		
+		if orig != doubleRev {
+			t.Errorf("Before: %q, after: %q", orig, doubleRev)
+		}
+		
+		if utf8.ValidString(orig) && !utf8.ValidString(rev) {
+			t.Errorf("Reverse produced invalid UTF-8 string %q", rev)
+		}
+	})
+}
+
+func FuzzStringOperations(f *testing.F) {
+	f.Add("hello", "world")
+	
+	f.Fuzz(func(t *testing.T, s1, s2 string) {
+		// 測試字串連接
+		concatenated := s1 + s2
+		if len(concatenated) != len(s1)+len(s2) {
+			t.Errorf("Concatenation length mismatch")
+		}
+		
+		// 測試字串包含
+		if len(s1) > 0 && len(s2) > 0 {
+			if !strings.Contains(concatenated, s1) || !strings.Contains(concatenated, s2) {
+				t.Errorf("Concatenated string should contain both inputs")
+			}
+		}
+	})
+}
+
+// stringops.go
+func Reverse(s string) string {
+	runes := []rune(s)
+	for i, j := 0, len(runes)-1; i < j; i, j = i+1, j-1 {
+		runes[i], runes[j] = runes[j], runes[i]
+	}
+	return string(runes)
+}
+```
+</UniversalEditor>
+
+## 測試覆蓋率
+
+Go 內建了程式碼覆蓋率分析功能。
+
+<UniversalEditor title="測試覆蓋率" compare={true}>
+```javascript !! js
+// JavaScript: Jest 覆蓋率配置
+// jest.config.js
+module.exports = {
+  collectCoverage: true,
+  coverageDirectory: 'coverage',
+  coverageReporters: ['text', 'lcov', 'html'],
+  collectCoverageFrom: [
+    'src/**/*.js',
+    '!src/**/*.test.js',
+    '!src/**/*.spec.js'
+  ],
+  coverageThreshold: {
+    global: {
+      branches: 80,
+      functions: 80,
+      lines: 80,
+      statements: 80
+    }
+  }
+};
+
+// 執行測試並生成覆蓋率報告
+// npm test -- --coverage
+```
+
+```go !! go
+// Go: 測試覆蓋率
+// 執行測試並生成覆蓋率報告
+// go test -cover
+
+// 生成詳細的覆蓋率報告
+// go test -coverprofile=coverage.out
+// go tool cover -html=coverage.out -o coverage.html
+
+// 在測試中檢查覆蓋率
+package main
+
+import (
+	"testing"
+)
+
+func TestWithCoverage(t *testing.T) {
+	// 執行測試並檢查覆蓋率
+	result := ProcessData("test")
+	if result != "processed: test" {
+		t.Errorf("Expected 'processed: test', got %s", result)
+	}
+}
+
+// 覆蓋率閾值檢查
+func TestCoverageThreshold(t *testing.T) {
+	// 這個測試確保我們有足夠的覆蓋率
+	// 在實際專案中，可以使用工具檢查覆蓋率閾值
+}
+
+// main.go
+func ProcessData(input string) string {
+	if input == "" {
+		return "empty input"
+	}
+	
+	if len(input) < 3 {
+		return "input too short"
+	}
+	
+	return "processed: " + input
+}
+```
+</UniversalEditor>
+
+## 除錯技術
+
+Go 提供了多種除錯工具和技術。
+
+<UniversalEditor title="除錯技術對比" compare={true}>
+```javascript !! js
+// JavaScript: 除錯技術
+const debug = require('debug')('app:main');
+
+function processUser(user) {
+  debug('Processing user:', user);
+  
+  if (!user.name) {
+    console.error('User name is required');
+    return null;
+  }
+  
+  try {
+    // 處理使用者資料
+    const result = validateAndProcess(user);
+    debug('User processed successfully:', result);
+    return result;
+  } catch (error) {
+    console.error('Error processing user:', error);
+    throw error;
+  }
+}
+
+// 使用 Node.js 除錯器
+// node --inspect app.js
+// 然後在 Chrome DevTools 中連接
+
+// 使用 VS Code 除錯配置
+// .vscode/launch.json
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug Node.js",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceFolder}/app.js",
+      "console": "integratedTerminal"
+    }
+  ]
+}
+```
+
+```go !! go
+// Go: 除錯技術
+package main
+
+import (
+	"fmt"
+	"log"
+	"os"
+	"runtime/debug"
+)
+
+func processUser(user User) (*ProcessedUser, error) {
+	log.Printf("Processing user: %+v", user)
+	
+	if user.Name == "" {
+		return nil, fmt.Errorf("user name is required")
+	}
+	
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("Panic recovered: %v\n%s", r, debug.Stack())
+		}
+	}()
+	
+	result, err := validateAndProcess(user)
+	if err != nil {
+		log.Printf("Error processing user: %v", err)
+		return nil, err
+	}
+	
+	log.Printf("User processed successfully: %+v", result)
+	return result, nil
+}
+
+// 使用 Delve 除錯器
+// dlv debug main.go
+// 或者使用 VS Code Go 擴展
+
+// 使用 pprof 進行效能分析
+import (
+	"net/http"
+	_ "net/http/pprof"
+)
+
+func main() {
+	// 啟動 pprof 伺服器
+	go func() {
+		log.Println(http.ListenAndServe("localhost:6060", nil))
+	}()
+	
+	// 你的應用程式程式碼
+}
+
+// 使用環境變數控制日誌級別
+func init() {
+	if os.Getenv("DEBUG") == "true" {
+		log.SetFlags(log.LstdFlags | log.Lshortfile)
+	}
+}
+```
+</UniversalEditor>
+
+## 效能分析
+
+Go 提供了強大的效能分析工具。
+
+<UniversalEditor title="效能分析" compare={true}>
+```javascript !! js
+// JavaScript: 效能分析
+const { performance } = require('perf_hooks');
+
+// 簡單的效能測量
+function measurePerformance(fn, iterations = 1000) {
+  const start = performance.now();
+  
+  for (let i = 0; i < iterations; i++) {
+    fn();
+  }
+  
+  const end = performance.now();
+  const avgTime = (end - start) / iterations;
+  
+  console.log(`Average execution time: ${avgTime.toFixed(4)}ms`);
+  return avgTime;
+}
+
+// 使用 Node.js 內建的效能分析
+// node --prof app.js
+// 然後使用 node --prof-process 分析結果
+
+// 使用 clinic.js 進行效能分析
+// npm install -g clinic
+// clinic doctor -- node app.js
+```
+
+```go !! go
+// Go: 效能分析
+package main
+
+import (
+	"fmt"
+	"log"
+	"os"
+	"runtime/pprof"
+	"time"
+)
+
+// CPU 效能分析
+func cpuProfile() {
+	f, err := os.Create("cpu.prof")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer f.Close()
+	
+	pprof.StartCPUProfile(f)
+	defer pprof.StopCPUProfile()
+	
+	// 你的應用程式程式碼
+	expensiveOperation()
+}
+
+// 記憶體效能分析
+func memoryProfile() {
+	f, err := os.Create("memory.prof")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer f.Close()
+	
+	// 你的應用程式程式碼
+	allocateMemory()
+	
+	pprof.WriteHeapProfile(f)
+}
+
+// 使用 pprof 工具
+func main() {
+	// 啟動 pprof HTTP 伺服器
+	go func() {
+		log.Println(http.ListenAndServe("localhost:6060", nil))
+	}()
+	
+	// 你的應用程式程式碼
+	for {
+		expensiveOperation()
+		time.Sleep(time.Second)
+	}
+}
+
+func expensiveOperation() {
+	// 模擬昂貴的操作
+	time.Sleep(time.Millisecond * 100)
+}
+
+func allocateMemory() {
+	// 模擬記憶體分配
+	data := make([]byte, 1024*1024) // 1MB
+	_ = data
+}
+
+// 使用 trace 包進行並發分析
+import "runtime/trace"
+
+func traceExample() {
+	f, err := os.Create("trace.out")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer f.Close()
+	
+	trace.Start(f)
+	defer trace.Stop()
+	
+	// 你的並發程式碼
+	concurrentOperation()
+}
+
+func concurrentOperation() {
+	done := make(chan bool)
+	
+	for i := 0; i < 10; i++ {
+		go func(id int) {
+			time.Sleep(time.Millisecond * 100)
+			done <- true
+		}(i)
+	}
+	
+	for i := 0; i < 10; i++ {
+		<-done
+	}
+}
+```
+</UniversalEditor>
+
+## 測試最佳實踐
+
+### 測試組織
+- 將測試檔案與原始碼放在同一目錄
+- 使用 `_test.go` 後綴命名測試檔案
+- 使用表格驅動測試提高測試效率
+- 保持測試簡單和可讀
+
+### 測試資料
+- 使用測試助手函數減少重複程式碼
+- 使用 `testdata` 目錄儲存測試資料
+- 使用 `go:embed` 嵌入測試資源
+
+### 整合測試
+- 使用 Docker 進行整合測試
+- 使用 `httptest` 包測試 HTTP 服務
+- 使用 `sqlmock` 包模擬資料庫
+
+> Go 的測試生態系統非常強大，從簡單的單元測試到複雜的效能分析都有很好的支援。掌握這些工具和技術將幫助你寫出更可靠、更高效的 Go 程式碼。 

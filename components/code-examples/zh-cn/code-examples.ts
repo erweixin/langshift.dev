@@ -397,5 +397,47 @@ main();`,
     tags: ['错误处理', 'Result 类型', 'Async/Await', '文件 I/O'],
     difficulty: 'advanced',
     category: '错误处理'
+  },
+  'js-cpp': {
+    leftCode: `// JavaScript: 动态类型
+// 同一个函数可以接受不同类型的参数
+function add(a, b) {
+  return a + b;
+}
+
+// 1. 用于数字加法
+console.log('5 + 10 =', add(5, 10));
+
+// 2. 用于字符串拼接
+console.log('"Hello, " + "World!" =', add('Hello, ', 'World!'));`,
+    rightCode: `#include <iostream>
+#include <string>
+
+// C++: 静态类型与模板
+// 使用模板来为不同类型生成专用的函数
+template <typename T>
+T add(T a, T b) {
+  return a + b;
+}
+
+int main() {
+  // 1. 用于整数加法 (T 被推导为 int)
+  std::cout << "5 + 10 = " << add(5, 10) << std::endl;
+
+  // 2. 用于字符串拼接 (T 被推导为 std::string)
+  std::cout << "\"Hello, \" + \"World!\" = " 
+            << add(std::string("Hello, "), std::string("World!")) 
+            << std::endl;
+            
+  return 0;
+}`,
+    leftLanguage: 'javascript',
+    rightLanguage: 'cpp',
+    titleLeft: 'JavaScript',
+    titleRight: 'C++',
+    description: '函数定义和类型系统的比较，突出 JavaScript 的动态类型与 C++ 的静态类型和模板。',
+    tags: ['类型系统', '函数', '模板', '动态 vs 静态'],
+    difficulty: 'beginner',
+    category: '核心概念'
   }
-}; 
+};

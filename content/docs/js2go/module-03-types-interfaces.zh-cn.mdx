@@ -1,0 +1,956 @@
+---
+title: 类型系统与接口
+---
+
+本模块探讨 Go 的类型系统和接口，这是 Go 设计哲学的基础。Go 的类型系统是静态类型的，但通过接口提供了一些动态特性，在安全性和灵活性之间取得了平衡，这与 JavaScript 的动态类型有显著不同。
+
+## Go 类型系统概述
+
+Go 是一种静态类型语言，意味着类型在编译时检查。与 JavaScript 的动态类型相比，这提供了更好的性能、更早的错误检测和更清晰的代码文档。
+
+### 静态类型 vs 动态类型
+
+<UniversalEditor title="类型系统对比" compare={true}>
+```javascript !! js
+// JavaScript: 动态类型
+let value = 42;           // number
+console.log(typeof value); // "number"
+
+value = "hello";          // string
+console.log(typeof value); // "string"
+
+value = { name: "John" }; // object
+console.log(typeof value); // "object"
+
+// 类型在运行时检查
+function processData(data) {
+    return data.length; // 对字符串、数组有效，但对数字失败
+}
+
+processData("hello"); // 5
+processData([1, 2, 3]); // 3
+processData(42); // TypeError: data.length is not a function
+```
+
+```go !! go
+// Go: 静态类型
+package main
+
+import "fmt"
+
+func main() {
+    var value int = 42
+    fmt.Printf("Type: %T, Value: %v\n", value, value) // Type: int, Value: 42
+    
+    // value = "hello" // 编译错误: cannot use "hello" (type string) as int
+    
+    // 类型在编译时检查
+    processData("hello") // 有效
+    processData([]int{1, 2, 3}) // 有效
+    // processData(42) // 编译错误: cannot use 42 (type int) as string
+}
+
+func processData(data string) {
+    fmt.Println(len(data))
+}
+```
+</UniversalEditor>
+
+## 基本类型
+
+Go 提供了比 JavaScript 原始类型更丰富的显式基本类型集合。
+
+### 数值类型
+
+<UniversalEditor title="数值类型对比" compare={true}>
+```javascript !! js
+// JavaScript: 单一数字类型 (64位浮点数)
+let integer = 42;
+let float = 3.14;
+let bigInt = 9007199254740991n; // BigInt 用于大整数
+
+console.log(typeof integer); // "number"
+console.log(typeof float);   // "number"
+console.log(typeof bigInt);  // "bigint"
+
+// 所有数字都是 64 位浮点数 (除了 BigInt)
+console.log(Number.MAX_SAFE_INTEGER); // 9007199254740991
+```
+
+```go !! go
+// Go: 多种数值类型用于不同用例
+package main
+
+import "fmt"
+
+func main() {
+    // 整数类型
+    var int8Val int8 = 127        // 8位有符号整数 (-128 到 127)
+    var int16Val int16 = 32767    // 16位有符号整数
+    var int32Val int32 = 2147483647 // 32位有符号整数
+    var int64Val int64 = 9223372036854775807 // 64位有符号整数
+    var intVal int = 42           // 平台相关 (32 或 64 位)
+    
+    // 无符号整数类型
+    var uint8Val uint8 = 255      // 8位无符号整数 (0 到 255)
+    var uint16Val uint16 = 65535  // 16位无符号整数
+    var uint32Val uint32 = 4294967295 // 32位无符号整数
+    var uint64Val uint64 = 18446744073709551615 // 64位无符号整数
+    var uintVal uint = 42         // 平台相关
+    
+    // 浮点类型
+    var float32Val float32 = 3.14 // 32位浮点数
+    var float64Val float64 = 3.14159265359 // 64位浮点数
+    
+    // 复数类型
+    var complex64Val complex64 = 3 + 4i  // 64位复数
+    var complex128Val complex128 = 3 + 4i // 128位复数
+    
+    fmt.Printf("int8: %T, uint8: %T, float32: %T\n", int8Val, uint8Val, float32Val)
+}
+```
+</UniversalEditor>
+
+### 字符串和布尔类型
+
+<UniversalEditor title="字符串和布尔类型对比" compare={true}>
+```javascript !! js
+// JavaScript: 字符串和布尔值
+let str = "Hello, World!";
+let bool = true;
+
+console.log(typeof str);  // "string"
+console.log(typeof bool); // "boolean"
+
+// 字符串操作
+console.log(str.length);           // 13
+console.log(str.toUpperCase());    // "HELLO, WORLD!"
+console.log(str.includes("World")); // true
+
+// 布尔操作
+console.log(!bool);                // false
+console.log(bool && true);         // true
+console.log(bool || false);        // true
+```
+
+```go !! go
+// Go: 字符串和布尔值
+package main
+
+import (
+    "fmt"
+    "strings"
+)
+
+func main() {
+    var str string = "Hello, World!"
+    var boolVal bool = true
+    
+    fmt.Printf("str type: %T, bool type: %T\n", str, boolVal)
+    
+    // 字符串操作
+    fmt.Println(len(str))                    // 13
+    fmt.Println(strings.ToUpper(str))        // "HELLO, WORLD!"
+    fmt.Println(strings.Contains(str, "World")) // true
+    
+    // 布尔操作
+    fmt.Println(!boolVal)                    // false
+    fmt.Println(boolVal && true)             // true
+    fmt.Println(boolVal || false)            // true
+    
+    // Go 中的字符串是不可变的
+    // str[0] = 'h' // 编译错误: cannot assign to str[0]
+}
+```
+</UniversalEditor>
+
+## 复合类型
+
+Go 提供了几种复合类型，允许将值组合在一起。
+
+### 数组和切片
+
+<UniversalEditor title="数组和切片对比" compare={true}>
+```javascript !! js
+// JavaScript: 数组 (动态)
+let arr = [1, 2, 3, 4, 5];
+console.log(arr.length); // 5
+
+// 动态调整大小
+arr.push(6);             // [1, 2, 3, 4, 5, 6]
+arr.pop();               // [1, 2, 3, 4, 5]
+arr.splice(1, 2);        // [1, 4, 5]
+
+// 数组方法
+let doubled = arr.map(x => x * 2);     // [2, 8, 10]
+let sum = arr.reduce((a, b) => a + b); // 10
+
+// 切片
+let slice = arr.slice(1, 3);           // [4, 5]
+```
+
+```go !! go
+// Go: 数组 (固定大小) 和切片 (动态)
+package main
+
+import "fmt"
+
+func main() {
+    // 数组: 固定大小
+    var arr [5]int = [5]int{1, 2, 3, 4, 5}
+    fmt.Println(len(arr)) // 5
+    
+    // 无法调整数组大小
+    // arr = append(arr, 6) // 编译错误: cannot use append with array
+    
+    // 切片: 动态大小
+    var slice []int = []int{1, 2, 3, 4, 5}
+    fmt.Println(len(slice)) // 5
+    
+    // 动态调整大小
+    slice = append(slice, 6) // [1, 2, 3, 4, 5, 6]
+    slice = slice[:len(slice)-1] // 移除最后一个元素: [1, 2, 3, 4, 5]
+    
+    // 切片操作
+    subSlice := slice[1:3] // [2, 3]
+    
+    // 数组到切片的转换
+    sliceFromArray := arr[:] // 将数组转换为切片
+    
+    fmt.Printf("Array: %v, Slice: %v\n", arr, slice)
+}
+```
+</UniversalEditor>
+
+### 映射
+
+<UniversalEditor title="映射对比" compare={true}>
+```javascript !! js
+// JavaScript: 对象和映射
+let obj = { name: "John", age: 30 };
+let map = new Map();
+map.set("name", "John");
+map.set("age", 30);
+
+console.log(obj.name);           // "John"
+console.log(map.get("name"));    // "John"
+
+// 对象操作
+obj.city = "New York";           // 添加属性
+delete obj.age;                  // 删除属性
+console.log("name" in obj);      // true
+
+// 映射操作
+map.set("city", "New York");     // 添加键值对
+map.delete("age");               // 删除键
+console.log(map.has("name"));    // true
+```
+
+```go !! go
+// Go: 映射
+package main
+
+import "fmt"
+
+func main() {
+    // 映射声明和初始化
+    var m map[string]int = make(map[string]int)
+    m["name"] = 1
+    m["age"] = 30
+    
+    // 或使用字面量语法
+    person := map[string]interface{}{
+        "name": "John",
+        "age":  30,
+        "city": "New York",
+    }
+    
+    // 访问值
+    fmt.Println(person["name"]) // "John"
+    
+    // 检查键是否存在
+    if age, exists := person["age"]; exists {
+        fmt.Printf("Age: %v\n", age)
+    }
+    
+    // 添加/更新值
+    person["country"] = "USA"
+    
+    // 删除值
+    delete(person, "age")
+    
+    // 遍历映射
+    for key, value := range person {
+        fmt.Printf("%s: %v\n", key, value)
+    }
+}
+```
+</UniversalEditor>
+
+### 结构体
+
+<UniversalEditor title="结构体对比" compare={true}>
+```javascript !! js
+// JavaScript: 对象和类
+let person = {
+    name: "John",
+    age: 30,
+    city: "New York"
+};
+
+// ES6 类
+class Person {
+    constructor(name, age, city) {
+        this.name = name;
+        this.age = age;
+        this.city = city;
+    }
+    
+    greet() {
+        return `Hello, I'm ${this.name}`;
+    }
+}
+
+let john = new Person("John", 30, "New York");
+console.log(john.greet()); // "Hello, I'm John"
+
+// 对象解构
+let { name, age } = person;
+console.log(name, age); // "John" 30
+```
+
+```go !! go
+// Go: 结构体
+package main
+
+import "fmt"
+
+// 结构体定义
+type Person struct {
+    Name string
+    Age  int
+    City string
+}
+
+// 结构体上的方法
+func (p Person) Greet() string {
+    return fmt.Sprintf("Hello, I'm %s", p.Name)
+}
+
+// 带指针接收者的方法 (可以修改结构体)
+func (p *Person) SetAge(age int) {
+    p.Age = age
+}
+
+func main() {
+    // 创建结构体实例
+    person := Person{
+        Name: "John",
+        Age:  30,
+        City: "New York",
+    }
+    
+    // 访问字段
+    fmt.Println(person.Name) // "John"
+    
+    // 调用方法
+    fmt.Println(person.Greet()) // "Hello, I'm John"
+    
+    // 修改结构体
+    person.SetAge(31)
+    fmt.Println(person.Age) // 31
+    
+    // 结构体嵌入 (组合)
+    type Employee struct {
+        Person
+        Salary float64
+    }
+    
+    emp := Employee{
+        Person: Person{Name: "Jane", Age: 25, City: "Boston"},
+        Salary: 50000,
+    }
+    
+    // 访问嵌入结构体的方法
+    fmt.Println(emp.Greet()) // "Hello, I'm Jane"
+}
+```
+</UniversalEditor>
+
+## 接口
+
+接口是 Go 最强大的特性之一，提供了一种定义行为而不涉及实现细节的方式。
+
+### 接口基础
+
+<UniversalEditor title="接口基础对比" compare={true}>
+```javascript !! js
+// JavaScript: 鸭子类型 (隐式接口)
+function processData(data) {
+    if (typeof data.length === 'number' && typeof data[0] !== 'undefined') {
+        return data.length;
+    }
+    return 0;
+}
+
+// 任何具有 'length' 属性的对象都可以工作
+console.log(processData([1, 2, 3]));     // 3
+console.log(processData("hello"));       // 5
+console.log(processData({ length: 10 })); // 10
+
+// ES6 类和方法
+class Shape {
+    area() {
+        return 0;
+    }
+}
+
+class Circle extends Shape {
+    constructor(radius) {
+        super();
+        this.radius = radius;
+    }
+    
+    area() {
+        return Math.PI * this.radius ** 2;
+    }
+}
+
+let circle = new Circle(5);
+console.log(circle.area()); // 78.54...
+```
+
+```go !! go
+// Go: 显式接口
+package main
+
+import (
+    "fmt"
+    "math"
+)
+
+// 接口定义
+type Measurable interface {
+    Area() float64
+}
+
+// 实现接口的结构体
+type Circle struct {
+    Radius float64
+}
+
+// 方法实现
+func (c Circle) Area() float64 {
+    return math.Pi * c.Radius * c.Radius
+}
+
+type Rectangle struct {
+    Width  float64
+    Height float64
+}
+
+func (r Rectangle) Area() float64 {
+    return r.Width * r.Height
+}
+
+// 与任何实现 Measurable 的类型一起工作的函数
+func processShape(m Measurable) {
+    fmt.Printf("Area: %.2f\n", m.Area())
+}
+
+func main() {
+    circle := Circle{Radius: 5}
+    rectangle := Rectangle{Width: 4, Height: 6}
+    
+    // 两种类型都实现了 Measurable 接口
+    processShape(circle)    // Area: 78.54
+    processShape(rectangle) // Area: 24.00
+    
+    // 接口满足是隐式的
+    var m Measurable = circle
+    fmt.Printf("Type: %T, Area: %.2f\n", m, m.Area())
+}
+```
+</UniversalEditor>
+
+### 接口组合
+
+<UniversalEditor title="接口组合对比" compare={true}>
+```javascript !! js
+// JavaScript: 对象组合和混入
+const Movable = {
+    move() {
+        return "Moving...";
+    }
+};
+
+const Drawable = {
+    draw() {
+        return "Drawing...";
+    }
+};
+
+// 混入模式
+class GameObject {
+    constructor() {
+        Object.assign(this, Movable, Drawable);
+    }
+}
+
+let gameObj = new GameObject();
+console.log(gameObj.move());  // "Moving..."
+console.log(gameObj.draw());  // "Drawing..."
+
+// 或使用组合
+class Sprite {
+    constructor() {
+        this.movable = Movable;
+        this.drawable = Drawable;
+    }
+    
+    move() {
+        return this.movable.move();
+    }
+    
+    draw() {
+        return this.drawable.draw();
+    }
+}
+```
+
+```go !! go
+// Go: 接口组合
+package main
+
+import "fmt"
+
+// 基础接口
+type Movable interface {
+    Move() string
+}
+
+type Drawable interface {
+    Draw() string
+}
+
+// 组合接口
+type GameObject interface {
+    Movable
+    Drawable
+}
+
+// 实现
+type Sprite struct {
+    X, Y int
+}
+
+func (s *Sprite) Move() string {
+    s.X += 1
+    s.Y += 1
+    return fmt.Sprintf("Moving to (%d, %d)", s.X, s.Y)
+}
+
+func (s Sprite) Draw() string {
+    return fmt.Sprintf("Drawing at (%d, %d)", s.X, s.Y)
+}
+
+// 与任何 GameObject 一起工作的函数
+func updateGameObject(obj GameObject) {
+    fmt.Println(obj.Move())
+    fmt.Println(obj.Draw())
+}
+
+func main() {
+    sprite := &Sprite{X: 0, Y: 0}
+    updateGameObject(sprite)
+    
+    // 接口组合允许灵活的设计
+    var movable Movable = sprite
+    var drawable Drawable = sprite
+    var gameObj GameObject = sprite
+    
+    fmt.Println(movable.Move())  // 只能调用 Move()
+    fmt.Println(drawable.Draw()) // 只能调用 Draw()
+    fmt.Println(gameObj.Move())  // 可以调用 Move() 和 Draw()
+    fmt.Println(gameObj.Draw())
+}
+```
+</UniversalEditor>
+
+### 空接口
+
+<UniversalEditor title="空接口对比" compare={true}>
+```javascript !! js
+// JavaScript: 动态类型允许任何值
+function processAnyValue(value) {
+    if (typeof value === 'string') {
+        return value.toUpperCase();
+    } else if (typeof value === 'number') {
+        return value * 2;
+    } else if (Array.isArray(value)) {
+        return value.length;
+    } else if (typeof value === 'object') {
+        return Object.keys(value).length;
+    }
+    return "Unknown type";
+}
+
+console.log(processAnyValue("hello"));     // "HELLO"
+console.log(processAnyValue(42));          // 84
+console.log(processAnyValue([1, 2, 3]));   // 3
+console.log(processAnyValue({a: 1, b: 2})); // 2
+```
+
+```go !! go
+// Go: 空接口 (interface{}) 接受任何类型
+package main
+
+import (
+    "fmt"
+    "reflect"
+)
+
+// 空接口可以保存任何值
+func processAnyValue(value interface{}) {
+    switch v := value.(type) {
+    case string:
+        fmt.Printf("String: %s\n", v)
+    case int:
+        fmt.Printf("Integer: %d\n", v)
+    case []int:
+        fmt.Printf("Slice: %v (length: %d)\n", v, len(v))
+    case map[string]int:
+        fmt.Printf("Map: %v (keys: %d)\n", v, len(v))
+    default:
+        fmt.Printf("Unknown type: %T\n", v)
+    }
+}
+
+func main() {
+    processAnyValue("hello")           // String: hello
+    processAnyValue(42)                // Integer: 42
+    processAnyValue([]int{1, 2, 3})    // Slice: [1 2 3] (length: 3)
+    processAnyValue(map[string]int{"a": 1, "b": 2}) // Map: map[a:1 b:2] (keys: 2)
+    
+    // 使用 reflect 包进行更动态的行为
+    var value interface{} = "hello"
+    fmt.Printf("Type: %v, Value: %v\n", reflect.TypeOf(value), reflect.ValueOf(value))
+}
+```
+</UniversalEditor>
+
+## 类型断言和类型开关
+
+Go 提供了与接口类型动态工作的机制。
+
+### 类型断言
+
+<UniversalEditor title="类型断言对比" compare={true}>
+```javascript !! js
+// JavaScript: 类型检查和转换
+function processValue(value) {
+    if (typeof value === 'string') {
+        return value.toUpperCase();
+    } else if (Array.isArray(value)) {
+        return value.join(', ');
+    } else if (typeof value === 'object' && value !== null) {
+        return JSON.stringify(value);
+    }
+    return String(value);
+}
+
+console.log(processValue("hello"));     // "HELLO"
+console.log(processValue([1, 2, 3]));   // "1, 2, 3"
+console.log(processValue({a: 1}));      // '{"a":1}'
+console.log(processValue(42));          // "42"
+```
+
+```go !! go
+// Go: 类型断言
+package main
+
+import (
+    "encoding/json"
+    "fmt"
+    "strconv"
+)
+
+func processValue(value interface{}) string {
+    // 带逗号 ok 惯用法的类型断言
+    if str, ok := value.(string); ok {
+        return str
+    }
+    
+    if arr, ok := value.([]int); ok {
+        return fmt.Sprintf("%v", arr)
+    }
+    
+    if m, ok := value.(map[string]int); ok {
+        if jsonBytes, err := json.Marshal(m); err == nil {
+            return string(jsonBytes)
+        }
+    }
+    
+    if num, ok := value.(int); ok {
+        return strconv.Itoa(num)
+    }
+    
+    return "unknown type"
+}
+
+func main() {
+    fmt.Println(processValue("hello"))                    // "hello"
+    fmt.Println(processValue([]int{1, 2, 3}))            // "[1 2 3]"
+    fmt.Println(processValue(map[string]int{"a": 1}))    // '{"a":1}'
+    fmt.Println(processValue(42))                        // "42"
+    
+    // 不带逗号 ok 的类型断言 (如果类型错误会 panic)
+    var value interface{} = "hello"
+    str := value.(string) // 安全断言
+    fmt.Println(str)      // "hello"
+    
+    // 这会 panic:
+    // num := value.(int) // panic: interface conversion
+}
+```
+</UniversalEditor>
+
+### 类型开关
+
+<UniversalEditor title="类型开关对比" compare={true}>
+```javascript !! js
+// JavaScript: 带 typeof 的 switch
+function describeType(value) {
+    switch (typeof value) {
+        case 'string':
+            return `String: "${value}"`;
+        case 'number':
+            return `Number: ${value}`;
+        case 'boolean':
+            return `Boolean: ${value}`;
+        case 'object':
+            if (Array.isArray(value)) {
+                return `Array with ${value.length} elements`;
+            } else if (value === null) {
+                return 'Null';
+            } else {
+                return 'Object';
+            }
+        default:
+            return 'Unknown type';
+    }
+}
+
+console.log(describeType("hello"));     // "String: \"hello\""
+console.log(describeType(42));          // "Number: 42"
+console.log(describeType(true));        // "Boolean: true"
+console.log(describeType([1, 2, 3]));   // "Array with 3 elements"
+console.log(describeType({a: 1}));      // "Object"
+```
+
+```go !! go
+// Go: 类型开关
+package main
+
+import "fmt"
+
+func describeType(value interface{}) string {
+    switch v := value.(type) {
+    case string:
+        return fmt.Sprintf("String: %q", v)
+    case int:
+        return fmt.Sprintf("Integer: %d", v)
+    case bool:
+        return fmt.Sprintf("Boolean: %t", v)
+    case []int:
+        return fmt.Sprintf("Slice with %d elements", len(v))
+    case map[string]int:
+        return fmt.Sprintf("Map with %d keys", len(v))
+    case nil:
+        return "Nil"
+    default:
+        return fmt.Sprintf("Unknown type: %T", v)
+    }
+}
+
+func main() {
+    fmt.Println(describeType("hello"))                    // String: "hello"
+    fmt.Println(describeType(42))                        // Integer: 42
+    fmt.Println(describeType(true))                      // Boolean: true
+    fmt.Println(describeType([]int{1, 2, 3}))            // Slice with 3 elements
+    fmt.Println(describeType(map[string]int{"a": 1}))    // Map with 1 keys
+    fmt.Println(describeType(nil))                       // Nil
+    
+    // 类型开关也可以用于控制流
+    var values []interface{} = []interface{}{"hello", 42, true, []int{1, 2}}
+    
+    for _, value := range values {
+        switch v := value.(type) {
+        case string:
+            fmt.Printf("Processing string: %s\n", v)
+        case int:
+            fmt.Printf("Processing integer: %d\n", v)
+        case bool:
+            fmt.Printf("Processing boolean: %t\n", v)
+        case []int:
+            fmt.Printf("Processing slice: %v\n", v)
+        }
+    }
+}
+```
+</UniversalEditor>
+
+## 类型嵌入和组合
+
+Go 使用组合而不是继承，通过结构体嵌入实现。
+
+<UniversalEditor title="类型嵌入对比" compare={true}>
+```javascript !! js
+// JavaScript: 类继承和组合
+class Animal {
+    constructor(name) {
+        this.name = name;
+    }
+    
+    speak() {
+        return `${this.name} makes a sound`;
+    }
+}
+
+class Dog extends Animal {
+    constructor(name) {
+        super(name);
+    }
+    
+    speak() {
+        return `${this.name} barks`;
+    }
+    
+    fetch() {
+        return `${this.name} fetches the ball`;
+    }
+}
+
+// 组合
+class Walker {
+    walk() {
+        return "Walking...";
+    }
+}
+
+class Swimmer {
+    swim() {
+        return "Swimming...";
+    }
+}
+
+class Duck {
+    constructor(name) {
+        this.name = name;
+        this.walker = new Walker();
+        this.swimmer = new Swimmer();
+    }
+    
+    walk() {
+        return this.walker.walk();
+    }
+    
+    swim() {
+        return this.swimmer.swim();
+    }
+}
+
+let dog = new Dog("Rex");
+let duck = new Duck("Donald");
+console.log(dog.speak()); // "Rex barks"
+console.log(duck.walk()); // "Walking..."
+```
+
+```go !! go
+// Go: 结构体嵌入 (组合)
+package main
+
+import "fmt"
+
+// 基础结构体
+type Animal struct {
+    Name string
+}
+
+func (a Animal) Speak() string {
+    return fmt.Sprintf("%s makes a sound", a.Name)
+}
+
+// 在 Dog 中嵌入 Animal
+type Dog struct {
+    Animal // 嵌入结构体
+}
+
+func (d Dog) Speak() string {
+    return fmt.Sprintf("%s barks", d.Name)
+}
+
+func (d Dog) Fetch() string {
+    return fmt.Sprintf("%s fetches the ball", d.Name)
+}
+
+// 多嵌入类型的组合
+type Walker struct{}
+
+func (w Walker) Walk() string {
+    return "Walking..."
+}
+
+type Swimmer struct{}
+
+func (s Swimmer) Swim() string {
+    return "Swimming..."
+}
+
+type Duck struct {
+    Animal
+    Walker
+    Swimmer
+}
+
+func main() {
+    dog := Dog{Animal{Name: "Rex"}}
+    duck := Duck{
+        Animal: Animal{Name: "Donald"},
+        Walker: Walker{},
+        Swimmer: Swimmer{},
+    }
+    
+    fmt.Println(dog.Speak()) // "Rex barks"
+    fmt.Println(dog.Fetch()) // "Rex fetches the ball"
+    fmt.Println(duck.Walk()) // "Walking..."
+    fmt.Println(duck.Swim()) // "Swimming..."
+    
+    // 通过嵌入实现接口满足
+    type Speaker interface {
+        Speak() string
+    }
+    
+    var speakers []Speaker = []Speaker{dog, duck}
+    for _, speaker := range speakers {
+        fmt.Println(speaker.Speak())
+    }
+}
+```
+</UniversalEditor>
+
+---
+
+### 练习题：
+1. 解释 Go 的静态类型与 JavaScript 动态类型的区别。每种方法的优缺点是什么？
+2. Go 接口与 JavaScript 的鸭子类型有何不同？提供每种方法有益的场景示例。
+3. 描述 Go 的结构体嵌入以及它与 JavaScript 类继承的比较。何时使用每种方法？
+4. 创建一个 Go 程序，演示接口组合、类型断言和类型开关的实际示例。
+
+### 项目想法：
+* 在 Go 中构建一个简单的形状计算器，使用接口处理不同的几何形状（圆形、矩形、三角形）。实现面积和周长计算，并使用类型开关处理不同的形状类型。与使用类和继承的 JavaScript 实现进行比较。
+
+### 下一步：
+* 学习 Go 的并发特性：goroutines 和 channels
+* 探索 Go 的错误处理模式和最佳实践
+* 理解 Go 的包管理和模块系统

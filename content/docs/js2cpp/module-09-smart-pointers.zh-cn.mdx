@@ -1,0 +1,235 @@
+---
+title: 智能指针
+---
+
+智能指针是行为类似原始指针但提供自动内存管理的对象，显著降低了内存泄漏和悬空指针的风险。它们是现代 C++ 编程的基石，体现了 RAII (资源获取即初始化) 原则。本模块将探讨三种主要类型的智能指针 (`unique_ptr`、`shared_ptr`、`weak_ptr`)，并将它们的内存管理方法与 JavaScript 的垃圾回收进行比较。
+
+## `unique_ptr` 独占所有权
+
+`std::unique_ptr` 是一种智能指针，它独占其指向的对象。这意味着在任何时候，只有一个 `unique_ptr` 可以指向给定对象。当 `unique_ptr` 超出作用域时，它拥有的对象会自动删除。
+
+*   **独占所有权：** 不能复制，只能移动。
+*   **轻量级：** 开销极小，类似于原始指针。
+*   **用例：** 当你需要动态分配对象的单一所有者时。
+
+<UniversalEditor title="unique_ptr vs. 原始指针" compare={true}>
+```javascript !! js
+// JavaScript: 对象生命周期由 GC 管理
+let obj1 = { data: "Hello" };
+let obj2 = obj1; // obj2 现在引用相同的对象
+
+obj1 = null; // obj2 仍然持有引用
+console.log(obj2.data); // "Hello"
+
+obj2 = null; // 对象变得符合 GC 条件
+```
+
+```cpp !! cpp
+// C++: std::unique_ptr
+#include <iostream>
+#include <memory> // For std::unique_ptr
+
+class MyClass {
+public:
+  MyClass() { /* std::cout << "MyClass constructed" << std::endl; */ }
+  ~MyClass() { /* std::cout << "MyClass destroyed" << std::endl; */ }
+  void greet() { /* std::cout << "Hello from MyClass!" << std::endl; */ }
+};
+
+void processUniquePtr() {
+  // 创建一个 unique_ptr
+  std::unique_ptr<MyClass> ptr1(new MyClass());
+  // ptr1->greet();
+
+  // 不能复制 unique_ptr
+  // std::unique_ptr<MyClass> ptr2 = ptr1; // 编译错误
+
+  // 可以移动 unique_ptr
+  std::unique_ptr<MyClass> ptr3 = std::move(ptr1); // 所有权转移到 ptr3
+  // ptr3->greet();
+  // ptr1 现在为 null
+
+} // 当 ptr3 超出作用域时，MyClass 对象被销毁
+
+int main() {
+  // processUniquePtr();
+  return 0;
+}
+```
+</UniversalEditor>
+
+## `shared_ptr` 共享所有权
+
+`std::shared_ptr` 是一种智能指针，允许多个 `shared_ptr` 实例拥有同一个对象。它使用引用计数来跟踪有多少个 `shared_ptr` 指向该对象。只有当最后一个拥有它的 `shared_ptr` 被销毁或重置时，对象才会被删除。
+
+*   **共享所有权：** 可以复制。
+*   **引用计数：** 根据所有者数量管理对象生命周期。
+*   **用例：** 当代码的多个部分需要共享对象的所有权时。
+
+<UniversalEditor title="shared_ptr vs. 多个引用" compare={true}>
+```javascript !! js
+// JavaScript: 对同一个对象的多个引用
+let data = { value: 100 };
+let ref1 = data;
+let ref2 = data;
+
+console.log(ref1.value); // 100
+console.log(ref2.value); // 100
+
+ref1 = null; // data 仍然被 ref2 引用
+console.log(ref2.value); // 100
+
+ref2 = null; // data 现在符合 GC 条件
+```
+
+```cpp !! cpp
+// C++: std::shared_ptr
+#include <iostream>
+#include <memory> // For std::shared_ptr
+
+class Resource {
+public:
+  Resource() { /* std::cout << "Resource acquired" << std::endl; */ }
+  ~Resource() { /* std::cout << "Resource released" << std::endl; */ }
+};
+
+void consumer(std::shared_ptr<Resource> res) {
+  // std::cout << "Resource in consumer. Use count: " << res.use_count() << std::endl;
+} // res 超出作用域，引用计数减少
+
+int main() {
+  std::shared_ptr<Resource> ptr1(new Resource());
+  // std::cout << "Initial use count: " << ptr1.use_count() << std::endl; // 1
+
+  std::shared_ptr<Resource> ptr2 = ptr1; // 复制会增加引用计数
+  // std::cout << "After copy, use count: " << ptr1.use_count() << std::endl; // 2
+
+  consumer(ptr1); // 按值传递，暂时增加引用计数
+  // std::cout << "After consumer, use count: " << ptr1.use_count() << std::endl; // 2
+
+  ptr1.reset(); // 减少引用计数
+  // std::cout << "After ptr1 reset, use count: " << ptr2.use_count() << std::endl; // 1
+
+} // 当 ptr2 超出作用域时，Resource 被销毁 (引用计数变为 0)
+```
+</UniversalEditor>
+
+## `weak_ptr` 弱引用
+
+`std::weak_ptr` 是一种非拥有智能指针。它持有对由 `shared_ptr` 管理的对象的「弱」引用，而不增加引用计数。这主要用于打破**循环引用**，否则会阻止对象被删除。
+
+*   **非拥有：** 不影响对象的生命周期。
+*   **用例：** 打破 `shared_ptr` 之间的循环依赖。
+*   **访问：** 在访问受管理对象之前，必须使用 `lock()` 将其转换为 `shared_ptr`。如果对象已被删除，`lock()` 返回一个空 `shared_ptr`。
+
+## 智能指针 vs. 原始指针
+
+| 特性           | 原始指针                              | 智能指针 (`unique_ptr`、`shared_ptr`) |
+| :---------------- | :--------------------------------------- | :--------------------------------------- |
+| **内存管理**  | 手动 (`new`/`delete`)                  | 自动 (RAII)                         |
+| **所有权**     | 无明确所有权语义          | 明确所有权语义             |
+| **安全性**        | 容易出现内存泄漏、悬空指针、重复释放 | 显著减少内存错误      |
+| **开销**      | 极小                                  | 少量开销 (例如，`shared_ptr` 的引用计数) |
+| **用例**      | 低级内存访问，C 风格 API    | 现代 C++ 内存管理             |
+
+**经验法则：** 除非有充分理由（例如，与 C API 交互），否则优先使用智能指针而不是原始指针来管理动态分配的内存。
+
+## 循环引用问题
+
+当两个或多个 `shared_ptr` 相互持有引用，形成一个循环时，就会发生**循环引用**。这会阻止它们的引用计数达到零，从而导致内存泄漏。
+
+<UniversalEditor title="循环引用示例" compare={true}>
+```javascript !! js
+// JavaScript: 循环引用由 GC 处理 (标记-清除)
+class Node {
+  constructor(value) {
+    this.value = value;
+    this.next = null;
+    this.prev = null;
+  }
+}
+
+let nodeA = new Node("A");
+let nodeB = new Node("B");
+
+nodeA.next = nodeB;
+nodeB.prev = nodeA; // 循环引用
+
+// 当 nodeA 和 nodeB 不再从根可达时，GC 会回收它们。
+nodeA = null;
+nodeB = null;
+```
+
+```cpp !! cpp
+// C++: 带有 shared_ptr 的循环引用 (以及 weak_ptr 如何解决它)
+#include <iostream>
+#include <memory>
+
+class B; // 前向声明
+
+class A {
+public:
+  std::shared_ptr<B> b_ptr;
+  A() { /* std::cout << "A constructed" << std::endl; */ }
+  ~A() { /* std::cout << "A destroyed" << std::endl; */ }
+};
+
+class B {
+public:
+  // std::shared_ptr<A> a_ptr; // 这会导致循环引用
+  std::weak_ptr<A> a_ptr; // 使用 weak_ptr 打破循环
+  B() { /* std::cout << "B constructed" << std::endl; */ }
+  ~B() { /* std::cout << "B destroyed" << std::endl; */ }
+};
+
+void createCircularReference() {
+  std::shared_ptr<A> a = std::make_shared<A>();
+  std::shared_ptr<B> b = std::make_shared<B>();
+
+  a->b_ptr = b;
+  b->a_ptr = a; // 如果 a_ptr 是 shared_ptr，这将是一个循环
+
+  // std::cout << "A use count: " << a.use_count() << std::endl; // 1 (如果 b->a_ptr 是 weak_ptr)
+  // std::cout << "B use count: " << b.use_count() << std::endl; // 1
+
+} // a 和 b 超出作用域，对象被销毁，因为 weak_ptr 不会增加计数
+
+int main() {
+  // createCircularReference();
+  return 0;
+}
+```
+</UniversalEditor>
+
+## 智能指针最佳实践
+
+1.  **默认优先使用 `unique_ptr`：** 如果你需要独占所有权，`unique_ptr` 是最有效和最安全的选择。
+2.  **共享所有权时使用 `shared_ptr`：** 当多个实体需要共享对象的所有权时，`shared_ptr` 是合适的。
+3.  **使用 `weak_ptr` 打破循环：** 始终使用 `weak_ptr` 来解决 `shared_ptr` 之间的循环引用。
+4.  **使用 `std::make_unique` 和 `std::make_shared`：** 这些工厂函数优于直接 `new` 来创建智能指针。它们提供异常安全，并且可能更高效。
+5.  **避免 `get()` 和原始指针：** 仅在绝对必要时（例如，与 C API 交互）才使用 `get()` 获取原始指针，并极其小心其生命周期。
+6.  **不要将原始 `new`/`delete` 与智能指针混用：** 一旦对象由智能指针管理，就让智能指针处理其生命周期。
+
+## 与 JavaScript 垃圾回收的比较
+
+JavaScript 依赖**垃圾回收 (GC)** 进行自动内存管理。GC 定期识别并回收不再被程序可达的内存。这种方法简化了开发人员的内存管理，因为他们不需要显式地分配或释放内存。
+
+| 特性           | JavaScript (GC)                          | C++ (智能指针)                     |
+| :---------------- | :--------------------------------------- | :--------------------------------------- |
+| **机制**     | 自动，运行时 (标记-清除、引用计数等) | 自动，编译时/运行时 (RAII，`shared_ptr` 的引用计数) |
+| **控制**       | 对内存的直接控制较少          | 对象生命周期的精细控制 |
+| **确定性**   | 不确定性 (GC 在不可预测的时间运行) | 确定性 (智能指针超出作用域时对象被销毁) |
+| **性能**   | GC 暂停可能引入延迟          | 可预测的性能，开销极小 |
+| **循环引用**| 由现代 GC 处理 (例如，标记-清除) | 需要 `weak_ptr` 打破循环      |
+
+虽然 JavaScript 的 GC 提供了便利，但 C++ 智能指针提供了确定性销毁和精细控制，这对于性能关键应用程序和需要立即释放资源（例如，文件句柄、网络连接）的资源管理至关重要。
+
+---
+
+### 练习题：
+1.  解释 `std::unique_ptr` 实现的独占所有权概念。何时会选择 `unique_ptr` 而不是 `shared_ptr`？
+2.  `std::shared_ptr` 如何管理对象生命周期？描述一个需要 `std::weak_ptr` 来防止内存泄漏的场景。
+3.  比较和对比 C++ 智能指针与 JavaScript 的垃圾回收。讨论每种方法的优缺点。
+
+### 项目构想：
+*   使用 `std::shared_ptr` 实现一个简单的图数据结构（节点和边）。引入一个可能发生循环引用的场景（例如，两个节点之间的双向边）。然后，修改你的实现以使用 `std::weak_ptr` 来打破循环引用并确保正确的内存释放。

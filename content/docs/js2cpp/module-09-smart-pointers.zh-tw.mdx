@@ -1,0 +1,235 @@
+---
+title: 智能指標
+---
+
+智能指標是行為類似原始指標但提供自動記憶體管理的物件，顯著降低了記憶體洩漏和懸空指標的風險。它們是現代 C++ 程式設計的基石，體現了 RAII (資源取得即初始化) 原則。本模組將探討三種主要類型的智能指標 (`unique_ptr`、`shared_ptr`、`weak_ptr`)，並將它們的記憶體管理方法與 JavaScript 的垃圾回收進行比較。
+
+## `unique_ptr` 獨占所有權
+
+`std::unique_ptr` 是一種智能指標，它獨占其指向的物件。這意味著在任何時候，只有一個 `unique_ptr` 可以指向給定物件。當 `unique_ptr` 超出作用域時，它擁有的物件會自動刪除。
+
+*   **獨占所有權：** 不能複製，只能移動。
+*   **輕量級：** 開銷極小，類似於原始指標。
+*   **用例：** 當你需要動態分配物件的單一所有者時。
+
+<UniversalEditor title="unique_ptr vs. 原始指標" compare={true}>
+```javascript !! js
+// JavaScript: 物件生命週期由 GC 管理
+let obj1 = { data: "Hello" };
+let obj2 = obj1; // obj2 現在引用相同的物件
+
+obj1 = null; // obj2 仍然持有引用
+console.log(obj2.data); // "Hello"
+
+obj2 = null; // 物件變得符合 GC 條件
+```
+
+```cpp !! cpp
+// C++: std::unique_ptr
+#include <iostream>
+#include <memory> // For std::unique_ptr
+
+class MyClass {
+public:
+  MyClass() { /* std::cout << "MyClass constructed" << std::endl; */ }
+  ~MyClass() { /* std::cout << "MyClass destroyed" << std::endl; */ }
+  void greet() { /* std::cout << "Hello from MyClass!" << std::endl; */ }
+};
+
+void processUniquePtr() {
+  // 建立一個 unique_ptr
+  std::unique_ptr<MyClass> ptr1(new MyClass());
+  // ptr1->greet();
+
+  // 不能複製 unique_ptr
+  // std::unique_ptr<MyClass> ptr2 = ptr1; // 編譯錯誤
+
+  // 可以移動 unique_ptr
+  std::unique_ptr<MyClass> ptr3 = std::move(ptr1); // 所有權轉移到 ptr3
+  // ptr3->greet();
+  // ptr1 現在為 null
+
+} // 當 ptr3 超出作用域時，MyClass 物件被銷毀
+
+int main() {
+  // processUniquePtr();
+  return 0;
+}
+```
+</UniversalEditor>
+
+## `shared_ptr` 共享所有權
+
+`std::shared_ptr` 是一種智能指標，允許多個 `shared_ptr` 實例擁有同一個物件。它使用引用計數來跟蹤有多少個 `shared_ptr` 指向該物件。只有當最後一個擁有它的 `shared_ptr` 被銷毀或重置時，物件才會被刪除。
+
+*   **共享所有權：** 可以複製。
+*   **引用計數：** 根據所有者數量管理物件生命週期。
+*   **用例：** 當程式碼的多個部分需要共享物件的所有權時。
+
+<UniversalEditor title="shared_ptr vs. 多個引用" compare={true}>
+```javascript !! js
+// JavaScript: 對同一個物件的多個引用
+let data = { value: 100 };
+let ref1 = data;
+let ref2 = data;
+
+console.log(ref1.value); // 100
+console.log(ref2.value); // 100
+
+ref1 = null; // data 仍然被 ref2 引用
+console.log(ref2.value); // 100
+
+ref2 = null; // data 現在符合 GC 條件
+```
+
+```cpp !! cpp
+// C++: std::shared_ptr
+#include <iostream>
+#include <memory> // For std::shared_ptr
+
+class Resource {
+public:
+  Resource() { /* std::cout << "Resource acquired" << std::endl; */ }
+  ~Resource() { /* std::cout << "Resource released" << std::endl; */ }
+};
+
+void consumer(std::shared_ptr<Resource> res) {
+  // std::cout << "Resource in consumer. Use count: " << res.use_count() << std::endl;
+} // res 超出作用域，引用計數減少
+
+int main() {
+  std::shared_ptr<Resource> ptr1(new Resource());
+  // std::cout << "Initial use count: " << ptr1.use_count() << std::endl; // 1
+
+  std::shared_ptr<Resource> ptr2 = ptr1; // 複製會增加引用計數
+  // std::cout << "After copy, use count: " << ptr1.use_count() << std::endl; // 2
+
+  consumer(ptr1); // 按值傳遞，暫時增加引用計數
+  // std::cout << "After consumer, use count: " << ptr1.use_count() << std::endl; // 2
+
+  ptr1.reset(); // 減少引用計數
+  // std::cout << "After ptr1 reset, use count: " << ptr2.use_count() << std::endl; // 1
+
+} // 當 ptr2 超出作用域時，Resource 被銷毀 (引用計數變為 0)
+```
+</UniversalEditor>
+
+## `weak_ptr` 弱引用
+
+`std::weak_ptr` 是一種非擁有智能指標。它持有對由 `shared_ptr` 管理的物件的「弱」引用，而不增加引用計數。這主要用於打破**循環引用**，否則會阻止物件被刪除。
+
+*   **非擁有：** 不影響物件的生命週期。
+*   **用例：** 打破 `shared_ptr` 之間的循環依賴。
+*   **存取：** 在存取受管理物件之前，必須使用 `lock()` 將其轉換為 `shared_ptr`。如果物件已被刪除，`lock()` 返回一個空 `shared_ptr`。
+
+## 智能指標 vs. 原始指標
+
+| 特性           | 原始指標                              | 智能指標 (`unique_ptr`、`shared_ptr`) |
+| :---------------- | :--------------------------------------- | :--------------------------------------- |
+| **記憶體管理**  | 手動 (`new`/`delete`)                  | 自動 (RAII)                         |
+| **所有權**     | 無明確所有權語義          | 明確所有權語義             |
+| **安全性**        | 容易出現記憶體洩漏、懸空指標、重複釋放 | 顯著減少記憶體錯誤      |
+| **開銷**      | 極小                                  | 少量開銷 (例如，`shared_ptr` 的引用計數) |
+| **用例**      | 低階記憶體存取，C 風格 API    | 現代 C++ 記憶體管理             |
+
+**經驗法則：** 除非有充分理由（例如，與 C API 交互），否則優先使用智能指標而不是原始指標來管理動態分配的記憶體。
+
+## 循環引用問題
+
+當兩個或多個 `shared_ptr` 相互持有引用，形成一個循環時，就會發生**循環引用**。這會阻止它們的引用計數達到零，從而導致記憶體洩漏。
+
+<UniversalEditor title="循環引用範例" compare={true}>
+```javascript !! js
+// JavaScript: 循環引用由 GC 處理 (標記-清除)
+class Node {
+  constructor(value) {
+    this.value = value;
+    this.next = null;
+    this.prev = null;
+  }
+}
+
+let nodeA = new Node("A");
+let nodeB = new Node("B");
+
+nodeA.next = nodeB;
+nodeB.prev = nodeA; // 循環引用
+
+// 當 nodeA 和 nodeB 不再從根可達時，GC 會回收它們。
+nodeA = null;
+nodeB = null;
+```
+
+```cpp !! cpp
+// C++: 帶有 shared_ptr 的循環引用 (以及 weak_ptr 如何解決它)
+#include <iostream>
+#include <memory>
+
+class B; // 前向宣告
+
+class A {
+public:
+  std::shared_ptr<B> b_ptr;
+  A() { /* std::cout << "A constructed" << std::endl; */ }
+  ~A() { /* std::cout << "A destroyed" << std::endl; */ }
+};
+
+class B {
+public:
+  // std::shared_ptr<A> a_ptr; // 這會導致循環引用
+  std::weak_ptr<A> a_ptr; // 使用 weak_ptr 打破循環
+  B() { /* std::cout << "B constructed" << std::endl; */ }
+  ~B() { /* std::cout << "B destroyed" << std::endl; */ }
+};
+
+void createCircularReference() {
+  std::shared_ptr<A> a = std::make_shared<A>();
+  std::shared_ptr<B> b = std::make_shared<B>();
+
+  a->b_ptr = b;
+  b->a_ptr = a; // 如果 a_ptr 是 shared_ptr，這將是一個循環
+
+  // std::cout << "A use count: " << a.use_count() << std::endl; // 1 (如果 b->a_ptr 是 weak_ptr)
+  // std::cout << "B use count: " << b.use_count() << std::endl; // 1
+
+} // a 和 b 超出作用域，物件被銷毀，因為 weak_ptr 不會增加計數
+
+int main() {
+  // createCircularReference();
+  return 0;
+}
+```
+</UniversalEditor>
+
+## 智能指標最佳實踐
+
+1.  **預設優先使用 `unique_ptr`：** 如果你需要獨占所有權，`unique_ptr` 是最有效和最安全的選擇。
+2.  **共享所有權時使用 `shared_ptr`：** 當多個實體需要共享物件的所有權時，`shared_ptr` 是合適的。
+3.  **使用 `weak_ptr` 打破循環：** 始終使用 `weak_ptr` 來解決 `shared_ptr` 之間的循環引用。
+4.  **使用 `std::make_unique` 和 `std::make_shared`：** 這些工廠函式優於直接 `new` 來建立智能指標。它們提供異常安全，並且可能更高效。
+5.  **避免 `get()` 和原始指標：** 僅在絕對必要時（例如，與 C API 交互）才使用 `get()` 獲取原始指標，並極其小心其生命週期。
+6.  **不要將原始 `new`/`delete` 與智能指標混用：** 一旦物件由智能指標管理，就讓智能指標處理其生命週期。
+
+## 與 JavaScript 垃圾回收的比較
+
+JavaScript 依賴**垃圾回收 (GC)** 進行自動記憶體管理。GC 定期識別並回收不再被程式可達的記憶體。這種方法簡化了開發人員的記憶體管理，因為他們不需要明確地分配或釋放記憶體。
+
+| 特性           | JavaScript (GC)                          | C++ (智能指標)                     |
+| :---------------- | :--------------------------------------- | :--------------------------------------- |
+| **機制**     | 自動，運行時 (標記-清除、引用計數等) | 自動，編譯時/運行時 (RAII，`shared_ptr` 的引用計數) |
+| **控制**       | 對記憶體的直接控制較少          | 物件生命週期的精細控制 |
+| **確定性**   | 不確定性 (GC 在不可預測的時間運行) | 確定性 (智能指標超出作用域時物件被銷毀) |
+| **性能**   | GC 暫停可能引入延遲          | 可預測的性能，開銷極小 |
+| **循環引用**| 由現代 GC 處理 (例如，標記-清除) | 需要 `weak_ptr` 打破循環      |
+
+雖然 JavaScript 的 GC 提供了便利，但 C++ 智能指標提供了確定性銷毀和精細控制，這對於性能關鍵應用程式和需要立即釋放資源（例如，檔案句柄、網路連線）的資源管理至關重要。
+
+---
+
+### 練習題：
+1.  解釋 `std::unique_ptr` 實現的獨占所有權概念。何時會選擇 `unique_ptr` 而不是 `shared_ptr`？
+2.  `std::shared_ptr` 如何管理物件生命週期？描述一個需要 `std::weak_ptr` 來防止記憶體洩漏的場景。
+3.  比較和對比 C++ 智能指標與 JavaScript 的垃圾回收。討論每種方法的優缺點。
+
+### 專案構想：
+*   使用 `std::shared_ptr` 實現一個簡單的圖資料結構（節點和邊）。引入一個可能發生循環引用的場景（例如，兩個節點之間的雙向邊）。然後，修改你的實現以使用 `std::weak_ptr` 來打破循環引用並確保正確的記憶體釋放。

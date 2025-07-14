@@ -1,0 +1,195 @@
+---
+title: 錯誤處理和例外
+---
+
+錯誤處理是穩健軟體開發的關鍵環節。C++ 透過例外提供強大的錯誤處理機制，允許將錯誤處理程式碼與正常程式邏輯分離。這與 JavaScript 更常見的傳回值和用於非同步操作的 `try...catch` 區塊有顯著不同。
+
+## 例外處理機制 (`try-catch-throw`)
+
+在 C++ 中，例外用於發出和處理程式執行期間發生的異常情況或錯誤。例外處理的核心組件是：
+
+*   **`throw`：** 用於發出異常情況。當錯誤發生時，會 `throw` 一個例外。
+*   **`try` 區塊：** 可能發生例外的程式碼區塊。此區塊內的程式碼會受到監控，以偵測例外。
+*   **`catch` 區塊：** 處理特定類型例外的程式碼區塊。如果在 `try` 區塊內拋出例外，程式會跳轉到適當的 `catch` 區塊。
+
+<UniversalEditor title="例外處理比較" compare={true}>
+```javascript !! js
+// JavaScript: try...catch 處理錯誤
+function divide(a, b) {
+  if (b === 0) {
+    throw new Error("除數不能為零。");
+  }
+  return a / b;
+}
+
+try {
+  let result = divide(10, 0);
+  console.log(result);
+} catch (error) {
+  console.error("捕獲到錯誤:", error.message);
+}
+
+console.log("程式繼續執行...");
+```
+
+```cpp !! cpp
+// C++: try...catch...throw 處理例外
+#include <iostream>
+#include <stdexcept> // For std::runtime_error
+
+double divide(double a, double b) {
+  if (b == 0) {
+    throw std::runtime_error("除數不能為零。");
+  }
+  return a / b;
+}
+
+int main() {
+  try {
+    double result = divide(10, 0);
+    // std::cout << result << std::endl;
+  } catch (const std::runtime_error& e) { // 捕獲特定例外類型
+    // std::cerr << "捕獲到錯誤: " << e.what() << std::endl;
+  } catch (...) { // 捕獲任何其他例外 (通用捕獲)
+    // std::cerr << "捕獲到未知錯誤。" << std::endl;
+  }
+
+  // std::cout << "程式繼續執行..." << std::endl;
+
+  return 0;
+}
+```
+</UniversalEditor>
+
+## 例外安全保證
+
+在設計可能拋出例外的函式時，考慮**例外安全保證**非常重要。這些保證描述了如果拋出例外時程式的狀態：
+
+1.  **不拋出保證 (最強)：** 函式永遠不會拋出例外。
+2.  **強保證：** 如果拋出例外，程式的狀態保持不變（就像從未呼叫過函式一樣）。
+3.  **基本保證：** 如果拋出例外，程式保持在有效狀態，但確切狀態未指定。
+4.  **無保證 (最弱)：** 如果拋出例外，對程式狀態沒有任何保證。
+
+## 錯誤碼 vs. 例外
+
+歷史上，C 語言風格的程式設計通常使用**錯誤碼**（傳回特殊值以指示錯誤）進行錯誤處理。雖然簡單，但這種方法可能導致程式碼冗長且容易忽略錯誤。
+
+**例外**在現代 C++ 中通常用於異常情況，因為：
+*   它們將錯誤處理邏輯與正常程式碼流程分離。
+*   它們沿著呼叫堆疊傳播，直到被捕獲，防止錯誤被忽略。
+*   它們可以攜帶更多關於錯誤的資訊。
+
+## RAII (資源取得即初始化) 資源管理
+
+**RAII** 是 C++ 中用於安全管理資源（如記憶體、檔案句柄、網路連線）的基本慣用語。它指出資源取得應在建構函式中發生，資源釋放應在解構函式中發生。當物件超出作用域時（無論是正常情況還是由於例外），其解構函式都會自動呼叫，確保資源得到正確清理。
+
+這對於例外尤其重要，因為它保證即使例外繞過正常函式退出點，資源也能得到釋放。
+
+<UniversalEditor title="RAII 範例" compare={true}>
+```javascript !! js
+// JavaScript: 自動資源管理 (例如，使用 async/await 和 finally 處理檔案句柄)
+async function processFile(filePath) {
+  let fileHandle;
+  try {
+    fileHandle = await openFile(filePath);
+    // 處理檔案
+    console.log("檔案已處理。");
+  } catch (error) {
+    console.error("處理檔案時發生錯誤:", error.message);
+  } finally {
+    if (fileHandle) {
+      await closeFile(fileHandle); // 確保檔案已關閉
+      console.log("檔案已關閉。");
+    }
+  }
+}
+
+// processFile("data.txt");
+```
+
+```cpp !! cpp
+// C++: RAII 處理檔案
+#include <fstream> // For std::ofstream
+#include <iostream>
+
+class FileLogger {
+public:
+  FileLogger(const std::string& filename) : file(filename) {
+    if (!file.is_open()) {
+      throw std::runtime_error("無法開啟檔案: " + filename);
+    }
+    // std::cout << "FileLogger 已開啟: " << filename << std::endl;
+  }
+
+  ~FileLogger() {
+    if (file.is_open()) {
+      file.close();
+      // std::cout << "FileLogger 已關閉。" << std::endl;
+    }
+  }
+
+  void write(const std::string& message) {
+    file << message << std::endl;
+  }
+
+private:
+  std::ofstream file;
+};
+
+void doSomethingWithFile() {
+  try {
+    FileLogger logger("log.txt"); // 資源在建構函式中取得
+    logger.write("第一條訊息。");
+    // 模擬錯誤
+    // throw std::runtime_error("檔案操作期間模擬錯誤。");
+    logger.write("第二條訊息。");
+  } catch (const std::runtime_error& e) {
+    // std::cerr << "錯誤: " << e.what() << std::endl;
+  } // logger 的解構函式在此處呼叫，自動關閉檔案
+}
+
+int main() {
+  // doSomethingWithFile();
+  return 0;
+}
+```
+</UniversalEditor>
+
+## 與 JavaScript 錯誤處理的比較
+
+JavaScript 主要使用 `Error` 物件和 `try...catch` 區塊進行同步錯誤處理。對於非同步操作，Promise 和 `async/await` 與 `try...catch` 結合使用很常見。
+
+| 特性           | JavaScript                               | C++                                      |
+| :---------------- | :--------------------------------------- | :--------------------------------------- |
+| **機制**     | `Error` 物件、`throw`、`try...catch`  | 例外 (`throw`、`try...catch`)      |
+| **資源管理**| 自動 (GC)、`finally` 用於明確清理 | 手動、RAII (資源取得即初始化) |
+| **錯誤類型**   | 內建 `Error` 類型 (例如，`TypeError`、`ReferenceError`)、自訂 `Error` 子類別 | 標準例外 (`std::runtime_error`、`std::bad_alloc`)、自訂例外類別 |
+| **傳播**   | 沿著呼叫堆疊傳播直到被捕獲           | 沿著呼叫堆疊傳播直到被捕獲           |
+| **性能**   | 對於簡單錯誤通常開銷較小 | 如果例外頻繁拋出，可能會產生性能開銷 (由於堆疊展開) |
+
+
+## 例外處理最佳實踐
+
+1.  **按值拋出，按引用捕獲：** 將例外作為物件拋出（按值），並按常數引用捕獲（`const std::exception&` 或 `const MyException&`）。這可以避免切片和不必要的複製。
+2.  **先捕獲特定例外：** 在更通用的例外類型之前捕獲更特定的例外類型。
+3.  **使用 `std::exception` 階層：** 從 `std::exception` 或其子類別（例如，`std::runtime_error`、`std::logic_error`）衍生自訂例外類別。
+4.  **避免在解構函式中拋出：** 從解構函式中拋出例外可能導致 `std::terminate`，如果另一個例外已經活躍。
+5.  **將例外用於異常情況：** 不要將例外用於正常程式流程或預期情況。例如，不要使用例外來表示使用者輸入了無效輸入；而是使用驗證和傳回值。
+6.  **RAII 是關鍵：** 利用 RAII 確保資源清理，即使發生例外。
+
+## 常見例外處理陷阱
+
+*   **按值捕獲：** 如果按基底類別類型捕獲衍生例外，可能導致物件切片。
+*   **忽略例外：** 不捕獲例外可能導致程式終止。
+*   **過度使用例外：** 將例外用於非異常情況可能會損害性能並使程式碼難以閱讀。
+*   **未處理所有例外：** 通用 `catch (...)` 可以作為最後的手段，但特定處理程式更好。
+
+---
+
+### 練習題：
+1.  描述 C++ 例外處理中的 `try`、`catch` 和 `throw` 關鍵字。它們如何協同工作來管理錯誤？
+2.  什麼是 RAII，為什麼它被認為是 C++ 中資源管理的基本慣用語？提供一個範例，說明 RAII 如何幫助確保資源清理，即使發生例外。
+3.  比較和對比 C++ 的例外處理機制與 JavaScript 的錯誤處理。它們在方法上的主要差異是什麼？
+
+### 專案構想：
+*   建立一個簡單的 C++ 程式，模擬檔案處理工具。實作可能失敗的函式（例如，`openFile`、`readFile`、`writeFile`）。使用 C++ 例外處理檔案未找到、權限被拒絕或磁碟已滿等錯誤。確保所有資源（檔案句柄）都使用 RAII 原則正確關閉，即使發生例外。

@@ -1,0 +1,257 @@
+---
+title: 系统编程
+---
+
+系统编程涉及编写直接与计算机硬件和操作系统交互的软件。C++ 是系统编程的主要语言，因为它具有低级内存访问、性能和对系统资源的控制。本模块将涵盖文件 I/O、网络编程、进程间通信和系统调用等基本概念，并强调 C++ 与 JavaScript 高级抽象的差异。
+
+## 文件 I/O 操作
+
+C++ 通过 `<fstream>` 库提供了强大的文件输入和输出机制。这允许程序读取和写入本地文件系统上的文件。
+
+*   `std::ifstream`：用于从文件读取。
+*   `std::ofstream`：用于写入文件。
+*   `std::fstream`：用于读取和写入。
+
+<UniversalEditor title="文件 I/O 比较" compare={true}>
+```javascript !! js
+// JavaScript (Node.js): 文件 I/O 使用 fs 模块 (默认为异步)
+const fs = require('fs');
+
+// 写入文件
+fs.writeFile('example.txt', 'Hello from JavaScript!', (err) => {
+  if (err) throw err;
+  console.log('文件写入成功。');
+});
+
+// 从文件读取
+fs.readFile('example.txt', 'utf8', (err, data) => {
+  if (err) throw err;
+  console.log('文件内容:', data);
+});
+
+// 同步版本 (在 Node.js 中较不常见)
+// try {
+//   fs.writeFileSync('sync_example.txt', '同步写入。');
+//   const data = fs.readFileSync('sync_example.txt', 'utf8');
+//   console.log('同步文件内容:', data);
+// } catch (err) {
+//   console.error('同步文件错误:', err);
+// }
+```
+
+```cpp !! cpp
+// C++: 文件 I/O 使用 <fstream>
+#include <iostream>
+#include <fstream> // For file stream operations
+#include <string>
+
+int main() {
+  // 写入文件
+  std::ofstream outFile("example.txt"); // 打开文件以供写入
+  if (outFile.is_open()) {
+    outFile << "Hello from C++!\n";
+    outFile << "This is a new line.\n";
+    outFile.close(); // 关闭文件
+    // std::cout << "文件写入成功。" << std::endl;
+  } else {
+    // std::cerr << "无法打开文件以供写入。" << std::endl;
+  }
+
+  // 从文件读取
+  std::ifstream inFile("example.txt"); // 打开文件以供读取
+  if (inFile.is_open()) {
+    std::string line;
+    // while (std::getline(inFile, line)) { // 逐行读取
+    //   std::cout << "文件内容: " << line << std::endl;
+    // }
+    inFile.close();
+  } else {
+    // std::cerr << "无法打开文件以供读取。" << std::endl;
+  }
+
+  return 0;
+}
+```
+</UniversalEditor>
+
+## 网络编程基础
+
+C++ 提供了对网络套接字的低级访问， enabling direct communication over networks. This is typically done using system-specific APIs (like Winsock on Windows or Berkeley sockets on Unix-like systems) or cross-platform libraries.
+
+### 套接字
+
+*   **套接字：** 用于在计算机网络中发送或接收数据的端点。
+*   **类型：** 流套接字 (TCP) 用于可靠、面向连接的通信；数据报套接字 (UDP) 用于不可靠、无连接的通信。
+
+<UniversalEditor title="基本套接字编程 (概念性)" compare={true}>
+```javascript !! js
+// JavaScript (Node.js): 高级网络 API (例如 http, net 模块)
+const http = require('http');
+
+// 简单的 HTTP 服务器
+// http.createServer((req, res) => {
+//   res.writeHead(200, { 'Content-Type': 'text/plain' });
+//   res.end('Hello World\n');
+// }).listen(3000, '127.0.0.1', () => {
+//   console.log('服务器运行于 http://127.0.0.1:3000/');
+// });
+
+// 简单的 HTTP 客户端
+// http.get('http://127.0.0.1:3000', (res) => {
+//   let data = '';
+//   res.on('data', (chunk) => { data += chunk; });
+//   res.on('end', () => { console.log('客户端收到:', data); });
+// }).on('error', (e) => { console.error(`发生错误: ${e.message}`); });
+```
+
+```cpp !! cpp
+// C++: 基本套接字编程 (概念性 - 需要平台特定头文件)
+// 此示例高度简化且为概念性。实际的套接字编程
+// 涉及更多错误处理、设置和平台特定细节。
+
+// #include <iostream>
+// #include <string>
+// #include <sys/socket.h> // For socket, connect, send, recv (Unix-like)
+// #include <arpa/inet.h>  // For inet_addr (Unix-like)
+// #include <unistd.h>   // For close (Unix-like)
+
+// int main() {
+//   // 创建套接字
+//   int sock = socket(AF_INET, SOCK_STREAM, 0);
+//   if (sock == -1) { /* std::cerr << "Could not create socket" << std::endl; */ return 1; }
+
+//   // 准备 sockaddr_in 结构
+//   sockaddr_in server;
+//   server.sin_addr.s_addr = inet_addr("127.0.0.1");
+//   server.sin_family = AF_INET;
+//   server.sin_port = htons(8888);
+
+//   // 连接到远程服务器
+//   if (connect(sock, (sockaddr*)&server, sizeof(server)) < 0) {
+//     // std::cerr << "Connect error" << std::endl; return 1;
+//   }
+//   // std::cout << "Connected" << std::endl;
+
+//   // 发送一些数据
+//   std::string message = "Hello from C++ client!";
+//   if (send(sock, message.c_str(), message.length(), 0) < 0) {
+//     // std::cerr << "Send failed" << std::endl; return 1;
+//   }
+//   // std::cout << "Data Send\n" << std::endl;
+
+//   // 接收服务器回复
+//   char server_reply[2000];
+//   if (recv(sock, server_reply, 2000, 0) < 0) {
+//     // std::cerr << "Recv failed" << std::endl;
+//   }
+//   // std::cout << "Reply received\n" << server_reply << std::endl;
+
+//   close(sock);
+//   return 0;
+// }
+```
+</UniversalEditor>
+
+## 进程间通信 (IPC)
+
+IPC 机制允许不同的进程通信并同步其动作。C++ 可以利用各种 OS 级别的 IPC 方法。
+
+*   **管道：** 相关进程之间的单向通信通道。
+*   **共享内存：** 最快的 IPC，允许进程直接访问共同的内存区域。
+*   **消息队列：** 进程通过系统队列交换消息。
+*   **信号量：** 用于控制对共享资源访问的同步原语。
+*   **套接字：** 也可以用于不相关进程之间的 IPC，甚至在不同的机器上。
+
+## 系统调用接口
+
+C++ 程序可以直接调用**系统调用**来请求操作系统内核的服务。这些调用提供了对文件系统操作、进程管理和网络通信等低级功能的访问。
+
+*   **`open()`、`read()`、`write()`、`close()`：** 低级文件操作。
+*   **`fork()`、`exec()`、`wait()`：** 进程创建和管理。
+*   **`socket()`、`bind()`、`listen()`、`accept()`、`connect()`：** 网络套接字操作。
+
+## 跨平台开发考虑
+
+虽然 C++ 提供了低级控制，但系统编程通常涉及平台特定的 API。为了编写跨平台代码，开发人员通常使用：
+
+*   **标准 C++ 库：** 提供平台独立的功能（例如，`std::thread`、`std::filesystem` (C++17)）。
+*   **跨平台库：** 像 Boost.Asio (网络)、Qt (GUI、网络、文件系统) 或 POCO C++ 库这样的库抽象了 OS 差异。
+*   **条件编译：** 使用预处理器指令（`#ifdef`、`#ifndef`）来包含平台特定的代码。
+
+## 低级内存操作
+
+C++ 允许通过指针直接操作内存， enabling highly optimized and specialized memory operations. This includes:
+
+*   **原始内存分配：** `malloc`/`free` (来自 C) 或 `new`/`delete`。
+*   **放置 new：** 在预先分配的内存位置构造对象。
+*   **位操作：** 直接操作数据类型中的单个位。
+*   **内存映射：** 将文件或设备直接映射到进程的地址空间。
+
+<UniversalEditor title="低级内存操作 (概念性)" compare={true}>
+```javascript !! js
+// JavaScript: 没有直接的低级内存访问。
+// 内存由垃圾回收器管理。
+// ArrayBuffer 和 TypedArrays 提供二进制数据操作，
+// 但没有直接的内存地址。
+const buffer = new ArrayBuffer(16); // 16 字节
+const view = new DataView(buffer);
+
+view.setInt32(0, 12345, true); // 在偏移量 0 处写入 32 位整数
+console.log(view.getInt32(0, true)); // 读回它
+```
+
+```cpp !! cpp
+// C++: 低级内存操作
+#include <iostream>
+#include <cstring> // For memcpy
+
+int main() {
+  // 原始内存分配和操作
+  char* buffer = new char[10]; // 分配 10 字节
+  // std::memset(buffer, 0, 10); // 初始化为零
+
+  int value = 12345;
+  // std::memcpy(buffer, &value, sizeof(int)); // 将 int 的字节复制到缓冲区
+
+  // int retrieved_value;
+  // std::memcpy(&retrieved_value, buffer, sizeof(int)); // 将字节复制回 int
+  // std::cout << "检索到的值: " << retrieved_value << std::endl;
+
+  delete[] buffer; // 释放
+
+  // 位操作
+  unsigned char flags = 0b00001101; // 示例标志: 8, 4, 1 已设置
+  // std::cout << "Flags: " << (int)flags << std::endl;
+  // if (flags & (1 << 2)) { // 检查第 3 位 (值 4) 是否已设置
+  //   std::cout << "第三位已设置。" << std::endl;
+  // }
+
+  return 0;
+}
+```
+</UniversalEditor>
+
+## 与 JavaScript 系统编程的比较
+
+JavaScript，特别是在浏览器环境中，是高度沙盒化的，对底层操作系统或硬件的直接访问非常有限。Node.js 将 JavaScript 的功能扩展到服务器端，提供了文件系统访问、网络和进程管理等 API，但这些通常是建立在 C++ 或 C 代码之上的高级抽象。
+
+| 特性           | JavaScript (Node.js)                     | C++                                      |
+| :---------------- | :--------------------------------------- | :--------------------------------------- |
+| **文件 I/O**      | 高级 `fs` 模块 (异步/同步)      | 低级 `open`/`read`/`write`、`fstream` |
+| **网络**    | 高级 `net`、`http` 模块         | 低级套接字 (平台特定 API) |
+| **IPC**           | 子进程、消息传递         | 管道、共享内存、消息队列、套接字 |
+| **系统调用**  | 通过 Node.js 运行时间接           | 通过 C/C++ 库直接调用    |
+| **内存访问** | 由 GC 管理，`ArrayBuffer` 用于二进制数据 | 直接指针操作，手动分配 |
+| **性能**   | 对于 I/O 密集型良好，对于 CPU 密集型较差   | 对于 CPU 密集型、低延迟、直接硬件交互表现出色 |
+
+C++ 是操作系统、嵌入式系统、设备驱动程序和高性能服务器应用程序的首选语言，在这些领域中，直接硬件交互、精确内存控制和最大性能至关重要。JavaScript，即使是 Node.js，也运行在更高的抽象层次上，优先考虑开发人员生产力和安全性，而不是原始系统控制。
+
+---
+
+### 练习题：
+1.  描述 C++ 中高级文件 I/O（如 `std::ofstream`）和低级文件 I/O（如 `open`/`read`/`write` 系统调用）之间的区别。何时会选择其中一个？
+2.  解释网络编程中套接字的概念。C++ 的网络编程方法与 JavaScript（例如，在 Node.js 中）有何不同？
+3.  什么是系统调用，为什么它们在系统编程中很重要？提供一个通常需要系统调用的任务示例。
+
+### 项目构想：
+*   创建一个简单的 C++ 程序，将一个文件的内容复制到另一个文件。你的程序应接受两个命令行参数：源文件路径和目标文件路径。使用 `std::ifstream` 和 `std::ofstream` 进行文件操作。添加错误处理，例如文件未找到或无法写入目标。对于高级挑战，尝试使用低级 `open`、`read` 和 `write` 系统调用来实现它。

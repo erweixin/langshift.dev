@@ -1,0 +1,863 @@
+---
+title: "Protocols and Extensions - Protocol-Oriented Programming"
+description: "Learn Swift protocols and extensions: protocol basics, extensions, protocol-oriented programming, and comparison with JavaScript"
+---
+
+# Protocols and Extensions: Protocol-Oriented Programming
+
+In this module, we explore Swift's powerful protocol system and extensions, which form the foundation of protocol-oriented programming. We'll compare this approach with JavaScript's interface patterns and mixins.
+
+## Table of Contents
+- [Introduction: Protocols vs Interfaces](#introduction-protocols-vs-interfaces)
+- [Basic Protocols](#basic-protocols)
+- [Protocol Extensions](#protocol-extensions)
+- [Protocol-Oriented Programming](#protocol-oriented-programming)
+- [Extensions](#extensions)
+- [Generic Protocols](#generic-protocols)
+- [Protocol Composition](#protocol-composition)
+- [Advanced Protocol Features](#advanced-protocol-features)
+- [Exercises](#exercises)
+- [Key Takeaways](#key-takeaways)
+
+## Introduction: Protocols vs Interfaces
+
+Swift protocols are more powerful than traditional interfaces, supporting default implementations, associated types, and protocol composition.
+
+| Feature              | JavaScript Interface | Swift Protocol |
+|----------------------|---------------------|----------------|
+| Default Implementation | No                 | Yes (extensions) |
+| Associated Types     | No                 | Yes             |
+| Protocol Composition | No                 | Yes             |
+| Value Types          | No                 | Yes             |
+| Self Requirements    | No                 | Yes             |
+| Protocol Extensions  | No                 | Yes             |
+| Generic Constraints  | No                 | Yes             |
+
+## Basic Protocols
+
+<UniversalEditor title="Basic Protocols Comparison" compare={true}>
+```javascript !! js
+// JavaScript: No built-in interfaces, but can use duck typing
+class Drawable {
+    draw() {
+        throw new Error("draw() must be implemented");
+    }
+}
+
+class Circle {
+    constructor(radius) {
+        this.radius = radius;
+    }
+    draw() {
+        console.log(`Drawing circle with radius ${this.radius}`);
+    }
+}
+
+// Manual interface checking
+function isDrawable(obj) {
+    return typeof obj.draw === 'function';
+}
+
+const circle = new Circle(5);
+if (isDrawable(circle)) {
+    circle.draw();
+}
+```
+
+```swift !! swift
+// Swift: Formal protocol system
+protocol Drawable {
+    func draw()
+}
+
+struct Circle: Drawable {
+    var radius: Double
+    
+    func draw() {
+        print("Drawing circle with radius \(radius)")
+    }
+}
+
+// Protocol conformance is checked at compile time
+let circle = Circle(radius: 5)
+circle.draw()
+```
+</UniversalEditor>
+
+### Protocol with Properties
+
+<UniversalEditor title="Protocol with Properties" compare={true}>
+```javascript !! js
+// JavaScript: Simulating protocol with properties
+class Vehicle {
+    constructor() {
+        if (this.constructor === Vehicle) {
+            throw new Error("Vehicle is abstract");
+        }
+    }
+    
+    get wheels() {
+        throw new Error("wheels must be implemented");
+    }
+    
+    start() {
+        throw new Error("start() must be implemented");
+    }
+}
+
+class Car extends Vehicle {
+    get wheels() {
+        return 4;
+    }
+    
+    start() {
+        console.log("Car starting...");
+    }
+}
+
+const car = new Car();
+console.log(car.wheels); // 4
+car.start(); // Car starting...
+```
+
+```swift !! swift
+// Swift: Protocol with properties
+protocol Vehicle {
+    var wheels: Int { get }
+    func start()
+}
+
+struct Car: Vehicle {
+    var wheels: Int {
+        return 4
+    }
+    
+    func start() {
+        print("Car starting...")
+    }
+}
+
+let car = Car()
+print(car.wheels) // 4
+car.start() // Car starting...
+```
+</UniversalEditor>
+
+## Protocol Extensions
+
+Swift protocol extensions provide default implementations, which JavaScript cannot do natively.
+
+<UniversalEditor title="Protocol Extensions" compare={true}>
+```javascript !! js
+// JavaScript: No protocol extensions, must implement manually
+class Animal {
+    constructor(name) {
+        this.name = name;
+    }
+    
+    speak() {
+        console.log(`${this.name} makes a sound`);
+    }
+    
+    // Default implementation in base class
+    describe() {
+        console.log(`This is ${this.name}, a ${this.constructor.name}`);
+    }
+}
+
+class Dog extends Animal {
+    speak() {
+        console.log(`${this.name} barks`);
+    }
+}
+
+const dog = new Dog("Buddy");
+dog.speak(); // Buddy barks
+dog.describe(); // This is Buddy, a Dog
+```
+
+```swift !! swift
+// Swift: Protocol extensions with default implementations
+protocol Animal {
+    var name: String { get }
+    func speak()
+}
+
+extension Animal {
+    // Default implementation
+    func speak() {
+        print("\(name) makes a sound")
+    }
+    
+    func describe() {
+        print("This is \(name), a \(type(of: self))")
+    }
+}
+
+struct Dog: Animal {
+    let name: String
+    
+    func speak() {
+        print("\(name) barks")
+    }
+}
+
+let dog = Dog(name: "Buddy")
+dog.speak() // Buddy barks
+dog.describe() // This is Buddy, a Dog
+```
+</UniversalEditor>
+
+## Protocol-Oriented Programming
+
+Swift encourages protocol-oriented programming over class inheritance.
+
+<UniversalEditor title="Protocol-Oriented Programming" compare={true}>
+```javascript !! js
+// JavaScript: Class-based approach
+class Logger {
+    log(message) {
+        console.log(`[LOG] ${message}`);
+    }
+}
+
+class ErrorLogger extends Logger {
+    log(message) {
+        console.log(`[ERROR] ${message}`);
+    }
+}
+
+class FileLogger extends Logger {
+    log(message) {
+        console.log(`[FILE] ${message}`);
+    }
+}
+
+// Multiple inheritance simulation with mixins
+const TimestampMixin = {
+    logWithTimestamp(message) {
+        const timestamp = new Date().toISOString();
+        this.log(`[${timestamp}] ${message}`);
+    }
+};
+
+Object.assign(ErrorLogger.prototype, TimestampMixin);
+const errorLogger = new ErrorLogger();
+errorLogger.logWithTimestamp("Something went wrong");
+```
+
+```swift !! swift
+// Swift: Protocol-oriented approach
+protocol Logger {
+    func log(_ message: String)
+}
+
+extension Logger {
+    func logWithTimestamp(_ message: String) {
+        let timestamp = ISO8601DateFormatter().string(from: Date())
+        log("[\(timestamp)] \(message)")
+    }
+}
+
+struct ConsoleLogger: Logger {
+    func log(_ message: String) {
+        print("[LOG] \(message)")
+    }
+}
+
+struct ErrorLogger: Logger {
+    func log(_ message: String) {
+        print("[ERROR] \(message)")
+    }
+}
+
+struct FileLogger: Logger {
+    func log(_ message: String) {
+        print("[FILE] \(message)")
+    }
+}
+
+let errorLogger = ErrorLogger()
+errorLogger.logWithTimestamp("Something went wrong")
+```
+</UniversalEditor>
+
+## Extensions
+
+Swift extensions allow adding functionality to existing types, similar to JavaScript's prototype extensions.
+
+<UniversalEditor title="Extensions Comparison" compare={true}>
+```javascript !! js
+// JavaScript: Prototype extensions
+String.prototype.reverse = function() {
+    return this.split('').reverse().join('');
+};
+
+Array.prototype.sum = function() {
+    return this.reduce((sum, num) => sum + num, 0);
+};
+
+const text = "Hello";
+console.log(text.reverse()); // olleH
+
+const numbers = [1, 2, 3, 4, 5];
+console.log(numbers.sum()); // 15
+
+// Extending built-in objects (not recommended)
+Number.prototype.isEven = function() {
+    return this % 2 === 0;
+};
+
+console.log((4).isEven()); // true
+```
+
+```swift !! swift
+// Swift: Extensions
+extension String {
+    func reverse() -> String {
+        return String(self.reversed())
+    }
+}
+
+extension Array where Element == Int {
+    func sum() -> Int {
+        return self.reduce(0, +)
+    }
+}
+
+let text = "Hello"
+print(text.reverse()) // olleH
+
+let numbers = [1, 2, 3, 4, 5]
+print(numbers.sum()) // 15
+
+// Extending with computed properties
+extension Int {
+    var isEven: Bool {
+        return self % 2 == 0
+    }
+}
+
+print(4.isEven) // true
+```
+</UniversalEditor>
+
+### Extending Custom Types
+
+<UniversalEditor title="Extending Custom Types" compare={true}>
+```javascript !! js
+// JavaScript: Adding methods to existing classes
+class Person {
+    constructor(name, age) {
+        this.name = name;
+        this.age = age;
+    }
+}
+
+// Adding methods after class definition
+Person.prototype.getInfo = function() {
+    return `${this.name} is ${this.age} years old`;
+};
+
+Person.prototype.isAdult = function() {
+    return this.age >= 18;
+};
+
+const person = new Person("Alice", 25);
+console.log(person.getInfo()); // Alice is 25 years old
+console.log(person.isAdult()); // true
+```
+
+```swift !! swift
+// Swift: Extending custom types
+struct Person {
+    let name: String
+    let age: Int
+}
+
+// Adding functionality through extensions
+extension Person {
+    func getInfo() -> String {
+        return "\(name) is \(age) years old"
+    }
+    
+    var isAdult: Bool {
+        return age >= 18
+    }
+}
+
+let person = Person(name: "Alice", age: 25)
+print(person.getInfo()) // Alice is 25 years old
+print(person.isAdult) // true
+```
+</UniversalEditor>
+
+## Generic Protocols
+
+Swift supports generic protocols with associated types, which JavaScript cannot do.
+
+<UniversalEditor title="Generic Protocols" compare={true}>
+```javascript !! js
+// JavaScript: No generic protocols, but can use generics in classes
+class Container {
+    constructor(value) {
+        this.value = value;
+    }
+    
+    getValue() {
+        return this.value;
+    }
+    
+    setValue(value) {
+        this.value = value;
+    }
+}
+
+class NumberContainer extends Container {
+    constructor(value) {
+        super(value);
+    }
+    
+    add(other) {
+        return new NumberContainer(this.value + other.value);
+    }
+}
+
+const numContainer = new NumberContainer(5);
+const result = numContainer.add(new NumberContainer(3));
+console.log(result.getValue()); // 8
+```
+
+```swift !! swift
+// Swift: Generic protocols with associated types
+protocol Container {
+    associatedtype Item
+    var value: Item { get set }
+    func getValue() -> Item
+    mutating func setValue(_ value: Item)
+}
+
+struct NumberContainer: Container {
+    typealias Item = Int
+    var value: Int
+    
+    func getValue() -> Int {
+        return value
+    }
+    
+    mutating func setValue(_ value: Int) {
+        self.value = value
+    }
+    
+    func add(_ other: NumberContainer) -> NumberContainer {
+        return NumberContainer(value: value + other.value)
+    }
+}
+
+var numContainer = NumberContainer(value: 5)
+let result = numContainer.add(NumberContainer(value: 3))
+print(result.getValue()) // 8
+```
+</UniversalEditor>
+
+## Protocol Composition
+
+Swift allows combining multiple protocols, which JavaScript cannot do formally.
+
+<UniversalEditor title="Protocol Composition" compare={true}>
+```javascript !! js
+// JavaScript: No formal protocol composition, but can check multiple methods
+function isDrawableAndMovable(obj) {
+    return typeof obj.draw === 'function' && 
+           typeof obj.move === 'function';
+}
+
+class Shape {
+    constructor(x, y) {
+        this.x = x;
+        this.y = y;
+    }
+    
+    draw() {
+        console.log(`Drawing at (${this.x}, ${this.y})`);
+    }
+    
+    move(dx, dy) {
+        this.x += dx;
+        this.y += dy;
+    }
+}
+
+const shape = new Shape(0, 0);
+if (isDrawableAndMovable(shape)) {
+    shape.draw();
+    shape.move(10, 10);
+    shape.draw();
+}
+```
+
+```swift !! swift
+// Swift: Protocol composition
+protocol Drawable {
+    func draw()
+}
+
+protocol Movable {
+    mutating func move(dx: Double, dy: Double)
+}
+
+struct Shape: Drawable & Movable {
+    var x: Double
+    var y: Double
+    
+    func draw() {
+        print("Drawing at (\(x), \(y))")
+    }
+    
+    mutating func move(dx: Double, dy: Double) {
+        x += dx
+        y += dy
+    }
+}
+
+var shape = Shape(x: 0, y: 0)
+shape.draw()
+shape.move(dx: 10, dy: 10)
+shape.draw()
+```
+</UniversalEditor>
+
+## Advanced Protocol Features
+
+### Self Requirements
+
+<UniversalEditor title="Self Requirements" compare={true}>
+```javascript !! js
+// JavaScript: No self requirements, but can use instanceof
+class Animal {
+    clone() {
+        return new this.constructor();
+    }
+}
+
+class Dog extends Animal {
+    constructor() {
+        super();
+        this.type = "Dog";
+    }
+}
+
+const dog = new Dog();
+const clonedDog = dog.clone();
+console.log(clonedDog instanceof Dog); // true
+console.log(clonedDog.type); // "Dog"
+```
+
+```swift !! swift
+// Swift: Self requirements in protocols
+protocol Cloneable {
+    func clone() -> Self
+}
+
+class Animal: Cloneable {
+    func clone() -> Self {
+        return type(of: self).init()
+    }
+    
+    required init() {}
+}
+
+class Dog: Animal {
+    var type: String = "Dog"
+}
+
+let dog = Dog()
+let clonedDog = dog.clone()
+print(type(of: clonedDog) == Dog.self) // true
+print(clonedDog.type) // "Dog"
+```
+</UniversalEditor>
+
+### Protocol Witness Tables
+
+<UniversalEditor title="Protocol Witness Tables" compare={true}>
+```javascript !! js
+// JavaScript: No protocol witness tables, dynamic dispatch
+class Logger {
+    log(message) {
+        console.log(`[LOG] ${message}`);
+    }
+}
+
+class ErrorLogger extends Logger {
+    log(message) {
+        console.log(`[ERROR] ${message}`);
+    }
+}
+
+function logMessage(logger, message) {
+    logger.log(message); // Dynamic dispatch
+}
+
+const errorLogger = new ErrorLogger();
+logMessage(errorLogger, "Test message");
+```
+
+```swift !! swift
+// Swift: Protocol witness tables for efficient dispatch
+protocol Logger {
+    func log(_ message: String)
+}
+
+struct ConsoleLogger: Logger {
+    func log(_ message: String) {
+        print("[LOG] \(message)")
+    }
+}
+
+struct ErrorLogger: Logger {
+    func log(_ message: String) {
+        print("[ERROR] \(message)")
+    }
+}
+
+func logMessage(_ logger: Logger, _ message: String) {
+    logger.log(message) // Static dispatch via witness table
+}
+
+let errorLogger = ErrorLogger()
+logMessage(errorLogger, "Test message")
+```
+</UniversalEditor>
+
+## Exercises
+
+### Exercise 1: Create a Plugin System
+
+<UniversalEditor title="Exercise 1: Plugin System" compare={true}>
+```javascript !! js
+// JavaScript solution
+class Plugin {
+    constructor(name) {
+        this.name = name;
+    }
+    
+    execute() {
+        throw new Error("execute() must be implemented");
+    }
+}
+
+class TextPlugin extends Plugin {
+    constructor(name, text) {
+        super(name);
+        this.text = text;
+    }
+    
+    execute() {
+        console.log(`Plugin ${this.name}: ${this.text}`);
+    }
+}
+
+class MathPlugin extends Plugin {
+    constructor(name, operation) {
+        super(name);
+        this.operation = operation;
+    }
+    
+    execute() {
+        const result = eval(this.operation);
+        console.log(`Plugin ${this.name}: ${this.operation} = ${result}`);
+    }
+}
+
+class PluginManager {
+    constructor() {
+        this.plugins = [];
+    }
+    
+    addPlugin(plugin) {
+        this.plugins.push(plugin);
+    }
+    
+    runAll() {
+        this.plugins.forEach(plugin => plugin.execute());
+    }
+}
+
+const manager = new PluginManager();
+manager.addPlugin(new TextPlugin("Greeting", "Hello World"));
+manager.addPlugin(new MathPlugin("Calculator", "2 + 3 * 4"));
+manager.runAll();
+```
+
+```swift !! swift
+// Swift solution
+protocol Plugin {
+    var name: String { get }
+    func execute()
+}
+
+struct TextPlugin: Plugin {
+    let name: String
+    let text: String
+    
+    func execute() {
+        print("Plugin \(name): \(text)")
+    }
+}
+
+struct MathPlugin: Plugin {
+    let name: String
+    let operation: String
+    
+    func execute() {
+        // Simple math evaluation (in real app, use proper parser)
+        let result = evaluate(operation)
+        print("Plugin \(name): \(operation) = \(result)")
+    }
+    
+    private func evaluate(_ expression: String) -> Int {
+        // Simplified evaluation - in practice use proper expression parser
+        return 0 // Placeholder
+    }
+}
+
+class PluginManager {
+    private var plugins: [Plugin] = []
+    
+    func addPlugin(_ plugin: Plugin) {
+        plugins.append(plugin)
+    }
+    
+    func runAll() {
+        plugins.forEach { $0.execute() }
+    }
+}
+
+let manager = PluginManager()
+manager.addPlugin(TextPlugin(name: "Greeting", text: "Hello World"))
+manager.addPlugin(MathPlugin(name: "Calculator", operation: "2 + 3 * 4"))
+manager.runAll()
+```
+</UniversalEditor>
+
+### Exercise 2: Implement a Data Source Pattern
+
+<UniversalEditor title="Exercise 2: Data Source Pattern" compare={true}>
+```javascript !! js
+// JavaScript solution
+class DataSource {
+    getData() {
+        throw new Error("getData() must be implemented");
+    }
+}
+
+class ArrayDataSource extends DataSource {
+    constructor(data) {
+        super();
+        this.data = data;
+    }
+    
+    getData() {
+        return this.data;
+    }
+}
+
+class FileDataSource extends DataSource {
+    constructor(filename) {
+        super();
+        this.filename = filename;
+    }
+    
+    getData() {
+        // Simulate file reading
+        return [`Data from ${this.filename}`];
+    }
+}
+
+class DataProcessor {
+    constructor(dataSource) {
+        this.dataSource = dataSource;
+    }
+    
+    process() {
+        const data = this.dataSource.getData();
+        return data.map(item => `Processed: ${item}`);
+    }
+}
+
+const arraySource = new ArrayDataSource([1, 2, 3, 4, 5]);
+const processor = new DataProcessor(arraySource);
+console.log(processor.process());
+```
+
+```swift !! swift
+// Swift solution
+protocol DataSource {
+    func getData() -> [String]
+}
+
+struct ArrayDataSource: DataSource {
+    let data: [String]
+    
+    func getData() -> [String] {
+        return data
+    }
+}
+
+struct FileDataSource: DataSource {
+    let filename: String
+    
+    func getData() -> [String] {
+        // Simulate file reading
+        return ["Data from \(filename)"]
+    }
+}
+
+class DataProcessor {
+    let dataSource: DataSource
+    
+    init(dataSource: DataSource) {
+        self.dataSource = dataSource
+    }
+    
+    func process() -> [String] {
+        let data = dataSource.getData()
+        return data.map { "Processed: \($0)" }
+    }
+}
+
+let arraySource = ArrayDataSource(data: ["1", "2", "3", "4", "5"])
+let processor = DataProcessor(dataSource: arraySource)
+print(processor.process())
+```
+</UniversalEditor>
+
+## Key Takeaways
+
+### Swift Protocol Advantages
+1. **Default Implementations**: Protocol extensions provide default behavior
+2. **Value Type Support**: Protocols work with both classes and structs
+3. **Type Safety**: Compile-time checking of protocol conformance
+4. **Composition**: Multiple protocols can be combined
+5. **Associated Types**: Generic protocols with type constraints
+6. **Performance**: Static dispatch via witness tables
+
+### Key Differences from JavaScript
+1. **Formal System**: Swift has formal protocol system vs JavaScript duck typing
+2. **Extensions**: Swift protocol extensions vs JavaScript prototype extensions
+3. **Type Safety**: Compile-time vs runtime checking
+4. **Composition**: Protocol composition vs manual interface checking
+5. **Generics**: Associated types vs no generic protocols
+6. **Performance**: Static dispatch vs dynamic dispatch
+
+### Best Practices
+1. **Prefer protocols over classes** for flexibility
+2. **Use protocol extensions** for default implementations
+3. **Leverage protocol composition** for complex requirements
+4. **Consider associated types** for generic protocols
+5. **Use extensions** to add functionality to existing types
+6. **Design for protocol-oriented programming** from the start
+
+### Next Steps
+In the next module, we'll explore error handling in Swift, including the Result type, throwing functions, and how they compare to JavaScript's try-catch and Promise patterns. 

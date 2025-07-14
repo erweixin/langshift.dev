@@ -1,0 +1,318 @@
+---
+title: 现代 C++ 特性
+---
+
+自 C++11 以来，C++ 经历了显著的演进，新的标准（C++14、C++17、C++20、C++23）引入了强大的特性，使语言更安全、更具表达力、更高效。这些现代特性通常提供了替代旧的、更容易出错的惯用语的方法，并使 C++ 更接近 JavaScript 等语言提供的便利性，同时保留其性能优势。
+
+## C++11/14/17/20 新特性概述
+
+以下是近期 C++ 标准中引入的一些关键特性的简要概述：
+
+*   **C++11：** Lambda 表达式、`auto` 关键字、右值引用和移动语义、`nullptr`、`std::thread`、`std::chrono`、`std::unique_ptr`、`std::shared_ptr`、基于范围的 for 循环、初始化列表。
+*   **C++14：** 泛型 Lambda、`constexpr` 改进、变量模板。
+*   **C++17：** 结构化绑定、`if constexpr`、`std::optional`、`std::variant`、`std::string_view`、并行算法。
+*   **C++20：** 概念、范围、协程、模块、`std::span`、`std::jthread`。
+
+## Lambda 表达式
+
+**Lambda 表达式**（或简称“Lambda”）是匿名函数，可以内联定义并用于函数对象预期的地方。它们对于简短、局部化的操作非常有用，尤其是在算法中。
+
+*   **语法：** `[捕获列表](参数) -> 返回类型 { 函数体 }`
+*   **捕获列表：** 指定 Lambda 可以访问周围作用域中的变量。
+
+<UniversalEditor title="Lambda 表达式比较" compare={true}>
+```javascript !! js
+// JavaScript: 匿名函数 / 箭头函数
+const numbers = [1, 2, 3, 4, 5];
+
+// 匿名函数
+const doubled = numbers.map(function(num) {
+  return num * 2;
+});
+console.log(doubled); // [2, 4, 6, 8, 10]
+
+// 箭头函数 (更简洁)
+const sum = numbers.reduce((acc, num) => acc + num, 0);
+console.log(sum); // 15
+
+let factor = 10;
+const multiplyByFactor = numbers.map(num => num * factor); // 捕获 'factor'
+console.log(multiplyByFactor); // [10, 20, 30, 40, 50]
+```
+
+```cpp !! cpp
+// C++: Lambda 表达式 (C++11+)
+#include <iostream>
+#include <vector>
+#include <algorithm> // For std::transform, std::for_each
+#include <numeric>   // For std::accumulate
+
+int main() {
+  std::vector<int> numbers = {1, 2, 3, 4, 5};
+
+  // Lambda 用于将元素加倍
+  std::vector<int> doubled(numbers.size());
+  std::transform(numbers.begin(), numbers.end(), doubled.begin(),
+                 [](int num) { return num * 2; });
+  // for (int n : doubled) { std::cout << n << " "; }
+  // std::cout << std::endl;
+
+  // Lambda 用于求和元素
+  int sum = std::accumulate(numbers.begin(), numbers.end(), 0,
+                            [](int acc, int num) { return acc + num; });
+  // std::cout << "Sum: " << sum << std::endl;
+
+  // 带有值捕获的 Lambda
+  int factor = 10;
+  std::vector<int> multiplied(numbers.size());
+  std::transform(numbers.begin(), numbers.end(), multiplied.begin(),
+                 [factor](int num) { return num * factor; });
+  // for (int n : multiplied) { std::cout << n << " "; }
+  // std::cout << std::endl;
+
+  // 带有引用捕获的 Lambda
+  int total = 0;
+  std::for_each(numbers.begin(), numbers.end(),
+                [&total](int num) { total += num; });
+  // std::cout << "Total (captured by reference): " << total << std::endl;
+
+  return 0;
+}
+```
+</UniversalEditor>
+
+## 移动语义和右值引用
+
+**移动语义** (C++11) 允许高效地将资源（如动态分配的内存）从一个对象转移到另一个对象，而无需昂贵的深层复制。这通过**右值引用** (`&&`) 实现。
+
+*   **左值：** 指的是内存位置并具有身份的表达式（例如，变量）。
+*   **右值：** 不指内存位置且没有身份的表达式（例如，临时对象、字面量）。
+*   **`std::move`：** 将左值转换为右值引用，表示其资源可以被移动。
+
+<UniversalEditor title="移动语义比较" compare={true}>
+```javascript !! js
+// JavaScript: 对象总是按引用传递（或原始类型按值传递）。
+// 对象的赋值涉及复制引用，而不是深层复制。
+let arr1 = [1, 2, 3];
+let arr2 = arr1; // arr2 现在指向与 arr1 相同的数组
+
+arr1 = []; // arr1 现在指向一个新的空数组，arr2 仍然指向 [1,2,3]
+console.log(arr2); // [1, 2, 3]
+
+// 为了模拟移动，你会手动清除来源：
+let largeData1 = { data: new Array(1000000).fill(0) };
+let largeData2 = largeData1; // 复制引用
+largeData1 = null; // 有效地“移动”所有权，通过将来源设为 null
+// console.log(largeData2.data.length); // 1000000
+```
+
+```cpp !! cpp
+// C++: 移动语义 (C++11+)
+#include <iostream>
+#include <vector>
+#include <utility> // For std::move
+
+class MyVector {
+public:
+  int* data;
+  size_t size;
+
+  // 构造函数
+  MyVector(size_t s) : size(s) {
+    data = new int[size];
+    // std::cout << "MyVector constructed, size: " << size << std::endl;
+  }
+
+  // 复制构造函数
+  MyVector(const MyVector& other) : size(other.size) {
+    data = new int[size];
+    std::copy(other.data, other.data + size, data);
+    // std::cout << "MyVector copied, size: " << size << std::endl;
+  }
+
+  // 移动构造函数 (接受右值引用)
+  MyVector(MyVector&& other) noexcept : data(other.data), size(other.size) {
+    other.data = nullptr; // 将源指针设为 null
+    other.size = 0;
+    // std::cout << "MyVector moved, size: " << size << std::endl;
+  }
+
+  // 析构函数
+  ~MyVector() {
+    delete[] data;
+    // std::cout << "MyVector destroyed, size: " << size << std::endl;
+  }
+};
+
+int main() {
+  MyVector vec1(1000); // 常规构造
+  // MyVector vec2 = vec1; // 调用复制构造函数 (昂贵)
+  MyVector vec3 = std::move(vec1); // 调用移动构造函数 (高效)
+  // vec1 现在处于有效但未指定状态 (data 是 nullptr，size 是 0)
+
+  return 0;
+}
+```
+</UniversalEditor>
+
+## `auto` 关键字和类型推导
+
+`auto` 关键字 (C++11) 允许编译器从其初始化器推导变量的类型。这可以使代码更简洁、更具可读性，尤其是在处理复杂类型时。
+
+<UniversalEditor title="auto 关键字比较" compare={true}>
+```javascript !! js
+// JavaScript: 所有变量声明都使用 'var'、'let' 或 'const'。
+// 类型是动态推断的。
+let count = 10; // 类型是数字
+const message = "Hello"; // 类型是字符串
+
+let complexObject = { id: 1, name: "Test" }; // 类型是对象
+```
+
+```cpp !! cpp
+// C++: auto 关键字 (C++11+)
+#include <iostream>
+#include <vector>
+#include <map>
+
+int main() {
+  auto count = 10; // count 被推导为 int
+  auto message = "Hello"; // message 被推导为 const char*
+  auto pi = 3.14159; // pi 被推导为 double
+
+  std::vector<int> numbers = {1, 2, 3};
+  // 迭代器使用 auto
+  for (auto it = numbers.begin(); it != numbers.end(); ++it) {
+    // std::cout << *it << " ";
+  }
+  // std::cout << std::endl;
+
+  std::map<std::string, int> ages = {{"Alice", 30}, {"Bob", 25}};
+  // 迭代 map 元素 (const string 和 int 的对)
+  for (auto const& [name, age] : ages) { // C++17 结构化绑定与 auto
+    // std::cout << name << ": " << age << std::endl;
+  }
+
+  return 0;
+}
+```
+</UniversalEditor>
+
+## 基于范围的 for 循环
+
+**基于范围的 for 循环** (C++11) 提供了一种更简单、更具可读性的方式来迭代范围内的元素（如容器、数组或初始化列表），而无需明确使用迭代器。
+
+<UniversalEditor title="基于范围的 for 循环比较" compare={true}>
+```javascript !! js
+// JavaScript: for...of 循环
+const colors = ["red", "green", "blue"];
+for (const color of colors) {
+  console.log(color);
+}
+
+// forEach 方法
+colors.forEach(color => console.log(color));
+```
+
+```cpp !! cpp
+// C++: 基于范围的 for 循环 (C++11+)
+#include <iostream>
+#include <vector>
+#include <string>
+
+int main() {
+  std::vector<std::string> colors = {"red", "green", "blue"};
+
+  // 按值迭代 (创建副本)
+  for (std::string color : colors) {
+    // std::cout << color << std::endl;
+  }
+
+  // 按 const 引用迭代 (为了效率和避免修改，首选)
+  for (const std::string& color : colors) {
+    // std::cout << color << std::endl;
+  }
+
+  // 按引用迭代 (修改元素)
+  for (std::string& color : colors) {
+    color += "!"; // 修改向量中的元素
+    // std::cout << color << std::endl;
+  }
+
+  return 0;
+}
+```
+</UniversalEditor>
+
+## 初始化列表
+
+**初始化列表** (C++11) 提供了一种统一的方式来初始化对象，尤其是容器。它们使用花括号 `{}`。
+
+<UniversalEditor title="初始化列表比较" compare={true}>
+```javascript !! js
+// JavaScript: 数组字面量和对象字面量
+const numbers = [1, 2, 3]; // 数组字面量
+const person = { name: "Alice", age: 30 }; // 对象字面量
+```
+
+```cpp !! cpp
+// C++: 初始化列表 (C++11+)
+#include <iostream>
+#include <vector>
+#include <map>
+#include <string>
+
+class Point {
+public:
+  int x, y;
+  Point(int px, int py) : x(px), y(py) {}
+};
+
+int main() {
+  // 初始化向量
+  std::vector<int> numbers = {1, 2, 3, 4, 5};
+  // for (int n : numbers) { std::cout << n << " "; }
+  // std::cout << std::endl;
+
+  // 初始化 map
+  std::map<std::string, int> ages = {
+    {"Alice", 30},
+    {"Bob", 25},
+    {"Charlie", 35}
+  };
+  // for (const auto& pair : ages) {
+  //   std::cout << pair.first << ": " << pair.second << std::endl;
+  // }
+
+  // 初始化自定义类 (如果它有初始化列表构造函数)
+  // Point p = {10, 20}; // 需要一个接受 std::initializer_list 或直接初始化的构造函数
+  // std::cout << "Point: (" << p.x << ", " << p.y << ")" << std::endl;
+
+  return 0;
+}
+```
+</UniversalEditor>
+
+## 与 JavaScript 现代特性的比较
+
+许多现代 C++ 特性旨在提供与 JavaScript 相似的表达力和便利性，同时保持 C++ 的核心优势。
+
+| 特性           | JavaScript 等效项                 | C++ 现代特性                       |
+| :---------------- | :--------------------------------------- | :--------------------------------------- |
+| **匿名函数**| 箭头函数、匿名函数     | Lambda 表达式                       |
+| **类型推导**| 动态类型、`let`/`const`            | `auto` 关键字                           |
+| **迭代**     | `for...of`、`forEach`                    | 基于范围的 for 循环                     |
+| **资源管理**| 垃圾回收、`finally`            | 移动语义、智能指针 (RAII)    |
+| **数据初始化**    | 数组/对象字面量                    | 初始化列表                        |
+
+虽然 JavaScript 通过动态类型和运行时解释实现了大部分灵活性，但现代 C++ 通过编译时特性（模板、`auto`、Lambda）和明确的资源管理（移动语义、智能指针）实现了类似的表达力。这使得 C++ 能够提供高级抽象和低级控制，通常具有卓越的性能。
+
+---
+
+### 练习题：
+1.  C++ 中的 Lambda 表达式是什么？提供一个示例，说明它们如何简化代码，与传统函数对象相比。
+2.  解释移动语义和右值引用的概念。它们如何促进 C++ 中的性能优化？
+3.  描述在现代 C++ 代码中使用 `auto` 关键字和基于范围的 for 循环的好处。它们如何提高可读性和简洁性？
+
+### 项目构想：
+*   重构现有的 C++ 程序（或编写一个新程序），该程序处理数据集合（例如，自定义对象的 `std::vector`）。利用现代 C++ 特性，例如用于自定义排序或过滤的 Lambda 表达式、用于类型推导的 `auto`，以及用于迭代的基于范围的 for 循环。如果适用，演示在转移大型对象所有权时使用移动语义。
