@@ -2,6 +2,8 @@
 
 > 专为开发者设计的编程语言转换学习平台，通过对比学习快速掌握新语言
 
+[English](README.en.md) | 中文
+
 [![Next.js](https://img.shields.io/badge/Next.js-15.3.5-black.svg)](https://nextjs.org)
 [![React](https://img.shields.io/badge/React-19.0.0-blue.svg)](https://react.dev)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.8.2-blue.svg)](https://www.typescriptlang.org)
@@ -35,20 +37,50 @@ LangShift.dev 是一个专门为开发者设计的编程语言转换学习平台
 
 **📚 [查看详细学习指南 →](./content/docs/js2py/README.md)**
 
-### 🔄 JavaScript ↔ Rust 🚧 (开发中)
+### 🔄 JavaScript ↔ Rust ✅ (已完成)
 - 从 JavaScript 开发者视角学习 Rust
 - 内存管理：垃圾回收 vs 所有权系统
 - 类型系统：动态类型 vs 静态类型
 - 性能优化：解释执行 vs 编译优化
 - 并发编程：事件循环 vs 零成本抽象
-- **已完成 12 个学习模块 (0-11)**
+- **包含 14 个完整学习模块**
 
 **📚 [查看详细学习指南 →](./content/docs/js2rust/README.md)**
 
+### 🔄 JavaScript ↔ Go ✅ (已完成)
+- 从 JavaScript 开发者视角学习 Go
+- 并发编程：事件循环 vs Goroutines
+- 类型系统：动态类型 vs 静态类型
+- 包管理：npm vs Go Modules
+- 错误处理：异常 vs 显式错误返回
+- **包含 14 个完整学习模块**
+
+**📚 [查看详细学习指南 →](./content/docs/js2go/README.md)**
+
+### 🔄 JavaScript ↔ C++ 🚧 (开发中)
+- 从 JavaScript 开发者视角学习 C++
+- 内存管理：垃圾回收 vs 手动管理
+- 面向对象：原型链 vs 类继承
+- 性能优化：解释执行 vs 编译优化
+- 模板编程：动态类型 vs 泛型
+- **包含 15 个学习模块**
+
+**📚 [查看详细学习指南 →](./content/docs/js2cpp/README.md)**
+
+### 🔄 JavaScript ↔ Swift 🚧 (开发中)
+- 从 JavaScript 开发者视角学习 Swift
+- 类型系统：动态类型 vs 强类型
+- 内存管理：垃圾回收 vs ARC
+- 函数式编程：高阶函数 vs 闭包
+- 移动开发：Web vs iOS/macOS
+- **包含 15 个学习模块**
+
+**📚 [查看详细学习指南 →](./content/docs/js2swift/README.md)**
+
 ### 🚀 更多语言支持计划中...
-- TypeScript ↔ Go
+- TypeScript ↔ Java
 - Python ↔ Rust
-- JavaScript ↔ Go
+- JavaScript ↔ Dart
 - Python ↔ TypeScript
 
 ## 📚 学习模块概览
@@ -68,7 +100,7 @@ LangShift.dev 是一个专门为开发者设计的编程语言转换学习平台
 - **模块 11**: Pythonic 代码风格
 - **模块 12**: 类型注解详解
 
-### JavaScript → Rust (开发中)
+### JavaScript → Rust (已完成)
 - **模块 0**: Rust 初识与环境搭建
 - **模块 1**: 核心语法与结构对比
 - **模块 2**: 模块系统与构建工具
@@ -81,7 +113,58 @@ LangShift.dev 是一个专门为开发者设计的编程语言转换学习平台
 - **模块 9**: 实战项目驱动
 - **模块 10**: 常见陷阱与调试指南
 - **模块 11**: Idiomatic Rust 风格
-- **更多模块正在规划中...**
+- **模块 12**: 高级 Rust 特性
+- **模块 13**: 性能优化与最佳实践
+
+### JavaScript → Go (已完成)
+- **模块 0**: Go 介绍与学习方法
+- **模块 1**: 基础语法对比
+- **模块 2**: 包系统与模块管理
+- **模块 3**: 类型系统与接口
+- **模块 4**: 并发编程与 Goroutines
+- **模块 5**: Channel 与 Select 语句
+- **模块 6**: 错误处理机制
+- **模块 7**: Web 开发实战
+- **模块 8**: 微服务架构
+- **模块 9**: 云原生开发
+- **模块 10**: 测试与调试
+- **模块 11**: 综合实战项目
+- **模块 12**: 常见陷阱与解决方案
+- **模块 13**: Idiomatic Go 风格
+
+### JavaScript → C++ (开发中)
+- **模块 0**: C++ 介绍与学习方法
+- **模块 1**: 基础语法对比
+- **模块 2**: 内存管理基础
+- **模块 3**: 指针与引用
+- **模块 4**: 面向对象编程基础
+- **模块 5**: 模板与泛型编程
+- **模块 6**: STL 容器
+- **模块 7**: STL 算法
+- **模块 8**: 错误处理机制
+- **模块 9**: 智能指针
+- **模块 10**: 性能优化
+- **模块 11**: 现代 C++ 特性
+- **模块 12**: 并发与多线程
+- **模块 13**: 系统编程
+- **模块 14**: 综合实战项目
+
+### JavaScript → Swift (开发中)
+- **模块 0**: Swift 介绍与学习方法
+- **模块 1**: 基础语法对比
+- **模块 2**: 类型系统与安全
+- **模块 3**: 函数式编程特性
+- **模块 4**: 面向对象编程
+- **模块 5**: 协议与扩展
+- **模块 6**: 错误处理
+- **模块 7**: 并发编程
+- **模块 8**: iOS/macOS 开发
+- **模块 9**: SwiftUI 框架
+- **模块 10**: 网络编程
+- **模块 11**: 数据持久化
+- **模块 12**: 性能优化
+- **模块 13**: 测试与调试
+- **模块 14**: 综合实战项目
 
 详细的学习内容请查看各模块的专门文档。
 
@@ -197,9 +280,22 @@ langshift.dev/
 │       │   ├── README.md # 模块介绍
 │       │   ├── .cursorrules # 模块规范
 │       │   └── module-*.mdx # 13个学习模块
-│       ├── js2rust/     # JavaScript → Rust (开发中)
+│       ├── js2rust/     # JavaScript → Rust (已完成)
 │       │   ├── README.md # 模块介绍
-│       │   └── .cursorrules # 模块规范
+│       │   ├── .cursorrules # 模块规范
+│       │   └── module-*.mdx # 14个学习模块
+│       ├── js2go/       # JavaScript → Go (已完成)
+│       │   ├── README.md # 模块介绍
+│       │   ├── .cursorrules # 模块规范
+│       │   └── module-*.mdx # 14个学习模块
+│       ├── js2cpp/      # JavaScript → C++ (开发中)
+│       │   ├── README.md # 模块介绍
+│       │   ├── .cursorrules # 模块规范
+│       │   └── module-*.mdx # 15个学习模块
+│       ├── js2swift/    # JavaScript → Swift (开发中)
+│       │   ├── README.md # 模块介绍
+│       │   ├── .cursorrules # 模块规范
+│       │   └── module-*.mdx # 15个学习模块
 │       └── ...
 ├── lib/                 # 工具函数
 │   ├── i18n.ts         # 国际化配置
