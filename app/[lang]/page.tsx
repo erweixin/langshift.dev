@@ -3,6 +3,7 @@ import { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { HomePage } from '@/components/home/HomePage';
 import { getCourses } from '@/lib';
+import { courseStructuredData } from '@/lib/seo-structured-data';
 
 // 支持的语言
 const supportedLanguages: SupportedLanguage[] = ['zh-cn', 'zh-tw', 'en'];
@@ -110,16 +111,14 @@ export default async function LanguageHomePage({ params }: { params: Promise<{ l
     "itemListElement": courses.map((course, index) => ({
       "@type": "ListItem",
       "position": index + 1,
-      "item": {
-        "@type": "Course",
-        "name": course.title,
-        "description": course.description,
-        "url": `https://langshift.dev/${supportedLang}/docs/${course.name}`,
-        "provider": {
-          "@type": "Organization",
-          "name": "LangShift.dev"
-        }
-      }
+      "item": courseStructuredData({
+        name: course.title,
+        description: course.description,
+        url: `https://langshift.dev/${supportedLang}/docs/${course.name}`,
+        provider: "LangShift.dev",
+        courseMode: "online",
+        educationalLevel: course.level === "Advanced" ? "Advanced" : "Intermediate"
+      })
     }))
   });
 

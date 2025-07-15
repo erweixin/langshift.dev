@@ -115,16 +115,14 @@ export default async function HomePageComponent() {
     "itemListElement": courses.map((course, index) => ({
       "@type": "ListItem",
       "position": index + 1,
-      "item": {
-        "@type": "Course",
-        "name": course.title,
-        "description": course.description,
-        "url": `https://langshift.dev/zh-cn/docs/${course.name}`,
-        "provider": {
-          "@type": "Organization",
-          "name": "LangShift.dev"
-        }
-      }
+      "item": courseStructuredData({
+        name: course.title,
+        description: course.description,
+        url: `https://langshift.dev/zh-cn/docs/${course.name}`,
+        provider: "LangShift.dev",
+        courseMode: "online",
+        educationalLevel: course.level === "Advanced" ? "Advanced" : "Intermediate"
+      })
     }))
   });
 
