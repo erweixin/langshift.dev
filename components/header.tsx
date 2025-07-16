@@ -4,7 +4,7 @@ import { getTranslations, type SupportedLanguage } from '@/messages';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useState, useCallback } from 'react';
-import { Menu, X, Globe, ChevronDown } from 'lucide-react';
+import { Menu, X, Globe, ChevronDown, Github } from 'lucide-react';
 import { trackLanguageSwitch } from '@/components/analytics';
 
 interface HeaderProps {
@@ -64,8 +64,20 @@ export function Header({ lang }: HeaderProps) {
             ))}
           </nav>
 
-          {/* Language Selector & Mobile Menu Button */}
+          {/* Language Selector & GitHub & Mobile Menu Button */}
           <div className="flex items-center space-x-4">
+            {/* GitHub Link */}
+            <a
+              href="https://github.com/erweixin/langshift.dev"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center space-x-2 px-3 py-2 bg-slate-800/50 hover:bg-slate-700/50 border border-slate-600/50 rounded-lg text-slate-300 hover:text-white transition-all duration-200 backdrop-blur-sm group"
+              title={t.header.github.tooltip}
+            >
+              <Github className="w-4 h-4 group-hover:scale-110 transition-transform" />
+              <span className="text-sm font-medium hidden sm:inline">{t.header.github.label}</span>
+            </a>
+
             {/* Language Selector */}
             <div className="relative">
               <button

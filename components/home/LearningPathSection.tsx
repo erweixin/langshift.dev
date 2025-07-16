@@ -7,7 +7,7 @@ export function LearningPathSection({ lang, translations, isDefaultPage }: Learn
   const t = translations;
 
   return (
-    <div className="py-20 bg-gradient-to-br from-slate-800/30 to-slate-900/30" id={isDefaultPage ? "learning-path" : undefined}>
+    <div className="py-20 bg-gradient-to-br from-slate-800/30 to-slate-900/30" id="learning-path">
       <div className="container mx-auto px-4">
         <div className="text-center mb-16">
           <h2 className="text-4xl md:text-5xl font-bold text-white mb-6">

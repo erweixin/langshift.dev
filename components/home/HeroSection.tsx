@@ -68,7 +68,7 @@ export function HeroSection({ lang, translations, isDefaultPage }: HeroSectionPr
           {/* CTA 按钮 */}
           <div className="flex flex-col sm:flex-row gap-4 justify-center mb-16">
             <Link
-              href={isDefaultPage ? "#courses" : `/${lang}/docs/js2py`}
+              href="#courses"
               className="group inline-flex items-center px-8 py-4 bg-gradient-to-r from-blue-500 to-purple-600 text-white font-semibold rounded-xl hover:from-blue-600 hover:to-purple-700 transition-all duration-300 transform hover:scale-105 shadow-lg hover:shadow-xl"
             >
               <Play className="w-5 h-5 mr-2" />
@@ -76,7 +76,7 @@ export function HeroSection({ lang, translations, isDefaultPage }: HeroSectionPr
               <ArrowRight className="w-5 h-5 ml-2 transform group-hover:translate-x-1 transition-transform" />
             </Link>
             <Link
-              href={isDefaultPage ? "#learning-path" : `/${lang}/docs`}
+              href="#learning-path"
               className="inline-flex items-center px-8 py-4 border border-slate-600 text-slate-300 font-semibold rounded-xl hover:bg-slate-800 hover:text-white transition-all duration-300 backdrop-blur-sm"
             >
               <BookOpen className="w-5 h-5 mr-2" />

@@ -13,7 +13,7 @@ export function CoursesSection({ lang, translations, courses, isDefaultPage }: C
   const t = translations;
 
   return (
-    <div className="py-20" id={isDefaultPage ? "courses" : undefined}>
+    <div className="py-20" id="courses">
       <div className="container mx-auto px-4">
         <div className="text-center mb-16">
           <h2 className="text-4xl md:text-5xl font-bold text-white mb-6">
