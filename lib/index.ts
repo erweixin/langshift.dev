@@ -66,4 +66,17 @@ export const getCourses = (t: TranslationKeys) => ([
     borderColor: 'border-pink-500/20',
     gradient: 'from-pink-400/20 to-purple-500/20',
   },
+  {
+    name: 'js2c',
+    title: t.home.courses.js2c.title,
+    description: t.home.courses.js2c.description,
+    features: t.home.courses.js2c.features,
+    duration: t.home.courses.js2c.duration,
+    level: t.home.courses.js2c.level,
+    icon: '⚙️',
+    color: 'from-gray-500 to-slate-600',
+    bgColor: 'bg-gray-500/10',
+    borderColor: 'border-gray-500/20',
+    gradient: 'from-gray-400/20 to-slate-500/20',
+  },
 ]);

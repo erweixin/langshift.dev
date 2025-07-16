@@ -39,7 +39,7 @@ export const LANGUAGE_CONFIGS: LanguageConfigMap = {
     description: '从 JavaScript 到 Swift 的转换学习'
   },
   js2c: {
-    icon: '🔧',
+    icon: '⚙️',
     gradient: 'from-gray-500 to-slate-500',
     name: 'C',
     description: '从 JavaScript 到 C 的转换学习'

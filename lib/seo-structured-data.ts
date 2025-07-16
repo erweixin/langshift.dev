@@ -51,6 +51,15 @@ export const js2swiftCourseData = {
   educationalLevel: "Intermediate"
 };
 
+export const js2cCourseData = {
+  name: "JavaScript to C Tutorial",
+  description: "Learn C programming from a JavaScript developer perspective, mastering memory management, pointer operations, and systems programming.",
+  url: "https://langshift.dev/docs/js2c",
+  provider: "LangShift.dev",
+  courseMode: "online",
+  educationalLevel: "Advanced"
+};
+
 export const courseStructuredData = (courseData: {
   name: string
   description: string

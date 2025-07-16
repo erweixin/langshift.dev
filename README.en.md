@@ -77,6 +77,16 @@ Our core philosophy is: **Understanding unknown languages through known language
 
 **📚 [View detailed learning guide →](./content/docs/js2swift/README.md)**
 
+### 🔄 JavaScript ↔ C 🚧 (In Development)
+- Learn C programming from a JavaScript developer's perspective
+- Memory management: garbage collection vs manual memory management
+- Pointer operations: references vs pointers
+- Systems programming: high-level abstractions vs low-level control
+- Performance optimization: interpreted execution vs compiled optimization
+- **Includes 15 learning modules**
+
+**📚 [View detailed learning guide →](./content/docs/js2c/README.md)**
+
 ### 🚀 More language support planned...
 - TypeScript ↔ Java
 - Python ↔ Rust

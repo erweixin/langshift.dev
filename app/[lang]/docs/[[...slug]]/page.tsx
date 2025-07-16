@@ -63,6 +63,11 @@ export default async function Page(props: {
       name: 'JavaScript 到 Swift 转换学习',
       description: '从 JavaScript 开发者视角学习 Swift，专注于类型安全、iOS 开发和协议导向编程',
       level: 'Intermediate'
+    },
+    'js2c': {
+      name: 'JavaScript 到 C 转换学习',
+      description: '从 JavaScript 开发者视角学习 C 语言，掌握内存管理、指针操作和系统编程',
+      level: 'Advanced'
     }
   };
   

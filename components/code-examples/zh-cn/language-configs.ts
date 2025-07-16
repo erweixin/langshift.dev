@@ -57,4 +57,12 @@ export const languageConfigs: LanguageConfig[] = [
     syntax: 'swift',
     description: '现代、安全、快速的 iOS/macOS 编程语言'
   },
+  {
+    value: 'c',
+    label: 'C',
+    icon: '⚙️',
+    color: 'bg-gray-600',
+    syntax: 'c',
+    description: '高效的系统编程语言，内存管理专家'
+  },
 ]; 
