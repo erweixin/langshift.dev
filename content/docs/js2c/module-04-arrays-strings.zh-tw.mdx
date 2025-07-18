@@ -1,0 +1,1153 @@
+---
+title: "陣列和字串"
+description: "從 JavaScript 開發者角度學習 C 陣列和字串。理解陣列宣告、指標關係、多維陣列和字串處理函數。"
+---
+
+# 陣列和字串
+
+## 1. 介紹
+
+### 從 JavaScript 陣列到 C 陣列
+
+在 JavaScript 中，陣列是動態、靈活的資料結構，可以容納混合類型並自動調整大小。在 C 中，陣列是固定大小的連續記憶體區塊，需要顯式管理，但提供卓越的效能和記憶體效率。
+
+C 陣列是形成更複雜資料結構基礎的基本建構塊。理解它們對於以下方面至關重要：
+- 高效的記憶體使用
+- 效能最佳化
+- 建構自訂資料結構
+- 系統程式設計
+
+> 💡 **核心概念**: C 陣列只是連續的記憶體區塊。陣列名稱實際上是指向第一個元素的指標，這使得陣列和指標在 C 中密切相關。
+
+## 2. 陣列基礎
+
+### 2.1 陣列宣告和初始化
+
+<UniversalEditor title="陣列宣告" compare={true}>
+```javascript !! js
+// JavaScript - 動態陣列
+let numbers = [1, 2, 3, 4, 5];
+let mixed = [1, "hello", true, { name: "John" }];
+
+// 陣列可以增長和縮小
+numbers.push(6);
+numbers.pop();
+
+// 陣列長度是動態的
+console.log("長度:", numbers.length);
+
+// 存取元素
+console.log("第一個元素:", numbers[0]);
+console.log("最後一個元素:", numbers[numbers.length - 1]);
+
+// 遍歷
+for (let i = 0; i < numbers.length; i++) {
+    console.log(numbers[i]);
+}
+
+// 現代遍歷方式
+numbers.forEach(num => console.log(num));
+```
+
+```c !! c
+#include <stdio.h>
+
+int main() {
+    // 陣列宣告 - 固定大小
+    int numbers[5] = {1, 2, 3, 4, 5};
+    
+    // 陣列大小必須在編譯時確定
+    // int dynamic_array[];  // 錯誤：需要指定大小
+    
+    // 替代初始化方式
+    int arr1[5] = {1, 2, 3};  // 其餘元素填充為 0
+    int arr2[] = {1, 2, 3, 4, 5};  // 大小自動推斷
+    
+    // 陣列長度是固定的
+    int size = sizeof(numbers) / sizeof(numbers[0]);
+    printf("陣列大小: %d\n", size);
+    
+    // 存取元素
+    printf("第一個元素: %d\n", numbers[0]);
+    printf("最後一個元素: %d\n", numbers[4]);
+    
+    // 遍歷
+    for (int i = 0; i < 5; i++) {
+        printf("numbers[%d] = %d\n", i, numbers[i]);
+    }
+    
+    // 使用 sizeof 進行遍歷
+    for (int i = 0; i < sizeof(numbers) / sizeof(numbers[0]); i++) {
+        printf("元素 %d: %d\n", i, numbers[i]);
+    }
+    
+    return 0;
+}
+```
+</UniversalEditor>
+
+### 2.2 陣列和指標的關係
+
+<UniversalEditor title="陣列和指標" compare={true}>
+```javascript !! js
+// JavaScript - 陣列是物件
+let arr = [1, 2, 3, 4, 5];
+
+// 陣列有方法和屬性
+console.log("長度:", arr.length);
+console.log("類型:", typeof arr);
+console.log("是陣列:", Array.isArray(arr));
+
+// 陣列通過參考傳遞
+let ref = arr;
+ref[0] = 100;
+console.log("原始陣列:", arr[0]);  // 100
+
+// 陣列方法
+let doubled = arr.map(x => x * 2);
+let sum = arr.reduce((a, b) => a + b, 0);
+console.log("翻倍:", doubled);
+console.log("總和:", sum);
+```
+
+```c !! c
+#include <stdio.h>
+
+int main() {
+    int arr[5] = {1, 2, 3, 4, 5};
+    
+    // 陣列名稱是指向第一個元素的指標
+    int* ptr = arr;  // 等同於: int* ptr = &arr[0];
+    
+    printf("陣列名稱 (指標): %p\n", arr);
+    printf("第一個元素的位址: %p\n", &arr[0]);
+    printf("指標值: %p\n", ptr);
+    
+    // 陣列索引 vs 指標算術
+    printf("arr[2] = %d\n", arr[2]);
+    printf("*(ptr + 2) = %d\n", *(ptr + 2));
+    printf("ptr[2] = %d\n", ptr[2]);  // 指標可以使用陣列語法
+    
+    // 通過指標修改
+    ptr[1] = 100;
+    printf("修改後: arr[1] = %d\n", arr[1]);
+    
+    // 指標算術
+    for (int* p = arr; p < arr + 5; p++) {
+        printf("位址 %p 的值: %d\n", p, *p);
+    }
+    
+    // 陣列大小 vs 指標大小
+    printf("陣列大小: %zu 位元組\n", sizeof(arr));
+    printf("指標大小: %zu 位元組\n", sizeof(ptr));
+    
+    return 0;
+}
+```
+</UniversalEditor>
+
+### 2.3 陣列邊界和安全
+
+<UniversalEditor title="陣列邊界安全" compare={true}>
+```javascript !! js
+// JavaScript - 邊界檢查
+let arr = [1, 2, 3, 4, 5];
+
+// 安全存取
+console.log("有效存取:", arr[2]);  // 3
+console.log("越界存取:", arr[10]);  // undefined (安全)
+
+// 陣列方法是安全的
+arr.push(6);  // 安全新增
+arr.splice(1, 1);  // 安全刪除
+
+// length 屬性防止越界
+for (let i = 0; i < arr.length; i++) {
+    console.log(arr[i]);  // 安全遍歷
+}
+
+// 現代遍歷方法
+arr.forEach((item, index) => {
+    console.log(`索引 ${index}: ${item}`);
+});
+```
+
+```c !! c
+#include <stdio.h>
+
+int main() {
+    int arr[5] = {1, 2, 3, 4, 5};
+    
+    // C 不檢查陣列邊界！
+    printf("有效存取: arr[2] = %d\n", arr[2]);
+    
+    // 危險：越界存取
+    // 這可能導致崩潰或記憶體損壞
+    printf("越界存取: arr[10] = %d\n", arr[10]);  // 未定義行為！
+    
+    // 使用邊界檢查的安全遍歷
+    int size = sizeof(arr) / sizeof(arr[0]);
+    for (int i = 0; i < size; i++) {
+        printf("arr[%d] = %d\n", i, arr[i]);
+    }
+    
+    // 帶邊界檢查的指標算術
+    int* ptr = arr;
+    for (int i = 0; i < size; i++) {
+        if (ptr + i < arr + size) {  // 邊界檢查
+            printf("*(ptr + %d) = %d\n", i, *(ptr + i));
+        }
+    }
+    
+    // 常見錯誤：差一錯誤
+    // for (int i = 0; i <= size; i++)  // 錯誤！會越界
+    
+    return 0;
+}
+```
+</UniversalEditor>
+
+## 3. 多維陣列
+
+### 3.1 二維陣列
+
+<UniversalEditor title="二維陣列" compare={true}>
+```javascript !! js
+// JavaScript - 巢狀陣列
+let matrix = [
+    [1, 2, 3],
+    [4, 5, 6],
+    [7, 8, 9]
+];
+
+// 存取元素
+console.log("元素 [1][2]:", matrix[1][2]);  // 6
+
+// 遍歷二維陣列
+for (let i = 0; i < matrix.length; i++) {
+    for (let j = 0; j < matrix[i].length; j++) {
+        console.log(`matrix[${i}][${j}] = ${matrix[i][j]}`);
+    }
+}
+
+// 現代遍歷方式
+matrix.forEach((row, i) => {
+    row.forEach((element, j) => {
+        console.log(`matrix[${i}][${j}] = ${element}`);
+    });
+});
+
+// 動態調整大小
+matrix.push([10, 11, 12]);
+matrix[0].push(4);
+```
+
+```c !! c
+#include <stdio.h>
+
+int main() {
+    // 二維陣列宣告
+    int matrix[3][3] = {
+        {1, 2, 3},
+        {4, 5, 6},
+        {7, 8, 9}
+    };
+    
+    // 存取元素
+    printf("元素 [1][2]: %d\n", matrix[1][2]);  // 6
+    
+    // 遍歷二維陣列
+    for (int i = 0; i < 3; i++) {
+        for (int j = 0; j < 3; j++) {
+            printf("matrix[%d][%d] = %d\n", i, j, matrix[i][j]);
+        }
+    }
+    
+    // 指標陣列方法（更靈活）
+    int* rows[3];
+    int row1[] = {1, 2, 3};
+    int row2[] = {4, 5, 6};
+    int row3[] = {7, 8, 9};
+    
+    rows[0] = row1;
+    rows[1] = row2;
+    rows[2] = row3;
+    
+    // 通過指標陣列存取
+    printf("使用指標陣列: %d\n", rows[1][2]);  // 6
+    
+    // 記憶體佈局視覺化
+    printf("記憶體位址:\n");
+    for (int i = 0; i < 3; i++) {
+        for (int j = 0; j < 3; j++) {
+            printf("&matrix[%d][%d] = %p\n", i, j, &matrix[i][j]);
+        }
+    }
+    
+    return 0;
+}
+```
+</UniversalEditor>
+
+### 3.2 高維陣列
+
+<UniversalEditor title="高維陣列" compare={true}>
+```javascript !! js
+// JavaScript - 任意維度的巢狀陣列
+let cube = [
+    [
+        [1, 2],
+        [3, 4]
+    ],
+    [
+        [5, 6],
+        [7, 8]
+    ]
+];
+
+// 存取三維陣列
+console.log("cube[1][0][1]:", cube[1][0][1]);  // 6
+
+// 遍歷三維陣列
+for (let i = 0; i < cube.length; i++) {
+    for (let j = 0; j < cube[i].length; j++) {
+        for (let k = 0; k < cube[i][j].length; k++) {
+            console.log(`cube[${i}][${j}][${k}] = ${cube[i][j][k]}`);
+        }
+    }
+}
+
+// 動態維度
+cube.push([[9, 10], [11, 12]]);
+```
+
+```c !! c
+#include <stdio.h>
+
+int main() {
+    // 三維陣列宣告
+    int cube[2][2][2] = {
+        {
+            {1, 2},
+            {3, 4}
+        },
+        {
+            {5, 6},
+            {7, 8}
+        }
+    };
+    
+    // 存取三維陣列
+    printf("cube[1][0][1]: %d\n", cube[1][0][1]);  // 6
+    
+    // 遍歷三維陣列
+    for (int i = 0; i < 2; i++) {
+        for (int j = 0; j < 2; j++) {
+            for (int k = 0; k < 2; k++) {
+                printf("cube[%d][%d][%d] = %d\n", i, j, k, cube[i][j][k]);
+            }
+        }
+    }
+    
+    // 陣列大小計算
+    int total_elements = sizeof(cube) / sizeof(cube[0][0][0]);
+    printf("總元素數: %d\n", total_elements);
+    
+    // 記憶體佈局（連續）
+    printf("記憶體佈局:\n");
+    for (int i = 0; i < 2; i++) {
+        for (int j = 0; j < 2; j++) {
+            for (int k = 0; k < 2; k++) {
+                printf("&cube[%d][%d][%d] = %p\n", i, j, k, &cube[i][j][k]);
+            }
+        }
+    }
+    
+    return 0;
+}
+```
+</UniversalEditor>
+
+## 4. 字串處理
+
+### 4.1 C 字串 vs JavaScript 字串
+
+<UniversalEditor title="字串比較" compare={true}>
+```javascript !! js
+// JavaScript - 字串是物件
+let str = "Hello, World!";
+let str2 = '單引號也可以';
+let template = `模板字面量: ${str}`;
+
+// 字串屬性和方法
+console.log("長度:", str.length);
+console.log("大寫:", str.toUpperCase());
+console.log("子串:", str.substring(0, 5));
+console.log("分割:", str.split(", "));
+
+// 字串連接
+let result = str + " " + str2;
+let result2 = `${str} ${str2}`;
+
+// 字串比較
+console.log("相等:", str === "Hello, World!");
+console.log("包含:", str.includes("World"));
+
+// 字串遍歷
+for (let char of str) {
+    console.log(char);
+}
+
+// 字串不可變
+let upper = str.toUpperCase();
+console.log("原始:", str);
+console.log("修改後:", upper);
+```
+
+```c !! c
+#include <stdio.h>
+#include <string.h>
+
+int main() {
+    // C 字串是字元陣列
+    char str[] = "Hello, World!";
+    char str2[] = {'H', 'e', 'l', 'l', 'o', '\0'};  // 以 null 結尾
+    
+    // 字串長度（不包括 null 終止符）
+    printf("長度: %zu\n", strlen(str));
+    printf("陣列大小: %zu\n", sizeof(str));  // 包括 null 終止符
+    
+    // 字串函數
+    char upper[20];
+    strcpy(upper, str);
+    for (int i = 0; upper[i] != '\0'; i++) {
+        if (upper[i] >= 'a' && upper[i] <= 'z') {
+            upper[i] = upper[i] - 32;  // 轉換為大寫
+        }
+    }
+    printf("大寫: %s\n", upper);
+    
+    // 字串連接
+    char result[50];
+    strcpy(result, str);
+    strcat(result, " ");
+    strcat(result, "C Programming");
+    printf("連接後: %s\n", result);
+    
+    // 字串比較
+    printf("相等: %d\n", strcmp(str, "Hello, World!") == 0);
+    printf("包含 'World': %s\n", strstr(str, "World") ? "是" : "否");
+    
+    // 字串遍歷
+    for (int i = 0; str[i] != '\0'; i++) {
+        printf("str[%d] = '%c'\n", i, str[i]);
+    }
+    
+    // null 終止符的重要性
+    printf("null 終止符: str[13] = %d\n", str[13]);
+    
+    return 0;
+}
+```
+</UniversalEditor>
+
+### 4.2 字串函數和安全
+
+<UniversalEditor title="字串函數" compare={true}>
+```javascript !! js
+// JavaScript - 安全的字串操作
+let text = "Hello, World!";
+
+// 安全的子串操作
+console.log("子串:", text.substring(0, 5));  // "Hello"
+console.log("切片:", text.slice(-6));  // "World!"
+
+// 安全的字串替換
+let newText = text.replace("World", "JavaScript");
+console.log("替換後:", newText);
+
+// 安全的字串分割
+let parts = text.split(", ");
+console.log("分割部分:", parts);
+
+// 安全的字串搜尋
+console.log("'World' 的索引:", text.indexOf("World"));
+console.log("以 'Hello' 開頭:", text.startsWith("Hello"));
+
+// 安全的字串填充
+console.log("填充後:", text.padStart(20, "*"));
+
+// 字串長度總是安全的
+console.log("長度:", text.length);
+```
+
+```c !! c
+#include <stdio.h>
+#include <string.h>
+
+int main() {
+    char text[] = "Hello, World!";
+    char buffer[100];
+    
+    // 帶邊界檢查的安全字串複製
+    strncpy(buffer, text, sizeof(buffer) - 1);
+    buffer[sizeof(buffer) - 1] = '\0';  // 確保 null 終止
+    printf("複製後: %s\n", buffer);
+    
+    // 安全的字串連接
+    char result[50] = "Hello";
+    strncat(result, ", C Programming!", sizeof(result) - strlen(result) - 1);
+    printf("連接後: %s\n", result);
+    
+    // 安全的子串（手動實現）
+    char substring[20];
+    int start = 0, length = 5;
+    if (start >= 0 && length > 0 && start + length <= strlen(text)) {
+        strncpy(substring, text + start, length);
+        substring[length] = '\0';
+        printf("子串: %s\n", substring);
+    }
+    
+    // 字串搜尋
+    char* found = strstr(text, "World");
+    if (found) {
+        printf("找到 'World' 在位置: %ld\n", found - text);
+    }
+    
+    // 帶長度限制的字串比較
+    char compare[] = "Hello, World!";
+    if (strncmp(text, compare, strlen(text)) == 0) {
+        printf("字串相等\n");
+    }
+    
+    // 安全的字串長度檢查
+    if (strlen(text) < sizeof(buffer)) {
+        strcpy(buffer, text);  // 安全複製
+        printf("安全複製: %s\n", buffer);
+    }
+    
+    return 0;
+}
+```
+</UniversalEditor>
+
+### 4.3 字元陣列和字串字面量
+
+<UniversalEditor title="字元陣列和字串字面量" compare={true}>
+```javascript !! js
+// JavaScript - 字串字面量和操作
+let literal = "這是一個字串字面量";
+let template = `模板字面量包含 ${literal}`;
+let multiLine = `
+    這是一個
+    多行字串
+`;
+
+// 字串方法
+console.log("原始:", literal);
+console.log("大寫:", literal.toUpperCase());
+console.log("小寫:", literal.toLowerCase());
+
+// 字元存取
+console.log("第一個字元:", literal[0]);
+console.log("最後一個字元:", literal[literal.length - 1]);
+
+// 字串修改（建立新字串）
+let modified = literal.replace("字串", "修改後的");
+console.log("修改後:", modified);
+console.log("原始未變:", literal);
+
+// 字串連接
+let combined = literal + " " + "連接";
+console.log("連接後:", combined);
+```
+
+```c !! c
+#include <stdio.h>
+#include <string.h>
+#include <ctype.h>
+
+int main() {
+    // 字串字面量
+    char* literal = "這是一個字串字面量";  // 唯讀
+    char array[] = "這是一個字元陣列";  // 可修改
+    
+    // 字元陣列操作
+    char text[] = "Hello, World!";
+    printf("原始: %s\n", text);
+    
+    // 轉換為大寫
+    for (int i = 0; text[i] != '\0'; i++) {
+        text[i] = toupper(text[i]);
+    }
+    printf("大寫: %s\n", text);
+    
+    // 轉換回小寫
+    for (int i = 0; text[i] != '\0'; i++) {
+        text[i] = tolower(text[i]);
+    }
+    printf("小寫: %s\n", text);
+    
+    // 字元存取
+    printf("第一個字元: %c\n", text[0]);
+    printf("最後一個字元: %c\n", text[strlen(text) - 1]);
+    
+    // 字串字面量 vs 字元陣列
+    printf("字面量: %s\n", literal);
+    // literal[0] = 'h';  // 錯誤：不能修改字串字面量
+    
+    printf("陣列: %s\n", array);
+    array[0] = 't';  // 正確：可以修改字元陣列
+    printf("修改後的陣列: %s\n", array);
+    
+    // 多行字串（使用轉義序列）
+    char multiLine[] = "這是一個\n多行\n字串";
+    printf("多行:\n%s\n", multiLine);
+    
+    return 0;
+}
+```
+</UniversalEditor>
+
+## 5. 緩衝區溢出防護
+
+### 5.1 理解緩衝區溢出
+
+<UniversalEditor title="緩衝區溢出防護" compare={true}>
+```javascript !! js
+// JavaScript - 自動邊界檢查
+let str = "Hello";
+let arr = [1, 2, 3, 4, 5];
+
+// JavaScript 防止緩衝區溢出
+console.log("字串長度:", str.length);
+console.log("陣列長度:", arr.length);
+
+// 安全存取
+console.log("有效存取:", str[2]);  // 'l'
+console.log("越界存取:", str[10]);  // undefined (安全)
+
+// 安全修改
+str = str + " World";  // 建立新字串
+arr.push(6);  // 安全新增
+
+// JavaScript 字串不可變
+let original = "Hello";
+let modified = original.toUpperCase();
+console.log("原始未變:", original);
+console.log("修改後:", modified);
+```
+
+```c !! c
+#include <stdio.h>
+#include <string.h>
+
+int main() {
+    char buffer[10];
+    char source[] = "這個字串對緩衝區來說太長了";
+    
+    // 危險：緩衝區溢出
+    // strcpy(buffer, source);  // 會溢出緩衝區！
+    
+    // 安全：有界字串複製
+    strncpy(buffer, source, sizeof(buffer) - 1);
+    buffer[sizeof(buffer) - 1] = '\0';  // 確保 null 終止
+    printf("安全複製: %s\n", buffer);
+    
+    // 安全的字串連接
+    char result[20] = "Hello";
+    size_t available = sizeof(result) - strlen(result) - 1;
+    strncat(result, ", World!", available);
+    printf("安全連接: %s\n", result);
+    
+    // 安全的字串比較
+    char str1[] = "Hello";
+    char str2[] = "Hello, World!";
+    
+    if (strncmp(str1, str2, strlen(str1)) == 0) {
+        printf("字串在 str1 長度內匹配\n");
+    }
+    
+    // 安全的字串長度檢查
+    char input[] = "很長的輸入字串";
+    if (strlen(input) < sizeof(buffer)) {
+        strcpy(buffer, input);  // 安全
+        printf("輸入適合緩衝區: %s\n", buffer);
+    } else {
+        printf("輸入對緩衝區來說太長了\n");
+    }
+    
+    return 0;
+}
+```
+</UniversalEditor>
+
+### 5.2 安全字串函數
+
+<UniversalEditor title="安全字串函數" compare={true}>
+```javascript !! js
+// JavaScript - 內建安全
+let str = "Hello, World!";
+
+// 安全的字串操作
+let substring = str.substring(0, 5);  // "Hello"
+let replaced = str.replace("World", "JavaScript");
+let split = str.split(", ");
+
+// 安全的字串建構
+let parts = ["Hello", "World", "JavaScript"];
+let joined = parts.join(", ");
+
+// 安全的字串驗證
+if (str.length > 0 && str.length < 100) {
+    console.log("字串長度有效");
+}
+
+// 安全的字串遍歷
+for (let i = 0; i < str.length; i++) {
+    console.log(str[i]);
+}
+
+// 現代安全遍歷
+for (let char of str) {
+    console.log(char);
+}
+```
+
+```c !! c
+#include <stdio.h>
+#include <string.h>
+
+// 安全字串複製函數
+void safe_strcpy(char* dest, const char* src, size_t dest_size) {
+    strncpy(dest, src, dest_size - 1);
+    dest[dest_size - 1] = '\0';
+}
+
+// 安全字串連接函數
+void safe_strcat(char* dest, const char* src, size_t dest_size) {
+    size_t dest_len = strlen(dest);
+    size_t available = dest_size - dest_len - 1;
+    
+    if (available > 0) {
+        strncat(dest, src, available);
+    }
+}
+
+int main() {
+    char buffer[20];
+    char source[] = "Hello, World!";
+    
+    // 使用安全函數
+    safe_strcpy(buffer, source, sizeof(buffer));
+    printf("安全複製: %s\n", buffer);
+    
+    safe_strcat(buffer, " 更多文字", sizeof(buffer));
+    printf("安全連接: %s\n", buffer);
+    
+    // 安全的字串驗證
+    char input[] = "測試字串";
+    if (strlen(input) > 0 && strlen(input) < sizeof(buffer)) {
+        safe_strcpy(buffer, input, sizeof(buffer));
+        printf("有效輸入複製: %s\n", buffer);
+    }
+    
+    // 安全的字串建構
+    char result[50] = "";
+    char* parts[] = {"Hello", "World", "C", "Programming"};
+    int num_parts = 4;
+    
+    for (int i = 0; i < num_parts; i++) {
+        safe_strcat(result, parts[i], sizeof(result));
+        if (i < num_parts - 1) {
+            safe_strcat(result, ", ", sizeof(result));
+        }
+    }
+    printf("建構的字串: %s\n", result);
+    
+    return 0;
+}
+```
+</UniversalEditor>
+
+## 6. 實踐範例
+
+### 6.1 陣列處理函數
+
+<UniversalEditor title="陣列處理函數" compare={true}>
+```javascript !! js
+// JavaScript - 陣列處理
+let numbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+
+// 尋找最大值
+let max = Math.max(...numbers);
+console.log("最大值:", max);
+
+// 尋找最小值
+let min = Math.min(...numbers);
+console.log("最小值:", min);
+
+// 計算平均值
+let sum = numbers.reduce((a, b) => a + b, 0);
+let average = sum / numbers.length;
+console.log("平均值:", average);
+
+// 過濾偶數
+let evens = numbers.filter(n => n % 2 === 0);
+console.log("偶數:", evens);
+
+// 映射：每個數字翻倍
+let doubled = numbers.map(n => n * 2);
+console.log("翻倍:", doubled);
+
+// 反轉陣列
+let reversed = [...numbers].reverse();
+console.log("反轉:", reversed);
+```
+
+```c !! c
+#include <stdio.h>
+
+// 尋找陣列中的最大值
+int find_max(int arr[], int size) {
+    if (size <= 0) return 0;
+    
+    int max = arr[0];
+    for (int i = 1; i < size; i++) {
+        if (arr[i] > max) {
+            max = arr[i];
+        }
+    }
+    return max;
+}
+
+// 尋找陣列中的最小值
+int find_min(int arr[], int size) {
+    if (size <= 0) return 0;
+    
+    int min = arr[0];
+    for (int i = 1; i < size; i++) {
+        if (arr[i] < min) {
+            min = arr[i];
+        }
+    }
+    return min;
+}
+
+// 計算平均值
+double calculate_average(int arr[], int size) {
+    if (size <= 0) return 0.0;
+    
+    int sum = 0;
+    for (int i = 0; i < size; i++) {
+        sum += arr[i];
+    }
+    return (double)sum / size;
+}
+
+// 過濾偶數
+int filter_evens(int arr[], int size, int result[]) {
+    int count = 0;
+    for (int i = 0; i < size; i++) {
+        if (arr[i] % 2 == 0) {
+            result[count++] = arr[i];
+        }
+    }
+    return count;
+}
+
+// 每個元素翻倍
+void double_elements(int arr[], int size) {
+    for (int i = 0; i < size; i++) {
+        arr[i] *= 2;
+    }
+}
+
+// 反轉陣列
+void reverse_array(int arr[], int size) {
+    for (int i = 0; i < size / 2; i++) {
+        int temp = arr[i];
+        arr[i] = arr[size - 1 - i];
+        arr[size - 1 - i] = temp;
+    }
+}
+
+int main() {
+    int numbers[] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
+    int size = sizeof(numbers) / sizeof(numbers[0]);
+    
+    printf("原始陣列: ");
+    for (int i = 0; i < size; i++) {
+        printf("%d ", numbers[i]);
+    }
+    printf("\n");
+    
+    // 尋找最大值和最小值
+    printf("最大值: %d\n", find_max(numbers, size));
+    printf("最小值: %d\n", find_min(numbers, size));
+    printf("平均值: %.2f\n", calculate_average(numbers, size));
+    
+    // 過濾偶數
+    int evens[10];
+    int even_count = filter_evens(numbers, size, evens);
+    printf("偶數: ");
+    for (int i = 0; i < even_count; i++) {
+        printf("%d ", evens[i]);
+    }
+    printf("\n");
+    
+    // 元素翻倍
+    int doubled[10];
+    for (int i = 0; i < size; i++) {
+        doubled[i] = numbers[i];
+    }
+    double_elements(doubled, size);
+    printf("翻倍: ");
+    for (int i = 0; i < size; i++) {
+        printf("%d ", doubled[i]);
+    }
+    printf("\n");
+    
+    // 反轉陣列
+    int reversed[10];
+    for (int i = 0; i < size; i++) {
+        reversed[i] = numbers[i];
+    }
+    reverse_array(reversed, size);
+    printf("反轉: ");
+    for (int i = 0; i < size; i++) {
+        printf("%d ", reversed[i]);
+    }
+    printf("\n");
+    
+    return 0;
+}
+```
+</UniversalEditor>
+
+### 6.2 字串處理函數
+
+<UniversalEditor title="字串處理函數" compare={true}>
+```javascript !! js
+// JavaScript - 字串處理
+let text = "  Hello, World!  ";
+
+// 去除空白
+let trimmed = text.trim();
+console.log("去除空白:", `"${trimmed}"`);
+
+// 轉換大小寫
+let upper = text.toUpperCase();
+let lower = text.toLowerCase();
+console.log("大寫:", upper);
+console.log("小寫:", lower);
+
+// 替換文字
+let replaced = text.replace("World", "JavaScript");
+console.log("替換後:", replaced);
+
+// 分割和連接
+let words = text.split(", ");
+console.log("單字:", words);
+let joined = words.join(" - ");
+console.log("連接:", joined);
+
+// 檢查是否包含子串
+let contains = text.includes("World");
+console.log("包含 'World':", contains);
+
+// 計算出現次數
+let count = (text.match(/o/g) || []).length;
+console.log("'o' 的出現次數:", count);
+```
+
+```c !! c
+#include <stdio.h>
+#include <string.h>
+#include <ctype.h>
+
+// 去除兩端的空白字元
+void trim(char* str) {
+    int len = strlen(str);
+    int start = 0, end = len - 1;
+    
+    // 找到非空白字元的開始
+    while (start < len && isspace(str[start])) {
+        start++;
+    }
+    
+    // 找到非空白字元的結束
+    while (end >= start && isspace(str[end])) {
+        end--;
+    }
+    
+    // 將字串移到開頭
+    if (start > 0) {
+        for (int i = 0; i <= end - start; i++) {
+            str[i] = str[start + i];
+        }
+        str[end - start + 1] = '\0';
+    } else if (end < len - 1) {
+        str[end + 1] = '\0';
+    }
+}
+
+// 轉換為大寫
+void to_upper(char* str) {
+    for (int i = 0; str[i] != '\0'; i++) {
+        str[i] = toupper(str[i]);
+    }
+}
+
+// 轉換為小寫
+void to_lower(char* str) {
+    for (int i = 0; str[i] != '\0'; i++) {
+        str[i] = tolower(str[i]);
+    }
+}
+
+// 替換子串
+int replace_substring(char* str, const char* old, const char* new) {
+    char* found = strstr(str, old);
+    if (!found) return 0;
+    
+    int old_len = strlen(old);
+    int new_len = strlen(new);
+    int str_len = strlen(str);
+    
+    if (new_len > old_len) {
+        // 需要移動字元
+        int diff = new_len - old_len;
+        for (int i = str_len; i >= found - str + old_len; i--) {
+            str[i + diff] = str[i];
+        }
+    }
+    
+    strncpy(found, new, new_len);
+    return 1;
+}
+
+// 計算字元出現次數
+int count_char(const char* str, char ch) {
+    int count = 0;
+    for (int i = 0; str[i] != '\0'; i++) {
+        if (str[i] == ch) {
+            count++;
+        }
+    }
+    return count;
+}
+
+// 按分隔符分割字串
+int split_string(const char* str, char delimiter, char* parts[], int max_parts) {
+    int count = 0;
+    int len = strlen(str);
+    char* temp = malloc(len + 1);
+    strcpy(temp, str);
+    
+    char* token = strtok(temp, &delimiter);
+    while (token && count < max_parts) {
+        parts[count++] = strdup(token);
+        token = strtok(NULL, &delimiter);
+    }
+    
+    free(temp);
+    return count;
+}
+
+int main() {
+    char text[] = "  Hello, World!  ";
+    printf("原始: \"%s\"\n", text);
+    
+    // 去除空白
+    trim(text);
+    printf("去除空白: \"%s\"\n", text);
+    
+    // 轉換大小寫
+    char upper[50];
+    strcpy(upper, text);
+    to_upper(upper);
+    printf("大寫: %s\n", upper);
+    
+    char lower[50];
+    strcpy(lower, text);
+    to_lower(lower);
+    printf("小寫: %s\n", lower);
+    
+    // 替換子串
+    char replaced[50];
+    strcpy(replaced, text);
+    if (replace_substring(replaced, "World", "C Programming")) {
+        printf("替換後: %s\n", replaced);
+    }
+    
+    // 計算出現次數
+    printf("'o' 的出現次數: %d\n", count_char(text, 'o'));
+    
+    // 分割字串
+    char* parts[10];
+    int part_count = split_string(text, ',', parts, 10);
+    printf("分割部分: ");
+    for (int i = 0; i < part_count; i++) {
+        printf("\"%s\" ", parts[i]);
+        free(parts[i]);
+    }
+    printf("\n");
+    
+    return 0;
+}
+```
+</UniversalEditor>
+
+## 7. 練習題
+
+### 練習 1：陣列操作
+建立一個 C 程式，要求：
+1. 宣告一個包含 10 個整數的陣列
+2. 用隨機數填充它
+3. 尋找最大值、最小值和平均值
+4. 按升序排序陣列
+5. 搜尋特定值
+
+### 練習 2：字串操作
+編寫一個 C 程式，要求：
+1. 從使用者獲取字串輸入
+2. 從字串中刪除所有母音字母
+3. 將結果轉換為大寫
+4. 反轉字串
+5. 計算子音字母的數量
+
+### 練習 3：二維陣列處理
+建立一個 C 程式，要求：
+1. 建立一個 3x3 矩陣
+2. 用數字填充它
+3. 計算每行和每列的總和
+4. 尋找矩陣中的最大值
+5. 轉置矩陣
+
+## 8. 總結
+
+### 涵蓋的核心概念
+- **陣列宣告**: 固定大小的連續記憶體區塊
+- **陣列-指標關係**: 陣列衰減為指標
+- **多維陣列**: 二維和三維陣列處理
+- **字串處理**: 以 null 結尾的字元陣列
+- **緩衝區安全**: 防止緩衝區溢出攻擊
+- **字串函數**: 安全的字串操作
+
+### JavaScript vs C 差異
+- **動態 vs 固定大小**: JavaScript 陣列可增長/縮小，C 陣列固定
+- **邊界檢查**: JavaScript 有自動邊界檢查，C 需要手動檢查
+- **字串處理**: JavaScript 字串是物件，C 字串是字元陣列
+- **記憶體管理**: JavaScript 是自動的，C 需要顯式管理
+
+### 最佳實踐
+1. **始終檢查陣列邊界** 在存取元素之前
+2. **使用安全字串函數** 防止緩衝區溢出
+3. **正確初始化陣列** 避免未定義行為
+4. **驗證輸入** 在處理字串之前
+5. **使用 sizeof()** 安全計算陣列大小
+6. **正確處理 null 終止符** 在字串中
+
+### 下一步
+在下一個模組中，我們將探索**函數和堆疊管理**，您將學習 C 中函數的工作原理、參數傳遞機制以及呼叫堆疊如何操作 - 這些概念對 JavaScript 開發者來說是隱藏的，但對理解 C 的記憶體模型至關重要。 

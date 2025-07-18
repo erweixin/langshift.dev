@@ -1,0 +1,1167 @@
+---
+title: "函數和棧管理"
+description: "從 JavaScript 視角學習 C 語言函數和棧管理。理解函數參數傳遞機制、棧幀、遞歸函數、函數指標和記憶體管理。"
+---
+
+# 函數和棧管理
+
+## 1. 介紹
+
+### 從 JavaScript 函數到 C 函數
+
+在 JavaScript 中，函數是一等物件，具有閉包、自動記憶體管理和靈活的參數處理。在 C 中，函數更加原始，但提供了對記憶體、棧管理和效能優化的精確控制。
+
+C 函數是模組化程式設計的基礎建構塊，提供：
+- 程式碼重用和組織
+- 對記憶體分配的精確控制
+- 效能優化機會
+- 系統級程式設計能力
+
+> 💡 **核心概念**: C 函數在呼叫棧上執行，每次函數呼叫都會建立一個棧幀，包含區域變數、參數和返回位址。理解棧管理對記憶體安全和效能至關重要。
+
+## 2. 函數基礎
+
+### 2.1 函數宣告和定義
+
+<UniversalEditor title="函數宣告" compare={true}>
+```javascript !! js
+// JavaScript - 靈活的函數宣告
+function greet(name) {
+    return `Hello, ${name}!`;
+}
+
+// 函數表達式
+const greet2 = function(name) {
+    return `Hello, ${name}!`;
+};
+
+// 箭頭函數
+const greet3 = (name) => `Hello, ${name}!`;
+
+// 預設參數
+function greetWithDefault(name = "World") {
+    return `Hello, ${name}!`;
+}
+
+// 可變參數
+function sum(...numbers) {
+    return numbers.reduce((a, b) => a + b, 0);
+}
+
+// 函數呼叫
+console.log(greet("Alice"));
+console.log(greetWithDefault());
+console.log(sum(1, 2, 3, 4, 5));
+```
+
+```c !! c
+#include <stdio.h>
+
+// 函數宣告（原型）
+int greet(const char* name);
+int sum(int a, int b);
+void printArray(int arr[], int size);
+
+// 函數定義
+int greet(const char* name) {
+    printf("Hello, %s!\n", name);
+    return 0;
+}
+
+// 帶返回值的函數
+int sum(int a, int b) {
+    return a + b;
+}
+
+// 帶陣列參數的函數
+void printArray(int arr[], int size) {
+    for (int i = 0; i < size; i++) {
+        printf("%d ", arr[i]);
+    }
+    printf("\n");
+}
+
+// 帶多個參數的函數
+int calculate(int a, int b, char operation) {
+    switch (operation) {
+        case '+': return a + b;
+        case '-': return a - b;
+        case '*': return a * b;
+        case '/': return b != 0 ? a / b : 0;
+        default: return 0;
+    }
+}
+
+int main() {
+    // 函數呼叫
+    greet("Alice");
+    
+    int result = sum(10, 20);
+    printf("Sum: %d\n", result);
+    
+    int arr[] = {1, 2, 3, 4, 5};
+    printArray(arr, 5);
+    
+    printf("10 + 5 = %d\n", calculate(10, 5, '+'));
+    printf("10 - 5 = %d\n", calculate(10, 5, '-'));
+    
+    return 0;
+}
+```
+</UniversalEditor>
+
+### 2.2 函數參數和棧幀
+
+<UniversalEditor title="函數參數和棧" compare={true}>
+```javascript !! js
+// JavaScript - 基本型別按值傳遞，物件按參考傳遞
+function modifyValue(x) {
+    x = 100;  // 基本型別的區域副本
+    console.log("函數內部:", x);
+}
+
+function modifyObject(obj) {
+    obj.name = "Modified";  // 修改原始物件
+    console.log("函數內部:", obj.name);
+}
+
+function modifyArray(arr) {
+    arr.push(100);  // 修改原始陣列
+    console.log("函數內部:", arr);
+}
+
+// 測試不同型別
+let num = 10;
+let person = { name: "John" };
+let numbers = [1, 2, 3];
+
+console.log("修改前:", num, person.name, numbers);
+modifyValue(num);
+modifyObject(person);
+modifyArray(numbers);
+console.log("修改後:", num, person.name, numbers);
+```
+
+```c !! c
+#include <stdio.h>
+
+// 按值傳遞（C 中的預設方式）
+void modifyValue(int x) {
+    x = 100;  // 區域副本，不影響原始值
+    printf("函數內部: x = %d\n", x);
+}
+
+// 按指標傳遞（模擬按參考傳遞）
+void modifyValueByPointer(int* x) {
+    *x = 100;  // 修改原始值
+    printf("函數內部: *x = %d\n", *x);
+}
+
+// 按指標傳遞陣列
+void modifyArray(int arr[], int size) {
+    for (int i = 0; i < size; i++) {
+        arr[i] *= 2;  // 修改原始陣列
+    }
+    printf("函數內部: 陣列已修改\n");
+}
+
+// 帶區域變數的函數（棧幀）
+void functionWithLocals(int param) {
+    int local1 = 10;
+    int local2 = 20;
+    int local3 = local1 + local2 + param;
+    
+    printf("區域變數: %d, %d, %d\n", local1, local2, local3);
+    printf("參數: %d\n", param);
+    
+    // 這些變數儲存在函數的棧幀中
+    // 函數返回時自動釋放
+}
+
+int main() {
+    int num = 10;
+    int arr[] = {1, 2, 3, 4, 5};
+    
+    printf("修改前: num = %d\n", num);
+    modifyValue(num);  // 按值傳遞
+    printf("modifyValue 後: num = %d\n", num);
+    
+    modifyValueByPointer(&num);  // 按指標傳遞
+    printf("modifyValueByPointer 後: num = %d\n", num);
+    
+    printf("陣列修改前: ");
+    for (int i = 0; i < 5; i++) {
+        printf("%d ", arr[i]);
+    }
+    printf("\n");
+    
+    modifyArray(arr, 5);  // 按指標傳遞陣列
+    
+    printf("陣列修改後: ");
+    for (int i = 0; i < 5; i++) {
+        printf("%d ", arr[i]);
+    }
+    printf("\n");
+    
+    functionWithLocals(5);
+    
+    return 0;
+}
+```
+</UniversalEditor>
+
+### 2.3 棧幀結構
+
+<UniversalEditor title="棧幀視覺化" compare={true}>
+```javascript !! js
+// JavaScript - 自動棧管理
+function outerFunction(x) {
+    let outerVar = x * 2;
+    
+    function innerFunction(y) {
+        let innerVar = y + outerVar;  // 閉包捕獲 outerVar
+        console.log("內部函數:", innerVar);
+        return innerVar;
+    }
+    
+    console.log("外部函數:", outerVar);
+    return innerFunction(10);
+}
+
+// 函數呼叫建立執行上下文
+let result = outerFunction(5);
+console.log("結果:", result);
+
+// 棧追蹤顯示呼叫層次
+function demonstrateStack() {
+    console.trace("當前棧追蹤");
+}
+
+demonstrateStack();
+```
+
+```c !! c
+#include <stdio.h>
+
+// 演示棧幀的函數
+void functionA(int param1, int param2) {
+    int local1 = param1 + param2;
+    int local2 = param1 * param2;
+    
+    printf("函數 A - 參數: %d, %d\n", param1, param2);
+    printf("函數 A - 區域變數: %d, %d\n", local1, local2);
+    
+    // 棧幀結構:
+    // +------------------+
+    // | 返回位址         |  <- 函數返回後的位址
+    // +------------------+
+    // | param2           |  <- 函數參數
+    // +------------------+
+    // | param1           |
+    // +------------------+
+    // | local1           |  <- 區域變數
+    // +------------------+
+    // | local2           |
+    // +------------------+
+    // | 棧指標           |  <- 當前棧位置
+    // +------------------+
+}
+
+void functionB(int x) {
+    int local = x * 2;
+    printf("函數 B - 參數: %d, 區域變數: %d\n", x, local);
+    
+    // 呼叫另一個函數（建立新的棧幀）
+    functionA(x, local);
+}
+
+int main() {
+    printf("主函數開始\n");
+    
+    // 每次函數呼叫都建立新的棧幀
+    functionB(5);
+    
+    printf("主函數結束\n");
+    return 0;
+}
+```
+</UniversalEditor>
+
+## 3. 遞歸和棧管理
+
+### 3.1 遞歸函數
+
+<UniversalEditor title="遞歸函數" compare={true}>
+```javascript !! js
+// JavaScript - 帶自動棧管理的遞歸
+function factorial(n) {
+    if (n <= 1) return 1;
+    return n * factorial(n - 1);
+}
+
+function fibonacci(n) {
+    if (n <= 1) return n;
+    return fibonacci(n - 1) + fibonacci(n - 2);
+}
+
+function countdown(n) {
+    if (n <= 0) {
+        console.log("發射！");
+        return;
+    }
+    console.log(n);
+    countdown(n - 1);
+}
+
+// 遞歸陣列處理
+function sumArray(arr, index = 0) {
+    if (index >= arr.length) return 0;
+    return arr[index] + sumArray(arr, index + 1);
+}
+
+// 測試遞歸
+console.log("5 的階乘:", factorial(5));
+console.log("斐波那契(7):", fibonacci(7));
+countdown(3);
+console.log("[1,2,3,4,5] 的和:", sumArray([1, 2, 3, 4, 5]));
+```
+
+```c !! c
+#include <stdio.h>
+
+// 遞歸階乘函數
+int factorial(int n) {
+    if (n <= 1) {
+        return 1;
+    }
+    return n * factorial(n - 1);
+}
+
+// 遞歸斐波那契（效率低但演示遞歸）
+int fibonacci(int n) {
+    if (n <= 1) {
+        return n;
+    }
+    return fibonacci(n - 1) + fibonacci(n - 2);
+}
+
+// 遞歸倒數計時
+void countdown(int n) {
+    if (n <= 0) {
+        printf("發射！\n");
+        return;
+    }
+    printf("%d\n", n);
+    countdown(n - 1);
+}
+
+// 遞歸陣列求和
+int sumArray(int arr[], int size, int index) {
+    if (index >= size) {
+        return 0;
+    }
+    return arr[index] + sumArray(arr, size, index + 1);
+}
+
+// 遞歸二分搜尋
+int binarySearch(int arr[], int left, int right, int target) {
+    if (left > right) {
+        return -1;  // 未找到
+    }
+    
+    int mid = left + (right - left) / 2;
+    
+    if (arr[mid] == target) {
+        return mid;
+    } else if (arr[mid] > target) {
+        return binarySearch(arr, left, mid - 1, target);
+    } else {
+        return binarySearch(arr, mid + 1, right, target);
+    }
+}
+
+int main() {
+    printf("5 的階乘: %d\n", factorial(5));
+    printf("斐波那契(7): %d\n", fibonacci(7));
+    
+    countdown(3);
+    
+    int arr[] = {1, 2, 3, 4, 5};
+    printf("陣列和: %d\n", sumArray(arr, 5, 0));
+    
+    int sorted[] = {1, 3, 5, 7, 9, 11, 13, 15};
+    int target = 7;
+    int result = binarySearch(sorted, 0, 7, target);
+    printf("二分搜尋 %d: 索引 %d\n", target, result);
+    
+    return 0;
+}
+```
+</UniversalEditor>
+
+### 3.2 棧溢出和記憶體管理
+
+<UniversalEditor title="棧溢出預防" compare={true}>
+```javascript !! js
+// JavaScript - 帶限制的自動棧管理
+function deepRecursion(n) {
+    if (n <= 0) return 0;
+    return 1 + deepRecursion(n - 1);
+}
+
+// JavaScript 有呼叫棧限制
+try {
+    console.log("深度遞歸結果:", deepRecursion(10000));
+} catch (error) {
+    console.log("棧溢出:", error.message);
+}
+
+// 尾遞歸優化（ES6）
+function tailRecursiveFactorial(n, accumulator = 1) {
+    if (n <= 1) return accumulator;
+    return tailRecursiveFactorial(n - 1, n * accumulator);
+}
+
+console.log("尾遞歸階乘:", tailRecursiveFactorial(5));
+```
+
+```c !! c
+#include <stdio.h>
+#include <stdlib.h>
+
+// 可能導致棧溢出的深度遞歸
+int deepRecursion(int n) {
+    if (n <= 0) {
+        return 0;
+    }
+    return 1 + deepRecursion(n - 1);
+}
+
+// 尾遞歸階乘（更高效）
+int tailRecursiveFactorial(int n, int accumulator) {
+    if (n <= 1) {
+        return accumulator;
+    }
+    return tailRecursiveFactorial(n - 1, n * accumulator);
+}
+
+// 迭代版本（防止棧溢出）
+int iterativeFactorial(int n) {
+    int result = 1;
+    for (int i = 2; i <= n; i++) {
+        result *= i;
+    }
+    return result;
+}
+
+// 演示棧大小限制的函數
+void demonstrateStackLimits() {
+    // 大型區域陣列可能導致棧溢出
+    // int largeArray[1000000];  // 危險！
+    
+    // 相反，使用動態分配
+    int* largeArray = malloc(1000000 * sizeof(int));
+    if (largeArray != NULL) {
+        printf("大型陣列分配成功\n");
+        free(largeArray);  // 重要：釋放記憶體
+    }
+}
+
+int main() {
+    printf("尾遞歸階乘 5: %d\n", 
+           tailRecursiveFactorial(5, 1));
+    
+    printf("迭代階乘 5: %d\n", 
+           iterativeFactorial(5));
+    
+    // 小心深度遞歸
+    printf("深度遞歸（小）: %d\n", deepRecursion(100));
+    
+    demonstrateStackLimits();
+    
+    return 0;
+}
+```
+</UniversalEditor>
+
+## 4. 函數指標
+
+### 4.1 函數指標基礎
+
+<UniversalEditor title="函數指標" compare={true}>
+```javascript !! js
+// JavaScript - 函數是一等物件
+function add(a, b) {
+    return a + b;
+}
+
+function multiply(a, b) {
+    return a * b;
+}
+
+function subtract(a, b) {
+    return a - b;
+}
+
+// 函數可以賦值給變數
+let operation = add;
+console.log("使用函數指標:", operation(5, 3));
+
+// 函數可以作為參數傳遞
+function calculate(a, b, func) {
+    return func(a, b);
+}
+
+console.log("加法:", calculate(10, 5, add));
+console.log("乘法:", calculate(10, 5, multiply));
+console.log("減法:", calculate(10, 5, subtract));
+
+// 函數可以儲存在陣列中
+let operations = [add, multiply, subtract];
+for (let i = 0; i < operations.length; i++) {
+    console.log(`操作 ${i}:`, operations[i](10, 2));
+}
+
+// 函數可以從函數返回
+function getOperation(type) {
+    switch (type) {
+        case 'add': return add;
+        case 'multiply': return multiply;
+        case 'subtract': return subtract;
+        default: return add;
+    }
+}
+
+let selectedOp = getOperation('multiply');
+console.log("選擇的操作:", selectedOp(6, 7));
+```
+
+```c !! c
+#include <stdio.h>
+
+// 函數宣告
+int add(int a, int b);
+int multiply(int a, int b);
+int subtract(int a, int b);
+
+// 函數定義
+int add(int a, int b) {
+    return a + b;
+}
+
+int multiply(int a, int b) {
+    return a * b;
+}
+
+int subtract(int a, int b) {
+    return a - b;
+}
+
+// 接受函數指標作為參數的函數
+int calculate(int a, int b, int (*operation)(int, int)) {
+    return operation(a, b);
+}
+
+// 返回函數指標的函數
+int (*getOperation(char type))(int, int) {
+    switch (type) {
+        case 'a': return add;
+        case 'm': return multiply;
+        case 's': return subtract;
+        default: return add;
+    }
+}
+
+int main() {
+    // 函數指標宣告
+    int (*operation)(int, int);
+    
+    // 將函數賦值給指標
+    operation = add;
+    printf("使用函數指標: %d\n", operation(5, 3));
+    
+    // 將函數指標傳遞給另一個函數
+    printf("加法: %d\n", calculate(10, 5, add));
+    printf("乘法: %d\n", calculate(10, 5, multiply));
+    printf("減法: %d\n", calculate(10, 5, subtract));
+    
+    // 函數指標陣列
+    int (*operations[3])(int, int) = {add, multiply, subtract};
+    char* names[] = {"add", "multiply", "subtract"};
+    
+    for (int i = 0; i < 3; i++) {
+        printf("%s: %d\n", names[i], operations[i](10, 2));
+    }
+    
+    // 從函數獲取函數指標
+    int (*selectedOp)(int, int) = getOperation('m');
+    printf("選擇的操作: %d\n", selectedOp(6, 7));
+    
+    return 0;
+}
+```
+</UniversalEditor>
+
+### 4.2 函數指標作為回調
+
+<UniversalEditor title="函數指標作為回調" compare={true}>
+```javascript !! js
+// JavaScript - 回調函數
+function processArray(arr, callback) {
+    let result = [];
+    for (let i = 0; i < arr.length; i++) {
+        result.push(callback(arr[i]));
+    }
+    return result;
+}
+
+// 回調函數
+function double(x) {
+    return x * 2;
+}
+
+function square(x) {
+    return x * x;
+}
+
+function isEven(x) {
+    return x % 2 === 0;
+}
+
+// 使用回調
+let numbers = [1, 2, 3, 4, 5];
+console.log("原始:", numbers);
+console.log("翻倍:", processArray(numbers, double));
+console.log("平方:", processArray(numbers, square));
+
+// 帶回調的過濾
+function filterArray(arr, predicate) {
+    let result = [];
+    for (let i = 0; i < arr.length; i++) {
+        if (predicate(arr[i])) {
+            result.push(arr[i]);
+        }
+    }
+    return result;
+}
+
+console.log("偶數:", filterArray(numbers, isEven));
+
+// 帶回調的排序
+function compareNumbers(a, b) {
+    return a - b;
+}
+
+let unsorted = [3, 1, 4, 1, 5, 9, 2, 6];
+unsorted.sort(compareNumbers);
+console.log("排序後:", unsorted);
+```
+
+```c !! c
+#include <stdio.h>
+#include <stdlib.h>
+
+// 函數指標類型定義，提高可讀性
+typedef int (*OperationFunc)(int);
+typedef int (*ComparisonFunc)(int, int);
+
+// 使用回調處理陣列的函數
+void processArray(int arr[], int size, OperationFunc operation) {
+    for (int i = 0; i < size; i++) {
+        arr[i] = operation(arr[i]);
+    }
+}
+
+// 使用回調過濾陣列的函數
+int* filterArray(int arr[], int size, int (*predicate)(int), int* resultSize) {
+    int* result = malloc(size * sizeof(int));
+    *resultSize = 0;
+    
+    for (int i = 0; i < size; i++) {
+        if (predicate(arr[i])) {
+            result[*resultSize] = arr[i];
+            (*resultSize)++;
+        }
+    }
+    
+    return result;
+}
+
+// 回調函數
+int doubleValue(int x) {
+    return x * 2;
+}
+
+int squareValue(int x) {
+    return x * x;
+}
+
+int isEven(int x) {
+    return x % 2 == 0;
+}
+
+int isPositive(int x) {
+    return x > 0;
+}
+
+// 排序的比較函數
+int compareAscending(int a, int b) {
+    return a - b;
+}
+
+int compareDescending(int a, int b) {
+    return b - a;
+}
+
+// 帶比較函數的簡單氣泡排序
+void bubbleSort(int arr[], int size, ComparisonFunc compare) {
+    for (int i = 0; i < size - 1; i++) {
+        for (int j = 0; j < size - i - 1; j++) {
+            if (compare(arr[j], arr[j + 1]) > 0) {
+                // 交換
+                int temp = arr[j];
+                arr[j] = arr[j + 1];
+                arr[j + 1] = temp;
+            }
+        }
+    }
+}
+
+void printArray(int arr[], int size) {
+    for (int i = 0; i < size; i++) {
+        printf("%d ", arr[i]);
+    }
+    printf("\n");
+}
+
+int main() {
+    int numbers[] = {1, 2, 3, 4, 5};
+    int size = 5;
+    
+    printf("原始陣列: ");
+    printArray(numbers, size);
+    
+    // 使用不同回調處理
+    int doubled[5];
+    for (int i = 0; i < size; i++) {
+        doubled[i] = numbers[i];
+    }
+    processArray(doubled, size, doubleValue);
+    printf("翻倍: ");
+    printArray(doubled, size);
+    
+    // 過濾陣列
+    int resultSize;
+    int* evenNumbers = filterArray(numbers, size, isEven, &resultSize);
+    printf("偶數: ");
+    printArray(evenNumbers, resultSize);
+    free(evenNumbers);
+    
+    // 排序陣列
+    int unsorted[] = {3, 1, 4, 1, 5, 9, 2, 6};
+    int unsortedSize = 8;
+    
+    printf("未排序: ");
+    printArray(unsorted, unsortedSize);
+    
+    bubbleSort(unsorted, unsortedSize, compareAscending);
+    printf("升序排序: ");
+    printArray(unsorted, unsortedSize);
+    
+    bubbleSort(unsorted, unsortedSize, compareDescending);
+    printf("降序排序: ");
+    printArray(unsorted, unsortedSize);
+    
+    return 0;
+}
+```
+</UniversalEditor>
+
+## 5. 可變參數和高級特性
+
+### 5.1 可變參數函數
+
+<UniversalEditor title="可變參數" compare={true}>
+```javascript !! js
+// JavaScript - 剩餘參數和 arguments 物件
+function sum(...numbers) {
+    return numbers.reduce((a, b) => a + b, 0);
+}
+
+function average(...numbers) {
+    if (numbers.length === 0) return 0;
+    return numbers.reduce((a, b) => a + b, 0) / numbers.length;
+}
+
+function formatString(template, ...values) {
+    return template.replace(/\{(\d+)\}/g, (match, index) => {
+        return values[index] || match;
+    });
+}
+
+// 使用可變參數
+console.log("和:", sum(1, 2, 3, 4, 5));
+console.log("平均值:", average(10, 20, 30, 40));
+console.log("格式化:", formatString("Hello {0}, you are {1} years old", "Alice", 25));
+
+// arguments 物件（遺留）
+function legacySum() {
+    let total = 0;
+    for (let i = 0; i < arguments.length; i++) {
+        total += arguments[i];
+    }
+    return total;
+}
+
+console.log("遺留求和:", legacySum(1, 2, 3, 4, 5));
+```
+
+```c !! c
+#include <stdio.h>
+#include <stdarg.h>
+
+// 可變參數函數
+int sum(int count, ...) {
+    va_list args;
+    va_start(args, count);
+    
+    int total = 0;
+    for (int i = 0; i < count; i++) {
+        total += va_arg(args, int);
+    }
+    
+    va_end(args);
+    return total;
+}
+
+// 可變參數求平均值
+double average(int count, ...) {
+    va_list args;
+    va_start(args, count);
+    
+    double total = 0.0;
+    for (int i = 0; i < count; i++) {
+        total += va_arg(args, double);
+    }
+    
+    va_end(args);
+    return count > 0 ? total / count : 0.0;
+}
+
+// 可變參數字串格式化
+void printFormatted(const char* format, ...) {
+    va_list args;
+    va_start(args, format);
+    
+    vprintf(format, args);
+    
+    va_end(args);
+}
+
+// 不同型別的可變參數
+void printMixed(const char* prefix, int count, ...) {
+    va_list args;
+    va_start(args, count);
+    
+    printf("%s: ", prefix);
+    for (int i = 0; i < count; i++) {
+        // 假設交替的 int 和 double
+        if (i % 2 == 0) {
+            int val = va_arg(args, int);
+            printf("%d ", val);
+        } else {
+            double val = va_arg(args, double);
+            printf("%.2f ", val);
+        }
+    }
+    printf("\n");
+    
+    va_end(args);
+}
+
+int main() {
+    // 使用可變參數
+    printf("5 個數的和: %d\n", sum(5, 1, 2, 3, 4, 5));
+    printf("3 個數的和: %d\n", sum(3, 10, 20, 30));
+    
+    printf("4 個數的平均值: %.2f\n", average(4, 10.0, 20.0, 30.0, 40.0));
+    
+    printFormatted("Hello %s, you are %d years old\n", "Alice", 25);
+    printFormatted("Temperature: %.1f°C, Humidity: %d%%\n", 23.5, 65);
+    
+    printMixed("混合值", 6, 10, 3.14, 20, 2.718, 30, 1.414);
+    
+    return 0;
+}
+```
+</UniversalEditor>
+
+### 5.2 內聯函數和優化
+
+<UniversalEditor title="內聯函數" compare={true}>
+```javascript !! js
+// JavaScript - 函數優化
+function simpleAdd(a, b) {
+    return a + b;
+}
+
+// 現代 JavaScript 引擎優化小函數
+const optimizedAdd = (a, b) => a + b;
+
+// 函數內聯（引擎優化）
+function processData(data) {
+    let result = 0;
+    for (let i = 0; i < data.length; i++) {
+        result += optimizedAdd(data[i], 1);  // 可能被內聯
+    }
+    return result;
+}
+
+// 效能測量
+function measurePerformance(func, iterations) {
+    const start = performance.now();
+    for (let i = 0; i < iterations; i++) {
+        func(i, i + 1);
+    }
+    const end = performance.now();
+    return end - start;
+}
+
+console.log("簡單函數時間:", measurePerformance(simpleAdd, 1000000));
+console.log("優化函數時間:", measurePerformance(optimizedAdd, 1000000));
+```
+
+```c !! c
+#include <stdio.h>
+#include <time.h>
+
+// 普通函數
+int regularAdd(int a, int b) {
+    return a + b;
+}
+
+// 內聯函數（編譯器建議）
+inline int inlineAdd(int a, int b) {
+    return a + b;
+}
+
+// 靜態內聯（更明確）
+static inline int staticInlineAdd(int a, int b) {
+    return a + b;
+}
+
+// 巨集（預處理器替換）
+#define MACRO_ADD(a, b) ((a) + (b))
+
+// 使用內聯函數的函數
+int processData(int data[], int size) {
+    int result = 0;
+    for (int i = 0; i < size; i++) {
+        // 這些呼叫可能被編譯器內聯
+        result += inlineAdd(data[i], 1);
+        result += staticInlineAdd(data[i], 2);
+        result += MACRO_ADD(data[i], 3);
+    }
+    return result;
+}
+
+// 效能測量函數
+double measurePerformance(int (*func)(int, int), int iterations) {
+    clock_t start = clock();
+    
+    for (int i = 0; i < iterations; i++) {
+        func(i, i + 1);
+    }
+    
+    clock_t end = clock();
+    return ((double)(end - start)) / CLOCKS_PER_SEC;
+}
+
+int main() {
+    int data[] = {1, 2, 3, 4, 5};
+    int size = 5;
+    
+    printf("處理的資料: %d\n", processData(data, size));
+    
+    // 效能比較
+    int iterations = 1000000;
+    
+    printf("普通函數時間: %.6f 秒\n", 
+           measurePerformance(regularAdd, iterations));
+    
+    printf("內聯函數時間: %.6f 秒\n", 
+           measurePerformance(inlineAdd, iterations));
+    
+    printf("靜態內聯時間: %.6f 秒\n", 
+           measurePerformance(staticInlineAdd, iterations));
+    
+    // 注意：實際效能取決於編譯器優化
+    // 在不同編譯器和優化級別下可能有所不同
+    
+    return 0;
+}
+```
+</UniversalEditor>
+
+## 6. 練習
+
+### 練習 1: 遞歸陣列處理
+編寫一個 C 函數，遞歸查找陣列中的最大值。
+
+<UniversalEditor title="練習 1: 遞歸最大值" compare={true}>
+```javascript !! js
+// JavaScript 解決方案
+function findMaxRecursive(arr, index = 0) {
+    if (index >= arr.length) {
+        return -Infinity;
+    }
+    
+    let current = arr[index];
+    let rest = findMaxRecursive(arr, index + 1);
+    
+    return current > rest ? current : rest;
+}
+
+// 測試
+let numbers = [3, 7, 2, 9, 1, 8, 5];
+console.log("最大值:", findMaxRecursive(numbers));
+```
+
+```c !! c
+#include <stdio.h>
+#include <limits.h>
+
+// C 解決方案
+int findMaxRecursive(int arr[], int size, int index) {
+    // 基本情況：如果到達末尾
+    if (index >= size) {
+        return INT_MIN;
+    }
+    
+    // 獲取當前元素
+    int current = arr[index];
+    
+    // 遞歸查找剩餘陣列的最大值
+    int restMax = findMaxRecursive(arr, size, index + 1);
+    
+    // 返回當前值和剩餘值中的較大者
+    return (current > restMax) ? current : restMax;
+}
+
+int main() {
+    int numbers[] = {3, 7, 2, 9, 1, 8, 5};
+    int size = sizeof(numbers) / sizeof(numbers[0]);
+    
+    int max = findMaxRecursive(numbers, size, 0);
+    printf("最大值: %d\n", max);
+    
+    return 0;
+}
+```
+</UniversalEditor>
+
+### 練習 2: 函數指標計算器
+使用函數指標建立計算器。
+
+<UniversalEditor title="練習 2: 函數指標計算器" compare={true}>
+```javascript !! js
+// JavaScript 解決方案
+const calculator = {
+    add: (a, b) => a + b,
+    subtract: (a, b) => a - b,
+    multiply: (a, b) => a * b,
+    divide: (a, b) => b !== 0 ? a / b : NaN
+};
+
+function calculate(operation, a, b) {
+    if (calculator[operation]) {
+        return calculator[operation](a, b);
+    }
+    return NaN;
+}
+
+// 測試
+console.log("10 + 5 =", calculate('add', 10, 5));
+console.log("10 - 5 =", calculate('subtract', 10, 5));
+console.log("10 * 5 =", calculate('multiply', 10, 5));
+console.log("10 / 5 =", calculate('divide', 10, 5));
+```
+
+```c !! c
+#include <stdio.h>
+
+// 計算器操作的函數指標類型
+typedef double (*Operation)(double, double);
+
+// 計算器函數
+double add(double a, double b) {
+    return a + b;
+}
+
+double subtract(double a, double b) {
+    return a - b;
+}
+
+double multiply(double a, double b) {
+    return a * b;
+}
+
+double divide(double a, double b) {
+    return b != 0 ? a / b : 0;
+}
+
+// 使用函數指標的計算器函數
+double calculate(Operation operation, double a, double b) {
+    return operation(a, b);
+}
+
+int main() {
+    double a = 10.0, b = 5.0;
+    
+    printf("%.1f + %.1f = %.1f\n", a, b, calculate(add, a, b));
+    printf("%.1f - %.1f = %.1f\n", a, b, calculate(subtract, a, b));
+    printf("%.1f * %.1f = %.1f\n", a, b, calculate(multiply, a, b));
+    printf("%.1f / %.1f = %.1f\n", a, b, calculate(divide, a, b));
+    
+    return 0;
+}
+```
+</UniversalEditor>
+
+## 7. 總結
+
+### 涵蓋的核心概念
+
+1. **函數宣告和定義**: C 函數需要顯式宣告，具有嚴格的參數型別
+2. **棧幀**: 每次函數呼叫都建立一個棧幀，包含區域變數、參數和返回位址
+3. **參數傳遞**: C 預設使用按值傳遞，但指標可以實現按參考傳遞行為
+4. **遞歸**: C 支援遞歸，但需要小心棧管理以避免溢出
+5. **函數指標**: 實現動態函數選擇和回調機制
+6. **可變參數**: 使用 `stdarg.h` 允許函數接受可變數量的參數
+7. **內聯函數**: 向編譯器提供效能優化提示
+
+### 記憶體管理考慮
+
+- **棧變數**: 隨函數呼叫自動分配和釋放
+- **棧溢出**: 深度遞歸可能導致棧溢出；對大型問題使用迭代
+- **函數指標**: 與動態分配一起使用時需要小心記憶體管理
+- **可變參數**: 需要正確使用 `va_start` 和 `va_end` 進行初始化和清理
+
+### 最佳實踐
+
+1. **始終宣告函數原型**在使用前
+2. **在函數宣告中使用有意義的參數名**
+3. **在遞歸函數中檢查棧溢出**
+4. **使用函數指標**實現靈活、可重用的程式碼
+5. **對效能關鍵程式碼優先使用迭代而非遞歸**
+6. **對小而頻繁呼叫的函數使用內聯函數**
+7. **小心處理可變參數**並進行適當的型別檢查
+
+### 效能提示
+
+- **內聯函數**: 對小而頻繁呼叫的函數使用 `inline` 關鍵字
+- **函數指標**: 可能增加輕微開銷但提供靈活性
+- **遞歸 vs 迭代**: 根據問題複雜性和棧使用情況選擇
+- **棧管理**: 了解環境中的棧大小限制
+
+理解 C 函數和棧管理對於編寫高效、安全、可維護的程式碼至關重要。這些概念為系統程式設計和效能優化等更高級主題奠定了基礎。 
