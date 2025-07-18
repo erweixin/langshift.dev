@@ -1,0 +1,1014 @@
+# 模块 13: 性能优化和最佳实践
+
+## 概述
+
+在本模块中，我们将探索 C 编程中的高级性能优化技术和最佳实践。与 JavaScript 不同，JavaScript 的优化通常由 JIT 编译器处理，而 C 语言让你可以直接控制机器级别的性能。
+
+## 学习目标
+
+- 理解编译器优化选项及其效果
+- 掌握内联函数及其性能优势
+- 学习缓存友好代码设计原则
+- 实现算法优化技术
+- 应用内存优化策略
+- 有效使用性能分析工具
+
+## 编译器优化选项
+
+### JavaScript vs C 优化
+
+在 JavaScript 中，优化主要由 V8 引擎的 JIT 编译器处理。在 C 中，你可以通过编译器标志和代码结构直接控制优化。
+
+<UniversalEditor title="编译器优化对比" compare={true}>
+```javascript !! js
+// JavaScript: V8 自动处理优化
+function fibonacci(n) {
+    if (n <= 1) return n;
+    return fibonacci(n - 1) + fibonacci(n - 2);
+}
+
+// V8 会自动优化这个函数
+const result = fibonacci(10);
+console.log(result);
+```
+
+```c !! c
+// C: 手动优化控制
+#include <stdio.h>
+
+// 无优化版本
+int fibonacci_unoptimized(int n) {
+    if (n <= 1) return n;
+    return fibonacci_unoptimized(n - 1) + fibonacci_unoptimized(n - 2);
+}
+
+// 内联优化版本
+static inline int fibonacci_optimized(int n) {
+    if (n <= 1) return n;
+    return fibonacci_optimized(n - 1) + fibonacci_optimized(n - 2);
+}
+
+int main() {
+    // 编译命令: gcc -O2 -o program program.c
+    int result = fibonacci_optimized(10);
+    printf("Fibonacci(10) = %d\n", result);
+    return 0;
+}
+```
+</UniversalEditor>
+
+### 常用编译器标志
+
+<UniversalEditor title="编译器优化标志" compare={true}>
+```javascript !! js
+// JavaScript: Node.js 优化标志
+// node --max-old-space-size=4096 --optimize-for-size script.js
+
+function processLargeArray(arr) {
+    return arr.map(x => x * 2).filter(x => x > 10);
+}
+
+const largeArray = Array.from({length: 1000000}, (_, i) => i);
+const result = processLargeArray(largeArray);
+console.log(result.length);
+```
+
+```c !! c
+// C: GCC 优化标志
+#include <stdio.h>
+#include <stdlib.h>
+
+// 使用不同优化级别编译:
+// gcc -O0 -o program program.c    (无优化)
+// gcc -O1 -o program program.c    (基本优化)
+// gcc -O2 -o program program.c    (更多优化)
+// gcc -O3 -o program program.c    (激进优化)
+// gcc -Os -o program program.c    (优化大小)
+
+void process_large_array(int* arr, int size, int* result, int* result_size) {
+    int count = 0;
+    for (int i = 0; i < size; i++) {
+        int doubled = arr[i] * 2;
+        if (doubled > 10) {
+            result[count++] = doubled;
+        }
+    }
+    *result_size = count;
+}
+
+int main() {
+    const int size = 1000000;
+    int* arr = malloc(size * sizeof(int));
+    int* result = malloc(size * sizeof(int));
+    int result_size;
+    
+    // 初始化数组
+    for (int i = 0; i < size; i++) {
+        arr[i] = i;
+    }
+    
+    process_large_array(arr, size, result, &result_size);
+    printf("处理了 %d 个元素\n", result_size);
+    
+    free(arr);
+    free(result);
+    return 0;
+}
+```
+</UniversalEditor>
+
+## 内联函数
+
+### JavaScript vs C 内联函数
+
+JavaScript 引擎自动内联函数，而 C 需要显式的内联声明。
+
+<UniversalEditor title="内联函数对比" compare={true}>
+```javascript !! js
+// JavaScript: V8 自动内联小函数
+function add(a, b) {
+    return a + b;
+}
+
+function multiply(a, b) {
+    return a * b;
+}
+
+// 这些调用很可能被 V8 内联
+let sum = 0;
+for (let i = 0; i < 1000000; i++) {
+    sum += add(i, 1);
+    sum += multiply(i, 2);
+}
+console.log(sum);
+```
+
+```c !! c
+// C: 显式内联函数
+#include <stdio.h>
+
+// 内联函数声明
+static inline int add(int a, int b) {
+    return a + b;
+}
+
+static inline int multiply(int a, int b) {
+    return a * b;
+}
+
+int main() {
+    int sum = 0;
+    
+    // 这些函数调用将被编译器内联
+    for (int i = 0; i < 1000000; i++) {
+        sum += add(i, 1);
+        sum += multiply(i, 2);
+    }
+    
+    printf("总和: %d\n", sum);
+    return 0;
+}
+```
+</UniversalEditor>
+
+### 内联函数最佳实践
+
+<UniversalEditor title="内联函数最佳实践" compare={true}>
+```javascript !! js
+// JavaScript: 小函数自动优化
+function calculateDistance(x1, y1, x2, y2) {
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    return Math.sqrt(dx * dx + dy * dy);
+}
+
+// 在紧密循环中使用 - V8 会优化
+function processPoints(points) {
+    let totalDistance = 0;
+    for (let i = 0; i < points.length - 1; i++) {
+        totalDistance += calculateDistance(
+            points[i].x, points[i].y,
+            points[i + 1].x, points[i + 1].y
+        );
+    }
+    return totalDistance;
+}
+```
+
+```c !! c
+// C: 对性能关键函数使用显式内联
+#include <stdio.h>
+#include <math.h>
+
+// 小的、频繁调用的函数适合内联
+static inline double calculate_distance(double x1, double y1, 
+                                       double x2, double y2) {
+    double dx = x2 - x1;
+    double dy = y2 - y1;
+    return sqrt(dx * dx + dy * dy);
+}
+
+// 避免对大函数使用内联
+static inline void process_large_data(int* data, int size) {
+    // 这个函数太大不适合内联 - 编译器可能忽略内联提示
+    for (int i = 0; i < size; i++) {
+        // 复杂处理...
+        data[i] = data[i] * 2 + 1;
+    }
+}
+
+int main() {
+    double points[][2] = {{1.0, 1.0}, {2.0, 2.0}, {3.0, 3.0}};
+    int num_points = 3;
+    
+    double total_distance = 0.0;
+    for (int i = 0; i < num_points - 1; i++) {
+        total_distance += calculate_distance(
+            points[i][0], points[i][1],
+            points[i + 1][0], points[i + 1][1]
+        );
+    }
+    
+    printf("总距离: %.2f\n", total_distance);
+    return 0;
+}
+```
+</UniversalEditor>
+
+## 缓存友好代码设计
+
+### 内存访问模式
+
+<UniversalEditor title="缓存友好数组访问" compare={true}>
+```javascript !! js
+// JavaScript: 数组访问通常是缓存友好的
+function processMatrix(matrix) {
+    const rows = matrix.length;
+    const cols = matrix[0].length;
+    let sum = 0;
+    
+    // 行优先访问（在大多数语言中都是缓存友好的）
+    for (let i = 0; i < rows; i++) {
+        for (let j = 0; j < cols; j++) {
+            sum += matrix[i][j];
+        }
+    }
+    
+    return sum;
+}
+
+const matrix = Array.from({length: 1000}, () => 
+    Array.from({length: 1000}, (_, i) => i)
+);
+console.log(processMatrix(matrix));
+```
+
+```c !! c
+// C: 显式缓存友好设计
+#include <stdio.h>
+#include <stdlib.h>
+
+#define ROWS 1000
+#define COLS 1000
+
+// 缓存友好: 行优先访问
+int process_matrix_row_major(int matrix[ROWS][COLS]) {
+    int sum = 0;
+    
+    // 按行优先顺序访问元素（缓存友好）
+    for (int i = 0; i < ROWS; i++) {
+        for (int j = 0; j < COLS; j++) {
+            sum += matrix[i][j];
+        }
+    }
+    
+    return sum;
+}
+
+// 缓存不友好: 列优先访问
+int process_matrix_column_major(int matrix[ROWS][COLS]) {
+    int sum = 0;
+    
+    // 按列优先顺序访问元素（缓存不友好）
+    for (int j = 0; j < COLS; j++) {
+        for (int i = 0; i < ROWS; i++) {
+            sum += matrix[i][j];
+        }
+    }
+    
+    return sum;
+}
+
+int main() {
+    int (*matrix)[COLS] = malloc(ROWS * sizeof(*matrix));
+    
+    // 初始化矩阵
+    for (int i = 0; i < ROWS; i++) {
+        for (int j = 0; j < COLS; j++) {
+            matrix[i][j] = i + j;
+        }
+    }
+    
+    int sum1 = process_matrix_row_major(matrix);
+    int sum2 = process_matrix_column_major(matrix);
+    
+    printf("行优先总和: %d\n", sum1);
+    printf("列优先总和: %d\n", sum2);
+    
+    free(matrix);
+    return 0;
+}
+```
+</UniversalEditor>
+
+### 数据结构优化
+
+<UniversalEditor title="数据结构缓存优化" compare={true}>
+```javascript !! js
+// JavaScript: 对象和数组由引擎优化
+class Particle {
+    constructor(x, y, vx, vy, mass) {
+        this.x = x;
+        this.y = y;
+        this.vx = vx;
+        this.vy = vy;
+        this.mass = mass;
+    }
+}
+
+// 对象数组 - V8 优化访问模式
+function updateParticles(particles) {
+    for (let particle of particles) {
+        particle.x += particle.vx;
+        particle.y += particle.vy;
+    }
+}
+
+const particles = Array.from({length: 1000}, () => 
+    new Particle(Math.random(), Math.random(), 1, 1, 1)
+);
+updateParticles(particles);
+```
+
+```c !! c
+// C: 数组结构 (SoA) 以获得更好的缓存性能
+#include <stdio.h>
+#include <stdlib.h>
+
+// 结构数组 (AoS) - 缓存友好性较差
+typedef struct {
+    double x, y, vx, vy, mass;
+} Particle_AoS;
+
+// 数组结构 (SoA) - 更缓存友好
+typedef struct {
+    double* x;
+    double* y;
+    double* vx;
+    double* vy;
+    double* mass;
+    int count;
+} Particle_SoA;
+
+void update_particles_aos(Particle_AoS* particles, int count) {
+    for (int i = 0; i < count; i++) {
+        particles[i].x += particles[i].vx;
+        particles[i].y += particles[i].vy;
+    }
+}
+
+void update_particles_soa(Particle_SoA* particles) {
+    for (int i = 0; i < particles->count; i++) {
+        particles->x[i] += particles->vx[i];
+        particles->y[i] += particles->vy[i];
+    }
+}
+
+int main() {
+    const int count = 1000;
+    
+    // AoS 方法
+    Particle_AoS* particles_aos = malloc(count * sizeof(Particle_AoS));
+    for (int i = 0; i < count; i++) {
+        particles_aos[i].x = (double)rand() / RAND_MAX;
+        particles_aos[i].y = (double)rand() / RAND_MAX;
+        particles_aos[i].vx = 1.0;
+        particles_aos[i].vy = 1.0;
+        particles_aos[i].mass = 1.0;
+    }
+    
+    // SoA 方法
+    Particle_SoA particles_soa = {
+        .x = malloc(count * sizeof(double)),
+        .y = malloc(count * sizeof(double)),
+        .vx = malloc(count * sizeof(double)),
+        .vy = malloc(count * sizeof(double)),
+        .mass = malloc(count * sizeof(double)),
+        .count = count
+    };
+    
+    for (int i = 0; i < count; i++) {
+        particles_soa.x[i] = (double)rand() / RAND_MAX;
+        particles_soa.y[i] = (double)rand() / RAND_MAX;
+        particles_soa.vx[i] = 1.0;
+        particles_soa.vy[i] = 1.0;
+        particles_soa.mass[i] = 1.0;
+    }
+    
+    update_particles_aos(particles_aos, count);
+    update_particles_soa(&particles_soa);
+    
+    // 清理
+    free(particles_aos);
+    free(particles_soa.x);
+    free(particles_soa.y);
+    free(particles_soa.vx);
+    free(particles_soa.vy);
+    free(particles_soa.mass);
+    
+    return 0;
+}
+```
+</UniversalEditor>
+
+## 算法优化
+
+### 循环优化
+
+<UniversalEditor title="循环优化技术" compare={true}>
+```javascript !! js
+// JavaScript: 循环优化
+function sumArray(arr) {
+    let sum = 0;
+    const len = arr.length; // 缓存长度
+    
+    // 展开循环以获得更好性能
+    for (let i = 0; i < len; i += 4) {
+        if (i < len) sum += arr[i];
+        if (i + 1 < len) sum += arr[i + 1];
+        if (i + 2 < len) sum += arr[i + 2];
+        if (i + 3 < len) sum += arr[i + 3];
+    }
+    
+    return sum;
+}
+
+const array = Array.from({length: 1000000}, (_, i) => i);
+console.log(sumArray(array));
+```
+
+```c !! c
+// C: 高级循环优化
+#include <stdio.h>
+#include <stdlib.h>
+
+// 循环展开以获得更好性能
+int sum_array_unrolled(int* arr, int size) {
+    int sum = 0;
+    int i;
+    
+    // 按 4 展开循环
+    for (i = 0; i < size - 3; i += 4) {
+        sum += arr[i] + arr[i + 1] + arr[i + 2] + arr[i + 3];
+    }
+    
+    // 处理剩余元素
+    for (; i < size; i++) {
+        sum += arr[i];
+    }
+    
+    return sum;
+}
+
+// 向量化友好循环
+int sum_array_vectorized(int* arr, int size) {
+    int sum = 0;
+    
+    // 编译器可以向量化的简单循环
+    for (int i = 0; i < size; i++) {
+        sum += arr[i];
+    }
+    
+    return sum;
+}
+
+int main() {
+    const int size = 1000000;
+    int* arr = malloc(size * sizeof(int));
+    
+    for (int i = 0; i < size; i++) {
+        arr[i] = i;
+    }
+    
+    int sum1 = sum_array_unrolled(arr, size);
+    int sum2 = sum_array_vectorized(arr, size);
+    
+    printf("展开循环总和: %d\n", sum1);
+    printf("向量化总和: %d\n", sum2);
+    
+    free(arr);
+    return 0;
+}
+```
+</UniversalEditor>
+
+### 算法复杂度优化
+
+<UniversalEditor title="算法复杂度优化" compare={true}>
+```javascript !! js
+// JavaScript: 算法优化
+function findDuplicates(arr) {
+    const seen = new Set();
+    const duplicates = new Set();
+    
+    for (const item of arr) {
+        if (seen.has(item)) {
+            duplicates.add(item);
+        } else {
+            seen.add(item);
+        }
+    }
+    
+    return Array.from(duplicates);
+}
+
+// O(n) 解决方案而不是 O(n²)
+const numbers = [1, 2, 3, 4, 2, 5, 6, 3, 7, 8, 1];
+console.log(findDuplicates(numbers));
+```
+
+```c !! c
+// C: 使用哈希表的算法优化
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#define MAX_SIZE 1000
+#define HASH_SIZE 10007
+
+// 简单哈希函数
+unsigned int hash(int key) {
+    return key % HASH_SIZE;
+}
+
+// 使用哈希表查找重复项 - O(n) 而不是 O(n²)
+int* find_duplicates(int* arr, int size, int* result_size) {
+    int* hash_table = calloc(HASH_SIZE, sizeof(int));
+    int* result = malloc(size * sizeof(int));
+    *result_size = 0;
+    
+    for (int i = 0; i < size; i++) {
+        unsigned int h = hash(arr[i]);
+        
+        if (hash_table[h] == 0) {
+            hash_table[h] = 1;
+        } else if (hash_table[h] == 1) {
+            // 找到重复项
+            result[*result_size] = arr[i];
+            (*result_size)++;
+            hash_table[h] = 2; // 标记为已添加
+        }
+    }
+    
+    free(hash_table);
+    return result;
+}
+
+int main() {
+    int arr[] = {1, 2, 3, 4, 2, 5, 6, 3, 7, 8, 1};
+    int size = sizeof(arr) / sizeof(arr[0]);
+    
+    int result_size;
+    int* duplicates = find_duplicates(arr, size, &result_size);
+    
+    printf("重复项: ");
+    for (int i = 0; i < result_size; i++) {
+        printf("%d ", duplicates[i]);
+    }
+    printf("\n");
+    
+    free(duplicates);
+    return 0;
+}
+```
+</UniversalEditor>
+
+## 内存优化策略
+
+### 内存池实现
+
+<UniversalEditor title="内存池优化" compare={true}>
+```javascript !! js
+// JavaScript: 内存管理由 V8 处理
+class MemoryPool {
+    constructor(blockSize, poolSize) {
+        this.blockSize = blockSize;
+        this.poolSize = poolSize;
+        this.pool = new ArrayBuffer(poolSize);
+        this.freeBlocks = [];
+        
+        // 预分配块
+        for (let i = 0; i < poolSize; i += blockSize) {
+            this.freeBlocks.push(i);
+        }
+    }
+    
+    allocate() {
+        if (this.freeBlocks.length === 0) {
+            throw new Error('池已耗尽');
+        }
+        return this.freeBlocks.pop();
+    }
+    
+    free(offset) {
+        this.freeBlocks.push(offset);
+    }
+}
+
+const pool = new MemoryPool(64, 1024);
+const block1 = pool.allocate();
+const block2 = pool.allocate();
+pool.free(block1);
+```
+
+```c !! c
+// C: 用于性能的自定义内存池
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#define BLOCK_SIZE 64
+#define POOL_SIZE 1024
+#define MAX_BLOCKS (POOL_SIZE / BLOCK_SIZE)
+
+typedef struct {
+    char pool[POOL_SIZE];
+    int free_blocks[MAX_BLOCKS];
+    int free_count;
+    int used_blocks[MAX_BLOCKS];
+    int used_count;
+} MemoryPool;
+
+MemoryPool* create_memory_pool() {
+    MemoryPool* pool = malloc(sizeof(MemoryPool));
+    memset(pool->pool, 0, POOL_SIZE);
+    
+    // 初始化空闲块
+    pool->free_count = MAX_BLOCKS;
+    for (int i = 0; i < MAX_BLOCKS; i++) {
+        pool->free_blocks[i] = i;
+    }
+    
+    pool->used_count = 0;
+    return pool;
+}
+
+void* pool_allocate(MemoryPool* pool) {
+    if (pool->free_count == 0) {
+        return NULL; // 池已耗尽
+    }
+    
+    int block_index = pool->free_blocks[--pool->free_count];
+    pool->used_blocks[pool->used_count++] = block_index;
+    
+    return &pool->pool[block_index * BLOCK_SIZE];
+}
+
+void pool_free(MemoryPool* pool, void* ptr) {
+    char* char_ptr = (char*)ptr;
+    int offset = char_ptr - pool->pool;
+    int block_index = offset / BLOCK_SIZE;
+    
+    // 添加回空闲列表
+    pool->free_blocks[pool->free_count++] = block_index;
+    
+    // 从已使用列表中移除
+    for (int i = 0; i < pool->used_count; i++) {
+        if (pool->used_blocks[i] == block_index) {
+            pool->used_blocks[i] = pool->used_blocks[--pool->used_count];
+            break;
+        }
+    }
+}
+
+void destroy_memory_pool(MemoryPool* pool) {
+    free(pool);
+}
+
+int main() {
+    MemoryPool* pool = create_memory_pool();
+    
+    // 分配块
+    void* block1 = pool_allocate(pool);
+    void* block2 = pool_allocate(pool);
+    
+    if (block1 && block2) {
+        strcpy((char*)block1, "Hello");
+        strcpy((char*)block2, "World");
+        
+        printf("块1: %s\n", (char*)block1);
+        printf("块2: %s\n", (char*)block2);
+        
+        pool_free(pool, block1);
+        pool_free(pool, block2);
+    }
+    
+    destroy_memory_pool(pool);
+    return 0;
+}
+```
+</UniversalEditor>
+
+## 性能分析工具
+
+### 性能分析和基准测试
+
+<UniversalEditor title="性能分析工具" compare={true}>
+```javascript !! js
+// JavaScript: 性能测量
+function measurePerformance(fn, iterations = 1000000) {
+    const start = performance.now();
+    
+    for (let i = 0; i < iterations; i++) {
+        fn();
+    }
+    
+    const end = performance.now();
+    return end - start;
+}
+
+function optimizedFunction() {
+    let sum = 0;
+    for (let i = 0; i < 1000; i++) {
+        sum += i;
+    }
+    return sum;
+}
+
+function unoptimizedFunction() {
+    let sum = 0;
+    for (let i = 0; i < 1000; i++) {
+        sum = sum + i; // 优化较少
+    }
+    return sum;
+}
+
+const time1 = measurePerformance(optimizedFunction);
+const time2 = measurePerformance(unoptimizedFunction);
+
+console.log(`优化版本: ${time1.toFixed(2)}ms`);
+console.log(`未优化版本: ${time2.toFixed(2)}ms`);
+```
+
+```c !! c
+// C: 性能测量和分析
+#include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
+#include <sys/time.h>
+
+// 高精度计时器
+double get_time() {
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return tv.tv_sec + tv.tv_usec * 1e-6;
+}
+
+// 性能测量函数
+double measure_performance(int (*func)(), int iterations) {
+    double start_time = get_time();
+    
+    for (int i = 0; i < iterations; i++) {
+        func();
+    }
+    
+    double end_time = get_time();
+    return (end_time - start_time) * 1000.0; // 转换为毫秒
+}
+
+// 优化函数
+int optimized_function() {
+    int sum = 0;
+    for (int i = 0; i < 1000; i++) {
+        sum += i;
+    }
+    return sum;
+}
+
+// 未优化函数
+int unoptimized_function() {
+    int sum = 0;
+    for (int i = 0; i < 1000; i++) {
+        sum = sum + i; // 优化较少
+    }
+    return sum;
+}
+
+int main() {
+    const int iterations = 1000000;
+    
+    double time1 = measure_performance(optimized_function, iterations);
+    double time2 = measure_performance(unoptimized_function, iterations);
+    
+    printf("优化版本: %.2f ms\n", time1);
+    printf("未优化版本: %.2f ms\n", time2);
+    printf("加速比: %.2fx\n", time2 / time1);
+    
+    return 0;
+}
+```
+</UniversalEditor>
+
+## 常见陷阱和解决方案
+
+### 性能反模式
+
+<UniversalEditor title="性能反模式" compare={true}>
+```javascript !! js
+// JavaScript: 性能反模式
+function inefficientStringConcatenation() {
+    let result = '';
+    for (let i = 0; i < 10000; i++) {
+        result += 'x'; // 每次都创建新字符串
+    }
+    return result;
+}
+
+function efficientStringConcatenation() {
+    const parts = [];
+    for (let i = 0; i < 10000; i++) {
+        parts.push('x');
+    }
+    return parts.join(''); // 单次连接
+}
+
+// 测量差异
+const start1 = performance.now();
+inefficientStringConcatenation();
+const end1 = performance.now();
+
+const start2 = performance.now();
+efficientStringConcatenation();
+const end2 = performance.now();
+
+console.log(`低效版本: ${(end1 - start1).toFixed(2)}ms`);
+console.log(`高效版本: ${(end2 - start2).toFixed(2)}ms`);
+```
+
+```c !! c
+// C: 性能反模式和解决方案
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+
+// 低效: 重复调用 strlen
+int inefficient_string_processing(char* str) {
+    int count = 0;
+    for (int i = 0; i < strlen(str); i++) { // 每次迭代都调用 strlen
+        if (str[i] == 'a') count++;
+    }
+    return count;
+}
+
+// 高效: 缓存 strlen 结果
+int efficient_string_processing(char* str) {
+    int count = 0;
+    int len = strlen(str); // 只调用一次
+    for (int i = 0; i < len; i++) {
+        if (str[i] == 'a') count++;
+    }
+    return count;
+}
+
+// 低效: 循环中不必要的函数调用
+int inefficient_loop() {
+    int sum = 0;
+    for (int i = 0; i < 1000000; i++) {
+        sum += rand() % 100; // 循环中的函数调用
+    }
+    return sum;
+}
+
+// 高效: 缓存函数结果
+int efficient_loop() {
+    int sum = 0;
+    for (int i = 0; i < 1000000; i++) {
+        // 使用缓存值或内联计算
+        sum += i % 100;
+    }
+    return sum;
+}
+
+int main() {
+    char test_string[] = "这是一个包含许多字符的测试字符串";
+    
+    clock_t start, end;
+    double cpu_time_used;
+    
+    // 测试字符串处理
+    start = clock();
+    for (int i = 0; i < 100000; i++) {
+        inefficient_string_processing(test_string);
+    }
+    end = clock();
+    cpu_time_used = ((double)(end - start)) / CLOCKS_PER_SEC;
+    printf("低效字符串处理: %.3f 秒\n", cpu_time_used);
+    
+    start = clock();
+    for (int i = 0; i < 100000; i++) {
+        efficient_string_processing(test_string);
+    }
+    end = clock();
+    cpu_time_used = ((double)(end - start)) / CLOCKS_PER_SEC;
+    printf("高效字符串处理: %.3f 秒\n", cpu_time_used);
+    
+    return 0;
+}
+```
+</UniversalEditor>
+
+## 练习题
+
+### 练习 1: 循环优化
+优化以下 C 函数以获得更好性能：
+
+```c
+int sum_array_slow(int* arr, int size) {
+    int sum = 0;
+    for (int i = 0; i < size; i++) {
+        sum = sum + arr[i];
+    }
+    return sum;
+}
+```
+
+### 练习 2: 内存访问模式
+重写以下函数使其更缓存友好：
+
+```c
+void process_matrix_slow(int matrix[1000][1000]) {
+    for (int j = 0; j < 1000; j++) {
+        for (int i = 0; i < 1000; i++) {
+            matrix[i][j] *= 2;
+        }
+    }
+}
+```
+
+### 练习 3: 算法优化
+将这个 O(n²) 算法优化为 O(n log n) 或更好：
+
+```c
+int find_max_difference(int* arr, int size) {
+    int max_diff = 0;
+    for (int i = 0; i < size; i++) {
+        for (int j = i + 1; j < size; j++) {
+            int diff = abs(arr[i] - arr[j]);
+            if (diff > max_diff) {
+                max_diff = diff;
+            }
+        }
+    }
+    return max_diff;
+}
+```
+
+## 性能分析总结
+
+### 关键优化技术
+
+1. **编译器优化**: 使用适当的编译器标志 (-O2, -O3)
+2. **内联函数**: 对小的、频繁调用的函数使用 `static inline`
+3. **缓存友好设计**: 按顺序模式访问内存
+4. **循环优化**: 展开循环并避免在循环中调用函数
+5. **内存管理**: 对频繁分配使用内存池
+6. **算法选择**: 为你的用例选择合适的算法
+
+### 性能测量
+
+- 使用 `clock()` 或 `gettimeofday()` 进行计时
+- 使用 `gprof` 或 `perf` 等工具进行分析
+- 测量时间和内存使用
+- 使用真实数据大小进行测试
+- 考虑缓存效果和内存访问模式
+
+### 最佳实践
+
+- 在优化前进行分析
+- 专注于最关键的代码路径
+- 使用适当的数据结构
+- 避免过早优化
+- 使用真实数据测试优化
+- 记录性能特征
+
+## 下一步
+
+在下一个模块中，我们将探索高级主题，包括：
+- 多线程和并发
+- 高级内存管理技术
+- SIMD 优化
+- 平台特定优化
+- 实时编程考虑
+
+本模块为你提供了优化 C 代码的基本工具和技术。记住，最好的优化通常是为你的特定用例选择正确的算法和数据结构。 

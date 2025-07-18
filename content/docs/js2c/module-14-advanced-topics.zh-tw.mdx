@@ -1,0 +1,1157 @@
+# 模組 14: 進階主題和擴展
+
+## 概述
+
+在這個最終模組中，我們將探索超越基礎的進階 C 程式設計主題。這些主題代表了 C 程式設計的前沿，展示了為什麼 C 在現代軟體開發中仍然具有重要意義。
+
+## 學習目標
+
+- 理解 C 中的多執行緒和並行程式設計
+- 掌握進階網路程式設計技術
+- 學習圖形程式設計基礎
+- 探索嵌入式程式設計概念
+- 理解即時系統程式設計
+- 掌握現代 C 特性 (C11/C17)
+
+## 多執行緒和並行
+
+### JavaScript vs C 執行緒模型
+
+JavaScript 使用事件驅動的單執行緒模型和非同步操作，而 C 提供對系統執行緒和同步原語的直接存取。
+
+<UniversalEditor title="執行緒模型對比" compare={true}>
+```javascript !! js
+// JavaScript: 事件驅動、單執行緒、非同步
+async function processData(data) {
+    const results = [];
+    
+    // 使用 Promise.all 進行並行處理
+    const promises = data.map(async (item) => {
+        // 模擬非同步工作
+        await new Promise(resolve => setTimeout(resolve, 100));
+        return item * 2;
+    });
+    
+    const processed = await Promise.all(promises);
+    return processed;
+}
+
+// 用於 CPU 密集型任務的 Worker 執行緒
+const { Worker, isMainThread, parentPort } = require('worker_threads');
+
+if (isMainThread) {
+    const worker = new Worker(__filename);
+    worker.on('message', (result) => {
+        console.log('Worker 結果:', result);
+    });
+    worker.postMessage([1, 2, 3, 4, 5]);
+} else {
+    parentPort.on('message', (data) => {
+        const result = data.map(x => x * x);
+        parentPort.postMessage(result);
+    });
+}
+```
+
+```c !! c
+// C: 使用 pthreads 的直接執行緒管理
+#include <stdio.h>
+#include <stdlib.h>
+#include <pthread.h>
+#include <unistd.h>
+
+#define NUM_THREADS 4
+#define ARRAY_SIZE 1000
+
+// 執行緒函數
+void* process_data(void* arg) {
+    int* data = (int*)arg;
+    int thread_id = (int)(long)arg;
+    
+    // 處理資料的一部分
+    for (int i = thread_id * (ARRAY_SIZE / NUM_THREADS); 
+         i < (thread_id + 1) * (ARRAY_SIZE / NUM_THREADS); i++) {
+        data[i] *= 2;
+    }
+    
+    return NULL;
+}
+
+int main() {
+    int data[ARRAY_SIZE];
+    pthread_t threads[NUM_THREADS];
+    
+    // 初始化資料
+    for (int i = 0; i < ARRAY_SIZE; i++) {
+        data[i] = i;
+    }
+    
+    // 建立執行緒
+    for (int i = 0; i < NUM_THREADS; i++) {
+        pthread_create(&threads[i], NULL, process_data, (void*)(long)i);
+    }
+    
+    // 等待所有執行緒完成
+    for (int i = 0; i < NUM_THREADS; i++) {
+        pthread_join(threads[i], NULL);
+    }
+    
+    printf("所有執行緒已完成\n");
+    return 0;
+}
+```
+</UniversalEditor>
+
+### 執行緒同步
+
+<UniversalEditor title="執行緒同步" compare={true}>
+```javascript !! js
+// JavaScript: 使用 async/await 和 Promise 的同步
+class ThreadSafeCounter {
+    constructor() {
+        this.value = 0;
+        this.pending = Promise.resolve();
+    }
+    
+    async increment() {
+        this.pending = this.pending.then(() => {
+            this.value++;
+            return this.value;
+        });
+        return this.pending;
+    }
+    
+    async getValue() {
+        await this.pending;
+        return this.value;
+    }
+}
+
+async function testCounter() {
+    const counter = new ThreadSafeCounter();
+    const promises = [];
+    
+    for (let i = 0; i < 1000; i++) {
+        promises.push(counter.increment());
+    }
+    
+    await Promise.all(promises);
+    console.log('最終值:', await counter.getValue());
+}
+
+testCounter();
+```
+
+```c !! c
+// C: 基於互斥鎖的執行緒同步
+#include <stdio.h>
+#include <stdlib.h>
+#include <pthread.h>
+#include <unistd.h>
+
+#define NUM_THREADS 10
+#define INCREMENTS_PER_THREAD 100
+
+typedef struct {
+    int value;
+    pthread_mutex_t mutex;
+} ThreadSafeCounter;
+
+ThreadSafeCounter* create_counter() {
+    ThreadSafeCounter* counter = malloc(sizeof(ThreadSafeCounter));
+    counter->value = 0;
+    pthread_mutex_init(&counter->mutex, NULL);
+    return counter;
+}
+
+void destroy_counter(ThreadSafeCounter* counter) {
+    pthread_mutex_destroy(&counter->mutex);
+    free(counter);
+}
+
+void increment_counter(ThreadSafeCounter* counter) {
+    pthread_mutex_lock(&counter->mutex);
+    counter->value++;
+    pthread_mutex_unlock(&counter->mutex);
+}
+
+int get_counter_value(ThreadSafeCounter* counter) {
+    pthread_mutex_lock(&counter->mutex);
+    int value = counter->value;
+    pthread_mutex_unlock(&counter->mutex);
+    return value;
+}
+
+void* thread_function(void* arg) {
+    ThreadSafeCounter* counter = (ThreadSafeCounter*)arg;
+    
+    for (int i = 0; i < INCREMENTS_PER_THREAD; i++) {
+        increment_counter(counter);
+    }
+    
+    return NULL;
+}
+
+int main() {
+    ThreadSafeCounter* counter = create_counter();
+    pthread_t threads[NUM_THREADS];
+    
+    // 建立執行緒
+    for (int i = 0; i < NUM_THREADS; i++) {
+        pthread_create(&threads[i], NULL, thread_function, counter);
+    }
+    
+    // 等待所有執行緒
+    for (int i = 0; i < NUM_THREADS; i++) {
+        pthread_join(threads[i], NULL);
+    }
+    
+    printf("最終計數器值: %d\n", get_counter_value(counter));
+    printf("期望值: %d\n", NUM_THREADS * INCREMENTS_PER_THREAD);
+    
+    destroy_counter(counter);
+    return 0;
+}
+```
+</UniversalEditor>
+
+## 進階網路程式設計
+
+### Socket 程式設計
+
+<UniversalEditor title="網路 Socket 程式設計" compare={true}>
+```javascript !! js
+// JavaScript: Node.js socket 程式設計
+const net = require('net');
+
+// 伺服器
+const server = net.createServer((socket) => {
+    console.log('客戶端已連接');
+    
+    socket.on('data', (data) => {
+        console.log('收到:', data.toString());
+        socket.write('回顯: ' + data);
+    });
+    
+    socket.on('end', () => {
+        console.log('客戶端已斷開');
+    });
+});
+
+server.listen(3000, () => {
+    console.log('伺服器監聽埠 3000');
+});
+
+// 客戶端
+const client = new net.Socket();
+client.connect(3000, 'localhost', () => {
+    console.log('已連接到伺服器');
+    client.write('你好，伺服器！');
+});
+
+client.on('data', (data) => {
+    console.log('收到:', data.toString());
+    client.destroy();
+});
+```
+
+```c !! c
+// C: 原始 socket 程式設計
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+
+#define PORT 3000
+#define BUFFER_SIZE 1024
+
+// 伺服器實作
+int create_server() {
+    int server_fd, new_socket;
+    struct sockaddr_in address;
+    int opt = 1;
+    int addrlen = sizeof(address);
+    char buffer[BUFFER_SIZE] = {0};
+    
+    // 建立 socket
+    if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == 0) {
+        perror("Socket 建立失敗");
+        exit(EXIT_FAILURE);
+    }
+    
+    // 設定 socket 選項
+    if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, 
+                   &opt, sizeof(opt))) {
+        perror("Setsockopt 失敗");
+        exit(EXIT_FAILURE);
+    }
+    
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = INADDR_ANY;
+    address.sin_port = htons(PORT);
+    
+    // 綁定 socket
+    if (bind(server_fd, (struct sockaddr*)&address, sizeof(address)) < 0) {
+        perror("綁定失敗");
+        exit(EXIT_FAILURE);
+    }
+    
+    // 監聽連接
+    if (listen(server_fd, 3) < 0) {
+        perror("監聽失敗");
+        exit(EXIT_FAILURE);
+    }
+    
+    printf("伺服器監聽埠 %d\n", PORT);
+    
+    // 接受連接
+    if ((new_socket = accept(server_fd, (struct sockaddr*)&address, 
+                            (socklen_t*)&addrlen)) < 0) {
+        perror("接受失敗");
+        exit(EXIT_FAILURE);
+    }
+    
+    // 讀取並回顯資料
+    int valread = read(new_socket, buffer, BUFFER_SIZE);
+    printf("收到: %s\n", buffer);
+    
+    char* response = malloc(strlen(buffer) + 7);
+    sprintf(response, "回顯: %s", buffer);
+    send(new_socket, response, strlen(response), 0);
+    
+    free(response);
+    close(new_socket);
+    close(server_fd);
+    
+    return 0;
+}
+
+// 客戶端實作
+int create_client() {
+    int sock = 0;
+    struct sockaddr_in serv_addr;
+    char buffer[BUFFER_SIZE] = {0};
+    
+    if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+        printf("Socket 建立錯誤\n");
+        return -1;
+    }
+    
+    serv_addr.sin_family = AF_INET;
+    serv_addr.sin_port = htons(PORT);
+    
+    // 轉換 IP 位址
+    if (inet_pton(AF_INET, "127.0.0.1", &serv_addr.sin_addr) <= 0) {
+        printf("無效位址\n");
+        return -1;
+    }
+    
+    if (connect(sock, (struct sockaddr*)&serv_addr, sizeof(serv_addr)) < 0) {
+        printf("連接失敗\n");
+        return -1;
+    }
+    
+    char* message = "你好，伺服器！";
+    send(sock, message, strlen(message), 0);
+    printf("訊息已發送\n");
+    
+    int valread = read(sock, buffer, BUFFER_SIZE);
+    printf("收到: %s\n", buffer);
+    
+    close(sock);
+    return 0;
+}
+
+int main(int argc, char* argv[]) {
+    if (argc > 1 && strcmp(argv[1], "server") == 0) {
+        return create_server();
+    } else {
+        return create_client();
+    }
+}
+```
+</UniversalEditor>
+
+## 圖形程式設計基礎
+
+### 使用 SDL2 的基礎圖形
+
+<UniversalEditor title="使用 SDL2 的圖形程式設計" compare={true}>
+```javascript !! js
+// JavaScript: HTML5 Canvas 圖形
+class GraphicsDemo {
+    constructor() {
+        this.canvas = document.createElement('canvas');
+        this.canvas.width = 800;
+        this.canvas.height = 600;
+        this.ctx = this.canvas.getContext('2d');
+        document.body.appendChild(this.canvas);
+        
+        this.angle = 0;
+        this.animate();
+    }
+    
+    draw() {
+        // 清除畫布
+        this.ctx.fillStyle = 'black';
+        this.ctx.fillRect(0, 0, 800, 600);
+        
+        // 繪製旋轉矩形
+        this.ctx.save();
+        this.ctx.translate(400, 300);
+        this.ctx.rotate(this.angle);
+        this.ctx.fillStyle = 'red';
+        this.ctx.fillRect(-50, -25, 100, 50);
+        this.ctx.restore();
+        
+        this.angle += 0.02;
+    }
+    
+    animate() {
+        this.draw();
+        requestAnimationFrame(() => this.animate());
+    }
+}
+
+new GraphicsDemo();
+```
+
+```c !! c
+// C: SDL2 圖形程式設計
+#include <SDL2/SDL.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <math.h>
+
+#define WINDOW_WIDTH 800
+#define WINDOW_HEIGHT 600
+
+typedef struct {
+    SDL_Window* window;
+    SDL_Renderer* renderer;
+    float angle;
+} GraphicsDemo;
+
+GraphicsDemo* create_graphics_demo() {
+    GraphicsDemo* demo = malloc(sizeof(GraphicsDemo));
+    
+    if (SDL_Init(SDL_INIT_VIDEO) < 0) {
+        printf("SDL 初始化失敗: %s\n", SDL_GetError());
+        free(demo);
+        return NULL;
+    }
+    
+    demo->window = SDL_CreateWindow("圖形演示", 
+                                   SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
+                                   WINDOW_WIDTH, WINDOW_HEIGHT, 
+                                   SDL_WINDOW_SHOWN);
+    
+    if (!demo->window) {
+        printf("視窗建立失敗: %s\n", SDL_GetError());
+        SDL_Quit();
+        free(demo);
+        return NULL;
+    }
+    
+    demo->renderer = SDL_CreateRenderer(demo->window, -1, 
+                                       SDL_RENDERER_ACCELERATED);
+    
+    if (!demo->renderer) {
+        printf("渲染器建立失敗: %s\n", SDL_GetError());
+        SDL_DestroyWindow(demo->window);
+        SDL_Quit();
+        free(demo);
+        return NULL;
+    }
+    
+    demo->angle = 0.0f;
+    return demo;
+}
+
+void destroy_graphics_demo(GraphicsDemo* demo) {
+    SDL_DestroyRenderer(demo->renderer);
+    SDL_DestroyWindow(demo->window);
+    SDL_Quit();
+    free(demo);
+}
+
+void draw_frame(GraphicsDemo* demo) {
+    // 清除螢幕
+    SDL_SetRenderDrawColor(demo->renderer, 0, 0, 0, 255);
+    SDL_RenderClear(demo->renderer);
+    
+    // 繪製旋轉矩形
+    SDL_Rect rect = {
+        (int)(400 + 50 * cos(demo->angle) - 25 * sin(demo->angle)),
+        (int)(300 + 50 * sin(demo->angle) + 25 * cos(demo->angle)),
+        100, 50
+    };
+    
+    SDL_SetRenderDrawColor(demo->renderer, 255, 0, 0, 255);
+    SDL_RenderFillRect(demo->renderer, &rect);
+    
+    SDL_RenderPresent(demo->renderer);
+    demo->angle += 0.02f;
+}
+
+int main() {
+    GraphicsDemo* demo = create_graphics_demo();
+    if (!demo) {
+        return 1;
+    }
+    
+    SDL_Event event;
+    int running = 1;
+    
+    while (running) {
+        while (SDL_PollEvent(&event)) {
+            if (event.type == SDL_QUIT) {
+                running = 0;
+            }
+        }
+        
+        draw_frame(demo);
+        SDL_Delay(16); // ~60 FPS
+    }
+    
+    destroy_graphics_demo(demo);
+    return 0;
+}
+```
+</UniversalEditor>
+
+## 嵌入式程式設計
+
+### 裸機程式設計
+
+<UniversalEditor title="嵌入式程式設計範例" compare={true}>
+```javascript !! js
+// JavaScript: 硬體抽象模擬
+class HardwareSimulator {
+    constructor() {
+        this.registers = new Uint32Array(16);
+        this.memory = new Uint8Array(1024);
+        this.gpio = new Uint32Array(32);
+    }
+    
+    // 模擬 GPIO 操作
+    setPin(pin, value) {
+        if (pin < 32) {
+            this.gpio[pin] = value ? 1 : 0;
+            console.log(`GPIO ${pin} 設定為 ${value}`);
+        }
+    }
+    
+    getPin(pin) {
+        return pin < 32 ? this.gpio[pin] : 0;
+    }
+    
+    // 模擬記憶體操作
+    writeMemory(address, value) {
+        if (address < this.memory.length) {
+            this.memory[address] = value;
+        }
+    }
+    
+    readMemory(address) {
+        return address < this.memory.length ? this.memory[address] : 0;
+    }
+}
+
+// 嵌入式風格程式設計
+const hw = new HardwareSimulator();
+
+// LED 閃爍模擬
+function blinkLED() {
+    let state = 0;
+    setInterval(() => {
+        hw.setPin(13, state);
+        state = !state;
+    }, 1000);
+}
+
+blinkLED();
+```
+
+```c !! c
+// C: 裸機嵌入式程式設計
+#include <stdint.h>
+#include <stdbool.h>
+
+// 硬體暫存器定義（ARM Cortex-M 範例）
+#define GPIO_BASE_ADDR 0x40020000
+#define GPIO_MODER_OFFSET 0x00
+#define GPIO_ODR_OFFSET 0x14
+#define GPIO_IDR_OFFSET 0x10
+
+// 暫存器指標
+volatile uint32_t* const GPIO_MODER = (uint32_t*)(GPIO_BASE_ADDR + GPIO_MODER_OFFSET);
+volatile uint32_t* const GPIO_ODR = (uint32_t*)(GPIO_BASE_ADDR + GPIO_ODR_OFFSET);
+volatile uint32_t* const GPIO_IDR = (uint32_t*)(GPIO_BASE_ADDR + GPIO_IDR_OFFSET);
+
+// GPIO 腳位定義
+#define LED_PIN 13
+#define BUTTON_PIN 0
+
+// GPIO 函數
+void gpio_init(void) {
+    // 設定 LED 腳位為輸出
+    *GPIO_MODER &= ~(3U << (LED_PIN * 2));
+    *GPIO_MODER |= (1U << (LED_PIN * 2));
+    
+    // 設定按鈕腳位為輸入
+    *GPIO_MODER &= ~(3U << (BUTTON_PIN * 2));
+}
+
+void gpio_set_pin(uint32_t pin, bool value) {
+    if (value) {
+        *GPIO_ODR |= (1U << pin);
+    } else {
+        *GPIO_ODR &= ~(1U << pin);
+    }
+}
+
+bool gpio_get_pin(uint32_t pin) {
+    return (*GPIO_IDR & (1U << pin)) != 0;
+}
+
+// 簡單延遲函數
+void delay_ms(uint32_t ms) {
+    // 簡單延遲迴圈（不準確，僅用於演示）
+    for (volatile uint32_t i = 0; i < ms * 1000; i++) {
+        __asm("nop");
+    }
+}
+
+// 主嵌入式程式
+int main(void) {
+    // 初始化硬體
+    gpio_init();
+    
+    // 主迴圈
+    while (1) {
+        // 檢查按鈕狀態
+        if (gpio_get_pin(BUTTON_PIN)) {
+            // 按鈕按下，點亮 LED
+            gpio_set_pin(LED_PIN, true);
+        } else {
+            // 按鈕未按下，熄滅 LED
+            gpio_set_pin(LED_PIN, false);
+        }
+        
+        delay_ms(10); // 小延遲防止忙等待
+    }
+    
+    return 0;
+}
+```
+</UniversalEditor>
+
+## 即時系統程式設計
+
+### 即時約束
+
+<UniversalEditor title="即時程式設計" compare={true}>
+```javascript !! js
+// JavaScript: 帶時間約束的即時系統模擬
+class RealTimeSystem {
+    constructor() {
+        this.tasks = [];
+        this.currentTime = 0;
+        this.scheduler = null;
+    }
+    
+    addTask(name, period, deadline, executionTime) {
+        this.tasks.push({
+            name,
+            period,
+            deadline,
+            executionTime,
+            lastExecution: 0,
+            missedDeadlines: 0
+        });
+    }
+    
+    // 速率單調排程模擬
+    schedule() {
+        this.tasks.sort((a, b) => a.period - b.period); // 按週期排序優先級
+        
+        for (let task of this.tasks) {
+            if (this.currentTime >= task.lastExecution + task.period) {
+                if (this.currentTime + task.executionTime > task.deadline) {
+                    task.missedDeadlines++;
+                    console.log(`任務 ${task.name} 錯過截止時間`);
+                } else {
+                    console.log(`執行任務 ${task.name}`);
+                    task.lastExecution = this.currentTime;
+                }
+            }
+        }
+        
+        this.currentTime++;
+    }
+    
+    runSimulation(duration) {
+        for (let i = 0; i < duration; i++) {
+            this.schedule();
+        }
+        
+        console.log('模擬結果:');
+        for (let task of this.tasks) {
+            console.log(`${task.name}: ${task.missedDeadlines} 次錯過截止時間`);
+        }
+    }
+}
+
+const rts = new RealTimeSystem();
+rts.addTask('高優先級', 10, 8, 3);
+rts.addTask('中優先級', 20, 15, 5);
+rts.addTask('低優先級', 50, 40, 10);
+
+rts.runSimulation(100);
+```
+
+```c !! c
+// C: 使用 POSIX 的即時系統程式設計
+#include <stdio.h>
+#include <stdlib.h>
+#include <pthread.h>
+#include <sched.h>
+#include <time.h>
+#include <unistd.h>
+
+#define NUM_TASKS 3
+#define SIMULATION_TIME 100
+
+typedef struct {
+    char name[32];
+    int period;
+    int deadline;
+    int execution_time;
+    int priority;
+    int missed_deadlines;
+    pthread_t thread;
+    int running;
+} RealTimeTask;
+
+RealTimeTask tasks[NUM_TASKS] = {
+    {"高優先級", 10, 8, 3, 99, 0, 0, 1},
+    {"中優先級", 20, 15, 5, 50, 0, 0, 1},
+    {"低優先級", 50, 40, 10, 1, 0, 0, 1}
+};
+
+// 即時任務函數
+void* real_time_task(void* arg) {
+    RealTimeTask* task = (RealTimeTask*)arg;
+    struct timespec start_time, current_time;
+    int execution_count = 0;
+    
+    // 設定執行緒優先級
+    struct sched_param param;
+    param.sched_priority = task->priority;
+    pthread_setschedparam(pthread_self(), SCHED_FIFO, &param);
+    
+    clock_gettime(CLOCK_MONOTONIC, &start_time);
+    
+    while (task->running) {
+        clock_gettime(CLOCK_MONOTONIC, &current_time);
+        
+        // 計算自開始以來的時間
+        long elapsed = (current_time.tv_sec - start_time.tv_sec) * 1000 +
+                      (current_time.tv_nsec - start_time.tv_nsec) / 1000000;
+        
+        // 檢查是否到了執行時間
+        if (elapsed >= execution_count * task->period) {
+            // 模擬執行時間
+            usleep(task->execution_time * 1000);
+            
+            // 檢查截止時間
+            if (elapsed > execution_count * task->period + task->deadline) {
+                task->missed_deadlines++;
+                printf("任務 %s 錯過截止時間\n", task->name);
+            } else {
+                printf("執行任務 %s\n", task->name);
+            }
+            
+            execution_count++;
+        }
+        
+        usleep(1000); // 小延遲防止忙等待
+    }
+    
+    return NULL;
+}
+
+int main() {
+    // 建立即時執行緒
+    for (int i = 0; i < NUM_TASKS; i++) {
+        if (pthread_create(&tasks[i].thread, NULL, real_time_task, &tasks[i]) != 0) {
+            perror("建立執行緒失敗");
+            return 1;
+        }
+    }
+    
+    // 執行模擬
+    sleep(SIMULATION_TIME / 1000);
+    
+    // 停止任務
+    for (int i = 0; i < NUM_TASKS; i++) {
+        tasks[i].running = 0;
+        pthread_join(tasks[i].thread, NULL);
+    }
+    
+    // 列印結果
+    printf("\n模擬結果:\n");
+    for (int i = 0; i < NUM_TASKS; i++) {
+        printf("%s: %d 次錯過截止時間\n", 
+               tasks[i].name, tasks[i].missed_deadlines);
+    }
+    
+    return 0;
+}
+```
+</UniversalEditor>
+
+## 現代 C 特性 (C11/C17)
+
+### 原子操作
+
+<UniversalEditor title="現代 C 原子操作" compare={true}>
+```javascript !! js
+// JavaScript: 使用 SharedArrayBuffer 的原子操作
+const sharedBuffer = new SharedArrayBuffer(4);
+const sharedArray = new Int32Array(sharedBuffer);
+
+// 原子操作
+Atomics.store(sharedArray, 0, 42);
+let value = Atomics.load(sharedArray, 0);
+let oldValue = Atomics.compareExchange(sharedArray, 0, 42, 100);
+let newValue = Atomics.add(sharedArray, 0, 10);
+
+console.log('原子操作:', { value, oldValue, newValue });
+
+// 原子遞增
+function atomicIncrement() {
+    return Atomics.add(sharedArray, 0, 1);
+}
+
+// 多個 worker 可以安全地遞增
+for (let i = 0; i < 1000; i++) {
+    atomicIncrement();
+}
+
+console.log('最終值:', Atomics.load(sharedArray, 0));
+```
+
+```c !! c
+// C: C11 原子操作
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdatomic.h>
+#include <pthread.h>
+#include <unistd.h>
+
+#define NUM_THREADS 10
+#define INCREMENTS_PER_THREAD 1000
+
+// 原子計數器
+atomic_int counter = ATOMIC_VAR_INIT(0);
+
+// 使用原子操作的執行緒函數
+void* atomic_increment_thread(void* arg) {
+    for (int i = 0; i < INCREMENTS_PER_THREAD; i++) {
+        atomic_fetch_add(&counter, 1);
+    }
+    return NULL;
+}
+
+int main() {
+    pthread_t threads[NUM_THREADS];
+    
+    // 建立執行緒
+    for (int i = 0; i < NUM_THREADS; i++) {
+        pthread_create(&threads[i], NULL, atomic_increment_thread, NULL);
+    }
+    
+    // 等待所有執行緒
+    for (int i = 0; i < NUM_THREADS; i++) {
+        pthread_join(threads[i], NULL);
+    }
+    
+    printf("最終計數器值: %d\n", atomic_load(&counter));
+    printf("期望值: %d\n", NUM_THREADS * INCREMENTS_PER_THREAD);
+    
+    // 演示其他原子操作
+    atomic_int value = ATOMIC_VAR_INIT(42);
+    
+    // 原子儲存和載入
+    atomic_store(&value, 100);
+    int loaded = atomic_load(&value);
+    printf("載入的值: %d\n", loaded);
+    
+    // 原子比較和交換
+    int expected = 100;
+    int desired = 200;
+    int result = atomic_compare_exchange_strong(&value, &expected, desired);
+    printf("比較交換結果: %d, 值: %d\n", result, atomic_load(&value));
+    
+    return 0;
+}
+```
+</UniversalEditor>
+
+### 使用 _Generic 的泛型程式設計
+
+<UniversalEditor title="C11 泛型程式設計" compare={true}>
+```javascript !! js
+// JavaScript: 使用函數的泛型程式設計
+function printValue(value) {
+    if (typeof value === 'string') {
+        console.log(`字串: ${value}`);
+    } else if (typeof value === 'number') {
+        console.log(`數字: ${value}`);
+    } else if (Array.isArray(value)) {
+        console.log(`陣列: [${value.join(', ')}]`);
+    } else if (typeof value === 'object') {
+        console.log(`物件: ${JSON.stringify(value)}`);
+    } else {
+        console.log(`未知類型: ${typeof value}`);
+    }
+}
+
+// 使用
+printValue("Hello");
+printValue(42);
+printValue([1, 2, 3]);
+printValue({name: "John", age: 30});
+```
+
+```c !! c
+// C: 使用 C11 _Generic 進行基於類型的分發
+#include <stdio.h>
+#include <string.h>
+
+// 類型特定的列印函數
+void print_int(int value) {
+    printf("整數: %d\n", value);
+}
+
+void print_double(double value) {
+    printf("雙精度: %.2f\n", value);
+}
+
+void print_string(const char* value) {
+    printf("字串: %s\n", value);
+}
+
+void print_array_int(const int* arr, size_t size) {
+    printf("整數陣列: [");
+    for (size_t i = 0; i < size; i++) {
+        printf("%d%s", arr[i], (i < size - 1) ? ", " : "");
+    }
+    printf("]\n");
+}
+
+// 使用 _Generic 的泛型巨集
+#define print_value(x) _Generic((x), \
+    int: print_int, \
+    double: print_double, \
+    char*: print_string, \
+    const char*: print_string \
+)(x)
+
+// 陣列的泛型巨集（簡化版）
+#define print_array(x, size) _Generic((x), \
+    int*: print_array_int \
+)(x, size)
+
+int main() {
+    // 測試不同類型
+    int int_val = 42;
+    double double_val = 3.14159;
+    char* string_val = "Hello, C11!";
+    
+    print_value(int_val);
+    print_value(double_val);
+    print_value(string_val);
+    
+    // 測試陣列
+    int arr[] = {1, 2, 3, 4, 5};
+    print_array(arr, 5);
+    
+    return 0;
+}
+```
+</UniversalEditor>
+
+### 執行緒本地儲存
+
+<UniversalEditor title="執行緒本地儲存" compare={true}>
+```javascript !! js
+// JavaScript: 執行緒本地儲存模擬
+class ThreadLocalStorage {
+    constructor() {
+        this.storage = new Map();
+    }
+    
+    set(key, value) {
+        const threadId = this.getThreadId();
+        if (!this.storage.has(threadId)) {
+            this.storage.set(threadId, new Map());
+        }
+        this.storage.get(threadId).set(key, value);
+    }
+    
+    get(key) {
+        const threadId = this.getThreadId();
+        const threadStorage = this.storage.get(threadId);
+        return threadStorage ? threadStorage.get(key) : undefined;
+    }
+    
+    getThreadId() {
+        // 在真實實作中，這會取得實際的執行緒 ID
+        return Math.floor(Math.random() * 1000);
+    }
+}
+
+const tls = new ThreadLocalStorage();
+tls.set('user', 'John');
+console.log('使用者:', tls.get('user'));
+```
+
+```c !! c
+// C: C11 執行緒本地儲存
+#include <stdio.h>
+#include <stdlib.h>
+#include <pthread.h>
+#include <unistd.h>
+
+// 執行緒本地變數
+_Thread_local int thread_id = 0;
+_Thread_local char thread_name[64] = "";
+
+// 執行緒函數
+void* thread_function(void* arg) {
+    int id = *(int*)arg;
+    
+    // 設定執行緒本地變數
+    thread_id = id;
+    snprintf(thread_name, sizeof(thread_name), "執行緒-%d", id);
+    
+    // 使用執行緒本地儲存
+    printf("執行緒 %s (ID: %d) 開始\n", thread_name, thread_id);
+    
+    // 模擬工作
+    usleep(100000 * (id + 1));
+    
+    printf("執行緒 %s (ID: %d) 結束\n", thread_name, thread_id);
+    
+    free(arg);
+    return NULL;
+}
+
+int main() {
+    pthread_t threads[5];
+    
+    // 建立執行緒
+    for (int i = 0; i < 5; i++) {
+        int* id = malloc(sizeof(int));
+        *id = i + 1;
+        pthread_create(&threads[i], NULL, thread_function, id);
+    }
+    
+    // 等待所有執行緒
+    for (int i = 0; i < 5; i++) {
+        pthread_join(threads[i], NULL);
+    }
+    
+    printf("所有執行緒已完成\n");
+    return 0;
+}
+```
+</UniversalEditor>
+
+## 練習題
+
+### 練習 1: 多執行緒矩陣乘法
+使用 pthreads 在 C 中實作多執行緒矩陣乘法演算法：
+
+```c
+void multiply_matrices_threaded(int** A, int** B, int** C, 
+                               int rows, int cols, int threads);
+```
+
+### 練習 2: 即時任務排程器
+建立一個實作速率單調排程的簡單即時任務排程器：
+
+```c
+typedef struct {
+    char name[32];
+    int period;
+    int deadline;
+    int execution_time;
+    int priority;
+} Task;
+
+void schedule_tasks(Task* tasks, int num_tasks);
+```
+
+### 練習 3: 帶執行緒池的網路伺服器
+實作一個使用執行緒池處理客戶端連接的多執行緒網路伺服器：
+
+```c
+typedef struct {
+    int server_socket;
+    int max_threads;
+    pthread_t* threads;
+    int running;
+} ThreadPoolServer;
+
+ThreadPoolServer* create_server(int port, int max_threads);
+void destroy_server(ThreadPoolServer* server);
+```
+
+## 進階主題總結
+
+### 關鍵進階概念
+
+1. **多執行緒**: 對系統執行緒和同步的直接控制
+2. **網路程式設計**: 低階 socket 程式設計和協定
+3. **圖形程式設計**: 使用 SDL2 等函式庫的硬體加速圖形
+4. **嵌入式程式設計**: 微控制器的裸機程式設計
+5. **即時系統**: 確定性時序和排程
+6. **現代 C 特性**: C11/C17 特性，用於更安全、更高效的程式碼
+
+### 效能考量
+
+- **執行緒安全**: 使用原子操作和適當的同步
+- **記憶體管理**: 即時系統的高效分配策略
+- **快取優化**: 嵌入式系統的資料結構設計
+- **時序約束**: 滿足即時截止時間
+- **資源管理**: 有限嵌入式資源的高效使用
+
+### 最佳實踐
+
+- 使用適當的同步原語
+- 為網路操作實作適當的錯誤處理
+- 為即時約束設計
+- 針對嵌入式系統限制進行優化
+- 利用現代 C 特性提高安全性和效能
+- 在目標環境中徹底測試
+
+## 下一步
+
+本模組涵蓋了展示 C 語言強大功能和多功能性的進階 C 程式設計主題。要繼續你的 C 程式設計之旅：
+
+1. **探索特定領域**: 選擇感興趣的領域（嵌入式、圖形、網路等）
+2. **實踐真實專案**: 使用這些概念建立完整的應用程式
+3. **研究現有程式碼庫**: 從開源 C 專案中學習
+4. **為專案做貢獻**: 加入開源社群
+5. **保持更新**: 關注 C 語言發展和新特性
+
+C 程式設計在許多關鍵軟體開發領域仍然至關重要，從作業系統到嵌入式裝置。你在本課程中學到的技能為進階軟體開發和系統程式設計提供了堅實的基礎。
+
+記住，C 的強大伴隨著責任 - 始終在你的程式碼中優先考慮安全性、正確性和可維護性。 

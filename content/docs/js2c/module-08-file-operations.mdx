@@ -1,0 +1,356 @@
+---
+title: "File Operations and I/O"
+description: "Learn C file operations from a JavaScript perspective. Understand file I/O, error handling, and compare with JavaScript File API."
+---
+
+# File Operations and I/O
+
+## 1. Introduction
+
+### From JavaScript File API to C File Operations
+
+In JavaScript, file operations are typically asynchronous and handled through the File API or Node.js fs module. In C, file operations are synchronous and use low-level system calls, providing direct control over file handling.
+
+> 💡 **Key Concept**: C file operations give you precise control over file I/O but require careful error handling and resource management.
+
+## 2. Basic File Operations
+
+<UniversalEditor title="Basic File Operations" compare={true}>
+```javascript !! js
+// JavaScript - File API (browser)
+const fileInput = document.getElementById('fileInput');
+fileInput.addEventListener('change', (event) => {
+    const file = event.target.files[0];
+    const reader = new FileReader();
+    
+    reader.onload = function(e) {
+        console.log('File content:', e.target.result);
+    };
+    
+    reader.readAsText(file);
+});
+
+// Node.js fs module
+const fs = require('fs');
+
+// Synchronous read
+try {
+    const data = fs.readFileSync('input.txt', 'utf8');
+    console.log('File content:', data);
+} catch (err) {
+    console.error('Error reading file:', err);
+}
+
+// Asynchronous read
+fs.readFile('input.txt', 'utf8', (err, data) => {
+    if (err) {
+        console.error('Error:', err);
+        return;
+    }
+    console.log('File content:', data);
+});
+```
+
+```c !! c
+#include <stdio.h>
+#include <stdlib.h>
+
+int main() {
+    FILE* file;
+    char buffer[1024];
+    
+    // Open file for reading
+    file = fopen("input.txt", "r");
+    if (file == NULL) {
+        printf("Error: Cannot open file for reading\n");
+        return 1;
+    }
+    
+    // Read file content
+    while (fgets(buffer, sizeof(buffer), file) != NULL) {
+        printf("Line: %s", buffer);
+    }
+    
+    // Close file
+    fclose(file);
+    
+    // Write to file
+    file = fopen("output.txt", "w");
+    if (file == NULL) {
+        printf("Error: Cannot open file for writing\n");
+        return 1;
+    }
+    
+    fprintf(file, "Hello, C file operations!\n");
+    fprintf(file, "This is a test file.\n");
+    
+    fclose(file);
+    printf("File written successfully\n");
+    
+    return 0;
+}
+```
+</UniversalEditor>
+
+## 3. File Modes and Operations
+
+<UniversalEditor title="File Modes" compare={true}>
+```javascript !! js
+// JavaScript - different file operations
+const fs = require('fs');
+
+// Read file
+fs.readFile('data.txt', 'utf8', (err, data) => {
+    if (err) throw err;
+    console.log(data);
+});
+
+// Write file (overwrites)
+fs.writeFile('output.txt', 'New content', (err) => {
+    if (err) throw err;
+    console.log('File written');
+});
+
+// Append to file
+fs.appendFile('log.txt', 'New log entry\n', (err) => {
+    if (err) throw err;
+    console.log('Appended to file');
+});
+
+// Check if file exists
+if (fs.existsSync('data.txt')) {
+    console.log('File exists');
+}
+```
+
+```c !! c
+#include <stdio.h>
+#include <stdlib.h>
+
+int main() {
+    FILE* file;
+    
+    // Different file modes
+    // "r" - read only
+    // "w" - write (creates new file, truncates existing)
+    // "a" - append
+    // "r+" - read and write
+    // "w+" - read and write (creates new file)
+    // "a+" - read and append
+    
+    // Read mode
+    file = fopen("data.txt", "r");
+    if (file != NULL) {
+        printf("File opened for reading\n");
+        fclose(file);
+    }
+    
+    // Write mode (overwrites)
+    file = fopen("output.txt", "w");
+    if (file != NULL) {
+        fprintf(file, "This overwrites the file\n");
+        fclose(file);
+    }
+    
+    // Append mode
+    file = fopen("log.txt", "a");
+    if (file != NULL) {
+        fprintf(file, "New log entry\n");
+        fclose(file);
+    }
+    
+    // Read and write mode
+    file = fopen("data.txt", "r+");
+    if (file != NULL) {
+        // Can both read and write
+        char buffer[100];
+        fgets(buffer, sizeof(buffer), file);
+        printf("Read: %s", buffer);
+        
+        fseek(file, 0, SEEK_END); // Go to end
+        fprintf(file, "Appended content\n");
+        fclose(file);
+    }
+    
+    return 0;
+}
+```
+</UniversalEditor>
+
+## 4. Error Handling and File Positioning
+
+<UniversalEditor title="Error Handling" compare={true}>
+```javascript !! js
+// JavaScript - error handling
+const fs = require('fs');
+
+function readFileSafely(filename) {
+    try {
+        const data = fs.readFileSync(filename, 'utf8');
+        return data;
+    } catch (error) {
+        if (error.code === 'ENOENT') {
+            console.log('File not found');
+        } else if (error.code === 'EACCES') {
+            console.log('Permission denied');
+        } else {
+            console.log('Error:', error.message);
+        }
+        return null;
+    }
+}
+
+// File positioning (Node.js Buffer)
+const buffer = Buffer.alloc(1024);
+const fd = fs.openSync('data.txt', 'r');
+fs.readSync(fd, buffer, 0, 100, 50); // Read 100 bytes starting at position 50
+fs.closeSync(fd);
+```
+
+```c !! c
+#include <stdio.h>
+#include <stdlib.h>
+#include <errno.h>
+#include <string.h>
+
+int main() {
+    FILE* file;
+    char buffer[1024];
+    
+    // Open file with error checking
+    file = fopen("nonexistent.txt", "r");
+    if (file == NULL) {
+        printf("Error opening file: %s\n", strerror(errno));
+        
+        // Check specific error types
+        if (errno == ENOENT) {
+            printf("File does not exist\n");
+        } else if (errno == EACCES) {
+            printf("Permission denied\n");
+        }
+        return 1;
+    }
+    
+    // File positioning
+    fseek(file, 0, SEEK_SET);   // Beginning of file
+    fseek(file, 0, SEEK_END);   // End of file
+    fseek(file, 10, SEEK_CUR);  // 10 bytes from current position
+    
+    // Get current position
+    long position = ftell(file);
+    printf("Current position: %ld\n", position);
+    
+    // Read specific amount
+    size_t bytes_read = fread(buffer, 1, 100, file);
+    if (bytes_read < 100) {
+        if (feof(file)) {
+            printf("End of file reached\n");
+        }
+        if (ferror(file)) {
+            printf("Error reading file\n");
+        }
+    }
+    
+    fclose(file);
+    return 0;
+}
+```
+</UniversalEditor>
+
+## 5. Binary File Operations
+
+<UniversalEditor title="Binary File Operations" compare={true}>
+```javascript !! js
+// JavaScript - binary file handling
+const fs = require('fs');
+
+// Read binary file
+fs.readFile('image.jpg', (err, data) => {
+    if (err) throw err;
+    console.log('Binary data length:', data.length);
+    
+    // Process binary data
+    const buffer = Buffer.from(data);
+    console.log('First 10 bytes:', buffer.slice(0, 10));
+});
+
+// Write binary data
+const binaryData = Buffer.from([0x48, 0x65, 0x6C, 0x6C, 0x6F]); // "Hello"
+fs.writeFile('binary.dat', binaryData, (err) => {
+    if (err) throw err;
+    console.log('Binary file written');
+});
+```
+
+```c !! c
+#include <stdio.h>
+#include <stdlib.h>
+
+// Structure for binary data
+typedef struct {
+    int id;
+    char name[50];
+    float score;
+} Student;
+
+int main() {
+    FILE* file;
+    Student student;
+    
+    // Write binary data
+    file = fopen("students.dat", "wb");
+    if (file == NULL) {
+        printf("Error opening file for writing\n");
+        return 1;
+    }
+    
+    // Write student records
+    Student students[] = {
+        {1, "Alice", 95.5},
+        {2, "Bob", 87.2},
+        {3, "Charlie", 92.8}
+    };
+    
+    fwrite(students, sizeof(Student), 3, file);
+    fclose(file);
+    
+    // Read binary data
+    file = fopen("students.dat", "rb");
+    if (file == NULL) {
+        printf("Error opening file for reading\n");
+        return 1;
+    }
+    
+    // Read student records
+    while (fread(&student, sizeof(Student), 1, file) == 1) {
+        printf("ID: %d, Name: %s, Score: %.1f\n", 
+               student.id, student.name, student.score);
+    }
+    
+    fclose(file);
+    return 0;
+}
+```
+</UniversalEditor>
+
+## 6. Common Pitfalls
+- **Not checking file open success**: Always check if `fopen()` returns NULL
+- **Forgetting to close files**: Always call `fclose()` to prevent resource leaks
+- **Buffer overflow**: Ensure buffer size is sufficient for file operations
+- **File positioning errors**: Use `fseek()` and `ftell()` carefully
+- **Binary vs text mode**: Use appropriate mode for file type
+
+## 7. Exercises
+1. Write a program that copies one file to another, handling errors appropriately.
+2. Create a function that reads a file line by line and counts the number of words.
+3. Write a program that appends data to a log file with timestamps.
+
+## 8. Performance Analysis
+- C file operations are generally faster than JavaScript due to direct system calls
+- Buffered I/O (`fprintf`, `fscanf`) is more efficient than character-by-character I/O
+- Binary file operations are faster than text operations
+- Proper error handling is crucial for robust file operations
+
+---
+
+> **Summary**: C file operations provide low-level control and high performance but require careful error handling and resource management. Understanding file modes, positioning, and binary operations is essential for system programming. 

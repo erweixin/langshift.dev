@@ -1,0 +1,823 @@
+---
+title: "常見陷阱和除錯"
+description: "從 JavaScript 視角學習 C 語言常見陷阱和除錯，理解指標錯誤、記憶體洩漏、緩衝區溢位和除錯工具。"
+---
+
+# 常見陷阱和除錯
+
+## 1. 概念介紹
+
+### 從 JavaScript 錯誤處理到 C 除錯
+
+在 JavaScript 中，你有自動記憶體管理和執行時錯誤檢查。而在 C 語言中，你必須手動管理記憶體，並注意可能導致崩潰、記憶體洩漏和未定義行為的潛在陷阱。
+
+> 💡 **核心概念**：C 除錯需要理解底層記憶體管理、指標操作，並使用適當的工具來識別和修復問題。
+
+## 2. 指標錯誤和段錯誤
+
+<UniversalEditor title="指標錯誤" compare={true}>
+```javascript !! js
+// JavaScript - 自動記憶體管理
+let obj = { name: "John", age: 30 };
+
+// 安全的屬性存取
+console.log(obj.name); // "John"
+console.log(obj.nonExistent); // undefined
+
+// 帶邊界檢查的陣列存取
+let arr = [1, 2, 3, 4, 5];
+console.log(arr[2]); // 3
+console.log(arr[10]); // undefined (不會崩潰)
+
+// 物件操作
+obj = null;
+// console.log(obj.name); // TypeError: Cannot read property 'name' of null
+
+// 安全的陣列操作
+arr = null;
+// console.log(arr[0]); // TypeError: Cannot read property '0' of null
+
+// 自動清理
+function createObjects() {
+    let temp = { data: "temporary" };
+    // JavaScript 在 temp 超出作用域時自動清理
+}
+
+createObjects();
+// temp 被自動垃圾回收
+```
+
+```c !! c
+#include <stdio.h>
+#include <stdlib.h>
+
+// 常見指標錯誤
+void demonstratePointerErrors() {
+    // 1. 解參考空指標
+    int* ptr = NULL;
+    // *ptr = 10; // 段錯誤！
+    
+    // 安全方式：解參考前檢查
+    if (ptr != NULL) {
+        *ptr = 10;
+    } else {
+        printf("指標為空，無法解參考\n");
+    }
+    
+    // 2. 解參考未初始化的指標
+    int* uninitPtr;
+    // *uninitPtr = 20; // 未定義行為！
+    
+    // 安全方式：初始化指標
+    int value = 20;
+    uninitPtr = &value;
+    *uninitPtr = 30; // 安全
+    
+    // 3. 釋放記憶體後使用指標
+    int* dynamicPtr = (int*)malloc(sizeof(int));
+    *dynamicPtr = 40;
+    free(dynamicPtr);
+    // *dynamicPtr = 50; // 釋放後使用 - 未定義行為！
+    
+    // 安全方式：釋放後設定為 NULL
+    dynamicPtr = NULL;
+    if (dynamicPtr != NULL) {
+        *dynamicPtr = 50;
+    }
+    
+    // 4. 緩衝區溢位
+    char buffer[5];
+    // strcpy(buffer, "This is too long"); // 緩衝區溢位！
+    
+    // 安全方式：使用 strncpy 進行邊界檢查
+    strncpy(buffer, "Hi", sizeof(buffer) - 1);
+    buffer[sizeof(buffer) - 1] = '\0'; // 確保 null 終止
+}
+
+// 安全指標操作
+int* createSafePointer() {
+    int* ptr = (int*)malloc(sizeof(int));
+    if (ptr == NULL) {
+        printf("記憶體分配失敗\n");
+        return NULL;
+    }
+    *ptr = 100;
+    return ptr;
+}
+
+void useSafePointer(int* ptr) {
+    if (ptr == NULL) {
+        printf("無法使用空指標\n");
+        return;
+    }
+    printf("值: %d\n", *ptr);
+}
+
+int main() {
+    demonstratePointerErrors();
+    
+    // 安全指標使用
+    int* safePtr = createSafePointer();
+    useSafePointer(safePtr);
+    
+    if (safePtr != NULL) {
+        free(safePtr);
+        safePtr = NULL; // 良好實踐
+    }
+    
+    return 0;
+}
+```
+</UniversalEditor>
+
+## 3. 記憶體洩漏
+
+<UniversalEditor title="記憶體洩漏" compare={true}>
+```javascript !! js
+// JavaScript - 自動垃圾回收
+class MemoryIntensive {
+    constructor() {
+        this.data = new Array(1000000).fill('data');
+    }
+}
+
+// JavaScript 在物件超出作用域時自動清理
+function createAndDestroy() {
+    let obj = new MemoryIntensive();
+    // obj 在函數結束時被自動垃圾回收
+}
+
+createAndDestroy();
+
+// 事件監聽器的手動清理
+class EventHandler {
+    constructor() {
+        this.handlers = [];
+    }
+    
+    addHandler(handler) {
+        this.handlers.push(handler);
+    }
+    
+    cleanup() {
+        this.handlers = []; // 清除參考
+    }
+}
+
+// 記憶體洩漏範例（循環參考）
+let obj1 = { name: 'Object 1' };
+let obj2 = { name: 'Object 2' };
+
+obj1.ref = obj2;
+obj2.ref = obj1;
+
+// 這些物件由於循環參考不會被垃圾回收
+// 解決方案：打破循環參考
+obj1.ref = null;
+obj2.ref = null;
+```
+
+```c !! c
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+// 記憶體洩漏範例
+void memoryLeakExample() {
+    // 1. 分配記憶體但不釋放
+    int* leakyPtr = (int*)malloc(sizeof(int));
+    *leakyPtr = 42;
+    // 缺少: free(leakyPtr);
+    
+    // 2. 遺失指向已分配記憶體的指標
+    int* lostPtr = (int*)malloc(sizeof(int));
+    lostPtr = NULL; // 遺失指標，無法再釋放
+    
+    // 3. 在錯誤條件下不釋放記憶體
+    int* errorPtr = (int*)malloc(sizeof(int));
+    if (errorPtr == NULL) {
+        return; // 如果分配失敗則記憶體洩漏
+    }
+    
+    // 做一些工作...
+    if (someErrorCondition()) {
+        return; // 記憶體洩漏 - 忘記釋放
+    }
+    
+    free(errorPtr); // 只在成功情況下釋放
+}
+
+// 正確的記憶體管理
+typedef struct {
+    int* data;
+    int size;
+} SafeArray;
+
+SafeArray* createSafeArray(int size) {
+    SafeArray* arr = (SafeArray*)malloc(sizeof(SafeArray));
+    if (arr == NULL) {
+        return NULL;
+    }
+    
+    arr->data = (int*)malloc(size * sizeof(int));
+    if (arr->data == NULL) {
+        free(arr); // 清理部分分配
+        return NULL;
+    }
+    
+    arr->size = size;
+    return arr;
+}
+
+void destroySafeArray(SafeArray* arr) {
+    if (arr != NULL) {
+        if (arr->data != NULL) {
+            free(arr->data);
+        }
+        free(arr);
+    }
+}
+
+// 記憶體洩漏檢測輔助函數
+void* safeMalloc(size_t size) {
+    void* ptr = malloc(size);
+    if (ptr == NULL) {
+        printf("記憶體分配失敗\n");
+    } else {
+        printf("分配了 %zu 位元組在 %p\n", size, ptr);
+    }
+    return ptr;
+}
+
+void safeFree(void* ptr) {
+    if (ptr != NULL) {
+        printf("釋放記憶體 %p\n", ptr);
+        free(ptr);
+    }
+}
+
+int main() {
+    // 演示記憶體洩漏
+    memoryLeakExample();
+    
+    // 正確的記憶體管理
+    SafeArray* arr = createSafeArray(10);
+    if (arr != NULL) {
+        // 使用陣列
+        for (int i = 0; i < arr->size; i++) {
+            arr->data[i] = i;
+        }
+        
+        // 清理
+        destroySafeArray(arr);
+    }
+    
+    // 使用安全記憶體函數
+    int* ptr1 = (int*)safeMalloc(sizeof(int));
+    int* ptr2 = (int*)safeMalloc(sizeof(int));
+    
+    if (ptr1 && ptr2) {
+        *ptr1 = 100;
+        *ptr2 = 200;
+        
+        safeFree(ptr1);
+        safeFree(ptr2);
+    }
+    
+    return 0;
+}
+```
+</UniversalEditor>
+
+## 4. 緩衝區溢位
+
+<UniversalEditor title="緩衝區溢位" compare={true}>
+```javascript !! js
+// JavaScript - 自動邊界檢查
+let arr = new Array(5);
+
+// 安全的陣列存取
+arr[0] = 1;
+arr[4] = 5;
+// arr[5] = 6; // 沒有緩衝區溢位，但可能建立稀疏陣列
+
+// 字串操作是安全的
+let str = "Hello";
+let substring = str.substring(0, 3); // "Hel"
+let char = str.charAt(2); // "l"
+
+// 帶邊界檢查的陣列方法
+let numbers = [1, 2, 3, 4, 5];
+numbers.push(6); // 安全 - 陣列自動成長
+numbers.splice(2, 1); // 安全 - 刪除索引 2 處的元素
+
+// 安全的字串連接
+let result = "";
+for (let i = 0; i < 1000; i++) {
+    result += "a"; // 安全 - 字串自動成長
+}
+
+// Node.js 中的 Buffer（如果需要）
+const { Buffer } = require('buffer');
+let buffer = Buffer.alloc(10);
+buffer.write("Hello", 0, 5); // 安全 - 寫入 5 位元組
+// buffer.write("This is too long", 0, 20); // 拋出錯誤
+```
+
+```c !! c
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+// 緩衝區溢位範例
+void bufferOverflowExamples() {
+    // 1. 堆疊緩衝區溢位
+    char buffer[10];
+    // strcpy(buffer, "This string is too long for the buffer"); // 溢位！
+    
+    // 安全方式：使用 strncpy
+    strncpy(buffer, "Hello", sizeof(buffer) - 1);
+    buffer[sizeof(buffer) - 1] = '\0'; // 確保 null 終止
+    
+    // 2. 陣列邊界違反
+    int arr[5];
+    // arr[10] = 100; // 緩衝區溢位！
+    
+    // 安全方式：檢查邊界
+    int index = 10;
+    if (index >= 0 && index < 5) {
+        arr[index] = 100;
+    } else {
+        printf("索引 %d 超出邊界\n", index);
+    }
+    
+    // 3. 整數溢位
+    int small = 2147483647; // MAX_INT
+    // small++; // 整數溢位！
+    
+    // 安全方式：檢查溢位
+    if (small < 2147483647) {
+        small++;
+    } else {
+        printf("會發生整數溢位\n");
+    }
+}
+
+// 安全字串函數
+char* safeStringCopy(const char* source, size_t maxLen) {
+    char* dest = (char*)malloc(maxLen + 1);
+    if (dest == NULL) {
+        return NULL;
+    }
+    
+    strncpy(dest, source, maxLen);
+    dest[maxLen] = '\0'; // 確保 null 終止
+    return dest;
+}
+
+// 安全陣列存取
+int safeArrayAccess(int* arr, int size, int index) {
+    if (index >= 0 && index < size) {
+        return arr[index];
+    } else {
+        printf("索引 %d 超出邊界 (大小: %d)\n", index, size);
+        return -1; // 錯誤值
+    }
+}
+
+// 安全整數操作
+int safeAdd(int a, int b) {
+    if (a > 0 && b > 0 && a > INT_MAX - b) {
+        printf("會發生整數溢位\n");
+        return -1; // 錯誤值
+    }
+    if (a < 0 && b < 0 && a < INT_MIN - b) {
+        printf("會發生整數下溢\n");
+        return -1; // 錯誤值
+    }
+    return a + b;
+}
+
+int main() {
+    bufferOverflowExamples();
+    
+    // 安全字串操作
+    char* safeStr = safeStringCopy("Hello, World!", 10);
+    if (safeStr != NULL) {
+        printf("安全字串: %s\n", safeStr);
+        free(safeStr);
+    }
+    
+    // 安全陣列操作
+    int arr[5] = {1, 2, 3, 4, 5};
+    printf("安全存取: %d\n", safeArrayAccess(arr, 5, 2));
+    printf("不安全存取: %d\n", safeArrayAccess(arr, 5, 10));
+    
+    // 安全整數操作
+    printf("安全加法: %d\n", safeAdd(100, 200));
+    printf("溢位檢查: %d\n", safeAdd(2147483647, 1));
+    
+    return 0;
+}
+```
+</UniversalEditor>
+
+## 5. 未定義行為
+
+<UniversalEditor title="未定義行為" compare={true}>
+```javascript !! js
+// JavaScript - 明確定義的行為
+let x = 5;
+let y = x / 0; // Infinity (明確定義)
+let z = x % 0; // NaN (明確定義)
+
+// 陣列存取
+let arr = [1, 2, 3];
+console.log(arr[5]); // undefined (明確定義)
+
+// 型別轉換
+console.log("5" + 3); // "53" (明確定義)
+console.log("5" - 3); // 2 (明確定義)
+
+// null 和 undefined
+let obj = null;
+console.log(obj?.property); // undefined (明確定義)
+
+// 函數呼叫
+function test(a, b) {
+    return a + b;
+}
+console.log(test(1)); // NaN (明確定義)
+console.log(test(1, 2, 3)); // 3 (忽略額外參數)
+
+// 自動型別轉換
+console.log(1 == "1"); // true (明確定義轉換)
+console.log(1 === "1"); // false (嚴格相等)
+```
+
+```c !! c
+#include <stdio.h>
+#include <stdlib.h>
+#include <limits.h>
+
+// 未定義行為範例
+void undefinedBehaviorExamples() {
+    // 1. 除零
+    int a = 10;
+    // int result = a / 0; // 未定義行為！
+    
+    // 安全方式：檢查零
+    int divisor = 0;
+    if (divisor != 0) {
+        int result = a / divisor;
+        printf("結果: %d\n", result);
+    } else {
+        printf("避免除零\n");
+    }
+    
+    // 2. 存取未初始化的變數
+    int uninit;
+    // printf("未初始化: %d\n", uninit); // 未定義行為！
+    
+    // 安全方式：初始化
+    int init = 0;
+    printf("已初始化: %d\n", init);
+    
+    // 3. 解參考空指標
+    int* ptr = NULL;
+    // printf("值: %d\n", *ptr); // 未定義行為！
+    
+    // 安全方式：檢查指標
+    if (ptr != NULL) {
+        printf("值: %d\n", *ptr);
+    }
+    
+    // 4. 整數溢位
+    int max = INT_MAX;
+    // max++; // 未定義行為！
+    
+    // 安全方式：遞增前檢查
+    if (max < INT_MAX) {
+        max++;
+    }
+    
+    // 5. 使用已釋放的記憶體
+    int* dynamic = (int*)malloc(sizeof(int));
+    free(dynamic);
+    // *dynamic = 100; // 未定義行為！
+    
+    // 安全方式：釋放後設定為 NULL
+    dynamic = NULL;
+}
+
+// 安全算術函數
+int safeDivide(int a, int b) {
+    if (b == 0) {
+        printf("除零\n");
+        return 0; // 錯誤值
+    }
+    return a / b;
+}
+
+int safeModulo(int a, int b) {
+    if (b == 0) {
+        printf("模零\n");
+        return 0; // 錯誤值
+    }
+    return a % b;
+}
+
+// 安全指標操作
+void* safeDereference(void* ptr) {
+    if (ptr == NULL) {
+        printf("無法解參考空指標\n");
+        return NULL;
+    }
+    return ptr;
+}
+
+// 帶邊界檢查的安全陣列存取
+int safeArrayGet(int* arr, int size, int index) {
+    if (arr == NULL) {
+        printf("陣列為空\n");
+        return -1;
+    }
+    if (index < 0 || index >= size) {
+        printf("索引 %d 超出邊界\n", index);
+        return -1;
+    }
+    return arr[index];
+}
+
+int main() {
+    undefinedBehaviorExamples();
+    
+    // 安全算術
+    printf("安全除法: %d\n", safeDivide(10, 2));
+    printf("安全除零: %d\n", safeDivide(10, 0));
+    
+    printf("安全模運算: %d\n", safeModulo(10, 3));
+    printf("安全模零: %d\n", safeModulo(10, 0));
+    
+    // 安全指標操作
+    int value = 42;
+    int* ptr = &value;
+    safeDereference(ptr);
+    safeDereference(NULL);
+    
+    // 安全陣列存取
+    int arr[5] = {1, 2, 3, 4, 5};
+    printf("安全取得: %d\n", safeArrayGet(arr, 5, 2));
+    printf("不安全取得: %d\n", safeArrayGet(arr, 5, 10));
+    printf("空陣列: %d\n", safeArrayGet(NULL, 5, 0));
+    
+    return 0;
+}
+```
+</UniversalEditor>
+
+## 6. 除錯工具
+
+<UniversalEditor title="除錯工具" compare={true}>
+```javascript !! js
+// JavaScript - 內建除錯工具
+console.log("除錯訊息");
+console.error("錯誤訊息");
+console.warn("警告訊息");
+
+// 堆疊追蹤
+function debugFunction() {
+    console.trace("函數呼叫堆疊");
+}
+
+debugFunction();
+
+// 效能測量
+console.time("操作");
+// ... 一些操作
+console.timeEnd("操作");
+
+// 記憶體使用 (Node.js)
+const used = process.memoryUsage();
+console.log('記憶體使用:', {
+    rss: `${Math.round(used.rss / 1024 / 1024 * 100) / 100} MB`,
+    heapTotal: `${Math.round(used.heapTotal / 1024 / 1024 * 100) / 100} MB`,
+    heapUsed: `${Math.round(used.heapUsed / 1024 / 1024 * 100) / 100} MB`,
+    external: `${Math.round(used.external / 1024 / 1024 * 100) / 100} MB`
+});
+
+// 錯誤處理
+try {
+    throw new Error("測試錯誤");
+} catch (error) {
+    console.error("捕獲錯誤:", error.message);
+    console.error("堆疊追蹤:", error.stack);
+}
+
+// 除錯器語句
+function debugMe() {
+    let x = 1;
+    debugger; // 如果開發工具開啟，瀏覽器會在這裡暫停
+    x = 2;
+}
+```
+
+```c !! c
+#include <stdio.h>
+#include <stdlib.h>
+#include <assert.h>
+#include <time.h>
+
+// 除錯巨集
+#define DEBUG 1
+
+#if DEBUG
+    #define DEBUG_PRINT(fmt, ...) \
+        fprintf(stderr, "除錯: %s:%d: " fmt "\n", \
+                __FILE__, __LINE__, ##__VA_ARGS__)
+#else
+    #define DEBUG_PRINT(fmt, ...) do {} while(0)
+#endif
+
+#define ASSERT(condition) \
+    do { \
+        if (!(condition)) { \
+            fprintf(stderr, "斷言失敗: %s, 檔案 %s, 行 %d\n", \
+                    #condition, __FILE__, __LINE__); \
+            abort(); \
+        } \
+    } while(0)
+
+// 記憶體除錯
+void* debugMalloc(size_t size) {
+    void* ptr = malloc(size);
+    DEBUG_PRINT("malloc(%zu) = %p", size, ptr);
+    return ptr;
+}
+
+void debugFree(void* ptr) {
+    DEBUG_PRINT("free(%p)", ptr);
+    free(ptr);
+}
+
+// 效能測量
+clock_t startTimer() {
+    return clock();
+}
+
+double endTimer(clock_t start) {
+    clock_t end = clock();
+    return ((double)(end - start)) / CLOCKS_PER_SEC;
+}
+
+// 錯誤處理
+typedef enum {
+    SUCCESS = 0,
+    ERROR_NULL_POINTER,
+    ERROR_INVALID_SIZE,
+    ERROR_MEMORY_ALLOCATION
+} ErrorCode;
+
+const char* getErrorMessage(ErrorCode code) {
+    switch (code) {
+        case SUCCESS: return "成功";
+        case ERROR_NULL_POINTER: return "空指標";
+        case ERROR_INVALID_SIZE: return "無效大小";
+        case ERROR_MEMORY_ALLOCATION: return "記憶體分配失敗";
+        default: return "未知錯誤";
+    }
+}
+
+// 帶錯誤處理的安全函數
+ErrorCode safeFunction(int* arr, int size) {
+    DEBUG_PRINT("safeFunction 被呼叫，大小 %d", size);
+    
+    if (arr == NULL) {
+        DEBUG_PRINT("錯誤: 空指標");
+        return ERROR_NULL_POINTER;
+    }
+    
+    if (size <= 0) {
+        DEBUG_PRINT("錯誤: 無效大小 %d", size);
+        return ERROR_INVALID_SIZE;
+    }
+    
+    // 做工作
+    for (int i = 0; i < size; i++) {
+        arr[i] = i * 2;
+    }
+    
+    DEBUG_PRINT("函數成功完成");
+    return SUCCESS;
+}
+
+// 記憶體洩漏檢測
+typedef struct {
+    void* ptr;
+    size_t size;
+    const char* file;
+    int line;
+} MemoryInfo;
+
+#define MAX_ALLOCATIONS 1000
+MemoryInfo allocations[MAX_ALLOCATIONS];
+int allocationCount = 0;
+
+void* trackMalloc(size_t size, const char* file, int line) {
+    void* ptr = malloc(size);
+    if (ptr != NULL && allocationCount < MAX_ALLOCATIONS) {
+        allocations[allocationCount].ptr = ptr;
+        allocations[allocationCount].size = size;
+        allocations[allocationCount].file = file;
+        allocations[allocationCount].line = line;
+        allocationCount++;
+    }
+    return ptr;
+}
+
+void trackFree(void* ptr) {
+    for (int i = 0; i < allocationCount; i++) {
+        if (allocations[i].ptr == ptr) {
+            // 從追蹤中移除
+            for (int j = i; j < allocationCount - 1; j++) {
+                allocations[j] = allocations[j + 1];
+            }
+            allocationCount--;
+            break;
+        }
+    }
+    free(ptr);
+}
+
+void reportMemoryLeaks() {
+    if (allocationCount > 0) {
+        printf("檢測到記憶體洩漏:\n");
+        for (int i = 0; i < allocationCount; i++) {
+            printf("  %p: %zu 位元組分配在 %s:%d\n",
+                   allocations[i].ptr, allocations[i].size,
+                   allocations[i].file, allocations[i].line);
+        }
+    } else {
+        printf("未檢測到記憶體洩漏\n");
+    }
+}
+
+int main() {
+    clock_t start = startTimer();
+    
+    // 使用除錯巨集
+    DEBUG_PRINT("程式開始");
+    
+    // 測試斷言
+    int x = 5;
+    ASSERT(x > 0);
+    // ASSERT(x < 0); // 這會中止程式
+    
+    // 測試錯誤處理
+    int arr[5];
+    ErrorCode result = safeFunction(arr, 5);
+    if (result != SUCCESS) {
+        printf("錯誤: %s\n", getErrorMessage(result));
+    }
+    
+    // 測試記憶體追蹤
+    void* ptr1 = trackMalloc(100, __FILE__, __LINE__);
+    void* ptr2 = trackMalloc(200, __FILE__, __LINE__);
+    
+    trackFree(ptr1);
+    // ptr2 故意不釋放以演示洩漏檢測
+    
+    // 報告記憶體洩漏
+    reportMemoryLeaks();
+    
+    double elapsed = endTimer(start);
+    printf("程式在 %.3f 秒內完成\n", elapsed);
+    
+    return 0;
+}
+```
+</UniversalEditor>
+
+## 7. 常見陷阱
+- **解參考空指標**：使用前始終檢查指標
+- **記憶體洩漏**：始終釋放分配的記憶體
+- **緩衝區溢位**：陣列存取前檢查邊界
+- **整數溢位**：算術操作前檢查限制
+- **釋放後使用**：釋放後將指標設定為 NULL
+- **未初始化變數**：使用前始終初始化變數
+
+## 8. 練習題
+1. 撰寫一個演示並修復常見指標錯誤的程式。
+2. 為你的程式建立一個記憶體洩漏檢測器。
+3. 實現字串和陣列函數的安全版本。
+4. 使用除錯工具尋找和修復現有程式碼中的錯誤。
+
+## 9. 效能分析
+- **除錯建置**：包含除錯資訊和檢查
+- **發布建置**：最佳化效能，移除除錯程式碼
+- **記憶體分析**：監控記憶體使用和洩漏
+- **效能分析**：識別瓶頸並最佳化
+
+---
+
+> **小結**：理解 C 常見陷阱和除錯技術對於撰寫可靠程式至關重要。使用適當的工具並遵循最佳實踐來避免和修復問題。 

@@ -1,0 +1,823 @@
+---
+title: "Common Pitfalls and Debugging"
+description: "Learn C common pitfalls and debugging from a JavaScript perspective. Understand pointer errors, memory leaks, buffer overflows, and debugging tools."
+---
+
+# Common Pitfalls and Debugging
+
+## 1. Introduction
+
+### From JavaScript Error Handling to C Debugging
+
+In JavaScript, you have automatic memory management and runtime error checking. In C, you must manually manage memory and be aware of potential pitfalls that can cause crashes, memory leaks, and undefined behavior.
+
+> 💡 **Key Concept**: C debugging requires understanding low-level memory management, pointer operations, and using appropriate tools to identify and fix issues.
+
+## 2. Pointer Errors and Segmentation Faults
+
+<UniversalEditor title="Pointer Errors" compare={true}>
+```javascript !! js
+// JavaScript - Automatic memory management
+let obj = { name: "John", age: 30 };
+
+// Safe property access
+console.log(obj.name); // "John"
+console.log(obj.nonExistent); // undefined
+
+// Array access with bounds checking
+let arr = [1, 2, 3, 4, 5];
+console.log(arr[2]); // 3
+console.log(arr[10]); // undefined (no crash)
+
+// Object manipulation
+obj = null;
+// console.log(obj.name); // TypeError: Cannot read property 'name' of null
+
+// Safe array operations
+arr = null;
+// console.log(arr[0]); // TypeError: Cannot read property '0' of null
+
+// Automatic cleanup
+function createObjects() {
+    let temp = { data: "temporary" };
+    // JavaScript automatically cleans up when temp goes out of scope
+}
+
+createObjects();
+// temp is automatically garbage collected
+```
+
+```c !! c
+#include <stdio.h>
+#include <stdlib.h>
+
+// Common pointer errors
+void demonstratePointerErrors() {
+    // 1. Dereferencing null pointer
+    int* ptr = NULL;
+    // *ptr = 10; // Segmentation fault!
+    
+    // Safe way: check before dereferencing
+    if (ptr != NULL) {
+        *ptr = 10;
+    } else {
+        printf("Pointer is NULL, cannot dereference\n");
+    }
+    
+    // 2. Dereferencing uninitialized pointer
+    int* uninitPtr;
+    // *uninitPtr = 20; // Undefined behavior!
+    
+    // Safe way: initialize pointer
+    int value = 20;
+    uninitPtr = &value;
+    *uninitPtr = 30; // Safe
+    
+    // 3. Using pointer after freeing memory
+    int* dynamicPtr = (int*)malloc(sizeof(int));
+    *dynamicPtr = 40;
+    free(dynamicPtr);
+    // *dynamicPtr = 50; // Use after free - undefined behavior!
+    
+    // Safe way: set to NULL after freeing
+    dynamicPtr = NULL;
+    if (dynamicPtr != NULL) {
+        *dynamicPtr = 50;
+    }
+    
+    // 4. Buffer overflow
+    char buffer[5];
+    // strcpy(buffer, "This is too long"); // Buffer overflow!
+    
+    // Safe way: use strncpy with bounds checking
+    strncpy(buffer, "Hi", sizeof(buffer) - 1);
+    buffer[sizeof(buffer) - 1] = '\0'; // Ensure null termination
+}
+
+// Safe pointer operations
+int* createSafePointer() {
+    int* ptr = (int*)malloc(sizeof(int));
+    if (ptr == NULL) {
+        printf("Memory allocation failed\n");
+        return NULL;
+    }
+    *ptr = 100;
+    return ptr;
+}
+
+void useSafePointer(int* ptr) {
+    if (ptr == NULL) {
+        printf("Cannot use NULL pointer\n");
+        return;
+    }
+    printf("Value: %d\n", *ptr);
+}
+
+int main() {
+    demonstratePointerErrors();
+    
+    // Safe pointer usage
+    int* safePtr = createSafePointer();
+    useSafePointer(safePtr);
+    
+    if (safePtr != NULL) {
+        free(safePtr);
+        safePtr = NULL; // Good practice
+    }
+    
+    return 0;
+}
+```
+</UniversalEditor>
+
+## 3. Memory Leaks
+
+<UniversalEditor title="Memory Leaks" compare={true}>
+```javascript !! js
+// JavaScript - Automatic garbage collection
+class MemoryIntensive {
+    constructor() {
+        this.data = new Array(1000000).fill('data');
+    }
+}
+
+// JavaScript automatically cleans up when objects go out of scope
+function createAndDestroy() {
+    let obj = new MemoryIntensive();
+    // obj is automatically garbage collected when function ends
+}
+
+createAndDestroy();
+
+// Manual cleanup for event listeners
+class EventHandler {
+    constructor() {
+        this.handlers = [];
+    }
+    
+    addHandler(handler) {
+        this.handlers.push(handler);
+    }
+    
+    cleanup() {
+        this.handlers = []; // Clear references
+    }
+}
+
+// Memory leak example (circular references)
+let obj1 = { name: 'Object 1' };
+let obj2 = { name: 'Object 2' };
+
+obj1.ref = obj2;
+obj2.ref = obj1;
+
+// These objects won't be garbage collected due to circular reference
+// Solution: break the circular reference
+obj1.ref = null;
+obj2.ref = null;
+```
+
+```c !! c
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+// Memory leak examples
+void memoryLeakExample() {
+    // 1. Allocating memory without freeing
+    int* leakyPtr = (int*)malloc(sizeof(int));
+    *leakyPtr = 42;
+    // Missing: free(leakyPtr);
+    
+    // 2. Losing pointer to allocated memory
+    int* lostPtr = (int*)malloc(sizeof(int));
+    lostPtr = NULL; // Lost the pointer, can't free anymore
+    
+    // 3. Not freeing in error conditions
+    int* errorPtr = (int*)malloc(sizeof(int));
+    if (errorPtr == NULL) {
+        return; // Memory leak if allocation fails
+    }
+    
+    // Do some work...
+    if (someErrorCondition()) {
+        return; // Memory leak - forgot to free
+    }
+    
+    free(errorPtr); // Only freed in success case
+}
+
+// Proper memory management
+typedef struct {
+    int* data;
+    int size;
+} SafeArray;
+
+SafeArray* createSafeArray(int size) {
+    SafeArray* arr = (SafeArray*)malloc(sizeof(SafeArray));
+    if (arr == NULL) {
+        return NULL;
+    }
+    
+    arr->data = (int*)malloc(size * sizeof(int));
+    if (arr->data == NULL) {
+        free(arr); // Clean up partial allocation
+        return NULL;
+    }
+    
+    arr->size = size;
+    return arr;
+}
+
+void destroySafeArray(SafeArray* arr) {
+    if (arr != NULL) {
+        if (arr->data != NULL) {
+            free(arr->data);
+        }
+        free(arr);
+    }
+}
+
+// Memory leak detection helper
+void* safeMalloc(size_t size) {
+    void* ptr = malloc(size);
+    if (ptr == NULL) {
+        printf("Memory allocation failed\n");
+    } else {
+        printf("Allocated %zu bytes at %p\n", size, ptr);
+    }
+    return ptr;
+}
+
+void safeFree(void* ptr) {
+    if (ptr != NULL) {
+        printf("Freeing memory at %p\n", ptr);
+        free(ptr);
+    }
+}
+
+int main() {
+    // Demonstrate memory leak
+    memoryLeakExample();
+    
+    // Proper memory management
+    SafeArray* arr = createSafeArray(10);
+    if (arr != NULL) {
+        // Use the array
+        for (int i = 0; i < arr->size; i++) {
+            arr->data[i] = i;
+        }
+        
+        // Clean up
+        destroySafeArray(arr);
+    }
+    
+    // Using safe memory functions
+    int* ptr1 = (int*)safeMalloc(sizeof(int));
+    int* ptr2 = (int*)safeMalloc(sizeof(int));
+    
+    if (ptr1 && ptr2) {
+        *ptr1 = 100;
+        *ptr2 = 200;
+        
+        safeFree(ptr1);
+        safeFree(ptr2);
+    }
+    
+    return 0;
+}
+```
+</UniversalEditor>
+
+## 4. Buffer Overflows
+
+<UniversalEditor title="Buffer Overflows" compare={true}>
+```javascript !! js
+// JavaScript - Automatic bounds checking
+let arr = new Array(5);
+
+// Safe array access
+arr[0] = 1;
+arr[4] = 5;
+// arr[5] = 6; // No buffer overflow, but may create sparse array
+
+// String operations are safe
+let str = "Hello";
+let substring = str.substring(0, 3); // "Hel"
+let char = str.charAt(2); // "l"
+
+// Array methods with bounds checking
+let numbers = [1, 2, 3, 4, 5];
+numbers.push(6); // Safe - array grows automatically
+numbers.splice(2, 1); // Safe - removes element at index 2
+
+// Safe string concatenation
+let result = "";
+for (let i = 0; i < 1000; i++) {
+    result += "a"; // Safe - string grows automatically
+}
+
+// Buffer in Node.js (if needed)
+const { Buffer } = require('buffer');
+let buffer = Buffer.alloc(10);
+buffer.write("Hello", 0, 5); // Safe - writes 5 bytes
+// buffer.write("This is too long", 0, 20); // Throws error
+```
+
+```c !! c
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+// Buffer overflow examples
+void bufferOverflowExamples() {
+    // 1. Stack buffer overflow
+    char buffer[10];
+    // strcpy(buffer, "This string is too long for the buffer"); // Overflow!
+    
+    // Safe way: use strncpy
+    strncpy(buffer, "Hello", sizeof(buffer) - 1);
+    buffer[sizeof(buffer) - 1] = '\0'; // Ensure null termination
+    
+    // 2. Array bounds violation
+    int arr[5];
+    // arr[10] = 100; // Buffer overflow!
+    
+    // Safe way: check bounds
+    int index = 10;
+    if (index >= 0 && index < 5) {
+        arr[index] = 100;
+    } else {
+        printf("Index %d out of bounds\n", index);
+    }
+    
+    // 3. Integer overflow
+    int small = 2147483647; // MAX_INT
+    // small++; // Integer overflow!
+    
+    // Safe way: check for overflow
+    if (small < 2147483647) {
+        small++;
+    } else {
+        printf("Integer overflow would occur\n");
+    }
+}
+
+// Safe string functions
+char* safeStringCopy(const char* source, size_t maxLen) {
+    char* dest = (char*)malloc(maxLen + 1);
+    if (dest == NULL) {
+        return NULL;
+    }
+    
+    strncpy(dest, source, maxLen);
+    dest[maxLen] = '\0'; // Ensure null termination
+    return dest;
+}
+
+// Safe array access
+int safeArrayAccess(int* arr, int size, int index) {
+    if (index >= 0 && index < size) {
+        return arr[index];
+    } else {
+        printf("Index %d out of bounds (size: %d)\n", index, size);
+        return -1; // Error value
+    }
+}
+
+// Safe integer operations
+int safeAdd(int a, int b) {
+    if (a > 0 && b > 0 && a > INT_MAX - b) {
+        printf("Integer overflow would occur\n");
+        return -1; // Error value
+    }
+    if (a < 0 && b < 0 && a < INT_MIN - b) {
+        printf("Integer underflow would occur\n");
+        return -1; // Error value
+    }
+    return a + b;
+}
+
+int main() {
+    bufferOverflowExamples();
+    
+    // Safe string operations
+    char* safeStr = safeStringCopy("Hello, World!", 10);
+    if (safeStr != NULL) {
+        printf("Safe string: %s\n", safeStr);
+        free(safeStr);
+    }
+    
+    // Safe array operations
+    int arr[5] = {1, 2, 3, 4, 5};
+    printf("Safe access: %d\n", safeArrayAccess(arr, 5, 2));
+    printf("Unsafe access: %d\n", safeArrayAccess(arr, 5, 10));
+    
+    // Safe integer operations
+    printf("Safe add: %d\n", safeAdd(100, 200));
+    printf("Overflow check: %d\n", safeAdd(2147483647, 1));
+    
+    return 0;
+}
+```
+</UniversalEditor>
+
+## 5. Undefined Behavior
+
+<UniversalEditor title="Undefined Behavior" compare={true}>
+```javascript !! js
+// JavaScript - Well-defined behavior
+let x = 5;
+let y = x / 0; // Infinity (well-defined)
+let z = x % 0; // NaN (well-defined)
+
+// Array access
+let arr = [1, 2, 3];
+console.log(arr[5]); // undefined (well-defined)
+
+// Type coercion
+console.log("5" + 3); // "53" (well-defined)
+console.log("5" - 3); // 2 (well-defined)
+
+// Null and undefined
+let obj = null;
+console.log(obj?.property); // undefined (well-defined)
+
+// Function calls
+function test(a, b) {
+    return a + b;
+}
+console.log(test(1)); // NaN (well-defined)
+console.log(test(1, 2, 3)); // 3 (extra arguments ignored)
+
+// Automatic type conversion
+console.log(1 == "1"); // true (well-defined coercion)
+console.log(1 === "1"); // false (strict equality)
+```
+
+```c !! c
+#include <stdio.h>
+#include <stdlib.h>
+#include <limits.h>
+
+// Undefined behavior examples
+void undefinedBehaviorExamples() {
+    // 1. Division by zero
+    int a = 10;
+    // int result = a / 0; // Undefined behavior!
+    
+    // Safe way: check for zero
+    int divisor = 0;
+    if (divisor != 0) {
+        int result = a / divisor;
+        printf("Result: %d\n", result);
+    } else {
+        printf("Division by zero avoided\n");
+    }
+    
+    // 2. Accessing uninitialized variables
+    int uninit;
+    // printf("Uninit: %d\n", uninit); // Undefined behavior!
+    
+    // Safe way: initialize
+    int init = 0;
+    printf("Init: %d\n", init);
+    
+    // 3. Dereferencing null pointer
+    int* ptr = NULL;
+    // printf("Value: %d\n", *ptr); // Undefined behavior!
+    
+    // Safe way: check pointer
+    if (ptr != NULL) {
+        printf("Value: %d\n", *ptr);
+    }
+    
+    // 4. Integer overflow
+    int max = INT_MAX;
+    // max++; // Undefined behavior!
+    
+    // Safe way: check before increment
+    if (max < INT_MAX) {
+        max++;
+    }
+    
+    // 5. Using freed memory
+    int* dynamic = (int*)malloc(sizeof(int));
+    free(dynamic);
+    // *dynamic = 100; // Undefined behavior!
+    
+    // Safe way: set to NULL after freeing
+    dynamic = NULL;
+}
+
+// Safe arithmetic functions
+int safeDivide(int a, int b) {
+    if (b == 0) {
+        printf("Division by zero\n");
+        return 0; // Error value
+    }
+    return a / b;
+}
+
+int safeModulo(int a, int b) {
+    if (b == 0) {
+        printf("Modulo by zero\n");
+        return 0; // Error value
+    }
+    return a % b;
+}
+
+// Safe pointer operations
+void* safeDereference(void* ptr) {
+    if (ptr == NULL) {
+        printf("Cannot dereference NULL pointer\n");
+        return NULL;
+    }
+    return ptr;
+}
+
+// Safe array access with bounds checking
+int safeArrayGet(int* arr, int size, int index) {
+    if (arr == NULL) {
+        printf("Array is NULL\n");
+        return -1;
+    }
+    if (index < 0 || index >= size) {
+        printf("Index %d out of bounds\n", index);
+        return -1;
+    }
+    return arr[index];
+}
+
+int main() {
+    undefinedBehaviorExamples();
+    
+    // Safe arithmetic
+    printf("Safe divide: %d\n", safeDivide(10, 2));
+    printf("Safe divide by zero: %d\n", safeDivide(10, 0));
+    
+    printf("Safe modulo: %d\n", safeModulo(10, 3));
+    printf("Safe modulo by zero: %d\n", safeModulo(10, 0));
+    
+    // Safe pointer operations
+    int value = 42;
+    int* ptr = &value;
+    safeDereference(ptr);
+    safeDereference(NULL);
+    
+    // Safe array access
+    int arr[5] = {1, 2, 3, 4, 5};
+    printf("Safe get: %d\n", safeArrayGet(arr, 5, 2));
+    printf("Unsafe get: %d\n", safeArrayGet(arr, 5, 10));
+    printf("NULL array: %d\n", safeArrayGet(NULL, 5, 0));
+    
+    return 0;
+}
+```
+</UniversalEditor>
+
+## 6. Debugging Tools
+
+<UniversalEditor title="Debugging Tools" compare={true}>
+```javascript !! js
+// JavaScript - Built-in debugging tools
+console.log("Debug message");
+console.error("Error message");
+console.warn("Warning message");
+
+// Stack trace
+function debugFunction() {
+    console.trace("Function call stack");
+}
+
+debugFunction();
+
+// Performance measurement
+console.time("operation");
+// ... some operation
+console.timeEnd("operation");
+
+// Memory usage (Node.js)
+const used = process.memoryUsage();
+console.log('Memory usage:', {
+    rss: `${Math.round(used.rss / 1024 / 1024 * 100) / 100} MB`,
+    heapTotal: `${Math.round(used.heapTotal / 1024 / 1024 * 100) / 100} MB`,
+    heapUsed: `${Math.round(used.heapUsed / 1024 / 1024 * 100) / 100} MB`,
+    external: `${Math.round(used.external / 1024 / 1024 * 100) / 100} MB`
+});
+
+// Error handling
+try {
+    throw new Error("Test error");
+} catch (error) {
+    console.error("Caught error:", error.message);
+    console.error("Stack trace:", error.stack);
+}
+
+// Debugger statement
+function debugMe() {
+    let x = 1;
+    debugger; // Browser will pause here if dev tools are open
+    x = 2;
+}
+```
+
+```c !! c
+#include <stdio.h>
+#include <stdlib.h>
+#include <assert.h>
+#include <time.h>
+
+// Debug macros
+#define DEBUG 1
+
+#if DEBUG
+    #define DEBUG_PRINT(fmt, ...) \
+        fprintf(stderr, "DEBUG: %s:%d: " fmt "\n", \
+                __FILE__, __LINE__, ##__VA_ARGS__)
+#else
+    #define DEBUG_PRINT(fmt, ...) do {} while(0)
+#endif
+
+#define ASSERT(condition) \
+    do { \
+        if (!(condition)) { \
+            fprintf(stderr, "Assertion failed: %s, file %s, line %d\n", \
+                    #condition, __FILE__, __LINE__); \
+            abort(); \
+        } \
+    } while(0)
+
+// Memory debugging
+void* debugMalloc(size_t size) {
+    void* ptr = malloc(size);
+    DEBUG_PRINT("malloc(%zu) = %p", size, ptr);
+    return ptr;
+}
+
+void debugFree(void* ptr) {
+    DEBUG_PRINT("free(%p)", ptr);
+    free(ptr);
+}
+
+// Performance measurement
+clock_t startTimer() {
+    return clock();
+}
+
+double endTimer(clock_t start) {
+    clock_t end = clock();
+    return ((double)(end - start)) / CLOCKS_PER_SEC;
+}
+
+// Error handling
+typedef enum {
+    SUCCESS = 0,
+    ERROR_NULL_POINTER,
+    ERROR_INVALID_SIZE,
+    ERROR_MEMORY_ALLOCATION
+} ErrorCode;
+
+const char* getErrorMessage(ErrorCode code) {
+    switch (code) {
+        case SUCCESS: return "Success";
+        case ERROR_NULL_POINTER: return "Null pointer";
+        case ERROR_INVALID_SIZE: return "Invalid size";
+        case ERROR_MEMORY_ALLOCATION: return "Memory allocation failed";
+        default: return "Unknown error";
+    }
+}
+
+// Safe function with error handling
+ErrorCode safeFunction(int* arr, int size) {
+    DEBUG_PRINT("safeFunction called with size %d", size);
+    
+    if (arr == NULL) {
+        DEBUG_PRINT("Error: NULL pointer");
+        return ERROR_NULL_POINTER;
+    }
+    
+    if (size <= 0) {
+        DEBUG_PRINT("Error: Invalid size %d", size);
+        return ERROR_INVALID_SIZE;
+    }
+    
+    // Do work
+    for (int i = 0; i < size; i++) {
+        arr[i] = i * 2;
+    }
+    
+    DEBUG_PRINT("Function completed successfully");
+    return SUCCESS;
+}
+
+// Memory leak detection
+typedef struct {
+    void* ptr;
+    size_t size;
+    const char* file;
+    int line;
+} MemoryInfo;
+
+#define MAX_ALLOCATIONS 1000
+MemoryInfo allocations[MAX_ALLOCATIONS];
+int allocationCount = 0;
+
+void* trackMalloc(size_t size, const char* file, int line) {
+    void* ptr = malloc(size);
+    if (ptr != NULL && allocationCount < MAX_ALLOCATIONS) {
+        allocations[allocationCount].ptr = ptr;
+        allocations[allocationCount].size = size;
+        allocations[allocationCount].file = file;
+        allocations[allocationCount].line = line;
+        allocationCount++;
+    }
+    return ptr;
+}
+
+void trackFree(void* ptr) {
+    for (int i = 0; i < allocationCount; i++) {
+        if (allocations[i].ptr == ptr) {
+            // Remove from tracking
+            for (int j = i; j < allocationCount - 1; j++) {
+                allocations[j] = allocations[j + 1];
+            }
+            allocationCount--;
+            break;
+        }
+    }
+    free(ptr);
+}
+
+void reportMemoryLeaks() {
+    if (allocationCount > 0) {
+        printf("Memory leaks detected:\n");
+        for (int i = 0; i < allocationCount; i++) {
+            printf("  %p: %zu bytes allocated at %s:%d\n",
+                   allocations[i].ptr, allocations[i].size,
+                   allocations[i].file, allocations[i].line);
+        }
+    } else {
+        printf("No memory leaks detected\n");
+    }
+}
+
+int main() {
+    clock_t start = startTimer();
+    
+    // Use debug macros
+    DEBUG_PRINT("Program started");
+    
+    // Test assertions
+    int x = 5;
+    ASSERT(x > 0);
+    // ASSERT(x < 0); // This would abort the program
+    
+    // Test error handling
+    int arr[5];
+    ErrorCode result = safeFunction(arr, 5);
+    if (result != SUCCESS) {
+        printf("Error: %s\n", getErrorMessage(result));
+    }
+    
+    // Test memory tracking
+    void* ptr1 = trackMalloc(100, __FILE__, __LINE__);
+    void* ptr2 = trackMalloc(200, __FILE__, __LINE__);
+    
+    trackFree(ptr1);
+    // ptr2 intentionally not freed to demonstrate leak detection
+    
+    // Report memory leaks
+    reportMemoryLeaks();
+    
+    double elapsed = endTimer(start);
+    printf("Program completed in %.3f seconds\n", elapsed);
+    
+    return 0;
+}
+```
+</UniversalEditor>
+
+## 7. Common Pitfalls
+- **Dereferencing null pointers**: Always check pointers before use
+- **Memory leaks**: Always free allocated memory
+- **Buffer overflows**: Check bounds before array access
+- **Integer overflow**: Check limits before arithmetic operations
+- **Use after free**: Set pointers to NULL after freeing
+- **Uninitialized variables**: Always initialize variables before use
+
+## 8. Exercises
+1. Write a program that demonstrates and fixes common pointer errors.
+2. Create a memory leak detector for your programs.
+3. Implement safe versions of string and array functions.
+4. Use debugging tools to find and fix bugs in existing code.
+
+## 9. Performance Analysis
+- **Debug builds**: Include debugging information and checks
+- **Release builds**: Optimize for performance, remove debug code
+- **Memory profiling**: Monitor memory usage and leaks
+- **Performance profiling**: Identify bottlenecks and optimize
+
+---
+
+> **Summary**: Understanding common C pitfalls and debugging techniques is crucial for writing reliable programs. Use appropriate tools and follow best practices to avoid and fix issues. 

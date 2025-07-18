@@ -1,0 +1,850 @@
+---
+title: "实战项目开发"
+description: "从 JavaScript 视角学习 C 语言实战项目，构建文本编辑器、内存分配器、数据结构库和系统工具。"
+---
+
+# 实战项目开发
+
+## 1. 概念介绍
+
+### 从 JavaScript 项目到 C 系统应用程序
+
+在 JavaScript 中，你通常构建 Web 应用程序、API 和用户界面。而在 C 语言中，你可以创建系统工具、嵌入式应用程序和直接与硬件和操作系统交互的性能关键型软件。
+
+> 💡 **核心概念**：C 项目专注于系统级编程、性能优化和直接硬件交互，使你能够构建高效、低级的应用程序。
+
+## 2. 简单文本编辑器
+
+<UniversalEditor title="文本编辑器实现" compare={true}>
+```javascript !! js
+// JavaScript - 简单文本编辑器 (Node.js)
+const readline = require('readline');
+const fs = require('fs');
+
+class TextEditor {
+    constructor() {
+        this.content = '';
+        this.filename = '';
+        this.isModified = false;
+    }
+    
+    open(filename) {
+        try {
+            this.content = fs.readFileSync(filename, 'utf8');
+            this.filename = filename;
+            this.isModified = false;
+            console.log(`已打开: ${filename}`);
+        } catch (error) {
+            console.error(`打开文件错误: ${error.message}`);
+        }
+    }
+    
+    save() {
+        if (!this.filename) {
+            console.error('没有文件可保存');
+            return;
+        }
+        
+        try {
+            fs.writeFileSync(this.filename, this.content);
+            this.isModified = false;
+            console.log(`已保存: ${this.filename}`);
+        } catch (error) {
+            console.error(`保存文件错误: ${error.message}`);
+        }
+    }
+    
+    insert(text, position) {
+        this.content = this.content.slice(0, position) + text + this.content.slice(position);
+        this.isModified = true;
+    }
+    
+    delete(start, end) {
+        this.content = this.content.slice(0, start) + this.content.slice(end);
+        this.isModified = true;
+    }
+    
+    display() {
+        console.log('\n--- 文件内容 ---');
+        console.log(this.content);
+        console.log('--- 内容结束 ---\n');
+    }
+    
+    getStats() {
+        return {
+            lines: this.content.split('\n').length,
+            characters: this.content.length,
+            words: this.content.split(/\s+/).filter(word => word.length > 0).length
+        };
+    }
+}
+
+// 使用示例
+const editor = new TextEditor();
+editor.open('test.txt');
+editor.insert('你好，世界！\n', 0);
+editor.display();
+console.log('统计:', editor.getStats());
+editor.save();
+```
+
+```c !! c
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <termios.h>
+
+#define MAX_CONTENT 10000
+#define MAX_FILENAME 256
+
+typedef struct {
+    char content[MAX_CONTENT];
+    char filename[MAX_FILENAME];
+    int length;
+    int isModified;
+} TextEditor;
+
+// 初始化编辑器
+void initEditor(TextEditor* editor) {
+    editor->content[0] = '\0';
+    editor->filename[0] = '\0';
+    editor->length = 0;
+    editor->isModified = 0;
+}
+
+// 打开文件
+int openFile(TextEditor* editor, const char* filename) {
+    FILE* file = fopen(filename, "r");
+    if (file == NULL) {
+        printf("打开文件错误: %s\n", filename);
+        return 0;
+    }
+    
+    editor->length = fread(editor->content, 1, MAX_CONTENT - 1, file);
+    editor->content[editor->length] = '\0';
+    strcpy(editor->filename, filename);
+    editor->isModified = 0;
+    
+    fclose(file);
+    printf("已打开: %s\n", filename);
+    return 1;
+}
+
+// 保存文件
+int saveFile(TextEditor* editor) {
+    if (strlen(editor->filename) == 0) {
+        printf("没有文件可保存\n");
+        return 0;
+    }
+    
+    FILE* file = fopen(editor->filename, "w");
+    if (file == NULL) {
+        printf("保存文件错误: %s\n", editor->filename);
+        return 0;
+    }
+    
+    fwrite(editor->content, 1, editor->length, file);
+    fclose(file);
+    editor->isModified = 0;
+    printf("已保存: %s\n", editor->filename);
+    return 1;
+}
+
+// 插入文本
+void insertText(TextEditor* editor, const char* text, int position) {
+    int textLen = strlen(text);
+    if (position + textLen >= MAX_CONTENT) {
+        printf("内容过大\n");
+        return;
+    }
+    
+    // 移动内容以腾出空间
+    memmove(editor->content + position + textLen, 
+            editor->content + position, 
+            editor->length - position + 1);
+    
+    // 插入文本
+    memcpy(editor->content + position, text, textLen);
+    editor->length += textLen;
+    editor->isModified = 1;
+}
+
+// 删除文本
+void deleteText(TextEditor* editor, int start, int end) {
+    if (start >= end || end > editor->length) {
+        return;
+    }
+    
+    memmove(editor->content + start, 
+            editor->content + end, 
+            editor->length - end + 1);
+    editor->length -= (end - start);
+    editor->isModified = 1;
+}
+
+// 显示内容
+void displayContent(TextEditor* editor) {
+    printf("\n--- 文件内容 ---\n");
+    printf("%s", editor->content);
+    printf("--- 内容结束 ---\n\n");
+}
+
+// 获取文件统计
+void getStats(TextEditor* editor) {
+    int lines = 1;
+    int words = 0;
+    int inWord = 0;
+    
+    for (int i = 0; i < editor->length; i++) {
+        if (editor->content[i] == '\n') {
+            lines++;
+        }
+        
+        if (editor->content[i] == ' ' || editor->content[i] == '\n' || editor->content[i] == '\t') {
+            inWord = 0;
+        } else if (!inWord) {
+            words++;
+            inWord = 1;
+        }
+    }
+    
+    printf("行数: %d, 字符数: %d, 单词数: %d\n", 
+           lines, editor->length, words);
+}
+
+int main() {
+    TextEditor editor;
+    initEditor(&editor);
+    
+    // 使用示例
+    if (openFile(&editor, "test.txt")) {
+        insertText(&editor, "你好，世界！\n", 0);
+        displayContent(&editor);
+        getStats(&editor);
+        saveFile(&editor);
+    }
+    
+    return 0;
+}
+```
+</UniversalEditor>
+
+## 3. 内存分配器
+
+<UniversalEditor title="内存分配器" compare={true}>
+```javascript !! js
+// JavaScript - 内存管理模拟
+class MemoryPool {
+    constructor(size) {
+        this.buffer = new ArrayBuffer(size);
+        this.used = new Set();
+        this.freeBlocks = [{ start: 0, size: size }];
+    }
+    
+    allocate(size) {
+        // 查找最佳匹配块
+        let bestBlock = null;
+        let bestIndex = -1;
+        
+        for (let i = 0; i < this.freeBlocks.length; i++) {
+            const block = this.freeBlocks[i];
+            if (block.size >= size) {
+                if (!bestBlock || block.size < bestBlock.size) {
+                    bestBlock = block;
+                    bestIndex = i;
+                }
+            }
+        }
+        
+        if (!bestBlock) {
+            throw new Error('未找到合适的块');
+        }
+        
+        // 从块中分配
+        const allocated = {
+            start: bestBlock.start,
+            size: size
+        };
+        
+        this.used.add(allocated);
+        
+        // 更新空闲块
+        if (bestBlock.size > size) {
+            this.freeBlocks[bestIndex] = {
+                start: bestBlock.start + size,
+                size: bestBlock.size - size
+            };
+        } else {
+            this.freeBlocks.splice(bestIndex, 1);
+        }
+        
+        return allocated;
+    }
+    
+    free(block) {
+        if (!this.used.has(block)) {
+            throw new Error('块未分配');
+        }
+        
+        this.used.delete(block);
+        
+        // 与相邻空闲块合并
+        let merged = false;
+        for (let i = 0; i < this.freeBlocks.length; i++) {
+            const freeBlock = this.freeBlocks[i];
+            
+            // 与后面的块合并
+            if (block.start + block.size === freeBlock.start) {
+                freeBlock.start = block.start;
+                freeBlock.size += block.size;
+                merged = true;
+                break;
+            }
+            
+            // 与前面的块合并
+            if (freeBlock.start + freeBlock.size === block.start) {
+                freeBlock.size += block.size;
+                merged = true;
+                break;
+            }
+        }
+        
+        if (!merged) {
+            this.freeBlocks.push(block);
+        }
+    }
+    
+    getStats() {
+        const totalUsed = Array.from(this.used).reduce((sum, block) => sum + block.size, 0);
+        const totalFree = this.freeBlocks.reduce((sum, block) => sum + block.size, 0);
+        
+        return {
+            totalUsed,
+            totalFree,
+            fragmentation: this.freeBlocks.length
+        };
+    }
+}
+
+// 使用
+const pool = new MemoryPool(1024);
+const block1 = pool.allocate(100);
+const block2 = pool.allocate(200);
+console.log('统计:', pool.getStats());
+pool.free(block1);
+console.log('释放后:', pool.getStats());
+```
+
+```c !! c
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#define POOL_SIZE 1024
+#define MAX_BLOCKS 50
+
+typedef struct {
+    int start;
+    int size;
+    int isUsed;
+} MemoryBlock;
+
+typedef struct {
+    char buffer[POOL_SIZE];
+    MemoryBlock blocks[MAX_BLOCKS];
+    int blockCount;
+} MemoryPool;
+
+// 初始化内存池
+void initPool(MemoryPool* pool) {
+    pool->blockCount = 1;
+    pool->blocks[0].start = 0;
+    pool->blocks[0].size = POOL_SIZE;
+    pool->blocks[0].isUsed = 0;
+}
+
+// 查找最佳匹配块
+int findBestFit(MemoryPool* pool, int size) {
+    int bestIndex = -1;
+    int bestSize = POOL_SIZE + 1;
+    
+    for (int i = 0; i < pool->blockCount; i++) {
+        if (!pool->blocks[i].isUsed && pool->blocks[i].size >= size) {
+            if (pool->blocks[i].size < bestSize) {
+                bestSize = pool->blocks[i].size;
+                bestIndex = i;
+            }
+        }
+    }
+    
+    return bestIndex;
+}
+
+// 分配内存
+void* allocate(MemoryPool* pool, int size) {
+    int blockIndex = findBestFit(pool, size);
+    if (blockIndex == -1) {
+        printf("未找到合适的块\n");
+        return NULL;
+    }
+    
+    MemoryBlock* block = &pool->blocks[blockIndex];
+    
+    // 如果块比需要的大，分割它
+    if (block->size > size) {
+        // 创建新的空闲块
+        if (pool->blockCount < MAX_BLOCKS) {
+            pool->blocks[pool->blockCount].start = block->start + size;
+            pool->blocks[pool->blockCount].size = block->size - size;
+            pool->blocks[pool->blockCount].isUsed = 0;
+            pool->blockCount++;
+        }
+        
+        block->size = size;
+    }
+    
+    block->isUsed = 1;
+    return &pool->buffer[block->start];
+}
+
+// 释放内存
+void freeMemory(MemoryPool* pool, void* ptr) {
+    int offset = (char*)ptr - pool->buffer;
+    
+    // 查找块
+    for (int i = 0; i < pool->blockCount; i++) {
+        if (pool->blocks[i].start == offset && pool->blocks[i].isUsed) {
+            pool->blocks[i].isUsed = 0;
+            
+            // 与相邻空闲块合并
+            for (int j = 0; j < pool->blockCount; j++) {
+                if (i != j && !pool->blocks[j].isUsed) {
+                    // 与后面的块合并
+                    if (pool->blocks[i].start + pool->blocks[i].size == pool->blocks[j].start) {
+                        pool->blocks[i].size += pool->blocks[j].size;
+                        // 移除块 j
+                        for (int k = j; k < pool->blockCount - 1; k++) {
+                            pool->blocks[k] = pool->blocks[k + 1];
+                        }
+                        pool->blockCount--;
+                        break;
+                    }
+                    
+                    // 与前面的块合并
+                    if (pool->blocks[j].start + pool->blocks[j].size == pool->blocks[i].start) {
+                        pool->blocks[j].size += pool->blocks[i].size;
+                        // 移除块 i
+                        for (int k = i; k < pool->blockCount - 1; k++) {
+                            pool->blocks[k] = pool->blocks[k + 1];
+                        }
+                        pool->blockCount--;
+                        break;
+                    }
+                }
+            }
+            break;
+        }
+    }
+}
+
+// 获取池统计
+void getPoolStats(MemoryPool* pool) {
+    int totalUsed = 0;
+    int totalFree = 0;
+    int fragmentation = 0;
+    
+    for (int i = 0; i < pool->blockCount; i++) {
+        if (pool->blocks[i].isUsed) {
+            totalUsed += pool->blocks[i].size;
+        } else {
+            totalFree += pool->blocks[i].size;
+            fragmentation++;
+        }
+    }
+    
+    printf("总使用: %d, 总空闲: %d, 碎片化: %d\n", 
+           totalUsed, totalFree, fragmentation);
+}
+
+int main() {
+    MemoryPool pool;
+    initPool(&pool);
+    
+    // 使用示例
+    void* block1 = allocate(&pool, 100);
+    void* block2 = allocate(&pool, 200);
+    
+    if (block1 && block2) {
+        strcpy(block1, "你好");
+        strcpy(block2, "世界");
+        
+        printf("块1: %s\n", (char*)block1);
+        printf("块2: %s\n", (char*)block2);
+        
+        getPoolStats(&pool);
+        
+        freeMemory(&pool, block1);
+        getPoolStats(&pool);
+    }
+    
+    return 0;
+}
+```
+</UniversalEditor>
+
+## 4. 数据结构库
+
+<UniversalEditor title="数据结构库" compare={true}>
+```javascript !! js
+// JavaScript - 数据结构库
+class LinkedList {
+    constructor() {
+        this.head = null;
+        this.size = 0;
+    }
+    
+    append(data) {
+        const newNode = { data, next: null };
+        if (!this.head) {
+            this.head = newNode;
+        } else {
+            let current = this.head;
+            while (current.next) {
+                current = current.next;
+            }
+            current.next = newNode;
+        }
+        this.size++;
+    }
+    
+    remove(data) {
+        if (!this.head) return false;
+        
+        if (this.head.data === data) {
+            this.head = this.head.next;
+            this.size--;
+            return true;
+        }
+        
+        let current = this.head;
+        while (current.next && current.next.data !== data) {
+            current = current.next;
+        }
+        
+        if (current.next) {
+            current.next = current.next.next;
+            this.size--;
+            return true;
+        }
+        
+        return false;
+    }
+    
+    find(data) {
+        let current = this.head;
+        while (current) {
+            if (current.data === data) {
+                return current;
+            }
+            current = current.next;
+        }
+        return null;
+    }
+    
+    toArray() {
+        const result = [];
+        let current = this.head;
+        while (current) {
+            result.push(current.data);
+            current = current.next;
+        }
+        return result;
+    }
+}
+
+class Stack {
+    constructor() {
+        this.items = [];
+    }
+    
+    push(item) {
+        this.items.push(item);
+    }
+    
+    pop() {
+        return this.items.pop();
+    }
+    
+    peek() {
+        return this.items[this.items.length - 1];
+    }
+    
+    isEmpty() {
+        return this.items.length === 0;
+    }
+    
+    size() {
+        return this.items.length;
+    }
+}
+
+class Queue {
+    constructor() {
+        this.items = [];
+    }
+    
+    enqueue(item) {
+        this.items.push(item);
+    }
+    
+    dequeue() {
+        return this.items.shift();
+    }
+    
+    front() {
+        return this.items[0];
+    }
+    
+    isEmpty() {
+        return this.items.length === 0;
+    }
+    
+    size() {
+        return this.items.length;
+    }
+}
+
+// 使用
+const list = new LinkedList();
+list.append(1);
+list.append(2);
+list.append(3);
+console.log('链表:', list.toArray());
+
+const stack = new Stack();
+stack.push(1);
+stack.push(2);
+console.log('栈弹出:', stack.pop());
+
+const queue = new Queue();
+queue.enqueue('a');
+queue.enqueue('b');
+console.log('队列出队:', queue.dequeue());
+```
+
+```c !! c
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+// 链表
+typedef struct Node {
+    int data;
+    struct Node* next;
+} Node;
+
+typedef struct {
+    Node* head;
+    int size;
+} LinkedList;
+
+// 栈
+typedef struct {
+    int* items;
+    int top;
+    int capacity;
+} Stack;
+
+// 队列
+typedef struct {
+    int* items;
+    int front;
+    int rear;
+    int size;
+    int capacity;
+} Queue;
+
+// 链表函数
+LinkedList* createLinkedList() {
+    LinkedList* list = (LinkedList*)malloc(sizeof(LinkedList));
+    list->head = NULL;
+    list->size = 0;
+    return list;
+}
+
+void append(LinkedList* list, int data) {
+    Node* newNode = (Node*)malloc(sizeof(Node));
+    newNode->data = data;
+    newNode->next = NULL;
+    
+    if (!list->head) {
+        list->head = newNode;
+    } else {
+        Node* current = list->head;
+        while (current->next) {
+            current = current->next;
+        }
+        current->next = newNode;
+    }
+    list->size++;
+}
+
+int removeNode(LinkedList* list, int data) {
+    if (!list->head) return 0;
+    
+    if (list->head->data == data) {
+        Node* temp = list->head;
+        list->head = list->head->next;
+        free(temp);
+        list->size--;
+        return 1;
+    }
+    
+    Node* current = list->head;
+    while (current->next && current->next->data != data) {
+        current = current->next;
+    }
+    
+    if (current->next) {
+        Node* temp = current->next;
+        current->next = current->next->next;
+        free(temp);
+        list->size--;
+        return 1;
+    }
+    
+    return 0;
+}
+
+Node* find(LinkedList* list, int data) {
+    Node* current = list->head;
+    while (current) {
+        if (current->data == data) {
+            return current;
+        }
+        current = current->next;
+    }
+    return NULL;
+}
+
+// 栈函数
+Stack* createStack(int capacity) {
+    Stack* stack = (Stack*)malloc(sizeof(Stack));
+    stack->items = (int*)malloc(capacity * sizeof(int));
+    stack->top = -1;
+    stack->capacity = capacity;
+    return stack;
+}
+
+void push(Stack* stack, int item) {
+    if (stack->top < stack->capacity - 1) {
+        stack->items[++stack->top] = item;
+    }
+}
+
+int pop(Stack* stack) {
+    if (stack->top >= 0) {
+        return stack->items[stack->top--];
+    }
+    return -1;
+}
+
+int peek(Stack* stack) {
+    if (stack->top >= 0) {
+        return stack->items[stack->top];
+    }
+    return -1;
+}
+
+int isEmpty(Stack* stack) {
+    return stack->top == -1;
+}
+
+// 队列函数
+Queue* createQueue(int capacity) {
+    Queue* queue = (Queue*)malloc(sizeof(Queue));
+    queue->items = (int*)malloc(capacity * sizeof(int));
+    queue->front = 0;
+    queue->rear = -1;
+    queue->size = 0;
+    queue->capacity = capacity;
+    return queue;
+}
+
+void enqueue(Queue* queue, int item) {
+    if (queue->size < queue->capacity) {
+        queue->rear = (queue->rear + 1) % queue->capacity;
+        queue->items[queue->rear] = item;
+        queue->size++;
+    }
+}
+
+int dequeue(Queue* queue) {
+    if (queue->size > 0) {
+        int item = queue->items[queue->front];
+        queue->front = (queue->front + 1) % queue->capacity;
+        queue->size--;
+        return item;
+    }
+    return -1;
+}
+
+int front(Queue* queue) {
+    if (queue->size > 0) {
+        return queue->items[queue->front];
+    }
+    return -1;
+}
+
+int main() {
+    // 链表示例
+    LinkedList* list = createLinkedList();
+    append(list, 1);
+    append(list, 2);
+    append(list, 3);
+    
+    Node* found = find(list, 2);
+    if (found) {
+        printf("找到: %d\n", found->data);
+    }
+    
+    // 栈示例
+    Stack* stack = createStack(10);
+    push(stack, 1);
+    push(stack, 2);
+    printf("栈弹出: %d\n", pop(stack));
+    
+    // 队列示例
+    Queue* queue = createQueue(10);
+    enqueue(queue, 'a');
+    enqueue(queue, 'b');
+    printf("队列出队: %c\n", dequeue(queue));
+    
+    return 0;
+}
+```
+</UniversalEditor>
+
+## 5. 常见陷阱
+- **内存泄漏**：始终释放数据结构中分配的内存
+- **缓冲区溢出**：在访问数组前检查边界
+- **资源管理**：正确关闭文件和释放系统资源
+- **错误处理**：检查返回值并优雅地处理错误
+- **线程安全**：在共享数据时使用同步
+
+## 6. 练习题
+1. 扩展文本编辑器以支持搜索和替换功能。
+2. 实现具有不同分配策略的更复杂的内存分配器。
+3. 向数据结构库添加排序和搜索算法。
+4. 创建一个显示进程信息的简单系统监控工具。
+
+## 7. 性能分析
+- **文本编辑器**：高效的字符串操作和文件 I/O
+- **内存分配器**：最小化碎片化和分配开销
+- **数据结构**：优化常见操作（插入、删除、搜索）
+- **系统工具**：高效的系统调用和最小资源使用
+
+---
+
+> **小结**：C 项目展示了系统编程概念的实际应用。构建这些项目有助于巩固对内存管理、数据结构和系统级编程的理解。 

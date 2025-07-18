@@ -1,0 +1,1157 @@
+# Module 14: Advanced Topics and Extensions
+
+## Overview
+
+In this final module, we'll explore advanced C programming topics that extend beyond the basics. These topics represent the cutting edge of C programming and demonstrate why C remains relevant in modern software development.
+
+## Learning Objectives
+
+- Understand multi-threading and concurrent programming in C
+- Master advanced network programming techniques
+- Learn graphics programming fundamentals
+- Explore embedded programming concepts
+- Understand real-time system programming
+- Master modern C features (C11/C17)
+
+## Multi-threading and Concurrency
+
+### JavaScript vs C Threading
+
+JavaScript uses an event-driven, single-threaded model with asynchronous operations, while C provides direct access to system threads and synchronization primitives.
+
+<UniversalEditor title="Threading Model Comparison" compare={true}>
+```javascript !! js
+// JavaScript: Event-driven, single-threaded with async
+async function processData(data) {
+    const results = [];
+    
+    // Concurrent processing using Promise.all
+    const promises = data.map(async (item) => {
+        // Simulate async work
+        await new Promise(resolve => setTimeout(resolve, 100));
+        return item * 2;
+    });
+    
+    const processed = await Promise.all(promises);
+    return processed;
+}
+
+// Worker threads for CPU-intensive tasks
+const { Worker, isMainThread, parentPort } = require('worker_threads');
+
+if (isMainThread) {
+    const worker = new Worker(__filename);
+    worker.on('message', (result) => {
+        console.log('Worker result:', result);
+    });
+    worker.postMessage([1, 2, 3, 4, 5]);
+} else {
+    parentPort.on('message', (data) => {
+        const result = data.map(x => x * x);
+        parentPort.postMessage(result);
+    });
+}
+```
+
+```c !! c
+// C: Direct thread management with pthreads
+#include <stdio.h>
+#include <stdlib.h>
+#include <pthread.h>
+#include <unistd.h>
+
+#define NUM_THREADS 4
+#define ARRAY_SIZE 1000
+
+// Thread function
+void* process_data(void* arg) {
+    int* data = (int*)arg;
+    int thread_id = (int)(long)arg;
+    
+    // Process a portion of the data
+    for (int i = thread_id * (ARRAY_SIZE / NUM_THREADS); 
+         i < (thread_id + 1) * (ARRAY_SIZE / NUM_THREADS); i++) {
+        data[i] *= 2;
+    }
+    
+    return NULL;
+}
+
+int main() {
+    int data[ARRAY_SIZE];
+    pthread_t threads[NUM_THREADS];
+    
+    // Initialize data
+    for (int i = 0; i < ARRAY_SIZE; i++) {
+        data[i] = i;
+    }
+    
+    // Create threads
+    for (int i = 0; i < NUM_THREADS; i++) {
+        pthread_create(&threads[i], NULL, process_data, (void*)(long)i);
+    }
+    
+    // Wait for all threads to complete
+    for (int i = 0; i < NUM_THREADS; i++) {
+        pthread_join(threads[i], NULL);
+    }
+    
+    printf("All threads completed\n");
+    return 0;
+}
+```
+</UniversalEditor>
+
+### Thread Synchronization
+
+<UniversalEditor title="Thread Synchronization" compare={true}>
+```javascript !! js
+// JavaScript: Async/await and Promise-based synchronization
+class ThreadSafeCounter {
+    constructor() {
+        this.value = 0;
+        this.pending = Promise.resolve();
+    }
+    
+    async increment() {
+        this.pending = this.pending.then(() => {
+            this.value++;
+            return this.value;
+        });
+        return this.pending;
+    }
+    
+    async getValue() {
+        await this.pending;
+        return this.value;
+    }
+}
+
+async function testCounter() {
+    const counter = new ThreadSafeCounter();
+    const promises = [];
+    
+    for (let i = 0; i < 1000; i++) {
+        promises.push(counter.increment());
+    }
+    
+    await Promise.all(promises);
+    console.log('Final value:', await counter.getValue());
+}
+
+testCounter();
+```
+
+```c !! c
+// C: Mutex-based thread synchronization
+#include <stdio.h>
+#include <stdlib.h>
+#include <pthread.h>
+#include <unistd.h>
+
+#define NUM_THREADS 10
+#define INCREMENTS_PER_THREAD 100
+
+typedef struct {
+    int value;
+    pthread_mutex_t mutex;
+} ThreadSafeCounter;
+
+ThreadSafeCounter* create_counter() {
+    ThreadSafeCounter* counter = malloc(sizeof(ThreadSafeCounter));
+    counter->value = 0;
+    pthread_mutex_init(&counter->mutex, NULL);
+    return counter;
+}
+
+void destroy_counter(ThreadSafeCounter* counter) {
+    pthread_mutex_destroy(&counter->mutex);
+    free(counter);
+}
+
+void increment_counter(ThreadSafeCounter* counter) {
+    pthread_mutex_lock(&counter->mutex);
+    counter->value++;
+    pthread_mutex_unlock(&counter->mutex);
+}
+
+int get_counter_value(ThreadSafeCounter* counter) {
+    pthread_mutex_lock(&counter->mutex);
+    int value = counter->value;
+    pthread_mutex_unlock(&counter->mutex);
+    return value;
+}
+
+void* thread_function(void* arg) {
+    ThreadSafeCounter* counter = (ThreadSafeCounter*)arg;
+    
+    for (int i = 0; i < INCREMENTS_PER_THREAD; i++) {
+        increment_counter(counter);
+    }
+    
+    return NULL;
+}
+
+int main() {
+    ThreadSafeCounter* counter = create_counter();
+    pthread_t threads[NUM_THREADS];
+    
+    // Create threads
+    for (int i = 0; i < NUM_THREADS; i++) {
+        pthread_create(&threads[i], NULL, thread_function, counter);
+    }
+    
+    // Wait for all threads
+    for (int i = 0; i < NUM_THREADS; i++) {
+        pthread_join(threads[i], NULL);
+    }
+    
+    printf("Final counter value: %d\n", get_counter_value(counter));
+    printf("Expected value: %d\n", NUM_THREADS * INCREMENTS_PER_THREAD);
+    
+    destroy_counter(counter);
+    return 0;
+}
+```
+</UniversalEditor>
+
+## Advanced Network Programming
+
+### Socket Programming
+
+<UniversalEditor title="Network Socket Programming" compare={true}>
+```javascript !! js
+// JavaScript: Node.js socket programming
+const net = require('net');
+
+// Server
+const server = net.createServer((socket) => {
+    console.log('Client connected');
+    
+    socket.on('data', (data) => {
+        console.log('Received:', data.toString());
+        socket.write('Echo: ' + data);
+    });
+    
+    socket.on('end', () => {
+        console.log('Client disconnected');
+    });
+});
+
+server.listen(3000, () => {
+    console.log('Server listening on port 3000');
+});
+
+// Client
+const client = new net.Socket();
+client.connect(3000, 'localhost', () => {
+    console.log('Connected to server');
+    client.write('Hello, server!');
+});
+
+client.on('data', (data) => {
+    console.log('Received:', data.toString());
+    client.destroy();
+});
+```
+
+```c !! c
+// C: Raw socket programming
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+
+#define PORT 3000
+#define BUFFER_SIZE 1024
+
+// Server implementation
+int create_server() {
+    int server_fd, new_socket;
+    struct sockaddr_in address;
+    int opt = 1;
+    int addrlen = sizeof(address);
+    char buffer[BUFFER_SIZE] = {0};
+    
+    // Create socket
+    if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == 0) {
+        perror("Socket failed");
+        exit(EXIT_FAILURE);
+    }
+    
+    // Set socket options
+    if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, 
+                   &opt, sizeof(opt))) {
+        perror("Setsockopt failed");
+        exit(EXIT_FAILURE);
+    }
+    
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = INADDR_ANY;
+    address.sin_port = htons(PORT);
+    
+    // Bind socket
+    if (bind(server_fd, (struct sockaddr*)&address, sizeof(address)) < 0) {
+        perror("Bind failed");
+        exit(EXIT_FAILURE);
+    }
+    
+    // Listen for connections
+    if (listen(server_fd, 3) < 0) {
+        perror("Listen failed");
+        exit(EXIT_FAILURE);
+    }
+    
+    printf("Server listening on port %d\n", PORT);
+    
+    // Accept connection
+    if ((new_socket = accept(server_fd, (struct sockaddr*)&address, 
+                            (socklen_t*)&addrlen)) < 0) {
+        perror("Accept failed");
+        exit(EXIT_FAILURE);
+    }
+    
+    // Read and echo data
+    int valread = read(new_socket, buffer, BUFFER_SIZE);
+    printf("Received: %s\n", buffer);
+    
+    char* response = malloc(strlen(buffer) + 7);
+    sprintf(response, "Echo: %s", buffer);
+    send(new_socket, response, strlen(response), 0);
+    
+    free(response);
+    close(new_socket);
+    close(server_fd);
+    
+    return 0;
+}
+
+// Client implementation
+int create_client() {
+    int sock = 0;
+    struct sockaddr_in serv_addr;
+    char buffer[BUFFER_SIZE] = {0};
+    
+    if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+        printf("Socket creation error\n");
+        return -1;
+    }
+    
+    serv_addr.sin_family = AF_INET;
+    serv_addr.sin_port = htons(PORT);
+    
+    // Convert IP address
+    if (inet_pton(AF_INET, "127.0.0.1", &serv_addr.sin_addr) <= 0) {
+        printf("Invalid address\n");
+        return -1;
+    }
+    
+    if (connect(sock, (struct sockaddr*)&serv_addr, sizeof(serv_addr)) < 0) {
+        printf("Connection failed\n");
+        return -1;
+    }
+    
+    char* message = "Hello, server!";
+    send(sock, message, strlen(message), 0);
+    printf("Message sent\n");
+    
+    int valread = read(sock, buffer, BUFFER_SIZE);
+    printf("Received: %s\n", buffer);
+    
+    close(sock);
+    return 0;
+}
+
+int main(int argc, char* argv[]) {
+    if (argc > 1 && strcmp(argv[1], "server") == 0) {
+        return create_server();
+    } else {
+        return create_client();
+    }
+}
+```
+</UniversalEditor>
+
+## Graphics Programming Fundamentals
+
+### Basic Graphics with SDL2
+
+<UniversalEditor title="Graphics Programming with SDL2" compare={true}>
+```javascript !! js
+// JavaScript: HTML5 Canvas graphics
+class GraphicsDemo {
+    constructor() {
+        this.canvas = document.createElement('canvas');
+        this.canvas.width = 800;
+        this.canvas.height = 600;
+        this.ctx = this.canvas.getContext('2d');
+        document.body.appendChild(this.canvas);
+        
+        this.angle = 0;
+        this.animate();
+    }
+    
+    draw() {
+        // Clear canvas
+        this.ctx.fillStyle = 'black';
+        this.ctx.fillRect(0, 0, 800, 600);
+        
+        // Draw rotating rectangle
+        this.ctx.save();
+        this.ctx.translate(400, 300);
+        this.ctx.rotate(this.angle);
+        this.ctx.fillStyle = 'red';
+        this.ctx.fillRect(-50, -25, 100, 50);
+        this.ctx.restore();
+        
+        this.angle += 0.02;
+    }
+    
+    animate() {
+        this.draw();
+        requestAnimationFrame(() => this.animate());
+    }
+}
+
+new GraphicsDemo();
+```
+
+```c !! c
+// C: SDL2 graphics programming
+#include <SDL2/SDL.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <math.h>
+
+#define WINDOW_WIDTH 800
+#define WINDOW_HEIGHT 600
+
+typedef struct {
+    SDL_Window* window;
+    SDL_Renderer* renderer;
+    float angle;
+} GraphicsDemo;
+
+GraphicsDemo* create_graphics_demo() {
+    GraphicsDemo* demo = malloc(sizeof(GraphicsDemo));
+    
+    if (SDL_Init(SDL_INIT_VIDEO) < 0) {
+        printf("SDL initialization failed: %s\n", SDL_GetError());
+        free(demo);
+        return NULL;
+    }
+    
+    demo->window = SDL_CreateWindow("Graphics Demo", 
+                                   SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
+                                   WINDOW_WIDTH, WINDOW_HEIGHT, 
+                                   SDL_WINDOW_SHOWN);
+    
+    if (!demo->window) {
+        printf("Window creation failed: %s\n", SDL_GetError());
+        SDL_Quit();
+        free(demo);
+        return NULL;
+    }
+    
+    demo->renderer = SDL_CreateRenderer(demo->window, -1, 
+                                       SDL_RENDERER_ACCELERATED);
+    
+    if (!demo->renderer) {
+        printf("Renderer creation failed: %s\n", SDL_GetError());
+        SDL_DestroyWindow(demo->window);
+        SDL_Quit();
+        free(demo);
+        return NULL;
+    }
+    
+    demo->angle = 0.0f;
+    return demo;
+}
+
+void destroy_graphics_demo(GraphicsDemo* demo) {
+    SDL_DestroyRenderer(demo->renderer);
+    SDL_DestroyWindow(demo->window);
+    SDL_Quit();
+    free(demo);
+}
+
+void draw_frame(GraphicsDemo* demo) {
+    // Clear screen
+    SDL_SetRenderDrawColor(demo->renderer, 0, 0, 0, 255);
+    SDL_RenderClear(demo->renderer);
+    
+    // Draw rotating rectangle
+    SDL_Rect rect = {
+        (int)(400 + 50 * cos(demo->angle) - 25 * sin(demo->angle)),
+        (int)(300 + 50 * sin(demo->angle) + 25 * cos(demo->angle)),
+        100, 50
+    };
+    
+    SDL_SetRenderDrawColor(demo->renderer, 255, 0, 0, 255);
+    SDL_RenderFillRect(demo->renderer, &rect);
+    
+    SDL_RenderPresent(demo->renderer);
+    demo->angle += 0.02f;
+}
+
+int main() {
+    GraphicsDemo* demo = create_graphics_demo();
+    if (!demo) {
+        return 1;
+    }
+    
+    SDL_Event event;
+    int running = 1;
+    
+    while (running) {
+        while (SDL_PollEvent(&event)) {
+            if (event.type == SDL_QUIT) {
+                running = 0;
+            }
+        }
+        
+        draw_frame(demo);
+        SDL_Delay(16); // ~60 FPS
+    }
+    
+    destroy_graphics_demo(demo);
+    return 0;
+}
+```
+</UniversalEditor>
+
+## Embedded Programming
+
+### Bare Metal Programming
+
+<UniversalEditor title="Embedded Programming Example" compare={true}>
+```javascript !! js
+// JavaScript: Hardware abstraction simulation
+class HardwareSimulator {
+    constructor() {
+        this.registers = new Uint32Array(16);
+        this.memory = new Uint8Array(1024);
+        this.gpio = new Uint32Array(32);
+    }
+    
+    // Simulate GPIO operations
+    setPin(pin, value) {
+        if (pin < 32) {
+            this.gpio[pin] = value ? 1 : 0;
+            console.log(`GPIO ${pin} set to ${value}`);
+        }
+    }
+    
+    getPin(pin) {
+        return pin < 32 ? this.gpio[pin] : 0;
+    }
+    
+    // Simulate memory operations
+    writeMemory(address, value) {
+        if (address < this.memory.length) {
+            this.memory[address] = value;
+        }
+    }
+    
+    readMemory(address) {
+        return address < this.memory.length ? this.memory[address] : 0;
+    }
+}
+
+// Embedded-style programming
+const hw = new HardwareSimulator();
+
+// Blink LED simulation
+function blinkLED() {
+    let state = 0;
+    setInterval(() => {
+        hw.setPin(13, state);
+        state = !state;
+    }, 1000);
+}
+
+blinkLED();
+```
+
+```c !! c
+// C: Bare metal embedded programming
+#include <stdint.h>
+#include <stdbool.h>
+
+// Hardware register definitions (example for ARM Cortex-M)
+#define GPIO_BASE_ADDR 0x40020000
+#define GPIO_MODER_OFFSET 0x00
+#define GPIO_ODR_OFFSET 0x14
+#define GPIO_IDR_OFFSET 0x10
+
+// Register pointers
+volatile uint32_t* const GPIO_MODER = (uint32_t*)(GPIO_BASE_ADDR + GPIO_MODER_OFFSET);
+volatile uint32_t* const GPIO_ODR = (uint32_t*)(GPIO_BASE_ADDR + GPIO_ODR_OFFSET);
+volatile uint32_t* const GPIO_IDR = (uint32_t*)(GPIO_BASE_ADDR + GPIO_IDR_OFFSET);
+
+// GPIO pin definitions
+#define LED_PIN 13
+#define BUTTON_PIN 0
+
+// GPIO functions
+void gpio_init(void) {
+    // Configure LED pin as output
+    *GPIO_MODER &= ~(3U << (LED_PIN * 2));
+    *GPIO_MODER |= (1U << (LED_PIN * 2));
+    
+    // Configure button pin as input
+    *GPIO_MODER &= ~(3U << (BUTTON_PIN * 2));
+}
+
+void gpio_set_pin(uint32_t pin, bool value) {
+    if (value) {
+        *GPIO_ODR |= (1U << pin);
+    } else {
+        *GPIO_ODR &= ~(1U << pin);
+    }
+}
+
+bool gpio_get_pin(uint32_t pin) {
+    return (*GPIO_IDR & (1U << pin)) != 0;
+}
+
+// Simple delay function
+void delay_ms(uint32_t ms) {
+    // Simple delay loop (not accurate, just for demonstration)
+    for (volatile uint32_t i = 0; i < ms * 1000; i++) {
+        __asm("nop");
+    }
+}
+
+// Main embedded program
+int main(void) {
+    // Initialize hardware
+    gpio_init();
+    
+    // Main loop
+    while (1) {
+        // Check button state
+        if (gpio_get_pin(BUTTON_PIN)) {
+            // Button pressed, turn on LED
+            gpio_set_pin(LED_PIN, true);
+        } else {
+            // Button not pressed, turn off LED
+            gpio_set_pin(LED_PIN, false);
+        }
+        
+        delay_ms(10); // Small delay to prevent busy waiting
+    }
+    
+    return 0;
+}
+```
+</UniversalEditor>
+
+## Real-Time System Programming
+
+### Real-Time Constraints
+
+<UniversalEditor title="Real-Time Programming" compare={true}>
+```javascript !! js
+// JavaScript: Real-time simulation with timing constraints
+class RealTimeSystem {
+    constructor() {
+        this.tasks = [];
+        this.currentTime = 0;
+        this.scheduler = null;
+    }
+    
+    addTask(name, period, deadline, executionTime) {
+        this.tasks.push({
+            name,
+            period,
+            deadline,
+            executionTime,
+            lastExecution: 0,
+            missedDeadlines: 0
+        });
+    }
+    
+    // Rate Monotonic Scheduling simulation
+    schedule() {
+        this.tasks.sort((a, b) => a.period - b.period); // Priority by period
+        
+        for (let task of this.tasks) {
+            if (this.currentTime >= task.lastExecution + task.period) {
+                if (this.currentTime + task.executionTime > task.deadline) {
+                    task.missedDeadlines++;
+                    console.log(`Deadline missed for task ${task.name}`);
+                } else {
+                    console.log(`Executing task ${task.name}`);
+                    task.lastExecution = this.currentTime;
+                }
+            }
+        }
+        
+        this.currentTime++;
+    }
+    
+    runSimulation(duration) {
+        for (let i = 0; i < duration; i++) {
+            this.schedule();
+        }
+        
+        console.log('Simulation results:');
+        for (let task of this.tasks) {
+            console.log(`${task.name}: ${task.missedDeadlines} missed deadlines`);
+        }
+    }
+}
+
+const rts = new RealTimeSystem();
+rts.addTask('High Priority', 10, 8, 3);
+rts.addTask('Medium Priority', 20, 15, 5);
+rts.addTask('Low Priority', 50, 40, 10);
+
+rts.runSimulation(100);
+```
+
+```c !! c
+// C: Real-time system programming with POSIX
+#include <stdio.h>
+#include <stdlib.h>
+#include <pthread.h>
+#include <sched.h>
+#include <time.h>
+#include <unistd.h>
+
+#define NUM_TASKS 3
+#define SIMULATION_TIME 100
+
+typedef struct {
+    char name[32];
+    int period;
+    int deadline;
+    int execution_time;
+    int priority;
+    int missed_deadlines;
+    pthread_t thread;
+    int running;
+} RealTimeTask;
+
+RealTimeTask tasks[NUM_TASKS] = {
+    {"High Priority", 10, 8, 3, 99, 0, 0, 1},
+    {"Medium Priority", 20, 15, 5, 50, 0, 0, 1},
+    {"Low Priority", 50, 40, 10, 1, 0, 0, 1}
+};
+
+// Real-time task function
+void* real_time_task(void* arg) {
+    RealTimeTask* task = (RealTimeTask*)arg;
+    struct timespec start_time, current_time;
+    int execution_count = 0;
+    
+    // Set thread priority
+    struct sched_param param;
+    param.sched_priority = task->priority;
+    pthread_setschedparam(pthread_self(), SCHED_FIFO, &param);
+    
+    clock_gettime(CLOCK_MONOTONIC, &start_time);
+    
+    while (task->running) {
+        clock_gettime(CLOCK_MONOTONIC, &current_time);
+        
+        // Calculate time since start
+        long elapsed = (current_time.tv_sec - start_time.tv_sec) * 1000 +
+                      (current_time.tv_nsec - start_time.tv_nsec) / 1000000;
+        
+        // Check if it's time to execute
+        if (elapsed >= execution_count * task->period) {
+            // Simulate execution time
+            usleep(task->execution_time * 1000);
+            
+            // Check deadline
+            if (elapsed > execution_count * task->period + task->deadline) {
+                task->missed_deadlines++;
+                printf("Deadline missed for task %s\n", task->name);
+            } else {
+                printf("Executing task %s\n", task->name);
+            }
+            
+            execution_count++;
+        }
+        
+        usleep(1000); // Small delay to prevent busy waiting
+    }
+    
+    return NULL;
+}
+
+int main() {
+    // Create real-time threads
+    for (int i = 0; i < NUM_TASKS; i++) {
+        if (pthread_create(&tasks[i].thread, NULL, real_time_task, &tasks[i]) != 0) {
+            perror("Failed to create thread");
+            return 1;
+        }
+    }
+    
+    // Run simulation
+    sleep(SIMULATION_TIME / 1000);
+    
+    // Stop tasks
+    for (int i = 0; i < NUM_TASKS; i++) {
+        tasks[i].running = 0;
+        pthread_join(tasks[i].thread, NULL);
+    }
+    
+    // Print results
+    printf("\nSimulation results:\n");
+    for (int i = 0; i < NUM_TASKS; i++) {
+        printf("%s: %d missed deadlines\n", 
+               tasks[i].name, tasks[i].missed_deadlines);
+    }
+    
+    return 0;
+}
+```
+</UniversalEditor>
+
+## Modern C Features (C11/C17)
+
+### Atomic Operations
+
+<UniversalEditor title="Modern C Atomic Operations" compare={true}>
+```javascript !! js
+// JavaScript: Atomic operations with SharedArrayBuffer
+const sharedBuffer = new SharedArrayBuffer(4);
+const sharedArray = new Int32Array(sharedBuffer);
+
+// Atomic operations
+Atomics.store(sharedArray, 0, 42);
+let value = Atomics.load(sharedArray, 0);
+let oldValue = Atomics.compareExchange(sharedArray, 0, 42, 100);
+let newValue = Atomics.add(sharedArray, 0, 10);
+
+console.log('Atomic operations:', { value, oldValue, newValue });
+
+// Atomic increment
+function atomicIncrement() {
+    return Atomics.add(sharedArray, 0, 1);
+}
+
+// Multiple workers can safely increment
+for (let i = 0; i < 1000; i++) {
+    atomicIncrement();
+}
+
+console.log('Final value:', Atomics.load(sharedArray, 0));
+```
+
+```c !! c
+// C: C11 atomic operations
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdatomic.h>
+#include <pthread.h>
+#include <unistd.h>
+
+#define NUM_THREADS 10
+#define INCREMENTS_PER_THREAD 1000
+
+// Atomic counter
+atomic_int counter = ATOMIC_VAR_INIT(0);
+
+// Thread function using atomic operations
+void* atomic_increment_thread(void* arg) {
+    for (int i = 0; i < INCREMENTS_PER_THREAD; i++) {
+        atomic_fetch_add(&counter, 1);
+    }
+    return NULL;
+}
+
+int main() {
+    pthread_t threads[NUM_THREADS];
+    
+    // Create threads
+    for (int i = 0; i < NUM_THREADS; i++) {
+        pthread_create(&threads[i], NULL, atomic_increment_thread, NULL);
+    }
+    
+    // Wait for all threads
+    for (int i = 0; i < NUM_THREADS; i++) {
+        pthread_join(threads[i], NULL);
+    }
+    
+    printf("Final counter value: %d\n", atomic_load(&counter));
+    printf("Expected value: %d\n", NUM_THREADS * INCREMENTS_PER_THREAD);
+    
+    // Demonstrate other atomic operations
+    atomic_int value = ATOMIC_VAR_INIT(42);
+    
+    // Atomic store and load
+    atomic_store(&value, 100);
+    int loaded = atomic_load(&value);
+    printf("Loaded value: %d\n", loaded);
+    
+    // Atomic compare and exchange
+    int expected = 100;
+    int desired = 200;
+    int result = atomic_compare_exchange_strong(&value, &expected, desired);
+    printf("Compare exchange result: %d, value: %d\n", result, atomic_load(&value));
+    
+    return 0;
+}
+```
+</UniversalEditor>
+
+### Generic Programming with _Generic
+
+<UniversalEditor title="C11 Generic Programming" compare={true}>
+```javascript !! js
+// JavaScript: Generic programming with functions
+function printValue(value) {
+    if (typeof value === 'string') {
+        console.log(`String: ${value}`);
+    } else if (typeof value === 'number') {
+        console.log(`Number: ${value}`);
+    } else if (Array.isArray(value)) {
+        console.log(`Array: [${value.join(', ')}]`);
+    } else if (typeof value === 'object') {
+        console.log(`Object: ${JSON.stringify(value)}`);
+    } else {
+        console.log(`Unknown type: ${typeof value}`);
+    }
+}
+
+// Usage
+printValue("Hello");
+printValue(42);
+printValue([1, 2, 3]);
+printValue({name: "John", age: 30});
+```
+
+```c !! c
+// C: C11 _Generic for type-based dispatch
+#include <stdio.h>
+#include <string.h>
+
+// Type-specific print functions
+void print_int(int value) {
+    printf("Integer: %d\n", value);
+}
+
+void print_double(double value) {
+    printf("Double: %.2f\n", value);
+}
+
+void print_string(const char* value) {
+    printf("String: %s\n", value);
+}
+
+void print_array_int(const int* arr, size_t size) {
+    printf("Integer array: [");
+    for (size_t i = 0; i < size; i++) {
+        printf("%d%s", arr[i], (i < size - 1) ? ", " : "");
+    }
+    printf("]\n");
+}
+
+// Generic macro using _Generic
+#define print_value(x) _Generic((x), \
+    int: print_int, \
+    double: print_double, \
+    char*: print_string, \
+    const char*: print_string \
+)(x)
+
+// Generic macro for arrays (simplified)
+#define print_array(x, size) _Generic((x), \
+    int*: print_array_int \
+)(x, size)
+
+int main() {
+    // Test different types
+    int int_val = 42;
+    double double_val = 3.14159;
+    char* string_val = "Hello, C11!";
+    
+    print_value(int_val);
+    print_value(double_val);
+    print_value(string_val);
+    
+    // Test array
+    int arr[] = {1, 2, 3, 4, 5};
+    print_array(arr, 5);
+    
+    return 0;
+}
+```
+</UniversalEditor>
+
+### Thread-Local Storage
+
+<UniversalEditor title="Thread-Local Storage" compare={true}>
+```javascript !! js
+// JavaScript: Thread-local storage simulation
+class ThreadLocalStorage {
+    constructor() {
+        this.storage = new Map();
+    }
+    
+    set(key, value) {
+        const threadId = this.getThreadId();
+        if (!this.storage.has(threadId)) {
+            this.storage.set(threadId, new Map());
+        }
+        this.storage.get(threadId).set(key, value);
+    }
+    
+    get(key) {
+        const threadId = this.getThreadId();
+        const threadStorage = this.storage.get(threadId);
+        return threadStorage ? threadStorage.get(key) : undefined;
+    }
+    
+    getThreadId() {
+        // In a real implementation, this would get the actual thread ID
+        return Math.floor(Math.random() * 1000);
+    }
+}
+
+const tls = new ThreadLocalStorage();
+tls.set('user', 'John');
+console.log('User:', tls.get('user'));
+```
+
+```c !! c
+// C: C11 thread-local storage
+#include <stdio.h>
+#include <stdlib.h>
+#include <pthread.h>
+#include <unistd.h>
+
+// Thread-local variables
+_Thread_local int thread_id = 0;
+_Thread_local char thread_name[64] = "";
+
+// Thread function
+void* thread_function(void* arg) {
+    int id = *(int*)arg;
+    
+    // Set thread-local variables
+    thread_id = id;
+    snprintf(thread_name, sizeof(thread_name), "Thread-%d", id);
+    
+    // Use thread-local storage
+    printf("Thread %s (ID: %d) starting\n", thread_name, thread_id);
+    
+    // Simulate work
+    usleep(100000 * (id + 1));
+    
+    printf("Thread %s (ID: %d) finishing\n", thread_name, thread_id);
+    
+    free(arg);
+    return NULL;
+}
+
+int main() {
+    pthread_t threads[5];
+    
+    // Create threads
+    for (int i = 0; i < 5; i++) {
+        int* id = malloc(sizeof(int));
+        *id = i + 1;
+        pthread_create(&threads[i], NULL, thread_function, id);
+    }
+    
+    // Wait for all threads
+    for (int i = 0; i < 5; i++) {
+        pthread_join(threads[i], NULL);
+    }
+    
+    printf("All threads completed\n");
+    return 0;
+}
+```
+</UniversalEditor>
+
+## Exercises
+
+### Exercise 1: Multi-threaded Matrix Multiplication
+Implement a multi-threaded matrix multiplication algorithm in C using pthreads:
+
+```c
+void multiply_matrices_threaded(int** A, int** B, int** C, 
+                               int rows, int cols, int threads);
+```
+
+### Exercise 2: Real-Time Task Scheduler
+Create a simple real-time task scheduler that implements Rate Monotonic Scheduling:
+
+```c
+typedef struct {
+    char name[32];
+    int period;
+    int deadline;
+    int execution_time;
+    int priority;
+} Task;
+
+void schedule_tasks(Task* tasks, int num_tasks);
+```
+
+### Exercise 3: Network Server with Thread Pool
+Implement a multi-threaded network server that uses a thread pool to handle client connections:
+
+```c
+typedef struct {
+    int server_socket;
+    int max_threads;
+    pthread_t* threads;
+    int running;
+} ThreadPoolServer;
+
+ThreadPoolServer* create_server(int port, int max_threads);
+void destroy_server(ThreadPoolServer* server);
+```
+
+## Advanced Topics Summary
+
+### Key Advanced Concepts
+
+1. **Multi-threading**: Direct control over system threads and synchronization
+2. **Network Programming**: Low-level socket programming and protocols
+3. **Graphics Programming**: Hardware-accelerated graphics with libraries like SDL2
+4. **Embedded Programming**: Bare metal programming for microcontrollers
+5. **Real-Time Systems**: Deterministic timing and scheduling
+6. **Modern C Features**: C11/C17 features for safer and more efficient code
+
+### Performance Considerations
+
+- **Thread Safety**: Use atomic operations and proper synchronization
+- **Memory Management**: Efficient allocation strategies for real-time systems
+- **Cache Optimization**: Data structure design for embedded systems
+- **Timing Constraints**: Meeting real-time deadlines
+- **Resource Management**: Efficient use of limited embedded resources
+
+### Best Practices
+
+- Use appropriate synchronization primitives
+- Implement proper error handling for network operations
+- Design for real-time constraints
+- Optimize for embedded system limitations
+- Leverage modern C features for safety and performance
+- Test thoroughly in target environments
+
+## Next Steps
+
+This module has covered advanced C programming topics that demonstrate the language's power and versatility. To continue your C programming journey:
+
+1. **Explore specific domains**: Choose an area of interest (embedded, graphics, networking, etc.)
+2. **Practice with real projects**: Build complete applications using these concepts
+3. **Study existing codebases**: Learn from open-source C projects
+4. **Contribute to projects**: Join open-source communities
+5. **Stay updated**: Follow C language developments and new features
+
+C programming remains essential in many critical areas of software development, from operating systems to embedded devices. The skills you've learned in this course provide a solid foundation for advanced software development and system programming.
+
+Remember that C's power comes with responsibility - always prioritize safety, correctness, and maintainability in your code. 

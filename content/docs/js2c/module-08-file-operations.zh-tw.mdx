@@ -1,0 +1,356 @@
+---
+title: "檔案操作和 I/O"
+description: "從 JavaScript 視角學習 C 語言檔案操作，理解檔案 I/O、錯誤處理，並對比 JavaScript File API。"
+---
+
+# 檔案操作和 I/O
+
+## 1. 概念介紹
+
+### 從 JavaScript File API 到 C 檔案操作
+
+在 JavaScript 中，檔案操作通常是非同步的，透過 File API 或 Node.js fs 模組處理。而在 C 語言中，檔案操作是同步的，使用底層系統呼叫，提供對檔案處理的直接控制。
+
+> 💡 **核心概念**：C 檔案操作給你對檔案 I/O 的精確控制，但需要仔細的錯誤處理和資源管理。
+
+## 2. 基礎檔案操作
+
+<UniversalEditor title="基礎檔案操作" compare={true}>
+```javascript !! js
+// JavaScript - File API (瀏覽器)
+const fileInput = document.getElementById('fileInput');
+fileInput.addEventListener('change', (event) => {
+    const file = event.target.files[0];
+    const reader = new FileReader();
+    
+    reader.onload = function(e) {
+        console.log('檔案內容:', e.target.result);
+    };
+    
+    reader.readAsText(file);
+});
+
+// Node.js fs 模組
+const fs = require('fs');
+
+// 同步讀取
+try {
+    const data = fs.readFileSync('input.txt', 'utf8');
+    console.log('檔案內容:', data);
+} catch (err) {
+    console.error('讀取檔案錯誤:', err);
+}
+
+// 非同步讀取
+fs.readFile('input.txt', 'utf8', (err, data) => {
+    if (err) {
+        console.error('錯誤:', err);
+        return;
+    }
+    console.log('檔案內容:', data);
+});
+```
+
+```c !! c
+#include <stdio.h>
+#include <stdlib.h>
+
+int main() {
+    FILE* file;
+    char buffer[1024];
+    
+    // 以讀取模式開啟檔案
+    file = fopen("input.txt", "r");
+    if (file == NULL) {
+        printf("錯誤：無法以讀取模式開啟檔案\n");
+        return 1;
+    }
+    
+    // 讀取檔案內容
+    while (fgets(buffer, sizeof(buffer), file) != NULL) {
+        printf("行: %s", buffer);
+    }
+    
+    // 關閉檔案
+    fclose(file);
+    
+    // 寫入檔案
+    file = fopen("output.txt", "w");
+    if (file == NULL) {
+        printf("錯誤：無法以寫入模式開啟檔案\n");
+        return 1;
+    }
+    
+    fprintf(file, "你好，C 檔案操作！\n");
+    fprintf(file, "這是一個測試檔案。\n");
+    
+    fclose(file);
+    printf("檔案寫入成功\n");
+    
+    return 0;
+}
+```
+</UniversalEditor>
+
+## 3. 檔案模式和操作
+
+<UniversalEditor title="檔案模式" compare={true}>
+```javascript !! js
+// JavaScript - 不同的檔案操作
+const fs = require('fs');
+
+// 讀取檔案
+fs.readFile('data.txt', 'utf8', (err, data) => {
+    if (err) throw err;
+    console.log(data);
+});
+
+// 寫入檔案（覆蓋）
+fs.writeFile('output.txt', '新內容', (err) => {
+    if (err) throw err;
+    console.log('檔案已寫入');
+});
+
+// 追加到檔案
+fs.appendFile('log.txt', '新日誌條目\n', (err) => {
+    if (err) throw err;
+    console.log('已追加到檔案');
+});
+
+// 檢查檔案是否存在
+if (fs.existsSync('data.txt')) {
+    console.log('檔案存在');
+}
+```
+
+```c !! c
+#include <stdio.h>
+#include <stdlib.h>
+
+int main() {
+    FILE* file;
+    
+    // 不同的檔案模式
+    // "r" - 唯讀
+    // "w" - 寫入（建立新檔案，截斷現有檔案）
+    // "a" - 追加
+    // "r+" - 讀寫
+    // "w+" - 讀寫（建立新檔案）
+    // "a+" - 讀和追加
+    
+    // 讀取模式
+    file = fopen("data.txt", "r");
+    if (file != NULL) {
+        printf("檔案已以讀取模式開啟\n");
+        fclose(file);
+    }
+    
+    // 寫入模式（覆蓋）
+    file = fopen("output.txt", "w");
+    if (file != NULL) {
+        fprintf(file, "這會覆蓋檔案\n");
+        fclose(file);
+    }
+    
+    // 追加模式
+    file = fopen("log.txt", "a");
+    if (file != NULL) {
+        fprintf(file, "新日誌條目\n");
+        fclose(file);
+    }
+    
+    // 讀寫模式
+    file = fopen("data.txt", "r+");
+    if (file != NULL) {
+        // 可以同時讀寫
+        char buffer[100];
+        fgets(buffer, sizeof(buffer), file);
+        printf("讀取: %s", buffer);
+        
+        fseek(file, 0, SEEK_END); // 跳到末尾
+        fprintf(file, "追加的內容\n");
+        fclose(file);
+    }
+    
+    return 0;
+}
+```
+</UniversalEditor>
+
+## 4. 錯誤處理和檔案定位
+
+<UniversalEditor title="錯誤處理" compare={true}>
+```javascript !! js
+// JavaScript - 錯誤處理
+const fs = require('fs');
+
+function readFileSafely(filename) {
+    try {
+        const data = fs.readFileSync(filename, 'utf8');
+        return data;
+    } catch (error) {
+        if (error.code === 'ENOENT') {
+            console.log('檔案未找到');
+        } else if (error.code === 'EACCES') {
+            console.log('權限被拒絕');
+        } else {
+            console.log('錯誤:', error.message);
+        }
+        return null;
+    }
+}
+
+// 檔案定位（Node.js Buffer）
+const buffer = Buffer.alloc(1024);
+const fd = fs.openSync('data.txt', 'r');
+fs.readSync(fd, buffer, 0, 100, 50); // 從位置 50 開始讀取 100 位元組
+fs.closeSync(fd);
+```
+
+```c !! c
+#include <stdio.h>
+#include <stdlib.h>
+#include <errno.h>
+#include <string.h>
+
+int main() {
+    FILE* file;
+    char buffer[1024];
+    
+    // 開啟檔案並進行錯誤檢查
+    file = fopen("不存在的檔案.txt", "r");
+    if (file == NULL) {
+        printf("開啟檔案錯誤: %s\n", strerror(errno));
+        
+        // 檢查特定錯誤類型
+        if (errno == ENOENT) {
+            printf("檔案不存在\n");
+        } else if (errno == EACCES) {
+            printf("權限被拒絕\n");
+        }
+        return 1;
+    }
+    
+    // 檔案定位
+    fseek(file, 0, SEEK_SET);   // 檔案開頭
+    fseek(file, 0, SEEK_END);   // 檔案末尾
+    fseek(file, 10, SEEK_CUR);  // 從當前位置向後 10 位元組
+    
+    // 取得當前位置
+    long position = ftell(file);
+    printf("當前位置: %ld\n", position);
+    
+    // 讀取指定數量
+    size_t bytes_read = fread(buffer, 1, 100, file);
+    if (bytes_read < 100) {
+        if (feof(file)) {
+            printf("已到達檔案末尾\n");
+        }
+        if (ferror(file)) {
+            printf("讀取檔案錯誤\n");
+        }
+    }
+    
+    fclose(file);
+    return 0;
+}
+```
+</UniversalEditor>
+
+## 5. 二進位檔案操作
+
+<UniversalEditor title="二進位檔案操作" compare={true}>
+```javascript !! js
+// JavaScript - 二進位檔案處理
+const fs = require('fs');
+
+// 讀取二進位檔案
+fs.readFile('image.jpg', (err, data) => {
+    if (err) throw err;
+    console.log('二進位資料長度:', data.length);
+    
+    // 處理二進位資料
+    const buffer = Buffer.from(data);
+    console.log('前 10 位元組:', buffer.slice(0, 10));
+});
+
+// 寫入二進位資料
+const binaryData = Buffer.from([0x48, 0x65, 0x6C, 0x6C, 0x6F]); // "Hello"
+fs.writeFile('binary.dat', binaryData, (err) => {
+    if (err) throw err;
+    console.log('二進位檔案已寫入');
+});
+```
+
+```c !! c
+#include <stdio.h>
+#include <stdlib.h>
+
+// 二進位資料結構
+typedef struct {
+    int id;
+    char name[50];
+    float score;
+} Student;
+
+int main() {
+    FILE* file;
+    Student student;
+    
+    // 寫入二進位資料
+    file = fopen("students.dat", "wb");
+    if (file == NULL) {
+        printf("以寫入模式開啟檔案錯誤\n");
+        return 1;
+    }
+    
+    // 寫入學生記錄
+    Student students[] = {
+        {1, "Alice", 95.5},
+        {2, "Bob", 87.2},
+        {3, "Charlie", 92.8}
+    };
+    
+    fwrite(students, sizeof(Student), 3, file);
+    fclose(file);
+    
+    // 讀取二進位資料
+    file = fopen("students.dat", "rb");
+    if (file == NULL) {
+        printf("以讀取模式開啟檔案錯誤\n");
+        return 1;
+    }
+    
+    // 讀取學生記錄
+    while (fread(&student, sizeof(Student), 1, file) == 1) {
+        printf("ID: %d, 姓名: %s, 分數: %.1f\n", 
+               student.id, student.name, student.score);
+    }
+    
+    fclose(file);
+    return 0;
+}
+```
+</UniversalEditor>
+
+## 6. 常見陷阱
+- **未檢查檔案開啟成功**：始終檢查 `fopen()` 是否返回 NULL
+- **忘記關閉檔案**：始終呼叫 `fclose()` 以防止資源洩漏
+- **緩衝區溢位**：確保緩衝區大小對檔案操作足夠
+- **檔案定位錯誤**：謹慎使用 `fseek()` 和 `ftell()`
+- **二進位與文字模式**：為檔案類型使用適當的模式
+
+## 7. 練習題
+1. 撰寫一個程式，將一個檔案複製到另一個檔案，適當處理錯誤。
+2. 建立一個函數，逐行讀取檔案並計算單字數量。
+3. 撰寫一個程式，將帶時間戳的資料追加到日誌檔案。
+
+## 8. 效能分析
+- C 檔案操作通常比 JavaScript 更快，因為直接使用系統呼叫
+- 緩衝 I/O（`fprintf`、`fscanf`）比逐字元 I/O 更高效
+- 二進位檔案操作比文字操作更快
+- 適當的錯誤處理對健壯的檔案操作至關重要
+
+---
+
+> **小結**：C 檔案操作提供底層控制和高性能，但需要仔細的錯誤處理和資源管理。理解檔案模式、定位和二進位操作對系統程式設計至關重要。 
