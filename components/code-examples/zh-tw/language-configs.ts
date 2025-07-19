@@ -65,4 +65,12 @@ export const languageConfigs: LanguageConfig[] = [
     syntax: 'c',
     description: '高效的系統編程語言，記憶體管理專家'
   },
+  {
+    value: 'java',
+    label: 'Java',
+    icon: '☕',
+    color: 'bg-red-600',
+    syntax: 'java',
+    description: '企業級物件導向編程語言'
+  },
 ]; 

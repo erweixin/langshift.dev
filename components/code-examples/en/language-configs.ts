@@ -65,4 +65,12 @@ export const languageConfigs: LanguageConfig[] = [
     syntax: 'c',
     description: 'Efficient systems programming language with manual memory management'
   },
+  {
+    value: 'java',
+    label: 'Java',
+    icon: '☕',
+    color: 'bg-red-600',
+    syntax: 'java',
+    description: 'Enterprise-grade object-oriented programming language'
+  },
 ]; 

@@ -128,6 +128,23 @@ export const courseKeywords = {
       'low-level programming', 'performance optimization', 'malloc', 'free', 'pointers',
       'memory safety', 'data structures', 'algorithm implementation', 'file operations', 'system calls'
     ]
+  },
+  'js2java': {
+    'zh-cn': [
+      'JavaScript', 'Java', '面向对象编程', '企业级开发', 'Spring框架',
+      'JVM', '并发编程', '多线程', '泛型', '集合框架',
+      'Maven', 'Gradle', '微服务', 'RESTful API', 'JPA'
+    ],
+    'zh-tw': [
+      'JavaScript', 'Java', '物件導向程式設計', '企業級開發', 'Spring框架',
+      'JVM', '並發程式設計', '多執行緒', '泛型', '集合框架',
+      'Maven', 'Gradle', '微服務', 'RESTful API', 'JPA'
+    ],
+    'en': [
+      'JavaScript', 'Java', 'object-oriented programming', 'enterprise development', 'Spring framework',
+      'JVM', 'concurrent programming', 'multithreading', 'generics', 'collections framework',
+      'Maven', 'Gradle', 'microservices', 'RESTful API', 'JPA'
+    ]
   }
 };
 
