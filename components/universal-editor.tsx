@@ -299,31 +299,34 @@ class LanguageRuntimeManager {
   }
 
   private async loadJavaRuntime(): Promise<any> {
-    // 使用在线 Java 编译器 API
+    // 使用本地 API 代理 Judge0 在线 Java 编译器
     return {
       execute: async (code: string) => {
         try {
-          // 这里可以集成在线 Java 编译器 API
-          // 例如 JDoodle API 或其他在线编译器
-          const response = await fetch('https://api.jdoodle.com/v1/execute', {
+          const response = await fetch('/api/java', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
             },
-            body: JSON.stringify({
-              script: code,
-              language: 'java',
-              versionIndex: '3',
-            }),
+            body: JSON.stringify({ code })
           })
+          
+          if (!response.ok) {
+            throw new Error(`API 请求失败: ${response.status}`)
+          }
           
           const result = await response.json()
           return {
             output: result.output || '',
             error: result.error || null
           }
+          
         } catch (error: any) {
-          return { output: '', error: error.message }
+          console.error('Java 代码执行错误:', error)
+          return { 
+            output: '', 
+            error: `Java 代码执行失败: ${error.message}` 
+          }
         }
       }
     }

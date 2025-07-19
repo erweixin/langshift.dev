@@ -73,4 +73,12 @@ export const languageConfigs: LanguageConfig[] = [
     syntax: 'kotlin',
     description: '现代、安全的 JVM 编程语言，协程专家'
   },
+  { 
+    value: 'java',
+    label: 'Java',
+    icon: '☕',
+    color: 'bg-red-600',
+    syntax: 'java',
+    description: '企业级面向对象编程语言'
+  },
 ]; 

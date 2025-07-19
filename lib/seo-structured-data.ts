@@ -66,6 +66,14 @@ export const js2kotlinCourseData = {
   url: "https://langshift.dev/docs/js2kotlin",
   provider: "LangShift.dev",
   courseMode: "online",
+  educationalLevel: "Advanced"
+}
+export const js2javaCourseData = {
+  name: "JavaScript to Java Tutorial",
+  description: "Learn Java from a JavaScript developer perspective, mastering object-oriented programming, enterprise development, and Spring framework.",
+  url: "https://langshift.dev/docs/js2java",
+  provider: "LangShift.dev",
+  courseMode: "online",
   educationalLevel: "Intermediate"
 };
 

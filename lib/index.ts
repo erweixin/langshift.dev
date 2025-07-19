@@ -92,4 +92,17 @@ export const getCourses = (t: TranslationKeys) => ([
     borderColor: 'border-purple-500/20',
     gradient: 'from-purple-400/20 to-violet-500/20',
   },
+  {
+    name: 'js2java',
+    title: t.home.courses.js2java.title,
+    description: t.home.courses.js2java.description,
+    features: t.home.courses.js2java.features,
+    duration: t.home.courses.js2java.duration,
+    level: t.home.courses.js2java.level,
+    icon: '☕',
+    color: 'from-red-500 to-orange-600',
+    bgColor: 'bg-red-500/10',
+    borderColor: 'border-red-500/20',
+    gradient: 'from-red-400/20 to-orange-500/20',
+  },
 ]);
