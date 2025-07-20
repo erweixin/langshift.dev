@@ -1,0 +1,988 @@
+---
+title: "Performance Optimization"
+description: "Learn Java performance optimization techniques including JVM tuning, memory management optimization, concurrent performance optimization, and application performance monitoring"
+---
+
+# Performance Optimization
+
+Performance optimization is a crucial topic in Java development. Through proper optimization strategies, you can significantly improve application performance and response speed.
+
+## JVM Tuning
+
+### 1. JVM Parameter Tuning
+
+#### Memory Parameters
+<UniversalEditor title="JVM Memory Parameters">
+```bash !! bash
+# Heap memory settings
+-Xms2g                    # Initial heap size
+-Xmx4g                    # Maximum heap size
+-XX:NewRatio=3            # New generation to old generation ratio
+-XX:SurvivorRatio=8       # Eden to Survivor ratio
+
+# New generation settings
+-XX:NewSize=512m          # New generation initial size
+-XX:MaxNewSize=1g         # New generation maximum size
+
+# Metaspace settings
+-XX:MetaspaceSize=256m    # Metaspace initial size
+-XX:MaxMetaspaceSize=512m # Metaspace maximum size
+
+# Garbage collector settings
+-XX:+UseG1GC              # Use G1 garbage collector
+-XX:MaxGCPauseMillis=200  # Maximum GC pause time
+-XX:G1HeapRegionSize=16m  # G1 region size
+
+# Other optimization parameters
+-XX:+UseStringDeduplication  # String deduplication
+-XX:+UseCompressedOops       # Compressed object pointers
+-XX:+UseCompressedClassPointers # Compressed class pointers
+```
+
+```java !! java
+// Monitor JVM memory usage
+public class JvmMemoryMonitor {
+    
+    public static void printMemoryInfo() {
+        Runtime runtime = Runtime.getRuntime();
+        
+        long totalMemory = runtime.totalMemory();
+        long freeMemory = runtime.freeMemory();
+        long usedMemory = totalMemory - freeMemory;
+        long maxMemory = runtime.maxMemory();
+        
+        System.out.println("=== JVM Memory Info ===");
+        System.out.println("Total Memory: " + formatBytes(totalMemory));
+        System.out.println("Free Memory: " + formatBytes(freeMemory));
+        System.out.println("Used Memory: " + formatBytes(usedMemory));
+        System.out.println("Max Memory: " + formatBytes(maxMemory));
+        System.out.println("Memory Usage: " + 
+                          String.format("%.2f%%", (double) usedMemory / maxMemory * 100));
+    }
+    
+    private static String formatBytes(long bytes) {
+        return String.format("%.2f MB", bytes / 1024.0 / 1024.0);
+    }
+    
+    public static void main(String[] args) {
+        printMemoryInfo();
+        
+        // Trigger garbage collection
+        System.gc();
+        
+        System.out.println("\nAfter GC:");
+        printMemoryInfo();
+    }
+}
+```
+</UniversalEditor>
+
+#### GC Tuning
+<UniversalEditor title="GC Tuning">
+```java !! java
+// GC monitoring and analysis
+public class GCMonitor {
+    
+    public static void monitorGC() {
+        List<GarbageCollectorMXBean> gcBeans = ManagementFactory.getGarbageCollectorMXBeans();
+        
+        System.out.println("=== GC Information ===");
+        for (GarbageCollectorMXBean gcBean : gcBeans) {
+            System.out.println("GC Name: " + gcBean.getName());
+            System.out.println("Collection Count: " + gcBean.getCollectionCount());
+            System.out.println("Collection Time: " + gcBean.getCollectionTime() + "ms");
+            
+            // Calculate average pause time
+            if (gcBean.getCollectionCount() > 0) {
+                double avgPauseTime = (double) gcBean.getCollectionTime() / gcBean.getCollectionCount();
+                System.out.println("Average Pause Time: " + String.format("%.2f", avgPauseTime) + "ms");
+            }
+        }
+    }
+    
+    public static void printGCStats() {
+        MemoryMXBean memoryBean = ManagementFactory.getMemoryMXBean();
+        MemoryUsage heapUsage = memoryBean.getHeapMemoryUsage();
+        
+        System.out.println("=== Heap Memory Usage ===");
+        System.out.println("Init: " + formatBytes(heapUsage.getInit()));
+        System.out.println("Used: " + formatBytes(heapUsage.getUsed()));
+        System.out.println("Committed: " + formatBytes(heapUsage.getCommitted()));
+        System.out.println("Max: " + formatBytes(heapUsage.getMax()));
+    }
+    
+    private static String formatBytes(long bytes) {
+        return String.format("%.2f MB", bytes / 1024.0 / 1024.0);
+    }
+}
+```
+
+```bash !! bash
+# GC logging parameters
+-XX:+PrintGC                    # Print GC information
+-XX:+PrintGCDetails             # Print detailed GC information
+-XX:+PrintGCTimeStamps          # Print GC timestamps
+-XX:+PrintGCDateStamps          # Print GC date stamps
+-Xloggc:gc.log                  # GC log file
+-XX:+UseGCLogFileRotation       # Enable GC log rotation
+-XX:NumberOfGCLogFiles=5        # Number of GC log files
+-XX:GCLogFileSize=100M          # GC log file size
+```
+</UniversalEditor>
+
+### 2. Garbage Collector Selection
+
+#### Different GC Characteristics
+<UniversalEditor title="Garbage Collectors">
+```bash !! bash
+# Serial GC (Single-threaded)
+-XX:+UseSerialGC
+# Use case: Single-core CPU, small memory applications
+
+# Parallel GC (Multi-threaded)
+-XX:+UseParallelGC
+# Use case: Multi-core CPU, medium memory applications
+
+# CMS GC (Concurrent Mark Sweep)
+-XX:+UseConcMarkSweepGC
+# Use case: Low latency requirements, medium memory applications
+
+# G1 GC (Garbage First)
+-XX:+UseG1GC
+# Use case: Large memory applications, low latency requirements
+
+# ZGC (Low latency)
+-XX:+UseZGC
+# Use case: Very large memory, extremely low latency requirements
+
+# Shenandoah GC
+-XX:+UseShenandoahGC
+# Use case: Low latency, large memory applications
+```
+
+```java !! java
+// Test performance of different GCs
+public class GCTest {
+    
+    public static void main(String[] args) {
+        // Create many objects to trigger GC
+        List<String> objects = new ArrayList<>();
+        
+        for (int i = 0; i < 1000000; i++) {
+            objects.add("Object-" + i);
+            
+            // Print memory usage every 10000 objects
+            if (i % 10000 == 0) {
+                printMemoryUsage();
+            }
+        }
+        
+        // Manually trigger GC
+        System.gc();
+        printMemoryUsage();
+    }
+    
+    private static void printMemoryUsage() {
+        Runtime runtime = Runtime.getRuntime();
+        long usedMemory = runtime.totalMemory() - runtime.freeMemory();
+        System.out.println("Used Memory: " + usedMemory / 1024 / 1024 + " MB");
+    }
+}
+```
+</UniversalEditor>
+
+## Memory Management Optimization
+
+### 1. Object Pool Pattern
+
+#### Connection Pool Implementation
+<UniversalEditor title="Object Pool">
+```java !! java
+// Generic object pool
+public class ObjectPool<T> {
+    private final Queue<T> pool;
+    private final Supplier<T> factory;
+    private final Consumer<T> resetter;
+    private final int maxSize;
+    
+    public ObjectPool(Supplier<T> factory, Consumer<T> resetter, int maxSize) {
+        this.factory = factory;
+        this.resetter = resetter;
+        this.maxSize = maxSize;
+        this.pool = new ConcurrentLinkedQueue<>();
+    }
+    
+    public T borrow() {
+        T object = pool.poll();
+        if (object == null) {
+            object = factory.get();
+        }
+        return object;
+    }
+    
+    public void release(T object) {
+        if (object != null && pool.size() < maxSize) {
+            resetter.accept(object);
+            pool.offer(object);
+        }
+    }
+    
+    public int size() {
+        return pool.size();
+    }
+}
+
+// Database connection pool example
+public class DatabaseConnectionPool {
+    private final ObjectPool<Connection> pool;
+    
+    public DatabaseConnectionPool(String url, String username, String password, int maxSize) {
+        this.pool = new ObjectPool<>(
+            () -> DriverManager.getConnection(url, username, password),
+            connection -> {
+                try {
+                    connection.clearWarnings();
+                    connection.setAutoCommit(true);
+                } catch (SQLException e) {
+                    // Handle exception
+                }
+            },
+            maxSize
+        );
+    }
+    
+    public Connection getConnection() {
+        return pool.borrow();
+    }
+    
+    public void releaseConnection(Connection connection) {
+        pool.release(connection);
+    }
+}
+
+// Usage
+DatabaseConnectionPool connectionPool = new DatabaseConnectionPool(
+    "jdbc:mysql://localhost:3306/mydb", "user", "password", 10
+);
+
+try (Connection conn = connectionPool.getConnection()) {
+    // Use connection
+} finally {
+    connectionPool.releaseConnection(conn);
+}
+```
+
+```javascript !! js
+// JavaScript object pool comparison
+class ObjectPool {
+    constructor(factory, resetter, maxSize) {
+        this.factory = factory;
+        this.resetter = resetter;
+        this.maxSize = maxSize;
+        this.pool = [];
+    }
+    
+    borrow() {
+        const object = this.pool.pop();
+        if (!object) {
+            return this.factory();
+        }
+        return object;
+    }
+    
+    release(object) {
+        if (object && this.pool.length < this.maxSize) {
+            this.resetter(object);
+            this.pool.push(object);
+        }
+    }
+    
+    get size() {
+        return this.pool.length;
+    }
+}
+
+// Database connection pool
+class DatabaseConnectionPool {
+    constructor(url, username, password, maxSize) {
+        this.pool = new ObjectPool(
+            () => new Connection(url, username, password),
+            connection => connection.reset(),
+            maxSize
+        );
+    }
+    
+    getConnection() {
+        return this.pool.borrow();
+    }
+    
+    releaseConnection(connection) {
+        this.pool.release(connection);
+    }
+}
+```
+</UniversalEditor>
+
+### 2. Memory Leak Prevention
+
+#### Resource Management
+<UniversalEditor title="Memory Leak Prevention">
+```java !! java
+// Proper resource management
+public class ResourceManager {
+    
+    // Use try-with-resources for automatic cleanup
+    public static void processFile(String filename) {
+        try (FileInputStream fis = new FileInputStream(filename);
+             BufferedReader reader = new BufferedReader(new InputStreamReader(fis))) {
+            
+            String line;
+            while ((line = reader.readLine()) != null) {
+                processLine(line);
+            }
+        } catch (IOException e) {
+            // Handle exception
+        }
+    }
+    
+    // Custom resource with AutoCloseable
+    public static class DatabaseConnection implements AutoCloseable {
+        private Connection connection;
+        
+        public DatabaseConnection(String url, String username, String password) 
+                throws SQLException {
+            this.connection = DriverManager.getConnection(url, username, password);
+        }
+        
+        public void executeQuery(String sql) throws SQLException {
+            try (Statement stmt = connection.createStatement();
+                 ResultSet rs = stmt.executeQuery(sql)) {
+                // Process results
+            }
+        }
+        
+        @Override
+        public void close() throws Exception {
+            if (connection != null && !connection.isClosed()) {
+                connection.close();
+            }
+        }
+    }
+    
+    // Usage with try-with-resources
+    public static void processDatabase() {
+        try (DatabaseConnection db = new DatabaseConnection(
+                "jdbc:mysql://localhost:3306/mydb", "user", "password")) {
+            db.executeQuery("SELECT * FROM users");
+        } catch (Exception e) {
+            // Handle exception
+        }
+    }
+}
+```
+
+```javascript !! js
+// JavaScript resource management
+class ResourceManager {
+    static async processFile(filename) {
+        const fs = require('fs').promises;
+        const readline = require('readline');
+        
+        const fileStream = fs.createReadStream(filename);
+        const rl = readline.createInterface({
+            input: fileStream,
+            crlfDelay: Infinity
+        });
+        
+        try {
+            for await (const line of rl) {
+                this.processLine(line);
+            }
+        } finally {
+            rl.close();
+            fileStream.destroy();
+        }
+    }
+    
+    static async processDatabase() {
+        const connection = await this.createConnection();
+        try {
+            await connection.executeQuery('SELECT * FROM users');
+        } finally {
+            await connection.close();
+        }
+    }
+}
+```
+</UniversalEditor>
+
+## Concurrent Performance Optimization
+
+### 1. Thread Pool Optimization
+
+#### Thread Pool Configuration
+<UniversalEditor title="Thread Pool Optimization">
+```java !! java
+// Optimized thread pool configuration
+public class ThreadPoolOptimizer {
+    
+    public static ThreadPoolExecutor createOptimizedThreadPool() {
+        int processors = Runtime.getRuntime().availableProcessors();
+        
+        // CPU-intensive tasks: use processors + 1 threads
+        ThreadPoolExecutor cpuPool = new ThreadPoolExecutor(
+            processors + 1,                    // Core pool size
+            processors + 1,                    // Maximum pool size
+            60L,                               // Keep alive time
+            TimeUnit.SECONDS,                  // Time unit
+            new LinkedBlockingQueue<>(1000),   // Work queue
+            new ThreadPoolExecutor.CallerRunsPolicy() // Rejection policy
+        );
+        
+        // I/O-intensive tasks: use more threads
+        ThreadPoolExecutor ioPool = new ThreadPoolExecutor(
+            processors * 2,                    // Core pool size
+            processors * 4,                    // Maximum pool size
+            60L,                               // Keep alive time
+            TimeUnit.SECONDS,                  // Time unit
+            new LinkedBlockingQueue<>(1000),   // Work queue
+            new ThreadPoolExecutor.CallerRunsPolicy() // Rejection policy
+        );
+        
+        return ioPool;
+    }
+    
+    // Custom thread factory for better monitoring
+    public static class NamedThreadFactory implements ThreadFactory {
+        private final String namePrefix;
+        private final AtomicInteger threadNumber = new AtomicInteger(1);
+        
+        public NamedThreadFactory(String namePrefix) {
+            this.namePrefix = namePrefix;
+        }
+        
+        @Override
+        public Thread newThread(Runnable r) {
+            Thread thread = new Thread(r, namePrefix + "-" + threadNumber.getAndIncrement());
+            thread.setDaemon(false);
+            thread.setPriority(Thread.NORM_PRIORITY);
+            return thread;
+        }
+    }
+    
+    // Thread pool with monitoring
+    public static class MonitoredThreadPool extends ThreadPoolExecutor {
+        private final AtomicLong totalTaskTime = new AtomicLong();
+        private final AtomicLong totalTasks = new AtomicLong();
+        
+        public MonitoredThreadPool(int corePoolSize, int maximumPoolSize,
+                                 long keepAliveTime, TimeUnit unit,
+                                 BlockingQueue<Runnable> workQueue) {
+            super(corePoolSize, maximumPoolSize, keepAliveTime, unit, workQueue);
+        }
+        
+        @Override
+        protected void beforeExecute(Thread t, Runnable r) {
+            super.beforeExecute(t, r);
+            // Add monitoring logic
+        }
+        
+        @Override
+        protected void afterExecute(Runnable r, Throwable t) {
+            super.afterExecute(r, t);
+            // Add monitoring logic
+        }
+        
+        public double getAverageTaskTime() {
+            long tasks = totalTasks.get();
+            return tasks > 0 ? (double) totalTaskTime.get() / tasks : 0;
+        }
+    }
+}
+```
+
+```javascript !! js
+// JavaScript worker thread optimization
+const { Worker, isMainThread, parentPort, workerData } = require('worker_threads');
+
+class ThreadPoolOptimizer {
+    static createWorkerPool(size) {
+        const workers = [];
+        
+        for (let i = 0; i < size; i++) {
+            const worker = new Worker('./worker.js');
+            workers.push(worker);
+        }
+        
+        return workers;
+    }
+    
+    static async executeTask(workers, task) {
+        return new Promise((resolve, reject) => {
+            const worker = workers.find(w => !w.busy);
+            if (!worker) {
+                reject(new Error('No available workers'));
+                return;
+            }
+            
+            worker.busy = true;
+            worker.postMessage(task);
+            
+            worker.once('message', (result) => {
+                worker.busy = false;
+                resolve(result);
+            });
+            
+            worker.once('error', (error) => {
+                worker.busy = false;
+                reject(error);
+            });
+        });
+    }
+}
+```
+</UniversalEditor>
+
+### 2. Lock Optimization
+
+#### Lock-Free Data Structures
+<UniversalEditor title="Lock-Free Data Structures">
+```java !! java
+// Lock-free counter using AtomicLong
+public class LockFreeCounter {
+    private final AtomicLong counter = new AtomicLong(0);
+    
+    public void increment() {
+        counter.incrementAndGet();
+    }
+    
+    public void decrement() {
+        counter.decrementAndGet();
+    }
+    
+    public long get() {
+        return counter.get();
+    }
+    
+    public long addAndGet(long delta) {
+        return counter.addAndGet(delta);
+    }
+}
+
+// Lock-free stack using CAS
+public class LockFreeStack<T> {
+    private static class Node<T> {
+        final T item;
+        volatile Node<T> next;
+        
+        Node(T item) {
+            this.item = item;
+        }
+    }
+    
+    private volatile Node<T> head;
+    
+    public void push(T item) {
+        Node<T> newHead = new Node<>(item);
+        Node<T> oldHead;
+        do {
+            oldHead = head;
+            newHead.next = oldHead;
+        } while (!head.compareAndSet(oldHead, newHead));
+    }
+    
+    public T pop() {
+        Node<T> oldHead;
+        Node<T> newHead;
+        do {
+            oldHead = head;
+            if (oldHead == null) {
+                return null;
+            }
+            newHead = oldHead.next;
+        } while (!head.compareAndSet(oldHead, newHead));
+        
+        return oldHead.item;
+    }
+}
+
+// Optimized concurrent hash map
+public class OptimizedConcurrentMap<K, V> {
+    private final ConcurrentHashMap<K, V> map = new ConcurrentHashMap<>();
+    
+    public V computeIfAbsent(K key, Function<K, V> mappingFunction) {
+        return map.computeIfAbsent(key, mappingFunction);
+    }
+    
+    public V merge(K key, V value, BiFunction<V, V, V> remappingFunction) {
+        return map.merge(key, value, remappingFunction);
+    }
+    
+    public void forEach(BiConsumer<K, V> action) {
+        map.forEach(action);
+    }
+}
+```
+
+```javascript !! js
+// JavaScript atomic operations (using SharedArrayBuffer)
+class LockFreeCounter {
+    constructor() {
+        this.buffer = new SharedArrayBuffer(8);
+        this.counter = new BigInt64Array(this.buffer);
+    }
+    
+    increment() {
+        return Atomics.add(this.counter, 0, 1n);
+    }
+    
+    decrement() {
+        return Atomics.sub(this.counter, 0, 1n);
+    }
+    
+    get() {
+        return Atomics.load(this.counter, 0);
+    }
+    
+    addAndGet(delta) {
+        return Atomics.add(this.counter, 0, BigInt(delta));
+    }
+}
+
+// Optimized concurrent map using Map
+class OptimizedConcurrentMap {
+    constructor() {
+        this.map = new Map();
+    }
+    
+    computeIfAbsent(key, mappingFunction) {
+        if (!this.map.has(key)) {
+            this.map.set(key, mappingFunction(key));
+        }
+        return this.map.get(key);
+    }
+    
+    merge(key, value, remappingFunction) {
+        const oldValue = this.map.get(key);
+        const newValue = oldValue ? remappingFunction(oldValue, value) : value;
+        this.map.set(key, newValue);
+        return newValue;
+    }
+}
+```
+</UniversalEditor>
+
+## Application Performance Monitoring
+
+### 1. Metrics Collection
+
+#### Performance Metrics
+<UniversalEditor title="Performance Metrics">
+```java !! java
+// Performance metrics collection
+public class PerformanceMetrics {
+    private final AtomicLong requestCount = new AtomicLong();
+    private final AtomicLong totalResponseTime = new AtomicLong();
+    private final AtomicLong errorCount = new AtomicLong();
+    private final AtomicLong maxResponseTime = new AtomicLong();
+    private final AtomicLong minResponseTime = new AtomicLong(Long.MAX_VALUE);
+    
+    public void recordRequest(long responseTime) {
+        requestCount.incrementAndGet();
+        totalResponseTime.addAndGet(responseTime);
+        maxResponseTime.updateAndGet(current -> Math.max(current, responseTime));
+        minResponseTime.updateAndGet(current -> Math.min(current, responseTime));
+    }
+    
+    public void recordError() {
+        errorCount.incrementAndGet();
+    }
+    
+    public double getAverageResponseTime() {
+        long count = requestCount.get();
+        return count > 0 ? (double) totalResponseTime.get() / count : 0;
+    }
+    
+    public long getMaxResponseTime() {
+        return maxResponseTime.get();
+    }
+    
+    public long getMinResponseTime() {
+        long min = minResponseTime.get();
+        return min == Long.MAX_VALUE ? 0 : min;
+    }
+    
+    public double getErrorRate() {
+        long total = requestCount.get();
+        return total > 0 ? (double) errorCount.get() / total : 0;
+    }
+    
+    public void reset() {
+        requestCount.set(0);
+        totalResponseTime.set(0);
+        errorCount.set(0);
+        maxResponseTime.set(0);
+        minResponseTime.set(Long.MAX_VALUE);
+    }
+}
+
+// Performance interceptor
+public class PerformanceInterceptor {
+    private final PerformanceMetrics metrics = new PerformanceMetrics();
+    
+    public Object intercept(MethodInvocation invocation) throws Throwable {
+        long startTime = System.currentTimeMillis();
+        
+        try {
+            Object result = invocation.proceed();
+            long responseTime = System.currentTimeMillis() - startTime;
+            metrics.recordRequest(responseTime);
+            return result;
+        } catch (Exception e) {
+            metrics.recordError();
+            throw e;
+        }
+    }
+    
+    public PerformanceMetrics getMetrics() {
+        return metrics;
+    }
+}
+```
+
+```javascript !! js
+// JavaScript performance metrics
+class PerformanceMetrics {
+    constructor() {
+        this.requestCount = 0;
+        this.totalResponseTime = 0;
+        this.errorCount = 0;
+        this.maxResponseTime = 0;
+        this.minResponseTime = Infinity;
+    }
+    
+    recordRequest(responseTime) {
+        this.requestCount++;
+        this.totalResponseTime += responseTime;
+        this.maxResponseTime = Math.max(this.maxResponseTime, responseTime);
+        this.minResponseTime = Math.min(this.minResponseTime, responseTime);
+    }
+    
+    recordError() {
+        this.errorCount++;
+    }
+    
+    getAverageResponseTime() {
+        return this.requestCount > 0 ? this.totalResponseTime / this.requestCount : 0;
+    }
+    
+    getMaxResponseTime() {
+        return this.maxResponseTime;
+    }
+    
+    getMinResponseTime() {
+        return this.minResponseTime === Infinity ? 0 : this.minResponseTime;
+    }
+    
+    getErrorRate() {
+        return this.requestCount > 0 ? this.errorCount / this.requestCount : 0;
+    }
+    
+    reset() {
+        this.requestCount = 0;
+        this.totalResponseTime = 0;
+        this.errorCount = 0;
+        this.maxResponseTime = 0;
+        this.minResponseTime = Infinity;
+    }
+}
+```
+</UniversalEditor>
+
+### 2. Health Checks
+
+#### Application Health Monitoring
+<UniversalEditor title="Health Checks">
+```java !! java
+// Health check implementation
+public class HealthCheck {
+    
+    public static class HealthStatus {
+        private final String status;
+        private final Map<String, Object> details;
+        
+        public HealthStatus(String status, Map<String, Object> details) {
+            this.status = status;
+            this.details = details;
+        }
+        
+        public String getStatus() { return status; }
+        public Map<String, Object> getDetails() { return details; }
+    }
+    
+    public static HealthStatus checkDatabase() {
+        try (Connection conn = DriverManager.getConnection(
+                "jdbc:mysql://localhost:3306/mydb", "user", "password")) {
+            
+            try (Statement stmt = conn.createStatement();
+                 ResultSet rs = stmt.executeQuery("SELECT 1")) {
+                
+                if (rs.next()) {
+                    return new HealthStatus("UP", Map.of("database", "MySQL", "response_time", "1ms"));
+                } else {
+                    return new HealthStatus("DOWN", Map.of("error", "Database query failed"));
+                }
+            }
+        } catch (SQLException e) {
+            return new HealthStatus("DOWN", Map.of("error", e.getMessage()));
+        }
+    }
+    
+    public static HealthStatus checkMemory() {
+        Runtime runtime = Runtime.getRuntime();
+        long usedMemory = runtime.totalMemory() - runtime.freeMemory();
+        long maxMemory = runtime.maxMemory();
+        double memoryUsage = (double) usedMemory / maxMemory * 100;
+        
+        Map<String, Object> details = Map.of(
+            "used_memory", usedMemory / 1024 / 1024 + " MB",
+            "max_memory", maxMemory / 1024 / 1024 + " MB",
+            "memory_usage", String.format("%.2f%%", memoryUsage)
+        );
+        
+        String status = memoryUsage > 90 ? "WARNING" : "UP";
+        return new HealthStatus(status, details);
+    }
+    
+    public static HealthStatus checkDisk() {
+        File file = new File("/");
+        long totalSpace = file.getTotalSpace();
+        long freeSpace = file.getFreeSpace();
+        double diskUsage = (double) (totalSpace - freeSpace) / totalSpace * 100;
+        
+        Map<String, Object> details = Map.of(
+            "total_space", totalSpace / 1024 / 1024 / 1024 + " GB",
+            "free_space", freeSpace / 1024 / 1024 / 1024 + " GB",
+            "disk_usage", String.format("%.2f%%", diskUsage)
+        );
+        
+        String status = diskUsage > 90 ? "WARNING" : "UP";
+        return new HealthStatus(status, details);
+    }
+    
+    public static Map<String, HealthStatus> performHealthCheck() {
+        Map<String, HealthStatus> results = new HashMap<>();
+        results.put("database", checkDatabase());
+        results.put("memory", checkMemory());
+        results.put("disk", checkDisk());
+        return results;
+    }
+}
+```
+
+```javascript !! js
+// JavaScript health check
+class HealthCheck {
+    static async checkDatabase() {
+        try {
+            const startTime = Date.now();
+            // Simulate database check
+            await new Promise(resolve => setTimeout(resolve, 10));
+            const responseTime = Date.now() - startTime;
+            
+            return {
+                status: 'UP',
+                details: {
+                    database: 'MySQL',
+                    response_time: `${responseTime}ms`
+                }
+            };
+        } catch (error) {
+            return {
+                status: 'DOWN',
+                details: { error: error.message }
+            };
+        }
+    }
+    
+    static checkMemory() {
+        const usedMemory = process.memoryUsage();
+        const memoryUsage = (usedMemory.heapUsed / usedMemory.heapTotal) * 100;
+        
+        const details = {
+            used_memory: `${Math.round(usedMemory.heapUsed / 1024 / 1024)} MB`,
+            total_memory: `${Math.round(usedMemory.heapTotal / 1024 / 1024)} MB`,
+            memory_usage: `${memoryUsage.toFixed(2)}%`
+        };
+        
+        const status = memoryUsage > 90 ? 'WARNING' : 'UP';
+        return { status, details };
+    }
+    
+    static async checkDisk() {
+        const fs = require('fs').promises;
+        try {
+            const stats = await fs.stat('/');
+            const totalSpace = stats.blocks * 512;
+            const freeSpace = stats.bavail * 512;
+            const diskUsage = ((totalSpace - freeSpace) / totalSpace) * 100;
+            
+            const details = {
+                total_space: `${Math.round(totalSpace / 1024 / 1024 / 1024)} GB`,
+                free_space: `${Math.round(freeSpace / 1024 / 1024 / 1024)} GB`,
+                disk_usage: `${diskUsage.toFixed(2)}%`
+            };
+            
+            const status = diskUsage > 90 ? 'WARNING' : 'UP';
+            return { status, details };
+        } catch (error) {
+            return {
+                status: 'DOWN',
+                details: { error: error.message }
+            };
+        }
+    }
+    
+    static async performHealthCheck() {
+        const results = {};
+        results.database = await this.checkDatabase();
+        results.memory = this.checkMemory();
+        results.disk = await this.checkDisk();
+        return results;
+    }
+}
+```
+</UniversalEditor>
+
+## Summary
+
+Performance optimization in Java involves:
+
+1. **JVM Tuning**: Memory parameters, garbage collector selection, and monitoring
+2. **Memory Management**: Object pools, resource management, and leak prevention
+3. **Concurrent Optimization**: Thread pool configuration and lock-free data structures
+4. **Application Monitoring**: Metrics collection and health checks
+
+These optimization techniques help create high-performance Java applications. As a JavaScript developer, many of these concepts have parallels in JavaScript, but Java's JVM-based nature and stronger typing provide unique optimization opportunities.
+
+## Best Practices
+
+1. **Profile before optimizing** - measure performance bottlenecks
+2. **Use appropriate garbage collectors** for your use case
+3. **Implement object pools** for expensive object creation
+4. **Use lock-free data structures** when possible
+5. **Monitor application health** continuously
+6. **Optimize thread pools** based on workload characteristics
+7. **Use try-with-resources** for automatic resource management
+
+## Exercises
+
+1. Configure JVM parameters for your application
+2. Implement an object pool for database connections
+3. Create a performance monitoring system
+4. Optimize thread pool configuration
+5. Implement health checks for your application
+
+## Next Steps
+
+Congratulations! You have completed the comprehensive JavaScript to Java learning path. You now have a solid foundation in Java development, Spring framework, and performance optimization techniques. 

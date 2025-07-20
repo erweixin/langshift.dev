@@ -1,0 +1,1122 @@
+---
+title: "Module 09: Exception Handling"
+description: "Learn Java exception handling, try-catch blocks, custom exceptions, and error management compared to JavaScript error handling patterns."
+---
+
+# Module 09: Exception Handling
+
+In this module, we'll explore Java's comprehensive exception handling system and compare it with JavaScript's error handling mechanisms. We'll learn about checked vs unchecked exceptions, try-catch-finally blocks, custom exceptions, and best practices for robust error management.
+
+## Learning Objectives
+
+By the end of this module, you will be able to:
+- Understand Java's exception hierarchy and types
+- Compare Java exception handling with JavaScript error handling
+- Implement try-catch-finally blocks effectively
+- Create and use custom exceptions
+- Apply exception handling best practices
+- Understand checked vs unchecked exceptions
+
+## Exception Basics
+
+### 1. Exception Types and Hierarchy
+
+Java has a comprehensive exception hierarchy, while JavaScript uses a simpler error system.
+
+<UniversalEditor title="Exception Types and Hierarchy" compare={true}>
+```javascript !! js
+// JavaScript - Error handling patterns
+// Built-in error types
+class CustomError extends Error {
+    constructor(message, code) {
+        super(message);
+        this.name = 'CustomError';
+        this.code = code;
+        this.timestamp = new Date();
+    }
+}
+
+class ValidationError extends Error {
+    constructor(message, field) {
+        super(message);
+        this.name = 'ValidationError';
+        this.field = field;
+    }
+}
+
+class NetworkError extends Error {
+    constructor(message, statusCode) {
+        super(message);
+        this.name = 'NetworkError';
+        this.statusCode = statusCode;
+    }
+}
+
+// Error handling patterns
+function processUserData(userData) {
+    try {
+        // Validate user data
+        if (!userData.name) {
+            throw new ValidationError('Name is required', 'name');
+        }
+        
+        if (!userData.email) {
+            throw new ValidationError('Email is required', 'email');
+        }
+        
+        if (userData.age < 0 || userData.age > 150) {
+            throw new ValidationError('Invalid age', 'age');
+        }
+        
+        // Process data
+        console.log('Processing user:', userData.name);
+        return { success: true, user: userData };
+        
+    } catch (error) {
+        if (error instanceof ValidationError) {
+            console.error(`Validation error in field ${error.field}:`, error.message);
+            return { success: false, error: error.message, field: error.field };
+        } else {
+            console.error('Unexpected error:', error.message);
+            throw error; // Re-throw unexpected errors
+        }
+    }
+}
+
+// Async error handling
+async function fetchUserData(userId) {
+    try {
+        const response = await fetch(`/api/users/${userId}`);
+        
+        if (!response.ok) {
+            throw new NetworkError(`HTTP ${response.status}`, response.status);
+        }
+        
+        const userData = await response.json();
+        return userData;
+        
+    } catch (error) {
+        if (error instanceof NetworkError) {
+            console.error(`Network error: ${error.statusCode} - ${error.message}`);
+            return null;
+        } else {
+            console.error('Unexpected error:', error.message);
+            throw error;
+        }
+    }
+}
+
+// Error handling with promises
+function processPayment(paymentData) {
+    return new Promise((resolve, reject) => {
+        try {
+            // Validate payment data
+            if (!paymentData.amount || paymentData.amount <= 0) {
+                reject(new ValidationError('Invalid payment amount', 'amount'));
+                return;
+            }
+            
+            if (!paymentData.cardNumber) {
+                reject(new ValidationError('Card number is required', 'cardNumber'));
+                return;
+            }
+            
+            // Simulate payment processing
+            setTimeout(() => {
+                if (Math.random() > 0.8) {
+                    reject(new CustomError('Payment processing failed', 'PAYMENT_FAILED'));
+                } else {
+                    resolve({ success: true, transactionId: 'txn_' + Date.now() });
+                }
+            }, 1000);
+            
+        } catch (error) {
+            reject(error);
+        }
+    });
+}
+
+// Error handling utilities
+class ErrorHandler {
+    static handle(error, context = '') {
+        console.error(`Error in ${context}:`, error.message);
+        
+        if (error instanceof ValidationError) {
+            return { type: 'validation', message: error.message, field: error.field };
+        } else if (error instanceof NetworkError) {
+            return { type: 'network', message: error.message, statusCode: error.statusCode };
+        } else if (error instanceof CustomError) {
+            return { type: 'custom', message: error.message, code: error.code };
+        } else {
+            return { type: 'unknown', message: error.message };
+        }
+    }
+    
+    static async withRetry(operation, maxRetries = 3) {
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+                return await operation();
+            } catch (error) {
+                if (attempt === maxRetries) {
+                    throw error;
+                }
+                console.log(`Attempt ${attempt} failed, retrying...`);
+                await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+            }
+        }
+    }
+}
+
+// Usage examples
+const userData = { name: 'John', email: 'john@example.com', age: 25 };
+const invalidUserData = { name: '', email: '', age: -5 };
+
+console.log('Valid user:', processUserData(userData));
+console.log('Invalid user:', processUserData(invalidUserData));
+
+// Async error handling
+processPayment({ amount: 100, cardNumber: '1234-5678-9012-3456' })
+    .then(result => console.log('Payment success:', result))
+    .catch(error => {
+        const handled = ErrorHandler.handle(error, 'payment processing');
+        console.log('Payment error:', handled);
+    });
+
+// Retry mechanism
+ErrorHandler.withRetry(async () => {
+    const result = await fetchUserData(123);
+    if (!result) throw new Error('Failed to fetch user data');
+    return result;
+}, 3)
+.then(result => console.log('User data:', result))
+.catch(error => console.error('Final error:', error.message));
+```
+
+```java !! java
+// Java - Exception handling system
+import java.util.*;
+
+// Custom exception classes
+public class CustomException extends Exception {
+    private String code;
+    private Date timestamp;
+    
+    public CustomException(String message, String code) {
+        super(message);
+        this.code = code;
+        this.timestamp = new Date();
+    }
+    
+    public String getCode() { return code; }
+    public Date getTimestamp() { return timestamp; }
+}
+
+public class ValidationException extends Error {
+    private String field;
+    
+    public ValidationException(String message, String field) {
+        super(message);
+        this.field = field;
+    }
+    
+    public String getField() { return field; }
+}
+
+public class NetworkException extends Error {
+    private int statusCode;
+    
+    public NetworkException(String message, int statusCode) {
+        super(message);
+        this.statusCode = statusCode;
+    }
+    
+    public int getStatusCode() { return statusCode; }
+}
+
+// User data class
+public class UserData {
+    private String name;
+    private String email;
+    private int age;
+    
+    public UserData(String name, String email, int age) {
+        this.name = name;
+        this.email = email;
+        this.age = age;
+    }
+    
+    // Getters
+    public String getName() { return name; }
+    public String getEmail() { return email; }
+    public int getAge() { return age; }
+    
+    // Setters
+    public void setName(String name) { this.name = name; }
+    public void setEmail(String email) { this.email = email; }
+    public void setAge(int age) { this.age = age; }
+}
+
+// Payment data class
+public class PaymentData {
+    private double amount;
+    private String cardNumber;
+    
+    public PaymentData(double amount, String cardNumber) {
+        this.amount = amount;
+        this.cardNumber = cardNumber;
+    }
+    
+    // Getters
+    public double getAmount() { return amount; }
+    public String getCardNumber() { return cardNumber; }
+}
+
+// Exception handling examples
+public class ExceptionHandlingDemo {
+    
+    // Method that throws checked exceptions
+    public static void processUserData(UserData userData) throws ValidationException {
+        // Validate user data
+        if (userData.getName() == null || userData.getName().trim().isEmpty()) {
+            throw new ValidationException("Name is required", "name");
+        }
+        
+        if (userData.getEmail() == null || userData.getEmail().trim().isEmpty()) {
+            throw new ValidationException("Email is required", "email");
+        }
+        
+        if (userData.getAge() < 0 || userData.getAge() > 150) {
+            throw new ValidationException("Invalid age", "age");
+        }
+        
+        // Process data
+        System.out.println("Processing user: " + userData.getName());
+    }
+    
+    // Method with try-catch-finally
+    public static Map<String, Object> processUserDataWithHandling(UserData userData) {
+        Map<String, Object> result = new HashMap<>();
+        
+        try {
+            processUserData(userData);
+            result.put("success", true);
+            result.put("user", userData);
+            
+        } catch (ValidationException e) {
+            System.err.println("Validation error in field " + e.getField() + ": " + e.getMessage());
+            result.put("success", false);
+            result.put("error", e.getMessage());
+            result.put("field", e.getField());
+            
+        } catch (Exception e) {
+            System.err.println("Unexpected error: " + e.getMessage());
+            result.put("success", false);
+            result.put("error", "Unexpected error occurred");
+            
+        } finally {
+            // Cleanup code always executes
+            System.out.println("User data processing completed");
+        }
+        
+        return result;
+    }
+    
+    // Method that throws runtime exceptions
+    public static void processPayment(PaymentData paymentData) {
+        // Validate payment data
+        if (paymentData.getAmount() <= 0) {
+            throw new IllegalArgumentException("Invalid payment amount");
+        }
+        
+        if (paymentData.getCardNumber() == null || paymentData.getCardNumber().trim().isEmpty()) {
+            throw new IllegalArgumentException("Card number is required");
+        }
+        
+        // Simulate payment processing
+        if (Math.random() > 0.8) {
+            throw new RuntimeException("Payment processing failed");
+        }
+        
+        System.out.println("Payment processed successfully");
+    }
+    
+    // Method with multiple catch blocks
+    public static void processPaymentWithHandling(PaymentData paymentData) {
+        try {
+            processPayment(paymentData);
+            System.out.println("Payment completed successfully");
+            
+        } catch (IllegalArgumentException e) {
+            System.err.println("Invalid payment data: " + e.getMessage());
+            
+        } catch (RuntimeException e) {
+            System.err.println("Payment processing error: " + e.getMessage());
+            
+        } catch (Exception e) {
+            System.err.println("Unexpected error: " + e.getMessage());
+        }
+    }
+    
+    // Method with resource management (try-with-resources)
+    public static void readFileWithResources(String filename) {
+        try (Scanner scanner = new Scanner(new java.io.File(filename))) {
+            while (scanner.hasNextLine()) {
+                String line = scanner.nextLine();
+                System.out.println(line);
+            }
+        } catch (java.io.FileNotFoundException e) {
+            System.err.println("File not found: " + filename);
+        } catch (Exception e) {
+            System.err.println("Error reading file: " + e.getMessage());
+        }
+    }
+    
+    // Method that demonstrates exception propagation
+    public static void methodA() throws CustomException {
+        try {
+            methodB();
+        } catch (ValidationException e) {
+            throw new CustomException("Error in method A: " + e.getMessage(), "METHOD_A_ERROR");
+        }
+    }
+    
+    public static void methodB() throws ValidationException {
+        throw new ValidationException("Error in method B", "methodB");
+    }
+    
+    // Main method to demonstrate exception handling
+    public static void main(String[] args) {
+        // Test user data processing
+        UserData validUser = new UserData("John", "john@example.com", 25);
+        UserData invalidUser = new UserData("", "", -5);
+        
+        System.out.println("Valid user: " + processUserDataWithHandling(validUser));
+        System.out.println("Invalid user: " + processUserDataWithHandling(invalidUser));
+        
+        // Test payment processing
+        PaymentData validPayment = new PaymentData(100.0, "1234-5678-9012-3456");
+        PaymentData invalidPayment = new PaymentData(-50.0, "");
+        
+        processPaymentWithHandling(validPayment);
+        processPaymentWithHandling(invalidPayment);
+        
+        // Test exception propagation
+        try {
+            methodA();
+        } catch (CustomException e) {
+            System.err.println("Caught custom exception: " + e.getMessage() + " (Code: " + e.getCode() + ")");
+        }
+        
+        // Test try-with-resources
+        try {
+            readFileWithResources("nonexistent.txt");
+        } catch (Exception e) {
+            System.err.println("File operation failed: " + e.getMessage());
+        }
+    }
+}
+```
+</UniversalEditor>
+
+### 2. Custom Exceptions and Best Practices
+
+Java allows you to create custom exceptions, while JavaScript uses inheritance from the Error class.
+
+<UniversalEditor title="Custom Exceptions and Best Practices" compare={true}>
+```javascript !! js
+// JavaScript - Custom exceptions and best practices
+// Base exception class
+class BaseException extends Error {
+    constructor(message, code, details = {}) {
+        super(message);
+        this.name = this.constructor.name;
+        this.code = code;
+        this.details = details;
+        this.timestamp = new Date();
+        
+        // Maintains proper stack trace
+        if (Error.captureStackTrace) {
+            Error.captureStackTrace(this, this.constructor);
+        }
+    }
+    
+    toJSON() {
+        return {
+            name: this.name,
+            message: this.message,
+            code: this.code,
+            details: this.details,
+            timestamp: this.timestamp.toISOString(),
+            stack: this.stack
+        };
+    }
+}
+
+// Specific exception types
+class BusinessException extends BaseException {
+    constructor(message, code, details = {}) {
+        super(message, code, details);
+        this.category = 'business';
+    }
+}
+
+class TechnicalException extends BaseException {
+    constructor(message, code, details = {}) {
+        super(message, code, details);
+        this.category = 'technical';
+    }
+}
+
+class ValidationException extends BaseException {
+    constructor(message, field, value = null) {
+        super(message, 'VALIDATION_ERROR', { field, value });
+        this.field = field;
+        this.value = value;
+    }
+}
+
+// Exception factory
+class ExceptionFactory {
+    static createValidationError(field, message, value = null) {
+        return new ValidationException(message, field, value);
+    }
+    
+    static createBusinessError(message, code, details = {}) {
+        return new BusinessException(message, code, details);
+    }
+    
+    static createTechnicalError(message, code, details = {}) {
+        return new TechnicalException(message, code, details);
+    }
+}
+
+// Error handling utilities
+class ErrorUtils {
+    static isValidationError(error) {
+        return error instanceof ValidationException;
+    }
+    
+    static isBusinessError(error) {
+        return error instanceof BusinessException;
+    }
+    
+    static isTechnicalError(error) {
+        return error instanceof TechnicalException;
+    }
+    
+    static getErrorCategory(error) {
+        if (this.isValidationError(error)) return 'validation';
+        if (this.isBusinessError(error)) return 'business';
+        if (this.isTechnicalError(error)) return 'technical';
+        return 'unknown';
+    }
+    
+    static formatError(error) {
+        return {
+            type: this.getErrorCategory(error),
+            message: error.message,
+            code: error.code,
+            details: error.details,
+            timestamp: error.timestamp
+        };
+    }
+}
+
+// Exception handling patterns
+class ExceptionHandler {
+    static handle(error, context = '') {
+        const formattedError = ErrorUtils.formatError(error);
+        
+        // Log error
+        console.error(`Error in ${context}:`, formattedError);
+        
+        // Handle based on type
+        switch (formattedError.type) {
+            case 'validation':
+                return { success: false, error: formattedError, userMessage: 'Please check your input' };
+            case 'business':
+                return { success: false, error: formattedError, userMessage: 'Business rule violation' };
+            case 'technical':
+                return { success: false, error: formattedError, userMessage: 'Technical error occurred' };
+            default:
+                return { success: false, error: formattedError, userMessage: 'An unexpected error occurred' };
+        }
+    }
+    
+    static async withErrorHandling(operation, context = '') {
+        try {
+            return await operation();
+        } catch (error) {
+            return this.handle(error, context);
+        }
+    }
+}
+
+// Usage examples
+function validateUser(user) {
+    const errors = [];
+    
+    if (!user.name || user.name.trim().length < 2) {
+        errors.push(ExceptionFactory.createValidationError('name', 'Name must be at least 2 characters', user.name));
+    }
+    
+    if (!user.email || !user.email.includes('@')) {
+        errors.push(ExceptionFactory.createValidationError('email', 'Valid email is required', user.email));
+    }
+    
+    if (user.age < 0 || user.age > 150) {
+        errors.push(ExceptionFactory.createValidationError('age', 'Age must be between 0 and 150', user.age));
+    }
+    
+    if (errors.length > 0) {
+        throw ExceptionFactory.createBusinessError('Validation failed', 'VALIDATION_FAILED', { errors });
+    }
+    
+    return true;
+}
+
+function processOrder(order) {
+    try {
+        // Validate order
+        if (!order.items || order.items.length === 0) {
+            throw ExceptionFactory.createBusinessError('Order must contain items', 'EMPTY_ORDER');
+        }
+        
+        if (order.total <= 0) {
+            throw ExceptionFactory.createBusinessError('Invalid order total', 'INVALID_TOTAL');
+        }
+        
+        // Process order
+        console.log('Processing order:', order.id);
+        return { success: true, orderId: order.id };
+        
+    } catch (error) {
+        throw ExceptionFactory.createTechnicalError('Order processing failed', 'ORDER_PROCESSING_ERROR', { originalError: error.message });
+    }
+}
+
+// Test the exception handling
+const testUser = { name: 'J', email: 'invalid-email', age: -5 };
+const testOrder = { id: 'ORD-001', items: [], total: 0 };
+
+// Validation test
+try {
+    validateUser(testUser);
+} catch (error) {
+    const result = ExceptionHandler.handle(error, 'user validation');
+    console.log('Validation result:', result);
+}
+
+// Order processing test
+try {
+    processOrder(testOrder);
+} catch (error) {
+    const result = ExceptionHandler.handle(error, 'order processing');
+    console.log('Order result:', result);
+}
+
+// Async error handling
+async function asyncOperation() {
+    return new Promise((resolve, reject) => {
+        setTimeout(() => {
+            if (Math.random() > 0.5) {
+                reject(ExceptionFactory.createTechnicalError('Async operation failed', 'ASYNC_ERROR'));
+            } else {
+                resolve('Operation completed successfully');
+            }
+        }, 1000);
+    });
+}
+
+ExceptionHandler.withErrorHandling(asyncOperation, 'async operation')
+    .then(result => console.log('Async result:', result));
+```
+
+```java !! java
+// Java - Custom exceptions and best practices
+import java.util.*;
+
+// Base exception class
+public abstract class BaseException extends Exception {
+    private String code;
+    private Map<String, Object> details;
+    private Date timestamp;
+    
+    public BaseException(String message, String code) {
+        super(message);
+        this.code = code;
+        this.details = new HashMap<>();
+        this.timestamp = new Date();
+    }
+    
+    public BaseException(String message, String code, Map<String, Object> details) {
+        super(message);
+        this.code = code;
+        this.details = details != null ? details : new HashMap<>();
+        this.timestamp = new Date();
+    }
+    
+    public String getCode() { return code; }
+    public Map<String, Object> getDetails() { return details; }
+    public Date getTimestamp() { return timestamp; }
+    
+    public void addDetail(String key, Object value) {
+        details.put(key, value);
+    }
+    
+    public String getCategory() {
+        return "base";
+    }
+    
+    @Override
+    public String toString() {
+        return String.format("%s{message='%s', code='%s', category='%s', timestamp=%s}", 
+            getClass().getSimpleName(), getMessage(), code, getCategory(), timestamp);
+    }
+}
+
+// Specific exception types
+public class BusinessException extends BaseException {
+    public BusinessException(String message, String code) {
+        super(message, code);
+    }
+    
+    public BusinessException(String message, String code, Map<String, Object> details) {
+        super(message, code, details);
+    }
+    
+    @Override
+    public String getCategory() {
+        return "business";
+    }
+}
+
+public class TechnicalException extends BaseException {
+    public TechnicalException(String message, String code) {
+        super(message, code);
+    }
+    
+    public TechnicalException(String message, String code, Map<String, Object> details) {
+        super(message, code, details);
+    }
+    
+    @Override
+    public String getCategory() {
+        return "technical";
+    }
+}
+
+public class ValidationException extends BaseException {
+    private String field;
+    private Object value;
+    
+    public ValidationException(String message, String field) {
+        super(message, "VALIDATION_ERROR");
+        this.field = field;
+    }
+    
+    public ValidationException(String message, String field, Object value) {
+        super(message, "VALIDATION_ERROR");
+        this.field = field;
+        this.value = value;
+    }
+    
+    public String getField() { return field; }
+    public Object getValue() { return value; }
+    
+    @Override
+    public String getCategory() {
+        return "validation";
+    }
+}
+
+// Exception factory
+public class ExceptionFactory {
+    public static ValidationException createValidationError(String field, String message, Object value) {
+        return new ValidationException(message, field, value);
+    }
+    
+    public static BusinessException createBusinessError(String message, String code) {
+        return new BusinessException(message, code);
+    }
+    
+    public static BusinessException createBusinessError(String message, String code, Map<String, Object> details) {
+        return new BusinessException(message, code, details);
+    }
+    
+    public static TechnicalException createTechnicalError(String message, String code) {
+        return new TechnicalException(message, code);
+    }
+    
+    public static TechnicalException createTechnicalError(String message, String code, Map<String, Object> details) {
+        return new TechnicalException(message, code, details);
+    }
+}
+
+// Error handling utilities
+public class ErrorUtils {
+    public static boolean isValidationError(Exception error) {
+        return error instanceof ValidationException;
+    }
+    
+    public static boolean isBusinessError(Exception error) {
+        return error instanceof BusinessException;
+    }
+    
+    public static boolean isTechnicalError(Exception error) {
+        return error instanceof TechnicalException;
+    }
+    
+    public static String getErrorCategory(Exception error) {
+        if (isValidationError(error)) return "validation";
+        if (isBusinessError(error)) return "business";
+        if (isTechnicalError(error)) return "technical";
+        return "unknown";
+    }
+    
+    public static Map<String, Object> formatError(Exception error) {
+        Map<String, Object> formatted = new HashMap<>();
+        formatted.put("type", getErrorCategory(error));
+        formatted.put("message", error.getMessage());
+        formatted.put("category", getErrorCategory(error));
+        
+        if (error instanceof BaseException) {
+            BaseException baseError = (BaseException) error;
+            formatted.put("code", baseError.getCode());
+            formatted.put("details", baseError.getDetails());
+            formatted.put("timestamp", baseError.getTimestamp());
+        }
+        
+        return formatted;
+    }
+}
+
+// Exception handler
+public class ExceptionHandler {
+    public static Map<String, Object> handle(Exception error, String context) {
+        Map<String, Object> formattedError = ErrorUtils.formatError(error);
+        
+        // Log error
+        System.err.println("Error in " + context + ": " + formattedError);
+        
+        Map<String, Object> result = new HashMap<>();
+        result.put("success", false);
+        result.put("error", formattedError);
+        
+        // Handle based on type
+        String type = (String) formattedError.get("type");
+        switch (type) {
+            case "validation":
+                result.put("userMessage", "Please check your input");
+                break;
+            case "business":
+                result.put("userMessage", "Business rule violation");
+                break;
+            case "technical":
+                result.put("userMessage", "Technical error occurred");
+                break;
+            default:
+                result.put("userMessage", "An unexpected error occurred");
+        }
+        
+        return result;
+    }
+}
+
+// Data classes
+public class User {
+    private String name;
+    private String email;
+    private int age;
+    
+    public User(String name, String email, int age) {
+        this.name = name;
+        this.email = email;
+        this.age = age;
+    }
+    
+    // Getters
+    public String getName() { return name; }
+    public String getEmail() { return email; }
+    public int getAge() { return age; }
+}
+
+public class Order {
+    private String id;
+    private List<String> items;
+    private double total;
+    
+    public Order(String id, List<String> items, double total) {
+        this.id = id;
+        this.items = items;
+        this.total = total;
+    }
+    
+    // Getters
+    public String getId() { return id; }
+    public List<String> getItems() { return items; }
+    public double getTotal() { return total; }
+}
+
+// Business logic with exception handling
+public class BusinessLogic {
+    
+    public static void validateUser(User user) throws BusinessException {
+        List<ValidationException> errors = new ArrayList<>();
+        
+        if (user.getName() == null || user.getName().trim().length() < 2) {
+            errors.add(ExceptionFactory.createValidationError("name", "Name must be at least 2 characters", user.getName()));
+        }
+        
+        if (user.getEmail() == null || !user.getEmail().contains("@")) {
+            errors.add(ExceptionFactory.createValidationError("email", "Valid email is required", user.getEmail()));
+        }
+        
+        if (user.getAge() < 0 || user.getAge() > 150) {
+            errors.add(ExceptionFactory.createValidationError("age", "Age must be between 0 and 150", user.getAge()));
+        }
+        
+        if (!errors.isEmpty()) {
+            Map<String, Object> details = new HashMap<>();
+            details.put("errors", errors);
+            throw ExceptionFactory.createBusinessError("Validation failed", "VALIDATION_FAILED", details);
+        }
+    }
+    
+    public static Map<String, Object> processOrder(Order order) {
+        try {
+            // Validate order
+            if (order.getItems() == null || order.getItems().isEmpty()) {
+                throw ExceptionFactory.createBusinessError("Order must contain items", "EMPTY_ORDER");
+            }
+            
+            if (order.getTotal() <= 0) {
+                throw ExceptionFactory.createBusinessError("Invalid order total", "INVALID_TOTAL");
+            }
+            
+            // Process order
+            System.out.println("Processing order: " + order.getId());
+            Map<String, Object> result = new HashMap<>();
+            result.put("success", true);
+            result.put("orderId", order.getId());
+            return result;
+            
+        } catch (BusinessException e) {
+            throw e;
+        } catch (Exception e) {
+            Map<String, Object> details = new HashMap<>();
+            details.put("originalError", e.getMessage());
+            throw ExceptionFactory.createTechnicalError("Order processing failed", "ORDER_PROCESSING_ERROR", details);
+        }
+    }
+}
+
+// Main class to demonstrate custom exceptions
+public class CustomExceptionDemo {
+    public static void main(String[] args) {
+        // Test user validation
+        User testUser = new User("J", "invalid-email", -5);
+        
+        try {
+            BusinessLogic.validateUser(testUser);
+        } catch (BusinessException e) {
+            Map<String, Object> result = ExceptionHandler.handle(e, "user validation");
+            System.out.println("Validation result: " + result);
+        }
+        
+        // Test order processing
+        Order testOrder = new Order("ORD-001", new ArrayList<>(), 0);
+        
+        try {
+            BusinessLogic.processOrder(testOrder);
+        } catch (Exception e) {
+            Map<String, Object> result = ExceptionHandler.handle(e, "order processing");
+            System.out.println("Order result: " + result);
+        }
+        
+        // Test successful operations
+        User validUser = new User("John Doe", "john@example.com", 30);
+        Order validOrder = new Order("ORD-002", Arrays.asList("Item1", "Item2"), 100.0);
+        
+        try {
+            BusinessLogic.validateUser(validUser);
+            System.out.println("User validation successful");
+            
+            Map<String, Object> result = BusinessLogic.processOrder(validOrder);
+            System.out.println("Order processing successful: " + result);
+            
+        } catch (Exception e) {
+            Map<String, Object> result = ExceptionHandler.handle(e, "successful operations");
+            System.out.println("Unexpected error: " + result);
+        }
+    }
+}
+```
+</UniversalEditor>
+
+## Exercises
+
+### Exercise 1: Exception Handling Basics
+
+<UniversalEditor title="Exercise 1: Exception Handling Basics">
+```java !! java
+// TODO: Implement exception handling for this calculator class
+public class Calculator {
+    // TODO: Add method divide(double a, double b) that throws ArithmeticException for division by zero
+    
+    // TODO: Add method sqrt(double value) that throws IllegalArgumentException for negative values
+    
+    // TODO: Add method parseNumber(String input) that throws NumberFormatException for invalid input
+    
+    // TODO: Add method safeDivide(double a, double b) that returns Optional<Double> instead of throwing
+}
+
+public class ExceptionExercise1 {
+    public static void main(String[] args) {
+        Calculator calc = new Calculator();
+        
+        // Test division by zero
+        try {
+            double result = calc.divide(10, 0);
+            System.out.println("Result: " + result);
+        } catch (ArithmeticException e) {
+            System.out.println("Division error: " + e.getMessage());
+        }
+        
+        // Test negative square root
+        try {
+            double result = calc.sqrt(-4);
+            System.out.println("Result: " + result);
+        } catch (IllegalArgumentException e) {
+            System.out.println("Square root error: " + e.getMessage());
+        }
+        
+        // Test invalid number parsing
+        try {
+            double result = calc.parseNumber("abc");
+            System.out.println("Result: " + result);
+        } catch (NumberFormatException e) {
+            System.out.println("Parsing error: " + e.getMessage());
+        }
+        
+        // Test safe division
+        Optional<Double> result = calc.safeDivide(10, 2);
+        result.ifPresent(value -> System.out.println("Safe division result: " + value));
+        
+        Optional<Double> errorResult = calc.safeDivide(10, 0);
+        errorResult.ifPresentOrElse(
+            value -> System.out.println("Result: " + value),
+            () -> System.out.println("Division by zero avoided")
+        );
+    }
+}
+```
+</UniversalEditor>
+
+### Exercise 2: Custom Exceptions
+
+<UniversalEditor title="Exercise 2: Custom Exceptions">
+```java !! java
+// TODO: Create custom exceptions
+public class InsufficientFundsException extends Exception {
+    // TODO: Add fields for current balance and required amount
+    
+    // TODO: Implement constructor and getters
+}
+
+public class InvalidAccountException extends Exception {
+    // TODO: Add field for account number
+    
+    // TODO: Implement constructor and getters
+}
+
+public class TransactionException extends Exception {
+    // TODO: Add fields for transaction type and amount
+    
+    // TODO: Implement constructor and getters
+}
+
+// TODO: Implement bank account class with exception handling
+public class BankAccount {
+    private String accountNumber;
+    private double balance;
+    
+    // TODO: Implement constructor
+    
+    // TODO: Add method deposit(double amount) that throws InvalidAccountException for invalid account
+    
+    // TODO: Add method withdraw(double amount) that throws InsufficientFundsException and InvalidAccountException
+    
+    // TODO: Add method transfer(BankAccount target, double amount) that throws TransactionException
+    
+    // TODO: Add getters for accountNumber and balance
+}
+
+public class CustomExceptionExercise {
+    public static void main(String[] args) {
+        // Test your implementations
+        BankAccount account1 = new BankAccount("ACC001", 1000.0);
+        BankAccount account2 = new BankAccount("ACC002", 500.0);
+        
+        try {
+            // Test deposit
+            account1.deposit(500.0);
+            System.out.println("Deposit successful. New balance: " + account1.getBalance());
+            
+            // Test withdrawal
+            account1.withdraw(200.0);
+            System.out.println("Withdrawal successful. New balance: " + account1.getBalance());
+            
+            // Test transfer
+            account1.transfer(account2, 300.0);
+            System.out.println("Transfer successful. Account1 balance: " + account1.getBalance());
+            System.out.println("Account2 balance: " + account2.getBalance());
+            
+            // Test insufficient funds
+            account1.withdraw(2000.0);
+            
+        } catch (InsufficientFundsException e) {
+            System.out.println("Insufficient funds: " + e.getMessage());
+            System.out.println("Current balance: " + e.getCurrentBalance());
+            System.out.println("Required amount: " + e.getRequiredAmount());
+            
+        } catch (InvalidAccountException e) {
+            System.out.println("Invalid account: " + e.getMessage());
+            System.out.println("Account number: " + e.getAccountNumber());
+            
+        } catch (TransactionException e) {
+            System.out.println("Transaction failed: " + e.getMessage());
+            System.out.println("Transaction type: " + e.getTransactionType());
+            System.out.println("Amount: " + e.getAmount());
+        }
+    }
+}
+```
+</UniversalEditor>
+
+## Summary
+
+In this module, we explored Java's comprehensive exception handling system and compared it with JavaScript's error handling mechanisms:
+
+### Key Points:
+1. **Exception Hierarchy**: Java has checked and unchecked exceptions
+2. **Try-Catch-Finally**: Java provides structured exception handling
+3. **Custom Exceptions**: Java allows creation of custom exception classes
+4. **Exception Propagation**: Exceptions can be thrown and caught at different levels
+5. **Resource Management**: Try-with-resources ensures proper cleanup
+
+### Next Steps:
+- Practice implementing try-catch-finally blocks
+- Master custom exception creation and handling
+- Explore exception handling best practices
+- Prepare for the next module on generics
+
+## Additional Resources
+
+- [Java Exception Handling](https://docs.oracle.com/javase/tutorial/essential/exceptions/)
+- [Java Custom Exceptions](https://docs.oracle.com/javase/tutorial/essential/exceptions/creating.html)
+- [Java Try-with-Resources](https://docs.oracle.com/javase/tutorial/essential/exceptions/tryResourceClose.html)
+
+---
+
+**Exercise Tips**: Focus on understanding the difference between checked and unchecked exceptions. Practice creating custom exceptions and implementing proper exception handling patterns. Use try-with-resources for resource management and consider when to use exceptions vs return values. 

@@ -1,0 +1,981 @@
+---
+title: "Web 开发"
+description: "学习使用 Spring MVC 进行 Web 开发，包括 RESTful API 开发、数据库集成和前后端分离"
+---
+
+# Web 开发
+
+在学习了 Spring 框架基础后，现在我们来深入 Web 开发领域。Spring MVC 提供了强大的 Web 开发能力，类似于 Express.js 在 Node.js 生态系统中的地位，但功能更加完善。
+
+## Spring MVC 基础
+
+### MVC 架构模式
+Spring MVC 遵循 Model-View-Controller 架构模式：
+
+- **Model**: 数据模型和业务逻辑
+- **View**: 用户界面（在 REST API 中通常是 JSON）
+- **Controller**: 处理请求和响应
+
+<UniversalEditor title="MVC 架构对比">
+```javascript !! js
+// Express.js MVC 模式
+// Model
+class User {
+    constructor(id, name, email) {
+        this.id = id;
+        this.name = name;
+        this.email = email;
+    }
+}
+
+// Controller
+app.get('/api/users', (req, res) => {
+    const users = userService.getAllUsers();
+    res.json(users); // View (JSON)
+});
+
+app.post('/api/users', (req, res) => {
+    const user = userService.createUser(req.body);
+    res.status(201).json(user);
+});
+```
+
+```java !! java
+// Spring MVC 模式
+// Model
+@Entity
+public class User {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    private String name;
+    private String email;
+    // getters and setters
+}
+
+// Controller
+@RestController
+@RequestMapping("/api/users")
+public class UserController {
+    
+    @Autowired
+    private UserService userService;
+    
+    @GetMapping
+    public ResponseEntity<List<User>> getAllUsers() {
+        List<User> users = userService.getAllUsers();
+        return ResponseEntity.ok(users); // View (JSON)
+    }
+    
+    @PostMapping
+    public ResponseEntity<User> createUser(@RequestBody User user) {
+        User createdUser = userService.createUser(user);
+        return ResponseEntity.status(HttpStatus.CREATED).body(createdUser);
+    }
+}
+```
+</UniversalEditor>
+
+### 控制器注解
+<UniversalEditor title="控制器注解">
+```java !! java
+@RestController
+@RequestMapping("/api/users")
+public class UserController {
+    
+    @Autowired
+    private UserService userService;
+    
+    // GET /api/users
+    @GetMapping
+    public ResponseEntity<List<User>> getAllUsers() {
+        List<User> users = userService.getAllUsers();
+        return ResponseEntity.ok(users);
+    }
+    
+    // GET /api/users/{id}
+    @GetMapping("/{id}")
+    public ResponseEntity<User> getUserById(@PathVariable Long id) {
+        User user = userService.getUserById(id);
+        return ResponseEntity.ok(user);
+    }
+    
+    // POST /api/users
+    @PostMapping
+    public ResponseEntity<User> createUser(@RequestBody User user) {
+        User createdUser = userService.createUser(user);
+        return ResponseEntity.status(HttpStatus.CREATED).body(createdUser);
+    }
+    
+    // PUT /api/users/{id}
+    @PutMapping("/{id}")
+    public ResponseEntity<User> updateUser(@PathVariable Long id, 
+                                         @RequestBody User user) {
+        User updatedUser = userService.updateUser(id, user);
+        return ResponseEntity.ok(updatedUser);
+    }
+    
+    // DELETE /api/users/{id}
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> deleteUser(@PathVariable Long id) {
+        userService.deleteUser(id);
+        return ResponseEntity.noContent().build();
+    }
+}
+```
+
+```javascript !! js
+// Express.js 路由
+const express = require('express');
+const router = express.Router();
+
+// GET /api/users
+router.get('/', async (req, res) => {
+    const users = await userService.getAllUsers();
+    res.json(users);
+});
+
+// GET /api/users/:id
+router.get('/:id', async (req, res) => {
+    const user = await userService.getUserById(req.params.id);
+    res.json(user);
+});
+
+// POST /api/users
+router.post('/', async (req, res) => {
+    const user = await userService.createUser(req.body);
+    res.status(201).json(user);
+});
+
+// PUT /api/users/:id
+router.put('/:id', async (req, res) => {
+    const user = await userService.updateUser(req.params.id, req.body);
+    res.json(user);
+});
+
+// DELETE /api/users/:id
+router.delete('/:id', async (req, res) => {
+    await userService.deleteUser(req.params.id);
+    res.status(204).send();
+});
+```
+</UniversalEditor>
+
+## RESTful API 开发
+
+### REST 原则
+REST (Representational State Transfer) 是一种软件架构风格：
+
+- **资源导向**: 使用 URI 标识资源
+- **HTTP 方法**: 使用标准 HTTP 方法操作资源
+- **无状态**: 每个请求包含所有必要信息
+- **统一接口**: 标准化的接口设计
+
+<UniversalEditor title="RESTful API 设计">
+```java !! java
+@RestController
+@RequestMapping("/api")
+public class UserApiController {
+    
+    @Autowired
+    private UserService userService;
+    
+    // 获取用户列表
+    @GetMapping("/users")
+    public ResponseEntity<Page<User>> getUsers(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size,
+            @RequestParam(required = false) String name) {
+        
+        Pageable pageable = PageRequest.of(page, size);
+        Page<User> users;
+        
+        if (name != null) {
+            users = userService.findByNameContaining(name, pageable);
+        } else {
+            users = userService.getAllUsers(pageable);
+        }
+        
+        return ResponseEntity.ok(users);
+    }
+    
+    // 获取单个用户
+    @GetMapping("/users/{id}")
+    public ResponseEntity<User> getUser(@PathVariable Long id) {
+        User user = userService.getUserById(id);
+        return ResponseEntity.ok(user);
+    }
+    
+    // 创建用户
+    @PostMapping("/users")
+    public ResponseEntity<User> createUser(@Valid @RequestBody UserCreateRequest request) {
+        User user = userService.createUser(request);
+        return ResponseEntity.status(HttpStatus.CREATED).body(user);
+    }
+    
+    // 更新用户
+    @PutMapping("/users/{id}")
+    public ResponseEntity<User> updateUser(@PathVariable Long id, 
+                                         @Valid @RequestBody UserUpdateRequest request) {
+        User user = userService.updateUser(id, request);
+        return ResponseEntity.ok(user);
+    }
+    
+    // 删除用户
+    @DeleteMapping("/users/{id}")
+    public ResponseEntity<Void> deleteUser(@PathVariable Long id) {
+        userService.deleteUser(id);
+        return ResponseEntity.noContent().build();
+    }
+}
+```
+
+```javascript !! js
+// Express.js RESTful API
+const express = require('express');
+const router = express.Router();
+
+// 获取用户列表
+router.get('/users', async (req, res) => {
+    const { page = 0, size = 10, name } = req.query;
+    const offset = page * size;
+    
+    let users;
+    if (name) {
+        users = await userService.findByNameContaining(name, offset, size);
+    } else {
+        users = await userService.getAllUsers(offset, size);
+    }
+    
+    res.json({
+        content: users,
+        page: parseInt(page),
+        size: parseInt(size),
+        totalElements: users.length
+    });
+});
+
+// 获取单个用户
+router.get('/users/:id', async (req, res) => {
+    const user = await userService.getUserById(req.params.id);
+    res.json(user);
+});
+
+// 创建用户
+router.post('/users', async (req, res) => {
+    const user = await userService.createUser(req.body);
+    res.status(201).json(user);
+});
+
+// 更新用户
+router.put('/users/:id', async (req, res) => {
+    const user = await userService.updateUser(req.params.id, req.body);
+    res.json(user);
+});
+
+// 删除用户
+router.delete('/users/:id', async (req, res) => {
+    await userService.deleteUser(req.params.id);
+    res.status(204).send();
+});
+```
+</UniversalEditor>
+
+### 请求和响应处理
+<UniversalEditor title="请求响应处理">
+```java !! java
+@RestController
+@RequestMapping("/api/users")
+public class UserController {
+    
+    // 请求参数处理
+    @GetMapping("/search")
+    public ResponseEntity<List<User>> searchUsers(
+            @RequestParam String name,
+            @RequestParam(required = false) String email,
+            @RequestParam(defaultValue = "0") int age) {
+        
+        List<User> users = userService.searchUsers(name, email, age);
+        return ResponseEntity.ok(users);
+    }
+    
+    // 路径变量处理
+    @GetMapping("/{id}/posts")
+    public ResponseEntity<List<Post>> getUserPosts(@PathVariable Long id) {
+        List<Post> posts = userService.getUserPosts(id);
+        return ResponseEntity.ok(posts);
+    }
+    
+    // 请求体处理
+    @PostMapping
+    public ResponseEntity<User> createUser(@Valid @RequestBody UserCreateRequest request) {
+        User user = userService.createUser(request);
+        return ResponseEntity.status(HttpStatus.CREATED).body(user);
+    }
+    
+    // 文件上传
+    @PostMapping("/{id}/avatar")
+    public ResponseEntity<String> uploadAvatar(@PathVariable Long id,
+                                             @RequestParam("file") MultipartFile file) {
+        String avatarUrl = userService.uploadAvatar(id, file);
+        return ResponseEntity.ok(avatarUrl);
+    }
+    
+    // 自定义响应头
+    @GetMapping("/{id}")
+    public ResponseEntity<User> getUser(@PathVariable Long id) {
+        User user = userService.getUserById(id);
+        
+        return ResponseEntity.ok()
+                .header("X-User-Cache", "true")
+                .header("X-User-Version", "1.0")
+                .body(user);
+    }
+}
+```
+
+```javascript !! js
+// Express.js 请求响应处理
+const multer = require('multer');
+const upload = multer({ dest: 'uploads/' });
+
+// 请求参数处理
+router.get('/users/search', async (req, res) => {
+    const { name, email, age = 0 } = req.query;
+    const users = await userService.searchUsers(name, email, age);
+    res.json(users);
+});
+
+// 路径变量处理
+router.get('/users/:id/posts', async (req, res) => {
+    const posts = await userService.getUserPosts(req.params.id);
+    res.json(posts);
+});
+
+// 请求体处理
+router.post('/users', async (req, res) => {
+    const user = await userService.createUser(req.body);
+    res.status(201).json(user);
+});
+
+// 文件上传
+router.post('/users/:id/avatar', upload.single('file'), async (req, res) => {
+    const avatarUrl = await userService.uploadAvatar(req.params.id, req.file);
+    res.json(avatarUrl);
+});
+
+// 自定义响应头
+router.get('/users/:id', async (req, res) => {
+    const user = await userService.getUserById(req.params.id);
+    
+    res.set({
+        'X-User-Cache': 'true',
+        'X-User-Version': '1.0'
+    });
+    
+    res.json(user);
+});
+```
+</UniversalEditor>
+
+## 数据验证
+
+### Bean Validation
+<UniversalEditor title="数据验证">
+```java !! java
+// 请求 DTO
+public class UserCreateRequest {
+    
+    @NotBlank(message = "Name is required")
+    @Size(min = 2, max = 50, message = "Name must be between 2 and 50 characters")
+    private String name;
+    
+    @NotBlank(message = "Email is required")
+    @Email(message = "Email must be valid")
+    private String email;
+    
+    @Min(value = 0, message = "Age must be positive")
+    @Max(value = 150, message = "Age must be reasonable")
+    private Integer age;
+    
+    // getters and setters
+}
+
+// 控制器中的验证
+@RestController
+@RequestMapping("/api/users")
+public class UserController {
+    
+    @PostMapping
+    public ResponseEntity<User> createUser(@Valid @RequestBody UserCreateRequest request) {
+        User user = userService.createUser(request);
+        return ResponseEntity.status(HttpStatus.CREATED).body(user);
+    }
+    
+    // 自定义验证
+    @PutMapping("/{id}")
+    public ResponseEntity<User> updateUser(@PathVariable Long id,
+                                         @Valid @RequestBody UserUpdateRequest request) {
+        User user = userService.updateUser(id, request);
+        return ResponseEntity.ok(user);
+    }
+}
+
+// 全局异常处理
+@ControllerAdvice
+public class ValidationExceptionHandler {
+    
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity<ValidationErrorResponse> handleValidationErrors(
+            MethodArgumentNotValidException ex) {
+        
+        List<String> errors = ex.getBindingResult()
+                .getFieldErrors()
+                .stream()
+                .map(error -> error.getField() + ": " + error.getDefaultMessage())
+                .collect(Collectors.toList());
+        
+        ValidationErrorResponse response = new ValidationErrorResponse(
+            "VALIDATION_ERROR", 
+            "Validation failed", 
+            errors
+        );
+        
+        return ResponseEntity.badRequest().body(response);
+    }
+}
+```
+
+```javascript !! js
+// JavaScript 中的数据验证
+// 使用 Joi 进行验证
+const Joi = require('joi');
+
+const userCreateSchema = Joi.object({
+    name: Joi.string().min(2).max(50).required(),
+    email: Joi.string().email().required(),
+    age: Joi.number().min(0).max(150)
+});
+
+// 验证中间件
+const validateUser = (req, res, next) => {
+    const { error } = userCreateSchema.validate(req.body);
+    
+    if (error) {
+        return res.status(400).json({
+            code: 'VALIDATION_ERROR',
+            message: 'Validation failed',
+            errors: error.details.map(detail => detail.message)
+        });
+    }
+    
+    next();
+};
+
+// 使用验证中间件
+router.post('/users', validateUser, async (req, res) => {
+    const user = await userService.createUser(req.body);
+    res.status(201).json(user);
+});
+
+// 全局错误处理
+app.use((error, req, res, next) => {
+    if (error.isJoi) {
+        return res.status(400).json({
+            code: 'VALIDATION_ERROR',
+            message: 'Validation failed',
+            errors: error.details.map(detail => detail.message)
+        });
+    }
+    
+    next(error);
+});
+```
+</UniversalEditor>
+
+## 数据库集成
+
+### Spring Data JPA 集成
+<UniversalEditor title="数据库集成">
+```java !! java
+// 实体类
+@Entity
+@Table(name = "users")
+public class User {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    
+    @Column(nullable = false, unique = true)
+    private String email;
+    
+    @Column(nullable = false)
+    private String name;
+    
+    @Column
+    private Integer age;
+    
+    @CreatedDate
+    private LocalDateTime createdAt;
+    
+    @LastModifiedDate
+    private LocalDateTime updatedAt;
+    
+    // getters and setters
+}
+
+// Repository
+@Repository
+public interface UserRepository extends JpaRepository<User, Long> {
+    
+    Optional<User> findByEmail(String email);
+    
+    List<User> findByNameContainingIgnoreCase(String name);
+    
+    @Query("SELECT u FROM User u WHERE u.age >= :minAge")
+    List<User> findUsersOlderThan(@Param("minAge") int minAge);
+    
+    @Query(value = "SELECT * FROM users WHERE created_at >= :date", nativeQuery = true)
+    List<User> findUsersCreatedAfter(@Param("date") LocalDate date);
+}
+
+// Service
+@Service
+@Transactional
+public class UserService {
+    
+    @Autowired
+    private UserRepository userRepository;
+    
+    public List<User> getAllUsers() {
+        return userRepository.findAll();
+    }
+    
+    public User getUserById(Long id) {
+        return userRepository.findById(id)
+                .orElseThrow(() -> new UserNotFoundException("User not found with id: " + id));
+    }
+    
+    public User createUser(UserCreateRequest request) {
+        User user = new User();
+        user.setName(request.getName());
+        user.setEmail(request.getEmail());
+        user.setAge(request.getAge());
+        
+        return userRepository.save(user);
+    }
+    
+    public User updateUser(Long id, UserUpdateRequest request) {
+        User user = getUserById(id);
+        
+        if (request.getName() != null) {
+            user.setName(request.getName());
+        }
+        if (request.getEmail() != null) {
+            user.setEmail(request.getEmail());
+        }
+        if (request.getAge() != null) {
+            user.setAge(request.getAge());
+        }
+        
+        return userRepository.save(user);
+    }
+    
+    public void deleteUser(Long id) {
+        if (!userRepository.existsById(id)) {
+            throw new UserNotFoundException("User not found with id: " + id);
+        }
+        userRepository.deleteById(id);
+    }
+}
+```
+
+```javascript !! js
+// JavaScript 中的数据库集成
+// 使用 Sequelize ORM
+const { DataTypes } = require('sequelize');
+
+const User = sequelize.define('User', {
+    id: {
+        type: DataTypes.INTEGER,
+        primaryKey: true,
+        autoIncrement: true
+    },
+    email: {
+        type: DataTypes.STRING,
+        allowNull: false,
+        unique: true
+    },
+    name: {
+        type: DataTypes.STRING,
+        allowNull: false
+    },
+    age: {
+        type: DataTypes.INTEGER
+    },
+    createdAt: {
+        type: DataTypes.DATE,
+        defaultValue: DataTypes.NOW
+    },
+    updatedAt: {
+        type: DataTypes.DATE,
+        defaultValue: DataTypes.NOW
+    }
+});
+
+// Service 类
+class UserService {
+    async getAllUsers() {
+        return await User.findAll();
+    }
+    
+    async getUserById(id) {
+        const user = await User.findByPk(id);
+        if (!user) {
+            throw new Error('User not found with id: ' + id);
+        }
+        return user;
+    }
+    
+    async createUser(userData) {
+        return await User.create(userData);
+    }
+    
+    async updateUser(id, userData) {
+        const user = await this.getUserById(id);
+        return await user.update(userData);
+    }
+    
+    async deleteUser(id) {
+        const user = await this.getUserById(id);
+        await user.destroy();
+    }
+    
+    async findByEmail(email) {
+        return await User.findOne({ where: { email } });
+    }
+    
+    async findByNameContaining(name) {
+        return await User.findAll({
+            where: {
+                name: { [Op.like]: `%${name}%` }
+            }
+        });
+    }
+}
+```
+</UniversalEditor>
+
+## 前后端分离
+
+### CORS 配置
+<UniversalEditor title="CORS 配置">
+```java !! java
+// CORS 配置
+@Configuration
+public class CorsConfig {
+    
+    @Bean
+    public CorsConfigurationSource corsConfigurationSource() {
+        CorsConfiguration configuration = new CorsConfiguration();
+        
+        // 允许的源
+        configuration.setAllowedOriginPatterns(Arrays.asList("*"));
+        
+        // 允许的 HTTP 方法
+        configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
+        
+        // 允许的请求头
+        configuration.setAllowedHeaders(Arrays.asList("*"));
+        
+        // 允许发送凭证
+        configuration.setAllowCredentials(true);
+        
+        // 预检请求的有效期
+        configuration.setMaxAge(3600L);
+        
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/**", configuration);
+        
+        return source;
+    }
+}
+
+// 或者在控制器上使用注解
+@RestController
+@RequestMapping("/api/users")
+@CrossOrigin(origins = {"http://localhost:3000", "https://myapp.com"})
+public class UserController {
+    // 控制器方法
+}
+```
+
+```javascript !! js
+// Express.js CORS 配置
+const cors = require('cors');
+
+// 全局 CORS 配置
+app.use(cors({
+    origin: ['http://localhost:3000', 'https://myapp.com'],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true,
+    maxAge: 3600
+}));
+
+// 或者针对特定路由
+app.use('/api/users', cors({
+    origin: 'http://localhost:3000'
+}));
+```
+</UniversalEditor>
+
+### API 文档
+<UniversalEditor title="API 文档">
+```java !! java
+// 使用 Swagger/OpenAPI
+@Configuration
+@EnableOpenApi
+public class OpenApiConfig {
+    
+    @Bean
+    public OpenAPI customOpenAPI() {
+        return new OpenAPI()
+                .info(new Info()
+                        .title("User Management API")
+                        .version("1.0")
+                        .description("API for managing users")
+                        .contact(new Contact()
+                                .name("API Support")
+                                .email("support@example.com")))
+                .servers(Arrays.asList(
+                        new Server().url("http://localhost:8080").description("Development server"),
+                        new Server().url("https://api.example.com").description("Production server")
+                ));
+    }
+}
+
+// 控制器中的 API 文档注解
+@RestController
+@RequestMapping("/api/users")
+@Tag(name = "User Management", description = "User management operations")
+public class UserController {
+    
+    @Operation(summary = "Get all users", description = "Retrieve a list of all users")
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "Successfully retrieved users"),
+        @ApiResponse(responseCode = "500", description = "Internal server error")
+    })
+    @GetMapping
+    public ResponseEntity<List<User>> getAllUsers() {
+        List<User> users = userService.getAllUsers();
+        return ResponseEntity.ok(users);
+    }
+    
+    @Operation(summary = "Create a new user", description = "Create a new user with the provided information")
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "201", description = "User created successfully"),
+        @ApiResponse(responseCode = "400", description = "Invalid input data"),
+        @ApiResponse(responseCode = "409", description = "User already exists")
+    })
+    @PostMapping
+    public ResponseEntity<User> createUser(@Valid @RequestBody UserCreateRequest request) {
+        User user = userService.createUser(request);
+        return ResponseEntity.status(HttpStatus.CREATED).body(user);
+    }
+}
+```
+
+```javascript !! js
+// JavaScript 中的 API 文档
+// 使用 Swagger JSDoc
+/**
+ * @swagger
+ * /api/users:
+ *   get:
+ *     summary: Get all users
+ *     description: Retrieve a list of all users
+ *     responses:
+ *       200:
+ *         description: Successfully retrieved users
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 $ref: '#/components/schemas/User'
+ *       500:
+ *         description: Internal server error
+ */
+router.get('/users', async (req, res) => {
+    const users = await userService.getAllUsers();
+    res.json(users);
+});
+
+/**
+ * @swagger
+ * /api/users:
+ *   post:
+ *     summary: Create a new user
+ *     description: Create a new user with the provided information
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/UserCreateRequest'
+ *     responses:
+ *       201:
+ *         description: User created successfully
+ *       400:
+ *         description: Invalid input data
+ *       409:
+ *         description: User already exists
+ */
+router.post('/users', async (req, res) => {
+    const user = await userService.createUser(req.body);
+    res.status(201).json(user);
+});
+```
+</UniversalEditor>
+
+## 性能优化
+
+### 缓存
+<UniversalEditor title="缓存优化">
+```java !! java
+// 启用缓存
+@EnableCaching
+@Configuration
+public class CacheConfig {
+    
+    @Bean
+    public CacheManager cacheManager() {
+        SimpleCacheManager cacheManager = new SimpleCacheManager();
+        cacheManager.setCaches(Arrays.asList(
+            new ConcurrentMapCache("users"),
+            new ConcurrentMapCache("posts")
+        ));
+        return cacheManager;
+    }
+}
+
+// 在 Service 中使用缓存
+@Service
+public class UserService {
+    
+    @Autowired
+    private UserRepository userRepository;
+    
+    // 缓存用户列表
+    @Cacheable("users")
+    public List<User> getAllUsers() {
+        return userRepository.findAll();
+    }
+    
+    // 缓存单个用户
+    @Cacheable(value = "users", key = "#id")
+    public User getUserById(Long id) {
+        return userRepository.findById(id)
+                .orElseThrow(() -> new UserNotFoundException("User not found"));
+    }
+    
+    // 更新时清除缓存
+    @CacheEvict(value = "users", key = "#user.id")
+    public User updateUser(User user) {
+        return userRepository.save(user);
+    }
+    
+    // 删除时清除缓存
+    @CacheEvict(value = "users", allEntries = true)
+    public void deleteUser(Long id) {
+        userRepository.deleteById(id);
+    }
+}
+```
+
+```javascript !! js
+// JavaScript 中的缓存
+// 使用内存缓存
+const NodeCache = require('node-cache');
+const cache = new NodeCache({ stdTTL: 600 }); // 10分钟过期
+
+class UserService {
+    async getAllUsers() {
+        const cacheKey = 'all_users';
+        let users = cache.get(cacheKey);
+        
+        if (!users) {
+            users = await User.findAll();
+            cache.set(cacheKey, users);
+        }
+        
+        return users;
+    }
+    
+    async getUserById(id) {
+        const cacheKey = `user_${id}`;
+        let user = cache.get(cacheKey);
+        
+        if (!user) {
+            user = await User.findByPk(id);
+            if (user) {
+                cache.set(cacheKey, user);
+            }
+        }
+        
+        return user;
+    }
+    
+    async updateUser(user) {
+        const updatedUser = await User.update(user, { where: { id: user.id } });
+        
+        // 清除相关缓存
+        cache.del(`user_${user.id}`);
+        cache.del('all_users');
+        
+        return updatedUser;
+    }
+}
+```
+</UniversalEditor>
+
+## 练习题
+
+### 练习 1: 创建 RESTful API
+1. 创建用户管理的 RESTful API
+2. 实现 CRUD 操作
+3. 添加数据验证
+4. 测试 API 端点
+
+### 练习 2: 数据库集成
+1. 配置数据库连接
+2. 创建实体类和 Repository
+3. 实现数据访问逻辑
+4. 测试数据库操作
+
+### 练习 3: 前后端分离
+1. 配置 CORS
+2. 创建 API 文档
+3. 实现前端调用
+4. 测试前后端交互
+
+### 练习 4: 性能优化
+1. 实现缓存机制
+2. 优化数据库查询
+3. 添加分页功能
+4. 监控性能指标
+
+## 总结
+
+Spring MVC 为 Java Web 开发提供了强大的支持：
+
+- **MVC 架构**: 清晰的代码组织结构
+- **RESTful API**: 标准化的 Web 服务接口
+- **数据验证**: 强大的输入验证机制
+- **数据库集成**: 简化的数据访问层
+- **前后端分离**: 现代化的 Web 开发模式
+
+在下一个模块中，我们将通过实战项目来综合应用所学的知识，包括完整的 Web 应用开发。
+
+准备好开始实战项目了吗？ 

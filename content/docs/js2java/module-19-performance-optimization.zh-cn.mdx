@@ -1,0 +1,864 @@
+---
+title: "性能优化"
+description: "学习 Java 性能优化技术，包括 JVM 调优、内存管理优化、并发性能优化和应用性能监控"
+---
+
+# 性能优化
+
+性能优化是 Java 开发中的重要主题。通过合理的优化策略，可以显著提升应用的性能和响应速度。
+
+## JVM 调优
+
+### 1. JVM 参数调优
+
+#### 内存参数
+<UniversalEditor title="JVM 内存参数">
+```bash !! bash
+# 堆内存设置
+-Xms2g                    # 初始堆大小
+-Xmx4g                    # 最大堆大小
+-XX:NewRatio=3            # 新生代与老年代比例
+-XX:SurvivorRatio=8       # Eden 与 Survivor 比例
+
+# 新生代设置
+-XX:NewSize=512m          # 新生代初始大小
+-XX:MaxNewSize=1g         # 新生代最大大小
+
+# 元空间设置
+-XX:MetaspaceSize=256m    # 元空间初始大小
+-XX:MaxMetaspaceSize=512m # 元空间最大大小
+
+# 垃圾回收器设置
+-XX:+UseG1GC              # 使用 G1 垃圾回收器
+-XX:MaxGCPauseMillis=200  # 最大 GC 暂停时间
+-XX:G1HeapRegionSize=16m  # G1 区域大小
+
+# 其他优化参数
+-XX:+UseStringDeduplication  # 字符串去重
+-XX:+UseCompressedOops       # 压缩指针
+-XX:+UseCompressedClassPointers # 压缩类指针
+```
+
+```java !! java
+// 监控 JVM 内存使用
+public class JvmMemoryMonitor {
+    
+    public static void printMemoryInfo() {
+        Runtime runtime = Runtime.getRuntime();
+        
+        long totalMemory = runtime.totalMemory();
+        long freeMemory = runtime.freeMemory();
+        long usedMemory = totalMemory - freeMemory;
+        long maxMemory = runtime.maxMemory();
+        
+        System.out.println("=== JVM Memory Info ===");
+        System.out.println("Total Memory: " + formatBytes(totalMemory));
+        System.out.println("Free Memory: " + formatBytes(freeMemory));
+        System.out.println("Used Memory: " + formatBytes(usedMemory));
+        System.out.println("Max Memory: " + formatBytes(maxMemory));
+        System.out.println("Memory Usage: " + 
+                          String.format("%.2f%%", (double) usedMemory / maxMemory * 100));
+    }
+    
+    private static String formatBytes(long bytes) {
+        return String.format("%.2f MB", bytes / 1024.0 / 1024.0);
+    }
+    
+    public static void main(String[] args) {
+        printMemoryInfo();
+        
+        // 触发垃圾回收
+        System.gc();
+        
+        System.out.println("\nAfter GC:");
+        printMemoryInfo();
+    }
+}
+```
+</UniversalEditor>
+
+#### GC 调优
+<UniversalEditor title="GC 调优">
+```java !! java
+// GC 监控和分析
+public class GCMonitor {
+    
+    public static void monitorGC() {
+        List<GarbageCollectorMXBean> gcBeans = ManagementFactory.getGarbageCollectorMXBeans();
+        
+        System.out.println("=== GC Information ===");
+        for (GarbageCollectorMXBean gcBean : gcBeans) {
+            System.out.println("GC Name: " + gcBean.getName());
+            System.out.println("Collection Count: " + gcBean.getCollectionCount());
+            System.out.println("Collection Time: " + gcBean.getCollectionTime() + "ms");
+            
+            // 计算平均暂停时间
+            if (gcBean.getCollectionCount() > 0) {
+                double avgPauseTime = (double) gcBean.getCollectionTime() / gcBean.getCollectionCount();
+                System.out.println("Average Pause Time: " + String.format("%.2f", avgPauseTime) + "ms");
+            }
+        }
+    }
+    
+    public static void printGCStats() {
+        MemoryMXBean memoryBean = ManagementFactory.getMemoryMXBean();
+        MemoryUsage heapUsage = memoryBean.getHeapMemoryUsage();
+        
+        System.out.println("=== Heap Memory Usage ===");
+        System.out.println("Init: " + formatBytes(heapUsage.getInit()));
+        System.out.println("Used: " + formatBytes(heapUsage.getUsed()));
+        System.out.println("Committed: " + formatBytes(heapUsage.getCommitted()));
+        System.out.println("Max: " + formatBytes(heapUsage.getMax()));
+    }
+    
+    private static String formatBytes(long bytes) {
+        return String.format("%.2f MB", bytes / 1024.0 / 1024.0);
+    }
+}
+```
+
+```bash !! bash
+# GC 日志参数
+-XX:+PrintGC                    # 打印 GC 信息
+-XX:+PrintGCDetails             # 打印详细 GC 信息
+-XX:+PrintGCTimeStamps          # 打印 GC 时间戳
+-XX:+PrintGCDateStamps          # 打印 GC 日期戳
+-Xloggc:gc.log                  # GC 日志文件
+-XX:+UseGCLogFileRotation       # 启用 GC 日志轮转
+-XX:NumberOfGCLogFiles=5        # GC 日志文件数量
+-XX:GCLogFileSize=100M          # GC 日志文件大小
+```
+</UniversalEditor>
+
+### 2. 垃圾回收器选择
+
+#### 不同 GC 的特点
+<UniversalEditor title="垃圾回收器">
+```bash !! bash
+# Serial GC (单线程)
+-XX:+UseSerialGC
+# 适用场景：单核 CPU，小内存应用
+
+# Parallel GC (多线程)
+-XX:+UseParallelGC
+# 适用场景：多核 CPU，中等内存应用
+
+# CMS GC (并发标记清除)
+-XX:+UseConcMarkSweepGC
+# 适用场景：低延迟要求，中等内存应用
+
+# G1 GC (Garbage First)
+-XX:+UseG1GC
+# 适用场景：大内存应用，低延迟要求
+
+# ZGC (低延迟)
+-XX:+UseZGC
+# 适用场景：超大内存，极低延迟要求
+
+# Shenandoah GC
+-XX:+UseShenandoahGC
+# 适用场景：低延迟，大内存应用
+```
+
+```java !! java
+// 测试不同 GC 的性能
+public class GCTest {
+    
+    public static void main(String[] args) {
+        // 创建大量对象来触发 GC
+        List<String> objects = new ArrayList<>();
+        
+        for (int i = 0; i < 1000000; i++) {
+            objects.add("Object-" + i);
+            
+            // 每 10000 个对象打印一次内存使用情况
+            if (i % 10000 == 0) {
+                printMemoryUsage();
+            }
+        }
+        
+        // 手动触发 GC
+        System.gc();
+        printMemoryUsage();
+    }
+    
+    private static void printMemoryUsage() {
+        Runtime runtime = Runtime.getRuntime();
+        long usedMemory = runtime.totalMemory() - runtime.freeMemory();
+        System.out.println("Used Memory: " + usedMemory / 1024 / 1024 + " MB");
+    }
+}
+```
+</UniversalEditor>
+
+## 内存管理优化
+
+### 1. 对象池模式
+
+#### 连接池实现
+<UniversalEditor title="对象池">
+```java !! java
+// 简单的对象池实现
+public class ObjectPool<T> {
+    private final Queue<T> pool;
+    private final Supplier<T> factory;
+    private final Consumer<T> resetter;
+    private final int maxSize;
+    
+    public ObjectPool(Supplier<T> factory, Consumer<T> resetter, int maxSize) {
+        this.factory = factory;
+        this.resetter = resetter;
+        this.maxSize = maxSize;
+        this.pool = new ConcurrentLinkedQueue<>();
+    }
+    
+    public T borrow() {
+        T object = pool.poll();
+        if (object == null) {
+            object = factory.get();
+        }
+        return object;
+    }
+    
+    public void release(T object) {
+        if (object != null && pool.size() < maxSize) {
+            resetter.accept(object);
+            pool.offer(object);
+        }
+    }
+    
+    public int size() {
+        return pool.size();
+    }
+}
+
+// 使用示例
+public class ConnectionPoolExample {
+    private static final ObjectPool<Connection> connectionPool = 
+        new ObjectPool<>(
+            () -> createConnection(),    // 工厂方法
+            conn -> resetConnection(conn), // 重置方法
+            10                           // 最大池大小
+        );
+    
+    public static void main(String[] args) {
+        // 借用连接
+        Connection conn = connectionPool.borrow();
+        try {
+            // 使用连接
+            useConnection(conn);
+        } finally {
+            // 归还连接
+            connectionPool.release(conn);
+        }
+    }
+    
+    private static Connection createConnection() {
+        // 创建新连接
+        return null; // 简化示例
+    }
+    
+    private static void resetConnection(Connection conn) {
+        // 重置连接状态
+    }
+    
+    private static void useConnection(Connection conn) {
+        // 使用连接
+    }
+}
+```
+
+```javascript !! js
+// JavaScript 中的对象池
+class ObjectPool {
+    constructor(factory, resetter, maxSize) {
+        this.factory = factory;
+        this.resetter = resetter;
+        this.maxSize = maxSize;
+        this.pool = [];
+    }
+    
+    borrow() {
+        const object = this.pool.pop();
+        if (!object) {
+            return this.factory();
+        }
+        return object;
+    }
+    
+    release(object) {
+        if (object && this.pool.length < this.maxSize) {
+            this.resetter(object);
+            this.pool.push(object);
+        }
+    }
+    
+    get size() {
+        return this.pool.length;
+    }
+}
+
+// 使用示例
+const connectionPool = new ObjectPool(
+    () => createConnection(),
+    conn => resetConnection(conn),
+    10
+);
+
+const conn = connectionPool.borrow();
+try {
+    useConnection(conn);
+} finally {
+    connectionPool.release(conn);
+}
+```
+</UniversalEditor>
+
+### 2. 内存泄漏检测
+
+#### 常见内存泄漏
+<UniversalEditor title="内存泄漏检测">
+```java !! java
+// 常见内存泄漏示例
+public class MemoryLeakExamples {
+    
+    // 1. 静态集合导致的内存泄漏
+    private static final List<Object> staticList = new ArrayList<>();
+    
+    public void addToStaticList(Object obj) {
+        staticList.add(obj); // 内存泄漏：对象永远不会被回收
+    }
+    
+    // 2. 监听器未移除
+    private List<EventListener> listeners = new ArrayList<>();
+    
+    public void addListener(EventListener listener) {
+        listeners.add(listener);
+    }
+    
+    // 忘记移除监听器会导致内存泄漏
+    public void removeListener(EventListener listener) {
+        listeners.remove(listener);
+    }
+    
+    // 3. 内部类持有外部类引用
+    public class InnerClass {
+        public void doSomething() {
+            // 持有外部类引用
+        }
+    }
+    
+    // 4. 线程池未关闭
+    private ExecutorService executor = Executors.newFixedThreadPool(10);
+    
+    public void shutdown() {
+        executor.shutdown(); // 必须关闭线程池
+    }
+}
+
+// 内存泄漏检测工具
+public class MemoryLeakDetector {
+    
+    public static void detectMemoryLeak() {
+        Runtime runtime = Runtime.getRuntime();
+        
+        // 记录初始内存
+        long initialMemory = runtime.totalMemory() - runtime.freeMemory();
+        
+        // 执行可能导致内存泄漏的操作
+        performOperation();
+        
+        // 强制垃圾回收
+        System.gc();
+        
+        // 记录最终内存
+        long finalMemory = runtime.totalMemory() - runtime.freeMemory();
+        
+        // 计算内存增长
+        long memoryGrowth = finalMemory - initialMemory;
+        
+        if (memoryGrowth > 1024 * 1024) { // 1MB 阈值
+            System.out.println("Potential memory leak detected: " + 
+                              memoryGrowth / 1024 / 1024 + " MB");
+        }
+    }
+    
+    private static void performOperation() {
+        // 执行测试操作
+    }
+}
+```
+</UniversalEditor>
+
+## 并发性能优化
+
+### 1. 线程池优化
+
+#### 线程池配置
+<UniversalEditor title="线程池优化">
+```java !! java
+// 线程池优化配置
+public class ThreadPoolOptimizer {
+    
+    // CPU 密集型任务
+    public static ExecutorService createCpuIntensivePool() {
+        int processors = Runtime.getRuntime().availableProcessors();
+        return new ThreadPoolExecutor(
+            processors,                    // 核心线程数
+            processors,                    // 最大线程数
+            60L, TimeUnit.SECONDS,        // 线程空闲时间
+            new LinkedBlockingQueue<>(),  // 工作队列
+            new ThreadPoolExecutor.CallerRunsPolicy() // 拒绝策略
+        );
+    }
+    
+    // IO 密集型任务
+    public static ExecutorService createIoIntensivePool() {
+        int processors = Runtime.getRuntime().availableProcessors();
+        return new ThreadPoolExecutor(
+            processors * 2,               // 核心线程数
+            processors * 4,               // 最大线程数
+            60L, TimeUnit.SECONDS,        // 线程空闲时间
+            new LinkedBlockingQueue<>(1000), // 工作队列
+            new ThreadPoolExecutor.CallerRunsPolicy() // 拒绝策略
+        );
+    }
+    
+    // 自定义线程池监控
+    public static class MonitoredThreadPool extends ThreadPoolExecutor {
+        
+        public MonitoredThreadPool(int corePoolSize, int maximumPoolSize,
+                                  long keepAliveTime, TimeUnit unit,
+                                  BlockingQueue<Runnable> workQueue) {
+            super(corePoolSize, maximumPoolSize, keepAliveTime, unit, workQueue);
+        }
+        
+        @Override
+        protected void beforeExecute(Thread t, Runnable r) {
+            System.out.println("Task started: " + r.getClass().getSimpleName());
+        }
+        
+        @Override
+        protected void afterExecute(Runnable r, Throwable t) {
+            if (t != null) {
+                System.err.println("Task failed: " + t.getMessage());
+            }
+        }
+        
+        public void printStats() {
+            System.out.println("=== Thread Pool Stats ===");
+            System.out.println("Active Threads: " + getActiveCount());
+            System.out.println("Pool Size: " + getPoolSize());
+            System.out.println("Core Pool Size: " + getCorePoolSize());
+            System.out.println("Maximum Pool Size: " + getMaximumPoolSize());
+            System.out.println("Queue Size: " + getQueue().size());
+            System.out.println("Completed Tasks: " + getCompletedTaskCount());
+        }
+    }
+}
+```
+
+```javascript !! js
+// JavaScript 中的线程池（使用 Worker）
+class ThreadPool {
+    constructor(size) {
+        this.size = size;
+        this.workers = [];
+        this.queue = [];
+        this.activeWorkers = 0;
+        
+        for (let i = 0; i < size; i++) {
+            this.workers.push(new Worker('worker.js'));
+        }
+    }
+    
+    execute(task) {
+        return new Promise((resolve, reject) => {
+            if (this.activeWorkers < this.size) {
+                this.runTask(task, resolve, reject);
+            } else {
+                this.queue.push({ task, resolve, reject });
+            }
+        });
+    }
+    
+    runTask(task, resolve, reject) {
+        this.activeWorkers++;
+        const worker = this.workers[this.activeWorkers - 1];
+        
+        worker.postMessage(task);
+        worker.onmessage = (event) => {
+            this.activeWorkers--;
+            resolve(event.data);
+            this.processQueue();
+        };
+        
+        worker.onerror = (error) => {
+            this.activeWorkers--;
+            reject(error);
+            this.processQueue();
+        };
+    }
+    
+    processQueue() {
+        if (this.queue.length > 0 && this.activeWorkers < this.size) {
+            const { task, resolve, reject } = this.queue.shift();
+            this.runTask(task, resolve, reject);
+        }
+    }
+}
+```
+</UniversalEditor>
+
+### 2. 锁优化
+
+#### 锁性能优化
+<UniversalEditor title="锁优化">
+```java !! java
+// 锁优化示例
+public class LockOptimization {
+    
+    // 1. 使用读写锁
+    private final ReadWriteLock readWriteLock = new ReentrantReadWriteLock();
+    private final Lock readLock = readWriteLock.readLock();
+    private final Lock writeLock = readWriteLock.writeLock();
+    
+    private Map<String, String> cache = new HashMap<>();
+    
+    public String get(String key) {
+        readLock.lock();
+        try {
+            return cache.get(key);
+        } finally {
+            readLock.unlock();
+        }
+    }
+    
+    public void put(String key, String value) {
+        writeLock.lock();
+        try {
+            cache.put(key, value);
+        } finally {
+            writeLock.unlock();
+        }
+    }
+    
+    // 2. 使用分段锁
+    public class SegmentedCache {
+        private final int segments = 16;
+        private final Map<String, String>[] caches;
+        private final Object[] locks;
+        
+        @SuppressWarnings("unchecked")
+        public SegmentedCache() {
+            caches = new Map[segments];
+            locks = new Object[segments];
+            
+            for (int i = 0; i < segments; i++) {
+                caches[i] = new HashMap<>();
+                locks[i] = new Object();
+            }
+        }
+        
+        public String get(String key) {
+            int segment = getSegment(key);
+            synchronized (locks[segment]) {
+                return caches[segment].get(key);
+            }
+        }
+        
+        public void put(String key, String value) {
+            int segment = getSegment(key);
+            synchronized (locks[segment]) {
+                caches[segment].put(key, value);
+            }
+        }
+        
+        private int getSegment(String key) {
+            return Math.abs(key.hashCode()) % segments;
+        }
+    }
+    
+    // 3. 使用原子类
+    private final AtomicLong counter = new AtomicLong(0);
+    private final AtomicReference<String> latestValue = new AtomicReference<>();
+    
+    public long increment() {
+        return counter.incrementAndGet();
+    }
+    
+    public void updateLatestValue(String value) {
+        latestValue.set(value);
+    }
+}
+```
+
+```javascript !! js
+// JavaScript 中的锁优化
+class LockOptimization {
+    constructor() {
+        this.cache = new Map();
+        this.readers = 0;
+        this.writers = 0;
+        this.writeQueue = [];
+        this.readQueue = [];
+    }
+    
+    async read(key) {
+        return new Promise((resolve) => {
+            if (this.writers === 0) {
+                this.readers++;
+                const value = this.cache.get(key);
+                this.readers--;
+                resolve(value);
+            } else {
+                this.readQueue.push(() => {
+                    this.readers++;
+                    const value = this.cache.get(key);
+                    this.readers--;
+                    resolve(value);
+                });
+            }
+        });
+    }
+    
+    async write(key, value) {
+        return new Promise((resolve) => {
+            if (this.readers === 0 && this.writers === 0) {
+                this.writers++;
+                this.cache.set(key, value);
+                this.writers--;
+                resolve();
+                this.processQueue();
+            } else {
+                this.writeQueue.push(() => {
+                    this.writers++;
+                    this.cache.set(key, value);
+                    this.writers--;
+                    resolve();
+                    this.processQueue();
+                });
+            }
+        });
+    }
+    
+    processQueue() {
+        if (this.writeQueue.length > 0 && this.readers === 0 && this.writers === 0) {
+            const writeTask = this.writeQueue.shift();
+            writeTask();
+        } else if (this.readQueue.length > 0 && this.writers === 0) {
+            while (this.readQueue.length > 0) {
+                const readTask = this.readQueue.shift();
+                readTask();
+            }
+        }
+    }
+}
+```
+</UniversalEditor>
+
+## 应用性能监控
+
+### 1. 性能指标监控
+
+#### 关键指标
+<UniversalEditor title="性能监控">
+```java !! java
+// 性能监控工具
+public class PerformanceMonitor {
+    
+    private static final Map<String, Long> startTimes = new ConcurrentHashMap<>();
+    private static final Map<String, List<Long>> responseTimes = new ConcurrentHashMap<>();
+    
+    public static void startTimer(String operation) {
+        startTimes.put(operation, System.currentTimeMillis());
+    }
+    
+    public static void endTimer(String operation) {
+        Long startTime = startTimes.remove(operation);
+        if (startTime != null) {
+            long responseTime = System.currentTimeMillis() - startTime;
+            responseTimes.computeIfAbsent(operation, k -> new ArrayList<>())
+                        .add(responseTime);
+        }
+    }
+    
+    public static void printStats() {
+        System.out.println("=== Performance Statistics ===");
+        for (Map.Entry<String, List<Long>> entry : responseTimes.entrySet()) {
+            String operation = entry.getKey();
+            List<Long> times = entry.getValue();
+            
+            if (!times.isEmpty()) {
+                double avg = times.stream().mapToLong(Long::longValue).average().orElse(0);
+                long min = times.stream().mapToLong(Long::longValue).min().orElse(0);
+                long max = times.stream().mapToLong(Long::longValue).max().orElse(0);
+                
+                System.out.printf("%s - Avg: %.2fms, Min: %dms, Max: %dms, Count: %d%n",
+                                operation, avg, min, max, times.size());
+            }
+        }
+    }
+    
+    // 内存使用监控
+    public static void monitorMemory() {
+        Runtime runtime = Runtime.getRuntime();
+        long usedMemory = runtime.totalMemory() - runtime.freeMemory();
+        long maxMemory = runtime.maxMemory();
+        
+        System.out.printf("Memory Usage: %.2f%% (%d MB / %d MB)%n",
+                         (double) usedMemory / maxMemory * 100,
+                         usedMemory / 1024 / 1024,
+                         maxMemory / 1024 / 1024);
+    }
+    
+    // 线程监控
+    public static void monitorThreads() {
+        ThreadMXBean threadBean = ManagementFactory.getThreadMXBean();
+        int threadCount = threadBean.getThreadCount();
+        int daemonCount = threadBean.getDaemonThreadCount();
+        
+        System.out.printf("Threads: %d (Daemon: %d)%n", threadCount, daemonCount);
+    }
+}
+```
+
+```javascript !! js
+// JavaScript 性能监控
+class PerformanceMonitor {
+    constructor() {
+        this.startTimes = new Map();
+        this.responseTimes = new Map();
+    }
+    
+    startTimer(operation) {
+        this.startTimes.set(operation, performance.now());
+    }
+    
+    endTimer(operation) {
+        const startTime = this.startTimes.get(operation);
+        if (startTime) {
+            this.startTimes.delete(operation);
+            const responseTime = performance.now() - startTime;
+            
+            if (!this.responseTimes.has(operation)) {
+                this.responseTimes.set(operation, []);
+            }
+            this.responseTimes.get(operation).push(responseTime);
+        }
+    }
+    
+    printStats() {
+        console.log('=== Performance Statistics ===');
+        for (const [operation, times] of this.responseTimes) {
+            if (times.length > 0) {
+                const avg = times.reduce((a, b) => a + b, 0) / times.length;
+                const min = Math.min(...times);
+                const max = Math.max(...times);
+                
+                console.log(`${operation} - Avg: ${avg.toFixed(2)}ms, Min: ${min.toFixed(2)}ms, Max: ${max.toFixed(2)}ms, Count: ${times.length}`);
+            }
+        }
+    }
+    
+    monitorMemory() {
+        if (performance.memory) {
+            const used = performance.memory.usedJSHeapSize;
+            const total = performance.memory.totalJSHeapSize;
+            const limit = performance.memory.jsHeapSizeLimit;
+            
+            console.log(`Memory Usage: ${((used / limit) * 100).toFixed(2)}% (${(used / 1024 / 1024).toFixed(2)} MB / ${(limit / 1024 / 1024).toFixed(2)} MB)`);
+        }
+    }
+}
+```
+</UniversalEditor>
+
+### 2. 性能分析工具
+
+#### 使用 JProfiler 或 VisualVM
+<UniversalEditor title="性能分析">
+```java !! java
+// 性能分析示例代码
+public class PerformanceAnalysis {
+    
+    public static void main(String[] args) {
+        // 模拟性能问题
+        for (int i = 0; i < 1000; i++) {
+            performExpensiveOperation();
+        }
+        
+        // 内存泄漏模拟
+        List<String> leakyList = new ArrayList<>();
+        for (int i = 0; i < 100000; i++) {
+            leakyList.add("String-" + i);
+        }
+        
+        // 线程竞争模拟
+        ExecutorService executor = Executors.newFixedThreadPool(10);
+        for (int i = 0; i < 100; i++) {
+            executor.submit(() -> {
+                synchronized (PerformanceAnalysis.class) {
+                    try {
+                        Thread.sleep(100);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                }
+            });
+        }
+        executor.shutdown();
+    }
+    
+    private static void performExpensiveOperation() {
+        // 模拟耗时操作
+        List<Integer> list = new ArrayList<>();
+        for (int i = 0; i < 10000; i++) {
+            list.add(i);
+        }
+        
+        // 排序操作
+        Collections.sort(list);
+    }
+}
+```
+</UniversalEditor>
+
+## 练习题
+
+### 练习 1: JVM 调优
+1. 配置 JVM 参数
+2. 监控 GC 性能
+3. 选择合适的内存大小
+4. 优化垃圾回收器
+
+### 练习 2: 内存优化
+1. 实现对象池
+2. 检测内存泄漏
+3. 优化对象创建
+4. 使用弱引用
+
+### 练习 3: 并发优化
+1. 配置线程池
+2. 优化锁策略
+3. 使用原子类
+4. 减少线程竞争
+
+### 练习 4: 性能监控
+1. 实现性能监控
+2. 分析性能瓶颈
+3. 使用性能分析工具
+4. 优化关键路径
+
+## 总结
+
+性能优化是一个持续的过程：
+
+- **JVM 调优**: 合理配置内存和垃圾回收器
+- **内存管理**: 避免内存泄漏，使用对象池
+- **并发优化**: 优化线程池和锁策略
+- **性能监控**: 持续监控和优化关键指标
+
+通过系统性的性能优化，可以显著提升 Java 应用的性能和用户体验。
+
+恭喜你完成了 Java 学习之旅！你已经掌握了从基础语法到高级优化的完整知识体系。 

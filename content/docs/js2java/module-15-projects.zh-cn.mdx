@@ -1,0 +1,1187 @@
+---
+title: "实战项目"
+description: "通过实战项目综合应用 Java 和 Spring 框架知识，包括 Web 应用、RESTful API 和数据库应用"
+---
+
+# 实战项目
+
+现在我们已经学习了 Java 和 Spring 框架的核心概念，让我们通过实战项目来巩固所学知识。这些项目将帮助你理解如何在实际开发中应用这些技术。
+
+## 项目 1: 用户管理系统
+
+### 项目概述
+创建一个完整的用户管理系统，包含用户注册、登录、信息管理等功能。
+
+### 技术栈
+- Spring Boot 3.x
+- Spring Data JPA
+- Spring Security
+- H2 Database (开发环境)
+- Maven/Gradle
+
+<UniversalEditor title="项目结构">
+```bash !! bash
+user-management-system/
+├── src/
+│   ├── main/
+│   │   ├── java/
+│   │   │   └── com/
+│   │   │       └── example/
+│   │   │           └── usermanagement/
+│   │   │               ├── UserManagementApplication.java
+│   │   │               ├── controller/
+│   │   │               │   ├── UserController.java
+│   │   │               │   └── AuthController.java
+│   │   │               ├── service/
+│   │   │               │   ├── UserService.java
+│   │   │               │   └── AuthService.java
+│   │   │               ├── repository/
+│   │   │               │   └── UserRepository.java
+│   │   │               ├── entity/
+│   │   │               │   └── User.java
+│   │   │               ├── dto/
+│   │   │               │   ├── UserCreateRequest.java
+│   │   │               │   └── UserUpdateRequest.java
+│   │   │               └── config/
+│   │   │                   └── SecurityConfig.java
+│   │   └── resources/
+│   │       ├── application.yml
+│   │       └── data.sql
+│   └── test/
+│       └── java/
+│           └── com/
+│               └── example/
+│                   └── usermanagement/
+│                       └── UserControllerTest.java
+├── pom.xml
+└── README.md
+```
+
+```javascript !! js
+// Node.js 项目结构对比
+user-management-api/
+├── src/
+│   ├── controllers/
+│   │   ├── userController.js
+│   │   └── authController.js
+│   ├── services/
+│   │   ├── userService.js
+│   │   └── authService.js
+│   ├── models/
+│   │   └── User.js
+│   ├── routes/
+│   │   ├── userRoutes.js
+│   │   └── authRoutes.js
+│   ├── middleware/
+│   │   ├── auth.js
+│   │   └── validation.js
+│   └── config/
+│       └── database.js
+├── package.json
+└── README.md
+```
+</UniversalEditor>
+
+### 核心代码实现
+
+#### 1. 实体类
+<UniversalEditor title="用户实体类">
+```java !! java
+@Entity
+@Table(name = "users")
+public class User {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    
+    @Column(nullable = false, unique = true)
+    private String email;
+    
+    @Column(nullable = false)
+    private String username;
+    
+    @Column(nullable = false)
+    private String password;
+    
+    @Column(nullable = false)
+    private String fullName;
+    
+    @Enumerated(EnumType.STRING)
+    private UserRole role = UserRole.USER;
+    
+    @Column(nullable = false)
+    private boolean active = true;
+    
+    @CreatedDate
+    private LocalDateTime createdAt;
+    
+    @LastModifiedDate
+    private LocalDateTime updatedAt;
+    
+    // getters and setters
+}
+
+public enum UserRole {
+    USER, ADMIN
+}
+```
+
+```javascript !! js
+// Sequelize 模型
+const User = sequelize.define('User', {
+    id: {
+        type: DataTypes.INTEGER,
+        primaryKey: true,
+        autoIncrement: true
+    },
+    email: {
+        type: DataTypes.STRING,
+        allowNull: false,
+        unique: true
+    },
+    username: {
+        type: DataTypes.STRING,
+        allowNull: false
+    },
+    password: {
+        type: DataTypes.STRING,
+        allowNull: false
+    },
+    fullName: {
+        type: DataTypes.STRING,
+        allowNull: false
+    },
+    role: {
+        type: DataTypes.ENUM('USER', 'ADMIN'),
+        defaultValue: 'USER'
+    },
+    active: {
+        type: DataTypes.BOOLEAN,
+        defaultValue: true
+    }
+});
+```
+</UniversalEditor>
+
+#### 2. Repository 层
+<UniversalEditor title="Repository 层">
+```java !! java
+@Repository
+public interface UserRepository extends JpaRepository<User, Long> {
+    
+    Optional<User> findByEmail(String email);
+    
+    Optional<User> findByUsername(String username);
+    
+    boolean existsByEmail(String email);
+    
+    boolean existsByUsername(String username);
+    
+    List<User> findByRole(UserRole role);
+    
+    @Query("SELECT u FROM User u WHERE u.active = true")
+    List<User> findActiveUsers();
+    
+    @Query("SELECT u FROM User u WHERE u.createdAt >= :date")
+    List<User> findUsersCreatedAfter(@Param("date") LocalDateTime date);
+}
+```
+
+```javascript !! js
+// Sequelize 查询方法
+class UserRepository {
+    async findByEmail(email) {
+        return await User.findOne({ where: { email } });
+    }
+    
+    async findByUsername(username) {
+        return await User.findOne({ where: { username } });
+    }
+    
+    async existsByEmail(email) {
+        const count = await User.count({ where: { email } });
+        return count > 0;
+    }
+    
+    async existsByUsername(username) {
+        const count = await User.count({ where: { username } });
+        return count > 0;
+    }
+    
+    async findByRole(role) {
+        return await User.findAll({ where: { role } });
+    }
+    
+    async findActiveUsers() {
+        return await User.findAll({ where: { active: true } });
+    }
+    
+    async findUsersCreatedAfter(date) {
+        return await User.findAll({
+            where: {
+                createdAt: { [Op.gte]: date }
+            }
+        });
+    }
+}
+```
+</UniversalEditor>
+
+#### 3. Service 层
+<UniversalEditor title="Service 层">
+```java !! java
+@Service
+@Transactional
+public class UserService {
+    
+    @Autowired
+    private UserRepository userRepository;
+    
+    @Autowired
+    private PasswordEncoder passwordEncoder;
+    
+    public List<User> getAllUsers() {
+        return userRepository.findAll();
+    }
+    
+    public User getUserById(Long id) {
+        return userRepository.findById(id)
+                .orElseThrow(() -> new UserNotFoundException("User not found with id: " + id));
+    }
+    
+    public User createUser(UserCreateRequest request) {
+        // 验证邮箱和用户名唯一性
+        if (userRepository.existsByEmail(request.getEmail())) {
+            throw new EmailAlreadyExistsException("Email already exists");
+        }
+        
+        if (userRepository.existsByUsername(request.getUsername())) {
+            throw new UsernameAlreadyExistsException("Username already exists");
+        }
+        
+        // 创建新用户
+        User user = new User();
+        user.setEmail(request.getEmail());
+        user.setUsername(request.getUsername());
+        user.setPassword(passwordEncoder.encode(request.getPassword()));
+        user.setFullName(request.getFullName());
+        user.setRole(request.getRole() != null ? request.getRole() : UserRole.USER);
+        
+        return userRepository.save(user);
+    }
+    
+    public User updateUser(Long id, UserUpdateRequest request) {
+        User user = getUserById(id);
+        
+        // 更新字段
+        if (request.getEmail() != null && !request.getEmail().equals(user.getEmail())) {
+            if (userRepository.existsByEmail(request.getEmail())) {
+                throw new EmailAlreadyExistsException("Email already exists");
+            }
+            user.setEmail(request.getEmail());
+        }
+        
+        if (request.getUsername() != null && !request.getUsername().equals(user.getUsername())) {
+            if (userRepository.existsByUsername(request.getUsername())) {
+                throw new UsernameAlreadyExistsException("Username already exists");
+            }
+            user.setUsername(request.getUsername());
+        }
+        
+        if (request.getFullName() != null) {
+            user.setFullName(request.getFullName());
+        }
+        
+        if (request.getRole() != null) {
+            user.setRole(request.getRole());
+        }
+        
+        return userRepository.save(user);
+    }
+    
+    public void deleteUser(Long id) {
+        User user = getUserById(id);
+        userRepository.delete(user);
+    }
+    
+    public void deactivateUser(Long id) {
+        User user = getUserById(id);
+        user.setActive(false);
+        userRepository.save(user);
+    }
+    
+    public List<User> getActiveUsers() {
+        return userRepository.findActiveUsers();
+    }
+}
+```
+
+```javascript !! js
+// JavaScript Service 层
+const bcrypt = require('bcrypt');
+
+class UserService {
+    constructor(userRepository) {
+        this.userRepository = userRepository;
+    }
+    
+    async getAllUsers() {
+        return await this.userRepository.findAll();
+    }
+    
+    async getUserById(id) {
+        const user = await this.userRepository.findByPk(id);
+        if (!user) {
+            throw new Error('User not found with id: ' + id);
+        }
+        return user;
+    }
+    
+    async createUser(userData) {
+        // 验证邮箱和用户名唯一性
+        if (await this.userRepository.existsByEmail(userData.email)) {
+            throw new Error('Email already exists');
+        }
+        
+        if (await this.userRepository.existsByUsername(userData.username)) {
+            throw new Error('Username already exists');
+        }
+        
+        // 加密密码
+        const hashedPassword = await bcrypt.hash(userData.password, 10);
+        
+        // 创建新用户
+        const user = await this.userRepository.create({
+            ...userData,
+            password: hashedPassword,
+            role: userData.role || 'USER'
+        });
+        
+        return user;
+    }
+    
+    async updateUser(id, userData) {
+        const user = await this.getUserById(id);
+        
+        // 更新字段
+        if (userData.email && userData.email !== user.email) {
+            if (await this.userRepository.existsByEmail(userData.email)) {
+                throw new Error('Email already exists');
+            }
+            user.email = userData.email;
+        }
+        
+        if (userData.username && userData.username !== user.username) {
+            if (await this.userRepository.existsByUsername(userData.username)) {
+                throw new Error('Username already exists');
+            }
+            user.username = userData.username;
+        }
+        
+        if (userData.fullName) {
+            user.fullName = userData.fullName;
+        }
+        
+        if (userData.role) {
+            user.role = userData.role;
+        }
+        
+        return await user.save();
+    }
+    
+    async deleteUser(id) {
+        const user = await this.getUserById(id);
+        await user.destroy();
+    }
+    
+    async deactivateUser(id) {
+        const user = await this.getUserById(id);
+        user.active = false;
+        return await user.save();
+    }
+    
+    async getActiveUsers() {
+        return await this.userRepository.findActiveUsers();
+    }
+}
+```
+</UniversalEditor>
+
+#### 4. Controller 层
+<UniversalEditor title="Controller 层">
+```java !! java
+@RestController
+@RequestMapping("/api/users")
+@Tag(name = "User Management", description = "User management operations")
+public class UserController {
+    
+    @Autowired
+    private UserService userService;
+    
+    @GetMapping
+    @Operation(summary = "Get all users")
+    public ResponseEntity<Page<User>> getAllUsers(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size) {
+        
+        Pageable pageable = PageRequest.of(page, size);
+        Page<User> users = userService.getAllUsers(pageable);
+        return ResponseEntity.ok(users);
+    }
+    
+    @GetMapping("/{id}")
+    @Operation(summary = "Get user by ID")
+    public ResponseEntity<User> getUserById(@PathVariable Long id) {
+        User user = userService.getUserById(id);
+        return ResponseEntity.ok(user);
+    }
+    
+    @PostMapping
+    @Operation(summary = "Create a new user")
+    public ResponseEntity<User> createUser(@Valid @RequestBody UserCreateRequest request) {
+        User user = userService.createUser(request);
+        return ResponseEntity.status(HttpStatus.CREATED).body(user);
+    }
+    
+    @PutMapping("/{id}")
+    @Operation(summary = "Update user")
+    public ResponseEntity<User> updateUser(@PathVariable Long id,
+                                         @Valid @RequestBody UserUpdateRequest request) {
+        User user = userService.updateUser(id, request);
+        return ResponseEntity.ok(user);
+    }
+    
+    @DeleteMapping("/{id}")
+    @Operation(summary = "Delete user")
+    public ResponseEntity<Void> deleteUser(@PathVariable Long id) {
+        userService.deleteUser(id);
+        return ResponseEntity.noContent().build();
+    }
+    
+    @PatchMapping("/{id}/deactivate")
+    @Operation(summary = "Deactivate user")
+    public ResponseEntity<User> deactivateUser(@PathVariable Long id) {
+        User user = userService.deactivateUser(id);
+        return ResponseEntity.ok(user);
+    }
+    
+    @GetMapping("/active")
+    @Operation(summary = "Get active users")
+    public ResponseEntity<List<User>> getActiveUsers() {
+        List<User> users = userService.getActiveUsers();
+        return ResponseEntity.ok(users);
+    }
+}
+```
+
+```javascript !! js
+// Express.js Controller
+const express = require('express');
+const router = express.Router();
+
+router.get('/', async (req, res) => {
+    try {
+        const { page = 0, size = 10 } = req.query;
+        const offset = page * size;
+        
+        const users = await userService.getAllUsers(offset, size);
+        res.json({
+            content: users,
+            page: parseInt(page),
+            size: parseInt(size),
+            totalElements: users.length
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+router.get('/:id', async (req, res) => {
+    try {
+        const user = await userService.getUserById(req.params.id);
+        res.json(user);
+    } catch (error) {
+        res.status(404).json({ error: error.message });
+    }
+});
+
+router.post('/', async (req, res) => {
+    try {
+        const user = await userService.createUser(req.body);
+        res.status(201).json(user);
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+});
+
+router.put('/:id', async (req, res) => {
+    try {
+        const user = await userService.updateUser(req.params.id, req.body);
+        res.json(user);
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+});
+
+router.delete('/:id', async (req, res) => {
+    try {
+        await userService.deleteUser(req.params.id);
+        res.status(204).send();
+    } catch (error) {
+        res.status(404).json({ error: error.message });
+    }
+});
+
+router.patch('/:id/deactivate', async (req, res) => {
+    try {
+        const user = await userService.deactivateUser(req.params.id);
+        res.json(user);
+    } catch (error) {
+        res.status(404).json({ error: error.message });
+    }
+});
+
+router.get('/active', async (req, res) => {
+    try {
+        const users = await userService.getActiveUsers();
+        res.json(users);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+```
+</UniversalEditor>
+
+## 项目 2: 博客系统
+
+### 项目概述
+创建一个博客系统，包含文章管理、评论系统、用户权限等功能。
+
+### 核心功能
+- 文章 CRUD 操作
+- 评论系统
+- 用户权限管理
+- 文章分类和标签
+- 搜索功能
+
+<UniversalEditor title="博客系统实体设计">
+```java !! java
+// 文章实体
+@Entity
+@Table(name = "posts")
+public class Post {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    
+    @Column(nullable = false)
+    private String title;
+    
+    @Column(columnDefinition = "TEXT")
+    private String content;
+    
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "author_id")
+    private User author;
+    
+    @Enumerated(EnumType.STRING)
+    private PostStatus status = PostStatus.DRAFT;
+    
+    @ManyToMany
+    @JoinTable(
+        name = "post_tags",
+        joinColumns = @JoinColumn(name = "post_id"),
+        inverseJoinColumns = @JoinColumn(name = "tag_id")
+    )
+    private Set<Tag> tags = new HashSet<>();
+    
+    @OneToMany(mappedBy = "post", cascade = CascadeType.ALL)
+    private List<Comment> comments = new ArrayList<>();
+    
+    @CreatedDate
+    private LocalDateTime createdAt;
+    
+    @LastModifiedDate
+    private LocalDateTime updatedAt;
+    
+    // getters and setters
+}
+
+// 评论实体
+@Entity
+@Table(name = "comments")
+public class Comment {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    
+    @Column(columnDefinition = "TEXT", nullable = false)
+    private String content;
+    
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "post_id")
+    private Post post;
+    
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "author_id")
+    private User author;
+    
+    @CreatedDate
+    private LocalDateTime createdAt;
+    
+    // getters and setters
+}
+
+// 标签实体
+@Entity
+@Table(name = "tags")
+public class Tag {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    
+    @Column(nullable = false, unique = true)
+    private String name;
+    
+    @ManyToMany(mappedBy = "tags")
+    private Set<Post> posts = new HashSet<>();
+    
+    // getters and setters
+}
+```
+
+```javascript !! js
+// Sequelize 模型
+const Post = sequelize.define('Post', {
+    id: {
+        type: DataTypes.INTEGER,
+        primaryKey: true,
+        autoIncrement: true
+    },
+    title: {
+        type: DataTypes.STRING,
+        allowNull: false
+    },
+    content: {
+        type: DataTypes.TEXT
+    },
+    status: {
+        type: DataTypes.ENUM('DRAFT', 'PUBLISHED', 'ARCHIVED'),
+        defaultValue: 'DRAFT'
+    }
+});
+
+const Comment = sequelize.define('Comment', {
+    id: {
+        type: DataTypes.INTEGER,
+        primaryKey: true,
+        autoIncrement: true
+    },
+    content: {
+        type: DataTypes.TEXT,
+        allowNull: false
+    }
+});
+
+const Tag = sequelize.define('Tag', {
+    id: {
+        type: DataTypes.INTEGER,
+        primaryKey: true,
+        autoIncrement: true
+    },
+    name: {
+        type: DataTypes.STRING,
+        allowNull: false,
+        unique: true
+    }
+});
+
+// 关联关系
+Post.belongsTo(User, { as: 'author' });
+Post.belongsToMany(Tag, { through: 'PostTags' });
+Post.hasMany(Comment);
+
+Comment.belongsTo(Post);
+Comment.belongsTo(User, { as: 'author' });
+
+Tag.belongsToMany(Post, { through: 'PostTags' });
+```
+</UniversalEditor>
+
+## 项目 3: 任务管理系统
+
+### 项目概述
+创建一个任务管理系统，包含任务创建、分配、状态跟踪、优先级管理等功能。
+
+### 核心功能
+- 任务 CRUD 操作
+- 任务分配和协作
+- 状态跟踪
+- 优先级管理
+- 截止日期提醒
+
+<UniversalEditor title="任务管理系统">
+```java !! java
+// 任务实体
+@Entity
+@Table(name = "tasks")
+public class Task {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    
+    @Column(nullable = false)
+    private String title;
+    
+    @Column(columnDefinition = "TEXT")
+    private String description;
+    
+    @Enumerated(EnumType.STRING)
+    private TaskStatus status = TaskStatus.TODO;
+    
+    @Enumerated(EnumType.STRING)
+    private TaskPriority priority = TaskPriority.MEDIUM;
+    
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "assignee_id")
+    private User assignee;
+    
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "creator_id")
+    private User creator;
+    
+    @Column
+    private LocalDateTime dueDate;
+    
+    @OneToMany(mappedBy = "task", cascade = CascadeType.ALL)
+    private List<TaskComment> comments = new ArrayList<>();
+    
+    @CreatedDate
+    private LocalDateTime createdAt;
+    
+    @LastModifiedDate
+    private LocalDateTime updatedAt;
+    
+    // getters and setters
+}
+
+public enum TaskStatus {
+    TODO, IN_PROGRESS, REVIEW, DONE, CANCELLED
+}
+
+public enum TaskPriority {
+    LOW, MEDIUM, HIGH, URGENT
+}
+```
+
+```javascript !! js
+// Sequelize 模型
+const Task = sequelize.define('Task', {
+    id: {
+        type: DataTypes.INTEGER,
+        primaryKey: true,
+        autoIncrement: true
+    },
+    title: {
+        type: DataTypes.STRING,
+        allowNull: false
+    },
+    description: {
+        type: DataTypes.TEXT
+    },
+    status: {
+        type: DataTypes.ENUM('TODO', 'IN_PROGRESS', 'REVIEW', 'DONE', 'CANCELLED'),
+        defaultValue: 'TODO'
+    },
+    priority: {
+        type: DataTypes.ENUM('LOW', 'MEDIUM', 'HIGH', 'URGENT'),
+        defaultValue: 'MEDIUM'
+    },
+    dueDate: {
+        type: DataTypes.DATE
+    }
+});
+
+// 关联关系
+Task.belongsTo(User, { as: 'assignee' });
+Task.belongsTo(User, { as: 'creator' });
+Task.hasMany(TaskComment);
+```
+</UniversalEditor>
+
+## 项目部署和测试
+
+### 单元测试
+<UniversalEditor title="单元测试">
+```java !! java
+@SpringBootTest
+@AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
+class UserServiceTest {
+    
+    @Autowired
+    private UserService userService;
+    
+    @MockBean
+    private PasswordEncoder passwordEncoder;
+    
+    @Test
+    void testCreateUser() {
+        // Given
+        UserCreateRequest request = new UserCreateRequest();
+        request.setEmail("test@example.com");
+        request.setUsername("testuser");
+        request.setPassword("password123");
+        request.setFullName("Test User");
+        
+        when(passwordEncoder.encode(anyString())).thenReturn("encodedPassword");
+        
+        // When
+        User user = userService.createUser(request);
+        
+        // Then
+        assertThat(user.getEmail()).isEqualTo("test@example.com");
+        assertThat(user.getUsername()).isEqualTo("testuser");
+        assertThat(user.getFullName()).isEqualTo("Test User");
+        assertThat(user.getRole()).isEqualTo(UserRole.USER);
+        
+        verify(passwordEncoder).encode("password123");
+    }
+    
+    @Test
+    void testCreateUserWithDuplicateEmail() {
+        // Given
+        UserCreateRequest request = new UserCreateRequest();
+        request.setEmail("existing@example.com");
+        request.setUsername("newuser");
+        request.setPassword("password123");
+        request.setFullName("New User");
+        
+        // When & Then
+        assertThatThrownBy(() -> userService.createUser(request))
+            .isInstanceOf(EmailAlreadyExistsException.class)
+            .hasMessage("Email already exists");
+    }
+}
+```
+
+```javascript !! js
+// Jest 测试
+describe('UserService', () => {
+    let userService;
+    let mockUserRepository;
+    let mockPasswordEncoder;
+    
+    beforeEach(() => {
+        mockUserRepository = {
+            existsByEmail: jest.fn(),
+            existsByUsername: jest.fn(),
+            create: jest.fn()
+        };
+        
+        mockPasswordEncoder = {
+            hash: jest.fn()
+        };
+        
+        userService = new UserService(mockUserRepository, mockPasswordEncoder);
+    });
+    
+    test('should create user successfully', async () => {
+        // Given
+        const userData = {
+            email: 'test@example.com',
+            username: 'testuser',
+            password: 'password123',
+            fullName: 'Test User'
+        };
+        
+        mockUserRepository.existsByEmail.mockResolvedValue(false);
+        mockUserRepository.existsByUsername.mockResolvedValue(false);
+        mockPasswordEncoder.hash.mockResolvedValue('encodedPassword');
+        mockUserRepository.create.mockResolvedValue({
+            ...userData,
+            id: 1,
+            password: 'encodedPassword'
+        });
+        
+        // When
+        const user = await userService.createUser(userData);
+        
+        // Then
+        expect(user.email).toBe('test@example.com');
+        expect(user.username).toBe('testuser');
+        expect(mockPasswordEncoder.hash).toHaveBeenCalledWith('password123', 10);
+    });
+    
+    test('should throw error for duplicate email', async () => {
+        // Given
+        const userData = {
+            email: 'existing@example.com',
+            username: 'newuser',
+            password: 'password123',
+            fullName: 'New User'
+        };
+        
+        mockUserRepository.existsByEmail.mockResolvedValue(true);
+        
+        // When & Then
+        await expect(userService.createUser(userData))
+            .rejects.toThrow('Email already exists');
+    });
+});
+```
+</UniversalEditor>
+
+### 集成测试
+<UniversalEditor title="集成测试">
+```java !! java
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
+class UserControllerIntegrationTest {
+    
+    @Autowired
+    private TestRestTemplate restTemplate;
+    
+    @Autowired
+    private UserRepository userRepository;
+    
+    @Test
+    void testCreateUser() {
+        // Given
+        UserCreateRequest request = new UserCreateRequest();
+        request.setEmail("integration@example.com");
+        request.setUsername("integrationuser");
+        request.setPassword("password123");
+        request.setFullName("Integration User");
+        
+        // When
+        ResponseEntity<User> response = restTemplate.postForEntity(
+            "/api/users",
+            request,
+            User.class
+        );
+        
+        // Then
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(response.getBody().getEmail()).isEqualTo("integration@example.com");
+        
+        // Verify database
+        User savedUser = userRepository.findByEmail("integration@example.com").orElse(null);
+        assertThat(savedUser).isNotNull();
+        assertThat(savedUser.getUsername()).isEqualTo("integrationuser");
+    }
+    
+    @Test
+    void testGetAllUsers() {
+        // Given
+        User user = new User();
+        user.setEmail("test@example.com");
+        user.setUsername("testuser");
+        user.setPassword("password");
+        user.setFullName("Test User");
+        userRepository.save(user);
+        
+        // When
+        ResponseEntity<List> response = restTemplate.getForEntity(
+            "/api/users",
+            List.class
+        );
+        
+        // Then
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody()).isNotEmpty();
+    }
+}
+```
+
+```javascript !! js
+// Supertest 集成测试
+const request = require('supertest');
+const app = require('../app');
+
+describe('User API Integration Tests', () => {
+    beforeEach(async () => {
+        // 清理测试数据
+        await User.destroy({ where: {} });
+    });
+    
+    test('should create user successfully', async () => {
+        // Given
+        const userData = {
+            email: 'integration@example.com',
+            username: 'integrationuser',
+            password: 'password123',
+            fullName: 'Integration User'
+        };
+        
+        // When
+        const response = await request(app)
+            .post('/api/users')
+            .send(userData)
+            .expect(201);
+        
+        // Then
+        expect(response.body.email).toBe('integration@example.com');
+        expect(response.body.username).toBe('integrationuser');
+        
+        // Verify database
+        const savedUser = await User.findOne({ where: { email: 'integration@example.com' } });
+        expect(savedUser).toBeTruthy();
+    });
+    
+    test('should get all users', async () => {
+        // Given
+        await User.create({
+            email: 'test@example.com',
+            username: 'testuser',
+            password: 'password',
+            fullName: 'Test User'
+        });
+        
+        // When
+        const response = await request(app)
+            .get('/api/users')
+            .expect(200);
+        
+        // Then
+        expect(response.body.content).toHaveLength(1);
+        expect(response.body.content[0].email).toBe('test@example.com');
+    });
+});
+```
+</UniversalEditor>
+
+## 项目部署
+
+### Docker 部署
+<UniversalEditor title="Docker 部署">
+```dockerfile !! dockerfile
+# Dockerfile
+FROM openjdk:17-jdk-slim
+
+WORKDIR /app
+
+COPY target/*.jar app.jar
+
+EXPOSE 8080
+
+ENTRYPOINT ["java", "-jar", "app.jar"]
+```
+
+```yaml !! yaml
+# docker-compose.yml
+version: '3.8'
+
+services:
+  app:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://db:5432/mydb
+      - SPRING_DATASOURCE_USERNAME=postgres
+      - SPRING_DATASOURCE_PASSWORD=password
+    depends_on:
+      - db
+  
+  db:
+    image: postgres:13
+    environment:
+      - POSTGRES_DB=mydb
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+volumes:
+  postgres_data:
+```
+
+```javascript !! js
+// Node.js Dockerfile
+FROM node:18-alpine
+
+WORKDIR /app
+
+COPY package*.json ./
+RUN npm ci --only=production
+
+COPY . .
+
+EXPOSE 3000
+
+CMD ["npm", "start"]
+```
+
+```yaml !! yaml
+# docker-compose.yml for Node.js
+version: '3.8'
+
+services:
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://postgres:password@db:5432/mydb
+    depends_on:
+      - db
+  
+  db:
+    image: postgres:13
+    environment:
+      - POSTGRES_DB=mydb
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:
+```
+</UniversalEditor>
+
+## 练习题
+
+### 练习 1: 用户管理系统
+1. 实现完整的用户 CRUD 操作
+2. 添加用户认证和授权
+3. 实现用户角色管理
+4. 添加数据验证和异常处理
+
+### 练习 2: 博客系统
+1. 实现文章管理功能
+2. 添加评论系统
+3. 实现标签和分类功能
+4. 添加搜索功能
+
+### 练习 3: 任务管理系统
+1. 实现任务 CRUD 操作
+2. 添加任务分配功能
+3. 实现状态跟踪
+4. 添加截止日期提醒
+
+### 练习 4: 项目部署
+1. 配置 Docker 环境
+2. 设置 CI/CD 流程
+3. 部署到云平台
+4. 监控应用性能
+
+## 总结
+
+通过实战项目，我们学习了：
+
+- **项目架构设计**: 合理的代码组织结构
+- **数据库设计**: 实体关系和数据建模
+- **API 开发**: RESTful 接口设计
+- **测试策略**: 单元测试和集成测试
+- **部署实践**: Docker 和云平台部署
+
+这些项目展示了 Java 和 Spring 框架在企业级开发中的实际应用，帮助你建立完整的开发技能体系。
+
+在下一个模块中，我们将学习 Java 开发中的常见陷阱和最佳实践，帮助你避免常见错误并提高代码质量。
+
+准备好学习最佳实践了吗？ 

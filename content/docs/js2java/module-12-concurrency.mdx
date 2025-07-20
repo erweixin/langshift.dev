@@ -1,0 +1,1331 @@
+---
+title: "Module 12: Concurrency"
+description: "Learn Java concurrency, threads, synchronization, and concurrent collections compared to JavaScript async programming and Web Workers."
+---
+
+# Module 12: Concurrency
+
+In this module, we'll explore Java's concurrency model and compare it with JavaScript's asynchronous programming patterns. We'll learn about threads, synchronization, concurrent collections, and modern concurrency utilities.
+
+## Learning Objectives
+
+By the end of this module, you will be able to:
+- Understand Java's threading model and concurrency concepts
+- Compare Java threads with JavaScript async patterns
+- Implement thread-safe code using synchronization
+- Use concurrent collections and utilities
+- Apply modern concurrency patterns
+- Understand thread lifecycle and management
+
+## Threading Basics
+
+### 1. Thread Creation and Management
+
+Java provides native threading support, while JavaScript uses event loop and async patterns.
+
+<UniversalEditor title="Thread Creation and Management" compare={true}>
+```javascript !! js
+// JavaScript - Async programming patterns
+// Async function simulation
+async function asyncTask(name, delay) {
+    console.log(`${name} starting...`);
+    await new Promise(resolve => setTimeout(resolve, delay));
+    console.log(`${name} completed after ${delay}ms`);
+    return `${name} result`;
+}
+
+// Promise-based concurrency
+function promiseTask(name, delay) {
+    return new Promise((resolve, reject) => {
+        console.log(`${name} starting...`);
+        setTimeout(() => {
+            if (Math.random() > 0.1) { // 90% success rate
+                console.log(`${name} completed after ${delay}ms`);
+                resolve(`${name} result`);
+            } else {
+                console.log(`${name} failed after ${delay}ms`);
+                reject(new Error(`${name} failed`));
+            }
+        }, delay);
+    });
+}
+
+// Async function with error handling
+async function robustAsyncTask(name, delay) {
+    try {
+        console.log(`${name} starting...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        
+        if (Math.random() > 0.8) {
+            throw new Error(`${name} random failure`);
+        }
+        
+        console.log(`${name} completed after ${delay}ms`);
+        return `${name} result`;
+    } catch (error) {
+        console.error(`${name} failed:`, error.message);
+        throw error;
+    }
+}
+
+// Concurrent execution with Promise.all
+async function concurrentExecution() {
+    console.log('Starting concurrent execution...');
+    
+    const tasks = [
+        asyncTask('Task A', 1000),
+        asyncTask('Task B', 1500),
+        asyncTask('Task C', 800)
+    ];
+    
+    try {
+        const results = await Promise.all(tasks);
+        console.log('All tasks completed:', results);
+        return results;
+    } catch (error) {
+        console.error('One or more tasks failed:', error);
+        throw error;
+    }
+}
+
+// Race condition simulation
+async function raceCondition() {
+    let counter = 0;
+    
+    const increment = async () => {
+        const current = counter;
+        await new Promise(resolve => setTimeout(resolve, Math.random() * 10));
+        counter = current + 1;
+    };
+    
+    const tasks = Array.from({ length: 100 }, () => increment());
+    await Promise.all(tasks);
+    
+    console.log('Final counter value:', counter); // Likely less than 100 due to race condition
+}
+
+// Thread-like simulation with setInterval
+class ThreadSimulator {
+    constructor(name, interval, maxIterations = 10) {
+        this.name = name;
+        this.interval = interval;
+        this.maxIterations = maxIterations;
+        this.currentIteration = 0;
+        this.isRunning = false;
+        this.intervalId = null;
+    }
+    
+    start() {
+        if (this.isRunning) {
+            console.log(`${this.name} is already running`);
+            return;
+        }
+        
+        this.isRunning = true;
+        console.log(`${this.name} started`);
+        
+        this.intervalId = setInterval(() => {
+            this.currentIteration++;
+            console.log(`${this.name} iteration ${this.currentIteration}`);
+            
+            if (this.currentIteration >= this.maxIterations) {
+                this.stop();
+            }
+        }, this.interval);
+    }
+    
+    stop() {
+        if (!this.isRunning) {
+            console.log(`${this.name} is not running`);
+            return;
+        }
+        
+        clearInterval(this.intervalId);
+        this.isRunning = false;
+        console.log(`${this.name} stopped`);
+    }
+    
+    isAlive() {
+        return this.isRunning;
+    }
+}
+
+// Web Worker simulation (if available)
+class WorkerSimulator {
+    constructor(name) {
+        this.name = name;
+        this.isRunning = false;
+        this.messageQueue = [];
+    }
+    
+    postMessage(message) {
+        if (!this.isRunning) {
+            console.log(`${this.name} worker is not running`);
+            return;
+        }
+        
+        console.log(`${this.name} received message:`, message);
+        
+        // Simulate processing
+        setTimeout(() => {
+            const response = `${this.name} processed: ${message}`;
+            console.log(response);
+            this.onmessage && this.onmessage({ data: response });
+        }, Math.random() * 1000);
+    }
+    
+    start() {
+        this.isRunning = true;
+        console.log(`${this.name} worker started`);
+    }
+    
+    terminate() {
+        this.isRunning = false;
+        console.log(`${this.name} worker terminated`);
+    }
+}
+
+// Async generator for streaming data
+async function* dataStream() {
+    for (let i = 0; i < 10; i++) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+        yield `Data ${i}`;
+    }
+}
+
+// Usage examples
+console.log("=== Async Task Demo ===");
+asyncTask('Simple Task', 1000)
+    .then(result => console.log('Result:', result))
+    .catch(error => console.error('Error:', error));
+
+console.log("=== Promise Task Demo ===");
+promiseTask('Promise Task', 2000)
+    .then(result => console.log('Promise result:', result))
+    .catch(error => console.error('Promise error:', error));
+
+console.log("=== Concurrent Execution ===");
+concurrentExecution()
+    .then(results => console.log('Concurrent results:', results))
+    .catch(error => console.error('Concurrent error:', error));
+
+console.log("=== Race Condition Demo ===");
+raceCondition().then(() => {
+    console.log('Race condition demo completed');
+});
+
+console.log("=== Thread Simulator Demo ===");
+const thread1 = new ThreadSimulator('Thread-1', 500, 5);
+const thread2 = new ThreadSimulator('Thread-2', 300, 8);
+
+thread1.start();
+thread2.start();
+
+setTimeout(() => {
+    console.log('Thread-1 alive:', thread1.isAlive());
+    console.log('Thread-2 alive:', thread2.isAlive());
+}, 2000);
+
+console.log("=== Worker Simulator Demo ===");
+const worker = new WorkerSimulator('MyWorker');
+worker.onmessage = (event) => {
+    console.log('Main thread received:', event.data);
+};
+
+worker.start();
+worker.postMessage('Hello from main thread');
+
+setTimeout(() => {
+    worker.terminate();
+}, 3000);
+
+console.log("=== Data Stream Demo ===");
+(async () => {
+    for await (const data of dataStream()) {
+        console.log('Received:', data);
+    }
+    console.log('Stream completed');
+})();
+
+// Error handling patterns
+console.log("=== Error Handling Demo ===");
+const tasks = [
+    robustAsyncTask('Task 1', 1000),
+    robustAsyncTask('Task 2', 1500),
+    robustAsyncTask('Task 3', 800)
+];
+
+Promise.allSettled(tasks)
+    .then(results => {
+        results.forEach((result, index) => {
+            if (result.status === 'fulfilled') {
+                console.log(`Task ${index + 1} succeeded:`, result.value);
+            } else {
+                console.log(`Task ${index + 1} failed:`, result.reason.message);
+            }
+        });
+    });
+```
+
+```java !! java
+// Java - Threading and concurrency
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
+
+// Thread creation and management
+public class ThreadDemo {
+    public static void main(String[] args) {
+        // Creating threads using Thread class
+        Thread thread1 = new Thread(() -> {
+            for (int i = 0; i < 5; i++) {
+                System.out.println("Thread-1 iteration " + i);
+                try {
+                    Thread.sleep(500);
+                } catch (InterruptedException e) {
+                    System.out.println("Thread-1 interrupted");
+                    return;
+                }
+            }
+        }, "Thread-1");
+        
+        Thread thread2 = new Thread(() -> {
+            for (int i = 0; i < 8; i++) {
+                System.out.println("Thread-2 iteration " + i);
+                try {
+                    Thread.sleep(300);
+                } catch (InterruptedException e) {
+                    System.out.println("Thread-2 interrupted");
+                    return;
+                }
+            }
+        }, "Thread-2");
+        
+        // Starting threads
+        thread1.start();
+        thread2.start();
+        
+        // Checking thread status
+        System.out.println("Thread-1 alive: " + thread1.isAlive());
+        System.out.println("Thread-2 alive: " + thread2.isAlive());
+        
+        // Waiting for threads to complete
+        try {
+            thread1.join();
+            thread2.join();
+        } catch (InterruptedException e) {
+            System.out.println("Main thread interrupted");
+        }
+        
+        System.out.println("All threads completed");
+    }
+}
+
+// Thread creation using Runnable
+class MyRunnable implements Runnable {
+    private String name;
+    private int iterations;
+    
+    public MyRunnable(String name, int iterations) {
+        this.name = name;
+        this.iterations = iterations;
+    }
+    
+    @Override
+    public void run() {
+        for (int i = 0; i < iterations; i++) {
+            System.out.println(name + " iteration " + i);
+            try {
+                Thread.sleep(100);
+            } catch (InterruptedException e) {
+                System.out.println(name + " interrupted");
+                return;
+            }
+        }
+    }
+}
+
+// Thread creation using Thread class
+class MyThread extends Thread {
+    private String name;
+    private int iterations;
+    
+    public MyThread(String name, int iterations) {
+        this.name = name;
+        this.iterations = iterations;
+    }
+    
+    @Override
+    public void run() {
+        for (int i = 0; i < iterations; i++) {
+            System.out.println(name + " iteration " + i);
+            try {
+                Thread.sleep(100);
+            } catch (InterruptedException e) {
+                System.out.println(name + " interrupted");
+                return;
+            }
+        }
+    }
+}
+
+// Async task simulation
+class AsyncTask {
+    private String name;
+    private long delay;
+    
+    public AsyncTask(String name, long delay) {
+        this.name = name;
+        this.delay = delay;
+    }
+    
+    public CompletableFuture<String> execute() {
+        return CompletableFuture.supplyAsync(() -> {
+            System.out.println(name + " starting...");
+            try {
+                Thread.sleep(delay);
+                
+                if (Math.random() > 0.8) {
+                    throw new RuntimeException(name + " random failure");
+                }
+                
+                System.out.println(name + " completed after " + delay + "ms");
+                return name + " result";
+            } catch (InterruptedException e) {
+                throw new RuntimeException(name + " interrupted", e);
+            }
+        });
+    }
+}
+
+// Concurrent execution demonstration
+public class ConcurrentExecutionDemo {
+    public static void main(String[] args) {
+        // Creating async tasks
+        AsyncTask taskA = new AsyncTask("Task A", 1000);
+        AsyncTask taskB = new AsyncTask("Task B", 1500);
+        AsyncTask taskC = new AsyncTask("Task C", 800);
+        
+        // Executing tasks concurrently
+        CompletableFuture<String> futureA = taskA.execute();
+        CompletableFuture<String> futureB = taskB.execute();
+        CompletableFuture<String> futureC = taskC.execute();
+        
+        // Waiting for all tasks to complete
+        CompletableFuture<Void> allTasks = CompletableFuture.allOf(futureA, futureB, futureC);
+        
+        allTasks.thenRun(() -> {
+            try {
+                System.out.println("Task A result: " + futureA.get());
+                System.out.println("Task B result: " + futureB.get());
+                System.out.println("Task C result: " + futureC.get());
+                System.out.println("All tasks completed");
+            } catch (Exception e) {
+                System.err.println("Error getting results: " + e.getMessage());
+            }
+        });
+        
+        // Error handling with allSettled equivalent
+        CompletableFuture<String>[] tasks = new CompletableFuture[]{
+            taskA.execute(),
+            taskB.execute(),
+            taskC.execute()
+        };
+        
+        CompletableFuture.allOf(tasks).thenRun(() -> {
+            for (int i = 0; i < tasks.length; i++) {
+                try {
+                    String result = tasks[i].get();
+                    System.out.println("Task " + (i + 1) + " succeeded: " + result);
+                } catch (Exception e) {
+                    System.out.println("Task " + (i + 1) + " failed: " + e.getMessage());
+                }
+            }
+        });
+    }
+}
+
+// Race condition demonstration
+public class RaceConditionDemo {
+    private static int counter = 0;
+    private static AtomicInteger atomicCounter = new AtomicInteger(0);
+    
+    public static void main(String[] args) throws InterruptedException {
+        // Race condition with regular int
+        counter = 0;
+        Thread[] threads = new Thread[100];
+        
+        for (int i = 0; i < 100; i++) {
+            threads[i] = new Thread(() -> {
+                int current = counter;
+                try {
+                    Thread.sleep((long) (Math.random() * 10));
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                counter = current + 1;
+            });
+        }
+        
+        for (Thread thread : threads) {
+            thread.start();
+        }
+        
+        for (Thread thread : threads) {
+            thread.join();
+        }
+        
+        System.out.println("Final counter value (with race condition): " + counter);
+        
+        // Atomic counter (thread-safe)
+        atomicCounter.set(0);
+        Thread[] atomicThreads = new Thread[100];
+        
+        for (int i = 0; i < 100; i++) {
+            atomicThreads[i] = new Thread(() -> {
+                atomicCounter.incrementAndGet();
+            });
+        }
+        
+        for (Thread thread : atomicThreads) {
+            thread.start();
+        }
+        
+        for (Thread thread : atomicThreads) {
+            thread.join();
+        }
+        
+        System.out.println("Final atomic counter value: " + atomicCounter.get());
+    }
+}
+
+// Thread lifecycle demonstration
+public class ThreadLifecycleDemo {
+    public static void main(String[] args) {
+        Thread thread = new Thread(() -> {
+            System.out.println("Thread is running");
+            try {
+                Thread.sleep(2000);
+            } catch (InterruptedException e) {
+                System.out.println("Thread interrupted");
+                return;
+            }
+            System.out.println("Thread completed");
+        });
+        
+        System.out.println("Thread state: " + thread.getState()); // NEW
+        
+        thread.start();
+        System.out.println("Thread state: " + thread.getState()); // RUNNABLE
+        
+        try {
+            Thread.sleep(1000);
+            System.out.println("Thread state: " + thread.getState()); // TIMED_WAITING
+            
+            thread.join();
+            System.out.println("Thread state: " + thread.getState()); // TERMINATED
+        } catch (InterruptedException e) {
+            System.out.println("Main thread interrupted");
+        }
+    }
+}
+```
+</UniversalEditor>
+
+### 2. Synchronization and Thread Safety
+
+Java provides various synchronization mechanisms, while JavaScript relies on single-threaded execution.
+
+<UniversalEditor title="Synchronization and Thread Safety" compare={true}>
+```javascript !! js
+// JavaScript - Synchronization patterns
+// Mutex-like pattern using Promise
+class Mutex {
+    constructor() {
+        this.locked = false;
+        this.waiting = [];
+    }
+    
+    async acquire() {
+        if (!this.locked) {
+            this.locked = true;
+            return;
+        }
+        
+        return new Promise(resolve => {
+            this.waiting.push(resolve);
+        });
+    }
+    
+    release() {
+        if (this.waiting.length > 0) {
+            const next = this.waiting.shift();
+            next();
+        } else {
+            this.locked = false;
+        }
+    }
+}
+
+// Semaphore implementation
+class Semaphore {
+    constructor(count) {
+        this.count = count;
+        this.waiting = [];
+    }
+    
+    async acquire() {
+        if (this.count > 0) {
+            this.count--;
+            return;
+        }
+        
+        return new Promise(resolve => {
+            this.waiting.push(resolve);
+        });
+    }
+    
+    release() {
+        if (this.waiting.length > 0) {
+            const next = this.waiting.shift();
+            next();
+        } else {
+            this.count++;
+        }
+    }
+}
+
+// Thread-safe counter using atomic operations
+class AtomicCounter {
+    constructor(initialValue = 0) {
+        this.value = initialValue;
+        this.mutex = new Mutex();
+    }
+    
+    async increment() {
+        await this.mutex.acquire();
+        try {
+            this.value++;
+            return this.value;
+        } finally {
+            this.mutex.release();
+        }
+    }
+    
+    async decrement() {
+        await this.mutex.acquire();
+        try {
+            this.value--;
+            return this.value;
+        } finally {
+            this.mutex.release();
+        }
+    }
+    
+    async getValue() {
+        await this.mutex.acquire();
+        try {
+            return this.value;
+        } finally {
+            this.mutex.release();
+        }
+    }
+}
+
+// Thread-safe queue
+class ThreadSafeQueue {
+    constructor() {
+        this.items = [];
+        this.mutex = new Mutex();
+    }
+    
+    async enqueue(item) {
+        await this.mutex.acquire();
+        try {
+            this.items.push(item);
+        } finally {
+            this.mutex.release();
+        }
+    }
+    
+    async dequeue() {
+        await this.mutex.acquire();
+        try {
+            if (this.items.length === 0) {
+                return null;
+            }
+            return this.items.shift();
+        } finally {
+            this.mutex.release();
+        }
+    }
+    
+    async size() {
+        await this.mutex.acquire();
+        try {
+            return this.items.length;
+        } finally {
+            this.mutex.release();
+        }
+    }
+    
+    async isEmpty() {
+        return (await this.size()) === 0;
+    }
+}
+
+// Producer-consumer pattern
+class ProducerConsumer {
+    constructor(bufferSize = 5) {
+        this.buffer = [];
+        this.bufferSize = bufferSize;
+        this.mutex = new Mutex();
+        this.notFull = new Semaphore(bufferSize);
+        this.notEmpty = new Semaphore(0);
+    }
+    
+    async produce(item) {
+        await this.notFull.acquire();
+        await this.mutex.acquire();
+        
+        try {
+            this.buffer.push(item);
+            console.log(`Produced: ${item}`);
+        } finally {
+            this.mutex.release();
+            this.notEmpty.release();
+        }
+    }
+    
+    async consume() {
+        await this.notEmpty.acquire();
+        await this.mutex.acquire();
+        
+        try {
+            const item = this.buffer.shift();
+            console.log(`Consumed: ${item}`);
+            return item;
+        } finally {
+            this.mutex.release();
+            this.notFull.release();
+        }
+    }
+}
+
+// Read-write lock pattern
+class ReadWriteLock {
+    constructor() {
+        this.readers = 0;
+        this.writers = 0;
+        this.readMutex = new Mutex();
+        this.writeMutex = new Mutex();
+        this.readTry = new Mutex();
+    }
+    
+    async readLock() {
+        await this.readTry.acquire();
+        await this.readMutex.acquire();
+        
+        this.readers++;
+        if (this.readers === 1) {
+            await this.writeMutex.acquire();
+        }
+        
+        this.readMutex.release();
+        this.readTry.release();
+    }
+    
+    async readUnlock() {
+        await this.readMutex.acquire();
+        
+        this.readers--;
+        if (this.readers === 0) {
+            this.writeMutex.release();
+        }
+        
+        this.readMutex.release();
+    }
+    
+    async writeLock() {
+        await this.readTry.acquire();
+        await this.writeMutex.acquire();
+    }
+    
+    async writeUnlock() {
+        this.writeMutex.release();
+        this.readTry.release();
+    }
+}
+
+// Usage examples
+console.log("=== Mutex Demo ===");
+const mutex = new Mutex();
+let sharedResource = 0;
+
+async function mutexDemo() {
+    const tasks = Array.from({ length: 10 }, async (_, i) => {
+        await mutex.acquire();
+        try {
+            const current = sharedResource;
+            await new Promise(resolve => setTimeout(resolve, Math.random() * 100));
+            sharedResource = current + 1;
+            console.log(`Task ${i} incremented to ${sharedResource}`);
+        } finally {
+            mutex.release();
+        }
+    });
+    
+    await Promise.all(tasks);
+    console.log(`Final value: ${sharedResource}`);
+}
+
+console.log("=== Semaphore Demo ===");
+const semaphore = new Semaphore(3);
+
+async function semaphoreDemo() {
+    const tasks = Array.from({ length: 10 }, async (_, i) => {
+        await semaphore.acquire();
+        console.log(`Task ${i} acquired semaphore`);
+        
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        console.log(`Task ${i} releasing semaphore`);
+        semaphore.release();
+    });
+    
+    await Promise.all(tasks);
+}
+
+console.log("=== Atomic Counter Demo ===");
+const counter = new AtomicCounter();
+
+async function atomicCounterDemo() {
+    const tasks = Array.from({ length: 100 }, async () => {
+        await counter.increment();
+    });
+    
+    await Promise.all(tasks);
+    console.log(`Final counter value: ${await counter.getValue()}`);
+}
+
+console.log("=== Producer-Consumer Demo ===");
+const pc = new ProducerConsumer(3);
+
+async function producerConsumerDemo() {
+    const producer = async () => {
+        for (let i = 0; i < 10; i++) {
+            await pc.produce(`Item ${i}`);
+            await new Promise(resolve => setTimeout(resolve, 200));
+        }
+    };
+    
+    const consumer = async () => {
+        for (let i = 0; i < 10; i++) {
+            await pc.consume();
+            await new Promise(resolve => setTimeout(resolve, 300));
+        }
+    };
+    
+    await Promise.all([producer(), consumer()]);
+}
+
+console.log("=== Read-Write Lock Demo ===");
+const rwLock = new ReadWriteLock();
+let data = "Initial data";
+
+async function readWriteLockDemo() {
+    const readers = Array.from({ length: 5 }, async (_, i) => {
+        await rwLock.readLock();
+        console.log(`Reader ${i} reading: ${data}`);
+        await new Promise(resolve => setTimeout(resolve, 100));
+        await rwLock.readUnlock();
+    });
+    
+    const writer = async () => {
+        await rwLock.writeLock();
+        console.log("Writer updating data...");
+        await new Promise(resolve => setTimeout(resolve, 500));
+        data = "Updated data";
+        console.log("Writer finished updating");
+        await rwLock.writeUnlock();
+    };
+    
+    await Promise.all([...readers, writer()]);
+}
+
+// Run demos
+mutexDemo();
+semaphoreDemo();
+atomicCounterDemo();
+producerConsumerDemo();
+readWriteLockDemo();
+```
+
+```java !! java
+// Java - Synchronization and thread safety
+import java.util.concurrent.*;
+import java.util.concurrent.locks.*;
+
+// Synchronized counter
+class SynchronizedCounter {
+    private int count = 0;
+    
+    public synchronized void increment() {
+        count++;
+    }
+    
+    public synchronized void decrement() {
+        count--;
+    }
+    
+    public synchronized int getCount() {
+        return count;
+    }
+}
+
+// Counter using ReentrantLock
+class LockedCounter {
+    private int count = 0;
+    private final ReentrantLock lock = new ReentrantLock();
+    
+    public void increment() {
+        lock.lock();
+        try {
+            count++;
+        } finally {
+            lock.unlock();
+        }
+    }
+    
+    public void decrement() {
+        lock.lock();
+        try {
+            count--;
+        } finally {
+            lock.unlock();
+        }
+    }
+    
+    public int getCount() {
+        lock.lock();
+        try {
+            return count;
+        } finally {
+            lock.unlock();
+        }
+    }
+}
+
+// Thread-safe queue using synchronization
+class SynchronizedQueue<T> {
+    private final Queue<T> queue = new LinkedList<>();
+    
+    public synchronized void enqueue(T item) {
+        queue.offer(item);
+        notify(); // Notify waiting consumers
+    }
+    
+    public synchronized T dequeue() throws InterruptedException {
+        while (queue.isEmpty()) {
+            wait(); // Wait for items to be available
+        }
+        return queue.poll();
+    }
+    
+    public synchronized int size() {
+        return queue.size();
+    }
+    
+    public synchronized boolean isEmpty() {
+        return queue.isEmpty();
+    }
+}
+
+// Producer-consumer using BlockingQueue
+class ProducerConsumer {
+    private final BlockingQueue<String> queue;
+    
+    public ProducerConsumer(int capacity) {
+        this.queue = new ArrayBlockingQueue<>(capacity);
+    }
+    
+    public void produce(String item) throws InterruptedException {
+        queue.put(item);
+        System.out.println("Produced: " + item);
+    }
+    
+    public String consume() throws InterruptedException {
+        String item = queue.take();
+        System.out.println("Consumed: " + item);
+        return item;
+    }
+}
+
+// Read-write lock example
+class ReadWriteLockExample {
+    private final ReadWriteLock lock = new ReentrantReadWriteLock();
+    private final Lock readLock = lock.readLock();
+    private final Lock writeLock = lock.writeLock();
+    private String data = "Initial data";
+    
+    public String readData() {
+        readLock.lock();
+        try {
+            System.out.println("Reading data: " + data);
+            return data;
+        } finally {
+            readLock.unlock();
+        }
+    }
+    
+    public void writeData(String newData) {
+        writeLock.lock();
+        try {
+            System.out.println("Writing data: " + newData);
+            this.data = newData;
+        } finally {
+            writeLock.unlock();
+        }
+    }
+}
+
+// Semaphore example
+class SemaphoreExample {
+    private final Semaphore semaphore;
+    
+    public SemaphoreExample(int permits) {
+        this.semaphore = new Semaphore(permits);
+    }
+    
+    public void acquireResource() throws InterruptedException {
+        semaphore.acquire();
+        System.out.println("Resource acquired by " + Thread.currentThread().getName());
+    }
+    
+    public void releaseResource() {
+        semaphore.release();
+        System.out.println("Resource released by " + Thread.currentThread().getName());
+    }
+}
+
+// CountDownLatch example
+class CountDownLatchExample {
+    private final CountDownLatch latch;
+    
+    public CountDownLatchExample(int count) {
+        this.latch = new CountDownLatch(count);
+    }
+    
+    public void await() throws InterruptedException {
+        latch.await();
+        System.out.println("All tasks completed");
+    }
+    
+    public void completeTask() {
+        System.out.println("Task completed by " + Thread.currentThread().getName());
+        latch.countDown();
+    }
+}
+
+// CyclicBarrier example
+class CyclicBarrierExample {
+    private final CyclicBarrier barrier;
+    
+    public CyclicBarrierExample(int parties) {
+        this.barrier = new CyclicBarrier(parties, () -> {
+            System.out.println("All parties reached the barrier");
+        });
+    }
+    
+    public void await() throws InterruptedException, BrokenBarrierException {
+        System.out.println(Thread.currentThread().getName() + " waiting at barrier");
+        barrier.await();
+        System.out.println(Thread.currentThread().getName() + " passed barrier");
+    }
+}
+
+// Synchronization demonstration
+public class SynchronizationDemo {
+    public static void main(String[] args) throws InterruptedException {
+        // Synchronized counter demo
+        SynchronizedCounter syncCounter = new SynchronizedCounter();
+        Thread[] syncThreads = new Thread[100];
+        
+        for (int i = 0; i < 100; i++) {
+            syncThreads[i] = new Thread(() -> {
+                for (int j = 0; j < 1000; j++) {
+                    syncCounter.increment();
+                }
+            });
+        }
+        
+        for (Thread thread : syncThreads) {
+            thread.start();
+        }
+        
+        for (Thread thread : syncThreads) {
+            thread.join();
+        }
+        
+        System.out.println("Synchronized counter: " + syncCounter.getCount());
+        
+        // Locked counter demo
+        LockedCounter lockedCounter = new LockedCounter();
+        Thread[] lockedThreads = new Thread[100];
+        
+        for (int i = 0; i < 100; i++) {
+            lockedThreads[i] = new Thread(() -> {
+                for (int j = 0; j < 1000; j++) {
+                    lockedCounter.increment();
+                }
+            });
+        }
+        
+        for (Thread thread : lockedThreads) {
+            thread.start();
+        }
+        
+        for (Thread thread : lockedThreads) {
+            thread.join();
+        }
+        
+        System.out.println("Locked counter: " + lockedCounter.getCount());
+        
+        // Producer-consumer demo
+        ProducerConsumer pc = new ProducerConsumer(5);
+        
+        Thread producer = new Thread(() -> {
+            try {
+                for (int i = 0; i < 10; i++) {
+                    pc.produce("Item " + i);
+                    Thread.sleep(200);
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        });
+        
+        Thread consumer = new Thread(() -> {
+            try {
+                for (int i = 0; i < 10; i++) {
+                    pc.consume();
+                    Thread.sleep(300);
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        });
+        
+        producer.start();
+        consumer.start();
+        
+        producer.join();
+        consumer.join();
+        
+        // Read-write lock demo
+        ReadWriteLockExample rwExample = new ReadWriteLockExample();
+        
+        Thread[] readers = new Thread[5];
+        for (int i = 0; i < 5; i++) {
+            final int readerId = i;
+            readers[i] = new Thread(() -> {
+                for (int j = 0; j < 3; j++) {
+                    rwExample.readData();
+                    try {
+                        Thread.sleep(100);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                }
+            }, "Reader-" + readerId);
+        }
+        
+        Thread writer = new Thread(() -> {
+            for (int i = 0; i < 2; i++) {
+                rwExample.writeData("Updated data " + i);
+                try {
+                    Thread.sleep(500);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+        }, "Writer");
+        
+        for (Thread reader : readers) {
+            reader.start();
+        }
+        writer.start();
+        
+        for (Thread reader : readers) {
+            reader.join();
+        }
+        writer.join();
+        
+        // Semaphore demo
+        SemaphoreExample semaphoreExample = new SemaphoreExample(3);
+        Thread[] semaphoreThreads = new Thread[10];
+        
+        for (int i = 0; i < 10; i++) {
+            final int threadId = i;
+            semaphoreThreads[i] = new Thread(() -> {
+                try {
+                    semaphoreExample.acquireResource();
+                    Thread.sleep(1000);
+                    semaphoreExample.releaseResource();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }, "Thread-" + threadId);
+        }
+        
+        for (Thread thread : semaphoreThreads) {
+            thread.start();
+        }
+        
+        for (Thread thread : semaphoreThreads) {
+            thread.join();
+        }
+        
+        // CountDownLatch demo
+        CountDownLatchExample latchExample = new CountDownLatchExample(5);
+        Thread[] latchThreads = new Thread[5];
+        
+        for (int i = 0; i < 5; i++) {
+            final int threadId = i;
+            latchThreads[i] = new Thread(() -> {
+                try {
+                    Thread.sleep(1000);
+                    latchExample.completeTask();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }, "LatchThread-" + threadId);
+        }
+        
+        for (Thread thread : latchThreads) {
+            thread.start();
+        }
+        
+        latchExample.await();
+        
+        // CyclicBarrier demo
+        CyclicBarrierExample barrierExample = new CyclicBarrierExample(3);
+        Thread[] barrierThreads = new Thread[3];
+        
+        for (int i = 0; i < 3; i++) {
+            final int threadId = i;
+            barrierThreads[i] = new Thread(() -> {
+                try {
+                    for (int j = 0; j < 2; j++) {
+                        barrierExample.await();
+                        Thread.sleep(500);
+                    }
+                } catch (InterruptedException | BrokenBarrierException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }, "BarrierThread-" + threadId);
+        }
+        
+        for (Thread thread : barrierThreads) {
+            thread.start();
+        }
+        
+        for (Thread thread : barrierThreads) {
+            thread.join();
+        }
+    }
+}
+```
+</UniversalEditor>
+
+## Exercises
+
+### Exercise 1: Thread Creation and Management
+
+<UniversalEditor title="Exercise 1: Thread Creation and Management">
+```java !! java
+// TODO: Implement thread creation and management
+public class ThreadExercise {
+    // TODO: Create a thread that prints numbers from 1 to 10 with delays
+    
+    // TODO: Create a thread that calculates factorial of a number
+    
+    // TODO: Create a thread pool and submit multiple tasks
+    
+    // TODO: Implement a custom thread factory
+    
+    // TODO: Create a thread that can be interrupted gracefully
+}
+
+public class ThreadManagementDemo {
+    public static void main(String[] args) {
+        ThreadExercise exercise = new ThreadExercise();
+        
+        // Test your implementations
+        exercise.printNumbers();
+        exercise.calculateFactorial(5);
+        exercise.submitTasks();
+        exercise.createCustomThreads();
+        exercise.interruptibleThread();
+    }
+}
+```
+</UniversalEditor>
+
+### Exercise 2: Synchronization and Thread Safety
+
+<UniversalEditor title="Exercise 2: Synchronization and Thread Safety">
+```java !! java
+// TODO: Implement thread-safe data structures
+public class ThreadSafeDataStructures {
+    // TODO: Implement a thread-safe stack
+    
+    // TODO: Implement a thread-safe bank account
+    
+    // TODO: Implement a thread-safe cache
+    
+    // TODO: Implement a thread-safe object pool
+    
+    // TODO: Implement a thread-safe event bus
+}
+
+public class SynchronizationDemo {
+    public static void main(String[] args) {
+        ThreadSafeDataStructures structures = new ThreadSafeDataStructures();
+        
+        // Test your implementations
+        structures.testThreadSafeStack();
+        structures.testBankAccount();
+        structures.testCache();
+        structures.testObjectPool();
+        structures.testEventBus();
+    }
+}
+```
+</UniversalEditor>
+
+## Summary
+
+In this module, we explored Java's concurrency model and compared it with JavaScript's async patterns:
+
+### Key Points:
+1. **Thread Creation**: Java provides native threading support
+2. **Synchronization**: Various mechanisms for thread safety
+3. **Concurrent Collections**: Thread-safe data structures
+4. **Modern Concurrency**: CompletableFuture and ExecutorService
+5. **Thread Lifecycle**: Understanding thread states and management
+
+### Next Steps:
+- Practice thread creation and management
+- Master synchronization mechanisms
+- Explore concurrent collections
+- Prepare for the next module on Spring framework
+
+## Additional Resources
+
+- [Java Concurrency](https://docs.oracle.com/javase/tutorial/essential/concurrency/)
+- [Java Threads](https://docs.oracle.com/javase/tutorial/essential/concurrency/threads.html)
+- [Java Synchronization](https://docs.oracle.com/javase/tutorial/essential/concurrency/sync.html)
+
+---
+
+**Exercise Tips**: Focus on understanding thread safety and synchronization. Practice using different concurrency utilities. Consider performance implications when choosing synchronization mechanisms. 
