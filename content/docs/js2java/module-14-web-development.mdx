@@ -1,0 +1,931 @@
+---
+title: "Web Development"
+description: "Learn web development with Spring MVC, including RESTful API development, database integration, and frontend-backend separation"
+---
+
+# Web Development
+
+After learning the basics of the Spring Framework, let's dive into web development. Spring MVC provides powerful web development capabilities, similar to Express.js in the Node.js ecosystem, but with more comprehensive features.
+
+## Spring MVC Basics
+
+### MVC Architecture Pattern
+Spring MVC follows the Model-View-Controller architecture pattern:
+
+- **Model**: Data models and business logic
+- **View**: User interface (usually JSON in REST APIs)
+- **Controller**: Handles requests and responses
+
+<UniversalEditor title="MVC Architecture Comparison">
+```javascript !! js
+// Express.js MVC Pattern
+// Model
+class User {
+    constructor(id, name, email) {
+        this.id = id;
+        this.name = name;
+        this.email = email;
+    }
+}
+
+// Controller
+app.get('/api/users', (req, res) => {
+    const users = userService.getAllUsers();
+    res.json(users); // View (JSON)
+});
+
+app.post('/api/users', (req, res) => {
+    const user = userService.createUser(req.body);
+    res.status(201).json(user);
+});
+```
+
+```java !! java
+// Spring MVC Pattern
+// Model
+@Entity
+public class User {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    private String name;
+    private String email;
+    // getters and setters
+}
+
+// Controller
+@RestController
+@RequestMapping("/api/users")
+public class UserController {
+    
+    @Autowired
+    private UserService userService;
+    
+    @GetMapping
+    public ResponseEntity<List<User>> getAllUsers() {
+        List<User> users = userService.getAllUsers();
+        return ResponseEntity.ok(users); // View (JSON)
+    }
+    
+    @PostMapping
+    public ResponseEntity<User> createUser(@RequestBody User user) {
+        User createdUser = userService.createUser(user);
+        return ResponseEntity.status(HttpStatus.CREATED).body(createdUser);
+    }
+}
+```
+</UniversalEditor>
+
+### Controller Annotations
+<UniversalEditor title="Controller Annotations">
+```java !! java
+@RestController
+@RequestMapping("/api/users")
+public class UserController {
+    
+    @Autowired
+    private UserService userService;
+    
+    // GET /api/users
+    @GetMapping
+    public ResponseEntity<List<User>> getAllUsers() {
+        List<User> users = userService.getAllUsers();
+        return ResponseEntity.ok(users);
+    }
+    
+    // GET /api/users/{id}
+    @GetMapping("/{id}")
+    public ResponseEntity<User> getUserById(@PathVariable Long id) {
+        User user = userService.getUserById(id);
+        return ResponseEntity.ok(user);
+    }
+    
+    // POST /api/users
+    @PostMapping
+    public ResponseEntity<User> createUser(@RequestBody User user) {
+        User createdUser = userService.createUser(user);
+        return ResponseEntity.status(HttpStatus.CREATED).body(createdUser);
+    }
+    
+    // PUT /api/users/{id}
+    @PutMapping("/{id}")
+    public ResponseEntity<User> updateUser(@PathVariable Long id, 
+                                         @RequestBody User user) {
+        User updatedUser = userService.updateUser(id, user);
+        return ResponseEntity.ok(updatedUser);
+    }
+    
+    // DELETE /api/users/{id}
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> deleteUser(@PathVariable Long id) {
+        userService.deleteUser(id);
+        return ResponseEntity.noContent().build();
+    }
+}
+```
+
+```javascript !! js
+// Express.js Routes
+const express = require('express');
+const router = express.Router();
+
+// GET /api/users
+router.get('/', async (req, res) => {
+    const users = await userService.getAllUsers();
+    res.json(users);
+});
+
+// GET /api/users/:id
+router.get('/:id', async (req, res) => {
+    const user = await userService.getUserById(req.params.id);
+    res.json(user);
+});
+
+// POST /api/users
+router.post('/', async (req, res) => {
+    const user = await userService.createUser(req.body);
+    res.status(201).json(user);
+});
+
+// PUT /api/users/:id
+router.put('/:id', async (req, res) => {
+    const user = await userService.updateUser(req.params.id, req.body);
+    res.json(user);
+});
+
+// DELETE /api/users/:id
+router.delete('/:id', async (req, res) => {
+    await userService.deleteUser(req.params.id);
+    res.status(204).send();
+});
+```
+</UniversalEditor>
+
+## RESTful API Development
+
+### REST Principles
+REST (Representational State Transfer) is a software architectural style:
+
+- **Resource-oriented**: Use URIs to identify resources
+- **HTTP Methods**: Use standard HTTP methods to operate on resources
+- **Stateless**: Each request contains all necessary information
+- **Uniform Interface**: Standardized interface design
+
+<UniversalEditor title="RESTful API Design">
+```java !! java
+@RestController
+@RequestMapping("/api")
+public class UserApiController {
+    
+    @Autowired
+    private UserService userService;
+    
+    // Get user list
+    @GetMapping("/users")
+    public ResponseEntity<Page<User>> getUsers(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size,
+            @RequestParam(required = false) String name) {
+        
+        Pageable pageable = PageRequest.of(page, size);
+        Page<User> users;
+        
+        if (name != null) {
+            users = userService.findByNameContaining(name, pageable);
+        } else {
+            users = userService.getAllUsers(pageable);
+        }
+        
+        return ResponseEntity.ok(users);
+    }
+    
+    // Get user by ID
+    @GetMapping("/users/{id}")
+    public ResponseEntity<User> getUserById(@PathVariable Long id) {
+        User user = userService.getUserById(id);
+        return ResponseEntity.ok(user);
+    }
+    
+    // Create new user
+    @PostMapping("/users")
+    public ResponseEntity<User> createUser(@Valid @RequestBody User user) {
+        User createdUser = userService.createUser(user);
+        return ResponseEntity.status(HttpStatus.CREATED).body(createdUser);
+    }
+    
+    // Update user
+    @PutMapping("/users/{id}")
+    public ResponseEntity<User> updateUser(@PathVariable Long id, 
+                                         @Valid @RequestBody User user) {
+        User updatedUser = userService.updateUser(id, user);
+        return ResponseEntity.ok(updatedUser);
+    }
+    
+    // Delete user
+    @DeleteMapping("/users/{id}")
+    public ResponseEntity<Void> deleteUser(@PathVariable Long id) {
+        userService.deleteUser(id);
+        return ResponseEntity.noContent().build();
+    }
+}
+```
+
+```javascript !! js
+// Express.js RESTful API
+const express = require('express');
+const router = express.Router();
+
+// Get user list with pagination and filtering
+router.get('/users', async (req, res) => {
+    const { page = 0, size = 10, name } = req.query;
+    const offset = page * size;
+    
+    let users;
+    if (name) {
+        users = await userService.findByNameContaining(name, offset, size);
+    } else {
+        users = await userService.getAllUsers(offset, size);
+    }
+    
+    res.json(users);
+});
+
+// Get user by ID
+router.get('/users/:id', async (req, res) => {
+    const user = await userService.getUserById(req.params.id);
+    res.json(user);
+});
+
+// Create new user
+router.post('/users', async (req, res) => {
+    const user = await userService.createUser(req.body);
+    res.status(201).json(user);
+});
+
+// Update user
+router.put('/users/:id', async (req, res) => {
+    const user = await userService.updateUser(req.params.id, req.body);
+    res.json(user);
+});
+
+// Delete user
+router.delete('/users/:id', async (req, res) => {
+    await userService.deleteUser(req.params.id);
+    res.status(204).send();
+});
+```
+</UniversalEditor>
+
+## Request Mapping and Parameters
+
+### Path Variables and Request Parameters
+<UniversalEditor title="Request Parameters">
+```java !! java
+@RestController
+@RequestMapping("/api")
+public class ParameterController {
+    
+    // Path variable
+    @GetMapping("/users/{id}")
+    public ResponseEntity<User> getUserById(@PathVariable Long id) {
+        // id is extracted from URL path
+        return ResponseEntity.ok(userService.getUserById(id));
+    }
+    
+    // Multiple path variables
+    @GetMapping("/users/{userId}/posts/{postId}")
+    public ResponseEntity<Post> getPost(@PathVariable Long userId, 
+                                      @PathVariable Long postId) {
+        return ResponseEntity.ok(postService.getPost(userId, postId));
+    }
+    
+    // Request parameters
+    @GetMapping("/users")
+    public ResponseEntity<List<User>> getUsers(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size,
+            @RequestParam(required = false) String name,
+            @RequestParam(required = false) String email) {
+        
+        // Parameters are extracted from query string
+        return ResponseEntity.ok(userService.searchUsers(page, size, name, email));
+    }
+    
+    // Request body
+    @PostMapping("/users")
+    public ResponseEntity<User> createUser(@RequestBody User user) {
+        // user object is extracted from request body
+        return ResponseEntity.ok(userService.createUser(user));
+    }
+    
+    // Request header
+    @GetMapping("/profile")
+    public ResponseEntity<User> getProfile(@RequestHeader("Authorization") String token) {
+        // token is extracted from Authorization header
+        return ResponseEntity.ok(userService.getProfileByToken(token));
+    }
+}
+```
+
+```javascript !! js
+// Express.js parameter handling
+const express = require('express');
+const router = express.Router();
+
+// Path parameter
+router.get('/users/:id', async (req, res) => {
+    const { id } = req.params; // Path variable
+    const user = await userService.getUserById(id);
+    res.json(user);
+});
+
+// Multiple path parameters
+router.get('/users/:userId/posts/:postId', async (req, res) => {
+    const { userId, postId } = req.params;
+    const post = await postService.getPost(userId, postId);
+    res.json(post);
+});
+
+// Query parameters
+router.get('/users', async (req, res) => {
+    const { page = 0, size = 10, name, email } = req.query;
+    const users = await userService.searchUsers(page, size, name, email);
+    res.json(users);
+});
+
+// Request body
+router.post('/users', async (req, res) => {
+    const user = await userService.createUser(req.body);
+    res.json(user);
+});
+
+// Request header
+router.get('/profile', async (req, res) => {
+    const token = req.headers.authorization;
+    const user = await userService.getProfileByToken(token);
+    res.json(user);
+});
+```
+</UniversalEditor>
+
+## Response Handling
+
+### ResponseEntity and HTTP Status Codes
+<UniversalEditor title="Response Handling">
+```java !! java
+@RestController
+@RequestMapping("/api")
+public class ResponseController {
+    
+    @GetMapping("/users/{id}")
+    public ResponseEntity<User> getUserById(@PathVariable Long id) {
+        try {
+            User user = userService.getUserById(id);
+            return ResponseEntity.ok(user);
+        } catch (UserNotFoundException e) {
+            return ResponseEntity.notFound().build();
+        }
+    }
+    
+    @PostMapping("/users")
+    public ResponseEntity<User> createUser(@Valid @RequestBody User user) {
+        User createdUser = userService.createUser(user);
+        return ResponseEntity.status(HttpStatus.CREATED)
+                           .header("Location", "/api/users/" + createdUser.getId())
+                           .body(createdUser);
+    }
+    
+    @PutMapping("/users/{id}")
+    public ResponseEntity<User> updateUser(@PathVariable Long id, 
+                                         @RequestBody User user) {
+        try {
+            User updatedUser = userService.updateUser(id, user);
+            return ResponseEntity.ok(updatedUser);
+        } catch (UserNotFoundException e) {
+            return ResponseEntity.notFound().build();
+        }
+    }
+    
+    @DeleteMapping("/users/{id}")
+    public ResponseEntity<Void> deleteUser(@PathVariable Long id) {
+        try {
+            userService.deleteUser(id);
+            return ResponseEntity.noContent().build();
+        } catch (UserNotFoundException e) {
+            return ResponseEntity.notFound().build();
+        }
+    }
+    
+    // Custom response with headers
+    @GetMapping("/download/{filename}")
+    public ResponseEntity<Resource> downloadFile(@PathVariable String filename) {
+        Resource file = fileService.loadFile(filename);
+        
+        return ResponseEntity.ok()
+                           .header(HttpHeaders.CONTENT_DISPOSITION, 
+                                   "attachment; filename=\"" + filename + "\"")
+                           .body(file);
+    }
+}
+```
+
+```javascript !! js
+// Express.js response handling
+const express = require('express');
+const router = express.Router();
+
+router.get('/users/:id', async (req, res) => {
+    try {
+        const user = await userService.getUserById(req.params.id);
+        res.json(user);
+    } catch (error) {
+        if (error.name === 'UserNotFoundError') {
+            res.status(404).json({ error: 'User not found' });
+        } else {
+            res.status(500).json({ error: 'Internal server error' });
+        }
+    }
+});
+
+router.post('/users', async (req, res) => {
+    const user = await userService.createUser(req.body);
+    res.status(201)
+       .header('Location', `/api/users/${user.id}`)
+       .json(user);
+});
+
+router.put('/users/:id', async (req, res) => {
+    try {
+        const user = await userService.updateUser(req.params.id, req.body);
+        res.json(user);
+    } catch (error) {
+        if (error.name === 'UserNotFoundError') {
+            res.status(404).json({ error: 'User not found' });
+        } else {
+            res.status(500).json({ error: 'Internal server error' });
+        }
+    }
+});
+
+router.delete('/users/:id', async (req, res) => {
+    try {
+        await userService.deleteUser(req.params.id);
+        res.status(204).send();
+    } catch (error) {
+        if (error.name === 'UserNotFoundError') {
+            res.status(404).json({ error: 'User not found' });
+        } else {
+            res.status(500).json({ error: 'Internal server error' });
+        }
+    }
+});
+
+// Custom response with headers
+router.get('/download/:filename', async (req, res) => {
+    const file = await fileService.loadFile(req.params.filename);
+    
+    res.header('Content-Disposition', `attachment; filename="${req.params.filename}"`);
+    res.send(file);
+});
+```
+</UniversalEditor>
+
+## Database Integration with JPA
+
+### Entity and Repository
+<UniversalEditor title="JPA Integration">
+```java !! java
+// Entity
+@Entity
+@Table(name = "users")
+public class User {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    
+    @Column(unique = true, nullable = false)
+    private String email;
+    
+    @Column(nullable = false)
+    private String name;
+    
+    @Column(nullable = false)
+    private String password;
+    
+    @Enumerated(EnumType.STRING)
+    private UserRole role;
+    
+    @CreatedDate
+    private LocalDateTime createdAt;
+    
+    @LastModifiedDate
+    private LocalDateTime updatedAt;
+    
+    // Constructors, getters, setters
+}
+
+// Repository
+@Repository
+public interface UserRepository extends JpaRepository<User, Long> {
+    Optional<User> findByEmail(String email);
+    List<User> findByNameContaining(String name);
+    boolean existsByEmail(String email);
+    List<User> findByRole(UserRole role);
+    
+    @Query("SELECT u FROM User u WHERE u.createdAt >= :startDate")
+    List<User> findUsersCreatedAfter(@Param("startDate") LocalDateTime startDate);
+}
+
+// Service
+@Service
+@Transactional
+public class UserService {
+    
+    @Autowired
+    private UserRepository userRepository;
+    
+    public User createUser(User user) {
+        if (userRepository.existsByEmail(user.getEmail())) {
+            throw new RuntimeException("User with this email already exists");
+        }
+        return userRepository.save(user);
+    }
+    
+    public User getUserById(Long id) {
+        return userRepository.findById(id)
+            .orElseThrow(() -> new RuntimeException("User not found"));
+    }
+    
+    public List<User> searchUsers(String name) {
+        return userRepository.findByNameContaining(name);
+    }
+    
+    public void deleteUser(Long id) {
+        userRepository.deleteById(id);
+    }
+}
+```
+
+```javascript !! js
+// JavaScript with Sequelize ORM
+const { DataTypes, Model } = require('sequelize');
+const sequelize = require('../config/database');
+
+// Model
+class User extends Model {}
+User.init({
+    id: {
+        type: DataTypes.INTEGER,
+        primaryKey: true,
+        autoIncrement: true
+    },
+    email: {
+        type: DataTypes.STRING,
+        unique: true,
+        allowNull: false
+    },
+    name: {
+        type: DataTypes.STRING,
+        allowNull: false
+    },
+    password: {
+        type: DataTypes.STRING,
+        allowNull: false
+    },
+    role: {
+        type: DataTypes.ENUM('USER', 'ADMIN'),
+        defaultValue: 'USER'
+    }
+}, {
+    sequelize,
+    modelName: 'User',
+    timestamps: true
+});
+
+// Service
+class UserService {
+    async createUser(userData) {
+        const existingUser = await User.findOne({
+            where: { email: userData.email }
+        });
+        
+        if (existingUser) {
+            throw new Error('User with this email already exists');
+        }
+        
+        return await User.create(userData);
+    }
+    
+    async getUserById(id) {
+        const user = await User.findByPk(id);
+        if (!user) {
+            throw new Error('User not found');
+        }
+        return user;
+    }
+    
+    async searchUsers(name) {
+        return await User.findAll({
+            where: {
+                name: {
+                    [Op.like]: `%${name}%`
+                }
+            }
+        });
+    }
+    
+    async deleteUser(id) {
+        const user = await User.findByPk(id);
+        if (!user) {
+            throw new Error('User not found');
+        }
+        await user.destroy();
+    }
+}
+```
+</UniversalEditor>
+
+## Frontend-Backend Separation
+
+### CORS Configuration
+<UniversalEditor title="CORS Configuration">
+```java !! java
+// CORS Configuration
+@Configuration
+public class CorsConfig implements WebMvcConfigurer {
+    
+    @Override
+    public void addCorsMappings(CorsRegistry registry) {
+        registry.addMapping("/api/**")
+                .allowedOrigins("http://localhost:3000", "https://myapp.com")
+                .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
+                .allowedHeaders("*")
+                .allowCredentials(true)
+                .maxAge(3600);
+    }
+}
+
+// Or using @CrossOrigin annotation
+@RestController
+@RequestMapping("/api/users")
+@CrossOrigin(origins = {"http://localhost:3000", "https://myapp.com"})
+public class UserController {
+    // Controller methods
+}
+```
+
+```javascript !! js
+// Express.js CORS configuration
+const cors = require('cors');
+
+const corsOptions = {
+    origin: ['http://localhost:3000', 'https://myapp.com'],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true,
+    maxAge: 3600
+};
+
+app.use(cors(corsOptions));
+
+// Or for specific routes
+app.use('/api/users', cors(corsOptions));
+```
+</UniversalEditor>
+
+### API Documentation with Swagger
+<UniversalEditor title="API Documentation">
+```java !! java
+// Swagger Configuration
+@Configuration
+@EnableSwagger2
+public class SwaggerConfig {
+    
+    @Bean
+    public Docket api() {
+        return new Docket(DocumentationType.SWAGGER_2)
+                .select()
+                .apis(RequestHandlerSelectors.basePackage("com.example.controller"))
+                .paths(PathSelectors.any())
+                .build()
+                .apiInfo(apiInfo());
+    }
+    
+    private ApiInfo apiInfo() {
+        return new ApiInfoBuilder()
+                .title("User Management API")
+                .description("API for managing users")
+                .version("1.0.0")
+                .build();
+    }
+}
+
+// Controller with Swagger annotations
+@RestController
+@RequestMapping("/api/users")
+@Api(tags = "User Management")
+public class UserController {
+    
+    @ApiOperation("Get all users")
+    @ApiResponses({
+        @ApiResponse(code = 200, message = "Success"),
+        @ApiResponse(code = 500, message = "Internal server error")
+    })
+    @GetMapping
+    public ResponseEntity<List<User>> getAllUsers() {
+        List<User> users = userService.getAllUsers();
+        return ResponseEntity.ok(users);
+    }
+    
+    @ApiOperation("Create a new user")
+    @ApiResponses({
+        @ApiResponse(code = 201, message = "User created successfully"),
+        @ApiResponse(code = 400, message = "Invalid input")
+    })
+    @PostMapping
+    public ResponseEntity<User> createUser(@RequestBody User user) {
+        User createdUser = userService.createUser(user);
+        return ResponseEntity.status(HttpStatus.CREATED).body(createdUser);
+    }
+}
+```
+
+```javascript !! js
+// JavaScript with Swagger JSDoc
+const swaggerJsdoc = require('swagger-jsdoc');
+const swaggerUi = require('swagger-ui-express');
+
+const options = {
+    definition: {
+        openapi: '3.0.0',
+        info: {
+            title: 'User Management API',
+            version: '1.0.0',
+            description: 'API for managing users'
+        },
+        servers: [
+            {
+                url: 'http://localhost:3000',
+                description: 'Development server'
+            }
+        ]
+    },
+    apis: ['./routes/*.js']
+};
+
+const specs = swaggerJsdoc(options);
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(specs));
+
+/**
+ * @swagger
+ * /api/users:
+ *   get:
+ *     summary: Get all users
+ *     responses:
+ *       200:
+ *         description: Success
+ *       500:
+ *         description: Internal server error
+ */
+router.get('/', async (req, res) => {
+    const users = await userService.getAllUsers();
+    res.json(users);
+});
+
+/**
+ * @swagger
+ * /api/users:
+ *   post:
+ *     summary: Create a new user
+ *     responses:
+ *       201:
+ *         description: User created successfully
+ *       400:
+ *         description: Invalid input
+ */
+router.post('/', async (req, res) => {
+    const user = await userService.createUser(req.body);
+    res.status(201).json(user);
+});
+```
+</UniversalEditor>
+
+## Error Handling
+
+### Global Exception Handler
+<UniversalEditor title="Error Handling">
+```java !! java
+@ControllerAdvice
+public class GlobalExceptionHandler {
+    
+    @ExceptionHandler(UserNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleUserNotFound(UserNotFoundException e) {
+        ErrorResponse error = new ErrorResponse(
+            HttpStatus.NOT_FOUND.value(),
+            "User not found",
+            e.getMessage()
+        );
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
+    }
+    
+    @ExceptionHandler(ValidationException.class)
+    public ResponseEntity<ErrorResponse> handleValidation(ValidationException e) {
+        ErrorResponse error = new ErrorResponse(
+            HttpStatus.BAD_REQUEST.value(),
+            "Validation error",
+            e.getMessage()
+        );
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(error);
+    }
+    
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<ErrorResponse> handleGeneric(Exception e) {
+        ErrorResponse error = new ErrorResponse(
+            HttpStatus.INTERNAL_SERVER_ERROR.value(),
+            "Internal server error",
+            "An unexpected error occurred"
+        );
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(error);
+    }
+}
+
+// Error response class
+public class ErrorResponse {
+    private int status;
+    private String error;
+    private String message;
+    private LocalDateTime timestamp;
+    
+    public ErrorResponse(int status, String error, String message) {
+        this.status = status;
+        this.error = error;
+        this.message = message;
+        this.timestamp = LocalDateTime.now();
+    }
+    
+    // Getters and setters
+}
+```
+
+```javascript !! js
+// Express.js error handling middleware
+const errorHandler = (err, req, res, next) => {
+    console.error(err.stack);
+    
+    if (err.name === 'UserNotFoundError') {
+        return res.status(404).json({
+            status: 404,
+            error: 'User not found',
+            message: err.message,
+            timestamp: new Date().toISOString()
+        });
+    }
+    
+    if (err.name === 'ValidationError') {
+        return res.status(400).json({
+            status: 400,
+            error: 'Validation error',
+            message: err.message,
+            timestamp: new Date().toISOString()
+        });
+    }
+    
+    // Default error
+    res.status(500).json({
+        status: 500,
+        error: 'Internal server error',
+        message: 'An unexpected error occurred',
+        timestamp: new Date().toISOString()
+    });
+};
+
+app.use(errorHandler);
+```
+</UniversalEditor>
+
+## Summary
+
+Spring MVC provides comprehensive web development capabilities:
+
+1. **MVC Architecture**: Clear separation of concerns
+2. **RESTful APIs**: Standard HTTP-based APIs
+3. **Request Mapping**: Flexible URL mapping and parameter handling
+4. **Response Handling**: Proper HTTP status codes and headers
+5. **Database Integration**: Seamless JPA integration
+6. **CORS Support**: Cross-origin resource sharing
+7. **API Documentation**: Swagger integration
+8. **Error Handling**: Global exception handling
+
+As a JavaScript developer, you'll find that Spring MVC offers similar functionality to Express.js but with stronger typing, better dependency injection, and more comprehensive enterprise features.
+
+## Exercises
+
+1. Create a RESTful API with CRUD operations
+2. Implement proper error handling with global exception handler
+3. Configure CORS for frontend integration
+4. Add Swagger documentation to your API
+5. Implement pagination and filtering in your API endpoints
+
+## Next Steps
+
+In the next module, we'll explore practical projects and real-world applications using Spring Boot and Java. 

@@ -1,0 +1,897 @@
+---
+title: "常见陷阱"
+description: "学习 Java 开发中的常见陷阱和错误，包括面向对象、并发编程、内存管理和 Spring 框架使用中的问题"
+---
+
+# 常见陷阱
+
+在从 JavaScript 转向 Java 开发的过程中，你会遇到许多常见的陷阱和错误。了解这些陷阱可以帮助你避免常见问题，提高代码质量。
+
+## 面向对象陷阱
+
+### 1. 继承 vs 组合
+
+#### 陷阱：过度使用继承
+<UniversalEditor title="继承陷阱">
+```java !! java
+// 错误示例：过度使用继承
+class Vehicle {
+    private String brand;
+    private String model;
+    
+    public void start() {
+        System.out.println("Vehicle starting...");
+    }
+}
+
+class Car extends Vehicle {
+    private int numberOfDoors;
+    
+    public void start() {
+        System.out.println("Car starting with key...");
+    }
+}
+
+class ElectricCar extends Car {
+    private int batteryCapacity;
+    
+    public void start() {
+        System.out.println("Electric car starting silently...");
+    }
+}
+
+// 问题：继承层次过深，难以维护
+class HybridCar extends ElectricCar {
+    private boolean gasEngineActive;
+    
+    public void start() {
+        System.out.println("Hybrid car starting...");
+    }
+}
+```
+
+```java !! java
+// 正确示例：使用组合
+interface Engine {
+    void start();
+}
+
+class GasEngine implements Engine {
+    public void start() {
+        System.out.println("Gas engine starting...");
+    }
+}
+
+class ElectricEngine implements Engine {
+    public void start() {
+        System.out.println("Electric engine starting...");
+    }
+}
+
+class Vehicle {
+    private String brand;
+    private String model;
+    private Engine engine;
+    
+    public Vehicle(Engine engine) {
+        this.engine = engine;
+    }
+    
+    public void start() {
+        engine.start();
+    }
+}
+
+class Car extends Vehicle {
+    private int numberOfDoors;
+    
+    public Car(Engine engine, int numberOfDoors) {
+        super(engine);
+        this.numberOfDoors = numberOfDoors;
+    }
+}
+
+// 灵活的组合方式
+Car gasCar = new Car(new GasEngine(), 4);
+Car electricCar = new Car(new ElectricEngine(), 2);
+```
+</UniversalEditor>
+
+#### 陷阱：忘记调用 super()
+<UniversalEditor title="super() 调用陷阱">
+```java !! java
+// 错误示例：忘记调用 super()
+class Parent {
+    private String name;
+    
+    public Parent(String name) {
+        this.name = name;
+        System.out.println("Parent constructor called");
+    }
+}
+
+class Child extends Parent {
+    private int age;
+    
+    public Child(String name, int age) {
+        // 忘记调用 super(name) - 编译错误！
+        this.age = age;
+        System.out.println("Child constructor called");
+    }
+}
+```
+
+```java !! java
+// 正确示例：正确调用 super()
+class Child extends Parent {
+    private int age;
+    
+    public Child(String name, int age) {
+        super(name); // 必须调用父类构造函数
+        this.age = age;
+        System.out.println("Child constructor called");
+    }
+}
+```
+</UniversalEditor>
+
+### 2. 方法重写陷阱
+
+#### 陷阱：方法签名不匹配
+<UniversalEditor title="方法重写陷阱">
+```java !! java
+// 错误示例：方法签名不匹配
+class Parent {
+    public void process(String data) {
+        System.out.println("Parent processing: " + data);
+    }
+}
+
+class Child extends Parent {
+    // 这不是重写，而是重载！
+    public void process(Object data) {
+        System.out.println("Child processing: " + data);
+    }
+    
+    // 正确的方法重写
+    @Override
+    public void process(String data) {
+        System.out.println("Child processing: " + data);
+    }
+}
+```
+
+```javascript !! js
+// JavaScript 中的类似问题
+class Parent {
+    process(data) {
+        console.log("Parent processing:", data);
+    }
+}
+
+class Child extends Parent {
+    // JavaScript 中没有方法重写检查
+    process(data) {
+        console.log("Child processing:", data);
+    }
+}
+```
+</UniversalEditor>
+
+#### 陷阱：访问修饰符问题
+<UniversalEditor title="访问修饰符陷阱">
+```java !! java
+// 错误示例：访问修饰符不匹配
+class Parent {
+    protected void process() {
+        System.out.println("Parent processing");
+    }
+}
+
+class Child extends Parent {
+    // 编译错误：不能降低访问权限
+    private void process() {
+        System.out.println("Child processing");
+    }
+}
+```
+
+```java !! java
+// 正确示例：保持或提高访问权限
+class Child extends Parent {
+    // 正确：保持相同的访问权限
+    @Override
+    protected void process() {
+        System.out.println("Child processing");
+    }
+    
+    // 或者提高访问权限
+    @Override
+    public void process() {
+        System.out.println("Child processing");
+    }
+}
+```
+</UniversalEditor>
+
+## 并发编程陷阱
+
+### 1. 线程安全问题
+
+#### 陷阱：共享状态没有同步
+<UniversalEditor title="线程安全陷阱">
+```java !! java
+// 错误示例：非线程安全的计数器
+class Counter {
+    private int count = 0;
+    
+    public void increment() {
+        count++; // 非原子操作
+    }
+    
+    public int getCount() {
+        return count;
+    }
+}
+
+// 多线程环境下会出现问题
+Counter counter = new Counter();
+Thread t1 = new Thread(() -> {
+    for (int i = 0; i < 1000; i++) {
+        counter.increment();
+    }
+});
+Thread t2 = new Thread(() -> {
+    for (int i = 0; i < 1000; i++) {
+        counter.increment();
+    }
+});
+
+t1.start();
+t2.start();
+// 结果可能不是 2000！
+```
+
+```java !! java
+// 正确示例：使用同步
+class Counter {
+    private int count = 0;
+    
+    public synchronized void increment() {
+        count++;
+    }
+    
+    public synchronized int getCount() {
+        return count;
+    }
+}
+
+// 或者使用 AtomicInteger
+import java.util.concurrent.atomic.AtomicInteger;
+
+class SafeCounter {
+    private AtomicInteger count = new AtomicInteger(0);
+    
+    public void increment() {
+        count.incrementAndGet();
+    }
+    
+    public int getCount() {
+        return count.get();
+    }
+}
+```
+</UniversalEditor>
+
+#### 陷阱：死锁
+<UniversalEditor title="死锁陷阱">
+```java !! java
+// 错误示例：可能导致死锁
+class BankAccount {
+    private String accountId;
+    private double balance;
+    
+    public BankAccount(String accountId, double balance) {
+        this.accountId = accountId;
+        this.balance = balance;
+    }
+    
+    public synchronized void transfer(BankAccount target, double amount) {
+        // 获取当前账户锁
+        System.out.println("Locking " + accountId);
+        
+        // 尝试获取目标账户锁 - 可能导致死锁
+        synchronized (target) {
+            if (this.balance >= amount) {
+                this.balance -= amount;
+                target.balance += amount;
+                System.out.println("Transfer completed");
+            }
+        }
+    }
+}
+
+// 死锁场景
+BankAccount account1 = new BankAccount("A", 1000);
+BankAccount account2 = new BankAccount("B", 1000);
+
+Thread t1 = new Thread(() -> account1.transfer(account2, 100));
+Thread t2 = new Thread(() -> account2.transfer(account1, 100));
+
+t1.start();
+t2.start();
+```
+
+```java !! java
+// 正确示例：避免死锁
+class BankAccount {
+    private String accountId;
+    private double balance;
+    
+    public BankAccount(String accountId, double balance) {
+        this.accountId = accountId;
+        this.balance = balance;
+    }
+    
+    public void transfer(BankAccount target, double amount) {
+        // 使用账户 ID 排序来避免死锁
+        BankAccount first = this.accountId.compareTo(target.accountId) < 0 ? this : target;
+        BankAccount second = this.accountId.compareTo(target.accountId) < 0 ? target : this;
+        
+        synchronized (first) {
+            synchronized (second) {
+                if (this.balance >= amount) {
+                    this.balance -= amount;
+                    target.balance += amount;
+                    System.out.println("Transfer completed");
+                }
+            }
+        }
+    }
+}
+```
+</UniversalEditor>
+
+### 2. 并发集合陷阱
+
+#### 陷阱：使用非线程安全的集合
+<UniversalEditor title="并发集合陷阱">
+```java !! java
+// 错误示例：使用非线程安全的集合
+class UserManager {
+    private List<String> users = new ArrayList<>(); // 非线程安全
+    
+    public void addUser(String user) {
+        users.add(user); // 多线程环境下可能出错
+    }
+    
+    public List<String> getUsers() {
+        return new ArrayList<>(users); // 返回副本
+    }
+}
+```
+
+```java !! java
+// 正确示例：使用线程安全的集合
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.Collections;
+
+class UserManager {
+    // 使用 CopyOnWriteArrayList
+    private List<String> users = new CopyOnWriteArrayList<>();
+    
+    // 或者使用 Collections.synchronizedList
+    // private List<String> users = Collections.synchronizedList(new ArrayList<>());
+    
+    public void addUser(String user) {
+        users.add(user); // 线程安全
+    }
+    
+    public List<String> getUsers() {
+        return new ArrayList<>(users);
+    }
+}
+```
+</UniversalEditor>
+
+## 内存管理陷阱
+
+### 1. 内存泄漏
+
+#### 陷阱：静态集合导致的内存泄漏
+<UniversalEditor title="内存泄漏陷阱">
+```java !! java
+// 错误示例：静态集合导致内存泄漏
+class Cache {
+    private static Map<String, Object> cache = new HashMap<>();
+    
+    public static void put(String key, Object value) {
+        cache.put(key, value);
+    }
+    
+    public static Object get(String key) {
+        return cache.get(key);
+    }
+    
+    // 问题：没有清理机制，可能导致内存泄漏
+}
+
+// 使用示例
+for (int i = 0; i < 1000000; i++) {
+    Cache.put("key" + i, new byte[1024]); // 内存泄漏！
+}
+```
+
+```java !! java
+// 正确示例：使用 WeakHashMap 或定期清理
+import java.util.WeakHashMap;
+import java.util.concurrent.ConcurrentHashMap;
+
+class Cache {
+    // 使用 WeakHashMap，当 key 不再被引用时自动清理
+    private static Map<String, Object> cache = new WeakHashMap<>();
+    
+    // 或者使用带过期时间的缓存
+    private static Map<String, CacheEntry> cache = new ConcurrentHashMap<>();
+    
+    public static void put(String key, Object value, long ttl) {
+        cache.put(key, new CacheEntry(value, System.currentTimeMillis() + ttl));
+    }
+    
+    public static Object get(String key) {
+        CacheEntry entry = cache.get(key);
+        if (entry != null && entry.isExpired()) {
+            cache.remove(key);
+            return null;
+        }
+        return entry != null ? entry.getValue() : null;
+    }
+    
+    // 定期清理过期条目
+    public static void cleanup() {
+        cache.entrySet().removeIf(entry -> entry.getValue().isExpired());
+    }
+}
+
+class CacheEntry {
+    private Object value;
+    private long expiryTime;
+    
+    public CacheEntry(Object value, long expiryTime) {
+        this.value = value;
+        this.expiryTime = expiryTime;
+    }
+    
+    public Object getValue() { return value; }
+    public boolean isExpired() { return System.currentTimeMillis() > expiryTime; }
+}
+```
+</UniversalEditor>
+
+#### 陷阱：内部类持有外部类引用
+<UniversalEditor title="内部类引用陷阱">
+```java !! java
+// 错误示例：内部类持有外部类引用
+class OuterClass {
+    private String data = "sensitive data";
+    
+    class InnerClass {
+        public void process() {
+            System.out.println(data); // 持有外部类引用
+        }
+    }
+    
+    public InnerClass createInner() {
+        return new InnerClass();
+    }
+}
+
+// 使用示例
+OuterClass outer = new OuterClass();
+OuterClass.InnerClass inner = outer.createInner();
+outer = null; // 外部类对象仍然被内部类引用，无法被垃圾回收
+```
+
+```java !! java
+// 正确示例：使用静态内部类
+class OuterClass {
+    private String data = "sensitive data";
+    
+    // 静态内部类不持有外部类引用
+    static class InnerClass {
+        public void process(String data) {
+            System.out.println(data);
+        }
+    }
+    
+    public InnerClass createInner() {
+        return new InnerClass();
+    }
+}
+
+// 或者使用局部类
+class OuterClass {
+    private String data = "sensitive data";
+    
+    public Runnable createProcessor() {
+        final String localData = data; // 创建副本
+        return new Runnable() {
+            public void run() {
+                System.out.println(localData);
+            }
+        };
+    }
+}
+```
+</UniversalEditor>
+
+## Spring 框架陷阱
+
+### 1. 依赖注入陷阱
+
+#### 陷阱：循环依赖
+<UniversalEditor title="循环依赖陷阱">
+```java !! java
+// 错误示例：循环依赖
+@Service
+public class UserService {
+    @Autowired
+    private EmailService emailService;
+    
+    public void createUser(User user) {
+        // 创建用户逻辑
+        emailService.sendWelcomeEmail(user.getEmail());
+    }
+}
+
+@Service
+public class EmailService {
+    @Autowired
+    private UserService userService;
+    
+    public void sendWelcomeEmail(String email) {
+        // 发送邮件逻辑
+        userService.logEmailSent(email); // 循环依赖！
+    }
+}
+```
+
+```java !! java
+// 正确示例：使用事件机制或重新设计
+@Service
+public class UserService {
+    @Autowired
+    private ApplicationEventPublisher eventPublisher;
+    
+    public void createUser(User user) {
+        // 创建用户逻辑
+        eventPublisher.publishEvent(new UserCreatedEvent(user));
+    }
+    
+    public void logEmailSent(String email) {
+        // 记录邮件发送日志
+    }
+}
+
+@Service
+public class EmailService {
+    @EventListener
+    public void handleUserCreated(UserCreatedEvent event) {
+        sendWelcomeEmail(event.getUser().getEmail());
+    }
+    
+    public void sendWelcomeEmail(String email) {
+        // 发送邮件逻辑
+    }
+}
+
+// 事件类
+public class UserCreatedEvent {
+    private User user;
+    
+    public UserCreatedEvent(User user) {
+        this.user = user;
+    }
+    
+    public User getUser() { return user; }
+}
+```
+</UniversalEditor>
+
+#### 陷阱：作用域问题
+<UniversalEditor title="作用域陷阱">
+```java !! java
+// 错误示例：作用域不匹配
+@Component
+@Scope("singleton") // 默认单例
+public class UserService {
+    @Autowired
+    private UserRepository userRepository; // 单例
+}
+
+@Component
+@Scope("prototype") // 原型作用域
+public class UserRepository {
+    private Connection connection; // 每个实例都有自己的连接
+    
+    public UserRepository() {
+        this.connection = createConnection(); // 创建新连接
+    }
+}
+
+// 问题：单例的 UserService 持有原型作用域的 UserRepository
+// 但 Spring 默认注入的是同一个实例
+```
+
+```java !! java
+// 正确示例：使用 @Lookup 或 ApplicationContext
+@Component
+@Scope("singleton")
+public class UserService {
+    
+    @Autowired
+    private ApplicationContext applicationContext;
+    
+    public void processUser() {
+        // 每次获取新的 UserRepository 实例
+        UserRepository repository = applicationContext.getBean(UserRepository.class);
+        // 使用 repository
+    }
+}
+
+// 或者使用 @Lookup
+@Component
+@Scope("singleton")
+public abstract class UserService {
+    
+    @Lookup
+    protected abstract UserRepository getUserRepository();
+    
+    public void processUser() {
+        UserRepository repository = getUserRepository();
+        // 使用 repository
+    }
+}
+```
+</UniversalEditor>
+
+### 2. 事务管理陷阱
+
+#### 陷阱：事务传播问题
+<UniversalEditor title="事务传播陷阱">
+```java !! java
+// 错误示例：事务传播问题
+@Service
+public class UserService {
+    
+    @Autowired
+    private EmailService emailService;
+    
+    @Transactional
+    public void createUser(User user) {
+        // 保存用户
+        userRepository.save(user);
+        
+        // 发送邮件 - 如果邮件发送失败，用户创建也会回滚
+        emailService.sendWelcomeEmail(user.getEmail());
+    }
+}
+
+@Service
+public class EmailService {
+    
+    @Transactional
+    public void sendWelcomeEmail(String email) {
+        // 发送邮件逻辑
+        // 如果这里抛出异常，整个事务都会回滚
+    }
+}
+```
+
+```java !! java
+// 正确示例：使用不同的事务传播
+@Service
+public class UserService {
+    
+    @Autowired
+    private EmailService emailService;
+    
+    @Transactional
+    public void createUser(User user) {
+        // 保存用户
+        userRepository.save(user);
+        
+        // 使用独立事务发送邮件
+        emailService.sendWelcomeEmailAsync(user.getEmail());
+    }
+}
+
+@Service
+public class EmailService {
+    
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void sendWelcomeEmailAsync(String email) {
+        // 发送邮件逻辑
+        // 即使这里失败，用户创建事务也不会回滚
+    }
+    
+    // 或者使用异步方法
+    @Async
+    public void sendWelcomeEmailAsync(String email) {
+        // 异步发送邮件
+    }
+}
+```
+</UniversalEditor>
+
+## 性能陷阱
+
+### 1. 字符串操作陷阱
+
+#### 陷阱：字符串拼接性能问题
+<UniversalEditor title="字符串拼接陷阱">
+```java !! java
+// 错误示例：低效的字符串拼接
+public String buildMessage(List<String> items) {
+    String result = "";
+    for (String item : items) {
+        result += item + ", "; // 每次都创建新的字符串对象
+    }
+    return result;
+}
+
+// 在循环中频繁创建字符串对象，性能很差
+```
+
+```java !! java
+// 正确示例：使用 StringBuilder
+public String buildMessage(List<String> items) {
+    StringBuilder result = new StringBuilder();
+    for (String item : items) {
+        result.append(item).append(", ");
+    }
+    return result.toString();
+}
+
+// 或者使用 String.join (Java 8+)
+public String buildMessage(List<String> items) {
+    return String.join(", ", items);
+}
+```
+</UniversalEditor>
+
+### 2. 集合操作陷阱
+
+#### 陷阱：频繁的集合扩容
+<UniversalEditor title="集合扩容陷阱">
+```java !! java
+// 错误示例：频繁扩容
+public List<String> createList() {
+    List<String> list = new ArrayList<>(); // 默认容量 10
+    for (int i = 0; i < 10000; i++) {
+        list.add("item" + i); // 频繁扩容
+    }
+    return list;
+}
+```
+
+```java !! java
+// 正确示例：预分配容量
+public List<String> createList() {
+    List<String> list = new ArrayList<>(10000); // 预分配容量
+    for (int i = 0; i < 10000; i++) {
+        list.add("item" + i); // 不会扩容
+    }
+    return list;
+}
+```
+</UniversalEditor>
+
+## 异常处理陷阱
+
+### 1. 异常吞没
+
+#### 陷阱：忽略异常
+<UniversalEditor title="异常处理陷阱">
+```java !! java
+// 错误示例：吞没异常
+public void processFile(String filename) {
+    try {
+        File file = new File(filename);
+        // 处理文件
+    } catch (Exception e) {
+        // 什么都不做 - 错误被隐藏了！
+    }
+}
+```
+
+```java !! java
+// 正确示例：正确处理异常
+public void processFile(String filename) {
+    try {
+        File file = new File(filename);
+        // 处理文件
+    } catch (FileNotFoundException e) {
+        logger.error("File not found: " + filename, e);
+        throw new ProcessingException("Cannot process file: " + filename, e);
+    } catch (IOException e) {
+        logger.error("IO error processing file: " + filename, e);
+        throw new ProcessingException("IO error processing file: " + filename, e);
+    }
+}
+```
+</UniversalEditor>
+
+### 2. 异常类型不匹配
+
+#### 陷阱：捕获过于宽泛的异常
+<UniversalEditor title="异常类型陷阱">
+```java !! java
+// 错误示例：捕获过于宽泛的异常
+public void processData() {
+    try {
+        // 数据库操作
+        databaseService.save(data);
+        // 网络操作
+        networkService.send(data);
+    } catch (Exception e) {
+        // 捕获所有异常，无法区分具体错误
+        logger.error("Error occurred", e);
+    }
+}
+```
+
+```java !! java
+// 正确示例：捕获具体异常
+public void processData() {
+    try {
+        // 数据库操作
+        databaseService.save(data);
+    } catch (SQLException e) {
+        logger.error("Database error", e);
+        throw new DataProcessingException("Database operation failed", e);
+    }
+    
+    try {
+        // 网络操作
+        networkService.send(data);
+    } catch (IOException e) {
+        logger.error("Network error", e);
+        throw new DataProcessingException("Network operation failed", e);
+    }
+}
+```
+</UniversalEditor>
+
+## 练习题
+
+### 练习 1: 识别陷阱
+1. 分析代码中的潜在陷阱
+2. 识别线程安全问题
+3. 检查内存泄漏风险
+4. 验证异常处理
+
+### 练习 2: 修复陷阱
+1. 修复继承设计问题
+2. 解决并发安全问题
+3. 优化内存使用
+4. 改进异常处理
+
+### 练习 3: 最佳实践
+1. 应用设计模式
+2. 使用线程安全集合
+3. 实现正确的资源管理
+4. 编写健壮的异常处理
+
+## 总结
+
+了解这些常见陷阱可以帮助你：
+
+- **避免常见错误**: 识别和避免典型的编程陷阱
+- **提高代码质量**: 编写更健壮和可维护的代码
+- **优化性能**: 避免性能瓶颈和内存问题
+- **增强安全性**: 正确处理并发和异常情况
+
+在下一个模块中，我们将学习 Java 的惯用法和最佳实践，帮助你编写更优雅和高效的代码。
+
+准备好学习 Java 惯用法了吗？ 

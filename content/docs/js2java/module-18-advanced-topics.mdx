@@ -1,0 +1,746 @@
+---
+title: "Advanced Topics"
+description: "Learn advanced Java techniques including reflection, dynamic proxies, bytecode manipulation, and performance analysis tools"
+---
+
+# Advanced Topics
+
+After mastering Java fundamentals and enterprise development, let's explore some advanced topics. These techniques help you deeply understand the Java language and solve complex problems.
+
+## Reflection
+
+### 1. Reflection Basics
+
+Reflection allows programs to examine and manipulate classes, interfaces, fields, and methods at runtime.
+
+<UniversalEditor title="Reflection Basics">
+```java !! java
+// Basic reflection usage
+public class ReflectionExample {
+    
+    public static void main(String[] args) throws Exception {
+        // Get class information
+        Class<?> userClass = User.class;
+        
+        // Get all public methods
+        Method[] methods = userClass.getMethods();
+        for (Method method : methods) {
+            System.out.println("Method: " + method.getName());
+        }
+        
+        // Get all fields
+        Field[] fields = userClass.getDeclaredFields();
+        for (Field field : fields) {
+            System.out.println("Field: " + field.getName() + " - " + field.getType());
+        }
+        
+        // Create instance
+        Constructor<?> constructor = userClass.getConstructor(String.class, String.class);
+        User user = (User) constructor.newInstance("john@example.com", "John Doe");
+        
+        // Invoke method
+        Method getNameMethod = userClass.getMethod("getName");
+        String name = (String) getNameMethod.invoke(user);
+        System.out.println("User name: " + name);
+        
+        // Set field value
+        Field emailField = userClass.getDeclaredField("email");
+        emailField.setAccessible(true); // Access private field
+        emailField.set(user, "newemail@example.com");
+    }
+}
+
+// User class
+class User {
+    private String email;
+    private String name;
+    
+    public User(String email, String name) {
+        this.email = email;
+        this.name = name;
+    }
+    
+    public String getEmail() { return email; }
+    public String getName() { return name; }
+    public void setEmail(String email) { this.email = email; }
+    public void setName(String name) { this.name = name; }
+}
+```
+
+```javascript !! js
+// Reflection in JavaScript
+class User {
+    constructor(email, name) {
+        this.email = email;
+        this.name = name;
+    }
+    
+    getEmail() { return this.email; }
+    getName() { return this.name; }
+    setEmail(email) { this.email = email; }
+    setName(name) { this.name = name; }
+}
+
+// Get class information
+const userClass = User;
+console.log('Class name:', userClass.name);
+
+// Get instance methods
+const user = new User('john@example.com', 'John Doe');
+const methods = Object.getOwnPropertyNames(Object.getPrototypeOf(user));
+console.log('Methods:', methods);
+
+// Dynamic method invocation
+const methodName = 'getName';
+const result = user[methodName]();
+console.log('Result:', result);
+
+// Set properties
+user['email'] = 'newemail@example.com';
+```
+</UniversalEditor>
+
+### 2. Reflection Use Cases
+
+#### Configuration Loading
+<UniversalEditor title="Reflection Applications">
+```java !! java
+// Using reflection to load configuration
+public class ConfigurationLoader {
+    
+    public static <T> T loadConfig(Class<T> configClass, Properties props) throws Exception {
+        T config = configClass.getDeclaredConstructor().newInstance();
+        
+        Field[] fields = configClass.getDeclaredFields();
+        for (Field field : fields) {
+            field.setAccessible(true);
+            
+            // Find corresponding property value
+            String propValue = props.getProperty(field.getName());
+            if (propValue != null) {
+                // Convert value based on field type
+                Object convertedValue = convertValue(propValue, field.getType());
+                field.set(config, convertedValue);
+            }
+        }
+        
+        return config;
+    }
+    
+    private static Object convertValue(String value, Class<?> targetType) {
+        if (targetType == String.class) {
+            return value;
+        } else if (targetType == Integer.class || targetType == int.class) {
+            return Integer.parseInt(value);
+        } else if (targetType == Boolean.class || targetType == boolean.class) {
+            return Boolean.parseBoolean(value);
+        } else if (targetType == Long.class || targetType == long.class) {
+            return Long.parseLong(value);
+        }
+        return value;
+    }
+}
+
+// Configuration class
+class DatabaseConfig {
+    private String url;
+    private String username;
+    private String password;
+    private int maxConnections;
+    private boolean sslEnabled;
+    
+    // getters and setters
+}
+
+// Usage example
+Properties props = new Properties();
+props.setProperty("url", "jdbc:mysql://localhost:3306/mydb");
+props.setProperty("username", "root");
+props.setProperty("password", "password");
+props.setProperty("maxConnections", "10");
+props.setProperty("sslEnabled", "true");
+
+DatabaseConfig config = ConfigurationLoader.loadConfig(DatabaseConfig.class, props);
+```
+</UniversalEditor>
+
+## Dynamic Proxies
+
+### 1. JDK Dynamic Proxy
+
+JDK dynamic proxies allow creating proxy implementations of interfaces at runtime.
+
+<UniversalEditor title="JDK Dynamic Proxy">
+```java !! java
+// Interface
+public interface UserService {
+    User createUser(String email, String name);
+    User findUser(String email);
+    void deleteUser(String email);
+}
+
+// Implementation class
+public class UserServiceImpl implements UserService {
+    @Override
+    public User createUser(String email, String name) {
+        System.out.println("Creating user: " + email);
+        return new User(email, name);
+    }
+    
+    @Override
+    public User findUser(String email) {
+        System.out.println("Finding user: " + email);
+        return new User(email, "Found User");
+    }
+    
+    @Override
+    public void deleteUser(String email) {
+        System.out.println("Deleting user: " + email);
+    }
+}
+
+// Dynamic proxy
+public class LoggingProxy implements InvocationHandler {
+    private final Object target;
+    
+    public LoggingProxy(Object target) {
+        this.target = target;
+    }
+    
+    @Override
+    public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
+        System.out.println("Before method: " + method.getName());
+        
+        long startTime = System.currentTimeMillis();
+        Object result = method.invoke(target, args);
+        long endTime = System.currentTimeMillis();
+        
+        System.out.println("After method: " + method.getName() + 
+                          " took " + (endTime - startTime) + "ms");
+        
+        return result;
+    }
+    
+    public static <T> T createProxy(T target, Class<T> interfaceClass) {
+        return (T) Proxy.newProxyInstance(
+            interfaceClass.getClassLoader(),
+            new Class<?>[] { interfaceClass },
+            new LoggingProxy(target)
+        );
+    }
+}
+
+// Usage
+UserService userService = new UserServiceImpl();
+UserService proxy = LoggingProxy.createProxy(userService, UserService.class);
+
+proxy.createUser("test@example.com", "Test User");
+```
+
+```javascript !! js
+// JavaScript proxy comparison
+class UserService {
+    createUser(email, name) {
+        console.log('Creating user:', email);
+        return { email, name };
+    }
+    
+    findUser(email) {
+        console.log('Finding user:', email);
+        return { email, name: 'Found User' };
+    }
+    
+    deleteUser(email) {
+        console.log('Deleting user:', email);
+    }
+}
+
+// JavaScript Proxy
+const userService = new UserService();
+const proxy = new Proxy(userService, {
+    get(target, prop) {
+        const method = target[prop];
+        if (typeof method === 'function') {
+            return function(...args) {
+                console.log(`Before method: ${prop}`);
+                const startTime = Date.now();
+                const result = method.apply(target, args);
+                const endTime = Date.now();
+                console.log(`After method: ${prop} took ${endTime - startTime}ms`);
+                return result;
+            };
+        }
+        return method;
+    }
+});
+
+proxy.createUser('test@example.com', 'Test User');
+```
+</UniversalEditor>
+
+### 2. CGLIB Dynamic Proxy
+
+CGLIB allows creating proxies for classes (not just interfaces).
+
+<UniversalEditor title="CGLIB Dynamic Proxy">
+```java !! java
+// CGLIB proxy for classes
+public class CglibProxy implements MethodInterceptor {
+    
+    @Override
+    public Object intercept(Object obj, Method method, Object[] args, 
+                          MethodProxy proxy) throws Throwable {
+        System.out.println("Before method: " + method.getName());
+        
+        long startTime = System.currentTimeMillis();
+        Object result = proxy.invokeSuper(obj, args);
+        long endTime = System.currentTimeMillis();
+        
+        System.out.println("After method: " + method.getName() + 
+                          " took " + (endTime - startTime) + "ms");
+        
+        return result;
+    }
+    
+    public static <T> T createProxy(Class<T> targetClass) {
+        Enhancer enhancer = new Enhancer();
+        enhancer.setSuperclass(targetClass);
+        enhancer.setCallback(new CglibProxy());
+        return (T) enhancer.create();
+    }
+}
+
+// Usage
+UserService userService = CglibProxy.createProxy(UserServiceImpl.class);
+userService.createUser("test@example.com", "Test User");
+```
+</UniversalEditor>
+
+## Bytecode Manipulation
+
+### 1. ASM Library
+
+ASM is a low-level bytecode manipulation library.
+
+<UniversalEditor title="ASM Bytecode Manipulation">
+```java !! java
+// ASM bytecode manipulation
+public class AsmExample {
+    
+    public static void addLogging(Class<?> targetClass) throws Exception {
+        ClassReader reader = new ClassReader(targetClass.getName());
+        ClassWriter writer = new ClassWriter(ClassWriter.COMPUTE_MAXS);
+        
+        ClassVisitor visitor = new ClassVisitor(ASM9, writer) {
+            @Override
+            public MethodVisitor visitMethod(int access, String name, String descriptor,
+                                          String signature, String[] exceptions) {
+                MethodVisitor mv = super.visitMethod(access, name, descriptor, signature, exceptions);
+                
+                if (mv != null && !name.equals("<init>")) {
+                    mv = new MethodVisitor(ASM9, mv) {
+                        @Override
+                        public void visitCode() {
+                            mv.visitFieldInsn(GETSTATIC, "java/lang/System", "out", 
+                                            "Ljava/io/PrintStream;");
+                            mv.visitLdcInsn("Entering method: " + name);
+                            mv.visitMethodInsn(INVOKEVIRTUAL, "java/io/PrintStream", "println", 
+                                             "(Ljava/lang/String;)V", false);
+                            super.visitCode();
+                        }
+                    };
+                }
+                
+                return mv;
+            }
+        };
+        
+        reader.accept(visitor, 0);
+        
+        // Write modified bytecode to file
+        byte[] modifiedClass = writer.toByteArray();
+        Files.write(Paths.get(targetClass.getSimpleName() + ".class"), modifiedClass);
+    }
+}
+```
+</UniversalEditor>
+
+### 2. Javassist
+
+Javassist provides a higher-level API for bytecode manipulation.
+
+<UniversalEditor title="Javassist Bytecode Manipulation">
+```java !! java
+// Javassist bytecode manipulation
+public class JavassistExample {
+    
+    public static void addLogging(Class<?> targetClass) throws Exception {
+        ClassPool pool = ClassPool.getDefault();
+        CtClass cc = pool.get(targetClass.getName());
+        
+        // Add logging to all methods
+        CtMethod[] methods = cc.getDeclaredMethods();
+        for (CtMethod method : methods) {
+            if (!method.getName().equals("<init>")) {
+                method.insertBefore(
+                    "System.out.println(\"Entering method: " + method.getName() + "\");"
+                );
+                method.insertAfter(
+                    "System.out.println(\"Exiting method: " + method.getName() + "\");"
+                );
+            }
+        }
+        
+        // Write modified class
+        cc.writeFile();
+    }
+    
+    public static void createClass() throws Exception {
+        ClassPool pool = ClassPool.getDefault();
+        CtClass cc = pool.makeClass("GeneratedClass");
+        
+        // Add field
+        CtField field = new CtField(CtClass.intType, "value", cc);
+        cc.addField(field);
+        
+        // Add constructor
+        CtConstructor constructor = new CtConstructor(
+            new CtClass[]{CtClass.intType}, cc
+        );
+        constructor.setBody("{ this.value = $1; }");
+        cc.addConstructor(constructor);
+        
+        // Add method
+        CtMethod method = new CtMethod(CtClass.intType, "getValue", 
+                                     new CtClass[]{}, cc);
+        method.setBody("{ return this.value; }");
+        cc.addMethod(method);
+        
+        // Write class
+        cc.writeFile();
+    }
+}
+```
+</UniversalEditor>
+
+## Performance Analysis Tools
+
+### 1. JProfiler
+
+JProfiler is a commercial Java profiler.
+
+<UniversalEditor title="JProfiler Usage">
+```java !! java
+// Example code for profiling
+public class PerformanceExample {
+    
+    public static void main(String[] args) {
+        // Start profiling
+        // JProfiler.start();
+        
+        // Memory-intensive operation
+        List<String> list = new ArrayList<>();
+        for (int i = 0; i < 1000000; i++) {
+            list.add("Item " + i);
+        }
+        
+        // CPU-intensive operation
+        for (int i = 0; i < 1000000; i++) {
+            Math.sqrt(i);
+        }
+        
+        // Stop profiling
+        // JProfiler.stop();
+    }
+}
+```
+</UniversalEditor>
+
+### 2. VisualVM
+
+VisualVM is a free profiling tool included with the JDK.
+
+<UniversalEditor title="VisualVM Usage">
+```java !! java
+// Example for VisualVM profiling
+public class VisualVMExample {
+    
+    public static void main(String[] args) throws InterruptedException {
+        // Add JMX monitoring
+        System.setProperty("com.sun.management.jmxremote", "true");
+        System.setProperty("com.sun.management.jmxremote.port", "9999");
+        System.setProperty("com.sun.management.jmxremote.authenticate", "false");
+        System.setProperty("com.sun.management.jmxremote.ssl", "false");
+        
+        // Simulate application workload
+        while (true) {
+            performWork();
+            Thread.sleep(1000);
+        }
+    }
+    
+    private static void performWork() {
+        // Simulate some work
+        List<Integer> numbers = new ArrayList<>();
+        for (int i = 0; i < 10000; i++) {
+            numbers.add(i);
+        }
+        
+        // Simulate processing
+        numbers.stream()
+               .filter(n -> n % 2 == 0)
+               .mapToInt(Integer::intValue)
+               .sum();
+    }
+}
+```
+</UniversalEditor>
+
+### 3. JFR (Java Flight Recorder)
+
+JFR is a low-overhead profiling tool built into the JVM.
+
+<UniversalEditor title="JFR Usage">
+```java !! java
+// JFR profiling example
+public class JFRExample {
+    
+    public static void main(String[] args) throws Exception {
+        // Start JFR recording
+        Configuration config = Configuration.getConfiguration("default");
+        Recording recording = new Recording(config);
+        recording.start();
+        
+        // Perform operations to profile
+        performOperations();
+        
+        // Stop recording and save
+        recording.stop();
+        recording.dump(Paths.get("recording.jfr"));
+        recording.close();
+    }
+    
+    private static void performOperations() {
+        // Simulate various operations
+        for (int i = 0; i < 1000; i++) {
+            // CPU-intensive work
+            calculatePrimes(1000);
+            
+            // Memory allocation
+            byte[] data = new byte[1024 * 1024];
+            
+            // I/O simulation
+            try {
+                Thread.sleep(10);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+    }
+    
+    private static List<Integer> calculatePrimes(int n) {
+        List<Integer> primes = new ArrayList<>();
+        for (int i = 2; i <= n; i++) {
+            if (isPrime(i)) {
+                primes.add(i);
+            }
+        }
+        return primes;
+    }
+    
+    private static boolean isPrime(int n) {
+        if (n <= 1) return false;
+        for (int i = 2; i <= Math.sqrt(n); i++) {
+            if (n % i == 0) return false;
+        }
+        return true;
+    }
+}
+```
+</UniversalEditor>
+
+## Advanced Concurrency
+
+### 1. CompletableFuture
+
+CompletableFuture provides advanced asynchronous programming capabilities.
+
+<UniversalEditor title="CompletableFuture">
+```java !! java
+// CompletableFuture examples
+public class CompletableFutureExample {
+    
+    public static void main(String[] args) throws Exception {
+        // Basic async operation
+        CompletableFuture<String> future = CompletableFuture.supplyAsync(() -> {
+            try {
+                Thread.sleep(1000);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            return "Hello from async";
+        });
+        
+        // Chain operations
+        CompletableFuture<String> result = future
+            .thenApply(s -> s + " World")
+            .thenApply(String::toUpperCase)
+            .thenCompose(s -> CompletableFuture.supplyAsync(() -> s + "!"));
+        
+        System.out.println(result.get());
+        
+        // Combine multiple futures
+        CompletableFuture<String> future1 = CompletableFuture.supplyAsync(() -> "Hello");
+        CompletableFuture<String> future2 = CompletableFuture.supplyAsync(() -> "World");
+        
+        CompletableFuture<String> combined = future1
+            .thenCombine(future2, (s1, s2) -> s1 + " " + s2);
+        
+        System.out.println(combined.get());
+        
+        // Handle exceptions
+        CompletableFuture<String> errorFuture = CompletableFuture.supplyAsync(() -> {
+            if (Math.random() > 0.5) {
+                throw new RuntimeException("Random error");
+            }
+            return "Success";
+        }).exceptionally(throwable -> "Error: " + throwable.getMessage());
+        
+        System.out.println(errorFuture.get());
+    }
+}
+```
+
+```javascript !! js
+// JavaScript Promise comparison
+async function main() {
+    // Basic async operation
+    const future = new Promise(resolve => {
+        setTimeout(() => resolve('Hello from async'), 1000);
+    });
+    
+    // Chain operations
+    const result = await future
+        .then(s => s + ' World')
+        .then(s => s.toUpperCase())
+        .then(s => new Promise(resolve => resolve(s + '!')));
+    
+    console.log(result);
+    
+    // Combine multiple promises
+    const future1 = Promise.resolve('Hello');
+    const future2 = Promise.resolve('World');
+    
+    const combined = await Promise.all([future1, future2])
+        .then(([s1, s2]) => s1 + ' ' + s2);
+    
+    console.log(combined);
+    
+    // Handle exceptions
+    const errorFuture = new Promise((resolve, reject) => {
+        if (Math.random() > 0.5) {
+            reject(new Error('Random error'));
+        } else {
+            resolve('Success');
+        }
+    }).catch(error => `Error: ${error.message}`);
+    
+    console.log(await errorFuture);
+}
+```
+</UniversalEditor>
+
+### 2. Fork/Join Framework
+
+Fork/Join is designed for parallel processing of large tasks.
+
+<UniversalEditor title="Fork/Join Framework">
+```java !! java
+// Fork/Join example
+public class ForkJoinExample {
+    
+    public static void main(String[] args) {
+        int[] array = new int[1000000];
+        for (int i = 0; i < array.length; i++) {
+            array[i] = i;
+        }
+        
+        ForkJoinPool pool = ForkJoinPool.commonPool();
+        SumTask task = new SumTask(array, 0, array.length);
+        
+        long result = pool.invoke(task);
+        System.out.println("Sum: " + result);
+    }
+    
+    static class SumTask extends RecursiveTask<Long> {
+        private final int[] array;
+        private final int start;
+        private final int end;
+        private static final int THRESHOLD = 10000;
+        
+        public SumTask(int[] array, int start, int end) {
+            this.array = array;
+            this.start = start;
+            this.end = end;
+        }
+        
+        @Override
+        protected Long compute() {
+            int length = end - start;
+            
+            if (length <= THRESHOLD) {
+                // Compute directly
+                long sum = 0;
+                for (int i = start; i < end; i++) {
+                    sum += array[i];
+                }
+                return sum;
+            } else {
+                // Split task
+                int mid = start + length / 2;
+                SumTask leftTask = new SumTask(array, start, mid);
+                SumTask rightTask = new SumTask(array, mid, end);
+                
+                leftTask.fork();
+                long rightResult = rightTask.compute();
+                long leftResult = leftTask.join();
+                
+                return leftResult + rightResult;
+            }
+        }
+    }
+}
+```
+</UniversalEditor>
+
+## Summary
+
+Advanced Java topics include:
+
+1. **Reflection**: Runtime class inspection and manipulation
+2. **Dynamic Proxies**: Runtime proxy creation for interfaces and classes
+3. **Bytecode Manipulation**: Low-level class modification using ASM and Javassist
+4. **Performance Analysis**: Profiling tools like JProfiler, VisualVM, and JFR
+5. **Advanced Concurrency**: CompletableFuture and Fork/Join framework
+
+These advanced techniques provide powerful tools for solving complex problems and optimizing Java applications. As a JavaScript developer, many of these concepts have parallels in JavaScript, but Java's bytecode-based nature and stronger typing provide unique capabilities.
+
+## Best Practices
+
+1. **Use reflection sparingly** - it can impact performance
+2. **Prefer composition over dynamic proxies** when possible
+3. **Profile before optimizing** - measure performance bottlenecks
+4. **Use CompletableFuture for async operations**
+5. **Apply Fork/Join for CPU-intensive parallel tasks**
+
+## Exercises
+
+1. Implement a configuration loader using reflection
+2. Create a logging proxy using dynamic proxies
+3. Profile a Java application using VisualVM
+4. Implement parallel processing using Fork/Join
+5. Use CompletableFuture for async operations
+
+## Next Steps
+
+In the next module, we'll explore performance optimization techniques and best practices. 

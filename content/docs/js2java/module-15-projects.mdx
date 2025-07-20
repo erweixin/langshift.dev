@@ -1,0 +1,1357 @@
+---
+title: "Practical Projects"
+description: "Apply Java and Spring framework knowledge through practical projects, including web applications, RESTful APIs, and database applications"
+---
+
+# Practical Projects
+
+Now that we've learned the core concepts of Java and the Spring framework, let's consolidate our knowledge through practical projects. These projects will help you understand how to apply these technologies in real-world development.
+
+## Project 1: User Management System
+
+### Project Overview
+Create a complete user management system with user registration, login, and information management features.
+
+### Technology Stack
+- Spring Boot 3.x
+- Spring Data JPA
+- Spring Security
+- H2 Database (development environment)
+- Maven/Gradle
+
+<UniversalEditor title="Project Structure">
+```bash !! bash
+user-management-system/
+├── src/
+│   ├── main/
+│   │   ├── java/
+│   │   │   └── com/
+│   │   │       └── example/
+│   │   │           └── usermanagement/
+│   │   │               ├── UserManagementApplication.java
+│   │   │               ├── controller/
+│   │   │               │   ├── UserController.java
+│   │   │               │   └── AuthController.java
+│   │   │               ├── service/
+│   │   │               │   ├── UserService.java
+│   │   │               │   └── AuthService.java
+│   │   │               ├── repository/
+│   │   │               │   └── UserRepository.java
+│   │   │               ├── entity/
+│   │   │               │   └── User.java
+│   │   │               ├── dto/
+│   │   │               │   ├── UserCreateRequest.java
+│   │   │               │   └── UserUpdateRequest.java
+│   │   │               └── config/
+│   │   │                   └── SecurityConfig.java
+│   │   └── resources/
+│   │       ├── application.yml
+│   │       └── data.sql
+│   └── test/
+│       └── java/
+│           └── com/
+│               └── example/
+│                   └── usermanagement/
+│                       └── UserControllerTest.java
+├── pom.xml
+└── README.md
+```
+
+```javascript !! js
+// Node.js project structure comparison
+user-management-api/
+├── src/
+│   ├── controllers/
+│   │   ├── userController.js
+│   │   └── authController.js
+│   ├── services/
+│   │   ├── userService.js
+│   │   └── authService.js
+│   ├── models/
+│   │   └── User.js
+│   ├── routes/
+│   │   ├── userRoutes.js
+│   │   └── authRoutes.js
+│   ├── middleware/
+│   │   ├── auth.js
+│   │   └── validation.js
+│   └── config/
+│       └── database.js
+├── package.json
+└── README.md
+```
+</UniversalEditor>
+
+### Core Code Implementation
+
+#### 1. Entity Class
+<UniversalEditor title="User Entity">
+```java !! java
+@Entity
+@Table(name = "users")
+public class User {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    
+    @Column(nullable = false, unique = true)
+    private String email;
+    
+    @Column(nullable = false)
+    private String username;
+    
+    @Column(nullable = false)
+    private String password;
+    
+    @Column(nullable = false)
+    private String fullName;
+    
+    @Enumerated(EnumType.STRING)
+    private UserRole role = UserRole.USER;
+    
+    @Column(nullable = false)
+    private boolean active = true;
+    
+    @CreatedDate
+    private LocalDateTime createdAt;
+    
+    @LastModifiedDate
+    private LocalDateTime updatedAt;
+    
+    // Constructors
+    public User() {}
+    
+    public User(String email, String username, String password, String fullName) {
+        this.email = email;
+        this.username = username;
+        this.password = password;
+        this.fullName = fullName;
+    }
+    
+    // Getters and setters
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
+    
+    public String getEmail() { return email; }
+    public void setEmail(String email) { this.email = email; }
+    
+    public String getUsername() { return username; }
+    public void setUsername(String username) { this.username = username; }
+    
+    public String getPassword() { return password; }
+    public void setPassword(String password) { this.password = password; }
+    
+    public String getFullName() { return fullName; }
+    public void setFullName(String fullName) { this.fullName = fullName; }
+    
+    public UserRole getRole() { return role; }
+    public void setRole(UserRole role) { this.role = role; }
+    
+    public boolean isActive() { return active; }
+    public void setActive(boolean active) { this.active = active; }
+    
+    public LocalDateTime getCreatedAt() { return createdAt; }
+    public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
+    
+    public LocalDateTime getUpdatedAt() { return updatedAt; }
+    public void setUpdatedAt(LocalDateTime updatedAt) { this.updatedAt = updatedAt; }
+}
+
+public enum UserRole {
+    USER, ADMIN
+}
+```
+
+```javascript !! js
+// Sequelize model
+const { DataTypes } = require('sequelize');
+const sequelize = require('../config/database');
+
+const User = sequelize.define('User', {
+    id: {
+        type: DataTypes.INTEGER,
+        primaryKey: true,
+        autoIncrement: true
+    },
+    email: {
+        type: DataTypes.STRING,
+        allowNull: false,
+        unique: true
+    },
+    username: {
+        type: DataTypes.STRING,
+        allowNull: false
+    },
+    password: {
+        type: DataTypes.STRING,
+        allowNull: false
+    },
+    fullName: {
+        type: DataTypes.STRING,
+        allowNull: false
+    },
+    role: {
+        type: DataTypes.ENUM('USER', 'ADMIN'),
+        defaultValue: 'USER'
+    },
+    active: {
+        type: DataTypes.BOOLEAN,
+        defaultValue: true
+    }
+}, {
+    timestamps: true
+});
+
+module.exports = User;
+```
+</UniversalEditor>
+
+#### 2. Repository Layer
+<UniversalEditor title="Repository Layer">
+```java !! java
+@Repository
+public interface UserRepository extends JpaRepository<User, Long> {
+    
+    Optional<User> findByEmail(String email);
+    
+    Optional<User> findByUsername(String username);
+    
+    boolean existsByEmail(String email);
+    
+    boolean existsByUsername(String username);
+    
+    List<User> findByRole(UserRole role);
+    
+    @Query("SELECT u FROM User u WHERE u.active = true")
+    List<User> findActiveUsers();
+    
+    @Query("SELECT u FROM User u WHERE u.createdAt >= :date")
+    List<User> findUsersCreatedAfter(@Param("date") LocalDateTime date);
+    
+    @Query("SELECT COUNT(u) FROM User u WHERE u.role = :role")
+    long countByRole(@Param("role") UserRole role);
+}
+```
+
+```javascript !! js
+// Sequelize query methods
+class UserRepository {
+    async findByEmail(email) {
+        return await User.findOne({ where: { email } });
+    }
+    
+    async findByUsername(username) {
+        return await User.findOne({ where: { username } });
+    }
+    
+    async existsByEmail(email) {
+        const count = await User.count({ where: { email } });
+        return count > 0;
+    }
+    
+    async existsByUsername(username) {
+        const count = await User.count({ where: { username } });
+        return count > 0;
+    }
+    
+    async findByRole(role) {
+        return await User.findAll({ where: { role } });
+    }
+    
+    async findActiveUsers() {
+        return await User.findAll({ where: { active: true } });
+    }
+    
+    async findUsersCreatedAfter(date) {
+        return await User.findAll({
+            where: {
+                createdAt: {
+                    [Op.gte]: date
+                }
+            }
+        });
+    }
+    
+    async countByRole(role) {
+        return await User.count({ where: { role } });
+    }
+}
+```
+</UniversalEditor>
+
+#### 3. Service Layer
+<UniversalEditor title="Service Layer">
+```java !! java
+@Service
+@Transactional
+public class UserService {
+    
+    @Autowired
+    private UserRepository userRepository;
+    
+    @Autowired
+    private PasswordEncoder passwordEncoder;
+    
+    public User createUser(UserCreateRequest request) {
+        // Validate input
+        if (userRepository.existsByEmail(request.getEmail())) {
+            throw new RuntimeException("Email already exists");
+        }
+        
+        if (userRepository.existsByUsername(request.getUsername())) {
+            throw new RuntimeException("Username already exists");
+        }
+        
+        // Create user
+        User user = new User();
+        user.setEmail(request.getEmail());
+        user.setUsername(request.getUsername());
+        user.setPassword(passwordEncoder.encode(request.getPassword()));
+        user.setFullName(request.getFullName());
+        user.setRole(UserRole.USER);
+        user.setActive(true);
+        
+        return userRepository.save(user);
+    }
+    
+    public User getUserById(Long id) {
+        return userRepository.findById(id)
+            .orElseThrow(() -> new RuntimeException("User not found"));
+    }
+    
+    public User getUserByEmail(String email) {
+        return userRepository.findByEmail(email)
+            .orElseThrow(() -> new RuntimeException("User not found"));
+    }
+    
+    public List<User> getAllUsers() {
+        return userRepository.findAll();
+    }
+    
+    public List<User> getActiveUsers() {
+        return userRepository.findActiveUsers();
+    }
+    
+    public User updateUser(Long id, UserUpdateRequest request) {
+        User user = getUserById(id);
+        
+        if (request.getFullName() != null) {
+            user.setFullName(request.getFullName());
+        }
+        
+        if (request.getEmail() != null && !request.getEmail().equals(user.getEmail())) {
+            if (userRepository.existsByEmail(request.getEmail())) {
+                throw new RuntimeException("Email already exists");
+            }
+            user.setEmail(request.getEmail());
+        }
+        
+        return userRepository.save(user);
+    }
+    
+    public void deleteUser(Long id) {
+        User user = getUserById(id);
+        userRepository.delete(user);
+    }
+    
+    public void deactivateUser(Long id) {
+        User user = getUserById(id);
+        user.setActive(false);
+        userRepository.save(user);
+    }
+    
+    public UserStats getUserStats() {
+        long totalUsers = userRepository.count();
+        long activeUsers = userRepository.findActiveUsers().size();
+        long adminUsers = userRepository.countByRole(UserRole.ADMIN);
+        
+        return new UserStats(totalUsers, activeUsers, adminUsers);
+    }
+}
+
+// DTO classes
+public class UserCreateRequest {
+    private String email;
+    private String username;
+    private String password;
+    private String fullName;
+    
+    // Constructors, getters, setters
+}
+
+public class UserUpdateRequest {
+    private String email;
+    private String fullName;
+    
+    // Constructors, getters, setters
+}
+
+public class UserStats {
+    private long totalUsers;
+    private long activeUsers;
+    private long adminUsers;
+    
+    // Constructor, getters
+}
+```
+
+```javascript !! js
+// JavaScript service layer
+const bcrypt = require('bcryptjs');
+const User = require('../models/User');
+
+class UserService {
+    async createUser(userData) {
+        // Validate input
+        const existingEmail = await User.findOne({ where: { email: userData.email } });
+        if (existingEmail) {
+            throw new Error('Email already exists');
+        }
+        
+        const existingUsername = await User.findOne({ where: { username: userData.username } });
+        if (existingUsername) {
+            throw new Error('Username already exists');
+        }
+        
+        // Hash password
+        const hashedPassword = await bcrypt.hash(userData.password, 10);
+        
+        // Create user
+        const user = await User.create({
+            email: userData.email,
+            username: userData.username,
+            password: hashedPassword,
+            fullName: userData.fullName,
+            role: 'USER',
+            active: true
+        });
+        
+        return user;
+    }
+    
+    async getUserById(id) {
+        const user = await User.findByPk(id);
+        if (!user) {
+            throw new Error('User not found');
+        }
+        return user;
+    }
+    
+    async getUserByEmail(email) {
+        const user = await User.findOne({ where: { email } });
+        if (!user) {
+            throw new Error('User not found');
+        }
+        return user;
+    }
+    
+    async getAllUsers() {
+        return await User.findAll();
+    }
+    
+    async getActiveUsers() {
+        return await User.findAll({ where: { active: true } });
+    }
+    
+    async updateUser(id, userData) {
+        const user = await this.getUserById(id);
+        
+        if (userData.fullName) {
+            user.fullName = userData.fullName;
+        }
+        
+        if (userData.email && userData.email !== user.email) {
+            const existingEmail = await User.findOne({ where: { email: userData.email } });
+            if (existingEmail) {
+                throw new Error('Email already exists');
+            }
+            user.email = userData.email;
+        }
+        
+        return await user.save();
+    }
+    
+    async deleteUser(id) {
+        const user = await this.getUserById(id);
+        await user.destroy();
+    }
+    
+    async deactivateUser(id) {
+        const user = await this.getUserById(id);
+        user.active = false;
+        return await user.save();
+    }
+    
+    async getUserStats() {
+        const totalUsers = await User.count();
+        const activeUsers = await User.count({ where: { active: true } });
+        const adminUsers = await User.count({ where: { role: 'ADMIN' } });
+        
+        return {
+            totalUsers,
+            activeUsers,
+            adminUsers
+        };
+    }
+}
+
+module.exports = UserService;
+```
+</UniversalEditor>
+
+#### 4. Controller Layer
+<UniversalEditor title="Controller Layer">
+```java !! java
+@RestController
+@RequestMapping("/api/users")
+@CrossOrigin(origins = "*")
+public class UserController {
+    
+    @Autowired
+    private UserService userService;
+    
+    @PostMapping
+    public ResponseEntity<User> createUser(@Valid @RequestBody UserCreateRequest request) {
+        User user = userService.createUser(request);
+        return ResponseEntity.status(HttpStatus.CREATED).body(user);
+    }
+    
+    @GetMapping
+    public ResponseEntity<List<User>> getAllUsers() {
+        List<User> users = userService.getAllUsers();
+        return ResponseEntity.ok(users);
+    }
+    
+    @GetMapping("/active")
+    public ResponseEntity<List<User>> getActiveUsers() {
+        List<User> users = userService.getActiveUsers();
+        return ResponseEntity.ok(users);
+    }
+    
+    @GetMapping("/{id}")
+    public ResponseEntity<User> getUserById(@PathVariable Long id) {
+        User user = userService.getUserById(id);
+        return ResponseEntity.ok(user);
+    }
+    
+    @PutMapping("/{id}")
+    public ResponseEntity<User> updateUser(@PathVariable Long id, 
+                                         @Valid @RequestBody UserUpdateRequest request) {
+        User user = userService.updateUser(id, request);
+        return ResponseEntity.ok(user);
+    }
+    
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> deleteUser(@PathVariable Long id) {
+        userService.deleteUser(id);
+        return ResponseEntity.noContent().build();
+    }
+    
+    @PatchMapping("/{id}/deactivate")
+    public ResponseEntity<User> deactivateUser(@PathVariable Long id) {
+        User user = userService.deactivateUser(id);
+        return ResponseEntity.ok(user);
+    }
+    
+    @GetMapping("/stats")
+    public ResponseEntity<UserStats> getUserStats() {
+        UserStats stats = userService.getUserStats();
+        return ResponseEntity.ok(stats);
+    }
+}
+```
+
+```javascript !! js
+// Express.js controller
+const express = require('express');
+const UserService = require('../services/UserService');
+
+const router = express.Router();
+const userService = new UserService();
+
+// Create user
+router.post('/', async (req, res) => {
+    try {
+        const user = await userService.createUser(req.body);
+        res.status(201).json(user);
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+});
+
+// Get all users
+router.get('/', async (req, res) => {
+    try {
+        const users = await userService.getAllUsers();
+        res.json(users);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get active users
+router.get('/active', async (req, res) => {
+    try {
+        const users = await userService.getActiveUsers();
+        res.json(users);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get user by ID
+router.get('/:id', async (req, res) => {
+    try {
+        const user = await userService.getUserById(req.params.id);
+        res.json(user);
+    } catch (error) {
+        res.status(404).json({ error: error.message });
+    }
+});
+
+// Update user
+router.put('/:id', async (req, res) => {
+    try {
+        const user = await userService.updateUser(req.params.id, req.body);
+        res.json(user);
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+});
+
+// Delete user
+router.delete('/:id', async (req, res) => {
+    try {
+        await userService.deleteUser(req.params.id);
+        res.status(204).send();
+    } catch (error) {
+        res.status(404).json({ error: error.message });
+    }
+});
+
+// Deactivate user
+router.patch('/:id/deactivate', async (req, res) => {
+    try {
+        const user = await userService.deactivateUser(req.params.id);
+        res.json(user);
+    } catch (error) {
+        res.status(404).json({ error: error.message });
+    }
+});
+
+// Get user stats
+router.get('/stats', async (req, res) => {
+    try {
+        const stats = await userService.getUserStats();
+        res.json(stats);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+module.exports = router;
+```
+</UniversalEditor>
+
+## Project 2: Task Management System
+
+### Project Overview
+Create a task management system with task creation, assignment, status tracking, and reporting features.
+
+### Technology Stack
+- Spring Boot 3.x
+- Spring Data JPA
+- Spring Security
+- PostgreSQL
+- JWT Authentication
+
+<UniversalEditor title="Task Management System">
+```java !! java
+// Task entity
+@Entity
+@Table(name = "tasks")
+public class Task {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    
+    @Column(nullable = false)
+    private String title;
+    
+    @Column(columnDefinition = "TEXT")
+    private String description;
+    
+    @Enumerated(EnumType.STRING)
+    private TaskStatus status = TaskStatus.TODO;
+    
+    @Enumerated(EnumType.STRING)
+    private TaskPriority priority = TaskPriority.MEDIUM;
+    
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "assigned_to")
+    private User assignedTo;
+    
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "created_by")
+    private User createdBy;
+    
+    private LocalDateTime dueDate;
+    
+    @CreatedDate
+    private LocalDateTime createdAt;
+    
+    @LastModifiedDate
+    private LocalDateTime updatedAt;
+    
+    // Constructors, getters, setters
+}
+
+public enum TaskStatus {
+    TODO, IN_PROGRESS, REVIEW, DONE, CANCELLED
+}
+
+public enum TaskPriority {
+    LOW, MEDIUM, HIGH, URGENT
+}
+```
+
+```javascript !! js
+// Sequelize Task model
+const Task = sequelize.define('Task', {
+    id: {
+        type: DataTypes.INTEGER,
+        primaryKey: true,
+        autoIncrement: true
+    },
+    title: {
+        type: DataTypes.STRING,
+        allowNull: false
+    },
+    description: {
+        type: DataTypes.TEXT
+    },
+    status: {
+        type: DataTypes.ENUM('TODO', 'IN_PROGRESS', 'REVIEW', 'DONE', 'CANCELLED'),
+        defaultValue: 'TODO'
+    },
+    priority: {
+        type: DataTypes.ENUM('LOW', 'MEDIUM', 'HIGH', 'URGENT'),
+        defaultValue: 'MEDIUM'
+    },
+    dueDate: {
+        type: DataTypes.DATE
+    }
+}, {
+    timestamps: true
+});
+
+// Associations
+Task.belongsTo(User, { as: 'assignedTo', foreignKey: 'assignedToId' });
+Task.belongsTo(User, { as: 'createdBy', foreignKey: 'createdById' });
+User.hasMany(Task, { as: 'assignedTasks', foreignKey: 'assignedToId' });
+User.hasMany(Task, { as: 'createdTasks', foreignKey: 'createdById' });
+```
+</UniversalEditor>
+
+## Project 3: E-commerce API
+
+### Project Overview
+Create a RESTful API for an e-commerce system with product management, shopping cart, orders, and payment integration.
+
+### Key Features
+- Product catalog management
+- Shopping cart functionality
+- Order processing
+- Payment integration
+- Inventory management
+- User reviews and ratings
+
+<UniversalEditor title="E-commerce API Structure">
+```java !! java
+// Product entity
+@Entity
+@Table(name = "products")
+public class Product {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    
+    @Column(nullable = false)
+    private String name;
+    
+    @Column(columnDefinition = "TEXT")
+    private String description;
+    
+    @Column(nullable = false)
+    private BigDecimal price;
+    
+    private Integer stockQuantity;
+    
+    @Enumerated(EnumType.STRING)
+    private ProductCategory category;
+    
+    private String imageUrl;
+    
+    @Column(nullable = false)
+    private boolean active = true;
+    
+    @OneToMany(mappedBy = "product", cascade = CascadeType.ALL)
+    private List<Review> reviews = new ArrayList<>();
+    
+    @CreatedDate
+    private LocalDateTime createdAt;
+    
+    @LastModifiedDate
+    private LocalDateTime updatedAt;
+    
+    // Constructors, getters, setters
+}
+
+// Order entity
+@Entity
+@Table(name = "orders")
+public class Order {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    
+    @Column(nullable = false, unique = true)
+    private String orderNumber;
+    
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "user_id")
+    private User user;
+    
+    @OneToMany(mappedBy = "order", cascade = CascadeType.ALL)
+    private List<OrderItem> items = new ArrayList<>();
+    
+    @Enumerated(EnumType.STRING)
+    private OrderStatus status = OrderStatus.PENDING;
+    
+    @Column(nullable = false)
+    private BigDecimal totalAmount;
+    
+    private String shippingAddress;
+    
+    @CreatedDate
+    private LocalDateTime createdAt;
+    
+    // Constructors, getters, setters
+}
+```
+
+```javascript !! js
+// Sequelize models for e-commerce
+const Product = sequelize.define('Product', {
+    id: {
+        type: DataTypes.INTEGER,
+        primaryKey: true,
+        autoIncrement: true
+    },
+    name: {
+        type: DataTypes.STRING,
+        allowNull: false
+    },
+    description: {
+        type: DataTypes.TEXT
+    },
+    price: {
+        type: DataTypes.DECIMAL(10, 2),
+        allowNull: false
+    },
+    stockQuantity: {
+        type: DataTypes.INTEGER
+    },
+    category: {
+        type: DataTypes.ENUM('ELECTRONICS', 'CLOTHING', 'BOOKS', 'HOME')
+    },
+    imageUrl: {
+        type: DataTypes.STRING
+    },
+    active: {
+        type: DataTypes.BOOLEAN,
+        defaultValue: true
+    }
+}, {
+    timestamps: true
+});
+
+const Order = sequelize.define('Order', {
+    id: {
+        type: DataTypes.INTEGER,
+        primaryKey: true,
+        autoIncrement: true
+    },
+    orderNumber: {
+        type: DataTypes.STRING,
+        allowNull: false,
+        unique: true
+    },
+    status: {
+        type: DataTypes.ENUM('PENDING', 'CONFIRMED', 'SHIPPED', 'DELIVERED', 'CANCELLED'),
+        defaultValue: 'PENDING'
+    },
+    totalAmount: {
+        type: DataTypes.DECIMAL(10, 2),
+        allowNull: false
+    },
+    shippingAddress: {
+        type: DataTypes.TEXT
+    }
+}, {
+    timestamps: true
+});
+```
+</UniversalEditor>
+
+## Project 4: Microservices Architecture
+
+### Project Overview
+Create a microservices-based application with multiple services communicating via REST APIs and message queues.
+
+### Services
+- User Service
+- Product Service
+- Order Service
+- Notification Service
+- Payment Service
+
+<UniversalEditor title="Microservices Architecture">
+```java !! java
+// User Service
+@SpringBootApplication
+@EnableDiscoveryClient
+public class UserServiceApplication {
+    public static void main(String[] args) {
+        SpringApplication.run(UserServiceApplication.class, args);
+    }
+}
+
+@RestController
+@RequestMapping("/api/users")
+public class UserController {
+    
+    @Autowired
+    private UserService userService;
+    
+    @GetMapping("/{id}")
+    public ResponseEntity<User> getUserById(@PathVariable Long id) {
+        User user = userService.getUserById(id);
+        return ResponseEntity.ok(user);
+    }
+}
+
+// Order Service
+@SpringBootApplication
+@EnableDiscoveryClient
+public class OrderServiceApplication {
+    public static void main(String[] args) {
+        SpringApplication.run(OrderServiceApplication.class, args);
+    }
+}
+
+@Service
+public class OrderService {
+    
+    @Autowired
+    private RestTemplate restTemplate;
+    
+    @Autowired
+    private UserServiceClient userServiceClient;
+    
+    public Order createOrder(OrderRequest request) {
+        // Call User Service to validate user
+        User user = userServiceClient.getUserById(request.getUserId());
+        
+        // Create order
+        Order order = new Order();
+        order.setUser(user);
+        order.setItems(request.getItems());
+        order.setTotalAmount(calculateTotal(request.getItems()));
+        
+        return orderRepository.save(order);
+    }
+}
+
+// Service Client
+@FeignClient(name = "user-service")
+public interface UserServiceClient {
+    
+    @GetMapping("/api/users/{id}")
+    User getUserById(@PathVariable Long id);
+}
+```
+
+```javascript !! js
+// Node.js microservices
+// User Service
+const express = require('express');
+const app = express();
+
+app.get('/api/users/:id', async (req, res) => {
+    const user = await userService.getUserById(req.params.id);
+    res.json(user);
+});
+
+app.listen(3001, () => {
+    console.log('User Service running on port 3001');
+});
+
+// Order Service
+const express = require('express');
+const axios = require('axios');
+const app = express();
+
+class UserServiceClient {
+    async getUserById(id) {
+        const response = await axios.get(`http://localhost:3001/api/users/${id}`);
+        return response.data;
+    }
+}
+
+const userServiceClient = new UserServiceClient();
+
+app.post('/api/orders', async (req, res) => {
+    try {
+        // Call User Service
+        const user = await userServiceClient.getUserById(req.body.userId);
+        
+        // Create order
+        const order = await orderService.createOrder({
+            user,
+            items: req.body.items
+        });
+        
+        res.status(201).json(order);
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+});
+
+app.listen(3002, () => {
+    console.log('Order Service running on port 3002');
+});
+```
+</UniversalEditor>
+
+## Testing Strategies
+
+### Unit Testing
+<UniversalEditor title="Unit Testing">
+```java !! java
+@ExtendWith(MockitoExtension.class)
+class UserServiceTest {
+    
+    @Mock
+    private UserRepository userRepository;
+    
+    @Mock
+    private PasswordEncoder passwordEncoder;
+    
+    @InjectMocks
+    private UserService userService;
+    
+    @Test
+    void createUser_WithValidData_ShouldCreateUser() {
+        // Arrange
+        UserCreateRequest request = new UserCreateRequest();
+        request.setEmail("test@example.com");
+        request.setUsername("testuser");
+        request.setPassword("password");
+        request.setFullName("Test User");
+        
+        when(userRepository.existsByEmail("test@example.com")).thenReturn(false);
+        when(userRepository.existsByUsername("testuser")).thenReturn(false);
+        when(passwordEncoder.encode("password")).thenReturn("encodedPassword");
+        
+        User savedUser = new User();
+        savedUser.setId(1L);
+        savedUser.setEmail("test@example.com");
+        when(userRepository.save(any(User.class))).thenReturn(savedUser);
+        
+        // Act
+        User result = userService.createUser(request);
+        
+        // Assert
+        assertNotNull(result);
+        assertEquals(1L, result.getId());
+        assertEquals("test@example.com", result.getEmail());
+        verify(userRepository).save(any(User.class));
+    }
+    
+    @Test
+    void createUser_WithExistingEmail_ShouldThrowException() {
+        // Arrange
+        UserCreateRequest request = new UserCreateRequest();
+        request.setEmail("existing@example.com");
+        
+        when(userRepository.existsByEmail("existing@example.com")).thenReturn(true);
+        
+        // Act & Assert
+        assertThrows(RuntimeException.class, () -> {
+            userService.createUser(request);
+        });
+    }
+}
+```
+
+```javascript !! js
+// Jest testing
+const UserService = require('../services/UserService');
+const User = require('../models/User');
+const bcrypt = require('bcryptjs');
+
+// Mock dependencies
+jest.mock('../models/User');
+jest.mock('bcryptjs');
+
+describe('UserService', () => {
+    let userService;
+    
+    beforeEach(() => {
+        userService = new UserService();
+        jest.clearAllMocks();
+    });
+    
+    test('createUser with valid data should create user', async () => {
+        // Arrange
+        const userData = {
+            email: 'test@example.com',
+            username: 'testuser',
+            password: 'password',
+            fullName: 'Test User'
+        };
+        
+        User.findOne.mockResolvedValue(null);
+        bcrypt.hash.mockResolvedValue('encodedPassword');
+        
+        const savedUser = { id: 1, email: 'test@example.com' };
+        User.create.mockResolvedValue(savedUser);
+        
+        // Act
+        const result = await userService.createUser(userData);
+        
+        // Assert
+        expect(result).toEqual(savedUser);
+        expect(User.create).toHaveBeenCalledWith({
+            email: 'test@example.com',
+            username: 'testuser',
+            password: 'encodedPassword',
+            fullName: 'Test User',
+            role: 'USER',
+            active: true
+        });
+    });
+    
+    test('createUser with existing email should throw error', async () => {
+        // Arrange
+        const userData = {
+            email: 'existing@example.com',
+            username: 'testuser',
+            password: 'password',
+            fullName: 'Test User'
+        };
+        
+        User.findOne.mockResolvedValue({ id: 1, email: 'existing@example.com' });
+        
+        // Act & Assert
+        await expect(userService.createUser(userData))
+            .rejects.toThrow('Email already exists');
+    });
+});
+```
+</UniversalEditor>
+
+### Integration Testing
+<UniversalEditor title="Integration Testing">
+```java !! java
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
+class UserControllerIntegrationTest {
+    
+    @Autowired
+    private TestRestTemplate restTemplate;
+    
+    @Autowired
+    private UserRepository userRepository;
+    
+    @Test
+    void createUser_ShouldReturnCreatedUser() {
+        // Arrange
+        UserCreateRequest request = new UserCreateRequest();
+        request.setEmail("integration@example.com");
+        request.setUsername("integrationuser");
+        request.setPassword("password");
+        request.setFullName("Integration User");
+        
+        // Act
+        ResponseEntity<User> response = restTemplate.postForEntity(
+            "/api/users",
+            request,
+            User.class
+        );
+        
+        // Assert
+        assertEquals(HttpStatus.CREATED, response.getStatusCode());
+        assertNotNull(response.getBody());
+        assertEquals("integration@example.com", response.getBody().getEmail());
+        
+        // Verify database
+        User savedUser = userRepository.findByEmail("integration@example.com").orElse(null);
+        assertNotNull(savedUser);
+        assertEquals("integrationuser", savedUser.getUsername());
+    }
+}
+```
+
+```javascript !! js
+// Supertest integration testing
+const request = require('supertest');
+const app = require('../app');
+const User = require('../models/User');
+
+describe('User API Integration Tests', () => {
+    beforeEach(async () => {
+        await User.destroy({ where: {} });
+    });
+    
+    test('POST /api/users should create user', async () => {
+        const userData = {
+            email: 'integration@example.com',
+            username: 'integrationuser',
+            password: 'password',
+            fullName: 'Integration User'
+        };
+        
+        const response = await request(app)
+            .post('/api/users')
+            .send(userData)
+            .expect(201);
+        
+        expect(response.body.email).toBe('integration@example.com');
+        expect(response.body.username).toBe('integrationuser');
+        
+        // Verify database
+        const savedUser = await User.findOne({
+            where: { email: 'integration@example.com' }
+        });
+        expect(savedUser).toBeTruthy();
+    });
+});
+```
+</UniversalEditor>
+
+## Deployment and DevOps
+
+### Docker Configuration
+<UniversalEditor title="Docker Configuration">
+```dockerfile !! dockerfile
+# Java application Dockerfile
+FROM openjdk:17-jdk-slim
+
+WORKDIR /app
+
+COPY target/user-management-system-1.0.0.jar app.jar
+
+EXPOSE 8080
+
+ENTRYPOINT ["java", "-jar", "app.jar"]
+```
+
+```yaml !! yaml
+# docker-compose.yml
+version: '3.8'
+services:
+  app:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://db:5432/userdb
+    depends_on:
+      - db
+  
+  db:
+    image: postgres:15
+    environment:
+      - POSTGRES_DB=userdb
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+volumes:
+  postgres_data:
+```
+
+```dockerfile !! dockerfile
+# Node.js application Dockerfile
+FROM node:18-alpine
+
+WORKDIR /app
+
+COPY package*.json ./
+RUN npm ci --only=production
+
+COPY . .
+
+EXPOSE 3000
+
+CMD ["npm", "start"]
+```
+
+```yaml !! yaml
+# docker-compose.yml for Node.js
+version: '3.8'
+services:
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - DB_HOST=db
+    depends_on:
+      - db
+  
+  db:
+    image: postgres:15
+    environment:
+      - POSTGRES_DB=userdb
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:
+```
+</UniversalEditor>
+
+## Summary
+
+These practical projects demonstrate real-world Java and Spring Boot development:
+
+1. **User Management System**: Complete CRUD operations with authentication
+2. **Task Management System**: Complex business logic with relationships
+3. **E-commerce API**: Large-scale application with multiple entities
+4. **Microservices Architecture**: Distributed system design
+5. **Testing Strategies**: Unit and integration testing
+6. **Deployment**: Docker and DevOps practices
+
+Each project builds upon the previous concepts and introduces new challenges and best practices. As a JavaScript developer, you'll find that Java and Spring Boot provide similar functionality to Node.js frameworks but with stronger typing, better dependency injection, and more comprehensive enterprise features.
+
+## Exercises
+
+1. Implement the complete user management system
+2. Add authentication and authorization to your projects
+3. Create comprehensive test suites
+4. Deploy your applications using Docker
+5. Implement monitoring and logging
+
+## Next Steps
+
+In the next module, we'll explore common pitfalls and best practices to avoid them. 

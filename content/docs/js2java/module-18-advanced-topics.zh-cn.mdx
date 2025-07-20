@@ -1,0 +1,578 @@
+---
+title: "高级主题"
+description: "学习 Java 高级技术，包括反射、动态代理、字节码操作和性能分析工具"
+---
+
+# 高级主题
+
+在掌握了 Java 基础和企业级开发后，我们来学习一些高级主题。这些技术可以帮助你深入理解 Java 语言，并解决复杂的问题。
+
+## 反射 (Reflection)
+
+### 1. 反射基础
+
+反射允许程序在运行时检查和操作类、接口、字段和方法。
+
+<UniversalEditor title="反射基础">
+```java !! java
+// 反射基础使用
+public class ReflectionExample {
+    
+    public static void main(String[] args) throws Exception {
+        // 获取类信息
+        Class<?> userClass = User.class;
+        
+        // 获取所有公共方法
+        Method[] methods = userClass.getMethods();
+        for (Method method : methods) {
+            System.out.println("Method: " + method.getName());
+        }
+        
+        // 获取所有字段
+        Field[] fields = userClass.getDeclaredFields();
+        for (Field field : fields) {
+            System.out.println("Field: " + field.getName() + " - " + field.getType());
+        }
+        
+        // 创建实例
+        Constructor<?> constructor = userClass.getConstructor(String.class, String.class);
+        User user = (User) constructor.newInstance("john@example.com", "John Doe");
+        
+        // 调用方法
+        Method getNameMethod = userClass.getMethod("getName");
+        String name = (String) getNameMethod.invoke(user);
+        System.out.println("User name: " + name);
+        
+        // 设置字段值
+        Field emailField = userClass.getDeclaredField("email");
+        emailField.setAccessible(true); // 访问私有字段
+        emailField.set(user, "newemail@example.com");
+    }
+}
+
+// 用户类
+class User {
+    private String email;
+    private String name;
+    
+    public User(String email, String name) {
+        this.email = email;
+        this.name = name;
+    }
+    
+    public String getEmail() { return email; }
+    public String getName() { return name; }
+    public void setEmail(String email) { this.email = email; }
+    public void setName(String name) { this.name = name; }
+}
+```
+
+```javascript !! js
+// JavaScript 中的反射
+class User {
+    constructor(email, name) {
+        this.email = email;
+        this.name = name;
+    }
+    
+    getEmail() { return this.email; }
+    getName() { return this.name; }
+    setEmail(email) { this.email = email; }
+    setName(name) { this.name = name; }
+}
+
+// 获取类信息
+const userClass = User;
+console.log('Class name:', userClass.name);
+
+// 获取实例方法
+const user = new User('john@example.com', 'John Doe');
+const methods = Object.getOwnPropertyNames(Object.getPrototypeOf(user));
+console.log('Methods:', methods);
+
+// 动态调用方法
+const methodName = 'getName';
+const result = user[methodName]();
+console.log('Result:', result);
+
+// 设置属性
+user['email'] = 'newemail@example.com';
+```
+</UniversalEditor>
+
+### 2. 反射应用场景
+
+#### 配置加载
+<UniversalEditor title="反射应用">
+```java !! java
+// 使用反射加载配置
+public class ConfigurationLoader {
+    
+    public static <T> T loadConfig(Class<T> configClass, Properties props) throws Exception {
+        T config = configClass.getDeclaredConstructor().newInstance();
+        
+        Field[] fields = configClass.getDeclaredFields();
+        for (Field field : fields) {
+            field.setAccessible(true);
+            
+            // 查找对应的属性值
+            String propValue = props.getProperty(field.getName());
+            if (propValue != null) {
+                // 根据字段类型转换值
+                Object convertedValue = convertValue(propValue, field.getType());
+                field.set(config, convertedValue);
+            }
+        }
+        
+        return config;
+    }
+    
+    private static Object convertValue(String value, Class<?> targetType) {
+        if (targetType == String.class) {
+            return value;
+        } else if (targetType == Integer.class || targetType == int.class) {
+            return Integer.parseInt(value);
+        } else if (targetType == Boolean.class || targetType == boolean.class) {
+            return Boolean.parseBoolean(value);
+        } else if (targetType == Long.class || targetType == long.class) {
+            return Long.parseLong(value);
+        }
+        return value;
+    }
+}
+
+// 配置类
+class DatabaseConfig {
+    private String url;
+    private String username;
+    private String password;
+    private int maxConnections;
+    private boolean sslEnabled;
+    
+    // getters and setters
+}
+
+// 使用示例
+Properties props = new Properties();
+props.setProperty("url", "jdbc:mysql://localhost:3306/mydb");
+props.setProperty("username", "root");
+props.setProperty("password", "password");
+props.setProperty("maxConnections", "10");
+props.setProperty("sslEnabled", "true");
+
+DatabaseConfig config = ConfigurationLoader.loadConfig(DatabaseConfig.class, props);
+```
+</UniversalEditor>
+
+## 动态代理 (Dynamic Proxy)
+
+### 1. JDK 动态代理
+
+JDK 动态代理允许在运行时创建接口的代理实现。
+
+<UniversalEditor title="JDK 动态代理">
+```java !! java
+// 接口
+public interface UserService {
+    User createUser(String email, String name);
+    User findUser(String email);
+    void deleteUser(String email);
+}
+
+// 实现类
+public class UserServiceImpl implements UserService {
+    @Override
+    public User createUser(String email, String name) {
+        System.out.println("Creating user: " + email);
+        return new User(email, name);
+    }
+    
+    @Override
+    public User findUser(String email) {
+        System.out.println("Finding user: " + email);
+        return new User(email, "Found User");
+    }
+    
+    @Override
+    public void deleteUser(String email) {
+        System.out.println("Deleting user: " + email);
+    }
+}
+
+// 代理处理器
+public class LoggingInvocationHandler implements InvocationHandler {
+    private final Object target;
+    
+    public LoggingInvocationHandler(Object target) {
+        this.target = target;
+    }
+    
+    @Override
+    public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
+        System.out.println("Before method: " + method.getName());
+        
+        long startTime = System.currentTimeMillis();
+        Object result = method.invoke(target, args);
+        long endTime = System.currentTimeMillis();
+        
+        System.out.println("After method: " + method.getName() + 
+                          " took " + (endTime - startTime) + "ms");
+        
+        return result;
+    }
+}
+
+// 使用动态代理
+public class ProxyExample {
+    public static void main(String[] args) {
+        UserService realService = new UserServiceImpl();
+        
+        UserService proxy = (UserService) Proxy.newProxyInstance(
+            UserService.class.getClassLoader(),
+            new Class<?>[] { UserService.class },
+            new LoggingInvocationHandler(realService)
+        );
+        
+        // 使用代理
+        proxy.createUser("john@example.com", "John Doe");
+        proxy.findUser("john@example.com");
+    }
+}
+```
+
+```javascript !! js
+// JavaScript 中的代理
+class UserService {
+    createUser(email, name) {
+        console.log('Creating user:', email);
+        return { email, name };
+    }
+    
+    findUser(email) {
+        console.log('Finding user:', email);
+        return { email, name: 'Found User' };
+    }
+    
+    deleteUser(email) {
+        console.log('Deleting user:', email);
+    }
+}
+
+// 创建代理
+const userService = new UserService();
+const proxy = new Proxy(userService, {
+    get(target, prop) {
+        const method = target[prop];
+        if (typeof method === 'function') {
+            return function(...args) {
+                console.log(`Before method: ${prop}`);
+                const startTime = Date.now();
+                const result = method.apply(target, args);
+                const endTime = Date.now();
+                console.log(`After method: ${prop} took ${endTime - startTime}ms`);
+                return result;
+            };
+        }
+        return method;
+    }
+});
+
+// 使用代理
+proxy.createUser('john@example.com', 'John Doe');
+proxy.findUser('john@example.com');
+```
+</UniversalEditor>
+
+### 2. CGLIB 动态代理
+
+CGLIB 可以代理没有实现接口的类。
+
+<UniversalEditor title="CGLIB 代理">
+```java !! java
+// 使用 CGLIB 代理类（需要添加 CGLIB 依赖）
+public class CglibProxyExample {
+    
+    public static void main(String[] args) {
+        Enhancer enhancer = new Enhancer();
+        enhancer.setSuperclass(UserServiceImpl.class);
+        enhancer.setCallback(new MethodInterceptor() {
+            @Override
+            public Object intercept(Object obj, Method method, Object[] args,
+                                  MethodProxy proxy) throws Throwable {
+                System.out.println("Before method: " + method.getName());
+                
+                long startTime = System.currentTimeMillis();
+                Object result = proxy.invokeSuper(obj, args);
+                long endTime = System.currentTimeMillis();
+                
+                System.out.println("After method: " + method.getName() + 
+                                  " took " + (endTime - startTime) + "ms");
+                
+                return result;
+            }
+        });
+        
+        UserServiceImpl proxy = (UserServiceImpl) enhancer.create();
+        proxy.createUser("john@example.com", "John Doe");
+    }
+}
+```
+</UniversalEditor>
+
+## 字节码操作
+
+### 1. ASM 字节码操作
+
+ASM 是一个字节码操作库，可以动态生成和修改类。
+
+<UniversalEditor title="ASM 字节码操作">
+```java !! java
+// 使用 ASM 生成类（需要添加 ASM 依赖）
+public class AsmExample {
+    
+    public static void main(String[] args) throws Exception {
+        // 生成一个简单的类
+        ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_FRAMES);
+        
+        cw.visit(Opcodes.V1_8, Opcodes.ACC_PUBLIC, "GeneratedClass", 
+                null, "java/lang/Object", null);
+        
+        // 生成构造函数
+        MethodVisitor constructor = cw.visitMethod(Opcodes.ACC_PUBLIC, "<init>", 
+                "()V", null, null);
+        constructor.visitCode();
+        constructor.visitVarInsn(Opcodes.ALOAD, 0);
+        constructor.visitMethodInsn(Opcodes.INVOKESPECIAL, "java/lang/Object", 
+                "<init>", "()V", false);
+        constructor.visitInsn(Opcodes.RETURN);
+        constructor.visitMaxs(1, 1);
+        constructor.visitEnd();
+        
+        // 生成方法
+        MethodVisitor method = cw.visitMethod(Opcodes.ACC_PUBLIC, "hello", 
+                "()Ljava/lang/String;", null, null);
+        method.visitCode();
+        method.visitLdcInsn("Hello, World!");
+        method.visitInsn(Opcodes.ARETURN);
+        method.visitMaxs(1, 1);
+        method.visitEnd();
+        
+        cw.visitEnd();
+        
+        // 加载生成的类
+        byte[] classBytes = cw.toByteArray();
+        Class<?> generatedClass = defineClass("GeneratedClass", classBytes);
+        
+        // 使用生成的类
+        Object instance = generatedClass.getDeclaredConstructor().newInstance();
+        Method helloMethod = generatedClass.getMethod("hello");
+        String result = (String) helloMethod.invoke(instance);
+        System.out.println(result);
+    }
+    
+    private static Class<?> defineClass(String name, byte[] bytes) {
+        // 这里需要自定义类加载器来加载生成的字节码
+        return null; // 简化示例
+    }
+}
+```
+</UniversalEditor>
+
+## 注解处理
+
+### 1. 自定义注解
+
+创建和使用自定义注解。
+
+<UniversalEditor title="自定义注解">
+```java !! java
+// 自定义注解
+@Retention(RetentionPolicy.RUNTIME)
+@Target(ElementType.METHOD)
+public @interface LogExecutionTime {
+    String value() default "";
+}
+
+@Retention(RetentionPolicy.RUNTIME)
+@Target(ElementType.TYPE)
+public @interface Service {
+    String name() default "";
+}
+
+// 使用注解
+@Service(name = "userService")
+public class UserService {
+    
+    @LogExecutionTime("createUser")
+    public User createUser(String email, String name) {
+        // 业务逻辑
+        return new User(email, name);
+    }
+    
+    @LogExecutionTime("findUser")
+    public User findUser(String email) {
+        // 业务逻辑
+        return new User(email, "Found User");
+    }
+}
+
+// 注解处理器
+public class LogExecutionTimeProcessor {
+    
+    public static void processAnnotations(Object obj) {
+        Class<?> clazz = obj.getClass();
+        
+        // 处理类注解
+        Service serviceAnnotation = clazz.getAnnotation(Service.class);
+        if (serviceAnnotation != null) {
+            System.out.println("Processing service: " + serviceAnnotation.name());
+        }
+        
+        // 处理方法注解
+        Method[] methods = clazz.getMethods();
+        for (Method method : methods) {
+            LogExecutionTime annotation = method.getAnnotation(LogExecutionTime.class);
+            if (annotation != null) {
+                System.out.println("Found @LogExecutionTime on method: " + 
+                                  method.getName() + " with value: " + annotation.value());
+            }
+        }
+    }
+}
+```
+</UniversalEditor>
+
+## 性能分析工具
+
+### 1. JVM 监控
+
+使用 JVM 工具监控应用性能。
+
+<UniversalEditor title="JVM 监控">
+```java !! java
+// JVM 监控示例
+public class JvmMonitoring {
+    
+    public static void main(String[] args) {
+        // 获取内存信息
+        Runtime runtime = Runtime.getRuntime();
+        long totalMemory = runtime.totalMemory();
+        long freeMemory = runtime.freeMemory();
+        long usedMemory = totalMemory - freeMemory;
+        
+        System.out.println("Total Memory: " + totalMemory / 1024 / 1024 + " MB");
+        System.out.println("Free Memory: " + freeMemory / 1024 / 1024 + " MB");
+        System.out.println("Used Memory: " + usedMemory / 1024 / 1024 + " MB");
+        
+        // 获取线程信息
+        ThreadMXBean threadBean = ManagementFactory.getThreadMXBean();
+        int threadCount = threadBean.getThreadCount();
+        System.out.println("Active Threads: " + threadCount);
+        
+        // 获取类加载信息
+        ClassLoadingMXBean classBean = ManagementFactory.getClassLoadingMXBean();
+        int loadedClassCount = classBean.getLoadedClassCount();
+        System.out.println("Loaded Classes: " + loadedClassCount);
+        
+        // 获取垃圾回收信息
+        List<GarbageCollectorMXBean> gcBeans = ManagementFactory.getGarbageCollectorMXBeans();
+        for (GarbageCollectorMXBean gcBean : gcBeans) {
+            System.out.println("GC: " + gcBean.getName() + 
+                              " - Count: " + gcBean.getCollectionCount() +
+                              " - Time: " + gcBean.getCollectionTime() + "ms");
+        }
+    }
+}
+```
+</UniversalEditor>
+
+### 2. 性能分析
+
+使用 JMH (Java Microbenchmark Harness) 进行性能测试。
+
+<UniversalEditor title="JMH 性能测试">
+```java !! java
+// JMH 性能测试示例（需要添加 JMH 依赖）
+@BenchmarkMode(Mode.AverageTime)
+@OutputTimeUnit(TimeUnit.MICROSECONDS)
+@State(Scope.Benchmark)
+public class PerformanceBenchmark {
+    
+    private List<String> data;
+    
+    @Setup
+    public void setup() {
+        data = new ArrayList<>();
+        for (int i = 0; i < 10000; i++) {
+            data.add("item" + i);
+        }
+    }
+    
+    @Benchmark
+    public void testStreamProcessing() {
+        data.stream()
+            .filter(s -> s.contains("5"))
+            .map(String::toUpperCase)
+            .collect(Collectors.toList());
+    }
+    
+    @Benchmark
+    public void testTraditionalLoop() {
+        List<String> result = new ArrayList<>();
+        for (String item : data) {
+            if (item.contains("5")) {
+                result.add(item.toUpperCase());
+            }
+        }
+    }
+    
+    public static void main(String[] args) throws Exception {
+        Options opt = new OptionsBuilder()
+                .include(PerformanceBenchmark.class.getSimpleName())
+                .forks(1)
+                .build();
+        
+        new Runner(opt).run();
+    }
+}
+```
+</UniversalEditor>
+
+## 练习题
+
+### 练习 1: 反射应用
+1. 使用反射动态创建对象
+2. 实现配置加载器
+3. 创建注解处理器
+4. 动态调用方法
+
+### 练习 2: 动态代理
+1. 实现 JDK 动态代理
+2. 创建日志代理
+3. 实现缓存代理
+4. 应用事务代理
+
+### 练习 3: 字节码操作
+1. 使用 ASM 生成类
+2. 动态修改字节码
+3. 创建类加载器
+4. 实现热部署
+
+### 练习 4: 性能分析
+1. 监控 JVM 指标
+2. 使用 JMH 进行基准测试
+3. 分析性能瓶颈
+4. 优化代码性能
+
+## 总结
+
+高级主题涵盖了 Java 的深层技术：
+
+- **反射**: 运行时类型检查和操作
+- **动态代理**: 运行时创建代理对象
+- **字节码操作**: 底层字节码处理
+- **性能分析**: 应用性能监控和优化
+
+在最后一个模块中，我们将学习性能优化技术，包括 JVM 调优、内存管理优化和并发性能优化。
+
+准备好学习性能优化了吗？ 

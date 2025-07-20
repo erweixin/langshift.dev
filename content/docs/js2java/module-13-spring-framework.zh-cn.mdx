@@ -1,0 +1,932 @@
+---
+title: "Spring 框架基础"
+description: "学习 Spring 框架的核心概念、依赖注入、Spring Boot 入门和企业级开发实践"
+---
+
+# Spring 框架基础
+
+Spring 框架是 Java 企业级开发的核心，它提供了一套完整的解决方案来简化企业级应用的开发。作为 JavaScript 开发者，你将发现 Spring 提供了类似 Node.js 生态系统中的 Express.js 和依赖注入的功能，但更加完善和强大。
+
+## Spring 框架概述
+
+### Spring 的核心特性
+- **依赖注入 (DI)**: 自动管理对象依赖关系
+- **面向切面编程 (AOP)**: 横切关注点的模块化
+- **事务管理**: 声明式事务支持
+- **MVC 框架**: Web 应用开发
+- **数据访问**: 统一的数据访问抽象
+
+<UniversalEditor title="Spring vs Express.js 对比">
+```javascript !! js
+// Express.js - 简单的 Web 服务
+const express = require('express');
+const app = express();
+
+// 手动管理依赖
+const userService = require('./services/userService');
+const userController = require('./controllers/userController');
+
+app.get('/api/users', (req, res) => {
+    const users = userService.getAllUsers();
+    res.json(users);
+});
+
+app.listen(3000, () => {
+    console.log('Server running on port 3000');
+});
+```
+
+```java !! java
+// Spring Boot - 企业级 Web 应用
+@SpringBootApplication
+@RestController
+public class UserController {
+    
+    // 自动依赖注入
+    @Autowired
+    private UserService userService;
+    
+    @GetMapping("/api/users")
+    public ResponseEntity<List<User>> getUsers() {
+        List<User> users = userService.getAllUsers();
+        return ResponseEntity.ok(users);
+    }
+    
+    public static void main(String[] args) {
+        SpringApplication.run(UserController.class, args);
+    }
+}
+```
+</UniversalEditor>
+
+## 依赖注入 (Dependency Injection)
+
+### 什么是依赖注入
+依赖注入是一种设计模式，它允许对象在创建时自动获得其依赖的对象，而不需要手动创建这些依赖。
+
+<UniversalEditor title="依赖注入对比">
+```javascript !! js
+// JavaScript - 手动依赖管理
+class UserService {
+    constructor() {
+        this.userRepository = new UserRepository();
+        this.emailService = new EmailService();
+    }
+    
+    createUser(userData) {
+        const user = this.userRepository.save(userData);
+        this.emailService.sendWelcomeEmail(user.email);
+        return user;
+    }
+}
+
+// 手动创建依赖
+const userService = new UserService();
+```
+
+```java !! java
+// Java - Spring 依赖注入
+@Service
+public class UserService {
+    
+    // Spring 自动注入依赖
+    @Autowired
+    private UserRepository userRepository;
+    
+    @Autowired
+    private EmailService emailService;
+    
+    public User createUser(UserData userData) {
+        User user = userRepository.save(userData);
+        emailService.sendWelcomeEmail(user.getEmail());
+        return user;
+    }
+}
+
+// Spring 容器自动管理依赖
+@Autowired
+private UserService userService;
+```
+</UniversalEditor>
+
+### 依赖注入的方式
+
+#### 1. 构造器注入
+<UniversalEditor title="构造器注入">
+```java !! java
+@Service
+public class UserService {
+    
+    private final UserRepository userRepository;
+    private final EmailService emailService;
+    
+    // 构造器注入 - 推荐方式
+    public UserService(UserRepository userRepository, 
+                      EmailService emailService) {
+        this.userRepository = userRepository;
+        this.emailService = emailService;
+    }
+    
+    public User createUser(UserData userData) {
+        User user = userRepository.save(userData);
+        emailService.sendWelcomeEmail(user.getEmail());
+        return user;
+    }
+}
+```
+
+```javascript !! js
+// JavaScript 中的类似模式
+class UserService {
+    constructor(userRepository, emailService) {
+        this.userRepository = userRepository;
+        this.emailService = emailService;
+    }
+    
+    createUser(userData) {
+        const user = this.userRepository.save(userData);
+        this.emailService.sendWelcomeEmail(user.email);
+        return user;
+    }
+}
+```
+</UniversalEditor>
+
+#### 2. Setter 注入
+<UniversalEditor title="Setter 注入">
+```java !! java
+@Service
+public class UserService {
+    
+    private UserRepository userRepository;
+    private EmailService emailService;
+    
+    // Setter 注入
+    @Autowired
+    public void setUserRepository(UserRepository userRepository) {
+        this.userRepository = userRepository;
+    }
+    
+    @Autowired
+    public void setEmailService(EmailService emailService) {
+        this.emailService = emailService;
+    }
+    
+    public User createUser(UserData userData) {
+        User user = userRepository.save(userData);
+        emailService.sendWelcomeEmail(user.getEmail());
+        return user;
+    }
+}
+```
+
+```javascript !! js
+// JavaScript 中的类似模式
+class UserService {
+    setUserRepository(userRepository) {
+        this.userRepository = userRepository;
+    }
+    
+    setEmailService(emailService) {
+        this.emailService = emailService;
+    }
+    
+    createUser(userData) {
+        const user = this.userRepository.save(userData);
+        this.emailService.sendWelcomeEmail(user.email);
+        return user;
+    }
+}
+```
+</UniversalEditor>
+
+#### 3. 字段注入
+<UniversalEditor title="字段注入">
+```java !! java
+@Service
+public class UserService {
+    
+    // 字段注入 - 简单但不推荐
+    @Autowired
+    private UserRepository userRepository;
+    
+    @Autowired
+    private EmailService emailService;
+    
+    public User createUser(UserData userData) {
+        User user = userRepository.save(userData);
+        emailService.sendWelcomeEmail(user.getEmail());
+        return user;
+    }
+}
+```
+
+```javascript !! js
+// JavaScript 中没有直接对应，但可以通过属性赋值
+class UserService {
+    createUser(userData) {
+        const user = this.userRepository.save(userData);
+        this.emailService.sendWelcomeEmail(user.email);
+        return user;
+    }
+}
+
+// 手动设置依赖
+const userService = new UserService();
+userService.userRepository = new UserRepository();
+userService.emailService = new EmailService();
+```
+</UniversalEditor>
+
+## Spring Boot 入门
+
+### Spring Boot 的优势
+- **自动配置**: 根据依赖自动配置应用
+- **内嵌服务器**: 无需外部服务器
+- **生产就绪**: 内置监控和管理功能
+- **简化配置**: 约定优于配置
+
+<UniversalEditor title="Spring Boot vs 传统 Spring">
+```java !! java
+// 传统 Spring 配置 - 需要大量 XML 配置
+@Configuration
+@EnableWebMvc
+@ComponentScan("com.example")
+public class WebConfig {
+    
+    @Bean
+    public ViewResolver viewResolver() {
+        InternalResourceViewResolver resolver = new InternalResourceViewResolver();
+        resolver.setPrefix("/WEB-INF/views/");
+        resolver.setSuffix(".jsp");
+        return resolver;
+    }
+    
+    @Bean
+    public DataSource dataSource() {
+        DriverManagerDataSource dataSource = new DriverManagerDataSource();
+        dataSource.setDriverClassName("com.mysql.cj.jdbc.Driver");
+        dataSource.setUrl("jdbc:mysql://localhost:3306/mydb");
+        dataSource.setUsername("root");
+        dataSource.setPassword("password");
+        return dataSource;
+    }
+}
+```
+
+```java !! java
+// Spring Boot - 自动配置
+@SpringBootApplication
+public class Application {
+    public static void main(String[] args) {
+        SpringApplication.run(Application.class, args);
+    }
+}
+
+// application.properties 或 application.yml 配置
+// spring.datasource.url=jdbc:mysql://localhost:3306/mydb
+// spring.datasource.username=root
+// spring.datasource.password=password
+```
+</UniversalEditor>
+
+### 创建 Spring Boot 项目
+
+#### 1. 使用 Spring Initializr
+<UniversalEditor title="Spring Boot 项目结构">
+```bash !! bash
+# 使用 Spring Initializr 创建项目
+# 访问 https://start.spring.io/
+# 选择以下依赖：
+# - Spring Web
+# - Spring Data JPA
+# - H2 Database
+# - Spring Boot DevTools
+```
+
+```java !! java
+// 生成的 pom.xml 依赖
+<dependencies>
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-data-jpa</artifactId>
+    </dependency>
+    <dependency>
+        <groupId>com.h2database</groupId>
+        <artifactId>h2</artifactId>
+        <scope>runtime</scope>
+    </dependency>
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-devtools</artifactId>
+        <scope>runtime</scope>
+        <optional>true</optional>
+    </dependency>
+</dependencies>
+```
+</UniversalEditor>
+
+#### 2. 主应用类
+<UniversalEditor title="Spring Boot 主应用类">
+```java !! java
+@SpringBootApplication
+public class DemoApplication {
+    
+    public static void main(String[] args) {
+        SpringApplication.run(DemoApplication.class, args);
+    }
+    
+    // 可选：添加一些初始化逻辑
+    @EventListener(ApplicationReadyEvent.class)
+    public void onApplicationReady() {
+        System.out.println("Spring Boot application is ready!");
+    }
+}
+```
+
+```javascript !! js
+// Node.js 中的类似模式
+const express = require('express');
+const app = express();
+
+app.listen(3000, () => {
+    console.log('Node.js application is ready!');
+});
+
+// 或者使用 async/await
+const startServer = async () => {
+    try {
+        await app.listen(3000);
+        console.log('Node.js application is ready!');
+    } catch (error) {
+        console.error('Failed to start server:', error);
+    }
+};
+```
+</UniversalEditor>
+
+## Spring 核心注解
+
+### 组件注解
+<UniversalEditor title="Spring 组件注解">
+```java !! java
+// @Component - 通用组件
+@Component
+public class EmailService {
+    public void sendEmail(String to, String subject, String content) {
+        // 发送邮件逻辑
+    }
+}
+
+// @Service - 业务逻辑层
+@Service
+public class UserService {
+    // 业务逻辑
+}
+
+// @Repository - 数据访问层
+@Repository
+public class UserRepository {
+    // 数据访问逻辑
+}
+
+// @Controller - Web 控制器
+@Controller
+public class UserController {
+    // Web 请求处理
+}
+
+// @RestController - REST API 控制器
+@RestController
+public class UserApiController {
+    // REST API 处理
+}
+```
+
+```javascript !! js
+// JavaScript 中的类似模式
+// 使用模块系统组织代码
+
+// services/emailService.js
+class EmailService {
+    sendEmail(to, subject, content) {
+        // 发送邮件逻辑
+    }
+}
+module.exports = EmailService;
+
+// services/userService.js
+class UserService {
+    // 业务逻辑
+}
+module.exports = UserService;
+
+// controllers/userController.js
+class UserController {
+    // Web 请求处理
+}
+module.exports = UserController;
+```
+</UniversalEditor>
+
+### 依赖注入注解
+<UniversalEditor title="依赖注入注解">
+```java !! java
+@Service
+public class UserService {
+    
+    // @Autowired - 自动注入
+    @Autowired
+    private UserRepository userRepository;
+    
+    // @Qualifier - 指定具体的 Bean
+    @Autowired
+    @Qualifier("emailService")
+    private EmailService emailService;
+    
+    // @Value - 注入配置值
+    @Value("${app.email.enabled:true}")
+    private boolean emailEnabled;
+    
+    // @Resource - 按名称注入
+    @Resource(name = "userRepository")
+    private UserRepository repository;
+}
+```
+
+```javascript !! js
+// JavaScript 中的类似模式
+class UserService {
+    constructor(userRepository, emailService, config) {
+        this.userRepository = userRepository;
+        this.emailService = emailService;
+        this.emailEnabled = config.emailEnabled;
+    }
+}
+
+// 使用依赖注入容器（如 InversifyJS）
+@injectable()
+class UserService {
+    constructor(
+        @inject("UserRepository") userRepository,
+        @inject("EmailService") emailService
+    ) {
+        this.userRepository = userRepository;
+        this.emailService = emailService;
+    }
+}
+```
+</UniversalEditor>
+
+## 配置管理
+
+### 属性文件配置
+<UniversalEditor title="Spring Boot 配置">
+```yaml !! yaml
+# application.yml
+server:
+  port: 8080
+
+spring:
+  datasource:
+    url: jdbc:mysql://localhost:3306/mydb
+    username: root
+    password: password
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+
+app:
+  email:
+    enabled: true
+    smtp:
+      host: smtp.gmail.com
+      port: 587
+```
+
+```properties !! properties
+# application.properties
+server.port=8080
+spring.datasource.url=jdbc:mysql://localhost:3306/mydb
+spring.datasource.username=root
+spring.datasource.password=password
+spring.datasource.driver-class-name=com.mysql.cj.jdbc.Driver
+spring.jpa.hibernate.ddl-auto=update
+spring.jpa.show-sql=true
+app.email.enabled=true
+app.email.smtp.host=smtp.gmail.com
+app.email.smtp.port=587
+```
+
+```javascript !! js
+// Node.js 中的配置管理
+// config/default.js
+module.exports = {
+    server: {
+        port: 3000
+    },
+    database: {
+        url: 'mysql://localhost:3306/mydb',
+        username: 'root',
+        password: 'password'
+    },
+    email: {
+        enabled: true,
+        smtp: {
+            host: 'smtp.gmail.com',
+            port: 587
+        }
+    }
+};
+
+// 使用环境变量
+const config = {
+    server: {
+        port: process.env.PORT || 3000
+    },
+    database: {
+        url: process.env.DATABASE_URL
+    }
+};
+```
+</UniversalEditor>
+
+### 配置类
+<UniversalEditor title="配置类">
+```java !! java
+@Configuration
+@PropertySource("classpath:app.properties")
+public class AppConfig {
+    
+    @Value("${app.email.enabled}")
+    private boolean emailEnabled;
+    
+    @Bean
+    public EmailService emailService() {
+        if (emailEnabled) {
+            return new RealEmailService();
+        } else {
+            return new MockEmailService();
+        }
+    }
+    
+    @Bean
+    @ConditionalOnProperty(name = "app.cache.enabled", havingValue = "true")
+    public CacheManager cacheManager() {
+        return new ConcurrentMapCacheManager();
+    }
+}
+```
+
+```javascript !! js
+// JavaScript 中的配置管理
+class AppConfig {
+    constructor() {
+        this.emailEnabled = process.env.EMAIL_ENABLED === 'true';
+    }
+    
+    createEmailService() {
+        if (this.emailEnabled) {
+            return new RealEmailService();
+        } else {
+            return new MockEmailService();
+        }
+    }
+    
+    createCacheManager() {
+        if (process.env.CACHE_ENABLED === 'true') {
+            return new CacheManager();
+        }
+        return null;
+    }
+}
+```
+</UniversalEditor>
+
+## 数据访问层
+
+### Spring Data JPA
+<UniversalEditor title="Spring Data JPA">
+```java !! java
+// 实体类
+@Entity
+@Table(name = "users")
+public class User {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    
+    @Column(nullable = false, unique = true)
+    private String email;
+    
+    @Column(nullable = false)
+    private String name;
+    
+    // getters and setters
+}
+
+// Repository 接口
+@Repository
+public interface UserRepository extends JpaRepository<User, Long> {
+    
+    // 自动生成查询方法
+    Optional<User> findByEmail(String email);
+    
+    List<User> findByNameContainingIgnoreCase(String name);
+    
+    @Query("SELECT u FROM User u WHERE u.email LIKE %:domain")
+    List<User> findByEmailDomain(@Param("domain") String domain);
+}
+```
+
+```javascript !! js
+// JavaScript 中的类似模式
+// 使用 Sequelize ORM
+const { DataTypes } = require('sequelize');
+
+const User = sequelize.define('User', {
+    id: {
+        type: DataTypes.INTEGER,
+        primaryKey: true,
+        autoIncrement: true
+    },
+    email: {
+        type: DataTypes.STRING,
+        allowNull: false,
+        unique: true
+    },
+    name: {
+        type: DataTypes.STRING,
+        allowNull: false
+    }
+});
+
+// 查询方法
+class UserRepository {
+    async findByEmail(email) {
+        return await User.findOne({ where: { email } });
+    }
+    
+    async findByNameContaining(name) {
+        return await User.findAll({
+            where: {
+                name: { [Op.like]: `%${name}%` }
+            }
+        });
+    }
+}
+```
+</UniversalEditor>
+
+## 事务管理
+
+### 声明式事务
+<UniversalEditor title="事务管理">
+```java !! java
+@Service
+@Transactional
+public class UserService {
+    
+    @Autowired
+    private UserRepository userRepository;
+    
+    @Autowired
+    private EmailService emailService;
+    
+    // 方法级事务配置
+    @Transactional(rollbackFor = Exception.class)
+    public User createUser(UserData userData) {
+        // 保存用户
+        User user = userRepository.save(userData);
+        
+        // 发送欢迎邮件
+        emailService.sendWelcomeEmail(user.getEmail());
+        
+        return user;
+    }
+    
+    // 只读事务
+    @Transactional(readOnly = true)
+    public List<User> getAllUsers() {
+        return userRepository.findAll();
+    }
+}
+```
+
+```javascript !! js
+// JavaScript 中的事务管理
+// 使用数据库事务
+class UserService {
+    async createUser(userData) {
+        const transaction = await sequelize.transaction();
+        
+        try {
+            // 保存用户
+            const user = await User.create(userData, { transaction });
+            
+            // 发送欢迎邮件
+            await this.emailService.sendWelcomeEmail(user.email);
+            
+            await transaction.commit();
+            return user;
+        } catch (error) {
+            await transaction.rollback();
+            throw error;
+        }
+    }
+    
+    async getAllUsers() {
+        return await User.findAll();
+    }
+}
+```
+</UniversalEditor>
+
+## 异常处理
+
+### 全局异常处理
+<UniversalEditor title="异常处理">
+```java !! java
+@ControllerAdvice
+public class GlobalExceptionHandler {
+    
+    @ExceptionHandler(UserNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleUserNotFound(
+            UserNotFoundException ex) {
+        ErrorResponse error = new ErrorResponse(
+            "USER_NOT_FOUND", 
+            ex.getMessage()
+        );
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
+    }
+    
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<ErrorResponse> handleGenericException(Exception ex) {
+        ErrorResponse error = new ErrorResponse(
+            "INTERNAL_ERROR", 
+            "An internal error occurred"
+        );
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                           .body(error);
+    }
+}
+
+// 自定义异常
+public class UserNotFoundException extends RuntimeException {
+    public UserNotFoundException(String message) {
+        super(message);
+    }
+}
+```
+
+```javascript !! js
+// JavaScript 中的异常处理
+// Express.js 中间件
+app.use((error, req, res, next) => {
+    if (error instanceof UserNotFoundError) {
+        return res.status(404).json({
+            code: 'USER_NOT_FOUND',
+            message: error.message
+        });
+    }
+    
+    return res.status(500).json({
+        code: 'INTERNAL_ERROR',
+        message: 'An internal error occurred'
+    });
+});
+
+// 自定义异常
+class UserNotFoundError extends Error {
+    constructor(message) {
+        super(message);
+        this.name = 'UserNotFoundError';
+    }
+}
+```
+</UniversalEditor>
+
+## 测试
+
+### Spring Boot 测试
+<UniversalEditor title="Spring Boot 测试">
+```java !! java
+@SpringBootTest
+@AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
+class UserServiceTest {
+    
+    @Autowired
+    private UserService userService;
+    
+    @MockBean
+    private EmailService emailService;
+    
+    @Test
+    void testCreateUser() {
+        // Given
+        UserData userData = new UserData("john@example.com", "John Doe");
+        
+        // When
+        User user = userService.createUser(userData);
+        
+        // Then
+        assertThat(user.getEmail()).isEqualTo("john@example.com");
+        assertThat(user.getName()).isEqualTo("John Doe");
+        
+        verify(emailService).sendWelcomeEmail("john@example.com");
+    }
+    
+    @Test
+    void testCreateUserWithInvalidEmail() {
+        // Given
+        UserData userData = new UserData("invalid-email", "John Doe");
+        
+        // When & Then
+        assertThatThrownBy(() -> userService.createUser(userData))
+            .isInstanceOf(InvalidEmailException.class);
+    }
+}
+```
+
+```javascript !! js
+// JavaScript 中的测试
+// 使用 Jest
+describe('UserService', () => {
+    let userService;
+    let mockEmailService;
+    
+    beforeEach(() => {
+        mockEmailService = {
+            sendWelcomeEmail: jest.fn()
+        };
+        userService = new UserService(mockEmailService);
+    });
+    
+    test('should create user successfully', async () => {
+        // Given
+        const userData = { email: 'john@example.com', name: 'John Doe' };
+        
+        // When
+        const user = await userService.createUser(userData);
+        
+        // Then
+        expect(user.email).toBe('john@example.com');
+        expect(user.name).toBe('John Doe');
+        expect(mockEmailService.sendWelcomeEmail).toHaveBeenCalledWith('john@example.com');
+    });
+    
+    test('should throw error for invalid email', async () => {
+        // Given
+        const userData = { email: 'invalid-email', name: 'John Doe' };
+        
+        // When & Then
+        await expect(userService.createUser(userData))
+            .rejects.toThrow(InvalidEmailError);
+    });
+});
+```
+</UniversalEditor>
+
+## 练习题
+
+### 练习 1: 创建 Spring Boot 项目
+1. 使用 Spring Initializr 创建新项目
+2. 添加必要的依赖
+3. 创建简单的 REST API
+4. 运行并测试应用
+
+### 练习 2: 依赖注入实践
+1. 创建 Service 和 Repository 类
+2. 使用不同的依赖注入方式
+3. 理解依赖注入的优势
+
+### 练习 3: 配置管理
+1. 创建配置文件
+2. 使用 @Value 注解注入配置
+3. 创建配置类
+
+### 练习 4: 数据访问
+1. 创建实体类
+2. 实现 Repository 接口
+3. 测试数据访问功能
+
+## 总结
+
+Spring 框架为 Java 企业级开发提供了强大的支持：
+
+- **依赖注入**: 自动管理对象依赖关系
+- **Spring Boot**: 简化配置和部署
+- **数据访问**: 统一的数据库访问抽象
+- **事务管理**: 声明式事务支持
+- **测试支持**: 完整的测试框架
+
+在下一个模块中，我们将学习如何使用 Spring 进行 Web 开发，包括 REST API 开发、前后端分离等主题。
+
+准备好进入 Web 开发的世界了吗？ 

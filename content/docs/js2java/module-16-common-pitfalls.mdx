@@ -1,0 +1,962 @@
+---
+title: "Common Pitfalls"
+description: "Learn common pitfalls and errors in Java development, including object-oriented programming, concurrent programming, memory management, and Spring framework usage issues"
+---
+
+# Common Pitfalls
+
+When transitioning from JavaScript to Java development, you'll encounter many common pitfalls and errors. Understanding these pitfalls can help you avoid common problems and improve code quality.
+
+## Object-Oriented Programming Pitfalls
+
+### 1. Inheritance vs Composition
+
+#### Pitfall: Overusing Inheritance
+<UniversalEditor title="Inheritance Pitfall">
+```java !! java
+// Wrong example: Overusing inheritance
+class Vehicle {
+    private String brand;
+    private String model;
+    
+    public void start() {
+        System.out.println("Vehicle starting...");
+    }
+}
+
+class Car extends Vehicle {
+    private int numberOfDoors;
+    
+    public void start() {
+        System.out.println("Car starting with key...");
+    }
+}
+
+class ElectricCar extends Car {
+    private int batteryCapacity;
+    
+    public void start() {
+        System.out.println("Electric car starting silently...");
+    }
+}
+
+// Problem: Inheritance hierarchy too deep, hard to maintain
+class HybridCar extends ElectricCar {
+    private boolean gasEngineActive;
+    
+    public void start() {
+        System.out.println("Hybrid car starting...");
+    }
+}
+```
+
+```java !! java
+// Correct example: Using composition
+interface Engine {
+    void start();
+}
+
+class GasEngine implements Engine {
+    public void start() {
+        System.out.println("Gas engine starting...");
+    }
+}
+
+class ElectricEngine implements Engine {
+    public void start() {
+        System.out.println("Electric engine starting...");
+    }
+}
+
+class Vehicle {
+    private String brand;
+    private String model;
+    private Engine engine;
+    
+    public Vehicle(Engine engine) {
+        this.engine = engine;
+    }
+    
+    public void start() {
+        engine.start();
+    }
+}
+
+class Car extends Vehicle {
+    private int numberOfDoors;
+    
+    public Car(Engine engine, int numberOfDoors) {
+        super(engine);
+        this.numberOfDoors = numberOfDoors;
+    }
+}
+
+// Flexible composition
+Car gasCar = new Car(new GasEngine(), 4);
+Car electricCar = new Car(new ElectricEngine(), 2);
+```
+</UniversalEditor>
+
+#### Pitfall: Forgetting to Call super()
+<UniversalEditor title="super() Call Pitfall">
+```java !! java
+// Wrong example: Forgetting to call super()
+class Parent {
+    private String name;
+    
+    public Parent(String name) {
+        this.name = name;
+        System.out.println("Parent constructor called");
+    }
+}
+
+class Child extends Parent {
+    private int age;
+    
+    public Child(String name, int age) {
+        // Forgot to call super(name) - compilation error!
+        this.age = age;
+        System.out.println("Child constructor called");
+    }
+}
+```
+
+```java !! java
+// Correct example: Properly calling super()
+class Child extends Parent {
+    private int age;
+    
+    public Child(String name, int age) {
+        super(name); // Must call parent constructor
+        this.age = age;
+        System.out.println("Child constructor called");
+    }
+}
+```
+</UniversalEditor>
+
+### 2. Method Overriding Pitfalls
+
+#### Pitfall: Method Signature Mismatch
+<UniversalEditor title="Method Overriding Pitfall">
+```java !! java
+// Wrong example: Method signature mismatch
+class Parent {
+    public void process(String data) {
+        System.out.println("Parent processing: " + data);
+    }
+}
+
+class Child extends Parent {
+    // This is not overriding, it's overloading!
+    public void process(Object data) {
+        System.out.println("Child processing: " + data);
+    }
+    
+    // Correct method override
+    @Override
+    public void process(String data) {
+        System.out.println("Child processing: " + data);
+    }
+}
+```
+
+```javascript !! js
+// Similar issue in JavaScript
+class Parent {
+    process(data) {
+        console.log("Parent processing:", data);
+    }
+}
+
+class Child extends Parent {
+    // No method override checking in JavaScript
+    process(data) {
+        console.log("Child processing:", data);
+    }
+}
+```
+</UniversalEditor>
+
+#### Pitfall: Access Modifier Issues
+<UniversalEditor title="Access Modifier Pitfall">
+```java !! java
+// Wrong example: Access modifier mismatch
+class Parent {
+    protected void process() {
+        System.out.println("Parent processing");
+    }
+}
+
+class Child extends Parent {
+    // Compilation error: Cannot reduce access privileges
+    private void process() {
+        System.out.println("Child processing");
+    }
+}
+```
+
+```java !! java
+// Correct example: Maintain or increase access privileges
+class Child extends Parent {
+    // Correct: Same or higher access level
+    public void process() {
+        System.out.println("Child processing");
+    }
+    
+    // Also correct: Same access level
+    protected void process() {
+        System.out.println("Child processing");
+    }
+}
+```
+</UniversalEditor>
+
+### 3. Interface and Abstract Class Pitfalls
+
+#### Pitfall: Default Method Conflicts
+<UniversalEditor title="Default Method Conflict">
+```java !! java
+// Problem: Default method conflict
+interface A {
+    default void method() {
+        System.out.println("A.method()");
+    }
+}
+
+interface B {
+    default void method() {
+        System.out.println("B.method()");
+    }
+}
+
+// Compilation error: Ambiguous method call
+class C implements A, B {
+    // Must override to resolve conflict
+    @Override
+    public void method() {
+        // Choose which implementation to use
+        A.super.method(); // Call A's implementation
+        // or
+        B.super.method(); // Call B's implementation
+    }
+}
+```
+
+```javascript !! js
+// JavaScript doesn't have this issue with mixins
+const A = {
+    method() {
+        console.log("A.method()");
+    }
+};
+
+const B = {
+    method() {
+        console.log("B.method()");
+    }
+};
+
+const C = Object.assign({}, A, B);
+// B's method overwrites A's method
+```
+</UniversalEditor>
+
+## Concurrent Programming Pitfalls
+
+### 1. Thread Safety Issues
+
+#### Pitfall: Shared Mutable State
+<UniversalEditor title="Shared Mutable State">
+```java !! java
+// Wrong example: Non-thread-safe counter
+class Counter {
+    private int count = 0;
+    
+    public void increment() {
+        count++; // Not atomic!
+    }
+    
+    public int getCount() {
+        return count;
+    }
+}
+
+// Usage in multiple threads
+Counter counter = new Counter();
+
+// Thread 1
+new Thread(() -> {
+    for (int i = 0; i < 1000; i++) {
+        counter.increment();
+    }
+}).start();
+
+// Thread 2
+new Thread(() -> {
+    for (int i = 0; i < 1000; i++) {
+        counter.increment();
+    }
+}).start();
+
+// Result: May not be 2000 due to race conditions
+```
+
+```java !! java
+// Correct example: Thread-safe counter
+class ThreadSafeCounter {
+    private AtomicInteger count = new AtomicInteger(0);
+    
+    public void increment() {
+        count.incrementAndGet(); // Atomic operation
+    }
+    
+    public int getCount() {
+        return count.get();
+    }
+}
+
+// Or using synchronized
+class SynchronizedCounter {
+    private int count = 0;
+    
+    public synchronized void increment() {
+        count++;
+    }
+    
+    public synchronized int getCount() {
+        return count;
+    }
+}
+```
+
+```javascript !! js
+// JavaScript: No built-in thread safety
+let count = 0;
+
+// In Node.js, this is single-threaded, so no race conditions
+function increment() {
+    count++;
+}
+
+// But in browser with Web Workers, you'd need similar protection
+// Using SharedArrayBuffer or message passing
+```
+</UniversalEditor>
+
+#### Pitfall: Deadlock
+<UniversalEditor title="Deadlock Example">
+```java !! java
+// Deadlock example
+class Resource {
+    private String name;
+    
+    public Resource(String name) {
+        this.name = name;
+    }
+    
+    public synchronized void use(Resource other) {
+        System.out.println(Thread.currentThread().getName() + 
+                          " using " + name);
+        try {
+            Thread.sleep(100);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        other.use(this); // Deadlock!
+    }
+}
+
+// Usage
+Resource resource1 = new Resource("Resource1");
+Resource resource2 = new Resource("Resource2");
+
+// Thread 1
+new Thread(() -> {
+    resource1.use(resource2);
+}).start();
+
+// Thread 2
+new Thread(() -> {
+    resource2.use(resource1);
+}).start();
+```
+
+```java !! java
+// Solution: Consistent lock ordering
+class Resource {
+    private String name;
+    
+    public Resource(String name) {
+        this.name = name;
+    }
+    
+    public void use(Resource other) {
+        // Always acquire locks in the same order
+        Resource first = this.hashCode() < other.hashCode() ? this : other;
+        Resource second = this.hashCode() < other.hashCode() ? other : this;
+        
+        synchronized (first) {
+            synchronized (second) {
+                System.out.println(Thread.currentThread().getName() + 
+                                  " using " + name);
+                try {
+                    Thread.sleep(100);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+        }
+    }
+}
+```
+</UniversalEditor>
+
+### 2. Concurrent Collection Pitfalls
+
+#### Pitfall: ConcurrentModificationException
+<UniversalEditor title="Concurrent Modification">
+```java !! java
+// Wrong example: Concurrent modification
+List<String> list = new ArrayList<>();
+list.add("A");
+list.add("B");
+list.add("C");
+
+// This will throw ConcurrentModificationException
+for (String item : list) {
+    if (item.equals("B")) {
+        list.remove(item); // Concurrent modification!
+    }
+}
+```
+
+```java !! java
+// Correct example: Using Iterator
+List<String> list = new ArrayList<>();
+list.add("A");
+list.add("B");
+list.add("C");
+
+Iterator<String> iterator = list.iterator();
+while (iterator.hasNext()) {
+    String item = iterator.next();
+    if (item.equals("B")) {
+        iterator.remove(); // Safe removal
+    }
+}
+
+// Or using removeIf (Java 8+)
+list.removeIf(item -> item.equals("B"));
+
+// Or using concurrent collections
+List<String> concurrentList = new CopyOnWriteArrayList<>();
+concurrentList.add("A");
+concurrentList.add("B");
+concurrentList.add("C");
+
+for (String item : concurrentList) {
+    if (item.equals("B")) {
+        concurrentList.remove(item); // Safe
+    }
+}
+```
+
+```javascript !! js
+// JavaScript: Similar issue with arrays
+const array = ['A', 'B', 'C'];
+
+// This can cause issues
+for (let i = 0; i < array.length; i++) {
+    if (array[i] === 'B') {
+        array.splice(i, 1); // Modifies array during iteration
+        i--; // Adjust index
+    }
+}
+
+// Better approach
+const filteredArray = array.filter(item => item !== 'B');
+```
+</UniversalEditor>
+
+## Memory Management Pitfalls
+
+### 1. Memory Leaks
+
+#### Pitfall: Static References
+<UniversalEditor title="Static Reference Memory Leak">
+```java !! java
+// Wrong example: Static reference causing memory leak
+class Cache {
+    private static Map<String, Object> cache = new HashMap<>();
+    
+    public static void put(String key, Object value) {
+        cache.put(key, value);
+    }
+    
+    public static Object get(String key) {
+        return cache.get(key);
+    }
+    
+    // No way to remove items - memory leak!
+}
+
+// Usage
+for (int i = 0; i < 1000000; i++) {
+    Cache.put("key" + i, new byte[1024]); // Memory leak
+}
+```
+
+```java !! java
+// Correct example: WeakHashMap or manual cleanup
+class Cache {
+    private static Map<String, Object> cache = new WeakHashMap<>();
+    
+    public static void put(String key, Object value) {
+        cache.put(key, value);
+    }
+    
+    public static Object get(String key) {
+        return cache.get(key);
+    }
+    
+    public static void remove(String key) {
+        cache.remove(key);
+    }
+    
+    public static void clear() {
+        cache.clear();
+    }
+}
+
+// Or using Guava Cache
+Cache<String, Object> cache = CacheBuilder.newBuilder()
+    .maximumSize(1000)
+    .expireAfterWrite(10, TimeUnit.MINUTES)
+    .build();
+```
+</UniversalEditor>
+
+#### Pitfall: Event Listener Memory Leaks
+<UniversalEditor title="Event Listener Memory Leak">
+```java !! java
+// Wrong example: Event listener memory leak
+class EventSource {
+    private List<EventListener> listeners = new ArrayList<>();
+    
+    public void addListener(EventListener listener) {
+        listeners.add(listener);
+    }
+    
+    public void removeListener(EventListener listener) {
+        listeners.remove(listener);
+    }
+    
+    public void fireEvent() {
+        for (EventListener listener : listeners) {
+            listener.onEvent();
+        }
+    }
+}
+
+class EventListener {
+    private EventSource source;
+    
+    public EventListener(EventSource source) {
+        this.source = source;
+        source.addListener(this); // Circular reference
+    }
+    
+    public void onEvent() {
+        System.out.println("Event received");
+    }
+    
+    // If not properly removed, causes memory leak
+}
+```
+
+```java !! java
+// Correct example: Weak references or proper cleanup
+class EventSource {
+    private List<WeakReference<EventListener>> listeners = new ArrayList<>();
+    
+    public void addListener(EventListener listener) {
+        listeners.add(new WeakReference<>(listener));
+    }
+    
+    public void removeListener(EventListener listener) {
+        listeners.removeIf(ref -> ref.get() == listener);
+    }
+    
+    public void fireEvent() {
+        Iterator<WeakReference<EventListener>> iterator = listeners.iterator();
+        while (iterator.hasNext()) {
+            WeakReference<EventListener> ref = iterator.next();
+            EventListener listener = ref.get();
+            if (listener != null) {
+                listener.onEvent();
+            } else {
+                iterator.remove(); // Clean up null references
+            }
+        }
+    }
+}
+```
+</UniversalEditor>
+
+## Spring Framework Pitfalls
+
+### 1. Dependency Injection Issues
+
+#### Pitfall: Circular Dependencies
+<UniversalEditor title="Circular Dependency">
+```java !! java
+// Wrong example: Circular dependency
+@Service
+public class UserService {
+    
+    @Autowired
+    private OrderService orderService;
+    
+    public void createUser() {
+        // Uses orderService
+    }
+}
+
+@Service
+public class OrderService {
+    
+    @Autowired
+    private UserService userService;
+    
+    public void createOrder() {
+        // Uses userService
+    }
+}
+
+// Spring will fail to start due to circular dependency
+```
+
+```java !! java
+// Solution 1: Use @Lazy
+@Service
+public class UserService {
+    
+    @Autowired
+    @Lazy
+    private OrderService orderService;
+    
+    public void createUser() {
+        // Uses orderService
+    }
+}
+
+// Solution 2: Restructure to avoid circular dependency
+@Service
+public class UserService {
+    
+    public void createUser() {
+        // User creation logic
+    }
+}
+
+@Service
+public class OrderService {
+    
+    @Autowired
+    private UserService userService;
+    
+    public void createOrder() {
+        userService.createUser(); // Only one-way dependency
+    }
+}
+
+// Solution 3: Use events
+@Service
+public class UserService {
+    
+    @Autowired
+    private ApplicationEventPublisher eventPublisher;
+    
+    public void createUser() {
+        // Create user
+        eventPublisher.publishEvent(new UserCreatedEvent(user));
+    }
+}
+
+@Service
+public class OrderService {
+    
+    @EventListener
+    public void handleUserCreated(UserCreatedEvent event) {
+        // Handle user creation
+    }
+}
+```
+</UniversalEditor>
+
+#### Pitfall: Prototype Bean in Singleton
+<UniversalEditor title="Prototype Bean in Singleton">
+```java !! java
+// Wrong example: Prototype bean in singleton
+@Component
+@Scope("singleton")
+public class UserService {
+    
+    @Autowired
+    private UserRepository userRepository; // Singleton
+    
+    public void processUser() {
+        // userRepository is always the same instance
+    }
+}
+
+@Component
+@Scope("prototype")
+public class UserRepository {
+    private int counter = 0;
+    
+    public void save() {
+        counter++;
+        System.out.println("Counter: " + counter);
+    }
+}
+
+// Problem: UserRepository will always be the same instance
+// because it's injected into a singleton
+```
+
+```java !! java
+// Solution 1: Use ApplicationContext
+@Component
+@Scope("singleton")
+public class UserService {
+    
+    @Autowired
+    private ApplicationContext applicationContext;
+    
+    public void processUser() {
+        UserRepository userRepository = applicationContext.getBean(UserRepository.class);
+        // Gets a new instance each time
+    }
+}
+
+// Solution 2: Use @Lookup
+@Component
+@Scope("singleton")
+public abstract class UserService {
+    
+    @Lookup
+    protected abstract UserRepository getUserRepository();
+    
+    public void processUser() {
+        UserRepository userRepository = getUserRepository();
+        // Gets a new instance each time
+    }
+}
+
+// Solution 3: Use ObjectProvider
+@Component
+@Scope("singleton")
+public class UserService {
+    
+    @Autowired
+    private ObjectProvider<UserRepository> userRepositoryProvider;
+    
+    public void processUser() {
+        UserRepository userRepository = userRepositoryProvider.getObject();
+        // Gets a new instance each time
+    }
+}
+```
+</UniversalEditor>
+
+### 2. Transaction Management Pitfalls
+
+#### Pitfall: Self-Invocation
+<UniversalEditor title="Self-Invocation Transaction Issue">
+```java !! java
+// Wrong example: Self-invocation breaks transaction
+@Service
+public class UserService {
+    
+    @Transactional
+    public void createUser() {
+        // This method has transaction
+        User user = new User();
+        userRepository.save(user);
+        
+        this.sendEmail(); // Self-invocation - no transaction!
+    }
+    
+    @Transactional
+    public void sendEmail() {
+        // This method won't have transaction due to self-invocation
+        emailService.send();
+    }
+}
+```
+
+```java !! java
+// Solution 1: Use ApplicationContext
+@Service
+public class UserService {
+    
+    @Autowired
+    private ApplicationContext applicationContext;
+    
+    @Transactional
+    public void createUser() {
+        User user = new User();
+        userRepository.save(user);
+        
+        // Get proxy to maintain transaction
+        UserService self = applicationContext.getBean(UserService.class);
+        self.sendEmail();
+    }
+    
+    @Transactional
+    public void sendEmail() {
+        emailService.send();
+    }
+}
+
+// Solution 2: Restructure methods
+@Service
+public class UserService {
+    
+    @Transactional
+    public void createUser() {
+        User user = new User();
+        userRepository.save(user);
+        sendEmailInternal();
+    }
+    
+    private void sendEmailInternal() {
+        emailService.send();
+    }
+}
+```
+</UniversalEditor>
+
+## Performance Pitfalls
+
+### 1. String Concatenation
+<UniversalEditor title="String Concatenation Performance">
+```java !! java
+// Wrong example: Inefficient string concatenation
+public String buildMessage(String name, int age) {
+    String message = "";
+    for (int i = 0; i < 1000; i++) {
+        message += "Hello " + name + ", you are " + age + " years old. "; // Creates many objects
+    }
+    return message;
+}
+```
+
+```java !! java
+// Correct example: Using StringBuilder
+public String buildMessage(String name, int age) {
+    StringBuilder message = new StringBuilder();
+    for (int i = 0; i < 1000; i++) {
+        message.append("Hello ")
+               .append(name)
+               .append(", you are ")
+               .append(age)
+               .append(" years old. ");
+    }
+    return message.toString();
+}
+
+// Or using String.format for simple cases
+public String buildMessage(String name, int age) {
+    return String.format("Hello %s, you are %d years old", name, age);
+}
+```
+
+```javascript !! js
+// JavaScript: Similar performance considerations
+// Wrong
+let message = "";
+for (let i = 0; i < 1000; i++) {
+    message += "Hello " + name + ", you are " + age + " years old. ";
+}
+
+// Better
+const message = Array(1000).fill().map(() => 
+    `Hello ${name}, you are ${age} years old. `
+).join('');
+```
+</UniversalEditor>
+
+### 2. Collection Performance
+<UniversalEditor title="Collection Performance">
+```java !! java
+// Wrong example: Inefficient collection usage
+List<String> list = new ArrayList<>();
+for (int i = 0; i < 1000000; i++) {
+    list.add(0, "item" + i); // O(n) operation each time
+}
+
+// Better: Use LinkedList for frequent insertions at beginning
+List<String> list = new LinkedList<>();
+for (int i = 0; i < 1000000; i++) {
+    list.add(0, "item" + i); // O(1) operation
+}
+
+// Or pre-allocate ArrayList capacity
+List<String> list = new ArrayList<>(1000000);
+for (int i = 0; i < 1000000; i++) {
+    list.add("item" + i);
+}
+```
+
+```javascript !! js
+// JavaScript: Similar considerations
+// Wrong: Using array unshift repeatedly
+const array = [];
+for (let i = 0; i < 1000000; i++) {
+    array.unshift(`item${i}`); // O(n) operation
+}
+
+// Better: Build in reverse order
+const array = [];
+for (let i = 999999; i >= 0; i--) {
+    array.push(`item${i}`);
+}
+```
+</UniversalEditor>
+
+## Summary
+
+Common pitfalls in Java development include:
+
+1. **Object-Oriented Pitfalls**: Overusing inheritance, forgetting super() calls, method signature mismatches
+2. **Concurrent Programming Pitfalls**: Thread safety issues, deadlocks, concurrent modification
+3. **Memory Management Pitfalls**: Memory leaks from static references, event listeners
+4. **Spring Framework Pitfalls**: Circular dependencies, prototype beans in singletons, transaction issues
+5. **Performance Pitfalls**: Inefficient string concatenation, poor collection usage
+
+Understanding these pitfalls helps you write more robust and efficient Java code. As a JavaScript developer, many of these concepts have parallels in JavaScript, but Java's stricter typing and different memory model introduce additional considerations.
+
+## Best Practices
+
+1. **Prefer composition over inheritance**
+2. **Always call super() in constructors**
+3. **Use @Override annotation for method overriding**
+4. **Use thread-safe collections and atomic operations**
+5. **Avoid circular dependencies in Spring**
+6. **Use StringBuilder for string concatenation in loops**
+7. **Choose appropriate collection types for your use case**
+
+## Exercises
+
+1. Identify and fix inheritance issues in your code
+2. Implement thread-safe counters and collections
+3. Detect and resolve memory leaks
+4. Fix Spring dependency injection issues
+5. Optimize string and collection operations
+
+## Next Steps
+
+In the next module, we'll explore Java idioms and best practices for writing clean, maintainable code. 
