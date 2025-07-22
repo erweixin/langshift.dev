@@ -1,0 +1,235 @@
+---
+title: "Dynamic Memory Allocation"
+description: "Learn C dynamic memory allocation from a JavaScript perspective. Understand malloc, free, memory leaks, and compare with JavaScript garbage collection."
+---
+
+# Dynamic Memory Allocation
+
+## 1. Introduction
+
+### From JavaScript Garbage Collection to C Manual Memory Management
+
+In JavaScript, memory management is automatic - the garbage collector frees unused memory. In C, you must manually allocate and deallocate memory using functions like `malloc()`, `calloc()`, `realloc()`, and `free()`.
+
+> 💡 **Key Concept**: C's manual memory management gives you precise control but requires careful attention to prevent memory leaks and undefined behavior.
+
+## 2. Basic Memory Allocation
+
+<UniversalEditor title="Basic Memory Allocation" compare={true}>
+```javascript !! js
+// JavaScript - automatic memory management
+let arr = [1, 2, 3, 4, 5];
+arr.push(6); // Array automatically grows
+arr = null; // Memory will be garbage collected
+
+// Dynamic object creation
+let obj = { name: "Alice", age: 30 };
+obj = null; // Object will be garbage collected
+
+// No manual memory management needed
+```
+
+```c !! c
+#include <stdio.h>
+#include <stdlib.h>
+
+int main() {
+    // Allocate memory for an integer
+    int* ptr = (int*)malloc(sizeof(int));
+    if (ptr == NULL) {
+        printf("Memory allocation failed!\n");
+        return 1;
+    }
+    
+    *ptr = 42;
+    printf("Value: %d\n", *ptr);
+    
+    // Always free allocated memory
+    free(ptr);
+    ptr = NULL; // Good practice to avoid dangling pointers
+    
+    // Allocate memory for an array
+    int* arr = (int*)malloc(5 * sizeof(int));
+    if (arr == NULL) {
+        printf("Array allocation failed!\n");
+        return 1;
+    }
+    
+    // Initialize array
+    for (int i = 0; i < 5; i++) {
+        arr[i] = i + 1;
+    }
+    
+    // Use array
+    for (int i = 0; i < 5; i++) {
+        printf("%d ", arr[i]);
+    }
+    printf("\n");
+    
+    // Free array memory
+    free(arr);
+    arr = NULL;
+    
+    return 0;
+}
+```
+</UniversalEditor>
+
+## 3. Advanced Memory Functions
+
+<UniversalEditor title="Advanced Memory Functions" compare={true}>
+```javascript !! js
+// JavaScript - dynamic arrays and objects
+let numbers = [];
+for (let i = 0; i < 10; i++) {
+    numbers.push(i);
+}
+
+// Array automatically resizes
+numbers.length = 20; // Extends array
+numbers.length = 5;  // Truncates array
+
+// Object properties can be added/removed dynamically
+let person = {};
+person.name = "Bob";
+person.age = 25;
+delete person.age;
+```
+
+```c !! c
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+int main() {
+    // calloc - allocates and initializes to zero
+    int* zeros = (int*)calloc(5, sizeof(int));
+    if (zeros == NULL) {
+        printf("calloc failed!\n");
+        return 1;
+    }
+    
+    printf("calloc initialized values: ");
+    for (int i = 0; i < 5; i++) {
+        printf("%d ", zeros[i]); // All zeros
+    }
+    printf("\n");
+    
+    // realloc - resize existing allocation
+    int* resized = (int*)realloc(zeros, 10 * sizeof(int));
+    if (resized == NULL) {
+        printf("realloc failed!\n");
+        free(zeros);
+        return 1;
+    }
+    
+    // Initialize new elements
+    for (int i = 5; i < 10; i++) {
+        resized[i] = i;
+    }
+    
+    printf("After realloc: ");
+    for (int i = 0; i < 10; i++) {
+        printf("%d ", resized[i]);
+    }
+    printf("\n");
+    
+    free(resized);
+    
+    return 0;
+}
+```
+</UniversalEditor>
+
+## 4. Memory Leaks and Prevention
+
+<UniversalEditor title="Memory Leak Prevention" compare={true}>
+```javascript !! js
+// JavaScript - automatic cleanup
+function createObjects() {
+    let obj = { data: "important" };
+    // obj will be garbage collected when function ends
+    // No manual cleanup needed
+}
+
+// Even with circular references, garbage collector handles it
+let obj1 = { name: "Alice" };
+let obj2 = { name: "Bob" };
+obj1.friend = obj2;
+obj2.friend = obj1;
+// Circular reference will be detected and cleaned up
+```
+
+```c !! c
+#include <stdio.h>
+#include <stdlib.h>
+
+// BAD: Memory leak - allocated memory not freed
+void badFunction() {
+    int* ptr = (int*)malloc(sizeof(int));
+    *ptr = 42;
+    // Memory leak: ptr is not freed!
+    // ptr goes out of scope, memory is lost
+}
+
+// GOOD: Proper memory management
+void goodFunction() {
+    int* ptr = (int*)malloc(sizeof(int));
+    if (ptr == NULL) {
+        return; // Handle allocation failure
+    }
+    
+    *ptr = 42;
+    printf("Value: %d\n", *ptr);
+    
+    free(ptr); // Always free allocated memory
+    ptr = NULL; // Prevent dangling pointer
+}
+
+// Memory leak detection pattern
+void safeAllocation() {
+    int* ptr = NULL;
+    
+    ptr = (int*)malloc(sizeof(int));
+    if (ptr == NULL) {
+        printf("Allocation failed\n");
+        return;
+    }
+    
+    // Use memory
+    *ptr = 100;
+    
+    // Cleanup
+    free(ptr);
+    ptr = NULL;
+}
+
+int main() {
+    goodFunction();
+    safeAllocation();
+    return 0;
+}
+```
+</UniversalEditor>
+
+## 5. Common Pitfalls
+- **Memory leaks**: Forgetting to call `free()`
+- **Double free**: Calling `free()` on already freed memory
+- **Dangling pointers**: Using pointers after freeing memory
+- **Buffer overflows**: Writing beyond allocated memory
+- **NULL pointer dereference**: Not checking if `malloc()` returned NULL
+
+## 6. Exercises
+1. Write a function that allocates memory for a string, copies a given string into it, and returns the pointer. Don't forget to free it later.
+2. Create a function that dynamically allocates a 2D array and initializes it with values.
+3. Write a program that demonstrates memory leak detection by tracking allocations and deallocations.
+
+## 7. Performance Analysis
+- Manual memory management can be more efficient than garbage collection
+- Memory fragmentation can occur with frequent allocations/deallocations
+- Memory pools can improve performance for small, frequent allocations
+- Proper memory management is crucial for long-running applications
+
+---
+
+> **Summary**: C's manual memory management provides control and performance but requires discipline. Always pair `malloc()` with `free()`, check for allocation failures, and use tools like Valgrind to detect memory leaks. 

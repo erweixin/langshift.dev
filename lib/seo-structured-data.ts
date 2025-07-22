@@ -51,6 +51,15 @@ export const js2swiftCourseData = {
   educationalLevel: "Intermediate"
 };
 
+export const js2cCourseData = {
+  name: "JavaScript to C Tutorial",
+  description: "Learn C programming from a JavaScript developer perspective, mastering memory management, pointer operations, and systems programming.",
+  url: "https://langshift.dev/docs/js2c",
+  provider: "LangShift.dev",
+  courseMode: "online",
+  educationalLevel: "Advanced"
+};
+
 export const courseStructuredData = (courseData: {
   name: string
   description: string
@@ -70,5 +79,33 @@ export const courseStructuredData = (courseData: {
   },
   "courseMode": courseData.courseMode,
   "educationalLevel": courseData.educationalLevel,
-  "url": courseData.url
+  "url": courseData.url,
+  // 添加 hasCourseInstance 字段
+  "hasCourseInstance": {
+    "@type": "CourseInstance",
+    "courseMode": courseData.courseMode,
+    "inLanguage": "zh-CN",
+    "availableLanguage": ["zh-CN", "zh-TW", "en"],
+    "startDate": new Date().toISOString(),
+    "endDate": new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(), // 一年后
+    "location": {
+      "@type": "VirtualLocation",
+      "url": courseData.url
+    }
+  },
+  // 添加 offers 字段
+  "offers": {
+    "@type": "Offer",
+    "price": "0",
+    "priceCurrency": "CNY",
+    "availability": "https://schema.org/InStock",
+    "validFrom": new Date().toISOString(),
+    "validThrough": new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(), // 一年后
+    "url": courseData.url,
+    "seller": {
+      "@type": "Organization",
+      "name": courseData.provider,
+      "sameAs": "https://langshift.dev"
+    }
+  }
 }); 

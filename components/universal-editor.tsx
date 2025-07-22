@@ -83,6 +83,8 @@ class LanguageRuntimeManager {
         return this.loadRustRuntime()
       case 'cpp':
         return this.loadCppRuntime()
+      case 'c':
+        return this.loadCRuntime()
       case 'java':
         return this.loadJavaRuntime()
       case 'go':
@@ -210,6 +212,49 @@ class LanguageRuntimeManager {
           }
         } catch (error: any) {
           return { output: '', error: error.message }
+        }
+      }
+    }
+  }
+
+  private async loadCRuntime(): Promise<any> {
+    // 使用在线 C 编译器 API
+    return {
+      execute: async (code: string) => {
+        try {
+          // 使用 Wandbox API 编译 C 代码
+          const response = await fetch('https://wandbox.org/api/compile.json', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              code: code,
+              compiler: 'gcc-head',
+              options: 'warning,gnu11',
+            }),
+          })
+          
+          const result = await response.json()
+          
+          // 处理编译结果
+          if (result.status === '0') {
+            return {
+              output: result.program_output || '',
+              error: null
+            }
+          } else {
+            return {
+              output: result.program_output || '',
+              error: result.program_message || '编译失败'
+            }
+          }
+        } catch (error: any) {
+          console.error('C 代码执行错误:', error)
+          return { 
+            output: '', 
+            error: `C 代码执行失败: ${error.message}` 
+          }
         }
       }
     }
@@ -383,7 +428,7 @@ class LanguageRuntimeManager {
   }
 
   getSupportedLanguages(): string[] {
-    return ['python', 'javascript', 'typescript', 'rust', 'cpp', 'java', 'go', 'swift']
+    return ['python', 'javascript', 'typescript', 'rust', 'cpp', 'c', 'java', 'go', 'swift']
   }
 
   // 检查是否需要加载运行时
@@ -518,6 +563,12 @@ const languageConfig = {
     extension: 'swift',
     monacoLanguage: 'swift',
     runtime: 'swift'
+  },
+  c: {
+    name: 'C',
+    extension: 'c',
+    monacoLanguage: 'c',
+    runtime: 'c',
   }
 }
 

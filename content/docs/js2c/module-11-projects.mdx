@@ -1,0 +1,850 @@
+---
+title: "Practical Projects"
+description: "Learn C practical projects from a JavaScript perspective. Build text editors, memory allocators, data structure libraries, and system tools."
+---
+
+# Practical Projects
+
+## 1. Introduction
+
+### From JavaScript Projects to C System Applications
+
+In JavaScript, you typically build web applications, APIs, and user interfaces. In C, you can create system utilities, embedded applications, and performance-critical software that directly interacts with hardware and operating systems.
+
+> 💡 **Key Concept**: C projects focus on system-level programming, performance optimization, and direct hardware interaction, enabling you to build efficient, low-level applications.
+
+## 2. Simple Text Editor
+
+<UniversalEditor title="Text Editor Implementation" compare={true}>
+```javascript !! js
+// JavaScript - Simple text editor (Node.js)
+const readline = require('readline');
+const fs = require('fs');
+
+class TextEditor {
+    constructor() {
+        this.content = '';
+        this.filename = '';
+        this.isModified = false;
+    }
+    
+    open(filename) {
+        try {
+            this.content = fs.readFileSync(filename, 'utf8');
+            this.filename = filename;
+            this.isModified = false;
+            console.log(`Opened: ${filename}`);
+        } catch (error) {
+            console.error(`Error opening file: ${error.message}`);
+        }
+    }
+    
+    save() {
+        if (!this.filename) {
+            console.error('No file to save');
+            return;
+        }
+        
+        try {
+            fs.writeFileSync(this.filename, this.content);
+            this.isModified = false;
+            console.log(`Saved: ${this.filename}`);
+        } catch (error) {
+            console.error(`Error saving file: ${error.message}`);
+        }
+    }
+    
+    insert(text, position) {
+        this.content = this.content.slice(0, position) + text + this.content.slice(position);
+        this.isModified = true;
+    }
+    
+    delete(start, end) {
+        this.content = this.content.slice(0, start) + this.content.slice(end);
+        this.isModified = true;
+    }
+    
+    display() {
+        console.log('\n--- File Content ---');
+        console.log(this.content);
+        console.log('--- End Content ---\n');
+    }
+    
+    getStats() {
+        return {
+            lines: this.content.split('\n').length,
+            characters: this.content.length,
+            words: this.content.split(/\s+/).filter(word => word.length > 0).length
+        };
+    }
+}
+
+// Usage example
+const editor = new TextEditor();
+editor.open('test.txt');
+editor.insert('Hello, World!\n', 0);
+editor.display();
+console.log('Stats:', editor.getStats());
+editor.save();
+```
+
+```c !! c
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <termios.h>
+
+#define MAX_CONTENT 10000
+#define MAX_FILENAME 256
+
+typedef struct {
+    char content[MAX_CONTENT];
+    char filename[MAX_FILENAME];
+    int length;
+    int isModified;
+} TextEditor;
+
+// Initialize editor
+void initEditor(TextEditor* editor) {
+    editor->content[0] = '\0';
+    editor->filename[0] = '\0';
+    editor->length = 0;
+    editor->isModified = 0;
+}
+
+// Open file
+int openFile(TextEditor* editor, const char* filename) {
+    FILE* file = fopen(filename, "r");
+    if (file == NULL) {
+        printf("Error opening file: %s\n", filename);
+        return 0;
+    }
+    
+    editor->length = fread(editor->content, 1, MAX_CONTENT - 1, file);
+    editor->content[editor->length] = '\0';
+    strcpy(editor->filename, filename);
+    editor->isModified = 0;
+    
+    fclose(file);
+    printf("Opened: %s\n", filename);
+    return 1;
+}
+
+// Save file
+int saveFile(TextEditor* editor) {
+    if (strlen(editor->filename) == 0) {
+        printf("No file to save\n");
+        return 0;
+    }
+    
+    FILE* file = fopen(editor->filename, "w");
+    if (file == NULL) {
+        printf("Error saving file: %s\n", editor->filename);
+        return 0;
+    }
+    
+    fwrite(editor->content, 1, editor->length, file);
+    fclose(file);
+    editor->isModified = 0;
+    printf("Saved: %s\n", editor->filename);
+    return 1;
+}
+
+// Insert text
+void insertText(TextEditor* editor, const char* text, int position) {
+    int textLen = strlen(text);
+    if (position + textLen >= MAX_CONTENT) {
+        printf("Content too large\n");
+        return;
+    }
+    
+    // Shift content to make room
+    memmove(editor->content + position + textLen, 
+            editor->content + position, 
+            editor->length - position + 1);
+    
+    // Insert text
+    memcpy(editor->content + position, text, textLen);
+    editor->length += textLen;
+    editor->isModified = 1;
+}
+
+// Delete text
+void deleteText(TextEditor* editor, int start, int end) {
+    if (start >= end || end > editor->length) {
+        return;
+    }
+    
+    memmove(editor->content + start, 
+            editor->content + end, 
+            editor->length - end + 1);
+    editor->length -= (end - start);
+    editor->isModified = 1;
+}
+
+// Display content
+void displayContent(TextEditor* editor) {
+    printf("\n--- File Content ---\n");
+    printf("%s", editor->content);
+    printf("--- End Content ---\n\n");
+}
+
+// Get file statistics
+void getStats(TextEditor* editor) {
+    int lines = 1;
+    int words = 0;
+    int inWord = 0;
+    
+    for (int i = 0; i < editor->length; i++) {
+        if (editor->content[i] == '\n') {
+            lines++;
+        }
+        
+        if (editor->content[i] == ' ' || editor->content[i] == '\n' || editor->content[i] == '\t') {
+            inWord = 0;
+        } else if (!inWord) {
+            words++;
+            inWord = 1;
+        }
+    }
+    
+    printf("Lines: %d, Characters: %d, Words: %d\n", 
+           lines, editor->length, words);
+}
+
+int main() {
+    TextEditor editor;
+    initEditor(&editor);
+    
+    // Example usage
+    if (openFile(&editor, "test.txt")) {
+        insertText(&editor, "Hello, World!\n", 0);
+        displayContent(&editor);
+        getStats(&editor);
+        saveFile(&editor);
+    }
+    
+    return 0;
+}
+```
+</UniversalEditor>
+
+## 3. Memory Allocator
+
+<UniversalEditor title="Memory Allocator" compare={true}>
+```javascript !! js
+// JavaScript - Memory management simulation
+class MemoryPool {
+    constructor(size) {
+        this.buffer = new ArrayBuffer(size);
+        this.used = new Set();
+        this.freeBlocks = [{ start: 0, size: size }];
+    }
+    
+    allocate(size) {
+        // Find best fit block
+        let bestBlock = null;
+        let bestIndex = -1;
+        
+        for (let i = 0; i < this.freeBlocks.length; i++) {
+            const block = this.freeBlocks[i];
+            if (block.size >= size) {
+                if (!bestBlock || block.size < bestBlock.size) {
+                    bestBlock = block;
+                    bestIndex = i;
+                }
+            }
+        }
+        
+        if (!bestBlock) {
+            throw new Error('No suitable block found');
+        }
+        
+        // Allocate from block
+        const allocated = {
+            start: bestBlock.start,
+            size: size
+        };
+        
+        this.used.add(allocated);
+        
+        // Update free blocks
+        if (bestBlock.size > size) {
+            this.freeBlocks[bestIndex] = {
+                start: bestBlock.start + size,
+                size: bestBlock.size - size
+            };
+        } else {
+            this.freeBlocks.splice(bestIndex, 1);
+        }
+        
+        return allocated;
+    }
+    
+    free(block) {
+        if (!this.used.has(block)) {
+            throw new Error('Block not allocated');
+        }
+        
+        this.used.delete(block);
+        
+        // Merge with adjacent free blocks
+        let merged = false;
+        for (let i = 0; i < this.freeBlocks.length; i++) {
+            const freeBlock = this.freeBlocks[i];
+            
+            // Merge with block after
+            if (block.start + block.size === freeBlock.start) {
+                freeBlock.start = block.start;
+                freeBlock.size += block.size;
+                merged = true;
+                break;
+            }
+            
+            // Merge with block before
+            if (freeBlock.start + freeBlock.size === block.start) {
+                freeBlock.size += block.size;
+                merged = true;
+                break;
+            }
+        }
+        
+        if (!merged) {
+            this.freeBlocks.push(block);
+        }
+    }
+    
+    getStats() {
+        const totalUsed = Array.from(this.used).reduce((sum, block) => sum + block.size, 0);
+        const totalFree = this.freeBlocks.reduce((sum, block) => sum + block.size, 0);
+        
+        return {
+            totalUsed,
+            totalFree,
+            fragmentation: this.freeBlocks.length
+        };
+    }
+}
+
+// Usage
+const pool = new MemoryPool(1024);
+const block1 = pool.allocate(100);
+const block2 = pool.allocate(200);
+console.log('Stats:', pool.getStats());
+pool.free(block1);
+console.log('After free:', pool.getStats());
+```
+
+```c !! c
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#define POOL_SIZE 1024
+#define MAX_BLOCKS 50
+
+typedef struct {
+    int start;
+    int size;
+    int isUsed;
+} MemoryBlock;
+
+typedef struct {
+    char buffer[POOL_SIZE];
+    MemoryBlock blocks[MAX_BLOCKS];
+    int blockCount;
+} MemoryPool;
+
+// Initialize memory pool
+void initPool(MemoryPool* pool) {
+    pool->blockCount = 1;
+    pool->blocks[0].start = 0;
+    pool->blocks[0].size = POOL_SIZE;
+    pool->blocks[0].isUsed = 0;
+}
+
+// Find best fit block
+int findBestFit(MemoryPool* pool, int size) {
+    int bestIndex = -1;
+    int bestSize = POOL_SIZE + 1;
+    
+    for (int i = 0; i < pool->blockCount; i++) {
+        if (!pool->blocks[i].isUsed && pool->blocks[i].size >= size) {
+            if (pool->blocks[i].size < bestSize) {
+                bestSize = pool->blocks[i].size;
+                bestIndex = i;
+            }
+        }
+    }
+    
+    return bestIndex;
+}
+
+// Allocate memory
+void* allocate(MemoryPool* pool, int size) {
+    int blockIndex = findBestFit(pool, size);
+    if (blockIndex == -1) {
+        printf("No suitable block found\n");
+        return NULL;
+    }
+    
+    MemoryBlock* block = &pool->blocks[blockIndex];
+    
+    // If block is larger than needed, split it
+    if (block->size > size) {
+        // Create new free block
+        if (pool->blockCount < MAX_BLOCKS) {
+            pool->blocks[pool->blockCount].start = block->start + size;
+            pool->blocks[pool->blockCount].size = block->size - size;
+            pool->blocks[pool->blockCount].isUsed = 0;
+            pool->blockCount++;
+        }
+        
+        block->size = size;
+    }
+    
+    block->isUsed = 1;
+    return &pool->buffer[block->start];
+}
+
+// Free memory
+void freeMemory(MemoryPool* pool, void* ptr) {
+    int offset = (char*)ptr - pool->buffer;
+    
+    // Find the block
+    for (int i = 0; i < pool->blockCount; i++) {
+        if (pool->blocks[i].start == offset && pool->blocks[i].isUsed) {
+            pool->blocks[i].isUsed = 0;
+            
+            // Merge with adjacent free blocks
+            for (int j = 0; j < pool->blockCount; j++) {
+                if (i != j && !pool->blocks[j].isUsed) {
+                    // Merge with block after
+                    if (pool->blocks[i].start + pool->blocks[i].size == pool->blocks[j].start) {
+                        pool->blocks[i].size += pool->blocks[j].size;
+                        // Remove block j
+                        for (int k = j; k < pool->blockCount - 1; k++) {
+                            pool->blocks[k] = pool->blocks[k + 1];
+                        }
+                        pool->blockCount--;
+                        break;
+                    }
+                    
+                    // Merge with block before
+                    if (pool->blocks[j].start + pool->blocks[j].size == pool->blocks[i].start) {
+                        pool->blocks[j].size += pool->blocks[i].size;
+                        // Remove block i
+                        for (int k = i; k < pool->blockCount - 1; k++) {
+                            pool->blocks[k] = pool->blocks[k + 1];
+                        }
+                        pool->blockCount--;
+                        break;
+                    }
+                }
+            }
+            break;
+        }
+    }
+}
+
+// Get pool statistics
+void getPoolStats(MemoryPool* pool) {
+    int totalUsed = 0;
+    int totalFree = 0;
+    int fragmentation = 0;
+    
+    for (int i = 0; i < pool->blockCount; i++) {
+        if (pool->blocks[i].isUsed) {
+            totalUsed += pool->blocks[i].size;
+        } else {
+            totalFree += pool->blocks[i].size;
+            fragmentation++;
+        }
+    }
+    
+    printf("Total used: %d, Total free: %d, Fragmentation: %d\n", 
+           totalUsed, totalFree, fragmentation);
+}
+
+int main() {
+    MemoryPool pool;
+    initPool(&pool);
+    
+    // Example usage
+    void* block1 = allocate(&pool, 100);
+    void* block2 = allocate(&pool, 200);
+    
+    if (block1 && block2) {
+        strcpy(block1, "Hello");
+        strcpy(block2, "World");
+        
+        printf("Block1: %s\n", (char*)block1);
+        printf("Block2: %s\n", (char*)block2);
+        
+        getPoolStats(&pool);
+        
+        freeMemory(&pool, block1);
+        getPoolStats(&pool);
+    }
+    
+    return 0;
+}
+```
+</UniversalEditor>
+
+## 4. Data Structure Library
+
+<UniversalEditor title="Data Structure Library" compare={true}>
+```javascript !! js
+// JavaScript - Data structure library
+class LinkedList {
+    constructor() {
+        this.head = null;
+        this.size = 0;
+    }
+    
+    append(data) {
+        const newNode = { data, next: null };
+        if (!this.head) {
+            this.head = newNode;
+        } else {
+            let current = this.head;
+            while (current.next) {
+                current = current.next;
+            }
+            current.next = newNode;
+        }
+        this.size++;
+    }
+    
+    remove(data) {
+        if (!this.head) return false;
+        
+        if (this.head.data === data) {
+            this.head = this.head.next;
+            this.size--;
+            return true;
+        }
+        
+        let current = this.head;
+        while (current.next && current.next.data !== data) {
+            current = current.next;
+        }
+        
+        if (current.next) {
+            current.next = current.next.next;
+            this.size--;
+            return true;
+        }
+        
+        return false;
+    }
+    
+    find(data) {
+        let current = this.head;
+        while (current) {
+            if (current.data === data) {
+                return current;
+            }
+            current = current.next;
+        }
+        return null;
+    }
+    
+    toArray() {
+        const result = [];
+        let current = this.head;
+        while (current) {
+            result.push(current.data);
+            current = current.next;
+        }
+        return result;
+    }
+}
+
+class Stack {
+    constructor() {
+        this.items = [];
+    }
+    
+    push(item) {
+        this.items.push(item);
+    }
+    
+    pop() {
+        return this.items.pop();
+    }
+    
+    peek() {
+        return this.items[this.items.length - 1];
+    }
+    
+    isEmpty() {
+        return this.items.length === 0;
+    }
+    
+    size() {
+        return this.items.length;
+    }
+}
+
+class Queue {
+    constructor() {
+        this.items = [];
+    }
+    
+    enqueue(item) {
+        this.items.push(item);
+    }
+    
+    dequeue() {
+        return this.items.shift();
+    }
+    
+    front() {
+        return this.items[0];
+    }
+    
+    isEmpty() {
+        return this.items.length === 0;
+    }
+    
+    size() {
+        return this.items.length;
+    }
+}
+
+// Usage
+const list = new LinkedList();
+list.append(1);
+list.append(2);
+list.append(3);
+console.log('List:', list.toArray());
+
+const stack = new Stack();
+stack.push(1);
+stack.push(2);
+console.log('Stack pop:', stack.pop());
+
+const queue = new Queue();
+queue.enqueue('a');
+queue.enqueue('b');
+console.log('Queue dequeue:', queue.dequeue());
+```
+
+```c !! c
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+// Linked List
+typedef struct Node {
+    int data;
+    struct Node* next;
+} Node;
+
+typedef struct {
+    Node* head;
+    int size;
+} LinkedList;
+
+// Stack
+typedef struct {
+    int* items;
+    int top;
+    int capacity;
+} Stack;
+
+// Queue
+typedef struct {
+    int* items;
+    int front;
+    int rear;
+    int size;
+    int capacity;
+} Queue;
+
+// Linked List functions
+LinkedList* createLinkedList() {
+    LinkedList* list = (LinkedList*)malloc(sizeof(LinkedList));
+    list->head = NULL;
+    list->size = 0;
+    return list;
+}
+
+void append(LinkedList* list, int data) {
+    Node* newNode = (Node*)malloc(sizeof(Node));
+    newNode->data = data;
+    newNode->next = NULL;
+    
+    if (!list->head) {
+        list->head = newNode;
+    } else {
+        Node* current = list->head;
+        while (current->next) {
+            current = current->next;
+        }
+        current->next = newNode;
+    }
+    list->size++;
+}
+
+int removeNode(LinkedList* list, int data) {
+    if (!list->head) return 0;
+    
+    if (list->head->data == data) {
+        Node* temp = list->head;
+        list->head = list->head->next;
+        free(temp);
+        list->size--;
+        return 1;
+    }
+    
+    Node* current = list->head;
+    while (current->next && current->next->data != data) {
+        current = current->next;
+    }
+    
+    if (current->next) {
+        Node* temp = current->next;
+        current->next = current->next->next;
+        free(temp);
+        list->size--;
+        return 1;
+    }
+    
+    return 0;
+}
+
+Node* find(LinkedList* list, int data) {
+    Node* current = list->head;
+    while (current) {
+        if (current->data == data) {
+            return current;
+        }
+        current = current->next;
+    }
+    return NULL;
+}
+
+// Stack functions
+Stack* createStack(int capacity) {
+    Stack* stack = (Stack*)malloc(sizeof(Stack));
+    stack->items = (int*)malloc(capacity * sizeof(int));
+    stack->top = -1;
+    stack->capacity = capacity;
+    return stack;
+}
+
+void push(Stack* stack, int item) {
+    if (stack->top < stack->capacity - 1) {
+        stack->items[++stack->top] = item;
+    }
+}
+
+int pop(Stack* stack) {
+    if (stack->top >= 0) {
+        return stack->items[stack->top--];
+    }
+    return -1;
+}
+
+int peek(Stack* stack) {
+    if (stack->top >= 0) {
+        return stack->items[stack->top];
+    }
+    return -1;
+}
+
+int isEmpty(Stack* stack) {
+    return stack->top == -1;
+}
+
+// Queue functions
+Queue* createQueue(int capacity) {
+    Queue* queue = (Queue*)malloc(sizeof(Queue));
+    queue->items = (int*)malloc(capacity * sizeof(int));
+    queue->front = 0;
+    queue->rear = -1;
+    queue->size = 0;
+    queue->capacity = capacity;
+    return queue;
+}
+
+void enqueue(Queue* queue, int item) {
+    if (queue->size < queue->capacity) {
+        queue->rear = (queue->rear + 1) % queue->capacity;
+        queue->items[queue->rear] = item;
+        queue->size++;
+    }
+}
+
+int dequeue(Queue* queue) {
+    if (queue->size > 0) {
+        int item = queue->items[queue->front];
+        queue->front = (queue->front + 1) % queue->capacity;
+        queue->size--;
+        return item;
+    }
+    return -1;
+}
+
+int front(Queue* queue) {
+    if (queue->size > 0) {
+        return queue->items[queue->front];
+    }
+    return -1;
+}
+
+int main() {
+    // Linked List example
+    LinkedList* list = createLinkedList();
+    append(list, 1);
+    append(list, 2);
+    append(list, 3);
+    
+    Node* found = find(list, 2);
+    if (found) {
+        printf("Found: %d\n", found->data);
+    }
+    
+    // Stack example
+    Stack* stack = createStack(10);
+    push(stack, 1);
+    push(stack, 2);
+    printf("Stack pop: %d\n", pop(stack));
+    
+    // Queue example
+    Queue* queue = createQueue(10);
+    enqueue(queue, 'a');
+    enqueue(queue, 'b');
+    printf("Queue dequeue: %c\n", dequeue(queue));
+    
+    return 0;
+}
+```
+</UniversalEditor>
+
+## 5. Common Pitfalls
+- **Memory leaks**: Always free allocated memory in data structures
+- **Buffer overflows**: Check bounds before accessing arrays
+- **Resource management**: Properly close files and release system resources
+- **Error handling**: Check return values and handle errors gracefully
+- **Thread safety**: Use synchronization when sharing data between threads
+
+## 6. Exercises
+1. Extend the text editor to support search and replace functionality.
+2. Implement a more sophisticated memory allocator with different allocation strategies.
+3. Add sorting and searching algorithms to the data structure library.
+4. Create a simple system monitoring tool that displays process information.
+
+## 7. Performance Analysis
+- **Text editor**: Efficient string operations and file I/O
+- **Memory allocator**: Minimize fragmentation and allocation overhead
+- **Data structures**: Optimize for common operations (insert, delete, search)
+- **System tools**: Efficient system calls and minimal resource usage
+
+---
+
+> **Summary**: C projects demonstrate practical applications of system programming concepts. Building these projects helps solidify understanding of memory management, data structures, and system-level programming. 

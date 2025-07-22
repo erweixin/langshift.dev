@@ -1,0 +1,1161 @@
+---
+title: "高级主题和扩展"
+---
+
+# 模块 14: 高级主题和扩展
+
+## 概述
+
+在这个最终模块中，我们将探索超越基础的高级 C 编程主题。这些主题代表了 C 编程的前沿，展示了为什么 C 在现代软件开发中仍然具有重要意义。
+
+## 学习目标
+
+- 理解 C 中的多线程和并发编程
+- 掌握高级网络编程技术
+- 学习图形编程基础
+- 探索嵌入式编程概念
+- 理解实时系统编程
+- 掌握现代 C 特性 (C11/C17)
+
+## 多线程和并发
+
+### JavaScript vs C 线程模型
+
+JavaScript 使用事件驱动的单线程模型和异步操作，而 C 提供对系统线程和同步原语的直接访问。
+
+<UniversalEditor title="线程模型对比" compare={true}>
+```javascript !! js
+// JavaScript: 事件驱动、单线程、异步
+async function processData(data) {
+    const results = [];
+    
+    // 使用 Promise.all 进行并发处理
+    const promises = data.map(async (item) => {
+        // 模拟异步工作
+        await new Promise(resolve => setTimeout(resolve, 100));
+        return item * 2;
+    });
+    
+    const processed = await Promise.all(promises);
+    return processed;
+}
+
+// 用于 CPU 密集型任务的 Worker 线程
+const { Worker, isMainThread, parentPort } = require('worker_threads');
+
+if (isMainThread) {
+    const worker = new Worker(__filename);
+    worker.on('message', (result) => {
+        console.log('Worker 结果:', result);
+    });
+    worker.postMessage([1, 2, 3, 4, 5]);
+} else {
+    parentPort.on('message', (data) => {
+        const result = data.map(x => x * x);
+        parentPort.postMessage(result);
+    });
+}
+```
+
+```c !! c
+// C: 使用 pthreads 的直接线程管理
+#include <stdio.h>
+#include <stdlib.h>
+#include <pthread.h>
+#include <unistd.h>
+
+#define NUM_THREADS 4
+#define ARRAY_SIZE 1000
+
+// 线程函数
+void* process_data(void* arg) {
+    int* data = (int*)arg;
+    int thread_id = (int)(long)arg;
+    
+    // 处理数据的一部分
+    for (int i = thread_id * (ARRAY_SIZE / NUM_THREADS); 
+         i < (thread_id + 1) * (ARRAY_SIZE / NUM_THREADS); i++) {
+        data[i] *= 2;
+    }
+    
+    return NULL;
+}
+
+int main() {
+    int data[ARRAY_SIZE];
+    pthread_t threads[NUM_THREADS];
+    
+    // 初始化数据
+    for (int i = 0; i < ARRAY_SIZE; i++) {
+        data[i] = i;
+    }
+    
+    // 创建线程
+    for (int i = 0; i < NUM_THREADS; i++) {
+        pthread_create(&threads[i], NULL, process_data, (void*)(long)i);
+    }
+    
+    // 等待所有线程完成
+    for (int i = 0; i < NUM_THREADS; i++) {
+        pthread_join(threads[i], NULL);
+    }
+    
+    printf("所有线程已完成\n");
+    return 0;
+}
+```
+</UniversalEditor>
+
+### 线程同步
+
+<UniversalEditor title="线程同步" compare={true}>
+```javascript !! js
+// JavaScript: 使用 async/await 和 Promise 的同步
+class ThreadSafeCounter {
+    constructor() {
+        this.value = 0;
+        this.pending = Promise.resolve();
+    }
+    
+    async increment() {
+        this.pending = this.pending.then(() => {
+            this.value++;
+            return this.value;
+        });
+        return this.pending;
+    }
+    
+    async getValue() {
+        await this.pending;
+        return this.value;
+    }
+}
+
+async function testCounter() {
+    const counter = new ThreadSafeCounter();
+    const promises = [];
+    
+    for (let i = 0; i < 1000; i++) {
+        promises.push(counter.increment());
+    }
+    
+    await Promise.all(promises);
+    console.log('最终值:', await counter.getValue());
+}
+
+testCounter();
+```
+
+```c !! c
+// C: 基于互斥锁的线程同步
+#include <stdio.h>
+#include <stdlib.h>
+#include <pthread.h>
+#include <unistd.h>
+
+#define NUM_THREADS 10
+#define INCREMENTS_PER_THREAD 100
+
+typedef struct {
+    int value;
+    pthread_mutex_t mutex;
+} ThreadSafeCounter;
+
+ThreadSafeCounter* create_counter() {
+    ThreadSafeCounter* counter = malloc(sizeof(ThreadSafeCounter));
+    counter->value = 0;
+    pthread_mutex_init(&counter->mutex, NULL);
+    return counter;
+}
+
+void destroy_counter(ThreadSafeCounter* counter) {
+    pthread_mutex_destroy(&counter->mutex);
+    free(counter);
+}
+
+void increment_counter(ThreadSafeCounter* counter) {
+    pthread_mutex_lock(&counter->mutex);
+    counter->value++;
+    pthread_mutex_unlock(&counter->mutex);
+}
+
+int get_counter_value(ThreadSafeCounter* counter) {
+    pthread_mutex_lock(&counter->mutex);
+    int value = counter->value;
+    pthread_mutex_unlock(&counter->mutex);
+    return value;
+}
+
+void* thread_function(void* arg) {
+    ThreadSafeCounter* counter = (ThreadSafeCounter*)arg;
+    
+    for (int i = 0; i < INCREMENTS_PER_THREAD; i++) {
+        increment_counter(counter);
+    }
+    
+    return NULL;
+}
+
+int main() {
+    ThreadSafeCounter* counter = create_counter();
+    pthread_t threads[NUM_THREADS];
+    
+    // 创建线程
+    for (int i = 0; i < NUM_THREADS; i++) {
+        pthread_create(&threads[i], NULL, thread_function, counter);
+    }
+    
+    // 等待所有线程
+    for (int i = 0; i < NUM_THREADS; i++) {
+        pthread_join(threads[i], NULL);
+    }
+    
+    printf("最终计数器值: %d\n", get_counter_value(counter));
+    printf("期望值: %d\n", NUM_THREADS * INCREMENTS_PER_THREAD);
+    
+    destroy_counter(counter);
+    return 0;
+}
+```
+</UniversalEditor>
+
+## 高级网络编程
+
+### Socket 编程
+
+<UniversalEditor title="网络 Socket 编程" compare={true}>
+```javascript !! js
+// JavaScript: Node.js socket 编程
+const net = require('net');
+
+// 服务器
+const server = net.createServer((socket) => {
+    console.log('客户端已连接');
+    
+    socket.on('data', (data) => {
+        console.log('收到:', data.toString());
+        socket.write('回显: ' + data);
+    });
+    
+    socket.on('end', () => {
+        console.log('客户端已断开');
+    });
+});
+
+server.listen(3000, () => {
+    console.log('服务器监听端口 3000');
+});
+
+// 客户端
+const client = new net.Socket();
+client.connect(3000, 'localhost', () => {
+    console.log('已连接到服务器');
+    client.write('你好，服务器！');
+});
+
+client.on('data', (data) => {
+    console.log('收到:', data.toString());
+    client.destroy();
+});
+```
+
+```c !! c
+// C: 原始 socket 编程
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+
+#define PORT 3000
+#define BUFFER_SIZE 1024
+
+// 服务器实现
+int create_server() {
+    int server_fd, new_socket;
+    struct sockaddr_in address;
+    int opt = 1;
+    int addrlen = sizeof(address);
+    char buffer[BUFFER_SIZE] = {0};
+    
+    // 创建 socket
+    if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == 0) {
+        perror("Socket 创建失败");
+        exit(EXIT_FAILURE);
+    }
+    
+    // 设置 socket 选项
+    if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, 
+                   &opt, sizeof(opt))) {
+        perror("Setsockopt 失败");
+        exit(EXIT_FAILURE);
+    }
+    
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = INADDR_ANY;
+    address.sin_port = htons(PORT);
+    
+    // 绑定 socket
+    if (bind(server_fd, (struct sockaddr*)&address, sizeof(address)) < 0) {
+        perror("绑定失败");
+        exit(EXIT_FAILURE);
+    }
+    
+    // 监听连接
+    if (listen(server_fd, 3) < 0) {
+        perror("监听失败");
+        exit(EXIT_FAILURE);
+    }
+    
+    printf("服务器监听端口 %d\n", PORT);
+    
+    // 接受连接
+    if ((new_socket = accept(server_fd, (struct sockaddr*)&address, 
+                            (socklen_t*)&addrlen)) < 0) {
+        perror("接受失败");
+        exit(EXIT_FAILURE);
+    }
+    
+    // 读取并回显数据
+    int valread = read(new_socket, buffer, BUFFER_SIZE);
+    printf("收到: %s\n", buffer);
+    
+    char* response = malloc(strlen(buffer) + 7);
+    sprintf(response, "回显: %s", buffer);
+    send(new_socket, response, strlen(response), 0);
+    
+    free(response);
+    close(new_socket);
+    close(server_fd);
+    
+    return 0;
+}
+
+// 客户端实现
+int create_client() {
+    int sock = 0;
+    struct sockaddr_in serv_addr;
+    char buffer[BUFFER_SIZE] = {0};
+    
+    if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+        printf("Socket 创建错误\n");
+        return -1;
+    }
+    
+    serv_addr.sin_family = AF_INET;
+    serv_addr.sin_port = htons(PORT);
+    
+    // 转换 IP 地址
+    if (inet_pton(AF_INET, "127.0.0.1", &serv_addr.sin_addr) <= 0) {
+        printf("无效地址\n");
+        return -1;
+    }
+    
+    if (connect(sock, (struct sockaddr*)&serv_addr, sizeof(serv_addr)) < 0) {
+        printf("连接失败\n");
+        return -1;
+    }
+    
+    char* message = "你好，服务器！";
+    send(sock, message, strlen(message), 0);
+    printf("消息已发送\n");
+    
+    int valread = read(sock, buffer, BUFFER_SIZE);
+    printf("收到: %s\n", buffer);
+    
+    close(sock);
+    return 0;
+}
+
+int main(int argc, char* argv[]) {
+    if (argc > 1 && strcmp(argv[1], "server") == 0) {
+        return create_server();
+    } else {
+        return create_client();
+    }
+}
+```
+</UniversalEditor>
+
+## 图形编程基础
+
+### 使用 SDL2 的基础图形
+
+<UniversalEditor title="使用 SDL2 的图形编程" compare={true}>
+```javascript !! js
+// JavaScript: HTML5 Canvas 图形
+class GraphicsDemo {
+    constructor() {
+        this.canvas = document.createElement('canvas');
+        this.canvas.width = 800;
+        this.canvas.height = 600;
+        this.ctx = this.canvas.getContext('2d');
+        document.body.appendChild(this.canvas);
+        
+        this.angle = 0;
+        this.animate();
+    }
+    
+    draw() {
+        // 清除画布
+        this.ctx.fillStyle = 'black';
+        this.ctx.fillRect(0, 0, 800, 600);
+        
+        // 绘制旋转矩形
+        this.ctx.save();
+        this.ctx.translate(400, 300);
+        this.ctx.rotate(this.angle);
+        this.ctx.fillStyle = 'red';
+        this.ctx.fillRect(-50, -25, 100, 50);
+        this.ctx.restore();
+        
+        this.angle += 0.02;
+    }
+    
+    animate() {
+        this.draw();
+        requestAnimationFrame(() => this.animate());
+    }
+}
+
+new GraphicsDemo();
+```
+
+```c !! c
+// C: SDL2 图形编程
+#include <SDL2/SDL.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <math.h>
+
+#define WINDOW_WIDTH 800
+#define WINDOW_HEIGHT 600
+
+typedef struct {
+    SDL_Window* window;
+    SDL_Renderer* renderer;
+    float angle;
+} GraphicsDemo;
+
+GraphicsDemo* create_graphics_demo() {
+    GraphicsDemo* demo = malloc(sizeof(GraphicsDemo));
+    
+    if (SDL_Init(SDL_INIT_VIDEO) < 0) {
+        printf("SDL 初始化失败: %s\n", SDL_GetError());
+        free(demo);
+        return NULL;
+    }
+    
+    demo->window = SDL_CreateWindow("图形演示", 
+                                   SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
+                                   WINDOW_WIDTH, WINDOW_HEIGHT, 
+                                   SDL_WINDOW_SHOWN);
+    
+    if (!demo->window) {
+        printf("窗口创建失败: %s\n", SDL_GetError());
+        SDL_Quit();
+        free(demo);
+        return NULL;
+    }
+    
+    demo->renderer = SDL_CreateRenderer(demo->window, -1, 
+                                       SDL_RENDERER_ACCELERATED);
+    
+    if (!demo->renderer) {
+        printf("渲染器创建失败: %s\n", SDL_GetError());
+        SDL_DestroyWindow(demo->window);
+        SDL_Quit();
+        free(demo);
+        return NULL;
+    }
+    
+    demo->angle = 0.0f;
+    return demo;
+}
+
+void destroy_graphics_demo(GraphicsDemo* demo) {
+    SDL_DestroyRenderer(demo->renderer);
+    SDL_DestroyWindow(demo->window);
+    SDL_Quit();
+    free(demo);
+}
+
+void draw_frame(GraphicsDemo* demo) {
+    // 清除屏幕
+    SDL_SetRenderDrawColor(demo->renderer, 0, 0, 0, 255);
+    SDL_RenderClear(demo->renderer);
+    
+    // 绘制旋转矩形
+    SDL_Rect rect = {
+        (int)(400 + 50 * cos(demo->angle) - 25 * sin(demo->angle)),
+        (int)(300 + 50 * sin(demo->angle) + 25 * cos(demo->angle)),
+        100, 50
+    };
+    
+    SDL_SetRenderDrawColor(demo->renderer, 255, 0, 0, 255);
+    SDL_RenderFillRect(demo->renderer, &rect);
+    
+    SDL_RenderPresent(demo->renderer);
+    demo->angle += 0.02f;
+}
+
+int main() {
+    GraphicsDemo* demo = create_graphics_demo();
+    if (!demo) {
+        return 1;
+    }
+    
+    SDL_Event event;
+    int running = 1;
+    
+    while (running) {
+        while (SDL_PollEvent(&event)) {
+            if (event.type == SDL_QUIT) {
+                running = 0;
+            }
+        }
+        
+        draw_frame(demo);
+        SDL_Delay(16); // ~60 FPS
+    }
+    
+    destroy_graphics_demo(demo);
+    return 0;
+}
+```
+</UniversalEditor>
+
+## 嵌入式编程
+
+### 裸机编程
+
+<UniversalEditor title="嵌入式编程示例" compare={true}>
+```javascript !! js
+// JavaScript: 硬件抽象模拟
+class HardwareSimulator {
+    constructor() {
+        this.registers = new Uint32Array(16);
+        this.memory = new Uint8Array(1024);
+        this.gpio = new Uint32Array(32);
+    }
+    
+    // 模拟 GPIO 操作
+    setPin(pin, value) {
+        if (pin < 32) {
+            this.gpio[pin] = value ? 1 : 0;
+            console.log(`GPIO ${pin} 设置为 ${value}`);
+        }
+    }
+    
+    getPin(pin) {
+        return pin < 32 ? this.gpio[pin] : 0;
+    }
+    
+    // 模拟内存操作
+    writeMemory(address, value) {
+        if (address < this.memory.length) {
+            this.memory[address] = value;
+        }
+    }
+    
+    readMemory(address) {
+        return address < this.memory.length ? this.memory[address] : 0;
+    }
+}
+
+// 嵌入式风格编程
+const hw = new HardwareSimulator();
+
+// LED 闪烁模拟
+function blinkLED() {
+    let state = 0;
+    setInterval(() => {
+        hw.setPin(13, state);
+        state = !state;
+    }, 1000);
+}
+
+blinkLED();
+```
+
+```c !! c
+// C: 裸机嵌入式编程
+#include <stdint.h>
+#include <stdbool.h>
+
+// 硬件寄存器定义（ARM Cortex-M 示例）
+#define GPIO_BASE_ADDR 0x40020000
+#define GPIO_MODER_OFFSET 0x00
+#define GPIO_ODR_OFFSET 0x14
+#define GPIO_IDR_OFFSET 0x10
+
+// 寄存器指针
+volatile uint32_t* const GPIO_MODER = (uint32_t*)(GPIO_BASE_ADDR + GPIO_MODER_OFFSET);
+volatile uint32_t* const GPIO_ODR = (uint32_t*)(GPIO_BASE_ADDR + GPIO_ODR_OFFSET);
+volatile uint32_t* const GPIO_IDR = (uint32_t*)(GPIO_BASE_ADDR + GPIO_IDR_OFFSET);
+
+// GPIO 引脚定义
+#define LED_PIN 13
+#define BUTTON_PIN 0
+
+// GPIO 函数
+void gpio_init(void) {
+    // 配置 LED 引脚为输出
+    *GPIO_MODER &= ~(3U << (LED_PIN * 2));
+    *GPIO_MODER |= (1U << (LED_PIN * 2));
+    
+    // 配置按钮引脚为输入
+    *GPIO_MODER &= ~(3U << (BUTTON_PIN * 2));
+}
+
+void gpio_set_pin(uint32_t pin, bool value) {
+    if (value) {
+        *GPIO_ODR |= (1U << pin);
+    } else {
+        *GPIO_ODR &= ~(1U << pin);
+    }
+}
+
+bool gpio_get_pin(uint32_t pin) {
+    return (*GPIO_IDR & (1U << pin)) != 0;
+}
+
+// 简单延时函数
+void delay_ms(uint32_t ms) {
+    // 简单延时循环（不准确，仅用于演示）
+    for (volatile uint32_t i = 0; i < ms * 1000; i++) {
+        __asm("nop");
+    }
+}
+
+// 主嵌入式程序
+int main(void) {
+    // 初始化硬件
+    gpio_init();
+    
+    // 主循环
+    while (1) {
+        // 检查按钮状态
+        if (gpio_get_pin(BUTTON_PIN)) {
+            // 按钮按下，点亮 LED
+            gpio_set_pin(LED_PIN, true);
+        } else {
+            // 按钮未按下，熄灭 LED
+            gpio_set_pin(LED_PIN, false);
+        }
+        
+        delay_ms(10); // 小延时防止忙等待
+    }
+    
+    return 0;
+}
+```
+</UniversalEditor>
+
+## 实时系统编程
+
+### 实时约束
+
+<UniversalEditor title="实时编程" compare={true}>
+```javascript !! js
+// JavaScript: 带时间约束的实时系统模拟
+class RealTimeSystem {
+    constructor() {
+        this.tasks = [];
+        this.currentTime = 0;
+        this.scheduler = null;
+    }
+    
+    addTask(name, period, deadline, executionTime) {
+        this.tasks.push({
+            name,
+            period,
+            deadline,
+            executionTime,
+            lastExecution: 0,
+            missedDeadlines: 0
+        });
+    }
+    
+    // 速率单调调度模拟
+    schedule() {
+        this.tasks.sort((a, b) => a.period - b.period); // 按周期排序优先级
+        
+        for (let task of this.tasks) {
+            if (this.currentTime >= task.lastExecution + task.period) {
+                if (this.currentTime + task.executionTime > task.deadline) {
+                    task.missedDeadlines++;
+                    console.log(`任务 ${task.name} 错过截止时间`);
+                } else {
+                    console.log(`执行任务 ${task.name}`);
+                    task.lastExecution = this.currentTime;
+                }
+            }
+        }
+        
+        this.currentTime++;
+    }
+    
+    runSimulation(duration) {
+        for (let i = 0; i < duration; i++) {
+            this.schedule();
+        }
+        
+        console.log('模拟结果:');
+        for (let task of this.tasks) {
+            console.log(`${task.name}: ${task.missedDeadlines} 次错过截止时间`);
+        }
+    }
+}
+
+const rts = new RealTimeSystem();
+rts.addTask('高优先级', 10, 8, 3);
+rts.addTask('中优先级', 20, 15, 5);
+rts.addTask('低优先级', 50, 40, 10);
+
+rts.runSimulation(100);
+```
+
+```c !! c
+// C: 使用 POSIX 的实时系统编程
+#include <stdio.h>
+#include <stdlib.h>
+#include <pthread.h>
+#include <sched.h>
+#include <time.h>
+#include <unistd.h>
+
+#define NUM_TASKS 3
+#define SIMULATION_TIME 100
+
+typedef struct {
+    char name[32];
+    int period;
+    int deadline;
+    int execution_time;
+    int priority;
+    int missed_deadlines;
+    pthread_t thread;
+    int running;
+} RealTimeTask;
+
+RealTimeTask tasks[NUM_TASKS] = {
+    {"高优先级", 10, 8, 3, 99, 0, 0, 1},
+    {"中优先级", 20, 15, 5, 50, 0, 0, 1},
+    {"低优先级", 50, 40, 10, 1, 0, 0, 1}
+};
+
+// 实时任务函数
+void* real_time_task(void* arg) {
+    RealTimeTask* task = (RealTimeTask*)arg;
+    struct timespec start_time, current_time;
+    int execution_count = 0;
+    
+    // 设置线程优先级
+    struct sched_param param;
+    param.sched_priority = task->priority;
+    pthread_setschedparam(pthread_self(), SCHED_FIFO, &param);
+    
+    clock_gettime(CLOCK_MONOTONIC, &start_time);
+    
+    while (task->running) {
+        clock_gettime(CLOCK_MONOTONIC, &current_time);
+        
+        // 计算自开始以来的时间
+        long elapsed = (current_time.tv_sec - start_time.tv_sec) * 1000 +
+                      (current_time.tv_nsec - start_time.tv_nsec) / 1000000;
+        
+        // 检查是否到了执行时间
+        if (elapsed >= execution_count * task->period) {
+            // 模拟执行时间
+            usleep(task->execution_time * 1000);
+            
+            // 检查截止时间
+            if (elapsed > execution_count * task->period + task->deadline) {
+                task->missed_deadlines++;
+                printf("任务 %s 错过截止时间\n", task->name);
+            } else {
+                printf("执行任务 %s\n", task->name);
+            }
+            
+            execution_count++;
+        }
+        
+        usleep(1000); // 小延时防止忙等待
+    }
+    
+    return NULL;
+}
+
+int main() {
+    // 创建实时线程
+    for (int i = 0; i < NUM_TASKS; i++) {
+        if (pthread_create(&tasks[i].thread, NULL, real_time_task, &tasks[i]) != 0) {
+            perror("创建线程失败");
+            return 1;
+        }
+    }
+    
+    // 运行模拟
+    sleep(SIMULATION_TIME / 1000);
+    
+    // 停止任务
+    for (int i = 0; i < NUM_TASKS; i++) {
+        tasks[i].running = 0;
+        pthread_join(tasks[i].thread, NULL);
+    }
+    
+    // 打印结果
+    printf("\n模拟结果:\n");
+    for (int i = 0; i < NUM_TASKS; i++) {
+        printf("%s: %d 次错过截止时间\n", 
+               tasks[i].name, tasks[i].missed_deadlines);
+    }
+    
+    return 0;
+}
+```
+</UniversalEditor>
+
+## 现代 C 特性 (C11/C17)
+
+### 原子操作
+
+<UniversalEditor title="现代 C 原子操作" compare={true}>
+```javascript !! js
+// JavaScript: 使用 SharedArrayBuffer 的原子操作
+const sharedBuffer = new SharedArrayBuffer(4);
+const sharedArray = new Int32Array(sharedBuffer);
+
+// 原子操作
+Atomics.store(sharedArray, 0, 42);
+let value = Atomics.load(sharedArray, 0);
+let oldValue = Atomics.compareExchange(sharedArray, 0, 42, 100);
+let newValue = Atomics.add(sharedArray, 0, 10);
+
+console.log('原子操作:', { value, oldValue, newValue });
+
+// 原子递增
+function atomicIncrement() {
+    return Atomics.add(sharedArray, 0, 1);
+}
+
+// 多个 worker 可以安全地递增
+for (let i = 0; i < 1000; i++) {
+    atomicIncrement();
+}
+
+console.log('最终值:', Atomics.load(sharedArray, 0));
+```
+
+```c !! c
+// C: C11 原子操作
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdatomic.h>
+#include <pthread.h>
+#include <unistd.h>
+
+#define NUM_THREADS 10
+#define INCREMENTS_PER_THREAD 1000
+
+// 原子计数器
+atomic_int counter = ATOMIC_VAR_INIT(0);
+
+// 使用原子操作的线程函数
+void* atomic_increment_thread(void* arg) {
+    for (int i = 0; i < INCREMENTS_PER_THREAD; i++) {
+        atomic_fetch_add(&counter, 1);
+    }
+    return NULL;
+}
+
+int main() {
+    pthread_t threads[NUM_THREADS];
+    
+    // 创建线程
+    for (int i = 0; i < NUM_THREADS; i++) {
+        pthread_create(&threads[i], NULL, atomic_increment_thread, NULL);
+    }
+    
+    // 等待所有线程
+    for (int i = 0; i < NUM_THREADS; i++) {
+        pthread_join(threads[i], NULL);
+    }
+    
+    printf("最终计数器值: %d\n", atomic_load(&counter));
+    printf("期望值: %d\n", NUM_THREADS * INCREMENTS_PER_THREAD);
+    
+    // 演示其他原子操作
+    atomic_int value = ATOMIC_VAR_INIT(42);
+    
+    // 原子存储和加载
+    atomic_store(&value, 100);
+    int loaded = atomic_load(&value);
+    printf("加载的值: %d\n", loaded);
+    
+    // 原子比较和交换
+    int expected = 100;
+    int desired = 200;
+    int result = atomic_compare_exchange_strong(&value, &expected, desired);
+    printf("比较交换结果: %d, 值: %d\n", result, atomic_load(&value));
+    
+    return 0;
+}
+```
+</UniversalEditor>
+
+### 使用 _Generic 的泛型编程
+
+<UniversalEditor title="C11 泛型编程" compare={true}>
+```javascript !! js
+// JavaScript: 使用函数的泛型编程
+function printValue(value) {
+    if (typeof value === 'string') {
+        console.log(`字符串: ${value}`);
+    } else if (typeof value === 'number') {
+        console.log(`数字: ${value}`);
+    } else if (Array.isArray(value)) {
+        console.log(`数组: [${value.join(', ')}]`);
+    } else if (typeof value === 'object') {
+        console.log(`对象: ${JSON.stringify(value)}`);
+    } else {
+        console.log(`未知类型: ${typeof value}`);
+    }
+}
+
+// 使用
+printValue("Hello");
+printValue(42);
+printValue([1, 2, 3]);
+printValue({name: "John", age: 30});
+```
+
+```c !! c
+// C: 使用 C11 _Generic 进行基于类型的分发
+#include <stdio.h>
+#include <string.h>
+
+// 类型特定的打印函数
+void print_int(int value) {
+    printf("整数: %d\n", value);
+}
+
+void print_double(double value) {
+    printf("双精度: %.2f\n", value);
+}
+
+void print_string(const char* value) {
+    printf("字符串: %s\n", value);
+}
+
+void print_array_int(const int* arr, size_t size) {
+    printf("整数数组: [");
+    for (size_t i = 0; i < size; i++) {
+        printf("%d%s", arr[i], (i < size - 1) ? ", " : "");
+    }
+    printf("]\n");
+}
+
+// 使用 _Generic 的泛型宏
+#define print_value(x) _Generic((x), \
+    int: print_int, \
+    double: print_double, \
+    char*: print_string, \
+    const char*: print_string \
+)(x)
+
+// 数组的泛型宏（简化版）
+#define print_array(x, size) _Generic((x), \
+    int*: print_array_int \
+)(x, size)
+
+int main() {
+    // 测试不同类型
+    int int_val = 42;
+    double double_val = 3.14159;
+    char* string_val = "Hello, C11!";
+    
+    print_value(int_val);
+    print_value(double_val);
+    print_value(string_val);
+    
+    // 测试数组
+    int arr[] = {1, 2, 3, 4, 5};
+    print_array(arr, 5);
+    
+    return 0;
+}
+```
+</UniversalEditor>
+
+### 线程本地存储
+
+<UniversalEditor title="线程本地存储" compare={true}>
+```javascript !! js
+// JavaScript: 线程本地存储模拟
+class ThreadLocalStorage {
+    constructor() {
+        this.storage = new Map();
+    }
+    
+    set(key, value) {
+        const threadId = this.getThreadId();
+        if (!this.storage.has(threadId)) {
+            this.storage.set(threadId, new Map());
+        }
+        this.storage.get(threadId).set(key, value);
+    }
+    
+    get(key) {
+        const threadId = this.getThreadId();
+        const threadStorage = this.storage.get(threadId);
+        return threadStorage ? threadStorage.get(key) : undefined;
+    }
+    
+    getThreadId() {
+        // 在真实实现中，这会获取实际的线程 ID
+        return Math.floor(Math.random() * 1000);
+    }
+}
+
+const tls = new ThreadLocalStorage();
+tls.set('user', 'John');
+console.log('用户:', tls.get('user'));
+```
+
+```c !! c
+// C: C11 线程本地存储
+#include <stdio.h>
+#include <stdlib.h>
+#include <pthread.h>
+#include <unistd.h>
+
+// 线程本地变量
+_Thread_local int thread_id = 0;
+_Thread_local char thread_name[64] = "";
+
+// 线程函数
+void* thread_function(void* arg) {
+    int id = *(int*)arg;
+    
+    // 设置线程本地变量
+    thread_id = id;
+    snprintf(thread_name, sizeof(thread_name), "线程-%d", id);
+    
+    // 使用线程本地存储
+    printf("线程 %s (ID: %d) 开始\n", thread_name, thread_id);
+    
+    // 模拟工作
+    usleep(100000 * (id + 1));
+    
+    printf("线程 %s (ID: %d) 结束\n", thread_name, thread_id);
+    
+    free(arg);
+    return NULL;
+}
+
+int main() {
+    pthread_t threads[5];
+    
+    // 创建线程
+    for (int i = 0; i < 5; i++) {
+        int* id = malloc(sizeof(int));
+        *id = i + 1;
+        pthread_create(&threads[i], NULL, thread_function, id);
+    }
+    
+    // 等待所有线程
+    for (int i = 0; i < 5; i++) {
+        pthread_join(threads[i], NULL);
+    }
+    
+    printf("所有线程已完成\n");
+    return 0;
+}
+```
+</UniversalEditor>
+
+## 练习题
+
+### 练习 1: 多线程矩阵乘法
+使用 pthreads 在 C 中实现多线程矩阵乘法算法：
+
+```c
+void multiply_matrices_threaded(int** A, int** B, int** C, 
+                               int rows, int cols, int threads);
+```
+
+### 练习 2: 实时任务调度器
+创建一个实现速率单调调度的简单实时任务调度器：
+
+```c
+typedef struct {
+    char name[32];
+    int period;
+    int deadline;
+    int execution_time;
+    int priority;
+} Task;
+
+void schedule_tasks(Task* tasks, int num_tasks);
+```
+
+### 练习 3: 带线程池的网络服务器
+实现一个使用线程池处理客户端连接的多线程网络服务器：
+
+```c
+typedef struct {
+    int server_socket;
+    int max_threads;
+    pthread_t* threads;
+    int running;
+} ThreadPoolServer;
+
+ThreadPoolServer* create_server(int port, int max_threads);
+void destroy_server(ThreadPoolServer* server);
+```
+
+## 高级主题总结
+
+### 关键高级概念
+
+1. **多线程**: 对系统线程和同步的直接控制
+2. **网络编程**: 低级 socket 编程和协议
+3. **图形编程**: 使用 SDL2 等库的硬件加速图形
+4. **嵌入式编程**: 微控制器的裸机编程
+5. **实时系统**: 确定性时序和调度
+6. **现代 C 特性**: C11/C17 特性，用于更安全、更高效的代码
+
+### 性能考虑
+
+- **线程安全**: 使用原子操作和适当的同步
+- **内存管理**: 实时系统的高效分配策略
+- **缓存优化**: 嵌入式系统的数据结构设计
+- **时序约束**: 满足实时截止时间
+- **资源管理**: 有限嵌入式资源的高效使用
+
+### 最佳实践
+
+- 使用适当的同步原语
+- 为网络操作实现适当的错误处理
+- 为实时约束设计
+- 针对嵌入式系统限制进行优化
+- 利用现代 C 特性提高安全性和性能
+- 在目标环境中彻底测试
+
+## 下一步
+
+本模块涵盖了展示 C 语言强大功能和多功能性的高级 C 编程主题。要继续你的 C 编程之旅：
+
+1. **探索特定领域**: 选择感兴趣的领域（嵌入式、图形、网络等）
+2. **实践真实项目**: 使用这些概念构建完整的应用程序
+3. **研究现有代码库**: 从开源 C 项目中学习
+4. **为项目做贡献**: 加入开源社区
+5. **保持更新**: 关注 C 语言发展和新特性
+
+C 编程在许多关键软件开发领域仍然至关重要，从操作系统到嵌入式设备。你在本课程中学到的技能为高级软件开发和系统编程提供了坚实的基础。
+
+记住，C 的强大伴随着责任 - 始终在你的代码中优先考虑安全性、正确性和可维护性。 

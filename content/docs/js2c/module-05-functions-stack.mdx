@@ -1,0 +1,1167 @@
+---
+title: "Functions and Stack Management"
+description: "Learn C functions and stack management from a JavaScript perspective. Understand function parameters, stack frames, recursion, function pointers, and memory management."
+---
+
+# Functions and Stack Management
+
+## 1. Introduction
+
+### From JavaScript Functions to C Functions
+
+In JavaScript, functions are first-class objects with closures, automatic memory management, and flexible parameter handling. In C, functions are more primitive but offer precise control over memory, stack management, and performance optimization.
+
+C functions are the building blocks of modular programming, providing:
+- Code reusability and organization
+- Precise control over memory allocation
+- Performance optimization opportunities
+- System-level programming capabilities
+
+> 💡 **Key Concept**: C functions operate on a call stack, where each function call creates a stack frame containing local variables, parameters, and return addresses. Understanding stack management is crucial for memory safety and performance.
+
+## 2. Function Basics
+
+### 2.1 Function Declaration and Definition
+
+<UniversalEditor title="Function Declaration" compare={true}>
+```javascript !! js
+// JavaScript - flexible function declaration
+function greet(name) {
+    return `Hello, ${name}!`;
+}
+
+// Function expression
+const greet2 = function(name) {
+    return `Hello, ${name}!`;
+};
+
+// Arrow function
+const greet3 = (name) => `Hello, ${name}!`;
+
+// Default parameters
+function greetWithDefault(name = "World") {
+    return `Hello, ${name}!`;
+}
+
+// Variable number of arguments
+function sum(...numbers) {
+    return numbers.reduce((a, b) => a + b, 0);
+}
+
+// Function calls
+console.log(greet("Alice"));
+console.log(greetWithDefault());
+console.log(sum(1, 2, 3, 4, 5));
+```
+
+```c !! c
+#include <stdio.h>
+
+// Function declaration (prototype)
+int greet(const char* name);
+int sum(int a, int b);
+void printArray(int arr[], int size);
+
+// Function definition
+int greet(const char* name) {
+    printf("Hello, %s!\n", name);
+    return 0;
+}
+
+// Function with return value
+int sum(int a, int b) {
+    return a + b;
+}
+
+// Function with array parameter
+void printArray(int arr[], int size) {
+    for (int i = 0; i < size; i++) {
+        printf("%d ", arr[i]);
+    }
+    printf("\n");
+}
+
+// Function with multiple parameters
+int calculate(int a, int b, char operation) {
+    switch (operation) {
+        case '+': return a + b;
+        case '-': return a - b;
+        case '*': return a * b;
+        case '/': return b != 0 ? a / b : 0;
+        default: return 0;
+    }
+}
+
+int main() {
+    // Function calls
+    greet("Alice");
+    
+    int result = sum(10, 20);
+    printf("Sum: %d\n", result);
+    
+    int arr[] = {1, 2, 3, 4, 5};
+    printArray(arr, 5);
+    
+    printf("10 + 5 = %d\n", calculate(10, 5, '+'));
+    printf("10 - 5 = %d\n", calculate(10, 5, '-'));
+    
+    return 0;
+}
+```
+</UniversalEditor>
+
+### 2.2 Function Parameters and Stack Frames
+
+<UniversalEditor title="Function Parameters and Stack" compare={true}>
+```javascript !! js
+// JavaScript - pass by value for primitives, reference for objects
+function modifyValue(x) {
+    x = 100;  // Local copy for primitives
+    console.log("Inside function:", x);
+}
+
+function modifyObject(obj) {
+    obj.name = "Modified";  // Modifies original object
+    console.log("Inside function:", obj.name);
+}
+
+function modifyArray(arr) {
+    arr.push(100);  // Modifies original array
+    console.log("Inside function:", arr);
+}
+
+// Test with different types
+let num = 10;
+let person = { name: "John" };
+let numbers = [1, 2, 3];
+
+console.log("Before:", num, person.name, numbers);
+modifyValue(num);
+modifyObject(person);
+modifyArray(numbers);
+console.log("After:", num, person.name, numbers);
+```
+
+```c !! c
+#include <stdio.h>
+
+// Pass by value (default in C)
+void modifyValue(int x) {
+    x = 100;  // Local copy, doesn't affect original
+    printf("Inside function: x = %d\n", x);
+}
+
+// Pass by pointer (simulates pass by reference)
+void modifyValueByPointer(int* x) {
+    *x = 100;  // Modifies original value
+    printf("Inside function: *x = %d\n", *x);
+}
+
+// Pass array by pointer
+void modifyArray(int arr[], int size) {
+    for (int i = 0; i < size; i++) {
+        arr[i] *= 2;  // Modifies original array
+    }
+    printf("Inside function: Array modified\n");
+}
+
+// Function with local variables (stack frame)
+void functionWithLocals(int param) {
+    int local1 = 10;
+    int local2 = 20;
+    int local3 = local1 + local2 + param;
+    
+    printf("Local variables: %d, %d, %d\n", local1, local2, local3);
+    printf("Parameter: %d\n", param);
+    
+    // These variables are stored in the function's stack frame
+    // They are automatically deallocated when function returns
+}
+
+int main() {
+    int num = 10;
+    int arr[] = {1, 2, 3, 4, 5};
+    
+    printf("Before modification: num = %d\n", num);
+    modifyValue(num);  // Pass by value
+    printf("After modifyValue: num = %d\n", num);
+    
+    modifyValueByPointer(&num);  // Pass by pointer
+    printf("After modifyValueByPointer: num = %d\n", num);
+    
+    printf("Before array modification: ");
+    for (int i = 0; i < 5; i++) {
+        printf("%d ", arr[i]);
+    }
+    printf("\n");
+    
+    modifyArray(arr, 5);  // Pass array by pointer
+    
+    printf("After array modification: ");
+    for (int i = 0; i < 5; i++) {
+        printf("%d ", arr[i]);
+    }
+    printf("\n");
+    
+    functionWithLocals(5);
+    
+    return 0;
+}
+```
+</UniversalEditor>
+
+### 2.3 Stack Frame Structure
+
+<UniversalEditor title="Stack Frame Visualization" compare={true}>
+```javascript !! js
+// JavaScript - automatic stack management
+function outerFunction(x) {
+    let outerVar = x * 2;
+    
+    function innerFunction(y) {
+        let innerVar = y + outerVar;  // Closure captures outerVar
+        console.log("Inner function:", innerVar);
+        return innerVar;
+    }
+    
+    console.log("Outer function:", outerVar);
+    return innerFunction(10);
+}
+
+// Function call creates execution context
+let result = outerFunction(5);
+console.log("Result:", result);
+
+// Stack trace shows call hierarchy
+function demonstrateStack() {
+    console.trace("Current stack trace");
+}
+
+demonstrateStack();
+```
+
+```c !! c
+#include <stdio.h>
+
+// Function to demonstrate stack frame
+void functionA(int param1, int param2) {
+    int local1 = param1 + param2;
+    int local2 = param1 * param2;
+    
+    printf("Function A - Parameters: %d, %d\n", param1, param2);
+    printf("Function A - Locals: %d, %d\n", local1, local2);
+    
+    // Stack frame structure:
+    // +------------------+
+    // | Return Address   |  <- Where to return after function
+    // +------------------+
+    // | param2           |  <- Function parameters
+    // +------------------+
+    // | param1           |
+    // +------------------+
+    // | local1           |  <- Local variables
+    // +------------------+
+    // | local2           |
+    // +------------------+
+    // | Stack Pointer    |  <- Current stack position
+    // +------------------+
+}
+
+void functionB(int x) {
+    int local = x * 2;
+    printf("Function B - Parameter: %d, Local: %d\n", x, local);
+    
+    // Call another function (creates new stack frame)
+    functionA(x, local);
+}
+
+int main() {
+    printf("Main function starting\n");
+    
+    // Each function call creates a new stack frame
+    functionB(5);
+    
+    printf("Main function ending\n");
+    return 0;
+}
+```
+</UniversalEditor>
+
+## 3. Recursion and Stack Management
+
+### 3.1 Recursive Functions
+
+<UniversalEditor title="Recursive Functions" compare={true}>
+```javascript !! js
+// JavaScript - recursion with automatic stack management
+function factorial(n) {
+    if (n <= 1) return 1;
+    return n * factorial(n - 1);
+}
+
+function fibonacci(n) {
+    if (n <= 1) return n;
+    return fibonacci(n - 1) + fibonacci(n - 2);
+}
+
+function countdown(n) {
+    if (n <= 0) {
+        console.log("Blast off!");
+        return;
+    }
+    console.log(n);
+    countdown(n - 1);
+}
+
+// Recursive array processing
+function sumArray(arr, index = 0) {
+    if (index >= arr.length) return 0;
+    return arr[index] + sumArray(arr, index + 1);
+}
+
+// Test recursion
+console.log("Factorial of 5:", factorial(5));
+console.log("Fibonacci(7):", fibonacci(7));
+countdown(3);
+console.log("Sum of [1,2,3,4,5]:", sumArray([1, 2, 3, 4, 5]));
+```
+
+```c !! c
+#include <stdio.h>
+
+// Recursive factorial function
+int factorial(int n) {
+    if (n <= 1) {
+        return 1;
+    }
+    return n * factorial(n - 1);
+}
+
+// Recursive fibonacci (inefficient but demonstrates recursion)
+int fibonacci(int n) {
+    if (n <= 1) {
+        return n;
+    }
+    return fibonacci(n - 1) + fibonacci(n - 2);
+}
+
+// Recursive countdown
+void countdown(int n) {
+    if (n <= 0) {
+        printf("Blast off!\n");
+        return;
+    }
+    printf("%d\n", n);
+    countdown(n - 1);
+}
+
+// Recursive array sum
+int sumArray(int arr[], int size, int index) {
+    if (index >= size) {
+        return 0;
+    }
+    return arr[index] + sumArray(arr, size, index + 1);
+}
+
+// Recursive binary search
+int binarySearch(int arr[], int left, int right, int target) {
+    if (left > right) {
+        return -1;  // Not found
+    }
+    
+    int mid = left + (right - left) / 2;
+    
+    if (arr[mid] == target) {
+        return mid;
+    } else if (arr[mid] > target) {
+        return binarySearch(arr, left, mid - 1, target);
+    } else {
+        return binarySearch(arr, mid + 1, right, target);
+    }
+}
+
+int main() {
+    printf("Factorial of 5: %d\n", factorial(5));
+    printf("Fibonacci(7): %d\n", fibonacci(7));
+    
+    countdown(3);
+    
+    int arr[] = {1, 2, 3, 4, 5};
+    printf("Sum of array: %d\n", sumArray(arr, 5, 0));
+    
+    int sorted[] = {1, 3, 5, 7, 9, 11, 13, 15};
+    int target = 7;
+    int result = binarySearch(sorted, 0, 7, target);
+    printf("Binary search for %d: index %d\n", target, result);
+    
+    return 0;
+}
+```
+</UniversalEditor>
+
+### 3.2 Stack Overflow and Memory Management
+
+<UniversalEditor title="Stack Overflow Prevention" compare={true}>
+```javascript !! js
+// JavaScript - automatic stack management with limits
+function deepRecursion(n) {
+    if (n <= 0) return 0;
+    return 1 + deepRecursion(n - 1);
+}
+
+// JavaScript has a call stack limit
+try {
+    console.log("Deep recursion result:", deepRecursion(10000));
+} catch (error) {
+    console.log("Stack overflow:", error.message);
+}
+
+// Tail recursion optimization (ES6)
+function tailRecursiveFactorial(n, accumulator = 1) {
+    if (n <= 1) return accumulator;
+    return tailRecursiveFactorial(n - 1, n * accumulator);
+}
+
+console.log("Tail recursive factorial:", tailRecursiveFactorial(5));
+```
+
+```c !! c
+#include <stdio.h>
+#include <stdlib.h>
+
+// Deep recursion that may cause stack overflow
+int deepRecursion(int n) {
+    if (n <= 0) {
+        return 0;
+    }
+    return 1 + deepRecursion(n - 1);
+}
+
+// Tail recursive factorial (more efficient)
+int tailRecursiveFactorial(int n, int accumulator) {
+    if (n <= 1) {
+        return accumulator;
+    }
+    return tailRecursiveFactorial(n - 1, n * accumulator);
+}
+
+// Iterative version (prevents stack overflow)
+int iterativeFactorial(int n) {
+    int result = 1;
+    for (int i = 2; i <= n; i++) {
+        result *= i;
+    }
+    return result;
+}
+
+// Function to demonstrate stack size limits
+void demonstrateStackLimits() {
+    // Large local array may cause stack overflow
+    // int largeArray[1000000];  // Dangerous!
+    
+    // Instead, use dynamic allocation
+    int* largeArray = malloc(1000000 * sizeof(int));
+    if (largeArray != NULL) {
+        printf("Large array allocated successfully\n");
+        free(largeArray);  // Important: free memory
+    }
+}
+
+int main() {
+    printf("Tail recursive factorial of 5: %d\n", 
+           tailRecursiveFactorial(5, 1));
+    
+    printf("Iterative factorial of 5: %d\n", 
+           iterativeFactorial(5));
+    
+    // Be careful with deep recursion
+    printf("Deep recursion (small): %d\n", deepRecursion(100));
+    
+    demonstrateStackLimits();
+    
+    return 0;
+}
+```
+</UniversalEditor>
+
+## 4. Function Pointers
+
+### 4.1 Function Pointer Basics
+
+<UniversalEditor title="Function Pointers" compare={true}>
+```javascript !! js
+// JavaScript - functions are first-class objects
+function add(a, b) {
+    return a + b;
+}
+
+function multiply(a, b) {
+    return a * b;
+}
+
+function subtract(a, b) {
+    return a - b;
+}
+
+// Functions can be assigned to variables
+let operation = add;
+console.log("Using function pointer:", operation(5, 3));
+
+// Functions can be passed as parameters
+function calculate(a, b, func) {
+    return func(a, b);
+}
+
+console.log("Add:", calculate(10, 5, add));
+console.log("Multiply:", calculate(10, 5, multiply));
+console.log("Subtract:", calculate(10, 5, subtract));
+
+// Functions can be stored in arrays
+let operations = [add, multiply, subtract];
+for (let i = 0; i < operations.length; i++) {
+    console.log(`Operation ${i}:`, operations[i](10, 2));
+}
+
+// Functions can be returned from functions
+function getOperation(type) {
+    switch (type) {
+        case 'add': return add;
+        case 'multiply': return multiply;
+        case 'subtract': return subtract;
+        default: return add;
+    }
+}
+
+let selectedOp = getOperation('multiply');
+console.log("Selected operation:", selectedOp(6, 7));
+```
+
+```c !! c
+#include <stdio.h>
+
+// Function declarations
+int add(int a, int b);
+int multiply(int a, int b);
+int subtract(int a, int b);
+
+// Function definitions
+int add(int a, int b) {
+    return a + b;
+}
+
+int multiply(int a, int b) {
+    return a * b;
+}
+
+int subtract(int a, int b) {
+    return a - b;
+}
+
+// Function that takes a function pointer as parameter
+int calculate(int a, int b, int (*operation)(int, int)) {
+    return operation(a, b);
+}
+
+// Function that returns a function pointer
+int (*getOperation(char type))(int, int) {
+    switch (type) {
+        case 'a': return add;
+        case 'm': return multiply;
+        case 's': return subtract;
+        default: return add;
+    }
+}
+
+int main() {
+    // Function pointer declaration
+    int (*operation)(int, int);
+    
+    // Assign function to pointer
+    operation = add;
+    printf("Using function pointer: %d\n", operation(5, 3));
+    
+    // Pass function pointer to another function
+    printf("Add: %d\n", calculate(10, 5, add));
+    printf("Multiply: %d\n", calculate(10, 5, multiply));
+    printf("Subtract: %d\n", calculate(10, 5, subtract));
+    
+    // Array of function pointers
+    int (*operations[3])(int, int) = {add, multiply, subtract};
+    char* names[] = {"add", "multiply", "subtract"};
+    
+    for (int i = 0; i < 3; i++) {
+        printf("%s: %d\n", names[i], operations[i](10, 2));
+    }
+    
+    // Get function pointer from function
+    int (*selectedOp)(int, int) = getOperation('m');
+    printf("Selected operation: %d\n", selectedOp(6, 7));
+    
+    return 0;
+}
+```
+</UniversalEditor>
+
+### 4.2 Function Pointers for Callbacks
+
+<UniversalEditor title="Function Pointers as Callbacks" compare={true}>
+```javascript !! js
+// JavaScript - callback functions
+function processArray(arr, callback) {
+    let result = [];
+    for (let i = 0; i < arr.length; i++) {
+        result.push(callback(arr[i]));
+    }
+    return result;
+}
+
+// Callback functions
+function double(x) {
+    return x * 2;
+}
+
+function square(x) {
+    return x * x;
+}
+
+function isEven(x) {
+    return x % 2 === 0;
+}
+
+// Using callbacks
+let numbers = [1, 2, 3, 4, 5];
+console.log("Original:", numbers);
+console.log("Doubled:", processArray(numbers, double));
+console.log("Squared:", processArray(numbers, square));
+
+// Filter with callback
+function filterArray(arr, predicate) {
+    let result = [];
+    for (let i = 0; i < arr.length; i++) {
+        if (predicate(arr[i])) {
+            result.push(arr[i]);
+        }
+    }
+    return result;
+}
+
+console.log("Even numbers:", filterArray(numbers, isEven));
+
+// Sort with callback
+function compareNumbers(a, b) {
+    return a - b;
+}
+
+let unsorted = [3, 1, 4, 1, 5, 9, 2, 6];
+unsorted.sort(compareNumbers);
+console.log("Sorted:", unsorted);
+```
+
+```c !! c
+#include <stdio.h>
+#include <stdlib.h>
+
+// Function pointer type definition for clarity
+typedef int (*OperationFunc)(int);
+typedef int (*ComparisonFunc)(int, int);
+
+// Function that processes array with callback
+void processArray(int arr[], int size, OperationFunc operation) {
+    for (int i = 0; i < size; i++) {
+        arr[i] = operation(arr[i]);
+    }
+}
+
+// Function that filters array with callback
+int* filterArray(int arr[], int size, int (*predicate)(int), int* resultSize) {
+    int* result = malloc(size * sizeof(int));
+    *resultSize = 0;
+    
+    for (int i = 0; i < size; i++) {
+        if (predicate(arr[i])) {
+            result[*resultSize] = arr[i];
+            (*resultSize)++;
+        }
+    }
+    
+    return result;
+}
+
+// Callback functions
+int doubleValue(int x) {
+    return x * 2;
+}
+
+int squareValue(int x) {
+    return x * x;
+}
+
+int isEven(int x) {
+    return x % 2 == 0;
+}
+
+int isPositive(int x) {
+    return x > 0;
+}
+
+// Comparison function for sorting
+int compareAscending(int a, int b) {
+    return a - b;
+}
+
+int compareDescending(int a, int b) {
+    return b - a;
+}
+
+// Simple bubble sort with comparison function
+void bubbleSort(int arr[], int size, ComparisonFunc compare) {
+    for (int i = 0; i < size - 1; i++) {
+        for (int j = 0; j < size - i - 1; j++) {
+            if (compare(arr[j], arr[j + 1]) > 0) {
+                // Swap
+                int temp = arr[j];
+                arr[j] = arr[j + 1];
+                arr[j + 1] = temp;
+            }
+        }
+    }
+}
+
+void printArray(int arr[], int size) {
+    for (int i = 0; i < size; i++) {
+        printf("%d ", arr[i]);
+    }
+    printf("\n");
+}
+
+int main() {
+    int numbers[] = {1, 2, 3, 4, 5};
+    int size = 5;
+    
+    printf("Original array: ");
+    printArray(numbers, size);
+    
+    // Process with different callbacks
+    int doubled[5];
+    for (int i = 0; i < size; i++) {
+        doubled[i] = numbers[i];
+    }
+    processArray(doubled, size, doubleValue);
+    printf("Doubled: ");
+    printArray(doubled, size);
+    
+    // Filter array
+    int resultSize;
+    int* evenNumbers = filterArray(numbers, size, isEven, &resultSize);
+    printf("Even numbers: ");
+    printArray(evenNumbers, resultSize);
+    free(evenNumbers);
+    
+    // Sort array
+    int unsorted[] = {3, 1, 4, 1, 5, 9, 2, 6};
+    int unsortedSize = 8;
+    
+    printf("Unsorted: ");
+    printArray(unsorted, unsortedSize);
+    
+    bubbleSort(unsorted, unsortedSize, compareAscending);
+    printf("Sorted ascending: ");
+    printArray(unsorted, unsortedSize);
+    
+    bubbleSort(unsorted, unsortedSize, compareDescending);
+    printf("Sorted descending: ");
+    printArray(unsorted, unsortedSize);
+    
+    return 0;
+}
+```
+</UniversalEditor>
+
+## 5. Variable Arguments and Advanced Features
+
+### 5.1 Variable Arguments Functions
+
+<UniversalEditor title="Variable Arguments" compare={true}>
+```javascript !! js
+// JavaScript - rest parameters and arguments object
+function sum(...numbers) {
+    return numbers.reduce((a, b) => a + b, 0);
+}
+
+function average(...numbers) {
+    if (numbers.length === 0) return 0;
+    return numbers.reduce((a, b) => a + b, 0) / numbers.length;
+}
+
+function formatString(template, ...values) {
+    return template.replace(/\{(\d+)\}/g, (match, index) => {
+        return values[index] || match;
+    });
+}
+
+// Using variable arguments
+console.log("Sum:", sum(1, 2, 3, 4, 5));
+console.log("Average:", average(10, 20, 30, 40));
+console.log("Formatted:", formatString("Hello {0}, you are {1} years old", "Alice", 25));
+
+// Arguments object (legacy)
+function legacySum() {
+    let total = 0;
+    for (let i = 0; i < arguments.length; i++) {
+        total += arguments[i];
+    }
+    return total;
+}
+
+console.log("Legacy sum:", legacySum(1, 2, 3, 4, 5));
+```
+
+```c !! c
+#include <stdio.h>
+#include <stdarg.h>
+
+// Variable arguments function
+int sum(int count, ...) {
+    va_list args;
+    va_start(args, count);
+    
+    int total = 0;
+    for (int i = 0; i < count; i++) {
+        total += va_arg(args, int);
+    }
+    
+    va_end(args);
+    return total;
+}
+
+// Variable arguments for average
+double average(int count, ...) {
+    va_list args;
+    va_start(args, count);
+    
+    double total = 0.0;
+    for (int i = 0; i < count; i++) {
+        total += va_arg(args, double);
+    }
+    
+    va_end(args);
+    return count > 0 ? total / count : 0.0;
+}
+
+// Variable arguments for string formatting
+void printFormatted(const char* format, ...) {
+    va_list args;
+    va_start(args, format);
+    
+    vprintf(format, args);
+    
+    va_end(args);
+}
+
+// Variable arguments with different types
+void printMixed(const char* prefix, int count, ...) {
+    va_list args;
+    va_start(args, count);
+    
+    printf("%s: ", prefix);
+    for (int i = 0; i < count; i++) {
+        // Assume alternating int and double
+        if (i % 2 == 0) {
+            int val = va_arg(args, int);
+            printf("%d ", val);
+        } else {
+            double val = va_arg(args, double);
+            printf("%.2f ", val);
+        }
+    }
+    printf("\n");
+    
+    va_end(args);
+}
+
+int main() {
+    // Using variable arguments
+    printf("Sum of 5 numbers: %d\n", sum(5, 1, 2, 3, 4, 5));
+    printf("Sum of 3 numbers: %d\n", sum(3, 10, 20, 30));
+    
+    printf("Average of 4 numbers: %.2f\n", average(4, 10.0, 20.0, 30.0, 40.0));
+    
+    printFormatted("Hello %s, you are %d years old\n", "Alice", 25);
+    printFormatted("Temperature: %.1f°C, Humidity: %d%%\n", 23.5, 65);
+    
+    printMixed("Mixed values", 6, 10, 3.14, 20, 2.718, 30, 1.414);
+    
+    return 0;
+}
+```
+</UniversalEditor>
+
+### 5.2 Inline Functions and Optimization
+
+<UniversalEditor title="Inline Functions" compare={true}>
+```javascript !! js
+// JavaScript - function optimization
+function simpleAdd(a, b) {
+    return a + b;
+}
+
+// Modern JavaScript engines optimize small functions
+const optimizedAdd = (a, b) => a + b;
+
+// Function inlining (engine optimization)
+function processData(data) {
+    let result = 0;
+    for (let i = 0; i < data.length; i++) {
+        result += optimizedAdd(data[i], 1);  // May be inlined
+    }
+    return result;
+}
+
+// Performance measurement
+function measurePerformance(func, iterations) {
+    const start = performance.now();
+    for (let i = 0; i < iterations; i++) {
+        func(i, i + 1);
+    }
+    const end = performance.now();
+    return end - start;
+}
+
+console.log("Simple function time:", measurePerformance(simpleAdd, 1000000));
+console.log("Optimized function time:", measurePerformance(optimizedAdd, 1000000));
+```
+
+```c !! c
+#include <stdio.h>
+#include <time.h>
+
+// Regular function
+int regularAdd(int a, int b) {
+    return a + b;
+}
+
+// Inline function (suggestion to compiler)
+inline int inlineAdd(int a, int b) {
+    return a + b;
+}
+
+// Static inline (more explicit)
+static inline int staticInlineAdd(int a, int b) {
+    return a + b;
+}
+
+// Macro (preprocessor replacement)
+#define MACRO_ADD(a, b) ((a) + (b))
+
+// Function that uses inline functions
+int processData(int data[], int size) {
+    int result = 0;
+    for (int i = 0; i < size; i++) {
+        // These calls may be inlined by the compiler
+        result += inlineAdd(data[i], 1);
+        result += staticInlineAdd(data[i], 2);
+        result += MACRO_ADD(data[i], 3);
+    }
+    return result;
+}
+
+// Performance measurement function
+double measurePerformance(int (*func)(int, int), int iterations) {
+    clock_t start = clock();
+    
+    for (int i = 0; i < iterations; i++) {
+        func(i, i + 1);
+    }
+    
+    clock_t end = clock();
+    return ((double)(end - start)) / CLOCKS_PER_SEC;
+}
+
+int main() {
+    int data[] = {1, 2, 3, 4, 5};
+    int size = 5;
+    
+    printf("Processed data: %d\n", processData(data, size));
+    
+    // Performance comparison
+    int iterations = 1000000;
+    
+    printf("Regular function time: %.6f seconds\n", 
+           measurePerformance(regularAdd, iterations));
+    
+    printf("Inline function time: %.6f seconds\n", 
+           measurePerformance(inlineAdd, iterations));
+    
+    printf("Static inline time: %.6f seconds\n", 
+           measurePerformance(staticInlineAdd, iterations));
+    
+    // Note: Actual performance depends on compiler optimization
+    // and may vary between different compilers and optimization levels
+    
+    return 0;
+}
+```
+</UniversalEditor>
+
+## 6. Practice Exercises
+
+### Exercise 1: Recursive Array Processing
+Write a C function that recursively finds the maximum value in an array.
+
+<UniversalEditor title="Exercise 1: Recursive Maximum" compare={true}>
+```javascript !! js
+// JavaScript solution
+function findMaxRecursive(arr, index = 0) {
+    if (index >= arr.length) {
+        return -Infinity;
+    }
+    
+    let current = arr[index];
+    let rest = findMaxRecursive(arr, index + 1);
+    
+    return current > rest ? current : rest;
+}
+
+// Test
+let numbers = [3, 7, 2, 9, 1, 8, 5];
+console.log("Maximum:", findMaxRecursive(numbers));
+```
+
+```c !! c
+#include <stdio.h>
+#include <limits.h>
+
+// C solution
+int findMaxRecursive(int arr[], int size, int index) {
+    // Base case: if we've reached the end
+    if (index >= size) {
+        return INT_MIN;
+    }
+    
+    // Get current element
+    int current = arr[index];
+    
+    // Recursively find max in rest of array
+    int restMax = findMaxRecursive(arr, size, index + 1);
+    
+    // Return the larger of current and rest
+    return (current > restMax) ? current : restMax;
+}
+
+int main() {
+    int numbers[] = {3, 7, 2, 9, 1, 8, 5};
+    int size = sizeof(numbers) / sizeof(numbers[0]);
+    
+    int max = findMaxRecursive(numbers, size, 0);
+    printf("Maximum value: %d\n", max);
+    
+    return 0;
+}
+```
+</UniversalEditor>
+
+### Exercise 2: Function Pointer Calculator
+Create a calculator using function pointers.
+
+<UniversalEditor title="Exercise 2: Function Pointer Calculator" compare={true}>
+```javascript !! js
+// JavaScript solution
+const calculator = {
+    add: (a, b) => a + b,
+    subtract: (a, b) => a - b,
+    multiply: (a, b) => a * b,
+    divide: (a, b) => b !== 0 ? a / b : NaN
+};
+
+function calculate(operation, a, b) {
+    if (calculator[operation]) {
+        return calculator[operation](a, b);
+    }
+    return NaN;
+}
+
+// Test
+console.log("10 + 5 =", calculate('add', 10, 5));
+console.log("10 - 5 =", calculate('subtract', 10, 5));
+console.log("10 * 5 =", calculate('multiply', 10, 5));
+console.log("10 / 5 =", calculate('divide', 10, 5));
+```
+
+```c !! c
+#include <stdio.h>
+
+// Function pointer type for calculator operations
+typedef double (*Operation)(double, double);
+
+// Calculator functions
+double add(double a, double b) {
+    return a + b;
+}
+
+double subtract(double a, double b) {
+    return a - b;
+}
+
+double multiply(double a, double b) {
+    return a * b;
+}
+
+double divide(double a, double b) {
+    return b != 0 ? a / b : 0;
+}
+
+// Calculator function using function pointer
+double calculate(Operation operation, double a, double b) {
+    return operation(a, b);
+}
+
+int main() {
+    double a = 10.0, b = 5.0;
+    
+    printf("%.1f + %.1f = %.1f\n", a, b, calculate(add, a, b));
+    printf("%.1f - %.1f = %.1f\n", a, b, calculate(subtract, a, b));
+    printf("%.1f * %.1f = %.1f\n", a, b, calculate(multiply, a, b));
+    printf("%.1f / %.1f = %.1f\n", a, b, calculate(divide, a, b));
+    
+    return 0;
+}
+```
+</UniversalEditor>
+
+## 7. Summary
+
+### Key Concepts Covered
+
+1. **Function Declaration and Definition**: C functions require explicit declarations and have strict parameter typing
+2. **Stack Frames**: Each function call creates a stack frame containing local variables, parameters, and return address
+3. **Parameter Passing**: C uses pass-by-value by default, but pointers enable pass-by-reference behavior
+4. **Recursion**: C supports recursion but requires careful stack management to avoid overflow
+5. **Function Pointers**: Enable dynamic function selection and callback mechanisms
+6. **Variable Arguments**: Allow functions to accept varying numbers of arguments using `stdarg.h`
+7. **Inline Functions**: Provide performance optimization hints to the compiler
+
+### Memory Management Considerations
+
+- **Stack Variables**: Automatically allocated and deallocated with function calls
+- **Stack Overflow**: Deep recursion can cause stack overflow; use iteration for large problems
+- **Function Pointers**: Require careful memory management when used with dynamic allocation
+- **Variable Arguments**: Require proper initialization and cleanup with `va_start` and `va_end`
+
+### Best Practices
+
+1. **Always declare function prototypes** before use
+2. **Use meaningful parameter names** in function declarations
+3. **Check for stack overflow** in recursive functions
+4. **Use function pointers** for flexible, reusable code
+5. **Prefer iteration over recursion** for performance-critical code
+6. **Use inline functions** for small, frequently called functions
+7. **Handle variable arguments carefully** with proper type checking
+
+### Performance Tips
+
+- **Inline Functions**: Use `inline` keyword for small, frequently called functions
+- **Function Pointers**: Can add slight overhead but provide flexibility
+- **Recursion vs Iteration**: Choose based on problem complexity and stack usage
+- **Stack Management**: Be aware of stack size limits in your environment
+
+Understanding C functions and stack management is crucial for writing efficient, safe, and maintainable code. These concepts form the foundation for more advanced topics like system programming and performance optimization. 

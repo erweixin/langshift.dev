@@ -145,6 +145,28 @@ export default function sitemap(): MetadataRoute.Sitemap {
         'module-19-performance-optimization',
       ],
     },
+    {
+      name: 'js2c',
+      title: 'JavaScript 到 C 转换学习',
+      priority: 0.9,
+      modules: [
+        'module-00-c-introduction',
+        'module-01-syntax-comparison',
+        'module-02-variables-memory',
+        'module-03-pointers-fundamentals',
+        'module-04-arrays-strings',
+        'module-05-functions-stack',
+        'module-06-structures-unions',
+        'module-07-memory-allocation',
+        'module-08-file-operations',
+        'module-09-algorithms-data-structures',
+        'module-10-system-programming',
+        'module-11-projects',
+        'module-12-common-pitfalls',
+        'module-13-optimization-performance',
+        'module-14-advanced-topics',
+      ],
+    },
   ]
 
   // 课程首页

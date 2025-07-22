@@ -111,6 +111,23 @@ export const courseKeywords = {
       'type safety', 'optionals', 'protocol-oriented programming', 'SwiftUI', 'UIKit',
       'ARC memory management', 'Xcode', 'App Store', 'mobile apps', 'declarative UI'
     ]
+  },
+  'js2c': {
+    'zh-cn': [
+      'JavaScript', 'C语言', '系统编程', '内存管理', '指针操作',
+      '底层编程', '性能优化', 'malloc', 'free', '指针',
+      '内存安全', '数据结构', '算法实现', '文件操作', '系统调用'
+    ],
+    'zh-tw': [
+      'JavaScript', 'C語言', '系統程式設計', '記憶體管理', '指標操作',
+      '底層程式設計', '效能優化', 'malloc', 'free', '指標',
+      '記憶體安全', '資料結構', '演算法實現', '檔案操作', '系統呼叫'
+    ],
+    'en': [
+      'JavaScript', 'C programming', 'systems programming', 'memory management', 'pointer operations',
+      'low-level programming', 'performance optimization', 'malloc', 'free', 'pointers',
+      'memory safety', 'data structures', 'algorithm implementation', 'file operations', 'system calls'
+    ]
   }
 };
 

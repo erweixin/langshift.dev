@@ -1,0 +1,602 @@
+---
+title: "算法和数据结构"
+description: "从 JavaScript 视角学习 C 语言算法和数据结构，理解数组、链表、排序、搜索，并对比 JavaScript 数据结构。"
+---
+
+# 算法和数据结构
+
+## 1. 概念介绍
+
+### 从 JavaScript 数据结构到 C 实现
+
+在 JavaScript 中，你有内置的数组、对象和高级数据结构。而在 C 语言中，你必须从头实现数据结构，这给你对内存布局和性能特征的完全控制。
+
+> 💡 **核心概念**：C 数据结构实现提供最大的性能和内存效率，但需要仔细的内存管理和算法设计。
+
+## 2. 线性数据结构
+
+<UniversalEditor title="数组和动态数组" compare={true}>
+```javascript !! js
+// JavaScript - 内置数组
+let arr = [1, 2, 3, 4, 5];
+
+// 数组操作
+arr.push(6);           // 添加到末尾
+arr.unshift(0);        // 添加到开头
+arr.pop();             // 从末尾移除
+arr.shift();           // 从开头移除
+arr.splice(2, 1);      // 在索引 2 处移除
+
+// 数组迭代
+for (let i = 0; i < arr.length; i++) {
+    console.log(arr[i]);
+}
+
+// 数组方法
+arr.forEach(item => console.log(item));
+arr.map(item => item * 2);
+arr.filter(item => item > 3);
+arr.reduce((sum, item) => sum + item, 0);
+
+// 动态数组行为
+console.log("数组长度:", arr.length);
+arr[10] = 100; // 自动扩展
+console.log("新长度:", arr.length);
+```
+
+```c !! c
+#include <stdio.h>
+#include <stdlib.h>
+
+// 动态数组结构
+typedef struct {
+    int* data;
+    int size;
+    int capacity;
+} DynamicArray;
+
+// 初始化动态数组
+DynamicArray* createArray(int initialCapacity) {
+    DynamicArray* arr = (DynamicArray*)malloc(sizeof(DynamicArray));
+    arr->data = (int*)malloc(initialCapacity * sizeof(int));
+    arr->size = 0;
+    arr->capacity = initialCapacity;
+    return arr;
+}
+
+// 添加元素到末尾
+void push(DynamicArray* arr, int value) {
+    if (arr->size >= arr->capacity) {
+        // 调整数组大小
+        arr->capacity *= 2;
+        arr->data = (int*)realloc(arr->data, arr->capacity * sizeof(int));
+    }
+    arr->data[arr->size++] = value;
+}
+
+// 从末尾移除元素
+int pop(DynamicArray* arr) {
+    if (arr->size > 0) {
+        return arr->data[--arr->size];
+    }
+    return -1; // 错误值
+}
+
+// 获取索引处的元素
+int get(DynamicArray* arr, int index) {
+    if (index >= 0 && index < arr->size) {
+        return arr->data[index];
+    }
+    return -1; // 错误值
+}
+
+// 释放数组内存
+void freeArray(DynamicArray* arr) {
+    free(arr->data);
+    free(arr);
+}
+
+int main() {
+    DynamicArray* arr = createArray(5);
+    
+    // 添加元素
+    push(arr, 1);
+    push(arr, 2);
+    push(arr, 3);
+    push(arr, 4);
+    push(arr, 5);
+    
+    // 打印数组
+    printf("数组: ");
+    for (int i = 0; i < arr->size; i++) {
+        printf("%d ", arr->data[i]);
+    }
+    printf("\n");
+    
+    // 移除元素
+    int removed = pop(arr);
+    printf("移除的元素: %d\n", removed);
+    
+    // 打印更新后的数组
+    printf("更新后的数组: ");
+    for (int i = 0; i < arr->size; i++) {
+        printf("%d ", arr->data[i]);
+    }
+    printf("\n");
+    
+    freeArray(arr);
+    return 0;
+}
+```
+</UniversalEditor>
+
+## 3. 链表
+
+<UniversalEditor title="链表" compare={true}>
+```javascript !! js
+// JavaScript - 链表实现
+class Node {
+    constructor(data) {
+        this.data = data;
+        this.next = null;
+    }
+}
+
+class LinkedList {
+    constructor() {
+        this.head = null;
+        this.size = 0;
+    }
+    
+    // 添加到末尾
+    append(data) {
+        const newNode = new Node(data);
+        
+        if (!this.head) {
+            this.head = newNode;
+        } else {
+            let current = this.head;
+            while (current.next) {
+                current = current.next;
+            }
+            current.next = newNode;
+        }
+        this.size++;
+    }
+    
+    // 添加到开头
+    prepend(data) {
+        const newNode = new Node(data);
+        newNode.next = this.head;
+        this.head = newNode;
+        this.size++;
+    }
+    
+    // 移除元素
+    remove(data) {
+        if (!this.head) return;
+        
+        if (this.head.data === data) {
+            this.head = this.head.next;
+            this.size--;
+            return;
+        }
+        
+        let current = this.head;
+        while (current.next && current.next.data !== data) {
+            current = current.next;
+        }
+        
+        if (current.next) {
+            current.next = current.next.next;
+            this.size--;
+        }
+    }
+    
+    // 打印链表
+    print() {
+        let current = this.head;
+        while (current) {
+            console.log(current.data);
+            current = current.next;
+        }
+    }
+}
+
+// 使用示例
+const list = new LinkedList();
+list.append(1);
+list.append(2);
+list.append(3);
+list.prepend(0);
+list.print();
+```
+
+```c !! c
+#include <stdio.h>
+#include <stdlib.h>
+
+// 节点结构
+typedef struct Node {
+    int data;
+    struct Node* next;
+} Node;
+
+// 链表结构
+typedef struct {
+    Node* head;
+    int size;
+} LinkedList;
+
+// 创建新节点
+Node* createNode(int data) {
+    Node* newNode = (Node*)malloc(sizeof(Node));
+    newNode->data = data;
+    newNode->next = NULL;
+    return newNode;
+}
+
+// 初始化链表
+LinkedList* createLinkedList() {
+    LinkedList* list = (LinkedList*)malloc(sizeof(LinkedList));
+    list->head = NULL;
+    list->size = 0;
+    return list;
+}
+
+// 添加到末尾
+void append(LinkedList* list, int data) {
+    Node* newNode = createNode(data);
+    
+    if (list->head == NULL) {
+        list->head = newNode;
+    } else {
+        Node* current = list->head;
+        while (current->next != NULL) {
+            current = current->next;
+        }
+        current->next = newNode;
+    }
+    list->size++;
+}
+
+// 添加到开头
+void prepend(LinkedList* list, int data) {
+    Node* newNode = createNode(data);
+    newNode->next = list->head;
+    list->head = newNode;
+    list->size++;
+}
+
+// 移除元素
+void removeElement(LinkedList* list, int data) {
+    if (list->head == NULL) return;
+    
+    if (list->head->data == data) {
+        Node* temp = list->head;
+        list->head = list->head->next;
+        free(temp);
+        list->size--;
+        return;
+    }
+    
+    Node* current = list->head;
+    while (current->next != NULL && current->next->data != data) {
+        current = current->next;
+    }
+    
+    if (current->next != NULL) {
+        Node* temp = current->next;
+        current->next = current->next->next;
+        free(temp);
+        list->size--;
+    }
+}
+
+// 打印链表
+void printList(LinkedList* list) {
+    Node* current = list->head;
+    while (current != NULL) {
+        printf("%d -> ", current->data);
+        current = current->next;
+    }
+    printf("NULL\n");
+}
+
+// 释放链表内存
+void freeList(LinkedList* list) {
+    Node* current = list->head;
+    while (current != NULL) {
+        Node* temp = current;
+        current = current->next;
+        free(temp);
+    }
+    free(list);
+}
+
+int main() {
+    LinkedList* list = createLinkedList();
+    
+    append(list, 1);
+    append(list, 2);
+    append(list, 3);
+    prepend(list, 0);
+    
+    printf("原始链表: ");
+    printList(list);
+    
+    removeElement(list, 2);
+    printf("移除 2 后: ");
+    printList(list);
+    
+    freeList(list);
+    return 0;
+}
+```
+</UniversalEditor>
+
+## 4. 排序算法
+
+<UniversalEditor title="排序算法" compare={true}>
+```javascript !! js
+// JavaScript - 内置排序
+let arr = [64, 34, 25, 12, 22, 11, 90];
+arr.sort((a, b) => a - b);
+console.log("排序后:", arr);
+
+// 冒泡排序实现
+function bubbleSort(arr) {
+    const n = arr.length;
+    for (let i = 0; i < n - 1; i++) {
+        for (let j = 0; j < n - i - 1; j++) {
+            if (arr[j] > arr[j + 1]) {
+                // 交换
+                [arr[j], arr[j + 1]] = [arr[j + 1], arr[j]];
+            }
+        }
+    }
+    return arr;
+}
+
+// 快速排序实现
+function quickSort(arr) {
+    if (arr.length <= 1) return arr;
+    
+    const pivot = arr[Math.floor(arr.length / 2)];
+    const left = arr.filter(x => x < pivot);
+    const middle = arr.filter(x => x === pivot);
+    const right = arr.filter(x => x > pivot);
+    
+    return [...quickSort(left), ...middle, ...quickSort(right)];
+}
+
+// 测试排序
+let testArr = [64, 34, 25, 12, 22, 11, 90];
+console.log("原始数组:", testArr);
+console.log("冒泡排序:", bubbleSort([...testArr]));
+console.log("快速排序:", quickSort([...testArr]));
+```
+
+```c !! c
+#include <stdio.h>
+#include <stdlib.h>
+
+// 交换函数
+void swap(int* a, int* b) {
+    int temp = *a;
+    *a = *b;
+    *b = temp;
+}
+
+// 冒泡排序
+void bubbleSort(int arr[], int n) {
+    for (int i = 0; i < n - 1; i++) {
+        for (int j = 0; j < n - i - 1; j++) {
+            if (arr[j] > arr[j + 1]) {
+                swap(&arr[j], &arr[j + 1]);
+            }
+        }
+    }
+}
+
+// 快速排序分区
+int partition(int arr[], int low, int high) {
+    int pivot = arr[high];
+    int i = low - 1;
+    
+    for (int j = low; j < high; j++) {
+        if (arr[j] <= pivot) {
+            i++;
+            swap(&arr[i], &arr[j]);
+        }
+    }
+    swap(&arr[i + 1], &arr[high]);
+    return i + 1;
+}
+
+// 快速排序
+void quickSort(int arr[], int low, int high) {
+    if (low < high) {
+        int pi = partition(arr, low, high);
+        quickSort(arr, low, pi - 1);
+        quickSort(arr, pi + 1, high);
+    }
+}
+
+// 打印数组
+void printArray(int arr[], int n) {
+    for (int i = 0; i < n; i++) {
+        printf("%d ", arr[i]);
+    }
+    printf("\n");
+}
+
+int main() {
+    int arr[] = {64, 34, 25, 12, 22, 11, 90};
+    int n = sizeof(arr) / sizeof(arr[0]);
+    
+    printf("原始数组: ");
+    printArray(arr, n);
+    
+    // 冒泡排序
+    int bubbleArr[7];
+    for (int i = 0; i < n; i++) {
+        bubbleArr[i] = arr[i];
+    }
+    bubbleSort(bubbleArr, n);
+    printf("冒泡排序: ");
+    printArray(bubbleArr, n);
+    
+    // 快速排序
+    int quickArr[7];
+    for (int i = 0; i < n; i++) {
+        quickArr[i] = arr[i];
+    }
+    quickSort(quickArr, 0, n - 1);
+    printf("快速排序: ");
+    printArray(quickArr, n);
+    
+    return 0;
+}
+```
+</UniversalEditor>
+
+## 5. 搜索算法
+
+<UniversalEditor title="搜索算法" compare={true}>
+```javascript !! js
+// JavaScript - 内置搜索方法
+let arr = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+
+// 线性搜索
+function linearSearch(arr, target) {
+    for (let i = 0; i < arr.length; i++) {
+        if (arr[i] === target) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+// 二分搜索（需要排序数组）
+function binarySearch(arr, target) {
+    let left = 0;
+    let right = arr.length - 1;
+    
+    while (left <= right) {
+        const mid = Math.floor((left + right) / 2);
+        
+        if (arr[mid] === target) {
+            return mid;
+        } else if (arr[mid] < target) {
+            left = mid + 1;
+        } else {
+            right = mid - 1;
+        }
+    }
+    return -1;
+}
+
+// 测试搜索算法
+console.log("数组:", arr);
+console.log("线性搜索 7:", linearSearch(arr, 7));
+console.log("二分搜索 7:", binarySearch(arr, 7));
+console.log("线性搜索 11:", linearSearch(arr, 11));
+console.log("二分搜索 11:", binarySearch(arr, 11));
+```
+
+```c !! c
+#include <stdio.h>
+
+// 线性搜索
+int linearSearch(int arr[], int n, int target) {
+    for (int i = 0; i < n; i++) {
+        if (arr[i] == target) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+// 二分搜索（需要排序数组）
+int binarySearch(int arr[], int left, int right, int target) {
+    while (left <= right) {
+        int mid = left + (right - left) / 2;
+        
+        if (arr[mid] == target) {
+            return mid;
+        } else if (arr[mid] < target) {
+            left = mid + 1;
+        } else {
+            right = mid - 1;
+        }
+    }
+    return -1;
+}
+
+// 打印搜索结果
+void printSearchResult(int result, int target) {
+    if (result != -1) {
+        printf("找到 %d 在索引 %d\n", target, result);
+    } else {
+        printf("%d 在数组中未找到\n", target);
+    }
+}
+
+int main() {
+    int arr[] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
+    int n = sizeof(arr) / sizeof(arr[0]);
+    
+    printf("数组: ");
+    for (int i = 0; i < n; i++) {
+        printf("%d ", arr[i]);
+    }
+    printf("\n");
+    
+    // 测试线性搜索
+    int target1 = 7;
+    int result1 = linearSearch(arr, n, target1);
+    printf("线性搜索: ");
+    printSearchResult(result1, target1);
+    
+    // 测试二分搜索
+    int target2 = 7;
+    int result2 = binarySearch(arr, 0, n - 1, target2);
+    printf("二分搜索: ");
+    printSearchResult(result2, target2);
+    
+    // 测试未找到
+    int target3 = 11;
+    int result3 = linearSearch(arr, n, target3);
+    printf("线性搜索: ");
+    printSearchResult(result3, target3);
+    
+    return 0;
+}
+```
+</UniversalEditor>
+
+## 6. 常见陷阱
+- **内存泄漏**：始终释放数据结构中分配的内存
+- **缓冲区溢出**：在访问元素前检查数组边界
+- **空指针解引用**：始终检查空指针
+- **算法复杂度**：注意时间和空间复杂度
+- **数据结构选择**：为问题选择适当的结构
+
+## 7. 练习题
+1. 使用数组或链表实现栈数据结构。
+2. 编写函数以迭代和递归方式反转链表。
+3. 实现归并排序并与快速排序比较性能。
+4. 创建带冲突解决的哈希表实现。
+
+## 8. 性能分析
+- **数组**：O(1) 访问，O(n) 插入/删除
+- **链表**：O(n) 访问，O(1) 在两端插入/删除
+- **冒泡排序**：O(n²) 时间复杂度
+- **快速排序**：O(n log n) 平均，O(n²) 最坏情况
+- **线性搜索**：O(n) 时间复杂度
+- **二分搜索**：O(log n) 时间复杂度
+
+---
+
+> **小结**：C 算法和数据结构的实现提供最大的控制和性能。理解内存管理、算法复杂度和选择适当的数据结构对高效的 C 编程至关重要。 
