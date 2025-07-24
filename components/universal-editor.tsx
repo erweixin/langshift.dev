@@ -871,9 +871,9 @@ sys.stdout = sys.__stdout__
     <div className="border rounded-lg overflow-hidden bg-white dark:bg-gray-900">
       {/* 标题栏 */}
       <div className="flex items-center justify-between px-4 py-2 bg-gray-100 dark:bg-gray-800 border-b">
-        <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 m-0">
+        <div className="text-sm font-medium text-gray-700 dark:text-gray-300 m-2">
           {title}
-        </h3>
+        </div>
         <div className="flex items-center space-x-2">
           <button
             onClick={() => runCode(primaryLanguage)}
