@@ -20,6 +20,7 @@ interface PythonEditorProps {
   height?: number
   preloadLibraries?: string[]
   allowDynamicImports?: boolean
+  canRun?: boolean
 }
 
 // 全局 Pyodide 管理器
@@ -226,7 +227,8 @@ export default function PythonEditor(params: PythonEditorProps) {
     code = [],
     height = 300,
     preloadLibraries = [],
-    allowDynamicImports = true
+    allowDynamicImports = true,
+    canRun = true
   } = params;
   const [pyodide, setPyodide] = useState<any>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -461,7 +463,14 @@ sys.stdout = sys.__stdout__
       const logs: string[] = []
       const originalLog = console.log
       console.log = (...args) => {
-        logs.push(args.join(' '))
+        // 正确处理数组和其他类型的输出
+        const formattedArgs = args.map(arg => {
+          if (Array.isArray(arg)) {
+            return `[${arg.join(', ')}]`
+          }
+          return String(arg)
+        })
+        logs.push(formattedArgs.join(' '))
         originalLog(...args)
       }
       
@@ -494,10 +503,10 @@ sys.stdout = sys.__stdout__
     <div className="border rounded-lg overflow-hidden bg-white dark:bg-gray-900">
       {/* 标题栏 */}
       <div className="flex items-center justify-between px-4 py-2 bg-gray-100 dark:bg-gray-800 border-b">
-        <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 m-0">
+        <div className="text-sm font-medium text-gray-700 dark:text-gray-300 m-2">
           {title}
-        </h3>
-        <div className="flex items-center space-x-2">
+        </div>
+        {canRun &&<div className="flex items-center space-x-2">
           <button
             onClick={runPythonCode}
             disabled={isRunning || !pythonCode.trim()}
@@ -514,7 +523,7 @@ sys.stdout = sys.__stdout__
               运行 JS/TS
             </button>
           )}
-        </div>
+        </div>}
       </div>
       
       {/* 编辑器区域 */}
