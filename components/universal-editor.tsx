@@ -21,6 +21,7 @@ interface UniversalEditorProps {
   height?: number
   preloadLibraries?: string[]
   allowDynamicImports?: boolean
+  canRun?: boolean
 }
 
 // 语言运行时管理器
@@ -582,7 +583,8 @@ export default function UniversalEditor(params: UniversalEditorProps) {
     code = [],
     height = 300,
     preloadLibraries = [],
-    allowDynamicImports = true
+    allowDynamicImports = true,
+    canRun = true
   } = params;
 
   const [runtimes, setRuntimes] = useState<Map<string, any>>(new Map())
@@ -874,7 +876,7 @@ sys.stdout = sys.__stdout__
         <div className="text-sm font-medium text-gray-700 dark:text-gray-300 m-2">
           {title}
         </div>
-        <div className="flex items-center space-x-2">
+        { canRun && <div className="flex items-center space-x-2">
           <button
             onClick={() => runCode(primaryLanguage)}
             disabled={isRunning || !primaryCode.trim() || loadingStates.get(primaryLanguage)}
@@ -899,7 +901,7 @@ sys.stdout = sys.__stdout__
                   : `运行 ${secondaryConfig?.name}`}
             </button>
           )}
-        </div>
+        </div> }
       </div>
       
       {/* 编辑器区域 */}
