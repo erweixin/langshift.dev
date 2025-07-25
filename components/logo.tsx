@@ -1,19 +1,19 @@
 'use client';
+import Image from 'next/image';
+import logo from '@/public/favicon.ico';
+import { useRouter } from 'next/navigation';
 
 export function Logo() {
+  const router = useRouter();
   return (
     <div
-      className="flex cursor-default items-center gap-2"
-      onClick={(e) => e.preventDefault()}
+      className="flex items-center gap-2 cursor-pointer"
+      onClick={(e) => {
+        e.preventDefault();
+        router.push('/');
+      }}
     >
-      <svg
-        width="24"
-        height="24"
-        xmlns="http://www.w3.org/2000/svg"
-        aria-label="Logo"
-      >
-        <circle cx={12} cy={12} r={12} fill="currentColor" />
-      </svg>
+      <Image src={logo} alt="langShift" width={24} height={24} />
       langShift
     </div>
   );
