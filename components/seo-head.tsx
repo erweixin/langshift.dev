@@ -6,7 +6,6 @@ interface SEOHeadProps {
   keywords?: string[]
   canonical?: string
   noindex?: boolean
-  ogImage?: string
   ogType?: string
   twitterCard?: string
   structuredData?: object
@@ -20,7 +19,6 @@ export function SEOHead({
   keywords = ['编程语言', '语言学习', 'JavaScript', 'Python', 'Rust', '开发者', '代码对比', '语法转换'],
   canonical,
   noindex = false,
-  ogImage = '/og-image.png',
   ogType = 'website',
   twitterCard = 'summary_large_image',
   structuredData,
@@ -60,7 +58,6 @@ export function SEOHead({
       <meta property="og:description" content={description} />
       <meta property="og:type" content={ogType} />
       <meta property="og:url" content={fullCanonical} />
-      <meta property="og:image" content={`${siteUrl}${ogImage}`} />
       <meta property="og:image:width" content="1200" />
       <meta property="og:image:height" content="630" />
       <meta property="og:site_name" content="LangShift.dev" />
@@ -70,7 +67,6 @@ export function SEOHead({
       <meta name="twitter:card" content={twitterCard} />
       <meta name="twitter:title" content={title} />
       <meta name="twitter:description" content={description} />
-      <meta name="twitter:image" content={`${siteUrl}${ogImage}`} />
       <meta name="twitter:site" content="@langshift_dev" />
       <meta name="twitter:creator" content="@langshift_dev" />
       

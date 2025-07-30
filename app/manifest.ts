@@ -16,41 +16,6 @@ export default function manifest(): MetadataRoute.Manifest {
     lang: 'zh-CN',
     dir: 'ltr',
     categories: ['education', 'productivity', 'developer'],
-    icons: [
-      {
-        src: '/icon-192x192.png',
-        sizes: '192x192',
-        type: 'image/png',
-        purpose: 'maskable',
-      },
-      {
-        src: '/icon-512x512.png',
-        sizes: '512x512',
-        type: 'image/png',
-        purpose: 'maskable',
-      },
-      {
-        src: '/apple-touch-icon.png',
-        sizes: '180x180',
-        type: 'image/png',
-      },
-    ],
-    screenshots: [
-      {
-        src: '/screenshot-desktop.png',
-        sizes: '1280x720',
-        type: 'image/png',
-        form_factor: 'wide',
-        label: 'LangShift.dev 桌面版界面',
-      },
-      {
-        src: '/screenshot-mobile.png',
-        sizes: '390x844',
-        type: 'image/png',
-        form_factor: 'narrow',
-        label: 'LangShift.dev 移动版界面',
-      },
-    ],
     shortcuts: [
       {
         name: 'JavaScript 到 Python',

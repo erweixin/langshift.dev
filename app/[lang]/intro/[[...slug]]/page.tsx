@@ -364,20 +364,11 @@ export async function generateMetadata(props: {
       siteName: 'LangShift.dev',
       locale: params.lang === 'zh-cn' ? 'zh_CN' : params.lang === 'zh-tw' ? 'zh_TW' : 'en_US',
       type: 'article',
-      images: [
-        {
-          url: `${siteUrl}/og-image.png`,
-          width: 1200,
-          height: 630,
-          alt: pageTitle,
-        },
-      ],
     },
     twitter: {
       card: 'summary_large_image',
       title: pageTitle,
       description: page.data.description,
-      images: [`${siteUrl}/og-image.png`],
       creator: '@langshift_dev',
       site: '@langshift_dev',
     },

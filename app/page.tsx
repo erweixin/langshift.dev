@@ -45,22 +45,6 @@ export async function generateMetadata(): Promise<Metadata> {
       siteName: 'LangShift.dev',
       locale: 'zh_CN',
       type: 'website',
-      images: [
-        {
-          url: `${siteUrl}/og-image.png`,
-          width: 1200,
-          height: 630,
-          alt: '编程语言转换学习平台',
-        },
-      ],
-    },
-    twitter: {
-      card: 'summary_large_image',
-      title: t.home.seo.title,
-      description: t.home.seo.description,
-      images: [`${siteUrl}/og-image.png`],
-      creator: '@langshift_dev',
-      site: '@langshift_dev',
     },
     other: {
       'theme-color': '#1e293b',
