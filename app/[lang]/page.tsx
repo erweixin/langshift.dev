@@ -62,20 +62,11 @@ export async function generateMetadata({ params }: { params: Promise<{ lang: str
       siteName: 'LangShift.dev',
       locale: supportedLang === 'zh-cn' ? 'zh_CN' : supportedLang === 'zh-tw' ? 'zh_TW' : 'en_US',
       type: 'website',
-      images: [
-        {
-          url: `${siteUrl}/og-image.png`,
-          width: 1200,
-          height: 630,
-          alt: supportedLang === 'zh-cn' ? '编程语言转换学习平台' : 'Programming Language Learning Platform',
-        },
-      ],
     },
     twitter: {
       card: 'summary_large_image',
       title: t.home.seo.title,
       description: t.home.seo.description,
-      images: [`${siteUrl}/og-image.png`],
       creator: '@langshift_dev',
       site: '@langshift_dev',
     },
