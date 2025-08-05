@@ -157,6 +157,27 @@ export default function sitemap(): MetadataRoute.Sitemap {
         'module-14-advanced-topics',
       ],
     },
+    {
+      name: 'js2kotlin',
+      title: 'JavaScript 到 Kotlin 转换学习',
+      priority: 0.9,
+      modules: [
+        'module-00-kotlin-introduction',
+        'module-01-syntax-comparison',
+        'module-02-jvm-ecosystem',
+        'module-03-functional-programming',
+        'module-04-coroutines-async',
+        'module-05-object-oriented',
+        'module-06-android-development',
+        'module-07-web-development',
+        'module-08-mobile-apps',
+        'module-09-cross-platform',
+        'module-10-testing-debugging',
+        'module-11-projects',
+        'module-12-common-pitfalls',
+        'module-13-idiomatic-kotlin',
+      ],
+    },
   ]
 
   // 课程首页

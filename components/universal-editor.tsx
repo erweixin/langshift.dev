@@ -92,6 +92,8 @@ class LanguageRuntimeManager {
         return this.loadGoRuntime()
       case 'swift':
         return this.loadSwiftRuntime()
+      case 'kotlin':
+        return this.loadKotlinRuntime()
       default:
         throw new Error(`不支持的语言: ${language}`)
     }
@@ -141,15 +143,25 @@ class LanguageRuntimeManager {
     return {
       execute: async (code: string) => {
         try {
-          // 这里可以集成 Rust Playground API
-          // 或者使用 WebAssembly 版本的 Rust
+          // 检查是否包含 main 函数，如果没有则自动添加
+          let processedCode = code
+          if (!code.includes('fn main()') && !code.includes('fn main(')) {
+            // 移除可能存在的 fn main() { } 空函数
+            processedCode = code.replace(/fn\s+main\s*\(\s*\)\s*\{\s*\}\s*/g, '')
+            
+            // 添加 main 函数包装
+            processedCode = `fn main() {
+    ${processedCode.trim()}
+}`
+          }
+          
           console.log(JSON.stringify({
             channel: 'stable',
             mode: 'debug',
             edition: '2021',
             crateType: 'bin',
             tests: false,
-            code: code,
+            code: processedCode,
             backtrace: false,
           }))
           const response = await fetch('https://play.rust-lang.org/execute', {
@@ -163,7 +175,7 @@ class LanguageRuntimeManager {
               edition: '2021',
               crateType: 'bin',
               tests: false,
-              code: code,
+              code: processedCode,
               backtrace: false,
             }),
           })
@@ -359,6 +371,87 @@ class LanguageRuntimeManager {
     }
   }
 
+  private async loadKotlinRuntime(): Promise<any> {
+    // 使用 Kotlin Playground API
+    return {
+      execute: async (code: string) => {
+        try {
+          // 检查是否包含 main 函数，如果没有则自动添加
+          let processedCode = code
+          if (!code.includes('fun main()') && !code.includes('fun main(')) {
+            // 移除可能存在的 fun main() { } 空函数
+            processedCode = code.replace(/fun\s+main\s*\(\s*\)\s*\{\s*\}\s*/g, '')
+            
+            // 添加 main 函数包装
+            processedCode = `fun main() {
+    ${processedCode.trim()}
+}`
+          }
+          
+          // 使用 Kotlin Playground API 执行代码
+          // 参考: https://jetbrains.github.io/kotlin-playground/examples/
+          const response = await fetch('https://api.kotlinlang.org/api/1.9.10/compiler/run', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              // code: code,
+              args: '',
+              files: [{
+                name: "File.kt",
+                publicId: "",
+                text: processedCode,
+              }],
+              confType: 'java',
+              channel: 'stable'
+            }),
+          })
+          
+          if (!response.ok) {
+            throw new Error(`Kotlin API 请求失败: ${response.status}`)
+          }
+          
+          const result = await response.json()
+          
+          // 处理执行结果
+          if (result.exception) {
+            return {
+              output: result.text || '',
+              error: result.exception
+            }
+          } else if (result.errors && Object.values(result.errors).some((errors: any) => errors.length > 0)) {
+            // 处理编译错误
+            const errorMessages = Object.entries(result.errors)
+              .filter(([_, errors]: [string, any]) => errors.length > 0)
+              .map(([file, errors]: [string, any]) => 
+                `${file}: ${errors.map((e: any) => e.message).join(', ')}`
+              )
+              .join('\n')
+            
+            return {
+              output: result.text || '',
+              error: errorMessages
+            }
+          } else {
+            // 成功执行
+            const output = result.text || ''
+            return {
+              output: output.replace(/<outStream>(.*?)<\/outStream>/s, '$1').trim(),
+              error: null
+            }
+          }
+        } catch (error: any) {
+          console.error('Kotlin 代码执行错误:', error)
+          return { 
+            output: '', 
+            error: `Kotlin 代码执行失败: ${error.message}` 
+          }
+        }
+      }
+    }
+  }
+
   private async preloadBasicPythonLibraries(pyodide: any) {
     try {
       // 只预加载基础库，这些库很小且常用
@@ -429,7 +522,7 @@ class LanguageRuntimeManager {
   }
 
   getSupportedLanguages(): string[] {
-    return ['python', 'javascript', 'typescript', 'rust', 'cpp', 'c', 'java', 'go', 'swift']
+    return ['python', 'javascript', 'typescript', 'rust', 'cpp', 'c', 'java', 'go', 'swift', 'kotlin']
   }
 
   // 检查是否需要加载运行时
@@ -570,6 +663,12 @@ const languageConfig = {
     extension: 'c',
     monacoLanguage: 'c',
     runtime: 'c',
+  },
+  kotlin: {
+    name: 'Kotlin',
+    extension: 'kt',
+    monacoLanguage: 'kotlin',
+    runtime: 'kotlin'
   }
 }
 

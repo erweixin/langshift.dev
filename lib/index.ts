@@ -79,4 +79,17 @@ export const getCourses = (t: TranslationKeys) => ([
     borderColor: 'border-gray-500/20',
     gradient: 'from-gray-400/20 to-slate-500/20',
   },
+  {
+    name: 'js2kotlin',
+    title: t.home.courses.js2kotlin.title,
+    description: t.home.courses.js2kotlin.description,
+    features: t.home.courses.js2kotlin.features,
+    duration: t.home.courses.js2kotlin.duration,
+    level: t.home.courses.js2kotlin.level,
+    icon: '🟣',
+    color: 'from-purple-500 to-violet-600',
+    bgColor: 'bg-purple-500/10',
+    borderColor: 'border-purple-500/20',
+    gradient: 'from-purple-400/20 to-violet-500/20',
+  },
 ]);

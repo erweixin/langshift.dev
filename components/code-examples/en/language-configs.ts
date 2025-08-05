@@ -65,4 +65,12 @@ export const languageConfigs: LanguageConfig[] = [
     syntax: 'c',
     description: 'Efficient systems programming language with manual memory management'
   },
+  {
+    value: 'kt',
+    label: 'Kotlin',
+    icon: '🟣',
+    color: 'bg-purple-500',
+    syntax: 'kotlin',
+    description: 'Modern, safe JVM programming language, coroutines expert'
+  },
 ]; 

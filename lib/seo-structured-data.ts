@@ -60,6 +60,15 @@ export const js2cCourseData = {
   educationalLevel: "Advanced"
 };
 
+export const js2kotlinCourseData = {
+  name: "JavaScript to Kotlin Tutorial",
+  description: "Learn Kotlin programming from a JavaScript developer perspective, mastering coroutines, Android development, and JVM ecosystem.",
+  url: "https://langshift.dev/docs/js2kotlin",
+  provider: "LangShift.dev",
+  courseMode: "online",
+  educationalLevel: "Intermediate"
+};
+
 export const courseStructuredData = (courseData: {
   name: string
   description: string
