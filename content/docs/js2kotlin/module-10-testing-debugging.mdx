@@ -1,0 +1,1194 @@
+---
+title: "Testing and Debugging with Kotlin"
+description: "Learn Kotlin testing and debugging best practices, comparing with JavaScript testing patterns and Jest concepts"
+---
+
+# Testing and Debugging with Kotlin
+
+Welcome to the tenth module of JavaScript to Kotlin conversion! In this module, we'll explore testing and debugging with Kotlin and understand how it compares to JavaScript testing patterns like Jest and Mocha. We'll learn about unit testing, integration testing, coroutine testing, performance analysis, and modern debugging techniques.
+
+## Learning Objectives
+
+By the end of this module, you will be able to:
+- Understand Kotlin testing frameworks and tools
+- Compare Kotlin testing with JavaScript testing patterns
+- Implement comprehensive unit tests
+- Write integration tests for web and mobile applications
+- Test coroutines and asynchronous code
+- Perform performance analysis and optimization
+- Use debugging tools and techniques
+- Apply test-driven development practices
+
+## Testing Framework Overview
+
+### Framework Comparison
+
+Kotlin uses JUnit 5 and Kotlin Test for testing, while JavaScript commonly uses Jest, Mocha, or Vitest.
+
+<UniversalEditor title="Testing Framework Comparison" compare={true}>
+```javascript !! js
+// Jest - JavaScript testing framework
+import { Calculator } from './calculator';
+
+describe('Calculator', () => {
+  let calculator;
+  
+  beforeEach(() => {
+    calculator = new Calculator();
+  });
+  
+  describe('add', () => {
+    it('should add two positive numbers', () => {
+      const result = calculator.add(2, 3);
+      expect(result).toBe(5);
+    });
+    
+    it('should handle negative numbers', () => {
+      const result = calculator.add(-2, 3);
+      expect(result).toBe(1);
+    });
+    
+    it('should handle zero', () => {
+      const result = calculator.add(0, 5);
+      expect(result).toBe(5);
+    });
+  });
+  
+  describe('divide', () => {
+    it('should divide two numbers', () => {
+      const result = calculator.divide(10, 2);
+      expect(result).toBe(5);
+    });
+    
+    it('should throw error for division by zero', () => {
+      expect(() => {
+        calculator.divide(10, 0);
+      }).toThrow('Division by zero');
+    });
+  });
+});
+
+// Mock example
+jest.mock('./api');
+import { fetchUser } from './api';
+
+describe('UserService', () => {
+  it('should fetch user successfully', async () => {
+    const mockUser = { id: 1, name: 'John' };
+    fetchUser.mockResolvedValue(mockUser);
+    
+    const userService = new UserService();
+    const result = await userService.getUser(1);
+    
+    expect(result).toEqual(mockUser);
+    expect(fetchUser).toHaveBeenCalledWith(1);
+  });
+});
+```
+
+```kotlin !! kt
+// JUnit 5 - Kotlin testing framework
+package com.example.testing
+
+import org.junit.jupiter.api.*
+import org.junit.jupiter.api.Assertions.*
+import org.mockito.kotlin.*
+
+class CalculatorTest {
+    
+    private lateinit var calculator: Calculator
+    
+    @BeforeEach
+    fun setUp() {
+        calculator = Calculator()
+    }
+    
+    @Nested
+    @DisplayName("add tests")
+    inner class AddTests {
+        
+        @Test
+        @DisplayName("should add two positive numbers")
+        fun `should add two positive numbers`() {
+            val result = calculator.add(2, 3)
+            assertEquals(5, result)
+        }
+        
+        @Test
+        @DisplayName("should handle negative numbers")
+        fun `should handle negative numbers`() {
+            val result = calculator.add(-2, 3)
+            assertEquals(1, result)
+        }
+        
+        @Test
+        @DisplayName("should handle zero")
+        fun `should handle zero`() {
+            val result = calculator.add(0, 5)
+            assertEquals(5, result)
+        }
+    }
+    
+    @Nested
+    @DisplayName("divide tests")
+    inner class DivideTests {
+        
+        @Test
+        @DisplayName("should divide two numbers")
+        fun `should divide two numbers`() {
+            val result = calculator.divide(10, 2)
+            assertEquals(5.0, result)
+        }
+        
+        @Test
+        @DisplayName("should throw exception for division by zero")
+        fun `should throw exception for division by zero`() {
+            val exception = assertThrows<IllegalArgumentException> {
+                calculator.divide(10, 0)
+            }
+            assertEquals("Division by zero", exception.message)
+        }
+    }
+}
+
+// Mock example with Mockito
+@ExtendWith(MockitoExtension::class)
+class UserServiceTest {
+    
+    @Mock
+    private lateinit var userRepository: UserRepository
+    
+    @InjectMocks
+    private lateinit var userService: UserService
+    
+    @Test
+    @DisplayName("should get user successfully")
+    fun `should get user successfully`() = runTest {
+        // Given
+        val userId = 1L
+        val expectedUser = User(id = userId, name = "John", email = "john@example.com")
+        whenever(userRepository.findById(userId)).thenReturn(expectedUser)
+        
+        // When
+        val result = userService.getUserById(userId)
+        
+        // Then
+        assertEquals(expectedUser, result)
+        verify(userRepository).findById(userId)
+    }
+}
+```
+
+### Key Differences
+
+| Aspect | JavaScript (Jest) | Kotlin (JUnit 5) |
+|--------|------------------|-------------------|
+| **Type Safety** | Dynamic typing | Static typing with compile-time checks |
+| **Test Organization** | describe/it blocks | @Nested/@Test annotations |
+| **Assertions** | expect() function | assertEquals(), assertThrows() |
+| **Mocking** | jest.mock() | Mockito with Kotlin extensions |
+| **Async Testing** | async/await | runTest with coroutines |
+| **Test Discovery** | File-based | Annotation-based |
+
+## Unit Testing
+
+### Basic Unit Tests
+
+<UniversalEditor title="Unit Testing Comparison" compare={true}>
+```javascript !! js
+// JavaScript unit tests
+import { UserService } from './userService';
+import { User } from './user';
+
+describe('UserService', () => {
+  let userService;
+  let mockApi;
+  
+  beforeEach(() => {
+    mockApi = {
+      get: jest.fn(),
+      post: jest.fn(),
+      put: jest.fn(),
+      delete: jest.fn()
+    };
+    userService = new UserService(mockApi);
+  });
+  
+  describe('getUser', () => {
+    it('should return user when API call succeeds', async () => {
+      const mockUser = { id: 1, name: 'John', email: 'john@example.com' };
+      mockApi.get.mockResolvedValue(mockUser);
+      
+      const result = await userService.getUser(1);
+      
+      expect(result).toEqual(mockUser);
+      expect(mockApi.get).toHaveBeenCalledWith('/users/1');
+    });
+    
+    it('should throw error when API call fails', async () => {
+      const error = new Error('Network error');
+      mockApi.get.mockRejectedValue(error);
+      
+      await expect(userService.getUser(1)).rejects.toThrow('Network error');
+    });
+  });
+  
+  describe('createUser', () => {
+    it('should create user successfully', async () => {
+      const userData = { name: 'Jane', email: 'jane@example.com' };
+      const createdUser = { id: 2, ...userData };
+      mockApi.post.mockResolvedValue(createdUser);
+      
+      const result = await userService.createUser(userData);
+      
+      expect(result).toEqual(createdUser);
+      expect(mockApi.post).toHaveBeenCalledWith('/users', userData);
+    });
+  });
+  
+  describe('validateEmail', () => {
+    it('should return true for valid email', () => {
+      const validEmails = [
+        'test@example.com',
+        'user.name@domain.co.uk',
+        'user+tag@example.org'
+      ];
+      
+      validEmails.forEach(email => {
+        expect(userService.validateEmail(email)).toBe(true);
+      });
+    });
+    
+    it('should return false for invalid email', () => {
+      const invalidEmails = [
+        'invalid-email',
+        '@example.com',
+        'user@',
+        'user@.com'
+      ];
+      
+      invalidEmails.forEach(email => {
+        expect(userService.validateEmail(email)).toBe(false);
+      });
+    });
+  });
+});
+```
+
+```kotlin !! kt
+// Kotlin unit tests
+package com.example.testing
+
+import org.junit.jupiter.api.*
+import org.junit.jupiter.api.Assertions.*
+import org.mockito.kotlin.*
+import kotlinx.coroutines.test.runTest
+
+@ExtendWith(MockitoExtension::class)
+class UserServiceTest {
+    
+    @Mock
+    private lateinit var apiClient: ApiClient
+    
+    @InjectMocks
+    private lateinit var userService: UserService
+    
+    @Nested
+    @DisplayName("getUser tests")
+    inner class GetUserTests {
+        
+        @Test
+        @DisplayName("should return user when API call succeeds")
+        fun `should return user when API call succeeds`() = runTest {
+            // Given
+            val userId = 1L
+            val expectedUser = User(
+                id = userId,
+                name = "John",
+                email = "john@example.com"
+            )
+            whenever(apiClient.get("/users/$userId")).thenReturn(expectedUser)
+            
+            // When
+            val result = userService.getUser(userId)
+            
+            // Then
+            assertEquals(expectedUser, result)
+            verify(apiClient).get("/users/$userId")
+        }
+        
+        @Test
+        @DisplayName("should throw exception when API call fails")
+        fun `should throw exception when API call fails`() = runTest {
+            // Given
+            val userId = 1L
+            val error = RuntimeException("Network error")
+            whenever(apiClient.get("/users/$userId")).thenThrow(error)
+            
+            // When & Then
+            val exception = assertThrows<RuntimeException> {
+                userService.getUser(userId)
+            }
+            assertEquals("Network error", exception.message)
+        }
+    }
+    
+    @Nested
+    @DisplayName("createUser tests")
+    inner class CreateUserTests {
+        
+        @Test
+        @DisplayName("should create user successfully")
+        fun `should create user successfully`() = runTest {
+            // Given
+            val userData = CreateUserRequest(
+                name = "Jane",
+                email = "jane@example.com"
+            )
+            val createdUser = User(
+                id = 2L,
+                name = userData.name,
+                email = userData.email
+            )
+            whenever(apiClient.post("/users", userData)).thenReturn(createdUser)
+            
+            // When
+            val result = userService.createUser(userData)
+            
+            // Then
+            assertEquals(createdUser, result)
+            verify(apiClient).post("/users", userData)
+        }
+    }
+    
+    @Nested
+    @DisplayName("validateEmail tests")
+    inner class ValidateEmailTests {
+        
+        @Test
+        @DisplayName("should return true for valid emails")
+        fun `should return true for valid emails`() {
+            val validEmails = listOf(
+                "test@example.com",
+                "user.name@domain.co.uk",
+                "user+tag@example.org"
+            )
+            
+            validEmails.forEach { email ->
+                assertTrue(userService.validateEmail(email), "Email $email should be valid")
+            }
+        }
+        
+        @Test
+        @DisplayName("should return false for invalid emails")
+        fun `should return false for invalid emails`() {
+            val invalidEmails = listOf(
+                "invalid-email",
+                "@example.com",
+                "user@",
+                "user@.com"
+            )
+            
+            invalidEmails.forEach { email ->
+                assertFalse(userService.validateEmail(email), "Email $email should be invalid")
+            }
+        }
+    }
+}
+```
+
+## Coroutine Testing
+
+### Testing Asynchronous Code
+
+<UniversalEditor title="Coroutine Testing Comparison" compare={true}>
+```javascript !! js
+// JavaScript async testing
+describe('AsyncService', () => {
+  let asyncService;
+  
+  beforeEach(() => {
+    asyncService = new AsyncService();
+  });
+  
+  describe('fetchData', () => {
+    it('should fetch data successfully', async () => {
+      const result = await asyncService.fetchData();
+      
+      expect(result).toEqual([
+        { id: 1, name: 'Item 1' },
+        { id: 2, name: 'Item 2' }
+      ]);
+    });
+    
+    it('should handle errors', async () => {
+      // Mock the fetch to throw an error
+      global.fetch = jest.fn().mockRejectedValue(new Error('Network error'));
+      
+      await expect(asyncService.fetchData()).rejects.toThrow('Network error');
+    });
+    
+    it('should timeout after specified time', async () => {
+      // Mock a slow response
+      global.fetch = jest.fn().mockImplementation(() => 
+        new Promise(resolve => setTimeout(resolve, 2000))
+      );
+      
+      await expect(asyncService.fetchDataWithTimeout(1000))
+        .rejects.toThrow('Request timeout');
+    });
+  });
+  
+  describe('processItems', () => {
+    it('should process items concurrently', async () => {
+      const items = [1, 2, 3, 4, 5];
+      const result = await asyncService.processItems(items);
+      
+      expect(result).toHaveLength(5);
+      expect(result.every(item => item.processed)).toBe(true);
+    });
+  });
+});
+```
+
+```kotlin !! kt
+// Kotlin coroutine testing
+package com.example.testing
+
+import kotlinx.coroutines.test.*
+import org.junit.jupiter.api.*
+import org.junit.jupiter.api.Assertions.*
+import kotlin.time.Duration.Companion.seconds
+
+@OptIn(ExperimentalCoroutinesApi::class)
+class AsyncServiceTest {
+    
+    private lateinit var asyncService: AsyncService
+    
+    @get:Rule
+    val mainDispatcherRule = MainDispatcherRule()
+    
+    @BeforeEach
+    fun setUp() {
+        asyncService = AsyncService()
+    }
+    
+    @Nested
+    @DisplayName("fetchData tests")
+    inner class FetchDataTests {
+        
+        @Test
+        @DisplayName("should fetch data successfully")
+        fun `should fetch data successfully`() = runTest {
+            // When
+            val result = asyncService.fetchData()
+            
+            // Then
+            assertEquals(
+                listOf(
+                    DataItem(id = 1, name = "Item 1"),
+                    DataItem(id = 2, name = "Item 2")
+                ),
+                result
+            )
+        }
+        
+        @Test
+        @DisplayName("should handle errors")
+        fun `should handle errors`() = runTest {
+            // Given
+            asyncService.setShouldThrowError(true)
+            
+            // When & Then
+            val exception = assertThrows<RuntimeException> {
+                asyncService.fetchData()
+            }
+            assertEquals("Network error", exception.message)
+        }
+        
+        @Test
+        @DisplayName("should timeout after specified time")
+        fun `should timeout after specified time`() = runTest {
+            // Given
+            asyncService.setSlowResponse(true)
+            
+            // When & Then
+            val exception = assertThrows<TimeoutException> {
+                withTimeout(1.seconds) {
+                    asyncService.fetchDataWithTimeout()
+                }
+            }
+            assertTrue(exception.message?.contains("timeout") == true)
+        }
+    }
+    
+    @Nested
+    @DisplayName("processItems tests")
+    inner class ProcessItemsTests {
+        
+        @Test
+        @DisplayName("should process items concurrently")
+        fun `should process items concurrently`() = runTest {
+            // Given
+            val items = listOf(1, 2, 3, 4, 5)
+            
+            // When
+            val result = asyncService.processItems(items)
+            
+            // Then
+            assertEquals(5, result.size)
+            assertTrue(result.all { it.processed })
+        }
+        
+        @Test
+        @DisplayName("should handle empty list")
+        fun `should handle empty list`() = runTest {
+            // When
+            val result = asyncService.processItems(emptyList())
+            
+            // Then
+            assertTrue(result.isEmpty())
+        }
+    }
+}
+
+// Custom test rule for main dispatcher
+@OptIn(ExperimentalCoroutinesApi::class)
+class MainDispatcherRule : TestWatcher() {
+    private val testDispatcher = StandardTestDispatcher()
+    
+    override fun starting(description: Description) {
+        super.starting(description)
+        Dispatchers.setMain(testDispatcher)
+    }
+    
+    override fun finished(description: Description) {
+        super.finished(description)
+        Dispatchers.resetMain()
+    }
+}
+```
+
+## Integration Testing
+
+### Web Application Testing
+
+<UniversalEditor title="Integration Testing Comparison" compare={true}>
+```javascript !! js
+// JavaScript integration tests with Supertest
+import request from 'supertest';
+import app from '../app';
+import { connect, disconnect } from '../database';
+
+describe('User API Integration Tests', () => {
+  beforeAll(async () => {
+    await connect();
+  });
+  
+  afterAll(async () => {
+    await disconnect();
+  });
+  
+  beforeEach(async () => {
+    // Clear database before each test
+    await User.deleteMany({});
+  });
+  
+  describe('GET /api/users', () => {
+    it('should return empty list when no users exist', async () => {
+      const response = await request(app)
+        .get('/api/users')
+        .expect(200);
+      
+      expect(response.body).toEqual([]);
+    });
+    
+    it('should return all users', async () => {
+      // Create test users
+      const user1 = await User.create({ name: 'John', email: 'john@example.com' });
+      const user2 = await User.create({ name: 'Jane', email: 'jane@example.com' });
+      
+      const response = await request(app)
+        .get('/api/users')
+        .expect(200);
+      
+      expect(response.body).toHaveLength(2);
+      expect(response.body[0].name).toBe('John');
+      expect(response.body[1].name).toBe('Jane');
+    });
+  });
+  
+  describe('POST /api/users', () => {
+    it('should create new user', async () => {
+      const userData = { name: 'John', email: 'john@example.com' };
+      
+      const response = await request(app)
+        .post('/api/users')
+        .send(userData)
+        .expect(201);
+      
+      expect(response.body.name).toBe('John');
+      expect(response.body.email).toBe('john@example.com');
+      expect(response.body.id).toBeDefined();
+    });
+    
+    it('should return 400 for invalid data', async () => {
+      const invalidData = { name: '', email: 'invalid-email' };
+      
+      const response = await request(app)
+        .post('/api/users')
+        .send(invalidData)
+        .expect(400);
+      
+      expect(response.body.error).toBeDefined();
+    });
+  });
+  
+  describe('GET /api/users/:id', () => {
+    it('should return user by id', async () => {
+      const user = await User.create({ name: 'John', email: 'john@example.com' });
+      
+      const response = await request(app)
+        .get(`/api/users/${user.id}`)
+        .expect(200);
+      
+      expect(response.body.name).toBe('John');
+      expect(response.body.email).toBe('john@example.com');
+    });
+    
+    it('should return 404 for non-existent user', async () => {
+      await request(app)
+        .get('/api/users/999')
+        .expect(404);
+    });
+  });
+});
+```
+
+```kotlin !! kt
+// Kotlin integration tests with Spring Boot Test
+package com.example.testing.integration
+
+import org.junit.jupiter.api.*
+import org.springframework.boot.test.context.SpringBootTest
+import org.springframework.boot.test.web.client.TestRestTemplate
+import org.springframework.boot.test.web.server.LocalServerPort
+import org.springframework.http.HttpStatus
+import org.springframework.test.context.ActiveProfiles
+import org.springframework.transaction.annotation.Transactional
+
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@ActiveProfiles("test")
+@TestInstance(TestInstance.Lifecycle.PER_CLASS)
+class UserApiIntegrationTest {
+    
+    @LocalServerPort
+    private var port: Int = 0
+    
+    private lateinit var restTemplate: TestRestTemplate
+    private lateinit var baseUrl: String
+    
+    @BeforeAll
+    fun setUp() {
+        restTemplate = TestRestTemplate()
+        baseUrl = "http://localhost:$port/api"
+    }
+    
+    @BeforeEach
+    fun setUpEach() {
+        // Clear database before each test
+        userRepository.deleteAll()
+    }
+    
+    @Nested
+    @DisplayName("GET /api/users tests")
+    inner class GetUsersTests {
+        
+        @Test
+        @DisplayName("should return empty list when no users exist")
+        fun `should return empty list when no users exist`() {
+            // When
+            val response = restTemplate.getForEntity("$baseUrl/users", Array<User>::class.java)
+            
+            // Then
+            assertEquals(HttpStatus.OK, response.statusCode)
+            assertNotNull(response.body)
+            assertEquals(0, response.body!!.size)
+        }
+        
+        @Test
+        @DisplayName("should return all users")
+        fun `should return all users`() {
+            // Given
+            val user1 = userRepository.save(User(name = "John", email = "john@example.com"))
+            val user2 = userRepository.save(User(name = "Jane", email = "jane@example.com"))
+            
+            // When
+            val response = restTemplate.getForEntity("$baseUrl/users", Array<User>::class.java)
+            
+            // Then
+            assertEquals(HttpStatus.OK, response.statusCode)
+            assertNotNull(response.body)
+            assertEquals(2, response.body!!.size)
+            assertEquals("John", response.body!![0].name)
+            assertEquals("Jane", response.body!![1].name)
+        }
+    }
+    
+    @Nested
+    @DisplayName("POST /api/users tests")
+    inner class CreateUserTests {
+        
+        @Test
+        @DisplayName("should create new user")
+        fun `should create new user`() {
+            // Given
+            val userData = CreateUserRequest(
+                name = "John",
+                email = "john@example.com"
+            )
+            
+            // When
+            val response = restTemplate.postForEntity("$baseUrl/users", userData, User::class.java)
+            
+            // Then
+            assertEquals(HttpStatus.CREATED, response.statusCode)
+            assertNotNull(response.body)
+            assertEquals("John", response.body!!.name)
+            assertEquals("john@example.com", response.body!!.email)
+            assertNotNull(response.body!!.id)
+        }
+        
+        @Test
+        @DisplayName("should return 400 for invalid data")
+        fun `should return 400 for invalid data`() {
+            // Given
+            val invalidData = CreateUserRequest(
+                name = "",
+                email = "invalid-email"
+            )
+            
+            // When
+            val response = restTemplate.postForEntity("$baseUrl/users", invalidData, ErrorResponse::class.java)
+            
+            // Then
+            assertEquals(HttpStatus.BAD_REQUEST, response.statusCode)
+            assertNotNull(response.body)
+        }
+    }
+    
+    @Nested
+    @DisplayName("GET /api/users/{id} tests")
+    inner class GetUserByIdTests {
+        
+        @Test
+        @DisplayName("should return user by id")
+        fun `should return user by id`() {
+            // Given
+            val user = userRepository.save(User(name = "John", email = "john@example.com"))
+            
+            // When
+            val response = restTemplate.getForEntity("$baseUrl/users/${user.id}", User::class.java)
+            
+            // Then
+            assertEquals(HttpStatus.OK, response.statusCode)
+            assertNotNull(response.body)
+            assertEquals("John", response.body!!.name)
+            assertEquals("john@example.com", response.body!!.email)
+        }
+        
+        @Test
+        @DisplayName("should return 404 for non-existent user")
+        fun `should return 404 for non-existent user`() {
+            // When
+            val response = restTemplate.getForEntity("$baseUrl/users/999", ErrorResponse::class.java)
+            
+            // Then
+            assertEquals(HttpStatus.NOT_FOUND, response.statusCode)
+        }
+    }
+}
+```
+
+## Performance Testing
+
+### Performance Analysis
+
+<UniversalEditor title="Performance Testing Comparison" compare={true}>
+```javascript !! js
+// JavaScript performance testing
+import { performance } from 'perf_hooks';
+
+describe('Performance Tests', () => {
+  describe('Array Operations', () => {
+    it('should measure array filter performance', () => {
+      const largeArray = Array.from({ length: 100000 }, (_, i) => i);
+      
+      const startTime = performance.now();
+      const result = largeArray.filter(x => x % 2 === 0);
+      const endTime = performance.now();
+      
+      const duration = endTime - startTime;
+      console.log(`Array filter took ${duration}ms`);
+      
+      expect(duration).toBeLessThan(100); // Should complete within 100ms
+      expect(result.length).toBe(50000);
+    });
+    
+    it('should measure object creation performance', () => {
+      const iterations = 10000;
+      
+      const startTime = performance.now();
+      for (let i = 0; i < iterations; i++) {
+        const obj = {
+          id: i,
+          name: `User${i}`,
+          email: `user${i}@example.com`
+        };
+      }
+      const endTime = performance.now();
+      
+      const duration = endTime - startTime;
+      console.log(`Object creation took ${duration}ms for ${iterations} objects`);
+      
+      expect(duration).toBeLessThan(50); // Should complete within 50ms
+    });
+  });
+  
+  describe('Async Operations', () => {
+    it('should measure async operation performance', async () => {
+      const startTime = performance.now();
+      
+      const promises = Array.from({ length: 100 }, (_, i) => 
+        fetch(`https://jsonplaceholder.typicode.com/posts/${i + 1}`)
+      );
+      
+      const results = await Promise.all(promises);
+      const endTime = performance.now();
+      
+      const duration = endTime - startTime;
+      console.log(`Async operations took ${duration}ms`);
+      
+      expect(results).toHaveLength(100);
+      expect(duration).toBeLessThan(5000); // Should complete within 5 seconds
+    });
+  });
+});
+```
+
+```kotlin !! kt
+// Kotlin performance testing
+package com.example.testing.performance
+
+import org.junit.jupiter.api.*
+import org.junit.jupiter.api.Assertions.*
+import kotlin.system.measureTimeMillis
+import kotlinx.coroutines.runBlocking
+
+class PerformanceTest {
+    
+    @Nested
+    @DisplayName("Collection Operations")
+    inner class CollectionOperations {
+        
+        @Test
+        @DisplayName("should measure list filter performance")
+        fun `should measure list filter performance`() {
+            // Given
+            val largeList = (0..100_000).toList()
+            
+            // When
+            val duration = measureTimeMillis {
+                val result = largeList.filter { it % 2 == 0 }
+                
+                // Then
+                assertEquals(50_001, result.size)
+            }
+            
+            println("List filter took ${duration}ms")
+            assertTrue(duration < 100) // Should complete within 100ms
+        }
+        
+        @Test
+        @DisplayName("should measure object creation performance")
+        fun `should measure object creation performance`() {
+            // Given
+            val iterations = 10_000
+            
+            // When
+            val duration = measureTimeMillis {
+                repeat(iterations) { i ->
+                    val user = User(
+                        id = i.toLong(),
+                        name = "User$i",
+                        email = "user$i@example.com"
+                    )
+                }
+            }
+            
+            println("Object creation took ${duration}ms for $iterations objects")
+            assertTrue(duration < 50) // Should complete within 50ms
+        }
+    }
+    
+    @Nested
+    @DisplayName("Coroutine Operations")
+    inner class CoroutineOperations {
+        
+        @Test
+        @DisplayName("should measure coroutine performance")
+        fun `should measure coroutine performance`() = runBlocking {
+            // Given
+            val iterations = 100
+            
+            // When
+            val duration = measureTimeMillis {
+                val results = (1..iterations).map { i ->
+                    async {
+                        // Simulate API call
+                        delay(10)
+                        "Result $i"
+                    }
+                }.awaitAll()
+                
+                // Then
+                assertEquals(iterations, results.size)
+            }
+            
+            println("Coroutine operations took ${duration}ms")
+            assertTrue(duration < 2000) // Should complete within 2 seconds
+        }
+    }
+    
+    @Nested
+    @DisplayName("Memory Usage")
+    inner class MemoryUsage {
+        
+        @Test
+        @DisplayName("should measure memory usage")
+        fun `should measure memory usage`() {
+            // Given
+            val initialMemory = Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory()
+            
+            // When
+            val largeList = (0..1_000_000).map { i ->
+                User(
+                    id = i.toLong(),
+                    name = "User$i",
+                    email = "user$i@example.com"
+                )
+            }
+            
+            val finalMemory = Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory()
+            val memoryUsed = finalMemory - initialMemory
+            
+            println("Memory used: ${memoryUsed / 1024 / 1024}MB")
+            
+            // Then
+            assertEquals(1_000_001, largeList.size)
+            assertTrue(memoryUsed < 100 * 1024 * 1024) // Should use less than 100MB
+        }
+    }
+}
+```
+
+## Debugging Techniques
+
+### Debugging Tools and Methods
+
+<UniversalEditor title="Debugging Techniques Comparison" compare={true}>
+```javascript !! js
+// JavaScript debugging techniques
+class DebugExample {
+  constructor() {
+    this.data = [];
+  }
+  
+  addItem(item) {
+    // Console logging for debugging
+    console.log('Adding item:', item);
+    console.trace('Stack trace for addItem');
+    
+    // Debugger statement
+    debugger;
+    
+    this.data.push(item);
+    
+    // Performance measurement
+    console.time('Processing items');
+    this.processItems();
+    console.timeEnd('Processing items');
+  }
+  
+  processItems() {
+    // Error handling with stack traces
+    try {
+      this.data.forEach((item, index) => {
+        if (item.value > 100) {
+          throw new Error(`Item at index ${index} has invalid value: ${item.value}`);
+        }
+      });
+    } catch (error) {
+      console.error('Error processing items:', error);
+      console.error('Stack trace:', error.stack);
+    }
+  }
+  
+  async fetchData() {
+    // Async debugging
+    console.log('Starting data fetch...');
+    
+    try {
+      const response = await fetch('/api/data');
+      console.log('Response status:', response.status);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      console.log('Fetched data:', data);
+      
+      return data;
+    } catch (error) {
+      console.error('Fetch error:', error);
+      throw error;
+    }
+  }
+}
+
+// Usage with debugging
+const debugExample = new DebugExample();
+debugExample.addItem({ id: 1, value: 50 });
+debugExample.addItem({ id: 2, value: 150 }); // This will cause an error
+```
+
+```kotlin !! kt
+// Kotlin debugging techniques
+package com.example.debugging
+
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.runBlocking
+import java.util.logging.Logger
+
+class DebugExample {
+    private val logger = Logger.getLogger(DebugExample::class.java.name)
+    private val data = mutableListOf<DataItem>()
+    
+    fun addItem(item: DataItem) {
+        // Logging for debugging
+        logger.info("Adding item: $item")
+        
+        // Stack trace logging
+        logger.fine("Stack trace: ${Thread.currentThread().stackTrace.joinToString("\n")}")
+        
+        // Debugger breakpoint (set in IDE)
+        // You can also use: throw RuntimeException("Debug breakpoint")
+        
+        data.add(item)
+        
+        // Performance measurement
+        val startTime = System.currentTimeMillis()
+        processItems()
+        val endTime = System.currentTimeMillis()
+        logger.info("Processing items took ${endTime - startTime}ms")
+    }
+    
+    private fun processItems() {
+        // Error handling with detailed information
+        try {
+            data.forEachIndexed { index, item ->
+                require(item.value <= 100) { 
+                    "Item at index $index has invalid value: ${item.value}" 
+                }
+            }
+        } catch (error: Exception) {
+            logger.severe("Error processing items: ${error.message}")
+            logger.severe("Stack trace: ${error.stackTraceToString()}")
+            throw error
+        }
+    }
+    
+    suspend fun fetchData(): List<DataItem> {
+        logger.info("Starting data fetch...")
+        
+        return try {
+            // Simulate API call
+            delay(1000)
+            
+            val response = "mock response"
+            logger.info("Response received: $response")
+            
+            // Simulate parsing
+            val data = listOf(
+                DataItem(id = 1, value = 50),
+                DataItem(id = 2, value = 75)
+            )
+            
+            logger.info("Parsed data: $data")
+            data
+            
+        } catch (error: Exception) {
+            logger.severe("Fetch error: ${error.message}")
+            throw error
+        }
+    }
+}
+
+// Usage with debugging
+fun main() = runBlocking {
+    val debugExample = DebugExample()
+    
+    debugExample.addItem(DataItem(id = 1, value = 50))
+    debugExample.addItem(DataItem(id = 2, value = 150)) // This will cause an error
+    
+    val data = debugExample.fetchData()
+    println("Fetched data: $data")
+}
+
+data class DataItem(
+    val id: Int,
+    val value: Int
+)
+```
+
+## Summary
+
+In this module, we've explored testing and debugging with Kotlin. Here are the key takeaways:
+
+### Key Concepts Covered
+1. **Testing Frameworks**: JUnit 5 and Kotlin Test for comprehensive testing
+2. **Unit Testing**: Isolated testing of individual components
+3. **Integration Testing**: End-to-end testing of application features
+4. **Coroutine Testing**: Testing asynchronous code with runTest
+5. **Performance Testing**: Measuring and optimizing application performance
+6. **Debugging Techniques**: Tools and methods for troubleshooting
+
+### JavaScript vs Kotlin Testing
+
+| Aspect | JavaScript (Jest) | Kotlin (JUnit 5) |
+|--------|------------------|-------------------|
+| **Type Safety** | Dynamic typing | Static typing with compile-time checks |
+| **Test Organization** | describe/it blocks | @Nested/@Test annotations |
+| **Assertions** | expect() function | assertEquals(), assertThrows() |
+| **Mocking** | jest.mock() | Mockito with Kotlin extensions |
+| **Async Testing** | async/await | runTest with coroutines |
+| **Performance Testing** | performance API | measureTimeMillis, custom metrics |
+| **Debugging** | console.log, debugger | Logging, IDE debugging tools |
+
+### Best Practices
+1. **Write Comprehensive Tests**: Cover all code paths and edge cases
+2. **Use Descriptive Test Names**: Clear test names with @DisplayName
+3. **Follow AAA Pattern**: Arrange, Act, Assert structure
+4. **Mock External Dependencies**: Isolate units under test
+5. **Test Coroutines Properly**: Use runTest for async testing
+6. **Measure Performance**: Regular performance testing and monitoring
+7. **Use Logging**: Comprehensive logging for debugging
+8. **Test-Driven Development**: Write tests before implementation
+
+### Next Steps
+In the next module, we'll explore common pitfalls and solutions in Kotlin development, focusing on typical mistakes and how to avoid them.
+
+---
+
+**Practice Challenge**: Create a comprehensive test suite for a user management system, including unit tests for business logic, integration tests for API endpoints, performance tests for database operations, and debugging scenarios for common issues. 

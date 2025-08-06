@@ -1,0 +1,1144 @@
+---
+title: "Common Pitfalls and Solutions in Kotlin"
+description: "Learn about common Kotlin pitfalls and their solutions, comparing with JavaScript development patterns"
+---
+
+# Common Pitfalls and Solutions in Kotlin
+
+Welcome to the twelfth module of JavaScript to Kotlin conversion! In this module, we'll explore common pitfalls that developers encounter when transitioning from JavaScript to Kotlin, and learn effective solutions to avoid them. We'll cover coroutine programming traps, null safety issues, performance optimization mistakes, and memory management problems.
+
+## Learning Objectives
+
+By the end of this module, you will be able to:
+- Identify and avoid common Kotlin programming pitfalls
+- Understand coroutine programming traps and solutions
+- Handle null safety issues properly
+- Avoid performance optimization mistakes
+- Manage memory leaks and resource cleanup
+- Apply best practices for error handling
+- Debug common Kotlin issues effectively
+
+## Coroutine Programming Pitfalls
+
+### Common Coroutine Mistakes
+
+<UniversalEditor title="Coroutine Programming Pitfalls" compare={true}>
+```javascript !! js
+// JavaScript async/await pitfalls
+class UserService {
+  constructor() {
+    this.users = [];
+  }
+  
+  // Pitfall 1: Not handling errors properly
+  async fetchUsers() {
+    try {
+      const response = await fetch('/api/users');
+      const users = await response.json();
+      this.users = users;
+      return users;
+    } catch (error) {
+      console.error('Error fetching users:', error);
+      // Missing error handling - could crash the app
+    }
+  }
+  
+  // Pitfall 2: Not cancelling requests
+  async searchUsers(query) {
+    const response = await fetch(`/api/users?q=${query}`);
+    const users = await response.json();
+    return users;
+    // If component unmounts, this request continues
+  }
+  
+  // Pitfall 3: Race conditions
+  async updateUser(id, data) {
+    const response = await fetch(`/api/users/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    return response.json();
+    // Multiple rapid calls can cause race conditions
+  }
+  
+  // Pitfall 4: Blocking the main thread
+  async processLargeData(data) {
+    const result = [];
+    for (const item of data) {
+      const processed = await this.heavyProcessing(item);
+      result.push(processed);
+    }
+    return result;
+    // This blocks the main thread
+  }
+  
+  // Pitfall 5: Not using proper async patterns
+  async getUserWithOrders(userId) {
+    const user = await this.fetchUser(userId);
+    const orders = await this.fetchOrders(userId);
+    return { ...user, orders };
+    // Sequential calls instead of parallel
+  }
+}
+```
+
+```kotlin !! kt
+// Kotlin coroutine pitfalls and solutions
+class UserService {
+    private val users = mutableListOf<User>()
+    
+    // Pitfall 1: Not handling exceptions properly
+    suspend fun fetchUsers(): List<User> {
+        return try {
+            val response = httpClient.get("/api/users")
+            val users = Json.decodeFromString<List<User>>(response)
+            this.users.clear()
+            this.users.addAll(users)
+            users
+        } catch (e: Exception) {
+            // Solution: Proper error handling with custom exceptions
+            throw UserFetchException("Failed to fetch users", e)
+        }
+    }
+    
+    // Pitfall 2: Not using structured concurrency
+    suspend fun searchUsers(query: String): List<User> {
+        // Solution: Use coroutine scope with cancellation
+        return withContext(Dispatchers.IO) {
+            val response = httpClient.get("/api/users?q=$query")
+            Json.decodeFromString(response)
+        }
+    }
+    
+    // Pitfall 3: Race conditions in shared state
+    private val userCache = mutableMapOf<Long, User>()
+    
+    suspend fun updateUser(id: Long, data: UpdateUserRequest): User {
+        // Solution: Use mutex for thread-safe access
+        return userCacheMutex.withLock {
+            val response = httpClient.put("/api/users/$id") {
+                setBody(Json.encodeToString(data))
+            }
+            val user = Json.decodeFromString<User>(response)
+            userCache[id] = user
+            user
+        }
+    }
+    
+    // Pitfall 4: Blocking operations in coroutines
+    suspend fun processLargeData(data: List<DataItem>): List<ProcessedItem> {
+        // Solution: Use withContext for CPU-intensive work
+        return withContext(Dispatchers.Default) {
+            data.map { item ->
+                heavyProcessing(item)
+            }
+        }
+    }
+    
+    // Pitfall 5: Sequential instead of parallel execution
+    suspend fun getUserWithOrders(userId: Long): UserWithOrders {
+        // Solution: Use async for parallel execution
+        return coroutineScope {
+            val userDeferred = async { fetchUser(userId) }
+            val ordersDeferred = async { fetchOrders(userId) }
+            
+            val user = userDeferred.await()
+            val orders = ordersDeferred.await()
+            
+            UserWithOrders(user = user, orders = orders)
+        }
+    }
+    
+    // Solution: Proper coroutine scope management
+    private val userCacheMutex = Mutex()
+    
+    // Solution: Custom exceptions for better error handling
+    class UserFetchException(message: String, cause: Throwable? = null) : 
+        Exception(message, cause)
+}
+
+// Best practices for coroutine usage
+class CoroutineBestPractices {
+    
+    // 1. Use structured concurrency
+    suspend fun structuredConcurrencyExample() = coroutineScope {
+        val result1 = async { fetchData1() }
+        val result2 = async { fetchData2() }
+        
+        // If any coroutine fails, all are cancelled
+        result1.await() + result2.await()
+    }
+    
+    // 2. Handle cancellation properly
+    suspend fun cancellationAwareOperation() {
+        try {
+            withTimeout(5000) {
+                longRunningOperation()
+            }
+        } catch (e: TimeoutCancellationException) {
+            // Handle timeout
+            cleanup()
+        }
+    }
+    
+    // 3. Use appropriate dispatchers
+    suspend fun dispatcherExample() {
+        // IO operations
+        val data = withContext(Dispatchers.IO) {
+            readFromFile()
+        }
+        
+        // CPU-intensive operations
+        val processed = withContext(Dispatchers.Default) {
+            processData(data)
+        }
+        
+        // UI updates (in Android)
+        withContext(Dispatchers.Main) {
+            updateUI(processed)
+        }
+    }
+    
+    // 4. Avoid blocking operations in coroutines
+    suspend fun nonBlockingExample() {
+        // Instead of Thread.sleep()
+        delay(1000)
+        
+        // Instead of blocking calls
+        withContext(Dispatchers.IO) {
+            // IO operations
+        }
+    }
+}
+```
+
+## Null Safety Pitfalls
+
+### Common Null Safety Issues
+
+<UniversalEditor title="Null Safety Pitfalls" compare={true}>
+```javascript !! js
+// JavaScript null/undefined pitfalls
+class UserManager {
+  constructor() {
+    this.users = [];
+  }
+  
+  // Pitfall 1: Not checking for null/undefined
+  getUserName(userId) {
+    const user = this.users.find(u => u.id === userId);
+    return user.name; // Could throw if user is undefined
+  }
+  
+  // Pitfall 2: Inconsistent null handling
+  updateUser(userId, data) {
+    const user = this.users.find(u => u.id === userId);
+    if (user) {
+      Object.assign(user, data);
+    }
+    // No error if user not found
+  }
+  
+  // Pitfall 3: Optional chaining misuse
+  getNestedProperty(user) {
+    return user?.profile?.address?.street;
+    // Returns undefined instead of throwing
+  }
+  
+  // Pitfall 4: Default values not used properly
+  getDisplayName(user) {
+    return user.name || 'Anonymous';
+    // Falsy values (empty string, 0) are replaced
+  }
+  
+  // Pitfall 5: Array operations with null
+  getActiveUsers() {
+    return this.users.filter(user => user.active);
+    // Could include null/undefined values
+  }
+}
+```
+
+```kotlin !! kt
+// Kotlin null safety pitfalls and solutions
+class UserManager {
+    private val users = mutableListOf<User>()
+    
+    // Pitfall 1: Not using null safety properly
+    fun getUserName(userId: Long): String {
+        val user = users.find { it.id == userId }
+        return user.name // Compilation error - user could be null
+    }
+    
+    // Solution 1: Safe call operator
+    fun getUserNameSafe(userId: Long): String? {
+        val user = users.find { it.id == userId }
+        return user?.name
+    }
+    
+    // Solution 2: Elvis operator with default
+    fun getUserNameWithDefault(userId: Long): String {
+        val user = users.find { it.id == userId }
+        return user?.name ?: "Unknown User"
+    }
+    
+    // Solution 3: Exception for missing user
+    fun getUserNameOrThrow(userId: Long): String {
+        val user = users.find { it.id == userId }
+            ?: throw UserNotFoundException("User not found: $userId")
+        return user.name
+    }
+    
+    // Pitfall 2: Inconsistent null handling
+    fun updateUser(userId: Long, data: UpdateUserRequest) {
+        val user = users.find { it.id == userId }
+        if (user != null) {
+            // Update user
+        }
+        // Silent failure - not good
+    }
+    
+    // Solution: Proper error handling
+    fun updateUserOrThrow(userId: Long, data: UpdateUserRequest) {
+        val user = users.find { it.id == userId }
+            ?: throw UserNotFoundException("User not found: $userId")
+        
+        // Update user
+    }
+    
+    // Pitfall 3: Not using smart casts
+    fun processUser(user: User?) {
+        if (user != null) {
+            // user is still nullable here in some cases
+            println(user.name) // Could be null
+        }
+    }
+    
+    // Solution: Smart cast usage
+    fun processUserSmart(user: User?) {
+        if (user != null && user.name != null) {
+            // user is now non-null and name is non-null
+            println(user.name.length) // Safe to access
+        }
+    }
+    
+    // Pitfall 4: Unsafe type casting
+    fun processData(data: Any?): String {
+        return data as String // Could throw ClassCastException
+    }
+    
+    // Solution: Safe type casting
+    fun processDataSafe(data: Any?): String? {
+        return data as? String
+    }
+    
+    // Pitfall 5: Not using sealed classes for error handling
+    sealed class UserResult {
+        data class Success(val user: User) : UserResult()
+        data class Error(val message: String) : UserResult()
+    }
+    
+    fun getUserResult(userId: Long): UserResult {
+        return try {
+            val user = users.find { it.id == userId }
+                ?: return UserResult.Error("User not found")
+            UserResult.Success(user)
+        } catch (e: Exception) {
+            UserResult.Error("Error fetching user: ${e.message}")
+        }
+    }
+}
+
+// Best practices for null safety
+class NullSafetyBestPractices {
+    
+    // 1. Use non-null types when possible
+    fun createUser(name: String, email: String): User {
+        return User(
+            name = name,
+            email = email
+        )
+    }
+    
+    // 2. Use nullable types only when necessary
+    fun createUserWithOptional(name: String, email: String, phone: String? = null): User {
+        return User(
+            name = name,
+            email = email,
+            phone = phone // Only nullable when truly optional
+        )
+    }
+    
+    // 3. Use safe call operator for chaining
+    fun getStreetName(user: User?): String? {
+        return user?.address?.street
+    }
+    
+    // 4. Use let for null-safe operations
+    fun processUserIfNotNull(user: User?) {
+        user?.let { safeUser ->
+            // safeUser is guaranteed to be non-null here
+            processUser(safeUser)
+        }
+    }
+    
+    // 5. Use when expression for null handling
+    fun getDisplayName(user: User?): String {
+        return when (user) {
+            null -> "Unknown User"
+            else -> user.name ?: "Anonymous"
+        }
+    }
+}
+```
+
+## Performance Optimization Pitfalls
+
+### Common Performance Mistakes
+
+<UniversalEditor title="Performance Optimization Pitfalls" compare={true}>
+```javascript !! js
+// JavaScript performance pitfalls
+class PerformanceExample {
+  constructor() {
+    this.data = [];
+  }
+  
+  // Pitfall 1: Inefficient array operations
+  filterAndMapData() {
+    return this.data
+      .filter(item => item.active)
+      .map(item => item.name)
+      .filter(name => name.length > 0);
+    // Multiple array iterations
+  }
+  
+  // Pitfall 2: Memory leaks with closures
+  createEventListeners() {
+    this.data.forEach(item => {
+      document.addEventListener('click', () => {
+        console.log(item.name);
+      });
+    });
+    // Event listeners not removed
+  }
+  
+  // Pitfall 3: Synchronous operations blocking the main thread
+  processLargeData(data) {
+    const result = [];
+    for (let i = 0; i < data.length; i++) {
+      const processed = this.heavyProcessing(data[i]);
+      result.push(processed);
+    }
+    return result;
+    // Blocks UI thread
+  }
+  
+  // Pitfall 4: Inefficient object creation
+  createObjects() {
+    const objects = [];
+    for (let i = 0; i < 10000; i++) {
+      objects.push({
+        id: i,
+        name: `Item ${i}`,
+        timestamp: Date.now()
+      });
+    }
+    return objects;
+    // Creates many objects
+  }
+  
+  // Pitfall 5: Not using caching
+  expensiveCalculation(input) {
+    // Recalculates every time
+    return this.heavyComputation(input);
+  }
+}
+```
+
+```kotlin !! kt
+// Kotlin performance pitfalls and solutions
+class PerformanceExample {
+    private val data = mutableListOf<DataItem>()
+    
+    // Pitfall 1: Inefficient collection operations
+    fun filterAndMapDataInefficient(): List<String> {
+        return data
+            .filter { it.active }
+            .map { it.name }
+            .filter { it.isNotEmpty() }
+        // Multiple collection iterations
+    }
+    
+    // Solution: Single iteration with sequence
+    fun filterAndMapDataEfficient(): List<String> {
+        return data.asSequence()
+            .filter { it.active }
+            .map { it.name }
+            .filter { it.isNotEmpty() }
+            .toList()
+    }
+    
+    // Pitfall 2: Memory leaks with coroutines
+    private val scope = CoroutineScope(Dispatchers.Main)
+    
+    fun startDataProcessing() {
+        scope.launch {
+            while (true) {
+                processData()
+                delay(1000)
+            }
+        }
+        // Coroutine never cancelled
+    }
+    
+    // Solution: Proper coroutine scope management
+    private var dataJob: Job? = null
+    
+    fun startDataProcessingSafe() {
+        dataJob?.cancel() // Cancel previous job
+        dataJob = CoroutineScope(Dispatchers.Main).launch {
+            while (isActive) {
+                processData()
+                delay(1000)
+            }
+        }
+    }
+    
+    fun stopDataProcessing() {
+        dataJob?.cancel()
+    }
+    
+    // Pitfall 3: Blocking operations in main thread
+    fun processLargeDataBlocking(data: List<DataItem>): List<ProcessedItem> {
+        return data.map { item ->
+            heavyProcessing(item) // Blocks main thread
+        }
+    }
+    
+    // Solution: Use coroutines for background processing
+    suspend fun processLargeDataAsync(data: List<DataItem>): List<ProcessedItem> {
+        return withContext(Dispatchers.Default) {
+            data.map { item ->
+                heavyProcessing(item)
+            }
+        }
+    }
+    
+    // Pitfall 4: Inefficient object creation
+    fun createObjectsInefficient(): List<TestObject> {
+        return (0..10_000).map { i ->
+            TestObject(
+                id = i,
+                name = "Item $i",
+                timestamp = System.currentTimeMillis()
+            )
+        }
+    }
+    
+    // Solution: Use object pools or lazy initialization
+    private val objectPool = mutableMapOf<Int, TestObject>()
+    
+    fun createObjectEfficient(id: Int): TestObject {
+        return objectPool.getOrPut(id) {
+            TestObject(
+                id = id,
+                name = "Item $id",
+                timestamp = System.currentTimeMillis()
+            )
+        }
+    }
+    
+    // Pitfall 5: Not using caching
+    fun expensiveCalculation(input: Int): Int {
+        return heavyComputation(input) // Recalculates every time
+    }
+    
+    // Solution: Use caching
+    private val cache = mutableMapOf<Int, Int>()
+    
+    fun expensiveCalculationCached(input: Int): Int {
+        return cache.getOrPut(input) {
+            heavyComputation(input)
+        }
+    }
+}
+
+// Best practices for performance
+class PerformanceBestPractices {
+    
+    // 1. Use sequences for large collections
+    fun processLargeCollection(data: List<Int>): List<String> {
+        return data.asSequence()
+            .filter { it > 0 }
+            .map { it.toString() }
+            .toList()
+    }
+    
+    // 2. Use lazy initialization
+    private val expensiveResource by lazy {
+        createExpensiveResource()
+    }
+    
+    // 3. Use object pools for frequently created objects
+    private val stringBuilderPool = mutableListOf<StringBuilder>()
+    
+    fun getStringBuilder(): StringBuilder {
+        return if (stringBuilderPool.isNotEmpty()) {
+            stringBuilderPool.removeAt(stringBuilderPool.lastIndex)
+        } else {
+            StringBuilder()
+        }
+    }
+    
+    fun returnStringBuilder(builder: StringBuilder) {
+        builder.clear()
+        stringBuilderPool.add(builder)
+    }
+    
+    // 4. Use appropriate data structures
+    fun findUserById(users: List<User>, id: Long): User? {
+        // Use Map for O(1) lookup instead of O(n)
+        return users.associateBy { it.id }[id]
+    }
+    
+    // 5. Use coroutines for async operations
+    suspend fun processDataAsync(data: List<DataItem>): List<ProcessedItem> {
+        return withContext(Dispatchers.Default) {
+            data.map { item ->
+                processItem(item)
+            }
+        }
+    }
+}
+```
+
+## Memory Management Pitfalls
+
+### Memory Leak Prevention
+
+<UniversalEditor title="Memory Management Pitfalls" compare={true}>
+```javascript !! js
+// JavaScript memory management pitfalls
+class MemoryExample {
+  constructor() {
+    this.listeners = [];
+    this.data = [];
+  }
+  
+  // Pitfall 1: Event listeners not removed
+  addEventListeners() {
+    document.addEventListener('click', this.handleClick.bind(this));
+    // Listener never removed
+  }
+  
+  // Pitfall 2: Circular references
+  createCircularReference() {
+    const obj1 = { name: 'Object 1' };
+    const obj2 = { name: 'Object 2' };
+    obj1.ref = obj2;
+    obj2.ref = obj1;
+    // Circular reference prevents garbage collection
+  }
+  
+  // Pitfall 3: Large objects in closures
+  createClosureWithLargeData() {
+    const largeData = new Array(1000000).fill('data');
+    return function() {
+      console.log(largeData.length);
+    };
+    // largeData kept in memory
+  }
+  
+  // Pitfall 4: Timers not cleared
+  startTimer() {
+    this.timer = setInterval(() => {
+      this.processData();
+    }, 1000);
+    // Timer never cleared
+  }
+  
+  // Pitfall 5: DOM references not cleared
+  cacheDOMElements() {
+    this.elements = document.querySelectorAll('.item');
+    // DOM references kept in memory
+  }
+}
+```
+
+```kotlin !! kt
+// Kotlin memory management pitfalls and solutions
+class MemoryExample {
+    private val listeners = mutableListOf<() -> Unit>()
+    private val data = mutableListOf<DataItem>()
+    
+    // Pitfall 1: Coroutines not cancelled
+    private var dataJob: Job? = null
+    
+    fun startDataProcessing() {
+        dataJob = CoroutineScope(Dispatchers.Main).launch {
+            while (true) {
+                processData()
+                delay(1000)
+            }
+        }
+        // Job never cancelled
+    }
+    
+    // Solution: Proper coroutine lifecycle management
+    fun startDataProcessingSafe() {
+        dataJob?.cancel() // Cancel previous job
+        dataJob = CoroutineScope(Dispatchers.Main).launch {
+            while (isActive) {
+                processData()
+                delay(1000)
+            }
+        }
+    }
+    
+    fun cleanup() {
+        dataJob?.cancel()
+        listeners.clear()
+        data.clear()
+    }
+    
+    // Pitfall 2: Strong references preventing garbage collection
+    private var strongReference: Any? = null
+    
+    fun createStrongReference(obj: Any) {
+        strongReference = obj
+        // obj will never be garbage collected
+    }
+    
+    // Solution: Use weak references
+    private val weakReferences = WeakHashMap<Any, String>()
+    
+    fun createWeakReference(obj: Any, value: String) {
+        weakReferences[obj] = value
+        // obj can be garbage collected
+    }
+    
+    // Pitfall 3: Large objects in closures
+    fun createClosureWithLargeData(): () -> Unit {
+        val largeData = List(1_000_000) { "data" }
+        return {
+            println(largeData.size)
+        }
+        // largeData kept in memory
+    }
+    
+    // Solution: Use lazy initialization or clear references
+    private val largeData by lazy {
+        List(1_000_000) { "data" }
+    }
+    
+    fun createClosureSafe(): () -> Unit {
+        return {
+            println(largeData.size)
+        }
+    }
+    
+    // Pitfall 4: Resource leaks
+    private var fileInputStream: FileInputStream? = null
+    
+    fun readFile(path: String): String {
+        fileInputStream = FileInputStream(path)
+        return fileInputStream!!.readBytes().toString()
+        // FileInputStream never closed
+    }
+    
+    // Solution: Use use function for automatic resource management
+    fun readFileSafe(path: String): String {
+        return FileInputStream(path).use { input ->
+            input.readBytes().toString()
+        }
+    }
+    
+    // Pitfall 5: Observers not removed
+    private val observers = mutableListOf<Observer>()
+    
+    fun addObserver(observer: Observer) {
+        observers.add(observer)
+        // Observer never removed
+    }
+    
+    // Solution: Proper observer lifecycle management
+    fun addObserverSafe(observer: Observer) {
+        observers.add(observer)
+    }
+    
+    fun removeObserver(observer: Observer) {
+        observers.remove(observer)
+    }
+    
+    fun cleanup() {
+        observers.clear()
+    }
+}
+
+// Best practices for memory management
+class MemoryManagementBestPractices {
+    
+    // 1. Use structured concurrency
+    suspend fun structuredConcurrencyExample() = coroutineScope {
+        val job1 = launch { processData1() }
+        val job2 = launch { processData2() }
+        
+        // All jobs are cancelled when scope is cancelled
+        job1.join()
+        job2.join()
+    }
+    
+    // 2. Use resource management
+    fun readFileWithResource(path: String): String {
+        return File(path).inputStream().use { input ->
+            input.bufferedReader().readText()
+        }
+    }
+    
+    // 3. Use weak references for caching
+    private val cache = WeakHashMap<String, ExpensiveObject>()
+    
+    fun getExpensiveObject(key: String): ExpensiveObject {
+        return cache.getOrPut(key) {
+            createExpensiveObject()
+        }
+    }
+    
+    // 4. Clear references when done
+    class DataProcessor {
+        private var data: List<DataItem>? = null
+        
+        fun processData(newData: List<DataItem>) {
+            data = newData
+            // Process data
+        }
+        
+        fun cleanup() {
+            data = null // Clear reference
+        }
+    }
+    
+    // 5. Use object pools for frequently created objects
+    private val stringBuilderPool = mutableListOf<StringBuilder>()
+    
+    fun getStringBuilder(): StringBuilder {
+        return if (stringBuilderPool.isNotEmpty()) {
+            stringBuilderPool.removeAt(stringBuilderPool.lastIndex)
+        } else {
+            StringBuilder()
+        }
+    }
+    
+    fun returnStringBuilder(builder: StringBuilder) {
+        builder.clear()
+        stringBuilderPool.add(builder)
+    }
+}
+```
+
+## Error Handling Pitfalls
+
+### Common Error Handling Mistakes
+
+<UniversalEditor title="Error Handling Pitfalls" compare={true}>
+```javascript !! js
+// JavaScript error handling pitfalls
+class ErrorExample {
+  // Pitfall 1: Swallowing exceptions
+  async fetchData() {
+    try {
+      const response = await fetch('/api/data');
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      console.log('Error occurred');
+      // Error swallowed, no re-throwing
+    }
+  }
+  
+  // Pitfall 2: Generic error handling
+  processData(data) {
+    try {
+      return this.heavyProcessing(data);
+    } catch (error) {
+      console.error('An error occurred:', error);
+      // Generic error message
+    }
+  }
+  
+  // Pitfall 3: Not handling async errors
+  async processAsyncData() {
+    const promises = [this.fetchData1(), this.fetchData2()];
+    const results = await Promise.all(promises);
+    return results;
+    // If any promise rejects, entire operation fails
+  }
+  
+  // Pitfall 4: Inconsistent error types
+  validateUser(user) {
+    if (!user.name) {
+      throw 'Name is required';
+    }
+    if (!user.email) {
+      throw new Error('Email is required');
+    }
+    // Mixed error types
+  }
+  
+  // Pitfall 5: Not providing context
+  async updateUser(userId, data) {
+    try {
+      const response = await fetch(`/api/users/${userId}`, {
+        method: 'PUT',
+        body: JSON.stringify(data)
+      });
+      return response.json();
+    } catch (error) {
+      throw new Error('Update failed');
+      // Lost original error context
+    }
+  }
+}
+```
+
+```kotlin !! kt
+// Kotlin error handling pitfalls and solutions
+class ErrorExample {
+    
+    // Pitfall 1: Swallowing exceptions
+    suspend fun fetchData(): List<DataItem>? {
+        return try {
+            val response = httpClient.get("/api/data")
+            Json.decodeFromString(response)
+        } catch (e: Exception) {
+            println("Error occurred")
+            null // Error swallowed
+        }
+    }
+    
+    // Solution: Proper error handling with custom exceptions
+    suspend fun fetchDataSafe(): List<DataItem> {
+        return try {
+            val response = httpClient.get("/api/data")
+            Json.decodeFromString(response)
+        } catch (e: Exception) {
+            throw DataFetchException("Failed to fetch data", e)
+        }
+    }
+    
+    // Pitfall 2: Generic error handling
+    fun processData(data: List<DataItem>): List<ProcessedItem> {
+        return try {
+            data.map { item ->
+                heavyProcessing(item)
+            }
+        } catch (e: Exception) {
+            println("An error occurred: $e")
+            emptyList() // Generic handling
+        }
+    }
+    
+    // Solution: Specific error handling
+    fun processDataSafe(data: List<DataItem>): Result<List<ProcessedItem>> {
+        return try {
+            val result = data.map { item ->
+                heavyProcessing(item)
+            }
+            Result.success(result)
+        } catch (e: IllegalArgumentException) {
+            Result.failure(ValidationException("Invalid data format", e))
+        } catch (e: Exception) {
+            Result.failure(ProcessingException("Failed to process data", e))
+        }
+    }
+    
+    // Pitfall 3: Not handling coroutine exceptions
+    suspend fun processAsyncData(): List<DataItem> {
+        val results = coroutineScope {
+            val data1 = async { fetchData1() }
+            val data2 = async { fetchData2() }
+            listOf(data1.await(), data2.await())
+        }
+        return results.flatten()
+        // If any coroutine fails, entire operation fails
+    }
+    
+    // Solution: Handle coroutine exceptions properly
+    suspend fun processAsyncDataSafe(): List<DataItem> {
+        return try {
+            coroutineScope {
+                val data1 = async { fetchData1() }
+                val data2 = async { fetchData2() }
+                listOf(data1.await(), data2.await())
+            }.flatten()
+        } catch (e: Exception) {
+            // Handle specific exceptions
+            when (e) {
+                is NetworkException -> handleNetworkError(e)
+                is TimeoutException -> handleTimeoutError(e)
+                else -> throw ProcessingException("Failed to process async data", e)
+            }
+            emptyList()
+        }
+    }
+    
+    // Pitfall 4: Inconsistent error types
+    fun validateUser(user: User) {
+        if (user.name.isBlank()) {
+            throw "Name is required"
+        }
+        if (user.email.isBlank()) {
+            throw ValidationException("Email is required")
+        }
+        // Mixed error types
+    }
+    
+    // Solution: Use sealed classes for error types
+    sealed class ValidationError : Exception() {
+        object MissingName : ValidationError()
+        object MissingEmail : ValidationError()
+        object InvalidEmail : ValidationError()
+    }
+    
+    fun validateUserSafe(user: User): Result<User> {
+        return when {
+            user.name.isBlank() -> Result.failure(ValidationError.MissingName)
+            user.email.isBlank() -> Result.failure(ValidationError.MissingEmail)
+            !isValidEmail(user.email) -> Result.failure(ValidationError.InvalidEmail)
+            else -> Result.success(user)
+        }
+    }
+    
+    // Pitfall 5: Not providing context
+    suspend fun updateUser(userId: Long, data: UpdateUserRequest): User {
+        return try {
+            val response = httpClient.put("/api/users/$userId") {
+                setBody(Json.encodeToString(data))
+            }
+            Json.decodeFromString(response)
+        } catch (e: Exception) {
+            throw Exception("Update failed")
+            // Lost original error context
+        }
+    }
+    
+    // Solution: Preserve error context
+    suspend fun updateUserSafe(userId: Long, data: UpdateUserRequest): User {
+        return try {
+            val response = httpClient.put("/api/users/$userId") {
+                setBody(Json.encodeToString(data))
+            }
+            Json.decodeFromString(response)
+        } catch (e: Exception) {
+            throw UserUpdateException("Failed to update user $userId", e)
+        }
+    }
+}
+
+// Custom exceptions for better error handling
+class DataFetchException(message: String, cause: Throwable? = null) : 
+    Exception(message, cause)
+
+class ValidationException(message: String, cause: Throwable? = null) : 
+    Exception(message, cause)
+
+class ProcessingException(message: String, cause: Throwable? = null) : 
+    Exception(message, cause)
+
+class NetworkException(message: String, cause: Throwable? = null) : 
+    Exception(message, cause)
+
+class UserUpdateException(message: String, cause: Throwable? = null) : 
+    Exception(message, cause)
+
+// Best practices for error handling
+class ErrorHandlingBestPractices {
+    
+    // 1. Use Result type for operations that can fail
+    fun divide(a: Int, b: Int): Result<Int> {
+        return if (b != 0) {
+            Result.success(a / b)
+        } else {
+            Result.failure(ArithmeticException("Division by zero"))
+        }
+    }
+    
+    // 2. Use sealed classes for error types
+    sealed class ApiError : Exception() {
+        object NetworkError : ApiError()
+        object ServerError : ApiError()
+        data class ValidationError(val field: String) : ApiError()
+    }
+    
+    // 3. Use try-catch with specific exception types
+    fun processData(data: String): Result<ProcessedData> {
+        return try {
+            val processed = heavyProcessing(data)
+            Result.success(processed)
+        } catch (e: IllegalArgumentException) {
+            Result.failure(ApiError.ValidationError("Invalid data format"))
+        } catch (e: Exception) {
+            Result.failure(ApiError.ServerError)
+        }
+    }
+    
+    // 4. Use coroutine exception handlers
+    private val exceptionHandler = CoroutineExceptionHandler { _, exception ->
+        when (exception) {
+            is NetworkException -> handleNetworkError(exception)
+            is TimeoutException -> handleTimeoutError(exception)
+            else -> handleGenericError(exception)
+        }
+    }
+    
+    // 5. Use supervisor scope for independent operations
+    suspend fun processIndependentData(): List<DataItem> {
+        return supervisorScope {
+            val data1 = async { fetchData1() }
+            val data2 = async { fetchData2() }
+            
+            // If one fails, others continue
+            listOfNotNull(data1.awaitOrNull(), data2.awaitOrNull())
+        }
+    }
+}
+```
+
+## Summary
+
+In this module, we've explored common pitfalls in Kotlin development and their solutions. Here are the key takeaways:
+
+### Key Concepts Covered
+1. **Coroutine Programming Pitfalls**: Structured concurrency, cancellation, and proper error handling
+2. **Null Safety Issues**: Safe call operators, Elvis operator, and smart casts
+3. **Performance Optimization Mistakes**: Efficient collection operations, caching, and background processing
+4. **Memory Management Problems**: Resource cleanup, weak references, and object pools
+5. **Error Handling Mistakes**: Custom exceptions, Result types, and proper error context
+
+### Common Pitfalls and Solutions
+
+| Pitfall Category | Common Mistake | Solution |
+|-----------------|----------------|----------|
+| **Coroutines** | Not using structured concurrency | Use coroutineScope and supervisorScope |
+| **Null Safety** | Unsafe null access | Use safe call operator (?.) and Elvis operator (?:) |
+| **Performance** | Inefficient collection operations | Use sequences and appropriate data structures |
+| **Memory** | Resource leaks | Use use function and proper cleanup |
+| **Error Handling** | Swallowing exceptions | Use custom exceptions and Result types |
+
+### Best Practices
+1. **Use Structured Concurrency**: Always use coroutineScope for proper lifecycle management
+2. **Handle Nulls Safely**: Use safe call operators and provide meaningful defaults
+3. **Optimize Performance**: Use sequences for large collections and appropriate dispatchers
+4. **Manage Memory**: Clean up resources and use weak references when appropriate
+5. **Handle Errors Properly**: Use custom exceptions and preserve error context
+6. **Test Thoroughly**: Write tests for edge cases and error scenarios
+7. **Monitor Performance**: Use profiling tools to identify bottlenecks
+
+### Next Steps
+In the next module, we'll explore Kotlin idiomatic patterns and performance optimization techniques, focusing on writing clean, efficient, and maintainable Kotlin code.
+
+---
+
+**Practice Challenge**: Refactor a problematic codebase to fix common pitfalls, including null safety issues, coroutine problems, memory leaks, and poor error handling. Implement proper solutions and write comprehensive tests. 

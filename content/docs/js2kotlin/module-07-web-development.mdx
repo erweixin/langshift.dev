@@ -1,0 +1,484 @@
+---
+title: "Web Development with Kotlin"
+description: "Learn Kotlin web development with Spring Boot, comparing with JavaScript backend development patterns and Node.js concepts"
+---
+
+# Web Development with Kotlin
+
+Welcome to the seventh module of JavaScript to Kotlin conversion! In this module, we'll explore web development with Kotlin using Spring Boot framework and understand how it compares to JavaScript backend development patterns like Node.js and Express. We'll learn about RESTful API development, database integration, security, and modern web development practices.
+
+## Learning Objectives
+
+By the end of this module, you will be able to:
+- Understand Spring Boot framework and its advantages
+- Compare Kotlin web development with Node.js/Express patterns
+- Implement RESTful APIs with Spring Boot
+- Integrate databases using JPA/Hibernate
+- Handle authentication and authorization
+- Implement GraphQL services
+- Build microservices architecture
+- Apply modern web development best practices
+
+## Spring Boot Framework Overview
+
+### Framework Comparison
+
+Spring Boot is Kotlin's equivalent to Express.js in the JavaScript ecosystem, but with much more built-in functionality and enterprise-grade features.
+
+<UniversalEditor title="Framework Comparison" compare={true}>
+```javascript !! js
+// Express.js - JavaScript backend framework
+const express = require('express');
+const app = express();
+const port = 3000;
+
+// Middleware for parsing JSON
+app.use(express.json());
+
+// Basic route
+app.get('/', (req, res) => {
+  res.json({ message: 'Hello from Express!' });
+});
+
+// RESTful API endpoint
+app.get('/api/users', (req, res) => {
+  // Mock data
+  const users = [
+    { id: 1, name: 'John', email: 'john@example.com' },
+    { id: 2, name: 'Jane', email: 'jane@example.com' }
+  ];
+  res.json(users);
+});
+
+// POST endpoint
+app.post('/api/users', (req, res) => {
+  const { name, email } = req.body;
+  // In real app, save to database
+  const newUser = { id: Date.now(), name, email };
+  res.status(201).json(newUser);
+});
+
+app.listen(port, () => {
+  console.log(`Server running on port ${port}`);
+});
+```
+
+```kotlin !! kt
+// Spring Boot - Kotlin backend framework
+package com.example.demo
+
+import org.springframework.boot.autoconfigure.SpringBootApplication
+import org.springframework.boot.runApplication
+import org.springframework.web.bind.annotation.*
+
+@SpringBootApplication
+class DemoApplication
+
+fun main(args: Array<String>) {
+    runApplication<DemoApplication>(*args)
+}
+
+// REST Controller
+@RestController
+@RequestMapping("/api")
+class UserController {
+    
+    // Mock data (in real app, use service layer)
+    private val users = mutableListOf(
+        User(1, "John", "john@example.com"),
+        User(2, "Jane", "jane@example.com")
+    )
+    
+    @GetMapping("/users")
+    fun getUsers(): List<User> {
+        return users
+    }
+    
+    @PostMapping("/users")
+    fun createUser(@RequestBody user: CreateUserRequest): User {
+        val newUser = User(
+            id = users.size + 1,
+            name = user.name,
+            email = user.email
+        )
+        users.add(newUser)
+        return newUser
+    }
+}
+
+// Data classes for type safety
+data class User(
+    val id: Int,
+    val name: String,
+    val email: String
+)
+
+data class CreateUserRequest(
+    val name: String,
+    val email: String
+)
+```
+
+### Key Differences
+
+| Aspect | JavaScript (Express) | Kotlin (Spring Boot) |
+|--------|---------------------|----------------------|
+| **Type Safety** | Dynamic typing | Static typing with compile-time checks |
+| **Dependency Injection** | Manual or libraries | Built-in IoC container |
+| **Configuration** | Manual setup | Auto-configuration |
+| **Testing** | Manual test setup | Built-in testing support |
+| **Database Integration** | Manual setup | Auto-configuration with JPA |
+| **Security** | Manual implementation | Built-in security features |
+
+## RESTful API Development
+
+### API Design Patterns
+
+Let's compare how to build RESTful APIs in both ecosystems.
+
+<UniversalEditor title="RESTful API Implementation" compare={true}>
+```javascript !! js
+// Express.js RESTful API
+const express = require('express');
+const app = express();
+
+app.use(express.json());
+
+// User routes
+app.get('/api/users', async (req, res) => {
+  try {
+    // In real app, fetch from database
+    const users = await User.find();
+    res.json(users);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/users/:id', async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    res.json(user);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/users', async (req, res) => {
+  try {
+    const { name, email } = req.body;
+    const user = new User({ name, email });
+    await user.save();
+    res.status(201).json(user);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.put('/api/users/:id', async (req, res) => {
+  try {
+    const { name, email } = req.body;
+    const user = await User.findByIdAndUpdate(
+      req.params.id,
+      { name, email },
+      { new: true }
+    );
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    res.json(user);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.delete('/api/users/:id', async (req, res) => {
+  try {
+    const user = await User.findByIdAndDelete(req.params.id);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    res.status(204).send();
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+```
+
+```kotlin !! kt
+// Spring Boot RESTful API
+package com.example.demo.controller
+
+import org.springframework.http.ResponseEntity
+import org.springframework.web.bind.annotation.*
+
+@RestController
+@RequestMapping("/api/users")
+class UserController(private val userService: UserService) {
+    
+    @GetMapping
+    suspend fun getUsers(): ResponseEntity<List<User>> {
+        return try {
+            val users = userService.getAllUsers()
+            ResponseEntity.ok(users)
+        } catch (e: Exception) {
+            ResponseEntity.internalServerError().build()
+        }
+    }
+    
+    @GetMapping("/{id}")
+    suspend fun getUserById(@PathVariable id: Long): ResponseEntity<User> {
+        return try {
+            val user = userService.getUserById(id)
+            ResponseEntity.ok(user)
+        } catch (e: UserNotFoundException) {
+            ResponseEntity.notFound().build()
+        } catch (e: Exception) {
+            ResponseEntity.internalServerError().build()
+        }
+    }
+    
+    @PostMapping
+    suspend fun createUser(@RequestBody request: CreateUserRequest): ResponseEntity<User> {
+        return try {
+            val user = userService.createUser(request)
+            ResponseEntity.status(201).body(user)
+        } catch (e: Exception) {
+            ResponseEntity.badRequest().build()
+        }
+    }
+    
+    @PutMapping("/{id}")
+    suspend fun updateUser(
+        @PathVariable id: Long,
+        @RequestBody request: UpdateUserRequest
+    ): ResponseEntity<User> {
+        return try {
+            val user = userService.updateUser(id, request)
+            ResponseEntity.ok(user)
+        } catch (e: UserNotFoundException) {
+            ResponseEntity.notFound().build()
+        } catch (e: Exception) {
+            ResponseEntity.badRequest().build()
+        }
+    }
+    
+    @DeleteMapping("/{id}")
+    suspend fun deleteUser(@PathVariable id: Long): ResponseEntity<Unit> {
+        return try {
+            userService.deleteUser(id)
+            ResponseEntity.noContent().build()
+        } catch (e: UserNotFoundException) {
+            ResponseEntity.notFound().build()
+        } catch (e: Exception) {
+            ResponseEntity.internalServerError().build()
+        }
+    }
+}
+
+// Service layer for business logic
+@Service
+class UserService(private val userRepository: UserRepository) {
+    
+    suspend fun getAllUsers(): List<User> {
+        return userRepository.findAll()
+    }
+    
+    suspend fun getUserById(id: Long): User {
+        return userRepository.findById(id) 
+            ?: throw UserNotFoundException("User not found with id: $id")
+    }
+    
+    suspend fun createUser(request: CreateUserRequest): User {
+        val user = User(
+            name = request.name,
+            email = request.email
+        )
+        return userRepository.save(user)
+    }
+    
+    suspend fun updateUser(id: Long, request: UpdateUserRequest): User {
+        val user = getUserById(id)
+        val updatedUser = user.copy(
+            name = request.name,
+            email = request.email
+        )
+        return userRepository.save(updatedUser)
+    }
+    
+    suspend fun deleteUser(id: Long) {
+        val user = getUserById(id)
+        userRepository.delete(user)
+    }
+}
+
+// Data classes
+data class User(
+    val id: Long? = null,
+    val name: String,
+    val email: String
+)
+
+data class CreateUserRequest(
+    val name: String,
+    val email: String
+)
+
+data class UpdateUserRequest(
+    val name: String,
+    val email: String
+)
+
+class UserNotFoundException(message: String) : Exception(message)
+```
+
+## Database Integration
+
+### JPA/Hibernate vs Mongoose
+
+Kotlin uses JPA (Java Persistence API) with Hibernate, while JavaScript often uses Mongoose for MongoDB or Sequelize for SQL databases.
+
+<UniversalEditor title="Database Integration Comparison" compare={true}>
+```javascript !! js
+// Mongoose - JavaScript MongoDB ODM
+const mongoose = require('mongoose');
+
+// Define schema
+const userSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  email: { type: String, required: true, unique: true },
+  age: { type: Number, min: 0 },
+  createdAt: { type: Date, default: Date.now }
+});
+
+// Add methods to schema
+userSchema.methods.getFullName = function() {
+  return `${this.name} (${this.email})`;
+};
+
+// Create model
+const User = mongoose.model('User', userSchema);
+
+// Usage in Express
+app.get('/api/users', async (req, res) => {
+  try {
+    const users = await User.find();
+    res.json(users);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/users', async (req, res) => {
+  try {
+    const user = new User(req.body);
+    await user.save();
+    res.status(201).json(user);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+```
+
+```kotlin !! kt
+// JPA/Hibernate - Kotlin database integration
+package com.example.demo.entity
+
+import jakarta.persistence.*
+import java.time.LocalDateTime
+
+@Entity
+@Table(name = "users")
+data class User(
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    val id: Long? = null,
+    
+    @Column(nullable = false)
+    val name: String,
+    
+    @Column(nullable = false, unique = true)
+    val email: String,
+    
+    @Column
+    val age: Int? = null,
+    
+    @Column(name = "created_at")
+    val createdAt: LocalDateTime = LocalDateTime.now()
+) {
+    fun getFullName(): String {
+        return "$name ($email)"
+    }
+}
+
+// Repository interface
+@Repository
+interface UserRepository : JpaRepository<User, Long> {
+    fun findByEmail(email: String): User?
+    fun findByAgeGreaterThan(age: Int): List<User>
+}
+
+// Service layer
+@Service
+class UserService(private val userRepository: UserRepository) {
+    
+    suspend fun getAllUsers(): List<User> {
+        return userRepository.findAll()
+    }
+    
+    suspend fun createUser(request: CreateUserRequest): User {
+        val user = User(
+            name = request.name,
+            email = request.email,
+            age = request.age
+        )
+        return userRepository.save(user)
+    }
+    
+    suspend fun getUserByEmail(email: String): User? {
+        return userRepository.findByEmail(email)
+    }
+}
+```
+
+## Summary
+
+In this module, we've explored web development with Kotlin using Spring Boot framework. Here are the key takeaways:
+
+### Key Concepts Covered
+1. **Spring Boot Framework**: Enterprise-grade web framework with built-in features
+2. **RESTful API Development**: Clean API design with proper HTTP methods
+3. **Database Integration**: JPA/Hibernate for database operations
+4. **Type Safety**: Compile-time type checking for better code quality
+5. **Service Layer Pattern**: Separation of concerns with service classes
+6. **Error Handling**: Proper exception handling with custom exceptions
+
+### JavaScript vs Kotlin Web Development
+
+| Aspect | JavaScript (Express) | Kotlin (Spring Boot) |
+|--------|---------------------|----------------------|
+| **Type Safety** | Dynamic typing | Static typing with compile-time checks |
+| **Framework Features** | Minimal, requires libraries | Rich ecosystem with built-in features |
+| **Database Integration** | Manual setup with ORMs | Auto-configuration with JPA |
+| **Error Handling** | Try-catch blocks | Exception handling with custom exceptions |
+| **Testing** | Manual setup | Comprehensive testing support |
+| **Performance** | Good for I/O operations | Excellent for CPU-intensive tasks |
+| **Enterprise Features** | Limited | Extensive enterprise support |
+
+### Best Practices
+1. **Use Service Layer**: Separate business logic from controllers
+2. **Implement Proper Error Handling**: Use custom exceptions and proper HTTP status codes
+3. **Follow REST Conventions**: Use proper HTTP methods and status codes
+4. **Use Data Classes**: For type-safe data transfer objects
+5. **Implement Repository Pattern**: For database operations
+6. **Add Validation**: Use Bean Validation for input validation
+
+### Next Steps
+In the next module, we'll explore mobile app development with Kotlin, focusing on Android development patterns and modern mobile app architecture.
+
+---
+
+**Practice Challenge**: Build a complete REST API for a task management system with user authentication, CRUD operations for tasks, and proper error handling. Include database integration and comprehensive tests. 
