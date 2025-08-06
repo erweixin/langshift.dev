@@ -1,0 +1,1089 @@
+---
+title: "Coroutines and Asynchronous Programming"
+description: "Learn Kotlin coroutines for asynchronous programming, comparing with JavaScript's Promise/async-await patterns"
+---
+
+# Coroutines and Asynchronous Programming
+
+Welcome to the fourth module of JavaScript to Kotlin conversion! In this module, we'll explore Kotlin's powerful coroutine system and how it provides more elegant solutions for asynchronous programming compared to JavaScript's Promise/async-await patterns.
+
+## Learning Objectives
+
+By the end of this module, you will be able to:
+- Understand the basics of coroutines in Kotlin
+- Compare coroutines with JavaScript's async/await
+- Effectively use coroutine scopes and contexts
+- Handle asynchronous operations with coroutines
+- Implement concurrent programming patterns
+- Manage coroutine cancellation and timeouts
+- Apply coroutines in real-world scenarios
+
+## Understanding Coroutines
+
+### What are Coroutines?
+
+Coroutines are Kotlin's way of handling asynchronous programming. They provide a way to write asynchronous code that looks and behaves like synchronous code, making it easier to understand and maintain.
+
+<UniversalEditor title="Coroutines vs Async/Await" compare={true}>
+```javascript !! js
+// JavaScript async/await
+async function fetchUserData(userId) {
+    try {
+        const response = await fetch(`/api/users/${userId}`);
+        const user = await response.json();
+        return user;
+    } catch (error) {
+        console.error('Error fetching user:', error);
+        throw error;
+    }
+}
+
+async function processUsers(userIds) {
+    const users = [];
+    for (const id of userIds) {
+        const user = await fetchUserData(id);
+        users.push(user);
+    }
+    return users;
+}
+
+// Usage
+processUsers([1, 2, 3]).then(users => {
+    console.log('Users:', users);
+});
+```
+
+```kotlin !! kt
+// Kotlin coroutines
+suspend fun fetchUserData(userId: Int): User {
+    return try {
+        val response = httpClient.get("/api/users/$userId")
+        response.body()
+    } catch (error: Exception) {
+        println("Error fetching user: $error")
+        throw error
+    }
+}
+
+suspend fun processUsers(userIds: List<Int>): List<User> {
+    val users = mutableListOf<User>()
+    for (id in userIds) {
+        val user = fetchUserData(id)
+        users.add(user)
+    }
+    return users
+}
+
+// Usage
+runBlocking {
+    val users = processUsers(listOf(1, 2, 3))
+    println("Users: $users")
+}
+```
+</UniversalEditor>
+
+### Key Differences from JavaScript
+
+1. **Suspend Functions**: Kotlin uses the `suspend` keyword instead of `async`
+2. **Coroutine Builders**: Functions like `launch`, `async`, `runBlocking`
+3. **Structured Concurrency**: Better control over coroutine lifecycle
+4. **Cancellation**: Built-in cancellation support
+5. **Context**: Explicit coroutine context management
+
+## Coroutine Basics
+
+### Suspend Functions
+
+Suspend functions are the building blocks of coroutines. They can pause and resume without blocking threads.
+
+<UniversalEditor title="Suspend Functions" compare={true}>
+```javascript !! js
+// JavaScript async functions
+async function delay(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function fetchData() {
+    await delay(1000);
+    return { data: "Hello from server" };
+}
+
+async function processData() {
+    const result = await fetchData();
+    console.log(result.data);
+    return result;
+}
+```
+
+```kotlin !! kt
+// Kotlin suspend functions
+suspend fun delay(ms: Long) {
+    kotlinx.coroutines.delay(ms)
+}
+
+suspend fun fetchData(): Map<String, String> {
+    delay(1000)
+    return mapOf("data" to "Hello from server")
+}
+
+suspend fun processData(): Map<String, String> {
+    val result = fetchData()
+    println(result["data"])
+    return result
+}
+```
+</UniversalEditor>
+
+### Coroutine Builders
+
+Kotlin provides several coroutine builders to start coroutines in different ways.
+
+<UniversalEditor title="Coroutine Builders" compare={true}>
+```javascript !! js
+// JavaScript Promise-based approaches
+function launchTask() {
+    return new Promise((resolve, reject) => {
+        setTimeout(() => {
+            resolve("Task completed");
+        }, 1000);
+    });
+}
+
+async function runSequential() {
+    const result1 = await launchTask();
+    const result2 = await launchTask();
+    return [result1, result2];
+}
+
+async function runParallel() {
+    const promises = [launchTask(), launchTask()];
+    return await Promise.all(promises);
+}
+
+// Usage
+runSequential().then(results => console.log(results));
+runParallel().then(results => console.log(results));
+```
+
+```kotlin !! kt
+// Kotlin coroutine builders
+fun launchTask() = runBlocking {
+    delay(1000)
+    "Task completed"
+}
+
+suspend fun runSequential(): List<String> {
+    val result1 = launchTask()
+    val result2 = launchTask()
+    return listOf(result1, result2)
+}
+
+suspend fun runParallel(): List<String> = coroutineScope {
+    val deferred1 = async { launchTask() }
+    val deferred2 = async { launchTask() }
+    listOf(deferred1.await(), deferred2.await())
+}
+
+// Usage
+runBlocking {
+    val sequential = runSequential()
+    val parallel = runParallel()
+    println("Sequential: $sequential")
+    println("Parallel: $parallel")
+}
+```
+</UniversalEditor>
+
+## Coroutine Scopes and Context
+
+### Understanding Scopes
+
+Coroutine scopes define the lifecycle of coroutines and provide structured concurrency.
+
+<UniversalEditor title="Coroutine Scopes" compare={true}>
+```javascript !! js
+// JavaScript - no direct equivalent, but similar patterns
+class TaskManager {
+    constructor() {
+        this.tasks = new Set();
+    }
+
+    async launchTask(taskName) {
+        const task = this.executeTask(taskName);
+        this.tasks.add(task);
+        
+        try {
+            const result = await task;
+            return result;
+        } finally {
+            this.tasks.delete(task);
+        }
+    }
+
+    async executeTask(taskName) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        return `${taskName} completed`;
+    }
+
+    async cancelAll() {
+        const promises = Array.from(this.tasks);
+        // JavaScript doesn't have built-in cancellation
+        console.log('Cancelling tasks...');
+    }
+}
+```
+
+```kotlin !! kt
+// Kotlin coroutine scopes
+class TaskManager {
+    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+
+    fun launchTask(taskName: String): Deferred<String> {
+        return scope.async {
+            executeTask(taskName)
+        }
+    }
+
+    private suspend fun executeTask(taskName: String): String {
+        delay(1000)
+        return "$taskName completed"
+    }
+
+    fun cancelAll() {
+        scope.cancel()
+    }
+}
+
+// Usage
+val manager = TaskManager()
+val task1 = manager.launchTask("Task 1")
+val task2 = manager.launchTask("Task 2")
+
+runBlocking {
+    val results = listOf(task1.await(), task2.await())
+    println("Results: $results")
+}
+```
+</UniversalEditor>
+
+### Coroutine Context
+
+Context defines the behavior and environment of coroutines, including dispatchers and job hierarchy.
+
+<UniversalEditor title="Coroutine Context" compare={true}>
+```javascript !! js
+// JavaScript - no direct context concept, but similar patterns
+async function runOnDifferentThreads() {
+    // JavaScript is single-threaded, but we can simulate
+    const cpuIntensive = async () => {
+        // Simulate CPU-intensive work
+        let result = 0;
+        for (let i = 0; i < 1000000; i++) {
+            result += Math.random();
+        }
+        return result;
+    };
+
+    const ioOperation = async () => {
+        // Simulate I/O operation
+        await new Promise(resolve => setTimeout(resolve, 100));
+        return "I/O completed";
+    };
+
+    const [cpuResult, ioResult] = await Promise.all([
+        cpuIntensive(),
+        ioOperation()
+    ]);
+
+    return { cpuResult, ioResult };
+}
+```
+
+```kotlin !! kt
+// Kotlin coroutine context with dispatchers
+suspend fun runOnDifferentThreads(): Map<String, Any> = coroutineScope {
+    val cpuIntensive = async(Dispatchers.Default) {
+        // CPU-intensive work on background thread
+        var result = 0.0
+        repeat(1_000_000) {
+            result += kotlin.random.Random.nextDouble()
+        }
+        result
+    }
+
+    val ioOperation = async(Dispatchers.IO) {
+        // I/O operation on IO dispatcher
+        delay(100)
+        "I/O completed"
+    }
+
+    mapOf(
+        "cpuResult" to cpuIntensive.await(),
+        "ioResult" to ioOperation.await()
+    )
+}
+
+// Usage
+runBlocking {
+    val results = runOnDifferentThreads()
+    println("Results: $results")
+}
+```
+</UniversalEditor>
+
+## Asynchronous Operations
+
+### Network Requests
+
+Coroutines provide elegant ways to handle network requests and other I/O operations.
+
+<UniversalEditor title="Network Requests" compare={true}>
+```javascript !! js
+// JavaScript fetch with async/await
+async function fetchUserData(userId) {
+    try {
+        const response = await fetch(`/api/users/${userId}`);
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return await response.json();
+    } catch (error) {
+        console.error('Network error:', error);
+        throw error;
+    }
+}
+
+async function fetchMultipleUsers(userIds) {
+    const promises = userIds.map(id => fetchUserData(id));
+    return await Promise.all(promises);
+}
+
+// Usage
+fetchMultipleUsers([1, 2, 3])
+    .then(users => console.log('Users:', users))
+    .catch(error => console.error('Error:', error));
+```
+
+```kotlin !! kt
+// Kotlin coroutines with network requests
+suspend fun fetchUserData(userId: Int): User {
+    return try {
+        val response = httpClient.get("/api/users/$userId")
+        if (!response.isSuccessful) {
+            throw HttpException(response.code)
+        }
+        response.body()
+    } catch (error: Exception) {
+        println("Network error: $error")
+        throw error
+    }
+}
+
+suspend fun fetchMultipleUsers(userIds: List<Int>): List<User> = coroutineScope {
+    val deferreds = userIds.map { id ->
+        async { fetchUserData(id) }
+    }
+    deferreds.awaitAll()
+}
+
+// Usage
+runBlocking {
+    try {
+        val users = fetchMultipleUsers(listOf(1, 2, 3))
+        println("Users: $users")
+    } catch (error: Exception) {
+        println("Error: $error")
+    }
+}
+```
+</UniversalEditor>
+
+### Database Operations
+
+Coroutines are perfect for database operations, providing non-blocking database access.
+
+<UniversalEditor title="Database Operations" compare={true}>
+```javascript !! js
+// JavaScript with database operations
+async function saveUser(user) {
+    try {
+        const result = await db.collection('users').insertOne(user);
+        return result.insertedId;
+    } catch (error) {
+        console.error('Database error:', error);
+        throw error;
+    }
+}
+
+async function getUserById(userId) {
+    try {
+        const user = await db.collection('users').findOne({ _id: userId });
+        return user;
+    } catch (error) {
+        console.error('Database error:', error);
+        throw error;
+    }
+}
+
+async function updateUser(userId, updates) {
+    try {
+        const result = await db.collection('users').updateOne(
+            { _id: userId },
+            { $set: updates }
+        );
+        return result.modifiedCount > 0;
+    } catch (error) {
+        console.error('Database error:', error);
+        throw error;
+    }
+}
+```
+
+```kotlin !! kt
+// Kotlin coroutines with database operations
+suspend fun saveUser(user: User): String {
+    return try {
+        val result = db.collection("users").insertOne(user)
+        result.insertedId.toString()
+    } catch (error: Exception) {
+        println("Database error: $error")
+        throw error
+    }
+}
+
+suspend fun getUserById(userId: String): User? {
+    return try {
+        db.collection("users").findOne(User::class.java, "{ _id: '$userId' }")
+    } catch (error: Exception) {
+        println("Database error: $error")
+        throw error
+    }
+}
+
+suspend fun updateUser(userId: String, updates: Map<String, Any>): Boolean {
+    return try {
+        val result = db.collection("users").updateOne(
+            "{ _id: '$userId' }",
+            "{ \$set: $updates }"
+        )
+        result.modifiedCount > 0
+    } catch (error: Exception) {
+        println("Database error: $error")
+        throw error
+    }
+}
+```
+</UniversalEditor>
+
+## Concurrent Programming
+
+### Parallel Execution
+
+Coroutines make it easy to run multiple operations in parallel.
+
+<UniversalEditor title="Parallel Execution" compare={true}>
+```javascript !! js
+// JavaScript parallel execution
+async function processItems(items) {
+    const promises = items.map(async (item) => {
+        // Simulate processing
+        await new Promise(resolve => setTimeout(resolve, 100));
+        return `Processed: ${item}`;
+    });
+    
+    return await Promise.all(promises);
+}
+
+async function fetchAndProcess(userIds) {
+    const userPromises = userIds.map(async (id) => {
+        const user = await fetchUserData(id);
+        return processUser(user);
+    });
+    
+    return await Promise.all(userPromises);
+}
+
+// Usage
+processItems(['A', 'B', 'C']).then(results => {
+    console.log('Results:', results);
+});
+```
+
+```kotlin !! kt
+// Kotlin parallel execution with coroutines
+suspend fun processItems(items: List<String>): List<String> = coroutineScope {
+    items.map { item ->
+        async {
+            delay(100) // Simulate processing
+            "Processed: $item"
+        }
+    }.awaitAll()
+}
+
+suspend fun fetchAndProcess(userIds: List<Int>): List<ProcessedUser> = coroutineScope {
+    userIds.map { id ->
+        async {
+            val user = fetchUserData(id)
+            processUser(user)
+        }
+    }.awaitAll()
+}
+
+// Usage
+runBlocking {
+    val results = processItems(listOf("A", "B", "C"))
+    println("Results: $results")
+}
+```
+</UniversalEditor>
+
+### Race Conditions and Synchronization
+
+Coroutines provide tools for handling race conditions and ensuring thread safety.
+
+<UniversalEditor title="Race Conditions" compare={true}>
+```javascript !! js
+// JavaScript - handling race conditions
+class Counter {
+    constructor() {
+        this.value = 0;
+        this.lock = false;
+    }
+
+    async increment() {
+        while (this.lock) {
+            await new Promise(resolve => setTimeout(resolve, 1));
+        }
+        this.lock = true;
+        try {
+            const current = this.value;
+            await new Promise(resolve => setTimeout(resolve, 10));
+            this.value = current + 1;
+        } finally {
+            this.lock = false;
+        }
+    }
+
+    getValue() {
+        return this.value;
+    }
+}
+
+// Usage
+const counter = new Counter();
+const promises = Array(100).fill().map(() => counter.increment());
+Promise.all(promises).then(() => {
+    console.log('Final value:', counter.getValue());
+});
+```
+
+```kotlin !! kt
+// Kotlin - handling race conditions with Mutex
+class Counter {
+    private var value = 0
+    private val mutex = Mutex()
+
+    suspend fun increment() {
+        mutex.withLock {
+            val current = value
+            delay(10) // Simulate work
+            value = current + 1
+        }
+    }
+
+    fun getValue(): Int = value
+}
+
+// Usage
+runBlocking {
+    val counter = Counter()
+    val jobs = List(100) {
+        launch {
+            counter.increment()
+        }
+    }
+    jobs.joinAll()
+    println("Final value: ${counter.getValue()}")
+}
+```
+</UniversalEditor>
+
+## Cancellation and Timeouts
+
+### Coroutine Cancellation
+
+Kotlin coroutines provide built-in cancellation support, more powerful than JavaScript's cancellation tokens.
+
+<UniversalEditor title="Cancellation" compare={true}>
+```javascript !! js
+// JavaScript - cancellation with AbortController
+class TaskManager {
+    constructor() {
+        this.abortController = new AbortController();
+    }
+
+    async runTask() {
+        const signal = this.abortController.signal;
+        
+        return new Promise((resolve, reject) => {
+            const timeout = setTimeout(() => {
+                resolve("Task completed");
+            }, 5000);
+
+            signal.addEventListener('abort', () => {
+                clearTimeout(timeout);
+                reject(new Error('Task cancelled'));
+            });
+        });
+    }
+
+    cancel() {
+        this.abortController.abort();
+    }
+}
+
+// Usage
+const manager = new TaskManager();
+const task = manager.runTask();
+
+setTimeout(() => {
+    manager.cancel();
+}, 2000);
+
+task.catch(error => {
+    console.log('Task error:', error.message);
+});
+```
+
+```kotlin !! kt
+// Kotlin coroutine cancellation
+class TaskManager {
+    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+
+    fun runTask(): Deferred<String> {
+        return scope.async {
+            try {
+                delay(5000) // Simulate long-running task
+                "Task completed"
+            } catch (e: CancellationException) {
+                throw e
+            }
+        }
+    }
+
+    fun cancel() {
+        scope.cancel()
+    }
+}
+
+// Usage
+val manager = TaskManager()
+val task = manager.runTask()
+
+// Cancel after 2 seconds
+launch {
+    delay(2000)
+    manager.cancel()
+}
+
+runBlocking {
+    try {
+        val result = task.await()
+        println("Result: $result")
+    } catch (e: CancellationException) {
+        println("Task cancelled")
+    }
+}
+```
+</UniversalEditor>
+
+### Timeouts
+
+Coroutines provide elegant timeout handling through the `withTimeout` function.
+
+<UniversalEditor title="Timeouts" compare={true}>
+```javascript !! js
+// JavaScript timeout handling
+async function fetchWithTimeout(url, timeoutMs) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    
+    try {
+        const response = await fetch(url, {
+            signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+        return await response.json();
+    } catch (error) {
+        clearTimeout(timeoutId);
+        if (error.name === 'AbortError') {
+            throw new Error('Request timeout');
+        }
+        throw error;
+    }
+}
+
+// Usage
+fetchWithTimeout('/api/data', 5000)
+    .then(data => console.log('Data:', data))
+    .catch(error => console.error('Error:', error.message));
+```
+
+```kotlin !! kt
+// Kotlin timeout handling
+suspend fun fetchWithTimeout(url: String, timeoutMs: Long): Map<String, Any> {
+    return withTimeout(timeoutMs) {
+        val response = httpClient.get(url)
+        response.body()
+    }
+}
+
+// Usage
+runBlocking {
+    try {
+        val data = fetchWithTimeout("/api/data", 5000)
+        println("Data: $data")
+    } catch (e: TimeoutCancellationException) {
+        println("Request timeout")
+    } catch (e: Exception) {
+        println("Error: ${e.message}")
+    }
+}
+```
+</UniversalEditor>
+
+## Error Handling
+
+### Exception Handling in Coroutines
+
+Coroutines provide structured error handling, more predictable than JavaScript's Promise rejection handling.
+
+<UniversalEditor title="Error Handling" compare={true}>
+```javascript !! js
+// JavaScript error handling
+async function riskyOperation() {
+    const random = Math.random();
+    if (random > 0.5) {
+        throw new Error('Random failure');
+    }
+    return 'Success';
+}
+
+async function handleErrors() {
+    try {
+        const results = await Promise.allSettled([
+            riskyOperation(),
+            riskyOperation(),
+            riskyOperation()
+        ]);
+        
+        const successful = results
+            .filter(result => result.status === 'fulfilled')
+            .map(result => result.value);
+        
+        const failed = results
+            .filter(result => result.status === 'rejected')
+            .map(result => result.reason);
+        
+        return { successful, failed };
+    } catch (error) {
+        console.error('Unexpected error:', error);
+        throw error;
+    }
+}
+```
+
+```kotlin !! kt
+// Kotlin coroutine error handling
+suspend fun riskyOperation(): String {
+    val random = kotlin.random.Random.nextDouble()
+    if (random > 0.5) {
+        throw Exception("Random failure")
+    }
+    return "Success"
+}
+
+suspend fun handleErrors(): Map<String, List<Any>> {
+    return try {
+        val results = listOf(
+            async { riskyOperation() },
+            async { riskyOperation() },
+            async { riskyOperation() }
+        ).awaitAll()
+        
+        mapOf("successful" to results)
+    } catch (e: Exception) {
+        mapOf("failed" to listOf(e.message))
+    }
+}
+
+// Alternative with supervisor scope
+suspend fun handleErrorsWithSupervisor(): Map<String, List<Any>> = supervisorScope {
+    val results = listOf(
+        async { riskyOperation() },
+        async { riskyOperation() },
+        async { riskyOperation() }
+    )
+    
+    val successful = mutableListOf<String>()
+    val failed = mutableListOf<String>()
+    
+    results.forEach { deferred ->
+        try {
+            successful.add(deferred.await())
+        } catch (e: Exception) {
+            failed.add(e.message ?: "Unknown error")
+        }
+    }
+    
+    mapOf("successful" to successful, "failed" to failed)
+}
+```
+</UniversalEditor>
+
+## Real-World Examples
+
+### Real-World Coroutine Usage
+
+Let's look at examples of coroutines in real applications.
+
+<UniversalEditor title="Real-World Examples" compare={true}>
+```javascript !! js
+// JavaScript - API service with caching
+class UserService {
+    constructor() {
+        this.cache = new Map();
+    }
+
+    async getUser(userId) {
+        // Check cache first
+        if (this.cache.has(userId)) {
+            return this.cache.get(userId);
+        }
+
+        // Fetch from API
+        const user = await this.fetchFromAPI(userId);
+        this.cache.set(userId, user);
+        return user;
+    }
+
+    async fetchFromAPI(userId) {
+        const response = await fetch(`/api/users/${userId}`);
+        return await response.json();
+    }
+
+    async getUsersWithPosts(userIds) {
+        const users = await Promise.all(
+            userIds.map(id => this.getUser(id))
+        );
+        
+        const usersWithPosts = await Promise.all(
+            users.map(async user => ({
+                ...user,
+                posts: await this.getUserPosts(user.id)
+            }))
+        );
+        
+        return usersWithPosts;
+    }
+
+    async getUserPosts(userId) {
+        const response = await fetch(`/api/users/${userId}/posts`);
+        return await response.json();
+    }
+}
+```
+
+```kotlin !! kt
+// Kotlin - API service with caching
+class UserService {
+    private val cache = mutableMapOf<Int, User>()
+
+    suspend fun getUser(userId: Int): User {
+        // Check cache first
+        cache[userId]?.let { return it }
+
+        // Fetch from API
+        val user = fetchFromAPI(userId)
+        cache[userId] = user
+        return user
+    }
+
+    private suspend fun fetchFromAPI(userId: Int): User {
+        val response = httpClient.get("/api/users/$userId")
+        return response.body()
+    }
+
+    suspend fun getUsersWithPosts(userIds: List<Int>): List<UserWithPosts> = coroutineScope {
+        val users = userIds.map { id -> async { getUser(id) } }.awaitAll()
+        
+        users.map { user ->
+            async {
+                UserWithPosts(
+                    user = user,
+                    posts = getUserPosts(user.id)
+                )
+            }
+        }.awaitAll()
+    }
+
+    private suspend fun getUserPosts(userId: Int): List<Post> {
+        val response = httpClient.get("/api/users/$userId/posts")
+        return response.body()
+    }
+}
+```
+</UniversalEditor>
+
+## Best Practices
+
+### When to Use Coroutines
+
+1. **I/O Operations**: Network requests, file operations, database queries
+2. **CPU-Intensive Tasks**: Use appropriate dispatchers
+3. **Concurrent Operations**: Multiple independent operations
+4. **UI Updates**: Use Main dispatcher for UI updates
+5. **Background Processing**: Long-running tasks
+
+### Performance Considerations
+
+1. **Dispatcher Selection**: Choose appropriate dispatchers for different operations
+2. **Structured Concurrency**: Use coroutine scopes to manage lifecycle
+3. **Cancellation**: Always handle cancellation properly
+4. **Exception Handling**: Use supervisor scopes when needed
+5. **Memory Management**: Be aware of coroutine context retention
+
+## Exercises
+
+### Exercise 1: Parallel Processing
+Create a function that uses coroutines to process a list of items in parallel.
+
+<UniversalEditor title="Exercise 1 Solution" compare={true}>
+```javascript !! js
+// JavaScript solution
+async function processItemsParallel(items) {
+    const promises = items.map(async (item, index) => {
+        await new Promise(resolve => setTimeout(resolve, 100));
+        return `Processed ${item} at index ${index}`;
+    });
+    
+    return await Promise.all(promises);
+}
+
+// Usage
+processItemsParallel(['A', 'B', 'C']).then(results => {
+    console.log(results);
+});
+```
+
+```kotlin !! kt
+// Kotlin solution
+suspend fun processItemsParallel(items: List<String>): List<String> = coroutineScope {
+    items.mapIndexed { index, item ->
+        async {
+            delay(100)
+            "Processed $item at index $index"
+        }
+    }.awaitAll()
+}
+
+// Usage
+runBlocking {
+    val results = processItemsParallel(listOf("A", "B", "C"))
+    println(results)
+}
+```
+</UniversalEditor>
+
+### Exercise 2: Timeout with Retry
+Create a function that retries an operation with exponential backoff and timeout.
+
+<UniversalEditor title="Exercise 2 Solution" compare={true}>
+```javascript !! js
+// JavaScript solution
+async function retryWithTimeout(operation, maxRetries = 3, timeoutMs = 5000) {
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+            const timeoutPromise = new Promise((_, reject) => {
+                setTimeout(() => reject(new Error('Timeout')), timeoutMs);
+            });
+            
+            const result = await Promise.race([operation(), timeoutPromise]);
+            return result;
+        } catch (error) {
+            if (attempt === maxRetries) throw error;
+            
+            const delay = Math.pow(2, attempt) * 1000;
+            await new Promise(resolve => setTimeout(resolve, delay));
+        }
+    }
+}
+
+// Usage
+const operation = () => fetch('/api/data').then(r => r.json());
+retryWithTimeout(operation).then(data => console.log(data));
+```
+
+```kotlin !! kt
+// Kotlin solution
+suspend fun retryWithTimeout(
+    operation: suspend () -> String,
+    maxRetries: Int = 3,
+    timeoutMs: Long = 5000
+): String {
+    repeat(maxRetries + 1) { attempt ->
+        try {
+            return withTimeout(timeoutMs) {
+                operation()
+            }
+        } catch (e: Exception) {
+            if (attempt == maxRetries) throw e
+            
+            val delay = (2.0.pow(attempt) * 1000).toLong()
+            delay(delay)
+        }
+    }
+    throw Exception("All retries failed")
+}
+
+// Usage
+runBlocking {
+    val operation = { httpClient.get("/api/data").body() }
+    val result = retryWithTimeout(operation)
+    println(result)
+}
+```
+</UniversalEditor>
+
+## Summary
+
+In this module, we explored Kotlin's powerful coroutine system:
+
+### Key Concepts Covered:
+- **Coroutines**: Lightweight threads for asynchronous programming
+- **Suspend Functions**: Functions that can pause and resume
+- **Coroutine Builders**: `launch`, `async`, `runBlocking`
+- **Scopes and Context**: Managing coroutine lifecycle and behavior
+- **Concurrency**: Parallel execution and synchronization
+- **Cancellation**: Built-in cancellation support
+- **Error Handling**: Structured exception handling
+
+### Advantages of Kotlin Coroutines:
+1. **Simplicity**: Code looks like synchronous code
+2. **Performance**: Lightweight and efficient
+3. **Cancellation**: Built-in cancellation support
+4. **Structured Concurrency**: Better control over coroutine lifecycle
+5. **Exception Handling**: Predictable error handling
+6. **Interoperability**: Works well with existing Java libraries
+
+### Comparison with JavaScript:
+- **Suspend vs Async**: More explicit control over suspension points
+- **Structured Concurrency**: Better than Promise-based approaches
+- **Cancellation**: More powerful than AbortController
+- **Context**: More flexible than JavaScript's single-threaded model
+- **Error Handling**: More predictable than Promise rejection handling
+
+### Next Steps:
+In the next module, we'll explore **Object-Oriented Programming** in Kotlin, learning how Kotlin enhances object-oriented programming through features like data classes, sealed classes, and object declarations.
+
+The coroutine concepts you've learned here will be valuable when building concurrent applications and handling asynchronous operations in Kotlin. 
