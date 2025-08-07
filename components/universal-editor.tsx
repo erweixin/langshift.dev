@@ -4,6 +4,8 @@ import { useState, useEffect, ReactNode, Suspense } from 'react'
 import { useMonacoManager } from './monaco-manager'
 import { VirtualizedEditor } from './virtualized-editor'
 import { trackCodeExecution, trackEditorUsage } from '@/components/analytics'
+import { getTranslations, type SupportedLanguage } from '@/messages'
+import { useParams } from 'next/navigation'
 
 interface CodeBlock {
   language: string
@@ -554,6 +556,11 @@ function MonacoEditorWrapper({
   [key: string]: any
 }) {
   const { isReady, isLoading, error } = useMonacoManager()
+  
+  // 从路由参数获取语言
+  const params = useParams();
+  const lang = (params?.lang as SupportedLanguage) || 'zh-cn';
+  const t = getTranslations(lang)
 
   if (error) {
     return (
@@ -570,7 +577,7 @@ function MonacoEditorWrapper({
       <div className="border rounded p-4 bg-gray-50 dark:bg-gray-800">
         <div className="flex items-center justify-center h-32">
           <div className="text-gray-600 dark:text-gray-400 text-sm">
-            正在加载编辑器...
+            {t.editor.loading}
           </div>
         </div>
       </div>
@@ -578,15 +585,15 @@ function MonacoEditorWrapper({
   }
 
   return (
-    <Suspense fallback={
-      <div className="border rounded p-4 bg-gray-50 dark:bg-gray-800">
-        <div className="flex items-center justify-center h-32">
-          <div className="text-gray-600 dark:text-gray-400 text-sm">
-            加载中...
+          <Suspense fallback={
+        <div className="border rounded p-4 bg-gray-50 dark:bg-gray-800">
+          <div className="flex items-center justify-center h-32">
+            <div className="text-gray-600 dark:text-gray-400 text-sm">
+              {t.editor.loading}
+            </div>
           </div>
         </div>
-      </div>
-    }>
+      }>
       <VirtualizedEditor
         height={height}
         language={language}
@@ -674,7 +681,7 @@ const languageConfig = {
 
 export default function UniversalEditor(params: UniversalEditorProps) {
   const {
-    title = '多语言代码编辑器',
+    title,
     theme = 'auto',
     readOnly = false,
     showOutput = true,
@@ -685,6 +692,14 @@ export default function UniversalEditor(params: UniversalEditorProps) {
     allowDynamicImports = true,
     canRun = true
   } = params;
+
+  // 从路由参数获取语言
+  const params_ = useParams();
+  const lang = (params_?.lang as SupportedLanguage) || 'zh-cn';
+  
+  // 获取翻译
+  const t = getTranslations(lang);
+  const defaultTitle = t.editor.title;
 
   const [runtimes, setRuntimes] = useState<Map<string, any>>(new Map())
   const [loadingStates, setLoadingStates] = useState<Map<string, boolean>>(new Map())
@@ -811,7 +826,7 @@ export default function UniversalEditor(params: UniversalEditorProps) {
           setRuntimes(prev => new Map(prev.set(language, runtime)))
         } catch (err: any) {
           console.error(`${language} 运行时初始化失败:`, err)
-          setError(`${language} 环境初始化失败`)
+          setError(t.editor.executionFailed.replace('{language}', t.editor.languages[language as keyof typeof t.editor.languages] || language))
           setLoadingStates(prev => new Map(prev.set(language, false)))
           setIsRunning(false)
           // 追踪执行失败
@@ -838,7 +853,7 @@ export default function UniversalEditor(params: UniversalEditorProps) {
         trackCodeExecution(language, true)
       }
     } catch (err: any) {
-      setError(err.message || '代码执行出错')
+      setError(err.message || t.editor.executionError)
       // 追踪执行失败
       trackCodeExecution(language, false)
     } finally {
@@ -956,7 +971,7 @@ sys.stdout = sys.__stdout__
       <div className="border rounded-lg p-4 bg-gray-50 dark:bg-gray-800">
         <div className="flex items-center justify-center h-32">
           <div className="text-gray-600 dark:text-gray-400">
-            正在加载...
+            {t.editor.loading}
           </div>
         </div>
       </div>
@@ -973,7 +988,7 @@ sys.stdout = sys.__stdout__
       {/* 标题栏 */}
       <div className="flex items-center justify-between px-4 py-2 bg-gray-100 dark:bg-gray-800 border-b">
         <div className="text-sm font-medium text-gray-700 dark:text-gray-300 m-2">
-          {title}
+          {title || defaultTitle}
         </div>
         { canRun && <div className="flex items-center space-x-2">
           <button
@@ -982,23 +997,23 @@ sys.stdout = sys.__stdout__
             className="px-3 py-1 text-xs bg-green-500 text-white rounded hover:bg-green-600 disabled:opacity-50"
           >
             {loadingStates.get(primaryLanguage) 
-              ? `初始化 ${primaryConfig.name}...` 
+              ? t.editor.loadingRuntime.replace('{language}', t.editor.languages[primaryLanguage as keyof typeof t.editor.languages] || primaryConfig.name)
               : isRunning 
-                ? '运行中...' 
-                : `运行 ${primaryConfig.name}`}
+                ? t.editor.running
+                : t.editor.run.replace('{language}', t.editor.languages[primaryLanguage as keyof typeof t.editor.languages] || primaryConfig.name)}
           </button>
           {compare && secondaryLanguage && secondaryCode && (
             <button
               onClick={() => runCode(secondaryLanguage)}
               disabled={isRunning || loadingStates.get(secondaryLanguage)}
-              className="px-3 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50"
-            >
-              {loadingStates.get(secondaryLanguage) 
-                ? `初始化 ${secondaryConfig?.name}...` 
-                : isRunning 
-                  ? '运行中...' 
-                  : `运行 ${secondaryConfig?.name}`}
-            </button>
+                          className="px-3 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50"
+          >
+            {loadingStates.get(secondaryLanguage) 
+              ? t.editor.loadingRuntime.replace('{language}', t.editor.languages[secondaryLanguage as keyof typeof t.editor.languages] || secondaryConfig?.name || '')
+              : isRunning 
+                ? t.editor.running
+                : t.editor.run.replace('{language}', t.editor.languages[secondaryLanguage as keyof typeof t.editor.languages] || secondaryConfig?.name || '')}
+          </button>
           )}
         </div> }
       </div>
@@ -1036,7 +1051,7 @@ sys.stdout = sys.__stdout__
       {showOutput && (output || error) && (
         <div className="border-t bg-gray-50 dark:bg-gray-800">
           <div className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 border-b">
-            输出结果
+            {t.editor.output}
           </div>
           <div className="p-4">
             {error ? (
