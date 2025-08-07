@@ -3,6 +3,8 @@ import * as React from 'react'
 import { useState, useEffect, ReactNode, lazy, Suspense } from 'react'
 import { useMonacoManager } from './monaco-manager'
 import { VirtualizedEditor } from './virtualized-editor'
+import { getTranslations, type SupportedLanguage } from '@/messages'
+import { useParams } from 'next/navigation'
 
 interface CodeBlock {
   language: string
@@ -10,7 +12,7 @@ interface CodeBlock {
 }
 
 interface PythonEditorProps {
-  children: ReactNode
+  children?: ReactNode
   title?: string
   theme?: 'vs-light' | 'vs-dark' | 'auto'
   readOnly?: boolean
@@ -163,6 +165,11 @@ function MonacoEditorWrapper({
   [key: string]: any
 }) {
   const { isReady, isLoading, error } = useMonacoManager()
+  
+  // 从路由参数获取语言
+  const params = useParams();
+  const lang = (params?.lang as SupportedLanguage) || 'zh-cn';
+  const t = getTranslations(lang)
 
   if (error) {
     return (
@@ -179,7 +186,7 @@ function MonacoEditorWrapper({
       <div className="border rounded p-4 bg-gray-50 dark:bg-gray-800">
         <div className="flex items-center justify-center h-32">
           <div className="text-gray-600 dark:text-gray-400 text-sm">
-            正在加载编辑器...
+            {t.editor.loading}
           </div>
         </div>
       </div>
@@ -187,15 +194,15 @@ function MonacoEditorWrapper({
   }
 
   return (
-    <Suspense fallback={
-      <div className="border rounded p-4 bg-gray-50 dark:bg-gray-800">
-        <div className="flex items-center justify-center h-32">
-          <div className="text-gray-600 dark:text-gray-400 text-sm">
-            加载中...
+          <Suspense fallback={
+        <div className="border rounded p-4 bg-gray-50 dark:bg-gray-800">
+          <div className="flex items-center justify-center h-32">
+            <div className="text-gray-600 dark:text-gray-400 text-sm">
+              {t.editor.loading}
+            </div>
           </div>
         </div>
-      </div>
-    }>
+      }>
       <VirtualizedEditor
         height={height}
         language={language}
@@ -219,7 +226,7 @@ function MonacoEditorWrapper({
 
 export default function PythonEditor(params: PythonEditorProps) {
   const {
-    title = 'Python 代码编辑器',
+    title,
     theme = 'auto',
     readOnly = false,
     showOutput = true,
@@ -230,6 +237,14 @@ export default function PythonEditor(params: PythonEditorProps) {
     allowDynamicImports = true,
     canRun = true
   } = params;
+
+  // 从路由参数获取语言
+  const params_ = useParams();
+  const lang = (params_?.lang as SupportedLanguage) || 'zh-cn';
+  
+  // 获取翻译
+  const t = getTranslations(lang);
+  const defaultTitle = t.editor.title;
   const [pyodide, setPyodide] = useState<any>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [output, setOutput] = useState<string>('')
@@ -297,7 +312,7 @@ export default function PythonEditor(params: PythonEditorProps) {
     if (!pyodideManager.isPyodideReady() && !pyodideManager.isPyodideLoading()) {
       pyodideManager.getPyodide().catch((err) => {
         console.error('Pyodide 初始化失败:', err)
-        setError('Python 环境初始化失败')
+        setError(t.editor.executionFailed.replace('{language}', t.editor.languages.python))
         setIsLoading(false)
       })
     }
@@ -371,7 +386,7 @@ sys.stdout = sys.__stdout__
       setOutput(output || '')
       
     } catch (err: any) {
-      setError(err.message || '代码执行出错')
+      setError(err.message || t.editor.executionError)
     } finally {
       setIsRunning(false)
     }
@@ -483,7 +498,7 @@ sys.stdout = sys.__stdout__
       setOutput(logs.join('\n'))
       setError('')
     } catch (err: any) {
-      setError(err.message || 'JavaScript 代码执行出错')
+      setError(err.message || t.editor.executionError)
     }
   }
   
@@ -492,7 +507,7 @@ sys.stdout = sys.__stdout__
       <div className="border rounded-lg p-4 bg-gray-50 dark:bg-gray-800">
         <div className="flex items-center justify-center h-32">
           <div className="text-gray-600 dark:text-gray-400">
-            正在加载...
+            {t.editor.loading}
           </div>
         </div>
       </div>
@@ -504,7 +519,7 @@ sys.stdout = sys.__stdout__
       {/* 标题栏 */}
       <div className="flex items-center justify-between px-4 py-2 bg-gray-100 dark:bg-gray-800 border-b">
         <div className="text-sm font-medium text-gray-700 dark:text-gray-300 m-2">
-          {title}
+          {title || defaultTitle}
         </div>
         {canRun &&<div className="flex items-center space-x-2">
           <button
@@ -512,16 +527,16 @@ sys.stdout = sys.__stdout__
             disabled={isRunning || !pythonCode.trim()}
             className="px-3 py-1 text-xs bg-green-500 text-white rounded hover:bg-green-600 disabled:opacity-50"
           >
-            {isLoading ? '加载 python中...' : isRunning ? '运行中...' : '运行 Python'}
+            {isLoading ? t.editor.loadingRuntime.replace('{language}', t.editor.languages.python) : isRunning ? t.editor.running : t.editor.run.replace('{language}', t.editor.languages.python)}
           </button>
           {compare && (javascriptCode || typescriptCode) && (
             <button
               onClick={runJavascriptCode}
               disabled={isRunning}
-              className="px-3 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50"
-            >
-              运行 JS/TS
-            </button>
+                          className="px-3 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50"
+          >
+            {t.editor.run.replace('{language}', 'JS')}
+          </button>
           )}
         </div>}
       </div>
@@ -565,7 +580,7 @@ sys.stdout = sys.__stdout__
       {showOutput && (output || error) && (
         <div className="border-t bg-gray-50 dark:bg-gray-800">
           <div className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 border-b">
-            输出结果
+            {t.editor.output}
           </div>
           <div className="p-4">
             {error ? (

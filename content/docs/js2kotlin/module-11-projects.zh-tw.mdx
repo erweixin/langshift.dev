@@ -1,0 +1,1329 @@
+---
+title: "使用 Kotlin 的真實世界專案"
+description: "使用 Kotlin 建構全面的真實世界專案，在實際應用中應用所有學到的概念"
+---
+
+# 使用 Kotlin 的真實世界專案
+
+歡迎來到 JavaScript 到 Kotlin 轉換的第十一個模組！在本模組中，我們將建構應用我們所學所有概念的綜合性真實世界專案。我們將建立完整的應用程式，包括任務管理系統、即時聊天應用程式和電子商務平台。
+
+## 學習目標
+
+在本模組結束時，您將能夠：
+- 從頭開始建構完整的 Kotlin 應用程式
+- 在實際場景中應用所有學到的概念
+- 使用協程實現複雜的業務邏輯
+- 使用 WebSocket 建立即時應用程式
+- 設計和實現 RESTful API
+- 建構響應式行動應用程式
+- 應用現代 Kotlin 開發模式
+- 部署和維護生產應用程式
+
+## 專案一：任務管理系統
+
+### 完整的應用程式架構
+
+讓我們使用 Spring Boot 後端和 Android 前端建構一個全面的任務管理系統。
+
+<UniversalEditor title="任務管理系統架構" compare={true}>
+```javascript !! js
+// JavaScript 任務管理系統
+// 使用 Express.js 的後端
+const express = require('express');
+const mongoose = require('mongoose');
+const cors = require('cors');
+
+const app = express();
+app.use(cors());
+app.use(express.json());
+
+// 任務模式
+const taskSchema = new mongoose.Schema({
+  title: { type: String, required: true },
+  description: String,
+  status: { type: String, enum: ['TODO', 'IN_PROGRESS', 'DONE'], default: 'TODO' },
+  priority: { type: String, enum: ['LOW', 'MEDIUM', 'HIGH'], default: 'MEDIUM' },
+  dueDate: Date,
+  assignedTo: String,
+  createdAt: { type: Date, default: Date.now },
+  updatedAt: { type: Date, default: Date.now }
+});
+
+const Task = mongoose.model('Task', taskSchema);
+
+// API 路由
+app.get('/api/tasks', async (req, res) => {
+  try {
+    const { status, priority, assignedTo } = req.query;
+    let filter = {};
+    
+    if (status) filter.status = status;
+    if (priority) filter.priority = priority;
+    if (assignedTo) filter.assignedTo = assignedTo;
+    
+    const tasks = await Task.find(filter).sort({ createdAt: -1 });
+    res.json(tasks);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/tasks', async (req, res) => {
+  try {
+    const task = new Task(req.body);
+    await task.save();
+    res.status(201).json(task);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.put('/api/tasks/:id', async (req, res) => {
+  try {
+    const task = await Task.findByIdAndUpdate(
+      req.params.id,
+      { ...req.body, updatedAt: Date.now() },
+      { new: true }
+    );
+    if (!task) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+    res.json(task);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.delete('/api/tasks/:id', async (req, res) => {
+  try {
+    const task = await Task.findByIdAndDelete(req.params.id);
+    if (!task) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+    res.status(204).send();
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 使用 React 的前端
+const TaskList = () => {
+  const [tasks, setTasks] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  
+  useEffect(() => {
+    fetchTasks();
+  }, []);
+  
+  const fetchTasks = async () => {
+    setLoading(true);
+    try {
+      const response = await fetch('/api/tasks');
+      const data = await response.json();
+      setTasks(data);
+    } catch (error) {
+      setError(error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  const createTask = async (taskData) => {
+    try {
+      const response = await fetch('/api/tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(taskData)
+      });
+      const newTask = await response.json();
+      setTasks([newTask, ...tasks]);
+    } catch (error) {
+      setError(error.message);
+    }
+  };
+  
+  const updateTask = async (id, updates) => {
+    try {
+      const response = await fetch(`/api/tasks/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates)
+      });
+      const updatedTask = await response.json();
+      setTasks(tasks.map(task => 
+        task._id === id ? updatedTask : task
+      ));
+    } catch (error) {
+      setError(error.message);
+    }
+  };
+  
+  const deleteTask = async (id) => {
+    try {
+      await fetch(`/api/tasks/${id}`, { method: 'DELETE' });
+      setTasks(tasks.filter(task => task._id !== id));
+    } catch (error) {
+      setError(error.message);
+    }
+  };
+  
+  if (loading) return <div>載入中...</div>;
+  if (error) return <div>錯誤: {error}</div>;
+  
+  return (
+    <div>
+      <h1>任務管理</h1>
+      <TaskForm onSubmit={createTask} />
+      <TaskList 
+        tasks={tasks}
+        onUpdate={updateTask}
+        onDelete={deleteTask}
+      />
+    </div>
+  );
+};
+```
+
+```kotlin !! kt
+// Kotlin 任務管理系統
+// 使用 Spring Boot 的後端
+package com.example.taskmanagement
+
+import org.springframework.boot.autoconfigure.SpringBootApplication
+import org.springframework.boot.runApplication
+import org.springframework.data.jpa.repository.JpaRepository
+import org.springframework.web.bind.annotation.*
+import java.time.LocalDateTime
+
+@SpringBootApplication
+class TaskManagementApplication
+
+fun main(args: Array<String>) {
+    runApplication<TaskManagementApplication>(*args)
+}
+
+// 實體
+@Entity
+@Table(name = "tasks")
+data class Task(
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    val id: Long? = null,
+    
+    @Column(nullable = false)
+    val title: String,
+    
+    @Column
+    val description: String? = null,
+    
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    val status: TaskStatus = TaskStatus.TODO,
+    
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    val priority: TaskPriority = TaskPriority.MEDIUM,
+    
+    @Column(name = "due_date")
+    val dueDate: LocalDateTime? = null,
+    
+    @Column(name = "assigned_to")
+    val assignedTo: String? = null,
+    
+    @Column(name = "created_at")
+    val createdAt: LocalDateTime = LocalDateTime.now(),
+    
+    @Column(name = "updated_at")
+    val updatedAt: LocalDateTime = LocalDateTime.now()
+)
+
+enum class TaskStatus {
+    TODO, IN_PROGRESS, DONE
+}
+
+enum class TaskPriority {
+    LOW, MEDIUM, HIGH
+}
+
+// 倉庫
+@Repository
+interface TaskRepository : JpaRepository<Task, Long> {
+    fun findByStatus(status: TaskStatus): List<Task>
+    fun findByPriority(priority: TaskPriority): List<Task>
+    fun findByAssignedTo(assignedTo: String): List<Task>
+    fun findByStatusAndPriority(status: TaskStatus, priority: TaskPriority): List<Task>
+}
+
+// 服務
+@Service
+class TaskService(private val taskRepository: TaskRepository) {
+    
+    suspend fun getAllTasks(
+        status: TaskStatus? = null,
+        priority: TaskPriority? = null,
+        assignedTo: String? = null
+    ): List<Task> {
+        return when {
+            status != null && priority != null -> 
+                taskRepository.findByStatusAndPriority(status, priority)
+            status != null -> 
+                taskRepository.findByStatus(status)
+            priority != null -> 
+                taskRepository.findByPriority(priority)
+            assignedTo != null -> 
+                taskRepository.findByAssignedTo(assignedTo)
+            else -> 
+                taskRepository.findAll()
+        }.sortedByDescending { it.createdAt }
+    }
+    
+    suspend fun createTask(request: CreateTaskRequest): Task {
+        val task = Task(
+            title = request.title,
+            description = request.description,
+            priority = request.priority,
+            dueDate = request.dueDate,
+            assignedTo = request.assignedTo
+        )
+        return taskRepository.save(task)
+    }
+    
+    suspend fun updateTask(id: Long, request: UpdateTaskRequest): Task {
+        val existingTask = taskRepository.findById(id)
+            ?: throw TaskNotFoundException("Task not found with id: $id")
+        
+        val updatedTask = existingTask.copy(
+            title = request.title ?: existingTask.title,
+            description = request.description ?: existingTask.description,
+            status = request.status ?: existingTask.status,
+            priority = request.priority ?: existingTask.priority,
+            dueDate = request.dueDate ?: existingTask.dueDate,
+            assignedTo = request.assignedTo ?: existingTask.assignedTo,
+            updatedAt = LocalDateTime.now()
+        )
+        
+        return taskRepository.save(updatedTask)
+    }
+    
+    suspend fun deleteTask(id: Long) {
+        val task = taskRepository.findById(id)
+            ?: throw TaskNotFoundException("Task not found with id: $id")
+        taskRepository.delete(task)
+    }
+}
+
+// 控制器
+@RestController
+@RequestMapping("/api/tasks")
+class TaskController(private val taskService: TaskService) {
+    
+    @GetMapping
+    suspend fun getTasks(
+        @RequestParam status: TaskStatus? = null,
+        @RequestParam priority: TaskPriority? = null,
+        @RequestParam assignedTo: String? = null
+    ): ResponseEntity<List<Task>> {
+        return try {
+            val tasks = taskService.getAllTasks(status, priority, assignedTo)
+            ResponseEntity.ok(tasks)
+        } catch (e: Exception) {
+            ResponseEntity.internalServerError().build()
+        }
+    }
+    
+    @PostMapping
+    suspend fun createTask(@RequestBody request: CreateTaskRequest): ResponseEntity<Task> {
+        return try {
+            val task = taskService.createTask(request)
+            ResponseEntity.status(201).body(task)
+        } catch (e: Exception) {
+            ResponseEntity.badRequest().build()
+        }
+    }
+    
+    @PutMapping("/{id}")
+    suspend fun updateTask(
+        @PathVariable id: Long,
+        @RequestBody request: UpdateTaskRequest
+    ): ResponseEntity<Task> {
+        return try {
+            val task = taskService.updateTask(id, request)
+            ResponseEntity.ok(task)
+        } catch (e: TaskNotFoundException) {
+            ResponseEntity.notFound().build()
+        } catch (e: Exception) {
+            ResponseEntity.badRequest().build()
+        }
+    }
+    
+    @DeleteMapping("/{id}")
+    suspend fun deleteTask(@PathVariable id: Long): ResponseEntity<Unit> {
+        return try {
+            taskService.deleteTask(id)
+            ResponseEntity.noContent().build()
+        } catch (e: TaskNotFoundException) {
+            ResponseEntity.notFound().build()
+        } catch (e: Exception) {
+            ResponseEntity.internalServerError().build()
+        }
+    }
+}
+
+// 資料類別
+data class CreateTaskRequest(
+    val title: String,
+    val description: String? = null,
+    val priority: TaskPriority = TaskPriority.MEDIUM,
+    val dueDate: LocalDateTime? = null,
+    val assignedTo: String? = null
+)
+
+data class UpdateTaskRequest(
+    val title: String? = null,
+    val description: String? = null,
+    val status: TaskStatus? = null,
+    val priority: TaskPriority? = null,
+    val dueDate: LocalDateTime? = null,
+    val assignedTo: String? = null
+)
+
+class TaskNotFoundException(message: String) : Exception(message)
+```
+</UniversalEditor>
+
+## 專案二：即時聊天應用程式
+
+### WebSocket 實現
+
+<UniversalEditor title="即時聊天應用程式" compare={true}>
+```javascript !! js
+// JavaScript 即時聊天與 Socket.io
+const express = require('express');
+const http = require('http');
+const socketIo = require('socket.io');
+const cors = require('cors');
+
+const app = express();
+app.use(cors());
+app.use(express.json());
+
+const server = http.createServer(app);
+const io = socketIo(server, {
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"]
+  }
+});
+
+// 儲存連接的使用者
+const users = new Map();
+const messages = [];
+
+io.on('connection', (socket) => {
+  console.log('使用者已連接:', socket.id);
+  
+  // 處理使用者加入
+  socket.on('join', (userData) => {
+    users.set(socket.id, {
+      id: socket.id,
+      username: userData.username,
+      avatar: userData.avatar
+    });
+    
+    // 通知其他人
+    socket.broadcast.emit('userJoined', {
+      id: socket.id,
+      username: userData.username,
+      avatar: userData.avatar
+    });
+    
+    // 傳送目前使用者和訊息
+    socket.emit('currentUsers', Array.from(users.values()));
+    socket.emit('messageHistory', messages.slice(-50)); // 最後 50 則訊息
+  });
+  
+  // 處理新訊息
+  socket.on('sendMessage', (messageData) => {
+    const user = users.get(socket.id);
+    if (!user) return;
+    
+    const message = {
+      id: Date.now().toString(),
+      text: messageData.text,
+      userId: socket.id,
+      username: user.username,
+      avatar: user.avatar,
+      timestamp: new Date()
+    };
+    
+    messages.push(message);
+    
+    // 廣播給所有使用者
+    io.emit('newMessage', message);
+  });
+  
+  // 處理正在輸入指示器
+  socket.on('typing', (isTyping) => {
+    const user = users.get(socket.id);
+    if (!user) return;
+    
+    socket.broadcast.emit('userTyping', {
+      userId: socket.id,
+      username: user.username,
+      isTyping
+    });
+  });
+  
+  // 處理斷開連接
+  socket.on('disconnect', () => {
+    const user = users.get(socket.id);
+    if (user) {
+      users.delete(socket.id);
+      socket.broadcast.emit('userLeft', {
+        id: socket.id,
+        username: user.username
+      });
+    }
+    console.log('使用者已斷開連接:', socket.id);
+  });
+});
+
+// 用於訊息歷史記錄的 REST API
+app.get('/api/messages', (req, res) => {
+  const { limit = 50, offset = 0 } = req.query;
+  const paginatedMessages = messages
+    .slice(offset, offset + parseInt(limit))
+    .reverse();
+  res.json(paginatedMessages);
+});
+
+// 前端 React 元件
+const ChatApp = () => {
+  const [socket, setSocket] = useState(null);
+  const [messages, setMessages] = useState([]);
+  const [users, setUsers] = useState([]);
+  const [currentUser, setCurrentUser] = useState(null);
+  const [typingUsers, setTypingUsers] = useState(new Set());
+  
+  useEffect(() => {
+    const newSocket = io('http://localhost:3001');
+    setSocket(newSocket);
+    
+    newSocket.on('newMessage', (message) => {
+      setMessages(prev => [...prev, message]);
+    });
+    
+    newSocket.on('currentUsers', (userList) => {
+      setUsers(userList);
+    });
+    
+    newSocket.on('userJoined', (user) => {
+      setUsers(prev => [...prev, user]);
+    });
+    
+    newSocket.on('userLeft', (user) => {
+      setUsers(prev => prev.filter(u => u.id !== user.id));
+    });
+    
+    newSocket.on('userTyping', ({ userId, username, isTyping }) => {
+      setTypingUsers(prev => {
+        const newSet = new Set(prev);
+        if (isTyping) {
+          newSet.add(username);
+        } else {
+          newSet.delete(username);
+        }
+        return newSet;
+      });
+    });
+    
+    return () => newSocket.close();
+  }, []);
+  
+  const joinChat = (username, avatar) => {
+    if (socket) {
+      socket.emit('join', { username, avatar });
+      setCurrentUser({ username, avatar });
+    }
+  };
+  
+  const sendMessage = (text) => {
+    if (socket && text.trim()) {
+      socket.emit('sendMessage', { text });
+    }
+  };
+  
+  const handleTyping = (isTyping) => {
+    if (socket) {
+      socket.emit('typing', isTyping);
+    }
+  };
+  
+  return (
+    <div className="chat-app">
+      {!currentUser ? (
+        <JoinForm onJoin={joinChat} />
+      ) : (
+        <ChatRoom
+          messages={messages}
+          users={users}
+          currentUser={currentUser}
+          onSendMessage={sendMessage}
+          onTyping={handleTyping}
+          typingUsers={Array.from(typingUsers)}
+        />
+      )}
+    </div>
+  );
+};
+```
+
+```kotlin !! kt
+// Kotlin 即時聊天與 WebSocket
+package com.example.chat
+
+import org.springframework.boot.autoconfigure.SpringBootApplication
+import org.springframework.boot.runApplication
+import org.springframework.messaging.handler.annotation.*
+import org.springframework.messaging.simp.SimpMessagingTemplate
+import org.springframework.stereotype.Controller
+import java.time.LocalDateTime
+
+@SpringBootApplication
+class ChatApplication
+
+fun main(args: Array<String>) {
+    runApplication<ChatApplication>(*args)
+}
+
+// WebSocket 配置
+@Configuration
+@EnableWebSocketMessageBroker
+class WebSocketConfig : WebSocketMessageBrokerConfigurer {
+    
+    override fun configureMessageBroker(registry: MessageBrokerRegistry) {
+        registry.enableSimpleBroker("/topic", "/queue")
+        registry.setApplicationDestinationPrefixes("/app")
+    }
+    
+    override fun registerStompEndpoints(registry: StompEndpointRegistry) {
+        registry.addEndpoint("/ws")
+            .setAllowedOrigins("*")
+            .withSockJS()
+    }
+}
+
+// 訊息模型
+data class ChatMessage(
+    val id: String = System.currentTimeMillis().toString(),
+    val text: String,
+    val userId: String,
+    val username: String,
+    val avatar: String? = null,
+    val timestamp: LocalDateTime = LocalDateTime.now()
+)
+
+data class User(
+    val id: String,
+    val username: String,
+    val avatar: String? = null
+)
+
+data class TypingEvent(
+    val userId: String,
+    val username: String,
+    val isTyping: Boolean
+)
+
+// 聊天服務
+@Service
+class ChatService {
+    
+    private val connectedUsers = mutableMapOf<String, User>()
+    private val messages = mutableListOf<ChatMessage>()
+    
+    fun addUser(user: User) {
+        connectedUsers[user.id] = user
+    }
+    
+    fun removeUser(userId: String) {
+        connectedUsers.remove(userId)
+    }
+    
+    fun getConnectedUsers(): List<User> = connectedUsers.values.toList()
+    
+    fun addMessage(message: ChatMessage) {
+        messages.add(message)
+        // 只保留最後 100 則訊息
+        if (messages.size > 100) {
+            messages.removeAt(0)
+        }
+    }
+    
+    fun getRecentMessages(limit: Int = 50): List<ChatMessage> {
+        return messages.takeLast(limit)
+    }
+}
+
+// WebSocket 控制器
+@Controller
+class ChatController(
+    private val messagingTemplate: SimpMessagingTemplate,
+    private val chatService: ChatService
+) {
+    
+    @MessageMapping("/join")
+    @SendTo("/topic/users")
+    fun handleJoin(@Payload user: User): List<User> {
+        chatService.addUser(user)
+        
+        // 通知其他人新使用者加入
+        messagingTemplate.convertAndSend("/topic/userJoined", user)
+        
+        return chatService.getConnectedUsers()
+    }
+    
+    @MessageMapping("/message")
+    @SendTo("/topic/messages")
+    fun handleMessage(@Payload message: ChatMessage): ChatMessage {
+        chatService.addMessage(message)
+        return message
+    }
+    
+    @MessageMapping("/typing")
+    @SendTo("/topic/typing")
+    fun handleTyping(@Payload typingEvent: TypingEvent): TypingEvent {
+        return typingEvent
+    }
+    
+    @EventListener
+    fun handleSessionDisconnect(event: SessionDisconnectEvent) {
+        val userId = event.sessionId
+        val user = chatService.getConnectedUsers().find { it.id == userId }
+        
+        if (user != null) {
+            chatService.removeUser(userId)
+            messagingTemplate.convertAndSend("/topic/userLeft", user)
+        }
+    }
+}
+
+// 用於訊息歷史記錄的 REST API
+@RestController
+@RequestMapping("/api/messages")
+class MessageController(private val chatService: ChatService) {
+    
+    @GetMapping
+    fun getMessages(
+        @RequestParam limit: Int = 50,
+        @RequestParam offset: Int = 0
+    ): List<ChatMessage> {
+        return chatService.getRecentMessages(limit + offset)
+            .drop(offset)
+            .reversed()
+    }
+}
+
+// Android Compose UI
+@Composable
+fun ChatApp(
+    viewModel: ChatViewModel = viewModel()
+) {
+    val uiState by viewModel.uiState.collectAsState()
+    
+    if (uiState.currentUser == null) {
+        JoinScreen(
+            onJoin = { username, avatar ->
+                viewModel.joinChat(username, avatar)
+            }
+        )
+    } else {
+        ChatScreen(
+            messages = uiState.messages,
+            users = uiState.users,
+            currentUser = uiState.currentUser!!,
+            typingUsers = uiState.typingUsers,
+            onSendMessage = { text ->
+                viewModel.sendMessage(text)
+            },
+            onTyping = { isTyping ->
+                viewModel.handleTyping(isTyping)
+            }
+        )
+    }
+}
+
+@Composable
+fun ChatScreen(
+    messages: List<ChatMessage>,
+    users: List<User>,
+    currentUser: User,
+    typingUsers: List<String>,
+    onSendMessage: (String) -> Unit,
+    onTyping: (Boolean) -> Unit
+) {
+    Column(
+        modifier = Modifier.fillMaxSize()
+    ) {
+        // 使用者清單
+        LazyRow(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(60.dp)
+                .background(MaterialTheme.colorScheme.surface)
+        ) {
+            items(users) { user ->
+                UserAvatar(
+                    user = user,
+                    modifier = Modifier.padding(horizontal = 4.dp)
+                )
+            }
+        }
+        
+        // 訊息
+        LazyColumn(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+        ) {
+            items(messages) { message ->
+                MessageItem(
+                    message = message,
+                    isOwnMessage = message.userId == currentUser.id
+                )
+            }
+        }
+        
+        // 正在輸入指示器
+        if (typingUsers.isNotEmpty()) {
+            Text(
+                text = "${typingUsers.joinToString(", ")} 正在輸入...",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                modifier = Modifier.padding(horizontal = 16.dp)
+            )
+        }
+        
+        // 訊息輸入
+        MessageInput(
+            onSendMessage = onSendMessage,
+            onTyping = onTyping
+        )
+    }
+}
+```
+</UniversalEditor>
+
+## 專案三：電子商務平台
+
+### 完整的電子商務系統
+
+<UniversalEditor title="電子商務平台" compare={true}>
+```javascript !! js
+// JavaScript 電子商務平台
+const express = require('express');
+const mongoose = require('mongoose');
+const jwt = require('jsonwebtoken');
+const bcrypt = require('bcrypt');
+
+// 產品模式
+const productSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  description: String,
+  price: { type: Number, required: true },
+  category: { type: String, required: true },
+  stock: { type: Number, default: 0 },
+  images: [String],
+  createdAt: { type: Date, default: Date.now }
+});
+
+// 訂單模式
+const orderSchema = new mongoose.Schema({
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  items: [{
+    productId: { type: mongoose.Schema.Types.ObjectId, ref: 'Product' },
+    quantity: Number,
+    price: Number
+  }],
+  total: { type: Number, required: true },
+  status: { type: String, enum: ['PENDING', 'CONFIRMED', 'SHIPPED', 'DELIVERED'], default: 'PENDING' },
+  shippingAddress: {
+    street: String,
+    city: String,
+    state: String,
+    zipCode: String
+  },
+  createdAt: { type: Date, default: Date.now }
+});
+
+const Product = mongoose.model('Product', productSchema);
+const Order = mongoose.model('Order', orderSchema);
+
+// 產品 API
+app.get('/api/products', async (req, res) => {
+  try {
+    const { category, search, sort, page = 1, limit = 10 } = req.query;
+    let filter = {};
+    
+    if (category) filter.category = category;
+    if (search) {
+      filter.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { description: { $regex: search, $options: 'i' } }
+      ];
+    }
+    
+    const products = await Product.find(filter)
+      .sort(sort === 'price' ? { price: 1 } : { createdAt: -1 })
+      .limit(limit * 1)
+      .skip((page - 1) * limit);
+    
+    const total = await Product.countDocuments(filter);
+    
+    res.json({
+      products,
+      totalPages: Math.ceil(total / limit),
+      currentPage: page,
+      total
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/products', authenticateToken, async (req, res) => {
+  try {
+    const product = new Product(req.body);
+    await product.save();
+    res.status(201).json(product);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// 訂單 API
+app.post('/api/orders', authenticateToken, async (req, res) => {
+  try {
+    const { items, shippingAddress } = req.body;
+    
+    // 計算總價並驗證庫存
+    let total = 0;
+    for (const item of items) {
+      const product = await Product.findById(item.productId);
+      if (!product) {
+        return res.status(400).json({ error: 'Product not found' });
+      }
+      if (product.stock < item.quantity) {
+        return res.status(400).json({ error: 'Insufficient stock' });
+      }
+      total += product.price * item.quantity;
+      
+      // 更新庫存
+      await Product.findByIdAndUpdate(item.productId, {
+        $inc: { stock: -item.quantity }
+      });
+    }
+    
+    const order = new Order({
+      userId: req.user.id,
+      items,
+      total,
+      shippingAddress
+    });
+    
+    await order.save();
+    res.status(201).json(order);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.get('/api/orders', authenticateToken, async (req, res) => {
+  try {
+    const orders = await Order.find({ userId: req.user.id })
+      .populate('items.productId')
+      .sort({ createdAt: -1 });
+    res.json(orders);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+```
+
+```kotlin !! kt
+// Kotlin 電子商務平台
+package com.example.ecommerce
+
+import org.springframework.boot.autoconfigure.SpringBootApplication
+import org.springframework.boot.runApplication
+import org.springframework.data.jpa.repository.JpaRepository
+import org.springframework.web.bind.annotation.*
+import java.math.BigDecimal
+import java.time.LocalDateTime
+
+@SpringBootApplication
+class EcommerceApplication
+
+fun main(args: Array<String>) {
+    runApplication<EcommerceApplication>(*args)
+}
+
+// 實體
+@Entity
+@Table(name = "products")
+data class Product(
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    val id: Long? = null,
+    
+    @Column(nullable = false)
+    val name: String,
+    
+    @Column
+    val description: String? = null,
+    
+    @Column(nullable = false, precision = 10, scale = 2)
+    val price: BigDecimal,
+    
+    @Column(nullable = false)
+    val category: String,
+    
+    @Column(nullable = false)
+    val stock: Int = 0,
+    
+    @ElementCollection
+    @CollectionTable(name = "product_images")
+    val images: List<String> = emptyList(),
+    
+    @Column(name = "created_at")
+    val createdAt: LocalDateTime = LocalDateTime.now()
+)
+
+@Entity
+@Table(name = "orders")
+data class Order(
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    val id: Long? = null,
+    
+    @Column(name = "user_id", nullable = false)
+    val userId: Long,
+    
+    @OneToMany(cascade = [CascadeType.ALL], fetch = FetchType.EAGER)
+    @JoinColumn(name = "order_id")
+    val items: List<OrderItem> = emptyList(),
+    
+    @Column(nullable = false, precision = 10, scale = 2)
+    val total: BigDecimal,
+    
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    val status: OrderStatus = OrderStatus.PENDING,
+    
+    @Embedded
+    val shippingAddress: ShippingAddress,
+    
+    @Column(name = "created_at")
+    val createdAt: LocalDateTime = LocalDateTime.now()
+)
+
+@Entity
+@Table(name = "order_items")
+data class OrderItem(
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    val id: Long? = null,
+    
+    @Column(name = "product_id", nullable = false)
+    val productId: Long,
+    
+    @Column(nullable = false)
+    val quantity: Int,
+    
+    @Column(nullable = false, precision = 10, scale = 2)
+    val price: BigDecimal
+)
+
+@Embeddable
+data class ShippingAddress(
+    val street: String,
+    val city: String,
+    val state: String,
+    @Column(name = "zip_code")
+    val zipCode: String
+)
+
+enum class OrderStatus {
+    PENDING, CONFIRMED, SHIPPED, DELIVERED
+}
+
+// 倉庫
+@Repository
+interface ProductRepository : JpaRepository<Product, Long> {
+    fun findByCategory(category: String): List<Product>
+    fun findByNameContainingIgnoreCaseOrDescriptionContainingIgnoreCase(
+        name: String, description: String
+    ): List<Product>
+    fun findByCategoryAndNameContainingIgnoreCase(
+        category: String, name: String
+    ): List<Product>
+}
+
+@Repository
+interface OrderRepository : JpaRepository<Order, Long> {
+    fun findByUserIdOrderByCreatedAtDesc(userId: Long): List<Order>
+}
+
+// 服務
+@Service
+class ProductService(private val productRepository: ProductRepository) {
+    
+    suspend fun getProducts(
+        category: String? = null,
+        search: String? = null,
+        sort: String? = null,
+        page: Int = 0,
+        size: Int = 10
+    ): Page<Product> {
+        val pageable = PageRequest.of(page, size)
+        
+        val products = when {
+            category != null && search != null -> 
+                productRepository.findByCategoryAndNameContainingIgnoreCase(category, search)
+            category != null -> 
+                productRepository.findByCategory(category)
+            search != null -> 
+                productRepository.findByNameContainingIgnoreCaseOrDescriptionContainingIgnoreCase(search, search)
+            else -> 
+                productRepository.findAll()
+        }
+        
+        return PageImpl(products, pageable, products.size.toLong())
+    }
+    
+    suspend fun createProduct(request: CreateProductRequest): Product {
+        val product = Product(
+            name = request.name,
+            description = request.description,
+            price = request.price,
+            category = request.category,
+            stock = request.stock,
+            images = request.images
+        )
+        return productRepository.save(product)
+    }
+    
+    suspend fun updateStock(productId: Long, quantity: Int) {
+        val product = productRepository.findById(productId)
+            ?: throw ProductNotFoundException("Product not found")
+        
+        if (product.stock < quantity) {
+            throw InsufficientStockException("Insufficient stock")
+        }
+        
+        val updatedProduct = product.copy(stock = product.stock - quantity)
+        productRepository.save(updatedProduct)
+    }
+}
+
+@Service
+class OrderService(
+    private val orderRepository: OrderRepository,
+    private val productService: ProductService
+) {
+    
+    suspend fun createOrder(userId: Long, request: CreateOrderRequest): Order {
+        val orderItems = mutableListOf<OrderItem>()
+        var total = BigDecimal.ZERO
+        
+        // 驗證產品並計算總價
+        for (item in request.items) {
+            val product = productService.getProductById(item.productId)
+            if (product.stock < item.quantity) {
+                throw InsufficientStockException("Insufficient stock for product ${product.name}")
+            }
+            
+            val itemTotal = product.price.multiply(BigDecimal(item.quantity))
+            total = total.add(itemTotal)
+            
+            orderItems.add(OrderItem(
+                productId = item.productId,
+                quantity = item.quantity,
+                price = product.price
+            ))
+            
+            // 更新庫存
+            productService.updateStock(item.productId, item.quantity)
+        }
+        
+        val order = Order(
+            userId = userId,
+            items = orderItems,
+            total = total,
+            shippingAddress = request.shippingAddress
+        )
+        
+        return orderRepository.save(order)
+    }
+    
+    suspend fun getUserOrders(userId: Long): List<Order> {
+        return orderRepository.findByUserIdOrderByCreatedAtDesc(userId)
+    }
+    
+    suspend fun updateOrderStatus(orderId: Long, status: OrderStatus): Order {
+        val order = orderRepository.findById(orderId)
+            ?: throw OrderNotFoundException("Order not found")
+        
+        val updatedOrder = order.copy(status = status)
+        return orderRepository.save(updatedOrder)
+    }
+}
+
+// 控制器
+@RestController
+@RequestMapping("/api/products")
+class ProductController(private val productService: ProductService) {
+    
+    @GetMapping
+    suspend fun getProducts(
+        @RequestParam category: String? = null,
+        @RequestParam search: String? = null,
+        @RequestParam sort: String? = null,
+        @RequestParam(defaultValue = "0") page: Int,
+        @RequestParam(defaultValue = "10") size: Int
+    ): ResponseEntity<PageResponse<Product>> {
+        return try {
+            val productPage = productService.getProducts(category, search, sort, page, size)
+            val response = PageResponse(
+                content = productPage.content,
+                totalPages = productPage.totalPages,
+                currentPage = productPage.number,
+                totalElements = productPage.totalElements
+            )
+            ResponseEntity.ok(response)
+        } catch (e: Exception) {
+            ResponseEntity.internalServerError().build()
+        }
+    }
+    
+    @PostMapping
+    suspend fun createProduct(
+        @RequestBody request: CreateProductRequest
+    ): ResponseEntity<Product> {
+        return try {
+            val product = productService.createProduct(request)
+            ResponseEntity.status(201).body(product)
+        } catch (e: Exception) {
+            ResponseEntity.badRequest().build()
+        }
+    }
+}
+
+@RestController
+@RequestMapping("/api/orders")
+class OrderController(
+    private val orderService: OrderService,
+    private val userService: UserService
+) {
+    
+    @PostMapping
+    suspend fun createOrder(
+        @RequestBody request: CreateOrderRequest,
+        @AuthenticationPrincipal userDetails: UserDetails
+    ): ResponseEntity<Order> {
+        return try {
+            val userId = userService.getUserIdByEmail(userDetails.username)
+            val order = orderService.createOrder(userId, request)
+            ResponseEntity.status(201).body(order)
+        } catch (e: InsufficientStockException) {
+            ResponseEntity.badRequest().body(null)
+        } catch (e: Exception) {
+            ResponseEntity.internalServerError().body(null)
+        }
+    }
+    
+    @GetMapping
+    suspend fun getUserOrders(
+        @AuthenticationPrincipal userDetails: UserDetails
+    ): ResponseEntity<List<Order>> {
+        return try {
+            val userId = userService.getUserIdByEmail(userDetails.username)
+            val orders = orderService.getUserOrders(userId)
+            ResponseEntity.ok(orders)
+        } catch (e: Exception) {
+            ResponseEntity.internalServerError().build()
+        }
+    }
+}
+
+// 資料類別
+data class CreateProductRequest(
+    val name: String,
+    val description: String? = null,
+    val price: BigDecimal,
+    val category: String,
+    val stock: Int = 0,
+    val images: List<String> = emptyList()
+)
+
+data class CreateOrderRequest(
+    val items: List<OrderItemRequest>,
+    val shippingAddress: ShippingAddress
+)
+
+data class OrderItemRequest(
+    val productId: Long,
+    val quantity: Int
+)
+
+data class PageResponse<T>(
+    val content: List<T>,
+    val totalPages: Int,
+    val currentPage: Int,
+    val totalElements: Long
+)
+
+class ProductNotFoundException(message: String) : Exception(message)
+class InsufficientStockException(message: String) : Exception(message)
+class OrderNotFoundException(message: String) : Exception(message)
+```
+</UniversalEditor>
+
+## 總結
+
+在本模組中，我們使用 Kotlin 建構了全面的真實世界專案。以下是關鍵要點：
+
+### 涵蓋的關鍵概念
+1. **完整的應用程式架構**：使用 Spring Boot 的全端應用程式
+2. **即時通訊**：用於聊天應用程式的 WebSocket 實現
+3. **電子商務平台**：具有庫存管理的複雜業務邏輯
+4. **資料庫設計**：適當的實體關係和資料模型
+5. **API 設計**：具有適當錯誤處理的 RESTful API
+6. **行動整合**：用於行動應用程式的 Android Compose UI
+7. **安全性**：身份驗證和授權實現
+
+### 專案亮點
+
+| 專案 | 關鍵特性 | 使用的技術 |
+|---------|-------------|------------------|
+| **任務管理** | CRUD 操作、篩選、即時更新 | Spring Boot, JPA, Compose |
+| **聊天應用程式** | WebSocket、即時訊息、正在輸入指示器 | Spring WebSocket, Compose |
+| **電子商務** | 產品目錄、訂單管理、庫存 | Spring Boot, JPA, Security |
+
+### 應用的最佳實踐
+1. **清晰的架構**：使用服務層分離關注點
+2. **錯誤處理**：全面的例外處理和驗證
+3. **資料庫設計**：適當的關係和約束
+4. **API 設計**：RESTful 約定和適當的 HTTP 狀態碼
+5. **安全性**：身份驗證和授權
+6. **測試**：單元和整合測試
+7. **效能**：高效的資料庫查詢和快取
+
+### 下一步
+在下一個模組中，我們將探討 Kotlin 開發中的常見陷阱和解決方案，重點關注典型錯誤以及如何避免它們。
+
+---
+
+**實踐挑戰**：擴展電子商務平台，包括推薦系統、支付處理以及具有訂單更新推播通知的行動應用程式。

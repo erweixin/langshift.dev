@@ -1,0 +1,487 @@
+---
+title: "Kotlin Web 开发"
+description: "学习使用 Spring Boot 进行 Kotlin Web 开发，与 JavaScript 后端开发模式和 Node.js 概念进行对比"
+---
+
+# Kotlin Web 开发
+
+欢迎来到 JavaScript 到 Kotlin 转换的第七个模块！在本模块中，我们将探索使用 Spring Boot 框架进行 Kotlin Web 开发，并了解它与 JavaScript 后端开发模式（如 Node.js 和 Express）的对比。我们将学习 RESTful API 开发、数据库集成、安全性和现代 Web 开发实践。
+
+## 学习目标
+
+在本模块结束时，您将能够：
+- 理解 Spring Boot 框架及其优势
+- 比较 Kotlin Web 开发与 Node.js/Express 模式
+- 使用 Spring Boot 实现 RESTful API
+- 使用 JPA/Hibernate 集成数据库
+- 处理身份验证和授权
+- 实现 GraphQL 服务
+- 构建微服务架构
+- 应用现代 Web 开发最佳实践
+
+## Spring Boot 框架概述
+
+### 框架对比
+
+Spring Boot 是 Kotlin 生态系统中相当于 Express.js 的框架，但具有更多内置功能和企业级特性。
+
+<UniversalEditor title="框架对比" compare={true}>
+```javascript !! js
+// Express.js - JavaScript 后端框架
+const express = require('express');
+const app = express();
+const port = 3000;
+
+// 解析 JSON 的中间件
+app.use(express.json());
+
+// 基本路由
+app.get('/', (req, res) => {
+  res.json({ message: 'Hello from Express!' });
+});
+
+// RESTful API 端点
+app.get('/api/users', (req, res) => {
+  // 模拟数据
+  const users = [
+    { id: 1, name: 'John', email: 'john@example.com' },
+    { id: 2, name: 'Jane', email: 'jane@example.com' }
+  ];
+  res.json(users);
+});
+
+// POST 端点
+app.post('/api/users', (req, res) => {
+  const { name, email } = req.body;
+  // 在实际应用中，保存到数据库
+  const newUser = { id: Date.now(), name, email };
+  res.status(201).json(newUser);
+});
+
+app.listen(port, () => {
+  console.log(`Server running on port ${port}`);
+});
+```
+
+```kotlin !! kt
+// Spring Boot - Kotlin 后端框架
+package com.example.demo
+
+import org.springframework.boot.autoconfigure.SpringBootApplication
+import org.springframework.boot.runApplication
+import org.springframework.web.bind.annotation.*
+
+@SpringBootApplication
+class DemoApplication
+
+fun main(args: Array<String>) {
+    runApplication<DemoApplication>(*args)
+}
+
+// REST 控制器
+@RestController
+@RequestMapping("/api")
+class UserController {
+    
+    // 模拟数据（在实际应用中，使用服务层）
+    private val users = mutableListOf(
+        User(1, "John", "john@example.com"),
+        User(2, "Jane", "jane@example.com")
+    )
+    
+    @GetMapping("/users")
+    fun getUsers(): List<User> {
+        return users
+    }
+    
+    @PostMapping("/users")
+    fun createUser(@RequestBody user: CreateUserRequest): User {
+        val newUser = User(
+            id = users.size + 1,
+            name = user.name,
+            email = user.email
+        )
+        users.add(newUser)
+        return newUser
+    }
+}
+
+// 数据类用于类型安全
+data class User(
+    val id: Int,
+    val name: String,
+    val email: String
+)
+
+data class CreateUserRequest(
+    val name: String,
+    val email: String
+)
+```
+</UniversalEditor>
+
+### 主要差异
+
+| 方面 | JavaScript (Express) | Kotlin (Spring Boot) |
+|------|---------------------|----------------------|
+| **类型安全** | 动态类型 | 静态类型，编译时检查 |
+| **依赖注入** | 手动或使用库 | 内置 IoC 容器 |
+| **配置** | 手动设置 | 自动配置 |
+| **测试** | 手动测试设置 | 内置测试支持 |
+| **数据库集成** | 手动设置 | 使用 JPA 自动配置 |
+| **安全性** | 手动实现 | 内置安全特性 |
+
+## RESTful API 开发
+
+### API 设计模式
+
+让我们比较如何在两个生态系统中构建 RESTful API。
+
+<UniversalEditor title="RESTful API 实现" compare={true}>
+```javascript !! js
+// Express.js RESTful API
+const express = require('express');
+const app = express();
+
+app.use(express.json());
+
+// 用户路由
+app.get('/api/users', async (req, res) => {
+  try {
+    // 在实际应用中，从数据库获取
+    const users = await User.find();
+    res.json(users);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/users/:id', async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    res.json(user);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/users', async (req, res) => {
+  try {
+    const { name, email } = req.body;
+    const user = new User({ name, email });
+    await user.save();
+    res.status(201).json(user);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.put('/api/users/:id', async (req, res) => {
+  try {
+    const { name, email } = req.body;
+    const user = await User.findByIdAndUpdate(
+      req.params.id,
+      { name, email },
+      { new: true }
+    );
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    res.json(user);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.delete('/api/users/:id', async (req, res) => {
+  try {
+    const user = await User.findByIdAndDelete(req.params.id);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    res.status(204).send();
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+```
+
+```kotlin !! kt
+// Spring Boot RESTful API
+package com.example.demo.controller
+
+import org.springframework.http.ResponseEntity
+import org.springframework.web.bind.annotation.*
+
+@RestController
+@RequestMapping("/api/users")
+class UserController(private val userService: UserService) {
+    
+    @GetMapping
+    suspend fun getUsers(): ResponseEntity<List<User>> {
+        return try {
+            val users = userService.getAllUsers()
+            ResponseEntity.ok(users)
+        } catch (e: Exception) {
+            ResponseEntity.internalServerError().build()
+        }
+    }
+    
+    @GetMapping("/{id}")
+    suspend fun getUserById(@PathVariable id: Long): ResponseEntity<User> {
+        return try {
+            val user = userService.getUserById(id)
+            ResponseEntity.ok(user)
+        } catch (e: UserNotFoundException) {
+            ResponseEntity.notFound().build()
+        } catch (e: Exception) {
+            ResponseEntity.internalServerError().build()
+        }
+    }
+    
+    @PostMapping
+    suspend fun createUser(@RequestBody request: CreateUserRequest): ResponseEntity<User> {
+        return try {
+            val user = userService.createUser(request)
+            ResponseEntity.status(201).body(user)
+        } catch (e: Exception) {
+            ResponseEntity.badRequest().build()
+        }
+    }
+    
+    @PutMapping("/{id}")
+    suspend fun updateUser(
+        @PathVariable id: Long,
+        @RequestBody request: UpdateUserRequest
+    ): ResponseEntity<User> {
+        return try {
+            val user = userService.updateUser(id, request)
+            ResponseEntity.ok(user)
+        } catch (e: UserNotFoundException) {
+            ResponseEntity.notFound().build()
+        } catch (e: Exception) {
+            ResponseEntity.badRequest().build()
+        }
+    }
+    
+    @DeleteMapping("/{id}")
+    suspend fun deleteUser(@PathVariable id: Long): ResponseEntity<Unit> {
+        return try {
+            userService.deleteUser(id)
+            ResponseEntity.noContent().build()
+        } catch (e: UserNotFoundException) {
+            ResponseEntity.notFound().build()
+        } catch (e: Exception) {
+            ResponseEntity.internalServerError().build()
+        }
+    }
+}
+
+// 业务逻辑服务层
+@Service
+class UserService(private val userRepository: UserRepository) {
+    
+    suspend fun getAllUsers(): List<User> {
+        return userRepository.findAll()
+    }
+    
+    suspend fun getUserById(id: Long): User {
+        return userRepository.findById(id) 
+            ?: throw UserNotFoundException("User not found with id: $id")
+    }
+    
+    suspend fun createUser(request: CreateUserRequest): User {
+        val user = User(
+            name = request.name,
+            email = request.email
+        )
+        return userRepository.save(user)
+    }
+    
+    suspend fun updateUser(id: Long, request: UpdateUserRequest): User {
+        val user = getUserById(id)
+        val updatedUser = user.copy(
+            name = request.name,
+            email = request.email
+        )
+        return userRepository.save(updatedUser)
+    }
+    
+    suspend fun deleteUser(id: Long) {
+        val user = getUserById(id)
+        userRepository.delete(user)
+    }
+}
+
+// 数据类
+data class User(
+    val id: Long? = null,
+    val name: String,
+    val email: String
+)
+
+data class CreateUserRequest(
+    val name: String,
+    val email: String
+)
+
+data class UpdateUserRequest(
+    val name: String,
+    val email: String
+)
+
+class UserNotFoundException(message: String) : Exception(message)
+```
+</UniversalEditor>
+
+## 数据库集成
+
+### JPA/Hibernate vs Mongoose
+
+Kotlin 使用 JPA（Java Persistence API）和 Hibernate，而 JavaScript 通常使用 Mongoose 进行 MongoDB 操作或 Sequelize 进行 SQL 数据库操作。
+
+<UniversalEditor title="数据库集成对比" compare={true}>
+```javascript !! js
+// Mongoose - JavaScript MongoDB ODM
+const mongoose = require('mongoose');
+
+// 定义模式
+const userSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  email: { type: String, required: true, unique: true },
+  age: { type: Number, min: 0 },
+  createdAt: { type: Date, default: Date.now }
+});
+
+// 向模式添加方法
+userSchema.methods.getFullName = function() {
+  return `${this.name} (${this.email})`;
+};
+
+// 创建模型
+const User = mongoose.model('User', userSchema);
+
+// 在 Express 中使用
+app.get('/api/users', async (req, res) => {
+  try {
+    const users = await User.find();
+    res.json(users);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/users', async (req, res) => {
+  try {
+    const user = new User(req.body);
+    await user.save();
+    res.status(201).json(user);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+```
+
+```kotlin !! kt
+// JPA/Hibernate - Kotlin 数据库集成
+package com.example.demo.entity
+
+import jakarta.persistence.*
+import java.time.LocalDateTime
+
+@Entity
+@Table(name = "users")
+data class User(
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    val id: Long? = null,
+    
+    @Column(nullable = false)
+    val name: String,
+    
+    @Column(nullable = false, unique = true)
+    val email: String,
+    
+    @Column
+    val age: Int? = null,
+    
+    @Column(name = "created_at")
+    val createdAt: LocalDateTime = LocalDateTime.now()
+) {
+    fun getFullName(): String {
+        return "$name ($email)"
+    }
+}
+
+// 仓库接口
+@Repository
+interface UserRepository : JpaRepository<User, Long> {
+    fun findByEmail(email: String): User?
+    fun findByAgeGreaterThan(age: Int): List<User>
+}
+
+// 服务层
+@Service
+class UserService(private val userRepository: UserRepository) {
+    
+    suspend fun getAllUsers(): List<User> {
+        return userRepository.findAll()
+    }
+    
+    suspend fun createUser(request: CreateUserRequest): User {
+        val user = User(
+            name = request.name,
+            email = request.email,
+            age = request.age
+        )
+        return userRepository.save(user)
+    }
+    
+    suspend fun getUserByEmail(email: String): User? {
+        return userRepository.findByEmail(email)
+    }
+}
+```
+</UniversalEditor>
+
+## 总结
+
+在本模块中，我们探索了使用 Spring Boot 框架进行 Kotlin Web 开发。以下是关键要点：
+
+### 涵盖的核心概念
+1. **Spring Boot 框架**：具有内置功能的企业级 Web 框架
+2. **RESTful API 开发**：使用适当 HTTP 方法的清晰 API 设计
+3. **数据库集成**：使用 JPA/Hibernate 进行数据库操作
+4. **类型安全**：编译时类型检查，提高代码质量
+5. **服务层模式**：使用服务类分离关注点
+6. **错误处理**：使用自定义异常进行适当的异常处理
+
+### JavaScript vs Kotlin Web 开发
+
+| 方面 | JavaScript (Express) | Kotlin (Spring Boot) |
+|------|---------------------|----------------------|
+| **类型安全** | 动态类型 | 静态类型，编译时检查 |
+| **框架特性** | 最小化，需要库 | 丰富的生态系统，内置功能 |
+| **数据库集成** | 使用 ORM 手动设置 | 使用 JPA 自动配置 |
+| **错误处理** | Try-catch 块 | 使用自定义异常的异常处理 |
+| **测试** | 手动设置 | 全面的测试支持 |
+| **性能** | I/O 操作良好 | CPU 密集型任务优秀 |
+| **企业特性** | 有限 | 广泛的企业支持 |
+
+### 最佳实践
+1. **使用服务层**：将业务逻辑与控制器分离
+2. **实现适当的错误处理**：使用自定义异常和适当的 HTTP 状态码
+3. **遵循 REST 约定**：使用适当的 HTTP 方法和状态码
+4. **使用数据类**：用于类型安全的数据传输对象
+5. **实现仓库模式**：用于数据库操作
+6. **添加验证**：使用 Bean Validation 进行输入验证
+
+### 下一步
+在下一个模块中，我们将探索 Kotlin 移动应用开发，重点关注 Android 开发模式和现代移动应用架构。
+
+---
+
+**实践挑战**：构建一个完整的任务管理系统 REST API，包含用户身份验证、任务的 CRUD 操作和适当的错误处理。包括数据库集成和全面的测试。 

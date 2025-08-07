@@ -1,0 +1,1004 @@
+---
+title: "慣用的 Kotlin 和效能優化"
+description: "學習 Kotlin 編碼約定、效能優化技術和現代 Kotlin 開發模式"
+---
+
+# 慣用的 Kotlin 和效能優化
+
+歡迎來到 JavaScript 到 Kotlin 轉換的第十三個模組！在本模組中，我們將探討 Kotlin 的慣用模式、編碼約定和效能優化技術。我們將學習如何編寫遵循現代最佳實踐的乾淨、高效和可維護的 Kotlin 程式碼。
+
+## 學習目標
+
+在本模組結束時，您將能夠：
+- 遵循最佳實踐編寫慣用的 Kotlin 程式碼
+- 應用效能優化技術
+- 實現高效的記憶體管理策略
+- 優化協程效能
+- 有效使用現代 Kotlin 功能
+- 應用程式碼組織原則
+- 實現現代 Kotlin 開發模式
+
+## Kotlin 編碼約定
+
+### 命名約定和風格
+
+<UniversalEditor title="Kotlin 編碼約定" compare={true}>
+```javascript !! js
+// JavaScript 編碼約定
+class UserService {
+  constructor() {
+    this.userRepository = new UserRepository();
+    this.cache = new Map();
+  }
+  
+  // 函式命名 - camelCase
+  async getUserById(userId) {
+    // 首先檢查快取
+    if (this.cache.has(userId)) {
+      return this.cache.get(userId);
+    }
+    
+    // 從倉庫取得
+    const user = await this.userRepository.findById(userId);
+    
+    // 快取結果
+    this.cache.set(userId, user);
+    
+    return user;
+  }
+  
+  // 布林函式命名
+  isUserActive(userId) {
+    const user = this.cache.get(userId);
+    return user && user.status === 'active';
+  }
+  
+  // 私有方法命名
+  _validateUserData(userData) {
+    return userData.name && userData.email;
+  }
+  
+  // 常數 - UPPER_SNAKE_CASE
+  static readonly DEFAULT_TIMEOUT = 5000;
+  static readonly MAX_RETRY_ATTEMPTS = 3;
+}
+
+// 變數命名
+const userList = [];
+const isProcessing = false;
+const MAX_ITEMS = 100;
+
+// 函式命名
+function fetchUserData() { }
+function validateEmail(email) { }
+function processUserList(users) { }
+```
+
+```kotlin !! kt
+// Kotlin 編碼約定
+class UserService(
+    private val userRepository: UserRepository,
+    private val cache: MutableMap<Long, User> = mutableMapOf()
+) {
+    
+    // 函式命名 - camelCase
+    suspend fun getUserById(userId: Long): User {
+        // 首先檢查快取
+        cache[userId]?.let { return it }
+        
+        // 從倉庫取得
+        val user = userRepository.findById(userId)
+        
+        // 快取結果
+        cache[userId] = user
+        
+        return user
+    }
+    
+    // 布林函式命名 - 以「is」、「has」、「can」等開頭
+    fun isUserActive(userId: Long): Boolean {
+        val user = cache[userId]
+        return user?.status == UserStatus.ACTIVE
+    }
+    
+    fun hasPermission(userId: Long, permission: String): Boolean {
+        val user = cache[userId]
+        return user?.permissions?.contains(permission) == true
+    }
+    
+    // 私有方法命名 - camelCase
+    private fun validateUserData(userData: CreateUserRequest): Boolean {
+        return userData.name.isNotBlank() && userData.email.isNotBlank()
+    }
+    
+    // 常數 - UPPER_SNAKE_CASE
+    companion object {
+        const val DEFAULT_TIMEOUT = 5000L
+        const val MAX_RETRY_ATTEMPTS = 3
+        const val CACHE_SIZE_LIMIT = 1000
+    }
+}
+
+// 變數命名 - camelCase
+val userList = mutableListOf<User>()
+var isProcessing = false
+const val MAX_ITEMS = 100
+
+// 函式命名 - camelCase
+fun fetchUserData() { }
+fun validateEmail(email: String): Boolean { }
+fun processUserList(users: List<User>) { }
+
+// 資料類別命名 - PascalCase
+data class UserProfile(
+    val id: Long,
+    val name: String,
+    val email: String
+)
+
+// 列舉命名 - PascalCase
+enum class UserStatus {
+    ACTIVE, INACTIVE, SUSPENDED
+}
+
+// 介面命名 - PascalCase，通常帶有「able」後綴
+interface Cacheable {
+    fun get(key: String): Any?
+    fun put(key: String, value: Any)
+}
+
+// 擴充函式命名
+fun String.isValidEmail(): Boolean {
+    return contains("@") && contains(".")
+}
+
+fun List<User>.filterActive(): List<User> {
+    return filter { it.status == UserStatus.ACTIVE }
+}
+```
+</UniversalEditor>
+
+### 程式碼組織和結構
+
+<UniversalEditor title="程式碼組織" compare={true}>
+```javascript !! js
+// JavaScript 程式碼組織
+// utils/validation.js
+export class ValidationUtils {
+  static isValidEmail(email) {
+    const emailRegex = /^[^
+@]+@[^
+@]+\.[^
+@]+$/;
+    return emailRegex.test(email);
+  }
+  
+  static isValidPassword(password) {
+    return password.length >= 8;
+  }
+}
+
+// services/userService.js
+import { ValidationUtils } from '../utils/validation.js';
+
+export class UserService {
+  constructor(userRepository) {
+    this.userRepository = userRepository;
+  }
+  
+  async createUser(userData) {
+    if (!ValidationUtils.isValidEmail(userData.email)) {
+      throw new Error('Invalid email');
+    }
+    
+    if (!ValidationUtils.isValidPassword(userData.password)) {
+      throw new Error('Password too short');
+    }
+    
+    return this.userRepository.create(userData);
+  }
+}
+
+// models/user.js
+export class User {
+  constructor(data) {
+    this.id = data.id;
+    this.name = data.name;
+    this.email = data.email;
+  }
+  
+  getDisplayName() {
+    return this.name || 'Anonymous';
+  }
+}
+```
+
+```kotlin !! kt
+// Kotlin 程式碼組織
+// utils/ValidationUtils.kt
+object ValidationUtils {
+    fun isValidEmail(email: String): Boolean {
+        val emailRegex = Regex("^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$")
+        return emailRegex.matches(email)
+    }
+    
+    fun isValidPassword(password: String): Boolean {
+        return password.length >= 8
+    }
+}
+
+// services/UserService.kt
+class UserService(
+    private val userRepository: UserRepository
+) {
+    
+    suspend fun createUser(userData: CreateUserRequest): User {
+        require(ValidationUtils.isValidEmail(userData.email)) {
+            "Invalid email format"
+        }
+        
+        require(ValidationUtils.isValidPassword(userData.password)) {
+            "Password must be at least 8 characters"
+        }
+        
+        return userRepository.create(userData)
+    }
+}
+
+// models/User.kt
+data class User(
+    val id: Long,
+    val name: String,
+    val email: String
+) {
+    val displayName: String
+        get() = name.ifBlank { "Anonymous" }
+}
+
+// 用於更好組織的擴充函式
+fun User.isActive(): Boolean {
+    return status == UserStatus.ACTIVE
+}
+
+fun User.hasPermission(permission: String): Boolean {
+    return permissions.contains(permission)
+}
+
+// 套件組織
+package com.example.app
+
+// 頂部的匯入
+import kotlinx.coroutines.*
+import org.springframework.stereotype.Service
+import java.time.LocalDateTime
+
+// 具有適當結構的類別
+@Service
+class UserService(
+    private val userRepository: UserRepository,
+    private val emailService: EmailService
+) {
+    
+    // 常數在前
+    companion object {
+        const val MAX_LOGIN_ATTEMPTS = 3
+        const val SESSION_TIMEOUT_MINUTES = 30L
+    }
+    
+    // 屬性
+    private val activeSessions = mutableMapOf<String, UserSession>()
+    
+    // 公共方法
+    suspend fun createUser(request: CreateUserRequest): User {
+        validateUserRequest(request)
+        val user = userRepository.create(request)
+        emailService.sendWelcomeEmail(user.email)
+        return user
+    }
+    
+    // 私有方法
+    private fun validateUserRequest(request: CreateUserRequest) {
+        require(request.name.isNotBlank()) { "Name cannot be empty" }
+        require(ValidationUtils.isValidEmail(request.email)) { "Invalid email format" }
+    }
+}
+```
+</UniversalEditor>
+
+## 效能優化技術
+
+### 集合效能
+
+<UniversalEditor title="集合效能優化" compare={true}>
+```javascript !! js
+// JavaScript 集合效能
+class DataProcessor {
+  constructor() {
+    this.data = [];
+  }
+  
+  // 低效：多次陣列迭代
+  processDataInefficient(data) {
+    return data
+      .filter(item => item.active)
+      .map(item => item.name)
+      .filter(name => name.length > 0);
+  }
+  
+  // 更高效：單次迭代
+  processDataEfficient(data) {
+    const result = [];
+    for (const item of data) {
+      if (item.active && item.name.length > 0) {
+        result.push(item.name);
+      }
+    }
+    return result;
+  }
+  
+  // 低效：建立新陣列
+  findDuplicatesInefficient(data) {
+    const duplicates = [];
+    for (let i = 0; i < data.length; i++) {
+      for (let j = i + 1; j < data.length; j++) {
+        if (data[i] === data[j] && !duplicates.includes(data[i])) {
+          duplicates.push(data[i]);
+        }
+      }
+    }
+    return duplicates;
+  }
+  
+  // 高效：使用 Set
+  findDuplicatesEfficient(data) {
+    const seen = new Set();
+    const duplicates = new Set();
+    
+    for (const item of data) {
+      if (seen.has(item)) {
+        duplicates.add(item);
+      } else {
+        seen.add(item);
+      }
+    }
+    
+    return Array.from(duplicates);
+  }
+}
+```
+
+```kotlin !! kt
+// Kotlin 集合效能優化
+class DataProcessor {
+    
+    // 低效：多次集合操作
+    fun processDataInefficient(data: List<DataItem>): List<String> {
+        return data
+            .filter { it.active }
+            .map { it.name }
+            .filter { it.isNotEmpty() }
+    }
+    
+    // 高效：使用序列進行單次迭代
+    fun processDataEfficient(data: List<DataItem>): List<String> {
+        return data.asSequence()
+            .filter { it.active }
+            .map { it.name }
+            .filter { it.isNotEmpty() }
+            .toList()
+    }
+    
+    // 更高效：手動處理進行單次迭代
+    fun processDataManual(data: List<DataItem>): List<String> {
+        val result = mutableListOf<String>()
+        for (item in data) {
+            if (item.active && item.name.isNotEmpty()) {
+                result.add(item.name)
+            }
+        }
+        return result
+    }
+    
+    // 低效：巢狀迴圈
+    fun findDuplicatesInefficient(data: List<String>): List<String> {
+        val duplicates = mutableListOf<String>()
+        for (i in data.indices) {
+            for (j in i + 1 until data.size) {
+                if (data[i] == data[j] && data[i] !in duplicates) {
+                    duplicates.add(data[i])
+                }
+            }
+        }
+        return duplicates
+    }
+    
+    // 高效：使用 Set
+    fun findDuplicatesEfficient(data: List<String>): List<String> {
+        val seen = mutableSetOf<String>()
+        val duplicates = mutableSetOf<String>()
+        
+        for (item in data) {
+            if (item in seen) {
+                duplicates.add(item)
+            } else {
+                seen.add(item)
+            }
+        }
+        
+        return duplicates.toList()
+    }
+    
+    // 高效：使用 groupingBy
+    fun findDuplicatesWithGrouping(data: List<String>): List<String> {
+        return data.groupingBy { it }
+            .eachCount()
+            .filter { it.value > 1 }
+            .keys
+            .toList()
+    }
+    
+    // 高效：使用 distinct
+    fun removeDuplicates(data: List<String>): List<String> {
+        return data.distinct()
+    }
+    
+    // 高效：使用 toSet
+    fun removeDuplicatesSet(data: List<String>): List<String> {
+        return data.toSet().toList()
+    }
+}
+
+// 效能優化最佳實踐
+class CollectionOptimization {
+    
+    // 1. 使用適當的集合型別
+    fun useAppropriateCollections() {
+        // 用於唯一元素
+        val uniqueItems = mutableSetOf<String>()
+        
+        // 用於鍵值對
+        val cache = mutableMapOf<String, Any>()
+        
+        // 用於有序唯一元素
+        val orderedUnique = linkedSetOf<String>()
+        
+        // 用於執行緒安全的集合
+        val threadSafeList = Collections.synchronizedList(mutableListOf<String>())
+    }
+    
+    // 2. 對大型集合使用序列
+    fun processLargeCollection(data: List<Int>): List<String> {
+        return data.asSequence()
+            .filter { it > 0 }
+            .map { it.toString() }
+            .distinct()
+            .toList()
+    }
+    
+    // 3. 使用惰性求值
+    fun lazyEvaluation(data: List<String>): Sequence<String> {
+        return data.asSequence()
+            .filter { it.isNotEmpty() }
+            .map { it.uppercase() }
+            .onEach { println("Processing: $it") }
+    }
+    
+    // 4. 為集合使用適當的容量
+    fun createCollectionWithCapacity(size: Int) {
+        val list = ArrayList<String>(size)
+        val map = HashMap<String, String>(size)
+        val set = HashSet<String>(size)
+    }
+}
+```
+</UniversalEditor>
+
+## 記憶體管理優化
+
+### 高效的記憶體使用
+
+<UniversalEditor title="記憶體管理優化" compare={true}>
+```javascript !! js
+// JavaScript 記憶體管理
+class MemoryManager {
+  constructor() {
+    this.cache = new Map();
+    this.listeners = [];
+  }
+  
+  // 記憶體洩漏：事件監聽器未被移除
+  addEventListener() {
+    document.addEventListener('click', this.handleClick.bind(this));
+    // 監聽器從未被移除
+  }
+  
+  // 記憶體洩漏：循環引用
+  createCircularReference() {
+    const obj1 = { name: 'Object 1' };
+    const obj2 = { name: 'Object 2' };
+    obj1.ref = obj2;
+    obj2.ref = obj1;
+  }
+  
+  // 記憶體洩漏：閉包中的大物件
+  createClosureWithLargeData() {
+    const largeData = new Array(1000000).fill('data');
+    return function() {
+      console.log(largeData.length);
+    };
+  }
+  
+  // 記憶體洩漏：計時器未被清除
+  startTimer() {
+    this.timer = setInterval(() => {
+      this.processData();
+    }, 1000);
+    // 計時器從未被清除
+  }
+  
+  // 記憶體洩漏：DOM 引用
+  cacheDOMElements() {
+    this.elements = document.querySelectorAll('.item');
+    // DOM 引用保留在記憶體中
+  }
+}
+```
+
+```kotlin !! kt
+// Kotlin 記憶體管理優化
+class MemoryManager {
+    
+    // 記憶體洩漏：協程未被取消
+    private var dataJob: Job? = null
+    
+    fun startDataProcessing() {
+        dataJob = CoroutineScope(Dispatchers.Main).launch {
+            while (true) {
+                processData()
+                delay(1000)
+            }
+        }
+        // 作業從未被取消
+    }
+    
+    // 解決方案：適當的協程生命週期管理
+    fun startDataProcessingSafe() {
+        dataJob?.cancel() // 取消之前的作業
+        dataJob = CoroutineScope(Dispatchers.Main).launch {
+            while (isActive) {
+                processData()
+                delay(1000)
+            }
+        }
+    }
+    
+    fun stopDataProcessing() {
+        dataJob?.cancel()
+    }
+    
+    // 記憶體洩漏：強引用
+    private var strongReference: Any? = null
+    
+    fun createStrongReference(obj: Any) {
+        strongReference = obj
+        // obj 永遠不會被垃圾回收
+    }
+    
+    // 解決方案：使用弱引用
+    private val weakReferences = WeakHashMap<Any, String>()
+    
+    fun createWeakReference(obj: Any, value: String) {
+        weakReferences[obj] = value
+        // obj 可以被垃圾回收
+    }
+    
+    // 記憶體洩漏：閉包中的大物件
+    fun createClosureWithLargeData(): () -> Unit {
+        val largeData = List(1_000_000) { "data" }
+        return {
+            println(largeData.size)
+        }
+        // largeData 保留在記憶體中
+    }
+    
+    // 解決方案：使用惰性初始化
+    private val largeData by lazy {
+        List(1_000_000) { "data" }
+    }
+    
+    fun createClosureSafe(): () -> Unit {
+        return {
+            println(largeData.size)
+        }
+    }
+    
+    // 記憶體洩漏：資源洩漏
+    private var fileInputStream: FileInputStream? = null
+    
+    fun readFile(path: String): String {
+        fileInputStream = FileInputStream(path)
+        return fileInputStream!!.readBytes().toString()
+        // FileInputStream 從未關閉
+    }
+    
+    // 解決方案：使用 use 函式進行自動資源管理
+    fun readFileSafe(path: String): String {
+        return FileInputStream(path).use { input ->
+            input.readBytes().toString()
+        }
+    }
+    
+    // 記憶體洩漏：觀察者未被移除
+    private val observers = mutableListOf<Observer>()
+    
+    fun addObserver(observer: Observer) {
+        observers.add(observer)
+        // 觀察者從未被移除
+    }
+    
+    // 解決方案：適當的觀察者生命週期管理
+    fun addObserverSafe(observer: Observer) {
+        observers.add(observer)
+    }
+    
+    fun removeObserver(observer: Observer) {
+        observers.remove(observer)
+    }
+    
+    fun cleanup() {
+        observers.clear()
+    }
+}
+
+// 記憶體優化最佳實踐
+class MemoryOptimization {
+    
+    // 1. 對頻繁建立的物件使用物件池
+    private val stringBuilderPool = mutableListOf<StringBuilder>()
+    
+    fun getStringBuilder(): StringBuilder {
+        return if (stringBuilderPool.isNotEmpty()) {
+            stringBuilderPool.removeAt(stringBuilderPool.lastIndex)
+        } else {
+            StringBuilder()
+        }
+    }
+    
+    fun returnStringBuilder(builder: StringBuilder) {
+        builder.clear()
+        stringBuilderPool.add(builder)
+    }
+    
+    // 2. 使用惰性初始化
+    private val expensiveResource by lazy {
+        createExpensiveResource()
+    }
+    
+    // 3. 使用弱引用進行快取
+    private val cache = WeakHashMap<String, ExpensiveObject>()
+    
+    fun getExpensiveObject(key: String): ExpensiveObject {
+        return cache.getOrPut(key) {
+            createExpensiveObject()
+        }
+    }
+    
+    // 4. 完成後清除引用
+    class DataProcessor {
+        private var data: List<DataItem>? = null
+        
+        fun processData(newData: List<DataItem>) {
+            data = newData
+            // 處理資料
+        }
+        
+        fun cleanup() {
+            data = null // 清除引用
+        }
+    }
+    
+    // 5. 使用結構化並行
+    suspend fun structuredConcurrencyExample() = coroutineScope {
+        val job1 = launch { processData1() }
+        val job2 = launch { processData2() }
+        
+        // 當作用域被取消時，所有作業都會被取消
+        job1.join()
+        job2.join()
+    }
+}
+```
+</UniversalEditor>
+
+## 協程效能優化
+
+### 高效的協程使用
+
+<UniversalEditor title="協程效能優化" compare={true}>
+```javascript !! js
+// JavaScript 非同步效能
+class AsyncProcessor {
+  constructor() {
+    this.cache = new Map();
+  }
+  
+  // 低效：順序非同步操作
+  async processDataSequential(data) {
+    const results = [];
+    for (const item of data) {
+      const result = await this.processItem(item);
+      results.push(result);
+    }
+    return results;
+  }
+  
+  // 高效：並行非同步操作
+  async processDataParallel(data) {
+    const promises = data.map(item => this.processItem(item));
+    return Promise.all(promises);
+  }
+  
+  // 低效：未使用快取
+  async fetchData(url) {
+    const response = await fetch(url);
+    return response.json();
+  }
+  
+  // 高效：帶快取
+  async fetchDataCached(url) {
+    if (this.cache.has(url)) {
+      return this.cache.get(url);
+    }
+    
+    const response = await fetch(url);
+    const data = await response.json();
+    this.cache.set(url, data);
+    return data;
+  }
+  
+  // 低效：未處理逾時
+  async fetchDataWithTimeout(url) {
+    const response = await fetch(url);
+    return response.json();
+  }
+  
+  // 高效：帶逾時處理
+  async fetchDataWithTimeoutSafe(url, timeout = 5000) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
+    
+    try {
+      const response = await fetch(url, {
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+      return response.json();
+    } catch (error) {
+      clearTimeout(timeoutId);
+      throw error;
+    }
+  }
+}
+```
+
+```kotlin !! kt
+// Kotlin 協程效能優化
+class AsyncProcessor {
+    
+    private val cache = mutableMapOf<String, Any>()
+    
+    // 低效：順序協程操作
+    suspend fun processDataSequential(data: List<DataItem>): List<ProcessedItem> {
+        val results = mutableListOf<ProcessedItem>()
+        for (item in data) {
+            val result = processItem(item)
+            results.add(result)
+        }
+        return results
+    }
+    
+    // 高效：並行協程操作
+    suspend fun processDataParallel(data: List<DataItem>): List<ProcessedItem> {
+        return coroutineScope {
+            data.map { item ->
+                async { processItem(item) }
+            }.awaitAll()
+        }
+    }
+    
+    // 更高效：帶並行限制
+    suspend fun processDataWithLimit(
+        data: List<DataItem>, 
+        concurrencyLimit: Int = 10
+    ): List<ProcessedItem> {
+        return data.chunked(concurrencyLimit)
+            .flatMap { chunk ->
+                runBlocking {
+                    chunk.map { item ->
+                        async { processItem(item) }
+                    }.awaitAll()
+                }
+            }
+    }
+    
+    // 低效：未使用快取
+    suspend fun fetchData(url: String): Any {
+        val response = httpClient.get(url)
+        return Json.decodeFromString(response)
+    }
+    
+    // 高效：帶快取
+    suspend fun fetchDataCached(url: String): Any {
+        return cache.getOrPut(url) {
+            val response = httpClient.get(url)
+            Json.decodeFromString(response)
+        }
+    }
+    
+    // 低效：未處理逾時
+    suspend fun fetchDataWithTimeout(url: String): Any {
+        val response = httpClient.get(url)
+        return Json.decodeFromString(response)
+    }
+    
+    // 高效：帶逾時處理
+    suspend fun fetchDataWithTimeoutSafe(
+        url: String, 
+        timeout: Long = 5000
+    ): Any {
+        return withTimeout(timeout) {
+            val response = httpClient.get(url)
+            Json.decodeFromString(response)
+        }
+    }
+    
+    // 高效：使用適當的調度器
+    suspend fun processDataWithDispatchers(data: List<DataItem>): List<ProcessedItem> {
+        return withContext(Dispatchers.Default) {
+            data.map { item ->
+                processItem(item)
+            }
+        }
+    }
+    
+    // 高效：對獨立操作使用 supervisorScope
+    suspend fun processIndependentData(): List<DataItem> {
+        return supervisorScope {
+            val data1 = async { fetchData1() }
+            val data2 = async { fetchData2() }
+            
+            // 如果一個失敗，其他繼續
+            listOfNotNull(data1.awaitOrNull(), data2.awaitOrNull())
+        }
+    }
+    
+    // 高效：使用 flow 進行流式資料處理
+    fun processDataStream(data: List<DataItem>): Flow<ProcessedItem> {
+        return data.asFlow()
+            .map { item ->
+                processItem(item)
+            }
+            .buffer(100) // 緩衝以提高效能
+            .flowOn(Dispatchers.Default) // 使用背景調度器
+    }
+}
+
+// 協程優化最佳實踐
+class CoroutineOptimization {
+    
+    // 1. 使用結構化並行
+    suspend fun structuredConcurrencyExample() = coroutineScope {
+        val result1 = async { fetchData1() }
+        val result2 = async { fetchData2() }
+        
+        // 如果任何協程失敗，所有協程都會被取消
+        result1.await() + result2.await()
+    }
+    
+    // 2. 使用適當的調度器
+    suspend fun dispatcherExample() {
+        // IO 操作
+        val data = withContext(Dispatchers.IO) {
+            readFromFile()
+        }
+        
+        // CPU 密集型操作
+        val processed = withContext(Dispatchers.Default) {
+            processData(data)
+        }
+        
+        // UI 更新（在 Android 中）
+        withContext(Dispatchers.Main) {
+            updateUI(processed)
+        }
+    }
+    
+    // 3. 正確處理取消
+    suspend fun cancellationAwareOperation() {
+        try {
+            withTimeout(5000) {
+                longRunningOperation()
+            }
+        } catch (e: TimeoutCancellationException) {
+            // 處理逾時
+            cleanup()
+        }
+    }
+    
+    // 4. 對獨立操作使用 supervisorScope
+    suspend fun independentOperations() = supervisorScope {
+        val job1 = launch { operation1() }
+        val job2 = launch { operation2() }
+        
+        // 如果一個失敗，其他繼續
+        listOfNotNull(job1.awaitOrNull(), job2.awaitOrNull())
+    }
+    
+    // 5. 使用 flow 進行流式資料處理
+    fun streamingData(): Flow<DataItem> {
+        return flow {
+            for (i in 1..1000) {
+                emit(DataItem(i))
+                delay(100)
+            }
+        }
+        .buffer(100)
+        .flowOn(Dispatchers.Default)
+    }
+}
+```
+</UniversalEditor>
+
+## 總結
+
+在本模組中，我們探討了慣用的 Kotlin 模式和效能優化技術。以下是關鍵要點：
+
+### 涵蓋的關鍵概念
+1. **Kotlin 編碼約定**：命名約定、程式碼組織和風格指南
+2. **效能優化**：集合操作、記憶體管理和高效演算法
+3. **記憶體管理**：資源清理、弱引用和物件池
+4. **協程優化**：結構化並行、適當的調度器和取消
+5. **現代 Kotlin 功能**：擴充函式、資料類別和密封類別
+
+### 效能優化技術
+
+| 技術 | 描述 | 好處 |
+|-----------|-------------|---------|
+| **序列** | 對大型集合使用序列 | 惰性求值，記憶體效率 |
+| **適當的集合** | 選擇正確的集合型別 | 針對特定用例的更好效能 |
+| **物件池** | 重用昂貴的物件 | 減少物件建立開銷 |
+| **弱引用** | 使用弱引用進行快取 | 允許垃圾回收 |
+| **結構化並行** | 適當的協程生命週期管理 | 防止記憶體洩漏 |
+| **適當的調度器** | 對操作使用正確的調度器 | 更好的效能和響應能力 |
+
+### 最佳實踐
+1. **遵循 Kotlin 約定**：對函式使用 camelCase，對類別使用 PascalCase
+2. **使用序列**：用於大型集合和鏈式操作
+3. **管理記憶體**：使用弱引用和適當的清理
+4. **優化協程**：使用結構化並行和適當的調度器
+5. **明智地快取**：使用物件池和弱引用進行快取
+6. **處理資源**：使用 `use` 函式進行自動資源管理
+7. **測試效能**：分析和測量效能改進
+
+### 下一步
+恭喜！您已完成從 JavaScript 到 Kotlin 的學習之旅。現在，您已經掌握了堅實的 Kotlin 開發基礎，涵蓋基礎語法、進階模式和最佳實踐。
+
+### 你所學內容
+- **Kotlin 基礎知識**：語法、類型系統和空白安全
+- **函數式程式設計**：高階函數、lambda 表達式與集合
+- **協程**：非同步程式設計與結構化並發
+- **物件導向程式設計**：類別、介面和資料類
+- **Android 開發**：Jetpack Compose 與現代 Android 模式
+- **Web 開發**：Spring Boot 與後端服務
+- **跨平台**：Kotlin 多平台共享程式碼
+- **測試與除錯**：全面的測試策略
+- **最佳實務**：慣用模式與效能最佳化
+
+### 繼續你的旅程
+- **建立真實專案**：將你的知識應用於實際應用
+- **探索高級主題**：深入研究你感興趣的特定領域
+- **加入社群**：參與 Kotlin 論壇和會議
+- **留下更新**：關注 Kotlin 的發布和新功能
+---
+
+**實踐挑戰**：透過實施本模組中學到的所有技術，包括記憶體優化、協程效能改進和慣用的 Kotlin 模式，優化效能關鍵的應用程式。

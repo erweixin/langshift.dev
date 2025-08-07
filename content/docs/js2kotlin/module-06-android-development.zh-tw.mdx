@@ -1,0 +1,1235 @@
+---
+title: "Android 開發基礎"
+description: "學習使用 Kotlin 進行 Android 開發，與 JavaScript 移動開發模式和 React Native 概念進行對比"
+---
+
+# Android 開發基礎
+
+歡迎來到 JavaScript 到 Kotlin 轉換的第六個模組！在本模組中，我們將探索使用 Kotlin 進行 Android 開發，並了解它與 JavaScript 移動開發模式（如 React Native）的對比。我們將學習 Android 項目結構、Activity 生命週期、UI 組件和現代 Android 開發實踐。
+
+## 學習目標
+
+通過本模組的學習，你將能夠：
+- 理解 Android 項目結構和架構
+- 對比 Android 開發與 React Native 模式
+- 實現 Activity 生命週期管理
+- 有效創建和管理 Fragment
+- 使用 XML 和 Compose 設計響應式佈局
+- 處理用戶交互和事件
+- 管理 Android 資源和資產
+- 應用現代 Android 開發最佳實踐
+
+## Android 項目結構
+
+### 項目組織
+
+Android 項目具有特定的結構，與 JavaScript/React Native 項目有顯著差異。讓我們探索關鍵差異。
+
+<UniversalEditor title="項目結構對比" compare={true}>
+```javascript !! js
+// React Native 項目結構
+// App.js - 主應用程序組件
+import React from 'react';
+import { NavigationContainer } from '@react-navigation/native';
+import { createStackNavigator } from '@react-navigation/stack';
+
+const Stack = createStackNavigator();
+
+function App() {
+  return (
+    <NavigationContainer>
+      <Stack.Navigator>
+        <Stack.Screen name="Home" component={HomeScreen} />
+        <Stack.Screen name="Details" component={DetailsScreen} />
+      </Stack.Navigator>
+    </NavigationContainer>
+  );
+}
+
+// HomeScreen.js - 屏幕組件
+import React, { useState } from 'react';
+import { View, Text, Button, StyleSheet } from 'react-native';
+
+const HomeScreen = ({ navigation }) => {
+  const [count, setCount] = useState(0);
+  
+  return (
+    <View style={styles.container}>
+      <Text style={styles.title}>歡迎使用 React Native</Text>
+      <Text style={styles.counter}>計數: {count}</Text>
+      <Button 
+        title="增加" 
+        onPress={() => setCount(count + 1)} 
+      />
+      <Button 
+        title="前往詳情" 
+        onPress={() => navigation.navigate('Details')} 
+      />
+    </View>
+  );
+};
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  title: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginBottom: 20,
+  },
+  counter: {
+    fontSize: 18,
+    marginBottom: 20,
+  },
+});
+
+export default HomeScreen;
+```
+
+```kotlin !! kt
+// Android 項目結構
+// MainActivity.kt - 主活動
+package com.example.myapp
+
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+
+class MainActivity : ComponentActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContent {
+            MyAppTheme {
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = MaterialTheme.colorScheme.background
+                ) {
+                    HomeScreen()
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun HomeScreen() {
+    var count by remember { mutableStateOf(0) }
+    
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(20.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            text = "歡迎使用 Android",
+            style = MaterialTheme.typography.headlineMedium,
+            modifier = Modifier.padding(bottom = 20.dp)
+        )
+        
+        Text(
+            text = "計數: $count",
+            style = MaterialTheme.typography.bodyLarge,
+            modifier = Modifier.padding(bottom = 20.dp)
+        )
+        
+        Button(
+            onClick = { count++ },
+            modifier = Modifier.padding(bottom = 10.dp)
+        ) {
+            Text("增加")
+        }
+        
+        Button(
+            onClick = { /* 導航到詳情頁面 */ }
+        ) {
+            Text("前往詳情")
+        }
+    }
+}
+```
+</UniversalEditor>
+
+### 目錄結構對比
+
+**React Native 結構**：
+```
+MyApp/
+├── App.js              # 主應用入口
+├── package.json        # 依賴管理
+├── src/
+│   ├── screens/        # 屏幕組件
+│   ├── components/     # 可重用組件
+│   ├── navigation/     # 導航配置
+│   └── utils/          # 工具函數
+└── assets/             # 靜態資源
+```
+
+**Android 結構**：
+```
+MyApp/
+├── app/
+│   ├── src/
+│   │   ├── main/
+│   │   │   ├── java/           # Kotlin/Java 源碼
+│   │   │   ├── res/            # 資源文件
+│   │   │   │   ├── layout/     # XML 佈局文件
+│   │   │   │   ├── values/     # 字符串、顏色等
+│   │   │   │   ├── drawable/   # 圖片資源
+│   │   │   │   └── menu/       # 菜單文件
+│   │   │   └── AndroidManifest.xml
+│   │   └── test/               # 測試代碼
+│   └── build.gradle            # 模組級構建配置
+├── gradle/                     # Gradle 包裝器
+└── build.gradle               # 項目級構建配置
+```
+
+## Activity 生命週期管理
+
+### 生命週期概念
+
+Android Activity 有明確的生命週期，與 React 組件的生命週期概念相似但更複雜：
+
+<UniversalEditor title="生命週期對比" compare={true}>
+```javascript !! js
+// React 組件生命週期
+import React, { useState, useEffect } from 'react';
+
+const ReactComponent = () => {
+  const [data, setData] = useState(null);
+  
+  // 組件掛載時執行
+  useEffect(() => {
+    console.log('組件已掛載');
+    fetchData();
+    
+    // 組件卸載時清理
+    return () => {
+      console.log('組件將卸載');
+      cleanup();
+    };
+  }, []);
+  
+  // 數據變化時執行
+  useEffect(() => {
+    if (data) {
+      console.log('數據已更新');
+    }
+  }, [data]);
+  
+  const fetchData = async () => {
+    try {
+      const response = await fetch('/api/data');
+      const result = await response.json();
+      setData(result);
+    } catch (error) {
+      console.error('獲取數據失敗:', error);
+    }
+  };
+  
+  const cleanup = () => {
+    // 清理資源
+    console.log('清理資源');
+  };
+  
+  return (
+    <div>
+      <h1>React 組件</h1>
+      {data && <p>數據: {JSON.stringify(data)}</p>}
+    </div>
+  );
+};
+
+export default ReactComponent;
+```
+
+```kotlin !! kt
+// Android Activity 生命週期
+class MainActivity : AppCompatActivity() {
+    private var data: String? = null
+    
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        Log.d("Lifecycle", "onCreate: 活動已創建")
+        setContentView(R.layout.activity_main)
+        
+        // 恢復保存的狀態
+        savedInstanceState?.let { bundle ->
+            data = bundle.getString("data")
+        }
+        
+        fetchData()
+    }
+    
+    override fun onStart() {
+        super.onStart()
+        Log.d("Lifecycle", "onStart: 活動已開始")
+    }
+    
+    override fun onResume() {
+        super.onResume()
+        Log.d("Lifecycle", "onResume: 活動已恢復")
+    }
+    
+    override fun onPause() {
+        super.onPause()
+        Log.d("Lifecycle", "onPause: 活動已暫停")
+    }
+    
+    override fun onStop() {
+        super.onStop()
+        Log.d("Lifecycle", "onStop: 活動已停止")
+    }
+    
+    override fun onDestroy() {
+        super.onDestroy()
+        Log.d("Lifecycle", "onDestroy: 活動已銷毀")
+        cleanup()
+    }
+    
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        Log.d("Lifecycle", "onSaveInstanceState: 保存狀態")
+        outState.putString("data", data)
+    }
+    
+    private fun fetchData() {
+        lifecycleScope.launch {
+            try {
+                val response = withContext(Dispatchers.IO) {
+                    URL("https://api.example.com/data").readText()
+                }
+                data = response
+                Log.d("Lifecycle", "數據已更新")
+            } catch (error: Exception) {
+                Log.e("Lifecycle", "獲取數據失敗", error)
+            }
+        }
+    }
+    
+    private fun cleanup() {
+        // 清理資源
+        Log.d("Lifecycle", "清理資源")
+    }
+}
+```
+</UniversalEditor>
+
+### 生命週期最佳實踐
+
+**React Native 方法**：
+```javascript
+// 使用 useEffect 管理生命週期
+const useLifecycle = (onMount, onUnmount) => {
+  useEffect(() => {
+    onMount?.();
+    return onUnmount;
+  }, []);
+};
+
+// 使用自定義 Hook
+const useDataFetching = (url) => {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  
+  useEffect(() => {
+    let isMounted = true;
+    
+    const fetchData = async () => {
+      try {
+        const response = await fetch(url);
+        const result = await response.json();
+        if (isMounted) {
+          setData(result);
+          setLoading(false);
+        }
+      } catch (error) {
+        if (isMounted) {
+          setLoading(false);
+        }
+      }
+    };
+    
+    fetchData();
+    
+    return () => {
+      isMounted = false;
+    };
+  }, [url]);
+  
+  return { data, loading };
+};
+```
+
+**Android 方法**：
+```kotlin
+// 使用 ViewModel 管理生命週期
+class DataViewModel : ViewModel() {
+    private val _data = MutableLiveData<String>()
+    val data: LiveData<String> = _data
+    
+    private val _loading = MutableLiveData<Boolean>()
+    val loading: LiveData<Boolean> = _loading
+    
+    init {
+        fetchData()
+    }
+    
+    private fun fetchData() {
+        viewModelScope.launch {
+            _loading.value = true
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    URL("https://api.example.com/data").readText()
+                }
+                _data.value = result
+            } catch (error: Exception) {
+                // 處理錯誤
+            } finally {
+                _loading.value = false
+            }
+        }
+    }
+    
+    override fun onCleared() {
+        super.onCleared()
+        // 清理資源
+    }
+}
+
+// 在 Activity 中使用
+class MainActivity : AppCompatActivity() {
+    private val viewModel: DataViewModel by viewModels()
+    
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_main)
+        
+        // 觀察數據變化
+        viewModel.data.observe(this) { data ->
+            // 更新 UI
+        }
+        
+        viewModel.loading.observe(this) { loading ->
+            // 顯示/隱藏加載指示器
+        }
+    }
+}
+```
+
+## Fragment 管理
+
+### Fragment 概念
+
+Fragment 是 Android 中可重用的 UI 組件，類似於 React 中的組件：
+
+<UniversalEditor title="Fragment 與組件對比" compare={true}>
+```javascript !! js
+// React 組件
+const UserProfile = ({ userId }) => {
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+  
+  useEffect(() => {
+    fetchUser(userId);
+  }, [userId]);
+  
+  const fetchUser = async (id) => {
+    try {
+      setLoading(true);
+      const response = await fetch(`/api/users/${id}`);
+      const userData = await response.json();
+      setUser(userData);
+    } catch (error) {
+      console.error('獲取用戶失敗:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  if (loading) {
+    return <div>加載中...</div>;
+  }
+  
+  if (!user) {
+    return <div>用戶不存在</div>;
+  }
+  
+  return (
+    <div className="user-profile">
+      <h2>{user.name}</h2>
+      <p>郵箱: {user.email}</p>
+      <p>電話: {user.phone}</p>
+      <button onClick={() => editUser(user.id)}>
+        編輯用戶
+      </button>
+    </div>
+  );
+};
+
+// 在父組件中使用
+const App = () => {
+  const [currentUserId, setCurrentUserId] = useState(1);
+  
+  return (
+    <div>
+      <nav>
+        <button onClick={() => setCurrentUserId(1)}>用戶 1</button>
+        <button onClick={() => setCurrentUserId(2)}>用戶 2</button>
+      </nav>
+      <UserProfile userId={currentUserId} />
+    </div>
+  );
+};
+```
+
+```kotlin !! kt
+// Android Fragment
+class UserProfileFragment : Fragment() {
+    private var userId: Int = 0
+    private var user: User? = null
+    private var loading = true
+    
+    companion object {
+        private const val ARG_USER_ID = "user_id"
+        
+        fun newInstance(userId: Int): UserProfileFragment {
+            return UserProfileFragment().apply {
+                arguments = Bundle().apply {
+                    putInt(ARG_USER_ID, userId)
+                }
+            }
+        }
+    }
+    
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        arguments?.let {
+            userId = it.getInt(ARG_USER_ID, 0)
+        }
+    }
+    
+    override fun onCreateView(
+        inflater: LayoutInflater,
+        container: ViewGroup?,
+        savedInstanceState: Bundle?
+    ): View? {
+        return inflater.inflate(R.layout.fragment_user_profile, container, false)
+    }
+    
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        super.onViewCreated(view, savedInstanceState)
+        fetchUser()
+    }
+    
+    private fun fetchUser() {
+        lifecycleScope.launch {
+            try {
+                loading = true
+                updateLoadingUI()
+                
+                val userData = withContext(Dispatchers.IO) {
+                    // 模擬網絡請求
+                    delay(1000)
+                    User(
+                        id = userId,
+                        name = "用戶 $userId",
+                        email = "user$userId@example.com",
+                        phone = "123-456-$userId"
+                    )
+                }
+                
+                user = userData
+                updateUI()
+            } catch (error: Exception) {
+                Log.e("UserProfile", "獲取用戶失敗", error)
+            } finally {
+                loading = false
+                updateLoadingUI()
+            }
+        }
+    }
+    
+    private fun updateLoadingUI() {
+        view?.findViewById<View>(R.id.loading_view)?.visibility = 
+            if (loading) View.VISIBLE else View.GONE
+    }
+    
+    private fun updateUI() {
+        user?.let { userData ->
+            view?.findViewById<TextView>(R.id.user_name)?.text = userData.name
+            view?.findViewById<TextView>(R.id.user_email)?.text = userData.email
+            view?.findViewById<TextView>(R.id.user_phone)?.text = userData.phone
+        }
+    }
+}
+
+// 在 Activity 中使用
+class MainActivity : AppCompatActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_main)
+        
+        // 添加 Fragment
+        if (savedInstanceState == null) {
+            supportFragmentManager.beginTransaction()
+                .add(R.id.fragment_container, UserProfileFragment.newInstance(1))
+                .commit()
+        }
+    }
+    
+    fun switchUser(userId: Int) {
+        supportFragmentManager.beginTransaction()
+            .replace(R.id.fragment_container, UserProfileFragment.newInstance(userId))
+            .addToBackStack(null)
+            .commit()
+    }
+}
+
+data class User(
+    val id: Int,
+    val name: String,
+    val email: String,
+    val phone: String
+)
+```
+</UniversalEditor>
+
+## UI 開發與佈局
+
+### XML 佈局 vs React Native StyleSheet
+
+**React Native 方法**：
+```javascript
+// React Native 樣式
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#f5f5f5',
+    padding: 20,
+  },
+  header: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 20,
+  },
+  card: {
+    backgroundColor: 'white',
+    borderRadius: 8,
+    padding: 16,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  button: {
+    backgroundColor: '#007AFF',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 6,
+    alignItems: 'center',
+  },
+  buttonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+});
+
+const ProfileScreen = () => {
+  return (
+    <View style={styles.container}>
+      <Text style={styles.header}>用戶資料</Text>
+      
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>基本信息</Text>
+        <Text>姓名: 張三</Text>
+        <Text>郵箱: zhangsan@example.com</Text>
+      </View>
+      
+      <TouchableOpacity style={styles.button}>
+        <Text style={styles.buttonText}>編輯資料</Text>
+      </TouchableOpacity>
+    </View>
+  );
+};
+```
+
+**Android XML 佈局**：
+```xml
+<!-- activity_profile.xml -->
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="#f5f5f5"
+    android:padding="20dp">
+
+    <TextView
+        android:id="@+id/header"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="用戶資料"
+        android:textSize="24sp"
+        android:textStyle="bold"
+        android:textColor="#333"
+        android:layout_marginBottom="20dp" />
+
+    <androidx.cardview.widget.CardView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="12dp"
+        app:cardCornerRadius="8dp"
+        app:cardElevation="3dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="基本信息"
+                android:textStyle="bold"
+                android:layout_marginBottom="8dp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="姓名: 張三" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="郵箱: zhangsan@example.com" />
+
+        </LinearLayout>
+
+    </androidx.cardview.widget.CardView>
+
+    <Button
+        android:id="@+id/edit_button"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="編輯資料"
+        android:background="@drawable/button_background"
+        android:textColor="#FFFFFF" />
+
+</LinearLayout>
+```
+
+### Jetpack Compose 現代 UI
+
+```kotlin
+// 使用 Compose 創建現代 UI
+@Composable
+fun ProfileScreen() {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFFF5F5F5))
+            .padding(20.dp)
+    ) {
+        Text(
+            text = "用戶資料",
+            style = MaterialTheme.typography.headlineMedium,
+            color = Color(0xFF333333),
+            modifier = Modifier.padding(bottom = 20.dp)
+        )
+        
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 12.dp),
+            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+            shape = RoundedCornerShape(8.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp)
+            ) {
+                Text(
+                    text = "基本信息",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+                
+                Text(
+                    text = "姓名: 張三",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                
+                Text(
+                    text = "郵箱: zhangsan@example.com",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
+        }
+        
+        Button(
+            onClick = { /* 編輯資料 */ },
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = Color(0xFF007AFF)
+            )
+        ) {
+            Text(
+                text = "編輯資料",
+                color = Color.White,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
+    }
+}
+```
+
+## 事件處理
+
+### 觸摸事件處理
+
+**React Native 方法**：
+```javascript
+import { TouchableOpacity, Alert } from 'react-native';
+
+const EventHandlingExample = () => {
+  const handlePress = () => {
+    Alert.alert('提示', '按鈕被點擊了！');
+  };
+  
+  const handleLongPress = () => {
+    Alert.alert('提示', '長按事件觸發！');
+  };
+  
+  return (
+    <TouchableOpacity
+      onPress={handlePress}
+      onLongPress={handleLongPress}
+      style={styles.button}
+    >
+      <Text style={styles.buttonText}>點擊我</Text>
+    </TouchableOpacity>
+  );
+};
+```
+
+**Android 方法**：
+```kotlin
+// XML 佈局中的點擊處理
+<Button
+    android:id="@+id/click_button"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:text="點擊我"
+    android:onClick="onButtonClick" />
+
+// Activity 中的處理方法
+class MainActivity : AppCompatActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_main)
+        
+        // 使用 OnClickListener
+        findViewById<Button>(R.id.click_button).setOnClickListener {
+            Toast.makeText(this, "按鈕被點擊了！", Toast.LENGTH_SHORT).show()
+        }
+        
+        // 長按事件
+        findViewById<Button>(R.id.click_button).setOnLongClickListener {
+            Toast.makeText(this, "長按事件觸發！", Toast.LENGTH_SHORT).show()
+            true // 返回 true 表示已處理事件
+        }
+    }
+    
+    // XML 中定義的點擊方法
+    fun onButtonClick(view: View) {
+        Toast.makeText(this, "XML 點擊事件", Toast.LENGTH_SHORT).show()
+    }
+}
+
+// Compose 中的事件處理
+@Composable
+fun EventHandlingExample() {
+    var clickCount by remember { mutableStateOf(0) }
+    
+    Button(
+        onClick = { 
+            clickCount++
+            // 顯示 Toast 或其他反饋
+        },
+        modifier = Modifier.padding(16.dp)
+    ) {
+        Text("點擊次數: $clickCount")
+    }
+    
+    // 長按手勢
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(100.dp)
+            .background(Color.Gray)
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onTap = { /* 點擊處理 */ },
+                    onLongPress = { /* 長按處理 */ }
+                )
+            }
+    ) {
+        Text(
+            text = "長按區域",
+            modifier = Modifier.align(Alignment.Center),
+            color = Color.White
+        )
+    }
+}
+```
+
+## 資源管理
+
+### 字符串資源
+
+**React Native 方法**：
+```javascript
+// 使用常量或配置文件
+const strings = {
+  welcome: '歡迎使用應用',
+  login: '登錄',
+  logout: '登出',
+  settings: '設置',
+};
+
+// 或使用 i18n 庫
+import i18n from 'i18next';
+
+const App = () => {
+  return (
+    <View>
+      <Text>{i18n.t('welcome')}</Text>
+      <Text>{i18n.t('login')}</Text>
+    </View>
+  );
+};
+```
+
+**Android 方法**：
+```xml
+<!-- res/values/strings.xml -->
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">我的應用</string>
+    <string name="welcome">歡迎使用應用</string>
+    <string name="login">登錄</string>
+    <string name="logout">登出</string>
+    <string name="settings">設置</string>
+</resources>
+
+<!-- res/values-zh/strings.xml (簡體中文) -->
+<resources>
+    <string name="welcome">歡迎使用應用</string>
+    <string name="login">登錄</string>
+</resources>
+
+<!-- res/values-zh-rTW/strings.xml (繁體中文) -->
+<resources>
+    <string name="welcome">歡迎使用應用</string>
+    <string name="login">登錄</string>
+</resources>
+```
+
+```kotlin
+// 在代碼中使用字符串資源
+class MainActivity : AppCompatActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_main)
+        
+        // 獲取字符串資源
+        val welcomeText = getString(R.string.welcome)
+        val loginText = getString(R.string.login)
+        
+        findViewById<TextView>(R.id.welcome_text).text = welcomeText
+        findViewById<Button>(R.id.login_button).text = loginText
+    }
+}
+
+// Compose 中使用
+@Composable
+fun WelcomeScreen() {
+    val context = LocalContext.current
+    
+    Column {
+        Text(text = context.getString(R.string.welcome))
+        Button(onClick = { /* 登錄 */ }) {
+            Text(text = context.getString(R.string.login))
+        }
+    }
+}
+```
+
+### 圖片資源管理
+
+**React Native 方法**：
+```javascript
+// 直接引用圖片
+import profileImage from './assets/profile.png';
+
+const ProfileComponent = () => {
+  return (
+    <Image 
+      source={profileImage}
+      style={styles.profileImage}
+    />
+  );
+};
+
+// 或使用 require
+<Image 
+  source={require('./assets/profile.png')}
+  style={styles.profileImage}
+/>
+```
+
+**Android 方法**：
+```xml
+<!-- 在佈局中使用圖片 -->
+<ImageView
+    android:id="@+id/profile_image"
+    android:layout_width="100dp"
+    android:layout_height="100dp"
+    android:src="@drawable/profile_image"
+    android:contentDescription="用戶頭像" />
+
+<!-- res/drawable/profile_image.xml -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M12,12c2.21,0 4,-1.79 4,-4s-1.79,-4 -4,-4 -4,1.79 -4,4 1.79,4 4,4zM12,14c-2.67,0 -8,1.34 -8,4v2h16v-2c0,-2.66 -5.33,-4 -8,-4z"/>
+</vector>
+```
+
+```kotlin
+// 在代碼中動態設置圖片
+class MainActivity : AppCompatActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_main)
+        
+        val imageView = findViewById<ImageView>(R.id.profile_image)
+        
+        // 設置圖片資源
+        imageView.setImageResource(R.drawable.profile_image)
+        
+        // 或從網絡加載
+        Glide.with(this)
+            .load("https://example.com/profile.jpg")
+            .placeholder(R.drawable.placeholder_image)
+            .error(R.drawable.error_image)
+            .into(imageView)
+    }
+}
+
+// Compose 中使用圖片
+@Composable
+fun ProfileImage() {
+    Image(
+        painter = painterResource(id = R.drawable.profile_image),
+        contentDescription = "用戶頭像",
+        modifier = Modifier
+            .size(100.dp)
+            .clip(CircleShape)
+    )
+}
+```
+
+## 國際化支持
+
+### 多語言支持
+
+**React Native 方法**：
+```javascript
+// 使用 react-native-localize
+import * as RNLocalize from 'react-native-localize';
+
+const translations = {
+  'zh-CN': {
+    welcome: '歡迎',
+    login: '登錄',
+  },
+  'zh-TW': {
+    welcome: '歡迎',
+    login: '登錄',
+  },
+  'en': {
+    welcome: 'Welcome',
+    login: 'Login',
+  },
+};
+
+const getCurrentLanguage = () => {
+  const locales = RNLocalize.getLocales();
+  return locales[0].languageCode;
+};
+
+const t = (key) => {
+  const language = getCurrentLanguage();
+  return translations[language]?.[key] || translations['en'][key];
+};
+```
+
+**Android 方法**：
+```kotlin
+// 語言管理器
+object LanguageManager {
+    fun setLocale(context: Context, languageCode: String) {
+        val locale = Locale(languageCode)
+        Locale.setDefault(locale)
+        
+        val config = context.resources.configuration
+        config.setLocale(locale)
+        
+        context.createConfigurationContext(config)
+    }
+}
+
+// 在 Activity 中使用
+class MainActivity : AppCompatActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        
+        // 設置語言
+        val language = getSharedPreferences("settings", MODE_PRIVATE)
+            .getString("language", "zh-CN") ?: "zh-CN"
+        LanguageManager.setLocale(this, language)
+        
+        setContentView(R.layout.activity_main)
+    }
+}
+```
+
+## 現代 Android 開發最佳實踐
+
+
+### Jetpack Compose 优势
+
+Jetpack Compose 是 Android 的现代 UI 工具包，提供了声明式 UI 开发方式：
+
+```kotlin
+// Compose 最佳实践
+@Composable
+fun ModernAndroidApp() {
+    var currentScreen by remember { mutableStateOf("home") }
+    
+    MaterialTheme {
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = { Text("现代 Android 应用") },
+                    actions = {
+                        IconButton(onClick = { /* 设置 */ }) {
+                            Icon(Icons.Default.Settings, "设置")
+                        }
+                    }
+                )
+            },
+            bottomBar = {
+                BottomNavigation {
+                    BottomNavigationItem(
+                        icon = { Icon(Icons.Default.Home, "首页") },
+                        label = { Text("首页") },
+                        selected = currentScreen == "home",
+                        onClick = { currentScreen = "home" }
+                    )
+                    BottomNavigationItem(
+                        icon = { Icon(Icons.Default.Person, "个人") },
+                        label = { Text("个人") },
+                        selected = currentScreen == "profile",
+                        onClick = { currentScreen = "profile" }
+                    )
+                }
+            }
+        ) { paddingValues ->
+            when (currentScreen) {
+                "home" -> HomeScreen(Modifier.padding(paddingValues))
+                "profile" -> ProfileScreen(Modifier.padding(paddingValues))
+            }
+        }
+    }
+}
+
+@Composable
+fun HomeScreen(modifier: Modifier = Modifier) {
+    LazyColumn(modifier = modifier.fillMaxSize()) {
+        item {
+            Text(
+                text = "欢迎使用现代 Android 开发",
+                style = MaterialTheme.typography.headlineMedium,
+                modifier = Modifier.padding(16.dp)
+            )
+        }
+        
+        items(10) { index ->
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+            ) {
+                Text(
+                    text = "项目 ${index + 1}",
+                    modifier = Modifier.padding(16.dp)
+                )
+            }
+        }
+    }
+}
+```
+
+## 总结
+
+在本模块中，我们探索了使用 Kotlin 进行 Android 开发的基础知识，并将其与 JavaScript/React Native 模式进行了对比。以下是关键要点：
+
+### 涵盖的核心概念：
+1. **项目结构**：Android 的有组织目录结构 vs React Native 的简化方法
+2. **生命周期管理**：Activity 和 Fragment 生命周期 vs React 组件生命周期
+3. **UI 开发**：XML 布局和 Compose vs React Native 的 StyleSheet 方法
+4. **事件处理**：Android 的全面触摸系统 vs React Native 的手势处理
+5. **资源管理**：Android 的资源系统 vs React Native 的资产方法
+6. **现代实践**：Jetpack Compose 的声明式 UI vs React Native 的基于组件的方法
+
+### Android 开发优势：
+- **类型安全**：Kotlin 的强类型系统防止运行时错误
+- **性能**：原生 Android 性能 vs JavaScript 桥接开销
+- **平台集成**：直接访问 Android API 和系统功能
+- **工具支持**：Android Studio 提供优秀的 IDE 支持
+- **生态系统**：丰富的 Android 特定库和框架
+
+### 最佳实践：
+1. **使用 Jetpack Compose** 进行现代 UI 开发
+2. **实现适当的生命周期管理** 以防止内存泄漏
+3. **遵循 Material Design 指南** 以获得一致的用户体验
+4. **使用 ViewModel** 进行状态管理和配置更改
+5. **实现适当的错误处理** 和用户反馈
+6. **优化性能** 使用 RecyclerView 和高效布局
+
+### 下一步：
+在下一个模块中，我们将探索使用 Kotlin 进行 Web 开发，包括 Spring Boot 框架和后端服务，继续我们从 JavaScript 到 Kotlin 开发模式的旅程。

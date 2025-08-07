@@ -1,0 +1,1259 @@
+---
+title: "Cross-Platform Development with Kotlin"
+description: "Learn Kotlin Multiplatform development, comparing with JavaScript cross-platform patterns and React Native concepts"
+---
+
+# Cross-Platform Development with Kotlin
+
+Welcome to the ninth module of JavaScript to Kotlin conversion! In this module, we'll explore cross-platform development with Kotlin Multiplatform and understand how it compares to JavaScript cross-platform patterns like React Native and Electron. We'll learn about shared code modules, platform-specific implementations, and modern cross-platform development practices.
+
+## Learning Objectives
+
+By the end of this module, you will be able to:
+- Understand Kotlin Multiplatform architecture and benefits
+- Compare Kotlin Multiplatform with JavaScript cross-platform solutions
+- Implement shared code modules for business logic
+- Create platform-specific implementations
+- Build cross-platform networking and data persistence
+- Implement UI sharing strategies
+- Apply modern cross-platform development best practices
+
+## Kotlin Multiplatform Overview
+
+### Cross-Platform Architecture Comparison
+
+Kotlin Multiplatform is Kotlin's solution for cross-platform development, allowing you to share code between Android, iOS, web, and desktop while maintaining native performance.
+
+<UniversalEditor title="Cross-Platform Architecture Comparison" compare={true}>
+```javascript !! js
+// React Native - JavaScript cross-platform
+import React from 'react';
+import { View, Text, Platform } from 'react-native';
+
+const CrossPlatformComponent = () => {
+  const isAndroid = Platform.OS === 'android';
+  const isIOS = Platform.OS === 'ios';
+  
+  return (
+    <View style={styles.container}>
+      <Text style={styles.text}>
+        {isAndroid ? 'Android specific text' : 
+         isIOS ? 'iOS specific text' : 'Web text'}
+      </Text>
+    </View>
+  );
+};
+
+// Platform-specific implementations
+const styles = StyleSheet.create({
+  container: {
+    padding: Platform.select({
+      android: 16,
+      ios: 20,
+      default: 10
+    }),
+  },
+  text: {
+    fontSize: Platform.select({
+      android: 16,
+      ios: 18,
+      default: 14
+    }),
+  },
+});
+
+// Shared business logic
+const apiService = {
+  async fetchData() {
+    const response = await fetch('https://api.example.com/data');
+    return response.json();
+  },
+  
+  processData(data) {
+    return data.map(item => ({
+      ...item,
+      processed: true
+    }));
+  }
+};
+```
+
+```kotlin !! kt
+// Kotlin Multiplatform - Cross-platform architecture
+package com.example.multiplatform
+
+// Shared common code
+expect class Platform() {
+    fun getPlatformName(): String
+}
+
+// Platform-specific implementations
+actual class Platform actual constructor() {
+    actual fun getPlatformName(): String = "Android"
+}
+
+// Shared business logic
+class ApiService {
+    suspend fun fetchData(): List<DataItem> {
+        return httpClient.get("https://api.example.com/data")
+    }
+    
+    fun processData(data: List<DataItem>): List<ProcessedItem> {
+        return data.map { item ->
+            ProcessedItem(
+                id = item.id,
+                name = item.name,
+                processed = true
+            )
+        }
+    }
+}
+
+// Shared data models
+data class DataItem(
+    val id: String,
+    val name: String,
+    val value: Int
+)
+
+data class ProcessedItem(
+    val id: String,
+    val name: String,
+    val processed: Boolean
+)
+
+// Platform-specific UI components
+expect class CrossPlatformComponent {
+    fun render()
+}
+
+// Android implementation
+actual class CrossPlatformComponent actual constructor() {
+    actual fun render() {
+        // Android-specific UI implementation
+        ComposeUI()
+    }
+}
+
+@Composable
+fun ComposeUI() {
+    Column {
+        Text("Android specific UI")
+        Button(onClick = { /* Android action */ }) {
+            Text("Android Button")
+        }
+    }
+}
+```
+</UniversalEditor>
+
+### Key Differences
+
+| Aspect | JavaScript (React Native) | Kotlin (Multiplatform) |
+|--------|-------------------------|------------------------|
+| **Performance** | JavaScript bridge overhead | Native performance on all platforms |
+| **Code Sharing** | Limited to business logic | Full business logic + some UI sharing |
+| **Platform Access** | Limited native access | Full native API access |
+| **Type Safety** | Dynamic typing | Static typing across platforms |
+| **Build System** | Metro bundler | Gradle with platform-specific tasks |
+| **UI Framework** | React Native components | Platform-specific UI frameworks |
+
+## Shared Code Modules
+
+### Business Logic Sharing
+
+<UniversalEditor title="Business Logic Sharing" compare={true}>
+```javascript !! js
+// JavaScript shared business logic
+// utils/calculator.js
+export class Calculator {
+  static add(a, b) {
+    return a + b;
+  }
+  
+  static multiply(a, b) {
+    return a * b;
+  }
+  
+  static divide(a, b) {
+    if (b === 0) {
+      throw new Error('Division by zero');
+    }
+    return a / b;
+  }
+}
+
+// utils/validator.js
+export class Validator {
+  static isValidEmail(email) {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email);
+  }
+  
+  static isValidPassword(password) {
+    return password.length >= 8;
+  }
+}
+
+// utils/apiClient.js
+export class ApiClient {
+  constructor(baseURL) {
+    this.baseURL = baseURL;
+  }
+  
+  async get(endpoint) {
+    const response = await fetch(`${this.baseURL}${endpoint}`);
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    return response.json();
+  }
+  
+  async post(endpoint, data) {
+    const response = await fetch(`${this.baseURL}${endpoint}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    return response.json();
+  }
+}
+```
+
+```kotlin !! kt
+// Kotlin Multiplatform shared business logic
+package com.example.multiplatform.shared
+
+// Shared calculator logic
+object Calculator {
+    fun add(a: Double, b: Double): Double = a + b
+    
+    fun multiply(a: Double, b: Double): Double = a * b
+    
+    fun divide(a: Double, b: Double): Double {
+        require(b != 0.0) { "Division by zero" }
+        return a / b
+    }
+}
+
+// Shared validation logic
+object Validator {
+    fun isValidEmail(email: String): Boolean {
+        val emailRegex = Regex("^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$")
+        return emailRegex.matches(email)
+    }
+    
+    fun isValidPassword(password: String): Boolean {
+        return password.length >= 8
+    }
+}
+
+// Shared API client
+class ApiClient(private val baseURL: String) {
+    suspend fun get(endpoint: String): String {
+        return httpClient.get("$baseURL$endpoint")
+    }
+    
+    suspend fun post(endpoint: String, data: String): String {
+        return httpClient.post("$baseURL$endpoint") {
+            setBody(data)
+        }
+    }
+}
+
+// Shared data models
+data class User(
+    val id: String,
+    val name: String,
+    val email: String
+)
+
+data class ApiResponse<T>(
+    val success: Boolean,
+    val data: T?,
+    val error: String?
+)
+
+// Shared repository pattern
+class UserRepository(private val apiClient: ApiClient) {
+    
+    suspend fun getUsers(): List<User> {
+        val response = apiClient.get("/users")
+        return Json.decodeFromString(response)
+    }
+    
+    suspend fun createUser(user: User): User {
+        val userJson = Json.encodeToString(user)
+        val response = apiClient.post("/users", userJson)
+        return Json.decodeFromString(response)
+    }
+}
+```
+</UniversalEditor>
+
+## Platform-Specific Implementations
+
+### Platform Detection and Specific Code
+
+<UniversalEditor title="Platform-Specific Implementations" compare={true}>
+```javascript !! js
+// JavaScript platform-specific code
+import { Platform } from 'react-native';
+
+// Platform detection
+const isAndroid = Platform.OS === 'android';
+const isIOS = Platform.OS === 'ios';
+const isWeb = Platform.OS === 'web';
+
+// Platform-specific implementations
+const getPlatformSpecificConfig = () => {
+  switch (Platform.OS) {
+    case 'android':
+      return {
+        theme: 'Material',
+        navigation: 'Stack',
+        storage: 'AsyncStorage'
+      };
+    case 'ios':
+      return {
+        theme: 'Cupertino',
+        navigation: 'Tab',
+        storage: 'Keychain'
+      };
+    case 'web':
+      return {
+        theme: 'Web',
+        navigation: 'Router',
+        storage: 'LocalStorage'
+      };
+    default:
+      return {
+        theme: 'Default',
+        navigation: 'Default',
+        storage: 'Default'
+      };
+  }
+};
+
+// Platform-specific components
+const PlatformButton = ({ onPress, title }) => {
+  if (isAndroid) {
+    return <AndroidButton onPress={onPress} title={title} />;
+  } else if (isIOS) {
+    return <IOSButton onPress={onPress} title={title} />;
+  } else {
+    return <WebButton onClick={onPress}>{title}</WebButton>;
+  }
+};
+
+// Platform-specific storage
+const StorageService = {
+  async save(key, value) {
+    if (isWeb) {
+      localStorage.setItem(key, JSON.stringify(value));
+    } else {
+      await AsyncStorage.setItem(key, JSON.stringify(value));
+    }
+  },
+  
+  async load(key) {
+    if (isWeb) {
+      const value = localStorage.getItem(key);
+      return value ? JSON.parse(value) : null;
+    } else {
+      const value = await AsyncStorage.getItem(key);
+      return value ? JSON.parse(value) : null;
+    }
+  }
+};
+```
+
+```kotlin !! kt
+// Kotlin Multiplatform platform-specific code
+package com.example.multiplatform
+
+// Platform detection
+expect object Platform {
+    val isAndroid: Boolean
+    val isIOS: Boolean
+    val isWeb: Boolean
+    val isDesktop: Boolean
+}
+
+// Platform-specific implementations
+actual object Platform {
+    actual val isAndroid: Boolean = true
+    actual val isIOS: Boolean = false
+    actual val isWeb: Boolean = false
+    actual val isDesktop: Boolean = false
+}
+
+// Platform-specific configuration
+expect class PlatformConfig {
+    val theme: String
+    val navigation: String
+    val storage: String
+}
+
+actual class PlatformConfig {
+    actual val theme: String = "Material"
+    actual val navigation: String = "Stack"
+    actual val storage: String = "SharedPreferences"
+}
+
+// Platform-specific storage
+expect class StorageService {
+    suspend fun save(key: String, value: String)
+    suspend fun load(key: String): String?
+}
+
+actual class StorageService {
+    actual suspend fun save(key: String, value: String) {
+        // Android SharedPreferences implementation
+        val prefs = context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
+        prefs.edit().putString(key, value).apply()
+    }
+    
+    actual suspend fun load(key: String): String? {
+        // Android SharedPreferences implementation
+        val prefs = context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
+        return prefs.getString(key, null)
+    }
+}
+
+// Platform-specific UI components
+expect class PlatformButton {
+    fun render(onClick: () -> Unit, text: String)
+}
+
+actual class PlatformButton {
+    actual fun render(onClick: () -> Unit, text: String) {
+        // Android Compose implementation
+        Button(
+            onClick = onClick,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(text = text)
+        }
+    }
+}
+```
+</UniversalEditor>
+
+## Networking and Data Persistence
+
+### Cross-Platform Network Layer
+
+<UniversalEditor title="Cross-Platform Networking" compare={true}>
+```javascript !! js
+// JavaScript cross-platform networking
+class NetworkService {
+  constructor(baseURL) {
+    this.baseURL = baseURL;
+  }
+  
+  async request(endpoint, options = {}) {
+    const url = `${this.baseURL}${endpoint}`;
+    const config = {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      ...options,
+    };
+    
+    try {
+      const response = await fetch(url, config);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      return await response.json();
+    } catch (error) {
+      console.error('Network error:', error);
+      throw error;
+    }
+  }
+  
+  async get(endpoint) {
+    return this.request(endpoint);
+  }
+  
+  async post(endpoint, data) {
+    return this.request(endpoint, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+  
+  async put(endpoint, data) {
+    return this.request(endpoint, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+  
+  async delete(endpoint) {
+    return this.request(endpoint, {
+      method: 'DELETE',
+    });
+  }
+}
+
+// Usage
+const apiService = new NetworkService('https://api.example.com');
+const users = await apiService.get('/users');
+```
+
+```kotlin !! kt
+// Kotlin Multiplatform networking
+package com.example.multiplatform.network
+
+import io.ktor.client.*
+import io.ktor.client.request.*
+import io.ktor.client.response.*
+import io.ktor.http.*
+
+class NetworkService(private val baseURL: String) {
+    private val httpClient = HttpClient()
+    
+    suspend fun request(
+        endpoint: String,
+        method: HttpMethod = HttpMethod.Get,
+        body: String? = null
+    ): String {
+        return httpClient.request("$baseURL$endpoint") {
+            this.method = method
+            if (body != null) {
+                setBody(body)
+            }
+        }
+    }
+    
+    suspend fun get(endpoint: String): String {
+        return request(endpoint)
+    }
+    
+    suspend fun post(endpoint: String, data: String): String {
+        return request(endpoint, HttpMethod.Post, data)
+    }
+    
+    suspend fun put(endpoint: String, data: String): String {
+        return request(endpoint, HttpMethod.Put, data)
+    }
+    
+    suspend fun delete(endpoint: String): String {
+        return request(endpoint, HttpMethod.Delete)
+    }
+}
+
+// Shared API service
+class ApiService(private val networkService: NetworkService) {
+    
+    suspend fun getUsers(): List<User> {
+        val response = networkService.get("/users")
+        return Json.decodeFromString(response)
+    }
+    
+    suspend fun createUser(user: User): User {
+        val userJson = Json.encodeToString(user)
+        val response = networkService.post("/users", userJson)
+        return Json.decodeFromString(response)
+    }
+    
+    suspend fun updateUser(id: String, user: User): User {
+        val userJson = Json.encodeToString(user)
+        val response = networkService.put("/users/$id", userJson)
+        return Json.decodeFromString(response)
+    }
+    
+    suspend fun deleteUser(id: String) {
+        networkService.delete("/users/$id")
+    }
+}
+```
+</UniversalEditor>
+
+## UI Sharing Strategies
+
+### Compose Multiplatform
+
+<UniversalEditor title="UI Sharing with Compose Multiplatform" compare={true}>
+```javascript !! js
+// React Native - Cross-platform UI components
+import React from 'react';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+
+// Shared UI components
+const Button = ({ onPress, title, style }) => (
+  <TouchableOpacity style={[styles.button, style]} onPress={onPress}>
+    <Text style={styles.buttonText}>{title}</Text>
+  </TouchableOpacity>
+);
+
+const Card = ({ children, style }) => (
+  <View style={[styles.card, style]}>
+    {children}
+  </View>
+);
+
+const Input = ({ value, onChangeText, placeholder, style }) => (
+  <TextInput
+    style={[styles.input, style]}
+    value={value}
+    onChangeText={onChangeText}
+    placeholder={placeholder}
+  />
+);
+
+const styles = StyleSheet.create({
+  button: {
+    backgroundColor: '#007AFF',
+    padding: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  buttonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  card: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 16,
+  },
+});
+
+// Usage in screens
+const UserProfileScreen = () => {
+  const [name, setName] = useState('');
+  
+  return (
+    <View style={styles.container}>
+      <Card>
+        <Text style={styles.title}>User Profile</Text>
+        <Input
+          value={name}
+          onChangeText={setName}
+          placeholder="Enter your name"
+        />
+        <Button
+          title="Save Profile"
+          onPress={() => console.log('Save profile')}
+        />
+      </Card>
+    </View>
+  );
+};
+```
+
+```kotlin !! kt
+// Compose Multiplatform - Shared UI components
+package com.example.multiplatform.ui
+
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+
+// Shared UI components
+@Composable
+fun AppButton(
+    onClick: () -> Unit,
+    text: String,
+    modifier: Modifier = Modifier
+) {
+    Button(
+        onClick = onClick,
+        modifier = modifier
+    ) {
+        Text(text = text)
+    }
+}
+
+@Composable
+fun AppCard(
+    content: @Composable () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier
+    ) {
+        Box(
+            modifier = Modifier.padding(16.dp)
+        ) {
+            content()
+        }
+    }
+}
+
+@Composable
+fun AppInput(
+    value: String,
+    onValueChange: (String) -> Unit,
+    placeholder: String,
+    modifier: Modifier = Modifier
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        label = { Text(placeholder) },
+        modifier = modifier.fillMaxWidth()
+    )
+}
+
+// Shared screen
+@Composable
+fun UserProfileScreen() {
+    var name by remember { mutableStateOf("") }
+    
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+    ) {
+        AppCard {
+            Column {
+                Text(
+                    text = "User Profile",
+                    style = MaterialTheme.typography.headlineMedium
+                )
+                
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                AppInput(
+                    value = name,
+                    onValueChange = { name = it },
+                    placeholder = "Enter your name"
+                )
+                
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                AppButton(
+                    onClick = { /* Save profile */ },
+                    text = "Save Profile"
+                )
+            }
+        }
+    }
+}
+```
+</UniversalEditor>
+
+## Practice Exercises
+
+### Exercise 1: Cross-Platform Calculator
+Create a calculator app that shares business logic across platforms.
+
+<UniversalEditor title="Cross-Platform Calculator Exercise" compare={true}>
+```javascript !! js
+// JavaScript cross-platform calculator
+import React, { useState } from 'react';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+
+// Shared business logic
+class Calculator {
+  static add(a, b) { return a + b; }
+  static subtract(a, b) { return a - b; }
+  static multiply(a, b) { return a * b; }
+  static divide(a, b) {
+    if (b === 0) throw new Error('Division by zero');
+    return a / b;
+  }
+}
+
+const CalculatorApp = () => {
+  const [display, setDisplay] = useState('0');
+  const [firstNumber, setFirstNumber] = useState(null);
+  const [operation, setOperation] = useState(null);
+  const [waitingForSecondNumber, setWaitingForSecondNumber] = useState(false);
+  
+  const handleNumber = (num) => {
+    if (waitingForSecondNumber) {
+      setDisplay(num);
+      setWaitingForSecondNumber(false);
+    } else {
+      setDisplay(display === '0' ? num : display + num);
+    }
+  };
+  
+  const handleOperation = (op) => {
+    const current = parseFloat(display);
+    setFirstNumber(current);
+    setOperation(op);
+    setWaitingForSecondNumber(true);
+  };
+  
+  const calculate = () => {
+    if (!firstNumber || !operation) return;
+    
+    const second = parseFloat(display);
+    let result;
+    
+    try {
+      switch (operation) {
+        case '+': result = Calculator.add(firstNumber, second); break;
+        case '-': result = Calculator.subtract(firstNumber, second); break;
+        case '*': result = Calculator.multiply(firstNumber, second); break;
+        case '/': result = Calculator.divide(firstNumber, second); break;
+        default: return;
+      }
+      
+      setDisplay(result.toString());
+      setFirstNumber(null);
+      setOperation(null);
+    } catch (error) {
+      setDisplay('Error');
+    }
+  };
+  
+  const clear = () => {
+    setDisplay('0');
+    setFirstNumber(null);
+    setOperation(null);
+    setWaitingForSecondNumber(false);
+  };
+  
+  return (
+    <View style={styles.container}>
+      <Text style={styles.display}>{display}</Text>
+      
+      <View style={styles.buttons}>
+        <View style={styles.row}>
+          <TouchableOpacity style={styles.button} onPress={() => handleNumber('7')}>
+            <Text style={styles.buttonText}>7</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.button} onPress={() => handleNumber('8')}>
+            <Text style={styles.buttonText}>8</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.button} onPress={() => handleNumber('9')}>
+            <Text style={styles.buttonText}>9</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.operationButton} onPress={() => handleOperation('/')}>
+            <Text style={styles.buttonText}>/</Text>
+          </TouchableOpacity>
+        </View>
+        
+        <View style={styles.row}>
+          <TouchableOpacity style={styles.button} onPress={() => handleNumber('4')}>
+            <Text style={styles.buttonText}>4</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.button} onPress={() => handleNumber('5')}>
+            <Text style={styles.buttonText}>5</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.button} onPress={() => handleNumber('6')}>
+            <Text style={styles.buttonText}>6</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.operationButton} onPress={() => handleOperation('*')}>
+            <Text style={styles.buttonText}>*</Text>
+          </TouchableOpacity>
+        </View>
+        
+        <View style={styles.row}>
+          <TouchableOpacity style={styles.button} onPress={() => handleNumber('1')}>
+            <Text style={styles.buttonText}>1</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.button} onPress={() => handleNumber('2')}>
+            <Text style={styles.buttonText}>2</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.button} onPress={() => handleNumber('3')}>
+            <Text style={styles.buttonText}>3</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.operationButton} onPress={() => handleOperation('-')}>
+            <Text style={styles.buttonText}>-</Text>
+          </TouchableOpacity>
+        </View>
+        
+        <View style={styles.row}>
+          <TouchableOpacity style={styles.button} onPress={() => handleNumber('0')}>
+            <Text style={styles.buttonText}>0</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.button} onPress={() => handleNumber('.')}>
+            <Text style={styles.buttonText}>.</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.equalButton} onPress={calculate}>
+            <Text style={styles.buttonText}>=</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.operationButton} onPress={() => handleOperation('+')}>
+            <Text style={styles.buttonText}>+</Text>
+          </TouchableOpacity>
+        </View>
+        
+        <TouchableOpacity style={styles.clearButton} onPress={clear}>
+          <Text style={styles.buttonText}>Clear</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+};
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    padding: 20,
+    backgroundColor: '#f5f5f5',
+  },
+  display: {
+    fontSize: 48,
+    textAlign: 'right',
+    marginBottom: 20,
+    padding: 20,
+    backgroundColor: 'white',
+    borderRadius: 10,
+  },
+  buttons: {
+    flex: 1,
+  },
+  row: {
+    flexDirection: 'row',
+    marginBottom: 10,
+  },
+  button: {
+    flex: 1,
+    backgroundColor: 'white',
+    padding: 20,
+    margin: 5,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  operationButton: {
+    flex: 1,
+    backgroundColor: '#FF9500',
+    padding: 20,
+    margin: 5,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  equalButton: {
+    flex: 1,
+    backgroundColor: '#007AFF',
+    padding: 20,
+    margin: 5,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  clearButton: {
+    backgroundColor: '#FF3B30',
+    padding: 15,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  buttonText: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: 'white',
+  },
+});
+```
+
+```kotlin !! kt
+// Kotlin Multiplatform calculator
+package com.example.multiplatform.calculator
+
+// Shared business logic
+object Calculator {
+    fun add(a: Double, b: Double): Double = a + b
+    fun subtract(a: Double, b: Double): Double = a - b
+    fun multiply(a: Double, b: Double): Double = a * b
+    fun divide(a: Double, b: Double): Double {
+        require(b != 0.0) { "Division by zero" }
+        return a / b
+    }
+}
+
+// Shared state management
+class CalculatorState {
+    private val _display = MutableStateFlow("0")
+    val display: StateFlow<String> = _display.asStateFlow()
+    
+    private val _firstNumber = MutableStateFlow<Double?>(null)
+    val firstNumber: StateFlow<Double?> = _firstNumber.asStateFlow()
+    
+    private val _operation = MutableStateFlow<String?>(null)
+    val operation: StateFlow<String?> = _operation.asStateFlow()
+    
+    private val _waitingForSecondNumber = MutableStateFlow(false)
+    val waitingForSecondNumber: StateFlow<Boolean> = _waitingForSecondNumber.asStateFlow()
+    
+    fun handleNumber(num: String) {
+        if (_waitingForSecondNumber.value) {
+            _display.value = num
+            _waitingForSecondNumber.value = false
+        } else {
+            _display.value = if (_display.value == "0") num else _display.value + num
+        }
+    }
+    
+    fun handleOperation(op: String) {
+        val current = _display.value.toDoubleOrNull() ?: return
+        _firstNumber.value = current
+        _operation.value = op
+        _waitingForSecondNumber.value = true
+    }
+    
+    fun calculate() {
+        val first = _firstNumber.value ?: return
+        val op = _operation.value ?: return
+        val second = _display.value.toDoubleOrNull() ?: return
+        
+        val result = try {
+            when (op) {
+                "+" -> Calculator.add(first, second)
+                "-" -> Calculator.subtract(first, second)
+                "*" -> Calculator.multiply(first, second)
+                "/" -> Calculator.divide(first, second)
+                else -> return
+            }
+        } catch (e: Exception) {
+            _display.value = "Error"
+            return
+        }
+        
+        _display.value = result.toString()
+        _firstNumber.value = null
+        _operation.value = null
+    }
+    
+    fun clear() {
+        _display.value = "0"
+        _firstNumber.value = null
+        _operation.value = null
+        _waitingForSecondNumber.value = false
+    }
+}
+
+// Shared UI components
+@Composable
+fun CalculatorButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    backgroundColor: Color = MaterialTheme.colorScheme.surface
+) {
+    Button(
+        onClick = onClick,
+        modifier = modifier,
+        colors = ButtonDefaults.buttonColors(containerColor = backgroundColor)
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.headlineMedium,
+            color = Color.White
+        )
+    }
+}
+
+// Shared calculator screen
+@Composable
+fun CalculatorScreen(
+    state: CalculatorState = remember { CalculatorState() }
+) {
+    val display by state.display.collectAsState()
+    
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+    ) {
+        // Display
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 16.dp)
+        ) {
+            Text(
+                text = display,
+                style = MaterialTheme.typography.displayLarge,
+                modifier = Modifier.padding(16.dp),
+                textAlign = TextAlign.End
+            )
+        }
+        
+        // Buttons
+        Column {
+            Row {
+                CalculatorButton(
+                    text = "7",
+                    onClick = { state.handleNumber("7") },
+                    modifier = Modifier.weight(1f)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                CalculatorButton(
+                    text = "8",
+                    onClick = { state.handleNumber("8") },
+                    modifier = Modifier.weight(1f)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                CalculatorButton(
+                    text = "9",
+                    onClick = { state.handleNumber("9") },
+                    modifier = Modifier.weight(1f)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                CalculatorButton(
+                    text = "/",
+                    onClick = { state.handleOperation("/") },
+                    modifier = Modifier.weight(1f),
+                    backgroundColor = Color(0xFFFF9500)
+                )
+            }
+            
+            Spacer(modifier = Modifier.height(8.dp))
+            
+            Row {
+                CalculatorButton(
+                    text = "4",
+                    onClick = { state.handleNumber("4") },
+                    modifier = Modifier.weight(1f)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                CalculatorButton(
+                    text = "5",
+                    onClick = { state.handleNumber("5") },
+                    modifier = Modifier.weight(1f)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                CalculatorButton(
+                    text = "6",
+                    onClick = { state.handleNumber("6") },
+                    modifier = Modifier.weight(1f)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                CalculatorButton(
+                    text = "*",
+                    onClick = { state.handleOperation("*") },
+                    modifier = Modifier.weight(1f),
+                    backgroundColor = Color(0xFFFF9500)
+                )
+            }
+            
+            Spacer(modifier = Modifier.height(8.dp))
+            
+            Row {
+                CalculatorButton(
+                    text = "1",
+                    onClick = { state.handleNumber("1") },
+                    modifier = Modifier.weight(1f)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                CalculatorButton(
+                    text = "2",
+                    onClick = { state.handleNumber("2") },
+                    modifier = Modifier.weight(1f)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                CalculatorButton(
+                    text = "3",
+                    onClick = { state.handleNumber("3") },
+                    modifier = Modifier.weight(1f)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                CalculatorButton(
+                    text = "-",
+                    onClick = { state.handleOperation("-") },
+                    modifier = Modifier.weight(1f),
+                    backgroundColor = Color(0xFFFF9500)
+                )
+            }
+            
+            Spacer(modifier = Modifier.height(8.dp))
+            
+            Row {
+                CalculatorButton(
+                    text = "0",
+                    onClick = { state.handleNumber("0") },
+                    modifier = Modifier.weight(1f)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                CalculatorButton(
+                    text = ".",
+                    onClick = { state.handleNumber(".") },
+                    modifier = Modifier.weight(1f)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                CalculatorButton(
+                    text = "=",
+                    onClick = { state.calculate() },
+                    modifier = Modifier.weight(1f),
+                    backgroundColor = Color(0xFF007AFF)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                CalculatorButton(
+                    text = "+",
+                    onClick = { state.handleOperation("+") },
+                    modifier = Modifier.weight(1f),
+                    backgroundColor = Color(0xFFFF9500)
+                )
+            }
+            
+            Spacer(modifier = Modifier.height(8.dp))
+            
+            CalculatorButton(
+                text = "Clear",
+                onClick = { state.clear() },
+                modifier = Modifier.fillMaxWidth(),
+                backgroundColor = Color(0xFFFF3B30)
+            )
+        }
+    }
+}
+```
+</UniversalEditor>
+
+## Summary
+
+In this module, we've explored cross-platform development with Kotlin Multiplatform. Here are the key takeaways:
+
+### Key Concepts Covered
+1. **Kotlin Multiplatform**: Modern cross-platform development solution
+2. **Shared Code Modules**: Business logic sharing across platforms
+3. **Platform-Specific Implementations**: Native code for platform-specific features
+4. **Networking**: Cross-platform network layer with Ktor
+5. **UI Sharing**: Compose Multiplatform for shared UI components
+6. **Build System**: Gradle with platform-specific tasks
+
+### JavaScript vs Kotlin Cross-Platform Development
+
+| Aspect | JavaScript (React Native) | Kotlin (Multiplatform) |
+|--------|-------------------------|------------------------|
+| **Performance** | JavaScript bridge overhead | Native performance on all platforms |
+| **Code Sharing** | Limited to business logic | Full business logic + some UI sharing |
+| **Platform Access** | Limited native access | Full native API access |
+| **Type Safety** | Dynamic typing | Static typing across platforms |
+| **Build System** | Metro bundler | Gradle with platform-specific tasks |
+| **UI Framework** | React Native components | Platform-specific UI frameworks |
+| **Development Experience** | Hot reload | Hot reload with better tooling |
+
+### Best Practices
+1. **Share Business Logic**: Keep platform-specific code minimal
+2. **Use Expect/Actual**: For platform-specific implementations
+3. **Implement Repository Pattern**: For data access abstraction
+4. **Use Compose Multiplatform**: For shared UI components
+5. **Follow Platform Conventions**: Respect each platform's design patterns
+6. **Test Shared Code**: Comprehensive testing of shared modules
+7. **Optimize Build Times**: Use incremental compilation
+
+### Next Steps
+In the next module, we'll explore testing and debugging best practices for Kotlin applications, focusing on unit testing, integration testing, and debugging techniques.
+
+---
+
+**Practice Challenge**: Build a cross-platform note-taking app that shares business logic between Android, iOS, and web platforms, with platform-specific UI implementations and local data persistence. 

@@ -250,6 +250,41 @@ export const courseKeywords = {
       'C training', 'C courses', 'C projects', 'C practice', 'C interview',
       'C career', 'C salary', 'C job opportunities'
     ]
+  },
+  'js2kotlin': {
+    'zh-cn': [
+      // 高搜索量核心关键词
+      'JavaScript转Kotlin', 'JS转Kotlin教程', 'Kotlin编程教程', 'Kotlin入门教程',
+      'Kotlin基础教程', 'Kotlin学习', 'Kotlin编程', 'Kotlin开发',
+      // 长尾关键词
+      'JavaScript开发者学Kotlin', '前端转Kotlin', 'Web开发转Kotlin', 'Kotlin协程编程',
+      'Kotlin Android开发', 'Kotlin函数式编程', 'Kotlin JVM生态', 'Kotlin跨平台开发',
+      // 热门搜索词
+      'Kotlin培训', 'Kotlin课程', 'Kotlin实战', 'Kotlin项目', 'Kotlin练习',
+      'Kotlin面试', 'Kotlin就业', 'Kotlin薪资', 'Kotlin前景'
+    ],
+    'zh-tw': [
+      // 高搜索量核心关键词
+      'JavaScript轉Kotlin', 'JS轉Kotlin教程', 'Kotlin程式設計教程', 'Kotlin入門教程',
+      'Kotlin基礎教程', 'Kotlin學習', 'Kotlin程式設計', 'Kotlin開發',
+      // 长尾关键词
+      'JavaScript開發者學Kotlin', '前端轉Kotlin', 'Web開發轉Kotlin', 'Kotlin協程程式設計',
+      'Kotlin Android開發', 'Kotlin函數式程式設計', 'Kotlin JVM生態', 'Kotlin跨平台開發',
+      // 热门搜索词
+      'Kotlin培訓', 'Kotlin課程', 'Kotlin實戰', 'Kotlin專案', 'Kotlin練習',
+      'Kotlin面試', 'Kotlin就業', 'Kotlin薪資', 'Kotlin前景'
+    ],
+    'en': [
+      // 高搜索量核心关键词
+      'JavaScript to Kotlin', 'JS to Kotlin tutorial', 'Kotlin programming tutorial', 'Kotlin for beginners',
+      'Kotlin basics tutorial', 'learn Kotlin', 'Kotlin programming', 'Kotlin development',
+      // 长尾关键词
+      'JavaScript developer learning Kotlin', 'frontend to Kotlin', 'Web development to Kotlin', 'Kotlin coroutines',
+      'Kotlin Android development', 'Kotlin functional programming', 'Kotlin JVM ecosystem', 'Kotlin multiplatform',
+      // 热门搜索词
+      'Kotlin training', 'Kotlin courses', 'Kotlin projects', 'Kotlin practice', 'Kotlin interview',
+      'Kotlin career', 'Kotlin salary', 'Kotlin job opportunities'
+    ]
   }
 };
 

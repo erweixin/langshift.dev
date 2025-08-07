@@ -4,6 +4,8 @@ import { useState, useEffect, ReactNode, Suspense } from 'react'
 import { useMonacoManager } from './monaco-manager'
 import { VirtualizedEditor } from './virtualized-editor'
 import { trackCodeExecution, trackEditorUsage } from '@/components/analytics'
+import { getTranslations, type SupportedLanguage } from '@/messages'
+import { useParams } from 'next/navigation'
 
 interface CodeBlock {
   language: string
@@ -92,6 +94,8 @@ class LanguageRuntimeManager {
         return this.loadGoRuntime()
       case 'swift':
         return this.loadSwiftRuntime()
+      case 'kotlin':
+        return this.loadKotlinRuntime()
       default:
         throw new Error(`不支持的语言: ${language}`)
     }
@@ -141,15 +145,25 @@ class LanguageRuntimeManager {
     return {
       execute: async (code: string) => {
         try {
-          // 这里可以集成 Rust Playground API
-          // 或者使用 WebAssembly 版本的 Rust
+          // 检查是否包含 main 函数，如果没有则自动添加
+          let processedCode = code
+          if (!code.includes('fn main()') && !code.includes('fn main(')) {
+            // 移除可能存在的 fn main() { } 空函数
+            processedCode = code.replace(/fn\s+main\s*\(\s*\)\s*\{\s*\}\s*/g, '')
+            
+            // 添加 main 函数包装
+            processedCode = `fn main() {
+    ${processedCode.trim()}
+}`
+          }
+          
           console.log(JSON.stringify({
             channel: 'stable',
             mode: 'debug',
             edition: '2021',
             crateType: 'bin',
             tests: false,
-            code: code,
+            code: processedCode,
             backtrace: false,
           }))
           const response = await fetch('https://play.rust-lang.org/execute', {
@@ -163,7 +177,7 @@ class LanguageRuntimeManager {
               edition: '2021',
               crateType: 'bin',
               tests: false,
-              code: code,
+              code: processedCode,
               backtrace: false,
             }),
           })
@@ -359,6 +373,87 @@ class LanguageRuntimeManager {
     }
   }
 
+  private async loadKotlinRuntime(): Promise<any> {
+    // 使用 Kotlin Playground API
+    return {
+      execute: async (code: string) => {
+        try {
+          // 检查是否包含 main 函数，如果没有则自动添加
+          let processedCode = code
+          if (!code.includes('fun main()') && !code.includes('fun main(')) {
+            // 移除可能存在的 fun main() { } 空函数
+            processedCode = code.replace(/fun\s+main\s*\(\s*\)\s*\{\s*\}\s*/g, '')
+            
+            // 添加 main 函数包装
+            processedCode = `fun main() {
+    ${processedCode.trim()}
+}`
+          }
+          
+          // 使用 Kotlin Playground API 执行代码
+          // 参考: https://jetbrains.github.io/kotlin-playground/examples/
+          const response = await fetch('https://api.kotlinlang.org/api/1.9.10/compiler/run', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              // code: code,
+              args: '',
+              files: [{
+                name: "File.kt",
+                publicId: "",
+                text: processedCode,
+              }],
+              confType: 'java',
+              channel: 'stable'
+            }),
+          })
+          
+          if (!response.ok) {
+            throw new Error(`Kotlin API 请求失败: ${response.status}`)
+          }
+          
+          const result = await response.json()
+          
+          // 处理执行结果
+          if (result.exception) {
+            return {
+              output: result.text || '',
+              error: result.exception
+            }
+          } else if (result.errors && Object.values(result.errors).some((errors: any) => errors.length > 0)) {
+            // 处理编译错误
+            const errorMessages = Object.entries(result.errors)
+              .filter(([_, errors]: [string, any]) => errors.length > 0)
+              .map(([file, errors]: [string, any]) => 
+                `${file}: ${errors.map((e: any) => e.message).join(', ')}`
+              )
+              .join('\n')
+            
+            return {
+              output: result.text || '',
+              error: errorMessages
+            }
+          } else {
+            // 成功执行
+            const output = result.text || ''
+            return {
+              output: output.replace(/<outStream>(.*?)<\/outStream>/s, '$1').trim(),
+              error: null
+            }
+          }
+        } catch (error: any) {
+          console.error('Kotlin 代码执行错误:', error)
+          return { 
+            output: '', 
+            error: `Kotlin 代码执行失败: ${error.message}` 
+          }
+        }
+      }
+    }
+  }
+
   private async preloadBasicPythonLibraries(pyodide: any) {
     try {
       // 只预加载基础库，这些库很小且常用
@@ -429,7 +524,7 @@ class LanguageRuntimeManager {
   }
 
   getSupportedLanguages(): string[] {
-    return ['python', 'javascript', 'typescript', 'rust', 'cpp', 'c', 'java', 'go', 'swift']
+    return ['python', 'javascript', 'typescript', 'rust', 'cpp', 'c', 'java', 'go', 'swift', 'kotlin']
   }
 
   // 检查是否需要加载运行时
@@ -461,6 +556,11 @@ function MonacoEditorWrapper({
   [key: string]: any
 }) {
   const { isReady, isLoading, error } = useMonacoManager()
+  
+  // 从路由参数获取语言
+  const params = useParams();
+  const lang = (params?.lang as SupportedLanguage) || 'zh-cn';
+  const t = getTranslations(lang)
 
   if (error) {
     return (
@@ -477,7 +577,7 @@ function MonacoEditorWrapper({
       <div className="border rounded p-4 bg-gray-50 dark:bg-gray-800">
         <div className="flex items-center justify-center h-32">
           <div className="text-gray-600 dark:text-gray-400 text-sm">
-            正在加载编辑器...
+            {t.editor.loading}
           </div>
         </div>
       </div>
@@ -485,15 +585,15 @@ function MonacoEditorWrapper({
   }
 
   return (
-    <Suspense fallback={
-      <div className="border rounded p-4 bg-gray-50 dark:bg-gray-800">
-        <div className="flex items-center justify-center h-32">
-          <div className="text-gray-600 dark:text-gray-400 text-sm">
-            加载中...
+          <Suspense fallback={
+        <div className="border rounded p-4 bg-gray-50 dark:bg-gray-800">
+          <div className="flex items-center justify-center h-32">
+            <div className="text-gray-600 dark:text-gray-400 text-sm">
+              {t.editor.loading}
+            </div>
           </div>
         </div>
-      </div>
-    }>
+      }>
       <VirtualizedEditor
         height={height}
         language={language}
@@ -570,12 +670,18 @@ const languageConfig = {
     extension: 'c',
     monacoLanguage: 'c',
     runtime: 'c',
+  },
+  kotlin: {
+    name: 'Kotlin',
+    extension: 'kt',
+    monacoLanguage: 'kotlin',
+    runtime: 'kotlin'
   }
 }
 
 export default function UniversalEditor(params: UniversalEditorProps) {
   const {
-    title = '多语言代码编辑器',
+    title,
     theme = 'auto',
     readOnly = false,
     showOutput = true,
@@ -586,6 +692,14 @@ export default function UniversalEditor(params: UniversalEditorProps) {
     allowDynamicImports = true,
     canRun = true
   } = params;
+
+  // 从路由参数获取语言
+  const params_ = useParams();
+  const lang = (params_?.lang as SupportedLanguage) || 'zh-cn';
+  
+  // 获取翻译
+  const t = getTranslations(lang);
+  const defaultTitle = t.editor.title;
 
   const [runtimes, setRuntimes] = useState<Map<string, any>>(new Map())
   const [loadingStates, setLoadingStates] = useState<Map<string, boolean>>(new Map())
@@ -712,7 +826,7 @@ export default function UniversalEditor(params: UniversalEditorProps) {
           setRuntimes(prev => new Map(prev.set(language, runtime)))
         } catch (err: any) {
           console.error(`${language} 运行时初始化失败:`, err)
-          setError(`${language} 环境初始化失败`)
+          setError(t.editor.executionFailed.replace('{language}', t.editor.languages[language as keyof typeof t.editor.languages] || language))
           setLoadingStates(prev => new Map(prev.set(language, false)))
           setIsRunning(false)
           // 追踪执行失败
@@ -739,7 +853,7 @@ export default function UniversalEditor(params: UniversalEditorProps) {
         trackCodeExecution(language, true)
       }
     } catch (err: any) {
-      setError(err.message || '代码执行出错')
+      setError(err.message || t.editor.executionError)
       // 追踪执行失败
       trackCodeExecution(language, false)
     } finally {
@@ -857,7 +971,7 @@ sys.stdout = sys.__stdout__
       <div className="border rounded-lg p-4 bg-gray-50 dark:bg-gray-800">
         <div className="flex items-center justify-center h-32">
           <div className="text-gray-600 dark:text-gray-400">
-            正在加载...
+            {t.editor.loading}
           </div>
         </div>
       </div>
@@ -874,7 +988,7 @@ sys.stdout = sys.__stdout__
       {/* 标题栏 */}
       <div className="flex items-center justify-between px-4 py-2 bg-gray-100 dark:bg-gray-800 border-b">
         <div className="text-sm font-medium text-gray-700 dark:text-gray-300 m-2">
-          {title}
+          {title || defaultTitle}
         </div>
         { canRun && <div className="flex items-center space-x-2">
           <button
@@ -883,23 +997,23 @@ sys.stdout = sys.__stdout__
             className="px-3 py-1 text-xs bg-green-500 text-white rounded hover:bg-green-600 disabled:opacity-50"
           >
             {loadingStates.get(primaryLanguage) 
-              ? `初始化 ${primaryConfig.name}...` 
+              ? t.editor.loadingRuntime.replace('{language}', t.editor.languages[primaryLanguage as keyof typeof t.editor.languages] || primaryConfig.name)
               : isRunning 
-                ? '运行中...' 
-                : `运行 ${primaryConfig.name}`}
+                ? t.editor.running
+                : t.editor.run.replace('{language}', t.editor.languages[primaryLanguage as keyof typeof t.editor.languages] || primaryConfig.name)}
           </button>
           {compare && secondaryLanguage && secondaryCode && (
             <button
               onClick={() => runCode(secondaryLanguage)}
               disabled={isRunning || loadingStates.get(secondaryLanguage)}
-              className="px-3 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50"
-            >
-              {loadingStates.get(secondaryLanguage) 
-                ? `初始化 ${secondaryConfig?.name}...` 
-                : isRunning 
-                  ? '运行中...' 
-                  : `运行 ${secondaryConfig?.name}`}
-            </button>
+                          className="px-3 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50"
+          >
+            {loadingStates.get(secondaryLanguage) 
+              ? t.editor.loadingRuntime.replace('{language}', t.editor.languages[secondaryLanguage as keyof typeof t.editor.languages] || secondaryConfig?.name || '')
+              : isRunning 
+                ? t.editor.running
+                : t.editor.run.replace('{language}', t.editor.languages[secondaryLanguage as keyof typeof t.editor.languages] || secondaryConfig?.name || '')}
+          </button>
           )}
         </div> }
       </div>
@@ -937,7 +1051,7 @@ sys.stdout = sys.__stdout__
       {showOutput && (output || error) && (
         <div className="border-t bg-gray-50 dark:bg-gray-800">
           <div className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 border-b">
-            输出结果
+            {t.editor.output}
           </div>
           <div className="p-4">
             {error ? (

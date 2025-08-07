@@ -1,0 +1,1089 @@
+---
+title: "协程与异步编程"
+description: "学习 Kotlin 的协程进行异步编程，与 JavaScript 的 Promise/async-await 模式进行对比"
+---
+
+# 协程与异步编程
+
+欢迎来到 JavaScript 到 Kotlin 转换的第四个模块！在本模块中，我们将探索 Kotlin 强大的协程系统，以及它如何提供比 JavaScript 的 Promise/async-await 模式更优雅的异步编程解决方案。
+
+## 学习目标
+
+通过本模块的学习，您将能够：
+- 理解 Kotlin 中协程的基础知识
+- 对比协程与 JavaScript 的 async/await
+- 有效使用协程作用域和上下文
+- 使用协程处理异步操作
+- 实现并发编程模式
+- 管理协程取消和超时
+- 在实际场景中应用协程
+
+## 理解协程
+
+### 什么是协程？
+
+协程是 Kotlin 处理异步编程的方式。它们提供了一种编写异步代码的方法，看起来和行为都像同步代码，使其更容易理解和维护。
+
+<UniversalEditor title="协程 vs Async/Await" compare={true}>
+```javascript !! js
+// JavaScript async/await
+async function fetchUserData(userId) {
+    try {
+        const response = await fetch(`/api/users/${userId}`);
+        const user = await response.json();
+        return user;
+    } catch (error) {
+        console.error('Error fetching user:', error);
+        throw error;
+    }
+}
+
+async function processUsers(userIds) {
+    const users = [];
+    for (const id of userIds) {
+        const user = await fetchUserData(id);
+        users.push(user);
+    }
+    return users;
+}
+
+// Usage
+processUsers([1, 2, 3]).then(users => {
+    console.log('Users:', users);
+});
+```
+
+```kotlin !! kt
+// Kotlin coroutines
+suspend fun fetchUserData(userId: Int): User {
+    return try {
+        val response = httpClient.get("/api/users/$userId")
+        response.body()
+    } catch (error: Exception) {
+        println("Error fetching user: $error")
+        throw error
+    }
+}
+
+suspend fun processUsers(userIds: List<Int>): List<User> {
+    val users = mutableListOf<User>()
+    for (id in userIds) {
+        val user = fetchUserData(id)
+        users.add(user)
+    }
+    return users
+}
+
+// Usage
+runBlocking {
+    val users = processUsers(listOf(1, 2, 3))
+    println("Users: $users")
+}
+```
+</UniversalEditor>
+
+### 与 JavaScript 的关键差异
+
+1. **挂起函数**: Kotlin 使用 `suspend` 关键字而不是 `async`
+2. **协程构建器**: 如 `launch`、`async`、`runBlocking` 等函数
+3. **结构化并发**: 更好地控制协程生命周期
+4. **取消**: 内置取消支持
+5. **上下文**: 显式协程上下文管理
+
+## 协程基础
+
+### 挂起函数
+
+挂起函数是协程的构建块。它们可以在不阻塞线程的情况下暂停和恢复。
+
+<UniversalEditor title="挂起函数" compare={true}>
+```javascript !! js
+// JavaScript async functions
+async function delay(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function fetchData() {
+    await delay(1000);
+    return { data: "Hello from server" };
+}
+
+async function processData() {
+    const result = await fetchData();
+    console.log(result.data);
+    return result;
+}
+```
+
+```kotlin !! kt
+// Kotlin suspend functions
+suspend fun delay(ms: Long) {
+    kotlinx.coroutines.delay(ms)
+}
+
+suspend fun fetchData(): Map<String, String> {
+    delay(1000)
+    return mapOf("data" to "Hello from server")
+}
+
+suspend fun processData(): Map<String, String> {
+    val result = fetchData()
+    println(result["data"])
+    return result
+}
+```
+</UniversalEditor>
+
+### 协程构建器
+
+Kotlin 提供了几个协程构建器来以不同方式启动协程。
+
+<UniversalEditor title="协程构建器" compare={true}>
+```javascript !! js
+// JavaScript Promise-based approaches
+function launchTask() {
+    return new Promise((resolve, reject) => {
+        setTimeout(() => {
+            resolve("Task completed");
+        }, 1000);
+    });
+}
+
+async function runSequential() {
+    const result1 = await launchTask();
+    const result2 = await launchTask();
+    return [result1, result2];
+}
+
+async function runParallel() {
+    const promises = [launchTask(), launchTask()];
+    return await Promise.all(promises);
+}
+
+// Usage
+runSequential().then(results => console.log(results));
+runParallel().then(results => console.log(results));
+```
+
+```kotlin !! kt
+// Kotlin coroutine builders
+fun launchTask() = runBlocking {
+    delay(1000)
+    "Task completed"
+}
+
+suspend fun runSequential(): List<String> {
+    val result1 = launchTask()
+    val result2 = launchTask()
+    return listOf(result1, result2)
+}
+
+suspend fun runParallel(): List<String> = coroutineScope {
+    val deferred1 = async { launchTask() }
+    val deferred2 = async { launchTask() }
+    listOf(deferred1.await(), deferred2.await())
+}
+
+// Usage
+runBlocking {
+    val sequential = runSequential()
+    val parallel = runParallel()
+    println("Sequential: $sequential")
+    println("Parallel: $parallel")
+}
+```
+</UniversalEditor>
+
+## 协程作用域和上下文
+
+### 理解作用域
+
+协程作用域定义协程的生命周期并提供结构化并发。
+
+<UniversalEditor title="协程作用域" compare={true}>
+```javascript !! js
+// JavaScript - no direct equivalent, but similar patterns
+class TaskManager {
+    constructor() {
+        this.tasks = new Set();
+    }
+
+    async launchTask(taskName) {
+        const task = this.executeTask(taskName);
+        this.tasks.add(task);
+        
+        try {
+            const result = await task;
+            return result;
+        } finally {
+            this.tasks.delete(task);
+        }
+    }
+
+    async executeTask(taskName) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        return `${taskName} completed`;
+    }
+
+    async cancelAll() {
+        const promises = Array.from(this.tasks);
+        // JavaScript doesn't have built-in cancellation
+        console.log('Cancelling tasks...');
+    }
+}
+```
+
+```kotlin !! kt
+// Kotlin coroutine scopes
+class TaskManager {
+    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+
+    fun launchTask(taskName: String): Deferred<String> {
+        return scope.async {
+            executeTask(taskName)
+        }
+    }
+
+    private suspend fun executeTask(taskName: String): String {
+        delay(1000)
+        return "$taskName completed"
+    }
+
+    fun cancelAll() {
+        scope.cancel()
+    }
+}
+
+// Usage
+val manager = TaskManager()
+val task1 = manager.launchTask("Task 1")
+val task2 = manager.launchTask("Task 2")
+
+runBlocking {
+    val results = listOf(task1.await(), task2.await())
+    println("Results: $results")
+}
+```
+</UniversalEditor>
+
+### 协程上下文
+
+上下文定义协程的行为和环境，包括调度器和作业层次结构。
+
+<UniversalEditor title="协程上下文" compare={true}>
+```javascript !! js
+// JavaScript - no direct context concept, but similar patterns
+async function runOnDifferentThreads() {
+    // JavaScript is single-threaded, but we can simulate
+    const cpuIntensive = async () => {
+        // Simulate CPU-intensive work
+        let result = 0;
+        for (let i = 0; i < 1000000; i++) {
+            result += Math.random();
+        }
+        return result;
+    };
+
+    const ioOperation = async () => {
+        // Simulate I/O operation
+        await new Promise(resolve => setTimeout(resolve, 100));
+        return "I/O completed";
+    };
+
+    const [cpuResult, ioResult] = await Promise.all([
+        cpuIntensive(),
+        ioOperation()
+    ]);
+
+    return { cpuResult, ioResult };
+}
+```
+
+```kotlin !! kt
+// Kotlin coroutine context with dispatchers
+suspend fun runOnDifferentThreads(): Map<String, Any> = coroutineScope {
+    val cpuIntensive = async(Dispatchers.Default) {
+        // CPU-intensive work on background thread
+        var result = 0.0
+        repeat(1_000_000) {
+            result += kotlin.random.Random.nextDouble()
+        }
+        result
+    }
+
+    val ioOperation = async(Dispatchers.IO) {
+        // I/O operation on IO dispatcher
+        delay(100)
+        "I/O completed"
+    }
+
+    mapOf(
+        "cpuResult" to cpuIntensive.await(),
+        "ioResult" to ioOperation.await()
+    )
+}
+
+// Usage
+runBlocking {
+    val results = runOnDifferentThreads()
+    println("Results: $results")
+}
+```
+</UniversalEditor>
+
+## 异步操作
+
+### 网络请求
+
+协程提供了处理网络请求和其他 I/O 操作的优雅方式。
+
+<UniversalEditor title="网络请求" compare={true}>
+```javascript !! js
+// JavaScript fetch with async/await
+async function fetchUserData(userId) {
+    try {
+        const response = await fetch(`/api/users/${userId}`);
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return await response.json();
+    } catch (error) {
+        console.error('Network error:', error);
+        throw error;
+    }
+}
+
+async function fetchMultipleUsers(userIds) {
+    const promises = userIds.map(id => fetchUserData(id));
+    return await Promise.all(promises);
+}
+
+// Usage
+fetchMultipleUsers([1, 2, 3])
+    .then(users => console.log('Users:', users))
+    .catch(error => console.error('Error:', error));
+```
+
+```kotlin !! kt
+// Kotlin coroutines with network requests
+suspend fun fetchUserData(userId: Int): User {
+    return try {
+        val response = httpClient.get("/api/users/$userId")
+        if (!response.isSuccessful) {
+            throw HttpException(response.code)
+        }
+        response.body()
+    } catch (error: Exception) {
+        println("Network error: $error")
+        throw error
+    }
+}
+
+suspend fun fetchMultipleUsers(userIds: List<Int>): List<User> = coroutineScope {
+    val deferreds = userIds.map { id ->
+        async { fetchUserData(id) }
+    }
+    deferreds.awaitAll()
+}
+
+// Usage
+runBlocking {
+    try {
+        val users = fetchMultipleUsers(listOf(1, 2, 3))
+        println("Users: $users")
+    } catch (error: Exception) {
+        println("Error: $error")
+    }
+}
+```
+</UniversalEditor>
+
+### 数据库操作
+
+协程非常适合数据库操作，提供非阻塞的数据库访问。
+
+<UniversalEditor title="数据库操作" compare={true}>
+```javascript !! js
+// JavaScript with database operations
+async function saveUser(user) {
+    try {
+        const result = await db.collection('users').insertOne(user);
+        return result.insertedId;
+    } catch (error) {
+        console.error('Database error:', error);
+        throw error;
+    }
+}
+
+async function getUserById(userId) {
+    try {
+        const user = await db.collection('users').findOne({ _id: userId });
+        return user;
+    } catch (error) {
+        console.error('Database error:', error);
+        throw error;
+    }
+}
+
+async function updateUser(userId, updates) {
+    try {
+        const result = await db.collection('users').updateOne(
+            { _id: userId },
+            { $set: updates }
+        );
+        return result.modifiedCount > 0;
+    } catch (error) {
+        console.error('Database error:', error);
+        throw error;
+    }
+}
+```
+
+```kotlin !! kt
+// Kotlin coroutines with database operations
+suspend fun saveUser(user: User): String {
+    return try {
+        val result = db.collection("users").insertOne(user)
+        result.insertedId.toString()
+    } catch (error: Exception) {
+        println("Database error: $error")
+        throw error
+    }
+}
+
+suspend fun getUserById(userId: String): User? {
+    return try {
+        db.collection("users").findOne(User::class.java, "{ _id: '$userId' }")
+    } catch (error: Exception) {
+        println("Database error: $error")
+        throw error
+    }
+}
+
+suspend fun updateUser(userId: String, updates: Map<String, Any>): Boolean {
+    return try {
+        val result = db.collection("users").updateOne(
+            "{ _id: '$userId' }",
+            "{ \$set: $updates }"
+        )
+        result.modifiedCount > 0
+    } catch (error: Exception) {
+        println("Database error: $error")
+        throw error
+    }
+}
+```
+</UniversalEditor>
+
+## 并发编程
+
+### 并行执行
+
+协程使并行运行多个操作变得容易。
+
+<UniversalEditor title="并行执行" compare={true}>
+```javascript !! js
+// JavaScript parallel execution
+async function processItems(items) {
+    const promises = items.map(async (item) => {
+        // Simulate processing
+        await new Promise(resolve => setTimeout(resolve, 100));
+        return `Processed: ${item}`;
+    });
+    
+    return await Promise.all(promises);
+}
+
+async function fetchAndProcess(userIds) {
+    const userPromises = userIds.map(async (id) => {
+        const user = await fetchUserData(id);
+        return processUser(user);
+    });
+    
+    return await Promise.all(userPromises);
+}
+
+// Usage
+processItems(['A', 'B', 'C']).then(results => {
+    console.log('Results:', results);
+});
+```
+
+```kotlin !! kt
+// Kotlin parallel execution with coroutines
+suspend fun processItems(items: List<String>): List<String> = coroutineScope {
+    items.map { item ->
+        async {
+            delay(100) // Simulate processing
+            "Processed: $item"
+        }
+    }.awaitAll()
+}
+
+suspend fun fetchAndProcess(userIds: List<Int>): List<ProcessedUser> = coroutineScope {
+    userIds.map { id ->
+        async {
+            val user = fetchUserData(id)
+            processUser(user)
+        }
+    }.awaitAll()
+}
+
+// Usage
+runBlocking {
+    val results = processItems(listOf("A", "B", "C"))
+    println("Results: $results")
+}
+```
+</UniversalEditor>
+
+### 竞态条件和同步
+
+协程提供了处理竞态条件和确保线程安全的工具。
+
+<UniversalEditor title="竞态条件" compare={true}>
+```javascript !! js
+// JavaScript - handling race conditions
+class Counter {
+    constructor() {
+        this.value = 0;
+        this.lock = false;
+    }
+
+    async increment() {
+        while (this.lock) {
+            await new Promise(resolve => setTimeout(resolve, 1));
+        }
+        this.lock = true;
+        try {
+            const current = this.value;
+            await new Promise(resolve => setTimeout(resolve, 10));
+            this.value = current + 1;
+        } finally {
+            this.lock = false;
+        }
+    }
+
+    getValue() {
+        return this.value;
+    }
+}
+
+// Usage
+const counter = new Counter();
+const promises = Array(100).fill().map(() => counter.increment());
+Promise.all(promises).then(() => {
+    console.log('Final value:', counter.getValue());
+});
+```
+
+```kotlin !! kt
+// Kotlin - handling race conditions with Mutex
+class Counter {
+    private var value = 0
+    private val mutex = Mutex()
+
+    suspend fun increment() {
+        mutex.withLock {
+            val current = value
+            delay(10) // Simulate work
+            value = current + 1
+        }
+    }
+
+    fun getValue(): Int = value
+}
+
+// Usage
+runBlocking {
+    val counter = Counter()
+    val jobs = List(100) {
+        launch {
+            counter.increment()
+        }
+    }
+    jobs.joinAll()
+    println("Final value: ${counter.getValue()}")
+}
+```
+</UniversalEditor>
+
+## 取消和超时
+
+### 协程取消
+
+Kotlin 协程提供内置取消支持，比 JavaScript 的取消令牌更强大。
+
+<UniversalEditor title="取消" compare={true}>
+```javascript !! js
+// JavaScript - cancellation with AbortController
+class TaskManager {
+    constructor() {
+        this.abortController = new AbortController();
+    }
+
+    async runTask() {
+        const signal = this.abortController.signal;
+        
+        return new Promise((resolve, reject) => {
+            const timeout = setTimeout(() => {
+                resolve("Task completed");
+            }, 5000);
+
+            signal.addEventListener('abort', () => {
+                clearTimeout(timeout);
+                reject(new Error('Task cancelled'));
+            });
+        });
+    }
+
+    cancel() {
+        this.abortController.abort();
+    }
+}
+
+// Usage
+const manager = new TaskManager();
+const task = manager.runTask();
+
+setTimeout(() => {
+    manager.cancel();
+}, 2000);
+
+task.catch(error => {
+    console.log('Task error:', error.message);
+});
+```
+
+```kotlin !! kt
+// Kotlin coroutine cancellation
+class TaskManager {
+    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+
+    fun runTask(): Deferred<String> {
+        return scope.async {
+            try {
+                delay(5000) // Simulate long-running task
+                "Task completed"
+            } catch (e: CancellationException) {
+                throw e
+            }
+        }
+    }
+
+    fun cancel() {
+        scope.cancel()
+    }
+}
+
+// Usage
+val manager = TaskManager()
+val task = manager.runTask()
+
+// Cancel after 2 seconds
+launch {
+    delay(2000)
+    manager.cancel()
+}
+
+runBlocking {
+    try {
+        val result = task.await()
+        println("Result: $result")
+    } catch (e: CancellationException) {
+        println("Task cancelled")
+    }
+}
+```
+</UniversalEditor>
+
+### 超时
+
+协程通过 `withTimeout` 函数提供优雅的超时处理。
+
+<UniversalEditor title="超时" compare={true}>
+```javascript !! js
+// JavaScript timeout handling
+async function fetchWithTimeout(url, timeoutMs) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    
+    try {
+        const response = await fetch(url, {
+            signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+        return await response.json();
+    } catch (error) {
+        clearTimeout(timeoutId);
+        if (error.name === 'AbortError') {
+            throw new Error('Request timeout');
+        }
+        throw error;
+    }
+}
+
+// Usage
+fetchWithTimeout('/api/data', 5000)
+    .then(data => console.log('Data:', data))
+    .catch(error => console.error('Error:', error.message));
+```
+
+```kotlin !! kt
+// Kotlin timeout handling
+suspend fun fetchWithTimeout(url: String, timeoutMs: Long): Map<String, Any> {
+    return withTimeout(timeoutMs) {
+        val response = httpClient.get(url)
+        response.body()
+    }
+}
+
+// Usage
+runBlocking {
+    try {
+        val data = fetchWithTimeout("/api/data", 5000)
+        println("Data: $data")
+    } catch (e: TimeoutCancellationException) {
+        println("Request timeout")
+    } catch (e: Exception) {
+        println("Error: ${e.message}")
+    }
+}
+```
+</UniversalEditor>
+
+## 错误处理
+
+### 协程中的异常处理
+
+协程提供结构化错误处理，比 JavaScript 的 Promise 拒绝处理更可预测。
+
+<UniversalEditor title="错误处理" compare={true}>
+```javascript !! js
+// JavaScript error handling
+async function riskyOperation() {
+    const random = Math.random();
+    if (random > 0.5) {
+        throw new Error('Random failure');
+    }
+    return 'Success';
+}
+
+async function handleErrors() {
+    try {
+        const results = await Promise.allSettled([
+            riskyOperation(),
+            riskyOperation(),
+            riskyOperation()
+        ]);
+        
+        const successful = results
+            .filter(result => result.status === 'fulfilled')
+            .map(result => result.value);
+        
+        const failed = results
+            .filter(result => result.status === 'rejected')
+            .map(result => result.reason);
+        
+        return { successful, failed };
+    } catch (error) {
+        console.error('Unexpected error:', error);
+        throw error;
+    }
+}
+```
+
+```kotlin !! kt
+// Kotlin coroutine error handling
+suspend fun riskyOperation(): String {
+    val random = kotlin.random.Random.nextDouble()
+    if (random > 0.5) {
+        throw Exception("Random failure")
+    }
+    return "Success"
+}
+
+suspend fun handleErrors(): Map<String, List<Any>> {
+    return try {
+        val results = listOf(
+            async { riskyOperation() },
+            async { riskyOperation() },
+            async { riskyOperation() }
+        ).awaitAll()
+        
+        mapOf("successful" to results)
+    } catch (e: Exception) {
+        mapOf("failed" to listOf(e.message))
+    }
+}
+
+// Alternative with supervisor scope
+suspend fun handleErrorsWithSupervisor(): Map<String, List<Any>> = supervisorScope {
+    val results = listOf(
+        async { riskyOperation() },
+        async { riskyOperation() },
+        async { riskyOperation() }
+    )
+    
+    val successful = mutableListOf<String>()
+    val failed = mutableListOf<String>()
+    
+    results.forEach { deferred ->
+        try {
+            successful.add(deferred.await())
+        } catch (e: Exception) {
+            failed.add(e.message ?: "Unknown error")
+        }
+    }
+    
+    mapOf("successful" to successful, "failed" to failed)
+}
+```
+</UniversalEditor>
+
+## 实际示例
+
+### 真实世界的协程使用
+
+让我们看看协程在实际应用中的示例。
+
+<UniversalEditor title="真实世界示例" compare={true}>
+```javascript !! js
+// JavaScript - API service with caching
+class UserService {
+    constructor() {
+        this.cache = new Map();
+    }
+
+    async getUser(userId) {
+        // Check cache first
+        if (this.cache.has(userId)) {
+            return this.cache.get(userId);
+        }
+
+        // Fetch from API
+        const user = await this.fetchFromAPI(userId);
+        this.cache.set(userId, user);
+        return user;
+    }
+
+    async fetchFromAPI(userId) {
+        const response = await fetch(`/api/users/${userId}`);
+        return await response.json();
+    }
+
+    async getUsersWithPosts(userIds) {
+        const users = await Promise.all(
+            userIds.map(id => this.getUser(id))
+        );
+        
+        const usersWithPosts = await Promise.all(
+            users.map(async user => ({
+                ...user,
+                posts: await this.getUserPosts(user.id)
+            }))
+        );
+        
+        return usersWithPosts;
+    }
+
+    async getUserPosts(userId) {
+        const response = await fetch(`/api/users/${userId}/posts`);
+        return await response.json();
+    }
+}
+```
+
+```kotlin !! kt
+// Kotlin - API service with caching
+class UserService {
+    private val cache = mutableMapOf<Int, User>()
+
+    suspend fun getUser(userId: Int): User {
+        // Check cache first
+        cache[userId]?.let { return it }
+
+        // Fetch from API
+        val user = fetchFromAPI(userId)
+        cache[userId] = user
+        return user
+    }
+
+    private suspend fun fetchFromAPI(userId: Int): User {
+        val response = httpClient.get("/api/users/$userId")
+        return response.body()
+    }
+
+    suspend fun getUsersWithPosts(userIds: List<Int>): List<UserWithPosts> = coroutineScope {
+        val users = userIds.map { id -> async { getUser(id) } }.awaitAll()
+        
+        users.map { user ->
+            async {
+                UserWithPosts(
+                    user = user,
+                    posts = getUserPosts(user.id)
+                )
+            }
+        }.awaitAll()
+    }
+
+    private suspend fun getUserPosts(userId: Int): List<Post> {
+        val response = httpClient.get("/api/users/$userId/posts")
+        return response.body()
+    }
+}
+```
+</UniversalEditor>
+
+## 最佳实践
+
+### 何时使用协程
+
+1. **I/O 操作**: 网络请求、文件操作、数据库查询
+2. **CPU 密集型任务**: 使用适当的调度器
+3. **并发操作**: 多个独立操作
+4. **UI 更新**: 使用 Main 调度器进行 UI 更新
+5. **后台处理**: 长时间运行的任务
+
+### 性能考虑
+
+1. **调度器选择**: 为不同操作选择适当的调度器
+2. **结构化并发**: 使用协程作用域管理生命周期
+3. **取消**: 始终正确处理取消
+4. **异常处理**: 在需要时使用监督作用域
+5. **内存管理**: 注意协程上下文保留
+
+## 练习题
+
+### 练习 1: 并行处理
+创建一个使用协程并行处理项目列表的函数。
+
+<UniversalEditor title="练习 1 解答" compare={true}>
+```javascript !! js
+// JavaScript solution
+async function processItemsParallel(items) {
+    const promises = items.map(async (item, index) => {
+        await new Promise(resolve => setTimeout(resolve, 100));
+        return `Processed ${item} at index ${index}`;
+    });
+    
+    return await Promise.all(promises);
+}
+
+// Usage
+processItemsParallel(['A', 'B', 'C']).then(results => {
+    console.log(results);
+});
+```
+
+```kotlin !! kt
+// Kotlin solution
+suspend fun processItemsParallel(items: List<String>): List<String> = coroutineScope {
+    items.mapIndexed { index, item ->
+        async {
+            delay(100)
+            "Processed $item at index $index"
+        }
+    }.awaitAll()
+}
+
+// Usage
+runBlocking {
+    val results = processItemsParallel(listOf("A", "B", "C"))
+    println(results)
+}
+```
+</UniversalEditor>
+
+### 练习 2: 带重试的超时
+创建一个使用指数退避和超时重试操作的函数。
+
+<UniversalEditor title="练习 2 解答" compare={true}>
+```javascript !! js
+// JavaScript solution
+async function retryWithTimeout(operation, maxRetries = 3, timeoutMs = 5000) {
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+            const timeoutPromise = new Promise((_, reject) => {
+                setTimeout(() => reject(new Error('Timeout')), timeoutMs);
+            });
+            
+            const result = await Promise.race([operation(), timeoutPromise]);
+            return result;
+        } catch (error) {
+            if (attempt === maxRetries) throw error;
+            
+            const delay = Math.pow(2, attempt) * 1000;
+            await new Promise(resolve => setTimeout(resolve, delay));
+        }
+    }
+}
+
+// Usage
+const operation = () => fetch('/api/data').then(r => r.json());
+retryWithTimeout(operation).then(data => console.log(data));
+```
+
+```kotlin !! kt
+// Kotlin solution
+suspend fun retryWithTimeout(
+    operation: suspend () -> String,
+    maxRetries: Int = 3,
+    timeoutMs: Long = 5000
+): String {
+    repeat(maxRetries + 1) { attempt ->
+        try {
+            return withTimeout(timeoutMs) {
+                operation()
+            }
+        } catch (e: Exception) {
+            if (attempt == maxRetries) throw e
+            
+            val delay = (2.0.pow(attempt) * 1000).toLong()
+            delay(delay)
+        }
+    }
+    throw Exception("All retries failed")
+}
+
+// Usage
+runBlocking {
+    val operation = { httpClient.get("/api/data").body() }
+    val result = retryWithTimeout(operation)
+    println(result)
+}
+```
+</UniversalEditor>
+
+## 总结
+
+在本模块中，我们探索了 Kotlin 强大的协程系统：
+
+### 涵盖的关键概念：
+- **协程**: 用于异步编程的轻量级线程
+- **挂起函数**: 可以暂停和恢复的函数
+- **协程构建器**: `launch`、`async`、`runBlocking`
+- **作用域和上下文**: 管理协程生命周期和行为
+- **并发**: 并行执行和同步
+- **取消**: 内置取消支持
+- **错误处理**: 结构化异常处理
+
+### Kotlin 协程的优势：
+1. **简洁性**: 代码看起来像同步代码
+2. **性能**: 轻量级且高效
+3. **取消**: 内置取消支持
+4. **结构化并发**: 更好地控制协程生命周期
+5. **异常处理**: 可预测的错误处理
+6. **互操作性**: 与现有 Java 库良好配合
+
+### 与 JavaScript 的对比：
+- **挂起 vs 异步**: 对挂起点有更明确的控制
+- **结构化并发**: 比基于 Promise 的方法更好
+- **取消**: 比 AbortController 更强大
+- **上下文**: 比 JavaScript 的单线程模型更灵活
+- **错误处理**: 比 Promise 拒绝处理更可预测
+
+### 下一步：
+在下一个模块中，我们将探索 Kotlin 中的**面向对象编程**，学习 Kotlin 如何通过数据类、密封类和对象声明等特性增强面向对象编程。
+
+您在这里学到的协程概念在构建并发应用程序和处理 Kotlin 中的异步操作时将很有价值。 

@@ -49,6 +49,12 @@ export const LANGUAGE_CONFIGS: LanguageConfigMap = {
     gradient: 'from-teal-500 to-cyan-500',
     name: 'Dart',
     description: '从 JavaScript 到 Dart 的转换学习'
+  },
+  js2kotlin: {
+    icon: '🟣',
+    gradient: 'from-purple-500 to-violet-500',
+    name: 'Kotlin',
+    description: '从 JavaScript 到 Kotlin 的转换学习'
   }
 };
 

@@ -1,0 +1,1262 @@
+---
+title: "使用 Kotlin 进行跨平台开发"
+description: "学习 Kotlin 多平台开发，并与 JavaScript 跨平台模式和 React Native 概念进行比较"
+---
+
+# 使用 Kotlin 进行跨平台开发
+
+欢迎来到 JavaScript 到 Kotlin 转换的第九个模块！在本模块中，我们将探索使用 Kotlin Multiplatform 进行跨平台开发，并了解它与 React Native 和 Electron 等 JavaScript 跨平台模式的比较。我们将学习共享代码模块、平台特定实现和现代跨平台开发实践。
+
+## 学习目标
+
+在本模块结束时，您将能够：
+- 理解 Kotlin Multiplatform 架构和优势
+- 比较 Kotlin Multiplatform 与 JavaScript 跨平台解决方案
+- 实现业务逻辑的共享代码模块
+- 创建平台特定的实现
+- 构建跨平台网络和数据持久化
+- 实现 UI 共享策略
+- 应用现代跨平台开发最佳实践
+
+## Kotlin Multiplatform 概述
+
+### 跨平台架构比较
+
+Kotlin Multiplatform 是 Kotlin 的跨平台开发解决方案，允许您在 Android、iOS、Web 和桌面之间共享代码，同时保持原生性能。
+
+<UniversalEditor title="跨平台架构比较" compare={true}>
+```javascript !! js
+// React Native - JavaScript 跨平台
+import React from 'react';
+import { View, Text, Platform } from 'react-native';
+
+const CrossPlatformComponent = () => {
+  const isAndroid = Platform.OS === 'android';
+  const isIOS = Platform.OS === 'ios';
+  
+  return (
+    <View style={styles.container}>
+      <Text style={styles.text}>
+        {isAndroid ? 'Android 特定文本' : 
+         isIOS ? 'iOS 特定文本' : 'Web 文本'}
+      </Text>
+    </View>
+  );
+};
+
+// 平台特定实现
+const styles = StyleSheet.create({
+  container: {
+    padding: Platform.select({
+      android: 16,
+      ios: 20,
+      default: 10
+    }),
+  },
+  text: {
+    fontSize: Platform.select({
+      android: 16,
+      ios: 18,
+      default: 14
+    }),
+  },
+});
+
+// 共享业务逻辑
+const apiService = {
+  async fetchData() {
+    const response = await fetch('https://api.example.com/data');
+    return response.json();
+  },
+  
+  processData(data) {
+    return data.map(item => ({
+      ...item,
+      processed: true
+    }));
+  }
+};
+```
+
+```kotlin !! kt
+// Kotlin Multiplatform - 跨平台架构
+package com.example.multiplatform
+
+// 共享通用代码
+expect class Platform() {
+    fun getPlatformName(): String
+}
+
+// 平台特定实现
+actual class Platform actual constructor() {
+    actual fun getPlatformName(): String = "Android"
+}
+
+// 共享业务逻辑
+class ApiService {
+    suspend fun fetchData(): List<DataItem> {
+        return httpClient.get("https://api.example.com/data")
+    }
+    
+    fun processData(data: List<DataItem>): List<ProcessedItem> {
+        return data.map { item ->
+            ProcessedItem(
+                id = item.id,
+                name = item.name,
+                processed = true
+            )
+        }
+    }
+}
+
+// 共享数据模型
+data class DataItem(
+    val id: String,
+    val name: String,
+    val value: Int
+)
+
+data class ProcessedItem(
+    val id: String,
+    val name: String,
+    val processed: Boolean
+)
+
+// 平台特定 UI 组件
+expect class CrossPlatformComponent {
+    fun render()
+}
+
+// Android 实现
+actual class CrossPlatformComponent actual constructor() {
+    actual fun render() {
+        // Android 特定 UI 实现
+        ComposeUI()
+    }
+}
+
+@Composable
+fun ComposeUI() {
+    Column {
+        Text("Android 特定 UI")
+        Button(onClick = { /* Android 操作 */ }) {
+            Text("Android 按钮")
+        }
+    }
+}
+```
+</UniversalEditor>
+
+### 主要差异
+
+| 方面 | JavaScript (React Native) | Kotlin (Multiplatform) |
+|--------|-------------------------|------------------------|
+| **性能** | JavaScript 桥接开销 | 所有平台的原生性能 |
+| **代码共享** | 限于业务逻辑 | 完整的业务逻辑 + 部分 UI 共享 |
+| **平台访问** | 有限的原生访问 | 完全的原生 API 访问 |
+| **类型安全** | 动态类型 | 跨平台的静态类型 |
+| **构建系统** | Metro bundler | 具有平台特定任务的 Gradle |
+| **UI 框架** | React Native 组件 | 平台特定的 UI 框架 |
+
+## 共享代码模块
+
+### 业务逻辑共享
+
+<UniversalEditor title="业务逻辑共享" compare={true}>
+```javascript !! js
+// JavaScript 共享业务逻辑
+// utils/calculator.js
+export class Calculator {
+  static add(a, b) {
+    return a + b;
+  }
+  
+  static multiply(a, b) {
+    return a * b;
+  }
+  
+  static divide(a, b) {
+    if (b === 0) {
+      throw new Error('Division by zero');
+    }
+    return a / b;
+  }
+}
+
+// utils/validator.js
+export class Validator {
+  static isValidEmail(email) {
+    const emailRegex = /^[^
+@]+@[^
+@]+\.[^
+@]+$/;
+    return emailRegex.test(email);
+  }
+  
+  static isValidPassword(password) {
+    return password.length >= 8;
+  }
+}
+
+// utils/apiClient.js
+export class ApiClient {
+  constructor(baseURL) {
+    this.baseURL = baseURL;
+  }
+  
+  async get(endpoint) {
+    const response = await fetch(`${this.baseURL}${endpoint}`);
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    return response.json();
+  }
+  
+  async post(endpoint, data) {
+    const response = await fetch(`${this.baseURL}${endpoint}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    return response.json();
+  }
+}
+```
+
+```kotlin !! kt
+// Kotlin Multiplatform 共享业务逻辑
+package com.example.multiplatform.shared
+
+// 共享计算器逻辑
+object Calculator {
+    fun add(a: Double, b: Double): Double = a + b
+    
+    fun multiply(a: Double, b: Double): Double = a * b
+    
+    fun divide(a: Double, b: Double): Double {
+        require(b != 0.0) { "Division by zero" }
+        return a / b
+    }
+}
+
+// 共享验证逻辑
+object Validator {
+    fun isValidEmail(email: String): Boolean {
+        val emailRegex = Regex("^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$")
+        return emailRegex.matches(email)
+    }
+    
+    fun isValidPassword(password: String): Boolean {
+        return password.length >= 8
+    }
+}
+
+// 共享 API 客户端
+class ApiClient(private val baseURL: String) {
+    suspend fun get(endpoint: String): String {
+        return httpClient.get("$baseURL$endpoint")
+    }
+    
+    suspend fun post(endpoint: String, data: String): String {
+        return httpClient.post("$baseURL$endpoint") {
+            setBody(data)
+        }
+    }
+}
+
+// 共享数据模型
+data class User(
+    val id: String,
+    val name: String,
+    val email: String
+)
+
+data class ApiResponse<T>(
+    val success: Boolean,
+    val data: T?,
+    val error: String?
+)
+
+// 共享仓库模式
+class UserRepository(private val apiClient: ApiClient) {
+    
+    suspend fun getUsers(): List<User> {
+        val response = apiClient.get("/users")
+        return Json.decodeFromString(response)
+    }
+    
+    suspend fun createUser(user: User): User {
+        val userJson = Json.encodeToString(user)
+        val response = apiClient.post("/users", userJson)
+        return Json.decodeFromString(response)
+    }
+}
+```
+</UniversalEditor>
+
+## 平台特定实现
+
+### 平台检测和特定代码
+
+<UniversalEditor title="平台特定实现" compare={true}>
+```javascript !! js
+// JavaScript 平台特定代码
+import { Platform } from 'react-native';
+
+// 平台检测
+const isAndroid = Platform.OS === 'android';
+const isIOS = Platform.OS === 'ios';
+const isWeb = Platform.OS === 'web';
+
+// 平台特定实现
+const getPlatformSpecificConfig = () => {
+  switch (Platform.OS) {
+    case 'android':
+      return {
+        theme: 'Material',
+        navigation: 'Stack',
+        storage: 'AsyncStorage'
+      };
+    case 'ios':
+      return {
+        theme: 'Cupertino',
+        navigation: 'Tab',
+        storage: 'Keychain'
+      };
+    case 'web':
+      return {
+        theme: 'Web',
+        navigation: 'Router',
+        storage: 'LocalStorage'
+      };
+    default:
+      return {
+        theme: 'Default',
+        navigation: 'Default',
+        storage: 'Default'
+      };
+  }
+};
+
+// 平台特定组件
+const PlatformButton = ({ onPress, title }) => {
+  if (isAndroid) {
+    return <AndroidButton onPress={onPress} title={title} />;
+  } else if (isIOS) {
+    return <IOSButton onPress={onPress} title={title} />;
+  } else {
+    return <WebButton onClick={onPress}>{title}</WebButton>;
+  }
+};
+
+// 平台特定存储
+const StorageService = {
+  async save(key, value) {
+    if (isWeb) {
+      localStorage.setItem(key, JSON.stringify(value));
+    } else {
+      await AsyncStorage.setItem(key, JSON.stringify(value));
+    }
+  },
+  
+  async load(key) {
+    if (isWeb) {
+      const value = localStorage.getItem(key);
+      return value ? JSON.parse(value) : null;
+    } else {
+      const value = await AsyncStorage.getItem(key);
+      return value ? JSON.parse(value) : null;
+    }
+  }
+};
+```
+
+```kotlin !! kt
+// Kotlin Multiplatform 平台特定代码
+package com.example.multiplatform
+
+// 平台检测
+expect object Platform {
+    val isAndroid: Boolean
+    val isIOS: Boolean
+    val isWeb: Boolean
+    val isDesktop: Boolean
+}
+
+// 平台特定实现
+actual object Platform {
+    actual val isAndroid: Boolean = true
+    actual val isIOS: Boolean = false
+    actual val isWeb: Boolean = false
+    actual val isDesktop: Boolean = false
+}
+
+// 平台特定配置
+expect class PlatformConfig {
+    val theme: String
+    val navigation: String
+    val storage: String
+}
+
+actual class PlatformConfig {
+    actual val theme: String = "Material"
+    actual val navigation: String = "Stack"
+    actual val storage: String = "SharedPreferences"
+}
+
+// 平台特定存储
+expect class StorageService {
+    suspend fun save(key: String, value: String)
+    suspend fun load(key: String): String?
+}
+
+actual class StorageService {
+    actual suspend fun save(key: String, value: String) {
+        // Android SharedPreferences 实现
+        val prefs = context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
+        prefs.edit().putString(key, value).apply()
+    }
+    
+    actual suspend fun load(key: String): String? {
+        // Android SharedPreferences 实现
+        val prefs = context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
+        return prefs.getString(key, null)
+    }
+}
+
+// 平台特定 UI 组件
+expect class PlatformButton {
+    fun render(onClick: () -> Unit, text: String)
+}
+
+actual class PlatformButton {
+    actual fun render(onClick: () -> Unit, text: String) {
+        // Android Compose 实现
+        Button(
+            onClick = onClick,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(text = text)
+        }
+    }
+}
+```
+</UniversalEditor>
+
+## 网络和数据持久化
+
+### 跨平台网络层
+
+<UniversalEditor title="跨平台网络" compare={true}>
+```javascript !! js
+// JavaScript 跨平台网络
+class NetworkService {
+  constructor(baseURL) {
+    this.baseURL = baseURL;
+  }
+  
+  async request(endpoint, options = {}) {
+    const url = `${this.baseURL}${endpoint}`;
+    const config = {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      ...options,
+    };
+    
+    try {
+      const response = await fetch(url, config);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      return await response.json();
+    } catch (error) {
+      console.error('Network error:', error);
+      throw error;
+    }
+  }
+  
+  async get(endpoint) {
+    return this.request(endpoint);
+  }
+  
+  async post(endpoint, data) {
+    return this.request(endpoint, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+  
+  async put(endpoint, data) {
+    return this.request(endpoint, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+  
+  async delete(endpoint) {
+    return this.request(endpoint, {
+      method: 'DELETE',
+    });
+  }
+}
+
+// 使用
+const apiService = new NetworkService('https://api.example.com');
+const users = await apiService.get('/users');
+```
+
+```kotlin !! kt
+// Kotlin Multiplatform 网络
+package com.example.multiplatform.network
+
+import io.ktor.client.*
+import io.ktor.client.request.*
+import io.ktor.client.response.*
+import io.ktor.http.*
+
+class NetworkService(private val baseURL: String) {
+    private val httpClient = HttpClient()
+    
+    suspend fun request(
+        endpoint: String,
+        method: HttpMethod = HttpMethod.Get,
+        body: String? = null
+    ): String {
+        return httpClient.request("$baseURL$endpoint") {
+            this.method = method
+            if (body != null) {
+                setBody(body)
+            }
+        }
+    }
+    
+    suspend fun get(endpoint: String): String {
+        return request(endpoint)
+    }
+    
+    suspend fun post(endpoint: String, data: String): String {
+        return request(endpoint, HttpMethod.Post, data)
+    }
+    
+    suspend fun put(endpoint: String, data: String): String {
+        return request(endpoint, HttpMethod.Put, data)
+    }
+    
+    suspend fun delete(endpoint: String): String {
+        return request(endpoint, HttpMethod.Delete)
+    }
+}
+
+// 共享 API 服务
+class ApiService(private val networkService: NetworkService) {
+    
+    suspend fun getUsers(): List<User> {
+        val response = networkService.get("/users")
+        return Json.decodeFromString(response)
+    }
+    
+    suspend fun createUser(user: User): User {
+        val userJson = Json.encodeToString(user)
+        val response = networkService.post("/users", userJson)
+        return Json.decodeFromString(response)
+    }
+    
+    suspend fun updateUser(id: String, user: User): User {
+        val userJson = Json.encodeToString(user)
+        val response = networkService.put("/users/$id", userJson)
+        return Json.decodeFromString(response)
+    }
+    
+    suspend fun deleteUser(id: String) {
+        networkService.delete("/users/$id")
+    }
+}
+```
+</UniversalEditor>
+
+## UI 共享策略
+
+### Compose Multiplatform
+
+<UniversalEditor title="使用 Compose Multiplatform 共享 UI" compare={true}>
+```javascript !! js
+// React Native - 跨平台 UI 组件
+import React from 'react';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+
+// 共享 UI 组件
+const Button = ({ onPress, title, style }) => (
+  <TouchableOpacity style={[styles.button, style]} onPress={onPress}>
+    <Text style={styles.buttonText}>{title}</Text>
+  </TouchableOpacity>
+);
+
+const Card = ({ children, style }) => (
+  <View style={[styles.card, style]}>
+    {children}
+  </View>
+);
+
+const Input = ({ value, onChangeText, placeholder, style }) => (
+  <TextInput
+    style={[styles.input, style]}
+    value={value}
+    onChangeText={onChangeText}
+    placeholder={placeholder}
+  />
+);
+
+const styles = StyleSheet.create({
+  button: {
+    backgroundColor: '#007AFF',
+    padding: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  buttonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  card: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 16,
+  },
+});
+
+// 在屏幕中使用
+const UserProfileScreen = () => {
+  const [name, setName] = useState('');
+  
+  return (
+    <View style={styles.container}>
+      <Card>
+        <Text style={styles.title}>用户个人资料</Text>
+        <Input
+          value={name}
+          onChangeText={setName}
+          placeholder="输入您的姓名"
+        />
+        <Button
+          title="保存个人资料"
+          onPress={() => console.log('保存个人资料')}
+        />
+      </Card>
+    </View>
+  );
+};
+```
+
+```kotlin !! kt
+// Compose Multiplatform - 共享 UI 组件
+package com.example.multiplatform.ui
+
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+
+// 共享 UI 组件
+@Composable
+fun AppButton(
+    onClick: () -> Unit,
+    text: String,
+    modifier: Modifier = Modifier
+) {
+    Button(
+        onClick = onClick,
+        modifier = modifier
+    ) {
+        Text(text = text)
+    }
+}
+
+@Composable
+fun AppCard(
+    content: @Composable () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier
+    ) {
+        Box(
+            modifier = Modifier.padding(16.dp)
+        ) {
+            content()
+        }
+    }
+}
+
+@Composable
+fun AppInput(
+    value: String,
+    onValueChange: (String) -> Unit,
+    placeholder: String,
+    modifier: Modifier = Modifier
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        label = { Text(placeholder) },
+        modifier = modifier.fillMaxWidth()
+    )
+}
+
+// 共享屏幕
+@Composable
+fun UserProfileScreen() {
+    var name by remember { mutableStateOf("") }
+    
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+    ) {
+        AppCard {
+            Column {
+                Text(
+                    text = "用户个人资料",
+                    style = MaterialTheme.typography.headlineMedium
+                )
+                
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                AppInput(
+                    value = name,
+                    onValueChange = { name = it },
+                    placeholder = "输入您的姓名"
+                )
+                
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                AppButton(
+                    onClick = { /* 保存个人资料 */ },
+                    text = "保存个人资料"
+                )
+            }
+        }
+    }
+}
+```
+</UniversalEditor>
+
+## 实践练习
+
+### 练习 1: 跨平台计算器
+创建一个在各平台共享业务逻辑的计算器应用。
+
+<UniversalEditor title="跨平台计算器练习" compare={true}>
+```javascript !! js
+// JavaScript 跨平台计算器
+import React, { useState } from 'react';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+
+// 共享业务逻辑
+class Calculator {
+  static add(a, b) { return a + b; }
+  static subtract(a, b) { return a - b; }
+  static multiply(a, b) { return a * b; }
+  static divide(a, b) {
+    if (b === 0) throw new Error('Division by zero');
+    return a / b;
+  }
+}
+
+const CalculatorApp = () => {
+  const [display, setDisplay] = useState('0');
+  const [firstNumber, setFirstNumber] = useState(null);
+  const [operation, setOperation] = useState(null);
+  const [waitingForSecondNumber, setWaitingForSecondNumber] = useState(false);
+  
+  const handleNumber = (num) => {
+    if (waitingForSecondNumber) {
+      setDisplay(num);
+      setWaitingForSecondNumber(false);
+    } else {
+      setDisplay(display === '0' ? num : display + num);
+    }
+  };
+  
+  const handleOperation = (op) => {
+    const current = parseFloat(display);
+    setFirstNumber(current);
+    setOperation(op);
+    setWaitingForSecondNumber(true);
+  };
+  
+  const calculate = () => {
+    if (!firstNumber || !operation) return;
+    
+    const second = parseFloat(display);
+    let result;
+    
+    try {
+      switch (operation) {
+        case '+': result = Calculator.add(firstNumber, second); break;
+        case '-': result = Calculator.subtract(firstNumber, second); break;
+        case '*': result = Calculator.multiply(firstNumber, second); break;
+        case '/': result = Calculator.divide(firstNumber, second); break;
+        default: return;
+      }
+      
+      setDisplay(result.toString());
+      setFirstNumber(null);
+      setOperation(null);
+    } catch (error) {
+      setDisplay('Error');
+    }
+  };
+  
+  const clear = () => {
+    setDisplay('0');
+    setFirstNumber(null);
+    setOperation(null);
+    setWaitingForSecondNumber(false);
+  };
+  
+  return (
+    <View style={styles.container}>
+      <Text style={styles.display}>{display}</Text>
+      
+      <View style={styles.buttons}>
+        <View style={styles.row}>
+          <TouchableOpacity style={styles.button} onPress={() => handleNumber('7')}>
+            <Text style={styles.buttonText}>7</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.button} onPress={() => handleNumber('8')}>
+            <Text style={styles.buttonText}>8</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.button} onPress={() => handleNumber('9')}>
+            <Text style={styles.buttonText}>9</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.operationButton} onPress={() => handleOperation('/')}>
+            <Text style={styles.buttonText}>/</Text>
+          </TouchableOpacity>
+        </View>
+        
+        <View style={styles.row}>
+          <TouchableOpacity style={styles.button} onPress={() => handleNumber('4')}>
+            <Text style={styles.buttonText}>4</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.button} onPress={() => handleNumber('5')}>
+            <Text style={styles.buttonText}>5</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.button} onPress={() => handleNumber('6')}>
+            <Text style={styles.buttonText}>6</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.operationButton} onPress={() => handleOperation('*')}>
+            <Text style={styles.buttonText}>*</Text>
+          </TouchableOpacity>
+        </View>
+        
+        <View style={styles.row}>
+          <TouchableOpacity style={styles.button} onPress={() => handleNumber('1')}>
+            <Text style={styles.buttonText}>1</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.button} onPress={() => handleNumber('2')}>
+            <Text style={styles.buttonText}>2</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.button} onPress={() => handleNumber('3')}>
+            <Text style={styles.buttonText}>3</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.operationButton} onPress={() => handleOperation('-')}>
+            <Text style={styles.buttonText}>-</Text>
+          </TouchableOpacity>
+        </View>
+        
+        <View style={styles.row}>
+          <TouchableOpacity style={styles.button} onPress={() => handleNumber('0')}>
+            <Text style={styles.buttonText}>0</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.button} onPress={() => handleNumber('.')}>
+            <Text style={styles.buttonText}>.</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.equalButton} onPress={calculate}>
+            <Text style={styles.buttonText}>=</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.operationButton} onPress={() => handleOperation('+')}>
+            <Text style={styles.buttonText}>+</Text>
+          </TouchableOpacity>
+        </View>
+        
+        <TouchableOpacity style={styles.clearButton} onPress={clear}>
+          <Text style={styles.buttonText}>Clear</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+};
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    padding: 20,
+    backgroundColor: '#f5f5f5',
+  },
+  display: {
+    fontSize: 48,
+    textAlign: 'right',
+    marginBottom: 20,
+    padding: 20,
+    backgroundColor: 'white',
+    borderRadius: 10,
+  },
+  buttons: {
+    flex: 1,
+  },
+  row: {
+    flexDirection: 'row',
+    marginBottom: 10,
+  },
+  button: {
+    flex: 1,
+    backgroundColor: 'white',
+    padding: 20,
+    margin: 5,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  operationButton: {
+    flex: 1,
+    backgroundColor: '#FF9500',
+    padding: 20,
+    margin: 5,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  equalButton: {
+    flex: 1,
+    backgroundColor: '#007AFF',
+    padding: 20,
+    margin: 5,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  clearButton: {
+    backgroundColor: '#FF3B30',
+    padding: 15,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  buttonText: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: 'white',
+  },
+});
+```
+
+```kotlin !! kt
+// Kotlin Multiplatform 计算器
+package com.example.multiplatform.calculator
+
+// 共享业务逻辑
+object Calculator {
+    fun add(a: Double, b: Double): Double = a + b
+    fun subtract(a: Double, b: Double): Double = a - b
+    fun multiply(a: Double, b: Double): Double = a * b
+    fun divide(a: Double, b: Double): Double {
+        require(b != 0.0) { "Division by zero" }
+        return a / b
+    }
+}
+
+// 共享状态管理
+class CalculatorState {
+    private val _display = MutableStateFlow("0")
+    val display: StateFlow<String> = _display.asStateFlow()
+    
+    private val _firstNumber = MutableStateFlow<Double?>(null)
+    val firstNumber: StateFlow<Double?> = _firstNumber.asStateFlow()
+    
+    private val _operation = MutableStateFlow<String?>(null)
+    val operation: StateFlow<String?> = _operation.asStateFlow()
+    
+    private val _waitingForSecondNumber = MutableStateFlow(false)
+    val waitingForSecondNumber: StateFlow<Boolean> = _waitingForSecondNumber.asStateFlow()
+    
+    fun handleNumber(num: String) {
+        if (_waitingForSecondNumber.value) {
+            _display.value = num
+            _waitingForSecondNumber.value = false
+        } else {
+            _display.value = if (_display.value == "0") num else _display.value + num
+        }
+    }
+    
+    fun handleOperation(op: String) {
+        val current = _display.value.toDoubleOrNull() ?: return
+        _firstNumber.value = current
+        _operation.value = op
+        _waitingForSecondNumber.value = true
+    }
+    
+    fun calculate() {
+        val first = _firstNumber.value ?: return
+        val op = _operation.value ?: return
+        val second = _display.value.toDoubleOrNull() ?: return
+        
+        val result = try {
+            when (op) {
+                "+" -> Calculator.add(first, second)
+                "-" -> Calculator.subtract(first, second)
+                "*" -> Calculator.multiply(first, second)
+                "/" -> Calculator.divide(first, second)
+                else -> return
+            }
+        } catch (e: Exception) {
+            _display.value = "Error"
+            return
+        }
+        
+        _display.value = result.toString()
+        _firstNumber.value = null
+        _operation.value = null
+    }
+    
+    fun clear() {
+        _display.value = "0"
+        _firstNumber.value = null
+        _operation.value = null
+        _waitingForSecondNumber.value = false
+    }
+}
+
+// 共享 UI 组件
+@Composable
+fun CalculatorButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    backgroundColor: Color = MaterialTheme.colorScheme.surface
+) {
+    Button(
+        onClick = onClick,
+        modifier = modifier,
+        colors = ButtonDefaults.buttonColors(containerColor = backgroundColor)
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.headlineMedium,
+            color = Color.White
+        )
+    }
+}
+
+// 共享计算器屏幕
+@Composable
+fun CalculatorScreen(
+    state: CalculatorState = remember { CalculatorState() }
+) {
+    val display by state.display.collectAsState()
+    
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+    ) {
+        // 显示
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 16.dp)
+        ) {
+            Text(
+                text = display,
+                style = MaterialTheme.typography.displayLarge,
+                modifier = Modifier.padding(16.dp),
+                textAlign = TextAlign.End
+            )
+        }
+        
+        // 按钮
+        Column {
+            Row {
+                CalculatorButton(
+                    text = "7",
+                    onClick = { state.handleNumber("7") },
+                    modifier = Modifier.weight(1f)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                CalculatorButton(
+                    text = "8",
+                    onClick = { state.handleNumber("8") },
+                    modifier = Modifier.weight(1f)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                CalculatorButton(
+                    text = "9",
+                    onClick = { state.handleNumber("9") },
+                    modifier = Modifier.weight(1f)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                CalculatorButton(
+                    text = "/",
+                    onClick = { state.handleOperation("/") },
+                    modifier = Modifier.weight(1f),
+                    backgroundColor = Color(0xFFFF9500)
+                )
+            }
+            
+            Spacer(modifier = Modifier.height(8.dp))
+            
+            Row {
+                CalculatorButton(
+                    text = "4",
+                    onClick = { state.handleNumber("4") },
+                    modifier = Modifier.weight(1f)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                CalculatorButton(
+                    text = "5",
+                    onClick = { state.handleNumber("5") },
+                    modifier = Modifier.weight(1f)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                CalculatorButton(
+                    text = "6",
+                    onClick = { state.handleNumber("6") },
+                    modifier = Modifier.weight(1f)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                CalculatorButton(
+                    text = "*",
+                    onClick = { state.handleOperation("*") },
+                    modifier = Modifier.weight(1f),
+                    backgroundColor = Color(0xFFFF9500)
+                )
+            }
+            
+            Spacer(modifier = Modifier.height(8.dp))
+            
+            Row {
+                CalculatorButton(
+                    text = "1",
+                    onClick = { state.handleNumber("1") },
+                    modifier = Modifier.weight(1f)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                CalculatorButton(
+                    text = "2",
+                    onClick = { state.handleNumber("2") },
+                    modifier = Modifier.weight(1f)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                CalculatorButton(
+                    text = "3",
+                    onClick = { state.handleNumber("3") },
+                    modifier = Modifier.weight(1f)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                CalculatorButton(
+                    text = "-",
+                    onClick = { state.handleOperation("-") },
+                    modifier = Modifier.weight(1f),
+                    backgroundColor = Color(0xFFFF9500)
+                )
+            }
+            
+            Spacer(modifier = Modifier.height(8.dp))
+            
+            Row {
+                CalculatorButton(
+                    text = "0",
+                    onClick = { state.handleNumber("0") },
+                    modifier = Modifier.weight(1f)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                CalculatorButton(
+                    text = ".",
+                    onClick = { state.handleNumber(".") },
+                    modifier = Modifier.weight(1f)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                CalculatorButton(
+                    text = "=",
+                    onClick = { state.calculate() },
+                    modifier = Modifier.weight(1f),
+                    backgroundColor = Color(0xFF007AFF)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                CalculatorButton(
+                    text = "+",
+                    onClick = { state.handleOperation("+") },
+                    modifier = Modifier.weight(1f),
+                    backgroundColor = Color(0xFFFF9500)
+                )
+            }
+            
+            Spacer(modifier = Modifier.height(8.dp))
+            
+            CalculatorButton(
+                text = "Clear",
+                onClick = { state.clear() },
+                modifier = Modifier.fillMaxWidth(),
+                backgroundColor = Color(0xFFFF3B30)
+            )
+        }
+    }
+}
+```
+</UniversalEditor>
+
+## 总结
+
+在本模块中，我们探索了使用 Kotlin Multiplatform 进行跨平台开发。以下是关键要点：
+
+### 涵盖的关键概念
+1. **Kotlin Multiplatform**: 现代跨平台开发解决方案
+2. **共享代码模块**: 跨平台共享业务逻辑
+3. **平台特定实现**: 针对特定平台的原生代码
+4. **网络**: 使用 Ktor 的跨平台网络层
+5. **UI 共享**: 使用 Compose Multiplatform 共享 UI 组件
+6. **构建系统**: 具有平台特定任务的 Gradle
+
+### JavaScript vs Kotlin 跨平台开发
+
+| 方面 | JavaScript (React Native) | Kotlin (Multiplatform) |
+|--------|-------------------------|------------------------|
+| **性能** | JavaScript 桥接开销 | 所有平台的原生性能 |
+| **代码共享** | 限于业务逻辑 | 完整的业务逻辑 + 部分 UI 共享 |
+| **平台访问** | 有限的原生访问 | 完全的原生 API 访问 |
+| **类型安全** | 动态类型 | 跨平台的静态类型 |
+| **构建系统** | Metro bundler | 具有平台特定任务的 Gradle |
+| **UI 框架** | React Native 组件 | 平台特定的 UI 框架 |
+| **开发体验** | 热重载 | 具有更好工具的热重载 |
+
+### 最佳实践
+1. **共享业务逻辑**: 尽量减少平台特定代码
+2. **使用 Expect/Actual**: 用于平台特定实现
+3. **实现仓库模式**: 用于数据访问抽象
+4. **使用 Compose Multiplatform**: 用于共享 UI 组件
+5. **遵循平台约定**: 尊重每个平台的设计模式
+6. **测试共享代码**: 对共享模块进行全面测试
+7. **优化构建时间**: 使用增量编译
+
+### 下一步
+在下一个模块中，我们将探索 Kotlin 应用的测试和调试最佳实践，重点关注单元测试、集成测试和调试技巧。
+
+---
+
+**实践挑战**: 构建一个跨平台笔记应用，在 Android、iOS 和 Web 平台之间共享业务逻辑，并具有平台特定的 UI 实现和本地数据持久化。

@@ -1,0 +1,1197 @@
+---
+title: "Kotlin 测试与调试"
+description: "学习 Kotlin 测试和调试的最佳实践，并与 JavaScript 测试模式和 Jest 概念进行比较"
+---
+
+# Kotlin 测试与调试
+
+欢迎来到 JavaScript 到 Kotlin 转换的第十个模块！在本模块中，我们将探讨 Kotlin 的测试和调试，并了解它与 Jest 和 Mocha 等 JavaScript 测试模式的比较。我们将学习单元测试、集成测试、协程测试、性能分析和现代调试技术。
+
+## 学习目标
+
+在本模块结束时，您将能够：
+- 理解 Kotlin 测试框架和工具
+- 比较 Kotlin 测试与 JavaScript 测试模式
+- 实现全面的单元测试
+- 为 Web 和移动应用程序编写集成测试
+- 测试协程和异步代码
+- 执行性能分析和优化
+- 使用调试工具和技术
+- 应用测试驱动开发实践
+
+## 测试框架概述
+
+### 框架比较
+
+Kotlin 使用 JUnit 5 和 Kotlin Test 进行测试，而 JavaScript 通常使用 Jest、Mocha 或 Vitest。
+
+<UniversalEditor title="测试框架比较" compare={true}>
+```javascript !! js
+// Jest - JavaScript 测试框架
+import { Calculator } from './calculator';
+
+describe('Calculator', () => {
+  let calculator;
+  
+  beforeEach(() => {
+    calculator = new Calculator();
+  });
+  
+  describe('add', () => {
+    it('应该添加两个正数', () => {
+      const result = calculator.add(2, 3);
+      expect(result).toBe(5);
+    });
+    
+    it('应该处理负数', () => {
+      const result = calculator.add(-2, 3);
+      expect(result).toBe(1);
+    });
+    
+    it('应该处理零', () => {
+      const result = calculator.add(0, 5);
+      expect(result).toBe(5);
+    });
+  });
+  
+  describe('divide', () => {
+    it('应该除以两个数', () => {
+      const result = calculator.divide(10, 2);
+      expect(result).toBe(5);
+    });
+    
+    it('除以零时应该抛出错误', () => {
+      expect(() => {
+        calculator.divide(10, 0);
+      }).toThrow('Division by zero');
+    });
+  });
+});
+
+// 模拟示例
+jest.mock('./api');
+import { fetchUser } from './api';
+
+describe('UserService', () => {
+  it('应该成功获取用户', async () => {
+    const mockUser = { id: 1, name: 'John' };
+    fetchUser.mockResolvedValue(mockUser);
+    
+    const userService = new UserService();
+    const result = await userService.getUser(1);
+    
+    expect(result).toEqual(mockUser);
+    expect(fetchUser).toHaveBeenCalledWith(1);
+  });
+});
+```
+
+```kotlin !! kt
+// JUnit 5 - Kotlin 测试框架
+package com.example.testing
+
+import org.junit.jupiter.api.*
+import org.junit.jupiter.api.Assertions.*
+import org.mockito.kotlin.*
+
+class CalculatorTest {
+    
+    private lateinit var calculator: Calculator
+    
+    @BeforeEach
+    fun setUp() {
+        calculator = Calculator()
+    }
+    
+    @Nested
+    @DisplayName("add 测试")
+    inner class AddTests {
+        
+        @Test
+        @DisplayName("应该添加两个正数")
+        fun `should add two positive numbers`() {
+            val result = calculator.add(2, 3)
+            assertEquals(5, result)
+        }
+        
+        @Test
+        @DisplayName("应该处理负数")
+        fun `should handle negative numbers`() {
+            val result = calculator.add(-2, 3)
+            assertEquals(1, result)
+        }
+        
+        @Test
+        @DisplayName("应该处理零")
+        fun `should handle zero`() {
+            val result = calculator.add(0, 5)
+            assertEquals(5, result)
+        }
+    }
+    
+    @Nested
+    @DisplayName("divide 测试")
+    inner class DivideTests {
+        
+        @Test
+        @DisplayName("应该除以两个数")
+        fun `should divide two numbers`() {
+            val result = calculator.divide(10, 2)
+            assertEquals(5.0, result)
+        }
+        
+        @Test
+        @DisplayName("除以零时应该抛出异常")
+        fun `should throw exception for division by zero`() {
+            val exception = assertThrows<IllegalArgumentException> {
+                calculator.divide(10, 0)
+            }
+            assertEquals("Division by zero", exception.message)
+        }
+    }
+}
+
+// 使用 Mockito 的模拟示例
+@ExtendWith(MockitoExtension::class)
+class UserServiceTest {
+    
+    @Mock
+    private lateinit var userRepository: UserRepository
+    
+    @InjectMocks
+    private lateinit var userService: UserService
+    
+    @Test
+    @DisplayName("应该成功获取用户")
+    fun `should get user successfully`() = runTest {
+        // Given
+        val userId = 1L
+        val expectedUser = User(id = userId, name = "John", email = "john@example.com")
+        whenever(userRepository.findById(userId)).thenReturn(expectedUser)
+        
+        // When
+        val result = userService.getUserById(userId)
+        
+        // Then
+        assertEquals(expectedUser, result)
+        verify(userRepository).findById(userId)
+    }
+}
+```
+</UniversalEditor>
+
+### 主要差异
+
+| 方面 | JavaScript (Jest) | Kotlin (JUnit 5) |
+|--------|------------------|-------------------|
+| **类型安全** | 动态类型 | 静态类型，编译时检查 |
+| **测试组织** | describe/it 块 | @Nested/@Test 注解 |
+| **断言** | expect() 函数 | assertEquals(), assertThrows() |
+| **模拟** | jest.mock() | Mockito 与 Kotlin 扩展 |
+| **异步测试** | async/await | 使用协程的 runTest |
+| **测试发现** | 基于文件 | 基于注解 |
+
+## 单元测试
+
+### 基本单元测试
+
+<UniversalEditor title="单元测试比较" compare={true}>
+```javascript !! js
+// JavaScript 单元测试
+import { UserService } from './userService';
+import { User } from './user';
+
+describe('UserService', () => {
+  let userService;
+  let mockApi;
+  
+  beforeEach(() => {
+    mockApi = {
+      get: jest.fn(),
+      post: jest.fn(),
+      put: jest.fn(),
+      delete: jest.fn()
+    };
+    userService = new UserService(mockApi);
+  });
+  
+  describe('getUser', () => {
+    it('API 调用成功时应返回用户', async () => {
+      const mockUser = { id: 1, name: 'John', email: 'john@example.com' };
+      mockApi.get.mockResolvedValue(mockUser);
+      
+      const result = await userService.getUser(1);
+      
+      expect(result).toEqual(mockUser);
+      expect(mockApi.get).toHaveBeenCalledWith('/users/1');
+    });
+    
+    it('API 调用失败时应抛出错误', async () => {
+      const error = new Error('Network error');
+      mockApi.get.mockRejectedValue(error);
+      
+      await expect(userService.getUser(1)).rejects.toThrow('Network error');
+    });
+  });
+  
+  describe('createUser', () => {
+    it('应该成功创建用户', async () => {
+      const userData = { name: 'Jane', email: 'jane@example.com' };
+      const createdUser = { id: 2, ...userData };
+      mockApi.post.mockResolvedValue(createdUser);
+      
+      const result = await userService.createUser(userData);
+      
+      expect(result).toEqual(createdUser);
+      expect(mockApi.post).toHaveBeenCalledWith('/users', userData);
+    });
+  });
+  
+  describe('validateEmail', () => {
+    it('对于有效的电子邮件应该返回 true', () => {
+      const validEmails = [
+        'test@example.com',
+        'user.name@domain.co.uk',
+        'user+tag@example.org'
+      ];
+      
+      validEmails.forEach(email => {
+        expect(userService.validateEmail(email)).toBe(true);
+      });
+    });
+    
+    it('对于无效的电子邮件应该返回 false', () => {
+      const invalidEmails = [
+        'invalid-email',
+        '@example.com',
+        'user@',
+        'user@.com'
+      ];
+      
+      invalidEmails.forEach(email => {
+        expect(userService.validateEmail(email)).toBe(false);
+      });
+    });
+  });
+});
+```
+
+```kotlin !! kt
+// Kotlin 单元测试
+package com.example.testing
+
+import org.junit.jupiter.api.*
+import org.junit.jupiter.api.Assertions.*
+import org.mockito.kotlin.*
+import kotlinx.coroutines.test.runTest
+
+@ExtendWith(MockitoExtension::class)
+class UserServiceTest {
+    
+    @Mock
+    private lateinit var apiClient: ApiClient
+    
+    @InjectMocks
+    private lateinit var userService: UserService
+    
+    @Nested
+    @DisplayName("getUser 测试")
+    inner class GetUserTests {
+        
+        @Test
+        @DisplayName("API 调用成功时应返回用户")
+        fun `should return user when API call succeeds`() = runTest {
+            // Given
+            val userId = 1L
+            val expectedUser = User(
+                id = userId,
+                name = "John",
+                email = "john@example.com"
+            )
+            whenever(apiClient.get("/users/$userId")).thenReturn(expectedUser)
+            
+            // When
+            val result = userService.getUser(userId)
+            
+            // Then
+            assertEquals(expectedUser, result)
+            verify(apiClient).get("/users/$userId")
+        }
+        
+        @Test
+        @DisplayName("API 调用失败时应抛出异常")
+        fun `should throw exception when API call fails`() = runTest {
+            // Given
+            val userId = 1L
+            val error = RuntimeException("Network error")
+            whenever(apiClient.get("/users/$userId")).thenThrow(error)
+            
+            // When & Then
+            val exception = assertThrows<RuntimeException> {
+                userService.getUser(userId)
+            }
+            assertEquals("Network error", exception.message)
+        }
+    }
+    
+    @Nested
+    @DisplayName("createUser 测试")
+    inner class CreateUserTests {
+        
+        @Test
+        @DisplayName("应该成功创建用户")
+        fun `should create user successfully`() = runTest {
+            // Given
+            val userData = CreateUserRequest(
+                name = "Jane",
+                email = "jane@example.com"
+            )
+            val createdUser = User(
+                id = 2L,
+                name = userData.name,
+                email = userData.email
+            )
+            whenever(apiClient.post("/users", userData)).thenReturn(createdUser)
+            
+            // Then
+            assertEquals(createdUser, result)
+            verify(apiClient).post("/users", userData)
+        }
+    }
+    
+    @Nested
+    @DisplayName("validateEmail 测试")
+    inner class ValidateEmailTests {
+        
+        @Test
+        @DisplayName("对于有效的电子邮件应该返回 true")
+        fun `should return true for valid emails`() {
+            val validEmails = listOf(
+                "test@example.com",
+                "user.name@domain.co.uk",
+                "user+tag@example.org"
+            )
+            
+            validEmails.forEach { email ->
+                assertTrue(userService.validateEmail(email), "Email $email should be valid")
+            }
+        }
+        
+        @Test
+        @DisplayName("对于无效的电子邮件应该返回 false")
+        fun `should return false for invalid emails`() {
+            val invalidEmails = listOf(
+                "invalid-email",
+                "@example.com",
+                "user@",
+                "user@.com"
+            )
+            
+            invalidEmails.forEach { email ->
+                assertFalse(userService.validateEmail(email), "Email $email should be invalid")
+            }
+        }
+    }
+}
+```
+</UniversalEditor>
+
+## 协程测试
+
+### 测试异步代码
+
+<UniversalEditor title="协程测试比较" compare={true}>
+```javascript !! js
+// JavaScript 异步测试
+describe('AsyncService', () => {
+  let asyncService;
+  
+  beforeEach(() => {
+    asyncService = new AsyncService();
+  });
+  
+  describe('fetchData', () => {
+    it('应该成功获取数据', async () => {
+      const result = await asyncService.fetchData();
+      
+      expect(result).toEqual([
+        { id: 1, name: 'Item 1' },
+        { id: 2, name: 'Item 2' }
+      ]);
+    });
+    
+    it('应该处理错误', async () => {
+      // 模拟 fetch 抛出错误
+      global.fetch = jest.fn().mockRejectedValue(new Error('Network error'));
+      
+      await expect(asyncService.fetchData()).rejects.toThrow('Network error');
+    });
+    
+    it('应该在指定时间后超时', async () => {
+      // 模拟慢响应
+      global.fetch = jest.fn().mockImplementation(() => 
+        new Promise(resolve => setTimeout(resolve, 2000))
+      );
+      
+      await expect(asyncService.fetchDataWithTimeout(1000))
+        .rejects.toThrow('Request timeout');
+    });
+  });
+  
+  describe('processItems', () => {
+    it('应该并发处理项目', async () => {
+      const items = [1, 2, 3, 4, 5];
+      const result = await asyncService.processItems(items);
+      
+      expect(result).toHaveLength(5);
+      expect(result.every(item => item.processed)).toBe(true);
+    });
+  });
+});
+```
+
+```kotlin !! kt
+// Kotlin 协程测试
+package com.example.testing
+
+import kotlinx.coroutines.test.*
+import org.junit.jupiter.api.*
+import org.junit.jupiter.api.Assertions.*
+import kotlin.time.Duration.Companion.seconds
+
+@OptIn(ExperimentalCoroutinesApi::class)
+class AsyncServiceTest {
+    
+    private lateinit var asyncService: AsyncService
+    
+    @get:Rule
+    val mainDispatcherRule = MainDispatcherRule()
+    
+    @BeforeEach
+    fun setUp() {
+        asyncService = AsyncService()
+    }
+    
+    @Nested
+    @DisplayName("fetchData 测试")
+    inner class FetchDataTests {
+        
+        @Test
+        @DisplayName("应该成功获取数据")
+        fun `should fetch data successfully`() = runTest {
+            // When
+            val result = asyncService.fetchData()
+            
+            // Then
+            assertEquals(
+                listOf(
+                    DataItem(id = 1, name = "Item 1"),
+                    DataItem(id = 2, name = "Item 2")
+                ),
+                result
+            )
+        }
+        
+        @Test
+        @DisplayName("应该处理错误")
+        fun `should handle errors`() = runTest {
+            // Given
+            asyncService.setShouldThrowError(true)
+            
+            // When & Then
+            val exception = assertThrows<RuntimeException> {
+                asyncService.fetchData()
+            }
+            assertEquals("Network error", exception.message)
+        }
+        
+        @Test
+        @DisplayName("应该在指定时间后超时")
+        fun `should timeout after specified time`() = runTest {
+            // Given
+            asyncService.setSlowResponse(true)
+            
+            // When & Then
+            val exception = assertThrows<TimeoutException> {
+                withTimeout(1.seconds) {
+                    asyncService.fetchDataWithTimeout()
+                }
+            }
+            assertTrue(exception.message?.contains("timeout") == true)
+        }
+    }
+    
+    @Nested
+    @DisplayName("processItems 测试")
+    inner class ProcessItemsTests {
+        
+        @Test
+        @DisplayName("应该并发处理项目")
+        fun `should process items concurrently`() = runTest {
+            // Given
+            val items = listOf(1, 2, 3, 4, 5)
+            
+            // When
+            val result = asyncService.processItems(items)
+            
+            // Then
+            assertEquals(5, result.size)
+            assertTrue(result.all { it.processed })
+        }
+        
+        @Test
+        @DisplayName("应该处理空列表")
+        fun `should handle empty list`() = runTest {
+            // When
+            val result = asyncService.processItems(emptyList())
+            
+            // Then
+            assertTrue(result.isEmpty())
+        }
+    }
+}
+
+// 主调度器的自定义测试规则
+@OptIn(ExperimentalCoroutinesApi::class)
+class MainDispatcherRule : TestWatcher() {
+    private val testDispatcher = StandardTestDispatcher()
+    
+    override fun starting(description: Description) {
+        super.starting(description)
+        Dispatchers.setMain(testDispatcher)
+    }
+    
+    override fun finished(description: Description) {
+        super.finished(description)
+        Dispatchers.resetMain()
+    }
+}
+```
+</UniversalEditor>
+
+## 集成测试
+
+### Web 应用程序测试
+
+<UniversalEditor title="集成测试比较" compare={true}>
+```javascript !! js
+// 使用 Supertest 的 JavaScript 集成测试
+import request from 'supertest';
+import app from '../app';
+import { connect, disconnect } from '../database';
+
+describe('User API Integration Tests', () => {
+  beforeAll(async () => {
+    await connect();
+  });
+  
+  afterAll(async () => {
+    await disconnect();
+  });
+  
+  beforeEach(async () => {
+    // 在每个测试前清除数据库
+    await User.deleteMany({});
+  });
+  
+  describe('GET /api/users', () => {
+    it('当没有用户存在时应返回空列表', async () => {
+      const response = await request(app)
+        .get('/api/users')
+        .expect(200);
+      
+      expect(response.body).toEqual([]);
+    });
+    
+    it('应该返回所有用户', async () => {
+      // 创建测试用户
+      const user1 = await User.create({ name: 'John', email: 'john@example.com' });
+      const user2 = await User.create({ name: 'Jane', email: 'jane@example.com' });
+      
+      const response = await request(app)
+        .get('/api/users')
+        .expect(200);
+      
+      expect(response.body).toHaveLength(2);
+      expect(response.body[0].name).toBe('John');
+      expect(response.body[1].name).toBe('Jane');
+    });
+  });
+  
+  describe('POST /api/users', () => {
+    it('应该创建新用户', async () => {
+      const userData = { name: 'John', email: 'john@example.com' };
+      
+      const response = await request(app)
+        .post('/api/users')
+        .send(userData)
+        .expect(201);
+      
+      expect(response.body.name).toBe('John');
+      expect(response.body.email).toBe('john@example.com');
+      expect(response.body.id).toBeDefined();
+    });
+    
+    it('对于无效数据应返回 400', async () => {
+      const invalidData = { name: '', email: 'invalid-email' };
+      
+      const response = await request(app)
+        .post('/api/users')
+        .send(invalidData)
+        .expect(400);
+      
+      expect(response.body.error).toBeDefined();
+    });
+  });
+  
+  describe('GET /api/users/:id', () => {
+    it('应该通过 id 返回用户', async () => {
+      const user = await User.create({ name: 'John', email: 'john@example.com' });
+      
+      const response = await request(app)
+        .get(`/api/users/${user.id}`)
+        .expect(200);
+      
+      expect(response.body.name).toBe('John');
+      expect(response.body.email).toBe('john@example.com');
+    });
+    
+    it('对于不存在的用户应返回 404', async () => {
+      await request(app)
+        .get('/api/users/999')
+        .expect(404);
+    });
+  });
+});
+```
+
+```kotlin !! kt
+// 使用 Spring Boot Test 的 Kotlin 集成测试
+package com.example.testing.integration
+
+import org.junit.jupiter.api.*
+import org.springframework.boot.test.context.SpringBootTest
+import org.springframework.boot.test.web.client.TestRestTemplate
+import org.springframework.boot.test.web.server.LocalServerPort
+import org.springframework.http.HttpStatus
+import org.springframework.test.context.ActiveProfiles
+import org.springframework.transaction.annotation.Transactional
+
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@ActiveProfiles("test")
+@TestInstance(TestInstance.Lifecycle.PER_CLASS)
+class UserApiIntegrationTest {
+    
+    @LocalServerPort
+    private var port: Int = 0
+    
+    private lateinit var restTemplate: TestRestTemplate
+    private lateinit var baseUrl: String
+    
+    @BeforeAll
+    fun setUp() {
+        restTemplate = TestRestTemplate()
+        baseUrl = "http://localhost:$port/api"
+    }
+    
+    @BeforeEach
+    fun setUpEach() {
+        // 在每个测试前清除数据库
+        userRepository.deleteAll()
+    }
+    
+    @Nested
+    @DisplayName("GET /api/users 测试")
+    inner class GetUsersTests {
+        
+        @Test
+        @DisplayName("当没有用户存在时应返回空列表")
+        fun `should return empty list when no users exist`() {
+            // When
+            val response = restTemplate.getForEntity("$baseUrl/users", Array<User>::class.java)
+            
+            // Then
+            assertEquals(HttpStatus.OK, response.statusCode)
+            assertNotNull(response.body)
+            assertEquals(0, response.body!!.size)
+        }
+        
+        @Test
+        @DisplayName("应该返回所有用户")
+        fun `should return all users`() {
+            // Given
+            val user1 = userRepository.save(User(name = "John", email = "john@example.com"))
+            val user2 = userRepository.save(User(name = "Jane", email = "jane@example.com"))
+            
+            // When
+            val response = restTemplate.getForEntity("$baseUrl/users", Array<User>::class.java)
+            
+            // Then
+            assertEquals(HttpStatus.OK, response.statusCode)
+            assertNotNull(response.body)
+            assertEquals(2, response.body!!.size)
+            assertEquals("John", response.body!![0].name)
+            assertEquals("Jane", response.body!![1].name)
+        }
+    }
+    
+    @Nested
+    @DisplayName("POST /api/users 测试")
+    inner class CreateUserTests {
+        
+        @Test
+        @DisplayName("应该创建新用户")
+        fun `should create new user`() {
+            // Given
+            val userData = CreateUserRequest(
+                name = "John",
+                email = "john@example.com"
+            )
+            
+            // When
+            val response = restTemplate.postForEntity("$baseUrl/users", userData, User::class.java)
+            
+            // Then
+            assertEquals(HttpStatus.CREATED, response.statusCode)
+            assertNotNull(response.body)
+            assertEquals("John", response.body!!.name)
+            assertEquals("john@example.com", response.body!!.email)
+            assertNotNull(response.body!!.id)
+        }
+        
+        @Test
+        @DisplayName("对于无效数据应返回 400")
+        fun `should return 400 for invalid data`() {
+            // Given
+            val invalidData = CreateUserRequest(
+                name = "",
+                email = "invalid-email"
+            )
+            
+            // When
+            val response = restTemplate.postForEntity("$baseUrl/users", invalidData, ErrorResponse::class.java)
+            
+            // Then
+            assertEquals(HttpStatus.BAD_REQUEST, response.statusCode)
+            assertNotNull(response.body)
+        }
+    }
+    
+    @Nested
+    @DisplayName("GET /api/users/{id} 测试")
+    inner class GetUserByIdTests {
+        
+        @Test
+        @DisplayName("应该通过 id 返回用户")
+        fun `should return user by id`() {
+            // Given
+            val user = userRepository.save(User(name = "John", email = "john@example.com"))
+            
+            // When
+            val response = restTemplate.getForEntity("$baseUrl/users/${user.id}", User::class.java)
+            
+            // Then
+            assertEquals(HttpStatus.OK, response.statusCode)
+            assertNotNull(response.body)
+            assertEquals("John", response.body!!.name)
+            assertEquals("john@example.com", response.body!!.email)
+        }
+        
+        @Test
+        @DisplayName("对于不存在的用户应返回 404")
+        fun `should return 404 for non-existent user`() {
+            // When
+            val response = restTemplate.getForEntity("$baseUrl/users/999", ErrorResponse::class.java)
+            
+            // Then
+            assertEquals(HttpStatus.NOT_FOUND, response.statusCode)
+        }
+    }
+}
+```
+</UniversalEditor>
+
+## 性能测试
+
+### 性能分析
+
+<UniversalEditor title="性能测试比较" compare={true}>
+```javascript !! js
+// JavaScript 性能测试
+import { performance } from 'perf_hooks';
+
+describe('Performance Tests', () => {
+  describe('Array Operations', () => {
+    it('应该测量数组过滤性能', () => {
+      const largeArray = Array.from({ length: 100000 }, (_, i) => i);
+      
+      const startTime = performance.now();
+      const result = largeArray.filter(x => x % 2 === 0);
+      const endTime = performance.now();
+      
+      const duration = endTime - startTime;
+      console.log(`数组过滤耗时 ${duration}ms`);
+      
+      expect(duration).toBeLessThan(100); // 应该在 100ms 内完成
+      expect(result.length).toBe(50000);
+    });
+    
+    it('应该测量对象创建性能', () => {
+      const iterations = 10000;
+      
+      const startTime = performance.now();
+      for (let i = 0; i < iterations; i++) {
+        const obj = {
+          id: i,
+          name: `User${i}`,
+          email: `user${i}@example.com`
+        };
+      }
+      const endTime = performance.now();
+      
+      const duration = endTime - startTime;
+      console.log(`对象创建耗时 ${duration}ms for ${iterations} 个对象`);
+      
+      expect(duration).toBeLessThan(50); // 应该在 50ms 内完成
+    });
+  });
+  
+  describe('Async Operations', () => {
+    it('应该测量异步操作性能', async () => {
+      const startTime = performance.now();
+      
+      const promises = Array.from({ length: 100 }, (_, i) => 
+        fetch(`https://jsonplaceholder.typicode.com/posts/${i + 1}`)
+      );
+      
+      const results = await Promise.all(promises);
+      const endTime = performance.now();
+      
+      const duration = endTime - startTime;
+      console.log(`异步操作耗时 ${duration}ms`);
+      
+      expect(results).toHaveLength(100);
+      expect(duration).toBeLessThan(5000); // 应该在 5 秒内完成
+    });
+  });
+});
+```
+
+```kotlin !! kt
+// Kotlin 性能测试
+package com.example.testing.performance
+
+import org.junit.jupiter.api.*
+import org.junit.jupiter.api.Assertions.*
+import kotlin.system.measureTimeMillis
+import kotlinx.coroutines.runBlocking
+
+class PerformanceTest {
+    
+    @Nested
+    @DisplayName("集合操作")
+    inner class CollectionOperations {
+        
+        @Test
+        @DisplayName("应该测量列表过滤性能")
+        fun `should measure list filter performance`() {
+            // Given
+            val largeList = (0..100_000).toList()
+            
+            // When
+            val duration = measureTimeMillis {
+                val result = largeList.filter { it % 2 == 0 }
+                
+                // Then
+                assertEquals(50_001, result.size)
+            }
+            
+            println("列表过滤耗时 ${duration}ms")
+            assertTrue(duration < 100) // 应该在 100ms 内完成
+        }
+        
+        @Test
+        @DisplayName("应该测量对象创建性能")
+        fun `should measure object creation performance`() {
+            // Given
+            val iterations = 10_000
+            
+            // When
+            val duration = measureTimeMillis {
+                repeat(iterations) { i ->
+                    val user = User(
+                        id = i.toLong(),
+                        name = "User$i",
+                        email = "user$i@example.com"
+                    )
+                }
+            }
+            
+            println("对象创建耗时 ${duration}ms for $iterations 个对象")
+            assertTrue(duration < 50) // 应该在 50ms 内完成
+        }
+    }
+    
+    @Nested
+    @DisplayName("协程操作")
+    inner class CoroutineOperations {
+        
+        @Test
+        @DisplayName("应该测量协程性能")
+        fun `should measure coroutine performance`() = runBlocking {
+            // Given
+            val iterations = 100
+            
+            // When
+            val duration = measureTimeMillis {
+                val results = (1..iterations).map { i ->
+                    async {
+                        // 模拟 API 调用
+                        delay(10)
+                        "Result $i"
+                    }
+                }.awaitAll()
+                
+                // Then
+                assertEquals(iterations, results.size)
+            }
+            
+            println("协程操作耗时 ${duration}ms")
+            assertTrue(duration < 2000) // 应该在 2 秒内完成
+        }
+    }
+    
+    @Nested
+    @DisplayName("内存使用")
+    inner class MemoryUsage {
+        
+        @Test
+        @DisplayName("应该测量内存使用")
+        fun `should measure memory usage`() {
+            // Given
+            val initialMemory = Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory()
+            
+            // When
+            val largeList = (0..1_000_000).map { i ->
+                User(
+                    id = i.toLong(),
+                    name = "User$i",
+                    email = "user$i@example.com"
+                )
+            }
+            
+            val finalMemory = Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory()
+            val memoryUsed = finalMemory - initialMemory
+            
+            println("内存使用: ${memoryUsed / 1024 / 1024}MB")
+            
+            // Then
+            assertEquals(1_000_001, largeList.size)
+            assertTrue(memoryUsed < 100 * 1024 * 1024) // 应该使用少于 100MB
+        }
+    }
+}
+```
+</UniversalEditor>
+
+## 调试技术
+
+### 调试工具和方法
+
+<UniversalEditor title="调试技术比较" compare={true}>
+```javascript !! js
+// JavaScript 调试技术
+class DebugExample {
+  constructor() {
+    this.data = [];
+  }
+  
+  addItem(item) {
+    // 用于调试的控制台日志
+    console.log('Adding item:', item);
+    console.trace('Stack trace for addItem');
+    
+    // 调试器语句
+    debugger;
+    
+    this.data.push(item);
+    
+    // 性能测量
+    console.time('Processing items');
+    this.processItems();
+    console.timeEnd('Processing items');
+  }
+  
+  processItems() {
+    // 带堆栈跟踪的错误处理
+    try {
+      this.data.forEach((item, index) => {
+        if (item.value > 100) {
+          throw new Error(`Item at index ${index} has invalid value: ${item.value}`);
+        }
+      });
+    } catch (error) {
+      console.error('Error processing items:', error);
+      console.error('Stack trace:', error.stack);
+    }
+  }
+  
+  async fetchData() {
+    // 异步调试
+    console.log('Starting data fetch...');
+    
+    try {
+      const response = await fetch('/api/data');
+      console.log('Response status:', response.status);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      console.log('Fetched data:', data);
+      
+      return data;
+    } catch (error) {
+      console.error('Fetch error:', error);
+      throw error;
+    }
+  }
+}
+
+// 使用调试
+const debugExample = new DebugExample();
+debugExample.addItem({ id: 1, value: 50 });
+debugExample.addItem({ id: 2, value: 150 }); // 这将导致错误
+```
+
+```kotlin !! kt
+// Kotlin 调试技术
+package com.example.debugging
+
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.runBlocking
+import java.util.logging.Logger
+
+class DebugExample {
+    private val logger = Logger.getLogger(DebugExample::class.java.name)
+    private val data = mutableListOf<DataItem>()
+    
+    fun addItem(item: DataItem) {
+        // 用于调试的日志记录
+        logger.info("Adding item: $item")
+        
+        // 堆栈跟踪日志记录
+        logger.fine("Stack trace: ${Thread.currentThread().stackTrace.joinToString("\n")}")
+        
+        // 调试器断点（在 IDE 中设置）
+        // 您也可以使用: throw RuntimeException("Debug breakpoint")
+        
+        data.add(item)
+        
+        // 性能测量
+        val startTime = System.currentTimeMillis()
+        processItems()
+        val endTime = System.currentTimeMillis()
+        logger.info("Processing items took ${endTime - startTime}ms")
+    }
+    
+    private fun processItems() {
+        // 带详细信息的错误处理
+        try {
+            data.forEachIndexed { index, item ->
+                require(item.value <= 100) {
+                    "Item at index $index has invalid value: ${item.value}"
+                }
+            }
+        } catch (error: Exception) {
+            logger.severe("Error processing items: ${error.message}")
+            logger.severe("Stack trace: ${error.stackTraceToString()}")
+            throw error
+        }
+    }
+    
+    suspend fun fetchData(): List<DataItem> {
+        logger.info("Starting data fetch...")
+        
+        return try {
+            // 模拟 API 调用
+            delay(1000)
+            
+            val response = "mock response"
+            logger.info("Response received: $response")
+            
+            // 模拟解析
+            val data = listOf(
+                DataItem(id = 1, value = 50),
+                DataItem(id = 2, value = 75)
+            )
+            
+            logger.info("Parsed data: $data")
+            data
+            
+        } catch (error: Exception) {
+            logger.severe("Fetch error: ${error.message}")
+            throw error
+        }
+    }
+}
+
+// 使用调试
+fun main() = runBlocking {
+    val debugExample = DebugExample()
+    
+    debugExample.addItem(DataItem(id = 1, value = 50))
+    debugExample.addItem(DataItem(id = 2, value = 150)) // 这将导致错误
+    
+    val data = debugExample.fetchData()
+    println("Fetched data: $data")
+}
+
+data class DataItem(
+    val id: Int,
+    val value: Int
+)
+```
+</UniversalEditor>
+
+## 总结
+
+在本模块中，我们探讨了 Kotlin 的测试和调试。以下是关键要点：
+
+### 涵盖的关键概念
+1. **测试框架**：JUnit 5 和 Kotlin Test 用于全面测试
+2. **单元测试**：单个组件的隔离测试
+3. **集成测试**：应用程序功能的端到端测试
+4. **协程测试**：使用 runTest 测试异步代码
+5. **性能测试**：测量和优化应用程序性能
+6. **调试技术**：用于故障排除的工具和方法
+
+### JavaScript vs Kotlin 测试
+
+| 方面 | JavaScript (Jest) | Kotlin (JUnit 5) |
+|--------|------------------|-------------------|
+| **类型安全** | 动态类型 | 静态类型，编译时检查 |
+| **测试组织** | describe/it 块 | @Nested/@Test 注解 |
+| **断言** | expect() 函数 | assertEquals(), assertThrows() |
+| **模拟** | jest.mock() | Mockito 与 Kotlin 扩展 |
+| **异步测试** | async/await | 使用协程的 runTest |
+| **性能测试** | performance API | measureTimeMillis, 自定义指标 |
+| **调试** | console.log, debugger | 日志记录, IDE 调试工具 |
+
+### 最佳实践
+1. **编写全面的测试**：覆盖所有代码路径和边缘情况
+2. **使用描述性测试名称**：使用 @DisplayName 的清晰测试名称
+3. **遵循 AAA 模式**：安排、操作、断言结构
+4. **模拟外部依赖**：隔离被测单元
+5. **正确测试协程**：使用 runTest 进行异步测试
+6. **测量性能**：定期进行性能测试和监控
+7. **使用日志记录**：全面的日志记录用于调试
+8. **测试驱动开发**：在实现之前编写测试
+
+### 下一步
+在下一个模块中，我们将探讨 Kotlin 开发中的常见陷阱和解决方案，重点关注典型错误以及如何避免它们。
+
+---
+
+**实践挑战**：为用户管理系统创建一个全面的测试套件，包括业务逻辑的单元测试、API 端点的集成测试、数据库操作的性能测试以及常见问题的调试场景。

@@ -1,0 +1,1216 @@
+---
+title: "使用 Kotlin 进行移动应用开发"
+description: "学习使用 Jetpack Compose 进行 Kotlin 移动应用开发，并与 JavaScript 移动开发模式和 React Native 概念进行比较"
+---
+
+# 使用 Kotlin 进行移动应用开发
+
+欢迎来到 JavaScript 到 Kotlin 转换的第八个模块！在本模块中，我们将使用 Jetpack Compose 探索使用 Kotlin 进行移动应用开发，并了解它与 React Native 等 JavaScript 移动开发模式的比较。我们将学习现代 UI 开发、状态管理、导航和移动应用架构。
+
+## 学习目标
+
+在本模块结束时，您将能够：
+- 理解 Jetpack Compose 和声明式 UI 开发
+- 比较 Kotlin 移动开发与 React Native 模式
+- 使用 ViewModel 和 StateFlow 实现状态管理
+- 使用 Navigation Compose 创建导航流程
+- 处理数据持久化和本地存储
+- 实现网络请求和 API 集成
+- 构建响应式和可访问的移动界面
+- 应用现代移动开发最佳实践
+
+## Jetpack Compose 概述
+
+### 声明式 UI 比较
+
+Jetpack Compose 是 Kotlin 对 React Native 声明式 UI 方法的等价物，但具有原生 Android 性能和更好的类型安全性。
+
+<UniversalEditor title="UI 框架比较" compare={true}>
+```javascript !! js
+// React Native - JavaScript 移动 UI
+import React, { useState } from 'react';
+import { View, Text, Button, StyleSheet } from 'react-native';
+
+const CounterScreen = () => {
+  const [count, setCount] = useState(0);
+  
+  return (
+    <View style={styles.container}>
+      <Text style={styles.title}>计数器应用</Text>
+      <Text style={styles.counter}>计数: {count}</Text>
+      <Button 
+        title="增加" 
+        onPress={() => setCount(count + 1)} 
+      />
+      <Button 
+        title="减少" 
+        onPress={() => setCount(count - 1)} 
+      />
+    </View>
+  );
+};
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  title: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginBottom: 20,
+  },
+  counter: {
+    fontSize: 18,
+    marginBottom: 20,
+  },
+});
+
+export default CounterScreen;
+```
+
+```kotlin !! kt
+// Jetpack Compose - Kotlin 移动 UI
+package com.example.mobileapp
+
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun CounterScreen() {
+    var count by remember { mutableStateOf(0) }
+    
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Text(
+            text = "计数器应用",
+            style = MaterialTheme.typography.headlineMedium
+        )
+        
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        Text(
+            text = "计数: $count",
+            style = MaterialTheme.typography.bodyLarge
+        )
+        
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Button(
+                onClick = { count++ }
+            ) {
+                Text("增加")
+            }
+            
+            Button(
+                onClick = { count-- }
+            ) {
+                Text("减少")
+            }
+        }
+    }
+}
+```
+</UniversalEditor>
+
+### 主要差异
+
+| 方面 | JavaScript (React Native) | Kotlin (Jetpack Compose) |
+|--------|-------------------------|---------------------------|
+| **性能** | JavaScript 桥接开销 | 原生性能 |
+| **类型安全** | 动态类型 | 静态类型，编译时检查 |
+| **UI 组件** | 跨平台组件 | 原生 Android 组件 |
+| **状态管理** | useState, Redux | StateFlow, ViewModel |
+| **导航** | React Navigation | Navigation Compose |
+| **平台访问** | 有限的原生访问 | 完全的 Android API 访问 |
+
+## 状态管理
+
+### 状态管理模式
+
+让我们比较两个生态系统中的状态管理方法。
+
+<UniversalEditor title="状态管理比较" compare={true}>
+```javascript !! js
+// 使用 Redux 的 React Native
+import React from 'react';
+import { useSelector, useDispatch } from 'react-redux';
+import { View, Text, Button } from 'react-native';
+
+// Redux slice
+const counterSlice = createSlice({
+  name: 'counter',
+  initialState: {
+    count: 0,
+    isLoading: false
+  },
+  reducers: {
+    increment: (state) => {
+      state.count += 1;
+    },
+    decrement: (state) => {
+      state.count -= 1;
+    },
+    setLoading: (state, action) => {
+      state.isLoading = action.payload;
+    }
+  }
+});
+
+// 组件
+const CounterScreen = () => {
+  const { count, isLoading } = useSelector(state => state.counter);
+  const dispatch = useDispatch();
+  
+  const handleIncrement = () => {
+    dispatch(counterSlice.actions.increment());
+  };
+  
+  const handleDecrement = () => {
+    dispatch(counterSlice.actions.decrement());
+  };
+  
+  return (
+    <View>
+      <Text>计数: {count}</Text>
+      <Button title="增加" onPress={handleIncrement} />
+      <Button title="减少" onPress={handleDecrement} />
+      {isLoading && <Text>加载中...</Text>}
+    </View>
+  );
+};
+```
+
+```kotlin !! kt
+// 使用 ViewModel 和 StateFlow 的 Kotlin
+package com.example.mobileapp
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+
+class CounterViewModel : ViewModel() {
+    
+    private val _uiState = MutableStateFlow(CounterUiState())
+    val uiState: StateFlow<CounterUiState> = _uiState.asStateFlow()
+    
+    fun increment() {
+        _uiState.value = _uiState.value.copy(
+            count = _uiState.value.count + 1
+        )
+    }
+    
+    fun decrement() {
+        _uiState.value = _uiState.value.copy(
+            count = _uiState.value.count - 1
+        )
+    }
+    
+    fun setLoading(isLoading: Boolean) {
+        _uiState.value = _uiState.value.copy(
+            isLoading = isLoading
+        )
+    }
+}
+
+data class CounterUiState(
+    val count: Int = 0,
+    val isLoading: Boolean = false
+)
+
+// Composable
+@Composable
+fun CounterScreen(
+    viewModel: CounterViewModel = viewModel()
+) {
+    val uiState by viewModel.uiState.collectAsState()
+    
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Text(
+            text = "计数: ${uiState.count}",
+            style = MaterialTheme.typography.headlineMedium
+        )
+        
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Button(
+                onClick = { viewModel.increment() }
+            ) {
+                Text("增加")
+            }
+            
+            Button(
+                onClick = { viewModel.decrement() }
+            ) {
+                Text("减少")
+            }
+        }
+        
+        if (uiState.isLoading) {
+            CircularProgressIndicator()
+        }
+    }
+}
+```
+</UniversalEditor>
+
+## 导航
+
+### 导航模式
+
+<UniversalEditor title="导航实现" compare={true}>
+```javascript !! js
+// React Navigation
+import { NavigationContainer } from '@react-navigation/native';
+import { createStackNavigator } from '@react-navigation/stack';
+
+const Stack = createStackNavigator();
+
+const App = () => {
+  return (
+    <NavigationContainer>
+      <Stack.Navigator>
+        <Stack.Screen 
+          name="Home" 
+          component={HomeScreen}
+          options={{ title: '主页' }}
+        />
+        <Stack.Screen 
+          name="Details" 
+          component={DetailsScreen}
+          options={{ title: '详情' }}
+        />
+      </Stack.Navigator>
+    </NavigationContainer>
+  );
+};
+
+const HomeScreen = ({ navigation }) => {
+  return (
+    <View>
+      <Text>主屏幕</Text>
+      <Button 
+        title="前往详情" 
+        onPress={() => navigation.navigate('Details', { id: 1 })} 
+      />
+    </View>
+  );
+};
+
+const DetailsScreen = ({ route, navigation }) => {
+  const { id } = route.params;
+  
+  return (
+    <View>
+      <Text>详情屏幕 - ID: {id}</Text>
+      <Button 
+        title="返回" 
+        onPress={() => navigation.goBack()} 
+      />
+    </View>
+  );
+};
+```
+
+```kotlin !! kt
+// Navigation Compose
+package com.example.mobileapp
+
+import androidx.navigation.NavHostController
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
+
+@Composable
+fun AppNavigation() {
+    val navController = rememberNavController()
+    
+    NavHost(
+        navController = navController,
+        startDestination = "home"
+    ) {
+        composable("home") {
+            HomeScreen(
+                onNavigateToDetails = { id ->
+                    navController.navigate("details/$id")
+                }
+            )
+        }
+        
+        composable(
+            route = "details/{id}",
+            arguments = listOf(
+                navArgument("id") { type = NavType.IntType }
+            )
+        ) { backStackEntry ->
+            val id = backStackEntry.arguments?.getInt("id") ?: 0
+            DetailsScreen(
+                id = id,
+                onNavigateBack = {
+                    navController.popBackStack()
+                }
+            )
+        }
+    }
+}
+
+@Composable
+fun HomeScreen(
+    onNavigateToDetails: (Int) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Text(
+            text = "主屏幕",
+            style = MaterialTheme.typography.headlineMedium
+        )
+        
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        Button(
+            onClick = { onNavigateToDetails(1) }
+        ) {
+            Text("前往详情")
+        }
+    }
+}
+
+@Composable
+fun DetailsScreen(
+    id: Int,
+    onNavigateBack: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Text(
+            text = "详情屏幕 - ID: $id",
+            style = MaterialTheme.typography.headlineMedium
+        )
+        
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        Button(
+            onClick = onNavigateBack
+        ) {
+            Text("返回")
+        }
+    }
+}
+```
+</UniversalEditor>
+
+## 数据持久化
+
+### 本地存储比较
+
+<UniversalEditor title="数据持久化比较" compare={true}>
+```javascript !! js
+// 使用 AsyncStorage 的 React Native
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+// 存储数据
+const storeData = async (key, value) => {
+  try {
+    await AsyncStorage.setItem(key, JSON.stringify(value));
+  } catch (error) {
+    console.error('存储数据时出错:', error);
+  }
+};
+
+// 检索数据
+const getData = async (key) => {
+  try {
+    const value = await AsyncStorage.getItem(key);
+    return value != null ? JSON.parse(value) : null;
+  } catch (error) {
+    console.error('检索数据时出错:', error);
+    return null;
+  }
+};
+
+// 在组件中使用
+const UserProfileScreen = () => {
+  const [user, setUser] = useState(null);
+  
+  useEffect(() => {
+    const loadUser = async () => {
+      const userData = await getData('user');
+      setUser(userData);
+    };
+    loadUser();
+  }, []);
+  
+  const saveUser = async (userData) => {
+    await storeData('user', userData);
+    setUser(userData);
+  };
+  
+  return (
+    <View>
+      {user ? (
+        <Text>欢迎, {user.name}!</Text>
+      ) : (
+        <Text>无用户数据</Text>
+      )}
+    </View>
+  );
+};
+```
+
+```kotlin !! kt
+// 使用 Room 数据库的 Kotlin
+package com.example.mobileapp
+
+import androidx.room.*
+import kotlinx.coroutines.flow.Flow
+
+@Entity(tableName = "users")
+data class User(
+    @PrimaryKey val id: Int,
+    val name: String,
+    val email: String,
+    val avatar: String?
+)
+
+@Dao
+interface UserDao {
+    @Query("SELECT * FROM users WHERE id = :userId")
+    fun getUserById(userId: Int): Flow<User?>
+    
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertUser(user: User)
+    
+    @Delete
+    suspend fun deleteUser(user: User)
+}
+
+@Database(entities = [User::class], version = 1)
+abstract class AppDatabase : RoomDatabase() {
+    abstract fun userDao(): UserDao
+}
+
+// 仓库
+class UserRepository(private val userDao: UserDao) {
+    
+    fun getUserById(userId: Int): Flow<User?> {
+        return userDao.getUserById(userId)
+    }
+    
+    suspend fun saveUser(user: User) {
+        userDao.insertUser(user)
+    }
+    
+    suspend fun deleteUser(user: User) {
+        userDao.deleteUser(user)
+    }
+}
+
+// ViewModel
+class UserProfileViewModel(
+    private val userRepository: UserRepository
+) : ViewModel() {
+    
+    private val _userId = MutableStateFlow(1)
+    val userId: StateFlow<Int> = _userId.asStateFlow()
+    
+    val user: StateFlow<User?> = userId.flatMapLatest { id ->
+        userRepository.getUserById(id)
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = null
+    )
+    
+    fun saveUser(user: User) {
+        viewModelScope.launch {
+            userRepository.saveUser(user)
+        }
+    }
+}
+
+// Composable
+@Composable
+fun UserProfileScreen(
+    viewModel: UserProfileViewModel = viewModel()
+) {
+    val user by viewModel.user.collectAsState()
+    
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        if (user != null) {
+            Text(
+                text = "欢迎, ${user!!.name}!",
+                style = MaterialTheme.typography.headlineMedium
+            )
+            
+            Text(
+                text = user!!.email,
+                style = MaterialTheme.typography.bodyLarge
+            )
+        } else {
+            Text(
+                text = "无用户数据",
+                style = MaterialTheme.typography.bodyLarge
+            )
+        }
+    }
+}
+```
+</UniversalEditor>
+
+## 网络请求
+
+### API 集成比较
+
+<UniversalEditor title="网络请求比较" compare={true}>
+```javascript !! js
+// 使用 fetch 的 React Native
+const API_BASE_URL = 'https://api.example.com';
+
+const apiService = {
+  async getUsers() {
+    try {
+      const response = await fetch(`${API_BASE_URL}/users`);
+      if (!response.ok) {
+        throw new Error('网络响应不正常');
+      }
+      return await response.json();
+    } catch (error) {
+      console.error('获取用户时出错:', error);
+      throw error;
+    }
+  },
+  
+  async createUser(userData) {
+    try {
+      const response = await fetch(`${API_BASE_URL}/users`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(userData),
+      });
+      if (!response.ok) {
+        throw new Error('网络响应不正常');
+      }
+      return await response.json();
+    } catch (error) {
+      console.error('创建用户时出错:', error);
+      throw error;
+    }
+  }
+};
+
+// 在组件中使用
+const UsersScreen = () => {
+  const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  
+  useEffect(() => {
+    const fetchUsers = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const data = await apiService.getUsers();
+        setUsers(data);
+      } catch (err) {
+        setError(err.message);
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    fetchUsers();
+  }, []);
+  
+  if (loading) return <Text>加载中...</Text>;
+  if (error) return <Text>错误: {error}</Text>;
+  
+  return (
+    <View>
+      {users.map(user => (
+        <Text key={user.id}>{user.name}</Text>
+      ))}
+    </View>
+  );
+};
+```
+
+```kotlin !! kt
+// 使用 Retrofit 和 Coroutines 的 Kotlin
+package com.example.mobileapp
+
+import retrofit2.http.*
+import retrofit2.Response
+
+// API 接口
+interface ApiService {
+    @GET("users")
+    suspend fun getUsers(): Response<List<User>>
+    
+    @POST("users")
+    suspend fun createUser(@Body user: CreateUserRequest): Response<User>
+}
+
+// 仓库
+class UserRepository(
+    private val apiService: ApiService
+) {
+    
+    suspend fun getUsers(): Result<List<User>> {
+        return try {
+            val response = apiService.getUsers()
+            if (response.isSuccessful) {
+                Result.success(response.body() ?: emptyList())
+            } else {
+                Result.failure(Exception("网络错误: ${response.code()}"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+    
+    suspend fun createUser(user: CreateUserRequest): Result<User> {
+        return try {
+            val response = apiService.createUser(user)
+            if (response.isSuccessful) {
+                Result.success(response.body()!!)
+            } else {
+                Result.failure(Exception("网络错误: ${response.code()}"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+}
+
+// ViewModel
+class UsersViewModel(
+    private val userRepository: UserRepository
+) : ViewModel() {
+    
+    private val _uiState = MutableStateFlow(UsersUiState())
+    val uiState: StateFlow<UsersUiState> = _uiState.asStateFlow()
+    
+    init {
+        loadUsers()
+    }
+    
+    fun loadUsers() {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isLoading = true)
+            
+            userRepository.getUsers()
+                .onSuccess { users ->
+                    _uiState.value = _uiState.value.copy(
+                        users = users,
+                        isLoading = false,
+                        error = null
+                    )
+                }
+                .onFailure { error ->
+                    _uiState.value = _uiState.value.copy(
+                        isLoading = false,
+                        error = error.message
+                    )
+                }
+        }
+    }
+}
+
+data class UsersUiState(
+    val users: List<User> = emptyList(),
+    val isLoading: Boolean = false,
+    val error: String? = null
+)
+
+data class CreateUserRequest(
+    val name: String,
+    val email: String
+)
+
+// Composable
+@Composable
+fun UsersScreen(
+    viewModel: UsersViewModel = viewModel()
+) {
+    val uiState by viewModel.uiState.collectAsState()
+    
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+    ) {
+        when {
+            uiState.isLoading -> {
+                CircularProgressIndicator(
+                    modifier = Modifier.align(Alignment.CenterHorizontally)
+                )
+            }
+            uiState.error != null -> {
+                Text(
+                    text = "错误: ${uiState.error}",
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
+            else -> {
+                LazyColumn {
+                    items(uiState.users) { user ->
+                        UserItem(user = user)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun UserItem(user: User) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp)
+        ) {
+            Text(
+                text = user.name,
+                style = MaterialTheme.typography.titleMedium
+            )
+            Text(
+                text = user.email,
+                style = MaterialTheme.typography.bodyMedium
+            )
+        }
+    }
+}
+```
+</UniversalEditor>
+
+## 实践练习
+
+### 练习 1: 待办事项列表应用
+创建一个具有本地存储和状态管理的完整待办事项列表应用。
+
+<UniversalEditor title="待办事项列表应用练习" compare={true}>
+```javascript !! js
+// React Native 待办事项应用
+import React, { useState, useEffect } from 'react';
+import { View, Text, TextInput, Button, FlatList, StyleSheet } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+const TodoApp = () => {
+  const [todos, setTodos] = useState([]);
+  const [newTodo, setNewTodo] = useState('');
+  const [loading, setLoading] = useState(true);
+  
+  useEffect(() => {
+    loadTodos();
+  }, []);
+  
+  const loadTodos = async () => {
+    try {
+      const storedTodos = await AsyncStorage.getItem('todos');
+      if (storedTodos) {
+        setTodos(JSON.parse(storedTodos));
+      }
+    } catch (error) {
+      console.error('加载待办事项时出错:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  const saveTodos = async (newTodos) => {
+    try {
+      await AsyncStorage.setItem('todos', JSON.stringify(newTodos));
+    } catch (error) {
+      console.error('保存待办事项时出错:', error);
+    }
+  };
+  
+  const addTodo = () => {
+    if (newTodo.trim()) {
+      const todo = {
+        id: Date.now(),
+        text: newTodo.trim(),
+        completed: false
+      };
+      const updatedTodos = [...todos, todo];
+      setTodos(updatedTodos);
+      saveTodos(updatedTodos);
+      setNewTodo('');
+    }
+  };
+  
+  const toggleTodo = (id) => {
+    const updatedTodos = todos.map(todo =>
+      todo.id === id ? { ...todo, completed: !todo.completed } : todo
+    );
+    setTodos(updatedTodos);
+    saveTodos(updatedTodos);
+  };
+  
+  const deleteTodo = (id) => {
+    const updatedTodos = todos.filter(todo => todo.id !== id);
+    setTodos(updatedTodos);
+    saveTodos(updatedTodos);
+  };
+  
+  if (loading) {
+    return (
+      <View style={styles.container}>
+        <Text>加载中...</Text>
+      </View>
+    );
+  }
+  
+  return (
+    <View style={styles.container}>
+      <Text style={styles.title}>待办事项列表</Text>
+      
+      <View style={styles.inputContainer}>
+        <TextInput
+          style={styles.input}
+          value={newTodo}
+          onChangeText={setNewTodo}
+          placeholder="添加新的待办事项"
+        />
+        <Button title="添加" onPress={addTodo} />
+      </View>
+      
+      <FlatList
+        data={todos}
+        keyExtractor={(item) => item.id.toString()}
+        renderItem={({ item }) => (
+          <View style={styles.todoItem}>
+            <Text
+              style={[
+                styles.todoText,
+                item.completed && styles.completedText
+              ]}
+              onPress={() => toggleTodo(item.id)}
+            >
+              {item.text}
+            </Text>
+            <Button
+              title="删除"
+              onPress={() => deleteTodo(item.id)}
+            />
+          </View>
+        )}
+      />
+    </View>
+  );
+};
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    padding: 20,
+  },
+  title: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginBottom: 20,
+  },
+  inputContainer: {
+    flexDirection: 'row',
+    marginBottom: 20,
+  },
+  input: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#ccc',
+    padding: 10,
+    marginRight: 10,
+  },
+  todoItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  todoText: {
+    flex: 1,
+    fontSize: 16,
+  },
+  completedText: {
+    textDecorationLine: 'line-through',
+    color: '#888',
+  },
+});
+```
+
+```kotlin !! kt
+// 使用 Compose 的 Kotlin 待办事项应用
+package com.example.mobileapp
+
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+
+data class Todo(
+    val id: Long,
+    val text: String,
+    val completed: Boolean = false
+)
+
+class TodoViewModel : ViewModel() {
+    
+    private val _todos = MutableStateFlow<List<Todo>>(emptyList())
+    val todos: StateFlow<List<Todo>> = _todos.asStateFlow()
+    
+    private val _newTodoText = MutableStateFlow("")
+    val newTodoText: StateFlow<String> = _newTodoText.asStateFlow()
+    
+    init {
+        loadTodos()
+    }
+    
+    fun updateNewTodoText(text: String) {
+        _newTodoText.value = text
+    }
+    
+    fun addTodo() {
+        val text = _newTodoText.value.trim()
+        if (text.isNotEmpty()) {
+            val todo = Todo(
+                id = System.currentTimeMillis(),
+                text = text
+            )
+            _todos.value = _todos.value + todo
+            _newTodoText.value = ""
+            saveTodos()
+        }
+    }
+    
+    fun toggleTodo(id: Long) {
+        _todos.value = _todos.value.map { todo ->
+            if (todo.id == id) {
+                todo.copy(completed = !todo.completed)
+            } else {
+                todo
+            }
+        }
+        saveTodos()
+    }
+    
+    fun deleteTodo(id: Long) {
+        _todos.value = _todos.value.filter { it.id != id }
+        saveTodos()
+    }
+    
+    private fun loadTodos() {
+        viewModelScope.launch {
+            // 在实际应用中，从 Room 数据库加载
+            // 现在，使用空列表
+            _todos.value = emptyList()
+        }
+    }
+    
+    private fun saveTodos() {
+        viewModelScope.launch {
+            // 在实际应用中，保存到 Room 数据库
+            // 现在，只更新状态
+        }
+    }
+}
+
+@Composable
+fun TodoApp(
+    viewModel: TodoViewModel = viewModel()
+) {
+    val todos by viewModel.todos.collectAsState()
+    val newTodoText by viewModel.newTodoText.collectAsState()
+    
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+    ) {
+        Text(
+            text = "待办事项列表",
+            style = MaterialTheme.typography.headlineMedium,
+            modifier = Modifier.padding(bottom = 16.dp)
+        )
+        
+        // 输入部分
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            OutlinedTextField(
+                value = newTodoText,
+                onValueChange = { viewModel.updateNewTodoText(it) },
+                label = { Text("添加新的待办事项") },
+                modifier = Modifier.weight(1f),
+                singleLine = true
+            )
+            
+            Spacer(modifier = Modifier.width(8.dp))
+            
+            Button(
+                onClick = { viewModel.addTodo() }
+            ) {
+                Text("添加")
+            }
+        }
+        
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        // 待办事项列表
+        LazyColumn {
+            items(todos) { todo ->
+                TodoItem(
+                    todo = todo,
+                    onToggle = { viewModel.toggleTodo(todo.id) },
+                    onDelete = { viewModel.deleteTodo(todo.id) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun TodoItem(
+    todo: Todo,
+    onToggle: () -> Unit,
+    onDelete: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = todo.text,
+                style = MaterialTheme.typography.bodyLarge,
+                modifier = Modifier.weight(1f),
+                color = if (todo.completed) {
+                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                } else {
+                    MaterialTheme.colorScheme.onSurface
+                }
+            )
+            
+            Spacer(modifier = Modifier.width(8.dp))
+            
+            Button(
+                onClick = onToggle
+            ) {
+                Text(if (todo.completed) "撤销" else "完成")
+            }
+            
+            Spacer(modifier = Modifier.width(8.dp))
+            
+            Button(
+                onClick = onDelete
+            ) {
+                Text("删除")
+            }
+        }
+    }
+}
+```
+</UniversalEditor>
+
+## 总结
+
+在本模块中，我们使用 Jetpack Compose 探索了使用 Kotlin 进行移动应用开发。以下是关键要点：
+
+### 涵盖的关键概念
+1. **Jetpack Compose**: 用于 Android 的现代声明式 UI 框架
+2. **状态管理**: 用于响应式状态管理的 ViewModel 和 StateFlow
+3. **导航**: 用于屏幕导航的 Navigation Compose
+4. **数据持久化**: 用于本地存储的 Room 数据库
+5. **网络请求**: 用于 API 集成的 Retrofit 和协程
+6. **现代 UI**: Material Design 3 组件和主题
+
+### JavaScript vs Kotlin 移动开发
+
+| 方面 | JavaScript (React Native) | Kotlin (Jetpack Compose) |
+|--------|-------------------------|---------------------------|
+| **性能** | JavaScript 桥接开销 | 原生性能 |
+| **类型安全** | 动态类型 | 静态类型，编译时检查 |
+| **UI 组件** | 跨平台组件 | 原生 Android 组件 |
+| **状态管理** | useState, Redux | StateFlow, ViewModel |
+| **导航** | React Navigation | Navigation Compose |
+| **平台访问** | 有限的原生访问 | 完全的 Android API 访问 |
+| **开发体验** | 热重载 | 具有更好工具的热重载 |
+
+### 最佳实践
+1. **使用 ViewModel**: 将业务逻辑与 UI 组件分离
+2. **实现 StateFlow**: 用于响应式状态管理
+3. **遵循 Material Design**: 使用 Material Design 3 组件
+4. **使用 Room 数据库**: 用于本地数据持久化
+5. **实现错误处理**: 适当的错误状态和加载指示器
+6. **使用协程**: 用于异步操作
+7. **遵循导航模式**: 使用 Navigation Compose 进行屏幕导航
+
+### 下一步
+在下一个模块中，我们将探索使用 Kotlin Multiplatform 进行跨平台开发，重点关注在 Android、iOS 和 Web 平台之间共享代码。
+
+---
+
+**实践挑战**: 构建一个完整的天气应用，具有位置服务、API 集成、用于收藏的本地存储，以及使用 Jetpack Compose 的现代 Material Design 3 UI。

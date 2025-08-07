@@ -1,0 +1,1002 @@
+---
+title: "Idiomatic Kotlin and Performance Optimization"
+description: "Learn Kotlin coding conventions, performance optimization techniques, and modern Kotlin development patterns"
+---
+
+# Idiomatic Kotlin and Performance Optimization
+
+Welcome to the thirteenth module of JavaScript to Kotlin conversion! In this module, we'll explore Kotlin idiomatic patterns, coding conventions, and performance optimization techniques. We'll learn how to write clean, efficient, and maintainable Kotlin code that follows modern best practices.
+
+## Learning Objectives
+
+By the end of this module, you will be able to:
+- Write idiomatic Kotlin code following best practices
+- Apply performance optimization techniques
+- Implement efficient memory management strategies
+- Optimize coroutine performance
+- Use modern Kotlin features effectively
+- Apply code organization principles
+- Implement modern Kotlin development patterns
+
+## Kotlin Coding Conventions
+
+### Naming Conventions and Style
+
+<UniversalEditor title="Kotlin Coding Conventions" compare={true}>
+```javascript !! js
+// JavaScript coding conventions
+class UserService {
+  constructor() {
+    this.userRepository = new UserRepository();
+    this.cache = new Map();
+  }
+  
+  // Function naming - camelCase
+  async getUserById(userId) {
+    // Check cache first
+    if (this.cache.has(userId)) {
+      return this.cache.get(userId);
+    }
+    
+    // Fetch from repository
+    const user = await this.userRepository.findById(userId);
+    
+    // Cache the result
+    this.cache.set(userId, user);
+    
+    return user;
+  }
+  
+  // Boolean function naming
+  isUserActive(userId) {
+    const user = this.cache.get(userId);
+    return user && user.status === 'active';
+  }
+  
+  // Private method naming
+  _validateUserData(userData) {
+    return userData.name && userData.email;
+  }
+  
+  // Constants - UPPER_SNAKE_CASE
+  static readonly DEFAULT_TIMEOUT = 5000;
+  static readonly MAX_RETRY_ATTEMPTS = 3;
+}
+
+// Variable naming
+const userList = [];
+const isProcessing = false;
+const MAX_ITEMS = 100;
+
+// Function naming
+function fetchUserData() { }
+function validateEmail(email) { }
+function processUserList(users) { }
+```
+
+```kotlin !! kt
+// Kotlin coding conventions
+class UserService(
+    private val userRepository: UserRepository,
+    private val cache: MutableMap<Long, User> = mutableMapOf()
+) {
+    
+    // Function naming - camelCase
+    suspend fun getUserById(userId: Long): User {
+        // Check cache first
+        cache[userId]?.let { return it }
+        
+        // Fetch from repository
+        val user = userRepository.findById(userId)
+        
+        // Cache the result
+        cache[userId] = user
+        
+        return user
+    }
+    
+    // Boolean function naming - starts with 'is', 'has', 'can', etc.
+    fun isUserActive(userId: Long): Boolean {
+        val user = cache[userId]
+        return user?.status == UserStatus.ACTIVE
+    }
+    
+    fun hasPermission(userId: Long, permission: String): Boolean {
+        val user = cache[userId]
+        return user?.permissions?.contains(permission) == true
+    }
+    
+    // Private method naming - camelCase
+    private fun validateUserData(userData: CreateUserRequest): Boolean {
+        return userData.name.isNotBlank() && userData.email.isNotBlank()
+    }
+    
+    // Constants - UPPER_SNAKE_CASE
+    companion object {
+        const val DEFAULT_TIMEOUT = 5000L
+        const val MAX_RETRY_ATTEMPTS = 3
+        const val CACHE_SIZE_LIMIT = 1000
+    }
+}
+
+// Variable naming - camelCase
+val userList = mutableListOf<User>()
+var isProcessing = false
+const val MAX_ITEMS = 100
+
+// Function naming - camelCase
+fun fetchUserData() { }
+fun validateEmail(email: String): Boolean { }
+fun processUserList(users: List<User>) { }
+
+// Data class naming - PascalCase
+data class UserProfile(
+    val id: Long,
+    val name: String,
+    val email: String
+)
+
+// Enum naming - PascalCase
+enum class UserStatus {
+    ACTIVE, INACTIVE, SUSPENDED
+}
+
+// Interface naming - PascalCase, often with 'able' suffix
+interface Cacheable {
+    fun get(key: String): Any?
+    fun put(key: String, value: Any)
+}
+
+// Extension function naming
+fun String.isValidEmail(): Boolean {
+    return contains("@") && contains(".")
+}
+
+fun List<User>.filterActive(): List<User> {
+    return filter { it.status == UserStatus.ACTIVE }
+}
+```
+</UniversalEditor>
+
+### Code Organization and Structure
+
+<UniversalEditor title="Code Organization" compare={true}>
+```javascript !! js
+// JavaScript code organization
+// utils/validation.js
+export class ValidationUtils {
+  static isValidEmail(email) {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email);
+  }
+  
+  static isValidPassword(password) {
+    return password.length >= 8;
+  }
+}
+
+// services/userService.js
+import { ValidationUtils } from '../utils/validation.js';
+
+export class UserService {
+  constructor(userRepository) {
+    this.userRepository = userRepository;
+  }
+  
+  async createUser(userData) {
+    if (!ValidationUtils.isValidEmail(userData.email)) {
+      throw new Error('Invalid email');
+    }
+    
+    if (!ValidationUtils.isValidPassword(userData.password)) {
+      throw new Error('Password too short');
+    }
+    
+    return this.userRepository.create(userData);
+  }
+}
+
+// models/user.js
+export class User {
+  constructor(data) {
+    this.id = data.id;
+    this.name = data.name;
+    this.email = data.email;
+  }
+  
+  getDisplayName() {
+    return this.name || 'Anonymous';
+  }
+}
+```
+
+```kotlin !! kt
+// Kotlin code organization
+// utils/ValidationUtils.kt
+object ValidationUtils {
+    fun isValidEmail(email: String): Boolean {
+        val emailRegex = Regex("^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$")
+        return emailRegex.matches(email)
+    }
+    
+    fun isValidPassword(password: String): Boolean {
+        return password.length >= 8
+    }
+}
+
+// services/UserService.kt
+class UserService(
+    private val userRepository: UserRepository
+) {
+    
+    suspend fun createUser(userData: CreateUserRequest): User {
+        require(ValidationUtils.isValidEmail(userData.email)) {
+            "Invalid email format"
+        }
+        
+        require(ValidationUtils.isValidPassword(userData.password)) {
+            "Password must be at least 8 characters"
+        }
+        
+        return userRepository.create(userData)
+    }
+}
+
+// models/User.kt
+data class User(
+    val id: Long,
+    val name: String,
+    val email: String
+) {
+    val displayName: String
+        get() = name.ifBlank { "Anonymous" }
+}
+
+// Extension functions for better organization
+fun User.isActive(): Boolean {
+    return status == UserStatus.ACTIVE
+}
+
+fun User.hasPermission(permission: String): Boolean {
+    return permissions.contains(permission)
+}
+
+// Package organization
+package com.example.app
+
+// Imports at the top
+import kotlinx.coroutines.*
+import org.springframework.stereotype.Service
+import java.time.LocalDateTime
+
+// Class with proper structure
+@Service
+class UserService(
+    private val userRepository: UserRepository,
+    private val emailService: EmailService
+) {
+    
+    // Constants first
+    companion object {
+        const val MAX_LOGIN_ATTEMPTS = 3
+        const val SESSION_TIMEOUT_MINUTES = 30L
+    }
+    
+    // Properties
+    private val activeSessions = mutableMapOf<String, UserSession>()
+    
+    // Public methods
+    suspend fun createUser(request: CreateUserRequest): User {
+        validateUserRequest(request)
+        val user = userRepository.create(request)
+        emailService.sendWelcomeEmail(user.email)
+        return user
+    }
+    
+    // Private methods
+    private fun validateUserRequest(request: CreateUserRequest) {
+        require(request.name.isNotBlank()) { "Name cannot be empty" }
+        require(ValidationUtils.isValidEmail(request.email)) { "Invalid email format" }
+    }
+}
+```
+</UniversalEditor>
+
+## Performance Optimization Techniques
+
+### Collection Performance
+
+<UniversalEditor title="Collection Performance Optimization" compare={true}>
+```javascript !! js
+// JavaScript collection performance
+class DataProcessor {
+  constructor() {
+    this.data = [];
+  }
+  
+  // Inefficient: Multiple array iterations
+  processDataInefficient(data) {
+    return data
+      .filter(item => item.active)
+      .map(item => item.name)
+      .filter(name => name.length > 0);
+  }
+  
+  // More efficient: Single iteration
+  processDataEfficient(data) {
+    const result = [];
+    for (const item of data) {
+      if (item.active && item.name.length > 0) {
+        result.push(item.name);
+      }
+    }
+    return result;
+  }
+  
+  // Inefficient: Creating new arrays
+  findDuplicatesInefficient(data) {
+    const duplicates = [];
+    for (let i = 0; i < data.length; i++) {
+      for (let j = i + 1; j < data.length; j++) {
+        if (data[i] === data[j] && !duplicates.includes(data[i])) {
+          duplicates.push(data[i]);
+        }
+      }
+    }
+    return duplicates;
+  }
+  
+  // Efficient: Using Set
+  findDuplicatesEfficient(data) {
+    const seen = new Set();
+    const duplicates = new Set();
+    
+    for (const item of data) {
+      if (seen.has(item)) {
+        duplicates.add(item);
+      } else {
+        seen.add(item);
+      }
+    }
+    
+    return Array.from(duplicates);
+  }
+}
+```
+
+```kotlin !! kt
+// Kotlin collection performance optimization
+class DataProcessor {
+    
+    // Inefficient: Multiple collection operations
+    fun processDataInefficient(data: List<DataItem>): List<String> {
+        return data
+            .filter { it.active }
+            .map { it.name }
+            .filter { it.isNotEmpty() }
+    }
+    
+    // Efficient: Single iteration with sequence
+    fun processDataEfficient(data: List<DataItem>): List<String> {
+        return data.asSequence()
+            .filter { it.active }
+            .map { it.name }
+            .filter { it.isNotEmpty() }
+            .toList()
+    }
+    
+    // More efficient: Single iteration with manual processing
+    fun processDataManual(data: List<DataItem>): List<String> {
+        val result = mutableListOf<String>()
+        for (item in data) {
+            if (item.active && item.name.isNotEmpty()) {
+                result.add(item.name)
+            }
+        }
+        return result
+    }
+    
+    // Inefficient: Nested loops
+    fun findDuplicatesInefficient(data: List<String>): List<String> {
+        val duplicates = mutableListOf<String>()
+        for (i in data.indices) {
+            for (j in i + 1 until data.size) {
+                if (data[i] == data[j] && data[i] !in duplicates) {
+                    duplicates.add(data[i])
+                }
+            }
+        }
+        return duplicates
+    }
+    
+    // Efficient: Using Set
+    fun findDuplicatesEfficient(data: List<String>): List<String> {
+        val seen = mutableSetOf<String>()
+        val duplicates = mutableSetOf<String>()
+        
+        for (item in data) {
+            if (item in seen) {
+                duplicates.add(item)
+            } else {
+                seen.add(item)
+            }
+        }
+        
+        return duplicates.toList()
+    }
+    
+    // Efficient: Using groupingBy
+    fun findDuplicatesWithGrouping(data: List<String>): List<String> {
+        return data.groupingBy { it }
+            .eachCount()
+            .filter { it.value > 1 }
+            .keys
+            .toList()
+    }
+    
+    // Efficient: Using distinct
+    fun removeDuplicates(data: List<String>): List<String> {
+        return data.distinct()
+    }
+    
+    // Efficient: Using toSet
+    fun removeDuplicatesSet(data: List<String>): List<String> {
+        return data.toSet().toList()
+    }
+}
+
+// Performance optimization best practices
+class CollectionOptimization {
+    
+    // 1. Use appropriate collection types
+    fun useAppropriateCollections() {
+        // For unique elements
+        val uniqueItems = mutableSetOf<String>()
+        
+        // For key-value pairs
+        val cache = mutableMapOf<String, Any>()
+        
+        // For ordered unique elements
+        val orderedUnique = linkedSetOf<String>()
+        
+        // For thread-safe collections
+        val threadSafeList = Collections.synchronizedList(mutableListOf<String>())
+    }
+    
+    // 2. Use sequences for large collections
+    fun processLargeCollection(data: List<Int>): List<String> {
+        return data.asSequence()
+            .filter { it > 0 }
+            .map { it.toString() }
+            .distinct()
+            .toList()
+    }
+    
+    // 3. Use lazy evaluation
+    fun lazyEvaluation(data: List<String>): Sequence<String> {
+        return data.asSequence()
+            .filter { it.isNotEmpty() }
+            .map { it.uppercase() }
+            .onEach { println("Processing: $it") }
+    }
+    
+    // 4. Use appropriate capacity for collections
+    fun createCollectionWithCapacity(size: Int) {
+        val list = ArrayList<String>(size)
+        val map = HashMap<String, String>(size)
+        val set = HashSet<String>(size)
+    }
+}
+```
+</UniversalEditor>
+
+## Memory Management Optimization
+
+### Efficient Memory Usage
+
+<UniversalEditor title="Memory Management Optimization" compare={true}>
+```javascript !! js
+// JavaScript memory management
+class MemoryManager {
+  constructor() {
+    this.cache = new Map();
+    this.listeners = [];
+  }
+  
+  // Memory leak: Event listeners not removed
+  addEventListener() {
+    document.addEventListener('click', this.handleClick.bind(this));
+    // Listener never removed
+  }
+  
+  // Memory leak: Circular references
+  createCircularReference() {
+    const obj1 = { name: 'Object 1' };
+    const obj2 = { name: 'Object 2' };
+    obj1.ref = obj2;
+    obj2.ref = obj1;
+  }
+  
+  // Memory leak: Large objects in closures
+  createClosureWithLargeData() {
+    const largeData = new Array(1000000).fill('data');
+    return function() {
+      console.log(largeData.length);
+    };
+  }
+  
+  // Memory leak: Timers not cleared
+  startTimer() {
+    this.timer = setInterval(() => {
+      this.processData();
+    }, 1000);
+    // Timer never cleared
+  }
+  
+  // Memory leak: DOM references
+  cacheDOMElements() {
+    this.elements = document.querySelectorAll('.item');
+    // DOM references kept in memory
+  }
+}
+```
+
+```kotlin !! kt
+// Kotlin memory management optimization
+class MemoryManager {
+    
+    // Memory leak: Coroutines not cancelled
+    private var dataJob: Job? = null
+    
+    fun startDataProcessing() {
+        dataJob = CoroutineScope(Dispatchers.Main).launch {
+            while (true) {
+                processData()
+                delay(1000)
+            }
+        }
+        // Job never cancelled
+    }
+    
+    // Solution: Proper coroutine lifecycle management
+    fun startDataProcessingSafe() {
+        dataJob?.cancel() // Cancel previous job
+        dataJob = CoroutineScope(Dispatchers.Main).launch {
+            while (isActive) {
+                processData()
+                delay(1000)
+            }
+        }
+    }
+    
+    fun stopDataProcessing() {
+        dataJob?.cancel()
+    }
+    
+    // Memory leak: Strong references
+    private var strongReference: Any? = null
+    
+    fun createStrongReference(obj: Any) {
+        strongReference = obj
+        // obj will never be garbage collected
+    }
+    
+    // Solution: Use weak references
+    private val weakReferences = WeakHashMap<Any, String>()
+    
+    fun createWeakReference(obj: Any, value: String) {
+        weakReferences[obj] = value
+        // obj can be garbage collected
+    }
+    
+    // Memory leak: Large objects in closures
+    fun createClosureWithLargeData(): () -> Unit {
+        val largeData = List(1_000_000) { "data" }
+        return {
+            println(largeData.size)
+        }
+        // largeData kept in memory
+    }
+    
+    // Solution: Use lazy initialization
+    private val largeData by lazy {
+        List(1_000_000) { "data" }
+    }
+    
+    fun createClosureSafe(): () -> Unit {
+        return {
+            println(largeData.size)
+        }
+    }
+    
+    // Memory leak: Resource leaks
+    private var fileInputStream: FileInputStream? = null
+    
+    fun readFile(path: String): String {
+        fileInputStream = FileInputStream(path)
+        return fileInputStream!!.readBytes().toString()
+        // FileInputStream never closed
+    }
+    
+    // Solution: Use use function for automatic resource management
+    fun readFileSafe(path: String): String {
+        return FileInputStream(path).use { input ->
+            input.readBytes().toString()
+        }
+    }
+    
+    // Memory leak: Observers not removed
+    private val observers = mutableListOf<Observer>()
+    
+    fun addObserver(observer: Observer) {
+        observers.add(observer)
+        // Observer never removed
+    }
+    
+    // Solution: Proper observer lifecycle management
+    fun addObserverSafe(observer: Observer) {
+        observers.add(observer)
+    }
+    
+    fun removeObserver(observer: Observer) {
+        observers.remove(observer)
+    }
+    
+    fun cleanup() {
+        observers.clear()
+    }
+}
+
+// Memory optimization best practices
+class MemoryOptimization {
+    
+    // 1. Use object pools for frequently created objects
+    private val stringBuilderPool = mutableListOf<StringBuilder>()
+    
+    fun getStringBuilder(): StringBuilder {
+        return if (stringBuilderPool.isNotEmpty()) {
+            stringBuilderPool.removeAt(stringBuilderPool.lastIndex)
+        } else {
+            StringBuilder()
+        }
+    }
+    
+    fun returnStringBuilder(builder: StringBuilder) {
+        builder.clear()
+        stringBuilderPool.add(builder)
+    }
+    
+    // 2. Use lazy initialization
+    private val expensiveResource by lazy {
+        createExpensiveResource()
+    }
+    
+    // 3. Use weak references for caching
+    private val cache = WeakHashMap<String, ExpensiveObject>()
+    
+    fun getExpensiveObject(key: String): ExpensiveObject {
+        return cache.getOrPut(key) {
+            createExpensiveObject()
+        }
+    }
+    
+    // 4. Clear references when done
+    class DataProcessor {
+        private var data: List<DataItem>? = null
+        
+        fun processData(newData: List<DataItem>) {
+            data = newData
+            // Process data
+        }
+        
+        fun cleanup() {
+            data = null // Clear reference
+        }
+    }
+    
+    // 5. Use structured concurrency
+    suspend fun structuredConcurrencyExample() = coroutineScope {
+        val job1 = launch { processData1() }
+        val job2 = launch { processData2() }
+        
+        // All jobs are cancelled when scope is cancelled
+        job1.join()
+        job2.join()
+    }
+}
+```
+</UniversalEditor>
+
+## Coroutine Performance Optimization
+
+### Efficient Coroutine Usage
+
+<UniversalEditor title="Coroutine Performance Optimization" compare={true}>
+```javascript !! js
+// JavaScript async performance
+class AsyncProcessor {
+  constructor() {
+    this.cache = new Map();
+  }
+  
+  // Inefficient: Sequential async operations
+  async processDataSequential(data) {
+    const results = [];
+    for (const item of data) {
+      const result = await this.processItem(item);
+      results.push(result);
+    }
+    return results;
+  }
+  
+  // Efficient: Parallel async operations
+  async processDataParallel(data) {
+    const promises = data.map(item => this.processItem(item));
+    return Promise.all(promises);
+  }
+  
+  // Inefficient: Not using caching
+  async fetchData(url) {
+    const response = await fetch(url);
+    return response.json();
+  }
+  
+  // Efficient: With caching
+  async fetchDataCached(url) {
+    if (this.cache.has(url)) {
+      return this.cache.get(url);
+    }
+    
+    const response = await fetch(url);
+    const data = await response.json();
+    this.cache.set(url, data);
+    return data;
+  }
+  
+  // Inefficient: Not handling timeouts
+  async fetchDataWithTimeout(url) {
+    const response = await fetch(url);
+    return response.json();
+  }
+  
+  // Efficient: With timeout handling
+  async fetchDataWithTimeoutSafe(url, timeout = 5000) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
+    
+    try {
+      const response = await fetch(url, {
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+      return response.json();
+    } catch (error) {
+      clearTimeout(timeoutId);
+      throw error;
+    }
+  }
+}
+```
+
+```kotlin !! kt
+// Kotlin coroutine performance optimization
+class AsyncProcessor {
+    
+    private val cache = mutableMapOf<String, Any>()
+    
+    // Inefficient: Sequential coroutine operations
+    suspend fun processDataSequential(data: List<DataItem>): List<ProcessedItem> {
+        val results = mutableListOf<ProcessedItem>()
+        for (item in data) {
+            val result = processItem(item)
+            results.add(result)
+        }
+        return results
+    }
+    
+    // Efficient: Parallel coroutine operations
+    suspend fun processDataParallel(data: List<DataItem>): List<ProcessedItem> {
+        return coroutineScope {
+            data.map { item ->
+                async { processItem(item) }
+            }.awaitAll()
+        }
+    }
+    
+    // More efficient: With concurrency limit
+    suspend fun processDataWithLimit(
+        data: List<DataItem>, 
+        concurrencyLimit: Int = 10
+    ): List<ProcessedItem> {
+        return data.chunked(concurrencyLimit)
+            .flatMap { chunk ->
+                runBlocking {
+                    chunk.map { item ->
+                        async { processItem(item) }
+                    }.awaitAll()
+                }
+            }
+    }
+    
+    // Inefficient: Not using caching
+    suspend fun fetchData(url: String): Any {
+        val response = httpClient.get(url)
+        return Json.decodeFromString(response)
+    }
+    
+    // Efficient: With caching
+    suspend fun fetchDataCached(url: String): Any {
+        return cache.getOrPut(url) {
+            val response = httpClient.get(url)
+            Json.decodeFromString(response)
+        }
+    }
+    
+    // Inefficient: Not handling timeouts
+    suspend fun fetchDataWithTimeout(url: String): Any {
+        val response = httpClient.get(url)
+        return Json.decodeFromString(response)
+    }
+    
+    // Efficient: With timeout handling
+    suspend fun fetchDataWithTimeoutSafe(
+        url: String, 
+        timeout: Long = 5000
+    ): Any {
+        return withTimeout(timeout) {
+            val response = httpClient.get(url)
+            Json.decodeFromString(response)
+        }
+    }
+    
+    // Efficient: Using appropriate dispatchers
+    suspend fun processDataWithDispatchers(data: List<DataItem>): List<ProcessedItem> {
+        return withContext(Dispatchers.Default) {
+            data.map { item ->
+                processItem(item)
+            }
+        }
+    }
+    
+    // Efficient: Using supervisor scope for independent operations
+    suspend fun processIndependentData(): List<DataItem> {
+        return supervisorScope {
+            val data1 = async { fetchData1() }
+            val data2 = async { fetchData2() }
+            
+            // If one fails, others continue
+            listOfNotNull(data1.awaitOrNull(), data2.awaitOrNull())
+        }
+    }
+    
+    // Efficient: Using flow for streaming data
+    fun processDataStream(data: List<DataItem>): Flow<ProcessedItem> {
+        return data.asFlow()
+            .map { item ->
+                processItem(item)
+            }
+            .buffer(100) // Buffer for better performance
+            .flowOn(Dispatchers.Default) // Use background dispatcher
+    }
+}
+
+// Coroutine optimization best practices
+class CoroutineOptimization {
+    
+    // 1. Use structured concurrency
+    suspend fun structuredConcurrencyExample() = coroutineScope {
+        val result1 = async { fetchData1() }
+        val result2 = async { fetchData2() }
+        
+        // If any coroutine fails, all are cancelled
+        result1.await() + result2.await()
+    }
+    
+    // 2. Use appropriate dispatchers
+    suspend fun dispatcherExample() {
+        // IO operations
+        val data = withContext(Dispatchers.IO) {
+            readFromFile()
+        }
+        
+        // CPU-intensive operations
+        val processed = withContext(Dispatchers.Default) {
+            processData(data)
+        }
+        
+        // UI updates (in Android)
+        withContext(Dispatchers.Main) {
+            updateUI(processed)
+        }
+    }
+    
+    // 3. Handle cancellation properly
+    suspend fun cancellationAwareOperation() {
+        try {
+            withTimeout(5000) {
+                longRunningOperation()
+            }
+        } catch (e: TimeoutCancellationException) {
+            // Handle timeout
+            cleanup()
+        }
+    }
+    
+    // 4. Use supervisor scope for independent operations
+    suspend fun independentOperations() = supervisorScope {
+        val job1 = launch { operation1() }
+        val job2 = launch { operation2() }
+        
+        // If one fails, others continue
+        listOfNotNull(job1.awaitOrNull(), job2.awaitOrNull())
+    }
+    
+    // 5. Use flow for streaming data
+    fun streamingData(): Flow<DataItem> {
+        return flow {
+            for (i in 1..1000) {
+                emit(DataItem(i))
+                delay(100)
+            }
+        }
+        .buffer(100)
+        .flowOn(Dispatchers.Default)
+    }
+}
+```
+</UniversalEditor>
+
+## Summary
+
+In this module, we've explored idiomatic Kotlin patterns and performance optimization techniques. Here are the key takeaways:
+
+### Key Concepts Covered
+1. **Kotlin Coding Conventions**: Naming conventions, code organization, and style guidelines
+2. **Performance Optimization**: Collection operations, memory management, and efficient algorithms
+3. **Memory Management**: Resource cleanup, weak references, and object pools
+4. **Coroutine Optimization**: Structured concurrency, appropriate dispatchers, and cancellation
+5. **Modern Kotlin Features**: Extension functions, data classes, and sealed classes
+
+### Performance Optimization Techniques
+
+| Technique | Description | Benefit |
+|-----------|-------------|---------|
+| **Sequences** | Use sequences for large collections | Lazy evaluation, memory efficiency |
+| **Appropriate Collections** | Choose the right collection type | Better performance for specific use cases |
+| **Object Pools** | Reuse expensive objects | Reduce object creation overhead |
+| **Weak References** | Use weak references for caching | Allow garbage collection |
+| **Structured Concurrency** | Proper coroutine lifecycle management | Prevent memory leaks |
+| **Appropriate Dispatchers** | Use correct dispatchers for operations | Better performance and responsiveness |
+
+### Best Practices
+1. **Follow Kotlin Conventions**: Use camelCase for functions, PascalCase for classes
+2. **Use Sequences**: For large collections and chained operations
+3. **Manage Memory**: Use weak references and proper cleanup
+4. **Optimize Coroutines**: Use structured concurrency and appropriate dispatchers
+5. **Cache Wisely**: Use object pools and weak references for caching
+6. **Handle Resources**: Use the `use` function for automatic resource management
+7. **Test Performance**: Profile and measure performance improvements
+
+### Next Steps
+Congratulations! You've completed the JavaScript to Kotlin learning journey. You now have a solid foundation in Kotlin development, from basic syntax to advanced patterns and best practices.
+
+### What You've Learned
+- **Kotlin Fundamentals**: Syntax, type system, and null safety
+- **Functional Programming**: Higher-order functions, lambdas, and collections
+- **Coroutines**: Asynchronous programming and structured concurrency
+- **Object-Oriented Programming**: Classes, interfaces, and data classes
+- **Android Development**: Jetpack Compose and modern Android patterns
+- **Web Development**: Spring Boot and backend services
+- **Cross-Platform**: Kotlin Multiplatform for shared code
+- **Testing & Debugging**: Comprehensive testing strategies
+- **Best Practices**: Idiomatic patterns and performance optimization
+
+### Continue Your Journey
+- **Build Real Projects**: Apply your knowledge to real-world applications
+- **Explore Advanced Topics**: Dive deeper into specific areas of interest
+- **Join the Community**: Participate in Kotlin forums and conferences
+- **Stay Updated**: Follow Kotlin releases and new features
+
+---
+
+**Practice Challenge**: Optimize a performance-critical application by implementing all the techniques learned in this module, including memory optimization, coroutine performance improvements, and idiomatic Kotlin patterns. 
