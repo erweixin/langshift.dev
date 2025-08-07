@@ -1,36 +1,36 @@
 ---
-title: "Common Pitfalls and Solutions in Kotlin"
-description: "Learn about common Kotlin pitfalls and their solutions, comparing with JavaScript development patterns"
+title: "Kotlin 常見陷阱與解決方案"
+description: "了解常見的 Kotlin 陷阱及其解決方案，並與 JavaScript 開發模式進行比較"
 ---
 
-# Common Pitfalls and Solutions in Kotlin
+# Kotlin 常見陷阱與解決方案
 
-Welcome to the twelfth module of JavaScript to Kotlin conversion! In this module, we'll explore common pitfalls that developers encounter when transitioning from JavaScript to Kotlin, and learn effective solutions to avoid them. We'll cover coroutine programming traps, null safety issues, performance optimization mistakes, and memory management problems.
+歡迎來到 JavaScript 到 Kotlin 轉換的第十二個模組！在本模組中，我們將探討從 JavaScript 過渡到 Kotlin 時開發人員遇到的常見陷阱，並學習避免這些陷阱的有效解決方案。我們將涵蓋協程編程陷阱、空安全問題、效能優化錯誤和記憶體管理問題。
 
-## Learning Objectives
+## 學習目標
 
-By the end of this module, you will be able to:
-- Identify and avoid common Kotlin programming pitfalls
-- Understand coroutine programming traps and solutions
-- Handle null safety issues properly
-- Avoid performance optimization mistakes
-- Manage memory leaks and resource cleanup
-- Apply best practices for error handling
-- Debug common Kotlin issues effectively
+在本模組結束時，您將能夠：
+- 識別並避免常見的 Kotlin 編程陷阱
+- 理解協程編程陷阱和解決方案
+- 正確處理空安全問題
+- 避免效能優化錯誤
+- 管理記憶體洩漏和資源清理
+- 應用錯誤處理的最佳實踐
+- 有效偵錯常見的 Kotlin 問題
 
-## Coroutine Programming Pitfalls
+## 協程編程陷阱
 
-### Common Coroutine Mistakes
+### 常見的協程錯誤
 
-<UniversalEditor title="Coroutine Programming Pitfalls" compare={true}>
+<UniversalEditor title="協程編程陷阱" compare={true}>
 ```javascript !! js
-// JavaScript async/await pitfalls
+// JavaScript async/await 陷阱
 class UserService {
   constructor() {
     this.users = [];
   }
   
-  // Pitfall 1: Not handling errors properly
+  // 陷阱 1：未正確處理錯誤
   async fetchUsers() {
     try {
       const response = await fetch('/api/users');
@@ -38,20 +38,20 @@ class UserService {
       this.users = users;
       return users;
     } catch (error) {
-      console.error('Error fetching users:', error);
-      // Missing error handling - could crash the app
+      console.error('取得使用者時出錯:', error);
+      // 缺少錯誤處理 - 可能導致應用程式崩潰
     }
   }
   
-  // Pitfall 2: Not cancelling requests
+  // 陷阱 2：未取消請求
   async searchUsers(query) {
     const response = await fetch(`/api/users?q=${query}`);
     const users = await response.json();
     return users;
-    // If component unmounts, this request continues
+    // 如果元件卸載，此請求將繼續
   }
   
-  // Pitfall 3: Race conditions
+  // 陷阱 3：競爭條件
   async updateUser(id, data) {
     const response = await fetch(`/api/users/${id}`, {
       method: 'PUT',
@@ -59,10 +59,10 @@ class UserService {
       body: JSON.stringify(data)
     });
     return response.json();
-    // Multiple rapid calls can cause race conditions
+    // 快速多次呼叫可能導致競爭條件
   }
   
-  // Pitfall 4: Blocking the main thread
+  // 陷阱 4：阻塞主執行緒
   async processLargeData(data) {
     const result = [];
     for (const item of data) {
@@ -70,25 +70,25 @@ class UserService {
       result.push(processed);
     }
     return result;
-    // This blocks the main thread
+    // 這會阻塞主執行緒
   }
   
-  // Pitfall 5: Not using proper async patterns
+  // 陷阱 5：未使用正確的非同步模式
   async getUserWithOrders(userId) {
     const user = await this.fetchUser(userId);
     const orders = await this.fetchOrders(userId);
     return { ...user, orders };
-    // Sequential calls instead of parallel
+    // 順序呼叫而非並行呼叫
   }
 }
 ```
 
 ```kotlin !! kt
-// Kotlin coroutine pitfalls and solutions
+// Kotlin 協程陷阱與解決方案
 class UserService {
     private val users = mutableListOf<User>()
     
-    // Pitfall 1: Not handling exceptions properly
+    // 陷阱 1：未正確處理例外
     suspend fun fetchUsers(): List<User> {
         return try {
             val response = httpClient.get("/api/users")
@@ -97,25 +97,25 @@ class UserService {
             this.users.addAll(users)
             users
         } catch (e: Exception) {
-            // Solution: Proper error handling with custom exceptions
-            throw UserFetchException("Failed to fetch users", e)
+            // 解決方案：使用自訂例外進行適當的錯誤處理
+            throw UserFetchException("取得使用者失敗", e)
         }
     }
     
-    // Pitfall 2: Not using structured concurrency
+    // 陷阱 2：未使用結構化並行
     suspend fun searchUsers(query: String): List<User> {
-        // Solution: Use coroutine scope with cancellation
+        // 解決方案：使用帶取消功能的協程作用域
         return withContext(Dispatchers.IO) {
             val response = httpClient.get("/api/users?q=$query")
             Json.decodeFromString(response)
         }
     }
     
-    // Pitfall 3: Race conditions in shared state
+    // 陷阱 3：共享狀態中的競爭條件
     private val userCache = mutableMapOf<Long, User>()
     
     suspend fun updateUser(id: Long, data: UpdateUserRequest): User {
-        // Solution: Use mutex for thread-safe access
+        // 解決方案：使用互斥鎖進行執行緒安全存取
         return userCacheMutex.withLock {
             val response = httpClient.put("/api/users/$id") {
                 setBody(Json.encodeToString(data))
@@ -126,9 +126,9 @@ class UserService {
         }
     }
     
-    // Pitfall 4: Blocking operations in coroutines
+    // 陷阱 4：協程中的阻塞操作
     suspend fun processLargeData(data: List<DataItem>): List<ProcessedItem> {
-        // Solution: Use withContext for CPU-intensive work
+        // 解決方案：對 CPU 密集型工作使用 withContext
         return withContext(Dispatchers.Default) {
             data.map { item ->
                 heavyProcessing(item)
@@ -136,9 +136,9 @@ class UserService {
         }
     }
     
-    // Pitfall 5: Sequential instead of parallel execution
+    // 陷阱 5：順序執行而非並行執行
     suspend fun getUserWithOrders(userId: Long): UserWithOrders {
-        // Solution: Use async for parallel execution
+        // 解決方案：使用 async 進行並行執行
         return coroutineScope {
             val userDeferred = async { fetchUser(userId) }
             val ordersDeferred = async { fetchOrders(userId) }
@@ -150,191 +150,191 @@ class UserService {
         }
     }
     
-    // Solution: Proper coroutine scope management
+    // 解決方案：適當的協程作用域管理
     private val userCacheMutex = Mutex()
     
-    // Solution: Custom exceptions for better error handling
+    // 解決方案：使用自訂例外進行更好的錯誤處理
     class UserFetchException(message: String, cause: Throwable? = null) : 
         Exception(message, cause)
 }
 
-// Best practices for coroutine usage
+// 協程使用最佳實踐
 class CoroutineBestPractices {
     
-    // 1. Use structured concurrency
+    // 1. 使用結構化並行
     suspend fun structuredConcurrencyExample() = coroutineScope {
         val result1 = async { fetchData1() }
         val result2 = async { fetchData2() }
         
-        // If any coroutine fails, all are cancelled
+        // 如果任何協程失敗，所有協程都會被取消
         result1.await() + result2.await()
     }
     
-    // 2. Handle cancellation properly
+    // 2. 正確處理取消
     suspend fun cancellationAwareOperation() {
         try {
             withTimeout(5000) {
                 longRunningOperation()
             }
         } catch (e: TimeoutCancellationException) {
-            // Handle timeout
+            // 處理逾時
             cleanup()
         }
     }
     
-    // 3. Use appropriate dispatchers
+    // 3. 使用適當的調度器
     suspend fun dispatcherExample() {
-        // IO operations
+        // IO 操作
         val data = withContext(Dispatchers.IO) {
             readFromFile()
         }
         
-        // CPU-intensive operations
+        // CPU 密集型操作
         val processed = withContext(Dispatchers.Default) {
             processData(data)
         }
         
-        // UI updates (in Android)
+        // UI 更新（在 Android 中）
         withContext(Dispatchers.Main) {
             updateUI(processed)
         }
     }
     
-    // 4. Avoid blocking operations in coroutines
+    // 4. 避免在協程中進行阻塞操作
     suspend fun nonBlockingExample() {
-        // Instead of Thread.sleep()
+        // 而不是 Thread.sleep()
         delay(1000)
         
-        // Instead of blocking calls
+        // 而不是阻塞呼叫
         withContext(Dispatchers.IO) {
-            // IO operations
+            // IO 操作
         }
     }
 }
 ```
 </UniversalEditor>
 
-## Null Safety Pitfalls
+## 空安全陷阱
 
-### Common Null Safety Issues
+### 常見的空安全問題
 
-<UniversalEditor title="Null Safety Pitfalls" compare={true}>
+<UniversalEditor title="空安全陷阱" compare={true}>
 ```javascript !! js
-// JavaScript null/undefined pitfalls
+// JavaScript null/undefined 陷阱
 class UserManager {
   constructor() {
     this.users = [];
   }
   
-  // Pitfall 1: Not checking for null/undefined
+  // 陷阱 1：未檢查 null/undefined
   getUserName(userId) {
     const user = this.users.find(u => u.id === userId);
-    return user.name; // Could throw if user is undefined
+    return user.name; // 如果 user 是 undefined，可能會拋出錯誤
   }
   
-  // Pitfall 2: Inconsistent null handling
+  // 陷阱 2：不一致的 null 處理
   updateUser(userId, data) {
     const user = this.users.find(u => u.id === userId);
     if (user) {
       Object.assign(user, data);
     }
-    // No error if user not found
+    // 如果未找到使用者，則無錯誤
   }
   
-  // Pitfall 3: Optional chaining misuse
+  // 陷阱 3：可選鏈濫用
   getNestedProperty(user) {
     return user?.profile?.address?.street;
-    // Returns undefined instead of throwing
+    // 傳回 undefined 而不是拋出錯誤
   }
   
-  // Pitfall 4: Default values not used properly
+  // 陷阱 4：未正確使用預設值
   getDisplayName(user) {
     return user.name || 'Anonymous';
-    // Falsy values (empty string, 0) are replaced
+    // 假值（空字串、0）被取代
   }
   
-  // Pitfall 5: Array operations with null
+  // 陷阱 5：使用 null 的陣列操作
   getActiveUsers() {
     return this.users.filter(user => user.active);
-    // Could include null/undefined values
+    // 可能包含 null/undefined 值
   }
 }
 ```
 
 ```kotlin !! kt
-// Kotlin null safety pitfalls and solutions
+// Kotlin 空安全陷阱與解決方案
 class UserManager {
     private val users = mutableListOf<User>()
     
-    // Pitfall 1: Not using null safety properly
+    // 陷阱 1：未正確使用空安全
     fun getUserName(userId: Long): String {
         val user = users.find { it.id == userId }
-        return user.name // Compilation error - user could be null
+        return user.name // 編譯錯誤 - user 可能為 null
     }
     
-    // Solution 1: Safe call operator
+    // 解決方案 1：安全呼叫運算子
     fun getUserNameSafe(userId: Long): String? {
         val user = users.find { it.id == userId }
         return user?.name
     }
     
-    // Solution 2: Elvis operator with default
+    // 解決方案 2：使用 Elvis 運算子提供預設值
     fun getUserNameWithDefault(userId: Long): String {
         val user = users.find { it.id == userId }
         return user?.name ?: "Unknown User"
     }
     
-    // Solution 3: Exception for missing user
+    // 解決方案 3：對遺失使用者拋出例外
     fun getUserNameOrThrow(userId: Long): String {
         val user = users.find { it.id == userId }
             ?: throw UserNotFoundException("User not found: $userId")
         return user.name
     }
     
-    // Pitfall 2: Inconsistent null handling
+    // 陷阱 2：不一致的 null 處理
     fun updateUser(userId: Long, data: UpdateUserRequest) {
         val user = users.find { it.id == userId }
         if (user != null) {
-            // Update user
+            // 更新使用者
         }
-        // Silent failure - not good
+        // 靜默失敗 - 不好
     }
     
-    // Solution: Proper error handling
+    // 解決方案：適當的錯誤處理
     fun updateUserOrThrow(userId: Long, data: UpdateUserRequest) {
         val user = users.find { it.id == userId }
             ?: throw UserNotFoundException("User not found: $userId")
         
-        // Update user
+        // 更新使用者
     }
     
-    // Pitfall 3: Not using smart casts
+    // 陷阱 3：未使用智慧轉換
     fun processUser(user: User?) {
         if (user != null) {
-            // user is still nullable here in some cases
-            println(user.name) // Could be null
+            // 在某些情況下，user 在這裡仍然是可空的
+            println(user.name) // 可能為 null
         }
     }
     
-    // Solution: Smart cast usage
+    // 解決方案：使用智慧轉換
     fun processUserSmart(user: User?) {
         if (user != null && user.name != null) {
-            // user is now non-null and name is non-null
-            println(user.name.length) // Safe to access
+            // user 現在保證非空，name 也非空
+            println(user.name.length) // 安全存取
         }
     }
     
-    // Pitfall 4: Unsafe type casting
+    // 陷阱 4：不安全的型別轉換
     fun processData(data: Any?): String {
-        return data as String // Could throw ClassCastException
+        return data as String // 可能拋出 ClassCastException
     }
     
-    // Solution: Safe type casting
+    // 解決方案：安全的型別轉換
     fun processDataSafe(data: Any?): String? {
         return data as? String
     }
     
-    // Pitfall 5: Not using sealed classes for error handling
+    // 陷阱 5：未使用密封類別進行錯誤處理
     sealed class UserResult {
         data class Success(val user: User) : UserResult()
         data class Error(val message: String) : UserResult()
@@ -351,10 +351,10 @@ class UserManager {
     }
 }
 
-// Best practices for null safety
+// 空安全最佳實踐
 class NullSafetyBestPractices {
     
-    // 1. Use non-null types when possible
+    // 1. 盡可能使用非空型別
     fun createUser(name: String, email: String): User {
         return User(
             name = name,
@@ -362,29 +362,29 @@ class NullSafetyBestPractices {
         )
     }
     
-    // 2. Use nullable types only when necessary
+    // 2. 僅在必要時使用可空型別
     fun createUserWithOptional(name: String, email: String, phone: String? = null): User {
         return User(
             name = name,
             email = email,
-            phone = phone // Only nullable when truly optional
+            phone = phone // 僅在真正可選時可空
         )
     }
     
-    // 3. Use safe call operator for chaining
+    // 3. 使用安全呼叫運算子進行鏈式呼叫
     fun getStreetName(user: User?): String? {
         return user?.address?.street
     }
     
-    // 4. Use let for null-safe operations
+    // 4. 使用 let 進行空安全操作
     fun processUserIfNotNull(user: User?) {
         user?.let { safeUser ->
-            // safeUser is guaranteed to be non-null here
+            // safeUser 在這裡保證非空
             processUser(safeUser)
         }
     }
     
-    // 5. Use when expression for null handling
+    // 5. 使用 when 運算式進行 null 處理
     fun getDisplayName(user: User?): String {
         return when (user) {
             null -> "Unknown User"
@@ -395,38 +395,38 @@ class NullSafetyBestPractices {
 ```
 </UniversalEditor>
 
-## Performance Optimization Pitfalls
+## 效能優化陷阱
 
-### Common Performance Mistakes
+### 常見的效能錯誤
 
-<UniversalEditor title="Performance Optimization Pitfalls" compare={true}>
+<UniversalEditor title="效能優化陷阱" compare={true}>
 ```javascript !! js
-// JavaScript performance pitfalls
+// JavaScript 效能陷阱
 class PerformanceExample {
   constructor() {
     this.data = [];
   }
   
-  // Pitfall 1: Inefficient array operations
+  // 陷阱 1：低效的陣列操作
   filterAndMapData() {
     return this.data
       .filter(item => item.active)
       .map(item => item.name)
       .filter(name => name.length > 0);
-    // Multiple array iterations
+    // 多次陣列迭代
   }
   
-  // Pitfall 2: Memory leaks with closures
+  // 陷阱 2：閉包導致的記憶體洩漏
   createEventListeners() {
     this.data.forEach(item => {
       document.addEventListener('click', () => {
         console.log(item.name);
       });
     });
-    // Event listeners not removed
+    // 事件監聽器未被移除
   }
   
-  // Pitfall 3: Synchronous operations blocking the main thread
+  // 陷阱 3：同步操作阻塞主執行緒
   processLargeData(data) {
     const result = [];
     for (let i = 0; i < data.length; i++) {
@@ -434,10 +434,10 @@ class PerformanceExample {
       result.push(processed);
     }
     return result;
-    // Blocks UI thread
+    // 阻塞 UI 執行緒
   }
   
-  // Pitfall 4: Inefficient object creation
+  // 陷阱 4：低效的物件建立
   createObjects() {
     const objects = [];
     for (let i = 0; i < 10000; i++) {
@@ -448,32 +448,32 @@ class PerformanceExample {
       });
     }
     return objects;
-    // Creates many objects
+    // 建立大量物件
   }
   
-  // Pitfall 5: Not using caching
+  // 陷阱 5：未使用快取
   expensiveCalculation(input) {
-    // Recalculates every time
+    // 每次都重新計算
     return this.heavyComputation(input);
   }
 }
 ```
 
 ```kotlin !! kt
-// Kotlin performance pitfalls and solutions
+// Kotlin 效能陷阱與解決方案
 class PerformanceExample {
     private val data = mutableListOf<DataItem>()
     
-    // Pitfall 1: Inefficient collection operations
+    // 陷阱 1：低效的集合操作
     fun filterAndMapDataInefficient(): List<String> {
         return data
             .filter { it.active }
             .map { it.name }
             .filter { it.isNotEmpty() }
-        // Multiple collection iterations
+        // 多次集合迭代
     }
     
-    // Solution: Single iteration with sequence
+    // 解決方案：使用序列進行單次迭代
     fun filterAndMapDataEfficient(): List<String> {
         return data.asSequence()
             .filter { it.active }
@@ -482,7 +482,7 @@ class PerformanceExample {
             .toList()
     }
     
-    // Pitfall 2: Memory leaks with coroutines
+    // 陷阱 2：協程導致的記憶體洩漏
     private val scope = CoroutineScope(Dispatchers.Main)
     
     fun startDataProcessing() {
@@ -492,14 +492,14 @@ class PerformanceExample {
                 delay(1000)
             }
         }
-        // Coroutine never cancelled
+        // 協程從未被取消
     }
     
-    // Solution: Proper coroutine scope management
+    // 解決方案：適當的協程作用域管理
     private var dataJob: Job? = null
     
     fun startDataProcessingSafe() {
-        dataJob?.cancel() // Cancel previous job
+        dataJob?.cancel() // 取消之前的作業
         dataJob = CoroutineScope(Dispatchers.Main).launch {
             while (isActive) {
                 processData()
@@ -512,14 +512,14 @@ class PerformanceExample {
         dataJob?.cancel()
     }
     
-    // Pitfall 3: Blocking operations in main thread
+    // 陷阱 3：主執行緒中的阻塞操作
     fun processLargeDataBlocking(data: List<DataItem>): List<ProcessedItem> {
         return data.map { item ->
-            heavyProcessing(item) // Blocks main thread
+            heavyProcessing(item) // 阻塞主執行緒
         }
     }
     
-    // Solution: Use coroutines for background processing
+    // 解決方案：使用協程進行背景處理
     suspend fun processLargeDataAsync(data: List<DataItem>): List<ProcessedItem> {
         return withContext(Dispatchers.Default) {
             data.map { item ->
@@ -528,7 +528,7 @@ class PerformanceExample {
         }
     }
     
-    // Pitfall 4: Inefficient object creation
+    // 陷阱 4：低效的物件建立
     fun createObjectsInefficient(): List<TestObject> {
         return (0..10_000).map { i ->
             TestObject(
@@ -539,7 +539,7 @@ class PerformanceExample {
         }
     }
     
-    // Solution: Use object pools or lazy initialization
+    // 解決方案：使用物件池或惰性初始化
     private val objectPool = mutableMapOf<Int, TestObject>()
     
     fun createObjectEfficient(id: Int): TestObject {
@@ -552,12 +552,12 @@ class PerformanceExample {
         }
     }
     
-    // Pitfall 5: Not using caching
+    // 陷阱 5：未使用快取
     fun expensiveCalculation(input: Int): Int {
-        return heavyComputation(input) // Recalculates every time
+        return heavyComputation(input) // 每次都重新計算
     }
     
-    // Solution: Use caching
+    // 解決方案：使用快取
     private val cache = mutableMapOf<Int, Int>()
     
     fun expensiveCalculationCached(input: Int): Int {
@@ -567,10 +567,10 @@ class PerformanceExample {
     }
 }
 
-// Best practices for performance
+// 效能最佳實踐
 class PerformanceBestPractices {
     
-    // 1. Use sequences for large collections
+    // 1. 對大型集合使用序列
     fun processLargeCollection(data: List<Int>): List<String> {
         return data.asSequence()
             .filter { it > 0 }
@@ -578,12 +578,12 @@ class PerformanceBestPractices {
             .toList()
     }
     
-    // 2. Use lazy initialization
+    // 2. 使用惰性初始化
     private val expensiveResource by lazy {
         createExpensiveResource()
     }
     
-    // 3. Use object pools for frequently created objects
+    // 3. 對頻繁建立的物件使用物件池
     private val stringBuilderPool = mutableListOf<StringBuilder>()
     
     fun getStringBuilder(): StringBuilder {
@@ -599,13 +599,13 @@ class PerformanceBestPractices {
         stringBuilderPool.add(builder)
     }
     
-    // 4. Use appropriate data structures
+    // 4. 使用適當的資料結構
     fun findUserById(users: List<User>, id: Long): User? {
-        // Use Map for O(1) lookup instead of O(n)
+        // 使用 Map 進行 O(1) 查找，而不是 O(n)
         return users.associateBy { it.id }[id]
     }
     
-    // 5. Use coroutines for async operations
+    // 5. 使用協程進行非同步操作
     suspend fun processDataAsync(data: List<DataItem>): List<ProcessedItem> {
         return withContext(Dispatchers.Default) {
             data.map { item ->
@@ -617,66 +617,66 @@ class PerformanceBestPractices {
 ```
 </UniversalEditor>
 
-## Memory Management Pitfalls
+## 記憶體管理陷阱
 
-### Memory Leak Prevention
+### 記憶體洩漏預防
 
-<UniversalEditor title="Memory Management Pitfalls" compare={true}>
+<UniversalEditor title="記憶體管理陷阱" compare={true}>
 ```javascript !! js
-// JavaScript memory management pitfalls
+// JavaScript 記憶體管理陷阱
 class MemoryExample {
   constructor() {
     this.listeners = [];
     this.data = [];
   }
   
-  // Pitfall 1: Event listeners not removed
+  // 陷阱 1：事件監聽器未被移除
   addEventListeners() {
     document.addEventListener('click', this.handleClick.bind(this));
-    // Listener never removed
+    // 監聽器從未被移除
   }
   
-  // Pitfall 2: Circular references
+  // 陷阱 2：循環引用
   createCircularReference() {
     const obj1 = { name: 'Object 1' };
     const obj2 = { name: 'Object 2' };
     obj1.ref = obj2;
     obj2.ref = obj1;
-    // Circular reference prevents garbage collection
+    // 循環引用阻止垃圾回收
   }
   
-  // Pitfall 3: Large objects in closures
+  // 陷阱 3：閉包中的大物件
   createClosureWithLargeData() {
     const largeData = new Array(1000000).fill('data');
     return function() {
       console.log(largeData.length);
     };
-    // largeData kept in memory
+    // largeData 保留在記憶體中
   }
   
-  // Pitfall 4: Timers not cleared
+  // 陷阱 4：計時器未被清除
   startTimer() {
     this.timer = setInterval(() => {
       this.processData();
     }, 1000);
-    // Timer never cleared
+    // 計時器從未被清除
   }
   
-  // Pitfall 5: DOM references not cleared
+  // 陷阱 5：DOM 引用未被清除
   cacheDOMElements() {
     this.elements = document.querySelectorAll('.item');
-    // DOM references kept in memory
+    // DOM 引用保留在記憶體中
   }
 }
 ```
 
 ```kotlin !! kt
-// Kotlin memory management pitfalls and solutions
+// Kotlin 記憶體管理陷阱與解決方案
 class MemoryExample {
     private val listeners = mutableListOf<() -> Unit>()
     private val data = mutableListOf<DataItem>()
     
-    // Pitfall 1: Coroutines not cancelled
+    // 陷阱 1：協程未被取消
     private var dataJob: Job? = null
     
     fun startDataProcessing() {
@@ -686,12 +686,12 @@ class MemoryExample {
                 delay(1000)
             }
         }
-        // Job never cancelled
+        // 作業從未被取消
     }
     
-    // Solution: Proper coroutine lifecycle management
+    // 解決方案：適當的協程生命週期管理
     fun startDataProcessingSafe() {
-        dataJob?.cancel() // Cancel previous job
+        dataJob?.cancel() // 取消之前的作業
         dataJob = CoroutineScope(Dispatchers.Main).launch {
             while (isActive) {
                 processData()
@@ -706,32 +706,32 @@ class MemoryExample {
         data.clear()
     }
     
-    // Pitfall 2: Strong references preventing garbage collection
+    // 陷阱 2：強引用阻止垃圾回收
     private var strongReference: Any? = null
     
     fun createStrongReference(obj: Any) {
         strongReference = obj
-        // obj will never be garbage collected
+        // obj 永遠不會被垃圾回收
     }
     
-    // Solution: Use weak references
+    // 解決方案：使用弱引用
     private val weakReferences = WeakHashMap<Any, String>()
     
     fun createWeakReference(obj: Any, value: String) {
         weakReferences[obj] = value
-        // obj can be garbage collected
+        // obj 可以被垃圾回收
     }
     
-    // Pitfall 3: Large objects in closures
+    // 陷阱 3：閉包中的大物件
     fun createClosureWithLargeData(): () -> Unit {
         val largeData = List(1_000_000) { "data" }
         return {
             println(largeData.size)
         }
-        // largeData kept in memory
+        // largeData 保留在記憶體中
     }
     
-    // Solution: Use lazy initialization or clear references
+    // 解決方案：使用惰性初始化或清除引用
     private val largeData by lazy {
         List(1_000_000) { "data" }
     }
@@ -742,31 +742,31 @@ class MemoryExample {
         }
     }
     
-    // Pitfall 4: Resource leaks
+    // 陷阱 4：資源洩漏
     private var fileInputStream: FileInputStream? = null
     
     fun readFile(path: String): String {
         fileInputStream = FileInputStream(path)
         return fileInputStream!!.readBytes().toString()
-        // FileInputStream never closed
+        // FileInputStream 從未關閉
     }
     
-    // Solution: Use use function for automatic resource management
+    // 解決方案：使用 use 函式進行自動資源管理
     fun readFileSafe(path: String): String {
         return FileInputStream(path).use { input ->
             input.readBytes().toString()
         }
     }
     
-    // Pitfall 5: Observers not removed
+    // 陷阱 5：觀察者未被移除
     private val observers = mutableListOf<Observer>()
     
     fun addObserver(observer: Observer) {
         observers.add(observer)
-        // Observer never removed
+        // 觀察者從未被移除
     }
     
-    // Solution: Proper observer lifecycle management
+    // 解決方案：適當的觀察者生命週期管理
     fun addObserverSafe(observer: Observer) {
         observers.add(observer)
     }
@@ -780,27 +780,27 @@ class MemoryExample {
     }
 }
 
-// Best practices for memory management
+// 記憶體管理最佳實踐
 class MemoryManagementBestPractices {
     
-    // 1. Use structured concurrency
+    // 1. 使用結構化並行
     suspend fun structuredConcurrencyExample() = coroutineScope {
         val job1 = launch { processData1() }
         val job2 = launch { processData2() }
         
-        // All jobs are cancelled when scope is cancelled
+        // 當作用域被取消時，所有作業都會被取消
         job1.join()
         job2.join()
     }
     
-    // 2. Use resource management
+    // 2. 使用資源管理
     fun readFileWithResource(path: String): String {
         return File(path).inputStream().use { input ->
             input.bufferedReader().readText()
         }
     }
     
-    // 3. Use weak references for caching
+    // 3. 使用弱引用進行快取
     private val cache = WeakHashMap<String, ExpensiveObject>()
     
     fun getExpensiveObject(key: String): ExpensiveObject {
@@ -809,21 +809,21 @@ class MemoryManagementBestPractices {
         }
     }
     
-    // 4. Clear references when done
+    // 4. 完成後清除引用
     class DataProcessor {
         private var data: List<DataItem>? = null
         
         fun processData(newData: List<DataItem>) {
             data = newData
-            // Process data
+            // 處理資料
         }
         
         fun cleanup() {
-            data = null // Clear reference
+            data = null // 清除引用
         }
     }
     
-    // 5. Use object pools for frequently created objects
+    // 5. 對頻繁建立的物件使用物件池
     private val stringBuilderPool = mutableListOf<StringBuilder>()
     
     fun getStringBuilder(): StringBuilder {
@@ -842,45 +842,45 @@ class MemoryManagementBestPractices {
 ```
 </UniversalEditor>
 
-## Error Handling Pitfalls
+## 錯誤處理陷阱
 
-### Common Error Handling Mistakes
+### 常見的錯誤處理錯誤
 
-<UniversalEditor title="Error Handling Pitfalls" compare={true}>
+<UniversalEditor title="錯誤處理陷阱" compare={true}>
 ```javascript !! js
-// JavaScript error handling pitfalls
+// JavaScript 錯誤處理陷阱
 class ErrorExample {
-  // Pitfall 1: Swallowing exceptions
+  // 陷阱 1：吞掉例外
   async fetchData() {
     try {
       const response = await fetch('/api/data');
       const data = await response.json();
       return data;
     } catch (error) {
-      console.log('Error occurred');
-      // Error swallowed, no re-throwing
+      console.log('發生錯誤');
+      // 例外被吞掉，沒有重新拋出
     }
   }
   
-  // Pitfall 2: Generic error handling
+  // 陷阱 2：通用的錯誤處理
   processData(data) {
     try {
       return this.heavyProcessing(data);
     } catch (error) {
-      console.error('An error occurred:', error);
-      // Generic error message
+      console.error('發生錯誤:', error);
+      // 通用的錯誤訊息
     }
   }
   
-  // Pitfall 3: Not handling async errors
+  // 陷阱 3：未處理非同步錯誤
   async processAsyncData() {
     const promises = [this.fetchData1(), this.fetchData2()];
     const results = await Promise.all(promises);
     return results;
-    // If any promise rejects, entire operation fails
+    // 如果任何 promise 被拒絕，整個操作都會失敗
   }
   
-  // Pitfall 4: Inconsistent error types
+  // 陷阱 4：不一致的錯誤型別
   validateUser(user) {
     if (!user.name) {
       throw 'Name is required';
@@ -888,10 +888,10 @@ class ErrorExample {
     if (!user.email) {
       throw new Error('Email is required');
     }
-    // Mixed error types
+    // 混合的錯誤型別
   }
   
-  // Pitfall 5: Not providing context
+  // 陷阱 5：未提供上下文
   async updateUser(userId, data) {
     try {
       const response = await fetch(`/api/users/${userId}`, {
@@ -901,50 +901,50 @@ class ErrorExample {
       return response.json();
     } catch (error) {
       throw new Error('Update failed');
-      // Lost original error context
+      // 遺失了原始錯誤上下文
     }
   }
 }
 ```
 
 ```kotlin !! kt
-// Kotlin error handling pitfalls and solutions
+// Kotlin 錯誤處理陷阱與解決方案
 class ErrorExample {
     
-    // Pitfall 1: Swallowing exceptions
+    // 陷阱 1：吞掉例外
     suspend fun fetchData(): List<DataItem>? {
         return try {
             val response = httpClient.get("/api/data")
             Json.decodeFromString(response)
         } catch (e: Exception) {
-            println("Error occurred")
-            null // Error swallowed
+            println("發生錯誤")
+            null // 例外被吞掉
         }
     }
     
-    // Solution: Proper error handling with custom exceptions
+    // 解決方案：使用自訂例外進行適當的錯誤處理
     suspend fun fetchDataSafe(): List<DataItem> {
         return try {
             val response = httpClient.get("/api/data")
             Json.decodeFromString(response)
         } catch (e: Exception) {
-            throw DataFetchException("Failed to fetch data", e)
+            throw DataFetchException("取得資料失敗", e)
         }
     }
     
-    // Pitfall 2: Generic error handling
+    // 陷阱 2：通用的錯誤處理
     fun processData(data: List<DataItem>): List<ProcessedItem> {
         return try {
             data.map { item ->
                 heavyProcessing(item)
             }
         } catch (e: Exception) {
-            println("An error occurred: $e")
-            emptyList() // Generic handling
+            println("發生錯誤: $e")
+            emptyList() // 通用處理
         }
     }
     
-    // Solution: Specific error handling
+    // 解決方案：特定的錯誤處理
     fun processDataSafe(data: List<DataItem>): Result<List<ProcessedItem>> {
         return try {
             val result = data.map { item ->
@@ -952,13 +952,13 @@ class ErrorExample {
             }
             Result.success(result)
         } catch (e: IllegalArgumentException) {
-            Result.failure(ValidationException("Invalid data format", e))
+            Result.failure(ValidationException("無效的資料格式", e))
         } catch (e: Exception) {
-            Result.failure(ProcessingException("Failed to process data", e))
+            Result.failure(ProcessingException("處理資料失敗", e))
         }
     }
     
-    // Pitfall 3: Not handling coroutine exceptions
+    // 陷阱 3：未處理協程例外
     suspend fun processAsyncData(): List<DataItem> {
         val results = coroutineScope {
             val data1 = async { fetchData1() }
@@ -966,10 +966,10 @@ class ErrorExample {
             listOf(data1.await(), data2.await())
         }
         return results.flatten()
-        // If any coroutine fails, entire operation fails
+        // 如果任何協程失敗，整個操作都會失敗
     }
     
-    // Solution: Handle coroutine exceptions properly
+    // 解決方案：正確處理協程例外
     suspend fun processAsyncDataSafe(): List<DataItem> {
         return try {
             coroutineScope {
@@ -978,17 +978,17 @@ class ErrorExample {
                 listOf(data1.await(), data2.await())
             }.flatten()
         } catch (e: Exception) {
-            // Handle specific exceptions
+            // 處理特定的例外
             when (e) {
                 is NetworkException -> handleNetworkError(e)
                 is TimeoutException -> handleTimeoutError(e)
-                else -> throw ProcessingException("Failed to process async data", e)
+                else -> throw ProcessingException("處理非同步資料失敗", e)
             }
             emptyList()
         }
     }
     
-    // Pitfall 4: Inconsistent error types
+    // 陷阱 4：不一致的錯誤型別
     fun validateUser(user: User) {
         if (user.name.isBlank()) {
             throw "Name is required"
@@ -996,10 +996,10 @@ class ErrorExample {
         if (user.email.isBlank()) {
             throw ValidationException("Email is required")
         }
-        // Mixed error types
+        // 混合的錯誤型別
     }
     
-    // Solution: Use sealed classes for error types
+    // 解決方案：使用密封類別表示錯誤型別
     sealed class ValidationError : Exception() {
         object MissingName : ValidationError()
         object MissingEmail : ValidationError()
@@ -1015,7 +1015,7 @@ class ErrorExample {
         }
     }
     
-    // Pitfall 5: Not providing context
+    // 陷阱 5：未提供上下文
     suspend fun updateUser(userId: Long, data: UpdateUserRequest): User {
         return try {
             val response = httpClient.put("/api/users/$userId") {
@@ -1024,11 +1024,11 @@ class ErrorExample {
             Json.decodeFromString(response)
         } catch (e: Exception) {
             throw Exception("Update failed")
-            // Lost original error context
+            // 遺失了原始錯誤上下文
         }
     }
     
-    // Solution: Preserve error context
+    // 解決方案：保留錯誤上下文
     suspend fun updateUserSafe(userId: Long, data: UpdateUserRequest): User {
         return try {
             val response = httpClient.put("/api/users/$userId") {
@@ -1036,12 +1036,12 @@ class ErrorExample {
             }
             Json.decodeFromString(response)
         } catch (e: Exception) {
-            throw UserUpdateException("Failed to update user $userId", e)
+            throw UserUpdateException("更新使用者 $userId 失敗", e)
         }
     }
 }
 
-// Custom exceptions for better error handling
+// 用於更好錯誤處理的自訂例外
 class DataFetchException(message: String, cause: Throwable? = null) : 
     Exception(message, cause)
 
@@ -1057,10 +1057,10 @@ class NetworkException(message: String, cause: Throwable? = null) :
 class UserUpdateException(message: String, cause: Throwable? = null) : 
     Exception(message, cause)
 
-// Best practices for error handling
+// 錯誤處理最佳實踐
 class ErrorHandlingBestPractices {
     
-    // 1. Use Result type for operations that can fail
+    // 1. 對可能失敗的操作使用 Result 型別
     fun divide(a: Int, b: Int): Result<Int> {
         return if (b != 0) {
             Result.success(a / b)
@@ -1069,14 +1069,14 @@ class ErrorHandlingBestPractices {
         }
     }
     
-    // 2. Use sealed classes for error types
+    // 2. 使用密封類別表示錯誤型別
     sealed class ApiError : Exception() {
         object NetworkError : ApiError()
         object ServerError : ApiError()
         data class ValidationError(val field: String) : ApiError()
     }
     
-    // 3. Use try-catch with specific exception types
+    // 3. 使用帶特定例外型別的 try-catch
     fun processData(data: String): Result<ProcessedData> {
         return try {
             val processed = heavyProcessing(data)
@@ -1088,7 +1088,7 @@ class ErrorHandlingBestPractices {
         }
     }
     
-    // 4. Use coroutine exception handlers
+    // 4. 使用協程例外處理器
     private val exceptionHandler = CoroutineExceptionHandler { _, exception ->
         when (exception) {
             is NetworkException -> handleNetworkError(exception)
@@ -1097,13 +1097,13 @@ class ErrorHandlingBestPractices {
         }
     }
     
-    // 5. Use supervisor scope for independent operations
+    // 5. 對獨立操作使用 supervisorScope
     suspend fun processIndependentData(): List<DataItem> {
         return supervisorScope {
             val data1 = async { fetchData1() }
             val data2 = async { fetchData2() }
             
-            // If one fails, others continue
+            // 如果一個失敗，其他繼續
             listOfNotNull(data1.awaitOrNull(), data2.awaitOrNull())
         }
     }
@@ -1111,39 +1111,39 @@ class ErrorHandlingBestPractices {
 ```
 </UniversalEditor>
 
-## Summary
+## 總結
 
-In this module, we've explored common pitfalls in Kotlin development and their solutions. Here are the key takeaways:
+在本模組中，我們探討了 Kotlin 開發中的常見陷阱及其解決方案。以下是關鍵要點：
 
-### Key Concepts Covered
-1. **Coroutine Programming Pitfalls**: Structured concurrency, cancellation, and proper error handling
-2. **Null Safety Issues**: Safe call operators, Elvis operator, and smart casts
-3. **Performance Optimization Mistakes**: Efficient collection operations, caching, and background processing
-4. **Memory Management Problems**: Resource cleanup, weak references, and object pools
-5. **Error Handling Mistakes**: Custom exceptions, Result types, and proper error context
+### 涵蓋的關鍵概念
+1. **協程編程陷阱**：結構化並行、取消和適當的錯誤處理
+2. **空安全問題**：安全呼叫運算子、Elvis 運算子和智慧轉換
+3. **效能優化錯誤**：高效的集合操作、快取和背景處理
+4. **記憶體管理問題**：資源清理、弱引用和物件池
+5. **錯誤處理錯誤**：自訂例外、Result 型別和適當的錯誤上下文
 
-### Common Pitfalls and Solutions
+### 常見陷阱與解決方案
 
-| Pitfall Category | Common Mistake | Solution |
+| 陷阱類別 | 常見錯誤 | 解決方案 |
 |-----------------|----------------|----------|
-| **Coroutines** | Not using structured concurrency | Use coroutineScope and supervisorScope |
-| **Null Safety** | Unsafe null access | Use safe call operator (?.) and Elvis operator (?:) |
-| **Performance** | Inefficient collection operations | Use sequences and appropriate data structures |
-| **Memory** | Resource leaks | Use use function and proper cleanup |
-| **Error Handling** | Swallowing exceptions | Use custom exceptions and Result types |
+| **協程** | 未使用結構化並行 | 使用 coroutineScope 和 supervisorScope |
+| **空安全** | 不安全的 null 存取 | 使用安全呼叫運算子 (?.) 和 Elvis 運算子 (?:) |
+| **效能** | 低效的集合操作 | 使用序列和適當的資料結構 |
+| **記憶體** | 資源洩漏 | 使用 use 函式和適當的清理 |
+| **錯誤處理** | 吞掉例外 | 使用自訂例外和 Result 型別 |
 
-### Best Practices
-1. **Use Structured Concurrency**: Always use coroutineScope for proper lifecycle management
-2. **Handle Nulls Safely**: Use safe call operators and provide meaningful defaults
-3. **Optimize Performance**: Use sequences for large collections and appropriate dispatchers
-4. **Manage Memory**: Clean up resources and use weak references when appropriate
-5. **Handle Errors Properly**: Use custom exceptions and preserve error context
-6. **Test Thoroughly**: Write tests for edge cases and error scenarios
-7. **Monitor Performance**: Use profiling tools to identify bottlenecks
+### 最佳實踐
+1. **使用結構化並行**：始終使用 coroutineScope 進行適當的生命週期管理
+2. **安全處理 Null**：使用安全呼叫運算子並提供有意義的預設值
+3. **優化效能**：對大型集合使用序列並使用適當的調度器
+4. **管理記憶體**：在適當時清理資源並使用弱引用
+5. **正確處理錯誤**：使用自訂例外並保留錯誤上下文
+6. **徹底測試**：為邊緣情況和錯誤場景編寫測試
+7. **監控效能**：使用分析工具識別瓶頸
 
-### Next Steps
-In the next module, we'll explore Kotlin idiomatic patterns and performance optimization techniques, focusing on writing clean, efficient, and maintainable Kotlin code.
+### 下一步
+在下一個模組中，我們將探討 Kotlin 的慣用模式和效能優化技術，重點是編寫乾淨、高效和可維護的 Kotlin 程式碼。
 
 ---
 
-**Practice Challenge**: Refactor a problematic codebase to fix common pitfalls, including null safety issues, coroutine problems, memory leaks, and poor error handling. Implement proper solutions and write comprehensive tests. 
+**實踐挑戰**：重構一個有問題的程式碼庫以修復常見的陷阱，包括空安全問題、協程問題、記憶體洩漏和糟糕的錯誤處理。實現適當的解決方案並編寫全面的測試。
