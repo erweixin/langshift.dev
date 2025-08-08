@@ -118,12 +118,12 @@ export function Header({ lang }: HeaderProps) {
             </div>
 
             {/* Mobile Menu Button */}
-            <button
+            {/* <button
               onClick={() => setIsMenuOpen(!isMenuOpen)}
               className="md:hidden p-2 text-slate-300 hover:text-white transition-colors"
             >
               {isMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
-            </button>
+            </button> */}
           </div>
         </div>
 
