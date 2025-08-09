@@ -54,11 +54,11 @@ export function HomePage({
       {/* 代码对比演示区域 */}
       <CodeDemoSection lang={lang} translations={translations} />
 
-      {/* 学习路径展示 */}
-      <LearningPathSection lang={lang} translations={translations} isDefaultPage={isDefaultPage} />
-
       {/* 课程选择区域 */}
       <CoursesSection lang={lang} translations={translations} courses={courses} isDefaultPage={isDefaultPage} />
+      
+      {/* 学习路径展示 */}
+      <LearningPathSection lang={lang} translations={translations} isDefaultPage={isDefaultPage} />
 
       {/* 核心特性展示 */}
       <FeaturesSection lang={lang} translations={translations} />
