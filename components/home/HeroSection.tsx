@@ -25,6 +25,14 @@ export function HeroSection({ lang, translations, isDefaultPage }: HeroSectionPr
 
       <div className="container mx-auto px-4 py-16 lg:py-24 relative z-10">
         <div className="text-center max-w-6xl mx-auto">
+          {/* 免费标识 */}
+          <div className="mb-6">
+            <div className="inline-flex items-center px-6 py-3 bg-gradient-to-r from-green-500/20 to-emerald-500/20 border border-green-500/30 rounded-full backdrop-blur-sm">
+              <div className="w-3 h-3 bg-green-400 rounded-full mr-3 animate-pulse"></div>
+              <span className="text-green-300 font-semibold text-lg">{t.home.hero.freeOpenSource}</span>
+            </div>
+          </div>
+
           {/* 主标题 */}
           <div className="mb-8">
             <h1 className="text-5xl md:text-7xl lg:text-8xl font-bold text-white mb-6 leading-tight">
@@ -69,8 +77,12 @@ export function HeroSection({ lang, translations, isDefaultPage }: HeroSectionPr
           <div className="flex flex-col sm:flex-row gap-4 justify-center mb-16">
             <Link
               href="#courses"
-              className="group inline-flex items-center px-8 py-4 bg-gradient-to-r from-blue-500 to-purple-600 text-white font-semibold rounded-xl hover:from-blue-600 hover:to-purple-700 transition-all duration-300 transform hover:scale-105 shadow-lg hover:shadow-xl"
+              className="group inline-flex items-center px-8 py-4 bg-gradient-to-r from-blue-500 to-purple-600 text-white font-semibold rounded-xl hover:from-blue-600 hover:to-purple-700 transition-all duration-300 transform hover:scale-105 shadow-lg hover:shadow-xl relative overflow-hidden"
             >
+              {/* 免费标识动画 */}
+              <div className="absolute top-0 right-0 w-20 h-6 bg-gradient-to-r from-green-400 to-emerald-400 rounded-bl-xl flex items-center justify-center">
+                <span className="text-xs font-bold text-white">{t.home.hero.freeBadge}</span>
+              </div>
               <Play className="w-5 h-5 mr-2" />
               {t.home.hero.cta}
               <ArrowRight className="w-5 h-5 ml-2 transform group-hover:translate-x-1 transition-transform" />
