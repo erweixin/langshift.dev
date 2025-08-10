@@ -6,6 +6,7 @@ import Script from 'next/script';
 import { SEOHead } from '@/components/seo-head';
 import { defaultStructuredData, organizationStructuredData } from '@/lib/seo-structured-data';
 import { Analytics } from '@/components/analytics';
+import { Metadata } from 'next';
 
 const zhCn: Partial<Translations> = {
   search: '简体中文',
@@ -33,6 +34,33 @@ const locales = [
     locale: 'zh-tw',
   },
 ];
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ lang: string }>;
+}): Promise<Metadata> {
+  const lang = (await params).lang;
+  
+  // 语言配置
+  const langConfig = {
+    'zh-cn': {
+      manifest: '/zh-cn/manifest.webmanifest',
+    },
+    'zh-tw': {
+      manifest: '/zh-tw/manifest.webmanifest',
+    },
+    'en': {
+      manifest: '/en/manifest.webmanifest',
+    }
+  };
+
+  const config = langConfig[lang as keyof typeof langConfig] || langConfig['zh-cn'];
+  
+  return {
+    manifest: config.manifest,
+  };
+}
 
 export default async function RootLayout({
   params,

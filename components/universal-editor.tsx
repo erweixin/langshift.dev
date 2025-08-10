@@ -6,6 +6,7 @@ import { VirtualizedEditor } from './virtualized-editor'
 import { trackCodeExecution, trackEditorUsage } from '@/components/analytics'
 import { getTranslations, type SupportedLanguage } from '@/messages'
 import { useParams } from 'next/navigation'
+import { getPyodideCDN } from '@/lib/cdn-disaster-recovery'
 
 interface CodeBlock {
   language: string
@@ -102,9 +103,19 @@ class LanguageRuntimeManager {
   }
 
   private async loadPyodide(): Promise<any> {
+    // 检查 Pyodide 是否已加载
+    if (!(globalThis as any).loadPyodide) {
+      throw new Error('Pyodide 未加载。请确保在 js2py 模块页面访问此功能。')
+    }
+
     try {
+      // 获取健康的 Pyodide CDN
+      const healthyCDN = await getPyodideCDN()
+      
+      console.log(`Pyodide 使用 CDN: ${healthyCDN}`)
+      
       const pyodideInstance = await (globalThis as any).loadPyodide({
-        indexURL: "https://cdn.jsdelivr.net/pyodide/v0.27.0/full/",
+        indexURL: healthyCDN,
       })
       
       // 只预加载基础库，其他库按需加载
@@ -112,8 +123,20 @@ class LanguageRuntimeManager {
       
       return pyodideInstance
     } catch (error) {
-      console.error('Pyodide 初始化失败:', error)
-      throw error
+      console.error('Pyodide CDN 容灾加载失败，尝试默认 CDN:', error)
+      
+      try {
+        // 备用方案：使用默认 CDN
+        const pyodideInstance = await (globalThis as any).loadPyodide({
+          indexURL: "https://cdn.jsdelivr.net/pyodide/v0.27.0/full/",
+        })
+        
+        await this.preloadBasicPythonLibraries(pyodideInstance)
+        return pyodideInstance
+      } catch (fallbackError) {
+        console.error('Pyodide 初始化完全失败:', fallbackError)
+        throw fallbackError
+      }
     }
   }
 
@@ -777,6 +800,10 @@ export default function UniversalEditor(params: UniversalEditorProps) {
   
   // 解析代码块并设置语言
   useEffect(() => {
+    if (code.length === 0) {
+      console.warn('code is empty')
+      return;
+    }
     const newCodeBlocks = new Map<string, string>()
     const languages: string[] = []
     

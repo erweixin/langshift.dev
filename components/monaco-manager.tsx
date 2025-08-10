@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { loader } from '@monaco-editor/react'
+import { getMonacoEditorCDN } from '@/lib/cdn-disaster-recovery'
 
 // Monaco Editor 全局管理器
 class MonacoManager {
@@ -44,15 +45,33 @@ class MonacoManager {
   }
 
   private async loadMonaco(): Promise<void> {
-    // 配置 Monaco Editor 加载器
-    loader.config({
-      paths: {
-        vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs'
-      }
-    })
+    try {
+      // 获取健康的 Monaco Editor CDN
+      const healthyCDN = await getMonacoEditorCDN()
+      console.log('healthyCDN', healthyCDN)
+      // 配置 Monaco Editor 加载器
+      loader.config({
+        paths: {
+          vs: `${healthyCDN}/vs`
+        }
+      })
 
-    // 预加载 Monaco Editor
-    await loader.init()
+      console.log(`Monaco Editor 使用 CDN: ${healthyCDN}`)
+
+      // 预加载 Monaco Editor
+      await loader.init()
+    } catch (error) {
+      console.error('Monaco Editor CDN 容灾加载失败，使用默认 CDN:', error)
+      
+      // 备用方案：使用默认 CDN
+      loader.config({
+        paths: {
+          vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs'
+        }
+      })
+
+      await loader.init()
+    }
   }
 
   subscribe(callback: () => void): () => void {
