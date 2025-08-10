@@ -19,6 +19,7 @@ export default function RootLayout({
         
         {/* 基础图标和 PWA 支持 */}
         <link rel="icon" href="/favicon.ico" />
+        <link rel="manifest" href="/manifest.webmanifest" />
         
         {/* 主题和颜色 */}
         <meta name="theme-color" content="#1e293b" />

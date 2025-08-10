@@ -5,6 +5,7 @@ import { useMonacoManager } from './monaco-manager'
 import { VirtualizedEditor } from './virtualized-editor'
 import { getTranslations, type SupportedLanguage } from '@/messages'
 import { useParams } from 'next/navigation'
+import { getPyodideCDN } from '@/lib/cdn-disaster-recovery'
 
 interface CodeBlock {
   language: string
@@ -72,9 +73,19 @@ class PyodideManager {
   }
 
   private async loadPyodide(): Promise<any> {
+    // 检查 Pyodide 是否已加载
+    if (!(globalThis as any).loadPyodide) {
+      throw new Error('Pyodide 未加载。请确保在 js2py 模块页面访问此功能。')
+    }
+
     try {
+      // 获取健康的 Pyodide CDN
+      const healthyCDN = await getPyodideCDN()
+      
+      console.log(`Pyodide 使用 CDN: ${healthyCDN}`)
+      
       const pyodideInstance = await (globalThis as any).loadPyodide({
-        indexURL: "https://cdn.jsdelivr.net/pyodide/v0.27.0/full/",
+        indexURL: healthyCDN,
       })
       
       // 预加载常用的 Python 库
@@ -82,8 +93,20 @@ class PyodideManager {
       
       return pyodideInstance
     } catch (error) {
-      console.error('Pyodide 初始化失败:', error)
-      throw error
+      console.error('Pyodide CDN 容灾加载失败，尝试默认 CDN:', error)
+      
+      try {
+        // 备用方案：使用默认 CDN
+        const pyodideInstance = await (globalThis as any).loadPyodide({
+          indexURL: "https://cdn.jsdelivr.net/pyodide/v0.27.0/full/",
+        })
+        
+        await this.preloadCommonLibraries(pyodideInstance)
+        return pyodideInstance
+      } catch (fallbackError) {
+        console.error('Pyodide 初始化完全失败:', fallbackError)
+        throw fallbackError
+      }
     }
   }
 
