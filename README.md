@@ -57,7 +57,17 @@ LangShift.dev 是一个专门为开发者设计的编程语言转换学习平台
 
 **📚 [查看详细学习指南 →](./content/docs/js2go/README.md)**
 
-### 🔄 JavaScript ↔ C++ 🚧 (开发中)
+### 🔄 JavaScript ↔ Kotlin ✅ (已完成)
+- 从 JavaScript 开发者视角学习 Kotlin
+- 协程编程：Promise/async-await vs Kotlin 协程
+- Android 开发：移动应用开发基础
+- JVM 生态系统：Spring Boot 和后端服务
+- 函数式编程：高阶函数和 Lambda 表达式
+- **包含 14 个完整学习模块**
+
+**📚 [查看详细学习指南 →](./content/docs/js2kotlin/README.md)**
+
+### 🔄 JavaScript ↔ C++ ✅ (已完成)
 - 从 JavaScript 开发者视角学习 C++
 - 内存管理：垃圾回收 vs 手动管理
 - 面向对象：原型链 vs 类继承
@@ -67,7 +77,7 @@ LangShift.dev 是一个专门为开发者设计的编程语言转换学习平台
 
 **📚 [查看详细学习指南 →](./content/docs/js2cpp/README.md)**
 
-### 🔄 JavaScript ↔ Swift 🚧 (开发中)
+### 🔄 JavaScript ↔ Swift ✅ (已完成)
 - 从 JavaScript 开发者视角学习 Swift
 - 类型系统：动态类型 vs 强类型
 - 内存管理：垃圾回收 vs ARC
@@ -77,7 +87,7 @@ LangShift.dev 是一个专门为开发者设计的编程语言转换学习平台
 
 **📚 [查看详细学习指南 →](./content/docs/js2swift/README.md)**
 
-### 🔄 JavaScript ↔ C 🚧 (开发中)
+### 🔄 JavaScript ↔ C ✅ (已完成)
 - 从 JavaScript 开发者视角学习 C 语言
 - 内存管理：垃圾回收 vs 手动内存管理
 - 指针操作：引用 vs 指针
@@ -88,7 +98,7 @@ LangShift.dev 是一个专门为开发者设计的编程语言转换学习平台
 **📚 [查看详细学习指南 →](./content/docs/js2c/README.md)**
 
 ### 🚀 更多语言支持计划中...
-- TypeScript ↔ Java
+- **JavaScript ↔ Java** (计划中)
 - Python ↔ Rust
 - JavaScript ↔ Dart
 - Python ↔ TypeScript
@@ -142,7 +152,23 @@ LangShift.dev 是一个专门为开发者设计的编程语言转换学习平台
 - **模块 12**: 常见陷阱与解决方案
 - **模块 13**: Idiomatic Go 风格
 
-### JavaScript → C++ (开发中)
+### JavaScript → Kotlin (已完成)
+- **模块 0**: Kotlin 介绍与 JVM 生态系统
+- **模块 1**: 基础语法对比
+- **模块 2**: JVM 生态系统与工具链
+- **模块 3**: 函数式编程特性
+- **模块 4**: 协程与异步编程
+- **模块 5**: 面向对象编程
+- **模块 6**: Android 开发基础
+- **模块 7**: Web 开发与 Spring Boot
+- **模块 8**: 移动应用开发
+- **模块 9**: 跨平台开发
+- **模块 10**: 测试与调试
+- **模块 11**: 综合实战项目
+- **模块 12**: 常见陷阱与解决方案
+- **模块 13**: Idiomatic Kotlin 风格
+
+### JavaScript → C++ (已完成)
 - **模块 0**: C++ 介绍与学习方法
 - **模块 1**: 基础语法对比
 - **模块 2**: 内存管理基础
@@ -159,7 +185,7 @@ LangShift.dev 是一个专门为开发者设计的编程语言转换学习平台
 - **模块 13**: 系统编程
 - **模块 14**: 综合实战项目
 
-### JavaScript → Swift (开发中)
+### JavaScript → Swift (已完成)
 - **模块 0**: Swift 介绍与学习方法
 - **模块 1**: 基础语法对比
 - **模块 2**: 类型系统与安全
@@ -176,7 +202,7 @@ LangShift.dev 是一个专门为开发者设计的编程语言转换学习平台
 - **模块 13**: 测试与调试
 - **模块 14**: 综合实战项目
 
-### JavaScript → C (开发中)
+### JavaScript → C (已完成)
 - **模块 0**: C 语言介绍与学习方法
 - **模块 1**: 基础语法对比
 - **模块 2**: 变量与内存基础
@@ -208,6 +234,7 @@ LangShift.dev 是一个专门为开发者设计的编程语言转换学习平台
 ### 语言运行时
 - **Python**: Pyodide (浏览器端 Python)
 - **JavaScript**: V8 Engine
+- **Kotlin**: JVM (计划支持 Kotlin/JS)
 - **Rust**: WebAssembly (计划中)
 
 ### 开发工具
@@ -315,18 +342,23 @@ langshift.dev/
 │       │   ├── README.md # 模块介绍
 │       │   ├── .cursorrules # 模块规范
 │       │   └── module-*.mdx # 14个学习模块
-│       ├── js2cpp/      # JavaScript → C++ (开发中)
+│       ├── js2cpp/      # JavaScript → C++ (已完成)
 │       │   ├── README.md # 模块介绍
 │       │   ├── .cursorrules # 模块规范
 │       │   └── module-*.mdx # 15个学习模块
-│       ├── js2swift/    # JavaScript → Swift (开发中)
+│       ├── js2swift/    # JavaScript → Swift (已完成)
 │       │   ├── README.md # 模块介绍
 │       │   ├── .cursorrules # 模块规范
 │       │   └── module-*.mdx # 15个学习模块
-│       ├── js2c/        # JavaScript → C (开发中)
+│       ├── js2c/        # JavaScript → C (已完成)
 │       │   ├── README.md # 模块介绍
 │       │   ├── .cursorrules # 模块规范
 │       │   └── module-*.mdx # 15个学习模块
+│       ├── js2kotlin/   # JavaScript → Kotlin (已完成)
+│       │   ├── README.md # 模块介绍
+│       │   ├── .cursorrules # 模块规范
+│       │   └── module-*.mdx # 14个学习模块
+│       ├── js2java/     # JavaScript → Java (计划中)
 │       └── ...
 ├── lib/                 # 工具函数
 │   ├── i18n.ts         # 国际化配置
@@ -355,6 +387,15 @@ langshift.dev/
 5. **循序渐进**: 按照模块顺序学习，打好基础
 6. **性能关注**: 理解不同语言的性能特性
 7. **最佳实践**: 学习各语言的编码规范和最佳实践
+
+### 语言选择建议
+- **初学者**: 建议从 JavaScript → Python 开始，语法相对简单
+- **系统编程**: 推荐 JavaScript → Rust 或 JavaScript → C++
+- **并发编程**: 推荐 JavaScript → Go 或 JavaScript → Rust
+- **移动开发**: 推荐 JavaScript → Swift 或 JavaScript → Kotlin (Android)
+- **后端开发**: 推荐 JavaScript → Go 或 JavaScript → Kotlin (JVM)
+- **性能优化**: 推荐 JavaScript → Rust 或 JavaScript → C++
+- **企业应用**: 推荐 JavaScript → Kotlin 或 JavaScript → Java (JVM)
 
 ## 🌟 特色功能
 

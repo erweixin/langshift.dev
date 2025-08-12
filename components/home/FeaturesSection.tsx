@@ -14,8 +14,8 @@ export function FeaturesSection({ lang, translations }: FeaturesSectionProps) {
       icon: <Code className="w-8 h-8" />,
       title: t.home.features.codeEditor.title,
       description: t.home.features.codeEditor.description,
-      color: "from-blue-500 to-cyan-500",
-      bgColor: "bg-blue-500/10",
+      color: "from-amber-500 to-orange-600",
+      bgColor: "bg-amber-500/10",
     },
     {
       icon: <Target className="w-8 h-8" />,
@@ -28,8 +28,8 @@ export function FeaturesSection({ lang, translations }: FeaturesSectionProps) {
       icon: <BookOpen className="w-8 h-8" />,
       title: t.home.features.learningPath.title,
       description: t.home.features.learningPath.description,
-      color: "from-purple-500 to-pink-500",
-      bgColor: "bg-purple-500/10",
+      color: "from-amber-500 to-yellow-500",
+      bgColor: "bg-amber-500/10",
     },
     {
       icon: <Zap className="w-8 h-8" />,
@@ -42,15 +42,15 @@ export function FeaturesSection({ lang, translations }: FeaturesSectionProps) {
       icon: <Rocket className="w-8 h-8" />,
       title: t.home.features.projects.title,
       description: t.home.features.projects.description,
-      color: "from-indigo-500 to-purple-500",
-      bgColor: "bg-indigo-500/10",
+      color: "from-stone-500 to-stone-400",
+      bgColor: "bg-stone-500/10",
     },
     {
       icon: <Users className="w-8 h-8" />,
       title: t.home.features.community.title,
       description: t.home.features.community.description,
-      color: "from-teal-500 to-cyan-500",
-      bgColor: "bg-teal-500/10",
+      color: "from-emerald-500 to-green-600",
+      bgColor: "bg-emerald-500/10",
     },
   ];
 

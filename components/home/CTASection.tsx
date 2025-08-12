@@ -14,7 +14,7 @@ export function CTASection({ lang, translations, isDefaultPage }: CTASectionProp
   return (
     <div className="py-20">
       <div className="container mx-auto px-4">
-        <div className="bg-gradient-to-r from-blue-600/20 to-purple-600/20 border border-blue-500/30 rounded-3xl p-12 text-center backdrop-blur-sm relative overflow-hidden">
+        <div className="bg-gradient-to-r from-amber-600/20 to-emerald-600/20 border border-amber-500/30 rounded-3xl p-12 text-center backdrop-blur-sm relative overflow-hidden">
           {/* 免费标识动画背景 */}
           <div className="absolute top-0 left-0 w-full h-full">
             <div className="absolute top-4 left-4 w-24 h-24 bg-green-400/10 rounded-full animate-pulse"></div>
@@ -39,7 +39,7 @@ export function CTASection({ lang, translations, isDefaultPage }: CTASectionProp
           <div className="flex flex-col sm:flex-row gap-4 justify-center relative z-10">
             <Link
               href="#courses"
-              className="group inline-flex items-center px-8 py-4 bg-gradient-to-r from-blue-500 to-purple-600 text-white font-semibold rounded-xl hover:from-blue-600 hover:to-purple-700 transition-all duration-300 transform hover:scale-105 shadow-lg relative overflow-hidden"
+              className="group inline-flex items-center px-8 py-4 bg-gradient-to-r from-amber-500 to-orange-600 text-white font-semibold rounded-xl hover:from-amber-600 hover:to-orange-700 transition-all duration-300 transform hover:scale-105 shadow-lg relative overflow-hidden"
             >
               {/* 免费闪光效果 */}
               <div className="absolute top-0 right-0 w-20 h-6 bg-gradient-to-r from-green-400 to-emerald-400 rounded-bl-xl flex items-center justify-center">

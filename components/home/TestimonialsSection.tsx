@@ -25,7 +25,7 @@ export function TestimonialsSection({ lang, translations }: TestimonialsSectionP
           {t.home.testimonials.items.map((testimonial: any, index: number) => (
             <div key={index} className="bg-slate-800/30 backdrop-blur-sm border border-slate-700/50 rounded-2xl p-8 hover:scale-105 transition-all duration-300">
               <div className="flex items-center mb-6">
-                <div className="w-14 h-14 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-2xl mr-4">
+                <div className="w-14 h-14 bg-gradient-to-br from-amber-500 to-orange-600 rounded-full flex items-center justify-center text-2xl mr-4">
                   {testimonial.avatar}
                 </div>
                 <div>
