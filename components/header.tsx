@@ -6,6 +6,80 @@ import { usePathname } from 'next/navigation';
 import { useState, useCallback } from 'react';
 import { Menu, X, Globe, ChevronDown, Github } from 'lucide-react';
 import { trackLanguageSwitch } from '@/components/analytics';
+import { LanguagePathNavigation } from '@/components/LanguagePathNavigation';
+import { MobileLanguagePathMenu } from '@/components/MobileLanguagePathMenu';
+
+// 源语言配置 - 统一数据结构
+const SOURCE_LANGUAGES = [
+  {
+    id: 'javascript',
+    name: 'JavaScript',
+    icon: '🚀',
+    gradient: 'from-yellow-500 to-orange-500',
+    targets: [
+      {
+        id: 'python',
+        name: 'Python',
+        icon: '🐍',
+        gradient: 'from-green-500 to-emerald-500',
+        path: 'js2py',
+        status: 'completed' as const,
+      },
+      {
+        id: 'rust',
+        name: 'Rust',
+        icon: '🦀',
+        gradient: 'from-orange-500 to-red-500',
+        path: 'js2rust',
+        status: 'completed' as const,
+      },
+      {
+        id: 'go',
+        name: 'Go',
+        icon: '🐹',
+        gradient: 'from-cyan-500 to-blue-500',
+        path: 'js2go',
+        status: 'completed' as const,
+      },
+      {
+        id: 'cpp',
+        name: 'C++',
+        icon: '🚀',
+        gradient: 'from-blue-500 to-indigo-500',
+        path: 'js2cpp',
+        status: 'completed' as const,
+      },
+      {
+        id: 'swift',
+        name: 'Swift',
+        icon: '🍎',
+        gradient: 'from-pink-500 to-purple-500',
+        path: 'js2swift',
+        status: 'completed' as const,
+      },
+      {
+        id: 'c',
+        name: 'C',
+        icon: '⚙️',
+        gradient: 'from-gray-500 to-slate-500',
+        path: 'js2c',
+        status: 'completed' as const,
+      },
+      {
+        id: 'kotlin',
+        name: 'Kotlin',
+        icon: '🟣',
+        gradient: 'from-purple-500 to-violet-500',
+        path: 'js2kotlin',
+        status: 'completed' as const,
+      },
+    ]
+  },
+  // 未来可以添加其他源语言
+] as const;
+
+export type SourceLanguageConfig = typeof SOURCE_LANGUAGES[number];
+export type TargetLanguageConfig = SourceLanguageConfig['targets'][number];
 
 interface HeaderProps {
   lang: SupportedLanguage;
@@ -35,7 +109,7 @@ export function Header({ lang }: HeaderProps) {
   return (
     <header className="fixed top-0 left-0 right-0 z-50 bg-slate-900/80 backdrop-blur-md border-b border-slate-700/50">
       <div className="container mx-auto px-4">
-        <div className="flex items-center justify-between h-16">
+        <div className="flex items-center justify-between h-16 gap-6">
           {/* Logo */}
           <Link 
             href={`/${lang}`}
@@ -50,7 +124,10 @@ export function Header({ lang }: HeaderProps) {
           </Link>
 
           {/* Desktop Navigation */}
-          <nav className="hidden md:flex items-center space-x-8">
+          <div className="hidden md:flex items-center space-x-8 grow-1">
+            {/* 语言转换导航 - 放在左侧 */}
+            <LanguagePathNavigation lang={lang} sourceLanguages={SOURCE_LANGUAGES} />
+            
             {navItems.map((item) => (
               <Link
                 key={item.href}
@@ -62,7 +139,7 @@ export function Header({ lang }: HeaderProps) {
                 {item.label}
               </Link>
             ))}
-          </nav>
+          </div>
 
           {/* Language Selector & GitHub & Mobile Menu Button */}
           <div className="flex items-center space-x-4">
@@ -118,32 +195,44 @@ export function Header({ lang }: HeaderProps) {
             </div>
 
             {/* Mobile Menu Button */}
-            {/* <button
+            <button
               onClick={() => setIsMenuOpen(!isMenuOpen)}
               className="md:hidden p-2 text-slate-300 hover:text-white transition-colors"
             >
               {isMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
-            </button> */}
+            </button>
           </div>
         </div>
 
         {/* Mobile Navigation */}
         {isMenuOpen && (
-          <div className="md:hidden py-4 border-t border-slate-700/50">
-            <nav className="flex flex-col space-y-4">
-              {navItems.map((item) => (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={`text-slate-300 hover:text-white transition-colors font-medium py-2 ${
-                    pathname === item.href ? 'text-blue-400' : ''
-                  }`}
-                  onClick={() => setIsMenuOpen(false)}
-                >
-                  {item.label}
-                </Link>
-              ))}
-            </nav>
+          <div className="md:hidden border-t border-slate-700/50">
+            {/* 常规导航项 */}
+            {navItems.length > 0 && (
+              <nav className="flex flex-col py-4">
+                {navItems.map((item) => (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={`px-4 py-3 text-slate-300 hover:text-white hover:bg-slate-700/30 transition-colors font-medium ${
+                      pathname === item.href ? 'text-blue-400 bg-blue-500/10' : ''
+                    }`}
+                    onClick={() => setIsMenuOpen(false)}
+                  >
+                    {item.label}
+                  </Link>
+                ))}
+              </nav>
+            )}
+            
+            {/* 移动端语言转换菜单 */}
+            <div className={navItems.length > 0 ? 'border-t border-slate-700/30' : ''}>
+              <MobileLanguagePathMenu 
+                lang={lang} 
+                sourceLanguages={SOURCE_LANGUAGES}
+                onNavigate={() => setIsMenuOpen(false)}
+              />
+            </div>
           </div>
         )}
       </div>
