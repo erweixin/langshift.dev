@@ -12,27 +12,48 @@ export async function POST(request: NextRequest) {
     }
 
     // Paiza.io API 配置
-    const apiUrl = 'https://api.paiza.io:443/runners/create.json'
-    const getUrl = 'https://api.paiza.io:443/runners/get_details.json'
+    const apiUrl = 'https://api.paiza.io/runners/create.json'
+    const getUrl = 'https://api.paiza.io/runners/get_details.json'
     
-    // 创建运行任务
-    const createResponse = await fetch(apiUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: new URLSearchParams({
-        source_code: code,
-        language: 'java',
-        input: '',
-        longpoll: 'true',
-        longpoll_timeout: '10',
-        api_key: 'guest'
+    // 创建运行任务（添加超时和重试机制）
+    let createResponse
+    try {
+      createResponse = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'User-Agent': 'LangShift-Java-Runner/1.0',
+        },
+        body: new URLSearchParams({
+          source_code: code,
+          language: 'java',
+          input: '',
+          longpoll: 'false', // 改为 false，避免长连接问题
+          api_key: 'guest'
+        }),
+        // 添加超时配置
+        signal: AbortSignal.timeout(15000) // 15秒超时
       })
-    })
+    } catch (fetchError: any) {
+      console.error('网络请求失败:', fetchError)
+      if (fetchError.name === 'TimeoutError') {
+        return NextResponse.json({
+          output: '',
+          error: '请求超时，请检查网络连接后重试'
+        }, { status: 408 })
+      }
+      return NextResponse.json({
+        output: '',
+        error: '网络连接失败，请稍后重试'
+      }, { status: 503 })
+    }
     
     if (!createResponse.ok) {
-      throw new Error(`Paiza.io API 请求失败: ${createResponse.status}`)
+      console.error(`Paiza.io API 请求失败: ${createResponse.status}`)
+      return NextResponse.json({
+        output: '',
+        error: `代码执行服务暂时不可用，请稍后重试`
+      }, { status: 503 })
     }
     
     const createResult = await createResponse.json()
@@ -53,13 +74,52 @@ export async function POST(request: NextRequest) {
     while (attempts < maxAttempts) {
       await new Promise(resolve => setTimeout(resolve, 1000)) // 等待1秒
       
-      const getResponse = await fetch(`${getUrl}?id=${id}&api_key=guest`)
-      
-      if (!getResponse.ok) {
-        throw new Error(`获取结果失败: ${getResponse.status}`)
+      let getResponse
+      try {
+        getResponse = await fetch(`${getUrl}?id=${id}&api_key=guest`, {
+          headers: {
+            'User-Agent': 'LangShift-Java-Runner/1.0',
+          },
+          signal: AbortSignal.timeout(10000) // 10秒超时
+        })
+      } catch (fetchError: any) {
+        console.error(`获取结果网络请求失败 (尝试 ${attempts + 1}/${maxAttempts}):`, fetchError)
+        attempts++
+        if (attempts >= maxAttempts) {
+          return NextResponse.json({
+            output: '',
+            error: '网络连接不稳定，请稍后重试'
+          }, { status: 503 })
+        }
+        continue // 继续重试
       }
       
-      const getResult = await getResponse.json()
+      if (!getResponse.ok) {
+        console.error(`获取结果失败: ${getResponse.status}`)
+        attempts++
+        if (attempts >= maxAttempts) {
+          return NextResponse.json({
+            output: '',
+            error: `代码执行服务暂时不可用，请稍后重试`
+          })
+        }
+        continue // 继续重试
+      }
+      
+      // 正确处理 ReadableStream 响应
+      let getResult
+      try {
+        // 优先使用 text() 方法处理 ReadableStream，然后解析 JSON
+        const responseText = await getResponse.text()
+        getResult = JSON.parse(responseText)
+      } catch (parseError: any) {
+        console.error('JSON 解析失败:', parseError)
+        console.error('响应状态:', getResponse.status, getResponse.statusText)
+        return NextResponse.json({
+          output: '',
+          error: `API 响应解析失败，请稍后重试`
+        })
+      }
       
       if (getResult.status === 'completed') {
         // 检查是否有错误
