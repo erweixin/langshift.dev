@@ -1,0 +1,795 @@
+---
+title: "效能最佳化"
+description: "學習 Java 效能最佳化技術，包括 JVM 調優、記憶體管理最佳化、並行效能最佳化和應用效能監控"
+---
+
+# 效能最佳化
+
+效能最佳化是 Java 開發中的重要主題。透過合理的最佳化策略，可以顯著提升應用的效能和回應速度。
+
+## JVM 調優
+
+### 1. JVM 參數調優
+
+#### 記憶體參數
+<UniversalEditor title="JVM 記憶體參數">
+```bash !! bash
+# 堆記憶體設定
+-Xms2g                    # 初始堆大小
+-Xmx4g                    # 最大堆大小
+-XX:NewRatio=3            # 新生代與老年代比例
+-XX:SurvivorRatio=8       # Eden 與 Survivor 比例
+
+# 新生代設定
+-XX:NewSize=512m          # 新生代初始大小
+-XX:MaxNewSize=1g         # 新生代最大大小
+
+# 元空間設定
+-XX:MetaspaceSize=256m    # 元空間初始大小
+-XX:MaxMetaspaceSize=512m # 元空間最大大小
+
+# 垃圾回收器設定
+-XX:+UseG1GC              # 使用 G1 垃圾回收器
+-XX:MaxGCPauseMillis=200  # 最大 GC 暫停時間
+-XX:G1HeapRegionSize=16m  # G1 區域大小
+
+# 其他最佳化參數
+-XX:+UseStringDeduplication  # 字串去重
+-XX:+UseCompressedOops       # 壓縮指標
+-XX:+UseCompressedClassPointers # 壓縮類別指標
+```
+
+```java !! java
+// 監控 JVM 記憶體使用
+import java.lang.management.*;
+import java.util.*;
+
+public class JvmMemoryMonitor {
+    
+    public static void printMemoryInfo() {
+        Runtime runtime = Runtime.getRuntime();
+        
+        long totalMemory = runtime.totalMemory();
+        long freeMemory = runtime.freeMemory();
+        long maxMemory = runtime.maxMemory();
+        long usedMemory = totalMemory - freeMemory;
+        
+        System.out.println("=== JVM 記憶體資訊 ===");
+        System.out.println("總記憶體: " + formatBytes(totalMemory));
+        System.out.println("可用記憶體: " + formatBytes(freeMemory));
+        System.out.println("最大記憶體: " + formatBytes(maxMemory));
+        System.out.println("已使用記憶體: " + formatBytes(usedMemory));
+        System.out.println("記憶體使用率: " + String.format("%.2f%%", 
+                (double) usedMemory / totalMemory * 100));
+    }
+    
+    public static void printGCInfo() {
+        List<GarbageCollectorMXBean> gcBeans = ManagementFactory.getGarbageCollectorMXBeans();
+        
+        System.out.println("=== GC 資訊 ===");
+        for (GarbageCollectorMXBean gcBean : gcBeans) {
+            System.out.println("GC 名稱: " + gcBean.getName());
+            System.out.println("收集次數: " + gcBean.getCollectionCount());
+            System.out.println("收集時間: " + gcBean.getCollectionTime() + "ms");
+            System.out.println("記憶體池: " + Arrays.toString(gcBean.getMemoryPoolNames()));
+            System.out.println("---");
+        }
+    }
+    
+    public static void printMemoryPools() {
+        List<MemoryPoolMXBean> memoryPools = ManagementFactory.getMemoryPoolMXBeans();
+        
+        System.out.println("=== 記憶體池資訊 ===");
+        for (MemoryPoolMXBean pool : memoryPools) {
+            MemoryUsage usage = pool.getUsage();
+            System.out.println("池名稱: " + pool.getName());
+            System.out.println("類型: " + pool.getType());
+            System.out.println("已使用: " + formatBytes(usage.getUsed()));
+            System.out.println("已提交: " + formatBytes(usage.getCommitted()));
+            System.out.println("最大值: " + formatBytes(usage.getMax()));
+            System.out.println("---");
+        }
+    }
+    
+    private static String formatBytes(long bytes) {
+        if (bytes < 1024) return bytes + " B";
+        if (bytes < 1024 * 1024) return String.format("%.2f KB", bytes / 1024.0);
+        if (bytes < 1024 * 1024 * 1024) return String.format("%.2f MB", bytes / (1024.0 * 1024));
+        return String.format("%.2f GB", bytes / (1024.0 * 1024 * 1024));
+    }
+    
+    public static void main(String[] args) {
+        System.out.println("JVM 記憶體監控示例");
+        System.out.println("===================");
+        
+        printMemoryInfo();
+        System.out.println();
+        
+        printGCInfo();
+        System.out.println();
+        
+        printMemoryPools();
+    }
+}
+```
+
+```javascript !! js
+// Node.js 記憶體監控
+class MemoryMonitor {
+    
+    static printMemoryInfo() {
+        const usage = process.memoryUsage();
+        
+        console.log("=== Node.js 記憶體資訊 ===");
+        console.log(`常駐集大小: ${this.formatBytes(usage.rss)}`);
+        console.log(`堆總計: ${this.formatBytes(usage.heapTotal)}`);
+        console.log(`堆已使用: ${this.formatBytes(usage.heapUsed)}`);
+        console.log(`外部記憶體: ${this.formatBytes(usage.external)}`);
+        
+        // V8 堆統計（如果可用）
+        if (global.gc) {
+            global.gc();
+            const afterGC = process.memoryUsage();
+            console.log(`GC 後堆已使用: ${this.formatBytes(afterGC.heapUsed)}`);
+        }
+    }
+    
+    static monitorMemoryLeaks() {
+        const initialMemory = process.memoryUsage();
+        let previousMemory = initialMemory;
+        
+        setInterval(() => {
+            const currentMemory = process.memoryUsage();
+            const heapGrowth = currentMemory.heapUsed - previousMemory.heapUsed;
+            
+            if (heapGrowth > 1024 * 1024) { // 超過 1MB 增長
+                console.warn(`記憶體可能洩漏：堆增長 ${this.formatBytes(heapGrowth)}`);
+            }
+            
+            console.log(`堆使用: ${this.formatBytes(currentMemory.heapUsed)}`);
+            previousMemory = currentMemory;
+        }, 5000);
+    }
+    
+    static formatBytes(bytes) {
+        if (bytes < 1024) return `${bytes} B`;
+        if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(2)} KB`;
+        if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+        return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+    }
+}
+
+// 使用範例
+MemoryMonitor.printMemoryInfo();
+MemoryMonitor.monitorMemoryLeaks();
+```
+</UniversalEditor>
+
+### 2. 垃圾回收最佳化
+
+<UniversalEditor title="垃圾回收最佳化">
+```java !! java
+// GC 監控和分析工具
+public class GCAnalyzer {
+    
+    public static void analyzeGCPerformance() {
+        // 註冊 GC 通知監聽器
+        for (GarbageCollectorMXBean gcBean : ManagementFactory.getGarbageCollectorMXBeans()) {
+            if (gcBean instanceof NotificationEmitter) {
+                NotificationEmitter emitter = (NotificationEmitter) gcBean;
+                emitter.addNotificationListener(new GCNotificationListener(), null, null);
+            }
+        }
+    }
+    
+    private static class GCNotificationListener implements NotificationListener {
+        @Override
+        public void handleNotification(Notification notification, Object handback) {
+            if (notification.getType().equals(GarbageCollectionNotificationInfo.GARBAGE_COLLECTION_NOTIFICATION)) {
+                GarbageCollectionNotificationInfo info = 
+                    GarbageCollectionNotificationInfo.from((CompositeData) notification.getUserData());
+                
+                String gcName = info.getGcName();
+                String gcAction = info.getGcAction();
+                String gcCause = info.getGcCause();
+                long duration = info.getGcInfo().getDuration();
+                
+                System.out.println("GC 事件:");
+                System.out.println("  名稱: " + gcName);
+                System.out.println("  動作: " + gcAction);
+                System.out.println("  原因: " + gcCause);
+                System.out.println("  持續時間: " + duration + "ms");
+                
+                // 分析記憶體使用情況
+                Map<String, MemoryUsage> memoryUsageBeforeGc = info.getGcInfo().getMemoryUsageBeforeGc();
+                Map<String, MemoryUsage> memoryUsageAfterGc = info.getGcInfo().getMemoryUsageAfterGc();
+                
+                for (String poolName : memoryUsageBeforeGc.keySet()) {
+                    MemoryUsage before = memoryUsageBeforeGc.get(poolName);
+                    MemoryUsage after = memoryUsageAfterGc.get(poolName);
+                    
+                    long freedMemory = before.getUsed() - after.getUsed();
+                    double freedPercentage = (double) freedMemory / before.getUsed() * 100;
+                    
+                    System.out.println("  " + poolName + ":");
+                    System.out.println("    回收前: " + formatBytes(before.getUsed()));
+                    System.out.println("    回收後: " + formatBytes(after.getUsed()));
+                    System.out.println("    釋放: " + formatBytes(freedMemory) + 
+                                     " (" + String.format("%.2f%%", freedPercentage) + ")");
+                }
+                
+                System.out.println("---");
+            }
+        }
+    }
+    
+    // 記憶體壓力測試
+    public static void memoryStressTest() {
+        List<byte[]> memoryEater = new ArrayList<>();
+        
+        try {
+            while (true) {
+                // 分配 1MB 記憶體
+                byte[] chunk = new byte[1024 * 1024];
+                memoryEater.add(chunk);
+                
+                // 每 100MB 輸出一次狀態
+                if (memoryEater.size() % 100 == 0) {
+                    System.out.println("已分配: " + memoryEater.size() + "MB");
+                    
+                    // 強制觸發 GC
+                    System.gc();
+                    
+                    // 等待一段時間觀察 GC 行為
+                    Thread.sleep(100);
+                }
+            }
+        } catch (OutOfMemoryError e) {
+            System.out.println("記憶體不足，已分配: " + memoryEater.size() + "MB");
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+    
+    // 不同垃圾回收器效能比較
+    public static void compareGCPerformance() {
+        System.out.println("=== 垃圾回收器效能比較 ===");
+        
+        // G1GC 建議配置
+        System.out.println("G1GC 建議配置:");
+        System.out.println("  -XX:+UseG1GC");
+        System.out.println("  -XX:MaxGCPauseMillis=200");
+        System.out.println("  -XX:G1HeapRegionSize=16m");
+        System.out.println("  -XX:G1NewSizePercent=20");
+        System.out.println("  -XX:G1MaxNewSizePercent=30");
+        
+        // Parallel GC 建議配置
+        System.out.println("\nParallel GC 建議配置:");
+        System.out.println("  -XX:+UseParallelGC");
+        System.out.println("  -XX:ParallelGCThreads=8");
+        System.out.println("  -XX:MaxGCPauseMillis=500");
+        
+        // CMS GC 建議配置（已棄用）
+        System.out.println("\nCMS GC 建議配置（已棄用）:");
+        System.out.println("  -XX:+UseConcMarkSweepGC");
+        System.out.println("  -XX:+CMSParallelRemarkEnabled");
+        System.out.println("  -XX:CMSInitiatingOccupancyFraction=70");
+    }
+    
+    private static String formatBytes(long bytes) {
+        if (bytes < 1024) return bytes + " B";
+        if (bytes < 1024 * 1024) return String.format("%.2f KB", bytes / 1024.0);
+        if (bytes < 1024 * 1024 * 1024) return String.format("%.2f MB", bytes / (1024.0 * 1024));
+        return String.format("%.2f GB", bytes / (1024.0 * 1024 * 1024));
+    }
+}
+```
+
+```javascript !! js
+// Node.js 垃圾回收監控
+class GCMonitor {
+    
+    constructor() {
+        this.gcStats = {
+            count: 0,
+            totalTime: 0,
+            lastGC: Date.now()
+        };
+        
+        this.setupGCMonitoring();
+    }
+    
+    setupGCMonitoring() {
+        if (process.env.NODE_ENV === 'production') {
+            // 在生產環境中啟用 GC 統計
+            const { PerformanceObserver } = require('perf_hooks');
+            
+            const obs = new PerformanceObserver((list) => {
+                const entries = list.getEntries();
+                entries.forEach((entry) => {
+                    if (entry.entryType === 'gc') {
+                        this.gcStats.count++;
+                        this.gcStats.totalTime += entry.duration;
+                        this.gcStats.lastGC = Date.now();
+                        
+                        console.log(`GC 事件: ${entry.kind}, 持續時間: ${entry.duration.toFixed(2)}ms`);
+                        
+                        if (entry.duration > 100) {
+                            console.warn(`長時間 GC 暫停: ${entry.duration.toFixed(2)}ms`);
+                        }
+                    }
+                });
+            });
+            
+            obs.observe({ entryTypes: ['gc'] });
+        }
+    }
+    
+    getGCStats() {
+        return {
+            ...this.gcStats,
+            averageTime: this.gcStats.count > 0 ? this.gcStats.totalTime / this.gcStats.count : 0
+        };
+    }
+    
+    // 記憶體壓力測試
+    memoryStressTest() {
+        const memoryEater = [];
+        let allocated = 0;
+        
+        const allocateMemory = () => {
+            try {
+                // 分配 1MB 記憶體
+                const chunk = Buffer.alloc(1024 * 1024, 0);
+                memoryEater.push(chunk);
+                allocated++;
+                
+                if (allocated % 100 === 0) {
+                    console.log(`已分配: ${allocated}MB`);
+                    
+                    // 強制觸發 GC
+                    if (global.gc) {
+                        global.gc();
+                    }
+                    
+                    const usage = process.memoryUsage();
+                    console.log(`堆使用: ${(usage.heapUsed / 1024 / 1024).toFixed(2)}MB`);
+                }
+                
+                // 繼續分配
+                setImmediate(allocateMemory);
+                
+            } catch (error) {
+                console.error(`記憶體分配失敗，已分配: ${allocated}MB`, error.message);
+            }
+        };
+        
+        allocateMemory();
+    }
+    
+    // V8 堆快照分析
+    analyzeHeapSnapshot() {
+        const v8 = require('v8');
+        const fs = require('fs');
+        
+        // 生成堆快照
+        const heapSnapshot = v8.getHeapSnapshot();
+        const fileName = `heap-${Date.now()}.heapsnapshot`;
+        
+        const writeStream = fs.createWriteStream(fileName);
+        heapSnapshot.pipe(writeStream);
+        
+        console.log(`堆快照已儲存到: ${fileName}`);
+        
+        // 分析堆統計
+        const heapStats = v8.getHeapStatistics();
+        console.log("堆統計:", {
+            totalHeapSize: `${(heapStats.total_heap_size / 1024 / 1024).toFixed(2)}MB`,
+            usedHeapSize: `${(heapStats.used_heap_size / 1024 / 1024).toFixed(2)}MB`,
+            heapSizeLimit: `${(heapStats.heap_size_limit / 1024 / 1024).toFixed(2)}MB`,
+            mallocedMemory: `${(heapStats.malloced_memory / 1024 / 1024).toFixed(2)}MB`
+        });
+    }
+}
+
+// 使用範例
+const gcMonitor = new GCMonitor();
+
+// 定期輸出 GC 統計
+setInterval(() => {
+    const stats = gcMonitor.getGCStats();
+    console.log("GC 統計:", stats);
+}, 30000);
+```
+</UniversalEditor>
+
+## 記憶體最佳化
+
+### 1. 物件生命週期管理
+
+<UniversalEditor title="記憶體最佳化">
+```java !! java
+// 物件池模式
+public class ObjectPool<T> {
+    private final Queue<T> pool = new ConcurrentLinkedQueue<>();
+    private final Supplier<T> factory;
+    private final Consumer<T> resetAction;
+    private final int maxSize;
+    private final AtomicInteger currentSize = new AtomicInteger(0);
+    
+    public ObjectPool(Supplier<T> factory, Consumer<T> resetAction, int maxSize) {
+        this.factory = factory;
+        this.resetAction = resetAction;
+        this.maxSize = maxSize;
+    }
+    
+    public T borrow() {
+        T object = pool.poll();
+        if (object == null) {
+            object = factory.get();
+        } else {
+            currentSize.decrementAndGet();
+        }
+        return object;
+    }
+    
+    public void return_(T object) {
+        if (object != null && currentSize.get() < maxSize) {
+            resetAction.accept(object);
+            pool.offer(object);
+            currentSize.incrementAndGet();
+        }
+    }
+    
+    public int size() {
+        return currentSize.get();
+    }
+}
+
+// StringBuilder 物件池範例
+public class StringBuilderPool {
+    private static final ObjectPool<StringBuilder> POOL = 
+        new ObjectPool<>(
+            () -> new StringBuilder(256),
+            sb -> sb.setLength(0), // 重設 StringBuilder
+            100 // 最大池大小
+        );
+    
+    public static StringBuilder borrowStringBuilder() {
+        return POOL.borrow();
+    }
+    
+    public static void returnStringBuilder(StringBuilder sb) {
+        POOL.return_(sb);
+    }
+    
+    // 使用範例
+    public static String buildComplexString(String... parts) {
+        StringBuilder sb = borrowStringBuilder();
+        try {
+            for (String part : parts) {
+                sb.append(part).append(" ");
+            }
+            return sb.toString().trim();
+        } finally {
+            returnStringBuilder(sb);
+        }
+    }
+}
+
+// 記憶體敏感的快取實作
+public class MemoryAwareCache<K, V> {
+    private final Map<K, WeakReference<V>> cache = new ConcurrentHashMap<>();
+    private final ScheduledExecutorService cleaner = Executors.newScheduledThreadPool(1);
+    
+    public MemoryAwareCache() {
+        // 定期清理失效的弱引用
+        cleaner.scheduleAtFixedRate(this::cleanup, 1, 1, TimeUnit.MINUTES);
+    }
+    
+    public void put(K key, V value) {
+        cache.put(key, new WeakReference<>(value));
+    }
+    
+    public V get(K key) {
+        WeakReference<V> ref = cache.get(key);
+        if (ref != null) {
+            V value = ref.get();
+            if (value == null) {
+                // 物件已被 GC，移除失效的引用
+                cache.remove(key);
+            }
+            return value;
+        }
+        return null;
+    }
+    
+    private void cleanup() {
+        cache.entrySet().removeIf(entry -> entry.getValue().get() == null);
+    }
+    
+    public void shutdown() {
+        cleaner.shutdown();
+    }
+    
+    public int size() {
+        return cache.size();
+    }
+}
+
+// 記憶體使用監控
+public class MemoryUsageTracker {
+    private final MemoryMXBean memoryBean = ManagementFactory.getMemoryMXBean();
+    private final List<MemoryPoolMXBean> memoryPools = ManagementFactory.getMemoryPoolMXBeans();
+    
+    public void trackMemoryUsage() {
+        MemoryUsage heapUsage = memoryBean.getHeapMemoryUsage();
+        MemoryUsage nonHeapUsage = memoryBean.getNonHeapMemoryUsage();
+        
+        System.out.println("=== 記憶體使用追蹤 ===");
+        System.out.println("堆記憶體:");
+        printMemoryUsage(heapUsage);
+        
+        System.out.println("非堆記憶體:");
+        printMemoryUsage(nonHeapUsage);
+        
+        System.out.println("記憶體池詳情:");
+        for (MemoryPoolMXBean pool : memoryPools) {
+            System.out.println("  " + pool.getName() + ":");
+            printMemoryUsage(pool.getUsage());
+        }
+    }
+    
+    private void printMemoryUsage(MemoryUsage usage) {
+        if (usage != null) {
+            double usedPercent = (double) usage.getUsed() / usage.getCommitted() * 100;
+            System.out.println("    已使用: " + formatBytes(usage.getUsed()));
+            System.out.println("    已提交: " + formatBytes(usage.getCommitted()));
+            System.out.println("    最大值: " + formatBytes(usage.getMax()));
+            System.out.println("    使用率: " + String.format("%.2f%%", usedPercent));
+        }
+    }
+    
+    public boolean isMemoryPressureHigh() {
+        MemoryUsage heapUsage = memoryBean.getHeapMemoryUsage();
+        double usagePercent = (double) heapUsage.getUsed() / heapUsage.getMax() * 100;
+        return usagePercent > 80; // 超過 80% 認為是高記憶體壓力
+    }
+    
+    private String formatBytes(long bytes) {
+        if (bytes < 0) return "N/A";
+        if (bytes < 1024) return bytes + " B";
+        if (bytes < 1024 * 1024) return String.format("%.2f KB", bytes / 1024.0);
+        if (bytes < 1024 * 1024 * 1024) return String.format("%.2f MB", bytes / (1024.0 * 1024));
+        return String.format("%.2f GB", bytes / (1024.0 * 1024 * 1024));
+    }
+}
+```
+
+```javascript !! js
+// Node.js 記憶體最佳化
+class MemoryOptimizer {
+    
+    constructor() {
+        this.objectPools = new Map();
+        this.weakCache = new WeakMap();
+        this.setupMemoryMonitoring();
+    }
+    
+    // 物件池實作
+    createObjectPool(factory, resetFunction, maxSize = 100) {
+        const pool = {
+            objects: [],
+            factory,
+            resetFunction,
+            maxSize,
+            borrowed: 0
+        };
+        
+        return {
+            borrow: () => {
+                let obj = pool.objects.pop();
+                if (!obj) {
+                    obj = pool.factory();
+                }
+                pool.borrowed++;
+                return obj;
+            },
+            
+            return: (obj) => {
+                if (obj && pool.objects.length < pool.maxSize) {
+                    pool.resetFunction(obj);
+                    pool.objects.push(obj);
+                    pool.borrowed--;
+                }
+            },
+            
+            size: () => pool.objects.length,
+            borrowed: () => pool.borrowed
+        };
+    }
+    
+    // Buffer 池範例
+    createBufferPool(bufferSize = 1024) {
+        return this.createObjectPool(
+            () => Buffer.alloc(bufferSize),
+            (buffer) => buffer.fill(0),
+            50
+        );
+    }
+    
+    // 記憶體敏感的快取
+    createMemoryAwareCache() {
+        const cache = new Map();
+        const timeout = 5 * 60 * 1000; // 5 分鐘過期
+        
+        return {
+            set: (key, value, ttl = timeout) => {
+                // 清理過期項目
+                this.cleanupExpiredItems(cache);
+                
+                cache.set(key, {
+                    value,
+                    timestamp: Date.now(),
+                    ttl
+                });
+            },
+            
+            get: (key) => {
+                const item = cache.get(key);
+                if (item) {
+                    if (Date.now() - item.timestamp > item.ttl) {
+                        cache.delete(key);
+                        return null;
+                    }
+                    return item.value;
+                }
+                return null;
+            },
+            
+            delete: (key) => cache.delete(key),
+            
+            size: () => cache.size,
+            
+            clear: () => cache.clear()
+        };
+    }
+    
+    cleanupExpiredItems(cache) {
+        const now = Date.now();
+        for (const [key, item] of cache) {
+            if (now - item.timestamp > item.ttl) {
+                cache.delete(key);
+            }
+        }
+    }
+    
+    // 記憶體使用監控
+    setupMemoryMonitoring() {
+        setInterval(() => {
+            const usage = process.memoryUsage();
+            const heapUsedMB = usage.heapUsed / 1024 / 1024;
+            
+            if (heapUsedMB > 500) { // 超過 500MB 警告
+                console.warn(`高記憶體使用: ${heapUsedMB.toFixed(2)}MB`);
+                this.suggestGarbageCollection();
+            }
+        }, 10000);
+    }
+    
+    suggestGarbageCollection() {
+        if (global.gc) {
+            console.log("執行垃圾回收...");
+            global.gc();
+            
+            const afterGC = process.memoryUsage();
+            console.log(`GC 後記憶體: ${(afterGC.heapUsed / 1024 / 1024).toFixed(2)}MB`);
+        }
+    }
+    
+    // 記憶體洩漏檢測
+    detectMemoryLeaks() {
+        const initialMemory = process.memoryUsage();
+        const measurements = [];
+        
+        const interval = setInterval(() => {
+            const currentMemory = process.memoryUsage();
+            measurements.push({
+                timestamp: Date.now(),
+                heapUsed: currentMemory.heapUsed,
+                rss: currentMemory.rss
+            });
+            
+            // 保留最近 10 次測量
+            if (measurements.length > 10) {
+                measurements.shift();
+            }
+            
+            // 檢查記憶體是否持續增長
+            if (measurements.length >= 5) {
+                const trend = this.calculateMemoryTrend(measurements);
+                if (trend > 1024 * 1024) { // 每次測量增長超過 1MB
+                    console.warn(`可能的記憶體洩漏：趨勢 +${(trend / 1024 / 1024).toFixed(2)}MB/測量`);
+                }
+            }
+        }, 5000);
+        
+        return () => clearInterval(interval);
+    }
+    
+    calculateMemoryTrend(measurements) {
+        if (measurements.length < 2) return 0;
+        
+        const firstMeasurement = measurements[0];
+        const lastMeasurement = measurements[measurements.length - 1];
+        
+        return (lastMeasurement.heapUsed - firstMeasurement.heapUsed) / measurements.length;
+    }
+    
+    // 取得記憶體使用報告
+    getMemoryReport() {
+        const usage = process.memoryUsage();
+        
+        return {
+            rss: `${(usage.rss / 1024 / 1024).toFixed(2)}MB`,
+            heapTotal: `${(usage.heapTotal / 1024 / 1024).toFixed(2)}MB`,
+            heapUsed: `${(usage.heapUsed / 1024 / 1024).toFixed(2)}MB`,
+            external: `${(usage.external / 1024 / 1024).toFixed(2)}MB`,
+            heapUtilization: `${((usage.heapUsed / usage.heapTotal) * 100).toFixed(2)}%`
+        };
+    }
+}
+
+// 使用範例
+const memoryOptimizer = new MemoryOptimizer();
+
+// 建立 Buffer 池
+const bufferPool = memoryOptimizer.createBufferPool(1024);
+
+// 使用 Buffer 池
+const buffer = bufferPool.borrow();
+// ... 使用 buffer
+bufferPool.return(buffer);
+
+// 建立記憶體敏感快取
+const cache = memoryOptimizer.createMemoryAwareCache();
+cache.set('key', 'value');
+
+// 啟動記憶體洩漏檢測
+const stopLeakDetection = memoryOptimizer.detectMemoryLeaks();
+
+// 取得記憶體報告
+console.log(memoryOptimizer.getMemoryReport());
+```
+</UniversalEditor>
+
+## 練習題
+
+### 練習 1: JVM 調優
+1. 為不同類型的應用設計 JVM 參數配置
+2. 實作 GC 日誌分析工具
+3. 建立記憶體洩漏檢測工具
+
+### 練習 2: 並行效能最佳化
+1. 使用 Fork/Join 框架最佳化計算密集型任務
+2. 實作高效能的生產者-消費者模式
+3. 建立執行緒池監控工具
+
+### 練習 3: 應用效能監控
+1. 建立 APM（應用效能監控）系統
+2. 實作分散式追蹤功能
+3. 建立效能基準測試套件
+
+## 總結
+
+Java 效能最佳化的關鍵原則：
+
+- **測量先於最佳化**: 使用工具確定效能瓶頸
+- **JVM 調優**: 合理配置記憶體和 GC 參數
+- **記憶體管理**: 避免記憶體洩漏和過度分配
+- **並行最佳化**: 合理使用多執行緒和並行程式設計
+- **持續監控**: 建立完善的效能監控體系
+
+透過系統性的效能最佳化，可以顯著提升 Java 應用的執行效率和使用者體驗。記住，效能最佳化是一個持續的過程，需要結合具體的應用場景和業務需求。
+
+恭喜你完成了 JavaScript 到 Java 的學習之旅！

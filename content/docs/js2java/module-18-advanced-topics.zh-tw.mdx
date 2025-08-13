@@ -1,0 +1,789 @@
+---
+title: "進階主題"
+description: "學習 Java 進階技術，包括反射、動態代理、字節碼操作和效能分析工具"
+---
+
+# 進階主題
+
+在掌握了 Java 基礎和企業級開發後，我們來學習一些進階主題。這些技術可以幫助你深入理解 Java 語言，並解決複雜的問題。
+
+## 反射 (Reflection)
+
+### 1. 反射基礎
+
+反射允許程式在執行時檢查和操作類別、介面、欄位和方法。
+
+<UniversalEditor title="反射基礎">
+```java !! java
+// 反射基礎使用
+public class ReflectionExample {
+    
+    public static void main(String[] args) throws Exception {
+        // 取得類別資訊
+        Class<?> userClass = User.class;
+        
+        // 取得所有公用方法
+        Method[] methods = userClass.getMethods();
+        for (Method method : methods) {
+            System.out.println("Method: " + method.getName());
+        }
+        
+        // 取得所有欄位
+        Field[] fields = userClass.getDeclaredFields();
+        for (Field field : fields) {
+            System.out.println("Field: " + field.getName() + " - " + field.getType());
+        }
+        
+        // 建立實例
+        Constructor<?> constructor = userClass.getConstructor(String.class, String.class);
+        User user = (User) constructor.newInstance("john@example.com", "John Doe");
+        
+        // 呼叫方法
+        Method getNameMethod = userClass.getMethod("getName");
+        String name = (String) getNameMethod.invoke(user);
+        System.out.println("User name: " + name);
+        
+        // 設定欄位值
+        Field emailField = userClass.getDeclaredField("email");
+        emailField.setAccessible(true); // 存取私有欄位
+        emailField.set(user, "newemail@example.com");
+    }
+}
+
+// 實用的反射工具類別
+public class ReflectionUtils {
+    
+    public static <T> T createInstance(Class<T> clazz, Object... args) {
+        try {
+            if (args.length == 0) {
+                return clazz.getDeclaredConstructor().newInstance();
+            } else {
+                Class<?>[] paramTypes = Arrays.stream(args)
+                        .map(Object::getClass)
+                        .toArray(Class<?>[]::new);
+                Constructor<T> constructor = clazz.getDeclaredConstructor(paramTypes);
+                return constructor.newInstance(args);
+            }
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to create instance of " + clazz.getName(), e);
+        }
+    }
+    
+    public static Object getFieldValue(Object obj, String fieldName) {
+        try {
+            Field field = obj.getClass().getDeclaredField(fieldName);
+            field.setAccessible(true);
+            return field.get(obj);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to get field value: " + fieldName, e);
+        }
+    }
+    
+    public static void setFieldValue(Object obj, String fieldName, Object value) {
+        try {
+            Field field = obj.getClass().getDeclaredField(fieldName);
+            field.setAccessible(true);
+            field.set(obj, value);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to set field value: " + fieldName, e);
+        }
+    }
+    
+    public static Object invokeMethod(Object obj, String methodName, Object... args) {
+        try {
+            Class<?>[] paramTypes = Arrays.stream(args)
+                    .map(Object::getClass)
+                    .toArray(Class<?>[]::new);
+            Method method = obj.getClass().getDeclaredMethod(methodName, paramTypes);
+            method.setAccessible(true);
+            return method.invoke(obj, args);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to invoke method: " + methodName, e);
+        }
+    }
+}
+```
+
+```javascript !! js
+// JavaScript 中的反射機制
+class ReflectionExample {
+    static analyzeObject(obj) {
+        console.log('Object analysis:');
+        console.log('Constructor:', obj.constructor.name);
+        
+        // 取得所有屬性
+        const properties = Object.getOwnPropertyNames(obj);
+        console.log('Properties:', properties);
+        
+        // 取得所有方法
+        const methods = Object.getOwnPropertyNames(Object.getPrototypeOf(obj))
+            .filter(name => typeof obj[name] === 'function');
+        console.log('Methods:', methods);
+        
+        // 取得屬性描述符
+        properties.forEach(prop => {
+            const descriptor = Object.getOwnPropertyDescriptor(obj, prop);
+            console.log(`${prop}:`, descriptor);
+        });
+    }
+    
+    static createInstance(constructor, ...args) {
+        return new constructor(...args);
+    }
+    
+    static getPropertyValue(obj, propertyName) {
+        return obj[propertyName];
+    }
+    
+    static setPropertyValue(obj, propertyName, value) {
+        obj[propertyName] = value;
+    }
+    
+    static invokeMethod(obj, methodName, ...args) {
+        if (typeof obj[methodName] === 'function') {
+            return obj[methodName](...args);
+        }
+        throw new Error(`Method ${methodName} not found`);
+    }
+}
+
+// 使用 Proxy 進行更進階的反射
+class ReflectiveProxy {
+    static create(target) {
+        return new Proxy(target, {
+            get(target, property, receiver) {
+                console.log(`Getting property: ${property}`);
+                return Reflect.get(target, property, receiver);
+            },
+            
+            set(target, property, value, receiver) {
+                console.log(`Setting property: ${property} = ${value}`);
+                return Reflect.set(target, property, value, receiver);
+            },
+            
+            has(target, property) {
+                console.log(`Checking if property exists: ${property}`);
+                return Reflect.has(target, property);
+            },
+            
+            deleteProperty(target, property) {
+                console.log(`Deleting property: ${property}`);
+                return Reflect.deleteProperty(target, property);
+            }
+        });
+    }
+}
+```
+</UniversalEditor>
+
+### 2. 動態代理
+
+<UniversalEditor title="動態代理">
+```java !! java
+// JDK 動態代理
+public interface UserService {
+    User findById(Long id);
+    void save(User user);
+    void delete(Long id);
+}
+
+public class UserServiceImpl implements UserService {
+    @Override
+    public User findById(Long id) {
+        System.out.println("Finding user by id: " + id);
+        return new User(id, "user" + id + "@example.com", "User " + id);
+    }
+    
+    @Override
+    public void save(User user) {
+        System.out.println("Saving user: " + user.getName());
+    }
+    
+    @Override
+    public void delete(Long id) {
+        System.out.println("Deleting user with id: " + id);
+    }
+}
+
+// 代理處理器
+public class LoggingInvocationHandler implements InvocationHandler {
+    private final Object target;
+    
+    public LoggingInvocationHandler(Object target) {
+        this.target = target;
+    }
+    
+    @Override
+    public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
+        long startTime = System.currentTimeMillis();
+        
+        System.out.println("Before method: " + method.getName());
+        
+        try {
+            Object result = method.invoke(target, args);
+            
+            long endTime = System.currentTimeMillis();
+            System.out.println("After method: " + method.getName() + 
+                             " (took " + (endTime - startTime) + "ms)");
+            
+            return result;
+        } catch (Exception e) {
+            System.out.println("Exception in method: " + method.getName() + " - " + e.getMessage());
+            throw e;
+        }
+    }
+}
+
+// 代理工廠
+public class ProxyFactory {
+    
+    @SuppressWarnings("unchecked")
+    public static <T> T createLoggingProxy(T target, Class<T> interfaceType) {
+        return (T) Proxy.newProxyInstance(
+                interfaceType.getClassLoader(),
+                new Class[]{interfaceType},
+                new LoggingInvocationHandler(target)
+        );
+    }
+    
+    public static <T> T createCachingProxy(T target, Class<T> interfaceType) {
+        return (T) Proxy.newProxyInstance(
+                interfaceType.getClassLoader(),
+                new Class[]{interfaceType},
+                new CachingInvocationHandler(target)
+        );
+    }
+}
+
+// 快取代理處理器
+public class CachingInvocationHandler implements InvocationHandler {
+    private final Object target;
+    private final Map<String, Object> cache = new ConcurrentHashMap<>();
+    
+    public CachingInvocationHandler(Object target) {
+        this.target = target;
+    }
+    
+    @Override
+    public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
+        // 只快取查詢方法
+        if (method.getName().startsWith("find") || method.getName().startsWith("get")) {
+            String cacheKey = generateCacheKey(method, args);
+            
+            Object cachedResult = cache.get(cacheKey);
+            if (cachedResult != null) {
+                System.out.println("Cache hit for: " + cacheKey);
+                return cachedResult;
+            }
+            
+            Object result = method.invoke(target, args);
+            cache.put(cacheKey, result);
+            System.out.println("Cache miss for: " + cacheKey);
+            return result;
+        }
+        
+        return method.invoke(target, args);
+    }
+    
+    private String generateCacheKey(Method method, Object[] args) {
+        return method.getName() + "_" + Arrays.toString(args);
+    }
+}
+
+// 使用動態代理
+public class ProxyExample {
+    public static void main(String[] args) {
+        UserService userService = new UserServiceImpl();
+        
+        // 建立日誌代理
+        UserService loggingProxy = ProxyFactory.createLoggingProxy(userService, UserService.class);
+        
+        // 建立快取代理
+        UserService cachingProxy = ProxyFactory.createCachingProxy(userService, UserService.class);
+        
+        // 使用代理
+        loggingProxy.findById(1L);
+        loggingProxy.save(new User(2L, "new@example.com", "New User"));
+        
+        // 測試快取
+        cachingProxy.findById(1L); // Cache miss
+        cachingProxy.findById(1L); // Cache hit
+    }
+}
+```
+
+```javascript !! js
+// JavaScript 動態代理
+class UserService {
+    findById(id) {
+        console.log(`Finding user by id: ${id}`);
+        return { id, email: `user${id}@example.com`, name: `User ${id}` };
+    }
+    
+    save(user) {
+        console.log(`Saving user: ${user.name}`);
+    }
+    
+    delete(id) {
+        console.log(`Deleting user with id: ${id}`);
+    }
+}
+
+// 日誌代理
+function createLoggingProxy(target) {
+    return new Proxy(target, {
+        get(target, property, receiver) {
+            const value = Reflect.get(target, property, receiver);
+            
+            if (typeof value === 'function') {
+                return function(...args) {
+                    const startTime = Date.now();
+                    console.log(`Before method: ${property}`);
+                    
+                    try {
+                        const result = value.apply(this, args);
+                        const endTime = Date.now();
+                        console.log(`After method: ${property} (took ${endTime - startTime}ms)`);
+                        return result;
+                    } catch (error) {
+                        console.log(`Exception in method: ${property} - ${error.message}`);
+                        throw error;
+                    }
+                };
+            }
+            
+            return value;
+        }
+    });
+}
+
+// 快取代理
+function createCachingProxy(target) {
+    const cache = new Map();
+    
+    return new Proxy(target, {
+        get(target, property, receiver) {
+            const value = Reflect.get(target, property, receiver);
+            
+            if (typeof value === 'function' && 
+                (property.startsWith('find') || property.startsWith('get'))) {
+                return function(...args) {
+                    const cacheKey = `${property}_${JSON.stringify(args)}`;
+                    
+                    if (cache.has(cacheKey)) {
+                        console.log(`Cache hit for: ${cacheKey}`);
+                        return cache.get(cacheKey);
+                    }
+                    
+                    const result = value.apply(this, args);
+                    cache.set(cacheKey, result);
+                    console.log(`Cache miss for: ${cacheKey}`);
+                    return result;
+                };
+            }
+            
+            return value;
+        }
+    });
+}
+
+// 代理工廠
+class ProxyFactory {
+    static createLoggingProxy(target) {
+        return createLoggingProxy(target);
+    }
+    
+    static createCachingProxy(target) {
+        return createCachingProxy(target);
+    }
+    
+    static createCompositeProxy(target, ...handlers) {
+        return handlers.reduce((proxy, handler) => handler(proxy), target);
+    }
+}
+
+// 使用範例
+const userService = new UserService();
+
+// 建立日誌代理
+const loggingProxy = ProxyFactory.createLoggingProxy(userService);
+
+// 建立快取代理
+const cachingProxy = ProxyFactory.createCachingProxy(userService);
+
+// 建立組合代理（日誌 + 快取）
+const compositeProxy = ProxyFactory.createCompositeProxy(
+    userService,
+    createLoggingProxy,
+    createCachingProxy
+);
+
+// 使用代理
+loggingProxy.findById(1);
+loggingProxy.save({ id: 2, email: 'new@example.com', name: 'New User' });
+
+// 測試快取
+cachingProxy.findById(1); // Cache miss
+cachingProxy.findById(1); // Cache hit
+```
+</UniversalEditor>
+
+## 字節碼操作
+
+### 1. ASM 框架使用
+
+<UniversalEditor title="字節碼操作">
+```java !! java
+// 使用 ASM 進行字節碼生成和修改
+import org.objectweb.asm.*;
+import org.objectweb.asm.commons.Method;
+
+public class BytecodeExample {
+    
+    // 動態生成類別
+    public static Class<?> generateClass() throws Exception {
+        ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_MAXS);
+        
+        // 類別簽名
+        cw.visit(Opcodes.V11, 
+                Opcodes.ACC_PUBLIC, 
+                "com/example/GeneratedClass", 
+                null, 
+                "java/lang/Object", 
+                null);
+        
+        // 新增欄位
+        FieldVisitor fv = cw.visitField(Opcodes.ACC_PRIVATE, 
+                "value", 
+                "Ljava/lang/String;", 
+                null, 
+                null);
+        fv.visitEnd();
+        
+        // 新增建構子
+        MethodVisitor mv = cw.visitMethod(Opcodes.ACC_PUBLIC, 
+                "<init>", 
+                "(Ljava/lang/String;)V", 
+                null, 
+                null);
+        mv.visitCode();
+        mv.visitVarInsn(Opcodes.ALOAD, 0);
+        mv.visitMethodInsn(Opcodes.INVOKESPECIAL, 
+                "java/lang/Object", 
+                "<init>", 
+                "()V", 
+                false);
+        mv.visitVarInsn(Opcodes.ALOAD, 0);
+        mv.visitVarInsn(Opcodes.ALOAD, 1);
+        mv.visitFieldInsn(Opcodes.PUTFIELD, 
+                "com/example/GeneratedClass", 
+                "value", 
+                "Ljava/lang/String;");
+        mv.visitInsn(Opcodes.RETURN);
+        mv.visitMaxs(2, 2);
+        mv.visitEnd();
+        
+        // 新增 getValue 方法
+        mv = cw.visitMethod(Opcodes.ACC_PUBLIC, 
+                "getValue", 
+                "()Ljava/lang/String;", 
+                null, 
+                null);
+        mv.visitCode();
+        mv.visitVarInsn(Opcodes.ALOAD, 0);
+        mv.visitFieldInsn(Opcodes.GETFIELD, 
+                "com/example/GeneratedClass", 
+                "value", 
+                "Ljava/lang/String;");
+        mv.visitInsn(Opcodes.ARETURN);
+        mv.visitMaxs(1, 1);
+        mv.visitEnd();
+        
+        cw.visitEnd();
+        
+        // 載入類別
+        byte[] bytecode = cw.toByteArray();
+        ClassLoader classLoader = new ClassLoader() {
+            @Override
+            protected Class<?> findClass(String name) throws ClassNotFoundException {
+                return defineClass(name, bytecode, 0, bytecode.length);
+            }
+        };
+        
+        return classLoader.loadClass("com.example.GeneratedClass");
+    }
+    
+    // 方法攔截器
+    public static class MethodInterceptor extends ClassVisitor {
+        
+        public MethodInterceptor(ClassVisitor cv) {
+            super(Opcodes.ASM9, cv);
+        }
+        
+        @Override
+        public MethodVisitor visitMethod(int access, String name, String descriptor, 
+                                       String signature, String[] exceptions) {
+            MethodVisitor mv = super.visitMethod(access, name, descriptor, signature, exceptions);
+            
+            // 攔截所有方法
+            if (mv != null && !name.equals("<init>")) {
+                mv = new MethodTimingVisitor(mv, name);
+            }
+            
+            return mv;
+        }
+    }
+    
+    // 方法計時訪問器
+    public static class MethodTimingVisitor extends MethodVisitor {
+        private final String methodName;
+        
+        public MethodTimingVisitor(MethodVisitor mv, String methodName) {
+            super(Opcodes.ASM9, mv);
+            this.methodName = methodName;
+        }
+        
+        @Override
+        public void visitCode() {
+            super.visitCode();
+            
+            // 在方法開始時新增計時程式碼
+            mv.visitMethodInsn(Opcodes.INVOKESTATIC, 
+                    "java/lang/System", 
+                    "currentTimeMillis", 
+                    "()J", 
+                    false);
+            mv.visitVarInsn(Opcodes.LSTORE, getMaxLocals());
+            
+            mv.visitFieldInsn(Opcodes.GETSTATIC, 
+                    "java/lang/System", 
+                    "out", 
+                    "Ljava/io/PrintStream;");
+            mv.visitLdcInsn("Starting method: " + methodName);
+            mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, 
+                    "java/io/PrintStream", 
+                    "println", 
+                    "(Ljava/lang/String;)V", 
+                    false);
+        }
+        
+        @Override
+        public void visitInsn(int opcode) {
+            if (opcode >= Opcodes.IRETURN && opcode <= Opcodes.RETURN) {
+                // 在方法返回前新增計時程式碼
+                mv.visitMethodInsn(Opcodes.INVOKESTATIC, 
+                        "java/lang/System", 
+                        "currentTimeMillis", 
+                        "()J", 
+                        false);
+                mv.visitVarInsn(Opcodes.LLOAD, getMaxLocals());
+                mv.visitInsn(Opcodes.LSUB);
+                
+                mv.visitFieldInsn(Opcodes.GETSTATIC, 
+                        "java/lang/System", 
+                        "out", 
+                        "Ljava/io/PrintStream;");
+                mv.visitLdcInsn("Method " + methodName + " took: ");
+                mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, 
+                        "java/io/PrintStream", 
+                        "print", 
+                        "(Ljava/lang/String;)V", 
+                        false);
+                
+                mv.visitFieldInsn(Opcodes.GETSTATIC, 
+                        "java/lang/System", 
+                        "out", 
+                        "Ljava/io/PrintStream;");
+                mv.visitInsn(Opcodes.DUP_X2);
+                mv.visitInsn(Opcodes.POP);
+                mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, 
+                        "java/io/PrintStream", 
+                        "println", 
+                        "(J)V", 
+                        false);
+            }
+            
+            super.visitInsn(opcode);
+        }
+        
+        private int getMaxLocals() {
+            // 簡化處理，實際應該計算正確的本地變數索引
+            return 10;
+        }
+    }
+}
+```
+
+```javascript !! js
+// JavaScript 中的類似功能（動態程式碼生成）
+class CodeGenerator {
+    
+    // 動態生成類別
+    static generateClass(className, properties, methods) {
+        const classCode = `
+            class ${className} {
+                constructor(${properties.map(p => p.name).join(', ')}) {
+                    ${properties.map(p => `this.${p.name} = ${p.name};`).join('\n                    ')}
+                }
+                
+                ${methods.map(m => `
+                ${m.name}(${m.params.join(', ')}) {
+                    ${m.body}
+                }
+                `).join('')}
+                
+                ${properties.map(p => `
+                get${p.name.charAt(0).toUpperCase() + p.name.slice(1)}() {
+                    return this.${p.name};
+                }
+                
+                set${p.name.charAt(0).toUpperCase() + p.name.slice(1)}(value) {
+                    this.${p.name} = value;
+                }
+                `).join('')}
+            }
+            
+            return ${className};
+        `;
+        
+        return new Function(classCode)();
+    }
+    
+    // 方法攔截器
+    static createInterceptor(target, interceptors = {}) {
+        return new Proxy(target, {
+            get(target, property, receiver) {
+                const value = Reflect.get(target, property, receiver);
+                
+                if (typeof value === 'function') {
+                    return function(...args) {
+                        // 前置攔截
+                        if (interceptors.before) {
+                            interceptors.before(property, args);
+                        }
+                        
+                        let result;
+                        let error;
+                        const startTime = Date.now();
+                        
+                        try {
+                            result = value.apply(this, args);
+                        } catch (e) {
+                            error = e;
+                        }
+                        
+                        const endTime = Date.now();
+                        
+                        // 後置攔截
+                        if (interceptors.after) {
+                            interceptors.after(property, args, result, error, endTime - startTime);
+                        }
+                        
+                        if (error) {
+                            throw error;
+                        }
+                        
+                        return result;
+                    };
+                }
+                
+                return value;
+            }
+        });
+    }
+    
+    // 效能監控攔截器
+    static createPerformanceInterceptor(target) {
+        const performanceData = new Map();
+        
+        return this.createInterceptor(target, {
+            before(methodName, args) {
+                console.log(`Starting method: ${methodName}`);
+            },
+            
+            after(methodName, args, result, error, duration) {
+                if (!performanceData.has(methodName)) {
+                    performanceData.set(methodName, {
+                        calls: 0,
+                        totalTime: 0,
+                        errors: 0
+                    });
+                }
+                
+                const data = performanceData.get(methodName);
+                data.calls++;
+                data.totalTime += duration;
+                
+                if (error) {
+                    data.errors++;
+                }
+                
+                console.log(`Method ${methodName} took: ${duration}ms`);
+                console.log(`Average time: ${(data.totalTime / data.calls).toFixed(2)}ms`);
+                console.log(`Error rate: ${((data.errors / data.calls) * 100).toFixed(2)}%`);
+            }
+        });
+    }
+}
+
+// 使用範例
+const UserClass = CodeGenerator.generateClass('User', 
+    [
+        { name: 'id', type: 'number' },
+        { name: 'name', type: 'string' },
+        { name: 'email', type: 'string' }
+    ],
+    [
+        {
+            name: 'toString',
+            params: [],
+            body: 'return `User{id: ${this.id}, name: ${this.name}, email: ${this.email}}`;'
+        },
+        {
+            name: 'validate',
+            params: [],
+            body: 'return this.name && this.email && this.email.includes("@");'
+        }
+    ]
+);
+
+// 建立實例
+const user = new UserClass(1, 'John Doe', 'john@example.com');
+console.log(user.toString());
+
+// 建立效能監控代理
+const monitoredUser = CodeGenerator.createPerformanceInterceptor(user);
+monitoredUser.validate();
+monitoredUser.toString();
+```
+</UniversalEditor>
+
+## 練習題
+
+### 練習 1: 反射工具
+1. 建立一個通用的物件複製工具，使用反射深度複製物件
+2. 實作一個物件比較工具，比較兩個物件的所有欄位
+3. 建立一個註解處理器，處理自訂註解
+
+### 練習 2: 動態代理
+1. 建立一個快取代理，為方法呼叫新增快取功能
+2. 實作一個重試代理，在方法失敗時自動重試
+3. 建立一個權限檢查代理，在方法執行前檢查權限
+
+### 練習 3: 字節碼操作
+1. 使用 ASM 為類別新增日誌功能
+2. 建立一個效能監控工具，統計方法執行時間
+3. 實作一個簡單的依賴注入容器
+
+## 總結
+
+Java 進階主題的關鍵要點：
+
+- **反射**: 強大但需謹慎使用，注意效能影響
+- **動態代理**: 用於 AOP 和框架開發
+- **字節碼操作**: 深入理解 JVM 和效能最佳化
+- **謹慎使用**: 這些技術功能強大但複雜度高
+
+在下一個模組中，我們將學習效能最佳化技術，包括 JVM 調優、記憶體管理和並行效能最佳化。
+
+準備好深入效能最佳化了嗎？

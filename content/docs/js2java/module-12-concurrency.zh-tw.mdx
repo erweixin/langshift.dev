@@ -1,0 +1,995 @@
+---
+title: "模組 12：並行程式設計"
+description: "學習 Java 並行程式設計、執行緒、同步機制、執行緒池和並行工具類別，對比 JavaScript 的非同步程式設計模式。"
+---
+
+# 模組 12：並行程式設計
+
+在本模組中，我們將探索 Java 的並行程式設計世界，並與 JavaScript 的非同步程式設計模式進行對比。我們將學習執行緒、同步機制、執行緒池、並行工具類別以及如何編寫執行緒安全的程式碼。
+
+## 學習目標
+
+在本模組結束時，你將能夠：
+- 理解 Java 執行緒模型和 JavaScript 事件迴圈的區別
+- 建立和管理 Java 執行緒
+- 使用同步機制避免競態條件
+- 應用執行緒池提高效能
+- 使用並行工具類別解決複雜問題
+- 編寫執行緒安全的程式碼
+
+## 並行程式設計基礎
+
+### 1. 執行緒建立和生命週期
+
+Java 提供真正的多執行緒並行，而 JavaScript 使用單執行緒事件迴圈模型。
+
+<UniversalEditor title="執行緒建立和生命週期" compare={true}>
+```javascript !! js
+// JavaScript - 非同步程式設計模式
+// 單執行緒事件迴圈
+console.log("開始執行");
+
+// 使用 setTimeout 模擬非同步操作
+setTimeout(() => {
+    console.log("非同步任務 1 完成");
+}, 1000);
+
+setTimeout(() => {
+    console.log("非同步任務 2 完成");
+}, 500);
+
+console.log("同步程式碼執行完畢");
+
+// Promise 非同步程式設計
+function asyncTask(name, delay) {
+    return new Promise((resolve) => {
+        setTimeout(() => {
+            console.log(`${name} 完成`);
+            resolve(name);
+        }, delay);
+    });
+}
+
+// 並行執行非同步任務
+async function runTasks() {
+    console.log("開始執行非同步任務");
+    
+    // 並行執行
+    const tasks = [
+        asyncTask("任務1", 1000),
+        asyncTask("任務2", 500),
+        asyncTask("任務3", 800)
+    ];
+    
+    const results = await Promise.all(tasks);
+    console.log("所有任務完成:", results);
+}
+
+runTasks();
+
+// Web Workers（真正的並行）
+if (typeof Worker !== 'undefined') {
+    // 建立 Web Worker
+    const worker = new Worker(`
+        data:text/javascript,
+        self.onmessage = function(e) {
+            const { start, end } = e.data;
+            let sum = 0;
+            for (let i = start; i <= end; i++) {
+                sum += i;
+            }
+            self.postMessage({ result: sum });
+        }
+    `);
+    
+    worker.onmessage = function(e) {
+        console.log("計算結果:", e.data.result);
+    };
+    
+    worker.postMessage({ start: 1, end: 1000000 });
+}
+
+// 使用 async/await 處理非同步操作
+class AsyncCounter {
+    constructor() {
+        this.count = 0;
+    }
+    
+    async increment() {
+        await this.delay(100); // 模擬非同步操作
+        this.count++;
+        console.log(`計數器: ${this.count}`);
+    }
+    
+    delay(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
+    }
+    
+    async runMultipleIncrements() {
+        console.log("開始並行增量");
+        
+        // 並行執行多個增量操作
+        const promises = [];
+        for (let i = 0; i < 5; i++) {
+            promises.push(this.increment());
+        }
+        
+        await Promise.all(promises);
+        console.log(`最終計數: ${this.count}`);
+    }
+}
+
+const counter = new AsyncCounter();
+counter.runMultipleIncrements();
+
+// 模擬生產者-消費者模式
+class AsyncQueue {
+    constructor() {
+        this.queue = [];
+        this.waiting = [];
+    }
+    
+    async put(item) {
+        this.queue.push(item);
+        console.log(`生產者新增: ${item}`);
+        
+        // 通知等待的消費者
+        if (this.waiting.length > 0) {
+            const waiter = this.waiting.shift();
+            waiter.resolve(this.queue.shift());
+        }
+    }
+    
+    async get() {
+        if (this.queue.length > 0) {
+            const item = this.queue.shift();
+            console.log(`消費者取得: ${item}`);
+            return item;
+        }
+        
+        // 等待新項目
+        return new Promise((resolve) => {
+            this.waiting.push({ resolve });
+        });
+    }
+}
+
+async function producerConsumerDemo() {
+    const queue = new AsyncQueue();
+    
+    // 生產者
+    async function producer() {
+        for (let i = 1; i <= 5; i++) {
+            await queue.put(`項目${i}`);
+            await new Promise(resolve => setTimeout(resolve, 300));
+        }
+    }
+    
+    // 消費者
+    async function consumer(id) {
+        for (let i = 0; i < 3; i++) {
+            const item = await queue.get();
+            console.log(`消費者${id}處理: ${item}`);
+            await new Promise(resolve => setTimeout(resolve, 500));
+        }
+    }
+    
+    // 啟動生產者和消費者
+    producer();
+    consumer(1);
+    consumer(2);
+}
+
+producerConsumerDemo();
+```
+
+```java !! java
+// Java - 多執行緒程式設計
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
+
+public class ThreadDemo {
+    
+    // 繼承 Thread 類別
+    static class MyThread extends Thread {
+        private String name;
+        
+        public MyThread(String name) {
+            this.name = name;
+        }
+        
+        @Override
+        public void run() {
+            for (int i = 1; i <= 5; i++) {
+                System.out.println(name + " - 計數: " + i);
+                try {
+                    Thread.sleep(1000); // 暫停 1 秒
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+            System.out.println(name + " 完成");
+        }
+    }
+    
+    // 實作 Runnable 介面
+    static class MyRunnable implements Runnable {
+        private String name;
+        
+        public MyRunnable(String name) {
+            this.name = name;
+        }
+        
+        @Override
+        public void run() {
+            for (int i = 1; i <= 5; i++) {
+                System.out.println(name + " - 計數: " + i);
+                try {
+                    Thread.sleep(500);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+            System.out.println(name + " 完成");
+        }
+    }
+    
+    // 使用 Callable 回傳結果
+    static class CalculationTask implements Callable<Integer> {
+        private int start;
+        private int end;
+        
+        public CalculationTask(int start, int end) {
+            this.start = start;
+            this.end = end;
+        }
+        
+        @Override
+        public Integer call() throws Exception {
+            int sum = 0;
+            System.out.println("開始計算 " + start + " 到 " + end);
+            
+            for (int i = start; i <= end; i++) {
+                sum += i;
+                if (i % 100000 == 0) {
+                    Thread.sleep(10); // 模擬耗時操作
+                }
+            }
+            
+            System.out.println("計算完成: " + sum);
+            return sum;
+        }
+    }
+    
+    // 執行緒安全的計數器
+    static class ThreadSafeCounter {
+        private AtomicInteger count = new AtomicInteger(0);
+        
+        public void increment() {
+            count.incrementAndGet();
+        }
+        
+        public int getCount() {
+            return count.get();
+        }
+    }
+    
+    // 生產者-消費者模式
+    static class Producer implements Runnable {
+        private BlockingQueue<String> queue;
+        private String name;
+        
+        public Producer(BlockingQueue<String> queue, String name) {
+            this.queue = queue;
+            this.name = name;
+        }
+        
+        @Override
+        public void run() {
+            try {
+                for (int i = 1; i <= 5; i++) {
+                    String item = name + "-項目" + i;
+                    queue.put(item);
+                    System.out.println("生產者 " + name + " 生產: " + item);
+                    Thread.sleep(300);
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+    }
+    
+    static class Consumer implements Runnable {
+        private BlockingQueue<String> queue;
+        private String name;
+        
+        public Consumer(BlockingQueue<String> queue, String name) {
+            this.queue = queue;
+            this.name = name;
+        }
+        
+        @Override
+        public void run() {
+            try {
+                for (int i = 0; i < 3; i++) {
+                    String item = queue.take();
+                    System.out.println("消費者 " + name + " 消費: " + item);
+                    Thread.sleep(500);
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+    }
+    
+    public static void main(String[] args) throws InterruptedException, ExecutionException {
+        System.out.println("=== 基本執行緒建立 ===");
+        
+        // 方式1: 繼承 Thread
+        MyThread thread1 = new MyThread("執行緒1");
+        thread1.start();
+        
+        // 方式2: 實作 Runnable
+        Thread thread2 = new Thread(new MyRunnable("執行緒2"));
+        thread2.start();
+        
+        // 方式3: 使用 Lambda 表達式
+        Thread thread3 = new Thread(() -> {
+            for (int i = 1; i <= 3; i++) {
+                System.out.println("Lambda執行緒 - 計數: " + i);
+                try {
+                    Thread.sleep(800);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+            System.out.println("Lambda執行緒 完成");
+        });
+        thread3.start();
+        
+        // 等待執行緒完成
+        thread1.join();
+        thread2.join();
+        thread3.join();
+        
+        System.out.println("\n=== 使用執行緒池 ===");
+        
+        // 建立執行緒池
+        ExecutorService executor = Executors.newFixedThreadPool(3);
+        
+        // 提交任務
+        Future<Integer> future1 = executor.submit(new CalculationTask(1, 500000));
+        Future<Integer> future2 = executor.submit(new CalculationTask(500001, 1000000));
+        
+        // 取得結果
+        int result1 = future1.get();
+        int result2 = future2.get();
+        System.out.println("總和: " + (result1 + result2));
+        
+        executor.shutdown();
+        
+        System.out.println("\n=== 執行緒安全範例 ===");
+        
+        ThreadSafeCounter counter = new ThreadSafeCounter();
+        ExecutorService counterExecutor = Executors.newFixedThreadPool(5);
+        
+        // 多個執行緒同時增加計數器
+        for (int i = 0; i < 10; i++) {
+            counterExecutor.submit(() -> {
+                for (int j = 0; j < 100; j++) {
+                    counter.increment();
+                }
+            });
+        }
+        
+        counterExecutor.shutdown();
+        counterExecutor.awaitTermination(5, TimeUnit.SECONDS);
+        System.out.println("最終計數: " + counter.getCount());
+        
+        System.out.println("\n=== 生產者-消費者模式 ===");
+        
+        BlockingQueue<String> queue = new ArrayBlockingQueue<>(10);
+        ExecutorService pcExecutor = Executors.newFixedThreadPool(4);
+        
+        // 啟動生產者和消費者
+        pcExecutor.submit(new Producer(queue, "生產者1"));
+        pcExecutor.submit(new Producer(queue, "生產者2"));
+        pcExecutor.submit(new Consumer(queue, "消費者1"));
+        pcExecutor.submit(new Consumer(queue, "消費者2"));
+        
+        pcExecutor.shutdown();
+        pcExecutor.awaitTermination(10, TimeUnit.SECONDS);
+        
+        System.out.println("所有任務完成");
+    }
+}
+```
+</UniversalEditor>
+
+### 2. 同步機制和執行緒安全
+
+Java 提供多種同步機制確保執行緒安全，而 JavaScript 透過單執行緒避免了這些問題。
+
+<UniversalEditor title="同步機制和執行緒安全" compare={true}>
+```javascript !! js
+// JavaScript - 單執行緒，不需要同步機制
+// 共享狀態的模擬
+class SharedCounter {
+    constructor() {
+        this.count = 0;
+        this.operations = [];
+    }
+    
+    async increment() {
+        // JavaScript 是單執行緒的，所以這裡不會有競態條件
+        const oldValue = this.count;
+        
+        // 模擬一些非同步操作
+        await new Promise(resolve => setTimeout(resolve, Math.random() * 10));
+        
+        this.count = oldValue + 1;
+        this.operations.push(`增加到 ${this.count}`);
+    }
+    
+    async decrement() {
+        const oldValue = this.count;
+        
+        await new Promise(resolve => setTimeout(resolve, Math.random() * 10));
+        
+        this.count = oldValue - 1;
+        this.operations.push(`減少到 ${this.count}`);
+    }
+    
+    getCount() {
+        return this.count;
+    }
+    
+    getOperations() {
+        return [...this.operations];
+    }
+}
+
+// 使用 Mutex 模擬同步（實際上 JavaScript 不需要）
+class AsyncMutex {
+    constructor() {
+        this.locked = false;
+        this.waitQueue = [];
+    }
+    
+    async lock() {
+        if (!this.locked) {
+            this.locked = true;
+            return;
+        }
+        
+        return new Promise(resolve => {
+            this.waitQueue.push(resolve);
+        });
+    }
+    
+    unlock() {
+        if (this.waitQueue.length > 0) {
+            const next = this.waitQueue.shift();
+            next();
+        } else {
+            this.locked = false;
+        }
+    }
+}
+
+class SynchronizedCounter {
+    constructor() {
+        this.count = 0;
+        this.mutex = new AsyncMutex();
+    }
+    
+    async increment() {
+        await this.mutex.lock();
+        try {
+            const oldValue = this.count;
+            await new Promise(resolve => setTimeout(resolve, 10));
+            this.count = oldValue + 1;
+            console.log(`同步增加到: ${this.count}`);
+        } finally {
+            this.mutex.unlock();
+        }
+    }
+    
+    async decrement() {
+        await this.mutex.lock();
+        try {
+            const oldValue = this.count;
+            await new Promise(resolve => setTimeout(resolve, 10));
+            this.count = oldValue - 1;
+            console.log(`同步減少到: ${this.count}`);
+        } finally {
+            this.mutex.unlock();
+        }
+    }
+}
+
+// 演示 JavaScript 的單執行緒特性
+async function demonstrateJavaScriptThreading() {
+    console.log("=== JavaScript 單執行緒演示 ===");
+    
+    const counter = new SharedCounter();
+    
+    // 並行執行多個非同步操作
+    const promises = [];
+    for (let i = 0; i < 5; i++) {
+        promises.push(counter.increment());
+    }
+    for (let i = 0; i < 3; i++) {
+        promises.push(counter.decrement());
+    }
+    
+    await Promise.all(promises);
+    
+    console.log("最終計數:", counter.getCount());
+    console.log("操作歷史:", counter.getOperations());
+    
+    console.log("\n=== 使用非同步 Mutex ===");
+    
+    const syncCounter = new SynchronizedCounter();
+    
+    const syncPromises = [];
+    for (let i = 0; i < 3; i++) {
+        syncPromises.push(syncCounter.increment());
+        syncPromises.push(syncCounter.decrement());
+    }
+    
+    await Promise.all(syncPromises);
+}
+
+demonstrateJavaScriptThreading();
+
+// 使用 SharedArrayBuffer 和 Atomics（需要特殊環境）
+if (typeof SharedArrayBuffer !== 'undefined') {
+    // 建立共享記憶體
+    const sharedBuffer = new SharedArrayBuffer(16);
+    const sharedArray = new Int32Array(sharedBuffer);
+    
+    // 原子操作
+    console.log("原子操作演示:");
+    Atomics.store(sharedArray, 0, 10);
+    console.log("初始值:", Atomics.load(sharedArray, 0));
+    
+    Atomics.add(sharedArray, 0, 5);
+    console.log("加5後:", Atomics.load(sharedArray, 0));
+    
+    const oldValue = Atomics.compareExchange(sharedArray, 0, 15, 20);
+    console.log("比較交換:", oldValue, "新值:", Atomics.load(sharedArray, 0));
+}
+```
+
+```java !! java
+// Java - 同步機制和執行緒安全
+import java.util.concurrent.*;
+import java.util.concurrent.locks.*;
+import java.util.concurrent.atomic.*;
+
+public class SynchronizationDemo {
+    
+    // 不安全的計數器
+    static class UnsafeCounter {
+        private int count = 0;
+        
+        public void increment() {
+            count++; // 非原子操作，執行緒不安全
+        }
+        
+        public int getCount() {
+            return count;
+        }
+    }
+    
+    // 使用 synchronized 關鍵字的執行緒安全計數器
+    static class SynchronizedCounter {
+        private int count = 0;
+        
+        public synchronized void increment() {
+            count++;
+        }
+        
+        public synchronized int getCount() {
+            return count;
+        }
+    }
+    
+    // 使用 Lock 的計數器
+    static class LockCounter {
+        private int count = 0;
+        private final ReentrantLock lock = new ReentrantLock();
+        
+        public void increment() {
+            lock.lock();
+            try {
+                count++;
+            } finally {
+                lock.unlock();
+            }
+        }
+        
+        public int getCount() {
+            lock.lock();
+            try {
+                return count;
+            } finally {
+                lock.unlock();
+            }
+        }
+    }
+    
+    // 使用原子類別的計數器
+    static class AtomicCounter {
+        private AtomicInteger count = new AtomicInteger(0);
+        
+        public void increment() {
+            count.incrementAndGet();
+        }
+        
+        public int getCount() {
+            return count.get();
+        }
+    }
+    
+    // 讀寫鎖範例
+    static class ReadWriteCounter {
+        private int count = 0;
+        private final ReadWriteLock rwLock = new ReentrantReadWriteLock();
+        private final Lock readLock = rwLock.readLock();
+        private final Lock writeLock = rwLock.writeLock();
+        
+        public void increment() {
+            writeLock.lock();
+            try {
+                count++;
+                System.out.println("寫操作 - 計數: " + count);
+            } finally {
+                writeLock.unlock();
+            }
+        }
+        
+        public int getCount() {
+            readLock.lock();
+            try {
+                System.out.println("讀操作 - 計數: " + count);
+                return count;
+            } finally {
+                readLock.unlock();
+            }
+        }
+    }
+    
+    // 生產者消費者問題 - 使用 wait/notify
+    static class Buffer {
+        private final Object[] buffer;
+        private int count = 0;
+        private int in = 0;
+        private int out = 0;
+        
+        public Buffer(int size) {
+            buffer = new Object[size];
+        }
+        
+        public synchronized void put(Object item) throws InterruptedException {
+            while (count == buffer.length) {
+                wait(); // 緩衝區滿，等待
+            }
+            
+            buffer[in] = item;
+            in = (in + 1) % buffer.length;
+            count++;
+            
+            System.out.println("生產: " + item + " (緩衝區: " + count + "/" + buffer.length + ")");
+            notifyAll(); // 通知消費者
+        }
+        
+        public synchronized Object take() throws InterruptedException {
+            while (count == 0) {
+                wait(); // 緩衝區空，等待
+            }
+            
+            Object item = buffer[out];
+            buffer[out] = null;
+            out = (out + 1) % buffer.length;
+            count--;
+            
+            System.out.println("消費: " + item + " (緩衝區: " + count + "/" + buffer.length + ")");
+            notifyAll(); // 通知生產者
+            return item;
+        }
+    }
+    
+    // 死鎖範例
+    static class DeadlockDemo {
+        private final Object lock1 = new Object();
+        private final Object lock2 = new Object();
+        
+        public void method1() {
+            synchronized (lock1) {
+                System.out.println("方法1取得鎖1");
+                try {
+                    Thread.sleep(100);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                
+                synchronized (lock2) {
+                    System.out.println("方法1取得鎖2");
+                }
+            }
+        }
+        
+        public void method2() {
+            synchronized (lock2) {
+                System.out.println("方法2取得鎖2");
+                try {
+                    Thread.sleep(100);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                
+                synchronized (lock1) {
+                    System.out.println("方法2取得鎖1");
+                }
+            }
+        }
+    }
+    
+    public static void main(String[] args) throws InterruptedException {
+        System.out.println("=== 不安全計數器演示 ===");
+        
+        UnsafeCounter unsafeCounter = new UnsafeCounter();
+        ExecutorService executor = Executors.newFixedThreadPool(10);
+        
+        // 多執行緒同時增加不安全計數器
+        for (int i = 0; i < 10; i++) {
+            executor.submit(() -> {
+                for (int j = 0; j < 1000; j++) {
+                    unsafeCounter.increment();
+                }
+            });
+        }
+        
+        executor.shutdown();
+        executor.awaitTermination(5, TimeUnit.SECONDS);
+        System.out.println("不安全計數器最終值: " + unsafeCounter.getCount() + " (期望: 10000)");
+        
+        System.out.println("\n=== 同步計數器演示 ===");
+        
+        SynchronizedCounter syncCounter = new SynchronizedCounter();
+        executor = Executors.newFixedThreadPool(10);
+        
+        for (int i = 0; i < 10; i++) {
+            executor.submit(() -> {
+                for (int j = 0; j < 1000; j++) {
+                    syncCounter.increment();
+                }
+            });
+        }
+        
+        executor.shutdown();
+        executor.awaitTermination(5, TimeUnit.SECONDS);
+        System.out.println("同步計數器最終值: " + syncCounter.getCount());
+        
+        System.out.println("\n=== 原子計數器演示 ===");
+        
+        AtomicCounter atomicCounter = new AtomicCounter();
+        executor = Executors.newFixedThreadPool(10);
+        
+        for (int i = 0; i < 10; i++) {
+            executor.submit(() -> {
+                for (int j = 0; j < 1000; j++) {
+                    atomicCounter.increment();
+                }
+            });
+        }
+        
+        executor.shutdown();
+        executor.awaitTermination(5, TimeUnit.SECONDS);
+        System.out.println("原子計數器最終值: " + atomicCounter.getCount());
+        
+        System.out.println("\n=== 讀寫鎖演示 ===");
+        
+        ReadWriteCounter rwCounter = new ReadWriteCounter();
+        executor = Executors.newFixedThreadPool(5);
+        
+        // 啟動多個讀者和寫者
+        for (int i = 0; i < 3; i++) {
+            final int writerId = i;
+            executor.submit(() -> {
+                for (int j = 0; j < 2; j++) {
+                    rwCounter.increment();
+                    try {
+                        Thread.sleep(200);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                }
+            });
+        }
+        
+        for (int i = 0; i < 5; i++) {
+            executor.submit(() -> {
+                for (int j = 0; j < 3; j++) {
+                    rwCounter.getCount();
+                    try {
+                        Thread.sleep(100);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                }
+            });
+        }
+        
+        executor.shutdown();
+        executor.awaitTermination(10, TimeUnit.SECONDS);
+        
+        System.out.println("\n=== 生產者消費者演示 ===");
+        
+        Buffer buffer = new Buffer(5);
+        executor = Executors.newFixedThreadPool(4);
+        
+        // 生產者
+        executor.submit(() -> {
+            try {
+                for (int i = 1; i <= 10; i++) {
+                    buffer.put("項目" + i);
+                    Thread.sleep(200);
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        });
+        
+        // 消費者
+        for (int i = 1; i <= 2; i++) {
+            final int consumerId = i;
+            executor.submit(() -> {
+                try {
+                    for (int j = 0; j < 5; j++) {
+                        Object item = buffer.take();
+                        Thread.sleep(300);
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            });
+        }
+        
+        executor.shutdown();
+        executor.awaitTermination(15, TimeUnit.SECONDS);
+        
+        System.out.println("同步演示完成");
+    }
+}
+```
+</UniversalEditor>
+
+## 練習題
+
+### 練習 1: 執行緒基礎
+
+<UniversalEditor title="練習 1: 執行緒基礎">
+```java !! java
+// TODO: 實作執行緒基礎練習
+import java.util.concurrent.*;
+
+public class ThreadExercise1 {
+    
+    // TODO: 建立一個計算費氏數列的執行緒類別
+    static class FibonacciTask implements Callable<Long> {
+        // TODO: 實作費氏數列計算
+    }
+    
+    // TODO: 建立一個定時報告狀態的執行緒
+    static class StatusReporter implements Runnable {
+        // TODO: 每秒報告一次狀態
+    }
+    
+    // TODO: 建立一個模擬下載檔案的任務
+    static class FileDownloader implements Runnable {
+        // TODO: 模擬檔案下載過程，顯示進度
+    }
+    
+    public static void main(String[] args) {
+        // TODO: 測試費氏數列計算
+        System.out.println("=== 費氏數列計算測試 ===");
+        
+        // TODO: 測試狀態報告器
+        System.out.println("\n=== 狀態報告器測試 ===");
+        
+        // TODO: 測試檔案下載器
+        System.out.println("\n=== 檔案下載器測試 ===");
+    }
+}
+```
+</UniversalEditor>
+
+### 練習 2: 執行緒同步
+
+<UniversalEditor title="練習 2: 執行緒同步">
+```java !! java
+// TODO: 實作執行緒同步練習
+import java.util.concurrent.*;
+import java.util.concurrent.locks.*;
+
+public class ThreadExercise2 {
+    
+    // TODO: 實作銀行帳戶類別，支援並行存取款
+    static class BankAccount {
+        // TODO: 新增餘額欄位和鎖
+        // TODO: 實作存款方法（執行緒安全）
+        // TODO: 實作取款方法（執行緒安全）
+        // TODO: 實作查詢餘額方法
+        // TODO: 實作轉帳方法（避免死鎖）
+    }
+    
+    // TODO: 實作有界緩衝區（生產者消費者）
+    static class BoundedBuffer<T> {
+        // TODO: 使用陣列實作緩衝區
+        // TODO: 實作 put 方法（阻塞式）
+        // TODO: 實作 take 方法（阻塞式）
+        // TODO: 使用 wait/notify 或 Condition
+    }
+    
+    // TODO: 實作讀寫鎖的快取系統
+    static class Cache<K, V> {
+        // TODO: 使用 Map 儲存資料
+        // TODO: 使用讀寫鎖保護
+        // TODO: 實作 get 方法（讀鎖）
+        // TODO: 實作 put 方法（寫鎖）
+        // TODO: 實作 clear 方法（寫鎖）
+    }
+    
+    public static void main(String[] args) {
+        // TODO: 測試銀行帳戶
+        System.out.println("=== 銀行帳戶測試 ===");
+        
+        // TODO: 測試有界緩衝區
+        System.out.println("\n=== 有界緩衝區測試 ===");
+        
+        // TODO: 測試快取系統
+        System.out.println("\n=== 快取系統測試 ===");
+    }
+}
+```
+</UniversalEditor>
+
+## 總結
+
+在本模組中，我們深入探討了 Java 並行程式設計，並與 JavaScript 的非同步程式設計模式進行了對比：
+
+### 關鍵要點：
+1. **執行緒模型**：Java 多執行緒 vs JavaScript 單執行緒事件迴圈
+2. **執行緒建立**：Thread、Runnable、Callable 三種方式
+3. **同步機制**：synchronized、Lock、原子類別
+4. **執行緒池**：ExecutorService 管理執行緒生命週期
+5. **並行工具**：BlockingQueue、CountDownLatch、Semaphore
+
+### 最佳實務：
+- 優先使用執行緒池而不是直接建立執行緒
+- 使用不可變物件避免同步問題
+- 選擇合適的同步機制
+- 避免死鎖和競態條件
+- 使用並行集合替代同步包裝
+
+### 下一步：
+- 掌握更多並行工具類別
+- 學習無鎖程式設計技術
+- 理解記憶體模型和可見性
+- 準備下一個模組：Spring 框架
+
+## 其他資源
+
+- [Java Concurrency Tutorial](https://docs.oracle.com/javase/tutorial/essential/concurrency/)
+- [Java Memory Model](https://docs.oracle.com/javase/specs/jls/se8/html/jls-17.html)
+- [Concurrent Collections](https://docs.oracle.com/javase/8/docs/api/java/util/concurrent/package-summary.html)
+
+---
+
+**練習提示**：重點理解執行緒安全的重要性以及各種同步機制的適用場景。練習時要注意死鎖和效能問題，逐步掌握並行程式設計的最佳實務。

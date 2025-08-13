@@ -1,0 +1,1269 @@
+---
+title: "常見陷阱"
+description: "學習 Java 開發中的常見陷阱和錯誤，包括物件導向、並行程式設計、記憶體管理和 Spring 框架使用中的問題"
+---
+
+# 常見陷阱
+
+在從 JavaScript 轉向 Java 開發的過程中，你會遇到許多常見的陷阱和錯誤。了解這些陷阱可以幫助你避免常見問題，提高程式碼品質。
+
+## 物件導向陷阱
+
+### 1. 繼承 vs 組合
+
+#### 陷阱：過度使用繼承
+<UniversalEditor title="繼承陷阱">
+```java !! java
+// 錯誤範例：過度使用繼承
+class Vehicle {
+    private String brand;
+    private String model;
+    
+    public void start() {
+        System.out.println("Vehicle starting...");
+    }
+}
+
+class Car extends Vehicle {
+    private int numberOfDoors;
+    
+    public void start() {
+        System.out.println("Car starting with key...");
+    }
+}
+
+class ElectricCar extends Car {
+    private int batteryCapacity;
+    
+    public void start() {
+        System.out.println("Electric car starting silently...");
+    }
+}
+
+// 問題：繼承層次過深，難以維護
+class HybridCar extends ElectricCar {
+    private boolean gasEngineActive;
+    
+    public void start() {
+        System.out.println("Hybrid car starting...");
+    }
+}
+```
+
+```javascript !! js
+// JavaScript 中的類似問題
+class Vehicle {
+    constructor(brand, model) {
+        this.brand = brand;
+        this.model = model;
+    }
+    
+    start() {
+        console.log("Vehicle starting...");
+    }
+}
+
+class Car extends Vehicle {
+    constructor(brand, model, numberOfDoors) {
+        super(brand, model);
+        this.numberOfDoors = numberOfDoors;
+    }
+    
+    start() {
+        console.log("Car starting with key...");
+    }
+}
+
+// 問題：原型鏈過長
+class ElectricCar extends Car {
+    constructor(brand, model, numberOfDoors, batteryCapacity) {
+        super(brand, model, numberOfDoors);
+        this.batteryCapacity = batteryCapacity;
+    }
+    
+    start() {
+        console.log("Electric car starting silently...");
+    }
+}
+```
+</UniversalEditor>
+
+#### 解決方案：使用組合
+<UniversalEditor title="組合解決方案">
+```java !! java
+// 正確做法：使用組合
+interface Engine {
+    void start();
+    void stop();
+}
+
+class GasEngine implements Engine {
+    public void start() {
+        System.out.println("Gas engine starting with ignition...");
+    }
+    
+    public void stop() {
+        System.out.println("Gas engine stopping...");
+    }
+}
+
+class ElectricEngine implements Engine {
+    public void start() {
+        System.out.println("Electric engine starting silently...");
+    }
+    
+    public void stop() {
+        System.out.println("Electric engine stopping...");
+    }
+}
+
+class Vehicle {
+    private String brand;
+    private String model;
+    private Engine engine;
+    
+    public Vehicle(String brand, String model, Engine engine) {
+        this.brand = brand;
+        this.model = model;
+        this.engine = engine;
+    }
+    
+    public void start() {
+        engine.start();
+    }
+    
+    public void stop() {
+        engine.stop();
+    }
+}
+
+// 使用示例
+Vehicle electricCar = new Vehicle("Tesla", "Model 3", new ElectricEngine());
+Vehicle gasCar = new Vehicle("Toyota", "Camry", new GasEngine());
+```
+
+```javascript !! js
+// JavaScript 組合解決方案
+class GasEngine {
+    start() {
+        console.log("Gas engine starting with ignition...");
+    }
+    
+    stop() {
+        console.log("Gas engine stopping...");
+    }
+}
+
+class ElectricEngine {
+    start() {
+        console.log("Electric engine starting silently...");
+    }
+    
+    stop() {
+        console.log("Electric engine stopping...");
+    }
+}
+
+class Vehicle {
+    constructor(brand, model, engine) {
+        this.brand = brand;
+        this.model = model;
+        this.engine = engine;
+    }
+    
+    start() {
+        this.engine.start();
+    }
+    
+    stop() {
+        this.engine.stop();
+    }
+}
+
+// 使用示例
+const electricCar = new Vehicle("Tesla", "Model 3", new ElectricEngine());
+const gasCar = new Vehicle("Toyota", "Camry", new GasEngine());
+```
+</UniversalEditor>
+
+### 2. 封裝陷阱
+
+#### 陷阱：破壞封裝性
+<UniversalEditor title="封裝陷阱">
+```java !! java
+// 錯誤範例：暴露內部狀態
+public class BankAccount {
+    public List<Transaction> transactions; // 直接暴露內部列表
+    public double balance;
+    
+    public BankAccount() {
+        this.transactions = new ArrayList<>();
+        this.balance = 0.0;
+    }
+    
+    public void deposit(double amount) {
+        balance += amount;
+        transactions.add(new Transaction("DEPOSIT", amount));
+    }
+}
+
+// 使用時的問題
+BankAccount account = new BankAccount();
+account.balance = 1000000; // 直接修改餘額！
+account.transactions.clear(); // 刪除所有交易記錄！
+```
+
+```javascript !! js
+// JavaScript 中的類似問題
+class BankAccount {
+    constructor() {
+        this.transactions = []; // 可以直接存取
+        this.balance = 0;
+    }
+    
+    deposit(amount) {
+        this.balance += amount;
+        this.transactions.push({ type: "DEPOSIT", amount });
+    }
+}
+
+// 使用時的問題
+const account = new BankAccount();
+account.balance = 1000000; // 直接修改餘額！
+account.transactions.length = 0; // 刪除所有交易記錄！
+```
+</UniversalEditor>
+
+#### 解決方案：正確封裝
+<UniversalEditor title="正確封裝">
+```java !! java
+// 正確做法：封裝內部狀態
+public class BankAccount {
+    private List<Transaction> transactions;
+    private double balance;
+    
+    public BankAccount() {
+        this.transactions = new ArrayList<>();
+        this.balance = 0.0;
+    }
+    
+    public void deposit(double amount) {
+        if (amount <= 0) {
+            throw new IllegalArgumentException("Deposit amount must be positive");
+        }
+        balance += amount;
+        transactions.add(new Transaction("DEPOSIT", amount));
+    }
+    
+    public double getBalance() {
+        return balance;
+    }
+    
+    // 回傳副本，防止外部修改
+    public List<Transaction> getTransactions() {
+        return new ArrayList<>(transactions);
+    }
+    
+    // 或者回傳不可變列表
+    public List<Transaction> getTransactionsImmutable() {
+        return Collections.unmodifiableList(transactions);
+    }
+}
+```
+
+```javascript !! js
+// JavaScript 使用私有欄位
+class BankAccount {
+    #transactions = [];
+    #balance = 0;
+    
+    deposit(amount) {
+        if (amount <= 0) {
+            throw new Error("Deposit amount must be positive");
+        }
+        this.#balance += amount;
+        this.#transactions.push({ type: "DEPOSIT", amount });
+    }
+    
+    getBalance() {
+        return this.#balance;
+    }
+    
+    // 回傳副本
+    getTransactions() {
+        return [...this.#transactions];
+    }
+    
+    // 使用 Object.freeze 回傳不可變物件
+    getTransactionsImmutable() {
+        return Object.freeze([...this.#transactions]);
+    }
+}
+```
+</UniversalEditor>
+
+## 並行程式設計陷阱
+
+### 1. 執行緒安全陷阱
+
+#### 陷阱：共享可變狀態
+<UniversalEditor title="執行緒安全陷阱">
+```java !! java
+// 錯誤範例：非執行緒安全的計數器
+public class Counter {
+    private int count = 0;
+    
+    // 非原子操作，多執行緒不安全
+    public void increment() {
+        count++; // 實際上是：count = count + 1，包含讀取、計算、寫入三步
+    }
+    
+    public int getCount() {
+        return count;
+    }
+}
+
+// 問題：多執行緒環境下結果不可預測
+public class CounterTest {
+    public static void main(String[] args) throws InterruptedException {
+        Counter counter = new Counter();
+        int numThreads = 10;
+        int incrementsPerThread = 1000;
+        
+        Thread[] threads = new Thread[numThreads];
+        
+        for (int i = 0; i < numThreads; i++) {
+            threads[i] = new Thread(() -> {
+                for (int j = 0; j < incrementsPerThread; j++) {
+                    counter.increment();
+                }
+            });
+            threads[i].start();
+        }
+        
+        for (Thread thread : threads) {
+            thread.join();
+        }
+        
+        // 期望結果：10000，實際結果：可能小於 10000
+        System.out.println("Final count: " + counter.getCount());
+    }
+}
+```
+
+```javascript !! js
+// JavaScript 中的類似問題（在 Web Workers 或 Node.js 中）
+class Counter {
+    constructor() {
+        this.count = 0;
+    }
+    
+    increment() {
+        this.count++; // 在單執行緒環境中是安全的
+    }
+    
+    getCount() {
+        return this.count;
+    }
+}
+
+// 在 Worker 環境中的問題
+// main.js
+const counter = new Counter();
+
+for (let i = 0; i < 10; i++) {
+    const worker = new Worker('worker.js');
+    worker.postMessage({ counter }); // 注意：物件會被複製，不是共享
+}
+```
+</UniversalEditor>
+
+#### 解決方案：使用同步機制
+<UniversalEditor title="執行緒安全解決方案">
+```java !! java
+// 解決方案 1：使用 synchronized
+public class SynchronizedCounter {
+    private int count = 0;
+    
+    public synchronized void increment() {
+        count++;
+    }
+    
+    public synchronized int getCount() {
+        return count;
+    }
+}
+
+// 解決方案 2：使用 AtomicInteger
+public class AtomicCounter {
+    private AtomicInteger count = new AtomicInteger(0);
+    
+    public void increment() {
+        count.incrementAndGet();
+    }
+    
+    public int getCount() {
+        return count.get();
+    }
+}
+
+// 解決方案 3：使用 ReentrantLock
+public class LockCounter {
+    private int count = 0;
+    private final ReentrantLock lock = new ReentrantLock();
+    
+    public void increment() {
+        lock.lock();
+        try {
+            count++;
+        } finally {
+            lock.unlock();
+        }
+    }
+    
+    public int getCount() {
+        lock.lock();
+        try {
+            return count;
+        } finally {
+            lock.unlock();
+        }
+    }
+}
+
+// 效能測試
+public class CounterComparison {
+    public static void main(String[] args) throws InterruptedException {
+        testCounter(new SynchronizedCounter(), "Synchronized");
+        testCounter(new AtomicCounter(), "Atomic");
+        testCounter(new LockCounter(), "Lock");
+    }
+    
+    private static void testCounter(Object counter, String type) throws InterruptedException {
+        long startTime = System.currentTimeMillis();
+        
+        int numThreads = 10;
+        int incrementsPerThread = 100000;
+        Thread[] threads = new Thread[numThreads];
+        
+        for (int i = 0; i < numThreads; i++) {
+            threads[i] = new Thread(() -> {
+                for (int j = 0; j < incrementsPerThread; j++) {
+                    if (counter instanceof SynchronizedCounter) {
+                        ((SynchronizedCounter) counter).increment();
+                    } else if (counter instanceof AtomicCounter) {
+                        ((AtomicCounter) counter).increment();
+                    } else if (counter instanceof LockCounter) {
+                        ((LockCounter) counter).increment();
+                    }
+                }
+            });
+            threads[i].start();
+        }
+        
+        for (Thread thread : threads) {
+            thread.join();
+        }
+        
+        long endTime = System.currentTimeMillis();
+        System.out.println(type + " - Time: " + (endTime - startTime) + "ms");
+    }
+}
+```
+
+```javascript !! js
+// JavaScript 解決方案（使用 Web Workers 和 SharedArrayBuffer）
+// main.js
+const sharedBuffer = new SharedArrayBuffer(4);
+const sharedArray = new Int32Array(sharedBuffer);
+
+const numWorkers = 4;
+const workers = [];
+
+for (let i = 0; i < numWorkers; i++) {
+    const worker = new Worker('atomic-worker.js');
+    worker.postMessage({ sharedBuffer });
+    workers.push(worker);
+}
+
+// atomic-worker.js
+self.onmessage = function(e) {
+    const sharedBuffer = e.data.sharedBuffer;
+    const sharedArray = new Int32Array(sharedBuffer);
+    
+    for (let i = 0; i < 250000; i++) {
+        // 使用 Atomics 確保執行緒安全
+        Atomics.add(sharedArray, 0, 1);
+    }
+    
+    self.postMessage('done');
+};
+```
+</UniversalEditor>
+
+### 2. 死鎖陷阱
+
+#### 陷阱：鎖定順序不一致
+<UniversalEditor title="死鎖陷阱">
+```java !! java
+// 錯誤範例：可能導致死鎖
+public class BankAccount {
+    private double balance;
+    private final String accountId;
+    
+    public BankAccount(String accountId, double initialBalance) {
+        this.accountId = accountId;
+        this.balance = initialBalance;
+    }
+    
+    // 危險：鎖定順序可能不一致
+    public void transfer(BankAccount to, double amount) {
+        synchronized (this) {
+            synchronized (to) {
+                if (this.balance >= amount) {
+                    this.balance -= amount;
+                    to.balance += amount;
+                    System.out.println("Transferred " + amount + 
+                                     " from " + this.accountId + 
+                                     " to " + to.accountId);
+                }
+            }
+        }
+    }
+    
+    public double getBalance() {
+        return balance;
+    }
+}
+
+// 死鎖情境
+public class DeadlockExample {
+    public static void main(String[] args) {
+        BankAccount account1 = new BankAccount("A", 1000);
+        BankAccount account2 = new BankAccount("B", 1000);
+        
+        // 執行緒 1：A -> B
+        Thread t1 = new Thread(() -> account1.transfer(account2, 100));
+        
+        // 執行緒 2：B -> A（相反順序，可能死鎖）
+        Thread t2 = new Thread(() -> account2.transfer(account1, 200));
+        
+        t1.start();
+        t2.start();
+    }
+}
+```
+
+```javascript !! js
+// JavaScript 中死鎖較少見，但在使用 async/await 時可能出現類似問題
+class AsyncResource {
+    constructor(id) {
+        this.id = id;
+        this.mutex = new Mutex(); // 假設的互斥鎖實作
+    }
+    
+    async processWithOther(other) {
+        await this.mutex.lock();
+        try {
+            console.log(`${this.id} locked`);
+            await other.mutex.lock(); // 可能死鎖
+            try {
+                console.log(`${this.id} processing with ${other.id}`);
+                // 處理邏輯
+            } finally {
+                other.mutex.unlock();
+            }
+        } finally {
+            this.mutex.unlock();
+        }
+    }
+}
+```
+</UniversalEditor>
+
+#### 解決方案：有序鎖定
+<UniversalEditor title="死鎖解決方案">
+```java !! java
+// 解決方案 1：有序鎖定
+public class SafeBankAccount {
+    private double balance;
+    private final String accountId;
+    private final int hashCode;
+    
+    public SafeBankAccount(String accountId, double initialBalance) {
+        this.accountId = accountId;
+        this.balance = initialBalance;
+        this.hashCode = System.identityHashCode(this);
+    }
+    
+    // 按照雜湊碼順序鎖定，避免死鎖
+    public void transfer(SafeBankAccount to, double amount) {
+        SafeBankAccount firstLock = this.hashCode < to.hashCode ? this : to;
+        SafeBankAccount secondLock = this.hashCode < to.hashCode ? to : this;
+        
+        synchronized (firstLock) {
+            synchronized (secondLock) {
+                if (this.balance >= amount) {
+                    this.balance -= amount;
+                    to.balance += amount;
+                    System.out.println("Transferred " + amount + 
+                                     " from " + this.accountId + 
+                                     " to " + to.accountId);
+                }
+            }
+        }
+    }
+}
+
+// 解決方案 2：使用 java.util.concurrent.locks
+public class LockBankAccount {
+    private double balance;
+    private final String accountId;
+    private final ReentrantLock lock = new ReentrantLock();
+    
+    public LockBankAccount(String accountId, double initialBalance) {
+        this.accountId = accountId;
+        this.balance = initialBalance;
+    }
+    
+    public void transfer(LockBankAccount to, double amount) {
+        boolean acquired = false;
+        try {
+            // 嘗試獲取兩個鎖，設定超時時間
+            acquired = lock.tryLock(1, TimeUnit.SECONDS) && 
+                      to.lock.tryLock(1, TimeUnit.SECONDS);
+            
+            if (acquired) {
+                if (this.balance >= amount) {
+                    this.balance -= amount;
+                    to.balance += amount;
+                    System.out.println("Transferred " + amount);
+                }
+            } else {
+                System.out.println("Could not acquire locks, transfer failed");
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } finally {
+            if (acquired) {
+                to.lock.unlock();
+                lock.unlock();
+            }
+        }
+    }
+}
+```
+
+```javascript !! js
+// JavaScript 解決方案：使用 Promise.race 或超時
+class AsyncSafeResource {
+    constructor(id) {
+        this.id = id;
+        this.processing = false;
+    }
+    
+    async processWithOther(other, timeout = 5000) {
+        const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Timeout')), timeout)
+        );
+        
+        try {
+            await Promise.race([
+                this.doProcessWithOther(other),
+                timeoutPromise
+            ]);
+        } catch (error) {
+            console.log(`Process failed: ${error.message}`);
+        }
+    }
+    
+    async doProcessWithOther(other) {
+        if (this.processing || other.processing) {
+            throw new Error('Resource busy');
+        }
+        
+        this.processing = true;
+        other.processing = true;
+        
+        try {
+            console.log(`${this.id} processing with ${other.id}`);
+            // 模擬非同步處理
+            await new Promise(resolve => setTimeout(resolve, 100));
+        } finally {
+            this.processing = false;
+            other.processing = false;
+        }
+    }
+}
+```
+</UniversalEditor>
+
+## 記憶體管理陷阱
+
+### 1. 記憶體洩漏
+
+#### 陷阱：監聽器未移除
+<UniversalEditor title="記憶體洩漏陷阱">
+```java !! java
+// 錯誤範例：監聽器洩漏
+public class EventManager {
+    private List<EventListener> listeners = new ArrayList<>();
+    
+    public void addListener(EventListener listener) {
+        listeners.add(listener);
+    }
+    
+    // 忘記提供移除方法！
+    // public void removeListener(EventListener listener) {
+    //     listeners.remove(listener);
+    // }
+    
+    public void fireEvent(String event) {
+        for (EventListener listener : listeners) {
+            listener.onEvent(event);
+        }
+    }
+}
+
+// 使用時的問題
+public class Application {
+    private EventManager eventManager = new EventManager();
+    
+    public void createComponents() {
+        for (int i = 0; i < 1000; i++) {
+            Component component = new Component();
+            // 新增監聽器但從不移除
+            eventManager.addListener(component::handleEvent);
+            // component 被丟棄，但監聽器仍在記憶體中
+        }
+    }
+}
+```
+
+```javascript !! js
+// JavaScript 中的類似問題
+class EventManager {
+    constructor() {
+        this.listeners = [];
+    }
+    
+    addListener(listener) {
+        this.listeners.push(listener);
+    }
+    
+    // 忘記提供移除方法
+    removeListener(listener) {
+        const index = this.listeners.indexOf(listener);
+        if (index > -1) {
+            this.listeners.splice(index, 1);
+        }
+    }
+    
+    fireEvent(event) {
+        this.listeners.forEach(listener => listener(event));
+    }
+}
+
+// 使用時的問題
+const eventManager = new EventManager();
+
+function createComponents() {
+    for (let i = 0; i < 1000; i++) {
+        const component = {
+            id: i,
+            handleEvent: (event) => console.log(`Component ${i} handling ${event}`)
+        };
+        
+        // 新增監聽器但從不移除
+        eventManager.addListener(component.handleEvent);
+        // component 被丟棄，但監聽器仍在記憶體中
+    }
+}
+```
+</UniversalEditor>
+
+#### 解決方案：正確的資源管理
+<UniversalEditor title="記憶體洩漏解決方案">
+```java !! java
+// 解決方案：使用 WeakReference 和正確的資源管理
+public class SafeEventManager {
+    private List<WeakReference<EventListener>> listeners = new ArrayList<>();
+    
+    public void addListener(EventListener listener) {
+        listeners.add(new WeakReference<>(listener));
+    }
+    
+    public void removeListener(EventListener listener) {
+        listeners.removeIf(ref -> {
+            EventListener l = ref.get();
+            return l == null || l == listener;
+        });
+    }
+    
+    public void fireEvent(String event) {
+        // 清理無效的弱引用
+        listeners.removeIf(ref -> ref.get() == null);
+        
+        for (WeakReference<EventListener> ref : listeners) {
+            EventListener listener = ref.get();
+            if (listener != null) {
+                listener.onEvent(event);
+            }
+        }
+    }
+}
+
+// 更好的解決方案：使用 AutoCloseable
+public class ManagedComponent implements AutoCloseable {
+    private EventManager eventManager;
+    private EventListener listener;
+    
+    public ManagedComponent(EventManager eventManager) {
+        this.eventManager = eventManager;
+        this.listener = this::handleEvent;
+        eventManager.addListener(listener);
+    }
+    
+    private void handleEvent(String event) {
+        System.out.println("Handling: " + event);
+    }
+    
+    @Override
+    public void close() {
+        if (eventManager != null && listener != null) {
+            eventManager.removeListener(listener);
+            eventManager = null;
+            listener = null;
+        }
+    }
+}
+
+// 使用 try-with-resources
+public class Application {
+    public void processComponents() {
+        EventManager eventManager = new EventManager();
+        
+        for (int i = 0; i < 1000; i++) {
+            try (ManagedComponent component = new ManagedComponent(eventManager)) {
+                // 使用 component
+                eventManager.fireEvent("test-event-" + i);
+            } // component 自動清理
+        }
+    }
+}
+```
+
+```javascript !! js
+// JavaScript 解決方案：使用 WeakSet 和正確的清理
+class SafeEventManager {
+    constructor() {
+        this.listeners = new Set();
+        this.weakListeners = new WeakSet();
+    }
+    
+    addListener(listener) {
+        this.listeners.add(listener);
+        this.weakListeners.add(listener);
+    }
+    
+    removeListener(listener) {
+        this.listeners.delete(listener);
+    }
+    
+    fireEvent(event) {
+        // 清理已被垃圾回收的監聽器
+        for (const listener of this.listeners) {
+            if (!this.weakListeners.has(listener)) {
+                this.listeners.delete(listener);
+            } else {
+                listener(event);
+            }
+        }
+    }
+}
+
+// 使用 AbortController 進行清理
+class ManagedComponent {
+    constructor(eventManager) {
+        this.eventManager = eventManager;
+        this.abortController = new AbortController();
+        
+        // 使用 signal 來管理事件監聽器
+        this.handleEvent = (event) => {
+            console.log(`Handling: ${event}`);
+        };
+        
+        this.eventManager.addListener(this.handleEvent);
+    }
+    
+    destroy() {
+        if (this.eventManager && this.handleEvent) {
+            this.eventManager.removeListener(this.handleEvent);
+            this.abortController.abort();
+            this.eventManager = null;
+            this.handleEvent = null;
+        }
+    }
+}
+
+// 使用示例
+function processComponents() {
+    const eventManager = new SafeEventManager();
+    const components = [];
+    
+    for (let i = 0; i < 1000; i++) {
+        const component = new ManagedComponent(eventManager);
+        components.push(component);
+        eventManager.fireEvent(`test-event-${i}`);
+    }
+    
+    // 清理所有元件
+    components.forEach(component => component.destroy());
+}
+```
+</UniversalEditor>
+
+## Spring 框架陷阱
+
+### 1. 依賴注入陷阱
+
+#### 陷阱：循環依賴
+<UniversalEditor title="循環依賴陷阱">
+```java !! java
+// 錯誤範例：循環依賴
+@Service
+public class UserService {
+    
+    @Autowired
+    private OrderService orderService; // UserService 依賴 OrderService
+    
+    public User createUser(String name) {
+        User user = new User(name);
+        // 建立使用者後立即建立預設訂單
+        orderService.createDefaultOrder(user);
+        return user;
+    }
+}
+
+@Service
+public class OrderService {
+    
+    @Autowired
+    private UserService userService; // OrderService 也依賴 UserService
+    
+    public Order createDefaultOrder(User user) {
+        // 檢查使用者是否有效
+        if (userService.isValidUser(user)) {
+            return new Order(user, "Default Order");
+        }
+        return null;
+    }
+    
+    public Order createOrder(String userName, String orderDetails) {
+        // 需要先取得使用者
+        User user = userService.findByName(userName);
+        if (user != null) {
+            return new Order(user, orderDetails);
+        }
+        return null;
+    }
+}
+
+// 結果：BeanCurrentlyInCreationException
+```
+
+```javascript !! js
+// JavaScript 中的類似問題
+class UserService {
+    constructor(orderService) {
+        this.orderService = orderService;
+    }
+    
+    createUser(name) {
+        const user = new User(name);
+        // 建立使用者後立即建立預設訂單
+        this.orderService.createDefaultOrder(user);
+        return user;
+    }
+}
+
+class OrderService {
+    constructor(userService) {
+        this.userService = userService; // 循環依賴
+    }
+    
+    createDefaultOrder(user) {
+        if (this.userService.isValidUser(user)) {
+            return new Order(user, "Default Order");
+        }
+        return null;
+    }
+}
+
+// 問題：無法正確實例化
+try {
+    const userService = new UserService(new OrderService(userService)); // userService 未定義
+} catch (error) {
+    console.log("循環依賴錯誤");
+}
+```
+</UniversalEditor>
+
+#### 解決方案：重構依賴關係
+<UniversalEditor title="循環依賴解決方案">
+```java !! java
+// 解決方案 1：引入中介服務
+@Service
+public class UserService {
+    // 移除對 OrderService 的直接依賴
+    
+    public User createUser(String name) {
+        return new User(name);
+    }
+    
+    public boolean isValidUser(User user) {
+        return user != null && user.getName() != null && !user.getName().isEmpty();
+    }
+    
+    public User findByName(String name) {
+        // 查詢邏輯
+        return new User(name);
+    }
+}
+
+@Service
+public class OrderService {
+    // 保留對 UserService 的依賴
+    @Autowired
+    private UserService userService;
+    
+    public Order createOrder(String userName, String orderDetails) {
+        User user = userService.findByName(userName);
+        if (userService.isValidUser(user)) {
+            return new Order(user, orderDetails);
+        }
+        return null;
+    }
+}
+
+// 新增協調服務
+@Service
+public class UserOrderService {
+    
+    @Autowired
+    private UserService userService;
+    
+    @Autowired
+    private OrderService orderService;
+    
+    @Transactional
+    public User createUserWithDefaultOrder(String name) {
+        // 先建立使用者
+        User user = userService.createUser(name);
+        
+        // 再建立預設訂單
+        if (userService.isValidUser(user)) {
+            Order defaultOrder = new Order(user, "Default Order");
+            // 儲存訂單邏輯
+        }
+        
+        return user;
+    }
+}
+
+// 解決方案 2：使用事件驅動
+@Service
+public class EventDrivenUserService {
+    
+    @Autowired
+    private ApplicationEventPublisher eventPublisher;
+    
+    public User createUser(String name) {
+        User user = new User(name);
+        
+        // 發布事件而不是直接呼叫其他服務
+        eventPublisher.publishEvent(new UserCreatedEvent(user));
+        
+        return user;
+    }
+}
+
+@EventListener
+@Service
+public class UserEventHandler {
+    
+    @Autowired
+    private OrderService orderService;
+    
+    @Async
+    public void handleUserCreated(UserCreatedEvent event) {
+        // 非同步處理使用者建立事件
+        Order defaultOrder = new Order(event.getUser(), "Default Order");
+        // 儲存訂單
+    }
+}
+```
+
+```javascript !! js
+// JavaScript 解決方案
+// 解決方案 1：依賴注入容器
+class DIContainer {
+    constructor() {
+        this.services = new Map();
+        this.definitions = new Map();
+    }
+    
+    register(name, factory) {
+        this.definitions.set(name, factory);
+    }
+    
+    get(name) {
+        if (this.services.has(name)) {
+            return this.services.get(name);
+        }
+        
+        const factory = this.definitions.get(name);
+        if (factory) {
+            const service = factory(this);
+            this.services.set(name, service);
+            return service;
+        }
+        
+        throw new Error(`Service ${name} not found`);
+    }
+}
+
+// 註冊服務
+const container = new DIContainer();
+
+container.register('userService', (container) => 
+    new UserService()
+);
+
+container.register('orderService', (container) => 
+    new OrderService(container.get('userService'))
+);
+
+container.register('userOrderService', (container) => 
+    new UserOrderService(
+        container.get('userService'),
+        container.get('orderService')
+    )
+);
+
+// 重構後的服務
+class UserService {
+    createUser(name) {
+        return new User(name);
+    }
+    
+    isValidUser(user) {
+        return user && user.name && user.name.trim();
+    }
+}
+
+class OrderService {
+    constructor(userService) {
+        this.userService = userService;
+    }
+    
+    createOrder(userName, orderDetails) {
+        const user = this.userService.findByName(userName);
+        if (this.userService.isValidUser(user)) {
+            return new Order(user, orderDetails);
+        }
+        return null;
+    }
+}
+
+class UserOrderService {
+    constructor(userService, orderService) {
+        this.userService = userService;
+        this.orderService = orderService;
+    }
+    
+    createUserWithDefaultOrder(name) {
+        const user = this.userService.createUser(name);
+        
+        if (this.userService.isValidUser(user)) {
+            const defaultOrder = new Order(user, "Default Order");
+            // 儲存訂單邏輯
+        }
+        
+        return user;
+    }
+}
+
+// 解決方案 2：事件驅動
+class EventEmitter {
+    constructor() {
+        this.listeners = new Map();
+    }
+    
+    on(event, listener) {
+        if (!this.listeners.has(event)) {
+            this.listeners.set(event, []);
+        }
+        this.listeners.get(event).push(listener);
+    }
+    
+    emit(event, data) {
+        const eventListeners = this.listeners.get(event);
+        if (eventListeners) {
+            eventListeners.forEach(listener => listener(data));
+        }
+    }
+}
+
+const eventBus = new EventEmitter();
+
+class EventDrivenUserService {
+    createUser(name) {
+        const user = new User(name);
+        
+        // 發布事件
+        eventBus.emit('userCreated', user);
+        
+        return user;
+    }
+}
+
+// 事件監聽器
+eventBus.on('userCreated', (user) => {
+    const orderService = container.get('orderService');
+    const defaultOrder = new Order(user, "Default Order");
+    // 儲存訂單
+});
+```
+</UniversalEditor>
+
+## 練習題
+
+### 練習 1: 識別陷阱
+1. 檢視提供的程式碼片段，識別潛在的陷阱
+2. 分析每個陷阱可能導致的問題
+3. 提出改進方案
+
+### 練習 2: 重構程式碼
+1. 重構有繼承陷阱的程式碼，使用組合模式
+2. 修復執行緒安全問題
+3. 解決循環依賴問題
+
+### 練習 3: 記憶體管理
+1. 建立會導致記憶體洩漏的範例
+2. 實作正確的資源清理機制
+3. 使用工具監控記憶體使用情況
+
+## 總結
+
+避免常見陷阱的關鍵原則：
+
+- **遵循 SOLID 原則**: 保持程式碼模組化和可維護
+- **正確使用並行**: 理解執行緒安全和同步機制
+- **注意資源管理**: 及時清理和釋放資源
+- **避免過度設計**: 簡單有效的解決方案通常更好
+- **使用框架的最佳實踐**: 遵循 Spring 等框架的建議模式
+
+在下一個模組中，我們將學習 Java 的慣用寫法和最佳實踐，幫助你編寫更優雅、更有效率的程式碼。
+
+準備好學習 Java 的慣用寫法了嗎？

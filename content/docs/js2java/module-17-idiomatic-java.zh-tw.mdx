@@ -1,0 +1,910 @@
+---
+title: "Java 慣用法"
+description: "學習 Java 編碼規範、設計模式應用、測試最佳實踐和程式碼組織原則，編寫優雅高效的 Java 程式碼"
+---
+
+# Java 慣用法
+
+Java 作為一門成熟的程式語言，有著豐富的慣用法和最佳實踐。掌握這些慣用法可以幫助你編寫更優雅、高效和可維護的程式碼。
+
+## 編碼規範
+
+### 1. 命名規範
+
+#### 類別和方法命名
+<UniversalEditor title="命名規範">
+```java !! java
+// 正確的命名規範
+public class UserService { // 類別名稱使用 PascalCase
+    private static final int MAX_RETRY_COUNT = 3; // 常數使用 UPPER_SNAKE_CASE
+    
+    private String userName; // 欄位名稱使用 camelCase
+    
+    public void createUser() { // 方法名稱使用 camelCase
+        // 方法實作
+    }
+    
+    public boolean isValidEmail(String email) { // 布林方法使用 is/has/can 前綴
+        return email != null && email.contains("@");
+    }
+    
+    public User findById(Long id) { // 查詢方法使用 find/get/load 前綴
+        return userRepository.findById(id);
+    }
+    
+    public void saveUser(User user) { // 操作方法使用 save/update/delete 前綴
+        userRepository.save(user);
+    }
+}
+
+// 列舉命名
+public enum UserStatus {
+    ACTIVE, INACTIVE, SUSPENDED // 列舉值使用 UPPER_SNAKE_CASE
+}
+
+// 介面命名
+public interface UserRepository { // 介面名稱使用 PascalCase，通常以 -able 或 -er 結尾
+    User findById(Long id);
+    void save(User user);
+}
+```
+
+```javascript !! js
+// JavaScript 命名對比
+class UserService { // 類別名稱使用 PascalCase
+    static MAX_RETRY_COUNT = 3; // 常數使用 UPPER_SNAKE_CASE
+    
+    constructor() {
+        this.userName = ''; // 屬性名稱使用 camelCase
+    }
+    
+    createUser() { // 方法名稱使用 camelCase
+        // 方法實作
+    }
+    
+    isValidEmail(email) { // 布林方法使用 is/has/can 前綴
+        return email && email.includes('@');
+    }
+    
+    findById(id) { // 查詢方法使用 find/get 前綴
+        return this.userRepository.findById(id);
+    }
+    
+    saveUser(user) { // 操作方法使用 save/update/delete 前綴
+        this.userRepository.save(user);
+    }
+}
+
+// 列舉式物件
+const UserStatus = {
+    ACTIVE: 'ACTIVE',
+    INACTIVE: 'INACTIVE', 
+    SUSPENDED: 'SUSPENDED'
+};
+```
+</UniversalEditor>
+
+### 2. 程式碼格式
+
+#### 縮排和排版
+<UniversalEditor title="程式碼格式">
+```java !! java
+// 正確的程式碼格式
+public class OrderService {
+    
+    private final UserRepository userRepository;
+    private final ProductRepository productRepository;
+    
+    public OrderService(UserRepository userRepository, 
+                       ProductRepository productRepository) {
+        this.userRepository = userRepository;
+        this.productRepository = productRepository;
+    }
+    
+    public Order createOrder(Long userId, List<OrderItem> items) {
+        // 驗證使用者
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new UserNotFoundException("User not found: " + userId));
+        
+        // 驗證商品
+        List<Product> products = items.stream()
+                .map(item -> productRepository.findById(item.getProductId()))
+                .filter(Optional::isPresent)
+                .map(Optional::get)
+                .collect(Collectors.toList());
+        
+        // 建立訂單
+        return Order.builder()
+                .user(user)
+                .items(items)
+                .totalAmount(calculateTotal(items, products))
+                .createdAt(LocalDateTime.now())
+                .build();
+    }
+    
+    private BigDecimal calculateTotal(List<OrderItem> items, List<Product> products) {
+        return items.stream()
+                .map(item -> {
+                    Product product = findProductById(products, item.getProductId());
+                    return product.getPrice().multiply(BigDecimal.valueOf(item.getQuantity()));
+                })
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+    
+    private Product findProductById(List<Product> products, Long productId) {
+        return products.stream()
+                .filter(product -> product.getId().equals(productId))
+                .findFirst()
+                .orElseThrow(() -> new ProductNotFoundException("Product not found: " + productId));
+    }
+}
+```
+
+```javascript !! js
+// JavaScript 程式碼格式對比
+class OrderService {
+    constructor(userRepository, productRepository) {
+        this.userRepository = userRepository;
+        this.productRepository = productRepository;
+    }
+    
+    async createOrder(userId, items) {
+        // 驗證使用者
+        const user = await this.userRepository.findById(userId);
+        if (!user) {
+            throw new Error(`User not found: ${userId}`);
+        }
+        
+        // 驗證商品
+        const products = await Promise.all(
+            items.map(item => this.productRepository.findById(item.productId))
+        );
+        
+        const validProducts = products.filter(product => product !== null);
+        
+        // 建立訂單
+        return {
+            user,
+            items,
+            totalAmount: this.calculateTotal(items, validProducts),
+            createdAt: new Date()
+        };
+    }
+    
+    calculateTotal(items, products) {
+        return items.reduce((total, item) => {
+            const product = this.findProductById(products, item.productId);
+            return total + (product.price * item.quantity);
+        }, 0);
+    }
+    
+    findProductById(products, productId) {
+        const product = products.find(p => p.id === productId);
+        if (!product) {
+            throw new Error(`Product not found: ${productId}`);
+        }
+        return product;
+    }
+}
+```
+</UniversalEditor>
+
+## 設計模式應用
+
+### 1. Builder 模式
+
+#### 複雜物件建構
+<UniversalEditor title="Builder 模式">
+```java !! java
+// Builder 模式實作
+public class User {
+    private final String email;
+    private final String name;
+    private final String phone;
+    private final String address;
+    private final UserRole role;
+    private final boolean active;
+    
+    private User(Builder builder) {
+        this.email = builder.email;
+        this.name = builder.name;
+        this.phone = builder.phone;
+        this.address = builder.address;
+        this.role = builder.role;
+        this.active = builder.active;
+    }
+    
+    public static Builder builder() {
+        return new Builder();
+    }
+    
+    public static class Builder {
+        private String email;
+        private String name;
+        private String phone;
+        private String address;
+        private UserRole role = UserRole.USER;
+        private boolean active = true;
+        
+        public Builder email(String email) {
+            this.email = email;
+            return this;
+        }
+        
+        public Builder name(String name) {
+            this.name = name;
+            return this;
+        }
+        
+        public Builder phone(String phone) {
+            this.phone = phone;
+            return this;
+        }
+        
+        public Builder address(String address) {
+            this.address = address;
+            return this;
+        }
+        
+        public Builder role(UserRole role) {
+            this.role = role;
+            return this;
+        }
+        
+        public Builder active(boolean active) {
+            this.active = active;
+            return this;
+        }
+        
+        public User build() {
+            // 驗證必要欄位
+            if (email == null || email.trim().isEmpty()) {
+                throw new IllegalArgumentException("Email is required");
+            }
+            if (name == null || name.trim().isEmpty()) {
+                throw new IllegalArgumentException("Name is required");
+            }
+            
+            return new User(this);
+        }
+    }
+    
+    // Getters
+    public String getEmail() { return email; }
+    public String getName() { return name; }
+    public String getPhone() { return phone; }
+    public String getAddress() { return address; }
+    public UserRole getRole() { return role; }
+    public boolean isActive() { return active; }
+}
+
+// 使用 Builder
+User user = User.builder()
+        .email("john@example.com")
+        .name("John Doe")
+        .phone("123-456-7890")
+        .address("123 Main St")
+        .role(UserRole.ADMIN)
+        .active(true)
+        .build();
+```
+
+```javascript !! js
+// JavaScript Builder 模式
+class User {
+    constructor(builder) {
+        this.email = builder.email;
+        this.name = builder.name;
+        this.phone = builder.phone;
+        this.address = builder.address;
+        this.role = builder.role;
+        this.active = builder.active;
+    }
+    
+    static builder() {
+        return new UserBuilder();
+    }
+}
+
+class UserBuilder {
+    constructor() {
+        this.role = 'USER';
+        this.active = true;
+    }
+    
+    email(email) {
+        this.email = email;
+        return this;
+    }
+    
+    name(name) {
+        this.name = name;
+        return this;
+    }
+    
+    phone(phone) {
+        this.phone = phone;
+        return this;
+    }
+    
+    address(address) {
+        this.address = address;
+        return this;
+    }
+    
+    role(role) {
+        this.role = role;
+        return this;
+    }
+    
+    active(active) {
+        this.active = active;
+        return this;
+    }
+    
+    build() {
+        // 驗證必要欄位
+        if (!this.email || !this.email.trim()) {
+            throw new Error("Email is required");
+        }
+        if (!this.name || !this.name.trim()) {
+            throw new Error("Name is required");
+        }
+        
+        return new User(this);
+    }
+}
+
+// 使用 Builder
+const user = User.builder()
+    .email("john@example.com")
+    .name("John Doe")
+    .phone("123-456-7890")
+    .address("123 Main St")
+    .role("ADMIN")
+    .active(true)
+    .build();
+```
+</UniversalEditor>
+
+### 2. Strategy 模式
+
+#### 演算法策略選擇
+<UniversalEditor title="Strategy 模式">
+```java !! java
+// Strategy 模式實作
+public interface PaymentStrategy {
+    PaymentResult process(PaymentRequest request);
+}
+
+public class CreditCardPaymentStrategy implements PaymentStrategy {
+    @Override
+    public PaymentResult process(PaymentRequest request) {
+        // 信用卡支付邏輯
+        System.out.println("Processing credit card payment: " + request.getAmount());
+        
+        // 模擬支付處理
+        boolean success = validateCreditCard(request.getCardNumber());
+        
+        return PaymentResult.builder()
+                .success(success)
+                .transactionId(generateTransactionId())
+                .amount(request.getAmount())
+                .paymentMethod("CREDIT_CARD")
+                .build();
+    }
+    
+    private boolean validateCreditCard(String cardNumber) {
+        // 信用卡驗證邏輯
+        return cardNumber != null && cardNumber.length() == 16;
+    }
+    
+    private String generateTransactionId() {
+        return "CC_" + System.currentTimeMillis();
+    }
+}
+
+public class PayPalPaymentStrategy implements PaymentStrategy {
+    @Override
+    public PaymentResult process(PaymentRequest request) {
+        // PayPal 支付邏輯
+        System.out.println("Processing PayPal payment: " + request.getAmount());
+        
+        boolean success = validatePayPalAccount(request.getEmail());
+        
+        return PaymentResult.builder()
+                .success(success)
+                .transactionId(generateTransactionId())
+                .amount(request.getAmount())
+                .paymentMethod("PAYPAL")
+                .build();
+    }
+    
+    private boolean validatePayPalAccount(String email) {
+        return email != null && email.contains("@");
+    }
+    
+    private String generateTransactionId() {
+        return "PP_" + System.currentTimeMillis();
+    }
+}
+
+// Context 類別
+public class PaymentProcessor {
+    private PaymentStrategy paymentStrategy;
+    
+    public PaymentProcessor(PaymentStrategy paymentStrategy) {
+        this.paymentStrategy = paymentStrategy;
+    }
+    
+    public void setPaymentStrategy(PaymentStrategy paymentStrategy) {
+        this.paymentStrategy = paymentStrategy;
+    }
+    
+    public PaymentResult processPayment(PaymentRequest request) {
+        if (paymentStrategy == null) {
+            throw new IllegalStateException("Payment strategy not set");
+        }
+        
+        return paymentStrategy.process(request);
+    }
+}
+
+// 使用 Strategy 模式
+PaymentProcessor processor = new PaymentProcessor(new CreditCardPaymentStrategy());
+PaymentResult result = processor.processPayment(paymentRequest);
+
+// 切換策略
+processor.setPaymentStrategy(new PayPalPaymentStrategy());
+PaymentResult result2 = processor.processPayment(paymentRequest);
+```
+
+```javascript !! js
+// JavaScript Strategy 模式
+class CreditCardPaymentStrategy {
+    process(request) {
+        console.log(`Processing credit card payment: ${request.amount}`);
+        
+        const success = this.validateCreditCard(request.cardNumber);
+        
+        return {
+            success,
+            transactionId: this.generateTransactionId(),
+            amount: request.amount,
+            paymentMethod: 'CREDIT_CARD'
+        };
+    }
+    
+    validateCreditCard(cardNumber) {
+        return cardNumber && cardNumber.length === 16;
+    }
+    
+    generateTransactionId() {
+        return `CC_${Date.now()}`;
+    }
+}
+
+class PayPalPaymentStrategy {
+    process(request) {
+        console.log(`Processing PayPal payment: ${request.amount}`);
+        
+        const success = this.validatePayPalAccount(request.email);
+        
+        return {
+            success,
+            transactionId: this.generateTransactionId(),
+            amount: request.amount,
+            paymentMethod: 'PAYPAL'
+        };
+    }
+    
+    validatePayPalAccount(email) {
+        return email && email.includes('@');
+    }
+    
+    generateTransactionId() {
+        return `PP_${Date.now()}`;
+    }
+}
+
+class PaymentProcessor {
+    constructor(paymentStrategy) {
+        this.paymentStrategy = paymentStrategy;
+    }
+    
+    setPaymentStrategy(paymentStrategy) {
+        this.paymentStrategy = paymentStrategy;
+    }
+    
+    processPayment(request) {
+        if (!this.paymentStrategy) {
+            throw new Error("Payment strategy not set");
+        }
+        
+        return this.paymentStrategy.process(request);
+    }
+}
+
+// 使用 Strategy 模式
+const processor = new PaymentProcessor(new CreditCardPaymentStrategy());
+const result = processor.processPayment(paymentRequest);
+
+// 切換策略
+processor.setPaymentStrategy(new PayPalPaymentStrategy());
+const result2 = processor.processPayment(paymentRequest);
+```
+</UniversalEditor>
+
+## 測試最佳實踐
+
+### 1. 單元測試
+
+#### 測試命名和結構
+<UniversalEditor title="單元測試最佳實踐">
+```java !! java
+// 優秀的單元測試範例
+@ExtendWith(MockitoExtension.class)
+class UserServiceTest {
+    
+    @Mock
+    private UserRepository userRepository;
+    
+    @Mock
+    private EmailService emailService;
+    
+    @InjectMocks
+    private UserService userService;
+    
+    @Test
+    void createUser_WithValidData_ShouldReturnUser() {
+        // Given
+        UserCreateRequest request = UserCreateRequest.builder()
+                .email("john@example.com")
+                .name("John Doe")
+                .build();
+        
+        User expectedUser = User.builder()
+                .id(1L)
+                .email("john@example.com")
+                .name("John Doe")
+                .build();
+        
+        when(userRepository.existsByEmail("john@example.com")).thenReturn(false);
+        when(userRepository.save(any(User.class))).thenReturn(expectedUser);
+        
+        // When
+        User actualUser = userService.createUser(request);
+        
+        // Then
+        assertThat(actualUser).isNotNull();
+        assertThat(actualUser.getEmail()).isEqualTo("john@example.com");
+        assertThat(actualUser.getName()).isEqualTo("John Doe");
+        
+        verify(userRepository).existsByEmail("john@example.com");
+        verify(userRepository).save(any(User.class));
+        verify(emailService).sendWelcomeEmail("john@example.com");
+    }
+    
+    @Test
+    void createUser_WithExistingEmail_ShouldThrowException() {
+        // Given
+        UserCreateRequest request = UserCreateRequest.builder()
+                .email("existing@example.com")
+                .name("John Doe")
+                .build();
+        
+        when(userRepository.existsByEmail("existing@example.com")).thenReturn(true);
+        
+        // When & Then
+        assertThatThrownBy(() -> userService.createUser(request))
+                .isInstanceOf(EmailAlreadyExistsException.class)
+                .hasMessage("Email already exists: existing@example.com");
+        
+        verify(userRepository).existsByEmail("existing@example.com");
+        verify(userRepository, never()).save(any(User.class));
+        verify(emailService, never()).sendWelcomeEmail(anyString());
+    }
+    
+    @Test
+    void createUser_WithInvalidEmail_ShouldThrowException() {
+        // Given
+        UserCreateRequest request = UserCreateRequest.builder()
+                .email("invalid-email")
+                .name("John Doe")
+                .build();
+        
+        // When & Then
+        assertThatThrownBy(() -> userService.createUser(request))
+                .isInstanceOf(InvalidEmailException.class)
+                .hasMessage("Invalid email format: invalid-email");
+    }
+    
+    @ParameterizedTest
+    @ValueSource(strings = {"", " ", "  "})
+    void createUser_WithBlankName_ShouldThrowException(String blankName) {
+        // Given
+        UserCreateRequest request = UserCreateRequest.builder()
+                .email("john@example.com")
+                .name(blankName)
+                .build();
+        
+        // When & Then
+        assertThatThrownBy(() -> userService.createUser(request))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Name cannot be blank");
+    }
+}
+```
+
+```javascript !! js
+// JavaScript 測試最佳實踐（使用 Jest）
+describe('UserService', () => {
+    let userService;
+    let mockUserRepository;
+    let mockEmailService;
+    
+    beforeEach(() => {
+        mockUserRepository = {
+            existsByEmail: jest.fn(),
+            save: jest.fn()
+        };
+        
+        mockEmailService = {
+            sendWelcomeEmail: jest.fn()
+        };
+        
+        userService = new UserService(mockUserRepository, mockEmailService);
+    });
+    
+    describe('createUser', () => {
+        it('should return user when valid data provided', async () => {
+            // Given
+            const request = {
+                email: 'john@example.com',
+                name: 'John Doe'
+            };
+            
+            const expectedUser = {
+                id: 1,
+                email: 'john@example.com',
+                name: 'John Doe'
+            };
+            
+            mockUserRepository.existsByEmail.mockResolvedValue(false);
+            mockUserRepository.save.mockResolvedValue(expectedUser);
+            
+            // When
+            const actualUser = await userService.createUser(request);
+            
+            // Then
+            expect(actualUser).not.toBeNull();
+            expect(actualUser.email).toBe('john@example.com');
+            expect(actualUser.name).toBe('John Doe');
+            
+            expect(mockUserRepository.existsByEmail).toHaveBeenCalledWith('john@example.com');
+            expect(mockUserRepository.save).toHaveBeenCalledWith(expect.any(Object));
+            expect(mockEmailService.sendWelcomeEmail).toHaveBeenCalledWith('john@example.com');
+        });
+        
+        it('should throw exception when email already exists', async () => {
+            // Given
+            const request = {
+                email: 'existing@example.com',
+                name: 'John Doe'
+            };
+            
+            mockUserRepository.existsByEmail.mockResolvedValue(true);
+            
+            // When & Then
+            await expect(userService.createUser(request))
+                .rejects.toThrow('Email already exists: existing@example.com');
+            
+            expect(mockUserRepository.existsByEmail).toHaveBeenCalledWith('existing@example.com');
+            expect(mockUserRepository.save).not.toHaveBeenCalled();
+            expect(mockEmailService.sendWelcomeEmail).not.toHaveBeenCalled();
+        });
+        
+        it.each(['', ' ', '  '])('should throw exception when name is blank: "%s"', async (blankName) => {
+            // Given
+            const request = {
+                email: 'john@example.com',
+                name: blankName
+            };
+            
+            // When & Then
+            await expect(userService.createUser(request))
+                .rejects.toThrow('Name cannot be blank');
+        });
+    });
+});
+```
+</UniversalEditor>
+
+## 錯誤處理
+
+### 1. 例外處理最佳實踐
+
+#### 自訂例外和全域處理
+<UniversalEditor title="例外處理">
+```java !! java
+// 自訂例外階層
+public abstract class BusinessException extends RuntimeException {
+    private final String errorCode;
+    
+    protected BusinessException(String errorCode, String message) {
+        super(message);
+        this.errorCode = errorCode;
+    }
+    
+    protected BusinessException(String errorCode, String message, Throwable cause) {
+        super(message, cause);
+        this.errorCode = errorCode;
+    }
+    
+    public String getErrorCode() {
+        return errorCode;
+    }
+}
+
+public class UserNotFoundException extends BusinessException {
+    public UserNotFoundException(String message) {
+        super("USER_NOT_FOUND", message);
+    }
+}
+
+public class EmailAlreadyExistsException extends BusinessException {
+    public EmailAlreadyExistsException(String message) {
+        super("EMAIL_ALREADY_EXISTS", message);
+    }
+}
+
+public class InvalidEmailException extends BusinessException {
+    public InvalidEmailException(String message) {
+        super("INVALID_EMAIL", message);
+    }
+}
+
+// 全域例外處理器
+@ControllerAdvice
+public class GlobalExceptionHandler {
+    
+    private static final Logger logger = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+    
+    @ExceptionHandler(BusinessException.class)
+    public ResponseEntity<ErrorResponse> handleBusinessException(BusinessException ex) {
+        logger.warn("Business exception occurred: {}", ex.getMessage());
+        
+        ErrorResponse errorResponse = ErrorResponse.builder()
+                .errorCode(ex.getErrorCode())
+                .message(ex.getMessage())
+                .timestamp(LocalDateTime.now())
+                .build();
+        
+        return ResponseEntity.badRequest().body(errorResponse);
+    }
+    
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity<ErrorResponse> handleValidationException(MethodArgumentNotValidException ex) {
+        logger.warn("Validation exception occurred: {}", ex.getMessage());
+        
+        List<String> errors = ex.getBindingResult()
+                .getFieldErrors()
+                .stream()
+                .map(error -> error.getField() + ": " + error.getDefaultMessage())
+                .collect(Collectors.toList());
+        
+        ErrorResponse errorResponse = ErrorResponse.builder()
+                .errorCode("VALIDATION_ERROR")
+                .message("Validation failed")
+                .details(errors)
+                .timestamp(LocalDateTime.now())
+                .build();
+        
+        return ResponseEntity.badRequest().body(errorResponse);
+    }
+    
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<ErrorResponse> handleGenericException(Exception ex) {
+        logger.error("Unexpected exception occurred", ex);
+        
+        ErrorResponse errorResponse = ErrorResponse.builder()
+                .errorCode("INTERNAL_ERROR")
+                .message("An internal error occurred")
+                .timestamp(LocalDateTime.now())
+                .build();
+        
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
+    }
+}
+
+// 錯誤回應模型
+@Data
+@Builder
+public class ErrorResponse {
+    private String errorCode;
+    private String message;
+    private List<String> details;
+    private LocalDateTime timestamp;
+}
+```
+
+```javascript !! js
+// JavaScript 例外處理
+// 自訂錯誤類別
+class BusinessError extends Error {
+    constructor(errorCode, message) {
+        super(message);
+        this.name = 'BusinessError';
+        this.errorCode = errorCode;
+    }
+}
+
+class UserNotFoundError extends BusinessError {
+    constructor(message) {
+        super('USER_NOT_FOUND', message);
+        this.name = 'UserNotFoundError';
+    }
+}
+
+class EmailAlreadyExistsError extends BusinessError {
+    constructor(message) {
+        super('EMAIL_ALREADY_EXISTS', message);
+        this.name = 'EmailAlreadyExistsError';
+    }
+}
+
+class InvalidEmailError extends BusinessError {
+    constructor(message) {
+        super('INVALID_EMAIL', message);
+        this.name = 'InvalidEmailError';
+    }
+}
+
+// 全域錯誤處理中介軟體
+const errorHandler = (error, req, res, next) => {
+    console.error('Error occurred:', error);
+    
+    if (error instanceof BusinessError) {
+        return res.status(400).json({
+            errorCode: error.errorCode,
+            message: error.message,
+            timestamp: new Date().toISOString()
+        });
+    }
+    
+    if (error.name === 'ValidationError') {
+        const errors = Object.values(error.errors).map(err => err.message);
+        return res.status(400).json({
+            errorCode: 'VALIDATION_ERROR',
+            message: 'Validation failed',
+            details: errors,
+            timestamp: new Date().toISOString()
+        });
+    }
+    
+    // 預設錯誤處理
+    res.status(500).json({
+        errorCode: 'INTERNAL_ERROR',
+        message: 'An internal error occurred',
+        timestamp: new Date().toISOString()
+    });
+};
+
+// 使用中介軟體
+app.use(errorHandler);
+```
+</UniversalEditor>
+
+## 總結
+
+Java 慣用法的關鍵原則：
+
+- **遵循命名規範**: 使用一致且有意義的命名
+- **應用設計模式**: 選擇合適的模式解決問題
+- **編寫完整測試**: 確保程式碼品質和可靠性
+- **正確處理錯誤**: 建立完善的例外處理機制
+- **保持程式碼整潔**: 追求可讀性和可維護性
+
+在下一個模組中，我們將學習 Java 的高級主題，包括反射、動態代理和字節碼操作等技術。
+
+準備好探索 Java 的高級特性了嗎？
