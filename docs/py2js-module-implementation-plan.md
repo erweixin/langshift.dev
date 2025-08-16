@@ -45,7 +45,7 @@
 
 代码对比使用以下格式：
 ```mdx
-<UniversalEditor title="示例标题" compare={true}>
+<PythonEditor title="示例标题" compare={true}>
 ```python !! py
 # Python 代码
 def greet(name):
@@ -62,7 +62,7 @@ function greet(name) {
 
 console.log(greet("LangShift"));
 ```
-</UniversalEditor>
+</PythonEditor>
 ```
 
 ## 3. 代码编辑器支持
@@ -70,10 +70,8 @@ console.log(greet("LangShift"));
 ### 运行时支持
 - 继续使用现有的 Pyodide Python 运行时
 - 增强 JavaScript V8 引擎支持
-- 支持 Node.js 环境模拟
-- 更新 `components/universal-editor.tsx` 支持 Python-JavaScript 对比
+- 更新 `components/PythonEditor.tsx` 支持 Python-JavaScript 对比
 - 支持现代 JavaScript 特性（ES2023+）
-- 支持前端框架代码示例（React、Vue、Angular）
 
 ### 代码示例配置
 - **目录**: `components/code-examples/`

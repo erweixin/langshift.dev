@@ -8,7 +8,7 @@ import type { SourceLanguageConfig } from '@/components/header';
 
 interface LanguagePathNavigationProps {
   lang: SupportedLanguage;
-  sourceLanguages: readonly SourceLanguageConfig[];
+  sourceLanguages: SourceLanguageConfig;
   className?: string;
   isMobile?: boolean;
 }
@@ -21,7 +21,7 @@ export function LanguagePathNavigation({ lang, sourceLanguages, className = '', 
   const [hoveredLanguage, setHoveredLanguage] = useState<string | null>(null);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
   
-  const sourceLanguage = sourceLanguages[0]; // 目前只支持从 JavaScript 转换
+  const sourceLanguage = sourceLanguages; // 目前只支持从 JavaScript 转换
   const targetLanguages = sourceLanguage.targets;
 
   // 清理超时
@@ -89,8 +89,8 @@ export function LanguagePathNavigation({ lang, sourceLanguages, className = '', 
         onClick={handleClick}
         className="flex items-center space-x-2 px-4 py-2 bg-slate-800/50 hover:bg-slate-700/50 border border-slate-600/50 rounded-lg text-slate-300 hover:text-white transition-all duration-200 backdrop-blur-sm group"
       >
-        <span className="text-base">🎯</span>
-        <span className="text-sm font-medium">{t.header.languagePathNav.trigger}</span>
+        <span className="text-base">{sourceLanguage.icon}</span>
+        <span className="text-sm font-medium">{sourceLanguage.name}</span>
         <ChevronDown className={`w-4 h-4 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
       </button>
 
@@ -105,7 +105,7 @@ export function LanguagePathNavigation({ lang, sourceLanguages, className = '', 
               <div className={`w-6 h-6 bg-gradient-to-r ${sourceLanguage.gradient} rounded-lg flex items-center justify-center text-sm`}>
                 {sourceLanguage.icon}
               </div>
-              <span className="text-white font-semibold">{t.header.languagePathNav.languages.javascript}</span>
+              <span className="text-white font-semibold">{sourceLanguage.name}</span>
               <ArrowRight className="w-4 h-4 text-slate-400" />
               <span className="text-slate-300 text-sm">{t.header.languagePathNav.toLanguage}</span>
             </div>
