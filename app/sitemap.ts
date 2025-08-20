@@ -178,6 +178,27 @@ export default function sitemap(): MetadataRoute.Sitemap {
         'module-13-idiomatic-kotlin',
       ],
     },
+    {
+      name: 'py2js',
+      title: 'Python 到 JavaScript 转换学习',
+      priority: 0.9,
+      modules: [
+        'module-00-javascript-introduction',
+        'module-01-syntax-comparison',
+        'module-02-dynamic-typing',
+        'module-03-functions-scope',
+        'module-04-asynchronous-programming',
+        'module-05-frontend-concepts',
+        'module-06-dom-manipulation',
+        'module-07-web-frameworks',
+        'module-08-node-backend',
+        'module-09-package-management',
+        'module-10-testing-debugging',
+        'module-11-build-tools',
+        'module-12-projects',
+        'module-13-fullstack-development',
+      ],
+    },
   ]
 
   // 课程首页

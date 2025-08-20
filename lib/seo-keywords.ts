@@ -285,6 +285,41 @@ export const courseKeywords = {
       'Kotlin training', 'Kotlin courses', 'Kotlin projects', 'Kotlin practice', 'Kotlin interview',
       'Kotlin career', 'Kotlin salary', 'Kotlin job opportunities'
     ]
+  },
+  'py2js': {
+    'zh-cn': [
+      // 高搜索量核心关键词
+      'Python转JavaScript', 'Python转JS教程', 'Python转前端', 'JavaScript前端开发',
+      'Python转Web开发', 'Python学JavaScript', 'Python前端转换', 'Python全栈开发',
+      // 长尾关键词
+      'Python开发者学JavaScript', 'Python后端转前端', 'Python转前端开发', 'Python转异步编程',
+      'Python转浏览器开发', 'Python转Node.js', 'Python转React', 'Python转Vue',
+      // 热门搜索词
+      'Python转前端培训', 'Python转JavaScript课程', 'Python全栈教程', 'Python前端学习',
+      'Python转前端面试', 'Python转前端就业', 'Python转前端薪资', 'Python转前端发展'
+    ],
+    'zh-tw': [
+      // 高搜索量核心关键词
+      'Python轉JavaScript', 'Python轉JS教程', 'Python轉前端', 'JavaScript前端開發',
+      'Python轉Web開發', 'Python學JavaScript', 'Python前端轉換', 'Python全端開發',
+      // 长尾关键词
+      'Python開發者學JavaScript', 'Python後端轉前端', 'Python轉前端開發', 'Python轉非同步程式設計',
+      'Python轉瀏覽器開發', 'Python轉Node.js', 'Python轉React', 'Python轉Vue',
+      // 热门搜索词
+      'Python轉前端培訓', 'Python轉JavaScript課程', 'Python全端教程', 'Python前端學習',
+      'Python轉前端面試', 'Python轉前端就業', 'Python轉前端薪資', 'Python轉前端發展'
+    ],
+    'en': [
+      // 高搜索量核心关键词
+      'Python to JavaScript', 'Python to JS tutorial', 'Python to frontend', 'JavaScript frontend development',
+      'Python to web development', 'Python learn JavaScript', 'Python frontend conversion', 'Python full-stack development',
+      // 长尾关键词
+      'Python developer learning JavaScript', 'Python backend to frontend', 'Python to frontend development', 'Python to async programming',
+      'Python to browser development', 'Python to Node.js', 'Python to React', 'Python to Vue',
+      // 热门搜索词
+      'Python to frontend training', 'Python to JavaScript courses', 'Python full-stack tutorial', 'Python frontend learning',
+      'Python to frontend interview', 'Python to frontend career', 'Python to frontend salary', 'Python to frontend growth'
+    ]
   }
 };
 
@@ -705,6 +740,200 @@ export const moduleKeywords = {
         'Python static type checking tutorial', 'Python type system tutorial', 'Python type safety tutorial',
         // 热门搜索词
         'Python type annotations tutorial', 'Python type checking tutorial', 'Python mypy tutorial', 'Python programming tutorial', 'Python learning'
+      ]
+    }
+  },
+  'py2js': {
+    'module-00-javascript-introduction': {
+      'zh-cn': [
+        // 高搜索量核心关键词
+        'JavaScript介绍', 'JavaScript环境搭建', 'JavaScript安装教程', 'JavaScript开发环境配置',
+        'JavaScript入门指南', 'JavaScript学习路线', 'JavaScript基础教程', 'JavaScript开发工具',
+        // 长尾关键词
+        'Python开发者JavaScript入门', '后端转前端环境配置', 'JavaScript IDE配置教程',
+        'JavaScript npm安装教程', 'JavaScript node环境配置', 'JavaScript浏览器开发',
+        // 热门搜索词
+        'JavaScript培训', 'JavaScript课程', 'JavaScript实战', 'JavaScript项目', 'JavaScript练习'
+      ],
+      'zh-tw': [
+        // 高搜索量核心关键词
+        'JavaScript介紹', 'JavaScript環境搭建', 'JavaScript安裝教程', 'JavaScript開發環境配置',
+        'JavaScript入門指南', 'JavaScript學習路線', 'JavaScript基礎教程', 'JavaScript開發工具',
+        // 长尾关键词
+        'Python開發者JavaScript入門', '後端轉前端環境配置', 'JavaScript IDE配置教程',
+        'JavaScript npm安裝教程', 'JavaScript node環境配置', 'JavaScript瀏覽器開發',
+        // 热门搜索词
+        'JavaScript培訓', 'JavaScript課程', 'JavaScript實戰', 'JavaScript專案', 'JavaScript練習'
+      ],
+      'en': [
+        // 高搜索量核心关键词
+        'JavaScript introduction', 'JavaScript environment setup', 'JavaScript installation tutorial', 'JavaScript development environment',
+        'JavaScript getting started', 'JavaScript learning path', 'JavaScript basics tutorial', 'JavaScript development tools',
+        // 长尾关键词
+        'Python developer JavaScript introduction', 'backend to frontend environment setup', 'JavaScript IDE configuration',
+        'JavaScript npm installation', 'JavaScript node environment setup', 'JavaScript browser development',
+        // 热门搜索词
+        'JavaScript training', 'JavaScript courses', 'JavaScript projects', 'JavaScript practice', 'JavaScript learning'
+      ]
+    },
+    'module-01-syntax-comparison': {
+      'zh-cn': [
+        // 高搜索量核心关键词
+        'JavaScript语法对比', 'Python转JavaScript语法', 'JavaScript变量声明', 'JavaScript数据类型',
+        'JavaScript控制流', 'JavaScript函数定义', 'JavaScript语法映射', 'JavaScript基础语法',
+        // 长尾关键词
+        'Python开发者JavaScript语法', '后端转前端语法对比', 'JavaScript变量类型声明',
+        'JavaScript循环语句教程', 'JavaScript条件语句教程', 'JavaScript函数参数教程',
+        // 热门搜索词
+        'JavaScript语法教程', 'JavaScript基础教程', 'JavaScript入门教程', 'JavaScript学习', 'JavaScript编程'
+      ],
+      'zh-tw': [
+        // 高搜索量核心关键词
+        'JavaScript語法對比', 'Python轉JavaScript語法', 'JavaScript變數宣告', 'JavaScript資料類型',
+        'JavaScript控制流', 'JavaScript函數定義', 'JavaScript語法映射', 'JavaScript基礎語法',
+        // 长尾关键词
+        'Python開發者JavaScript語法', '後端轉前端語法對比', 'JavaScript變數類型宣告',
+        'JavaScript迴圈語句教程', 'JavaScript條件語句教程', 'JavaScript函數參數教程',
+        // 热门搜索词
+        'JavaScript語法教程', 'JavaScript基礎教程', 'JavaScript入門教程', 'JavaScript學習', 'JavaScript程式設計'
+      ],
+      'en': [
+        // 高搜索量核心关键词
+        'JavaScript syntax comparison', 'Python to JavaScript syntax', 'JavaScript variable declaration', 'JavaScript data types',
+        'JavaScript control flow', 'JavaScript function definition', 'JavaScript syntax mapping', 'JavaScript basic syntax',
+        // 长尾关键词
+        'Python developer JavaScript syntax', 'backend to frontend syntax comparison', 'JavaScript variable type declaration',
+        'JavaScript loop statements tutorial', 'JavaScript conditional statements tutorial', 'JavaScript function parameters tutorial',
+        // 热门搜索词
+        'JavaScript syntax tutorial', 'JavaScript basics tutorial', 'JavaScript getting started', 'JavaScript learning', 'JavaScript programming'
+      ]
+    },
+    'module-02-dynamic-typing': {
+      'zh-cn': [
+        // 高搜索量核心关键词
+        'JavaScript动态类型', 'JavaScript类型系统', 'JavaScript类型转换', 'JavaScript类型检查',
+        'JavaScript类型安全', 'JavaScript类型判断', 'JavaScript动态类型系统', 'JavaScript弱类型',
+        // 长尾关键词
+        'Python开发者JavaScript类型', '后端转前端类型系统', 'JavaScript类型转换教程',
+        'JavaScript类型判断教程', 'JavaScript动态类型教程', 'JavaScript类型安全教程',
+        // 热门搜索词
+        'JavaScript类型教程', 'JavaScript类型系统教程', 'JavaScript类型检查教程', 'JavaScript编程教程', 'JavaScript学习'
+      ],
+      'zh-tw': [
+        // 高搜索量核心关键词
+        'JavaScript動態型別', 'JavaScript型別系統', 'JavaScript型別轉換', 'JavaScript型別檢查',
+        'JavaScript型別安全', 'JavaScript型別判斷', 'JavaScript動態型別系統', 'JavaScript弱型別',
+        // 长尾关键词
+        'Python開發者JavaScript型別', '後端轉前端型別系統', 'JavaScript型別轉換教程',
+        'JavaScript型別判斷教程', 'JavaScript動態型別教程', 'JavaScript型別安全教程',
+        // 热门搜索词
+        'JavaScript型別教程', 'JavaScript型別系統教程', 'JavaScript型別檢查教程', 'JavaScript程式設計教程', 'JavaScript學習'
+      ],
+      'en': [
+        // 高搜索量核心关键词
+        'JavaScript dynamic typing', 'JavaScript type system', 'JavaScript type conversion', 'JavaScript type checking',
+        'JavaScript type safety', 'JavaScript type detection', 'JavaScript dynamic type system', 'JavaScript weak typing',
+        // 长尾关键词
+        'Python developer JavaScript types', 'backend to frontend type system', 'JavaScript type conversion tutorial',
+        'JavaScript type detection tutorial', 'JavaScript dynamic typing tutorial', 'JavaScript type safety tutorial',
+        // 热门搜索词
+        'JavaScript type tutorial', 'JavaScript type system tutorial', 'JavaScript type checking tutorial', 'JavaScript programming tutorial', 'JavaScript learning'
+      ]
+    },
+    'module-03-functions-scope': {
+      'zh-cn': [
+        // 高搜索量核心关键词
+        'JavaScript函数', 'JavaScript作用域', 'JavaScript闭包', 'JavaScript this',
+        'JavaScript箭头函数', 'JavaScript函数式编程', 'JavaScript高阶函数', 'JavaScript回调函数',
+        // 长尾关键词
+        'Python开发者JavaScript函数', '后端转前端函数编程', 'JavaScript闭包教程',
+        'JavaScript this绑定教程', 'JavaScript箭头函数教程', 'JavaScript函数式编程教程',
+        // 热门搜索词
+        'JavaScript函数教程', 'JavaScript作用域教程', 'JavaScript闭包教程', 'JavaScript编程教程', 'JavaScript学习'
+      ],
+      'zh-tw': [
+        // 高搜索量核心关键词
+        'JavaScript函式', 'JavaScript作用域', 'JavaScript閉包', 'JavaScript this',
+        'JavaScript箭頭函式', 'JavaScript函式式程式設計', 'JavaScript高階函式', 'JavaScript回呼函式',
+        // 长尾关键词
+        'Python開發者JavaScript函式', '後端轉前端函式程式設計', 'JavaScript閉包教程',
+        'JavaScript this綁定教程', 'JavaScript箭頭函式教程', 'JavaScript函式式程式設計教程',
+        // 热门搜索词
+        'JavaScript函式教程', 'JavaScript作用域教程', 'JavaScript閉包教程', 'JavaScript程式設計教程', 'JavaScript學習'
+      ],
+      'en': [
+        // 高搜索量核心关键词
+        'JavaScript functions', 'JavaScript scope', 'JavaScript closures', 'JavaScript this',
+        'JavaScript arrow functions', 'JavaScript functional programming', 'JavaScript higher-order functions', 'JavaScript callback functions',
+        // 长尾关键词
+        'Python developer JavaScript functions', 'backend to frontend functional programming', 'JavaScript closures tutorial',
+        'JavaScript this binding tutorial', 'JavaScript arrow functions tutorial', 'JavaScript functional programming tutorial',
+        // 热门搜索词
+        'JavaScript functions tutorial', 'JavaScript scope tutorial', 'JavaScript closures tutorial', 'JavaScript programming tutorial', 'JavaScript learning'
+      ]
+    },
+    'module-04-asynchronous-programming': {
+      'zh-cn': [
+        // 高搜索量核心关键词
+        'JavaScript异步编程', 'JavaScript Promise', 'JavaScript async await', 'JavaScript回调函数',
+        'JavaScript事件循环', 'JavaScript异步函数', 'JavaScript并发处理', 'JavaScript异步IO',
+        // 长尾关键词
+        'Python开发者JavaScript异步', '后端转前端异步编程', 'JavaScript Promise教程',
+        'JavaScript async await教程', 'JavaScript事件循环教程', 'JavaScript异步编程教程',
+        // 热门搜索词
+        'JavaScript异步编程教程', 'JavaScript Promise教程', 'JavaScript async教程', 'JavaScript编程教程', 'JavaScript学习'
+      ],
+      'zh-tw': [
+        // 高搜索量核心关键词
+        'JavaScript非同步程式設計', 'JavaScript Promise', 'JavaScript async await', 'JavaScript回呼函式',
+        'JavaScript事件迴圈', 'JavaScript非同步函式', 'JavaScript並發處理', 'JavaScript非同步IO',
+        // 长尾关键词
+        'Python開發者JavaScript非同步', '後端轉前端非同步程式設計', 'JavaScript Promise教程',
+        'JavaScript async await教程', 'JavaScript事件迴圈教程', 'JavaScript非同步程式設計教程',
+        // 热门搜索词
+        'JavaScript非同步程式設計教程', 'JavaScript Promise教程', 'JavaScript async教程', 'JavaScript程式設計教程', 'JavaScript學習'
+      ],
+      'en': [
+        // 高搜索量核心关键词
+        'JavaScript async programming', 'JavaScript Promise', 'JavaScript async await', 'JavaScript callback functions',
+        'JavaScript event loop', 'JavaScript async functions', 'JavaScript concurrent processing', 'JavaScript async IO',
+        // 长尾关键词
+        'Python developer JavaScript async', 'backend to frontend async programming', 'JavaScript Promise tutorial',
+        'JavaScript async await tutorial', 'JavaScript event loop tutorial', 'JavaScript async programming tutorial',
+        // 热门搜索词
+        'JavaScript async programming tutorial', 'JavaScript Promise tutorial', 'JavaScript async tutorial', 'JavaScript programming tutorial', 'JavaScript learning'
+      ]
+    },
+    'module-05-frontend-concepts': {
+      'zh-cn': [
+        // 高搜索量核心关键词
+        'JavaScript前端开发', 'JavaScript DOM操作', 'JavaScript浏览器API', 'JavaScript前端概念',
+        'JavaScript Web开发', 'JavaScript客户端编程', 'JavaScript前端技术', 'JavaScript浏览器开发',
+        // 长尾关键词
+        'Python开发者前端开发', '后端转前端概念', 'JavaScript DOM操作教程',
+        'JavaScript浏览器API教程', 'JavaScript前端开发教程', 'JavaScript Web开发教程',
+        // 热门搜索词
+        'JavaScript前端教程', 'JavaScript DOM教程', 'JavaScript浏览器教程', 'JavaScript编程教程', 'JavaScript学习'
+      ],
+      'zh-tw': [
+        // 高搜索量核心关键词
+        'JavaScript前端開發', 'JavaScript DOM操作', 'JavaScript瀏覽器API', 'JavaScript前端概念',
+        'JavaScript Web開發', 'JavaScript客戶端程式設計', 'JavaScript前端技術', 'JavaScript瀏覽器開發',
+        // 长尾关键词
+        'Python開發者前端開發', '後端轉前端概念', 'JavaScript DOM操作教程',
+        'JavaScript瀏覽器API教程', 'JavaScript前端開發教程', 'JavaScript Web開發教程',
+        // 热门搜索词
+        'JavaScript前端教程', 'JavaScript DOM教程', 'JavaScript瀏覽器教程', 'JavaScript程式設計教程', 'JavaScript學習'
+      ],
+      'en': [
+        // 高搜索量核心关键词
+        'JavaScript frontend development', 'JavaScript DOM manipulation', 'JavaScript browser API', 'JavaScript frontend concepts',
+        'JavaScript web development', 'JavaScript client-side programming', 'JavaScript frontend technology', 'JavaScript browser development',
+        // 长尾关键词
+        'Python developer frontend development', 'backend to frontend concepts', 'JavaScript DOM manipulation tutorial',
+        'JavaScript browser API tutorial', 'JavaScript frontend development tutorial', 'JavaScript web development tutorial',
+        // 热门搜索词
+        'JavaScript frontend tutorial', 'JavaScript DOM tutorial', 'JavaScript browser tutorial', 'JavaScript programming tutorial', 'JavaScript learning'
       ]
     }
   },

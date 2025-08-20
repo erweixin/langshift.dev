@@ -1,0 +1,1536 @@
+---
+title: 异步编程模式转换
+description: 从 Python 的 asyncio 到 JavaScript 的 Promise 和 async/await，掌握异步编程的核心概念和模式转换，理解事件循环机制的差异。
+---
+
+# 异步编程模式转换
+
+异步编程是 Python 开发者转向 JavaScript 时面临的最大挑战之一。Python 的 asyncio 和 JavaScript 的 Promise/async-await 虽然概念相似，但在实现和使用上有显著差异。本模块将帮助你理解这些差异，掌握 JavaScript 异步编程的核心技能。
+
+## 异步编程基础概念
+
+### 同步 vs 异步对比
+
+<PythonEditor title="同步与异步对比" compare={true}>
+```python !! py
+# Python 同步和异步编程对比
+import asyncio
+import time
+import requests
+from concurrent.futures import ThreadPoolExecutor
+
+# 1. 同步编程示例
+def sync_fetch_data(url):
+    """同步获取数据"""
+    print(f"开始请求: {url}")
+    # 模拟网络请求
+    time.sleep(2)
+    print(f"完成请求: {url}")
+    return f"来自 {url} 的数据"
+
+def sync_main():
+    """同步主函数"""
+    start_time = time.time()
+    
+    urls = [
+        "https://api.example1.com",
+        "https://api.example2.com",
+        "https://api.example3.com"
+    ]
+    
+    results = []
+    for url in urls:
+        result = sync_fetch_data(url)
+        results.append(result)
+    
+    end_time = time.time()
+    print(f"同步执行时间: {end_time - start_time:.2f} 秒")
+    return results
+
+# 2. 异步编程示例（asyncio）
+async def async_fetch_data(url):
+    """异步获取数据"""
+    print(f"开始异步请求: {url}")
+    # 模拟异步网络请求
+    await asyncio.sleep(2)
+    print(f"完成异步请求: {url}")
+    return f"异步数据来自 {url}"
+
+async def async_main():
+    """异步主函数"""
+    start_time = time.time()
+    
+    urls = [
+        "https://api.example1.com",
+        "https://api.example2.com", 
+        "https://api.example3.com"
+    ]
+    
+    # 并发执行多个异步任务
+    tasks = [async_fetch_data(url) for url in urls]
+    results = await asyncio.gather(*tasks)
+    
+    end_time = time.time()
+    print(f"异步执行时间: {end_time - start_time:.2f} 秒")
+    return results
+
+# 3. Python 异步上下文管理器
+class AsyncDatabaseConnection:
+    def __init__(self, db_url):
+        self.db_url = db_url
+        self.connection = None
+    
+    async def __aenter__(self):
+        print(f"连接到数据库: {self.db_url}")
+        await asyncio.sleep(0.1)  # 模拟连接时间
+        self.connection = f"连接到 {self.db_url}"
+        return self.connection
+    
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        print("关闭数据库连接")
+        await asyncio.sleep(0.1)  # 模拟关闭时间
+        self.connection = None
+
+async def database_operation():
+    async with AsyncDatabaseConnection("postgresql://localhost") as conn:
+        print(f"使用连接: {conn}")
+        await asyncio.sleep(1)  # 模拟数据库操作
+        return "查询结果"
+
+# 运行示例
+if __name__ == "__main__":
+    # 同步执行
+    print("=== 同步执行 ===")
+    sync_results = sync_main()
+    
+    # 异步执行
+    print("\n=== 异步执行 ===")
+    async_results = asyncio.run(async_main())
+    
+    # 异步数据库操作
+    print("\n=== 异步数据库操作 ===")
+    db_result = asyncio.run(database_operation())
+    print(f"数据库结果: {db_result}")
+```
+
+```javascript !! js
+// JavaScript 同步和异步编程对比
+
+// 1. 同步编程示例（会阻塞）
+function syncFetchData(url) {
+    console.log(`开始请求: ${url}`);
+    // 注意：这只是演示，实际中不应该使用同步延迟
+    const start = Date.now();
+    while (Date.now() - start < 2000) {
+        // 阻塞等待 2 秒
+    }
+    console.log(`完成请求: ${url}`);
+    return `来自 ${url} 的数据`;
+}
+
+function syncMain() {
+    console.log("=== 同步执行（不推荐）===");
+    const startTime = Date.now();
+    
+    const urls = [
+        "https://api.example1.com",
+        "https://api.example2.com",
+        "https://api.example3.com"
+    ];
+    
+    const results = [];
+    for (const url of urls) {
+        const result = syncFetchData(url);
+        results.push(result);
+    }
+    
+    const endTime = Date.now();
+    console.log(`同步执行时间: ${(endTime - startTime) / 1000:.2f} 秒`);
+    return results;
+}
+
+// 2. 异步编程示例（Promise）
+function asyncFetchData(url) {
+    return new Promise((resolve, reject) => {
+        console.log(`开始异步请求: ${url}`);
+        
+        // 模拟异步网络请求
+        setTimeout(() => {
+            console.log(`完成异步请求: ${url}`);
+            resolve(`异步数据来自 ${url}`);
+        }, 2000);
+    });
+}
+
+async function asyncMain() {
+    console.log("=== 异步执行 ===");
+    const startTime = Date.now();
+    
+    const urls = [
+        "https://api.example1.com",
+        "https://api.example2.com",
+        "https://api.example3.com"
+    ];
+    
+    // 并发执行多个异步任务
+    const promises = urls.map(url => asyncFetchData(url));
+    const results = await Promise.all(promises);
+    
+    const endTime = Date.now();
+    console.log(`异步执行时间: ${(endTime - startTime) / 1000} 秒`);
+    return results;
+}
+
+// 3. JavaScript 异步资源管理
+class AsyncDatabaseConnection {
+    constructor(dbUrl) {
+        this.dbUrl = dbUrl;
+        this.connection = null;
+    }
+    
+    async connect() {
+        console.log(`连接到数据库: ${this.dbUrl}`);
+        await new Promise(resolve => setTimeout(resolve, 100)); // 模拟连接时间
+        this.connection = `连接到 ${this.dbUrl}`;
+        return this.connection;
+    }
+    
+    async close() {
+        console.log("关闭数据库连接");
+        await new Promise(resolve => setTimeout(resolve, 100)); // 模拟关闭时间
+        this.connection = null;
+    }
+    
+    async query(sql) {
+        if (!this.connection) {
+            throw new Error("数据库未连接");
+        }
+        await new Promise(resolve => setTimeout(resolve, 1000)); // 模拟查询时间
+        return `查询结果: ${sql}`;
+    }
+}
+
+// 模拟 Python 的异步上下文管理器
+async function withAsyncResource(resource, operation) {
+    try {
+        await resource.connect();
+        return await operation(resource);
+    } finally {
+        await resource.close();
+    }
+}
+
+async function databaseOperation() {
+    const db = new AsyncDatabaseConnection("postgresql://localhost");
+    
+    return await withAsyncResource(db, async (connection) => {
+        console.log(`使用连接: ${connection.connection}`);
+        const result = await connection.query("SELECT * FROM users");
+        return result;
+    });
+}
+
+// 运行示例
+async function runExamples() {
+    // 注意：同步版本会阻塞浏览器，通常不在实际项目中使用
+    // syncMain();
+    
+    // 异步执行
+    try {
+        const asyncResults = await asyncMain();
+        console.log("异步结果:", asyncResults);
+        
+        // 异步数据库操作
+        console.log("\n=== 异步数据库操作 ===");
+        const dbResult = await databaseOperation();
+        console.log(`数据库结果: ${dbResult}`);
+    } catch (error) {
+        console.error("错误:", error);
+    }
+}
+
+// 执行示例
+runExamples();
+```
+</PythonEditor>
+
+## Promise 与 asyncio 对比
+
+### Promise 基础
+
+<PythonEditor title="Promise 与 Future 对比" compare={true}>
+```python !! py
+# Python asyncio Future 和 Task
+import asyncio
+import random
+
+# 1. 创建和使用 Future
+async def create_future_example():
+    # 创建一个 Future
+    future = asyncio.Future()
+    
+    # 在另一个任务中设置结果
+    async def set_result():
+        await asyncio.sleep(1)
+        if not future.cancelled():
+            future.set_result("Future 的结果")
+    
+    # 启动设置结果的任务
+    asyncio.create_task(set_result())
+    
+    # 等待 Future 完成
+    result = await future
+    print(f"Future 结果: {result}")
+    return result
+
+# 2. 错误处理
+async def async_operation_with_error():
+    """可能失败的异步操作"""
+    await asyncio.sleep(1)
+    if random.random() < 0.5:
+        raise ValueError("操作失败了")
+    return "操作成功"
+
+async def error_handling_example():
+    try:
+        result = await async_operation_with_error()
+        print(f"成功: {result}")
+    except ValueError as e:
+        print(f"捕获错误: {e}")
+    except Exception as e:
+        print(f"未知错误: {e}")
+
+# 3. 多个异步操作
+async def fetch_user_data(user_id):
+    """获取用户数据"""
+    await asyncio.sleep(random.uniform(0.5, 2.0))
+    return {
+        "id": user_id,
+        "name": f"用户{user_id}",
+        "email": f"user{user_id}@example.com"
+    }
+
+async def fetch_user_posts(user_id):
+    """获取用户帖子"""
+    await asyncio.sleep(random.uniform(0.5, 2.0))
+    return [
+        {"id": 1, "title": "第一篇帖子", "user_id": user_id},
+        {"id": 2, "title": "第二篇帖子", "user_id": user_id}
+    ]
+
+async def parallel_operations():
+    """并行执行多个操作"""
+    user_id = 123
+    
+    # 并行获取用户数据和帖子
+    user_data, user_posts = await asyncio.gather(
+        fetch_user_data(user_id),
+        fetch_user_posts(user_id)
+    )
+    
+    return {
+        "user": user_data,
+        "posts": user_posts
+    }
+
+# 4. 异步生成器
+async def async_number_generator(start, end):
+    """异步数字生成器"""
+    for i in range(start, end):
+        await asyncio.sleep(0.1)  # 模拟异步操作
+        yield i
+
+async def consume_async_generator():
+    """消费异步生成器"""
+    async for number in async_number_generator(1, 6):
+        print(f"生成的数字: {number}")
+
+# 5. 超时处理
+async def slow_operation():
+    """慢速操作"""
+    await asyncio.sleep(5)
+    return "慢速操作完成"
+
+async def timeout_example():
+    """超时示例"""
+    try:
+        result = await asyncio.wait_for(slow_operation(), timeout=2.0)
+        print(f"操作结果: {result}")
+    except asyncio.TimeoutError:
+        print("操作超时")
+
+# 运行示例
+async def main():
+    print("=== Future 示例 ===")
+    await create_future_example()
+    
+    print("\n=== 错误处理示例 ===")
+    await error_handling_example()
+    
+    print("\n=== 并行操作示例 ===")
+    result = await parallel_operations()
+    print(f"并行结果: {result}")
+    
+    print("\n=== 异步生成器示例 ===")
+    await consume_async_generator()
+    
+    print("\n=== 超时示例 ===")
+    await timeout_example()
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+```javascript !! js
+// JavaScript Promise 和 async/await
+
+// 1. 创建和使用 Promise
+function createPromiseExample() {
+    // 创建一个 Promise
+    const promise = new Promise((resolve, reject) => {
+        // 模拟异步操作
+        setTimeout(() => {
+            resolve("Promise 的结果");
+        }, 1000);
+    });
+    
+    // 使用 then/catch
+    promise
+        .then(result => {
+            console.log(`Promise 结果: ${result}`);
+            return result;
+        })
+        .catch(error => {
+            console.error(`Promise 错误: ${error}`);
+        });
+    
+    return promise;
+}
+
+// 使用 async/await 的版本
+async function createPromiseExampleAsync() {
+    const promise = new Promise((resolve, reject) => {
+        setTimeout(() => {
+            resolve("Promise 的结果（async/await）");
+        }, 1000);
+    });
+    
+    try {
+        const result = await promise;
+        console.log(`Promise 结果: ${result}`);
+        return result;
+    } catch (error) {
+        console.error(`Promise 错误: ${error}`);
+    }
+}
+
+// 2. 错误处理
+function asyncOperationWithError() {
+    return new Promise((resolve, reject) => {
+        setTimeout(() => {
+            if (Math.random() < 0.5) {
+                reject(new Error("操作失败了"));
+            } else {
+                resolve("操作成功");
+            }
+        }, 1000);
+    });
+}
+
+async function errorHandlingExample() {
+    try {
+        const result = await asyncOperationWithError();
+        console.log(`成功: ${result}`);
+    } catch (error) {
+        if (error.message === "操作失败了") {
+            console.log(`捕获错误: ${error.message}`);
+        } else {
+            console.log(`未知错误: ${error.message}`);
+        }
+    }
+}
+
+// 3. 多个异步操作
+function fetchUserData(userId) {
+    return new Promise(resolve => {
+        setTimeout(() => {
+            resolve({
+                id: userId,
+                name: `用户${userId}`,
+                email: `user${userId}@example.com`
+            });
+        }, Math.random() * 1500 + 500); // 0.5-2秒随机延迟
+    });
+}
+
+function fetchUserPosts(userId) {
+    return new Promise(resolve => {
+        setTimeout(() => {
+            resolve([
+                {id: 1, title: "第一篇帖子", userId: userId},
+                {id: 2, title: "第二篇帖子", userId: userId}
+            ]);
+        }, Math.random() * 1500 + 500); // 0.5-2秒随机延迟
+    });
+}
+
+async function parallelOperations() {
+    const userId = 123;
+    
+    // 并行执行多个操作
+    const [userData, userPosts] = await Promise.all([
+        fetchUserData(userId),
+        fetchUserPosts(userId)
+    ]);
+    
+    return {
+        user: userData,
+        posts: userPosts
+    };
+}
+
+// 4. 异步迭代器（模拟异步生成器）
+async function* asyncNumberGenerator(start, end) {
+    for (let i = start; i < end; i++) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+        yield i;
+    }
+}
+
+async function consumeAsyncGenerator() {
+    for await (const number of asyncNumberGenerator(1, 6)) {
+        console.log(`生成的数字: ${number}`);
+    }
+}
+
+// 5. 超时处理
+function slowOperation() {
+    return new Promise(resolve => {
+        setTimeout(() => {
+            resolve("慢速操作完成");
+        }, 5000);
+    });
+}
+
+function withTimeout(promise, timeoutMs) {
+    const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => {
+            reject(new Error("操作超时"));
+        }, timeoutMs);
+    });
+    
+    return Promise.race([promise, timeoutPromise]);
+}
+
+async function timeoutExample() {
+    try {
+        const result = await withTimeout(slowOperation(), 2000);
+        console.log(`操作结果: ${result}`);
+    } catch (error) {
+        if (error.message === "操作超时") {
+            console.log("操作超时");
+        } else {
+            console.log(`其他错误: ${error.message}`);
+        }
+    }
+}
+
+// 6. Promise 链式调用
+function promiseChainExample() {
+    return fetch("https://jsonplaceholder.typicode.com/users/1")
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            return response.json();
+        })
+        .then(user => {
+            console.log("用户数据:", user);
+            return fetch(`https://jsonplaceholder.typicode.com/users/${user.id}/posts`);
+        })
+        .then(response => response.json())
+        .then(posts => {
+            console.log("用户帖子:", posts);
+            return { user: "用户数据", posts };
+        })
+        .catch(error => {
+            console.error("链式调用错误:", error);
+            throw error;
+        });
+}
+
+// 运行示例
+async function main() {
+    console.log("=== Promise 示例 ===");
+    await createPromiseExampleAsync();
+    
+    console.log("\n=== 错误处理示例 ===");
+    await errorHandlingExample();
+    
+    console.log("\n=== 并行操作示例 ===");
+    const result = await parallelOperations();
+    console.log("并行结果:", result);
+    
+    console.log("\n=== 异步迭代器示例 ===");
+    await consumeAsyncGenerator();
+    
+    console.log("\n=== 超时示例 ===");
+    await timeoutExample();
+    
+    // 注意：下面的示例需要网络访问
+    // console.log("\n=== Promise 链式调用示例 ===");
+    // try {
+    //     await promiseChainExample();
+    // } catch (error) {
+    //     console.log("网络请求失败，这是正常的（可能没有网络访问）");
+    // }
+}
+
+// 执行示例
+main().catch(console.error);
+```
+</PythonEditor>
+
+## 事件循环机制
+
+### 事件循环对比
+
+<PythonEditor title="事件循环机制对比" compare={true}>
+```python !! py
+# Python 事件循环机制
+import asyncio
+import time
+from concurrent.futures import ThreadPoolExecutor
+
+# 1. 事件循环基础
+async def basic_event_loop_example():
+    print("任务开始")
+    
+    # 协程函数
+    async def task1():
+        print("任务1开始")
+        await asyncio.sleep(1)
+        print("任务1完成")
+        return "任务1结果"
+    
+    async def task2():
+        print("任务2开始")
+        await asyncio.sleep(2)
+        print("任务2完成")
+        return "任务2结果"
+    
+    # 创建任务
+    t1 = asyncio.create_task(task1())
+    t2 = asyncio.create_task(task2())
+    
+    print("任务已创建，等待完成...")
+    
+    # 等待任务完成
+    results = await asyncio.gather(t1, t2)
+    print(f"所有任务完成: {results}")
+
+# 2. 回调函数
+def task_done_callback(task):
+    """任务完成回调"""
+    try:
+        result = task.result()
+        print(f"任务完成回调: {result}")
+    except Exception as e:
+        print(f"任务失败回调: {e}")
+
+async def callback_example():
+    async def background_task():
+        await asyncio.sleep(1)
+        return "后台任务完成"
+    
+    # 创建任务并添加回调
+    task = asyncio.create_task(background_task())
+    task.add_done_callback(task_done_callback)
+    
+    # 做其他工作
+    print("主任务继续执行...")
+    await asyncio.sleep(2)
+    
+    # 确保任务完成
+    await task
+
+# 3. 混合同步和异步代码
+async def cpu_bound_task():
+    """CPU 密集型任务"""
+    def fibonacci(n):
+        if n <= 1:
+            return n
+        return fibonacci(n-1) + fibonacci(n-2)
+    
+    # 在线程池中执行 CPU 密集型任务
+    loop = asyncio.get_event_loop()
+    with ThreadPoolExecutor() as executor:
+        result = await loop.run_in_executor(executor, fibonacci, 30)
+    
+    return result
+
+async def mixed_workload():
+    """混合工作负载"""
+    print("开始混合工作负载")
+    
+    # I/O 密集型任务
+    async def io_task():
+        await asyncio.sleep(1)
+        return "I/O 任务完成"
+    
+    # 并行执行 I/O 和 CPU 任务
+    io_result, cpu_result = await asyncio.gather(
+        io_task(),
+        cpu_bound_task()
+    )
+    
+    print(f"I/O 结果: {io_result}")
+    print(f"CPU 结果: {cpu_result}")
+
+# 4. 生产者-消费者模式
+async def producer_consumer_example():
+    """生产者-消费者示例"""
+    queue = asyncio.Queue(maxsize=3)
+    
+    async def producer(name, queue):
+        for i in range(5):
+            item = f"{name}-item-{i}"
+            await queue.put(item)
+            print(f"生产者 {name} 生产了: {item}")
+            await asyncio.sleep(0.5)
+        
+        # 发送结束信号
+        await queue.put(None)
+    
+    async def consumer(name, queue):
+        while True:
+            item = await queue.get()
+            if item is None:
+                # 重新放入队列以供其他消费者处理
+                await queue.put(None)
+                break
+            
+            print(f"消费者 {name} 消费了: {item}")
+            await asyncio.sleep(1)
+            queue.task_done()
+    
+    # 启动生产者和消费者
+    await asyncio.gather(
+        producer("P1", queue),
+        consumer("C1", queue),
+        consumer("C2", queue)
+    )
+
+# 5. 事件循环调试
+async def debug_event_loop():
+    """事件循环调试"""
+    loop = asyncio.get_running_loop()
+    
+    print(f"事件循环类型: {type(loop)}")
+    print(f"是否运行中: {loop.is_running()}")
+    
+    # 调度任务
+    async def scheduled_task():
+        print("调度任务执行")
+        return "调度结果"
+    
+    # 立即调度
+    task = asyncio.create_task(scheduled_task())
+    
+    # 延迟调度
+    def delayed_callback():
+        print("延迟回调执行")
+    
+    loop.call_later(1, delayed_callback)
+    
+    await task
+
+# 运行示例
+async def main():
+    print("=== 基础事件循环示例 ===")
+    await basic_event_loop_example()
+    
+    print("\n=== 回调示例 ===")
+    await callback_example()
+    
+    print("\n=== 混合工作负载示例 ===")
+    await mixed_workload()
+    
+    print("\n=== 生产者-消费者示例 ===")
+    await producer_consumer_example()
+    
+    print("\n=== 事件循环调试示例 ===")
+    await debug_event_loop()
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+```javascript !! js
+// JavaScript 事件循环机制
+
+// 1. 事件循环基础
+async function basicEventLoopExample() {
+    console.log("任务开始");
+    
+    // 异步函数
+    function task1() {
+        return new Promise(resolve => {
+            console.log("任务1开始");
+            setTimeout(() => {
+                console.log("任务1完成");
+                resolve("任务1结果");
+            }, 1000);
+        });
+    }
+    
+    function task2() {
+        return new Promise(resolve => {
+            console.log("任务2开始");
+            setTimeout(() => {
+                console.log("任务2完成");
+                resolve("任务2结果");
+            }, 2000);
+        });
+    }
+    
+    console.log("任务已创建，等待完成...");
+    
+    // 并行执行任务
+    const results = await Promise.all([task1(), task2()]);
+    console.log(`所有任务完成: ${results}`);
+}
+
+// 2. 回调函数和 Promise
+function callbackExample() {
+    function backgroundTask() {
+        return new Promise(resolve => {
+            setTimeout(() => {
+                resolve("后台任务完成");
+            }, 1000);
+        });
+    }
+    
+    // 使用 then 添加回调
+    const taskPromise = backgroundTask()
+        .then(result => {
+            console.log(`任务完成回调: ${result}`);
+            return result;
+        })
+        .catch(error => {
+            console.log(`任务失败回调: ${error}`);
+        });
+    
+    console.log("主任务继续执行...");
+    
+    return taskPromise;
+}
+
+// 3. 宏任务 vs 微任务
+function macroVsMicroTaskExample() {
+    console.log("=== 宏任务 vs 微任务示例 ===");
+    console.log("1. 同步代码");
+    
+    // 宏任务 (setTimeout)
+    setTimeout(() => {
+        console.log("5. 宏任务 (setTimeout)");
+    }, 0);
+    
+    // 微任务 (Promise)
+    Promise.resolve().then(() => {
+        console.log("3. 微任务 (Promise.then)");
+    });
+    
+    // 微任务 (queueMicrotask)
+    queueMicrotask(() => {
+        console.log("4. 微任务 (queueMicrotask)");
+    });
+    
+    console.log("2. 同步代码结束");
+    
+    // 注意：微任务总是在下一个宏任务之前执行
+}
+
+// 4. Web API 和异步操作
+async function webApiExample() {
+    console.log("=== Web API 示例 ===");
+    
+    // 模拟网络请求
+    function fetchData(url) {
+        return new Promise((resolve, reject) => {
+            // 模拟网络延迟
+            setTimeout(() => {
+                if (url.includes("error")) {
+                    reject(new Error("网络错误"));
+                } else {
+                    resolve(`来自 ${url} 的数据`);
+                }
+            }, Math.random() * 2000 + 500);
+        });
+    }
+    
+    // 并行请求
+    try {
+        const results = await Promise.all([
+            fetchData("https://api1.example.com"),
+            fetchData("https://api2.example.com"),
+            fetchData("https://api3.example.com")
+        ]);
+        
+        console.log("所有请求完成:", results);
+    } catch (error) {
+        console.error("请求失败:", error.message);
+    }
+}
+
+// 5. 生产者-消费者模式（使用异步迭代器）
+class AsyncQueue {
+    constructor() {
+        this.items = [];
+        this.waitingConsumers = [];
+    }
+    
+    async put(item) {
+        if (this.waitingConsumers.length > 0) {
+            const consumer = this.waitingConsumers.shift();
+            consumer(item);
+        } else {
+            this.items.push(item);
+        }
+    }
+    
+    async get() {
+        if (this.items.length > 0) {
+            return this.items.shift();
+        } else {
+            return new Promise(resolve => {
+                this.waitingConsumers.push(resolve);
+            });
+        }
+    }
+}
+
+async function producerConsumerExample() {
+    console.log("=== 生产者-消费者示例 ===");
+    const queue = new AsyncQueue();
+    
+    // 生产者
+    async function producer(name) {
+        for (let i = 0; i < 5; i++) {
+            const item = `${name}-item-${i}`;
+            await queue.put(item);
+            console.log(`生产者 ${name} 生产了: ${item}`);
+            await new Promise(resolve => setTimeout(resolve, 500));
+        }
+        // 发送结束信号
+        await queue.put(null);
+    }
+    
+    // 消费者
+    async function consumer(name) {
+        while (true) {
+            const item = await queue.get();
+            if (item === null) {
+                // 重新放入队列以供其他消费者处理
+                await queue.put(null);
+                break;
+            }
+            
+            console.log(`消费者 ${name} 消费了: ${item}`);
+            await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+    }
+    
+    // 并行运行生产者和消费者
+    await Promise.all([
+        producer("P1"),
+        consumer("C1"),
+        consumer("C2")
+    ]);
+}
+
+// 6. 事件循环阶段演示
+function eventLoopPhasesExample() {
+    console.log("=== 事件循环阶段演示 ===");
+    
+    console.log("1. 脚本开始");
+    
+    // 立即执行（同步）
+    console.log("2. 同步代码");
+    
+    // nextTick (Node.js) 或 微任务 (浏览器)
+    if (typeof process !== 'undefined' && process.nextTick) {
+        process.nextTick(() => {
+            console.log("4. process.nextTick");
+        });
+    }
+    
+    // 微任务
+    Promise.resolve().then(() => {
+        console.log("5. Promise.then (微任务)");
+    });
+    
+    // 宏任务 - timer
+    setTimeout(() => {
+        console.log("7. setTimeout (宏任务)");
+        
+        // 在宏任务中的微任务
+        Promise.resolve().then(() => {
+            console.log("8. Promise.then in setTimeout");
+        });
+    }, 0);
+    
+    // 宏任务 - immediate (Node.js)
+    if (typeof setImmediate !== 'undefined') {
+        setImmediate(() => {
+            console.log("9. setImmediate");
+        });
+    }
+    
+    // 微任务
+    queueMicrotask(() => {
+        console.log("6. queueMicrotask");
+    });
+    
+    console.log("3. 脚本结束");
+}
+
+// 7. 错误处理和 unhandledRejection
+function errorHandlingExample() {
+    console.log("=== 错误处理示例 ===");
+    
+    // 全局错误处理（Node.js）
+    if (typeof process !== 'undefined') {
+        process.on('unhandledRejection', (reason, promise) => {
+            console.log('未处理的 Promise 拒绝:', reason);
+        });
+    }
+    
+    // 浏览器中的全局错误处理
+    if (typeof window !== 'undefined') {
+        window.addEventListener('unhandledrejection', event => {
+            console.log('未处理的 Promise 拒绝:', event.reason);
+            event.preventDefault(); // 防止默认行为
+        });
+    }
+    
+    // 创建一个未处理的 Promise 拒绝
+    Promise.reject(new Error("这是一个未处理的错误"));
+    
+    // 正确处理的 Promise
+    Promise.reject(new Error("这是一个已处理的错误"))
+        .catch(error => {
+            console.log("捕获到错误:", error.message);
+        });
+}
+
+// 运行示例
+async function main() {
+    console.log("=== 基础事件循环示例 ===");
+    await basicEventLoopExample();
+    
+    console.log("\n=== 回调示例 ===");
+    await callbackExample();
+    
+    console.log("\n");
+    macroVsMicroTaskExample();
+    
+    // 等待一下让微任务和宏任务完成
+    await new Promise(resolve => setTimeout(resolve, 100));
+    
+    console.log("\n");
+    await webApiExample();
+    
+    console.log("\n");
+    await producerConsumerExample();
+    
+    console.log("\n");
+    eventLoopPhasesExample();
+    
+    // 等待一下让所有任务完成
+    await new Promise(resolve => setTimeout(resolve, 100));
+    
+    console.log("\n");
+    errorHandlingExample();
+}
+
+// 执行示例
+main().catch(console.error);
+```
+</PythonEditor>
+
+## 实际应用场景
+
+### HTTP 请求和 API 调用
+
+<PythonEditor title="HTTP 请求对比" compare={true}>
+```python !! py
+# Python HTTP 请求 (使用 aiohttp)
+import asyncio
+import aiohttp
+import time
+from typing import List, Dict, Any
+
+class PythonApiClient:
+    def __init__(self, base_url: str):
+        self.base_url = base_url
+        self.session = None
+    
+    async def __aenter__(self):
+        self.session = aiohttp.ClientSession(
+            timeout=aiohttp.ClientTimeout(total=10)
+        )
+        return self
+    
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        if self.session:
+            await self.session.close()
+    
+    async def get(self, endpoint: str) -> Dict[str, Any]:
+        """GET 请求"""
+        url = f"{self.base_url}{endpoint}"
+        async with self.session.get(url) as response:
+            response.raise_for_status()
+            return await response.json()
+    
+    async def post(self, endpoint: str, data: Dict[str, Any]) -> Dict[str, Any]:
+        """POST 请求"""
+        url = f"{self.base_url}{endpoint}"
+        async with self.session.post(url, json=data) as response:
+            response.raise_for_status()
+            return await response.json()
+    
+    async def get_multiple(self, endpoints: List[str]) -> List[Dict[str, Any]]:
+        """并行获取多个端点数据"""
+        tasks = [self.get(endpoint) for endpoint in endpoints]
+        return await asyncio.gather(*tasks, return_exceptions=True)
+
+# 使用示例
+async def api_examples():
+    """API 使用示例"""
+    
+    # 模拟 API 客户端（因为无法真实请求外部 API）
+    class MockApiClient:
+        async def __aenter__(self):
+            return self
+        
+        async def __aexit__(self, exc_type, exc_val, exc_tb):
+            pass
+        
+        async def get(self, endpoint):
+            # 模拟网络延迟
+            await asyncio.sleep(0.5)
+            return {
+                "endpoint": endpoint,
+                "data": f"来自 {endpoint} 的数据",
+                "timestamp": time.time()
+            }
+        
+        async def post(self, endpoint, data):
+            await asyncio.sleep(0.3)
+            return {
+                "endpoint": endpoint,
+                "received_data": data,
+                "status": "success"
+            }
+        
+        async def get_multiple(self, endpoints):
+            tasks = [self.get(endpoint) for endpoint in endpoints]
+            return await asyncio.gather(*tasks)
+    
+    async with MockApiClient() as client:
+        # 单个请求
+        print("=== 单个 GET 请求 ===")
+        user_data = await client.get("/users/1")
+        print(f"用户数据: {user_data}")
+        
+        # POST 请求
+        print("\n=== POST 请求 ===")
+        new_user = {
+            "name": "张三",
+            "email": "zhangsan@example.com"
+        }
+        create_result = await client.post("/users", new_user)
+        print(f"创建结果: {create_result}")
+        
+        # 并行请求
+        print("\n=== 并行请求 ===")
+        endpoints = ["/users/1", "/users/2", "/users/3"]
+        start_time = time.time()
+        results = await client.get_multiple(endpoints)
+        end_time = time.time()
+        
+        print(f"并行请求结果: {len(results)} 个响应")
+        print(f"执行时间: {end_time - start_time:.2f} 秒")
+
+# 错误处理和重试
+async def robust_api_client():
+    """健壮的 API 客户端"""
+    
+    async def api_call_with_retry(url: str, max_retries: int = 3):
+        """带重试的 API 调用"""
+        for attempt in range(max_retries):
+            try:
+                # 模拟 API 调用
+                await asyncio.sleep(0.1)
+                
+                # 模拟随机失败
+                import random
+                if random.random() < 0.3:  # 30% 失败率
+                    raise aiohttp.ClientError(f"网络错误 (尝试 {attempt + 1})")
+                
+                return f"成功获取 {url} 的数据"
+                
+            except Exception as e:
+                print(f"尝试 {attempt + 1} 失败: {e}")
+                if attempt == max_retries - 1:
+                    raise
+                await asyncio.sleep(2 ** attempt)  # 指数退避
+    
+    # 测试重试机制
+    try:
+        result = await api_call_with_retry("https://api.example.com/data")
+        print(f"API 调用成功: {result}")
+    except Exception as e:
+        print(f"所有重试失败: {e}")
+
+# 运行示例
+async def main():
+    await api_examples()
+    print("\n=== 重试机制示例 ===")
+    await robust_api_client()
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+```javascript !! js
+// JavaScript HTTP 请求 (使用 fetch API)
+
+class JavaScriptApiClient {
+    constructor(baseUrl) {
+        this.baseUrl = baseUrl;
+        this.defaultOptions = {
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        };
+    }
+    
+    async get(endpoint) {
+        const url = `${this.baseUrl}${endpoint}`;
+        const response = await fetch(url, {
+            ...this.defaultOptions,
+            method: 'GET'
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        return await response.json();
+    }
+    
+    async post(endpoint, data) {
+        const url = `${this.baseUrl}${endpoint}`;
+        const response = await fetch(url, {
+            ...this.defaultOptions,
+            method: 'POST',
+            body: JSON.stringify(data)
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        return await response.json();
+    }
+    
+    async getMultiple(endpoints) {
+        const promises = endpoints.map(endpoint => this.get(endpoint));
+        return await Promise.all(promises);
+    }
+}
+
+// 使用示例
+async function apiExamples() {
+    // 模拟 API 客户端（因为无法真实请求外部 API）
+    class MockApiClient {
+        constructor(baseUrl) {
+            this.baseUrl = baseUrl;
+        }
+        
+        async get(endpoint) {
+            // 模拟网络延迟
+            await new Promise(resolve => setTimeout(resolve, 500));
+            return {
+                endpoint: endpoint,
+                data: `来自 ${endpoint} 的数据`,
+                timestamp: Date.now()
+            };
+        }
+        
+        async post(endpoint, data) {
+            await new Promise(resolve => setTimeout(resolve, 300));
+            return {
+                endpoint: endpoint,
+                receivedData: data,
+                status: "success"
+            };
+        }
+        
+        async getMultiple(endpoints) {
+            const promises = endpoints.map(endpoint => this.get(endpoint));
+            return await Promise.all(promises);
+        }
+    }
+    
+    const client = new MockApiClient("https://api.example.com");
+    
+    // 单个请求
+    console.log("=== 单个 GET 请求 ===");
+    const userData = await client.get("/users/1");
+    console.log("用户数据:", userData);
+    
+    // POST 请求
+    console.log("\n=== POST 请求 ===");
+    const newUser = {
+        name: "张三",
+        email: "zhangsan@example.com"
+    };
+    const createResult = await client.post("/users", newUser);
+    console.log("创建结果:", createResult);
+    
+    // 并行请求
+    console.log("\n=== 并行请求 ===");
+    const endpoints = ["/users/1", "/users/2", "/users/3"];
+    const startTime = Date.now();
+    const results = await client.getMultiple(endpoints);
+    const endTime = Date.now();
+    
+    console.log(`并行请求结果: ${results.length} 个响应`);
+    console.log(`执行时间: ${(endTime - startTime) / 1000} 秒`);
+}
+
+// 错误处理和重试
+async function robustApiClient() {
+    // 带重试的 API 调用
+    async function apiCallWithRetry(url, maxRetries = 3) {
+        for (let attempt = 0; attempt < maxRetries; attempt++) {
+            try {
+                // 模拟 API 调用
+                await new Promise(resolve => setTimeout(resolve, 100));
+                
+                // 模拟随机失败
+                if (Math.random() < 0.3) { // 30% 失败率
+                    throw new Error(`网络错误 (尝试 ${attempt + 1})`);
+                }
+                
+                return `成功获取 ${url} 的数据`;
+                
+            } catch (error) {
+                console.log(`尝试 ${attempt + 1} 失败: ${error.message}`);
+                if (attempt === maxRetries - 1) {
+                    throw error;
+                }
+                // 指数退避
+                await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt) * 1000));
+            }
+        }
+    }
+    
+    // 测试重试机制
+    try {
+        const result = await apiCallWithRetry("https://api.example.com/data");
+        console.log(`API 调用成功: ${result}`);
+    } catch (error) {
+        console.log(`所有重试失败: ${error.message}`);
+    }
+}
+
+// 高级异步模式
+async function advancedAsyncPatterns() {
+    console.log("=== 高级异步模式 ===");
+    
+    // 1. 异步队列处理
+    class AsyncQueue {
+        constructor(concurrency = 3) {
+            this.concurrency = concurrency;
+            this.running = 0;
+            this.queue = [];
+        }
+        
+        async add(asyncFunction) {
+            return new Promise((resolve, reject) => {
+                this.queue.push({
+                    asyncFunction,
+                    resolve,
+                    reject
+                });
+                this.process();
+            });
+        }
+        
+        async process() {
+            if (this.running >= this.concurrency || this.queue.length === 0) {
+                return;
+            }
+            
+            this.running++;
+            const { asyncFunction, resolve, reject } = this.queue.shift();
+            
+            try {
+                const result = await asyncFunction();
+                resolve(result);
+            } catch (error) {
+                reject(error);
+            } finally {
+                this.running--;
+                this.process();
+            }
+        }
+    }
+    
+    // 使用异步队列
+    const queue = new AsyncQueue(2); // 最多并发2个任务
+    
+    const tasks = Array.from({ length: 5 }, (_, i) => 
+        queue.add(async () => {
+            console.log(`任务 ${i + 1} 开始`);
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            console.log(`任务 ${i + 1} 完成`);
+            return `任务 ${i + 1} 结果`;
+        })
+    );
+    
+    const results = await Promise.all(tasks);
+    console.log("队列处理结果:", results);
+    
+    // 2. 异步迭代器
+    async function* fetchPages(baseUrl, totalPages) {
+        for (let page = 1; page <= totalPages; page++) {
+            // 模拟 API 调用
+            await new Promise(resolve => setTimeout(resolve, 200));
+            yield {
+                page,
+                data: `第 ${page} 页的数据`,
+                hasMore: page < totalPages
+            };
+        }
+    }
+    
+    console.log("\n=== 异步迭代器 ===");
+    for await (const pageData of fetchPages("https://api.example.com", 3)) {
+        console.log(`获取到: ${pageData.data}`);
+    }
+    
+    // 3. 流式处理
+    class AsyncStream {
+        constructor(generator) {
+            this.generator = generator;
+        }
+        
+        map(transformFn) {
+            const generator = this.generator;
+            return new AsyncStream(async function* () {
+                for await (const item of generator) {
+                    yield await transformFn(item);
+                }
+            }());
+        }
+        
+        filter(predicateFn) {
+            const generator = this.generator;
+            return new AsyncStream(async function* () {
+                for await (const item of generator) {
+                    if (await predicateFn(item)) {
+                        yield item;
+                    }
+                }
+            }());
+        }
+        
+        async collect() {
+            const results = [];
+            for await (const item of this.generator) {
+                results.push(item);
+            }
+            return results;
+        }
+    }
+    
+    // 使用流式处理
+    console.log("\n=== 流式处理 ===");
+    const stream = new AsyncStream(fetchPages("https://api.example.com", 4));
+    
+    const processedResults = await stream
+        .filter(async (page) => page.page % 2 === 0) // 只要偶数页
+        .map(async (page) => `处理后的${page.data}`)
+        .collect();
+    
+    console.log("流式处理结果:", processedResults);
+}
+
+// 运行示例
+async function main() {
+    try {
+        await apiExamples();
+        
+        console.log("\n=== 重试机制示例 ===");
+        await robustApiClient();
+        
+        console.log("\n");
+        await advancedAsyncPatterns();
+        
+    } catch (error) {
+        console.error("主函数错误:", error);
+    }
+}
+
+// 执行示例
+main();
+```
+</PythonEditor>
+
+## 小结
+
+本模块详细对比了 Python 和 JavaScript 的异步编程模式：
+
+### 核心差异
+
+1. **语法差异**：
+   - Python: `async def` / `await` / `asyncio.gather()`
+   - JavaScript: `async function` / `await` / `Promise.all()`
+
+2. **错误处理**：
+   - Python: 标准的 try/except
+   - JavaScript: try/catch 和 Promise.catch()
+
+3. **并发模型**：
+   - Python: 协程 + 事件循环
+   - JavaScript: Promise + 事件循环
+
+4. **事件循环**：
+   - Python: 显式管理 (`asyncio.run()`)
+   - JavaScript: 内置在运行时
+
+### 重要概念
+
+1. **Promise 状态**：pending, fulfilled, rejected
+2. **微任务 vs 宏任务**：Promise.then 是微任务，setTimeout 是宏任务
+3. **Promise 链式调用**：`.then()` 和 `.catch()` 链
+4. **并行 vs 串行**：`Promise.all()` vs `await` 逐个调用
+
+### 最佳实践
+
+1. **优先使用 async/await** 而不是 Promise.then()
+2. **正确处理错误** - 使用 try/catch
+3. **避免回调地狱** - 使用 Promise 或 async/await
+4. **理解事件循环** - 微任务优先于宏任务
+5. **合理使用并发** - Promise.all() 用于并行，await 用于串行
+
+下一个模块我们将学习前端开发的核心概念，包括 HTML、CSS 和 DOM 操作。
+
+---
+
+准备好进入前端开发的世界了吗？让我们继续下一个模块的学习！
