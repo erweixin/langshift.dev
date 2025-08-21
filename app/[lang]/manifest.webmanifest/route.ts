@@ -1,5 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+// 为静态导出配置
+export const dynamic = 'force-static';
+export const revalidate = false;
+
+// 生成静态参数
+export async function generateStaticParams() {
+  return [
+    { lang: 'zh-cn' },
+    { lang: 'zh-tw' },
+    { lang: 'en' },
+  ];
+}
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ lang: string }> }

@@ -1,5 +1,9 @@
 import { MetadataRoute } from 'next'
 
+// 为静态导出配置
+export const dynamic = 'force-static'
+export const revalidate = false
+
 export default function sitemap(): MetadataRoute.Sitemap {
   const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://langshift.dev'
   const currentDate = new Date()
