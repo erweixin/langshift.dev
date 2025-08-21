@@ -1,0 +1,1191 @@
+---
+title: 測試框架與除錯技巧
+description: 對比 Python 和 JavaScript 測試方法，掌握 Jest vs pytest 差異，學習 JavaScript 除錯技術
+---
+
+# 模組 10：測試框架與除錯技巧
+
+## 學習目標
+
+完成本模組後，你將能夠：
+- 對比 Python 和 JavaScript 測試框架
+- 理解 Jest vs pytest 的差異和相似之處
+- 掌握 JavaScript 單元測試模式
+- 學習 JavaScript 中的模擬和存根技術
+- 有效使用 JavaScript 除錯工具
+- 在 JavaScript 中實施測試驅動開發（TDD）
+
+## 測試框架對比
+
+### Python：unittest 和 pytest
+
+在 Python 中，你熟悉的方式：
+
+<PythonEditor title="Python 測試框架" compare={true}>
+```python !! py
+# 使用 unittest（內建）
+import unittest
+from unittest.mock import patch, Mock
+
+class TestCalculator(unittest.TestCase):
+    def setUp(self):
+        self.calc = Calculator()
+    
+    def test_addition(self):
+        result = self.calc.add(2, 3)
+        self.assertEqual(result, 5)
+    
+    def test_division_by_zero(self):
+        with self.assertRaises(ValueError):
+            self.calc.divide(5, 0)
+    
+    @patch('requests.get')
+    def test_api_call(self, mock_get):
+        mock_get.return_value.json.return_value = {'status': 'ok'}
+        result = self.calc.fetch_data()
+        self.assertEqual(result['status'], 'ok')
+
+# 使用 pytest（更熱門）
+import pytest
+from unittest.mock import patch
+
+def test_addition():
+    calc = Calculator()
+    assert calc.add(2, 3) == 5
+
+def test_division_by_zero():
+    calc = Calculator()
+    with pytest.raises(ValueError):
+        calc.divide(5, 0)
+
+@patch('requests.get')
+def test_api_call(mock_get):
+    mock_get.return_value.json.return_value = {'status': 'ok'}
+    calc = Calculator()
+    result = calc.fetch_data()
+    assert result['status'] == 'ok'
+
+# 夾具
+@pytest.fixture
+def calculator():
+    return Calculator()
+
+def test_with_fixture(calculator):
+    assert calculator.add(1, 1) == 2
+```
+
+```javascript !! js
+// 使用 Jest（最熱門的 JavaScript 測試框架）
+const Calculator = require('./calculator');
+
+describe('Calculator', () => {
+    let calc;
+    
+    beforeEach(() => {
+        calc = new Calculator();
+    });
+    
+    test('should add two numbers correctly', () => {
+        const result = calc.add(2, 3);
+        expect(result).toBe(5);
+    });
+    
+    test('should throw error when dividing by zero', () => {
+        expect(() => {
+            calc.divide(5, 0);
+        }).toThrow('Division by zero');
+    });
+    
+    test('should handle async operations', async () => {
+        const result = await calc.fetchData();
+        expect(result.status).toBe('ok');
+    });
+});
+
+// Jest 模擬
+jest.mock('axios');
+const axios = require('axios');
+
+test('should mock API call', async () => {
+    const mockResponse = { data: { status: 'ok' } };
+    axios.get.mockResolvedValue(mockResponse);
+    
+    const calc = new Calculator();
+    const result = await calc.fetchData();
+    
+    expect(result.status).toBe('ok');
+    expect(axios.get).toHaveBeenCalledWith('/api/data');
+});
+
+// 設定和清理
+beforeAll(() => {
+    // 所有測試前的設定
+});
+
+afterAll(() => {
+    // 所有測試後的清理
+});
+
+beforeEach(() => {
+    // 每個測試前的設定
+});
+
+afterEach(() => {
+    // 每個測試後的清理
+});
+```
+</PythonEditor>
+
+### 框架主要差異
+
+| 方面 | Python (pytest) | JavaScript (Jest) |
+|------|-----------------|-------------------|
+| **發現機制** | 自動發現測試檔案 | 自動發現測試檔案 |
+| **命名慣例** | `test_*.py` 或 `*_test.py` | `*.test.js` 或 `*.spec.js` |
+| **斷言** | `assert` 或 `unittest.assert*` | `expect().*` |
+| **模擬** | `unittest.mock` | 內建 `jest.mock()` |
+| **非同步測試** | `pytest-asyncio` | 原生 async/await 支援 |
+| **夾具** | `@pytest.fixture` | `beforeEach/beforeAll` |
+
+## 單元測試模式
+
+### 測試結構和組織
+
+<PythonEditor title="測試組織" compare={true}>
+```python !! py
+# Python 測試結構
+# test_user.py
+import pytest
+from unittest.mock import Mock, patch
+from models.user import User
+from services.email import EmailService
+
+class TestUser:
+    @pytest.fixture
+    def user_data(self):
+        return {
+            'name': 'John Doe',
+            'email': 'john@example.com',
+            'age': 30
+        }
+    
+    @pytest.fixture
+    def mock_email_service(self):
+        return Mock(spec=EmailService)
+    
+    def test_user_creation(self, user_data):
+        user = User(**user_data)
+        assert user.name == 'John Doe'
+        assert user.email == 'john@example.com'
+        assert user.age == 30
+    
+    def test_user_validation(self):
+        with pytest.raises(ValueError, match="Invalid email"):
+            User(name='John', email='invalid-email', age=30)
+    
+    @patch('services.email.EmailService')
+    def test_send_welcome_email(self, mock_email_service, user_data):
+        user = User(**user_data)
+        user.send_welcome_email()
+        
+        mock_email_service.send.assert_called_once_with(
+            to='john@example.com',
+            subject='Welcome!',
+            body=pytest.any_string()
+        )
+
+# 參數化測試
+@pytest.mark.parametrize("age,expected", [
+    (17, False),
+    (18, True),
+    (25, True),
+    (65, True),
+    (66, False)
+])
+def test_is_adult(age, expected):
+    user = User(name='Test', email='test@example.com', age=age)
+    assert user.is_adult() == expected
+```
+
+```javascript !! js
+// JavaScript 測試結構
+// user.test.js
+const User = require('../models/user');
+const EmailService = require('../services/email');
+
+// 模擬整個模組
+jest.mock('../services/email');
+
+describe('User', () => {
+    let userData;
+    let mockEmailService;
+    
+    beforeEach(() => {
+        userData = {
+            name: 'John Doe',
+            email: 'john@example.com',
+            age: 30
+        };
+        
+        // 每次測試前清除所有模擬
+        jest.clearAllMocks();
+        
+        // 建立新的模擬實例
+        mockEmailService = new EmailService();
+    });
+    
+    describe('User Creation', () => {
+        test('should create user with valid data', () => {
+            const user = new User(userData);
+            
+            expect(user.name).toBe('John Doe');
+            expect(user.email).toBe('john@example.com');
+            expect(user.age).toBe(30);
+        });
+        
+        test('should throw error with invalid email', () => {
+            expect(() => {
+                new User({
+                    ...userData,
+                    email: 'invalid-email'
+                });
+            }).toThrow('Invalid email');
+        });
+    });
+    
+    describe('Email Functionality', () => {
+        test('should send welcome email', async () => {
+            const user = new User(userData);
+            
+            await user.sendWelcomeEmail();
+            
+            expect(EmailService).toHaveBeenCalledTimes(1);
+            expect(mockEmailService.send).toHaveBeenCalledWith({
+                to: 'john@example.com',
+                subject: 'Welcome!',
+                body: expect.any(String)
+            });
+        });
+    });
+    
+    // 使用 test.each 進行參數化測試
+    test.each([
+        [17, false],
+        [18, true],
+        [25, true],
+        [65, true],
+        [66, false]
+    ])('should return %s for age %i', (age, expected) => {
+        const user = new User({ ...userData, age });
+        expect(user.isAdult()).toBe(expected);
+    });
+});
+
+// 自訂匹配器
+expect.extend({
+    toBeValidEmail(received) {
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        const pass = emailRegex.test(received);
+        
+        return {
+            message: () => `expected ${received} to be a valid email`,
+            pass
+        };
+    }
+});
+
+test('should validate email format', () => {
+    expect('john@example.com').toBeValidEmail();
+});
+```
+</PythonEditor>
+
+## 模擬和存根
+
+### 模擬外部相依性
+
+<PythonEditor title="模擬技術" compare={true}>
+```python !! py
+# Python 使用 unittest.mock 進行模擬
+from unittest.mock import Mock, patch, MagicMock
+import requests
+
+# 模擬物件
+def test_with_mock_object():
+    mock_service = Mock()
+    mock_service.get_data.return_value = {'id': 1, 'name': 'Test'}
+    
+    # 使用 mock_service 的測試程式碼
+    result = mock_service.get_data()
+    assert result['name'] == 'Test'
+    mock_service.get_data.assert_called_once()
+
+# 修補裝飾器
+@patch('requests.get')
+def test_api_call(mock_get):
+    # 設定模擬回應
+    mock_response = Mock()
+    mock_response.json.return_value = {'status': 'success'}
+    mock_response.status_code = 200
+    mock_get.return_value = mock_response
+    
+    # 測試函式
+    result = fetch_user_data(123)
+    
+    # 斷言
+    assert result['status'] == 'success'
+    mock_get.assert_called_with('https://api.example.com/users/123')
+
+# 上下文管理器修補
+def test_with_context_manager():
+    with patch('requests.get') as mock_get:
+        mock_get.return_value.json.return_value = {'data': 'test'}
+        result = fetch_data()
+        assert result['data'] == 'test'
+
+# 模擬副作用
+def test_side_effects():
+    mock_service = Mock()
+    mock_service.process.side_effect = [1, 2, ValueError('Error')]
+    
+    assert mock_service.process() == 1
+    assert mock_service.process() == 2
+    
+    with pytest.raises(ValueError):
+        mock_service.process()
+
+# 非同步模擬
+@patch('aiohttp.ClientSession.get')
+async def test_async_function(mock_get):
+    mock_response = Mock()
+    mock_response.json = Mock(return_value={'async': 'data'})
+    mock_get.return_value.__aenter__.return_value = mock_response
+    
+    result = await fetch_async_data()
+    assert result['async'] == 'data'
+```
+
+```javascript !! js
+// JavaScript 使用 Jest 進行模擬
+const axios = require('axios');
+const fs = require('fs');
+
+// 模擬整個模組
+jest.mock('axios');
+jest.mock('fs');
+
+describe('Mocking Examples', () => {
+    beforeEach(() => {
+        jest.clearAllMocks();
+    });
+    
+    test('should mock axios calls', async () => {
+        const mockData = { data: { id: 1, name: 'Test User' } };
+        axios.get.mockResolvedValue(mockData);
+        
+        const result = await fetchUserData(1);
+        
+        expect(result.name).toBe('Test User');
+        expect(axios.get).toHaveBeenCalledWith('/api/users/1');
+    });
+    
+    test('should mock with different return values', () => {
+        const mockService = jest.fn();
+        mockService
+            .mockReturnValueOnce('first')
+            .mockReturnValueOnce('second')
+            .mockImplementation(() => 'default');
+        
+        expect(mockService()).toBe('first');
+        expect(mockService()).toBe('second');
+        expect(mockService()).toBe('default');
+    });
+    
+    test('should mock with side effects', () => {
+        const mockFunction = jest.fn();
+        mockFunction
+            .mockImplementationOnce(() => { throw new Error('First error'); })
+            .mockImplementationOnce(() => 'success');
+        
+        expect(() => mockFunction()).toThrow('First error');
+        expect(mockFunction()).toBe('success');
+    });
+    
+    test('should spy on existing methods', () => {
+        const user = new User('John', 'john@example.com');
+        const validateSpy = jest.spyOn(user, 'validate');
+        
+        user.save();
+        
+        expect(validateSpy).toHaveBeenCalled();
+        validateSpy.mockRestore();
+    });
+    
+    test('should mock timers', () => {
+        jest.useFakeTimers();
+        
+        const callback = jest.fn();
+        setTimeout(callback, 1000);
+        
+        expect(callback).not.toHaveBeenCalled();
+        
+        jest.advanceTimersByTime(1000);
+        expect(callback).toHaveBeenCalled();
+        
+        jest.useRealTimers();
+    });
+    
+    test('should mock Promise rejections', async () => {
+        axios.get.mockRejectedValue(new Error('Network error'));
+        
+        await expect(fetchUserData(1)).rejects.toThrow('Network error');
+    });
+    
+    test('should mock file system operations', () => {
+        fs.readFileSync.mockReturnValue('file content');
+        
+        const content = readConfigFile('config.json');
+        
+        expect(content).toBe('file content');
+        expect(fs.readFileSync).toHaveBeenCalledWith('config.json', 'utf8');
+    });
+});
+
+// 手動模擬（__mocks__ 目錄）
+// __mocks__/axios.js
+export default {
+    get: jest.fn(() => Promise.resolve({ data: {} })),
+    post: jest.fn(() => Promise.resolve({ data: {} })),
+    put: jest.fn(() => Promise.resolve({ data: {} })),
+    delete: jest.fn(() => Promise.resolve({ data: {} }))
+};
+
+// 部分模擬
+jest.mock('../utils/logger', () => ({
+    ...jest.requireActual('../utils/logger'),
+    error: jest.fn()  // 只模擬 error 方法
+}));
+```
+</PythonEditor>
+
+## 非同步測試
+
+### 測試非同步程式碼
+
+<PythonEditor title="非同步測試" compare={true}>
+```python !! py
+# Python 使用 pytest-asyncio 進行非同步測試
+import pytest
+import asyncio
+import aiohttp
+from unittest.mock import AsyncMock, patch
+
+# 基本非同步測試
+@pytest.mark.asyncio
+async def test_async_function():
+    result = await fetch_async_data()
+    assert result is not None
+
+# 非同步夾具
+@pytest.fixture
+async def async_client():
+    async with aiohttp.ClientSession() as session:
+        yield session
+
+@pytest.mark.asyncio
+async def test_with_async_fixture(async_client):
+    async with async_client.get('http://example.com') as response:
+        data = await response.json()
+        assert data is not None
+
+# 模擬非同步函式
+@pytest.mark.asyncio
+@patch('aiohttp.ClientSession.get')
+async def test_mock_async_call(mock_get):
+    # 設定非同步模擬
+    mock_response = AsyncMock()
+    mock_response.json.return_value = {'status': 'ok'}
+    mock_get.return_value.__aenter__.return_value = mock_response
+    
+    result = await api_call()
+    assert result['status'] == 'ok'
+
+# 測試非同步例外
+@pytest.mark.asyncio
+async def test_async_exception():
+    with pytest.raises(aiohttp.ClientError):
+        await failing_async_function()
+
+# 逾時測試
+@pytest.mark.asyncio
+async def test_with_timeout():
+    with pytest.raises(asyncio.TimeoutError):
+        await asyncio.wait_for(slow_function(), timeout=1.0)
+```
+
+```javascript !! js
+// JavaScript 非同步測試（Jest 原生支援）
+describe('Async Testing', () => {
+    test('should test async function with async/await', async () => {
+        const result = await fetchData();
+        expect(result).toBeDefined();
+    });
+    
+    test('should test Promise resolution', () => {
+        return fetchData().then(result => {
+            expect(result.status).toBe('success');
+        });
+    });
+    
+    test('should test Promise rejection', async () => {
+        await expect(failingAsyncFunction()).rejects.toThrow('Error message');
+    });
+    
+    test('should test with resolves matcher', async () => {
+        await expect(fetchData()).resolves.toHaveProperty('id');
+    });
+    
+    test('should mock async operations', async () => {
+        const mockAsyncFunction = jest.fn().mockResolvedValue('mocked result');
+        
+        const result = await mockAsyncFunction();
+        expect(result).toBe('mocked result');
+    });
+    
+    test('should test setTimeout with fake timers', async () => {
+        jest.useFakeTimers();
+        
+        const promise = new Promise(resolve => {
+            setTimeout(() => resolve('delayed'), 1000);
+        });
+        
+        // 快進時間
+        jest.advanceTimersByTime(1000);
+        
+        await expect(promise).resolves.toBe('delayed');
+        
+        jest.useRealTimers();
+    });
+    
+    test('should test multiple async operations', async () => {
+        const results = await Promise.all([
+            fetchUser(1),
+            fetchUser(2),
+            fetchUser(3)
+        ]);
+        
+        expect(results).toHaveLength(3);
+        results.forEach(result => {
+            expect(result).toHaveProperty('id');
+        });
+    });
+    
+    test('should test async error handling', async () => {
+        const mockFetch = jest.fn().mockRejectedValue(new Error('Network error'));
+        
+        try {
+            await apiCall();
+            fail('Should have thrown error');
+        } catch (error) {
+            expect(error.message).toBe('Network error');
+        }
+    });
+});
+
+// 測試回呼函式（舊的非同步模式）
+test('should test callback-based async code', (done) => {
+    fetchDataWithCallback((error, data) => {
+        expect(error).toBeNull();
+        expect(data).toBeDefined();
+        done();
+    });
+});
+
+// 自訂逾時測試
+test('should complete within time limit', async () => {
+    await expect(fastAsyncFunction()).resolves.toBeDefined();
+}, 5000); // 5 秒逾時
+```
+</PythonEditor>
+
+## 除錯工具和技術
+
+### 瀏覽器開發者工具 vs Python 除錯器
+
+<PythonEditor title="除錯對比" compare={true}>
+```python !! py
+# Python 使用 pdb 除錯
+import pdb
+
+def calculate_total(items):
+    total = 0
+    for item in items:
+        pdb.set_trace()  # 除錯器中斷點
+        total += item['price'] * item['quantity']
+    return total
+
+# 使用 iPDB（增強除錯器）
+import ipdb
+
+def process_data(data):
+    ipdb.set_trace()  # 比 pdb 界面更好
+    cleaned_data = []
+    for item in data:
+        if item['valid']:
+            cleaned_data.append(item)
+    return cleaned_data
+
+# 使用 IDE 除錯器（VS Code, PyCharm）
+def complex_function(a, b, c):
+    # 在 IDE 中設定中斷點
+    result = a * b
+    result += c
+    return result
+
+# 使用日誌進行除錯
+import logging
+
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
+
+def debug_with_logging():
+    logger.debug("Starting function")
+    data = fetch_data()
+    logger.debug(f"Fetched {len(data)} items")
+    
+    processed = process_items(data)
+    logger.debug(f"Processed {len(processed)} items")
+    
+    return processed
+```
+
+```javascript !! js
+// JavaScript 使用瀏覽器開發者工具除錯
+function calculateTotal(items) {
+    let total = 0;
+    items.forEach(item => {
+        debugger; // 瀏覽器除錯器中斷點
+        total += item.price * item.quantity;
+    });
+    return total;
+}
+
+// 主控台除錯
+function processData(data) {
+    console.log('Processing data:', data);
+    console.table(data); // 好看的表格檢視
+    console.group('Data Processing');
+    
+    const cleanedData = data.filter(item => {
+        console.log(`Checking item:`, item);
+        return item.valid;
+    });
+    
+    console.groupEnd();
+    console.log('Result:', cleanedData);
+    return cleanedData;
+}
+
+// 進階主控台方法
+function advancedLogging() {
+    const users = [
+        { id: 1, name: 'John', role: 'admin' },
+        { id: 2, name: 'Jane', role: 'user' }
+    ];
+    
+    console.table(users);
+    console.count('Function called');
+    console.time('Performance');
+    
+    // 一些處理...
+    processUsers(users);
+    
+    console.timeEnd('Performance');
+    console.warn('This is a warning');
+    console.error('This is an error');
+}
+
+// Node.js 除錯
+const util = require('util');
+
+function nodeDebugging(data) {
+    // 深度檢查物件
+    console.log(util.inspect(data, { depth: null, colors: true }));
+    
+    // 效能監控
+    console.time('operation');
+    const result = heavyOperation(data);
+    console.timeEnd('operation');
+    
+    return result;
+}
+
+// 使用 Node.js 除錯器
+// node --inspect-brk script.js
+// 然後開啟 chrome://inspect
+
+// VS Code 除錯設定
+// .vscode/launch.json
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "node",
+            "request": "launch",
+            "name": "Debug Node.js",
+            "program": "${workspaceFolder}/src/app.js",
+            "console": "integratedTerminal",
+            "env": {
+                "NODE_ENV": "development"
+            }
+        },
+        {
+            "type": "node",
+            "request": "launch",
+            "name": "Debug Tests",
+            "program": "${workspaceFolder}/node_modules/.bin/jest",
+            "args": ["--runInBand"],
+            "console": "integratedTerminal"
+        }
+    ]
+}
+
+// 錯誤處理和除錯
+function errorHandling() {
+    try {
+        riskyOperation();
+    } catch (error) {
+        console.error('Error details:', {
+            message: error.message,
+            stack: error.stack,
+            name: error.name
+        });
+        
+        // 傳送到錯誤回報服務
+        errorReporter.captureException(error);
+        throw error; // 如果需要重新拋出
+    }
+}
+```
+</PythonEditor>
+
+## 測試覆蓋率和回報
+
+### 覆蓋率工具對比
+
+<PythonEditor title="測試覆蓋率" compare={true}>
+```python !! py
+# Python 使用 coverage.py 進行覆蓋率測試
+# 安裝：pip install coverage
+
+# 執行帶覆蓋率的測試
+# coverage run -m pytest
+# coverage report
+# coverage html
+
+# pytest-cov 整合
+# pytest --cov=myproject --cov-report=html
+
+# .coveragerc 設定
+[run]
+source = .
+omit = 
+    */venv/*
+    */tests/*
+    setup.py
+
+[report]
+exclude_lines =
+    pragma: no cover
+    def __repr__
+    raise AssertionError
+    raise NotImplementedError
+
+# 帶覆蓋率註解的範例測試
+def calculate_discount(price, discount_percent):
+    if discount_percent < 0:  # pragma: no cover
+        raise ValueError("Discount cannot be negative")
+    
+    if discount_percent > 100:
+        discount_percent = 100
+    
+    return price * (1 - discount_percent / 100)
+
+# CI/CD 中的覆蓋率
+# .github/workflows/test.yml
+- name: Test with coverage
+  run: |
+    pip install coverage
+    coverage run -m pytest
+    coverage xml
+    
+- name: Upload coverage to Codecov
+  uses: codecov/codecov-action@v1
+```
+
+```javascript !! js
+// JavaScript 使用 Jest 進行覆蓋率測試（內建）
+// package.json
+{
+  "scripts": {
+    "test": "jest",
+    "test:coverage": "jest --coverage",
+    "test:watch": "jest --watch",
+    "test:ci": "jest --coverage --watchAll=false"
+  },
+  "jest": {
+    "collectCoverageFrom": [
+      "src/**/*.js",
+      "!src/index.js",
+      "!src/**/*.test.js"
+    ],
+    "coverageDirectory": "coverage",
+    "coverageReporters": [
+      "text",
+      "lcov",
+      "html"
+    ],
+    "coverageThreshold": {
+      "global": {
+        "branches": 80,
+        "functions": 80,
+        "lines": 80,
+        "statements": 80
+      }
+    }
+  }
+}
+
+// 帶覆蓋率的範例函式
+function calculateDiscount(price, discountPercent) {
+    /* istanbul ignore if */
+    if (discountPercent < 0) {
+        throw new Error('Discount cannot be negative');
+    }
+    
+    if (discountPercent > 100) {
+        discountPercent = 100;
+    }
+    
+    return price * (1 - discountPercent / 100);
+}
+
+// 覆蓋率測試檔案
+describe('calculateDiscount', () => {
+    test('should calculate discount correctly', () => {
+        expect(calculateDiscount(100, 20)).toBe(80);
+    });
+    
+    test('should cap discount at 100%', () => {
+        expect(calculateDiscount(100, 150)).toBe(0);
+    });
+    
+    test('should throw error for negative discount', () => {
+        expect(() => calculateDiscount(100, -10))
+            .toThrow('Discount cannot be negative');
+    });
+});
+
+// CI/CD 中的覆蓋率
+// .github/workflows/test.yml
+- name: Run tests with coverage
+  run: npm run test:ci
+
+- name: Upload coverage to Codecov
+  uses: codecov/codecov-action@v1
+  with:
+    file: ./coverage/lcov.info
+
+// 自訂覆蓋率回報器
+// coverage-reporter.js
+class CustomCoverageReporter {
+    onRunComplete(contexts, results) {
+        console.log('Custom coverage report:');
+        console.log(`Coverage: ${results.coverageMap.getCoverageSummary().lines.pct}%`);
+    }
+}
+
+module.exports = CustomCoverageReporter;
+
+// 非 Jest 專案使用 NYC
+// package.json
+{
+  "scripts": {
+    "test": "nyc mocha",
+    "coverage": "nyc report --reporter=html"
+  },
+  "nyc": {
+    "include": ["src/**/*.js"],
+    "exclude": ["src/**/*.test.js"],
+    "reporter": ["text", "html", "lcov"]
+  }
+}
+```
+</PythonEditor>
+
+## 整合測試
+
+### 測試應用程式整合
+
+<PythonEditor title="整合測試" compare={true}>
+```python !! py
+# Python 使用 pytest 進行整合測試
+import pytest
+import requests
+from unittest.mock import patch
+from app import create_app
+from database import db
+
+@pytest.fixture
+def app():
+    app = create_app(testing=True)
+    with app.app_context():
+        db.create_all()
+        yield app
+        db.drop_all()
+
+@pytest.fixture
+def client(app):
+    return app.test_client()
+
+def test_user_registration_flow(client):
+    # 測試完整的使用者註冊流程
+    response = client.post('/api/register', json={
+        'username': 'testuser',
+        'email': 'test@example.com',
+        'password': 'password123'
+    })
+    
+    assert response.status_code == 201
+    data = response.get_json()
+    assert 'user_id' in data
+    
+    # 測試新使用者登入
+    login_response = client.post('/api/login', json={
+        'email': 'test@example.com',
+        'password': 'password123'
+    })
+    
+    assert login_response.status_code == 200
+    login_data = login_response.get_json()
+    assert 'token' in login_data
+
+def test_database_integration():
+    # 測試資料庫操作
+    user = User(username='test', email='test@example.com')
+    db.session.add(user)
+    db.session.commit()
+    
+    retrieved_user = User.query.filter_by(email='test@example.com').first()
+    assert retrieved_user is not None
+    assert retrieved_user.username == 'test'
+
+# API 整合測試
+def test_external_api_integration():
+    response = requests.get('https://api.example.com/users/1')
+    assert response.status_code == 200
+    
+    data = response.json()
+    assert 'id' in data
+    assert 'name' in data
+```
+
+```javascript !! js
+// JavaScript 使用 Jest 和 Supertest 進行整合測試
+const request = require('supertest');
+const app = require('../app');
+const User = require('../models/user');
+const db = require('../database');
+
+describe('Integration Tests', () => {
+    beforeAll(async () => {
+        await db.connect();
+    });
+    
+    afterAll(async () => {
+        await db.disconnect();
+    });
+    
+    beforeEach(async () => {
+        await User.deleteMany({});
+    });
+    
+    test('should handle complete user registration flow', async () => {
+        // 註冊使用者
+        const registerResponse = await request(app)
+            .post('/api/register')
+            .send({
+                username: 'testuser',
+                email: 'test@example.com',
+                password: 'password123'
+            })
+            .expect(201);
+        
+        expect(registerResponse.body).toHaveProperty('userId');
+        
+        // 使用新使用者登入
+        const loginResponse = await request(app)
+            .post('/api/login')
+            .send({
+                email: 'test@example.com',
+                password: 'password123'
+            })
+            .expect(200);
+        
+        expect(loginResponse.body).toHaveProperty('token');
+        
+        // 存取受保護的路由
+        const token = loginResponse.body.token;
+        const profileResponse = await request(app)
+            .get('/api/profile')
+            .set('Authorization', `Bearer ${token}`)
+            .expect(200);
+        
+        expect(profileResponse.body.email).toBe('test@example.com');
+    });
+    
+    test('should handle database operations', async () => {
+        const userData = {
+            username: 'testuser',
+            email: 'test@example.com',
+            password: 'hashed_password'
+        };
+        
+        const user = new User(userData);
+        await user.save();
+        
+        const retrievedUser = await User.findOne({ email: 'test@example.com' });
+        expect(retrievedUser).toBeTruthy();
+        expect(retrievedUser.username).toBe('testuser');
+    });
+    
+    test('should handle API errors properly', async () => {
+        // 測試驗證錯誤
+        const response = await request(app)
+            .post('/api/register')
+            .send({
+                username: '', // 無效資料
+                email: 'invalid-email',
+                password: '123' // 太短
+            })
+            .expect(400);
+        
+        expect(response.body).toHaveProperty('errors');
+        expect(response.body.errors).toBeInstanceOf(Array);
+    });
+});
+
+// 使用真實資料庫測試（MongoDB Memory Server）
+const { MongoMemoryServer } = require('mongodb-memory-server');
+const mongoose = require('mongoose');
+
+describe('Database Integration', () => {
+    let mongoServer;
+    
+    beforeAll(async () => {
+        mongoServer = await MongoMemoryServer.create();
+        const mongoUri = mongoServer.getUri();
+        await mongoose.connect(mongoUri);
+    });
+    
+    afterAll(async () => {
+        await mongoose.disconnect();
+        await mongoServer.stop();
+    });
+    
+    test('should perform complex database operations', async () => {
+        // 建立多個相關記錄
+        const user = await User.create({
+            username: 'testuser',
+            email: 'test@example.com'
+        });
+        
+        const posts = await Post.create([
+            { title: 'Post 1', content: 'Content 1', author: user._id },
+            { title: 'Post 2', content: 'Content 2', author: user._id }
+        ]);
+        
+        // 測試聚合
+        const userWithPosts = await User.aggregate([
+            { $match: { _id: user._id } },
+            {
+                $lookup: {
+                    from: 'posts',
+                    localField: '_id',
+                    foreignField: 'author',
+                    as: 'posts'
+                }
+            }
+        ]);
+        
+        expect(userWithPosts[0].posts).toHaveLength(2);
+    });
+});
+
+// 使用 Puppeteer 進行端到端測試
+const puppeteer = require('puppeteer');
+
+describe('E2E Tests', () => {
+    let browser, page;
+    
+    beforeAll(async () => {
+        browser = await puppeteer.launch();
+        page = await browser.newPage();
+    });
+    
+    afterAll(async () => {
+        await browser.close();
+    });
+    
+    test('should complete user journey', async () => {
+        await page.goto('http://localhost:3000');
+        
+        // 填寫註冊表單
+        await page.type('#username', 'testuser');
+        await page.type('#email', 'test@example.com');
+        await page.type('#password', 'password123');
+        await page.click('#register-button');
+        
+        // 等待重新導向
+        await page.waitForSelector('#dashboard');
+        
+        const welcomeText = await page.$eval('#welcome-message', el => el.textContent);
+        expect(welcomeText).toContain('Welcome, testuser');
+    });
+});
+```
+</PythonEditor>
+
+## 最佳實務總結
+
+### 測試最佳實務
+
+1. **測試結構**：使用描述性的測試名稱，邏輯性地組織測試
+2. **測試獨立性**：每個測試應該獨立且可重複
+3. **覆蓋率**：追求高測試覆蓋率，但關注關鍵路徑
+4. **快速測試**：保持單元測試快速；謹慎使用整合測試
+5. **模擬外部相依性**：隔離被測試的單元
+6. **測試資料**：使用工廠或夾具確保一致的測試資料
+
+### 除錯最佳實務
+
+1. **使用除錯器**：有效學習使用瀏覽器開發者工具和 Node.js 除錯器
+2. **主控台日誌**：為不同類型的輸出使用適當的主控台方法
+3. **錯誤處理**：實施適當的錯誤處理和日誌記錄
+4. **來源對應**：使用來源對應除錯壓縮程式碼
+5. **效能**：使用效能分析工具識別瓶頸
+
+## 下一步
+
+在下一個模組中，我們將探索建置工具和開發工作流程，涵蓋 webpack、Babel 和現代 JavaScript 工具鏈，對比 Python 的 setuptools 和 pip。
+
+我們將涵蓋的關鍵主題：
+- Webpack vs setuptools
+- Babel 轉譯
+- 開發伺服器
+- 熱模組替換
+- 生產建置和最佳化
+
+---
+
+*繼續學習 [模組 11：建置工具與開發流程 →](/docs/py2js/module-11-build-tools)*

@@ -1,0 +1,2245 @@
+---
+title: Full-Stack Development Best Practices
+description: Master full-stack JavaScript development from a Python developer's perspective, including architecture patterns, deployment strategies, and production considerations
+---
+
+# Module 13: Full-Stack Development Best Practices
+
+## Learning Objectives
+
+By the end of this module, you will:
+- Understand full-stack JavaScript architecture patterns
+- Implement secure authentication and authorization
+- Deploy applications to production environments
+- Monitor and optimize production applications
+- Scale applications effectively
+- Apply security best practices throughout the stack
+
+## Full-Stack Architecture Patterns
+
+### Comparing Python and JavaScript Architectures
+
+<PythonEditor title="Full-Stack Architecture Comparison" compare={true}>
+```python !! py
+# Python full-stack architecture (Django + React/Vue)
+# Traditional separated frontend and backend
+
+# Backend: Django Project Structure
+# myproject/
+# ├── manage.py
+# ├── myproject/
+# │   ├── settings/
+# │   │   ├── base.py
+# │   │   ├── development.py
+# │   │   └── production.py
+# │   ├── urls.py
+# │   └── wsgi.py
+# ├── apps/
+# │   ├── authentication/
+# │   ├── users/
+# │   └── api/
+# ├── requirements/
+# │   ├── base.txt
+# │   ├── development.txt
+# │   └── production.txt
+# └── frontend/  (separate React/Vue app)
+
+# Django settings/base.py
+import os
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
+
+INSTALLED_APPS = [
+    'django.contrib.admin',
+    'django.contrib.auth',
+    'django.contrib.contenttypes',
+    'rest_framework',
+    'corsheaders',
+    'apps.authentication',
+    'apps.users',
+    'apps.api',
+]
+
+MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',
+    'django.middleware.security.SecurityMiddleware',
+    'django.contrib.sessions.middleware.SessionMiddleware',
+    'django.middleware.common.CommonMiddleware',
+    'django.middleware.csrf.CsrfViewMiddleware',
+    'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'apps.authentication.middleware.JWTAuthenticationMiddleware',
+]
+
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+    ],
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.IsAuthenticated',
+    ],
+    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
+    'PAGE_SIZE': 20,
+}
+
+# Django authentication
+from rest_framework_simplejwt.views import TokenObtainPairView
+from django.contrib.auth import authenticate
+
+class CustomTokenObtainPairView(TokenObtainPairView):
+    def post(self, request, *args, **kwargs):
+        response = super().post(request, *args, **kwargs)
+        if response.status_code == 200:
+            # Add custom data to response
+            user = authenticate(
+                username=request.data['username'],
+                password=request.data['password']
+            )
+            response.data['user'] = {
+                'id': user.id,
+                'username': user.username,
+                'email': user.email,
+            }
+        return response
+```
+
+```javascript !! js
+// JavaScript full-stack architecture (Node.js + React/Next.js)
+// Modern unified or monorepo approach
+
+// Project structure for modern full-stack JavaScript:
+// my-app/
+// ├── package.json
+// ├── apps/
+// │   ├── web/          (Next.js frontend)
+// │   │   ├── pages/
+// │   │   ├── components/
+// │   │   └── package.json
+// │   └── api/          (Express.js backend)
+// │       ├── src/
+// │       ├── routes/
+// │       └── package.json
+// ├── packages/
+// │   ├── shared/       (shared utilities)
+// │   ├── ui/          (component library)
+// │   └── database/    (database models)
+// └── docker-compose.yml
+
+// Backend: Express.js with TypeScript
+// apps/api/src/app.ts
+import express from 'express';
+import cors from 'cors';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
+import { authRouter } from './routes/auth';
+import { usersRouter } from './routes/users';
+import { errorHandler } from './middleware/errorHandler';
+import { authMiddleware } from './middleware/auth';
+
+const app = express();
+
+// Security middleware
+app.use(helmet());
+app.use(cors({
+    origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+    credentials: true
+}));
+
+// Rate limiting
+const limiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 100, // limit each IP to 100 requests per windowMs
+    message: 'Too many requests from this IP'
+});
+app.use('/api/', limiter);
+
+// Body parsing
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true }));
+
+// Routes
+app.use('/api/auth', authRouter);
+app.use('/api/users', authMiddleware, usersRouter);
+
+// Health check
+app.get('/health', (req, res) => {
+    res.json({ status: 'OK', timestamp: new Date().toISOString() });
+});
+
+// Error handling
+app.use(errorHandler);
+
+export default app;
+
+// Authentication middleware
+// apps/api/src/middleware/auth.ts
+import jwt from 'jsonwebtoken';
+import { Request, Response, NextFunction } from 'express';
+import { User } from '../models/User';
+
+interface AuthenticatedRequest extends Request {
+    user?: User;
+}
+
+export const authMiddleware = async (
+    req: AuthenticatedRequest,
+    res: Response,
+    next: NextFunction
+) => {
+    try {
+        const token = req.headers.authorization?.replace('Bearer ', '');
+        
+        if (!token) {
+            return res.status(401).json({ error: 'No token provided' });
+        }
+
+        const decoded = jwt.verify(token, process.env.JWT_SECRET!) as any;
+        const user = await User.findById(decoded.userId);
+        
+        if (!user) {
+            return res.status(401).json({ error: 'Invalid token' });
+        }
+
+        req.user = user;
+        next();
+    } catch (error) {
+        return res.status(401).json({ error: 'Invalid token' });
+    }
+};
+
+// Frontend: Next.js with TypeScript
+// apps/web/pages/_app.tsx
+import type { AppProps } from 'next/app';
+import { AuthProvider } from '../contexts/AuthContext';
+import { QueryClient, QueryClientProvider } from 'react-query';
+import { Toaster } from 'react-hot-toast';
+import '../styles/globals.css';
+
+const queryClient = new QueryClient({
+    defaultOptions: {
+        queries: {
+            staleTime: 5 * 60 * 1000, // 5 minutes
+            cacheTime: 10 * 60 * 1000, // 10 minutes
+        },
+    },
+});
+
+function MyApp({ Component, pageProps }: AppProps) {
+    return (
+        <QueryClientProvider client={queryClient}>
+            <AuthProvider>
+                <Component {...pageProps} />
+                <Toaster position="top-right" />
+            </AuthProvider>
+        </QueryClientProvider>
+    );
+}
+
+export default MyApp;
+
+// Authentication context
+// apps/web/contexts/AuthContext.tsx
+import React, { createContext, useContext, useEffect, useState } from 'react';
+import { useRouter } from 'next/router';
+import { authAPI } from '../services/api';
+
+interface User {
+    id: string;
+    username: string;
+    email: string;
+}
+
+interface AuthContextType {
+    user: User | null;
+    login: (username: string, password: string) => Promise<void>;
+    logout: () => void;
+    loading: boolean;
+}
+
+const AuthContext = createContext<AuthContextType | null>(null);
+
+export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+    const [user, setUser] = useState<User | null>(null);
+    const [loading, setLoading] = useState(true);
+    const router = useRouter();
+
+    useEffect(() => {
+        const token = localStorage.getItem('token');
+        if (token) {
+            authAPI.verifyToken(token)
+                .then(setUser)
+                .catch(() => localStorage.removeItem('token'))
+                .finally(() => setLoading(false));
+        } else {
+            setLoading(false);
+        }
+    }, []);
+
+    const login = async (username: string, password: string) => {
+        const { user, token } = await authAPI.login(username, password);
+        localStorage.setItem('token', token);
+        setUser(user);
+        router.push('/dashboard');
+    };
+
+    const logout = () => {
+        localStorage.removeItem('token');
+        setUser(null);
+        router.push('/login');
+    };
+
+    return (
+        <AuthContext.Provider value={{ user, login, logout, loading }}>
+            {children}
+        </AuthContext.Provider>
+    );
+};
+
+export const useAuth = () => {
+    const context = useContext(AuthContext);
+    if (!context) {
+        throw new Error('useAuth must be used within AuthProvider');
+    }
+    return context;
+};
+```
+</PythonEditor>
+
+## Authentication and Authorization
+
+### Secure Authentication Implementation
+
+<PythonEditor title="Authentication & Authorization" compare={true}>
+```python !! py
+# Python: Django with JWT authentication
+from rest_framework_simplejwt.tokens import RefreshToken
+from django.contrib.auth import authenticate
+from django.contrib.auth.models import User
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework import status
+
+@api_view(['POST'])
+def login(request):
+    username = request.data.get('username')
+    password = request.data.get('password')
+    
+    user = authenticate(username=username, password=password)
+    if user:
+        refresh = RefreshToken.for_user(user)
+        return Response({
+            'access': str(refresh.access_token),
+            'refresh': str(refresh),
+            'user': {
+                'id': user.id,
+                'username': user.username,
+                'email': user.email,
+            }
+        })
+    return Response(
+        {'error': 'Invalid credentials'}, 
+        status=status.HTTP_401_UNAUTHORIZED
+    )
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def protected_view(request):
+    return Response({
+        'message': f'Hello {request.user.username}',
+        'user_id': request.user.id
+    })
+
+# Role-based permissions
+from django.contrib.auth.models import Group
+
+class IsAdminOrReadOnly:
+    def has_permission(self, request, view):
+        if request.method in ['GET', 'HEAD', 'OPTIONS']:
+            return True
+        return request.user.groups.filter(name='Admin').exists()
+
+# Custom user model
+from django.contrib.auth.models import AbstractUser
+
+class CustomUser(AbstractUser):
+    email = models.EmailField(unique=True)
+    role = models.CharField(max_length=20, choices=[
+        ('admin', 'Admin'),
+        ('user', 'User'),
+        ('moderator', 'Moderator')
+    ], default='user')
+    
+    USERNAME_FIELD = 'email'
+    REQUIRED_FIELDS = ['username']
+```
+
+```javascript !! js
+// JavaScript: Node.js with JWT and role-based authorization
+// apps/api/src/services/authService.ts
+import jwt from 'jsonwebtoken';
+import bcrypt from 'bcryptjs';
+import { User, UserRole } from '../models/User';
+
+export class AuthService {
+    static generateTokens(userId: string) {
+        const accessToken = jwt.sign(
+            { userId, type: 'access' },
+            process.env.JWT_SECRET!,
+            { expiresIn: '15m' }
+        );
+        
+        const refreshToken = jwt.sign(
+            { userId, type: 'refresh' },
+            process.env.JWT_REFRESH_SECRET!,
+            { expiresIn: '7d' }
+        );
+        
+        return { accessToken, refreshToken };
+    }
+    
+    static async login(email: string, password: string) {
+        const user = await User.findOne({ email });
+        if (!user || !await bcrypt.compare(password, user.password)) {
+            throw new Error('Invalid credentials');
+        }
+        
+        const tokens = this.generateTokens(user.id);
+        
+        // Store refresh token
+        user.refreshToken = tokens.refreshToken;
+        await user.save();
+        
+        return {
+            user: {
+                id: user.id,
+                email: user.email,
+                username: user.username,
+                role: user.role
+            },
+            ...tokens
+        };
+    }
+    
+    static async refreshToken(refreshToken: string) {
+        try {
+            const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET!) as any;
+            const user = await User.findById(decoded.userId);
+            
+            if (!user || user.refreshToken !== refreshToken) {
+                throw new Error('Invalid refresh token');
+            }
+            
+            return this.generateTokens(user.id);
+        } catch (error) {
+            throw new Error('Invalid refresh token');
+        }
+    }
+    
+    static async register(userData: {
+        email: string;
+        username: string;
+        password: string;
+        role?: UserRole;
+    }) {
+        const existingUser = await User.findOne({
+            $or: [{ email: userData.email }, { username: userData.username }]
+        });
+        
+        if (existingUser) {
+            throw new Error('User already exists');
+        }
+        
+        const hashedPassword = await bcrypt.hash(userData.password, 12);
+        
+        const user = new User({
+            ...userData,
+            password: hashedPassword,
+            role: userData.role || UserRole.USER
+        });
+        
+        await user.save();
+        
+        const tokens = this.generateTokens(user.id);
+        
+        return {
+            user: {
+                id: user.id,
+                email: user.email,
+                username: user.username,
+                role: user.role
+            },
+            ...tokens
+        };
+    }
+}
+
+// Role-based authorization middleware
+// apps/api/src/middleware/authorization.ts
+import { Request, Response, NextFunction } from 'express';
+import { UserRole } from '../models/User';
+
+interface AuthorizedRequest extends Request {
+    user?: {
+        id: string;
+        role: UserRole;
+    };
+}
+
+export const authorize = (requiredRoles: UserRole[]) => {
+    return (req: AuthorizedRequest, res: Response, next: NextFunction) => {
+        if (!req.user) {
+            return res.status(401).json({ error: 'Authentication required' });
+        }
+        
+        if (!requiredRoles.includes(req.user.role)) {
+            return res.status(403).json({ error: 'Insufficient permissions' });
+        }
+        
+        next();
+    };
+};
+
+// Usage in routes
+import { authorize } from '../middleware/authorization';
+
+router.get('/admin/users', 
+    authMiddleware, 
+    authorize([UserRole.ADMIN]), 
+    getUsersController
+);
+
+router.delete('/admin/users/:id', 
+    authMiddleware, 
+    authorize([UserRole.ADMIN, UserRole.MODERATOR]), 
+    deleteUserController
+);
+
+// Password reset functionality
+// apps/api/src/services/passwordResetService.ts
+import crypto from 'crypto';
+import { EmailService } from './emailService';
+
+export class PasswordResetService {
+    static async initiateReset(email: string) {
+        const user = await User.findOne({ email });
+        if (!user) {
+            // Don't reveal if email exists
+            return { message: 'If email exists, reset link will be sent' };
+        }
+        
+        const resetToken = crypto.randomBytes(32).toString('hex');
+        const resetTokenExpiry = new Date(Date.now() + 3600000); // 1 hour
+        
+        user.resetToken = resetToken;
+        user.resetTokenExpiry = resetTokenExpiry;
+        await user.save();
+        
+        await EmailService.sendPasswordReset(email, resetToken);
+        
+        return { message: 'If email exists, reset link will be sent' };
+    }
+    
+    static async resetPassword(token: string, newPassword: string) {
+        const user = await User.findOne({
+            resetToken: token,
+            resetTokenExpiry: { $gt: new Date() }
+        });
+        
+        if (!user) {
+            throw new Error('Invalid or expired reset token');
+        }
+        
+        user.password = await bcrypt.hash(newPassword, 12);
+        user.resetToken = undefined;
+        user.resetTokenExpiry = undefined;
+        await user.save();
+        
+        return { message: 'Password reset successful' };
+    }
+}
+
+// Frontend: Secure authentication hooks
+// apps/web/hooks/useAuth.ts
+import { useState, useEffect } from 'react';
+import { authAPI } from '../services/api';
+
+export const useAuth = () => {
+    const [user, setUser] = useState(null);
+    const [loading, setLoading] = useState(true);
+    
+    useEffect(() => {
+        const token = localStorage.getItem('accessToken');
+        if (token) {
+            authAPI.verifyToken(token)
+                .then(setUser)
+                .catch(() => {
+                    localStorage.removeItem('accessToken');
+                    localStorage.removeItem('refreshToken');
+                })
+                .finally(() => setLoading(false));
+        } else {
+            setLoading(false);
+        }
+    }, []);
+    
+    const login = async (email: string, password: string) => {
+        const response = await authAPI.login(email, password);
+        localStorage.setItem('accessToken', response.accessToken);
+        localStorage.setItem('refreshToken', response.refreshToken);
+        setUser(response.user);
+        return response;
+    };
+    
+    const logout = () => {
+        localStorage.removeItem('accessToken');
+        localStorage.removeItem('refreshToken');
+        setUser(null);
+    };
+    
+    return { user, login, logout, loading };
+};
+
+// Automatic token refresh
+// apps/web/services/api.ts
+import axios, { AxiosResponse } from 'axios';
+
+const api = axios.create({
+    baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api',
+});
+
+// Request interceptor to add auth token
+api.interceptors.request.use((config) => {
+    const token = localStorage.getItem('accessToken');
+    if (token) {
+        config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+});
+
+// Response interceptor to handle token refresh
+api.interceptors.response.use(
+    (response: AxiosResponse) => response,
+    async (error) => {
+        const originalRequest = error.config;
+        
+        if (error.response?.status === 401 && !originalRequest._retry) {
+            originalRequest._retry = true;
+            
+            const refreshToken = localStorage.getItem('refreshToken');
+            if (refreshToken) {
+                try {
+                    const response = await axios.post('/api/auth/refresh', {
+                        refreshToken
+                    });
+                    
+                    localStorage.setItem('accessToken', response.data.accessToken);
+                    originalRequest.headers.Authorization = `Bearer ${response.data.accessToken}`;
+                    
+                    return api(originalRequest);
+                } catch (refreshError) {
+                    localStorage.removeItem('accessToken');
+                    localStorage.removeItem('refreshToken');
+                    window.location.href = '/login';
+                }
+            }
+        }
+        
+        return Promise.reject(error);
+    }
+);
+
+export default api;
+```
+</PythonEditor>
+
+## Deployment Strategies
+
+### Production Deployment Comparison
+
+<PythonEditor title="Deployment Strategies" compare={true}>
+```python !! py
+# Python deployment with Docker and Docker Compose
+# Dockerfile for Django
+FROM python:3.9-slim
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    postgresql-client \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+# Collect static files
+RUN python manage.py collectstatic --noinput
+
+EXPOSE 8000
+
+CMD ["gunicorn", "--bind", "0.0.0.0:8000", "myproject.wsgi:application"]
+
+# docker-compose.yml for full stack
+version: '3.8'
+
+services:
+  db:
+    image: postgres:13
+    environment:
+      POSTGRES_DB: myproject
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:6-alpine
+
+  web:
+    build: .
+    command: gunicorn --bind 0.0.0.0:8000 myproject.wsgi:application
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+      - redis
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/myproject
+      - REDIS_URL=redis://redis:6379/0
+
+  worker:
+    build: .
+    command: celery -A myproject worker -l info
+    volumes:
+      - .:/app
+    depends_on:
+      - db
+      - redis
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/myproject
+      - REDIS_URL=redis://redis:6379/0
+
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf
+      - ./static:/app/static
+    depends_on:
+      - web
+
+volumes:
+  postgres_data:
+
+# Kubernetes deployment
+# k8s/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: django-app
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: django-app
+  template:
+    metadata:
+      labels:
+        app: django-app
+    spec:
+      containers:
+      - name: django
+        image: myregistry/django-app:latest
+        ports:
+        - containerPort: 8000
+        env:
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: django-secrets
+              key: database-url
+```
+
+```javascript !! js
+// JavaScript deployment with Docker and modern platforms
+// Multi-stage Dockerfile for Next.js
+FROM node:18-alpine AS deps
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci --only=production
+
+FROM node:18-alpine AS builder
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci
+COPY . .
+RUN npm run build
+
+FROM node:18-alpine AS runner
+WORKDIR /app
+
+ENV NODE_ENV production
+
+RUN addgroup --system --gid 1001 nodejs
+RUN adduser --system --uid 1001 nextjs
+
+COPY --from=builder /app/public ./public
+COPY --from=builder /app/.next/standalone ./
+COPY --from=builder /app/.next/static ./.next/static
+
+USER nextjs
+
+EXPOSE 3000
+
+ENV PORT 3000
+
+CMD ["node", "server.js"]
+
+// Docker Compose for full-stack JavaScript
+# docker-compose.yml
+version: '3.8'
+
+services:
+  # Database
+  postgres:
+    image: postgres:13-alpine
+    environment:
+      POSTGRES_DB: myapp
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  # Redis for caching and sessions
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  # Backend API
+  api:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/myapp
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=${JWT_SECRET}
+    ports:
+      - "3001:3001"
+    depends_on:
+      - postgres
+      - redis
+    volumes:
+      - ./apps/api:/app
+      - /app/node_modules
+
+  # Frontend
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:3001/api
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+
+  # Nginx reverse proxy
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./nginx/ssl:/etc/nginx/ssl
+    depends_on:
+      - web
+      - api
+
+volumes:
+  postgres_data:
+
+// Vercel deployment (serverless)
+// vercel.json
+{
+    "version": 2,
+    "builds": [
+        {
+            "src": "apps/web/package.json",
+            "use": "@vercel/next"
+        },
+        {
+            "src": "apps/api/src/index.ts",
+            "use": "@vercel/node"
+        }
+    ],
+    "routes": [
+        {
+            "src": "/api/(.*)",
+            "dest": "apps/api/src/index.ts"
+        },
+        {
+            "src": "/(.*)",
+            "dest": "apps/web/$1"
+        }
+    ],
+    "env": {
+        "DATABASE_URL": "@database-url",
+        "JWT_SECRET": "@jwt-secret"
+    }
+}
+
+// Railway deployment configuration
+// railway.toml
+[build]
+builder = "nixpacks"
+
+[deploy]
+healthcheckPath = "/health"
+healthcheckTimeout = 300
+restartPolicyType = "on_failure"
+
+[[services]]
+name = "web"
+source = "apps/web"
+[services.env]
+NODE_ENV = "production"
+
+[[services]]
+name = "api"
+source = "apps/api"
+[services.env]
+NODE_ENV = "production"
+DATABASE_URL = "${{Postgres.DATABASE_URL}}"
+
+// AWS deployment with CDK
+// infrastructure/stack.ts
+import * as cdk from 'aws-cdk-lib';
+import * as ecs from 'aws-cdk-lib/aws-ecs';
+import * as ec2 from 'aws-cdk-lib/aws-ec2';
+import * as rds from 'aws-cdk-lib/aws-rds';
+import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
+
+export class MyAppStack extends cdk.Stack {
+    constructor(scope: Construct, id: string, props?: cdk.StackProps) {
+        super(scope, id, props);
+
+        // VPC
+        const vpc = new ec2.Vpc(this, 'MyAppVpc', {
+            maxAzs: 2
+        });
+
+        // Database
+        const database = new rds.DatabaseInstance(this, 'Database', {
+            engine: rds.DatabaseInstanceEngine.postgres({
+                version: rds.PostgresEngineVersion.VER_13_7
+            }),
+            instanceType: ec2.InstanceType.of(ec2.InstanceClass.T3, ec2.InstanceSize.MICRO),
+            vpc,
+            credentials: rds.Credentials.fromGeneratedSecret('postgres'),
+            deletionProtection: false
+        });
+
+        // ECS Cluster
+        const cluster = new ecs.Cluster(this, 'Cluster', {
+            vpc
+        });
+
+        // API Service
+        const apiTaskDefinition = new ecs.FargateTaskDefinition(this, 'ApiTaskDef');
+        apiTaskDefinition.addContainer('api', {
+            image: ecs.ContainerImage.fromRegistry('myregistry/api:latest'),
+            environment: {
+                DATABASE_URL: database.instanceEndpoint.socketAddress
+            },
+            logging: ecs.LogDrivers.awsLogs({
+                streamPrefix: 'api'
+            })
+        });
+
+        const apiService = new ecs.FargateService(this, 'ApiService', {
+            cluster,
+            taskDefinition: apiTaskDefinition
+        });
+
+        // Frontend (S3 + CloudFront)
+        const bucket = new s3.Bucket(this, 'WebBucket', {
+            websiteIndexDocument: 'index.html',
+            publicReadAccess: true
+        });
+
+        const distribution = new cloudfront.CloudFrontWebDistribution(this, 'Distribution', {
+            originConfigs: [{
+                s3OriginSource: {
+                    s3BucketSource: bucket
+                },
+                behaviors: [{ isDefaultBehavior: true }]
+            }]
+        });
+    }
+}
+
+// GitHub Actions deployment
+# .github/workflows/deploy.yml
+name: Deploy to Production
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Run tests
+        run: npm test
+      
+      - name: Build applications
+        run: npm run build
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+      
+      - name: Build and push Docker images
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: my-app
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG ./apps/api
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+      
+      - name: Deploy to ECS
+        run: |
+          aws ecs update-service --cluster production --service api-service --force-new-deployment
+      
+      - name: Deploy frontend to S3
+        run: |
+          aws s3 sync ./apps/web/out s3://my-app-frontend --delete
+          aws cloudfront create-invalidation --distribution-id ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }} --paths "/*"
+```
+</PythonEditor>
+
+## Production Monitoring and Optimization
+
+### Monitoring and Performance
+
+<PythonEditor title="Production Monitoring" compare={true}>
+```python !! py
+# Python monitoring with Django
+# settings.py
+import sentry_sdk
+from sentry_sdk.integrations.django import DjangoIntegration
+from sentry_sdk.integrations.celery import CeleryIntegration
+
+sentry_sdk.init(
+    dsn="your-sentry-dsn",
+    integrations=[
+        DjangoIntegration(),
+        CeleryIntegration(),
+    ],
+    traces_sample_rate=0.1,
+    send_default_pii=True
+)
+
+# Custom middleware for monitoring
+class MonitoringMiddleware:
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        start_time = time.time()
+        
+        response = self.get_response(request)
+        
+        # Log request metrics
+        duration = time.time() - start_time
+        logger.info(f"Request to {request.path} took {duration:.2f}s")
+        
+        # Send metrics to monitoring service
+        send_metric('request_duration', duration, {
+            'path': request.path,
+            'method': request.method,
+            'status_code': response.status_code
+        })
+        
+        return response
+
+# Health check endpoint
+from django.http import JsonResponse
+from django.db import connection
+
+def health_check(request):
+    try:
+        # Check database connection
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT 1")
+        
+        # Check Redis connection
+        from django.core.cache import cache
+        cache.set('health_check', 'ok', 10)
+        
+        return JsonResponse({
+            'status': 'healthy',
+            'timestamp': timezone.now().isoformat(),
+            'version': settings.VERSION
+        })
+    except Exception as e:
+        return JsonResponse({
+            'status': 'unhealthy',
+            'error': str(e)
+        }, status=503)
+
+# Performance monitoring
+import cProfile
+import pstats
+
+def profile_view(view_func):
+    def wrapper(request, *args, **kwargs):
+        if settings.DEBUG:
+            profiler = cProfile.Profile()
+            profiler.enable()
+            
+            response = view_func(request, *args, **kwargs)
+            
+            profiler.disable()
+            stats = pstats.Stats(profiler)
+            stats.sort_stats('cumulative')
+            stats.print_stats()
+            
+            return response
+        return view_func(request, *args, **kwargs)
+    return wrapper
+```
+
+```javascript !! js
+// JavaScript monitoring with Node.js
+// apps/api/src/monitoring/index.ts
+import * as Sentry from '@sentry/node';
+import * as Tracing from '@sentry/tracing';
+import express from 'express';
+import prometheus from 'prom-client';
+
+// Initialize Sentry
+Sentry.init({
+    dsn: process.env.SENTRY_DSN,
+    integrations: [
+        new Sentry.Integrations.Http({ tracing: true }),
+        new Tracing.Integrations.Express({ app: express() }),
+    ],
+    tracesSampleRate: 0.1,
+    environment: process.env.NODE_ENV,
+});
+
+// Prometheus metrics
+const collectDefaultMetrics = prometheus.collectDefaultMetrics;
+collectDefaultMetrics({ timeout: 5000 });
+
+const httpRequestDuration = new prometheus.Histogram({
+    name: 'http_request_duration_seconds',
+    help: 'Duration of HTTP requests in seconds',
+    labelNames: ['method', 'route', 'status_code'],
+    buckets: [0.1, 0.5, 1, 2, 5]
+});
+
+const httpRequestTotal = new prometheus.Counter({
+    name: 'http_requests_total',
+    help: 'Total number of HTTP requests',
+    labelNames: ['method', 'route', 'status_code']
+});
+
+const activeConnections = new prometheus.Gauge({
+    name: 'active_connections',
+    help: 'Number of active connections'
+});
+
+// Monitoring middleware
+export const monitoringMiddleware = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const start = Date.now();
+    
+    res.on('finish', () => {
+        const duration = (Date.now() - start) / 1000;
+        const route = req.route?.path || req.path;
+        
+        httpRequestDuration
+            .labels(req.method, route, res.statusCode.toString())
+            .observe(duration);
+            
+        httpRequestTotal
+            .labels(req.method, route, res.statusCode.toString())
+            .inc();
+    });
+    
+    next();
+};
+
+// Health check endpoint
+export const healthCheck = async (req: express.Request, res: express.Response) => {
+    const checks = {
+        timestamp: new Date().toISOString(),
+        version: process.env.npm_package_version,
+        uptime: process.uptime(),
+        memory: process.memoryUsage(),
+        database: false,
+        redis: false
+    };
+    
+    try {
+        // Check database connection
+        await User.findOne().limit(1);
+        checks.database = true;
+    } catch (error) {
+        console.error('Database health check failed:', error);
+    }
+    
+    try {
+        // Check Redis connection
+        await redisClient.ping();
+        checks.redis = true;
+    } catch (error) {
+        console.error('Redis health check failed:', error);
+    }
+    
+    const isHealthy = checks.database && checks.redis;
+    
+    res.status(isHealthy ? 200 : 503).json({
+        status: isHealthy ? 'healthy' : 'unhealthy',
+        checks
+    });
+};
+
+// Application Performance Monitoring (APM)
+// apps/api/src/monitoring/apm.ts
+import { performance, PerformanceObserver } from 'perf_hooks';
+
+class APMMonitor {
+    private metrics: Map<string, number[]> = new Map();
+    
+    constructor() {
+        this.setupPerformanceObserver();
+    }
+    
+    private setupPerformanceObserver() {
+        const obs = new PerformanceObserver((list) => {
+            for (const entry of list.getEntries()) {
+                if (entry.duration > 100) { // Log slow operations
+                    console.warn(`Slow operation detected: ${entry.name} took ${entry.duration}ms`);
+                }
+            }
+        });
+        obs.observe({ entryTypes: ['measure'] });
+    }
+    
+    startTimer(name: string): string {
+        const timerName = `${name}-${Date.now()}`;
+        performance.mark(`${timerName}-start`);
+        return timerName;
+    }
+    
+    endTimer(timerName: string): number {
+        performance.mark(`${timerName}-end`);
+        performance.measure(timerName, `${timerName}-start`, `${timerName}-end`);
+        
+        const measure = performance.getEntriesByName(timerName)[0];
+        const duration = measure.duration;
+        
+        // Store metric
+        const baseName = timerName.split('-')[0];
+        if (!this.metrics.has(baseName)) {
+            this.metrics.set(baseName, []);
+        }
+        this.metrics.get(baseName)!.push(duration);
+        
+        // Clean up
+        performance.clearMarks(`${timerName}-start`);
+        performance.clearMarks(`${timerName}-end`);
+        performance.clearMeasures(timerName);
+        
+        return duration;
+    }
+    
+    getMetrics() {
+        const result: Record<string, any> = {};
+        
+        for (const [name, values] of this.metrics.entries()) {
+            result[name] = {
+                count: values.length,
+                avg: values.reduce((a, b) => a + b, 0) / values.length,
+                min: Math.min(...values),
+                max: Math.max(...values),
+                p95: this.percentile(values, 0.95),
+                p99: this.percentile(values, 0.99)
+            };
+        }
+        
+        return result;
+    }
+    
+    private percentile(values: number[], p: number): number {
+        const sorted = values.slice().sort((a, b) => a - b);
+        const index = Math.ceil(sorted.length * p) - 1;
+        return sorted[index];
+    }
+}
+
+export const apmMonitor = new APMMonitor();
+
+// Usage in controllers
+export const getUsersController = async (req: Request, res: Response) => {
+    const timer = apmMonitor.startTimer('get-users');
+    
+    try {
+        const users = await User.find({});
+        apmMonitor.endTimer(timer);
+        
+        res.json(users);
+    } catch (error) {
+        apmMonitor.endTimer(timer);
+        throw error;
+    }
+};
+
+// Frontend monitoring with Next.js
+// apps/web/lib/monitoring.ts
+import { getCLS, getFID, getFCP, getLCP, getTTFB } from 'web-vitals';
+
+export function initMonitoring() {
+    // Web Vitals
+    getCLS(sendToAnalytics);
+    getFID(sendToAnalytics);
+    getFCP(sendToAnalytics);
+    getLCP(sendToAnalytics);
+    getTTFB(sendToAnalytics);
+    
+    // Error boundary
+    window.addEventListener('error', (event) => {
+        console.error('Global error:', event.error);
+        sendErrorToSentry(event.error);
+    });
+    
+    // Unhandled promise rejections
+    window.addEventListener('unhandledrejection', (event) => {
+        console.error('Unhandled promise rejection:', event.reason);
+        sendErrorToSentry(event.reason);
+    });
+}
+
+function sendToAnalytics(metric: any) {
+    // Send to analytics service
+    if (process.env.NODE_ENV === 'production') {
+        fetch('/api/analytics', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                ...metric,
+                timestamp: Date.now(),
+                userAgent: navigator.userAgent,
+                url: window.location.href
+            })
+        }).catch(console.error);
+    }
+}
+
+function sendErrorToSentry(error: any) {
+    if (process.env.NODE_ENV === 'production') {
+        import('@sentry/browser').then(Sentry => {
+            Sentry.captureException(error);
+        });
+    }
+}
+
+// Real User Monitoring (RUM)
+export class RUMMonitor {
+    private sessionId: string;
+    private userId?: string;
+    
+    constructor() {
+        this.sessionId = this.generateSessionId();
+        this.trackPageView();
+        this.trackUserInteractions();
+    }
+    
+    private generateSessionId(): string {
+        return Math.random().toString(36).substring(2) + Date.now().toString(36);
+    }
+    
+    setUserId(userId: string) {
+        this.userId = userId;
+    }
+    
+    trackPageView() {
+        this.sendEvent('page_view', {
+            url: window.location.href,
+            referrer: document.referrer,
+            timestamp: Date.now()
+        });
+    }
+    
+    trackUserInteractions() {
+        document.addEventListener('click', (event) => {
+            const target = event.target as HTMLElement;
+            this.sendEvent('click', {
+                element: target.tagName,
+                id: target.id,
+                className: target.className,
+                text: target.textContent?.substring(0, 100)
+            });
+        });
+    }
+    
+    trackCustomEvent(name: string, data: any) {
+        this.sendEvent(name, data);
+    }
+    
+    private sendEvent(name: string, data: any) {
+        if (process.env.NODE_ENV === 'production') {
+            fetch('/api/rum', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    event: name,
+                    sessionId: this.sessionId,
+                    userId: this.userId,
+                    timestamp: Date.now(),
+                    data
+                })
+            }).catch(console.error);
+        }
+    }
+}
+
+export const rumMonitor = new RUMMonitor();
+```
+</PythonEditor>
+
+## Security Best Practices
+
+### Comprehensive Security Implementation
+
+<PythonEditor title="Security Best Practices" compare={true}>
+```python !! py
+# Python security with Django
+# settings/production.py
+import os
+
+# Security settings
+SECURE_SSL_REDIRECT = True
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+SECURE_HSTS_SECONDS = 31536000
+SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+SECURE_HSTS_PRELOAD = True
+SECURE_CONTENT_TYPE_NOSNIFF = True
+SECURE_BROWSER_XSS_FILTER = True
+X_FRAME_OPTIONS = 'DENY'
+
+# CSRF protection
+CSRF_COOKIE_SECURE = True
+CSRF_COOKIE_HTTPONLY = True
+CSRF_COOKIE_SAMESITE = 'Strict'
+
+# Session security
+SESSION_COOKIE_SECURE = True
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = 'Strict'
+SESSION_COOKIE_AGE = 3600  # 1 hour
+
+# Content Security Policy
+CSP_DEFAULT_SRC = ["'self'"]
+CSP_SCRIPT_SRC = ["'self'", "'unsafe-inline'", "https://cdn.example.com"]
+CSP_STYLE_SRC = ["'self'", "'unsafe-inline'"]
+CSP_IMG_SRC = ["'self'", "data:", "https:"]
+
+# Rate limiting
+from django_ratelimit.decorators import ratelimit
+
+@ratelimit(key='ip', rate='10/m', method='POST')
+def login_view(request):
+    # Login implementation
+    pass
+
+# Input validation
+from django import forms
+from django.core.validators import EmailValidator
+
+class UserForm(forms.Form):
+    email = forms.EmailField(validators=[EmailValidator()])
+    password = forms.CharField(min_length=8, max_length=128)
+    
+    def clean_password(self):
+        password = self.cleaned_data['password']
+        if not re.match(r'^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)', password):
+            raise forms.ValidationError("Password must contain uppercase, lowercase, and numbers")
+        return password
+
+# SQL injection prevention (Django ORM does this automatically)
+# Use parameterized queries
+users = User.objects.filter(email=user_email)  # Safe
+# Never do: User.objects.raw(f"SELECT * FROM users WHERE email = '{user_email}'")  # Dangerous
+
+# File upload security
+import magic
+
+def validate_file_type(file):
+    allowed_types = ['image/jpeg', 'image/png', 'application/pdf']
+    file_type = magic.from_buffer(file.read(1024), mime=True)
+    if file_type not in allowed_types:
+        raise ValidationError("File type not allowed")
+    file.seek(0)  # Reset file pointer
+    return file
+```
+
+```javascript !! js
+// JavaScript security with Node.js and Express
+// apps/api/src/security/index.ts
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
+import slowDown from 'express-slow-down';
+import mongoSanitize from 'express-mongo-sanitize';
+import hpp from 'hpp';
+import cors from 'cors';
+import { body, validationResult } from 'express-validator';
+
+// Security middleware setup
+export const setupSecurity = (app: Express) => {
+    // Helmet for various security headers
+    app.use(helmet({
+        contentSecurityPolicy: {
+            directives: {
+                defaultSrc: ["'self'"],
+                scriptSrc: ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net"],
+                styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+                imgSrc: ["'self'", "data:", "https:"],
+                connectSrc: ["'self'"],
+                fontSrc: ["'self'", "https://fonts.gstatic.com"],
+                objectSrc: ["'none'"],
+                mediaSrc: ["'self'"],
+                frameSrc: ["'none'"],
+            },
+        },
+        hsts: {
+            maxAge: 31536000,
+            includeSubDomains: true,
+            preload: true
+        }
+    }));
+    
+    // CORS configuration
+    app.use(cors({
+        origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+        credentials: true,
+        optionsSuccessStatus: 200
+    }));
+    
+    // Rate limiting
+    const limiter = rateLimit({
+        windowMs: 15 * 60 * 1000, // 15 minutes
+        max: 100, // limit each IP to 100 requests per windowMs
+        message: 'Too many requests from this IP',
+        standardHeaders: true,
+        legacyHeaders: false,
+    });
+    app.use('/api/', limiter);
+    
+    // Strict rate limiting for auth endpoints
+    const authLimiter = rateLimit({
+        windowMs: 15 * 60 * 1000,
+        max: 5, // limit each IP to 5 requests per windowMs
+        skipSuccessfulRequests: true,
+    });
+    app.use('/api/auth/login', authLimiter);
+    app.use('/api/auth/register', authLimiter);
+    
+    // Speed limiting
+    const speedLimiter = slowDown({
+        windowMs: 15 * 60 * 1000,
+        delayAfter: 50,
+        delayMs: 500
+    });
+    app.use('/api/', speedLimiter);
+    
+    // Sanitize user input
+    app.use(mongoSanitize());
+    
+    // Prevent HTTP Parameter Pollution
+    app.use(hpp());
+};
+
+// Input validation and sanitization
+// apps/api/src/validators/userValidator.ts
+import { body, param, query } from 'express-validator';
+import { Request, Response, NextFunction } from 'express';
+import DOMPurify from 'isomorphic-dompurify';
+
+export const validateUserRegistration = [
+    body('email')
+        .isEmail()
+        .normalizeEmail()
+        .custom(async (email) => {
+            const existingUser = await User.findOne({ email });
+            if (existingUser) {
+                throw new Error('Email already in use');
+            }
+        }),
+    body('password')
+        .isLength({ min: 8 })
+        .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/)
+        .withMessage('Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character'),
+    body('username')
+        .isLength({ min: 3, max: 30 })
+        .matches(/^[a-zA-Z0-9_]+$/)
+        .withMessage('Username can only contain letters, numbers, and underscores'),
+    body('firstName')
+        .trim()
+        .isLength({ min: 1, max: 50 })
+        .customSanitizer(value => DOMPurify.sanitize(value)),
+    body('lastName')
+        .trim()
+        .isLength({ min: 1, max: 50 })
+        .customSanitizer(value => DOMPurify.sanitize(value))
+];
+
+export const handleValidationErrors = (req: Request, res: Response, next: NextFunction) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+        return res.status(400).json({
+            error: 'Validation failed',
+            details: errors.array()
+        });
+    }
+    next();
+};
+
+// SQL injection prevention (for SQL databases)
+// apps/api/src/database/queries.ts
+import { Pool } from 'pg';
+
+class DatabaseService {
+    private pool: Pool;
+    
+    constructor() {
+        this.pool = new Pool({
+            connectionString: process.env.DATABASE_URL,
+            ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+        });
+    }
+    
+    // Always use parameterized queries
+    async getUserById(id: string) {
+        const query = 'SELECT * FROM users WHERE id = $1';
+        const result = await this.pool.query(query, [id]);
+        return result.rows[0];
+    }
+    
+    async searchUsers(searchTerm: string) {
+        // Parameterized query prevents SQL injection
+        const query = 'SELECT id, username, email FROM users WHERE username ILIKE $1 OR email ILIKE $1';
+        const result = await this.pool.query(query, [`%${searchTerm}%`]);
+        return result.rows;
+    }
+}
+
+// File upload security
+// apps/api/src/middleware/fileUpload.ts
+import multer from 'multer';
+import path from 'path';
+import crypto from 'crypto';
+import { fileTypeFromBuffer } from 'file-type';
+
+const allowedMimeTypes = [
+    'image/jpeg',
+    'image/png',
+    'image/gif',
+    'application/pdf',
+    'text/plain'
+];
+
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        cb(null, 'uploads/');
+    },
+    filename: (req, file, cb) => {
+        // Generate unique filename
+        const uniqueName = crypto.randomUUID() + path.extname(file.originalname);
+        cb(null, uniqueName);
+    }
+});
+
+const fileFilter = async (req: Request, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
+    // Check MIME type
+    if (!allowedMimeTypes.includes(file.mimetype)) {
+        return cb(new Error('File type not allowed'));
+    }
+    
+    // Additional file validation would happen in middleware after upload
+    cb(null, true);
+};
+
+export const upload = multer({
+    storage,
+    fileFilter,
+    limits: {
+        fileSize: 10 * 1024 * 1024, // 10MB limit
+        files: 5 // Max 5 files
+    }
+});
+
+// Additional file validation middleware
+export const validateFileType = async (req: Request, res: Response, next: NextFunction) => {
+    if (!req.file) return next();
+    
+    try {
+        const buffer = await fs.readFile(req.file.path);
+        const fileType = await fileTypeFromBuffer(buffer);
+        
+        if (!fileType || !allowedMimeTypes.includes(fileType.mime)) {
+            // Delete the uploaded file
+            await fs.unlink(req.file.path);
+            return res.status(400).json({ error: 'Invalid file type' });
+        }
+        
+        next();
+    } catch (error) {
+        console.error('File validation error:', error);
+        res.status(500).json({ error: 'File validation failed' });
+    }
+};
+
+// XSS prevention
+// apps/api/src/middleware/xssProtection.ts
+import DOMPurify from 'isomorphic-dompurify';
+
+export const sanitizeInput = (req: Request, res: Response, next: NextFunction) => {
+    const sanitizeObject = (obj: any): any => {
+        if (typeof obj === 'string') {
+            return DOMPurify.sanitize(obj);
+        }
+        if (Array.isArray(obj)) {
+            return obj.map(sanitizeObject);
+        }
+        if (obj && typeof obj === 'object') {
+            const sanitized: any = {};
+            for (const key in obj) {
+                sanitized[key] = sanitizeObject(obj[key]);
+            }
+            return sanitized;
+        }
+        return obj;
+    };
+    
+    if (req.body) {
+        req.body = sanitizeObject(req.body);
+    }
+    if (req.query) {
+        req.query = sanitizeObject(req.query);
+    }
+    if (req.params) {
+        req.params = sanitizeObject(req.params);
+    }
+    
+    next();
+};
+
+// CSRF protection for forms
+// apps/api/src/middleware/csrf.ts
+import csrf from 'csurf';
+
+export const csrfProtection = csrf({
+    cookie: {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'strict'
+    }
+});
+
+// Frontend security (Next.js)
+// apps/web/next.config.js
+const nextConfig = {
+    async headers() {
+        return [
+            {
+                source: '/(.*)',
+                headers: [
+                    {
+                        key: 'X-Frame-Options',
+                        value: 'DENY'
+                    },
+                    {
+                        key: 'X-Content-Type-Options',
+                        value: 'nosniff'
+                    },
+                    {
+                        key: 'Referrer-Policy',
+                        value: 'strict-origin-when-cross-origin'
+                    },
+                    {
+                        key: 'Permissions-Policy',
+                        value: 'camera=(), microphone=(), geolocation=()'
+                    }
+                ]
+            }
+        ];
+    }
+};
+
+// Environment variable validation
+// apps/api/src/config/env.ts
+import { z } from 'zod';
+
+const envSchema = z.object({
+    NODE_ENV: z.enum(['development', 'production', 'test']),
+    PORT: z.string().transform(Number),
+    DATABASE_URL: z.string().url(),
+    JWT_SECRET: z.string().min(32),
+    JWT_REFRESH_SECRET: z.string().min(32),
+    FRONTEND_URL: z.string().url(),
+    SENTRY_DSN: z.string().url().optional()
+});
+
+export const env = envSchema.parse(process.env);
+
+// Secure cookie settings
+// apps/api/src/config/session.ts
+import session from 'express-session';
+import MongoStore from 'connect-mongo';
+
+export const sessionConfig = session({
+    secret: process.env.SESSION_SECRET!,
+    resave: false,
+    saveUninitialized: false,
+    store: MongoStore.create({
+        mongoUrl: process.env.DATABASE_URL
+    }),
+    cookie: {
+        secure: process.env.NODE_ENV === 'production',
+        httpOnly: true,
+        maxAge: 1000 * 60 * 60 * 24, // 24 hours
+        sameSite: 'strict'
+    },
+    name: 'sessionId' // Don't use default session name
+});
+```
+</PythonEditor>
+
+## Scaling Strategies
+
+### Horizontal and Vertical Scaling
+
+<PythonEditor title="Scaling Strategies" compare={true}>
+```python !! py
+# Python scaling with Django and Celery
+# settings/production.py
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': 'myapp_primary',
+        'USER': 'postgres',
+        'PASSWORD': 'password',
+        'HOST': 'db-primary.example.com',
+        'PORT': '5432',
+    },
+    'read_replica': {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': 'myapp_replica',
+        'USER': 'postgres',
+        'PASSWORD': 'password',
+        'HOST': 'db-replica.example.com',
+        'PORT': '5432',
+    }
+}
+
+DATABASE_ROUTERS = ['myapp.routers.DatabaseRouter']
+
+# Database router for read/write splitting
+class DatabaseRouter:
+    def db_for_read(self, model, **hints):
+        return 'read_replica'
+    
+    def db_for_write(self, model, **hints):
+        return 'default'
+    
+    def allow_migrate(self, db, app_label, model_name=None, **hints):
+        return db == 'default'
+
+# Celery for async tasks
+# celery_app.py
+from celery import Celery
+import os
+
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'myproject.settings')
+
+app = Celery('myproject')
+app.config_from_object('django.conf:settings', namespace='CELERY')
+app.autodiscover_tasks()
+
+# Caching configuration
+CACHES = {
+    'default': {
+        'BACKEND': 'django_redis.cache.RedisCache',
+        'LOCATION': 'redis://redis-cluster.example.com:6379/1',
+        'OPTIONS': {
+            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+        }
+    },
+    'sessions': {
+        'BACKEND': 'django_redis.cache.RedisCache',
+        'LOCATION': 'redis://redis-cluster.example.com:6379/2',
+    }
+}
+
+# Load balancer configuration (nginx)
+# nginx.conf
+upstream django_app {
+    server app1.example.com:8000;
+    server app2.example.com:8000;
+    server app3.example.com:8000;
+}
+
+server {
+    listen 80;
+    server_name example.com;
+    
+    location / {
+        proxy_pass http://django_app;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+}
+```
+
+```javascript !! js
+// JavaScript scaling with Node.js and microservices
+// Load balancing with PM2
+// ecosystem.config.js
+module.exports = {
+    apps: [
+        {
+            name: 'api',
+            script: './dist/index.js',
+            instances: 'max', // Use all CPU cores
+            exec_mode: 'cluster',
+            env: {
+                NODE_ENV: 'production',
+                PORT: 3001
+            },
+            max_memory_restart: '1G'
+        }
+    ]
+};
+
+// Database connection pooling
+// apps/api/src/database/pool.ts
+import { Pool } from 'pg';
+
+class DatabasePool {
+    private writePool: Pool;
+    private readPool: Pool;
+    
+    constructor() {
+        this.writePool = new Pool({
+            connectionString: process.env.DATABASE_WRITE_URL,
+            max: 20,
+            idleTimeoutMillis: 30000,
+            connectionTimeoutMillis: 2000
+        });
+        
+        this.readPool = new Pool({
+            connectionString: process.env.DATABASE_READ_URL,
+            max: 30,
+            idleTimeoutMillis: 30000,
+            connectionTimeoutMillis: 2000
+        });
+    }
+    
+    getWriteConnection() {
+        return this.writePool;
+    }
+    
+    getReadConnection() {
+        return this.readPool;
+    }
+}
+
+export const dbPool = new DatabasePool();
+
+// Redis clustering for caching
+// apps/api/src/cache/redis.ts
+import Redis from 'ioredis';
+
+const redisCluster = new Redis.Cluster([
+    { host: 'redis-node1.example.com', port: 6379 },
+    { host: 'redis-node2.example.com', port: 6379 },
+    { host: 'redis-node3.example.com', port: 6379 }
+], {
+    redisOptions: {
+        password: process.env.REDIS_PASSWORD
+    }
+});
+
+export class CacheService {
+    static async get(key: string): Promise<any> {
+        const value = await redisCluster.get(key);
+        return value ? JSON.parse(value) : null;
+    }
+    
+    static async set(key: string, value: any, ttl: number = 3600): Promise<void> {
+        await redisCluster.setex(key, ttl, JSON.stringify(value));
+    }
+    
+    static async invalidate(pattern: string): Promise<void> {
+        const keys = await redisCluster.keys(pattern);
+        if (keys.length > 0) {
+            await redisCluster.del(...keys);
+        }
+    }
+}
+
+// Microservices architecture
+// services/user-service/src/app.ts
+import express from 'express';
+import { setupSecurity } from './security';
+import { userRoutes } from './routes/users';
+import { healthCheck } from './routes/health';
+
+const app = express();
+
+setupSecurity(app);
+
+app.use('/api/users', userRoutes);
+app.use('/health', healthCheck);
+
+const PORT = process.env.PORT || 3002;
+app.listen(PORT, () => {
+    console.log(`User service running on port ${PORT}`);
+});
+
+// API Gateway with Express
+// gateway/src/app.ts
+import express from 'express';
+import httpProxy from 'http-proxy-middleware';
+import rateLimit from 'express-rate-limit';
+
+const app = express();
+
+// Rate limiting
+const limiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 100
+});
+app.use(limiter);
+
+// Service discovery and load balancing
+const services = {
+    users: ['http://user-service-1:3002', 'http://user-service-2:3002'],
+    orders: ['http://order-service-1:3003', 'http://order-service-2:3003'],
+    notifications: ['http://notification-service:3004']
+};
+
+let currentIndex = 0;
+
+const getServiceUrl = (serviceName: string): string => {
+    const serviceUrls = services[serviceName];
+    const url = serviceUrls[currentIndex % serviceUrls.length];
+    currentIndex++;
+    return url;
+};
+
+// Proxy middleware with load balancing
+const createProxy = (serviceName: string) => {
+    return httpProxy({
+        target: getServiceUrl(serviceName),
+        changeOrigin: true,
+        pathRewrite: {
+            [`^/api/${serviceName}`]: '/api'
+        },
+        onError: (err, req, res) => {
+            console.error(`Proxy error for ${serviceName}:`, err);
+            res.status(502).json({ error: 'Service unavailable' });
+        }
+    });
+};
+
+app.use('/api/users', createProxy('users'));
+app.use('/api/orders', createProxy('orders'));
+app.use('/api/notifications', createProxy('notifications'));
+
+// Message queue with Bull
+// apps/api/src/queues/emailQueue.ts
+import Bull from 'bull';
+import { EmailService } from '../services/emailService';
+
+export const emailQueue = new Bull('email queue', {
+    redis: {
+        host: process.env.REDIS_HOST,
+        port: parseInt(process.env.REDIS_PORT || '6379'),
+        password: process.env.REDIS_PASSWORD
+    }
+});
+
+emailQueue.process('send-email', async (job) => {
+    const { to, subject, body } = job.data;
+    await EmailService.send(to, subject, body);
+});
+
+emailQueue.process('send-bulk-email', 5, async (job) => {
+    const { recipients, subject, body } = job.data;
+    const promises = recipients.map(to => 
+        EmailService.send(to, subject, body)
+    );
+    await Promise.all(promises);
+});
+
+// CDN integration for static assets
+// apps/web/next.config.js
+const nextConfig = {
+    assetPrefix: process.env.NODE_ENV === 'production' 
+        ? 'https://cdn.example.com' 
+        : '',
+    images: {
+        domains: ['cdn.example.com'],
+        loader: 'custom',
+        loaderFile: './image-loader.js'
+    }
+};
+
+// apps/web/image-loader.js
+export default function cloudinaryLoader({ src, width, quality }) {
+    const params = ['f_auto', 'c_limit', `w_${width}`, `q_${quality || 'auto'}`];
+    return `https://res.cloudinary.com/your-cloud-name/image/upload/${params.join(',')}/${src}`;
+}
+
+// Auto-scaling with Kubernetes
+// k8s/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-deployment
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: api
+  template:
+    metadata:
+      labels:
+        app: api
+    spec:
+      containers:
+      - name: api
+        image: myregistry/api:latest
+        ports:
+        - containerPort: 3001
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: api-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: api-deployment
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+```
+</PythonEditor>
+
+## Best Practices Summary
+
+### Full-Stack Development Best Practices
+
+1. **Architecture**: Design for scalability from the beginning
+2. **Security**: Implement security at every layer
+3. **Performance**: Monitor and optimize continuously
+4. **Testing**: Comprehensive testing strategy across the stack
+5. **Deployment**: Automated, reliable deployment pipelines
+6. **Monitoring**: Real-time monitoring and alerting
+
+### JavaScript-Specific Full-Stack Considerations
+
+1. **Unified Language**: Leverage JavaScript across the entire stack
+2. **Package Management**: Use monorepos for better code sharing
+3. **Type Safety**: Implement TypeScript for better development experience
+4. **Modern Tooling**: Use modern build tools and frameworks
+5. **Serverless**: Consider serverless architectures for scaling
+
+## Conclusion
+
+Congratulations! You've completed the comprehensive Python to JavaScript learning journey. You now have the knowledge and skills to:
+
+- Build modern full-stack applications with JavaScript
+- Apply security best practices throughout your applications
+- Deploy and scale applications in production environments
+- Monitor and optimize application performance
+- Transition smoothly from Python development to JavaScript development
+
+### Next Steps
+
+1. **Practice**: Build real projects using the concepts learned
+2. **Community**: Join JavaScript and Node.js communities
+3. **Stay Updated**: Keep up with the rapidly evolving JavaScript ecosystem
+4. **Specialize**: Choose areas like React, Vue, Node.js, or specific frameworks to deepen your expertise
+5. **Share Knowledge**: Contribute back to the community with your unique Python + JavaScript perspective
+
+The journey from Python to JavaScript opens up new opportunities in web development, mobile development, and beyond. Your Python background gives you a solid foundation to excel in JavaScript development.
+
+---
+
+*You have completed the full Python → JavaScript learning path! 🎉*

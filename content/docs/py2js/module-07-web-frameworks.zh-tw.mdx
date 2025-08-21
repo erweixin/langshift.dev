@@ -1,0 +1,460 @@
+---
+title: Web 框架對比與選擇
+description: 深入對比 Python Web 框架與 JavaScript Web 框架，學習前端框架和後端框架的設計理念差異
+---
+
+import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
+import { Step, Steps } from 'fumadocs-ui/components/steps';
+import { Callout } from 'fumadocs-ui/components/callout';
+
+# Web 框架對比與選擇
+
+作為 Python 開發者，你可能已經熟悉了 Django、Flask 或 FastAPI 等後端 Web 框架。在 JavaScript 生態系統中，Web 框架分為兩大類：後端框架（Node.js）和前端框架（瀏覽器端）。本章將深入對比這些框架的設計理念、使用方式和最佳實踐。
+
+## 1. 框架分類對比
+
+### 後端框架對比
+
+<Tabs items={['Python', 'JavaScript']}>
+
+<Tab value="Python">
+
+**Python 後端框架生態**
+
+```python
+# Django - 全功能框架
+from django.shortcuts import render
+from django.http import JsonResponse
+
+def api_view(request):
+    data = {'message': 'Hello from Django'}
+    return JsonResponse(data)
+
+# Flask - 輕量級框架  
+from flask import Flask, jsonify
+
+app = Flask(__name__)
+
+@app.route('/api')
+def api():
+    return jsonify({'message': 'Hello from Flask'})
+
+# FastAPI - 現代異步框架
+from fastapi import FastAPI
+
+app = FastAPI()
+
+@app.get('/api')
+async def api():
+    return {'message': 'Hello from FastAPI'}
+```
+
+</Tab>
+
+<Tab value="JavaScript">
+
+**JavaScript 後端框架生態**
+
+```javascript
+// Express.js - 最流行的 Node.js 框架
+const express = require('express');
+const app = express();
+
+app.get('/api', (req, res) => {
+    res.json({ message: 'Hello from Express' });
+});
+
+// Koa.js - 現代異步框架
+const Koa = require('koa');
+const app = new Koa();
+
+app.use(async (ctx) => {
+    ctx.body = { message: 'Hello from Koa' };
+});
+
+// Fastify - 高性能框架
+const fastify = require('fastify')({ logger: true });
+
+fastify.get('/api', async (request, reply) => {
+    return { message: 'Hello from Fastify' };
+});
+```
+
+</Tab>
+
+</Tabs>
+
+### 前端框架概念
+
+<Callout type="info">
+**重要概念**: 與 Python 不同，JavaScript 還有專門的前端框架，用於構建用戶界面和管理客戶端狀態。
+</Callout>
+
+```javascript
+// React - 組件化庫
+import React, { useState } from 'react';
+
+function App() {
+    const [count, setCount] = useState(0);
+    
+    return (
+        <div>
+            <h1>計數器: {count}</h1>
+            <button onClick={() => setCount(count + 1)}>
+                點擊增加
+            </button>
+        </div>
+    );
+}
+
+// Vue.js - 漸進式框架
+const { createApp, ref } = Vue;
+
+createApp({
+    setup() {
+        const count = ref(0);
+        
+        return {
+            count,
+            increment: () => count.value++
+        };
+    },
+    template: `
+        <div>
+            <h1>計數器: {{ count }}</h1>
+            <button @click="increment">點擊增加</button>
+        </div>
+    `
+}).mount('#app');
+```
+
+## 2. 路由系統對比
+
+### 後端路由對比
+
+<Tabs items={['Django', 'Flask', 'Express.js']}>
+
+<Tab value="Django">
+
+```python
+# Django URL 配置
+# urls.py
+from django.urls import path, include
+from . import views
+
+urlpatterns = [
+    path('api/', views.api_list, name='api-list'),
+    path('api/<int:pk>/', views.api_detail, name='api-detail'),
+    path('users/', include('users.urls')),
+]
+
+# views.py
+from django.shortcuts import get_object_or_404
+from django.http import JsonResponse
+from .models import ApiData
+
+def api_list(request):
+    if request.method == 'GET':
+        data = ApiData.objects.all()
+        return JsonResponse([item.to_dict() for item in data], safe=False)
+    
+def api_detail(request, pk):
+    item = get_object_or_404(ApiData, pk=pk)
+    return JsonResponse(item.to_dict())
+```
+
+</Tab>
+
+<Tab value="Flask">
+
+```python
+# Flask 路由裝飾器
+from flask import Flask, request, jsonify
+
+app = Flask(__name__)
+
+@app.route('/api', methods=['GET', 'POST'])
+def api_list():
+    if request.method == 'GET':
+        return jsonify([item.to_dict() for item in get_all_data()])
+    elif request.method == 'POST':
+        data = request.get_json()
+        result = create_item(data)
+        return jsonify(result.to_dict()), 201
+
+@app.route('/api/<int:item_id>', methods=['GET', 'PUT', 'DELETE'])
+def api_detail(item_id):
+    item = get_item_or_404(item_id)
+    
+    if request.method == 'GET':
+        return jsonify(item.to_dict())
+    elif request.method == 'PUT':
+        data = request.get_json()
+        item.update(data)
+        return jsonify(item.to_dict())
+    elif request.method == 'DELETE':
+        item.delete()
+        return '', 204
+```
+
+</Tab>
+
+<Tab value="Express.js">
+
+```javascript
+// Express.js 路由
+const express = require('express');
+const router = express.Router();
+
+// RESTful API 路由
+router.get('/api', async (req, res) => {
+    try {
+        const data = await getAllData();
+        res.json(data);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+router.post('/api', async (req, res) => {
+    try {
+        const result = await createItem(req.body);
+        res.status(201).json(result);
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+});
+
+router.get('/api/:id', async (req, res) => {
+    try {
+        const item = await getItemById(req.params.id);
+        if (!item) {
+            return res.status(404).json({ error: 'Item not found' });
+        }
+        res.json(item);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// 中間件
+router.use('/api', authenticate);
+router.use('/api', validateRequest);
+
+module.exports = router;
+```
+
+</Tab>
+
+</Tabs>
+
+### 前端路由（客戶端路由）
+
+```javascript
+// React Router - 聲明式路由
+import { BrowserRouter, Routes, Route, Link } from 'react-router-dom';
+
+function App() {
+    return (
+        <BrowserRouter>
+            <nav>
+                <Link to="/">首頁</Link>
+                <Link to="/about">關於</Link>
+                <Link to="/users">用戶</Link>
+            </nav>
+            
+            <Routes>
+                <Route path="/" element={<Home />} />
+                <Route path="/about" element={<About />} />
+                <Route path="/users" element={<Users />} />
+                <Route path="/users/:id" element={<UserDetail />} />
+            </Routes>
+        </BrowserRouter>
+    );
+}
+
+// Vue Router - 配置式路由
+import { createRouter, createWebHistory } from 'vue-router';
+
+const routes = [
+    { path: '/', component: Home },
+    { path: '/about', component: About },
+    { path: '/users', component: Users },
+    { path: '/users/:id', component: UserDetail, props: true }
+];
+
+const router = createRouter({
+    history: createWebHistory(),
+    routes
+});
+```
+
+## 3. 模板系統對比
+
+<Tabs items={['Django Templates', 'Jinja2', 'React JSX', 'Vue Templates']}>
+
+<Tab value="Django Templates">
+
+```html
+<!-- Django 模板語法 -->
+<!DOCTYPE html>
+<html>
+<head>
+    <title>{{ title }}</title>
+</head>
+<body>
+    <h1>用戶列表</h1>
+    
+    {% if users %}
+        <ul>
+            {% for user in users %}
+                <li>
+                    <a href="{% url 'user_detail' user.id %}">
+                        {{ user.name }} - {{ user.email }}
+                    </a>
+                    {% if user.is_active %}
+                        <span class="active">活躍</span>
+                    {% endif %}
+                </li>
+            {% endfor %}
+        </ul>
+    {% else %}
+        <p>沒有用戶數據</p>
+    {% endif %}
+    
+    {% include 'partials/footer.html' %}
+</body>
+</html>
+```
+
+</Tab>
+
+<Tab value="Jinja2">
+
+```html
+<!-- Jinja2 模板語法 (Flask) -->
+<!DOCTYPE html>
+<html>
+<head>
+    <title>{{ title }}</title>
+</head>
+<body>
+    <h1>用戶列表</h1>
+    
+    {% if users %}
+        <ul>
+            {% for user in users %}
+                <li>
+                    <a href="{{ url_for('user_detail', id=user.id) }}">
+                        {{ user.name }} - {{ user.email }}
+                    </a>
+                    {% if user.is_active %}
+                        <span class="active">活躍</span>
+                    {% endif %}
+                </li>
+            {% endfor %}
+        </ul>
+    {% else %}
+        <p>沒有用戶數據</p>
+    {% endif %}
+    
+    {% include 'partials/footer.html' %}
+</body>
+</html>
+```
+
+</Tab>
+
+<Tab value="React JSX">
+
+```jsx
+// React JSX 語法
+function UserList({ users, title }) {
+    return (
+        <div>
+            <head>
+                <title>{title}</title>
+            </head>
+            <body>
+                <h1>用戶列表</h1>
+                
+                {users && users.length > 0 ? (
+                    <ul>
+                        {users.map(user => (
+                            <li key={user.id}>
+                                <Link to={`/users/${user.id}`}>
+                                    {user.name} - {user.email}
+                                </Link>
+                                {user.isActive && (
+                                    <span className="active">活躍</span>
+                                )}
+                            </li>
+                        ))}
+                    </ul>
+                ) : (
+                    <p>沒有用戶數據</p>
+                )}
+                
+                <Footer />
+            </body>
+        </div>
+    );
+}
+```
+
+</Tab>
+
+<Tab value="Vue Templates">
+
+```vue
+<!-- Vue 模板語法 -->
+<template>
+    <div>
+        <head>
+            <title>{{ title }}</title>
+        </head>
+        <body>
+            <h1>用戶列表</h1>
+            
+            <ul v-if="users && users.length > 0">
+                <li v-for="user in users" :key="user.id">
+                    <router-link :to="`/users/${user.id}`">
+                        {{ user.name }} - {{ user.email }}
+                    </router-link>
+                    <span v-if="user.isActive" class="active">活躍</span>
+                </li>
+            </ul>
+            <p v-else>沒有用戶數據</p>
+            
+            <Footer />
+        </body>
+    </div>
+</template>
+
+<script>
+export default {
+    props: ['users', 'title'],
+    components: {
+        Footer
+    }
+}
+</script>
+```
+
+</Tab>
+
+</Tabs>
+
+## 小結
+
+通過本章的學習，你應該了解到：
+
+1. **框架分類差異**: JavaScript 有前端和後端框架，而 Python 主要是後端框架
+2. **設計理念對比**: 不同框架的路由、模板、狀態管理方式
+3. **ORM/ODM 選擇**: 各種數據庫操作庫的特點和用法
+4. **API 開發模式**: RESTful API 的不同實現方式
+5. **全棧架構**: 前後端分離和同構應用的架構模式
+
+<Callout type="tip">
+**下一步**: 在下一章中，我們將學習 Node.js 後端開發，了解如何使用 JavaScript 構建服務端應用。
+</Callout>

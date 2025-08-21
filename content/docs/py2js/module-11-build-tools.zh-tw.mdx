@@ -1,0 +1,1472 @@
+---
+title: 建置工具與開發流程
+description: 對比 Python 和 JavaScript 建置系統，掌握 webpack vs setuptools 差異，學習 Babel 轉譯，理解現代 JavaScript 開發工作流程
+---
+
+# 模組 11：建置工具與開發流程
+
+## 學習目標
+
+完成本模組後，你將能夠：
+- 對比 Python 和 JavaScript 建置系統
+- 理解 webpack vs setuptools 的差異
+- 掌握 Babel 轉譯和現代 JavaScript 特性
+- 設定開發伺服器和熱重載
+- 設定生產建置和最佳化
+- 為 JavaScript 專案實施 CI/CD 流水線
+
+## 建置系統對比
+
+### Python：setuptools 和 pip
+
+在 Python 中，你熟悉的方式：
+
+<PythonEditor title="Python 建置系統" compare={true}>
+```python !! py
+# setup.py
+from setuptools import setup, find_packages
+
+setup(
+    name="my-python-package",
+    version="1.0.0",
+    description="我的出色 Python 套件",
+    author="你的名字",
+    author_email="your.email@example.com",
+    packages=find_packages(),
+    install_requires=[
+        "requests>=2.28.0",
+        "click>=8.0.0",
+        "pydantic>=1.10.0"
+    ],
+    extras_require={
+        "dev": [
+            "pytest>=7.0.0",
+            "black>=22.0.0",
+            "flake8>=5.0.0"
+        ]
+    },
+    entry_points={
+        "console_scripts": [
+            "my-cli=my_package.cli:main",
+        ],
+    },
+    python_requires=">=3.8",
+    classifiers=[
+        "Development Status :: 4 - Beta",
+        "Intended Audience :: Developers",
+        "License :: OSI Approved :: MIT License",
+        "Programming Language :: Python :: 3.8+",
+    ],
+)
+
+# pyproject.toml（現代方法）
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "my-python-package"
+version = "1.0.0"
+description = "我的出色 Python 套件"
+dependencies = [
+    "requests>=2.28.0",
+    "click>=8.0.0"
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0.0", "black>=22.0.0"]
+
+# 建置和分發
+# python -m build
+# pip install -e .  # 開發安裝
+# twine upload dist/*
+```
+
+```javascript !! js
+// JavaScript 使用 webpack 的建置系統
+// package.json
+{
+  "name": "my-js-package",
+  "version": "1.0.0",
+  "description": "我的出色 JavaScript 套件",
+  "main": "dist/index.js",
+  "module": "dist/index.esm.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "webpack --mode=production",
+    "dev": "webpack serve --mode=development",
+    "start": "node dist/index.js",
+    "test": "jest",
+    "lint": "eslint src/",
+    "format": "prettier --write src/"
+  },
+  "dependencies": {
+    "axios": "^1.1.0",
+    "lodash": "^4.17.21"
+  },
+  "devDependencies": {
+    "webpack": "^5.75.0",
+    "webpack-cli": "^5.0.0",
+    "webpack-dev-server": "^4.11.0",
+    "@babel/core": "^7.20.0",
+    "@babel/preset-env": "^7.20.0",
+    "babel-loader": "^9.1.0",
+    "css-loader": "^6.7.0",
+    "style-loader": "^3.3.0",
+    "html-webpack-plugin": "^5.5.0"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "files": [
+    "dist/",
+    "README.md"
+  ]
+}
+
+// webpack.config.js
+const path = require('path');
+const HtmlWebpackPlugin = require('html-webpack-plugin');
+
+module.exports = (env, argv) => {
+  const isProduction = argv.mode === 'production';
+  
+  return {
+    entry: './src/index.js',
+    output: {
+      path: path.resolve(__dirname, 'dist'),
+      filename: isProduction ? '[name].[contenthash].js' : '[name].js',
+      clean: true,
+      library: {
+        name: 'MyPackage',
+        type: 'umd'
+      }
+    },
+    module: {
+      rules: [
+        {
+          test: /\.js$/,
+          exclude: /node_modules/,
+          use: {
+            loader: 'babel-loader'
+          }
+        },
+        {
+          test: /\.css$/,
+          use: ['style-loader', 'css-loader']
+        }
+      ]
+    },
+    plugins: [
+      new HtmlWebpackPlugin({
+        template: './src/index.html'
+      })
+    ],
+    devServer: {
+      contentBase: './dist',
+      hot: true,
+      port: 3000
+    },
+    optimization: {
+      splitChunks: {
+        chunks: 'all'
+      }
+    }
+  };
+};
+
+// 建置和分發
+// npm run build
+// npm publish
+```
+</PythonEditor>
+
+### 建置系統主要差異
+
+| 方面 | Python (setuptools) | JavaScript (webpack) |
+|------|-------------------|---------------------|
+| **設定** | setup.py/pyproject.toml | webpack.config.js/package.json |
+| **相依性** | requirements.txt/setup.py | package.json |
+| **建置輸出** | wheel/egg 檔案 | 打包的 JS/CSS 檔案 |
+| **開發** | pip install -e . | webpack-dev-server |
+| **分發** | PyPI via twine | npm 註冊表 |
+| **資源處理** | 手動/外部工具 | 內建載入器 |
+
+## Babel 轉譯
+
+### ES6+ 到相容 JavaScript
+
+<PythonEditor title="Babel 轉譯" compare={true}>
+```python !! py
+# Python 不需要轉譯
+# 版本相容性透過以下方式處理：
+# 1. 語言版本控制（Python 3.8+）
+# 2. 特性檢測
+# 3. 向後移植函式庫
+
+# 範例：使用現代 Python 特性
+from __future__ import annotations  # 為舊版 Python
+
+def process_data(items: list[dict]) -> dict[str, int]:
+    """使用類型提示處理資料（Python 3.9+ 語法）"""
+    return {
+        item['name']: item['value'] 
+        for item in items 
+        if item.get('active', False)
+    }
+
+# 為舊版 Python，你可能使用：
+from typing import List, Dict
+
+def process_data_compatible(items: List[Dict]) -> Dict[str, int]:
+    return {
+        item['name']: item['value'] 
+        for item in items 
+        if item.get('active', False)
+    }
+
+# 虛擬環境處理版本隔離
+# python -m venv venv
+# source venv/bin/activate  # 或 venv\Scripts\activate
+```
+
+```javascript !! js
+// 現代 JavaScript (ES2020+) - 原始碼
+// src/modern-features.js
+
+// 可選鏈結和空值合併
+const getUserData = (user) => {
+    return {
+        name: user?.profile?.name ?? 'Anonymous',
+        avatar: user?.profile?.avatar ?? '/default-avatar.png',
+        posts: user?.posts?.length ?? 0
+    };
+};
+
+// 帶表達式的範本字面量
+const createMessage = (user, action) => `
+    使用者 ${user.name} 執行了 ${action} 
+    於 ${new Date().toISOString()}
+`;
+
+// 帶預設值的解構
+const processApiResponse = ({ data = [], status = 'unknown', ...meta }) => {
+    return data.map(item => ({
+        ...item,
+        processed: true,
+        timestamp: Date.now()
+    }));
+};
+
+// 帶適當錯誤處理的 async/await
+const fetchUserData = async (userId) => {
+    try {
+        const response = await fetch(`/api/users/${userId}`);
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        return await response.json();
+    } catch (error) {
+        console.error('獲取使用者失敗:', error);
+        throw error;
+    }
+};
+
+// 帶私有欄位的類別（ES2022）
+class UserManager {
+    #apiKey;
+    
+    constructor(apiKey) {
+        this.#apiKey = apiKey;
+    }
+    
+    async #makeRequest(endpoint) {
+        return fetch(endpoint, {
+            headers: {
+                'Authorization': `Bearer ${this.#apiKey}`
+            }
+        });
+    }
+    
+    async getUser(id) {
+        const response = await this.#makeRequest(`/users/${id}`);
+        return response.json();
+    }
+}
+
+// Babel 轉譯後（ES5 相容）
+// dist/compiled.js
+"use strict";
+
+function _typeof(obj) {
+    "@babel/helpers - typeof";
+    return (_typeof = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? 
+        function (obj) { return typeof obj; } : 
+        function (obj) { return obj && "function" == typeof Symbol && obj.constructor === Symbol && obj !== Symbol.prototype ? "symbol" : typeof obj; }
+    )(obj);
+}
+
+var getUserData = function getUserData(user) {
+    var _user$profile, _user$profile2, _user$posts;
+    return {
+        name: (_user$profile = user === null || user === void 0 ? void 0 : user.profile) === null || _user$profile === void 0 ? void 0 : _user$profile.name,
+        avatar: (_user$profile2 = user === null || user === void 0 ? void 0 : user.profile) === null || _user$profile2 === void 0 ? void 0 : _user$profile2.avatar,
+        posts: (_user$posts = user === null || user === void 0 ? void 0 : user.posts) === null || _user$posts === void 0 ? void 0 : _user$posts.length
+    };
+};
+
+// Babel 設定
+// .babelrc 或 babel.config.js
+module.exports = {
+    presets: [
+        ['@babel/preset-env', {
+            targets: {
+                browsers: ['> 1%', 'last 2 versions', 'not ie <= 8']
+            },
+            useBuiltIns: 'usage',
+            corejs: 3
+        }]
+    ],
+    plugins: [
+        '@babel/plugin-proposal-class-properties',
+        '@babel/plugin-proposal-private-methods',
+        '@babel/plugin-proposal-optional-chaining',
+        '@babel/plugin-proposal-nullish-coalescing-operator'
+    ]
+};
+```
+</PythonEditor>
+
+## 開發伺服器和熱重載
+
+### 開發環境設定
+
+<PythonEditor title="開發環境" compare={true}>
+```python !! py
+# Python 開發環境
+# 通常由 IDE/編輯器 + 檔案監控處理
+
+# 使用 Flask 開發伺服器
+from flask import Flask
+app = Flask(__name__)
+
+@app.route('/')
+def hello():
+    return "Hello, World!"
+
+if __name__ == '__main__':
+    # 帶自動重載的開發伺服器
+    app.run(debug=True, host='0.0.0.0', port=5000)
+
+# 使用 watchdog 進行檔案監控
+from watchdog.observers import Observer
+from watchdog.events import FileSystemEventHandler
+import subprocess
+import time
+
+class CodeReloadHandler(FileSystemEventHandler):
+    def on_modified(self, event):
+        if event.src_path.endswith('.py'):
+            print(f"檔案 {event.src_path} 已更改，重新啟動中...")
+            # 重新啟動應用邏輯
+            subprocess.run(['python', 'app.py'])
+
+observer = Observer()
+observer.schedule(CodeReloadHandler(), path='.', recursive=True)
+observer.start()
+
+# Django 開發伺服器
+# python manage.py runserver --settings=myproject.settings.dev
+
+# 使用 pytest-watch 進行測試驅動開發
+# pip install pytest-watch
+# ptw  # 檔案更改時自動執行測試
+```
+
+```javascript !! js
+// JavaScript 使用 webpack-dev-server 開發
+// webpack.config.js
+const path = require('path');
+const HtmlWebpackPlugin = require('html-webpack-plugin');
+
+module.exports = {
+    mode: 'development',
+    entry: './src/index.js',
+    output: {
+        path: path.resolve(__dirname, 'dist'),
+        filename: '[name].bundle.js'
+    },
+    devServer: {
+        contentBase: './dist',
+        hot: true,                    // 啟用熱模組替換
+        open: true,                   // 自動開啟瀏覽器
+        port: 3000,
+        historyApiFallback: true,     // 用於 SPA 路由
+        compress: true,
+        overlay: {                    // 在瀏覽器中顯示錯誤
+            warnings: true,
+            errors: true
+        },
+        watchOptions: {
+            aggregateTimeout: 300,
+            poll: 1000,
+            ignored: /node_modules/
+        },
+        proxy: {                      // 代理 API 呼叫
+            '/api': {
+                target: 'http://localhost:8000',
+                changeOrigin: true
+            }
+        }
+    },
+    plugins: [
+        new HtmlWebpackPlugin({
+            template: './src/index.html'
+        }),
+        new webpack.HotModuleReplacementPlugin()
+    ],
+    module: {
+        rules: [
+            {
+                test: /\.js$/,
+                exclude: /node_modules/,
+                use: {
+                    loader: 'babel-loader',
+                    options: {
+                        presets: ['@babel/preset-env']
+                    }
+                }
+            },
+            {
+                test: /\.css$/,
+                use: ['style-loader', 'css-loader']
+            }
+        ]
+    }
+};
+
+// 應用程式碼中的熱模組替換
+// src/index.js
+import { updateUI } from './ui.js';
+import './styles.css';
+
+function init() {
+    updateUI();
+    console.log('應用程式已初始化');
+}
+
+init();
+
+// 接受此模組的熱更新
+if (module.hot) {
+    module.hot.accept('./ui.js', () => {
+        console.log('UI 模組已更新');
+        updateUI();
+    });
+    
+    module.hot.accept('./styles.css', () => {
+        console.log('樣式已更新');
+    });
+}
+
+// 替代方案：使用 Vite 進行更快的開發
+// vite.config.js
+import { defineConfig } from 'vite';
+
+export default defineConfig({
+    server: {
+        port: 3000,
+        open: true,
+        proxy: {
+            '/api': 'http://localhost:8000'
+        }
+    },
+    build: {
+        outDir: 'dist',
+        sourcemap: true
+    },
+    css: {
+        devSourcemap: true
+    }
+});
+
+// package.json 腳本
+{
+    "scripts": {
+        "dev": "webpack serve --mode=development",
+        "dev:vite": "vite",
+        "build": "webpack --mode=production",
+        "build:vite": "vite build",
+        "preview": "vite preview"
+    }
+}
+
+// 執行開發伺服器
+// npm run dev
+// 自動：
+// - 檔案更改時編譯程式碼
+// - 重新整理瀏覽器
+// - 在覆蓋層中顯示錯誤
+// - 保持應用程式狀態（HMR）
+```
+</PythonEditor>
+
+## 生產建置和最佳化
+
+### 建置最佳化策略
+
+<PythonEditor title="生產最佳化" compare={true}>
+```python !! py
+# Python 生產最佳化
+# 通常在部署層級處理
+
+# 使用 gunicorn 作為生產 WSGI 伺服器
+# gunicorn --workers 4 --bind 0.0.0.0:8000 app:app
+
+# 最佳化 Python 程式碼
+import functools
+import cProfile
+import pstats
+
+# 使用 lru_cache 快取
+@functools.lru_cache(maxsize=128)
+def expensive_computation(n):
+    # 一些昂貴的操作
+    return sum(i * i for i in range(n))
+
+# 效能分析最佳化
+def profile_function():
+    profiler = cProfile.Profile()
+    profiler.enable()
+    
+    # 你的程式碼
+    result = expensive_computation(1000)
+    
+    profiler.disable()
+    stats = pstats.Stats(profiler)
+    stats.sort_stats('cumulative')
+    stats.print_stats()
+
+# Docker 生產建置
+# Dockerfile
+FROM python:3.9-slim
+
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+RUN python -m compileall .
+
+CMD ["gunicorn", "--workers", "4", "--bind", "0.0.0.0:8000", "app:app"]
+
+# 環境特定設定
+import os
+
+class Config:
+    DEBUG = False
+    SECRET_KEY = os.environ.get('SECRET_KEY')
+
+class DevelopmentConfig(Config):
+    DEBUG = True
+
+class ProductionConfig(Config):
+    # 生產最佳化
+    pass
+```
+
+```javascript !! js
+// JavaScript 生產建置最佳化
+// webpack.config.prod.js
+const path = require('path');
+const MiniCssExtractPlugin = require('mini-css-extract-plugin');
+const TerserPlugin = require('terser-webpack-plugin');
+const CssMinimizerPlugin = require('css-minimizer-webpack-plugin');
+const { BundleAnalyzerPlugin } = require('webpack-bundle-analyzer');
+
+module.exports = {
+    mode: 'production',
+    entry: './src/index.js',
+    output: {
+        path: path.resolve(__dirname, 'dist'),
+        filename: '[name].[contenthash].js',
+        chunkFilename: '[name].[contenthash].chunk.js',
+        clean: true,
+        publicPath: '/static/'
+    },
+    optimization: {
+        minimize: true,
+        minimizer: [
+            new TerserPlugin({
+                terserOptions: {
+                    compress: {
+                        drop_console: true,    // 移除 console.log
+                        drop_debugger: true    // 移除 debugger 陳述式
+                    }
+                }
+            }),
+            new CssMinimizerPlugin()
+        ],
+        splitChunks: {
+            chunks: 'all',
+            cacheGroups: {
+                vendor: {
+                    test: /[\\/]node_modules[\\/]/,
+                    name: 'vendors',
+                    chunks: 'all'
+                },
+                common: {
+                    name: 'common',
+                    minChunks: 2,
+                    chunks: 'all',
+                    enforce: true
+                }
+            }
+        },
+        runtimeChunk: 'single'
+    },
+    module: {
+        rules: [
+            {
+                test: /\.js$/,
+                exclude: /node_modules/,
+                use: {
+                    loader: 'babel-loader',
+                    options: {
+                        presets: [
+                            ['@babel/preset-env', {
+                                targets: '> 0.25%, not dead',
+                                useBuiltIns: 'usage',
+                                corejs: 3
+                            }]
+                        ]
+                    }
+                }
+            },
+            {
+                test: /\.css$/,
+                use: [
+                    MiniCssExtractPlugin.loader,
+                    'css-loader',
+                    'postcss-loader'  // 用於 autoprefixer
+                ]
+            },
+            {
+                test: /\.(png|svg|jpg|jpeg|gif)$/i,
+                type: 'asset/resource',
+                generator: {
+                    filename: 'images/[hash][ext][query]'
+                }
+            }
+        ]
+    },
+    plugins: [
+        new MiniCssExtractPlugin({
+            filename: '[name].[contenthash].css'
+        }),
+        new BundleAnalyzerPlugin({
+            analyzerMode: process.env.ANALYZE ? 'server' : 'disabled'
+        })
+    ],
+    performance: {
+        hints: 'warning',
+        maxEntrypointSize: 250000,
+        maxAssetSize: 250000
+    }
+};
+
+// 進階最佳化技術
+// Tree shaking（生產環境自動啟用）
+// 只匯入使用的函式
+import { debounce } from 'lodash';  // ❌ 匯入整個 lodash
+import debounce from 'lodash/debounce';  // ✅ 只匯入 debounce
+
+// 使用動態匯入進行程式碼分割
+const LazyComponent = React.lazy(() => import('./LazyComponent'));
+
+// 基於路由的程式碼分割
+const routes = [
+    {
+        path: '/dashboard',
+        component: () => import('./Dashboard')
+    },
+    {
+        path: '/profile',
+        component: () => import('./Profile')
+    }
+];
+
+// Service Worker 快取
+// sw.js
+const CACHE_NAME = 'my-app-v1';
+const urlsToCache = [
+    '/',
+    '/static/css/main.css',
+    '/static/js/main.js'
+];
+
+self.addEventListener('install', (event) => {
+    event.waitUntil(
+        caches.open(CACHE_NAME)
+            .then((cache) => cache.addAll(urlsToCache))
+    );
+});
+
+// package.json 中的建置腳本
+{
+    "scripts": {
+        "build": "webpack --config webpack.config.prod.js",
+        "build:analyze": "ANALYZE=true npm run build",
+        "build:stats": "webpack --config webpack.config.prod.js --json > stats.json",
+        "serve:prod": "serve -s dist -l 3000"
+    }
+}
+
+// 環境變數
+// .env.production
+NODE_ENV=production
+API_URL=https://api.myapp.com
+CDN_URL=https://cdn.myapp.com
+
+// webpack.DefinePlugin 使用
+plugins: [
+    new webpack.DefinePlugin({
+        'process.env.NODE_ENV': JSON.stringify('production'),
+        'process.env.API_URL': JSON.stringify(process.env.API_URL)
+    })
+]
+```
+</PythonEditor>
+
+## 現代建置工具
+
+### Vite vs Webpack 對比
+
+<PythonEditor title="現代建置工具" compare={true}>
+```python !! py
+# Python：Poetry 作為現代相依性管理
+# pyproject.toml
+[tool.poetry]
+name = "my-python-app"
+version = "0.1.0"
+description = "現代 Python 應用程式"
+authors = ["你的名字 <you@example.com>"]
+
+[tool.poetry.dependencies]
+python = "^3.8"
+fastapi = "^0.68.0"
+uvicorn = "^0.15.0"
+pydantic = "^1.8.0"
+
+[tool.poetry.dev-dependencies]
+pytest = "^6.2.0"
+black = "^21.9b0"
+flake8 = "^3.9.0"
+mypy = "^0.910"
+
+[tool.poetry.scripts]
+my-app = "my_app.main:app"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+# 指令
+# poetry install
+# poetry add requests
+# poetry add --dev pytest
+# poetry build
+# poetry publish
+
+# 現代 Python 工具
+# pyproject.toml 設定所有工具
+[tool.black]
+line-length = 88
+target-version = ['py38']
+
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+strict_optional = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+```
+
+```javascript !! js
+// Vite：現代快速建置工具
+// vite.config.js
+import { defineConfig } from 'vite';
+import { resolve } from 'path';
+
+export default defineConfig({
+    // 使用原生 ES 模組的快速開發
+    server: {
+        port: 3000,
+        hot: true,
+        open: true
+    },
+    
+    // 建置設定
+    build: {
+        outDir: 'dist',
+        sourcemap: true,
+        rollupOptions: {
+            input: {
+                main: resolve(__dirname, 'index.html'),
+                admin: resolve(__dirname, 'admin.html')
+            }
+        }
+    },
+    
+    // 外掛
+    plugins: [
+        // 自動安裝缺失相依性
+        {
+            name: 'auto-install',
+            configResolved(config) {
+                // 外掛邏輯
+            }
+        }
+    ],
+    
+    // CSS 預處理
+    css: {
+        preprocessorOptions: {
+            scss: {
+                additionalData: `@import "@/styles/variables.scss";`
+            }
+        }
+    },
+    
+    // 環境變數
+    define: {
+        __APP_VERSION__: JSON.stringify(process.env.npm_package_version)
+    },
+    
+    // 路徑別名
+    resolve: {
+        alias: {
+            '@': resolve(__dirname, 'src'),
+            '@components': resolve(__dirname, 'src/components')
+        }
+    }
+});
+
+// 使用現代工具的 package.json
+{
+    "name": "modern-js-app",
+    "type": "module",  // 使用 ES 模組
+    "scripts": {
+        "dev": "vite",
+        "build": "vite build",
+        "preview": "vite preview",
+        "lint": "eslint . --ext .js,.jsx,.ts,.tsx",
+        "format": "prettier --write .",
+        "test": "vitest",
+        "test:ui": "vitest --ui"
+    },
+    "devDependencies": {
+        "vite": "^4.0.0",
+        "vitest": "^0.25.0",
+        "@vitejs/plugin-react": "^3.0.0",
+        "eslint": "^8.30.0",
+        "prettier": "^2.8.0",
+        "typescript": "^4.9.0"
+    }
+}
+
+// 對比：Vite vs Webpack
+// Vite 優勢：
+// ✅ 更快的冷啟動（開發時無需打包）
+// ✅ 更快的 HMR（熱模組替換）
+// ✅ 原生 ES 模組支援
+// ✅ 內建 TypeScript 支援
+// ✅ 更簡單的設定
+
+// Webpack 優勢：
+// ✅ 更成熟的生態系統
+// ✅ 更適合複雜設定
+// ✅ 更多外掛可用
+// ✅ 更好的瀏覽器相容性
+
+// 現代工具生態系統
+// ESLint 設定
+// .eslintrc.js
+module.exports = {
+    extends: [
+        'eslint:recommended',
+        '@typescript-eslint/recommended',
+        'prettier'
+    ],
+    plugins: ['@typescript-eslint'],
+    rules: {
+        'no-console': 'warn',
+        'prefer-const': 'error',
+        '@typescript-eslint/no-unused-vars': 'error'
+    }
+};
+
+// Prettier 設定
+// .prettierrc
+{
+    "singleQuote": true,
+    "trailingComma": "es5",
+    "tabWidth": 2,
+    "semi": true,
+    "printWidth": 80
+}
+
+// TypeScript 設定
+// tsconfig.json
+{
+    "compilerOptions": {
+        "target": "ESNext",
+        "module": "ESNext",
+        "moduleResolution": "node",
+        "strict": true,
+        "jsx": "preserve",
+        "esModuleInterop": true,
+        "skipLibCheck": true,
+        "forceConsistentCasingInFileNames": true,
+        "baseUrl": ".",
+        "paths": {
+            "@/*": ["src/*"],
+            "@components/*": ["src/components/*"]
+        }
+    },
+    "include": ["src/**/*"],
+    "exclude": ["node_modules", "dist"]
+}
+```
+</PythonEditor>
+
+## CI/CD 流水線設定
+
+### 持續整合和部署
+
+<PythonEditor title="CI/CD 流水線" compare={true}>
+```python !! py
+# Python 使用 GitHub Actions 的 CI/CD
+# .github/workflows/python-app.yml
+name: Python application
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: [3.8, 3.9, "3.10"]
+
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: 設定 Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v3
+      with:
+        python-version: ${{ matrix.python-version }}
+    
+    - name: 快取 pip 相依性
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+    
+    - name: 安裝相依性
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install -r requirements-dev.txt
+    
+    - name: 使用 flake8 檢查程式碼
+      run: |
+        flake8 src/ tests/
+    
+    - name: 使用 black 格式化
+      run: |
+        black --check src/ tests/
+    
+    - name: 使用 mypy 類型檢查
+      run: |
+        mypy src/
+    
+    - name: 使用 pytest 測試
+      run: |
+        pytest --cov=src --cov-report=xml
+    
+    - name: 上傳覆蓋率到 Codecov
+      uses: codecov/codecov-action@v3
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: 部署到生產環境
+      run: |
+        # 部署指令
+        echo "部署到生產環境"
+
+# Docker 部署
+# Dockerfile
+FROM python:3.9-slim
+
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+EXPOSE 8000
+
+CMD ["gunicorn", "--bind", "0.0.0.0:8000", "app:app"]
+
+# docker-compose.yml
+version: '3.8'
+services:
+  web:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://user:pass@db:5432/myapp
+    depends_on:
+      - db
+  
+  db:
+    image: postgres:13
+    environment:
+      POSTGRES_DB: myapp
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: pass
+```
+
+```javascript !! js
+// JavaScript 使用 GitHub Actions 的 CI/CD
+// .github/workflows/node.yml
+name: Node.js CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [16.x, 18.x, 20.x]
+
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: 使用 Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v3
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'
+    
+    - name: 安裝相依性
+      run: npm ci
+    
+    - name: 程式碼檢查
+      run: npm run lint
+    
+    - name: 格式檢查
+      run: npm run format:check
+    
+    - name: 類型檢查
+      run: npm run type-check
+    
+    - name: 執行測試
+      run: npm run test:coverage
+    
+    - name: 建置應用程式
+      run: npm run build
+    
+    - name: 上傳覆蓋率報告
+      uses: codecov/codecov-action@v3
+    
+    - name: 上傳建置產物
+      uses: actions/upload-artifact@v3
+      with:
+        name: build-${{ matrix.node-version }}
+        path: dist/
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: 設定 Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+        cache: 'npm'
+    
+    - name: 安裝相依性
+      run: npm ci
+    
+    - name: 生產建置
+      run: npm run build
+      env:
+        NODE_ENV: production
+        API_URL: ${{ secrets.API_URL }}
+    
+    - name: 部署到 AWS S3
+      env:
+        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      run: |
+        aws s3 sync dist/ s3://my-app-bucket --delete
+    
+    - name: 使 CloudFront 失效
+      run: |
+        aws cloudfront create-invalidation --distribution-id ${{ secrets.CLOUDFRONT_ID }} --paths "/*"
+
+# 多階段 Docker 建置
+# Dockerfile
+FROM node:18-alpine as builder
+
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci --only=production
+
+COPY . .
+RUN npm run build
+
+FROM nginx:alpine
+COPY --from=builder /app/dist /usr/share/nginx/html
+COPY nginx.conf /etc/nginx/nginx.conf
+
+EXPOSE 80
+CMD ["nginx", "-g", "daemon off;"]
+
+# 開發用 docker-compose.yml
+version: '3.8'
+services:
+  frontend:
+    build:
+      context: .
+      target: development
+    ports:
+      - "3000:3000"
+    volumes:
+      - .:/app
+      - /app/node_modules
+    environment:
+      - NODE_ENV=development
+    
+  backend:
+    image: my-backend:latest
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://user:pass@db:5432/myapp
+
+# package.json 中的 CI/CD 腳本
+{
+    "scripts": {
+        "dev": "vite",
+        "build": "vite build",
+        "preview": "vite preview",
+        "test": "vitest run",
+        "test:watch": "vitest",
+        "test:coverage": "vitest run --coverage",
+        "lint": "eslint . --ext .js,.jsx,.ts,.tsx",
+        "lint:fix": "eslint . --ext .js,.jsx,.ts,.tsx --fix",
+        "format": "prettier --write .",
+        "format:check": "prettier --check .",
+        "type-check": "tsc --noEmit",
+        "pre-commit": "lint-staged",
+        "prepare": "husky install"
+    },
+    "lint-staged": {
+        "*.{js,jsx,ts,tsx}": ["eslint --fix", "prettier --write"],
+        "*.{css,scss,md}": ["prettier --write"]
+    }
+}
+
+// Netlify 部署設定
+// netlify.toml
+[build]
+  publish = "dist"
+  command = "npm run build"
+
+[build.environment]
+  NODE_VERSION = "18"
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+// Vercel 部署設定
+// vercel.json
+{
+    "builds": [
+        {
+            "src": "package.json",
+            "use": "@vercel/static-build",
+            "config": {
+                "distDir": "dist"
+            }
+        }
+    ],
+    "routes": [
+        {
+            "src": "/(.*)",
+            "dest": "/index.html"
+        }
+    ]
+}
+```
+</PythonEditor>
+
+## 效能監控和最佳化
+
+### 建置效能分析
+
+<PythonEditor title="效能監控" compare={true}>
+```python !! py
+# Python 效能監控
+import cProfile
+import pstats
+import time
+import functools
+from memory_profiler import profile
+
+# 程式碼分析
+def profile_performance():
+    profiler = cProfile.Profile()
+    profiler.enable()
+    
+    # 你的應用程式碼
+    expensive_operation()
+    
+    profiler.disable()
+    stats = pstats.Stats(profiler)
+    stats.sort_stats('cumulative')
+    stats.print_stats(10)  # 前 10 個最慢的函式
+
+# 記憶體分析
+@profile
+def memory_intensive_function():
+    # 這將顯示逐行記憶體使用情況
+    data = [i**2 for i in range(1000000)]
+    return sum(data)
+
+# 效能裝飾器
+def timing_decorator(func):
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        start = time.time()
+        result = func(*args, **kwargs)
+        end = time.time()
+        print(f"{func.__name__} 用時 {end - start:.4f} 秒")
+        return result
+    return wrapper
+
+@timing_decorator
+def slow_function():
+    time.sleep(1)
+    return "完成"
+
+# 使用 APM 工具進行應用程式監控
+# pip install elastic-apm
+from elasticapm.contrib.flask import ElasticAPM
+
+app = Flask(__name__)
+app.config['ELASTIC_APM'] = {
+    'SERVICE_NAME': 'my-python-app',
+    'SECRET_TOKEN': 'your-secret-token',
+    'SERVER_URL': 'https://your-apm-server.com'
+}
+apm = ElasticAPM(app)
+```
+
+```javascript !! js
+// JavaScript 建置效能分析
+// webpack-bundle-analyzer
+const BundleAnalyzerPlugin = require('webpack-bundle-analyzer').BundleAnalyzerPlugin;
+
+module.exports = {
+    plugins: [
+        new BundleAnalyzerPlugin({
+            analyzerMode: 'static',
+            openAnalyzer: false,
+            reportFilename: 'bundle-report.html'
+        })
+    ]
+};
+
+// 速度測量外掛
+const SpeedMeasurePlugin = require('speed-measure-webpack-plugin');
+const smp = new SpeedMeasurePlugin();
+
+module.exports = smp.wrap({
+    // 你的 webpack 設定
+    plugins: [
+        // 你的外掛
+    ]
+});
+
+// 套件大小監控
+// package.json
+{
+    "scripts": {
+        "analyze": "npm run build && npx webpack-bundle-analyzer dist/stats.json",
+        "size": "npm run build && size-limit",
+        "build:stats": "webpack --json > dist/stats.json"
+    },
+    "size-limit": [
+        {
+            "path": "dist/main.*.js",
+            "limit": "250 KB"
+        },
+        {
+            "path": "dist/vendor.*.js",
+            "limit": "500 KB"
+        }
+    ]
+}
+
+// 執行時期效能監控
+// Web Vitals 監控
+import { getCLS, getFID, getFCP, getLCP, getTTFB } from 'web-vitals';
+
+function sendToAnalytics(metric) {
+    // 傳送到你的分析服務
+    console.log(metric);
+}
+
+getCLS(sendToAnalytics);
+getFID(sendToAnalytics);
+getFCP(sendToAnalytics);
+getLCP(sendToAnalytics);
+getTTFB(sendToAnalytics);
+
+// Performance API 使用
+function measurePerformance() {
+    // 標記操作開始
+    performance.mark('operation-start');
+    
+    // 做一些工作
+    heavyOperation();
+    
+    // 標記結束
+    performance.mark('operation-end');
+    
+    // 測量持續時間
+    performance.measure('operation-duration', 'operation-start', 'operation-end');
+    
+    // 獲取測量結果
+    const measure = performance.getEntriesByName('operation-duration')[0];
+    console.log(`操作用時 ${measure.duration}ms`);
+}
+
+// Lighthouse CI 整合
+// .lighthouserc.js
+module.exports = {
+    ci: {
+        collect: {
+            url: ['http://localhost:3000'],
+            startServerCommand: 'npm start',
+            numberOfRuns: 3
+        },
+        assert: {
+            assertions: {
+                'categories:performance': ['error', { minScore: 0.9 }],
+                'categories:accessibility': ['error', { minScore: 0.9 }],
+                'categories:best-practices': ['error', { minScore: 0.9 }],
+                'categories:seo': ['error', { minScore: 0.9 }]
+            }
+        },
+        upload: {
+            target: 'temporary-public-storage'
+        }
+    }
+};
+
+// 建置快取最佳化
+// webpack.config.js
+module.exports = {
+    cache: {
+        type: 'filesystem',
+        cacheDirectory: path.resolve(__dirname, '.webpack-cache')
+    },
+    optimization: {
+        moduleIds: 'deterministic',
+        runtimeChunk: 'single',
+        splitChunks: {
+            cacheGroups: {
+                vendor: {
+                    test: /[\\/]node_modules[\\/]/,
+                    name: 'vendors',
+                    chunks: 'all'
+                }
+            }
+        }
+    }
+};
+
+// 來源對應分析
+// webpack.config.js
+module.exports = {
+    devtool: process.env.NODE_ENV === 'production' 
+        ? 'source-map' 
+        : 'eval-source-map',
+    optimization: {
+        usedExports: true,
+        sideEffects: false  // 啟用 tree shaking
+    }
+};
+```
+</PythonEditor>
+
+## 最佳實務總結
+
+### 建置工具最佳實務
+
+1. **使用現代工具**：優先選擇 Vite 或現代 webpack 設定而非傳統設定
+2. **開發最佳化**：快速重建和熱重載以獲得良好的開發體驗
+3. **生產最佳化**：壓縮、程式碼分割和快取
+4. **監控效能**：使用套件分析器和效能指標
+5. **自動化一切**：CI/CD 流水線用於測試、建置和部署
+
+### 開發工作流程最佳實務
+
+1. **一致的環境**：使用 Docker 或確切的 Node.js 版本
+2. **程式碼品質**：ESLint、Prettier 和 TypeScript 以確保可維護性
+3. **測試整合**：檔案更改時執行測試以及在 CI/CD 中
+4. **漸進增強**：為現代瀏覽器建置，為舊版本回退
+5. **安全性**：定期相依性更新和漏洞掃描
+
+## 下一步
+
+在下一個模組中，我們將把所有內容結合起來，透過實際專案展示針對 Python 開發者的現實世界 JavaScript 開發場景。
+
+我們將涵蓋的關鍵主題：
+- 全端 Web 應用程式
+- API 整合專案
+- 前端元件函式庫
+- CLI 工具開發
+- 效能最佳化案例研究
+
+---
+
+*繼續學習 [模組 12：實戰專案與綜合應用 →](/docs/py2js/module-12-projects)*

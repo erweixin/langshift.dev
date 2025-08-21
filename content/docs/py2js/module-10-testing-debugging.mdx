@@ -1,0 +1,1191 @@
+---
+title: Testing Frameworks & Debugging
+description: Compare Python and JavaScript testing approaches, master Jest vs pytest, and learn JavaScript debugging techniques
+---
+
+# Module 10: Testing Frameworks & Debugging
+
+## Learning Objectives
+
+By the end of this module, you will:
+- Compare Python and JavaScript testing frameworks
+- Understand Jest vs pytest differences and similarities
+- Master JavaScript unit testing patterns
+- Learn mocking and stubbing techniques in JavaScript
+- Use JavaScript debugging tools effectively
+- Implement test-driven development (TDD) in JavaScript
+
+## Testing Framework Comparison
+
+### Python: unittest and pytest
+
+In Python, you're familiar with:
+
+<PythonEditor title="Python Testing Frameworks" compare={true}>
+```python !! py
+# Using unittest (built-in)
+import unittest
+from unittest.mock import patch, Mock
+
+class TestCalculator(unittest.TestCase):
+    def setUp(self):
+        self.calc = Calculator()
+    
+    def test_addition(self):
+        result = self.calc.add(2, 3)
+        self.assertEqual(result, 5)
+    
+    def test_division_by_zero(self):
+        with self.assertRaises(ValueError):
+            self.calc.divide(5, 0)
+    
+    @patch('requests.get')
+    def test_api_call(self, mock_get):
+        mock_get.return_value.json.return_value = {'status': 'ok'}
+        result = self.calc.fetch_data()
+        self.assertEqual(result['status'], 'ok')
+
+# Using pytest (more popular)
+import pytest
+from unittest.mock import patch
+
+def test_addition():
+    calc = Calculator()
+    assert calc.add(2, 3) == 5
+
+def test_division_by_zero():
+    calc = Calculator()
+    with pytest.raises(ValueError):
+        calc.divide(5, 0)
+
+@patch('requests.get')
+def test_api_call(mock_get):
+    mock_get.return_value.json.return_value = {'status': 'ok'}
+    calc = Calculator()
+    result = calc.fetch_data()
+    assert result['status'] == 'ok'
+
+# Fixtures
+@pytest.fixture
+def calculator():
+    return Calculator()
+
+def test_with_fixture(calculator):
+    assert calculator.add(1, 1) == 2
+```
+
+```javascript !! js
+// Using Jest (most popular JavaScript testing framework)
+const Calculator = require('./calculator');
+
+describe('Calculator', () => {
+    let calc;
+    
+    beforeEach(() => {
+        calc = new Calculator();
+    });
+    
+    test('should add two numbers correctly', () => {
+        const result = calc.add(2, 3);
+        expect(result).toBe(5);
+    });
+    
+    test('should throw error when dividing by zero', () => {
+        expect(() => {
+            calc.divide(5, 0);
+        }).toThrow('Division by zero');
+    });
+    
+    test('should handle async operations', async () => {
+        const result = await calc.fetchData();
+        expect(result.status).toBe('ok');
+    });
+});
+
+// Mocking with Jest
+jest.mock('axios');
+const axios = require('axios');
+
+test('should mock API call', async () => {
+    const mockResponse = { data: { status: 'ok' } };
+    axios.get.mockResolvedValue(mockResponse);
+    
+    const calc = new Calculator();
+    const result = await calc.fetchData();
+    
+    expect(result.status).toBe('ok');
+    expect(axios.get).toHaveBeenCalledWith('/api/data');
+});
+
+// Setup and teardown
+beforeAll(() => {
+    // Setup before all tests
+});
+
+afterAll(() => {
+    // Cleanup after all tests
+});
+
+beforeEach(() => {
+    // Setup before each test
+});
+
+afterEach(() => {
+    // Cleanup after each test
+});
+```
+</PythonEditor>
+
+### Key Framework Differences
+
+| Aspect | Python (pytest) | JavaScript (Jest) |
+|--------|-----------------|-------------------|
+| **Discovery** | Auto-discovers test files | Auto-discovers test files |
+| **Naming** | `test_*.py` or `*_test.py` | `*.test.js` or `*.spec.js` |
+| **Assertions** | `assert` or `unittest.assert*` | `expect().*` |
+| **Mocking** | `unittest.mock` | Built-in `jest.mock()` |
+| **Async Testing** | `pytest-asyncio` | Native async/await support |
+| **Fixtures** | `@pytest.fixture` | `beforeEach/beforeAll` |
+
+## Unit Testing Patterns
+
+### Test Structure and Organization
+
+<PythonEditor title="Test Organization" compare={true}>
+```python !! py
+# Python test structure
+# test_user.py
+import pytest
+from unittest.mock import Mock, patch
+from models.user import User
+from services.email import EmailService
+
+class TestUser:
+    @pytest.fixture
+    def user_data(self):
+        return {
+            'name': 'John Doe',
+            'email': 'john@example.com',
+            'age': 30
+        }
+    
+    @pytest.fixture
+    def mock_email_service(self):
+        return Mock(spec=EmailService)
+    
+    def test_user_creation(self, user_data):
+        user = User(**user_data)
+        assert user.name == 'John Doe'
+        assert user.email == 'john@example.com'
+        assert user.age == 30
+    
+    def test_user_validation(self):
+        with pytest.raises(ValueError, match="Invalid email"):
+            User(name='John', email='invalid-email', age=30)
+    
+    @patch('services.email.EmailService')
+    def test_send_welcome_email(self, mock_email_service, user_data):
+        user = User(**user_data)
+        user.send_welcome_email()
+        
+        mock_email_service.send.assert_called_once_with(
+            to='john@example.com',
+            subject='Welcome!',
+            body=pytest.any_string()
+        )
+
+# Parametrized tests
+@pytest.mark.parametrize("age,expected", [
+    (17, False),
+    (18, True),
+    (25, True),
+    (65, True),
+    (66, False)
+])
+def test_is_adult(age, expected):
+    user = User(name='Test', email='test@example.com', age=age)
+    assert user.is_adult() == expected
+```
+
+```javascript !! js
+// JavaScript test structure
+// user.test.js
+const User = require('../models/user');
+const EmailService = require('../services/email');
+
+// Mock the entire module
+jest.mock('../services/email');
+
+describe('User', () => {
+    let userData;
+    let mockEmailService;
+    
+    beforeEach(() => {
+        userData = {
+            name: 'John Doe',
+            email: 'john@example.com',
+            age: 30
+        };
+        
+        // Clear all mocks before each test
+        jest.clearAllMocks();
+        
+        // Create fresh mock instance
+        mockEmailService = new EmailService();
+    });
+    
+    describe('User Creation', () => {
+        test('should create user with valid data', () => {
+            const user = new User(userData);
+            
+            expect(user.name).toBe('John Doe');
+            expect(user.email).toBe('john@example.com');
+            expect(user.age).toBe(30);
+        });
+        
+        test('should throw error with invalid email', () => {
+            expect(() => {
+                new User({
+                    ...userData,
+                    email: 'invalid-email'
+                });
+            }).toThrow('Invalid email');
+        });
+    });
+    
+    describe('Email Functionality', () => {
+        test('should send welcome email', async () => {
+            const user = new User(userData);
+            
+            await user.sendWelcomeEmail();
+            
+            expect(EmailService).toHaveBeenCalledTimes(1);
+            expect(mockEmailService.send).toHaveBeenCalledWith({
+                to: 'john@example.com',
+                subject: 'Welcome!',
+                body: expect.any(String)
+            });
+        });
+    });
+    
+    // Parametrized tests using test.each
+    test.each([
+        [17, false],
+        [18, true],
+        [25, true],
+        [65, true],
+        [66, false]
+    ])('should return %s for age %i', (age, expected) => {
+        const user = new User({ ...userData, age });
+        expect(user.isAdult()).toBe(expected);
+    });
+});
+
+// Custom matchers
+expect.extend({
+    toBeValidEmail(received) {
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        const pass = emailRegex.test(received);
+        
+        return {
+            message: () => `expected ${received} to be a valid email`,
+            pass
+        };
+    }
+});
+
+test('should validate email format', () => {
+    expect('john@example.com').toBeValidEmail();
+});
+```
+</PythonEditor>
+
+## Mocking and Stubbing
+
+### Mocking External Dependencies
+
+<PythonEditor title="Mocking Techniques" compare={true}>
+```python !! py
+# Python mocking with unittest.mock
+from unittest.mock import Mock, patch, MagicMock
+import requests
+
+# Mock objects
+def test_with_mock_object():
+    mock_service = Mock()
+    mock_service.get_data.return_value = {'id': 1, 'name': 'Test'}
+    
+    # Test code that uses mock_service
+    result = mock_service.get_data()
+    assert result['name'] == 'Test'
+    mock_service.get_data.assert_called_once()
+
+# Patch decorators
+@patch('requests.get')
+def test_api_call(mock_get):
+    # Setup mock response
+    mock_response = Mock()
+    mock_response.json.return_value = {'status': 'success'}
+    mock_response.status_code = 200
+    mock_get.return_value = mock_response
+    
+    # Test the function
+    result = fetch_user_data(123)
+    
+    # Assertions
+    assert result['status'] == 'success'
+    mock_get.assert_called_with('https://api.example.com/users/123')
+
+# Context manager patching
+def test_with_context_manager():
+    with patch('requests.get') as mock_get:
+        mock_get.return_value.json.return_value = {'data': 'test'}
+        result = fetch_data()
+        assert result['data'] == 'test'
+
+# Mock side effects
+def test_side_effects():
+    mock_service = Mock()
+    mock_service.process.side_effect = [1, 2, ValueError('Error')]
+    
+    assert mock_service.process() == 1
+    assert mock_service.process() == 2
+    
+    with pytest.raises(ValueError):
+        mock_service.process()
+
+# Async mocking
+@patch('aiohttp.ClientSession.get')
+async def test_async_function(mock_get):
+    mock_response = Mock()
+    mock_response.json = Mock(return_value={'async': 'data'})
+    mock_get.return_value.__aenter__.return_value = mock_response
+    
+    result = await fetch_async_data()
+    assert result['async'] == 'data'
+```
+
+```javascript !! js
+// JavaScript mocking with Jest
+const axios = require('axios');
+const fs = require('fs');
+
+// Mock entire modules
+jest.mock('axios');
+jest.mock('fs');
+
+describe('Mocking Examples', () => {
+    beforeEach(() => {
+        jest.clearAllMocks();
+    });
+    
+    test('should mock axios calls', async () => {
+        const mockData = { data: { id: 1, name: 'Test User' } };
+        axios.get.mockResolvedValue(mockData);
+        
+        const result = await fetchUserData(1);
+        
+        expect(result.name).toBe('Test User');
+        expect(axios.get).toHaveBeenCalledWith('/api/users/1');
+    });
+    
+    test('should mock with different return values', () => {
+        const mockService = jest.fn();
+        mockService
+            .mockReturnValueOnce('first')
+            .mockReturnValueOnce('second')
+            .mockImplementation(() => 'default');
+        
+        expect(mockService()).toBe('first');
+        expect(mockService()).toBe('second');
+        expect(mockService()).toBe('default');
+    });
+    
+    test('should mock with side effects', () => {
+        const mockFunction = jest.fn();
+        mockFunction
+            .mockImplementationOnce(() => { throw new Error('First error'); })
+            .mockImplementationOnce(() => 'success');
+        
+        expect(() => mockFunction()).toThrow('First error');
+        expect(mockFunction()).toBe('success');
+    });
+    
+    test('should spy on existing methods', () => {
+        const user = new User('John', 'john@example.com');
+        const validateSpy = jest.spyOn(user, 'validate');
+        
+        user.save();
+        
+        expect(validateSpy).toHaveBeenCalled();
+        validateSpy.mockRestore();
+    });
+    
+    test('should mock timers', () => {
+        jest.useFakeTimers();
+        
+        const callback = jest.fn();
+        setTimeout(callback, 1000);
+        
+        expect(callback).not.toHaveBeenCalled();
+        
+        jest.advanceTimersByTime(1000);
+        expect(callback).toHaveBeenCalled();
+        
+        jest.useRealTimers();
+    });
+    
+    test('should mock Promise rejections', async () => {
+        axios.get.mockRejectedValue(new Error('Network error'));
+        
+        await expect(fetchUserData(1)).rejects.toThrow('Network error');
+    });
+    
+    test('should mock file system operations', () => {
+        fs.readFileSync.mockReturnValue('file content');
+        
+        const content = readConfigFile('config.json');
+        
+        expect(content).toBe('file content');
+        expect(fs.readFileSync).toHaveBeenCalledWith('config.json', 'utf8');
+    });
+});
+
+// Manual mocks (__mocks__ directory)
+// __mocks__/axios.js
+export default {
+    get: jest.fn(() => Promise.resolve({ data: {} })),
+    post: jest.fn(() => Promise.resolve({ data: {} })),
+    put: jest.fn(() => Promise.resolve({ data: {} })),
+    delete: jest.fn(() => Promise.resolve({ data: {} }))
+};
+
+// Partial mocking
+jest.mock('../utils/logger', () => ({
+    ...jest.requireActual('../utils/logger'),
+    error: jest.fn()  // Only mock the error method
+}));
+```
+</PythonEditor>
+
+## Async Testing
+
+### Testing Asynchronous Code
+
+<PythonEditor title="Async Testing" compare={true}>
+```python !! py
+# Python async testing with pytest-asyncio
+import pytest
+import asyncio
+import aiohttp
+from unittest.mock import AsyncMock, patch
+
+# Basic async test
+@pytest.mark.asyncio
+async def test_async_function():
+    result = await fetch_async_data()
+    assert result is not None
+
+# Async fixtures
+@pytest.fixture
+async def async_client():
+    async with aiohttp.ClientSession() as session:
+        yield session
+
+@pytest.mark.asyncio
+async def test_with_async_fixture(async_client):
+    async with async_client.get('http://example.com') as response:
+        data = await response.json()
+        assert data is not None
+
+# Mocking async functions
+@pytest.mark.asyncio
+@patch('aiohttp.ClientSession.get')
+async def test_mock_async_call(mock_get):
+    # Setup async mock
+    mock_response = AsyncMock()
+    mock_response.json.return_value = {'status': 'ok'}
+    mock_get.return_value.__aenter__.return_value = mock_response
+    
+    result = await api_call()
+    assert result['status'] == 'ok'
+
+# Testing async exceptions
+@pytest.mark.asyncio
+async def test_async_exception():
+    with pytest.raises(aiohttp.ClientError):
+        await failing_async_function()
+
+# Timeout testing
+@pytest.mark.asyncio
+async def test_with_timeout():
+    with pytest.raises(asyncio.TimeoutError):
+        await asyncio.wait_for(slow_function(), timeout=1.0)
+```
+
+```javascript !! js
+// JavaScript async testing (native Jest support)
+describe('Async Testing', () => {
+    test('should test async function with async/await', async () => {
+        const result = await fetchData();
+        expect(result).toBeDefined();
+    });
+    
+    test('should test Promise resolution', () => {
+        return fetchData().then(result => {
+            expect(result.status).toBe('success');
+        });
+    });
+    
+    test('should test Promise rejection', async () => {
+        await expect(failingAsyncFunction()).rejects.toThrow('Error message');
+    });
+    
+    test('should test with resolves matcher', async () => {
+        await expect(fetchData()).resolves.toHaveProperty('id');
+    });
+    
+    test('should mock async operations', async () => {
+        const mockAsyncFunction = jest.fn().mockResolvedValue('mocked result');
+        
+        const result = await mockAsyncFunction();
+        expect(result).toBe('mocked result');
+    });
+    
+    test('should test setTimeout with fake timers', async () => {
+        jest.useFakeTimers();
+        
+        const promise = new Promise(resolve => {
+            setTimeout(() => resolve('delayed'), 1000);
+        });
+        
+        // Fast forward time
+        jest.advanceTimersByTime(1000);
+        
+        await expect(promise).resolves.toBe('delayed');
+        
+        jest.useRealTimers();
+    });
+    
+    test('should test multiple async operations', async () => {
+        const results = await Promise.all([
+            fetchUser(1),
+            fetchUser(2),
+            fetchUser(3)
+        ]);
+        
+        expect(results).toHaveLength(3);
+        results.forEach(result => {
+            expect(result).toHaveProperty('id');
+        });
+    });
+    
+    test('should test async error handling', async () => {
+        const mockFetch = jest.fn().mockRejectedValue(new Error('Network error'));
+        
+        try {
+            await apiCall();
+            fail('Should have thrown error');
+        } catch (error) {
+            expect(error.message).toBe('Network error');
+        }
+    });
+});
+
+// Testing callbacks (older async pattern)
+test('should test callback-based async code', (done) => {
+    fetchDataWithCallback((error, data) => {
+        expect(error).toBeNull();
+        expect(data).toBeDefined();
+        done();
+    });
+});
+
+// Testing with custom timeout
+test('should complete within time limit', async () => {
+    await expect(fastAsyncFunction()).resolves.toBeDefined();
+}, 5000); // 5 second timeout
+```
+</PythonEditor>
+
+## Debugging Tools and Techniques
+
+### Browser DevTools vs Python Debuggers
+
+<PythonEditor title="Debugging Comparison" compare={true}>
+```python !! py
+# Python debugging with pdb
+import pdb
+
+def calculate_total(items):
+    total = 0
+    for item in items:
+        pdb.set_trace()  # Debugger breakpoint
+        total += item['price'] * item['quantity']
+    return total
+
+# Using iPDB (enhanced debugger)
+import ipdb
+
+def process_data(data):
+    ipdb.set_trace()  # Better interface than pdb
+    cleaned_data = []
+    for item in data:
+        if item['valid']:
+            cleaned_data.append(item)
+    return cleaned_data
+
+# Using IDE debugger (VS Code, PyCharm)
+def complex_function(a, b, c):
+    # Set breakpoint in IDE
+    result = a * b
+    result += c
+    return result
+
+# Logging for debugging
+import logging
+
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
+
+def debug_with_logging():
+    logger.debug("Starting function")
+    data = fetch_data()
+    logger.debug(f"Fetched {len(data)} items")
+    
+    processed = process_items(data)
+    logger.debug(f"Processed {len(processed)} items")
+    
+    return processed
+```
+
+```javascript !! js
+// JavaScript debugging with browser DevTools
+function calculateTotal(items) {
+    let total = 0;
+    items.forEach(item => {
+        debugger; // Browser debugger breakpoint
+        total += item.price * item.quantity;
+    });
+    return total;
+}
+
+// Console debugging
+function processData(data) {
+    console.log('Processing data:', data);
+    console.table(data); // Nice table view
+    console.group('Data Processing');
+    
+    const cleanedData = data.filter(item => {
+        console.log(`Checking item:`, item);
+        return item.valid;
+    });
+    
+    console.groupEnd();
+    console.log('Result:', cleanedData);
+    return cleanedData;
+}
+
+// Advanced console methods
+function advancedLogging() {
+    const users = [
+        { id: 1, name: 'John', role: 'admin' },
+        { id: 2, name: 'Jane', role: 'user' }
+    ];
+    
+    console.table(users);
+    console.count('Function called');
+    console.time('Performance');
+    
+    // Some processing...
+    processUsers(users);
+    
+    console.timeEnd('Performance');
+    console.warn('This is a warning');
+    console.error('This is an error');
+}
+
+// Node.js debugging
+const util = require('util');
+
+function nodeDebugging(data) {
+    // Deep inspection of objects
+    console.log(util.inspect(data, { depth: null, colors: true }));
+    
+    // Performance monitoring
+    console.time('operation');
+    const result = heavyOperation(data);
+    console.timeEnd('operation');
+    
+    return result;
+}
+
+// Using debugger with Node.js
+// node --inspect-brk script.js
+// Then open chrome://inspect
+
+// VS Code debugging configuration
+// .vscode/launch.json
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "node",
+            "request": "launch",
+            "name": "Debug Node.js",
+            "program": "${workspaceFolder}/src/app.js",
+            "console": "integratedTerminal",
+            "env": {
+                "NODE_ENV": "development"
+            }
+        },
+        {
+            "type": "node",
+            "request": "launch",
+            "name": "Debug Tests",
+            "program": "${workspaceFolder}/node_modules/.bin/jest",
+            "args": ["--runInBand"],
+            "console": "integratedTerminal"
+        }
+    ]
+}
+
+// Error handling and debugging
+function errorHandling() {
+    try {
+        riskyOperation();
+    } catch (error) {
+        console.error('Error details:', {
+            message: error.message,
+            stack: error.stack,
+            name: error.name
+        });
+        
+        // Send to error reporting service
+        errorReporter.captureException(error);
+        throw error; // Re-throw if needed
+    }
+}
+```
+</PythonEditor>
+
+## Test Coverage and Reporting
+
+### Coverage Tools Comparison
+
+<PythonEditor title="Test Coverage" compare={true}>
+```python !! py
+# Python coverage with coverage.py
+# Install: pip install coverage
+
+# Running tests with coverage
+# coverage run -m pytest
+# coverage report
+# coverage html
+
+# pytest-cov integration
+# pytest --cov=myproject --cov-report=html
+
+# Configuration in .coveragerc
+[run]
+source = .
+omit = 
+    */venv/*
+    */tests/*
+    setup.py
+
+[report]
+exclude_lines =
+    pragma: no cover
+    def __repr__
+    raise AssertionError
+    raise NotImplementedError
+
+# Example test with coverage annotations
+def calculate_discount(price, discount_percent):
+    if discount_percent < 0:  # pragma: no cover
+        raise ValueError("Discount cannot be negative")
+    
+    if discount_percent > 100:
+        discount_percent = 100
+    
+    return price * (1 - discount_percent / 100)
+
+# Coverage in CI/CD
+# .github/workflows/test.yml
+- name: Test with coverage
+  run: |
+    pip install coverage
+    coverage run -m pytest
+    coverage xml
+    
+- name: Upload coverage to Codecov
+  uses: codecov/codecov-action@v1
+```
+
+```javascript !! js
+// JavaScript coverage with Jest (built-in)
+// package.json
+{
+  "scripts": {
+    "test": "jest",
+    "test:coverage": "jest --coverage",
+    "test:watch": "jest --watch",
+    "test:ci": "jest --coverage --watchAll=false"
+  },
+  "jest": {
+    "collectCoverageFrom": [
+      "src/**/*.js",
+      "!src/index.js",
+      "!src/**/*.test.js"
+    ],
+    "coverageDirectory": "coverage",
+    "coverageReporters": [
+      "text",
+      "lcov",
+      "html"
+    ],
+    "coverageThreshold": {
+      "global": {
+        "branches": 80,
+        "functions": 80,
+        "lines": 80,
+        "statements": 80
+      }
+    }
+  }
+}
+
+// Example function with coverage
+function calculateDiscount(price, discountPercent) {
+    /* istanbul ignore if */
+    if (discountPercent < 0) {
+        throw new Error('Discount cannot be negative');
+    }
+    
+    if (discountPercent > 100) {
+        discountPercent = 100;
+    }
+    
+    return price * (1 - discountPercent / 100);
+}
+
+// Test file for coverage
+describe('calculateDiscount', () => {
+    test('should calculate discount correctly', () => {
+        expect(calculateDiscount(100, 20)).toBe(80);
+    });
+    
+    test('should cap discount at 100%', () => {
+        expect(calculateDiscount(100, 150)).toBe(0);
+    });
+    
+    test('should throw error for negative discount', () => {
+        expect(() => calculateDiscount(100, -10))
+            .toThrow('Discount cannot be negative');
+    });
+});
+
+// CI/CD with coverage
+// .github/workflows/test.yml
+- name: Run tests with coverage
+  run: npm run test:ci
+
+- name: Upload coverage to Codecov
+  uses: codecov/codecov-action@v1
+  with:
+    file: ./coverage/lcov.info
+
+// Custom coverage reporters
+// coverage-reporter.js
+class CustomCoverageReporter {
+    onRunComplete(contexts, results) {
+        console.log('Custom coverage report:');
+        console.log(`Coverage: ${results.coverageMap.getCoverageSummary().lines.pct}%`);
+    }
+}
+
+module.exports = CustomCoverageReporter;
+
+// NYC for non-Jest projects
+// package.json
+{
+  "scripts": {
+    "test": "nyc mocha",
+    "coverage": "nyc report --reporter=html"
+  },
+  "nyc": {
+    "include": ["src/**/*.js"],
+    "exclude": ["src/**/*.test.js"],
+    "reporter": ["text", "html", "lcov"]
+  }
+}
+```
+</PythonEditor>
+
+## Integration Testing
+
+### Testing Application Integration
+
+<PythonEditor title="Integration Testing" compare={true}>
+```python !! py
+# Python integration testing with pytest
+import pytest
+import requests
+from unittest.mock import patch
+from app import create_app
+from database import db
+
+@pytest.fixture
+def app():
+    app = create_app(testing=True)
+    with app.app_context():
+        db.create_all()
+        yield app
+        db.drop_all()
+
+@pytest.fixture
+def client(app):
+    return app.test_client()
+
+def test_user_registration_flow(client):
+    # Test complete user registration flow
+    response = client.post('/api/register', json={
+        'username': 'testuser',
+        'email': 'test@example.com',
+        'password': 'password123'
+    })
+    
+    assert response.status_code == 201
+    data = response.get_json()
+    assert 'user_id' in data
+    
+    # Test login with new user
+    login_response = client.post('/api/login', json={
+        'email': 'test@example.com',
+        'password': 'password123'
+    })
+    
+    assert login_response.status_code == 200
+    login_data = login_response.get_json()
+    assert 'token' in login_data
+
+def test_database_integration():
+    # Test database operations
+    user = User(username='test', email='test@example.com')
+    db.session.add(user)
+    db.session.commit()
+    
+    retrieved_user = User.query.filter_by(email='test@example.com').first()
+    assert retrieved_user is not None
+    assert retrieved_user.username == 'test'
+
+# API integration testing
+def test_external_api_integration():
+    response = requests.get('https://api.example.com/users/1')
+    assert response.status_code == 200
+    
+    data = response.json()
+    assert 'id' in data
+    assert 'name' in data
+```
+
+```javascript !! js
+// JavaScript integration testing with Jest and Supertest
+const request = require('supertest');
+const app = require('../app');
+const User = require('../models/user');
+const db = require('../database');
+
+describe('Integration Tests', () => {
+    beforeAll(async () => {
+        await db.connect();
+    });
+    
+    afterAll(async () => {
+        await db.disconnect();
+    });
+    
+    beforeEach(async () => {
+        await User.deleteMany({});
+    });
+    
+    test('should handle complete user registration flow', async () => {
+        // Register user
+        const registerResponse = await request(app)
+            .post('/api/register')
+            .send({
+                username: 'testuser',
+                email: 'test@example.com',
+                password: 'password123'
+            })
+            .expect(201);
+        
+        expect(registerResponse.body).toHaveProperty('userId');
+        
+        // Login with new user
+        const loginResponse = await request(app)
+            .post('/api/login')
+            .send({
+                email: 'test@example.com',
+                password: 'password123'
+            })
+            .expect(200);
+        
+        expect(loginResponse.body).toHaveProperty('token');
+        
+        // Access protected route
+        const token = loginResponse.body.token;
+        const profileResponse = await request(app)
+            .get('/api/profile')
+            .set('Authorization', `Bearer ${token}`)
+            .expect(200);
+        
+        expect(profileResponse.body.email).toBe('test@example.com');
+    });
+    
+    test('should handle database operations', async () => {
+        const userData = {
+            username: 'testuser',
+            email: 'test@example.com',
+            password: 'hashed_password'
+        };
+        
+        const user = new User(userData);
+        await user.save();
+        
+        const retrievedUser = await User.findOne({ email: 'test@example.com' });
+        expect(retrievedUser).toBeTruthy();
+        expect(retrievedUser.username).toBe('testuser');
+    });
+    
+    test('should handle API errors properly', async () => {
+        // Test validation errors
+        const response = await request(app)
+            .post('/api/register')
+            .send({
+                username: '', // Invalid data
+                email: 'invalid-email',
+                password: '123' // Too short
+            })
+            .expect(400);
+        
+        expect(response.body).toHaveProperty('errors');
+        expect(response.body.errors).toBeInstanceOf(Array);
+    });
+});
+
+// Testing with real database (MongoDB Memory Server)
+const { MongoMemoryServer } = require('mongodb-memory-server');
+const mongoose = require('mongoose');
+
+describe('Database Integration', () => {
+    let mongoServer;
+    
+    beforeAll(async () => {
+        mongoServer = await MongoMemoryServer.create();
+        const mongoUri = mongoServer.getUri();
+        await mongoose.connect(mongoUri);
+    });
+    
+    afterAll(async () => {
+        await mongoose.disconnect();
+        await mongoServer.stop();
+    });
+    
+    test('should perform complex database operations', async () => {
+        // Create multiple related records
+        const user = await User.create({
+            username: 'testuser',
+            email: 'test@example.com'
+        });
+        
+        const posts = await Post.create([
+            { title: 'Post 1', content: 'Content 1', author: user._id },
+            { title: 'Post 2', content: 'Content 2', author: user._id }
+        ]);
+        
+        // Test aggregation
+        const userWithPosts = await User.aggregate([
+            { $match: { _id: user._id } },
+            {
+                $lookup: {
+                    from: 'posts',
+                    localField: '_id',
+                    foreignField: 'author',
+                    as: 'posts'
+                }
+            }
+        ]);
+        
+        expect(userWithPosts[0].posts).toHaveLength(2);
+    });
+});
+
+// End-to-end testing with Puppeteer
+const puppeteer = require('puppeteer');
+
+describe('E2E Tests', () => {
+    let browser, page;
+    
+    beforeAll(async () => {
+        browser = await puppeteer.launch();
+        page = await browser.newPage();
+    });
+    
+    afterAll(async () => {
+        await browser.close();
+    });
+    
+    test('should complete user journey', async () => {
+        await page.goto('http://localhost:3000');
+        
+        // Fill registration form
+        await page.type('#username', 'testuser');
+        await page.type('#email', 'test@example.com');
+        await page.type('#password', 'password123');
+        await page.click('#register-button');
+        
+        // Wait for redirect
+        await page.waitForSelector('#dashboard');
+        
+        const welcomeText = await page.$eval('#welcome-message', el => el.textContent);
+        expect(welcomeText).toContain('Welcome, testuser');
+    });
+});
+```
+</PythonEditor>
+
+## Best Practices Summary
+
+### Testing Best Practices
+
+1. **Test Structure**: Use descriptive test names and organize tests logically
+2. **Test Independence**: Each test should be independent and repeatable
+3. **Coverage**: Aim for high test coverage but focus on critical paths
+4. **Fast Tests**: Keep unit tests fast; use integration tests sparingly
+5. **Mock External Dependencies**: Isolate units under test
+6. **Test Data**: Use factories or fixtures for consistent test data
+
+### Debugging Best Practices
+
+1. **Use Debugger**: Learn to use browser DevTools and Node.js debugger effectively
+2. **Console Logging**: Use appropriate console methods for different types of output
+3. **Error Handling**: Implement proper error handling and logging
+4. **Source Maps**: Use source maps for debugging minified code
+5. **Performance**: Use performance profiling tools to identify bottlenecks
+
+## Next Steps
+
+In the next module, we'll explore build tools and development workflows, covering webpack, Babel, and modern JavaScript tooling compared to Python's setuptools and pip.
+
+Key topics we'll cover:
+- Webpack vs setuptools
+- Babel transpilation
+- Development servers
+- Hot module replacement
+- Production builds and optimization
+
+---
+
+*Continue to [Module 11: Build Tools & Development Workflow →](/docs/py2js/module-11-build-tools)*
