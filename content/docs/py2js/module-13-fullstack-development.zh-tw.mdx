@@ -1,0 +1,1493 @@
+---
+title: 全端開發最佳實務
+description: 從 Python 開發者的角度掌握全端 JavaScript 開發，包括架構模式、部署策略和生產環境考慮因素
+---
+
+# 模組 13：全端開發最佳實務
+
+## 學習目標
+
+完成本模組後，你將能夠：
+- 理解全端 JavaScript 架構模式
+- 實施安全的身份驗證和授權
+- 將應用程式部署到生產環境
+- 監控和最佳化生產應用程式
+- 有效擴展應用程式
+- 在整個技術堆疊中應用安全最佳實務
+
+## 全端架構模式
+
+### 對比 Python 和 JavaScript 架構
+
+<PythonEditor title="全端架構對比" compare={true}>
+```python !! py
+# Python 全端架構（Django + React/Vue）
+# 傳統的前後端分離
+
+# 後端：Django 專案結構
+# myproject/
+# ├── manage.py
+# ├── myproject/
+# │   ├── settings/
+# │   │   ├── base.py
+# │   │   ├── development.py
+# │   │   └── production.py
+# │   ├── urls.py
+# │   └── wsgi.py
+# ├── apps/
+# │   ├── authentication/
+# │   ├── users/
+# │   └── api/
+# ├── requirements/
+# │   ├── base.txt
+# │   ├── development.txt
+# │   └── production.txt
+# └── frontend/  (獨立的 React/Vue 應用程式)
+
+# Django settings/base.py
+import os
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
+
+INSTALLED_APPS = [
+    'django.contrib.admin',
+    'django.contrib.auth',
+    'django.contrib.contenttypes',
+    'rest_framework',
+    'corsheaders',
+    'apps.authentication',
+    'apps.users',
+    'apps.api',
+]
+
+MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',
+    'django.middleware.security.SecurityMiddleware',
+    'django.contrib.sessions.middleware.SessionMiddleware',
+    'django.middleware.common.CommonMiddleware',
+    'django.middleware.csrf.CsrfViewMiddleware',
+    'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'apps.authentication.middleware.JWTAuthenticationMiddleware',
+]
+
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+    ],
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.IsAuthenticated',
+    ],
+    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
+    'PAGE_SIZE': 20,
+}
+
+# Django 驗證
+from rest_framework_simplejwt.views import TokenObtainPairView
+from django.contrib.auth import authenticate
+
+class CustomTokenObtainPairView(TokenObtainPairView):
+    def post(self, request, *args, **kwargs):
+        response = super().post(request, *args, **kwargs)
+        if response.status_code == 200:
+            # 向回應新增自訂資料
+            user = authenticate(
+                username=request.data['username'],
+                password=request.data['password']
+            )
+            response.data['user'] = {
+                'id': user.id,
+                'username': user.username,
+                'email': user.email,
+            }
+        return response
+```
+
+```javascript !! js
+// JavaScript 全端架構（Node.js + React/Next.js）
+// 現代統一或 monorepo 方法
+
+// 現代全端 JavaScript 專案結構：
+// my-app/
+// ├── package.json
+// ├── apps/
+// │   ├── web/          (Next.js 前端)
+// │   │   ├── pages/
+// │   │   ├── components/
+// │   │   └── package.json
+// │   └── api/          (Express.js 後端)
+// │       ├── src/
+// │       ├── routes/
+// │       └── package.json
+// ├── packages/
+// │   ├── shared/       (共享工具)
+// │   ├── ui/          (元件庫)
+// │   └── database/    (資料庫模型)
+// └── docker-compose.yml
+
+// 後端：Express.js with TypeScript
+// apps/api/src/app.ts
+import express from 'express';
+import cors from 'cors';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
+import { authRouter } from './routes/auth';
+import { usersRouter } from './routes/users';
+import { errorHandler } from './middleware/errorHandler';
+import { authMiddleware } from './middleware/auth';
+
+const app = express();
+
+// 安全中介軟體
+app.use(helmet());
+app.use(cors({
+    origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+    credentials: true
+}));
+
+// 速率限制
+const limiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 分鐘
+    max: 100, // 限制每個 IP 在視窗期內最多 100 個請求
+    message: '來自此 IP 的請求過多'
+});
+app.use('/api/', limiter);
+
+// 請求主體解析
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true }));
+
+// 路由
+app.use('/api/auth', authRouter);
+app.use('/api/users', authMiddleware, usersRouter);
+
+// 健康檢查
+app.get('/health', (req, res) => {
+    res.json({ status: 'OK', timestamp: new Date().toISOString() });
+});
+
+// 錯誤處理
+app.use(errorHandler);
+
+export default app;
+
+// 驗證中介軟體
+// apps/api/src/middleware/auth.ts
+import jwt from 'jsonwebtoken';
+import { Request, Response, NextFunction } from 'express';
+import { User } from '../models/User';
+
+interface AuthenticatedRequest extends Request {
+    user?: User;
+}
+
+export const authMiddleware = async (
+    req: AuthenticatedRequest,
+    res: Response,
+    next: NextFunction
+) => {
+    try {
+        const token = req.headers.authorization?.replace('Bearer ', '');
+        
+        if (!token) {
+            return res.status(401).json({ error: '未提供權杖' });
+        }
+
+        const decoded = jwt.verify(token, process.env.JWT_SECRET!) as any;
+        const user = await User.findById(decoded.userId);
+        
+        if (!user) {
+            return res.status(401).json({ error: '無效權杖' });
+        }
+
+        req.user = user;
+        next();
+    } catch (error) {
+        return res.status(401).json({ error: '無效權杖' });
+    }
+};
+
+// 前端：Next.js with TypeScript
+// apps/web/pages/_app.tsx
+import type { AppProps } from 'next/app';
+import { AuthProvider } from '../contexts/AuthContext';
+import { QueryClient, QueryClientProvider } from 'react-query';
+import { Toaster } from 'react-hot-toast';
+import '../styles/globals.css';
+
+const queryClient = new QueryClient({
+    defaultOptions: {
+        queries: {
+            staleTime: 5 * 60 * 1000, // 5 分鐘
+            cacheTime: 10 * 60 * 1000, // 10 分鐘
+        },
+    },
+});
+
+function MyApp({ Component, pageProps }: AppProps) {
+    return (
+        <QueryClientProvider client={queryClient}>
+            <AuthProvider>
+                <Component {...pageProps} />
+                <Toaster position="top-right" />
+            </AuthProvider>
+        </QueryClientProvider>
+    );
+}
+
+export default MyApp;
+
+// 驗證上下文
+// apps/web/contexts/AuthContext.tsx
+import React, { createContext, useContext, useEffect, useState } from 'react';
+import { useRouter } from 'next/router';
+import { authAPI } from '../services/api';
+
+interface User {
+    id: string;
+    username: string;
+    email: string;
+}
+
+interface AuthContextType {
+    user: User | null;
+    login: (username: string, password: string) => Promise<void>;
+    logout: () => void;
+    loading: boolean;
+}
+
+const AuthContext = createContext<AuthContextType | null>(null);
+
+export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+    const [user, setUser] = useState<User | null>(null);
+    const [loading, setLoading] = useState(true);
+    const router = useRouter();
+
+    useEffect(() => {
+        const token = localStorage.getItem('token');
+        if (token) {
+            authAPI.verifyToken(token)
+                .then(setUser)
+                .catch(() => localStorage.removeItem('token'))
+                .finally(() => setLoading(false));
+        } else {
+            setLoading(false);
+        }
+    }, []);
+
+    const login = async (username: string, password: string) => {
+        const { user, token } = await authAPI.login(username, password);
+        localStorage.setItem('token', token);
+        setUser(user);
+        router.push('/dashboard');
+    };
+
+    const logout = () => {
+        localStorage.removeItem('token');
+        setUser(null);
+        router.push('/login');
+    };
+
+    return (
+        <AuthContext.Provider value={{ user, login, logout, loading }}>
+            {children}
+        </AuthContext.Provider>
+    );
+};
+
+export const useAuth = () => {
+    const context = useContext(AuthContext);
+    if (!context) {
+        throw new Error('useAuth 必須在 AuthProvider 內使用');
+    }
+    return context;
+};
+```
+</PythonEditor>
+
+## 身份驗證和授權
+
+### 安全驗證實施
+
+<PythonEditor title="驗證與授權" compare={true}>
+```python !! py
+# Python：Django with JWT 驗證
+from rest_framework_simplejwt.tokens import RefreshToken
+from django.contrib.auth import authenticate
+from django.contrib.auth.models import User
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework import status
+
+@api_view(['POST'])
+def login(request):
+    username = request.data.get('username')
+    password = request.data.get('password')
+    
+    user = authenticate(username=username, password=password)
+    if user:
+        refresh = RefreshToken.for_user(user)
+        return Response({
+            'access': str(refresh.access_token),
+            'refresh': str(refresh),
+            'user': {
+                'id': user.id,
+                'username': user.username,
+                'email': user.email,
+            }
+        })
+    return Response(
+        {'error': '憑據無效'}, 
+        status=status.HTTP_401_UNAUTHORIZED
+    )
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def protected_view(request):
+    return Response({
+        'message': f'你好 {request.user.username}',
+        'user_id': request.user.id
+    })
+
+# 基於角色的權限
+from django.contrib.auth.models import Group
+
+class IsAdminOrReadOnly:
+    def has_permission(self, request, view):
+        if request.method in ['GET', 'HEAD', 'OPTIONS']:
+            return True
+        return request.user.groups.filter(name='Admin').exists()
+
+# 自訂使用者模型
+from django.contrib.auth.models import AbstractUser
+
+class CustomUser(AbstractUser):
+    email = models.EmailField(unique=True)
+    role = models.CharField(max_length=20, choices=[
+        ('admin', '管理員'),
+        ('user', '使用者'),
+        ('moderator', '版主')
+    ], default='user')
+    
+    USERNAME_FIELD = 'email'
+    REQUIRED_FIELDS = ['username']
+```
+
+```javascript !! js
+// JavaScript：Node.js with JWT 和基於角色的授權
+// apps/api/src/services/authService.ts
+import jwt from 'jsonwebtoken';
+import bcrypt from 'bcryptjs';
+import { User, UserRole } from '../models/User';
+
+export class AuthService {
+    static generateTokens(userId: string) {
+        const accessToken = jwt.sign(
+            { userId, type: 'access' },
+            process.env.JWT_SECRET!,
+            { expiresIn: '15m' }
+        );
+        
+        const refreshToken = jwt.sign(
+            { userId, type: 'refresh' },
+            process.env.JWT_REFRESH_SECRET!,
+            { expiresIn: '7d' }
+        );
+        
+        return { accessToken, refreshToken };
+    }
+    
+    static async login(email: string, password: string) {
+        const user = await User.findOne({ email });
+        if (!user || !await bcrypt.compare(password, user.password)) {
+            throw new Error('憑據無效');
+        }
+        
+        const tokens = this.generateTokens(user.id);
+        
+        // 儲存重新整理權杖
+        user.refreshToken = tokens.refreshToken;
+        await user.save();
+        
+        return {
+            user: {
+                id: user.id,
+                email: user.email,
+                username: user.username,
+                role: user.role
+            },
+            ...tokens
+        };
+    }
+    
+    static async refreshToken(refreshToken: string) {
+        try {
+            const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET!) as any;
+            const user = await User.findById(decoded.userId);
+            
+            if (!user || user.refreshToken !== refreshToken) {
+                throw new Error('無效的重新整理權杖');
+            }
+            
+            return this.generateTokens(user.id);
+        } catch (error) {
+            throw new Error('無效的重新整理權杖');
+        }
+    }
+    
+    static async register(userData: {
+        email: string;
+        username: string;
+        password: string;
+        role?: UserRole;
+    }) {
+        const existingUser = await User.findOne({
+            $or: [{ email: userData.email }, { username: userData.username }]
+        });
+        
+        if (existingUser) {
+            throw new Error('使用者已存在');
+        }
+        
+        const hashedPassword = await bcrypt.hash(userData.password, 12);
+        
+        const user = new User({
+            ...userData,
+            password: hashedPassword,
+            role: userData.role || UserRole.USER
+        });
+        
+        await user.save();
+        
+        const tokens = this.generateTokens(user.id);
+        
+        return {
+            user: {
+                id: user.id,
+                email: user.email,
+                username: user.username,
+                role: user.role
+            },
+            ...tokens
+        };
+    }
+}
+
+// 基於角色的授權中介軟體
+// apps/api/src/middleware/authorization.ts
+import { Request, Response, NextFunction } from 'express';
+import { UserRole } from '../models/User';
+
+interface AuthorizedRequest extends Request {
+    user?: {
+        id: string;
+        role: UserRole;
+    };
+}
+
+export const authorize = (requiredRoles: UserRole[]) => {
+    return (req: AuthorizedRequest, res: Response, next: NextFunction) => {
+        if (!req.user) {
+            return res.status(401).json({ error: '需要身份驗證' });
+        }
+        
+        if (!requiredRoles.includes(req.user.role)) {
+            return res.status(403).json({ error: '權限不足' });
+        }
+        
+        next();
+    };
+};
+
+// 在路由中使用
+import { authorize } from '../middleware/authorization';
+
+router.get('/admin/users', 
+    authMiddleware, 
+    authorize([UserRole.ADMIN]), 
+    getUsersController
+);
+
+router.delete('/admin/users/:id', 
+    authMiddleware, 
+    authorize([UserRole.ADMIN, UserRole.MODERATOR]), 
+    deleteUserController
+);
+
+// 密碼重設功能
+// apps/api/src/services/passwordResetService.ts
+import crypto from 'crypto';
+import { EmailService } from './emailService';
+
+export class PasswordResetService {
+    static async initiateReset(email: string) {
+        const user = await User.findOne({ email });
+        if (!user) {
+            // 不洩露信箱是否存在
+            return { message: '如果信箱存在，將傳送重設連結' };
+        }
+        
+        const resetToken = crypto.randomBytes(32).toString('hex');
+        const resetTokenExpiry = new Date(Date.now() + 3600000); // 1 小時
+        
+        user.resetToken = resetToken;
+        user.resetTokenExpiry = resetTokenExpiry;
+        await user.save();
+        
+        await EmailService.sendPasswordReset(email, resetToken);
+        
+        return { message: '如果信箱存在，將傳送重設連結' };
+    }
+    
+    static async resetPassword(token: string, newPassword: string) {
+        const user = await User.findOne({
+            resetToken: token,
+            resetTokenExpiry: { $gt: new Date() }
+        });
+        
+        if (!user) {
+            throw new Error('無效或過期的重設權杖');
+        }
+        
+        user.password = await bcrypt.hash(newPassword, 12);
+        user.resetToken = undefined;
+        user.resetTokenExpiry = undefined;
+        await user.save();
+        
+        return { message: '密碼重設成功' };
+    }
+}
+
+// 前端：安全驗證掛鉤
+// apps/web/hooks/useAuth.ts
+import { useState, useEffect } from 'react';
+import { authAPI } from '../services/api';
+
+export const useAuth = () => {
+    const [user, setUser] = useState(null);
+    const [loading, setLoading] = useState(true);
+    
+    useEffect(() => {
+        const token = localStorage.getItem('accessToken');
+        if (token) {
+            authAPI.verifyToken(token)
+                .then(setUser)
+                .catch(() => {
+                    localStorage.removeItem('accessToken');
+                    localStorage.removeItem('refreshToken');
+                })
+                .finally(() => setLoading(false));
+        } else {
+            setLoading(false);
+        }
+    }, []);
+    
+    const login = async (email: string, password: string) => {
+        const response = await authAPI.login(email, password);
+        localStorage.setItem('accessToken', response.accessToken);
+        localStorage.setItem('refreshToken', response.refreshToken);
+        setUser(response.user);
+        return response;
+    };
+    
+    const logout = () => {
+        localStorage.removeItem('accessToken');
+        localStorage.removeItem('refreshToken');
+        setUser(null);
+    };
+    
+    return { user, login, logout, loading };
+};
+
+// 自動權杖重新整理
+// apps/web/services/api.ts
+import axios, { AxiosResponse } from 'axios';
+
+const api = axios.create({
+    baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api',
+});
+
+// 請求攔截器新增驗證權杖
+api.interceptors.request.use((config) => {
+    const token = localStorage.getItem('accessToken');
+    if (token) {
+        config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+});
+
+// 回應攔截器處理權杖重新整理
+api.interceptors.response.use(
+    (response: AxiosResponse) => response,
+    async (error) => {
+        const originalRequest = error.config;
+        
+        if (error.response?.status === 401 && !originalRequest._retry) {
+            originalRequest._retry = true;
+            
+            const refreshToken = localStorage.getItem('refreshToken');
+            if (refreshToken) {
+                try {
+                    const response = await axios.post('/api/auth/refresh', {
+                        refreshToken
+                    });
+                    
+                    localStorage.setItem('accessToken', response.data.accessToken);
+                    originalRequest.headers.Authorization = `Bearer ${response.data.accessToken}`;
+                    
+                    return api(originalRequest);
+                } catch (refreshError) {
+                    localStorage.removeItem('accessToken');
+                    localStorage.removeItem('refreshToken');
+                    window.location.href = '/login';
+                }
+            }
+        }
+        
+        return Promise.reject(error);
+    }
+);
+
+export default api;
+```
+</PythonEditor>
+
+## 部署策略
+
+### 生產部署對比
+
+<PythonEditor title="部署策略" compare={true}>
+```python !! py
+# Python 使用 Docker 和 Docker Compose 部署
+# Django 的 Dockerfile
+FROM python:3.9-slim
+
+WORKDIR /app
+
+# 安裝系統相依性
+RUN apt-get update && apt-get install -y \
+    gcc \
+    postgresql-client \
+    && rm -rf /var/lib/apt/lists/*
+
+# 安裝 Python 相依性
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+# 收集靜態檔案
+RUN python manage.py collectstatic --noinput
+
+EXPOSE 8000
+
+CMD ["gunicorn", "--bind", "0.0.0.0:8000", "myproject.wsgi:application"]
+
+# 全端的 docker-compose.yml
+version: '3.8'
+
+services:
+  db:
+    image: postgres:13
+    environment:
+      POSTGRES_DB: myproject
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:6-alpine
+
+  web:
+    build: .
+    command: gunicorn --bind 0.0.0.0:8000 myproject.wsgi:application
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+      - redis
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/myproject
+      - REDIS_URL=redis://redis:6379/0
+
+  worker:
+    build: .
+    command: celery -A myproject worker -l info
+    volumes:
+      - .:/app
+    depends_on:
+      - db
+      - redis
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/myproject
+      - REDIS_URL=redis://redis:6379/0
+
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf
+      - ./static:/app/static
+    depends_on:
+      - web
+
+volumes:
+  postgres_data:
+
+# Kubernetes 部署
+# k8s/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: django-app
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: django-app
+  template:
+    metadata:
+      labels:
+        app: django-app
+    spec:
+      containers:
+      - name: django
+        image: myregistry/django-app:latest
+        ports:
+        - containerPort: 8000
+        env:
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: django-secrets
+              key: database-url
+```
+
+```javascript !! js
+// JavaScript 使用 Docker 和現代平台部署
+// Next.js 的多階段 Dockerfile
+FROM node:18-alpine AS deps
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci --only=production
+
+FROM node:18-alpine AS builder
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci
+COPY . .
+RUN npm run build
+
+FROM node:18-alpine AS runner
+WORKDIR /app
+
+ENV NODE_ENV production
+
+RUN addgroup --system --gid 1001 nodejs
+RUN adduser --system --uid 1001 nextjs
+
+COPY --from=builder /app/public ./public
+COPY --from=builder /app/.next/standalone ./
+COPY --from=builder /app/.next/static ./.next/static
+
+USER nextjs
+
+EXPOSE 3000
+
+ENV PORT 3000
+
+CMD ["node", "server.js"]
+
+// 全端 JavaScript 的 Docker Compose
+# docker-compose.yml
+version: '3.8'
+
+services:
+  # 資料庫
+  postgres:
+    image: postgres:13-alpine
+    environment:
+      POSTGRES_DB: myapp
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  # Redis 用於快取和工作階段
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  # 後端 API
+  api:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/myapp
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=${JWT_SECRET}
+    ports:
+      - "3001:3001"
+    depends_on:
+      - postgres
+      - redis
+    volumes:
+      - ./apps/api:/app
+      - /app/node_modules
+
+  # 前端
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:3001/api
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+
+  # Nginx 反向代理
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./nginx/ssl:/etc/nginx/ssl
+    depends_on:
+      - web
+      - api
+
+volumes:
+  postgres_data:
+
+// Vercel 部署（無伺服器）
+// vercel.json
+{
+    "version": 2,
+    "builds": [
+        {
+            "src": "apps/web/package.json",
+            "use": "@vercel/next"
+        },
+        {
+            "src": "apps/api/src/index.ts",
+            "use": "@vercel/node"
+        }
+    ],
+    "routes": [
+        {
+            "src": "/api/(.*)",
+            "dest": "apps/api/src/index.ts"
+        },
+        {
+            "src": "/(.*)",
+            "dest": "apps/web/$1"
+        }
+    ],
+    "env": {
+        "DATABASE_URL": "@database-url",
+        "JWT_SECRET": "@jwt-secret"
+    }
+}
+
+// Railway 部署設定
+// railway.toml
+[build]
+builder = "nixpacks"
+
+[deploy]
+healthcheckPath = "/health"
+healthcheckTimeout = 300
+restartPolicyType = "on_failure"
+
+[[services]]
+name = "web"
+source = "apps/web"
+[services.env]
+NODE_ENV = "production"
+
+[[services]]
+name = "api"
+source = "apps/api"
+[services.env]
+NODE_ENV = "production"
+DATABASE_URL = "${{Postgres.DATABASE_URL}}"
+
+// 使用 CDK 的 AWS 部署
+// infrastructure/stack.ts
+import * as cdk from 'aws-cdk-lib';
+import * as ecs from 'aws-cdk-lib/aws-ecs';
+import * as ec2 from 'aws-cdk-lib/aws-ec2';
+import * as rds from 'aws-cdk-lib/aws-rds';
+import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
+
+export class MyAppStack extends cdk.Stack {
+    constructor(scope: Construct, id: string, props?: cdk.StackProps) {
+        super(scope, id, props);
+
+        // VPC
+        const vpc = new ec2.Vpc(this, 'MyAppVpc', {
+            maxAzs: 2
+        });
+
+        // 資料庫
+        const database = new rds.DatabaseInstance(this, 'Database', {
+            engine: rds.DatabaseInstanceEngine.postgres({
+                version: rds.PostgresEngineVersion.VER_13_7
+            }),
+            instanceType: ec2.InstanceType.of(ec2.InstanceClass.T3, ec2.InstanceSize.MICRO),
+            vpc,
+            credentials: rds.Credentials.fromGeneratedSecret('postgres'),
+            deletionProtection: false
+        });
+
+        // ECS 叢集
+        const cluster = new ecs.Cluster(this, 'Cluster', {
+            vpc
+        });
+
+        // API 服務
+        const apiTaskDefinition = new ecs.FargateTaskDefinition(this, 'ApiTaskDef');
+        apiTaskDefinition.addContainer('api', {
+            image: ecs.ContainerImage.fromRegistry('myregistry/api:latest'),
+            environment: {
+                DATABASE_URL: database.instanceEndpoint.socketAddress
+            },
+            logging: ecs.LogDrivers.awsLogs({
+                streamPrefix: 'api'
+            })
+        });
+
+        const apiService = new ecs.FargateService(this, 'ApiService', {
+            cluster,
+            taskDefinition: apiTaskDefinition
+        });
+
+        // 前端（S3 + CloudFront）
+        const bucket = new s3.Bucket(this, 'WebBucket', {
+            websiteIndexDocument: 'index.html',
+            publicReadAccess: true
+        });
+
+        const distribution = new cloudfront.CloudFrontWebDistribution(this, 'Distribution', {
+            originConfigs: [{
+                s3OriginSource: {
+                    s3BucketSource: bucket
+                },
+                behaviors: [{ isDefaultBehavior: true }]
+            }]
+        });
+    }
+}
+
+// GitHub Actions 部署
+# .github/workflows/deploy.yml
+name: 部署到生產環境
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: 設定 Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          cache: 'npm'
+      
+      - name: 安裝相依性
+        run: npm ci
+      
+      - name: 執行測試
+        run: npm test
+      
+      - name: 建置應用程式
+        run: npm run build
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: 設定 AWS 憑證
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+      
+      - name: 建置和推送 Docker 映像
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: my-app
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG ./apps/api
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+      
+      - name: 部署到 ECS
+        run: |
+          aws ecs update-service --cluster production --service api-service --force-new-deployment
+      
+      - name: 部署前端到 S3
+        run: |
+          aws s3 sync ./apps/web/out s3://my-app-frontend --delete
+          aws cloudfront create-invalidation --distribution-id ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }} --paths "/*"
+```
+</PythonEditor>
+
+## 生產監控和最佳化
+
+### 監控和效能
+
+<PythonEditor title="生產監控" compare={true}>
+```python !! py
+# Python 使用 Django 進行監控
+# settings.py
+import sentry_sdk
+from sentry_sdk.integrations.django import DjangoIntegration
+from sentry_sdk.integrations.celery import CeleryIntegration
+
+sentry_sdk.init(
+    dsn="your-sentry-dsn",
+    integrations=[
+        DjangoIntegration(),
+        CeleryIntegration(),
+    ],
+    traces_sample_rate=0.1,
+    send_default_pii=True
+)
+
+# 監控自訂中介軟體
+class MonitoringMiddleware:
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        start_time = time.time()
+        
+        response = self.get_response(request)
+        
+        # 記錄請求指標
+        duration = time.time() - start_time
+        logger.info(f"請求 {request.path} 耗時 {duration:.2f}s")
+        
+        # 傳送指標到監控服務
+        send_metric('request_duration', duration, {
+            'path': request.path,
+            'method': request.method,
+            'status_code': response.status_code
+        })
+        
+        return response
+
+# 健康檢查端點
+from django.http import JsonResponse
+from django.db import connection
+
+def health_check(request):
+    try:
+        # 檢查資料庫連線
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT 1")
+        
+        # 檢查 Redis 連線
+        from django.core.cache import cache
+        cache.set('health_check', 'ok', 10)
+        
+        return JsonResponse({
+            'status': 'healthy',
+            'timestamp': timezone.now().isoformat(),
+            'version': settings.VERSION
+        })
+    except Exception as e:
+        return JsonResponse({
+            'status': 'unhealthy',
+            'error': str(e)
+        }, status=503)
+
+# 效能監控
+import cProfile
+import pstats
+
+def profile_view(view_func):
+    def wrapper(request, *args, **kwargs):
+        if settings.DEBUG:
+            profiler = cProfile.Profile()
+            profiler.enable()
+            
+            response = view_func(request, *args, **kwargs)
+            
+            profiler.disable()
+            stats = pstats.Stats(profiler)
+            stats.sort_stats('cumulative')
+            stats.print_stats()
+            
+            return response
+        return view_func(request, *args, **kwargs)
+    return wrapper
+```
+
+```javascript !! js
+// JavaScript 使用 Node.js 進行監控
+// apps/api/src/monitoring/index.ts
+import * as Sentry from '@sentry/node';
+import * as Tracing from '@sentry/tracing';
+import express from 'express';
+import prometheus from 'prom-client';
+
+// 初始化 Sentry
+Sentry.init({
+    dsn: process.env.SENTRY_DSN,
+    integrations: [
+        new Sentry.Integrations.Http({ tracing: true }),
+        new Tracing.Integrations.Express({ app: express() }),
+    ],
+    tracesSampleRate: 0.1,
+    environment: process.env.NODE_ENV,
+});
+
+// Prometheus 指標
+const collectDefaultMetrics = prometheus.collectDefaultMetrics;
+collectDefaultMetrics({ timeout: 5000 });
+
+const httpRequestDuration = new prometheus.Histogram({
+    name: 'http_request_duration_seconds',
+    help: 'HTTP 請求持續時間（秒）',
+    labelNames: ['method', 'route', 'status_code'],
+    buckets: [0.1, 0.5, 1, 2, 5]
+});
+
+const httpRequestTotal = new prometheus.Counter({
+    name: 'http_requests_total',
+    help: 'HTTP 請求總數',
+    labelNames: ['method', 'route', 'status_code']
+});
+
+const activeConnections = new prometheus.Gauge({
+    name: 'active_connections',
+    help: '活躍連線數'
+});
+
+// 監控中介軟體
+export const monitoringMiddleware = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const start = Date.now();
+    
+    res.on('finish', () => {
+        const duration = (Date.now() - start) / 1000;
+        const route = req.route?.path || req.path;
+        
+        httpRequestDuration
+            .labels(req.method, route, res.statusCode.toString())
+            .observe(duration);
+            
+        httpRequestTotal
+            .labels(req.method, route, res.statusCode.toString())
+            .inc();
+    });
+    
+    next();
+};
+
+// 健康檢查端點
+export const healthCheck = async (req: express.Request, res: express.Response) => {
+    const checks = {
+        timestamp: new Date().toISOString(),
+        version: process.env.npm_package_version,
+        uptime: process.uptime(),
+        memory: process.memoryUsage(),
+        database: false,
+        redis: false
+    };
+    
+    try {
+        // 檢查資料庫連線
+        await User.findOne().limit(1);
+        checks.database = true;
+    } catch (error) {
+        console.error('資料庫健康檢查失敗:', error);
+    }
+    
+    try {
+        // 檢查 Redis 連線
+        await redisClient.ping();
+        checks.redis = true;
+    } catch (error) {
+        console.error('Redis 健康檢查失敗:', error);
+    }
+    
+    const isHealthy = checks.database && checks.redis;
+    
+    res.status(isHealthy ? 200 : 503).json({
+        status: isHealthy ? 'healthy' : 'unhealthy',
+        checks
+    });
+};
+
+// 應用程式效能監控（APM）
+// apps/api/src/monitoring/apm.ts
+import { performance, PerformanceObserver } from 'perf_hooks';
+
+class APMMonitor {
+    private metrics: Map<string, number[]> = new Map();
+    
+    constructor() {
+        this.setupPerformanceObserver();
+    }
+    
+    private setupPerformanceObserver() {
+        const obs = new PerformanceObserver((list) => {
+            for (const entry of list.getEntries()) {
+                if (entry.duration > 100) { // 記錄慢操作
+                    console.warn(`檢測到慢操作: ${entry.name} 耗時 ${entry.duration}ms`);
+                }
+            }
+        });
+        obs.observe({ entryTypes: ['measure'] });
+    }
+    
+    startTimer(name: string): string {
+        const timerName = `${name}-${Date.now()}`;
+        performance.mark(`${timerName}-start`);
+        return timerName;
+    }
+    
+    endTimer(timerName: string): number {
+        performance.mark(`${timerName}-end`);
+        performance.measure(timerName, `${timerName}-start`, `${timerName}-end`);
+        
+        const measure = performance.getEntriesByName(timerName)[0];
+        const duration = measure.duration;
+        
+        // 儲存指標
+        const baseName = timerName.split('-')[0];
+        if (!this.metrics.has(baseName)) {
+            this.metrics.set(baseName, []);
+        }
+        this.metrics.get(baseName)!.push(duration);
+        
+        // 清理
+        performance.clearMarks(`${timerName}-start`);
+        performance.clearMarks(`${timerName}-end`);
+        performance.clearMeasures(timerName);
+        
+        return duration;
+    }
+    
+    getMetrics() {
+        const result: Record<string, any> = {};
+        
+        for (const [name, values] of this.metrics.entries()) {
+            result[name] = {
+                count: values.length,
+                avg: values.reduce((a, b) => a + b, 0) / values.length,
+                min: Math.min(...values),
+                max: Math.max(...values),
+                p95: this.percentile(values, 0.95),
+                p99: this.percentile(values, 0.99)
+            };
+        }
+        
+        return result;
+    }
+    
+    private percentile(values: number[], p: number): number {
+        const sorted = values.slice().sort((a, b) => a - b);
+        const index = Math.ceil(sorted.length * p) - 1;
+        return sorted[index];
+    }
+}
+
+export const apmMonitor = new APMMonitor();
+
+// 在控制器中使用
+export const getUsersController = async (req: Request, res: Response) => {
+    const timer = apmMonitor.startTimer('get-users');
+    
+    try {
+        const users = await User.find({});
+        apmMonitor.endTimer(timer);
+        
+        res.json(users);
+    } catch (error) {
+        apmMonitor.endTimer(timer);
+        throw error;
+    }
+};
+
+// 前端使用 Next.js 進行監控
+// apps/web/lib/monitoring.ts
+import { getCLS, getFID, getFCP, getLCP, getTTFB } from 'web-vitals';
+
+export function initMonitoring() {
+    // Web Vitals
+    getCLS(sendToAnalytics);
+    getFID(sendToAnalytics);
+    getFCP(sendToAnalytics);
+    getLCP(sendToAnalytics);
+    getTTFB(sendToAnalytics);
+    
+    // 錯誤邊界
+    window.addEventListener('error', (event) => {
+        console.error('全域錯誤:', event.error);
+        sendErrorToSentry(event.error);
+    });
+    
+    // 未處理的 Promise 拒絕
+    window.addEventListener('unhandledrejection', (event) => {
+        console.error('未處理的 Promise 拒絕:', event.reason);
+        sendErrorToSentry(event.reason);
+    });
+}
+
+function sendToAnalytics(metric: any) {
+    // 傳送到分析服務
+    if (process.env.NODE_ENV === 'production') {
+        fetch('/api/analytics', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                ...metric,
+                timestamp: Date.now(),
+                userAgent: navigator.userAgent,
+                url: window.location.href
+            })
+        }).catch(console.error);
+    }
+}
+
+function sendErrorToSentry(error: any) {
+    if (process.env.NODE_ENV === 'production') {
+        import('@sentry/browser').then(Sentry => {
+            Sentry.captureException(error);
+        });
+    }
+}
+
+// 真實使用者監控（RUM）
+export class RUMMonitor {
+    private sessionId: string;
+    private userId?: string;
+    
+    constructor() {
+        this.sessionId = this.generateSessionId();
+        this.trackPageView();
+        this.trackUserInteractions();
+    }
+    
+    private generateSessionId(): string {
+        return Math.random().toString(36).substring(2) + Date.now().toString(36);
+    }
+    
+    setUserId(userId: string) {
+        this.userId = userId;
+    }
+    
+    trackPageView() {
+        this.sendEvent('page_view', {
+            url: window.location.href,
+            referrer: document.referrer,
+            timestamp: Date.now()
+        });
+    }
+    
+    trackUserInteractions() {
+        document.addEventListener('click', (event) => {
+            const target = event.target as HTMLElement;
+            this.sendEvent('click', {
+                element: target.tagName,
+                id: target.id,
+                className: target.className,
+                text: target.textContent?.substring(0, 100)
+            });
+        });
+    }
+    
+    trackCustomEvent(name: string, data: any) {
+        this.sendEvent(name, data);
+    }
+    
+    private sendEvent(name: string, data: any) {
+        if (process.env.NODE_ENV === 'production') {
+            fetch('/api/rum', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    event: name,
+                    sessionId: this.sessionId,
+                    userId: this.userId,
+                    timestamp: Date.now(),
+                    data
+                })
+            }).catch(console.error);
+        }
+    }
+}
+
+export const rumMonitor = new RUMMonitor();
+```
+</PythonEditor>
+
+## 最佳實務總結
+
+### 全端開發最佳實務
+
+1. **架構**：從一開始就設計可擴展的架構
+2. **安全**：在每一層實施安全措施
+3. **效能**：持續監控和最佳化
+4. **測試**：跨技術堆疊的全面測試策略
+5. **部署**：自動化、可靠的部署流水線
+6. **監控**：即時監控和告警
+
+### JavaScript 特定全端考慮因素
+
+1. **統一語言**：在整個技術堆疊中運用 JavaScript
+2. **套件管理**：使用 monorepo 實現更好的程式碼共享
+3. **類型安全**：實施 TypeScript 以獲得更好的開發體驗
+4. **現代工具**：使用現代建置工具和框架
+5. **無伺服器**：考慮無伺服器架構進行擴展
+
+## 結論
+
+恭喜！你已經完成了從 Python 到 JavaScript 的全面學習之旅。你現在擁有以下知識和技能：
+
+- 使用 JavaScript 建置現代全端應用程式
+- 在整個應用程式中應用安全最佳實務
+- 在生產環境中部署和擴展應用程式
+- 監控和最佳化應用程式效能
+- 從 Python 開發順利過渡到 JavaScript 開發
+
+### 下一步
+
+1. **實踐**：使用所學概念建置真實專案
+2. **社群**：加入 JavaScript 和 Node.js 社群
+3. **保持更新**：跟上快速發展的 JavaScript 生態系統
+4. **專業化**：選擇 React、Vue、Node.js 或特定框架等領域深化專業知識
+5. **分享知識**：以你獨特的 Python + JavaScript 視角回饋社群
+
+從 Python 到 JavaScript 的學習之路為你在 Web 開發、行動開發等領域開啟了新的機會。你的 Python 背景為你在 JavaScript 開發中取得成功提供了堅實的基礎。
+
+---
+
+*你已經完成了完整的 Python → JavaScript 學習路徑！🎉*

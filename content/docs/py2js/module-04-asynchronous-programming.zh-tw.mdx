@@ -1,0 +1,1414 @@
+---
+title: 非同步程式設計模式轉換
+description: 從 Python 的 asyncio 到 JavaScript 的 Promise 和 async/await，掌握非同步程式設計的核心概念和模式轉換，理解事件迴圈機制的差異。
+---
+
+# 非同步程式設計模式轉換
+
+非同步程式設計是 Python 開發者轉向 JavaScript 時面臨的最大挑戰之一。Python 的 asyncio 和 JavaScript 的 Promise/async-await 雖然概念相似，但在實作和使用上有顯著差異。本模組將幫助你理解這些差異，掌握 JavaScript 非同步程式設計的核心技能。
+
+## 非同步程式設計基礎概念
+
+### 同步 vs 非同步對比
+
+<PythonEditor title="同步與非同步對比" compare={true}>
+```python !! py
+# Python 同步和非同步程式設計對比
+import asyncio
+import time
+import requests
+from concurrent.futures import ThreadPoolExecutor
+
+# 1. 同步程式設計範例
+def sync_fetch_data(url):
+    """同步取得資料"""
+    print(f"開始請求: {url}")
+    # 模擬網路請求
+    time.sleep(2)
+    print(f"完成請求: {url}")
+    return f"來自 {url} 的資料"
+
+def sync_main():
+    """同步主函數"""
+    start_time = time.time()
+    
+    urls = [
+        "https://api.example1.com",
+        "https://api.example2.com",
+        "https://api.example3.com"
+    ]
+    
+    results = []
+    for url in urls:
+        result = sync_fetch_data(url)
+        results.append(result)
+    
+    end_time = time.time()
+    print(f"同步執行時間: {end_time - start_time:.2f} 秒")
+    return results
+
+# 2. 非同步程式設計範例（asyncio）
+async def async_fetch_data(url):
+    """非同步取得資料"""
+    print(f"開始非同步請求: {url}")
+    # 模擬非同步網路請求
+    await asyncio.sleep(2)
+    print(f"完成非同步請求: {url}")
+    return f"非同步資料來自 {url}"
+
+async def async_main():
+    """非同步主函數"""
+    start_time = time.time()
+    
+    urls = [
+        "https://api.example1.com",
+        "https://api.example2.com", 
+        "https://api.example3.com"
+    ]
+    
+    # 並發執行多個非同步任務
+    tasks = [async_fetch_data(url) for url in urls]
+    results = await asyncio.gather(*tasks)
+    
+    end_time = time.time()
+    print(f"非同步執行時間: {end_time - start_time:.2f} 秒")
+    return results
+
+# 3. Python 非同步上下文管理器
+class AsyncDatabaseConnection:
+    def __init__(self, db_url):
+        self.db_url = db_url
+        self.connection = None
+    
+    async def __aenter__(self):
+        print(f"連接到資料庫: {self.db_url}")
+        await asyncio.sleep(0.1)  # 模擬連接時間
+        self.connection = f"連接到 {self.db_url}"
+        return self.connection
+    
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        print("關閉資料庫連接")
+        await asyncio.sleep(0.1)  # 模擬關閉時間
+        self.connection = None
+
+async def database_operation():
+    async with AsyncDatabaseConnection("postgresql://localhost") as conn:
+        print(f"使用連接: {conn}")
+        await asyncio.sleep(1)  # 模擬資料庫操作
+        return "查詢結果"
+
+# 執行範例
+print("=== Python Asyncio 範例 ===")
+# sync_main()  # 需要約 6 秒
+# asyncio.run(async_main())  # 需要約 2 秒
+# asyncio.run(database_operation())
+
+# 4. AsyncIO 模式
+async def producer(queue):
+    """生產者協程"""
+    for i in range(5):
+        await asyncio.sleep(0.1)
+        await queue.put(f"item-{i}")
+        print(f"產生: item-{i}")
+    await queue.put(None)  # 結束信號
+
+async def consumer(queue, name):
+    """消費者協程"""
+    while True:
+        item = await queue.get()
+        if item is None:
+            break
+        await asyncio.sleep(0.2)
+        print(f"消費者 {name} 處理: {item}")
+        queue.task_done()
+
+async def producer_consumer_example():
+    """生產者-消費者模式"""
+    queue = asyncio.Queue()
+    
+    # 啟動生產者和消費者
+    await asyncio.gather(
+        producer(queue),
+        consumer(queue, "A"),
+        consumer(queue, "B")
+    )
+
+print("使用 asyncio 的生產者-消費者模式")
+# asyncio.run(producer_consumer_example())
+```
+
+```javascript !! js
+// JavaScript 非同步程式設計
+// 現代 JavaScript (ES2017+) async/await
+
+// 1. 同步程式設計範例（阻塞）
+function syncFetchData(url) {
+    console.log(`開始請求: ${url}`);
+    // JavaScript 沒有內建的 sleep，用忙碌等待模擬（千萬別這樣做）
+    const start = Date.now();
+    while (Date.now() - start < 2000) {
+        // 阻塞主執行緒 - 非常糟糕的做法！
+    }
+    console.log(`完成請求: ${url}`);
+    return `來自 ${url} 的資料`;
+}
+
+function syncMain() {
+    const startTime = Date.now();
+    
+    const urls = [
+        "https://api.example1.com",
+        "https://api.example2.com",
+        "https://api.example3.com"
+    ];
+    
+    const results = [];
+    for (const url of urls) {
+        const result = syncFetchData(url);
+        results.push(result);
+    }
+    
+    const endTime = Date.now();
+    console.log(`同步執行時間: ${(endTime - startTime) / 1000} 秒`);
+    return results;
+}
+
+// 2. 基於 Promise 的非同步程式設計
+function fetchDataPromise(url) {
+    console.log(`開始 promise 請求: ${url}`);
+    
+    return new Promise((resolve, reject) => {
+        // 模擬非同步網路請求
+        setTimeout(() => {
+            console.log(`完成 promise 請求: ${url}`);
+            resolve(`Promise 資料來自 ${url}`);
+        }, 2000);
+    });
+}
+
+function promiseMain() {
+    const startTime = Date.now();
+    
+    const urls = [
+        "https://api.example1.com",
+        "https://api.example2.com",
+        "https://api.example3.com"
+    ];
+    
+    // 並發執行所有 promise
+    const promises = urls.map(url => fetchDataPromise(url));
+    
+    return Promise.all(promises).then(results => {
+        const endTime = Date.now();
+        console.log(`Promise 執行時間: ${(endTime - startTime) / 1000} 秒`);
+        return results;
+    });
+}
+
+// 3. Async/await 語法（現代 JavaScript）
+async function asyncFetchData(url) {
+    console.log(`開始非同步請求: ${url}`);
+    
+    // 使用基於 Promise 的超時
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    
+    console.log(`完成非同步請求: ${url}`);
+    return `非同步資料來自 ${url}`;
+}
+
+async function asyncMain() {
+    const startTime = Date.now();
+    
+    const urls = [
+        "https://api.example1.com",
+        "https://api.example2.com",
+        "https://api.example3.com"
+    ];
+    
+    // 並發執行多個非同步操作
+    const promises = urls.map(url => asyncFetchData(url));
+    const results = await Promise.all(promises);
+    
+    const endTime = Date.now();
+    console.log(`Async/await 執行時間: ${(endTime - startTime) / 1000} 秒`);
+    return results;
+}
+
+// 4. 非同步函數中的錯誤處理
+async function asyncWithErrorHandling(url) {
+    try {
+        const response = await fetch(url);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP 錯誤！狀態: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        return data;
+    } catch (error) {
+        console.error(`取得 ${url} 時發生錯誤:`, error.message);
+        throw error; // 如果需要的話重新拋出
+    }
+}
+
+// 5. JavaScript 非同步模式
+async function producer(queue) {
+    for (let i = 0; i < 5; i++) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+        queue.push(`item-${i}`);
+        console.log(`產生: item-${i}`);
+    }
+    queue.push(null); // 結束信號
+}
+
+async function consumer(queue, name) {
+    while (true) {
+        // 簡單輪詢（實際實作會使用更好的模式）
+        while (queue.length === 0) {
+            await new Promise(resolve => setTimeout(resolve, 10));
+        }
+        
+        const item = queue.shift();
+        if (item === null) {
+            break;
+        }
+        
+        await new Promise(resolve => setTimeout(resolve, 200));
+        console.log(`消費者 ${name} 處理: ${item}`);
+    }
+}
+
+async function producerConsumerExample() {
+    const queue = [];
+    
+    // 並發啟動生產者和消費者
+    await Promise.all([
+        producer(queue),
+        consumer(queue, "A"),
+        consumer(queue, "B")
+    ]);
+}
+
+// 執行範例
+console.log("=== JavaScript 非同步範例 ===");
+// asyncMain().then(results => console.log(results));
+// producerConsumerExample();
+
+// 6. Fetch API 範例（瀏覽器/Node.js 配合 node-fetch）
+async function realFetchExample() {
+    try {
+        const response = await fetch('https://jsonplaceholder.typicode.com/posts/1');
+        const data = await response.json();
+        console.log('取得的資料:', data);
+        return data;
+    } catch (error) {
+        console.error('Fetch 錯誤:', error);
+    }
+}
+
+// 7. Promise 工具函數
+const promiseUtilities = {
+    // 延遲工具
+    delay: (ms) => new Promise(resolve => setTimeout(resolve, ms)),
+    
+    // 超時包裝器
+    withTimeout: (promise, ms) => {
+        const timeout = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('超時')), ms)
+        );
+        return Promise.race([promise, timeout]);
+    },
+    
+    // 重試工具
+    retry: async (fn, maxAttempts = 3, delay = 1000) => {
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+                return await fn();
+            } catch (error) {
+                if (attempt === maxAttempts) {
+                    throw error;
+                }
+                console.log(`嘗試 ${attempt} 失敗，${delay}ms 後重試...`);
+                await promiseUtilities.delay(delay);
+            }
+        }
+    }
+};
+
+// 工具函數使用範例
+async function utilityExample() {
+    // 使用延遲
+    console.log('開始...');
+    await promiseUtilities.delay(1000);
+    console.log('1 秒後');
+    
+    // 使用超時
+    const slowOperation = () => promiseUtilities.delay(3000);
+    try {
+        await promiseUtilities.withTimeout(slowOperation(), 2000);
+    } catch (error) {
+        console.log('操作超時');
+    }
+    
+    // 使用重試
+    const flakyOperation = () => {
+        if (Math.random() < 0.7) {
+            throw new Error('隨機失敗');
+        }
+        return '成功！';
+    };
+    
+    try {
+        const result = await promiseUtilities.retry(flakyOperation, 3, 500);
+        console.log('重試結果:', result);
+    } catch (error) {
+        console.log('所有重試嘗試都失敗了');
+    }
+}
+```
+</PythonEditor>
+
+### 事件迴圈差異
+
+<PythonEditor title="事件迴圈機制" compare={true}>
+```python !! py
+# Python asyncio 事件迴圈
+import asyncio
+import time
+import threading
+from concurrent.futures import ThreadPoolExecutor
+
+# 1. 理解 Python 的事件迴圈
+async def understand_python_event_loop():
+    """Python asyncio 事件迴圈特性"""
+    
+    # 取得當前事件迴圈
+    loop = asyncio.get_running_loop()
+    
+    print(f"事件迴圈: {loop}")
+    print(f"迴圈正在執行: {loop.is_running()}")
+    print(f"執行緒 ID: {threading.get_ident()}")
+    
+    # 排程協程
+    async def task1():
+        print("任務 1 開始")
+        await asyncio.sleep(1)
+        print("任務 1 完成")
+        return "結果 1"
+    
+    async def task2():
+        print("任務 2 開始")
+        await asyncio.sleep(0.5)
+        print("任務 2 完成")
+        return "結果 2"
+    
+    # 並發執行任務
+    results = await asyncio.gather(task1(), task2())
+    print(f"結果: {results}")
+
+# 2. CPU 密集 vs I/O 密集任務
+async def cpu_vs_io_bound():
+    """比較 CPU 密集和 I/O 密集任務"""
+    
+    def cpu_bound_task(n):
+        """CPU 密集任務"""
+        result = 0
+        for i in range(n):
+            result += i ** 2
+        return result
+    
+    async def io_bound_task(delay):
+        """I/O 密集任務"""
+        await asyncio.sleep(delay)
+        return f"I/O 任務在 {delay}s 後完成"
+    
+    # I/O 密集任務適合使用 asyncio
+    start_time = time.time()
+    io_results = await asyncio.gather(
+        io_bound_task(1),
+        io_bound_task(1),
+        io_bound_task(1)
+    )
+    io_time = time.time() - start_time
+    print(f"I/O 密集任務（並發）: {io_time:.2f}s")
+    
+    # CPU 密集任務無法從 asyncio 受益（使用 ThreadPoolExecutor）
+    loop = asyncio.get_running_loop()
+    with ThreadPoolExecutor() as executor:
+        start_time = time.time()
+        cpu_results = await asyncio.gather(
+            loop.run_in_executor(executor, cpu_bound_task, 1000000),
+            loop.run_in_executor(executor, cpu_bound_task, 1000000),
+            loop.run_in_executor(executor, cpu_bound_task, 1000000)
+        )
+        cpu_time = time.time() - start_time
+        print(f"CPU 密集任務（多執行緒）: {cpu_time:.2f}s")
+
+# 3. Asyncio 協調原語
+async def asyncio_coordination():
+    """Asyncio 協調原語"""
+    
+    # 事件
+    event = asyncio.Event()
+    
+    async def waiter(name, event):
+        print(f"{name} 等待事件")
+        await event.wait()
+        print(f"{name} 收到事件")
+    
+    async def setter(event):
+        await asyncio.sleep(2)
+        print("設定事件")
+        event.set()
+    
+    # 信號量
+    semaphore = asyncio.Semaphore(2)  # 允許 2 個並發操作
+    
+    async def limited_resource(name, semaphore):
+        async with semaphore:
+            print(f"{name} 取得資源")
+            await asyncio.sleep(1)
+            print(f"{name} 釋放資源")
+    
+    # 鎖
+    lock = asyncio.Lock()
+    shared_resource = 0
+    
+    async def critical_section(name, lock):
+        async with lock:
+            global shared_resource
+            temp = shared_resource
+            await asyncio.sleep(0.1)  # 模擬工作
+            shared_resource = temp + 1
+            print(f"{name} 將資源增加到 {shared_resource}")
+    
+    # 執行協調範例
+    await asyncio.gather(
+        waiter("等待者1", event),
+        waiter("等待者2", event),
+        setter(event)
+    )
+
+# 4. asyncio 中的錯誤處理
+async def asyncio_error_handling():
+    """asyncio 中的錯誤處理模式"""
+    
+    async def failing_task(should_fail=True):
+        await asyncio.sleep(0.5)
+        if should_fail:
+            raise ValueError("任務失敗！")
+        return "成功"
+    
+    # 處理個別任務錯誤
+    try:
+        result = await failing_task(True)
+    except ValueError as e:
+        print(f"捕獲錯誤: {e}")
+    
+    # 在 gather 中處理錯誤
+    try:
+        results = await asyncio.gather(
+            failing_task(False),
+            failing_task(True),
+            failing_task(False),
+            return_exceptions=True  # 不在第一個異常時停止
+        )
+        
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                print(f"任務 {i} 失敗: {result}")
+            else:
+                print(f"任務 {i} 成功: {result}")
+    
+    except Exception as e:
+        print(f"Gather 失敗: {e}")
+
+# 執行 asyncio 範例
+if __name__ == "__main__":
+    print("=== Python Asyncio 事件迴圈 ===")
+    asyncio.run(understand_python_event_loop())
+    asyncio.run(cpu_vs_io_bound())
+    asyncio.run(asyncio_coordination())
+    asyncio.run(asyncio_error_handling())
+```
+
+```javascript !! js
+// JavaScript 事件迴圈和非同步執行
+// 理解 JavaScript 事件迴圈
+
+// 1. 理解 JavaScript 的事件迴圈
+function understandJSEventLoop() {
+    console.log("=== JavaScript 事件迴圈 ===");
+    
+    // 同步程式碼
+    console.log("1. 同步 - 開始");
+    
+    // setTimeout（巨集任務）
+    setTimeout(() => {
+        console.log("4. 巨集任務 - setTimeout");
+    }, 0);
+    
+    // Promise（微任務）
+    Promise.resolve().then(() => {
+        console.log("3. 微任務 - Promise");
+    });
+    
+    // 更多同步程式碼
+    console.log("2. 同步 - 結束");
+    
+    // 微任務的優先級高於巨集任務
+    // 輸出順序: 1, 2, 3, 4
+}
+
+// 2. 微任務 vs 巨集任務
+function microtasksVsMacrotasks() {
+    console.log("\n=== 微任務 vs 巨集任務 ===");
+    
+    console.log("開始");
+    
+    // 巨集任務
+    setTimeout(() => console.log("setTimeout 1"), 0);
+    setTimeout(() => console.log("setTimeout 2"), 0);
+    
+    // 微任務
+    Promise.resolve().then(() => console.log("Promise 1"));
+    Promise.resolve().then(() => console.log("Promise 2"));
+    
+    // queueMicrotask（明確的微任務）
+    queueMicrotask(() => console.log("queueMicrotask"));
+    
+    console.log("結束");
+    
+    // 輸出: 開始, 結束, Promise 1, Promise 2, queueMicrotask, setTimeout 1, setTimeout 2
+}
+
+// 3. Promise 執行時機
+async function promiseExecutionTiming() {
+    console.log("\n=== Promise 執行時機 ===");
+    
+    console.log("1. Promise 之前");
+    
+    const promise = new Promise((resolve) => {
+        console.log("2. Promise 建構函數內部（同步）");
+        resolve("Promise 已解決");
+    });
+    
+    console.log("3. Promise 建立後");
+    
+    promise.then((value) => {
+        console.log("4. Promise then:", value);
+    });
+    
+    console.log("5. promise.then 後");
+    
+    // 使用 async/await
+    const result = await Promise.resolve("等待結果");
+    console.log("6. 等待到:", result);
+}
+
+// 4. 事件迴圈階段（Node.js 特有）
+function nodeEventLoopPhases() {
+    console.log("\n=== Node.js 事件迴圈階段 ===");
+    
+    // Immediate（檢查階段）
+    setImmediate(() => console.log("setImmediate"));
+    
+    // 計時器階段
+    setTimeout(() => console.log("setTimeout"), 0);
+    
+    // I/O 回呼階段會在這裡
+    
+    // 輪詢階段 - 大多數非同步操作發生的地方
+    
+    // 檢查階段 - setImmediate 回呼
+    
+    // 關閉回呼階段
+    
+    process.nextTick(() => console.log("nextTick 1"));
+    process.nextTick(() => console.log("nextTick 2"));
+    
+    // 注意: process.nextTick 有最高優先級（在微任務之前執行）
+    Promise.resolve().then(() => console.log("Promise"));
+    
+    console.log("同步");
+}
+
+// 5. 非同步協調模式
+class AsyncCoordination {
+    // 類似事件的模式使用 Promise
+    static createEvent() {
+        let resolveEvent;
+        const eventPromise = new Promise(resolve => {
+            resolveEvent = resolve;
+        });
+        
+        return {
+            wait: () => eventPromise,
+            trigger: (value) => resolveEvent(value)
+        };
+    }
+    
+    // 信號量模式
+    static createSemaphore(limit) {
+        let current = 0;
+        const queue = [];
+        
+        return {
+            async acquire() {
+                return new Promise(resolve => {
+                    if (current < limit) {
+                        current++;
+                        resolve();
+                    } else {
+                        queue.push(resolve);
+                    }
+                });
+            },
+            
+            release() {
+                if (queue.length > 0) {
+                    const resolve = queue.shift();
+                    resolve();
+                } else {
+                    current--;
+                }
+            }
+        };
+    }
+    
+    // 互斥鎖模式
+    static createMutex() {
+        let locked = false;
+        const queue = [];
+        
+        return {
+            async lock() {
+                return new Promise(resolve => {
+                    if (!locked) {
+                        locked = true;
+                        resolve();
+                    } else {
+                        queue.push(resolve);
+                    }
+                });
+            },
+            
+            unlock() {
+                if (queue.length > 0) {
+                    const resolve = queue.shift();
+                    resolve();
+                } else {
+                    locked = false;
+                }
+            }
+        };
+    }
+}
+
+// 6. 非同步 JavaScript 中的錯誤處理
+async function asyncErrorHandling() {
+    console.log("\n=== 非同步錯誤處理 ===");
+    
+    // 可能失敗的函數
+    async function mightFail(shouldFail = false) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+        if (shouldFail) {
+            throw new Error("操作失敗！");
+        }
+        return "成功";
+    }
+    
+    // 使用 try-catch 處理 async/await
+    try {
+        const result = await mightFail(true);
+        console.log(result);
+    } catch (error) {
+        console.log("捕獲錯誤:", error.message);
+    }
+    
+    // Promise.allSettled 處理多個 promise
+    const promises = [
+        mightFail(false),
+        mightFail(true),
+        mightFail(false)
+    ];
+    
+    const results = await Promise.allSettled(promises);
+    results.forEach((result, index) => {
+        if (result.status === 'fulfilled') {
+            console.log(`Promise ${index} 解決:`, result.value);
+        } else {
+            console.log(`Promise ${index} 拒絕:`, result.reason.message);
+        }
+    });
+    
+    // 全域錯誤處理器
+    process.on('unhandledRejection', (reason, promise) => {
+        console.log('未處理的拒絕:', promise, '原因:', reason);
+    });
+    
+    process.on('uncaughtException', (error) => {
+        console.log('未捕獲的異常:', error);
+        process.exit(1);
+    });
+}
+
+// 7. 效能考量
+async function asyncPerformance() {
+    console.log("\n=== 非同步效能 ===");
+    
+    // 順序 vs 並發執行
+    async function sequentialExample() {
+        const start = performance.now();
+        
+        await new Promise(resolve => setTimeout(resolve, 100));
+        await new Promise(resolve => setTimeout(resolve, 100));
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+        const end = performance.now();
+        console.log(`順序: ${end - start}ms`);
+    }
+    
+    async function concurrentExample() {
+        const start = performance.now();
+        
+        await Promise.all([
+            new Promise(resolve => setTimeout(resolve, 100)),
+            new Promise(resolve => setTimeout(resolve, 100)),
+            new Promise(resolve => setTimeout(resolve, 100))
+        ]);
+        
+        const end = performance.now();
+        console.log(`並發: ${end - start}ms`);
+    }
+    
+    await sequentialExample(); // ~300ms
+    await concurrentExample(); // ~100ms
+}
+
+// 執行範例
+async function runExamples() {
+    understandJSEventLoop();
+    
+    setTimeout(() => {
+        microtasksVsMacrotasks();
+    }, 100);
+    
+    setTimeout(async () => {
+        await promiseExecutionTiming();
+        
+        if (typeof process !== 'undefined') {
+            nodeEventLoopPhases();
+        }
+        
+        await asyncErrorHandling();
+        await asyncPerformance();
+    }, 200);
+}
+
+runExamples();
+```
+</PythonEditor>
+
+## Promise 和 Async/Await
+
+### Promise 基礎
+
+<PythonEditor title="Promise vs Python 協程" compare={true}>
+```python !! py
+# Python 協程和 asyncio 模式
+import asyncio
+import aiohttp
+import aiofiles
+from typing import List, Optional
+import json
+
+# 1. Python 協程定義和使用
+async def fetch_user_data(user_id: int) -> dict:
+    """非同步取得使用者資料"""
+    # 模擬 API 呼叫
+    await asyncio.sleep(0.5)
+    return {
+        "id": user_id,
+        "name": f"使用者 {user_id}",
+        "email": f"user{user_id}@example.com"
+    }
+
+async def fetch_multiple_users(user_ids: List[int]) -> List[dict]:
+    """並發取得多個使用者"""
+    tasks = [fetch_user_data(user_id) for user_id in user_ids]
+    users = await asyncio.gather(*tasks)
+    return users
+
+# 2. asyncio 中的錯誤處理
+async def fetch_with_error_handling(user_id: int) -> Optional[dict]:
+    """帶錯誤處理的使用者取得"""
+    try:
+        if user_id < 0:
+            raise ValueError("無效的使用者 ID")
+        
+        user = await fetch_user_data(user_id)
+        return user
+    
+    except ValueError as e:
+        print(f"驗證錯誤: {e}")
+        return None
+    
+    except Exception as e:
+        print(f"意外錯誤: {e}")
+        return None
+
+# 3. 非同步上下文管理器
+class AsyncHTTPClient:
+    def __init__(self):
+        self.session = None
+    
+    async def __aenter__(self):
+        self.session = aiohttp.ClientSession()
+        return self
+    
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        if self.session:
+            await self.session.close()
+    
+    async def get(self, url: str) -> dict:
+        async with self.session.get(url) as response:
+            return await response.json()
+
+async def http_client_example():
+    """使用非同步上下文管理器"""
+    async with AsyncHTTPClient() as client:
+        try:
+            data = await client.get("https://jsonplaceholder.typicode.com/posts/1")
+            print(f"取得的資料: {data.get('title', '無標題')}")
+        except Exception as e:
+            print(f"HTTP 錯誤: {e}")
+
+# 4. 非同步生成器
+async def async_number_generator(start: int, count: int):
+    """非同步生成器範例"""
+    for i in range(start, start + count):
+        await asyncio.sleep(0.1)  # 模擬非同步工作
+        yield i
+
+async def consume_async_generator():
+    """消費非同步生成器"""
+    async for number in async_number_generator(1, 5):
+        print(f"生成: {number}")
+
+# 5. 超時和取消
+async def long_running_task():
+    """長時間執行的任務"""
+    try:
+        await asyncio.sleep(10)
+        return "任務完成"
+    except asyncio.CancelledError:
+        print("任務被取消")
+        raise
+
+async def timeout_example():
+    """展示超時和取消"""
+    try:
+        # 設定超時
+        result = await asyncio.wait_for(long_running_task(), timeout=2.0)
+        print(result)
+    except asyncio.TimeoutError:
+        print("任務超時")
+
+# 6. 協調原語
+async def producer_consumer_with_queue():
+    """使用 asyncio.Queue 的生產者-消費者模式"""
+    queue = asyncio.Queue(maxsize=3)
+    
+    async def producer():
+        for i in range(5):
+            await queue.put(f"item-{i}")
+            print(f"產生: item-{i}")
+            await asyncio.sleep(0.1)
+        
+        # 結束信號
+        await queue.put(None)
+    
+    async def consumer(name: str):
+        while True:
+            item = await queue.get()
+            if item is None:
+                queue.task_done()
+                break
+            
+            print(f"消費者 {name} 處理: {item}")
+            await asyncio.sleep(0.2)
+            queue.task_done()
+    
+    # 執行生產者和消費者
+    await asyncio.gather(
+        producer(),
+        consumer("A"),
+        consumer("B")
+    )
+
+# 7. 真實世界範例：檔案處理
+async def process_file(filename: str) -> dict:
+    """非同步處理檔案"""
+    try:
+        async with aiofiles.open(filename, 'r') as file:
+            content = await file.read()
+            
+        # 模擬處理
+        await asyncio.sleep(0.1)
+        
+        return {
+            "filename": filename,
+            "size": len(content),
+            "lines": content.count('\n'),
+            "status": "success"
+        }
+    
+    except FileNotFoundError:
+        return {
+            "filename": filename,
+            "status": "error",
+            "error": "找不到檔案"
+        }
+
+async def batch_file_processing(filenames: List[str]) -> List[dict]:
+    """並發處理多個檔案"""
+    semaphore = asyncio.Semaphore(3)  # 限制並發檔案操作
+    
+    async def process_with_semaphore(filename: str):
+        async with semaphore:
+            return await process_file(filename)
+    
+    tasks = [process_with_semaphore(filename) for filename in filenames]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    
+    return [result if not isinstance(result, Exception) else 
+            {"filename": "未知", "status": "error", "error": str(result)} 
+            for result in results]
+
+# 使用範例
+async def main():
+    print("=== Python Asyncio 範例 ===")
+    
+    # 基本協程使用
+    user = await fetch_user_data(1)
+    print(f"單一使用者: {user}")
+    
+    # 多個並發操作
+    users = await fetch_multiple_users([1, 2, 3])
+    print(f"多個使用者: 取得了 {len(users)} 個使用者")
+    
+    # 錯誤處理
+    result = await fetch_with_error_handling(-1)
+    print(f"錯誤處理結果: {result}")
+    
+    # 非同步生成器
+    await consume_async_generator()
+    
+    # 超時範例
+    await timeout_example()
+    
+    # 生產者-消費者
+    await producer_consumer_with_queue()
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+```javascript !! js
+// JavaScript Promise 和 async/await
+// 現代 Promise 模式和最佳實踐
+
+// 1. Promise 基礎
+function createBasicPromise(shouldSucceed = true) {
+    return new Promise((resolve, reject) => {
+        setTimeout(() => {
+            if (shouldSucceed) {
+                resolve("Promise 成功解決");
+            } else {
+                reject(new Error("Promise 被拒絕"));
+            }
+        }, 1000);
+    });
+}
+
+// Promise 鏈接
+function promiseChaining() {
+    console.log("=== Promise 鏈接 ===");
+    
+    return createBasicPromise(true)
+        .then(result => {
+            console.log("第一個 then:", result);
+            return "修改後的結果";
+        })
+        .then(result => {
+            console.log("第二個 then:", result);
+            return createBasicPromise(true); // 回傳另一個 promise
+        })
+        .then(result => {
+            console.log("第三個 then:", result);
+        })
+        .catch(error => {
+            console.error("捕獲錯誤:", error.message);
+        })
+        .finally(() => {
+            console.log("Finally 區塊執行");
+        });
+}
+
+// 2. Async/await 語法
+async function fetchUserData(userId) {
+    // 模擬 API 呼叫
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
+    return {
+        id: userId,
+        name: `使用者 ${userId}`,
+        email: `user${userId}@example.com`
+    };
+}
+
+async function fetchMultipleUsers(userIds) {
+    // 順序執行（較慢）
+    const usersSequential = [];
+    for (const userId of userIds) {
+        const user = await fetchUserData(userId);
+        usersSequential.push(user);
+    }
+    
+    // 並發執行（較快）
+    const userPromises = userIds.map(userId => fetchUserData(userId));
+    const usersConcurrent = await Promise.all(userPromises);
+    
+    return { usersSequential, usersConcurrent };
+}
+
+// 3. 錯誤處理模式
+async function errorHandlingPatterns() {
+    console.log("\n=== 錯誤處理模式 ===");
+    
+    // 使用 try-catch 處理 async/await
+    async function fetchWithErrorHandling(userId) {
+        try {
+            if (userId < 0) {
+                throw new Error("無效的使用者 ID");
+            }
+            
+            const user = await fetchUserData(userId);
+            return { success: true, data: user };
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    }
+    
+    // 測試錯誤處理
+    const validResult = await fetchWithErrorHandling(1);
+    console.log("有效使用者:", validResult);
+    
+    const invalidResult = await fetchWithErrorHandling(-1);
+    console.log("無效使用者:", invalidResult);
+    
+    // Promise.allSettled 處理多個 promise
+    const promises = [
+        fetchUserData(1),
+        Promise.reject(new Error("模擬錯誤")),
+        fetchUserData(3)
+    ];
+    
+    const results = await Promise.allSettled(promises);
+    results.forEach((result, index) => {
+        if (result.status === 'fulfilled') {
+            console.log(`Promise ${index} 成功:`, result.value.name);
+        } else {
+            console.log(`Promise ${index} 失敗:`, result.reason.message);
+        }
+    });
+}
+
+// 4. Promise 工具函數和模式
+class PromiseUtils {
+    // 超時包裝器
+    static withTimeout(promise, timeoutMs) {
+        const timeoutPromise = new Promise((_, reject) => {
+            setTimeout(() => reject(new Error('操作超時')), timeoutMs);
+        });
+        
+        return Promise.race([promise, timeoutPromise]);
+    }
+    
+    // 重試機制
+    static async retry(fn, maxAttempts = 3, delay = 1000) {
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+                return await fn();
+            } catch (error) {
+                if (attempt === maxAttempts) {
+                    throw error;
+                }
+                console.log(`嘗試 ${attempt} 失敗，${delay}ms 後重試...`);
+                await new Promise(resolve => setTimeout(resolve, delay));
+                delay *= 2; // 指數退避
+            }
+        }
+    }
+    
+    // 防抖非同步函數
+    static debounce(fn, delay) {
+        let timeoutId;
+        let latestResolve;
+        let latestReject;
+        
+        return function(...args) {
+            return new Promise((resolve, reject) => {
+                latestResolve = resolve;
+                latestReject = reject;
+                
+                clearTimeout(timeoutId);
+                timeoutId = setTimeout(async () => {
+                    try {
+                        const result = await fn.apply(this, args);
+                        latestResolve(result);
+                    } catch (error) {
+                        latestReject(error);
+                    }
+                }, delay);
+            });
+        };
+    }
+    
+    // 限制並發的信號量
+    static createSemaphore(limit) {
+        let current = 0;
+        const queue = [];
+        
+        return {
+            async acquire() {
+                return new Promise(resolve => {
+                    if (current < limit) {
+                        current++;
+                        resolve();
+                    } else {
+                        queue.push(resolve);
+                    }
+                });
+            },
+            
+            release() {
+                if (queue.length > 0) {
+                    const resolve = queue.shift();
+                    resolve();
+                } else {
+                    current--;
+                }
+            },
+            
+            async execute(fn) {
+                await this.acquire();
+                try {
+                    return await fn();
+                } finally {
+                    this.release();
+                }
+            }
+        };
+    }
+}
+
+// 5. 真實世界範例
+class APIClient {
+    constructor(baseURL, options = {}) {
+        this.baseURL = baseURL;
+        this.timeout = options.timeout || 5000;
+        this.retries = options.retries || 3;
+        this.semaphore = PromiseUtils.createSemaphore(options.concurrency || 5);
+    }
+    
+    async request(endpoint, options = {}) {
+        const url = `${this.baseURL}${endpoint}`;
+        
+        return this.semaphore.execute(async () => {
+            return PromiseUtils.retry(async () => {
+                const fetchPromise = fetch(url, {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...options.headers
+                    },
+                    ...options
+                });
+                
+                const response = await PromiseUtils.withTimeout(fetchPromise, this.timeout);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                return response.json();
+            }, this.retries);
+        });
+    }
+    
+    async get(endpoint) {
+        return this.request(endpoint);
+    }
+    
+    async post(endpoint, data) {
+        return this.request(endpoint, {
+            method: 'POST',
+            body: JSON.stringify(data)
+        });
+    }
+}
+
+// 6. 非同步迭代和生成器
+async function* asyncNumberGenerator(start, count) {
+    for (let i = start; i < start + count; i++) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+        yield i;
+    }
+}
+
+async function consumeAsyncGenerator() {
+    console.log("\n=== 非同步生成器 ===");
+    
+    for await (const number of asyncNumberGenerator(1, 5)) {
+        console.log("生成:", number);
+    }
+}
+
+// 7. 使用非同步迭代器的生產者-消費者模式
+class AsyncQueue {
+    constructor() {
+        this.items = [];
+        this.resolvers = [];
+        this.closed = false;
+    }
+    
+    async put(item) {
+        if (this.closed) {
+            throw new Error("佇列已關閉");
+        }
+        
+        if (this.resolvers.length > 0) {
+            const resolve = this.resolvers.shift();
+            resolve(item);
+        } else {
+            this.items.push(item);
+        }
+    }
+    
+    async get() {
+        if (this.items.length > 0) {
+            return this.items.shift();
+        }
+        
+        if (this.closed) {
+            return null;
+        }
+        
+        return new Promise(resolve => {
+            this.resolvers.push(resolve);
+        });
+    }
+    
+    close() {
+        this.closed = true;
+        // 用 null 解決待處理的 get
+        this.resolvers.forEach(resolve => resolve(null));
+        this.resolvers = [];
+    }
+    
+    async *[Symbol.asyncIterator]() {
+        while (true) {
+            const item = await this.get();
+            if (item === null) break;
+            yield item;
+        }
+    }
+}
+
+async function producerConsumerExample() {
+    console.log("\n=== 生產者-消費者模式 ===");
+    
+    const queue = new AsyncQueue();
+    
+    // 生產者
+    async function producer() {
+        for (let i = 0; i < 5; i++) {
+            await new Promise(resolve => setTimeout(resolve, 100));
+            await queue.put(`item-${i}`);
+            console.log(`產生: item-${i}`);
+        }
+        queue.close();
+    }
+    
+    // 消費者
+    async function consumer(name) {
+        for await (const item of queue) {
+            console.log(`消費者 ${name} 處理: ${item}`);
+            await new Promise(resolve => setTimeout(resolve, 200));
+        }
+        console.log(`消費者 ${name} 完成`);
+    }
+    
+    // 並發執行生產者和消費者
+    await Promise.all([
+        producer(),
+        consumer("A"),
+        consumer("B")
+    ]);
+}
+
+// 執行範例
+async function runExamples() {
+    console.log("=== JavaScript Promise 範例 ===");
+    
+    // Promise 鏈接
+    await promiseChaining();
+    
+    // Async/await
+    const { usersConcurrent } = await fetchMultipleUsers([1, 2, 3]);
+    console.log(`\n並發取得了 ${usersConcurrent.length} 個使用者`);
+    
+    // 錯誤處理
+    await errorHandlingPatterns();
+    
+    // 非同步生成器
+    await consumeAsyncGenerator();
+    
+    // 生產者-消費者
+    await producerConsumerExample();
+    
+    // API 客戶端範例
+    const apiClient = new APIClient('https://jsonplaceholder.typicode.com');
+    try {
+        const post = await apiClient.get('/posts/1');
+        console.log('\nAPI 回應:', post.title);
+    } catch (error) {
+        console.error('API 錯誤:', error.message);
+    }
+}
+
+runExamples().catch(console.error);
+```
+</PythonEditor>
+
+## 總結
+
+本模組涵蓋了 Python 和 JavaScript 非同步程式設計的基本差異：
+
+### 主要差異：
+
+1. **事件迴圈**: JavaScript 有單執行緒事件迴圈，Python 的 asyncio 在一個執行緒上執行但可以與執行緒池整合
+2. **語法**: JavaScript 使用 Promise 和 async/await，Python 使用協程和 asyncio
+3. **錯誤處理**: 處理非同步錯誤和異常的不同模式
+4. **並發**: JavaScript 專注於 I/O 並發，Python 可以將 asyncio 與多處理結合用於 CPU 密集任務
+
+### 關鍵概念：
+
+1. **Promise vs 協程**: 理解概念差異和使用模式
+2. **事件迴圈階段**: JavaScript 的事件迴圈與 Python 的 asyncio 迴圈差異
+3. **協調原語**: 同步和協調的不同方法
+4. **真實世界模式**: 網路爬蟲、資料庫操作和串流等實際應用
+
+理解這些非同步程式設計差異對於 Python 開發者轉向 JavaScript 至關重要，特別是對於使用 Node.js 的後端開發和需要響應式使用者介面的前端應用程式。

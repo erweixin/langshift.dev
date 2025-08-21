@@ -69,6 +69,15 @@ export const js2kotlinCourseData = {
   educationalLevel: "Intermediate"
 };
 
+export const py2jsCourseData = {
+  name: "Python to JavaScript Tutorial",
+  description: "Learn JavaScript and frontend development from a Python developer perspective, mastering async programming, DOM manipulation, and full-stack development.",
+  url: "https://langshift.dev/docs/py2js",
+  provider: "LangShift.dev",
+  courseMode: "online",
+  educationalLevel: "Intermediate"
+};
+
 export const courseStructuredData = (courseData: {
   name: string
   description: string

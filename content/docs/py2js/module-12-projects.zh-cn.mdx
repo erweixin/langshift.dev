@@ -1,0 +1,2270 @@
+---
+title: 实战项目与综合应用
+description: 从 Python 开发者的角度构建真实的 JavaScript 应用程序，包括全栈项目、API 开发和组件库
+---
+
+# 模块 12：实战项目与综合应用
+
+## 学习目标
+
+完成本模块后，你将能够：
+- 构建完整的全栈 Web 应用程序
+- 在 JavaScript 中创建和使用 REST API
+- 开发可重用的组件库
+- 使用 Node.js 构建 CLI 工具
+- 实施性能优化策略
+- 在实际场景中应用所学概念
+
+## 项目 1：全栈任务管理器
+
+### 项目概述
+
+让我们构建一个任务管理应用程序，它反映了你可能使用 Django + React 或 Flask + Vue.js 创建的内容，但前后端都使用现代 JavaScript。
+
+<PythonEditor title="全栈任务管理器架构" compare={true}>
+```python !! py
+# Python 等效架构
+# 后端：Django/Flask + PostgreSQL
+# 前端：React/Vue 单独提供
+# API：Django REST Framework / Flask-RESTful
+
+# Django 后端结构
+# myproject/
+# ├── manage.py
+# ├── myproject/
+# │   ├── settings.py
+# │   ├── urls.py
+# │   └── wsgi.py
+# ├── tasks/
+# │   ├── models.py
+# │   ├── views.py
+# │   ├── serializers.py
+# │   └── urls.py
+# └── requirements.txt
+
+# Django models.py
+from django.db import models
+from django.contrib.auth.models import User
+
+class Task(models.Model):
+    PRIORITY_CHOICES = [
+        ('low', 'Low'),
+        ('medium', 'Medium'),
+        ('high', 'High')
+    ]
+    
+    title = models.CharField(max_length=200)
+    description = models.TextField(blank=True)
+    priority = models.CharField(max_length=10, choices=PRIORITY_CHOICES)
+    completed = models.BooleanField(default=False)
+    due_date = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+
+# Django views.py
+from rest_framework import viewsets
+from rest_framework.permissions import IsAuthenticated
+from .models import Task
+from .serializers import TaskSerializer
+
+class TaskViewSet(viewsets.ModelViewSet):
+    serializer_class = TaskSerializer
+    permission_classes = [IsAuthenticated]
+    
+    def get_queryset(self):
+        return Task.objects.filter(user=self.request.user)
+```
+
+```javascript !! js
+// JavaScript 等效：Node.js + Express + PostgreSQL
+// 项目结构：
+// task-manager/
+// ├── package.json
+// ├── server/
+// │   ├── app.js
+// │   ├── models/
+// │   ├── routes/
+// │   ├── middleware/
+// │   └── config/
+// ├── client/
+// │   ├── src/
+// │   ├── public/
+// │   └── package.json
+// └── shared/
+
+// 后端：Express.js with Sequelize ORM
+// server/models/Task.js
+const { DataTypes } = require('sequelize');
+const { sequelize } = require('../config/database');
+
+const Task = sequelize.define('Task', {
+    id: {
+        type: DataTypes.UUID,
+        defaultValue: DataTypes.UUIDV4,
+        primaryKey: true
+    },
+    title: {
+        type: DataTypes.STRING,
+        allowNull: false,
+        validate: {
+            len: [1, 200]
+        }
+    },
+    description: {
+        type: DataTypes.TEXT,
+        allowNull: true
+    },
+    priority: {
+        type: DataTypes.ENUM('low', 'medium', 'high'),
+        defaultValue: 'medium'
+    },
+    completed: {
+        type: DataTypes.BOOLEAN,
+        defaultValue: false
+    },
+    dueDate: {
+        type: DataTypes.DATE,
+        allowNull: true
+    },
+    userId: {
+        type: DataTypes.UUID,
+        allowNull: false,
+        references: {
+            model: 'Users',
+            key: 'id'
+        }
+    }
+}, {
+    timestamps: true,
+    underscored: true
+});
+
+module.exports = Task;
+
+// server/routes/tasks.js
+const express = require('express');
+const router = express.Router();
+const { Task } = require('../models');
+const { authenticate } = require('../middleware/auth');
+
+// GET /api/tasks
+router.get('/', authenticate, async (req, res) => {
+    try {
+        const tasks = await Task.findAll({
+            where: { userId: req.user.id },
+            order: [['createdAt', 'DESC']]
+        });
+        res.json(tasks);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// POST /api/tasks
+router.post('/', authenticate, async (req, res) => {
+    try {
+        const task = await Task.create({
+            ...req.body,
+            userId: req.user.id
+        });
+        res.status(201).json(task);
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+});
+
+// PUT /api/tasks/:id
+router.put('/:id', authenticate, async (req, res) => {
+    try {
+        const task = await Task.findOne({
+            where: { id: req.params.id, userId: req.user.id }
+        });
+        
+        if (!task) {
+            return res.status(404).json({ error: '任务未找到' });
+        }
+        
+        await task.update(req.body);
+        res.json(task);
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+});
+
+// DELETE /api/tasks/:id
+router.delete('/:id', authenticate, async (req, res) => {
+    try {
+        const task = await Task.findOne({
+            where: { id: req.params.id, userId: req.user.id }
+        });
+        
+        if (!task) {
+            return res.status(404).json({ error: '任务未找到' });
+        }
+        
+        await task.destroy();
+        res.status(204).send();
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+module.exports = router;
+```
+</PythonEditor>
+
+### 前端实现
+
+<PythonEditor title="前端任务管理器" compare={true}>
+```python !! py
+# Python 开发者通常使用模板或单独的 React 应用
+# Django 模板配合 HTMX 或单独的 React/Vue 前端
+
+# Django 模板方法 (tasks/templates/tasks/list.html)
+{% extends 'base.html' %}
+{% block content %}
+<div id="task-list">
+    {% for task in tasks %}
+    <div class="task-item" data-task-id="{{ task.id }}">
+        <h3>{{ task.title }}</h3>
+        <p>{{ task.description }}</p>
+        <span class="priority-{{ task.priority }}">{{ task.get_priority_display }}</span>
+        {% if task.completed %}
+            <span class="completed">✓</span>
+        {% endif %}
+    </div>
+    {% endfor %}
+</div>
+
+<script>
+// 交互性的基本 JavaScript
+document.addEventListener('DOMContentLoaded', function() {
+    const taskItems = document.querySelectorAll('.task-item');
+    taskItems.forEach(item => {
+        item.addEventListener('click', function() {
+            const taskId = this.dataset.taskId;
+            // 处理任务交互
+        });
+    });
+});
+</script>
+{% endblock %}
+
+# React 组件方法（单独前端）
+# components/TaskList.jsx
+import React, { useState, useEffect } from 'react';
+import axios from 'axios';
+
+function TaskList() {
+    const [tasks, setTasks] = useState([]);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        fetchTasks();
+    }, []);
+
+    const fetchTasks = async () => {
+        try {
+            const response = await axios.get('/api/tasks/');
+            setTasks(response.data);
+        } catch (error) {
+            console.error('获取任务时出错:', error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    if (loading) return <div>加载中...</div>;
+
+    return (
+        <div className="task-list">
+            {tasks.map(task => (
+                <TaskItem key={task.id} task={task} onUpdate={fetchTasks} />
+            ))}
+        </div>
+    );
+}
+```
+
+```javascript !! js
+// 现代 React with hooks 和 context
+// client/src/components/TaskManager.jsx
+import React, { useState, useEffect, createContext, useContext } from 'react';
+import { TaskAPI } from '../services/api';
+
+// 状态管理的 Context
+const TaskContext = createContext();
+
+export const TaskProvider = ({ children }) => {
+    const [tasks, setTasks] = useState([]);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState(null);
+
+    const fetchTasks = async () => {
+        setLoading(true);
+        try {
+            const tasks = await TaskAPI.getTasks();
+            setTasks(tasks);
+            setError(null);
+        } catch (err) {
+            setError(err.message);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const createTask = async (taskData) => {
+        try {
+            const newTask = await TaskAPI.createTask(taskData);
+            setTasks(prev => [newTask, ...prev]);
+            return newTask;
+        } catch (err) {
+            setError(err.message);
+            throw err;
+        }
+    };
+
+    const updateTask = async (id, updates) => {
+        try {
+            const updatedTask = await TaskAPI.updateTask(id, updates);
+            setTasks(prev => prev.map(task => 
+                task.id === id ? updatedTask : task
+            ));
+            return updatedTask;
+        } catch (err) {
+            setError(err.message);
+            throw err;
+        }
+    };
+
+    const deleteTask = async (id) => {
+        try {
+            await TaskAPI.deleteTask(id);
+            setTasks(prev => prev.filter(task => task.id !== id));
+        } catch (err) {
+            setError(err.message);
+            throw err;
+        }
+    };
+
+    return (
+        <TaskContext.Provider value={{
+            tasks,
+            loading,
+            error,
+            fetchTasks,
+            createTask,
+            updateTask,
+            deleteTask
+        }}>
+            {children}
+        </TaskContext.Provider>
+    );
+};
+
+export const useTasks = () => {
+    const context = useContext(TaskContext);
+    if (!context) {
+        throw new Error('useTasks 必须在 TaskProvider 内使用');
+    }
+    return context;
+};
+
+// 任务列表组件
+export const TaskList = () => {
+    const { tasks, loading, error, fetchTasks } = useTasks();
+
+    useEffect(() => {
+        fetchTasks();
+    }, []);
+
+    if (loading) {
+        return (
+            <div className="flex justify-center items-center h-64">
+                <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-500"></div>
+            </div>
+        );
+    }
+
+    if (error) {
+        return (
+            <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
+                错误：{error}
+            </div>
+        );
+    }
+
+    return (
+        <div className="space-y-4">
+            {tasks.length === 0 ? (
+                <div className="text-center text-gray-500 py-8">
+                    暂无任务。创建你的第一个任务！
+                </div>
+            ) : (
+                tasks.map(task => (
+                    <TaskCard key={task.id} task={task} />
+                ))
+            )}
+        </div>
+    );
+};
+
+// 任务卡片组件
+const TaskCard = ({ task }) => {
+    const { updateTask, deleteTask } = useTasks();
+    const [isEditing, setIsEditing] = useState(false);
+
+    const handleToggleComplete = async () => {
+        await updateTask(task.id, { completed: !task.completed });
+    };
+
+    const handleDelete = async () => {
+        if (window.confirm('确定要删除这个任务吗？')) {
+            await deleteTask(task.id);
+        }
+    };
+
+    const priorityColors = {
+        low: 'bg-green-100 text-green-800',
+        medium: 'bg-yellow-100 text-yellow-800',
+        high: 'bg-red-100 text-red-800'
+    };
+
+    return (
+        <div className={`bg-white rounded-lg shadow-md p-6 border-l-4 ${
+            task.completed ? 'border-green-500 opacity-75' : 'border-blue-500'
+        }`}>
+            <div className="flex items-start justify-between">
+                <div className="flex-1">
+                    <div className="flex items-center space-x-2">
+                        <input
+                            type="checkbox"
+                            checked={task.completed}
+                            onChange={handleToggleComplete}
+                            className="h-5 w-5 text-blue-600"
+                        />
+                        <h3 className={`text-lg font-semibold ${
+                            task.completed ? 'line-through text-gray-500' : 'text-gray-900'
+                        }`}>
+                            {task.title}
+                        </h3>
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                            priorityColors[task.priority]
+                        }`}>
+                            {task.priority === 'low' ? '低' : 
+                             task.priority === 'medium' ? '中' : '高'}
+                        </span>
+                    </div>
+                    
+                    {task.description && (
+                        <p className="mt-2 text-gray-600">{task.description}</p>
+                    )}
+                    
+                    {task.dueDate && (
+                        <p className="mt-2 text-sm text-gray-500">
+                            截止：{new Date(task.dueDate).toLocaleDateString('zh-CN')}
+                        </p>
+                    )}
+                </div>
+                
+                <div className="flex space-x-2">
+                    <button
+                        onClick={() => setIsEditing(true)}
+                        className="text-blue-600 hover:text-blue-800"
+                    >
+                        编辑
+                    </button>
+                    <button
+                        onClick={handleDelete}
+                        className="text-red-600 hover:text-red-800"
+                    >
+                        删除
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// API 服务
+// client/src/services/api.js
+class TaskAPI {
+    static baseURL = process.env.REACT_APP_API_URL || 'http://localhost:3001/api';
+
+    static async request(endpoint, options = {}) {
+        const token = localStorage.getItem('authToken');
+        
+        const config = {
+            headers: {
+                'Content-Type': 'application/json',
+                ...(token && { Authorization: `Bearer ${token}` })
+            },
+            ...options
+        };
+
+        const response = await fetch(`${this.baseURL}${endpoint}`, config);
+        
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({ message: '发生错误' }));
+            throw new Error(error.message || '请求失败');
+        }
+
+        return response.json();
+    }
+
+    static getTasks() {
+        return this.request('/tasks');
+    }
+
+    static createTask(task) {
+        return this.request('/tasks', {
+            method: 'POST',
+            body: JSON.stringify(task)
+        });
+    }
+
+    static updateTask(id, updates) {
+        return this.request(`/tasks/${id}`, {
+            method: 'PUT',
+            body: JSON.stringify(updates)
+        });
+    }
+
+    static deleteTask(id) {
+        return this.request(`/tasks/${id}`, {
+            method: 'DELETE'
+        });
+    }
+}
+
+export { TaskAPI };
+```
+</PythonEditor>
+
+## 项目 2：API 集成仪表板
+
+### 构建数据仪表板
+
+<PythonEditor title="API 集成仪表板" compare={true}>
+```python !! py
+# Python 方法：Django/Flask 配合外部 API 集成
+# views.py
+import requests
+from django.http import JsonResponse
+from django.views import View
+from django.utils.decorators import method_decorator
+from django.views.decorators.cache import cache_page
+
+class DashboardAPI(View):
+    @method_decorator(cache_page(60 * 15))  # 缓存 15 分钟
+    def get(self, request):
+        try:
+            # 从多个 API 获取数据
+            weather_data = self.get_weather_data()
+            stock_data = self.get_stock_data()
+            news_data = self.get_news_data()
+            
+            return JsonResponse({
+                'weather': weather_data,
+                'stocks': stock_data,
+                'news': news_data
+            })
+        except Exception as e:
+            return JsonResponse({'error': str(e)}, status=500)
+    
+    def get_weather_data(self):
+        api_key = settings.WEATHER_API_KEY
+        response = requests.get(
+            f'https://api.openweathermap.org/data/2.5/weather',
+            params={'q': 'London', 'appid': api_key}
+        )
+        response.raise_for_status()
+        return response.json()
+    
+    def get_stock_data(self):
+        response = requests.get(
+            'https://api.twelvedata.com/time_series',
+            params={
+                'symbol': 'AAPL',
+                'interval': '1day',
+                'apikey': settings.STOCK_API_KEY
+            }
+        )
+        response.raise_for_status()
+        return response.json()
+
+# Python 异步方法使用 aiohttp
+import aiohttp
+import asyncio
+
+async def get_dashboard_data():
+    async with aiohttp.ClientSession() as session:
+        tasks = [
+            fetch_weather(session),
+            fetch_stocks(session),
+            fetch_news(session)
+        ]
+        weather, stocks, news = await asyncio.gather(*tasks)
+        
+        return {
+            'weather': weather,
+            'stocks': stocks,
+            'news': news
+        }
+```
+
+```javascript !! js
+// JavaScript：Node.js 后端配合 async/await
+// server/services/dashboardService.js
+const axios = require('axios');
+const NodeCache = require('node-cache');
+
+// 15 分钟缓存
+const cache = new NodeCache({ stdTTL: 900 });
+
+class DashboardService {
+    constructor() {
+        this.weatherApiKey = process.env.WEATHER_API_KEY;
+        this.stockApiKey = process.env.STOCK_API_KEY;
+        this.newsApiKey = process.env.NEWS_API_KEY;
+    }
+
+    async getDashboardData() {
+        const cacheKey = 'dashboard_data';
+        const cachedData = cache.get(cacheKey);
+        
+        if (cachedData) {
+            return cachedData;
+        }
+
+        try {
+            // 并行 API 调用以获得更好的性能
+            const [weather, stocks, news] = await Promise.all([
+                this.getWeatherData(),
+                this.getStockData(),
+                this.getNewsData()
+            ]);
+
+            const data = { weather, stocks, news };
+            cache.set(cacheKey, data);
+            
+            return data;
+        } catch (error) {
+            throw new Error(`仪表板数据获取失败: ${error.message}`);
+        }
+    }
+
+    async getWeatherData() {
+        try {
+            const response = await axios.get('https://api.openweathermap.org/data/2.5/weather', {
+                params: {
+                    q: 'Beijing',
+                    appid: this.weatherApiKey,
+                    units: 'metric',
+                    lang: 'zh_cn'
+                },
+                timeout: 5000
+            });
+
+            return {
+                temperature: response.data.main.temp,
+                description: response.data.weather[0].description,
+                humidity: response.data.main.humidity,
+                windSpeed: response.data.wind.speed
+            };
+        } catch (error) {
+            console.error('天气 API 错误:', error.message);
+            return { error: '天气数据不可用' };
+        }
+    }
+
+    async getStockData() {
+        try {
+            const symbols = ['AAPL', 'GOOGL', 'MSFT', 'TSLA'];
+            const stockPromises = symbols.map(symbol => 
+                axios.get('https://api.twelvedata.com/price', {
+                    params: {
+                        symbol,
+                        apikey: this.stockApiKey
+                    },
+                    timeout: 5000
+                })
+            );
+
+            const responses = await Promise.all(stockPromises);
+            
+            return symbols.map((symbol, index) => ({
+                symbol,
+                price: responses[index].data.price,
+                timestamp: new Date().toISOString()
+            }));
+        } catch (error) {
+            console.error('股票 API 错误:', error.message);
+            return { error: '股票数据不可用' };
+        }
+    }
+
+    async getNewsData() {
+        try {
+            const response = await axios.get('https://newsapi.org/v2/top-headlines', {
+                params: {
+                    country: 'cn',
+                    category: 'technology',
+                    pageSize: 5,
+                    apiKey: this.newsApiKey
+                },
+                timeout: 5000
+            });
+
+            return response.data.articles.map(article => ({
+                title: article.title,
+                description: article.description,
+                url: article.url,
+                publishedAt: article.publishedAt,
+                source: article.source.name
+            }));
+        } catch (error) {
+            console.error('新闻 API 错误:', error.message);
+            return { error: '新闻数据不可用' };
+        }
+    }
+}
+
+module.exports = new DashboardService();
+
+// Express 路由处理器
+// server/routes/dashboard.js
+const express = require('express');
+const router = express.Router();
+const dashboardService = require('../services/dashboardService');
+const { rateLimiter } = require('../middleware/rateLimiter');
+
+router.get('/data', rateLimiter, async (req, res) => {
+    try {
+        const data = await dashboardService.getDashboardData();
+        res.json(data);
+    } catch (error) {
+        console.error('仪表板端点错误:', error);
+        res.status(500).json({ 
+            error: '内部服务器错误',
+            message: error.message 
+        });
+    }
+});
+
+module.exports = router;
+
+// 前端 React 仪表板
+// client/src/components/Dashboard.jsx
+import React, { useState, useEffect } from 'react';
+import { Line } from 'react-chartjs-2';
+import {
+    Chart as ChartJS,
+    CategoryScale,
+    LinearScale,
+    PointElement,
+    LineElement,
+    Title,
+    Tooltip,
+    Legend,
+} from 'chart.js';
+
+ChartJS.register(
+    CategoryScale,
+    LinearScale,
+    PointElement,
+    LineElement,
+    Title,
+    Tooltip,
+    Legend
+);
+
+const Dashboard = () => {
+    const [data, setData] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
+    const [lastUpdated, setLastUpdated] = useState(null);
+
+    useEffect(() => {
+        fetchDashboardData();
+        
+        // 每 5 分钟自动刷新
+        const interval = setInterval(fetchDashboardData, 5 * 60 * 1000);
+        return () => clearInterval(interval);
+    }, []);
+
+    const fetchDashboardData = async () => {
+        try {
+            setLoading(true);
+            const response = await fetch('/api/dashboard/data');
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            
+            const dashboardData = await response.json();
+            setData(dashboardData);
+            setLastUpdated(new Date());
+            setError(null);
+        } catch (err) {
+            setError(err.message);
+            console.error('仪表板获取错误:', err);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    if (loading && !data) {
+        return (
+            <div className="flex justify-center items-center h-64">
+                <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-500"></div>
+            </div>
+        );
+    }
+
+    if (error) {
+        return (
+            <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
+                <h3 className="font-bold">加载仪表板时出错</h3>
+                <p>{error}</p>
+                <button 
+                    onClick={fetchDashboardData}
+                    className="mt-2 bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600"
+                >
+                    重试
+                </button>
+            </div>
+        );
+    }
+
+    return (
+        <div className="p-6 space-y-6">
+            <div className="flex justify-between items-center">
+                <h1 className="text-3xl font-bold text-gray-900">仪表板</h1>
+                <div className="text-sm text-gray-500">
+                    最后更新：{lastUpdated?.toLocaleTimeString('zh-CN')}
+                    <button 
+                        onClick={fetchDashboardData}
+                        disabled={loading}
+                        className="ml-2 px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50"
+                    >
+                        {loading ? '更新中...' : '刷新'}
+                    </button>
+                </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                {/* 天气组件 */}
+                <WeatherWidget weather={data?.weather} />
+                
+                {/* 股票组件 */}
+                <StockWidget stocks={data?.stocks} />
+                
+                {/* 新闻组件 */}
+                <NewsWidget news={data?.news} />
+            </div>
+        </div>
+    );
+};
+
+const WeatherWidget = ({ weather }) => {
+    if (weather?.error) {
+        return (
+            <div className="bg-white p-6 rounded-lg shadow-md">
+                <h2 className="text-xl font-semibold mb-4">天气</h2>
+                <p className="text-red-500">{weather.error}</p>
+            </div>
+        );
+    }
+
+    return (
+        <div className="bg-white p-6 rounded-lg shadow-md">
+            <h2 className="text-xl font-semibold mb-4">天气</h2>
+            {weather && (
+                <div>
+                    <div className="text-3xl font-bold text-blue-600">
+                        {Math.round(weather.temperature)}°C
+                    </div>
+                    <p className="text-gray-600 capitalize">{weather.description}</p>
+                    <div className="mt-4 space-y-2">
+                        <div className="flex justify-between">
+                            <span>湿度：</span>
+                            <span>{weather.humidity}%</span>
+                        </div>
+                        <div className="flex justify-between">
+                            <span>风速：</span>
+                            <span>{weather.windSpeed} m/s</span>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
+const StockWidget = ({ stocks }) => {
+    if (stocks?.error) {
+        return (
+            <div className="bg-white p-6 rounded-lg shadow-md">
+                <h2 className="text-xl font-semibold mb-4">股票</h2>
+                <p className="text-red-500">{stocks.error}</p>
+            </div>
+        );
+    }
+
+    return (
+        <div className="bg-white p-6 rounded-lg shadow-md">
+            <h2 className="text-xl font-semibold mb-4">股票</h2>
+            {stocks && (
+                <div className="space-y-3">
+                    {stocks.map((stock, index) => (
+                        <div key={index} className="flex justify-between items-center">
+                            <span className="font-medium">{stock.symbol}</span>
+                            <span className="text-green-600 font-semibold">
+                                ${parseFloat(stock.price).toFixed(2)}
+                            </span>
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+};
+
+const NewsWidget = ({ news }) => {
+    if (news?.error) {
+        return (
+            <div className="bg-white p-6 rounded-lg shadow-md">
+                <h2 className="text-xl font-semibold mb-4">科技新闻</h2>
+                <p className="text-red-500">{news.error}</p>
+            </div>
+        );
+    }
+
+    return (
+        <div className="bg-white p-6 rounded-lg shadow-md">
+            <h2 className="text-xl font-semibold mb-4">科技新闻</h2>
+            {news && (
+                <div className="space-y-4">
+                    {news.slice(0, 3).map((article, index) => (
+                        <div key={index} className="border-b last:border-b-0 pb-3 last:pb-0">
+                            <a 
+                                href={article.url} 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="text-blue-600 hover:text-blue-800 font-medium"
+                            >
+                                {article.title}
+                            </a>
+                            <p className="text-sm text-gray-600 mt-1">
+                                {article.source} • {new Date(article.publishedAt).toLocaleDateString('zh-CN')}
+                            </p>
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+};
+
+export default Dashboard;
+```
+</PythonEditor>
+
+## 项目 3：组件库
+
+### 构建可重用的 UI 组件
+
+<PythonEditor title="组件库开发" compare={true}>
+```python !! py
+# Python 方法：Django 可重用应用或 Jinja2 宏
+# Django 可重用应用结构
+# my_ui_components/
+# ├── __init__.py
+# ├── models.py
+# ├── templatetags/
+# │   ├── __init__.py
+# │   └── ui_components.py
+# ├── templates/
+# │   └── components/
+# │       ├── button.html
+# │       ├── card.html
+# │       └── modal.html
+# └── static/
+#     └── css/
+#         └── components.css
+
+# Django 模板标签
+# templatetags/ui_components.py
+from django import template
+from django.utils.safestring import mark_safe
+
+register = template.Library()
+
+@register.inclusion_tag('components/button.html')
+def ui_button(text, variant='primary', size='medium', **kwargs):
+    return {
+        'text': text,
+        'variant': variant,
+        'size': size,
+        'attrs': kwargs
+    }
+
+@register.inclusion_tag('components/card.html')
+def ui_card(title=None, content=None, **kwargs):
+    return {
+        'title': title,
+        'content': content,
+        'attrs': kwargs
+    }
+
+# templates/components/button.html
+<button class="btn btn-{{ variant }} btn-{{ size }}" 
+        {% for key, value in attrs.items %}{{ key }}="{{ value }}"{% endfor %}>
+    {{ text }}
+</button>
+
+# 在模板中使用
+{% load ui_components %}
+{% ui_button "点击我" variant="primary" onclick="alert('Hello')" %}
+{% ui_card title="我的卡片" content="这里是卡片内容" %}
+
+# Jinja2 宏方法
+# macros/ui_components.html
+{% macro button(text, variant='primary', size='medium', **kwargs) %}
+<button class="btn btn-{{ variant }} btn-{{ size }}" 
+        {% for key, value in kwargs.items() %}{{ key }}="{{ value }}"{% endfor %}>
+    {{ text }}
+</button>
+{% endmacro %}
+
+{% macro card(title=None, content=None, **kwargs) %}
+<div class="card" {% for key, value in kwargs.items() %}{{ key }}="{{ value }}"{% endfor %}>
+    {% if title %}
+    <div class="card-header">
+        <h3 class="card-title">{{ title }}</h3>
+    </div>
+    {% endif %}
+    <div class="card-body">
+        {{ content }}
+    </div>
+</div>
+{% endmacro %}
+```
+
+```javascript !! js
+// JavaScript：React 组件库配合 TypeScript
+// 组件库项目结构：
+// ui-components/
+// ├── package.json
+// ├── src/
+// │   ├── components/
+// │   │   ├── Button/
+// │   │   ├── Card/
+// │   │   ├── Modal/
+// │   │   └── index.ts
+// │   ├── hooks/
+// │   ├── utils/
+// │   └── index.ts
+// ├── dist/
+// ├── stories/  (Storybook)
+// └── tests/
+
+// src/components/Button/Button.tsx
+import React, { forwardRef } from 'react';
+import { cva, type VariantProps } from 'class-variance-authority';
+import { cn } from '../../utils/cn';
+
+const buttonVariants = cva(
+    'inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none',
+    {
+        variants: {
+            variant: {
+                primary: 'bg-blue-600 text-white hover:bg-blue-700',
+                secondary: 'bg-gray-200 text-gray-900 hover:bg-gray-300',
+                outline: 'border border-gray-300 bg-white hover:bg-gray-50',
+                ghost: 'hover:bg-gray-100',
+                danger: 'bg-red-600 text-white hover:bg-red-700'
+            },
+            size: {
+                sm: 'h-8 px-3 text-xs',
+                md: 'h-10 px-4',
+                lg: 'h-12 px-8 text-lg'
+            }
+        },
+        defaultVariants: {
+            variant: 'primary',
+            size: 'md'
+        }
+    }
+);
+
+export interface ButtonProps 
+    extends React.ButtonHTMLAttributes<HTMLButtonElement>,
+    VariantProps<typeof buttonVariants> {
+    children: React.ReactNode;
+    loading?: boolean;
+    leftIcon?: React.ReactNode;
+    rightIcon?: React.ReactNode;
+}
+
+const Button = forwardRef<HTMLButtonElement, ButtonProps>(
+    ({ 
+        className, 
+        variant, 
+        size, 
+        children, 
+        loading = false,
+        leftIcon,
+        rightIcon,
+        disabled,
+        ...props 
+    }, ref) => {
+        return (
+            <button
+                className={cn(buttonVariants({ variant, size, className }))}
+                ref={ref}
+                disabled={disabled || loading}
+                {...props}
+            >
+                {loading && (
+                    <svg className="animate-spin -ml-1 mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                    </svg>
+                )}
+                {leftIcon && !loading && (
+                    <span className="mr-2">{leftIcon}</span>
+                )}
+                {children}
+                {rightIcon && (
+                    <span className="ml-2">{rightIcon}</span>
+                )}
+            </button>
+        );
+    }
+);
+
+Button.displayName = 'Button';
+
+export { Button, buttonVariants };
+
+// src/components/Card/Card.tsx
+import React from 'react';
+import { cn } from '../../utils/cn';
+
+export interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
+    children: React.ReactNode;
+}
+
+export interface CardHeaderProps extends React.HTMLAttributes<HTMLDivElement> {
+    children: React.ReactNode;
+}
+
+export interface CardTitleProps extends React.HTMLAttributes<HTMLHeadingElement> {
+    children: React.ReactNode;
+    as?: 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6';
+}
+
+export interface CardContentProps extends React.HTMLAttributes<HTMLDivElement> {
+    children: React.ReactNode;
+}
+
+export interface CardFooterProps extends React.HTMLAttributes<HTMLDivElement> {
+    children: React.ReactNode;
+}
+
+const Card = React.forwardRef<HTMLDivElement, CardProps>(
+    ({ className, children, ...props }, ref) => (
+        <div
+            ref={ref}
+            className={cn(
+                'rounded-lg border bg-white shadow-sm',
+                className
+            )}
+            {...props}
+        >
+            {children}
+        </div>
+    )
+);
+
+const CardHeader = React.forwardRef<HTMLDivElement, CardHeaderProps>(
+    ({ className, children, ...props }, ref) => (
+        <div
+            ref={ref}
+            className={cn('flex flex-col space-y-1.5 p-6', className)}
+            {...props}
+        >
+            {children}
+        </div>
+    )
+);
+
+const CardTitle = React.forwardRef<HTMLHeadingElement, CardTitleProps>(
+    ({ className, children, as: Component = 'h3', ...props }, ref) => (
+        <Component
+            ref={ref}
+            className={cn('text-lg font-semibold leading-none tracking-tight', className)}
+            {...props}
+        >
+            {children}
+        </Component>
+    )
+);
+
+const CardContent = React.forwardRef<HTMLDivElement, CardContentProps>(
+    ({ className, children, ...props }, ref) => (
+        <div ref={ref} className={cn('p-6 pt-0', className)} {...props}>
+            {children}
+        </div>
+    )
+);
+
+const CardFooter = React.forwardRef<HTMLDivElement, CardFooterProps>(
+    ({ className, children, ...props }, ref) => (
+        <div
+            ref={ref}
+            className={cn('flex items-center p-6 pt-0', className)}
+            {...props}
+        >
+            {children}
+        </div>
+    )
+);
+
+Card.displayName = 'Card';
+CardHeader.displayName = 'CardHeader';
+CardTitle.displayName = 'CardTitle';
+CardContent.displayName = 'CardContent';
+CardFooter.displayName = 'CardFooter';
+
+export { Card, CardHeader, CardTitle, CardContent, CardFooter };
+
+// 自定义钩子
+// src/hooks/useModal.ts
+import { useState, useCallback } from 'react';
+
+export interface UseModalReturn {
+    isOpen: boolean;
+    open: () => void;
+    close: () => void;
+    toggle: () => void;
+}
+
+export function useModal(initialState = false): UseModalReturn {
+    const [isOpen, setIsOpen] = useState(initialState);
+
+    const open = useCallback(() => setIsOpen(true), []);
+    const close = useCallback(() => setIsOpen(false), []);
+    const toggle = useCallback(() => setIsOpen(prev => !prev), []);
+
+    return { isOpen, open, close, toggle };
+}
+
+// src/hooks/useLocalStorage.ts
+import { useState, useEffect } from 'react';
+
+export function useLocalStorage<T>(
+    key: string,
+    initialValue: T
+): [T, (value: T | ((val: T) => T)) => void] {
+    const [storedValue, setStoredValue] = useState<T>(() => {
+        try {
+            if (typeof window === 'undefined') {
+                return initialValue;
+            }
+            const item = window.localStorage.getItem(key);
+            return item ? JSON.parse(item) : initialValue;
+        } catch (error) {
+            console.error(`读取 localStorage 键 "${key}" 时出错:`, error);
+            return initialValue;
+        }
+    });
+
+    const setValue = (value: T | ((val: T) => T)) => {
+        try {
+            const valueToStore = value instanceof Function ? value(storedValue) : value;
+            setStoredValue(valueToStore);
+            
+            if (typeof window !== 'undefined') {
+                window.localStorage.setItem(key, JSON.stringify(valueToStore));
+            }
+        } catch (error) {
+            console.error(`设置 localStorage 键 "${key}" 时出错:`, error);
+        }
+    };
+
+    return [storedValue, setValue];
+}
+
+// 使用示例
+// src/examples/ComponentShowcase.tsx
+import React from 'react';
+import { Button, Card, CardHeader, CardTitle, CardContent, CardFooter } from '../components';
+import { useModal, useLocalStorage } from '../hooks';
+
+const ComponentShowcase = () => {
+    const modal = useModal();
+    const [count, setCount] = useLocalStorage('count', 0);
+
+    return (
+        <div className="p-8 space-y-6">
+            <h1 className="text-3xl font-bold">组件展示</h1>
+            
+            {/* 按钮示例 */}
+            <section>
+                <h2 className="text-xl font-semibold mb-4">按钮</h2>
+                <div className="space-x-4">
+                    <Button variant="primary">主要</Button>
+                    <Button variant="secondary">次要</Button>
+                    <Button variant="outline">轮廓</Button>
+                    <Button variant="ghost">幽灵</Button>
+                    <Button variant="danger">危险</Button>
+                </div>
+            </section>
+
+            {/* 卡片示例 */}
+            <section>
+                <h2 className="text-xl font-semibold mb-4">卡片</h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <Card>
+                        <CardHeader>
+                            <CardTitle>卡片标题</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                            <p>这是卡片内容区域。</p>
+                        </CardContent>
+                        <CardFooter>
+                            <Button size="sm">操作</Button>
+                        </CardFooter>
+                    </Card>
+
+                    <Card>
+                        <CardHeader>
+                            <CardTitle>本地存储计数器</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                            <p>计数：{count}</p>
+                        </CardContent>
+                        <CardFooter className="space-x-2">
+                            <Button 
+                                size="sm" 
+                                onClick={() => setCount(count + 1)}
+                            >
+                                增加
+                            </Button>
+                            <Button 
+                                size="sm" 
+                                variant="outline"
+                                onClick={() => setCount(0)}
+                            >
+                                重置
+                            </Button>
+                        </CardFooter>
+                    </Card>
+                </div>
+            </section>
+        </div>
+    );
+};
+
+export default ComponentShowcase;
+
+// 包配置
+// package.json
+{
+    "name": "@myorg/ui-components",
+    "version": "1.0.0",
+    "description": "可重用的 React UI 组件",
+    "main": "dist/index.js",
+    "module": "dist/index.esm.js",
+    "types": "dist/index.d.ts",
+    "files": [
+        "dist"
+    ],
+    "scripts": {
+        "build": "rollup -c",
+        "dev": "rollup -c -w",
+        "test": "jest",
+        "storybook": "start-storybook -p 6006",
+        "build-storybook": "build-storybook"
+    },
+    "peerDependencies": {
+        "react": ">=16.8.0",
+        "react-dom": ">=16.8.0"
+    },
+    "devDependencies": {
+        "@types/react": "^18.0.0",
+        "@types/react-dom": "^18.0.0",
+        "rollup": "^3.0.0",
+        "typescript": "^4.9.0"
+    }
+}
+```
+</PythonEditor>
+
+## 项目 4：CLI 工具开发
+
+### 构建命令行应用程序
+
+<PythonEditor title="CLI 工具开发" compare={true}>
+```python !! py
+# Python CLI with Click
+import click
+import requests
+import json
+from pathlib import Path
+
+@click.group()
+@click.version_option()
+def cli():
+    """用于 API 管理的简单 CLI 工具。"""
+    pass
+
+@cli.command()
+@click.option('--url', '-u', required=True, help='API 端点 URL')
+@click.option('--method', '-m', default='GET', help='HTTP 方法')
+@click.option('--headers', '-h', multiple=True, help='请求头 (key:value)')
+@click.option('--data', '-d', help='请求数据 (JSON)')
+@click.option('--output', '-o', help='输出文件')
+def request(url, method, headers, data, output):
+    """向 API 发送 HTTP 请求。"""
+    try:
+        # 解析请求头
+        header_dict = {}
+        for header in headers:
+            key, value = header.split(':', 1)
+            header_dict[key.strip()] = value.strip()
+        
+        # 解析数据
+        json_data = json.loads(data) if data else None
+        
+        # 发送请求
+        response = requests.request(
+            method=method,
+            url=url,
+            headers=header_dict,
+            json=json_data
+        )
+        
+        result = {
+            'status_code': response.status_code,
+            'headers': dict(response.headers),
+            'body': response.json() if response.text else None
+        }
+        
+        # 输出
+        if output:
+            Path(output).write_text(json.dumps(result, indent=2, ensure_ascii=False))
+            click.echo(f"响应已保存到 {output}")
+        else:
+            click.echo(json.dumps(result, indent=2, ensure_ascii=False))
+            
+    except Exception as e:
+        click.echo(f"错误: {e}", err=True)
+
+@cli.command()
+@click.argument('config_file')
+def batch(config_file):
+    """从配置文件运行批量请求。"""
+    try:
+        config = json.loads(Path(config_file).read_text())
+        for req in config['requests']:
+            click.echo(f"向 {req['url']} 发送请求")
+            # 处理请求...
+    except Exception as e:
+        click.echo(f"错误: {e}", err=True)
+
+if __name__ == '__main__':
+    cli()
+
+# 安装脚本
+# setup.py
+from setuptools import setup
+
+setup(
+    name='api-cli',
+    version='1.0.0',
+    py_modules=['cli'],
+    install_requires=['click', 'requests'],
+    entry_points={
+        'console_scripts': [
+            'api-cli=cli:cli',
+        ],
+    },
+)
+```
+
+```javascript !! js
+// JavaScript CLI with Node.js
+// 包结构：
+// api-cli/
+// ├── package.json
+// ├── bin/
+// │   └── api-cli.js
+// ├── src/
+// │   ├── commands/
+// │   ├── utils/
+// │   └── cli.js
+// └── README.md
+
+// package.json
+{
+    "name": "@myorg/api-cli",
+    "version": "1.0.0",
+    "description": "用于 API 管理的简单 CLI 工具",
+    "main": "src/cli.js",
+    "bin": {
+        "api-cli": "./bin/api-cli.js"
+    },
+    "scripts": {
+        "build": "ncc build src/cli.js -o dist",
+        "dev": "node src/cli.js",
+        "test": "jest"
+    },
+    "dependencies": {
+        "commander": "^9.4.0",
+        "axios": "^1.1.0",
+        "chalk": "^5.0.0",
+        "ora": "^6.1.0",
+        "inquirer": "^9.1.0",
+        "conf": "^10.2.0"
+    },
+    "engines": {
+        "node": ">=16.0.0"
+    }
+}
+
+// src/cli.js
+#!/usr/bin/env node
+
+const { Command } = require('commander');
+const chalk = require('chalk');
+const { version } = require('../package.json');
+const requestCommand = require('./commands/request');
+const batchCommand = require('./commands/batch');
+const configCommand = require('./commands/config');
+
+const program = new Command();
+
+program
+    .name('api-cli')
+    .description('用于 API 管理的简单 CLI 工具')
+    .version(version);
+
+// Request 命令
+program
+    .command('request')
+    .alias('req')
+    .description('向 API 发送 HTTP 请求')
+    .option('-u, --url <url>', 'API 端点 URL')
+    .option('-m, --method <method>', 'HTTP 方法', 'GET')
+    .option('-H, --header <header>', '请求头 (key:value)', [])
+    .option('-d, --data <data>', '请求数据 (JSON)')
+    .option('-o, --output <file>', '输出文件')
+    .option('--timeout <ms>', '请求超时时间（毫秒）', '5000')
+    .action(requestCommand);
+
+// Batch 命令
+program
+    .command('batch')
+    .description('从配置文件运行批量请求')
+    .argument('<config-file>', '配置文件路径')
+    .option('--parallel', '并行运行请求')
+    .option('--delay <ms>', '请求之间的延迟', '0')
+    .action(batchCommand);
+
+// Config 命令
+program
+    .command('config')
+    .description('管理 CLI 配置')
+    .option('--set <key=value>', '设置配置值')
+    .option('--get <key>', '获取配置值')
+    .option('--list', '列出所有配置')
+    .action(configCommand);
+
+// 错误处理
+program.configureOutput({
+    outputError: (str, write) => write(chalk.red(str))
+});
+
+program.parse();
+
+// src/commands/request.js
+const axios = require('axios');
+const chalk = require('chalk');
+const ora = require('ora');
+const fs = require('fs').promises;
+const { formatResponse, parseHeaders } = require('../utils/format');
+
+async function requestCommand(options) {
+    if (!options.url) {
+        console.error(chalk.red('错误：需要 URL'));
+        process.exit(1);
+    }
+
+    const spinner = ora('发送请求...').start();
+
+    try {
+        // 解析请求头
+        const headers = {};
+        if (Array.isArray(options.header)) {
+            options.header.forEach(header => {
+                const [key, ...values] = header.split(':');
+                if (key && values.length > 0) {
+                    headers[key.trim()] = values.join(':').trim();
+                }
+            });
+        }
+
+        // 解析数据
+        let data = null;
+        if (options.data) {
+            try {
+                data = JSON.parse(options.data);
+            } catch (e) {
+                data = options.data; // 当作纯文本处理
+            }
+        }
+
+        // 发送请求
+        const config = {
+            method: options.method.toLowerCase(),
+            url: options.url,
+            headers,
+            timeout: parseInt(options.timeout),
+            validateStatus: () => true // 不在 HTTP 错误时抛出异常
+        };
+
+        if (data && ['post', 'put', 'patch'].includes(config.method)) {
+            config.data = data;
+        }
+
+        const response = await axios(config);
+        
+        spinner.succeed(chalk.green(`请求完成 (${response.status})`));
+
+        const result = {
+            status: response.status,
+            statusText: response.statusText,
+            headers: response.headers,
+            data: response.data,
+            timing: {
+                responseTime: response.config.metadata?.endTime - response.config.metadata?.startTime
+            }
+        };
+
+        const formattedResponse = formatResponse(result);
+
+        // 输出处理
+        if (options.output) {
+            await fs.writeFile(options.output, JSON.stringify(result, null, 2));
+            console.log(chalk.green(`响应已保存到 ${options.output}`));
+        } else {
+            console.log(formattedResponse);
+        }
+
+    } catch (error) {
+        spinner.fail(chalk.red('请求失败'));
+        
+        if (error.code === 'ECONNREFUSED') {
+            console.error(chalk.red('连接被拒绝。服务器是否正在运行？'));
+        } else if (error.code === 'ENOTFOUND') {
+            console.error(chalk.red('找不到主机。请检查 URL。'));
+        } else if (error.code === 'ETIMEDOUT') {
+            console.error(chalk.red('请求超时。'));
+        } else {
+            console.error(chalk.red(`错误: ${error.message}`));
+        }
+        
+        process.exit(1);
+    }
+}
+
+module.exports = requestCommand;
+
+// src/commands/batch.js
+const fs = require('fs').promises;
+const path = require('path');
+const chalk = require('chalk');
+const ora = require('ora');
+const axios = require('axios');
+
+async function batchCommand(configFile, options) {
+    const spinner = ora('加载配置...').start();
+
+    try {
+        // 加载和解析配置
+        const configPath = path.resolve(configFile);
+        const configContent = await fs.readFile(configPath, 'utf8');
+        const config = JSON.parse(configContent);
+
+        if (!config.requests || !Array.isArray(config.requests)) {
+            throw new Error('配置必须包含 "requests" 数组');
+        }
+
+        spinner.succeed(chalk.green(`已加载 ${config.requests.length} 个请求`));
+
+        const results = [];
+        const delay = parseInt(options.delay) || 0;
+
+        if (options.parallel) {
+            // 并行运行请求
+            const promises = config.requests.map(async (req, index) => {
+                const requestSpinner = ora(`请求 ${index + 1}: ${req.url}`).start();
+                try {
+                    const response = await axios(req);
+                    requestSpinner.succeed(chalk.green(`✓ ${req.url} (${response.status})`));
+                    return { index, success: true, response: response.data };
+                } catch (error) {
+                    requestSpinner.fail(chalk.red(`✗ ${req.url} (${error.message})`));
+                    return { index, success: false, error: error.message };
+                }
+            });
+
+            const responses = await Promise.allSettled(promises);
+            results.push(...responses.map(r => r.value));
+        } else {
+            // 顺序运行请求
+            for (let i = 0; i < config.requests.length; i++) {
+                const req = config.requests[i];
+                const requestSpinner = ora(`请求 ${i + 1}/${config.requests.length}: ${req.url}`).start();
+
+                try {
+                    const response = await axios(req);
+                    requestSpinner.succeed(chalk.green(`✓ ${req.url} (${response.status})`));
+                    results.push({ index: i, success: true, response: response.data });
+                } catch (error) {
+                    requestSpinner.fail(chalk.red(`✗ ${req.url} (${error.message})`));
+                    results.push({ index: i, success: false, error: error.message });
+                }
+
+                // 请求之间添加延迟
+                if (delay > 0 && i < config.requests.length - 1) {
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                }
+            }
+        }
+
+        // 总结
+        const successful = results.filter(r => r.success).length;
+        const failed = results.filter(r => !r.success).length;
+
+        console.log('\n' + chalk.bold('批量总结:'));
+        console.log(chalk.green(`✓ 成功: ${successful}`));
+        console.log(chalk.red(`✗ 失败: ${failed}`));
+
+        // 如果指定则保存结果
+        if (config.output) {
+            await fs.writeFile(config.output, JSON.stringify(results, null, 2));
+            console.log(chalk.blue(`结果已保存到 ${config.output}`));
+        }
+
+    } catch (error) {
+        spinner.fail(chalk.red('批量执行失败'));
+        console.error(chalk.red(`错误: ${error.message}`));
+        process.exit(1);
+    }
+}
+
+module.exports = batchCommand;
+
+// src/utils/format.js
+const chalk = require('chalk');
+
+function formatResponse(response) {
+    let output = '';
+    
+    // 状态行
+    const statusColor = response.status < 300 ? 'green' : 
+                       response.status < 400 ? 'yellow' : 'red';
+    output += chalk[statusColor](`${response.status} ${response.statusText}\n\n`);
+    
+    // 请求头
+    output += chalk.bold('请求头:\n');
+    Object.entries(response.headers).forEach(([key, value]) => {
+        output += chalk.gray(`${key}: `) + `${value}\n`;
+    });
+    output += '\n';
+    
+    // 响应体
+    output += chalk.bold('响应体:\n');
+    if (typeof response.data === 'object') {
+        output += JSON.stringify(response.data, null, 2);
+    } else {
+        output += response.data;
+    }
+    
+    return output;
+}
+
+function parseHeaders(headerArray) {
+    const headers = {};
+    headerArray.forEach(header => {
+        const [key, ...values] = header.split(':');
+        if (key && values.length > 0) {
+            headers[key.trim()] = values.join(':').trim();
+        }
+    });
+    return headers;
+}
+
+module.exports = { formatResponse, parseHeaders };
+
+// 示例配置文件
+// config.json
+{
+    "requests": [
+        {
+            "method": "GET",
+            "url": "https://jsonplaceholder.typicode.com/users",
+            "headers": {
+                "Accept": "application/json"
+            }
+        },
+        {
+            "method": "POST",
+            "url": "https://jsonplaceholder.typicode.com/posts",
+            "headers": {
+                "Content-Type": "application/json"
+            },
+            "data": {
+                "title": "测试帖子",
+                "body": "这是一个测试帖子",
+                "userId": 1
+            }
+        }
+    ],
+    "output": "batch-results.json"
+}
+
+// 使用示例：
+// npm install -g .
+// api-cli request -u https://api.example.com/users
+// api-cli request -u https://api.example.com/posts -m POST -d '{"title":"测试"}'
+// api-cli batch config.json --parallel
+```
+</PythonEditor>
+
+## 性能优化案例研究
+
+### 优化真实应用程序
+
+<PythonEditor title="性能优化" compare={true}>
+```python !! py
+# Python 性能优化技术
+import cProfile
+import pstats
+from functools import lru_cache
+from django.core.cache import cache
+from django.db import connection
+import asyncio
+import aiohttp
+
+# 数据库优化
+class OptimizedViewSet(viewsets.ModelViewSet):
+    def get_queryset(self):
+        # 使用 select_related 和 prefetch_related
+        return Task.objects.select_related('user').prefetch_related(
+            'tags', 'comments__user'
+        ).filter(user=self.request.user)
+    
+    def list(self, request):
+        # 添加分页
+        queryset = self.get_queryset()
+        page = self.paginate_queryset(queryset)
+        serializer = self.get_serializer(page, many=True)
+        return self.get_paginated_response(serializer.data)
+
+# 缓存
+@lru_cache(maxsize=128)
+def expensive_calculation(n):
+    return sum(i * i for i in range(n))
+
+def cached_view(request):
+    cache_key = f"user_data_{request.user.id}"
+    data = cache.get(cache_key)
+    if data is None:
+        data = expensive_operation()
+        cache.set(cache_key, data, 300)  # 5 分钟
+    return JsonResponse(data)
+
+# 异步优化
+async def fetch_multiple_apis():
+    async with aiohttp.ClientSession() as session:
+        tasks = [
+            fetch_weather(session),
+            fetch_stocks(session),
+            fetch_news(session)
+        ]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        return results
+
+# 数据库连接优化
+def monitor_db_queries():
+    from django.db import connection
+    print(f"查询数量: {len(connection.queries)}")
+    for query in connection.queries:
+        print(f"查询: {query['sql']}")
+        print(f"时间: {query['time']}")
+```
+
+```javascript !! js
+// JavaScript 性能优化
+// 性能监控设置
+// src/utils/performance.js
+
+class PerformanceMonitor {
+    static measurements = new Map();
+    
+    static start(name) {
+        performance.mark(`${name}-start`);
+    }
+    
+    static end(name) {
+        performance.mark(`${name}-end`);
+        performance.measure(name, `${name}-start`, `${name}-end`);
+        
+        const measure = performance.getEntriesByName(name)[0];
+        this.measurements.set(name, measure.duration);
+        
+        return measure.duration;
+    }
+    
+    static report() {
+        console.table(Object.fromEntries(this.measurements));
+    }
+    
+    static clear() {
+        this.measurements.clear();
+        performance.clearMarks();
+        performance.clearMeasures();
+    }
+}
+
+// 对象池的内存优化
+class ObjectPool {
+    constructor(createFn, resetFn, initialSize = 10) {
+        this.createFn = createFn;
+        this.resetFn = resetFn;
+        this.pool = [];
+        
+        // 预填充池
+        for (let i = 0; i < initialSize; i++) {
+            this.pool.push(this.createFn());
+        }
+    }
+    
+    acquire() {
+        return this.pool.length > 0 ? this.pool.pop() : this.createFn();
+    }
+    
+    release(obj) {
+        this.resetFn(obj);
+        this.pool.push(obj);
+    }
+}
+
+// 使用示例
+const taskPool = new ObjectPool(
+    () => ({ id: null, title: '', completed: false }),
+    (task) => {
+        task.id = null;
+        task.title = '';
+        task.completed = false;
+    }
+);
+
+// React 优化技术
+// src/components/OptimizedTaskList.jsx
+import React, { memo, useMemo, useCallback, useState, useTransition } from 'react';
+import { FixedSizeList as List } from 'react-window';
+
+// 记忆化的任务项组件
+const TaskItem = memo(({ task, onToggle, onDelete, style }) => {
+    const handleToggle = useCallback(() => {
+        onToggle(task.id);
+    }, [task.id, onToggle]);
+    
+    const handleDelete = useCallback(() => {
+        onDelete(task.id);
+    }, [task.id, onDelete]);
+    
+    return (
+        <div style={style} className="task-item">
+            <input 
+                type="checkbox" 
+                checked={task.completed}
+                onChange={handleToggle}
+            />
+            <span className={task.completed ? 'completed' : ''}>
+                {task.title}
+            </span>
+            <button onClick={handleDelete}>删除</button>
+        </div>
+    );
+});
+
+// 大型数据集的虚拟化列表
+const OptimizedTaskList = ({ tasks, onToggle, onDelete }) => {
+    const [searchTerm, setSearchTerm] = useState('');
+    const [isPending, startTransition] = useTransition();
+    
+    // 记忆化的过滤任务
+    const filteredTasks = useMemo(() => {
+        if (!searchTerm) return tasks;
+        
+        return tasks.filter(task => 
+            task.title.toLowerCase().includes(searchTerm.toLowerCase())
+        );
+    }, [tasks, searchTerm]);
+    
+    // 防抖搜索
+    const handleSearch = useCallback((value) => {
+        startTransition(() => {
+            setSearchTerm(value);
+        });
+    }, []);
+    
+    // 记忆化的回调
+    const memoizedOnToggle = useCallback((taskId) => {
+        onToggle(taskId);
+    }, [onToggle]);
+    
+    const memoizedOnDelete = useCallback((taskId) => {
+        onDelete(taskId);
+    }, [onDelete]);
+    
+    const renderTask = useCallback(({ index, style }) => (
+        <TaskItem
+            key={filteredTasks[index].id}
+            task={filteredTasks[index]}
+            onToggle={memoizedOnToggle}
+            onDelete={memoizedOnDelete}
+            style={style}
+        />
+    ), [filteredTasks, memoizedOnToggle, memoizedOnDelete]);
+    
+    return (
+        <div className="task-list-container">
+            <input
+                type="text"
+                placeholder="搜索任务..."
+                onChange={(e) => handleSearch(e.target.value)}
+                className={isPending ? 'loading' : ''}
+            />
+            
+            {filteredTasks.length > 100 ? (
+                // 大型数据集的虚拟化列表
+                <List
+                    height={600}
+                    itemCount={filteredTasks.length}
+                    itemSize={60}
+                    itemData={filteredTasks}
+                >
+                    {renderTask}
+                </List>
+            ) : (
+                // 小型数据集的常规渲染
+                <div className="task-list">
+                    {filteredTasks.map(task => (
+                        <TaskItem
+                            key={task.id}
+                            task={task}
+                            onToggle={memoizedOnToggle}
+                            onDelete={memoizedOnDelete}
+                        />
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+};
+
+// 缓存和批处理的 API 优化
+// src/services/optimizedAPI.js
+class OptimizedAPI {
+    constructor() {
+        this.cache = new Map();
+        this.batchQueue = [];
+        this.batchTimer = null;
+        this.requestDeduplication = new Map();
+    }
+    
+    // 缓存管理
+    setCache(key, data, ttl = 300000) { // 默认 5 分钟
+        this.cache.set(key, {
+            data,
+            expires: Date.now() + ttl
+        });
+    }
+    
+    getCache(key) {
+        const cached = this.cache.get(key);
+        if (cached && cached.expires > Date.now()) {
+            return cached.data;
+        }
+        this.cache.delete(key);
+        return null;
+    }
+    
+    // 请求去重
+    async request(url, options = {}) {
+        const requestKey = `${options.method || 'GET'}:${url}:${JSON.stringify(options.body || {})}`;
+        
+        // 检查是否有相同请求正在进行
+        if (this.requestDeduplication.has(requestKey)) {
+            return this.requestDeduplication.get(requestKey);
+        }
+        
+        // 首先检查缓存
+        const cached = this.getCache(requestKey);
+        if (cached) {
+            return Promise.resolve(cached);
+        }
+        
+        // 发送请求
+        const requestPromise = fetch(url, options)
+            .then(response => response.json())
+            .then(data => {
+                this.setCache(requestKey, data);
+                this.requestDeduplication.delete(requestKey);
+                return data;
+            })
+            .catch(error => {
+                this.requestDeduplication.delete(requestKey);
+                throw error;
+            });
+        
+        this.requestDeduplication.set(requestKey, requestPromise);
+        return requestPromise;
+    }
+    
+    // 批处理操作
+    batchUpdate(updates) {
+        this.batchQueue.push(...updates);
+        
+        if (this.batchTimer) {
+            clearTimeout(this.batchTimer);
+        }
+        
+        this.batchTimer = setTimeout(() => {
+            this.processBatch();
+        }, 100); // 批处理 100ms
+    }
+    
+    async processBatch() {
+        if (this.batchQueue.length === 0) return;
+        
+        const batch = [...this.batchQueue];
+        this.batchQueue.length = 0;
+        
+        try {
+            await this.request('/api/tasks/batch', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ updates: batch })
+            });
+        } catch (error) {
+            console.error('批量更新失败:', error);
+            // 可以在这里实现重试逻辑
+        }
+    }
+}
+
+// 生产环境性能监控
+// src/utils/monitoring.js
+class ProductionMonitor {
+    static init() {
+        // Web Vitals 监控
+        import('web-vitals').then(({ getCLS, getFID, getFCP, getLCP, getTTFB }) => {
+            getCLS(this.sendMetric);
+            getFID(this.sendMetric);
+            getFCP(this.sendMetric);
+            getLCP(this.sendMetric);
+            getTTFB(this.sendMetric);
+        });
+        
+        // 长任务监控
+        if ('PerformanceObserver' in window) {
+            const observer = new PerformanceObserver((list) => {
+                for (const entry of list.getEntries()) {
+                    if (entry.duration > 50) { // 超过 50ms 的任务
+                        this.sendMetric({
+                            name: 'long-task',
+                            value: entry.duration,
+                            attribution: entry.attribution
+                        });
+                    }
+                }
+            });
+            observer.observe({ entryTypes: ['longtask'] });
+        }
+        
+        // 内存使用监控
+        setInterval(() => {
+            if ('memory' in performance) {
+                this.sendMetric({
+                    name: 'memory-usage',
+                    value: performance.memory.usedJSHeapSize,
+                    total: performance.memory.totalJSHeapSize
+                });
+            }
+        }, 30000); // 每 30 秒
+    }
+    
+    static sendMetric(metric) {
+        // 发送到分析服务
+        if (process.env.NODE_ENV === 'production') {
+            fetch('/api/metrics', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    ...metric,
+                    timestamp: Date.now(),
+                    userAgent: navigator.userAgent,
+                    url: window.location.href
+                })
+            }).catch(console.error);
+        }
+    }
+}
+
+export { PerformanceMonitor, OptimizedAPI, ProductionMonitor };
+```
+</PythonEditor>
+
+## 最佳实践总结
+
+### 项目开发最佳实践
+
+1. **架构规划**：从一开始就考虑可扩展性和可维护性设计
+2. **代码组织**：使用一致的项目结构和命名约定
+3. **错误处理**：实施全面的错误处理和日志记录
+4. **测试**：编写多层次的测试（单元、集成、端到端）
+5. **性能**：从一开始就监控和优化
+6. **安全**：贯彻实施安全最佳实践
+
+### JavaScript 特定最佳实践
+
+1. **现代特性**：适当使用 ES6+ 特性
+2. **异步编程**：正确处理 Promise 和异步操作
+3. **内存管理**：注意内存泄漏和优化
+4. **包大小**：监控和优化包大小
+5. **浏览器兼容性**：跨不同浏览器和设备测试
+
+## 下一步
+
+在最后的模块中，我们将探索全栈开发最佳实践，将你学到的所有内容结合起来构建生产就绪的应用程序。
+
+我们将涵盖的关键主题：
+- 全栈架构模式
+- 部署策略
+- 生产监控
+- 安全考虑
+- 扩展策略
+
+---
+
+*继续到 [模块 13：全栈开发最佳实践 →](/docs/py2js/module-13-fullstack-development)*

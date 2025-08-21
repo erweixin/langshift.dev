@@ -1,10 +1,12 @@
 import { courseStructuredData } from '@/lib/seo-structured-data';
-import { getTranslations, type SupportedLanguage } from '@/messages';
-import { headers } from 'next/headers';
+import { getTranslations } from '@/messages';
 import { Metadata } from 'next';
-import { redirect } from 'next/navigation';
 import { HomePage } from '@/components/home/HomePage';
 import { getCourses } from '@/lib';
+
+// 为静态导出配置
+export const dynamic = 'force-static'
+export const revalidate = false
 
 // 生成静态元数据 - 使用默认语言
 export async function generateMetadata(): Promise<Metadata> {
@@ -57,33 +59,7 @@ export async function generateMetadata(): Promise<Metadata> {
   };
 }
 
-// 获取用户首选语言 - 用于服务端重定向
-async function getPreferredLanguage(): Promise<SupportedLanguage> {
-  const headersList = await headers();
-  const acceptLanguage = headersList.get('accept-language') || '';
-  
-  // 解析 Accept-Language 头
-  const languages = acceptLanguage
-    .split(',')
-    .map(lang => lang.split(';')[0].trim().toLowerCase());
-  
-  // 按优先级匹配语言
-  for (const lang of languages) {
-    if (lang.startsWith('zh-tw')) return 'zh-tw';
-    if (lang.startsWith('zh-cn') || lang.startsWith('zh')) return 'zh-cn';
-    if (lang.startsWith('en')) return 'en';
-  }
-  
-  // 默认返回简体中文
-  return 'zh-cn';
-}
-
 export default async function HomePageComponent() {
-  // 检测用户语言并重定向到对应的语言页面
-  const preferredLang = await getPreferredLanguage();
-  if (preferredLang !== 'zh-cn') {
-    redirect(`/${preferredLang}`);
-  }
 
   const t = getTranslations('zh-cn'); // 使用简体中文作为默认
 

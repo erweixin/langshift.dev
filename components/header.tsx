@@ -75,6 +75,24 @@ const SOURCE_LANGUAGES = [
       },
     ]
   },
+  {
+    id: 'python',
+    name: 'Python',
+    icon: '🐍',
+    gradient: 'from-green-500 to-emerald-500',
+    path: 'py2js',
+    status: 'completed' as const,
+    targets: [
+      {
+        id: 'javascript',
+        name: 'JavaScript',
+        icon: '🚀',
+        gradient: 'from-yellow-500 to-orange-500',
+        path: 'py2js',
+        status: 'completed' as const,
+      }
+    ]
+  }
   // 未来可以添加其他源语言
 ] as const;
 
@@ -126,7 +144,9 @@ export function Header({ lang }: HeaderProps) {
           {/* Desktop Navigation */}
           <div className="hidden md:flex items-center space-x-8 grow-1">
             {/* 语言转换导航 - 放在左侧 */}
-            <LanguagePathNavigation lang={lang} sourceLanguages={SOURCE_LANGUAGES} />
+            {SOURCE_LANGUAGES.map((language) => (
+              <LanguagePathNavigation key={language.id} lang={lang} sourceLanguages={language} />
+            ))}
             
             {navItems.map((item) => (
               <Link

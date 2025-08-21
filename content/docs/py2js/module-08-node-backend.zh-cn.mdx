@@ -1,0 +1,1603 @@
+---
+title: Node.js 后端开发
+description: 从 Python 开发者的角度掌握 Node.js 后端开发。学习 Express.js、数据库集成、身份验证、实时功能和部署策略。
+---
+
+# Node.js 后端开发
+
+在本模块中，我们将从 Python 开发者的角度深入了解 Node.js 后端开发。你将学习如何使用 JavaScript 构建健壮的服务器端应用程序，充分利用你现有的后端开发知识。
+
+## Node.js 运行时环境
+
+### Python vs Node.js 运行时对比
+
+<PythonEditor title="运行时环境对比" compare={true}>
+```python !! py
+# Python 服务器环境
+import os
+import sys
+import platform
+from datetime import datetime
+
+def server_info():
+    """显示 Python 服务器环境信息"""
+    return {
+        'runtime': 'Python',
+        'version': sys.version,
+        'platform': platform.platform(),
+        'architecture': platform.architecture(),
+        'executable': sys.executable,
+        'path': sys.path[:3],  # 前3个路径
+        'environment': {
+            'HOME': os.environ.get('HOME', 'N/A'),
+            'PATH': os.environ.get('PATH', 'N/A')[:100] + '...',
+            'PYTHON_PATH': os.environ.get('PYTHONPATH', '未设置')
+        },
+        'process_id': os.getpid(),
+        'current_time': datetime.now().isoformat()
+    }
+
+# WSGI/ASGI 应用结构
+def wsgi_application(environ, start_response):
+    """简单的 WSGI 应用"""
+    status = '200 OK'
+    headers = [('Content-type', 'application/json')]
+    start_response(status, headers)
+    
+    info = server_info()
+    import json
+    return [json.dumps(info, indent=2).encode('utf-8')]
+
+# 示例使用
+if __name__ == '__main__':
+    info = server_info()
+    print("Python 服务器环境:")
+    for key, value in info.items():
+        print(f"{key}: {value}")
+```
+
+```javascript !! js
+// Node.js 服务器环境
+const os = require('os');
+const process = require('process');
+const path = require('path');
+
+function serverInfo() {
+    /**
+     * 显示 Node.js 服务器环境信息
+     */
+    return {
+        runtime: 'Node.js',
+        version: process.version,
+        platform: os.platform(),
+        architecture: os.arch(),
+        executable: process.execPath,
+        nodeModulesPath: path.join(__dirname, 'node_modules'),
+        environment: {
+            HOME: process.env.HOME || 'N/A',
+            PATH: (process.env.PATH || 'N/A').substring(0, 100) + '...',
+            NODE_PATH: process.env.NODE_PATH || '未设置',
+            NODE_ENV: process.env.NODE_ENV || 'development'
+        },
+        processId: process.pid,
+        uptime: process.uptime(),
+        memoryUsage: process.memoryUsage(),
+        currentTime: new Date().toISOString()
+    };
+}
+
+// Express.js 应用结构
+const express = require('express');
+const app = express();
+
+app.get('/info', (req, res) => {
+    const info = serverInfo();
+    res.json(info);
+});
+
+// 示例使用
+if (require.main === module) {
+    const info = serverInfo();
+    console.log('Node.js 服务器环境:');
+    Object.entries(info).forEach(([key, value]) => {
+        console.log(`${key}:`, value);
+    });
+    
+    // 启动服务器
+    const PORT = process.env.PORT || 3000;
+    app.listen(PORT, () => {
+        console.log(`服务器运行在端口 ${PORT}`);
+    });
+}
+
+module.exports = { serverInfo, app };
+```
+</PythonEditor>
+
+## Express.js 高级功能
+
+### 路由和中间件生态系统
+
+<PythonEditor title="Express.js 高级路由" compare={true}>
+```python !! py
+# Django 高级 URL 路由和中间件
+from django.urls import path, include
+from django.http import JsonResponse
+from django.middleware.csrf import CsrfViewMiddleware
+from django.contrib.auth.decorators import login_required
+import time
+import logging
+
+# 自定义中间件
+class RequestLoggingMiddleware:
+    def __init__(self, get_response):
+        self.get_response = get_response
+        self.logger = logging.getLogger(__name__)
+
+    def __call__(self, request):
+        start_time = time.time()
+        
+        # 记录请求
+        self.logger.info(f"请求: {request.method} {request.path}")
+        
+        response = self.get_response(request)
+        
+        # 记录响应和耗时
+        duration = time.time() - start_time
+        self.logger.info(f"响应: {response.status_code} ({duration:.3f}s)")
+        
+        return response
+
+# 带装饰器的 API 视图
+@login_required
+def api_users(request):
+    if request.method == 'GET':
+        users = [
+            {'id': 1, 'name': 'Alice', 'email': 'alice@example.com'},
+            {'id': 2, 'name': 'Bob', 'email': 'bob@example.com'}
+        ]
+        return JsonResponse({'users': users})
+
+# 嵌套 URL 模式
+api_patterns = [
+    path('users/', api_users, name='api_users'),
+    path('posts/', include('blog.urls')),
+]
+
+urlpatterns = [
+    path('api/v1/', include(api_patterns)),
+    path('admin/', admin.site.urls),
+]
+```
+
+```javascript !! js
+// Express.js 高级路由和中间件
+const express = require('express');
+const morgan = require('morgan');
+const helmet = require('helmet');
+const cors = require('cors');
+const rateLimit = require('express-rate-limit');
+
+const app = express();
+
+// 安全中间件
+app.use(helmet());
+app.use(cors({
+    origin: process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000'],
+    credentials: true
+}));
+
+// 请求日志中间件
+app.use(morgan('combined'));
+
+// 速率限制
+const limiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15分钟
+    max: 100, // 每个IP在windowMs内最多100个请求
+    message: '该IP请求过于频繁'
+});
+app.use('/api/', limiter);
+
+// 请求体解析中间件
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true }));
+
+// 自定义认证中间件
+const authMiddleware = (req, res, next) => {
+    const token = req.headers.authorization?.split(' ')[1];
+    
+    if (!token) {
+        return res.status(401).json({ error: '未提供令牌' });
+    }
+    
+    // 简化的令牌验证
+    try {
+        // 在实际应用中，验证JWT令牌
+        req.user = { id: 1, name: '已认证用户' };
+        next();
+    } catch (error) {
+        res.status(401).json({ error: '无效令牌' });
+    }
+};
+
+// API v1 路由器
+const apiV1Router = express.Router();
+
+// 带认证的用户端点
+apiV1Router.get('/users', authMiddleware, (req, res) => {
+    const users = [
+        { id: 1, name: 'Alice', email: 'alice@example.com' },
+        { id: 2, name: 'Bob', email: 'bob@example.com' }
+    ];
+    res.json({ users });
+});
+
+// 文章路由器（嵌套）
+const postsRouter = express.Router();
+postsRouter.get('/', (req, res) => {
+    res.json({ posts: [] });
+});
+postsRouter.get('/:id', (req, res) => {
+    res.json({ post: { id: req.params.id } });
+});
+
+apiV1Router.use('/posts', postsRouter);
+
+// 挂载API路由器
+app.use('/api/v1', apiV1Router);
+
+// 错误处理中间件
+app.use((error, req, res, next) => {
+    console.error('错误:', error);
+    res.status(500).json({ 
+        error: '内部服务器错误',
+        message: error.message 
+    });
+});
+
+// 404处理器
+app.use((req, res) => {
+    res.status(404).json({ error: '路由未找到' });
+});
+
+module.exports = app;
+```
+</PythonEditor>
+
+## 数据库集成
+
+### MongoDB with Mongoose vs Django ORM
+
+<PythonEditor title="数据库操作对比" compare={true}>
+```python !! py
+# Django ORM 模型和操作
+from django.db import models
+from django.contrib.auth.models import User
+from datetime import datetime
+
+class BlogPost(models.Model):
+    title = models.CharField(max_length=200)
+    content = models.TextField()
+    author = models.ForeignKey(User, on_delete=models.CASCADE)
+    published = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    tags = models.ManyToManyField('Tag', blank=True)
+    
+    class Meta:
+        ordering = ['-created_at']
+    
+    def __str__(self):
+        return self.title
+
+class Tag(models.Model):
+    name = models.CharField(max_length=50, unique=True)
+    
+    def __str__(self):
+        return self.name
+
+# 数据库操作
+def blog_operations():
+    # 创建
+    post = BlogPost.objects.create(
+        title="学习 Node.js",
+        content="Node.js 是一个强大的运行时...",
+        author_id=1,
+        published=True
+    )
+    
+    # 带关系的读取
+    posts = BlogPost.objects.select_related('author').prefetch_related('tags').filter(
+        published=True
+    )
+    
+    # 更新
+    BlogPost.objects.filter(id=post.id).update(
+        title="高级 Node.js",
+        updated_at=datetime.now()
+    )
+    
+    # 复杂查询
+    recent_posts = BlogPost.objects.filter(
+        created_at__gte=datetime.now() - timedelta(days=7),
+        published=True
+    ).order_by('-created_at')[:10]
+    
+    # 聚合
+    from django.db.models import Count
+    tag_counts = Tag.objects.annotate(
+        post_count=Count('blogpost')
+    ).order_by('-post_count')
+    
+    return {
+        'created_post': post,
+        'posts': list(posts.values()),
+        'recent_posts': list(recent_posts.values()),
+        'tag_counts': list(tag_counts.values())
+    }
+```
+
+```javascript !! js
+// Mongoose 模型和操作
+const mongoose = require('mongoose');
+
+// 定义 schema
+const tagSchema = new mongoose.Schema({
+    name: {
+        type: String,
+        required: true,
+        unique: true,
+        maxlength: 50
+    }
+});
+
+const userSchema = new mongoose.Schema({
+    username: {
+        type: String,
+        required: true,
+        unique: true
+    },
+    email: {
+        type: String,
+        required: true,
+        unique: true
+    },
+    password: {
+        type: String,
+        required: true
+    }
+});
+
+const blogPostSchema = new mongoose.Schema({
+    title: {
+        type: String,
+        required: true,
+        maxlength: 200
+    },
+    content: {
+        type: String,
+        required: true
+    },
+    author: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+        required: true
+    },
+    published: {
+        type: Boolean,
+        default: false
+    },
+    tags: [{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Tag'
+    }],
+    createdAt: {
+        type: Date,
+        default: Date.now
+    },
+    updatedAt: {
+        type: Date,
+        default: Date.now
+    }
+});
+
+// 更新 updatedAt 的中间件
+blogPostSchema.pre('save', function(next) {
+    this.updatedAt = Date.now();
+    next();
+});
+
+// 创建模型
+const Tag = mongoose.model('Tag', tagSchema);
+const User = mongoose.model('User', userSchema);
+const BlogPost = mongoose.model('BlogPost', blogPostSchema);
+
+// 数据库操作
+async function blogOperations() {
+    try {
+        // 创建
+        const post = await BlogPost.create({
+            title: "学习 Node.js",
+            content: "Node.js 是一个强大的运行时...",
+            author: new mongoose.Types.ObjectId(), // 假设用户存在
+            published: true
+        });
+        
+        // 带关系的读取（population）
+        const posts = await BlogPost
+            .find({ published: true })
+            .populate('author', 'username email')
+            .populate('tags', 'name')
+            .sort({ createdAt: -1 });
+        
+        // 更新
+        await BlogPost.findByIdAndUpdate(
+            post._id,
+            { 
+                title: "高级 Node.js",
+                updatedAt: new Date()
+            },
+            { new: true }
+        );
+        
+        // 复杂查询
+        const sevenDaysAgo = new Date();
+        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+        
+        const recentPosts = await BlogPost
+            .find({
+                createdAt: { $gte: sevenDaysAgo },
+                published: true
+            })
+            .sort({ createdAt: -1 })
+            .limit(10);
+        
+        // 聚合
+        const tagCounts = await BlogPost.aggregate([
+            { $unwind: '$tags' },
+            { $group: { 
+                _id: '$tags', 
+                postCount: { $sum: 1 } 
+            }},
+            { $lookup: {
+                from: 'tags',
+                localField: '_id',
+                foreignField: '_id',
+                as: 'tagInfo'
+            }},
+            { $sort: { postCount: -1 } }
+        ]);
+        
+        return {
+            createdPost: post,
+            posts: posts,
+            recentPosts: recentPosts,
+            tagCounts: tagCounts
+        };
+        
+    } catch (error) {
+        console.error('数据库操作错误:', error);
+        throw error;
+    }
+}
+
+module.exports = { BlogPost, User, Tag, blogOperations };
+```
+</PythonEditor>
+
+## 身份验证和授权
+
+### JWT 身份验证系统
+
+<PythonEditor title="身份验证实现" compare={true}>
+```python !! py
+# Django JWT 身份验证
+from django.contrib.auth import authenticate
+from django.contrib.auth.models import User
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+import jwt
+import datetime
+from django.conf import settings
+import json
+
+@csrf_exempt
+def login_view(request):
+    if request.method == 'POST':
+        data = json.loads(request.body)
+        username = data.get('username')
+        password = data.get('password')
+        
+        user = authenticate(username=username, password=password)
+        if user:
+            # 生成 JWT 令牌
+            payload = {
+                'user_id': user.id,
+                'username': user.username,
+                'exp': datetime.datetime.utcnow() + datetime.timedelta(hours=24),
+                'iat': datetime.datetime.utcnow()
+            }
+            token = jwt.encode(payload, settings.SECRET_KEY, algorithm='HS256')
+            
+            return JsonResponse({
+                'token': token,
+                'user': {
+                    'id': user.id,
+                    'username': user.username,
+                    'email': user.email
+                }
+            })
+        else:
+            return JsonResponse({'error': '无效凭据'}, status=401)
+
+def jwt_authentication_middleware(get_response):
+    def middleware(request):
+        # 跳过登录端点的认证
+        if request.path == '/api/login/':
+            return get_response(request)
+        
+        auth_header = request.META.get('HTTP_AUTHORIZATION')
+        if auth_header and auth_header.startswith('Bearer '):
+            token = auth_header.split(' ')[1]
+            try:
+                payload = jwt.decode(token, settings.SECRET_KEY, algorithms=['HS256'])
+                request.user_id = payload['user_id']
+                request.username = payload['username']
+            except jwt.ExpiredSignatureError:
+                return JsonResponse({'error': '令牌已过期'}, status=401)
+            except jwt.InvalidTokenError:
+                return JsonResponse({'error': '无效令牌'}, status=401)
+        
+        return get_response(request)
+    return middleware
+
+# 受保护的视图
+def protected_view(request):
+    if not hasattr(request, 'user_id'):
+        return JsonResponse({'error': '需要身份验证'}, status=401)
+    
+    return JsonResponse({
+        'message': f'你好 {request.username}',
+        'user_id': request.user_id
+    })
+```
+
+```javascript !! js
+// Express.js JWT 身份验证
+const express = require('express');
+const jwt = require('jsonwebtoken');
+const bcrypt = require('bcryptjs');
+const User = require('./models/User'); // 假设User模型存在
+
+const app = express();
+app.use(express.json());
+
+// JWT 密钥（应该在环境变量中）
+const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
+
+// 登录端点
+app.post('/api/login', async (req, res) => {
+    try {
+        const { username, password } = req.body;
+        
+        // 查找用户（使用Mongoose示例）
+        const user = await User.findOne({ username });
+        if (!user) {
+            return res.status(401).json({ error: '无效凭据' });
+        }
+        
+        // 检查密码
+        const isValidPassword = await bcrypt.compare(password, user.password);
+        if (!isValidPassword) {
+            return res.status(401).json({ error: '无效凭据' });
+        }
+        
+        // 生成 JWT 令牌
+        const payload = {
+            userId: user._id,
+            username: user.username,
+            iat: Math.floor(Date.now() / 1000),
+            exp: Math.floor(Date.now() / 1000) + (24 * 60 * 60) // 24小时
+        };
+        
+        const token = jwt.sign(payload, JWT_SECRET);
+        
+        res.json({
+            token,
+            user: {
+                id: user._id,
+                username: user.username,
+                email: user.email
+            }
+        });
+        
+    } catch (error) {
+        console.error('登录错误:', error);
+        res.status(500).json({ error: '内部服务器错误' });
+    }
+});
+
+// JWT 认证中间件
+const authenticateToken = (req, res, next) => {
+    // 跳过登录端点的认证
+    if (req.path === '/api/login') {
+        return next();
+    }
+    
+    const authHeader = req.headers.authorization;
+    const token = authHeader && authHeader.split(' ')[1];
+    
+    if (!token) {
+        return res.status(401).json({ error: '需要身份验证' });
+    }
+    
+    jwt.verify(token, JWT_SECRET, (err, decoded) => {
+        if (err) {
+            if (err.name === 'TokenExpiredError') {
+                return res.status(401).json({ error: '令牌已过期' });
+            }
+            return res.status(401).json({ error: '无效令牌' });
+        }
+        
+        req.userId = decoded.userId;
+        req.username = decoded.username;
+        next();
+    });
+};
+
+// 全局应用认证中间件
+app.use(authenticateToken);
+
+// 受保护的路由
+app.get('/api/protected', (req, res) => {
+    res.json({
+        message: `你好 ${req.username}`,
+        userId: req.userId
+    });
+});
+
+// 用户注册端点
+app.post('/api/register', async (req, res) => {
+    try {
+        const { username, email, password } = req.body;
+        
+        // 哈希密码
+        const saltRounds = 10;
+        const hashedPassword = await bcrypt.hash(password, saltRounds);
+        
+        // 创建用户
+        const user = await User.create({
+            username,
+            email,
+            password: hashedPassword
+        });
+        
+        res.status(201).json({
+            message: '用户创建成功',
+            user: {
+                id: user._id,
+                username: user.username,
+                email: user.email
+            }
+        });
+        
+    } catch (error) {
+        if (error.code === 11000) {
+            res.status(400).json({ error: '用户名或邮箱已存在' });
+        } else {
+            console.error('注册错误:', error);
+            res.status(500).json({ error: '内部服务器错误' });
+        }
+    }
+});
+
+module.exports = app;
+```
+</PythonEditor>
+
+## WebSocket 实时功能
+
+### Socket.IO vs Django Channels
+
+<PythonEditor title="WebSocket 实现" compare={true}>
+```python !! py
+# Django Channels WebSocket 消费者
+import json
+from channels.generic.websocket import AsyncWebsocketConsumer
+from channels.db import database_sync_to_async
+from django.contrib.auth.models import User
+
+class ChatConsumer(AsyncWebsocketConsumer):
+    async def connect(self):
+        self.room_name = self.scope['url_route']['kwargs']['room_name']
+        self.room_group_name = f'chat_{self.room_name}'
+        
+        # 加入房间组
+        await self.channel_layer.group_add(
+            self.room_group_name,
+            self.channel_name
+        )
+        
+        await self.accept()
+        
+        # 发送欢迎消息
+        await self.send(text_data=json.dumps({
+            'type': 'welcome',
+            'message': f'欢迎来到房间 {self.room_name}'
+        }))
+
+    async def disconnect(self, close_code):
+        # 离开房间组
+        await self.channel_layer.group_discard(
+            self.room_group_name,
+            self.channel_name
+        )
+
+    async def receive(self, text_data):
+        data = json.loads(text_data)
+        message_type = data.get('type', 'message')
+        
+        if message_type == 'chat_message':
+            message = data['message']
+            username = data.get('username', '匿名')
+            
+            # 保存消息到数据库
+            await self.save_message(username, message)
+            
+            # 向房间组发送消息
+            await self.channel_layer.group_send(
+                self.room_group_name,
+                {
+                    'type': 'chat_message',
+                    'message': message,
+                    'username': username,
+                    'timestamp': datetime.now().isoformat()
+                }
+            )
+        
+        elif message_type == 'typing':
+            # 广播输入指示器
+            await self.channel_layer.group_send(
+                self.room_group_name,
+                {
+                    'type': 'typing_indicator',
+                    'username': data.get('username', '匿名'),
+                    'is_typing': data.get('is_typing', False)
+                }
+            )
+
+    async def chat_message(self, event):
+        await self.send(text_data=json.dumps({
+            'type': 'message',
+            'message': event['message'],
+            'username': event['username'],
+            'timestamp': event['timestamp']
+        }))
+
+    async def typing_indicator(self, event):
+        await self.send(text_data=json.dumps({
+            'type': 'typing',
+            'username': event['username'],
+            'is_typing': event['is_typing']
+        }))
+
+    @database_sync_to_async
+    def save_message(self, username, message):
+        # 保存消息到数据库
+        from .models import ChatMessage
+        ChatMessage.objects.create(
+            room_name=self.room_name,
+            username=username,
+            message=message
+        )
+```
+
+```javascript !! js
+// Socket.IO with Express.js
+const express = require('express');
+const http = require('http');
+const socketIo = require('socket.io');
+const cors = require('cors');
+
+const app = express();
+const server = http.createServer(app);
+const io = socketIo(server, {
+    cors: {
+        origin: "http://localhost:3000",
+        methods: ["GET", "POST"]
+    }
+});
+
+app.use(cors());
+app.use(express.json());
+
+// 内存存储（生产环境中使用数据库）
+const chatRooms = new Map();
+const activeUsers = new Map();
+
+// Socket.IO 连接处理
+io.on('connection', (socket) => {
+    console.log('用户连接:', socket.id);
+    
+    // 加入房间
+    socket.on('join_room', ({ roomName, username }) => {
+        socket.join(roomName);
+        socket.roomName = roomName;
+        socket.username = username;
+        
+        // 跟踪活跃用户
+        if (!activeUsers.has(roomName)) {
+            activeUsers.set(roomName, new Set());
+        }
+        activeUsers.get(roomName).add(username);
+        
+        // 发送欢迎消息
+        socket.emit('welcome', {
+            type: 'welcome',
+            message: `欢迎来到房间 ${roomName}`
+        });
+        
+        // 通知房间有新用户加入
+        socket.to(roomName).emit('user_joined', {
+            type: 'user_joined',
+            username: username,
+            message: `${username} 加入了房间`
+        });
+        
+        // 发送活跃用户列表
+        io.to(roomName).emit('active_users', {
+            type: 'active_users',
+            users: Array.from(activeUsers.get(roomName))
+        });
+        
+        // 发送最近消息
+        const recentMessages = getRecentMessages(roomName);
+        socket.emit('recent_messages', {
+            type: 'recent_messages',
+            messages: recentMessages
+        });
+    });
+    
+    // 处理聊天消息
+    socket.on('chat_message', (data) => {
+        const { message } = data;
+        const roomName = socket.roomName;
+        const username = socket.username;
+        
+        if (roomName && username && message) {
+            const messageData = {
+                type: 'message',
+                message: message,
+                username: username,
+                timestamp: new Date().toISOString(),
+                id: generateMessageId()
+            };
+            
+            // 保存消息
+            saveMessage(roomName, messageData);
+            
+            // 广播到房间
+            io.to(roomName).emit('chat_message', messageData);
+        }
+    });
+    
+    // 处理输入指示器
+    socket.on('typing', (data) => {
+        const { isTyping } = data;
+        const roomName = socket.roomName;
+        const username = socket.username;
+        
+        if (roomName && username) {
+            socket.to(roomName).emit('typing_indicator', {
+                type: 'typing',
+                username: username,
+                isTyping: isTyping
+            });
+        }
+    });
+    
+    // 处理私人消息
+    socket.on('private_message', (data) => {
+        const { targetUser, message } = data;
+        const senderUsername = socket.username;
+        
+        // 查找目标用户的socket
+        const targetSocket = Array.from(io.sockets.sockets.values())
+            .find(s => s.username === targetUser);
+        
+        if (targetSocket) {
+            targetSocket.emit('private_message', {
+                type: 'private_message',
+                from: senderUsername,
+                message: message,
+                timestamp: new Date().toISOString()
+            });
+        }
+    });
+    
+    // 处理断开连接
+    socket.on('disconnect', () => {
+        const roomName = socket.roomName;
+        const username = socket.username;
+        
+        if (roomName && username) {
+            // 从活跃用户中移除
+            if (activeUsers.has(roomName)) {
+                activeUsers.get(roomName).delete(username);
+                
+                // 通知房间用户离开
+                socket.to(roomName).emit('user_left', {
+                    type: 'user_left',
+                    username: username,
+                    message: `${username} 离开了房间`
+                });
+                
+                // 更新活跃用户列表
+                io.to(roomName).emit('active_users', {
+                    type: 'active_users',
+                    users: Array.from(activeUsers.get(roomName))
+                });
+            }
+        }
+        
+        console.log('用户断开连接:', socket.id);
+    });
+});
+
+// 辅助函数
+function saveMessage(roomName, messageData) {
+    if (!chatRooms.has(roomName)) {
+        chatRooms.set(roomName, []);
+    }
+    
+    const messages = chatRooms.get(roomName);
+    messages.push(messageData);
+    
+    // 每个房间只保留最近100条消息
+    if (messages.length > 100) {
+        messages.splice(0, messages.length - 100);
+    }
+}
+
+function getRecentMessages(roomName, limit = 50) {
+    const messages = chatRooms.get(roomName) || [];
+    return messages.slice(-limit);
+}
+
+function generateMessageId() {
+    return Date.now().toString(36) + Math.random().toString(36).substr(2);
+}
+
+// REST API 端点
+app.get('/api/rooms/:roomName/messages', (req, res) => {
+    const { roomName } = req.params;
+    const { limit = 50, offset = 0 } = req.query;
+    
+    const messages = getRecentMessages(roomName, parseInt(limit));
+    res.json({ messages });
+});
+
+app.get('/api/rooms/:roomName/users', (req, res) => {
+    const { roomName } = req.params;
+    const users = activeUsers.get(roomName) || new Set();
+    res.json({ users: Array.from(users) });
+});
+
+const PORT = process.env.PORT || 3001;
+server.listen(PORT, () => {
+    console.log(`服务器运行在端口 ${PORT}`);
+});
+
+module.exports = { app, io };
+```
+</PythonEditor>
+
+## 文件处理和上传
+
+### Multer vs Django 文件处理
+
+<PythonEditor title="文件上传实现" compare={true}>
+```python !! py
+# Django 文件上传处理
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+from django.core.files.storage import default_storage
+from django.core.files.base import ContentFile
+import os
+import uuid
+from PIL import Image
+import json
+
+@csrf_exempt
+def file_upload_view(request):
+    if request.method == 'POST':
+        uploaded_file = request.FILES.get('file')
+        
+        if not uploaded_file:
+            return JsonResponse({'error': '未提供文件'}, status=400)
+        
+        # 验证文件类型
+        allowed_types = ['image/jpeg', 'image/png', 'image/gif']
+        if uploaded_file.content_type not in allowed_types:
+            return JsonResponse({'error': '无效的文件类型'}, status=400)
+        
+        # 验证文件大小（最大5MB）
+        max_size = 5 * 1024 * 1024
+        if uploaded_file.size > max_size:
+            return JsonResponse({'error': '文件太大'}, status=400)
+        
+        # 生成唯一文件名
+        file_extension = os.path.splitext(uploaded_file.name)[1]
+        unique_filename = f"{uuid.uuid4()}{file_extension}"
+        
+        try:
+            # 保存原始文件
+            file_path = default_storage.save(
+                f"uploads/{unique_filename}", 
+                ContentFile(uploaded_file.read())
+            )
+            
+            # 如果是图片则创建缩略图
+            if uploaded_file.content_type.startswith('image/'):
+                thumbnail_path = create_thumbnail(file_path)
+            else:
+                thumbnail_path = None
+            
+            return JsonResponse({
+                'success': True,
+                'file': {
+                    'filename': unique_filename,
+                    'original_name': uploaded_file.name,
+                    'size': uploaded_file.size,
+                    'content_type': uploaded_file.content_type,
+                    'url': default_storage.url(file_path),
+                    'thumbnail_url': default_storage.url(thumbnail_path) if thumbnail_path else None
+                }
+            })
+            
+        except Exception as e:
+            return JsonResponse({'error': str(e)}, status=500)
+
+def create_thumbnail(file_path):
+    """为上传的图片创建缩略图"""
+    try:
+        with default_storage.open(file_path, 'rb') as file:
+            image = Image.open(file)
+            image.thumbnail((150, 150), Image.Resampling.LANCZOS)
+            
+            # 生成缩略图文件名
+            filename = os.path.basename(file_path)
+            name, ext = os.path.splitext(filename)
+            thumbnail_filename = f"{name}_thumb{ext}"
+            
+            # 保存缩略图
+            from io import BytesIO
+            thumbnail_io = BytesIO()
+            image.save(thumbnail_io, format=image.format)
+            thumbnail_io.seek(0)
+            
+            thumbnail_path = default_storage.save(
+                f"thumbnails/{thumbnail_filename}",
+                ContentFile(thumbnail_io.read())
+            )
+            
+            return thumbnail_path
+    except Exception as e:
+        print(f"创建缩略图错误: {e}")
+        return None
+
+# 多文件上传
+@csrf_exempt
+def multiple_file_upload_view(request):
+    if request.method == 'POST':
+        files = request.FILES.getlist('files')
+        
+        if not files:
+            return JsonResponse({'error': '未提供文件'}, status=400)
+        
+        uploaded_files = []
+        errors = []
+        
+        for uploaded_file in files:
+            try:
+                # 处理每个文件
+                result = process_single_file(uploaded_file)
+                uploaded_files.append(result)
+            except Exception as e:
+                errors.append({
+                    'filename': uploaded_file.name,
+                    'error': str(e)
+                })
+        
+        return JsonResponse({
+            'uploaded_files': uploaded_files,
+            'errors': errors
+        })
+```
+
+```javascript !! js
+// Express.js 文件上传与 Multer
+const express = require('express');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs').promises;
+const sharp = require('sharp'); // 用于图片处理
+const { v4: uuidv4 } = require('uuid');
+
+const app = express();
+
+// 配置multer文件上传
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        const uploadDir = 'uploads/';
+        // 确保上传目录存在
+        fs.mkdir(uploadDir, { recursive: true })
+            .then(() => cb(null, uploadDir))
+            .catch(err => cb(err));
+    },
+    filename: (req, file, cb) => {
+        // 生成唯一文件名
+        const fileExtension = path.extname(file.originalname);
+        const uniqueName = `${uuidv4()}${fileExtension}`;
+        cb(null, uniqueName);
+    }
+});
+
+// 文件过滤器
+const fileFilter = (req, file, cb) => {
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/gif'];
+    
+    if (allowedTypes.includes(file.mimetype)) {
+        cb(null, true);
+    } else {
+        cb(new Error('无效的文件类型。只允许 JPEG、PNG 和 GIF。'), false);
+    }
+};
+
+// 配置multer
+const upload = multer({
+    storage: storage,
+    fileFilter: fileFilter,
+    limits: {
+        fileSize: 5 * 1024 * 1024, // 5MB限制
+        files: 10 // 最多10个文件
+    }
+});
+
+// 单文件上传端点
+app.post('/api/upload', upload.single('file'), async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ error: '未提供文件' });
+        }
+        
+        const file = req.file;
+        let thumbnailPath = null;
+        
+        // 为图片创建缩略图
+        if (file.mimetype.startsWith('image/')) {
+            thumbnailPath = await createThumbnail(file.path);
+        }
+        
+        res.json({
+            success: true,
+            file: {
+                filename: file.filename,
+                originalName: file.originalname,
+                size: file.size,
+                contentType: file.mimetype,
+                url: `/uploads/${file.filename}`,
+                thumbnailUrl: thumbnailPath ? `/thumbnails/${path.basename(thumbnailPath)}` : null
+            }
+        });
+        
+    } catch (error) {
+        console.error('上传错误:', error);
+        res.status(500).json({ error: '上传失败: ' + error.message });
+    }
+});
+
+// 多文件上传端点
+app.post('/api/upload-multiple', upload.array('files', 10), async (req, res) => {
+    try {
+        if (!req.files || req.files.length === 0) {
+            return res.status(400).json({ error: '未提供文件' });
+        }
+        
+        const uploadedFiles = [];
+        const errors = [];
+        
+        for (const file of req.files) {
+            try {
+                const result = await processSingleFile(file);
+                uploadedFiles.push(result);
+            } catch (error) {
+                errors.push({
+                    filename: file.originalname,
+                    error: error.message
+                });
+            }
+        }
+        
+        res.json({
+            uploadedFiles,
+            errors
+        });
+        
+    } catch (error) {
+        console.error('多文件上传错误:', error);
+        res.status(500).json({ error: '上传失败: ' + error.message });
+    }
+});
+
+// 创建缩略图的辅助函数
+async function createThumbnail(imagePath) {
+    try {
+        const thumbnailDir = 'thumbnails/';
+        await fs.mkdir(thumbnailDir, { recursive: true });
+        
+        const filename = path.basename(imagePath);
+        const name = path.parse(filename).name;
+        const ext = path.parse(filename).ext;
+        const thumbnailFilename = `${name}_thumb${ext}`;
+        const thumbnailPath = path.join(thumbnailDir, thumbnailFilename);
+        
+        await sharp(imagePath)
+            .resize(150, 150, {
+                fit: 'inside',
+                withoutEnlargement: true
+            })
+            .toFile(thumbnailPath);
+        
+        return thumbnailPath;
+    } catch (error) {
+        console.error('创建缩略图错误:', error);
+        return null;
+    }
+}
+
+// 处理单个文件的辅助函数
+async function processSingleFile(file) {
+    let thumbnailPath = null;
+    
+    if (file.mimetype.startsWith('image/')) {
+        thumbnailPath = await createThumbnail(file.path);
+    }
+    
+    return {
+        filename: file.filename,
+        originalName: file.originalname,
+        size: file.size,
+        contentType: file.mimetype,
+        url: `/uploads/${file.filename}`,
+        thumbnailUrl: thumbnailPath ? `/thumbnails/${path.basename(thumbnailPath)}` : null
+    };
+}
+
+// 提供上传文件的静态服务
+app.use('/uploads', express.static('uploads'));
+app.use('/thumbnails', express.static('thumbnails'));
+
+// multer的错误处理中间件
+app.use((error, req, res, next) => {
+    if (error instanceof multer.MulterError) {
+        if (error.code === 'LIMIT_FILE_SIZE') {
+            return res.status(400).json({ error: '文件太大' });
+        }
+        if (error.code === 'LIMIT_FILE_COUNT') {
+            return res.status(400).json({ error: '文件太多' });
+        }
+    }
+    
+    if (error.message.includes('无效的文件类型')) {
+        return res.status(400).json({ error: error.message });
+    }
+    
+    res.status(500).json({ error: '上传错误: ' + error.message });
+});
+
+module.exports = app;
+```
+</PythonEditor>
+
+## 测试和调试
+
+### Jest vs Python 测试
+
+<PythonEditor title="测试策略" compare={true}>
+```python !! py
+# Django/Python 使用 pytest 测试
+import pytest
+from django.test import TestCase, Client
+from django.contrib.auth.models import User
+from unittest.mock import patch, Mock
+import json
+
+class APITestCase(TestCase):
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(
+            username='testuser',
+            email='test@example.com',
+            password='testpass'
+        )
+    
+    def test_login_success(self):
+        """测试成功登录"""
+        response = self.client.post('/api/login/', {
+            'username': 'testuser',
+            'password': 'testpass'
+        }, content_type='application/json')
+        
+        self.assertEqual(response.status_code, 200)
+        data = json.loads(response.content)
+        self.assertIn('token', data)
+        self.assertEqual(data['user']['username'], 'testuser')
+    
+    def test_login_invalid_credentials(self):
+        """测试无效凭据的登录"""
+        response = self.client.post('/api/login/', {
+            'username': 'testuser',
+            'password': 'wrongpass'
+        }, content_type='application/json')
+        
+        self.assertEqual(response.status_code, 401)
+    
+    @patch('requests.get')
+    def test_external_api_call(self, mock_get):
+        """使用模拟测试外部API集成"""
+        mock_response = Mock()
+        mock_response.json.return_value = {'status': 'success'}
+        mock_response.status_code = 200
+        mock_get.return_value = mock_response
+        
+        # 测试调用外部API的函数
+        from myapp.utils import fetch_external_data
+        result = fetch_external_data('test_id')
+        
+        self.assertEqual(result['status'], 'success')
+        mock_get.assert_called_once()
+
+# pytest 夹具和参数化测试
+@pytest.fixture
+def authenticated_client():
+    """认证客户端的夹具"""
+    client = Client()
+    user = User.objects.create_user(
+        username='testuser',
+        password='testpass'
+    )
+    client.force_login(user)
+    return client, user
+
+@pytest.mark.parametrize("username,password,expected_status", [
+    ('valid_user', 'valid_pass', 200),
+    ('invalid_user', 'valid_pass', 401),
+    ('valid_user', 'invalid_pass', 401),
+    ('', '', 400),
+])
+def test_login_scenarios(username, password, expected_status):
+    """测试多种登录场景"""
+    client = Client()
+    if username == 'valid_user':
+        User.objects.create_user(username=username, password=password)
+    
+    response = client.post('/api/login/', {
+        'username': username,
+        'password': password
+    }, content_type='application/json')
+    
+    assert response.status_code == expected_status
+```
+
+```javascript !! js
+// Node.js/Express 的 Jest 测试
+const request = require('supertest');
+const app = require('../app');
+const User = require('../models/User');
+const jwt = require('jsonwebtoken');
+
+// 设置和清理
+describe('API 测试', () => {
+    beforeEach(async () => {
+        // 每个测试前清理数据库
+        await User.deleteMany({});
+        
+        // 创建测试用户
+        await User.create({
+            username: 'testuser',
+            email: 'test@example.com',
+            password: '$2a$10$hashed_password_here'
+        });
+    });
+    
+    afterEach(async () => {
+        // 每个测试后清理
+        await User.deleteMany({});
+    });
+    
+    describe('POST /api/login', () => {
+        it('应该使用有效凭据成功登录', async () => {
+            const response = await request(app)
+                .post('/api/login')
+                .send({
+                    username: 'testuser',
+                    password: 'testpass'
+                })
+                .expect(200);
+            
+            expect(response.body).toHaveProperty('token');
+            expect(response.body.user.username).toBe('testuser');
+        });
+        
+        it('应该在无效凭据时失败', async () => {
+            const response = await request(app)
+                .post('/api/login')
+                .send({
+                    username: 'testuser',
+                    password: 'wrongpass'
+                })
+                .expect(401);
+            
+            expect(response.body).toHaveProperty('error');
+        });
+        
+        it('应该验证必需字段', async () => {
+            const response = await request(app)
+                .post('/api/login')
+                .send({})
+                .expect(400);
+            
+            expect(response.body.error).toContain('required');
+        });
+    });
+    
+    describe('GET /api/protected', () => {
+        let authToken;
+        
+        beforeEach(async () => {
+            // 为测试生成有效的JWT令牌
+            authToken = jwt.sign(
+                { userId: '507f1f77bcf86cd799439011', username: 'testuser' },
+                process.env.JWT_SECRET || 'test-secret'
+            );
+        });
+        
+        it('应该使用有效令牌访问受保护路由', async () => {
+            const response = await request(app)
+                .get('/api/protected')
+                .set('Authorization', `Bearer ${authToken}`)
+                .expect(200);
+            
+            expect(response.body.message).toContain('你好 testuser');
+        });
+        
+        it('应该拒绝没有令牌的请求', async () => {
+            await request(app)
+                .get('/api/protected')
+                .expect(401);
+        });
+        
+        it('应该拒绝无效令牌的请求', async () => {
+            await request(app)
+                .get('/api/protected')
+                .set('Authorization', 'Bearer invalid_token')
+                .expect(401);
+        });
+    });
+});
+
+// 模拟外部依赖
+jest.mock('../services/emailService', () => ({
+    sendEmail: jest.fn().mockResolvedValue({ success: true })
+}));
+
+describe('外部API集成', () => {
+    it('应该使用模拟处理外部API调用', async () => {
+        // 模拟axios或fetch
+        const mockAxios = require('axios');
+        mockAxios.get.mockResolvedValue({
+            data: { status: 'success' },
+            status: 200
+        });
+        
+        const externalService = require('../services/externalService');
+        const result = await externalService.fetchData('test_id');
+        
+        expect(result.status).toBe('success');
+        expect(mockAxios.get).toHaveBeenCalledWith(
+            expect.stringContaining('test_id')
+        );
+    });
+});
+
+// 使用test.each的参数化测试
+describe('登录场景', () => {
+    test.each([
+        ['valid_user', 'valid_pass', 200],
+        ['invalid_user', 'valid_pass', 401],
+        ['valid_user', 'invalid_pass', 401],
+        ['', '', 400]
+    ])('使用用户名: %s, 密码: %s 登录应该返回 %i', 
+        async (username, password, expectedStatus) => {
+            // 如果需要，设置有效用户
+            if (username === 'valid_user') {
+                await User.create({
+                    username,
+                    password: '$2a$10$hashed_password_here'
+                });
+            }
+            
+            const response = await request(app)
+                .post('/api/login')
+                .send({ username, password });
+            
+            expect(response.status).toBe(expectedStatus);
+        }
+    );
+});
+
+// 测试工具和辅助函数
+const testUtils = {
+    createAuthenticatedUser: async (userData = {}) => {
+        const defaultUser = {
+            username: 'testuser',
+            email: 'test@example.com',
+            password: 'hashedpassword'
+        };
+        
+        const user = await User.create({ ...defaultUser, ...userData });
+        const token = jwt.sign(
+            { userId: user._id, username: user.username },
+            process.env.JWT_SECRET || 'test-secret'
+        );
+        
+        return { user, token };
+    },
+    
+    makeAuthenticatedRequest: (app, method, url, token) => {
+        return request(app)[method](url)
+            .set('Authorization', `Bearer ${token}`);
+    }
+};
+
+module.exports = testUtils;
+```
+</PythonEditor>
+
+## 总结和最佳实践
+
+### Node.js 开发指南
+
+1. **环境配置**
+   - 使用环境变量进行配置
+   - 实现适当的错误处理
+   - 生产环境使用PM2等进程管理器
+
+2. **安全最佳实践**
+   - 实现速率限制
+   - 使用helmet.js设置安全头
+   - 验证和清理输入数据
+   - 实现适当的身份验证和授权
+
+3. **性能优化**
+   - 为数据库使用连接池
+   - 实现缓存策略
+   - 使用压缩中间件
+   - 监控内存使用并处理内存泄漏
+
+4. **数据库集成**
+   - 在SQL（PostgreSQL）和NoSQL（MongoDB）之间选择
+   - 实现适当的索引
+   - 在适当的地方使用事务
+   - 优雅地处理数据库连接错误
+
+5. **测试策略**
+   - 为业务逻辑编写单元测试
+   - 为API实现集成测试
+   - 对外部依赖使用模拟
+   - 保持良好的测试覆盖率
+
+---
+
+在下一模块中，我们将探索包管理和JavaScript生态系统，学习如何利用npm和构建现代开发工作流。

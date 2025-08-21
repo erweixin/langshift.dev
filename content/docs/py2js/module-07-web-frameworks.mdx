@@ -1,0 +1,885 @@
+---
+title: Web Frameworks Comparison and Selection
+description: Compare Python web frameworks (Django/Flask) with JavaScript frameworks (Express.js/React/Vue) and learn how to choose the right framework for your project
+---
+
+# Web Frameworks Comparison and Selection
+
+In this module, we'll explore the landscape of web frameworks in both Python and JavaScript ecosystems. You'll learn how to transition from Python's Django/Flask to JavaScript's Express.js, and understand modern frontend frameworks like React and Vue.
+
+## Framework Ecosystem Overview
+
+### Python Web Development Stack
+- **Backend**: Django, Flask, FastAPI
+- **Frontend**: Jinja2 templates, Django templates
+- **Full-stack**: Traditional server-rendered applications
+
+### JavaScript Web Development Stack
+- **Backend**: Express.js, Koa.js, Fastify
+- **Frontend**: React, Vue, Angular, Svelte
+- **Full-stack**: Node.js + Frontend framework
+
+## Backend Framework Comparison
+
+### Django vs Express.js
+
+<PythonEditor title="Django vs Express.js - Basic Server Setup" compare={true}>
+```python !! py
+# Django (settings.py + views.py)
+from django.shortcuts import render
+from django.http import JsonResponse
+from django.urls import path
+
+def home(request):
+    return JsonResponse({'message': 'Hello from Django!'})
+
+def user_detail(request, user_id):
+    # Simulate user data
+    user = {'id': user_id, 'name': f'User {user_id}'}
+    return JsonResponse(user)
+
+# urls.py
+urlpatterns = [
+    path('', home, name='home'),
+    path('users/<int:user_id>/', user_detail, name='user_detail'),
+]
+```
+
+```javascript !! js
+// Express.js
+const express = require('express');
+const app = express();
+
+app.use(express.json());
+
+app.get('/', (req, res) => {
+    res.json({ message: 'Hello from Express!' });
+});
+
+app.get('/users/:userId', (req, res) => {
+    const userId = req.params.userId;
+    // Simulate user data
+    const user = { id: userId, name: `User ${userId}` };
+    res.json(user);
+});
+
+app.listen(3000, () => {
+    console.log('Server running on port 3000');
+});
+```
+</PythonEditor>
+
+### Flask vs Express.js - Minimal Setup
+
+<PythonEditor title="Flask vs Express.js - Minimal API" compare={true}>
+```python !! py
+# Flask - app.py
+from flask import Flask, jsonify, request
+
+app = Flask(__name__)
+
+# In-memory data store
+users = [
+    {'id': 1, 'name': 'Alice', 'email': 'alice@example.com'},
+    {'id': 2, 'name': 'Bob', 'email': 'bob@example.com'}
+]
+
+@app.route('/')
+def home():
+    return jsonify({'message': 'Flask API Server'})
+
+@app.route('/api/users', methods=['GET'])
+def get_users():
+    return jsonify(users)
+
+@app.route('/api/users', methods=['POST'])
+def create_user():
+    data = request.get_json()
+    new_user = {
+        'id': len(users) + 1,
+        'name': data['name'],
+        'email': data['email']
+    }
+    users.append(new_user)
+    return jsonify(new_user), 201
+
+if __name__ == '__main__':
+    app.run(debug=True)
+```
+
+```javascript !! js
+// Express.js - server.js
+const express = require('express');
+const app = express();
+
+app.use(express.json());
+
+// In-memory data store
+let users = [
+    { id: 1, name: 'Alice', email: 'alice@example.com' },
+    { id: 2, name: 'Bob', email: 'bob@example.com' }
+];
+
+app.get('/', (req, res) => {
+    res.json({ message: 'Express API Server' });
+});
+
+app.get('/api/users', (req, res) => {
+    res.json(users);
+});
+
+app.post('/api/users', (req, res) => {
+    const { name, email } = req.body;
+    const newUser = {
+        id: users.length + 1,
+        name,
+        email
+    };
+    users.push(newUser);
+    res.status(201).json(newUser);
+});
+
+app.listen(3000, () => {
+    console.log('Server running on port 3000');
+});
+```
+</PythonEditor>
+
+## Middleware and Request Processing
+
+### Django Middleware vs Express.js Middleware
+
+<PythonEditor title="Middleware Comparison" compare={true}>
+```python !! py
+# Django Middleware (middleware.py)
+class LoggingMiddleware:
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        # Code before view
+        print(f"Request: {request.method} {request.path}")
+        
+        response = self.get_response(request)
+        
+        # Code after view
+        print(f"Response: {response.status_code}")
+        return response
+
+# Authentication middleware
+class AuthMiddleware:
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        # Check authentication
+        auth_header = request.META.get('HTTP_AUTHORIZATION')
+        if auth_header:
+            request.user_id = self.extract_user_id(auth_header)
+        
+        return self.get_response(request)
+    
+    def extract_user_id(self, auth_header):
+        # Simplified token parsing
+        return auth_header.split(' ')[-1]
+```
+
+```javascript !! js
+// Express.js Middleware
+const express = require('express');
+const app = express();
+
+// Logging middleware
+const loggingMiddleware = (req, res, next) => {
+    console.log(`Request: ${req.method} ${req.path}`);
+    
+    // Override res.json to log response
+    const originalJson = res.json;
+    res.json = function(data) {
+        console.log(`Response: ${res.statusCode}`);
+        return originalJson.call(this, data);
+    };
+    
+    next();
+};
+
+// Authentication middleware
+const authMiddleware = (req, res, next) => {
+    const authHeader = req.headers.authorization;
+    if (authHeader) {
+        // Simplified token parsing
+        req.userId = authHeader.split(' ')[1];
+    }
+    next();
+};
+
+// Apply middleware
+app.use(loggingMiddleware);
+app.use(authMiddleware);
+
+app.get('/protected', (req, res) => {
+    if (!req.userId) {
+        return res.status(401).json({ error: 'Unauthorized' });
+    }
+    res.json({ message: `Hello user ${req.userId}` });
+});
+```
+</PythonEditor>
+
+## Frontend Framework Introduction
+
+### Traditional Templates vs Modern Frontend
+
+<PythonEditor title="Template Rendering vs Component-Based" compare={true}>
+```python !! py
+# Django template rendering (views.py)
+from django.shortcuts import render
+from django.http import JsonResponse
+
+def user_list(request):
+    users = [
+        {'id': 1, 'name': 'Alice', 'status': 'active'},
+        {'id': 2, 'name': 'Bob', 'status': 'inactive'},
+        {'id': 3, 'name': 'Carol', 'status': 'active'}
+    ]
+    
+    # For traditional template rendering
+    if request.headers.get('Accept') == 'text/html':
+        return render(request, 'users.html', {'users': users})
+    
+    # For API response
+    return JsonResponse({'users': users})
+
+# users.html (Django template)
+"""
+<!DOCTYPE html>
+<html>
+<head><title>Users</title></head>
+<body>
+    <h1>User List</h1>
+    <ul>
+    {% for user in users %}
+        <li class="user-item {{ user.status }}">
+            {{ user.name }} ({{ user.status }})
+        </li>
+    {% endfor %}
+    </ul>
+</body>
+</html>
+"""
+```
+
+```javascript !! js
+// React Component
+import React, { useState, useEffect } from 'react';
+
+const UserList = () => {
+    const [users, setUsers] = useState([]);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        // Fetch users from API
+        fetch('/api/users')
+            .then(response => response.json())
+            .then(data => {
+                setUsers(data.users);
+                setLoading(false);
+            });
+    }, []);
+
+    if (loading) {
+        return <div>Loading...</div>;
+    }
+
+    return (
+        <div>
+            <h1>User List</h1>
+            <ul>
+                {users.map(user => (
+                    <li 
+                        key={user.id} 
+                        className={`user-item ${user.status}`}
+                    >
+                        {user.name} ({user.status})
+                    </li>
+                ))}
+            </ul>
+        </div>
+    );
+};
+
+export default UserList;
+```
+</PythonEditor>
+
+## React Component Development
+
+### State Management and Props
+
+<PythonEditor title="React State Management" compare={true}>
+```python !! py
+# Python class-based approach (for comparison)
+class UserManager:
+    def __init__(self):
+        self.users = []
+        self.loading = False
+        self.error = None
+    
+    def add_user(self, name, email):
+        new_user = {
+            'id': len(self.users) + 1,
+            'name': name,
+            'email': email,
+            'active': True
+        }
+        self.users.append(new_user)
+        return new_user
+    
+    def toggle_user_status(self, user_id):
+        for user in self.users:
+            if user['id'] == user_id:
+                user['active'] = not user['active']
+                break
+    
+    def get_active_users(self):
+        return [user for user in self.users if user['active']]
+
+# Usage
+manager = UserManager()
+manager.add_user("Alice", "alice@example.com")
+manager.toggle_user_status(1)
+active_users = manager.get_active_users()
+```
+
+```javascript !! js
+// React Hooks approach
+import React, { useState, useCallback } from 'react';
+
+const UserManager = () => {
+    const [users, setUsers] = useState([]);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState(null);
+
+    const addUser = useCallback((name, email) => {
+        const newUser = {
+            id: users.length + 1,
+            name,
+            email,
+            active: true
+        };
+        setUsers(prevUsers => [...prevUsers, newUser]);
+        return newUser;
+    }, [users.length]);
+
+    const toggleUserStatus = useCallback((userId) => {
+        setUsers(prevUsers =>
+            prevUsers.map(user =>
+                user.id === userId
+                    ? { ...user, active: !user.active }
+                    : user
+            )
+        );
+    }, []);
+
+    const getActiveUsers = useCallback(() => {
+        return users.filter(user => user.active);
+    }, [users]);
+
+    return (
+        <div>
+            <h2>User Management</h2>
+            {users.map(user => (
+                <div key={user.id}>
+                    <span>{user.name} - {user.active ? 'Active' : 'Inactive'}</span>
+                    <button onClick={() => toggleUserStatus(user.id)}>
+                        Toggle Status
+                    </button>
+                </div>
+            ))}
+        </div>
+    );
+};
+```
+</PythonEditor>
+
+## Vue.js Alternative
+
+### Vue.js Component Syntax
+
+<PythonEditor title="Vue.js Component Example" compare={true}>
+```python !! py
+# Python approach for managing todo items
+class TodoManager:
+    def __init__(self):
+        self.todos = []
+        self.new_todo_text = ""
+    
+    def add_todo(self, text):
+        if text.strip():
+            todo = {
+                'id': len(self.todos) + 1,
+                'text': text,
+                'completed': False,
+                'created_at': 'datetime.now()'
+            }
+            self.todos.append(todo)
+            self.new_todo_text = ""
+    
+    def toggle_todo(self, todo_id):
+        for todo in self.todos:
+            if todo['id'] == todo_id:
+                todo['completed'] = not todo['completed']
+                break
+    
+    def get_stats(self):
+        total = len(self.todos)
+        completed = sum(1 for todo in self.todos if todo['completed'])
+        return {
+            'total': total,
+            'completed': completed,
+            'remaining': total - completed
+        }
+
+# Usage
+todo_manager = TodoManager()
+todo_manager.add_todo("Learn JavaScript")
+todo_manager.toggle_todo(1)
+stats = todo_manager.get_stats()
+```
+
+```javascript !! js
+// Vue.js Single File Component
+<template>
+  <div class="todo-app">
+    <h2>Todo Manager</h2>
+    
+    <form @submit.prevent="addTodo">
+      <input 
+        v-model="newTodoText" 
+        placeholder="Enter a new todo"
+        required
+      />
+      <button type="submit">Add Todo</button>
+    </form>
+
+    <div class="stats">
+      <p>Total: {{ stats.total }}</p>
+      <p>Completed: {{ stats.completed }}</p>
+      <p>Remaining: {{ stats.remaining }}</p>
+    </div>
+
+    <ul class="todo-list">
+      <li v-for="todo in todos" :key="todo.id" 
+          :class="{ completed: todo.completed }">
+        <input 
+          type="checkbox" 
+          v-model="todo.completed"
+        />
+        <span>{{ todo.text }}</span>
+      </li>
+    </ul>
+  </div>
+</template>
+
+<script>
+export default {
+  data() {
+    return {
+      todos: [],
+      newTodoText: ''
+    };
+  },
+  computed: {
+    stats() {
+      const total = this.todos.length;
+      const completed = this.todos.filter(todo => todo.completed).length;
+      return {
+        total,
+        completed,
+        remaining: total - completed
+      };
+    }
+  },
+  methods: {
+    addTodo() {
+      if (this.newTodoText.trim()) {
+        this.todos.push({
+          id: this.todos.length + 1,
+          text: this.newTodoText,
+          completed: false,
+          createdAt: new Date()
+        });
+        this.newTodoText = '';
+      }
+    }
+  }
+};
+</script>
+```
+</PythonEditor>
+
+## Framework Selection Guide
+
+### When to Choose Each Framework
+
+<PythonEditor title="Framework Decision Matrix" compare={true}>
+```python !! py
+# Framework selection criteria (Python perspective)
+def select_python_framework(requirements):
+    """
+    Select appropriate Python web framework based on requirements
+    """
+    criteria = {
+        'rapid_development': ['Django', 'Flask'],
+        'scalability': ['Django', 'FastAPI'],
+        'microservices': ['Flask', 'FastAPI'],
+        'admin_interface': ['Django'],
+        'rest_api': ['FastAPI', 'Flask-RESTful'],
+        'orm_needed': ['Django', 'SQLAlchemy + Flask'],
+        'async_support': ['FastAPI', 'Django 3.1+'],
+        'learning_curve': {
+            'beginner': 'Flask',
+            'intermediate': 'Django',
+            'advanced': 'FastAPI'
+        }
+    }
+    
+    recommendations = []
+    for requirement in requirements:
+        if requirement in criteria:
+            recommendations.extend(criteria[requirement])
+    
+    # Return most recommended framework
+    from collections import Counter
+    framework_scores = Counter(recommendations)
+    return framework_scores.most_common(1)[0][0] if framework_scores else 'Flask'
+
+# Example usage
+project_needs = ['rapid_development', 'rest_api', 'scalability']
+recommended = select_python_framework(project_needs)
+print(f"Recommended framework: {recommended}")
+```
+
+```javascript !! js
+// Framework selection criteria (JavaScript perspective)
+function selectJavaScriptFramework(requirements) {
+    /**
+     * Select appropriate JavaScript frameworks based on requirements
+     */
+    const criteria = {
+        // Backend frameworks
+        backend: {
+            rapid_development: ['Express.js', 'Koa.js'],
+            high_performance: ['Fastify', 'Express.js'],
+            microservices: ['Express.js', 'Koa.js'],
+            real_time: ['Socket.io + Express', 'Koa.js'],
+            typescript: ['NestJS', 'Express.js + TypeScript']
+        },
+        
+        // Frontend frameworks
+        frontend: {
+            component_based: ['React', 'Vue', 'Angular'],
+            learning_curve: {
+                beginner: 'Vue',
+                intermediate: 'React',
+                advanced: 'Angular'
+            },
+            large_applications: ['Angular', 'React'],
+            rapid_prototyping: ['Vue', 'React'],
+            mobile_development: ['React Native', 'Vue + Cordova'],
+            seo_important: ['Next.js', 'Nuxt.js', 'Angular Universal']
+        }
+    };
+    
+    const recommendations = {
+        backend: [],
+        frontend: []
+    };
+    
+    // Analyze requirements
+    requirements.forEach(req => {
+        if (criteria.backend[req]) {
+            recommendations.backend.push(...criteria.backend[req]);
+        }
+        if (criteria.frontend[req]) {
+            recommendations.frontend.push(...criteria.frontend[req]);
+        }
+    });
+    
+    return {
+        backend: getMostRecommended(recommendations.backend),
+        frontend: getMostRecommended(recommendations.frontend)
+    };
+}
+
+function getMostRecommended(recommendations) {
+    const counts = {};
+    recommendations.forEach(framework => {
+        counts[framework] = (counts[framework] || 0) + 1;
+    });
+    
+    return Object.keys(counts).reduce((a, b) => 
+        counts[a] > counts[b] ? a : b
+    ) || 'No recommendation';
+}
+
+// Example usage
+const projectNeeds = ['component_based', 'rapid_development', 'high_performance'];
+const recommended = selectJavaScriptFramework(projectNeeds);
+console.log('Recommended stack:', recommended);
+```
+</PythonEditor>
+
+## Full-Stack Architecture Patterns
+
+### Monolithic vs. Decoupled Architecture
+
+<PythonEditor title="Architecture Pattern Comparison" compare={true}>
+```python !! py
+# Django Monolithic Architecture
+# project/settings.py
+INSTALLED_APPS = [
+    'django.contrib.admin',
+    'django.contrib.auth',
+    'rest_framework',
+    'frontend',  # Frontend app with templates
+    'api',       # API endpoints
+    'accounts',  # User management
+]
+
+# Traditional Django approach
+class BlogPost(models.Model):
+    title = models.CharField(max_length=200)
+    content = models.TextField()
+    author = models.ForeignKey(User, on_delete=models.CASCADE)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+# views.py - Serving both HTML and API
+def blog_list(request):
+    posts = BlogPost.objects.all()
+    
+    if request.headers.get('Accept') == 'application/json':
+        # API response
+        return JsonResponse({
+            'posts': [
+                {
+                    'id': post.id,
+                    'title': post.title,
+                    'author': post.author.username,
+                    'created_at': post.created_at.isoformat()
+                }
+                for post in posts
+            ]
+        })
+    
+    # Template response
+    return render(request, 'blog/list.html', {'posts': posts})
+```
+
+```javascript !! js
+// Decoupled Architecture (Express.js + React)
+
+// Backend API (Express.js)
+const express = require('express');
+const cors = require('cors');
+const app = express();
+
+app.use(cors());
+app.use(express.json());
+
+// Mock database
+const posts = [
+    {
+        id: 1,
+        title: "Getting Started with React",
+        content: "React is a powerful library...",
+        author: "Alice",
+        createdAt: new Date().toISOString()
+    }
+];
+
+// Pure API endpoints
+app.get('/api/posts', (req, res) => {
+    res.json({ posts });
+});
+
+app.post('/api/posts', (req, res) => {
+    const { title, content, author } = req.body;
+    const newPost = {
+        id: posts.length + 1,
+        title,
+        content,
+        author,
+        createdAt: new Date().toISOString()
+    };
+    posts.push(newPost);
+    res.status(201).json(newPost);
+});
+
+// Frontend (React) - Separate application
+const BlogList = () => {
+    const [posts, setPosts] = useState([]);
+
+    useEffect(() => {
+        fetch('http://localhost:3001/api/posts')
+            .then(res => res.json())
+            .then(data => setPosts(data.posts));
+    }, []);
+
+    return (
+        <div>
+            <h1>Blog Posts</h1>
+            {posts.map(post => (
+                <article key={post.id}>
+                    <h2>{post.title}</h2>
+                    <p>By {post.author} on {post.createdAt}</p>
+                </article>
+            ))}
+        </div>
+    );
+};
+```
+</PythonEditor>
+
+## Routing and Navigation
+
+### Server-Side vs Client-Side Routing
+
+<PythonEditor title="Routing Comparison" compare={true}>
+```python !! py
+# Django URL routing (urls.py)
+from django.urls import path, include
+from . import views
+
+# URL patterns with server-side routing
+urlpatterns = [
+    # Static routes
+    path('', views.home, name='home'),
+    path('about/', views.about, name='about'),
+    
+    # Dynamic routes
+    path('blog/<int:post_id>/', views.blog_detail, name='blog_detail'),
+    path('user/<str:username>/', views.user_profile, name='user_profile'),
+    
+    # Nested routing
+    path('api/', include('api.urls')),
+    path('admin/', admin.site.urls),
+]
+
+# views.py
+def blog_detail(request, post_id):
+    try:
+        post = BlogPost.objects.get(id=post_id)
+        return render(request, 'blog/detail.html', {'post': post})
+    except BlogPost.DoesNotExist:
+        return HttpResponseNotFound("Post not found")
+
+def user_profile(request, username):
+    try:
+        user = User.objects.get(username=username)
+        posts = BlogPost.objects.filter(author=user)
+        return render(request, 'users/profile.html', {
+            'user': user,
+            'posts': posts
+        })
+    except User.DoesNotExist:
+        return HttpResponseNotFound("User not found")
+```
+
+```javascript !! js
+// React Router (Client-side routing)
+import { BrowserRouter as Router, Routes, Route, Link, useParams } from 'react-router-dom';
+
+const App = () => {
+    return (
+        <Router>
+            <nav>
+                <Link to="/">Home</Link>
+                <Link to="/about">About</Link>
+                <Link to="/blog">Blog</Link>
+            </nav>
+            
+            <Routes>
+                <Route path="/" element={<Home />} />
+                <Route path="/about" element={<About />} />
+                <Route path="/blog" element={<BlogList />} />
+                <Route path="/blog/:postId" element={<BlogDetail />} />
+                <Route path="/user/:username" element={<UserProfile />} />
+                <Route path="*" element={<NotFound />} />
+            </Routes>
+        </Router>
+    );
+};
+
+// Component with dynamic routing
+const BlogDetail = () => {
+    const { postId } = useParams();
+    const [post, setPost] = useState(null);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        fetch(`/api/posts/${postId}`)
+            .then(res => {
+                if (!res.ok) throw new Error('Post not found');
+                return res.json();
+            })
+            .then(data => {
+                setPost(data);
+                setLoading(false);
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                setLoading(false);
+            });
+    }, [postId]);
+
+    if (loading) return <div>Loading...</div>;
+    if (!post) return <div>Post not found</div>;
+
+    return (
+        <article>
+            <h1>{post.title}</h1>
+            <p>By {post.author}</p>
+            <div>{post.content}</div>
+        </article>
+    );
+};
+
+const UserProfile = () => {
+    const { username } = useParams();
+    // Similar implementation for user profile
+    return <div>User Profile for {username}</div>;
+};
+```
+</PythonEditor>
+
+## Summary and Best Practices
+
+### Framework Selection Checklist
+
+1. **Project Requirements**
+   - API-only vs Full-stack
+   - Real-time features needed
+   - SEO requirements
+   - Team expertise
+
+2. **Python to JavaScript Migration Path**
+   - Start with Express.js for backend familiarity
+   - Choose React or Vue for frontend based on complexity
+   - Consider Next.js for SSR/SEO needs
+
+3. **Development Workflow**
+   - Separate frontend and backend repositories
+   - Use API-first development approach
+   - Implement proper CORS handling
+   - Plan for authentication and authorization
+
+4. **Performance Considerations**
+   - Client-side routing for better UX
+   - Code splitting and lazy loading
+   - API optimization and caching
+   - Bundle size optimization
+
+---
+
+In the next module, we'll dive deeper into Node.js backend development and explore how to build robust server-side applications with JavaScript.
