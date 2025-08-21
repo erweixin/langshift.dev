@@ -1,2351 +1,1603 @@
 ---
-title: Node.js 后端开发
-description: 学习如何使用 Node.js 构建服务端应用，对比 Python 后端开发的异同点
+title: Node.js Backend Development
+description: Master Node.js backend development coming from Python. Learn Express.js, database integration, authentication, real-time features, and deployment strategies.
 ---
 
-import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
-import { Step, Steps } from 'fumadocs-ui/components/steps';
-import { Callout } from 'fumadocs-ui/components/callout';
+# Node.js Backend Development
 
-# Node.js 后端开发
+In this module, we'll dive deep into Node.js backend development from a Python developer's perspective. You'll learn how to build robust server-side applications using JavaScript, leveraging your existing backend development knowledge.
 
-Node.js 允许开发者使用 JavaScript 构建服务端应用，这为 Python 开发者提供了一个有趣的对比学习机会。本章将深入探讨 Node.js 后端开发的核心概念，并与 Python 后端开发进行详细对比。
+## Node.js Runtime Environment
 
-## 1. Node.js 运行时概述
+### Python vs Node.js Runtime Comparison
 
-### 运行环境对比
-
-<Tabs items={['Python 运行时', 'Node.js 运行时']}>
-
-<Tab value="Python 运行时">
-
-```python
-# Python 运行时特性
-import sys
+<PythonEditor title="Runtime Environment Comparison" compare={true}>
+```python !! py
+# Python server environment
 import os
-import asyncio
-from threading import Thread
+import sys
+import platform
+from datetime import datetime
 
-# 全局解释器锁 (GIL)
-print(f"Python 版本: {sys.version}")
-print(f"平台: {sys.platform}")
-
-# Python 中的并发
-def cpu_bound_task():
-    """CPU 密集型任务"""
-    total = 0
-    for i in range(1000000):
-        total += i ** 2
-    return total
-
-# 多线程（受 GIL 限制）
-import threading
-threads = []
-for i in range(4):
-    t = threading.Thread(target=cpu_bound_task)
-    threads.append(t)
-    t.start()
-
-for t in threads:
-    t.join()
-
-# 异步编程
-async def io_bound_task():
-    """IO 密集型任务"""
-    await asyncio.sleep(1)
-    return "任务完成"
-
-async def main():
-    tasks = [io_bound_task() for _ in range(10)]
-    results = await asyncio.gather(*tasks)
-    print(f"完成 {len(results)} 个任务")
-
-asyncio.run(main())
-```
-
-</Tab>
-
-<Tab value="Node.js 运行时">
-
-```javascript
-// Node.js 运行时特性
-console.log(`Node.js 版本: ${process.version}`);
-console.log(`平台: ${process.platform}`);
-console.log(`架构: ${process.arch}`);
-
-// 单线程事件循环
-console.log("事件循环阶段:");
-console.log("1. Timer 阶段");
-console.log("2. Pending callbacks 阶段");
-console.log("3. Poll 阶段");
-console.log("4. Check 阶段");
-console.log("5. Close callbacks 阶段");
-
-// CPU 密集型任务处理
-const { Worker, isMainThread, parentPort, workerData } = require('worker_threads');
-
-if (isMainThread) {
-    // 主线程
-    const workers = [];
-    const numWorkers = 4;
-    
-    for (let i = 0; i < numWorkers; i++) {
-        const worker = new Worker(__filename, {
-            workerData: { start: i * 250000, end: (i + 1) * 250000 }
-        });
-        
-        worker.on('message', (result) => {
-            console.log(`Worker ${i} 完成: ${result}`);
-        });
-        
-        workers.push(worker);
+def server_info():
+    """Display Python server environment information"""
+    return {
+        'runtime': 'Python',
+        'version': sys.version,
+        'platform': platform.platform(),
+        'architecture': platform.architecture(),
+        'executable': sys.executable,
+        'path': sys.path[:3],  # First 3 paths
+        'environment': {
+            'HOME': os.environ.get('HOME', 'N/A'),
+            'PATH': os.environ.get('PATH', 'N/A')[:100] + '...',
+            'PYTHON_PATH': os.environ.get('PYTHONPATH', 'Not set')
+        },
+        'process_id': os.getpid(),
+        'current_time': datetime.now().isoformat()
     }
-} else {
-    // Worker 线程
-    function cpuBoundTask(start, end) {
-        let total = 0;
-        for (let i = start; i < end; i++) {
-            total += i ** 2;
-        }
-        return total;
-    }
+
+# WSGI/ASGI application structure
+def wsgi_application(environ, start_response):
+    """Simple WSGI application"""
+    status = '200 OK'
+    headers = [('Content-type', 'application/json')]
+    start_response(status, headers)
     
-    const result = cpuBoundTask(workerData.start, workerData.end);
-    parentPort.postMessage(result);
-}
+    info = server_info()
+    import json
+    return [json.dumps(info, indent=2).encode('utf-8')]
 
-// 异步编程 (原生 Promise)
-async function ioBoundTask() {
-    return new Promise(resolve => {
-        setTimeout(() => resolve("任务完成"), 1000);
-    });
-}
-
-async function main() {
-    const tasks = Array(10).fill().map(() => ioBoundTask());
-    const results = await Promise.all(tasks);
-    console.log(`完成 ${results.length} 个任务`);
-}
-
-main();
-```
-
-</Tab>
-
-</Tabs>
-
-### 内存管理对比
-
-```javascript
-// Node.js 内存管理
-console.log("Node.js 内存使用情况:");
-console.log(process.memoryUsage());
-
-// 垃圾回收控制
-if (global.gc) {
-    global.gc(); // 手动触发垃圾回收
-    console.log("垃圾回收后:", process.memoryUsage());
-}
-
-// 内存泄漏检测
-const memwatch = require('@airbnb/node-memwatch');
-
-memwatch.on('leak', (info) => {
-    console.log('内存泄漏检测:', info);
-});
-
-memwatch.on('stats', (stats) => {
-    console.log('内存统计:', stats);
-});
-
-// 对比 Python 的内存管理
-/*
-Python 自动内存管理:
-- 引用计数 + 循环垃圾回收
-- 内存池管理小对象
-- gc 模块控制垃圾回收
-
-Node.js V8 内存管理:
-- 分代垃圾回收
-- 新生代 (Scavenge) + 老生代 (Mark-Sweep-Compact)
-- --max-old-space-size 控制内存限制
-*/
-```
-
-## 2. HTTP 服务器对比
-
-### 基础 HTTP 服务器
-
-<Tabs items={['Python HTTP 服务器', 'Node.js HTTP 服务器']}>
-
-<Tab value="Python HTTP 服务器">
-
-```python
-# Python 内置 HTTP 服务器
-from http.server import HTTPServer, BaseHTTPRequestHandler
-import json
-from urllib.parse import urlparse, parse_qs
-
-class RequestHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        parsed_path = urlparse(self.path)
-        query_params = parse_qs(parsed_path.query)
-        
-        if parsed_path.path == '/':
-            self.send_response(200)
-            self.send_header('Content-Type', 'text/plain')
-            self.end_headers()
-            self.wfile.write(b'Hello from Python!')
-            
-        elif parsed_path.path == '/api/users':
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.end_headers()
-            
-            users = [
-                {'id': 1, 'name': 'Alice'},
-                {'id': 2, 'name': 'Bob'}
-            ]
-            self.wfile.write(json.dumps(users).encode())
-            
-        else:
-            self.send_response(404)
-            self.end_headers()
-    
-    def do_POST(self):
-        if self.path == '/api/users':
-            content_length = int(self.headers['Content-Length'])
-            post_data = self.rfile.read(content_length)
-            
-            try:
-                user_data = json.loads(post_data.decode())
-                # 处理用户数据
-                response = {'status': 'success', 'user': user_data}
-                
-                self.send_response(201)
-                self.send_header('Content-Type', 'application/json')
-                self.end_headers()
-                self.wfile.write(json.dumps(response).encode())
-            except json.JSONDecodeError:
-                self.send_response(400)
-                self.end_headers()
-
-# 启动服务器
-server = HTTPServer(('localhost', 8000), RequestHandler)
-print("Python 服务器运行在 http://localhost:8000")
-server.serve_forever()
-
-# 使用 Flask 的简化版本
-from flask import Flask, request, jsonify
-
-app = Flask(__name__)
-
-@app.route('/')
-def home():
-    return 'Hello from Flask!'
-
-@app.route('/api/users', methods=['GET'])
-def get_users():
-    users = [
-        {'id': 1, 'name': 'Alice'},
-        {'id': 2, 'name': 'Bob'}
-    ]
-    return jsonify(users)
-
-@app.route('/api/users', methods=['POST'])
-def create_user():
-    user_data = request.get_json()
-    response = {'status': 'success', 'user': user_data}
-    return jsonify(response), 201
-
+# Example usage
 if __name__ == '__main__':
-    app.run(host='localhost', port=8000, debug=True)
+    info = server_info()
+    print("Python Server Environment:")
+    for key, value in info.items():
+        print(f"{key}: {value}")
 ```
 
-</Tab>
+```javascript !! js
+// Node.js server environment
+const os = require('os');
+const process = require('process');
+const path = require('path');
 
-<Tab value="Node.js HTTP 服务器">
+function serverInfo() {
+    /**
+     * Display Node.js server environment information
+     */
+    return {
+        runtime: 'Node.js',
+        version: process.version,
+        platform: os.platform(),
+        architecture: os.arch(),
+        executable: process.execPath,
+        nodeModulesPath: path.join(__dirname, 'node_modules'),
+        environment: {
+            HOME: process.env.HOME || 'N/A',
+            PATH: (process.env.PATH || 'N/A').substring(0, 100) + '...',
+            NODE_PATH: process.env.NODE_PATH || 'Not set',
+            NODE_ENV: process.env.NODE_ENV || 'development'
+        },
+        processId: process.pid,
+        uptime: process.uptime(),
+        memoryUsage: process.memoryUsage(),
+        currentTime: new Date().toISOString()
+    };
+}
 
-```javascript
-// Node.js 内置 HTTP 服务器
-const http = require('http');
-const url = require('url');
-const querystring = require('querystring');
-
-const server = http.createServer((req, res) => {
-    const parsedUrl = url.parse(req.url, true);
-    const method = req.method;
-    const pathname = parsedUrl.pathname;
-    const query = parsedUrl.query;
-    
-    // 设置 CORS 头
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-    
-    if (method === 'GET' && pathname === '/') {
-        res.writeHead(200, { 'Content-Type': 'text/plain' });
-        res.end('Hello from Node.js!');
-        
-    } else if (method === 'GET' && pathname === '/api/users') {
-        const users = [
-            { id: 1, name: 'Alice' },
-            { id: 2, name: 'Bob' }
-        ];
-        
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(users));
-        
-    } else if (method === 'POST' && pathname === '/api/users') {
-        let body = '';
-        
-        req.on('data', chunk => {
-            body += chunk.toString();
-        });
-        
-        req.on('end', () => {
-            try {
-                const userData = JSON.parse(body);
-                const response = { status: 'success', user: userData };
-                
-                res.writeHead(201, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify(response));
-            } catch (error) {
-                res.writeHead(400, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: 'Invalid JSON' }));
-            }
-        });
-        
-    } else {
-        res.writeHead(404, { 'Content-Type': 'text/plain' });
-        res.end('Not Found');
-    }
-});
-
-server.listen(8000, 'localhost', () => {
-    console.log('Node.js 服务器运行在 http://localhost:8000');
-});
-
-// 使用 Express 的简化版本
+// Express.js application structure
 const express = require('express');
 const app = express();
 
-app.use(express.json());
-
-app.get('/', (req, res) => {
-    res.send('Hello from Express!');
+app.get('/info', (req, res) => {
+    const info = serverInfo();
+    res.json(info);
 });
 
-app.get('/api/users', (req, res) => {
+// Example usage
+if (require.main === module) {
+    const info = serverInfo();
+    console.log('Node.js Server Environment:');
+    Object.entries(info).forEach(([key, value]) => {
+        console.log(`${key}:`, value);
+    });
+    
+    // Start server
+    const PORT = process.env.PORT || 3000;
+    app.listen(PORT, () => {
+        console.log(`Server running on port ${PORT}`);
+    });
+}
+
+module.exports = { serverInfo, app };
+```
+</PythonEditor>
+
+## Express.js Advanced Features
+
+### Routing and Middleware Ecosystem
+
+<PythonEditor title="Advanced Express.js Routing" compare={true}>
+```python !! py
+# Django advanced URL routing and middleware
+from django.urls import path, include
+from django.http import JsonResponse
+from django.middleware.csrf import CsrfViewMiddleware
+from django.contrib.auth.decorators import login_required
+import time
+import logging
+
+# Custom middleware
+class RequestLoggingMiddleware:
+    def __init__(self, get_response):
+        self.get_response = get_response
+        self.logger = logging.getLogger(__name__)
+
+    def __call__(self, request):
+        start_time = time.time()
+        
+        # Log request
+        self.logger.info(f"Request: {request.method} {request.path}")
+        
+        response = self.get_response(request)
+        
+        # Log response with timing
+        duration = time.time() - start_time
+        self.logger.info(f"Response: {response.status_code} ({duration:.3f}s)")
+        
+        return response
+
+# API views with decorators
+@login_required
+def api_users(request):
+    if request.method == 'GET':
+        users = [
+            {'id': 1, 'name': 'Alice', 'email': 'alice@example.com'},
+            {'id': 2, 'name': 'Bob', 'email': 'bob@example.com'}
+        ]
+        return JsonResponse({'users': users})
+
+# Nested URL patterns
+api_patterns = [
+    path('users/', api_users, name='api_users'),
+    path('posts/', include('blog.urls')),
+]
+
+urlpatterns = [
+    path('api/v1/', include(api_patterns)),
+    path('admin/', admin.site.urls),
+]
+```
+
+```javascript !! js
+// Express.js advanced routing and middleware
+const express = require('express');
+const morgan = require('morgan');
+const helmet = require('helmet');
+const cors = require('cors');
+const rateLimit = require('express-rate-limit');
+
+const app = express();
+
+// Security middleware
+app.use(helmet());
+app.use(cors({
+    origin: process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000'],
+    credentials: true
+}));
+
+// Request logging middleware
+app.use(morgan('combined'));
+
+// Rate limiting
+const limiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 100, // Limit each IP to 100 requests per windowMs
+    message: 'Too many requests from this IP'
+});
+app.use('/api/', limiter);
+
+// Body parsing middleware
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true }));
+
+// Custom authentication middleware
+const authMiddleware = (req, res, next) => {
+    const token = req.headers.authorization?.split(' ')[1];
+    
+    if (!token) {
+        return res.status(401).json({ error: 'No token provided' });
+    }
+    
+    // Simplified token validation
+    try {
+        // In real app, verify JWT token
+        req.user = { id: 1, name: 'Authenticated User' };
+        next();
+    } catch (error) {
+        res.status(401).json({ error: 'Invalid token' });
+    }
+};
+
+// Router for API v1
+const apiV1Router = express.Router();
+
+// Users endpoint with authentication
+apiV1Router.get('/users', authMiddleware, (req, res) => {
     const users = [
-        { id: 1, name: 'Alice' },
-        { id: 2, name: 'Bob' }
+        { id: 1, name: 'Alice', email: 'alice@example.com' },
+        { id: 2, name: 'Bob', email: 'bob@example.com' }
     ];
-    res.json(users);
+    res.json({ users });
 });
 
-app.post('/api/users', (req, res) => {
-    const userData = req.body;
-    const response = { status: 'success', user: userData };
-    res.status(201).json(response);
+// Posts router (nested)
+const postsRouter = express.Router();
+postsRouter.get('/', (req, res) => {
+    res.json({ posts: [] });
+});
+postsRouter.get('/:id', (req, res) => {
+    res.json({ post: { id: req.params.id } });
 });
 
-app.listen(8000, () => {
-    console.log('Express 服务器运行在 http://localhost:8000');
-});
-```
+apiV1Router.use('/posts', postsRouter);
 
-</Tab>
+// Mount API router
+app.use('/api/v1', apiV1Router);
 
-</Tabs>
-
-## 3. 文件系统操作对比
-
-<Tabs items={['Python 文件操作', 'Node.js 文件操作']}>
-
-<Tab value="Python 文件操作">
-
-```python
-# Python 文件系统操作
-import os
-import shutil
-import json
-import asyncio
-import aiofiles
-from pathlib import Path
-
-# 同步文件操作
-def sync_file_operations():
-    # 读取文件
-    try:
-        with open('data.txt', 'r', encoding='utf-8') as file:
-            content = file.read()
-            print(f"文件内容: {content}")
-    except FileNotFoundError:
-        print("文件不存在")
-    
-    # 写入文件
-    with open('output.txt', 'w', encoding='utf-8') as file:
-        file.write("Hello from Python!")
-    
-    # JSON 操作
-    data = {'name': 'Alice', 'age': 30}
-    with open('data.json', 'w', encoding='utf-8') as file:
-        json.dump(data, file, ensure_ascii=False, indent=2)
-    
-    with open('data.json', 'r', encoding='utf-8') as file:
-        loaded_data = json.load(file)
-        print(f"JSON 数据: {loaded_data}")
-    
-    # 目录操作
-    os.makedirs('test_dir', exist_ok=True)
-    
-    # 遍历目录
-    for root, dirs, files in os.walk('.'):
-        for file in files:
-            file_path = os.path.join(root, file)
-            print(f"文件: {file_path}")
-    
-    # 文件信息
-    stat = os.stat('data.json')
-    print(f"文件大小: {stat.st_size} 字节")
-    print(f"修改时间: {stat.st_mtime}")
-
-# 异步文件操作
-async def async_file_operations():
-    # 异步读取文件
-    try:
-        async with aiofiles.open('data.txt', 'r', encoding='utf-8') as file:
-            content = await file.read()
-            print(f"异步读取: {content}")
-    except FileNotFoundError:
-        print("文件不存在")
-    
-    # 异步写入文件
-    async with aiofiles.open('async_output.txt', 'w', encoding='utf-8') as file:
-        await file.write("Hello from async Python!")
-    
-    # 并发文件操作
-    async def process_file(filename):
-        async with aiofiles.open(filename, 'w', encoding='utf-8') as file:
-            await file.write(f"内容 - {filename}")
-        return f"处理完成: {filename}"
-    
-    tasks = [process_file(f'file_{i}.txt') for i in range(5)]
-    results = await asyncio.gather(*tasks)
-    print("并发文件操作结果:", results)
-
-# 执行文件操作
-sync_file_operations()
-asyncio.run(async_file_operations())
-
-# 使用 pathlib (推荐)
-def modern_file_operations():
-    # 路径操作
-    path = Path('data/users/profile.json')
-    path.parent.mkdir(parents=True, exist_ok=True)
-    
-    # 写入 JSON
-    data = {'users': [{'id': 1, 'name': 'Alice'}]}
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
-    
-    # 读取 JSON
-    content = path.read_text(encoding='utf-8')
-    loaded_data = json.loads(content)
-    print(f"现代方式读取: {loaded_data}")
-    
-    # 路径信息
-    print(f"文件存在: {path.exists()}")
-    print(f"是否为文件: {path.is_file()}")
-    print(f"文件大小: {path.stat().st_size}")
-
-modern_file_operations()
-```
-
-</Tab>
-
-<Tab value="Node.js 文件操作">
-
-```javascript
-// Node.js 文件系统操作
-const fs = require('fs');
-const fsPromises = require('fs').promises;
-const path = require('path');
-
-// 同步文件操作（阻塞）
-function syncFileOperations() {
-    try {
-        // 读取文件
-        const content = fs.readFileSync('data.txt', 'utf8');
-        console.log(`文件内容: ${content}`);
-    } catch (error) {
-        console.log('文件不存在');
-    }
-    
-    // 写入文件
-    fs.writeFileSync('output.txt', 'Hello from Node.js!');
-    
-    // JSON 操作
-    const data = { name: 'Alice', age: 30 };
-    fs.writeFileSync('data.json', JSON.stringify(data, null, 2));
-    
-    const loadedData = JSON.parse(fs.readFileSync('data.json', 'utf8'));
-    console.log(`JSON 数据: ${JSON.stringify(loadedData)}`);
-    
-    // 目录操作
-    if (!fs.existsSync('test_dir')) {
-        fs.mkdirSync('test_dir', { recursive: true });
-    }
-    
-    // 遍历目录
-    function walkDir(dir) {
-        const files = fs.readdirSync(dir);
-        files.forEach(file => {
-            const filePath = path.join(dir, file);
-            const stat = fs.statSync(filePath);
-            
-            if (stat.isDirectory()) {
-                walkDir(filePath);
-            } else {
-                console.log(`文件: ${filePath}`);
-            }
-        });
-    }
-    
-    walkDir('.');
-    
-    // 文件信息
-    const stat = fs.statSync('data.json');
-    console.log(`文件大小: ${stat.size} 字节`);
-    console.log(`修改时间: ${stat.mtime}`);
-}
-
-// 异步文件操作（回调方式）
-function callbackFileOperations() {
-    // 读取文件
-    fs.readFile('data.txt', 'utf8', (err, content) => {
-        if (err) {
-            console.log('文件不存在');
-        } else {
-            console.log(`回调读取: ${content}`);
-        }
+// Error handling middleware
+app.use((error, req, res, next) => {
+    console.error('Error:', error);
+    res.status(500).json({ 
+        error: 'Internal server error',
+        message: error.message 
     });
-    
-    // 写入文件
-    fs.writeFile('callback_output.txt', 'Hello from callback!', (err) => {
-        if (err) throw err;
-        console.log('回调写入完成');
-    });
-    
-    // 并发文件操作
-    const filenames = Array.from({ length: 5 }, (_, i) => `callback_file_${i}.txt`);
-    let completed = 0;
-    
-    filenames.forEach((filename, index) => {
-        fs.writeFile(filename, `内容 - ${filename}`, (err) => {
-            if (err) throw err;
-            completed++;
-            console.log(`回调处理完成: ${filename}`);
-            
-            if (completed === filenames.length) {
-                console.log('所有回调文件操作完成');
-            }
-        });
-    });
-}
-
-// 异步文件操作（Promise 方式）
-async function promiseFileOperations() {
-    try {
-        // 读取文件
-        const content = await fsPromises.readFile('data.txt', 'utf8');
-        console.log(`Promise 读取: ${content}`);
-    } catch (error) {
-        console.log('文件不存在');
-    }
-    
-    // 写入文件
-    await fsPromises.writeFile('promise_output.txt', 'Hello from Promise!');
-    console.log('Promise 写入完成');
-    
-    // JSON 操作
-    const data = { users: [{ id: 1, name: 'Alice' }] };
-    await fsPromises.writeFile('promise_data.json', JSON.stringify(data, null, 2));
-    
-    const loadedData = JSON.parse(await fsPromises.readFile('promise_data.json', 'utf8'));
-    console.log(`Promise JSON: ${JSON.stringify(loadedData)}`);
-    
-    // 目录操作
-    await fsPromises.mkdir('data/users', { recursive: true });
-    
-    // 并发文件操作
-    const processFile = async (filename) => {
-        await fsPromises.writeFile(filename, `内容 - ${filename}`);
-        return `Promise 处理完成: ${filename}`;
-    };
-    
-    const tasks = Array.from({ length: 5 }, (_, i) => 
-        processFile(`promise_file_${i}.txt`)
-    );
-    
-    const results = await Promise.all(tasks);
-    console.log('Promise 并发结果:', results);
-    
-    // 文件信息
-    const stat = await fsPromises.stat('promise_data.json');
-    console.log(`Promise 文件大小: ${stat.size} 字节`);
-    console.log(`Promise 修改时间: ${stat.mtime}`);
-}
-
-// 现代异步文件操作（Node.js 14+）
-async function modernFileOperations() {
-    try {
-        // 使用 fs/promises
-        const { readFile, writeFile, mkdir, stat } = require('fs/promises');
-        
-        // 路径操作
-        const filePath = path.join('data', 'users', 'profile.json');
-        await mkdir(path.dirname(filePath), { recursive: true });
-        
-        // 写入 JSON
-        const data = { users: [{ id: 1, name: 'Alice' }] };
-        await writeFile(filePath, JSON.stringify(data, null, 2));
-        
-        // 读取 JSON
-        const content = await readFile(filePath, 'utf8');
-        const loadedData = JSON.parse(content);
-        console.log(`现代方式读取: ${JSON.stringify(loadedData)}`);
-        
-        // 文件信息
-        const filestat = await stat(filePath);
-        console.log(`文件存在: ${filestat.isFile()}`);
-        console.log(`文件大小: ${filestat.size}`);
-        
-        // Stream 操作（处理大文件）
-        const { createReadStream, createWriteStream } = require('fs');
-        const readline = require('readline');
-        
-        // 创建大文件
-        const writeStream = createWriteStream('large_file.txt');
-        for (let i = 0; i < 100000; i++) {
-            writeStream.write(`Line ${i}: This is a test line\n`);
-        }
-        writeStream.end();
-        
-        // 逐行读取大文件
-        const fileStream = createReadStream('large_file.txt');
-        const rl = readline.createInterface({
-            input: fileStream,
-            crlfDelay: Infinity
-        });
-        
-        let lineCount = 0;
-        for await (const line of rl) {
-            lineCount++;
-            if (lineCount <= 5) {
-                console.log(`Stream 读取行 ${lineCount}: ${line}`);
-            }
-        }
-        console.log(`Stream 总行数: ${lineCount}`);
-        
-    } catch (error) {
-        console.error('现代文件操作错误:', error);
-    }
-}
-
-// 执行文件操作
-console.log('=== 同步文件操作 ===');
-syncFileOperations();
-
-console.log('\n=== 回调文件操作 ===');
-callbackFileOperations();
-
-console.log('\n=== Promise 文件操作 ===');
-promiseFileOperations().then(() => {
-    console.log('\n=== 现代文件操作 ===');
-    return modernFileOperations();
-});
-```
-
-</Tab>
-
-</Tabs>
-
-## 4. 数据库集成对比
-
-### SQL 数据库操作
-
-<Tabs items={['Python + SQLAlchemy', 'Node.js + Sequelize']}>
-
-<Tab value="Python + SQLAlchemy">
-
-```python
-# Python SQLAlchemy ORM
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, ForeignKey, Text
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, relationship
-from sqlalchemy.sql import func
-import asyncio
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-
-Base = declarative_base()
-
-# 模型定义
-class User(Base):
-    __tablename__ = 'users'
-    
-    id = Column(Integer, primary_key=True)
-    username = Column(String(50), unique=True, nullable=False)
-    email = Column(String(100), unique=True, nullable=False)
-    created_at = Column(DateTime, server_default=func.now())
-    
-    posts = relationship("Post", back_populates="author")
-    
-    def to_dict(self):
-        return {
-            'id': self.id,
-            'username': self.username,
-            'email': self.email,
-            'created_at': self.created_at.isoformat() if self.created_at else None
-        }
-
-class Post(Base):
-    __tablename__ = 'posts'
-    
-    id = Column(Integer, primary_key=True)
-    title = Column(String(200), nullable=False)
-    content = Column(Text)
-    author_id = Column(Integer, ForeignKey('users.id'))
-    created_at = Column(DateTime, server_default=func.now())
-    
-    author = relationship("User", back_populates="posts")
-    
-    def to_dict(self):
-        return {
-            'id': self.id,
-            'title': self.title,
-            'content': self.content,
-            'author_id': self.author_id,
-            'created_at': self.created_at.isoformat() if self.created_at else None
-        }
-
-# 同步数据库操作
-def sync_database_operations():
-    engine = create_engine('sqlite:///blog.db', echo=True)
-    Base.metadata.create_all(engine)
-    Session = sessionmaker(bind=engine)
-    session = Session()
-    
-    try:
-        # 创建用户
-        user = User(username='alice', email='alice@example.com')
-        session.add(user)
-        session.commit()
-        
-        # 创建文章
-        post = Post(title='我的第一篇文章', content='这是内容...', author_id=user.id)
-        session.add(post)
-        session.commit()
-        
-        # 查询操作
-        users = session.query(User).all()
-        print("所有用户:", [user.to_dict() for user in users])
-        
-        # 关联查询
-        posts_with_authors = session.query(Post).join(User).all()
-        for post in posts_with_authors:
-            print(f"文章: {post.title}, 作者: {post.author.username}")
-        
-        # 复杂查询
-        recent_posts = session.query(Post)\
-            .join(User)\
-            .filter(User.username.like('%alice%'))\
-            .order_by(Post.created_at.desc())\
-            .limit(10).all()
-        
-        print("最近文章:", [post.to_dict() for post in recent_posts])
-        
-    finally:
-        session.close()
-
-# 异步数据库操作
-async def async_database_operations():
-    engine = create_async_engine('sqlite+aiosqlite:///async_blog.db', echo=True)
-    
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    
-    async with AsyncSession(engine) as session:
-        try:
-            # 创建用户
-            user = User(username='bob', email='bob@example.com')
-            session.add(user)
-            await session.commit()
-            
-            # 创建文章
-            post = Post(title='异步文章', content='异步内容...', author_id=user.id)
-            session.add(post)
-            await session.commit()
-            
-            # 异步查询
-            from sqlalchemy import select
-            
-            result = await session.execute(select(User))
-            users = result.scalars().all()
-            print("异步用户:", [user.to_dict() for user in users])
-            
-            # 异步关联查询
-            result = await session.execute(
-                select(Post).join(User).where(User.username == 'bob')
-            )
-            posts = result.scalars().all()
-            print("异步文章:", [post.to_dict() for post in posts])
-            
-        finally:
-            await session.close()
-    
-    await engine.dispose()
-
-# 执行数据库操作
-sync_database_operations()
-asyncio.run(async_database_operations())
-```
-
-</Tab>
-
-<Tab value="Node.js + Sequelize">
-
-```javascript
-// Node.js Sequelize ORM
-const { Sequelize, DataTypes, Op } = require('sequelize');
-
-// 数据库连接
-const sequelize = new Sequelize({
-    dialect: 'sqlite',
-    storage: 'blog.db',
-    logging: console.log
 });
 
-// 模型定义
-const User = sequelize.define('User', {
+// 404 handler
+app.use((req, res) => {
+    res.status(404).json({ error: 'Route not found' });
+});
+
+module.exports = app;
+```
+</PythonEditor>
+
+## Database Integration
+
+### MongoDB with Mongoose vs Django ORM
+
+<PythonEditor title="Database Operations Comparison" compare={true}>
+```python !! py
+# Django ORM models and operations
+from django.db import models
+from django.contrib.auth.models import User
+from datetime import datetime
+
+class BlogPost(models.Model):
+    title = models.CharField(max_length=200)
+    content = models.TextField()
+    author = models.ForeignKey(User, on_delete=models.CASCADE)
+    published = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    tags = models.ManyToManyField('Tag', blank=True)
+    
+    class Meta:
+        ordering = ['-created_at']
+    
+    def __str__(self):
+        return self.title
+
+class Tag(models.Model):
+    name = models.CharField(max_length=50, unique=True)
+    
+    def __str__(self):
+        return self.name
+
+# Database operations
+def blog_operations():
+    # Create
+    post = BlogPost.objects.create(
+        title="Learning Node.js",
+        content="Node.js is a powerful runtime...",
+        author_id=1,
+        published=True
+    )
+    
+    # Read with relationships
+    posts = BlogPost.objects.select_related('author').prefetch_related('tags').filter(
+        published=True
+    )
+    
+    # Update
+    BlogPost.objects.filter(id=post.id).update(
+        title="Advanced Node.js",
+        updated_at=datetime.now()
+    )
+    
+    # Complex queries
+    recent_posts = BlogPost.objects.filter(
+        created_at__gte=datetime.now() - timedelta(days=7),
+        published=True
+    ).order_by('-created_at')[:10]
+    
+    # Aggregation
+    from django.db.models import Count
+    tag_counts = Tag.objects.annotate(
+        post_count=Count('blogpost')
+    ).order_by('-post_count')
+    
+    return {
+        'created_post': post,
+        'posts': list(posts.values()),
+        'recent_posts': list(recent_posts.values()),
+        'tag_counts': list(tag_counts.values())
+    }
+```
+
+```javascript !! js
+// Mongoose models and operations
+const mongoose = require('mongoose');
+
+// Define schemas
+const tagSchema = new mongoose.Schema({
+    name: {
+        type: String,
+        required: true,
+        unique: true,
+        maxlength: 50
+    }
+});
+
+const userSchema = new mongoose.Schema({
     username: {
-        type: DataTypes.STRING(50),
-        allowNull: false,
+        type: String,
+        required: true,
         unique: true
     },
     email: {
-        type: DataTypes.STRING(100),
-        allowNull: false,
+        type: String,
+        required: true,
         unique: true
+    },
+    password: {
+        type: String,
+        required: true
     }
-}, {
-    tableName: 'users',
-    timestamps: true,
-    createdAt: 'created_at',
-    updatedAt: 'updated_at'
 });
 
-const Post = sequelize.define('Post', {
+const blogPostSchema = new mongoose.Schema({
     title: {
-        type: DataTypes.STRING(200),
-        allowNull: false
+        type: String,
+        required: true,
+        maxlength: 200
     },
     content: {
-        type: DataTypes.TEXT
+        type: String,
+        required: true
+    },
+    author: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+        required: true
+    },
+    published: {
+        type: Boolean,
+        default: false
+    },
+    tags: [{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Tag'
+    }],
+    createdAt: {
+        type: Date,
+        default: Date.now
+    },
+    updatedAt: {
+        type: Date,
+        default: Date.now
     }
-}, {
-    tableName: 'posts',
-    timestamps: true,
-    createdAt: 'created_at',
-    updatedAt: 'updated_at'
 });
 
-// 关联关系
-User.hasMany(Post, { 
-    foreignKey: 'author_id',
-    as: 'posts'
+// Middleware for updating updatedAt
+blogPostSchema.pre('save', function(next) {
+    this.updatedAt = Date.now();
+    next();
 });
 
-Post.belongsTo(User, { 
-    foreignKey: 'author_id',
-    as: 'author'
-});
+// Create models
+const Tag = mongoose.model('Tag', tagSchema);
+const User = mongoose.model('User', userSchema);
+const BlogPost = mongoose.model('BlogPost', blogPostSchema);
 
-// 同步数据库操作（不推荐在生产环境）
-async function syncDatabaseOperations() {
+// Database operations
+async function blogOperations() {
     try {
-        // 同步模型到数据库
-        await sequelize.sync({ force: true });
-        console.log('数据库同步完成');
-        
-        // 创建用户
-        const user = await User.create({
-            username: 'alice',
-            email: 'alice@example.com'
-        });
-        console.log('用户创建:', user.toJSON());
-        
-        // 创建文章
-        const post = await Post.create({
-            title: '我的第一篇文章',
-            content: '这是内容...',
-            author_id: user.id
-        });
-        console.log('文章创建:', post.toJSON());
-        
-        // 查询操作
-        const users = await User.findAll();
-        console.log('所有用户:', users.map(u => u.toJSON()));
-        
-        // 关联查询
-        const postsWithAuthors = await Post.findAll({
-            include: [{
-                model: User,
-                as: 'author'
-            }]
+        // Create
+        const post = await BlogPost.create({
+            title: "Learning Node.js",
+            content: "Node.js is a powerful runtime...",
+            author: new mongoose.Types.ObjectId(), // Assuming user exists
+            published: true
         });
         
-        postsWithAuthors.forEach(post => {
-            console.log(`文章: ${post.title}, 作者: ${post.author.username}`);
-        });
-        
-        // 复杂查询
-        const recentPosts = await Post.findAll({
-            include: [{
-                model: User,
-                as: 'author',
-                where: {
-                    username: {
-                        [Op.like]: '%alice%'
-                    }
-                }
-            }],
-            order: [['created_at', 'DESC']],
-            limit: 10
-        });
-        
-        console.log('最近文章:', recentPosts.map(p => p.toJSON()));
-        
-        // 事务操作
-        const transaction = await sequelize.transaction();
-        try {
-            const newUser = await User.create({
-                username: 'charlie',
-                email: 'charlie@example.com'
-            }, { transaction });
-            
-            await Post.create({
-                title: '事务文章',
-                content: '事务内容...',
-                author_id: newUser.id
-            }, { transaction });
-            
-            await transaction.commit();
-            console.log('事务提交成功');
-        } catch (error) {
-            await transaction.rollback();
-            console.error('事务回滚:', error);
-        }
-        
-    } catch (error) {
-        console.error('数据库操作错误:', error);
-    }
-}
-
-// 异步数据库服务类
-class DatabaseService {
-    static async initialize() {
-        try {
-            await sequelize.authenticate();
-            console.log('数据库连接成功');
-            
-            await sequelize.sync({ alter: true });
-            console.log('数据库模型同步完成');
-        } catch (error) {
-            console.error('数据库初始化失败:', error);
-            throw error;
-        }
-    }
-    
-    static async createUser(userData) {
-        try {
-            const user = await User.create(userData);
-            return user.toJSON();
-        } catch (error) {
-            if (error.name === 'SequelizeUniqueConstraintError') {
-                throw new Error('用户名或邮箱已存在');
-            }
-            throw error;
-        }
-    }
-    
-    static async getUserWithPosts(userId) {
-        const user = await User.findByPk(userId, {
-            include: [{
-                model: Post,
-                as: 'posts',
-                order: [['created_at', 'DESC']]
-            }]
-        });
-        
-        if (!user) {
-            throw new Error('用户不存在');
-        }
-        
-        return user.toJSON();
-    }
-    
-    static async searchPosts(searchTerm, page = 1, limit = 10) {
-        const offset = (page - 1) * limit;
-        
-        const { count, rows } = await Post.findAndCountAll({
-            where: {
-                [Op.or]: [
-                    { title: { [Op.like]: `%${searchTerm}%` } },
-                    { content: { [Op.like]: `%${searchTerm}%` } }
-                ]
-            },
-            include: [{
-                model: User,
-                as: 'author',
-                attributes: ['id', 'username']
-            }],
-            order: [['created_at', 'DESC']],
-            limit,
-            offset
-        });
-        
-        return {
-            posts: rows.map(post => post.toJSON()),
-            pagination: {
-                page,
-                limit,
-                total: count,
-                pages: Math.ceil(count / limit)
-            }
-        };
-    }
-    
-    static async bulkCreatePosts(postsData, authorId) {
-        const transaction = await sequelize.transaction();
-        
-        try {
-            const posts = postsData.map(postData => ({
-                ...postData,
-                author_id: authorId
-            }));
-            
-            const createdPosts = await Post.bulkCreate(posts, {
-                transaction,
-                returning: true
-            });
-            
-            await transaction.commit();
-            return createdPosts.map(post => post.toJSON());
-        } catch (error) {
-            await transaction.rollback();
-            throw error;
-        }
-    }
-    
-    static async cleanup() {
-        await sequelize.close();
-        console.log('数据库连接已关闭');
-    }
-}
-
-// 原生 SQL 查询示例
-async function rawSQLOperations() {
-    try {
-        // 原生查询
-        const [results, metadata] = await sequelize.query(`
-            SELECT u.username, COUNT(p.id) as post_count
-            FROM users u
-            LEFT JOIN posts p ON u.id = p.author_id
-            GROUP BY u.id, u.username
-            ORDER BY post_count DESC
-        `);
-        
-        console.log('用户文章统计:', results);
-        
-        // 参数化查询
-        const posts = await sequelize.query(`
-            SELECT p.title, p.created_at, u.username
-            FROM posts p
-            JOIN users u ON p.author_id = u.id
-            WHERE p.created_at > :date
-            ORDER BY p.created_at DESC
-        `, {
-            replacements: { date: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) },
-            type: sequelize.QueryTypes.SELECT
-        });
-        
-        console.log('最近一周的文章:', posts);
-        
-    } catch (error) {
-        console.error('原生 SQL 查询错误:', error);
-    }
-}
-
-// 执行数据库操作
-async function main() {
-    try {
-        await DatabaseService.initialize();
-        await syncDatabaseOperations();
-        await rawSQLOperations();
-        
-        // 测试服务方法
-        const user = await DatabaseService.createUser({
-            username: 'david',
-            email: 'david@example.com'
-        });
-        
-        const userWithPosts = await DatabaseService.getUserWithPosts(user.id);
-        console.log('用户详情:', userWithPosts);
-        
-        const searchResults = await DatabaseService.searchPosts('文章', 1, 5);
-        console.log('搜索结果:', searchResults);
-        
-    } catch (error) {
-        console.error('主函数错误:', error);
-    } finally {
-        await DatabaseService.cleanup();
-    }
-}
-
-main();
-```
-
-</Tab>
-
-</Tabs>
-
-### NoSQL 数据库操作
-
-<Tabs items={['Python + MongoDB', 'Node.js + MongoDB']}>
-
-<Tab value="Python + MongoDB">
-
-```python
-# Python MongoDB 操作
-from pymongo import MongoClient
-from motor.motor_asyncio import AsyncIOMotorClient
-import asyncio
-from datetime import datetime
-from bson import ObjectId
-
-# 同步 MongoDB 操作
-def sync_mongodb_operations():
-    # 连接数据库
-    client = MongoClient('mongodb://localhost:27017/')
-    db = client['blog_db']
-    users_collection = db['users']
-    posts_collection = db['posts']
-    
-    try:
-        # 插入用户
-        user_doc = {
-            'username': 'alice',
-            'email': 'alice@example.com',
-            'created_at': datetime.utcnow()
-        }
-        user_result = users_collection.insert_one(user_doc)
-        user_id = user_result.inserted_id
-        print(f"用户创建: {user_id}")
-        
-        # 插入文章
-        post_doc = {
-            'title': '我的第一篇文章',
-            'content': '这是内容...',
-            'author_id': user_id,
-            'tags': ['python', 'mongodb'],
-            'created_at': datetime.utcnow()
-        }
-        post_result = posts_collection.insert_one(post_doc)
-        print(f"文章创建: {post_result.inserted_id}")
-        
-        # 查询操作
-        users = list(users_collection.find())
-        print("所有用户:", users)
-        
-        # 复杂查询
-        recent_posts = list(posts_collection.find(
-            {'tags': {'$in': ['python']}},
-            {'title': 1, 'created_at': 1, 'author_id': 1}
-        ).sort('created_at', -1).limit(10))
-        
-        print("最近文章:", recent_posts)
-        
-        # 聚合查询
-        pipeline = [
-            {
-                '$lookup': {
-                    'from': 'users',
-                    'localField': 'author_id',
-                    'foreignField': '_id',
-                    'as': 'author'
-                }
-            },
-            {
-                '$unwind': '$author'
-            },
-            {
-                '$project': {
-                    'title': 1,
-                    'author.username': 1,
-                    'created_at': 1
-                }
-            },
-            {
-                '$sort': {'created_at': -1}
-            }
-        ]
-        
-        posts_with_authors = list(posts_collection.aggregate(pipeline))
-        print("文章与作者:", posts_with_authors)
-        
-        # 更新操作
-        update_result = posts_collection.update_one(
-            {'_id': post_result.inserted_id},
-            {
-                '$set': {'title': '更新的标题'},
-                '$push': {'tags': 'updated'}
-            }
-        )
-        print(f"更新结果: {update_result.modified_count}")
-        
-        # 批量操作
-        bulk_posts = [
-            {
-                'title': f'批量文章 {i}',
-                'content': f'内容 {i}',
-                'author_id': user_id,
-                'created_at': datetime.utcnow()
-            }
-            for i in range(5)
-        ]
-        bulk_result = posts_collection.insert_many(bulk_posts)
-        print(f"批量插入: {len(bulk_result.inserted_ids)}")
-        
-    finally:
-        client.close()
-
-# 异步 MongoDB 操作
-async def async_mongodb_operations():
-    # 异步连接
-    client = AsyncIOMotorClient('mongodb://localhost:27017/')
-    db = client['async_blog_db']
-    users_collection = db['users']
-    posts_collection = db['posts']
-    
-    try:
-        # 异步插入用户
-        user_doc = {
-            'username': 'bob',
-            'email': 'bob@example.com',
-            'created_at': datetime.utcnow()
-        }
-        user_result = await users_collection.insert_one(user_doc)
-        user_id = user_result.inserted_id
-        print(f"异步用户创建: {user_id}")
-        
-        # 异步插入文章
-        post_doc = {
-            'title': '异步文章',
-            'content': '异步内容...',
-            'author_id': user_id,
-            'created_at': datetime.utcnow()
-        }
-        post_result = await posts_collection.insert_one(post_doc)
-        print(f"异步文章创建: {post_result.inserted_id}")
-        
-        # 异步查询
-        users = []
-        async for user in users_collection.find():
-            users.append(user)
-        print("异步用户:", users)
-        
-        # 异步聚合
-        pipeline = [
-            {
-                '$lookup': {
-                    'from': 'users',
-                    'localField': 'author_id',
-                    'foreignField': '_id',
-                    'as': 'author'
-                }
-            }
-        ]
-        
-        posts_with_authors = []
-        async for post in posts_collection.aggregate(pipeline):
-            posts_with_authors.append(post)
-        print("异步聚合结果:", posts_with_authors)
-        
-        # 并发操作
-        tasks = []
-        for i in range(5):
-            task = posts_collection.insert_one({
-                'title': f'并发文章 {i}',
-                'content': f'并发内容 {i}',
-                'author_id': user_id,
-                'created_at': datetime.utcnow()
-            })
-            tasks.append(task)
-        
-        results = await asyncio.gather(*tasks)
-        print(f"并发插入: {len(results)} 个文章")
-        
-    finally:
-        client.close()
-
-# 执行 MongoDB 操作
-sync_mongodb_operations()
-asyncio.run(async_mongodb_operations())
-```
-
-</Tab>
-
-<Tab value="Node.js + MongoDB">
-
-```javascript
-// Node.js MongoDB 操作
-const { MongoClient, ObjectId } = require('mongodb');
-const mongoose = require('mongoose');
-
-// 使用原生 MongoDB 驱动
-async function nativeMongoDB() {
-    const client = new MongoClient('mongodb://localhost:27017/');
-    
-    try {
-        await client.connect();
-        console.log('MongoDB 连接成功');
-        
-        const db = client.db('blog_db');
-        const usersCollection = db.collection('users');
-        const postsCollection = db.collection('posts');
-        
-        // 插入用户
-        const userDoc = {
-            username: 'alice',
-            email: 'alice@example.com',
-            createdAt: new Date()
-        };
-        const userResult = await usersCollection.insertOne(userDoc);
-        const userId = userResult.insertedId;
-        console.log(`用户创建: ${userId}`);
-        
-        // 插入文章
-        const postDoc = {
-            title: '我的第一篇文章',
-            content: '这是内容...',
-            authorId: userId,
-            tags: ['javascript', 'mongodb'],
-            createdAt: new Date()
-        };
-        const postResult = await postsCollection.insertOne(postDoc);
-        console.log(`文章创建: ${postResult.insertedId}`);
-        
-        // 查询操作
-        const users = await usersCollection.find().toArray();
-        console.log('所有用户:', users);
-        
-        // 复杂查询
-        const recentPosts = await postsCollection.find(
-            { tags: { $in: ['javascript'] } },
-            { projection: { title: 1, createdAt: 1, authorId: 1 } }
-        ).sort({ createdAt: -1 }).limit(10).toArray();
-        
-        console.log('最近文章:', recentPosts);
-        
-        // 聚合查询
-        const pipeline = [
-            {
-                $lookup: {
-                    from: 'users',
-                    localField: 'authorId',
-                    foreignField: '_id',
-                    as: 'author'
-                }
-            },
-            {
-                $unwind: '$author'
-            },
-            {
-                $project: {
-                    title: 1,
-                    'author.username': 1,
-                    createdAt: 1
-                }
-            },
-            {
-                $sort: { createdAt: -1 }
-            }
-        ];
-        
-        const postsWithAuthors = await postsCollection.aggregate(pipeline).toArray();
-        console.log('文章与作者:', postsWithAuthors);
-        
-        // 更新操作
-        const updateResult = await postsCollection.updateOne(
-            { _id: postResult.insertedId },
-            {
-                $set: { title: '更新的标题' },
-                $push: { tags: 'updated' }
-            }
-        );
-        console.log(`更新结果: ${updateResult.modifiedCount}`);
-        
-        // 批量操作
-        const bulkPosts = Array.from({ length: 5 }, (_, i) => ({
-            title: `批量文章 ${i}`,
-            content: `内容 ${i}`,
-            authorId: userId,
-            createdAt: new Date()
-        }));
-        
-        const bulkResult = await postsCollection.insertMany(bulkPosts);
-        console.log(`批量插入: ${bulkResult.insertedCount}`);
-        
-        // 事务操作（需要副本集）
-        const session = client.startSession();
-        try {
-            await session.withTransaction(async () => {
-                await usersCollection.insertOne({
-                    username: 'charlie',
-                    email: 'charlie@example.com',
-                    createdAt: new Date()
-                }, { session });
-                
-                await postsCollection.insertOne({
-                    title: '事务文章',
-                    content: '事务内容',
-                    authorId: userId,
-                    createdAt: new Date()
-                }, { session });
-            });
-            console.log('事务完成');
-        } finally {
-            await session.endSession();
-        }
-        
-    } finally {
-        await client.close();
-    }
-}
-
-// 使用 Mongoose ODM
-async function mongooseOperations() {
-    try {
-        await mongoose.connect('mongodb://localhost:27017/mongoose_blog');
-        console.log('Mongoose 连接成功');
-        
-        // 用户模式
-        const userSchema = new mongoose.Schema({
-            username: { type: String, required: true, unique: true },
-            email: { type: String, required: true, unique: true },
-            createdAt: { type: Date, default: Date.now }
-        });
-        
-        // 文章模式
-        const postSchema = new mongoose.Schema({
-            title: { type: String, required: true },
-            content: String,
-            author: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-            tags: [String],
-            createdAt: { type: Date, default: Date.now }
-        });
-        
-        // 添加实例方法
-        userSchema.methods.getPublicProfile = function() {
-            return {
-                id: this._id,
-                username: this.username,
-                createdAt: this.createdAt
-            };
-        };
-        
-        // 添加静态方法
-        userSchema.statics.findByUsername = function(username) {
-            return this.findOne({ username });
-        };
-        
-        // 添加中间件
-        postSchema.pre('save', function(next) {
-            console.log(`保存文章: ${this.title}`);
-            next();
-        });
-        
-        const User = mongoose.model('User', userSchema);
-        const Post = mongoose.model('Post', postSchema);
-        
-        // 创建用户
-        const user = new User({
-            username: 'alice',
-            email: 'alice@example.com'
-        });
-        await user.save();
-        console.log('Mongoose 用户创建:', user.getPublicProfile());
-        
-        // 创建文章
-        const post = new Post({
-            title: 'Mongoose 文章',
-            content: 'Mongoose 内容...',
-            author: user._id,
-            tags: ['mongoose', 'mongodb']
-        });
-        await post.save();
-        console.log('Mongoose 文章创建:', post.toObject());
-        
-        // 查询操作
-        const users = await User.find();
-        console.log('Mongoose 用户:', users.map(u => u.getPublicProfile()));
-        
-        // 关联查询
-        const postsWithAuthors = await Post.find()
+        // Read with relationships (population)
+        const posts = await BlogPost
+            .find({ published: true })
             .populate('author', 'username email')
+            .populate('tags', 'name')
             .sort({ createdAt: -1 });
         
-        console.log('Mongoose 文章与作者:', postsWithAuthors);
-        
-        // 静态方法使用
-        const foundUser = await User.findByUsername('alice');
-        console.log('按用户名查找:', foundUser?.getPublicProfile());
-        
-        // 聚合操作
-        const userStats = await Post.aggregate([
-            {
-                $group: {
-                    _id: '$author',
-                    postCount: { $sum: 1 },
-                    lastPost: { $max: '$createdAt' }
-                }
+        // Update
+        await BlogPost.findByIdAndUpdate(
+            post._id,
+            { 
+                title: "Advanced Node.js",
+                updatedAt: new Date()
             },
-            {
-                $lookup: {
-                    from: 'users',
-                    localField: '_id',
-                    foreignField: '_id',
-                    as: 'userInfo'
-                }
-            },
-            {
-                $unwind: '$userInfo'
-            },
-            {
-                $project: {
-                    username: '$userInfo.username',
-                    postCount: 1,
-                    lastPost: 1
-                }
-            }
-        ]);
+            { new: true }
+        );
         
-        console.log('Mongoose 用户统计:', userStats);
+        // Complex queries
+        const sevenDaysAgo = new Date();
+        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
         
-        // 批量操作
-        const bulkOps = [
-            {
-                insertOne: {
-                    document: {
-                        title: '批量文章 1',
-                        content: '内容 1',
-                        author: user._id
-                    }
-                }
-            },
-            {
-                updateOne: {
-                    filter: { _id: post._id },
-                    update: { $push: { tags: 'bulk-updated' } }
-                }
-            }
-        ];
+        const recentPosts = await BlogPost
+            .find({
+                createdAt: { $gte: sevenDaysAgo },
+                published: true
+            })
+            .sort({ createdAt: -1 })
+            .limit(10);
         
-        const bulkResult = await Post.bulkWrite(bulkOps);
-        console.log('Mongoose 批量操作:', bulkResult);
-        
-    } catch (error) {
-        console.error('Mongoose 错误:', error);
-    } finally {
-        await mongoose.disconnect();
-    }
-}
-
-// MongoDB 服务类
-class MongoDBService {
-    constructor() {
-        this.client = null;
-        this.db = null;
-    }
-    
-    async connect(uri = 'mongodb://localhost:27017/', dbName = 'service_blog') {
-        this.client = new MongoClient(uri);
-        await this.client.connect();
-        this.db = this.client.db(dbName);
-        console.log('MongoDB 服务连接成功');
-    }
-    
-    async createUser(userData) {
-        try {
-            const result = await this.db.collection('users').insertOne({
-                ...userData,
-                createdAt: new Date()
-            });
-            return { id: result.insertedId, ...userData };
-        } catch (error) {
-            if (error.code === 11000) {
-                throw new Error('用户名或邮箱已存在');
-            }
-            throw error;
-        }
-    }
-    
-    async getUserPosts(userId) {
-        const pipeline = [
-            { $match: { _id: ObjectId(userId) } },
-            {
-                $lookup: {
-                    from: 'posts',
-                    localField: '_id',
-                    foreignField: 'authorId',
-                    as: 'posts'
-                }
-            },
-            {
-                $project: {
-                    username: 1,
-                    email: 1,
-                    'posts.title': 1,
-                    'posts.createdAt': 1
-                }
-            }
-        ];
-        
-        const result = await this.db.collection('users').aggregate(pipeline).toArray();
-        return result[0] || null;
-    }
-    
-    async searchPosts(searchTerm, page = 1, limit = 10) {
-        const skip = (page - 1) * limit;
-        
-        const filter = {
-            $or: [
-                { title: { $regex: searchTerm, $options: 'i' } },
-                { content: { $regex: searchTerm, $options: 'i' } }
-            ]
-        };
-        
-        const [posts, total] = await Promise.all([
-            this.db.collection('posts')
-                .find(filter)
-                .sort({ createdAt: -1 })
-                .skip(skip)
-                .limit(limit)
-                .toArray(),
-            this.db.collection('posts').countDocuments(filter)
+        // Aggregation
+        const tagCounts = await BlogPost.aggregate([
+            { $unwind: '$tags' },
+            { $group: { 
+                _id: '$tags', 
+                postCount: { $sum: 1 } 
+            }},
+            { $lookup: {
+                from: 'tags',
+                localField: '_id',
+                foreignField: '_id',
+                as: 'tagInfo'
+            }},
+            { $sort: { postCount: -1 } }
         ]);
         
         return {
-            posts,
-            pagination: {
-                page,
-                limit,
-                total,
-                pages: Math.ceil(total / limit)
-            }
+            createdPost: post,
+            posts: posts,
+            recentPosts: recentPosts,
+            tagCounts: tagCounts
         };
-    }
-    
-    async disconnect() {
-        if (this.client) {
-            await this.client.close();
-            console.log('MongoDB 服务连接已关闭');
-        }
+        
+    } catch (error) {
+        console.error('Database operation error:', error);
+        throw error;
     }
 }
 
-// 执行操作
-async function main() {
-    console.log('=== 原生 MongoDB 操作 ===');
-    await nativeMongoDB();
-    
-    console.log('\n=== Mongoose ODM 操作 ===');
-    await mongooseOperations();
-    
-    console.log('\n=== MongoDB 服务类 ===');
-    const service = new MongoDBService();
-    try {
-        await service.connect();
-        
-        const user = await service.createUser({
-            username: 'service_user',
-            email: 'service@example.com'
-        });
-        console.log('服务创建用户:', user);
-        
-        const searchResults = await service.searchPosts('文章', 1, 5);
-        console.log('服务搜索结果:', searchResults);
-        
-    } finally {
-        await service.disconnect();
-    }
-}
-
-main().catch(console.error);
+module.exports = { BlogPost, User, Tag, blogOperations };
 ```
+</PythonEditor>
 
-</Tab>
+## Authentication and Authorization
 
-</Tabs>
+### JWT Authentication System
 
-## 5. 实时通信对比
-
-<Tabs items={['Python WebSocket', 'Node.js WebSocket']}>
-
-<Tab value="Python WebSocket">
-
-```python
-# Python WebSocket 服务器
-import asyncio
-import websockets
+<PythonEditor title="Authentication Implementation" compare={true}>
+```python !! py
+# Django JWT authentication
+from django.contrib.auth import authenticate
+from django.contrib.auth.models import User
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+import jwt
+import datetime
+from django.conf import settings
 import json
-from datetime import datetime
 
-# 存储连接的客户端
-connected_clients = set()
-
-async def websocket_handler(websocket, path):
-    # 新客户端连接
-    connected_clients.add(websocket)
-    client_id = id(websocket)
-    print(f"客户端 {client_id} 连接")
-    
-    try:
-        # 发送欢迎消息
-        welcome_msg = {
-            'type': 'welcome',
-            'message': f'欢迎客户端 {client_id}',
-            'timestamp': datetime.now().isoformat()
-        }
-        await websocket.send(json.dumps(welcome_msg))
+@csrf_exempt
+def login_view(request):
+    if request.method == 'POST':
+        data = json.loads(request.body)
+        username = data.get('username')
+        password = data.get('password')
         
-        # 广播新用户加入
-        join_msg = {
-            'type': 'user_join',
-            'user_id': client_id,
-            'timestamp': datetime.now().isoformat()
-        }
-        await broadcast_message(join_msg, exclude=websocket)
-        
-        # 处理客户端消息
-        async for message in websocket:
-            try:
-                data = json.loads(message)
-                await handle_message(websocket, data)
-            except json.JSONDecodeError:
-                error_msg = {
-                    'type': 'error',
-                    'message': '无效的 JSON 格式'
-                }
-                await websocket.send(json.dumps(error_msg))
-                
-    except websockets.exceptions.ConnectionClosed:
-        print(f"客户端 {client_id} 断开连接")
-    finally:
-        connected_clients.remove(websocket)
-        
-        # 广播用户离开
-        leave_msg = {
-            'type': 'user_leave',
-            'user_id': client_id,
-            'timestamp': datetime.now().isoformat()
-        }
-        await broadcast_message(leave_msg)
-
-async def handle_message(websocket, data):
-    message_type = data.get('type')
-    client_id = id(websocket)
-    
-    if message_type == 'chat':
-        # 聊天消息
-        chat_msg = {
-            'type': 'chat',
-            'user_id': client_id,
-            'message': data.get('message', ''),
-            'timestamp': datetime.now().isoformat()
-        }
-        await broadcast_message(chat_msg)
-        
-    elif message_type == 'private':
-        # 私人消息
-        target_id = data.get('target_id')
-        target_client = None
-        
-        for client in connected_clients:
-            if id(client) == target_id:
-                target_client = client
-                break
-        
-        if target_client:
-            private_msg = {
-                'type': 'private',
-                'from_user_id': client_id,
-                'message': data.get('message', ''),
-                'timestamp': datetime.now().isoformat()
+        user = authenticate(username=username, password=password)
+        if user:
+            # Generate JWT token
+            payload = {
+                'user_id': user.id,
+                'username': user.username,
+                'exp': datetime.datetime.utcnow() + datetime.timedelta(hours=24),
+                'iat': datetime.datetime.utcnow()
             }
-            await target_client.send(json.dumps(private_msg))
-        else:
-            error_msg = {
-                'type': 'error',
-                'message': '目标用户不存在'
-            }
-            await websocket.send(json.dumps(error_msg))
+            token = jwt.encode(payload, settings.SECRET_KEY, algorithm='HS256')
             
-    elif message_type == 'ping':
-        # 心跳检测
-        pong_msg = {
-            'type': 'pong',
-            'timestamp': datetime.now().isoformat()
-        }
-        await websocket.send(json.dumps(pong_msg))
-
-async def broadcast_message(message, exclude=None):
-    """广播消息给所有连接的客户端"""
-    if not connected_clients:
-        return
-    
-    message_str = json.dumps(message)
-    tasks = []
-    
-    for client in connected_clients:
-        if client != exclude:
-            tasks.append(client.send(message_str))
-    
-    if tasks:
-        await asyncio.gather(*tasks, return_exceptions=True)
-
-# 定时任务 - 服务器状态广播
-async def status_broadcaster():
-    while True:
-        await asyncio.sleep(30)  # 每30秒广播一次
-        
-        status_msg = {
-            'type': 'server_status',
-            'connected_clients': len(connected_clients),
-            'timestamp': datetime.now().isoformat()
-        }
-        await broadcast_message(status_msg)
-
-# 启动 WebSocket 服务器
-async def start_server():
-    print("启动 Python WebSocket 服务器在 ws://localhost:8765")
-    
-    # 启动状态广播任务
-    asyncio.create_task(status_broadcaster())
-    
-    # 启动 WebSocket 服务器
-    await websockets.serve(websocket_handler, "localhost", 8765)
-
-if __name__ == "__main__":
-    asyncio.run(start_server())
-
-# 使用 FastAPI 的 WebSocket 示例
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse
-
-app = FastAPI()
-
-class ConnectionManager:
-    def __init__(self):
-        self.active_connections = []
-    
-    async def connect(self, websocket: WebSocket):
-        await websocket.accept()
-        self.active_connections.append(websocket)
-    
-    def disconnect(self, websocket: WebSocket):
-        self.active_connections.remove(websocket)
-    
-    async def send_personal_message(self, message: str, websocket: WebSocket):
-        await websocket.send_text(message)
-    
-    async def broadcast(self, message: str):
-        for connection in self.active_connections:
-            await connection.send_text(message)
-
-manager = ConnectionManager()
-
-@app.websocket("/ws/{client_id}")
-async def websocket_endpoint(websocket: WebSocket, client_id: int):
-    await manager.connect(websocket)
-    try:
-        while True:
-            data = await websocket.receive_text()
-            await manager.send_personal_message(f"你说: {data}", websocket)
-            await manager.broadcast(f"客户端 #{client_id} 说: {data}")
-    except WebSocketDisconnect:
-        manager.disconnect(websocket)
-        await manager.broadcast(f"客户端 #{client_id} 离开了聊天室")
-
-@app.get("/")
-async def get():
-    return HTMLResponse("""
-    <!DOCTYPE html>
-    <html>
-        <head>
-            <title>Chat</title>
-        </head>
-        <body>
-            <h1>WebSocket Chat</h1>
-            <form action="" onsubmit="sendMessage(event)">
-                <input type="text" id="messageText" autocomplete="off"/>
-                <button>Send</button>
-            </form>
-            <ul id='messages'>
-            </ul>
-            <script>
-                var client_id = Date.now()
-                var ws = new WebSocket(`ws://localhost:8000/ws/${client_id}`);
-                ws.onmessage = function(event) {
-                    var messages = document.getElementById('messages')
-                    var message = document.createElement('li')
-                    var content = document.createTextNode(event.data)
-                    message.appendChild(content)
-                    messages.appendChild(message)
-                };
-                function sendMessage(event) {
-                    var input = document.getElementById("messageText")
-                    ws.send(input.value)
-                    input.value = ''
-                    event.preventDefault()
+            return JsonResponse({
+                'token': token,
+                'user': {
+                    'id': user.id,
+                    'username': user.username,
+                    'email': user.email
                 }
-            </script>
-        </body>
-    </html>
-    """)
+            })
+        else:
+            return JsonResponse({'error': 'Invalid credentials'}, status=401)
+
+def jwt_authentication_middleware(get_response):
+    def middleware(request):
+        # Skip authentication for login endpoint
+        if request.path == '/api/login/':
+            return get_response(request)
+        
+        auth_header = request.META.get('HTTP_AUTHORIZATION')
+        if auth_header and auth_header.startswith('Bearer '):
+            token = auth_header.split(' ')[1]
+            try:
+                payload = jwt.decode(token, settings.SECRET_KEY, algorithms=['HS256'])
+                request.user_id = payload['user_id']
+                request.username = payload['username']
+            except jwt.ExpiredSignatureError:
+                return JsonResponse({'error': 'Token expired'}, status=401)
+            except jwt.InvalidTokenError:
+                return JsonResponse({'error': 'Invalid token'}, status=401)
+        
+        return get_response(request)
+    return middleware
+
+# Protected view
+def protected_view(request):
+    if not hasattr(request, 'user_id'):
+        return JsonResponse({'error': 'Authentication required'}, status=401)
+    
+    return JsonResponse({
+        'message': f'Hello {request.username}',
+        'user_id': request.user_id
+    })
 ```
 
-</Tab>
-
-<Tab value="Node.js WebSocket">
-
-```javascript
-// Node.js WebSocket 服务器
-const WebSocket = require('ws');
-const http = require('http');
+```javascript !! js
+// Express.js JWT authentication
 const express = require('express');
+const jwt = require('jsonwebtoken');
+const bcrypt = require('bcryptjs');
+const User = require('./models/User'); // Assuming User model exists
 
-// 创建 Express 应用
+const app = express();
+app.use(express.json());
+
+// JWT secret (should be in environment variables)
+const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
+
+// Login endpoint
+app.post('/api/login', async (req, res) => {
+    try {
+        const { username, password } = req.body;
+        
+        // Find user (using Mongoose example)
+        const user = await User.findOne({ username });
+        if (!user) {
+            return res.status(401).json({ error: 'Invalid credentials' });
+        }
+        
+        // Check password
+        const isValidPassword = await bcrypt.compare(password, user.password);
+        if (!isValidPassword) {
+            return res.status(401).json({ error: 'Invalid credentials' });
+        }
+        
+        // Generate JWT token
+        const payload = {
+            userId: user._id,
+            username: user.username,
+            iat: Math.floor(Date.now() / 1000),
+            exp: Math.floor(Date.now() / 1000) + (24 * 60 * 60) // 24 hours
+        };
+        
+        const token = jwt.sign(payload, JWT_SECRET);
+        
+        res.json({
+            token,
+            user: {
+                id: user._id,
+                username: user.username,
+                email: user.email
+            }
+        });
+        
+    } catch (error) {
+        console.error('Login error:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// JWT authentication middleware
+const authenticateToken = (req, res, next) => {
+    // Skip authentication for login endpoint
+    if (req.path === '/api/login') {
+        return next();
+    }
+    
+    const authHeader = req.headers.authorization;
+    const token = authHeader && authHeader.split(' ')[1];
+    
+    if (!token) {
+        return res.status(401).json({ error: 'Authentication required' });
+    }
+    
+    jwt.verify(token, JWT_SECRET, (err, decoded) => {
+        if (err) {
+            if (err.name === 'TokenExpiredError') {
+                return res.status(401).json({ error: 'Token expired' });
+            }
+            return res.status(401).json({ error: 'Invalid token' });
+        }
+        
+        req.userId = decoded.userId;
+        req.username = decoded.username;
+        next();
+    });
+};
+
+// Apply authentication middleware globally
+app.use(authenticateToken);
+
+// Protected route
+app.get('/api/protected', (req, res) => {
+    res.json({
+        message: `Hello ${req.username}`,
+        userId: req.userId
+    });
+});
+
+// User registration endpoint
+app.post('/api/register', async (req, res) => {
+    try {
+        const { username, email, password } = req.body;
+        
+        // Hash password
+        const saltRounds = 10;
+        const hashedPassword = await bcrypt.hash(password, saltRounds);
+        
+        // Create user
+        const user = await User.create({
+            username,
+            email,
+            password: hashedPassword
+        });
+        
+        res.status(201).json({
+            message: 'User created successfully',
+            user: {
+                id: user._id,
+                username: user.username,
+                email: user.email
+            }
+        });
+        
+    } catch (error) {
+        if (error.code === 11000) {
+            res.status(400).json({ error: 'Username or email already exists' });
+        } else {
+            console.error('Registration error:', error);
+            res.status(500).json({ error: 'Internal server error' });
+        }
+    }
+});
+
+module.exports = app;
+```
+</PythonEditor>
+
+## Real-time Features with WebSockets
+
+### Socket.IO vs Django Channels
+
+<PythonEditor title="WebSocket Implementation" compare={true}>
+```python !! py
+# Django Channels WebSocket consumer
+import json
+from channels.generic.websocket import AsyncWebsocketConsumer
+from channels.db import database_sync_to_async
+from django.contrib.auth.models import User
+
+class ChatConsumer(AsyncWebsocketConsumer):
+    async def connect(self):
+        self.room_name = self.scope['url_route']['kwargs']['room_name']
+        self.room_group_name = f'chat_{self.room_name}'
+        
+        # Join room group
+        await self.channel_layer.group_add(
+            self.room_group_name,
+            self.channel_name
+        )
+        
+        await self.accept()
+        
+        # Send welcome message
+        await self.send(text_data=json.dumps({
+            'type': 'welcome',
+            'message': f'Welcome to room {self.room_name}'
+        }))
+
+    async def disconnect(self, close_code):
+        # Leave room group
+        await self.channel_layer.group_discard(
+            self.room_group_name,
+            self.channel_name
+        )
+
+    async def receive(self, text_data):
+        data = json.loads(text_data)
+        message_type = data.get('type', 'message')
+        
+        if message_type == 'chat_message':
+            message = data['message']
+            username = data.get('username', 'Anonymous')
+            
+            # Save message to database
+            await self.save_message(username, message)
+            
+            # Send message to room group
+            await self.channel_layer.group_send(
+                self.room_group_name,
+                {
+                    'type': 'chat_message',
+                    'message': message,
+                    'username': username,
+                    'timestamp': datetime.now().isoformat()
+                }
+            )
+        
+        elif message_type == 'typing':
+            # Broadcast typing indicator
+            await self.channel_layer.group_send(
+                self.room_group_name,
+                {
+                    'type': 'typing_indicator',
+                    'username': data.get('username', 'Anonymous'),
+                    'is_typing': data.get('is_typing', False)
+                }
+            )
+
+    async def chat_message(self, event):
+        await self.send(text_data=json.dumps({
+            'type': 'message',
+            'message': event['message'],
+            'username': event['username'],
+            'timestamp': event['timestamp']
+        }))
+
+    async def typing_indicator(self, event):
+        await self.send(text_data=json.dumps({
+            'type': 'typing',
+            'username': event['username'],
+            'is_typing': event['is_typing']
+        }))
+
+    @database_sync_to_async
+    def save_message(self, username, message):
+        # Save message to database
+        from .models import ChatMessage
+        ChatMessage.objects.create(
+            room_name=self.room_name,
+            username=username,
+            message=message
+        )
+```
+
+```javascript !! js
+// Socket.IO with Express.js
+const express = require('express');
+const http = require('http');
+const socketIo = require('socket.io');
+const cors = require('cors');
+
 const app = express();
 const server = http.createServer(app);
+const io = socketIo(server, {
+    cors: {
+        origin: "http://localhost:3000",
+        methods: ["GET", "POST"]
+    }
+});
 
-// 存储连接的客户端
-const clients = new Map();
+app.use(cors());
+app.use(express.json());
 
-// 创建 WebSocket 服务器
-const wss = new WebSocket.Server({ server });
+// In-memory storage (use database in production)
+const chatRooms = new Map();
+const activeUsers = new Map();
 
-wss.on('connection', (ws, req) => {
-    const clientId = Date.now() + Math.random();
-    clients.set(clientId, ws);
+// Socket.IO connection handling
+io.on('connection', (socket) => {
+    console.log('User connected:', socket.id);
     
-    console.log(`客户端 ${clientId} 连接`);
+    // Join room
+    socket.on('join_room', ({ roomName, username }) => {
+        socket.join(roomName);
+        socket.roomName = roomName;
+        socket.username = username;
+        
+        // Track active users
+        if (!activeUsers.has(roomName)) {
+            activeUsers.set(roomName, new Set());
+        }
+        activeUsers.get(roomName).add(username);
+        
+        // Send welcome message
+        socket.emit('welcome', {
+            type: 'welcome',
+            message: `Welcome to room ${roomName}`
+        });
+        
+        // Notify room about new user
+        socket.to(roomName).emit('user_joined', {
+            type: 'user_joined',
+            username: username,
+            message: `${username} joined the room`
+        });
+        
+        // Send active users list
+        io.to(roomName).emit('active_users', {
+            type: 'active_users',
+            users: Array.from(activeUsers.get(roomName))
+        });
+        
+        // Send recent messages
+        const recentMessages = getRecentMessages(roomName);
+        socket.emit('recent_messages', {
+            type: 'recent_messages',
+            messages: recentMessages
+        });
+    });
     
-    // 发送欢迎消息
-    const welcomeMsg = {
-        type: 'welcome',
-        message: `欢迎客户端 ${clientId}`,
-        clientId: clientId,
-        timestamp: new Date().toISOString()
-    };
-    ws.send(JSON.stringify(welcomeMsg));
-    
-    // 广播新用户加入
-    const joinMsg = {
-        type: 'user_join',
-        userId: clientId,
-        timestamp: new Date().toISOString()
-    };
-    broadcast(joinMsg, clientId);
-    
-    // 处理消息
-    ws.on('message', (data) => {
-        try {
-            const message = JSON.parse(data);
-            handleMessage(ws, clientId, message);
-        } catch (error) {
-            const errorMsg = {
-                type: 'error',
-                message: '无效的 JSON 格式'
+    // Handle chat messages
+    socket.on('chat_message', (data) => {
+        const { message } = data;
+        const roomName = socket.roomName;
+        const username = socket.username;
+        
+        if (roomName && username && message) {
+            const messageData = {
+                type: 'message',
+                message: message,
+                username: username,
+                timestamp: new Date().toISOString(),
+                id: generateMessageId()
             };
-            ws.send(JSON.stringify(errorMsg));
+            
+            // Save message
+            saveMessage(roomName, messageData);
+            
+            // Broadcast to room
+            io.to(roomName).emit('chat_message', messageData);
         }
     });
     
-    // 处理连接关闭
-    ws.on('close', () => {
-        console.log(`客户端 ${clientId} 断开连接`);
-        clients.delete(clientId);
+    // Handle typing indicators
+    socket.on('typing', (data) => {
+        const { isTyping } = data;
+        const roomName = socket.roomName;
+        const username = socket.username;
         
-        // 广播用户离开
-        const leaveMsg = {
-            type: 'user_leave',
-            userId: clientId,
-            timestamp: new Date().toISOString()
-        };
-        broadcast(leaveMsg);
+        if (roomName && username) {
+            socket.to(roomName).emit('typing_indicator', {
+                type: 'typing',
+                username: username,
+                isTyping: isTyping
+            });
+        }
     });
     
-    // 处理错误
-    ws.on('error', (error) => {
-        console.error(`客户端 ${clientId} 错误:`, error);
-        clients.delete(clientId);
+    // Handle private messages
+    socket.on('private_message', (data) => {
+        const { targetUser, message } = data;
+        const senderUsername = socket.username;
+        
+        // Find target user's socket
+        const targetSocket = Array.from(io.sockets.sockets.values())
+            .find(s => s.username === targetUser);
+        
+        if (targetSocket) {
+            targetSocket.emit('private_message', {
+                type: 'private_message',
+                from: senderUsername,
+                message: message,
+                timestamp: new Date().toISOString()
+            });
+        }
     });
     
-    // 心跳检测
-    ws.isAlive = true;
-    ws.on('pong', () => {
-        ws.isAlive = true;
+    // Handle disconnection
+    socket.on('disconnect', () => {
+        const roomName = socket.roomName;
+        const username = socket.username;
+        
+        if (roomName && username) {
+            // Remove from active users
+            if (activeUsers.has(roomName)) {
+                activeUsers.get(roomName).delete(username);
+                
+                // Notify room about user leaving
+                socket.to(roomName).emit('user_left', {
+                    type: 'user_left',
+                    username: username,
+                    message: `${username} left the room`
+                });
+                
+                // Update active users list
+                io.to(roomName).emit('active_users', {
+                    type: 'active_users',
+                    users: Array.from(activeUsers.get(roomName))
+                });
+            }
+        }
+        
+        console.log('User disconnected:', socket.id);
     });
 });
 
-function handleMessage(ws, clientId, data) {
-    const messageType = data.type;
+// Helper functions
+function saveMessage(roomName, messageData) {
+    if (!chatRooms.has(roomName)) {
+        chatRooms.set(roomName, []);
+    }
     
-    switch (messageType) {
-        case 'chat':
-            // 聊天消息
-            const chatMsg = {
-                type: 'chat',
-                userId: clientId,
-                message: data.message || '',
-                timestamp: new Date().toISOString()
-            };
-            broadcast(chatMsg);
-            break;
-            
-        case 'private':
-            // 私人消息
-            const targetId = data.targetId;
-            const targetClient = clients.get(targetId);
-            
-            if (targetClient && targetClient.readyState === WebSocket.OPEN) {
-                const privateMsg = {
-                    type: 'private',
-                    fromUserId: clientId,
-                    message: data.message || '',
-                    timestamp: new Date().toISOString()
-                };
-                targetClient.send(JSON.stringify(privateMsg));
-            } else {
-                const errorMsg = {
-                    type: 'error',
-                    message: '目标用户不存在或已断开连接'
-                };
-                ws.send(JSON.stringify(errorMsg));
-            }
-            break;
-            
-        case 'ping':
-            // 心跳检测
-            const pongMsg = {
-                type: 'pong',
-                timestamp: new Date().toISOString()
-            };
-            ws.send(JSON.stringify(pongMsg));
-            break;
-            
-        case 'get_users':
-            // 获取在线用户列表
-            const usersMsg = {
-                type: 'users_list',
-                users: Array.from(clients.keys()),
-                timestamp: new Date().toISOString()
-            };
-            ws.send(JSON.stringify(usersMsg));
-            break;
-            
-        default:
-            const unknownMsg = {
-                type: 'error',
-                message: '未知的消息类型'
-            };
-            ws.send(JSON.stringify(unknownMsg));
+    const messages = chatRooms.get(roomName);
+    messages.push(messageData);
+    
+    // Keep only last 100 messages per room
+    if (messages.length > 100) {
+        messages.splice(0, messages.length - 100);
     }
 }
 
-function broadcast(message, excludeClientId = null) {
-    const messageStr = JSON.stringify(message);
-    
-    clients.forEach((client, clientId) => {
-        if (clientId !== excludeClientId && 
-            client.readyState === WebSocket.OPEN) {
-            client.send(messageStr);
-        }
-    });
+function getRecentMessages(roomName, limit = 50) {
+    const messages = chatRooms.get(roomName) || [];
+    return messages.slice(-limit);
 }
 
-// 定时清理断开的连接
-setInterval(() => {
-    wss.clients.forEach((ws) => {
-        if (!ws.isAlive) {
-            return ws.terminate();
-        }
-        
-        ws.isAlive = false;
-        ws.ping();
-    });
-}, 30000);
+function generateMessageId() {
+    return Date.now().toString(36) + Math.random().toString(36).substr(2);
+}
 
-// 定时广播服务器状态
-setInterval(() => {
-    const statusMsg = {
-        type: 'server_status',
-        connectedClients: clients.size,
-        timestamp: new Date().toISOString()
-    };
-    broadcast(statusMsg);
-}, 30000);
-
-// 提供静态文件
-app.use(express.static('public'));
-
-// 聊天室页面
-app.get('/', (req, res) => {
-    res.send(`
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>WebSocket Chat</title>
-        <style>
-            #messages { list-style: none; padding: 0; }
-            #messages li { padding: 5px; margin: 5px 0; background: #f0f0f0; }
-            #messageInput { width: 300px; }
-        </style>
-    </head>
-    <body>
-        <h1>WebSocket 聊天室</h1>
-        <div>
-            <ul id="messages"></ul>
-        </div>
-        <div>
-            <input type="text" id="messageInput" placeholder="输入消息..." />
-            <button onclick="sendMessage()">发送</button>
-            <button onclick="getUsers()">获取用户列表</button>
-        </div>
-        
-        <script>
-            const ws = new WebSocket('ws://localhost:8080');
-            let clientId = null;
-            
-            ws.onopen = () => {
-                console.log('WebSocket 连接建立');
-                addMessage('系统', '连接到服务器');
-            };
-            
-            ws.onmessage = (event) => {
-                const data = JSON.parse(event.data);
-                handleMessage(data);
-            };
-            
-            ws.onclose = () => {
-                console.log('WebSocket 连接关闭');
-                addMessage('系统', '与服务器断开连接');
-            };
-            
-            ws.onerror = (error) => {
-                console.error('WebSocket 错误:', error);
-                addMessage('系统', '连接错误');
-            };
-            
-            function handleMessage(data) {
-                switch (data.type) {
-                    case 'welcome':
-                        clientId = data.clientId;
-                        addMessage('系统', data.message);
-                        break;
-                    case 'chat':
-                        addMessage(\`用户 \${data.userId}\`, data.message);
-                        break;
-                    case 'private':
-                        addMessage(\`私聊来自 \${data.fromUserId}\`, data.message);
-                        break;
-                    case 'user_join':
-                        addMessage('系统', \`用户 \${data.userId} 加入聊天室\`);
-                        break;
-                    case 'user_leave':
-                        addMessage('系统', \`用户 \${data.userId} 离开聊天室\`);
-                        break;
-                    case 'users_list':
-                        addMessage('系统', \`在线用户: \${data.users.join(', ')}\`);
-                        break;
-                    case 'server_status':
-                        addMessage('系统', \`服务器状态: \${data.connectedClients} 个连接\`);
-                        break;
-                    case 'error':
-                        addMessage('错误', data.message);
-                        break;
-                }
-            }
-            
-            function addMessage(sender, message) {
-                const messages = document.getElementById('messages');
-                const li = document.createElement('li');
-                li.textContent = \`[\${new Date().toLocaleTimeString()}] \${sender}: \${message}\`;
-                messages.appendChild(li);
-                messages.scrollTop = messages.scrollHeight;
-            }
-            
-            function sendMessage() {
-                const input = document.getElementById('messageInput');
-                const message = input.value.trim();
-                
-                if (message) {
-                    const data = {
-                        type: 'chat',
-                        message: message
-                    };
-                    ws.send(JSON.stringify(data));
-                    input.value = '';
-                }
-            }
-            
-            function getUsers() {
-                const data = { type: 'get_users' };
-                ws.send(JSON.stringify(data));
-            }
-            
-            // 回车发送消息
-            document.getElementById('messageInput').addEventListener('keypress', (e) => {
-                if (e.key === 'Enter') {
-                    sendMessage();
-                }
-            });
-        </script>
-    </body>
-    </html>
-    `);
+// REST API endpoints
+app.get('/api/rooms/:roomName/messages', (req, res) => {
+    const { roomName } = req.params;
+    const { limit = 50, offset = 0 } = req.query;
+    
+    const messages = getRecentMessages(roomName, parseInt(limit));
+    res.json({ messages });
 });
 
-// 启动服务器
-const PORT = process.env.PORT || 8080;
+app.get('/api/rooms/:roomName/users', (req, res) => {
+    const { roomName } = req.params;
+    const users = activeUsers.get(roomName) || new Set();
+    res.json({ users: Array.from(users) });
+});
+
+const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
-    console.log(`WebSocket 服务器运行在 http://localhost:${PORT}`);
+    console.log(`Server running on port ${PORT}`);
 });
 
-// 使用 Socket.IO 的高级示例
-const express2 = require('express');
-const http2 = require('http');
-const socketIo = require('socket.io');
+module.exports = { app, io };
+```
+</PythonEditor>
 
-const app2 = express2();
-const server2 = http2.createServer(app2);
-const io = socketIo(server2);
+## File Handling and Uploads
 
-// 房间管理
-const rooms = new Map();
+### Multer vs Django File Handling
 
-io.on('connection', (socket) => {
-    console.log('用户连接:', socket.id);
-    
-    // 加入房间
-    socket.on('join-room', (roomName) => {
-        socket.join(roomName);
+<PythonEditor title="File Upload Implementation" compare={true}>
+```python !! py
+# Django file upload handling
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+from django.core.files.storage import default_storage
+from django.core.files.base import ContentFile
+import os
+import uuid
+from PIL import Image
+import json
+
+@csrf_exempt
+def file_upload_view(request):
+    if request.method == 'POST':
+        uploaded_file = request.FILES.get('file')
         
-        if (!rooms.has(roomName)) {
-            rooms.set(roomName, new Set());
-        }
-        rooms.get(roomName).add(socket.id);
+        if not uploaded_file:
+            return JsonResponse({'error': 'No file provided'}, status=400)
         
-        socket.to(roomName).emit('user-joined', {
-            userId: socket.id,
-            message: \`用户 \${socket.id} 加入了房间 \${roomName}\`
-        });
+        # Validate file type
+        allowed_types = ['image/jpeg', 'image/png', 'image/gif']
+        if uploaded_file.content_type not in allowed_types:
+            return JsonResponse({'error': 'Invalid file type'}, status=400)
         
-        socket.emit('joined-room', {
-            roomName,
-            users: Array.from(rooms.get(roomName))
-        });
-    });
-    
-    // 离开房间
-    socket.on('leave-room', (roomName) => {
-        socket.leave(roomName);
+        # Validate file size (max 5MB)
+        max_size = 5 * 1024 * 1024
+        if uploaded_file.size > max_size:
+            return JsonResponse({'error': 'File too large'}, status=400)
         
-        if (rooms.has(roomName)) {
-            rooms.get(roomName).delete(socket.id);
-            if (rooms.get(roomName).size === 0) {
-                rooms.delete(roomName);
-            }
-        }
+        # Generate unique filename
+        file_extension = os.path.splitext(uploaded_file.name)[1]
+        unique_filename = f"{uuid.uuid4()}{file_extension}"
         
-        socket.to(roomName).emit('user-left', {
-            userId: socket.id,
-            message: \`用户 \${socket.id} 离开了房间 \${roomName}\`
-        });
-    });
-    
-    // 房间消息
-    socket.on('room-message', (data) => {
-        socket.to(data.room).emit('room-message', {
-            userId: socket.id,
-            message: data.message,
-            timestamp: new Date().toISOString()
-        });
-    });
-    
-    // 私人消息
-    socket.on('private-message', (data) => {
-        socket.to(data.targetId).emit('private-message', {
-            fromUserId: socket.id,
-            message: data.message,
-            timestamp: new Date().toISOString()
-        });
-    });
-    
-    // 断开连接
-    socket.on('disconnect', () => {
-        console.log('用户断开连接:', socket.id);
-        
-        // 从所有房间中移除
-        rooms.forEach((users, roomName) => {
-            if (users.has(socket.id)) {
-                users.delete(socket.id);
-                socket.to(roomName).emit('user-left', {
-                    userId: socket.id,
-                    message: \`用户 \${socket.id} 断开连接\`
-                });
-                
-                if (users.size === 0) {
-                    rooms.delete(roomName);
+        try:
+            # Save original file
+            file_path = default_storage.save(
+                f"uploads/{unique_filename}", 
+                ContentFile(uploaded_file.read())
+            )
+            
+            # Create thumbnail if image
+            if uploaded_file.content_type.startswith('image/'):
+                thumbnail_path = create_thumbnail(file_path)
+            else:
+                thumbnail_path = None
+            
+            return JsonResponse({
+                'success': True,
+                'file': {
+                    'filename': unique_filename,
+                    'original_name': uploaded_file.name,
+                    'size': uploaded_file.size,
+                    'content_type': uploaded_file.content_type,
+                    'url': default_storage.url(file_path),
+                    'thumbnail_url': default_storage.url(thumbnail_path) if thumbnail_path else None
                 }
-            }
-        });
-    });
-});
+            })
+            
+        except Exception as e:
+            return JsonResponse({'error': str(e)}, status=500)
 
-// Socket.IO 服务器
-const SOCKET_PORT = 8081;
-server2.listen(SOCKET_PORT, () => {
-    console.log(\`Socket.IO 服务器运行在 http://localhost:\${SOCKET_PORT}\`);
-});
+def create_thumbnail(file_path):
+    """Create thumbnail for uploaded image"""
+    try:
+        with default_storage.open(file_path, 'rb') as file:
+            image = Image.open(file)
+            image.thumbnail((150, 150), Image.Resampling.LANCZOS)
+            
+            # Generate thumbnail filename
+            filename = os.path.basename(file_path)
+            name, ext = os.path.splitext(filename)
+            thumbnail_filename = f"{name}_thumb{ext}"
+            
+            # Save thumbnail
+            from io import BytesIO
+            thumbnail_io = BytesIO()
+            image.save(thumbnail_io, format=image.format)
+            thumbnail_io.seek(0)
+            
+            thumbnail_path = default_storage.save(
+                f"thumbnails/{thumbnail_filename}",
+                ContentFile(thumbnail_io.read())
+            )
+            
+            return thumbnail_path
+    except Exception as e:
+        print(f"Error creating thumbnail: {e}")
+        return None
+
+# Multiple file upload
+@csrf_exempt
+def multiple_file_upload_view(request):
+    if request.method == 'POST':
+        files = request.FILES.getlist('files')
+        
+        if not files:
+            return JsonResponse({'error': 'No files provided'}, status=400)
+        
+        uploaded_files = []
+        errors = []
+        
+        for uploaded_file in files:
+            try:
+                # Process each file
+                result = process_single_file(uploaded_file)
+                uploaded_files.append(result)
+            except Exception as e:
+                errors.append({
+                    'filename': uploaded_file.name,
+                    'error': str(e)
+                })
+        
+        return JsonResponse({
+            'uploaded_files': uploaded_files,
+            'errors': errors
+        })
 ```
 
-</Tab>
+```javascript !! js
+// Express.js file upload with Multer
+const express = require('express');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs').promises;
+const sharp = require('sharp'); // For image processing
+const { v4: uuidv4 } = require('uuid');
 
-</Tabs>
+const app = express();
 
-## 小结
+// Configure multer for file uploads
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        const uploadDir = 'uploads/';
+        // Ensure upload directory exists
+        fs.mkdir(uploadDir, { recursive: true })
+            .then(() => cb(null, uploadDir))
+            .catch(err => cb(err));
+    },
+    filename: (req, file, cb) => {
+        // Generate unique filename
+        const fileExtension = path.extname(file.originalname);
+        const uniqueName = `${uuidv4()}${fileExtension}`;
+        cb(null, uniqueName);
+    }
+});
 
-通过本章的学习，你应该了解到：
+// File filter
+const fileFilter = (req, file, cb) => {
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/gif'];
+    
+    if (allowedTypes.includes(file.mimetype)) {
+        cb(null, true);
+    } else {
+        cb(new Error('Invalid file type. Only JPEG, PNG, and GIF are allowed.'), false);
+    }
+};
 
-1. **运行时差异**: Node.js 单线程事件循环 vs Python 多线程 + GIL
-2. **异步模型**: JavaScript Promise/async-await vs Python asyncio
-3. **文件操作**: Node.js fs 模块 vs Python pathlib/aiofiles
-4. **数据库集成**: 不同 ORM/ODM 的使用方式和特点
-5. **实时通信**: WebSocket 在两种语言中的实现差异
+// Configure multer
+const upload = multer({
+    storage: storage,
+    fileFilter: fileFilter,
+    limits: {
+        fileSize: 5 * 1024 * 1024, // 5MB limit
+        files: 10 // Maximum 10 files
+    }
+});
 
-<Callout type="tip">
-**下一步**: 在下一章中，我们将学习包管理与生态系统，了解 npm 与 pip 的差异。
-</Callout>
+// Single file upload endpoint
+app.post('/api/upload', upload.single('file'), async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ error: 'No file provided' });
+        }
+        
+        const file = req.file;
+        let thumbnailPath = null;
+        
+        // Create thumbnail for images
+        if (file.mimetype.startsWith('image/')) {
+            thumbnailPath = await createThumbnail(file.path);
+        }
+        
+        res.json({
+            success: true,
+            file: {
+                filename: file.filename,
+                originalName: file.originalname,
+                size: file.size,
+                contentType: file.mimetype,
+                url: `/uploads/${file.filename}`,
+                thumbnailUrl: thumbnailPath ? `/thumbnails/${path.basename(thumbnailPath)}` : null
+            }
+        });
+        
+    } catch (error) {
+        console.error('Upload error:', error);
+        res.status(500).json({ error: 'Upload failed: ' + error.message });
+    }
+});
+
+// Multiple file upload endpoint
+app.post('/api/upload-multiple', upload.array('files', 10), async (req, res) => {
+    try {
+        if (!req.files || req.files.length === 0) {
+            return res.status(400).json({ error: 'No files provided' });
+        }
+        
+        const uploadedFiles = [];
+        const errors = [];
+        
+        for (const file of req.files) {
+            try {
+                const result = await processSingleFile(file);
+                uploadedFiles.push(result);
+            } catch (error) {
+                errors.push({
+                    filename: file.originalname,
+                    error: error.message
+                });
+            }
+        }
+        
+        res.json({
+            uploadedFiles,
+            errors
+        });
+        
+    } catch (error) {
+        console.error('Multiple upload error:', error);
+        res.status(500).json({ error: 'Upload failed: ' + error.message });
+    }
+});
+
+// Helper function to create thumbnail
+async function createThumbnail(imagePath) {
+    try {
+        const thumbnailDir = 'thumbnails/';
+        await fs.mkdir(thumbnailDir, { recursive: true });
+        
+        const filename = path.basename(imagePath);
+        const name = path.parse(filename).name;
+        const ext = path.parse(filename).ext;
+        const thumbnailFilename = `${name}_thumb${ext}`;
+        const thumbnailPath = path.join(thumbnailDir, thumbnailFilename);
+        
+        await sharp(imagePath)
+            .resize(150, 150, {
+                fit: 'inside',
+                withoutEnlargement: true
+            })
+            .toFile(thumbnailPath);
+        
+        return thumbnailPath;
+    } catch (error) {
+        console.error('Error creating thumbnail:', error);
+        return null;
+    }
+}
+
+// Helper function to process single file
+async function processSingleFile(file) {
+    let thumbnailPath = null;
+    
+    if (file.mimetype.startsWith('image/')) {
+        thumbnailPath = await createThumbnail(file.path);
+    }
+    
+    return {
+        filename: file.filename,
+        originalName: file.originalname,
+        size: file.size,
+        contentType: file.mimetype,
+        url: `/uploads/${file.filename}`,
+        thumbnailUrl: thumbnailPath ? `/thumbnails/${path.basename(thumbnailPath)}` : null
+    };
+}
+
+// Serve uploaded files
+app.use('/uploads', express.static('uploads'));
+app.use('/thumbnails', express.static('thumbnails'));
+
+// Error handling middleware for multer
+app.use((error, req, res, next) => {
+    if (error instanceof multer.MulterError) {
+        if (error.code === 'LIMIT_FILE_SIZE') {
+            return res.status(400).json({ error: 'File too large' });
+        }
+        if (error.code === 'LIMIT_FILE_COUNT') {
+            return res.status(400).json({ error: 'Too many files' });
+        }
+    }
+    
+    if (error.message.includes('Invalid file type')) {
+        return res.status(400).json({ error: error.message });
+    }
+    
+    res.status(500).json({ error: 'Upload error: ' + error.message });
+});
+
+module.exports = app;
+```
+</PythonEditor>
+
+## Testing and Debugging
+
+### Jest vs Python Testing
+
+<PythonEditor title="Testing Strategies" compare={true}>
+```python !! py
+# Django/Python testing with pytest
+import pytest
+from django.test import TestCase, Client
+from django.contrib.auth.models import User
+from unittest.mock import patch, Mock
+import json
+
+class APITestCase(TestCase):
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(
+            username='testuser',
+            email='test@example.com',
+            password='testpass'
+        )
+    
+    def test_login_success(self):
+        """Test successful login"""
+        response = self.client.post('/api/login/', {
+            'username': 'testuser',
+            'password': 'testpass'
+        }, content_type='application/json')
+        
+        self.assertEqual(response.status_code, 200)
+        data = json.loads(response.content)
+        self.assertIn('token', data)
+        self.assertEqual(data['user']['username'], 'testuser')
+    
+    def test_login_invalid_credentials(self):
+        """Test login with invalid credentials"""
+        response = self.client.post('/api/login/', {
+            'username': 'testuser',
+            'password': 'wrongpass'
+        }, content_type='application/json')
+        
+        self.assertEqual(response.status_code, 401)
+    
+    @patch('requests.get')
+    def test_external_api_call(self, mock_get):
+        """Test external API integration with mocking"""
+        mock_response = Mock()
+        mock_response.json.return_value = {'status': 'success'}
+        mock_response.status_code = 200
+        mock_get.return_value = mock_response
+        
+        # Test the function that makes external API call
+        from myapp.utils import fetch_external_data
+        result = fetch_external_data('test_id')
+        
+        self.assertEqual(result['status'], 'success')
+        mock_get.assert_called_once()
+
+# pytest fixtures and parametrized tests
+@pytest.fixture
+def authenticated_client():
+    """Fixture for authenticated client"""
+    client = Client()
+    user = User.objects.create_user(
+        username='testuser',
+        password='testpass'
+    )
+    client.force_login(user)
+    return client, user
+
+@pytest.mark.parametrize("username,password,expected_status", [
+    ('valid_user', 'valid_pass', 200),
+    ('invalid_user', 'valid_pass', 401),
+    ('valid_user', 'invalid_pass', 401),
+    ('', '', 400),
+])
+def test_login_scenarios(username, password, expected_status):
+    """Test multiple login scenarios"""
+    client = Client()
+    if username == 'valid_user':
+        User.objects.create_user(username=username, password=password)
+    
+    response = client.post('/api/login/', {
+        'username': username,
+        'password': password
+    }, content_type='application/json')
+    
+    assert response.status_code == expected_status
+```
+
+```javascript !! js
+// Jest testing for Node.js/Express
+const request = require('supertest');
+const app = require('../app');
+const User = require('../models/User');
+const jwt = require('jsonwebtoken');
+
+// Setup and teardown
+describe('API Tests', () => {
+    beforeEach(async () => {
+        // Clear database before each test
+        await User.deleteMany({});
+        
+        // Create test user
+        await User.create({
+            username: 'testuser',
+            email: 'test@example.com',
+            password: '$2a$10$hashed_password_here'
+        });
+    });
+    
+    afterEach(async () => {
+        // Cleanup after each test
+        await User.deleteMany({});
+    });
+    
+    describe('POST /api/login', () => {
+        it('should login successfully with valid credentials', async () => {
+            const response = await request(app)
+                .post('/api/login')
+                .send({
+                    username: 'testuser',
+                    password: 'testpass'
+                })
+                .expect(200);
+            
+            expect(response.body).toHaveProperty('token');
+            expect(response.body.user.username).toBe('testuser');
+        });
+        
+        it('should fail with invalid credentials', async () => {
+            const response = await request(app)
+                .post('/api/login')
+                .send({
+                    username: 'testuser',
+                    password: 'wrongpass'
+                })
+                .expect(401);
+            
+            expect(response.body).toHaveProperty('error');
+        });
+        
+        it('should validate required fields', async () => {
+            const response = await request(app)
+                .post('/api/login')
+                .send({})
+                .expect(400);
+            
+            expect(response.body.error).toContain('required');
+        });
+    });
+    
+    describe('GET /api/protected', () => {
+        let authToken;
+        
+        beforeEach(async () => {
+            // Generate valid JWT token for tests
+            authToken = jwt.sign(
+                { userId: '507f1f77bcf86cd799439011', username: 'testuser' },
+                process.env.JWT_SECRET || 'test-secret'
+            );
+        });
+        
+        it('should access protected route with valid token', async () => {
+            const response = await request(app)
+                .get('/api/protected')
+                .set('Authorization', `Bearer ${authToken}`)
+                .expect(200);
+            
+            expect(response.body.message).toContain('Hello testuser');
+        });
+        
+        it('should reject request without token', async () => {
+            await request(app)
+                .get('/api/protected')
+                .expect(401);
+        });
+        
+        it('should reject request with invalid token', async () => {
+            await request(app)
+                .get('/api/protected')
+                .set('Authorization', 'Bearer invalid_token')
+                .expect(401);
+        });
+    });
+});
+
+// Mock external dependencies
+jest.mock('../services/emailService', () => ({
+    sendEmail: jest.fn().mockResolvedValue({ success: true })
+}));
+
+describe('External API Integration', () => {
+    it('should handle external API call with mocking', async () => {
+        // Mock axios or fetch
+        const mockAxios = require('axios');
+        mockAxios.get.mockResolvedValue({
+            data: { status: 'success' },
+            status: 200
+        });
+        
+        const externalService = require('../services/externalService');
+        const result = await externalService.fetchData('test_id');
+        
+        expect(result.status).toBe('success');
+        expect(mockAxios.get).toHaveBeenCalledWith(
+            expect.stringContaining('test_id')
+        );
+    });
+});
+
+// Parametrized tests using test.each
+describe('Login scenarios', () => {
+    test.each([
+        ['valid_user', 'valid_pass', 200],
+        ['invalid_user', 'valid_pass', 401],
+        ['valid_user', 'invalid_pass', 401],
+        ['', '', 400]
+    ])('login with username: %s, password: %s should return %i', 
+        async (username, password, expectedStatus) => {
+            // Setup valid user if needed
+            if (username === 'valid_user') {
+                await User.create({
+                    username,
+                    password: '$2a$10$hashed_password_here'
+                });
+            }
+            
+            const response = await request(app)
+                .post('/api/login')
+                .send({ username, password });
+            
+            expect(response.status).toBe(expectedStatus);
+        }
+    );
+});
+
+// Test utilities and helpers
+const testUtils = {
+    createAuthenticatedUser: async (userData = {}) => {
+        const defaultUser = {
+            username: 'testuser',
+            email: 'test@example.com',
+            password: 'hashedpassword'
+        };
+        
+        const user = await User.create({ ...defaultUser, ...userData });
+        const token = jwt.sign(
+            { userId: user._id, username: user.username },
+            process.env.JWT_SECRET || 'test-secret'
+        );
+        
+        return { user, token };
+    },
+    
+    makeAuthenticatedRequest: (app, method, url, token) => {
+        return request(app)[method](url)
+            .set('Authorization', `Bearer ${token}`);
+    }
+};
+
+module.exports = testUtils;
+```
+</PythonEditor>
+
+## Summary and Best Practices
+
+### Node.js Development Guidelines
+
+1. **Environment Configuration**
+   - Use environment variables for configuration
+   - Implement proper error handling
+   - Use process managers like PM2 for production
+
+2. **Security Best Practices**
+   - Implement rate limiting
+   - Use helmet.js for security headers
+   - Validate and sanitize input data
+   - Implement proper authentication and authorization
+
+3. **Performance Optimization**
+   - Use connection pooling for databases
+   - Implement caching strategies
+   - Use compression middleware
+   - Monitor memory usage and handle memory leaks
+
+4. **Database Integration**
+   - Choose between SQL (PostgreSQL) and NoSQL (MongoDB)
+   - Implement proper indexing
+   - Use transactions where appropriate
+   - Handle database connection errors gracefully
+
+5. **Testing Strategy**
+   - Write unit tests for business logic
+   - Implement integration tests for APIs
+   - Use mocking for external dependencies
+   - Maintain good test coverage
+
+---
+
+In the next module, we'll explore package management and the JavaScript ecosystem, learning how to leverage npm and build modern development workflows.

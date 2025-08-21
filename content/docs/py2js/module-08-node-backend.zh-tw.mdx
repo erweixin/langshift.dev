@@ -1,161 +1,1603 @@
 ---
 title: Node.js 後端開發
-description: 學習如何使用 Node.js 構建服務端應用，對比 Python 後端開發的異同點
+description: 從 Python 開發者的角度掌握 Node.js 後端開發。學習 Express.js、資料庫整合、身分驗證、即時功能和部署策略。
 ---
-
-import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
-import { Step, Steps } from 'fumadocs-ui/components/steps';
-import { Callout } from 'fumadocs-ui/components/callout';
 
 # Node.js 後端開發
 
-Node.js 允許開發者使用 JavaScript 構建服務端應用，這為 Python 開發者提供了一個有趣的對比學習機會。本章將深入探討 Node.js 後端開發的核心概念，並與 Python 後端開發進行詳細對比。
+在本模組中，我們將從 Python 開發者的角度深入瞭解 Node.js 後端開發。你將學習如何使用 JavaScript 建構強健的伺服器端應用程式，充分利用你現有的後端開發知識。
 
-## 1. Node.js 運行時概述
+## Node.js 執行時環境
 
-### 運行環境對比
+### Python vs Node.js 執行時對比
 
-<Tabs items={['Python 運行時', 'Node.js 運行時']}>
-
-<Tab value="Python 運行時">
-
-```python
-# Python 運行時特性
-import sys
+<PythonEditor title="執行時環境對比" compare={true}>
+```python !! py
+# Python 伺服器環境
 import os
-import asyncio
-from threading import Thread
+import sys
+import platform
+from datetime import datetime
 
-# 全局解釋器鎖 (GIL)
-print(f"Python 版本: {sys.version}")
-print(f"平台: {sys.platform}")
+def server_info():
+    """顯示 Python 伺服器環境資訊"""
+    return {
+        'runtime': 'Python',
+        'version': sys.version,
+        'platform': platform.platform(),
+        'architecture': platform.architecture(),
+        'executable': sys.executable,
+        'path': sys.path[:3],  # 前3個路徑
+        'environment': {
+            'HOME': os.environ.get('HOME', 'N/A'),
+            'PATH': os.environ.get('PATH', 'N/A')[:100] + '...',
+            'PYTHON_PATH': os.environ.get('PYTHONPATH', '未設定')
+        },
+        'process_id': os.getpid(),
+        'current_time': datetime.now().isoformat()
+    }
 
-# Python 中的併發
-def cpu_bound_task():
-    """CPU 密集型任務"""
-    total = 0
-    for i in range(1000000):
-        total += i ** 2
-    return total
+# WSGI/ASGI 應用程式結構
+def wsgi_application(environ, start_response):
+    """簡單的 WSGI 應用程式"""
+    status = '200 OK'
+    headers = [('Content-type', 'application/json')]
+    start_response(status, headers)
+    
+    info = server_info()
+    import json
+    return [json.dumps(info, indent=2).encode('utf-8')]
 
-# 多線程（受 GIL 限制）
-import threading
-threads = []
-for i in range(4):
-    t = threading.Thread(target=cpu_bound_task)
-    threads.append(t)
-    t.start()
-
-for t in threads:
-    t.join()
-
-# 異步編程
-async def io_bound_task():
-    """IO 密集型任務"""
-    await asyncio.sleep(1)
-    return "任務完成"
-
-async def main():
-    tasks = [io_bound_task() for _ in range(10)]
-    results = await asyncio.gather(*tasks)
-    print(f"完成 {len(results)} 個任務")
-
-asyncio.run(main())
+# 範例使用
+if __name__ == '__main__':
+    info = server_info()
+    print("Python 伺服器環境:")
+    for key, value in info.items():
+        print(f"{key}: {value}")
 ```
 
-</Tab>
+```javascript !! js
+// Node.js 伺服器環境
+const os = require('os');
+const process = require('process');
+const path = require('path');
 
-<Tab value="Node.js 運行時">
-
-```javascript
-// Node.js 運行時特性
-console.log(`Node.js 版本: ${process.version}`);
-console.log(`平台: ${process.platform}`);
-console.log(`架構: ${process.arch}`);
-
-// 單線程事件循環
-console.log("事件循環階段:");
-console.log("1. Timer 階段");
-console.log("2. Pending callbacks 階段");
-console.log("3. Poll 階段");
-console.log("4. Check 階段");
-console.log("5. Close callbacks 階段");
-
-// CPU 密集型任務處理
-const { Worker, isMainThread, parentPort, workerData } = require('worker_threads');
-
-if (isMainThread) {
-    // 主線程
-    const workers = [];
-    const numWorkers = 4;
-    
-    for (let i = 0; i < numWorkers; i++) {
-        const worker = new Worker(__filename, {
-            workerData: { start: i * 250000, end: (i + 1) * 250000 }
-        });
-        
-        worker.on('message', (result) => {
-            console.log(`Worker ${i} 完成: ${result}`);
-        });
-        
-        workers.push(worker);
-    }
-} else {
-    // Worker 線程
-    function cpuBoundTask(start, end) {
-        let total = 0;
-        for (let i = start; i < end; i++) {
-            total += i ** 2;
-        }
-        return total;
-    }
-    
-    const result = cpuBoundTask(workerData.start, workerData.end);
-    parentPort.postMessage(result);
+function serverInfo() {
+    /**
+     * 顯示 Node.js 伺服器環境資訊
+     */
+    return {
+        runtime: 'Node.js',
+        version: process.version,
+        platform: os.platform(),
+        architecture: os.arch(),
+        executable: process.execPath,
+        nodeModulesPath: path.join(__dirname, 'node_modules'),
+        environment: {
+            HOME: process.env.HOME || 'N/A',
+            PATH: (process.env.PATH || 'N/A').substring(0, 100) + '...',
+            NODE_PATH: process.env.NODE_PATH || '未設定',
+            NODE_ENV: process.env.NODE_ENV || 'development'
+        },
+        processId: process.pid,
+        uptime: process.uptime(),
+        memoryUsage: process.memoryUsage(),
+        currentTime: new Date().toISOString()
+    };
 }
 
-// 異步編程 (原生 Promise)
-async function ioBoundTask() {
-    return new Promise(resolve => {
-        setTimeout(() => resolve("任務完成"), 1000);
+// Express.js 應用程式結構
+const express = require('express');
+const app = express();
+
+app.get('/info', (req, res) => {
+    const info = serverInfo();
+    res.json(info);
+});
+
+// 範例使用
+if (require.main === module) {
+    const info = serverInfo();
+    console.log('Node.js 伺服器環境:');
+    Object.entries(info).forEach(([key, value]) => {
+        console.log(`${key}:`, value);
+    });
+    
+    // 啟動伺服器
+    const PORT = process.env.PORT || 3000;
+    app.listen(PORT, () => {
+        console.log(`伺服器運行於連接埠 ${PORT}`);
     });
 }
 
-async function main() {
-    const tasks = Array(10).fill().map(() => ioBoundTask());
-    const results = await Promise.all(tasks);
-    console.log(`完成 ${results.length} 個任務`);
-}
+module.exports = { serverInfo, app };
+```
+</PythonEditor>
 
-main();
+## Express.js 進階功能
+
+### 路由和中介軟體生態系統
+
+<PythonEditor title="Express.js 進階路由" compare={true}>
+```python !! py
+# Django 進階 URL 路由和中介軟體
+from django.urls import path, include
+from django.http import JsonResponse
+from django.middleware.csrf import CsrfViewMiddleware
+from django.contrib.auth.decorators import login_required
+import time
+import logging
+
+# 自訂中介軟體
+class RequestLoggingMiddleware:
+    def __init__(self, get_response):
+        self.get_response = get_response
+        self.logger = logging.getLogger(__name__)
+
+    def __call__(self, request):
+        start_time = time.time()
+        
+        # 記錄請求
+        self.logger.info(f"請求: {request.method} {request.path}")
+        
+        response = self.get_response(request)
+        
+        # 記錄回應和耗時
+        duration = time.time() - start_time
+        self.logger.info(f"回應: {response.status_code} ({duration:.3f}s)")
+        
+        return response
+
+# 帶裝飾器的 API 檢視
+@login_required
+def api_users(request):
+    if request.method == 'GET':
+        users = [
+            {'id': 1, 'name': 'Alice', 'email': 'alice@example.com'},
+            {'id': 2, 'name': 'Bob', 'email': 'bob@example.com'}
+        ]
+        return JsonResponse({'users': users})
+
+# 巢狀 URL 模式
+api_patterns = [
+    path('users/', api_users, name='api_users'),
+    path('posts/', include('blog.urls')),
+]
+
+urlpatterns = [
+    path('api/v1/', include(api_patterns)),
+    path('admin/', admin.site.urls),
+]
 ```
 
-</Tab>
+```javascript !! js
+// Express.js 進階路由和中介軟體
+const express = require('express');
+const morgan = require('morgan');
+const helmet = require('helmet');
+const cors = require('cors');
+const rateLimit = require('express-rate-limit');
 
-</Tabs>
+const app = express();
 
-## 2. HTTP 服務器對比
+// 安全中介軟體
+app.use(helmet());
+app.use(cors({
+    origin: process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000'],
+    credentials: true
+}));
 
-[簡化的內容，重點展示核心差異]
+// 請求日誌中介軟體
+app.use(morgan('combined'));
 
-## 3. 數據庫集成
+// 速率限制
+const limiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15分鐘
+    max: 100, // 每個IP在windowMs內最多100個請求
+    message: '該IP請求過於頻繁'
+});
+app.use('/api/', limiter);
 
-[簡化的數據庫操作示例]
+// 請求本文解析中介軟體
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true }));
 
-## 4. 實時通信
+// 自訂認證中介軟體
+const authMiddleware = (req, res, next) => {
+    const token = req.headers.authorization?.split(' ')[1];
+    
+    if (!token) {
+        return res.status(401).json({ error: '未提供令牌' });
+    }
+    
+    // 簡化的令牌驗證
+    try {
+        // 在實際應用程式中，驗證JWT令牌
+        req.user = { id: 1, name: '已認證使用者' };
+        next();
+    } catch (error) {
+        res.status(401).json({ error: '無效令牌' });
+    }
+};
 
-[WebSocket 基礎示例]
+// API v1 路由器
+const apiV1Router = express.Router();
 
-## 小結
+// 帶認證的使用者端點
+apiV1Router.get('/users', authMiddleware, (req, res) => {
+    const users = [
+        { id: 1, name: 'Alice', email: 'alice@example.com' },
+        { id: 2, name: 'Bob', email: 'bob@example.com' }
+    ];
+    res.json({ users });
+});
 
-通過本章的學習，你應該了解到：
+// 文章路由器（巢狀）
+const postsRouter = express.Router();
+postsRouter.get('/', (req, res) => {
+    res.json({ posts: [] });
+});
+postsRouter.get('/:id', (req, res) => {
+    res.json({ post: { id: req.params.id } });
+});
 
-1. **運行時差異**: Node.js 單線程事件循環 vs Python 多線程 + GIL
-2. **異步模型**: JavaScript Promise/async-await vs Python asyncio
-3. **文件操作**: Node.js fs 模塊 vs Python pathlib/aiofiles
-4. **數據庫集成**: 不同 ORM/ODM 的使用方式和特點
-5. **實時通信**: WebSocket 在兩種語言中的實現差異
+apiV1Router.use('/posts', postsRouter);
 
-<Callout type="tip">
-**下一步**: 在下一章中，我們將學習包管理與生態系統，了解 npm 與 pip 的差異。
-</Callout>
+// 掛載API路由器
+app.use('/api/v1', apiV1Router);
+
+// 錯誤處理中介軟體
+app.use((error, req, res, next) => {
+    console.error('錯誤:', error);
+    res.status(500).json({ 
+        error: '內部伺服器錯誤',
+        message: error.message 
+    });
+});
+
+// 404處理器
+app.use((req, res) => {
+    res.status(404).json({ error: '路由未找到' });
+});
+
+module.exports = app;
+```
+</PythonEditor>
+
+## 資料庫整合
+
+### MongoDB with Mongoose vs Django ORM
+
+<PythonEditor title="資料庫操作對比" compare={true}>
+```python !! py
+# Django ORM 模型和操作
+from django.db import models
+from django.contrib.auth.models import User
+from datetime import datetime
+
+class BlogPost(models.Model):
+    title = models.CharField(max_length=200)
+    content = models.TextField()
+    author = models.ForeignKey(User, on_delete=models.CASCADE)
+    published = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    tags = models.ManyToManyField('Tag', blank=True)
+    
+    class Meta:
+        ordering = ['-created_at']
+    
+    def __str__(self):
+        return self.title
+
+class Tag(models.Model):
+    name = models.CharField(max_length=50, unique=True)
+    
+    def __str__(self):
+        return self.name
+
+# 資料庫操作
+def blog_operations():
+    # 建立
+    post = BlogPost.objects.create(
+        title="學習 Node.js",
+        content="Node.js 是一個強大的執行時...",
+        author_id=1,
+        published=True
+    )
+    
+    # 帶關係的讀取
+    posts = BlogPost.objects.select_related('author').prefetch_related('tags').filter(
+        published=True
+    )
+    
+    # 更新
+    BlogPost.objects.filter(id=post.id).update(
+        title="進階 Node.js",
+        updated_at=datetime.now()
+    )
+    
+    # 複雜查詢
+    recent_posts = BlogPost.objects.filter(
+        created_at__gte=datetime.now() - timedelta(days=7),
+        published=True
+    ).order_by('-created_at')[:10]
+    
+    # 聚合
+    from django.db.models import Count
+    tag_counts = Tag.objects.annotate(
+        post_count=Count('blogpost')
+    ).order_by('-post_count')
+    
+    return {
+        'created_post': post,
+        'posts': list(posts.values()),
+        'recent_posts': list(recent_posts.values()),
+        'tag_counts': list(tag_counts.values())
+    }
+```
+
+```javascript !! js
+// Mongoose 模型和操作
+const mongoose = require('mongoose');
+
+// 定義 schema
+const tagSchema = new mongoose.Schema({
+    name: {
+        type: String,
+        required: true,
+        unique: true,
+        maxlength: 50
+    }
+});
+
+const userSchema = new mongoose.Schema({
+    username: {
+        type: String,
+        required: true,
+        unique: true
+    },
+    email: {
+        type: String,
+        required: true,
+        unique: true
+    },
+    password: {
+        type: String,
+        required: true
+    }
+});
+
+const blogPostSchema = new mongoose.Schema({
+    title: {
+        type: String,
+        required: true,
+        maxlength: 200
+    },
+    content: {
+        type: String,
+        required: true
+    },
+    author: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+        required: true
+    },
+    published: {
+        type: Boolean,
+        default: false
+    },
+    tags: [{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Tag'
+    }],
+    createdAt: {
+        type: Date,
+        default: Date.now
+    },
+    updatedAt: {
+        type: Date,
+        default: Date.now
+    }
+});
+
+// 更新 updatedAt 的中介軟體
+blogPostSchema.pre('save', function(next) {
+    this.updatedAt = Date.now();
+    next();
+});
+
+// 建立模型
+const Tag = mongoose.model('Tag', tagSchema);
+const User = mongoose.model('User', userSchema);
+const BlogPost = mongoose.model('BlogPost', blogPostSchema);
+
+// 資料庫操作
+async function blogOperations() {
+    try {
+        // 建立
+        const post = await BlogPost.create({
+            title: "學習 Node.js",
+            content: "Node.js 是一個強大的執行時...",
+            author: new mongoose.Types.ObjectId(), // 假設使用者存在
+            published: true
+        });
+        
+        // 帶關係的讀取（population）
+        const posts = await BlogPost
+            .find({ published: true })
+            .populate('author', 'username email')
+            .populate('tags', 'name')
+            .sort({ createdAt: -1 });
+        
+        // 更新
+        await BlogPost.findByIdAndUpdate(
+            post._id,
+            { 
+                title: "進階 Node.js",
+                updatedAt: new Date()
+            },
+            { new: true }
+        );
+        
+        // 複雜查詢
+        const sevenDaysAgo = new Date();
+        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+        
+        const recentPosts = await BlogPost
+            .find({
+                createdAt: { $gte: sevenDaysAgo },
+                published: true
+            })
+            .sort({ createdAt: -1 })
+            .limit(10);
+        
+        // 聚合
+        const tagCounts = await BlogPost.aggregate([
+            { $unwind: '$tags' },
+            { $group: { 
+                _id: '$tags', 
+                postCount: { $sum: 1 } 
+            }},
+            { $lookup: {
+                from: 'tags',
+                localField: '_id',
+                foreignField: '_id',
+                as: 'tagInfo'
+            }},
+            { $sort: { postCount: -1 } }
+        ]);
+        
+        return {
+            createdPost: post,
+            posts: posts,
+            recentPosts: recentPosts,
+            tagCounts: tagCounts
+        };
+        
+    } catch (error) {
+        console.error('資料庫操作錯誤:', error);
+        throw error;
+    }
+}
+
+module.exports = { BlogPost, User, Tag, blogOperations };
+```
+</PythonEditor>
+
+## 身分驗證和授權
+
+### JWT 身分驗證系統
+
+<PythonEditor title="身分驗證實作" compare={true}>
+```python !! py
+# Django JWT 身分驗證
+from django.contrib.auth import authenticate
+from django.contrib.auth.models import User
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+import jwt
+import datetime
+from django.conf import settings
+import json
+
+@csrf_exempt
+def login_view(request):
+    if request.method == 'POST':
+        data = json.loads(request.body)
+        username = data.get('username')
+        password = data.get('password')
+        
+        user = authenticate(username=username, password=password)
+        if user:
+            # 產生 JWT 令牌
+            payload = {
+                'user_id': user.id,
+                'username': user.username,
+                'exp': datetime.datetime.utcnow() + datetime.timedelta(hours=24),
+                'iat': datetime.datetime.utcnow()
+            }
+            token = jwt.encode(payload, settings.SECRET_KEY, algorithm='HS256')
+            
+            return JsonResponse({
+                'token': token,
+                'user': {
+                    'id': user.id,
+                    'username': user.username,
+                    'email': user.email
+                }
+            })
+        else:
+            return JsonResponse({'error': '無效憑證'}, status=401)
+
+def jwt_authentication_middleware(get_response):
+    def middleware(request):
+        # 跳過登入端點的認證
+        if request.path == '/api/login/':
+            return get_response(request)
+        
+        auth_header = request.META.get('HTTP_AUTHORIZATION')
+        if auth_header and auth_header.startswith('Bearer '):
+            token = auth_header.split(' ')[1]
+            try:
+                payload = jwt.decode(token, settings.SECRET_KEY, algorithms=['HS256'])
+                request.user_id = payload['user_id']
+                request.username = payload['username']
+            except jwt.ExpiredSignatureError:
+                return JsonResponse({'error': '令牌已過期'}, status=401)
+            except jwt.InvalidTokenError:
+                return JsonResponse({'error': '無效令牌'}, status=401)
+        
+        return get_response(request)
+    return middleware
+
+# 受保護的檢視
+def protected_view(request):
+    if not hasattr(request, 'user_id'):
+        return JsonResponse({'error': '需要身分驗證'}, status=401)
+    
+    return JsonResponse({
+        'message': f'你好 {request.username}',
+        'user_id': request.user_id
+    })
+```
+
+```javascript !! js
+// Express.js JWT 身分驗證
+const express = require('express');
+const jwt = require('jsonwebtoken');
+const bcrypt = require('bcryptjs');
+const User = require('./models/User'); // 假設User模型存在
+
+const app = express();
+app.use(express.json());
+
+// JWT 密鑰（應該在環境變數中）
+const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
+
+// 登入端點
+app.post('/api/login', async (req, res) => {
+    try {
+        const { username, password } = req.body;
+        
+        // 查找使用者（使用Mongoose範例）
+        const user = await User.findOne({ username });
+        if (!user) {
+            return res.status(401).json({ error: '無效憑證' });
+        }
+        
+        // 檢查密碼
+        const isValidPassword = await bcrypt.compare(password, user.password);
+        if (!isValidPassword) {
+            return res.status(401).json({ error: '無效憑證' });
+        }
+        
+        // 產生 JWT 令牌
+        const payload = {
+            userId: user._id,
+            username: user.username,
+            iat: Math.floor(Date.now() / 1000),
+            exp: Math.floor(Date.now() / 1000) + (24 * 60 * 60) // 24小時
+        };
+        
+        const token = jwt.sign(payload, JWT_SECRET);
+        
+        res.json({
+            token,
+            user: {
+                id: user._id,
+                username: user.username,
+                email: user.email
+            }
+        });
+        
+    } catch (error) {
+        console.error('登入錯誤:', error);
+        res.status(500).json({ error: '內部伺服器錯誤' });
+    }
+});
+
+// JWT 認證中介軟體
+const authenticateToken = (req, res, next) => {
+    // 跳過登入端點的認證
+    if (req.path === '/api/login') {
+        return next();
+    }
+    
+    const authHeader = req.headers.authorization;
+    const token = authHeader && authHeader.split(' ')[1];
+    
+    if (!token) {
+        return res.status(401).json({ error: '需要身分驗證' });
+    }
+    
+    jwt.verify(token, JWT_SECRET, (err, decoded) => {
+        if (err) {
+            if (err.name === 'TokenExpiredError') {
+                return res.status(401).json({ error: '令牌已過期' });
+            }
+            return res.status(401).json({ error: '無效令牌' });
+        }
+        
+        req.userId = decoded.userId;
+        req.username = decoded.username;
+        next();
+    });
+};
+
+// 全域應用認證中介軟體
+app.use(authenticateToken);
+
+// 受保護的路由
+app.get('/api/protected', (req, res) => {
+    res.json({
+        message: `你好 ${req.username}`,
+        userId: req.userId
+    });
+});
+
+// 使用者註冊端點
+app.post('/api/register', async (req, res) => {
+    try {
+        const { username, email, password } = req.body;
+        
+        // 雜湊密碼
+        const saltRounds = 10;
+        const hashedPassword = await bcrypt.hash(password, saltRounds);
+        
+        // 建立使用者
+        const user = await User.create({
+            username,
+            email,
+            password: hashedPassword
+        });
+        
+        res.status(201).json({
+            message: '使用者建立成功',
+            user: {
+                id: user._id,
+                username: user.username,
+                email: user.email
+            }
+        });
+        
+    } catch (error) {
+        if (error.code === 11000) {
+            res.status(400).json({ error: '使用者名稱或電子郵件已存在' });
+        } else {
+            console.error('註冊錯誤:', error);
+            res.status(500).json({ error: '內部伺服器錯誤' });
+        }
+    }
+});
+
+module.exports = app;
+```
+</PythonEditor>
+
+## WebSocket 即時功能
+
+### Socket.IO vs Django Channels
+
+<PythonEditor title="WebSocket 實作" compare={true}>
+```python !! py
+# Django Channels WebSocket 消費者
+import json
+from channels.generic.websocket import AsyncWebsocketConsumer
+from channels.db import database_sync_to_async
+from django.contrib.auth.models import User
+
+class ChatConsumer(AsyncWebsocketConsumer):
+    async def connect(self):
+        self.room_name = self.scope['url_route']['kwargs']['room_name']
+        self.room_group_name = f'chat_{self.room_name}'
+        
+        # 加入房間群組
+        await self.channel_layer.group_add(
+            self.room_group_name,
+            self.channel_name
+        )
+        
+        await self.accept()
+        
+        # 傳送歡迎訊息
+        await self.send(text_data=json.dumps({
+            'type': 'welcome',
+            'message': f'歡迎來到房間 {self.room_name}'
+        }))
+
+    async def disconnect(self, close_code):
+        # 離開房間群組
+        await self.channel_layer.group_discard(
+            self.room_group_name,
+            self.channel_name
+        )
+
+    async def receive(self, text_data):
+        data = json.loads(text_data)
+        message_type = data.get('type', 'message')
+        
+        if message_type == 'chat_message':
+            message = data['message']
+            username = data.get('username', '匿名')
+            
+            # 儲存訊息到資料庫
+            await self.save_message(username, message)
+            
+            # 向房間群組傳送訊息
+            await self.channel_layer.group_send(
+                self.room_group_name,
+                {
+                    'type': 'chat_message',
+                    'message': message,
+                    'username': username,
+                    'timestamp': datetime.now().isoformat()
+                }
+            )
+        
+        elif message_type == 'typing':
+            # 廣播輸入指示器
+            await self.channel_layer.group_send(
+                self.room_group_name,
+                {
+                    'type': 'typing_indicator',
+                    'username': data.get('username', '匿名'),
+                    'is_typing': data.get('is_typing', False)
+                }
+            )
+
+    async def chat_message(self, event):
+        await self.send(text_data=json.dumps({
+            'type': 'message',
+            'message': event['message'],
+            'username': event['username'],
+            'timestamp': event['timestamp']
+        }))
+
+    async def typing_indicator(self, event):
+        await self.send(text_data=json.dumps({
+            'type': 'typing',
+            'username': event['username'],
+            'is_typing': event['is_typing']
+        }))
+
+    @database_sync_to_async
+    def save_message(self, username, message):
+        # 儲存訊息到資料庫
+        from .models import ChatMessage
+        ChatMessage.objects.create(
+            room_name=self.room_name,
+            username=username,
+            message=message
+        )
+```
+
+```javascript !! js
+// Socket.IO with Express.js
+const express = require('express');
+const http = require('http');
+const socketIo = require('socket.io');
+const cors = require('cors');
+
+const app = express();
+const server = http.createServer(app);
+const io = socketIo(server, {
+    cors: {
+        origin: "http://localhost:3000",
+        methods: ["GET", "POST"]
+    }
+});
+
+app.use(cors());
+app.use(express.json());
+
+// 記憶體儲存（生產環境中使用資料庫）
+const chatRooms = new Map();
+const activeUsers = new Map();
+
+// Socket.IO 連線處理
+io.on('connection', (socket) => {
+    console.log('使用者連線:', socket.id);
+    
+    // 加入房間
+    socket.on('join_room', ({ roomName, username }) => {
+        socket.join(roomName);
+        socket.roomName = roomName;
+        socket.username = username;
+        
+        // 追蹤活躍使用者
+        if (!activeUsers.has(roomName)) {
+            activeUsers.set(roomName, new Set());
+        }
+        activeUsers.get(roomName).add(username);
+        
+        // 傳送歡迎訊息
+        socket.emit('welcome', {
+            type: 'welcome',
+            message: `歡迎來到房間 ${roomName}`
+        });
+        
+        // 通知房間有新使用者加入
+        socket.to(roomName).emit('user_joined', {
+            type: 'user_joined',
+            username: username,
+            message: `${username} 加入了房間`
+        });
+        
+        // 傳送活躍使用者清單
+        io.to(roomName).emit('active_users', {
+            type: 'active_users',
+            users: Array.from(activeUsers.get(roomName))
+        });
+        
+        // 傳送最近訊息
+        const recentMessages = getRecentMessages(roomName);
+        socket.emit('recent_messages', {
+            type: 'recent_messages',
+            messages: recentMessages
+        });
+    });
+    
+    // 處理聊天訊息
+    socket.on('chat_message', (data) => {
+        const { message } = data;
+        const roomName = socket.roomName;
+        const username = socket.username;
+        
+        if (roomName && username && message) {
+            const messageData = {
+                type: 'message',
+                message: message,
+                username: username,
+                timestamp: new Date().toISOString(),
+                id: generateMessageId()
+            };
+            
+            // 儲存訊息
+            saveMessage(roomName, messageData);
+            
+            // 廣播到房間
+            io.to(roomName).emit('chat_message', messageData);
+        }
+    });
+    
+    // 處理輸入指示器
+    socket.on('typing', (data) => {
+        const { isTyping } = data;
+        const roomName = socket.roomName;
+        const username = socket.username;
+        
+        if (roomName && username) {
+            socket.to(roomName).emit('typing_indicator', {
+                type: 'typing',
+                username: username,
+                isTyping: isTyping
+            });
+        }
+    });
+    
+    // 處理私人訊息
+    socket.on('private_message', (data) => {
+        const { targetUser, message } = data;
+        const senderUsername = socket.username;
+        
+        // 查找目標使用者的socket
+        const targetSocket = Array.from(io.sockets.sockets.values())
+            .find(s => s.username === targetUser);
+        
+        if (targetSocket) {
+            targetSocket.emit('private_message', {
+                type: 'private_message',
+                from: senderUsername,
+                message: message,
+                timestamp: new Date().toISOString()
+            });
+        }
+    });
+    
+    // 處理斷線
+    socket.on('disconnect', () => {
+        const roomName = socket.roomName;
+        const username = socket.username;
+        
+        if (roomName && username) {
+            // 從活躍使用者中移除
+            if (activeUsers.has(roomName)) {
+                activeUsers.get(roomName).delete(username);
+                
+                // 通知房間使用者離開
+                socket.to(roomName).emit('user_left', {
+                    type: 'user_left',
+                    username: username,
+                    message: `${username} 離開了房間`
+                });
+                
+                // 更新活躍使用者清單
+                io.to(roomName).emit('active_users', {
+                    type: 'active_users',
+                    users: Array.from(activeUsers.get(roomName))
+                });
+            }
+        }
+        
+        console.log('使用者斷線:', socket.id);
+    });
+});
+
+// 輔助函式
+function saveMessage(roomName, messageData) {
+    if (!chatRooms.has(roomName)) {
+        chatRooms.set(roomName, []);
+    }
+    
+    const messages = chatRooms.get(roomName);
+    messages.push(messageData);
+    
+    // 每個房間只保留最近100則訊息
+    if (messages.length > 100) {
+        messages.splice(0, messages.length - 100);
+    }
+}
+
+function getRecentMessages(roomName, limit = 50) {
+    const messages = chatRooms.get(roomName) || [];
+    return messages.slice(-limit);
+}
+
+function generateMessageId() {
+    return Date.now().toString(36) + Math.random().toString(36).substr(2);
+}
+
+// REST API 端點
+app.get('/api/rooms/:roomName/messages', (req, res) => {
+    const { roomName } = req.params;
+    const { limit = 50, offset = 0 } = req.query;
+    
+    const messages = getRecentMessages(roomName, parseInt(limit));
+    res.json({ messages });
+});
+
+app.get('/api/rooms/:roomName/users', (req, res) => {
+    const { roomName } = req.params;
+    const users = activeUsers.get(roomName) || new Set();
+    res.json({ users: Array.from(users) });
+});
+
+const PORT = process.env.PORT || 3001;
+server.listen(PORT, () => {
+    console.log(`伺服器運行於連接埠 ${PORT}`);
+});
+
+module.exports = { app, io };
+```
+</PythonEditor>
+
+## 檔案處理和上傳
+
+### Multer vs Django 檔案處理
+
+<PythonEditor title="檔案上傳實作" compare={true}>
+```python !! py
+# Django 檔案上傳處理
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+from django.core.files.storage import default_storage
+from django.core.files.base import ContentFile
+import os
+import uuid
+from PIL import Image
+import json
+
+@csrf_exempt
+def file_upload_view(request):
+    if request.method == 'POST':
+        uploaded_file = request.FILES.get('file')
+        
+        if not uploaded_file:
+            return JsonResponse({'error': '未提供檔案'}, status=400)
+        
+        # 驗證檔案類型
+        allowed_types = ['image/jpeg', 'image/png', 'image/gif']
+        if uploaded_file.content_type not in allowed_types:
+            return JsonResponse({'error': '無效的檔案類型'}, status=400)
+        
+        # 驗證檔案大小（最大5MB）
+        max_size = 5 * 1024 * 1024
+        if uploaded_file.size > max_size:
+            return JsonResponse({'error': '檔案太大'}, status=400)
+        
+        # 產生唯一檔案名稱
+        file_extension = os.path.splitext(uploaded_file.name)[1]
+        unique_filename = f"{uuid.uuid4()}{file_extension}"
+        
+        try:
+            # 儲存原始檔案
+            file_path = default_storage.save(
+                f"uploads/{unique_filename}", 
+                ContentFile(uploaded_file.read())
+            )
+            
+            # 如果是圖片則建立縮圖
+            if uploaded_file.content_type.startswith('image/'):
+                thumbnail_path = create_thumbnail(file_path)
+            else:
+                thumbnail_path = None
+            
+            return JsonResponse({
+                'success': True,
+                'file': {
+                    'filename': unique_filename,
+                    'original_name': uploaded_file.name,
+                    'size': uploaded_file.size,
+                    'content_type': uploaded_file.content_type,
+                    'url': default_storage.url(file_path),
+                    'thumbnail_url': default_storage.url(thumbnail_path) if thumbnail_path else None
+                }
+            })
+            
+        except Exception as e:
+            return JsonResponse({'error': str(e)}, status=500)
+
+def create_thumbnail(file_path):
+    """為上傳的圖片建立縮圖"""
+    try:
+        with default_storage.open(file_path, 'rb') as file:
+            image = Image.open(file)
+            image.thumbnail((150, 150), Image.Resampling.LANCZOS)
+            
+            # 產生縮圖檔案名稱
+            filename = os.path.basename(file_path)
+            name, ext = os.path.splitext(filename)
+            thumbnail_filename = f"{name}_thumb{ext}"
+            
+            # 儲存縮圖
+            from io import BytesIO
+            thumbnail_io = BytesIO()
+            image.save(thumbnail_io, format=image.format)
+            thumbnail_io.seek(0)
+            
+            thumbnail_path = default_storage.save(
+                f"thumbnails/{thumbnail_filename}",
+                ContentFile(thumbnail_io.read())
+            )
+            
+            return thumbnail_path
+    except Exception as e:
+        print(f"建立縮圖錯誤: {e}")
+        return None
+
+# 多檔案上傳
+@csrf_exempt
+def multiple_file_upload_view(request):
+    if request.method == 'POST':
+        files = request.FILES.getlist('files')
+        
+        if not files:
+            return JsonResponse({'error': '未提供檔案'}, status=400)
+        
+        uploaded_files = []
+        errors = []
+        
+        for uploaded_file in files:
+            try:
+                # 處理每個檔案
+                result = process_single_file(uploaded_file)
+                uploaded_files.append(result)
+            except Exception as e:
+                errors.append({
+                    'filename': uploaded_file.name,
+                    'error': str(e)
+                })
+        
+        return JsonResponse({
+            'uploaded_files': uploaded_files,
+            'errors': errors
+        })
+```
+
+```javascript !! js
+// Express.js 檔案上傳與 Multer
+const express = require('express');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs').promises;
+const sharp = require('sharp'); // 用於圖片處理
+const { v4: uuidv4 } = require('uuid');
+
+const app = express();
+
+// 設定multer檔案上傳
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        const uploadDir = 'uploads/';
+        // 確保上傳目錄存在
+        fs.mkdir(uploadDir, { recursive: true })
+            .then(() => cb(null, uploadDir))
+            .catch(err => cb(err));
+    },
+    filename: (req, file, cb) => {
+        // 產生唯一檔案名稱
+        const fileExtension = path.extname(file.originalname);
+        const uniqueName = `${uuidv4()}${fileExtension}`;
+        cb(null, uniqueName);
+    }
+});
+
+// 檔案過濾器
+const fileFilter = (req, file, cb) => {
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/gif'];
+    
+    if (allowedTypes.includes(file.mimetype)) {
+        cb(null, true);
+    } else {
+        cb(new Error('無效的檔案類型。只允許 JPEG、PNG 和 GIF。'), false);
+    }
+};
+
+// 設定multer
+const upload = multer({
+    storage: storage,
+    fileFilter: fileFilter,
+    limits: {
+        fileSize: 5 * 1024 * 1024, // 5MB限制
+        files: 10 // 最多10個檔案
+    }
+});
+
+// 單檔案上傳端點
+app.post('/api/upload', upload.single('file'), async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ error: '未提供檔案' });
+        }
+        
+        const file = req.file;
+        let thumbnailPath = null;
+        
+        // 為圖片建立縮圖
+        if (file.mimetype.startsWith('image/')) {
+            thumbnailPath = await createThumbnail(file.path);
+        }
+        
+        res.json({
+            success: true,
+            file: {
+                filename: file.filename,
+                originalName: file.originalname,
+                size: file.size,
+                contentType: file.mimetype,
+                url: `/uploads/${file.filename}`,
+                thumbnailUrl: thumbnailPath ? `/thumbnails/${path.basename(thumbnailPath)}` : null
+            }
+        });
+        
+    } catch (error) {
+        console.error('上傳錯誤:', error);
+        res.status(500).json({ error: '上傳失敗: ' + error.message });
+    }
+});
+
+// 多檔案上傳端點
+app.post('/api/upload-multiple', upload.array('files', 10), async (req, res) => {
+    try {
+        if (!req.files || req.files.length === 0) {
+            return res.status(400).json({ error: '未提供檔案' });
+        }
+        
+        const uploadedFiles = [];
+        const errors = [];
+        
+        for (const file of req.files) {
+            try {
+                const result = await processSingleFile(file);
+                uploadedFiles.push(result);
+            } catch (error) {
+                errors.push({
+                    filename: file.originalname,
+                    error: error.message
+                });
+            }
+        }
+        
+        res.json({
+            uploadedFiles,
+            errors
+        });
+        
+    } catch (error) {
+        console.error('多檔案上傳錯誤:', error);
+        res.status(500).json({ error: '上傳失敗: ' + error.message });
+    }
+});
+
+// 建立縮圖的輔助函式
+async function createThumbnail(imagePath) {
+    try {
+        const thumbnailDir = 'thumbnails/';
+        await fs.mkdir(thumbnailDir, { recursive: true });
+        
+        const filename = path.basename(imagePath);
+        const name = path.parse(filename).name;
+        const ext = path.parse(filename).ext;
+        const thumbnailFilename = `${name}_thumb${ext}`;
+        const thumbnailPath = path.join(thumbnailDir, thumbnailFilename);
+        
+        await sharp(imagePath)
+            .resize(150, 150, {
+                fit: 'inside',
+                withoutEnlargement: true
+            })
+            .toFile(thumbnailPath);
+        
+        return thumbnailPath;
+    } catch (error) {
+        console.error('建立縮圖錯誤:', error);
+        return null;
+    }
+}
+
+// 處理單一檔案的輔助函式
+async function processSingleFile(file) {
+    let thumbnailPath = null;
+    
+    if (file.mimetype.startsWith('image/')) {
+        thumbnailPath = await createThumbnail(file.path);
+    }
+    
+    return {
+        filename: file.filename,
+        originalName: file.originalname,
+        size: file.size,
+        contentType: file.mimetype,
+        url: `/uploads/${file.filename}`,
+        thumbnailUrl: thumbnailPath ? `/thumbnails/${path.basename(thumbnailPath)}` : null
+    };
+}
+
+// 提供上傳檔案的靜態服務
+app.use('/uploads', express.static('uploads'));
+app.use('/thumbnails', express.static('thumbnails'));
+
+// multer的錯誤處理中介軟體
+app.use((error, req, res, next) => {
+    if (error instanceof multer.MulterError) {
+        if (error.code === 'LIMIT_FILE_SIZE') {
+            return res.status(400).json({ error: '檔案太大' });
+        }
+        if (error.code === 'LIMIT_FILE_COUNT') {
+            return res.status(400).json({ error: '檔案太多' });
+        }
+    }
+    
+    if (error.message.includes('無效的檔案類型')) {
+        return res.status(400).json({ error: error.message });
+    }
+    
+    res.status(500).json({ error: '上傳錯誤: ' + error.message });
+});
+
+module.exports = app;
+```
+</PythonEditor>
+
+## 測試和偵錯
+
+### Jest vs Python 測試
+
+<PythonEditor title="測試策略" compare={true}>
+```python !! py
+# Django/Python 使用 pytest 測試
+import pytest
+from django.test import TestCase, Client
+from django.contrib.auth.models import User
+from unittest.mock import patch, Mock
+import json
+
+class APITestCase(TestCase):
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(
+            username='testuser',
+            email='test@example.com',
+            password='testpass'
+        )
+    
+    def test_login_success(self):
+        """測試成功登入"""
+        response = self.client.post('/api/login/', {
+            'username': 'testuser',
+            'password': 'testpass'
+        }, content_type='application/json')
+        
+        self.assertEqual(response.status_code, 200)
+        data = json.loads(response.content)
+        self.assertIn('token', data)
+        self.assertEqual(data['user']['username'], 'testuser')
+    
+    def test_login_invalid_credentials(self):
+        """測試無效憑證的登入"""
+        response = self.client.post('/api/login/', {
+            'username': 'testuser',
+            'password': 'wrongpass'
+        }, content_type='application/json')
+        
+        self.assertEqual(response.status_code, 401)
+    
+    @patch('requests.get')
+    def test_external_api_call(self, mock_get):
+        """使用模擬測試外部API整合"""
+        mock_response = Mock()
+        mock_response.json.return_value = {'status': 'success'}
+        mock_response.status_code = 200
+        mock_get.return_value = mock_response
+        
+        # 測試呼叫外部API的函式
+        from myapp.utils import fetch_external_data
+        result = fetch_external_data('test_id')
+        
+        self.assertEqual(result['status'], 'success')
+        mock_get.assert_called_once()
+
+# pytest 夾具和參數化測試
+@pytest.fixture
+def authenticated_client():
+    """認證用戶端的夾具"""
+    client = Client()
+    user = User.objects.create_user(
+        username='testuser',
+        password='testpass'
+    )
+    client.force_login(user)
+    return client, user
+
+@pytest.mark.parametrize("username,password,expected_status", [
+    ('valid_user', 'valid_pass', 200),
+    ('invalid_user', 'valid_pass', 401),
+    ('valid_user', 'invalid_pass', 401),
+    ('', '', 400),
+])
+def test_login_scenarios(username, password, expected_status):
+    """測試多種登入情境"""
+    client = Client()
+    if username == 'valid_user':
+        User.objects.create_user(username=username, password=password)
+    
+    response = client.post('/api/login/', {
+        'username': username,
+        'password': password
+    }, content_type='application/json')
+    
+    assert response.status_code == expected_status
+```
+
+```javascript !! js
+// Node.js/Express 的 Jest 測試
+const request = require('supertest');
+const app = require('../app');
+const User = require('../models/User');
+const jwt = require('jsonwebtoken');
+
+// 設定和清理
+describe('API 測試', () => {
+    beforeEach(async () => {
+        // 每個測試前清理資料庫
+        await User.deleteMany({});
+        
+        // 建立測試使用者
+        await User.create({
+            username: 'testuser',
+            email: 'test@example.com',
+            password: '$2a$10$hashed_password_here'
+        });
+    });
+    
+    afterEach(async () => {
+        // 每個測試後清理
+        await User.deleteMany({});
+    });
+    
+    describe('POST /api/login', () => {
+        it('應該使用有效憑證成功登入', async () => {
+            const response = await request(app)
+                .post('/api/login')
+                .send({
+                    username: 'testuser',
+                    password: 'testpass'
+                })
+                .expect(200);
+            
+            expect(response.body).toHaveProperty('token');
+            expect(response.body.user.username).toBe('testuser');
+        });
+        
+        it('應該在無效憑證時失敗', async () => {
+            const response = await request(app)
+                .post('/api/login')
+                .send({
+                    username: 'testuser',
+                    password: 'wrongpass'
+                })
+                .expect(401);
+            
+            expect(response.body).toHaveProperty('error');
+        });
+        
+        it('應該驗證必要欄位', async () => {
+            const response = await request(app)
+                .post('/api/login')
+                .send({})
+                .expect(400);
+            
+            expect(response.body.error).toContain('required');
+        });
+    });
+    
+    describe('GET /api/protected', () => {
+        let authToken;
+        
+        beforeEach(async () => {
+            // 為測試產生有效的JWT令牌
+            authToken = jwt.sign(
+                { userId: '507f1f77bcf86cd799439011', username: 'testuser' },
+                process.env.JWT_SECRET || 'test-secret'
+            );
+        });
+        
+        it('應該使用有效令牌存取受保護路由', async () => {
+            const response = await request(app)
+                .get('/api/protected')
+                .set('Authorization', `Bearer ${authToken}`)
+                .expect(200);
+            
+            expect(response.body.message).toContain('你好 testuser');
+        });
+        
+        it('應該拒絕沒有令牌的請求', async () => {
+            await request(app)
+                .get('/api/protected')
+                .expect(401);
+        });
+        
+        it('應該拒絕無效令牌的請求', async () => {
+            await request(app)
+                .get('/api/protected')
+                .set('Authorization', 'Bearer invalid_token')
+                .expect(401);
+        });
+    });
+});
+
+// 模擬外部相依性
+jest.mock('../services/emailService', () => ({
+    sendEmail: jest.fn().mockResolvedValue({ success: true })
+}));
+
+describe('外部API整合', () => {
+    it('應該使用模擬處理外部API呼叫', async () => {
+        // 模擬axios或fetch
+        const mockAxios = require('axios');
+        mockAxios.get.mockResolvedValue({
+            data: { status: 'success' },
+            status: 200
+        });
+        
+        const externalService = require('../services/externalService');
+        const result = await externalService.fetchData('test_id');
+        
+        expect(result.status).toBe('success');
+        expect(mockAxios.get).toHaveBeenCalledWith(
+            expect.stringContaining('test_id')
+        );
+    });
+});
+
+// 使用test.each的參數化測試
+describe('登入情境', () => {
+    test.each([
+        ['valid_user', 'valid_pass', 200],
+        ['invalid_user', 'valid_pass', 401],
+        ['valid_user', 'invalid_pass', 401],
+        ['', '', 400]
+    ])('使用使用者名稱: %s, 密碼: %s 登入應該回傳 %i', 
+        async (username, password, expectedStatus) => {
+            // 如果需要，設定有效使用者
+            if (username === 'valid_user') {
+                await User.create({
+                    username,
+                    password: '$2a$10$hashed_password_here'
+                });
+            }
+            
+            const response = await request(app)
+                .post('/api/login')
+                .send({ username, password });
+            
+            expect(response.status).toBe(expectedStatus);
+        }
+    );
+});
+
+// 測試工具和輔助函式
+const testUtils = {
+    createAuthenticatedUser: async (userData = {}) => {
+        const defaultUser = {
+            username: 'testuser',
+            email: 'test@example.com',
+            password: 'hashedpassword'
+        };
+        
+        const user = await User.create({ ...defaultUser, ...userData });
+        const token = jwt.sign(
+            { userId: user._id, username: user.username },
+            process.env.JWT_SECRET || 'test-secret'
+        );
+        
+        return { user, token };
+    },
+    
+    makeAuthenticatedRequest: (app, method, url, token) => {
+        return request(app)[method](url)
+            .set('Authorization', `Bearer ${token}`);
+    }
+};
+
+module.exports = testUtils;
+```
+</PythonEditor>
+
+## 總結和最佳實踐
+
+### Node.js 開發指南
+
+1. **環境設定**
+   - 使用環境變數進行設定
+   - 實作適當的錯誤處理
+   - 生產環境使用PM2等處理程序管理器
+
+2. **安全最佳實踐**
+   - 實作速率限制
+   - 使用helmet.js設定安全標頭
+   - 驗證和清理輸入資料
+   - 實作適當的身分驗證和授權
+
+3. **效能最佳化**
+   - 為資料庫使用連線池
+   - 實作快取策略
+   - 使用壓縮中介軟體
+   - 監控記憶體使用並處理記憶體洩漏
+
+4. **資料庫整合**
+   - 在SQL（PostgreSQL）和NoSQL（MongoDB）之間選擇
+   - 實作適當的索引
+   - 在適當的地方使用交易
+   - 優雅地處理資料庫連線錯誤
+
+5. **測試策略**
+   - 為商業邏輯撰寫單元測試
+   - 為API實作整合測試
+   - 對外部相依性使用模擬
+   - 維持良好的測試覆蓋率
+
+---
+
+在下一模組中，我們將探索套件管理和JavaScript生態系統，學習如何利用npm和建構現代開發工作流程。

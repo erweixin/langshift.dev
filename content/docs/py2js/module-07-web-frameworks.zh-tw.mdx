@@ -1,460 +1,885 @@
 ---
 title: Web 框架對比與選擇
-description: 深入對比 Python Web 框架與 JavaScript Web 框架，學習前端框架和後端框架的設計理念差異
+description: 對比 Python Web 框架（Django/Flask）與 JavaScript 框架（Express.js/React/Vue），學習如何為專案選擇合適的框架
 ---
-
-import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
-import { Step, Steps } from 'fumadocs-ui/components/steps';
-import { Callout } from 'fumadocs-ui/components/callout';
 
 # Web 框架對比與選擇
 
-作為 Python 開發者，你可能已經熟悉了 Django、Flask 或 FastAPI 等後端 Web 框架。在 JavaScript 生態系統中，Web 框架分為兩大類：後端框架（Node.js）和前端框架（瀏覽器端）。本章將深入對比這些框架的設計理念、使用方式和最佳實踐。
+在本模組中，我們將探索 Python 和 JavaScript 生態系統中的 Web 框架。你將學習如何從 Python 的 Django/Flask 轉換到 JavaScript 的 Express.js，並理解 React 和 Vue 等現代前端框架。
 
-## 1. 框架分類對比
+## 框架生態系統概覽
 
-### 後端框架對比
+### Python Web 開發技術棧
+- **後端**: Django, Flask, FastAPI
+- **前端**: Jinja2 模板, Django 模板
+- **全棧**: 傳統的伺服器渲染應用
 
-<Tabs items={['Python', 'JavaScript']}>
+### JavaScript Web 開發技術棧
+- **後端**: Express.js, Koa.js, Fastify
+- **前端**: React, Vue, Angular, Svelte
+- **全棧**: Node.js + 前端框架
 
-<Tab value="Python">
+## 後端框架對比
 
-**Python 後端框架生態**
+### Django vs Express.js
 
-```python
-# Django - 全功能框架
+<PythonEditor title="Django vs Express.js - 基礎伺服器設定" compare={true}>
+```python !! py
+# Django (settings.py + views.py)
 from django.shortcuts import render
 from django.http import JsonResponse
+from django.urls import path
 
-def api_view(request):
-    data = {'message': 'Hello from Django'}
-    return JsonResponse(data)
+def home(request):
+    return JsonResponse({'message': 'Hello from Django!'})
 
-# Flask - 輕量級框架  
-from flask import Flask, jsonify
+def user_detail(request, user_id):
+    # 模擬使用者資料
+    user = {'id': user_id, 'name': f'User {user_id}'}
+    return JsonResponse(user)
 
-app = Flask(__name__)
-
-@app.route('/api')
-def api():
-    return jsonify({'message': 'Hello from Flask'})
-
-# FastAPI - 現代異步框架
-from fastapi import FastAPI
-
-app = FastAPI()
-
-@app.get('/api')
-async def api():
-    return {'message': 'Hello from FastAPI'}
+# urls.py
+urlpatterns = [
+    path('', home, name='home'),
+    path('users/<int:user_id>/', user_detail, name='user_detail'),
+]
 ```
 
-</Tab>
-
-<Tab value="JavaScript">
-
-**JavaScript 後端框架生態**
-
-```javascript
-// Express.js - 最流行的 Node.js 框架
+```javascript !! js
+// Express.js
 const express = require('express');
 const app = express();
 
-app.get('/api', (req, res) => {
-    res.json({ message: 'Hello from Express' });
+app.use(express.json());
+
+app.get('/', (req, res) => {
+    res.json({ message: 'Hello from Express!' });
 });
 
-// Koa.js - 現代異步框架
-const Koa = require('koa');
-const app = new Koa();
-
-app.use(async (ctx) => {
-    ctx.body = { message: 'Hello from Koa' };
+app.get('/users/:userId', (req, res) => {
+    const userId = req.params.userId;
+    // 模擬使用者資料
+    const user = { id: userId, name: `User ${userId}` };
+    res.json(user);
 });
 
-// Fastify - 高性能框架
-const fastify = require('fastify')({ logger: true });
-
-fastify.get('/api', async (request, reply) => {
-    return { message: 'Hello from Fastify' };
+app.listen(3000, () => {
+    console.log('Server running on port 3000');
 });
 ```
+</PythonEditor>
 
-</Tab>
+### Flask vs Express.js - 最小化設定
 
-</Tabs>
-
-### 前端框架概念
-
-<Callout type="info">
-**重要概念**: 與 Python 不同，JavaScript 還有專門的前端框架，用於構建用戶界面和管理客戶端狀態。
-</Callout>
-
-```javascript
-// React - 組件化庫
-import React, { useState } from 'react';
-
-function App() {
-    const [count, setCount] = useState(0);
-    
-    return (
-        <div>
-            <h1>計數器: {count}</h1>
-            <button onClick={() => setCount(count + 1)}>
-                點擊增加
-            </button>
-        </div>
-    );
-}
-
-// Vue.js - 漸進式框架
-const { createApp, ref } = Vue;
-
-createApp({
-    setup() {
-        const count = ref(0);
-        
-        return {
-            count,
-            increment: () => count.value++
-        };
-    },
-    template: `
-        <div>
-            <h1>計數器: {{ count }}</h1>
-            <button @click="increment">點擊增加</button>
-        </div>
-    `
-}).mount('#app');
-```
-
-## 2. 路由系統對比
-
-### 後端路由對比
-
-<Tabs items={['Django', 'Flask', 'Express.js']}>
-
-<Tab value="Django">
-
-```python
-# Django URL 配置
-# urls.py
-from django.urls import path, include
-from . import views
-
-urlpatterns = [
-    path('api/', views.api_list, name='api-list'),
-    path('api/<int:pk>/', views.api_detail, name='api-detail'),
-    path('users/', include('users.urls')),
-]
-
-# views.py
-from django.shortcuts import get_object_or_404
-from django.http import JsonResponse
-from .models import ApiData
-
-def api_list(request):
-    if request.method == 'GET':
-        data = ApiData.objects.all()
-        return JsonResponse([item.to_dict() for item in data], safe=False)
-    
-def api_detail(request, pk):
-    item = get_object_or_404(ApiData, pk=pk)
-    return JsonResponse(item.to_dict())
-```
-
-</Tab>
-
-<Tab value="Flask">
-
-```python
-# Flask 路由裝飾器
-from flask import Flask, request, jsonify
+<PythonEditor title="Flask vs Express.js - 最小化 API" compare={true}>
+```python !! py
+# Flask - app.py
+from flask import Flask, jsonify, request
 
 app = Flask(__name__)
 
-@app.route('/api', methods=['GET', 'POST'])
-def api_list():
-    if request.method == 'GET':
-        return jsonify([item.to_dict() for item in get_all_data()])
-    elif request.method == 'POST':
-        data = request.get_json()
-        result = create_item(data)
-        return jsonify(result.to_dict()), 201
+# 記憶體資料儲存
+users = [
+    {'id': 1, 'name': 'Alice', 'email': 'alice@example.com'},
+    {'id': 2, 'name': 'Bob', 'email': 'bob@example.com'}
+]
 
-@app.route('/api/<int:item_id>', methods=['GET', 'PUT', 'DELETE'])
-def api_detail(item_id):
-    item = get_item_or_404(item_id)
-    
-    if request.method == 'GET':
-        return jsonify(item.to_dict())
-    elif request.method == 'PUT':
-        data = request.get_json()
-        item.update(data)
-        return jsonify(item.to_dict())
-    elif request.method == 'DELETE':
-        item.delete()
-        return '', 204
+@app.route('/')
+def home():
+    return jsonify({'message': 'Flask API 伺服器'})
+
+@app.route('/api/users', methods=['GET'])
+def get_users():
+    return jsonify(users)
+
+@app.route('/api/users', methods=['POST'])
+def create_user():
+    data = request.get_json()
+    new_user = {
+        'id': len(users) + 1,
+        'name': data['name'],
+        'email': data['email']
+    }
+    users.append(new_user)
+    return jsonify(new_user), 201
+
+if __name__ == '__main__':
+    app.run(debug=True)
 ```
 
-</Tab>
-
-<Tab value="Express.js">
-
-```javascript
-// Express.js 路由
+```javascript !! js
+// Express.js - server.js
 const express = require('express');
-const router = express.Router();
+const app = express();
 
-// RESTful API 路由
-router.get('/api', async (req, res) => {
-    try {
-        const data = await getAllData();
-        res.json(data);
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
+app.use(express.json());
+
+// 記憶體資料儲存
+let users = [
+    { id: 1, name: 'Alice', email: 'alice@example.com' },
+    { id: 2, name: 'Bob', email: 'bob@example.com' }
+];
+
+app.get('/', (req, res) => {
+    res.json({ message: 'Express API 伺服器' });
 });
 
-router.post('/api', async (req, res) => {
-    try {
-        const result = await createItem(req.body);
-        res.status(201).json(result);
-    } catch (error) {
-        res.status(400).json({ error: error.message });
-    }
+app.get('/api/users', (req, res) => {
+    res.json(users);
 });
 
-router.get('/api/:id', async (req, res) => {
-    try {
-        const item = await getItemById(req.params.id);
-        if (!item) {
-            return res.status(404).json({ error: 'Item not found' });
-        }
-        res.json(item);
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
+app.post('/api/users', (req, res) => {
+    const { name, email } = req.body;
+    const newUser = {
+        id: users.length + 1,
+        name,
+        email
+    };
+    users.push(newUser);
+    res.status(201).json(newUser);
 });
 
-// 中間件
-router.use('/api', authenticate);
-router.use('/api', validateRequest);
+app.listen(3000, () => {
+    console.log('伺服器運行於連接埠 3000');
+});
+```
+</PythonEditor>
 
-module.exports = router;
+## 中介軟體和請求處理
+
+### Django 中介軟體 vs Express.js 中介軟體
+
+<PythonEditor title="中介軟體對比" compare={true}>
+```python !! py
+# Django 中介軟體 (middleware.py)
+class LoggingMiddleware:
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        # 檢視前的程式碼
+        print(f"請求: {request.method} {request.path}")
+        
+        response = self.get_response(request)
+        
+        # 檢視後的程式碼
+        print(f"回應: {response.status_code}")
+        return response
+
+# 認證中介軟體
+class AuthMiddleware:
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        # 檢查認證
+        auth_header = request.META.get('HTTP_AUTHORIZATION')
+        if auth_header:
+            request.user_id = self.extract_user_id(auth_header)
+        
+        return self.get_response(request)
+    
+    def extract_user_id(self, auth_header):
+        # 簡化的令牌解析
+        return auth_header.split(' ')[-1]
 ```
 
-</Tab>
+```javascript !! js
+// Express.js 中介軟體
+const express = require('express');
+const app = express();
 
-</Tabs>
+// 日誌中介軟體
+const loggingMiddleware = (req, res, next) => {
+    console.log(`請求: ${req.method} ${req.path}`);
+    
+    // 重寫 res.json 以記錄回應
+    const originalJson = res.json;
+    res.json = function(data) {
+        console.log(`回應: ${res.statusCode}`);
+        return originalJson.call(this, data);
+    };
+    
+    next();
+};
 
-### 前端路由（客戶端路由）
+// 認證中介軟體
+const authMiddleware = (req, res, next) => {
+    const authHeader = req.headers.authorization;
+    if (authHeader) {
+        // 簡化的令牌解析
+        req.userId = authHeader.split(' ')[1];
+    }
+    next();
+};
 
-```javascript
-// React Router - 聲明式路由
-import { BrowserRouter, Routes, Route, Link } from 'react-router-dom';
+// 應用中介軟體
+app.use(loggingMiddleware);
+app.use(authMiddleware);
 
-function App() {
+app.get('/protected', (req, res) => {
+    if (!req.userId) {
+        return res.status(401).json({ error: '未授權' });
+    }
+    res.json({ message: `你好使用者 ${req.userId}` });
+});
+```
+</PythonEditor>
+
+## 前端框架介紹
+
+### 傳統模板 vs 現代前端
+
+<PythonEditor title="模板渲染 vs 元件化" compare={true}>
+```python !! py
+# Django 模板渲染 (views.py)
+from django.shortcuts import render
+from django.http import JsonResponse
+
+def user_list(request):
+    users = [
+        {'id': 1, 'name': 'Alice', 'status': 'active'},
+        {'id': 2, 'name': 'Bob', 'status': 'inactive'},
+        {'id': 3, 'name': 'Carol', 'status': 'active'}
+    ]
+    
+    # 傳統模板渲染
+    if request.headers.get('Accept') == 'text/html':
+        return render(request, 'users.html', {'users': users})
+    
+    # API 回應
+    return JsonResponse({'users': users})
+
+# users.html (Django 模板)
+"""
+<!DOCTYPE html>
+<html>
+<head><title>使用者列表</title></head>
+<body>
+    <h1>使用者列表</h1>
+    <ul>
+    {% for user in users %}
+        <li class="user-item {{ user.status }}">
+            {{ user.name }} ({{ user.status }})
+        </li>
+    {% endfor %}
+    </ul>
+</body>
+</html>
+"""
+```
+
+```javascript !! js
+// React 元件
+import React, { useState, useEffect } from 'react';
+
+const UserList = () => {
+    const [users, setUsers] = useState([]);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        // 從 API 取得使用者資料
+        fetch('/api/users')
+            .then(response => response.json())
+            .then(data => {
+                setUsers(data.users);
+                setLoading(false);
+            });
+    }, []);
+
+    if (loading) {
+        return <div>載入中...</div>;
+    }
+
     return (
-        <BrowserRouter>
+        <div>
+            <h1>使用者列表</h1>
+            <ul>
+                {users.map(user => (
+                    <li 
+                        key={user.id} 
+                        className={`user-item ${user.status}`}
+                    >
+                        {user.name} ({user.status})
+                    </li>
+                ))}
+            </ul>
+        </div>
+    );
+};
+
+export default UserList;
+```
+</PythonEditor>
+
+## React 元件開發
+
+### 狀態管理和屬性
+
+<PythonEditor title="React 狀態管理" compare={true}>
+```python !! py
+# Python 類別方法（用於對比）
+class UserManager:
+    def __init__(self):
+        self.users = []
+        self.loading = False
+        self.error = None
+    
+    def add_user(self, name, email):
+        new_user = {
+            'id': len(self.users) + 1,
+            'name': name,
+            'email': email,
+            'active': True
+        }
+        self.users.append(new_user)
+        return new_user
+    
+    def toggle_user_status(self, user_id):
+        for user in self.users:
+            if user['id'] == user_id:
+                user['active'] = not user['active']
+                break
+    
+    def get_active_users(self):
+        return [user for user in self.users if user['active']]
+
+# 使用方法
+manager = UserManager()
+manager.add_user("Alice", "alice@example.com")
+manager.toggle_user_status(1)
+active_users = manager.get_active_users()
+```
+
+```javascript !! js
+// React Hooks 方法
+import React, { useState, useCallback } from 'react';
+
+const UserManager = () => {
+    const [users, setUsers] = useState([]);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState(null);
+
+    const addUser = useCallback((name, email) => {
+        const newUser = {
+            id: users.length + 1,
+            name,
+            email,
+            active: true
+        };
+        setUsers(prevUsers => [...prevUsers, newUser]);
+        return newUser;
+    }, [users.length]);
+
+    const toggleUserStatus = useCallback((userId) => {
+        setUsers(prevUsers =>
+            prevUsers.map(user =>
+                user.id === userId
+                    ? { ...user, active: !user.active }
+                    : user
+            )
+        );
+    }, []);
+
+    const getActiveUsers = useCallback(() => {
+        return users.filter(user => user.active);
+    }, [users]);
+
+    return (
+        <div>
+            <h2>使用者管理</h2>
+            {users.map(user => (
+                <div key={user.id}>
+                    <span>{user.name} - {user.active ? '活躍' : '非活躍'}</span>
+                    <button onClick={() => toggleUserStatus(user.id)}>
+                        切換狀態
+                    </button>
+                </div>
+            ))}
+        </div>
+    );
+};
+```
+</PythonEditor>
+
+## Vue.js 替代方案
+
+### Vue.js 元件語法
+
+<PythonEditor title="Vue.js 元件範例" compare={true}>
+```python !! py
+# Python 方法管理待辦事項
+class TodoManager:
+    def __init__(self):
+        self.todos = []
+        self.new_todo_text = ""
+    
+    def add_todo(self, text):
+        if text.strip():
+            todo = {
+                'id': len(self.todos) + 1,
+                'text': text,
+                'completed': False,
+                'created_at': 'datetime.now()'
+            }
+            self.todos.append(todo)
+            self.new_todo_text = ""
+    
+    def toggle_todo(self, todo_id):
+        for todo in self.todos:
+            if todo['id'] == todo_id:
+                todo['completed'] = not todo['completed']
+                break
+    
+    def get_stats(self):
+        total = len(self.todos)
+        completed = sum(1 for todo in self.todos if todo['completed'])
+        return {
+            'total': total,
+            'completed': completed,
+            'remaining': total - completed
+        }
+
+# 使用方法
+todo_manager = TodoManager()
+todo_manager.add_todo("學習 JavaScript")
+todo_manager.toggle_todo(1)
+stats = todo_manager.get_stats()
+```
+
+```javascript !! js
+// Vue.js 單一檔案元件
+<template>
+  <div class="todo-app">
+    <h2>待辦事項管理器</h2>
+    
+    <form @submit.prevent="addTodo">
+      <input 
+        v-model="newTodoText" 
+        placeholder="輸入新的待辦事項"
+        required
+      />
+      <button type="submit">新增待辦</button>
+    </form>
+
+    <div class="stats">
+      <p>總計: {{ stats.total }}</p>
+      <p>已完成: {{ stats.completed }}</p>
+      <p>剩餘: {{ stats.remaining }}</p>
+    </div>
+
+    <ul class="todo-list">
+      <li v-for="todo in todos" :key="todo.id" 
+          :class="{ completed: todo.completed }">
+        <input 
+          type="checkbox" 
+          v-model="todo.completed"
+        />
+        <span>{{ todo.text }}</span>
+      </li>
+    </ul>
+  </div>
+</template>
+
+<script>
+export default {
+  data() {
+    return {
+      todos: [],
+      newTodoText: ''
+    };
+  },
+  computed: {
+    stats() {
+      const total = this.todos.length;
+      const completed = this.todos.filter(todo => todo.completed).length;
+      return {
+        total,
+        completed,
+        remaining: total - completed
+      };
+    }
+  },
+  methods: {
+    addTodo() {
+      if (this.newTodoText.trim()) {
+        this.todos.push({
+          id: this.todos.length + 1,
+          text: this.newTodoText,
+          completed: false,
+          createdAt: new Date()
+        });
+        this.newTodoText = '';
+      }
+    }
+  }
+};
+</script>
+```
+</PythonEditor>
+
+## 框架選擇指南
+
+### 何時選擇每種框架
+
+<PythonEditor title="框架決策矩陣" compare={true}>
+```python !! py
+# 框架選擇標準（Python 視角）
+def select_python_framework(requirements):
+    """
+    根據需求選擇合適的 Python Web 框架
+    """
+    criteria = {
+        'rapid_development': ['Django', 'Flask'],
+        'scalability': ['Django', 'FastAPI'],
+        'microservices': ['Flask', 'FastAPI'],
+        'admin_interface': ['Django'],
+        'rest_api': ['FastAPI', 'Flask-RESTful'],
+        'orm_needed': ['Django', 'SQLAlchemy + Flask'],
+        'async_support': ['FastAPI', 'Django 3.1+'],
+        'learning_curve': {
+            'beginner': 'Flask',
+            'intermediate': 'Django',
+            'advanced': 'FastAPI'
+        }
+    }
+    
+    recommendations = []
+    for requirement in requirements:
+        if requirement in criteria:
+            recommendations.extend(criteria[requirement])
+    
+    # 返回最推薦的框架
+    from collections import Counter
+    framework_scores = Counter(recommendations)
+    return framework_scores.most_common(1)[0][0] if framework_scores else 'Flask'
+
+# 範例使用
+project_needs = ['rapid_development', 'rest_api', 'scalability']
+recommended = select_python_framework(project_needs)
+print(f"推薦框架: {recommended}")
+```
+
+```javascript !! js
+// 框架選擇標準（JavaScript 視角）
+function selectJavaScriptFramework(requirements) {
+    /**
+     * 根據需求選擇合適的 JavaScript 框架
+     */
+    const criteria = {
+        // 後端框架
+        backend: {
+            rapid_development: ['Express.js', 'Koa.js'],
+            high_performance: ['Fastify', 'Express.js'],
+            microservices: ['Express.js', 'Koa.js'],
+            real_time: ['Socket.io + Express', 'Koa.js'],
+            typescript: ['NestJS', 'Express.js + TypeScript']
+        },
+        
+        // 前端框架
+        frontend: {
+            component_based: ['React', 'Vue', 'Angular'],
+            learning_curve: {
+                beginner: 'Vue',
+                intermediate: 'React',
+                advanced: 'Angular'
+            },
+            large_applications: ['Angular', 'React'],
+            rapid_prototyping: ['Vue', 'React'],
+            mobile_development: ['React Native', 'Vue + Cordova'],
+            seo_important: ['Next.js', 'Nuxt.js', 'Angular Universal']
+        }
+    };
+    
+    const recommendations = {
+        backend: [],
+        frontend: []
+    };
+    
+    // 分析需求
+    requirements.forEach(req => {
+        if (criteria.backend[req]) {
+            recommendations.backend.push(...criteria.backend[req]);
+        }
+        if (criteria.frontend[req]) {
+            recommendations.frontend.push(...criteria.frontend[req]);
+        }
+    });
+    
+    return {
+        backend: getMostRecommended(recommendations.backend),
+        frontend: getMostRecommended(recommendations.frontend)
+    };
+}
+
+function getMostRecommended(recommendations) {
+    const counts = {};
+    recommendations.forEach(framework => {
+        counts[framework] = (counts[framework] || 0) + 1;
+    });
+    
+    return Object.keys(counts).reduce((a, b) => 
+        counts[a] > counts[b] ? a : b
+    ) || '無推薦';
+}
+
+// 範例使用
+const projectNeeds = ['component_based', 'rapid_development', 'high_performance'];
+const recommended = selectJavaScriptFramework(projectNeeds);
+console.log('推薦技術棧:', recommended);
+```
+</PythonEditor>
+
+## 全棧架構模式
+
+### 單體 vs 分離架構
+
+<PythonEditor title="架構模式對比" compare={true}>
+```python !! py
+# Django 單體架構
+# project/settings.py
+INSTALLED_APPS = [
+    'django.contrib.admin',
+    'django.contrib.auth',
+    'rest_framework',
+    'frontend',  # 前端應用和模板
+    'api',       # API 端點
+    'accounts',  # 使用者管理
+]
+
+# 傳統 Django 方法
+class BlogPost(models.Model):
+    title = models.CharField(max_length=200)
+    content = models.TextField()
+    author = models.ForeignKey(User, on_delete=models.CASCADE)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+# views.py - 同時提供 HTML 和 API
+def blog_list(request):
+    posts = BlogPost.objects.all()
+    
+    if request.headers.get('Accept') == 'application/json':
+        # API 回應
+        return JsonResponse({
+            'posts': [
+                {
+                    'id': post.id,
+                    'title': post.title,
+                    'author': post.author.username,
+                    'created_at': post.created_at.isoformat()
+                }
+                for post in posts
+            ]
+        })
+    
+    # 模板回應
+    return render(request, 'blog/list.html', {'posts': posts})
+```
+
+```javascript !! js
+// 分離架構（Express.js + React）
+
+// 後端 API (Express.js)
+const express = require('express');
+const cors = require('cors');
+const app = express();
+
+app.use(cors());
+app.use(express.json());
+
+// 模擬資料庫
+const posts = [
+    {
+        id: 1,
+        title: "React 入門指南",
+        content: "React 是一個強大的函式庫...",
+        author: "Alice",
+        createdAt: new Date().toISOString()
+    }
+];
+
+// 純 API 端點
+app.get('/api/posts', (req, res) => {
+    res.json({ posts });
+});
+
+app.post('/api/posts', (req, res) => {
+    const { title, content, author } = req.body;
+    const newPost = {
+        id: posts.length + 1,
+        title,
+        content,
+        author,
+        createdAt: new Date().toISOString()
+    };
+    posts.push(newPost);
+    res.status(201).json(newPost);
+});
+
+// 前端（React）- 獨立應用
+const BlogList = () => {
+    const [posts, setPosts] = useState([]);
+
+    useEffect(() => {
+        fetch('http://localhost:3001/api/posts')
+            .then(res => res.json())
+            .then(data => setPosts(data.posts));
+    }, []);
+
+    return (
+        <div>
+            <h1>部落格文章</h1>
+            {posts.map(post => (
+                <article key={post.id}>
+                    <h2>{post.title}</h2>
+                    <p>作者：{post.author}，發布於：{post.createdAt}</p>
+                </article>
+            ))}
+        </div>
+    );
+};
+```
+</PythonEditor>
+
+## 路由和導航
+
+### 伺服器端 vs 客戶端路由
+
+<PythonEditor title="路由對比" compare={true}>
+```python !! py
+# Django URL 路由 (urls.py)
+from django.urls import path, include
+from . import views
+
+# 伺服器端路由的 URL 模式
+urlpatterns = [
+    # 靜態路由
+    path('', views.home, name='home'),
+    path('about/', views.about, name='about'),
+    
+    # 動態路由
+    path('blog/<int:post_id>/', views.blog_detail, name='blog_detail'),
+    path('user/<str:username>/', views.user_profile, name='user_profile'),
+    
+    # 巢狀路由
+    path('api/', include('api.urls')),
+    path('admin/', admin.site.urls),
+]
+
+# views.py
+def blog_detail(request, post_id):
+    try:
+        post = BlogPost.objects.get(id=post_id)
+        return render(request, 'blog/detail.html', {'post': post})
+    except BlogPost.DoesNotExist:
+        return HttpResponseNotFound("文章未找到")
+
+def user_profile(request, username):
+    try:
+        user = User.objects.get(username=username)
+        posts = BlogPost.objects.filter(author=user)
+        return render(request, 'users/profile.html', {
+            'user': user,
+            'posts': posts
+        })
+    except User.DoesNotExist:
+        return HttpResponseNotFound("使用者未找到")
+```
+
+```javascript !! js
+// React Router（客戶端路由）
+import { BrowserRouter as Router, Routes, Route, Link, useParams } from 'react-router-dom';
+
+const App = () => {
+    return (
+        <Router>
             <nav>
                 <Link to="/">首頁</Link>
                 <Link to="/about">關於</Link>
-                <Link to="/users">用戶</Link>
+                <Link to="/blog">部落格</Link>
             </nav>
             
             <Routes>
                 <Route path="/" element={<Home />} />
                 <Route path="/about" element={<About />} />
-                <Route path="/users" element={<Users />} />
-                <Route path="/users/:id" element={<UserDetail />} />
+                <Route path="/blog" element={<BlogList />} />
+                <Route path="/blog/:postId" element={<BlogDetail />} />
+                <Route path="/user/:username" element={<UserProfile />} />
+                <Route path="*" element={<NotFound />} />
             </Routes>
-        </BrowserRouter>
+        </Router>
     );
-}
+};
 
-// Vue Router - 配置式路由
-import { createRouter, createWebHistory } from 'vue-router';
+// 動態路由元件
+const BlogDetail = () => {
+    const { postId } = useParams();
+    const [post, setPost] = useState(null);
+    const [loading, setLoading] = useState(true);
 
-const routes = [
-    { path: '/', component: Home },
-    { path: '/about', component: About },
-    { path: '/users', component: Users },
-    { path: '/users/:id', component: UserDetail, props: true }
-];
+    useEffect(() => {
+        fetch(`/api/posts/${postId}`)
+            .then(res => {
+                if (!res.ok) throw new Error('文章未找到');
+                return res.json();
+            })
+            .then(data => {
+                setPost(data);
+                setLoading(false);
+            })
+            .catch(error => {
+                console.error('錯誤:', error);
+                setLoading(false);
+            });
+    }, [postId]);
 
-const router = createRouter({
-    history: createWebHistory(),
-    routes
-});
-```
+    if (loading) return <div>載入中...</div>;
+    if (!post) return <div>文章未找到</div>;
 
-## 3. 模板系統對比
-
-<Tabs items={['Django Templates', 'Jinja2', 'React JSX', 'Vue Templates']}>
-
-<Tab value="Django Templates">
-
-```html
-<!-- Django 模板語法 -->
-<!DOCTYPE html>
-<html>
-<head>
-    <title>{{ title }}</title>
-</head>
-<body>
-    <h1>用戶列表</h1>
-    
-    {% if users %}
-        <ul>
-            {% for user in users %}
-                <li>
-                    <a href="{% url 'user_detail' user.id %}">
-                        {{ user.name }} - {{ user.email }}
-                    </a>
-                    {% if user.is_active %}
-                        <span class="active">活躍</span>
-                    {% endif %}
-                </li>
-            {% endfor %}
-        </ul>
-    {% else %}
-        <p>沒有用戶數據</p>
-    {% endif %}
-    
-    {% include 'partials/footer.html' %}
-</body>
-</html>
-```
-
-</Tab>
-
-<Tab value="Jinja2">
-
-```html
-<!-- Jinja2 模板語法 (Flask) -->
-<!DOCTYPE html>
-<html>
-<head>
-    <title>{{ title }}</title>
-</head>
-<body>
-    <h1>用戶列表</h1>
-    
-    {% if users %}
-        <ul>
-            {% for user in users %}
-                <li>
-                    <a href="{{ url_for('user_detail', id=user.id) }}">
-                        {{ user.name }} - {{ user.email }}
-                    </a>
-                    {% if user.is_active %}
-                        <span class="active">活躍</span>
-                    {% endif %}
-                </li>
-            {% endfor %}
-        </ul>
-    {% else %}
-        <p>沒有用戶數據</p>
-    {% endif %}
-    
-    {% include 'partials/footer.html' %}
-</body>
-</html>
-```
-
-</Tab>
-
-<Tab value="React JSX">
-
-```jsx
-// React JSX 語法
-function UserList({ users, title }) {
     return (
-        <div>
-            <head>
-                <title>{title}</title>
-            </head>
-            <body>
-                <h1>用戶列表</h1>
-                
-                {users && users.length > 0 ? (
-                    <ul>
-                        {users.map(user => (
-                            <li key={user.id}>
-                                <Link to={`/users/${user.id}`}>
-                                    {user.name} - {user.email}
-                                </Link>
-                                {user.isActive && (
-                                    <span className="active">活躍</span>
-                                )}
-                            </li>
-                        ))}
-                    </ul>
-                ) : (
-                    <p>沒有用戶數據</p>
-                )}
-                
-                <Footer />
-            </body>
-        </div>
+        <article>
+            <h1>{post.title}</h1>
+            <p>作者：{post.author}</p>
+            <div>{post.content}</div>
+        </article>
     );
-}
+};
+
+const UserProfile = () => {
+    const { username } = useParams();
+    // 使用者資料的類似實作
+    return <div>使用者 {username} 的資料</div>;
+};
 ```
+</PythonEditor>
 
-</Tab>
+## 總結和最佳實踐
 
-<Tab value="Vue Templates">
+### 框架選擇清單
 
-```vue
-<!-- Vue 模板語法 -->
-<template>
-    <div>
-        <head>
-            <title>{{ title }}</title>
-        </head>
-        <body>
-            <h1>用戶列表</h1>
-            
-            <ul v-if="users && users.length > 0">
-                <li v-for="user in users" :key="user.id">
-                    <router-link :to="`/users/${user.id}`">
-                        {{ user.name }} - {{ user.email }}
-                    </router-link>
-                    <span v-if="user.isActive" class="active">活躍</span>
-                </li>
-            </ul>
-            <p v-else>沒有用戶數據</p>
-            
-            <Footer />
-        </body>
-    </div>
-</template>
+1. **專案需求**
+   - 僅 API 還是全棧
+   - 是否需要即時功能
+   - SEO 需求
+   - 團隊專業知識
 
-<script>
-export default {
-    props: ['users', 'title'],
-    components: {
-        Footer
-    }
-}
-</script>
-```
+2. **Python 到 JavaScript 遷移路徑**
+   - 從 Express.js 開始，保持後端熟悉感
+   - 根據複雜性選擇 React 或 Vue 前端
+   - 為 SSR/SEO 需求考慮 Next.js
 
-</Tab>
+3. **開發工作流程**
+   - 分離前端和後端程式庫
+   - 使用 API 優先的開發方法
+   - 實作適當的 CORS 處理
+   - 規劃身分驗證和授權
 
-</Tabs>
+4. **效能考慮**
+   - 客戶端路由提供更好的使用者體驗
+   - 程式碼分割和延遲載入
+   - API 最佳化和快取
+   - 打包大小最佳化
 
-## 小結
+---
 
-通過本章的學習，你應該了解到：
-
-1. **框架分類差異**: JavaScript 有前端和後端框架，而 Python 主要是後端框架
-2. **設計理念對比**: 不同框架的路由、模板、狀態管理方式
-3. **ORM/ODM 選擇**: 各種數據庫操作庫的特點和用法
-4. **API 開發模式**: RESTful API 的不同實現方式
-5. **全棧架構**: 前後端分離和同構應用的架構模式
-
-<Callout type="tip">
-**下一步**: 在下一章中，我們將學習 Node.js 後端開發，了解如何使用 JavaScript 構建服務端應用。
-</Callout>
+在下一模組中，我們將深入瞭解 Node.js 後端開發，探索如何使用 JavaScript 建構強健的伺服器端應用程式。

@@ -1,1890 +1,885 @@
 ---
 title: Web 框架对比与选择
-description: 深入对比 Python Web 框架与 JavaScript Web 框架，学习前端框架和后端框架的设计理念差异
+description: 对比 Python Web 框架（Django/Flask）与 JavaScript 框架（Express.js/React/Vue），学习如何为项目选择合适的框架
 ---
-
-import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
-import { Step, Steps } from 'fumadocs-ui/components/steps';
-import { Callout } from 'fumadocs-ui/components/callout';
 
 # Web 框架对比与选择
 
-作为 Python 开发者，你可能已经熟悉了 Django、Flask 或 FastAPI 等后端 Web 框架。在 JavaScript 生态系统中，Web 框架分为两大类：后端框架（Node.js）和前端框架（浏览器端）。本章将深入对比这些框架的设计理念、使用方式和最佳实践。
+在本模块中，我们将探索 Python 和 JavaScript 生态系统中的 Web 框架。你将学习如何从 Python 的 Django/Flask 转换到 JavaScript 的 Express.js，并理解 React 和 Vue 等现代前端框架。
 
-## 1. 框架分类对比
+## 框架生态系统概览
 
-### 后端框架对比
+### Python Web 开发技术栈
+- **后端**: Django, Flask, FastAPI
+- **前端**: Jinja2 模板, Django 模板
+- **全栈**: 传统的服务器渲染应用
 
-<Tabs items={['Python', 'JavaScript']}>
+### JavaScript Web 开发技术栈
+- **后端**: Express.js, Koa.js, Fastify
+- **前端**: React, Vue, Angular, Svelte
+- **全栈**: Node.js + 前端框架
 
-<Tab value="Python">
+## 后端框架对比
 
-**Python 后端框架生态**
+### Django vs Express.js
 
-```python
-# Django - 全功能框架
+<PythonEditor title="Django vs Express.js - 基础服务器设置" compare={true}>
+```python !! py
+# Django (settings.py + views.py)
 from django.shortcuts import render
 from django.http import JsonResponse
+from django.urls import path
 
-def api_view(request):
-    data = {'message': 'Hello from Django'}
-    return JsonResponse(data)
+def home(request):
+    return JsonResponse({'message': 'Hello from Django!'})
 
-# Flask - 轻量级框架  
-from flask import Flask, jsonify
+def user_detail(request, user_id):
+    # 模拟用户数据
+    user = {'id': user_id, 'name': f'User {user_id}'}
+    return JsonResponse(user)
 
-app = Flask(__name__)
-
-@app.route('/api')
-def api():
-    return jsonify({'message': 'Hello from Flask'})
-
-# FastAPI - 现代异步框架
-from fastapi import FastAPI
-
-app = FastAPI()
-
-@app.get('/api')
-async def api():
-    return {'message': 'Hello from FastAPI'}
+# urls.py
+urlpatterns = [
+    path('', home, name='home'),
+    path('users/<int:user_id>/', user_detail, name='user_detail'),
+]
 ```
 
-</Tab>
-
-<Tab value="JavaScript">
-
-**JavaScript 后端框架生态**
-
-```javascript
-// Express.js - 最流行的 Node.js 框架
+```javascript !! js
+// Express.js
 const express = require('express');
 const app = express();
 
-app.get('/api', (req, res) => {
-    res.json({ message: 'Hello from Express' });
+app.use(express.json());
+
+app.get('/', (req, res) => {
+    res.json({ message: 'Hello from Express!' });
 });
 
-// Koa.js - 现代异步框架
-const Koa = require('koa');
-const app = new Koa();
-
-app.use(async (ctx) => {
-    ctx.body = { message: 'Hello from Koa' };
+app.get('/users/:userId', (req, res) => {
+    const userId = req.params.userId;
+    // 模拟用户数据
+    const user = { id: userId, name: `User ${userId}` };
+    res.json(user);
 });
 
-// Fastify - 高性能框架
-const fastify = require('fastify')({ logger: true });
-
-fastify.get('/api', async (request, reply) => {
-    return { message: 'Hello from Fastify' };
+app.listen(3000, () => {
+    console.log('Server running on port 3000');
 });
 ```
+</PythonEditor>
 
-</Tab>
+### Flask vs Express.js - 最小化设置
 
-</Tabs>
-
-### 前端框架概念
-
-<Callout type="info">
-**重要概念**: 与 Python 不同，JavaScript 还有专门的前端框架，用于构建用户界面和管理客户端状态。
-</Callout>
-
-```javascript
-// React - 组件化库
-import React, { useState } from 'react';
-
-function App() {
-    const [count, setCount] = useState(0);
-    
-    return (
-        <div>
-            <h1>计数器: {count}</h1>
-            <button onClick={() => setCount(count + 1)}>
-                点击增加
-            </button>
-        </div>
-    );
-}
-
-// Vue.js - 渐进式框架
-const { createApp, ref } = Vue;
-
-createApp({
-    setup() {
-        const count = ref(0);
-        
-        return {
-            count,
-            increment: () => count.value++
-        };
-    },
-    template: `
-        <div>
-            <h1>计数器: {{ count }}</h1>
-            <button @click="increment">点击增加</button>
-        </div>
-    `
-}).mount('#app');
-```
-
-## 2. 路由系统对比
-
-### 后端路由对比
-
-<Tabs items={['Django', 'Flask', 'Express.js']}>
-
-<Tab value="Django">
-
-```python
-# Django URL 配置
-# urls.py
-from django.urls import path, include
-from . import views
-
-urlpatterns = [
-    path('api/', views.api_list, name='api-list'),
-    path('api/<int:pk>/', views.api_detail, name='api-detail'),
-    path('users/', include('users.urls')),
-]
-
-# views.py
-from django.shortcuts import get_object_or_404
-from django.http import JsonResponse
-from .models import ApiData
-
-def api_list(request):
-    if request.method == 'GET':
-        data = ApiData.objects.all()
-        return JsonResponse([item.to_dict() for item in data], safe=False)
-    
-def api_detail(request, pk):
-    item = get_object_or_404(ApiData, pk=pk)
-    return JsonResponse(item.to_dict())
-```
-
-</Tab>
-
-<Tab value="Flask">
-
-```python
-# Flask 路由装饰器
-from flask import Flask, request, jsonify
+<PythonEditor title="Flask vs Express.js - 最小化 API" compare={true}>
+```python !! py
+# Flask - app.py
+from flask import Flask, jsonify, request
 
 app = Flask(__name__)
 
-@app.route('/api', methods=['GET', 'POST'])
-def api_list():
-    if request.method == 'GET':
-        return jsonify([item.to_dict() for item in get_all_data()])
-    elif request.method == 'POST':
-        data = request.get_json()
-        result = create_item(data)
-        return jsonify(result.to_dict()), 201
+# 内存数据存储
+users = [
+    {'id': 1, 'name': 'Alice', 'email': 'alice@example.com'},
+    {'id': 2, 'name': 'Bob', 'email': 'bob@example.com'}
+]
 
-@app.route('/api/<int:item_id>', methods=['GET', 'PUT', 'DELETE'])
-def api_detail(item_id):
-    item = get_item_or_404(item_id)
-    
-    if request.method == 'GET':
-        return jsonify(item.to_dict())
-    elif request.method == 'PUT':
-        data = request.get_json()
-        item.update(data)
-        return jsonify(item.to_dict())
-    elif request.method == 'DELETE':
-        item.delete()
-        return '', 204
+@app.route('/')
+def home():
+    return jsonify({'message': 'Flask API 服务器'})
+
+@app.route('/api/users', methods=['GET'])
+def get_users():
+    return jsonify(users)
+
+@app.route('/api/users', methods=['POST'])
+def create_user():
+    data = request.get_json()
+    new_user = {
+        'id': len(users) + 1,
+        'name': data['name'],
+        'email': data['email']
+    }
+    users.append(new_user)
+    return jsonify(new_user), 201
+
+if __name__ == '__main__':
+    app.run(debug=True)
 ```
 
-</Tab>
-
-<Tab value="Express.js">
-
-```javascript
-// Express.js 路由
+```javascript !! js
+// Express.js - server.js
 const express = require('express');
-const router = express.Router();
+const app = express();
 
-// RESTful API 路由
-router.get('/api', async (req, res) => {
-    try {
-        const data = await getAllData();
-        res.json(data);
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
+app.use(express.json());
+
+// 内存数据存储
+let users = [
+    { id: 1, name: 'Alice', email: 'alice@example.com' },
+    { id: 2, name: 'Bob', email: 'bob@example.com' }
+];
+
+app.get('/', (req, res) => {
+    res.json({ message: 'Express API 服务器' });
 });
 
-router.post('/api', async (req, res) => {
-    try {
-        const result = await createItem(req.body);
-        res.status(201).json(result);
-    } catch (error) {
-        res.status(400).json({ error: error.message });
-    }
+app.get('/api/users', (req, res) => {
+    res.json(users);
 });
 
-router.get('/api/:id', async (req, res) => {
-    try {
-        const item = await getItemById(req.params.id);
-        if (!item) {
-            return res.status(404).json({ error: 'Item not found' });
-        }
-        res.json(item);
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
+app.post('/api/users', (req, res) => {
+    const { name, email } = req.body;
+    const newUser = {
+        id: users.length + 1,
+        name,
+        email
+    };
+    users.push(newUser);
+    res.status(201).json(newUser);
 });
 
-// 中间件
-router.use('/api', authenticate);
-router.use('/api', validateRequest);
+app.listen(3000, () => {
+    console.log('服务器运行在端口 3000');
+});
+```
+</PythonEditor>
 
-module.exports = router;
+## 中间件和请求处理
+
+### Django 中间件 vs Express.js 中间件
+
+<PythonEditor title="中间件对比" compare={true}>
+```python !! py
+# Django 中间件 (middleware.py)
+class LoggingMiddleware:
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        # 视图前的代码
+        print(f"请求: {request.method} {request.path}")
+        
+        response = self.get_response(request)
+        
+        # 视图后的代码
+        print(f"响应: {response.status_code}")
+        return response
+
+# 认证中间件
+class AuthMiddleware:
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        # 检查认证
+        auth_header = request.META.get('HTTP_AUTHORIZATION')
+        if auth_header:
+            request.user_id = self.extract_user_id(auth_header)
+        
+        return self.get_response(request)
+    
+    def extract_user_id(self, auth_header):
+        # 简化的令牌解析
+        return auth_header.split(' ')[-1]
 ```
 
-</Tab>
+```javascript !! js
+// Express.js 中间件
+const express = require('express');
+const app = express();
 
-</Tabs>
+// 日志中间件
+const loggingMiddleware = (req, res, next) => {
+    console.log(`请求: ${req.method} ${req.path}`);
+    
+    // 重写 res.json 以记录响应
+    const originalJson = res.json;
+    res.json = function(data) {
+        console.log(`响应: ${res.statusCode}`);
+        return originalJson.call(this, data);
+    };
+    
+    next();
+};
 
-### 前端路由（客户端路由）
+// 认证中间件
+const authMiddleware = (req, res, next) => {
+    const authHeader = req.headers.authorization;
+    if (authHeader) {
+        // 简化的令牌解析
+        req.userId = authHeader.split(' ')[1];
+    }
+    next();
+};
 
-```javascript
-// React Router - 声明式路由
-import { BrowserRouter, Routes, Route, Link } from 'react-router-dom';
+// 应用中间件
+app.use(loggingMiddleware);
+app.use(authMiddleware);
 
-function App() {
+app.get('/protected', (req, res) => {
+    if (!req.userId) {
+        return res.status(401).json({ error: '未授权' });
+    }
+    res.json({ message: `你好用户 ${req.userId}` });
+});
+```
+</PythonEditor>
+
+## 前端框架介绍
+
+### 传统模板 vs 现代前端
+
+<PythonEditor title="模板渲染 vs 组件化" compare={true}>
+```python !! py
+# Django 模板渲染 (views.py)
+from django.shortcuts import render
+from django.http import JsonResponse
+
+def user_list(request):
+    users = [
+        {'id': 1, 'name': 'Alice', 'status': 'active'},
+        {'id': 2, 'name': 'Bob', 'status': 'inactive'},
+        {'id': 3, 'name': 'Carol', 'status': 'active'}
+    ]
+    
+    # 传统模板渲染
+    if request.headers.get('Accept') == 'text/html':
+        return render(request, 'users.html', {'users': users})
+    
+    # API 响应
+    return JsonResponse({'users': users})
+
+# users.html (Django 模板)
+"""
+<!DOCTYPE html>
+<html>
+<head><title>用户列表</title></head>
+<body>
+    <h1>用户列表</h1>
+    <ul>
+    {% for user in users %}
+        <li class="user-item {{ user.status }}">
+            {{ user.name }} ({{ user.status }})
+        </li>
+    {% endfor %}
+    </ul>
+</body>
+</html>
+"""
+```
+
+```javascript !! js
+// React 组件
+import React, { useState, useEffect } from 'react';
+
+const UserList = () => {
+    const [users, setUsers] = useState([]);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        // 从 API 获取用户数据
+        fetch('/api/users')
+            .then(response => response.json())
+            .then(data => {
+                setUsers(data.users);
+                setLoading(false);
+            });
+    }, []);
+
+    if (loading) {
+        return <div>加载中...</div>;
+    }
+
     return (
-        <BrowserRouter>
+        <div>
+            <h1>用户列表</h1>
+            <ul>
+                {users.map(user => (
+                    <li 
+                        key={user.id} 
+                        className={`user-item ${user.status}`}
+                    >
+                        {user.name} ({user.status})
+                    </li>
+                ))}
+            </ul>
+        </div>
+    );
+};
+
+export default UserList;
+```
+</PythonEditor>
+
+## React 组件开发
+
+### 状态管理和属性
+
+<PythonEditor title="React 状态管理" compare={true}>
+```python !! py
+# Python 类方法（用于对比）
+class UserManager:
+    def __init__(self):
+        self.users = []
+        self.loading = False
+        self.error = None
+    
+    def add_user(self, name, email):
+        new_user = {
+            'id': len(self.users) + 1,
+            'name': name,
+            'email': email,
+            'active': True
+        }
+        self.users.append(new_user)
+        return new_user
+    
+    def toggle_user_status(self, user_id):
+        for user in self.users:
+            if user['id'] == user_id:
+                user['active'] = not user['active']
+                break
+    
+    def get_active_users(self):
+        return [user for user in self.users if user['active']]
+
+# 使用方法
+manager = UserManager()
+manager.add_user("Alice", "alice@example.com")
+manager.toggle_user_status(1)
+active_users = manager.get_active_users()
+```
+
+```javascript !! js
+// React Hooks 方法
+import React, { useState, useCallback } from 'react';
+
+const UserManager = () => {
+    const [users, setUsers] = useState([]);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState(null);
+
+    const addUser = useCallback((name, email) => {
+        const newUser = {
+            id: users.length + 1,
+            name,
+            email,
+            active: true
+        };
+        setUsers(prevUsers => [...prevUsers, newUser]);
+        return newUser;
+    }, [users.length]);
+
+    const toggleUserStatus = useCallback((userId) => {
+        setUsers(prevUsers =>
+            prevUsers.map(user =>
+                user.id === userId
+                    ? { ...user, active: !user.active }
+                    : user
+            )
+        );
+    }, []);
+
+    const getActiveUsers = useCallback(() => {
+        return users.filter(user => user.active);
+    }, [users]);
+
+    return (
+        <div>
+            <h2>用户管理</h2>
+            {users.map(user => (
+                <div key={user.id}>
+                    <span>{user.name} - {user.active ? '活跃' : '非活跃'}</span>
+                    <button onClick={() => toggleUserStatus(user.id)}>
+                        切换状态
+                    </button>
+                </div>
+            ))}
+        </div>
+    );
+};
+```
+</PythonEditor>
+
+## Vue.js 替代方案
+
+### Vue.js 组件语法
+
+<PythonEditor title="Vue.js 组件示例" compare={true}>
+```python !! py
+# Python 方法管理待办事项
+class TodoManager:
+    def __init__(self):
+        self.todos = []
+        self.new_todo_text = ""
+    
+    def add_todo(self, text):
+        if text.strip():
+            todo = {
+                'id': len(self.todos) + 1,
+                'text': text,
+                'completed': False,
+                'created_at': 'datetime.now()'
+            }
+            self.todos.append(todo)
+            self.new_todo_text = ""
+    
+    def toggle_todo(self, todo_id):
+        for todo in self.todos:
+            if todo['id'] == todo_id:
+                todo['completed'] = not todo['completed']
+                break
+    
+    def get_stats(self):
+        total = len(self.todos)
+        completed = sum(1 for todo in self.todos if todo['completed'])
+        return {
+            'total': total,
+            'completed': completed,
+            'remaining': total - completed
+        }
+
+# 使用方法
+todo_manager = TodoManager()
+todo_manager.add_todo("学习 JavaScript")
+todo_manager.toggle_todo(1)
+stats = todo_manager.get_stats()
+```
+
+```javascript !! js
+// Vue.js 单文件组件
+<template>
+  <div class="todo-app">
+    <h2>待办事项管理器</h2>
+    
+    <form @submit.prevent="addTodo">
+      <input 
+        v-model="newTodoText" 
+        placeholder="输入新的待办事项"
+        required
+      />
+      <button type="submit">添加待办</button>
+    </form>
+
+    <div class="stats">
+      <p>总计: {{ stats.total }}</p>
+      <p>已完成: {{ stats.completed }}</p>
+      <p>剩余: {{ stats.remaining }}</p>
+    </div>
+
+    <ul class="todo-list">
+      <li v-for="todo in todos" :key="todo.id" 
+          :class="{ completed: todo.completed }">
+        <input 
+          type="checkbox" 
+          v-model="todo.completed"
+        />
+        <span>{{ todo.text }}</span>
+      </li>
+    </ul>
+  </div>
+</template>
+
+<script>
+export default {
+  data() {
+    return {
+      todos: [],
+      newTodoText: ''
+    };
+  },
+  computed: {
+    stats() {
+      const total = this.todos.length;
+      const completed = this.todos.filter(todo => todo.completed).length;
+      return {
+        total,
+        completed,
+        remaining: total - completed
+      };
+    }
+  },
+  methods: {
+    addTodo() {
+      if (this.newTodoText.trim()) {
+        this.todos.push({
+          id: this.todos.length + 1,
+          text: this.newTodoText,
+          completed: false,
+          createdAt: new Date()
+        });
+        this.newTodoText = '';
+      }
+    }
+  }
+};
+</script>
+```
+</PythonEditor>
+
+## 框架选择指南
+
+### 何时选择每种框架
+
+<PythonEditor title="框架决策矩阵" compare={true}>
+```python !! py
+# 框架选择标准（Python 视角）
+def select_python_framework(requirements):
+    """
+    根据需求选择合适的 Python Web 框架
+    """
+    criteria = {
+        'rapid_development': ['Django', 'Flask'],
+        'scalability': ['Django', 'FastAPI'],
+        'microservices': ['Flask', 'FastAPI'],
+        'admin_interface': ['Django'],
+        'rest_api': ['FastAPI', 'Flask-RESTful'],
+        'orm_needed': ['Django', 'SQLAlchemy + Flask'],
+        'async_support': ['FastAPI', 'Django 3.1+'],
+        'learning_curve': {
+            'beginner': 'Flask',
+            'intermediate': 'Django',
+            'advanced': 'FastAPI'
+        }
+    }
+    
+    recommendations = []
+    for requirement in requirements:
+        if requirement in criteria:
+            recommendations.extend(criteria[requirement])
+    
+    # 返回最推荐的框架
+    from collections import Counter
+    framework_scores = Counter(recommendations)
+    return framework_scores.most_common(1)[0][0] if framework_scores else 'Flask'
+
+# 示例使用
+project_needs = ['rapid_development', 'rest_api', 'scalability']
+recommended = select_python_framework(project_needs)
+print(f"推荐框架: {recommended}")
+```
+
+```javascript !! js
+// 框架选择标准（JavaScript 视角）
+function selectJavaScriptFramework(requirements) {
+    /**
+     * 根据需求选择合适的 JavaScript 框架
+     */
+    const criteria = {
+        // 后端框架
+        backend: {
+            rapid_development: ['Express.js', 'Koa.js'],
+            high_performance: ['Fastify', 'Express.js'],
+            microservices: ['Express.js', 'Koa.js'],
+            real_time: ['Socket.io + Express', 'Koa.js'],
+            typescript: ['NestJS', 'Express.js + TypeScript']
+        },
+        
+        // 前端框架
+        frontend: {
+            component_based: ['React', 'Vue', 'Angular'],
+            learning_curve: {
+                beginner: 'Vue',
+                intermediate: 'React',
+                advanced: 'Angular'
+            },
+            large_applications: ['Angular', 'React'],
+            rapid_prototyping: ['Vue', 'React'],
+            mobile_development: ['React Native', 'Vue + Cordova'],
+            seo_important: ['Next.js', 'Nuxt.js', 'Angular Universal']
+        }
+    };
+    
+    const recommendations = {
+        backend: [],
+        frontend: []
+    };
+    
+    // 分析需求
+    requirements.forEach(req => {
+        if (criteria.backend[req]) {
+            recommendations.backend.push(...criteria.backend[req]);
+        }
+        if (criteria.frontend[req]) {
+            recommendations.frontend.push(...criteria.frontend[req]);
+        }
+    });
+    
+    return {
+        backend: getMostRecommended(recommendations.backend),
+        frontend: getMostRecommended(recommendations.frontend)
+    };
+}
+
+function getMostRecommended(recommendations) {
+    const counts = {};
+    recommendations.forEach(framework => {
+        counts[framework] = (counts[framework] || 0) + 1;
+    });
+    
+    return Object.keys(counts).reduce((a, b) => 
+        counts[a] > counts[b] ? a : b
+    ) || '无推荐';
+}
+
+// 示例使用
+const projectNeeds = ['component_based', 'rapid_development', 'high_performance'];
+const recommended = selectJavaScriptFramework(projectNeeds);
+console.log('推荐技术栈:', recommended);
+```
+</PythonEditor>
+
+## 全栈架构模式
+
+### 单体 vs 分离架构
+
+<PythonEditor title="架构模式对比" compare={true}>
+```python !! py
+# Django 单体架构
+# project/settings.py
+INSTALLED_APPS = [
+    'django.contrib.admin',
+    'django.contrib.auth',
+    'rest_framework',
+    'frontend',  # 前端应用和模板
+    'api',       # API 端点
+    'accounts',  # 用户管理
+]
+
+# 传统 Django 方法
+class BlogPost(models.Model):
+    title = models.CharField(max_length=200)
+    content = models.TextField()
+    author = models.ForeignKey(User, on_delete=models.CASCADE)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+# views.py - 同时提供 HTML 和 API
+def blog_list(request):
+    posts = BlogPost.objects.all()
+    
+    if request.headers.get('Accept') == 'application/json':
+        # API 响应
+        return JsonResponse({
+            'posts': [
+                {
+                    'id': post.id,
+                    'title': post.title,
+                    'author': post.author.username,
+                    'created_at': post.created_at.isoformat()
+                }
+                for post in posts
+            ]
+        })
+    
+    # 模板响应
+    return render(request, 'blog/list.html', {'posts': posts})
+```
+
+```javascript !! js
+// 分离架构（Express.js + React）
+
+// 后端 API (Express.js)
+const express = require('express');
+const cors = require('cors');
+const app = express();
+
+app.use(cors());
+app.use(express.json());
+
+// 模拟数据库
+const posts = [
+    {
+        id: 1,
+        title: "React 入门指南",
+        content: "React 是一个强大的库...",
+        author: "Alice",
+        createdAt: new Date().toISOString()
+    }
+];
+
+// 纯 API 端点
+app.get('/api/posts', (req, res) => {
+    res.json({ posts });
+});
+
+app.post('/api/posts', (req, res) => {
+    const { title, content, author } = req.body;
+    const newPost = {
+        id: posts.length + 1,
+        title,
+        content,
+        author,
+        createdAt: new Date().toISOString()
+    };
+    posts.push(newPost);
+    res.status(201).json(newPost);
+});
+
+// 前端（React）- 独立应用
+const BlogList = () => {
+    const [posts, setPosts] = useState([]);
+
+    useEffect(() => {
+        fetch('http://localhost:3001/api/posts')
+            .then(res => res.json())
+            .then(data => setPosts(data.posts));
+    }, []);
+
+    return (
+        <div>
+            <h1>博客文章</h1>
+            {posts.map(post => (
+                <article key={post.id}>
+                    <h2>{post.title}</h2>
+                    <p>作者：{post.author}，发布于：{post.createdAt}</p>
+                </article>
+            ))}
+        </div>
+    );
+};
+```
+</PythonEditor>
+
+## 路由和导航
+
+### 服务器端 vs 客户端路由
+
+<PythonEditor title="路由对比" compare={true}>
+```python !! py
+# Django URL 路由 (urls.py)
+from django.urls import path, include
+from . import views
+
+# 服务器端路由的 URL 模式
+urlpatterns = [
+    # 静态路由
+    path('', views.home, name='home'),
+    path('about/', views.about, name='about'),
+    
+    # 动态路由
+    path('blog/<int:post_id>/', views.blog_detail, name='blog_detail'),
+    path('user/<str:username>/', views.user_profile, name='user_profile'),
+    
+    # 嵌套路由
+    path('api/', include('api.urls')),
+    path('admin/', admin.site.urls),
+]
+
+# views.py
+def blog_detail(request, post_id):
+    try:
+        post = BlogPost.objects.get(id=post_id)
+        return render(request, 'blog/detail.html', {'post': post})
+    except BlogPost.DoesNotExist:
+        return HttpResponseNotFound("文章未找到")
+
+def user_profile(request, username):
+    try:
+        user = User.objects.get(username=username)
+        posts = BlogPost.objects.filter(author=user)
+        return render(request, 'users/profile.html', {
+            'user': user,
+            'posts': posts
+        })
+    except User.DoesNotExist:
+        return HttpResponseNotFound("用户未找到")
+```
+
+```javascript !! js
+// React Router（客户端路由）
+import { BrowserRouter as Router, Routes, Route, Link, useParams } from 'react-router-dom';
+
+const App = () => {
+    return (
+        <Router>
             <nav>
                 <Link to="/">首页</Link>
                 <Link to="/about">关于</Link>
-                <Link to="/users">用户</Link>
+                <Link to="/blog">博客</Link>
             </nav>
             
             <Routes>
                 <Route path="/" element={<Home />} />
                 <Route path="/about" element={<About />} />
-                <Route path="/users" element={<Users />} />
-                <Route path="/users/:id" element={<UserDetail />} />
+                <Route path="/blog" element={<BlogList />} />
+                <Route path="/blog/:postId" element={<BlogDetail />} />
+                <Route path="/user/:username" element={<UserProfile />} />
+                <Route path="*" element={<NotFound />} />
             </Routes>
-        </BrowserRouter>
+        </Router>
     );
-}
-
-// Vue Router - 配置式路由
-import { createRouter, createWebHistory } from 'vue-router';
-
-const routes = [
-    { path: '/', component: Home },
-    { path: '/about', component: About },
-    { path: '/users', component: Users },
-    { path: '/users/:id', component: UserDetail, props: true }
-];
-
-const router = createRouter({
-    history: createWebHistory(),
-    routes
-});
-```
-
-## 3. 模板系统对比
-
-<Tabs items={['Django Templates', 'Jinja2', 'React JSX', 'Vue Templates']}>
-
-<Tab value="Django Templates">
-
-```html
-<!-- Django 模板语法 -->
-<!DOCTYPE html>
-<html>
-<head>
-    <title>{{ title }}</title>
-</head>
-<body>
-    <h1>用户列表</h1>
-    
-    {% if users %}
-        <ul>
-            {% for user in users %}
-                <li>
-                    <a href="{% url 'user_detail' user.id %}">
-                        {{ user.name }} - {{ user.email }}
-                    </a>
-                    {% if user.is_active %}
-                        <span class="active">活跃</span>
-                    {% endif %}
-                </li>
-            {% endfor %}
-        </ul>
-    {% else %}
-        <p>没有用户数据</p>
-    {% endif %}
-    
-    {% include 'partials/footer.html' %}
-</body>
-</html>
-```
-
-</Tab>
-
-<Tab value="Jinja2">
-
-```html
-<!-- Jinja2 模板语法 (Flask) -->
-<!DOCTYPE html>
-<html>
-<head>
-    <title>{{ title }}</title>
-</head>
-<body>
-    <h1>用户列表</h1>
-    
-    {% if users %}
-        <ul>
-            {% for user in users %}
-                <li>
-                    <a href="{{ url_for('user_detail', id=user.id) }}">
-                        {{ user.name }} - {{ user.email }}
-                    </a>
-                    {% if user.is_active %}
-                        <span class="active">活跃</span>
-                    {% endif %}
-                </li>
-            {% endfor %}
-        </ul>
-    {% else %}
-        <p>没有用户数据</p>
-    {% endif %}
-    
-    {% include 'partials/footer.html' %}
-</body>
-</html>
-```
-
-</Tab>
-
-<Tab value="React JSX">
-
-```jsx
-// React JSX 语法
-function UserList({ users, title }) {
-    return (
-        <div>
-            <head>
-                <title>{title}</title>
-            </head>
-            <body>
-                <h1>用户列表</h1>
-                
-                {users && users.length > 0 ? (
-                    <ul>
-                        {users.map(user => (
-                            <li key={user.id}>
-                                <Link to={`/users/${user.id}`}>
-                                    {user.name} - {user.email}
-                                </Link>
-                                {user.isActive && (
-                                    <span className="active">活跃</span>
-                                )}
-                            </li>
-                        ))}
-                    </ul>
-                ) : (
-                    <p>没有用户数据</p>
-                )}
-                
-                <Footer />
-            </body>
-        </div>
-    );
-}
-```
-
-</Tab>
-
-<Tab value="Vue Templates">
-
-```vue
-<!-- Vue 模板语法 -->
-<template>
-    <div>
-        <head>
-            <title>{{ title }}</title>
-        </head>
-        <body>
-            <h1>用户列表</h1>
-            
-            <ul v-if="users && users.length > 0">
-                <li v-for="user in users" :key="user.id">
-                    <router-link :to="`/users/${user.id}`">
-                        {{ user.name }} - {{ user.email }}
-                    </router-link>
-                    <span v-if="user.isActive" class="active">活跃</span>
-                </li>
-            </ul>
-            <p v-else>没有用户数据</p>
-            
-            <Footer />
-        </body>
-    </div>
-</template>
-
-<script>
-export default {
-    props: ['users', 'title'],
-    components: {
-        Footer
-    }
-}
-</script>
-```
-
-</Tab>
-
-</Tabs>
-
-## 4. 状态管理对比
-
-### 后端状态管理
-
-<Tabs items={['Python Session', 'Express Session']}>
-
-<Tab value="Python Session">
-
-```python
-# Django 会话管理
-from django.shortcuts import render
-from django.contrib.sessions.models import Session
-
-def login_view(request):
-    if request.method == 'POST':
-        username = request.POST['username']
-        password = request.POST['password']
-        
-        if authenticate_user(username, password):
-            request.session['user_id'] = user.id
-            request.session['username'] = username
-            request.session.set_expiry(3600)  # 1小时过期
-            return redirect('dashboard')
-    
-    return render(request, 'login.html')
-
-def dashboard_view(request):
-    if 'user_id' not in request.session:
-        return redirect('login')
-    
-    user_id = request.session['user_id']
-    user = get_user(user_id)
-    return render(request, 'dashboard.html', {'user': user})
-
-# Flask 会话管理
-from flask import Flask, session, request, redirect
-
-app = Flask(__name__)
-app.secret_key = 'your-secret-key'
-
-@app.route('/login', methods=['GET', 'POST'])
-def login():
-    if request.method == 'POST':
-        username = request.form['username']
-        password = request.form['password']
-        
-        if authenticate_user(username, password):
-            session['user_id'] = user.id
-            session['username'] = username
-            session.permanent = True  # 使用永久会话
-            return redirect('/dashboard')
-    
-    return render_template('login.html')
-```
-
-</Tab>
-
-<Tab value="Express Session">
-
-```javascript
-// Express.js 会话管理
-const express = require('express');
-const session = require('express-session');
-const MongoStore = require('connect-mongo');
-
-const app = express();
-
-// 会话配置
-app.use(session({
-    secret: 'your-secret-key',
-    resave: false,
-    saveUninitialized: false,
-    store: MongoStore.create({
-        mongoUrl: 'mongodb://localhost/session-store'
-    }),
-    cookie: { 
-        secure: false, // 在生产环境中设为 true
-        maxAge: 3600000 // 1小时
-    }
-}));
-
-app.post('/login', async (req, res) => {
-    const { username, password } = req.body;
-    
-    try {
-        const user = await authenticateUser(username, password);
-        if (user) {
-            req.session.userId = user.id;
-            req.session.username = username;
-            req.session.save((err) => {
-                if (err) throw err;
-                res.redirect('/dashboard');
-            });
-        } else {
-            res.status(401).json({ error: 'Invalid credentials' });
-        }
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-app.get('/dashboard', (req, res) => {
-    if (!req.session.userId) {
-        return res.redirect('/login');
-    }
-    
-    const user = getUserById(req.session.userId);
-    res.render('dashboard', { user });
-});
-```
-
-</Tab>
-
-</Tabs>
-
-### 前端状态管理
-
-```javascript
-// React 状态管理 - Redux
-import { createStore } from 'redux';
-import { Provider, useSelector, useDispatch } from 'react-redux';
-
-// Action Types
-const LOGIN_SUCCESS = 'LOGIN_SUCCESS';
-const LOGOUT = 'LOGOUT';
-
-// Actions
-const loginSuccess = (user) => ({
-    type: LOGIN_SUCCESS,
-    payload: user
-});
-
-const logout = () => ({
-    type: LOGOUT
-});
-
-// Reducer
-const authReducer = (state = { user: null, isAuthenticated: false }, action) => {
-    switch (action.type) {
-        case LOGIN_SUCCESS:
-            return {
-                ...state,
-                user: action.payload,
-                isAuthenticated: true
-            };
-        case LOGOUT:
-            return {
-                ...state,
-                user: null,
-                isAuthenticated: false
-            };
-        default:
-            return state;
-    }
 };
 
-// Store
-const store = createStore(authReducer);
-
-// 组件中使用
-function LoginComponent() {
-    const dispatch = useDispatch();
-    const { isAuthenticated } = useSelector(state => state);
-    
-    const handleLogin = async (credentials) => {
-        try {
-            const response = await fetch('/api/login', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(credentials)
-            });
-            
-            const user = await response.json();
-            dispatch(loginSuccess(user));
-        } catch (error) {
-            console.error('Login failed:', error);
-        }
-    };
-    
-    if (isAuthenticated) {
-        return <Dashboard />;
-    }
-    
-    return <LoginForm onSubmit={handleLogin} />;
-}
-
-// Vue 状态管理 - Vuex
-import { createStore } from 'vuex';
-
-const store = createStore({
-    state: {
-        user: null,
-        isAuthenticated: false
-    },
-    mutations: {
-        LOGIN_SUCCESS(state, user) {
-            state.user = user;
-            state.isAuthenticated = true;
-        },
-        LOGOUT(state) {
-            state.user = null;
-            state.isAuthenticated = false;
-        }
-    },
-    actions: {
-        async login({ commit }, credentials) {
-            try {
-                const response = await fetch('/api/login', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(credentials)
-                });
-                
-                const user = await response.json();
-                commit('LOGIN_SUCCESS', user);
-            } catch (error) {
-                console.error('Login failed:', error);
-                throw error;
-            }
-        },
-        logout({ commit }) {
-            commit('LOGOUT');
-        }
-    }
-});
-```
-
-## 5. 中间件系统对比
-
-<Tabs items={['Django Middleware', 'Flask Middleware', 'Express Middleware']}>
-
-<Tab value="Django Middleware">
-
-```python
-# Django 中间件
-class AuthenticationMiddleware:
-    def __init__(self, get_response):
-        self.get_response = get_response
-
-    def __call__(self, request):
-        # 请求前处理
-        if hasattr(request, 'session'):
-            request.user = get_user_from_session(request.session)
-        
-        response = self.get_response(request)
-        
-        # 响应后处理
-        response['X-Request-ID'] = generate_request_id()
-        return response
-
-class CORSMiddleware:
-    def __init__(self, get_response):
-        self.get_response = get_response
-
-    def __call__(self, request):
-        response = self.get_response(request)
-        
-        response['Access-Control-Allow-Origin'] = '*'
-        response['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE'
-        response['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
-        
-        return response
-
-# settings.py
-MIDDLEWARE = [
-    'django.middleware.security.SecurityMiddleware',
-    'django.contrib.sessions.middleware.SessionMiddleware',
-    'myapp.middleware.CORSMiddleware',
-    'myapp.middleware.AuthenticationMiddleware',
-    'django.middleware.common.CommonMiddleware',
-]
-```
-
-</Tab>
-
-<Tab value="Flask Middleware">
-
-```python
-# Flask 中间件（使用装饰器和钩子）
-from functools import wraps
-from flask import request, g, jsonify
-
-def require_auth(f):
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        token = request.headers.get('Authorization')
-        if not token:
-            return jsonify({'error': 'No token provided'}), 401
-        
-        try:
-            user = verify_token(token)
-            g.current_user = user
-        except InvalidTokenError:
-            return jsonify({'error': 'Invalid token'}), 401
-        
-        return f(*args, **kwargs)
-    return decorated_function
-
-@app.before_request
-def before_request():
-    # 记录请求日志
-    print(f"Request: {request.method} {request.url}")
-    g.start_time = time.time()
-
-@app.after_request
-def after_request(response):
-    # CORS 头
-    response.headers.add('Access-Control-Allow-Origin', '*')
-    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
-    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE')
-    
-    # 记录响应时间
-    duration = time.time() - g.start_time
-    print(f"Response time: {duration:.3f}s")
-    
-    return response
-
-# 使用中间件
-@app.route('/protected')
-@require_auth
-def protected_route():
-    return jsonify({'message': f'Hello, {g.current_user.name}!'})
-```
-
-</Tab>
-
-<Tab value="Express Middleware">
-
-```javascript
-// Express.js 中间件
-const express = require('express');
-const cors = require('cors');
-const app = express();
-
-// 全局中间件
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
-// CORS 中间件
-app.use(cors({
-    origin: ['http://localhost:3000', 'https://yourapp.com'],
-    credentials: true
-}));
-
-// 自定义日志中间件
-app.use((req, res, next) => {
-    const start = Date.now();
-    
-    res.on('finish', () => {
-        const duration = Date.now() - start;
-        console.log(`${req.method} ${req.url} - ${res.statusCode} - ${duration}ms`);
-    });
-    
-    next();
-});
-
-// 认证中间件
-const authenticateToken = (req, res, next) => {
-    const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1];
-    
-    if (!token) {
-        return res.status(401).json({ error: 'No token provided' });
-    }
-    
-    try {
-        const user = verifyToken(token);
-        req.user = user;
-        next();
-    } catch (error) {
-        return res.status(403).json({ error: 'Invalid token' });
-    }
-};
-
-// 错误处理中间件
-app.use((error, req, res, next) => {
-    console.error('Error:', error);
-    
-    if (error.type === 'validation') {
-        return res.status(400).json({ error: error.message });
-    }
-    
-    res.status(500).json({ error: 'Internal server error' });
-});
-
-// 使用中间件的路由
-app.get('/protected', authenticateToken, (req, res) => {
-    res.json({ message: `Hello, ${req.user.name}!` });
-});
-
-// 路由级中间件
-const router = express.Router();
-
-router.use(authenticateToken); // 所有路由都需要认证
-router.get('/profile', (req, res) => {
-    res.json(req.user);
-});
-
-app.use('/api', router);
-```
-
-</Tab>
-
-</Tabs>
-
-## 6. ORM/ODM 对比
-
-<Tabs items={['Django ORM', 'SQLAlchemy', 'Mongoose', 'Prisma']}>
-
-<Tab value="Django ORM">
-
-```python
-# Django ORM 模型定义
-from django.db import models
-from django.contrib.auth.models import User
-
-class Category(models.Model):
-    name = models.CharField(max_length=100)
-    description = models.TextField(blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    
-    class Meta:
-        ordering = ['name']
-    
-    def __str__(self):
-        return self.name
-
-class Post(models.Model):
-    title = models.CharField(max_length=200)
-    content = models.TextField()
-    author = models.ForeignKey(User, on_delete=models.CASCADE)
-    category = models.ForeignKey(Category, on_delete=models.SET_NULL, null=True)
-    tags = models.ManyToManyField('Tag', blank=True)
-    published = models.BooleanField(default=False)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-    
-    class Meta:
-        ordering = ['-created_at']
-    
-    def __str__(self):
-        return self.title
-
-# 查询操作
-def get_posts():
-    # 基本查询
-    all_posts = Post.objects.all()
-    published_posts = Post.objects.filter(published=True)
-    
-    # 复杂查询
-    recent_posts = Post.objects.filter(
-        published=True,
-        created_at__gte=timezone.now() - timedelta(days=7)
-    ).select_related('author', 'category').prefetch_related('tags')
-    
-    # 聚合查询
-    from django.db.models import Count
-    categories_with_counts = Category.objects.annotate(
-        post_count=Count('post')
-    ).filter(post_count__gt=0)
-    
-    return recent_posts
-```
-
-</Tab>
-
-<Tab value="SQLAlchemy">
-
-```python
-# SQLAlchemy ORM (Flask)
-from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, ForeignKey
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import relationship, sessionmaker
-from datetime import datetime
-
-Base = declarative_base()
-
-class Category(Base):
-    __tablename__ = 'categories'
-    
-    id = Column(Integer, primary_key=True)
-    name = Column(String(100), nullable=False)
-    description = Column(Text)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    
-    posts = relationship("Post", back_populates="category")
-    
-    def __repr__(self):
-        return f"<Category(name='{self.name}')>"
-
-class Post(Base):
-    __tablename__ = 'posts'
-    
-    id = Column(Integer, primary_key=True)
-    title = Column(String(200), nullable=False)
-    content = Column(Text, nullable=False)
-    author_id = Column(Integer, ForeignKey('users.id'))
-    category_id = Column(Integer, ForeignKey('categories.id'))
-    published = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    
-    author = relationship("User", back_populates="posts")
-    category = relationship("Category", back_populates="posts")
-
-# 查询操作
-def get_posts():
-    session = Session()
-    
-    # 基本查询
-    all_posts = session.query(Post).all()
-    published_posts = session.query(Post).filter(Post.published == True).all()
-    
-    # 复杂查询
-    from datetime import datetime, timedelta
-    week_ago = datetime.utcnow() - timedelta(days=7)
-    
-    recent_posts = session.query(Post)\
-        .filter(Post.published == True)\
-        .filter(Post.created_at >= week_ago)\
-        .join(Post.author)\
-        .join(Post.category)\
-        .all()
-    
-    # 聚合查询
-    from sqlalchemy import func
-    categories_with_counts = session.query(
-        Category, func.count(Post.id).label('post_count')
-    ).join(Post).group_by(Category.id).all()
-    
-    session.close()
-    return recent_posts
-```
-
-</Tab>
-
-<Tab value="Mongoose">
-
-```javascript
-// Mongoose ODM (MongoDB)
-const mongoose = require('mongoose');
-
-const categorySchema = new mongoose.Schema({
-    name: {
-        type: String,
-        required: true,
-        maxlength: 100
-    },
-    description: String,
-    createdAt: {
-        type: Date,
-        default: Date.now
-    }
-});
-
-const postSchema = new mongoose.Schema({
-    title: {
-        type: String,
-        required: true,
-        maxlength: 200
-    },
-    content: {
-        type: String,
-        required: true
-    },
-    author: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'User',
-        required: true
-    },
-    category: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'Category'
-    },
-    tags: [{
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'Tag'
-    }],
-    published: {
-        type: Boolean,
-        default: false
-    },
-    createdAt: {
-        type: Date,
-        default: Date.now
-    },
-    updatedAt: {
-        type: Date,
-        default: Date.now
-    }
-});
-
-postSchema.pre('save', function(next) {
-    this.updatedAt = Date.now();
-    next();
-});
-
-const Category = mongoose.model('Category', categorySchema);
-const Post = mongoose.model('Post', postSchema);
-
-// 查询操作
-async function getPosts() {
-    // 基本查询
-    const allPosts = await Post.find();
-    const publishedPosts = await Post.find({ published: true });
-    
-    // 复杂查询
-    const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-    
-    const recentPosts = await Post.find({
-        published: true,
-        createdAt: { $gte: weekAgo }
-    })
-    .populate('author', 'name email')
-    .populate('category', 'name')
-    .populate('tags', 'name')
-    .sort({ createdAt: -1 });
-    
-    // 聚合查询
-    const categoriesWithCounts = await Category.aggregate([
-        {
-            $lookup: {
-                from: 'posts',
-                localField: '_id',
-                foreignField: 'category',
-                as: 'posts'
-            }
-        },
-        {
-            $addFields: {
-                postCount: { $size: '$posts' }
-            }
-        },
-        {
-            $match: {
-                postCount: { $gt: 0 }
-            }
-        }
-    ]);
-    
-    return recentPosts;
-}
-```
-
-</Tab>
-
-<Tab value="Prisma">
-
-```javascript
-// Prisma ORM (现代 JavaScript ORM)
-// schema.prisma
-/*
-model Category {
-  id          Int      @id @default(autoincrement())
-  name        String   @db.VarChar(100)
-  description String?
-  createdAt   DateTime @default(now())
-  posts       Post[]
-  
-  @@map("categories")
-}
-
-model Post {
-  id         Int      @id @default(autoincrement())
-  title      String   @db.VarChar(200)
-  content    String
-  authorId   Int
-  categoryId Int?
-  published  Boolean  @default(false)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-  
-  author   User      @relation(fields: [authorId], references: [id])
-  category Category? @relation(fields: [categoryId], references: [id])
-  tags     Tag[]
-  
-  @@map("posts")
-}
-*/
-
-const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
-
-// 查询操作
-async function getPosts() {
-    // 基本查询
-    const allPosts = await prisma.post.findMany();
-    const publishedPosts = await prisma.post.findMany({
-        where: { published: true }
-    });
-    
-    // 复杂查询
-    const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-    
-    const recentPosts = await prisma.post.findMany({
-        where: {
-            published: true,
-            createdAt: {
-                gte: weekAgo
-            }
-        },
-        include: {
-            author: {
-                select: {
-                    name: true,
-                    email: true
-                }
-            },
-            category: {
-                select: {
-                    name: true
-                }
-            },
-            tags: {
-                select: {
-                    name: true
-                }
-            }
-        },
-        orderBy: {
-            createdAt: 'desc'
-        }
-    });
-    
-    // 聚合查询
-    const categoriesWithCounts = await prisma.category.findMany({
-        include: {
-            _count: {
-                select: {
-                    posts: true
-                }
-            }
-        },
-        where: {
-            posts: {
-                some: {}
-            }
-        }
-    });
-    
-    return recentPosts;
-}
-
-// 事务操作
-async function createPostWithCategory(postData, categoryData) {
-    return await prisma.$transaction(async (tx) => {
-        const category = await tx.category.create({
-            data: categoryData
-        });
-        
-        const post = await tx.post.create({
-            data: {
-                ...postData,
-                categoryId: category.id
-            },
-            include: {
-                category: true,
-                author: true
-            }
-        });
-        
-        return post;
-    });
-}
-```
-
-</Tab>
-
-</Tabs>
-
-## 7. API 开发对比
-
-### RESTful API 设计
-
-<Tabs items={['Django REST Framework', 'Flask-RESTful', 'Express.js']}>
-
-<Tab value="Django REST Framework">
-
-```python
-# Django REST Framework
-from rest_framework import generics, serializers, status
-from rest_framework.response import Response
-from rest_framework.decorators import api_view
-from rest_framework.pagination import PageNumberPagination
-
-class PostSerializer(serializers.ModelSerializer):
-    author_name = serializers.CharField(source='author.username', read_only=True)
-    category_name = serializers.CharField(source='category.name', read_only=True)
-    
-    class Meta:
-        model = Post
-        fields = ['id', 'title', 'content', 'author', 'author_name', 
-                  'category', 'category_name', 'published', 'created_at']
-        read_only_fields = ['author', 'created_at']
-
-class PostPagination(PageNumberPagination):
-    page_size = 10
-    page_size_query_param = 'page_size'
-    max_page_size = 100
-
-class PostListCreateView(generics.ListCreateAPIView):
-    queryset = Post.objects.all()
-    serializer_class = PostSerializer
-    pagination_class = PostPagination
-    
-    def get_queryset(self):
-        queryset = Post.objects.select_related('author', 'category')
-        published = self.request.query_params.get('published')
-        
-        if published is not None:
-            queryset = queryset.filter(published=published.lower() == 'true')
-        
-        return queryset.order_by('-created_at')
-    
-    def perform_create(self, serializer):
-        serializer.save(author=self.request.user)
-
-class PostDetailView(generics.RetrieveUpdateDestroyAPIView):
-    queryset = Post.objects.all()
-    serializer_class = PostSerializer
-    
-    def update(self, request, *args, **kwargs):
-        partial = kwargs.pop('partial', False)
-        instance = self.get_object()
-        
-        # 只允许作者修改
-        if instance.author != request.user:
-            return Response(
-                {'error': 'Permission denied'}, 
-                status=status.HTTP_403_FORBIDDEN
-            )
-        
-        serializer = self.get_serializer(instance, data=request.data, partial=partial)
-        serializer.is_valid(raise_exception=True)
-        self.perform_update(serializer)
-        
-        return Response(serializer.data)
-
-# URL 配置
-from django.urls import path
-
-urlpatterns = [
-    path('posts/', PostListCreateView.as_view(), name='post-list'),
-    path('posts/<int:pk>/', PostDetailView.as_view(), name='post-detail'),
-]
-```
-
-</Tab>
-
-<Tab value="Flask-RESTful">
-
-```python
-# Flask-RESTful
-from flask import Flask, request
-from flask_restful import Api, Resource, marshal_with, fields
-from flask_sqlalchemy import SQLAlchemy
-
-app = Flask(__name__)
-api = Api(app)
-
-# 序列化字段
-post_fields = {
-    'id': fields.Integer,
-    'title': fields.String,
-    'content': fields.String,
-    'author_name': fields.String(attribute='author.username'),
-    'category_name': fields.String(attribute='category.name'),
-    'published': fields.Boolean,
-    'created_at': fields.DateTime
-}
-
-class PostListAPI(Resource):
-    @marshal_with(post_fields)
-    def get(self):
-        # 查询参数
-        page = request.args.get('page', 1, type=int)
-        per_page = request.args.get('per_page', 10, type=int)
-        published = request.args.get('published')
-        
-        query = Post.query.join(User).join(Category)
-        
-        if published is not None:
-            query = query.filter(Post.published == (published.lower() == 'true'))
-        
-        posts = query.order_by(Post.created_at.desc())\
-                    .paginate(page=page, per_page=per_page, error_out=False)
-        
-        return posts.items
-    
-    @marshal_with(post_fields)
-    def post(self):
-        data = request.get_json()
-        
-        post = Post(
-            title=data['title'],
-            content=data['content'],
-            author_id=get_current_user_id(),
-            category_id=data.get('category_id'),
-            published=data.get('published', False)
-        )
-        
-        db.session.add(post)
-        db.session.commit()
-        
-        return post, 201
-
-class PostAPI(Resource):
-    @marshal_with(post_fields)
-    def get(self, post_id):
-        post = Post.query.get_or_404(post_id)
-        return post
-    
-    @marshal_with(post_fields)
-    def put(self, post_id):
-        post = Post.query.get_or_404(post_id)
-        
-        # 权限检查
-        if post.author_id != get_current_user_id():
-            return {'error': 'Permission denied'}, 403
-        
-        data = request.get_json()
-        
-        post.title = data.get('title', post.title)
-        post.content = data.get('content', post.content)
-        post.published = data.get('published', post.published)
-        
-        db.session.commit()
-        return post
-    
-    def delete(self, post_id):
-        post = Post.query.get_or_404(post_id)
-        
-        if post.author_id != get_current_user_id():
-            return {'error': 'Permission denied'}, 403
-        
-        db.session.delete(post)
-        db.session.commit()
-        
-        return '', 204
-
-# 注册 API 路由
-api.add_resource(PostListAPI, '/api/posts')
-api.add_resource(PostAPI, '/api/posts/<int:post_id>')
-```
-
-</Tab>
-
-<Tab value="Express.js">
-
-```javascript
-// Express.js RESTful API
-const express = require('express');
-const { body, validationResult, query } = require('express-validator');
-const router = express.Router();
-
-// 验证中间件
-const validatePost = [
-    body('title').isLength({ min: 1, max: 200 }).trim(),
-    body('content').isLength({ min: 1 }).trim(),
-    body('published').optional().isBoolean(),
-    body('categoryId').optional().isInt()
-];
-
-const handleValidationErrors = (req, res, next) => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-        return res.status(400).json({ 
-            error: 'Validation failed', 
-            details: errors.array() 
-        });
-    }
-    next();
-};
-
-// GET /api/posts - 获取文章列表
-router.get('/posts', [
-    query('page').optional().isInt({ min: 1 }),
-    query('limit').optional().isInt({ min: 1, max: 100 }),
-    query('published').optional().isBoolean()
-], async (req, res) => {
-    try {
-        const page = parseInt(req.query.page) || 1;
-        const limit = parseInt(req.query.limit) || 10;
-        const offset = (page - 1) * limit;
-        
-        let whereClause = {};
-        if (req.query.published !== undefined) {
-            whereClause.published = req.query.published === 'true';
-        }
-        
-        const posts = await Post.findAndCountAll({
-            where: whereClause,
-            include: [
-                { model: User, as: 'author', attributes: ['username'] },
-                { model: Category, attributes: ['name'] }
-            ],
-            order: [['createdAt', 'DESC']],
-            limit,
-            offset
-        });
-        
-        res.json({
-            posts: posts.rows,
-            pagination: {
-                page,
-                limit,
-                total: posts.count,
-                pages: Math.ceil(posts.count / limit)
-            }
-        });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-// POST /api/posts - 创建文章
-router.post('/posts', validatePost, handleValidationErrors, async (req, res) => {
-    try {
-        const { title, content, published, categoryId } = req.body;
-        
-        const post = await Post.create({
-            title,
-            content,
-            published: published || false,
-            authorId: req.user.id,
-            categoryId
-        });
-        
-        const createdPost = await Post.findByPk(post.id, {
-            include: [
-                { model: User, as: 'author', attributes: ['username'] },
-                { model: Category, attributes: ['name'] }
-            ]
-        });
-        
-        res.status(201).json(createdPost);
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-// GET /api/posts/:id - 获取单个文章
-router.get('/posts/:id', async (req, res) => {
-    try {
-        const post = await Post.findByPk(req.params.id, {
-            include: [
-                { model: User, as: 'author', attributes: ['username'] },
-                { model: Category, attributes: ['name'] }
-            ]
-        });
-        
-        if (!post) {
-            return res.status(404).json({ error: 'Post not found' });
-        }
-        
-        res.json(post);
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-// PUT /api/posts/:id - 更新文章
-router.put('/posts/:id', validatePost, handleValidationErrors, async (req, res) => {
-    try {
-        const post = await Post.findByPk(req.params.id);
-        
-        if (!post) {
-            return res.status(404).json({ error: 'Post not found' });
-        }
-        
-        // 权限检查
-        if (post.authorId !== req.user.id) {
-            return res.status(403).json({ error: 'Permission denied' });
-        }
-        
-        const { title, content, published, categoryId } = req.body;
-        
-        await post.update({
-            title,
-            content,
-            published,
-            categoryId
-        });
-        
-        const updatedPost = await Post.findByPk(post.id, {
-            include: [
-                { model: User, as: 'author', attributes: ['username'] },
-                { model: Category, attributes: ['name'] }
-            ]
-        });
-        
-        res.json(updatedPost);
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-// DELETE /api/posts/:id - 删除文章
-router.delete('/posts/:id', async (req, res) => {
-    try {
-        const post = await Post.findByPk(req.params.id);
-        
-        if (!post) {
-            return res.status(404).json({ error: 'Post not found' });
-        }
-        
-        // 权限检查
-        if (post.authorId !== req.user.id) {
-            return res.status(403).json({ error: 'Permission denied' });
-        }
-        
-        await post.destroy();
-        res.status(204).send();
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-module.exports = router;
-```
-
-</Tab>
-
-</Tabs>
-
-## 8. 框架选择指南
-
-### 后端框架选择
-
-<Steps>
-
-<Step>
-
-**项目规模评估**
-- 小型项目：Flask (Python) 或 Express.js (JavaScript)
-- 中大型项目：Django (Python) 或 Nest.js (JavaScript)  
-- 高性能需求：FastAPI (Python) 或 Fastify (JavaScript)
-
-</Step>
-
-<Step>
-
-**团队技能考虑**
-- Python 团队：优先选择 Python 框架
-- 全栈 JavaScript：优先选择 Node.js 框架
-- 微服务架构：考虑 FastAPI 或 Express.js
-
-</Step>
-
-<Step>
-
-**生态系统集成**
-- 数据科学项目：Django + Python 生态
-- 实时应用：Express.js + Socket.io
-- API 优先：FastAPI 或 Express.js
-
-</Step>
-
-</Steps>
-
-### 前端框架选择
-
-<Tabs items={['React', 'Vue.js', 'Angular']}>
-
-<Tab value="React">
-
-**React 适用场景**
-- 大型复杂应用
-- 组件库丰富
-- 团队有 JavaScript 经验
-- 需要灵活性和生态系统
-
-```jsx
-// React 项目结构示例
-src/
-├── components/
-│   ├── common/
-│   │   ├── Header.jsx
-│   │   └── Footer.jsx
-│   ├── posts/
-│   │   ├── PostList.jsx
-│   │   ├── PostCard.jsx
-│   │   └── PostForm.jsx
-├── pages/
-│   ├── Home.jsx
-│   ├── Posts.jsx
-│   └── PostDetail.jsx
-├── hooks/
-│   ├── useAuth.js
-│   └── usePosts.js
-├── services/
-│   └── api.js
-└── App.jsx
-```
-
-</Tab>
-
-<Tab value="Vue.js">
-
-**Vue.js 适用场景**
-- 渐进式采用
-- 学习曲线平缓
-- 模板语法熟悉
-- 中小型项目
-
-```vue
-<!-- Vue 项目结构示例 -->
-src/
-├── components/
-│   ├── common/
-│   │   ├── Header.vue
-│   │   └── Footer.vue
-│   ├── posts/
-│   │   ├── PostList.vue
-│   │   ├── PostCard.vue
-│   │   └── PostForm.vue
-├── views/
-│   ├── Home.vue
-│   ├── Posts.vue
-│   └── PostDetail.vue
-├── composables/
-│   ├── useAuth.js
-│   └── usePosts.js
-├── services/
-│   └── api.js
-└── App.vue
-```
-
-</Tab>
-
-<Tab value="Angular">
-
-**Angular 适用场景**
-- 企业级应用
-- TypeScript 优先
-- 完整的框架解决方案
-- 大型团队协作
-
-```typescript
-// Angular 项目结构示例
-src/
-├── app/
-│   ├── shared/
-│   │   ├── components/
-│   │   ├── services/
-│   │   └── models/
-│   ├── features/
-│   │   ├── posts/
-│   │   │   ├── components/
-│   │   │   ├── services/
-│   │   │   └── posts.module.ts
-│   ├── core/
-│   │   ├── auth/
-│   │   └── api/
-│   ├── app-routing.module.ts
-│   └── app.component.ts
-```
-
-</Tab>
-
-</Tabs>
-
-## 9. 全栈开发架构
-
-### 前后端分离架构
-
-```javascript
-// 前端 (React) - API 调用
-class PostService {
-    static async getPosts(page = 1, published = null) {
-        const params = new URLSearchParams({ page });
-        if (published !== null) {
-            params.append('published', published);
-        }
-        
-        const response = await fetch(`/api/posts?${params}`, {
-            headers: {
-                'Authorization': `Bearer ${getToken()}`,
-                'Content-Type': 'application/json'
-            }
-        });
-        
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        
-        return await response.json();
-    }
-    
-    static async createPost(postData) {
-        const response = await fetch('/api/posts', {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${getToken()}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(postData)
-        });
-        
-        if (!response.ok) {
-            const error = await response.json();
-            throw new Error(error.message || 'Failed to create post');
-        }
-        
-        return await response.json();
-    }
-}
-
-// React 组件使用
-function PostsList() {
-    const [posts, setPosts] = useState([]);
+// 动态路由组件
+const BlogDetail = () => {
+    const { postId } = useParams();
+    const [post, setPost] = useState(null);
     const [loading, setLoading] = useState(true);
-    const [error, setError] = useState(null);
-    
+
     useEffect(() => {
-        const fetchPosts = async () => {
-            try {
-                setLoading(true);
-                const data = await PostService.getPosts(1, true);
-                setPosts(data.posts);
-            } catch (err) {
-                setError(err.message);
-            } finally {
+        fetch(`/api/posts/${postId}`)
+            .then(res => {
+                if (!res.ok) throw new Error('文章未找到');
+                return res.json();
+            })
+            .then(data => {
+                setPost(data);
                 setLoading(false);
-            }
-        };
-        
-        fetchPosts();
-    }, []);
-    
+            })
+            .catch(error => {
+                console.error('错误:', error);
+                setLoading(false);
+            });
+    }, [postId]);
+
     if (loading) return <div>加载中...</div>;
-    if (error) return <div>错误: {error}</div>;
-    
+    if (!post) return <div>文章未找到</div>;
+
     return (
-        <div>
-            {posts.map(post => (
-                <PostCard key={post.id} post={post} />
-            ))}
-        </div>
+        <article>
+            <h1>{post.title}</h1>
+            <p>作者：{post.author}</p>
+            <div>{post.content}</div>
+        </article>
     );
-}
-```
-
-### 同构应用架构 (SSR/SSG)
-
-```javascript
-// Next.js - 服务端渲染
-import { GetServerSideProps } from 'next';
-
-export default function PostsPage({ posts, error }) {
-    if (error) {
-        return <div>错误: {error}</div>;
-    }
-    
-    return (
-        <div>
-            <h1>文章列表</h1>
-            {posts.map(post => (
-                <PostCard key={post.id} post={post} />
-            ))}
-        </div>
-    );
-}
-
-// 服务端数据获取
-export const getServerSideProps: GetServerSideProps = async (context) => {
-    try {
-        const { page = '1', published = 'true' } = context.query;
-        
-        // 在服务端调用 API
-        const response = await fetch(`${process.env.API_URL}/posts?page=${page}&published=${published}`);
-        
-        if (!response.ok) {
-            throw new Error('Failed to fetch posts');
-        }
-        
-        const data = await response.json();
-        
-        return {
-            props: {
-                posts: data.posts || []
-            }
-        };
-    } catch (error) {
-        return {
-            props: {
-                posts: [],
-                error: error.message
-            }
-        };
-    }
 };
 
-// Nuxt.js - Vue 服务端渲染
-<template>
-    <div>
-        <h1>文章列表</h1>
-        <div v-if="error" class="error">错误: {{ error }}</div>
-        <PostCard 
-            v-for="post in posts" 
-            :key="post.id" 
-            :post="post" 
-        />
-    </div>
-</template>
-
-<script>
-export default {
-    async asyncData({ $axios, query, error }) {
-        try {
-            const { page = 1, published = true } = query;
-            
-            const { data } = await $axios.get('/api/posts', {
-                params: { page, published }
-            });
-            
-            return {
-                posts: data.posts || []
-            };
-        } catch (err) {
-            error({
-                statusCode: 500,
-                message: '获取文章失败'
-            });
-        }
-    }
-}
-</script>
+const UserProfile = () => {
+    const { username } = useParams();
+    // 用户资料的类似实现
+    return <div>用户 {username} 的资料</div>;
+};
 ```
+</PythonEditor>
 
-## 小结
+## 总结和最佳实践
 
-通过本章的学习，你应该了解到：
+### 框架选择清单
 
-1. **框架分类差异**: JavaScript 有前端和后端框架，而 Python 主要是后端框架
-2. **设计理念对比**: 不同框架的路由、模板、状态管理方式
-3. **ORM/ODM 选择**: 各种数据库操作库的特点和用法
-4. **API 开发模式**: RESTful API 的不同实现方式
-5. **全栈架构**: 前后端分离和同构应用的架构模式
+1. **项目需求**
+   - 仅 API 还是全栈
+   - 是否需要实时功能
+   - SEO 需求
+   - 团队专业知识
 
-<Callout type="tip">
-**下一步**: 在下一章中，我们将学习 Node.js 后端开发，了解如何使用 JavaScript 构建服务端应用。
-</Callout>
+2. **Python 到 JavaScript 迁移路径**
+   - 从 Express.js 开始，保持后端熟悉感
+   - 根据复杂性选择 React 或 Vue 前端
+   - 为 SSR/SEO 需求考虑 Next.js
+
+3. **开发工作流**
+   - 分离前端和后端仓库
+   - 使用 API 优先的开发方法
+   - 实现适当的 CORS 处理
+   - 规划身份验证和授权
+
+4. **性能考虑**
+   - 客户端路由提供更好的用户体验
+   - 代码分割和懒加载
+   - API 优化和缓存
+   - 打包大小优化
+
+---
+
+在下一模块中，我们将深入了解 Node.js 后端开发，探索如何使用 JavaScript 构建健壮的服务器端应用程序。
