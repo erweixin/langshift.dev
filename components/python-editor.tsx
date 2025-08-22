@@ -278,6 +278,7 @@ export default function PythonEditor(params: PythonEditorProps) {
   const [isRunning, setIsRunning] = useState(false)
   const [isClient, setIsClient] = useState(false)
   const [currentTheme, setCurrentTheme] = useState<'vs-light' | 'vs-dark'>('vs-light')
+  const [isModalOpen, setIsModalOpen] = useState(false)
   
   // 检查是否在客户端
   useEffect(() => {
@@ -320,6 +321,32 @@ export default function PythonEditor(params: PythonEditorProps) {
       observer.disconnect()
     }
   }, [isClient, theme])
+
+  // 弹窗键盘事件处理
+  useEffect(() => {
+    if (!isModalOpen) return
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // ESC 键关闭弹窗
+      if (event.key === 'Escape') {
+        setIsModalOpen(false)
+      }
+      // Ctrl/Cmd + Enter 运行 Python 代码
+      if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+        event.preventDefault()
+        runPythonCode()
+      }
+    }
+
+    // 阻止背景滚动
+    document.body.style.overflow = 'hidden'
+    document.addEventListener('keydown', handleKeyDown)
+
+    return () => {
+      document.body.style.overflow = 'unset'
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [isModalOpen, pythonCode])
   
   // 订阅 Pyodide 实例
   useEffect(() => {
@@ -548,7 +575,7 @@ sys.stdout = sys.__stdout__
           <button
             onClick={runPythonCode}
             disabled={isRunning || !pythonCode.trim()}
-            className="px-3 py-1 text-xs bg-green-500 text-white rounded hover:bg-green-600 disabled:opacity-50"
+            className="cursor-pointer px-4 py-2 text-sm bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200 border border-emerald-500 hover:border-emerald-600"
           >
             {isLoading ? t.editor.loadingRuntime.replace('{language}', t.editor.languages.python) : isRunning ? t.editor.running : t.editor.run.replace('{language}', t.editor.languages.python)}
           </button>
@@ -556,10 +583,22 @@ sys.stdout = sys.__stdout__
             <button
               onClick={runJavascriptCode}
               disabled={isRunning}
-                          className="px-3 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50"
-          >
-            {t.editor.run.replace('{language}', 'JS')}
-          </button>
+              className="cursor-pointer px-4 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200 border border-blue-500 hover:border-blue-600"
+            >
+              {t.editor.run.replace('{language}', 'JS')}
+            </button>
+          )}
+          {compare && (javascriptCode || typescriptCode) && (
+            <button
+              onClick={() => setIsModalOpen(true)}
+              className="cursor-pointer px-4 py-2 text-sm bg-slate-600 hover:bg-slate-700 text-white rounded-lg transition-colors duration-200 border border-slate-500 hover:border-slate-600 flex items-center space-x-2"
+              title={t.editor.modal.expandTooltip}
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+              </svg>
+              <span>{t.editor.modal.expand}</span>
+            </button>
           )}
         </div>}
       </div>
@@ -615,6 +654,126 @@ sys.stdout = sys.__stdout__
                 {output}
               </pre>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* 展开弹窗 */}
+      {isModalOpen && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setIsModalOpen(false)
+            }
+          }}
+        >
+          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-2xl w-[98vw] h-[95vh] max-w-none flex flex-col">
+            {/* 弹窗标题栏 */}
+            <div className="flex items-center justify-between px-6 py-4 bg-gray-100 dark:bg-gray-800 border-b rounded-t-lg">
+              <div className="text-lg font-medium text-gray-700 dark:text-gray-300">
+                {t.editor.modal.codeComparison} - {title || defaultTitle}
+              </div>
+              <div className="flex items-center space-x-3">
+                {canRun && (
+                  <>
+                    <button
+                      onClick={runPythonCode}
+                      disabled={isRunning || !pythonCode.trim()}
+                      className="cursor-pointer px-4 py-2 text-sm bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200 border border-emerald-500 hover:border-emerald-600"
+                    >
+                      {isLoading ? t.editor.loadingRuntime.replace('{language}', t.editor.languages.python) : isRunning ? t.editor.running : t.editor.run.replace('{language}', t.editor.languages.python)}
+                    </button>
+                    {compare && (javascriptCode || typescriptCode) && (
+                      <button
+                        onClick={runJavascriptCode}
+                        disabled={isRunning}
+                        className="cursor-pointer px-4 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200 border border-blue-500 hover:border-blue-600"
+                      >
+                        {t.editor.run.replace('{language}', 'JS')}
+                      </button>
+                    )}
+                  </>
+                )}
+                <button
+                  onClick={() => setIsModalOpen(false)}
+                  className="p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700"
+                  title={t.editor.modal.close}
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            {/* 弹窗内容区域 */}
+            <div className="flex-1 flex flex-col overflow-hidden">
+              {/* 编辑器区域 */}
+              <div className="flex-1 flex">
+                {/* Python 编辑器 */}
+                <div className="flex-1 flex flex-col border-r">
+                  <div className="px-4 py-2 bg-gray-50 dark:bg-gray-800 border-b text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Python
+                  </div>
+                  <div className="flex-1">
+                    <MonacoEditorWrapper
+                      language="python"
+                      theme={currentTheme}
+                      value={pythonCode}
+                      onChange={(value) => setPythonCode(value || '')}
+                      height={window.innerHeight - 300}
+                      options={{ readOnly }}
+                    />
+                  </div>
+                </div>
+
+                {/* JavaScript/TypeScript 编辑器 */}
+                {compare && (javascriptCode || typescriptCode) && (
+                  <div className="flex-1 flex flex-col">
+                    <div className="px-4 py-2 bg-gray-50 dark:bg-gray-800 border-b text-sm font-medium text-gray-700 dark:text-gray-300">
+                      {javascriptCode ? 'JavaScript' : 'TypeScript'}
+                    </div>
+                    <div className="flex-1">
+                      <MonacoEditorWrapper
+                        language={javascriptCode ? 'javascript' : 'typescript'}
+                        theme={currentTheme}
+                        value={javascriptCode || typescriptCode || ''}
+                        onChange={(value) => {
+                          if (javascriptCode) {
+                            setJavascriptCode(value || '')
+                          } else {
+                            setTypescriptCode(value || '')
+                          }
+                        }}
+                        height={window.innerHeight - 300}
+                        options={{ readOnly }}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* 输出区域 */}
+              {showOutput && (output || error) && (
+                <div className="border-t bg-gray-50 dark:bg-gray-800 max-h-48 flex flex-col">
+                  <div className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 border-b">
+                    {t.editor.output}
+                  </div>
+                  <div className="flex-1 overflow-auto p-4">
+                    {error ? (
+                      <pre className="text-red-600 dark:text-red-400 text-sm whitespace-pre-wrap">
+                        {error}
+                      </pre>
+                    ) : (
+                      <pre className="text-gray-800 dark:text-gray-200 text-sm whitespace-pre-wrap">
+                        {output}
+                      </pre>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
