@@ -1,0 +1,778 @@
+---
+title: "CloudWeGo Framework Ecosystem"
+description: "Explore ByteDance's open-source CloudWeGo ecosystem: Hertz high-performance HTTP framework and Eino AI application development framework, from a JavaScript developer's perspective."
+---
+
+# CloudWeGo Framework Ecosystem
+
+CloudWeGo is ByteDance's open-source enterprise-grade cloud-native microservice middleware collection, designed for building high-performance, highly scalable, and highly reliable microservice architectures. This module introduces two core frameworks from a JavaScript developer's perspective: Hertz HTTP framework and Eino AI application development framework.
+
+## CloudWeGo Ecosystem Overview
+
+- **Enterprise-grade Middleware:** Validated in ByteDance's large-scale production environments
+- **Cloud-native Design:** Native support for microservices, containerization, and cloud platform deployment
+- **High Performance:** Extensively optimized for performance and scalability
+- **Developer-friendly:** Provides clean APIs and rich development tools
+
+## Hertz High-Performance HTTP Framework
+
+Hertz is a high-performance, highly available, and scalable Go HTTP framework designed specifically for building microservices.
+
+### Core Feature Comparison
+
+<UniversalEditor title="Framework Feature Comparison" compare={true}>
+```javascript !! js
+// JavaScript: Express.js framework features
+const express = require('express');
+const app = express();
+
+// 1. Middleware system
+app.use(express.json());
+app.use((req, res, next) => {
+  console.log(`${req.method} ${req.path}`);
+  next();
+});
+
+// 2. Route definition
+app.get('/api/users/:id', (req, res) => {
+  const userId = req.params.id;
+  res.json({ id: userId, name: 'John Doe' });
+});
+
+// 3. Error handling
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).json({ error: 'Something went wrong!' });
+});
+
+// 4. Server startup
+app.listen(3000, () => {
+  console.log('Server running on port 3000');
+});
+
+// Features:
+// - Event loop-based asynchronous processing
+// - Flexible middleware system
+// - Clean routing API
+// - Rich ecosystem
+```
+
+```go !! go
+// Go: Hertz framework features
+package main
+
+import (
+	"context"
+	"log"
+
+	"github.com/cloudwego/hertz/pkg/app"
+	"github.com/cloudwego/hertz/pkg/app/server"
+	"github.com/cloudwego/hertz/pkg/common/utils"
+	"github.com/cloudwego/hertz/pkg/protocol/consts"
+)
+
+func main() {
+	// 1. Create Hertz server instance
+	h := server.Default(server.WithHostPorts("localhost:8080"))
+
+	// 2. Middleware system
+	h.Use(func(ctx context.Context, c *app.RequestContext) {
+		log.Printf("%s %s", c.Method(), c.Path())
+		c.Next(ctx)
+	})
+
+	// 3. Route definition
+	h.GET("/api/users/:id", func(ctx context.Context, c *app.RequestContext) {
+		userId := c.Param("id")
+		c.JSON(consts.StatusOK, utils.H{
+			"id":   userId,
+			"name": "John Doe",
+		})
+	})
+
+	// 4. Error handling middleware
+	h.Use(func(ctx context.Context, c *app.RequestContext) {
+		defer func() {
+			if err := recover(); err != nil {
+				log.Printf("Panic recovered: %v", err)
+				c.JSON(consts.StatusInternalServerError, utils.H{
+					"error": "Something went wrong!",
+				})
+			}
+		}()
+		c.Next(ctx)
+	})
+
+	// 5. Start server
+	h.Spin()
+}
+
+// Hertz Features:
+// - Self-developed Netpoll network library for high performance
+// - Multi-protocol support (HTTP/1.1, HTTP/2, HTTP/3)
+// - Network layer switching capability
+// - Enterprise-grade extensibility
+// - Type-safe context handling
+```
+</UniversalEditor>
+
+### Hertz vs Express Performance Comparison
+
+<UniversalEditor title="Simple HTTP Server Comparison" compare={true}>
+```javascript !! js
+// JavaScript: Express simple server
+const express = require('express');
+const app = express();
+
+app.use(express.json());
+
+// User data storage
+const users = new Map();
+
+// GET user
+app.get('/users/:id', (req, res) => {
+  const user = users.get(req.params.id);
+  if (user) {
+    res.json(user);
+  } else {
+    res.status(404).json({ error: 'User not found' });
+  }
+});
+
+// POST create user
+app.post('/users', (req, res) => {
+  const { name, email } = req.body;
+  const id = Date.now().toString();
+  const user = { id, name, email };
+  users.set(id, user);
+  res.status(201).json(user);
+});
+
+// Health check
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+app.listen(3000, () => {
+  console.log('Express server running on port 3000');
+});
+
+// Performance characteristics:
+// - Single-threaded event loop
+// - Memory usage: ~50MB
+// - Concurrency: Event loop dependent
+// - Startup time: ~200ms
+```
+
+```go !! go
+// Go: Hertz simple server
+package main
+
+import (
+	"context"
+	"strconv"
+	"sync"
+	"time"
+
+	"github.com/cloudwego/hertz/pkg/app"
+	"github.com/cloudwego/hertz/pkg/app/server"
+	"github.com/cloudwego/hertz/pkg/common/utils"
+	"github.com/cloudwego/hertz/pkg/protocol/consts"
+)
+
+type User struct {
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Email string `json:"email"`
+}
+
+var (
+	users = make(map[string]*User)
+	mutex = sync.RWMutex{}
+)
+
+func main() {
+	// Configure Hertz server
+	h := server.New(
+		server.WithHostPorts("localhost:8080"),
+		server.WithMaxRequestBodySize(4*1024*1024), // 4MB
+		server.WithReadTimeout(10*time.Second),
+		server.WithWriteTimeout(10*time.Second),
+	)
+
+	// GET user
+	h.GET("/users/:id", func(ctx context.Context, c *app.RequestContext) {
+		userID := c.Param("id")
+		
+		mutex.RLock()
+		user, exists := users[userID]
+		mutex.RUnlock()
+		
+		if exists {
+			c.JSON(consts.StatusOK, user)
+		} else {
+			c.JSON(consts.StatusNotFound, utils.H{"error": "User not found"})
+		}
+	})
+
+	// POST create user
+	h.POST("/users", func(ctx context.Context, c *app.RequestContext) {
+		var req struct {
+			Name  string `json:"name"`
+			Email string `json:"email"`
+		}
+		
+		if err := c.BindAndValidate(&req); err != nil {
+			c.JSON(consts.StatusBadRequest, utils.H{"error": err.Error()})
+			return
+		}
+		
+		user := &User{
+			ID:    strconv.FormatInt(time.Now().UnixNano(), 10),
+			Name:  req.Name,
+			Email: req.Email,
+		}
+		
+		mutex.Lock()
+		users[user.ID] = user
+		mutex.Unlock()
+		
+		c.JSON(consts.StatusCreated, user)
+	})
+
+	// Health check
+	h.GET("/health", func(ctx context.Context, c *app.RequestContext) {
+		c.JSON(consts.StatusOK, utils.H{
+			"status":    "ok",
+			"timestamp": time.Now().Format(time.RFC3339),
+		})
+	})
+
+	// Start server
+	h.Spin()
+}
+
+// Hertz performance characteristics:
+// - Goroutines concurrent processing
+// - Memory usage: ~10MB
+// - Concurrency: True parallel processing
+// - Startup time: ~50ms
+// - Self-developed Netpoll network library optimization
+```
+</UniversalEditor>
+
+## Eino AI Application Development Framework
+
+Eino is a Go-based large language model (LLM) application development framework designed to help developers quickly build reliable AI applications.
+
+### AI Application Development Comparison
+
+<UniversalEditor title="AI Chat Application Comparison" compare={true}>
+```javascript !! js
+// JavaScript: AI application using LangChain.js
+const { OpenAI } = require('langchain/llms/openai');
+const { ConversationChain } = require('langchain/chains');
+const { BufferMemory } = require('langchain/memory');
+
+class AIService {
+  constructor() {
+    this.llm = new OpenAI({
+      openAIApiKey: process.env.OPENAI_API_KEY,
+      temperature: 0.7,
+    });
+    
+    this.memory = new BufferMemory();
+    this.chain = new ConversationChain({
+      llm: this.llm,
+      memory: this.memory,
+    });
+  }
+
+  async chat(message) {
+    try {
+      const response = await this.chain.call({
+        input: message,
+      });
+      return {
+        success: true,
+        data: response.response,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error.message,
+      };
+    }
+  }
+
+  async streamChat(message, callback) {
+    const stream = await this.llm.stream(message);
+    let fullResponse = '';
+    
+    for await (const chunk of stream) {
+      fullResponse += chunk;
+      callback(chunk, false);
+    }
+    
+    callback('', true); // End marker
+    return fullResponse;
+  }
+}
+
+// Usage example
+const aiService = new AIService();
+
+async function main() {
+  const response = await aiService.chat('Hello, how are you?');
+  console.log(response);
+  
+  // Streaming response
+  await aiService.streamChat('Tell me a story', (chunk, isEnd) => {
+    if (!isEnd) {
+      process.stdout.write(chunk);
+    } else {
+      console.log('\n[Stream ended]');
+    }
+  });
+}
+
+main();
+```
+
+```go !! go
+// Go: AI application using Eino
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+
+	"github.com/cloudwego/eino/compose"
+	"github.com/cloudwego/eino/components/model"
+	"github.com/cloudwego/eino/components/prompt"
+	"github.com/cloudwego/eino/schema"
+)
+
+type AIService struct {
+	chatModel model.ChatModel
+	chain     *compose.Chain
+}
+
+func NewAIService() *AIService {
+	// 1. Initialize chat model
+	chatModel, err := model.NewOpenAIChatModel(model.OpenAIChatModelConfig{
+		APIKey:      "your-openai-api-key",
+		Model:       "gpt-3.5-turbo",
+		Temperature: 0.7,
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// 2. Create prompt template
+	promptTemplate := prompt.NewChatTemplate([]schema.Message{
+		{
+			Role:    schema.System,
+			Content: "You are a helpful assistant.",
+		},
+		{
+			Role:    schema.Human,
+			Content: "{{.input}}",
+		},
+	})
+
+	// 3. Build processing chain
+	chain := compose.NewChain().
+		AppendChatTemplate(promptTemplate).
+		AppendChatModel(chatModel)
+
+	return &AIService{
+		chatModel: chatModel,
+		chain:     chain,
+	}
+}
+
+func (ai *AIService) Chat(ctx context.Context, message string) (*schema.Message, error) {
+	// Execute conversation chain
+	result, err := ai.chain.Invoke(ctx, map[string]interface{}{
+		"input": message,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("chat failed: %w", err)
+	}
+
+	// Extract response message
+	if msg, ok := result.(*schema.Message); ok {
+		return msg, nil
+	}
+
+	return nil, fmt.Errorf("unexpected result type")
+}
+
+func (ai *AIService) StreamChat(ctx context.Context, message string, callback func(string, bool)) error {
+	// Create streaming input
+	input := map[string]interface{}{
+		"input": message,
+	}
+
+	// Execute streaming conversation
+	stream, err := ai.chain.Stream(ctx, input)
+	if err != nil {
+		return fmt.Errorf("stream chat failed: %w", err)
+	}
+
+	// Process streaming response
+	fullResponse := ""
+	for chunk := range stream {
+		if chunk.Error != nil {
+			return fmt.Errorf("stream error: %w", chunk.Error)
+		}
+
+		if msg, ok := chunk.Data.(*schema.Message); ok {
+			content := msg.Content
+			fullResponse += content
+			callback(content, false)
+		}
+	}
+
+	callback("", true) // End marker
+	return nil
+}
+
+func main() {
+	ai := NewAIService()
+	ctx := context.Background()
+
+	// 1. Simple conversation
+	response, err := ai.Chat(ctx, "Hello, how are you?")
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Printf("AI: %s\n", response.Content)
+
+	// 2. Streaming conversation
+	fmt.Println("\n=== Streaming Chat ===")
+	err = ai.StreamChat(ctx, "Tell me a short story", func(chunk string, isEnd bool) {
+		if !isEnd {
+			fmt.Print(chunk)
+		} else {
+			fmt.Println("\n[Stream ended]")
+		}
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
+// Eino framework features:
+// - Strong type safety
+// - Streaming processing optimization
+// - Rich component abstractions
+// - Visual debugging support
+// - Enterprise-grade reliability
+```
+</UniversalEditor>
+
+## CloudWeGo Ecosystem Integration
+
+### Complete Hertz + Eino Application
+
+<UniversalEditor title="Complete AI Microservice Application" compare={true}>
+```javascript !! js
+// JavaScript: Express + LangChain AI service
+const express = require('express');
+const { OpenAI } = require('langchain/llms/openai');
+const { ConversationChain } = require('langchain/chains');
+
+const app = express();
+app.use(express.json());
+
+class AIService {
+  constructor() {
+    this.llm = new OpenAI({ openAIApiKey: process.env.OPENAI_API_KEY });
+    this.conversations = new Map();
+  }
+
+  async createConversation(userId) {
+    const chain = new ConversationChain({ llm: this.llm });
+    this.conversations.set(userId, chain);
+    return { conversationId: userId };
+  }
+
+  async chat(userId, message) {
+    const chain = this.conversations.get(userId);
+    if (!chain) {
+      throw new Error('Conversation not found');
+    }
+    
+    const response = await chain.call({ input: message });
+    return { response: response.response };
+  }
+}
+
+const aiService = new AIService();
+
+// API routes
+app.post('/api/conversations', async (req, res) => {
+  try {
+    const { userId } = req.body;
+    const result = await aiService.createConversation(userId);
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/chat', async (req, res) => {
+  try {
+    const { userId, message } = req.body;
+    const result = await aiService.chat(userId, message);
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.listen(3000, () => {
+  console.log('AI service running on port 3000');
+});
+```
+
+```go !! go
+// Go: Hertz + Eino AI microservice
+package main
+
+import (
+	"context"
+	"fmt"
+	"sync"
+
+	"github.com/cloudwego/hertz/pkg/app"
+	"github.com/cloudwego/hertz/pkg/app/server"
+	"github.com/cloudwego/hertz/pkg/common/utils"
+	"github.com/cloudwego/hertz/pkg/protocol/consts"
+	"github.com/cloudwego/eino/compose"
+	"github.com/cloudwego/eino/components/model"
+	"github.com/cloudwego/eino/components/prompt"
+	"github.com/cloudwego/eino/schema"
+)
+
+// Request/Response structures
+type CreateConversationRequest struct {
+	UserID string `json:"userId" validate:"required"`
+}
+
+type CreateConversationResponse struct {
+	ConversationID string `json:"conversationId"`
+}
+
+type ChatRequest struct {
+	UserID  string `json:"userId" validate:"required"`
+	Message string `json:"message" validate:"required"`
+}
+
+type ChatResponse struct {
+	Response string `json:"response"`
+}
+
+// AI Service
+type AIService struct {
+	chatModel     model.ChatModel
+	conversations map[string]*compose.Chain
+	mutex         sync.RWMutex
+}
+
+func NewAIService() *AIService {
+	// Initialize chat model
+	chatModel, err := model.NewOpenAIChatModel(model.OpenAIChatModelConfig{
+		APIKey:      "your-openai-api-key",
+		Model:       "gpt-3.5-turbo",
+		Temperature: 0.7,
+	})
+	if err != nil {
+		panic(fmt.Sprintf("Failed to initialize chat model: %v", err))
+	}
+
+	return &AIService{
+		chatModel:     chatModel,
+		conversations: make(map[string]*compose.Chain),
+	}
+}
+
+func (ai *AIService) CreateConversation(userID string) string {
+	// Create conversation template
+	promptTemplate := prompt.NewChatTemplate([]schema.Message{
+		{
+			Role:    schema.System,
+			Content: "You are a helpful AI assistant. Maintain context throughout the conversation.",
+		},
+		{
+			Role:    schema.Human,
+			Content: "{{.input}}",
+		},
+	})
+
+	// Build conversation chain
+	chain := compose.NewChain().
+		AppendChatTemplate(promptTemplate).
+		AppendChatModel(ai.chatModel)
+
+	ai.mutex.Lock()
+	ai.conversations[userID] = chain
+	ai.mutex.Unlock()
+
+	return userID
+}
+
+func (ai *AIService) Chat(ctx context.Context, userID, message string) (string, error) {
+	ai.mutex.RLock()
+	chain, exists := ai.conversations[userID]
+	ai.mutex.RUnlock()
+
+	if !exists {
+		return "", fmt.Errorf("conversation not found for user %s", userID)
+	}
+
+	// Execute conversation
+	result, err := chain.Invoke(ctx, map[string]interface{}{
+		"input": message,
+	})
+	if err != nil {
+		return "", fmt.Errorf("chat failed: %w", err)
+	}
+
+	if msg, ok := result.(*schema.Message); ok {
+		return msg.Content, nil
+	}
+
+	return "", fmt.Errorf("unexpected result type")
+}
+
+// HTTP handlers
+func setupRoutes(h *server.Hertz, aiService *AIService) {
+	// Create conversation
+	h.POST("/api/conversations", func(ctx context.Context, c *app.RequestContext) {
+		var req CreateConversationRequest
+		if err := c.BindAndValidate(&req); err != nil {
+			c.JSON(consts.StatusBadRequest, utils.H{"error": err.Error()})
+			return
+		}
+
+		conversationID := aiService.CreateConversation(req.UserID)
+		c.JSON(consts.StatusOK, CreateConversationResponse{
+			ConversationID: conversationID,
+		})
+	})
+
+	// Chat
+	h.POST("/api/chat", func(ctx context.Context, c *app.RequestContext) {
+		var req ChatRequest
+		if err := c.BindAndValidate(&req); err != nil {
+			c.JSON(consts.StatusBadRequest, utils.H{"error": err.Error()})
+			return
+		}
+
+		response, err := aiService.Chat(ctx, req.UserID, req.Message)
+		if err != nil {
+			c.JSON(consts.StatusInternalServerError, utils.H{"error": err.Error()})
+			return
+		}
+
+		c.JSON(consts.StatusOK, ChatResponse{Response: response})
+	})
+
+	// Health check
+	h.GET("/health", func(ctx context.Context, c *app.RequestContext) {
+		c.JSON(consts.StatusOK, utils.H{
+			"status":    "ok",
+			"service":   "ai-microservice",
+			"framework": "hertz + eino",
+		})
+	})
+}
+
+func main() {
+	// Initialize AI service
+	aiService := NewAIService()
+
+	// Create Hertz server
+	h := server.New(
+		server.WithHostPorts("localhost:8080"),
+		server.WithMaxRequestBodySize(4*1024*1024),
+	)
+
+	// Add middleware
+	h.Use(func(ctx context.Context, c *app.RequestContext) {
+		// CORS support
+		c.Header("Access-Control-Allow-Origin", "*")
+		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+		if string(c.Method()) == "OPTIONS" {
+			c.AbortWithStatus(consts.StatusNoContent)
+			return
+		}
+
+		c.Next(ctx)
+	})
+
+	// Setup routes
+	setupRoutes(h, aiService)
+
+	fmt.Println("AI microservice starting on :8080")
+	fmt.Println("Features:")
+	fmt.Println("- Hertz high-performance HTTP framework")
+	fmt.Println("- Eino AI application development")
+	fmt.Println("- Enterprise-grade scalability")
+
+	// Start server
+	h.Spin()
+}
+
+// CloudWeGo ecosystem advantages:
+// - Hertz provides high-performance HTTP service
+// - Eino provides powerful AI capabilities
+// - Enterprise-grade scalability and reliability
+// - ByteDance production environment validation
+// - Rich monitoring and debugging tools
+```
+</UniversalEditor>
+
+## Performance Comparison Summary
+
+| Feature          | Express.js + LangChain     | Hertz + Eino              |
+|------------------|---------------------------|---------------------------|
+| HTTP Performance | Good (event loop)         | Excellent (Netpoll + Goroutines) |
+| Memory Usage     | ~50-100MB                 | ~10-30MB                  |
+| Concurrency      | Single-threaded event loop| True parallel processing  |
+| AI Framework     | Rich npm ecosystem        | Enterprise Eino framework |
+| Type Safety      | Optional TypeScript       | Go strong typing          |
+| Deployment Size  | ~100MB (Node.js + deps)   | ~10MB (static binary)     |
+| Startup Time     | ~500ms                    | ~50ms                     |
+| Enterprise Features| Requires additional setup | Built-in enterprise features |
+| Learning Curve   | Lower                     | Medium                    |
+| Ecosystem        | Huge npm ecosystem        | Curated enterprise components |
+
+## Best Practices
+
+### Selection Guidelines
+- **Choose Hertz**: Need high-performance HTTP service, enterprise-grade scalability
+- **Choose Eino**: Building complex AI applications, need type safety and streaming processing
+- **Combined Use**: Building enterprise-grade AI microservice architecture
+
+### Development Recommendations
+- Leverage Go's concurrency features for handling large amounts of AI requests
+- Use Eino's component-based design to build maintainable AI workflows
+- Fully utilize CloudWeGo ecosystem's monitoring and debugging tools
+- Follow microservice best practices, maintaining service independence and scalability
+
+---
+
+### Exercises
+1. Compare the performance differences between Hertz and Express.js in high-concurrency scenarios.
+2. Build a multi-step AI agent using Eino, including tool calling and decision logic.
+3. Design an AI microservice architecture using Hertz + Eino.
+
+### Project Ideas
+Build a complete AI customer service system using Hertz as the HTTP framework, Eino for conversation logic and intent recognition, integrating multiple AI tools (search, calculation, database queries), supporting streaming responses and session management.

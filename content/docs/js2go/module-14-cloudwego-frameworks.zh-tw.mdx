@@ -1,0 +1,778 @@
+---
+title: "CloudWeGo 框架生態"
+description: "探索位元組跳動開源的 CloudWeGo 生態系統：Hertz 高效能 HTTP 框架和 Eino AI 應用開發框架，從 JavaScript 開發者視角學習。"
+---
+
+# CloudWeGo 框架生態
+
+CloudWeGo 是位元組跳動開源的企業級雲原生微服務中間件集合，專為構建高效能、高擴展性、高可靠的微服務架構而設計。本模組將從 JavaScript 開發者的視角介紹兩個核心框架：Hertz HTTP 框架和 Eino AI 應用開發框架。
+
+## CloudWeGo 生態概述
+
+- **企業級中間件：** 經過位元組跳動大規模生產環境驗證
+- **雲原生設計：** 原生支援微服務、容器化和雲平台部署
+- **高效能：** 針對效能和擴展性進行了大量最佳化
+- **開發者友好：** 提供簡潔的 API 和豐富的開發工具
+
+## Hertz 高效能 HTTP 框架
+
+Hertz 是一個高效能、高可用性、可擴展的 Go 語言 HTTP 框架，專為構建微服務而設計。
+
+### 核心特性對比
+
+<UniversalEditor title="框架特性對比" compare={true}>
+```javascript !! js
+// JavaScript: Express.js 框架特性
+const express = require('express');
+const app = express();
+
+// 1. 中間件系統
+app.use(express.json());
+app.use((req, res, next) => {
+  console.log(`${req.method} ${req.path}`);
+  next();
+});
+
+// 2. 路由定義
+app.get('/api/users/:id', (req, res) => {
+  const userId = req.params.id;
+  res.json({ id: userId, name: 'John Doe' });
+});
+
+// 3. 錯誤處理
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).json({ error: 'Something went wrong!' });
+});
+
+// 4. 伺服器啟動
+app.listen(3000, () => {
+  console.log('Server running on port 3000');
+});
+
+// 特性：
+// - 基於事件循環的非同步處理
+// - 靈活的中間件系統
+// - 簡潔的路由 API
+// - 豐富的生態系統
+```
+
+```go !! go
+// Go: Hertz 框架特性
+package main
+
+import (
+	"context"
+	"log"
+
+	"github.com/cloudwego/hertz/pkg/app"
+	"github.com/cloudwego/hertz/pkg/app/server"
+	"github.com/cloudwego/hertz/pkg/common/utils"
+	"github.com/cloudwego/hertz/pkg/protocol/consts"
+)
+
+func main() {
+	// 1. 建立 Hertz 伺服器實例
+	h := server.Default(server.WithHostPorts("localhost:8080"))
+
+	// 2. 中間件系統
+	h.Use(func(ctx context.Context, c *app.RequestContext) {
+		log.Printf("%s %s", c.Method(), c.Path())
+		c.Next(ctx)
+	})
+
+	// 3. 路由定義
+	h.GET("/api/users/:id", func(ctx context.Context, c *app.RequestContext) {
+		userId := c.Param("id")
+		c.JSON(consts.StatusOK, utils.H{
+			"id":   userId,
+			"name": "John Doe",
+		})
+	})
+
+	// 4. 錯誤處理中間件
+	h.Use(func(ctx context.Context, c *app.RequestContext) {
+		defer func() {
+			if err := recover(); err != nil {
+				log.Printf("Panic recovered: %v", err)
+				c.JSON(consts.StatusInternalServerError, utils.H{
+					"error": "Something went wrong!",
+				})
+			}
+		}()
+		c.Next(ctx)
+	})
+
+	// 5. 啟動伺服器
+	h.Spin()
+}
+
+// Hertz 特性：
+// - 自研 Netpoll 網路庫，高效能
+// - 多協定支援（HTTP/1.1, HTTP/2, HTTP/3）
+// - 網路層切換能力
+// - 企業級擴展性
+// - 型別安全的上下文處理
+```
+</UniversalEditor>
+
+### Hertz vs Express 效能對比
+
+<UniversalEditor title="簡單 HTTP 伺服器對比" compare={true}>
+```javascript !! js
+// JavaScript: Express 簡單伺服器
+const express = require('express');
+const app = express();
+
+app.use(express.json());
+
+// 使用者資料儲存
+const users = new Map();
+
+// GET 使用者
+app.get('/users/:id', (req, res) => {
+  const user = users.get(req.params.id);
+  if (user) {
+    res.json(user);
+  } else {
+    res.status(404).json({ error: 'User not found' });
+  }
+});
+
+// POST 建立使用者
+app.post('/users', (req, res) => {
+  const { name, email } = req.body;
+  const id = Date.now().toString();
+  const user = { id, name, email };
+  users.set(id, user);
+  res.status(201).json(user);
+});
+
+// 健康檢查
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+app.listen(3000, () => {
+  console.log('Express server running on port 3000');
+});
+
+// 效能特點：
+// - 單執行緒事件循環
+// - 記憶體使用：~50MB
+// - 併發處理：依賴事件循環
+// - 啟動時間：~200ms
+```
+
+```go !! go
+// Go: Hertz 簡單伺服器
+package main
+
+import (
+	"context"
+	"strconv"
+	"sync"
+	"time"
+
+	"github.com/cloudwego/hertz/pkg/app"
+	"github.com/cloudwego/hertz/pkg/app/server"
+	"github.com/cloudwego/hertz/pkg/common/utils"
+	"github.com/cloudwego/hertz/pkg/protocol/consts"
+)
+
+type User struct {
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Email string `json:"email"`
+}
+
+var (
+	users = make(map[string]*User)
+	mutex = sync.RWMutex{}
+)
+
+func main() {
+	// 配置 Hertz 伺服器
+	h := server.New(
+		server.WithHostPorts("localhost:8080"),
+		server.WithMaxRequestBodySize(4*1024*1024), // 4MB
+		server.WithReadTimeout(10*time.Second),
+		server.WithWriteTimeout(10*time.Second),
+	)
+
+	// GET 使用者
+	h.GET("/users/:id", func(ctx context.Context, c *app.RequestContext) {
+		userID := c.Param("id")
+		
+		mutex.RLock()
+		user, exists := users[userID]
+		mutex.RUnlock()
+		
+		if exists {
+			c.JSON(consts.StatusOK, user)
+		} else {
+			c.JSON(consts.StatusNotFound, utils.H{"error": "User not found"})
+		}
+	})
+
+	// POST 建立使用者
+	h.POST("/users", func(ctx context.Context, c *app.RequestContext) {
+		var req struct {
+			Name  string `json:"name"`
+			Email string `json:"email"`
+		}
+		
+		if err := c.BindAndValidate(&req); err != nil {
+			c.JSON(consts.StatusBadRequest, utils.H{"error": err.Error()})
+			return
+		}
+		
+		user := &User{
+			ID:    strconv.FormatInt(time.Now().UnixNano(), 10),
+			Name:  req.Name,
+			Email: req.Email,
+		}
+		
+		mutex.Lock()
+		users[user.ID] = user
+		mutex.Unlock()
+		
+		c.JSON(consts.StatusCreated, user)
+	})
+
+	// 健康檢查
+	h.GET("/health", func(ctx context.Context, c *app.RequestContext) {
+		c.JSON(consts.StatusOK, utils.H{
+			"status":    "ok",
+			"timestamp": time.Now().Format(time.RFC3339),
+		})
+	})
+
+	// 啟動伺服器
+	h.Spin()
+}
+
+// Hertz 效能特點：
+// - Goroutines 併發處理
+// - 記憶體使用：~10MB
+// - 併發處理：真正的並行處理
+// - 啟動時間：~50ms
+// - 自研 Netpoll 網路庫最佳化
+```
+</UniversalEditor>
+
+## Eino AI 應用開發框架
+
+Eino 是基於 Go 語言的大模型（LLM）應用開發框架，旨在幫助開發者快速構建可靠的 AI 應用。
+
+### AI 應用開發對比
+
+<UniversalEditor title="AI 聊天應用對比" compare={true}>
+```javascript !! js
+// JavaScript: 使用 LangChain.js 的 AI 應用
+const { OpenAI } = require('langchain/llms/openai');
+const { ConversationChain } = require('langchain/chains');
+const { BufferMemory } = require('langchain/memory');
+
+class AIService {
+  constructor() {
+    this.llm = new OpenAI({
+      openAIApiKey: process.env.OPENAI_API_KEY,
+      temperature: 0.7,
+    });
+    
+    this.memory = new BufferMemory();
+    this.chain = new ConversationChain({
+      llm: this.llm,
+      memory: this.memory,
+    });
+  }
+
+  async chat(message) {
+    try {
+      const response = await this.chain.call({
+        input: message,
+      });
+      return {
+        success: true,
+        data: response.response,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error.message,
+      };
+    }
+  }
+
+  async streamChat(message, callback) {
+    const stream = await this.llm.stream(message);
+    let fullResponse = '';
+    
+    for await (const chunk of stream) {
+      fullResponse += chunk;
+      callback(chunk, false);
+    }
+    
+    callback('', true); // 結束標誌
+    return fullResponse;
+  }
+}
+
+// 使用範例
+const aiService = new AIService();
+
+async function main() {
+  const response = await aiService.chat('Hello, how are you?');
+  console.log(response);
+  
+  // 串流回應
+  await aiService.streamChat('Tell me a story', (chunk, isEnd) => {
+    if (!isEnd) {
+      process.stdout.write(chunk);
+    } else {
+      console.log('\n[Stream ended]');
+    }
+  });
+}
+
+main();
+```
+
+```go !! go
+// Go: 使用 Eino 的 AI 應用
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+
+	"github.com/cloudwego/eino/compose"
+	"github.com/cloudwego/eino/components/model"
+	"github.com/cloudwego/eino/components/prompt"
+	"github.com/cloudwego/eino/schema"
+)
+
+type AIService struct {
+	chatModel model.ChatModel
+	chain     *compose.Chain
+}
+
+func NewAIService() *AIService {
+	// 1. 初始化聊天模型
+	chatModel, err := model.NewOpenAIChatModel(model.OpenAIChatModelConfig{
+		APIKey:      "your-openai-api-key",
+		Model:       "gpt-3.5-turbo",
+		Temperature: 0.7,
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// 2. 建立提示模板
+	promptTemplate := prompt.NewChatTemplate([]schema.Message{
+		{
+			Role:    schema.System,
+			Content: "You are a helpful assistant.",
+		},
+		{
+			Role:    schema.Human,
+			Content: "{{.input}}",
+		},
+	})
+
+	// 3. 構建處理鏈
+	chain := compose.NewChain().
+		AppendChatTemplate(promptTemplate).
+		AppendChatModel(chatModel)
+
+	return &AIService{
+		chatModel: chatModel,
+		chain:     chain,
+	}
+}
+
+func (ai *AIService) Chat(ctx context.Context, message string) (*schema.Message, error) {
+	// 執行對話鏈
+	result, err := ai.chain.Invoke(ctx, map[string]interface{}{
+		"input": message,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("chat failed: %w", err)
+	}
+
+	// 提取回應訊息
+	if msg, ok := result.(*schema.Message); ok {
+		return msg, nil
+	}
+
+	return nil, fmt.Errorf("unexpected result type")
+}
+
+func (ai *AIService) StreamChat(ctx context.Context, message string, callback func(string, bool)) error {
+	// 建立串流輸入
+	input := map[string]interface{}{
+		"input": message,
+	}
+
+	// 執行串流對話
+	stream, err := ai.chain.Stream(ctx, input)
+	if err != nil {
+		return fmt.Errorf("stream chat failed: %w", err)
+	}
+
+	// 處理串流回應
+	fullResponse := ""
+	for chunk := range stream {
+		if chunk.Error != nil {
+			return fmt.Errorf("stream error: %w", chunk.Error)
+		}
+
+		if msg, ok := chunk.Data.(*schema.Message); ok {
+			content := msg.Content
+			fullResponse += content
+			callback(content, false)
+		}
+	}
+
+	callback("", true) // 結束標誌
+	return nil
+}
+
+func main() {
+	ai := NewAIService()
+	ctx := context.Background()
+
+	// 1. 簡單對話
+	response, err := ai.Chat(ctx, "Hello, how are you?")
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Printf("AI: %s\n", response.Content)
+
+	// 2. 串流對話
+	fmt.Println("\n=== Streaming Chat ===")
+	err = ai.StreamChat(ctx, "Tell me a short story", func(chunk string, isEnd bool) {
+		if !isEnd {
+			fmt.Print(chunk)
+		} else {
+			fmt.Println("\n[Stream ended]")
+		}
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
+// Eino 框架特點：
+// - 強型別安全
+// - 串流處理最佳化
+// - 豐富的元件抽象
+// - 視覺化除錯支援
+// - 企業級可靠性
+```
+</UniversalEditor>
+
+## CloudWeGo 生態系統整合
+
+### 完整的 Hertz + Eino 應用
+
+<UniversalEditor title="完整的 AI 微服務應用" compare={true}>
+```javascript !! js
+// JavaScript: Express + LangChain AI 服務
+const express = require('express');
+const { OpenAI } = require('langchain/llms/openai');
+const { ConversationChain } = require('langchain/chains');
+
+const app = express();
+app.use(express.json());
+
+class AIService {
+  constructor() {
+    this.llm = new OpenAI({ openAIApiKey: process.env.OPENAI_API_KEY });
+    this.conversations = new Map();
+  }
+
+  async createConversation(userId) {
+    const chain = new ConversationChain({ llm: this.llm });
+    this.conversations.set(userId, chain);
+    return { conversationId: userId };
+  }
+
+  async chat(userId, message) {
+    const chain = this.conversations.get(userId);
+    if (!chain) {
+      throw new Error('Conversation not found');
+    }
+    
+    const response = await chain.call({ input: message });
+    return { response: response.response };
+  }
+}
+
+const aiService = new AIService();
+
+// API 路由
+app.post('/api/conversations', async (req, res) => {
+  try {
+    const { userId } = req.body;
+    const result = await aiService.createConversation(userId);
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/chat', async (req, res) => {
+  try {
+    const { userId, message } = req.body;
+    const result = await aiService.chat(userId, message);
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.listen(3000, () => {
+  console.log('AI service running on port 3000');
+});
+```
+
+```go !! go
+// Go: Hertz + Eino AI 微服務
+package main
+
+import (
+	"context"
+	"fmt"
+	"sync"
+
+	"github.com/cloudwego/hertz/pkg/app"
+	"github.com/cloudwego/hertz/pkg/app/server"
+	"github.com/cloudwego/hertz/pkg/common/utils"
+	"github.com/cloudwego/hertz/pkg/protocol/consts"
+	"github.com/cloudwego/eino/compose"
+	"github.com/cloudwego/eino/components/model"
+	"github.com/cloudwego/eino/components/prompt"
+	"github.com/cloudwego/eino/schema"
+)
+
+// 請求/回應結構
+type CreateConversationRequest struct {
+	UserID string `json:"userId" validate:"required"`
+}
+
+type CreateConversationResponse struct {
+	ConversationID string `json:"conversationId"`
+}
+
+type ChatRequest struct {
+	UserID  string `json:"userId" validate:"required"`
+	Message string `json:"message" validate:"required"`
+}
+
+type ChatResponse struct {
+	Response string `json:"response"`
+}
+
+// AI 服務
+type AIService struct {
+	chatModel     model.ChatModel
+	conversations map[string]*compose.Chain
+	mutex         sync.RWMutex
+}
+
+func NewAIService() *AIService {
+	// 初始化聊天模型
+	chatModel, err := model.NewOpenAIChatModel(model.OpenAIChatModelConfig{
+		APIKey:      "your-openai-api-key",
+		Model:       "gpt-3.5-turbo",
+		Temperature: 0.7,
+	})
+	if err != nil {
+		panic(fmt.Sprintf("Failed to initialize chat model: %v", err))
+	}
+
+	return &AIService{
+		chatModel:     chatModel,
+		conversations: make(map[string]*compose.Chain),
+	}
+}
+
+func (ai *AIService) CreateConversation(userID string) string {
+	// 建立對話模板
+	promptTemplate := prompt.NewChatTemplate([]schema.Message{
+		{
+			Role:    schema.System,
+			Content: "You are a helpful AI assistant. Maintain context throughout the conversation.",
+		},
+		{
+			Role:    schema.Human,
+			Content: "{{.input}}",
+		},
+	})
+
+	// 構建對話鏈
+	chain := compose.NewChain().
+		AppendChatTemplate(promptTemplate).
+		AppendChatModel(ai.chatModel)
+
+	ai.mutex.Lock()
+	ai.conversations[userID] = chain
+	ai.mutex.Unlock()
+
+	return userID
+}
+
+func (ai *AIService) Chat(ctx context.Context, userID, message string) (string, error) {
+	ai.mutex.RLock()
+	chain, exists := ai.conversations[userID]
+	ai.mutex.RUnlock()
+
+	if !exists {
+		return "", fmt.Errorf("conversation not found for user %s", userID)
+	}
+
+	// 執行對話
+	result, err := chain.Invoke(ctx, map[string]interface{}{
+		"input": message,
+	})
+	if err != nil {
+		return "", fmt.Errorf("chat failed: %w", err)
+	}
+
+	if msg, ok := result.(*schema.Message); ok {
+		return msg.Content, nil
+	}
+
+	return "", fmt.Errorf("unexpected result type")
+}
+
+// HTTP 處理器
+func setupRoutes(h *server.Hertz, aiService *AIService) {
+	// 建立對話
+	h.POST("/api/conversations", func(ctx context.Context, c *app.RequestContext) {
+		var req CreateConversationRequest
+		if err := c.BindAndValidate(&req); err != nil {
+			c.JSON(consts.StatusBadRequest, utils.H{"error": err.Error()})
+			return
+		}
+
+		conversationID := aiService.CreateConversation(req.UserID)
+		c.JSON(consts.StatusOK, CreateConversationResponse{
+			ConversationID: conversationID,
+		})
+	})
+
+	// 聊天
+	h.POST("/api/chat", func(ctx context.Context, c *app.RequestContext) {
+		var req ChatRequest
+		if err := c.BindAndValidate(&req); err != nil {
+			c.JSON(consts.StatusBadRequest, utils.H{"error": err.Error()})
+			return
+		}
+
+		response, err := aiService.Chat(ctx, req.UserID, req.Message)
+		if err != nil {
+			c.JSON(consts.StatusInternalServerError, utils.H{"error": err.Error()})
+			return
+		}
+
+		c.JSON(consts.StatusOK, ChatResponse{Response: response})
+	})
+
+	// 健康檢查
+	h.GET("/health", func(ctx context.Context, c *app.RequestContext) {
+		c.JSON(consts.StatusOK, utils.H{
+			"status":    "ok",
+			"service":   "ai-microservice",
+			"framework": "hertz + eino",
+		})
+	})
+}
+
+func main() {
+	// 初始化 AI 服務
+	aiService := NewAIService()
+
+	// 建立 Hertz 伺服器
+	h := server.New(
+		server.WithHostPorts("localhost:8080"),
+		server.WithMaxRequestBodySize(4*1024*1024),
+	)
+
+	// 新增中間件
+	h.Use(func(ctx context.Context, c *app.RequestContext) {
+		// CORS 支援
+		c.Header("Access-Control-Allow-Origin", "*")
+		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+		if string(c.Method()) == "OPTIONS" {
+			c.AbortWithStatus(consts.StatusNoContent)
+			return
+		}
+
+		c.Next(ctx)
+	})
+
+	// 設定路由
+	setupRoutes(h, aiService)
+
+	fmt.Println("AI microservice starting on :8080")
+	fmt.Println("Features:")
+	fmt.Println("- Hertz high-performance HTTP framework")
+	fmt.Println("- Eino AI application development")
+	fmt.Println("- Enterprise-grade scalability")
+
+	// 啟動伺服器
+	h.Spin()
+}
+
+// CloudWeGo 生態優勢：
+// - Hertz 提供高效能 HTTP 服務
+// - Eino 提供強大的 AI 能力
+// - 企業級可擴展性和可靠性
+// - 位元組跳動生產環境驗證
+// - 豐富的監控和除錯工具
+```
+</UniversalEditor>
+
+## 效能對比總結
+
+| 特性             | Express.js + LangChain      | Hertz + Eino                |
+|------------------|----------------------------|----------------------------|
+| HTTP 效能        | 良好（事件循環）             | 優秀（Netpoll + Goroutines） |
+| 記憶體使用       | ~50-100MB                  | ~10-30MB                   |
+| 併發處理         | 單執行緒事件循環              | 真正並行處理               |
+| AI 框架整合      | 豐富的 npm 生態             | 企業級 Eino 框架           |
+| 型別安全         | TypeScript 可選             | Go 強型別                  |
+| 部署大小         | ~100MB（Node.js + 相依性）  | ~10MB（靜態二進位檔）      |
+| 啟動時間         | ~500ms                     | ~50ms                      |
+| 企業級特性       | 需要額外配置               | 內建企業級功能             |
+| 學習曲線         | 較低                       | 中等                       |
+| 生態系統         | 龐大的 npm 生態             | 精選的企業級元件           |
+
+## 最佳實務
+
+### 選擇建議
+- **選擇 Hertz**：需要高效能 HTTP 服務、企業級可擴展性
+- **選擇 Eino**：構建複雜的 AI 應用、需要型別安全和串流處理
+- **組合使用**：構建企業級 AI 微服務架構
+
+### 開發建議
+- 利用 Go 的併發特性處理大量 AI 請求
+- 使用 Eino 的元件化設計構建可維護的 AI 工作流
+- 充分利用 CloudWeGo 生態系統的監控和除錯工具
+- 遵循微服務最佳實務，保持服務的獨立性和可擴展性
+
+---
+
+### 練習題
+1. 比較 Hertz 和 Express.js 在高併發場景下的效能差異。
+2. 使用 Eino 構建一個多步驟的 AI 代理，包含工具呼叫和決策邏輯。
+3. 設計一個使用 Hertz + Eino 的 AI 微服務架構。
+
+### 專案想法
+構建一個完整的 AI 客服系統，使用 Hertz 作為 HTTP 框架，Eino 處理對話邏輯和意圖識別，整合多個 AI 工具（搜尋、計算、資料庫查詢），支援串流回應和會話管理。
