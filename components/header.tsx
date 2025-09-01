@@ -168,7 +168,7 @@ export function Header({ lang }: HeaderProps) {
               href="https://github.com/erweixin/langshift.dev"
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center space-x-2 px-3 py-2 bg-slate-800/50 hover:bg-slate-700/50 border border-slate-600/50 rounded-lg text-slate-300 hover:text-white transition-all duration-200 backdrop-blur-sm group"
+              className="hidden sm:flex items-center space-x-2 px-3 py-2 bg-slate-800/50 hover:bg-slate-700/50 border border-slate-600/50 rounded-lg text-slate-300 hover:text-white transition-all duration-200 backdrop-blur-sm group"
               title={t.header.github.tooltip}
             >
               <Github className="w-4 h-4 group-hover:scale-110 transition-transform" />
