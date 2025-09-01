@@ -1077,7 +1077,7 @@ sys.stdout = sys.__stdout__
           {compare && secondaryLanguage && secondaryCode && (
             <button
               onClick={() => setIsModalOpen(true)}
-              className="cursor-pointer px-4 py-2 text-sm bg-slate-600 hover:bg-slate-700 text-white rounded-lg transition-colors duration-200 border border-slate-500 hover:border-slate-600 flex items-center space-x-2"
+              className="hidden md:flex cursor-pointer px-4 py-2 text-sm bg-slate-600 hover:bg-slate-700 text-white rounded-lg transition-colors duration-200 border border-slate-500 hover:border-slate-600 items-center space-x-2"
               title={t.editor.modal.expandTooltip}
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
