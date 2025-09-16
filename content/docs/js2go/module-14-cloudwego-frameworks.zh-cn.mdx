@@ -1,0 +1,1451 @@
+---
+title: "CloudWeGo 框架生态"
+description: "探索字节跳动开源的 CloudWeGo 生态系统：Hertz 高性能 HTTP 框架和 Eino AI 应用开发框架，从 JavaScript 开发者视角学习。"
+---
+
+# CloudWeGo 框架生态
+
+CloudWeGo 是字节跳动开源的企业级云原生微服务中间件集合，专为构建高性能、高扩展性、高可靠的微服务架构而设计。本模块将从 JavaScript 开发者的视角介绍两个核心框架：Hertz HTTP 框架和 Eino AI 应用开发框架。
+
+## CloudWeGo 生态概述
+
+- **企业级中间件：** 经过字节跳动大规模生产环境验证
+- **云原生设计：** 原生支持微服务、容器化和云平台部署
+- **高性能：** 针对性能和扩展性进行了大量优化
+- **开发者友好：** 提供简洁的 API 和丰富的开发工具
+
+## Hertz 高性能 HTTP 框架
+
+Hertz 是一个高性能、高可用性、可扩展的 Go 语言 HTTP 框架，专为构建微服务而设计。
+
+### 核心特性对比
+
+<UniversalEditor title="框架特性对比" compare={true}>
+```javascript !! js
+// JavaScript: Express.js 框架特性
+const express = require('express');
+const app = express();
+
+// 1. 中间件系统
+app.use(express.json());
+app.use((req, res, next) => {
+  console.log(`${req.method} ${req.path}`);
+  next();
+});
+
+// 2. 路由定义
+app.get('/api/users/:id', (req, res) => {
+  const userId = req.params.id;
+  res.json({ id: userId, name: 'John Doe' });
+});
+
+// 3. 错误处理
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).json({ error: 'Something went wrong!' });
+});
+
+// 4. 服务器启动
+app.listen(3000, () => {
+  console.log('Server running on port 3000');
+});
+
+// 特性：
+// - 基于事件循环的异步处理
+// - 灵活的中间件系统
+// - 简洁的路由 API
+// - 丰富的生态系统
+```
+
+```go !! go
+// Go: Hertz 框架特性
+package main
+
+import (
+	"context"
+	"log"
+
+	"github.com/cloudwego/hertz/pkg/app"
+	"github.com/cloudwego/hertz/pkg/app/server"
+	"github.com/cloudwego/hertz/pkg/common/utils"
+	"github.com/cloudwego/hertz/pkg/protocol/consts"
+)
+
+func main() {
+	// 1. 创建 Hertz 服务器实例
+	h := server.Default(server.WithHostPorts("localhost:8080"))
+
+	// 2. 中间件系统
+	h.Use(func(ctx context.Context, c *app.RequestContext) {
+		log.Printf("%s %s", c.Method(), c.Path())
+		c.Next(ctx)
+	})
+
+	// 3. 路由定义
+	h.GET("/api/users/:id", func(ctx context.Context, c *app.RequestContext) {
+		userId := c.Param("id")
+		c.JSON(consts.StatusOK, utils.H{
+			"id":   userId,
+			"name": "John Doe",
+		})
+	})
+
+	// 4. 错误处理中间件
+	h.Use(func(ctx context.Context, c *app.RequestContext) {
+		defer func() {
+			if err := recover(); err != nil {
+				log.Printf("Panic recovered: %v", err)
+				c.JSON(consts.StatusInternalServerError, utils.H{
+					"error": "Something went wrong!",
+				})
+			}
+		}()
+		c.Next(ctx)
+	})
+
+	// 5. 启动服务器
+	h.Spin()
+}
+
+// Hertz 特性：
+// - 自研 Netpoll 网络库，高性能
+// - 多协议支持（HTTP/1.1, HTTP/2, HTTP/3）
+// - 网络层切换能力
+// - 企业级扩展性
+// - 类型安全的上下文处理
+```
+</UniversalEditor>
+
+### Hertz vs Express 性能对比
+
+<UniversalEditor title="简单 HTTP 服务器对比" compare={true}>
+```javascript !! js
+// JavaScript: Express 简单服务器
+const express = require('express');
+const app = express();
+
+app.use(express.json());
+
+// 用户数据存储
+const users = new Map();
+
+// GET 用户
+app.get('/users/:id', (req, res) => {
+  const user = users.get(req.params.id);
+  if (user) {
+    res.json(user);
+  } else {
+    res.status(404).json({ error: 'User not found' });
+  }
+});
+
+// POST 创建用户
+app.post('/users', (req, res) => {
+  const { name, email } = req.body;
+  const id = Date.now().toString();
+  const user = { id, name, email };
+  users.set(id, user);
+  res.status(201).json(user);
+});
+
+// 健康检查
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+app.listen(3000, () => {
+  console.log('Express server running on port 3000');
+});
+
+// 性能特点：
+// - 单线程事件循环
+// - 内存使用：~50MB
+// - 并发处理：依赖事件循环
+// - 启动时间：~200ms
+```
+
+```go !! go
+// Go: Hertz 简单服务器
+package main
+
+import (
+	"context"
+	"strconv"
+	"sync"
+	"time"
+
+	"github.com/cloudwego/hertz/pkg/app"
+	"github.com/cloudwego/hertz/pkg/app/server"
+	"github.com/cloudwego/hertz/pkg/common/utils"
+	"github.com/cloudwego/hertz/pkg/protocol/consts"
+)
+
+type User struct {
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Email string `json:"email"`
+}
+
+var (
+	users = make(map[string]*User)
+	mutex = sync.RWMutex{}
+)
+
+func main() {
+	// 配置 Hertz 服务器
+	h := server.New(
+		server.WithHostPorts("localhost:8080"),
+		server.WithMaxRequestBodySize(4*1024*1024), // 4MB
+		server.WithReadTimeout(10*time.Second),
+		server.WithWriteTimeout(10*time.Second),
+	)
+
+	// GET 用户
+	h.GET("/users/:id", func(ctx context.Context, c *app.RequestContext) {
+		userID := c.Param("id")
+		
+		mutex.RLock()
+		user, exists := users[userID]
+		mutex.RUnlock()
+		
+		if exists {
+			c.JSON(consts.StatusOK, user)
+		} else {
+			c.JSON(consts.StatusNotFound, utils.H{"error": "User not found"})
+		}
+	})
+
+	// POST 创建用户
+	h.POST("/users", func(ctx context.Context, c *app.RequestContext) {
+		var req struct {
+			Name  string `json:"name"`
+			Email string `json:"email"`
+		}
+		
+		if err := c.BindAndValidate(&req); err != nil {
+			c.JSON(consts.StatusBadRequest, utils.H{"error": err.Error()})
+			return
+		}
+		
+		user := &User{
+			ID:    strconv.FormatInt(time.Now().UnixNano(), 10),
+			Name:  req.Name,
+			Email: req.Email,
+		}
+		
+		mutex.Lock()
+		users[user.ID] = user
+		mutex.Unlock()
+		
+		c.JSON(consts.StatusCreated, user)
+	})
+
+	// 健康检查
+	h.GET("/health", func(ctx context.Context, c *app.RequestContext) {
+		c.JSON(consts.StatusOK, utils.H{
+			"status":    "ok",
+			"timestamp": time.Now().Format(time.RFC3339),
+		})
+	})
+
+	// 启动服务器
+	h.Spin()
+}
+
+// Hertz 性能特点：
+// - Goroutines 并发处理
+// - 内存使用：~10MB
+// - 并发处理：真正的并行处理
+// - 启动时间：~50ms
+// - 自研 Netpoll 网络库优化
+```
+</UniversalEditor>
+
+### Hertz 中间件系统
+
+<UniversalEditor title="中间件实现对比" compare={true}>
+```javascript !! js
+// JavaScript: Express 中间件
+const express = require('express');
+const cors = require('cors');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+
+const app = express();
+
+// 1. 安全中间件
+app.use(helmet());
+
+// 2. CORS 中间件
+app.use(cors({
+  origin: ['http://localhost:3000', 'https://example.com'],
+  credentials: true
+}));
+
+// 3. 请求日志中间件
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    const duration = Date.now() - start;
+    console.log(`${req.method} ${req.url} ${res.statusCode} - ${duration}ms`);
+  });
+  next();
+});
+
+// 4. 速率限制中间件
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 分钟
+  max: 100,
+  message: { error: 'Too many requests' }
+});
+app.use('/api/', limiter);
+
+// 5. 身份验证中间件
+const authMiddleware = (req, res, next) => {
+  const token = req.headers.authorization;
+  if (!token) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  // 验证 token 逻辑
+  req.user = { id: '123', name: 'John' };
+  next();
+};
+
+app.use('/api/protected', authMiddleware);
+
+app.listen(3000);
+```
+
+```go !! go
+// Go: Hertz 中间件
+package main
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/cloudwego/hertz/pkg/app"
+	"github.com/cloudwego/hertz/pkg/app/server"
+	"github.com/cloudwego/hertz/pkg/common/utils"
+	"github.com/cloudwego/hertz/pkg/protocol/consts"
+)
+
+// 1. 请求日志中间件
+func LoggerMiddleware() app.HandlerFunc {
+	return func(ctx context.Context, c *app.RequestContext) {
+		start := time.Now()
+		c.Next(ctx)
+		latency := time.Since(start)
+		
+		fmt.Printf("%s %s %d - %v\n",
+			c.Method(), c.Path(), c.Response.StatusCode(), latency)
+	}
+}
+
+// 2. CORS 中间件
+func CORSMiddleware() app.HandlerFunc {
+	return func(ctx context.Context, c *app.RequestContext) {
+		origin := string(c.GetHeader("Origin"))
+		allowedOrigins := []string{"http://localhost:3000", "https://example.com"}
+		
+		for _, allowed := range allowedOrigins {
+			if origin == allowed {
+				c.Header("Access-Control-Allow-Origin", origin)
+				break
+			}
+		}
+		
+		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		c.Header("Access-Control-Allow-Credentials", "true")
+		
+		if string(c.Method()) == "OPTIONS" {
+			c.AbortWithStatus(consts.StatusNoContent)
+			return
+		}
+		
+		c.Next(ctx)
+	}
+}
+
+// 3. 速率限制中间件
+type RateLimiter struct {
+	requests map[string][]time.Time
+	mutex    sync.RWMutex
+	limit    int
+	window   time.Duration
+}
+
+func NewRateLimiter(limit int, window time.Duration) *RateLimiter {
+	return &RateLimiter{
+		requests: make(map[string][]time.Time),
+		limit:    limit,
+		window:   window,
+	}
+}
+
+func (rl *RateLimiter) Middleware() app.HandlerFunc {
+	return func(ctx context.Context, c *app.RequestContext) {
+		clientIP := c.ClientIP()
+		now := time.Now()
+		
+		rl.mutex.Lock()
+		defer rl.mutex.Unlock()
+		
+		// 清理过期请求
+		requests := rl.requests[clientIP]
+		validRequests := []time.Time{}
+		for _, req := range requests {
+			if now.Sub(req) < rl.window {
+				validRequests = append(validRequests, req)
+			}
+		}
+		
+		// 检查速率限制
+		if len(validRequests) >= rl.limit {
+			c.JSON(consts.StatusTooManyRequests, utils.H{
+				"error": "Too many requests",
+			})
+			c.Abort()
+			return
+		}
+		
+		// 记录当前请求
+		validRequests = append(validRequests, now)
+		rl.requests[clientIP] = validRequests
+		
+		c.Next(ctx)
+	}
+}
+
+// 4. 身份验证中间件
+func AuthMiddleware() app.HandlerFunc {
+	return func(ctx context.Context, c *app.RequestContext) {
+		authHeader := string(c.GetHeader("Authorization"))
+		if authHeader == "" {
+			c.JSON(consts.StatusUnauthorized, utils.H{"error": "Unauthorized"})
+			c.Abort()
+			return
+		}
+		
+		// 简单的 Bearer token 验证
+		token := strings.TrimPrefix(authHeader, "Bearer ")
+		if token == "valid-token" {
+			c.Set("user", map[string]interface{}{
+				"id":   "123",
+				"name": "John",
+			})
+			c.Next(ctx)
+		} else {
+			c.JSON(consts.StatusUnauthorized, utils.H{"error": "Invalid token"})
+			c.Abort()
+		}
+	}
+}
+
+func main() {
+	h := server.Default()
+	
+	// 应用全局中间件
+	h.Use(LoggerMiddleware())
+	h.Use(CORSMiddleware())
+	
+	// 速率限制中间件
+	rateLimiter := NewRateLimiter(100, 15*time.Minute)
+	apiGroup := h.Group("/api", rateLimiter.Middleware())
+	
+	// 需要身份验证的路由组
+	protected := apiGroup.Group("/protected", AuthMiddleware())
+	protected.GET("/profile", func(ctx context.Context, c *app.RequestContext) {
+		user, _ := c.Get("user")
+		c.JSON(consts.StatusOK, utils.H{"user": user})
+	})
+	
+	h.Spin()
+}
+```
+</UniversalEditor>
+
+## Eino AI 应用开发框架
+
+Eino 是基于 Go 语言的大模型（LLM）应用开发框架，旨在帮助开发者快速构建可靠的 AI 应用。
+
+### AI 应用开发对比
+
+<UniversalEditor title="AI 聊天应用对比" compare={true}>
+```javascript !! js
+// JavaScript: 使用 LangChain.js 的 AI 应用
+const { OpenAI } = require('langchain/llms/openai');
+const { ConversationChain } = require('langchain/chains');
+const { BufferMemory } = require('langchain/memory');
+
+class AIService {
+  constructor() {
+    this.llm = new OpenAI({
+      openAIApiKey: process.env.OPENAI_API_KEY,
+      temperature: 0.7,
+    });
+    
+    this.memory = new BufferMemory();
+    this.chain = new ConversationChain({
+      llm: this.llm,
+      memory: this.memory,
+    });
+  }
+
+  async chat(message) {
+    try {
+      const response = await this.chain.call({
+        input: message,
+      });
+      return {
+        success: true,
+        data: response.response,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error.message,
+      };
+    }
+  }
+
+  async streamChat(message, callback) {
+    const stream = await this.llm.stream(message);
+    let fullResponse = '';
+    
+    for await (const chunk of stream) {
+      fullResponse += chunk;
+      callback(chunk, false);
+    }
+    
+    callback('', true); // 结束标志
+    return fullResponse;
+  }
+}
+
+// 使用示例
+const aiService = new AIService();
+
+async function main() {
+  const response = await aiService.chat('Hello, how are you?');
+  console.log(response);
+  
+  // 流式响应
+  await aiService.streamChat('Tell me a story', (chunk, isEnd) => {
+    if (!isEnd) {
+      process.stdout.write(chunk);
+    } else {
+      console.log('\n[Stream ended]');
+    }
+  });
+}
+
+main();
+```
+
+```go !! go
+// Go: 使用 Eino 的 AI 应用
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+
+	"github.com/cloudwego/eino/compose"
+	"github.com/cloudwego/eino/components/model"
+	"github.com/cloudwego/eino/components/prompt"
+	"github.com/cloudwego/eino/schema"
+)
+
+type AIService struct {
+	chatModel model.ChatModel
+	chain     *compose.Chain
+}
+
+func NewAIService() *AIService {
+	// 1. 初始化聊天模型
+	chatModel, err := model.NewOpenAIChatModel(model.OpenAIChatModelConfig{
+		APIKey:      "your-openai-api-key",
+		Model:       "gpt-3.5-turbo",
+		Temperature: 0.7,
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// 2. 创建提示模板
+	promptTemplate := prompt.NewChatTemplate([]schema.Message{
+		{
+			Role:    schema.System,
+			Content: "You are a helpful assistant.",
+		},
+		{
+			Role:    schema.Human,
+			Content: "{{.input}}",
+		},
+	})
+
+	// 3. 构建处理链
+	chain := compose.NewChain().
+		AppendChatTemplate(promptTemplate).
+		AppendChatModel(chatModel)
+
+	return &AIService{
+		chatModel: chatModel,
+		chain:     chain,
+	}
+}
+
+func (ai *AIService) Chat(ctx context.Context, message string) (*schema.Message, error) {
+	// 执行对话链
+	result, err := ai.chain.Invoke(ctx, map[string]interface{}{
+		"input": message,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("chat failed: %w", err)
+	}
+
+	// 提取响应消息
+	if msg, ok := result.(*schema.Message); ok {
+		return msg, nil
+	}
+
+	return nil, fmt.Errorf("unexpected result type")
+}
+
+func (ai *AIService) StreamChat(ctx context.Context, message string, callback func(string, bool)) error {
+	// 创建流式输入
+	input := map[string]interface{}{
+		"input": message,
+	}
+
+	// 执行流式对话
+	stream, err := ai.chain.Stream(ctx, input)
+	if err != nil {
+		return fmt.Errorf("stream chat failed: %w", err)
+	}
+
+	// 处理流式响应
+	fullResponse := ""
+	for chunk := range stream {
+		if chunk.Error != nil {
+			return fmt.Errorf("stream error: %w", chunk.Error)
+		}
+
+		if msg, ok := chunk.Data.(*schema.Message); ok {
+			content := msg.Content
+			fullResponse += content
+			callback(content, false)
+		}
+	}
+
+	callback("", true) // 结束标志
+	return nil
+}
+
+// 带工具的 AI 代理
+func (ai *AIService) CreateToolAgent() *compose.Graph {
+	// 定义工具
+	weatherTool := compose.NewTool("get_weather", "Get current weather", 
+		func(ctx context.Context, input map[string]interface{}) (interface{}, error) {
+			city := input["city"].(string)
+			return map[string]interface{}{
+				"city":        city,
+				"temperature": "22°C",
+				"condition":   "Sunny",
+			}, nil
+		})
+
+	calculatorTool := compose.NewTool("calculator", "Perform calculations",
+		func(ctx context.Context, input map[string]interface{}) (interface{}, error) {
+			expression := input["expression"].(string)
+			// 简单计算逻辑
+			return map[string]interface{}{
+				"result": "42", // 示例结果
+			}, nil
+		})
+
+	// 创建带工具的图形工作流
+	graph := compose.NewGraph().
+		AddNode("reasoning", compose.NewChatModelNode(ai.chatModel)).
+		AddNode("tools", compose.NewToolNode([]compose.Tool{weatherTool, calculatorTool})).
+		AddEdge("reasoning", "tools", compose.EdgeConfig{
+			Condition: func(ctx context.Context, data interface{}) string {
+				// 根据模型输出决定是否使用工具
+				if msg, ok := data.(*schema.Message); ok {
+					if msg.ToolCalls != nil && len(msg.ToolCalls) > 0 {
+						return "tools"
+					}
+				}
+				return compose.END
+			},
+		})
+
+	return graph
+}
+
+func main() {
+	ai := NewAIService()
+	ctx := context.Background()
+
+	// 1. 简单对话
+	response, err := ai.Chat(ctx, "Hello, how are you?")
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Printf("AI: %s\n", response.Content)
+
+	// 2. 流式对话
+	fmt.Println("\n=== Streaming Chat ===")
+	err = ai.StreamChat(ctx, "Tell me a short story", func(chunk string, isEnd bool) {
+		if !isEnd {
+			fmt.Print(chunk)
+		} else {
+			fmt.Println("\n[Stream ended]")
+		}
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// 3. 工具代理示例
+	agent := ai.CreateToolAgent()
+	result, err := agent.Invoke(ctx, map[string]interface{}{
+		"input": "What's the weather like in Beijing?",
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Printf("Agent result: %+v\n", result)
+}
+
+// Eino 框架特点：
+// - 强类型安全
+// - 流式处理优化
+// - 丰富的组件抽象
+// - 可视化调试支持
+// - 企业级可靠性
+```
+</UniversalEditor>
+
+### Eino 流程编排
+
+<UniversalEditor title="复杂 AI 工作流对比" compare={true}>
+```javascript !! js
+// JavaScript: 复杂 AI 工作流
+const { SequentialChain } = require('langchain/chains');
+const { PromptTemplate } = require('langchain/prompts');
+
+class AIWorkflow {
+  constructor(llm) {
+    this.llm = llm;
+    this.setupChains();
+  }
+
+  setupChains() {
+    // 1. 内容分析链
+    const analysisPrompt = new PromptTemplate({
+      template: "Analyze the following text and extract key topics: {text}",
+      inputVariables: ["text"],
+    });
+    this.analysisChain = new LLMChain({
+      llm: this.llm,
+      prompt: analysisPrompt,
+      outputKey: "topics",
+    });
+
+    // 2. 内容生成链
+    const generationPrompt = new PromptTemplate({
+      template: "Based on these topics: {topics}, write a summary in {style} style",
+      inputVariables: ["topics", "style"],
+    });
+    this.generationChain = new LLMChain({
+      llm: this.llm,
+      prompt: generationPrompt,
+      outputKey: "summary",
+    });
+
+    // 3. 质量评估链
+    const evaluationPrompt = new PromptTemplate({
+      template: "Rate the quality of this summary (1-10): {summary}",
+      inputVariables: ["summary"],
+    });
+    this.evaluationChain = new LLMChain({
+      llm: this.llm,
+      prompt: evaluationPrompt,
+      outputKey: "quality_score",
+    });
+
+    // 组合成顺序链
+    this.overallChain = new SequentialChain({
+      chains: [this.analysisChain, this.generationChain, this.evaluationChain],
+      inputVariables: ["text", "style"],
+      outputVariables: ["topics", "summary", "quality_score"],
+    });
+  }
+
+  async processContent(text, style) {
+    try {
+      const result = await this.overallChain.call({
+        text: text,
+        style: style,
+      });
+      return {
+        success: true,
+        data: result,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error.message,
+      };
+    }
+  }
+
+  async processWithRetry(text, style, maxRetries = 3) {
+    for (let i = 0; i < maxRetries; i++) {
+      const result = await this.processContent(text, style);
+      if (result.success) {
+        const score = parseInt(result.data.quality_score);
+        if (score >= 7) {
+          return result;
+        }
+      }
+      console.log(`Attempt ${i + 1} failed, retrying...`);
+    }
+    throw new Error('Failed after maximum retries');
+  }
+}
+
+// 使用示例
+const workflow = new AIWorkflow(llm);
+```
+
+```go !! go
+// Go: 使用 Eino 的复杂 AI 工作流
+package main
+
+import (
+	"context"
+	"fmt"
+	"strconv"
+	"strings"
+
+	"github.com/cloudwego/eino/compose"
+	"github.com/cloudwego/eino/components/model"
+	"github.com/cloudwego/eino/components/prompt"
+	"github.com/cloudwego/eino/schema"
+)
+
+type ContentProcessor struct {
+	chatModel model.ChatModel
+	workflow  *compose.Graph
+}
+
+func NewContentProcessor() *ContentProcessor {
+	// 初始化聊天模型
+	chatModel, _ := model.NewOpenAIChatModel(model.OpenAIChatModelConfig{
+		APIKey: "your-openai-api-key",
+		Model:  "gpt-3.5-turbo",
+	})
+
+	processor := &ContentProcessor{
+		chatModel: chatModel,
+	}
+	
+	// 构建工作流图
+	processor.buildWorkflow()
+	return processor
+}
+
+func (cp *ContentProcessor) buildWorkflow() {
+	// 1. 内容分析节点
+	analysisPrompt := prompt.NewChatTemplate([]schema.Message{
+		{
+			Role:    schema.System,
+			Content: "You are an expert content analyst.",
+		},
+		{
+			Role:    schema.Human,
+			Content: "Analyze the following text and extract key topics: {{.text}}",
+		},
+	})
+
+	analysisNode := compose.NewChainNode(
+		compose.NewChain().
+			AppendChatTemplate(analysisPrompt).
+			AppendChatModel(cp.chatModel),
+	)
+
+	// 2. 内容生成节点
+	generationPrompt := prompt.NewChatTemplate([]schema.Message{
+		{
+			Role:    schema.System,
+			Content: "You are a skilled content writer.",
+		},
+		{
+			Role:    schema.Human,
+			Content: "Based on these topics: {{.topics}}, write a summary in {{.style}} style",
+		},
+	})
+
+	generationNode := compose.NewChainNode(
+		compose.NewChain().
+			AppendChatTemplate(generationPrompt).
+			AppendChatModel(cp.chatModel),
+	)
+
+	// 3. 质量评估节点
+	evaluationPrompt := prompt.NewChatTemplate([]schema.Message{
+		{
+			Role:    schema.System,
+			Content: "You are a quality assessor. Rate content quality from 1-10.",
+		},
+		{
+			Role:    schema.Human,
+			Content: "Rate the quality of this summary (respond with just a number): {{.summary}}",
+		},
+	})
+
+	evaluationNode := compose.NewChainNode(
+		compose.NewChain().
+			AppendChatTemplate(evaluationPrompt).
+			AppendChatModel(cp.chatModel),
+	)
+
+	// 4. 重试决策节点
+	retryDecisionNode := compose.NewFunctionNode(func(ctx context.Context, input map[string]interface{}) (map[string]interface{}, error) {
+		qualityStr, ok := input["quality_score"].(string)
+		if !ok {
+			return input, fmt.Errorf("invalid quality score")
+		}
+		
+		// 提取数字评分
+		score := 0
+		for _, char := range qualityStr {
+			if char >= '0' && char <= '9' {
+				score = score*10 + int(char-'0')
+			}
+		}
+		
+		input["retry_needed"] = score < 7
+		return input, nil
+	})
+
+	// 构建工作流图
+	cp.workflow = compose.NewGraph().
+		AddNode("analysis", analysisNode).
+		AddNode("generation", generationNode).
+		AddNode("evaluation", evaluationNode).
+		AddNode("retry_decision", retryDecisionNode).
+		
+		// 添加边和条件
+		AddEdge("analysis", "generation", compose.EdgeConfig{}).
+		AddEdge("generation", "evaluation", compose.EdgeConfig{}).
+		AddEdge("evaluation", "retry_decision", compose.EdgeConfig{}).
+		AddEdge("retry_decision", "generation", compose.EdgeConfig{
+			Condition: func(ctx context.Context, data interface{}) string {
+				if input, ok := data.(map[string]interface{}); ok {
+					if retry, ok := input["retry_needed"].(bool); ok && retry {
+						return "generation"
+					}
+				}
+				return compose.END
+			},
+		}).
+		
+		// 设置入口节点
+		SetEntryPoint("analysis")
+}
+
+func (cp *ContentProcessor) ProcessContent(ctx context.Context, text, style string) (map[string]interface{}, error) {
+	input := map[string]interface{}{
+		"text":  text,
+		"style": style,
+	}
+
+	result, err := cp.workflow.Invoke(ctx, input)
+	if err != nil {
+		return nil, fmt.Errorf("workflow execution failed: %w", err)
+	}
+
+	return result.(map[string]interface{}), nil
+}
+
+func (cp *ContentProcessor) ProcessWithStreaming(ctx context.Context, text, style string, callback func(string, interface{})) error {
+	input := map[string]interface{}{
+		"text":  text,
+		"style": style,
+	}
+
+	stream, err := cp.workflow.Stream(ctx, input)
+	if err != nil {
+		return fmt.Errorf("workflow streaming failed: %w", err)
+	}
+
+	for chunk := range stream {
+		if chunk.Error != nil {
+			return fmt.Errorf("stream error: %w", chunk.Error)
+		}
+		
+		callback(chunk.NodeName, chunk.Data)
+	}
+
+	return nil
+}
+
+// 高级特性：并行处理
+func (cp *ContentProcessor) ProcessMultipleContents(ctx context.Context, contents []string, style string) ([]map[string]interface{}, error) {
+	results := make([]map[string]interface{}, len(contents))
+	
+	// 使用 Eino 的并行处理能力
+	parallel := compose.NewParallelGraph()
+	
+	for i, content := range contents {
+		nodeID := fmt.Sprintf("process_%d", i)
+		parallel.AddNode(nodeID, compose.NewFunctionNode(func(ctx context.Context, input map[string]interface{}) (map[string]interface{}, error) {
+			return cp.ProcessContent(ctx, content, style)
+		}))
+	}
+	
+	result, err := parallel.Invoke(ctx, map[string]interface{}{})
+	if err != nil {
+		return nil, err
+	}
+	
+	// 处理并行结果
+	if resultMap, ok := result.(map[string]interface{}); ok {
+		for i := range contents {
+			nodeID := fmt.Sprintf("process_%d", i)
+			if nodeResult, exists := resultMap[nodeID]; exists {
+				results[i] = nodeResult.(map[string]interface{})
+			}
+		}
+	}
+	
+	return results, nil
+}
+
+func main() {
+	processor := NewContentProcessor()
+	ctx := context.Background()
+
+	// 处理单个内容
+	result, err := processor.ProcessContent(ctx, 
+		"Go is a programming language developed by Google...", 
+		"technical")
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Printf("Topics: %s\n", result["topics"])
+	fmt.Printf("Summary: %s\n", result["summary"])
+	fmt.Printf("Quality Score: %s\n", result["quality_score"])
+
+	// 流式处理
+	fmt.Println("\n=== Streaming Workflow ===")
+	err = processor.ProcessWithStreaming(ctx,
+		"Eino is an AI application development framework...",
+		"conversational",
+		func(nodeName string, data interface{}) {
+			fmt.Printf("[%s] %v\n", nodeName, data)
+		})
+	if err != nil {
+		panic(err)
+	}
+}
+
+// Eino 工作流特点：
+// - 声明式图形定义
+// - 自动类型检查
+// - 内置并行处理
+// - 实时流式处理
+// - 可视化调试
+// - 企业级监控
+```
+</UniversalEditor>
+
+## CloudWeGo 生态系统集成
+
+### Hertz + Eino 完整应用
+
+<UniversalEditor title="完整的 AI 微服务应用" compare={true}>
+```javascript !! js
+// JavaScript: Express + LangChain AI 服务
+const express = require('express');
+const { OpenAI } = require('langchain/llms/openai');
+const { ConversationChain } = require('langchain/chains');
+
+const app = express();
+app.use(express.json());
+
+class AIService {
+  constructor() {
+    this.llm = new OpenAI({ openAIApiKey: process.env.OPENAI_API_KEY });
+    this.conversations = new Map();
+  }
+
+  async createConversation(userId) {
+    const chain = new ConversationChain({ llm: this.llm });
+    this.conversations.set(userId, chain);
+    return { conversationId: userId };
+  }
+
+  async chat(userId, message) {
+    const chain = this.conversations.get(userId);
+    if (!chain) {
+      throw new Error('Conversation not found');
+    }
+    
+    const response = await chain.call({ input: message });
+    return { response: response.response };
+  }
+}
+
+const aiService = new AIService();
+
+// API 路由
+app.post('/api/conversations', async (req, res) => {
+  try {
+    const { userId } = req.body;
+    const result = await aiService.createConversation(userId);
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/chat', async (req, res) => {
+  try {
+    const { userId, message } = req.body;
+    const result = await aiService.chat(userId, message);
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.listen(3000, () => {
+  console.log('AI service running on port 3000');
+});
+```
+
+```go !! go
+// Go: Hertz + Eino AI 微服务
+package main
+
+import (
+	"context"
+	"fmt"
+	"sync"
+
+	"github.com/cloudwego/hertz/pkg/app"
+	"github.com/cloudwego/hertz/pkg/app/server"
+	"github.com/cloudwego/hertz/pkg/common/utils"
+	"github.com/cloudwego/hertz/pkg/protocol/consts"
+	"github.com/cloudwego/eino/compose"
+	"github.com/cloudwego/eino/components/model"
+	"github.com/cloudwego/eino/components/prompt"
+	"github.com/cloudwego/eino/schema"
+)
+
+// 请求/响应结构
+type CreateConversationRequest struct {
+	UserID string `json:"userId" validate:"required"`
+}
+
+type CreateConversationResponse struct {
+	ConversationID string `json:"conversationId"`
+}
+
+type ChatRequest struct {
+	UserID  string `json:"userId" validate:"required"`
+	Message string `json:"message" validate:"required"`
+}
+
+type ChatResponse struct {
+	Response string `json:"response"`
+}
+
+// AI 服务
+type AIService struct {
+	chatModel     model.ChatModel
+	conversations map[string]*compose.Chain
+	mutex         sync.RWMutex
+}
+
+func NewAIService() *AIService {
+	// 初始化聊天模型
+	chatModel, err := model.NewOpenAIChatModel(model.OpenAIChatModelConfig{
+		APIKey:      "your-openai-api-key",
+		Model:       "gpt-3.5-turbo",
+		Temperature: 0.7,
+	})
+	if err != nil {
+		panic(fmt.Sprintf("Failed to initialize chat model: %v", err))
+	}
+
+	return &AIService{
+		chatModel:     chatModel,
+		conversations: make(map[string]*compose.Chain),
+	}
+}
+
+func (ai *AIService) CreateConversation(userID string) string {
+	// 创建对话模板
+	promptTemplate := prompt.NewChatTemplate([]schema.Message{
+		{
+			Role:    schema.System,
+			Content: "You are a helpful AI assistant. Maintain context throughout the conversation.",
+		},
+		{
+			Role:    schema.Human,
+			Content: "{{.input}}",
+		},
+	})
+
+	// 构建对话链
+	chain := compose.NewChain().
+		AppendChatTemplate(promptTemplate).
+		AppendChatModel(ai.chatModel)
+
+	ai.mutex.Lock()
+	ai.conversations[userID] = chain
+	ai.mutex.Unlock()
+
+	return userID
+}
+
+func (ai *AIService) Chat(ctx context.Context, userID, message string) (string, error) {
+	ai.mutex.RLock()
+	chain, exists := ai.conversations[userID]
+	ai.mutex.RUnlock()
+
+	if !exists {
+		return "", fmt.Errorf("conversation not found for user %s", userID)
+	}
+
+	// 执行对话
+	result, err := chain.Invoke(ctx, map[string]interface{}{
+		"input": message,
+	})
+	if err != nil {
+		return "", fmt.Errorf("chat failed: %w", err)
+	}
+
+	if msg, ok := result.(*schema.Message); ok {
+		return msg.Content, nil
+	}
+
+	return "", fmt.Errorf("unexpected result type")
+}
+
+func (ai *AIService) StreamChat(ctx context.Context, userID, message string) (<-chan string, error) {
+	ai.mutex.RLock()
+	chain, exists := ai.conversations[userID]
+	ai.mutex.RUnlock()
+
+	if !exists {
+		return nil, fmt.Errorf("conversation not found for user %s", userID)
+	}
+
+	// 创建流式通道
+	resultChan := make(chan string, 100)
+
+	go func() {
+		defer close(resultChan)
+
+		stream, err := chain.Stream(ctx, map[string]interface{}{
+			"input": message,
+		})
+		if err != nil {
+			resultChan <- fmt.Sprintf("Error: %v", err)
+			return
+		}
+
+		for chunk := range stream {
+			if chunk.Error != nil {
+				resultChan <- fmt.Sprintf("Error: %v", chunk.Error)
+				return
+			}
+
+			if msg, ok := chunk.Data.(*schema.Message); ok {
+				resultChan <- msg.Content
+			}
+		}
+	}()
+
+	return resultChan, nil
+}
+
+// HTTP 处理器
+func setupRoutes(h *server.Hertz, aiService *AIService) {
+	// 创建对话
+	h.POST("/api/conversations", func(ctx context.Context, c *app.RequestContext) {
+		var req CreateConversationRequest
+		if err := c.BindAndValidate(&req); err != nil {
+			c.JSON(consts.StatusBadRequest, utils.H{"error": err.Error()})
+			return
+		}
+
+		conversationID := aiService.CreateConversation(req.UserID)
+		c.JSON(consts.StatusOK, CreateConversationResponse{
+			ConversationID: conversationID,
+		})
+	})
+
+	// 普通聊天
+	h.POST("/api/chat", func(ctx context.Context, c *app.RequestContext) {
+		var req ChatRequest
+		if err := c.BindAndValidate(&req); err != nil {
+			c.JSON(consts.StatusBadRequest, utils.H{"error": err.Error()})
+			return
+		}
+
+		response, err := aiService.Chat(ctx, req.UserID, req.Message)
+		if err != nil {
+			c.JSON(consts.StatusInternalServerError, utils.H{"error": err.Error()})
+			return
+		}
+
+		c.JSON(consts.StatusOK, ChatResponse{Response: response})
+	})
+
+	// 流式聊天
+	h.GET("/api/chat/stream", func(ctx context.Context, c *app.RequestContext) {
+		userID := c.Query("userId")
+		message := c.Query("message")
+
+		if userID == "" || message == "" {
+			c.JSON(consts.StatusBadRequest, utils.H{"error": "userId and message are required"})
+			return
+		}
+
+		// 设置 SSE 头
+		c.Header("Content-Type", "text/event-stream")
+		c.Header("Cache-Control", "no-cache")
+		c.Header("Connection", "keep-alive")
+
+		streamChan, err := aiService.StreamChat(ctx, userID, message)
+		if err != nil {
+			c.JSON(consts.StatusInternalServerError, utils.H{"error": err.Error()})
+			return
+		}
+
+		// 发送流式响应
+		for chunk := range streamChan {
+			data := fmt.Sprintf("data: %s\n\n", chunk)
+			c.Write([]byte(data))
+			c.Flush()
+		}
+
+		c.Write([]byte("data: [DONE]\n\n"))
+		c.Flush()
+	})
+
+	// 健康检查
+	h.GET("/health", func(ctx context.Context, c *app.RequestContext) {
+		c.JSON(consts.StatusOK, utils.H{
+			"status":    "ok",
+			"service":   "ai-microservice",
+			"framework": "hertz + eino",
+		})
+	})
+}
+
+func main() {
+	// 初始化 AI 服务
+	aiService := NewAIService()
+
+	// 创建 Hertz 服务器
+	h := server.New(
+		server.WithHostPorts("localhost:8080"),
+		server.WithMaxRequestBodySize(4*1024*1024),
+	)
+
+	// 添加中间件
+	h.Use(func(ctx context.Context, c *app.RequestContext) {
+		// CORS 支持
+		c.Header("Access-Control-Allow-Origin", "*")
+		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+		if string(c.Method()) == "OPTIONS" {
+			c.AbortWithStatus(consts.StatusNoContent)
+			return
+		}
+
+		c.Next(ctx)
+	})
+
+	// 请求日志中间件
+	h.Use(func(ctx context.Context, c *app.RequestContext) {
+		fmt.Printf("%s %s %s\n", c.Method(), c.Path(), c.ClientIP())
+		c.Next(ctx)
+	})
+
+	// 设置路由
+	setupRoutes(h, aiService)
+
+	fmt.Println("AI microservice starting on :8080")
+	fmt.Println("Features:")
+	fmt.Println("- Hertz high-performance HTTP framework")
+	fmt.Println("- Eino AI application development")
+	fmt.Println("- Streaming chat support")
+	fmt.Println("- Enterprise-grade scalability")
+
+	// 启动服务器
+	h.Spin()
+}
+
+// CloudWeGo 生态优势：
+// - Hertz 提供高性能 HTTP 服务
+// - Eino 提供强大的 AI 能力
+// - 企业级可扩展性和可靠性
+// - 字节跳动生产环境验证
+// - 丰富的监控和调试工具
+```
+</UniversalEditor>
+
+## 性能对比总结
+
+| 特性             | Express.js + LangChain      | Hertz + Eino                |
+|------------------|----------------------------|----------------------------|
+| HTTP 性能        | 良好（事件循环）             | 优秀（Netpoll + Goroutines） |
+| 内存使用         | ~50-100MB                  | ~10-30MB                   |
+| 并发处理         | 单线程事件循环              | 真正并行处理               |
+| AI 框架集成      | 丰富的 npm 生态             | 企业级 Eino 框架           |
+| 类型安全         | TypeScript 可选             | Go 强类型                  |
+| 部署大小         | ~100MB（Node.js + 依赖）    | ~10MB（静态二进制）        |
+| 启动时间         | ~500ms                     | ~50ms                      |
+| 企业级特性       | 需要额外配置               | 内置企业级功能             |
+| 学习曲线         | 较低                       | 中等                       |
+| 生态系统         | 庞大的 npm 生态             | 精选的企业级组件           |
+
+## 最佳实践
+
+### 选择建议
+- **选择 Hertz**：需要高性能 HTTP 服务、企业级可扩展性
+- **选择 Eino**：构建复杂的 AI 应用、需要类型安全和流式处理
+- **组合使用**：构建企业级 AI 微服务架构
+
+### 开发建议
+- 利用 Go 的并发特性处理大量 AI 请求
+- 使用 Eino 的组件化设计构建可维护的 AI 工作流
+- 充分利用 CloudWeGo 生态系统的监控和调试工具
+- 遵循微服务最佳实践，保持服务的独立性和可扩展性
+
+---
+
+### 练习题
+1. 比较 Hertz 和 Express.js 在高并发场景下的性能差异。
+2. 使用 Eino 构建一个多步骤的 AI 代理，包含工具调用和决策逻辑。
+3. 设计一个使用 Hertz + Eino 的 AI 微服务架构。
+
+### 项目想法
+构建一个完整的 AI 客服系统，使用 Hertz 作为 HTTP 框架，Eino 处理对话逻辑和意图识别，集成多个 AI 工具（搜索、计算、数据库查询），支持流式响应和会话管理。
