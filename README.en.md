@@ -17,6 +17,8 @@ LangShift.dev is a programming language conversion learning platform specificall
 
 Our core philosophy is: **Understanding unknown languages through known languages**, making learning new programming languages simple and efficient.
 
+> 💡 **AI-Enhanced Learning**: This project leverages AI technology to create rich learning content, reviewed and optimized to provide you with an efficient learning experience. Combine with official documentation for the best results! We welcome your feedback and suggestions via [GitHub Issues](https://github.com/erweixin/langshift.dev/issues).
+
 ## 🎯 Learning Objectives
 
 - Master new programming languages quickly through language comparison

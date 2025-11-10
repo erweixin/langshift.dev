@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { ArrowRight, Code, Target, Zap, Play, BookOpen } from 'lucide-react';
+import { ArrowRight, Code, Target, Zap, Play, BookOpen, Lightbulb } from 'lucide-react';
 import { type SupportedLanguage } from '@/messages';
 
 interface HeroSectionProps {
@@ -70,6 +70,23 @@ export function HeroSection({ lang, translations, isDefaultPage }: HeroSectionPr
               </div>
               <h3 className="text-lg font-semibold text-white mb-2">{t.home.hero.coreFeatures.realProjects.title}</h3>
               <p className="text-slate-400 text-sm">{t.home.hero.coreFeatures.realProjects.description}</p>
+            </div>
+          </div>
+
+          {/* AI 智能辅助说明 */}
+          <div className="mb-8 max-w-4xl mx-auto">
+            <div className="bg-gradient-to-r from-blue-500/10 to-purple-500/10 border border-blue-400/30 rounded-xl p-4 backdrop-blur-sm hover:from-blue-500/15 hover:to-purple-500/15 transition-all duration-300">
+              <div className="flex items-start gap-3">
+                <Lightbulb className="w-5 h-5 text-blue-400 mt-0.5 flex-shrink-0" />
+                <div className="text-left">
+                  <h4 className="text-blue-300 font-semibold text-sm mb-1">
+                    {t.home.hero.aiContentNotice.title}
+                  </h4>
+                  <p className="text-blue-200/80 text-sm leading-relaxed">
+                    {t.home.hero.aiContentNotice.description}
+                  </p>
+                </div>
+              </div>
             </div>
           </div>
 

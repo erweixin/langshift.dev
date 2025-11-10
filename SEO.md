@@ -10,7 +10,6 @@
 
 - **基础 SEO 标签**：title, description, keywords, canonical
 - **Open Graph**：社交媒体分享优化
-- **Twitter Cards**：Twitter 分享优化
 - **结构化数据**：JSON-LD 格式的结构化数据
 - **预连接优化**：DNS 预取和预连接
 - **PWA 支持**：应用图标和主题色
