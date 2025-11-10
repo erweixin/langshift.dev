@@ -21,6 +21,18 @@ npm install monaco-editor @monaco-editor/react
 
 ## 基本用法
 
+### 在 MDX 文件中使用
+
+```tsx
+<UniversalEditor title="Python 代码编辑器">
+```python !! py
+print("Hello, World!")
+```
+</UniversalEditor>
+```
+
+### 在 React 组件中使用
+
 ```tsx
 import UniversalEditor from './components/universal-editor'
 
@@ -40,6 +52,21 @@ function App() {
 ```
 
 ## 对比模式
+
+在 MDX 文件中使用对比模式的正确语法：
+
+```tsx
+<UniversalEditor title="JavaScript vs TypeScript 对比" compare={true}>
+```javascript !! js
+console.log("Hello JS");
+```
+```typescript
+console.log("Hello TS");
+```
+</UniversalEditor>
+```
+
+在 React 组件中使用的语法：
 
 ```tsx
 <UniversalEditor

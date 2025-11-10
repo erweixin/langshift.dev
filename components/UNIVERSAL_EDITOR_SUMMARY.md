@@ -67,29 +67,35 @@ interface LanguageRuntime {
 
 ## 使用示例
 
-### 基本用法
+### 在 MDX 文件中使用
+
+```tsx
+<UniversalEditor title="Python 代码编辑器">
+```python !! python
+print("Hello, World!")
+```
+</UniversalEditor>
+```
+
+### 对比模式（MDX 中）
+```tsx
+<UniversalEditor title="JavaScript vs TypeScript 对比" compare={true}>
+```javascript !! js
+console.log("Hello JS");
+```
+```typescript
+console.log("Hello TS");
+```
+</UniversalEditor>
+```
+
+### React 组件中使用
 ```tsx
 <UniversalEditor
   title="Python 代码编辑器"
   primaryLanguage="python"
   code={[{ lang: 'python', value: 'print("Hello, World!")' }]}
   height={300}
-  showOutput={true}
-/>
-```
-
-### 对比模式
-```tsx
-<UniversalEditor
-  title="JavaScript vs TypeScript 对比"
-  primaryLanguage="javascript"
-  secondaryLanguage="typescript"
-  compare={true}
-  code={[
-    { lang: 'javascript', value: jsCode },
-    { lang: 'typescript', value: tsCode }
-  ]}
-  height={400}
   showOutput={true}
 />
 ```
