@@ -158,4 +158,247 @@ func main() {
 
 ---
 
+## 6. Circular Imports
+
+Circular imports happen when package A imports package B, and package B imports package A. Go's compiler strictly forbids this.
+
+<UniversalEditor title="Circular Import Comparison" compare={true}>
+```javascript !! js
+// JavaScript: Circular dependencies are allowed (but can be messy)
+// a.js
+const b = require('./b');
+module.exports = { name: 'a', sibling: b };
+
+// b.js
+const a = require('./a');
+module.exports = { name: 'b', sibling: a };
+// Works, but might get incomplete objects during initialization
+```
+
+```go !! go
+// Go: Circular imports are a compile-time error
+// package a
+import "my-project/b" // Error: import cycle not allowed
+
+// package b
+import "my-project/a"
+```
+</UniversalEditor>
+
+#### Solutions
+- **Interface Decoupling**: Define an interface in one package that the other implements, removing the direct dependency.
+- **Third Package**: Move shared code to a common third package (e.g., `common` or `types`) that both A and B import.
+
+---
+
+## 7. JSON Serialization Pitfalls (Public/Private Fields)
+
+In Go, only **capitalized** (exported) fields are serialized to JSON. This is a common stumbling block for JS developers used to everything being public by default.
+
+<UniversalEditor title="JSON Serialization Comparison" compare={true}>
+```javascript !! js
+// JavaScript: All properties are serialized by default
+const user = {
+  name: "John",
+  age: 30,
+  password: "secret" // Will be serialized!
+};
+console.log(JSON.stringify(user));
+// {"name":"John","age":30,"password":"secret"}
+```
+
+```go !! go
+// Go: Only exported fields are serialized
+package main
+import (
+    "encoding/json"
+    "fmt"
+)
+
+type User struct {
+    Name     string `json:"name"`
+    Age      int    `json:"age"`
+    password string // Unexported (lowercase), will be ignored
+}
+
+func main() {
+    user := User{Name: "John", Age: 30, password: "secret"}
+    b, _ := json.Marshal(user)
+    fmt.Println(string(b))
+    // {"name":"John","age":30}
+}
+```
+</UniversalEditor>
+
+#### Best Practices
+- Always capitalize fields you want to serialize.
+- Use struct tags (e.g., `` `json:"name"` ``) to control the output key names (usually lowercase).
+- Lowercase fields are effectively "private" and safe from accidental serialization.
+
+---
+
+## 8. Variable Shadowing (The `:=` Trap)
+
+Using `:=` inside a block (like `if` or `for`) can create a new local variable that shadows an outer one, leading to confusing bugs.
+
+<UniversalEditor title="Variable Shadowing Comparison" compare={true}>
+```javascript !! js
+// JavaScript: 'let' can shadow, but usually clear
+let x = 10;
+if (true) {
+    let x = 20; // New variable
+    console.log(x); // 20
+}
+console.log(x); // 10
+```
+
+```go !! go
+// Go: Easy to accidentally shadow with :=
+package main
+import "fmt"
+
+func main() {
+    x := 10
+    if true {
+        x := 20 // Creates a NEW x, doesn't update outer x
+        fmt.Println(x) // 20
+    }
+    fmt.Println(x) // 10 - might expect 20 if you meant to update
+    
+    // Common trap with error handling
+    var err error
+    if true {
+        result, err := doSomething() // 'err' here shadows outer 'err'
+        // outer 'err' remains nil!
+    }
+    // check err here? It's still nil!
+}
+```
+</UniversalEditor>
+
+#### Solutions
+- Be careful with `:=`. If you want to update an existing variable, use `=` instead.
+- Use `go vet` or linters to detect shadowing.
+
+---
+
+## 9. Slice Append Pitfalls
+
+`append` in Go returns a **new** slice descriptor. If you don't assign it back, the changes are lost. Also, multiple slices can share the same underlying array, leading to unexpected side effects.
+
+<UniversalEditor title="Slice Append Comparison" compare={true}>
+```javascript !! js
+// JavaScript: Array methods mutate in-place
+const arr = [1, 2, 3];
+arr.push(4);
+console.log(arr); // [1, 2, 3, 4]
+```
+
+```go !! go
+// Go: append returns a new slice
+package main
+import "fmt"
+
+func main() {
+    s := []int{1, 2, 3}
+    append(s, 4) // Result ignored! s is unchanged
+    fmt.Println(s) // [1 2 3]
+    
+    s = append(s, 4) // Correct
+    fmt.Println(s) // [1 2 3 4]
+}
+```
+</UniversalEditor>
+
+---
+
+## 10. Defer Execution Order
+
+`defer` statements are executed in LIFO (Last-In, First-Out) order, like a stack.
+
+```go
+package main
+import "fmt"
+
+func main() {
+    defer fmt.Println("First")
+    defer fmt.Println("Second")
+    defer fmt.Println("Third")
+    
+    fmt.Println("Main body")
+}
+// Output:
+// Main body
+// Third
+// Second
+// First
+```
+
+---
+
+## 11. Panic in Goroutines
+
+If a goroutine panics and is not recovered, **the entire program crashes**, not just that goroutine.
+
+<UniversalEditor title="Panic Comparison" compare={true}>
+```javascript !! js
+// JavaScript: Uncaught promise rejection doesn't always crash process
+Promise.resolve().then(() => {
+    throw new Error("Boom");
+});
+// Node.js might warn, but other requests keep running
+```
+
+```go !! go
+// Go: Panic crashes the program
+package main
+import "time"
+
+func main() {
+    go func() {
+        panic("Boom") // Crashes the WHOLE app
+    }()
+    
+    time.Sleep(time.Second)
+}
+```
+</UniversalEditor>
+
+#### Solutions
+- Use `recover()` in a `defer` block inside goroutines to catch panics if you want to prevent crashes.
+
+---
+
+## 12. Unused Variables and Imports
+
+Go's compiler is strict: unused variables and imports are **compile errors**.
+
+- **JavaScript**: Linters might warn, but code runs.
+- **Go**: Code will not compile.
+- **Solution**: Remove them, or use `_` (blank identifier) to ignore values you don't need.
+
+---
+
+## 13. Nil Interface vs Nil Concrete Value
+
+An interface is only `nil` if both its type and value are `nil`. A `nil` pointer stored in an interface makes the interface **non-nil**.
+
+```go
+package main
+import "fmt"
+
+type MyError struct{}
+func (e *MyError) Error() string { return "My error" }
+
+func main() {
+    var err *MyError = nil
+    var i interface{} = err
+    
+    fmt.Println(i == nil) // false! i has type *MyError, value nil
+    
+    // This causes bugs when checking errors:
+    // if err != nil { ... } might be true even if the underlying error is nil
+}
+```
+
 > It's recommended to practice with real projects and consult official documentation and community experience when encountering problems. 
