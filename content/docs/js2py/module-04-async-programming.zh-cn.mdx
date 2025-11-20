@@ -489,7 +489,64 @@ asyncio.create_task(main())
 ```
 </PythonEditor>
 
+
+### 3.4 常见陷阱：异步函数中的阻塞代码
+
+在异步函数中，绝对不能调用阻塞（同步）的 I/O 操作，否则会阻塞整个事件循环，导致所有并发任务停滞。
+
+**错误示例**
+```python
+import time
+import requests  # 同步 HTTP 库
+
+async def bad_async_function():
+    # ❌ 错误：这会阻塞整个事件循环！
+    time.sleep(5)
+    # ❌ 错误：这也会阻塞！
+    requests.get("https://example.com")
+```
+
+**正确做法**
+```python
+import asyncio
+import httpx  # 异步 HTTP 库
+
+async def good_async_function():
+    # ✅ 正确：非阻塞等待
+    await asyncio.sleep(5)
+    
+    # ✅ 正确：使用异步库
+    async with httpx.AsyncClient() as client:
+        await client.get("https://example.com")
+```
+
+### 3.5 运行异步程序
+
+在不同的环境中，运行异步代码的方式略有不同。
+
+**1. 标准 Python 脚本**
+使用 `asyncio.run()` 作为入口点。
+
+```python
+import asyncio
+
+async def main():
+    print("Hello")
+    await asyncio.sleep(1)
+    print("World")
+
+if __name__ == "__main__":
+    # 自动创建并管理事件循环
+    asyncio.run(main())
+```
+
+**2. Jupyter Notebook / Pyodide (本教程环境)**
+这些环境通常已经有一个正在运行的事件循环，因此不能使用 `asyncio.run()`。
+- 直接 `await async_function()` (如果在支持顶层 await 的环境中)
+- 或者 `asyncio.create_task(async_function())` (后台运行)
+
 ## 4. 异步 Web 开发
+
 
 ### 4.1 FastAPI 基础
 

@@ -176,7 +176,35 @@ else:
 ```
 </PythonEditor>
 
+
+### 2.4 运行模块：脚本 vs 模块
+
+这是 Python 初学者最容易困惑的地方之一：如何正确运行一个 Python 文件？
+
+**直接运行 vs 模块运行**
+
+| 运行方式 | 命令 | `sys.path` (搜索路径) | `__name__` | 适用场景 |
+|----------|------|-----------------------|------------|----------|
+| **脚本运行** | `python file.py` | 包含 `file.py` 所在的目录 | `"__main__"` | 简单的单文件脚本 |
+| **模块运行** | `python -m package.module` | 包含**当前工作目录** | `"__main__"` | 项目中的模块，需要引用同级或上级包时 |
+
+**常见错误示例**
+
+假设目录结构如下：
+```
+project/
+├── main.py
+└── utils.py
+```
+
+如果在 `main.py` 中有 `from . import utils` (相对导入)：
+- 运行 `python project/main.py` 会**报错**：`ImportError: attempted relative import with no known parent package`。
+- 运行 `python -m project.main` (在 `project` 的上一级目录) 会**成功**。
+
+> 💡 **最佳实践**：在开发项目时，习惯在项目根目录使用 `python -m package.module` 的方式运行代码，这样可以确保 `sys.path` 正确，且相对导入能正常工作。
+
 ## 3. 包（Package）系统
+
 
 ### 3.1 什么是包？
 
@@ -761,7 +789,42 @@ if __name__ == "__main__":
 ```
 </PythonEditor>
 
+
+### 6.3 循环导入陷阱 (Circular Imports)
+
+循环导入是指两个或多个模块相互导入对方，形成一个闭环。这在 Python 中会导致 `ImportError` 或 `AttributeError`，因为模块在导入时会执行顶层代码。
+
+**问题示例**
+
+```python
+# a.py
+from b import func_b
+
+def func_a():
+    func_b()
+
+# b.py
+from a import func_a
+
+def func_b():
+    func_a()
+```
+
+**解决方案**
+
+1.  **重构代码**：将共享的依赖提取到第三个模块（推荐）。
+2.  **延迟导入**：将导入语句移到函数/方法内部（仅在需要时导入）。
+
+```python
+# b.py (修复后)
+def func_b():
+    # 延迟导入，打破循环
+    from a import func_a
+    func_a()
+```
+
 ## 7. 练习题
+
 
 ### 练习 1：创建工具包
 
