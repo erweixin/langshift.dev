@@ -59,13 +59,23 @@ Our core philosophy is: **Understanding unknown languages through known language
 
 **📚 [View detailed learning guide →](./content/docs/js2go/README.md)**
 
-### 🔄 JavaScript ↔ C++ 🚧 (In Development)
+### 🔄 JavaScript ↔ Kotlin ✅ (Completed)
+- Learn Kotlin from a JavaScript developer's perspective
+- Coroutine programming: Promise/async-await vs Kotlin coroutines
+- Android development: mobile app development basics
+- JVM ecosystem: Spring Boot and backend services
+- Functional programming: higher-order functions and Lambda expressions
+- **Includes 14 complete learning modules**
+
+**📚 [View detailed learning guide →](./content/docs/js2kotlin/README.md)**
+
+### 🔄 JavaScript ↔ C++ ✅ (Completed)
 - Learn C++ from a JavaScript developer's perspective
 - Memory management: garbage collection vs manual management
 - Object-oriented programming: prototype chain vs class inheritance
 - Performance optimization: interpreted execution vs compiled optimization
 - Template programming: dynamic types vs generics
-- **Includes 15 learning modules**
+- **Includes 15 complete learning modules**
 
 **📚 [View detailed learning guide →](./content/docs/js2cpp/README.md)**
 
@@ -79,20 +89,20 @@ Our core philosophy is: **Understanding unknown languages through known language
 
 **📚 [View detailed learning guide →](./content/docs/js2swift/README.md)**
 
-### 🔄 JavaScript ↔ C 🚧 (In Development)
+### 🔄 JavaScript ↔ C ✅ (Completed)
 - Learn C programming from a JavaScript developer's perspective
 - Memory management: garbage collection vs manual memory management
 - Pointer operations: references vs pointers
 - Systems programming: high-level abstractions vs low-level control
 - Performance optimization: interpreted execution vs compiled optimization
-- **Includes 15 learning modules**
+- **Includes 15 complete learning modules**
 
 **📚 [View detailed learning guide →](./content/docs/js2c/README.md)**
 
 ### 🚀 More language support planned...
-- TypeScript ↔ Java
+- **JavaScript ↔ Java** (planned)
+- **JavaScript ↔ Dart** (planned)
 - Python ↔ Rust
-- JavaScript ↔ Dart
 - Python ↔ TypeScript
 
 ## 📚 Learning Module Overview
@@ -144,7 +154,23 @@ Our core philosophy is: **Understanding unknown languages through known language
 - **Module 12**: Common Pitfalls and Solutions
 - **Module 13**: Idiomatic Go Style
 
-### JavaScript → C++ (In Development)
+### JavaScript → Kotlin (Completed)
+- **Module 0**: Kotlin Introduction and JVM Ecosystem
+- **Module 1**: Basic Syntax Comparison
+- **Module 2**: JVM Ecosystem and Toolchain
+- **Module 3**: Functional Programming Features
+- **Module 4**: Coroutines and Asynchronous Programming
+- **Module 5**: Object-Oriented Programming
+- **Module 6**: Android Development Basics
+- **Module 7**: Web Development and Spring Boot
+- **Module 8**: Mobile App Development
+- **Module 9**: Cross-Platform Development
+- **Module 10**: Testing and Debugging
+- **Module 11**: Comprehensive Practical Projects
+- **Module 12**: Common Pitfalls and Solutions
+- **Module 13**: Idiomatic Kotlin Style
+
+### JavaScript → C++ (Completed)
 - **Module 0**: C++ Introduction and Learning Methods
 - **Module 1**: Basic Syntax Comparison
 - **Module 2**: Memory Management Basics
@@ -161,7 +187,7 @@ Our core philosophy is: **Understanding unknown languages through known language
 - **Module 13**: Systems Programming
 - **Module 14**: Comprehensive Practical Projects
 
-### JavaScript → Swift (In Development)
+### JavaScript → Swift (In Development - Partial)
 - **Module 0**: Swift Introduction and Learning Methods
 - **Module 1**: Basic Syntax Comparison
 - **Module 2**: Type System and Safety
@@ -177,6 +203,23 @@ Our core philosophy is: **Understanding unknown languages through known language
 - **Module 12**: Performance Optimization
 - **Module 13**: Testing and Debugging
 - **Module 14**: Comprehensive Practical Projects
+
+### JavaScript → C (Completed)
+- **Module 0**: C Language Introduction and Learning Methods
+- **Module 1**: Basic Syntax Comparison
+- **Module 2**: Variables and Memory Basics
+- **Module 3**: Pointer Fundamentals
+- **Module 4**: Arrays and String Processing
+- **Module 5**: Functions and Stack Management
+- **Module 6**: Structures and Unions
+- **Module 7**: Dynamic Memory Allocation
+- **Module 8**: File Operations and I/O
+- **Module 9**: Algorithms and Data Structures
+- **Module 10**: Systems Programming Basics
+- **Module 11**: Comprehensive Practical Projects
+- **Module 12**: Common Pitfalls and Debugging
+- **Module 13**: Performance Optimization and Best Practices
+- **Module 14**: Advanced Topics and Extensions
 
 For detailed learning content, please refer to the dedicated documentation for each module.
 
@@ -300,14 +343,22 @@ langshift.dev/
 │       │   ├── README.md # Module introduction
 │       │   ├── .cursorrules # Module specifications
 │       │   └── module-*.mdx # 14 learning modules
-│       ├── js2cpp/      # JavaScript → C++ (in development)
+│       ├── js2cpp/      # JavaScript → C++ (completed)
 │       │   ├── README.md # Module introduction
 │       │   ├── .cursorrules # Module specifications
 │       │   └── module-*.mdx # 15 learning modules
-│       ├── js2swift/    # JavaScript → Swift (in development)
+│       ├── js2swift/    # JavaScript → Swift (in development - partial)
 │       │   ├── README.md # Module introduction
 │       │   ├── .cursorrules # Module specifications
 │       │   └── module-*.mdx # 15 learning modules
+│       ├── js2c/        # JavaScript → C (completed)
+│       │   ├── README.md # Module introduction
+│       │   ├── .cursorrules # Module specifications
+│       │   └── module-*.mdx # 15 learning modules
+│       ├── js2kotlin/   # JavaScript → Kotlin (completed)
+│       │   ├── README.md # Module introduction
+│       │   ├── .cursorrules # Module specifications
+│       │   └── module-*.mdx # 14 learning modules
 │       └── ...
 ├── lib/                 # Utility functions
 │   ├── i18n.ts         # Internationalization configuration

@@ -79,13 +79,13 @@ LangShift.dev 是一个专门为开发者设计的编程语言转换学习平台
 
 **📚 [查看详细学习指南 →](./content/docs/js2cpp/README.md)**
 
-### 🔄 JavaScript ↔ Swift ✅ (已完成)
+### 🔄 JavaScript ↔ Swift 🚧 (开发中)
 - 从 JavaScript 开发者视角学习 Swift
 - 类型系统：动态类型 vs 强类型
 - 内存管理：垃圾回收 vs ARC
 - 函数式编程：高阶函数 vs 闭包
 - 移动开发：Web vs iOS/macOS
-- **包含 15 个学习模块**
+- **包含 15 个学习模块** (部分模块已完成)
 
 **📚 [查看详细学习指南 →](./content/docs/js2swift/README.md)**
 
@@ -348,7 +348,7 @@ langshift.dev/
 │       │   ├── README.md # 模块介绍
 │       │   ├── .cursorrules # 模块规范
 │       │   └── module-*.mdx # 15个学习模块
-│       ├── js2swift/    # JavaScript → Swift (已完成)
+│       ├── js2swift/    # JavaScript → Swift (开发中 - 部分完成)
 │       │   ├── README.md # 模块介绍
 │       │   ├── .cursorrules # 模块规范
 │       │   └── module-*.mdx # 15个学习模块
