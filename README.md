@@ -4,8 +4,8 @@
 
 [English](README.en.md) | 中文
 
-[![Next.js](https://img.shields.io/badge/Next.js-15.3.5-black.svg)](https://nextjs.org)
-[![React](https://img.shields.io/badge/React-19.0.0-blue.svg)](https://react.dev)
+[![Next.js](https://img.shields.io/badge/Next.js-15.5.7-black.svg)](https://nextjs.org)
+[![React](https://img.shields.io/badge/React-19.2.1-blue.svg)](https://react.dev)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.8.2-blue.svg)](https://www.typescriptlang.org)
 [![Fumadocs](https://img.shields.io/badge/Fumadocs-15.6.1-purple.svg)](https://fumadocs.vercel.app)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
@@ -226,7 +226,7 @@ LangShift.dev 是一个专门为开发者设计的编程语言转换学习平台
 ## 🛠️ 技术栈
 
 ### 平台技术
-- **框架**: Next.js 15.3.5 (App Router)
+- **框架**: Next.js 15.5.7 (App Router)
 - **文档**: Fumadocs 15.6.1 + MDX
 - **样式**: Tailwind CSS 4.0.9
 - **代码编辑器**: Monaco Editor 4.7.0 + Pyodide
