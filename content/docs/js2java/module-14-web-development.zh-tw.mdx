@@ -1,0 +1,595 @@
+---
+title: "Web 開發"
+description: "學習使用 Spring MVC 進行 Web 開發，包括 RESTful API 開發、資料庫整合和前後端分離"
+---
+
+# Web 開發
+
+在學習了 Spring 框架基礎後，現在我們來深入 Web 開發領域。Spring MVC 提供了強大的 Web 開發能力，類似於 Express.js 在 Node.js 生態系統中的地位，但功能更加完善。
+
+## Spring MVC 基礎
+
+### MVC 架構模式
+Spring MVC 遵循 Model-View-Controller 架構模式：
+
+- **Model**: 資料模型和業務邏輯
+- **View**: 使用者介面（在 REST API 中通常是 JSON）
+- **Controller**: 處理請求和回應
+
+<UniversalEditor title="MVC 架構對比">
+```javascript !! js
+// Express.js MVC 模式
+// Model
+class User {
+    constructor(id, name, email) {
+        this.id = id;
+        this.name = name;
+        this.email = email;
+    }
+}
+
+// Controller
+app.get('/api/users', (req, res) => {
+    const users = userService.getAllUsers();
+    res.json(users); // View (JSON)
+});
+
+app.post('/api/users', (req, res) => {
+    const user = userService.createUser(req.body);
+    res.status(201).json(user);
+});
+```
+
+```java !! java
+// Spring MVC 模式
+// Model
+@Entity
+public class User {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    private String name;
+    private String email;
+    // getters and setters
+}
+
+// Controller
+@RestController
+@RequestMapping("/api/users")
+public class UserController {
+    
+    @Autowired
+    private UserService userService;
+    
+    @GetMapping
+    public ResponseEntity<List<User>> getAllUsers() {
+        List<User> users = userService.getAllUsers();
+        return ResponseEntity.ok(users); // View (JSON)
+    }
+    
+    @PostMapping
+    public ResponseEntity<User> createUser(@RequestBody User user) {
+        User createdUser = userService.createUser(user);
+        return ResponseEntity.status(HttpStatus.CREATED).body(createdUser);
+    }
+}
+```
+</UniversalEditor>
+
+### 控制器註解
+<UniversalEditor title="控制器註解">
+```java !! java
+@RestController
+@RequestMapping("/api/users")
+public class UserController {
+    
+    @Autowired
+    private UserService userService;
+    
+    // GET /api/users
+    @GetMapping
+    public ResponseEntity<List<User>> getAllUsers() {
+        List<User> users = userService.getAllUsers();
+        return ResponseEntity.ok(users);
+    }
+    
+    // GET /api/users/{id}
+    @GetMapping("/{id}")
+    public ResponseEntity<User> getUserById(@PathVariable Long id) {
+        User user = userService.getUserById(id);
+        return ResponseEntity.ok(user);
+    }
+    
+    // POST /api/users
+    @PostMapping
+    public ResponseEntity<User> createUser(@RequestBody User user) {
+        User createdUser = userService.createUser(user);
+        return ResponseEntity.status(HttpStatus.CREATED).body(createdUser);
+    }
+    
+    // PUT /api/users/{id}
+    @PutMapping("/{id}")
+    public ResponseEntity<User> updateUser(@PathVariable Long id, 
+                                         @RequestBody User user) {
+        User updatedUser = userService.updateUser(id, user);
+        return ResponseEntity.ok(updatedUser);
+    }
+    
+    // DELETE /api/users/{id}
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> deleteUser(@PathVariable Long id) {
+        userService.deleteUser(id);
+        return ResponseEntity.noContent().build();
+    }
+}
+```
+
+```javascript !! js
+// Express.js 路由
+const express = require('express');
+const router = express.Router();
+
+// GET /api/users
+router.get('/', async (req, res) => {
+    const users = await userService.getAllUsers();
+    res.json(users);
+});
+
+// GET /api/users/:id
+router.get('/:id', async (req, res) => {
+    const user = await userService.getUserById(req.params.id);
+    res.json(user);
+});
+
+// POST /api/users
+router.post('/', async (req, res) => {
+    const user = await userService.createUser(req.body);
+    res.status(201).json(user);
+});
+
+// PUT /api/users/:id
+router.put('/:id', async (req, res) => {
+    const user = await userService.updateUser(req.params.id, req.body);
+    res.json(user);
+});
+
+// DELETE /api/users/:id
+router.delete('/:id', async (req, res) => {
+    await userService.deleteUser(req.params.id);
+    res.status(204).send();
+});
+```
+</UniversalEditor>
+
+## RESTful API 開發
+
+### REST 原則
+REST (Representational State Transfer) 是一種軟體架構風格：
+
+- **資源導向**: 使用 URI 標識資源
+- **HTTP 方法**: 使用標準 HTTP 方法操作資源
+- **無狀態**: 每個請求包含所有必要資訊
+- **統一介面**: 標準化的介面設計
+
+<UniversalEditor title="RESTful API 設計">
+```java !! java
+@RestController
+@RequestMapping("/api")
+public class UserApiController {
+    
+    @Autowired
+    private UserService userService;
+    
+    // 取得使用者清單
+    @GetMapping("/users")
+    public ResponseEntity<Page<User>> getUsers(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size,
+            @RequestParam(required = false) String name) {
+        
+        Pageable pageable = PageRequest.of(page, size);
+        Page<User> users;
+        
+        if (name != null) {
+            users = userService.findByNameContaining(name, pageable);
+        } else {
+            users = userService.getAllUsers(pageable);
+        }
+        
+        return ResponseEntity.ok(users);
+    }
+    
+    // 取得單個使用者
+    @GetMapping("/users/{id}")
+    public ResponseEntity<User> getUser(@PathVariable Long id) {
+        User user = userService.getUserById(id);
+        return ResponseEntity.ok(user);
+    }
+    
+    // 建立使用者
+    @PostMapping("/users")
+    public ResponseEntity<User> createUser(@Valid @RequestBody UserCreateRequest request) {
+        User user = userService.createUser(request);
+        return ResponseEntity.status(HttpStatus.CREATED).body(user);
+    }
+    
+    // 更新使用者
+    @PutMapping("/users/{id}")
+    public ResponseEntity<User> updateUser(@PathVariable Long id, 
+                                         @Valid @RequestBody UserUpdateRequest request) {
+        User user = userService.updateUser(id, request);
+        return ResponseEntity.ok(user);
+    }
+    
+    // 刪除使用者
+    @DeleteMapping("/users/{id}")
+    public ResponseEntity<Void> deleteUser(@PathVariable Long id) {
+        userService.deleteUser(id);
+        return ResponseEntity.noContent().build();
+    }
+}
+```
+
+```javascript !! js
+// Express.js RESTful API
+const express = require('express');
+const router = express.Router();
+
+// 取得使用者清單
+router.get('/users', async (req, res) => {
+    const { page = 0, size = 10, name } = req.query;
+    const offset = page * size;
+    
+    let users;
+    if (name) {
+        users = await userService.findByNameContaining(name, offset, size);
+    } else {
+        users = await userService.getAllUsers(offset, size);
+    }
+    
+    res.json({
+        content: users,
+        page: parseInt(page),
+        size: parseInt(size),
+        totalElements: users.length
+    });
+});
+
+// 取得單個使用者
+router.get('/users/:id', async (req, res) => {
+    const user = await userService.getUserById(req.params.id);
+    res.json(user);
+});
+
+// 建立使用者
+router.post('/users', async (req, res) => {
+    const user = await userService.createUser(req.body);
+    res.status(201).json(user);
+});
+
+// 更新使用者
+router.put('/users/:id', async (req, res) => {
+    const user = await userService.updateUser(req.params.id, req.body);
+    res.json(user);
+});
+
+// 刪除使用者
+router.delete('/users/:id', async (req, res) => {
+    await userService.deleteUser(req.params.id);
+    res.status(204).send();
+});
+```
+</UniversalEditor>
+
+## 資料驗證
+
+### Bean Validation
+<UniversalEditor title="資料驗證">
+```java !! java
+// 請求 DTO
+public class UserCreateRequest {
+    
+    @NotBlank(message = "Name is required")
+    @Size(min = 2, max = 50, message = "Name must be between 2 and 50 characters")
+    private String name;
+    
+    @NotBlank(message = "Email is required")
+    @Email(message = "Email must be valid")
+    private String email;
+    
+    @Min(value = 0, message = "Age must be positive")
+    @Max(value = 150, message = "Age must be reasonable")
+    private Integer age;
+    
+    // getters and setters
+}
+
+// 控制器中的驗證
+@RestController
+@RequestMapping("/api/users")
+public class UserController {
+    
+    @PostMapping
+    public ResponseEntity<User> createUser(@Valid @RequestBody UserCreateRequest request) {
+        User user = userService.createUser(request);
+        return ResponseEntity.status(HttpStatus.CREATED).body(user);
+    }
+}
+
+// 全域例外處理
+@ControllerAdvice
+public class ValidationExceptionHandler {
+    
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity<ValidationErrorResponse> handleValidationErrors(
+            MethodArgumentNotValidException ex) {
+        
+        List<String> errors = ex.getBindingResult()
+                .getFieldErrors()
+                .stream()
+                .map(error -> error.getField() + ": " + error.getDefaultMessage())
+                .collect(Collectors.toList());
+        
+        ValidationErrorResponse response = new ValidationErrorResponse(
+            "VALIDATION_ERROR", 
+            "Validation failed", 
+            errors
+        );
+        
+        return ResponseEntity.badRequest().body(response);
+    }
+}
+```
+
+```javascript !! js
+// JavaScript 中的資料驗證
+// 使用 Joi 進行驗證
+const Joi = require('joi');
+
+const userCreateSchema = Joi.object({
+    name: Joi.string().min(2).max(50).required(),
+    email: Joi.string().email().required(),
+    age: Joi.number().min(0).max(150)
+});
+
+// 驗證中介軟體
+const validateUser = (req, res, next) => {
+    const { error } = userCreateSchema.validate(req.body);
+    
+    if (error) {
+        return res.status(400).json({
+            code: 'VALIDATION_ERROR',
+            message: 'Validation failed',
+            errors: error.details.map(detail => detail.message)
+        });
+    }
+    
+    next();
+};
+
+// 使用驗證中介軟體
+router.post('/users', validateUser, async (req, res) => {
+    const user = await userService.createUser(req.body);
+    res.status(201).json(user);
+});
+```
+</UniversalEditor>
+
+## 資料庫整合
+
+### Spring Data JPA 整合
+<UniversalEditor title="資料庫整合">
+```java !! java
+// 實體類別
+@Entity
+@Table(name = "users")
+public class User {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    
+    @Column(nullable = false, unique = true)
+    private String email;
+    
+    @Column(nullable = false)
+    private String name;
+    
+    @Column
+    private Integer age;
+    
+    @CreatedDate
+    private LocalDateTime createdAt;
+    
+    @LastModifiedDate
+    private LocalDateTime updatedAt;
+    
+    // getters and setters
+}
+
+// Repository
+@Repository
+public interface UserRepository extends JpaRepository<User, Long> {
+    
+    Optional<User> findByEmail(String email);
+    
+    List<User> findByNameContainingIgnoreCase(String name);
+    
+    @Query("SELECT u FROM User u WHERE u.age >= :minAge")
+    List<User> findUsersOlderThan(@Param("minAge") int minAge);
+}
+
+// Service
+@Service
+@Transactional
+public class UserService {
+    
+    @Autowired
+    private UserRepository userRepository;
+    
+    public List<User> getAllUsers() {
+        return userRepository.findAll();
+    }
+    
+    public User getUserById(Long id) {
+        return userRepository.findById(id)
+                .orElseThrow(() -> new UserNotFoundException("User not found with id: " + id));
+    }
+    
+    public User createUser(UserCreateRequest request) {
+        User user = new User();
+        user.setName(request.getName());
+        user.setEmail(request.getEmail());
+        user.setAge(request.getAge());
+        
+        return userRepository.save(user);
+    }
+}
+```
+
+```javascript !! js
+// JavaScript 中的資料庫整合
+// 使用 Sequelize ORM
+const { DataTypes } = require('sequelize');
+
+const User = sequelize.define('User', {
+    id: {
+        type: DataTypes.INTEGER,
+        primaryKey: true,
+        autoIncrement: true
+    },
+    email: {
+        type: DataTypes.STRING,
+        allowNull: false,
+        unique: true
+    },
+    name: {
+        type: DataTypes.STRING,
+        allowNull: false
+    },
+    age: {
+        type: DataTypes.INTEGER
+    }
+});
+
+// Service 類別
+class UserService {
+    async getAllUsers() {
+        return await User.findAll();
+    }
+    
+    async getUserById(id) {
+        const user = await User.findByPk(id);
+        if (!user) {
+            throw new Error('User not found with id: ' + id);
+        }
+        return user;
+    }
+    
+    async createUser(userData) {
+        return await User.create(userData);
+    }
+    
+    async findByEmail(email) {
+        return await User.findOne({ where: { email } });
+    }
+}
+```
+</UniversalEditor>
+
+## 前後端分離
+
+### CORS 配置
+<UniversalEditor title="CORS 配置">
+```java !! java
+// CORS 配置
+@Configuration
+public class CorsConfig {
+    
+    @Bean
+    public CorsConfigurationSource corsConfigurationSource() {
+        CorsConfiguration configuration = new CorsConfiguration();
+        
+        // 允許的來源
+        configuration.setAllowedOriginPatterns(Arrays.asList("*"));
+        
+        // 允許的 HTTP 方法
+        configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
+        
+        // 允許的請求標頭
+        configuration.setAllowedHeaders(Arrays.asList("*"));
+        
+        // 允許發送憑證
+        configuration.setAllowCredentials(true);
+        
+        // 預檢請求的有效期
+        configuration.setMaxAge(3600L);
+        
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/**", configuration);
+        
+        return source;
+    }
+}
+
+// 或者在控制器上使用註解
+@RestController
+@RequestMapping("/api/users")
+@CrossOrigin(origins = {"http://localhost:3000", "https://myapp.com"})
+public class UserController {
+    // 控制器方法
+}
+```
+
+```javascript !! js
+// Express.js CORS 配置
+const cors = require('cors');
+
+// 全域 CORS 配置
+app.use(cors({
+    origin: ['http://localhost:3000', 'https://myapp.com'],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true,
+    maxAge: 3600
+}));
+
+// 或者針對特定路由
+app.use('/api/users', cors({
+    origin: 'http://localhost:3000'
+}));
+```
+</UniversalEditor>
+
+## 練習題
+
+### 練習 1: 建立 RESTful API
+1. 建立使用者管理的 RESTful API
+2. 實作 CRUD 操作
+3. 新增資料驗證
+4. 測試 API 端點
+
+### 練習 2: 資料庫整合
+1. 配置資料庫連接
+2. 建立實體類別和 Repository
+3. 實作資料存取邏輯
+4. 測試資料庫操作
+
+### 練習 3: 前後端分離
+1. 配置 CORS
+2. 建立 API 文件
+3. 實作前端呼叫
+4. 測試前後端互動
+
+## 總結
+
+Spring MVC 為 Java Web 開發提供了強大的支援：
+
+- **MVC 架構**: 清晰的程式碼組織結構
+- **RESTful API**: 標準化的 Web 服務介面
+- **資料驗證**: 強大的輸入驗證機制
+- **資料庫整合**: 簡化的資料存取層
+- **前後端分離**: 現代化的 Web 開發模式
+
+在下一個模組中，我們將透過實戰專案來綜合應用所學的知識，包括完整的 Web 應用開發。
+
+準備好開始實戰專案了嗎？

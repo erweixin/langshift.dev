@@ -1,0 +1,1501 @@
+---
+title: "模組 09: 異常處理"
+description: "學習 Java 異常處理、try-catch 區塊、檢查異常與未檢查異常、自定義異常，與 JavaScript 錯誤處理模式對比。"
+---
+
+# 模組 09: 異常處理
+
+在本模組中，我們將探索 Java 的全面異常處理系統，並將其與 JavaScript 的錯誤處理模式進行對比。Java 的異常處理更加結構化，提供編譯時檢查，而 JavaScript 使用更靈活但不太嚴格的方法。
+
+## 學習目標
+
+完成本模組後，您將能夠：
+- 理解 Java 的異常層次結構和類型
+- 比較 Java 異常與 JavaScript 錯誤處理
+- 有效使用 try-catch-finally 區塊
+- 處理檢查異常和未檢查異常
+- 創建和拋出自定義異常
+- 應用異常處理最佳實踐
+
+## 異常層次結構
+
+### 1. Java 異常類型
+
+Java 有明確定義的異常層次結構，而 JavaScript 有更簡單的錯誤系統。
+
+<UniversalEditor title="異常層次結構對比" compare={true}>
+```javascript !! js
+// JavaScript - 錯誤類型
+// 內建錯誤類型
+class CustomError extends Error {
+    constructor(message, code) {
+        super(message);
+        this.name = 'CustomError';
+        this.code = code;
+        this.timestamp = new Date();
+    }
+}
+
+class ValidationError extends Error {
+    constructor(message, field) {
+        super(message);
+        this.name = 'ValidationError';
+        this.field = field;
+    }
+}
+
+class NetworkError extends Error {
+    constructor(message, statusCode) {
+        super(message);
+        this.name = 'NetworkError';
+        this.statusCode = statusCode;
+    }
+}
+
+// 錯誤處理模式
+function processUserData(userData) {
+    try {
+        // 驗證用戶數據
+        if (!userData.name) {
+            throw new ValidationError('Name is required', 'name');
+        }
+        
+        if (!userData.email) {
+            throw new ValidationError('Email is required', 'email');
+        }
+        
+        // 處理數據
+        console.log('Processing user:', userData.name);
+        
+        // 模擬網絡錯誤
+        if (Math.random() > 0.8) {
+            throw new NetworkError('Connection failed', 500);
+        }
+        
+        return { success: true, user: userData };
+        
+    } catch (error) {
+        if (error instanceof ValidationError) {
+            console.error('Validation error:', error.message, 'Field:', error.field);
+            return { success: false, error: 'Validation failed', field: error.field };
+        } else if (error instanceof NetworkError) {
+            console.error('Network error:', error.message, 'Status:', error.statusCode);
+            return { success: false, error: 'Network error', statusCode: error.statusCode };
+        } else {
+            console.error('Unexpected error:', error.message);
+            return { success: false, error: 'Unexpected error' };
+        }
+    } finally {
+        console.log('User data processing completed');
+    }
+}
+
+// 使用範例
+const userData = { name: 'John', email: 'john@example.com' };
+const result = processUserData(userData);
+console.log(result);
+```
+
+```java !! java
+// Java - 異常層次結構
+// 自定義異常類
+public class CustomException extends Exception {
+    private String code;
+    private long timestamp;
+    
+    public CustomException(String message, String code) {
+        super(message);
+        this.code = code;
+        this.timestamp = System.currentTimeMillis();
+    }
+    
+    public String getCode() { return code; }
+    public long getTimestamp() { return timestamp; }
+}
+
+public class ValidationException extends Exception {
+    private String field;
+    
+    public ValidationException(String message, String field) {
+        super(message);
+        this.field = field;
+    }
+    
+    public String getField() { return field; }
+}
+
+public class NetworkException extends Exception {
+    private int statusCode;
+    
+    public NetworkException(String message, int statusCode) {
+        super(message);
+        this.statusCode = statusCode;
+    }
+    
+    public int getStatusCode() { return statusCode; }
+}
+
+// 使用 try-catch-finally 的異常處理
+public class UserDataProcessor {
+    public static class ProcessResult {
+        private boolean success;
+        private String error;
+        private String field;
+        private int statusCode;
+        
+        public ProcessResult(boolean success) {
+            this.success = success;
+        }
+        
+        // Getters and setters
+        public boolean isSuccess() { return success; }
+        public String getError() { return error; }
+        public void setError(String error) { this.error = error; }
+        public String getField() { return field; }
+        public void setField(String field) { this.field = field; }
+        public int getStatusCode() { return statusCode; }
+        public void setStatusCode(int statusCode) { this.statusCode = statusCode; }
+    }
+    
+    public static ProcessResult processUserData(UserData userData) {
+        try {
+            // 驗證用戶數據
+            if (userData.getName() == null || userData.getName().trim().isEmpty()) {
+                throw new ValidationException("Name is required", "name");
+            }
+            
+            if (userData.getEmail() == null || userData.getEmail().trim().isEmpty()) {
+                throw new ValidationException("Email is required", "email");
+            }
+            
+            // 處理數據
+            System.out.println("Processing user: " + userData.getName());
+            
+            // 模擬網絡錯誤
+            if (Math.random() > 0.8) {
+                throw new NetworkException("Connection failed", 500);
+            }
+            
+            return new ProcessResult(true);
+            
+        } catch (ValidationException e) {
+            System.err.println("Validation error: " + e.getMessage() + " Field: " + e.getField());
+            ProcessResult result = new ProcessResult(false);
+            result.setError("Validation failed");
+            result.setField(e.getField());
+            return result;
+        } catch (NetworkException e) {
+            System.err.println("Network error: " + e.getMessage() + " Status: " + e.getStatusCode());
+            ProcessResult result = new ProcessResult(false);
+            result.setError("Network error");
+            result.setStatusCode(e.getStatusCode());
+            return result;
+        } catch (Exception e) {
+            System.err.println("Unexpected error: " + e.getMessage());
+            ProcessResult result = new ProcessResult(false);
+            result.setError("Unexpected error");
+            return result;
+        } finally {
+            System.out.println("User data processing completed");
+        }
+    }
+    
+    public static void main(String[] args) {
+        System.out.println("異常處理示例");
+        System.out.println("==============");
+        
+        UserData userData = new UserData("John Doe", "john@example.com");
+        ProcessResult result = processUserData(userData);
+        
+        if (result.isSuccess()) {
+            System.out.println("處理成功！");
+        } else {
+            System.out.println("處理失敗: " + result.getError());
+        }
+    }
+}
+
+// 用戶數據類
+class UserData {
+    private String name;
+    private String email;
+    
+    public UserData(String name, String email) {
+        this.name = name;
+        this.email = email;
+    }
+    
+    public String getName() { return name; }
+    public String getEmail() { return email; }
+}
+```
+</UniversalEditor>
+
+## Try-Catch-Finally 區塊
+
+### 2. 異常處理結構
+
+Java 的 try-catch-finally 提供結構化的錯誤處理，而 JavaScript 使用 try-catch 和可選的 finally。
+
+<UniversalEditor title="Try-Catch-Finally 結構" compare={true}>
+```javascript !! js
+// JavaScript - Try-catch-finally
+function readFileAndProcess(filename) {
+    let fileHandle = null;
+    
+    try {
+        // 模擬文件讀取
+        if (!filename) {
+            throw new Error('Filename is required');
+        }
+        
+        if (filename.includes('error')) {
+            throw new Error('File not found: ' + filename);
+        }
+        
+        fileHandle = { name: filename, content: 'File content' };
+        console.log('Reading file:', filename);
+        
+        // 處理文件內容
+        const processedContent = fileHandle.content.toUpperCase();
+        return processedContent;
+        
+    } catch (error) {
+        console.error('Error reading file:', error.message);
+        throw error; // 重新拋出錯誤
+        
+    } finally {
+        // 即使發生異常也總是執行
+        if (fileHandle) {
+            console.log('Closing file handle:', fileHandle.name);
+            fileHandle = null;
+        }
+        console.log('File operation completed');
+    }
+}
+
+// 帶錯誤處理的使用
+try {
+    const result = readFileAndProcess('test.txt');
+    console.log('Result:', result);
+} catch (error) {
+    console.error('Failed to process file:', error.message);
+}
+
+// 異步錯誤處理
+async function asyncFileOperation(filename) {
+    try {
+        // 模擬異步文件操作
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+        if (filename.includes('error')) {
+            throw new Error('Async file error: ' + filename);
+        }
+        
+        return 'Async file content';
+        
+    } catch (error) {
+        console.error('Async error:', error.message);
+        throw error;
+    }
+}
+
+// 異步使用
+asyncFileOperation('test.txt')
+    .then(result => console.log('Async result:', result))
+    .catch(error => console.error('Async failed:', error.message));
+```
+
+```java !! java
+// Java - 帶資源的 Try-catch-finally
+import java.io.*;
+import java.util.Random;
+
+public class FileProcessor {
+    
+    public static String readFileAndProcess(String filename) throws IOException {
+        BufferedReader reader = null;
+        
+        try {
+            // 驗證文件名
+            if (filename == null || filename.trim().isEmpty()) {
+                throw new IllegalArgumentException("Filename is required");
+            }
+            
+            // 模擬文件讀取
+            if (filename.contains("error")) {
+                throw new FileNotFoundException("File not found: " + filename);
+            }
+            
+            // 模擬文件內容
+            String content = "File content from " + filename;
+            System.out.println("Reading file: " + filename);
+            
+            // 處理文件內容
+            return content.toUpperCase();
+            
+        } catch (IllegalArgumentException e) {
+            System.err.println("Invalid filename: " + e.getMessage());
+            throw e; // 重新拋出異常
+            
+        } catch (FileNotFoundException e) {
+            System.err.println("File not found: " + e.getMessage());
+            throw e;
+            
+        } finally {
+            // 即使發生異常也總是執行
+            if (reader != null) {
+                try {
+                    reader.close();
+                    System.out.println("File reader closed");
+                } catch (IOException e) {
+                    System.err.println("Error closing reader: " + e.getMessage());
+                }
+            }
+            System.out.println("File operation completed");
+        }
+    }
+    
+    // Try-with-resources (Java 7+)
+    public static String readFileWithResources(String filename) throws IOException {
+        try (BufferedReader reader = new BufferedReader(new StringReader("File content"))) {
+            // Reader 自動關閉
+            if (filename.contains("error")) {
+                throw new IOException("Error reading file: " + filename);
+            }
+            
+            String line = reader.readLine();
+            return line != null ? line.toUpperCase() : "";
+            
+        } catch (IOException e) {
+            System.err.println("IO error: " + e.getMessage());
+            throw e;
+        }
+    }
+    
+    // 多重異常處理
+    public static void processMultipleExceptions(String input) {
+        try {
+            if (input == null) {
+                throw new NullPointerException("Input cannot be null");
+            }
+            
+            if (input.isEmpty()) {
+                throw new IllegalArgumentException("Input cannot be empty");
+            }
+            
+            int number = Integer.parseInt(input);
+            if (number < 0) {
+                throw new ArithmeticException("Number must be positive");
+            }
+            
+            System.out.println("Processed number: " + number);
+            
+        } catch (NullPointerException | IllegalArgumentException e) {
+            System.err.println("Input error: " + e.getMessage());
+        } catch (NumberFormatException e) {
+            System.err.println("Number format error: " + e.getMessage());
+        } catch (ArithmeticException e) {
+            System.err.println("Arithmetic error: " + e.getMessage());
+        } catch (Exception e) {
+            System.err.println("Unexpected error: " + e.getMessage());
+        }
+    }
+}
+```
+</UniversalEditor>
+
+## 檢查異常與未檢查異常
+
+### 3. Java 中的異常類型
+
+Java 區分檢查異常和未檢查異常，而 JavaScript 以相同方式處理所有錯誤。
+
+<UniversalEditor title="檢查異常與未檢查異常" compare={true}>
+```javascript !! js
+// JavaScript - 所有錯誤都是未檢查的
+function processData(data) {
+    // 沒有編譯時錯誤檢查
+    if (!data) {
+        throw new Error('Data is required'); // 運行時錯誤
+    }
+    
+    if (typeof data !== 'object') {
+        throw new TypeError('Data must be an object'); // 運行時錯誤
+    }
+    
+    // 處理數據
+    return data.processed = true;
+}
+
+// 錯誤處理是可選的
+function riskyOperation() {
+    // 這可能會拋出錯誤，但我們不必處理它
+    return processData(null);
+}
+
+// 可選的錯誤處理
+try {
+    riskyOperation();
+} catch (error) {
+    console.error('Caught error:', error.message);
+}
+
+// 異步錯誤處理
+async function asyncRiskyOperation() {
+    try {
+        // 模擬可能失敗的異步操作
+        await new Promise((resolve, reject) => {
+            if (Math.random() > 0.5) {
+                reject(new Error('Random failure'));
+            } else {
+                resolve('Success');
+            }
+        });
+    } catch (error) {
+        console.error('Async error:', error.message);
+        throw error; // 重新拋出或處理
+    }
+}
+```
+
+```java !! java
+// Java - 檢查異常與未檢查異常
+import java.io.*;
+import java.util.*;
+
+public class ExceptionTypesDemo {
+    
+    // 檢查異常 - 必須聲明或處理
+    public static void readFileChecked(String filename) throws IOException {
+        if (filename == null) {
+            throw new IOException("Filename cannot be null");
+        }
+        
+        // 文件操作拋出檢查異常
+        File file = new File(filename);
+        if (!file.exists()) {
+            throw new FileNotFoundException("File not found: " + filename);
+        }
+        
+        // 讀取文件內容
+        try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
+            String line = reader.readLine();
+            System.out.println("File content: " + line);
+        }
+    }
+    
+    // 未檢查異常 - 無需聲明
+    public static void processDataUnchecked(String data) {
+        if (data == null) {
+            throw new NullPointerException("Data cannot be null"); // 未檢查
+        }
+        
+        if (data.isEmpty()) {
+            throw new IllegalArgumentException("Data cannot be empty"); // 未檢查
+        }
+        
+        int number = Integer.parseInt(data);
+        if (number < 0) {
+            throw new ArithmeticException("Number must be positive"); // 未檢查
+        }
+        
+        System.out.println("Processed number: " + number);
+    }
+    
+    // 處理檢查異常的方法
+    public static void safeFileOperation(String filename) {
+        try {
+            readFileChecked(filename);
+        } catch (IOException e) {
+            System.err.println("File error: " + e.getMessage());
+        }
+    }
+    
+    // 不處理未檢查異常的方法
+    public static void riskyOperation(String data) {
+        // 未檢查異常不需要 try-catch
+        processDataUnchecked(data);
+    }
+    
+    // 自定義檢查異常
+    public static class CustomCheckedException extends Exception {
+        public CustomCheckedException(String message) {
+            super(message);
+        }
+    }
+    
+    // 自定義未檢查異常
+    public static class CustomUncheckedException extends RuntimeException {
+        public CustomUncheckedException(String message) {
+            super(message);
+        }
+    }
+    
+    // 拋出自定義異常的方法
+    public static void throwCustomExceptions(String input) throws CustomCheckedException {
+        if (input == null) {
+            throw new CustomUncheckedException("Input cannot be null"); // 未檢查
+        }
+        
+        if (input.equals("error")) {
+            throw new CustomCheckedException("Custom checked error"); // 檢查
+        }
+        
+        System.out.println("Input processed: " + input);
+    }
+}
+```
+</UniversalEditor>
+
+## 自定義異常
+
+### 4. 創建和使用自定義異常
+
+兩種語言都支持自定義異常，但 Java 提供更多結構。
+
+<UniversalEditor title="自定義異常實現" compare={true}>
+```javascript !! js
+// JavaScript - 自定義錯誤類
+class BusinessLogicError extends Error {
+    constructor(message, errorCode, details = {}) {
+        super(message);
+        this.name = 'BusinessLogicError';
+        this.errorCode = errorCode;
+        this.details = details;
+        this.timestamp = new Date();
+    }
+    
+    toJSON() {
+        return {
+            name: this.name,
+            message: this.message,
+            errorCode: this.errorCode,
+            details: this.details,
+            timestamp: this.timestamp,
+            stack: this.stack
+        };
+    }
+}
+
+class ValidationError extends BusinessLogicError {
+    constructor(message, field, value) {
+        super(message, 'VALIDATION_ERROR', { field, value });
+        this.name = 'ValidationError';
+        this.field = field;
+        this.value = value;
+    }
+}
+
+class DatabaseError extends BusinessLogicError {
+    constructor(message, operation, table) {
+        super(message, 'DATABASE_ERROR', { operation, table });
+        this.name = 'DatabaseError';
+        this.operation = operation;
+        this.table = table;
+    }
+}
+
+// 錯誤工廠
+class ErrorFactory {
+    static createValidationError(field, value, message) {
+        return new ValidationError(message || `${field} is invalid`, field, value);
+    }
+    
+    static createDatabaseError(operation, table, message) {
+        return new DatabaseError(message || `${operation} failed on ${table}`, operation, table);
+    }
+    
+    static createBusinessError(message, code) {
+        return new BusinessLogicError(message, code);
+    }
+}
+
+// 使用範例
+function validateUser(user) {
+    const errors = [];
+    
+    try {
+        if (!user.name || user.name.trim().length < 2) {
+            throw ErrorFactory.createValidationError('name', user.name, 'Name must be at least 2 characters');
+        }
+        
+        if (!user.email || !user.email.includes('@')) {
+            throw ErrorFactory.createValidationError('email', user.email, 'Invalid email format');
+        }
+        
+        if (user.age && (user.age < 0 || user.age > 150)) {
+            throw ErrorFactory.createValidationError('age', user.age, 'Age must be between 0 and 150');
+        }
+        
+    } catch (error) {
+        if (error instanceof ValidationError) {
+            errors.push(error);
+        } else {
+            throw error; // 重新拋出意外錯誤
+        }
+    }
+    
+    return errors;
+}
+
+// 使用自定義錯誤的錯誤處理
+function processUser(user) {
+    try {
+        const validationErrors = validateUser(user);
+        
+        if (validationErrors.length > 0) {
+            console.error('Validation errors:', validationErrors.map(e => e.toJSON()));
+            return { success: false, errors: validationErrors };
+        }
+        
+        // 模擬數據庫操作
+        if (Math.random() > 0.8) {
+            throw ErrorFactory.createDatabaseError('INSERT', 'users', 'Database connection failed');
+        }
+        
+        return { success: true, user };
+        
+    } catch (error) {
+        if (error instanceof BusinessLogicError) {
+            console.error('Business error:', error.toJSON());
+            return { success: false, error: error.toJSON() };
+        } else {
+            console.error('Unexpected error:', error);
+            throw error;
+        }
+    }
+}
+```
+
+```java !! java
+// Java - 自定義異常層次結構
+public class CustomExceptionDemo {
+    
+    // 基礎自定義異常
+    public static class BusinessException extends Exception {
+        private String errorCode;
+        private long timestamp;
+        private Map<String, Object> details;
+        
+        public BusinessException(String message, String errorCode) {
+            super(message);
+            this.errorCode = errorCode;
+            this.timestamp = System.currentTimeMillis();
+            this.details = new HashMap<>();
+        }
+        
+        public BusinessException(String message, String errorCode, Map<String, Object> details) {
+            this(message, errorCode);
+            this.details = details;
+        }
+        
+        public String getErrorCode() { return errorCode; }
+        public long getTimestamp() { return timestamp; }
+        public Map<String, Object> getDetails() { return details; }
+        
+        public void addDetail(String key, Object value) {
+            details.put(key, value);
+        }
+    }
+    
+    // 特定異常類型
+    public static class ValidationException extends BusinessException {
+        private String field;
+        private Object value;
+        
+        public ValidationException(String message, String field, Object value) {
+            super(message, "VALIDATION_ERROR");
+            this.field = field;
+            this.value = value;
+            addDetail("field", field);
+            addDetail("value", value);
+        }
+        
+        public String getField() { return field; }
+        public Object getValue() { return value; }
+    }
+    
+    public static class DatabaseException extends BusinessException {
+        private String operation;
+        private String table;
+        
+        public DatabaseException(String message, String operation, String table) {
+            super(message, "DATABASE_ERROR");
+            this.operation = operation;
+            this.table = table;
+            addDetail("operation", operation);
+            addDetail("table", table);
+        }
+        
+        public String getOperation() { return operation; }
+        public String getTable() { return table; }
+    }
+    
+    // 錯誤工廠
+    public static class ErrorFactory {
+        public static ValidationException createValidationError(String field, Object value, String message) {
+            return new ValidationException(message != null ? message : field + " is invalid", field, value);
+        }
+        
+        public static DatabaseException createDatabaseError(String operation, String table, String message) {
+            return new DatabaseException(message != null ? message : operation + " failed on " + table, operation, table);
+        }
+        
+        public static BusinessException createBusinessError(String message, String code) {
+            return new BusinessException(message, code);
+        }
+    }
+    
+    // 用戶驗證
+    public static class UserValidator {
+        public static List<ValidationException> validateUser(User user) {
+            List<ValidationException> errors = new ArrayList<>();
+            
+            try {
+                if (user.getName() == null || user.getName().trim().length() < 2) {
+                    errors.add(ErrorFactory.createValidationError("name", user.getName(), "Name must be at least 2 characters"));
+                }
+                
+                if (user.getEmail() == null || !user.getEmail().contains("@")) {
+                    errors.add(ErrorFactory.createValidationError("email", user.getEmail(), "Invalid email format"));
+                }
+                
+                if (user.getAge() != null && (user.getAge() < 0 || user.getAge() > 150)) {
+                    errors.add(ErrorFactory.createValidationError("age", user.getAge(), "Age must be between 0 and 150"));
+                }
+                
+            } catch (Exception e) {
+                // 處理意外錯誤
+                throw new RuntimeException("Unexpected error during validation", e);
+            }
+            
+            return errors;
+        }
+    }
+    
+    // 用戶處理
+    public static class UserProcessor {
+        public static class ProcessResult {
+            private boolean success;
+            private List<BusinessException> errors;
+            private User user;
+            
+            public ProcessResult(boolean success) {
+                this.success = success;
+                this.errors = new ArrayList<>();
+            }
+            
+            // Getters and setters
+            public boolean isSuccess() { return success; }
+            public List<BusinessException> getErrors() { return errors; }
+            public void addError(BusinessException error) { errors.add(error); }
+            public User getUser() { return user; }
+            public void setUser(User user) { this.user = user; }
+        }
+        
+        public static ProcessResult processUser(User user) {
+            ProcessResult result = new ProcessResult(false);
+            
+            try {
+                // 驗證用戶
+                List<ValidationException> validationErrors = UserValidator.validateUser(user);
+                
+                if (!validationErrors.isEmpty()) {
+                    System.err.println("Validation errors found:");
+                    for (ValidationException error : validationErrors) {
+                        System.err.println("- " + error.getMessage() + " (Field: " + error.getField() + ")");
+                        result.addError(error);
+                    }
+                    return result;
+                }
+                
+                // 模擬數據庫操作
+                if (Math.random() > 0.8) {
+                    DatabaseException dbError = ErrorFactory.createDatabaseError("INSERT", "users", "Database connection failed");
+                    result.addError(dbError);
+                    return result;
+                }
+                
+                result.setUser(user);
+                result = new ProcessResult(true);
+                result.setUser(user);
+                return result;
+                
+            } catch (BusinessException e) {
+                System.err.println("Business error: " + e.getMessage() + " (Code: " + e.getErrorCode() + ")");
+                result.addError(e);
+                return result;
+            } catch (Exception e) {
+                System.err.println("Unexpected error: " + e.getMessage());
+                throw new RuntimeException("Unexpected error during processing", e);
+            }
+        }
+    }
+    
+    // 用戶類
+    public static class User {
+        private String name;
+        private String email;
+        private Integer age;
+        
+        public User(String name, String email) {
+            this.name = name;
+            this.email = email;
+        }
+        
+        public User(String name, String email, Integer age) {
+            this.name = name;
+            this.email = email;
+            this.age = age;
+        }
+        
+        // Getters
+        public String getName() { return name; }
+        public String getEmail() { return email; }
+        public Integer getAge() { return age; }
+    }
+}
+```
+</UniversalEditor>
+
+## 異常處理最佳實踐
+
+### 5. 最佳實踐和模式
+
+兩種語言有不同的異常處理最佳實踐。
+
+<UniversalEditor title="異常處理最佳實踐" compare={true}>
+```javascript !! js
+// JavaScript - 異常處理最佳實踐
+
+// 1. 使用特定的錯誤類型
+class SpecificError extends Error {
+    constructor(message, context) {
+        super(message);
+        this.name = 'SpecificError';
+        this.context = context;
+    }
+}
+
+// 2. 不要忽略錯誤
+function badPractice() {
+    try {
+        riskyOperation();
+    } catch (error) {
+        // 錯誤：忽略錯誤
+        console.log('Something went wrong');
+    }
+}
+
+function goodPractice() {
+    try {
+        riskyOperation();
+    } catch (error) {
+        // 正確：記錄並適當處理
+        console.error('Operation failed:', error.message);
+        // 適當處理錯誤
+        handleError(error);
+    }
+}
+
+// 3. 使用錯誤邊界（React 模式）
+class ErrorBoundary {
+    constructor() {
+        this.hasError = false;
+        this.error = null;
+    }
+    
+    static getDerivedStateFromError(error) {
+        return { hasError: true, error };
+    }
+    
+    componentDidCatch(error, errorInfo) {
+        console.error('Error caught by boundary:', error, errorInfo);
+    }
+}
+
+// 4. 異步錯誤處理
+async function asyncBestPractice() {
+    try {
+        const result = await riskyAsyncOperation();
+        return result;
+    } catch (error) {
+        if (error.name === 'NetworkError') {
+            // 處理網絡錯誤
+            return await retryOperation();
+        } else if (error.name === 'ValidationError') {
+            // 處理驗證錯誤
+            throw error; // 重新拋出供 UI 處理
+        } else {
+            // 處理意外錯誤
+            console.error('Unexpected error:', error);
+            throw new Error('An unexpected error occurred');
+        }
+    }
+}
+
+// 5. 錯誤恢復模式
+function errorRecovery() {
+    let attempts = 0;
+    const maxAttempts = 3;
+    
+    while (attempts < maxAttempts) {
+        try {
+            return riskyOperation();
+        } catch (error) {
+            attempts++;
+            console.log(`Attempt ${attempts} failed:`, error.message);
+            
+            if (attempts >= maxAttempts) {
+                throw new Error(`Operation failed after ${maxAttempts} attempts`);
+            }
+            
+            // 重試前等待
+            setTimeout(() => {}, 1000 * attempts);
+        }
+    }
+}
+
+// 6. 集中式錯誤處理
+class ErrorHandler {
+    static handle(error, context = {}) {
+        // 記錄錯誤
+        console.error('Error occurred:', {
+            message: error.message,
+            stack: error.stack,
+            context: context,
+            timestamp: new Date().toISOString()
+        });
+        
+        // 發送到監控服務
+        this.sendToMonitoring(error, context);
+        
+        // 返回用戶友好的消息
+        return this.getUserFriendlyMessage(error);
+    }
+    
+    static sendToMonitoring(error, context) {
+        // 發送到監控服務的實現
+        console.log('Sending to monitoring:', error.message);
+    }
+    
+    static getUserFriendlyMessage(error) {
+        if (error.name === 'NetworkError') {
+            return 'Network connection failed. Please check your internet connection.';
+        } else if (error.name === 'ValidationError') {
+            return 'Please check your input and try again.';
+        } else {
+            return 'An unexpected error occurred. Please try again later.';
+        }
+    }
+}
+```
+
+```java !! java
+// Java - 異常處理最佳實踐
+
+import java.util.*;
+import java.util.logging.*;
+
+public class ExceptionBestPractices {
+    
+    // 1. 使用特定的異常類型
+    public static class SpecificException extends Exception {
+        private Map<String, Object> context;
+        
+        public SpecificException(String message, Map<String, Object> context) {
+            super(message);
+            this.context = context;
+        }
+        
+        public Map<String, Object> getContext() { return context; }
+    }
+    
+    // 2. 不要忽略異常
+    public static void badPractice() {
+        try {
+            riskyOperation();
+        } catch (Exception e) {
+            // 錯誤：忽略異常
+            System.out.println("Something went wrong");
+        }
+    }
+    
+    public static void goodPractice() {
+        try {
+            riskyOperation();
+        } catch (Exception e) {
+            // 正確：記錄並適當處理
+            Logger.getLogger(ExceptionBestPractices.class.getName())
+                  .log(Level.SEVERE, "Operation failed", e);
+            handleException(e);
+        }
+    }
+    
+    // 3. 使用異常鏈
+    public static void exceptionChaining() {
+        try {
+            processData();
+        } catch (IOException e) {
+            // 鏈接異常以保留上下文
+            throw new RuntimeException("Failed to process data", e);
+        }
+    }
+    
+    // 4. 使用 try-with-resources 進行資源管理
+    public static void resourceManagement() {
+        try (AutoCloseable resource = new AutoCloseable() {
+            @Override
+            public void close() throws Exception {
+                System.out.println("Resource closed");
+            }
+        }) {
+            // 使用資源
+            System.out.println("Using resource");
+        } catch (Exception e) {
+            Logger.getLogger(ExceptionBestPractices.class.getName())
+                  .log(Level.SEVERE, "Resource operation failed", e);
+        }
+    }
+    
+    // 5. 錯誤恢復模式
+    public static class RetryHandler {
+        private static final int MAX_ATTEMPTS = 3;
+        private static final long RETRY_DELAY_MS = 1000;
+        
+        public static <T> T retryOperation(Supplier<T> operation) throws Exception {
+            int attempts = 0;
+            Exception lastException = null;
+            
+            while (attempts < MAX_ATTEMPTS) {
+                try {
+                    return operation.get();
+                } catch (Exception e) {
+                    attempts++;
+                    lastException = e;
+                    
+                    Logger.getLogger(RetryHandler.class.getName())
+                          .log(Level.WARNING, "Attempt " + attempts + " failed", e);
+                    
+                    if (attempts >= MAX_ATTEMPTS) {
+                        break;
+                    }
+                    
+                    // 重試前等待
+                    Thread.sleep(RETRY_DELAY_MS * attempts);
+                }
+            }
+            
+            throw new Exception("Operation failed after " + MAX_ATTEMPTS + " attempts", lastException);
+        }
+    }
+    
+    // 6. 集中式異常處理
+    public static class ExceptionHandler {
+        private static final Logger LOGGER = Logger.getLogger(ExceptionHandler.class.getName());
+        
+        public static void handle(Exception e, String context) {
+            // 記錄帶上下文的異常
+            LOGGER.log(Level.SEVERE, "Exception in context: " + context, e);
+            
+            // 發送到監控服務
+            sendToMonitoring(e, context);
+            
+            // 獲取用戶友好的消息
+            String userMessage = getUserFriendlyMessage(e);
+            System.out.println("User message: " + userMessage);
+        }
+        
+        private static void sendToMonitoring(Exception e, String context) {
+            // 發送到監控服務的實現
+            LOGGER.info("Sending to monitoring: " + e.getMessage() + " in context: " + context);
+        }
+        
+        private static String getUserFriendlyMessage(Exception e) {
+            if (e instanceof IOException) {
+                return "Network connection failed. Please check your internet connection.";
+            } else if (e instanceof IllegalArgumentException) {
+                return "Please check your input and try again.";
+            } else {
+                return "An unexpected error occurred. Please try again later.";
+            }
+        }
+    }
+    
+    // 7. 異常安全操作
+    public static class SafeOperations {
+        public static Optional<String> safeStringOperation(String input) {
+            try {
+                if (input == null) {
+                    return Optional.empty();
+                }
+                
+                String result = input.toUpperCase();
+                return Optional.of(result);
+                
+            } catch (Exception e) {
+                LOGGER.log(Level.WARNING, "String operation failed", e);
+                return Optional.empty();
+            }
+        }
+        
+        public static <T> T defaultOnException(Supplier<T> operation, T defaultValue) {
+            try {
+                return operation.get();
+            } catch (Exception e) {
+                LOGGER.log(Level.WARNING, "Operation failed, using default", e);
+                return defaultValue;
+            }
+        }
+    }
+    
+    // 8. 帶上下文的自定義異常
+    public static class ContextualException extends Exception {
+        private final String operation;
+        private final Map<String, Object> parameters;
+        private final long timestamp;
+        
+        public ContextualException(String message, String operation, Map<String, Object> parameters) {
+            super(message);
+            this.operation = operation;
+            this.parameters = new HashMap<>(parameters);
+            this.timestamp = System.currentTimeMillis();
+        }
+        
+        public String getOperation() { return operation; }
+        public Map<String, Object> getParameters() { return Collections.unmodifiableMap(parameters); }
+        public long getTimestamp() { return timestamp; }
+        
+        @Override
+        public String toString() {
+            return String.format("ContextualException{operation='%s', parameters=%s, timestamp=%d, message='%s'}", 
+                               operation, parameters, timestamp, getMessage());
+        }
+    }
+    
+    // 輔助方法
+    private static void riskyOperation() throws Exception {
+        if (Math.random() > 0.5) {
+            throw new Exception("Random failure");
+        }
+    }
+    
+    private static void processData() throws IOException {
+        throw new IOException("Data processing failed");
+    }
+    
+    private static void handleException(Exception e) {
+        // 適當處理異常
+        System.err.println("Handling exception: " + e.getMessage());
+    }
+    
+    private static final Logger LOGGER = Logger.getLogger(ExceptionBestPractices.class.getName());
+}
+```
+</UniversalEditor>
+
+## 實踐練習
+
+### 練習 1: 異常處理模式
+
+為用戶註冊服務創建一個健壯的異常處理系統。
+
+<UniversalEditor title="用戶註冊異常處理" compare={true}>
+```javascript !! js
+// JavaScript - 帶異常處理的用戶註冊
+class UserRegistrationService {
+    constructor() {
+        this.users = new Map();
+    }
+    
+    registerUser(userData) {
+        try {
+            // 驗證用戶數據
+            this.validateUserData(userData);
+            
+            // 檢查用戶是否已存在
+            if (this.users.has(userData.email)) {
+                throw new Error('User already exists with this email');
+            }
+            
+            // 創建用戶
+            const user = {
+                id: this.generateId(),
+                ...userData,
+                createdAt: new Date(),
+                status: 'active'
+            };
+            
+            // 模擬數據庫保存
+            this.saveUser(user);
+            
+            return { success: true, user };
+            
+        } catch (error) {
+            console.error('Registration failed:', error.message);
+            return { success: false, error: error.message };
+        }
+    }
+    
+    validateUserData(userData) {
+        const errors = [];
+        
+        if (!userData.name || userData.name.trim().length < 2) {
+            errors.push('Name must be at least 2 characters');
+        }
+        
+        if (!userData.email || !this.isValidEmail(userData.email)) {
+            errors.push('Valid email is required');
+        }
+        
+        if (!userData.password || userData.password.length < 6) {
+            errors.push('Password must be at least 6 characters');
+        }
+        
+        if (errors.length > 0) {
+            throw new Error('Validation failed: ' + errors.join(', '));
+        }
+    }
+    
+    isValidEmail(email) {
+        return email.includes('@') && email.includes('.');
+    }
+    
+    generateId() {
+        return Date.now().toString(36) + Math.random().toString(36).substr(2);
+    }
+    
+    saveUser(user) {
+        // 模擬數據庫操作
+        if (Math.random() > 0.9) {
+            throw new Error('Database connection failed');
+        }
+        
+        this.users.set(user.email, user);
+    }
+}
+
+// 使用範例
+const service = new UserRegistrationService();
+
+const userData = {
+    name: 'John Doe',
+    email: 'john@example.com',
+    password: 'password123'
+};
+
+const result = service.registerUser(userData);
+console.log(result);
+```
+
+```java !! java
+// Java - 帶異常處理的用戶註冊
+import java.util.*;
+import java.time.LocalDateTime;
+
+public class UserRegistrationService {
+    
+    // 自定義異常
+    public static class UserRegistrationException extends Exception {
+        public UserRegistrationException(String message) {
+            super(message);
+        }
+        
+        public UserRegistrationException(String message, Throwable cause) {
+            super(message, cause);
+        }
+    }
+    
+    public static class ValidationException extends UserRegistrationException {
+        private List<String> errors;
+        
+        public ValidationException(String message, List<String> errors) {
+            super(message);
+            this.errors = errors;
+        }
+        
+        public List<String> getErrors() { return errors; }
+    }
+    
+    public static class UserExistsException extends UserRegistrationException {
+        private String email;
+        
+        public UserExistsException(String email) {
+            super("User already exists with email: " + email);
+            this.email = email;
+        }
+        
+        public String getEmail() { return email; }
+    }
+    
+    public static class DatabaseException extends UserRegistrationException {
+        public DatabaseException(String message) {
+            super(message);
+        }
+        
+        public DatabaseException(String message, Throwable cause) {
+            super(message, cause);
+        }
+    }
+    
+    // 用戶類
+    public static class User {
+        private String id;
+        private String name;
+        private String email;
+        private String password;
+        private LocalDateTime createdAt;
+        private String status;
+        
+        public User(String name, String email, String password) {
+            this.name = name;
+            this.email = email;
+            this.password = password;
+            this.createdAt = LocalDateTime.now();
+            this.status = "active";
+        }
+        
+        // Getters and setters
+        public String getId() { return id; }
+        public void setId(String id) { this.id = id; }
+        public String getName() { return name; }
+        public String getEmail() { return email; }
+        public String getPassword() { return password; }
+        public LocalDateTime getCreatedAt() { return createdAt; }
+        public String getStatus() { return status; }
+    }
+    
+    // 註冊結果
+    public static class RegistrationResult {
+        private boolean success;
+        private User user;
+        private String error;
+        private List<String> validationErrors;
+        
+        public RegistrationResult(boolean success) {
+            this.success = success;
+        }
+        
+        // Getters and setters
+        public boolean isSuccess() { return success; }
+        public User getUser() { return user; }
+        public void setUser(User user) { this.user = user; }
+        public String getError() { return error; }
+        public void setError(String error) { this.error = error; }
+        public List<String> getValidationErrors() { return validationErrors; }
+        public void setValidationErrors(List<String> validationErrors) { this.validationErrors = validationErrors; }
+    }
+    
+    // 服務實現
+    private Map<String, User> users = new HashMap<>();
+    
+    public RegistrationResult registerUser(User userData) {
+        try {
+            // 驗證用戶數據
+            validateUserData(userData);
+            
+            // 檢查用戶是否已存在
+            if (users.containsKey(userData.getEmail())) {
+                throw new UserExistsException(userData.getEmail());
+            }
+            
+            // 生成 ID
+            userData.setId(generateId());
+            
+            // 保存用戶
+            saveUser(userData);
+            
+            RegistrationResult result = new RegistrationResult(true);
+            result.setUser(userData);
+            return result;
+            
+        } catch (ValidationException e) {
+            RegistrationResult result = new RegistrationResult(false);
+            result.setError(e.getMessage());
+            result.setValidationErrors(e.getErrors());
+            return result;
+        } catch (UserExistsException e) {
+            RegistrationResult result = new RegistrationResult(false);
+            result.setError(e.getMessage());
+            return result;
+        } catch (DatabaseException e) {
+            RegistrationResult result = new RegistrationResult(false);
+            result.setError("Database error: " + e.getMessage());
+            return result;
+        } catch (Exception e) {
+            RegistrationResult result = new RegistrationResult(false);
+            result.setError("Unexpected error: " + e.getMessage());
+            return result;
+        }
+    }
+    
+    private void validateUserData(User userData) throws ValidationException {
+        List<String> errors = new ArrayList<>();
+        
+        if (userData.getName() == null || userData.getName().trim().length() < 2) {
+            errors.add("Name must be at least 2 characters");
+        }
+        
+        if (userData.getEmail() == null || !isValidEmail(userData.getEmail())) {
+            errors.add("Valid email is required");
+        }
+        
+        if (userData.getPassword() == null || userData.getPassword().length() < 6) {
+            errors.add("Password must be at least 6 characters");
+        }
+        
+        if (!errors.isEmpty()) {
+            throw new ValidationException("Validation failed", errors);
+        }
+    }
+    
+    private boolean isValidEmail(String email) {
+        return email != null && email.contains("@") && email.contains(".");
+    }
+    
+    private String generateId() {
+        return Long.toString(System.currentTimeMillis(), 36) + 
+               Long.toString(new Random().nextLong(), 36).substring(1);
+    }
+    
+    private void saveUser(User user) throws DatabaseException {
+        // 模擬數據庫操作
+        if (Math.random() > 0.9) {
+            throw new DatabaseException("Database connection failed");
+        }
+        
+        users.put(user.getEmail(), user);
+    }
+}
+```
+</UniversalEditor>
+
+## 總結
+
+在本模組中，我們探索了 Java 的全面異常處理系統，並將其與 JavaScript 的更靈活方法進行了對比。主要差異包括：
+
+### Java 異常處理
+- **結構化方法** 使用 try-catch-finally 區塊
+- **檢查異常與未檢查異常** 需要顯式處理
+- **異常層次結構** 具有特定的異常類型
+- **編譯時檢查** 用於檢查異常
+- **資源管理** 使用 try-with-resources
+
+### JavaScript 錯誤處理
+- **靈活方法** 使用 try-catch 區塊
+- **所有錯誤都是未檢查的** 且基於運行時
+- **自定義錯誤類** 用於特定錯誤類型
+- **可選的錯誤處理** 沒有編譯時強制執行
+- **異步錯誤處理** 使用 promises 和 async/await
+
+### 最佳實踐
+1. **使用特定的異常類型** 用於不同的錯誤場景
+2. **不要忽略異常** - 始終適當處理它們
+3. **提供有意義的錯誤消息** 和上下文
+4. **使用異常鏈** 保留錯誤上下文
+5. **實現適當的資源管理**
+6. **創建集中式錯誤處理** 系統
+7. **遵循語言特定的約定** 和模式
+
+下一個模組將探索 Java 泛型，它通過參數化類型提供類型安全和代碼重用性。 

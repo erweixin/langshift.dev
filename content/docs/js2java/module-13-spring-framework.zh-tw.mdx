@@ -1,0 +1,505 @@
+---
+title: "Spring 框架基礎"
+description: "學習 Spring 框架的核心概念、依賴注入、Spring Boot 入門和企業級開發實踐"
+---
+
+# Spring 框架基礎
+
+Spring 框架是 Java 企業級開發的核心，它提供了一套完整的解決方案來簡化企業級應用的開發。作為 JavaScript 開發者，你將發現 Spring 提供了類似 Node.js 生態系統中的 Express.js 和依賴注入的功能，但更加完善和強大。
+
+## Spring 框架概述
+
+### Spring 的核心特性
+- **依賴注入 (DI)**: 自動管理物件依賴關係
+- **面向切面編程 (AOP)**: 橫切關注點的模組化
+- **事務管理**: 宣告式事務支援
+- **MVC 框架**: Web 應用開發
+- **資料存取**: 統一的資料存取抽象
+
+<UniversalEditor title="Spring vs Express.js 對比">
+```javascript !! js
+// Express.js - 簡單的 Web 服務
+const express = require('express');
+const app = express();
+
+// 手動管理依賴
+const userService = require('./services/userService');
+const userController = require('./controllers/userController');
+
+app.get('/api/users', (req, res) => {
+    const users = userService.getAllUsers();
+    res.json(users);
+});
+
+app.listen(3000, () => {
+    console.log('Server running on port 3000');
+});
+```
+
+```java !! java
+// Spring Boot - 企業級 Web 應用
+@SpringBootApplication
+@RestController
+public class UserController {
+    
+    // 自動依賴注入
+    @Autowired
+    private UserService userService;
+    
+    @GetMapping("/api/users")
+    public ResponseEntity<List<User>> getUsers() {
+        List<User> users = userService.getAllUsers();
+        return ResponseEntity.ok(users);
+    }
+    
+    public static void main(String[] args) {
+        SpringApplication.run(UserController.class, args);
+    }
+}
+```
+</UniversalEditor>
+
+## 依賴注入 (Dependency Injection)
+
+### 什麼是依賴注入
+依賴注入是一種設計模式，它允許物件在建立時自動獲得其依賴的物件，而不需要手動建立這些依賴。
+
+<UniversalEditor title="依賴注入對比">
+```javascript !! js
+// JavaScript - 手動依賴管理
+class UserService {
+    constructor() {
+        this.userRepository = new UserRepository();
+        this.emailService = new EmailService();
+    }
+    
+    createUser(userData) {
+        const user = this.userRepository.save(userData);
+        this.emailService.sendWelcomeEmail(user.email);
+        return user;
+    }
+}
+
+// 手動建立依賴
+const userService = new UserService();
+```
+
+```java !! java
+// Java - Spring 依賴注入
+@Service
+public class UserService {
+    
+    // Spring 自動注入依賴
+    @Autowired
+    private UserRepository userRepository;
+    
+    @Autowired
+    private EmailService emailService;
+    
+    public User createUser(UserData userData) {
+        User user = userRepository.save(userData);
+        emailService.sendWelcomeEmail(user.getEmail());
+        return user;
+    }
+}
+
+// Spring 容器自動管理依賴
+@Autowired
+private UserService userService;
+```
+</UniversalEditor>
+
+### 依賴注入的方式
+
+#### 1. 建構子注入
+<UniversalEditor title="建構子注入">
+```java !! java
+@Service
+public class UserService {
+    
+    private final UserRepository userRepository;
+    private final EmailService emailService;
+    
+    // 建構子注入 - 推薦方式
+    public UserService(UserRepository userRepository, 
+                      EmailService emailService) {
+        this.userRepository = userRepository;
+        this.emailService = emailService;
+    }
+    
+    public User createUser(UserData userData) {
+        User user = userRepository.save(userData);
+        emailService.sendWelcomeEmail(user.getEmail());
+        return user;
+    }
+}
+```
+
+```javascript !! js
+// JavaScript 中的類似模式
+class UserService {
+    constructor(userRepository, emailService) {
+        this.userRepository = userRepository;
+        this.emailService = emailService;
+    }
+    
+    createUser(userData) {
+        const user = this.userRepository.save(userData);
+        this.emailService.sendWelcomeEmail(user.email);
+        return user;
+    }
+}
+```
+</UniversalEditor>
+
+## Spring Boot 入門
+
+### Spring Boot 的優勢
+- **自動配置**: 根據依賴自動配置應用
+- **內嵌伺服器**: 無需外部伺服器
+- **生產就緒**: 內建監控和管理功能
+- **簡化配置**: 約定優於配置
+
+<UniversalEditor title="Spring Boot vs 傳統 Spring">
+```java !! java
+// 傳統 Spring 配置 - 需要大量 XML 配置
+@Configuration
+@EnableWebMvc
+@ComponentScan("com.example")
+public class WebConfig {
+    
+    @Bean
+    public ViewResolver viewResolver() {
+        InternalResourceViewResolver resolver = new InternalResourceViewResolver();
+        resolver.setPrefix("/WEB-INF/views/");
+        resolver.setSuffix(".jsp");
+        return resolver;
+    }
+    
+    @Bean
+    public DataSource dataSource() {
+        DriverManagerDataSource dataSource = new DriverManagerDataSource();
+        dataSource.setDriverClassName("com.mysql.cj.jdbc.Driver");
+        dataSource.setUrl("jdbc:mysql://localhost:3306/mydb");
+        dataSource.setUsername("root");
+        dataSource.setPassword("password");
+        return dataSource;
+    }
+}
+```
+
+```java !! java
+// Spring Boot - 自動配置
+@SpringBootApplication
+public class Application {
+    public static void main(String[] args) {
+        SpringApplication.run(Application.class, args);
+    }
+}
+
+// application.properties 或 application.yml 配置
+// spring.datasource.url=jdbc:mysql://localhost:3306/mydb
+// spring.datasource.username=root
+// spring.datasource.password=password
+```
+</UniversalEditor>
+
+## Spring 核心註解
+
+### 元件註解
+<UniversalEditor title="Spring 元件註解">
+```java !! java
+// @Component - 通用元件
+@Component
+public class EmailService {
+    public void sendEmail(String to, String subject, String content) {
+        // 發送郵件邏輯
+    }
+}
+
+// @Service - 業務邏輯層
+@Service
+public class UserService {
+    // 業務邏輯
+}
+
+// @Repository - 資料存取層
+@Repository
+public class UserRepository {
+    // 資料存取邏輯
+}
+
+// @Controller - Web 控制器
+@Controller
+public class UserController {
+    // Web 請求處理
+}
+
+// @RestController - REST API 控制器
+@RestController
+public class UserApiController {
+    // REST API 處理
+}
+```
+
+```javascript !! js
+// JavaScript 中的類似模式
+// 使用模組系統組織程式碼
+
+// services/emailService.js
+class EmailService {
+    sendEmail(to, subject, content) {
+        // 發送郵件邏輯
+    }
+}
+module.exports = EmailService;
+
+// services/userService.js
+class UserService {
+    // 業務邏輯
+}
+module.exports = UserService;
+
+// controllers/userController.js
+class UserController {
+    // Web 請求處理
+}
+module.exports = UserController;
+```
+</UniversalEditor>
+
+## 配置管理
+
+### 屬性檔案配置
+<UniversalEditor title="Spring Boot 配置">
+```yaml !! yaml
+# application.yml
+server:
+  port: 8080
+
+spring:
+  datasource:
+    url: jdbc:mysql://localhost:3306/mydb
+    username: root
+    password: password
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+
+app:
+  email:
+    enabled: true
+    smtp:
+      host: smtp.gmail.com
+      port: 587
+```
+
+```javascript !! js
+// Node.js 中的配置管理
+// config/default.js
+module.exports = {
+    server: {
+        port: 3000
+    },
+    database: {
+        url: 'mysql://localhost:3306/mydb',
+        username: 'root',
+        password: 'password'
+    },
+    email: {
+        enabled: true,
+        smtp: {
+            host: 'smtp.gmail.com',
+            port: 587
+        }
+    }
+};
+
+// 使用環境變數
+const config = {
+    server: {
+        port: process.env.PORT || 3000
+    },
+    database: {
+        url: process.env.DATABASE_URL
+    }
+};
+```
+</UniversalEditor>
+
+## 資料存取層
+
+### Spring Data JPA
+<UniversalEditor title="Spring Data JPA">
+```java !! java
+// 實體類
+@Entity
+@Table(name = "users")
+public class User {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    
+    @Column(nullable = false, unique = true)
+    private String email;
+    
+    @Column(nullable = false)
+    private String name;
+    
+    // getters and setters
+}
+
+// Repository 介面
+@Repository
+public interface UserRepository extends JpaRepository<User, Long> {
+    
+    // 自動產生查詢方法
+    Optional<User> findByEmail(String email);
+    
+    List<User> findByNameContainingIgnoreCase(String name);
+    
+    @Query("SELECT u FROM User u WHERE u.email LIKE %:domain")
+    List<User> findByEmailDomain(@Param("domain") String domain);
+}
+```
+
+```javascript !! js
+// JavaScript 中的類似模式
+// 使用 Sequelize ORM
+const { DataTypes } = require('sequelize');
+
+const User = sequelize.define('User', {
+    id: {
+        type: DataTypes.INTEGER,
+        primaryKey: true,
+        autoIncrement: true
+    },
+    email: {
+        type: DataTypes.STRING,
+        allowNull: false,
+        unique: true
+    },
+    name: {
+        type: DataTypes.STRING,
+        allowNull: false
+    }
+});
+
+// 查詢方法
+class UserRepository {
+    async findByEmail(email) {
+        return await User.findOne({ where: { email } });
+    }
+    
+    async findByNameContaining(name) {
+        return await User.findAll({
+            where: {
+                name: { [Op.like]: `%${name}%` }
+            }
+        });
+    }
+}
+```
+</UniversalEditor>
+
+## 測試
+
+### Spring Boot 測試
+<UniversalEditor title="Spring Boot 測試">
+```java !! java
+@SpringBootTest
+@AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
+class UserServiceTest {
+    
+    @Autowired
+    private UserService userService;
+    
+    @MockBean
+    private EmailService emailService;
+    
+    @Test
+    void testCreateUser() {
+        // Given
+        UserData userData = new UserData("john@example.com", "John Doe");
+        
+        // When
+        User user = userService.createUser(userData);
+        
+        // Then
+        assertThat(user.getEmail()).isEqualTo("john@example.com");
+        assertThat(user.getName()).isEqualTo("John Doe");
+        
+        verify(emailService).sendWelcomeEmail("john@example.com");
+    }
+}
+```
+
+```javascript !! js
+// JavaScript 中的測試
+// 使用 Jest
+describe('UserService', () => {
+    let userService;
+    let mockEmailService;
+    
+    beforeEach(() => {
+        mockEmailService = {
+            sendWelcomeEmail: jest.fn()
+        };
+        userService = new UserService(mockEmailService);
+    });
+    
+    test('should create user successfully', async () => {
+        // Given
+        const userData = { email: 'john@example.com', name: 'John Doe' };
+        
+        // When
+        const user = await userService.createUser(userData);
+        
+        // Then
+        expect(user.email).toBe('john@example.com');
+        expect(user.name).toBe('John Doe');
+        expect(mockEmailService.sendWelcomeEmail).toHaveBeenCalledWith('john@example.com');
+    });
+});
+```
+</UniversalEditor>
+
+## 練習題
+
+### 練習 1: 建立 Spring Boot 專案
+1. 使用 Spring Initializr 建立新專案
+2. 新增必要的依賴
+3. 建立簡單的 REST API
+4. 執行並測試應用
+
+### 練習 2: 依賴注入實踐
+1. 建立 Service 和 Repository 類別
+2. 使用不同的依賴注入方式
+3. 理解依賴注入的優勢
+
+### 練習 3: 配置管理
+1. 建立配置檔案
+2. 使用 @Value 註解注入配置
+3. 建立配置類別
+
+### 練習 4: 資料存取
+1. 建立實體類別
+2. 實作 Repository 介面
+3. 測試資料存取功能
+
+## 總結
+
+Spring 框架為 Java 企業級開發提供了強大的支援：
+
+- **依賴注入**: 自動管理物件依賴關係
+- **Spring Boot**: 簡化配置和部署
+- **資料存取**: 統一的資料庫存取抽象
+- **事務管理**: 宣告式事務支援
+- **測試支援**: 完整的測試框架
+
+在下一個模組中，我們將學習如何使用 Spring 進行 Web 開發，包括 REST API 開發、前後端分離等主題。
+
+準備好進入 Web 開發的世界了嗎？

@@ -1,0 +1,789 @@
+---
+title: "模組 10：泛型"
+description: "學習 Java 泛型、類型參數、有界類型和泛型集合，對比 JavaScript 的類型處理和泛型模式。"
+---
+
+# 模組 10：泛型
+
+在本模組中，我們將探索 Java 的泛型系統，並與 JavaScript 的類型處理方法進行對比。我們將學習類型參數、有界類型、泛型方法，以及泛型如何在保持程式碼可重複使用性的同時提供類型安全。
+
+## 學習目標
+
+在本模組結束時，你將能夠：
+- 理解 Java 泛型和類型參數
+- 對比 Java 泛型與 JavaScript 類型處理
+- 實現泛型類別和方法
+- 使用有界類型和萬用字元
+- 在集合和資料結構中應用泛型
+- 理解類型擦除及其影響
+
+## 泛型基礎
+
+### 1. 泛型類別和類型參數
+
+Java 泛型提供編譯時類型安全，而 JavaScript 使用執行時類型檢查和 TypeScript 進行靜態類型。
+
+<UniversalEditor title="泛型類別和類型參數" compare={true}>
+```javascript !! js
+// JavaScript - 泛型模式和類型處理
+// 類似泛型的函數和類型檢查
+function createContainer(value) {
+    return {
+        value: value,
+        getValue: function() {
+            return this.value;
+        },
+        setValue: function(newValue) {
+            this.value = newValue;
+        },
+        getType: function() {
+            return typeof this.value;
+        }
+    };
+}
+
+// 帶驗證的類型安全容器
+function createTypedContainer(value, type) {
+    const container = {
+        value: value,
+        type: type,
+        getValue: function() {
+            return this.value;
+        },
+        setValue: function(newValue) {
+            if (typeof newValue !== this.type) {
+                throw new Error(`期望 ${this.type}，實際得到 ${typeof newValue}`);
+            }
+            this.value = newValue;
+        },
+        getType: function() {
+            return this.type;
+        }
+    };
+    
+    // 驗證初始值
+    container.setValue(value);
+    return container;
+}
+
+// 類似泛型的類別，使用 TypeScript 風格註解
+class Container {
+    constructor(value) {
+        this.value = value;
+    }
+    
+    getValue() {
+        return this.value;
+    }
+    
+    setValue(newValue) {
+        this.value = newValue;
+    }
+    
+    getType() {
+        return typeof this.value;
+    }
+}
+
+// 類似泛型的對偶類別
+class Pair {
+    constructor(first, second) {
+        this.first = first;
+        this.second = second;
+    }
+    
+    getFirst() {
+        return this.first;
+    }
+    
+    getSecond() {
+        return this.second;
+    }
+    
+    setFirst(first) {
+        this.first = first;
+    }
+    
+    setSecond(second) {
+        this.second = second;
+    }
+    
+    swap() {
+        [this.first, this.second] = [this.second, this.first];
+    }
+    
+    toString() {
+        return `(${this.first}, ${this.second})`;
+    }
+}
+
+// 類似泛型的堆疊實作
+class Stack {
+    constructor() {
+        this.items = [];
+    }
+    
+    push(item) {
+        this.items.push(item);
+    }
+    
+    pop() {
+        if (this.isEmpty()) {
+            throw new Error('堆疊為空');
+        }
+        return this.items.pop();
+    }
+    
+    peek() {
+        if (this.isEmpty()) {
+            throw new Error('堆疊為空');
+        }
+        return this.items[this.items.length - 1];
+    }
+    
+    isEmpty() {
+        return this.items.length === 0;
+    }
+    
+    size() {
+        return this.items.length;
+    }
+    
+    clear() {
+        this.items = [];
+    }
+}
+
+// 使用範例
+const stringContainer = createContainer("Hello");
+const numberContainer = createContainer(42);
+const booleanContainer = createContainer(true);
+
+console.log(stringContainer.getValue()); // "Hello"
+console.log(numberContainer.getValue()); // 42
+console.log(booleanContainer.getType()); // "boolean"
+
+// 類型容器
+const typedStringContainer = createTypedContainer("Hello", "string");
+const typedNumberContainer = createTypedContainer(42, "number");
+
+try {
+    typedStringContainer.setValue(123); // 錯誤：期望 string，實際得到 number
+} catch (error) {
+    console.error(error.message);
+}
+
+// 對偶
+const stringPair = new Pair("Hello", "World");
+const numberPair = new Pair(1, 2);
+const mixedPair = new Pair("Hello", 42);
+
+console.log(stringPair.toString()); // "(Hello, World)"
+console.log(numberPair.toString()); // "(1, 2)"
+mixedPair.swap();
+console.log(mixedPair.toString()); // "(42, Hello)"
+
+// 堆疊的使用
+const stack = new Stack();
+stack.push(1);
+stack.push(2);
+stack.push(3);
+
+console.log(stack.pop()); // 3
+console.log(stack.peek()); // 2
+console.log(stack.size()); // 2
+```
+
+```java !! java
+// Java - 泛型類別和類型參數
+import java.util.*;
+
+// 泛型容器類別
+public class Container<T> {
+    private T value;
+    
+    public Container(T value) {
+        this.value = value;
+    }
+    
+    public T getValue() {
+        return value;
+    }
+    
+    public void setValue(T newValue) {
+        this.value = newValue;
+    }
+    
+    public String getType() {
+        return value != null ? value.getClass().getSimpleName() : "null";
+    }
+    
+    @Override
+    public String toString() {
+        return "Container{" + value + "}";
+    }
+}
+
+// 泛型對偶類別
+public class Pair<T, U> {
+    private T first;
+    private U second;
+    
+    public Pair(T first, U second) {
+        this.first = first;
+        this.second = second;
+    }
+    
+    public T getFirst() {
+        return first;
+    }
+    
+    public U getSecond() {
+        return second;
+    }
+    
+    public void setFirst(T first) {
+        this.first = first;
+    }
+    
+    public void setSecond(U second) {
+        this.second = second;
+    }
+    
+    public void swap() {
+        // 注意：這需要兩個類型相同
+        if (first.getClass() == second.getClass()) {
+            @SuppressWarnings("unchecked")
+            T temp = (T) second;
+            second = (U) first;
+            first = temp;
+        }
+    }
+    
+    @Override
+    public String toString() {
+        return "(" + first + ", " + second + ")";
+    }
+}
+
+// 泛型堆疊實作
+public class Stack<T> {
+    private List<T> items;
+    
+    public Stack() {
+        this.items = new ArrayList<>();
+    }
+    
+    public void push(T item) {
+        items.add(item);
+    }
+    
+    public T pop() {
+        if (isEmpty()) {
+            throw new EmptyStackException();
+        }
+        return items.remove(items.size() - 1);
+    }
+    
+    public T peek() {
+        if (isEmpty()) {
+            throw new EmptyStackException();
+        }
+        return items.get(items.size() - 1);
+    }
+    
+    public boolean isEmpty() {
+        return items.isEmpty();
+    }
+    
+    public int size() {
+        return items.size();
+    }
+    
+    public void clear() {
+        items.clear();
+    }
+    
+    @Override
+    public String toString() {
+        return items.toString();
+    }
+}
+
+// 演示泛型的主類別
+public class GenericDemo {
+    public static void main(String[] args) {
+        // 容器使用
+        Container<String> stringContainer = new Container<>("Hello");
+        Container<Integer> numberContainer = new Container<>(42);
+        Container<Boolean> booleanContainer = new Container<>(true);
+        
+        System.out.println(stringContainer.getValue()); // "Hello"
+        System.out.println(numberContainer.getValue()); // 42
+        System.out.println(booleanContainer.getType()); // "Boolean"
+        
+        // 對偶使用
+        Pair<String, String> stringPair = new Pair<>("Hello", "World");
+        Pair<Integer, Integer> numberPair = new Pair<>(1, 2);
+        Pair<String, Integer> mixedPair = new Pair<>("Hello", 42);
+        
+        System.out.println(stringPair); // "(Hello, World)"
+        System.out.println(numberPair); // "(1, 2)"
+        System.out.println(mixedPair); // "(Hello, 42)"
+        
+        // 堆疊使用
+        Stack<Integer> stack = new Stack<>();
+        stack.push(1);
+        stack.push(2);
+        stack.push(3);
+        
+        System.out.println(stack.pop()); // 3
+        System.out.println(stack.peek()); // 2
+        System.out.println(stack.size()); // 2
+        
+        // 類型安全演示
+        Container<String> container = new Container<>("Hello");
+        // container.setValue(42); // 編譯錯誤！
+        container.setValue("World"); // 正確
+    }
+}
+```
+</UniversalEditor>
+
+### 2. 泛型方法和有界類型
+
+Java 支援泛型方法和有界類型，以實現更靈活的類型約束。
+
+<UniversalEditor title="泛型方法和有界類型" compare={true}>
+```javascript !! js
+// JavaScript - 泛型方法和類型約束
+// 類似泛型的工具函數
+function findMax(array) {
+    if (array.length === 0) {
+        throw new Error('陣列為空');
+    }
+    
+    let max = array[0];
+    for (let i = 1; i < array.length; i++) {
+        if (array[i] > max) {
+            max = array[i];
+        }
+    }
+    return max;
+}
+
+// 帶類型約束的函數（執行時檢查）
+function findMaxComparable(array) {
+    if (array.length === 0) {
+        throw new Error('陣列為空');
+    }
+    
+    // 檢查所有元素是否可比較
+    for (let item of array) {
+        if (typeof item !== 'number' && typeof item !== 'string') {
+            throw new Error('所有元素必須可比較（數字或字串）');
+        }
+    }
+    
+    let max = array[0];
+    for (let i = 1; i < array.length; i++) {
+        if (array[i] > max) {
+            max = array[i];
+        }
+    }
+    return max;
+}
+
+// 類似泛型的工具類別
+class ArrayUtils {
+    static findMax(array) {
+        return findMax(array);
+    }
+    
+    static filter(array, predicate) {
+        return array.filter(predicate);
+    }
+    
+    static map(array, transform) {
+        return array.map(transform);
+    }
+    
+    static reduce(array, reducer, initialValue) {
+        return array.reduce(reducer, initialValue);
+    }
+}
+
+// 使用範例
+const numbers = [3, 1, 4, 1, 5, 9, 2, 6];
+const strings = ['banana', 'apple', 'cherry', 'date'];
+
+console.log('最大數字:', findMax(numbers)); // 9
+console.log('最大字串:', findMax(strings)); // 'date'
+
+// 過濾
+const evenNumbers = ArrayUtils.filter(numbers, x => x % 2 === 0);
+console.log('偶數:', evenNumbers); // [4, 2, 6]
+
+// 對映
+const doubledNumbers = ArrayUtils.map(numbers, x => x * 2);
+console.log('翻倍的數字:', doubledNumbers);
+```
+
+```java !! java
+// Java - 泛型方法和有界類型
+import java.util.*;
+import java.util.function.*;
+
+// 泛型工具類別，帶有界類型
+public class ArrayUtils {
+    
+    // 帶有界類型參數的泛型方法
+    public static <T extends Comparable<T>> T findMax(T[] array) {
+        if (array.length == 0) {
+            throw new IllegalArgumentException("陣列為空");
+        }
+        
+        T max = array[0];
+        for (int i = 1; i < array.length; i++) {
+            if (array[i].compareTo(max) > 0) {
+                max = array[i];
+            }
+        }
+        return max;
+    }
+    
+    public static <T extends Comparable<T>> T findMin(T[] array) {
+        if (array.length == 0) {
+            throw new IllegalArgumentException("陣列為空");
+        }
+        
+        T min = array[0];
+        for (int i = 1; i < array.length; i++) {
+            if (array[i].compareTo(min) < 0) {
+                min = array[i];
+            }
+        }
+        return min;
+    }
+    
+    // 多重界限的泛型方法
+    public static <T extends Comparable<T> & Cloneable> T[] sort(T[] array) {
+        T[] result = array.clone();
+        Arrays.sort(result);
+        return result;
+    }
+    
+    // 泛型方法與萬用字元
+    public static <T> List<T> filter(List<T> list, Predicate<T> predicate) {
+        List<T> result = new ArrayList<>();
+        for (T item : list) {
+            if (predicate.test(item)) {
+                result.add(item);
+            }
+        }
+        return result;
+    }
+    
+    public static <T, R> List<R> map(List<T> list, Function<T, R> function) {
+        List<R> result = new ArrayList<>();
+        for (T item : list) {
+            result.add(function.apply(item));
+        }
+        return result;
+    }
+    
+    // 數字類型的有界泛型方法
+    public static <T extends Number> double average(List<T> numbers) {
+        if (numbers.isEmpty()) {
+            throw new IllegalArgumentException("列表為空");
+        }
+        
+        double sum = 0.0;
+        for (T number : numbers) {
+            sum += number.doubleValue();
+        }
+        return sum / numbers.size();
+    }
+    
+    // 多個類型參數的泛型方法
+    public static <T, U> List<Pair<T, U>> zip(List<T> list1, List<U> list2) {
+        List<Pair<T, U>> result = new ArrayList<>();
+        int minSize = Math.min(list1.size(), list2.size());
+        
+        for (int i = 0; i < minSize; i++) {
+            result.add(new Pair<>(list1.get(i), list2.get(i)));
+        }
+        return result;
+    }
+    
+    // 萬用字元方法
+    public static void printList(List<?> list) {
+        for (Object item : list) {
+            System.out.print(item + " ");
+        }
+        System.out.println();
+    }
+    
+    // 上界萬用字元
+    public static double sumOfNumbers(List<? extends Number> numbers) {
+        double sum = 0.0;
+        for (Number number : numbers) {
+            sum += number.doubleValue();
+        }
+        return sum;
+    }
+    
+    // 下界萬用字元
+    public static void addNumbers(List<? super Integer> numbers) {
+        numbers.add(1);
+        numbers.add(2);
+        numbers.add(3);
+    }
+}
+
+// 有界類型參數的泛型類別
+public class ComparableContainer<T extends Comparable<T>> {
+    private T value;
+    
+    public ComparableContainer(T value) {
+        this.value = value;
+    }
+    
+    public T getValue() {
+        return value;
+    }
+    
+    public void setValue(T newValue) {
+        this.value = newValue;
+    }
+    
+    public int compareTo(ComparableContainer<T> other) {
+        return this.value.compareTo(other.value);
+    }
+    
+    public boolean isGreaterThan(ComparableContainer<T> other) {
+        return this.value.compareTo(other.value) > 0;
+    }
+    
+    @Override
+    public String toString() {
+        return "ComparableContainer{" + value + "}";
+    }
+}
+
+// 演示泛型方法和有界類型的主類別
+public class GenericMethodsDemo {
+    public static void main(String[] args) {
+        // 測試陣列的泛型方法
+        Integer[] numbers = {3, 1, 4, 1, 5, 9, 2, 6};
+        String[] strings = {"banana", "apple", "cherry", "date"};
+        
+        System.out.println("最大數字: " + ArrayUtils.findMax(numbers)); // 9
+        System.out.println("最小數字: " + ArrayUtils.findMin(numbers)); // 1
+        System.out.println("最大字串: " + ArrayUtils.findMax(strings)); // "date"
+        System.out.println("最小字串: " + ArrayUtils.findMin(strings)); // "apple"
+        
+        // 測試列表
+        List<Integer> numberList = Arrays.asList(1, 2, 3, 4, 5, 6, 7, 8, 9, 10);
+        List<String> stringList = Arrays.asList("apple", "banana", "cherry", "date");
+        
+        // 過濾
+        List<Integer> evenNumbers = ArrayUtils.filter(numberList, x -> x % 2 == 0);
+        List<String> longStrings = ArrayUtils.filter(stringList, s -> s.length() > 5);
+        System.out.println("偶數: " + evenNumbers);
+        System.out.println("長字串: " + longStrings);
+        
+        // 對映
+        List<Integer> doubledNumbers = ArrayUtils.map(numberList, x -> x * 2);
+        List<String> upperStrings = ArrayUtils.map(stringList, String::toUpperCase);
+        System.out.println("翻倍的數字: " + doubledNumbers);
+        System.out.println("大寫字串: " + upperStrings);
+        
+        // 平均值
+        double average = ArrayUtils.average(numberList);
+        System.out.println("平均值: " + average);
+        
+        // 壓縮
+        List<Pair<String, Integer>> zipped = ArrayUtils.zip(stringList, numberList.subList(0, 4));
+        System.out.println("壓縮: " + zipped);
+        
+        // 可比較容器
+        ComparableContainer<Integer> numContainer1 = new ComparableContainer<>(5);
+        ComparableContainer<Integer> numContainer2 = new ComparableContainer<>(10);
+        
+        System.out.println("5 > 10: " + numContainer1.isGreaterThan(numContainer2)); // false
+        
+        // 萬用字元範例
+        ArrayUtils.printList(numberList);
+        double sum = ArrayUtils.sumOfNumbers(Arrays.asList(1, 2, 3, 4, 5));
+        System.out.println("數字總和: " + sum);
+    }
+}
+```
+</UniversalEditor>
+
+## 練習題
+
+### 練習 1: 泛型類別
+
+<UniversalEditor title="練習 1: 泛型類別">
+```java !! java
+// TODO: 實作泛型類別
+public class Box<T> {
+    // TODO: 新增儲存值的私有欄位
+    
+    // TODO: 實作建構函式
+    
+    // TODO: 新增 getter 和 setter 方法
+    
+    // TODO: 新增檢查盒子是否為空的方法
+    
+    // TODO: 重寫 toString 方法
+}
+
+public class Triple<T, U, V> {
+    // TODO: 新增三個值的私有欄位
+    
+    // TODO: 實作建構函式
+    
+    // TODO: 新增 getter 和 setter 方法
+    
+    // TODO: 新增旋轉值的方法 (T->U->V->T)
+    
+    // TODO: 重寫 toString 方法
+}
+
+public class GenericStack<T> {
+    // TODO: 新增儲存元素的私有欄位
+    
+    // TODO: 實作建構函式
+    
+    // TODO: 新增 push, pop, peek 方法
+    
+    // TODO: 新增 isEmpty, size, clear 方法
+    
+    // TODO: 新增搜尋元素的方法
+}
+
+public class GenericExercise1 {
+    public static void main(String[] args) {
+        // 測試你的實作
+        Box<String> stringBox = new Box<>("Hello");
+        Box<Integer> intBox = new Box<>(42);
+        
+        System.out.println("字串盒子: " + stringBox);
+        System.out.println("整數盒子: " + intBox);
+        System.out.println("字串盒子是否為空: " + stringBox.isEmpty());
+        
+        Triple<String, Integer, Boolean> triple = new Triple<>("Hello", 42, true);
+        System.out.println("三元組: " + triple);
+        triple.rotate();
+        System.out.println("旋轉後: " + triple);
+        
+        GenericStack<String> stack = new GenericStack<>();
+        stack.push("第一個");
+        stack.push("第二個");
+        stack.push("第三個");
+        
+        System.out.println("堆疊大小: " + stack.size());
+        System.out.println("頂部元素: " + stack.peek());
+        System.out.println("彈出: " + stack.pop());
+        System.out.println("搜尋 '第二個': " + stack.search("第二個"));
+    }
+}
+```
+</UniversalEditor>
+
+### 練習 2: 泛型方法和有界類型
+
+<UniversalEditor title="練習 2: 泛型方法和有界類型">
+```java !! java
+// TODO: 實作泛型方法和有界類型
+public class GenericUtils {
+    // TODO: 新增尋找陣列中最大元素的泛型方法（由 Comparable 限制）
+    
+    // TODO: 新增計算列表中元素出現次數的泛型方法
+    
+    // TODO: 新增反轉陣列的泛型方法
+    
+    // TODO: 新增檢查陣列是否已排序的泛型方法（由 Comparable 限制）
+    
+    // TODO: 新增尋找兩個列表共同元素的泛型方法
+    
+    // TODO: 新增將列表轉換為陣列的泛型方法
+}
+
+public class NumberUtils {
+    // TODO: 新增計算數字總和的泛型方法（由 Number 限制）
+    
+    // TODO: 新增計算數字平均值的泛型方法（由 Number 限制）
+    
+    // TODO: 新增尋找最小值和最大值的泛型方法（由 Comparable & Number 限制）
+    
+    // TODO: 新增排序數字的泛型方法（由 Comparable & Number 限制）
+}
+
+public class GenericExercise2 {
+    public static void main(String[] args) {
+        // 測試你的實作
+        Integer[] numbers = {3, 1, 4, 1, 5, 9, 2, 6};
+        String[] strings = {"banana", "apple", "cherry", "date"};
+        
+        System.out.println("最大數字: " + GenericUtils.findMax(numbers));
+        System.out.println("最大字串: " + GenericUtils.findMax(strings));
+        
+        List<Integer> numberList = Arrays.asList(1, 2, 2, 3, 3, 4);
+        System.out.println("2 的出現次數: " + GenericUtils.countOccurrences(numberList, 2));
+        
+        GenericUtils.reverse(numbers);
+        System.out.println("反轉的數字: " + Arrays.toString(numbers));
+        
+        System.out.println("是否已排序: " + GenericUtils.isSorted(strings));
+        
+        List<String> list1 = Arrays.asList("apple", "banana", "cherry");
+        List<String> list2 = Arrays.asList("banana", "date", "apple");
+        System.out.println("共同元素: " + GenericUtils.findCommonElements(list1, list2));
+        
+        // 數字工具
+        List<Integer> intList = Arrays.asList(1, 2, 3, 4, 5);
+        List<Double> doubleList = Arrays.asList(1.1, 2.2, 3.3, 4.4, 5.5);
+        
+        System.out.println("整數總和: " + NumberUtils.sum(intList));
+        System.out.println("雙精度平均值: " + NumberUtils.average(doubleList));
+        
+        Pair<Double, Double> minMax = NumberUtils.findMinMax(doubleList);
+        System.out.println("最小值: " + minMax.getFirst() + ", 最大值: " + minMax.getSecond());
+        
+        List<Double> sortedDoubles = NumberUtils.sort(doubleList);
+        System.out.println("排序的雙精度: " + sortedDoubles);
+    }
+}
+```
+</UniversalEditor>
+
+## 總結
+
+在本模組中，我們探索了 Java 的泛型系統，並與 JavaScript 的類型處理方法進行了對比：
+
+### 關鍵要點：
+1. **類型安全**：Java 泛型提供編譯時類型安全
+2. **類型參數**：泛型類別和方法使用類型參數
+3. **有界類型**：類型約束確保特定能力
+4. **萬用字元**：上界和下界萬用字元提供靈活性
+5. **類型擦除**：泛型在執行時被擦除
+
+### 下一步：
+- 練習實作泛型類別和方法
+- 掌握有界類型和萬用字元
+- 探索泛型集合和資料結構
+- 準備下一個模組：集合框架
+
+## 其他資源
+
+- [Java 泛型](https://docs.oracle.com/javase/tutorial/java/generics/)
+- [Java 泛型方法](https://docs.oracle.com/javase/tutorial/java/generics/methods.html)
+- [Java 萬用字元](https://docs.oracle.com/javase/tutorial/java/generics/wildcards.html)
+
+---
+
+**練習提示**：重點理解類型安全以及泛型如何防止執行時錯誤。練習使用有界類型確保物件具有所需能力。當你需要類型參數的靈活性時使用萬用字元。

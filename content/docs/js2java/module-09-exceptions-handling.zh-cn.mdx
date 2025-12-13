@@ -1,0 +1,1501 @@
+---
+title: "模块 09: 异常处理"
+description: "学习 Java 异常处理、try-catch 块、检查异常与未检查异常、自定义异常，与 JavaScript 错误处理模式对比。"
+---
+
+# 模块 09: 异常处理
+
+在本模块中，我们将探索 Java 的全面异常处理系统，并将其与 JavaScript 的错误处理模式进行对比。Java 的异常处理更加结构化，提供编译时检查，而 JavaScript 使用更灵活但不太严格的方法。
+
+## 学习目标
+
+完成本模块后，您将能够：
+- 理解 Java 的异常层次结构和类型
+- 比较 Java 异常与 JavaScript 错误处理
+- 有效使用 try-catch-finally 块
+- 处理检查异常和未检查异常
+- 创建和抛出自定义异常
+- 应用异常处理最佳实践
+
+## 异常层次结构
+
+### 1. Java 异常类型
+
+Java 有明确定义的异常层次结构，而 JavaScript 有更简单的错误系统。
+
+<UniversalEditor title="异常层次结构对比" compare={true}>
+```javascript !! js
+// JavaScript - 错误类型
+// 内置错误类型
+class CustomError extends Error {
+    constructor(message, code) {
+        super(message);
+        this.name = 'CustomError';
+        this.code = code;
+        this.timestamp = new Date();
+    }
+}
+
+class ValidationError extends Error {
+    constructor(message, field) {
+        super(message);
+        this.name = 'ValidationError';
+        this.field = field;
+    }
+}
+
+class NetworkError extends Error {
+    constructor(message, statusCode) {
+        super(message);
+        this.name = 'NetworkError';
+        this.statusCode = statusCode;
+    }
+}
+
+// 错误处理模式
+function processUserData(userData) {
+    try {
+        // 验证用户数据
+        if (!userData.name) {
+            throw new ValidationError('Name is required', 'name');
+        }
+        
+        if (!userData.email) {
+            throw new ValidationError('Email is required', 'email');
+        }
+        
+        // 处理数据
+        console.log('Processing user:', userData.name);
+        
+        // 模拟网络错误
+        if (Math.random() > 0.8) {
+            throw new NetworkError('Connection failed', 500);
+        }
+        
+        return { success: true, user: userData };
+        
+    } catch (error) {
+        if (error instanceof ValidationError) {
+            console.error('Validation error:', error.message, 'Field:', error.field);
+            return { success: false, error: 'Validation failed', field: error.field };
+        } else if (error instanceof NetworkError) {
+            console.error('Network error:', error.message, 'Status:', error.statusCode);
+            return { success: false, error: 'Network error', statusCode: error.statusCode };
+        } else {
+            console.error('Unexpected error:', error.message);
+            return { success: false, error: 'Unexpected error' };
+        }
+    } finally {
+        console.log('User data processing completed');
+    }
+}
+
+// 使用示例
+const userData = { name: 'John', email: 'john@example.com' };
+const result = processUserData(userData);
+console.log(result);
+```
+
+```java !! java
+// Java - 异常层次结构
+// 自定义异常类
+public class CustomException extends Exception {
+    private String code;
+    private long timestamp;
+    
+    public CustomException(String message, String code) {
+        super(message);
+        this.code = code;
+        this.timestamp = System.currentTimeMillis();
+    }
+    
+    public String getCode() { return code; }
+    public long getTimestamp() { return timestamp; }
+}
+
+public class ValidationException extends Exception {
+    private String field;
+    
+    public ValidationException(String message, String field) {
+        super(message);
+        this.field = field;
+    }
+    
+    public String getField() { return field; }
+}
+
+public class NetworkException extends Exception {
+    private int statusCode;
+    
+    public NetworkException(String message, int statusCode) {
+        super(message);
+        this.statusCode = statusCode;
+    }
+    
+    public int getStatusCode() { return statusCode; }
+}
+
+// 使用 try-catch-finally 的异常处理
+public class UserDataProcessor {
+    public static class ProcessResult {
+        private boolean success;
+        private String error;
+        private String field;
+        private int statusCode;
+        
+        public ProcessResult(boolean success) {
+            this.success = success;
+        }
+        
+        // Getters and setters
+        public boolean isSuccess() { return success; }
+        public String getError() { return error; }
+        public void setError(String error) { this.error = error; }
+        public String getField() { return field; }
+        public void setField(String field) { this.field = field; }
+        public int getStatusCode() { return statusCode; }
+        public void setStatusCode(int statusCode) { this.statusCode = statusCode; }
+    }
+    
+    public static ProcessResult processUserData(UserData userData) {
+        try {
+            // 验证用户数据
+            if (userData.getName() == null || userData.getName().trim().isEmpty()) {
+                throw new ValidationException("Name is required", "name");
+            }
+            
+            if (userData.getEmail() == null || userData.getEmail().trim().isEmpty()) {
+                throw new ValidationException("Email is required", "email");
+            }
+            
+            // 处理数据
+            System.out.println("Processing user: " + userData.getName());
+            
+            // 模拟网络错误
+            if (Math.random() > 0.8) {
+                throw new NetworkException("Connection failed", 500);
+            }
+            
+            return new ProcessResult(true);
+            
+        } catch (ValidationException e) {
+            System.err.println("Validation error: " + e.getMessage() + " Field: " + e.getField());
+            ProcessResult result = new ProcessResult(false);
+            result.setError("Validation failed");
+            result.setField(e.getField());
+            return result;
+        } catch (NetworkException e) {
+            System.err.println("Network error: " + e.getMessage() + " Status: " + e.getStatusCode());
+            ProcessResult result = new ProcessResult(false);
+            result.setError("Network error");
+            result.setStatusCode(e.getStatusCode());
+            return result;
+        } catch (Exception e) {
+            System.err.println("Unexpected error: " + e.getMessage());
+            ProcessResult result = new ProcessResult(false);
+            result.setError("Unexpected error");
+            return result;
+        } finally {
+            System.out.println("User data processing completed");
+        }
+    }
+    
+    public static void main(String[] args) {
+        System.out.println("异常处理示例");
+        System.out.println("==============");
+        
+        UserData userData = new UserData("John Doe", "john@example.com");
+        ProcessResult result = processUserData(userData);
+        
+        if (result.isSuccess()) {
+            System.out.println("处理成功！");
+        } else {
+            System.out.println("处理失败: " + result.getError());
+        }
+    }
+}
+
+// 用户数据类
+class UserData {
+    private String name;
+    private String email;
+    
+    public UserData(String name, String email) {
+        this.name = name;
+        this.email = email;
+    }
+    
+    public String getName() { return name; }
+    public String getEmail() { return email; }
+}
+```
+</UniversalEditor>
+
+## Try-Catch-Finally 块
+
+### 2. 异常处理结构
+
+Java 的 try-catch-finally 提供结构化的错误处理，而 JavaScript 使用 try-catch 和可选的 finally。
+
+<UniversalEditor title="Try-Catch-Finally 结构" compare={true}>
+```javascript !! js
+// JavaScript - Try-catch-finally
+function readFileAndProcess(filename) {
+    let fileHandle = null;
+    
+    try {
+        // 模拟文件读取
+        if (!filename) {
+            throw new Error('Filename is required');
+        }
+        
+        if (filename.includes('error')) {
+            throw new Error('File not found: ' + filename);
+        }
+        
+        fileHandle = { name: filename, content: 'File content' };
+        console.log('Reading file:', filename);
+        
+        // 处理文件内容
+        const processedContent = fileHandle.content.toUpperCase();
+        return processedContent;
+        
+    } catch (error) {
+        console.error('Error reading file:', error.message);
+        throw error; // 重新抛出错误
+        
+    } finally {
+        // 即使发生异常也总是执行
+        if (fileHandle) {
+            console.log('Closing file handle:', fileHandle.name);
+            fileHandle = null;
+        }
+        console.log('File operation completed');
+    }
+}
+
+// 带错误处理的使用
+try {
+    const result = readFileAndProcess('test.txt');
+    console.log('Result:', result);
+} catch (error) {
+    console.error('Failed to process file:', error.message);
+}
+
+// 异步错误处理
+async function asyncFileOperation(filename) {
+    try {
+        // 模拟异步文件操作
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+        if (filename.includes('error')) {
+            throw new Error('Async file error: ' + filename);
+        }
+        
+        return 'Async file content';
+        
+    } catch (error) {
+        console.error('Async error:', error.message);
+        throw error;
+    }
+}
+
+// 异步使用
+asyncFileOperation('test.txt')
+    .then(result => console.log('Async result:', result))
+    .catch(error => console.error('Async failed:', error.message));
+```
+
+```java !! java
+// Java - 带资源的 Try-catch-finally
+import java.io.*;
+import java.util.Random;
+
+public class FileProcessor {
+    
+    public static String readFileAndProcess(String filename) throws IOException {
+        BufferedReader reader = null;
+        
+        try {
+            // 验证文件名
+            if (filename == null || filename.trim().isEmpty()) {
+                throw new IllegalArgumentException("Filename is required");
+            }
+            
+            // 模拟文件读取
+            if (filename.contains("error")) {
+                throw new FileNotFoundException("File not found: " + filename);
+            }
+            
+            // 模拟文件内容
+            String content = "File content from " + filename;
+            System.out.println("Reading file: " + filename);
+            
+            // 处理文件内容
+            return content.toUpperCase();
+            
+        } catch (IllegalArgumentException e) {
+            System.err.println("Invalid filename: " + e.getMessage());
+            throw e; // 重新抛出异常
+            
+        } catch (FileNotFoundException e) {
+            System.err.println("File not found: " + e.getMessage());
+            throw e;
+            
+        } finally {
+            // 即使发生异常也总是执行
+            if (reader != null) {
+                try {
+                    reader.close();
+                    System.out.println("File reader closed");
+                } catch (IOException e) {
+                    System.err.println("Error closing reader: " + e.getMessage());
+                }
+            }
+            System.out.println("File operation completed");
+        }
+    }
+    
+    // Try-with-resources (Java 7+)
+    public static String readFileWithResources(String filename) throws IOException {
+        try (BufferedReader reader = new BufferedReader(new StringReader("File content"))) {
+            // Reader 自动关闭
+            if (filename.contains("error")) {
+                throw new IOException("Error reading file: " + filename);
+            }
+            
+            String line = reader.readLine();
+            return line != null ? line.toUpperCase() : "";
+            
+        } catch (IOException e) {
+            System.err.println("IO error: " + e.getMessage());
+            throw e;
+        }
+    }
+    
+    // 多重异常处理
+    public static void processMultipleExceptions(String input) {
+        try {
+            if (input == null) {
+                throw new NullPointerException("Input cannot be null");
+            }
+            
+            if (input.isEmpty()) {
+                throw new IllegalArgumentException("Input cannot be empty");
+            }
+            
+            int number = Integer.parseInt(input);
+            if (number < 0) {
+                throw new ArithmeticException("Number must be positive");
+            }
+            
+            System.out.println("Processed number: " + number);
+            
+        } catch (NullPointerException | IllegalArgumentException e) {
+            System.err.println("Input error: " + e.getMessage());
+        } catch (NumberFormatException e) {
+            System.err.println("Number format error: " + e.getMessage());
+        } catch (ArithmeticException e) {
+            System.err.println("Arithmetic error: " + e.getMessage());
+        } catch (Exception e) {
+            System.err.println("Unexpected error: " + e.getMessage());
+        }
+    }
+}
+```
+</UniversalEditor>
+
+## 检查异常与未检查异常
+
+### 3. Java 中的异常类型
+
+Java 区分检查异常和未检查异常，而 JavaScript 以相同方式处理所有错误。
+
+<UniversalEditor title="检查异常与未检查异常" compare={true}>
+```javascript !! js
+// JavaScript - 所有错误都是未检查的
+function processData(data) {
+    // 没有编译时错误检查
+    if (!data) {
+        throw new Error('Data is required'); // 运行时错误
+    }
+    
+    if (typeof data !== 'object') {
+        throw new TypeError('Data must be an object'); // 运行时错误
+    }
+    
+    // 处理数据
+    return data.processed = true;
+}
+
+// 错误处理是可选的
+function riskyOperation() {
+    // 这可能会抛出错误，但我们不必处理它
+    return processData(null);
+}
+
+// 可选的错误处理
+try {
+    riskyOperation();
+} catch (error) {
+    console.error('Caught error:', error.message);
+}
+
+// 异步错误处理
+async function asyncRiskyOperation() {
+    try {
+        // 模拟可能失败的异步操作
+        await new Promise((resolve, reject) => {
+            if (Math.random() > 0.5) {
+                reject(new Error('Random failure'));
+            } else {
+                resolve('Success');
+            }
+        });
+    } catch (error) {
+        console.error('Async error:', error.message);
+        throw error; // 重新抛出或处理
+    }
+}
+```
+
+```java !! java
+// Java - 检查异常与未检查异常
+import java.io.*;
+import java.util.*;
+
+public class ExceptionTypesDemo {
+    
+    // 检查异常 - 必须声明或处理
+    public static void readFileChecked(String filename) throws IOException {
+        if (filename == null) {
+            throw new IOException("Filename cannot be null");
+        }
+        
+        // 文件操作抛出检查异常
+        File file = new File(filename);
+        if (!file.exists()) {
+            throw new FileNotFoundException("File not found: " + filename);
+        }
+        
+        // 读取文件内容
+        try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
+            String line = reader.readLine();
+            System.out.println("File content: " + line);
+        }
+    }
+    
+    // 未检查异常 - 无需声明
+    public static void processDataUnchecked(String data) {
+        if (data == null) {
+            throw new NullPointerException("Data cannot be null"); // 未检查
+        }
+        
+        if (data.isEmpty()) {
+            throw new IllegalArgumentException("Data cannot be empty"); // 未检查
+        }
+        
+        int number = Integer.parseInt(data);
+        if (number < 0) {
+            throw new ArithmeticException("Number must be positive"); // 未检查
+        }
+        
+        System.out.println("Processed number: " + number);
+    }
+    
+    // 处理检查异常的方法
+    public static void safeFileOperation(String filename) {
+        try {
+            readFileChecked(filename);
+        } catch (IOException e) {
+            System.err.println("File error: " + e.getMessage());
+        }
+    }
+    
+    // 不处理未检查异常的方法
+    public static void riskyOperation(String data) {
+        // 未检查异常不需要 try-catch
+        processDataUnchecked(data);
+    }
+    
+    // 自定义检查异常
+    public static class CustomCheckedException extends Exception {
+        public CustomCheckedException(String message) {
+            super(message);
+        }
+    }
+    
+    // 自定义未检查异常
+    public static class CustomUncheckedException extends RuntimeException {
+        public CustomUncheckedException(String message) {
+            super(message);
+        }
+    }
+    
+    // 抛出自定义异常的方法
+    public static void throwCustomExceptions(String input) throws CustomCheckedException {
+        if (input == null) {
+            throw new CustomUncheckedException("Input cannot be null"); // 未检查
+        }
+        
+        if (input.equals("error")) {
+            throw new CustomCheckedException("Custom checked error"); // 检查
+        }
+        
+        System.out.println("Input processed: " + input);
+    }
+}
+```
+</UniversalEditor>
+
+## 自定义异常
+
+### 4. 创建和使用自定义异常
+
+两种语言都支持自定义异常，但 Java 提供更多结构。
+
+<UniversalEditor title="自定义异常实现" compare={true}>
+```javascript !! js
+// JavaScript - 自定义错误类
+class BusinessLogicError extends Error {
+    constructor(message, errorCode, details = {}) {
+        super(message);
+        this.name = 'BusinessLogicError';
+        this.errorCode = errorCode;
+        this.details = details;
+        this.timestamp = new Date();
+    }
+    
+    toJSON() {
+        return {
+            name: this.name,
+            message: this.message,
+            errorCode: this.errorCode,
+            details: this.details,
+            timestamp: this.timestamp,
+            stack: this.stack
+        };
+    }
+}
+
+class ValidationError extends BusinessLogicError {
+    constructor(message, field, value) {
+        super(message, 'VALIDATION_ERROR', { field, value });
+        this.name = 'ValidationError';
+        this.field = field;
+        this.value = value;
+    }
+}
+
+class DatabaseError extends BusinessLogicError {
+    constructor(message, operation, table) {
+        super(message, 'DATABASE_ERROR', { operation, table });
+        this.name = 'DatabaseError';
+        this.operation = operation;
+        this.table = table;
+    }
+}
+
+// 错误工厂
+class ErrorFactory {
+    static createValidationError(field, value, message) {
+        return new ValidationError(message || `${field} is invalid`, field, value);
+    }
+    
+    static createDatabaseError(operation, table, message) {
+        return new DatabaseError(message || `${operation} failed on ${table}`, operation, table);
+    }
+    
+    static createBusinessError(message, code) {
+        return new BusinessLogicError(message, code);
+    }
+}
+
+// 使用示例
+function validateUser(user) {
+    const errors = [];
+    
+    try {
+        if (!user.name || user.name.trim().length < 2) {
+            throw ErrorFactory.createValidationError('name', user.name, 'Name must be at least 2 characters');
+        }
+        
+        if (!user.email || !user.email.includes('@')) {
+            throw ErrorFactory.createValidationError('email', user.email, 'Invalid email format');
+        }
+        
+        if (user.age && (user.age < 0 || user.age > 150)) {
+            throw ErrorFactory.createValidationError('age', user.age, 'Age must be between 0 and 150');
+        }
+        
+    } catch (error) {
+        if (error instanceof ValidationError) {
+            errors.push(error);
+        } else {
+            throw error; // 重新抛出意外错误
+        }
+    }
+    
+    return errors;
+}
+
+// 使用自定义错误的错误处理
+function processUser(user) {
+    try {
+        const validationErrors = validateUser(user);
+        
+        if (validationErrors.length > 0) {
+            console.error('Validation errors:', validationErrors.map(e => e.toJSON()));
+            return { success: false, errors: validationErrors };
+        }
+        
+        // 模拟数据库操作
+        if (Math.random() > 0.8) {
+            throw ErrorFactory.createDatabaseError('INSERT', 'users', 'Database connection failed');
+        }
+        
+        return { success: true, user };
+        
+    } catch (error) {
+        if (error instanceof BusinessLogicError) {
+            console.error('Business error:', error.toJSON());
+            return { success: false, error: error.toJSON() };
+        } else {
+            console.error('Unexpected error:', error);
+            throw error;
+        }
+    }
+}
+```
+
+```java !! java
+// Java - 自定义异常层次结构
+public class CustomExceptionDemo {
+    
+    // 基础自定义异常
+    public static class BusinessException extends Exception {
+        private String errorCode;
+        private long timestamp;
+        private Map<String, Object> details;
+        
+        public BusinessException(String message, String errorCode) {
+            super(message);
+            this.errorCode = errorCode;
+            this.timestamp = System.currentTimeMillis();
+            this.details = new HashMap<>();
+        }
+        
+        public BusinessException(String message, String errorCode, Map<String, Object> details) {
+            this(message, errorCode);
+            this.details = details;
+        }
+        
+        public String getErrorCode() { return errorCode; }
+        public long getTimestamp() { return timestamp; }
+        public Map<String, Object> getDetails() { return details; }
+        
+        public void addDetail(String key, Object value) {
+            details.put(key, value);
+        }
+    }
+    
+    // 特定异常类型
+    public static class ValidationException extends BusinessException {
+        private String field;
+        private Object value;
+        
+        public ValidationException(String message, String field, Object value) {
+            super(message, "VALIDATION_ERROR");
+            this.field = field;
+            this.value = value;
+            addDetail("field", field);
+            addDetail("value", value);
+        }
+        
+        public String getField() { return field; }
+        public Object getValue() { return value; }
+    }
+    
+    public static class DatabaseException extends BusinessException {
+        private String operation;
+        private String table;
+        
+        public DatabaseException(String message, String operation, String table) {
+            super(message, "DATABASE_ERROR");
+            this.operation = operation;
+            this.table = table;
+            addDetail("operation", operation);
+            addDetail("table", table);
+        }
+        
+        public String getOperation() { return operation; }
+        public String getTable() { return table; }
+    }
+    
+    // 错误工厂
+    public static class ErrorFactory {
+        public static ValidationException createValidationError(String field, Object value, String message) {
+            return new ValidationException(message != null ? message : field + " is invalid", field, value);
+        }
+        
+        public static DatabaseException createDatabaseError(String operation, String table, String message) {
+            return new DatabaseException(message != null ? message : operation + " failed on " + table, operation, table);
+        }
+        
+        public static BusinessException createBusinessError(String message, String code) {
+            return new BusinessException(message, code);
+        }
+    }
+    
+    // 用户验证
+    public static class UserValidator {
+        public static List<ValidationException> validateUser(User user) {
+            List<ValidationException> errors = new ArrayList<>();
+            
+            try {
+                if (user.getName() == null || user.getName().trim().length() < 2) {
+                    errors.add(ErrorFactory.createValidationError("name", user.getName(), "Name must be at least 2 characters"));
+                }
+                
+                if (user.getEmail() == null || !user.getEmail().contains("@")) {
+                    errors.add(ErrorFactory.createValidationError("email", user.getEmail(), "Invalid email format"));
+                }
+                
+                if (user.getAge() != null && (user.getAge() < 0 || user.getAge() > 150)) {
+                    errors.add(ErrorFactory.createValidationError("age", user.getAge(), "Age must be between 0 and 150"));
+                }
+                
+            } catch (Exception e) {
+                // 处理意外错误
+                throw new RuntimeException("Unexpected error during validation", e);
+            }
+            
+            return errors;
+        }
+    }
+    
+    // 用户处理
+    public static class UserProcessor {
+        public static class ProcessResult {
+            private boolean success;
+            private List<BusinessException> errors;
+            private User user;
+            
+            public ProcessResult(boolean success) {
+                this.success = success;
+                this.errors = new ArrayList<>();
+            }
+            
+            // Getters and setters
+            public boolean isSuccess() { return success; }
+            public List<BusinessException> getErrors() { return errors; }
+            public void addError(BusinessException error) { errors.add(error); }
+            public User getUser() { return user; }
+            public void setUser(User user) { this.user = user; }
+        }
+        
+        public static ProcessResult processUser(User user) {
+            ProcessResult result = new ProcessResult(false);
+            
+            try {
+                // 验证用户
+                List<ValidationException> validationErrors = UserValidator.validateUser(user);
+                
+                if (!validationErrors.isEmpty()) {
+                    System.err.println("Validation errors found:");
+                    for (ValidationException error : validationErrors) {
+                        System.err.println("- " + error.getMessage() + " (Field: " + error.getField() + ")");
+                        result.addError(error);
+                    }
+                    return result;
+                }
+                
+                // 模拟数据库操作
+                if (Math.random() > 0.8) {
+                    DatabaseException dbError = ErrorFactory.createDatabaseError("INSERT", "users", "Database connection failed");
+                    result.addError(dbError);
+                    return result;
+                }
+                
+                result.setUser(user);
+                result = new ProcessResult(true);
+                result.setUser(user);
+                return result;
+                
+            } catch (BusinessException e) {
+                System.err.println("Business error: " + e.getMessage() + " (Code: " + e.getErrorCode() + ")");
+                result.addError(e);
+                return result;
+            } catch (Exception e) {
+                System.err.println("Unexpected error: " + e.getMessage());
+                throw new RuntimeException("Unexpected error during processing", e);
+            }
+        }
+    }
+    
+    // 用户类
+    public static class User {
+        private String name;
+        private String email;
+        private Integer age;
+        
+        public User(String name, String email) {
+            this.name = name;
+            this.email = email;
+        }
+        
+        public User(String name, String email, Integer age) {
+            this.name = name;
+            this.email = email;
+            this.age = age;
+        }
+        
+        // Getters
+        public String getName() { return name; }
+        public String getEmail() { return email; }
+        public Integer getAge() { return age; }
+    }
+}
+```
+</UniversalEditor>
+
+## 异常处理最佳实践
+
+### 5. 最佳实践和模式
+
+两种语言有不同的异常处理最佳实践。
+
+<UniversalEditor title="异常处理最佳实践" compare={true}>
+```javascript !! js
+// JavaScript - 异常处理最佳实践
+
+// 1. 使用特定的错误类型
+class SpecificError extends Error {
+    constructor(message, context) {
+        super(message);
+        this.name = 'SpecificError';
+        this.context = context;
+    }
+}
+
+// 2. 不要忽略错误
+function badPractice() {
+    try {
+        riskyOperation();
+    } catch (error) {
+        // 错误：忽略错误
+        console.log('Something went wrong');
+    }
+}
+
+function goodPractice() {
+    try {
+        riskyOperation();
+    } catch (error) {
+        // 正确：记录并适当处理
+        console.error('Operation failed:', error.message);
+        // 适当处理错误
+        handleError(error);
+    }
+}
+
+// 3. 使用错误边界（React 模式）
+class ErrorBoundary {
+    constructor() {
+        this.hasError = false;
+        this.error = null;
+    }
+    
+    static getDerivedStateFromError(error) {
+        return { hasError: true, error };
+    }
+    
+    componentDidCatch(error, errorInfo) {
+        console.error('Error caught by boundary:', error, errorInfo);
+    }
+}
+
+// 4. 异步错误处理
+async function asyncBestPractice() {
+    try {
+        const result = await riskyAsyncOperation();
+        return result;
+    } catch (error) {
+        if (error.name === 'NetworkError') {
+            // 处理网络错误
+            return await retryOperation();
+        } else if (error.name === 'ValidationError') {
+            // 处理验证错误
+            throw error; // 重新抛出供 UI 处理
+        } else {
+            // 处理意外错误
+            console.error('Unexpected error:', error);
+            throw new Error('An unexpected error occurred');
+        }
+    }
+}
+
+// 5. 错误恢复模式
+function errorRecovery() {
+    let attempts = 0;
+    const maxAttempts = 3;
+    
+    while (attempts < maxAttempts) {
+        try {
+            return riskyOperation();
+        } catch (error) {
+            attempts++;
+            console.log(`Attempt ${attempts} failed:`, error.message);
+            
+            if (attempts >= maxAttempts) {
+                throw new Error(`Operation failed after ${maxAttempts} attempts`);
+            }
+            
+            // 重试前等待
+            setTimeout(() => {}, 1000 * attempts);
+        }
+    }
+}
+
+// 6. 集中式错误处理
+class ErrorHandler {
+    static handle(error, context = {}) {
+        // 记录错误
+        console.error('Error occurred:', {
+            message: error.message,
+            stack: error.stack,
+            context: context,
+            timestamp: new Date().toISOString()
+        });
+        
+        // 发送到监控服务
+        this.sendToMonitoring(error, context);
+        
+        // 返回用户友好的消息
+        return this.getUserFriendlyMessage(error);
+    }
+    
+    static sendToMonitoring(error, context) {
+        // 发送到监控服务的实现
+        console.log('Sending to monitoring:', error.message);
+    }
+    
+    static getUserFriendlyMessage(error) {
+        if (error.name === 'NetworkError') {
+            return 'Network connection failed. Please check your internet connection.';
+        } else if (error.name === 'ValidationError') {
+            return 'Please check your input and try again.';
+        } else {
+            return 'An unexpected error occurred. Please try again later.';
+        }
+    }
+}
+```
+
+```java !! java
+// Java - 异常处理最佳实践
+
+import java.util.*;
+import java.util.logging.*;
+
+public class ExceptionBestPractices {
+    
+    // 1. 使用特定的异常类型
+    public static class SpecificException extends Exception {
+        private Map<String, Object> context;
+        
+        public SpecificException(String message, Map<String, Object> context) {
+            super(message);
+            this.context = context;
+        }
+        
+        public Map<String, Object> getContext() { return context; }
+    }
+    
+    // 2. 不要忽略异常
+    public static void badPractice() {
+        try {
+            riskyOperation();
+        } catch (Exception e) {
+            // 错误：忽略异常
+            System.out.println("Something went wrong");
+        }
+    }
+    
+    public static void goodPractice() {
+        try {
+            riskyOperation();
+        } catch (Exception e) {
+            // 正确：记录并适当处理
+            Logger.getLogger(ExceptionBestPractices.class.getName())
+                  .log(Level.SEVERE, "Operation failed", e);
+            handleException(e);
+        }
+    }
+    
+    // 3. 使用异常链
+    public static void exceptionChaining() {
+        try {
+            processData();
+        } catch (IOException e) {
+            // 链接异常以保留上下文
+            throw new RuntimeException("Failed to process data", e);
+        }
+    }
+    
+    // 4. 使用 try-with-resources 进行资源管理
+    public static void resourceManagement() {
+        try (AutoCloseable resource = new AutoCloseable() {
+            @Override
+            public void close() throws Exception {
+                System.out.println("Resource closed");
+            }
+        }) {
+            // 使用资源
+            System.out.println("Using resource");
+        } catch (Exception e) {
+            Logger.getLogger(ExceptionBestPractices.class.getName())
+                  .log(Level.SEVERE, "Resource operation failed", e);
+        }
+    }
+    
+    // 5. 错误恢复模式
+    public static class RetryHandler {
+        private static final int MAX_ATTEMPTS = 3;
+        private static final long RETRY_DELAY_MS = 1000;
+        
+        public static <T> T retryOperation(Supplier<T> operation) throws Exception {
+            int attempts = 0;
+            Exception lastException = null;
+            
+            while (attempts < MAX_ATTEMPTS) {
+                try {
+                    return operation.get();
+                } catch (Exception e) {
+                    attempts++;
+                    lastException = e;
+                    
+                    Logger.getLogger(RetryHandler.class.getName())
+                          .log(Level.WARNING, "Attempt " + attempts + " failed", e);
+                    
+                    if (attempts >= MAX_ATTEMPTS) {
+                        break;
+                    }
+                    
+                    // 重试前等待
+                    Thread.sleep(RETRY_DELAY_MS * attempts);
+                }
+            }
+            
+            throw new Exception("Operation failed after " + MAX_ATTEMPTS + " attempts", lastException);
+        }
+    }
+    
+    // 6. 集中式异常处理
+    public static class ExceptionHandler {
+        private static final Logger LOGGER = Logger.getLogger(ExceptionHandler.class.getName());
+        
+        public static void handle(Exception e, String context) {
+            // 记录带上下文的异常
+            LOGGER.log(Level.SEVERE, "Exception in context: " + context, e);
+            
+            // 发送到监控服务
+            sendToMonitoring(e, context);
+            
+            // 获取用户友好的消息
+            String userMessage = getUserFriendlyMessage(e);
+            System.out.println("User message: " + userMessage);
+        }
+        
+        private static void sendToMonitoring(Exception e, String context) {
+            // 发送到监控服务的实现
+            LOGGER.info("Sending to monitoring: " + e.getMessage() + " in context: " + context);
+        }
+        
+        private static String getUserFriendlyMessage(Exception e) {
+            if (e instanceof IOException) {
+                return "Network connection failed. Please check your internet connection.";
+            } else if (e instanceof IllegalArgumentException) {
+                return "Please check your input and try again.";
+            } else {
+                return "An unexpected error occurred. Please try again later.";
+            }
+        }
+    }
+    
+    // 7. 异常安全操作
+    public static class SafeOperations {
+        public static Optional<String> safeStringOperation(String input) {
+            try {
+                if (input == null) {
+                    return Optional.empty();
+                }
+                
+                String result = input.toUpperCase();
+                return Optional.of(result);
+                
+            } catch (Exception e) {
+                LOGGER.log(Level.WARNING, "String operation failed", e);
+                return Optional.empty();
+            }
+        }
+        
+        public static <T> T defaultOnException(Supplier<T> operation, T defaultValue) {
+            try {
+                return operation.get();
+            } catch (Exception e) {
+                LOGGER.log(Level.WARNING, "Operation failed, using default", e);
+                return defaultValue;
+            }
+        }
+    }
+    
+    // 8. 带上下文的自定义异常
+    public static class ContextualException extends Exception {
+        private final String operation;
+        private final Map<String, Object> parameters;
+        private final long timestamp;
+        
+        public ContextualException(String message, String operation, Map<String, Object> parameters) {
+            super(message);
+            this.operation = operation;
+            this.parameters = new HashMap<>(parameters);
+            this.timestamp = System.currentTimeMillis();
+        }
+        
+        public String getOperation() { return operation; }
+        public Map<String, Object> getParameters() { return Collections.unmodifiableMap(parameters); }
+        public long getTimestamp() { return timestamp; }
+        
+        @Override
+        public String toString() {
+            return String.format("ContextualException{operation='%s', parameters=%s, timestamp=%d, message='%s'}", 
+                               operation, parameters, timestamp, getMessage());
+        }
+    }
+    
+    // 辅助方法
+    private static void riskyOperation() throws Exception {
+        if (Math.random() > 0.5) {
+            throw new Exception("Random failure");
+        }
+    }
+    
+    private static void processData() throws IOException {
+        throw new IOException("Data processing failed");
+    }
+    
+    private static void handleException(Exception e) {
+        // 适当处理异常
+        System.err.println("Handling exception: " + e.getMessage());
+    }
+    
+    private static final Logger LOGGER = Logger.getLogger(ExceptionBestPractices.class.getName());
+}
+```
+</UniversalEditor>
+
+## 实践练习
+
+### 练习 1: 异常处理模式
+
+为用户注册服务创建一个健壮的异常处理系统。
+
+<UniversalEditor title="用户注册异常处理" compare={true}>
+```javascript !! js
+// JavaScript - 带异常处理的用户注册
+class UserRegistrationService {
+    constructor() {
+        this.users = new Map();
+    }
+    
+    registerUser(userData) {
+        try {
+            // 验证用户数据
+            this.validateUserData(userData);
+            
+            // 检查用户是否已存在
+            if (this.users.has(userData.email)) {
+                throw new Error('User already exists with this email');
+            }
+            
+            // 创建用户
+            const user = {
+                id: this.generateId(),
+                ...userData,
+                createdAt: new Date(),
+                status: 'active'
+            };
+            
+            // 模拟数据库保存
+            this.saveUser(user);
+            
+            return { success: true, user };
+            
+        } catch (error) {
+            console.error('Registration failed:', error.message);
+            return { success: false, error: error.message };
+        }
+    }
+    
+    validateUserData(userData) {
+        const errors = [];
+        
+        if (!userData.name || userData.name.trim().length < 2) {
+            errors.push('Name must be at least 2 characters');
+        }
+        
+        if (!userData.email || !this.isValidEmail(userData.email)) {
+            errors.push('Valid email is required');
+        }
+        
+        if (!userData.password || userData.password.length < 6) {
+            errors.push('Password must be at least 6 characters');
+        }
+        
+        if (errors.length > 0) {
+            throw new Error('Validation failed: ' + errors.join(', '));
+        }
+    }
+    
+    isValidEmail(email) {
+        return email.includes('@') && email.includes('.');
+    }
+    
+    generateId() {
+        return Date.now().toString(36) + Math.random().toString(36).substr(2);
+    }
+    
+    saveUser(user) {
+        // 模拟数据库操作
+        if (Math.random() > 0.9) {
+            throw new Error('Database connection failed');
+        }
+        
+        this.users.set(user.email, user);
+    }
+}
+
+// 使用示例
+const service = new UserRegistrationService();
+
+const userData = {
+    name: 'John Doe',
+    email: 'john@example.com',
+    password: 'password123'
+};
+
+const result = service.registerUser(userData);
+console.log(result);
+```
+
+```java !! java
+// Java - 带异常处理的用户注册
+import java.util.*;
+import java.time.LocalDateTime;
+
+public class UserRegistrationService {
+    
+    // 自定义异常
+    public static class UserRegistrationException extends Exception {
+        public UserRegistrationException(String message) {
+            super(message);
+        }
+        
+        public UserRegistrationException(String message, Throwable cause) {
+            super(message, cause);
+        }
+    }
+    
+    public static class ValidationException extends UserRegistrationException {
+        private List<String> errors;
+        
+        public ValidationException(String message, List<String> errors) {
+            super(message);
+            this.errors = errors;
+        }
+        
+        public List<String> getErrors() { return errors; }
+    }
+    
+    public static class UserExistsException extends UserRegistrationException {
+        private String email;
+        
+        public UserExistsException(String email) {
+            super("User already exists with email: " + email);
+            this.email = email;
+        }
+        
+        public String getEmail() { return email; }
+    }
+    
+    public static class DatabaseException extends UserRegistrationException {
+        public DatabaseException(String message) {
+            super(message);
+        }
+        
+        public DatabaseException(String message, Throwable cause) {
+            super(message, cause);
+        }
+    }
+    
+    // 用户类
+    public static class User {
+        private String id;
+        private String name;
+        private String email;
+        private String password;
+        private LocalDateTime createdAt;
+        private String status;
+        
+        public User(String name, String email, String password) {
+            this.name = name;
+            this.email = email;
+            this.password = password;
+            this.createdAt = LocalDateTime.now();
+            this.status = "active";
+        }
+        
+        // Getters and setters
+        public String getId() { return id; }
+        public void setId(String id) { this.id = id; }
+        public String getName() { return name; }
+        public String getEmail() { return email; }
+        public String getPassword() { return password; }
+        public LocalDateTime getCreatedAt() { return createdAt; }
+        public String getStatus() { return status; }
+    }
+    
+    // 注册结果
+    public static class RegistrationResult {
+        private boolean success;
+        private User user;
+        private String error;
+        private List<String> validationErrors;
+        
+        public RegistrationResult(boolean success) {
+            this.success = success;
+        }
+        
+        // Getters and setters
+        public boolean isSuccess() { return success; }
+        public User getUser() { return user; }
+        public void setUser(User user) { this.user = user; }
+        public String getError() { return error; }
+        public void setError(String error) { this.error = error; }
+        public List<String> getValidationErrors() { return validationErrors; }
+        public void setValidationErrors(List<String> validationErrors) { this.validationErrors = validationErrors; }
+    }
+    
+    // 服务实现
+    private Map<String, User> users = new HashMap<>();
+    
+    public RegistrationResult registerUser(User userData) {
+        try {
+            // 验证用户数据
+            validateUserData(userData);
+            
+            // 检查用户是否已存在
+            if (users.containsKey(userData.getEmail())) {
+                throw new UserExistsException(userData.getEmail());
+            }
+            
+            // 生成 ID
+            userData.setId(generateId());
+            
+            // 保存用户
+            saveUser(userData);
+            
+            RegistrationResult result = new RegistrationResult(true);
+            result.setUser(userData);
+            return result;
+            
+        } catch (ValidationException e) {
+            RegistrationResult result = new RegistrationResult(false);
+            result.setError(e.getMessage());
+            result.setValidationErrors(e.getErrors());
+            return result;
+        } catch (UserExistsException e) {
+            RegistrationResult result = new RegistrationResult(false);
+            result.setError(e.getMessage());
+            return result;
+        } catch (DatabaseException e) {
+            RegistrationResult result = new RegistrationResult(false);
+            result.setError("Database error: " + e.getMessage());
+            return result;
+        } catch (Exception e) {
+            RegistrationResult result = new RegistrationResult(false);
+            result.setError("Unexpected error: " + e.getMessage());
+            return result;
+        }
+    }
+    
+    private void validateUserData(User userData) throws ValidationException {
+        List<String> errors = new ArrayList<>();
+        
+        if (userData.getName() == null || userData.getName().trim().length() < 2) {
+            errors.add("Name must be at least 2 characters");
+        }
+        
+        if (userData.getEmail() == null || !isValidEmail(userData.getEmail())) {
+            errors.add("Valid email is required");
+        }
+        
+        if (userData.getPassword() == null || userData.getPassword().length() < 6) {
+            errors.add("Password must be at least 6 characters");
+        }
+        
+        if (!errors.isEmpty()) {
+            throw new ValidationException("Validation failed", errors);
+        }
+    }
+    
+    private boolean isValidEmail(String email) {
+        return email != null && email.contains("@") && email.contains(".");
+    }
+    
+    private String generateId() {
+        return Long.toString(System.currentTimeMillis(), 36) + 
+               Long.toString(new Random().nextLong(), 36).substring(1);
+    }
+    
+    private void saveUser(User user) throws DatabaseException {
+        // 模拟数据库操作
+        if (Math.random() > 0.9) {
+            throw new DatabaseException("Database connection failed");
+        }
+        
+        users.put(user.getEmail(), user);
+    }
+}
+```
+</UniversalEditor>
+
+## 总结
+
+在本模块中，我们探索了 Java 的全面异常处理系统，并将其与 JavaScript 的更灵活方法进行了对比。主要差异包括：
+
+### Java 异常处理
+- **结构化方法** 使用 try-catch-finally 块
+- **检查异常与未检查异常** 需要显式处理
+- **异常层次结构** 具有特定的异常类型
+- **编译时检查** 用于检查异常
+- **资源管理** 使用 try-with-resources
+
+### JavaScript 错误处理
+- **灵活方法** 使用 try-catch 块
+- **所有错误都是未检查的** 且基于运行时
+- **自定义错误类** 用于特定错误类型
+- **可选的错误处理** 没有编译时强制执行
+- **异步错误处理** 使用 promises 和 async/await
+
+### 最佳实践
+1. **使用特定的异常类型** 用于不同的错误场景
+2. **不要忽略异常** - 始终适当处理它们
+3. **提供有意义的错误消息** 和上下文
+4. **使用异常链** 保留错误上下文
+5. **实现适当的资源管理**
+6. **创建集中式错误处理** 系统
+7. **遵循语言特定的约定** 和模式
+
+下一个模块将探索 Java 泛型，它通过参数化类型提供类型安全和代码重用性。 

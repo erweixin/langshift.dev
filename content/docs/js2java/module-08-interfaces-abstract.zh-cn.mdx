@@ -1,0 +1,993 @@
+---
+title: "模块 08: 接口和抽象类"
+description: "学习 Java 接口、多重继承、默认方法和函数式接口，与 JavaScript 接口模式进行对比。"
+---
+
+# 模块 08: 接口和抽象类
+
+在本模块中，我们将探索 Java 的接口系统以及它如何实现多重继承和基于契约的编程。我们将把这与 JavaScript 的接口和抽象模式方法进行对比，重点关注接口如何提供定义类必须实现的契约的方式。
+
+## 学习目标
+
+通过本模块的学习，你将能够：
+- 理解 Java 接口及其在基于契约编程中的作用
+- 将 Java 接口与 JavaScript 接口模式进行对比
+- 通过接口实现多重继承
+- 使用接口中的默认方法和静态方法
+- 应用函数式接口和 Lambda 表达式
+- 理解接口和抽象类之间的区别
+
+## 接口基础
+
+### 1. 接口声明和实现
+
+Java 接口提供了一种定义契约的方式，而 JavaScript 使用不同的模式来实现类似的目标。
+
+<UniversalEditor title="接口声明和实现" compare={true}>
+```javascript !! js
+// JavaScript - 接口模式
+// 模式 1: 鸭子类型（隐式接口）
+function processPayment(paymentProcessor) {
+    if (typeof paymentProcessor.process !== 'function') {
+        throw new Error('Payment processor must have a process method');
+    }
+    if (typeof paymentProcessor.validate !== 'function') {
+        throw new Error('Payment processor must have a validate method');
+    }
+    
+    return paymentProcessor.process();
+}
+
+// 模式 2: 类似接口的对象
+const PaymentProcessor = {
+    process: function() {
+        throw new Error('process method must be implemented');
+    },
+    validate: function() {
+        throw new Error('validate method must be implemented');
+    },
+    getProcessorType: function() {
+        return 'PaymentProcessor';
+    }
+};
+
+// 模式 3: ES6 类与类似接口的验证
+class PaymentProcessorBase {
+    constructor() {
+        if (new.target === PaymentProcessorBase) {
+            throw new Error('PaymentProcessorBase cannot be instantiated directly');
+        }
+    }
+    
+    process() {
+        throw new Error('process method must be implemented');
+    }
+    
+    validate() {
+        throw new Error('validate method must be implemented');
+    }
+    
+    getProcessorType() {
+        return 'PaymentProcessor';
+    }
+}
+
+// 模式 4: 基于 Symbol 的接口检查
+const INTERFACE_SYMBOL = Symbol('interface');
+
+function createInterface(methods) {
+    const interfaceObj = {
+        [INTERFACE_SYMBOL]: true,
+        methods: methods
+    };
+    
+    interfaceObj.implementedBy = function(obj) {
+        return methods.every(method => typeof obj[method] === 'function');
+    };
+    
+    return interfaceObj;
+}
+
+// 定义接口
+const PaymentProcessorInterface = createInterface(['process', 'validate', 'getProcessorType']);
+const LoggerInterface = createInterface(['log', 'error', 'warn']);
+
+// 具体实现
+class CreditCardProcessor extends PaymentProcessorBase {
+    constructor() {
+        super();
+        this.type = 'CreditCard';
+    }
+    
+    process() {
+        return 'Processing credit card payment';
+    }
+    
+    validate() {
+        return 'Validating credit card details';
+    }
+    
+    getProcessorType() {
+        return this.type;
+    }
+}
+
+class PayPalProcessor extends PaymentProcessorBase {
+    constructor() {
+        super();
+        this.type = 'PayPal';
+    }
+    
+    process() {
+        return 'Processing PayPal payment';
+    }
+    
+    validate() {
+        return 'Validating PayPal credentials';
+    }
+    
+    getProcessorType() {
+        return this.type;
+    }
+}
+
+// 多重接口实现模拟
+class PaymentLogger {
+    constructor() {
+        this.logs = [];
+    }
+    
+    log(message) {
+        this.logs.push({ level: 'INFO', message, timestamp: new Date() });
+        console.log(`[INFO] ${message}`);
+    }
+    
+    error(message) {
+        this.logs.push({ level: 'ERROR', message, timestamp: new Date() });
+        console.error(`[ERROR] ${message}`);
+    }
+    
+    warn(message) {
+        this.logs.push({ level: 'WARN', message, timestamp: new Date() });
+        console.warn(`[WARN] ${message}`);
+    }
+    
+    getLogs() {
+        return this.logs;
+    }
+}
+
+// 接口检查函数
+function implementsInterface(obj, interfaceObj) {
+    if (!interfaceObj[INTERFACE_SYMBOL]) {
+        throw new Error('Second parameter must be an interface');
+    }
+    return interfaceObj.implementedBy(obj);
+}
+
+// 使用示例
+const creditCard = new CreditCardProcessor();
+const paypal = new PayPalProcessor();
+const logger = new PaymentLogger();
+
+console.log('CreditCard implements PaymentProcessor:', 
+    implementsInterface(creditCard, PaymentProcessorInterface));
+console.log('PayPal implements PaymentProcessor:', 
+    implementsInterface(paypal, PaymentProcessorInterface));
+console.log('Logger implements LoggerInterface:', 
+    implementsInterface(logger, LoggerInterface));
+
+// 处理支付
+console.log(processPayment(creditCard));
+console.log(processPayment(paypal));
+
+// 日志记录
+logger.log('Payment processed successfully');
+logger.error('Payment failed');
+logger.warn('Payment pending');
+
+// 工厂模式与接口检查
+class PaymentProcessorFactory {
+    static createProcessor(type) {
+        switch (type.toLowerCase()) {
+            case 'creditcard':
+                return new CreditCardProcessor();
+            case 'paypal':
+                return new PayPalProcessor();
+            default:
+                throw new Error(`Unknown processor type: ${type}`);
+        }
+    }
+    
+    static validateProcessor(processor) {
+        if (!implementsInterface(processor, PaymentProcessorInterface)) {
+            throw new Error('Invalid payment processor');
+        }
+        return processor;
+    }
+}
+
+const factoryProcessor = PaymentProcessorFactory.createProcessor('creditcard');
+PaymentProcessorFactory.validateProcessor(factoryProcessor);
+```
+
+```java !! java
+// Java - 接口和实现
+public interface PaymentProcessor {
+    // 抽象方法（必须实现）
+    String process();
+    String validate();
+    String getProcessorType();
+    
+    // 默认方法（Java 8+）
+    default String getDefaultProcessorType() {
+        return "Default Payment Processor";
+    }
+    
+    // 静态方法（Java 8+）
+    static String getInterfaceType() {
+        return "PaymentProcessor Interface";
+    }
+}
+
+public interface Logger {
+    void log(String message);
+    void error(String message);
+    void warn(String message);
+    
+    // 默认方法
+    default void info(String message) {
+        log(message);
+    }
+    
+    // 静态方法
+    static String getLoggerType() {
+        return "Logger Interface";
+    }
+}
+
+public interface Configurable {
+    void configure(String config);
+    String getConfiguration();
+}
+
+// PaymentProcessor 的具体实现
+public class CreditCardProcessor implements PaymentProcessor {
+    private String type;
+    
+    public CreditCardProcessor() {
+        this.type = "CreditCard";
+    }
+    
+    @Override
+    public String process() {
+        return "Processing credit card payment";
+    }
+    
+    @Override
+    public String validate() {
+        return "Validating credit card details";
+    }
+    
+    @Override
+    public String getProcessorType() {
+        return type;
+    }
+    
+    // 可以重写默认方法
+    @Override
+    public String getDefaultProcessorType() {
+        return "Custom Credit Card Processor";
+    }
+}
+
+public class PayPalProcessor implements PaymentProcessor {
+    private String type;
+    
+    public PayPalProcessor() {
+        this.type = "PayPal";
+    }
+    
+    @Override
+    public String process() {
+        return "Processing PayPal payment";
+    }
+    
+    @Override
+    public String validate() {
+        return "Validating PayPal credentials";
+    }
+    
+    @Override
+    public String getProcessorType() {
+        return type;
+    }
+}
+
+// 多重接口实现
+public class PaymentLogger implements Logger, Configurable {
+    private List<LogEntry> logs;
+    private String configuration;
+    
+    public PaymentLogger() {
+        this.logs = new ArrayList<>();
+        this.configuration = "default";
+    }
+    
+    @Override
+    public void log(String message) {
+        logs.add(new LogEntry("INFO", message, new Date()));
+        System.out.println("[INFO] " + message);
+    }
+    
+    @Override
+    public void error(String message) {
+        logs.add(new LogEntry("ERROR", message, new Date()));
+        System.err.println("[ERROR] " + message);
+    }
+    
+    @Override
+    public void warn(String message) {
+        logs.add(new LogEntry("WARN", message, new Date()));
+        System.out.println("[WARN] " + message);
+    }
+    
+    @Override
+    public void configure(String config) {
+        this.configuration = config;
+    }
+    
+    @Override
+    public String getConfiguration() {
+        return configuration;
+    }
+    
+    public List<LogEntry> getLogs() {
+        return new ArrayList<>(logs);
+    }
+    
+    // 日志条目的内部类
+    public static class LogEntry {
+        private String level;
+        private String message;
+        private Date timestamp;
+        
+        public LogEntry(String level, String message, Date timestamp) {
+            this.level = level;
+            this.message = message;
+            this.timestamp = timestamp;
+        }
+        
+        // Getter 方法
+        public String getLevel() { return level; }
+        public String getMessage() { return message; }
+        public Date getTimestamp() { return timestamp; }
+        
+        @Override
+        public String toString() {
+            return String.format("[%s] %s - %s", level, timestamp, message);
+        }
+    }
+}
+
+// 工厂模式与接口
+public class PaymentProcessorFactory {
+    public static PaymentProcessor createProcessor(String type) {
+        switch (type.toLowerCase()) {
+            case "creditcard":
+                return new CreditCardProcessor();
+            case "paypal":
+                return new PayPalProcessor();
+            default:
+                throw new IllegalArgumentException("Unknown processor type: " + type);
+        }
+    }
+    
+    public static void validateProcessor(PaymentProcessor processor) {
+        if (processor == null) {
+            throw new IllegalArgumentException("Processor cannot be null");
+        }
+        // 接口方法保证存在
+        processor.validate();
+    }
+}
+
+// 演示接口的主类
+class InterfaceDemo {
+    public static void main(String[] args) {
+        // 创建处理器
+        PaymentProcessor creditCard = new CreditCardProcessor();
+        PaymentProcessor paypal = new PayPalProcessor();
+        PaymentLogger logger = new PaymentLogger();
+        
+        // 接口方法调用
+        System.out.println(creditCard.process());
+        System.out.println(paypal.process());
+        System.out.println(creditCard.validate());
+        System.out.println(paypal.validate());
+        
+        // 默认方法
+        System.out.println(creditCard.getDefaultProcessorType());
+        System.out.println(paypal.getDefaultProcessorType());
+        
+        // 静态方法
+        System.out.println(PaymentProcessor.getInterfaceType());
+        System.out.println(Logger.getLoggerType());
+        
+        // 多重接口实现
+        logger.log("Payment processed successfully");
+        logger.error("Payment failed");
+        logger.warn("Payment pending");
+        logger.configure("production");
+        System.out.println("Configuration: " + logger.getConfiguration());
+        
+        // 工厂使用
+        PaymentProcessor factoryProcessor = PaymentProcessorFactory.createProcessor("creditcard");
+        PaymentProcessorFactory.validateProcessor(factoryProcessor);
+        
+        // 多态数组
+        PaymentProcessor[] processors = {creditCard, paypal};
+        for (PaymentProcessor processor : processors) {
+            System.out.println(processor.getProcessorType() + ": " + processor.process());
+        }
+    }
+}
+```
+</UniversalEditor>
+
+### 2. 函数式接口和 Lambda 表达式
+
+Java 8+ 引入了与 Lambda 表达式无缝协作的函数式接口，而 JavaScript 从一开始就拥有一等函数。
+
+<UniversalEditor title="函数式接口和 Lambda 表达式" compare={true}>
+```javascript !! js
+// JavaScript - 函数式编程与接口
+// 函数类型作为接口
+const Predicate = {
+    test: function(value) {
+        throw new Error('test method must be implemented');
+    }
+};
+
+const Function = {
+    apply: function(value) {
+        throw new Error('apply method must be implemented');
+    }
+};
+
+const Consumer = {
+    accept: function(value) {
+        throw new Error('accept method must be implemented');
+    }
+};
+
+const Supplier = {
+    get: function() {
+        throw new Error('get method must be implemented');
+    }
+};
+
+// 与这些接口协作的高阶函数
+function filter(array, predicate) {
+    return array.filter(predicate);
+}
+
+function map(array, func) {
+    return array.map(func);
+}
+
+function forEach(array, consumer) {
+    array.forEach(consumer);
+}
+
+function generate(supplier, count) {
+    return Array.from({ length: count }, () => supplier());
+}
+
+// Lambda 式函数（箭头函数）
+const isEven = x => x % 2 === 0;
+const isPositive = x => x > 0;
+const square = x => x * x;
+const double = x => x * 2;
+const print = x => console.log(x);
+const randomNumber = () => Math.random();
+
+// 自定义函数式接口
+const Comparator = {
+    compare: function(a, b) {
+        throw new Error('compare method must be implemented');
+    }
+};
+
+const BiFunction = {
+    apply: function(a, b) {
+        throw new Error('apply method must be implemented');
+    }
+};
+
+// 使用示例
+const numbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+
+// 使用谓词过滤
+const evens = filter(numbers, isEven);
+const positives = filter(numbers, isPositive);
+
+// 使用函数映射
+const squared = map(numbers, square);
+const doubled = map(numbers, double);
+
+// 使用消费者 forEach
+forEach(numbers, print);
+
+// 使用供应商生成
+const randomNumbers = generate(randomNumber, 5);
+
+console.log('Original:', numbers);
+console.log('Evens:', evens);
+console.log('Positives:', positives);
+console.log('Squared:', squared);
+console.log('Doubled:', doubled);
+console.log('Random numbers:', randomNumbers);
+
+// 自定义函数式接口
+const add = (a, b) => a + b;
+const multiply = (a, b) => a * b;
+const compareNumbers = (a, b) => a - b;
+
+// 使用自定义接口的高阶函数
+function reduce(array, biFunction, initial) {
+    return array.reduce(biFunction, initial);
+}
+
+function sort(array, comparator) {
+    return [...array].sort(comparator);
+}
+
+const sum = reduce(numbers, add, 0);
+const product = reduce(numbers, multiply, 1);
+const sorted = sort(numbers, compareNumbers);
+
+console.log('Sum:', sum);
+console.log('Product:', product);
+console.log('Sorted:', sorted);
+
+// 函数组合
+const compose = (...fns) => x => fns.reduceRight((acc, fn) => fn(acc), x);
+const pipe = (...fns) => x => fns.reduce((acc, fn) => fn(acc), x);
+
+const addOne = x => x + 1;
+const multiplyByTwo = x => x * 2;
+const square = x => x * x;
+
+const composed = compose(square, multiplyByTwo, addOne);
+const piped = pipe(addOne, multiplyByTwo, square);
+
+console.log('Composed(3):', composed(3)); // ((3+1)*2)^2 = 64
+console.log('Piped(3):', piped(3));       // ((3+1)*2)^2 = 64
+
+// 柯里化
+const curry = (fn) => {
+    return function curried(...args) {
+        if (args.length >= fn.length) {
+            return fn.apply(this, args);
+        }
+        return function(...moreArgs) {
+            return curried.apply(this, args.concat(moreArgs));
+        };
+    };
+};
+
+const curriedAdd = curry((a, b, c) => a + b + c);
+console.log('Curried add:', curriedAdd(1)(2)(3));
+
+// 部分应用
+const partial = (fn, ...args) => {
+    return function(...moreArgs) {
+        return fn.apply(this, args.concat(moreArgs));
+    };
+};
+
+const addFive = partial(add, 5);
+console.log('Add five to 3:', addFive(3));
+```
+
+```java !! java
+// Java - 函数式接口和 Lambda 表达式
+import java.util.*;
+import java.util.function.*;
+
+// 自定义函数式接口
+@FunctionalInterface
+interface Predicate<T> {
+    boolean test(T t);
+    
+    // 组合的默认方法
+    default Predicate<T> and(Predicate<? super T> other) {
+        return t -> test(t) && other.test(t);
+    }
+    
+    default Predicate<T> or(Predicate<? super T> other) {
+        return t -> test(t) || other.test(t);
+    }
+    
+    default Predicate<T> negate() {
+        return t -> !test(t);
+    }
+}
+
+@FunctionalInterface
+interface Function<T, R> {
+    R apply(T t);
+    
+    // 组合的默认方法
+    default <V> Function<V, R> compose(Function<? super V, ? extends T> before) {
+        return v -> apply(before.apply(v));
+    }
+    
+    default <V> Function<T, V> andThen(Function<? super R, ? extends V> after) {
+        return t -> after.apply(apply(t));
+    }
+}
+
+@FunctionalInterface
+interface Consumer<T> {
+    void accept(T t);
+    
+    default Consumer<T> andThen(Consumer<? super T> after) {
+        return t -> {
+            accept(t);
+            after.accept(t);
+        };
+    }
+}
+
+@FunctionalInterface
+interface Supplier<T> {
+    T get();
+}
+
+@FunctionalInterface
+interface Comparator<T> {
+    int compare(T a, T b);
+    
+    default Comparator<T> thenComparing(Comparator<? super T> other) {
+        return (a, b) -> {
+            int result = compare(a, b);
+            return result != 0 ? result : other.compare(a, b);
+        };
+    }
+    
+    default Comparator<T> reversed() {
+        return (a, b) -> compare(b, a);
+    }
+}
+
+@FunctionalInterface
+interface BiFunction<T, U, R> {
+    R apply(T t, U u);
+}
+
+// 高阶函数
+public class FunctionalUtils {
+    public static <T> List<T> filter(List<T> list, Predicate<T> predicate) {
+        List<T> result = new ArrayList<>();
+        for (T item : list) {
+            if (predicate.test(item)) {
+                result.add(item);
+            }
+        }
+        return result;
+    }
+    
+    public static <T, R> List<R> map(List<T> list, Function<T, R> function) {
+        List<R> result = new ArrayList<>();
+        for (T item : list) {
+            result.add(function.apply(item));
+        }
+        return result;
+    }
+    
+    public static <T> void forEach(List<T> list, Consumer<T> consumer) {
+        for (T item : list) {
+            consumer.accept(item);
+        }
+    }
+    
+    public static <T> List<T> generate(Supplier<T> supplier, int count) {
+        List<T> result = new ArrayList<>();
+        for (int i = 0; i < count; i++) {
+            result.add(supplier.get());
+        }
+        return result;
+    }
+    
+    public static <T> T reduce(List<T> list, BiFunction<T, T, T> biFunction, T initial) {
+        T result = initial;
+        for (T item : list) {
+            result = biFunction.apply(result, item);
+        }
+        return result;
+    }
+    
+    public static <T> List<T> sort(List<T> list, Comparator<T> comparator) {
+        List<T> result = new ArrayList<>(list);
+        result.sort(comparator);
+        return result;
+    }
+}
+
+// 演示函数式接口的主类
+class FunctionalInterfaceDemo {
+    public static void main(String[] args) {
+        List<Integer> numbers = Arrays.asList(1, 2, 3, 4, 5, 6, 7, 8, 9, 10);
+        
+        // Lambda 表达式
+        Predicate<Integer> isEven = x -> x % 2 == 0;
+        Predicate<Integer> isPositive = x -> x > 0;
+        Function<Integer, Integer> square = x -> x * x;
+        Function<Integer, Integer> double_ = x -> x * 2;
+        Consumer<Integer> print = System.out::println;
+        Supplier<Double> randomNumber = Math::random;
+        BiFunction<Integer, Integer, Integer> add = Integer::sum;
+        BiFunction<Integer, Integer, Integer> multiply = (a, b) -> a * b;
+        Comparator<Integer> compareNumbers = Integer::compare;
+        
+        // 使用函数式接口
+        List<Integer> evens = FunctionalUtils.filter(numbers, isEven);
+        List<Integer> positives = FunctionalUtils.filter(numbers, isPositive);
+        List<Integer> squared = FunctionalUtils.map(numbers, square);
+        List<Integer> doubled = FunctionalUtils.map(numbers, double_);
+        
+        System.out.println("Original: " + numbers);
+        System.out.println("Evens: " + evens);
+        System.out.println("Positives: " + positives);
+        System.out.println("Squared: " + squared);
+        System.out.println("Doubled: " + doubled);
+        
+        // 使用消费者的 forEach
+        System.out.println("Printing numbers:");
+        FunctionalUtils.forEach(numbers, print);
+        
+        // 使用供应商生成
+        List<Double> randomNumbers = FunctionalUtils.generate(randomNumber, 5);
+        System.out.println("Random numbers: " + randomNumbers);
+        
+        // 使用 BiFunction 的 reduce
+        Integer sum = FunctionalUtils.reduce(numbers, add, 0);
+        Integer product = FunctionalUtils.reduce(numbers, multiply, 1);
+        System.out.println("Sum: " + sum);
+        System.out.println("Product: " + product);
+        
+        // 使用 Comparator 排序
+        List<Integer> sorted = FunctionalUtils.sort(numbers, compareNumbers);
+        List<Integer> reverseSorted = FunctionalUtils.sort(numbers, compareNumbers.reversed());
+        System.out.println("Sorted: " + sorted);
+        System.out.println("Reverse sorted: " + reverseSorted);
+        
+        // 函数组合
+        Function<Integer, Integer> addOne = x -> x + 1;
+        Function<Integer, Integer> multiplyByTwo = x -> x * 2;
+        Function<Integer, Integer> square_ = x -> x * x;
+        
+        Function<Integer, Integer> composed = addOne.andThen(multiplyByTwo).andThen(square_);
+        Function<Integer, Integer> piped = square_.compose(multiplyByTwo).compose(addOne);
+        
+        System.out.println("Composed(3): " + composed.apply(3)); // ((3+1)*2)^2 = 64
+        System.out.println("Piped(3): " + piped.apply(3));       // ((3+1)*2)^2 = 64
+        
+        // 谓词组合
+        Predicate<Integer> isEvenAndPositive = isEven.and(isPositive);
+        List<Integer> evenAndPositive = FunctionalUtils.filter(numbers, isEvenAndPositive);
+        System.out.println("Even and positive: " + evenAndPositive);
+        
+        // 消费者组合
+        Consumer<Integer> printAndSquare = print.andThen(x -> System.out.println("Squared: " + (x * x)));
+        System.out.println("Print and square first 3 numbers:");
+        FunctionalUtils.forEach(numbers.subList(0, 3), printAndSquare);
+        
+        // 使用内置函数式接口
+        List<String> names = Arrays.asList("Alice", "Bob", "Charlie", "David");
+        names.forEach(System.out::println);
+        
+        List<Integer> lengths = names.stream()
+            .map(String::length)
+            .collect(Collectors.toList());
+        System.out.println("Name lengths: " + lengths);
+        
+        // 使用函数式接口的流操作
+        long count = numbers.stream()
+            .filter(x -> x > 5)
+            .count();
+        System.out.println("Count > 5: " + count);
+    }
+}
+```
+</UniversalEditor>
+
+## 练习题
+
+### 练习 1: 接口实现
+
+<UniversalEditor title="练习 1: 接口实现">
+```java !! java
+// TODO: 实现这些接口和类
+public interface Drawable {
+    // TODO: 添加抽象方法 draw()
+    
+    // TODO: 添加默认方法 getDescription()
+    
+    // TODO: 添加静态方法 getInterfaceType()
+}
+
+public interface Movable {
+    // TODO: 添加抽象方法 move()
+    
+    // TODO: 添加默认方法 getSpeed()
+    
+    // TODO: 添加静态方法 getInterfaceType()
+}
+
+public interface Resizable {
+    // TODO: 添加抽象方法 resize(double factor)
+    
+    // TODO: 添加默认方法 getScale()
+    
+    // TODO: 添加静态方法 getInterfaceType()
+}
+
+public class Circle implements Drawable, Movable, Resizable {
+    // TODO: 添加 x, y, radius, scale 的私有字段
+    
+    // TODO: 实现构造函数
+    
+    // TODO: 实现所有接口方法
+    
+    // TODO: 添加 getter 和 setter 方法
+}
+
+public class Rectangle implements Drawable, Movable, Resizable {
+    // TODO: 添加 x, y, width, height, scale 的私有字段
+    
+    // TODO: 实现构造函数
+    
+    // TODO: 实现所有接口方法
+    
+    // TODO: 添加 getter 和 setter 方法
+}
+
+public class InterfaceExercises {
+    public static void main(String[] args) {
+        // 测试你的实现
+        Circle circle = new Circle(10, 20, 5);
+        Rectangle rectangle = new Rectangle(0, 0, 10, 8);
+        
+        System.out.println(circle.draw());
+        System.out.println(circle.move());
+        System.out.println(circle.resize(2.0));
+        
+        System.out.println(rectangle.draw());
+        System.out.println(rectangle.move());
+        System.out.println(rectangle.resize(1.5));
+        
+        // 多态数组
+        Drawable[] drawables = {circle, rectangle};
+        Movable[] movables = {circle, rectangle};
+        Resizable[] resizables = {circle, rectangle};
+        
+        for (Drawable d : drawables) {
+            System.out.println(d.draw());
+        }
+        
+        for (Movable m : movables) {
+            System.out.println(m.move());
+        }
+        
+        for (Resizable r : resizables) {
+            System.out.println(r.resize(1.2));
+        }
+    }
+}
+```
+</UniversalEditor>
+
+### 练习 2: 函数式接口
+
+<UniversalEditor title="练习 2: 函数式接口">
+```java !! java
+// TODO: 实现函数式接口和 Lambda 表达式
+@FunctionalInterface
+interface Calculator {
+    // TODO: 添加抽象方法 calculate(double a, double b)
+    
+    // TODO: 添加默认方法 getOperationName()
+    
+    // TODO: 添加静态方法 getCalculatorType()
+}
+
+@FunctionalInterface
+interface Validator<T> {
+    // TODO: 添加抽象方法 validate(T value)
+    
+    // TODO: 添加默认方法 and(Validator<T> other)
+    
+    // TODO: 添加默认方法 or(Validator<T> other)
+}
+
+@FunctionalInterface
+interface Transformer<T, R> {
+    // TODO: 添加抽象方法 transform(T input)
+    
+    // TODO: 添加默认方法 andThen(Transformer<R, V> after)
+}
+
+public class FunctionalExercises {
+    public static void main(String[] args) {
+        // 测试你的实现
+        Calculator add = (a, b) -> a + b;
+        Calculator multiply = (a, b) -> a * b;
+        Calculator divide = (a, b) -> b != 0 ? a / b : 0;
+        
+        System.out.println("Add: " + add.calculate(5, 3));
+        System.out.println("Multiply: " + multiply.calculate(4, 6));
+        System.out.println("Divide: " + divide.calculate(10, 2));
+        
+        Validator<Integer> isPositive = x -> x > 0;
+        Validator<Integer> isEven = x -> x % 2 == 0;
+        Validator<Integer> isPositiveAndEven = isPositive.and(isEven);
+        
+        System.out.println("Is 6 positive and even: " + isPositiveAndEven.validate(6));
+        System.out.println("Is 5 positive and even: " + isPositiveAndEven.validate(5));
+        
+        Transformer<String, Integer> length = String::length;
+        Transformer<Integer, String> toString = Object::toString;
+        Transformer<String, String> lengthThenString = length.andThen(toString);
+        
+        System.out.println("Length then string: " + lengthThenString.transform("Hello"));
+        
+        // 自定义函数式操作
+        List<Integer> numbers = Arrays.asList(1, 2, 3, 4, 5, 6, 7, 8, 9, 10);
+        
+        // 使用自定义验证器过滤
+        List<Integer> validNumbers = numbers.stream()
+            .filter(isPositiveAndEven)
+            .collect(Collectors.toList());
+        
+        System.out.println("Valid numbers: " + validNumbers);
+        
+        // 使用自定义转换器映射
+        List<String> numberStrings = numbers.stream()
+            .map(toString)
+            .collect(Collectors.toList());
+        
+        System.out.println("Number strings: " + numberStrings);
+    }
+}
+```
+</UniversalEditor>
+
+## 总结
+
+在本模块中，我们探索了 Java 的接口系统并将其与 JavaScript 的接口模式进行了对比：
+
+### 关键要点：
+1. **接口契约**: Java 接口定义类必须实现的契约
+2. **多重继承**: Java 通过接口支持多重继承
+3. **默认方法**: Java 8+ 允许接口中的默认实现
+4. **函数式接口**: Java 提供函数式接口用于 Lambda 表达式
+5. **静态方法**: 接口可以包含静态方法
+
+### 下一步：
+- 练习实现具有多重继承的接口
+- 掌握函数式接口和 Lambda 表达式
+- 探索接口中的默认方法和静态方法
+- 为下一个关于异常处理的模块做准备
+
+## 额外资源
+
+- [Java 接口](https://docs.oracle.com/javase/tutorial/java/IandI/createinterface.html)
+- [Java 函数式接口](https://docs.oracle.com/javase/tutorial/java/javaOO/lambdaexpressions.html)
+- [Java 默认方法](https://docs.oracle.com/javase/tutorial/java/IandI/defaultmethods.html)
+
+---
+
+**练习提示**: 专注于理解接口和抽象类之间的区别。练习实现多重接口和使用 Lambda 表达式的函数式接口。创建基于接口的系统来演示基于契约的编程。 

@@ -73,6 +73,11 @@ export default async function Page(props: {
       name: 'JavaScript 到 Kotlin 转换学习',
       description: '从 JavaScript 开发者视角学习 Kotlin，掌握协程编程、Android 开发和 JVM 生态系统',
       level: 'Intermediate'
+    },
+    'js2java': {
+      name: 'JavaScript 到 Java 转换学习',
+      description: '从 JavaScript 开发者视角学习 Java，掌握面向对象编程、企业级开发和 Spring 框架',
+      level: 'Intermediate'
     }
   };
   

@@ -1,0 +1,1485 @@
+---
+title: "Java 惯用法"
+description: "学习 Java 编码规范、设计模式应用、测试最佳实践和代码组织原则，编写优雅高效的 Java 代码"
+---
+
+# Java 惯用法
+
+Java 作为一门成熟的编程语言，有着丰富的惯用法和最佳实践。掌握这些惯用法可以帮助你编写更优雅、高效和可维护的代码。
+
+## 编码规范
+
+### 1. 命名规范
+
+#### 类和方法命名
+<UniversalEditor title="命名规范">
+```java !! java
+// 正确的命名规范
+public class UserService { // 类名使用 PascalCase
+    private static final int MAX_RETRY_COUNT = 3; // 常量使用 UPPER_SNAKE_CASE
+    
+    private String userName; // 字段名使用 camelCase
+    
+    public void createUser() { // 方法名使用 camelCase
+        // 方法实现
+    }
+    
+    public boolean isValidEmail(String email) { // 布尔方法使用 is/has/can 前缀
+        return email != null && email.contains("@");
+    }
+    
+    public User findById(Long id) { // 查询方法使用 find/get/load 前缀
+        return userRepository.findById(id);
+    }
+    
+    public void saveUser(User user) { // 操作方法使用 save/update/delete 前缀
+        userRepository.save(user);
+    }
+}
+
+// 枚举命名
+public enum UserStatus {
+    ACTIVE, INACTIVE, SUSPENDED // 枚举值使用 UPPER_SNAKE_CASE
+}
+
+// 接口命名
+public interface UserRepository { // 接口名使用 PascalCase，通常以 -able 或 -er 结尾
+    User findById(Long id);
+    void save(User user);
+}
+```
+
+```javascript !! js
+// JavaScript 命名规范对比
+class UserService { // 类名使用 PascalCase
+    static MAX_RETRY_COUNT = 3; // 常量使用 UPPER_SNAKE_CASE
+    
+    constructor() {
+        this.userName = ''; // 字段名使用 camelCase
+    }
+    
+    createUser() { // 方法名使用 camelCase
+        // 方法实现
+    }
+    
+    isValidEmail(email) { // 布尔方法使用 is/has/can 前缀
+        return email != null && email.includes('@');
+    }
+    
+    findById(id) { // 查询方法使用 find/get/load 前缀
+        return this.userRepository.findById(id);
+    }
+    
+    saveUser(user) { // 操作方法使用 save/update/delete 前缀
+        this.userRepository.save(user);
+    }
+}
+
+// 枚举（使用对象模拟）
+const UserStatus = {
+    ACTIVE: 'ACTIVE',
+    INACTIVE: 'INACTIVE',
+    SUSPENDED: 'SUSPENDED'
+};
+```
+</UniversalEditor>
+
+#### 包命名
+<UniversalEditor title="包命名规范">
+```java !! java
+// 正确的包命名
+package com.example.project.controller; // 全小写，用点分隔
+package com.example.project.service;
+package com.example.project.repository;
+package com.example.project.entity;
+package com.example.project.dto;
+package com.example.project.config;
+package com.example.project.util;
+
+// 避免使用 Java 保留字
+package com.example.project.string; // 错误：string 是保留字
+package com.example.project.String; // 错误：大写开头
+
+// 正确的做法
+package com.example.project.text;
+package com.example.project.util;
+```
+</UniversalEditor>
+
+### 2. 代码格式
+
+#### 缩进和空格
+<UniversalEditor title="代码格式">
+```java !! java
+// 正确的代码格式
+public class UserService {
+    private static final int MAX_RETRY_COUNT = 3;
+    
+    public User createUser(UserCreateRequest request) {
+        // 验证输入
+        if (request == null) {
+            throw new IllegalArgumentException("Request cannot be null");
+        }
+        
+        // 业务逻辑
+        User user = new User();
+        user.setEmail(request.getEmail());
+        user.setName(request.getName());
+        
+        // 保存用户
+        return userRepository.save(user);
+    }
+    
+    public List<User> findUsersByEmail(String email) {
+        return userRepository.findByEmailContaining(email)
+                .stream()
+                .filter(User::isActive)
+                .collect(Collectors.toList());
+    }
+}
+
+// 方法链的正确格式
+public class UserBuilder {
+    public UserBuilder withEmail(String email) {
+        this.email = email;
+        return this;
+    }
+    
+    public UserBuilder withName(String name) {
+        this.name = name;
+        return this;
+    }
+    
+    public User build() {
+        return new User(email, name);
+    }
+}
+```
+
+```javascript !! js
+// JavaScript 代码格式对比
+class UserService {
+    static MAX_RETRY_COUNT = 3;
+    
+    createUser(request) {
+        // 验证输入
+        if (!request) {
+            throw new Error('Request cannot be null');
+        }
+        
+        // 业务逻辑
+        const user = {
+            email: request.email,
+            name: request.name
+        };
+        
+        // 保存用户
+        return this.userRepository.save(user);
+    }
+    
+    findUsersByEmail(email) {
+        return this.userRepository.findByEmailContaining(email)
+            .filter(user => user.isActive);
+    }
+}
+
+// 方法链
+class UserBuilder {
+    withEmail(email) {
+        this.email = email;
+        return this;
+    }
+    
+    withName(name) {
+        this.name = name;
+        return this;
+    }
+    
+    build() {
+        return { email: this.email, name: this.name };
+    }
+}
+```
+</UniversalEditor>
+
+## 设计模式应用
+
+### 1. 建造者模式 (Builder Pattern)
+
+#### 复杂对象构建
+<UniversalEditor title="建造者模式">
+```java !! java
+// 使用建造者模式构建复杂对象
+public class User {
+    private final String email;
+    private final String name;
+    private final String phone;
+    private final String address;
+    private final LocalDate birthDate;
+    private final Set<String> roles;
+    
+    private User(Builder builder) {
+        this.email = builder.email;
+        this.name = builder.name;
+        this.phone = builder.phone;
+        this.address = builder.address;
+        this.birthDate = builder.birthDate;
+        this.roles = new HashSet<>(builder.roles);
+    }
+    
+    // 静态内部类作为建造者
+    public static class Builder {
+        private String email;
+        private String name;
+        private String phone;
+        private String address;
+        private LocalDate birthDate;
+        private Set<String> roles = new HashSet<>();
+        
+        public Builder email(String email) {
+            this.email = email;
+            return this;
+        }
+        
+        public Builder name(String name) {
+            this.name = name;
+            return this;
+        }
+        
+        public Builder phone(String phone) {
+            this.phone = phone;
+            return this;
+        }
+        
+        public Builder address(String address) {
+            this.address = address;
+            return this;
+        }
+        
+        public Builder birthDate(LocalDate birthDate) {
+            this.birthDate = birthDate;
+            return this;
+        }
+        
+        public Builder role(String role) {
+            this.roles.add(role);
+            return this;
+        }
+        
+        public Builder roles(Set<String> roles) {
+            this.roles.addAll(roles);
+            return this;
+        }
+        
+        public User build() {
+            if (email == null || name == null) {
+                throw new IllegalStateException("Email and name are required");
+            }
+            return new User(this);
+        }
+    }
+    
+    // getters
+    public String getEmail() { return email; }
+    public String getName() { return name; }
+    public String getPhone() { return phone; }
+    public String getAddress() { return address; }
+    public LocalDate getBirthDate() { return birthDate; }
+    public Set<String> getRoles() { return new HashSet<>(roles); }
+}
+
+// 使用示例
+User user = new User.Builder()
+    .email("john@example.com")
+    .name("John Doe")
+    .phone("123-456-7890")
+    .address("123 Main St")
+    .birthDate(LocalDate.of(1990, 1, 1))
+    .role("USER")
+    .role("ADMIN")
+    .build();
+```
+
+```javascript !! js
+// JavaScript 中的类似模式
+class User {
+    constructor(builder) {
+        this.email = builder.email;
+        this.name = builder.name;
+        this.phone = builder.phone;
+        this.address = builder.address;
+        this.birthDate = builder.birthDate;
+        this.roles = new Set(builder.roles);
+    }
+    
+    static get Builder() {
+        return class Builder {
+            constructor() {
+                this.roles = new Set();
+            }
+            
+            email(email) {
+                this.email = email;
+                return this;
+            }
+            
+            name(name) {
+                this.name = name;
+                return this;
+            }
+            
+            phone(phone) {
+                this.phone = phone;
+                return this;
+            }
+            
+            address(address) {
+                this.address = address;
+                return this;
+            }
+            
+            birthDate(birthDate) {
+                this.birthDate = birthDate;
+                return this;
+            }
+            
+            role(role) {
+                this.roles.add(role);
+                return this;
+            }
+            
+            roles(roles) {
+                roles.forEach(role => this.roles.add(role));
+                return this;
+            }
+            
+            build() {
+                if (!this.email || !this.name) {
+                    throw new Error('Email and name are required');
+                }
+                return new User(this);
+            }
+        };
+    }
+}
+
+// 使用示例
+const user = new User.Builder()
+    .email('john@example.com')
+    .name('John Doe')
+    .phone('123-456-7890')
+    .address('123 Main St')
+    .birthDate(new Date('1990-01-01'))
+    .role('USER')
+    .role('ADMIN')
+    .build();
+```
+</UniversalEditor>
+
+### 2. 策略模式 (Strategy Pattern)
+
+#### 算法选择
+<UniversalEditor title="策略模式">
+```java !! java
+// 策略模式：不同的排序算法
+public interface SortStrategy {
+    void sort(List<Integer> list);
+}
+
+public class BubbleSortStrategy implements SortStrategy {
+    @Override
+    public void sort(List<Integer> list) {
+        // 冒泡排序实现
+        for (int i = 0; i < list.size() - 1; i++) {
+            for (int j = 0; j < list.size() - 1 - i; j++) {
+                if (list.get(j) > list.get(j + 1)) {
+                    Collections.swap(list, j, j + 1);
+                }
+            }
+        }
+    }
+}
+
+public class QuickSortStrategy implements SortStrategy {
+    @Override
+    public void sort(List<Integer> list) {
+        // 快速排序实现
+        quickSort(list, 0, list.size() - 1);
+    }
+    
+    private void quickSort(List<Integer> list, int low, int high) {
+        if (low < high) {
+            int pi = partition(list, low, high);
+            quickSort(list, low, pi - 1);
+            quickSort(list, pi + 1, high);
+        }
+    }
+    
+    private int partition(List<Integer> list, int low, int high) {
+        int pivot = list.get(high);
+        int i = low - 1;
+        
+        for (int j = low; j < high; j++) {
+            if (list.get(j) <= pivot) {
+                i++;
+                Collections.swap(list, i, j);
+            }
+        }
+        
+        Collections.swap(list, i + 1, high);
+        return i + 1;
+    }
+}
+
+// 上下文类
+public class Sorter {
+    private SortStrategy strategy;
+    
+    public Sorter(SortStrategy strategy) {
+        this.strategy = strategy;
+    }
+    
+    public void setStrategy(SortStrategy strategy) {
+        this.strategy = strategy;
+    }
+    
+    public void sort(List<Integer> list) {
+        strategy.sort(list);
+    }
+}
+
+// 使用示例
+List<Integer> numbers = Arrays.asList(64, 34, 25, 12, 22, 11, 90);
+
+Sorter sorter = new Sorter(new BubbleSortStrategy());
+sorter.sort(numbers);
+
+sorter.setStrategy(new QuickSortStrategy());
+sorter.sort(numbers);
+```
+
+```javascript !! js
+// JavaScript 中的策略模式
+class SortStrategy {
+    sort(list) {
+        throw new Error('sort method must be implemented');
+    }
+}
+
+class BubbleSortStrategy extends SortStrategy {
+    sort(list) {
+        // 冒泡排序实现
+        for (let i = 0; i < list.length - 1; i++) {
+            for (let j = 0; j < list.length - 1 - i; j++) {
+                if (list[j] > list[j + 1]) {
+                    [list[j], list[j + 1]] = [list[j + 1], list[j]];
+                }
+            }
+        }
+    }
+}
+
+class QuickSortStrategy extends SortStrategy {
+    sort(list) {
+        this.quickSort(list, 0, list.length - 1);
+    }
+    
+    quickSort(list, low, high) {
+        if (low < high) {
+            const pi = this.partition(list, low, high);
+            this.quickSort(list, low, pi - 1);
+            this.quickSort(list, pi + 1, high);
+        }
+    }
+    
+    partition(list, low, high) {
+        const pivot = list[high];
+        let i = low - 1;
+        
+        for (let j = low; j < high; j++) {
+            if (list[j] <= pivot) {
+                i++;
+                [list[i], list[j]] = [list[j], list[i]];
+            }
+        }
+        
+        [list[i + 1], list[high]] = [list[high], list[i + 1]];
+        return i + 1;
+    }
+}
+
+class Sorter {
+    constructor(strategy) {
+        this.strategy = strategy;
+    }
+    
+    setStrategy(strategy) {
+        this.strategy = strategy;
+    }
+    
+    sort(list) {
+        this.strategy.sort(list);
+    }
+}
+
+// 使用示例
+const numbers = [64, 34, 25, 12, 22, 11, 90];
+
+const sorter = new Sorter(new BubbleSortStrategy());
+sorter.sort([...numbers]);
+
+sorter.setStrategy(new QuickSortStrategy());
+sorter.sort([...numbers]);
+```
+</UniversalEditor>
+
+### 3. 观察者模式 (Observer Pattern)
+
+#### 事件处理
+<UniversalEditor title="观察者模式">
+```java !! java
+// 观察者模式：事件通知
+public interface EventListener {
+    void onEvent(String event);
+}
+
+public class UserService {
+    private List<EventListener> listeners = new ArrayList<>();
+    
+    public void addEventListener(EventListener listener) {
+        listeners.add(listener);
+    }
+    
+    public void removeEventListener(EventListener listener) {
+        listeners.remove(listener);
+    }
+    
+    private void notifyListeners(String event) {
+        for (EventListener listener : listeners) {
+            listener.onEvent(event);
+        }
+    }
+    
+    public void createUser(User user) {
+        // 创建用户逻辑
+        userRepository.save(user);
+        
+        // 通知观察者
+        notifyListeners("USER_CREATED: " + user.getEmail());
+    }
+    
+    public void deleteUser(Long id) {
+        // 删除用户逻辑
+        userRepository.deleteById(id);
+        
+        // 通知观察者
+        notifyListeners("USER_DELETED: " + id);
+    }
+}
+
+// 具体的观察者
+public class EmailNotificationListener implements EventListener {
+    @Override
+    public void onEvent(String event) {
+        if (event.startsWith("USER_CREATED")) {
+            System.out.println("Sending welcome email for: " + event);
+        }
+    }
+}
+
+public class AuditLogListener implements EventListener {
+    @Override
+    public void onEvent(String event) {
+        System.out.println("Logging event: " + event);
+    }
+}
+
+// 使用示例
+UserService userService = new UserService();
+userService.addEventListener(new EmailNotificationListener());
+userService.addEventListener(new AuditLogListener());
+
+userService.createUser(new User("john@example.com", "John Doe"));
+```
+
+```javascript !! js
+// JavaScript 中的观察者模式
+class UserService {
+    constructor() {
+        this.listeners = [];
+    }
+    
+    addEventListener(listener) {
+        this.listeners.push(listener);
+    }
+    
+    removeEventListener(listener) {
+        const index = this.listeners.indexOf(listener);
+        if (index > -1) {
+            this.listeners.splice(index, 1);
+        }
+    }
+    
+    notifyListeners(event) {
+        this.listeners.forEach(listener => listener.onEvent(event));
+    }
+    
+    createUser(user) {
+        // 创建用户逻辑
+        this.userRepository.save(user);
+        
+        // 通知观察者
+        this.notifyListeners(`USER_CREATED: ${user.email}`);
+    }
+    
+    deleteUser(id) {
+        // 删除用户逻辑
+        this.userRepository.deleteById(id);
+        
+        // 通知观察者
+        this.notifyListeners(`USER_DELETED: ${id}`);
+    }
+}
+
+class EmailNotificationListener {
+    onEvent(event) {
+        if (event.startsWith('USER_CREATED')) {
+            console.log(`Sending welcome email for: ${event}`);
+        }
+    }
+}
+
+class AuditLogListener {
+    onEvent(event) {
+        console.log(`Logging event: ${event}`);
+    }
+}
+
+// 使用示例
+const userService = new UserService();
+userService.addEventListener(new EmailNotificationListener());
+userService.addEventListener(new AuditLogListener());
+
+userService.createUser({ email: 'john@example.com', name: 'John Doe' });
+```
+</UniversalEditor>
+
+## 函数式编程
+
+### 1. Stream API 使用
+
+#### 数据处理
+<UniversalEditor title="Stream API">
+```java !! java
+// 使用 Stream API 进行数据处理
+public class UserProcessor {
+    
+    public List<String> getActiveUserEmails(List<User> users) {
+        return users.stream()
+                .filter(User::isActive)
+                .map(User::getEmail)
+                .collect(Collectors.toList());
+    }
+    
+    public Map<String, List<User>> groupUsersByRole(List<User> users) {
+        return users.stream()
+                .collect(Collectors.groupingBy(User::getRole));
+    }
+    
+    public double getAverageAge(List<User> users) {
+        return users.stream()
+                .mapToInt(User::getAge)
+                .average()
+                .orElse(0.0);
+    }
+    
+    public List<User> getTopUsersByScore(List<User> users, int limit) {
+        return users.stream()
+                .sorted(Comparator.comparing(User::getScore).reversed())
+                .limit(limit)
+                .collect(Collectors.toList());
+    }
+    
+    public boolean hasAdminUser(List<User> users) {
+        return users.stream()
+                .anyMatch(user -> "ADMIN".equals(user.getRole()));
+    }
+    
+    public Optional<User> findUserByEmail(List<User> users, String email) {
+        return users.stream()
+                .filter(user -> email.equals(user.getEmail()))
+                .findFirst();
+    }
+    
+    public String getConcatenatedNames(List<User> users) {
+        return users.stream()
+                .map(User::getName)
+                .collect(Collectors.joining(", "));
+    }
+}
+```
+
+```javascript !! js
+// JavaScript 中的类似功能
+class UserProcessor {
+    getActiveUserEmails(users) {
+        return users
+            .filter(user => user.isActive)
+            .map(user => user.email);
+    }
+    
+    groupUsersByRole(users) {
+        return users.reduce((groups, user) => {
+            const role = user.role;
+            if (!groups[role]) {
+                groups[role] = [];
+            }
+            groups[role].push(user);
+            return groups;
+        }, {});
+    }
+    
+    getAverageAge(users) {
+        if (users.length === 0) return 0;
+        const totalAge = users.reduce((sum, user) => sum + user.age, 0);
+        return totalAge / users.length;
+    }
+    
+    getTopUsersByScore(users, limit) {
+        return users
+            .sort((a, b) => b.score - a.score)
+            .slice(0, limit);
+    }
+    
+    hasAdminUser(users) {
+        return users.some(user => user.role === 'ADMIN');
+    }
+    
+    findUserByEmail(users, email) {
+        return users.find(user => user.email === email);
+    }
+    
+    getConcatenatedNames(users) {
+        return users.map(user => user.name).join(', ');
+    }
+}
+```
+</UniversalEditor>
+
+### 2. Optional 使用
+
+#### 空值处理
+<UniversalEditor title="Optional 使用">
+```java !! java
+// 使用 Optional 处理空值
+public class UserService {
+    
+    public Optional<User> findUserById(Long id) {
+        return userRepository.findById(id);
+    }
+    
+    public String getUserName(Long id) {
+        return findUserById(id)
+                .map(User::getName)
+                .orElse("Unknown User");
+    }
+    
+    public void sendEmailToUser(Long id) {
+        findUserById(id)
+                .map(User::getEmail)
+                .ifPresent(emailService::sendEmail);
+    }
+    
+    public List<String> getUserRoles(Long id) {
+        return findUserById(id)
+                .map(User::getRoles)
+                .orElse(Collections.emptyList());
+    }
+    
+    public User createUserIfNotExists(String email, String name) {
+        return userRepository.findByEmail(email)
+                .orElseGet(() -> {
+                    User newUser = new User(email, name);
+                    return userRepository.save(newUser);
+                });
+    }
+    
+    public void processUser(Long id) {
+        findUserById(id)
+                .filter(User::isActive)
+                .ifPresentOrElse(
+                    this::processActiveUser,
+                    () -> System.out.println("User not found or inactive")
+                );
+    }
+    
+    private void processActiveUser(User user) {
+        // 处理活跃用户
+        System.out.println("Processing user: " + user.getName());
+    }
+}
+```
+
+```javascript !! js
+// JavaScript 中的类似模式
+class UserService {
+    findUserById(id) {
+        return this.userRepository.findById(id);
+    }
+    
+    getUserName(id) {
+        const user = this.findUserById(id);
+        return user ? user.name : 'Unknown User';
+    }
+    
+    sendEmailToUser(id) {
+        const user = this.findUserById(id);
+        if (user && user.email) {
+            this.emailService.sendEmail(user.email);
+        }
+    }
+    
+    getUserRoles(id) {
+        const user = this.findUserById(id);
+        return user ? user.roles : [];
+    }
+    
+    createUserIfNotExists(email, name) {
+        const existingUser = this.userRepository.findByEmail(email);
+        if (existingUser) {
+            return existingUser;
+        }
+        
+        const newUser = { email, name };
+        return this.userRepository.save(newUser);
+    }
+    
+    processUser(id) {
+        const user = this.findUserById(id);
+        if (user && user.isActive) {
+            this.processActiveUser(user);
+        } else {
+            console.log('User not found or inactive');
+        }
+    }
+    
+    processActiveUser(user) {
+        console.log(`Processing user: ${user.name}`);
+    }
+}
+```
+</UniversalEditor>
+
+## 测试最佳实践
+
+### 1. 单元测试
+
+#### 测试结构
+<UniversalEditor title="单元测试">
+```java !! java
+// 使用 JUnit 5 编写单元测试
+@ExtendWith(MockitoExtension.class)
+class UserServiceTest {
+    
+    @Mock
+    private UserRepository userRepository;
+    
+    @Mock
+    private EmailService emailService;
+    
+    @InjectMocks
+    private UserService userService;
+    
+    @Test
+    @DisplayName("Should create user successfully")
+    void shouldCreateUserSuccessfully() {
+        // Given
+        UserCreateRequest request = new UserCreateRequest(
+            "john@example.com", 
+            "John Doe"
+        );
+        
+        User savedUser = new User("john@example.com", "John Doe");
+        when(userRepository.save(any(User.class))).thenReturn(savedUser);
+        
+        // When
+        User result = userService.createUser(request);
+        
+        // Then
+        assertThat(result).isNotNull();
+        assertThat(result.getEmail()).isEqualTo("john@example.com");
+        assertThat(result.getName()).isEqualTo("John Doe");
+        
+        verify(userRepository).save(any(User.class));
+    }
+    
+    @Test
+    @DisplayName("Should throw exception when email already exists")
+    void shouldThrowExceptionWhenEmailExists() {
+        // Given
+        UserCreateRequest request = new UserCreateRequest(
+            "existing@example.com", 
+            "John Doe"
+        );
+        
+        when(userRepository.existsByEmail("existing@example.com"))
+            .thenReturn(true);
+        
+        // When & Then
+        assertThatThrownBy(() -> userService.createUser(request))
+            .isInstanceOf(EmailAlreadyExistsException.class)
+            .hasMessage("Email already exists");
+        
+        verify(userRepository, never()).save(any(User.class));
+    }
+    
+    @Test
+    @DisplayName("Should find user by email")
+    void shouldFindUserByEmail() {
+        // Given
+        String email = "john@example.com";
+        User user = new User(email, "John Doe");
+        when(userRepository.findByEmail(email)).thenReturn(Optional.of(user));
+        
+        // When
+        Optional<User> result = userService.findUserByEmail(email);
+        
+        // Then
+        assertThat(result).isPresent();
+        assertThat(result.get().getEmail()).isEqualTo(email);
+    }
+    
+    @Test
+    @DisplayName("Should return empty when user not found")
+    void shouldReturnEmptyWhenUserNotFound() {
+        // Given
+        String email = "nonexistent@example.com";
+        when(userRepository.findByEmail(email)).thenReturn(Optional.empty());
+        
+        // When
+        Optional<User> result = userService.findUserByEmail(email);
+        
+        // Then
+        assertThat(result).isEmpty();
+    }
+    
+    @ParameterizedTest
+    @ValueSource(strings = {"", "invalid-email", "test@", "@example.com"})
+    @DisplayName("Should reject invalid emails")
+    void shouldRejectInvalidEmails(String invalidEmail) {
+        // Given
+        UserCreateRequest request = new UserCreateRequest(invalidEmail, "John Doe");
+        
+        // When & Then
+        assertThatThrownBy(() -> userService.createUser(request))
+            .isInstanceOf(InvalidEmailException.class);
+    }
+}
+```
+
+```javascript !! js
+// Jest 测试对比
+describe('UserService', () => {
+    let userService;
+    let mockUserRepository;
+    let mockEmailService;
+    
+    beforeEach(() => {
+        mockUserRepository = {
+            save: jest.fn(),
+            existsByEmail: jest.fn(),
+            findByEmail: jest.fn()
+        };
+        
+        mockEmailService = {
+            sendEmail: jest.fn()
+        };
+        
+        userService = new UserService(mockUserRepository, mockEmailService);
+    });
+    
+    test('should create user successfully', async () => {
+        // Given
+        const request = {
+            email: 'john@example.com',
+            name: 'John Doe'
+        };
+        
+        const savedUser = { email: 'john@example.com', name: 'John Doe' };
+        mockUserRepository.save.mockResolvedValue(savedUser);
+        
+        // When
+        const result = await userService.createUser(request);
+        
+        // Then
+        expect(result).toBeDefined();
+        expect(result.email).toBe('john@example.com');
+        expect(result.name).toBe('John Doe');
+        expect(mockUserRepository.save).toHaveBeenCalled();
+    });
+    
+    test('should throw error when email already exists', async () => {
+        // Given
+        const request = {
+            email: 'existing@example.com',
+            name: 'John Doe'
+        };
+        
+        mockUserRepository.existsByEmail.mockResolvedValue(true);
+        
+        // When & Then
+        await expect(userService.createUser(request))
+            .rejects.toThrow('Email already exists');
+        
+        expect(mockUserRepository.save).not.toHaveBeenCalled();
+    });
+    
+    test('should find user by email', async () => {
+        // Given
+        const email = 'john@example.com';
+        const user = { email, name: 'John Doe' };
+        mockUserRepository.findByEmail.mockResolvedValue(user);
+        
+        // When
+        const result = await userService.findUserByEmail(email);
+        
+        // Then
+        expect(result).toBeDefined();
+        expect(result.email).toBe(email);
+    });
+    
+    test('should return null when user not found', async () => {
+        // Given
+        const email = 'nonexistent@example.com';
+        mockUserRepository.findByEmail.mockResolvedValue(null);
+        
+        // When
+        const result = await userService.findUserByEmail(email);
+        
+        // Then
+        expect(result).toBeNull();
+    });
+    
+    test.each([
+        ['', 'empty email'],
+        ['invalid-email', 'invalid email format'],
+        ['test@', 'incomplete email'],
+        ['@example.com', 'missing local part']
+    ])('should reject %s (%s)', async (invalidEmail, description) => {
+        // Given
+        const request = { email: invalidEmail, name: 'John Doe' };
+        
+        // When & Then
+        await expect(userService.createUser(request))
+            .rejects.toThrow('Invalid email');
+    });
+});
+```
+</UniversalEditor>
+
+### 2. 集成测试
+
+#### 数据库测试
+<UniversalEditor title="集成测试">
+```java !! java
+// 使用 @DataJpaTest 进行数据库集成测试
+@DataJpaTest
+@AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
+class UserRepositoryIntegrationTest {
+    
+    @Autowired
+    private UserRepository userRepository;
+    
+    @Autowired
+    private TestEntityManager entityManager;
+    
+    @Test
+    @DisplayName("Should save and retrieve user")
+    void shouldSaveAndRetrieveUser() {
+        // Given
+        User user = new User("john@example.com", "John Doe");
+        
+        // When
+        User savedUser = userRepository.save(user);
+        User retrievedUser = userRepository.findById(savedUser.getId()).orElse(null);
+        
+        // Then
+        assertThat(retrievedUser).isNotNull();
+        assertThat(retrievedUser.getEmail()).isEqualTo("john@example.com");
+        assertThat(retrievedUser.getName()).isEqualTo("John Doe");
+    }
+    
+    @Test
+    @DisplayName("Should find user by email")
+    void shouldFindUserByEmail() {
+        // Given
+        User user = new User("john@example.com", "John Doe");
+        userRepository.save(user);
+        
+        // When
+        Optional<User> foundUser = userRepository.findByEmail("john@example.com");
+        
+        // Then
+        assertThat(foundUser).isPresent();
+        assertThat(foundUser.get().getName()).isEqualTo("John Doe");
+    }
+    
+    @Test
+    @DisplayName("Should return empty when email not found")
+    void shouldReturnEmptyWhenEmailNotFound() {
+        // When
+        Optional<User> foundUser = userRepository.findByEmail("nonexistent@example.com");
+        
+        // Then
+        assertThat(foundUser).isEmpty();
+    }
+    
+    @Test
+    @DisplayName("Should prevent duplicate emails")
+    void shouldPreventDuplicateEmails() {
+        // Given
+        User user1 = new User("john@example.com", "John Doe");
+        userRepository.save(user1);
+        
+        User user2 = new User("john@example.com", "Jane Doe");
+        
+        // When & Then
+        assertThatThrownBy(() -> userRepository.save(user2))
+            .isInstanceOf(DataIntegrityViolationException.class);
+    }
+}
+```
+
+```javascript !! js
+// JavaScript 集成测试
+describe('UserRepository Integration Tests', () => {
+    let sequelize;
+    let User;
+    
+    beforeAll(async () => {
+        // 设置测试数据库
+        sequelize = new Sequelize('sqlite::memory:', {
+            logging: false
+        });
+        
+        User = sequelize.define('User', {
+            email: {
+                type: DataTypes.STRING,
+                allowNull: false,
+                unique: true
+            },
+            name: {
+                type: DataTypes.STRING,
+                allowNull: false
+            }
+        });
+        
+        await sequelize.sync({ force: true });
+    });
+    
+    afterAll(async () => {
+        await sequelize.close();
+    });
+    
+    test('should save and retrieve user', async () => {
+        // Given
+        const userData = { email: 'john@example.com', name: 'John Doe' };
+        
+        // When
+        const savedUser = await User.create(userData);
+        const retrievedUser = await User.findByPk(savedUser.id);
+        
+        // Then
+        expect(retrievedUser).toBeDefined();
+        expect(retrievedUser.email).toBe('john@example.com');
+        expect(retrievedUser.name).toBe('John Doe');
+    });
+    
+    test('should find user by email', async () => {
+        // Given
+        const userData = { email: 'john@example.com', name: 'John Doe' };
+        await User.create(userData);
+        
+        // When
+        const foundUser = await User.findOne({ where: { email: 'john@example.com' } });
+        
+        // Then
+        expect(foundUser).toBeDefined();
+        expect(foundUser.name).toBe('John Doe');
+    });
+    
+    test('should return null when email not found', async () => {
+        // When
+        const foundUser = await User.findOne({ where: { email: 'nonexistent@example.com' } });
+        
+        // Then
+        expect(foundUser).toBeNull();
+    });
+    
+    test('should prevent duplicate emails', async () => {
+        // Given
+        const user1 = { email: 'john@example.com', name: 'John Doe' };
+        await User.create(user1);
+        
+        const user2 = { email: 'john@example.com', name: 'Jane Doe' };
+        
+        // When & Then
+        await expect(User.create(user2)).rejects.toThrow();
+    });
+});
+```
+</UniversalEditor>
+
+## 代码组织原则
+
+### 1. 单一职责原则
+
+#### 类设计
+<UniversalEditor title="单一职责原则">
+```java !! java
+// 错误示例：违反单一职责原则
+public class UserManager {
+    // 用户管理
+    public void createUser(User user) { /* ... */ }
+    public void updateUser(User user) { /* ... */ }
+    public void deleteUser(Long id) { /* ... */ }
+    
+    // 邮件发送
+    public void sendWelcomeEmail(String email) { /* ... */ }
+    public void sendPasswordResetEmail(String email) { /* ... */ }
+    
+    // 数据验证
+    public boolean isValidEmail(String email) { /* ... */ }
+    public boolean isValidPassword(String password) { /* ... */ }
+    
+    // 数据持久化
+    public void saveToDatabase(User user) { /* ... */ }
+    public User loadFromDatabase(Long id) { /* ... */ }
+}
+
+// 正确示例：遵循单一职责原则
+public class UserService {
+    private final UserRepository userRepository;
+    private final EmailService emailService;
+    private final ValidationService validationService;
+    
+    public UserService(UserRepository userRepository, 
+                      EmailService emailService,
+                      ValidationService validationService) {
+        this.userRepository = userRepository;
+        this.emailService = emailService;
+        this.validationService = validationService;
+    }
+    
+    public User createUser(UserCreateRequest request) {
+        // 验证
+        validationService.validateUserRequest(request);
+        
+        // 创建用户
+        User user = new User(request.getEmail(), request.getName());
+        User savedUser = userRepository.save(user);
+        
+        // 发送邮件
+        emailService.sendWelcomeEmail(savedUser.getEmail());
+        
+        return savedUser;
+    }
+}
+
+public class EmailService {
+    public void sendWelcomeEmail(String email) { /* ... */ }
+    public void sendPasswordResetEmail(String email) { /* ... */ }
+}
+
+public class ValidationService {
+    public void validateUserRequest(UserCreateRequest request) { /* ... */ }
+    public boolean isValidEmail(String email) { /* ... */ }
+    public boolean isValidPassword(String password) { /* ... */ }
+}
+
+public class UserRepository {
+    public User save(User user) { /* ... */ }
+    public Optional<User> findById(Long id) { /* ... */ }
+    public void deleteById(Long id) { /* ... */ }
+}
+```
+
+```javascript !! js
+// JavaScript 中的单一职责原则
+// 错误示例
+class UserManager {
+    createUser(user) { /* ... */ }
+    updateUser(user) { /* ... */ }
+    deleteUser(id) { /* ... */ }
+    
+    sendWelcomeEmail(email) { /* ... */ }
+    sendPasswordResetEmail(email) { /* ... */ }
+    
+    isValidEmail(email) { /* ... */ }
+    isValidPassword(password) { /* ... */ }
+    
+    saveToDatabase(user) { /* ... */ }
+    loadFromDatabase(id) { /* ... */ }
+}
+
+// 正确示例
+class UserService {
+    constructor(userRepository, emailService, validationService) {
+        this.userRepository = userRepository;
+        this.emailService = emailService;
+        this.validationService = validationService;
+    }
+    
+    createUser(request) {
+        // 验证
+        this.validationService.validateUserRequest(request);
+        
+        // 创建用户
+        const user = { email: request.email, name: request.name };
+        const savedUser = this.userRepository.save(user);
+        
+        // 发送邮件
+        this.emailService.sendWelcomeEmail(savedUser.email);
+        
+        return savedUser;
+    }
+}
+
+class EmailService {
+    sendWelcomeEmail(email) { /* ... */ }
+    sendPasswordResetEmail(email) { /* ... */ }
+}
+
+class ValidationService {
+    validateUserRequest(request) { /* ... */ }
+    isValidEmail(email) { /* ... */ }
+    isValidPassword(password) { /* ... */ }
+}
+
+class UserRepository {
+    save(user) { /* ... */ }
+    findById(id) { /* ... */ }
+    deleteById(id) { /* ... */ }
+}
+```
+</UniversalEditor>
+
+### 2. 依赖注入
+
+#### 构造函数注入
+<UniversalEditor title="依赖注入">
+```java !! java
+// 推荐：构造函数注入
+@Service
+public class UserService {
+    private final UserRepository userRepository;
+    private final EmailService emailService;
+    private final ValidationService validationService;
+    
+    public UserService(UserRepository userRepository,
+                      EmailService emailService,
+                      ValidationService validationService) {
+        this.userRepository = userRepository;
+        this.emailService = emailService;
+        this.validationService = validationService;
+    }
+    
+    // 业务方法
+    public User createUser(UserCreateRequest request) {
+        validationService.validateUserRequest(request);
+        
+        User user = new User(request.getEmail(), request.getName());
+        User savedUser = userRepository.save(user);
+        
+        emailService.sendWelcomeEmail(savedUser.getEmail());
+        
+        return savedUser;
+    }
+}
+
+// 避免：字段注入
+@Service
+public class UserService {
+    @Autowired
+    private UserRepository userRepository; // 不推荐
+    
+    @Autowired
+    private EmailService emailService; // 不推荐
+}
+```
+
+```javascript !! js
+// JavaScript 中的依赖注入
+// 推荐：构造函数注入
+class UserService {
+    constructor(userRepository, emailService, validationService) {
+        this.userRepository = userRepository;
+        this.emailService = emailService;
+        this.validationService = validationService;
+    }
+    
+    createUser(request) {
+        this.validationService.validateUserRequest(request);
+        
+        const user = { email: request.email, name: request.name };
+        const savedUser = this.userRepository.save(user);
+        
+        this.emailService.sendWelcomeEmail(savedUser.email);
+        
+        return savedUser;
+    }
+}
+
+// 使用依赖注入容器
+const container = {
+    userRepository: new UserRepository(),
+    emailService: new EmailService(),
+    validationService: new ValidationService()
+};
+
+const userService = new UserService(
+    container.userRepository,
+    container.emailService,
+    container.validationService
+);
+```
+</UniversalEditor>
+
+## 练习题
+
+### 练习 1: 应用设计模式
+1. 实现建造者模式构建复杂对象
+2. 使用策略模式处理不同算法
+3. 应用观察者模式实现事件通知
+4. 实践工厂模式创建对象
+
+### 练习 2: 函数式编程
+1. 使用 Stream API 处理集合数据
+2. 应用 Optional 处理空值
+3. 使用 Lambda 表达式简化代码
+4. 实践函数式接口
+
+### 练习 3: 测试实践
+1. 编写完整的单元测试
+2. 实现集成测试
+3. 使用测试驱动开发
+4. 实践测试覆盖率分析
+
+### 练习 4: 代码重构
+1. 应用单一职责原则
+2. 实现依赖注入
+3. 重构复杂方法
+4. 优化代码结构
+
+## 总结
+
+掌握 Java 惯用法可以帮助你：
+
+- **编写优雅代码**: 遵循 Java 编码规范和最佳实践
+- **提高可维护性**: 使用设计模式和良好的代码组织
+- **增强可测试性**: 应用测试最佳实践
+- **提升开发效率**: 利用函数式编程和现代 Java 特性
+
+在下一个模块中，我们将学习 Java 的高级主题，包括反射、动态代理、字节码操作等高级技术。
+
+准备好学习高级主题了吗？ 

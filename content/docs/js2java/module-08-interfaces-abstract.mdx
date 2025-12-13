@@ -1,0 +1,993 @@
+---
+title: "Module 08: Interfaces and Abstract Classes"
+description: "Learn Java interfaces, multiple inheritance, default methods, and functional interfaces compared to JavaScript interface patterns."
+---
+
+# Module 08: Interfaces and Abstract Classes
+
+In this module, we'll explore Java's interface system and how it enables multiple inheritance and contract-based programming. We'll compare this with JavaScript's approach to interfaces and abstract patterns, focusing on how interfaces provide a way to define contracts that classes must implement.
+
+## Learning Objectives
+
+By the end of this module, you will be able to:
+- Understand Java interfaces and their role in contract-based programming
+- Compare Java interfaces with JavaScript interface patterns
+- Implement multiple inheritance through interfaces
+- Use default methods and static methods in interfaces
+- Apply functional interfaces and lambda expressions
+- Understand the difference between interfaces and abstract classes
+
+## Interface Basics
+
+### 1. Interface Declaration and Implementation
+
+Java interfaces provide a way to define contracts, while JavaScript uses different patterns to achieve similar goals.
+
+<UniversalEditor title="Interface Declaration and Implementation" compare={true}>
+```javascript !! js
+// JavaScript - Interface patterns
+// Pattern 1: Duck typing (implicit interfaces)
+function processPayment(paymentProcessor) {
+    if (typeof paymentProcessor.process !== 'function') {
+        throw new Error('Payment processor must have a process method');
+    }
+    if (typeof paymentProcessor.validate !== 'function') {
+        throw new Error('Payment processor must have a validate method');
+    }
+    
+    return paymentProcessor.process();
+}
+
+// Pattern 2: Interface-like objects
+const PaymentProcessor = {
+    process: function() {
+        throw new Error('process method must be implemented');
+    },
+    validate: function() {
+        throw new Error('validate method must be implemented');
+    },
+    getProcessorType: function() {
+        return 'PaymentProcessor';
+    }
+};
+
+// Pattern 3: ES6 Class with interface-like validation
+class PaymentProcessorBase {
+    constructor() {
+        if (new.target === PaymentProcessorBase) {
+            throw new Error('PaymentProcessorBase cannot be instantiated directly');
+        }
+    }
+    
+    process() {
+        throw new Error('process method must be implemented');
+    }
+    
+    validate() {
+        throw new Error('validate method must be implemented');
+    }
+    
+    getProcessorType() {
+        return 'PaymentProcessor';
+    }
+}
+
+// Pattern 4: Symbol-based interface checking
+const INTERFACE_SYMBOL = Symbol('interface');
+
+function createInterface(methods) {
+    const interfaceObj = {
+        [INTERFACE_SYMBOL]: true,
+        methods: methods
+    };
+    
+    interfaceObj.implementedBy = function(obj) {
+        return methods.every(method => typeof obj[method] === 'function');
+    };
+    
+    return interfaceObj;
+}
+
+// Define interfaces
+const PaymentProcessorInterface = createInterface(['process', 'validate', 'getProcessorType']);
+const LoggerInterface = createInterface(['log', 'error', 'warn']);
+
+// Concrete implementations
+class CreditCardProcessor extends PaymentProcessorBase {
+    constructor() {
+        super();
+        this.type = 'CreditCard';
+    }
+    
+    process() {
+        return 'Processing credit card payment';
+    }
+    
+    validate() {
+        return 'Validating credit card details';
+    }
+    
+    getProcessorType() {
+        return this.type;
+    }
+}
+
+class PayPalProcessor extends PaymentProcessorBase {
+    constructor() {
+        super();
+        this.type = 'PayPal';
+    }
+    
+    process() {
+        return 'Processing PayPal payment';
+    }
+    
+    validate() {
+        return 'Validating PayPal credentials';
+    }
+    
+    getProcessorType() {
+        return this.type;
+    }
+}
+
+// Multiple interface implementation simulation
+class PaymentLogger {
+    constructor() {
+        this.logs = [];
+    }
+    
+    log(message) {
+        this.logs.push({ level: 'INFO', message, timestamp: new Date() });
+        console.log(`[INFO] ${message}`);
+    }
+    
+    error(message) {
+        this.logs.push({ level: 'ERROR', message, timestamp: new Date() });
+        console.error(`[ERROR] ${message}`);
+    }
+    
+    warn(message) {
+        this.logs.push({ level: 'WARN', message, timestamp: new Date() });
+        console.warn(`[WARN] ${message}`);
+    }
+    
+    getLogs() {
+        return this.logs;
+    }
+}
+
+// Interface checking function
+function implementsInterface(obj, interfaceObj) {
+    if (!interfaceObj[INTERFACE_SYMBOL]) {
+        throw new Error('Second parameter must be an interface');
+    }
+    return interfaceObj.implementedBy(obj);
+}
+
+// Usage examples
+const creditCard = new CreditCardProcessor();
+const paypal = new PayPalProcessor();
+const logger = new PaymentLogger();
+
+console.log('CreditCard implements PaymentProcessor:', 
+    implementsInterface(creditCard, PaymentProcessorInterface));
+console.log('PayPal implements PaymentProcessor:', 
+    implementsInterface(paypal, PaymentProcessorInterface));
+console.log('Logger implements LoggerInterface:', 
+    implementsInterface(logger, LoggerInterface));
+
+// Process payments
+console.log(processPayment(creditCard));
+console.log(processPayment(paypal));
+
+// Logging
+logger.log('Payment processed successfully');
+logger.error('Payment failed');
+logger.warn('Payment pending');
+
+// Factory pattern with interface checking
+class PaymentProcessorFactory {
+    static createProcessor(type) {
+        switch (type.toLowerCase()) {
+            case 'creditcard':
+                return new CreditCardProcessor();
+            case 'paypal':
+                return new PayPalProcessor();
+            default:
+                throw new Error(`Unknown processor type: ${type}`);
+        }
+    }
+    
+    static validateProcessor(processor) {
+        if (!implementsInterface(processor, PaymentProcessorInterface)) {
+            throw new Error('Invalid payment processor');
+        }
+        return processor;
+    }
+}
+
+const factoryProcessor = PaymentProcessorFactory.createProcessor('creditcard');
+PaymentProcessorFactory.validateProcessor(factoryProcessor);
+```
+
+```java !! java
+// Java - Interfaces and implementation
+public interface PaymentProcessor {
+    // Abstract methods (must be implemented)
+    String process();
+    String validate();
+    String getProcessorType();
+    
+    // Default method (Java 8+)
+    default String getDefaultProcessorType() {
+        return "Default Payment Processor";
+    }
+    
+    // Static method (Java 8+)
+    static String getInterfaceType() {
+        return "PaymentProcessor Interface";
+    }
+}
+
+public interface Logger {
+    void log(String message);
+    void error(String message);
+    void warn(String message);
+    
+    // Default method
+    default void info(String message) {
+        log(message);
+    }
+    
+    // Static method
+    static String getLoggerType() {
+        return "Logger Interface";
+    }
+}
+
+public interface Configurable {
+    void configure(String config);
+    String getConfiguration();
+}
+
+// Concrete implementation of PaymentProcessor
+public class CreditCardProcessor implements PaymentProcessor {
+    private String type;
+    
+    public CreditCardProcessor() {
+        this.type = "CreditCard";
+    }
+    
+    @Override
+    public String process() {
+        return "Processing credit card payment";
+    }
+    
+    @Override
+    public String validate() {
+        return "Validating credit card details";
+    }
+    
+    @Override
+    public String getProcessorType() {
+        return type;
+    }
+    
+    // Can override default method
+    @Override
+    public String getDefaultProcessorType() {
+        return "Custom Credit Card Processor";
+    }
+}
+
+public class PayPalProcessor implements PaymentProcessor {
+    private String type;
+    
+    public PayPalProcessor() {
+        this.type = "PayPal";
+    }
+    
+    @Override
+    public String process() {
+        return "Processing PayPal payment";
+    }
+    
+    @Override
+    public String validate() {
+        return "Validating PayPal credentials";
+    }
+    
+    @Override
+    public String getProcessorType() {
+        return type;
+    }
+}
+
+// Multiple interface implementation
+public class PaymentLogger implements Logger, Configurable {
+    private List<LogEntry> logs;
+    private String configuration;
+    
+    public PaymentLogger() {
+        this.logs = new ArrayList<>();
+        this.configuration = "default";
+    }
+    
+    @Override
+    public void log(String message) {
+        logs.add(new LogEntry("INFO", message, new Date()));
+        System.out.println("[INFO] " + message);
+    }
+    
+    @Override
+    public void error(String message) {
+        logs.add(new LogEntry("ERROR", message, new Date()));
+        System.err.println("[ERROR] " + message);
+    }
+    
+    @Override
+    public void warn(String message) {
+        logs.add(new LogEntry("WARN", message, new Date()));
+        System.out.println("[WARN] " + message);
+    }
+    
+    @Override
+    public void configure(String config) {
+        this.configuration = config;
+    }
+    
+    @Override
+    public String getConfiguration() {
+        return configuration;
+    }
+    
+    public List<LogEntry> getLogs() {
+        return new ArrayList<>(logs);
+    }
+    
+    // Inner class for log entries
+    public static class LogEntry {
+        private String level;
+        private String message;
+        private Date timestamp;
+        
+        public LogEntry(String level, String message, Date timestamp) {
+            this.level = level;
+            this.message = message;
+            this.timestamp = timestamp;
+        }
+        
+        // Getters
+        public String getLevel() { return level; }
+        public String getMessage() { return message; }
+        public Date getTimestamp() { return timestamp; }
+        
+        @Override
+        public String toString() {
+            return String.format("[%s] %s - %s", level, timestamp, message);
+        }
+    }
+}
+
+// Factory pattern with interface
+public class PaymentProcessorFactory {
+    public static PaymentProcessor createProcessor(String type) {
+        switch (type.toLowerCase()) {
+            case "creditcard":
+                return new CreditCardProcessor();
+            case "paypal":
+                return new PayPalProcessor();
+            default:
+                throw new IllegalArgumentException("Unknown processor type: " + type);
+        }
+    }
+    
+    public static void validateProcessor(PaymentProcessor processor) {
+        if (processor == null) {
+            throw new IllegalArgumentException("Processor cannot be null");
+        }
+        // Interface methods are guaranteed to exist
+        processor.validate();
+    }
+}
+
+// Main class to demonstrate interfaces
+class InterfaceDemo {
+    public static void main(String[] args) {
+        // Create processors
+        PaymentProcessor creditCard = new CreditCardProcessor();
+        PaymentProcessor paypal = new PayPalProcessor();
+        PaymentLogger logger = new PaymentLogger();
+        
+        // Interface method calls
+        System.out.println(creditCard.process());
+        System.out.println(paypal.process());
+        System.out.println(creditCard.validate());
+        System.out.println(paypal.validate());
+        
+        // Default methods
+        System.out.println(creditCard.getDefaultProcessorType());
+        System.out.println(paypal.getDefaultProcessorType());
+        
+        // Static methods
+        System.out.println(PaymentProcessor.getInterfaceType());
+        System.out.println(Logger.getLoggerType());
+        
+        // Multiple interface implementation
+        logger.log("Payment processed successfully");
+        logger.error("Payment failed");
+        logger.warn("Payment pending");
+        logger.configure("production");
+        System.out.println("Configuration: " + logger.getConfiguration());
+        
+        // Factory usage
+        PaymentProcessor factoryProcessor = PaymentProcessorFactory.createProcessor("creditcard");
+        PaymentProcessorFactory.validateProcessor(factoryProcessor);
+        
+        // Polymorphic array
+        PaymentProcessor[] processors = {creditCard, paypal};
+        for (PaymentProcessor processor : processors) {
+            System.out.println(processor.getProcessorType() + ": " + processor.process());
+        }
+    }
+}
+```
+</UniversalEditor>
+
+### 2. Functional Interfaces and Lambda Expressions
+
+Java 8+ introduced functional interfaces that work seamlessly with lambda expressions, while JavaScript has had first-class functions from the beginning.
+
+<UniversalEditor title="Functional Interfaces and Lambda Expressions" compare={true}>
+```javascript !! js
+// JavaScript - Functional programming with interfaces
+// Function types as interfaces
+const Predicate = {
+    test: function(value) {
+        throw new Error('test method must be implemented');
+    }
+};
+
+const Function = {
+    apply: function(value) {
+        throw new Error('apply method must be implemented');
+    }
+};
+
+const Consumer = {
+    accept: function(value) {
+        throw new Error('accept method must be implemented');
+    }
+};
+
+const Supplier = {
+    get: function() {
+        throw new Error('get method must be implemented');
+    }
+};
+
+// Higher-order functions that work with these interfaces
+function filter(array, predicate) {
+    return array.filter(predicate);
+}
+
+function map(array, func) {
+    return array.map(func);
+}
+
+function forEach(array, consumer) {
+    array.forEach(consumer);
+}
+
+function generate(supplier, count) {
+    return Array.from({ length: count }, () => supplier());
+}
+
+// Lambda-like functions (arrow functions)
+const isEven = x => x % 2 === 0;
+const isPositive = x => x > 0;
+const square = x => x * x;
+const double = x => x * 2;
+const print = x => console.log(x);
+const randomNumber = () => Math.random();
+
+// Custom functional interfaces
+const Comparator = {
+    compare: function(a, b) {
+        throw new Error('compare method must be implemented');
+    }
+};
+
+const BiFunction = {
+    apply: function(a, b) {
+        throw new Error('apply method must be implemented');
+    }
+};
+
+// Usage examples
+const numbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+
+// Filter with predicate
+const evens = filter(numbers, isEven);
+const positives = filter(numbers, isPositive);
+
+// Map with function
+const squared = map(numbers, square);
+const doubled = map(numbers, double);
+
+// ForEach with consumer
+forEach(numbers, print);
+
+// Generate with supplier
+const randomNumbers = generate(randomNumber, 5);
+
+console.log('Original:', numbers);
+console.log('Evens:', evens);
+console.log('Positives:', positives);
+console.log('Squared:', squared);
+console.log('Doubled:', doubled);
+console.log('Random numbers:', randomNumbers);
+
+// Custom functional interfaces
+const add = (a, b) => a + b;
+const multiply = (a, b) => a * b;
+const compareNumbers = (a, b) => a - b;
+
+// Higher-order functions with custom interfaces
+function reduce(array, biFunction, initial) {
+    return array.reduce(biFunction, initial);
+}
+
+function sort(array, comparator) {
+    return [...array].sort(comparator);
+}
+
+const sum = reduce(numbers, add, 0);
+const product = reduce(numbers, multiply, 1);
+const sorted = sort(numbers, compareNumbers);
+
+console.log('Sum:', sum);
+console.log('Product:', product);
+console.log('Sorted:', sorted);
+
+// Function composition
+const compose = (...fns) => x => fns.reduceRight((acc, fn) => fn(acc), x);
+const pipe = (...fns) => x => fns.reduce((acc, fn) => fn(acc), x);
+
+const addOne = x => x + 1;
+const multiplyByTwo = x => x * 2;
+const square = x => x * x;
+
+const composed = compose(square, multiplyByTwo, addOne);
+const piped = pipe(addOne, multiplyByTwo, square);
+
+console.log('Composed(3):', composed(3)); // ((3+1)*2)^2 = 64
+console.log('Piped(3):', piped(3));       // ((3+1)*2)^2 = 64
+
+// Currying
+const curry = (fn) => {
+    return function curried(...args) {
+        if (args.length >= fn.length) {
+            return fn.apply(this, args);
+        }
+        return function(...moreArgs) {
+            return curried.apply(this, args.concat(moreArgs));
+        };
+    };
+};
+
+const curriedAdd = curry((a, b, c) => a + b + c);
+console.log('Curried add:', curriedAdd(1)(2)(3));
+
+// Partial application
+const partial = (fn, ...args) => {
+    return function(...moreArgs) {
+        return fn.apply(this, args.concat(moreArgs));
+    };
+};
+
+const addFive = partial(add, 5);
+console.log('Add five to 3:', addFive(3));
+```
+
+```java !! java
+// Java - Functional interfaces and lambda expressions
+import java.util.*;
+import java.util.function.*;
+
+// Custom functional interfaces
+@FunctionalInterface
+interface Predicate<T> {
+    boolean test(T t);
+    
+    // Default methods for composition
+    default Predicate<T> and(Predicate<? super T> other) {
+        return t -> test(t) && other.test(t);
+    }
+    
+    default Predicate<T> or(Predicate<? super T> other) {
+        return t -> test(t) || other.test(t);
+    }
+    
+    default Predicate<T> negate() {
+        return t -> !test(t);
+    }
+}
+
+@FunctionalInterface
+interface Function<T, R> {
+    R apply(T t);
+    
+    // Default methods for composition
+    default <V> Function<V, R> compose(Function<? super V, ? extends T> before) {
+        return v -> apply(before.apply(v));
+    }
+    
+    default <V> Function<T, V> andThen(Function<? super R, ? extends V> after) {
+        return t -> after.apply(apply(t));
+    }
+}
+
+@FunctionalInterface
+interface Consumer<T> {
+    void accept(T t);
+    
+    default Consumer<T> andThen(Consumer<? super T> after) {
+        return t -> {
+            accept(t);
+            after.accept(t);
+        };
+    }
+}
+
+@FunctionalInterface
+interface Supplier<T> {
+    T get();
+}
+
+@FunctionalInterface
+interface Comparator<T> {
+    int compare(T a, T b);
+    
+    default Comparator<T> thenComparing(Comparator<? super T> other) {
+        return (a, b) -> {
+            int result = compare(a, b);
+            return result != 0 ? result : other.compare(a, b);
+        };
+    }
+    
+    default Comparator<T> reversed() {
+        return (a, b) -> compare(b, a);
+    }
+}
+
+@FunctionalInterface
+interface BiFunction<T, U, R> {
+    R apply(T t, U u);
+}
+
+// Higher-order functions
+public class FunctionalUtils {
+    public static <T> List<T> filter(List<T> list, Predicate<T> predicate) {
+        List<T> result = new ArrayList<>();
+        for (T item : list) {
+            if (predicate.test(item)) {
+                result.add(item);
+            }
+        }
+        return result;
+    }
+    
+    public static <T, R> List<R> map(List<T> list, Function<T, R> function) {
+        List<R> result = new ArrayList<>();
+        for (T item : list) {
+            result.add(function.apply(item));
+        }
+        return result;
+    }
+    
+    public static <T> void forEach(List<T> list, Consumer<T> consumer) {
+        for (T item : list) {
+            consumer.accept(item);
+        }
+    }
+    
+    public static <T> List<T> generate(Supplier<T> supplier, int count) {
+        List<T> result = new ArrayList<>();
+        for (int i = 0; i < count; i++) {
+            result.add(supplier.get());
+        }
+        return result;
+    }
+    
+    public static <T> T reduce(List<T> list, BiFunction<T, T, T> biFunction, T initial) {
+        T result = initial;
+        for (T item : list) {
+            result = biFunction.apply(result, item);
+        }
+        return result;
+    }
+    
+    public static <T> List<T> sort(List<T> list, Comparator<T> comparator) {
+        List<T> result = new ArrayList<>(list);
+        result.sort(comparator);
+        return result;
+    }
+}
+
+// Main class to demonstrate functional interfaces
+class FunctionalInterfaceDemo {
+    public static void main(String[] args) {
+        List<Integer> numbers = Arrays.asList(1, 2, 3, 4, 5, 6, 7, 8, 9, 10);
+        
+        // Lambda expressions
+        Predicate<Integer> isEven = x -> x % 2 == 0;
+        Predicate<Integer> isPositive = x -> x > 0;
+        Function<Integer, Integer> square = x -> x * x;
+        Function<Integer, Integer> double_ = x -> x * 2;
+        Consumer<Integer> print = System.out::println;
+        Supplier<Double> randomNumber = Math::random;
+        BiFunction<Integer, Integer, Integer> add = Integer::sum;
+        BiFunction<Integer, Integer, Integer> multiply = (a, b) -> a * b;
+        Comparator<Integer> compareNumbers = Integer::compare;
+        
+        // Using functional interfaces
+        List<Integer> evens = FunctionalUtils.filter(numbers, isEven);
+        List<Integer> positives = FunctionalUtils.filter(numbers, isPositive);
+        List<Integer> squared = FunctionalUtils.map(numbers, square);
+        List<Integer> doubled = FunctionalUtils.map(numbers, double_);
+        
+        System.out.println("Original: " + numbers);
+        System.out.println("Evens: " + evens);
+        System.out.println("Positives: " + positives);
+        System.out.println("Squared: " + squared);
+        System.out.println("Doubled: " + doubled);
+        
+        // ForEach with consumer
+        System.out.println("Printing numbers:");
+        FunctionalUtils.forEach(numbers, print);
+        
+        // Generate with supplier
+        List<Double> randomNumbers = FunctionalUtils.generate(randomNumber, 5);
+        System.out.println("Random numbers: " + randomNumbers);
+        
+        // Reduce with BiFunction
+        Integer sum = FunctionalUtils.reduce(numbers, add, 0);
+        Integer product = FunctionalUtils.reduce(numbers, multiply, 1);
+        System.out.println("Sum: " + sum);
+        System.out.println("Product: " + product);
+        
+        // Sort with Comparator
+        List<Integer> sorted = FunctionalUtils.sort(numbers, compareNumbers);
+        List<Integer> reverseSorted = FunctionalUtils.sort(numbers, compareNumbers.reversed());
+        System.out.println("Sorted: " + sorted);
+        System.out.println("Reverse sorted: " + reverseSorted);
+        
+        // Function composition
+        Function<Integer, Integer> addOne = x -> x + 1;
+        Function<Integer, Integer> multiplyByTwo = x -> x * 2;
+        Function<Integer, Integer> square_ = x -> x * x;
+        
+        Function<Integer, Integer> composed = addOne.andThen(multiplyByTwo).andThen(square_);
+        Function<Integer, Integer> piped = square_.compose(multiplyByTwo).compose(addOne);
+        
+        System.out.println("Composed(3): " + composed.apply(3)); // ((3+1)*2)^2 = 64
+        System.out.println("Piped(3): " + piped.apply(3));       // ((3+1)*2)^2 = 64
+        
+        // Predicate composition
+        Predicate<Integer> isEvenAndPositive = isEven.and(isPositive);
+        List<Integer> evenAndPositive = FunctionalUtils.filter(numbers, isEvenAndPositive);
+        System.out.println("Even and positive: " + evenAndPositive);
+        
+        // Consumer composition
+        Consumer<Integer> printAndSquare = print.andThen(x -> System.out.println("Squared: " + (x * x)));
+        System.out.println("Print and square first 3 numbers:");
+        FunctionalUtils.forEach(numbers.subList(0, 3), printAndSquare);
+        
+        // Using built-in functional interfaces
+        List<String> names = Arrays.asList("Alice", "Bob", "Charlie", "David");
+        names.forEach(System.out::println);
+        
+        List<Integer> lengths = names.stream()
+            .map(String::length)
+            .collect(Collectors.toList());
+        System.out.println("Name lengths: " + lengths);
+        
+        // Stream operations with functional interfaces
+        long count = numbers.stream()
+            .filter(x -> x > 5)
+            .count();
+        System.out.println("Count > 5: " + count);
+    }
+}
+```
+</UniversalEditor>
+
+## Exercises
+
+### Exercise 1: Interface Implementation
+
+<UniversalEditor title="Exercise 1: Interface Implementation">
+```java !! java
+// TODO: Implement these interfaces and classes
+public interface Drawable {
+    // TODO: Add abstract method draw()
+    
+    // TODO: Add default method getDescription()
+    
+    // TODO: Add static method getInterfaceType()
+}
+
+public interface Movable {
+    // TODO: Add abstract method move()
+    
+    // TODO: Add default method getSpeed()
+    
+    // TODO: Add static method getInterfaceType()
+}
+
+public interface Resizable {
+    // TODO: Add abstract method resize(double factor)
+    
+    // TODO: Add default method getScale()
+    
+    // TODO: Add static method getInterfaceType()
+}
+
+public class Circle implements Drawable, Movable, Resizable {
+    // TODO: Add private fields for x, y, radius, scale
+    
+    // TODO: Implement constructor
+    
+    // TODO: Implement all interface methods
+    
+    // TODO: Add getters and setters
+}
+
+public class Rectangle implements Drawable, Movable, Resizable {
+    // TODO: Add private fields for x, y, width, height, scale
+    
+    // TODO: Implement constructor
+    
+    // TODO: Implement all interface methods
+    
+    // TODO: Add getters and setters
+}
+
+public class InterfaceExercises {
+    public static void main(String[] args) {
+        // Test your implementations
+        Circle circle = new Circle(10, 20, 5);
+        Rectangle rectangle = new Rectangle(0, 0, 10, 8);
+        
+        System.out.println(circle.draw());
+        System.out.println(circle.move());
+        System.out.println(circle.resize(2.0));
+        
+        System.out.println(rectangle.draw());
+        System.out.println(rectangle.move());
+        System.out.println(rectangle.resize(1.5));
+        
+        // Polymorphic arrays
+        Drawable[] drawables = {circle, rectangle};
+        Movable[] movables = {circle, rectangle};
+        Resizable[] resizables = {circle, rectangle};
+        
+        for (Drawable d : drawables) {
+            System.out.println(d.draw());
+        }
+        
+        for (Movable m : movables) {
+            System.out.println(m.move());
+        }
+        
+        for (Resizable r : resizables) {
+            System.out.println(r.resize(1.2));
+        }
+    }
+}
+```
+</UniversalEditor>
+
+### Exercise 2: Functional Interfaces
+
+<UniversalEditor title="Exercise 2: Functional Interfaces">
+```java !! java
+// TODO: Implement functional interfaces and lambda expressions
+@FunctionalInterface
+interface Calculator {
+    // TODO: Add abstract method calculate(double a, double b)
+    
+    // TODO: Add default method getOperationName()
+    
+    // TODO: Add static method getCalculatorType()
+}
+
+@FunctionalInterface
+interface Validator<T> {
+    // TODO: Add abstract method validate(T value)
+    
+    // TODO: Add default method and(Validator<T> other)
+    
+    // TODO: Add default method or(Validator<T> other)
+}
+
+@FunctionalInterface
+interface Transformer<T, R> {
+    // TODO: Add abstract method transform(T input)
+    
+    // TODO: Add default method andThen(Transformer<R, V> after)
+}
+
+public class FunctionalExercises {
+    public static void main(String[] args) {
+        // Test your implementations
+        Calculator add = (a, b) -> a + b;
+        Calculator multiply = (a, b) -> a * b;
+        Calculator divide = (a, b) -> b != 0 ? a / b : 0;
+        
+        System.out.println("Add: " + add.calculate(5, 3));
+        System.out.println("Multiply: " + multiply.calculate(4, 6));
+        System.out.println("Divide: " + divide.calculate(10, 2));
+        
+        Validator<Integer> isPositive = x -> x > 0;
+        Validator<Integer> isEven = x -> x % 2 == 0;
+        Validator<Integer> isPositiveAndEven = isPositive.and(isEven);
+        
+        System.out.println("Is 6 positive and even: " + isPositiveAndEven.validate(6));
+        System.out.println("Is 5 positive and even: " + isPositiveAndEven.validate(5));
+        
+        Transformer<String, Integer> length = String::length;
+        Transformer<Integer, String> toString = Object::toString;
+        Transformer<String, String> lengthThenString = length.andThen(toString);
+        
+        System.out.println("Length then string: " + lengthThenString.transform("Hello"));
+        
+        // Custom functional operations
+        List<Integer> numbers = Arrays.asList(1, 2, 3, 4, 5, 6, 7, 8, 9, 10);
+        
+        // Filter with custom validator
+        List<Integer> validNumbers = numbers.stream()
+            .filter(isPositiveAndEven)
+            .collect(Collectors.toList());
+        
+        System.out.println("Valid numbers: " + validNumbers);
+        
+        // Map with custom transformer
+        List<String> numberStrings = numbers.stream()
+            .map(toString)
+            .collect(Collectors.toList());
+        
+        System.out.println("Number strings: " + numberStrings);
+    }
+}
+```
+</UniversalEditor>
+
+## Summary
+
+In this module, we explored Java's interface system and compared it with JavaScript's interface patterns:
+
+### Key Points:
+1. **Interface Contracts**: Java interfaces define contracts that classes must implement
+2. **Multiple Inheritance**: Java supports multiple inheritance through interfaces
+3. **Default Methods**: Java 8+ allows default implementations in interfaces
+4. **Functional Interfaces**: Java provides functional interfaces for lambda expressions
+5. **Static Methods**: Interfaces can contain static methods
+
+### Next Steps:
+- Practice implementing interfaces with multiple inheritance
+- Master functional interfaces and lambda expressions
+- Explore default methods and static methods in interfaces
+- Prepare for the next module on exception handling
+
+## Additional Resources
+
+- [Java Interfaces](https://docs.oracle.com/javase/tutorial/java/IandI/createinterface.html)
+- [Java Functional Interfaces](https://docs.oracle.com/javase/tutorial/java/javaOO/lambdaexpressions.html)
+- [Java Default Methods](https://docs.oracle.com/javase/tutorial/java/IandI/defaultmethods.html)
+
+---
+
+**Exercise Tips**: Focus on understanding the difference between interfaces and abstract classes. Practice implementing multiple interfaces and using functional interfaces with lambda expressions. Create interface-based systems that demonstrate contract-based programming. 
