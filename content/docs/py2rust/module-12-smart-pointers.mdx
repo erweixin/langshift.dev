@@ -1,0 +1,879 @@
+---
+title: "Module 12: Smart Pointers - Advanced Memory Management"
+description: "Master Rust's smart pointers (Box, Rc, Arc, RefCell) and understand how they compare to Python's memory management model."
+---
+
+# Module 12: Smart Pointers - Advanced Memory Management
+
+In this module, you'll learn about **smart pointers** in Rust. Smart pointers are data structures that act like pointers but have additional metadata and capabilities. They're similar to Python's reference counting, but with explicit control and compile-time guarantees.
+
+## Learning Objectives
+
+By the end of this module, you'll be able to:
+- Use `Box<T>` for heap allocation
+- Use `Rc<T>` for single-threaded reference counting
+- Use `Arc<T>` for multi-threaded reference counting
+- Use `RefCell<T>` for interior mutability
+- Understand when to use each smart pointer type
+- Compare Rust's smart pointers with Python's memory model
+
+## Background: Pointers vs References
+
+In Rust, there's an important distinction between **references** and **smart pointers**:
+
+<UniversalEditor compare={true} title="References vs Smart Pointers">
+```python !! py
+# Python: All variables are references
+x = [1, 2, 3]  # x is a reference to a list
+y = x  # y is another reference to the same list
+y.append(4)
+print(x)  # [1, 2, 3, 4] - both reference the same object
+```
+
+```rust !! rs
+// Rust: References (&) vs Smart Pointers
+// References: borrowing, no ownership
+let x = vec![1, 2, 3];
+let y: &Vec<i32> = &x;  // y borrows x
+// y cannot modify x (unless &mut)
+
+// Smart pointers: ownership with extra capabilities
+let z: Box<Vec<i32>> = Box::new(vec![1, 2, 3]);
+// z owns the data on the heap
+```
+</UniversalEditor>
+
+## `Box<T>`: Heap Allocation
+
+`Box<T>` is the simplest smart pointer. It allows you to store data on the heap rather than the stack.
+
+### When to Use Box
+
+<UniversalEditor compare={true} title="Box Use Cases">
+```python !! py
+# Python: Lists are always heap-allocated
+large_data = list(range(1_000_000))
+# The list object is on the heap, items are heap-allocated
+
+# Recursive data structures work fine
+class TreeNode:
+    def __init__(self, value, left=None, right=None):
+        self.value = value
+        self.left = left
+        self.right = right
+
+# Python handles this automatically
+```
+
+```rust !! rs
+// Rust: Box for heap allocation
+// Use Case 1: Large data on heap
+let large_data: Box<[i32]> = (0..1_000_000).collect::<Vec<_>>().into_boxed_slice();
+// Data is on the heap, large_data is a stack pointer
+
+// Use Case 2: Recursive types
+enum TreeNode {
+    Leaf(i32),
+    Node {
+        value: i32,
+        left: Box<TreeNode>,  // Box required for recursion
+        right: Box<TreeNode>,
+    },
+}
+
+let leaf = TreeNode::Leaf(5);
+let node = TreeNode::Node {
+    value: 10,
+    left: Box::new(leaf),
+    right: Box::new(TreeNode::Leaf(15)),
+};
+
+// Use Case 3: Trait objects
+trait Drawable {
+    fn draw(&self);
+}
+
+struct Circle { radius: f64 }
+struct Rectangle { width: f64, height: f64 }
+
+impl Drawable for Circle {
+    fn draw(&self) { println!("Drawing circle"); }
+}
+
+impl Drawable for Rectangle {
+    fn draw(&self) { println!("Drawing rectangle"); }
+}
+
+let shapes: Vec<Box<dyn Drawable>> = vec![
+    Box::new(Circle { radius: 5.0 }),
+    Box::new(Rectangle { width: 10.0, height: 20.0 }),
+];
+
+for shape in shapes.iter() {
+    shape.draw();
+}
+```
+</UniversalEditor>
+
+### Box Performance
+
+<UniversalEditor compare={true} title="Box Performance Characteristics">
+```python !! py
+# Python: Everything is a reference
+# Passing large lists is cheap (just copying the reference)
+def process_list(lst):
+    return sum(lst)
+
+large = list(range(1_000_000))
+result = process_list(large)  # Cheap - just a reference copy
+```
+
+```rust !! rs
+// Rust: Box has a cost (heap allocation) but enables patterns
+use std::time::Instant;
+
+fn process_vec(data: Vec<i32>) -> i32 {
+    data.iter().sum()
+}
+
+fn process_box(data: Box<[i32]>) -> i32 {
+    data.iter().sum()
+}
+
+let vec_data: Vec<i32> = (0..1_000_000).collect();
+let boxed_data: Box<[i32]> = vec_data.into_boxed_slice();
+
+// Vec is stack-allocated with heap buffer
+let start = Instant::now();
+let _ = process_vec(vec_data);
+println!("Vec: {:?}", start.elapsed());
+
+// Box is always heap-allocated
+let start = Instant::now();
+let _ = process_box(boxed_data);
+println!("Box: {:?}", start.elapsed());
+// Box has slight overhead but enables recursive types
+```
+</UniversalEditor>
+
+## `Rc<T>`: Reference Counting
+
+`Rc<T>` (Reference Counting) provides shared ownership similar to Python's memory model. It allows multiple owners of the same data.
+
+<UniversalEditor compare={true} title="Rc vs Python References">
+```python !! py
+# Python: Multiple references to the same object
+data = [1, 2, 3]
+ref1 = data
+ref2 = data
+ref3 = data
+
+# All reference the same list
+ref1.append(4)
+print(ref2)  # [1, 2, 3, 4]
+print(ref3)  # [1, 2, 3, 4]
+
+# Python uses reference counting internally
+import sys
+print(f"refcount: {sys.getrefcount(data)}")  # 4 (data + ref1 + ref2 + ref3)
+```
+
+```rust !! rs
+// Rust: Rc for shared ownership (single-threaded)
+use std::rc::Rc;
+
+let data = Rc::new(vec![1, 2, 3]);
+let ref1 = Rc::clone(&data);
+let ref2 = Rc::clone(&data);
+let ref3 = Rc::clone(&data);
+
+// All reference the same data
+println!("refcount: {}", Rc::strong_count(&data));  // 4
+
+// Rc doesn't allow mutation through shared references
+// For mutation, you need RefCell (covered later)
+```
+</UniversalEditor>
+
+### Rc Reference Counting
+
+<UniversalEditor compare={true} title="Rc Reference Counting in Action">
+```python !! py
+# Python: Reference counting happens automatically
+class Data:
+    def __init__(self, value):
+        self.value = value
+        print(f"Created Data({value})")
+
+    def __del__(self):
+        print(f"Destroyed Data({self.value})")
+
+def create_shared():
+    local = Data(10)
+    return local
+
+# Reference counting tracks usage
+shared = create_shared()
+another = shared
+print(f"refcount: {sys.getrefcount(shared)}")  # 3 (shared + another + getrefcount arg)
+del another
+# Data destroyed when refcount reaches 0
+```
+
+```rust !! rs
+// Rust: Rc reference counting is explicit
+use std::rc::Rc;
+
+struct Data {
+    value: i32,
+}
+
+impl Drop for Data {
+    fn drop(&mut self) {
+        println!("Destroyed Data({})", self.value);
+    }
+}
+
+fn create_shared() -> Rc<Data> {
+    let local = Rc::new(Data { value: 10 });
+    println!("Created, refcount: {}", Rc::strong_count(&local));
+    local
+}
+
+let shared = create_shared();
+println!("After create, refcount: {}", Rc::strong_count(&shared));
+
+let another = Rc::clone(&shared);
+println!("After clone, refcount: {}", Rc::strong_count(&shared));
+
+drop(another);
+println!("After drop, refcount: {}", Rc::strong_count(&shared));
+// Data destroyed when refcount reaches 0
+```
+</UniversalEditor>
+
+### Rc with Cycles
+
+<UniversalEditor compare={true} title="Reference Cycles">
+```python !! py
+# Python: Reference cycles are handled by garbage collector
+class Node:
+    def __init__(self, value):
+        self.value = value
+        self.parent = None
+        self.children = []
+
+# Create a cycle
+parent = Node(1)
+child = Node(2)
+parent.children.append(child)
+child.parent = parent  # Creates a cycle
+
+# Python's GC will detect and clean this up
+```
+
+```rust !! rs
+// Rust: Rc creates memory leaks with cycles!
+use std::rc::Rc;
+use std::cell::RefCell;
+
+struct Node {
+    value: i32,
+    parent: RefCell<Option<Rc<Node>>>,
+    children: RefCell<Vec<Rc<Node>>>,
+}
+
+// WARNING: This creates a memory leak!
+let parent = Rc::new(Node {
+    value: 1,
+    parent: RefCell::new(None),
+    children: RefCell::new(vec![]),
+});
+
+let child = Rc::new(Node {
+    value: 2,
+    parent: RefCell::new(None),
+    children: RefCell::new(vec![]),
+});
+
+// Create cycle
+parent.children.borrow_mut().push(Rc::clone(&child));
+*child.parent.borrow_mut() = Some(Rc::clone(&parent));
+
+// Memory leak! refcounts never reach 0
+// Solution: use Weak<Rc> for back-references
+```
+</UniversalEditor>
+
+## `Arc<T>`: Atomic Reference Counting
+
+`Arc<T>` (Atomic Reference Counting) is like `Rc<T>` but thread-safe. Use it when you need shared ownership across threads.
+
+<UniversalEditor compare={true} title="Arc for Thread Safety">
+```python !! py
+# Python: Reference counting is thread-safe (GIL protected)
+import threading
+
+data = [1, 2, 3]
+
+def worker():
+    print(f"Worker sees: {data}")
+
+thread = threading.Thread(target=worker)
+thread.start()
+thread.join()
+# Python's GIL makes reference counting thread-safe
+```
+
+```rust !! rs
+// Rust: Arc for thread-safe reference counting
+use std::sync::{Arc, Mutex};
+use std::thread;
+
+let data = Arc::new(vec![1, 2, 3]);
+let data_clone = Arc::clone(&data);
+
+let handle = thread::spawn(move || {
+    println!("Worker sees: {:?}", data_clone);
+});
+
+handle.join().unwrap();
+// Arc uses atomic operations for thread safety
+```
+</UniversalEditor>
+
+### Arc Performance
+
+<UniversalEditor compare={true} title="Arc vs Rc Performance">
+```python !! py
+# Python: GIL makes operations thread-safe but slow
+import time
+import threading
+
+counter = [0]
+
+def increment():
+    for _ in range(100_000):
+        counter[0] += 1
+
+threads = [threading.Thread(target=increment) for _ in range(4)]
+for t in threads:
+    t.start()
+for t in threads:
+    t.join()
+
+print(f"Counter: {counter[0]}")  # May not be 400,000 due to GIL contention
+```
+
+```rust !! rs
+// Rust: Arc has overhead but enables true parallelism
+use std::sync::{Arc, Mutex};
+use std::thread;
+
+let counter = Arc::new(Mutex::new(0));
+let mut handles = vec![];
+
+for _ in 0..4 {
+    let counter_clone = Arc::clone(&counter);
+    let handle = thread::spawn(move || {
+        for _ in 0..100_000 {
+            let mut num = counter_clone.lock().unwrap();
+            *num += 1;
+        }
+    });
+    handles.push(handle);
+}
+
+for handle in handles {
+    handle.join().unwrap();
+}
+
+println!("Counter: {}", *counter.lock().unwrap());
+// Correctly 400,000 - true parallelism
+```
+</UniversalEditor>
+
+## `RefCell<T>`: Interior Mutability
+
+`RefCell<T>` allows you to mutate data through immutable references. This is called **interior mutability**.
+
+<UniversalEditor compare={true} title="Interior Mutability">
+```python !! py
+# Python: Objects are always mutable
+class Container:
+    def __init__(self, value):
+        self.value = value
+
+container = Container(10)
+container.value = 20  # Mutation is always allowed
+
+# Even through "immutable" references
+def modify(cont):
+    cont.value = 30  # Works fine
+
+modify(container)
+print(container.value)  # 30
+```
+
+```rust !! rs
+// Rust: RefCell enables interior mutability
+use std::cell::RefCell;
+
+struct Container {
+    value: RefCell<i32>,  // Interior mutability
+}
+
+let container = Container {
+    value: RefCell::new(10),
+};
+
+*container.value.borrow_mut() += 20;
+println!("Value: {}", container.value.borrow());
+
+// RefCell enforces borrowing rules at runtime
+// Multiple immutable borrows OR one mutable borrow
+let borrow1 = container.value.borrow();
+let borrow2 = container.value.borrow();  // OK: multiple immutable
+println!("Borrow1: {}, Borrow2: {}", borrow1, borrow2);
+
+drop(borrow1);
+drop(borrow2);
+
+let mut borrow3 = container.value.borrow_mut();  // OK: mutable after drops
+*borrow3 += 10;
+println!("After mutation: {}", borrow3);
+```
+</UniversalEditor>
+
+### RefCell Borrowing Rules
+
+<UniversalEditor compare={true} title="RefCell Runtime Borrow Checking">
+```python !! py
+# Python: No borrowing rules
+data = [1, 2, 3]
+
+iterator = iter(data)
+data.append(4)  # Modifying while iterating
+
+try:
+    for item in iterator:
+        print(item)
+except RuntimeError as e:
+    print(f"Error: {e}")  # Runtime error
+```
+
+```rust !! rs
+// Rust: RefCell checks borrowing rules at runtime
+use std::cell::RefCell;
+
+let data = RefCell::new(vec![1, 2, 3]);
+
+let borrow1 = data.borrow();
+// let borrow2 = data.borrow_mut();  // PANIC! Already immutably borrowed
+
+println!("First borrow: {:?}", borrow1);
+drop(borrow1);
+
+let mut borrow2 = data.borrow_mut();  // OK: after drop
+borrow2.push(4);
+println!("After mutation: {:?}", borrow2);
+```
+</UniversalEditor>
+
+### Rc + RefCell Pattern
+
+<UniversalEditor compare={true} title="Rc<RefCell<T>> Pattern">
+```python !! py
+# Python: Shared mutable state is easy
+class SharedData:
+    def __init__(self):
+        self.items = []
+
+def add_item(shared, item):
+    shared.items.append(item)
+
+data = SharedData()
+add_item(data, 1)
+add_item(data, 2)
+print(data.items)  # [1, 2]
+```
+
+```rust !! rs
+// Rust: Rc<RefCell<T>> for shared mutable state
+use std::rc::Rc;
+use std::cell::RefCell;
+
+struct SharedData {
+    items: RefCell<Vec<i32>>,
+}
+
+fn add_item(shared: &Rc<SharedData>, item: i32) {
+    shared.items.borrow_mut().push(item);
+}
+
+let data = Rc::new(SharedData {
+    items: RefCell::new(vec![]),
+});
+
+add_item(&data, 1);
+add_item(&data, 2);
+println!("Items: {:?}", data.items.borrow());
+```
+</UniversalEditor>
+
+## Comparison Table: Smart Pointer Types
+
+| Smart Pointer | Thread Safe | Allows Mutation | Use Case | Python Equivalent |
+|--------------|-------------|------------------|----------|-------------------|
+| `Box<T>` | Yes | Through `&mut` | Heap allocation, recursion | No direct equivalent |
+| `Rc<T>` | No | With `RefCell` | Shared ownership (single-threaded) | Standard references |
+| `Arc<T>` | Yes | With `Mutex` | Shared ownership (multi-threaded) | Thread-safe references |
+| `RefCell<T>` | N/A | Yes (runtime checks) | Interior mutability | All Python objects |
+| `Mutex<T>` | Yes | Yes (runtime checks) | Thread-safe mutable state | threading.Lock |
+
+## Common Patterns
+
+### Graph Structures
+
+<UniversalEditor compare={true} title="Graph with Rc and RefCell">
+```python !! py
+# Python: Graph is straightforward
+class Node:
+    def __init__(self, value):
+        self.value = value
+        self.edges = []
+
+node1 = Node(1)
+node2 = Node(2)
+node1.edges.append(node2)
+node2.edges.append(node1)  # Bidirectional
+```
+
+```rust !! rs
+// Rust: Graph with Rc<RefCell<Node>>
+use std::rc::Rc;
+use std::cell::RefCell;
+
+struct Node {
+    value: i32,
+    edges: RefCell<Vec<Rc<Node>>>,
+}
+
+impl Node {
+    fn new(value: i32) -> Rc<Self> {
+        Rc::new(Node {
+            value,
+            edges: RefCell::new(vec![]),
+        })
+    }
+
+    fn add_edge(&self, other: &Rc<Node>) {
+        self.edges.borrow_mut().push(Rc::clone(other));
+    }
+}
+
+let node1 = Node::new(1);
+let node2 = Node::new(2);
+
+node1.add_edge(&node2);
+node2.add_edge(&node1);
+
+println!("Node1 has {} edges", node1.edges.borrow().len());
+println!("Node2 has {} edges", node2.edges.borrow().len());
+```
+</UniversalEditor>
+
+### Immutable Data, Mutable View
+
+<UniversalEditor compare={true} title="Immutable Data with Mutable Parts">
+```python !! py
+# Python: All data is mutable by default
+class Config:
+    def __init__(self):
+        self.settings = {}
+        self.cache = {}
+
+def update_cache(config):
+    config.cache["key"] = "value"
+
+config = Config()
+update_cache(config)
+```
+
+```rust !! rs
+// Rust: Immutable struct with mutable field
+use std::cell::RefCell;
+
+struct Config {
+    settings: Vec<String>,  // Immutable
+    cache: RefCell<std::collections::HashMap<String, String>>,  // Mutable
+}
+
+fn update_cache(config: &Config) {
+    config.cache.borrow_mut().insert("key".to_string(), "value".to_string());
+}
+
+let config = Config {
+    settings: vec!["setting1".to_string()],
+    cache: RefCell::new(std::collections::HashMap::new()),
+};
+
+update_cache(&config);
+println!("Cache: {:?}", config.cache.borrow());
+```
+</UniversalEditor>
+
+## Memory Management Comparison
+
+<UniversalEditor compare={true} title="Python vs Rust Memory Management">
+```python !! py
+# Python: Automatic memory management
+import sys
+import gc
+
+class Data:
+    def __init__(self, value):
+        self.value = value
+
+# Reference counting
+a = Data(1)
+b = a
+print(f"refcount: {sys.getrefcount(a)}")  # 3
+
+# Cycle detection
+x = Data(10)
+x.self_ref = x  # Create cycle
+del x
+gc.collect()  # Clean up cycles
+
+# Memory is freed automatically
+```
+
+```rust !! rs
+// Rust: Explicit ownership with smart pointers
+use std::rc::{Rc, Weak};
+use std::cell::RefCell;
+
+struct Data {
+    value: i32,
+}
+
+// Reference counting with Rc
+let a = Rc::new(Data { value: 1 });
+let b = Rc::clone(&a);
+println!("refcount: {}", Rc::strong_count(&a));  // 2
+
+// Breaking cycles with Weak
+struct Node {
+    value: i32,
+    parent: RefCell<Weak<Node>>,  // Weak doesn't increment refcount
+    children: RefCell<Vec<Rc<Node>>>,
+}
+
+let parent = Rc::new(Node {
+    value: 1,
+    parent: RefCell::new(Weak::new()),
+    children: RefCell::new(vec![]),
+});
+
+let child = Rc::new(Node {
+    value: 2,
+    parent: RefCell::new(Weak::new()),
+    children: RefCell::new(vec![]),
+});
+
+// Use Weak for back-references to avoid cycles
+parent.children.borrow_mut().push(Rc::clone(&child));
+*child.parent.borrow_mut() = Rc::downgrade(&parent);  // Weak reference
+
+// No memory leak!
+```
+</UniversalEditor>
+
+## Performance Considerations
+
+<UniversalEditor compare={true} title="Smart Pointer Performance">
+```python !! py
+# Python: Reference counting overhead
+import time
+
+def many_references():
+    data = list(range(1000))
+    refs = []
+    for _ in range(100_000):
+        refs.append(data)  # Refcount changes each time
+
+start = time.time()
+many_references()
+print(f"Python: {time.time() - start:.3}s")
+```
+
+```rust !! rs
+// Rust: Smart pointer overhead
+use std::rc::Rc;
+use std::time::Instant;
+
+fn many_references() {
+    let data = Rc::new((0..1000).collect::<Vec<_>>());
+    let mut refs = Vec::new();
+    for _ in 0..100_000 {
+        refs.push(Rc::clone(&data));  // Atomic increment
+    }
+}
+
+let start = Instant::now();
+many_references();
+println!("Rc: {:?}", start.elapsed());
+// Rust is faster but still has overhead
+```
+</UniversalEditor>
+
+## Common Pitfalls
+
+### Pitfall 1: Reference Cycles with Rc
+
+<UniversalEditor compare={true} title="Avoiding Reference Cycles">
+```python !! py
+# Python: GC handles cycles
+class Node:
+    def __init__(self, value):
+        self.value = value
+        self.other = None
+
+a = Node(1)
+b = Node(2)
+a.other = b
+b.other = a  # Cycle
+# GC will clean this up
+```
+
+```rust !! rs
+// Rust: Use Weak to break cycles
+use std::rc::{Rc, Weak};
+use std::cell::RefCell;
+
+struct Node {
+    value: i32,
+    other: RefCell<Weak<Node>>,  // Use Weak for one direction
+}
+
+let a = Rc::new(Node {
+    value: 1,
+    other: RefCell::new(Weak::new()),
+});
+
+let b = Rc::new(Node {
+    value: 2,
+    other: RefCell::new(Weak::new()),
+});
+
+*a.other.borrow_mut() = Rc::downgrade(&b);
+*b.other.borrow_mut() = Rc::downgrade(&a);
+// No cycle - can be cleaned up
+```
+</UniversalEditor>
+
+### Pitfall 2: RefCell Runtime Panics
+
+<UniversalEditor compare={true} title="Avoiding RefCell Panics">
+```python !! py
+# Python: Modifying during iteration causes errors
+data = [1, 2, 3]
+for item in data:
+    data.append(item)  # RuntimeError: list changed size
+```
+
+```rust !! rs
+// Rust: RefCell panics on borrow violations
+use std::cell::RefCell;
+
+let data = RefCell::new(vec![1, 2, 3]);
+
+let borrow1 = data.borrow();
+// let mut borrow2 = data.borrow_mut();  // PANIC!
+
+// Always drop borrows before getting mutable borrow
+drop(borrow1);
+let mut borrow2 = data.borrow_mut();  // OK
+borrow2.push(4);
+```
+</UniversalEditor>
+
+### Pitfall 3: Using Rc Across Threads
+
+<UniversalEditor compare={true} title="Thread Safety">
+```python !! py
+# Python: GIL makes everything thread-safe
+import threading
+
+data = [1, 2, 3]
+
+def worker():
+    print(data)  # Safe
+
+thread = threading.Thread(target=worker)
+thread.start()
+```
+
+```rust !! rs
+// Rust: Rc is NOT thread-safe!
+use std::rc::Rc;
+use std::sync::Arc;
+use std::thread;
+
+// This won't compile:
+// let data = Rc::new(vec![1, 2, 3]);
+// let handle = thread::spawn(move || {
+//     println!("{:?}", data);
+// });
+
+// Correct: Use Arc for thread safety
+let data = Arc::new(vec![1, 2, 3]);
+let handle = thread::spawn(move || {
+    println!("{:?}", data);
+});
+
+handle.join().unwrap();
+```
+</UniversalEditor>
+
+## Best Practices
+
+### DO:
+
+1. **Use Box for recursion** - Required for recursive data structures
+2. **Prefer Rc for single-threaded shared ownership** - Lower overhead than Arc
+3. **Use Arc for multi-threaded code** - Required for thread safety
+4. **Use RefCell sparingly** - Only when interior mutability is needed
+5. **Break cycles with Weak** - Prevent memory leaks
+6. **Drop borrows explicitly** - Avoid RefCell panics
+
+### DON'T:
+
+1. **Use Rc across threads** - Use Arc instead
+2. **Create reference cycles** - Use Weak for back-references
+3. **Overuse RefCell** - Prefer normal borrowing when possible
+4. **Ignore RefCell panics** - They indicate logical errors
+5. **Use Arc when Rc suffices** - Unnecessary overhead
+
+## Summary
+
+- **`Box<T>`** provides heap allocation and enables recursion
+- **`Rc<T>`** provides shared ownership for single-threaded code
+- **`Arc<T>`** provides thread-safe shared ownership
+- **`RefCell<T>`** enables interior mutability with runtime checks
+- **Rust's smart pointers** give explicit control over memory
+- **Python's references** are automatic but have runtime overhead
+- **Choose the right tool** based on ownership and threading needs
+
+## Practice Exercises
+
+1. Create a binary tree using Box for recursive structure
+2. Implement a shared cache using `Rc<RefCell<>>`
+3. Build a thread-safe counter using `Arc<Mutex<>>`
+4. Create a graph structure using Rc and Weak to avoid cycles
+5. Compare performance of Box vs Rc vs Arc for your use case
+
+## Next Module
+
+In the next module, we'll explore **modules and packages** in Rust, including the module system, use declarations, Cargo.toml, and publishing to crates.io. You'll learn how to organize code and manage dependencies.

@@ -1,0 +1,1002 @@
+---
+title: "模块 4：控制流"
+description: "通过与 Python 对比来掌握 Rust 的控制流结构。学习 if 表达式、循环、模式匹配等。"
+---
+
+# 模块 4：控制流
+
+在控制流方面,Rust 相比 Python 展现出了真正的优势。Python 专注于简单的可读性结构,而 Rust 提供了强大、表达力强的控制流,能够在编译时防止整类错误。
+
+## 学习目标
+
+完成本模块后,你将理解:
+- ✅ `if` 作为表达式而非语句
+- ✅ 循环结构:`loop`、`while` 和 `for`
+- ✅ 使用 `match` 进行模式匹配(超越模块 3 的内容)
+- ✅ `if let` 和 `while let` 模式
+- ✅ 带值的 `break` 和 `continue`
+- ✅ 嵌套循环的标签
+- ✅ 常见的控制流模式
+
+## if 表达式
+
+在 Python 中,`if` 是语句。在 Rust 中,`if` 是可以返回值的表达式!
+
+<UniversalEditor compare={true} title="if 语句 vs 表达式">
+```python !! py
+# Python: if 是语句
+x = 10
+
+if x > 0:
+    result = "positive"
+elif x < 0:
+    result = "negative"
+else:
+    result = "zero"
+
+# 不能在表达式中直接使用 if
+# value = "positive" if x > 0 else "negative"  # 三元表达式,但功能有限
+```
+
+```rust !! rs
+// Rust: if 是表达式
+let x = 10;
+
+let result = if x > 0 {
+    "positive"
+} else if x < 0 {
+    "negative"
+} else {
+    "zero"
+};  // 注意分号
+
+// 可以在任何需要值的地方使用
+println!("Result: {}", result);
+
+// 不需要三元运算符 - if 本身就是三元表达式!
+let status = if x >= 18 { "adult" } else { "minor" };
+```
+</UniversalEditor>
+
+### 类型一致性
+
+<UniversalEditor compare={true} title="if 必须返回一致的类型">
+```python !! py
+# Python: 可以返回不同的类型
+x = 5
+result = x if x > 0 else "error"  # int 或 str
+```
+
+```rust !! rs
+// Rust: 所有分支必须返回相同类型
+let x = 5;
+
+// 这是可以的 - 都是 &str
+let result = if x > 0 {
+    "positive"
+} else {
+    "zero"
+};
+
+// 错误:混合类型
+// let result = if x > 0 {
+//     42
+// } else {
+//     "error"  // 错误:期望整数,发现 &str
+// };
+
+// 对于不同类型必须使用枚举
+enum MaybeNumber {
+    Number(i32),
+    Error(&'static str),
+}
+
+let result = if x > 0 {
+    MaybeNumber::Number(42)
+} else {
+    MaybeNumber::Error("error")
+};
+```
+</UniversalEditor>
+
+### 没有真值/假值
+
+<UniversalEditor compare={true} title="条件中没有真值/假值">
+```python !! py
+# Python: 真值和假值
+x = 5
+if x:  # 真值
+    pass
+
+s = "hello"
+if s:  # 真值(非空字符串)
+    pass
+
+items = []
+if items:  # 假值(空列表)
+    pass
+
+numbers = [0, 1, 2]
+if numbers:  # 真值(非空列表,即使包含 0)
+    pass
+```
+
+```rust !! rs
+// Rust: 必须使用显式的布尔值
+let x = 5;
+if x != 0 {  // 必须显式比较
+    // ...
+}
+
+let s = "hello";
+if !s.is_empty() {  // 必须显式检查
+    // ...
+}
+
+let items: Vec<i32> = vec![];
+if !items.is_empty() {  // 必须显式检查
+    // ...
+}
+
+// 没有隐式的真值
+// if x {  // 错误:期望 bool,发现整数
+// }
+```
+</UniversalEditor>
+
+## 循环
+
+Rust 有三种循环结构:`loop`、`while` 和 `for`。每种都有特定的用例。
+
+### loop - 无限循环
+
+<UniversalEditor compare={true} title="loop vs while True">
+```python !! py
+# Python: 使用 while True 进行无限循环
+counter = 0
+while True:
+    counter += 1
+    if counter >= 10:
+        break
+    print(counter)
+
+# 带值提取
+result = None
+while True:
+    value = get_value()
+    if value is not None:
+        result = value
+        break
+```
+
+```rust !! rs
+// Rust: loop 用于无限循环(明确且强大)
+let mut counter = 0;
+loop {
+    counter += 1;
+    if counter >= 10 {
+        break;
+    }
+    println!("{}", counter);
+}
+
+// 可以用 break 返回值!
+let result = loop {
+    let value = get_value();
+    if value.is_some() {
+        break value;
+    }
+};  // result 是 Option<SomeType>
+
+// loop 可以返回值
+let x = loop {
+    break 5;  // 带值 break
+};  // x = 5
+
+// 可以在任何表达式中使用 break
+let y = loop {
+    counter += 1;
+    if counter > 5 {
+        break counter * 2;
+    }
+};  // y = 12
+```
+</UniversalEditor>
+
+### while 循环
+
+<UniversalEditor compare={true} title="while 循环">
+```python !! py
+# Python: while 循环
+counter = 0
+while counter < 10:
+    print(counter)
+    counter += 1
+
+# 不能返回值
+# result = while counter < 10:  # SyntaxError
+#     counter += 1
+```
+
+```rust !! rs
+// Rust: while 循环
+let mut counter = 0;
+while counter < 10 {
+    println!("{}", counter);
+    counter += 1;
+}
+
+// while 不能返回值(使用 loop 或 for)
+// while 只是带 if 的 loop 的语法糖
+
+// while 的脱糖形式:
+// loop {
+//     if condition {
+//         // body
+//     } else {
+//         break;
+//     }
+// }
+```
+</UniversalEditor>
+
+### for 循环
+
+<UniversalEditor compare={true} title="for 循环">
+```python !! py
+# Python: for 循环遍历可迭代对象
+items = [1, 2, 3, 4, 5]
+
+for item in items:
+    print(item)
+
+# 使用 enumerate
+for index, item in enumerate(items):
+    print(f"{index}: {item}")
+
+# 范围
+for i in range(10):
+    print(i)
+
+for i in range(5, 10):
+    print(i)
+
+# 反向
+for item in reversed(items):
+    print(item)
+```
+
+```rust !! rs
+// Rust: for 循环遍历迭代器
+let items = vec![1, 2, 3, 4, 5];
+
+for item in &items {
+    println!("{}", item);
+}
+
+// 使用 enumerate
+for (index, item) in items.iter().enumerate() {
+    println!("{}: {}", index, item);
+}
+
+// 范围
+for i in 0..10 {
+    println!("{}", i);
+}
+
+for i in 5..10 {
+    println!("{}", i);
+}
+
+// 包含范围
+for i in 0..=10 {
+    println!("{}", i);
+}
+
+// 反向(需要 rev())
+for item in items.iter().rev() {
+    println!("{}", item);
+}
+```
+</UniversalEditor>
+
+### 迭代器和所有权
+
+<UniversalEditor compare={true} title="迭代器所有权">
+```python !! py
+# Python: 迭代器不影响所有权
+items = [1, 2, 3]
+
+for item in items:
+    print(item)
+
+# items 仍然可访问
+print(items)  # [1, 2, 3]
+```
+
+```rust !! rs
+// Rust: 注意所有权
+let items = vec![1, 2, 3];
+
+// 借用每个元素
+for item in &items {
+    println!("{}", item);
+}
+// items 仍然可访问
+
+// 消耗集合
+for item in items {
+    println!("{}", item);
+}
+// items 不再可访问 - 已移动!
+
+// 要迭代并保留集合,使用 &items
+```
+</UniversalEditor>
+
+## 循环控制
+
+### break 和 continue
+
+<UniversalEditor compare={true} title="break 和 continue">
+```python !! py
+# Python: break 和 continue
+for i in range(10):
+    if i == 3:
+        continue
+    if i == 7:
+        break
+    print(i)
+# 打印: 0, 1, 2, 4, 5, 6
+```
+
+```rust !! rs
+// Rust: break 和 continue
+for i in 0..10 {
+    if i == 3 {
+        continue;
+    }
+    if i == 7 {
+        break;
+    }
+    println!("{}", i);
+}
+// 打印: 0, 1, 2, 4, 5, 6
+```
+</UniversalEditor>
+
+### 循环标签
+
+<UniversalEditor compare={true} title="嵌套循环的标签">
+```python !! py
+# Python: 跳出嵌套循环需要标志
+found = False
+for i in range(5):
+    for j in range(5):
+        if i == 2 and j == 3:
+            found = True
+            break
+    if found:
+        break
+
+# 或使用异常(不推荐)
+try:
+    for i in range(5):
+        for j in range(5):
+            if i == 2 and j == 3:
+                raise StopIteration
+except StopIteration:
+    pass
+```
+
+```rust !! rs
+// Rust: 循环标签用于跳出嵌套循环
+'outer: for i in 0..5 {
+    for j in 0..5 {
+        if i == 2 && j == 3 {
+            break 'outer;  // 跳出外层循环
+        }
+    }
+}
+
+// 也可以使用 continue 标签
+'outer: for i in 0..5 {
+    for j in 0..5 {
+        if i == 2 && j == 3 {
+            continue 'outer;  // 继续外层循环
+        }
+        println!("{} {}", i, j);
+    }
+}
+
+// 可以带值 break 循环
+let result = 'search: loop {
+    for i in 0..10 {
+        for j in 0..10 {
+            if i * j > 50 {
+                break 'search (i, j);
+            }
+        }
+    }
+};
+println!("Found: {:?}", result);
+```
+</UniversalEditor>
+
+### 带值的 break
+
+<UniversalEditor compare={true} title="带值的 break">
+```python !! py
+# Python: 不能直接带值 break
+# result = None
+# while True:
+#     value = calculate()
+#     if value > 100:
+#         result = value  # 必须使用变量
+#         break
+```
+
+```rust !! rs
+// Rust: 可以带值 break
+let result = loop {
+    let value = calculate();
+    if value > 100 {
+        break value;  // 带值 break
+    }
+};
+
+// 也适用于带标签的循环
+let (x, y) = 'outer: loop {
+    for i in 0..10 {
+        for j in 0..10 {
+            if i * j > 50 {
+                break 'outer (i, j);
+            }
+        }
+    }
+};
+
+// 常见模式:搜索
+let found = items.iter().enumerate().find(|&(i, &item)| {
+    item == target
+});
+```
+</UniversalEditor>
+
+## 模式匹配回顾
+
+你在模块 3 中学习了 `match`,但让我们在更多控制流上下文中回顾。
+
+<UniversalEditor compare={true} title="match 用于控制流">
+```python !! py
+# Python: 多个 if-elif-else
+value = 5
+
+if value == 1:
+    result = "one"
+elif value == 2:
+    result = "two"
+elif value == 3:
+    result = "three"
+elif value > 3 and value < 10:
+    result = "small"
+else:
+    result = "other"
+```
+
+```rust !! rs
+// Rust: 使用 match 进行模式匹配
+let value = 5;
+
+let result = match value {
+    1 => "one",
+    2 => "two",
+    3 => "three",
+    4..=9 => "small",  // 范围模式
+    _ => "other",
+};
+
+// 带守卫的 match
+let result = match value {
+    x if x < 0 => "negative",
+    x if x > 100 => "large",
+    x => "normal",
+};
+```
+</UniversalEditor>
+
+## if let 和 while let
+
+这些是单模式匹配的便捷方式。
+
+<UniversalEditor compare={true} title="if let 模式">
+```python !! py
+# Python: 检查并提取
+value = get_optional()
+
+if value is not None:
+    result = value
+    # 使用 result
+else:
+    # 处理 None
+    pass
+
+# 或更冗长的方式
+try:
+    result = value.unwrap()
+except AttributeError:
+    # 处理 None
+    pass
+```
+
+```rust !! rs
+// Rust: if let 用于单模式匹配
+let value: Option<i32> = Some(5);
+
+// if let - 匹配一个模式,忽略其他
+if let Some(x) = value {
+    println!("Got: {}", x);
+} else {
+    println!("Got None");
+}
+
+// 等价于:
+// match value {
+//     Some(x) => { println!("Got: {}", x); }
+//     None => { println!("Got None"); }
+// }
+
+// 可以在表达式中使用 if let
+let result = if let Some(x) = value {
+    x * 2
+} else {
+    0
+};
+```
+</UniversalEditor>
+
+<UniversalEditor compare={true} title="while let 模式">
+```python !! py
+# Python: 循环中的模式匹配
+values = [Some(1), None, Some(2), None, Some(3)]
+
+for value in values:
+    if value is not None:
+        print(value)  # 只处理 Some 值
+```
+
+```rust !! rs
+// Rust: while let 用于重复模式匹配
+let values = vec![Some(1), None, Some(2), None, Some(3)];
+
+// while let - 在模式匹配时循环
+let mut iter = values.into_iter();
+while let Some(value) = iter.next() {
+    println!("{}", value);
+}
+
+// 更实际的例子:处理队列
+let mut queue = vec![1, 2, 3, 4, 5];
+
+while let Some(item) = queue.pop() {
+    println!("Processing: {}", item);
+}
+```
+</UniversalEditor>
+
+## 常见控制流模式
+
+### 提前返回
+
+<UniversalEditor compare={true} title="提前返回">
+```python !! py
+# Python: 提前返回以提高清晰度
+def process(value):
+    if value is None:
+        return None
+
+    if value < 0:
+        return None
+
+    # 处理 value
+    return value * 2
+```
+
+```rust !! rs
+// Rust: 提前返回是惯用的
+fn process(value: Option<i32>) -> Option<i32> {
+    let value = value?;  // 如果是 None 则提前返回
+
+    if value < 0 {
+        return None;
+    }
+
+    // 处理 value
+    Some(value * 2)
+}
+
+// 或使用守卫
+fn process_guard(value: Option<i32>) -> Option<i32> {
+    match value {
+        Some(v) if v >= 0 => Some(v * 2),
+        _ => None,
+    }
+}
+```
+</UniversalEditor>
+
+### 迭代模式
+
+<UniversalEditor compare={true} title="常见迭代模式">
+```python !! py
+# Python: 常见迭代模式
+
+# 过滤
+items = [1, 2, 3, 4, 5]
+filtered = [x for x in items if x % 2 == 0]
+
+# 映射
+doubled = [x * 2 for x in items]
+
+# 查找
+found = next((x for x in items if x > 3), None)
+
+# 全部/任意
+all_positive = all(x > 0 for x in items)
+any_large = any(x > 100 for x in items)
+
+# 求和/计数
+total = sum(items)
+count = len([x for x in items if x > 2])
+```
+
+```rust !! rs
+// Rust: 迭代器方法很强大
+let items = vec![1, 2, 3, 4, 5];
+
+// 过滤
+let filtered: Vec<i32> = items.iter()
+    .filter(|&&x| x % 2 == 0)
+    .collect();
+
+// 映射
+let doubled: Vec<i32> = items.iter()
+    .map(|&x| x * 2)
+    .collect();
+
+// 查找
+let found = items.iter().find(|&&x| x > 3);
+
+// 全部/任意
+let all_positive = items.iter().all(|&x| x > 0);
+let any_large = items.iter().any(|&x| x > 100);
+
+// 求和/计数
+let total: i32 = items.iter().sum();
+let count = items.iter().filter(|&&x| x > 2).count();
+
+// 链式调用
+let result: Vec<i32> = items.iter()
+    .filter(|&&x| x % 2 == 0)
+    .map(|&x| x * 2)
+    .take(3)
+    .collect();
+```
+</UniversalEditor>
+
+### 控制流处理错误
+
+<UniversalEditor compare={true} title="错误处理模式">
+```python !! py
+# Python: 基于异常的错误处理
+def divide(a, b):
+    try:
+        return a / b
+    except ZeroDivisionError:
+        return None
+
+# 使用
+result = divide(10, 2)
+if result is not None:
+    print(result)
+```
+
+```rust !! rs
+// Rust: 基于 Result 的错误处理
+fn divide(a: f64, b: f64) -> Option<f64> {
+    if b == 0.0 {
+        None
+    } else {
+        Some(a / b)
+    }
+}
+
+// 使用
+if let Some(result) = divide(10.0, 2.0) {
+    println!("{}", result);
+}
+
+// 或使用 ?
+fn divide_safe(a: f64, b: f64) -> Result<f64, String> {
+    if b == 0.0 {
+        Err("Division by zero".to_string())
+    } else {
+        Ok(a / b)
+    }
+}
+
+fn process_division(a: f64, b: f64) -> Result<f64, String> {
+    let result = divide_safe(a, b)?;  // 出错时提前返回
+    Ok(result * 2.0)
+}
+```
+</UniversalEditor>
+
+## 综合运用
+
+让我们构建一个完整的例子:
+
+<UniversalEditor compare={true} title="完整的控制流示例">
+```python !! py
+def process_numbers(numbers):
+    """使用各种控制流处理数字。"""
+    if not numbers:
+        return None
+
+    results = []
+
+    for num in numbers:
+        # 跳过负数
+        if num < 0:
+            continue
+
+        # 处理正数
+        if num == 0:
+            results.append("zero")
+        elif num % 2 == 0:
+            results.append(f"even: {num}")
+        else:
+            results.append(f"odd: {num}")
+
+        # 如果发现大数字则停止
+        if num > 100:
+            results.append("found large")
+            break
+
+    return results
+
+# 主执行
+data = [1, 2, -3, 4, 0, 5, 150, 6]
+output = process_numbers(data)
+print(output)
+```
+
+```rust !! rs
+fn process_numbers(numbers: &[i32]) -> Option<Vec<String>> {
+    if numbers.is_empty() {
+        return None;
+    }
+
+    let mut results = Vec::new();
+
+    for &num in numbers {
+        // 跳过负数
+        if num < 0 {
+            continue;
+        }
+
+        // 处理正数
+        let result = match num {
+            0 => "zero".to_string(),
+            n if n % 2 == 0 => format!("even: {}", n),
+            n => format!("odd: {}", n),
+        };
+
+        results.push(result);
+
+        // 如果发现大数字则停止
+        if num > 100 {
+            results.push("found large".to_string());
+            break;
+        }
+    }
+
+    Some(results)
+}
+
+fn main() {
+    let data = vec![1, 2, -3, 4, 0, 5, 150, 6];
+
+    if let Some(output) = process_numbers(&data) {
+        println!("{:?}", output);
+    }
+
+    // 使用迭代器
+    let data2 = vec![1, 2, 3, 4, 5];
+
+    let sum: i32 = data2.iter()
+        .filter(|&&x| x > 2)
+        .map(|&x| x * 2)
+        .sum();
+
+    println!("Sum: {}", sum);
+
+    // 带值的循环
+    let counter = 0;
+    let result = loop {
+        if counter >= 10 {
+            break counter * 2;
+        }
+    };
+    println!("Result: {}", result);
+}
+```
+</UniversalEditor>
+
+## 性能考虑
+
+<UniversalEditor compare={true} title="循环性能">
+```python !! py
+# Python: for 循环有开销
+# 每次迭代都涉及 Python 解释器
+
+# 列表推导式更快
+result = [x * 2 for x in range(1000000)]
+
+# 生成器内存效率高
+result = (x * 2 for x in range(100000000))
+```
+
+```rust !! rs
+// Rust: 循环编译为高效的机器码
+// 迭代器是零成本抽象
+
+// 所有都编译为类似的高效代码
+let mut sum = 0;
+for i in 0..1000000 {
+    sum += i;
+}
+
+// 迭代器版本(通常同样快或更快)
+let sum: i32 = (0..1000000).sum();
+
+// 两者都编译为非常高效的汇编
+// 迭代器没有运行时开销
+```
+</UniversalEditor>
+
+## 总结
+
+在本模块中,你学习了:
+- ✅ `if` 是可以返回值的表达式
+- ✅ `loop` 用于带 `break` 值的无限循环
+- ✅ `while` 用于条件循环
+- ✅ `for` 用于迭代器迭代
+- ✅ 循环标签用于嵌套控制流
+- ✅ `if let` 和 `while let` 用于模式匹配
+- ✅ 没有真值/假值 - 只有显式条件
+- ✅ 强大的迭代器方法
+
+## 与 Python 的主要区别
+
+1. **if 是表达式**: 返回值,不仅仅是语句
+2. **没有真值/假值**: 必须使用显式布尔条件
+3. **loop 结构**: 比 `while True` 更明确
+4. **带值的 break**: 循环可以返回值
+5. **循环标签**: 显式控制嵌套循环
+6. **模式匹配**: `match` 比 `if-elif` 更强大
+7. **迭代器方法**: 丰富的函数式编程能力
+
+## 练习
+
+### 练习 1: FizzBuzz
+
+使用 Rust 控制流编写 FizzBuzz:
+- 3 的倍数打印 "Fizz"
+- 5 的倍数打印 "Buzz"
+- 同时是两者倍数打印 "FizzBuzz"
+- 使用 `match` 实现逻辑
+
+<details>
+<summary>解决方案</summary>
+
+```rust
+fn fizzbuzz(n: i32) -> String {
+    match (n % 3, n % 5) {
+        (0, 0) => "FizzBuzz".to_string(),
+        (0, _) => "Fizz".to_string(),
+        (_, 0) => "Buzz".to_string(),
+        _ => n.to_string(),
+    }
+}
+
+fn main() {
+    for i in 1..=20 {
+        println!("{}", fizzbuzz(i));
+    }
+}
+```
+
+</details>
+
+### 练习 2: 查找最大值
+
+在向量中查找最大值:
+- 使用 `loop` 而不是 `for`
+- 空向量返回 `None`
+- 使用带值的 `break`
+
+<details>
+<summary>解决方案</summary>
+
+```rust
+fn find_max(numbers: &[i32]) -> Option<i32> {
+    if numbers.is_empty() {
+        return None;
+    }
+
+    let mut iter = numbers.iter();
+    let mut max = *iter.next()?;
+
+    loop {
+        match iter.next() {
+            Some(&num) if num > max => max = num,
+            Some(_) => {}
+            None => break max,
+        }
+    }
+}
+
+fn main() {
+    let numbers = vec![3, 1, 4, 1, 5, 9, 2, 6];
+    if let Some(max) = find_max(&numbers) {
+        println!("Maximum: {}", max);
+    }
+}
+```
+
+</details>
+
+### 练习 3: 处理直到满足条件
+
+处理项目直到满足条件:
+- 使用 `while let` 从向量中弹出
+- 发现大于 100 的数字时停止
+- 返回处理过的数字之和
+
+<details>
+<summary>解决方案</summary>
+
+```rust
+fn process_until(mut numbers: Vec<i32>) -> i32 {
+    let mut sum = 0;
+
+    while let Some(num) = numbers.pop() {
+        if num > 100 {
+            break;
+        }
+        sum += num;
+    }
+
+    sum
+}
+
+fn main() {
+    let numbers = vec![1, 2, 3, 150, 4, 5];
+    let sum = process_until(numbers);
+    println!("Sum: {}", sum);  // 9 (1+2+3+3)
+}
+```
+
+</details>
+
+## 下一步
+
+现在你已经理解了控制流:
+1. **[模块 5: 函数与闭包](./module-05-functions)** - 学习作为一等公民的函数
+2. 练习控制流模式
+3. 探索迭代器方法
+
+---
+
+**下一节:** [模块 5 - 函数与闭包](./module-05-functions) →

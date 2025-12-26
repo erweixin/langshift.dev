@@ -98,7 +98,15 @@ const SOURCE_LANGUAGES = [
         gradient: 'from-yellow-500 to-orange-500',
         path: 'py2js',
         status: 'completed' as const,
-      }
+      },
+      {
+        id: 'rust',
+        name: 'Rust',
+        icon: '🦀',
+        gradient: 'from-orange-500 to-red-500',
+        path: 'py2rust',
+        status: 'completed' as const,
+      },
     ]
   }
   // 未来可以添加其他源语言

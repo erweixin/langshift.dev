@@ -1,0 +1,823 @@
+---
+title: "Module 9: Error Handling"
+description: "Master Rust's error handling philosophy including panic!, Result, the ? operator, and best practices for robust error management"
+---
+
+# Module 9: Error Handling
+
+Welcome to Module 9! Error handling is one of Rust's most distinctive features. Unlike Python's exception-based approach, Rust uses a type-safe, explicit system that catches entire classes of errors at compile time.
+
+## Learning Objectives
+
+By the end of this module, you'll be able to:
+- Understand Rust's two error handling categories: recoverable and unrecoverable
+- Use `panic!` for unrecoverable errors
+- Work with `Result<T, E>` for recoverable errors
+- Leverage the `?` operator for clean error propagation
+- Create custom error types
+- Apply error handling best practices
+
+## 9.1 Two Categories of Errors
+
+### Python: Exceptions for Everything
+
+Python uses exceptions for all errors:
+
+```python
+# Python - Exceptions for everything
+# Recoverable errors
+try:
+    file = open("nonexistent.txt")
+except FileNotFoundError:
+    print("File not found")
+
+# Unrecoverable errors (rare in Python)
+raise RuntimeError("Something went wrong")
+```
+
+### Rust: Explicit Categories
+
+Rust distinguishes between recoverable and unrecoverable errors:
+
+<UniversalEditor compare={true} title="Error Categories">
+```python !! py
+# Python - No distinction at language level
+def divide(a, b):
+    if b == 0:
+        raise ValueError("Division by zero")
+    return a / b
+
+# Caller must handle exception
+try:
+    result = divide(10, 0)
+except ValueError as e:
+    print(f"Error: {e}")
+```
+
+```rust !! rs
+// Rust - Explicit categories
+// Recoverable: Result<T, E>
+fn divide(a: f64, b: f64) -> Result<f64, String> {
+    if b == 0.0 {
+        return Err(String::from("Division by zero"));
+    }
+    Ok(a / b)
+}
+
+// Unrecoverable: panic!
+fn critical_error() {
+    panic!("Critical system failure!");
+}
+
+// Usage
+match divide(10.0, 0.0) {
+    Ok(result) => println!("Result: {}", result),
+    Err(e) => println!("Error: {}", e),
+}
+```
+</UniversalEditor>
+
+## 9.2 Unrecoverable Errors with panic!
+
+### Python: Raising Exceptions
+
+```python
+# Python - Raise exceptions
+def critical_function():
+    raise RuntimeError("Critical failure!")
+
+# Program continues if caught
+try:
+    critical_function()
+except RuntimeError:
+    print("Caught")
+```
+
+### Rust: Panicking
+
+<UniversalEditor compare={true} title="Panic Basics">
+```python !! py
+# Python - Stack trace on exception
+def bad_function():
+    raise ValueError("Bad value!")
+
+# Traceback shows call stack
+bad_function()
+```
+
+```rust !! rs
+// Rust - Panic with stack trace
+fn bad_function() {
+    panic!("Bad value!");
+}
+
+// Stack unwinding (default)
+// bad_function();  // Prints stack trace
+
+// Abort immediately (no cleanup)
+// std::panic::set_hook(Box::new(|_| {
+//     std::process::exit(1);
+// }));
+
+// Panic in debug vs release
+#[cfg(debug_assertions)]
+fn debug_only_panic() {
+    panic!("Debug only error!");
+}
+```
+</UniversalEditor>
+
+### Common Panics
+
+<UniversalEditor compare={true} title="Common Panic Scenarios">
+```python !! py
+# Python - Runtime errors
+# Index out of range
+nums = [1, 2, 3]
+print(nums[10])  # IndexError
+
+# None access
+x = None
+print(x.value)  # AttributeError
+
+# Divide by zero
+x = 10 / 0  # ZeroDivisionError
+```
+
+```rust !! rs
+// Rust - Panics on invalid operations
+// Index out of range
+let nums = vec![1, 2, 3];
+// let val = nums[10];  // Panic!
+
+// None access (if using unwrap)
+let opt: Option<i32> = None;
+// let val = opt.unwrap();  // Panic!
+
+// Better alternatives
+let val = nums.get(10);  // Returns None
+let val = opt.unwrap_or(0);  // Returns 0
+
+// Assert with custom message
+let x = 10;
+assert_eq!(x, 10, "x should be 10");
+assert!(x > 5, "x must be greater than 5");
+
+// Debug-only checks
+debug_assert!(x > 0);  // Only checked in debug builds
+```
+</UniversalEditor>
+
+### Recovering from Panics
+
+<UniversalEditor compare={true} title="Catching Panics">
+```python !! py
+# Python - Catch exceptions
+try:
+    raise ValueError("Error")
+except ValueError:
+    print("Caught")
+finally:
+    print("Cleanup")
+```
+
+```rust !! rs
+// Rust - Catch panics (use sparingly!)
+use std::panic;
+
+fn might_panic() {
+    panic!("Oops!");
+}
+
+fn catch_panic() {
+    let result = panic::catch_unwind(|| {
+        might_panic();
+    });
+
+    match result {
+        Ok(_) => println!("No panic"),
+        Err(_) => println!("Panic was caught"),
+    }
+}
+
+// Warning: Don't use catch_unwind for normal error handling!
+// It's mainly for:
+// 1. FFI boundaries
+// 2. Testing panic behavior
+// 3. Wrapping unsafe code
+```
+</UniversalEditor>
+
+## 9.3 Recoverable Errors with `Result<T, E>`
+
+### Python: Try/Except Pattern
+
+```python
+# Python - Try/except for error handling
+def read_file(filename):
+    try:
+        with open(filename) as f:
+            return f.read()
+    except FileNotFoundError:
+        return None
+    except IOError as e:
+        print(f"IO Error: {e}")
+        return None
+```
+
+### Rust: Result Type
+
+<UniversalEditor compare={true} title="Result Pattern">
+```python !! py
+# Python - Manual error handling
+def parse_number(s):
+    try:
+        return int(s)
+    except ValueError:
+        return None
+
+# Usage
+num = parse_number("42")
+if num is not None:
+    print(f"Got: {num}")
+```
+
+```rust !! rs
+// Rust - Type-safe error handling
+fn parse_number(s: &str) -> Result<i32, ParseIntError> {
+    s.parse::<i32>()
+}
+
+// Usage with match
+match parse_number("42") {
+    Ok(num) => println!("Got: {}", num),
+    Err(e) => println!("Parse error: {}", e),
+}
+
+// Provide default
+let num = parse_number("invalid").unwrap_or(0);
+
+// Provide default with function
+let num = parse_number("invalid")
+    .unwrap_or_else(|_| 0);
+
+// Convert error type
+let num: Result<i32, String> = parse_number("42")
+    .map_err(|e| e.to_string());
+```
+</UniversalEditor>
+
+### Propagating Errors
+
+<UniversalEditor compare={true} title="Error Propagation">
+```python !! py
+# Python - Manual propagation
+def step1():
+    return 42
+
+def step2(value):
+    if value < 0:
+        raise ValueError("Value must be positive")
+    return value * 2
+
+def process():
+    try:
+        v = step1()
+        result = step2(v)
+        return result
+    except ValueError as e:
+        print(f"Error: {e}")
+        return None
+```
+
+```rust !! rs
+// Rust - Clean propagation with ?
+fn step1() -> Result<i32, String> {
+    Ok(42)
+}
+
+fn step2(value: i32) -> Result<i32, String> {
+    if value < 0 {
+        return Err("Value must be positive".to_string());
+    }
+    Ok(value * 2)
+}
+
+// Manual propagation
+fn process_manual() -> Result<i32, String> {
+    let v = step1()?;
+    let result = step2(v)?;
+    Ok(result)
+}
+
+// More concise
+fn process() -> Result<i32, String> {
+    Ok(step2(step1()?)?)
+}
+
+// Even more operations
+fn process_complex() -> Result<i32, String> {
+    let v1 = step1()?;
+    let v2 = step2(v1)?;
+    let v3 = step2(v2)?;
+    Ok(v3)
+}
+```
+</UniversalEditor>
+
+## 9.4 The ? Operator Deep Dive
+
+### Understanding ?
+
+The `?` operator is syntactic sugar for error propagation:
+
+<UniversalEditor compare={true} title="? Operator Expansion">
+```python !! py
+# Python - Manual error handling
+def operation():
+    result = risky_function()
+    if isinstance(result, Error):
+        return result
+    return process(result)
+```
+
+```rust !! rs
+// Rust - ? operator does this:
+fn operation() -> Result<T, E> {
+    // Using ?
+    let value = risky_function()?;
+
+    // Expands to:
+    // match risky_function() {
+    //     Ok(v) => v,
+    //     Err(e) => return Err(e),
+    // }
+
+    process(value)
+}
+```
+</UniversalEditor>
+
+### ? with Different Types
+
+<UniversalEditor compare={true} title="Type Conversion with ?">
+```rust !! rs
+// ? can convert error types with From trait
+use std::fs::File;
+use std::io::{self, Read};
+
+#[derive(Debug)]
+enum AppError {
+    Io(io::Error),
+    Parse(String),
+}
+
+// Implement From for automatic conversion
+impl From<io::Error> for AppError {
+    fn from(error: io::Error) -> Self {
+        AppError::Io(error)
+    }
+}
+
+fn read_config(path: &str) -> Result<String, AppError> {
+    let mut file = File::open(path)?;  // io::Error -> AppError
+    let mut contents = String::new();
+    file.read_to_string(&mut contents)?;
+    Ok(contents)
+}
+
+// Using ? with Option
+fn parse_optional(input: Option<&str>) -> Result<i32, String> {
+    let s = input.ok_or("No input provided")?;
+    s.parse().map_err(|e| format!("Parse error: {}", e))
+}
+```
+</UniversalEditor>
+
+### Early Returns
+
+<UniversalEditor compare={true} title="Early Return Pattern">
+```python !! py
+# Python - Early returns on error
+def validate_and_process(data):
+    if not data:
+        return None, "No data"
+    if len(data) > 100:
+        return None, "Data too large"
+    # Process data
+    return process(data), None
+```
+
+```rust !! rs
+// Rust - Clean early returns with ?
+fn validate_and_process(data: &str) -> Result<String, String> {
+    if data.is_empty() {
+        return Err("No data".to_string());
+    }
+    if data.len() > 100 {
+        return Err("Data too large".to_string());
+    }
+    // Process data
+    Ok(process(data))
+}
+
+// Even cleaner with validation functions
+fn validate(data: &str) -> Result<(), String> {
+    if data.is_empty() {
+        return Err("No data".to_string());
+    }
+    if data.len() > 100 {
+        return Err("Data too large".to_string());
+    }
+    Ok(())
+}
+
+fn validate_and_process_clean(data: &str) -> Result<String, String> {
+    validate(data)?;
+    Ok(process(data))
+}
+```
+</UniversalEditor>
+
+## 9.5 Custom Error Types
+
+### Python: Custom Exceptions
+
+```python
+# Python - Custom exception classes
+class ValidationError(Exception):
+    pass
+
+class NetworkError(Exception):
+    def __init__(self, message, status_code):
+        super().__init__(message)
+        self.status_code = status_code
+
+def validate(value):
+    if not value:
+        raise ValidationError("Value is required")
+```
+
+### Rust: Custom Error Enums
+
+<UniversalEditor compare={true} title="Custom Error Types">
+```python !! py
+# Python - Exception hierarchy
+class AppError(Exception):
+    pass
+
+class ValidationError(AppError):
+    pass
+
+class NetworkError(AppError):
+    pass
+
+# Use with try/except
+try:
+    validate(data)
+except ValidationError as e:
+    print(f"Validation: {e}")
+except NetworkError as e:
+    print(f"Network: {e}")
+```
+
+```rust !! rs
+// Rust - Algebraic error types
+#[derive(Debug)]
+enum AppError {
+    ValidationError(String),
+    NetworkError { status_code: u16, message: String },
+    DatabaseError(String),
+}
+
+// Implement Display for user-friendly output
+impl std::fmt::Display for AppError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            AppError::ValidationError(msg) => {
+                write!(f, "Validation error: {}", msg)
+            }
+            AppError::NetworkError { status_code, message } => {
+                write!(f, "Network error ({}): {}", status_code, message)
+            }
+            AppError::DatabaseError(msg) => {
+                write!(f, "Database error: {}", msg)
+            }
+        }
+    }
+}
+
+// Implement Error for std compatibility
+impl std::error::Error for AppError {}
+
+// Usage
+fn validate(value: &str) -> Result<(), AppError> {
+    if value.is_empty() {
+        return Err(AppError::ValidationError("Value is required".to_string()));
+    }
+    Ok(())
+}
+
+// Convert to AppError using From
+impl From<std::io::Error> for AppError {
+    fn from(error: std::io::Error) -> Self {
+        AppError::DatabaseError(error.to_string())
+    }
+}
+```
+</UniversalEditor>
+
+### Using thiserror and anyhow
+
+<UniversalEditor compare={true} title="Error Crate Ecosystem">
+```rust !! rs
+// For library code: use thiserror
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+pub enum LibError {
+    #[error("Validation failed: {0}")]
+    ValidationError(String),
+
+    #[error("IO error: {0}")]
+    Io(#[from] std::io::Error),
+
+    #[error("Parse error: {0}")]
+    Parse(String),
+}
+
+// For application code: use anyhow
+use anyhow::{Result, Context};
+
+fn read_config() -> Result<String> {
+    let content = std::fs::read_to_string("config.toml")
+        .context("Failed to read config file")?;
+    Ok(content)
+}
+
+fn main() -> Result<()> {
+    let config = read_config()?;
+    println!("Config: {}", config);
+    Ok(())
+}
+```
+</UniversalEditor>
+
+## 9.6 Error Handling Patterns
+
+### Pattern 1: Contextual Errors
+
+<UniversalEditor compare={true} title="Adding Context to Errors">
+```python !! py
+# Python - Chain exceptions
+def load_config():
+    try:
+        return read_file("config.toml")
+    except IOError as e:
+        raise ConfigError(f"Failed to load config: {e}") from e
+```
+
+```rust !! rs
+// Rust - Add context with map_err
+fn load_config() -> Result<String, String> {
+    std::fs::read_to_string("config.toml")
+        .map_err(|e| format!("Failed to load config: {}", e))
+}
+
+// Or with anyhow
+use anyhow::{Context, Result};
+
+fn load_config() -> Result<String> {
+    std::fs::read_to_string("config.toml")
+        .context("Failed to load config file")
+}
+```
+</UniversalEditor>
+
+### Pattern 2: Multiple Errors
+
+<UniversalEditor compare={true} title="Collecting Multiple Errors">
+```python !! py
+# Python - Collect multiple errors
+def validate_all(data):
+    errors = []
+    if not data.get('name'):
+        errors.append("Name is required")
+    if not data.get('email'):
+        errors.append("Email is required")
+    if errors:
+        raise ValidationError(errors)
+```
+
+```rust !! rs
+// Rust - Collect validation errors
+#[derive(Debug)]
+struct ValidationErrors {
+    errors: Vec<String>,
+}
+
+fn validate_all(data: &serde_json::Value) -> Result<(), ValidationErrors> {
+    let mut errors = Vec::new();
+
+    if data.get("name").is_none() {
+        errors.push("Name is required".to_string());
+    }
+    if data.get("email").is_none() {
+        errors.push("Email is required".to_string());
+    }
+
+    if !errors.is_empty() {
+        return Err(ValidationErrors { errors });
+    }
+
+    Ok(())
+}
+```
+</UniversalEditor>
+
+### Pattern 3: Retry Logic
+
+<UniversalEditor compare={true} title="Retry with Backoff">
+```python !! py
+# Python - Retry logic
+import time
+
+def fetch_with_retry(url, max_retries=3):
+    for attempt in range(max_retries):
+        try:
+            return fetch(url)
+        except NetworkError as e:
+            if attempt == max_retries - 1:
+                raise
+            time.sleep(2 ** attempt)  # Exponential backoff
+```
+
+```rust !! rs
+// Rust - Retry with backoff
+use std::time::Duration;
+use std::thread;
+
+fn fetch_with_retry(url: &str, max_retries: u32) -> Result<String, String> {
+    for attempt in 0..max_retries {
+        match fetch(url) {
+            Ok(data) => return Ok(data),
+            Err(e) if attempt < max_retries - 1 => {
+                let backoff = Duration::from_secs(2_u64.pow(attempt));
+                thread::sleep(backoff);
+            }
+            Err(e) => return Err(e),
+        }
+    }
+    unreachable!()
+}
+```
+</UniversalEditor>
+
+## Common Pitfalls
+
+### Pitfall 1: Using panic! in Libraries
+
+```rust
+// DON'T: Panic in library code
+pub fn parse_config(s: &str) -> Config {
+    if s.is_empty() {
+        panic!("Config cannot be empty");  // Wrong!
+    }
+    // ...
+}
+
+// DO: Return Result
+pub fn parse_config(s: &str) -> Result<Config, Error> {
+    if s.is_empty() {
+        return Err(Error::EmptyConfig);
+    }
+    // ...
+}
+```
+
+### Pitfall 2: Ignoring Errors
+
+```rust
+// DON'T: Ignore errors
+let _ = File::open("config.txt");  // Error ignored!
+
+// DO: Handle errors explicitly
+let file = File::open("config.txt")?;
+// or
+let file = File::open("config.txt")
+    .expect("Failed to open config.txt");
+```
+
+### Pitfall 3: Overusing unwrap
+
+```rust
+// DON'T: Excessive unwrap
+let val = some_operation().unwrap();  // Might panic!
+
+// DO: Handle gracefully
+let val = some_operation()
+    .unwrap_or_else(|e| {
+        eprintln!("Error: {}", e);
+        std::process::exit(1);
+    });
+```
+
+## Best Practices
+
+1. **Use Result for recoverable errors** - Save panic! for truly unrecoverable situations
+2. **Implement custom error types** - Use enums for structured error handling
+3. **Provide context** - Add information about what operation failed
+4. **Use libraries** - Leverage thiserror for libraries, anyhow for apps
+5. **Document errors** - Document which errors can be returned
+6. **Test error paths** - Write tests for error conditions
+
+## Summary
+
+In this module, we covered:
+
+- **Two error categories**: Recoverable (Result) vs unrecoverable (panic!)
+- **panic!**: For unrecoverable errors with stack unwinding
+- **`Result<T, E>`**: Type-safe error handling
+- **? operator**: Clean error propagation
+- **Custom errors**: Structured error types with Display/Error traits
+- **Error patterns**: Context, collection, retry logic
+
+Key takeaways:
+- Rust makes errors explicit and type-safe
+- Result catches errors at compile time
+- The ? operator provides clean error propagation
+- Custom error types enable structured error handling
+- Choose the right error handling strategy for your context
+
+## Exercise
+
+Create a file processing application that:
+1. Reads a file (handling IO errors)
+2. Parses the content (handling parse errors)
+3. Validates the data (handling validation errors)
+4. Uses custom error types
+5. Provides helpful error messages
+
+<details>
+<summary>View Solution</summary>
+
+```rust
+use std::fs;
+use std::io;
+use std::num::ParseIntError;
+
+#[derive(Debug)]
+enum ProcessError {
+    Io(io::Error),
+    Parse(ParseIntError),
+    Validation(String),
+}
+
+impl std::fmt::Display for ProcessError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            ProcessError::Io(e) => write!(f, "IO error: {}", e),
+            ProcessError::Parse(e) => write!(f, "Parse error: {}", e),
+            ProcessError::Validation(msg) => write!(f, "Validation error: {}", msg),
+        }
+    }
+}
+
+impl std::error::Error for ProcessError {}
+
+impl From<io::Error> for ProcessError {
+    fn from(e: io::Error) -> Self {
+        ProcessError::Io(e)
+    }
+}
+
+impl From<ParseIntError> for ProcessError {
+    fn from(e: ParseIntError) -> Self {
+        ProcessError::Parse(e)
+    }
+}
+
+fn process_file(path: &str) -> Result<i32, ProcessError> {
+    let content = fs::read_to_string(path)?;
+    let number: i32 = content.trim().parse()?;
+
+    if number < 0 {
+        return Err(ProcessError::Validation(
+            "Number must be positive".to_string()
+        ));
+    }
+
+    Ok(number * 2)
+}
+
+fn main() {
+    match process_file("data.txt") {
+        Ok(result) => println!("Result: {}", result),
+        Err(e) => eprintln!("Error: {}", e),
+    }
+}
+```
+
+</details>
+
+Next up: **Module 10 - Traits and Generics**, where we'll explore Rust's powerful type system for writing flexible, reusable code!

@@ -1,0 +1,682 @@
+---
+title: "Module 16: Async Programming"
+description: "Master asynchronous programming in Rust using async/await, tokio, and the Future trait, with comparisons to Python's asyncio"
+---
+
+# Module 16: Async Programming
+
+## Learning Objectives
+
+By the end of this module, you'll be able to:
+- Understand Rust's async/await syntax and how it compares to Python's asyncio
+- Work with the Future trait and async runtime
+- Use Tokio for practical async applications
+- Handle async streams and channels
+- Avoid common async pitfalls
+
+## Introduction to Async in Rust
+
+Python's `asyncio` uses coroutines with `async`/`await` syntax. Rust has similar syntax but very different underlying mechanics.
+
+### Key Differences
+
+<UniversalEditor compare={true} title="Async Function Declaration">
+```python !! py
+# Python - Coroutines are implicit
+import asyncio
+
+async def fetch_data(url: str) -> dict:
+    await asyncio.sleep(1)  # Simulate network delay
+    return {"status": "ok", "data": [1, 2, 3]}
+
+# Python coroutines start paused and need the event loop
+async def main():
+    result = await fetch_data("https://api.example.com")
+    print(result)
+
+asyncio.run(main())
+```
+
+```rust !! rs
+// Rust - Futures are explicit and lazy
+use tokio::time::{sleep, Duration};
+
+async fn fetch_data(url: &str) -> serde_json::Value {
+    // Tokio provides async sleep
+    sleep(Duration::from_secs(1)).await;
+    json!({"status": "ok", "data": [1, 2, 3]})
+}
+
+// Rust needs a runtime at the entry point
+#[tokio::main]
+async fn main() {
+    let result = fetch_data("https://api.example.com").await;
+    println!("{}", result);
+}
+```
+</UniversalEditor>
+
+**Critical Insight:** In Python, `async def` creates a coroutine object that starts paused. In Rust, `async fn` returns a `Future` that does nothing until polled.
+
+## The Future Trait
+
+Understanding the `Future` trait is crucial for async Rust.
+
+<UniversalEditor compare={true} title="Future Trait vs Python Coroutine">
+```python !! py
+# Python - Coroutines are managed by the event loop
+import asyncio
+
+async def compute():
+    print("Computing...")
+    await asyncio.sleep(0.1)
+    return 42
+
+# Event loop handles everything
+coro = compute()  # Returns coroutine object
+print(type(coro))  # <class 'coroutine'>
+
+result = asyncio.run(coro)
+```
+
+```rust !! rs
+// Rust - Future trait requires explicit polling
+use std::future::Future;
+use std::pin::Pin;
+use std::task::{Context, Poll};
+
+// Simplified Future trait (actual std::future::Future)
+pub trait SimpleFuture {
+    type Output;
+    fn poll(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output>;
+}
+
+// Async fn desugars to a type implementing Future
+async fn compute() -> i32 {
+    println!("Computing...");
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    42
+}
+
+// The runtime handles polling
+#[tokio::main]
+async fn main() {
+    let future = compute();  // Returns Future
+    let result = future.await;  // Runtime polls until ready
+    println!("{}", result);
+}
+```
+</UniversalEditor>
+
+## Async Runtime: Tokio
+
+Tokio is the most popular async runtime in Rust, similar to how asyncio is standard in Python.
+
+### Basic Tokio Usage
+
+<UniversalEditor compare={true} title="Task Spawning">
+```python !! py
+# Python - asyncio tasks
+import asyncio
+
+async def worker(name: str, duration: int):
+    print(f"{name} started")
+    await asyncio.sleep(duration)
+    print(f"{name} completed after {duration}s")
+
+async def main():
+    # Create tasks that run concurrently
+    task1 = asyncio.create_task(worker("Task 1", 2))
+    task2 = asyncio.create_task(worker("Task 2", 1))
+
+    # Wait for both to complete
+    await asyncio.gather(task1, task2)
+
+asyncio.run(main())
+```
+
+```rust !! rs
+// Rust - Tokio tasks
+use tokio::time::{sleep, Duration};
+
+async fn worker(name: &str, duration: u64) {
+    println!("{} started", name);
+    sleep(Duration::from_secs(duration)).await;
+    println!("{} completed after {}s", name, duration);
+}
+
+#[tokio::main]
+async fn main() {
+    // Spawn tasks that run concurrently
+    let task1 = tokio::spawn(worker("Task 1", 2));
+    let task2 = tokio::spawn(worker("Task 2", 1));
+
+    // Wait for both to complete
+    let (result1, result2) = tokio::join!(task1, task2);
+
+    // Handle results (tasks return Result)
+    result1.unwrap();
+    result2.unwrap();
+}
+```
+</UniversalEditor>
+
+### Async Channels
+
+<UniversalEditor compare={true} title="Async Communication Channels">
+```python !! py
+# Python - asyncio queues
+import asyncio
+
+async def producer(queue: asyncio.Queue):
+    for i in range(5):
+        await asyncio.sleep(0.1)
+        await queue.put(i)
+        print(f"Produced: {i}")
+    await queue.put(None)  # Signal end
+
+async def consumer(queue: asyncio.Queue):
+    while True:
+        item = await queue.get()
+        if item is None:
+            break
+        print(f"Consumed: {item}")
+        queue.task_done()
+
+async def main():
+    queue = asyncio.Queue(maxsize=10)
+    producer_task = asyncio.create_task(producer(queue))
+    consumer_task = asyncio.create_task(consumer(queue))
+    await asyncio.gather(producer_task, consumer_task)
+
+asyncio.run(main())
+```
+
+```rust !! rs
+// Rust - Tokio channels
+use tokio::sync::mpsc;
+use tokio::time::{sleep, Duration};
+
+async fn producer(mut tx: mpsc::Sender<i32>) {
+    for i in 0..5 {
+        sleep(Duration::from_millis(100)).await;
+        tx.send(i).await.unwrap();
+        println!("Produced: {}", i);
+    }
+    // Drop sender to signal completion
+}
+
+async fn consumer(mut rx: mpsc::Receiver<i32>) {
+    while let Some(item) = rx.recv().await {
+        println!("Consumed: {}", item);
+    }
+}
+
+#[tokio::main]
+async fn main() {
+    let (tx, rx) = mpsc::channel(10);
+
+    let producer_task = tokio::spawn(producer(tx));
+    let consumer_task = tokio::spawn(consumer(rx));
+
+    tokio::join!(producer_task, consumer_task);
+}
+```
+</UniversalEditor>
+
+## Async Streams
+
+Rust's async streams are similar to Python's async generators.
+
+<UniversalEditor compare={true} title="Async Iteration">
+```python !! py
+# Python - Async generators
+import asyncio
+
+async def countdown(n: int):
+    """Async generator yielding values"""
+    for i in range(n, 0, -1):
+        await asyncio.sleep(0.1)
+        yield i
+
+async def main():
+    async for value in countdown(5):
+        print(f"Count: {value}")
+
+asyncio.run(main())
+```
+
+```rust !! rs
+// Rust - Async streams using futures::stream
+use futures::stream::{self, StreamExt};
+use tokio::time::{sleep, Duration};
+
+async fn countdown(n: i32) -> impl Stream<Item = i32> {
+    // Create a stream from an iterator with delays
+    stream::iter((1..=n).rev())
+        .then(|n| async move {
+            sleep(Duration::from_millis(100)).await;
+            n
+        })
+}
+
+#[tokio::main]
+async fn main() {
+    let mut stream = countdown(5).await;
+
+    while let Some(value) = stream.next().await {
+        println!("Count: {}", value);
+    }
+}
+```
+</UniversalEditor>
+
+## Async HTTP Client
+
+<UniversalEditor compare={true} title="HTTP Requests">
+```python !! py
+# Python - aiohttp client
+import aiohttp
+import asyncio
+
+async def fetch_url(session: aiohttp.ClientSession, url: str) -> str:
+    async with session.get(url) as response:
+        return await response.text()
+
+async def main():
+    urls = [
+        "https://httpbin.org/get",
+        "https://httpbin.org/delay/1",
+        "https://httpbin.org/json",
+    ]
+
+    async with aiohttp.ClientSession() as session:
+        tasks = [fetch_url(session, url) for url in urls]
+        results = await asyncio.gather(*tasks)
+        for result in results:
+            print(f"Fetched {len(result)} bytes")
+
+asyncio.run(main())
+```
+
+```rust !! rs
+// Rust - Reqwest async client
+use reqwest;
+use futures::future::join_all;
+
+async fn fetch_url(url: &str) -> Result<String, reqwest::Error> {
+    let response = reqwest::get(url).await?;
+    let text = response.text().await?;
+    Ok(text)
+}
+
+#[tokio::main]
+async fn main() {
+    let urls = [
+        "https://httpbin.org/get",
+        "https://httpbin.org/delay/1",
+        "https://httpbin.org/json",
+    ];
+
+    let fetch_futures: Vec<_> = urls.iter()
+        .map(|&url| fetch_url(url))
+        .collect();
+
+    let results = join_all(fetch_futures).await;
+
+    for result in results {
+        match result {
+            Ok(text) => println!("Fetched {} bytes", text.len()),
+            Err(e) => println!("Error: {}", e),
+        }
+    }
+}
+```
+</UniversalEditor>
+
+## Async File I/O
+
+<UniversalEditor compare={true} title="File Operations">
+```python !! py
+# Python - aiofiles for async file operations
+import aiofiles
+import asyncio
+
+async def process_file(filename: str):
+    async with aiofiles.open(filename, 'r') as f:
+        content = await f.read()
+        lines = content.splitlines()
+        print(f"Read {len(lines)} lines from {filename}")
+
+async def main():
+    await asyncio.gather(
+        process_file('file1.txt'),
+        process_file('file2.txt'),
+    )
+
+asyncio.run(main())
+```
+
+```rust !! rs
+// Rust - Tokio fs
+use tokio::fs::File;
+use tokio::io::{AsyncBufReadExt, BufReader};
+
+async fn process_file(filename: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let file = File::open(filename).await?;
+    let reader = BufReader::new(file);
+    let mut lines = reader.lines();
+    let mut count = 0;
+
+    while let Some(_line) = lines.next_line().await? {
+        count += 1;
+    }
+
+    println!("Read {} lines from {}", count, filename);
+    Ok(())
+}
+
+#[tokio::main]
+async fn main() {
+    let results = tokio::join!(
+        process_file("file1.txt"),
+        process_file("file2.txt"),
+    );
+
+    results.0.unwrap();
+    results.1.unwrap();
+}
+```
+</UniversalEditor>
+
+## Error Handling in Async
+
+<UniversalEditor compare={true} title="Async Error Handling">
+```python !! py
+# Python - Exception handling in async
+import asyncio
+
+async def fetch_data(url: str) -> dict:
+    if "error" in url:
+        raise ValueError("Invalid URL")
+    await asyncio.sleep(0.1)
+    return {"data": "success"}
+
+async def main():
+    try:
+        result = await fetch_data("https://error.api")
+    except ValueError as e:
+        print(f"Caught error: {e}")
+    else:
+        print(result)
+
+asyncio.run(main())
+```
+
+```rust !! rs
+// Rust - Result types in async
+use tokio::time::{sleep, Duration};
+
+async fn fetch_data(url: &str) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+    if url.contains("error") {
+        Err("Invalid URL".into())
+    } else {
+        sleep(Duration::from_millis(100)).await;
+        Ok(json!({"data": "success"}))
+    }
+}
+
+#[tokio::main]
+async fn main() {
+    match fetch_data("https://error.api").await {
+        Ok(result) => println!("{}", result),
+        Err(e) => println!("Caught error: {}", e),
+    }
+}
+```
+</UniversalEditor>
+
+## Common Async Pitfalls
+
+### 1. Blocking in Async Context
+
+<UniversalEditor compare={true} title="Avoid Blocking Operations">
+```python !! py
+# Python - Blocking in async (bad practice)
+import asyncio
+import time
+
+async def bad_blocking():
+    time.sleep(2)  # Blocks the entire event loop!
+    print("Done")
+
+async def good_nonblocking():
+    await asyncio.sleep(2)  # Yields control
+    print("Done")
+```
+
+```rust !! rs
+// Rust - Use spawn_blocking for CPU-bound work
+use tokio::task::spawn_blocking;
+use tokio::time::{sleep, Duration};
+
+async fn bad_blocking() {
+    std::thread::sleep(Duration::from_secs(2)); // Blocks runtime!
+    println!("Done");
+}
+
+async fn good_nonblocking() {
+    sleep(Duration::from_secs(2)).await; // Yields
+    println!("Done");
+}
+
+async fn good_cpu_bound() {
+    // Offload blocking work to thread pool
+    let result = spawn_blocking(|| {
+        // CPU-intensive work here
+        42
+    }).await.unwrap();
+
+    println!("Result: {}", result);
+}
+
+#[tokio::main]
+async fn main() {
+    good_nonblocking().await;
+    good_cpu_bound().await;
+}
+```
+</UniversalEditor>
+
+### 2. Cancellation
+
+<UniversalEditor compare={true} title="Async Cancellation">
+```python !! py
+# Python - Task cancellation
+import asyncio
+
+async def cancellable_task():
+    try:
+        print("Task started")
+        await asyncio.sleep(5)
+        print("Task completed")
+    except asyncio.CancelledError:
+        print("Task was cancelled")
+        raise
+
+async def main():
+    task = asyncio.create_task(cancellable_task())
+    await asyncio.sleep(1)
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        print("Main caught cancellation")
+
+asyncio.run(main())
+```
+
+```rust !! rs
+// Rust - Cooperative cancellation with tokio::select!
+use tokio::time::{sleep, Duration, timeout};
+use tokio::signal::ctrl_c;
+
+async fn cancellable_task() -> Result<(), Box<dyn std::error::Error>> {
+    println!("Task started");
+
+    // Use select! to wait for multiple futures
+    tokio::select! {
+        _ = sleep(Duration::from_secs(5)) => {
+            println!("Task completed");
+        }
+        _ = ctrl_c() => {
+            println!("Task received Ctrl+C");
+            return Err("Cancelled".into());
+        }
+    }
+
+    Ok(())
+}
+
+#[tokio::main]
+async fn main() {
+    // Cancel after timeout
+    match timeout(Duration::from_secs(1), cancellable_task()).await {
+        Ok(Ok(())) => println!("Task succeeded"),
+        Ok(Err(e)) => println!("Task error: {}", e),
+        Err(_) => println!("Task timed out"),
+    }
+}
+```
+</UniversalEditor>
+
+## Practical Example: Web Scraper
+
+<UniversalEditor compare={true} title="Concurrent Web Scraper">
+```python !! py
+# Python - Async web scraper
+import asyncio
+import aiohttp
+from bs4 import BeautifulSoup
+
+async def scrape_page(session: aiohttp.ClientSession, url: str) -> dict:
+    async with session.get(url) as response:
+        html = await response.text()
+        soup = BeautifulSoup(html, 'html.parser')
+        return {
+            'url': url,
+            'title': soup.title.string if soup.title else 'No title',
+            'links': len(soup.find_all('a'))
+        }
+
+async def main(urls: list[str]):
+    async with aiohttp.ClientSession() as session:
+        tasks = [scrape_page(session, url) for url in urls]
+        results = await asyncio.gather(*tasks)
+        return results
+
+if __name__ == "__main__":
+    urls = [
+        "https://example.com",
+        "https://example.org",
+        "https://example.net",
+    ]
+    results = asyncio.run(main(urls))
+    for result in results:
+        print(f"{result['url']}: {result['title']} ({result['links']} links)")
+```
+
+```rust !! rs
+// Rust - Concurrent web scraper
+use reqwest::Client;
+use scraper::{Html, Selector};
+use futures::future::join_all;
+
+struct ScrapedData {
+    url: String,
+    title: String,
+    links: usize,
+}
+
+async fn scrape_page(client: &Client, url: &str) -> Result<ScrapedData, Box<dyn std::error::Error>> {
+    let response = client.get(url).send().await?;
+    let html = response.text().await?;
+
+    let document = Html::parse_document(&html);
+    let title_selector = Selector::parse("title").unwrap();
+    let link_selector = Selector::parse("a").unwrap();
+
+    let title = document
+        .select(&title_selector)
+        .next()
+        .map(|t| t.text().collect::<String>())
+        .unwrap_or_else(|| "No title".to_string());
+
+    let links = document.select(&link_selector).count();
+
+    Ok(ScrapedData {
+        url: url.to_string(),
+        title,
+        links,
+    })
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let urls = [
+        "https://example.com",
+        "https://example.org",
+        "https://example.net",
+    ];
+
+    let client = Client::new();
+    let scrape_futures: Vec<_> = urls.iter()
+        .map(|&url| scrape_page(&client, url))
+        .collect();
+
+    let results = join_all(scrape_futures).await;
+
+    for result in results {
+        match result {
+            Ok(data) => println!("{}: {} ({} links)", data.url, data.title, data.links),
+            Err(e) => println!("Error scraping: {}", e),
+        }
+    }
+
+    Ok(())
+}
+```
+</UniversalEditor>
+
+## Key Takeaways
+
+### Async in Python
+- Built on coroutines and event loops
+- Implicit scheduling by the runtime
+- Easy to use, but runtime overhead
+- Uses `async`/`await` syntax
+
+### Async in Rust
+- Zero-cost abstractions with Futures
+- Explicit runtime (Tokio) requirement
+- Compiler enforces safe async code
+- No runtime overhead when not using async
+- Requires `#[tokio::main]` for async entry points
+
+### When to Use Async
+- **Use async** for I/O-bound operations (network, files)
+- **Use sync** for CPU-bound tasks (or `spawn_blocking`)
+- **Avoid async** for simple sequential code
+- **Prefer channels** over shared state
+
+## Exercises
+
+1. Implement a concurrent file downloader that downloads multiple files in parallel
+2. Build a chat server using async channels
+3. Create an async database connection pool
+4. Implement retry logic with exponential backoff
+5. Build a concurrent web scraper with rate limiting
+
+## Next Module
+
+In Module 17, we'll explore **Testing in Rust**, including unit tests, integration tests, property-based testing, and mocking strategies.

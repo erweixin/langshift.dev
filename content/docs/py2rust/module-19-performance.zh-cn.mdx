@@ -1,0 +1,190 @@
+---
+title: "模块 19: 性能优化"
+description: "掌握 Rust 性能优化,包括零成本抽象、迭代器、基准测试和性能分析"
+---
+
+# 模块 19: 性能优化
+
+## 学习目标
+
+完成本模块后,你将能够:
+- 理解零成本抽象
+- 使用迭代器高效处理数据
+- 使用 Criterion 编写基准测试
+- 分析 Rust 应用程序
+- 优化内存分配
+- 应用性能优化模式
+
+## 零成本抽象
+
+Rust 的零成本抽象意味着高级结构不会带来性能损失。
+
+<UniversalEditor compare={true} title="抽象成本">
+```python !! py
+# Python - 抽象有运行时开销
+def process_list(items):
+    # 列表推导比循环快但仍创建中间列表
+    return [x * 2 for x in items if x > 0]
+
+# 生成器更节省内存
+def process_gen(items):
+    for x in items:
+        if x > 0:
+            yield x * 2
+
+# 两者都有解释器开销
+```
+
+```rust !! rs
+// Rust - 抽象编译为高效的机器码
+fn process_list(items: &[i32]) -> Vec<i32> {
+    items.iter()
+        .filter(|&&x| x > 0)
+        .map(|&x| x * 2)
+        .collect()
+}
+
+// 这编译成的代码与手写循环一样高效
+// 没有中间结果的分配
+```
+</UniversalEditor>
+
+**核心洞察:** Rust 编译器优化迭代器链,使其与手写循环一样快。
+
+## 迭代器 vs 循环
+
+<UniversalEditor compare={true} title="迭代器性能">
+```python !! py
+# Python - 循环 vs 推导式
+import timeit
+
+def loop_sum(numbers):
+    total = 0
+    for n in numbers:
+        total += n
+    return total
+
+def comprehension_sum(numbers):
+    return sum(numbers)
+
+# 列表推导通常更快
+```
+
+```rust !! rs
+// Rust - 迭代器 vs for 循环
+fn loop_sum(numbers: &[i32]) -> i32 {
+    let mut total = 0;
+    for &n in numbers {
+        total += n;
+    }
+    total
+}
+
+fn iterator_sum(numbers: &[i32]) -> i32 {
+    numbers.iter().sum()
+}
+
+// 两者编译成相同的机器码!
+```
+</UniversalEditor>
+
+## 使用 Criterion 基准测试
+
+<UniversalEditor compare={true} title="基准测试设置">
+```python !! py
+# Python - pytest-benchmark
+import pytest
+
+def fibonacci(n):
+    if n <= 1:
+        return n
+    return fibonacci(n - 1) + fibonacci(n - 2)
+
+@pytest.mark.benchmark(group="fib")
+def test_fib_10(benchmark):
+    result = benchmark(fibonacci, 10)
+    assert result == 55
+```
+
+```rust !! rs
+// Rust - Criterion 基准测试
+// Cargo.toml:
+// [dev-dependencies]
+// criterion = "0.5"
+
+// [[bench]]
+// name = "fibonacci"
+// harness = false
+
+fn fibonacci(n: u64) -> u64 {
+    match n {
+        0 => 0,
+        1 => 1,
+        _ => fibonacci(n - 1) + fibonacci(n - 2),
+    }
+}
+
+// benches/fibonacci.rs:
+use criterion::{black_box, criterion_group, criterion_main, Criterion};
+
+fn benchmark_fibonacci(c: &mut Criterion) {
+    c.bench_function("fib 10", |b| {
+        b.iter(|| fibonacci(black_box(10)))
+    });
+}
+
+criterion_group!(benches, benchmark_fibonacci);
+criterion_main!(benches);
+
+// 运行: cargo bench
+```
+</UniversalEditor>
+
+## 性能技巧总结
+
+### 内存
+- 大小已知时使用 `Vec::with_capacity()`
+- 函数参数优先使用 `&str` 而非 `String`
+- 小型固定大小数据使用栈数组 `[T; N]`
+- 避免不必要的克隆
+
+### 算法
+- 选择合适的数据结构 (HashSet, HashMap, BTreeMap)
+- 使用迭代器进行惰性求值
+- 优化前先分析
+- 考虑使用 Rayon 并行处理
+
+### 编译
+- 始终在 release 模式下进行基准测试 (`--release`)
+- 使用 `cargo flamegraph` 可视化
+- 启用链接时优化: Cargo.toml 中设置 `lto = true`
+
+## 关键要点
+
+### 性能哲学
+- **Python**: "过早优化是万恶之源" - 基于分析进行优化
+- **Rust**: 零成本抽象 - 编写惯用代码,它已经很快了
+
+### 何时优化
+1. **先分析**: 优化前先测量
+2. **优化热路径**: 专注于频繁运行的代码
+3. **权衡考虑**: 可读性 vs 性能
+
+### Rust 性能优势
+- 无垃圾回收暂停
+- 可预测的性能
+- 零成本抽象
+- 手动内存控制
+- 编译时优化
+
+## 练习
+
+1. 基准测试不同的排序算法
+2. 使用迭代器优化数据处理管道
+3. 分析应用程序并优化瓶颈
+4. 使用 Rayon 实现并行处理
+5. 比较字符串处理策略
+
+## 下一模块
+
+在模块 20(最后一个模块)中,我们将构建一个**完整的 REST API 项目**,使用 Actix-web 或 Axum,包括数据库集成、JWT 认证、测试和部署准备。

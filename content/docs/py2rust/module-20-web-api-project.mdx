@@ -1,0 +1,1058 @@
+---
+title: "Module 20: REST API Project"
+description: "Build a complete REST API with Axum, including database integration, JWT authentication, testing, and deployment"
+---
+
+# Module 20: REST API Project
+
+## Learning Objectives
+
+By the end of this module, you'll have built:
+- A complete REST API using Axum
+- Database integration with SQLx
+- JWT authentication system
+- Comprehensive test suite
+- Production-ready deployment setup
+
+## Project Overview
+
+We'll build a Task Management API with:
+- User registration and authentication
+- CRUD operations for tasks
+- JWT-based authentication
+- PostgreSQL database
+- Comprehensive testing
+
+<UniversalEditor compare={true} title="Project Structure">
+```python !! py
+# Python - FastAPI project structure
+task_api/
+├── app/
+│   ├── __init__.py
+│   ├── main.py          # FastAPI app
+│   ├── models.py        # SQLAlchemy models
+│   ├── schemas.py       # Pydantic schemas
+│   ├── auth.py          # Authentication
+│   └── database.py      # Database setup
+├── tests/
+│   ├── test_auth.py
+│   └── test_tasks.py
+├── requirements.txt
+└── .env
+```
+
+```rust !! rs
+// Rust - Axum project structure
+task_api/
+├── Cargo.toml
+├── .env
+├── src/
+│   ├── main.rs          # Axum app setup
+│   ├── models.rs        # Database models
+│   ├── handlers.rs      # Request handlers
+│   ├── auth.rs          # JWT authentication
+│   ├── db.rs            # Database connection
+│   └── error.rs         # Error types
+└── tests/
+    ├── auth_tests.rs
+    └── task_tests.rs
+```
+</UniversalEditor>
+
+## Cargo.toml Setup
+
+<UniversalEditor compare={true} title="Dependencies">
+```python !! py
+# Python - requirements.txt
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+sqlalchemy==2.0.25
+pydantic==2.5.3
+pydantic-settings==2.1.0
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+pytest==7.4.4
+httpx==0.26.0
+```
+
+```rust !! rs
+// Rust - Cargo.toml
+[package]
+name = "task_api"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+axum = "0.7"
+tokio = { version = "1", features = ["full"] }
+sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["serde", "v4"] }
+chrono = { version = "0.4", features = ["serde"] }
+jsonwebtoken = "9"
+bcrypt = "0.15"
+validator = { version = "0.16", features = ["derive"] }
+tower-http = { version = "0.5", features = ["cors", "trace"] }
+anyhow = "1"
+
+[dev-dependencies]
+tower = "0.4"
+http-body-util = "0.1"
+```
+</UniversalEditor>
+
+## Database Models
+
+<UniversalEditor compare={true} title="Data Models">
+```python !! py
+# Python - SQLAlchemy models
+# app/models.py
+from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.ext.declarative import declarative_base
+from datetime import datetime
+import uuid
+
+Base = declarative_base()
+
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    email = Column(String, unique=True, nullable=False, index=True)
+    password_hash = Column(String, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class Task(Base):
+    __tablename__ = "tasks"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    title = Column(String, nullable=False)
+    description = Column(String)
+    completed = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+```
+
+```rust !! rs
+// Rust - SQLx models
+// src/models.rs
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+use sqlx::FromRow;
+use uuid::Uuid;
+
+#[derive(Debug, Serialize, Deserialize, FromRow)]
+pub struct User {
+    pub id: Uuid,
+    pub email: String,
+    pub password_hash: String,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize, Deserialize, FromRow)]
+pub struct Task {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    pub title: String,
+    pub description: Option<String>,
+    pub completed: bool,
+    pub created_at: DateTime<Utc>,
+}
+
+// Input types
+#[derive(Debug, Deserialize)]
+pub struct CreateUser {
+    pub email: String,
+    pub password: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateTask {
+    pub title: String,
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateTask {
+    pub title: Option<String>,
+    pub description: Option<String>,
+    pub completed: Option<bool>,
+}
+```
+</UniversalEditor>
+
+## Database Connection
+
+<UniversalEditor compare={true} title="Database Setup">
+```python !! py
+# Python - Database connection
+# app/database.py
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+import os
+
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://localhost/taskdb")
+
+engine = create_engine(DATABASE_URL)
+SessionLocal = sessionmaker(bind=engine)
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+```
+
+```rust !! rs
+// Rust - Database connection
+// src/db.rs
+use sqlx::{PgPool, Postgres, Pool};
+use anyhow::Result;
+
+pub type DbPool = Pool<Postgres>;
+
+pub async fn create_pool(database_url: &str) -> Result<DbPool> {
+    let pool = PgPool::connect(database_url).await?;
+    // Run migrations
+    sqlx::migrate!("./migrations").run(&pool).await?;
+    Ok(pool)
+}
+
+// Cloneable handle for the pool
+#[derive(Clone)]
+pub struct AppState {
+    pub db: DbPool,
+    pub jwt_secret: String,
+}
+```
+</UniversalEditor>
+
+## JWT Authentication
+
+<UniversalEditor compare={true} title="Auth Implementation">
+```python !! py
+# Python - JWT authentication
+# app/auth.py
+from datetime import datetime, timedelta
+from jose import JWTError, jwt
+from passlib.context import CryptContext
+from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+
+SECRET_KEY = "your-secret-key"
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 30
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+security = HTTPBearer()
+
+def verify_password(plain_password, hashed_password):
+    return pwd_context.verify(plain_password, hashed_password)
+
+def get_password_hash(password):
+    return pwd_context.hash(password)
+
+def create_access_token(data: dict):
+    to_encode = data.copy()
+    expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+async def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db = Depends(get_db)
+):
+    try:
+        payload = jwt.decode(
+            credentials.credentials,
+            SECRET_KEY,
+            algorithms=[ALGORITHM]
+        )
+        user_id: str = payload.get("sub")
+        if user_id is None:
+            raise HTTPException(status_code=401, detail="Invalid token")
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    # Fetch user from database
+    user = db.query(User).filter(User.id == user_id).first()
+    if user is None:
+        raise HTTPException(status_code=401, detail="User not found")
+    return user
+```
+
+```rust !! rs
+// Rust - JWT authentication
+// src/auth.rs
+use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
+use anyhow::Result;
+use axum::{
+    extract::Request,
+    http::HeaderMap,
+    middleware::Next,
+    response::Response,
+};
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Claims {
+    pub sub: String,
+    pub exp: usize,
+}
+
+pub struct AuthUser {
+    pub id: Uuid,
+}
+
+pub fn hash_password(password: &str) -> Result<String> {
+    let cost = 12;
+    Ok(bcrypt::hash(password, cost)?)
+}
+
+pub fn verify_password(password: &str, hash: &str) -> Result<bool> {
+    Ok(bcrypt::verify(password, hash)?)
+}
+
+pub fn create_token(user_id: Uuid, secret: &str) -> Result<String> {
+    let expiration = chrono::Utc::now()
+        .checked_add_signed(chrono::Duration::minutes(30))
+        .expect("valid timestamp")
+        .timestamp();
+
+    let claims = Claims {
+        sub: user_id.to_string(),
+        exp: expiration as usize,
+    };
+
+    let token = encode(
+        &Header::default(),
+        &claims,
+        &EncodingKey::from_secret(secret.as_ref()),
+    )?;
+
+    Ok(token)
+}
+
+pub fn verify_token(token: &str, secret: &str) -> Result<Claims> {
+    let token_data = decode::<Claims>(
+        token,
+        &DecodingKey::from_secret(secret.as_ref()),
+        &Validation::default(),
+    )?;
+    Ok(token_data.claims)
+}
+
+// Middleware to extract user from JWT
+pub async fn auth_middleware(
+    headers: HeaderMap,
+    mut request: Request,
+    next: Next,
+) -> Result<Response,StatusCode> {
+    let auth_header = headers
+        .get("authorization")
+        .ok_or_else(|| StatusCode::UNAUTHORIZED)?
+        .to_str()
+        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+
+    if !auth_header.starts_with("Bearer ") {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+
+    let token = &auth_header[7..];
+    let secret = std::env::var("JWT_SECRET").unwrap();
+
+    match verify_token(token, &secret) {
+        Ok(claims) => {
+            let user_id = Uuid::parse_str(&claims.sub)?;
+            request.extensions_mut().insert(AuthUser { id: user_id });
+            Ok(next.run(request).await)
+        }
+        Err(_) => Err(StatusCode::UNAUTHORIZED),
+    }
+}
+```
+</UniversalEditor>
+
+## Request Handlers
+
+<UniversalEditor compare={true} title="API Handlers">
+```python !! py
+# Python - FastAPI handlers
+# app/main.py
+from fastapi import FastAPI, Depends, HTTPException, status
+from sqlalchemy.orm import Session
+from . import models, schemas, auth, database
+from typing import List
+
+app = FastAPI(title="Task API")
+
+@app.post("/register", response_model=schemas.User)
+async def register(user_data: schemas.CreateUser, db: Session = Depends(database.get_db)):
+    # Check if user exists
+    existing_user = db.query(models.User).filter(
+        models.User.email == user_data.email
+    ).first()
+    if existing_user:
+        raise HTTPException(status_code=400, detail="Email already registered")
+
+    # Create user
+    hashed_password = auth.get_password_hash(user_data.password)
+    user = models.User(
+        email=user_data.email,
+        password_hash=hashed_password
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
+
+@app.post("/login")
+async def login(credentials: schemas.Login, db: Session = Depends(database.get_db)):
+    user = db.query(models.User).filter(
+        models.User.email == credentials.email
+    ).first()
+
+    if not user or not auth.verify_password(credentials.password, user.password_hash):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    access_token = auth.create_access_token(data={"sub": str(user.id)})
+    return {"access_token": access_token, "token_type": "bearer"}
+
+@app.post("/tasks", response_model=schemas.Task)
+async def create_task(
+    task_data: schemas.CreateTask,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(database.get_db)
+):
+    task = models.Task(
+        user_id=current_user.id,
+        title=task_data.title,
+        description=task_data.description
+    )
+    db.add(task)
+    db.commit()
+    db.refresh(task)
+    return task
+
+@app.get("/tasks", response_model=List[schemas.Task])
+async def list_tasks(
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(database.get_db)
+):
+    tasks = db.query(models.Task).filter(
+        models.Task.user_id == current_user.id
+    ).all()
+    return tasks
+```
+
+```rust !! rs
+// Rust - Axum handlers
+// src/handlers.rs
+use axum::{
+    extract::{Path, State},
+    http::StatusCode,
+    response::IntoResponse,
+    Json,
+};
+use uuid::Uuid;
+use crate::{
+    models::{CreateTask, Task, UpdateTask, CreateUser},
+    auth::{AuthUser, create_token, hash_password, verify_password},
+    db::AppState,
+};
+
+pub async fn register(
+    State(state): State<AppState>,
+    Json(user_data): Json<CreateUser>,
+) -> Result<impl IntoResponse, StatusCode> {
+    // Check if user exists
+    let existing = sqlx::query_scalar::<_, Uuid>(
+        "SELECT id FROM users WHERE email = $1"
+    )
+    .bind(&user_data.email)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    if existing.is_some() {
+        return Err(StatusCode::CONFLICT);
+    }
+
+    let password_hash = hash_password(&user_data.password)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let user_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO users (id, email, password_hash) VALUES ($1, $2, $3)"
+    )
+    .bind(user_id)
+    .bind(&user_data.email)
+    .bind(&password_hash)
+    .execute(&state.db)
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let token = create_token(user_id, &state.jwt_secret)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(serde_json::json!({
+        "access_token": token,
+        "token_type": "bearer"
+    })))
+}
+
+pub async fn create_task(
+    State(state): State<AppState>,
+    auth_user: axum::Extension<AuthUser>,
+    Json(task_data): Json<CreateTask>,
+) -> Result<impl IntoResponse, StatusCode> {
+    let task_id = Uuid::new_v4();
+
+    sqlx::query(
+        "INSERT INTO tasks (id, user_id, title, description) VALUES ($1, $2, $3, $4)"
+    )
+    .bind(task_id)
+    .bind(auth_user.id)
+    .bind(&task_data.title)
+    .bind(&task_data.description)
+    .execute(&state.db)
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let task = sqlx::query_as::<_, Task>("SELECT * FROM tasks WHERE id = $1")
+        .bind(task_id)
+        .fetch_one(&state.db)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(task))
+}
+
+pub async fn list_tasks(
+    State(state): State<AppState>,
+    auth_user: axum::Extension<AuthUser>,
+) -> Result<impl IntoResponse, StatusCode> {
+    let tasks = sqlx::query_as::<_, Task>(
+        "SELECT * FROM tasks WHERE user_id = $1 ORDER BY created_at DESC"
+    )
+    .bind(auth_user.id)
+    .fetch_all(&state.db)
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(tasks))
+}
+
+pub async fn get_task(
+    State(state): State<AppState>,
+    auth_user: axum::Extension<AuthUser>,
+    Path(id): Path<Uuid>,
+) -> Result<impl IntoResponse, StatusCode> {
+    let task = sqlx::query_as::<_, Task>(
+        "SELECT * FROM tasks WHERE id = $1 AND user_id = $2"
+    )
+    .bind(id)
+    .bind(auth_user.id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    match task {
+        Some(task) => Ok(Json(task)),
+        None => Err(StatusCode::NOT_FOUND),
+    }
+}
+
+pub async fn update_task(
+    State(state): State<AppState>,
+    auth_user: axum::Extension<AuthUser>,
+    Path(id): Path<Uuid>,
+    Json(update): Json<UpdateTask>,
+) -> Result<impl IntoResponse, StatusCode> {
+    let task = sqlx::query_as::<_, Task>(
+        "SELECT * FROM tasks WHERE id = $1 AND user_id = $2"
+    )
+    .bind(id)
+    .bind(auth_user.id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    if task.is_none() {
+        return Err(StatusCode::NOT_FOUND);
+    }
+
+    if let Some(title) = update.title {
+        sqlx::query("UPDATE tasks SET title = $1 WHERE id = $2")
+            .bind(&title)
+            .bind(id)
+            .execute(&state.db)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    }
+
+    if let Some(completed) = update.completed {
+        sqlx::query("UPDATE tasks SET completed = $1 WHERE id = $2")
+            .bind(completed)
+            .bind(id)
+            .execute(&state.db)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    }
+
+    let updated_task = sqlx::query_as::<_, Task>("SELECT * FROM tasks WHERE id = $1")
+        .bind(id)
+        .fetch_one(&state.db)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(updated_task))
+}
+
+pub async fn delete_task(
+    State(state): State<AppState>,
+    auth_user: axum::Extension<AuthUser>,
+    Path(id): Path<Uuid>,
+) -> Result<impl IntoResponse, StatusCode> {
+    let result = sqlx::query("DELETE FROM tasks WHERE id = $1 AND user_id = $2")
+        .bind(id)
+        .bind(auth_user.id)
+        .execute(&state.db)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    if result.rows_affected() == 0 {
+        return Err(StatusCode::NOT_FOUND);
+    }
+
+    Ok(StatusCode::NO_CONTENT)
+}
+```
+</UniversalEditor>
+
+## Main Application
+
+<UniversalEditor compare={true} title="App Setup">
+```python !! py
+# Python - FastAPI app
+# app/main.py
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+app = FastAPI(title="Task API")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+@app.get("/")
+async def root():
+    return {"message": "Task API"}
+
+@app.get("/health")
+async def health():
+    return {"status": "healthy"}
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
+```
+
+```rust !! rs
+// Rust - Axum app
+// src/main.rs
+use axum::{
+    routing::{get, post, put, delete},
+    Router,
+};
+use tower_http::cors::{CorsLayer, Any};
+use tokio::net::TcpListener;
+use std::env;
+
+mod models;
+mod handlers;
+mod auth;
+mod db;
+
+use handlers::{register, create_task, list_tasks, get_task, update_task, delete_task};
+use auth::auth_middleware;
+use db::{create_pool, AppState};
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    // Initialize dotenv
+    dotenv::dotenv().ok();
+
+    let database_url = env::var("DATABASE_URL")
+        .expect("DATABASE_URL must be set");
+    let jwt_secret = env::var("JWT_SECRET")
+        .expect("JWT_SECRET must be set");
+
+    // Create database pool
+    let pool = create_pool(&database_url).await?;
+
+    let app_state = AppState {
+        db: pool,
+        jwt_secret,
+    };
+
+    // Build router
+    let app = Router::new()
+        .route("/", get(root))
+        .route("/health", get(health))
+        .route("/register", post(register))
+        .route("/tasks", get(list_tasks).post(create_task))
+        .route("/tasks/:id", get(get_task).put(update_task).delete(delete_task))
+        .layer(CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any))
+        .with_state(app_state);
+
+    // Start server
+    let listener = TcpListener::bind("0.0.0.0:8000").await?;
+    println!("Server running on http://0.0.0.0:8000");
+    axum::serve(listener, app).await?;
+
+    Ok(())
+}
+
+async fn root() -> &'static str {
+    "Task API"
+}
+
+async fn health() -> &'static str {
+    "healthy"
+}
+```
+</UniversalEditor>
+
+## Database Migrations
+
+<UniversalEditor compare={true} title="Migration Files">
+```sql !! sql
+-- Python - Alembic migrations
+-- migrations/versions/001_initial.py
+
+def upgrade():
+    op.create_table(
+        'users',
+        sa.Column('id', sa.UUID(), primary_key=True),
+        sa.Column('email', sa.String(), nullable=False),
+        sa.Column('password_hash', sa.String(), nullable=False),
+        sa.Column('created_at', sa.DateTime(), nullable=False),
+    )
+    op.create_index('ix_users_email', 'users', ['email'], unique=True)
+
+    op.create_table(
+        'tasks',
+        sa.Column('id', sa.UUID(), primary_key=True),
+        sa.Column('user_id', sa.UUID(), nullable=False),
+        sa.Column('title', sa.String(), nullable=False),
+        sa.Column('description', sa.String()),
+        sa.Column('completed', sa.Boolean(), default=False),
+        sa.Column('created_at', sa.DateTime(), nullable=False),
+        sa.ForeignKeyConstraint(['user_id'], ['users.id']),
+    )
+```
+
+```rust !! rs
+// Rust - SQLx migrations
+// migrations/001_initial.sql
+
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+CREATE TABLE users (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    email VARCHAR(255) NOT NULL UNIQUE,
+    password_hash VARCHAR(255) NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_users_email ON users(email);
+
+CREATE TABLE tasks (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    title VARCHAR(255) NOT NULL,
+    description TEXT,
+    completed BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_tasks_user_id ON tasks(user_id);
+```
+</UniversalEditor>
+
+## Testing
+
+<UniversalEditor compare={true} title="Integration Tests">
+```python !! py
+# Python - pytest tests
+# tests/test_tasks.py
+import pytest
+from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
+
+@pytest.mark.asyncio
+async def test_create_task(async_client: AsyncClient, auth_headers: dict):
+    response = await async_client.post(
+        "/tasks",
+        json={"title": "Test Task", "description": "Test Description"},
+        headers=auth_headers
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["title"] == "Test Task"
+    assert data["completed"] == False
+
+@pytest.mark.asyncio
+async def test_list_tasks(async_client: AsyncClient, auth_headers: dict):
+    response = await async_client.get("/tasks", headers=auth_headers)
+    assert response.status_code == 200
+    tasks = response.json()
+    assert isinstance(tasks, list)
+
+@pytest.mark.asyncio
+async def test_update_task(async_client: AsyncClient, auth_headers: dict):
+    # Create task first
+    create_response = await async_client.post(
+        "/tasks",
+        json={"title": "Original Title"},
+        headers=auth_headers
+    )
+    task_id = create_response.json()["id"]
+
+    # Update task
+    response = await async_client.put(
+        f"/tasks/{task_id}",
+        json={"completed": True},
+        headers=auth_headers
+    )
+    assert response.status_code == 200
+    assert response.json()["completed"] == True
+```
+
+```rust !! rs
+// Rust - Integration tests
+// tests/task_tests.rs
+use axum::{
+    body::Body,
+    http::{Request, StatusCode, header::AUTHORIZATION},
+};
+use http_body_util::BodyExt;
+use serde_json::json;
+use tower::ServiceExt;
+
+#[tokio::test]
+async fn test_create_task() {
+    let app = create_test_app().await;
+
+    // Register and login to get token
+    let token = register_and_login(&app).await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/tasks")
+                .header(AUTHORIZATION, format!("Bearer {}", token))
+                .header("content-type", "application/json")
+                .body(Body::from(json!({
+                    "title": "Test Task",
+                    "description": "Test Description"
+                }).to_string()))
+                .unwrap()
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let task: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(task["title"], "Test Task");
+    assert_eq!(task["completed"], false);
+}
+
+#[tokio::test]
+async fn test_list_tasks() {
+    let app = create_test_app().await;
+    let token = register_and_login(&app).await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/tasks")
+                .header(AUTHORIZATION, format!("Bearer {}", token))
+                .body(Body::empty())
+                .unwrap()
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_unauthorized_access() {
+    let app = create_test_app().await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/tasks")
+                .body(Body::empty())
+                .unwrap()
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+}
+```
+</UniversalEditor>
+
+## Deployment
+
+<UniversalEditor compare={true} title="Deployment Configuration">
+```dockerfile !! dockerfile
+# Python - Dockerfile
+FROM python:3.11-slim
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+```
+
+```dockerfile !! dockerfile
+# Rust - Dockerfile
+# Dockerfile
+FROM rust:1.75 as builder
+
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY src ./src
+COPY migrations ./migrations
+
+RUN cargo build --release
+
+FROM debian:bookworm-slim
+
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY --from=builder /app/target/release/task_api /app/task_api
+COPY migrations ./migrations
+
+EXPOSE 8000
+
+CMD ["./task_api"]
+```
+
+```yaml !! yaml
+# docker-compose.yml (same for both)
+version: '3.8'
+
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://user:pass@db:5432/taskdb
+      - JWT_SECRET=your-secret-key
+    depends_on:
+      - db
+
+  db:
+    image: postgres:16
+    environment:
+      - POSTGRES_DB=taskdb
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=pass
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:
+```
+</UniversalEditor>
+
+## Project Summary
+
+### What We Built
+
+1. **REST API with Axum**
+   - User registration and authentication
+   - CRUD operations for tasks
+   - JWT-based security
+
+2. **Database Integration**
+   - PostgreSQL with SQLx
+   - Type-safe queries
+   - Migration support
+
+3. **Testing**
+   - Integration tests
+   - Test fixtures and helpers
+
+4. **Production Ready**
+   - Docker deployment
+   - Environment configuration
+   - Error handling
+
+### Key Takeaways
+
+**Python/FastAPI:**
+- Rapid development
+- Easy to read and modify
+- Dynamic typing flexibility
+- Good for prototyping
+
+**Rust/Axum:**
+- Type-safe database queries
+- Zero-cost abstractions
+- Memory safety guarantees
+- Excellent performance
+- Compile-time error checking
+
+## Final Exercises
+
+1. Add task filtering and pagination
+2. Implement task categories/tags
+3. Add email notifications
+4. Create a frontend client
+5. Deploy to production (AWS/DigitalOcean/Render)
+
+## Conclusion
+
+Congratulations! You've completed the Python to Rust learning path. You now have:
+
+- Strong foundation in Rust syntax and concepts
+- Experience with real-world Rust development
+- Understanding of Rust's performance advantages
+- Knowledge of testing and deployment practices
+
+Continue your Rust journey by:
+- Contributing to open-source Rust projects
+- Building more complex applications
+- Exploring async Rust deeper
+- Learning WebAssembly with Rust
+
+Happy coding in Rust! 🦀

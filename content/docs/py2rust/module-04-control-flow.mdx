@@ -1,0 +1,1002 @@
+---
+title: "Module 4: Control Flow"
+description: "Master Rust's control flow constructs by comparing them with Python. Learn about if expressions, loops, pattern matching, and more."
+---
+
+# Module 4: Control Flow
+
+Control flow is where Rust really shines compared to Python. While Python focuses on readability with simple constructs, Rust provides powerful, expressive control flow that prevents entire classes of bugs at compile time.
+
+## Learning Objectives
+
+By the end of this module, you'll understand:
+- ✅ `if` as expressions, not statements
+- ✅ Loop constructs: `loop`, `while`, and `for`
+- ✅ Pattern matching with `match` (beyond what you saw in Module 3)
+- ✅ `if let` and `while let` patterns
+- ✅ `break` and `continue` with values
+- ✅ Loop labels for nested loops
+- ✅ Common control flow patterns
+
+## if Expressions
+
+In Python, `if` is a statement. In Rust, `if` is an expression that returns a value!
+
+<UniversalEditor compare={true} title="if Statement vs Expression">
+```python !! py
+# Python: if is a statement
+x = 10
+
+if x > 0:
+    result = "positive"
+elif x < 0:
+    result = "negative"
+else:
+    result = "zero"
+
+# Cannot use if directly in expressions
+# value = "positive" if x > 0 else "negative"  # Ternary, but limited
+```
+
+```rust !! rs
+// Rust: if is an expression
+let x = 10;
+
+let result = if x > 0 {
+    "positive"
+} else if x < 0 {
+    "negative"
+} else {
+    "zero"
+};  // Note the semicolon
+
+// Can use anywhere a value is expected
+println!("Result: {}", result);
+
+// No ternary operator needed - if is the ternary!
+let status = if x >= 18 { "adult" } else { "minor" };
+```
+</UniversalEditor>
+
+### Type Consistency
+
+<UniversalEditor compare={true} title="if Must Return Consistent Types">
+```python !! py
+# Python: Can return different types
+x = 5
+result = x if x > 0 else "error"  # int or str
+```
+
+```rust !! rs
+// Rust: All branches must return same type
+let x = 5;
+
+// This works - all &str
+let result = if x > 0 {
+    "positive"
+} else {
+    "zero"
+};
+
+// ERROR: mixed types
+// let result = if x > 0 {
+//     42
+// } else {
+//     "error"  // ERROR: expected integer, found &str
+// };
+
+// Must use enum for different types
+enum MaybeNumber {
+    Number(i32),
+    Error(&'static str),
+}
+
+let result = if x > 0 {
+    MaybeNumber::Number(42)
+} else {
+    MaybeNumber::Error("error")
+};
+```
+</UniversalEditor>
+
+### No Truthy/Falsy Values
+
+<UniversalEditor compare={true} title="No Truthy/Falsy in Conditions">
+```python !! py
+# Python: Truthy and falsy values
+x = 5
+if x:  # Truthy
+    pass
+
+s = "hello"
+if s:  # Truthy (non-empty string)
+    pass
+
+items = []
+if items:  # Falsy (empty list)
+    pass
+
+numbers = [0, 1, 2]
+if numbers:  # Truthy (non-empty list, even with 0s)
+    pass
+```
+
+```rust !! rs
+// Rust: Must use explicit boolean
+let x = 5;
+if x != 0 {  // Must compare explicitly
+    // ...
+}
+
+let s = "hello";
+if !s.is_empty() {  // Must check explicitly
+    // ...
+}
+
+let items: Vec<i32> = vec![];
+if !items.is_empty() {  // Must check explicitly
+    // ...
+}
+
+// No implicit truthiness
+// if x {  // ERROR: expected bool, found integer
+// }
+```
+</UniversalEditor>
+
+## Loops
+
+Rust has three loop constructs: `loop`, `while`, and `for`. Each has specific use cases.
+
+### loop - The Infinite Loop
+
+<UniversalEditor compare={true} title="loop vs while True">
+```python !! py
+# Python: while True for infinite loops
+counter = 0
+while True:
+    counter += 1
+    if counter >= 10:
+        break
+    print(counter)
+
+# With value extraction
+result = None
+while True:
+    value = get_value()
+    if value is not None:
+        result = value
+        break
+```
+
+```rust !! rs
+// Rust: loop for infinite loops (explicit and powerful)
+let mut counter = 0;
+loop {
+    counter += 1;
+    if counter >= 10 {
+        break;
+    }
+    println!("{}", counter);
+}
+
+// Can break with a value!
+let result = loop {
+    let value = get_value();
+    if value.is_some() {
+        break value;
+    }
+};  // result is Option<SomeType>
+
+// loop can return values
+let x = loop {
+    break 5;  // break with value
+};  // x = 5
+
+// Can use break in any expression
+let y = loop {
+    counter += 1;
+    if counter > 5 {
+        break counter * 2;
+    }
+};  // y = 12
+```
+</UniversalEditor>
+
+### while Loops
+
+<UniversalEditor compare={true} title="while Loops">
+```python !! py
+# Python: while loop
+counter = 0
+while counter < 10:
+    print(counter)
+    counter += 1
+
+# Can't return values
+# result = while counter < 10:  # SyntaxError
+#     counter += 1
+```
+
+```rust !! rs
+// Rust: while loop
+let mut counter = 0;
+while counter < 10 {
+    println!("{}", counter);
+    counter += 1;
+}
+
+// while cannot return values (use loop or for)
+// while is just syntactic sugar for loop with if
+
+// Desugaring of while:
+// loop {
+//     if condition {
+//         // body
+//     } else {
+//         break;
+//     }
+// }
+```
+</UniversalEditor>
+
+### for Loops
+
+<UniversalEditor compare={true} title="for Loops">
+```python !! py
+# Python: for loop over iterables
+items = [1, 2, 3, 4, 5]
+
+for item in items:
+    print(item)
+
+# With enumerate
+for index, item in enumerate(items):
+    print(f"{index}: {item}")
+
+# Range
+for i in range(10):
+    print(i)
+
+for i in range(5, 10):
+    print(i)
+
+# Reversed
+for item in reversed(items):
+    print(item)
+```
+
+```rust !! rs
+// Rust: for loop over iterators
+let items = vec![1, 2, 3, 4, 5];
+
+for item in &items {
+    println!("{}", item);
+}
+
+// With enumerate
+for (index, item) in items.iter().enumerate() {
+    println!("{}: {}", index, item);
+}
+
+// Ranges
+for i in 0..10 {
+    println!("{}", i);
+}
+
+for i in 5..10 {
+    println!("{}", i);
+}
+
+// Inclusive range
+for i in 0..=10 {
+    println!("{}", i);
+}
+
+// Reversed (requires rev())
+for item in items.iter().rev() {
+    println!("{}", item);
+}
+```
+</UniversalEditor>
+
+### Iterators and Ownership
+
+<UniversalEditor compare={true} title="Iterator Ownership">
+```python !! py
+# Python: Iterators don't affect ownership
+items = [1, 2, 3]
+
+for item in items:
+    print(item)
+
+# items is still accessible
+print(items)  # [1, 2, 3]
+```
+
+```rust !! rs
+// Rust: Careful with ownership
+let items = vec![1, 2, 3];
+
+// Borrow each item
+for item in &items {
+    println!("{}", item);
+}
+// items is still accessible
+
+// Consume the collection
+for item in items {
+    println!("{}", item);
+}
+// items is no longer accessible - moved!
+
+// To iterate and keep collection, use &items
+```
+</UniversalEditor>
+
+## Loop Control
+
+### break and continue
+
+<UniversalEditor compare={true} title="break and continue">
+```python !! py
+# Python: break and continue
+for i in range(10):
+    if i == 3:
+        continue
+    if i == 7:
+        break
+    print(i)
+# Prints: 0, 1, 2, 4, 5, 6
+```
+
+```rust !! rs
+// Rust: break and continue
+for i in 0..10 {
+    if i == 3 {
+        continue;
+    }
+    if i == 7 {
+        break;
+    }
+    println!("{}", i);
+}
+// Prints: 0, 1, 2, 4, 5, 6
+```
+</UniversalEditor>
+
+### Loop Labels
+
+<UniversalEditor compare={true} title="Loop Labels for Nested Loops">
+```python !! py
+# Python: Breaking out of nested loops requires flags
+found = False
+for i in range(5):
+    for j in range(5):
+        if i == 2 and j == 3:
+            found = True
+            break
+    if found:
+        break
+
+# Or use exceptions (not recommended)
+try:
+    for i in range(5):
+        for j in range(5):
+            if i == 2 and j == 3:
+                raise StopIteration
+except StopIteration:
+    pass
+```
+
+```rust !! rs
+// Rust: Loop labels for breaking out of nested loops
+'outer: for i in 0..5 {
+    for j in 0..5 {
+        if i == 2 && j == 3 {
+            break 'outer;  // Break out of outer loop
+        }
+    }
+}
+
+// Can continue with labels too
+'outer: for i in 0..5 {
+    for j in 0..5 {
+        if i == 2 && j == 3 {
+            continue 'outer;  // Continue outer loop
+        }
+        println!("{} {}", i, j);
+    }
+}
+
+// Can break loop with values
+let result = 'search: loop {
+    for i in 0..10 {
+        for j in 0..10 {
+            if i * j > 50 {
+                break 'search (i, j);
+            }
+        }
+    }
+};
+println!("Found: {:?}", result);
+```
+</UniversalEditor>
+
+### break with Values
+
+<UniversalEditor compare={true} title="break with Values">
+```python !! py
+# Python: Can't break with values directly
+# result = None
+# while True:
+#     value = calculate()
+#     if value > 100:
+#         result = value  # Must use variable
+#         break
+```
+
+```rust !! rs
+// Rust: Can break with values
+let result = loop {
+    let value = calculate();
+    if value > 100 {
+        break value;  // Break with the value
+    }
+};
+
+// Works with labeled loops too
+let (x, y) = 'outer: loop {
+    for i in 0..10 {
+        for j in 0..10 {
+            if i * j > 50 {
+                break 'outer (i, j);
+            }
+        }
+    }
+};
+
+// Common pattern: searching
+let found = items.iter().enumerate().find(|&(i, &item)| {
+    item == target
+});
+```
+</UniversalEditor>
+
+## Pattern Matching Recap
+
+You learned about `match` in Module 3, but let's review with more control flow context.
+
+<UniversalEditor compare={true} title="match for Control Flow">
+```python !! py
+# Python: Multiple if-elif-else
+value = 5
+
+if value == 1:
+    result = "one"
+elif value == 2:
+    result = "two"
+elif value == 3:
+    result = "three"
+elif value > 3 and value < 10:
+    result = "small"
+else:
+    result = "other"
+```
+
+```rust !! rs
+// Rust: Pattern matching with match
+let value = 5;
+
+let result = match value {
+    1 => "one",
+    2 => "two",
+    3 => "three",
+    4..=9 => "small",  // Range pattern
+    _ => "other",
+};
+
+// Match with guards
+let result = match value {
+    x if x < 0 => "negative",
+    x if x > 100 => "large",
+    x => "normal",
+};
+```
+</UniversalEditor>
+
+## if let and while let
+
+These are convenient patterns for single-match scenarios.
+
+<UniversalEditor compare={true} title="if let Pattern">
+```python !! py
+# Python: Check and extract
+value = get_optional()
+
+if value is not None:
+    result = value
+    # Use result
+else:
+    # Handle None
+    pass
+
+# Or more verbose
+try:
+    result = value.unwrap()
+except AttributeError:
+    # Handle None
+    pass
+```
+
+```rust !! rs
+// Rust: if let for single pattern matching
+let value: Option<i32> = Some(5);
+
+// if let - matches one pattern, ignores others
+if let Some(x) = value {
+    println!("Got: {}", x);
+} else {
+    println!("Got None");
+}
+
+// Equivalent to:
+// match value {
+//     Some(x) => { println!("Got: {}", x); }
+//     None => { println!("Got None"); }
+// }
+
+// Can use if let in expressions
+let result = if let Some(x) = value {
+    x * 2
+} else {
+    0
+};
+```
+</UniversalEditor>
+
+<UniversalEditor compare={true} title="while let Pattern">
+```python !! py
+# Python: Pattern matching in loops
+values = [Some(1), None, Some(2), None, Some(3)]
+
+for value in values:
+    if value is not None:
+        print(value)  # Only process Some values
+```
+
+```rust !! rs
+// Rust: while let for repeated pattern matching
+let values = vec![Some(1), None, Some(2), None, Some(3)];
+
+// while let - loops while pattern matches
+let mut iter = values.into_iter();
+while let Some(value) = iter.next() {
+    println!("{}", value);
+}
+
+// More realistic example: processing queue
+let mut queue = vec![1, 2, 3, 4, 5];
+
+while let Some(item) = queue.pop() {
+    println!("Processing: {}", item);
+}
+```
+</UniversalEditor>
+
+## Common Control Flow Patterns
+
+### Early Returns
+
+<UniversalEditor compare={true} title="Early Returns">
+```python !! py
+# Python: Early returns for clarity
+def process(value):
+    if value is None:
+        return None
+
+    if value < 0:
+        return None
+
+    # Process value
+    return value * 2
+```
+
+```rust !! rs
+// Rust: Early returns are idiomatic
+fn process(value: Option<i32>) -> Option<i32> {
+    let value = value?;  // Early return if None
+
+    if value < 0 {
+        return None;
+    }
+
+    // Process value
+    Some(value * 2)
+}
+
+// Or with guards
+fn process_guard(value: Option<i32>) -> Option<i32> {
+    match value {
+        Some(v) if v >= 0 => Some(v * 2),
+        _ => None,
+    }
+}
+```
+</UniversalEditor>
+
+### Iteration Patterns
+
+<UniversalEditor compare={true} title="Common Iteration Patterns">
+```python !! py
+# Python: Common iteration patterns
+
+# Filter
+items = [1, 2, 3, 4, 5]
+filtered = [x for x in items if x % 2 == 0]
+
+# Map
+doubled = [x * 2 for x in items]
+
+# Find
+found = next((x for x in items if x > 3), None)
+
+# All/Any
+all_positive = all(x > 0 for x in items)
+any_large = any(x > 100 for x in items)
+
+# Sum/Count
+total = sum(items)
+count = len([x for x in items if x > 2])
+```
+
+```rust !! rs
+// Rust: Iterator methods are powerful
+let items = vec![1, 2, 3, 4, 5];
+
+// Filter
+let filtered: Vec<i32> = items.iter()
+    .filter(|&&x| x % 2 == 0)
+    .collect();
+
+// Map
+let doubled: Vec<i32> = items.iter()
+    .map(|&x| x * 2)
+    .collect();
+
+// Find
+let found = items.iter().find(|&&x| x > 3);
+
+// All/Any
+let all_positive = items.iter().all(|&x| x > 0);
+let any_large = items.iter().any(|&x| x > 100);
+
+// Sum/Count
+let total: i32 = items.iter().sum();
+let count = items.iter().filter(|&&x| x > 2).count();
+
+// Chaining
+let result: Vec<i32> = items.iter()
+    .filter(|&&x| x % 2 == 0)
+    .map(|&x| x * 2)
+    .take(3)
+    .collect();
+```
+</UniversalEditor>
+
+### Error Handling with Control Flow
+
+<UniversalEditor compare={true} title="Error Handling Patterns">
+```python !! py
+# Python: Exception-based error handling
+def divide(a, b):
+    try:
+        return a / b
+    except ZeroDivisionError:
+        return None
+
+# Using
+result = divide(10, 2)
+if result is not None:
+    print(result)
+```
+
+```rust !! rs
+// Rust: Result-based error handling
+fn divide(a: f64, b: f64) -> Option<f64> {
+    if b == 0.0 {
+        None
+    } else {
+        Some(a / b)
+    }
+}
+
+// Using
+if let Some(result) = divide(10.0, 2.0) {
+    println!("{}", result);
+}
+
+// Or with ?
+fn divide_safe(a: f64, b: f64) -> Result<f64, String> {
+    if b == 0.0 {
+        Err("Division by zero".to_string())
+    } else {
+        Ok(a / b)
+    }
+}
+
+fn process_division(a: f64, b: f64) -> Result<f64, String> {
+    let result = divide_safe(a, b)?;  // Early return on Err
+    Ok(result * 2.0)
+}
+```
+</UniversalEditor>
+
+## Putting It All Together
+
+Let's build a complete example:
+
+<UniversalEditor compare={true} title="Complete Control Flow Example">
+```python !! py
+def process_numbers(numbers):
+    """Process numbers with various control flow."""
+    if not numbers:
+        return None
+
+    results = []
+
+    for num in numbers:
+        # Skip negatives
+        if num < 0:
+            continue
+
+        # Process positive numbers
+        if num == 0:
+            results.append("zero")
+        elif num % 2 == 0:
+            results.append(f"even: {num}")
+        else:
+            results.append(f"odd: {num}")
+
+        # Stop if we find a large number
+        if num > 100:
+            results.append("found large")
+            break
+
+    return results
+
+# Main execution
+data = [1, 2, -3, 4, 0, 5, 150, 6]
+output = process_numbers(data)
+print(output)
+```
+
+```rust !! rs
+fn process_numbers(numbers: &[i32]) -> Option<Vec<String>> {
+    if numbers.is_empty() {
+        return None;
+    }
+
+    let mut results = Vec::new();
+
+    for &num in numbers {
+        // Skip negatives
+        if num < 0 {
+            continue;
+        }
+
+        // Process positive numbers
+        let result = match num {
+            0 => "zero".to_string(),
+            n if n % 2 == 0 => format!("even: {}", n),
+            n => format!("odd: {}", n),
+        };
+
+        results.push(result);
+
+        // Stop if we find a large number
+        if num > 100 {
+            results.push("found large".to_string());
+            break;
+        }
+    }
+
+    Some(results)
+}
+
+fn main() {
+    let data = vec![1, 2, -3, 4, 0, 5, 150, 6];
+
+    if let Some(output) = process_numbers(&data) {
+        println!("{:?}", output);
+    }
+
+    // Using iterators
+    let data2 = vec![1, 2, 3, 4, 5];
+
+    let sum: i32 = data2.iter()
+        .filter(|&&x| x > 2)
+        .map(|&x| x * 2)
+        .sum();
+
+    println!("Sum: {}", sum);
+
+    // Loop with value
+    let counter = 0;
+    let result = loop {
+        if counter >= 10 {
+            break counter * 2;
+        }
+    };
+    println!("Result: {}", result);
+}
+```
+</UniversalEditor>
+
+## Performance Considerations
+
+<UniversalEditor compare={true} title="Loop Performance">
+```python !! py
+# Python: For loops have overhead
+# Each iteration involves Python interpreter
+
+# List comprehension is faster
+result = [x * 2 for x in range(1000000)]
+
+# Generator is memory efficient
+result = (x * 2 for x in range(100000000))
+```
+
+```rust !! rs
+// Rust: Loops compile to efficient machine code
+// Iterators are zero-cost abstractions
+
+// All compile to similar efficient code
+let mut sum = 0;
+for i in 0..1000000 {
+    sum += i;
+}
+
+// Iterator version (often as fast or faster)
+let sum: i32 = (0..1000000).sum();
+
+// Both compile to very efficient assembly
+// No runtime overhead for iterators
+```
+</UniversalEditor>
+
+## Summary
+
+In this module, you learned:
+- ✅ `if` is an expression that returns values
+- ✅ `loop` for infinite loops with `break` values
+- ✅ `while` for conditional loops
+- ✅ `for` for iteration with iterators
+- ✅ Loop labels for nested control flow
+- ✅ `if let` and `while let` for pattern matching
+- ✅ No truthy/falsy - explicit conditions only
+- ✅ Powerful iterator methods
+
+## Key Differences from Python
+
+1. **if is an expression**: Returns values, not just statements
+2. **No truthy/falsy**: Must use explicit boolean conditions
+3. **loop construct**: More explicit than `while True`
+4. **break with values**: Loops can return values
+5. **Loop labels**: Control nested loops explicitly
+6. **Pattern matching**: `match` is more powerful than `if-elif`
+7. **Iterator methods**: Rich functional programming capabilities
+
+## Exercises
+
+### Exercise 1: FizzBuzz
+
+Write FizzBuzz using Rust control flow:
+- Print "Fizz" for multiples of 3
+- Print "Buzz" for multiples of 5
+- Print "FizzBuzz" for multiples of both
+- Use `match` for the logic
+
+<details>
+<summary>Solution</summary>
+
+```rust
+fn fizzbuzz(n: i32) -> String {
+    match (n % 3, n % 5) {
+        (0, 0) => "FizzBuzz".to_string(),
+        (0, _) => "Fizz".to_string(),
+        (_, 0) => "Buzz".to_string(),
+        _ => n.to_string(),
+    }
+}
+
+fn main() {
+    for i in 1..=20 {
+        println!("{}", fizzbuzz(i));
+    }
+}
+```
+
+</details>
+
+### Exercise 2: Find Maximum
+
+Find the maximum value in a vector:
+- Use a `loop` instead of `for`
+- Return `None` for empty vectors
+- Use `break` with a value
+
+<details>
+<summary>Solution</summary>
+
+```rust
+fn find_max(numbers: &[i32]) -> Option<i32> {
+    if numbers.is_empty() {
+        return None;
+    }
+
+    let mut iter = numbers.iter();
+    let mut max = *iter.next()?;
+
+    loop {
+        match iter.next() {
+            Some(&num) if num > max => max = num,
+            Some(_) => {}
+            None => break max,
+        }
+    }
+}
+
+fn main() {
+    let numbers = vec![3, 1, 4, 1, 5, 9, 2, 6];
+    if let Some(max) = find_max(&numbers) {
+        println!("Maximum: {}", max);
+    }
+}
+```
+
+</details>
+
+### Exercise 3: Process Until
+
+Process items until a condition is met:
+- Use `while let` to pop from a vector
+- Stop when you find a number > 100
+- Return the sum of processed numbers
+
+<details>
+<summary>Solution</summary>
+
+```rust
+fn process_until(mut numbers: Vec<i32>) -> i32 {
+    let mut sum = 0;
+
+    while let Some(num) = numbers.pop() {
+        if num > 100 {
+            break;
+        }
+        sum += num;
+    }
+
+    sum
+}
+
+fn main() {
+    let numbers = vec![1, 2, 3, 150, 4, 5];
+    let sum = process_until(numbers);
+    println!("Sum: {}", sum);  // 9 (1+2+3+3)
+}
+```
+
+</details>
+
+## Next Steps
+
+Now that you understand control flow:
+1. **[Module 5: Functions & Closures](./module-05-functions)** - Learn about functions as first-class citizens
+2. Practice control flow patterns
+3. Explore iterator methods
+
+---
+
+**Next:** [Module 5 - Functions & Closures](./module-05-functions) →

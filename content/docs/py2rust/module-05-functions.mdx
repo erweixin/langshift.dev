@@ -1,0 +1,973 @@
+---
+title: "Module 5: Functions & Closures"
+description: "Master Rust's function system, closures, and functional programming features by comparing them with Python."
+---
+
+# Module 5: Functions & Closures
+
+Functions are first-class citizens in both Python and Rust, but Rust takes them to a new level with its type system, ownership, and closure features. This module will show you how to leverage Rust's powerful function system.
+
+## Learning Objectives
+
+By the end of this module, you'll understand:
+- ✅ Function definitions and signatures
+- ✅ Parameters, arguments, and passing
+- ✅ Return types and the `return` keyword
+- ✅ Closures and their capture modes
+- ✅ Function pointers and closures as values
+- ✅ Higher-order functions
+- ✅ Iterators and functional programming patterns
+- ✅ Closures vs functions performance
+
+## Function Definitions
+
+### Basic Function Syntax
+
+<UniversalEditor compare={true} title="Function Definition">
+```python !! py
+# Python: Dynamic, flexible functions
+def greet(name):
+    return f"Hello, {name}!"
+
+def add(a, b):
+    return a + b
+
+def no_return():
+    print("Side effect")
+    # Returns None implicitly
+```
+
+```rust !! rs
+// Rust: Static types, explicit signatures
+fn greet(name: &str) -> String {
+    format!("Hello, {}!", name)
+}
+
+fn add(a: i32, b: i32) -> i32 {
+    a + b  // No semicolon = return value
+}
+
+fn no_return() {
+    println!("Side effect");
+    // Returns () implicitly
+}
+```
+</UniversalEditor>
+
+### Type Annotations Are Required
+
+<UniversalEditor compare={true} title="Type Annotations">
+```python !! py
+# Python: Type hints optional
+def add(a: int, b: int) -> int:
+    return a + b
+
+def add_no_hints(a, b):
+    return a + b  # Works fine!
+
+def flexible(x):
+    if x > 0:
+        return 42
+    return "negative"  # Different types OK
+```
+
+```rust !! rs
+// Rust: Type annotations required for params and return
+fn add(a: i32, b: i32) -> i32 {
+    a + b
+}
+
+// fn add_no_hints(a, b) {  // ERROR: types required
+//     a + b
+// }
+
+// Cannot return different types
+// fn flexible(x: i32) -> ??? {  // What type?
+//     if x > 0 {
+//         return 42;
+//     }
+//     return "negative";  // ERROR: type mismatch
+// }
+
+// Use enums for different return types
+enum Either {
+    Number(i32),
+    Text(&'static str),
+}
+
+fn flexible(x: i32) -> Either {
+    if x > 0 {
+        Either::Number(42)
+    } else {
+        Either::Text("negative")
+    }
+}
+```
+</UniversalEditor>
+
+### Multiple Return Values
+
+<UniversalEditor compare={true} title="Multiple Return Values">
+```python !! py
+# Python: Tuples for multiple returns
+def divide_and_remainder(a, b):
+    quotient = a // b
+    remainder = a % b
+    return quotient, remainder
+
+q, r = divide_and_remainder(10, 3)
+
+# Can return any number of values
+def many_returns():
+    return 1, 2, 3, 4, 5
+
+a, b, c, d, e = many_returns()
+```
+
+```rust !! rs
+// Rust: Tuples for multiple returns
+fn divide_and_remainder(a: i32, b: i32) -> (i32, i32) {
+    (a / b, a % b)
+}
+
+let (q, r) = divide_and_remainder(10, 3);
+
+// Can return any number of values
+fn many_returns() -> (i32, i32, i32, i32, i32) {
+    (1, 2, 3, 4, 5)
+}
+
+let (a, b, c, d, e) = many_returns();
+
+// Named fields for clarity
+struct DivisionResult {
+    quotient: i32,
+    remainder: i32,
+}
+
+fn divide_struct(a: i32, b: i32) -> DivisionResult {
+    DivisionResult {
+        quotient: a / b,
+        remainder: a % b,
+    }
+}
+```
+</UniversalEditor>
+
+## Parameters and Arguments
+
+### Pass by Value vs Reference
+
+<UniversalEditor compare={true} title="Passing Semantics">
+```python !! py
+# Python: Everything is reference (object)
+def modify_list(items):
+    items.append(4)  # Modifies original!
+    print(items)
+
+my_list = [1, 2, 3]
+modify_list(my_list)
+print(my_list)  # [1, 2, 3, 4]
+
+# But reassignment doesn't affect caller
+def reassign_list(items):
+    items = [4, 5, 6]  # Only affects local variable
+
+my_list = [1, 2, 3]
+reassign_list(my_list)
+print(my_list)  # [1, 2, 3]
+```
+
+```rust !! rs
+// Rust: Explicit ownership and borrowing
+fn modify_list(items: &mut Vec<i32>) {
+    items.push(4);  // Modifies original
+    println!("{:?}", items);
+}
+
+let mut my_list = vec![1, 2, 3];
+modify_list(&mut my_list);
+println!("{:?}", my_list);  // [1, 2, 3, 4]
+
+// Takes ownership (consumes the vector)
+fn consume_list(items: Vec<i32>) {
+    println!("{:?}", items);
+}  // items is dropped here
+
+let my_list = vec![1, 2, 3];
+consume_list(my_list);
+// println!("{:?}", my_list);  // ERROR: value moved
+
+// Borrow without modifying
+fn read_list(items: &[i32]) {
+    println!("{:?}", items);
+}
+
+let my_list = vec![1, 2, 3];
+read_list(&my_list);
+println!("{:?}", my_list);  // Still accessible
+```
+</UniversalEditor>
+
+### Default Arguments
+
+<UniversalEditor compare={true} title="Default Arguments">
+```python !! py
+# Python: Default arguments
+def greet(name, greeting="Hello"):
+    return f"{greeting}, {name}!"
+
+print(greet("Alice"))  # Hello, Alice!
+print(greet("Bob", "Hi"))  # Hi, Bob!
+
+# Can have multiple defaults
+def func(a, b=1, c=2):
+    return a + b + c
+
+print(func(1))  # 4
+print(func(1, 10))  # 13
+print(func(1, 10, 20))  # 31
+```
+
+```rust !! rs
+// Rust: No default arguments (use methods or builders)
+fn greet(name: &str, greeting: &str) -> String {
+    format!("{}, {}!", greeting, name)
+}
+
+println!("{}", greet("Alice", "Hello"));
+println!("{}", greet("Bob", "Hi"));
+
+// Pattern: Use Option for defaults
+fn greet_optional(name: &str, greeting: Option<&str>) -> String {
+    let greeting = greeting.unwrap_or("Hello");
+    format!("{}, {}!", greeting, name)
+}
+
+println!("{}", greet_optional("Alice", None));
+println!("{}", greet_optional("Bob", Some("Hi")));
+
+// Pattern: Use builder pattern
+struct GreetingBuilder {
+    name: String,
+    greeting: Option<String>,
+}
+
+impl GreetingBuilder {
+    fn new(name: &str) -> Self {
+        GreetingBuilder {
+            name: name.to_string(),
+            greeting: None,
+        }
+    }
+
+    fn greeting(mut self, greeting: &str) -> Self {
+        self.greeting = Some(greeting.to_string());
+        self
+    }
+
+    fn build(self) -> String {
+        let greeting = self.greeting.as_deref().unwrap_or("Hello");
+        format!("{}, {}!", greeting, self.name)
+    }
+}
+
+println!("{}", GreetingBuilder::new("Alice").build());
+println!("{}", GreetingBuilder::new("Bob").greeting("Hi").build());
+```
+</UniversalEditor>
+
+### Variable Arguments
+
+<UniversalEditor compare={true} title="Variable Arguments">
+```python !! py
+# Python: *args and **kwargs
+def sum_all(*args):
+    return sum(args)
+
+print(sum_all(1, 2, 3))  # 6
+print(sum_all(1, 2, 3, 4, 5))  # 15
+
+def print_info(**kwargs):
+    for key, value in kwargs.items():
+        print(f"{key}: {value}")
+
+print_info(name="Alice", age=25)
+
+def combined(a, b, *args, **kwargs):
+    print(f"a={a}, b={b}")
+    print(f"args={args}")
+    print(f"kwargs={kwargs}")
+```
+
+```rust !! rs
+// Rust: Use iterators, slices, or macros
+fn sum_all(numbers: &[i32]) -> i32 {
+    numbers.iter().sum()
+}
+
+println!("{}", sum_all(&[1, 2, 3]));  // 6
+println!("{}", sum_all(&[1, 2, 3, 4, 5]));  // 15
+
+// For truly variable arguments, use macros
+macro_rules! sum_all_macro {
+    ($($x:expr),*) => {{
+        let mut sum = 0;
+        $(sum += $x;)*
+        sum
+    }};
+}
+
+println!("{}", sum_all_macro!(1, 2, 3));  // 6
+
+// For heterogeneous data, use structs or enums
+struct Info {
+    data: std::collections::HashMap<String, String>,
+}
+
+fn print_info(info: &Info) {
+    for (key, value) in &info.data {
+        println!("{}: {}", key, value);
+    }
+}
+```
+</UniversalEditor>
+
+## Return Values
+
+### Expression-Based Returns
+
+<UniversalEditor compare={true} title="Return Values">
+```python !! py
+# Python: Explicit return required
+def add(a, b):
+    return a + b
+
+def multiple_returns(x):
+    if x > 0:
+        return "positive"
+    return "non-positive"
+
+def no_return():
+    pass  # Returns None
+```
+
+```rust !! rs
+// Rust: Last expression is return value
+fn add(a: i32, b: i32) -> i32 {
+    a + b  // No semicolon = return value
+}
+
+fn multiple_returns(x: i32) -> &'static str {
+    if x > 0 {
+        "positive"  // No semicolon
+    } else {
+        "non-positive"  // No semicolon
+    }
+}
+
+fn no_return() {
+    // Returns () implicitly
+}
+
+// Can use return keyword for early returns
+fn early_return(x: i32) -> i32 {
+    if x < 0 {
+        return 0;  // Semicolon OK with return
+    }
+    x * 2
+}
+```
+</UniversalEditor>
+
+### Never Return Type
+
+<UniversalEditor compare={true} title="The ! Never Type">
+```python !! py
+# Python: Functions that never return
+def forever():
+    while True:
+        pass
+
+def error_out():
+    raise ValueError("Error")
+```
+
+```rust !! rs
+// Rust: The ! never type
+fn forever() -> ! {
+    loop {}  // Never returns
+}
+
+fn error_out() -> ! {
+    panic!("Error");  // Never returns
+}
+
+// Can use ! where any type is expected
+fn always_errors() -> ! {
+    panic!("Always errors");
+}
+
+let x: i32 = always_errors();  // OK, ! coerces to any type
+
+// In match branches
+fn get_number(opt: Option<i32>) -> i32 {
+    match opt {
+        Some(num) => num,
+        None => panic!("No number"),  // ! is compatible with i32
+    }
+}
+```
+</UniversalEditor>
+
+## Closures
+
+Closures are anonymous functions that can capture their environment.
+
+<UniversalEditor compare={true} title="Basic Closures">
+```python !! py
+# Python: Lambda functions
+add = lambda x, y: x + y
+print(add(1, 2))  # 3
+
+# Can also use def
+def make_adder(n):
+    def adder(x):
+        return x + n
+    return adder
+
+add_5 = make_adder(5)
+print(add_5(10))  # 15
+```
+
+```rust !! rs
+// Rust: Closures with type inference
+let add = |x: i32, y: i32| -> i32 { x + y };
+println!("{}", add(1, 2));  // 3
+
+// Types can often be inferred
+let add = |x, y| x + y;
+println!("{}", add(1i32, 2));  // 3
+
+// Capturing environment
+fn make_adder(n: i32) -> impl Fn(i32) -> i32 {
+    move |x| x + n  // move keyword transfers ownership
+}
+
+let add_5 = make_adder(5);
+println!("{}", add_5(10));  // 15
+```
+</UniversalEditor>
+
+### Closure Capture Modes
+
+<UniversalEditor compare={true} title="Closure Captures">
+```python !! py
+# Python: Captures by reference
+def make_counter():
+    count = 0
+    def increment():
+        nonlocal count
+        count += 1
+        return count
+    return increment
+
+counter = make_counter()
+print(counter())  # 1
+print(counter())  # 2
+```
+
+```rust !! rs
+// Rust: Three capture modes
+// 1. Borrowing (Fn)
+let data = vec![1, 2, 3];
+let borrow = || {
+    println!("{:?}", data);  // Borrows data
+};
+borrow();
+println!("{:?}", data);  // Still accessible
+
+// 2. Mutable borrow (FnMut)
+let mut data = vec![1, 2, 3];
+let mut borrow_mut = || {
+    data.push(4);  // Mutably borrows data
+};
+borrow_mut();
+println!("{:?}", data);  // [1, 2, 3, 4]
+
+// 3. Taking ownership (FnOnce with move)
+let data = vec![1, 2, 3];
+let take_ownership = move || {
+    println!("{:?}", data);  // Moves data
+};
+take_ownership();
+// println!("{:?}", data);  // ERROR: data was moved
+
+// Function traits
+// Fn: can call multiple times, borrows
+// FnMut: can call multiple times, mutably borrows
+// FnOnce: can call once, consumes captured values
+```
+</UniversalEditor>
+
+### Closure Type Inference
+
+<UniversalEditor compare={true} title="Closure Type Inference">
+```python !! py
+# Python: Dynamic types
+def apply(func, value):
+    return func(value)
+
+double = lambda x: x * 2
+print(apply(double, 5))  # 10
+
+to_upper = lambda s: s.upper()
+print(apply(to_upper, "hello"))  # HELLO
+```
+
+```rust !! rs
+// Rust: Closure types are inferred
+fn apply<F, T, R>(func: F, value: T) -> R
+where
+    F: Fn(T) -> R,
+{
+    func(value)
+}
+
+let double = |x: i32| x * 2;
+println!("{}", apply(double, 5));  // 10
+
+// Cannot use apply with different closure types
+// let to_upper = |s: &str| s.to_uppercase();
+// println!("{}", apply(to_upper, "hello"));  // ERROR: type mismatch
+
+// But closures with same signature are compatible
+let add = |x: i32| x + 10;
+let sub = |x: i32| x - 10;
+fn use_func(f: impl Fn(i32) -> i32, x: i32) -> i32 {
+    f(x)
+}
+println!("{}", use_func(add, 5));  // 15
+println!("{}", use_func(sub, 5));  // -5
+```
+</UniversalEditor>
+
+### Closure Performance
+
+<UniversalEditor compare={true} title="Closure Performance">
+```python !! py
+# Python: Function call overhead
+def apply_function(func, items):
+    return [func(x) for x in items]
+
+items = list(range(1000000))
+result = apply_function(lambda x: x * 2, items)
+```
+
+```rust !! rs
+// Rust: Closures are often zero-cost abstractions
+fn apply_function<F>(func: F, items: &[i32]) -> Vec<i32>
+where
+    F: Fn(i32) -> i32,
+{
+    items.iter().map(|&x| func(x)).collect()
+}
+
+let items: Vec<i32> = (0..1000000).collect();
+let result = apply_function(|x| x * 2, &items);
+
+// Closures compile to regular functions
+// Compiler can inline them
+// No runtime overhead compared to functions
+```
+</UniversalEditor>
+
+## Higher-Order Functions
+
+Functions that take or return other functions.
+
+<UniversalEditor compare={true} title="Higher-Order Functions">
+```python !! py
+# Python: Functions as values
+def apply_operation(x, y, operation):
+    return operation(x, y)
+
+def add(a, b):
+    return a + b
+
+def multiply(a, b):
+    return a * b
+
+print(apply_operation(5, 3, add))  # 8
+print(apply_operation(5, 3, multiply))  # 15
+
+# Returning functions
+def make_operation(operation):
+    if operation == "add":
+        return lambda x, y: x + y
+    elif operation == "multiply":
+        return lambda x, y: x * y
+
+add_func = make_operation("add")
+print(add_func(5, 3))  # 8
+```
+
+```rust !! rs
+// Rust: Function pointers and closures
+type BinaryOp = fn(i32, i32) -> i32;
+
+fn apply_operation(x: i32, y: i32, operation: BinaryOp) -> i32 {
+    operation(x, y)
+}
+
+fn add(a: i32, b: i32) -> i32 {
+    a + b
+}
+
+fn multiply(a: i32, b: i32) -> i32 {
+    a * b
+}
+
+println!("{}", apply_operation(5, 3, add));  // 8
+println!("{}", apply_operation(5, 3, multiply));  // 15
+
+// Returning closures (requires impl Fn)
+fn make_operation(operation: &str) -> impl Fn(i32, i32) -> i32 {
+    move |x, y| match operation {
+        "add" => x + y,
+        "multiply" => x * y,
+        _ => panic!("Unknown operation"),
+    }
+}
+
+let add_func = make_operation("add");
+println!("{}", add_func(5, 3));  // 8
+```
+</UniversalEditor>
+
+## Iterators and Closures
+
+Rust's iterator methods work seamlessly with closures.
+
+<UniversalEditor compare={true} title="Iterator Methods">
+```python !! py
+# Python: List comprehensions and functions
+items = [1, 2, 3, 4, 5]
+
+# Map
+doubled = [x * 2 for x in items]
+
+# Filter
+evens = [x for x in items if x % 2 == 0]
+
+# Custom operation
+def process(x):
+    return x * 2 if x % 2 == 0 else x
+
+processed = [process(x) for x in items]
+```
+
+```rust !! rs
+// Rust: Iterator methods with closures
+let items = vec![1, 2, 3, 4, 5];
+
+// Map
+let doubled: Vec<i32> = items.iter().map(|x| x * 2).collect();
+
+// Filter
+let evens: Vec<&i32> = items.iter().filter(|&x| x % 2 == 0).collect();
+
+// Custom operation
+let processed: Vec<i32> = items.iter()
+    .map(|&x| if x % 2 == 0 { x * 2 } else { x })
+    .collect();
+
+// Chaining
+let result: Vec<i32> = items.iter()
+    .filter(|&&x| x % 2 == 0)
+    .map(|&x| x * 2)
+    .take(2)
+    .collect();
+```
+</UniversalEditor>
+
+### Common Iterator Patterns
+
+<UniversalEditor compare={true} title="Common Patterns">
+```python !! py
+# Python: Common patterns
+items = [1, 2, 3, 4, 5]
+
+# Sum of squares
+sum_squares = sum(x * x for x in items)
+
+# First matching
+first_large = next((x for x in items if x > 3), None)
+
+# All/Any
+all_positive = all(x > 0 for x in items)
+any_large = any(x > 10 for x in items)
+
+# Fold/reduce
+total = sum(items)
+product = 1
+for x in items:
+    product *= x
+```
+
+```rust !! rs
+// Rust: Iterator patterns
+let items = vec![1, 2, 3, 4, 5];
+
+// Sum of squares
+let sum_squares: i32 = items.iter().map(|&x| x * x).sum();
+
+// First matching
+let first_large = items.iter().find(|&&x| x > 3);
+
+// All/Any
+let all_positive = items.iter().all(|&x| x > 0);
+let any_large = items.iter().any(|&x| x > 10);
+
+// Fold/reduce
+let total: i32 = items.iter().sum();
+let product: i32 = items.iter().product();
+```
+</UniversalEditor>
+
+## Putting It All Together
+
+Let's build a complete example:
+
+<UniversalEditor compare={true} title="Complete Example">
+```python !! py
+from typing import List, Callable, Optional
+
+def process_numbers(
+    numbers: List[int],
+    transform: Callable[[int], int],
+    predicate: Callable[[int], bool]
+) -> List[int]:
+    """Process numbers with transform and filter by predicate."""
+    result = []
+    for num in numbers:
+        if predicate(num):
+            result.append(transform(num))
+    return result
+
+def double(x: int) -> int:
+    return x * 2
+
+def is_positive(x: int) -> bool:
+    return x > 0
+
+# Using
+numbers = [1, -2, 3, -4, 5]
+result = process_numbers(numbers, double, is_positive)
+print(result)  # [2, 6, 10]
+
+# With lambda
+result = process_numbers(numbers, lambda x: x * 3, is_positive)
+print(result)  # [3, 9, 15]
+
+# Composing operations
+def compose(f, g):
+    return lambda x: f(g(x))
+
+double_then_square = compose(lambda x: x * x, double)
+print(double_then_square(5))  # 100
+```
+
+```rust !! rs
+use std::collections::HashMap;
+
+fn process_numbers<F, P>(
+    numbers: &[i32],
+    transform: F,
+    predicate: P,
+) -> Vec<i32>
+where
+    F: Fn(i32) -> i32,
+    P: Fn(i32) -> bool,
+{
+    numbers
+        .iter()
+        .filter(|&&x| predicate(x))
+        .map(|&x| transform(x))
+        .collect()
+}
+
+fn double(x: i32) -> i32 {
+    x * 2
+}
+
+fn is_positive(x: i32) -> bool {
+    x > 0
+}
+
+fn main() {
+    // Using
+    let numbers = vec![1, -2, 3, -4, 5];
+    let result = process_numbers(&numbers, double, is_positive);
+    println!("{:?}", result);  // [2, 6, 10]
+
+    // With closure
+    let result = process_numbers(&numbers, |x| x * 3, is_positive);
+    println!("{:?}", result);  // [3, 9, 15]
+
+    // Composing operations
+    fn compose<F, G, A, B, C>(f: F, g: G) -> impl Fn(A) -> C
+    where
+        F: Fn(B) -> C,
+        G: Fn(A) -> B,
+    {
+        move |x| f(g(x))
+    }
+
+    let double_then_square = compose(|x: i32| x * x, double);
+    println!("{}", double_then_square(5));  // 100
+
+    // Practical example: counting words
+    let text = "hello world hello rust world";
+    let mut counts = HashMap::new();
+
+    for word in text.split_whitespace() {
+        *counts.entry(word).or_insert(0) += 1;
+    }
+
+    println!("{:?}", counts);  // {"hello": 2, "world": 2, "rust": 1}
+}
+```
+</UniversalEditor>
+
+## Summary
+
+In this module, you learned:
+- ✅ Function signatures require explicit types
+- ✅ Return values are the last expression
+- ✅ Closures capture environment in three ways
+- ✅ Function traits: Fn, FnMut, FnOnce
+- ✅ Higher-order functions with function pointers
+- ✅ Iterator methods use closures extensively
+- ✅ Closures are zero-cost abstractions
+
+## Key Differences from Python
+
+1. **Type annotations**: Required for all parameters and returns
+2. **Return values**: Last expression, not explicit `return`
+3. **Closure captures**: Explicit ownership (move vs borrow)
+4. **No default arguments**: Use builders or Option
+5. **Function traits**: Three traits for different capture modes
+6. **Closures are efficient**: Often compile to inline code
+7. **No varargs**: Use slices, iterators, or macros
+
+## Exercises
+
+### Exercise 1: Custom Iterator
+
+Create a function that returns a closure:
+- The closure should maintain a counter
+- Each call returns the next number
+- Uses `FnMut` trait
+
+<details>
+<summary>Solution</summary>
+
+```rust
+fn make_counter(start: i32) -> impl FnMut() -> i32 {
+    let mut counter = start;
+    move || {
+        let current = counter;
+        counter += 1;
+        current
+    }
+}
+
+fn main() {
+    let mut count = make_counter(0);
+    println!("{}", count());  // 0
+    println!("{}", count());  // 1
+    println!("{}", count());  // 2
+}
+```
+
+</details>
+
+### Exercise 2: Higher-Order Map
+
+Implement a generic map function:
+- Takes a slice and a transformation function
+- Returns a new vector with transformed values
+- Use generics and impl Fn
+
+<details>
+<summary>Solution</summary>
+
+```rust
+fn my_map<T, U, F>(items: &[T], f: F) -> Vec<U>
+where
+    F: Fn(&T) -> U,
+{
+    items.iter().map(f).collect()
+}
+
+fn main() {
+    let numbers = vec![1, 2, 3, 4, 5];
+    let doubled: Vec<i32> = my_map(&numbers, |&x| x * 2);
+    println!("{:?}", doubled);  // [2, 4, 6, 8, 10]
+
+    let words = vec!["hello", "world"];
+    let upper: Vec<String> = my_map(&words, |&s| s.to_uppercase());
+    println!("{:?}", upper);  // ["HELLO", "WORLD"]
+}
+```
+
+</details>
+
+### Exercise 3: Filter with Closure
+
+Create a flexible filter function:
+- Takes a slice and predicate closure
+- Returns items matching predicate
+- Show usage with multiple predicate types
+
+<details>
+<summary>Solution</summary>
+
+```rust
+fn my_filter<T, F>(items: &[T], predicate: F) -> Vec<&T>
+where
+    F: Fn(&T) -> bool,
+{
+    items.iter().filter(|x| predicate(x)).collect()
+}
+
+fn main() {
+    let numbers = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+
+    // Filter evens
+    let evens = my_filter(&numbers, |&x| x % 2 == 0);
+    println!("{:?}", evens);  // [2, 4, 6, 8, 10]
+
+    // Filter greater than 5
+    let large = my_filter(&numbers, |&x| x > 5);
+    println!("{:?}", large);  // [6, 7, 8, 9, 10]
+
+    // Filter range
+    let range = my_filter(&numbers, |&x| x >= 3 && x <= 7);
+    println!("{:?}", range);  // [3, 4, 5, 6, 7]
+}
+```
+
+</details>
+
+## Next Steps
+
+Now that you understand functions and closures:
+1. **[Module 6: Data Structures](./module-06-data-structures)** - Learn about structs, enums, and collections
+2. Practice with functional patterns
+3. Explore more iterator methods
+
+---
+
+**Next:** [Module 6 - Data Structures](./module-06-data-structures) →

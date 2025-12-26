@@ -49,7 +49,7 @@ name = "Alice"
 age = 25
 ```
 
-```rust !! rust
+```rust !! rs
 // Rust - Static typing
 let name: &str = "Alice";
 let age: i32 = 25;

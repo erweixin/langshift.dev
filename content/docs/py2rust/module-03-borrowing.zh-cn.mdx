@@ -1,0 +1,1001 @@
+---
+title: "模块 3：借用与引用"
+description: "通过借用和引用理解 Rust 的所有权系统，并与 Python 的引用语义进行对比"
+---
+
+# 模块 3：借用与引用
+
+## 学习目标
+
+完成本模块后，你将理解：
+- Rust 的借用系统如何与 Python 的引用进行比较
+- 不可变引用和可变引用的区别
+- Rust 在编译时的借用规则
+- 借用检查器如何防止内存安全问题
+- 常见的借用模式和惯用法
+
+## 简介：Python vs Rust 引用模型
+
+在 Python 中，你已经习惯了自由地传递对象的引用。Python 的垃圾回收器自动管理内存，你很少需要考虑谁"拥有"某块数据。
+
+Rust 采用不同的方法，使用**借用系统**，在编译时强制执行内存安全，而不需要垃圾回收器。这是 Rust 最独特和最强大的特性之一。
+
+### Python：一切都是引用
+
+<UniversalEditor compare={true} title="Python 引用 - 随处可用">
+```python !! py
+# Python：引用在任何地方都可以使用
+data = [1, 2, 3]
+
+# 同一个数据的多个引用
+ref1 = data
+ref2 = data
+
+# 所有引用都可以独立工作
+ref1.append(4)
+print(ref2)  # [1, 2, 3, 4] - 看到了变化！
+
+# 可以自由地传递给函数
+def modify_list(lst):
+    lst.append(5)
+
+modify_list(data)
+print(data)  # [1, 2, 3, 4, 5]
+
+# 可以有多个可变引用
+a = data
+b = data
+c = data
+a.append(6)
+b.append(7)
+print(c)  # 都能正常工作！
+```
+</UniversalEditor>
+
+### Rust：受控的借用
+
+<UniversalEditor compare={true} title="Rust 借用 - 编译时规则">
+```rust !! rs
+// Rust：借用遵循严格的规则
+fn main() {
+    let data = vec![1, 2, 3];
+
+    // 不可变引用 - 可以有多个！
+    let ref1 = &data;
+    let ref2 = &data;
+    let ref3 = &data;
+
+    println!("{:?} {:?} {:?}", ref1, ref2, ref3);
+
+    // 可变引用 - 独占访问
+    let mut data_mut = vec![1, 2, 3];
+    let mref = &mut data_mut;
+    mref.push(4);
+
+    // mref 存在时不能使用 data_mut！
+    // data_mut.push(5); // 错误：data_mut 已被借用
+
+    println!("{:?}", mref);
+}
+```
+</UniversalEditor>
+
+## Rust 的借用规则
+
+Rust 在**编译时**强制执行这些规则：
+
+1. **可以拥有多个不可变引用**（`&T`）指向同一个值
+2. **可以拥有一个可变引用**（`&mut T`）指向一个值
+3. **引用必须始终有效**（没有悬垂指针）
+
+这些规则在编译时防止数据竞争和释放后使用错误！
+
+### 规则 1：多个不可变引用
+
+<UniversalEditor compare={true} title="多个不可变引用 - 始终安全">
+```python !! py
+# Python：多个引用，一个对象
+numbers = [1, 2, 3, 4, 5]
+
+# 多个"不可变"读取（Python 不强制）
+def read_first(lst):
+    return lst[0]
+
+def read_last(lst):
+    return lst[-1]
+
+print(read_first(numbers))  # 1
+print(read_last(numbers))   # 5
+print(numbers[0])           # 1
+# 都是安全的，因为我们只是读取
+```
+
+```rust !! rs
+// Rust：多个不可变引用是安全的
+fn main() {
+    let numbers = vec![1, 2, 3, 4, 5];
+
+    // 一次有多个不可变引用
+    let first = &numbers[0];
+    let last = &numbers[numbers.len() - 1];
+    let middle = &numbers[2];
+
+    // 所有引用都可以安全共存
+    println!("First: {}, Last: {}, Middle: {}", first, last, middle);
+
+    // 可以传递给函数
+    print_length(&numbers);
+    print_length(&numbers);  // 再次调用！
+
+    // 原始数据仍然可访问
+    println!("{:?}", numbers);
+}
+
+fn print_length(vec: &Vec<i32>) {
+    println!("Length: {}", vec.len());
+}
+```
+</UniversalEditor>
+
+### 规则 2：一个可变引用（独占访问）
+
+<UniversalEditor compare={true} title="可变引用 - 独占访问">
+```python !! py
+# Python：允许多个可变引用
+data = {"count": 0}
+
+ref_a = data
+ref_b = data
+
+# 两者都可以修改 - 在线程中可能发生数据竞争！
+ref_a["count"] += 1
+ref_b["count"] += 1
+
+print(data["count"])  # 2
+
+# Python 不会阻止这种情况 - 你必须小心！
+```
+
+```rust !! rs
+// Rust：同一时间只能有一个可变引用
+fn main() {
+    let mut data = vec![1, 2, 3];
+
+    // 一个可变引用
+    let ref1 = &mut data;
+    ref1.push(4);
+
+    // 不能创建另一个可变引用
+    // let ref2 = &mut data;  // 错误！
+    // 不能多次可变借用 `data`
+
+    // 甚至不能使用原始名称
+    // data.push(5);  // 错误！
+    // 不能可变借用 `data`
+    // 因为它已经被可变借用
+
+    println!("{:?}", ref1);
+
+    // ref1 不再使用后，可以再次借用
+    let ref2 = &mut data;
+    ref2.push(5);
+    println!("{:?}", ref2);
+}
+```
+</UniversalEditor>
+
+### 规则 3：不能混合可变和不可变
+
+<UniversalEditor compare={true} title="不可变 + 可变 - 不允许">
+```python !! py
+# Python：可以混合读写
+data = [1, 2, 3]
+
+read_ref = data
+write_ref = data
+
+# 通过 read_ref 读取，同时 write_ref 修改
+print(read_ref[0])  # 1
+write_ref.append(4)
+print(read_ref)     # [1, 2, 3, 4] - 看到了变化！
+
+# Python 允许这样做 - 可能导致错误
+```
+
+```rust !! rs
+// Rust：不能混合可变和不可变
+fn main() {
+    let mut data = vec![1, 2, 3];
+
+    // 不可变引用
+    let read_ref = &data;
+    println!("Read: {:?}", read_ref);
+
+    // 不可变引用存在时不能创建可变引用
+    // let write_ref = &mut data;  // 错误！
+    // 不能可变借用 `data`
+    // 因为它已经被不可变借用
+
+    // read_ref 不再使用后
+    let write_ref = &mut data;
+    write_ref.push(4);
+    println!("Write: {:?}", write_ref);
+
+    // 现在可以再次不可变借用
+    let new_read = &data;
+    println!("New read: {:?}", new_read);
+}
+```
+</UniversalEditor>
+
+## 借用检查器示例
+
+Rust 编译器（借用检查器）确保所有借用规则都被遵循。让我们看看常见场景。
+
+### 示例 1：函数中的借用
+
+<UniversalEditor compare={true} title="将引用传递给函数">
+```python !! py
+# Python：隐式传递引用
+def double_items(items):
+    for i in range(len(items)):
+        items[i] *= 2
+
+def print_items(items):
+    print(items)
+
+numbers = [1, 2, 3]
+print_items(numbers)  # 读取
+double_items(numbers)  # 写入
+print_items(numbers)  # 再次读取 - [2, 4, 6]
+```
+
+```rust !! rs
+// Rust：函数中的显式借用
+fn main() {
+    let mut numbers = vec![1, 2, 3];
+
+    // 不可变借用用于读取
+    print_items(&numbers);
+
+    // 可变借用用于写入
+    double_items(&mut numbers);
+
+    // 再次不可变借用
+    print_items(&numbers);
+
+    // main 仍然拥有原始数据
+    println!("Owned: {:?}", numbers);
+}
+
+fn double_items(items: &mut Vec<i32>) {
+    for item in items.iter_mut() {
+        *item *= 2;
+    }
+}
+
+fn print_items(items: &Vec<i32>) {
+    println!("{:?}", items);
+}
+```
+</UniversalEditor>
+
+### 示例 2：循环中的借用
+
+<UniversalEditor compare={true} title="循环中的借用 - 常见模式">
+```python !! py
+# Python：可以自由收集和修改
+data = ["hello", "world", "rust"]
+
+# 收集引用
+first_letters = [word[0] for word in data]
+
+# 修改原始数据
+data[0] = data[0].upper()
+
+print(first_letters)  # ['h', 'w', 'r']
+print(data)          # ['HELLO', 'world', 'rust']
+```
+
+```rust !! rs
+// Rust：循环中借用需要小心
+fn main() {
+    let mut data = vec!["hello", "world", "rust"];
+
+    // 收集不可变引用
+    let first_letters: Vec<&str> = data.iter()
+        .map(|s| &s[0..1])
+        .collect();
+
+    println!("{:?}", first_letters);
+
+    // 引用存在时不能修改
+    // data[0] = "HELLO";  // 错误！
+    // 不能可变借用 `data`
+    // 因为它已经被不可变借用
+
+    // first_letters 被使用后，可以修改
+    drop(first_letters);  // 显式丢弃
+    data[0] = "HELLO";
+
+    println!("{:?}", data);
+}
+```
+</UniversalEditor>
+
+### 示例 3：返回引用
+
+<UniversalEditor compare={true} title="从函数返回引用">
+```python !! py
+# Python：可以自由返回引用
+def get_first(items):
+    return items[0]
+
+data = [10, 20, 30]
+first = get_first(data)
+print(first)  # 10
+
+# 函数返回后
+data[0] = 100
+print(first)  # 仍然是 10（不再是 data[0] 的引用）
+```
+
+```rust !! rs
+// Rust：生命周期确保有效性
+fn main() {
+    let data = vec![10, 20, 30];
+
+    // 从 data 借用
+    let first = get_first(&data);
+    println!("First: {}", first);
+
+    // 借用时不能修改
+    // data[0] = 100;  // 错误！
+
+    println!("Data: {:?}", data);
+}
+
+// 生命周期注解：返回的引用
+// 至少与输入参数一样长
+fn get_first<'a>(items: &'a Vec<i32>) -> &'a i32 {
+    &items[0]
+}
+
+// 这不会编译 - 悬垂引用！
+// fn get_first_bad() -> &i32 {
+//     let value = 42;
+//     &value  // 错误：返回指向已释放数据的引用
+// }
+```
+</UniversalEditor>
+
+## 悬垂引用预防
+
+Rust 的借用检查器确保引用永远不会指向无效的内存。
+
+### 什么是悬垂引用？
+
+<UniversalEditor compare={true} title="悬垂引用 - Python vs Rust">
+```python !! py
+# Python：垃圾回收器防止悬垂引用
+def create_ref():
+    data = [1, 2, 3]
+    return data  # 返回引用，对象保持存活
+
+ref = create_ref()
+print(ref)  # [1, 2, 3] - Python 保持它存活
+
+# 即使使用显式引用
+import weakref
+
+class MyClass:
+    def __init__(self, value):
+        self.value = value
+
+obj = MyClass(42)
+weak_ref = weakref.ref(obj)
+
+del obj  # 删除原始对象
+print(weak_ref())  # None - 对象已被删除
+```
+
+```rust !! rs
+// Rust：编译时防止悬垂引用
+fn main() {
+    // 这可行 - 引用有效数据
+    let data = vec![1, 2, 3];
+    let first = &data[0];
+    println!("First: {}", first);
+
+    // 这不会编译 - 悬垂引用！
+    // let bad_ref = create_dangling();
+    // println!("{:?}", bad_ref);
+}
+
+// 这个函数不会编译！
+// fn create_dangling() -> &i32 {
+//     let value = 42;
+//     &value  // 错误：返回指向已释放数据的引用
+// }
+
+// 正确版本：返回拥有的值
+fn create_owned() -> i32 {
+    let value = 42;
+    value  // 所有权转移
+}
+
+// 或者返回对存在事物的引用
+fn create_valid<'a>(data: &'a Vec<i32>) -> &'a i32 {
+    &data[0]
+}
+```
+</UniversalEditor>
+
+### 基于作用域的有效性
+
+<UniversalEditor compare={true} title="引用作用域和有效性">
+```python !! py
+# Python：引用一直工作直到 GC 回收
+def process():
+    local_data = [1, 2, 3]
+    return local_data[:]  # 返回副本
+
+result = process()
+print(result)  # [1, 2, 3] - 正常工作
+
+# 原始 local_data 消失了，但我们有副本
+```
+
+```rust !! rs
+// Rust：引用与作用域绑定
+fn main() {
+    // 引用的生命周期必须短于所有者
+    let result;
+    {
+        let data = vec![1, 2, 3];
+        result = data.len();  // 复制值，不是引用
+    }  // data 在这里被丢弃
+
+    println!("Length: {}", result);  // 正常工作
+
+    // 这样不行：
+    // let ref_result;
+    // {
+    //     let data = vec![1, 2, 3];
+    //     ref_result = &data[0];  // 错误！
+    // }  // data 被丢弃，ref_result 将悬垂
+    // println!("{:?}", ref_result);
+}
+```
+</UniversalEditor>
+
+## 多种借用场景
+
+让我们探索常见的借用模式和陷阱。
+
+### 场景 1：迭代器失效
+
+<UniversalEditor compare={true} title="迭代器失效 - 常见陷阱">
+```python !! py
+# Python：迭代时修改（有 bug！）
+numbers = [1, 2, 3, 4, 5]
+
+# 这会跳过元素！
+for i, num in enumerate(numbers):
+    if num % 2 == 0:
+        numbers.pop(i)  # 迭代时修改
+
+print(numbers)  # [1, 3, 5] - 2 被删除了，但 4 还在！
+```
+
+```rust !! rs
+// Rust：编译时保护
+fn main() {
+    let mut numbers = vec![1, 2, 3, 4, 5];
+
+    // 迭代时不能可变借用
+    // for num in numbers.iter() {
+    //     if num % 2 == 0 {
+    //         numbers.push(10);  // 错误！
+    //         不能可变借用 `numbers`
+    //         因为它已经被不可变借用
+    //     }
+    // }
+
+    // 正确方法：先收集索引
+    let to_remove: Vec<usize> = numbers.iter()
+        .enumerate()
+        .filter(|(_, &num)| num % 2 == 0)
+        .map(|(i, _)| i)
+        .collect();
+
+    // 然后修改（反向以保持索引有效）
+    for i in to_remove.into_iter().rev() {
+        numbers.remove(i);
+    }
+
+    println!("{:?}", numbers);  // [1, 3, 5]
+
+    // 或使用 retain()
+    let mut numbers = vec![1, 2, 3, 4, 5];
+    numbers.retain(|&x| x % 2 != 0);
+    println!("{:?}", numbers);  // [1, 3, 5]
+}
+```
+</UniversalEditor>
+
+### 场景 2：结构体字段借用
+
+<UniversalEditor compare={true} title="借用结构体字段">
+```python !! py
+# Python：可以访问多个字段
+class Point:
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+
+p = Point(10, 20)
+x_ref = p.x
+y_ref = p.y
+
+print(x_ref, y_ref)  # 10 20
+p.x = 30
+print(x_ref)  # 10（未更新）
+```
+
+```rust !! rs
+// Rust：借用结构体字段
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+fn main() {
+    let mut p = Point { x: 10, y: 20 };
+
+    // 多个不可变借用不同字段
+    let x_ref = &p.x;
+    let y_ref = &p.y;
+    println!("X: {}, Y: {}", x_ref, y_ref);
+
+    // 借用存在时不能可变借用
+    // p.x = 30;  // 错误！
+
+    // 借用结束后可以修改
+    let x_mut = &mut p.x;
+    *x_mut = 30;
+    println!("X: {}", p.x);
+
+    // 可以可变借用多个字段（不重叠）
+    {
+        let x_ref = &mut p.x;
+        *x_ref += 1;
+    }  // x_ref 在这里结束
+    {
+        let y_ref = &mut p.y;
+        *y_ref += 1;
+    }  // y_ref 在这里结束
+
+    println!("Point: ({}, {})", p.x, p.y);
+}
+```
+</UniversalEditor>
+
+### 场景 3：条件借用
+
+<UniversalEditor compare={true} title="条件借用模式">
+```python !! py
+# Python：条件修改
+data = [1, 2, 3, 4, 5]
+
+def maybe_modify(items, should_modify):
+    if should_modify:
+        items.append(6)
+    return items
+
+result = maybe_modify(data, True)
+print(result)  # [1, 2, 3, 4, 5, 6]
+
+result = maybe_modify(data, False)
+print(result)  # [1, 2, 3, 4, 5, 6]
+```
+
+```rust !! rs
+// Rust：条件借用
+fn main() {
+    let mut data = vec![1, 2, 3, 4, 5];
+
+    // 条件修改
+    let result = maybe_modify(&mut data, true);
+    println!("{:?}", result);  // [1, 2, 3, 4, 5, 6]
+
+    let result = maybe_modify(&mut data, false);
+    println!("{:?}", result);  // [1, 2, 3, 4, 5, 6]
+}
+
+fn maybe_modify(items: &mut Vec<i32>, should_modify: bool) -> &Vec<i32> {
+    if should_modify {
+        items.push(6);
+    }
+    items  // 返回引用
+}
+```
+</UniversalEditor>
+
+## 比较：Python 引用 vs Rust 借用
+
+### 概念差异
+
+| 方面 | Python | Rust |
+|--------|--------|------|
+| **内存安全** | 运行时（GC） | 编译时（借用检查器） |
+| **可变引用** | 无限 | 同一时间只能有一个 |
+| **混合读/写** | 允许 | 不允许同时进行 |
+| **悬垂引用** | 可能（weakref） | 编译时预防 |
+| **性能** | GC 开销 | 零成本 |
+| **线程安全** | 开发者责任 | 编译器保证 |
+
+### 实际影响
+
+<UniversalEditor compare={true} title="Python 引用语义">
+```python !! py
+# Python：一切都是引用
+def modify_shared_data(data1, data2):
+    # 两者都可以修改共享状态
+    data1.append(1)
+    data2.append(2)
+
+shared = []
+modify_shared_data(shared, shared)
+print(shared)  # [1, 2]
+
+# 在并发代码中，这会导致数据竞争！
+# Python 依赖 GIL 和开发者纪律
+```
+</UniversalEditor>
+
+<UniversalEditor compare={true} title="Rust 借用语义">
+```rust !! rs
+// Rust：编译时预防问题
+fn main() {
+    let mut shared = vec![];
+
+    // 不能作为可变引用传递两次
+    // modify_shared_data(&mut shared, &mut shared);
+    // 错误：使用了已移动的值：`shared`
+
+    // 必须传递一次，或使用内部可变性
+    modify_once(&mut shared);
+    modify_once(&mut shared);
+
+    println!("{:?}", shared);  // [1, 2]
+}
+
+fn modify_once(data: &mut Vec<i32>) {
+    data.push(1);
+}
+```
+</UniversalEditor>
+
+## 最佳实践
+
+### DO：使用引用进行只读访问
+
+<UniversalEditor compare={true} title="最佳实践 - 不可变引用">
+```rust !! rs
+fn main() {
+    let data = vec![1, 2, 3, 4, 5];
+
+    // 使用 & 进行只读
+    calculate_sum(&data);
+    calculate_sum(&data);  // 可以多次调用
+    print_first(&data);
+}
+
+fn calculate_sum(numbers: &Vec<i32>) -> i32 {
+    numbers.iter().sum()
+}
+
+fn print_first(numbers: &Vec<i32>) {
+    println!("First: {}", numbers[0]);
+}
+```
+</UniversalEditor>
+
+### DO：在最小必要范围内借用
+
+<UniversalEditor compare={true} title="最佳实践 - 最小化借用范围">
+```rust !! rs
+fn main() {
+    let mut data = vec![1, 2, 3, 4, 5];
+
+    // 只在需要时借用
+    {
+        let first = &data[0];
+        println!("First: {}", first);
+    }  // 借用在这里结束
+
+    // 现在可以修改
+    data.push(6);
+
+    // 另一个借用
+    {
+        let last = &data[data.len() - 1];
+        println!("Last: {}", last);
+    }
+}
+```
+</UniversalEditor>
+
+### DON'T：创建不必要的可变借用
+
+<UniversalEditor compare={true} title="反模式 - 不必要的可变性">
+```rust !! rs
+fn main() {
+    let data = vec![1, 2, 3, 4, 5];
+
+    // 不要：不可变足够时使用可变
+    // print_items(&mut data);  // 不必要！
+
+    // 应该：只读使用不可变
+    print_items(&data);
+}
+
+fn print_items(items: &Vec<i32>) {
+    println!("{:?}", items);
+}
+```
+</UniversalEditor>
+
+## 常见借用陷阱
+
+### 陷阱 1：忘记丢弃借用
+
+<UniversalEditor compare={true} title="陷阱 - 借用生命周期">
+```python !! py
+# Python：没有问题
+data = [1, 2, 3]
+
+ref = data
+print(ref)
+
+data.append(4)  # 正常工作
+print(ref)
+```
+
+```rust !! rs
+// Rust：借用持续到最后一次使用
+fn main() {
+    let mut data = vec![1, 2, 3];
+
+    let ref_vec = &data;
+    println!("{:?}", ref_vec);
+
+    // ref_vec "活着"时不能修改
+    // data.push(4);  // 错误！
+
+    // 尽管我们打印了它，编译器认为它仍然被使用
+    // 解决方案：显式丢弃或使用更小的作用域
+
+    // 显式丢弃
+    drop(ref_vec);
+    data.push(4);  // 现在可以工作！
+
+    println!("{:?}", data);
+}
+```
+</UniversalEditor>
+
+### 陷阱 2：收集引用
+
+<UniversalEditor compare={true} title="陷阱 - 收集的引用">
+```rust !! rs
+fn main() {
+    let mut data = vec![1, 2, 3, 4, 5];
+
+    // 收集引用
+    let evens: Vec<&i32> = data.iter()
+        .filter(|&&x| x % 2 == 0)
+        .collect();
+
+    println!("{:?}", evens);
+
+    // evens 持有引用时不能修改
+    // data.push(6);  // 错误！
+
+    // 必须先丢弃 evens
+    drop(evens);
+    data.push(6);
+
+    println!("{:?}", data);
+}
+```
+</UniversalEditor>
+
+### 陷阱 3：闭包借用
+
+<UniversalEditor compare={true} title="陷阱 - 闭包借用">
+```rust !! rs
+fn main() {
+    let data = vec![1, 2, 3, 4, 5];
+
+    // 闭包借用 data
+    let sum = || {
+        data.iter().sum::<i32>()
+    };
+
+    println!("Sum: {}", sum());
+
+    // 闭包存在时不能修改
+    // let mut data_mut = data;
+    // data_mut.push(6);  // 错误！
+
+    // 闭包使用后可以消费
+    let mut data_mut = data;
+    data_mut.push(6);
+
+    println!("{:?}", data_mut);
+}
+```
+</UniversalEditor>
+
+## 高级：智能指针和借用
+
+对于更复杂的场景，Rust 提供具有内部可变性的智能指针。
+
+<UniversalEditor compare={true} title="内部可变性 - Rc 和 RefCell">
+```python !! py
+# Python：到处都是共享可变状态
+counter = [0]
+
+def increment():
+    counter[0] += 1
+
+increment()
+increment()
+print(counter[0])  # 2
+```
+
+```rust !! rs
+use std::rc::Rc;
+use std::cell::RefCell;
+
+fn main() {
+    // 使用 RefCell 进行运行时借用检查
+    let counter = Rc::new(RefCell::new(0));
+
+    // 克隆 Rc（引用计数增加）
+    let counter_ref1 = Rc::clone(&counter);
+    let counter_ref2 = Rc::clone(&counter);
+
+    // 运行时多个可变引用！
+    // 如果有冲突会 panic
+    *counter_ref1.borrow_mut() += 1;
+    *counter_ref2.borrow_mut() += 1;
+
+    println!("Count: {}", counter.borrow());  // 2
+
+    // 用于具有运行时检查的共享所有权
+    // 效率较低但更灵活
+}
+```
+</UniversalEditor>
+
+## 练习
+
+### 练习 1：修复借用检查器
+
+<UniversalEditor compare={true} title="练习 1 - 修复错误">
+```rust !! rs
+// 修复这段代码中的错误
+
+fn main() {
+    let mut numbers = vec![1, 2, 3, 4, 5];
+
+    let first = &numbers[0];
+    let last = &numbers[numbers.len() - 1];
+
+    numbers.push(6);  // 错误：为什么？
+
+    println!("First: {}, Last: {}", first, last);
+    println!("{:?}", numbers);
+}
+
+// 提示：调整顺序或使用作用域
+```
+</UniversalEditor>
+
+### 练习 2：实现函数
+
+<UniversalEditor compare={true} title="练习 2 - 实现 find_largest">
+```rust !! rs
+// 使用借用实现这个函数
+
+fn main() {
+    let numbers = vec![10, 20, 30, 40, 50];
+    let largest = find_largest(&numbers);
+    println!("Largest: {}", largest);  // 应该打印 50
+}
+
+// TODO：实现 find_largest
+// 它应该：
+// 1. 接受对 Vec<i32> 的引用
+// 2. 返回最大值
+// 3. 使用借用（不获取所有权）
+fn find_largest(numbers: &Vec<i32>) -> i32 {
+    // 你的代码
+    unimplemented!()
+}
+```
+</UniversalEditor>
+
+### 练习 3：结构体中的借用
+
+<UniversalEditor compare={true} title="练习 3 - 带引用的结构体">
+```rust !! rs
+// 实现一个持有引用的结构体
+
+fn main() {
+    let data = vec![1, 2, 3, 4, 5];
+
+    // 创建一个引用 data 的 DataView
+    let view = create_view(&data);
+
+    println!("First: {}", view.first());  // 1
+    println!("Last: {}", view.last());    // 5
+
+    println!("{:?}", data);  // 仍然可访问
+}
+
+// TODO：定义带有引用的 DataView 结构体
+// 提示：你需要生命周期注解
+struct DataView {
+    // 你的字段
+}
+
+fn create_view(data: &Vec<i32>) -> DataView {
+    // 你的代码
+    unimplemented!()
+}
+
+// 为 DataView 实现方法
+// impl DataView {
+//     fn first(&self) -> i32 { ... }
+//     fn last(&self) -> i32 { ... }
+// }
+```
+</UniversalEditor>
+
+## 总结
+
+在本模块中，你学习了：
+
+### 核心概念
+- **借用**：Rust 在不转移所有权的情况下进行临时访问的系统
+- **不可变引用（`&T`）**：同时允许多个读取者
+- **可变引用（`&mut T`）**：独占访问，同一时间只能有一个
+- **借用检查器**：编译时强制执行内存安全
+
+### 借用规则
+1. 多个不可变引用可以
+2. 一个可变引用可以
+3. 不能混合可变和不可变引用
+4. 引用必须始终有效
+
+### Python vs Rust
+- **Python**：带有 GC 的运行时内存管理，灵活的引用
+- **Rust**：编译时保证，零成本安全
+
+### 最佳实践
+- 使用 `&T` 进行只读访问
+- 只在需要变异时使用 `&mut T`
+- 最小化借用范围
+- 需要时显式丢弃引用
+- 对复杂共享场景使用智能指针（Rc、RefCell）
+
+### 下一步
+在[模块 4：结构体和枚举](/docs/py2rust/module-04-structs-enums)中，我们将探索 Rust 的类型系统以及如何使用结构体和枚举定义自定义数据类型，并与 Python 的类和枚举进行比较。
+
+---
+
+**练习**：尝试用 Rust 重写一些使用引用的 Python 代码，注意借用规则。借用检查器会引导你采用安全的模式！
