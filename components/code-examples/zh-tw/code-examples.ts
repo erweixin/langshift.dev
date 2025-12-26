@@ -428,7 +428,7 @@ int main() {
   std::cout << "\"Hello, \" + \"World!\" = " 
             << add(std::string("Hello, "), std::string("World!")) 
             << std::endl;
-            
+
   return 0;
 }`,
     leftLanguage: 'javascript',
@@ -439,5 +439,461 @@ int main() {
     tags: ['類型系統', '函數', '模板', '動態 vs 靜態'],
     difficulty: 'beginner',
     category: '核心概念'
+  },
+  'js-go': {
+    leftCode: `// JavaScript 異步編程：Promise 和 async/await
+// 模擬異步操作
+function fetchData() {
+  return new Promise((resolve) => {
+    setTimeout(() => {
+      resolve({ id: 1, name: 'Alice' });
+    }, 1000);
+  });
+}
+
+// 使用 async/await
+async function getUser() {
+  console.log('獲取用戶數據...');
+  const user = await fetchData();
+  console.log('用戶:', user);
+  return user;
+}
+
+// 使用 Promise.then()
+fetchData().then(user => {
+  console.log('用戶:', user);
+});
+
+// 並發請求
+Promise.all([
+  fetchData(),
+  fetchData(),
+]).then(users => {
+  console.log('多個用戶:', users);
+});`,
+    rightCode: `// Go 並發編程：Goroutines 和 Channels
+package main
+
+import (
+  "fmt"
+  "time"
+)
+
+// 模擬異步操作
+func fetchData(userChan chan<- map[string]interface{}) {
+  time.Sleep(time.Second)
+  userChan <- map[string]interface{}{
+    "id":   1,
+    "name": "Alice",
+  }
+}
+
+// 使用 goroutine 和 channel
+func getUser() {
+  fmt.Println("獲取用戶數據...")
+  userChan := make(chan map[string]interface{})
+  go fetchData(userChan)
+  user := <-userChan
+  fmt.Println("用戶:", user)
+}
+
+// 使用 goroutine 和 channel
+func main() {
+  // 單個請求
+  userChan := make(chan map[string]interface{})
+  go fetchData(userChan)
+  user := <-userChan
+  fmt.Println("用戶:", user)
+
+  // 並發請求（類似 Promise.all）
+  userChan1 := make(chan map[string]interface{})
+  userChan2 := make(chan map[string]interface{})
+  go fetchData(userChan1)
+  go fetchData(userChan2)
+  user1 := <-userChan1
+  user2 := <-userChan2
+  fmt.Println("多個用戶:", []map[string]interface{}{user1, user2})
+}`,
+    leftLanguage: 'javascript',
+    rightLanguage: 'go',
+    titleLeft: 'JavaScript',
+    titleRight: 'Go',
+    description: '異步編程模式對比 - Promise/async-await vs Goroutines/Channels',
+    tags: ['異步編程', '並發', 'Promise', 'Goroutines'],
+    difficulty: 'intermediate',
+    category: '異步編程'
+  },
+  'js-swift': {
+    leftCode: `// JavaScript 數組和高階函數
+const numbers = [1, 2, 3, 4, 5];
+
+// Map - 轉換數組
+const doubled = numbers.map(x => x * 2);
+console.log(doubled); // [2, 4, 6, 8, 10]
+
+// Filter - 過濾數組
+const evens = numbers.filter(x => x % 2 === 0);
+console.log(evens); // [2, 4]
+
+// Reduce - 歸約數組
+const sum = numbers.reduce((acc, x) => acc + x, 0);
+console.log(sum); // 15
+
+// 鏈式調用
+const result = numbers
+  .filter(x => x % 2 === 0)
+  .map(x => x * 2)
+  .reduce((acc, x) => acc + x, 0);
+console.log(result); // 12
+
+// Find - 查找元素
+const found = numbers.find(x => x > 3);
+console.log(found); // 4`,
+    rightCode: `// Swift 數組和高階函數
+import Foundation
+
+let numbers = [1, 2, 3, 4, 5]
+
+// Map - 轉換數組
+let doubled = numbers.map { $0 * 2 }
+print(doubled) // [2, 4, 6, 8, 10]
+
+// Filter - 過濾數組
+let evens = numbers.filter { $0 % 2 == 0 }
+print(evens) // [2, 4]
+
+// Reduce - 歸約數組
+let sum = numbers.reduce(0) { $0 + $1 }
+print(sum) // 15
+
+// 鏈式調用
+let result = numbers
+  .filter { $0 % 2 == 0 }
+  .map { $0 * 2 }
+  .reduce(0) { $0 + $1 }
+print(result) // 12
+
+// Find - 查找元素
+let found = numbers.first { $0 > 3 }
+print(found as Any) // Optional(4)
+
+// CompactMap - 處理可選值
+let strings = ["1", "2", "abc", "4"]
+let numbersFromStrings = strings.compactMap { Int($0) }
+print(numbersFromStrings) // [1, 2, 4]`,
+    leftLanguage: 'javascript',
+    rightLanguage: 'swift',
+    titleLeft: 'JavaScript',
+    titleRight: 'Swift',
+    description: '數組和函數式編程 - 高階函數和鏈式調用',
+    tags: ['數組', '函數式編程', '高階函數', 'Map/Filter/Reduce'],
+    difficulty: 'beginner',
+    category: '數據結構'
+  },
+  'js-c': {
+    leftCode: `// JavaScript: 動態數組和對象
+// 數組可以動態增長
+const arr = [1, 2, 3];
+arr.push(4);
+arr.push(5);
+console.log(arr); // [1, 2, 3, 4, 5]
+
+// 數組可以存儲任意類型
+arr.push("hello");
+arr.push({ name: "Alice" });
+console.log(arr); // [1, 2, 3, 4, 5, "hello", { name: "Alice" }]
+
+// 對象動態添加屬性
+const obj = {};
+obj.name = "Alice";
+obj.age = 30;
+obj.greet = function() {
+  return \`Hello, I'm \${this.name}\`;
+};
+console.log(obj.greet()); // "Hello, I'm Alice"
+
+// 自動記憶體管理
+let data = [];
+for (let i = 0; i < 1000; i++) {
+  data.push({ id: i, value: Math.random() });
+}
+// 垃圾回收器會自動清理記憶體`,
+    rightCode: `#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+// C: 手動記憶體管理和固定大小數組
+// 數組大小必須固定
+int arr[5] = {1, 2, 3, 4, 5};
+
+// 動態數組需要手動管理記憶體
+int* create_dynamic_array(int size) {
+  int* arr = (int*)malloc(size * sizeof(int));
+  if (arr == NULL) {
+    fprintf(stderr, "記憶體分配失敗\\n");
+    exit(1);
+  }
+  return arr;
+}
+
+// 結構體定義
+struct Person {
+  char name[50];
+  int age;
+};
+
+// 結構體數組
+struct Person* create_person_array(int size) {
+  struct Person* people = (struct Person*)malloc(size * sizeof(struct Person));
+  if (people == NULL) {
+    fprintf(stderr, "記憶體分配失敗\\n");
+    exit(1);
+  }
+  return people;
+}
+
+int main() {
+  // 動態數組示例
+  int size = 1000;
+  int* data = create_dynamic_array(size);
+
+  for (int i = 0; i < size; i++) {
+    data[i] = i;
+  }
+
+  // 使用完必須手動釋放記憶體
+  free(data);
+
+  // 結構體數組示例
+  struct Person* people = create_person_array(10);
+  strcpy(people[0].name, "Alice");
+  people[0].age = 30;
+
+  printf("Name: %s, Age: %d\\n", people[0].name, people[0].age);
+
+  // 手動釋放記憶體
+  free(people);
+
+  return 0;
+}`,
+    leftLanguage: 'javascript',
+    rightLanguage: 'c',
+    titleLeft: 'JavaScript',
+    titleRight: 'C',
+    description: '記憶體管理對比 - 垃圾回收 vs 手動記憶體管理',
+    tags: ['記憶體管理', '數組', '動態 vs 靜態', '指針'],
+    difficulty: 'advanced',
+    category: '記憶體管理'
+  },
+  'js-kt': {
+    leftCode: `// JavaScript 類和面向對象編程
+class Person {
+  constructor(name, age) {
+    this.name = name;
+    this.age = age;
+  }
+
+  greet() {
+    return \`Hello, I'm \${this.name}\`;
+  }
+
+  introduce() {
+    return \`I'm \${this.age} years old\`;
+  }
+}
+
+// 繼承
+class Student extends Person {
+  constructor(name, age, studentId) {
+    super(name, age);
+    this.studentId = studentId;
+  }
+
+  greet() {
+    return \`Hi, I'm \${this.name} (ID: \${this.studentId})\`;
+  }
+}
+
+// 使用
+const person = new Person("Alice", 25);
+console.log(person.greet()); // "Hello, I'm Alice"
+
+const student = new Student("Bob", 20, "S12345");
+console.log(student.greet()); // "Hi, I'm Bob (ID: S12345)"`,
+    rightCode: `// Kotlin 類和面向對象編程
+// 數據類 - 自動生成 equals, hashCode, toString, copy
+data class Person(
+  val name: String,
+  val age: Int
+) {
+  fun greet() = "Hello, I'm $name"
+
+  fun introduce() = "I'm $age years old"
+}
+
+// 密封類 - 受限的類繼承結構
+sealed class StudentStatus {
+  data class Active(val gpa: Double) : StudentStatus()
+  data class OnProbation(val reason: String) : StudentStatus()
+  object Graduated : StudentStatus()
+}
+
+// 繼承
+open class Animal(val name: String) {
+  open fun makeSound() = "Some sound"
+}
+
+class Dog(name: String) : Animal(name) {
+  override fun makeSound() = "Woof!"
+}
+
+// 使用
+fun main() {
+  val person = Person("Alice", 25)
+  println(person.greet()) // "Hello, I'm Alice"
+
+  // 數據類的 copy 功能
+  val olderPerson = person.copy(age = 26)
+  println(olderPerson) // "Person(name=Alice, age=26)"
+
+  val dog = Dog("Buddy")
+  println(dog.makeSound()) // "Woof!"
+
+  // 智能類型轉換
+  fun checkStatus(status: StudentStatus) = when (status) {
+    is StudentStatus.Active -> "Active with GPA ${status.gpa}"
+    is StudentStatus.OnProbation -> "On probation: ${status.reason}"
+    is StudentStatus.Graduated -> "Graduated"
+  }
+}`,
+    leftLanguage: 'javascript',
+    rightLanguage: 'kotlin',
+    titleLeft: 'JavaScript',
+    titleRight: 'Kotlin',
+    description: '面向對象編程對比 - 類繼承 vs 數據類和密封類',
+    tags: ['面向對象', '類', '繼承', '數據類'],
+    difficulty: 'intermediate',
+    category: '面向對象編程'
+  },
+  'js-java': {
+    leftCode: `// JavaScript: 靈活的函數定義
+// 函數聲明
+function add(a, b) {
+  return a + b;
+}
+
+// 函數表達式
+const multiply = function(a, b) {
+  return a * b;
+};
+
+// 箭頭函數
+const subtract = (a, b) => a - b;
+
+// 默認參數
+function greet(name = "World", greeting = "Hello") {
+  return \`\${greeting}, \${name}!\`;
+}
+
+// 解構參數
+function createUser({ name, age, email }) {
+  return { name, age, email };
+}
+
+const user = createUser({
+  name: "Alice",
+  age: 30,
+  email: "alice@example.com"
+});
+
+// 剩餘參數
+function sum(...numbers) {
+  return numbers.reduce((acc, n) => acc + n, 0);
+}
+
+console.log(sum(1, 2, 3, 4, 5)); // 15`,
+    rightCode: `// Java: 嚴格的方法定義
+public class Main {
+  // 方法重載 - 相同方法名，不同參數
+  public static int add(int a, int b) {
+    return a + b;
+  }
+
+  public static double add(double a, double b) {
+    return a + b;
+  }
+
+  // 可變參數
+  public static int sum(int... numbers) {
+    int total = 0;
+    for (int num : numbers) {
+      total += num;
+    }
+    return total;
+  }
+
+  // 使用類封裝參數（類似解構）
+  static class User {
+    String name;
+    int age;
+    String email;
+
+    User(String name, int age, String email) {
+      this.name = name;
+      this.age = age;
+      this.email = email;
+    }
+  }
+
+  public static User createUser(User user) {
+    return user;
+  }
+
+  // 使用 Builder 模式（更靈活的參數傳遞）
+  static class UserBuilder {
+    private String name;
+    private int age;
+    private String email;
+
+    public UserBuilder setName(String name) {
+      this.name = name;
+      return this;
+    }
+
+    public UserBuilder setAge(int age) {
+      this.age = age;
+      return this;
+    }
+
+    public UserBuilder setEmail(String email) {
+      this.email = email;
+      return this;
+    }
+
+    public User build() {
+      return new User(name, age, email);
+    }
+  }
+
+  public static void main(String[] args) {
+    System.out.println(add(5, 3)); // 8
+    System.out.println(add(5.5, 3.2)); // 8.7
+    System.out.println(sum(1, 2, 3, 4, 5)); // 15
+
+    User user = new UserBuilder()
+      .setName("Alice")
+      .setAge(30)
+      .setEmail("alice@example.com")
+      .build();
+  }
+}`,
+    leftLanguage: 'javascript',
+    rightLanguage: 'java',
+    titleLeft: 'JavaScript',
+    titleRight: 'Java',
+    description: '函數和方法定義對比 - 靈活性 vs 嚴格性',
+    tags: ['函數', '方法', '參數', '重載'],
+    difficulty: 'intermediate',
+    category: '函數編程'
   }
 };

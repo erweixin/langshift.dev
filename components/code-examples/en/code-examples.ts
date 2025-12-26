@@ -425,10 +425,10 @@ int main() {
   std::cout << "5 + 10 = " << add(5, 10) << std::endl;
 
   // 2. Used for string concatenation (T is deduced as std::string)
-  std::cout << "\"Hello, \" + \"World!\" = " 
-            << add(std::string("Hello, "), std::string("World!")) 
+  std::cout << "\"Hello, \" + \"World!\" = "
+            << add(std::string("Hello, "), std::string("World!"))
             << std::endl;
-            
+
   return 0;
 }`,
     leftLanguage: 'javascript',
@@ -439,5 +439,461 @@ int main() {
     tags: ['Type System', 'Functions', 'Templates', 'Dynamic vs Static'],
     difficulty: 'beginner',
     category: 'Core Concepts'
+  },
+  'js-go': {
+    leftCode: `// JavaScript async programming: Promise and async/await
+// Simulate async operation
+function fetchData() {
+  return new Promise((resolve) => {
+    setTimeout(() => {
+      resolve({ id: 1, name: 'Alice' });
+    }, 1000);
+  });
+}
+
+// Using async/await
+async function getUser() {
+  console.log('Fetching user data...');
+  const user = await fetchData();
+  console.log('User:', user);
+  return user;
+}
+
+// Using Promise.then()
+fetchData().then(user => {
+  console.log('User:', user);
+});
+
+// Parallel requests
+Promise.all([
+  fetchData(),
+  fetchData(),
+]).then(users => {
+  console.log('Multiple users:', users);
+});`,
+    rightCode: `// Go concurrent programming: Goroutines and Channels
+package main
+
+import (
+  "fmt"
+  "time"
+)
+
+// Simulate async operation
+func fetchData(userChan chan<- map[string]interface{}) {
+  time.Sleep(time.Second)
+  userChan <- map[string]interface{}{
+    "id":   1,
+    "name": "Alice",
+  }
+}
+
+// Using goroutine and channel
+func getUser() {
+  fmt.Println("Fetching user data...")
+  userChan := make(chan map[string]interface{})
+  go fetchData(userChan)
+  user := <-userChan
+  fmt.Println("User:", user)
+}
+
+// Using goroutine and channel
+func main() {
+  // Single request
+  userChan := make(chan map[string]interface{})
+  go fetchData(userChan)
+  user := <-userChan
+  fmt.Println("User:", user)
+
+  // Parallel requests (similar to Promise.all)
+  userChan1 := make(chan map[string]interface{})
+  userChan2 := make(chan map[string]interface{})
+  go fetchData(userChan1)
+  go fetchData(userChan2)
+  user1 := <-userChan1
+  user2 := <-userChan2
+  fmt.Println("Multiple users:", []map[string]interface{}{user1, user2})
+}`,
+    leftLanguage: 'javascript',
+    rightLanguage: 'go',
+    titleLeft: 'JavaScript',
+    titleRight: 'Go',
+    description: 'Async programming patterns comparison - Promise/async-await vs Goroutines/Channels',
+    tags: ['Async', 'Concurrency', 'Promise', 'Goroutines'],
+    difficulty: 'intermediate',
+    category: 'Async Programming'
+  },
+  'js-swift': {
+    leftCode: `// JavaScript arrays and higher-order functions
+const numbers = [1, 2, 3, 4, 5];
+
+// Map - transform array
+const doubled = numbers.map(x => x * 2);
+console.log(doubled); // [2, 4, 6, 8, 10]
+
+// Filter - filter array
+const evens = numbers.filter(x => x % 2 === 0);
+console.log(evens); // [2, 4]
+
+// Reduce - reduce array
+const sum = numbers.reduce((acc, x) => acc + x, 0);
+console.log(sum); // 15
+
+// Chaining
+const result = numbers
+  .filter(x => x % 2 === 0)
+  .map(x => x * 2)
+  .reduce((acc, x) => acc + x, 0);
+console.log(result); // 12
+
+// Find - find element
+const found = numbers.find(x => x > 3);
+console.log(found); // 4`,
+    rightCode: `// Swift arrays and higher-order functions
+import Foundation
+
+let numbers = [1, 2, 3, 4, 5]
+
+// Map - transform array
+let doubled = numbers.map { $0 * 2 }
+print(doubled) // [2, 4, 6, 8, 10]
+
+// Filter - filter array
+let evens = numbers.filter { $0 % 2 == 0 }
+print(evens) // [2, 4]
+
+// Reduce - reduce array
+let sum = numbers.reduce(0) { $0 + $1 }
+print(sum) // 15
+
+// Chaining
+let result = numbers
+  .filter { $0 % 2 == 0 }
+  .map { $0 * 2 }
+  .reduce(0) { $0 + $1 }
+print(result) // 12
+
+// Find - find element
+let found = numbers.first { $0 > 3 }
+print(found as Any) // Optional(4)
+
+// CompactMap - handle optionals
+let strings = ["1", "2", "abc", "4"]
+let numbersFromStrings = strings.compactMap { Int($0) }
+print(numbersFromStrings) // [1, 2, 4]`,
+    leftLanguage: 'javascript',
+    rightLanguage: 'swift',
+    titleLeft: 'JavaScript',
+    titleRight: 'Swift',
+    description: 'Arrays and functional programming - higher-order functions and chaining',
+    tags: ['Arrays', 'Functional Programming', 'Higher-Order Functions', 'Map/Filter/Reduce'],
+    difficulty: 'beginner',
+    category: 'Data Structures'
+  },
+  'js-c': {
+    leftCode: `// JavaScript: Dynamic arrays and objects
+// Arrays can grow dynamically
+const arr = [1, 2, 3];
+arr.push(4);
+arr.push(5);
+console.log(arr); // [1, 2, 3, 4, 5]
+
+// Arrays can store any type
+arr.push("hello");
+arr.push({ name: "Alice" });
+console.log(arr); // [1, 2, 3, 4, 5, "hello", { name: "Alice" }]
+
+// Objects can add properties dynamically
+const obj = {};
+obj.name = "Alice";
+obj.age = 30;
+obj.greet = function() {
+  return \`Hello, I'm \${this.name}\`;
+};
+console.log(obj.greet()); // "Hello, I'm Alice"
+
+// Automatic memory management
+let data = [];
+for (let i = 0; i < 1000; i++) {
+  data.push({ id: i, value: Math.random() });
+}
+// Garbage collector automatically cleans memory`,
+    rightCode: `#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+// C: Manual memory management and fixed-size arrays
+// Array size must be fixed
+int arr[5] = {1, 2, 3, 4, 5};
+
+// Dynamic arrays require manual memory management
+int* create_dynamic_array(int size) {
+  int* arr = (int*)malloc(size * sizeof(int));
+  if (arr == NULL) {
+    fprintf(stderr, "Memory allocation failed\\n");
+    exit(1);
+  }
+  return arr;
+}
+
+// Struct definition
+struct Person {
+  char name[50];
+  int age;
+};
+
+// Struct array
+struct Person* create_person_array(int size) {
+  struct Person* people = (struct Person*)malloc(size * sizeof(struct Person));
+  if (people == NULL) {
+    fprintf(stderr, "Memory allocation failed\\n");
+    exit(1);
+  }
+  return people;
+}
+
+int main() {
+  // Dynamic array example
+  int size = 1000;
+  int* data = create_dynamic_array(size);
+
+  for (int i = 0; i < size; i++) {
+    data[i] = i;
+  }
+
+  // Must manually free memory after use
+  free(data);
+
+  // Struct array example
+  struct Person* people = create_person_array(10);
+  strcpy(people[0].name, "Alice");
+  people[0].age = 30;
+
+  printf("Name: %s, Age: %d\\n", people[0].name, people[0].age);
+
+  // Manually free memory
+  free(people);
+
+  return 0;
+}`,
+    leftLanguage: 'javascript',
+    rightLanguage: 'c',
+    titleLeft: 'JavaScript',
+    titleRight: 'C',
+    description: 'Memory management comparison - garbage collection vs manual memory management',
+    tags: ['Memory Management', 'Arrays', 'Dynamic vs Static', 'Pointers'],
+    difficulty: 'advanced',
+    category: 'Memory Management'
+  },
+  'js-kt': {
+    leftCode: `// JavaScript classes and object-oriented programming
+class Person {
+  constructor(name, age) {
+    this.name = name;
+    this.age = age;
+  }
+
+  greet() {
+    return \`Hello, I'm \${this.name}\`;
+  }
+
+  introduce() {
+    return \`I'm \${this.age} years old\`;
+  }
+}
+
+// Inheritance
+class Student extends Person {
+  constructor(name, age, studentId) {
+    super(name, age);
+    this.studentId = studentId;
+  }
+
+  greet() {
+    return \`Hi, I'm \${this.name} (ID: \${this.studentId})\`;
+  }
+}
+
+// Usage
+const person = new Person("Alice", 25);
+console.log(person.greet()); // "Hello, I'm Alice"
+
+const student = new Student("Bob", 20, "S12345");
+console.log(student.greet()); // "Hi, I'm Bob (ID: S12345)"`,
+    rightCode: `// Kotlin classes and object-oriented programming
+// Data class - auto-generates equals, hashCode, toString, copy
+data class Person(
+  val name: String,
+  val age: Int
+) {
+  fun greet() = "Hello, I'm $name"
+
+  fun introduce() = "I'm $age years old"
+}
+
+// Sealed class - restricted class hierarchy
+sealed class StudentStatus {
+  data class Active(val gpa: Double) : StudentStatus()
+  data class OnProbation(val reason: String) : StudentStatus()
+  object Graduated : StudentStatus()
+}
+
+// Inheritance
+open class Animal(val name: String) {
+  open fun makeSound() = "Some sound"
+}
+
+class Dog(name: String) : Animal(name) {
+  override fun makeSound() = "Woof!"
+}
+
+// Usage
+fun main() {
+  val person = Person("Alice", 25)
+  println(person.greet()) // "Hello, I'm Alice"
+
+  // Data class copy feature
+  val olderPerson = person.copy(age = 26)
+  println(olderPerson) // "Person(name=Alice, age=26)"
+
+  val dog = Dog("Buddy")
+  println(dog.makeSound()) // "Woof!"
+
+  // Smart type casting
+  fun checkStatus(status: StudentStatus) = when (status) {
+    is StudentStatus.Active -> "Active with GPA ${status.gpa}"
+    is StudentStatus.OnProbation -> "On probation: ${status.reason}"
+    is StudentStatus.Graduated -> "Graduated"
+  }
+}`,
+    leftLanguage: 'javascript',
+    rightLanguage: 'kotlin',
+    titleLeft: 'JavaScript',
+    titleRight: 'Kotlin',
+    description: 'Object-oriented programming comparison - class inheritance vs data classes and sealed classes',
+    tags: ['OOP', 'Classes', 'Inheritance', 'Data Classes'],
+    difficulty: 'intermediate',
+    category: 'Object-Oriented Programming'
+  },
+  'js-java': {
+    leftCode: `// JavaScript: Flexible function definitions
+// Function declaration
+function add(a, b) {
+  return a + b;
+}
+
+// Function expression
+const multiply = function(a, b) {
+  return a * b;
+};
+
+// Arrow function
+const subtract = (a, b) => a - b;
+
+// Default parameters
+function greet(name = "World", greeting = "Hello") {
+  return \`\${greeting}, \${name}!\`;
+}
+
+// Destructuring parameters
+function createUser({ name, age, email }) {
+  return { name, age, email };
+}
+
+const user = createUser({
+  name: "Alice",
+  age: 30,
+  email: "alice@example.com"
+});
+
+// Rest parameters
+function sum(...numbers) {
+  return numbers.reduce((acc, n) => acc + n, 0);
+}
+
+console.log(sum(1, 2, 3, 4, 5)); // 15`,
+    rightCode: `// Java: Strict method definitions
+public class Main {
+  // Method overloading - same method name, different parameters
+  public static int add(int a, int b) {
+    return a + b;
+  }
+
+  public static double add(double a, double b) {
+    return a + b;
+  }
+
+  // Varargs
+  public static int sum(int... numbers) {
+    int total = 0;
+    for (int num : numbers) {
+      total += num;
+    }
+    return total;
+  }
+
+  // Using class to encapsulate parameters (similar to destructuring)
+  static class User {
+    String name;
+    int age;
+    String email;
+
+    User(String name, int age, String email) {
+      this.name = name;
+      this.age = age;
+      this.email = email;
+    }
+  }
+
+  public static User createUser(User user) {
+    return user;
+  }
+
+  // Using Builder pattern (more flexible parameter passing)
+  static class UserBuilder {
+    private String name;
+    private int age;
+    private String email;
+
+    public UserBuilder setName(String name) {
+      this.name = name;
+      return this;
+    }
+
+    public UserBuilder setAge(int age) {
+      this.age = age;
+      return this;
+    }
+
+    public UserBuilder setEmail(String email) {
+      this.email = email;
+      return this;
+    }
+
+    public User build() {
+      return new User(name, age, email);
+    }
+  }
+
+  public static void main(String[] args) {
+    System.out.println(add(5, 3)); // 8
+    System.out.println(add(5.5, 3.2)); // 8.7
+    System.out.println(sum(1, 2, 3, 4, 5)); // 15
+
+    User user = new UserBuilder()
+      .setName("Alice")
+      .setAge(30)
+      .setEmail("alice@example.com")
+      .build();
+  }
+}`,
+    leftLanguage: 'javascript',
+    rightLanguage: 'java',
+    titleLeft: 'JavaScript',
+    titleRight: 'Java',
+    description: 'Function and method definition comparison - flexibility vs strictness',
+    tags: ['Functions', 'Methods', 'Parameters', 'Overloading'],
+    difficulty: 'intermediate',
+    category: 'Functional Programming'
   }
 };

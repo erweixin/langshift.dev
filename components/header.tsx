@@ -73,6 +73,14 @@ const SOURCE_LANGUAGES = [
         path: 'js2kotlin',
         status: 'completed' as const,
       },
+      {
+        id: 'java',
+        name: 'Java',
+        icon: '☕',
+        gradient: 'from-red-500 to-rose-500',
+        path: 'js2java',
+        status: 'completed' as const,
+      },
     ]
   },
   {
