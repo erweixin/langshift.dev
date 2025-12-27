@@ -1,0 +1,814 @@
+---
+title: "Module 14: Build Tools and Dependency Management"
+---
+
+This module covers Go's build tools and dependency management, comparing them with Java's Maven and Gradle ecosystems.
+
+## Go Tools vs Java Build Tools
+
+**Java Build Tools:**
+- Maven: XML-based, convention over configuration
+- Gradle: Groovy/Kotlin DSL, flexible and powerful
+- Complex dependency resolution with transitive conflicts
+- Plugin ecosystem for various tasks
+- Build lifecycle management
+
+**Go Build Tools:**
+- `go`: Official command-line toolchain
+- Simple, fast, and opinionated
+- Minimal version selection (MVS) for dependencies
+- Standardized project structure
+- Built-in testing, benchmarking, and profiling
+
+<UniversalEditor title="Build Commands Comparison">
+```bash !! bash
+# Java: Maven commands
+mvn clean                    # Clean build artifacts
+mvn compile                  # Compile source code
+mvn test                     # Run tests
+mvn package                  # Create JAR/WAR
+mvn install                  # Install to local repo
+mvn deploy                   # Deploy to remote repo
+mvn dependency:tree          # Show dependency tree
+mvn versions:display-dependency-updates  # Check updates
+
+# Java: Gradle commands
+gradle clean                 # Clean build artifacts
+gradle build                 # Build project
+gradle test                  # Run tests
+gradle bootRun              # Run Spring Boot app
+gradle dependencies         # Show dependencies
+gradle dependencyUpdates    # Check for updates
+
+# Both support:
+# - Multi-module projects
+# - Custom plugins
+# - Build profiles
+# - Continuous integration
+```
+
+```bash !! bash
+# Go: go command
+go build                    # Build executable
+go test                     # Run tests
+go run main.go             # Build and run
+go fmt ./...               # Format code
+go vet ./...               # Run static analysis
+go mod init                # Initialize module
+go mod tidy                # Clean dependencies
+go get github.com/pkg/pkg  # Add dependency
+go install github.com/pkg/cmd@latest  # Install tool
+
+# Go tools:
+go list -m all             # List all dependencies
+go mod graph               # Show dependency graph
+go mod verify              # Verify dependencies
+go mod why github.com/pkg  # Explain why dependency needed
+go generate                # Generate code
+go tool cover              # Coverage analysis
+
+# Advantages:
+# - Single toolchain
+# - Faster builds
+# - Simpler dependency model
+# - Built-in to language
+```
+</UniversalEditor>
+
+## Dependency Management
+
+<UniversalEditor title="Dependency Management">
+```xml !! xml
+<!-- Java: Maven pom.xml -->
+<project>
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>com.example</groupId>
+    <artifactId>myapp</artifactId>
+    <version>1.0.0</version>
+    <packaging>jar</packaging>
+
+    <properties>
+        <java.version>17</java.version>
+        <spring.boot.version>3.1.0</spring.boot.version>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <version>1.18.28</version>
+            <scope>provided</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-dependencies</artifactId>
+                <version>${spring.boot.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+</project>
+```
+
+```go !! go
+// Go: go.mod
+module github.com/example/myapp
+
+go 1.21
+
+require (
+    github.com/gin-gonic/gin v1.9.1
+    github.com/go-redis/redis/v8 v8.11.5
+    gorm.io/gorm v1.25.4
+)
+
+require (
+    github.com/cespare/xxhash/v2 v2.2.0 // indirect
+    github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
+    github.com/jinzhu/inflection v1.0.0 // indirect
+)
+
+// go.sum contains checksums for all dependencies
+// Automatically managed by Go tools
+
+// No version conflicts in Go!
+// Minimal Version Selection (MVS) algorithm:
+// - Uses the minimum version that satisfies all requirements
+// - Predictable and reproducible builds
+// - No need for conflict resolution
+```
+</UniversalEditor>
+
+## Project Structure
+
+<UniversalEditor title="Project Structure Comparison">
+```
+# Java: Maven Standard Layout
+myapp/
+├── pom.xml
+├── src/
+│   ├── main/
+│   │   ├── java/
+│   │   │   └── com/
+│   │   │       └── example/
+│   │   │           └── myapp/
+│   │   │               ├── Main.java
+│   │   │               ├── service/
+│   │   │               └── model/
+│   │   └── resources/
+│   │       ├── application.properties
+│   │       └── static/
+│   └── test/
+│       ├── java/
+│       └── resources/
+└── target/                    # Build output
+
+# Features:
+# - Strict convention over configuration
+# - Separation of concerns
+# - Resource management
+# - Multiple output types (jar, war)
+```
+
+```
+# Go: Standard Layout
+myapp/
+├── go.mod
+├── go.sum
+├── main.go
+├── api/
+│   └── handler/
+├── service/
+├── model/
+├── repository/
+├── config/
+│   └── config.go
+├── go build                  # Build output (if needed)
+├── myapp                     # Binary output
+├── main_test.go              # Test files next to source
+└── README.md
+
+# Features:
+# - Flexible structure
+# - Tests next to source code
+#   or in separate files with _test.go suffix
+# - Simple and straightforward
+# - No enforced conventions
+```
+</UniversalEditor>
+
+## Testing
+
+<UniversalEditor title="Testing Setup">
+```java !! java
+// Java: JUnit 5 Test
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
+
+@DisplayName("User Service Tests")
+class UserServiceTest {
+
+    private UserRepository userRepository;
+    private UserService userService;
+
+    @BeforeEach
+    void setUp() {
+        userRepository = mock(UserRepository.class);
+        userService = new UserService(userRepository);
+    }
+
+    @Test
+    @DisplayName("Should create user successfully")
+    void shouldCreateUser() {
+        // Given
+        User user = new User("john@example.com");
+        when(userRepository.save(any(User.class)))
+            .thenReturn(user);
+
+        // When
+        User result = userService.create(user);
+
+        // Then
+        assertNotNull(result);
+        assertEquals("john@example.com", result.getEmail());
+        verify(userRepository).save(user);
+    }
+
+    @Test
+    @DisplayName("Should throw exception for duplicate email")
+    void shouldThrowForDuplicate() {
+        // Given
+        User user = new User("john@example.com");
+        when(userRepository.existsByEmail("john@example.com"))
+            .thenReturn(true);
+
+        // When & Then
+        assertThrows(DuplicateEmailException.class,
+            () -> userService.create(user));
+    }
+}
+```
+
+```go !! go
+// Go: Testing
+package main
+
+import (
+    "testing"
+    "github.com/stretchr/testify/assert"
+    "github.com/stretchr/testify/mock"
+)
+
+// Mock repository
+type MockUserRepository struct {
+    mock.Mock
+}
+
+func (m *MockUserRepository) Save(user *User) error {
+    args := m.Called(user)
+    return args.Error(0)
+}
+
+func (m *MockUserRepository) ExistsByEmail(email string) bool {
+    args := m.Called(email)
+    return args.Bool(0)
+}
+
+func TestUserService_Create(t *testing.T) {
+    tests := []struct {
+        name        string
+        email       string
+        mockSetup   func(*MockUserRepository)
+        wantErr     bool
+        errType     error
+    }{
+        {
+            name:  "successful creation",
+            email: "john@example.com",
+            mockSetup: func(m *MockUserRepository) {
+                m.On("ExistsByEmail", "john@example.com").Return(false)
+                m.On("Save", mock.Anything).Return(nil)
+            },
+            wantErr: false,
+        },
+        {
+            name:  "duplicate email",
+            email: "john@example.com",
+            mockSetup: func(m *MockUserRepository) {
+                m.On("ExistsByEmail", "john@example.com").Return(true)
+            },
+            wantErr: true,
+            errType: ErrDuplicateEmail,
+        },
+    }
+
+    for _, tt := range tests {
+        t.Run(tt.name, func(t *testing.T) {
+            mockRepo := new(MockUserRepository)
+            tt.mockSetup(mockRepo)
+
+            service := NewUserService(mockRepo)
+            user := &User{Email: tt.email}
+
+            err := service.Create(user)
+
+            if tt.wantErr {
+                assert.Error(t, err)
+                if tt.errType != nil {
+                    assert.ErrorIs(t, err, tt.errType)
+                }
+            } else {
+                assert.NoError(t, err)
+            }
+
+            mockRepo.AssertExpectations(t)
+        })
+    }
+}
+```
+</UniversalEditor>
+
+## Code Generation
+
+<UniversalEditor title="Code Generation">
+```java !! java
+// Java: Annotation Processing
+import javax.annotation.processing.*;
+import javax.lang.model.element.*;
+import javax.tools.*;
+import lombok.Data;
+import lombok.Builder;
+
+// Using Lombok for code generation
+@Data                                      // Generate getters/setters
+@Builder                                   // Generate builder
+@AllArgsConstructor                      // Generate constructor
+@NoArgsConstructor                       // Generate no-args constructor
+public class User {
+    private Long id;
+    private String email;
+    private String name;
+
+    // Lombok generates:
+    // - Getters and setters
+    // - equals() and hashCode()
+    // - toString()
+    // - Builder pattern
+}
+
+// Or use annotation processors for custom generation:
+@Generated("MyProcessor")
+public class GeneratedClass {
+    // Custom generated code
+}
+```
+
+```go !! go
+// Go: go generate
+//go:generate go run github.com/google/golang-api/cmd/goapi
+
+package main
+
+// Generate string methods
+//go:generate stringer -type=Role
+
+type Role int
+
+const (
+    RoleGuest Role = iota
+    RoleUser
+    RoleAdmin
+)
+
+//go:generate mockgen -destination=mocks/mock_repository.go -package=mocks github.com/example/myapp Repository
+
+type Repository interface {
+    GetUser(id int) (*User, error)
+}
+
+// Usage:
+// 1. Add //go:generate comments
+// 2. Run: go generate ./...
+// 3. Generated files appear in source tree
+
+// Common generators:
+// - stringer: Generate String() methods
+// - mockgen: Generate mocks (from gomock)
+// - go run: Custom generators
+// - protoc: Protocol buffer code
+```
+</UniversalEditor>
+
+## Build Tags and Constraints
+
+<UniversalEditor title="Platform-Specific Code">
+```java !! java
+// Java: Platform-specific code
+public class PlatformUtils {
+    public static String getPlatformInfo() {
+        String os = System.getProperty("os.name").toLowerCase();
+        String arch = System.getProperty("os.arch").toLowerCase();
+
+        if (os.contains("win")) {
+            return "Windows";
+        } else if (os.contains("mac")) {
+            return "macOS";
+        } else if (os.contains("nix") || os.contains("nux")) {
+            return "Linux";
+        }
+
+        return "Unknown";
+    }
+
+    // Or use conditional compilation
+    // with different source sets
+}
+
+// Or use native libraries with JNI:
+// - Different .so/.dll files per platform
+// - Complex setup
+// - Runtime loading issues
+```
+
+```go !! go
+// Go: Build tags for conditional compilation
+
+//go:build !windows
+
+package main
+
+import "fmt"
+
+func getPlatformFeatures() []string {
+    return []string{"Symlinks", "Unix sockets", "Signals"}
+}
+
+// File: platform_linux.go
+//go:build linux
+
+package main
+
+func getOSSpecificInfo() string {
+    return "Linux-specific features"
+}
+
+// File: platform_windows.go
+//go:build windows
+
+package main
+
+func getOSSpecificInfo() string {
+    return "Windows-specific features"
+}
+
+// Build constraints support:
+// - OS: linux, darwin, windows
+// - Architecture: amd64, arm64
+// - Compiler: gc, gccgo
+// - Custom tags: !cgo, integration
+
+// Example: ignore integration tests in normal build
+//go:build integration
+
+package main_test
+
+func TestIntegration(t *testing.T) {
+    // Integration tests only
+}
+```
+</UniversalEditor>
+
+## Continuous Integration Configuration
+
+<UniversalEditor title="CI/CD Build Configuration">
+```yaml !! yaml
+# Java: .github/workflows/ci.yml
+name: Java CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        java: ['17', '21']
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up JDK ${{ matrix.java }}
+      uses: actions/setup-java@v3
+      with:
+        java-version: ${{ matrix.java }}
+        cache: 'maven'
+
+    - name: Build with Maven
+      run: mvn -B verify
+
+    - name: Upload coverage
+      uses: codecov/codecov-action@v3
+      with:
+        file: target/site/jacoco/jacoco.xml
+```
+
+```yaml !! yaml
+# Go: .github/workflows/ci.yml
+name: Go CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        go: ['1.20', '1.21']
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ matrix.go }}
+        cache: true
+
+    - name: Download dependencies
+      run: go mod download
+
+    - name: Verify dependencies
+      run: go mod verify
+
+    - name: Run go vet
+      run: go vet ./...
+
+    - name: Run tests
+      run: go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
+
+    - name: Upload coverage
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.txt
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: golangci-lint
+      uses: golangci/golangci-lint-action@v3
+      with:
+        version: latest
+```
+</UniversalEditor>
+
+## Popular Go Tools
+
+<UniversalEditor title="Development Tools">
+```bash !! bash
+# Java: Common tools
+
+# Code quality
+checkstyle              # Code style checking
+PMD                     # Code analysis
+SpotBugs                # Bug detection
+SonarQube              # Code quality platform
+
+# Build tools
+Maven                  # Build automation
+Gradle                 # Flexible build tool
+JBang                  # Run Java code directly
+
+# Testing
+JUnit                  # Unit testing
+TestNG                 # Testing framework
+Mockito                # Mocking
+RestAssured            # REST testing
+
+# Profiling and monitoring
+JProfiler              # Java profiler
+VisualVM               # Monitoring and profiling
+JConsole              # JVM monitoring
+```
+
+```bash !! bash
+# Go: Essential tools
+
+# Install tools
+go install github.com/...@latest
+
+# Linting and formatting
+golangci-lint          # Comprehensive linter (supersedes many others)
+go fmt                 # Built-in formatter
+go vet                 # Static analysis
+staticcheck            # Advanced static analysis
+
+# Testing
+go test                # Built-in testing
+gotestsum              # Test runner
+gomock                 # Mock generation
+testify                # Assertion library
+
+# Development tools
+go generate            # Code generation
+impl                   # Interface implementation
+gofumpt                # Stricter formatter
+errcheck               # Check error handling
+
+# Code quality
+revive                 # Linter
+ineffassign           # Detect ineffective assignments
+unconvert             # Detect unnecessary conversions
+goconst               # Find repeated strings
+
+# Documentation
+godoc                  # Documentation
+pkgsite                # Package documentation
+```
+</UniversalEditor>
+
+## Makefiles for Go Projects
+
+<UniversalEditor title="Build Automation">
+```makefile !! makefile
+# Java: Makefile (less common)
+.PHONY: clean build test run
+
+clean:
+	mvn clean
+
+build:
+	mvn package
+
+test:
+	mvn test
+
+run:
+	mvn spring-boot:run
+
+# Most use Maven/Gradle directly
+# or IDE integration
+```
+
+```makefile !! makefile
+# Go: Makefile (very common)
+.PHONY: build test clean run lint fmt
+
+# Variables
+APP_NAME=myapp
+GO=go
+GOFLAGS=-v
+
+build:
+	$(GO) build $(GOFLAGS) -o $(APP_NAME)
+
+test:
+	$(GO) test -v -race -cover ./...
+
+test-coverage:
+	$(GO) test -coverprofile=coverage.out ./...
+	$(GO) tool cover -html=coverage.out -o coverage.html
+
+lint:
+	golangci-lint run
+
+fmt:
+	$(GO) fmt ./...
+	gofumpt -l -w .
+
+run:
+	$(GO) run main.go
+
+clean:
+	$(GO) clean
+	rm -f $(APP_NAME)
+	rm -f coverage.out coverage.html
+
+deps:
+	$(GO) mod download
+	$(GO) mod tidy
+
+generate:
+	$(GO) generate ./...
+
+# Multi-platform build
+build-all:
+	GOOS=linux GOARCH=amd64 $(GO) build -o dist/$(APP_NAME)-linux-amd64
+	GOOS=darwin GOARCH=amd64 $(GO) build -o dist/$(APP_NAME)-darwin-amd64
+	GOOS=darwin GOARCH=arm64 $(GO) build -o dist/$(APP_NAME)-darwin-arm64
+	GOOS=windows GOARCH=amd64 $(GO) build -o dist/$(APP_NAME)-windows-amd64.exe
+
+# Development
+dev:
+	air # Live reload tool
+
+# Docker
+docker-build:
+	docker build -t $(APP_NAME) .
+
+docker-run:
+	docker run -p 8080:8080 $(APP_NAME)
+```
+</UniversalEditor>
+
+## Workspace Management (Go 1.18+)
+
+<UniversalEditor title="Workspace Feature">
+```bash !! bash
+# Java: Multi-module projects (Maven)
+# pom.xml (parent)
+<project>
+    <modules>
+        <module>common</module>
+        <module>service-a</module>
+        <module>service-b</module>
+    </modules>
+</project>
+
+# Each module has its own pom.xml
+# Shared dependencies managed in parent
+```
+
+```bash !! bash
+# Go: Workspaces (Go 1.18+)
+
+# Create workspace
+go work init
+
+# Add modules to workspace
+go work use ./common
+go work use ./service-a
+go work use ./service-b
+
+# go.work file:
+go 1.21
+
+use (
+    ./common
+    ./service-a
+    ./service-b
+)
+
+# Benefits:
+# - Work on multiple modules simultaneously
+# - Replace directives for local development
+# - No need to publish modules to test changes
+# - All modules share same dependency cache
+
+# Commands work across workspace:
+go build ./...
+go test ./...
+go mod tidy
+```
+</UniversalEditor>
+
+---
+
+### Practice Questions:
+1. Why is Go's dependency management simpler than Java's?
+2. What are the advantages of built-in testing in Go?
+3. How do build tags enable platform-specific code in Go?
+4. Why does Go typically not require Makefiles while Java projects often do?
+
+### Project Ideas:
+- Create a custom Go generator for boilerplate code
+- Set up a comprehensive CI/CD pipeline for a Go project
+- Build a tool that analyzes Go dependency graphs
+- Implement a workspace-based multi-module Go project
+
+### Next Steps:
+- Explore Go's ecosystem and popular libraries
+- Learn database integration in Go
+- Understand microservices architecture
+- Build production-ready applications

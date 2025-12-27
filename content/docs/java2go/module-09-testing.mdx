@@ -1,0 +1,965 @@
+---
+title: "Module 09: Testing - Table-Driven Tests and Benchmarking"
+description: "Master Go's testing framework. Learn table-driven tests, benchmarking, test coverage, and compare with JUnit and Mockito."
+---
+
+# Module 09: Testing - Table-Driven Tests and Benchmarking
+
+In this module, you'll learn how Go approaches **testing** differently from Java. Go's testing philosophy emphasizes simplicity, table-driven tests, and built-in benchmarking - all without requiring external frameworks.
+
+## Learning Objectives
+
+By the end of this module, you'll be able to:
+- Write tests using Go's testing package
+- Create table-driven tests
+- Measure test coverage
+- Write benchmarks
+- Use test assertions
+- Mock dependencies with interfaces
+- Organize tests with _test.go files
+- Run tests with `go test`
+- Compare Go's approach with JUnit and Mockito
+
+## Background: JUnit vs Go Testing
+
+### The Philosophy Difference
+
+**Java (JUnit + Mockito):**
+- Separate testing framework
+- Annotation-based (@Test, @Before, @Mock)
+- External mocking framework needed
+- Complex setup with @RunWith
+- Heavy use of reflection
+- Verbose assertion syntax
+
+**Go (testing package):**
+- Testing built into standard library
+- Convention-based (_test.go files)
+- Mocking with interfaces (no framework needed)
+- Simple function-based tests
+- No reflection required
+- Concise assertions
+
+<UniversalEditor title="Basic Test: Java vs Go">
+```java !! java
+// Java: JUnit test
+import org.junit.jupiter.api.*;
+import static org.junit.jupiter.api.Assertions.*;
+
+class CalculatorTest {
+    private Calculator calculator;
+
+    @BeforeEach
+    void setUp() {
+        calculator = new Calculator();
+    }
+
+    @Test
+    void testAdd() {
+        int result = calculator.add(2, 3);
+        assertEquals(5, result);
+    }
+
+    @Test
+    void testSubtract() {
+        int result = calculator.subtract(5, 3);
+        assertEquals(2, result);
+    }
+
+    @Test
+    void testDivideByZero() {
+        assertThrows(ArithmeticException.class, () -> {
+            calculator.divide(10, 0);
+        });
+    }
+}
+```
+
+```go !! go
+// Go: Test with testing package
+package main
+
+import (
+	"testing"
+)
+
+func TestAdd(t *testing.T) {
+	result := Add(2, 3)
+	if result != 5 {
+		t.Errorf("Add(2, 3) = %d; want 5", result)
+	}
+}
+
+func TestSubtract(t *testing.T) {
+	result := Subtract(5, 3)
+	if result != 2 {
+		t.Errorf("Subtract(5, 3) = %d; want 2", result)
+	}
+}
+
+func TestDivideByZero(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Errorf("Divide did not panic")
+		}
+	}()
+
+	Divide(10, 0)
+}
+```
+</UniversalEditor>
+
+## Table-Driven Tests
+
+### Testing Multiple Scenarios
+
+<UniversalEditor title="Table-Driven Tests">
+```java !! java
+// Java: Parameterized tests
+import org.junit.jupiter.params.*;
+import org.junit.jupiter.params.provider.*;
+
+@ParameterizedTest
+@CsvSource({
+    "2, 3, 5",
+    "0, 0, 0",
+    "-1, 1, 0",
+    "100, 200, 300"
+})
+void testAdd(int a, int b, int expected) {
+    Calculator calc = new Calculator();
+    assertEquals(expected, calc.add(a, b));
+}
+
+// Or with @MethodSource
+@ParameterizedTest
+@MethodSource("provideTestCases")
+void testAdd(TestCase testCase) {
+    assertEquals(testCase.expected,
+        calculator.add(testCase.a, testCase.b));
+}
+
+private static Stream<TestCase> provideTestCases() {
+    return Stream.of(
+        new TestCase(2, 3, 5),
+        new TestCase(0, 0, 0),
+        new TestCase(-1, 1, 0)
+    );
+}
+```
+
+```go !! go
+// Go: Table-driven tests (very idiomatic)
+package main
+
+import (
+	"testing"
+)
+
+func TestAdd(t *testing.T) {
+	tests := []struct {
+		name     string
+		a, b     int
+		expected int
+	}{
+		{"positive numbers", 2, 3, 5},
+		{"zeros", 0, 0, 0},
+		{"negative and positive", -1, 1, 0},
+		{"large numbers", 100, 200, 300},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := Add(tt.a, tt.b)
+			if result != tt.expected {
+				t.Errorf("Add(%d, %d) = %d; want %d",
+					tt.a, tt.b, result, tt.expected)
+			}
+		})
+	}
+}
+
+// Even simpler for basic cases
+func TestMultiply(t *testing.T) {
+	tests := []struct {
+		a, b     int
+		expected int
+	}{
+		{2, 3, 6},
+		{0, 5, 0},
+		{-2, 3, -6},
+	}
+
+	for _, tt := range tests {
+		got := Multiply(tt.a, tt.b)
+		if got != tt.expected {
+			t.Errorf("Multiply(%d, %d) = %d; want %d",
+				tt.a, tt.b, got, tt.expected)
+		}
+	}
+}
+```
+</UniversalEditor>
+
+## Test Assertions
+
+### Comparing Assertion Styles
+
+<UniversalEditor title="Assertions">
+```java !! java
+// Java: JUnit assertions
+import static org.junit.jupiter.api.Assertions.*;
+
+@Test
+void testAssertions() {
+    // Equality
+    assertEquals(4, calculator.add(2, 2));
+
+    // Not equals
+    assertNotEquals(5, calculator.add(2, 2));
+
+    // True/False
+    assertTrue(isValid("input"));
+    assertFalse(isValid(""));
+
+    // Null checks
+    assertNull(getNullValue());
+    assertNotNull(getValue());
+
+    // Same instance
+    Object obj = new Object();
+    assertSame(obj, obj);
+
+    // Arrays
+    assertArrayEquals(new int[]{1, 2}, new int[]{1, 2});
+
+    // Throws
+    assertThrows(IllegalArgumentException.class,
+        () -> validator.validate(null));
+
+    // Timeout
+    assertTimeout(Duration.ofSeconds(2),
+        () -> longRunningTask());
+}
+```
+
+```go !! go
+// Go: Simple and direct assertions
+package main
+
+import (
+	"reflect"
+	"testing"
+	"time"
+)
+
+func TestAssertions(t *testing.T) {
+	// Equality
+	result := Add(2, 2)
+	if result != 4 {
+		t.Errorf("expected 4, got %d", result)
+	}
+
+	// True/False
+	if !isValid("input") {
+		t.Error("expected true")
+	}
+
+	if isValid("") {
+		t.Error("expected false")
+	}
+
+	// Nil checks
+	if getValue() == nil {
+		t.Error("expected non-nil")
+	}
+
+	// Deep equality for slices/maps
+	expected := []int{1, 2, 3}
+	got := []int{1, 2, 3}
+	if !reflect.DeepEqual(expected, got) {
+		t.Errorf("expected %v, got %v", expected, got)
+	}
+
+	// Testing for panic
+	t.Run("panic test", func(t *testing.T) {
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("expected panic")
+			}
+		}()
+		panicFunc()
+	})
+
+	// Timeout
+	done := make(chan bool)
+	go func() {
+		longRunningTask()
+		done <- true
+	}()
+
+	select {
+	case <-done:
+		// Success
+	case <-time.After(2 * time.Second):
+		t.Error("timeout")
+	}
+}
+```
+</UniversalEditor>
+
+## Test Organization
+
+### Test File Structure
+
+<UniversalEditor title="Test Organization">
+```java !! java
+// Java: Test class structure
+// File: src/test/java/com/example/CalculatorTest.java
+
+package com.example;
+
+import org.junit.jupiter.api.*;
+import static org.junit.jupiter.api.Assertions.*;
+
+class CalculatorTest {
+    private Calculator calculator;
+
+    @BeforeAll
+    static void setUpClass() {
+        // Runs once before all tests
+    }
+
+    @BeforeEach
+    void setUp() {
+        // Runs before each test
+        calculator = new Calculator();
+    }
+
+    @Test
+    void testAdd() {
+    }
+
+    @AfterEach
+    void tearDown() {
+        // Runs after each test
+    }
+
+    @AfterAll
+    static void tearDownClass() {
+        // Runs once after all tests
+    }
+}
+
+// Nested tests
+class CalculatorTest {
+    @Nested
+    @DisplayName("Addition Tests")
+    class AdditionTests {
+        @Test
+        void testPositiveNumbers() {
+        }
+
+        @Test
+        void testNegativeNumbers() {
+        }
+    }
+}
+```
+
+```go !! go
+// Go: Test file organization
+// File: calculator_test.go (same package as calculator.go)
+
+package main
+
+import (
+	"testing"
+)
+
+// Setup and teardown using helper functions
+func setup(t *testing.T) *Calculator {
+	t.Helper()
+	return &Calculator{}
+}
+
+func TestMain(m *testing.M) {
+	// Setup before all tests
+	println("Setting up tests")
+
+	// Run tests
+	code := m.Run()
+
+	// Teardown after all tests
+	println("Tearing down tests")
+
+	// Exit with test result code
+	os.Exit(code)
+}
+
+// Test with setup
+func TestWithSetup(t *testing.T) {
+	calc := setup(t)
+
+	result := calc.Add(2, 3)
+	if result != 5 {
+		t.Errorf("expected 5, got %d", result)
+	}
+}
+
+// Subtests for grouping
+func TestCalculator(t *testing.T) {
+	calc := &Calculator{}
+
+	t.Run("Addition", func(t *testing.T) {
+		t.Run("Positive numbers", func(t *testing.T) {
+			if calc.Add(2, 3) != 5 {
+				t.Error("failed")
+			}
+		})
+
+		t.Run("Negative numbers", func(t *testing.T) {
+			if calc.Add(-2, -3) != -5 {
+				t.Error("failed")
+			}
+		})
+	})
+
+	t.Run("Subtraction", func(t *testing.T) {
+		if calc.Subtract(5, 3) != 2 {
+			t.Error("failed")
+		}
+	})
+}
+```
+</UniversalEditor>
+
+## Mocking with Interfaces
+
+### Dependency Injection for Testing
+
+<UniversalEditor title="Mocking: Java Mockito vs Go Interfaces">
+```java !! java
+// Java: Mockito for mocking
+import org.mockito.*;
+import static org.mockito.Mockito.*;
+
+interface Repository {
+    User findById(Long id);
+    void save(User user);
+}
+
+class UserService {
+    private final Repository repository;
+
+    @Autowired
+    UserService(Repository repository) {
+        this.repository = repository;
+    }
+
+    public User getUser(Long id) {
+        return repository.findById(id);
+    }
+}
+
+class UserServiceTest {
+    @Mock
+    private Repository repository;
+
+    @InjectMocks
+    private UserService userService;
+
+    @Test
+    void testGetUser() {
+        // Arrange
+        User expectedUser = new User(1L, "Alice");
+        when(repository.findById(1L)).thenReturn(expectedUser);
+
+        // Act
+        User user = userService.getUser(1L);
+
+        // Assert
+        assertNotNull(user);
+        assertEquals("Alice", user.getName());
+
+        // Verify interaction
+        verify(repository).findById(1L);
+        verify(repository, times(1)).findById(1L);
+        verifyNoMoreInteractions(repository);
+    }
+
+    @Test
+    void testNotFound() {
+        when(repository.findById(999L)).thenReturn(null);
+
+        User user = userService.getUser(999L);
+
+        assertNull(user);
+        verify(repository).findById(999L);
+    }
+}
+```
+
+```go !! go
+// Go: Mocking with interfaces (no framework needed!)
+package main
+
+import (
+	"testing"
+)
+
+// Repository interface
+type Repository interface {
+	FindById(id int) (*User, error)
+	Save(user *User) error
+}
+
+// UserService
+type UserService struct {
+	repo Repository
+}
+
+func NewUserService(repo Repository) *UserService {
+	return &UserService{repo: repo}
+}
+
+func (s *UserService) GetUser(id int) (*User, error) {
+	return s.repo.FindById(id)
+}
+
+// Mock implementation for testing
+type MockRepository struct {
+	users map[int]*User
+}
+
+func NewMockRepository() *MockRepository {
+	return &MockRepository{
+		users: make(map[int]*User),
+	}
+}
+
+func (m *MockRepository) FindById(id int) (*User, error) {
+	return m.users[id], nil
+}
+
+func (m *MockRepository) Save(user *User) error {
+	m.users[user.ID] = user
+	return nil
+}
+
+// Test with mock
+func TestUserService_GetUser(t *testing.T) {
+	// Setup mock
+	mockRepo := NewMockRepository()
+	mockRepo.users[1] = &User{ID: 1, Name: "Alice"}
+
+	// Create service with mock
+	userService := NewUserService(mockRepo)
+
+	// Test
+	user, err := userService.GetUser(1)
+
+	// Assert
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if user == nil {
+		t.Fatal("expected user, got nil")
+	}
+	if user.Name != "Alice" {
+		t.Errorf("expected name Alice, got %s", user.Name)
+	}
+}
+
+// Test not found
+func TestUserService_GetUserNotFound(t *testing.T) {
+	mockRepo := NewMockRepository()
+	userService := NewUserService(mockRepo)
+
+	user, err := userService.GetUser(999)
+
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if user != nil {
+		t.Errorf("expected nil, got user: %v", user)
+	}
+}
+```
+</UniversalEditor>
+
+## Benchmarking
+
+### Performance Testing
+
+<UniversalEditor title="Benchmarking">
+```java !! java
+// Java: JMH (Java Microbenchmark Harness)
+import org.openjdk.jmh.annotations.*;
+import java.util.concurrent.TimeUnit;
+
+@BenchmarkMode(Mode.AverageTime)
+@OutputTimeUnit(TimeUnit.NANOSECONDS)
+@Warmup(iterations = 3, time = 1, timeUnit = TimeUnit.SECONDS)
+@Measurement(iterations = 5, time = 1, timeUnit = TimeUnit.SECONDS)
+@Fork(1)
+public class CalculatorBenchmark {
+
+    private Calculator calculator = new Calculator();
+
+    @Benchmark
+    public int benchmarkAdd() {
+        return calculator.add(10, 20);
+    }
+
+    @Benchmark
+    public int benchmarkMultiply() {
+        return calculator.multiply(10, 20);
+    }
+
+    @Benchmark
+    public void benchmarkStringConcat() {
+        String result = "Hello" + " " + "World";
+    }
+
+    @Benchmark
+    public void benchmarkStringBuilder() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("Hello");
+        sb.append(" ");
+        sb.append("World");
+        String result = sb.toString();
+    }
+}
+
+// Run with: java -jar target/benchmarks.jar
+```
+
+```go !! go
+// Go: Built-in benchmarking
+package main
+
+import (
+	"fmt"
+	"strings"
+	"testing"
+)
+
+func BenchmarkAdd(b *testing.B) {
+	calculator := &Calculator{}
+
+	for i := 0; i < b.N; i++ {
+		calculator.Add(10, 20)
+	}
+}
+
+func BenchmarkMultiply(b *testing.B) {
+	calculator := &Calculator{}
+
+	for i := 0; i < b.N; i++ {
+		calculator.Multiply(10, 20)
+	}
+}
+
+func BenchmarkStringConcat(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		result := "Hello" + " " + "World"
+		_ = result
+	}
+}
+
+func BenchmarkStringBuilder(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		var sb strings.Builder
+		sb.WriteString("Hello")
+		sb.WriteString(" ")
+		sb.WriteString("World")
+		_ = sb.String()
+	}
+}
+
+// Benchmark with different input sizes
+func BenchmarkFibonacci10(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		Fibonacci(10)
+	}
+}
+
+func BenchmarkFibonacci20(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		Fibonacci(20)
+	}
+}
+
+// Parallel benchmark
+func BenchmarkParallelAdd(b *testing.B) {
+	calculator := &Calculator{}
+
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			calculator.Add(10, 20)
+		}
+	})
+}
+
+// Run with: go test -bench=. -benchmem
+```
+</UniversalEditor>
+
+## Test Coverage
+
+### Measuring Code Coverage
+
+<UniversalEditor title="Test Coverage">
+```java !! java
+// Java: JaCoCo for code coverage
+// Run with: mvn test jacoco:report
+
+// Or with Gradle:
+// test {
+//     useJUnitPlatform()
+//     finalizedBy jacocoTestReport
+// }
+
+// Generates HTML report in target/site/jacoco/index.html
+```
+
+```go !! go
+// Go: Built-in coverage tool
+
+// Run tests with coverage:
+// go test -cover
+
+// Coverage by function:
+// go test -coverprofile=coverage.out
+
+// View coverage in browser:
+// go tool cover -html=coverage.out
+
+// Show only functions below threshold:
+// go test -coverprofile=coverage.out -covermode=atomic
+// go tool cover -func=coverage.out
+
+// Example output:
+// github.com/user/calculator/calculator.go:10:    Add        100.0%
+// github.com/user/calculator/calculator.go:15:    Subtract    100.0%
+// github.com/user/calculator/calculator.go:20:    Multiply     66.7%
+
+// Package level coverage:
+// go test -cover ./...
+
+// Set coverage threshold (fail if below):
+// go test -coverprofile=coverage.out -covermode=atomic
+```
+</UniversalEditor>
+
+## Running Tests
+
+### Test Execution
+
+<UniversalEditor title="Running Tests">
+```bash
+# Java: Run tests with Maven/Gradle
+
+# Maven
+mvn test
+mvn test -Dtest=CalculatorTest
+mvn test -Dtest=*Test
+
+# Gradle
+./gradlew test
+./gradlew test --tests CalculatorTest
+
+# Run specific test method
+mvn test -Dtest=CalculatorTest#testAdd
+
+# Run with coverage
+mvn test jacoco:report
+```
+
+```bash
+# Go: Run tests with go test
+
+# Run all tests in current directory
+go test
+
+# Run tests with verbose output
+go test -v
+
+# Run specific test
+go test -run TestAdd
+go test -run TestAdd/positive
+
+# Run tests in all subdirectories
+go test ./...
+
+# Run tests with coverage
+go test -cover
+
+# Run benchmarks
+go test -bench=.
+go test -bench=BenchmarkAdd
+
+# Run benchmarks with memory stats
+go test -bench=. -benchmem
+
+# Run tests and race detector
+go test -race
+
+# Run tests with coverage profile
+go test -coverprofile=coverage.out
+go tool cover -html=coverage.out
+
+# Run specific package
+go test github.com/user/project/package
+
+# Run tests with timeout
+go test -timeout 30s
+```
+</UniversalEditor>
+
+## Best Practices
+
+### Testing Guidelines
+
+<UniversalEditor title="Testing Best Practices">
+```java !! java
+// Java: Testing best practices
+
+// 1. Use descriptive test names
+@Test
+void shouldReturnTrueWhenUserExists() {
+}
+
+// 2. Arrange-Act-Assert pattern
+@Test
+void testAdd() {
+    // Arrange
+    Calculator calc = new Calculator();
+
+    // Act
+    int result = calc.add(2, 3);
+
+    // Assert
+    assertEquals(5, result);
+}
+
+// 3. Test one thing per test
+@Test
+void testAddReturnsCorrectSum() {
+    // Only tests addition
+}
+
+// 4. Use meaningful assertions
+assertEquals(5, result); // Good
+assertTrue(result == 5); // Less clear
+
+// 5. Mock dependencies appropriately
+@Mock
+private Repository repository;
+```
+
+```go !! go
+// Go: Testing best practices
+
+// 1. Use descriptive test names (table-driven helps)
+tests := []struct {
+	name     string
+	input    int
+	expected int
+}{
+	{"should return 5 for 2+3", 2, 3, 5},
+	{"should handle zero", 0, 0, 0},
+}
+
+// 2. Keep tests simple and readable
+func TestAdd(t *testing.T) {
+	result := Add(2, 3)
+	if result != 5 {
+		t.Errorf("got %d, want 5", result)
+	}
+}
+
+// 3. Use table-driven tests for multiple scenarios
+func TestMultiply(t *testing.T) {
+	tests := []struct {
+		a, b, expected int
+	}{
+		{2, 3, 6},
+		{0, 5, 0},
+	}
+	for _, tt := range tests {
+		t.Run("", func(t *testing.T) {
+			if got := Multiply(tt.a, tt.b); got != tt.expected {
+				t.Errorf("got %d, want %d", got, tt.expected)
+			}
+		})
+	}
+}
+
+// 4. Use interfaces for mocking
+type MockRepository struct {
+	users map[int]*User
+}
+
+// 5. Test both success and error cases
+func TestDivide(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
+		result, err := Divide(10, 2)
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+		if result != 5 {
+			t.Errorf("got %d, want 5", result)
+		}
+	})
+
+	t.Run("divide by zero", func(t *testing.T) {
+		_, err := Divide(10, 0)
+		if err == nil {
+			t.Error("expected error")
+		}
+	})
+}
+```
+</UniversalEditor>
+
+## Practice Questions
+
+1. **Table-Driven Tests**: Why are table-driven tests considered idiomatic in Go?
+
+2. **Mocking**: How does Go's approach to mocking with interfaces compare to Mockito?
+
+3. **Benchmarking**: What advantages does Go's built-in benchmarking have over JMH?
+
+4. **Test Organization**: How does Go's file-based test organization compare to Java's class-based approach?
+
+## Project Ideas
+
+1. **Test Coverage**: Achieve 80%+ test coverage for a Go project
+
+2. **Benchmark Suite**: Create comprehensive benchmarks for data structures
+
+3. **Mock Implementation**: Build a mock HTTP client for testing web services
+
+4. **Property Testing**: Implement property-based tests using Go's testing approach
+
+## Next Steps
+
+Now that you understand testing in Go:
+
+- **Review**: Review all previous modules
+- **Practice**: Write comprehensive tests for your Go projects
+- **Explore**: Study property-based testing libraries
+- **Build**: Create a complete Go application with full test coverage
+
+## Summary
+
+**Go Testing vs JUnit/Mockito:**
+- Built-in testing package (no external dependencies)
+- Table-driven tests are idiomatic and powerful
+- Interface-based mocking (no mocking framework needed)
+- Simple and fast test execution
+- Built-in benchmarking and coverage tools
+
+**Key Takeaway**: Go's testing philosophy emphasizes simplicity and convention over configuration. The testing package provides everything you need for unit testing, benchmarking, and code coverage without requiring external frameworks or complex setup.

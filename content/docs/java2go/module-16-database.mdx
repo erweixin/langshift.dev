@@ -1,0 +1,452 @@
+---
+title: "Module 16: Database Integration"
+---
+
+This module covers database integration in Go, comparing it with Java's database approaches.
+
+## Database Access Patterns
+
+**Java Database Approaches:**
+- JDBC: Low-level database access
+- Spring Data JPA: ORM with repositories
+- Hibernate: Feature-rich ORM
+- MyBatis: SQL mapping framework
+- jOOQ: Type-safe SQL
+
+**Go Database Approaches:**
+- database/sql: Standard library interface
+- GORM: Full-featured ORM
+- sqlx: Extensions to database/sql
+- sqlc: Type-safe SQL code generation
+
+<UniversalEditor title="Basic Database Operations">
+```java !! java
+// Java: Spring Data JPA
+import org.springframework.data.jpa.repository.*;
+import org.springframework.stereotype.*;
+import javax.transaction.Transactional;
+import java.util.Optional;
+
+@Service
+@Transactional
+public class UserService {
+
+    @Autowired
+    private UserRepository userRepository;
+
+    public User createUser(String email, String name) {
+        User user = new User();
+        user.setEmail(email);
+        user.setName(name);
+        return userRepository.save(user);
+    }
+
+    public Optional<User> getUserById(Long id) {
+        return userRepository.findById(id);
+    }
+
+    public Optional<User> getUserByEmail(String email) {
+        return userRepository.findByEmail(email);
+    }
+
+    public List<User> searchUsers(String keyword) {
+        return userRepository.findByNameContainingIgnoreCase(keyword);
+    }
+
+    public User updateUser(Long id, String name) {
+        User user = userRepository.findById(id)
+            .orElseThrow(() -> new UserNotFoundException(id));
+        user.setName(name);
+        return userRepository.save(user);
+    }
+
+    public void deleteUser(Long id) {
+        if (!userRepository.existsById(id)) {
+            throw new UserNotFoundException(id);
+        }
+        userRepository.deleteById(id);
+    }
+
+    // Custom query example
+    public List<User> findActiveUsers() {
+        return userRepository.findByActiveTrue();
+    }
+}
+```
+
+```go !! go
+// Go: GORM
+package main
+
+import (
+    "gorm.io/gorm"
+    "gorm.io/gorm/clause"
+)
+
+type UserService struct {
+    db *gorm.DB
+}
+
+func NewUserService(db *gorm.DB) *UserService {
+    return &UserService{db: db}
+}
+
+func (s *UserService) CreateUser(email, name string) (*User, error) {
+    user := &User{
+        Email: email,
+        Name:  name,
+    }
+
+    if err := s.db.Create(user).Error; err != nil {
+        return nil, err
+    }
+
+    return user, nil
+}
+
+func (s *UserService) GetUserByID(id uint) (*User, error) {
+    var user User
+    err := s.db.First(&user, id).Error
+    if err != nil {
+        return nil, err
+    }
+    return &user, nil
+}
+
+func (s *UserService) GetUserByEmail(email string) (*User, error) {
+    var user User
+    err := s.db.Where("email = ?", email).First(&user).Error
+    if err != nil {
+        return nil, err
+    }
+    return &user, nil
+}
+
+func (s *UserService) SearchUsers(keyword string) ([]User, error) {
+    var users []User
+    err := s.db.Where("name ILIKE ?", "%"+keyword+"%").Find(&users).Error
+    return users, err
+}
+
+func (s *UserService) UpdateUser(id uint, name string) (*User, error) {
+    var user User
+    if err := s.db.First(&user, id).Error; err != nil {
+        return nil, err
+    }
+
+    user.Name = name
+    if err := s.db.Save(&user).Error; err != nil {
+        return nil, err
+    }
+
+    return &user, nil
+}
+
+func (s *UserService) DeleteUser(id uint) error {
+    result := s.db.Delete(&User{}, id)
+    if result.Error != nil {
+        return result.Error
+    }
+    if result.RowsAffected == 0 {
+        return gorm.ErrRecordNotFound
+    }
+    return nil
+}
+
+func (s *UserService) FindActiveUsers() ([]User, error) {
+    var users []User
+    err := s.db.Where("active = ?", true).Find(&users).Error
+    return users, err
+}
+
+// Transaction example
+func (s *UserService) TransferFunds(fromID, toID uint, amount float64) error {
+    return s.db.Transaction(func(tx *gorm.DB) error {
+        // Lock rows for update
+        var fromUser User
+        if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+            First(&fromUser, fromID).Error; err != nil {
+            return err
+        }
+
+        var toUser User
+        if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+            First(&toUser, toID).Error; err != nil {
+            return err
+        }
+
+        fromUser.Balance -= amount
+        toUser.Balance += amount
+
+        if err := tx.Save(&fromUser).Error; err != nil {
+            return err
+        }
+
+        if err := tx.Save(&toUser).Error; err != nil {
+            return err
+        }
+
+        return nil
+    })
+}
+```
+</UniversalEditor>
+
+## Connection Pooling
+
+<UniversalEditor title="Connection Pool Configuration">
+```java !! java
+// Java: HikariCP (Spring Boot)
+// application.properties
+spring.datasource.url=jdbc:postgresql://localhost:5432/mydb
+spring.datasource.username=myuser
+spring.datasource.password=mypassword
+spring.datasource.hikari.maximum-pool-size=10
+spring.datasource.hikari.minimum-idle=5
+spring.datasource.hikari.connection-timeout=30000
+spring.datasource.hikari.idle-timeout=600000
+spring.datasource.hikari.max-lifetime=1800000
+
+// Programmatic configuration
+@Bean
+public DataSource dataSource() {
+    HikariConfig config = new HikariConfig();
+    config.setJdbcUrl("jdbc:postgresql://localhost:5432/mydb");
+    config.setUsername("myuser");
+    config.setPassword("mypassword");
+    config.setMaximumPoolSize(10);
+    config.setMinimumIdle(5);
+    config.setConnectionTimeout(30000);
+    config.setIdleTimeout(600000);
+    config.setMaxLifetime(1800000);
+
+    return new HikariDataSource(config);
+}
+```
+
+```go !! go
+// Go: database/sql connection pool
+package main
+
+import (
+    "database/sql"
+    "time"
+    _ "github.com/lib/pq"
+)
+
+func NewDB(dataSourceName string) (*sql.DB, error) {
+    db, err := sql.Open("postgres", dataSourceName)
+    if err != nil {
+        return nil, err
+    }
+
+    // Connection pool settings
+    db.SetMaxOpenConns(25)           // Maximum open connections
+    db.SetMaxIdleConns(5)            // Maximum idle connections
+    db.SetConnMaxLifetime(5 * time.Minute)  // Maximum connection lifetime
+    db.SetConnMaxIdleTime(1 * time.Minute)  // Maximum idle time for a connection
+
+    // Verify connection
+    if err := db.Ping(); err != nil {
+        return nil, err
+    }
+
+    return db, nil
+}
+
+// GORM connection pool
+func NewGormDB(dataSourceName string) (*gorm.DB, error) {
+    db, err := sql.Open("postgres", dataSourceName)
+    if err != nil {
+        return nil, err
+    }
+
+    // Configure pool
+    db.SetMaxOpenConns(25)
+    db.SetMaxIdleConns(5)
+    db.SetConnMaxLifetime(5 * time.Minute)
+
+    gormDB, err := gorm.Open(postgres.New(postgres.Config{
+        Conn: db,
+    }), &gorm.Config{})
+
+    return gormDB, err
+}
+```
+</UniversalEditor>
+
+## Migrations
+
+<UniversalEditor title="Database Migrations">
+```sql !! sql
+-- Java: Flyway migration (V1__Create_users_table.sql)
+CREATE TABLE users (
+    id BIGSERIAL PRIMARY KEY,
+    email VARCHAR(255) NOT NULL UNIQUE,
+    name VARCHAR(255) NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    active BOOLEAN DEFAULT true,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_users_email ON users(email);
+CREATE INDEX idx_users_active ON users(active);
+
+-- V2__Add_last_login_column.sql
+ALTER TABLE users ADD COLUMN last_login TIMESTAMP;
+CREATE INDEX idx_users_last_login ON users(last_login);
+```
+
+```sql !! sql
+-- Go: golang-migrate (000001_create_users_table.up.sql)
+CREATE TABLE users (
+    id BIGSERIAL PRIMARY KEY,
+    email VARCHAR(255) NOT NULL UNIQUE,
+    name VARCHAR(255) NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    active BOOLEAN DEFAULT true,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_users_email ON users(email);
+CREATE INDEX idx_users_active ON users(active);
+
+-- 000001_create_users_table.down.sql
+DROP INDEX IF EXISTS idx_users_active;
+DROP INDEX IF EXISTS idx_users_email;
+DROP TABLE IF EXISTS users;
+
+-- Run migrations:
+-- migrate -path migrations -database "postgres://user:pass@localhost:5432/dbname?sslmode=disable" up
+-- migrate -path migrations -database "postgres://user:pass@localhost:5432/dbname?sslmode=disable" down 1
+```
+</UniversalEditor>
+
+## Complex Queries
+
+<UniversalEditor title="Complex Query Examples">
+```java !! java
+// Java: JPA Criteria API
+public List<User> findUsersWithCriteria(String email, Boolean active, Integer minAge) {
+    CriteriaBuilder cb = entityManager.getCriteriaBuilder();
+    CriteriaQuery<User> query = cb.createQuery(User.class);
+    Root<User> user = query.from(User.class);
+
+    List<Predicate> predicates = new ArrayList<>();
+
+    if (email != null) {
+        predicates.add(cb.equal(user.get("email"), email));
+    }
+
+    if (active != null) {
+        predicates.add(cb.equal(user.get("active"), active));
+    }
+
+    if (minAge != null) {
+        predicates.add(cb.ge(user.get("age"), minAge));
+    }
+
+    query.where(predicates.toArray(new Predicate[0]));
+
+    return entityManager.createQuery(query).getResultList();
+}
+
+// JOIN example
+public interface UserRepository extends JpaRepository<User, Long> {
+
+    @Query("SELECT u FROM User u JOIN FETCH u.roles r WHERE r.name = :roleName")
+    List<User> findByRoleName(@Param("roleName") String roleName);
+
+    @Query("""
+        SELECT new com.example.dto.UserStats(u.id, u.name, COUNT(o.id))
+        FROM User u
+        LEFT JOIN u.orders o
+        GROUP BY u.id, u.name
+        """)
+    List<UserStats> findUserStatistics();
+}
+```
+
+```go !! go
+// Go: GORM complex queries
+func (s *UserService) FindUsersWithCriteria(email string, active *bool, minAge int) ([]User, error) {
+    var users []User
+
+    query := s.db.Model(&User{})
+
+    if email != "" {
+        query = query.Where("email = ?", email)
+    }
+
+    if active != nil {
+        query = query.Where("active = ?", *active)
+    }
+
+    if minAge > 0 {
+        query = query.Where("age >= ?", minAge)
+    }
+
+    err := query.Find(&users).Error
+    return users, err
+}
+
+func (s *UserService) FindByRoleName(roleName string) ([]User, error) {
+    var users []User
+    err := s.db.
+        Joins("JOIN user_roles ON user_roles.user_id = users.id").
+        Joins("JOIN roles ON roles.id = user_roles.role_id").
+        Where("roles.name = ?", roleName).
+        Find(&users).Error
+
+    return users, err
+}
+
+func (s *UserService) FindUserStatistics() ([]UserStats, error) {
+    var results []UserStats
+
+    err := s.db.
+        Model(&User{}).
+        Select("users.id, users.name, COUNT(orders.id) as order_count").
+        Joins("LEFT JOIN orders ON orders.user_id = users.id").
+        Group("users.id, users.name").
+        Scan(&results).Error
+
+    return results, err
+}
+
+// Raw SQL when needed
+func (s *UserService) ExecuteCustomQuery() ([]User, error) {
+    var users []User
+    err := s.db.Raw(`
+        SELECT u.* FROM users u
+        WHERE u.created_at > NOW() - INTERVAL '30 days'
+        AND u.active = true
+        ORDER BY u.created_at DESC
+        LIMIT 100
+    `).Scan(&users).Error
+
+    return users, err
+}
+```
+</UniversalEditor>
+
+---
+
+### Practice Questions:
+1. When should you use GORM vs sqlx vs raw SQL?
+2. How does Go's approach to transactions differ from Java's?
+3. What are the advantages of Go's database/sql interface?
+4. How do connection pools work in Go compared to Java?
+
+### Project Ideas:
+- Build a REST API with full CRUD operations
+- Implement database migrations for a multi-service application
+- Create a reporting service with complex queries
+- Set up read replicas and write splitting
+
+### Next Steps:
+- Learn about microservices architecture
+- Explore real-world project patterns
+- Build production-ready applications

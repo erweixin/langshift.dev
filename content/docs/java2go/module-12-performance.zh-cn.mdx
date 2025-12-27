@@ -1,0 +1,917 @@
+---
+title: "模块 12：Go 性能优化"
+---
+
+本模块介绍 Go 中的性能优化技术，并与 Java 的性能调优方法进行比较。
+
+## 性能哲学：Go vs Java
+
+**Java 性能哲学：**
+- JVM 优化（JIT 编译、GC 调优）
+- 使用 VisualVM、JProfiler 进行性能分析
+- 垃圾回收调优
+- 内存池管理
+- 线程池配置
+
+**Go 性能哲学：**
+- 简单、可预测的性能
+- 内置性能分析工具（pprof）
+- 高效的内存分配模式
+- 最小的运行时开销
+- 直接编译为机器码
+
+<UniversalEditor title="性能哲学比较">
+```java !! java
+// Java: 性能考虑
+public class Performance {
+    // 需要预热才能达到最佳性能
+    // JIT 编译在运行时进行
+    // 可能发生垃圾回收暂停
+
+    private List<Integer> numbers = new ArrayList<>();
+
+    public void addNumber(int num) {
+        numbers.add(num); // 可能触发 GC 和数组扩容
+    }
+
+    // 对象分配开销
+    public String processData(String input) {
+        StringBuilder sb = new StringBuilder();
+        // 字符串操作创建中间对象
+        return sb.toString();
+    }
+}
+```
+
+```go !! go
+// Go: 可预测的性能
+package main
+
+// 无需预热
+// 直接编译
+// 简单的 GC，暂停时间短
+
+type Performance struct {
+    numbers []int
+}
+
+func (p *Performance) AddNumber(num int) {
+    p.numbers = append(p.numbers, num) // 高效增长
+}
+
+// 最小分配开销
+func (p *Performance) ProcessData(input string) string {
+    var builder strings.Builder
+    // 高效的字符串构建
+    return builder.String()
+}
+```
+</UniversalEditor>
+
+## 内置性能分析工具
+
+Go 提供了优秀的内置性能分析工具，比 Java 的外部分析器更容易使用。
+
+### CPU 性能分析
+
+<UniversalEditor title="CPU 性能分析比较">
+```java !! java
+// Java: 使用 VisualVM/JProfiler 进行 CPU 性能分析
+/*
+1. 使用性能分析代理启动应用程序：
+   java -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=5005 MyApp
+
+2. 使用 VisualVM 或 JProfiler 连接
+
+3. 获取 CPU 快照
+
+4. 分析热点
+
+示例：使用 Java Flight Recorder
+*/
+import jdk.jfr.Category;
+import jdk.jfr.Event;
+import jdk.jfr.Label;
+
+@Label("Processing Event")
+@Category("Processing")
+public class ProcessingEvent extends Event {
+    @Label "Items Processed"
+    public int items;
+}
+
+public class ProfilerDemo {
+    public void processItems(int count) {
+        ProcessingEvent event = new ProcessingEvent();
+        event.begin();
+        event.items = count;
+
+        // 处理逻辑
+        for (int i = 0; i < count; i++) {
+            // 执行工作
+        }
+
+        event.end();
+        event.commit();
+    }
+}
+```
+
+```go !! go
+// Go: 内置 CPU 性能分析
+package main
+
+import (
+    "fmt"
+    "os"
+    "runtime/pprof"
+    "time"
+)
+
+func main() {
+    // 开始 CPU 性能分析
+    f, _ := os.Create("cpu.prof")
+    pprof.StartCPUProfile(f)
+    defer pprof.StopCPUProfile()
+
+    // 运行要分析的代码
+    processItems(1000000)
+
+    f.Close()
+    fmt.Println("性能分析已保存到 cpu.prof")
+    // 使用以下命令分析: go tool pprof cpu.prof
+}
+
+func processItems(count int) {
+    for i := 0; i < count; i++ {
+        // 执行工作
+        calculate(i)
+    }
+}
+
+func calculate(n int) int {
+    result := 0
+    for i := 0; i < n; i++ {
+        result += i
+    }
+    return result
+}
+```
+</UniversalEditor>
+
+### 内存性能分析
+
+<UniversalEditor title="内存性能分析比较">
+```java !! java
+// Java: 堆分析
+import java.util.ArrayList;
+import java.util.List;
+
+public class MemoryProfiler {
+    private List<byte[]> allocations = new ArrayList<>();
+
+    public void allocateMemory() {
+        // Runtime.getRuntime().gc() 强制 GC
+        // MemoryMXBean 获取堆使用情况
+
+        for (int i = 0; i < 1000; i++) {
+            allocations.add(new byte[1024]); // 每个 1KB
+        }
+
+        // 分析堆转储
+        Runtime runtime = Runtime.getRuntime();
+        long usedMemory = runtime.totalMemory() - runtime.freeMemory();
+        System.out.println("已用内存: " + usedMemory + " 字节");
+    }
+
+    // 使用 VisualVM 分析堆转储
+    // jmap -dump:format=b,file=heap.hprof <pid>
+}
+```
+
+```go !! go
+// Go: 内存性能分析
+package main
+
+import (
+    "fmt"
+    "os"
+    "runtime/pprof"
+)
+
+func main() {
+    // 内存性能分析
+    f, _ := os.Create("mem.prof")
+    defer f.Close()
+
+    // 获取内存快照
+    pprof.WriteHeapProfile(f)
+    fmt.Println("内存性能分析已保存到 mem.prof")
+    // 使用以下命令分析: go tool pprof mem.prof
+}
+
+func allocateMemory() {
+    allocations := make([][]byte, 0)
+
+    for i := 0; i < 1000; i++ {
+        allocations = append(allocations, make([]byte, 1024))
+    }
+
+    // 获取内存统计
+    var m runtime.MemStats
+    runtime.ReadMemStats(&m)
+    fmt.Printf("已分配内存: %d 字节\n", m.Alloc)
+    fmt.Printf("总分配次数: %d\n", m.TotalAlloc)
+    fmt.Printf("堆对象数: %d\n", m.HeapObjects)
+}
+```
+</UniversalEditor>
+
+## 内存分配模式
+
+### 避免不必要的分配
+
+<UniversalEditor title="内存效率比较">
+```java !! java
+// Java: 常见分配模式
+public class Allocations {
+    // 循环中的字符串拼接 - 不好
+    public String buildStringBad(String[] items) {
+        String result = "";
+        for (String item : items) {
+            result += item; // 每次迭代创建新字符串
+        }
+        return result;
+    }
+
+    // 使用 StringBuilder - 好
+    public String buildStringGood(String[] items) {
+        StringBuilder sb = new StringBuilder();
+        for (String item : items) {
+            sb.append(item); // 高效
+        }
+        return sb.toString();
+    }
+
+    // 对象池示例
+    private static final ObjectPool<Buffer> bufferPool =
+        new ObjectPool<>(() -> new Buffer());
+
+    public Buffer getBuffer() {
+        return bufferPool.borrow();
+    }
+
+    public void returnBuffer(Buffer buffer) {
+        bufferPool.release(buffer);
+    }
+}
+```
+
+```go !! go
+// Go: 高效分配模式
+package main
+
+import (
+    "strings"
+)
+
+// 不好：循环中的字符串拼接
+func buildStringBad(items []string) string {
+    result := ""
+    for _, item := range items {
+        result += item // 每次迭代创建新字符串
+    }
+    return result
+}
+
+// 好：使用 strings.Builder
+func buildStringGood(items []string) string {
+    var builder strings.Builder
+    builder.Grow(len(items) * 10) // 预分配容量
+
+    for _, item := range items {
+        builder.WriteString(item) // 高效
+    }
+    return builder.String()
+}
+
+// 好：使用 buffer pool
+var bufferPool = sync.Pool{
+    New: func() interface{} {
+        return new(bytes.Buffer)
+    },
+}
+
+func getBuffer() *bytes.Buffer {
+    return bufferPool.Get().(*bytes.Buffer)
+}
+
+func returnBuffer(buf *bytes.Buffer) {
+    buf.Reset()
+    bufferPool.Put(buf)
+}
+
+// 好：预分配切片
+func preAllocateSlice(count int) []int {
+    // 使用容量避免重新分配
+    slice := make([]int, 0, count)
+    for i := 0; i < count; i++ {
+        slice = append(slice, i) // 无需重新分配
+    }
+    return slice
+}
+```
+</UniversalEditor>
+
+## 基准测试
+
+<UniversalEditor title="基准测试比较">
+```java !! java
+// Java: JMH 基准测试
+import org.openjdk.jmh.annotations.*;
+import java.util.concurrent.TimeUnit;
+
+@BenchmarkMode(Mode.AverageTime)
+@OutputTimeUnit(TimeUnit.MILLISECONDS)
+@State(Scope.Benchmark)
+public class Benchmarks {
+    private int[] data;
+
+    @Setup
+    public void setup() {
+        data = new int[1000];
+        for (int i = 0; i < data.length; i++) {
+            data[i] = i;
+        }
+    }
+
+    @Benchmark
+    public int sumWithLoop() {
+        int sum = 0;
+        for (int num : data) {
+            sum += num;
+        }
+        return sum;
+    }
+
+    @Benchmark
+    public int sumWithStream() {
+        return java.util.Arrays.stream(data).sum();
+    }
+}
+
+// 运行命令: java -jar benchmarks.jar
+```
+
+```go !! go
+// Go: 内置基准测试
+package main
+
+import (
+    "testing"
+)
+
+var data []int
+
+func setup() {
+    data = make([]int, 1000)
+    for i := 0; i < len(data); i++ {
+        data[i] = i
+    }
+}
+
+func BenchmarkSumWithLoop(b *testing.B) {
+    setup()
+    b.ResetTimer()
+
+    for i := 0; i < b.N; i++ {
+        sum := 0
+        for _, num := range data {
+            sum += num
+        }
+    }
+}
+
+func BenchmarkSumWithRange(b *testing.B) {
+    setup()
+    b.ResetTimer()
+
+    for i := 0; i < b.N; i++ {
+        sum := 0
+        for i := range data {
+            sum += data[i]
+        }
+    }
+}
+
+// 运行命令: go test -bench=. -benchmem
+```
+</UniversalEditor>
+
+## Goroutine 性能
+
+<UniversalEditor title="Goroutine vs 线程性能">
+```java !! java
+// Java: 线程开销
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+
+public class ThreadPerformance {
+    private static final int TASK_COUNT = 100000;
+
+    public void runWithThreads() throws InterruptedException {
+        long start = System.currentTimeMillis();
+
+        ExecutorService executor = Executors.newFixedThreadPool(100);
+
+        for (int i = 0; i < TASK_COUNT; i++) {
+            final int taskNum = i;
+            executor.submit(() -> {
+                // 模拟工作
+                int result = taskNum * 2;
+            });
+        }
+
+        executor.shutdown();
+        executor.awaitTermination(1, TimeUnit.MINUTES);
+
+        long duration = System.currentTimeMillis() - start;
+        System.out.println("线程: " + duration + "ms");
+        // 输出: 线程: ~2000-5000ms
+        // 内存: 10 万线程约 ~500MB-1GB
+    }
+}
+```
+
+```go !! go
+// Go: Goroutine 效率
+package main
+
+import (
+    "fmt"
+    "sync"
+    "time"
+)
+
+const taskCount = 100000
+
+func runWithGoroutines() {
+    start := time.Now()
+
+    var wg sync.WaitGroup
+
+    for i := 0; i < taskCount; i++ {
+        wg.Add(1)
+        go func(taskNum int) {
+            defer wg.Done()
+            // 模拟工作
+            result := taskNum * 2
+            _ = result
+        }(i)
+    }
+
+    wg.Wait()
+
+    duration := time.Since(start)
+    fmt.Printf("Goroutine: %v\n", duration)
+    // 输出: Goroutine: ~200-500ms
+    // 内存: 10 万 goroutine 约 ~50-100MB
+}
+
+func main() {
+    runWithGoroutines()
+}
+```
+</UniversalEditor>
+
+## Channel 性能
+
+<UniversalEditor title="Channel 优化">
+```java !! java
+// Java: BlockingQueue
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.BlockingQueue;
+
+public class QueuePerformance {
+    private BlockingQueue<Integer> queue = new ArrayBlockingQueue<>(100);
+
+    public void producer() throws InterruptedException {
+        for (int i = 0; i < 1000000; i++) {
+            queue.put(i); // 队列满时阻塞
+        }
+    }
+
+    public void consumer() throws InterruptedException {
+        while (true) {
+            Integer value = queue.take(); // 队列空时阻塞
+            // 处理值
+        }
+    }
+}
+```
+
+```go !! go
+// Go: 缓冲 channel
+package main
+
+import "sync"
+
+// 无缓冲 channel（同步）
+func unbufferedChannel() {
+    ch := make(chan int)
+    go func() {
+        for i := 0; i < 1000000; i++ {
+            ch <- i // 阻塞直到接收者准备就绪
+        }
+        close(ch)
+    }()
+
+    for value := range ch {
+        _ = value
+    }
+}
+
+// 缓冲 channel（异步）
+func bufferedChannel() {
+    ch := make(chan int, 100) // 缓冲大小 100
+    go func() {
+        for i := 0; i < 1000000; i++ {
+            ch <- i // 缓冲满时才阻塞
+        }
+        close(ch)
+    }()
+
+    for value := range ch {
+        _ = value
+    }
+}
+
+// 最佳实践：根据工作负载选择缓冲大小
+func optimizedChannel() {
+    // 对于生产者-消费者不同速率的场景
+    ch := make(chan int, 1000) // 较大缓冲给更快生产者
+
+    var wg sync.WaitGroup
+
+    // 多个生产者
+    for i := 0; i < 10; i++ {
+        wg.Add(1)
+        go func(id int) {
+            defer wg.Done()
+            for j := 0; j < 10000; j++ {
+                ch <- id*10000 + j
+            }
+        }(i)
+    }
+
+    // 单个消费者
+    go func() {
+        for value := range ch {
+            _ = value
+        }
+    }()
+
+    wg.Wait()
+    close(ch)
+}
+```
+</UniversalEditor>
+
+## 字符串优化
+
+<UniversalEditor title="字符串性能">
+```java !! java
+// Java: 字符串优化
+public class StringOptimization {
+    // 不好：循环中字符串拼接
+    public String concatenateBad(List<String> items) {
+        String result = "";
+        for (String item : items) {
+            result += item; // 创建新对象
+        }
+        return result;
+    }
+
+    // 好：使用 StringBuilder
+    public String concatenateGood(List<String> items) {
+        StringBuilder sb = new StringBuilder(items.size() * 16);
+        for (String item : items) {
+            sb.append(item);
+        }
+        return sb.toString();
+    }
+
+    // 字符串比较
+    public boolean compareStrings(String a, String b) {
+        return a.equals(b); // 正确方式
+        // return a == b; // 错误！比较引用
+    }
+
+    // 字符串驻留提高内存效率
+    public void stringInterning() {
+        String s1 = "hello".intern(); // 驻留
+        String s2 = "hello".intern(); // 相同引用
+        boolean same = (s1 == s2); // true
+    }
+}
+```
+
+```go !! go
+// Go: 字符串优化
+package main
+
+import (
+    "strings"
+)
+
+// 不好：循环中字符串拼接
+func concatenateBad(items []string) string {
+    result := ""
+    for _, item := range items {
+        result += item // 低效
+    }
+    return result
+}
+
+// 好：使用 strings.Builder
+func concatenateGood(items []string) string {
+    var builder strings.Builder
+    // 预分配容量
+    builder.Grow(len(items) * 16)
+
+    for _, item := range items {
+        builder.WriteString(item)
+    }
+    return builder.String()
+}
+
+// 字符串比较（Go 中直接 == 即可！）
+func compareStrings(a, b string) bool {
+    return a == b // 高效且正确
+}
+
+// 字符串驻留（手动）
+var internPool = sync.Pool{
+    New: func() interface{} {
+        return make(map[string]string)
+    },
+}
+
+// 字符串重用模式
+func stringReuse() {
+    // 常见模式：使用字节切片构建
+    // 只在最后转换为字符串
+    data := []byte("hello")
+    str := string(data) // 一次分配
+    _ = str
+}
+
+// 高效的字符串连接
+func joinStrings(items []string) string {
+    return strings.Join(items, ",") // 高效
+}
+```
+</UniversalEditor>
+
+## 切片性能
+
+<UniversalEditor title="切片 vs 数组性能">
+```java !! java
+// Java: ArrayList vs Array
+public class CollectionPerformance {
+    // ArrayList（动态）
+    public void arrayListTest() {
+        List<Integer> list = new ArrayList<>();
+        for (int i = 0; i < 100000; i++) {
+            list.add(i); // 可能需要扩容
+        }
+    }
+
+    // Array（固定大小，更快）
+    public void arrayTest() {
+        int[] array = new int[100000];
+        for (int i = 0; i < 100000; i++) {
+            array[i] = i; // 直接访问
+        }
+    }
+
+    // 预设大小的 ArrayList
+    public void preSizedList() {
+        List<Integer> list = new ArrayList<>(100000);
+        for (int i = 0; i < 100000; i++) {
+            list.add(i); // 无需扩容
+        }
+    }
+}
+```
+
+```go !! go
+// Go: 切片 vs 数组
+package main
+
+// 切片（动态）
+func sliceTest() {
+    slice := make([]int, 0)
+    for i := 0; i < 100000; i++ {
+        slice = append(slice, i) // 可能增长并复制
+    }
+}
+
+// 预分配切片（更快）
+func preAllocatedSlice() {
+    slice := make([]int, 0, 100000) // 容量预分配
+    for i := 0; i < 100000; i++ {
+        slice = append(slice, i) // 无需复制
+    }
+}
+
+// 数组（固定大小，最快）
+func arrayTest() {
+    var array [100000]int
+    for i := 0; i < 100000; i++ {
+        array[i] = i // 直接访问，无边界检查开销
+    }
+}
+
+// 切片性能技巧
+func sliceTricks() {
+    // 重用切片底层数组
+    buffer := make([]int, 100)
+
+    // 多次使用相同缓冲区
+    work1 := buffer[:50]  // 前 50 个元素
+    work2 := buffer[50:]  // 剩余 50 个元素
+
+    _ = work1
+    _ = work2
+}
+
+// 高效清空切片
+func clearSlice(slice []int) {
+    // 好：重用底层数组
+    for i := range slice {
+        slice[i] = 0
+    }
+
+    // 替代方案：创建新切片（可能分配）
+    // slice = make([]int, len(slice))
+}
+```
+</UniversalEditor>
+
+## 性能最佳实践
+
+### 1. 尽可能预分配
+
+```go
+// 不好：重复分配
+func badGrowth() {
+    data := []int{}
+    for i := 0; i < 1000000; i++ {
+        data = append(data, i) // 多次重新分配
+    }
+}
+
+// 好：预分配容量
+func goodGrowth() {
+    data := make([]int, 0, 1000000)
+    for i := 0; i < 1000000; i++ {
+        data = append(data, i) // 无重新分配
+    }
+}
+```
+
+### 2. 适当使用值类型
+
+```go
+// 小结构体优先使用值类型
+type Point struct {
+    X, Y int
+}
+
+// 按值传递（小结构体高效）
+func distance(p1, p2 Point) int {
+    dx := p1.X - p2.X
+    dy := p1.Y - p2.Y
+    return dx*dx + dy*dy
+}
+
+// 大结构体使用指针
+type LargeStruct struct {
+    data [1024]int
+}
+
+func process(l *LargeStruct) {
+    // 使用指针避免复制
+}
+```
+
+### 3. 避免过早优化
+
+```go
+// 先编写清晰的代码
+func processData(items []string) string {
+    var result strings.Builder
+    for _, item := range items {
+        result.WriteString(item)
+        result.WriteString(",")
+    }
+    return result.String()
+}
+
+// 先进行性能分析，只优化热点
+// 使用: go test -bench=. -cpuprofile=cpu.prof
+```
+
+## 常见性能陷阱
+
+### 1. 子字符串分配
+
+<UniversalEditor title="字符串切片">
+```java !! java
+// Java: substring() 复制数据（Java 7u6 之前）
+public class Substrings {
+    public void processString(String text) {
+        // 创建新字符串对象
+        String sub = text.substring(0, 10);
+        System.out.println(sub);
+    }
+}
+```
+
+```go !! go
+// Go: 字符串切片不复制
+package main
+
+func processString(text string) {
+    // 无分配！只是切片字符串
+    sub := text[:10]
+    println(sub)
+}
+
+// 但要注意：保持原字符串在内存中
+func memoryLeakExample() {
+    // 读取 1GB 文件
+    data := readFile("largefile.txt") // 1GB
+
+    // 提取小部分
+    firstLine := getFirstLine(data) // 前 100 个字符
+
+    // firstLine 仍然引用整个 1GB 数据！
+    useString(firstLine)
+
+    // 修复：转换为 []byte 再转回
+}
+
+func getFirstLine(data string) string {
+    // 这会保持整个 data 在内存中
+    return data[:100]
+
+    // 更好：复制到新字符串
+    // return strings.Clone(data[:100])
+}
+```
+</UniversalEditor>
+
+### 2. Range 循环变量捕获
+
+```go
+// 错误：所有 goroutine 捕获同一变量
+func wrongRange() {
+    items := []int{1, 2, 3, 4, 5}
+    for _, item := range items {
+        go func() {
+            println(item) // 总是打印 5
+        }()
+    }
+}
+
+// 正确：将变量作为参数传递
+func correctRange() {
+    items := []int{1, 2, 3, 4, 5}
+    for _, item := range items {
+        go func(val int) {
+            println(val) // 打印正确的值
+        }(item)
+    }
+}
+```
+
+---
+
+### 练习问题：
+1. 什么时候应该预分配切片容量而不是使用 append？
+2. Go 的垃圾回收与 Java 有什么不同？
+3. 缓冲 channel 和无缓冲 channel 有什么权衡？
+4. 为什么 Go 中的字符串切片比 Java 的 substring() 更高效？
+
+### 项目想法：
+- 创建一个性能比较工具，对等价的 Java 和 Go 代码进行基准测试
+- 构建一个 Web 服务，展示 goroutine 相比 Java 线程的效率
+- 实现一个 Go 应用程序的内存性能分析仪表板
+
+### 下一步：
+- 学习 Go 应用程序的部署策略
+- 了解生产环境监控和可观察性
+- 探索真实项目架构

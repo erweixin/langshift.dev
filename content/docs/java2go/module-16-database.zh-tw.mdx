@@ -1,0 +1,244 @@
+---
+title: "模組 16：資料庫整合"
+---
+
+本模組介紹 Go 中的資料庫整合，與 Java 的資料庫方法進行比較。
+
+## 資料庫存取模式
+
+**Java 資料庫方法：**
+- JDBC：低階資料庫存取
+- Spring Data JPA：帶儲存庫的 ORM
+- Hibernate：功能豐富的 ORM
+- MyBatis：SQL 對應框架
+- jOOQ：型別安全的 SQL
+
+**Go 資料庫方法：**
+- database/sql：標準函式庫介面
+- GORM：全功能 ORM
+- sqlx：database/sql 的擴充
+- sqlc：型別安全的 SQL 程式碼產生
+
+<UniversalEditor title="基本資料庫操作">
+```java !! java
+// Java: Spring Data JPA
+@Service
+@Transactional
+public class UserService {
+
+    @Autowired
+    private UserRepository userRepository;
+
+    public User createUser(String email, String name) {
+        User user = new User();
+        user.setEmail(email);
+        user.setName(name);
+        return userRepository.save(user);
+    }
+
+    public Optional<User> getUserById(Long id) {
+        return userRepository.findById(id);
+    }
+
+    public Optional<User> getUserByEmail(String email) {
+        return userRepository.findByEmail(email);
+    }
+
+    public List<User> searchUsers(String keyword) {
+        return userRepository.findByNameContainingIgnoreCase(keyword);
+    }
+
+    public User updateUser(Long id, String name) {
+        User user = userRepository.findById(id)
+            .orElseThrow(() -> new UserNotFoundException(id));
+        user.setName(name);
+        return userRepository.save(user);
+    }
+
+    public void deleteUser(Long id) {
+        if (!userRepository.existsById(id)) {
+            throw new UserNotFoundException(id);
+        }
+        userRepository.deleteById(id);
+    }
+}
+```
+
+```go !! go
+// Go: GORM
+package main
+
+import (
+    "gorm.io/gorm"
+    "gorm.io/gorm/clause"
+)
+
+type UserService struct {
+    db *gorm.DB
+}
+
+func NewUserService(db *gorm.DB) *UserService {
+    return &UserService{db: db}
+}
+
+func (s *UserService) CreateUser(email, name string) (*User, error) {
+    user := &User{
+        Email: email,
+        Name:  name,
+    }
+
+    if err := s.db.Create(user).Error; err != nil {
+        return nil, err
+    }
+
+    return user, nil
+}
+
+func (s *UserService) GetUserByID(id uint) (*User, error) {
+    var user User
+    err := s.db.First(&user, id).Error
+    if err != nil {
+        return nil, err
+    }
+    return &user, nil
+}
+
+func (s *UserService) GetUserByEmail(email string) (*User, error) {
+    var user User
+    err := s.db.Where("email = ?", email).First(&user).Error
+    if err != nil {
+        return nil, err
+    }
+    return &user, nil
+}
+
+func (s *UserService) SearchUsers(keyword string) ([]User, error) {
+    var users []User
+    err := s.db.Where("name ILIKE ?", "%"+keyword+"%").Find(&users).Error
+    return users, err
+}
+
+func (s *UserService) UpdateUser(id uint, name string) (*User, error) {
+    var user User
+    if err := s.db.First(&user, id).Error; err != nil {
+        return nil, err
+    }
+
+    user.Name = name
+    if err := s.db.Save(&user).Error; err != nil {
+        return nil, err
+    }
+
+    return &user, nil
+}
+
+func (s *UserService) DeleteUser(id uint) error {
+    result := s.db.Delete(&User{}, id)
+    if result.Error != nil {
+        return result.Error
+    }
+    if result.RowsAffected == 0 {
+        return gorm.ErrRecordNotFound
+    }
+    return nil
+}
+
+// 交易範例
+func (s *UserService) TransferFunds(fromID, toID uint, amount float64) error {
+    return s.db.Transaction(func(tx *gorm.DB) error {
+        // 鎖定列以進行更新
+        var fromUser User
+        if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+            First(&fromUser, fromID).Error; err != nil {
+            return err
+        }
+
+        var toUser User
+        if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+            First(&toUser, toID).Error; err != nil {
+            return err
+        }
+
+        fromUser.Balance -= amount
+        toUser.Balance += amount
+
+        if err := tx.Save(&fromUser).Error; err != nil {
+            return err
+        }
+
+        if err := tx.Save(&toUser).Error; err != nil {
+            return err
+        }
+
+        return nil
+    })
+}
+```
+</UniversalEditor>
+
+## 連線池
+
+<UniversalEditor title="連線池設定">
+```java !! java
+// Java: HikariCP (Spring Boot)
+// application.properties
+spring.datasource.url=jdbc:postgresql://localhost:5432/mydb
+spring.datasource.username=myuser
+spring.datasource.password=mypassword
+spring.datasource.hikari.maximum-pool-size=10
+spring.datasource.hikari.minimum-idle=5
+spring.datasource.hikari.connection-timeout=30000
+spring.datasource.hikari.idle-timeout=600000
+spring.datasource.hikari.max-lifetime=1800000
+```
+
+```go !! go
+// Go: database/sql 連線池
+package main
+
+import (
+    "database/sql"
+    "time"
+    _ "github.com/lib/pq"
+)
+
+func NewDB(dataSourceName string) (*sql.DB, error) {
+    db, err := sql.Open("postgres", dataSourceName)
+    if err != nil {
+        return nil, err
+    }
+
+    // 連線池設定
+    db.SetMaxOpenConns(25)           // 最大打開連線數
+    db.SetMaxIdleConns(5)            // 最大閒置連線數
+    db.SetConnMaxLifetime(5 * time.Minute)  // 最大連線生命週期
+    db.SetConnMaxIdleTime(1 * time.Minute)  // 連線的最大閒置時間
+
+    // 驗證連線
+    if err := db.Ping(); err != nil {
+        return nil, err
+    }
+
+    return db, nil
+}
+```
+</UniversalEditor>
+
+---
+
+### 練習問題：
+1. 什麼時候應該使用 GORM vs sqlx vs 原始 SQL？
+2. Go 的交易方法與 Java 有什麼不同？
+3. Go 的 database/sql 介面有什麼優勢？
+4. Go 中的連線池與 Java 相比如何工作？
+
+### 專案想法：
+- 建構具有完整 CRUD 操作的 REST API
+- 為多服務應用實作資料庫遷移
+- 建立具有複雜查詢的報告服務
+- 設定讀副本和寫分離
+
+### 下一步：
+- 學習微服務架構
+- 探索真實世界專案模式
+- 建構生產就緒的應用程式

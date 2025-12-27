@@ -1,0 +1,994 @@
+---
+title: "Module 03: Package System"
+description: "Understand Go's package system compared to Java packages, including imports, visibility, dependency management with Go modules, and package design best practices"
+---
+
+# Module 03: Package System
+
+Welcome to Module 03! In this module, you'll learn how Go organizes code through packages, how it differs from Java's package system, and how to manage dependencies using Go modules.
+
+## Learning Objectives
+
+By the end of this module, you will:
+- Understand Go packages vs Java packages
+- Learn Go's import conventions
+- Master exported/unexported identifiers
+- Understand Go modules (go.mod) vs Maven/Gradle
+- Learn package naming best practices
+- Understand the vendor directory
+- Master dependency management in Go
+
+## 1. Packages: Go vs Java
+
+### Java Packages
+
+In Java, packages organize classes and provide namespace isolation:
+
+```java
+// File: com/example/myapp/utils/StringUtil.java
+package com.example.myapp.utils;
+
+public class StringUtil {
+    public static boolean isEmpty(String str) {
+        return str == null || str.isEmpty();
+    }
+}
+```
+
+### Go Packages
+
+Go packages are simpler - the package name is determined by the `package` declaration, not the directory structure:
+
+<UniversalEditor title="Package Declaration: Java vs Go">
+```java !! java
+// Java: Package must match directory structure
+// File: com/example/myapp/utils/StringUtils.java
+package com.example.myapp.utils;
+
+public class StringUtils {
+    public static boolean isEmpty(String str) {
+        return str == null || str.length() == 0;
+    }
+}
+
+// Usage
+import com.example.myapp.utils.StringUtils;
+```
+
+```go !! go
+// Go: Package name is declared in the file
+// File: myapp/utils/stringutil.go (or any .go file)
+package utils // Package name, not directory path
+
+func IsEmpty(str string) bool {
+    return str == ""
+}
+
+// The directory path is used for importing, but the package
+// name is what you use in code
+```
+</UniversalEditor>
+
+## 2. Import Conventions
+
+### Java Imports
+
+<UniversalEditor title="Import Statements: Java vs Go">
+```java !! java
+// Java: Explicit imports
+import com.example.utils.StringUtil;
+import com.example.models.User;
+import java.util.List;
+import java.util.ArrayList;
+
+// Or wildcard import (discouraged)
+import com.example.utils.*;
+
+public class Example {
+    public void process() {
+        String name = StringUtil.trim("  hello  ");
+        List<String> items = new ArrayList<>();
+    }
+}
+```
+
+```go !! go
+// Go: Imports are grouped
+package main
+
+import (
+    "fmt"           // Standard library
+    "strings"       // Standard library
+    "myapp/utils"   // Local package - uses directory path
+    "myapp/models"  // Local package
+)
+
+func main() {
+    name := strings.TrimSpace("  hello  ")
+    fmt.Println(name)
+
+    // Use the package name (utils), not directory path
+    user := models.NewUser("Alice")
+}
+```
+</UniversalEditor>
+
+### Import Aliases
+
+<UniversalEditor title="Import Aliases">
+```java !! java
+// Java doesn't have import aliases
+// You must use fully qualified names if there are conflicts
+import com.example.json.JSON;
+import org.json.JSONObject;
+
+public class Example {
+    public void process() {
+        // Must use fully qualified name
+        JSONObject obj = new JSONObject();
+    }
+}
+```
+
+```go !! go
+// Go: Use import aliases to resolve conflicts
+package main
+
+import (
+    myjson "myapp/json"        // Alias for my json package
+    "encoding/json"            // Standard library json
+)
+
+func main() {
+    // Use alias to differentiate
+    obj1 := json.NewEncoder(nil)  // Standard library
+    obj2 := myjson.NewEncoder()   // My package
+}
+```
+</UniversalEditor>
+
+### Blank Imports
+
+<UniversalEditor title="Blank Imports (Go Only)">
+```java !! java
+// Java: No equivalent to blank imports
+// You must explicitly use everything you import
+```
+
+```go !! go
+// Go: Blank imports import for side effects only
+package main
+
+import (
+    _ "fmt"        // ✗ Useless - no side effects
+    _ "image/jpeg" // ✓ Good - registers JPEG decoder
+    "database/sql"
+    _ "github.com/lib/pq" // ✓ Good - registers PostgreSQL driver
+)
+
+func main() {
+    // Can't use fmt directly (it's blank imported)
+    // But JPEG format is now available for image decoding
+    // And PostgreSQL driver is registered with database/sql
+}
+```
+</UniversalEditor>
+
+## 3. Exported vs Unexported Identifiers
+
+Go uses capitalization to determine visibility, unlike Java's `public`/`private` keywords.
+
+### Java Visibility Modifiers
+
+<UniversalEditor title="Visibility Modifiers">
+```java !! java
+package com.example.myapp;
+
+public class UserService {
+    private String apiKey;           // Private to this class
+    protected String dbUrl;          // Private + subclasses
+    String defaultConfig;            // Package-private (default)
+    public String version;           // Public everywhere
+
+    private void validate() { }      // Private method
+    public void process() { }        // Public method
+
+    // Private inner class
+    private class Config { }
+
+    // Public inner class
+    public class Result { }
+}
+```
+
+```go !! go
+package users
+
+import "fmt"
+
+// Exported (public) - starts with capital letter
+type UserService struct {
+    APIKey  string // Exported field
+    dbUrl   string // Unexported field (private)
+    Version string // Exported field
+}
+
+// Exported constructor
+func NewUserService(key string) *UserService {
+    return &UserService{
+        APIKey: key,
+        dbUrl:  "localhost:5432", // Private field
+    }
+}
+
+// Unexported method (private)
+func (s *UserService) validate() {
+    fmt.Println("validating...")
+}
+
+// Exported method (public)
+func (s *UserService) Process() {
+    s.validate() // Can call private methods
+}
+
+// Unexported type (private)
+type config struct {
+    debug bool
+}
+
+// Exported type (public)
+type Result struct {
+    Success bool
+    Message string
+}
+```
+</UniversalEditor>
+
+### Practical Examples
+
+<UniversalEditor title="Exported/Unexported in Practice">
+```java !! java
+// Java: Explicit visibility keywords
+package com.example.models;
+
+public class User {
+    private String id;
+    private String email;
+    public String name;
+
+    public User(String id, String email, String name) {
+        this.id = id;
+        this.email = email;
+        this.name = name;
+    }
+
+    public String getId() { return id; }
+    public String getEmail() { return email; }
+    private boolean isValid() {
+        return email != null && email.contains("@");
+    }
+}
+```
+
+```go !! go
+package models
+
+// User is exported (starts with capital)
+type User struct {
+    ID    string // Exported field
+    email string // Unexported field (private)
+    Name  string // Exported field
+}
+
+// Exported constructor
+func NewUser(id, email, name string) *User {
+    return &User{
+        ID:    id,
+        email: email,
+        Name:  name,
+    }
+}
+
+// Exported getter
+func (u *User) GetEmail() string {
+    return u.email
+}
+
+// Unexported method (private)
+func (u *User) isValid() bool {
+    return strings.Contains(u.email, "@")
+}
+```
+</UniversalEditor>
+
+## 4. Package Naming Best Practices
+
+### Package Name Guidelines
+
+<UniversalEditor title="Package Naming Conventions">
+```java !! java
+// Java: Package names are lowercase, domain-reversed
+package com.example.companyname.projectname.module;
+package org.apache.commons.lang3;
+package com.google.gson;
+
+// File structure must match package structure
+// com/example/companyname/projectname/module/Class.java
+```
+
+```go !! go
+// Go: Package names should be short, lowercase, single words
+package user     // ✓ Good
+package users    // ✓ Good
+package http     // ✓ Good
+package json     // ✓ Good
+
+// Avoid:
+package userData // ✗ Too verbose
+package myUser   // ✗ Includes "my"
+package httpServer // ✗ Two words, use "http" or "server"
+
+// Directory: go/src/github.com/user/project/
+// File: go/src/github.com/user/project/storage.go
+package storage // Package name, not full path
+
+// Package names don't need to be unique across projects
+// Import paths (directory paths) provide uniqueness
+```
+</UniversalEditor>
+
+### Package Organization
+
+<UniversalEditor title="Package Structure">
+```java !! java
+// Java: Hierarchical package structure
+com/
+└── example/
+    └── myapp/
+        ├── model/
+        │   ├── User.java
+        │   └── Product.java
+        ├── service/
+        │   ├── UserService.java
+        │   └── ProductService.java
+        ├── util/
+        │   └── StringUtil.java
+        └── Main.java
+```
+
+```go !! go
+// Go: Flat package structure (usually)
+myapp/
+├── model/
+│   ├── user.go    // package model
+│   └── product.go // package model
+├── service/
+│   ├── user.go    // package service
+│   └── product.go // package service
+├── util/
+│   └── string.go  // package util
+└── main.go        // package main
+
+// Don't create deeply nested packages like:
+// myapp/model/user/profile/
+// Keep it flat: myapp/model/
+```
+</UniversalEditor>
+
+## 5. Go Modules (go.mod)
+
+Go modules manage dependencies and versioning, similar to Maven/Gradle in Java.
+
+### Creating a Go Module
+
+<UniversalEditor title="Dependency Management: Maven vs Go Modules">
+```xml
+<!-- Maven: pom.xml -->
+<project>
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>com.example</groupId>
+    <artifactId>myapp</artifactId>
+    <version>1.0.0</version>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.google.code.gson</groupId>
+            <artifactId>gson</artifactId>
+            <version>2.10.1</version>
+        </dependency>
+    </dependencies>
+</project>
+```
+
+```go
+// Go: go.mod
+module github.com/user/myapp
+
+go 1.21
+
+require (
+    github.com/gin-gonic/gin v1.9.1
+    github.com/google/uuid v1.3.1
+)
+```
+</UniversalEditor>
+
+### Module Commands
+
+<UniversalEditor title="Dependency Management Commands">
+```bash
+# Java: Maven commands
+mvn dependency:tree          # Show dependency tree
+mvn dependency:resolve       # Resolve dependencies
+mvn clean install           # Build and install
+mvn package                 # Create JAR
+```
+
+```bash
+# Go: Module commands
+go mod init github.com/user/myapp     # Initialize module
+go mod tidy                           # Add missing/remove unused deps
+go mod vendor                         # Copy dependencies to vendor/
+go get github.com/pkg/errors@latest   # Add/update dependency
+go get github.com/pkg/errors@v1.9.0  # Use specific version
+go build                              # Build the module
+go test                               # Run tests
+```
+</UniversalEditor>
+
+### Semantic Versioning
+
+<UniversalEditor title="Version Management">
+```xml
+<!-- Maven: Explicit versions -->
+<dependency>
+    <groupId>com.fasterxml.jackson.core</groupId>
+    <artifactId>jackson-databind</artifactId>
+    <version>2.15.2</version>
+</dependency>
+
+<!-- Or use ranges -->
+<version>[2.15,3.0)</version>
+```
+
+```go
+// go.mod: Semantic import versioning
+module github.com/user/myapp
+
+go 1.21
+
+require (
+    // Specific version
+    github.com/gin-gonic/gin v1.9.1
+
+    // Pre-release version
+    github.com/example/pkg v1.3.0-beta
+
+    // Pseudo-versions for commits without tags
+    github.com/example/other v0.0.0-20231201123456-abc123
+)
+
+// go.mod automatically updates with:
+// - Major version (v1, v2, etc.) in import path
+// - Minor and patch versions tracked in go.mod
+```
+</UniversalEditor>
+
+## 6. The Vendor Directory
+
+The vendor directory stores dependencies locally in your project.
+
+<UniversalEditor title="Vendor Directory">
+```bash
+# Java: Maven/Gradle local repository
+# Dependencies stored in ~/.m2/ or ~/.gradle/
+
+# Project-level dependency:
+# Maven: mvn dependency:copy-dependencies
+# Creates: target/dependency/
+```
+
+```bash
+# Go: Vendor directory
+# After: go mod vendor
+myapp/
+├── go.mod
+├── go.sum
+├── main.go
+└── vendor/
+    ├── github.com/
+    │   ├── gin-gonic/
+    │   │   └── gin/...
+    │   └── google/
+    │       └── uuid/...
+    └── golang.org/
+        └── x/...
+
+# Build with vendor:
+# go build -mod=vendor
+
+# Benefits:
+# - Reproducible builds
+# - Offline builds
+# - Version control of dependencies
+```
+</UniversalEditor>
+
+## 7. Package Visibility Examples
+
+### Real-World Example: HTTP Server
+
+<UniversalEditor title="HTTP Server Package Design">
+```java !! java
+// Java: Multiple files, visibility keywords
+package com.example.server;
+
+import java.io.*;
+import java.net.*;
+
+public class HTTPServer {
+    private int port;
+    private ServerSocket serverSocket;
+
+    public HTTPServer(int port) {
+        this.port = port;
+    }
+
+    public void start() throws IOException {
+        serverSocket = new ServerSocket(port);
+    }
+
+    private void handleConnection(Socket socket) {
+        // Private implementation
+    }
+}
+
+class RequestHandler {
+    // Package-private class
+    void handle(Socket socket) { }
+}
+```
+
+```go !! go
+// Go: Exported/unexported via capitalization
+package server
+
+import "net"
+
+// Server is exported
+type Server struct {
+    port    int          // Exported field
+    listener net.Listener // Unexported field
+}
+
+// NewServer is exported (constructor)
+func NewServer(port int) *Server {
+    return &Server{port: port}
+}
+
+// Start is exported
+func (s *Server) Start() error {
+    var err error
+    s.listener, err = net.Listen("tcp", ":"+strconv.Itoa(s.port))
+    return err
+}
+
+// handleConnection is unexported (private)
+func (s *Server) handleConnection(conn net.Conn) {
+    // Private implementation
+}
+
+// RequestHandler is exported
+type RequestHandler struct {
+    // Unexported fields
+}
+
+// Handle is exported
+func (h *RequestHandler) Handle(conn net.Conn) {
+    // Implementation
+}
+```
+</UniversalEditor>
+
+## 8. Import Management
+
+### Import Grouping
+
+<UniversalEditor title="Import Organization">
+```java !! java
+// Java: Imports are typically organized by IDE
+package com.example;
+
+// Standard library first
+import java.util.List;
+import java.util.ArrayList;
+
+// Third-party libraries
+import com.google.gson.Gson;
+import org.apache.commons.lang3.StringUtils;
+
+// Project imports
+import com.example.models.User;
+import com.example.services.UserService;
+```
+
+```go !! go
+// Go: Imports are grouped and sorted by go fmt
+package main
+
+import (
+    // Standard library
+    "fmt"
+    "net/http"
+    "strings"
+
+    // Local/Third-party packages
+    "github.com/gin-gonic/gin"
+    "myapp/models"
+    "myapp/services"
+)
+
+// go fmt will automatically group and sort imports
+```
+</UniversalEditor>
+
+### Dot Imports (Use with Caution)
+
+<UniversalEditor title="Dot Import Style">
+```java !! java
+// Java: Static imports
+import static java.lang.Math.*;
+import static java.util.Collections.*;
+
+public class Example {
+    public void calculate() {
+        double result = sqrt(16.0); // No Math. prefix
+        List<String> list = emptyList(); // No Collections. prefix
+    }
+}
+```
+
+```go !! go
+// Go: Dot imports (use sparingly!)
+package main
+
+import (
+    . "fmt"      // ✗ Avoid: Can cause confusion
+    "math"
+)
+
+func main() {
+    Println("Hello") // No fmt. prefix (confusing!)
+    println("Bye")   // Is this fmt or another package?
+}
+
+// Better approach: Use proper package names
+package main
+
+import (
+    "fmt"
+    "math"
+)
+
+func main() {
+    fmt.Println("Hello") // Clear which package
+    math.Sqrt(16.0)
+}
+```
+</UniversalEditor>
+
+## 9. Best Practices
+
+### Package Design
+
+<UniversalEditor title="Package Design Principles">
+```java !! java
+// Java: Separate packages for different concerns
+package com.example.repository;
+public interface UserRepository { }
+
+package com.example.service;
+public class UserService { }
+
+package com.example.model;
+public class User { }
+```
+
+```go !! go
+// Go: Flat package structure, clear names
+// repository/user.go
+package repository
+
+type UserRepository interface {
+    Find(id string) (*User, error)
+}
+
+// service/user.go
+package service
+
+type UserService struct {
+    repo repository.UserRepository
+}
+
+// model/user.go
+package model
+
+type User struct {
+    ID    string
+    Name  string
+    Email string
+}
+
+// Don't: Don't create:
+// repository/user/user.go (redundant)
+// service/user/service.go (redundant)
+```
+</UniversalEditor>
+
+### Avoid Cycles
+
+<UniversalEditor title="Avoid Import Cycles">
+```java !! java
+// Java: Package cycle
+// com.example.a depends on com.example.b
+// com.example.b depends on com.example.a
+// Compiler error! (usually)
+```
+
+```go !! go
+// Go: Import cycle detected
+// Package a imports package b
+// Package b imports package a
+
+// a/a.go
+package a
+
+import "myapp/b"
+
+func Process() {
+    b.DoSomething()
+}
+
+// b/b.go
+package b
+
+import "myapp/a" // ✗ Import cycle!
+
+func DoSomething() {
+    a.OtherProcess()
+}
+
+// Solution: Refactor to create package c
+// Both a and b can import c
+```
+</UniversalEditor>
+
+## 10. Package Examples
+
+### Database Package
+
+<UniversalEditor title="Database Package Example">
+```java !! java
+// Java: Database package with interfaces
+package com.example.database;
+
+public interface Database {
+    Connection getConnection() throws SQLException;
+    void close() throws SQLException;
+}
+
+public class MySQLDatabase implements Database {
+    private String url;
+    private Connection connection;
+
+    public MySQLDatabase(String url) {
+        this.url = url;
+    }
+
+    @Override
+    public Connection getConnection() {
+        if (connection == null) {
+            connection = DriverManager.getConnection(url);
+        }
+        return connection;
+    }
+
+    @Override
+    public void close() {
+        if (connection != null) {
+            connection.close();
+        }
+    }
+}
+```
+
+```go !! go
+// database/database.go
+package database
+
+import "database/sql"
+
+// Database is exported
+type Database struct {
+    db *sql.DB // Unexported
+}
+
+// NewDatabase is exported
+func NewDatabase(driver, dsn string) (*Database, error) {
+    db, err := sql.Open(driver, dsn)
+    if err != nil {
+        return nil, err
+    }
+    return &Database{db: db}, nil
+}
+
+// Conn is exported (gets connection)
+func (d *Database) Conn() *sql.DB {
+    return d.db
+}
+
+// Close is exported
+func (d *Database) Close() error {
+    return d.db.Close()
+}
+
+// Ping is exported (health check)
+func (d *Database) Ping() error {
+    return d.db.Ping()
+}
+```
+</UniversalEditor>
+
+### Utility Package
+
+<UniversalEditor title="Utility Package Example">
+```java !! java
+// Java: Utility class with static methods
+package com.example.utils;
+
+public class StringUtil {
+    // Private constructor - utility class
+    private StringUtil() { }
+
+    public static boolean isEmpty(String str) {
+        return str == null || str.isEmpty();
+    }
+
+    public static String truncate(String str, int maxLen) {
+        if (str == null) return null;
+        if (str.length() <= maxLen) return str;
+        return str.substring(0, maxLen) + "...";
+    }
+
+    public static String reverse(String str) {
+        return new StringBuilder(str).reverse().toString();
+    }
+}
+```
+
+```go !! go
+// utils/string.go
+package utils
+
+// IsEmpty is exported
+func IsEmpty(str string) bool {
+    return str == ""
+}
+
+// Truncate is exported
+func Truncate(str string, maxLen int) string {
+    if len(str) <= maxLen {
+        return str
+    }
+    return str[:maxLen] + "..."
+}
+
+// Reverse is exported
+func Reverse(str string) string {
+    runes := []rune(str)
+    for i, j := 0, len(runes)-1; i < j; i, j = i+1, j-1 {
+        runes[i], runes[j] = runes[j], runes[i]
+    }
+    return string(runes)
+}
+
+// No need for constructors or "static" keywords
+// All functions are package-level
+```
+</UniversalEditor>
+
+## 11. Practice Questions
+
+### Beginner
+
+1. Create a package `mathops` with functions:
+   - `Add(a, b int) int`
+   - `Multiply(a, b int) int`
+   - Write a main package that imports and uses `mathops`
+
+2. Create a `shapes` package:
+   - Exported type: `Rectangle`
+   - Unexported fields: `width`, `height`
+   - Exported method: `Area()`
+   - Write tests using the package
+
+### Intermediate
+
+3. Create a multi-package project:
+   - `models` package: `User` struct
+   - `repository` package: `UserRepository` interface
+   - `service` package: `UserService` struct
+   - Demonstrate proper import cycles (avoid them!)
+
+4. Create a Go module:
+   - Initialize with `go mod init`
+   - Add a dependency (e.g., `github.com/google/uuid`)
+   - Use the dependency in your code
+   - Run `go mod tidy` and examine go.sum
+
+### Advanced
+
+5. Design a configuration package:
+   - Exported interface: `Config`
+   - Unexported implementation: `fileConfig`
+   - Factory function: `LoadConfig(path string)`
+   - Proper error handling
+
+6. Create a package with subdirectory:
+   - `storage/storage.go` (package storage)
+   - `storage/memory/memory.go` (package memory)
+   - `storage/disk/disk.go` (package disk)
+   - Implement a common interface
+
+## 12. Project Ideas
+
+### Project 1: Package Structure for Web App
+
+Create a web application with proper package structure:
+```
+myapp/
+├── go.mod
+├── main.go
+├── handlers/    # HTTP handlers
+├── services/    # Business logic
+├── models/      # Data models
+├── repository/  # Data access
+└── config/      # Configuration
+```
+
+### Project 2: Utility Library
+
+Create a reusable utility library:
+- `strings` package: string manipulation functions
+- `timeutils` package: time/date helpers
+- `mathutils` package: mathematical operations
+- Publish as a Go module
+
+### Project 3: SDK Package
+
+Create an SDK for a hypothetical API:
+- `client` package: API client
+- `resources` package: API resource types
+- `errors` package: custom error types
+- Demonstrate exported/unexported design
+
+## 13. Key Takeaways
+
+- **Simple Declaration**: Package names are declared in files, not derived from directories
+- **Capitalization = Exported**: Capital letters = public, lowercase = private
+- **Import Path != Package Name**: Import path is directory, package name is in file
+- **Go Modules**: Use `go.mod` for dependency management (like Maven/Gradle)
+- **Flat Structure**: Prefer flat package structures over deep hierarchies
+- **No Cycles**: Go forbids import cycles
+- **Semantic Versioning**: Major versions in import paths (v2, v3, etc.)
+
+## 14. Next Steps
+
+In the next module, we'll explore:
+- Go interfaces vs Java interfaces
+- Implicit implementation (no "implements" keyword)
+- Interface composition
+- Type assertions and type switches
+- Polymorphism in Go vs Java
+
+Continue to [Module 04: Interfaces and Composition](/docs/java2go/module-04-interfaces-composition) to learn about Go's powerful interface system!

@@ -1,0 +1,461 @@
+---
+title: "模块 19：最佳实践和惯用 Go"
+---
+
+最后一个模块涵盖 Go 的最佳实践和惯用模式，与 Java 约定进行比较。
+
+## 代码风格和约定
+
+**Java 约定：**
+- 类和方法使用驼峰命名
+- 类使用 PascalCase，方法使用 camelCase
+- 大量使用 getter/setter
+- 注解驱动的配置
+- 大量使用继承
+
+**Go 约定：**
+- 导出使用 PascalCase，未导出使用 camelCase
+- 无 getter/setter 模式
+- 基于接口的设计
+- 组合优于继承
+- 显式优于隐式
+
+<UniversalEditor title="命名约定">
+```java !! java
+// Java: 命名约定
+public class UserService {
+
+    private UserRepository userRepository;
+
+    @Autowired
+    public UserService(UserRepository userRepository) {
+        this.userRepository = userRepository;
+    }
+
+    public User getUserById(Long userId) {
+        return userRepository.findById(userId)
+            .orElseThrow(() -> new UserNotFoundException(userId));
+    }
+
+    // Getters and setters
+    public UserRepository getUserRepository() {
+        return userRepository;
+    }
+}
+```
+
+```go !! go
+// Go: 命名约定
+package user
+
+type Service struct {  // 导出使用 PascalCase
+    repo   Repository  // 无 "this"，清晰的命名
+    logger Logger
+}
+
+// 导出使用 PascalCase
+func NewService(repo Repository, logger Logger) *Service {
+    return &Service{
+        repo:   repo,
+        logger: logger,
+    }
+}
+
+func (s *Service) GetUserByID(id uint) (*User, error) {
+    return s.repo.FindByID(id)
+}
+
+// 不需要 getter/setter
+// 导出的字段可以直接访问
+```
+</UniversalEditor>
+
+## 错误处理
+
+<UniversalEditor title="错误处理模式">
+```java !! java
+// Java: 基于异常的错误处理
+public class UserService {
+
+    public User getUser(Long id) {
+        try {
+            return userRepository.findById(id)
+                .orElseThrow(() -> new UserNotFoundException(id));
+        } catch (DataAccessException e) {
+            throw new ServiceException("Failed to access database", e);
+        }
+    }
+}
+```
+
+```go !! go
+// Go: 错误返回值
+package user
+
+import (
+    "errors"
+    "fmt"
+)
+
+var (
+    ErrUserNotFound    = errors.New("user not found")
+    ErrDuplicateEmail  = errors.New("email already exists")
+    ErrInvalidInput    = errors.New("invalid input")
+)
+
+func (s *Service) GetUser(id uint) (*User, error) {
+    user, err := s.repo.FindByID(id)
+    if err != nil {
+        if errors.Is(err, gorm.ErrRecordNotFound) {
+            return nil, fmt.Errorf("%w: %d", ErrUserNotFound, id)
+        }
+        return nil, fmt.Errorf("failed to find user: %w", err)
+    }
+
+    return user, nil
+}
+
+// 使用上下文包装错误
+func (s *Service) ProcessUser(id uint) error {
+    user, err := s.GetUser(id)
+    if err != nil {
+        return fmt.Errorf("process user: %w", err)
+    }
+
+    // 处理用户
+    return nil
+}
+
+// 自定义错误类型
+type ValidationError struct {
+    Field   string
+    Message string
+}
+
+func (e *ValidationError) Error() string {
+    return fmt.Sprintf("validation failed for field '%s': %s", e.Field, e.Message)
+}
+```
+</UniversalEditor>
+
+## 并发模式
+
+<UniversalEditor title="并发最佳实践">
+```java !! java
+// Java: 基于线程的并发
+@Service
+public class UserService {
+
+    @Async
+    public CompletableFuture<User> getUserAsync(Long id) {
+        return CompletableFuture.supplyAsync(() -> {
+            return userRepository.findById(id).orElse(null);
+        });
+    }
+
+    // 线程池
+    private final ExecutorService executor = Executors.newFixedThreadPool(10);
+
+    public void processUsers(List<User> users) {
+        users.forEach(user -> {
+            executor.submit(() -> processUser(user));
+        });
+    }
+}
+```
+
+```go !! go
+// Go: 基于 goroutine 的并发
+package user
+
+import (
+    "sync"
+    "context"
+)
+
+func (s *Service) GetUsersBatch(ctx context.Context, ids []uint) ([]*User, error) {
+    var (
+        wg     sync.WaitGroup
+        mu     sync.Mutex
+        users  = make([]*User, 0, len(ids))
+        errors = make([]error, 0)
+    )
+
+    for _, id := range ids {
+        wg.Add(1)
+        go func(id uint) {
+            defer wg.Done()
+
+            user, err := s.repo.FindByID(id)
+            if err != nil {
+                mu.Lock()
+                errors = append(errors, err)
+                mu.Unlock()
+                return
+            }
+
+            mu.Lock()
+            users = append(users, user)
+            mu.Unlock()
+        }(id)
+    }
+
+    wg.Wait()
+
+    if len(errors) > 0 {
+        return nil, fmt.Errorf("failed to get some users: %v", errors)
+    }
+
+    return users, nil
+}
+
+// Worker pool 模式
+func (s *Service) ProcessUsers(users []*User) error {
+    const numWorkers = 10
+
+    jobs := make(chan *User, len(users))
+    results := make(chan error, len(users))
+
+    // 启动 workers
+    var wg sync.WaitGroup
+    for i := 0; i < numWorkers; i++ {
+        wg.Add(1)
+        go func() {
+            defer wg.Done()
+            for user := range jobs {
+                results <- s.processUser(user)
+            }
+        }()
+    }
+
+    // 发送任务
+    for _, user := range users {
+        jobs <- user
+    }
+    close(jobs)
+
+    // 等待完成
+    go func() {
+        wg.Wait()
+        close(results)
+    }()
+
+    // 收集结果
+    var errors []error
+    for err := range results {
+        if err != nil {
+            errors = append(errors, err)
+        }
+    }
+
+    if len(errors) > 0 {
+        return fmt.Errorf("failed to process some users: %v", errors)
+    }
+
+    return nil
+}
+```
+</UniversalEditor>
+
+## 接口设计
+
+<UniversalEditor title="接口模式">
+```java !! java
+// Java: 重接口的设计
+public interface UserRepository extends JpaRepository<User, Long> {
+    Optional<User> findByEmail(String email);
+}
+
+public interface UserService {
+    User createUser(CreateUserRequest request);
+}
+
+@Service
+public class UserServiceImpl implements UserService {
+    // 实现
+}
+```
+
+```go !! go
+// Go: 接受接口，返回结构体
+package user
+
+// 小而专注的接口
+type Repository interface {
+    FindByID(id uint) (*User, error)
+    FindByEmail(email string) (*User, error)
+    Create(user *User) error
+}
+
+// Service 是具体结构体
+type Service struct {
+    repo   Repository
+    cache  Cache
+    logger Logger
+}
+
+// 接受接口
+func NewService(repo Repository, cache Cache, logger Logger) *Service {
+    return &Service{
+        repo:   repo,
+        cache:  cache,
+        logger: logger,
+    }
+}
+
+// 在使用的地方定义接口（消费者侧）
+type UserFinder interface {
+    FindByID(id uint) (*User, error)
+}
+
+func ProcessUser(id uint, finder UserFinder) error {
+    user, err := finder.FindByID(id)
+    if err != nil {
+        return err
+    }
+
+    // 处理用户
+    return nil
+}
+```
+</UniversalEditor>
+
+## 测试最佳实践
+
+<UniversalEditor title="测试模式">
+```go !! go
+// 表驱动测试
+func TestService_CreateUser(t *testing.T) {
+    tests := []struct {
+        name    string
+        email   string
+        nameStr string
+        setup   func(*MockRepository)
+        wantErr error
+    }{
+        {
+            name:    "successful creation",
+            email:   "test@example.com",
+            nameStr: "Test User",
+            setup: func(m *MockRepository) {
+                m.On("ExistsByEmail", "test@example.com").Return(false)
+                m.On("Create", mock.Anything).Return(nil)
+            },
+            wantErr: nil,
+        },
+        {
+            name:    "duplicate email",
+            email:   "test@example.com",
+            nameStr: "Test User",
+            setup: func(m *MockRepository) {
+                m.On("ExistsByEmail", "test@example.com").Return(true)
+            },
+            wantErr: ErrDuplicateEmail,
+        },
+    }
+
+    for _, tt := range tests {
+        t.Run(tt.name, func(t *testing.T) {
+            mock := new(MockRepository)
+            tt.setup(mock)
+
+            svc := NewService(mock, &mockLogger{})
+
+            user, err := svc.CreateUser(tt.email, tt.nameStr)
+
+            if tt.wantErr != nil {
+                assert.Error(t, err)
+                assert.ErrorIs(t, err, tt.wantErr)
+            } else {
+                assert.NoError(t, err)
+                assert.NotNil(t, user)
+            }
+
+            mock.AssertExpectations(t)
+        })
+    }
+}
+```
+</UniversalEditor>
+
+## 性能技巧
+
+<UniversalEditor title="性能优化">
+```go !! go
+// 预分配切片
+func BuildUserSlice(count int) []*User {
+    users := make([]*User, 0, count)  // 预分配容量
+    for i := 0; i < count; i++ {
+        users = append(users, &User{ID: uint(i)})
+    }
+    return users
+}
+
+// 使用 sync.Pool 重用缓冲区
+var bufferPool = sync.Pool{
+    New: func() interface{} {
+        return new(bytes.Buffer)
+    },
+}
+
+func ProcessData(data []byte) ([]byte, error) {
+    buf := bufferPool.Get().(*bytes.Buffer)
+    defer func() {
+        buf.Reset()
+        bufferPool.Put(buf)
+    }()
+
+    // 使用缓冲区
+    buf.Write(data)
+    // ... 处理
+
+    return buf.Bytes(), nil
+}
+
+// 避免循环中的字符串分配
+// 不好：
+result := ""
+for _, s := range items {
+    result += s  // 每次迭代新分配
+}
+
+// 好：
+var builder strings.Builder
+builder.Grow(len(items) * 10)
+for _, s := range items {
+    builder.WriteString(s)
+}
+result := builder.String()
+```
+</UniversalEditor>
+
+---
+
+### Go 最佳实践总结：
+
+1. **保持简单** - 避免过度工程
+2. **错误是值** - 显式处理它们
+3. **使用组合** - 优于继承
+4. **接受接口，返回结构体** - 在使用处定义接口
+5. **少即是多** - 有效的极简代码更好
+6. **彻底测试** - 表驱动测试是惯用的
+7. **优化前先分析** - 先测量
+8. **明智使用 goroutine** - 不要创建太多
+9. **正确处理资源** - defer 清理
+10. **遵循标准约定** - 使用 go fmt 和标准布局
+
+### 恭喜！
+
+您已完成 Java 到 Go 的学习路径！您现在拥有：
+- 对 Go 的语法和功能的理解
+- Go 生态系统和工具的知识
+- Go 的模式和最佳实践的经验
+- 构建生产就绪的 Go 应用程序的能力
+
+继续练习和构建真实项目来掌握 Go！
+
+### 下一步：
+- 用 Go 构建真实项目
+- 为开源 Go 项目做贡献
+- 探索高级 Go 主题
+- 加入 Go 社区

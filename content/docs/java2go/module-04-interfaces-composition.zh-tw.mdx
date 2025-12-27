@@ -1,0 +1,500 @@
+---
+title: "模組 04: 介面和組合"
+description: "掌握 Go 的介面系統與 Java 介面的比較 - 隱式實作、介面組合、型別斷言和多型模式"
+---
+
+# 模組 04: 介面和組合
+
+歡迎來到模組 04!在本模組中,你將學習 Go 強大而靈活的介面系統,它與 Java 的顯式介面實作有顯著不同。
+
+## 學習目標
+
+完成本模組後,你將:
+- 理解 Go 介面與 Java 介面的區別
+- 掌握隱式實作(無 "implements" 關鍵字)
+- 學習介面組合
+- 理解空介面(interface{})
+- 掌握型別斷言和型別開關
+- 學習組合與繼承模式
+- 理解 Go 與 Java 中的多型
+
+## 1. 介面:Go vs Java
+
+### Java: 顯式介面實作
+
+在 Java 中,必須顯式宣告類別實作的介面:
+
+```java
+public interface Drawable {
+    void draw();
+    void resize(int width, int height);
+}
+
+public class Circle implements Drawable {
+    private int radius;
+
+    public Circle(int radius) {
+        this.radius = radius;
+    }
+
+    @Override
+    public void draw() {
+        System.out.println("Drawing circle with radius " + radius);
+    }
+
+    @Override
+    public void resize(int width, int height) {
+        this.radius = Math.min(width, height) / 2;
+    }
+}
+```
+
+### Go: 隱式介面實作
+
+Go 使用隱式實作 - 如果型別擁有介面所需的所有方法,它就自動實作該介面:
+
+<UniversalEditor title="介面實作: Java vs Go">
+```java !! java
+// Java: 顯式 "implements" 關鍵字
+public interface Speaker {
+    void speak();
+}
+
+public class Dog implements Speaker {
+    @Override
+    public void speak() {
+        System.out.println("Woof!");
+    }
+}
+
+// 必須宣告 implements Speaker
+```
+
+```go !! go
+// Go: 隱式實作
+type Speaker interface {
+    Speak()
+}
+
+type Dog struct{}
+
+func (d Dog) Speak() {
+    fmt.Println("Woof!")
+}
+
+// Dog 自動實作 Speaker
+// 不需要 "implements" 關鍵字!
+// 任何有 Speak() 方法的型別都是 Speaker
+```
+</UniversalEditor>
+
+## 2. 定義介面
+
+### 基本介面定義
+
+<UniversalEditor title="基本介面定義">
+```java !! java
+// Java: 帶方法簽名的介面
+public interface Calculator {
+    int add(int a, int b);
+    int subtract(int a, int b);
+    int multiply(int a, int b);
+}
+
+public class BasicCalculator implements Calculator {
+    @Override
+    public int add(int a, int b) {
+        return a + b;
+    }
+
+    @Override
+    public int subtract(int a, int b) {
+        return a - b;
+    }
+
+    @Override
+    public int multiply(int a, int b) {
+        return a * b;
+    }
+}
+```
+
+```go !! go
+// Go: 帶方法簽名的介面
+type Calculator interface {
+    Add(a, b int) int
+    Subtract(a, b int) int
+    Multiply(a, b int) int
+}
+
+type BasicCalculator struct{}
+
+func (c BasicCalculator) Add(a, b int) int {
+    return a + b
+}
+
+func (c BasicCalculator) Subtract(a, b int) int {
+    return a - b
+}
+
+func (c BasicCalculator) Multiply(a, b int) int {
+    return a * b
+}
+
+// BasicCalculator 自動實作 Calculator
+```
+</UniversalEditor>
+
+## 3. 隱式實作
+
+### 多介面實作
+
+<UniversalEditor title="多介面實作">
+```java !! java
+// Java: 顯式實作多個介面
+public interface Reader {
+    String read();
+}
+
+public interface Writer {
+    void write(String data);
+}
+
+public class FileHandler implements Reader, Writer {
+    @Override
+    public String read() {
+        return "file contents";
+    }
+
+    @Override
+    public void write(String data) {
+        System.out.println("Writing: " + data);
+    }
+}
+```
+
+```go !! go
+// Go: 自動實作兩個介面
+type Reader interface {
+    Read() string
+}
+
+type Writer interface {
+    Write(data string)
+}
+
+type FileHandler struct{}
+
+func (f FileHandler) Read() string {
+    return "file contents"
+}
+
+func (f FileHandler) Write(data string) {
+    fmt.Println("Writing:", data)
+}
+
+// FileHandler 實作 Reader 和 Writer
+// 不需要宣告!
+```
+</UniversalEditor>
+
+## 4. 介面組合
+
+Go 允許你從其他介面組合介面。
+
+<UniversalEditor title="介面組合">
+```java !! java
+// Java: 介面繼承
+public interface Readable {
+    String read();
+}
+
+public interface Writable {
+    void write(String data);
+}
+
+public interface ReadWrite extends Readable, Writable {
+    void flush();
+}
+
+public class File implements ReadWrite {
+    @Override
+    public String read() { return "data"; }
+
+    @Override
+    public void write(String data) { }
+
+    @Override
+    public void flush() { }
+}
+```
+
+```go !! go
+// Go: 介面組合
+type Readable interface {
+    Read() string
+}
+
+type Writable interface {
+    Write(data string)
+}
+
+type ReadWrite interface {
+    Readable // 組合 Readable 介面
+    Writable // 組合 Writable 介面
+    Flush()  // 新增新方法
+}
+
+type File struct{}
+
+func (f File) Read() string {
+    return "data"
+}
+
+func (f File) Write(data string) {
+    // Write 實作
+}
+
+func (f File) Flush() {
+    // Flush 實作
+}
+
+// File 實作 ReadWrite (實作 Readable、Writable 和 Flush)
+```
+</UniversalEditor>
+
+## 5. 空介面
+
+空介面 `interface{}`(或在 Go 1.18+ 中的 `any`)可以儲存任何型別的值。
+
+<UniversalEditor title="空介面(Go 的 Any 型別)">
+```java !! java
+// Java: Object 是所有類別的根
+public void process(Object obj) {
+    if (obj instanceof String) {
+        String str = (String) obj;
+        System.out.println("String: " + str);
+    } else if (obj instanceof Integer) {
+        Integer num = (Integer) obj;
+        System.out.println("Integer: " + num);
+    }
+}
+```
+
+```go !! go
+// Go: interface{} 可以儲存任何型別
+func process(obj interface{}) {
+    switch v := obj.(type) {
+    case string:
+        fmt.Println("String:", v)
+    case int:
+        fmt.Println("Integer:", v)
+    default:
+        fmt.Println("Unknown type")
+    }
+}
+
+func main() {
+    process("hello")
+    process(42)
+    process(3.14)
+}
+```
+</UniversalEditor>
+
+## 6. 型別斷言
+
+型別斷言允許你從介面中提取具體值。
+
+<UniversalEditor title="型別斷言">
+```java !! java
+// Java: 使用 instanceof 進行型別轉換
+public void process(Object obj) {
+    if (obj instanceof String) {
+        String str = (String) obj; // 顯式轉換
+        System.out.println(str.toUpperCase());
+    }
+}
+```
+
+```go !! go
+// Go: 型別斷言
+func process(obj interface{}) {
+    // 型別斷言(如果型別錯誤會 panic)
+    str := obj.(string)
+    fmt.Println(strings.ToUpper(str))
+}
+
+// 使用 comma-ok 模式的安全型別斷言
+func processSafe(obj interface{}) {
+    str, ok := obj.(string)
+    if !ok {
+        fmt.Println("Not a string!")
+        return
+    }
+    fmt.Println(strings.ToUpper(str))
+}
+```
+</UniversalEditor>
+
+## 7. 型別開關
+
+型別開關是處理多個型別斷言的更清晰方式。
+
+<UniversalEditor title="型別開關 vs instanceof 鏈">
+```java !! java
+// Java: instanceof 鏈
+public void describe(Object obj) {
+    if (obj instanceof String) {
+        String s = (String) obj;
+        System.out.println("String: " + s);
+    } else if (obj instanceof Integer) {
+        Integer i = (Integer) obj;
+        System.out.println("Integer: " + i);
+    } else if (obj instanceof Boolean) {
+        Boolean b = (Boolean) obj;
+        System.out.println("Boolean: " + b);
+    } else {
+        System.out.println("Unknown: " + obj.getClass().getName());
+    }
+}
+```
+
+```go !! go
+// Go: 型別開關
+func describe(obj interface{}) {
+    switch v := obj.(type) {
+    case string:
+        fmt.Println("String:", v)
+    case int:
+        fmt.Println("Integer:", v)
+    case bool:
+        fmt.Println("Boolean:", v)
+    default:
+        fmt.Printf("Unknown: %T\n", v) // %T 列印型別
+    }
+}
+
+func main() {
+    describe("hello")
+    describe(42)
+    describe(true)
+    describe(3.14)
+}
+```
+</UniversalEditor>
+
+## 8. Go 中的多型
+
+Go 透過介面而非繼承實作多型。
+
+<UniversalEditor title="多型: Java vs Go">
+```java !! java
+// Java: 透過繼承的多型
+public abstract class Animal {
+    public abstract void makeSound();
+}
+
+public class Dog extends Animal {
+    @Override
+    public void makeSound() {
+        System.out.println("Woof!");
+    }
+}
+
+public class Cat extends Animal {
+    @Override
+    public void makeSound() {
+        System.out.println("Meow!");
+    }
+}
+```
+
+```go !! go
+// Go: 透過介面的多型
+type Animal interface {
+    MakeSound()
+}
+
+type Dog struct{}
+
+func (d Dog) MakeSound() {
+    fmt.Println("Woof!")
+}
+
+type Cat struct{}
+
+func (c Cat) MakeSound() {
+    fmt.Println("Meow!")
+}
+
+func main() {
+    animals := []Animal{
+        Dog{},
+        Cat{},
+    }
+
+    for _, animal := range animals {
+        animal.MakeSound() // 多型呼叫
+    }
+}
+```
+</UniversalEditor>
+
+## 9. 最佳實踐
+
+### 介面設計指南
+
+<UniversalEditor title="介面設計最佳實踐">
+```go !! go
+// Go: 接受介面,返回結構體
+// 定義小介面
+type Reader interface {
+    Read(p []byte) (n int, err error)
+}
+
+type Writer interface {
+    Write(p []byte) (n int, err error)
+}
+
+// 函式接受介面(靈活)
+func Copy(dst Writer, src Reader) (written int64, err error) {
+    // 實作
+    return 0, nil
+}
+
+// 函式返回具體型別(穩定)
+func NewFileReader(path string) *FileReader {
+    return &FileReader{path: path}
+}
+
+// 不要: 除非必要,否則不要返回介面
+// 這通常是錯誤的:
+// func NewReader() Reader { ... }
+// 除非你返回不同的實作
+```
+</UniversalEditor>
+
+## 10. 關鍵要點
+
+- **隱式實作**: 無需 "implements" 關鍵字 - 如果它走起路來像鴨子,它就是鴨子
+- **小介面**: 優先使用小而專注的介面(1-3 個方法)
+- **介面組合**: 從簡單介面建構複雜介面
+- **接受介面,返回結構體**: 函式應該接受介面,返回具體型別
+- **型別斷言**: 使用 comma-ok 模式進行安全斷言
+- **型別開關**: 多個型別斷言的清晰替代方案
+- **空介面**: `interface{}` 儲存任何型別,但要謹慎使用
+- **多型**: 透過介面實作,而非繼承
+
+## 11. 下一步
+
+在下一個模組中,我們將探索:
+- Go 錯誤處理 vs Java 例外
+- 錯誤作為返回值
+- 自訂錯誤型別
+- 錯誤包裝(Go 1.13+)
+- Panic 和 recover vs try-catch-finally
+- 何時使用 panic vs errors
+- 錯誤處理最佳實踐
+
+繼續學習 [模組 05: 錯誤處理](/docs/java2go/module-05-error-handling),了解 Go 如何以不同於 Java 的方式處理錯誤!

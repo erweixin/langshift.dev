@@ -1,0 +1,993 @@
+---
+title: "模块 03: 包系统"
+description: "理解 Go 的包系统与 Java 包的比较,包括导入、可见性、Go 模块依赖管理和包设计最佳实践"
+---
+
+# 模块 03: 包系统
+
+欢迎来到模块 03!在本模块中,你将学习 Go 如何通过包组织代码,它与 Java 的包系统有何不同,以及如何使用 Go 模块管理依赖。
+
+## 学习目标
+
+完成本模块后,你将:
+- 理解 Go 包与 Java 包的区别
+- 学习 Go 的导入约定
+- 掌握导出/未导出标识符
+- 理解 Go 模块(go.mod)与 Maven/Gradle
+- 学习包命名最佳实践
+- 理解 vendor 目录
+- 掌握 Go 中的依赖管理
+
+## 1. 包:Go vs Java
+
+### Java 包
+
+在 Java 中,包组织类并提供命名空间隔离:
+
+```java
+// 文件: com/example/myapp/utils/StringUtil.java
+package com.example.myapp.utils;
+
+public class StringUtil {
+    public static boolean isEmpty(String str) {
+        return str == null || str.isEmpty();
+    }
+}
+```
+
+### Go 包
+
+Go 包更简单 - 包名由 `package` 声明决定,而不是目录结构:
+
+<UniversalEditor title="包声明: Java vs Go">
+```java !! java
+// Java: 包必须匹配目录结构
+// 文件: com/example/myapp/utils/StringUtils.java
+package com.example.myapp.utils;
+
+public class StringUtils {
+    public static boolean isEmpty(String str) {
+        return str == null || str.length() == 0;
+    }
+}
+
+// 使用
+import com.example.myapp.utils.StringUtils;
+```
+
+```go !! go
+// Go: 包名在文件中声明
+// 文件: myapp/utils/stringutil.go (或任何 .go 文件)
+package utils // 包名,不是目录路径
+
+func IsEmpty(str string) bool {
+    return str == ""
+}
+
+// 目录路径用于导入,但包名是你在代码中使用的
+```
+</UniversalEditor>
+
+## 2. 导入约定
+
+### Java 导入
+
+<UniversalEditor title="导入语句: Java vs Go">
+```java !! java
+// Java: 显式导入
+import com.example.utils.StringUtil;
+import com.example.models.User;
+import java.util.List;
+import java.util.ArrayList;
+
+// 或通配符导入(不推荐)
+import com.example.utils.*;
+
+public class Example {
+    public void process() {
+        String name = StringUtil.trim("  hello  ");
+        List<String> items = new ArrayList<>();
+    }
+}
+```
+
+```go !! go
+// Go: 导入是分组的
+package main
+
+import (
+    "fmt"           // 标准库
+    "strings"       // 标准库
+    "myapp/utils"   // 本地包 - 使用目录路径
+    "myapp/models"  // 本地包
+)
+
+func main() {
+    name := strings.TrimSpace("  hello  ")
+    fmt.Println(name)
+
+    // 使用包名(utils),不是目录路径
+    user := models.NewUser("Alice")
+}
+```
+</UniversalEditor>
+
+### 导入别名
+
+<UniversalEditor title="导入别名">
+```java !! java
+// Java 没有导入别名
+// 如果有冲突,必须使用完全限定名
+import com.example.json.JSON;
+import org.json.JSONObject;
+
+public class Example {
+    public void process() {
+        // 必须使用完全限定名
+        JSONObject obj = new JSONObject();
+    }
+}
+```
+
+```go !! go
+// Go: 使用导入别名解决冲突
+package main
+
+import (
+    myjson "myapp/json"        // 我的 json 包的别名
+    "encoding/json"            // 标准库 json
+)
+
+func main() {
+    // 使用别名区分
+    obj1 := json.NewEncoder(nil)  // 标准库
+    obj2 := myjson.NewEncoder()   // 我的包
+}
+```
+</UniversalEditor>
+
+### 空白导入
+
+<UniversalEditor title="空白导入(仅 Go)">
+```java !! java
+// Java: 没有与空白导入等价的东西
+// 你必须显式使用所有导入的内容
+```
+
+```go !! go
+// Go: 空白导入仅为了副作用导入
+package main
+
+import (
+    _ "fmt"        // ✗ 无用 - 没有副作用
+    _ "image/jpeg" // ✓ 好 - 注册 JPEG 解码器
+    "database/sql"
+    _ "github.com/lib/pq" // ✓ 好 - 注册 PostgreSQL 驱动
+)
+
+func main() {
+    // 不能直接使用 fmt(它是空白导入)
+    // 但 JPEG 格式现在可用于图像解码
+    // 并且 PostgreSQL 驱动已在 database/sql 中注册
+}
+```
+</UniversalEditor>
+
+## 3. 导出 vs 未导出标识符
+
+Go 使用首字母大写确定可见性,不像 Java 的 `public`/`private` 关键字。
+
+### Java 可见性修饰符
+
+<UniversalEditor title="可见性修饰符">
+```java !! java
+package com.example.myapp;
+
+public class UserService {
+    private String apiKey;           // 此类私有
+    protected String dbUrl;          // 私有 + 子类
+    String defaultConfig;            // 包私有(默认)
+    public String version;           // 到处公开
+
+    private void validate() { }      // 私有方法
+    public void process() { }        // 公开方法
+
+    // 私有内部类
+    private class Config { }
+
+    // 公开内部类
+    public class Result { }
+}
+```
+
+```go !! go
+package users
+
+import "fmt"
+
+// 导出(公开) - 以大写字母开头
+type UserService struct {
+    APIKey  string // 导出字段
+    dbUrl   string // 未导出字段(私有)
+    Version string // 导出字段
+}
+
+// 导出构造函数
+func NewUserService(key string) *UserService {
+    return &UserService{
+        APIKey: key,
+        dbUrl:  "localhost:5432", // 私有字段
+    }
+}
+
+// 未导出方法(私有)
+func (s *UserService) validate() {
+    fmt.Println("validating...")
+}
+
+// 导出方法(公开)
+func (s *UserService) Process() {
+    s.validate() // 可以调用私有方法
+}
+
+// 未导出类型(私有)
+type config struct {
+    debug bool
+}
+
+// 导出类型(公开)
+type Result struct {
+    Success bool
+    Message string
+}
+```
+</UniversalEditor>
+
+### 实际示例
+
+<UniversalEditor title="实际中的导出/未导出">
+```java !! java
+// Java: 显式可见性关键字
+package com.example.models;
+
+public class User {
+    private String id;
+    private String email;
+    public String name;
+
+    public User(String id, String email, String name) {
+        this.id = id;
+        this.email = email;
+        this.name = name;
+    }
+
+    public String getId() { return id; }
+    public String getEmail() { return email; }
+    private boolean isValid() {
+        return email != null && email.contains("@");
+    }
+}
+```
+
+```go !! go
+package models
+
+// User 是导出的(首字母大写)
+type User struct {
+    ID    string // 导出字段
+    email string // 未导出字段(私有)
+    Name  string // 导出字段
+}
+
+// 导出构造函数
+func NewUser(id, email, name string) *User {
+    return &User{
+        ID:    id,
+        email: email,
+        Name:  name,
+    }
+}
+
+// 导出 getter
+func (u *User) GetEmail() string {
+    return u.email
+}
+
+// 未导出方法(私有)
+func (u *User) isValid() bool {
+    return strings.Contains(u.email, "@")
+}
+```
+</UniversalEditor>
+
+## 4. 包命名最佳实践
+
+### 包名指南
+
+<UniversalEditor title="包命名约定">
+```java !! java
+// Java: 包名小写,域名反转
+package com.example.companyname.projectname.module;
+package org.apache.commons.lang3;
+package com.google.gson;
+
+// 文件结构必须匹配包结构
+// com/example/companyname/projectname/module/Class.java
+```
+
+```go !! go
+// Go: 包名应该简短、小写、单词
+package user     // ✓ 好
+package users    // ✓ 好
+package http     // ✓ 好
+package json     // ✓ 好
+
+// 避免:
+package userData // ✗ 太冗长
+package myUser   // ✗ 包含 "my"
+package httpServer // ✗ 两个词,使用 "http" 或 "server"
+
+// 目录: go/src/github.com/user/project/
+// 文件: go/src/github.com/user/project/storage.go
+package storage // 包名,不是完整路径
+
+// 包名不需要跨项目唯一
+// 导入路径(目录路径)提供唯一性
+```
+</UniversalEditor>
+
+### 包组织
+
+<UniversalEditor title="包结构">
+```java !! java
+// Java: 分层包结构
+com/
+└── example/
+    └── myapp/
+        ├── model/
+        │   ├── User.java
+        │   └── Product.java
+        ├── service/
+        │   ├── UserService.java
+        │   └── ProductService.java
+        ├── util/
+        │   └── StringUtil.java
+        └── Main.java
+```
+
+```go !! go
+// Go: 扁平包结构(通常)
+myapp/
+├── model/
+│   ├── user.go    // package model
+│   └── product.go // package model
+├── service/
+│   ├── user.go    // package service
+│   └── product.go // package service
+├── util/
+│   └── string.go  // package util
+└── main.go        // package main
+
+// 不要创建深层嵌套包,如:
+// myapp/model/user/profile/
+// 保持扁平: myapp/model/
+```
+</UniversalEditor>
+
+## 5. Go 模块(go.mod)
+
+Go 模块管理依赖和版本控制,类似于 Java 中的 Maven/Gradle。
+
+### 创建 Go 模块
+
+<UniversalEditor title="依赖管理: Maven vs Go 模块">
+```xml
+<!-- Maven: pom.xml -->
+<project>
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>com.example</groupId>
+    <artifactId>myapp</artifactId>
+    <version>1.0.0</version>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.google.code.gson</groupId>
+            <artifactId>gson</artifactId>
+            <version>2.10.1</version>
+        </dependency>
+    </dependencies>
+</project>
+```
+
+```go
+// Go: go.mod
+module github.com/user/myapp
+
+go 1.21
+
+require (
+    github.com/gin-gonic/gin v1.9.1
+    github.com/google/uuid v1.3.1
+)
+```
+</UniversalEditor>
+
+### 模块命令
+
+<UniversalEditor title="依赖管理命令">
+```bash
+# Java: Maven 命令
+mvn dependency:tree          # 显示依赖树
+mvn dependency:resolve       # 解析依赖
+mvn clean install           # 构建和安装
+mvn package                 # 创建 JAR
+```
+
+```bash
+# Go: 模块命令
+go mod init github.com/user/myapp     # 初始化模块
+go mod tidy                           # 添加缺失/删除未使用的依赖
+go mod vendor                         # 复制依赖到 vendor/
+go get github.com/pkg/errors@latest   # 添加/更新依赖
+go get github.com/pkg/errors@v1.9.0  # 使用特定版本
+go build                              # 构建模块
+go test                               # 运行测试
+```
+</UniversalEditor>
+
+### 语义化版本控制
+
+<UniversalEditor title="版本管理">
+```xml
+<!-- Maven: 显式版本 -->
+<dependency>
+    <groupId>com.fasterxml.jackson.core</groupId>
+    <artifactId>jackson-databind</artifactId>
+    <version>2.15.2</version>
+</dependency>
+
+<!-- 或使用范围 -->
+<version>[2.15,3.0)</version>
+```
+
+```go
+// go.mod: 语义化导入版本
+module github.com/user/myapp
+
+go 1.21
+
+require (
+    // 特定版本
+    github.com/gin-gonic/gin v1.9.1
+
+    // 预发布版本
+    github.com/example/pkg v1.3.0-beta
+
+    // 无标签提交的伪版本
+    github.com/example/other v0.0.0-20231201123456-abc123
+)
+
+// go.mod 自动更新:
+// - 导入路径中的主版本(v1, v2 等)
+// - go.mod 中跟踪的次版本和补丁版本
+```
+</UniversalEditor>
+
+## 6. Vendor 目录
+
+vendor 目录在项目中本地存储依赖。
+
+<UniversalEditor title="Vendor 目录">
+```bash
+# Java: Maven/Gradle 本地仓库
+# 依赖存储在 ~/.m2/ 或 ~/.gradle/
+
+# 项目级依赖:
+# Maven: mvn dependency:copy-dependencies
+# 创建: target/dependency/
+```
+
+```bash
+# Go: Vendor 目录
+# 执行: go mod vendor
+myapp/
+├── go.mod
+├── go.sum
+├── main.go
+└── vendor/
+    ├── github.com/
+    │   ├── gin-gonic/
+    │   │   └── gin/...
+    │   └── google/
+    │       └── uuid/...
+    └── golang.org/
+        └── x/...
+
+# 使用 vendor 构建:
+# go build -mod=vendor
+
+# 好处:
+# - 可重现构建
+# - 离线构建
+# - 依赖的版本控制
+```
+</UniversalEditor>
+
+## 7. 包可见性示例
+
+### 实际示例: HTTP 服务器
+
+<UniversalEditor title="HTTP 服务器包设计">
+```java !! java
+// Java: 多个文件,可见性关键字
+package com.example.server;
+
+import java.io.*;
+import java.net.*;
+
+public class HTTPServer {
+    private int port;
+    private ServerSocket serverSocket;
+
+    public HTTPServer(int port) {
+        this.port = port;
+    }
+
+    public void start() throws IOException {
+        serverSocket = new ServerSocket(port);
+    }
+
+    private void handleConnection(Socket socket) {
+        // 私有实现
+    }
+}
+
+class RequestHandler {
+    // 包私有类
+    void handle(Socket socket) { }
+}
+```
+
+```go !! go
+// Go: 通过首字母大写导出/未导出
+package server
+
+import "net"
+
+// Server 是导出的
+type Server struct {
+    port    int          // 导出字段
+    listener net.Listener // 未导出字段
+}
+
+// NewServer 是导出的(构造函数)
+func NewServer(port int) *Server {
+    return &Server{port: port}
+}
+
+// Start 是导出的
+func (s *Server) Start() error {
+    var err error
+    s.listener, err = net.Listen("tcp", ":"+strconv.Itoa(s.port))
+    return err
+}
+
+// handleConnection 是未导出的(私有)
+func (s *Server) handleConnection(conn net.Conn) {
+    // 私有实现
+}
+
+// RequestHandler 是导出的
+type RequestHandler struct {
+    // 未导出字段
+}
+
+// Handle 是导出的
+func (h *RequestHandler) Handle(conn net.Conn) {
+    // 实现
+}
+```
+</UniversalEditor>
+
+## 8. 导入管理
+
+### 导入分组
+
+<UniversalEditor title="导入组织">
+```java !! java
+// Java: 导入通常由 IDE 组织
+package com.example;
+
+// 标准库优先
+import java.util.List;
+import java.util.ArrayList;
+
+// 第三方库
+import com.google.gson.Gson;
+import org.apache.commons.lang3.StringUtils;
+
+// 项目导入
+import com.example.models.User;
+import com.example.services.UserService;
+```
+
+```go !! go
+// Go: 导入被分组和排序,由 go fmt 完成
+package main
+
+import (
+    // 标准库
+    "fmt"
+    "net/http"
+    "strings"
+
+    // 本地/第三方包
+    "github.com/gin-gonic/gin"
+    "myapp/models"
+    "myapp/services"
+)
+
+// go fmt 会自动分组和排序导入
+```
+</UniversalEditor>
+
+### 点导入(谨慎使用)
+
+<UniversalEditor title="点导入样式">
+```java !! java
+// Java: 静态导入
+import static java.lang.Math.*;
+import static java.util.Collections.*;
+
+public class Example {
+    public void calculate() {
+        double result = sqrt(16.0); // 无 Math. 前缀
+        List<String> list = emptyList(); // 无 Collections. 前缀
+    }
+}
+```
+
+```go !! go
+// Go: 点导入(谨慎使用!)
+package main
+
+import (
+    . "fmt"      // ✗ 避免: 可能导致混淆
+    "math"
+)
+
+func main() {
+    Println("Hello") // 无 fmt. 前缀(混淆!)
+    println("Bye")   // 这是 fmt 还是另一个包?
+}
+
+// 更好的方法: 使用适当的包名
+package main
+
+import (
+    "fmt"
+    "math"
+)
+
+func main() {
+    fmt.Println("Hello") // 清楚哪个包
+    math.Sqrt(16.0)
+}
+```
+</UniversalEditor>
+
+## 9. 最佳实践
+
+### 包设计
+
+<UniversalEditor title="包设计原则">
+```java !! java
+// Java: 为不同关注点分离包
+package com.example.repository;
+public interface UserRepository { }
+
+package com.example.service;
+public class UserService { }
+
+package com.example.model;
+public class User { }
+```
+
+```go !! go
+// Go: 扁平包结构,清晰的名称
+// repository/user.go
+package repository
+
+type UserRepository interface {
+    Find(id string) (*User, error)
+}
+
+// service/user.go
+package service
+
+type UserService struct {
+    repo repository.UserRepository
+}
+
+// model/user.go
+package model
+
+type User struct {
+    ID    string
+    Name  string
+    Email string
+}
+
+// 不要: 不要创建:
+// repository/user/user.go (冗余)
+// service/user/service.go (冗余)
+```
+</UniversalEditor>
+
+### 避免循环
+
+<UniversalEditor title="避免导入循环">
+```java !! java
+// Java: 包循环
+// com.example.a 依赖 com.example.b
+// com.example.b 依赖 com.example.a
+// 编译错误!(通常)
+```
+
+```go !! go
+// Go: 检测到导入循环
+// 包 a 导入包 b
+// 包 b 导入包 a
+
+// a/a.go
+package a
+
+import "myapp/b"
+
+func Process() {
+    b.DoSomething()
+}
+
+// b/b.go
+package b
+
+import "myapp/a" // ✗ 导入循环!
+
+func DoSomething() {
+    a.OtherProcess()
+}
+
+// 解决方案: 重构创建包 c
+// a 和 b 都可以导入 c
+```
+</UniversalEditor>
+
+## 10. 包示例
+
+### 数据库包
+
+<UniversalEditor title="数据库包示例">
+```java !! java
+// Java: 带接口的数据库包
+package com.example.database;
+
+public interface Database {
+    Connection getConnection() throws SQLException;
+    void close() throws SQLException;
+}
+
+public class MySQLDatabase implements Database {
+    private String url;
+    private Connection connection;
+
+    public MySQLDatabase(String url) {
+        this.url = url;
+    }
+
+    @Override
+    public Connection getConnection() {
+        if (connection == null) {
+            connection = DriverManager.getConnection(url);
+        }
+        return connection;
+    }
+
+    @Override
+    public void close() {
+        if (connection != null) {
+            connection.close();
+        }
+    }
+}
+```
+
+```go !! go
+// database/database.go
+package database
+
+import "database/sql"
+
+// Database 是导出的
+type Database struct {
+    db *sql.DB // 未导出
+}
+
+// NewDatabase 是导出的
+func NewDatabase(driver, dsn string) (*Database, error) {
+    db, err := sql.Open(driver, dsn)
+    if err != nil {
+        return nil, err
+    }
+    return &Database{db: db}, nil
+}
+
+// Conn 是导出的(获取连接)
+func (d *Database) Conn() *sql.DB {
+    return d.db
+}
+
+// Close 是导出的
+func (d *Database) Close() error {
+    return d.db.Close()
+}
+
+// Ping 是导出的(健康检查)
+func (d *Database) Ping() error {
+    return d.db.Ping()
+}
+```
+</UniversalEditor>
+
+### 工具包
+
+<UniversalEditor title="工具包示例">
+```java !! java
+// Java: 带静态方法的工具类
+package com.example.utils;
+
+public class StringUtil {
+    // 私有构造函数 - 工具类
+    private StringUtil() { }
+
+    public static boolean isEmpty(String str) {
+        return str == null || str.isEmpty();
+    }
+
+    public static String truncate(String str, int maxLen) {
+        if (str == null) return null;
+        if (str.length() <= maxLen) return str;
+        return str.substring(0, maxLen) + "...";
+    }
+
+    public static String reverse(String str) {
+        return new StringBuilder(str).reverse().toString();
+    }
+}
+```
+
+```go !! go
+// utils/string.go
+package utils
+
+// IsEmpty 是导出的
+func IsEmpty(str string) bool {
+    return str == ""
+}
+
+// Truncate 是导出的
+func Truncate(str string, maxLen int) string {
+    if len(str) <= maxLen {
+        return str
+    }
+    return str[:maxLen] + "..."
+}
+
+// Reverse 是导出的
+func Reverse(str string) string {
+    runes := []rune(str)
+    for i, j := 0, len(runes)-1; i < j; i, j = i+1, j-1 {
+        runes[i], runes[j] = runes[j], runes[i]
+    }
+    return string(runes)
+}
+
+// 不需要构造函数或 "static" 关键字
+// 所有函数都是包级别的
+```
+</UniversalEditor>
+
+## 11. 练习题
+
+### 初级
+
+1. 创建包 `mathops`,包含函数:
+   - `Add(a, b int) int`
+   - `Multiply(a, b int) int`
+   - 编写使用 `mathops` 的 main 包
+
+2. 创建 `shapes` 包:
+   - 导出类型: `Rectangle`
+   - 未导出字段: `width`, `height`
+   - 导出方法: `Area()`
+   - 使用该包编写测试
+
+### 中级
+
+3. 创建多包项目:
+   - `models` 包: `User` 结构体
+   - `repository` 包: `UserRepository` 接口
+   - `service` 包: `UserService` 结构体
+   - 演示适当的导入循环(避免它们!)
+
+4. 创建 Go 模块:
+   - 用 `go mod init` 初始化
+   - 添加依赖(如 `github.com/google/uuid`)
+   - 在代码中使用依赖
+   - 运行 `go mod tidy` 并检查 go.sum
+
+### 高级
+
+5. 设计配置包:
+   - 导出接口: `Config`
+   - 未导出实现: `fileConfig`
+   - 工厂函数: `LoadConfig(path string)`
+   - 适当的错误处理
+
+6. 创建带子目录的包:
+   - `storage/storage.go` (package storage)
+   - `storage/memory/memory.go` (package memory)
+   - `storage/disk/disk.go` (package disk)
+   - 实现公共接口
+
+## 12. 项目想法
+
+### 项目 1: Web 应用的包结构
+
+创建具有适当包结构的 Web 应用:
+```
+myapp/
+├── go.mod
+├── main.go
+├── handlers/    # HTTP 处理器
+├── services/    # 业务逻辑
+├── models/      # 数据模型
+├── repository/  # 数据访问
+└── config/      # 配置
+```
+
+### 项目 2: 工具库
+
+创建可重用的工具库:
+- `strings` 包: 字符串操作函数
+- `timeutils` 包: 时间/日期助手
+- `mathutils` 包: 数学运算
+- 发布为 Go 模块
+
+### 项目 3: SDK 包
+
+为假设的 API 创建 SDK:
+- `client` 包: API 客户端
+- `resources` 包: API 资源类型
+- `errors` 包: 自定义错误类型
+- 演示导出/未导出设计
+
+## 13. 关键要点
+
+- **简单声明**: 包名在文件中声明,不从目录派生
+- **首字母大写 = 导出**: 大写字母 = 公开,小写 = 私有
+- **导入路径 != 包名**: 导入路径是目录,包名在文件中
+- **Go 模块**: 使用 `go.mod` 管理依赖(像 Maven/Gradle)
+- **扁平结构**: 优先使用扁平包结构而非深层层次
+- **无循环**: Go 禁止导入循环
+- **语义化版本**: 导入路径中的主版本(v2, v3 等)
+
+## 14. 下一步
+
+在下一个模块中,我们将探索:
+- Go 接口 vs Java 接口
+- 隐式实现(无 "implements" 关键字)
+- 接口组合
+- 类型断言和类型开关
+- Go vs Java 中的多态
+
+继续学习 [模块 04: 接口和组合](/docs/java2go/module-04-interfaces-composition),了解 Go 强大的接口系统!

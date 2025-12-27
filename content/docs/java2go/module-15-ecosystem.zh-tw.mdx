@@ -1,0 +1,238 @@
+---
+title: "模組 15：Go 生態系統和函式庫"
+---
+
+本模組探索 Go 生態系統，比較熱門的 Go 函式庫與 Java 的對應函式庫。
+
+## Web 框架
+
+**Java Web 框架：**
+- Spring Boot：全面、功能豐富
+- Jakarta EE：面向企業
+- Micronaut：現代、編譯時聚焦
+- Quarkus：雲端原生、快速啟動
+
+**Go Web 框架：**
+- Gin：快速、極簡主義
+- Echo：高效能、極簡主義
+- Fiber：Express 風格、快速
+- Chi：輕量級、可組合
+
+<UniversalEditor title="Web 框架比較">
+```java !! java
+// Java: Spring Boot REST 控制器
+import org.springframework.web.bind.annotation.*;
+import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
+
+@RestController
+@RequestMapping("/api/users")
+public class UserController {
+
+    @Autowired
+    private UserService userService;
+
+    @GetMapping
+    public List<User> getAllUsers() {
+        return userService.findAll();
+    }
+
+    @GetMapping("/{id}")
+    public ResponseEntity<User> getUser(@PathVariable Long id) {
+        return userService.findById(id)
+            .map(user -> ResponseEntity.ok().body(user))
+            .orElse(ResponseEntity.notFound().build());
+    }
+
+    @PostMapping
+    @ResponseStatus(HttpStatus.CREATED)
+    public User createUser(@Valid @RequestBody User user) {
+        return userService.save(user);
+    }
+
+    @PutMapping("/{id}")
+    public User updateUser(@PathVariable Long id, @RequestBody User user) {
+        user.setId(id);
+        return userService.save(user);
+    }
+
+    @DeleteMapping("/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteUser(@PathVariable Long id) {
+        userService.deleteById(id);
+    }
+}
+```
+
+```go !! go
+// Go: Gin REST 處理器
+package main
+
+import (
+    "net/http"
+    "github.com/gin-gonic/gin"
+)
+
+type User struct {
+    ID    uint   `json:"id"`
+    Name  string `json:"name" binding:"required"`
+    Email string `json:"email" binding:"required,email"`
+}
+
+func SetupRoutes(r *gin.Engine) {
+    users := r.Group("/api/users")
+    {
+        users.GET("", getAllUsers)
+        users.GET("/:id", getUser)
+        users.POST("", createUser)
+        users.PUT("/:id", updateUser)
+        users.DELETE("/:id", deleteUser)
+    }
+}
+
+func getAllUsers(c *gin.Context) {
+    users, err := userService.FindAll()
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+        return
+    }
+    c.JSON(http.StatusOK, users)
+}
+
+func createUser(c *gin.Context) {
+    var user User
+    if err := c.ShouldBindJSON(&user); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
+
+    if err := userService.Save(&user); err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+        return
+    }
+
+    c.JSON(http.StatusCreated, user)
+}
+```
+</UniversalEditor>
+
+## ORM 和資料庫函式庫
+
+<UniversalEditor title="資料庫函式庫">
+```java !! java
+// Java: Spring Data JPA
+import org.springframework.data.jpa.repository.*;
+import org.springframework.data.domain.*;
+import javax.persistence.*;
+
+@Entity
+@Table(name = "users")
+public class User {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(nullable = false, unique = true)
+    private String email;
+
+    private String name;
+
+    @CreationTimestamp
+    private LocalDateTime createdAt;
+
+    // Getters and setters
+}
+
+interface UserRepository extends JpaRepository<User, Long> {
+    Optional<User> findByEmail(String email);
+
+    List<User> findByNameContainingIgnoreCase(String name);
+}
+```
+
+```go !! go
+// Go: GORM
+package main
+
+import (
+    "time"
+    "gorm.io/gorm"
+)
+
+type User struct {
+    ID        uint           `gorm:"primarykey" json:"id"`
+    Email     string         `gorm:"uniqueIndex;not null" json:"email"`
+    Name      string         `json:"name"`
+    CreatedAt time.Time      `json:"created_at"`
+    UpdatedAt time.Time      `json:"updated_at"`
+    DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
+}
+
+type UserRepository struct {
+    db *gorm.DB
+}
+
+func NewUserRepository(db *gorm.DB) *UserRepository {
+    return &UserRepository{db: db}
+}
+
+func (r *UserRepository) FindByEmail(email string) (*User, error) {
+    var user User
+    err := r.db.Where("email = ?", email).First(&user).Error
+    if err != nil {
+        return nil, err
+    }
+    return &user, nil
+}
+
+func (r *UserRepository) Create(user *User) error {
+    return r.db.Create(user).Error
+}
+
+func (r *UserRepository) Update(user *User) error {
+    return r.db.Save(user).Error
+}
+
+func (r *UserRepository) Delete(id uint) error {
+    return r.db.Delete(&User{}, id).Error
+}
+```
+</UniversalEditor>
+
+## 常用 Go 函式庫分類
+
+| 類別 | Java 函式庫 | Go 函式庫 |
+|------|-------------|-----------|
+| Web 框架 | Spring Boot | Gin, Echo, Fiber |
+| ORM | Hibernate/JPA | GORM, sqlx |
+| 驗證 | Hibernate Validator | go-playground/validator |
+| 設定 | Spring Cloud Config | Viper |
+| 日誌 | SLF4J + Logback | Zap, Zerolog |
+| 測試 | JUnit + Mockito | testing + testify |
+| HTTP 客戶端 | RestTemplate/WebClient | resty, fasthttp |
+| 依賴注入 | Spring DI / Google Guice | Wire, Fx |
+| 速率限制 | Resilience4j | uber-go/ratelimit |
+| 快取 | Caffeine / Redis | go-redis, bigcache |
+| 認證 | Spring Security | casbin, jwt-go |
+| CLI | Picocli | cobra, viper |
+| 資料庫遷移 | Flyway / Liquibase | golang-migrate, goose |
+
+---
+
+### 練習問題：
+1. 為什麼 Go 偏好小型、專注的函式庫而不是綜合框架？
+2. Go 的依賴注入方法與 Spring 有什麼不同？
+3. Go 標準函式庫相比 Java 有什麼優勢？
+4. 什麼時候你會選擇 GORM 而不是 sqlx？
+
+### 專案想法：
+- 使用 Gin 和 GORM 建構 REST API
+- 使用 Cobra 建立 CLI 工具
+- 實作具有適當日誌和監控的微服務
+- 使用 Wire 設定依賴注入專案
+
+### 下一步：
+- 學習 Go 中的資料庫整合
+- 了解微服務架構
+- 探索真實世界專案模式
+- 建構生產就緒的應用程式

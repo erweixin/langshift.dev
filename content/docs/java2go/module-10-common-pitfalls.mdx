@@ -1,0 +1,1013 @@
+---
+title: "Module 10: Common Pitfalls"
+description: "Common mistakes Java developers make when transitioning to Go and how to avoid them"
+---
+
+# Module 10: Common Pitfalls
+
+## Learning Objectives
+
+By the end of this module, you will:
+- Identify common mistakes Java developers make in Go
+- Understand the differences between nil and null
+- Avoid slice and array gotchas
+- Prevent goroutine and closure pitfalls
+- Handle errors properly
+- Use channels correctly
+- Understand interface nil confusion
+
+## Introduction
+
+Transitioning from Java to Go involves more than just learning new syntax. It requires understanding fundamental differences in how the languages handle memory, concurrency, and error handling. In this module, we'll explore the most common pitfalls Java developers encounter when writing Go code.
+
+## 1. Nil vs Null Confusion
+
+### The Problem
+
+In Java, `null` is a universal value that can be assigned to any non-primitive variable. Go has `nil`, but it behaves differently across types.
+
+### Pitfall: Not Checking Nil Pointers
+
+<UniversalEditor title="Nil Pointer Dereference - Java vs Go">
+```java !! java
+// Java - NPE is a common runtime error
+public class User {
+    private String name;
+
+    public String getName() {
+        return name; // Might return null
+    }
+
+    public void printNameLength() {
+        // NullPointerException if getName() returns null
+        System.out.println(getName().length());
+    }
+}
+```
+
+```go !! go
+// Go - Must explicitly handle nil
+type User struct {
+    name *string // Pointer can be nil
+}
+
+func (u *User) Name() *string {
+    return u.name // Returns nil if not set
+}
+
+func (u *User) PrintNameLength() {
+    if u.name == nil {
+        fmt.Println("Name not set")
+        return
+    }
+    fmt.Println(len(*u.name))
+}
+```
+</UniversalEditor>
+
+### Pitfall: Nil Interface Values
+
+<UniversalEditor title="Interface Nil Confusion">
+```java !! java
+// Java - Reference comparison is straightforward
+String s = null;
+if (s == null) {
+    System.out.println("s is null");
+}
+
+List<String> list = null;
+if (list == null) {
+    System.out.println("list is null");
+}
+```
+
+```go !! go
+// Go - Interface nil is tricky
+type Printer interface {
+    Print()
+}
+
+type MyPrinter struct{}
+
+func (p *MyPrinter) Print() {
+    fmt.Println("Printing")
+}
+
+func main() {
+    var p Printer // p is nil
+    fmt.Println(p == nil) // true
+
+    var mp *MyPrinter // mp is nil
+    p = mp            // p contains a nil *MyPrinter
+    fmt.Println(p == nil) // FALSE! This is a common gotcha
+
+    // The interface value itself is not nil,
+    // it holds a nil concrete value
+}
+```
+</UniversalEditor>
+
+**Best Practice:** Always check both the interface and the concrete type:
+
+```go
+if p == nil || p.(*MyPrinter) == nil {
+    fmt.Println("Printer is not properly initialized")
+}
+```
+
+## 2. Slice Gotchas
+
+### Pitfall: Slice Reference Semantics
+
+<UniversalEditor title="Slice Modification - Unexpected Behavior">
+```java !! java
+// Java - Arrays are passed by reference
+public class SliceExample {
+    public static void modifyArray(int[] arr) {
+        arr[0] = 999;
+    }
+
+    public static void main(String[] args) {
+        int[] arr = {1, 2, 3};
+        modifyArray(arr);
+        System.out.println(Arrays.toString(arr)); // [999, 2, 3]
+    }
+}
+```
+
+```go !! go
+// Go - Slices are references to underlying arrays
+func modifySlice(s []int) {
+    s[0] = 999
+    // This modifies the original array
+}
+
+func main() {
+    s := []int{1, 2, 3}
+    modifySlice(s)
+    fmt.Println(s) // [999 2 3] - modified!
+
+    // But appending doesn't always work as expected
+    appendToSlice(s)
+    fmt.Println(s) // Still [999 2 3] - append didn't affect original
+}
+
+func appendToSlice(s []int) {
+    s = append(s, 4) // This creates a new slice!
+}
+```
+</UniversalEditor>
+
+### Pitfall: Slice Capacity and Reallocation
+
+<UniversalEditor title="Slice Capacity Issues">
+```java !! java
+// Java - ArrayList handles capacity automatically
+ArrayList<Integer> list = new ArrayList<>();
+for (int i = 0; i < 1000; i++) {
+    list.add(i); // Capacity grows automatically
+}
+```
+
+```go !! go
+// Go - Understanding slice capacity is crucial
+func main() {
+    s := make([]int, 3, 5) // length=3, capacity=5
+    fmt.Printf("len=%d cap=%d %v\n", len(s), cap(s), s)
+
+    s = append(s, 4, 5)
+    fmt.Printf("len=%d cap=%d %v\n", len(s), cap(s), s)
+
+    // This append will cause reallocation
+    s = append(s, 6)
+    fmt.Printf("len=%d cap=%d %v\n", len(s), cap(s), s)
+    // Capacity likely doubled
+
+    // Common mistake: appending in loop without preallocation
+    var result []int
+    for i := 0; i < 100000; i++ {
+        result = append(result, i) // Multiple reallocations!
+    }
+
+    // Better: Preallocate
+    result = make([]int, 0, 100000)
+    for i := 0; i < 100000; i++ {
+        result = append(result, i) // Single allocation
+    }
+}
+```
+</UniversalEditor>
+
+### Pitfall: Slice Subtlety with Sub-slicing
+
+<UniversalEditor title=" Sub-slicing Memory Leaks">
+```java !! java
+// Java - SubList keeps reference to original list
+List<Integer> bigList = new ArrayList<>();
+for (int i = 0; i < 1000000; i++) {
+    bigList.add(i);
+}
+List<Integer> small = bigList.subList(0, 10);
+// bigList cannot be GC'd while small exists
+```
+
+```go !! go
+// Go - Sub-slices hold reference to entire backing array
+func main() {
+    bigSlice := make([]byte, 1024*1024) // 1 MB
+    for i := range bigSlice {
+        bigSlice[i] = 'x'
+    }
+
+    // Only need first 10 bytes
+    smallSlice := bigSlice[:10]
+
+    // bigSlice is still in memory because smallSlice
+    // references the same backing array!
+
+    // Solution: copy to new slice
+    tinySlice := make([]byte, 10)
+    copy(tinySlice, bigSlice[:10])
+    // Now bigSlice can be garbage collected
+}
+```
+</UniversalEditor>
+
+## 3. Range Loop Variable Capture
+
+### Pitfall: Goroutine Closure Capture
+
+<UniversalEditor title="Range Loop Variable Capture - Classic Mistake">
+```java !! java
+// Java - Each iteration gets its own variable
+List<Integer> numbers = Arrays.asList(1, 2, 3, 4, 5);
+List<Future<Integer>> futures = new ArrayList<>();
+
+for (Integer number : numbers) {
+    Future<Integer> future = executor.submit(() -> {
+        return number * 2; // Each closure captures its own number
+    });
+    futures.add(future);
+}
+
+// Results: 2, 4, 6, 8, 10
+```
+
+```go !! go
+// Go - WRONG! All goroutines capture the same variable
+func main() {
+    numbers := []int{1, 2, 3, 4, 5}
+
+    for _, number := range numbers {
+        go func() {
+            fmt.Println(number * 2) // All print 10!
+        }()
+    }
+
+    time.Sleep(time.Second)
+}
+
+// Correct: Pass variable as parameter
+func main() {
+    numbers := []int{1, 2, 3, 4, 5}
+
+    for _, number := range numbers {
+        go func(n int) {
+            fmt.Println(n * 2) // Prints: 2, 4, 6, 8, 10
+        }(number) // Pass as argument
+    }
+
+    time.Sleep(time.Second)
+}
+
+// Also correct: Create new variable in loop scope
+func main() {
+    numbers := []int{1, 2, 3, 4, 5}
+
+    for _, number := range numbers {
+        number := number // Create new variable
+        go func() {
+            fmt.Println(number * 2) // Correct!
+        }()
+    }
+
+    time.Sleep(time.Second)
+}
+```
+</UniversalEditor>
+
+## 4. Error Handling Mistakes
+
+### Pitfall: Ignoring Errors
+
+<UniversalEditor title="Error Handling - Java vs Go">
+```java !! java
+// Java - Exceptions can be ignored (bad practice)
+public void readFile() {
+    try {
+        Files.readAllLines(Paths.get("file.txt"));
+    } catch (IOException e) {
+        // Empty catch block - silent failure
+    }
+}
+```
+
+```go !! go
+// Go - Errors must be explicitly handled
+func readFile() error {
+    data, err := os.ReadFile("file.txt")
+    if err != nil {
+        return err // Must handle error
+    }
+    fmt.Println(string(data))
+    return nil
+}
+
+// WRONG: Ignoring error
+func readFileBad() {
+    data, _ := os.ReadFile("file.txt") // Never ignore errors!
+    fmt.Println(string(data))
+}
+
+// Common pitfall: defer with error
+func processFile(filename string) error {
+    f, err := os.Open(filename)
+    if err != nil {
+        return err
+    }
+    defer f.Close() // Can't check this error!
+
+    // Better: Use wrapper function
+    defer func() {
+        if err := f.Close(); err != nil {
+            log.Printf("Error closing file: %v", err)
+        }
+    }()
+
+    return nil
+}
+```
+</UniversalEditor>
+
+### Pitfall: Wrapping Errors Incorrectly
+
+<UniversalEditor title="Error Wrapping">
+```java !! java
+// Java - Exception chaining
+try {
+    // ... code that throws
+} catch (IOException e) {
+    throw new RuntimeException("Failed to process", e);
+}
+```
+
+```go !! go
+// Go - Proper error wrapping
+func processFile(path string) error {
+    f, err := os.Open(path)
+    if err != nil {
+        return fmt.Errorf("failed to open %s: %w", path, err)
+    }
+    defer f.Close()
+
+    // ... processing ...
+
+    return nil
+}
+
+// Common mistake: Not wrapping context
+func processFileBad(path string) error {
+    f, err := os.Open(path)
+    if err != nil {
+        return err // Lost context about which file!
+    }
+    defer f.Close()
+
+    return nil
+}
+```
+</UniversalEditor>
+
+## 5. Channel Misuse
+
+### Pitfall: Forgetting to Close Channels
+
+<UniversalEditor title="Channel Closing">
+```java !! java
+// Java - BlockingQueue doesn't need explicit closing
+BlockingQueue<String> queue = new LinkedBlockingQueue<>();
+```
+
+```go !! go
+// Go - Channels must be closed by sender
+func producer(ch chan<- int) {
+    for i := 0; i < 10; i++ {
+        ch <- i
+    }
+    close(ch) // CRITICAL: Must close to signal completion
+}
+
+func consumer(ch <-chan int) {
+    for value := range ch { // Loop terminates when channel closed
+        fmt.Println(value)
+    }
+}
+
+// WRONG: Consumer closing channel
+func consumerBad(ch <-chan int) {
+    for value := range ch {
+        fmt.Println(value)
+    }
+    close(ch) // PANIC! Cannot close receive-only channel
+}
+```
+</UniversalEditor>
+
+### Pitfall: Deadlock with Unbuffered Channels
+
+<UniversalEditor title="Channel Deadlock">
+```java !! java
+// Java - Synchronized blocks can deadlock
+public synchronized void method1() {
+    // Holding lock
+    method2(); // Needs same lock - works in Java
+}
+
+public synchronized void method2() {
+    // Reentrant lock - same thread can acquire
+}
+```
+
+```go !! go
+// Go - Deadlock with goroutine communication
+func main() {
+    ch := make(chan int) // Unbuffered
+
+    // WRONG: Deadlock!
+    ch <- 42 // Blocking - no receiver
+    // Fatal error: all goroutines are asleep - deadlock!
+}
+
+// Correct: Have receiver ready
+func main() {
+    ch := make(chan int)
+
+    go func() {
+        ch <- 42
+    }()
+
+    value := <-ch
+    fmt.Println(value)
+}
+
+// Or use buffered channel
+func main() {
+    ch := make(chan int, 1) // Buffered
+    ch <- 42 // Doesn't block
+    value := <-ch
+    fmt.Println(value)
+}
+```
+</UniversalEditor>
+
+### Pitfall: Sending Nil Values
+
+<UniversalEditor title="Nil Channel Operations">
+```go !! go
+// Go - Nil channels can be useful but are tricky
+func main() {
+    var ch chan int // nil channel
+
+    // These operations block forever!
+    // ch <- 42     // Would block
+    // value := <-ch // Would block
+
+    // Use case: select with nil channels
+    var send, receive chan int
+    receive = make(chan int)
+
+    go func() {
+        receive <- 42
+    }()
+
+    select {
+    case v := <-receive:
+        fmt.Println("Received:", v)
+    case send <- 42: // send is nil, so this case is skipped
+        fmt.Println("Sent") // Never executes
+    }
+}
+```
+</UniversalEditor>
+
+## 6. Variable Shadowing
+
+### Pitfall: Unintended Shadowing
+
+<UniversalEditor title="Variable Shadowing">
+```java !! java
+// Java - Compiler warns about shadowing
+public class Shadow {
+    private int count = 0;
+
+    public void increment() {
+        int count = 5; // Warning: shadows field
+        count++;
+    }
+}
+```
+
+```go !! go
+// Go - Shadowing can cause subtle bugs
+func process() error {
+    err := fmt.Errorf("initial error")
+
+    if true {
+        err := fmt.Errorf("new error") // Shadows outer err!
+        // This err is different from outer err
+    }
+
+    return err // Returns "initial error", not "new error"!
+}
+
+// Correct: Don't use :=
+func processCorrect() error {
+    err := fmt.Errorf("initial error")
+
+    if true {
+        err = fmt.Errorf("new error") // Reassigns outer err
+    }
+
+    return err // Returns "new error"
+}
+
+// Common pitfall in for loops
+func processItems(items []string) error {
+    var err error
+
+    for _, item := range items {
+        err := processItem(item) // Shadows outer err!
+        if err != nil {
+            // Error handling here doesn't affect outer err
+        }
+    }
+
+    return err // Always nil!
+}
+```
+</UniversalEditor>
+
+## 7. Map Safety
+
+### Pitfall: Concurrent Map Access
+
+<UniversalEditor title="Concurrent Map Access">
+```java !! java
+// Java - ConcurrentHashMap is thread-safe
+Map<String, Integer> map = new ConcurrentHashMap<>();
+
+// Multiple threads can safely access
+map.put("key", 1);
+Integer value = map.get("key");
+```
+
+```go !! go
+// Go - Regular maps are NOT thread-safe
+var m = make(map[string]int)
+
+// WRONG: Concurrent access causes panic
+go func() {
+    for i := 0; i < 1000; i++ {
+        m["key"] = i // PANIC: concurrent map writes
+    }
+}()
+
+go func() {
+    for i := 0; i < 1000; i++ {
+        m["key"] = i // PANIC: concurrent map writes
+    }
+}()
+
+// Solution 1: Use mutex
+var (
+    mu sync.Mutex
+    m  = make(map[string]int)
+)
+
+func safeWrite(key string, value int) {
+    mu.Lock()
+    m[key] = value
+    mu.Unlock()
+}
+
+func safeRead(key string) int {
+    mu.Lock()
+    defer mu.Unlock()
+    return m[key]
+}
+
+// Solution 2: Use sync.Map (for specific use cases)
+var m sync.Map
+
+m.Store("key", 42)
+if value, ok := m.Load("key"); ok {
+    fmt.Println(value.(int))
+}
+```
+</UniversalEditor>
+
+## 8. Defer Pitfalls
+
+### Pitfall: Defer Execution Order
+
+<UniversalEditor title="Defer Execution">
+```java !! java
+// Java - try-finally executes in order
+public void process() {
+    try {
+        System.out.println("Processing");
+    } finally {
+        System.out.println("Cleanup");
+    }
+}
+```
+
+```go !! go
+// Go - Defer executes LIFO (Last In, First Out)
+func main() {
+    defer fmt.Println("First defer")
+    defer fmt.Println("Second defer")
+    defer fmt.Println("Third defer")
+
+    fmt.Println("Function body")
+
+    // Output:
+    // Function body
+    // Third defer
+    // Second defer
+    // First defer
+}
+
+// Pitfall: Defer with loop variable
+func processFiles(files []string) error {
+    for _, file := range files {
+        f, err := os.Open(file)
+        if err != nil {
+            return err
+        }
+        defer f.Close() // WRONG: All closes happen at function exit!
+
+        // Process file...
+    }
+    // All files stay open until function returns!
+    return nil
+}
+
+// Correct: Use anonymous function
+func processFilesCorrect(files []string) error {
+    for _, file := range files {
+        if err := func() error {
+            f, err := os.Open(file)
+            if err != nil {
+                return err
+            }
+            defer f.Close() // Close after each iteration
+
+            // Process file...
+            return nil
+        }(); err != nil {
+            return err
+        }
+    }
+    return nil
+}
+```
+</UniversalEditor>
+
+### Pitfall: Defer with Method Values
+
+<UniversalEditor title="Defer Method Evaluation">
+```go !! go
+// Go - Parameters in defer are evaluated immediately
+type Counter struct {
+    count int
+}
+
+func (c *Counter) Increment() {
+    c.count++
+}
+
+func (c *Counter) Value() int {
+    return c.count
+}
+
+func main() {
+    c := &Counter{count: 0}
+
+    defer fmt.Println(c.Value()) // Evaluated now: prints 0
+
+    c.Increment()
+    c.Increment()
+
+    // Output: 0, not 2!
+}
+
+// To defer method call correctly
+func main() {
+    c := &Counter{count: 0}
+
+    defer func() {
+        fmt.Println(c.Value()) // Evaluated later: prints 2
+    }()
+
+    c.Increment()
+    c.Increment()
+}
+```
+</UniversalEditor>
+
+## 9. Goroutine Leaks
+
+### Pitfall: Goroutine Never Exiting
+
+<UniversalEditor title="Goroutine Leaks">
+```java !! java
+// Java - Threads can be daemon or have timeout
+ExecutorService executor = Executors.newCachedThreadPool();
+Future<String> future = executor.submit(() -> {
+    // Long-running task
+    return "result";
+});
+
+try {
+    String result = future.get(1, TimeUnit.SECONDS);
+} catch (TimeoutException e) {
+    future.cancel(true); // Interrupt the thread
+}
+```
+
+```go !! go
+// Go - Goroutine leaks are easy to create
+func leakyGoroutine() {
+    ch := make(chan int)
+
+    go func() {
+        value := <-ch // Waits forever
+        fmt.Println(value)
+    }()
+
+    // Function returns, but goroutine is still waiting!
+    // Goroutine leak!
+}
+
+// Correct: Use context for cancellation
+func correctGoroutine(ctx context.Context) error {
+    ch := make(chan int)
+
+    done := make(chan struct{})
+    go func() {
+        select {
+        case value := <-ch:
+            fmt.Println(value)
+        case <-ctx.Done():
+            return // Exit when context cancelled
+        }
+        close(done)
+    }()
+
+    select {
+    case <-done:
+        return nil
+    case <-ctx.Done():
+        return ctx.Err()
+    }
+}
+
+// Or use timeout
+func withTimeout() error {
+    ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+    defer cancel()
+
+    return correctGoroutine(ctx)
+}
+```
+</UniversalEditor>
+
+## 10. String Encoding Pitfalls
+
+### Pitfall: String vs []byte
+
+<UniversalEditor title="String Encoding">
+```java !! java
+// Java - Strings are UTF-16, bytes are platform-specific
+String str = "Hello";
+byte[] bytes = str.getBytes(StandardCharsets.UTF_8);
+String decoded = new String(bytes, StandardCharsets.UTF_8);
+```
+
+```go !! go
+// Go - Strings are read-only, bytes are mutable
+func processString() {
+    s := "hello"
+
+    // WRONG: Cannot index string bytes for Unicode
+    fmt.Println(s[0]) // Prints 104 (ASCII 'h'), works for ASCII
+    fmt.Println(s[0:1]) // "h"
+
+    // For Unicode: Use range
+    for i, r := range s {
+        fmt.Printf("%d: %c\n", i, r)
+    }
+
+    // Converting between string and []byte creates copies
+    b := []byte(s) // Copy: heap allocation
+    s2 := string(b) // Another copy
+
+    // For []rune (Unicode code points)
+    runes := []rune(s) // Copy with rune conversion
+}
+
+// Common mistake: Modifying "string" via []byte
+func modifyStringBad(s string) string {
+    b := []byte(s)
+    b[0] = 'H' // Modifies the copy, not original
+    return string(b) // Creates new string
+}
+
+// For efficient string building
+func buildString() string {
+    var b strings.Builder
+    for i := 0; i < 1000; i++ {
+        b.WriteString("text")
+    }
+    return b.String() // Efficient: single allocation
+}
+```
+</UniversalEditor>
+
+## 11. Method Receiver Pitfalls
+
+### Pitfall: Value vs Pointer Receivers
+
+<UniversalEditor title="Method Receivers">
+```java !! java
+// Java - Methods always on references
+public class Counter {
+    private int count;
+
+    public void increment() {
+        this.count++;
+    }
+
+    public int getValue() {
+        return this.count;
+    }
+}
+
+Counter c = new Counter();
+c.increment(); // Modifies the object
+```
+
+```go !! go
+// Go - Value vs pointer receivers matter
+type Counter struct {
+    count int
+}
+
+// Value receiver - gets copy
+func (c Counter) Increment() {
+    c.count++ // Modifies copy, not original!
+}
+
+// Pointer receiver - modifies original
+func (c *Counter) IncrementCorrect() {
+    c.count++ // Modifies original
+}
+
+func main() {
+    c := Counter{count: 0}
+    c.Increment()        // No effect!
+    fmt.Println(c.count) // Still 0
+
+    c.IncrementCorrect() // Works
+    fmt.Println(c.count) // Now 1
+}
+
+// Pitfall: Inconsistency
+type BadCounter struct {
+    count int
+}
+
+func (c BadCounter) Increment() {
+    c.count++
+}
+
+func (c *BadCounter) GetValue() int {
+    return c.count
+}
+
+// Confusing: Some methods use pointer, some use value
+// Best practice: Be consistent - all pointer or all value
+```
+</UniversalEditor>
+
+## 12. Interface Satisfaction
+
+### Pitfall: Implicit Interface Satisfaction
+
+<UniversalEditor title="Interface Satisfaction">
+```java !! java
+// Java - Explicit implements keyword
+public class MyReader implements Reader {
+    @Override
+    public int read(char[] cbuf) throws IOException {
+        return 0;
+    }
+
+    @Override
+    public void close() throws IOException {
+    }
+}
+```
+
+```go !! go
+// Go - Implicit satisfaction can lead to errors
+type Reader interface {
+    Read([]byte) (int, error)
+}
+
+type MyReader struct{}
+
+// WRONG: Method signature doesn't match
+func (r MyReader) Read(p []byte) (int, error) {
+    return 0, nil
+}
+
+// Correct: Pointer receiver to match interface
+func (r *MyReader) Read(p []byte) (int, error) {
+    return 0, nil
+}
+
+// Pitfall: Method value vs method expression
+func process() {
+    var r Reader = &MyReader{}
+
+    // Method value - bound to instance
+    fn1 := r.Read
+    fn1([]byte{}) // Works
+
+    // Method expression - needs explicit receiver
+    fn2 := (*MyReader).Read
+    fn2(&MyReader{}, []byte{}) // Also works
+
+    // Easy to mix up!
+}
+```
+</UniversalEditor>
+
+## Summary
+
+Common pitfalls when transitioning from Java to Go:
+
+1. **Nil vs null**: Go's nil is more type-specific
+2. **Slice gotchas**: Understand backing arrays and capacity
+3. **Range loops**: Watch for variable capture in goroutines
+4. **Error handling**: Never ignore errors, always handle them
+5. **Channels**: Remember to close, avoid deadlocks
+6. **Shadowing**: Be careful with `:=` in new scopes
+7. **Maps**: Use mutex or sync.Map for concurrent access
+8. **Defer**: Executes LIFO, parameters evaluated immediately
+9. **Goroutine leaks**: Always provide cancellation mechanism
+10. **String encoding**: Use range for Unicode iteration
+11. **Method receivers**: Understand value vs pointer
+12. **Interfaces**: Check method signatures match exactly
+
+## Practice Questions
+
+1. Why does `fmt.Println(interface{}(nil) == nil)` return `false` in some cases?
+2. How can you prevent goroutine leaks when using channels?
+3. What's the difference between `close(ch)` and leaving a channel open?
+4. Why might preallocating slice capacity improve performance?
+5. How does Go's error handling differ from Java's exceptions?
+
+## Project Idea
+
+Create a "Go Pitfall Detector" tool that:
+- Scans Go code for common pitfalls
+- Suggests fixes for each detected issue
+- Includes examples of wrong vs right code
+- Provides explanations for each pitfall
+
+## Next Steps
+
+- **Module 11**: Learn idiomatic Go patterns and philosophy
+- **Module 12**: Performance optimization techniques
+- **Module 13**: Deployment and production considerations
+- **Module 14**: Build a complete real-world project
+
+## Further Reading
+
+- [Go Common Mistakes](https://github.com/golang/go/wiki/CommonMistakes)
+- [Effective Go](https://go.dev/doc/effective_go)
+- [Go Code Review Comments](https://github.com/golang/go/wiki/CodeReviewComments)
+- [The Go Blog: Go Concurrency Patterns](https://go.dev/blog/concurrency-patterns)

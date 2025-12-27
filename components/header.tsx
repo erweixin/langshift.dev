@@ -122,7 +122,6 @@ const SOURCE_LANGUAGES = [
     name: 'Java',
     icon: '☕',
     gradient: 'from-red-500 to-rose-500',
-    path: 'java2js',
     status: 'completed' as const,
     targets: [
       {
@@ -131,6 +130,14 @@ const SOURCE_LANGUAGES = [
         icon: '🚀',
         gradient: 'from-yellow-500 to-orange-500',
         path: 'java2js',
+        status: 'completed' as const,
+      },
+      {
+        id: 'go',
+        name: 'Go',
+        icon: '🐹',
+        gradient: 'from-cyan-500 to-blue-500',
+        path: 'java2go',
         status: 'completed' as const,
       },
     ]

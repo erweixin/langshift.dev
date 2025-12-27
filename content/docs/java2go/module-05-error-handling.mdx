@@ -1,0 +1,798 @@
+---
+title: "Module 05: Error Handling"
+description: "Master Go's error handling approach compared to Java exceptions - errors as values, custom error types, error wrapping, and panic/recover patterns"
+---
+
+# Module 05: Error Handling
+
+Welcome to Module 05! In this module, you'll learn Go's fundamentally different approach to error handling compared to Java's exception system.
+
+## Learning Objectives
+
+By the end of this module, you will:
+- Understand Go error handling vs Java exceptions
+- Master errors as return values
+- Learn custom error types
+- Understand error wrapping (Go 1.13+)
+- Master panic and recover vs try-catch-finally
+- Learn when to use panic vs errors
+- Understand error handling best practices
+- Compare try-catch patterns with Go idioms
+
+## 1. The Big Picture: Exceptions vs Error Values
+
+### Java: Exception-Based Error Handling
+
+Java uses exceptions for error handling:
+
+```java
+public class FileProcessor {
+    public String readFile(String path) throws IOException {
+        File file = new File(path);
+        if (!file.exists()) {
+            throw new FileNotFoundException("File not found: " + path);
+        }
+        // Read and return content
+        return "file content";
+    }
+
+    public void processFile(String path) {
+        try {
+            String content = readFile(path);
+            System.out.println("Processing: " + content);
+        } catch (FileNotFoundException e) {
+            System.err.println("File not found: " + e.getMessage());
+        } catch (IOException e) {
+            System.err.println("IO error: " + e.getMessage());
+        } finally {
+            System.out.println("Cleanup code");
+        }
+    }
+}
+```
+
+### Go: Error Values
+
+Go treats errors as values:
+
+<UniversalEditor title="Java Exceptions vs Go Error Values">
+```java !! java
+// Java: Exception-based
+public String readFile(String path) throws IOException {
+    File file = new File(path);
+    if (!file.exists()) {
+        throw new FileNotFoundException("File not found");
+    }
+    return Files.readString(file.toPath());
+}
+
+// Usage
+try {
+    String content = readFile(path);
+    System.out.println(content);
+} catch (IOException e) {
+    System.err.println("Error: " + e);
+}
+```
+
+```go !! go
+// Go: Error as value
+func readFile(path string) (string, error) {
+    file, err := os.Open(path)
+    if err != nil {
+        return "", err
+    }
+    defer file.Close()
+
+    content, err := io.ReadAll(file)
+    if err != nil {
+        return "", err
+    }
+    return string(content), nil
+}
+
+// Usage
+content, err := readFile(path)
+if err != nil {
+    fmt.Println("Error:", err)
+    return
+}
+fmt.Println(content)
+```
+</UniversalEditor>
+
+## 2. Errors as Return Values
+
+### Basic Error Handling
+
+<UniversalEditor title="Basic Error Handling">
+```java !! java
+// Java: Throwing exceptions
+public class Calculator {
+    public int divide(int a, int b) throws ArithmeticException {
+        if (b == 0) {
+            throw new ArithmeticException("Division by zero");
+        }
+        return a / b;
+    }
+
+    public void calculate() {
+        try {
+            int result = divide(10, 0);
+            System.out.println("Result: " + result);
+        } catch (ArithmeticException e) {
+            System.err.println("Error: " + e.getMessage());
+        }
+    }
+}
+```
+
+```go !! go
+// Go: Returning errors
+func divide(a, b int) (int, error) {
+    if b == 0 {
+        return 0, errors.New("division by zero")
+    }
+    return a / b, nil
+}
+
+func calculate() {
+    result, err := divide(10, 0)
+    if err != nil {
+        fmt.Println("Error:", err)
+        return
+    }
+    fmt.Println("Result:", result)
+}
+```
+</UniversalEditor>
+
+### Multiple Return Values with Errors
+
+<UniversalEditor title="Multiple Return Values">
+```java !! java
+// Java: Throwing exceptions or using wrapper objects
+public class Result<T> {
+    private final T value;
+    private final String error;
+
+    public Result(T value, String error) {
+        this.value = value;
+        this.error = error;
+    }
+
+    public boolean isSuccess() { return error == null; }
+    public T getValue() { return value; }
+    public String getError() { return error; }
+}
+
+public Result<Integer> divide(int a, int b) {
+    if (b == 0) {
+        return new Result<>(null, "Division by zero");
+    }
+    return new Result<>(a / b, null);
+}
+```
+
+```go !! go
+// Go: Multiple return values are idiomatic
+func divide(a, b int) (int, error) {
+    if b == 0 {
+        return 0, errors.New("division by zero")
+    }
+    return a / b, nil
+}
+
+func main() {
+    result, err := divide(10, 2)
+    if err != nil {
+        fmt.Println("Error:", err)
+        return
+    }
+    fmt.Println("Result:", result)
+}
+```
+</UniversalEditor>
+
+## 3. Custom Error Types
+
+### Java: Custom Exceptions
+
+<UniversalEditor title="Custom Exceptions vs Custom Errors">
+```java !! java
+// Java: Custom exception class
+public class ValidationError extends Exception {
+    private final String field;
+    private final String value;
+
+    public ValidationError(String field, String value, String message) {
+        super(message);
+        this.field = field;
+        this.value = value;
+    }
+
+    public String getField() { return field; }
+    public String getValue() { return value; }
+}
+
+// Usage
+public void validate(String email) throws ValidationError {
+    if (email == null || email.isEmpty()) {
+        throw new ValidationError("email", email, "Email is required");
+    }
+    if (!email.contains("@")) {
+        throw new ValidationError("email", email, "Invalid email format");
+    }
+}
+```
+
+```go !! go
+// Go: Custom error type
+type ValidationError struct {
+    Field   string
+    Value   string
+    Message string
+}
+
+func (e ValidationError) Error() string {
+    return fmt.Sprintf("%s: %s (value: %s)", e.Field, e.Message, e.Value)
+}
+
+// Usage
+func validate(email string) error {
+    if email == "" {
+        return ValidationError{
+            Field:   "email",
+            Value:   email,
+            Message: "Email is required",
+        }
+    }
+    if !strings.Contains(email, "@") {
+        return ValidationError{
+            Field:   "email",
+            Value:   email,
+            Message: "Invalid email format",
+        }
+    }
+    return nil
+}
+```
+</UniversalEditor>
+
+### Error Type Assertions
+
+<UniversalEditor title="Type Assertions on Errors">
+```java !! java
+// Java: Catching specific exceptions
+public void process(String email) {
+    try {
+        validate(email);
+    } catch (ValidationError e) {
+        System.err.println("Field: " + e.getField());
+        System.err.println("Value: " + e.getValue());
+        System.err.println("Error: " + e.getMessage());
+    } catch (Exception e) {
+        System.err.println("Unknown error: " + e.getMessage());
+    }
+}
+```
+
+```go !! go
+// Go: Type assertions on errors
+func process(email string) {
+    err := validate(email)
+    if err != nil {
+        // Type assertion to access custom error
+        if validationErr, ok := err.(ValidationError); ok {
+            fmt.Println("Field:", validationErr.Field)
+            fmt.Println("Value:", validationErr.Value)
+            fmt.Println("Error:", validationErr.Message)
+        } else {
+            fmt.Println("Unknown error:", err)
+        }
+        return
+    }
+    fmt.Println("Valid!")
+}
+```
+</UniversalEditor>
+
+## 4. Error Wrapping (Go 1.13+)
+
+Go 1.13 introduced error wrapping with `%w` verb in `fmt.Errorf`.
+
+<UniversalEditor title="Error Wrapping">
+```java !! java
+// Java: Exception chaining
+public void processFile(String path) throws IOException {
+    try {
+        readFile(path);
+    } catch (IOException e) {
+        throw new IOException("Failed to process file: " + path, e);
+    }
+}
+
+// Stack trace shows both exceptions
+```
+
+```go !! go
+// Go: Error wrapping with %w
+func processFile(path string) error {
+    content, err := readFile(path)
+    if err != nil {
+        return fmt.Errorf("failed to process file %s: %w", path, err)
+    }
+    fmt.Println(content)
+    return nil
+}
+
+// Check if a specific error is wrapped
+func main() {
+    err := processFile("test.txt")
+    if err != nil {
+        // Check if error wraps a specific error
+        if errors.Is(err, os.ErrNotExist) {
+            fmt.Println("File does not exist")
+        } else {
+            fmt.Println("Error:", err)
+        }
+    }
+}
+```
+</UniversalEditor>
+
+### Errors.Is and Errors.As
+
+<UniversalEditor title="Error Inspection">
+```java !! java
+// Java: getCause() for exception chaining
+try {
+    processFile(path);
+} catch (IOException e) {
+    Throwable cause = e.getCause();
+    if (cause instanceof FileNotFoundException) {
+        System.out.println("File not found");
+    }
+}
+```
+
+```go !! go
+// Go: errors.Is and errors.As
+func main() {
+    err := processFile("test.txt")
+    
+    // errors.Is: Check if error wraps a specific error
+    if errors.Is(err, os.ErrNotExist) {
+        fmt.Println("File does not exist")
+    }
+    
+    // errors.As: Check if error wraps a specific type
+    var pathErr *os.PathError
+    if errors.As(err, &pathErr) {
+        fmt.Println("Path error:", pathErr.Path)
+        fmt.Println("Operation:", pathErr.Op)
+    }
+}
+```
+</UniversalEditor>
+
+## 5. Panic and Recover vs Try-Catch-Finally
+
+Go's `panic` and `recover` are similar to Java's exceptions but should be used sparingly.
+
+<UniversalEditor title="Panic/Recover vs Try-Catch-Finally">
+```java !! java
+// Java: try-catch-finally
+public void processFile(String path) {
+    File file = null;
+    try {
+        file = new File(path);
+        // Process file
+        if (file.length() > 1000000) {
+            throw new RuntimeException("File too large");
+        }
+    } catch (RuntimeException e) {
+        System.err.println("Error: " + e.getMessage());
+    } finally {
+        if (file != null) {
+            // Cleanup
+            System.out.println("Cleanup");
+        }
+    }
+}
+```
+
+```go !! go
+// Go: panic and recover
+func processFile(path string) (err error) {
+    // defer with recover (similar to finally)
+    defer func() {
+        if r := recover(); r != nil {
+            fmt.Println("Recovered from panic:", r)
+            err = fmt.Errorf("panic: %v", r)
+        }
+    }()
+
+    file, err := os.Open(path)
+    if err != nil {
+        return err
+    }
+    defer file.Close()
+
+    info, err := file.Stat()
+    if err != nil {
+        return err
+    }
+
+    if info.Size() > 1000000 {
+        panic("file too large") // Panic (like throw)
+    }
+
+    return nil
+}
+```
+</UniversalEditor>
+
+### When to Use Panic
+
+<UniversalEditor title="Panic vs Error Usage">
+```java !! java
+// Java: Use exceptions for exceptional conditions
+public void process(int value) {
+    if (value < 0) {
+        throw new IllegalArgumentException("Value must be positive");
+    }
+    // Process value
+}
+```
+
+```go !! go
+// Go: Use errors for expected problems, panic for truly exceptional ones
+func process(value int) error {
+    if value < 0 {
+        return errors.New("value must be positive") // Normal error
+    }
+    return nil
+}
+
+// Panic is appropriate for:
+// 1. Unrecoverable conditions
+func init() {
+    requiredEnv := os.Getenv("REQUIRED_ENV")
+    if requiredEnv == "" {
+        panic("REQUIRED_ENV not set") // Cannot run without this
+    }
+}
+
+// 2. Programmer errors
+func processArray(arr []int, index int) int {
+    if index < 0 || index >= len(arr) {
+        panic("index out of range") // Programmer error, should not happen
+    }
+    return arr[index]
+}
+```
+</UniversalEditor>
+
+## 6. Common Error Patterns
+
+### Sentinel Errors
+
+<UniversalEditor title="Sentinel Errors">
+```java !! java
+// Java: Constant exceptions
+public class Errors {
+    public static final EOFException EOF = new EOFException("End of file");
+    public static final IOException CONNECTION_CLOSED = 
+        new IOException("Connection closed");
+}
+
+public String read() throws IOException {
+    if (atEnd) {
+        throw Errors.EOF;
+    }
+    return readNext();
+}
+```
+
+```go !! go
+// Go: Sentinel errors
+var (
+    ErrEOF    = errors.New("end of file")
+    ErrClosed = errors.New("connection closed")
+)
+
+func read() (string, error) {
+    if atEnd {
+        return "", ErrEOF
+    }
+    return readNext(), nil
+}
+
+// Usage
+data, err := read()
+if errors.Is(err, ErrEOF) {
+    fmt.Println("Reached end of file")
+}
+```
+</UniversalEditor>
+
+### Error Context
+
+<UniversalEditor title="Adding Context to Errors">
+```java !! java
+// Java: Message chaining
+public void processUser(String userID) throws Exception {
+    try {
+        User user = findUser(userID);
+    } catch (SQLException e) {
+        throw new Exception("Failed to find user: " + userID, e);
+    }
+}
+```
+
+```go !! go
+// Go: Error wrapping for context
+func processUser(userID string) error {
+    user, err := findUser(userID)
+    if err != nil {
+        return fmt.Errorf("failed to find user %s: %w", userID, err)
+    }
+    // Process user
+    return nil
+}
+
+// The error chain shows:
+// "failed to find user 123: database connection failed"
+```
+</UniversalEditor>
+
+## 7. Deferring Cleanup
+
+Go's `defer` statement is often better than Java's `finally`.
+
+<UniversalEditor title="Defer vs Finally">
+```java !! java
+// Java: finally for cleanup
+public void processFile(String path) {
+    FileInputStream fis = null;
+    try {
+        fis = new FileInputStream(path);
+        // Process file
+    } catch (IOException e) {
+        System.err.println("Error: " + e);
+    } finally {
+        if (fis != null) {
+            try {
+                fis.close();
+            } catch (IOException e) {
+                System.err.println("Error closing: " + e);
+            }
+        }
+    }
+}
+```
+
+```go !! go
+// Go: defer for cleanup
+func processFile(path string) error {
+    file, err := os.Open(path)
+    if err != nil {
+        return err
+    }
+    defer file.Close() // Automatically called when function returns
+
+    // Process file
+    return nil
+}
+```
+</UniversalEditor>
+
+### Multiple Defers
+
+<UniversalEditor title="Multiple Defer Statements">
+```java !! java
+// Java: Multiple resources (try-with-resources)
+public void processFiles() throws IOException {
+    try (FileInputStream f1 = new FileInputStream("file1.txt");
+         FileInputStream f2 = new FileInputStream("file2.txt")) {
+        // Process both files
+    } // Both closed automatically
+}
+```
+
+```go !! go
+// Go: Multiple defers (LIFO order)
+func processFiles() error {
+    f1, err := os.Open("file1.txt")
+    if err != nil {
+        return err
+    }
+    defer f1.Close()
+
+    f2, err := os.Open("file2.txt")
+    if err != nil {
+        return err
+    }
+    defer f2.Close() // Closed first (LIFO)
+
+    // Process both files
+    // f2.Close() called, then f1.Close()
+    return nil
+}
+```
+</UniversalEditor>
+
+## 8. Best Practices
+
+### Error Handling Guidelines
+
+<UniversalEditor title="Error Handling Best Practices">
+```java !! java
+// Java: Don't ignore exceptions
+public void process() {
+    try {
+        riskyOperation();
+    } catch (Exception e) {
+        // ✗ Don't do this - ignoring exceptions
+    }
+}
+
+// ✓ Do handle exceptions properly
+public void process() {
+    try {
+        riskyOperation();
+    } catch (Exception e) {
+        logger.error("Operation failed", e);
+        throw e; // Or handle appropriately
+    }
+}
+```
+
+```go !! go
+// Go: Don't ignore errors
+func process() {
+    data := riskyOperation() // ✗ Don't ignore error
+    fmt.Println(data)
+}
+
+// ✓ Do check errors
+func process() error {
+    data, err := riskyOperation()
+    if err != nil {
+        return fmt.Errorf("risky operation failed: %w", err)
+    }
+    fmt.Println(data)
+    return nil
+}
+
+// Only ignore when you have a good reason
+data, _ := riskyOperation() // Sometimes OK for tested conditions
+```
+</UniversalEditor>
+
+### Error Messages
+
+<UniversalEditor title="Writing Good Error Messages">
+```java !! java
+// Java: Error messages
+public User findUser(String id) throws UserNotFoundException {
+    User user = database.query(id);
+    if (user == null) {
+        throw new UserNotFoundException("User not found: " + id);
+    }
+    return user;
+}
+```
+
+```go !! go
+// Go: Error messages should not be capitalized
+// and should not end with punctuation
+func findUser(id string) (*User, error) {
+    user := database.Query(id)
+    if user == nil {
+        return nil, fmt.Errorf("user not found: %s", id)
+    }
+    return user, nil
+}
+
+// Prefix context, don't suffix
+func saveUser(u User) error {
+    if err := validate(u); err != nil {
+        return fmt.Errorf("validation failed: %w", err) // ✓ Good
+        // return fmt.Errorf("%w: validation failed", err) // ✗ Bad
+    }
+    return nil
+}
+```
+</UniversalEditor>
+
+## 9. Practice Questions
+
+### Beginner
+
+1. Create functions that return errors:
+   - `divide(a, b int) (int, error)` - check for division by zero
+   - `sqrt(x float64) (float64, error)` - check for negative numbers
+   - Handle errors appropriately
+
+2. Create a custom error type:
+   - `InvalidInputError` with field and message
+   - Use it in validation functions
+   - Demonstrate error type assertions
+
+### Intermediate
+
+3. Build error wrapping:
+   - Create functions that call other functions
+   - Wrap errors with context
+   - Use `errors.Is` and `errors.As` to inspect errors
+
+4. Create a file processor:
+   - Read files with proper error handling
+   - Use `defer` for cleanup
+   - Handle multiple error types
+   - Wrap errors with context
+
+### Advanced
+
+5. Implement retry logic:
+   - Retry operations on specific errors
+   - Use `errors.Is` to check for retryable errors
+   - Implement exponential backoff
+   - Handle context cancellation
+
+6. Build an error handler middleware:
+   - Catch panics in HTTP handlers
+   - Log errors with context
+   - Return appropriate error responses
+   - Demonstrate recovery patterns
+
+## 10. Project Ideas
+
+### Project 1: File Processing Utility
+
+Create a robust file processing tool:
+- Read files with comprehensive error handling
+- Handle file not found, permission errors, etc.
+- Use error wrapping to add context
+- Implement retry logic for transient failures
+- Log all errors appropriately
+
+### Project 2: Database Wrapper
+
+Create a database access layer:
+- Custom error types for different DB errors
+- Wrap database driver errors
+- Handle connection failures gracefully
+- Implement connection pooling with error handling
+- Provide transaction support with proper rollback
+
+### Project 3: API Client
+
+Build an HTTP API client:
+- Handle network errors, timeouts
+- Custom error types for different HTTP status codes
+- Retry logic with exponential backoff
+- Request/response logging
+- Error context preservation
+
+## 11. Key Takeaways
+
+- **Errors as Values**: Go returns errors as values, doesn't throw exceptions
+- **Always Check Errors**: Never ignore returned errors
+- **Error Wrapping**: Use `%w` to wrap errors with context
+- **Custom Errors**: Implement `Error()` method for custom error types
+- **errors.Is**: Check if error wraps a specific error
+- **errors.As**: Check if error matches a specific type
+- **Panic Sparingly**: Use panic only for truly exceptional conditions
+- **Defer Cleanup**: Use `defer` for cleanup, better than `finally`
+
+## 12. Next Steps
+
+In the next modules, we'll explore:
+- **Module 06**: Goroutines vs Java Threads
+- **Module 07**: Channels for communication
+- **Module 08**: Concurrency patterns and best practices
+
+Continue to [Module 06: Goroutines and Threads](/docs/java2go/module-06-goroutines-threads) to learn about Go's lightweight threads!

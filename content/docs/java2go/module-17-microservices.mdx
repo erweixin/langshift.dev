@@ -1,0 +1,550 @@
+---
+title: "Module 17: Microservices Architecture"
+---
+
+This module covers building microservices in Go compared to Java's Spring Boot/Cloud approach.
+
+## Microservices Philosophy
+
+**Java Microservices (Spring Cloud):**
+- Spring Boot: Quick service creation
+- Spring Cloud: Distributed system patterns
+- Service discovery with Eureka/Consul
+- API Gateway with Spring Cloud Gateway
+- Configuration with Spring Cloud Config
+- Circuit breakers with Resilience4j
+- Distributed tracing with Sleuth/Zipkin
+
+**Go Microservices:**
+- Lightweight, fast services
+- Minimal resource usage
+- Quick startup times
+- Simple deployment
+- Built-in concurrency with goroutines
+- Community libraries for distributed patterns
+
+<UniversalEditor title="Microservice Setup">
+```java !! java
+// Java: Spring Boot Microservice
+@SpringBootApplication
+@EnableDiscoveryClient
+@EnableCircuitBreaker
+public class UserServiceApplication {
+
+    public static void main(String[] args) {
+        SpringApplication.run(UserServiceApplication.class, args);
+    }
+
+    @Bean
+    public RestTemplate restTemplate() {
+        return new RestTemplate();
+    }
+}
+
+@RestController
+@RequestMapping("/api/users")
+public class UserController {
+
+    @Autowired
+    private UserService userService;
+
+    @Autowired
+    private RestTemplate restTemplate;
+
+    @GetMapping("/{id}")
+    public User getUser(@PathVariable Long id) {
+        return userService.findById(id);
+    }
+
+    @CircuitBreaker(name = "orderService", fallbackMethod = "getOrdersFallback")
+    @GetMapping("/{id}/orders")
+    public List<Order> getUserOrders(@PathVariable Long id) {
+        return restTemplate.getForObject(
+            "http://order-service/api/orders?userId=" + id,
+            List.class
+        );
+    }
+
+    public List<Order> getOrdersFallback(Long id, Exception e) {
+        return Collections.emptyList();
+    }
+}
+
+// application.yml
+spring:
+  application:
+    name: user-service
+  cloud:
+    discovery:
+      enabled: true
+server:
+  port: 8081
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://eureka:8761/eureka/
+```
+
+```go !! go
+// Go: Microservice with Gin
+package main
+
+import (
+    "context"
+    "net/http"
+    "time"
+    "github.com/gin-gonic/gin"
+    "github.com/hashicorp/consul/api"
+)
+
+type UserService struct {
+    orderServiceClient *OrderServiceClient
+    userRepo          *UserRepository
+}
+
+func NewUserService(orderClient *OrderServiceClient, userRepo *UserRepository) *UserService {
+    return &UserService{
+        orderServiceClient: orderClient,
+        userRepo:          userRepo,
+    }
+}
+
+func (s *UserService) RegisterRoutes(r *gin.Engine) {
+    users := r.Group("/api/users")
+    {
+        users.GET("/:id", s.GetUser)
+        users.GET("/:id/orders", s.GetUserOrders)
+    }
+}
+
+func (s *UserService) GetUser(c *gin.Context) {
+    id := c.Param("id")
+
+    user, err := s.userRepo.FindByID(id)
+    if err != nil {
+        c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+        return
+    }
+
+    c.JSON(http.StatusOK, user)
+}
+
+func (s *UserService) GetUserOrders(c *gin.Context) {
+    id := c.Param("id")
+
+    // Check if user exists
+    if _, err := s.userRepo.FindByID(id); err != nil {
+        c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+        return
+    }
+
+    // Call order service with timeout
+    ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+    defer cancel()
+
+    orders, err := s.orderServiceClient.GetOrdersByUserID(ctx, id)
+    if err != nil {
+        c.JSON(http.StatusServiceUnavailable, gin.H{
+            "error": "Order service unavailable",
+            "orders": []Order{}, // Fallback
+        })
+        return
+    }
+
+    c.JSON(http.StatusOK, orders)
+}
+
+// Service registration with Consul
+func RegisterWithConsul(serviceID, serviceName, address string, port int) error {
+    config := api.DefaultConfig()
+    config.Address = "consul:8500"
+
+    client, err := api.NewClient(config)
+    if err != nil {
+        return err
+    }
+
+    registration := &api.AgentServiceRegistration{
+        ID:      serviceID,
+        Name:    serviceName,
+        Address: address,
+        Port:    port,
+        Check: &api.AgentServiceCheck{
+            HTTP:                           fmt.Sprintf("http://%s:%d/health", address, port),
+            Interval:                       "10s",
+            Timeout:                        "3s",
+            DeregisterCriticalServiceAfter: "30s",
+        },
+    }
+
+    return client.Agent().ServiceRegister(registration)
+}
+
+func main() {
+    // Register with Consul
+    if err := RegisterWithConsul("user-service-1", "user-service", "localhost", 8081); err != nil {
+        log.Fatalf("Failed to register service: %v", err)
+    }
+
+    r := gin.Default()
+
+    userService := NewUserService(NewOrderServiceClient(), NewUserRepository())
+    userService.RegisterRoutes(r)
+
+    r.GET("/health", func(c *gin.Context) {
+        c.JSON(http.StatusOK, gin.H{"status": "healthy"})
+    })
+
+    r.Run(":8081")
+}
+```
+</UniversalEditor>
+
+## Service Discovery
+
+<UniversalEditor title="Service Discovery Implementation">
+```java !! java
+// Java: Eureka Client
+@Configuration
+public class EurekaConfig {
+
+    @Bean
+    @LoadBalanced
+    public RestTemplate restTemplate() {
+        return new RestTemplate();
+    }
+}
+
+@Service
+public class OrderService {
+
+    @Autowired
+    private RestTemplate restTemplate;
+
+    public User getUser(Long userId) {
+        // Service discovery with load balancing
+        return restTemplate.getForObject(
+            "http://user-service/api/users/" + userId,
+            User.class
+        );
+    }
+}
+
+// application.yml
+eureka:
+  client:
+    service-url:
+      defaultZone: http://eureka:8761/eureka/
+  instance:
+    prefer-ip-address: true
+    lease-renewal-interval-in-seconds: 10
+    lease-expiration-duration-in-seconds: 30
+```
+
+```go !! go
+// Go: Consul service discovery
+package main
+
+import (
+    "github.com/hashicorp/consul/api"
+)
+
+type ServiceDiscovery struct {
+    client *api.Client
+}
+
+func NewServiceDiscovery(consulAddr string) (*ServiceDiscovery, error) {
+    config := api.DefaultConfig()
+    config.Address = consulAddr
+
+    client, err := api.NewClient(config)
+    if err != nil {
+        return nil, err
+    }
+
+    return &ServiceDiscovery{client: client}, nil
+}
+
+func (sd *ServiceDiscovery) DiscoverService(serviceName string) (string, int, error) {
+    services, _, err := sd.client.Health().Service(serviceName, "", true, nil)
+    if err != nil {
+        return "", 0, err
+    }
+
+    if len(services) == 0 {
+        return "", 0, fmt.Errorf("no instances found for service: %s", serviceName)
+    }
+
+    // Simple load balancing (round-robin)
+    service := services[0]
+    return service.Service.Address, service.Service.Port, nil
+}
+
+func (sd *ServiceDiscovery) WatchService(serviceName string) <-chan []*api.ServiceEntry {
+    ch := make(chan []*api.ServiceEntry)
+
+    go func() {
+        lastIndex := uint64(0)
+        for {
+            services, meta, err := sd.client.Health().Service(
+                serviceName,
+                "",
+                true,
+                &api.QueryOptions{
+                    WaitIndex: lastIndex,
+                },
+            )
+
+            if err != nil {
+                log.Printf("Error watching service: %v", err)
+                time.Sleep(5 * time.Second)
+                continue
+            }
+
+            if lastIndex != meta.LastIndex {
+                lastIndex = meta.LastIndex
+                ch <- services
+            }
+        }
+    }()
+
+    return ch
+}
+
+type OrderServiceClient struct {
+    discovery *ServiceDiscovery
+    httpClient *http.Client
+    currentIndex int
+    services []*api.ServiceEntry
+}
+
+func NewOrderServiceClient(discovery *ServiceDiscovery) *OrderServiceClient {
+    client := &OrderServiceClient{
+        discovery: discovery,
+        httpClient: &http.Client{Timeout: 5 * time.Second},
+    }
+
+    // Watch for service changes
+    go client.watchServices()
+
+    return client
+}
+
+func (c *OrderServiceClient) watchServices() {
+    ch := c.discovery.WatchService("order-service")
+    for services := range ch {
+        c.services = services
+    }
+}
+
+func (c *OrderServiceClient) GetOrdersByUserID(ctx context.Context, userID string) ([]Order, error) {
+    if len(c.services) == 0 {
+        return nil, fmt.Errorf("no order service instances available")
+    }
+
+    // Round-robin load balancing
+    service := c.services[c.currentIndex%len(c.services)]
+    c.currentIndex++
+
+    url := fmt.Sprintf(
+        "http://%s:%d/api/orders?userId=%s",
+        service.Service.Address,
+        service.Service.Port,
+        userID,
+    )
+
+    req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+    if err != nil {
+        return nil, err
+    }
+
+    resp, err := c.httpClient.Do(req)
+    if err != nil {
+        return nil, err
+    }
+    defer resp.Body.Close()
+
+    var orders []Order
+    if err := json.NewDecoder(resp.Body).Decode(&orders); err != nil {
+        return nil, err
+    }
+
+    return orders, nil
+}
+```
+</UniversalEditor>
+
+## API Gateway
+
+<UniversalEditor title="API Gateway Comparison">
+```yaml !! yaml
+# Java: Spring Cloud Gateway
+spring:
+  cloud:
+    gateway:
+      routes:
+        - id: user-service
+          uri: lb://user-service
+          predicates:
+            - Path=/api/users/**
+          filters:
+            - StripPrefix=0
+
+        - id: order-service
+          uri: lb://order-service
+          predicates:
+            - Path=/api/orders/**
+          filters:
+            - StripPrefix=0
+            - CircuitBreaker=orderServiceCB
+
+      # Global CORS configuration
+      globalcors:
+        cors-configurations:
+          '[/**]':
+            allowed-origins: "*"
+            allowed-methods:
+              - GET
+              - POST
+              - PUT
+              - DELETE
+```
+
+```go !! go
+// Go: API Gateway with Gin
+package main
+
+import (
+    "net/http/httputil"
+    "net/url"
+    "github.com/gin-gonic/gin"
+)
+
+type APIGateway struct {
+    services map[string]string
+    proxies  map[string]*httputil.ReverseProxy
+}
+
+func NewAPIGateway() *APIGateway {
+    return &APIGateway{
+        services: map[string]string{
+            "user-service":  "http://user-service:8081",
+            "order-service": "http://order-service:8082",
+            "product-service": "http://product-service:8083",
+        },
+        proxies: make(map[string]*httputil.ReverseProxy),
+    }
+}
+
+func (g *APIGateway) SetupProxies() error {
+    for name, addr := range g.services {
+        url, err := url.Parse(addr)
+        if err != nil {
+            return err
+        }
+
+        proxy := httputil.NewSingleHostReverseProxy(url)
+        g.proxies[name] = proxy
+    }
+
+    return nil
+}
+
+func (g *APIGateway) RegisterRoutes(r *gin.Engine) {
+    // User service routes
+    r.Any("/api/users/*path", gin.WrapH(g.proxies["user-service"]))
+
+    // Order service routes
+    r.Any("/api/orders/*path", gin.WrapH(g.proxies["order-service"]))
+
+    // Product service routes
+    r.Any("/api/products/*path", gin.WrapH(g.proxies["product-service"]))
+
+    // Health check
+    r.GET("/health", func(c *gin.Context) {
+        c.JSON(http.StatusOK, gin.H{
+            "status": "healthy",
+            "services": g.services,
+        })
+    })
+}
+
+// Middleware for authentication
+func AuthMiddleware() gin.HandlerFunc {
+    return func(c *gin.Context) {
+        token := c.GetHeader("Authorization")
+
+        if token == "" {
+            c.JSON(http.StatusUnauthorized, gin.H{"error": "Missing token"})
+            c.Abort()
+            return
+        }
+
+        // Validate token
+        // ...
+
+        c.Next()
+    }
+}
+
+// Middleware for rate limiting
+func RateLimitMiddleware() gin.HandlerFunc {
+    // Implement rate limiting
+    return func(c *gin.Context) {
+        // Check rate limit
+        c.Next()
+    }
+}
+
+// Middleware for CORS
+func CORSMiddleware() gin.HandlerFunc {
+    return func(c *gin.Context) {
+        c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
+        c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+        c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+        if c.Request.Method == "OPTIONS" {
+            c.AbortWithStatus(http.StatusNoContent)
+            return
+        }
+
+        c.Next()
+    }
+}
+
+func main() {
+    r := gin.Default()
+
+    // Global middleware
+    r.Use(CORSMiddleware())
+    r.Use(AuthMiddleware())
+    r.Use(RateLimitMiddleware())
+
+    gateway := NewAPIGateway()
+    gateway.SetupProxies()
+    gateway.RegisterRoutes(r)
+
+    r.Run(":8080")
+}
+```
+</UniversalEditor>
+
+---
+
+### Practice Questions:
+1. Why are Go microservices more lightweight than Java Spring Boot microservices?
+2. How does service discovery work in Go compared to Spring Cloud?
+3. What are the advantages of using Go for microservices?
+4. When would you choose Go over Java for microservices?
+
+### Project Ideas:
+- Build a complete microservices architecture with Go
+- Implement service discovery with Consul
+- Create an API gateway with rate limiting
+- Set up distributed tracing
+
+### Next Steps:
+- Learn about real-world project patterns
+- Explore production-ready application architecture
+- Build complete systems
