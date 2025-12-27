@@ -761,8 +761,8 @@ fun main() {
 
   // 智能類型轉換
   fun checkStatus(status: StudentStatus) = when (status) {
-    is StudentStatus.Active -> "Active with GPA ${status.gpa}"
-    is StudentStatus.OnProbation -> "On probation: ${status.reason}"
+    is StudentStatus.Active -> "Active with GPA \${status.gpa}"
+    is StudentStatus.OnProbation -> "On probation: \${status.reason}"
     is StudentStatus.Graduated -> "Graduated"
   }
 }`,

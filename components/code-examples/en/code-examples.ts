@@ -761,8 +761,8 @@ fun main() {
 
   // Smart type casting
   fun checkStatus(status: StudentStatus) = when (status) {
-    is StudentStatus.Active -> "Active with GPA ${status.gpa}"
-    is StudentStatus.OnProbation -> "On probation: ${status.reason}"
+    is StudentStatus.Active -> "Active with GPA \${status.gpa}"
+    is StudentStatus.OnProbation -> "On probation: \${status.reason}"
     is StudentStatus.Graduated -> "Graduated"
   }
 }`,
