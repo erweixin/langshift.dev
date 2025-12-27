@@ -116,6 +116,24 @@ const SOURCE_LANGUAGES = [
         status: 'completed' as const,
       },
     ]
+  },
+  {
+    id: 'java',
+    name: 'Java',
+    icon: '☕',
+    gradient: 'from-red-500 to-rose-500',
+    path: 'java2js',
+    status: 'completed' as const,
+    targets: [
+      {
+        id: 'javascript',
+        name: 'JavaScript',
+        icon: '🚀',
+        gradient: 'from-yellow-500 to-orange-500',
+        path: 'java2js',
+        status: 'completed' as const,
+      },
+    ]
   }
   // 未来可以添加其他源语言
 ] as const;

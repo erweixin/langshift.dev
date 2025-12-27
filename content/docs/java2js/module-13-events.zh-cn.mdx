@@ -1,0 +1,367 @@
+---
+title: "模块 13:事件处理"
+description: "掌握 JavaScript 事件、传播和事件委托"
+---
+
+## 模块 13:事件处理
+
+事件是在浏览器中发生的动作。理解事件对于创建交互式 Web 应用程序至关重要。
+
+## 学习目标
+
+完成本模块后,你将:
+✅ 理解事件处理器和监听器
+✅ 掌握事件传播(冒泡和捕获)
+✅ 学习事件委托
+✅ 了解常见事件类型
+✅ 理解事件对象
+✅ 掌握事件最佳实践
+
+## 事件处理: Java vs JavaScript
+
+<UniversalEditor title="事件比较">
+```java !! java
+// Java - ActionListener
+button.addActionListener(new ActionListener() {
+    public void actionPerformed(ActionEvent e) {
+        System.out.println("Clicked!");
+    }
+});
+
+// Java 8+ Lambda
+button.addActionListener(e -> System.out.println("Clicked!"));
+```
+
+```javascript !! js
+// JavaScript - 事件监听器
+button.addEventListener("click", function(e) {
+    console.log("Clicked!");
+});
+
+// 箭头函数
+button.addEventListener("click", (e) => {
+    console.log("Clicked!");
+});
+```
+</UniversalEditor>
+
+## 添加事件监听器
+
+<UniversalEditor title="事件监听器">
+```javascript !! js
+const button = document.querySelector("#myButton");
+
+// 添加监听器
+button.addEventListener("click", function(event) {
+    console.log("Button clicked!");
+});
+
+// 箭头函数(没有自己的 'this')
+button.addEventListener("click", (event) => {
+    console.log(this);  // Window (不是 button!)
+});
+
+// 命名函数(更适合删除)
+function handleClick(event) {
+    console.log("Handled!");
+}
+
+button.addEventListener("click", handleClick);
+
+// 删除监听器
+button.removeEventListener("click", handleClick);
+
+// 选项参数
+button.addEventListener("click", handleClick, {
+    capture: false,      // 使用捕获阶段
+    once: true,          // 第一次调用后删除
+    passive: true        // 不阻止默认行为
+});
+
+// 事件属性(避免)
+<button onclick="handleClick()">Click</button>
+```
+</UniversalEditor>
+
+## 事件传播
+
+<UniversalEditor title="事件阶段">
+```html
+<div id="outer">
+    <div id="middle">
+        <div id="inner">Click me</div>
+    </div>
+</div>
+
+<script>
+const inner = document.getElementById("inner");
+const middle = document.getElementById("middle");
+const outer = document.getElementById("outer");
+
+// 三个阶段:
+// 1. 捕获(向下) -> outer -> middle -> inner
+// 2. 目标(在 inner)
+// 3. 冒泡(向上) -> inner -> middle -> outer
+
+// 捕获阶段
+inner.addEventListener("click", () => console.log("Inner capture"), true);
+middle.addEventListener("click", () => console.log("Middle capture"), true);
+outer.addEventListener("click", () => console.log("Outer capture"), true);
+
+// 冒泡阶段(默认)
+inner.addEventListener("click", () => console.log("Inner bubble"));
+middle.addEventListener("click", () => console.log("Middle bubble"));
+outer.addEventListener("click", () => console.log("Outer bubble"));
+
+// 停止传播
+inner.addEventListener("click", (e) => {
+    e.stopPropagation();  // 停止事件继续传播
+    console.log("Inner (stopped)");
+});
+
+// 立即停止传播
+outer.addEventListener("click", (e) => {
+    e.stopImmediatePropagation();  // 停止同一元素上的其他监听器
+    console.log("Outer first");
+});
+
+outer.addEventListener("click", () => {
+    console.log("Outer second");  // 不会运行
+});
+</script>
+```
+</UniversalEditor>
+
+## 事件委托
+
+<UniversalEditor title="事件委托">
+```javascript !! js
+// 不好:单个监听器(内存密集)
+const buttons = document.querySelectorAll("button");
+buttons.forEach(button => {
+    button.addEventListener("click", handleClick);
+});
+
+// 好:事件委托(单个监听器)
+document.addEventListener("click", (e) => {
+    if (e.target.matches("button")) {
+        handleClick(e);
+    }
+});
+
+// 实用:动态内容
+const list = document.getElementById("list");
+
+// 为父元素添加监听器
+list.addEventListener("click", (e) => {
+    const item = e.target.closest("li");
+    if (!item) return;
+
+    console.log("Clicked:", item.textContent);
+});
+
+// 动态添加项目(无需添加监听器)
+function addItem(text) {
+    const li = document.createElement("li");
+    li.textContent = text;
+    list.appendChild(li);
+}
+
+// 使用数据属性委托
+document.addEventListener("click", (e) => {
+    const button = e.target.closest("[data-action]");
+    if (!button) return;
+
+    const action = button.dataset.action;
+    switch (action) {
+        case "save":
+            handleSave(button);
+            break;
+        case "delete":
+            handleDelete(button);
+            break;
+    }
+});
+```
+</UniversalEditor>
+
+## 常见事件
+
+<UniversalEditor title="常见事件">
+```javascript !! js
+// 鼠标事件
+element.addEventListener("click", handler);
+element.addEventListener("dblclick", handler);
+element.addEventListener("mousedown", handler);
+element.addEventListener("mouseup", handler);
+element.addEventListener("mouseover", handler);
+element.addEventListener("mouseout", handler);
+element.addEventListener("mouseenter", handler);  // 不冒泡
+element.addEventListener("mouseleave", handler);  // 不冒泡
+element.addEventListener("mousemove", handler);
+
+// 键盘事件
+element.addEventListener("keydown", handler);
+element.addEventListener("keyup", handler);
+element.addEventListener("keypress", handler);
+
+// 表单事件
+form.addEventListener("submit", handler);
+input.addEventListener("input", handler);      // 任何更改时
+input.addEventListener("change", handler);     // 失焦时
+input.addEventListener("focus", handler);
+input.addEventListener("blur", handler);
+
+// 文档事件
+document.addEventListener("DOMContentLoaded", handler);
+window.addEventListener("load", handler);
+window.addEventListener("resize", handler);
+window.addEventListener("scroll", handler);
+
+// 实用:键盘快捷键
+document.addEventListener("keydown", (e) => {
+    // Ctrl+S
+    if (e.ctrlKey && e.key === "s") {
+        e.preventDefault();
+        save();
+    }
+
+    // Escape
+    if (e.key === "Escape") {
+        closeModal();
+    }
+});
+```
+</UniversalEditor>
+
+## 事件对象
+
+<UniversalEditor title="事件对象">
+```javascript !! js
+element.addEventListener("click", (e) => {
+    // target vs currentTarget
+    console.log(e.target);        // 被点击的元素
+    console.log(e.currentTarget);  // 带有监听器的元素
+
+    // 坐标
+    console.log(e.clientX, e.clientY);  // 相对于视口
+    console.log(e.pageX, e.pageY);      // 相对于文档
+    console.log(e.offsetX, e.offsetY);  // 相对于目标
+
+    // 修饰键
+    console.log(e.ctrlKey);
+    console.log(e.shiftKey);
+    console.log(e.altKey);
+    console.log(e.metaKey);
+
+    // 按钮(鼠标)
+    console.log(e.button);  // 0:左键, 1:中键, 2:右键
+
+    // 键
+    console.log(e.key);      // 字符
+    console.log(e.code);     // 物理键
+    console.log(e.keyCode);  // 已弃用
+
+    // 阻止默认
+    e.preventDefault();  // 停止默认行为
+
+    // 表单验证
+    form.addEventListener("submit", (e) => {
+        if (!isValid()) {
+            e.preventDefault();  // 停止表单提交
+        }
+    });
+
+    // 停止传播
+    e.stopPropagation();  // 停止冒泡
+});
+```
+</UniversalEditor>
+
+## 最佳实践
+
+<UniversalEditor title="事件最佳实践">
+```javascript !! js
+// 1. 对动态内容使用事件委托
+container.addEventListener("click", (e) => {
+    if (e.target.matches(".item")) {
+        handleItemClick(e);
+    }
+});
+
+// 2. 完成后删除监听器
+function setup() {
+    const handler = (e) => console.log(e);
+    button.addEventListener("click", handler);
+
+    // 稍后
+    button.removeEventListener("click", handler);
+}
+
+// 3. 对滚动/触摸使用被动监听器
+window.addEventListener("scroll", handler, { passive: true });
+
+// 4. 对昂贵的处理器进行防抖
+const handleResize = debounce(() => {
+    // 昂贵的操作
+}, 100);
+
+window.addEventListener("resize", handleResize);
+
+// 5. 不要内联事件处理器
+// 不好
+<button onclick="doSomething()">Click</button>
+
+// 好
+<button id="btn">Click</button>
+document.getElementById("btn").addEventListener("click", doSomething);
+```
+</UniversalEditor>
+
+## 练习
+
+### 练习 1:事件委托
+```javascript
+// 为动态创建的列表项添加点击处理
+function setupList(items) {
+    // 创建列表并添加委托
+}
+```
+
+### 练习 2:键盘导航
+```javascript
+// 为列表添加箭头键导航
+function setupNavigation(items) {
+    // 实现
+}
+```
+
+### 练习 3:表单验证
+```javascript
+// 在失焦和提交时验证
+function setupFormValidation(form) {
+    // 实现
+}
+```
+
+## 总结
+
+### 关键要点
+
+1. **监听器:**addEventListener 是首选
+2. **传播:**捕获 → 目标 → 冒泡
+3. **委托:**多个元素使用单个监听器
+4. **最佳:**使用委托,删除未使用的监听器
+
+### 对比:Java vs JavaScript
+
+| 特性 | Java | JavaScript |
+|------|------|-----------|
+| **监听器** | 接口 | addEventListener |
+| **传播** | 无 | 捕获/冒泡 |
+| **委托** | 事件源 | DOM 层级 |
+| **删除** | removeListener | removeEventListener |
+
+## 接下来是什么?
+
+接下来:**模块 14:ES6+ 模块** - 学习现代 JavaScript 模块系统!

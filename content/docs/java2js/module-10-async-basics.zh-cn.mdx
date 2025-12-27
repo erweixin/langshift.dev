@@ -1,0 +1,1057 @@
+---
+title: "模块 10:异步编程基础"
+description: "理解 JavaScript 的异步编程模型、回调和事件循环"
+---
+
+## 模块 10:异步编程基础
+
+异步编程是 JavaScript 的基础。与 Java 的多线程模型不同,JavaScript 使用单线程事件循环。理解这个模型对于编写有效的 JavaScript 代码至关重要。
+
+## 学习目标
+
+完成本模块后,你将:
+✅ 理解 JavaScript 事件循环
+✅ 学习同步与异步执行
+✅ 掌握回调函数
+✅ 理解回调中的错误处理
+✅ 了解定时和调度
+✅ 掌握常见的异步模式和陷阱
+
+## 并发模型:Java vs JavaScript
+
+<UniversalEditor title="并发模型">
+```java !! java
+// Java - 多线程
+public class Example {
+    public static void main(String[] args) {
+        // 每个线程独立运行
+        Thread thread1 = new Thread(() -> {
+            System.out.println("Thread 1");
+            try {
+                Thread.sleep(1000);
+                System.out.println("Thread 1 done");
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+        });
+
+        Thread thread2 = new Thread(() -> {
+            System.out.println("Thread 2");
+        });
+
+        thread1.start();
+        thread2.start();
+
+        System.out.println("Main thread");
+    }
+}
+// 输出: Main thread, Thread 1, Thread 2 (并行执行)
+```
+
+```javascript !! js
+// JavaScript - 单线程与事件循环
+console.log("Start");
+
+setTimeout(() => {
+    console.log("Timeout 1");
+}, 0);
+
+console.log("Middle");
+
+setTimeout(() => {
+    console.log("Timeout 2");
+}, 0);
+
+console.log("End");
+
+// 输出:
+// Start
+// Middle
+// End
+// Timeout 1
+// Timeout 2
+
+// 即使延迟为 0ms,回调也在同步代码之后执行
+```
+</UniversalEditor>
+
+## 事件循环
+
+JavaScript 有一个单一的调用栈和一个管理执行的事件循环:
+
+<UniversalEditor title="事件循环概念">
+```java !! java
+// Java - 多个调用栈(线程)
+public class MultiThread {
+    public static void main(String[] args) {
+        // 主线程
+        new Thread(() -> method1()).start();
+        new Thread(() -> method2()).start();
+        // 两者在不同的栈上并发运行
+    }
+
+    static void method1() {
+        // 自己的栈
+    }
+
+    static void method2() {
+        // 自己的栈
+    }
+}
+```
+
+```javascript !! js
+// JavaScript - 单调用栈,事件循环
+
+console.log("1. Synchronous");
+
+// 回调进入任务队列(Promise 为微任务,setTimeout 为宏任务)
+setTimeout(() => {
+    console.log("2. Async (macrotask)");
+}, 0);
+
+Promise.resolve().then(() => {
+    console.log("3. Async (microtask)");
+});
+
+console.log("4. Synchronous");
+
+// 输出:
+// 1. Synchronous
+// 4. Synchronous
+// 3. Async (microtask) - 在宏任务之前运行
+// 2. Async (macrotask)
+
+// 事件循环过程:
+// 1. 执行同步代码(调用栈)
+// 2. 处理所有微任务(Promise 回调)
+// 3. 渲染 UI (浏览器)
+// 4. 处理一个宏任务(setTimeout, setInterval, I/O)
+// 5. 重复
+
+// 微任务(高优先级):
+// - Promise.then/catch/finally
+// - queueMicrotask()
+// - MutationObserver
+
+// 宏任务(低优先级):
+// - setTimeout
+// - setInterval
+// - setImmediate (Node.js)
+// - I/O 操作
+// - UI 渲染
+```
+</UniversalEditor>
+
+### 可视化事件循环
+
+<UniversalEditor title="事件循环示例">
+```javascript !! js
+console.log("Start");
+
+// 宏任务 1
+setTimeout(() => {
+    console.log("Timeout 1");
+}, 0);
+
+// 微任务 1
+Promise.resolve().then(() => {
+    console.log("Promise 1");
+});
+
+// 宏任务 2
+setTimeout(() => {
+    console.log("Timeout 2");
+    // 宏任务内的微任务
+    Promise.resolve().then(() => {
+        console.log("Promise 2");
+    });
+}, 0);
+
+// 同步
+console.log("End");
+
+// 执行顺序:
+// 1. "Start" (同步)
+// 2. "End" (同步)
+// 3. 清空调用栈
+// 4. 处理微任务 -> "Promise 1"
+// 5. 处理一个宏任务 -> "Timeout 1"
+// 6. 检查新微任务 -> 无
+// 7. 处理下一个宏任务 -> "Timeout 2"
+// 8. 检查新微任务 -> "Promise 2"
+// 9. 没有更多任务,等待新事件
+
+// 最终输出:
+// Start
+// End
+// Promise 1
+// Timeout 1
+// Timeout 2
+// Promise 2
+```
+</UniversalEditor>
+
+## 回调函数
+
+回调是作为参数传递的函数,稍后执行:
+
+<UniversalEditor title="回调">
+```java !! java
+// Java - 使用接口的回调
+public interface Callback {
+    void onComplete(String result);
+}
+
+public class DataFetcher {
+    public void fetchData(Callback callback) {
+        // 模拟异步操作
+        new Thread(() -> {
+            String result = "Data";
+            callback.onComplete(result);
+        }).start();
+    }
+}
+
+// 使用
+fetcher.fetchData(result -> {
+    System.out.println("Received: " + result);
+});
+```
+
+```javascript !! js
+// JavaScript - 一等公民回调函数
+
+function fetchData(callback) {
+    // 模拟异步操作
+    setTimeout(() => {
+        const data = { id: 1, name: "John" };
+        callback(data);
+    }, 1000);
+}
+
+// 回调函数
+fetchData(function(data) {
+    console.log("Received:", data);
+});
+
+// 箭头函数回调
+fetchData(data => {
+    console.log("Received:", data);
+});
+
+// 同步回调(立即执行)
+function map(array, callback) {
+    const result = [];
+    for (const item of array) {
+        result.push(callback(item));
+    }
+    return result;
+}
+
+const doubled = map([1, 2, 3], x => x * 2);
+console.log(doubled);  // [2, 4, 6]
+
+// 异步回调
+function fetchUser(id, callback) {
+    setTimeout(() => {
+        const user = { id, name: "User " + id };
+        callback(null, user);
+    }, 1000);
+}
+
+fetchUser(1, (error, user) => {
+    if (error) {
+        console.error("Error:", error);
+        return;
+    }
+    console.log("User:", user);
+});
+```
+</UniversalEditor>
+
+### 回调模式
+
+<UniversalEditor title="回调模式">
+```java !! java
+// Java - 同步与异步
+public class FileProcessor {
+    // 同步(阻塞)
+    public String readFile(String path) {
+        return java.nio.file.Files.readString(path);
+    }
+
+    // 异步(使用 CompletableFuture)
+    public CompletableFuture<String> readFileAsync(String path) {
+        return CompletableFuture.supplyAsync(() -> {
+            return readFile(path);
+        });
+    }
+}
+```
+
+```javascript !! fs
+// JavaScript - 回调模式
+
+// 模式 1: 错误优先回调(Node.js 约定)
+function readFile(path, callback) {
+    setTimeout(() => {
+        if (path.endsWith(".txt")) {
+            callback(null, "File content");
+        } else {
+            callback(new Error("Invalid file type"));
+        }
+    }, 1000);
+}
+
+readFile("data.txt", (error, content) => {
+    if (error) {
+        console.error("Error:", error.message);
+        return;
+    }
+    console.log("Content:", content);
+});
+
+// 模式 2: 成功/错误回调
+function fetchUserData(userId, onSuccess, onError) {
+    setTimeout(() => {
+        if (userId > 0) {
+            onSuccess({ id: userId, name: "John" });
+        } else {
+            onError(new Error("Invalid user ID"));
+        }
+    }, 1000);
+}
+
+fetchUserData(
+    1,
+    user => console.log("User:", user),
+    error => console.error("Error:", error.message)
+);
+
+// 模式 3: 事件发射器模式
+class EventEmitter {
+    constructor() {
+        this.events = {};
+    }
+
+    on(event, callback) {
+        if (!this.events[event]) {
+            this.events[event] = [];
+        }
+        this.events[event].push(callback);
+    }
+
+    emit(event, data) {
+        if (this.events[event]) {
+            this.events[event].forEach(callback => callback(data));
+        }
+    }
+}
+
+const emitter = new EventEmitter();
+
+emitter.on("data", data => {
+    console.log("Received data:", data);
+});
+
+emitter.emit("data", { message: "Hello" });
+```
+</UniversalEditor>
+
+## 回调地狱和解决方案
+
+<UniversalEditor title="回调地狱">
+```javascript !! js
+// ❌ 不好:回调地狱(厄运金字塔)
+getUser(userId, (error, user) => {
+    if (error) {
+        console.error(error);
+        return;
+    }
+
+    getOrders(user.id, (error, orders) => {
+        if (error) {
+            console.error(error);
+            return;
+        }
+
+        getOrderItems(orders[0].id, (error, items) => {
+            if (error) {
+                console.error(error);
+                return;
+            }
+
+            console.log("Items:", items);
+        });
+    });
+});
+
+// ✅ 解决方案 1:命名函数
+function handleUser(error, user) {
+    if (error) return console.error(error);
+    getOrders(user.id, handleOrders);
+}
+
+function handleOrders(error, orders) {
+    if (error) return console.error(error);
+    getOrderItems(orders[0].id, handleItems);
+}
+
+function handleItems(error, items) {
+    if (error) return console.error(error);
+    console.log("Items:", items);
+}
+
+getUser(userId, handleUser);
+
+// ✅ 解决方案 2:Promise 链(推荐)
+getUser(userId)
+    .then(user => getOrders(user.id))
+    .then(orders => getOrderItems(orders[0].id))
+    .then(items => console.log("Items:", items))
+    .catch(error => console.error(error));
+
+// ✅ 解决方案 3:Async/await(现代)
+async function fetchItems() {
+    try {
+        const user = await getUser(userId);
+        const orders = await getOrders(user.id);
+        const items = await getOrderItems(orders[0].id);
+        console.log("Items:", items);
+    } catch (error) {
+        console.error(error);
+    }
+}
+```
+</UniversalEditor>
+
+## 定时函数
+
+JavaScript 提供了几个定时函数:
+
+<UniversalEditor title="定时函数">
+```java !! java
+// Java - ScheduledExecutorService
+ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
+
+// 延迟执行
+scheduler.schedule(() -> {
+    System.out.println("Delayed");
+}, 1, TimeUnit.SECONDS);
+
+// 周期执行
+scheduler.scheduleAtFixedRate(() -> {
+    System.out.println("Repeated");
+}, 0, 1, TimeUnit.SECONDS);
+```
+
+```javascript !! js
+// JavaScript - 定时函数
+
+// setTimeout:延迟后执行一次
+const timeoutId = setTimeout(() => {
+    console.log("Delayed execution");
+}, 1000);
+
+// 取消超时
+clearTimeout(timeoutId);
+
+// setInterval:重复执行
+let count = 0;
+const intervalId = setInterval(() => {
+    count++;
+    console.log("Repeated:", count);
+
+    if (count >= 5) {
+        clearInterval(intervalId);  // 5 次后停止
+    }
+}, 1000);
+
+// setImmediate:当前调用栈后执行(Node.js)
+setImmediate(() => {
+    console.log("Immediate");
+});
+
+// 实用:防抖
+function debounce(fn, delay) {
+    let timeoutId;
+    return function(...args) {
+        clearTimeout(timeoutId);
+        timeoutId = setTimeout(() => fn.apply(this, args), delay);
+    };
+}
+
+const searchInput = debounce((value) => {
+    console.log("Searching for:", value);
+}, 300);
+
+searchInput("a");
+searchInput("ab");
+searchInput("abc");
+// 只在最后一次输入 300ms 后搜索一次
+
+// 实用:节流
+function throttle(fn, delay) {
+    let lastCall = 0;
+    return function(...args) {
+        const now = Date.now();
+        if (now - lastCall >= delay) {
+            lastCall = now;
+            fn.apply(this, args);
+        }
+    };
+}
+
+const handleScroll = throttle(() => {
+    console.log("Scroll handler");
+}, 100);
+
+window.addEventListener("scroll", handleScroll);
+```
+</UniversalEditor>
+
+## 回调中的错误处理
+
+<UniversalEditor title="错误处理模式">
+```java !! java
+// Java - Try-catch 适用于线程
+try {
+    future.get();  // 等待结果
+} catch (InterruptedException | ExecutionException e) {
+    e.printStackTrace();
+}
+```
+
+```javascript !! js
+// JavaScript - Try-catch 无法捕获异步错误
+
+try {
+    setTimeout(() => {
+        throw new Error("Async error");  // 未捕获!
+    }, 1000);
+} catch (e) {
+    console.error("Caught:", e);  // 永不运行
+}
+
+// ❌ 不好:回调错误需要显式处理
+function fetchData(callback) {
+    setTimeout(() => {
+        const data = JSON.parse(invalidJson);  // 抛出!
+        callback(null, data);
+    }, 1000);
+}
+
+// ✅ 好:回调内使用 try-catch
+function fetchData(callback) {
+    setTimeout(() => {
+        try {
+            const data = JSON.parse(jsonString);
+            callback(null, data);
+        } catch (error) {
+            callback(error);
+        }
+    }, 1000);
+}
+
+// ✅ 好:错误优先回调约定
+fs.readFile("data.txt", (error, data) => {
+    if (error) {
+        console.error("Read error:", error);
+        return;
+    }
+
+    try {
+        const parsed = JSON.parse(data);
+        console.log("Parsed:", parsed);
+    } catch (parseError) {
+        console.error("Parse error:", parseError);
+    }
+});
+
+// 嵌套回调中的错误传播
+function processUser(userId, callback) {
+    getUser(userId, (error, user) => {
+        if (error) {
+            return callback(error);  // 传播错误
+        }
+
+        getOrders(user.id, (error, orders) => {
+            if (error) {
+                return callback(error);  // 传播错误
+            }
+
+            callback(null, orders);
+        });
+    });
+}
+
+processUser(1, (error, orders) => {
+    if (error) {
+        console.error("Failed:", error);
+        return;
+    }
+
+    console.log("Orders:", orders);
+});
+```
+</UniversalEditor>
+
+## 常见模式
+
+### 模式 1:并行异步操作
+
+<UniversalEditor title="并行操作">
+```java !! java
+// Java - CompletableFuture 用于并行操作
+CompletableFuture<String> future1 = CompletableFuture.supplyAsync(() -> fetchData1());
+CompletableFuture<String> future2 = CompletableFuture.supplyAsync(() -> fetchData2());
+
+CompletableFuture.allOf(future1, future2)
+    .thenRun(() -> {
+        String result1 = future1.join();
+        String result2 = future2.join();
+        System.out.println(result1 + result2);
+    });
+```
+
+```javascript !! js
+// JavaScript - 并行回调
+
+function parallel(tasks, callback) {
+    let completed = 0;
+    const results = [];
+    let hasError = false;
+
+    tasks.forEach((task, index) => {
+        task((error, result) => {
+            if (hasError) return;  // 已经失败
+
+            if (error) {
+                hasError = true;
+                callback(error);
+                return;
+            }
+
+            results[index] = result;
+            completed++;
+
+            if (completed === tasks.length) {
+                callback(null, results);
+            }
+        });
+    });
+}
+
+// 使用
+const tasks = [
+    cb => setTimeout(() => cb(null, "Result 1"), 1000),
+    cb => setTimeout(() => cb(null, "Result 2"), 500),
+    cb => setTimeout(() => cb(null, "Result 3"), 1500)
+];
+
+parallel(tasks, (error, results) => {
+    if (error) {
+        console.error(error);
+        return;
+    }
+    console.log("All results:", results);
+    // All results: ["Result 1", "Result 2", "Result 3"]
+    // 总时间: ~1500ms(最长任务),而不是 3000ms
+});
+```
+</UniversalEditor>
+
+### 模式 2:顺序异步操作
+
+<UniversalEditor title="顺序操作">
+```javascript !! js
+// JavaScript - 使用回调的顺序执行
+
+function series(tasks, callback) {
+    let index = 0;
+
+    function runNext() {
+        if (index >= tasks.length) {
+            return callback(null);
+        }
+
+        tasks[index]((error, result) => {
+            if (error) {
+                return callback(error);
+            }
+
+            index++;
+            runNext();  // 下一个任务
+        });
+    }
+
+    runNext();
+}
+
+// 使用
+const tasks = [
+    cb => setTimeout(() => {
+        console.log("Task 1");
+        cb(null);
+    }, 1000),
+    cb => setTimeout(() => {
+        console.log("Task 2");
+        cb(null);
+    }, 500),
+    cb => setTimeout(() => {
+        console.log("Task 3");
+        cb(null);
+    }, 100)
+];
+
+series(tasks, (error) => {
+    if (error) {
+        console.error(error);
+        return;
+    }
+    console.log("All tasks done");
+    // 总时间: 1600ms(所有任务之和)
+});
+```
+</UniversalEditor>
+
+### 模式 3:瀑布流(传递结果)
+
+<UniversalEditor title="瀑布流模式">
+```javascript !! js
+// JavaScript - 瀑布流(每个任务获取之前的结果)
+
+function waterfall(tasks, callback) {
+    let index = 0;
+    const results = [];
+
+    function runNext(...args) {
+        if (index >= tasks.length) {
+            return callback(null, ...results);
+        }
+
+        const task = tasks[index];
+
+        // 第一个任务不接收参数
+        const taskArgs = index === 0 ? [] : [args];
+
+        task(...taskArgs, (error, ...result) => {
+            if (error) {
+                return callback(error);
+            }
+
+            results.push(...result);
+            index++;
+            runNext(...result);
+        });
+    }
+
+    runNext();
+}
+
+// 使用
+const tasks = [
+    (cb) => {
+        setTimeout(() => cb(null, "User 1"), 100);
+    },
+    (user, cb) => {
+        setTimeout(() => cb(null, user, "Orders"), 100);
+    },
+    (user, orders, cb) => {
+        setTimeout(() => cb(null, user, orders, "Items"), 100);
+    }
+];
+
+waterfall(tasks, (error, user, orders, items) => {
+    if (error) {
+        console.error(error);
+        return;
+    }
+    console.log("Final:", { user, orders, items });
+    // Final: { user: "User 1", orders: "Orders", items: "Items" }
+});
+```
+</UniversalEditor>
+
+## 常见陷阱
+
+### 陷阱 1:忘记返回
+
+<UniversalEditor title="回调中缺少返回">
+```javascript !! js
+// ❌ 不好:忘记返回导致继续执行
+function processData(data, callback) {
+    if (!data) {
+        callback(new Error("No data"));
+        // 缺少返回 - 继续执行!
+    }
+
+    const result = transform(data);
+    callback(null, result);
+}
+
+// ✅ 好:回调后总是返回
+function processData(data, callback) {
+    if (!data) {
+        return callback(new Error("No data"));
+    }
+
+    const result = transform(data);
+    callback(null, result);
+}
+```
+</UniversalEditor>
+
+### 陷阱 2:循环问题
+
+<UniversalEditor title="循环中的回调">
+```javascript !! js
+// ❌ 不好:循环中的闭包问题
+for (var i = 0; i < 3; i++) {
+    setTimeout(() => {
+        console.log(i);  // 3, 3, 3 (不是 0, 1, 2!)
+    }, 100);
+}
+
+// ✅ 解决方案 1:使用 let
+for (let i = 0; i < 3; i++) {
+    setTimeout(() => {
+        console.log(i);  // 0, 1, 2
+    }, 100);
+}
+
+// ✅ 解决方案 2:IIFE(用于 var)
+for (var i = 0; i < 3; i++) {
+    (function(j) {
+        setTimeout(() => {
+            console.log(j);  // 0, 1, 2
+        }, 100);
+    })(i);
+}
+
+// ✅ 解决方案 3:forEach(带回调)
+[0, 1, 2].forEach(i => {
+    setTimeout(() => {
+        console.log(i);  // 0, 1, 2
+    }, 100);
+});
+```
+</UniversalEditor>
+
+### 陷阱 3:this 上下文
+
+<UniversalEditor title="回调中的 this">
+```javascript !! js
+// ❌ 不好:回调中丢失 'this'
+class Timer {
+    constructor() {
+        this.seconds = 0;
+    }
+
+    start() {
+        setTimeout(function() {
+            this.seconds++;  // 错误: 'this' 不是 Timer
+        }, 1000);
+    }
+}
+
+// ✅ 好:使用箭头函数
+class Timer {
+    constructor() {
+        this.seconds = 0;
+    }
+
+    start() {
+        setTimeout(() => {
+            this.seconds++;  // 'this' 是 Timer
+        }, 1000);
+    }
+}
+
+// ✅ 也可以:绑定
+class Timer {
+    constructor() {
+        this.seconds = 0;
+    }
+
+    start() {
+        setTimeout(function() {
+            this.seconds++;
+        }.bind(this), 1000);
+    }
+}
+```
+</UniversalEditor>
+
+## 最佳实践
+
+<UniversalEditor title="异步最佳实践">
+```java !! java
+// Java:清晰的异常处理
+try {
+    future.get();
+} catch (ExecutionException e) {
+    logger.error("Failed", e);
+}
+```
+
+```javascript !! js
+// JavaScript:回调最佳实践
+
+// 1. 错误优先回调约定(Node.js 风格)
+function operation(callback) {
+    // callback(error, result)
+    callback(null, "success");
+}
+
+operation((error, result) => {
+    if (error) {
+        // 处理错误
+        return;
+    }
+    // 使用结果
+});
+
+// 2. 总是检查错误
+fs.readFile("data.txt", (error, data) => {
+    if (error) {
+        console.error("Read failed:", error);
+        return;
+    }
+    console.log("Data:", data);
+});
+
+// 3. 回调后返回
+function process(data, callback) {
+    if (!data) {
+        return callback(new Error("No data"));
+    }
+    callback(null, processData(data));
+}
+
+// 4. 回调优先使用命名函数
+// 好:可调试,可重用
+function handleData(error, data) {
+    if (error) return console.error(error);
+    console.log(data);
+}
+
+fetchData(handleData);
+
+// 5. 在异步操作中处理错误
+function safeOperation(callback) {
+    setTimeout(() => {
+        try {
+            const result = riskyOperation();
+            callback(null, result);
+        } catch (error) {
+            callback(error);
+        }
+    }, 1000);
+}
+
+// 6. 避免回调地狱 - 使用 promises/async-await
+// 我们将在模块 11 中介绍!
+```
+</UniversalEditor>
+
+## 练习
+
+### 练习 1:修复回调顺序
+```javascript
+console.log("Start");
+setTimeout(() => console.log("Timeout"), 0);
+console.log("End");
+// 输出是什么?为什么?
+```
+
+### 练习 2:实现防抖
+```javascript
+function debounce(fn, delay) {
+    // 实现防抖函数
+}
+
+const search = debounce((query) => {
+    console.log("Searching:", query);
+}, 300);
+```
+
+### 练习 3:顺序执行
+```javascript
+// 按顺序执行这些任务:
+// 任务 1:等待 1s,输出 "Task 1"
+// 任务 2:等待 2s,输出 "Task 2"
+// 任务 3:等待 1s,输出 "Task 3"
+```
+
+### 练习 4:并行执行
+```javascript
+// 并行执行任务并获取所有结果
+const tasks = [
+    (cb) => setTimeout(() => cb(null, "A"), 1000),
+    (cb) => setTimeout(() => cb(null, "B"), 500),
+    (cb) => setTimeout(() => cb(null, "C"), 1500)
+];
+// 实现 parallel() 函数
+```
+
+## 总结
+
+### 关键要点
+
+1. **事件循环:**
+   - 单线程执行
+   - 微任务优先于宏任务
+   - 非阻塞 I/O
+
+2. **回调:**
+   - 作为参数传递的函数
+   - 异步操作后执行
+   - 错误优先约定
+
+3. **定时:**
+   - setTimeout:延迟执行
+   - setInterval:重复执行
+   - 防抖/节流用于优化
+
+4. **模式:**
+   - 并行:多个操作
+   - 串行:顺序执行
+   - 瀑布流:传递结果
+
+5. **陷阱:**
+   - 回调地狱
+   - this 上下文丢失
+   - 循环闭包问题
+   - 未捕获的异步错误
+
+6. **最佳实践:**
+   - 错误优先回调
+   - 总是检查错误
+   - 使用命名函数
+   - 优先使用 promises/async-await
+
+### 对比表:Java vs JavaScript
+
+| 特性 | Java | JavaScript |
+|------|------|-----------|
+| **模型** | 多线程 | 单线程 + 事件循环 |
+| **阻塞** | 常见 | 避免 |
+| **异步** | CompletableFuture/线程 | 回调/Promises |
+| **并行** | 真正并行 | 事件循环(单线程) |
+| **错误处理** | Try-catch 有效 | 需要错误回调 |
+| **定时** | ScheduledExecutorService | setTimeout/setInterval |
+
+## 接下来是什么?
+
+你已经学习了 JavaScript 的异步基础!接下来是**模块 11:异步编程进阶**,我们将探索:
+
+- Promises 和 promise 链
+- async/await 语法
+- 使用 promises 处理错误
+- Promise.all、Promise.race 等
+- 将回调转换为 promises
+- 现代异步模式
+
+准备掌握现代异步 JavaScript 了吗?让我们继续!

@@ -1,0 +1,734 @@
+---
+title: "Module 11: Asynchronous Programming Advanced"
+description: "Master Promises, async/await, and modern async patterns"
+---
+
+## Module 11: Asynchronous Programming Advanced
+
+Now that you understand callbacks, let's explore Promises and async/await - modern JavaScript features that make asynchronous code much more manageable and readable.
+
+## Learning Objectives
+
+By the end of this module, you will:
+✅ Master Promises and promise chaining
+✅ Learn async/await syntax
+✅ Understand error handling with promises
+✅ Know Promise.all, Promise.race, Promise.allSettled
+✅ Learn to convert callbacks to promises
+✅ Master modern async patterns and best practices
+
+## Promises: Java vs JavaScript
+
+<UniversalEditor title="Async Comparison">
+```java !! java
+// Java - CompletableFuture
+CompletableFuture<String> future = CompletableFuture.supplyAsync(() -> {
+    try {
+        Thread.sleep(1000);
+        return "Data";
+    } catch (InterruptedException e) {
+        throw new RuntimeException(e);
+    }
+});
+
+future.thenAccept(data -> System.out.println("Received: " + data))
+       .exceptionally(error -> {
+           System.err.println("Error: " + error);
+           return null;
+       });
+```
+
+```javascript !! js
+// JavaScript - Promises
+const promise = new Promise((resolve, reject) => {
+    setTimeout(() => {
+        resolve("Data");
+        // Or: reject(new Error("Failed"));
+    }, 1000);
+});
+
+promise
+    .then(data => console.log("Received:", data))
+    .catch(error => console.error("Error:", error));
+
+// Modern: async/await
+async function fetchData() {
+    try {
+        const data = await promise;
+        console.log("Received:", data);
+    } catch (error) {
+        console.error("Error:", error);
+    }
+}
+```
+</UniversalEditor>
+
+## Creating Promises
+
+<UniversalEditor title="Creating Promises">
+```javascript !! js
+// Basic promise constructor
+function fetchUser(id) {
+    return new Promise((resolve, reject) => {
+        setTimeout(() => {
+            if (id > 0) {
+                resolve({ id, name: "User " + id });
+            } else {
+                reject(new Error("Invalid user ID"));
+            }
+        }, 1000);
+    });
+}
+
+// Using the promise
+fetchUser(1)
+    .then(user => console.log("User:", user))
+    .catch(error => console.error("Error:", error.message));
+
+// Promise states:
+// - Pending: Initial state
+// - Fulfilled: Operation completed successfully
+// - Rejected: Operation failed
+// - Settled: Either fulfilled or rejected (final)
+
+// Once settled, cannot change state
+const promise = new Promise((resolve, reject) => {
+    resolve("Success");
+    reject("Fail");  // Ignored - already settled
+});
+
+// Promises are eager (execute immediately)
+const eager = new Promise(resolve => {
+    console.log("Executing now!");  // Runs immediately
+    resolve("Done");
+});
+
+console.log("After creation");
+// Output:
+// Executing now!
+// After creation
+
+// To defer execution, wrap in function
+function createDeferredPromise() {
+    return new Promise(resolve => {
+        console.log("Executing when called");
+        resolve("Done");
+    });
+}
+
+// Lazy execution
+const lazy = createDeferredPromise();  // Only executes when called
+```
+</UniversalEditor>
+
+## Promise Chaining
+
+<UniversalEditor title="Promise Chaining">
+```java !! java
+// Java - CompletableFuture chaining
+CompletableFuture.supplyAsync(() -> getUser(id))
+    .thenCompose(user -> getOrders(user.id))
+    .thenApply(orders -> processOrders(orders))
+    .thenAccept(processed -> System.out.println(processed));
+```
+
+```javascript !! js
+// JavaScript - Promise chaining
+fetchUser(1)
+    .then(user => {
+        console.log("User:", user);
+        return getOrders(user.id);  // Return promise
+    })
+    .then(orders => {
+        console.log("Orders:", orders);
+        return getOrderItems(orders[0].id);
+    })
+    .then(items => {
+        console.log("Items:", items);
+    })
+    .catch(error => {
+        console.error("Error:", error);
+    });
+
+// Each then() returns new promise
+Promise.resolve(1)
+    .then(value => {
+        console.log(value);  // 1
+        return value + 1;
+    })
+    .then(value => {
+        console.log(value);  // 2
+        return value + 1;
+    })
+    .then(value => {
+        console.log(value);  // 3
+    });
+
+// Returning non-promise values
+Promise.resolve(10)
+    .then(value => {
+        return value * 2;  // Auto-wrapped in promise
+    })
+    .then(value => {
+        console.log(value);  // 20
+    });
+
+// Throwing in then() triggers catch
+Promise.resolve()
+    .then(() => {
+        throw new Error("Failed");
+    })
+    .catch(error => {
+        console.error(error.message);  // "Failed"
+    });
+```
+</UniversalEditor>
+
+## Async/Await
+
+Async/await is syntactic sugar over promises:
+
+<UniversalEditor title="Async/Await">
+```java !! java
+// Java - Synchronous-looking async code
+public String fetchData() {
+    try {
+        // Looks synchronous but blocks thread
+        String result = future.get();
+        return result;
+    } catch (Exception e) {
+        throw new RuntimeException(e);
+    }
+}
+```
+
+```javascript !! js
+// JavaScript - Async/await (non-blocking)
+async function fetchData() {
+    try {
+        const response = await fetch("/api/data");
+        const data = await response.json();
+        return data;
+    } catch (error) {
+        console.error("Error:", error);
+        throw error;
+    }
+}
+
+// Usage
+fetchData().then(data => console.log(data));
+
+// async always returns Promise
+async function fn() {
+    return "Value";  // Automatically wrapped in Promise
+}
+
+fn().then(value => console.log(value));  // "Value"
+
+// await pauses function execution (non-blocking)
+async function example() {
+    console.log("Start");
+
+    const result1 = await Promise.resolve(1);
+    console.log("After first await:", result1);
+
+    const result2 = await Promise.resolve(2);
+    console.log("After second await:", result2);
+
+    return "Done";
+}
+
+example().then(console.log);
+// Output:
+// Start
+// After first await: 1
+// After second await: 2
+// Done
+
+// Parallel execution with Promise.all
+async function fetchMultiple() {
+    const [user, posts, comments] = await Promise.all([
+        fetchUser(1),
+        fetchPosts(1),
+        fetchComments(1)
+    ]);
+
+    return { user, posts, comments };
+}
+
+// Sequential vs parallel
+// Sequential (slow - ~3 seconds)
+async function sequential() {
+    const a = await delay(1000, "A");
+    const b = await delay(1000, "B");
+    const c = await delay(1000, "C");
+    return [a, b, c];
+}
+
+// Parallel (fast - ~1 second)
+async function parallel() {
+    const [a, b, c] = await Promise.all([
+        delay(1000, "A"),
+        delay(1000, "B"),
+        delay(1000, "C")
+    ]);
+    return [a, b, c];
+}
+
+function delay(ms, value) {
+    return new Promise(resolve => setTimeout(() => resolve(value), ms));
+}
+```
+</UniversalEditor>
+
+## Error Handling
+
+<UniversalEditor title="Error Handling">
+```java !! java
+// Java - Try-catch with CompletableFuture
+CompletableFuture.supplyAsync(() -> {
+    if (error) {
+        throw new RuntimeException("Failed");
+    }
+    return "Success";
+})
+.exceptionally(error -> {
+    System.err.println("Error: " + error.getMessage());
+    return null;  // Fallback value
+});
+```
+
+```javascript !! js
+// JavaScript - Promise error handling
+
+// .catch() handles any rejection
+Promise.reject(new Error("Failed"))
+    .catch(error => {
+        console.error("Caught:", error.message);
+    });
+
+// Try-catch in async functions
+async function handleError() {
+    try {
+        const data = await riskyOperation();
+        return data;
+    } catch (error) {
+        console.error("Error:", error);
+        return null;  // Fallback
+    }
+}
+
+// .then(null, error) is same as .catch(error)
+Promise.reject("error")
+    .then(null, error => {
+        console.error("Caught:", error);
+    });
+
+// .finally() always runs
+Promise.resolve("value")
+    .then(value => {
+        console.log("Value:", value);
+        throw new Error("Failed");
+    })
+    .catch(error => {
+        console.error("Error:", error.message);
+    })
+    .finally(() => {
+        console.log("Cleanup");  // Always runs
+    });
+
+// Practical: Resource cleanup
+async function withResource(callback) {
+    const resource = acquireResource();
+    try {
+        return await callback(resource);
+    } finally {
+        resource.release();  // Always cleanup
+    }
+}
+
+// Multiple error handlers
+Promise.resolve()
+    .then(() => {
+        throw new Error("Error 1");
+    })
+    .catch(error => {
+        console.error("First catch:", error.message);
+        return "Recovered";  // Recover from error
+    })
+    .then(value => {
+        console.log("Continue:", value);  // Runs because error was handled
+    });
+```
+</UniversalEditor>
+
+## Promise Combinators
+
+<UniversalEditor title="Promise Combinators">
+```java !! java
+// Java - CompletableFuture combinators
+CompletableFuture<String> f1 = CompletableFuture.supplyAsync(() -> "A");
+CompletableFuture<String> f2 = CompletableFuture.supplyAsync(() -> "B");
+
+// All must complete
+CompletableFuture<Void> all = CompletableFuture.allOf(f1, f2);
+
+// Any completes
+CompletableFuture<Object> any = CompletableFuture.anyOf(f1, f2);
+```
+
+```javascript !! js
+// JavaScript - Promise combinators
+
+// Promise.all: All must fulfill (or any rejects)
+const p1 = Promise.resolve(1);
+const p2 = Promise.resolve(2);
+const p3 = Promise.resolve(3);
+
+Promise.all([p1, p2, p3])
+    .then(values => {
+        console.log(values);  // [1, 2, 3]
+    })
+    .catch(error => {
+        console.error("One failed:", error);
+    });
+
+// Practical: Fetch multiple resources
+async function fetchDashboard() {
+    const [user, posts, stats] = await Promise.all([
+        fetchUser(1),
+        fetchPosts(1),
+        fetchStats()
+    ]);
+
+    return { user, posts, stats };
+}
+
+// Promise.race: First to settle wins
+const slow = new Promise(resolve => setTimeout(() => resolve("Slow"), 1000));
+const fast = new Promise(resolve => setTimeout(() => resolve("Fast"), 100));
+
+Promise.race([slow, fast])
+    .then(value => {
+        console.log(value);  // "Fast"
+    });
+
+// Practical: Timeout with race
+function fetchWithTimeout(url, timeout = 5000) {
+    return Promise.race([
+        fetch(url),
+        new Promise((_, reject) =>
+            setTimeout(() => reject(new Error("Timeout")), timeout)
+        )
+    ]);
+}
+
+// Promise.allSettled: All settle, don't fail on rejection
+const promise1 = Promise.resolve(1);
+const promise2 = Promise.reject("Error");
+const promise3 = Promise.resolve(3);
+
+Promise.allSettled([promise1, promise2, promise3])
+    .then(results => {
+        results.forEach(result => {
+            if (result.status === "fulfilled") {
+                console.log("Value:", result.value);
+            } else {
+                console.error("Reason:", result.reason);
+            }
+        });
+    });
+
+// Promise.any: First fulfillment wins (all rejections lose)
+try {
+    const first = await Promise.any([
+        Promise.reject("Error 1"),
+        Promise.reject("Error 2"),
+        Promise.resolve("Success")
+    ]);
+    console.log(first);  // "Success"
+} catch (error) {
+    console.error("All rejected:", error);
+}
+```
+</UniversalEditor>
+
+## Converting Callbacks to Promises
+
+<UniversalEditor title="Promise Wrapping">
+```javascript !! js
+// Wrap callback-based function in Promise
+function promisify(fn) {
+    return function(...args) {
+        return new Promise((resolve, reject) => {
+            fn(...args, (error, result) => {
+                if (error) {
+                    reject(error);
+                } else {
+                    resolve(result);
+                }
+            });
+        });
+    };
+}
+
+// Node.js util.promisify (built-in)
+const fs = require("fs").promises;
+
+// Before (callback)
+fs.readFile("data.txt", (error, data) => {
+    if (error) throw error;
+    console.log(data);
+});
+
+// After (promise)
+fs.readFile("data.txt")
+    .then(data => console.log(data))
+    .catch(error => console.error(error));
+
+// Or async/await
+async function readFile() {
+    try {
+        const data = await fs.readFile("data.txt");
+        console.log(data);
+    } catch (error) {
+        console.error(error);
+    }
+}
+
+// Manual promise wrapper
+function readFile(path) {
+    return new Promise((resolve, reject) => {
+        fs.readFile(path, (error, data) => {
+            if (error) {
+                reject(error);
+            } else {
+                resolve(data);
+            }
+        });
+    });
+}
+
+// Custom promisification
+function fetchUserCallback(id, callback) {
+    setTimeout(() => {
+        if (id > 0) {
+            callback(null, { id, name: "User " + id });
+        } else {
+            callback(new Error("Invalid ID"));
+        }
+    }, 1000);
+}
+
+// Wrap it
+const fetchUser = promisify(fetchUserCallback);
+
+// Now use as promise
+fetchUser(1)
+    .then(user => console.log("User:", user))
+    .catch(error => console.error("Error:", error));
+```
+</UniversalEditor>
+
+## Best Practices
+
+<UniversalEditor title="Async Best Practices">
+```java !! java
+// Java: Proper exception handling
+public Result process() {
+    try {
+        Data data = fetchData();
+        return transform(data);
+    } catch (Exception e) {
+        logger.error("Failed", e);
+        return Result.failure(e);
+    }
+}
+```
+
+```javascript !! js
+// JavaScript: Async best practices
+
+// 1. Always handle promise rejections
+Promise.resolve()
+    .then(() => {
+        throw new Error("Oops");
+    })
+    .catch(error => {
+        console.error(error);  // Always catch
+    });
+
+// 2. Use async/await for clarity
+// Good
+async function process() {
+    const user = await getUser(id);
+    const orders = await getOrders(user.id);
+    return orders;
+}
+
+// Avoid excessive .then() chaining
+// Bad
+Promise.resolve()
+    .then(() => Promise.resolve())
+    .then(() => Promise.resolve())
+    .then(() => Promise.resolve());
+
+// 3. Parallelize independent operations
+// Bad (sequential)
+async function fetchAll() {
+    const user = await fetchUser();
+    const posts = await fetchPosts();
+    const comments = await fetchComments();
+    return { user, posts, comments };
+}
+
+// Good (parallel)
+async function fetchAll() {
+    const [user, posts, comments] = await Promise.all([
+        fetchUser(),
+        fetchPosts(),
+        fetchComments()
+    ]);
+    return { user, posts, comments };
+}
+
+// 4. Handle errors at appropriate level
+async function fetchUser(id) {
+    const response = await fetch(`/api/users/${id}`);
+    if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+    }
+    return response.json();
+}
+
+async function init() {
+    try {
+        const user = await fetchUser(1);
+        console.log(user);
+    } catch (error) {
+        console.error("Failed to initialize:", error);
+    }
+}
+
+// 5. Clean up with finally
+async function withLock(fn) {
+    const lock = await acquireLock();
+    try {
+        return await fn(lock);
+    } finally {
+        await lock.release();  // Always runs
+    }
+}
+
+// 6. Don't mix callbacks and promises
+// Bad
+function bad() {
+    fetch("/api/data")
+        .then(response => {
+            response.json(data => {
+                console.log(data);
+            });
+        });
+}
+
+// Good
+function good() {
+    return fetch("/api/data")
+        .then(response => response.json())
+        .then(data => console.log(data));
+}
+
+// Or async/await
+async function good2() {
+    const response = await fetch("/api/data");
+    const data = await response.json();
+    console.log(data);
+}
+```
+</UniversalEditor>
+
+## Exercises
+
+### Exercise 1: Promise Chaining
+```javascript
+// Chain these operations:
+// 1. Fetch user by ID
+// 2. Fetch user's orders
+// 3. Fetch first order's items
+// Use .then() chaining
+```
+
+### Exercise 2: Async/Await
+```javascript
+// Rewrite Exercise 1 using async/await
+async function getOrderItems(userId) {
+    // Implementation
+}
+```
+
+### Exercise 3: Parallel Execution
+```javascript
+// Fetch user, posts, and comments in parallel
+// Use Promise.all
+```
+
+### Exercise 4: Error Handling
+```javascript
+// Add proper error handling to async function
+async function process(id) {
+    const user = await fetchUser(id);
+    const orders = await getOrders(user.id);
+    return orders;
+}
+```
+
+## Summary
+
+### Key Takeaways
+
+1. **Promises:**
+   - Represent future values
+   - Three states: pending, fulfilled, rejected
+   - Chainable with .then()
+   - Error handling with .catch()
+
+2. **Async/Await:**
+   - Syntactic sugar over promises
+   - Makes async code look synchronous
+   - Non-blocking
+   - Use try/catch for errors
+
+3. **Combinators:**
+   - Promise.all: All must succeed
+   - Promise.race: First to settle
+   - Promise.allSettled: Wait for all
+   - Promise.any: First success
+
+4. **Best Practices:**
+   - Always handle errors
+   - Parallelize when possible
+   - Prefer async/await
+   - Don't mix callbacks and promises
+
+### Comparison Table: Java vs JavaScript
+
+| Feature | Java | JavaScript |
+|---------|------|------------|
+| **Async** | CompletableFuture, Future | Promise, async/await |
+| **Chaining** | .thenCompose(), .thenApply() | .then(), await |
+| **Error** | .exceptionally() | .catch(), try/catch |
+| **Parallel** | CompletableFuture.allOf() | Promise.all() |
+| **Race** | CompletableFuture.anyOf() | Promise.race() |
+
+## What's Next?
+
+You've mastered modern async JavaScript! Next up is **Module 12: DOM Manipulation**, where we'll explore:
+
+- DOM structure and traversal
+- Querying elements
+- Modifying the DOM
+- Creating and removing elements
+- Event handling basics
+- DOM performance
+
+Ready to learn how to manipulate web pages? Let's continue!

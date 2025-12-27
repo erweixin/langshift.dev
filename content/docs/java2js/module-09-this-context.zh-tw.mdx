@@ -1,0 +1,260 @@
+---
+title: "Module 9: This and Context"
+description: "掌握 JavaScript 'this' 關鍵字和 context 綁定"
+---
+
+## Module 9: This and Context
+
+JavaScript 中的 `this` 關鍵字行為與 Java 非常不同。理解 `this` 如何運作對於編寫無錯誤的 JavaScript 程式碼至關重要。本模組將揭開 `this` 的神秘面紗。
+
+## Learning Objectives
+
+完成本模組後，你將：
+✅ 理解 `this` 綁定如何運作
+✅ 掌握 call()、apply() 和 bind() 方法
+✅ 學習箭頭函數和詞法 this
+✅ 知道不同 context 中的 this
+✅ 理解常見的 this 相關陷阱
+✅ 學習管理 context 的最佳實踐
+
+## This Comparison: Java vs JavaScript
+
+<UniversalEditor title="This 行為比較">
+```java !! java
+// Java - 'this' 總是指向當前實例
+public class Counter {
+    private int count = 0;
+
+    public Counter() {
+        this.count = 0;  // 'this' 是 Counter 實例
+    }
+
+    public void increment() {
+        this.count++;  // 總是指向 Counter 實例
+    }
+}
+
+// 'this' 是可預測的，總是指向實例
+```
+
+```javascript !! js
+// JavaScript - 'this' 取決於調用點
+const counter = {
+    count: 0,
+
+    increment() {
+        this.count++;  // 'this' 取決於函數如何被調用
+    },
+
+    // 箭頭函數：'this' 來自周圍作用域
+    incrementArrow: () => {
+        this.count++;  // 'this' 不是 counter!
+    }
+};
+
+counter.increment();     // 'this' = counter ✓
+counter.incrementArrow(); // 'this' = undefined（或瀏覽器中的 window）✗
+
+// 'this' 根據調用點變化
+const fn = counter.increment;
+fn();  // 'this' = undefined（嚴格模式）或 window
+
+// 可顯式綁定 'this'
+fn.call(counter);  // 'this' = counter ✓
+```
+</UniversalEditor>
+
+## This Rules
+
+JavaScript 根據函數如何被調用來決定 `this`：
+
+<UniversalEditor title="This 四規則">
+```javascript !! js
+// 規則 1: 默認綁定
+// 'this' 是全局物件（非嚴格）或 undefined（嚴格）
+function sayName() {
+    console.log(this.name);
+}
+
+const name = "Global";
+sayName();  // "Global"（非嚴格）或 undefined（嚴格）
+
+// 規則 2: 隱式綁定
+// 'this' 是點左邊的物件
+const person = {
+    name: "John",
+    greet() {
+        console.log(this.name);
+    }
+};
+
+person.greet();  // "John" - 'this' = person
+
+// 規則 3: 顯式綁定
+// 'this' 由 call/apply/bind 指定
+function greet() {
+    console.log(this.name);
+}
+
+const user = { name: "Jane" };
+greet.call(user);   // "Jane" - 'this' = user
+greet.apply(user);  // "Jane" - 'this' = user
+const bound = greet.bind(user);
+bound();           // "Jane" - 'this' = user
+
+// 規則 4: New 綁定
+// 'this' 是新創建的物件
+function User(name) {
+    this.name = name;
+}
+
+const user2 = new User("Bob");
+console.log(user2.name);  // "Bob" - 'this' = user2
+```
+</UniversalEditor>
+
+## Call, Apply, and Bind
+
+JavaScript 提供了明確控制 `this` 的方法：
+
+<UniversalEditor title="顯式 This 綁定">
+```javascript !! js
+// call(): 使用特定 'this' 調用
+function introduce(greeting, punctuation) {
+    console.log(`${greeting}, I'm ${this.name}${punctuation}`);
+}
+
+const person = { name: "John" };
+introduce.call(person, "Hello", "!");  // "Hello, I'm John!"
+
+// apply(): 與 call 相同但參數為陣列
+introduce.apply(person, ["Hi", "?"]);  // "Hi, I'm John?"
+
+// bind(): 創建永久 'this' 的函數
+const person2 = { name: "Jane" };
+const introduceJane = introduce.bind(person2, "Hey");
+introduceJane("!");  // "Hey, I'm Jane!"
+
+// 實用：事件處理程序
+class Button {
+    constructor(label) {
+        this.label = label;
+        this.handleClick = this.handleClick.bind(this);
+    }
+
+    handleClick() {
+        console.log(`Button "${this.label}" clicked`);
+    }
+}
+```
+</UniversalEditor>
+
+## Arrow Functions and Lexical This
+
+箭頭函數沒有自己的 `this` - 它們從周圍作用域繼承：
+
+<UniversalEditor title="箭頭函數和 This">
+```javascript !! js
+// 正則函數：'this' 基於調用點
+const counter = {
+    count: 0,
+    increment: function() {
+        setTimeout(function() {
+            this.count++;  // ❌ 'this' 不是 counter!
+        }, 1000);
+    }
+};
+
+// 箭頭函數：'this' 來自周圍作用域
+const counter2 = {
+    count: 0,
+    increment: function() {
+        setTimeout(() => {
+            this.count++;  // ✅ 'this' 是 counter2
+        }, 1000);
+    }
+};
+
+// 箭頭函數不能被綁定
+const arrow = () => console.log(this);
+arrow.call({ name: "John" });  // 仍然是全局/undefined
+```
+</UniversalEditor>
+
+## Common Pitfalls
+
+### Pitfall 1: Losing This
+
+<UniversalEditor title="丟失 This Context">
+```javascript !! js
+// 問題：傳遞方法時丟失 'this'
+const controller = {
+    data: [1, 2, 3],
+    process() {
+        return this.data.map(x => x * 2);
+    }
+};
+
+// ❌ 錯誤：提取方法丟失 'this'
+const process = controller.process;
+process();  // Error: Cannot read 'data' of undefined
+
+// ✅ 解決方案 1: Bind
+const process2 = controller.process.bind(controller);
+process2();  // Works!
+
+// ✅ 解決方案 2: 箭頭函數
+const process3 = () => controller.process();
+process3();  // Works!
+```
+</UniversalEditor>
+
+## Best Practices
+
+<UniversalEditor title="This 最佳實踐">
+```javascript !! js
+// 1. 對回調使用箭頭函數
+class Component {
+    constructor() {
+        this.state = { count: 0 };
+    }
+
+    setup() {
+        // ✅ 箭頭函數保留 'this'
+        button.addEventListener("click", () => this.increment());
+    }
+}
+
+// 2. 提取方法時綁定
+class Service {
+    getFetcher() {
+        // ✅ 返回時綁定
+        return this.fetchData.bind(this);
+    }
+}
+
+// 3. 使用類別以獲得可預測的 'this'
+class Counter {
+    constructor() {
+        this.count = 0;
+    }
+
+    increment() {
+        this.count++;
+    }
+}
+```
+</UniversalEditor>
+
+## Summary
+
+### Key Takeaways
+
+1. **This Rules:** 默認、隱式、顯式、New
+2. **Arrow Functions:** 詞法 this
+3. **Call/Apply/Bind:** 顯式控制 this
+4. **Context Loss:** 常見問題，使用箭頭函數或 bind 解決
+
+## What's Next?
+
+接下來是 **Module 10: Asynchronous Programming Basics** - 學習事件循環和回調！
