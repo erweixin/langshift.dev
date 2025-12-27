@@ -107,6 +107,14 @@ const SOURCE_LANGUAGES = [
         path: 'py2rust',
         status: 'completed' as const,
       },
+      {
+        id: 'go',
+        name: 'Go',
+        icon: '🐹',
+        gradient: 'from-cyan-500 to-blue-500',
+        path: 'py2go',
+        status: 'completed' as const,
+      },
     ]
   }
   // 未来可以添加其他源语言

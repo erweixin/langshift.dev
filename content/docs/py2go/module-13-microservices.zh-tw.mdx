@@ -1,0 +1,775 @@
+---
+title: "Module 13: 微服務架構"
+description: "使用 Go 建構分散式系統和微服務"
+---
+
+## 簡介
+
+Go 非常適合建構微服務——快速編譯、小體積二進位檔案、出色的並發效能和低記憶體佔用,使其成為建構分散式系統的理想選擇。
+
+## 微服務基礎
+
+<UniversalEditor title="簡單微服務">
+```python !! py
+# Python - Flask 微服務
+from flask import Flask, jsonify
+from typing import Dict
+
+app = Flask(__name__)
+
+users_db: Dict[int, dict] = {
+    1: {"id": 1, "name": "Alice", "email": "alice@example.com"},
+}
+
+@app.route('/health')
+def health():
+    return jsonify({"status": "healthy"})
+
+@app.route('/api/users/<int:user_id>')
+def get_user(user_id):
+    user = users_db.get(user_id)
+    if not user:
+        return jsonify({"error": "Not found"}), 404
+    return jsonify(user)
+
+if __name__ == '__main__':
+    app.run(port=8080)
+```
+
+```go !! go
+// Go - 使用 net/http 的微服務
+package main
+
+import (
+    "encoding/json"
+    "net/http"
+    "sync"
+)
+
+type User struct {
+    ID    int    `json:"id"`
+    Name  string `json:"name"`
+    Email string `json:"email"`
+}
+
+var (
+    users = map[int]User{
+        1: {ID: 1, Name: "Alice", Email: "alice@example.com"},
+    }
+    mu sync.RWMutex
+)
+
+func healthHandler(w http.ResponseWriter, r *http.Request) {
+    json.NewEncoder(w).Encode(map[string]string{"status": "healthy"})
+}
+
+func getUserHandler(w http.ResponseWriter, r *http.Request) {
+    userID := extractID(r.URL.Path)
+
+    mu.RLock()
+    user, exists := users[userID]
+    mu.RUnlock()
+
+    if !exists {
+        http.Error(w, "Not found", http.StatusNotFound)
+        return
+    }
+
+    w.Header().Set("Content-Type", "application/json")
+    json.NewEncoder(w).Encode(user)
+}
+
+func main() {
+    http.HandleFunc("/health", healthHandler)
+    http.HandleFunc("/api/users/", getUserHandler)
+
+    http.ListenAndServe(":8080", nil)
+}
+```
+</UniversalEditor>
+
+## 服務發現
+
+<UniversalEditor title="服務註冊">
+```python !! py
+# Python - Consul 服務發現
+import consul
+
+consul_client = consul.Consul()
+
+# 註冊服務
+service_id = "user-service-1"
+consul_client.agent.service.register(
+    name="user-service",
+    service_id=service_id,
+    port=8080,
+    tags=["api", "users"],
+    check=consul.Check.http(
+        url="http://localhost:8080/health",
+        interval="10s"
+    )
+)
+
+# 發現服務
+_, services = consul_client.health.service(
+    "user-service",
+    passing=True
+)
+```
+
+```go !! go
+// Go - Consul 服務發現
+package main
+
+import (
+    "github.com/hashicorp/consul/api"
+)
+
+func registerService() error {
+    config := api.DefaultConfig()
+    client, _ := api.NewClient(config)
+
+    registration := &api.AgentServiceRegistration{
+        ID:      "user-service-1",
+        Name:    "user-service",
+        Port:    8080,
+        Tags:    []string{"api", "users"},
+        Check: &api.AgentServiceCheck{
+            HTTP:                           "http://localhost:8080/health",
+            Interval:                       "10s",
+            DeregisterCriticalServiceAfter: "30s",
+        },
+    }
+
+    return client.Agent().ServiceRegister(registration)
+}
+
+func discoverService(serviceName string) ([]string, error) {
+    config := api.DefaultConfig()
+    client, _ := api.NewClient(config)
+
+    services, _, err := client.Health().Service(serviceName, "", true, nil)
+    if err != nil {
+        return nil, err
+    }
+
+    var addrs []string
+    for _, service := range services {
+        addr := fmt.Sprintf("%s:%d",
+            service.Service.Address,
+            service.Service.Port,
+        )
+        addrs = append(addrs, addr)
+    }
+
+    return addrs, nil
+}
+```
+</UniversalEditor>
+
+## 服務間通訊
+
+<UniversalEditor title="帶重試的 HTTP 客戶端">
+```python !! py
+# Python - 帶重試的 HTTP 客戶端
+import requests
+from tenacity import retry, stop_after_attempt, wait_exponential
+
+class ServiceClient:
+    def __init__(self, base_url):
+        self.base_url = base_url
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=10)
+    )
+    def get_user(self, user_id):
+        response = requests.get(
+            f"{self.base_url}/api/users/{user_id}",
+            timeout=5
+        )
+        response.raise_for_status()
+        return response.json()
+
+# 使用
+client = ServiceClient("http://user-service:8080")
+user = client.get_user(1)
+```
+
+```go !! go
+// Go - 帶重試和熔斷器的 HTTP 客戶端
+package main
+
+import (
+    "context"
+    "fmt"
+    "net/http"
+    "time"
+)
+
+type ServiceClient struct {
+    baseURL    string
+    httpClient *http.Client
+    retryCount int
+}
+
+func NewServiceClient(baseURL string) *ServiceClient {
+    return &ServiceClient{
+        baseURL: baseURL,
+        httpClient: &http.Client{
+            Timeout: 5 * time.Second,
+            Transport: &http.Transport{
+                MaxIdleConnsPerHost: 100,
+            },
+        },
+        retryCount: 3,
+    }
+}
+
+func (c *ServiceClient) GetUser(ctx context.Context, userID int) (*User, error) {
+    var lastErr error
+
+    for attempt := 0; attempt < c.retryCount; attempt++ {
+        url := fmt.Sprintf("%s/api/users/%d", c.baseURL, userID)
+
+        req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+        if err != nil {
+            return nil, err
+        }
+
+        resp, err := c.httpClient.Do(req)
+        if err == nil {
+            defer resp.Body.Close()
+
+            if resp.StatusCode == http.StatusOK {
+                var user User
+                if err := json.NewDecoder(resp.Body).Decode(&user); err != nil {
+                    return nil, err
+                }
+                return &user, nil
+            }
+            lastErr = fmt.Errorf("unexpected status: %d", resp.StatusCode)
+        } else {
+            lastErr = err
+        }
+
+        // 指數退避
+        time.Sleep(time.Duration(1<<attempt) * time.Second)
+    }
+
+    return nil, fmt.Errorf("after %d attempts: %w", c.retryCount, lastErr)
+}
+```
+</UniversalEditor>
+
+## API 閘道模式
+
+<UniversalEditor title="API 閘道">
+```python !! py
+# Python - 使用 Flask 的 API 閘道
+from flask import Flask, request, jsonify
+import requests
+
+app = Flask(__name__)
+
+services = {
+    "users": "http://user-service:8080",
+    "orders": "http://order-service:8081",
+}
+
+@app.route('/api/users/<path:path>')
+def proxy_users(path):
+    url = f"{services['users']}/{path}"
+    resp = requests.request(
+        method=request.method,
+        url=url,
+        headers=request.headers,
+        data=request.get_data(),
+    )
+    return resp.content, resp.status_code
+
+@app.route('/api/orders/<path:path>')
+def proxy_orders(path):
+    url = f"{services['orders']}/{path}"
+    resp = requests.request(
+        method=request.method,
+        url=url,
+        headers=request.headers,
+        data=request.get_data(),
+    )
+    return resp.content, resp.status_code
+```
+
+```go !! go
+// Go - API 閘道
+package main
+
+import (
+    "fmt"
+    "net/http"
+    "net/http/httputil"
+    "net/url"
+    "strings"
+)
+
+type APIGateway struct {
+    services map[string]string
+}
+
+func NewAPIGateway() *APIGateway {
+    return &APIGateway{
+        services: map[string]string{
+            "users":  "http://user-service:8080",
+            "orders": "http://order-service:8081",
+        },
+    }
+}
+
+func (g *APIGateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+    // 從路徑中提取服務名稱
+    // /api/users/123 -> users
+    parts := strings.Split(r.URL.Path, "/")
+    if len(parts) < 3 {
+        http.Error(w, "Invalid path", http.StatusBadRequest)
+        return
+    }
+
+    serviceName := parts[2]
+    serviceURL, exists := g.services[serviceName]
+    if !exists {
+        http.Error(w, "Service not found", http.StatusNotFound)
+        return
+    }
+
+    // 建立反向代理
+    target, _ := url.Parse(serviceURL)
+    proxy := httputil.NewSingleHostReverseProxy(target)
+
+    // 更新請求路徑
+    r.URL.Path = "/" + strings.Join(parts[3:], "/")
+
+    // 透過代理服務
+    proxy.ServeHTTP(w, r)
+}
+
+func main() {
+    gateway := NewAPIGateway()
+
+    http.ListenAndServe(":8080", gateway)
+}
+```
+</UniversalEditor>
+
+## 分散式追蹤
+
+<UniversalEditor title="OpenTelemetry 追蹤">
+```python !! py
+# Python - OpenTelemetry
+from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.exporter.jaeger import JaegerExporter
+
+# 設定
+trace.set_tracer_provider(TracerProvider())
+tracer = trace.get_tracer(__name__)
+
+jaeger_exporter = JaegerExporter(
+    agent_host_name="jaeger",
+    agent_port=6831,
+)
+
+span_processor = BatchSpanProcessor(jaeger_exporter)
+trace.get_tracer_provider().add_span_processor(span_processor)
+
+# 在程式碼中使用
+@tracer.start_as_current_span("get_user")
+def get_user(user_id):
+    with tracer.start_as_current_span("database_query"):
+        user = db.query(user_id)
+    return user
+```
+
+```go !! go
+// Go - OpenTelemetry 追蹤
+package main
+
+import (
+    "context"
+    "go.opentelemetry.io/otel"
+    "go.opentelemetry.io/otel/exporters/jaeger"
+    "go.opentelemetry.io/otel/sdk/trace"
+)
+
+func initTracer() error {
+    exporter, err := jaeger.New(jaeger.WithCollectorEndpoint(
+        jaeger.WithEndpoint("jaeger:14268/api/traces"),
+    ))
+    if err != nil {
+        return err
+    }
+
+    tp := trace.NewTracerProvider(
+        trace.WithBatcher(exporter),
+    )
+    otel.SetTracerProvider(tp)
+
+    return nil
+}
+
+func getUser(ctx context.Context, userID int) (*User, error) {
+    tracer := otel.Tracer("user-service")
+
+    ctx, span := tracer.Start(ctx, "get_user")
+    defer span.End()
+
+    // 資料庫查詢 span
+    _, dbSpan := tracer.Start(ctx, "database_query")
+    user := queryDatabase(ctx, userID)
+    dbSpan.End()
+
+    return user, nil
+}
+```
+</UniversalEditor>
+
+## 事件驅動架構
+
+<UniversalEditor title="訊息發布">
+```python !! py
+# Python - RabbitMQ 發布
+import pika
+import json
+
+connection = pika.BlockingConnection(
+    pika.ConnectionParameters('localhost')
+)
+channel = connection.channel()
+
+# 宣告交換機
+channel.exchange_declare(
+    exchange='user_events',
+    exchange_type='topic'
+)
+
+# 發布事件
+event = {
+    'type': 'user.created',
+    'user_id': 123,
+    'timestamp': datetime.now().isoformat()
+}
+
+channel.basic_publish(
+    exchange='user_events',
+    routing_key='user.created',
+    body=json.dumps(event)
+)
+```
+
+```go !! go
+// Go - RabbitMQ 發布
+package main
+
+import (
+    "encoding/json"
+    "github.com/streadway/amqp"
+)
+
+type Event struct {
+    Type      string `json:"type"`
+    UserID    int    `json:"user_id"`
+    Timestamp string `json:"timestamp"`
+}
+
+func publishEvent(event Event) error {
+    conn, err := amqp.Dial("amqp://guest:guest@localhost:5672/")
+    if err != nil {
+        return err
+    }
+    defer conn.Close()
+
+    ch, err := conn.Channel()
+    if err != nil {
+        return err
+    }
+    defer ch.Close()
+
+    err = ch.ExchangeDeclare(
+        "user_events",
+        "topic",
+        true,
+        false,
+        false,
+        false,
+        nil,
+    )
+    if err != nil {
+        return err
+    }
+
+    body, _ := json.Marshal(event)
+    err = ch.Publish(
+        "user_events",
+        "user.created",
+        false,
+        false,
+        amqp.Publishing{
+            ContentType: "application/json",
+            Body:        body,
+        },
+    )
+
+    return err
+}
+```
+</UniversalEditor>
+
+## 設定管理
+
+<UniversalEditor title="設定">
+```python !! py
+# Python - 使用 Pydantic 的設定
+from pydantic import BaseSettings
+
+class Settings(BaseSettings):
+    database_url: str
+    redis_url: str
+    jwt_secret: str
+    debug: bool = False
+
+    class Config:
+        env_file = ".env"
+
+settings = Settings()
+
+# 使用
+db.connect(settings.database_url)
+```
+
+```go !! go
+// Go - 使用 Viper 的設定
+package main
+
+import (
+    "github.com/spf13/viper"
+)
+
+type Config struct {
+    DatabaseURL string `mapstructure:"DATABASE_URL"`
+    RedisURL    string `mapstructure:"REDIS_URL"`
+    JWTSecret   string `mapstructure:"JWT_SECRET"`
+    Debug       bool   `mapstructure:"DEBUG"`
+}
+
+func LoadConfig() (*Config, error) {
+    viper.SetConfigFile(".env")
+    viper.AutomaticEnv()
+
+    if err := viper.ReadInConfig(); err != nil {
+        return nil, err
+    }
+
+    var config Config
+    if err := viper.Unmarshal(&config); err != nil {
+        return nil, err
+    }
+
+    return &config, nil
+}
+
+func main() {
+    config, err := LoadConfig()
+    if err != nil {
+        panic(err)
+    }
+
+    // 使用設定
+    connectDB(config.DatabaseURL)
+}
+```
+</UniversalEditor>
+
+## 健康檢查
+
+<UniversalEditor title="綜合健康檢查">
+```python !! py
+# Python - 健康檢查端點
+from flask import jsonify
+import psycopg2
+import redis
+
+@app.route('/health')
+def health():
+    status = {
+        "status": "healthy",
+        "checks": {}
+    }
+
+    # 資料庫檢查
+    try:
+        conn = psycopg2.connect(DB_URL)
+        status["checks"]["database"] = "ok"
+        conn.close()
+    except Exception as e:
+        status["checks"]["database"] = f"error: {str(e)}"
+        status["status"] = "unhealthy"
+
+    # Redis 檢查
+    try:
+        r = redis.from_url(REDIS_URL)
+        r.ping()
+        status["checks"]["redis"] = "ok"
+    except Exception as e:
+        status["checks"]["redis"] = f"error: {str(e)}"
+        status["status"] = "unhealthy"
+
+    statusCode = 200 if status["status"] == "healthy" else 503
+    return jsonify(status), statusCode
+```
+
+```go !! go
+// Go - 健康檢查端點
+package main
+
+import (
+    "database/sql"
+    "encoding/json"
+    "net/http"
+)
+
+type HealthStatus struct {
+    Status string            `json:"status"`
+    Checks map[string]string `json:"checks"`
+}
+
+func healthHandler(db *sql.DB, redisClient *redis.Client) http.HandlerFunc {
+    return func(w http.ResponseWriter, r *http.Request) {
+        status := HealthStatus{
+            Status: "healthy",
+            Checks: make(map[string]string),
+        }
+
+        // 資料庫檢查
+        if err := db.Ping(); err != nil {
+            status.Checks["database"] = err.Error()
+            status.Status = "unhealthy"
+        } else {
+            status.Checks["database"] = "ok"
+        }
+
+        // Redis 檢查
+        if err := redisClient.Ping().Err(); err != nil {
+            status.Checks["redis"] = err.Error()
+            status.Status = "unhealthy"
+        } else {
+            status.Checks["redis"] = "ok"
+        }
+
+        statusCode := http.StatusOK
+        if status.Status != "healthy" {
+            statusCode = http.StatusServiceUnavailable
+        }
+
+        w.Header().Set("Content-Type", "application/json")
+        w.WriteHeader(statusCode)
+        json.NewEncoder(w).Encode(status)
+    }
+}
+```
+</UniversalEditor>
+
+## 容器化
+
+<UniversalEditor title="Dockerfile">
+```dockerfile
+# Python - Dockerfile
+FROM python:3.11-slim
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+EXPOSE 8080
+
+CMD ["gunicorn", "--bind", "0.0.0.0:8080", "app:app"]
+```
+
+```dockerfile
+# Go - Dockerfile (多階段建構)
+FROM golang:1.21-alpine AS builder
+
+WORKDIR /app
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+RUN CGO_ENABLED=0 go build -o user-service
+
+# 最小的最終映像檔
+FROM alpine:latest
+
+RUN apk --no-cache add ca-certificates
+
+WORKDIR /root/
+
+COPY --from=builder /app/user-service .
+
+EXPOSE 8080
+
+CMD ["./user-service"]
+
+# 結果: ~10MB 映像檔
+```
+</UniversalEditor>
+
+## 總結
+
+在本模組中,你學習了:
+
+1. **微服務基礎** - 簡單的 HTTP 服務
+2. **服務發現** - Consul 整合
+3. **服務間通訊** - 帶重試的 HTTP 客戶端
+4. **API 閘道** - 反向代理模式
+5. **分散式追蹤** - OpenTelemetry
+6. **事件驅動架構** - 訊息佇列
+7. **設定管理** - Go 的 Viper
+8. **健康檢查** - 綜合監控
+9. **容器化** - 小型 Docker 映像檔
+
+## 微服務對比
+
+| 方面 | Python | Go |
+|--------|--------|-----|
+| 服務啟動時間 | ~2-5 秒 | ~0.1-0.5 秒 |
+| 每個服務記憶體佔用 | 50-200 MB | 5-20 MB |
+| Docker 映像檔大小 | 200-500 MB | 10-20 MB |
+| 請求吞吐量 | 500-2,000 req/s | 10,000-50,000 req/s |
+| 冷啟動 | 較慢 | 更快 |
+| 部署複雜度 | 需要執行時 | 單個二進位檔案 |
+
+## 最佳實踐
+
+1. **保持服務小型** - 單一職責
+2. **使用服務網格** - 複雜系統使用 Istio、Linkerd
+3. **實作熔斷器** - Hystrix、resilience4go
+4. **集中式日誌** - ELK stack、Loki
+5. **指標收集** - Prometheus、Grafana
+6. **優雅關閉** - 處理 SIGTERM
+7. **冪等操作** - 安全重試
+8. **API 版本管理** - 向後相容
+
+## 練習
+
+1. 建構一個完整的 CRUD 操作微服務
+2. 使用 Consul 實作服務發現
+3. 使用 OpenTelemetry 新增分散式追蹤
+4. 為多個服務建立 API 閘道
+5. 使用 RabbitMQ 實作事件驅動通訊
+
+## 下一步
+
+下一模組: **雲端原生開發** - Kubernetes 和雲端原生模式。

@@ -1,0 +1,715 @@
+---
+title: "Module 12: Performance Optimization"
+description: "Profiling and optimizing Go applications"
+---
+
+## Introduction
+
+Go is designed for performance, but understanding how to profile and optimize code is crucial. This module covers profiling tools and optimization techniques.
+
+## Profiling with pprof
+
+Go includes powerful profiling tools in the standard library:
+
+<UniversalEditor title="CPU Profiling">
+```python !! py
+# Python - cProfile
+import cProfile
+
+def my_function():
+    # Code to profile
+    pass
+
+cProfile.run('my_function()', 'output.stats')
+
+# Or use line_profiler
+# @profile
+# def my_function():
+#     pass
+```
+
+```go !! go
+// Go - CPU profiling
+package main
+
+import (
+    "os"
+    "runtime/pprof"
+)
+
+func main() {
+    // Start CPU profiling
+    f, _ := os.Create("cpu.prof")
+    pprof.StartCPUProfile(f)
+    defer pprof.StopCPUProfile()
+
+    // Your code here
+    myFunction()
+}
+
+// Run program, then:
+// go tool pprof cpu.prof
+```
+</UniversalEditor>
+
+## Memory Profiling
+
+<UniversalEditor title="Memory Profiling">
+```python !! py
+# Python - memory_profiler
+from memory_profiler import profile
+
+@profile
+def my_function():
+    data = [x for x in range(1000000)]
+    return data
+
+if __name__ == '__main__':
+    my_function()
+```
+
+```go !! go
+// Go - Memory profiling
+package main
+
+import (
+    "os"
+    "runtime/pprof"
+)
+
+func main() {
+    myFunction()
+
+    // Write memory profile
+    f, _ := os.Create("mem.prof")
+    pprof.WriteHeapProfile(f)
+    f.Close()
+}
+
+// Analyze with:
+// go tool pprof mem.prof
+```
+</UniversalEditor>
+
+## Benchmarking and Comparison
+
+<UniversalEditor title="String Concatenation Benchmark">
+```python !! py
+# Python - String concatenation
+import time
+
+def test_concatenate(n):
+    start = time.time()
+    result = ""
+    for i in range(n):
+        result += str(i)
+    return time.time() - start
+
+def test_join(n):
+    start = time.time()
+    parts = [str(i) for i in range(n)]
+    result = "".join(parts)
+    return time.time() - start
+
+n = 10000
+print(f"Concatenate: {test_concatenate(n):.4f}s")
+print(f"Join: {test_join(n):.4f}s")
+
+# Concatenate is much slower!
+```
+
+```go !! go
+// Go - String concatenation benchmark
+package main
+
+import (
+    "fmt"
+    "strconv"
+    "strings"
+    "testing"
+)
+
+func BenchmarkConcatenate(b *testing.B) {
+    for i := 0; i < b.N; i++ {
+        result := ""
+        for j := 0; j < 100; j++ {
+            result += strconv.Itoa(j)
+        }
+    }
+}
+
+func BenchmarkStringsBuilder(b *testing.B) {
+    for i := 0; i < b.N; i++ {
+        var builder strings.Builder
+        for j := 0; j < 100; j++ {
+            builder.WriteString(strconv.Itoa(j))
+        }
+        _ = builder.String()
+    }
+}
+
+// Run: go test -bench=.
+// BenchmarkConcatenate-8     50000    35000 ns/op
+// BenchmarkStringsBuilder-8  500000    3500 ns/op
+// Builder is 10x faster!
+```
+</UniversalEditor>
+
+## Slice vs Map Performance
+
+<UniversalEditor title="Data Structure Performance">
+```python !! py
+# Python - List vs Dict lookup
+import time
+
+def test_list_lookup(n):
+    items = list(range(n))
+    start = time.time()
+    for i in range(n):
+        _ = i in items  # O(n) lookup
+    return time.time() - start
+
+def test_dict_lookup(n):
+    items = {i: i for i in range(n)}
+    start = time.time()
+    for i in range(n):
+        _ = i in items  # O(1) lookup
+    return time.time() - start
+
+n = 10000
+print(f"List: {test_list_lookup(n):.4f}s")
+print(f"Dict: {test_dict_lookup(n):.4f}s")
+```
+
+```go !! go
+// Go - Slice vs Map performance
+package main
+
+import "testing"
+
+func BenchmarkSliceLookup(b *testing.B) {
+    items := make([]int, 1000)
+    for i := range items {
+        items[i] = i
+    }
+
+    b.ResetTimer()
+    for i := 0; i < b.N; i++ {
+        for j := 0; j < 1000; j++ {
+            _ = contains(items, j)  // O(n)
+        }
+    }
+}
+
+func BenchmarkMapLookup(b *testing.B) {
+    items := make(map[int]bool)
+    for i := 0; i < 1000; i++ {
+        items[i] = true
+    }
+
+    b.ResetTimer()
+    for i := 0; i < b.N; i++ {
+        for j := 0; j < 1000; j++ {
+            _ = items[j]  // O(1)
+        }
+    }
+}
+
+func contains(slice []int, item int) bool {
+    for _, v := range slice {
+        if v == item {
+            return true
+        }
+    }
+    return false
+}
+
+// Map is significantly faster for lookups
+```
+</UniversalEditor>
+
+## Goroutine Pool Pattern
+
+<UniversalEditor title="Goroutine Pool">
+```python !! py
+# Python - ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor
+
+def process_task(task_id):
+    return task_id * 2
+
+with ThreadPoolExecutor(max_workers=10) as executor:
+    results = executor.map(process_task, range(1000))
+```
+
+```go !! go
+// Go - Worker pool (limit goroutines)
+package main
+
+import (
+    "fmt"
+    "sync"
+    "time"
+)
+
+func worker(id int, jobs <-chan int, results chan<- int, wg *sync.WaitGroup) {
+    defer wg.Done()
+    for job := range jobs {
+        // Simulate work
+        time.Sleep(time.Millisecond)
+        results <- job * 2
+    }
+}
+
+func main() {
+    jobs := make(chan int, 100)
+    results := make(chan int, 100)
+
+    var wg sync.WaitGroup
+
+    // Start 10 workers (limited goroutines)
+    for w := 1; w <= 10; w++ {
+        wg.Add(1)
+        go worker(w, jobs, results, &wg)
+    }
+
+    // Send jobs
+    for j := 0; j < 1000; j++ {
+        jobs <- j
+    }
+    close(jobs)
+
+    // Wait for workers to finish
+    go func() {
+        wg.Wait()
+        close(results)
+    }()
+
+    // Collect results
+    for result := range results {
+        fmt.Println(result)
+    }
+}
+```
+</UniversalEditor>
+
+## Efficient JSON Processing
+
+<UniversalEditor title="JSON Performance">
+```python !! py
+# Python - json module
+import json
+import time
+
+data = {"users": [{"id": i, "name": f"User{i}"} for i in range(1000)]}
+
+# Serialize
+start = time.time()
+json_str = json.dumps(data)
+print(f"Serialize: {time.time() - start:.4f}s")
+
+# Deserialize
+start = time.time()
+parsed = json.loads(json_str)
+print(f"Deserialize: {time.time() - start:.4f}s")
+```
+
+```go !! go
+// Go - Efficient JSON with streaming
+package main
+
+import (
+    "encoding/json"
+    "os"
+    "testing"
+)
+
+type User struct {
+    ID   int    `json:"id"`
+    Name string `json:"name"`
+}
+
+type Data struct {
+    Users []User `json:"users"`
+}
+
+func BenchmarkJSONMarshal(b *testing.B) {
+    users := make([]User, 1000)
+    for i := range users {
+        users[i] = User{ID: i, Name: fmt.Sprintf("User%d", i)}
+    }
+    data := Data{Users: users}
+
+    b.ResetTimer()
+    for i := 0; i < b.N; i++ {
+        json.Marshal(data)
+    }
+}
+
+func BenchmarkJSONStream(b *testing.B) {
+    users := make([]User, 1000)
+    for i := range users {
+        users[i] = User{ID: i, Name: fmt.Sprintf("User%d", i)}
+    }
+
+    b.ResetTimer()
+    for i := 0; i < b.N; i++ {
+        encoder := json.NewEncoder(os.Stdout)
+        encoder.Encode(users)
+    }
+}
+
+// Streaming is more memory-efficient
+```
+</UniversalEditor>
+
+## Caching with sync.Map
+
+<UniversalEditor title="Concurrent Caching">
+```python !! py
+# Python - lru_cache with thread safety
+from functools import lru_cache
+import threading
+
+@lru_cache(maxsize=1000)
+def expensive_computation(n):
+    return n * n
+
+# Or use custom cache
+cache = {}
+lock = threading.Lock()
+
+def get_value(key):
+    with lock:
+        if key not in cache:
+            cache[key] = expensive_computation(key)
+        return cache[key]
+```
+
+```go !! go
+// Go - sync.Map for concurrent access
+package main
+
+import (
+    "sync"
+    "testing"
+)
+
+// Regular map with mutex (better for most cases)
+type Cache struct {
+    mu   sync.RWMutex
+    data map[int]int
+}
+
+func NewCache() *Cache {
+    return &Cache{
+        data: make(map[int]int),
+    }
+}
+
+func (c *Cache) Get(key int) (int, bool) {
+    c.mu.RLock()
+    defer c.mu.RUnlock()
+    val, ok := c.data[key]
+    return val, ok
+}
+
+func (c *Cache) Set(key, value int) {
+    c.mu.Lock()
+    defer c.mu.Unlock()
+    c.data[key] = value
+}
+
+// sync.Map (good for cache-like workloads)
+func BenchmarkMapWithMutex(b *testing.B) {
+    cache := NewCache()
+    cache.Set(1, 100)
+
+    b.RunParallel(func(pb *testing.PB) {
+        for pb.Next() {
+            cache.Get(1)
+        }
+    })
+}
+
+func BenchmarkSyncMap(b *testing.B) {
+    var m sync.Map
+    m.Store(1, 100)
+
+    b.RunParallel(func(pb *testing.PB) {
+        for pb.Next() {
+            m.Load(1)
+        }
+    })
+}
+```
+</UniversalEditor>
+
+## Avoiding Memory Allocations
+
+<UniversalEditor title="Reduce Allocations">
+```python !! py
+# Python - Reuse objects (limited control)
+class Buffer:
+    def __init__(self):
+        self.data = []
+
+    def process(self, items):
+        # Reuse list instead of creating new
+        self.data.clear()
+        self.data.extend(items)
+        return self.data
+```
+
+```go !! go
+// Go - Reuse buffers to reduce allocations
+package main
+
+import "testing"
+
+func AllocateNew() []int {
+    // New allocation each time
+    return make([]int, 1000)
+}
+
+var buffer = make([]int, 1000)
+
+func ReuseBuffer() []int {
+    // Reuse buffer (zero it first)
+    for i := range buffer {
+        buffer[i] = 0
+    }
+    return buffer
+}
+
+func BenchmarkAllocate(b *testing.B) {
+    for i := 0; i < b.N; i++ {
+        _ = AllocateNew()
+    }
+}
+
+func BenchmarkReuse(b *testing.B) {
+    for i := 0; i < b.N; i++ {
+        _ = ReuseBuffer()
+    }
+}
+
+// ReuseBuffer is much faster (no allocations)
+```
+</UniversalEditor>
+
+## Efficient String Operations
+
+<UniversalEditor title="String vs []byte">
+```python !! py
+# Python - Strings are immutable
+data = "hello world"
+# data[0] = 'H'  # TypeError!
+
+# Must create new string
+data = "H" + data[1:]
+
+# For mutable data, use list
+chars = list(data)
+chars[0] = 'H'
+data = ''.join(chars)
+```
+
+```go !! go
+// Go - Use []byte for mutable data
+package main
+
+import "testing"
+
+func processString(s string) string {
+    // Strings are immutable - creates new string
+    return "H" + s[1:]
+}
+
+func processBytes(b []byte) []byte {
+    // Bytes are mutable - modifies in place
+    if len(b) > 0 {
+        b[0] = 'H'
+    }
+    return b
+}
+
+func BenchmarkString(b *testing.B) {
+    for i := 0; i < b.N; i++ {
+        _ = processString("hello world")
+    }
+}
+
+func BenchmarkBytes(b *testing.B) {
+    for i := 0; i < b.N; i++ {
+        data := []byte("hello world")
+        _ = processBytes(data)
+    }
+}
+
+// Bytes version avoids allocations
+```
+</UniversalEditor>
+
+## Performance Monitoring
+
+<UniversalEditor title="Runtime Metrics">
+```python !! py
+# Python - psutil for monitoring
+import psutil
+import time
+
+def monitor():
+    process = psutil.Process()
+    print(f"CPU: {process.cpu_percent()}%")
+    print(f"Memory: {process.memory_info().rss / 1024 / 1024:.2f} MB")
+    print(f"Threads: {process.num_threads()}")
+```
+
+```go !! go
+// Go - Runtime metrics
+package main
+
+import (
+    "fmt"
+    "runtime"
+    "time"
+)
+
+func main() {
+    var m runtime.MemStats
+
+    // Print stats every second
+    for i := 0; i < 5; i++ {
+        runtime.ReadMemStats(&m)
+
+        fmt.Printf("Goroutines: %d\n", runtime.NumGoroutine())
+        fmt.Printf("Memory: %.2f MB\n", float64(m.Alloc)/1024/1024)
+        fmt.Printf("GC cycles: %d\n", m.NumGC)
+
+        time.Sleep(time.Second)
+    }
+}
+```
+</UniversalEditor>
+
+## HTTP Performance Tips
+
+<UniversalEditor title="Optimizing HTTP Servers">
+```python !! py
+# Python - Performance considerations
+from flask import Flask
+
+app = Flask(__name__)
+
+# Use JSON encoder for performance
+app.json_encoder = MyCustomEncoder
+
+# Enable gzip compression
+from flask_compress import Compress
+Compress(app)
+
+# Use connection pooling
+import requests
+session = requests.Session()
+session.get('http://example.com')
+```
+
+```go !! go
+// Go - HTTP performance tips
+package main
+
+import (
+    "compress/gzip"
+    "net/http"
+    "sync"
+)
+
+// Connection pool
+var transport = &http.Transport{
+    MaxIdleConns:        100,
+    MaxIdleConnsPerHost: 100,
+    IdleConnTimeout:     90 * time.Second,
+}
+
+var client = &http.Client{
+    Transport: transport,
+    Timeout:   30 * time.Second,
+}
+
+// Response compression
+func gzipHandler(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        if acceptsGzip(r) {
+            w = gzip.NewWriter(w)
+            defer w.(interface{ Flush() }).Flush()
+        }
+        next.ServeHTTP(w, r)
+    })
+}
+
+// Reuse buffers
+var bufferPool = sync.Pool{
+    New: func() interface{} {
+        return make([]byte, 1024)
+    },
+}
+
+func getBuffer() []byte {
+    return bufferPool.Get().([]byte)
+}
+
+func putBuffer(b []byte) {
+    bufferPool.Put(b)
+}
+```
+</UniversalEditor>
+
+## Summary
+
+In this module, you learned:
+
+1. **CPU profiling** with `pprof`
+2. **Memory profiling** and heap analysis
+3. **Benchmarking** with `testing` package
+4. **String optimization** - use `strings.Builder`
+5. **Data structure selection** - map vs slice
+6. **Goroutine pools** - limit concurrency
+7. **JSON streaming** for large data
+8. **Concurrent caching** - `sync.Map` vs mutex+map
+9. **Buffer reuse** - reduce allocations
+10. **Byte vs string** - mutable byte arrays
+11. **Runtime metrics** - monitor performance
+12. **HTTP optimization** - pooling, compression, reuse
+
+## Performance Tips Summary
+
+| Area | Python | Go Optimization |
+|------|--------|-----------------|
+| String concatenation | Use `join()` | Use `strings.Builder` |
+| Large datasets | Generators | Streaming, buffers |
+| Concurrency | `ThreadPoolExecutor` | Worker pools |
+| Caching | `lru_cache` | `sync.Map` or mutex+map |
+| Memory | Limited control | Buffer pools, reuse |
+| Profiling | `cProfile`, `memory_profiler` | Built-in `pprof` |
+
+## Common Performance Pitfalls
+
+1. **String concatenation in loops** - Use `strings.Builder`
+2. **Excessive allocations** - Reuse buffers
+3. **Unlimited goroutines** - Use worker pools
+4. **Mutex contention** - Use RWMutex for read-heavy workloads
+5. **Blocking in select** - Add default case for non-blocking
+6. **Large struct copies** - Use pointers
+
+## Exercises
+
+1. Profile a Go application and find bottlenecks
+2. Benchmark different string concatenation methods
+3. Implement a worker pool for concurrent processing
+4. Optimize JSON processing for large files
+5. Compare sync.Map vs mutex-protected map performance
+
+## Next Steps
+
+Next module: **Microservices Architecture** - Building distributed systems with Go.

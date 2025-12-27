@@ -1,0 +1,775 @@
+---
+title: "Module 13: Microservices Architecture"
+description: "Building distributed systems and microservices with Go"
+---
+
+## Introduction
+
+Go is ideal for microservices - fast compilation, small binaries, excellent concurrency, and low memory footprint make it perfect for distributed systems.
+
+## Microservice Basics
+
+<UniversalEditor title="Simple Microservice">
+```python !! py
+# Python - Flask microservice
+from flask import Flask, jsonify
+from typing import Dict
+
+app = Flask(__name__)
+
+users_db: Dict[int, dict] = {
+    1: {"id": 1, "name": "Alice", "email": "alice@example.com"},
+}
+
+@app.route('/health')
+def health():
+    return jsonify({"status": "healthy"})
+
+@app.route('/api/users/<int:user_id>')
+def get_user(user_id):
+    user = users_db.get(user_id)
+    if not user:
+        return jsonify({"error": "Not found"}), 404
+    return jsonify(user)
+
+if __name__ == '__main__':
+    app.run(port=8080)
+```
+
+```go !! go
+// Go - Microservice with net/http
+package main
+
+import (
+    "encoding/json"
+    "net/http"
+    "sync"
+)
+
+type User struct {
+    ID    int    `json:"id"`
+    Name  string `json:"name"`
+    Email string `json:"email"`
+}
+
+var (
+    users = map[int]User{
+        1: {ID: 1, Name: "Alice", Email: "alice@example.com"},
+    }
+    mu sync.RWMutex
+)
+
+func healthHandler(w http.ResponseWriter, r *http.Request) {
+    json.NewEncoder(w).Encode(map[string]string{"status": "healthy"})
+}
+
+func getUserHandler(w http.ResponseWriter, r *http.Request) {
+    userID := extractID(r.URL.Path)
+
+    mu.RLock()
+    user, exists := users[userID]
+    mu.RUnlock()
+
+    if !exists {
+        http.Error(w, "Not found", http.StatusNotFound)
+        return
+    }
+
+    w.Header().Set("Content-Type", "application/json")
+    json.NewEncoder(w).Encode(user)
+}
+
+func main() {
+    http.HandleFunc("/health", healthHandler)
+    http.HandleFunc("/api/users/", getUserHandler)
+
+    http.ListenAndServe(":8080", nil)
+}
+```
+</UniversalEditor>
+
+## Service Discovery
+
+<UniversalEditor title="Service Registration">
+```python !! py
+# Python - Consul service discovery
+import consul
+
+consul_client = consul.Consul()
+
+# Register service
+service_id = "user-service-1"
+consul_client.agent.service.register(
+    name="user-service",
+    service_id=service_id,
+    port=8080,
+    tags=["api", "users"],
+    check=consul.Check.http(
+        url="http://localhost:8080/health",
+        interval="10s"
+    )
+)
+
+# Discover service
+_, services = consul_client.health.service(
+    "user-service",
+    passing=True
+)
+```
+
+```go !! go
+// Go - Consul service discovery
+package main
+
+import (
+    "github.com/hashicorp/consul/api"
+)
+
+func registerService() error {
+    config := api.DefaultConfig()
+    client, _ := api.NewClient(config)
+
+    registration := &api.AgentServiceRegistration{
+        ID:      "user-service-1",
+        Name:    "user-service",
+        Port:    8080,
+        Tags:    []string{"api", "users"},
+        Check: &api.AgentServiceCheck{
+            HTTP:                           "http://localhost:8080/health",
+            Interval:                       "10s",
+            DeregisterCriticalServiceAfter: "30s",
+        },
+    }
+
+    return client.Agent().ServiceRegister(registration)
+}
+
+func discoverService(serviceName string) ([]string, error) {
+    config := api.DefaultConfig()
+    client, _ := api.NewClient(config)
+
+    services, _, err := client.Health().Service(serviceName, "", true, nil)
+    if err != nil {
+        return nil, err
+    }
+
+    var addrs []string
+    for _, service := range services {
+        addr := fmt.Sprintf("%s:%d",
+            service.Service.Address,
+            service.Service.Port,
+        )
+        addrs = append(addrs, addr)
+    }
+
+    return addrs, nil
+}
+```
+</UniversalEditor>
+
+## Inter-Service Communication
+
+<UniversalEditor title="HTTP Client with Retry">
+```python !! py
+# Python - HTTP client with retry
+import requests
+from tenacity import retry, stop_after_attempt, wait_exponential
+
+class ServiceClient:
+    def __init__(self, base_url):
+        self.base_url = base_url
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=10)
+    )
+    def get_user(self, user_id):
+        response = requests.get(
+            f"{self.base_url}/api/users/{user_id}",
+            timeout=5
+        )
+        response.raise_for_status()
+        return response.json()
+
+# Usage
+client = ServiceClient("http://user-service:8080")
+user = client.get_user(1)
+```
+
+```go !! go
+// Go - HTTP client with retry and circuit breaker
+package main
+
+import (
+    "context"
+    "fmt"
+    "net/http"
+    "time"
+)
+
+type ServiceClient struct {
+    baseURL    string
+    httpClient *http.Client
+    retryCount int
+}
+
+func NewServiceClient(baseURL string) *ServiceClient {
+    return &ServiceClient{
+        baseURL: baseURL,
+        httpClient: &http.Client{
+            Timeout: 5 * time.Second,
+            Transport: &http.Transport{
+                MaxIdleConnsPerHost: 100,
+            },
+        },
+        retryCount: 3,
+    }
+}
+
+func (c *ServiceClient) GetUser(ctx context.Context, userID int) (*User, error) {
+    var lastErr error
+
+    for attempt := 0; attempt < c.retryCount; attempt++ {
+        url := fmt.Sprintf("%s/api/users/%d", c.baseURL, userID)
+
+        req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+        if err != nil {
+            return nil, err
+        }
+
+        resp, err := c.httpClient.Do(req)
+        if err == nil {
+            defer resp.Body.Close()
+
+            if resp.StatusCode == http.StatusOK {
+                var user User
+                if err := json.NewDecoder(resp.Body).Decode(&user); err != nil {
+                    return nil, err
+                }
+                return &user, nil
+            }
+            lastErr = fmt.Errorf("unexpected status: %d", resp.StatusCode)
+        } else {
+            lastErr = err
+        }
+
+        // Exponential backoff
+        time.Sleep(time.Duration(1<<attempt) * time.Second)
+    }
+
+    return nil, fmt.Errorf("after %d attempts: %w", c.retryCount, lastErr)
+}
+```
+</UniversalEditor>
+
+## API Gateway Pattern
+
+<UniversalEditor title="API Gateway">
+```python !! py
+# Python - API Gateway with Flask
+from flask import Flask, request, jsonify
+import requests
+
+app = Flask(__name__)
+
+services = {
+    "users": "http://user-service:8080",
+    "orders": "http://order-service:8081",
+}
+
+@app.route('/api/users/<path:path>')
+def proxy_users(path):
+    url = f"{services['users']}/{path}"
+    resp = requests.request(
+        method=request.method,
+        url=url,
+        headers=request.headers,
+        data=request.get_data(),
+    )
+    return resp.content, resp.status_code
+
+@app.route('/api/orders/<path:path>')
+def proxy_orders(path):
+    url = f"{services['orders']}/{path}"
+    resp = requests.request(
+        method=request.method,
+        url=url,
+        headers=request.headers,
+        data=request.get_data(),
+    )
+    return resp.content, resp.status_code
+```
+
+```go !! go
+// Go - API Gateway
+package main
+
+import (
+    "fmt"
+    "net/http"
+    "net/http/httputil"
+    "net/url"
+    "strings"
+)
+
+type APIGateway struct {
+    services map[string]string
+}
+
+func NewAPIGateway() *APIGateway {
+    return &APIGateway{
+        services: map[string]string{
+            "users":  "http://user-service:8080",
+            "orders": "http://order-service:8081",
+        },
+    }
+}
+
+func (g *APIGateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+    // Extract service name from path
+    // /api/users/123 -> users
+    parts := strings.Split(r.URL.Path, "/")
+    if len(parts) < 3 {
+        http.Error(w, "Invalid path", http.StatusBadRequest)
+        return
+    }
+
+    serviceName := parts[2]
+    serviceURL, exists := g.services[serviceName]
+    if !exists {
+        http.Error(w, "Service not found", http.StatusNotFound)
+        return
+    }
+
+    // Create reverse proxy
+    target, _ := url.Parse(serviceURL)
+    proxy := httputil.NewSingleHostReverseProxy(target)
+
+    // Update request path
+    r.URL.Path = "/" + strings.Join(parts[3:], "/")
+
+    // Serve via proxy
+    proxy.ServeHTTP(w, r)
+}
+
+func main() {
+    gateway := NewAPIGateway()
+
+    http.ListenAndServe(":8080", gateway)
+}
+```
+</UniversalEditor>
+
+## Distributed Tracing
+
+<UniversalEditor title="OpenTelemetry Tracing">
+```python !! py
+# Python - OpenTelemetry
+from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.exporter.jaeger import JaegerExporter
+
+# Setup
+trace.set_tracer_provider(TracerProvider())
+tracer = trace.get_tracer(__name__)
+
+jaeger_exporter = JaegerExporter(
+    agent_host_name="jaeger",
+    agent_port=6831,
+)
+
+span_processor = BatchSpanProcessor(jaeger_exporter)
+trace.get_tracer_provider().add_span_processor(span_processor)
+
+# Use in code
+@tracer.start_as_current_span("get_user")
+def get_user(user_id):
+    with tracer.start_as_current_span("database_query"):
+        user = db.query(user_id)
+    return user
+```
+
+```go !! go
+// Go - OpenTelemetry tracing
+package main
+
+import (
+    "context"
+    "go.opentelemetry.io/otel"
+    "go.opentelemetry.io/otel/exporters/jaeger"
+    "go.opentelemetry.io/otel/sdk/trace"
+)
+
+func initTracer() error {
+    exporter, err := jaeger.New(jaeger.WithCollectorEndpoint(
+        jaeger.WithEndpoint("jaeger:14268/api/traces"),
+    ))
+    if err != nil {
+        return err
+    }
+
+    tp := trace.NewTracerProvider(
+        trace.WithBatcher(exporter),
+    )
+    otel.SetTracerProvider(tp)
+
+    return nil
+}
+
+func getUser(ctx context.Context, userID int) (*User, error) {
+    tracer := otel.Tracer("user-service")
+
+    ctx, span := tracer.Start(ctx, "get_user")
+    defer span.End()
+
+    // Database query span
+    _, dbSpan := tracer.Start(ctx, "database_query")
+    user := queryDatabase(ctx, userID)
+    dbSpan.End()
+
+    return user, nil
+}
+```
+</UniversalEditor>
+
+## Event-Driven Architecture
+
+<UniversalEditor title="Message Publishing">
+```python !! py
+# Python - RabbitMQ publishing
+import pika
+import json
+
+connection = pika.BlockingConnection(
+    pika.ConnectionParameters('localhost')
+)
+channel = connection.channel()
+
+# Declare exchange
+channel.exchange_declare(
+    exchange='user_events',
+    exchange_type='topic'
+)
+
+# Publish event
+event = {
+    'type': 'user.created',
+    'user_id': 123,
+    'timestamp': datetime.now().isoformat()
+}
+
+channel.basic_publish(
+    exchange='user_events',
+    routing_key='user.created',
+    body=json.dumps(event)
+)
+```
+
+```go !! go
+// Go - RabbitMQ publishing
+package main
+
+import (
+    "encoding/json"
+    "github.com/streadway/amqp"
+)
+
+type Event struct {
+    Type      string `json:"type"`
+    UserID    int    `json:"user_id"`
+    Timestamp string `json:"timestamp"`
+}
+
+func publishEvent(event Event) error {
+    conn, err := amqp.Dial("amqp://guest:guest@localhost:5672/")
+    if err != nil {
+        return err
+    }
+    defer conn.Close()
+
+    ch, err := conn.Channel()
+    if err != nil {
+        return err
+    }
+    defer ch.Close()
+
+    err = ch.ExchangeDeclare(
+        "user_events",
+        "topic",
+        true,
+        false,
+        false,
+        false,
+        nil,
+    )
+    if err != nil {
+        return err
+    }
+
+    body, _ := json.Marshal(event)
+    err = ch.Publish(
+        "user_events",
+        "user.created",
+        false,
+        false,
+        amqp.Publishing{
+            ContentType: "application/json",
+            Body:        body,
+        },
+    )
+
+    return err
+}
+```
+</UniversalEditor>
+
+## Configuration Management
+
+<UniversalEditor title="Configuration">
+```python !! py
+# Python - Configuration with Pydantic
+from pydantic import BaseSettings
+
+class Settings(BaseSettings):
+    database_url: str
+    redis_url: str
+    jwt_secret: str
+    debug: bool = False
+
+    class Config:
+        env_file = ".env"
+
+settings = Settings()
+
+# Usage
+db.connect(settings.database_url)
+```
+
+```go !! go
+// Go - Configuration with Viper
+package main
+
+import (
+    "github.com/spf13/viper"
+)
+
+type Config struct {
+    DatabaseURL string `mapstructure:"DATABASE_URL"`
+    RedisURL    string `mapstructure:"REDIS_URL"`
+    JWTSecret   string `mapstructure:"JWT_SECRET"`
+    Debug       bool   `mapstructure:"DEBUG"`
+}
+
+func LoadConfig() (*Config, error) {
+    viper.SetConfigFile(".env")
+    viper.AutomaticEnv()
+
+    if err := viper.ReadInConfig(); err != nil {
+        return nil, err
+    }
+
+    var config Config
+    if err := viper.Unmarshal(&config); err != nil {
+        return nil, err
+    }
+
+    return &config, nil
+}
+
+func main() {
+    config, err := LoadConfig()
+    if err != nil {
+        panic(err)
+    }
+
+    // Use config
+    connectDB(config.DatabaseURL)
+}
+```
+</UniversalEditor>
+
+## Health Checks
+
+<UniversalEditor title="Comprehensive Health Check">
+```python !! py
+# Python - Health check endpoints
+from flask import jsonify
+import psycopg2
+import redis
+
+@app.route('/health')
+def health():
+    status = {
+        "status": "healthy",
+        "checks": {}
+    }
+
+    # Database check
+    try:
+        conn = psycopg2.connect(DB_URL)
+        status["checks"]["database"] = "ok"
+        conn.close()
+    except Exception as e:
+        status["checks"]["database"] = f"error: {str(e)}"
+        status["status"] = "unhealthy"
+
+    # Redis check
+    try:
+        r = redis.from_url(REDIS_URL)
+        r.ping()
+        status["checks"]["redis"] = "ok"
+    except Exception as e:
+        status["checks"]["redis"] = f"error: {str(e)}"
+        status["status"] = "unhealthy"
+
+    statusCode = 200 if status["status"] == "healthy" else 503
+    return jsonify(status), statusCode
+```
+
+```go !! go
+// Go - Health check endpoint
+package main
+
+import (
+    "database/sql"
+    "encoding/json"
+    "net/http"
+)
+
+type HealthStatus struct {
+    Status string            `json:"status"`
+    Checks map[string]string `json:"checks"`
+}
+
+func healthHandler(db *sql.DB, redisClient *redis.Client) http.HandlerFunc {
+    return func(w http.ResponseWriter, r *http.Request) {
+        status := HealthStatus{
+            Status: "healthy",
+            Checks: make(map[string]string),
+        }
+
+        // Database check
+        if err := db.Ping(); err != nil {
+            status.Checks["database"] = err.Error()
+            status.Status = "unhealthy"
+        } else {
+            status.Checks["database"] = "ok"
+        }
+
+        // Redis check
+        if err := redisClient.Ping().Err(); err != nil {
+            status.Checks["redis"] = err.Error()
+            status.Status = "unhealthy"
+        } else {
+            status.Checks["redis"] = "ok"
+        }
+
+        statusCode := http.StatusOK
+        if status.Status != "healthy" {
+            statusCode = http.StatusServiceUnavailable
+        }
+
+        w.Header().Set("Content-Type", "application/json")
+        w.WriteHeader(statusCode)
+        json.NewEncoder(w).Encode(status)
+    }
+}
+```
+</UniversalEditor>
+
+## Containerization
+
+<UniversalEditor title="Dockerfile">
+```dockerfile
+# Python - Dockerfile
+FROM python:3.11-slim
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+EXPOSE 8080
+
+CMD ["gunicorn", "--bind", "0.0.0.0:8080", "app:app"]
+```
+
+```dockerfile
+# Go - Dockerfile (multi-stage)
+FROM golang:1.21-alpine AS builder
+
+WORKDIR /app
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+RUN CGO_ENABLED=0 go build -o user-service
+
+# Minimal final image
+FROM alpine:latest
+
+RUN apk --no-cache add ca-certificates
+
+WORKDIR /root/
+
+COPY --from=builder /app/user-service .
+
+EXPOSE 8080
+
+CMD ["./user-service"]
+
+# Result: ~10MB image
+```
+</UniversalEditor>
+
+## Summary
+
+In this module, you learned:
+
+1. **Microservice basics** - Simple HTTP service
+2. **Service discovery** - Consul integration
+3. **Inter-service communication** - HTTP client with retry
+4. **API Gateway** - Reverse proxy pattern
+5. **Distributed tracing** - OpenTelemetry
+6. **Event-driven architecture** - Message queues
+7. **Configuration** - Viper for Go
+8. **Health checks** - Comprehensive monitoring
+9. **Containerization** - Small Docker images
+
+## Microservices Comparison
+
+| Aspect | Python | Go |
+|--------|--------|-----|
+| Service startup | ~2-5 seconds | ~0.1-0.5 seconds |
+| Memory per service | 50-200 MB | 5-20 MB |
+| Docker image | 200-500 MB | 10-20 MB |
+| Request throughput | 500-2,000 req/s | 10,000-50,000 req/s |
+| Cold start | Slower | Faster |
+| Deployment complexity | Needs runtime | Single binary |
+
+## Best Practices
+
+1. **Keep services small** - Single responsibility
+2. **Use service mesh** - Istio, Linkerd for complex systems
+3. **Implement circuit breakers** - Hystrix, resilience4go
+4. **Centralized logging** - ELK stack, Loki
+5. **Metrics collection** - Prometheus, Grafana
+6. **Graceful shutdown** - Handle SIGTERM
+7. **Idempotent operations** - Safe retries
+8. **API versioning** - Backward compatibility
+
+## Exercises
+
+1. Build a complete microservice with CRUD operations
+2. Implement service discovery with Consul
+3. Add distributed tracing with OpenTelemetry
+4. Create an API Gateway for multiple services
+5. Implement event-driven communication with RabbitMQ
+
+## Next Steps
+
+Next module: **Cloud Native Development** - Kubernetes and cloud-native patterns.

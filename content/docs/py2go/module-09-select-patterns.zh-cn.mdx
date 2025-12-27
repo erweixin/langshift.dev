@@ -1,0 +1,1477 @@
+---
+title: "Module 9: Select 与并发模式"
+description: "使用 Select 的高级并发模式"
+---
+
+## 简介
+
+`select` 语句是 Go 最强大的并发原语之一。它使 goroutine 能够同时等待多个通信操作，从而能够安全且富有表现力地实现复杂的协调模式。
+
+### Select 语句功能
+
+- **等待多个 channel**: 任意 channel 准备好时继续
+- **非阻塞操作**: 使用 `default` case
+- **超时支持**: 使用 `time.After` 或 context
+- **随机选择**: 多个 case 准备好时
+- **发送和接收**: 可包含两种操作
+
+## 非阻塞操作
+
+使用带 `default` case 的 `select` 实现非阻塞发送和接收。
+
+<UniversalEditor title="非阻塞操作">
+```python !! py
+# Python - 非阻塞队列操作
+import queue
+
+q = queue.Queue()
+
+# 非阻塞获取
+try:
+    item = q.get(block=False)
+    print("Got:", item)
+except queue.Empty:
+    print("No item available")
+
+# 非阻塞放入
+try:
+    q.put(item, block=False)
+    print("Put successful")
+except queue.Full:
+    print("Queue full")
+```
+
+```go !! go
+// Go - 使用 default case 的非阻塞
+package main
+
+import "fmt"
+
+func main() {
+    ch := make(chan int)
+
+    // 非阻塞接收
+    select {
+    case value := <-ch:
+        fmt.Println("Received:", value)
+    default:
+        fmt.Println("No value available")
+    }
+
+    // 非阻塞发送
+    ch2 := make(chan int, 1)
+    ch2 <- 1
+
+    select {
+    case ch2 <- 2:
+        fmt.Println("Sent successfully")
+    default:
+        fmt.Println("Channel full, can't send")
+    }
+}
+```
+</UniversalEditor>
+
+### 轮询模式
+
+<UniversalEditor title="使用 Select 轮询">
+```python !! py
+# Python - 轮询多个队列
+import queue
+import select
+
+def poll_multiple(*queues):
+    readable, _, _ = select.select(queues, [], [], 0)
+    results = []
+    for q in readable:
+        try:
+            results.append(q.get(block=False))
+        except queue.Empty:
+            pass
+    return results
+```
+
+```go !! go
+// Go - 使用 select 轮询
+package main
+
+import (
+    "fmt"
+    "time"
+)
+
+func poll(channels ...<-chan int) []int {
+    var results []int
+
+    for _, ch := range channels {
+        select {
+        case val := <-ch:
+            results = append(results, val)
+        default:
+            // Channel 未准备好，跳过
+        }
+    }
+
+    return results
+}
+
+func main() {
+    ch1 := make(chan int, 1)
+    ch2 := make(chan int, 1)
+    ch3 := make(chan int) // 无缓冲，无发送者
+
+    ch1 <- 1
+    // ch2 尚无值
+
+    results := poll(ch1, ch2, ch3)
+    fmt.Println("Poll results:", results) // [1]
+}
+```
+</UniversalEditor>
+
+## 超时模式
+
+### 基本超时
+
+<UniversalEditor title="使用 time.After 的超时">
+```python !! py
+# Python - 使用 queue 的超时
+import queue
+
+try:
+    item = queue.get(timeout=5.0)
+    print("Got:", item)
+except queue.Empty:
+    print("Timeout after 5 seconds")
+```
+
+```go !! go
+// Go - 使用 time.After 的超时
+package main
+
+import (
+    "fmt"
+    "time"
+)
+
+func operationWithTimeout(ch <-chan string) {
+    select {
+    case result := <-ch:
+        fmt.Println("Result:", result)
+    case <-time.After(3 * time.Second):
+        fmt.Println("Operation timed out")
+    }
+}
+
+func main() {
+    ch := make(chan string)
+    go func() {
+        time.Sleep(5 * time.Second)
+        ch <- "done"
+    }()
+
+    operationWithTimeout(ch)
+}
+```
+</UniversalEditor>
+
+### Context 超时(首选)
+
+<UniversalEditor title="Context 超时模式">
+```python !! py
+# Python - 使用 concurrent.futures 的超时
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import time
+
+def task():
+    time.sleep(5)
+    return "done"
+
+with ThreadPoolExecutor() as executor:
+    future = executor.submit(task)
+    try:
+        result = future.result(timeout=3)
+        print(result)
+    except TimeoutError:
+        print("Task timed out")
+```
+
+```go !! go
+// Go - Context 超时(首选)
+package main
+
+import (
+    "context"
+    "fmt"
+    "time"
+)
+
+func operationWithContext(ctx context.Context) error {
+    ch := make(chan string)
+
+    go func() {
+        time.Sleep(5 * time.Second)
+        select {
+        case ch <- "done":
+        case <-ctx.Done():
+            return
+        }
+    }()
+
+    select {
+    case result := <-ch:
+        fmt.Println("Result:", result)
+        return nil
+    case <-ctx.Done():
+        return ctx.Err() // context.DeadlineExceeded
+    }
+}
+
+func main() {
+    ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+    defer cancel()
+
+    err := operationWithContext(ctx)
+    if err != nil {
+        fmt.Println("Error:", err)
+    }
+}
+```
+</UniversalEditor>
+
+### 首次响应后取消
+
+<UniversalEditor title="首次响应模式">
+```go !! go
+// Go - 等待首次响应，取消其他
+package main
+
+import (
+    "context"
+    "fmt"
+    "time"
+)
+
+func query(ctx context.Context, server string, result chan<- string) {
+    start := time.Now()
+    defer func() {
+        fmt.Printf("%s took %v\n", server, time.Since(start))
+    }()
+
+    // 模拟可变响应时间
+    time.Sleep(time.Duration(server[1]) * 300 * time.Millisecond)
+
+    select {
+    case result <- fmt.Sprintf("response from %s", server):
+    case <-ctx.Done():
+        fmt.Printf("%s was cancelled\n", server)
+    }
+}
+
+func main() {
+    ctx, cancel := context.WithCancel(context.Background())
+    defer cancel()
+
+    results := make(chan string)
+    servers := []string{"s1", "s2", "s3"}
+
+    for _, server := range servers {
+        go query(ctx, server, results)
+    }
+
+    // 等待首次结果
+    result := <-results
+    fmt.Println("First result:", result)
+
+    // Context 已取消，其他查询停止
+    time.Sleep(time.Second) // 让取消完成
+}
+```
+</UniversalEditor>
+
+## 心跳模式
+
+心跳信号表示长时间运行的操作仍然存活。
+
+<UniversalEditor title="心跳模式">
+```python !! py
+# Python - 使用 threading 的心跳
+import threading
+import time
+
+def worker(heartbeat):
+    while True:
+        # 执行工作
+        time.sleep(1)
+        heartbeat.set()  # 信号存活
+        heartbeat.clear()
+
+heartbeat = threading.Event()
+thread = threading.Thread(target=worker, args=(heartbeat,))
+thread.start()
+
+# 监控心跳
+while True:
+    heartbeat.wait(timeout=5)
+    if heartbeat.is_set():
+        print("Worker is alive")
+    else:
+        print("Worker timeout!")
+        break
+```
+
+```go !! go
+// Go - 使用 ticker 的心跳
+package main
+
+import (
+    "fmt"
+    "time"
+)
+
+func worker(done <-chan struct{}, heartbeat <-chan time.Time) {
+    for {
+        select {
+        case <-done:
+            fmt.Println("Worker exiting")
+            return
+        case <-heartbeat:
+            fmt.Println("Worker heartbeat")
+            // 执行一些工作...
+        }
+    }
+}
+
+func monitor(workers int) {
+    done := make(chan struct{})
+    heartbeat := time.NewTicker(500 * time.Millisecond)
+    defer heartbeat.Stop()
+
+    for i := 0; i < workers; i++ {
+        go worker(done, heartbeat.C)
+    }
+
+    // 监控 3 秒
+    time.Sleep(3 * time.Second)
+    close(done)
+    time.Sleep(100 * time.Millisecond)
+    fmt.Println("Monitor done")
+}
+
+func main() {
+    monitor(3)
+}
+```
+</UniversalEditor>
+
+## 限流
+
+使用 ticker 和 select 控制操作速率。
+
+<UniversalEditor title="限流">
+```python !! py
+# Python - 限流
+import time
+from collections import deque
+
+class RateLimiter:
+    def __init__(self, rate):
+        self.rate = rate  # 每秒请求数
+        self.tokens = deque()
+
+    def acquire(self):
+        now = time.time()
+        # 移除旧令牌
+        while self.tokens and now - self.tokens[0] > 1:
+            self.tokens.popleft()
+
+        if len(self.tokens) < self.rate:
+            self.tokens.append(now)
+            return True
+        return False
+
+limiter = RateLimiter(10)  # 每秒 10 个请求
+
+for i in range(20):
+    if limiter.acquire():
+        process_request(i)
+    else:
+        time.sleep(0.1)  # 等待并重试
+```
+
+```go !! go
+// Go - 使用 ticker 的限流
+package main
+
+import (
+    "fmt"
+    "time"
+)
+
+func processRequests(requests []int, rateLimit time.Duration) {
+    limiter := time.NewTicker(rateLimit)
+    defer limiter.Stop()
+
+    for i, req := range requests {
+        <-limiter.C // 等待限流令牌
+        fmt.Printf("Processing request %d at %v\n", i, time.Now())
+    }
+}
+
+func main() {
+    requests := make([]int, 10)
+    for i := range requests {
+        requests[i] = i
+    }
+
+    fmt.Println("Processing at 3 requests per second")
+    processRequests(requests, 333*time.Millisecond)
+}
+```
+</UniversalEditor>
+
+### 突发限流器
+
+<UniversalEditor title="突发限流器">
+```go !! go
+// Go - 突发限流器
+package main
+
+import (
+    "fmt"
+    "time"
+)
+
+// 允许突发但维持平均速率
+func burstyLimiter(requests []int) {
+    // 用 3 个令牌填充桶
+    bucket := make(chan time.Time, 3)
+
+    // 每秒添加 1 个令牌
+    go func() {
+        ticker := time.NewTicker(time.Second)
+        defer ticker.Stop()
+        for t := range ticker.C {
+            select {
+            case bucket <- t:
+                // 令牌已添加
+            default:
+                // 桶满，丢弃令牌
+            }
+        }
+    }()
+
+    // 消费令牌
+    for i, req := range requests {
+        t := <-bucket // 等待令牌
+        fmt.Printf("Request %d at %v\n", req, t.Format("15:04:05.000"))
+    }
+}
+
+func main() {
+    requests := make([]int, 5)
+    for i := range requests {
+        requests[i] = i
+    }
+
+    burstyLimiter(requests)
+}
+```
+</UniversalEditor>
+
+## 带关闭的 Worker Pool
+
+Worker pool 的优雅关闭模式。
+
+<UniversalEditor title="Worker Pool 关闭">
+```python !! py
+# Python - 带关闭的 worker pool
+import threading
+import queue
+
+class WorkerPool:
+    def __init__(self, num_workers):
+        self.tasks = queue.Queue()
+        self.workers = []
+        self.shutdown = threading.Event()
+
+        for i in range(num_workers):
+            t = threading.Thread(target=self.worker, args=(i,))
+            t.start()
+            self.workers.append(t)
+
+    def worker(self, id):
+        while not self.shutdown.is_set():
+            try:
+                task = self.tasks.get(timeout=0.1)
+                task()
+            except queue.Empty:
+                continue
+
+    def add_task(self, task):
+        self.tasks.put(task)
+
+    def stop(self):
+        self.shutdown.set()
+        for t in self.workers:
+            t.join()
+```
+
+```go !! go
+// Go - 带优雅关闭的 worker pool
+package main
+
+import (
+    "context"
+    "fmt"
+    "sync"
+    "time"
+)
+
+func worker(id int, ctx context.Context, jobs <-chan int, results chan<- int, wg *sync.WaitGroup) {
+    defer wg.Done()
+    for {
+        select {
+        case <-ctx.Done():
+            fmt.Printf("Worker %d: shutting down\n", id)
+            return
+        case job, ok := <-jobs:
+            if !ok {
+                return
+            }
+            fmt.Printf("Worker %d: processing job %d\n", id, job)
+            results <- job * 2
+        }
+    }
+}
+
+func main() {
+    ctx, cancel := context.WithCancel(context.Background())
+    jobs := make(chan int, 100)
+    results := make(chan int, 100)
+
+    var wg sync.WaitGroup
+
+    // 启动 workers
+    for w := 1; w <= 3; w++ {
+        wg.Add(1)
+        go worker(w, ctx, jobs, results, &wg)
+    }
+
+    // 发送一些任务
+    go func() {
+        for j := 1; j <= 5; j++ {
+            jobs <- j
+        }
+    }()
+
+    // 等待一会然后取消
+    time.Sleep(time.Millisecond)
+    cancel()
+    close(jobs)
+
+    // 等待 workers 完成
+    go func() {
+        wg.Wait()
+        close(results)
+    }()
+
+    // 收集结果
+    for result := range results {
+        fmt.Println("Result:", result)
+    }
+
+    fmt.Println("All workers shut down")
+}
+```
+</UniversalEditor>
+
+## Context 模式
+
+### Context 层次结构
+
+<UniversalEditor title="Context 层次结构">
+```python !! py
+# Python - 使用 threading.local 的 context
+import threading
+
+class Context:
+    def __init__(self, parent=None):
+        self.parent = parent
+        self.data = threading.local()
+        self.cancelled = False
+
+    def cancel(self):
+        self.cancelled = True
+
+    def check_cancelled(self):
+        if self.cancelled:
+            raise CancelledError()
+        if self.parent:
+            self.parent.check_cancelled()
+
+# 使用
+ctx = Context()
+child_ctx = Context(parent=ctx)
+ctx.cancel()  # 取消 ctx 和 child_ctx
+```
+
+```go !! go
+// Go - Context 层次结构
+package main
+
+import (
+    "context"
+    "fmt"
+    "time"
+)
+
+func operation(ctx context.Context, name string) {
+    for {
+        select {
+        case <-ctx.Done():
+            fmt.Printf("%s: %v\n", name, ctx.Err())
+            return
+        case <-time.After(500 * time.Millisecond):
+            fmt.Printf("%s: working...\n", name)
+        }
+    }
+}
+
+func main() {
+    // 带超时的父 context
+    parent, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+    defer cancel()
+
+    // 子 context 继承父的截止时间
+    child, cancelChild := context.WithCancel(parent)
+    defer cancelChild()
+
+    go operation(parent, "parent")
+    go operation(child, "child")
+
+    time.Sleep(time.Second)
+    cancelChild() // 提前取消子
+
+    time.Sleep(2 * time.Second)
+}
+```
+</UniversalEditor>
+
+### 带值的 Context
+
+<UniversalEditor title="Context 值">
+```python !! py
+# Python - 线程本地 context 值
+import threading
+from contextvars import ContextVar
+
+request_id = ContextVar('request_id', default=None)
+
+def handle_request():
+    rid = request_id.get()
+    print(f"Handling request {rid}")
+
+def middleware():
+    # 设置 context 值
+    request_id.set('req-123')
+    handle_request()
+```
+
+```go !! go
+// Go - Context 值
+package main
+
+import (
+    "context"
+    "fmt"
+)
+
+type contextKey string
+
+const (
+    userIDKey   contextKey = "userID"
+    requestIDKey contextKey = "requestID"
+)
+
+func handleRequest(ctx context.Context) {
+    userID := ctx.Value(userIDKey).(string)
+    requestID := ctx.Value(requestIDKey).(string)
+
+    fmt.Printf("User: %s, Request: %s\n", userID, requestID)
+}
+
+func main() {
+    ctx := context.Background()
+
+    // 添加值到 context
+    ctx = context.WithValue(ctx, userIDKey, "user-123")
+    ctx = context.WithValue(ctx, requestIDKey, "req-456")
+
+    handleRequest(ctx)
+}
+```
+</UniversalEditor>
+
+## 高级模式
+
+### 生成器模式
+
+<UniversalEditor title="生成器模式">
+```python !! py
+# Python - 使用 yield 的生成器
+def generate_numbers(n):
+    for i in range(n):
+        yield i
+
+def square(numbers):
+    for n in numbers:
+        yield n * n
+
+# 链式生成器
+result = list(square(generate_numbers(5)))
+print(result)  # [0, 1, 4, 9, 16]
+```
+
+```go !! go
+// Go - 使用 channel 的生成器
+package main
+
+import "fmt"
+
+// 生成数字的生成器函数
+func generate(n int) <-chan int {
+    out := make(chan int)
+    go func() {
+        defer close(out)
+        for i := 0; i < n; i++ {
+            out <- i
+        }
+    }()
+    return out
+}
+
+// 转换器函数
+func square(in <-chan int) <-chan int {
+    out := make(chan int)
+    go func() {
+        defer close(out)
+        for n := range in {
+            out <- n * n
+        }
+    }()
+    return out
+}
+
+func main() {
+    // 链式生成器
+    for n := range square(generate(5)) {
+        fmt.Println(n)
+    }
+}
+```
+</UniversalEditor>
+
+### Tee 模式: 分割 Channel
+
+<UniversalEditor title="Tee 模式">
+```python !! py
+# Python - 分割迭代器
+import itertools
+
+def tee(iterable, n=2):
+    it = iter(iterable)
+    deques = [collections.deque() for _ in range(n)]
+
+    def gen(dq):
+        while True:
+            if not dq:
+                try:
+                    val = next(it)
+                except StopIteration:
+                    return
+                for d in deques:
+                    d.append(val)
+            yield dq.popleft()
+
+    return [gen(d) for d in deques]
+
+it1, it2, it3 = tee(range(5), 3)
+```
+
+```go !! go
+// Go - Tee: 分割 channel 到多个
+package main
+
+import (
+    "fmt"
+    "sync"
+)
+
+func tee(in <-chan int, n int) []<-chan int {
+    outs := make([]chan int, n)
+    for i := 0; i < n; i++ {
+        outs[i] = make(chan int)
+    }
+
+    go func() {
+        var wg sync.WaitGroup
+        for _, out := range outs {
+            wg.Add(1)
+            go func(ch chan<- int) {
+                defer wg.Done()
+                for val := range in {
+                    ch <- val
+                }
+                close(ch)
+            }(out)
+        }
+        wg.Wait()
+    }()
+
+    // 转换为只读 channel
+    result := make([]<-chan int, n)
+    for i, out := range outs {
+        result[i] = out
+    }
+    return result
+}
+
+func main() {
+    in := make(chan int)
+    go func() {
+        defer close(in)
+        for i := 0; i < 5; i++ {
+            in <- i
+        }
+    }()
+
+    // 分割到 3 个 channel
+    channels := tee(in, 3)
+
+    var wg sync.WaitGroup
+    for i, ch := range channels {
+        wg.Add(1)
+        go func(idx int, c <-chan int) {
+            defer wg.Done()
+            for val := range c {
+                fmt.Printf("Channel %d: %d\n", idx, val)
+            }
+        }(i, ch)
+    }
+
+    wg.Wait()
+}
+```
+</UniversalEditor>
+
+### Bridge 模式: Channel 序列
+
+<UniversalEditor title="Bridge 模式">
+```go !! go
+// Go - Bridge: 消费 channel 的 channel
+package main
+
+import "fmt"
+
+// Bridge 接收 channel 的 channel 并返回单个 channel
+func bridge(done <-chan struct{}, chanStream <-chan <-chan int) <-chan int {
+    valStream := make(chan int)
+    go func() {
+        defer close(valStream)
+        for {
+            var stream <-chan int
+            select {
+            case maybeStream, ok := <-chanStream:
+                if !ok {
+                    return
+                }
+                stream = maybeStream
+            case <-done:
+                return
+            }
+
+            for val := range orDone(done, stream) {
+                select {
+                case valStream <- val:
+                case <-done:
+                }
+            }
+        }
+    }()
+    return valStream
+}
+
+func orDone(done <-chan struct{}, c <-chan int) <-chan int {
+    valStream := make(chan int)
+    go func() {
+        defer close(valStream)
+        for {
+            select {
+            case <-done:
+                return
+            case v, ok := <-c:
+                if !ok {
+                    return
+                }
+                select {
+                case valStream <- v:
+                case <-done:
+                }
+            }
+        }
+    }()
+    return valStream
+}
+
+func main() {
+    done := make(chan struct{})
+    defer close(done)
+
+    chanStream := make(chan (<-chan int))
+    go func() {
+        for i := 0; i < 5; i++ {
+            ch := make(chan int, 1)
+            ch <- i
+            close(ch)
+            chanStream <- ch
+        }
+        close(chanStream)
+    }()
+
+    for val := range bridge(done, chanStream) {
+        fmt.Println(val)
+    }
+}
+```
+</UniversalEditor>
+
+## 广播模式
+
+向多个接收者发送相同消息。
+
+<UniversalEditor title="广播模式">
+```python !! py
+# Python - 使用 threading 的广播
+import threading
+
+def broadcaster():
+    while True:
+        msg = queue.get()
+        for listener in listeners:
+            listener.put(msg)
+```
+
+```go !! go
+// Go - 广播模式
+package main
+
+import (
+    "fmt"
+    "sync"
+)
+
+type Broadcaster struct {
+    mu       sync.Mutex
+    listeners []chan<- string
+}
+
+func (b *Broadcaster) AddListener(ch chan<- string) {
+    b.mu.Lock()
+    defer b.mu.Unlock()
+    b.listeners = append(b.listeners, ch)
+}
+
+func (b *Broadcaster) Broadcast(msg string) {
+    b.mu.Lock()
+    defer b.mu.Unlock()
+
+    for _, listener := range b.listeners {
+        select {
+        case listener <- msg:
+        default:
+            // Channel 满，丢弃消息
+        }
+    }
+}
+
+func main() {
+    b := &Broadcaster{}
+
+    // 添加监听者
+    ch1 := make(chan string, 10)
+    ch2 := make(chan string, 10)
+    ch3 := make(chan string, 10)
+
+    b.AddListener(ch1)
+    b.AddListener(ch2)
+    b.AddListener(ch3)
+
+    // 广播消息
+    messages := []string{"hello", "world", "goodbye"}
+    for _, msg := range messages {
+        b.Broadcast(msg)
+    }
+
+    // 收集消息
+    close(ch1)
+    close(ch2)
+    close(ch3)
+
+    for msg := range ch1 {
+        fmt.Println("ch1:", msg)
+    }
+}
+```
+</UniversalEditor>
+
+## 哲学家就餐
+
+使用 select 解决的经典并发问题。
+
+<UniversalEditor title="哲学家就餐">
+```python !! py
+# Python - 使用锁的哲学家就餐
+import threading
+
+class Philosopher(threading.Thread):
+    def __init__(self, name, left_fork, right_fork):
+        super().__init__()
+        self.name = name
+        self.left_fork = left_fork
+        self.right_fork = right_fork
+
+    def run(self):
+        while True:
+            with self.left_fork:
+                with self.right_fork:
+                    self.eat()
+            self.think()
+```
+
+```go !! go
+// Go - 使用 select 的哲学家就餐
+package main
+
+import (
+    "fmt"
+    "sync"
+    "time"
+)
+
+type Philosopher struct {
+    name      string
+    leftFork  *sync.Mutex
+    rightFork *sync.Mutex
+}
+
+func (p *Philosopher) dine(wg *sync.WaitGroup, seat chan *Philosopher, quit chan struct{}) {
+    defer wg.Done()
+
+    for {
+        select {
+        case seat <- p: // 获取座位
+            p.leftFork.Lock()
+            p.rightFork.Lock()
+
+            fmt.Printf("%s is eating\n", p.name)
+            time.Sleep(time.Millisecond)
+
+            p.rightFork.Unlock()
+            p.leftFork.Unlock()
+
+            <-seat // 释放座位
+            fmt.Printf("%s is thinking\n", p.name)
+
+        case <-quit: // 关闭
+            return
+        }
+    }
+}
+
+func main() {
+    philosophers := []*Philosopher{
+        {"Plato", &sync.Mutex{}, &sync.Mutex{}},
+        {"Socrates", &sync.Mutex{}, &sync.Mutex{}},
+        {"Aristotle", &sync.Mutex{}, &sync.Mutex{}},
+    }
+
+    quit := make(chan struct{})
+    seat := make(chan *Philosopher, len(philosophers)-1)
+
+    var wg sync.WaitGroup
+    for _, p := range philosophers {
+        wg.Add(1)
+        go p.dine(&wg, seat, quit)
+    }
+
+    time.Sleep(time.Second)
+    close(quit)
+    wg.Wait()
+}
+```
+</UniversalEditor>
+
+## 最佳实践
+
+### 1. 始终在 Select 中包含 Context
+
+<UniversalEditor title="Select 中的 Context">
+```go !! go
+// 好的 - 始终检查 context
+func worker(ctx context.Context, jobs <-chan int) {
+    for {
+        select {
+        case <-ctx.Done():
+            return // 清理退出
+        case job, ok := <-jobs:
+            if !ok {
+                return
+            }
+            process(job)
+        }
+    }
+}
+
+// 坏的 - 无取消
+func workerBad(jobs <-chan int) {
+    for {
+        select {
+        case job := <-jobs:
+            process(job)
+            // 无法干净退出!
+        }
+    }
+}
+```
+</UniversalEditor>
+
+### 2. 在 Select 中处理 Channel 关闭
+
+<UniversalEditor title="处理 Channel 关闭">
+```go !! go
+// 好的 - 检查 ok 以检测关闭
+func receiver(ch <-chan int) {
+    for {
+        select {
+        case val, ok := <-ch:
+            if !ok {
+                fmt.Println("Channel closed")
+                return
+            }
+            fmt.Println("Received:", val)
+        case <-time.After(time.Second):
+            fmt.Println("Timeout")
+        }
+    }
+}
+
+// 坏的 - 不检测关闭
+func receiverBad(ch <-chan int) {
+    for {
+        select {
+        case val := <-ch:
+            fmt.Println(val) // 关闭时获取零值!
+        }
+    }
+}
+```
+</UniversalEditor>
+
+### 3. 避免在循环中使用 time.After
+
+<UniversalEditor title="避免泄漏 Ticker">
+```go !! go
+// 坏的 - time.After 在循环中泄漏
+func badTicker() {
+    for {
+        select {
+        case <-time.After(time.Second):
+            fmt.Println("tick")
+            // time.After 每次循环创建新 goroutine!
+        }
+    }
+}
+
+// 好的 - 重用 ticker
+func goodTicker() {
+    ticker := time.NewTicker(time.Second)
+    defer ticker.Stop()
+
+    for {
+        select {
+        case <-ticker.C:
+            fmt.Println("tick")
+        }
+    }
+}
+```
+</UniversalEditor>
+
+### 4. 谨慎使用 Default
+
+<UniversalEditor title="Default Case 使用">
+```go !! go
+// 好的 - Default 用于非阻塞
+func trySend(ch chan<- int, val int) bool {
+    select {
+    case ch <- val:
+        return true
+    default:
+        return false
+    }
+}
+
+// 坏的 - 使用 default 忙等待
+func busyWait(ch <-chan int) int {
+    for {
+        select {
+        case val := <-ch:
+            return val
+        default:
+            // 占用 CPU! 很糟糕!
+        }
+    }
+}
+
+// 好的 - Sleep 或使用超时
+func goodWait(ch <-chan int) int {
+    for {
+        select {
+        case val := <-ch:
+            return val
+        case <-time.After(50 * time.Millisecond):
+            // 让出 CPU
+        }
+    }
+}
+```
+</UniversalEditor>
+
+## 实际示例
+
+### 发布-订阅系统
+
+<UniversalEditor title="发布-订阅模式">
+```go !! go
+// Go - 简单的 pub-sub
+package main
+
+import (
+    "fmt"
+    "sync"
+)
+
+type Broker struct {
+    mu       sync.RWMutex
+    topics   map[string][]chan string
+}
+
+func NewBroker() *Broker {
+    return &Broker{
+        topics: make(map[string][]chan string),
+    }
+}
+
+func (b *Broker) Subscribe(topic string) <-chan string {
+    b.mu.Lock()
+    defer b.mu.Unlock()
+
+    ch := make(chan string, 10)
+    b.topics[topic] = append(b.topics[topic], ch)
+    return ch
+}
+
+func (b *Broker) Publish(topic, msg string) {
+    b.mu.RLock()
+    defer b.mu.RUnlock()
+
+    for _, sub := range b.topics[topic] {
+        go func(ch chan<- string) {
+            select {
+            case ch <- msg:
+            default:
+                // 订阅者慢，丢弃
+            }
+        }(sub)
+    }
+}
+
+func main() {
+    broker := NewBroker()
+
+    // 订阅主题
+    sub1 := broker.Subscribe("news")
+    sub2 := broker.Subscribe("news")
+    sub3 := broker.Subscribe("sports")
+
+    // 发布消息
+    broker.Publish("news", "Breaking: Go is awesome!")
+    broker.Publish("sports", "Game update: 5-3")
+
+    // 接收
+    fmt.Println("Sub1:", <-sub1)
+    fmt.Println("Sub2:", <-sub2)
+    fmt.Println("Sub3:", <-sub3)
+}
+```
+</UniversalEditor>
+
+### 负载均衡器
+
+<UniversalEditor title="负载均衡器模式">
+```go !! go
+// Go - 简单的负载均衡器
+package main
+
+import (
+    "fmt"
+    "sync"
+)
+
+type Server struct {
+    id int
+}
+
+type LoadBalancer struct {
+    servers []chan Request
+    current int
+    mu      sync.Mutex
+}
+
+type Request struct {
+    URL    string
+    Result chan<- string
+}
+
+func NewLoadBalancer(numServers int) *LoadBalancer {
+    lb := &LoadBalancer{
+        servers: make([]chan Request, numServers),
+    }
+
+    for i := 0; i < numServers; i++ {
+        lb.servers[i] = make(chan Request, 10)
+        s := &Server{id: i}
+        go s.handle(lb.servers[i])
+    }
+
+    return lb
+}
+
+func (s *Server) handle(reqs <-chan Request) {
+    for req := range reqs {
+        result := fmt.Sprintf("Server %d handled %s", s.id, req.URL)
+        req.Result <- result
+    }
+}
+
+func (lb *LoadBalancer) Balance(req Request) {
+    lb.mu.Lock()
+    lb.current = (lb.current + 1) % len(lb.servers)
+    server := lb.servers[lb.current]
+    lb.mu.Unlock()
+
+    server <- req
+}
+
+func main() {
+    lb := NewLoadBalancer(3)
+
+    results := make(chan string, 10)
+
+    for i := 0; i < 10; i++ {
+        go func(id int) {
+            req := Request{
+                URL:    fmt.Sprintf("/request-%d", id),
+                Result: results,
+            }
+            lb.Balance(req)
+        }(i)
+    }
+
+    for i := 0; i < 10; i++ {
+        fmt.Println(<-results)
+    }
+}
+```
+</UniversalEditor>
+
+## 总结
+
+### 核心概念
+
+1. **非阻塞操作**: Default case 用于非阻塞 I/O
+2. **超时模式**: time.After vs context
+3. **心跳**: 存活信号
+4. **限流**: 控制操作频率
+5. **Worker pool**: 使用 context 优雅关闭
+6. **Context 层次结构**: 取消传播
+7. **生成器**: 基于 channel 的序列
+8. **Fan-out/fan-in**: 分发和聚合
+9. **Pipeline**: 链式处理阶段
+10. **广播**: 一对多通信
+
+### 常见模式
+
+- **Or-done**: 多取消源
+- **Bridge**: 消费 channel 的 channel
+- **Tee**: 分割 channel 到多个
+- **心跳**: 存活信号
+- **限流器**: 节流操作
+- **发布-订阅**: 基于主题的消息传递
+- **负载均衡器**: 分发请求
+- **Worker pool**: 有界并发
+
+### 最佳实践
+
+1. 在 select 中包含 context 以便取消
+2. 检查 `ok` 以检测 channel 关闭
+3. 避免在循环中使用 `time.After`(会泄漏!)
+4. 谨慎使用 default
+5. 只从发送方关闭 channel
+6. 处理 goroutine 中的 panic
+7. 防止 goroutine 泄漏
+8. 使用 defer 进行清理
+
+### 与 Python 的比较
+
+| Python | Go |
+|--------|-----|
+| `queue.get(block=False)` | 带有 `default` 的 `select` |
+| `queue.get(timeout=5)` | 带有 `time.After` 的 `select` |
+| `threading.Event` | `context.Context` |
+| `select.select` | `select` 语句 |
+| 生成器函数 | Channel 生成器 |
+| 线程原语 | Goroutine 模式 |
+
+## 练习
+
+1. 实现发布-订阅系统:
+   - 主题: "news"、"sports"、"tech"
+   - 每个主题多个订阅者
+   - 阻塞和非阻塞发布
+
+2. 构建限流器:
+   - 每秒 10 个请求
+   - 允许突发 5 个
+   - 丢弃或排队多余请求
+
+3. 创建工作队列:
+   - 多个生产者
+   - 多个消费者
+   - 优雅关闭
+   - 结果收集
+
+4. 实现 pipeline:
+   - 生成 → 过滤 → 转换 → 聚合
+   - 每个阶段在单独 goroutine
+   - Context 取消传播
+
+5. 构建负载均衡器:
+   - 循环分发
+   - 处理服务器故障
+   - 断路器模式
+
+## 下一步
+
+下一个模块: **Go 测试** - 编写测试、基准测试和表驱动测试。

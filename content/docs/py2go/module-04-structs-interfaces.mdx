@@ -1,0 +1,1356 @@
+---
+title: "Module 4: Structs and Interfaces"
+description: "Go's approach to object-oriented programming without classes"
+---
+
+## Introduction
+
+Go doesn't have classes or inheritance. Instead, it uses **structs** for data and **interfaces** for behavior. This is a simpler, more flexible approach to OOP that encourages composition over inheritance.
+
+## Structs Basics
+
+### Defining Structs
+
+<UniversalEditor title="Structs vs Classes">
+```python !! py
+# Python - Class with __init__
+class Person:
+    def __init__(self, name, age):
+        self.name = name
+        self.age = age
+
+    def greet(self):
+        return f"Hi, I'm {self.name}"
+
+person = Person("Alice", 30)
+print(person.greet())
+```
+
+```go !! go
+// Go - Struct
+package main
+
+import "fmt"
+
+type Person struct {
+    Name string
+    Age  int
+}
+
+func (p Person) Greet() string {
+    return fmt.Sprintf("Hi, I'm %s", p.Name)
+}
+
+func main() {
+    person := Person{Name: "Alice", Age: 30}
+    fmt.Println(person.Greet())
+}
+```
+</UniversalEditor>
+
+### Struct Field Visibility
+
+<UniversalEditor title="Exported vs Unexported Fields">
+```python !! py
+# Python - Public vs private (convention)
+class Person:
+    def __init__(self, name, age, ssn):
+        self.name = name      # Public
+        self._age = age        # Protected (convention)
+        self.__ssn = ssn      # Private (name mangling)
+
+    def get_age(self):
+        return self._age
+```
+
+```go !! go
+// Go - Exported vs unexported
+package main
+
+import "fmt"
+
+type Person struct {
+    Name   string  // Exported (capitalized)
+    age    int     // Unexported (lowercase)
+    SSN    string  // Exported
+}
+
+func (p Person) GetAge() int {
+    return p.age  // Can access within package
+}
+
+func NewPerson(name string, age int, ssn string) Person {
+    return Person{
+        Name: name,
+        age:  age,   // Can set unexported field
+        SSN:  ssn,
+    }
+}
+
+func main() {
+    p := NewPerson("Alice", 30, "123-45-6789")
+    fmt.Println(p.Name)  // OK - exported
+    fmt.Println(p.GetAge())  // OK - method
+    // fmt.Println(p.age)  // Error: unexported
+}
+```
+</UniversalEditor>
+
+### Creating and Initializing Structs
+
+<UniversalEditor title="Struct Creation Methods">
+```python !! py
+# Python - Class instantiation
+class Point:
+    def __init__(self, x=0, y=0):
+        self.x = x
+        self.y = y
+
+p1 = Point(1, 2)
+p2 = Point(x=3, y=4)
+p3 = Point()  # Default values
+p4 = Point(5)  # Partial (y=0)
+```
+
+```go !! go
+// Go - Struct creation
+package main
+
+import "fmt"
+
+type Point struct {
+    X int
+    Y int
+}
+
+// Constructor function (idiomatic)
+func NewPoint(x, y int) Point {
+    return Point{X: x, Y: y}
+}
+
+// Constructor with defaults
+func NewDefaultPoint() Point {
+    return Point{X: 0, Y: 0}
+}
+
+func main() {
+    p1 := Point{1, 2}           // Positional (order matters)
+    p2 := Point{X: 3, Y: 4}     // Named fields
+    p3 := Point{}               // Zero values
+    p4 := Point{X: 5}           // Partial (Y=0)
+    p5 := NewPoint(6, 7)        // Constructor
+    p6 := NewDefaultPoint()     // Default constructor
+
+    fmt.Println(p1, p2, p3, p4, p5, p6)
+}
+```
+</UniversalEditor>
+
+### Struct Tags
+
+<UniversalEditor title="Struct Tags">
+```python !! py
+# Python - No built-in struct tags
+# Would use decorators or class attributes
+class User:
+    def __init__(self, name, email):
+        self.name = name
+        self.email = email
+
+    @classmethod
+    def from_dict(cls, data):
+        return cls(data['name'], data['email'])
+```
+
+```go !! go
+// Go - Struct tags (metadata)
+package main
+
+import (
+    "encoding/json"
+    "fmt"
+)
+
+type User struct {
+    ID       int    `json:"id"`                    // JSON key
+    Name     string `json:"name"`                  // JSON key
+    Email    string `json:"email,omitempty"`       // Omit if empty
+    Password string `json:"-"`                     // Never in JSON
+    Internal string `json:"internal,internal"`     // Multiple options
+    DBName   string `db:"user_name" json:"name"`  // Multiple tags
+}
+
+func main() {
+    user := User{
+        ID:       1,
+        Name:     "Alice",
+        Email:    "alice@example.com",
+        Password: "secret",
+        Internal: "internal_data",
+        DBName:   "alice_db",
+    }
+
+    // JSON encoding respects tags
+    jsonBytes, _ := json.Marshal(user)
+    fmt.Println(string(jsonBytes))
+    // Output: {"id":1,"name":"Alice","email":"alice@example.com","internal":"internal_data"}
+}
+```
+</UniversalEditor>
+
+### Anonymous Structs
+
+<UniversalEditor title="Anonymous Structs">
+```python !! py
+# Python - No anonymous classes (use namedtuple or dict)
+from collections import namedtuple
+Point = namedtuple('Point', ['x', 'y'])
+p = Point(1, 2)
+
+# Or use dict
+p = {'x': 1, 'y': 2}
+```
+
+```go !! go
+// Go - Anonymous structs
+package main
+
+import "fmt"
+
+func main() {
+    // Anonymous struct literal
+    point := struct {
+        X int
+        Y int
+    }{
+        X: 1,
+        Y: 2,
+    }
+
+    fmt.Println(point)
+
+    // Slice of anonymous structs
+    people := []struct {
+        Name string
+        Age  int
+    }{
+        {"Alice", 30},
+        {"Bob", 25},
+    }
+
+    for _, p := range people {
+        fmt.Printf("%s is %d\n", p.Name, p.Age)
+    }
+}
+```
+</UniversalEditor>
+
+## Composition over Inheritance
+
+Go uses composition instead of inheritance, which is more flexible:
+
+### Basic Composition
+
+<UniversalEditor title="Composition Basics">
+```python !! py
+# Python - Inheritance
+class Animal:
+    def __init__(self, name):
+        self.name = name
+
+    def speak(self):
+        pass
+
+class Dog(Animal):
+    def __init__(self, name, breed):
+        super().__init__(name)
+        self.breed = breed
+
+    def speak(self):
+        return f"{self.name} says Woof!"
+
+dog = Dog("Buddy", "Golden Retriever")
+print(dog.speak())
+print(dog.name)  # Inherited
+```
+
+```go !! go
+// Go - Composition
+package main
+
+import "fmt"
+
+type Animal struct {
+    Name string
+}
+
+func (a Animal) Speak() string {
+    return fmt.Sprintf("%s makes a sound", a.Name)
+}
+
+type Dog struct {
+    Animal  // Embedded struct (composition)
+    Breed   string
+}
+
+func (d Dog) Speak() string {
+    return fmt.Sprintf("%s says Woof!", d.Name)
+}
+
+func main() {
+    dog := Dog{
+        Animal: Animal{Name: "Buddy"},
+        Breed:  "Golden Retriever",
+    }
+
+    fmt.Println(dog.Speak())
+    fmt.Println(dog.Name)  // Access embedded field directly (promoted)
+    fmt.Println(dog.Breed)
+
+    // Can also access through embedded type
+    fmt.Println(dog.Animal.Name)
+}
+```
+</UniversalEditor>
+
+### Multiple Composition
+
+<UniversalEditor title="Multiple Composition">
+```python !! py
+# Python - Multiple inheritance
+class Flyable:
+    def fly(self):
+        return "Flying"
+
+class Swimmable:
+    def swim(self):
+        return "Swimming"
+
+class Duck(Flyable, Swimmable):
+    def __init__(self, name):
+        self.name = name
+
+duck = Duck("Donald")
+print(duck.fly())
+print(duck.swim())
+```
+
+```go !! go
+// Go - Multiple composition
+package main
+
+import "fmt"
+
+type Flyable struct{}
+
+func (f Flyable) Fly() string {
+    return "Flying"
+}
+
+type Swimmable struct{}
+
+func (s Swimmable) Swim() string {
+    return "Swimming"
+}
+
+type Duck struct {
+    Flyable
+    Swimmable
+    Name string
+}
+
+func main() {
+    duck := Duck{
+        Name: "Donald",
+    }
+
+    fmt.Println(duck.Fly())
+    fmt.Println(duck.Swim())
+    fmt.Println(duck.Name)
+}
+```
+</UniversalEditor>
+
+### Method Resolution and Shadowing
+
+<UniversalEditor title="Method Shadowing">
+```python !! py
+# Python - MRO (Method Resolution Order)
+class A:
+    def show(self):
+        print("A")
+
+class B(A):
+    def show(self):
+        print("B")
+
+class C(B):
+    pass
+
+obj = C()
+obj.show()  # Prints "B" (finds in B first)
+```
+
+```go !! go
+// Go - Method promotion and shadowing
+package main
+
+import "fmt"
+
+type Animal struct {
+    Name string
+}
+
+func (a Animal) Speak() string {
+    return "Animal sound"
+}
+
+type Dog struct {
+    Animal
+    Breed string
+}
+
+// Dog's Speak shadows Animal's Speak
+func (d Dog) Speak() string {
+    return "Woof!"
+}
+
+func main() {
+    animal := Animal{Name: "Generic"}
+    dog := Dog{
+        Animal: Animal{Name: "Buddy"},
+        Breed:  "Golden",
+    }
+
+    fmt.Println(animal.Speak())  // "Animal sound"
+    fmt.Println(dog.Speak())      // "Woof!" (Dog's method)
+
+    // Can still call Animal's method through the embedded field
+    fmt.Println(dog.Animal.Speak())  // "Animal sound"
+}
+```
+</UniversalEditor>
+
+## Interfaces
+
+Interfaces are implicitly implemented - no explicit "implements" keyword needed. This is one of Go's most powerful features.
+
+### Basic Interfaces
+
+<UniversalEditor title="Implicit Interface Satisfaction">
+```python !! py
+# Python - Duck typing (implicit)
+class Duck:
+    def quack(self):
+        return "Quack!"
+
+class Person:
+    def quack(self):
+        return "I'm quacking like a duck!"
+
+def make_it_quack(thing):
+    if hasattr(thing, 'quack'):
+        print(thing.quack())
+
+duck = Duck()
+person = Person()
+
+make_it_quack(duck)    # Works
+make_it_quack(person)  # Also works!
+```
+
+```go !! go
+// Go - Implicit interfaces
+package main
+
+import "fmt"
+
+type Quacker interface {
+    Quack() string
+}
+
+type Duck struct{}
+
+func (d Duck) Quack() string {
+    return "Quack!"
+}
+
+type Person struct{}
+
+func (p Person) Quack() string {
+    return "I'm quacking like a duck!"
+}
+
+func makeItQuack(q Quacker) {
+    fmt.Println(q.Quack())
+}
+
+func main() {
+    duck := Duck{}
+    person := Person{}
+
+    makeItQuack(duck)    // Works
+    makeItQuack(person)  // Also works!
+
+    // Types satisfy interface automatically
+    // No need to declare "type Duck implements Quacker"
+}
+```
+</UniversalEditor>
+
+### Interface Composition
+
+<UniversalEditor title="Interface Composition">
+```python !! py
+# Python - Multiple base classes
+class Reader:
+    def read(self):
+        pass
+
+class Writer:
+    def write(self, data):
+        pass
+
+class ReadWriter(Reader, Writer):
+    pass
+```
+
+```go !! go
+// Go - Interface composition
+package main
+
+import "fmt"
+
+type Reader interface {
+    Read(p []byte) (n int, err error)
+}
+
+type Writer interface {
+    Write(p []byte) (n int, err error)
+}
+
+type ReadWriter interface {
+    Reader  // Embedded interface
+    Writer  // Embedded interface
+}
+
+// File implements both Read and Write
+type File struct {
+    name string
+}
+
+func (f File) Read(p []byte) (n int, err error) {
+    // Implementation
+    return len(p), nil
+}
+
+func (f File) Write(p []byte) (n int, err error) {
+    // Implementation
+    return len(p), nil
+}
+
+func process(rw ReadWriter) {
+    buf := make([]byte, 1024)
+    rw.Read(buf)
+    rw.Write(buf)
+}
+
+func main() {
+    file := File{name: "test.txt"}
+    process(file)  // File satisfies ReadWriter
+}
+```
+</UniversalEditor>
+
+### Empty Interface
+
+<UniversalEditor title="Empty Interface">
+```python !! py
+# Python - Any type
+def print_anything(value):
+    print(value)
+    print(type(value))
+
+print_anything(42)
+print_anything("hello")
+print_anything([1, 2, 3])
+```
+
+```go !! go
+// Go - Empty interface (interface{})
+package main
+
+import "fmt"
+
+func printAnything(value interface{}) {
+    fmt.Println(value)
+    fmt.Printf("Type: %T\n", value)
+}
+
+func main() {
+    printAnything(42)
+    printAnything("hello")
+    printAnything([]int{1, 2, 3})
+
+    // Empty interface can hold ANY value
+    var anything interface{}
+    anything = 42
+    anything = "hello"
+    anything = []int{1, 2, 3}
+}
+```
+</UniversalEditor>
+
+### Empty Interface - When to Use
+
+<UniversalEditor title="Empty Interface Best Practices">
+```go
+// AVOID: Empty interface when type is known
+func process(data interface{}) {
+    // What type is data? Unclear!
+    // Type assertions needed everywhere
+}
+
+// PREFER: Specific interface
+func process(data []byte) {
+    // Type is clear
+}
+
+// OK: Empty interface for truly heterogeneous data
+func printAll(items ...interface{}) {
+    for _, item := range items {
+        fmt.Println(item)
+    }
+}
+
+// OK: JSON unmarshaling
+var data map[string]interface{}
+json.Unmarshal(jsonBytes, &data)
+
+// PREFER: Specific struct
+type Config struct {
+    Host string `json:"host"`
+    Port int    `json:"port"`
+}
+var config Config
+json.Unmarshal(jsonBytes, &config)
+```
+</UniversalEditor>
+
+## Type Assertions and Type Switches
+
+### Type Assertions
+
+<UniversalEditor title="Type Assertions">
+```python !! py
+# Python - Type checking
+def process(value):
+    if isinstance(value, int):
+        print(f"Integer: {value}")
+        return value * 2
+    elif isinstance(value, str):
+        print(f"String: {value}")
+        return value.upper()
+    elif isinstance(value, list):
+        print(f"List: {value}")
+        return len(value)
+    else:
+        print(f"Unknown type: {type(value)}")
+        return None
+```
+
+```go !! go
+// Go - Type assertions
+package main
+
+import "fmt"
+
+func process(value interface{}) interface{} {
+    // Type assertion with comma-ok pattern
+    if i, ok := value.(int); ok {
+        fmt.Printf("Integer: %d\n", i)
+        return i * 2
+    }
+
+    if s, ok := value.(string); ok {
+        fmt.Printf("String: %s\n", s)
+        return strings.ToUpper(s)
+    }
+
+    if lst, ok := value.([]int); ok {
+        fmt.Printf("Int slice: %v\n", lst)
+        return len(lst)
+    }
+
+    fmt.Printf("Unknown type: %T\n", value)
+    return nil
+}
+
+// Unsafe type assertion (panics if wrong)
+func double(value interface{}) int {
+    return value.(int) * 2  // Panics if value is not int
+}
+
+func main() {
+    process(42)
+    process("hello")
+    process([]int{1, 2, 3})
+
+    // Safe usage
+    if i, ok := interface{}(42).(int); ok {
+        fmt.Println("Double:", i*2)
+    }
+}
+```
+</UniversalEditor>
+
+### Type Switches
+
+<UniversalEditor title="Type Switch">
+```python !! py
+# Python - Multiple type checks
+def handle(value):
+    if isinstance(value, int):
+        return "integer"
+    elif isinstance(value, str):
+        return "string"
+    elif isinstance(value, list):
+        return "list"
+    elif isinstance(value, dict):
+        return "dict"
+    else:
+        return f"unknown: {type(value)}"
+```
+
+```go !! go
+// Go - Type switch
+package main
+
+import "fmt"
+
+func handle(value interface{}) string {
+    switch v := value.(type) {
+    case int:
+        return fmt.Sprintf("integer: %d", v)
+    case string:
+        return fmt.Sprintf("string: %s", v)
+    case []int:
+        return fmt.Sprintf("int slice: %v", v)
+    case map[string]interface{}:
+        return fmt.Sprintf("map: %d keys", len(v))
+    case nil:
+        return "nil value"
+    default:
+        return fmt.Sprintf("unknown: %T", v)
+    }
+}
+
+func main() {
+    fmt.Println(handle(42))
+    fmt.Println(handle("hello"))
+    fmt.Println(handle([]int{1, 2, 3}))
+    fmt.Println(handle(map[string]interface{}{"a": 1}))
+    fmt.Println(handle(nil))
+}
+```
+</UniversalEditor>
+
+### Type Switch with Multiple Cases
+
+<UniversalEditor title="Type Switch Multiple Cases">
+```go
+// Multiple types in one case
+func process(value interface{}) string {
+    switch v := value.(type) {
+    case int, int8, int16, int32, int64:
+        return "integer type"
+    case uint, uint8, uint16, uint32, uint64:
+        return "unsigned integer type"
+    case float32, float64:
+        return "float type"
+    case string:
+        return "string"
+    case bool:
+        return "boolean"
+    default:
+        return "other type"
+    }
+}
+```
+</UniversalEditor>
+
+## Standard Library Interfaces
+
+Go's standard library defines many useful interfaces:
+
+### Stringer Interface
+
+<UniversalEditor title="Stringer Interface">
+```python !! py
+# Python - __str__ and __repr__
+class Person:
+    def __init__(self, name, age):
+        self.name = name
+        self.age = age
+
+    def __str__(self):
+        return f"Person(name={self.name})"
+
+    def __repr__(self):
+        return f"Person(name={self.name}, age={self.age})"
+
+p = Person("Alice", 30)
+print(p)      # Uses __str__
+print(repr(p)) # Uses __repr__
+```
+
+```go !! go
+// Go - Stringer interface
+package main
+
+import (
+    "fmt"
+)
+
+type Person struct {
+    Name string
+    Age  int
+}
+
+// Stringer interface (like __str__)
+func (p Person) String() string {
+    return fmt.Sprintf("Person(name=%s)", p.Name)
+}
+
+func main() {
+    person := Person{Name: "Alice", Age: 30}
+
+    // fmt.Println calls String() automatically
+    fmt.Println(person)
+
+    // String also uses String()
+    fmt.Sprintf("%s", person)
+}
+```
+</UniversalEditor>
+
+### Error Interface
+
+<UniversalEditor title="Error Interface">
+```python !! py
+# Python - Exception
+class ValidationError(Exception):
+    def __init__(self, message, field):
+        self.message = message
+        self.field = field
+
+    def __str__(self):
+        return f"{self.field}: {self.message}"
+
+raise ValidationError("Invalid email", "email")
+```
+
+```go !! go
+// Go - Error interface
+package main
+
+import "fmt"
+
+// Error interface is built-in:
+// type error interface {
+//     Error() string
+// }
+
+type ValidationError struct {
+    Message string
+    Field   string
+}
+
+func (e ValidationError) Error() string {
+    return fmt.Sprintf("%s: %s", e.Field, e.Message)
+}
+
+func validateEmail(email string) error {
+    if email == "" {
+        return ValidationError{
+            Message: "cannot be empty",
+            Field:   "email",
+        }
+    }
+    return nil
+}
+
+func main() {
+    if err := validateEmail(""); err != nil {
+        fmt.Println(err)  // Calls Error() automatically
+    }
+}
+```
+</UniversalEditor>
+
+### Other Common Interfaces
+
+<UniversalEditor title="Common Interfaces">
+```go
+// Reader interface (io package)
+type Reader interface {
+    Read(p []byte) (n int, err error)
+}
+
+// Writer interface (io package)
+type Writer interface {
+    Write(p []byte) (n int, err error)
+}
+
+// Closer interface (io package)
+type Closer interface {
+    Close() error
+}
+
+// ReadWriter interface (composed)
+type ReadWriter interface {
+    Reader
+    Writer
+}
+
+// ReadWriteCloser interface
+type ReadWriteCloser interface {
+    Reader
+    Writer
+    Closer
+}
+```
+</UniversalEditor>
+
+## Interface Best Practices
+
+### Accept Interfaces, Return Structs
+
+<UniversalEditor title="Interface Best Practices">
+```python !! py
+# Python - Return specific types
+def get_user():
+    return User("Alice", 30)
+
+# Accept duck-typed interface
+def process(obj):
+    if hasattr(obj, 'process'):
+        obj.process()
+```
+
+```go !! go
+// Go - Accept interfaces, return structs
+package main
+
+// GOOD: Return concrete type
+func NewUser(name string, age int) User {
+    return User{Name: name, Age: age}
+}
+
+// GOOD: Accept interface
+func processUser(u UserInterface) {
+    u.Process()
+}
+
+// AVOID: Return interface (unless necessary)
+func getUser() UserInterface {  // Don't do this
+    return User{Name: "Alice"}
+}
+
+// PREFER: Return concrete type
+func getUser() User {  // Do this
+    return User{Name: "Alice"}
+}
+
+// Exception: Return interface when returning nil
+func findUser(id int) (User, error) {
+    if id == 0 {
+        return User{}, fmt.Errorf("invalid id")
+    }
+    // ...
+}
+```
+</UniversalEditor>
+
+### Small Interfaces
+
+<UniversalEditor title="Small Interface Principle">
+```go
+// GOOD: Small, focused interfaces
+type Reader interface {
+    Read(p []byte) (n int, err error)
+}
+
+type Writer interface {
+    Write(p []byte) (n int, err error)
+}
+
+// AVOID: Large, monolithic interfaces
+type FileHandler interface {
+    Read(p []byte) (n int, err error)
+    Write(p []byte) (n int, err error)
+    Close() error
+    Sync() error
+    Stat() (os.FileInfo, error)
+    // ... many more methods
+}
+
+// PREFER: Compose small interfaces
+type ReadWriteCloser interface {
+    Reader
+    Writer
+    io.Closer
+}
+```
+</UniversalEditor>
+
+### Interface Nil Gotcha
+
+<UniversalEditor title="Interface Nil Gotcha">
+```go
+// Watch out for nil interface values!
+package main
+
+import "fmt"
+
+type MyError struct {
+    Message string
+}
+
+func (e *MyError) Error() string {
+    return e.Message
+}
+
+func returnsError() error {
+    var p *MyError = nil
+    return p  // Returns nil interface, but non-nil interface!
+}
+
+func returnsErrorCorrect() error {
+    var p *MyError = nil
+    return nil  // Returns nil interface
+}
+
+func main() {
+    err := returnsError()
+    if err != nil {
+        fmt.Println("Error is not nil!")
+        // This prints! Even though p is nil!
+        // The interface itself is not nil
+    }
+
+    // Correct way
+    err2 := returnsErrorCorrect()
+    if err2 != nil {
+        fmt.Println("Error2 is not nil!")
+    }
+    // This doesn't print
+}
+```
+</UniversalEditor>
+
+## Pointer Receivers vs Value Receivers
+
+### When to Use Each
+
+<UniversalEditor title="Choosing Receiver Type">
+```python !! py
+# Python - Methods can modify
+class Counter:
+    def __init__(self):
+        self.count = 0
+
+    def increment(self):
+        self.count += 1  # Modifies object
+
+    def get_count(self):
+        return self.count
+
+    def double(self):
+        self.count *= 2  # Modifies object
+```
+
+```go !! go
+// Go - Choose receiver type carefully
+package main
+
+import "fmt"
+
+type Counter struct {
+    count int
+}
+
+// Value receiver - cannot modify
+// Use when:
+// - Method doesn't need to modify
+// - Struct is small (cheap to copy)
+// - Consistency (if all methods use value)
+func (c Counter) GetCount() int {
+    return c.count
+}
+
+// Pointer receiver - can modify
+// Use when:
+// - Method needs to modify
+// - Struct is large (avoids copying)
+// - Consistency (if any method uses pointer)
+func (c *Counter) Increment() {
+    c.count++
+}
+
+// Even for read-only methods on large structs,
+// use pointer to avoid copying
+func (c *Counter) Double() {
+    c.count *= 2
+}
+
+// For small immutable values, value receiver is fine
+type Point struct {
+    X, Y int
+}
+
+func (p Point) Distance() int {
+    return p.X*p.X + p.Y*p.Y
+}
+
+func main() {
+    counter := Counter{count: 0}
+    counter.Increment()
+    counter.Double()
+    fmt.Println(counter.GetCount())  // 2
+}
+```
+</UniversalEditor>
+
+### Receiver Type Guidelines
+
+<UniversalEditor title="Receiver Guidelines">
+```go
+// GUIDELINE 1: Use pointer receiver if method needs to modify
+func (c *Counter) Increment() {
+    c.count++
+}
+
+// GUIDELINE 2: Use pointer receiver for large structs
+type BigStruct struct {
+    data [1024]int
+}
+
+func (b *BigStruct) Process() {
+    // Avoid copying 1024 ints
+}
+
+// GUIDELINE 3: Use value receiver for small immutable values
+type Point struct {
+    X, Y int
+}
+
+func (p Point) String() string {
+    return fmt.Sprintf("(%d, %d)", p.X, p.Y)
+}
+
+// GUIDELINE 4: Be consistent - don't mix receiver types
+// BAD: Mixed receivers
+type MyStruct struct {
+    value int
+}
+
+func (m MyStruct) GetValue() int {
+    return m.value
+}
+
+func (m *MyStruct) SetValue(v int) {
+    m.value = v
+}
+
+// GOOD: All pointer receivers
+func (m *MyStruct) GetValue() int {
+    return m.value
+}
+
+func (m *MyStruct) SetValue(v int) {
+    m.value = v
+}
+```
+</UniversalEditor>
+
+## Practical Examples
+
+### JSON Encoding/Decoding
+
+<UniversalEditor title="JSON with Structs">
+```python !! py
+# Python - JSON serialization
+import json
+
+class User:
+    def __init__(self, name, email):
+        self.name = name
+        self.email = email
+
+    def to_dict(self):
+        return {
+            'name': self.name,
+            'email': self.email
+        }
+
+    @classmethod
+    def from_dict(cls, data):
+        return cls(data['name'], data['email'])
+
+user = User("Alice", "alice@example.com")
+json_str = json.dumps(user.to_dict())
+parsed = User.from_dict(json.loads(json_str))
+```
+
+```go !! go
+// Go - JSON with struct tags
+package main
+
+import (
+    "encoding/json"
+    "fmt"
+)
+
+type User struct {
+    Name  string `json:"name"`
+    Email string `json:"email"`
+    Age   int    `json:"age,omitempty"`  // Omit if zero
+}
+
+func main() {
+    // Encoding
+    user := User{
+        Name:  "Alice",
+        Email: "alice@example.com",
+    }
+
+    jsonBytes, err := json.Marshal(user)
+    if err != nil {
+        panic(err)
+    }
+    fmt.Println(string(jsonBytes))
+    // {"name":"Alice","email":"alice@example.com"}
+
+    // Decoding
+    var parsed User
+    if err := json.Unmarshal(jsonBytes, &parsed); err != nil {
+        panic(err)
+    }
+    fmt.Printf("%+v\n", parsed)
+}
+```
+</UniversalEditor>
+
+### Database Models
+
+<UniversalEditor title="Database Models">
+```python !! py
+# Python - SQLAlchemy model
+from sqlalchemy import Column, Integer, String
+from sqlalchemy.ext.declarative import declarative_base
+
+Base = declarative_base()
+
+class User(Base):
+    __tablename__ = 'users'
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String(100))
+    email = Column(String(200))
+```
+
+```go !! go
+// Go - Database model with struct tags
+package main
+
+type User struct {
+    ID        int       `json:"id" db:"id"`
+    Name      string    `json:"name" db:"name"`
+    Email     string    `json:"email" db:"email"`
+    CreatedAt time.Time `json:"created_at" db:"created_at"`
+    UpdatedAt time.Time `json:"updated_at" db:"updated_at"`
+}
+
+// Table name mapping
+func (User) TableName() string {
+    return "users"
+}
+
+// Scanner and Valuer for custom types
+type NullString struct {
+    String string
+    Valid  bool
+}
+
+func (ns *NullString) Scan(value interface{}) error {
+    if value == nil {
+        ns.String, ns.Valid = "", false
+        return nil
+    }
+    ns.Valid = true
+    return nil
+}
+```
+</UniversalEditor>
+
+## Summary
+
+In this module, you learned:
+
+1. **Structs** - Go's replacement for classes
+2. **Field visibility** - Exported vs unexported
+3. **Struct tags** - Metadata for JSON, database, etc.
+4. **Anonymous structs** - Quick, one-off structures
+5. **Composition** - Preferred over inheritance
+6. **Multiple composition** - Combine multiple types
+7. **Method promotion** - Access embedded methods
+8. **Interfaces** - Implicitly implemented, flexible
+9. **Empty interface** - Holds any value (use carefully)
+10. **Type assertions** - Check and convert types
+11. **Type switches** - Switch on types
+12. **Standard interfaces** - Stringer, Error, Reader, Writer
+13. **Interface best practices** - Small, focused interfaces
+14. **Receiver types** - Pointer vs value
+15. **Nil interface gotcha** - Interface vs concrete nil
+
+## Key Differences from Python
+
+| Python | Go |
+|--------|-----|
+| Classes and inheritance | Structs and composition |
+| `__init__` for initialization | Struct literals or constructor functions |
+| Private via `__` prefix | Unexported (lowercase) |
+| `self` parameter | Receiver parameter |
+| Magic methods (`__str__`, `__eq__`) | Interfaces (Stringer, etc.) |
+| Duck typing (runtime) | Interfaces (compile-time + duck typing) |
+| Multiple inheritance | Composition + interface composition |
+| `isinstance()` checks | Type assertions and type switches |
+
+## Best Practices
+
+1. **Prefer composition** over inheritance
+2. **Keep interfaces small** - 1-2 methods ideal
+3. **Accept interfaces, return structs** - Be specific on returns
+4. **Use pointer receivers** when modifying or for large structs
+5. **Be consistent** with receiver types
+6. **Use struct tags** for serialization metadata
+7. **Avoid empty interfaces** unless truly necessary
+8. **Watch out for nil interfaces** - understand the gotcha
+9. **Embed for composition** - Promote fields/methods
+10. **Implement standard interfaces** - Stringer, Error, etc.
+
+## Exercises
+
+1. Create a struct with exported and unexported fields
+2. Implement the Stringer interface on a custom type
+3. Use composition to combine multiple structs
+4. Write a type switch to handle different types
+5. Create both pointer and value receivers and compare behavior
+6. Implement custom JSON marshaling with tags
+7. Create an interface and have multiple types satisfy it
+8. Build a small database model with struct tags
+
+## Next Steps
+
+Next module: **Package Management** - Understanding Go modules and imports.

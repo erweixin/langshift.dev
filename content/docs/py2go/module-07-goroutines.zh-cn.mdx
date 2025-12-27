@@ -1,0 +1,1619 @@
+---
+title: "Module 7: Goroutine 与并发"
+description: "使用 goroutine 实现轻量级并发"
+---
+
+## 简介
+
+Python 的全局解释器锁(GIL)是 CPU 密集型并发任务的最大限制之一。Go 从设计之初就考虑了并发，使用 goroutine——由 Go 运行时管理的轻量级线程。
+
+### 什么是 GIL?
+
+**全局解释器锁(GIL)**是一个互斥锁，用于保护对 Python 对象的访问，防止多个原生线程同时执行 Python 字节码。这意味着:
+
+**在 Python 中:**
+- 同一时间只有一个线程执行 Python 字节码
+- CPU 密集型任务无法从线程中获得性能提升
+- I/O 密集型任务可以从线程中受益(因为 I/O 等待)
+- 需要多进程才能实现真正的并行
+
+**在 Go 中:**
+- 无 GIL 限制
+- 多个 goroutine 可以真正并行执行
+- Goroutine 被多路复用到 OS 线程(M:N 调度)
+- 完美适合 CPU 密集型和 I/O 密集型任务
+
+## GIL vs Goroutine
+
+<UniversalEditor title="并发限制">
+```python !! py
+# Python - CPU 密集型任务受 GIL 限制
+import threading
+import time
+
+def cpu_bound_task(n):
+    """CPU 密集型计算"""
+    total = 0
+    for i in range(n):
+        total += i * i
+    return total
+
+def run_parallel():
+    threads = []
+    start = time.time()
+
+    for _ in range(4):
+        t = threading.Thread(target=cpu_bound_task, args=(10_000_000,))
+        threads.append(t)
+        t.start()
+
+    for t in threads:
+        t.join()
+
+    elapsed = time.time() - start
+    print(f"Threading time: {elapsed:.2f}s")
+
+# 结果: ~4 秒(由于 GIL，线程顺序运行)
+# 相同代码使用多进程: ~1 秒(真正并行)
+```
+
+```go !! go
+// Go - 使用 goroutine 实现真正并行
+package main
+
+import (
+    "fmt"
+    "sync"
+    "time"
+)
+
+func cpuBoundTask(n int) int {
+    total := 0
+    for i := 0; i < n; i++ {
+        total += i * i
+    }
+    return total
+}
+
+func runParallel() {
+    var wg sync.WaitGroup
+    start := time.Now()
+
+    for i := 0; i < 4; i++ {
+        wg.Add(1)
+        go func() {
+            defer wg.Done()
+            cpuBoundTask(10_000_000)
+        }()
+    }
+
+    wg.Wait()
+    elapsed := time.Since(start)
+    fmt.Printf("Goroutines time: %v\n", elapsed)
+}
+
+// 结果: ~1 秒(goroutine 在所有 CPU 上并行运行)
+func main() {
+    runParallel()
+}
+```
+</UniversalEditor>
+
+## Goroutine 内部机制
+
+### 什么是 Goroutine?
+
+Goroutine 是由 Go 运行时管理的轻量级线程:
+
+<UniversalEditor title="Thread vs Goroutine">
+```python !! py
+# Python - OS 线程
+import threading
+import sys
+
+# 每个 Python 线程使用一个 OS 线程
+# 典型内存: 每线程 ~8 MB
+# 创建成本: 高(OS 系统调用)
+
+def thread_info():
+    thread = threading.current_thread()
+    print(f"Thread: {thread.name}")
+
+# 创建 10,000 个线程可能会使系统崩溃
+threads = []
+for i in range(100):  # 即使 100 个也很重
+    t = threading.Thread(target=thread_info)
+    threads.append(t)
+    t.start()
+
+for t in threads:
+    t.join()
+```
+
+```go !! go
+// Go - Goroutines
+package main
+
+import (
+    "fmt"
+    "runtime"
+    "sync"
+    "time"
+)
+
+// Goroutine 非常轻量:
+// - 栈大小: 从 2KB 开始，按需增长
+// - 创建成本: 非常低
+// - 调度: Go 运行时(M:N 模型)
+
+func goroutineInfo(id int) {
+    fmt.Printf("Goroutine %d\n", id)
+}
+
+func main() {
+    // 可以轻松创建 10,000+ goroutine
+    var wg sync.WaitGroup
+
+    for i := 0; i < 10000; i++ {
+        wg.Add(1)
+        go func(id int) {
+            defer wg.Done()
+            goroutineInfo(id)
+        }(i)
+    }
+
+    wg.Wait()
+    fmt.Printf("Goroutines: %d\n", runtime.NumGoroutine())
+    fmt.Printf("CPUs: %d\n", runtime.NumCPU())
+}
+
+// 这完全正常!内存使用保持合理。
+```
+</UniversalEditor>
+
+### Goroutine 调度
+
+Go 使用 **M:N 调度器**:
+- **M** 个 goroutine 多路复用到 **N** 个 OS 线程
+- Go 运行时处理调度，而非 OS
+- Goroutine 是协作调度的(Go 1.14 后支持抢占式)
+
+<UniversalEditor title="调度器比较">
+```python !! py
+# Python - OS 调度(1:1)
+#
+# Thread 1 -> OS Thread 1 -> CPU Core
+# Thread 2 -> OS Thread 2 -> CPU Core
+# Thread 3 -> OS Thread 3 -> CPU Core
+#
+# 问题:
+# - OS 管理调度(昂贵的上下文切换)
+# - 受限于 OS 线程数量
+# - 每线程高内存(~8MB)
+
+import threading
+import time
+
+def worker():
+    time.sleep(0.001)  # 上下文切换
+
+# OS 决定何时切换线程
+for _ in range(100):
+    t = threading.Thread(target=worker)
+    t.start()
+    t.join()
+```
+
+```go !! go
+// Go - Go 运行时调度(M:N)
+package main
+
+import (
+    "fmt"
+    "runtime"
+    "time"
+)
+
+// Goroutine 1 --\                             /--> CPU Core 1
+// Goroutine 2 ---> [Go Scheduler] --[N OS Threads]---> CPU Core 2
+// Goroutine 3 --/                              \--> CPU Core 3
+//
+// 优势:
+// - Go 运行时管理调度(廉价的上下文切换)
+// - 多个 goroutine per OS 线程
+// - 自动负载均衡
+// - 按需增减 OS 线程
+
+func worker(id int) {
+    time.Sleep(time.Millisecond)
+    fmt.Printf("Worker %d\n", id)
+}
+
+func main() {
+    // 设置最大 OS 线程数(可选)
+    runtime.GOMAXPROCS(runtime.NumCPU())
+
+    for i := 0; i < 100; i++ {
+        go worker(i)
+    }
+
+    time.Sleep(100 * time.Millisecond)
+}
+```
+</UniversalEditor>
+
+## 启动 Goroutine
+
+### 基本启动方式
+
+<UniversalEditor title="启动 Goroutine">
+```python !! py
+# Python - 线程
+import threading
+import time
+
+def task(name, duration):
+    """运行任务"""
+    time.sleep(duration)
+    print(f"Task {name} completed")
+
+# 创建并启动线程
+thread = threading.Thread(target=task, args=("A", 1))
+thread.start()  # 开始执行
+
+# 等待完成
+thread.join()
+print("Main continues")
+```
+
+```go !! go
+// Go - Goroutines
+package main
+
+import (
+    "fmt"
+    "time"
+)
+
+func task(name string, duration time.Duration) {
+    time.Sleep(duration)
+    fmt.Printf("Task %s completed\n", name)
+}
+
+func main() {
+    // 启动 goroutine
+    go task("A", time.Second)
+
+    // 等待 goroutine 完成
+    // (实际代码中应使用 WaitGroup 或 channel)
+    time.Sleep(2 * time.Second)
+    fmt.Println("Main continues")
+}
+```
+</UniversalEditor>
+
+### 多个 Goroutine
+
+<UniversalEditor title="多个并发任务">
+```python !! py
+# Python - 多个线程
+import threading
+import time
+
+def download(url, delay):
+    """模拟下载"""
+    time.sleep(delay)
+    print(f"Downloaded {url}")
+
+urls = [
+    ("http://example.com/file1", 1),
+    ("http://example.com/file2", 2),
+    ("http://example.com/file3", 1),
+]
+
+threads = []
+for url, delay in urls:
+    t = threading.Thread(target=download, args=(url, delay))
+    threads.append(t)
+    t.start()
+
+for t in threads:
+    t.join()
+
+print("All downloads complete")
+```
+
+```go !! go
+// Go - 多个 goroutine
+package main
+
+import (
+    "fmt"
+    "sync"
+    "time"
+)
+
+type Download struct {
+    URL    string
+    Delay time.Duration
+}
+
+func download(d Download, wg *sync.WaitGroup) {
+    defer wg.Done()
+    time.Sleep(d.Delay)
+    fmt.Printf("Downloaded %s\n", d.URL)
+}
+
+func main() {
+    downloads := []Download{
+        {"http://example.com/file1", time.Second},
+        {"http://example.com/file2", 2 * time.Second},
+        {"http://example.com/file3", time.Second},
+    }
+
+    var wg sync.WaitGroup
+
+    for _, d := range downloads {
+        wg.Add(1)
+        go download(d, &wg)
+    }
+
+    wg.Wait()
+    fmt.Println("All downloads complete")
+}
+```
+</UniversalEditor>
+
+## 匿名 Goroutine
+
+### 快速内联任务
+
+<UniversalEditor title="匿名函数">
+```python !! py
+# Python - Lambda/thread
+import threading
+import time
+
+# 启动匿名任务
+thread = threading.Thread(
+    target=lambda: print("Anonymous task")
+)
+thread.start()
+thread.join()
+
+# 带参数
+thread = threading.Thread(
+    target=lambda x, y: print(f"Sum: {x + y}"),
+    args=(5, 3)
+)
+thread.start()
+thread.join()
+```
+
+```go !! go
+// Go - 匿名 goroutine
+package main
+
+import (
+    "fmt"
+    "time"
+)
+
+func main() {
+    // 简单匿名 goroutine
+    go func() {
+        fmt.Println("Anonymous task")
+    }()
+
+    time.Sleep(time.Millisecond)
+
+    // 带参数
+    go func(x int, y int) {
+        fmt.Printf("Sum: %d\n", x+y)
+    }(5, 3)
+
+    time.Sleep(time.Millisecond)
+}
+```
+</UniversalEditor>
+
+## 带闭包的 Goroutine
+
+### 循环变量捕获陷阱
+
+这是 Go 中最常见的错误之一!
+
+<UniversalEditor title="闭包陷阱">
+```python !! py
+# Python - 延迟绑定闭包问题
+import threading
+
+funcs = []
+for i in range(3):
+    funcs.append(lambda: print(i))
+
+for f in funcs:
+    f()  # 打印 2, 2, 2(都引用相同的 i)
+
+# 修复 - 使用默认参数捕获值
+funcs = []
+for i in range(3):
+    funcs.append(lambda i=i: print(i))
+
+for f in funcs:
+    f()  # 打印 0, 1, 2
+```
+
+```go !! go
+// Go - 循环变量捕获
+package main
+
+import (
+    "fmt"
+    "sync"
+    "time"
+)
+
+func main() {
+    // 错误 - 所有 goroutine 捕获相同的 i 变量
+    var wg sync.WaitGroup
+    for i := 0; i < 3; i++ {
+        wg.Add(1)
+        go func() {
+            defer wg.Done()
+            fmt.Println(i) // 可能打印 3, 3, 3 或不可预测
+        }()
+    }
+    wg.Wait()
+    time.Sleep(time.Millisecond)
+
+    fmt.Println("---")
+
+    // 正确 - 将 i 作为参数传递
+    var wg2 sync.WaitGroup
+    for i := 0; i < 3; i++ {
+        wg2.Add(1)
+        go func(n int) {
+            defer wg2.Done()
+            fmt.Println(n) // 打印 0, 1, 2
+        }(i) // 传递 i 的当前值
+    }
+    wg2.Wait()
+}
+```
+</UniversalEditor>
+
+### 为什么会发生这种情况?
+
+闭包捕获的是**变量**，而不是**值**。所有 goroutine 共享同一个循环变量，在 goroutine 运行前该变量可能已被修改。
+
+## WaitGroup: 正确的同步方式
+
+使用 `time.Sleep()` 等待 goroutine 是不良实践。应该使用 `sync.WaitGroup`。
+
+<UniversalEditor title="WaitGroup">
+```python !! py
+# Python - Join 线程
+import threading
+import time
+
+def worker(id):
+    time.sleep(0.1)
+    print(f"Worker {id} done")
+
+threads = []
+for i in range(5):
+    t = threading.Thread(target=worker, args=(i,))
+    threads.append(t)
+    t.start()
+
+# 等待所有线程
+for t in threads:
+    t.join()
+
+print("All workers done")
+```
+
+```go !! go
+// Go - WaitGroup
+package main
+
+import (
+    "fmt"
+    "sync"
+    "time"
+)
+
+func worker(id int, wg *sync.WaitGroup) {
+    defer wg.Done() // 完成时递减计数器
+    time.Sleep(100 * time.Millisecond)
+    fmt.Printf("Worker %d done\n", id)
+}
+
+func main() {
+    var wg sync.WaitGroup
+
+    for i := 0; i < 5; i++ {
+        wg.Add(1) // 递增计数器
+        go worker(i, &wg)
+    }
+
+    wg.Wait() // 等待计数器归零
+    fmt.Println("All workers done")
+}
+```
+</UniversalEditor>
+
+### WaitGroup 最佳实践
+
+<UniversalEditor title="WaitGroup 模式">
+```go !! go
+// Go - WaitGroup 模式
+package main
+
+import (
+    "fmt"
+    "sync"
+)
+
+// 模式 1: 在调用者 Add，在 goroutine 中 Done
+func worker1(id int, wg *sync.WaitGroup) {
+    defer wg.Done()
+    fmt.Printf("Worker %d\n", id)
+}
+
+func pattern1() {
+    var wg sync.WaitGroup
+
+    for i := 0; i < 3; i++ {
+        wg.Add(1) // 在启动 goroutine 前添加
+        go worker1(i, &wg)
+    }
+
+    wg.Wait()
+}
+
+// 模式 2: 在 goroutine 内部 Add
+func worker2(id int) {
+    fmt.Printf("Worker %d\n", id)
+}
+
+func pattern2() {
+    var wg sync.WaitGroup
+
+    for i := 0; i < 3; i++ {
+        go func(id int) {
+            wg.Add(1) // 在 goroutine 开始时添加
+            defer wg.Done()
+            worker2(id)
+        }(i)
+    }
+
+    wg.Wait()
+}
+
+// 模式 3: 带返回值的 WaitGroup
+type Result struct {
+    ID    int
+    Value int
+}
+
+func workerWithResult(id int, results chan<- Result, wg *sync.WaitGroup) {
+    defer wg.Done()
+    results <- Result{ID: id, Value: id * 2}
+}
+
+func pattern3() {
+    var wg sync.WaitGroup
+    results := make(chan Result, 3)
+
+    for i := 0; i < 3; i++ {
+        wg.Add(1)
+        go workerWithResult(i, results, &wg)
+    }
+
+    // 所有 worker 完成时关闭 channel
+    go func() {
+        wg.Wait()
+        close(results)
+    }()
+
+    // 收集结果
+    for r := range results {
+        fmt.Printf("Worker %d: %d\n", r.ID, r.Value)
+    }
+}
+
+func main() {
+    fmt.Println("Pattern 1:")
+    pattern1()
+
+    fmt.Println("\nPattern 2:")
+    pattern2()
+
+    fmt.Println("\nPattern 3:")
+    pattern3()
+}
+```
+</UniversalEditor>
+
+## 互斥锁(Mutex)
+
+当多个 goroutine 访问共享数据时，需要同步。
+
+<UniversalEditor title="Mutex 基础">
+```python !! py
+# Python - Lock
+import threading
+
+counter = 0
+lock = threading.Lock()
+
+def increment():
+    global counter
+    with lock:  # 获取锁
+        counter += 1  # 临界区
+    # 锁自动释放
+
+# 启动 100 个线程
+threads = []
+for _ in range(100):
+    t = threading.Thread(target=increment)
+    threads.append(t)
+    t.start()
+
+for t in threads:
+    t.join()
+
+print(f"Counter: {counter}")  # 100
+```
+
+```go !! go
+// Go - Mutex
+package main
+
+import (
+    "fmt"
+    "sync"
+)
+
+var (
+    counter int
+    mutex   sync.Mutex
+)
+
+func increment() {
+    mutex.Lock()         // 获取锁
+    counter++            // 临界区
+    mutex.Unlock()       // 释放锁
+}
+
+func main() {
+    var wg sync.WaitGroup
+
+    for i := 0; i < 100; i++ {
+        wg.Add(1)
+        go func() {
+            defer wg.Done()
+            increment()
+        }()
+    }
+
+    wg.Wait()
+    fmt.Printf("Counter: %d\n", counter) // 100
+}
+```
+</UniversalEditor>
+
+### 在 Mutex 中使用 defer
+
+<UniversalEditor title="Defer with Mutex">
+```go !! go
+// Go - 使用 defer 进行 Unlock
+package main
+
+import (
+    "fmt"
+    "sync"
+)
+
+var (
+    counter int
+    mutex   sync.Mutex
+)
+
+func incrementGood() {
+    mutex.Lock()
+    defer mutex.Unlock() // 保证执行
+
+    counter++
+
+    // 即使发生 panic，Unlock 也会执行
+    // if somethingBad() { panic("oops") }
+}
+
+func incrementBad() {
+    mutex.Lock()
+    counter++
+    mutex.Unlock()
+
+    // 如果这里发生 panic，mutex 保持锁定!
+    // if somethingBad() { panic("oops") }
+}
+
+func main() {
+    var wg sync.WaitGroup
+
+    for i := 0; i < 100; i++ {
+        wg.Add(1)
+        go func() {
+            defer wg.Done()
+            incrementGood()
+        }()
+    }
+
+    wg.Wait()
+    fmt.Printf("Counter: %d\n", counter)
+}
+```
+</UniversalEditor>
+
+## RWMutex: 读写锁
+
+对于读多写少的工作负载，`sync.RWMutex` 允许多个读者或一个写者。
+
+<UniversalEditor title="RWMutex">
+```python !! py
+# Python - 读写锁
+import threading
+
+rwlock = threading.RLock()
+
+def read_data():
+    with rwlock:
+        # 多个读者可以持有这个锁
+        data = get_data()
+    return data
+
+def write_data(new_data):
+    with rwlock:
+        # 写者获得独占访问
+        set_data(new_data)
+```
+
+```go !! go
+// Go - RWMutex
+package main
+
+import (
+    "fmt"
+    "sync"
+    "time"
+)
+
+type DataStore struct {
+    mu   sync.RWMutex
+    data map[string]string
+}
+
+func NewDataStore() *DataStore {
+    return &DataStore{
+        data: make(map[string]string),
+    }
+}
+
+// 读 - 多个 goroutine 可以同时读取
+func (ds *DataStore) Read(key string) (string, bool) {
+    ds.mu.RLock()         // 读锁
+    defer ds.mu.RUnlock()
+    time.Sleep(time.Millisecond) // 模拟工作
+    val, ok := ds.data[key]
+    return val, ok
+}
+
+// 写 - 独占访问
+func (ds *DataStore) Write(key, value string) {
+    ds.mu.Lock()          // 写锁(独占)
+    defer ds.mu.Unlock()
+    time.Sleep(10 * time.Millisecond) // 模拟工作
+    ds.data[key] = value
+}
+
+func main() {
+    ds := NewDataStore()
+    var wg sync.WaitGroup
+
+    // 启动 100 个读者
+    for i := 0; i < 100; i++ {
+        wg.Add(1)
+        go func(id int) {
+            defer wg.Done()
+            ds.Read(fmt.Sprintf("key-%d", id))
+        }(i)
+    }
+
+    // 启动 10 个写者
+    for i := 0; i < 10; i++ {
+        wg.Add(1)
+        go func(id int) {
+            defer wg.Done()
+            ds.Write(fmt.Sprintf("key-%d", id), fmt.Sprintf("value-%d", id))
+        }(i)
+    }
+
+    wg.Wait()
+    fmt.Println("All operations complete")
+}
+```
+</UniversalEditor>
+
+### 何时使用 RWMutex vs Mutex
+
+<UniversalEditor title="Mutex 选择">
+```go !! go
+// Go - 何时使用哪个
+package main
+
+import "sync"
+
+// 使用常规 Mutex 当:
+// - 写操作频繁
+// - 临界区短
+// - 不需要读优化
+type Counter struct {
+    mu    sync.Mutex
+    value int
+}
+
+// 使用 RWMutex 当:
+// - 读操作远多于写操作
+// - 临界区较长
+// - 多个并发读者有益
+type Cache struct {
+    mu    sync.RWMutex
+    data  map[string]interface{}
+}
+
+func (c *Cache) Get(key string) (interface{}, bool) {
+    c.mu.RLock()         // 允许并发读
+    defer c.mu.RUnlock()
+    val, ok := c.data[key]
+    return val, ok
+}
+
+func (c *Cache) Set(key string, val interface{}) {
+    c.mu.Lock()          // 独占写
+    defer c.mu.Unlock()
+    c.data[key] = val
+}
+```
+</UniversalEditor>
+
+## sync.Once: 单次初始化
+
+确保函数只执行一次，即使从多个 goroutine 调用。
+
+<UniversalEditor title="sync.Once">
+```python !! py
+# Python - 线程安全的单例
+import threading
+
+class Singleton:
+    _instance = None
+    _lock = threading.Lock()
+
+    def __new__(cls):
+        if cls._instance is None:
+            with cls._lock:
+                # 双重检查
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+        return cls._instance
+
+# 使用
+s1 = Singleton()
+s2 = Singleton()
+assert s1 is s2
+```
+
+```go !! go
+// Go - sync.Once
+package main
+
+import (
+    "fmt"
+    "sync"
+)
+
+type Singleton struct {
+    data string
+}
+
+var (
+    instance *Singleton
+    once     sync.Once
+)
+
+func getInstance() *Singleton {
+    once.Do(func() {
+        // 这只会执行一次
+        instance = &Singleton{data: "initialized"}
+        fmt.Println("Singleton initialized")
+    })
+    return instance
+}
+
+func main() {
+    var wg sync.WaitGroup
+
+    // 多个 goroutine 尝试初始化
+    for i := 0; i < 10; i++ {
+        wg.Add(1)
+        go func(id int) {
+            defer wg.Done()
+            inst := getInstance()
+            fmt.Printf("Goroutine %d: %p\n", id, inst)
+        }(i)
+    }
+
+    wg.Wait()
+    // "Singleton initialized" 只打印一次
+}
+```
+</UniversalEditor>
+
+### Once 模式
+
+<UniversalEditor title="sync.Once 模式">
+```go !! go
+// Go - 常见 sync.Once 模式
+package main
+
+import (
+    "fmt"
+    "sync"
+)
+
+// 模式 1: 延迟初始化
+var (
+    config     map[string]string
+    configOnce sync.Once
+)
+
+func getConfig() map[string]string {
+    configOnce.Do(func() {
+        // 昂贵的初始化
+        config = make(map[string]string)
+        config["host"] = "localhost"
+        config["port"] = "8080"
+        fmt.Println("Config initialized")
+    })
+    return config
+}
+
+// 模式 2: 多个 Once 实例
+type ConnectionPool struct {
+    once sync.Once
+    pool []*Connection
+}
+
+func (cp *ConnectionPool) Init() {
+    cp.once.Do(func() {
+        // 初始化池
+        cp.pool = make([]*Connection, 10)
+        fmt.Println("Connection pool initialized")
+    })
+}
+
+// 模式 3: 带错误处理的 Once
+var (
+    cache     Cache
+    cacheOnce sync.Once
+    cacheErr  error
+)
+
+func getCache() (Cache, error) {
+    cacheOnce.Do(func() {
+        cache, cacheErr = initCache()
+    })
+    return cache, cacheErr
+}
+
+func initCache() (Cache, error) {
+    // 可能失败的初始化
+    return Cache{}, nil
+}
+
+type Cache struct{}
+
+func main() {
+    getConfig()
+    getConfig()
+    // "Config initialized" 只打印一次
+
+    pool := &ConnectionPool{}
+    pool.Init()
+    pool.Init()
+    // 连接池只初始化一次
+}
+```
+</UniversalEditor>
+
+## 原子操作
+
+对于简单操作，使用 atomic 包代替 mutex。
+
+<UniversalEditor title="原子操作">
+```python !! py
+# Python - 原子操作(线程安全)
+import threading
+
+counter = 0
+
+# 由于 GIL，CPython 中递增是原子的
+# 但在所有实现中都不保证
+
+# 对于保证原子性，使用锁
+lock = threading.Lock()
+
+def increment():
+    global counter
+    with lock:
+        counter += 1
+```
+
+```go !! go
+// Go - 原子操作
+package main
+
+import (
+    "sync"
+    "sync/atomic"
+)
+
+// Mutex 方式
+type MutexCounter struct {
+    mu    sync.Mutex
+    value int64
+}
+
+func (c *MutexCounter) Increment() {
+    c.mu.Lock()
+    c.value++
+    c.mu.Unlock()
+}
+
+// 原子方式(简单操作更快)
+type AtomicCounter struct {
+    value int64
+}
+
+func (c *AtomicCounter) Increment() {
+    atomic.AddInt64(&c.value, 1)
+}
+
+func (c *AtomicCounter) Get() int64 {
+    return atomic.LoadInt64(&c.value)
+}
+
+// 常见原子操作
+func main() {
+    var counter int64 = 0
+
+    // 加
+    atomic.AddInt64(&counter, 1)
+
+    // 加载
+    val := atomic.LoadInt64(&counter)
+
+    // 存储
+    atomic.StoreInt64(&counter, 100)
+
+    // 比较并交换
+    atomic.CompareAndSwapInt64(&counter, 100, 200)
+
+    // 交换
+    old := atomic.SwapInt64(&counter, 300)
+
+    _, _ = val, old
+}
+```
+</UniversalEditor>
+
+## Goroutine 泄漏
+
+Goroutine 很便宜，但不是免费的。泄漏的 goroutine 可能导致内存问题。
+
+<UniversalEditor title="Goroutine 泄漏">
+```python !! py
+# Python - 线程泄漏
+import threading
+import time
+
+def worker():
+    while True:
+        time.sleep(1)
+        # 永不退出!
+
+# 创建永不退出的线程
+t = threading.Thread(target=worker)
+t.start()
+
+# 线程持续运行，消耗资源
+```
+
+```go !! go
+// Go - Goroutine 泄漏
+package main
+
+import (
+    "fmt"
+    "runtime"
+    "time"
+)
+
+// 错误 - Goroutine 永不退出
+func leakWorker() {
+    for {
+        time.Sleep(time.Second)
+        // 永不返回!
+    }
+}
+
+// 正确 - 始终有退出条件
+func goodWorker(stop <-chan struct{}) {
+    for {
+        select {
+        case <-stop:
+            return // 退出 goroutine
+        default:
+            time.Sleep(time.Second)
+            // 执行工作...
+        }
+    }
+}
+
+func main() {
+    fmt.Println("Goroutines:", runtime.NumGoroutine())
+
+    // 泄漏 goroutine
+    go leakWorker()
+    time.Sleep(time.Millisecond)
+    fmt.Println("Goroutines (after leak):", runtime.NumGoroutine())
+
+    // 带停止 channel 的正确 goroutine
+    stop := make(chan struct{})
+    go goodWorker(stop)
+    time.Sleep(time.Millisecond)
+
+    close(stop) // 通知 goroutine 停止
+    time.Sleep(time.Millisecond)
+    fmt.Println("Goroutines (after cleanup):", runtime.NumGoroutine())
+}
+```
+</UniversalEditor>
+
+## Worker Pool
+
+限制并发 goroutine 的数量以避免资源耗尽。
+
+<UniversalEditor title="Worker Pool">
+```python !! py
+# Python - 使用 ThreadPoolExecutor 的 worker pool
+from concurrent.futures import ThreadPoolExecutor
+
+def process_task(task_id):
+    print(f"Processing {task_id}")
+    return task_id * 2
+
+# 限制为 10 个 worker
+with ThreadPoolExecutor(max_workers=10) as executor:
+    futures = [executor.submit(process_task, i) for i in range(100)]
+    results = [f.result() for f in futures]
+```
+
+```go !! go
+// Go - Worker pool
+package main
+
+import (
+    "fmt"
+    "sync"
+)
+
+func worker(id int, jobs <-chan int, results chan<- int, wg *sync.WaitGroup) {
+    defer wg.Done()
+    for job := range jobs {
+        fmt.Printf("Worker %d processing job %d\n", id, job)
+        results <- job * 2
+    }
+}
+
+func main() {
+    numWorkers := 10
+    numJobs := 100
+
+    jobs := make(chan int, numJobs)
+    results := make(chan int, numJobs)
+
+    var wg sync.WaitGroup
+
+    // 启动 workers
+    for i := 0; i < numWorkers; i++ {
+        wg.Add(1)
+        go worker(i, jobs, results, &wg)
+    }
+
+    // 发送任务
+    for j := 0; j < numJobs; j++ {
+        jobs <- j
+    }
+    close(jobs)
+
+    // 等待 workers 完成
+    go func() {
+        wg.Wait()
+        close(results)
+    }()
+
+    // 收集结果
+    for result := range results {
+        _ = result
+    }
+
+    fmt.Println("All jobs processed")
+}
+```
+</UniversalEditor>
+
+## Goroutine 与 Context
+
+使用 context 进行取消和超时处理。
+
+<UniversalEditor title="Context 取消">
+```python !! py
+# Python - 使用 Event 取消
+import threading
+import time
+
+def worker(stop_event):
+    while not stop_event.is_set():
+        time.sleep(0.1)
+        print("Working...")
+    print("Stopped")
+
+stop_event = threading.Event()
+t = threading.Thread(target=worker, args=(stop_event,))
+t.start()
+
+time.sleep(1)
+stop_event.set()  # 发送停止信号
+t.join()
+```
+
+```go !! go
+// Go - 使用 Context 取消
+package main
+
+import (
+    "context"
+    "fmt"
+    "time"
+)
+
+func worker(ctx context.Context) {
+    for {
+        select {
+        case <-ctx.Done():
+            fmt.Println("Stopped")
+            return
+        default:
+            time.Sleep(100 * time.Millisecond)
+            fmt.Println("Working...")
+        }
+    }
+}
+
+func main() {
+    // 创建可取消的 context
+    ctx, cancel := context.WithCancel(context.Background())
+
+    go worker(ctx)
+
+    // 让它运行一秒
+    time.Sleep(time.Second)
+
+    // 取消 context
+    cancel()
+
+    // 等待清理
+    time.Sleep(100 * time.Millisecond)
+}
+```
+</UniversalEditor>
+
+## 最佳实践
+
+### 1. 知道何时使用 Goroutine
+
+<UniversalEditor title="Goroutine 使用指南">
+```go !! go
+// 好的 - 使用 goroutine 用于:
+// 1. I/O 密集型操作(网络、磁盘)
+// 2. 独立任务
+// 3. 并行处理
+
+func fetchUserData(userID int) {
+    // 网络 I/O - 完美适合 goroutine
+    resp := http.Get(fmt.Sprintf("http://api/user/%d", userID))
+    // ...
+}
+
+func processImages(images []Image) {
+    // CPU 密集型并行工作
+    for _, img := range images {
+        go processImage(img)
+    }
+}
+
+// 坏的 - 不要使用 goroutine 用于:
+// 1. 简单操作(开销)
+// 2. 紧循环(使用 channel 协调)
+// 3. 当顺序很重要时
+
+func add(a, b int) int {
+    // 不要这样做:
+    go func() {
+        result = a + b  // 竞态条件!
+    }()
+
+    // 直接执行工作
+    return a + b
+}
+```
+</UniversalEditor>
+
+### 2. 始终有退出条件
+
+<UniversalEditor title="Goroutine 退出">
+```go !! go
+// 好的 - 始终退出
+func worker(stop <-chan struct{}) {
+    ticker := time.NewTicker(time.Second)
+    defer ticker.Stop()
+
+    for {
+        select {
+        case <-stop:
+            return // 清理退出
+        case <-ticker.C:
+            // 工作...
+        }
+    }
+}
+
+// 坏的 - 永不退出
+func worker() {
+    for {
+        time.Sleep(time.Second)
+        // 没有退出条件!
+    }
+}
+```
+</UniversalEditor>
+
+### 3. 小心共享状态
+
+<UniversalEditor title="避免共享状态">
+```go !! go
+// 好的 - 使用 channel 通信
+func producer(out chan<- int) {
+    for i := 0; i < 10; i++ {
+        out <- i
+    }
+    close(out)
+}
+
+func consumer(in <-chan int) {
+    for val := range in {
+        fmt.Println(val)
+    }
+}
+
+// 坏的 - 共享可变状态
+var data []int
+
+func producer() {
+    for i := 0; i < 10; i++ {
+        data = append(data, i) // 竞态条件!
+    }
+}
+
+func consumer() {
+    for _, val := range data {
+        fmt.Println(val) // 竞态条件!
+    }
+}
+```
+</UniversalEditor>
+
+### 4. 正确使用 WaitGroup
+
+<UniversalEditor title="WaitGroup 使用">
+```go !! go
+// 好的 - 在启动 goroutine 前添加
+func processItems(items []Item) {
+    var wg sync.WaitGroup
+
+    for _, item := range items {
+        wg.Add(1) // 在 goroutine 前添加
+        go func(i Item) {
+            defer wg.Done()
+            process(i)
+        }(item)
+    }
+
+    wg.Wait()
+}
+
+// 坏的 - 在 goroutine 内部添加
+func processItemsBad(items []Item) {
+    var wg sync.WaitGroup
+
+    for _, item := range items {
+        go func(i Item) {
+            wg.Add(1) // 竞态条件!
+            defer wg.Done()
+            process(i)
+        }(item)
+    }
+
+    wg.Wait() // 可能过早返回!
+}
+```
+</UniversalEditor>
+
+### 5. 处理 Goroutine 中的 Panic
+
+<UniversalEditor title="Panic 恢复">
+```go !! go
+// 好的 - 从 panic 中恢复
+func safeWorker() {
+    defer func() {
+        if r := recover(); r != nil {
+            fmt.Printf("Recovered: %v\n", r)
+        }
+    }()
+
+    // 可能 panic 的工作
+    panic("oops")
+}
+
+// 坏的 - Panic 使 goroutine 崩溃
+func unsafeWorker() {
+    panic("oops") // Goroutine 死亡，无法恢复
+}
+```
+</UniversalEditor>
+
+## 性能考虑
+
+### Goroutine vs Thread 开销
+
+<UniversalEditor title="性能比较">
+```go !! go
+// Go - 内存和创建成本
+package main
+
+import (
+    "fmt"
+    "runtime"
+    "time"
+)
+
+func main() {
+    // Goroutine 非常轻量
+    start := time.Now()
+
+    var wg sync.WaitGroup
+    for i := 0; i < 100000; i++ {
+        wg.Add(1)
+        go func() {
+            defer wg.Done()
+            time.Sleep(time.Second)
+        }()
+    }
+
+    fmt.Printf("Created 100k goroutines in %v\n", time.Since(start))
+    fmt.Printf("Goroutines: %d\n", runtime.NumGoroutine())
+
+    wg.Wait()
+}
+
+// 比较:
+// Python 线程: 每线程 ~8MB，~1ms 创建时间
+// Go goroutine: 每个 ~2KB(增长)，~0.001ms 创建时间
+```
+</UniversalEditor>
+
+## 总结
+
+### 核心概念
+
+1. **无 GIL**: Go 有真正并行，Python 受 GIL 限制
+2. **轻量级**: Goroutine 使用 ~2KB 栈，线程使用 ~8MB
+3. **M:N 调度**: Go 运行时管理 goroutine 调度
+4. **WaitGroup**: 正确同步而不需要 sleep
+5. **Mutex/RWMutex**: 保护共享状态
+6. **sync.Once**: 保证单次执行
+7. **原子操作**: 简单情况的无锁同步
+8. **Worker pool**: 限制并发 goroutine
+9. **Context**: 取消和超时
+10. **避免泄漏**: 始终提供退出条件
+
+### 常见模式
+
+- **WaitGroup**: 等待多个 goroutine
+- **Mutex**: 保护共享数据
+- **RWMutex**: 多读者单写者
+- **Channels**: Goroutine 间通信(下一个模块)
+- **Context**: 取消传播
+- **Worker pool**: 有界并发
+
+### 最佳实践
+
+1. 始终为 goroutine 提供退出条件
+2. 使用 WaitGroup 代替 time.Sleep
+3. 小心共享状态(优先使用 channel)
+4. 处理 goroutine 中的 panic
+5. 为多个任务使用 worker pool
+6. 为读密集型工作负载使用 RWMutex
+7. 为简单计数器使用原子操作
+8. 使用 context 进行取消
+
+### 与 Python 的比较
+
+| Python | Go |
+|--------|-----|
+| GIL 限制并行 | 无 GIL，真正并行 |
+| 线程受 GIL 限制 | Goroutine 在所有 CPU 上 |
+| 线程 ~8MB 内存 | Goroutine ~2KB 栈 |
+| OS 管理调度 | Go 运行时调度 |
+| `threading.Thread` | `go` 关键字 |
+| `threading.Lock` | `sync.Mutex` |
+| `threading.RLock` | `sync.RWMutex` |
+| `threading.Event` | `context.Context` |
+
+## 练习
+
+1. 创建一个 worker pool:
+   - 处理 1000 个任务
+   - 使用 20 个 worker
+   - 收集所有结果
+   - 测量执行时间
+
+2. 实现并发网页爬虫:
+   - 并发获取多个 URL
+   - 使用 WaitGroup 同步
+   - 优雅处理 panic
+   - 使用 context 实现超时
+
+3. 构建限流器:
+   - 限制每秒 N 个请求
+   - 使用 goroutine 和 channel
+   - 丢弃或排队多余请求
+
+4. 创建并发缓存:
+   - 使用 RWMutex 保证线程安全
+   - 实现 Get/Set/Delete 操作
+   - 添加 TTL 支持
+
+5. 并行数据处理:
+   - 将大文件分块
+   - 并发处理块
+   - 聚合结果
+   - 正确处理错误
+
+## 下一步
+
+下一个模块: **Channel 与通信** - 学习 goroutine 如何安全有效地通信。

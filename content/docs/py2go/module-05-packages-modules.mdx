@@ -1,0 +1,979 @@
+---
+title: "Module 5: Package Management"
+description: "Go modules and package system compared to Python"
+---
+
+## Introduction
+
+Go uses **Go Modules** for dependency management (since Go 1.11), replacing the old GOPATH system. This is similar to Python's pip/virtualenv but with some key differences and improvements.
+
+## Go Modules vs Python Tools
+
+### Basic Setup
+
+<UniversalEditor title="Project Setup Comparison">
+```bash
+# Python - Virtual environment setup
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+pip install requests flask
+pip freeze > requirements.txt
+```
+
+```bash
+# Go - Go module setup
+mkdir myproject
+cd myproject
+go mod init github.com/username/myproject
+# Creates go.mod file
+
+get github.com/gin-gonic/gin  # Add dependency
+go mod tidy                   # Clean up dependencies
+# go.mod and go.sum are updated automatically
+```
+</UniversalEditor>
+
+### Project Structure
+
+<UniversalEditor title="Project Structure Comparison">
+```bash
+# Python project structure
+myproject/
+├── venv/                    # Virtual environment
+│   ├── lib/
+│   └── bin/
+├── requirements.txt         # Dependencies
+├── src/
+│   ├── __init__.py
+│   ├── main.py
+│   └── utils.py
+└── tests/
+    ├── __init__.py
+    └── test_utils.py
+```
+
+```bash
+# Go project structure
+myproject/
+├── go.mod                  # Module definition
+├── go.sum                  # Dependency checksums (auto-generated)
+├── main.go                 # Entry point
+├── utils.go                # Utility code
+└── utils_test.go          # Test file (*_test.go convention)
+```
+</UniversalEditor>
+
+## The go.mod File
+
+<UniversalEditor title="go.mod vs requirements.txt">
+```python
+# Python - requirements.txt
+flask==2.3.0
+requests>=2.28.0
+django>=3.2,<4.0
+```
+
+```go
+// Go - go.mod
+module github.com/username/myproject
+
+go 1.21
+
+require (
+    github.com/gin-gonic/gin v1.9.1
+    github.com/stretchr/testify v1.8.4
+)
+
+// Direct dependencies
+require github.com/go-redis/redis/v8 v8.11.5
+
+// Indirect dependencies (shown in go mod why)
+// indirect dependencies are listed in go.mod with // indirect
+```
+</UniversalEditor>
+
+## Importing Packages
+
+### Basic Imports
+
+<UniversalEditor title="Import Statements">
+```python !! py
+# Python - Imports
+import math
+import os.path
+from collections import defaultdict, Counter
+from . import local_module
+from .utils import helper
+from package import Class
+import package as p
+```
+
+```go !! go
+// Go - Imports
+package main
+
+import (
+    "fmt"           // Standard library
+    "math"          // Standard library
+    "os"            // Standard library
+    "strings"       // Standard library
+
+    // Third-party packages (from go.mod)
+    "github.com/gin-gonic/gin"
+    "github.com/go-redis/redis/v8"
+
+    // Local packages (relative to module root)
+    "myproject/utils"
+    "myproject/internal/app"
+
+    // Import with alias
+    myfmt "myproject/format"
+)
+
+func main() {
+    fmt.Println("Hello from main")
+    utils.Helper()
+}
+```
+</UniversalEditor>
+
+### Package Organization
+
+<UniversalEditor title="Package Naming">
+```python !! py
+# Python - Package = directory
+# myproject/utils/__init__.py
+# myproject/utils/helper.py
+
+# Usage
+from utils import helper
+from utils.helper import process_data
+```
+
+```go !! go
+// Go - Package declaration at top of file
+// utils/helper.go
+package utils
+
+func Helper() {
+    fmt.Println("Helper function")
+}
+
+// utils/constants.go
+package utils
+
+const MaxRetries = 3
+
+// Usage (from main.go)
+import "myproject/utils"
+
+func main() {
+    utils.Helper()
+    fmt.Println(utils.MaxRetries)
+}
+```
+</UniversalEditor>
+
+## Package Visibility
+
+<UniversalEditor title="Exported vs Unexported">
+```python !! py
+# Python - Public vs private (convention-based)
+# utils.py
+
+PUBLIC_VAR = "Anyone can access"
+
+_internal_var = "Private by convention"
+
+__private_var = "Name mangling"
+
+def public_function():
+    pass
+
+def _internal_function():
+    pass
+
+def __private_function():
+    pass
+```
+
+```go !! go
+// Go - Exported vs unexported (strict)
+package utils
+
+const MaxRetries = 3        // Exported (capital letter)
+const defaultTimeout = 30  // Unexported (lowercase)
+
+var GlobalVar string         // Exported
+var internalState int       // Unexported
+
+func PublicFunction() {}     // Exported
+func internalHelper() {}    // Unexported
+
+type PublicStruct struct {}  // Exported
+type privateStruct struct{} // Unexported
+
+// From another package
+import "myproject/utils"
+
+func main() {
+    utils.MaxRetries        // OK - exported
+    utils.defaultTimeout    // Error: unexported
+}
+```
+</UniversalEditor>
+
+## go.mod Commands
+
+<UniversalEditor title="Common Commands">
+```bash
+# Python - pip commands
+pip install requests
+pip list
+pip freeze
+pip install --upgrade requests
+pip uninstall requests
+pip show requests
+```
+
+```bash
+# Go - module commands
+go mod init github.com/username/project  # Initialize
+go mod tidy                                 # Add missing, remove unused
+go mod download                              # Download all dependencies
+go mod verify                                # Verify dependencies (check checksums)
+go mod graph                                 # Display dependency graph
+go mod why github.com/pkg/errors          # Explain why a package is needed
+go list -m all                               # List all dependencies
+go get -u ./...                                # Update all dependencies
+go get -u github.com/pkg/errors             # Update specific package
+```
+</UniversalEditor>
+
+### Detailed Command Examples
+
+<UniversalEditor title="Command Examples">
+```bash
+# Initialize a new module
+$ mkdir myproject
+$ cd myproject
+$ go mod init github.com/username/myproject
+go: creating new go.mod: module github.com/username/myproject
+
+# Add a dependency
+$ go get github.com/gin-gonic/gin
+go: downloading github.com/gin-gonic/gin v1.9.1
+go: added github.com/gin-gonic/gin v1.9.1
+
+# Tidy dependencies (remove unused, add missing)
+$ go mod tidy
+
+# Check dependencies
+$ cat go.mod
+module github.com/username/myproject
+
+go 1.21
+
+require github.com/gin-gonic/gin v1.9.1
+
+require (
+    github.com/stretchr/testify v1.8.4 // Indirect
+)
+
+# See dependency graph
+$ go mod graph
+github.com/username/myproject github.com/gin-gonic/gin
+github.com/gin-gonic/gin github.com/gin-contrib/sse
+...
+
+# Why is a package needed?
+$ go mod why github.com/stretchr/testify
+github.com/username/myproject
+└── github.com/gin-gonic/gin
+    └── github.com/stretchr/testify
+
+# Update all dependencies
+$ go get -u ./...
+```
+</UniversalEditor>
+
+## Dependency Versions
+
+<UniversalEditor title="Version Management">
+```python
+# Python - Version pinning
+flask==2.3.0              # Exact version
+requests>=2.28.0         # Minimum version
+django~=3.2.0             # Compatible release (3.2.x, not 3.3+)
+```
+
+```go
+// Go - Semantic versioning in go.mod
+module github.com/username/myproject
+
+go 1.21
+
+require (
+    // Specific version
+    github.com/pkg/errors v0.9.1
+
+    // Version range with minimum
+    github.com/gin-gonic/gin v1.9.1 // v1.9.1 or later (with SemVer)
+
+    // Indirect dependencies
+    github.com/stretchr/testify v1.8.4 // indirect
+)
+
+// Go uses Semantic Versioning (SemVer):
+// v1.2.3 = MAJOR.MINOR.PATCH
+// v1.2 = 1.2.x (compatible, patches)
+// v1 = 1.x.x (compatible, minor and patch)
+```
+</UniversalEditor>
+
+## go.sum File
+
+<UniversalEditor title="Dependency Checksums">
+```bash
+# Python - No checksums by default
+# Can use pip hash-checking mode
+pip install --require-hashes -r requirements.txt
+
+# requirements.txt
+flask==2.3.0 --hash=sha256:a8b...
+```
+
+```bash
+# Go - go.sum (auto-generated, don't edit)
+$ cat go.sum
+github.com/gin-gonic/gin v1.9.1 h1:...
+github.com/gin-gonic/gin v1.9.1/go.mod h1:...
+github.com/stretchr/testify v1.8.4 h1:...
+github.com/stretchr/testify v1.8.4/go.mod h1:...
+
+# go.sum contains:
+# - Cryptographic hashes of all dependencies
+# - Ensures dependency integrity
+# - Auto-generated and managed by Go tools
+# - Never edit manually
+# - Commit to version control
+```
+</UniversalEditor>
+
+## Internal Packages
+
+Go reserves `internal` directories for private code:
+
+<UniversalEditor title="Internal Packages">
+```python
+# Python - No concept of internal
+# Use naming conventions or tools
+myproject/
+├── utils.py
+├── _private.py
+└── tests/
+    └── test_utils.py
+```
+
+```bash
+# Go - Internal directory (private)
+myproject/
+├── go.mod
+├── main.go
+├── internal/
+│   ├── app/
+│   │   └── app.go
+│   └── database/
+│       └── db.go
+└── pkg/
+    └── utils/
+        └── utils.go
+
+// internal/ is only accessible within myproject
+// pkg/ is publicly importable
+```
+
+```go
+// internal/app/app.go
+package app
+
+// Can only be imported by code in myproject
+// NOT accessible by:
+// - github.com/other-project
+// - github.com/username/myproject/internal (different path)
+
+// IS accessible by:
+// - myproject/main.go
+// - myproject/pkg/utils
+
+func Run() {
+    fmt.Println("App running")
+}
+```
+</UniversalEditor>
+
+## Vendor Directory
+
+<UniversalEditor title="Vendoring Dependencies">
+```bash
+# Python - Vendoring
+pip install -t vendor/ -r requirements.txt
+
+# Or use pipenv
+pipenv install
+pipenv vendor
+```
+
+```bash
+# Go - Vendoring dependencies
+$ go mod vendor
+
+# Creates vendor/ directory with all source code
+$ ls vendor/
+github.com/
+    gin-gonic/
+    stretchr/
+    ...
+
+# Go will use vendor/ directory if present
+# Commit vendor/ to version control for reproducible builds
+
+# Clean vendor if needed
+$ rm -rf vendor/
+```
+</UniversalEditor>
+
+## Import Strategies
+
+### Remote Imports
+
+<UniversalEditor title="Importing Remote Packages">
+```python !! py
+# Python - Install then import
+# First: pip install pyyaml
+# Then:
+import yaml
+
+data = yaml.safe_load("""
+    name: Alice
+    age: 30
+""")
+```
+
+```go !! go
+// Go - Import and use
+package main
+
+import (
+    "fmt"
+    "gopkg.in/yaml.v3"  // Domain prefix for non-GitHub repos
+)
+
+func main() {
+    data := []byte(`
+        name: Alice
+        age: 30
+    `)
+
+    var result map[string]interface{}
+    yaml.Unmarshal(data, &result)
+
+    fmt.Printf("Name: %v, Age: %v", result["name"], result["age"])
+}
+```
+</UniversalEditor>
+
+## Version Conflicts and Resolution
+
+<UniversalEditor title="Dependency Conflicts">
+```python
+# Python - Dependency conflicts
+# requirements.txt
+package-a==1.0.0
+package-b==2.0.0
+
+# If package-a requires package-b==1.5.0
+# pip install -r requirements.txt
+# ERROR: Requirement conflict
+```
+
+```go
+// Go - Minimal conflicts (MVS - Minimal Version Selection)
+// go.mod
+module myproject
+
+go 1.21
+
+require (
+    package-a v1.0.0
+    package-b v2.0.0
+)
+
+// If package-a requires package-b v1.5.0
+// Go uses MVS algorithm:
+// - Both v1.5.0 and v2.0.0 satisfy package-b's requirement
+// - Go chooses v1.5.0 (minimal version that satisfies all)
+// - No version conflict!
+
+// This is a major advantage over Python's pip
+```
+</UniversalEditor>
+
+## Replacing Dependencies
+
+<UniversalEditor title="Dependency Replacement">
+```python
+# Python - Override version
+# requirements.txt
+package-a==2.0.0
+
+# Or use pip-tools
+pip install package-a==2.0.0
+pip-compile  # Creates requirements.txt from all packages
+```
+
+```go
+// Go - replace directive
+module myproject
+
+go 1.21
+
+require (
+    github.com/original/package v1.0.0
+)
+
+// Replace with local fork or different version
+replace github.com/original/package => ../fork/package
+
+// Or use specific version
+replace github.com/original/package => v1.1.0
+
+// Or use different module
+replace github.com/original/package => github.com/myfork/package v1.0.0
+```
+</UniversalEditor>
+
+## Private Modules
+
+<UniversalEditor title="Private Go Modules">
+```bash
+# Python - Private PyPI repository
+# Set up private PyPI server
+pip install --index-url https://pypi.example.com/simple/ mypackage
+```
+
+```bash
+# Go - Private modules
+# Option 1: Direct Git repository
+require (
+    github.com/mycompany/privatepackage v1.0.0
+)
+
+# Configure git to authenticate
+git config credential.helper store
+
+# Option 2: Private Go proxy
+# Set GOPROXY
+export GOPROXY=https://goproxy.example.com
+
+# Option 3: Replace with local path
+replace github.com/mycompany/privatepackage => ../privatepackage
+
+# Option 4: GOPRIVATE setting
+export GOPRIVATE=github.com/mycompany/*
+# Private modules bypass proxy
+```
+</UniversalEditor>
+
+## Module Proxy
+
+<UniversalEditor title="Go Module Proxy">
+```bash
+# Python - PyPI and package indexes
+export PIP_INDEX_URL=https://pypi.org/simple
+export PIP_EXTRA_INDEX_URL=https://pypi.example.com/simple
+```
+
+```bash
+# Go - Module proxy
+# By default, Go uses:
+# - https://proxy.golang.org (public proxy)
+# - Direct connection to VCS (Git)
+
+# Set module proxy
+export GOPROXY=https://goproxy.cn,direct
+export GONOSUMDB=github.com/*  # Bypass proxy for these
+
+# Private module proxy
+export GOPRIVATE=github.com/mycompany/*  # Don't use proxy
+
+# Check proxy
+go env GOPROXY
+
+# Turn off proxy (direct only)
+export GOPROXY=direct
+```
+</UniversalEditor>
+
+## Common Package Patterns
+
+### Main Package
+
+<UniversalEditor title="Main Package">
+```python !! py
+# Python - Entry point
+if __name__ == "__main__":
+    main()
+```
+
+```go !! go
+// Go - main package (entry point)
+package main
+
+import "fmt"
+
+func main() {
+    fmt.Println("Hello, World!")
+}
+
+// main() function in main package is the entry point
+// Can have multiple main packages for different commands
+```
+</UniversalEditor>
+
+### Package Aliases
+
+<UniversalEditor title="Import Aliases">
+```python !! py
+# Python - Import aliases
+import numpy as np
+import pandas as pd
+from matplotlib import pyplot as plt
+```
+
+```go !! go
+// Go - Import aliases
+package main
+
+import (
+    fmtpkg "fmt"             // Alias
+    stdlib "github.com/mylib"  // Alias
+)
+
+func main() {
+    fmtpkg.Println("Using alias")
+    stdlib.Helper()
+}
+```
+</UniversalEditor>
+
+### Dot Imports
+
+<UniversalEditor title="Dot Imports">
+```python !! py
+# Python - From import
+from math import sin, cos, pi
+# Use directly: sin(x), cos(x), pi
+```
+
+```go !! go
+// Go - Dot import (rare, use carefully)
+package main
+
+import (
+    . "fmt"  // Dot import
+)
+
+func main() {
+    // Can use Println directly without fmt prefix
+    Println("Hello, World!")
+    // WARNING: Can cause naming conflicts!
+}
+```
+</UniversalEditor>
+
+## Init Functions
+
+<UniversalEditor title="Package Initialization">
+```python !! py
+# Python - Module-level code runs on import
+# config.py
+CONFIG = load_config()
+setup_database()
+
+# main.py
+import config  # CONFIG is initialized, DB is set up
+```
+
+```go !! go
+// Go - init() function
+package utils
+
+var config *Config
+
+func init() {
+    // Runs automatically when package is imported
+    // Can have multiple init() files (executed in order)
+    config = loadConfig()
+}
+
+// OR (prefer explicit initialization)
+var config *Config = loadConfig()  // Init at package level
+
+func init() {
+    // Run before main()
+    setupDatabase()
+}
+
+// main.go
+package main
+
+import (
+    "myproject/utils"
+    _ "myproject/database"  // Import for side effects (init runs)
+)
+```
+</UniversalEditor>
+
+## Third-Party Package Management
+
+<UniversalEditor title="Managing Dependencies">
+```bash
+# Python - requirements.txt
+# requirements.txt
+flask==2.3.0
+requests>=2.28.0
+gunicorn>=20.1.0
+
+# Development
+pytest>=7.0.0
+black>=22.0.0
+
+# Install all
+pip install -r requirements.txt
+
+# Install production only
+pip install -r requirements.txt --no-deps
+
+# Upgrade
+pip install --upgrade -r requirements.txt
+```
+
+```bash
+# Go - go.mod
+module myproject
+
+go 1.21
+
+// Build dependencies
+require (
+    github.com/gin-gonic/gin v1.9.1
+    github.com/go-redis/redis/v8 v8.11.5
+)
+
+// Development dependencies
+// Go doesn't separate dev deps
+// All deps are in go.mod
+
+// Add dependency
+$ go get github.com/pkg/errors
+
+// Update dependency
+$ go get -u github.com/pkg/errors
+
+// Remove unused dependencies
+$ go mod tidy
+
+// Update all
+$ go get -u ./...
+```
+</UniversalEditor>
+
+## Workspace Mode (Go 1.18+)
+
+<UniversalEditor title="Workspace Mode">
+```bash
+# Python - No workspace concept
+# Use monorepo tools or separate virtual envs
+```
+
+```bash
+# Go - Workspaces (multi-module projects)
+# workspace/go.work
+go 1.21
+
+use (
+    ./app
+    ./utils
+    ./api
+)
+
+# All modules share dependencies
+# Can use code from one module in another
+$ go work sync
+```
+</UniversalEditor>
+
+## Testing and Packages
+
+<UniversalEditor title="Testing Package Structure">
+```bash
+# Python - test structure
+myproject/
+├── src/
+│   └── calculator.py
+└── tests/
+    ├── __init__.py
+    ├── test_calculator.py
+    └── fixtures/
+        └── test_data.json
+```
+
+```bash
+# Go - test structure (same package)
+myproject/
+├── calculator.go
+├── calculator_test.go  // *_test.go convention
+└── calculator_example_test.go  // *_example_test.go for examples
+
+// Test files can be in same package:
+package myproject
+
+// Or in _test package (black-box testing):
+package myproject_test
+```
+</UniversalEditor>
+
+## Tools and Best Practices
+
+### Dependency Management Best Practices
+
+<UniversalEditor title="Best Practices">
+```go
+// DO: Commit go.mod and go.sum
+$ git add go.mod go.sum
+$ git commit -m "Add gin-gonic dependency"
+
+// DO: Run go mod tidy before committing
+$ go mod tidy
+$ git add go.mod go.sum
+
+// DON'T: Manually edit go.sum
+// Let Go tools manage it
+
+// DO: Use specific versions in go.mod
+require github.com/pkg/errors v0.9.1
+
+// DON'T: Use latest versions without testing
+// Update dependencies when needed, not automatically
+
+// DO: Use go mod verify in CI
+$ go mod verify
+```
+</UniversalEditor>
+
+### Common Patterns
+
+<UniversalEditor title="Common Package Patterns">
+```go
+// 1. Repository pattern
+package repository
+
+type UserRepository interface {
+    Find(id int) (*User, error)
+    Save(user *User) error
+}
+
+type userRepository struct {
+    db *sql.DB
+}
+
+func NewUserRepository(db *sql.DB) UserRepository {
+    return &userRepository{db: db}
+}
+
+// 2. Service pattern
+package service
+
+type UserService struct {
+    repo UserRepository
+}
+
+func NewUserService(repo UserRepository) *UserService {
+    return &UserService{repo: repo}
+}
+
+// 3. Factory pattern
+package factory
+
+func NewServer(config *Config) *Server {
+    return &Server{
+        config: config,
+        router: NewRouter(),
+    }
+}
+```
+</UniversalEditor>
+
+## Summary
+
+In this module, you learned:
+
+1. **Go Modules** - Modern dependency management
+2. **go.mod** - Module definition and dependencies
+3. **go.sum** - Dependency checksums for security
+4. **Package organization** - Directories and naming
+5. **Import statements** - Standard, third-party, local
+6. **Exported vs unexported** - Capitalization rules
+7. **Internal packages** - Private code within module
+8. **Vendor directory** - Vendored dependencies
+9. **Version management** - Semantic versioning
+10. **go mod commands** - tidy, download, verify, graph, why
+11. **Private modules** - Authentication and proxies
+12. **Module proxy** - GOPROXY and GOPRIVATE
+13. **Workspaces** - Multi-module projects
+14. **Init functions** - Package initialization
+15. **Testing** - Test file conventions
+
+## Key Differences from Python
+
+| Python | Go |
+|--------|-----|
+| `pip install` | `go get` |
+| `requirements.txt` | `go.mod` |
+| Virtual environments | Go modules (no venv needed) |
+| `__pycache__` | Module cache |
+| `setup.py` | `go.mod` |
+| `from X import Y` | `import "package"` |
+| Private via `_` prefix | Private via lowercase |
+| No internal concept | `internal/` directory |
+| No checksums by default | `go.sum` (always) |
+| Version conflicts common | MVS (minimal conflicts) |
+
+## Best Practices
+
+1. **Always commit go.mod and go.sum** together
+2. **Run `go mod tidy`** before committing
+3. **Use semantic versioning** for your modules
+4. **Don't manually edit go.sum**
+5. **Use `internal/`** for private code
+6. **Be specific with dependencies** - avoid unnecessary packages
+7. **Use `go mod verify`** in CI/CD
+8. **Vendor dependencies** for reproducible builds if needed
+9. **Use workspace mode** for multi-module projects
+10. **Prefer direct imports** over dot imports
+
+## Exercises
+
+1. Create a new Go module with multiple packages
+2. Add and update third-party dependencies
+3. Create an internal package and test visibility
+4. Use go mod commands to analyze dependencies
+5. Set up a private module repository
+6. Implement the repository pattern in a package
+7. Create a workspace with multiple modules
+8. Write init() functions for package setup
+
+## Next Steps
+
+Next module: **Error Handling** - Understanding Go's explicit error handling and error interfaces.

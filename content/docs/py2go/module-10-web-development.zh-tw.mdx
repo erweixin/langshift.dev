@@ -1,0 +1,746 @@
+---
+title: "模組 10: Web 開發"
+description: "使用 Go 建構Web 伺服器和 API，與 Python 框架對比"
+---
+
+## 簡介
+
+Go 的標準庫包含強大的 HTTP 伺服器。與 Python 需要使用 Flask 或 FastAPI 等框架不同，Go 的 `net/http` 包提供了生產級 Web 服務所需的一切。
+
+## 基本 HTTP 伺服器
+
+<UniversalEditor title="Hello World 伺服器">
+```python !! py
+# Python - Flask
+from flask import Flask
+
+app = Flask(__name__)
+
+@app.route('/')
+def hello():
+    return "Hello, World!"
+
+@app.route('/user/<name>')
+def user(name):
+    return f"Hello, {name}!"
+
+if __name__ == '__main__':
+    app.run(port=8080)
+```
+
+```go !! go
+// Go - net/http (無需框架！)
+package main
+
+import (
+    "fmt"
+    "net/http"
+)
+
+func helloHandler(w http.ResponseWriter, r *http.Request) {
+    fmt.Fprint(w, "Hello, World!")
+}
+
+func userHandler(w http.ResponseWriter, r *http.Request) {
+    name := r.URL.Path[len("/user/"):]
+    fmt.Fprintf(w, "Hello, %s!", name)
+}
+
+func main() {
+    http.HandleFunc("/", helloHandler)
+    http.HandleFunc("/user/", userHandler)
+
+    fmt.Println("Server starting on :8080")
+    http.ListenAndServe(":8080", nil)
+}
+```
+</UniversalEditor>
+
+## HTTP 方法和路由
+
+<UniversalEditor title="HTTP 方法">
+```python !! py
+# Python - Flask
+from flask import Flask, request, jsonify
+
+app = Flask(__name__)
+
+@app.route('/api/user', methods=['GET'])
+def get_user():
+    return jsonify({"name": "Alice"})
+
+@app.route('/api/user', methods=['POST'])
+def create_user():
+    data = request.get_json()
+    return jsonify({"created": True}), 201
+
+@app.route('/api/user', methods=['PUT', 'PATCH'])
+def update_user():
+    data = request.get_json()
+    return jsonify({"updated": True})
+
+@app.route('/api/user', methods=['DELETE'])
+def delete_user():
+    return jsonify({"deleted": True})
+```
+
+```go !! go
+// Go - HTTP 方法
+package main
+
+import (
+    "encoding/json"
+    "fmt"
+    "net/http"
+)
+
+func userHandler(w http.ResponseWriter, r *http.Request) {
+    switch r.Method {
+    case http.MethodGet:
+        json.NewEncoder(w).Encode(map[string]string{"name": "Alice"})
+
+    case http.MethodPost:
+        var data map[string]interface{}
+        json.NewDecoder(r.Body).Decode(&data)
+        w.WriteHeader(http.StatusCreated)
+        json.NewEncoder(w).Encode(map[string]bool{"created": true})
+
+    case http.MethodPut, http.MethodPatch:
+        var data map[string]interface{}
+        json.NewDecoder(r.Body).Decode(&data)
+        json.NewEncoder(w).Encode(map[string]bool{"updated": true})
+
+    case http.MethodDelete:
+        json.NewEncoder(w).Encode(map[string]bool{"deleted": true})
+
+    default:
+        http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+    }
+}
+
+func main() {
+    http.HandleFunc("/api/user", userHandler)
+    http.ListenAndServe(":8080", nil)
+}
+```
+</UniversalEditor>
+
+## 查詢參數和表單
+
+<UniversalEditor title="查詢參數">
+```python !! py
+# Python - Flask
+from flask import request
+
+@app.route('/search')
+def search():
+    query = request.args.get('q', '')
+    page = int(request.args.get('page', 1))
+    return f"Search: {q}, Page: {page}"
+
+@app.route('/form', methods=['POST'])
+def form():
+    name = request.form.get('name')
+    email = request.form.get('email')
+    return f"Name: {name}, Email: {email}"
+```
+
+```go !! go
+// Go - 查詢參數和表單
+package main
+
+import (
+    "fmt"
+    "net/http"
+    "strconv"
+)
+
+func searchHandler(w http.ResponseWriter, r *http.Request) {
+    query := r.URL.Query().Get("q")
+    pageStr := r.URL.Query().Get("page")
+    page, _ := strconv.Atoi(pageStr)
+    if page == 0 {
+        page = 1
+    }
+
+    fmt.Fprintf(w, "Search: %s, Page: %d", query, page)
+}
+
+func formHandler(w http.ResponseWriter, r *http.Request) {
+    if r.Method == http.MethodPost {
+        r.ParseForm()
+        name := r.FormValue("name")
+        email := r.FormValue("email")
+        fmt.Fprintf(w, "Name: %s, Email: %s", name, email)
+    }
+}
+
+func main() {
+    http.HandleFunc("/search", searchHandler)
+    http.HandleFunc("/form", formHandler)
+    http.ListenAndServe(":8080", nil)
+}
+```
+</UniversalEditor>
+
+## JSON 請求/回應
+
+<UniversalEditor title="JSON 處理">
+```python !! py
+# Python - Flask with JSON
+from flask import Flask, request, jsonify
+
+app = Flask(__name__)
+
+class User:
+    def __init__(self, name, email):
+        self.name = name
+        self.email = email
+
+@app.route('/api/user', methods=['POST'])
+def create_user():
+    data = request.get_json()
+    user = User(data['name'], data['email'])
+    return jsonify({
+        'name': user.name,
+        'email': user.email
+    }), 201
+```
+
+```go !! go
+// Go - JSON with struct tags
+package main
+
+import (
+    "encoding/json"
+    "net/http"
+)
+
+type User struct {
+    Name  string `json:"name"`
+    Email string `json:"email"`
+}
+
+func createUserHandler(w http.ResponseWriter, r *http.Request) {
+    if r.Method != http.MethodPost {
+        http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+        return
+    }
+
+    var user User
+    if err := json.NewDecoder(r.Body).Decode(&user); err != nil {
+        http.Error(w, err.Error(), http.StatusBadRequest)
+        return
+    }
+
+    w.Header().Set("Content-Type", "application/json")
+    w.WriteHeader(http.StatusCreated)
+    json.NewEncoder(w).Encode(user)
+}
+
+func main() {
+    http.HandleFunc("/api/user", createUserHandler)
+    http.ListenAndServe(":8080", nil)
+}
+```
+</UniversalEditor>
+
+## 路徑變數和路由
+
+<UniversalEditor title="路徑變數">
+```python !! py
+# Python - Flask 路徑變數
+@app.route('/user/<username>')
+def profile(username):
+    return f"Profile: {username}"
+
+@app.route('/post/<int:post_id>')
+def show_post(post_id):
+    return f"Post ID: {post_id}"
+```
+
+```go !! go
+// Go - 手動路徑解析（或使用路由器）
+package main
+
+import (
+    "fmt"
+    "net/http"
+    "strings"
+)
+
+func profileHandler(w http.ResponseWriter, r *http.Request) {
+    // 從路徑中提取使用者名稱
+    parts := strings.Split(r.URL.Path, "/")
+    if len(parts) < 3 {
+        http.Error(w, "User not found", http.StatusNotFound)
+        return
+    }
+    username := parts[2]
+    fmt.Fprintf(w, "Profile: %s", username)
+}
+
+func main() {
+    http.HandleFunc("/user/", profileHandler)
+    http.ListenAndServe(":8080", nil)
+}
+```
+</UniversalEditor>
+
+## 中間件
+
+<UniversalEditor title="中間件">
+```python !! py
+# Python - Flask 裝飾器
+from functools import wraps
+from flask import request, jsonify
+
+def require_auth(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = request.headers.get('Authorization')
+        if not token or not validate_token(token):
+            return jsonify({"error": "Unauthorized"}), 401
+        return f(*args, **kwargs)
+    return decorated
+
+@app.route('/protected')
+@require_auth
+def protected():
+    return jsonify({"message": "Access granted"})
+```
+
+```go !! go
+// Go - 使用閉包的中間件
+package main
+
+import (
+    "fmt"
+    "net/http"
+)
+
+func requireAuth(next http.HandlerFunc) http.HandlerFunc {
+    return func(w http.ResponseWriter, r *http.Request) {
+        token := r.Header.Get("Authorization")
+        if token == "" || !validateToken(token) {
+            http.Error(w, "Unauthorized", http.StatusUnauthorized)
+            return
+        }
+        next(w, r)
+    }
+}
+
+func validateToken(token string) bool {
+    return token == "valid-token"
+}
+
+func protectedHandler(w http.ResponseWriter, r *http.Request) {
+    fmt.Fprint(w, `{"message": "Access granted"}`)
+}
+
+func loggingMiddleware(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        fmt.Printf("%s %s\n", r.Method, r.URL.Path)
+        next.ServeHTTP(w, r)
+    })
+}
+
+func main() {
+    http.Handle("/protected", requireAuth(protectedHandler))
+
+    // 鏈式中間件
+    handler := loggingMiddleware(http.DefaultServeMux)
+    http.ListenAndServe(":8080", handler)
+}
+```
+</UniversalEditor>
+
+## 檔案上傳
+
+<UniversalEditor title="檔案上傳">
+```python !! py
+# Python - Flask 檔案上傳
+from flask import Flask, request
+from werkzeug.utils import secure_filename
+
+app = Flask(__name__)
+app.config['UPLOAD_FOLDER'] = '/uploads'
+
+@app.route('/upload', methods=['POST'])
+def upload_file():
+    if 'file' not in request.files:
+        return "No file", 400
+
+    file = request.files['file']
+    filename = secure_filename(file.filename)
+    file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
+    return "File uploaded"
+```
+
+```go !! go
+// Go - 檔案上傳
+package main
+
+import (
+    "fmt"
+    "io"
+    "net/http"
+    "os"
+)
+
+func uploadHandler(w http.ResponseWriter, r *http.Request) {
+    if r.Method != http.MethodPost {
+        http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+        return
+    }
+
+    // 解析多部分表單（最大 10MB）
+    err := r.ParseMultipartForm(10 << 20)
+    if err != nil {
+        http.Error(w, err.Error(), http.StatusBadRequest)
+        return
+    }
+
+    file, handler, err := r.FormFile("file")
+    if err != nil {
+        http.Error(w, "Error retrieving file", http.StatusBadRequest)
+        return
+    }
+    defer file.Close()
+
+    // 建立上傳檔案
+    dst, err := os.Create("uploads/" + handler.Filename)
+    if err != nil {
+        http.Error(w, err.Error(), http.StatusInternalServerError)
+        return
+    }
+    defer dst.Close()
+
+    // 複製檔案
+    if _, err := io.Copy(dst, file); err != nil {
+        http.Error(w, err.Error(), http.StatusInternalServerError)
+        return
+    }
+
+    fmt.Fprintf(w, "File uploaded: %s", handler.Filename)
+}
+
+func main() {
+    http.HandleFunc("/upload", uploadHandler)
+    http.ListenAndServe(":8080", nil)
+}
+```
+</UniversalEditor>
+
+## 使用 Web 框架
+
+雖然 Go 的標準庫已經足夠，但框架可以提供更多便利：
+
+### 流行的 Go Web 框架
+
+1. **Gin** - 快速、功能豐富
+2. **Echo** - 極簡、高效能
+3. **Fiber** - Express-like API
+4. **Chi** - 輕量級、可組合
+
+<UniversalEditor title="使用 Gin 框架">
+```python !! py
+# Python - Flask
+from flask import Flask, jsonify
+
+app = Flask(__name__)
+
+@app.route('/api/users/<int:id>')
+def get_user(id):
+    return jsonify({"id": id, "name": "Alice"})
+```
+
+```go !! go
+// Go - Gin 框架
+package main
+
+import (
+    "github.com/gin-gonic/gin"
+)
+
+type User struct {
+    ID   int    `json:"id"`
+    Name string `json:"name"`
+}
+
+func main() {
+    r := gin.Default()
+
+    r.GET("/api/users/:id", func(c *gin.Context) {
+        id := c.Param("id")
+        c.JSON(200, User{
+            ID:   1,
+            Name: "Alice",
+        })
+    })
+
+    r.Run(":8080")
+}
+```
+</UniversalEditor>
+
+## RESTful API 示例
+
+<UniversalEditor title="完整的 REST API">
+```python !! py
+# Python - Flask RESTful API
+from flask import Flask, request, jsonify
+from typing import Dict
+
+app = Flask(__name__)
+users: Dict[int, dict] = {
+    1: {"id": 1, "name": "Alice", "email": "alice@example.com"},
+}
+
+@app.route('/api/users', methods=['GET'])
+def get_users():
+    return jsonify(list(users.values()))
+
+@app.route('/api/users/<int:user_id>', methods=['GET'])
+def get_user(user_id):
+    user = users.get(user_id)
+    if not user:
+        return jsonify({"error": "Not found"}), 404
+    return jsonify(user)
+
+@app.route('/api/users', methods=['POST'])
+def create_user():
+    data = request.get_json()
+    user_id = max(users.keys()) + 1
+    data['id'] = user_id
+    users[user_id] = data
+    return jsonify(data), 201
+```
+
+```go !! go
+// Go - RESTful API
+package main
+
+import (
+    "encoding/json"
+    "net/http"
+    "strconv"
+    "sync"
+)
+
+type User struct {
+    ID    int    `json:"id"`
+    Name  string `json:"name"`
+    Email string `json:"email"`
+}
+
+var (
+    users = map[int]User{
+        1: {ID: 1, Name: "Alice", Email: "alice@example.com"},
+    }
+    mu   sync.RWMutex
+    nextID = 2
+)
+
+func getUsersHandler(w http.ResponseWriter, r *http.Request) {
+    mu.RLock()
+    defer mu.RUnlock()
+
+    userList := make([]User, 0, len(users))
+    for _, user := range users {
+        userList = append(userList, user)
+    }
+
+    w.Header().Set("Content-Type", "application/json")
+    json.NewEncoder(w).Encode(userList)
+}
+
+func getUserHandler(w http.ResponseWriter, r *http.Request) {
+    idStr := r.URL.Path[len("/api/users/"):]
+    id, err := strconv.Atoi(idStr)
+    if err != nil {
+        http.Error(w, "Invalid user ID", http.StatusBadRequest)
+        return
+    }
+
+    mu.RLock()
+    user, exists := users[id]
+    mu.RUnlock()
+
+    if !exists {
+        http.Error(w, "User not found", http.StatusNotFound)
+        return
+    }
+
+    w.Header().Set("Content-Type", "application/json")
+    json.NewEncoder(w).Encode(user)
+}
+
+func createUserHandler(w http.ResponseWriter, r *http.Request) {
+    if r.Method != http.MethodPost {
+        http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+        return
+    }
+
+    var user User
+    if err := json.NewDecoder(r.Body).Decode(&user); err != nil {
+        http.Error(w, err.Error(), http.StatusBadRequest)
+        return
+    }
+
+    mu.Lock()
+    user.ID = nextID
+    nextID++
+    users[user.ID] = user
+    mu.Unlock()
+
+    w.Header().Set("Content-Type", "application/json")
+    w.WriteHeader(http.StatusCreated)
+    json.NewEncoder(w).Encode(user)
+}
+
+func main() {
+    http.HandleFunc("/api/users", getUsersHandler)
+    http.HandleFunc("/api/users/", getUserHandler)
+    http.HandleFunc("/api/users", createUserHandler)
+
+    fmt.Println("Server starting on :8080")
+    http.ListenAndServe(":8080", nil)
+}
+```
+</UniversalEditor>
+
+## HTTP 客戶端
+
+<UniversalEditor title="發起 HTTP 請求">
+```python !! py
+# Python - requests 函式庫
+import requests
+
+response = requests.get('https://api.example.com/data')
+data = response.json()
+
+response = requests.post(
+    'https://api.example.com/users',
+    json={'name': 'Alice'},
+    headers={'Authorization': 'Bearer token'}
+)
+```
+
+```go !! go
+// Go - net/http 客戶端
+package main
+
+import (
+    "encoding/json"
+    "fmt"
+    "io"
+    "net/http"
+)
+
+func main() {
+    // GET 請求
+    resp, err := http.Get("https://api.example.com/data")
+    if err != nil {
+        panic(err)
+    }
+    defer resp.Body.Close()
+
+    body, _ := io.ReadAll(resp.Body)
+    fmt.Println(string(body))
+
+    // POST 請求
+    data := map[string]string{"name": "Alice"}
+    jsonData, _ := json.Marshal(data)
+
+    req, _ := http.NewRequest(
+        "POST",
+        "https://api.example.com/users",
+        jsonData,
+    )
+    req.Header.Set("Authorization", "Bearer token")
+    req.Header.Set("Content-Type", "application/json")
+
+    client := &http.Client{}
+    resp2, err := client.Do(req)
+    if err != nil {
+        panic(err)
+    }
+    defer resp2.Body.Close()
+}
+```
+</UniversalEditor>
+
+## 效能對比
+
+<UniversalEditor title="效能">
+```python !! py
+# Python Flask
+# 典型效能: 500-2,000 請求/秒
+// 記憶體佔用: 50-100 MB
+
+from flask import Flask
+app = Flask(__name__)
+
+@app.route('/')
+def index():
+    return "Hello"
+
+app.run(threaded=True)
+```
+
+```go !! go
+// Go net/http
+// 典型效能: 10,000-50,000+ 請求/秒
+// 記憶體佔用: 5-20 MB
+
+package main
+
+import "net/http"
+
+func handler(w http.ResponseWriter, r *http.Request) {
+    w.Write([]byte("Hello"))
+}
+
+func main() {
+    http.HandleFunc("/", handler)
+    http.ListenAndServe(":8080", nil)
+}
+```
+</UniversalEditor>
+
+## 總結
+
+在本模組中，你學習了：
+
+1. **net/http** - 標準庫中的強大 HTTP 伺服器
+2. **路由** - HandleFunc 和手動路由
+3. **JSON** - 使用 struct tag 進行編碼/解碼
+4. **中間件** - 可組合的中間件鏈
+5. **檔案上傳** - 多部分表單處理
+6. **Web 框架** - Gin、Echo、Chi 提供便利
+7. **REST API** - 完整的 CRUD 操作
+8. **HTTP 客戶端** - 發起外部請求
+9. **效能** - Go 明顯快於 Python
+
+## 主要差別
+
+| Python | Go |
+|--------|-----|
+| 需要 Flask/Django | 標準庫即可 |
+| `@app.route` 裝飾器 | `http.HandleFunc` |
+| `request.get_json()` | `json.NewDecoder(r.Body)` |
+| `@require_auth` | 中間件函數 |
+| 500-2,000 請求/秒 | 10,000-50,000+ 請求/秒 |
+
+## 練習
+
+1. 建構一個完整的 CRUD REST API
+2. 實現認證中間件
+3. 新增檔案上傳功能
+4. 建立 WebSocket 伺服器
+5. 與你的 Python 應用進行效能對比
+
+## 下一步
+
+下一模組：**測試和除錯** - 撰寫測試和除錯 Go 程式碼。

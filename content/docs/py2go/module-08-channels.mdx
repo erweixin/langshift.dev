@@ -1,0 +1,1523 @@
+---
+title: "Module 8: Channels and Communication"
+description: "Safe communication between goroutines"
+---
+
+## Introduction
+
+Go's concurrency philosophy is captured in this famous quote:
+
+> **"Don't communicate by sharing memory; share memory by communicating."**
+> — Go Proverb
+
+Instead of using locks and shared variables (like Python's threading), Go uses **channels** to pass data between goroutines. This approach:
+
+- **Prevents race conditions** by design
+- **Makes data flow explicit** in the code
+- **Encourages loose coupling** between goroutines
+- **Follows CSP (Communicating Sequential Processes)** model
+
+## Why Channels Over Shared Memory?
+
+<UniversalEditor title="Shared Memory vs Channels">
+```python !! py
+# Python - Shared memory with locks
+import threading
+
+counter = 0
+lock = threading.Lock()
+
+def increment():
+    global counter
+    with lock:
+        counter += 1
+
+# Problem: Easy to forget the lock
+# Problem: Locks can cause deadlocks
+# Problem: Hard to reason about state
+```
+
+```go !! go
+// Go - Share memory by communicating
+package main
+
+func increment(out chan<- int) {
+    out <- 1
+}
+
+func sum(values <-chan int, result chan<- int) {
+    total := 0
+    for v := range values {
+        total += v
+    }
+    result <- total
+}
+
+// Benefits:
+// - No locks needed
+// - Data flow is explicit
+// - Each goroutine owns its data
+// - No race conditions
+```
+</UniversalEditor>
+
+## Channel Basics
+
+### Creating Channels
+
+<UniversalEditor title="Channel Creation">
+```python !! py
+# Python - Queue for thread communication
+import queue
+import threading
+
+# Create queue
+q = queue.Queue()
+
+def producer():
+    for i in range(5):
+        q.put(i)
+    print("Producer done")
+
+def consumer():
+    for i in range(5):
+        value = q.get()
+        print(f"Got: {value}")
+
+t1 = threading.Thread(target=producer)
+t2 = threading.Thread(target=consumer)
+t1.start()
+t2.start()
+t1.join()
+t2.join()
+```
+
+```go !! go
+// Go - Channels
+package main
+
+import (
+    "fmt"
+    "sync"
+)
+
+func main() {
+    // Create unbuffered channel
+    ch := make(chan int)
+
+    var wg sync.WaitGroup
+
+    // Producer
+    wg.Add(1)
+    go func() {
+        defer wg.Done()
+        for i := 0; i < 5; i++ {
+            ch <- i // Send operation
+        }
+        fmt.Println("Producer done")
+    }()
+
+    // Consumer
+    wg.Add(1)
+    go func() {
+        defer wg.Done()
+        for i := 0; i < 5; i++ {
+            value := <-ch // Receive operation
+            fmt.Printf("Got: %d\n", value)
+        }
+    }()
+
+    wg.Wait()
+}
+```
+</UniversalEditor>
+
+### Unbuffered Channels
+
+Unbuffered channels provide **synchronous communication** - both sender and receiver must be ready.
+
+<UniversalEditor title="Unbuffered Channel Blocking">
+```python !! py
+# Python - Blocking queue (size 0 not supported)
+# Python queues are always buffered
+# Using threading.Event for synchronization
+
+import threading
+
+ready = threading.Event()
+data = None
+
+def producer():
+    global data
+    data = 42
+    ready.set()  # Signal data is ready
+
+def consumer():
+    ready.wait()  # Wait for signal
+    print(f"Got: {data}")
+
+t1 = threading.Thread(target=producer)
+t2 = threading.Thread(target=consumer)
+t2.start()
+t1.start()
+t1.join()
+t2.join()
+```
+
+```go !! go
+// Go - Unbuffered channel (synchronous)
+package main
+
+import (
+    "fmt"
+    "sync"
+)
+
+func main() {
+    ch := make(chan int) // No buffer = synchronous
+
+    var wg sync.WaitGroup
+
+    // If we start producer first, it blocks until receiver is ready
+    wg.Add(1)
+    go func() {
+        defer wg.Done()
+        fmt.Println("Producer sending...")
+        ch <- 42 // Blocks until receiver is ready!
+        fmt.Println("Producer sent")
+    }()
+
+    // Start receiver
+    wg.Add(1)
+    go func() {
+        defer wg.Done()
+        fmt.Println("Consumer waiting...")
+        value := <-ch // Blocks until sender is ready!
+        fmt.Printf("Consumer got: %d\n", value)
+    }()
+
+    wg.Wait()
+    // Both goroutines must meet at the same time
+}
+```
+</UniversalEditor>
+
+### Buffered Channels
+
+Buffered channels allow **asynchronous communication** - sender can send up to buffer size without receiver.
+
+<UniversalEditor title="Buffered Channels">
+```python !! py
+# Python - Bounded queue
+import queue
+
+# Queue with max size
+q = queue.Queue(maxsize=5)
+
+# Producer can add up to 5 items without consumer
+for i in range(5):
+    q.put(i)  # Doesn't block
+    print(f"Put: {i}")
+
+# q.put(5)  # This would block (queue full)
+
+print("Queue full!")
+```
+
+```go !! go
+// Go - Buffered channel
+package main
+
+import "fmt"
+
+func main() {
+    // Channel with buffer of 5
+    ch := make(chan int, 5)
+
+    // Can send up to 5 values without receiver
+    for i := 0; i < 5; i++ {
+        ch <- i // Doesn't block
+        fmt.Printf("Put: %d\n", i)
+    }
+
+    // ch <- 5 // This would block (buffer full)
+
+    fmt.Println("Channel full!")
+
+    // Consume values
+    for i := 0; i < 5; i++ {
+        value := <-ch
+        fmt.Printf("Got: %d\n", value)
+    }
+}
+```
+</UniversalEditor>
+
+### Buffer Size Guidelines
+
+<UniversalEditor title="Choosing Buffer Size">
+```go !! go
+// Go - Buffer size considerations
+package main
+
+// Unbuffered (size 0)
+// - Synchronous handshake
+// - Guarantees receiver is ready
+// - Use for coordination, synchronization
+func unbufferedExample() {
+    ch := make(chan int)       // Unbuffered
+    ch <- 1                    // Blocks until receiver
+    value := <-ch              // Blocks until sender
+    _ = value
+}
+
+// Buffered (size 1)
+// - Small buffer
+// - Useful for semaphores, signals
+// - Allows one item in flight
+func bufferedOneExample() {
+    ch := make(chan int, 1)    // Buffer of 1
+    ch <- 1                    // Doesn't block (room in buffer)
+    value := <-ch              // Gets buffered value
+    _ = value
+}
+
+// Buffered (size N)
+// - Asynchronous processing
+// - Decouples producer/consumer speeds
+// - Choose based on expected load
+func bufferedNExample() {
+    // Buffer of 100 - allows 100 items to queue
+    ch := make(chan int, 100)
+
+    // Producer can send 100 items without blocking
+    for i := 0; i < 100; i++ {
+        ch <- i
+    }
+    close(ch)
+
+    // Consumer processes at its own pace
+    for value := range ch {
+        _ = value
+    }
+}
+
+// Rule of thumb:
+// - Start with unbuffered (synchronous is safer)
+// - Add buffer if you measure contention
+// - Keep buffers small (10-100 typically)
+// - Large buffers can hide problems
+```
+</UniversalEditor>
+
+## Channel Directions
+
+Go enforces channel directions at compile-time, making data flow explicit and preventing errors.
+
+<UniversalEditor title="Channel Directions">
+```python !! py
+# Python - No compile-time checking
+def process(queue):
+    # Can both read and write
+    item = queue.get()
+    result = process_item(item)
+    queue.put(result)
+
+# Easy to accidentally misuse
+# No way to enforce read-only or write-only at compile time
+```
+
+```go !! go
+// Go - Channel directions
+package main
+
+import "fmt"
+
+// send-only channel (chan<-)
+func producer(ch chan<- int) {
+    ch <- 42
+    // value := <-ch  // Compilation error!
+}
+
+// receive-only channel (<-chan)
+func consumer(ch <-chan int) {
+    value := <-ch
+    fmt.Println(value)
+    // ch <- 1  // Compilation error!
+}
+
+// bidirectional channel (chan)
+func inout(ch chan int) {
+    value := <-ch  // OK
+    ch <- value    // OK
+}
+
+func main() {
+    ch := make(chan int)
+
+    // Can pass bidirectional channel to send-only or receive-only
+    go producer(ch)
+    consumer(ch)
+}
+```
+</UniversalEditor>
+
+### Direction Enforcement
+
+<UniversalEditor title="Direction Benefits">
+```go !! go
+// Go - Direction enforcement prevents bugs
+package main
+
+import "fmt"
+
+// sendOnly - clearly indicates this function only sends
+func sendOnly(ch chan<- int) {
+    ch <- 1
+    // ch <- 2
+    // close(ch)  // Can only close send-only channels
+}
+
+// receiveOnly - clearly indicates this function only receives
+func receiveOnly(ch <-chan int) {
+    // Cannot close receive-only channel!
+    for value := range ch {
+        fmt.Println(value)
+    }
+}
+
+// Benefits:
+// 1. Documentation - Function signature shows intent
+// 2. Safety - Compiler prevents accidental misuse
+// 3. Clear ownership - Who sends, who receives
+
+func pipeline(numbers <-chan int, results chan<- int) {
+    // Process numbers, send to results
+    for n := range numbers {
+        results <- n * 2
+    }
+    close(results) // We own the sending side
+}
+
+func main() {
+    numbers := make(chan int)
+    results := make(chan int)
+
+    go func() {
+        for i := 0; i < 5; i++ {
+            numbers <- i
+        }
+        close(numbers)
+    }()
+
+    go pipeline(numbers, results)
+
+    for result := range results {
+        fmt.Println(result)
+    }
+}
+```
+</UniversalEditor>
+
+## Closing Channels
+
+Closing signals that no more values will be sent. This allows receivers to detect completion.
+
+<UniversalEditor title="Closing Channels">
+```python !! py
+# Python - Sentinel values or None
+import queue
+
+def producer(q):
+    for i in range(5):
+        q.put(i)
+    q.put(None)  # Sentinel to signal done
+
+def consumer(q):
+    while True:
+        item = q.get()
+        if item is None:  # Check for sentinel
+            break
+        print(f"Got: {item}")
+
+q = queue.Queue()
+# ... start threads
+```
+
+```go !! go
+// Go - Close channels
+package main
+
+import "fmt"
+
+func producer(ch chan<- int) {
+    for i := 0; i < 5; i++ {
+        ch <- i
+    }
+    close(ch)  // Signal no more values
+}
+
+func consumer(ch <-chan int) {
+    // Range automatically detects close
+    for value := range ch {
+        fmt.Printf("Got: %d\n", value)
+    }
+    fmt.Println("Consumer done")
+}
+
+func main() {
+    ch := make(chan int)
+
+    go producer(ch)
+    consumer(ch)
+}
+```
+</UniversalEditor>
+
+### Detecting Closed Channels
+
+<UniversalEditor title="Comma Ok Idiom">
+```go !! go
+// Go - Detecting closed channels
+package main
+
+import "fmt"
+
+func main() {
+    ch := make(chan int, 2)
+    ch <- 1
+    ch <- 2
+    close(ch)
+
+    // Method 1: range (automatic close detection)
+    fmt.Println("Method 1: range")
+    for value := range ch {
+        fmt.Println(value)
+    }
+
+    // Method 2: comma-ok idiom
+    ch2 := make(chan int, 2)
+    ch2 <- 1
+    ch2 <- 2
+    close(ch2)
+
+    fmt.Println("\nMethod 2: comma-ok")
+    for {
+        value, ok := <-ch2
+        if !ok {
+            fmt.Println("Channel closed")
+            break
+        }
+        fmt.Printf("Got: %d\n", value)
+    }
+
+    // Method 3: select with comma-ok
+    ch3 := make(chan int, 2)
+    ch3 <- 1
+    close(ch3)
+
+    fmt.Println("\nMethod 3: select")
+    for {
+        select {
+        case value, ok := <-ch3:
+            if !ok {
+                fmt.Println("Channel closed in select")
+                return
+            }
+            fmt.Printf("Got: %d\n", value)
+        }
+    }
+}
+```
+</UniversalEditor>
+
+### Closing Rules
+
+<UniversalEditor title="Channel Closing Rules">
+```go !! go
+// Go - Channel closing rules
+package main
+
+import "fmt"
+
+// Rule 1: Only senders should close
+func sender(ch chan<- int) {
+    for i := 0; i < 5; i++ {
+        ch <- i
+    }
+    close(ch) // OK - we're the sender
+}
+
+// Rule 2: Don't close on receive side
+func receiver(ch <-chan int) {
+    // close(ch)  // Compilation error! Can't close receive-only
+    for value := range ch {
+        fmt.Println(value)
+    }
+}
+
+// Rule 3: Close only once (panic otherwise)
+func closeOnce(ch chan int) {
+    close(ch)
+    // close(ch)  // Panic: close of closed channel
+}
+
+// Rule 4: Sending to closed channel panics
+func sendToClosed(ch chan int) {
+    close(ch)
+    // ch <- 1  // Panic: send on closed channel
+}
+
+// Rule 5: Receiving from closed channel succeeds
+func receiveFromClosed(ch chan int) {
+    ch <- 1
+    close(ch)
+
+    value, ok := <-ch  // Gets the buffered value
+    fmt.Printf("Value: %d, OK: %v\n", value, ok) // OK = true
+
+    value, ok = <-ch  // Zero value, false
+    fmt.Printf("Value: %d, OK: %v\n", value, ok) // OK = false
+}
+
+// Rule 6: Not necessary to close if not using range
+func optionalClose(ch chan int) {
+    // If you know receiver will exit, close is optional
+    // But it's good practice for cleanup
+}
+```
+</UniversalEditor>
+
+## Range Over Channels
+
+Use `range` to automatically receive until channel closes.
+
+<UniversalEditor title="Range Over Channels">
+```python !! py
+# Python - Iterate until sentinel
+import queue
+
+def consumer(q):
+    while True:
+        item = q.get()
+        if item is None:  # Manual check
+            break
+        process(item)
+```
+
+```go !! go
+// Go - Range over channel
+package main
+
+import "fmt"
+
+func producer(ch chan<- int) {
+    for i := 0; i < 5; i++ {
+        ch <- i
+    }
+    close(ch) // Range needs close to exit
+}
+
+func consumer(ch <-chan int) {
+    // Range automatically:
+    // 1. Receives from channel
+    // 2. Exits when channel closes
+    for value := range ch {
+        fmt.Printf("Received: %d\n", value)
+    }
+    fmt.Println("Done")
+}
+
+func main() {
+    ch := make(chan int)
+    go producer(ch)
+    consumer(ch)
+}
+```
+</UniversalEditor>
+
+## Select Statement
+
+`select` waits on multiple channel operations. It's like a switch for channels.
+
+<UniversalEditor title="Select Statement">
+```python !! py
+# Python - No direct equivalent
+# Would need complex polling or callbacks
+
+import queue
+import select
+
+def wait_for_multiple(q1, q2):
+    while True:
+        # Poll queues (inefficient)
+        readable, _, _ = select.select([q1, q2], [], [], 0.1)
+        if readable:
+            if q1 in readable:
+                handle(q1.get())
+            if q2 in readable:
+                handle(q2.get())
+```
+
+```go !! go
+// Go - Select statement
+package main
+
+import (
+    "fmt"
+    "time"
+)
+
+func main() {
+    ch1 := make(chan string)
+    ch2 := make(chan string)
+
+    go func() {
+        time.Sleep(100 * time.Millisecond)
+        ch1 <- "one"
+    }()
+
+    go func() {
+        time.Sleep(200 * time.Millisecond)
+        ch2 <- "two"
+    }()
+
+    // Select waits for ANY case to be ready
+    for i := 0; i < 2; i++ {
+        select {
+        case msg1 := <-ch1:
+            fmt.Println("Received from ch1:", msg1)
+        case msg2 := <-ch2:
+            fmt.Println("Received from ch2:", msg2)
+        }
+    }
+
+    fmt.Println("Done")
+}
+```
+</UniversalEditor>
+
+### Select Behavior
+
+<UniversalEditor title="Select Rules">
+```go !! go
+// Go - Select statement behavior
+package main
+
+import (
+    "fmt"
+    "time"
+)
+
+func main() {
+    // Rule 1: Wait until one case is ready
+    ch1 := make(chan string)
+    ch2 := make(chan string)
+
+    go func() { time.Sleep(100 * time.Millisecond); ch1 <- "first" }()
+    go func() { time.Sleep(200 * time.Millisecond); ch2 <- "second" }()
+
+    select {
+    case msg1 := <-ch1:  // This will win
+        fmt.Println(msg1)
+    case msg2 := <-ch2:
+        fmt.Println(msg2)
+    }
+
+    // Rule 2: Random selection if multiple ready
+    ch3 := make(chan string, 1)
+    ch4 := make(chan string, 1)
+
+    ch3 <- "ready"
+    ch4 <- "also ready"
+
+    select {
+    case msg := <-ch3:
+        fmt.Println("ch3 won:", msg)  // Random!
+    case msg := <-ch4:
+        fmt.Println("ch4 won:", msg)  // Random!
+    }
+
+    // Rule 3: Block if none ready
+    ch5 := make(chan string)
+    ch6 := make(chan string)
+
+    // select {
+    // case msg := <-ch5:  // Would block forever!
+    //     fmt.Println(msg)
+    // case msg := <-ch6:
+    //     fmt.Println(msg)
+    // }
+
+    // Rule 4: Default case makes it non-blocking
+    select {
+    case msg := <-ch5:
+        fmt.Println(msg)
+    case msg := <-ch6:
+        fmt.Println(msg)
+    default:
+        fmt.Println("No channel ready")  // This executes
+    }
+}
+```
+</UniversalEditor>
+
+### Select with Timeout
+
+<UniversalEditor title="Select Timeout Patterns">
+```python !! py
+# Python - Timeout with queue
+import queue
+
+try:
+    item = q.get(timeout=1.0)
+    print(item)
+except queue.Empty:
+    print("Timeout")
+```
+
+```go !! go
+// Go - Timeout with select
+package main
+
+import (
+    "fmt"
+    "time"
+)
+
+func main() {
+    ch := make(chan string)
+
+    // Method 1: time.After
+    select {
+    case msg := <-ch:
+        fmt.Println("Received:", msg)
+    case <-time.After(time.Second):
+        fmt.Println("Timeout after 1 second")
+    }
+
+    // Method 2: time.NewTicker (for repeated timeouts)
+    ticker := time.NewTicker(500 * time.Millisecond)
+    defer ticker.Stop()
+
+    select {
+    case msg := <-ch:
+        fmt.Println("Received:", msg)
+    case <-ticker.C:
+        fmt.Println("Timeout after 500ms")
+    }
+
+    // Method 3: context (preferred in real code)
+    ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+    defer cancel()
+
+    select {
+    case msg := <-ch:
+        fmt.Println("Received:", msg)
+    case <-ctx.Done():
+        fmt.Println("Context timeout")
+    }
+}
+```
+</UniversalEditor>
+
+### Non-Blocking Operations
+
+<UniversalEditor title="Non-Blocking Select">
+```python !! py
+# Python - Non-blocking queue operations
+import queue
+
+q = queue.Queue()
+
+# Non-blocking get
+try:
+    item = q.get(block=False)
+except queue.Empty:
+    print("Empty")
+
+# Non-blocking put
+try:
+    q.put(item, block=False)
+except queue.Full:
+    print("Full")
+```
+
+```go !! go
+// Go - Non-blocking with default case
+package main
+
+import "fmt"
+
+func main() {
+    ch := make(chan int)
+
+    // Non-blocking receive
+    select {
+    case value := <-ch:
+        fmt.Println("Received:", value)
+    default:
+        fmt.Println("No value available")
+    }
+
+    // Non-blocking send
+    ch2 := make(chan int, 1)
+    ch2 <- 1
+    ch2 <- 2  // Buffer full
+
+    select {
+    case ch2 <- 3:
+        fmt.Println("Sent")
+    default:
+        fmt.Println("Channel full, can't send")
+    }
+
+    // Check if channel has value
+    value := 0
+    select {
+    case value = <-ch2:
+        fmt.Println("Got:", value)
+    default:
+        fmt.Println("No value")
+    }
+}
+```
+</UniversalEditor>
+
+## Common Channel Patterns
+
+### Fan-Out: Distribute Work
+
+<UniversalEditor title="Fan-Out Pattern">
+```python !! py
+# Python - Work distribution
+import queue
+import threading
+
+work_queue = queue.Queue()
+
+def worker(id):
+    while True:
+        item = work_queue.get()
+        if item is None:
+            break
+        print(f"Worker {id} processing {item}")
+
+# Fan-out to multiple workers
+for i in range(5):
+    threading.Thread(target=worker, args=(i,)).start()
+
+for item in work_items:
+    work_queue.put(item)
+```
+
+```go !! go
+// Go - Fan-out pattern
+package main
+
+import (
+    "fmt"
+    "sync"
+)
+
+func worker(id int, jobs <-chan int, wg *sync.WaitGroup) {
+    defer wg.Done()
+    for job := range jobs {
+        fmt.Printf("Worker %d processing job %d\n", id, job)
+    }
+}
+
+func main() {
+    jobs := make(chan int, 100)
+    var wg sync.WaitGroup
+
+    // Fan-out: distribute work to 5 workers
+    for w := 1; w <= 5; w++ {
+        wg.Add(1)
+        go worker(w, jobs, &wg)
+    }
+
+    // Send jobs
+    for j := 1; j <= 10; j++ {
+        jobs <- j
+    }
+    close(jobs)
+
+    wg.Wait()
+    fmt.Println("All jobs processed")
+}
+```
+</UniversalEditor>
+
+### Fan-In: Aggregate Results
+
+<UniversalEditor title="Fan-In Pattern">
+```python !! py
+# Python - Aggregate results
+import queue
+import threading
+
+results = queue.Queue()
+
+def worker(id, work_queue, results):
+    for item in iter(work_queue.get, None):
+        result = process(item)
+        results.put(result)
+
+# Fan-in: multiple workers to single results queue
+workers = []
+for i in range(5):
+    t = threading.Thread(target=worker, args=(i, work, results))
+    workers.append(t)
+    t.start()
+
+# Collect results
+while any(t.is_alive() for t in workers) or not results.empty():
+    result = results.get()
+    process_result(result)
+```
+
+```go !! go
+// Go - Fan-in pattern
+package main
+
+import (
+    "fmt"
+    "sync"
+)
+
+func worker(id int, jobs <-chan int, results chan<- int, wg *sync.WaitGroup) {
+    defer wg.Done()
+    for job := range jobs {
+        results <- job * 2  // Fan-in to single results channel
+    }
+}
+
+func main() {
+    jobs := make(chan int, 100)
+    results := make(chan int, 100)
+    var wg sync.WaitGroup
+
+    // Fan-out to workers
+    for w := 1; w <= 5; w++ {
+        wg.Add(1)
+        go worker(w, jobs, results, &wg)
+    }
+
+    // Send jobs
+    for j := 1; j <= 10; j++ {
+        jobs <- j
+    }
+    close(jobs)
+
+    // Close results when all workers done
+    go func() {
+        wg.Wait()
+        close(results)
+    }()
+
+    // Fan-in: collect all results
+    for result := range results {
+        fmt.Printf("Result: %d\n", result)
+    }
+}
+```
+</UniversalEditor>
+
+### Pipeline: Stages of Processing
+
+<UniversalEditor title="Pipeline Pattern">
+```python !! py
+# Python - Pipeline with queues
+import queue
+
+def generator(out):
+    for i in range(10):
+        out.put(i)
+    out.put(None)  // Sentinel
+
+def stage1(in_queue, out_queue):
+    while True:
+        item = in_queue.get()
+        if item is None:
+            out_queue.put(None)
+            break
+        out_queue.put(item * 2)
+
+def stage2(in_queue, out_queue):
+    while True:
+        item = in_queue.get()
+        if item is None:
+            break
+        out_queue.put(item + 10)
+
+# Connect pipeline
+q1 = queue.Queue()
+q2 = queue.Queue()
+q3 = queue.Queue()
+
+threading.Thread(target=generator, args=(q1,)).start()
+threading.Thread(target=stage1, args=(q1, q2)).start()
+threading.Thread(target=stage2, args=(q2, q3)).start()
+```
+
+```go !! go
+// Go - Pipeline pattern
+package main
+
+import "fmt"
+
+// Stage 1: Generate numbers
+func generator(out chan<- int) {
+    for i := 0; i < 10; i++ {
+        out <- i
+    }
+    close(out)
+}
+
+// Stage 2: Multiply by 2
+func multiply(in <-chan int, out chan<- int) {
+    for n := range in {
+        out <- n * 2
+    }
+    close(out)
+}
+
+// Stage 3: Add 10
+func add(in <-chan int, out chan<- int) {
+    for n := range in {
+        out <- n + 10
+    }
+    close(out)
+}
+
+func main() {
+    // Create pipeline stages
+    ch1 := make(chan int)
+    ch2 := make(chan int)
+    ch3 := make(chan int)
+
+    // Start pipeline
+    go generator(ch1)
+    go multiply(ch1, ch2)
+    go add(ch2, ch3)
+
+    // Consume final results
+    for result := range ch3 {
+        fmt.Println(result)
+    }
+}
+```
+</UniversalEditor>
+
+### Or-Channel: Multiple Cancellation Sources
+
+<UniversalEditor title="Or-Channel Pattern">
+```go !! go
+// Go - Or-channel: wait on multiple channels
+package main
+
+import (
+    "fmt"
+    "time"
+)
+
+// orChannel waits on multiple channels, returns when any closes
+func orChannel(channels ...<-chan interface{}) <-chan interface{} {
+    switch len(channels) {
+    case 0:
+        return nil
+    case 1:
+        return channels[0]
+    default:
+        orDone := make(chan interface{})
+        go func() {
+            defer close(orDone)
+            switch len(channels) {
+            case 2:
+                select {
+                case <-channels[0]:
+                case <-channels[1]:
+                }
+            default:
+                select {
+                case <-channels[0]:
+                case <-channels[1]:
+                case <-channels[2]:
+                case <-orChannel(channels[3:]...):
+                }
+            }
+        }()
+        return orDone
+    }
+}
+
+func main() {
+    sig := func(after time.Duration) <-chan interface{} {
+        c := make(chan interface{})
+        go func() {
+            defer close(c)
+            time.Sleep(after)
+        }()
+        return c
+    }
+
+    start := time.Now()
+    <-orChannel(
+        sig(2*time.Hour),
+        sig(5*time.Minute),
+        sig(1*time.Second),
+        sig(1*time.Hour),
+        sig(2*time.Minute),
+    )
+
+    fmt.Printf("Done after %v\n", time.Since(start))
+}
+```
+</UniversalEditor>
+
+### Channel as Semaphore
+
+<UniversalEditor title="Semaphore Pattern">
+```python !! py
+# Python - Semaphore with threading
+import threading
+
+semaphore = threading.Semaphore(5)  # Max 5 concurrent
+
+def worker():
+    with semaphore:
+        # Limited to 5 concurrent workers
+        do_work()
+```
+
+```go !! go
+// Go - Channel as semaphore
+package main
+
+import (
+    "fmt"
+    "sync"
+    "time"
+)
+
+func main() {
+    // Buffered channel as semaphore
+    // Buffer size = max concurrent operations
+    semaphore := make(chan struct{}, 5)
+
+    var wg sync.WaitGroup
+
+    for i := 0; i < 10; i++ {
+        wg.Add(1)
+        go func(id int) {
+            defer wg.Done()
+
+            // Acquire
+            semaphore <- struct{}{}
+            defer func() { <-semaphore }() // Release
+
+            // Only 5 goroutines here at once
+            fmt.Printf("Worker %d starting\n", id)
+            time.Sleep(time.Second)
+            fmt.Printf("Worker %d done\n", id)
+        }(i)
+    }
+
+    wg.Wait()
+}
+```
+</UniversalEditor>
+
+## Best Practices
+
+### 1. Channel Ownership
+
+<UniversalEditor title="Channel Ownership">
+```go !! go
+// Go - Clear channel ownership
+package main
+
+// GOOD: Single owner
+func producer() <-chan int {
+    ch := make(chan int)
+    go func() {
+        defer close(ch) // Owner closes
+        for i := 0; i < 5; i++ {
+            ch <- i
+        }
+    }()
+    return ch // Receive-only to caller
+}
+
+func main() {
+    ch := producer() // We only receive
+    for value := range ch {
+        println(value)
+    }
+}
+
+// BAD: Unclear ownership
+func producer(ch chan int) {
+    // Who closes? Who sends?
+    ch <- 1
+}
+```
+</UniversalEditor>
+
+### 2. Avoid Goroutine Leaks
+
+<UniversalEditor title="Prevent Goroutine Leaks">
+```go !! go
+// Go - Prevent goroutine leaks
+package main
+
+import "time"
+
+// BAD: Goroutine leak
+func leak() {
+    ch := make(chan int)
+    go func() {
+        val := <-ch // Will wait forever!
+        println(val)
+    }()
+    // Function returns, goroutine leaks
+}
+
+// GOOD: Always have exit condition
+func noLeak() {
+    ch := make(chan int)
+    done := make(chan struct{})
+
+    go func() {
+        select {
+        case val := <-ch:
+            println(val)
+        case <-done: // Can exit
+            return
+        }
+    }()
+
+    // Signal cleanup
+    close(done)
+}
+
+// GOOD: Use context
+func withContext() {
+    ctx, cancel := context.WithCancel(context.Background())
+    ch := make(chan int)
+
+    go func() {
+        select {
+        case val := <-ch:
+            println(val)
+        case <-ctx.Done(): // Exit on cancel
+            return
+        }
+    }()
+
+    cancel() // Cleanup
+}
+```
+</UniversalEditor>
+
+### 3. Know When to Use Buffered vs Unbuffered
+
+<UniversalEditor title="Channel Selection">
+```go !! go
+// Go - When to use buffered vs unbuffered
+package main
+
+// Use unbuffered when:
+// - You need synchronization/handshake
+// - Receiver must be ready before sender proceeds
+// - You want to enforce strict ordering
+
+func syncHandshake() {
+    ch := make(chan int) // Unbuffered
+
+    go func() {
+        ch <- 42  // Blocks until receiver ready
+    }()
+
+    val := <-ch  // Guarantees we're ready
+    println(val)
+}
+
+// Use buffered when:
+// - Producer and consumer run at different rates
+// - You want to decouple the two
+// - Small buffer improves throughput
+
+func asyncProcessing() {
+    ch := make(chan int, 100) // Buffered
+
+    go func() {
+        for i := 0; i < 100; i++ {
+            ch <- i // Won't block (has buffer)
+        }
+        close(ch)
+    }()
+
+    // Consumer can process at its own pace
+    for val := range ch {
+        process(val)
+    }
+}
+
+func process(val int) {}
+```
+</UniversalEditor>
+
+### 4. Close Only from Sender Side
+
+<UniversalEditor title="Closing Best Practices">
+```go !! go
+// Go - Closing channels correctly
+package main
+
+// GOOD: Sender closes
+func producer(ch chan<- int) {
+    for i := 0; i < 5; i++ {
+        ch <- i
+    }
+    close(ch) // Sender knows when done
+}
+
+func consumer(ch <-chan int) {
+    for val := range ch {
+        println(val)
+    }
+    // Don't close - receiver only
+}
+
+// GOOD: Document if you don't close
+func stream(ch chan<- int) {
+    // Caller owns and must close
+    for i := 0; i < 5; i++ {
+        ch <- i
+    }
+    // No close - documented in function docs
+}
+
+// BAD: Closing from receiver
+func badConsumer(ch <-chan int) {
+    // close(ch) // Compilation error anyway
+}
+```
+</UniversalEditor>
+
+### 5. Handle Zero Values on Closed Channels
+
+<UniversalEditor title="Zero Value Handling">
+```go !! go
+// Go - Zero values on closed channels
+package main
+
+import "fmt"
+
+func main() {
+    ch := make(chan int, 2)
+    ch <- 1
+    ch <- 2
+    close(ch)
+
+    // Receiving gets buffered values first
+    val1, ok1 := <-ch
+    fmt.Printf("Value: %d, OK: %v\n", val1, ok1) // 1, true
+
+    val2, ok2 := <-ch
+    fmt.Printf("Value: %d, OK: %v\n", val2, ok2) // 2, true
+
+    // Subsequent receives get zero value
+    val3, ok3 := <-ch
+    fmt.Printf("Value: %d, OK: %v\n", val3, ok3) // 0, false
+
+    // Be careful with zero values!
+    // If you need to distinguish "no value" from "zero value",
+    // use pointer channels or check the ok boolean
+}
+```
+</UniversalEditor>
+
+## Summary
+
+### Key Concepts
+
+1. **Channels**: Typed conduits for data between goroutines
+2. **Unbuffered**: Synchronous, blocking communication
+3. **Buffered**: Asynchronous, capacity-based communication
+4. **Directions**: Send-only, receive-only, bidirectional
+5. **Closing**: Signal no more values, detect with range
+6. **Select**: Wait on multiple channel operations
+7. **Range**: Iterate until channel closes
+8. **Fan-out/Fan-in**: Distribute and aggregate work
+9. **Pipelines**: Chain of processing stages
+10. **Ownership**: Clear who sends, receives, and closes
+
+### Common Patterns
+
+- **Unbuffered channel**: Synchronization, handshake
+- **Buffered channel**: Asynchronous processing, semaphore
+- **Fan-out**: Multiple workers from one source
+- **Fan-in**: Aggregate to one sink
+- **Pipeline**: Sequential processing stages
+- **Worker pool**: Bounded concurrency
+- **Or-channel**: Multiple cancellation sources
+
+### Best Practices
+
+1. Prefer channels over shared memory
+2. Use unbuffered channels for synchronization
+3. Make channel directions explicit
+4. Close channels only from sender side
+5. Use `range` for receiving until close
+6. Use `select` for multiple operations
+7. Always prevent goroutine leaks
+8. Keep buffer sizes small
+
+### Comparison with Python
+
+| Python | Go |
+|--------|-----|
+| `queue.Queue()` | `make(chan Type)` |
+| `queue.get()` | `<-ch` |
+| `queue.put()` | `ch <-` |
+| `queue.Empty` exception | Comma-ok idiom |
+| Sentinel values (None) | `close(ch)` |
+| `select` module | `select` statement |
+| Polling | Blocking/select |
+| No type safety | Typed channels |
+
+## Exercises
+
+1. Implement a pipeline with 3 stages:
+   - Stage 1: Generate numbers 1-100
+   - Stage 2: Filter even numbers
+   - Stage 3: Square the numbers
+   - Collect final results
+
+2. Build a worker pool that:
+   - Has 10 workers
+   - Processes 1000 jobs
+   - Returns results through a channel
+   - Measures execution time
+
+3. Create a timeout pattern:
+   - Operation should complete in 2 seconds
+   - Return error if timeout
+   - Use context for cancellation
+
+4. Implement fan-in pattern:
+   - 5 producers generating data
+   - 1 consumer collecting all data
+   - Use channels for coordination
+
+5. Build a rate limiter:
+   - Allow N operations per second
+   - Block if rate exceeded
+   - Use ticker + channel
+
+## Next Steps
+
+Next module: **Select and Concurrency Patterns** - Advanced patterns and idioms with select statements and channels.
