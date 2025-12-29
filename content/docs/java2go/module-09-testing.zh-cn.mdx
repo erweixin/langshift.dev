@@ -1,0 +1,540 @@
+---
+title: "模块 09：测试 - 表驱动测试和基准测试"
+description: "掌握 Go 的测试框架。学习表驱动测试、基准测试、测试覆盖率，并与 JUnit 和 Mockito 进行比较。"
+---
+
+# 模块 09：测试 - 表驱动测试和基准测试
+
+在本模块中，你将学习 Go 如何以与 Java 不同的方式处理**测试**。Go 的测试哲学强调简洁性、表驱动测试和内置基准测试 - 所有这些都不需要外部框架。
+
+## 学习目标
+
+完成本模块后，你将能够：
+- 使用 Go 的 testing 包编写测试
+- 创建表驱动测试
+- 测量测试覆盖率
+- 编写基准测试
+- 使用测试断言
+- 使用接口模拟依赖
+- 使用 _test.go 文件组织测试
+- 使用 `go test` 运行测试
+- 将 Go 的方法与 JUnit 和 Mockito 进行比较
+
+## 背景：JUnit vs Go Testing
+
+### 哲学差异
+
+**Java (JUnit + Mockito):**
+- 单独的测试框架
+- 基于注解（@Test、@Before、@Mock）
+- 需要外部模拟框架
+- 使用 @RunWith 进行复杂设置
+- 大量使用反射
+- 冗长的断言语法
+
+**Go (testing package):**
+- 测试内置于标准库中
+- 基于约定（_test.go 文件）
+- 使用接口进行模拟（无需框架）
+- 简单的基于函数的测试
+- 不需要反射
+- 简洁的断言
+
+<UniversalEditor title="基本测试：Java vs Go">
+```java !! java
+// Java: JUnit 测试
+import org.junit.jupiter.api.*;
+import static org.junit.jupiter.api.Assertions.*;
+
+class CalculatorTest {
+    private Calculator calculator;
+
+    @BeforeEach
+    void setUp() {
+        calculator = new Calculator();
+    }
+
+    @Test
+    void testAdd() {
+        int result = calculator.add(2, 3);
+        assertEquals(5, result);
+    }
+}
+```
+
+```go !! go
+// Go: 使用 testing 包测试
+package main
+
+import (
+	"testing"
+)
+
+func TestAdd(t *testing.T) {
+	result := Add(2, 3)
+	if result != 5 {
+		t.Errorf("Add(2, 3) = %d; want 5", result)
+	}
+}
+
+func TestSubtract(t *testing.T) {
+	result := Subtract(5, 3)
+	if result != 2 {
+		t.Errorf("Subtract(5, 3) = %d; want 2", result)
+	}
+}
+```
+</UniversalEditor>
+
+## 表驱动测试
+
+### 测试多个场景
+
+<UniversalEditor title="表驱动测试">
+```java !! java
+// Java: 参数化测试
+@ParameterizedTest
+@CsvSource({
+    "2, 3, 5",
+    "0, 0, 0",
+    "-1, 1, 0"
+})
+void testAdd(int a, int b, int expected) {
+    Calculator calc = new Calculator();
+    assertEquals(expected, calc.add(a, b));
+}
+```
+
+```go !! go
+// Go: 表驱动测试（非常符合 Go 惯例）
+package main
+
+import (
+	"testing"
+)
+
+func TestAdd(t *testing.T) {
+	tests := []struct {
+		name     string
+		a, b     int
+		expected int
+	}{
+		{"positive numbers", 2, 3, 5},
+		{"zeros", 0, 0, 0},
+		{"negative and positive", -1, 1, 0},
+		{"large numbers", 100, 200, 300},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := Add(tt.a, tt.b)
+			if result != tt.expected {
+				t.Errorf("Add(%d, %d) = %d; want %d",
+					tt.a, tt.b, result, tt.expected)
+			}
+		})
+	}
+}
+```
+</UniversalEditor>
+
+## 测试断言
+
+### 比较断言风格
+
+<UniversalEditor title="断言">
+```java !! java
+// Java: JUnit 断言
+@Test
+void testAssertions() {
+    // 相等性
+    assertEquals(4, calculator.add(2, 2));
+
+    // True/False
+    assertTrue(isValid("input"));
+    assertFalse(isValid(""));
+
+    // Null 检查
+    assertNull(getNullValue());
+    assertNotNull(getValue());
+
+    // 抛出异常
+    assertThrows(IllegalArgumentException.class,
+        () -> validator.validate(null));
+}
+```
+
+```go !! go
+// Go: 简单直接的断言
+package main
+
+import (
+	"reflect"
+	"testing"
+)
+
+func TestAssertions(t *testing.T) {
+	// 相等性
+	result := Add(2, 2)
+	if result != 4 {
+		t.Errorf("expected 4, got %d", result)
+	}
+
+	// True/False
+	if !isValid("input") {
+		t.Error("expected true")
+	}
+
+	// 深度相等（用于 slices/maps）
+	expected := []int{1, 2, 3}
+	got := []int{1, 2, 3}
+	if !reflect.DeepEqual(expected, got) {
+		t.Errorf("expected %v, got %v", expected, got)
+	}
+
+	// 测试 panic
+	t.Run("panic test", func(t *testing.T) {
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("expected panic")
+			}
+		}()
+		panicFunc()
+	})
+}
+```
+</UniversalEditor>
+
+## 使用接口进行模拟
+
+### 依赖注入用于测试
+
+<UniversalEditor title="模拟：Java Mockito vs Go 接口">
+```java !! java
+// Java: Mockito 模拟
+import org.mockito.*;
+import static org.mockito.Mockito.*;
+
+interface Repository {
+    User findById(Long id);
+    void save(User user);
+}
+
+class UserServiceTest {
+    @Mock
+    private Repository repository;
+
+    @InjectMocks
+    private UserService userService;
+
+    @Test
+    void testGetUser() {
+        User expectedUser = new User(1L, "Alice");
+        when(repository.findById(1L)).thenReturn(expectedUser);
+
+        User user = userService.getUser(1L);
+
+        assertEquals("Alice", user.getName());
+        verify(repository).findById(1L);
+    }
+}
+```
+
+```go !! go
+// Go: 使用接口模拟（无需框架！）
+package main
+
+import (
+	"testing"
+)
+
+// Repository 接口
+type Repository interface {
+	FindById(id int) (*User, error)
+	Save(user *User) error
+}
+
+// UserService
+type UserService struct {
+	repo Repository
+}
+
+func NewUserService(repo Repository) *UserService {
+	return &UserService{repo: repo}
+}
+
+// Mock 实现
+type MockRepository struct {
+	users map[int]*User
+}
+
+func NewMockRepository() *MockRepository {
+	return &MockRepository{
+		users: make(map[int]*User),
+	}
+}
+
+func (m *MockRepository) FindById(id int) (*User, error) {
+	return m.users[id], nil
+}
+
+// 测试
+func TestUserService_GetUser(t *testing.T) {
+	// 设置 mock
+	mockRepo := NewMockRepository()
+	mockRepo.users[1] = &User{ID: 1, Name: "Alice"}
+
+	// 创建服务
+	userService := NewUserService(mockRepo)
+
+	// 测试
+	user, err := userService.GetUser(1)
+
+	// 断言
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if user.Name != "Alice" {
+		t.Errorf("expected name Alice, got %s", user.Name)
+	}
+}
+```
+</UniversalEditor>
+
+## 基准测试
+
+### 性能测试
+
+<UniversalEditor title="基准测试">
+```java !! java
+// Java: JMH
+@BenchmarkMode(Mode.AverageTime)
+@OutputTimeUnit(TimeUnit.NANOSECONDS)
+public class CalculatorBenchmark {
+
+    @Benchmark
+    public int benchmarkAdd() {
+        return calculator.add(10, 20);
+    }
+}
+```
+
+```go !! go
+// Go: 内置基准测试
+package main
+
+import (
+	"testing"
+)
+
+func BenchmarkAdd(b *testing.B) {
+	calculator := &Calculator{}
+
+	for i := 0; i < b.N; i++ {
+		calculator.Add(10, 20)
+	}
+}
+
+func BenchmarkMultiply(b *testing.B) {
+	calculator := &Calculator{}
+
+	for i := 0; i < b.N; i++ {
+		calculator.Multiply(10, 20)
+	}
+}
+
+// 并行基准测试
+func BenchmarkParallelAdd(b *testing.B) {
+	calculator := &Calculator{}
+
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			calculator.Add(10, 20)
+		}
+	})
+}
+
+// 运行：go test -bench=. -benchmem
+```
+</UniversalEditor>
+
+## 测试覆盖率
+
+### 测量代码覆盖率
+
+<UniversalEditor title="测试覆盖率">
+```bash
+# Java: JaCoCo
+mvn test jacoco:report
+
+# 生成 HTML 报告
+```
+
+```bash
+# Go: 内置覆盖率工具
+
+# 运行测试并显示覆盖率
+go test -cover
+
+# 生成覆盖率报告
+go test -coverprofile=coverage.out
+
+# 在浏览器中查看
+go tool cover -html=coverage.out
+
+# 按函数显示覆盖率
+go test -coverprofile=coverage.out
+go tool cover -func=coverage.out
+
+# 所有子目录的覆盖率
+go test -cover ./...
+```
+</UniversalEditor>
+
+## 运行测试
+
+### 测试执行
+
+<UniversalEditor title="运行测试">
+```bash
+# Java: Maven/Gradle
+
+# Maven
+mvn test
+mvn test -Dtest=CalculatorTest
+
+# Gradle
+./gradlew test
+./gradlew test --tests CalculatorTest
+```
+
+```bash
+# Go: go test
+
+# 当前目录的所有测试
+go test
+
+# 详细输出
+go test -v
+
+# 运行特定测试
+go test -run TestAdd
+
+# 所有子目录
+go test ./...
+
+# 带覆盖率
+go test -cover
+
+# 基准测试
+go test -bench=.
+
+# 竞态检测器
+go test -race
+
+# 超时
+go test -timeout 30s
+```
+</UniversalEditor>
+
+## 最佳实践
+
+<UniversalEditor title="测试最佳实践">
+```go !! go
+// Go: 测试最佳实践
+
+// 1. 使用描述性测试名称（表驱动有帮助）
+tests := []struct {
+	name     string
+	input    int
+	expected int
+}{
+	{"should return 5 for 2+3", 2, 3, 5},
+}
+
+// 2. 保持测试简单可读
+func TestAdd(t *testing.T) {
+	result := Add(2, 3)
+	if result != 5 {
+		t.Errorf("got %d, want 5", result)
+	}
+}
+
+// 3. 对多个场景使用表驱动测试
+func TestMultiply(t *testing.T) {
+	tests := []struct {
+		a, b, expected int
+	}{
+		{2, 3, 6},
+		{0, 5, 0},
+	}
+	for _, tt := range tests {
+		t.Run("", func(t *testing.T) {
+			if got := Multiply(tt.a, tt.b); got != tt.expected {
+				t.Errorf("got %d, want %d", got, tt.expected)
+			}
+		})
+	}
+}
+
+// 4. 使用接口进行模拟
+type MockRepository struct {
+	users map[int]*User
+}
+
+// 5. 测试成功和错误情况
+func TestDivide(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
+		result, err := Divide(10, 2)
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+		if result != 5 {
+			t.Errorf("got %d, want 5", result)
+		}
+	})
+
+	t.Run("divide by zero", func(t *testing.T) {
+		_, err := Divide(10, 0)
+		if err == nil {
+			t.Error("expected error")
+		}
+	})
+}
+```
+</UniversalEditor>
+
+## 练习题
+
+1. **表驱动测试**：为什么表驱动测试被认为是 Go 的惯用方法？
+
+2. **模拟**：Go 的基于接口的模拟方法与 Mockito 相比如何？
+
+3. **基准测试**：Go 的内置基准测试与 JMH 相比有什么优势？
+
+## 项目想法
+
+1. **测试覆盖率**：为 Go 项目实现 80%+ 的测试覆盖率
+
+2. **基准测试套件**：为数据结构创建全面的基准测试
+
+3. **Mock 实现**：构建模拟 HTTP 客户端用于测试 Web 服务
+
+## 下一步
+
+现在你已经理解了 Go 的测试：
+
+- **回顾**：回顾所有之前的模块
+- **练习**：为你的 Go 项目编写全面的测试
+- **探索**：研究基于属性的测试库
+
+## 总结
+
+**Go Testing vs JUnit/Mockito:**
+- 内置测试包（无外部依赖）
+- 表驱动测试是惯用且强大的
+- 基于接口的模拟（无需模拟框架）
+- 简单快速的测试执行
+- 内置基准测试和覆盖率工具
+
+**关键要点**：Go 的测试哲学强调简洁性和约定而非配置。testing 包为单元测试、基准测试和代码覆盖率提供了所需的一切，无需外部框架或复杂设置。

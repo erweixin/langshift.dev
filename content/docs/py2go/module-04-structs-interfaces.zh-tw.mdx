@@ -1,0 +1,1359 @@
+---
+title: "模組 4: 結構體和介面"
+description: "Go 物件導向程式設計方法，無需類別"
+---
+
+## 簡介
+
+Go 沒有類別或繼承。相反,它使用**結構體(struct)**來儲存資料,使用**介面(interface)**來定義行為。這是一種更簡單、更靈活的 OOP 方法,鼓勵組合優於繼承。
+
+## 結構體基礎
+
+### 定義結構體
+
+<UniversalEditor title="結構體 vs 類別">
+```python !! py
+# Python - 帶有 __init__ 的類別
+class Person:
+    def __init__(self, name, age):
+        self.name = name
+        self.age = age
+
+    def greet(self):
+        return f"Hi, I'm {self.name}"
+
+person = Person("Alice", 30)
+print(person.greet())
+```
+
+```go !! go
+// Go - 結構體
+package main
+
+import "fmt"
+
+type Person struct {
+    Name string
+    Age  int
+}
+
+func (p Person) Greet() string {
+    return fmt.Sprintf("Hi, I'm %s", p.Name)
+}
+
+func main() {
+    person := Person{Name: "Alice", Age: 30}
+    fmt.Println(person.Greet())
+}
+```
+</UniversalEditor>
+
+### 結構體欄位可見性
+
+<UniversalEditor title="匯出 vs 未匯出欄位">
+```python !! py
+# Python - 公共 vs 私有（約定）
+class Person:
+    def __init__(self, name, age, ssn):
+        self.name = name      # 公共
+        self._age = age        # 受保護（約定）
+        self.__ssn = ssn      # 私有（名稱改寫）
+
+    def get_age(self):
+        return self._age
+```
+
+```go !! go
+// Go - 匯出 vs 未匯出
+package main
+
+import "fmt"
+
+type Person struct {
+    Name   string  // 匯出（首字母大寫）
+    age    int     // 未匯出（小寫）
+    SSN    string  // 匯出
+}
+
+func (p Person) GetAge() int {
+    return p.age  // 可以在套件內存取
+}
+
+func NewPerson(name string, age int, ssn string) Person {
+    return Person{
+        Name: name,
+        age:  age,   // 可以設定未匯出欄位
+        SSN:  ssn,
+    }
+}
+
+func main() {
+    p := NewPerson("Alice", 30, "123-45-6789")
+    fmt.Println(p.Name)  // OK - 匯出
+    fmt.Println(p.GetAge())  // OK - 方法
+    // fmt.Println(p.age)  // 錯誤:未匯出
+}
+```
+</UniversalEditor>
+
+### 建立和初始化結構體
+
+<UniversalEditor title="結構體建立方法">
+```python !! py
+# Python - 類別實例化
+class Point:
+    def __init__(self, x=0, y=0):
+        self.x = x
+        self.y = y
+
+p1 = Point(1, 2)
+p2 = Point(x=3, y=4)
+p3 = Point()  # 預設值
+p4 = Point(5)  # 部分（y=0）
+```
+
+```go !! go
+// Go - 結構體建立
+package main
+
+import "fmt"
+
+type Point struct {
+    X int
+    Y int
+}
+
+// 建構函式（慣用方式）
+func NewPoint(x, y int) Point {
+    return Point{X: x, Y: y}
+}
+
+// 帶預設值的建構函式
+func NewDefaultPoint() Point {
+    return Point{X: 0, Y: 0}
+}
+
+func main() {
+    p1 := Point{1, 2}           // 位置參數（順序很重要）
+    p2 := Point{X: 3, Y: 4}     // 命名欄位
+    p3 := Point{}               // 零值
+    p4 := Point{X: 5}           // 部分（Y=0）
+    p5 := NewPoint(6, 7)        // 建構函式
+    p6 := NewDefaultPoint()     // 預設建構函式
+
+    fmt.Println(p1, p2, p3, p4, p5, p6)
+}
+```
+</UniversalEditor>
+
+### 結構體標籤
+
+<UniversalEditor title="結構體標籤">
+```python !! py
+# Python - 沒有內建的結構體標籤
+# 會使用裝飾器或類別屬性
+class User:
+    def __init__(self, name, email):
+        self.name = name
+        self.email = email
+
+    @classmethod
+    def from_dict(cls, data):
+        return cls(data['name'], data['email'])
+```
+
+```go !! go
+// Go - 結構體標籤（元資料）
+package main
+
+import (
+    "encoding/json"
+    "fmt"
+)
+
+type User struct {
+    ID       int    `json:"id"`                    // JSON 鍵
+    Name     string `json:"name"`                  // JSON 鍵
+    Email    string `json:"email,omitempty"`       // 如果為空則省略
+    Password string `json:"-"`                     // 從不在 JSON 中
+    Internal string `json:"internal,internal"`     // 多個選項
+    DBName   string `db:"user_name" json:"name"`  // 多個標籤
+}
+
+func main() {
+    user := User{
+        ID:       1,
+        Name:     "Alice",
+        Email:    "alice@example.com",
+        Password: "secret",
+        Internal: "internal_data",
+        DBName:   "alice_db",
+    }
+
+    // JSON 編碼會遵守標籤
+    jsonBytes, _ := json.Marshal(user)
+    fmt.Println(string(jsonBytes))
+    // 輸出: {"id":1,"name":"Alice","email":"alice@example.com","internal":"internal_data"}
+}
+```
+</UniversalEditor>
+
+### 匿名結構體
+
+<UniversalEditor title="匿名結構體">
+```python !! py
+# Python - 沒有匿名類別（使用 namedtuple 或 dict）
+from collections import namedtuple
+Point = namedtuple('Point', ['x', 'y'])
+p = Point(1, 2)
+
+# 或者使用 dict
+p = {'x': 1, 'y': 2}
+```
+
+```go !! go
+// Go - 匿名結構體
+package main
+
+import "fmt"
+
+func main() {
+    // 匿名結構體字面量
+    point := struct {
+        X int
+        Y int
+    }{
+        X: 1,
+        Y: 2,
+    }
+
+    fmt.Println(point)
+
+    // 匿名結構體切片
+    people := []struct {
+        Name string
+        Age  int
+    }{
+        {"Alice", 30},
+        {"Bob", 25},
+    }
+
+    for _, p := range people {
+        fmt.Printf("%s is %d\n", p.Name, p.Age)
+    }
+}
+```
+</UniversalEditor>
+
+## 組合優於繼承
+
+Go 使用組合而不是繼承,這更加靈活:
+
+### 基本組合
+
+<UniversalEditor title="組合基礎">
+```python !! py
+# Python - 繼承
+class Animal:
+    def __init__(self, name):
+        self.name = name
+
+    def speak(self):
+        pass
+
+class Dog(Animal):
+    def __init__(self, name, breed):
+        super().__init__(name)
+        self.breed = breed
+
+    def speak(self):
+        return f"{self.name} says Woof!"
+
+dog = Dog("Buddy", "Golden Retriever")
+print(dog.speak())
+print(dog.name)  # 繼承
+```
+
+```go !! go
+// Go - 組合
+package main
+
+import "fmt"
+
+type Animal struct {
+    Name string
+}
+
+func (a Animal) Speak() string {
+    return fmt.Sprintf("%s makes a sound", a.Name)
+}
+
+type Dog struct {
+    Animal  // 嵌入結構體（組合）
+    Breed   string
+}
+
+func (d Dog) Speak() string {
+    return fmt.Sprintf("%s says Woof!", d.Name)
+}
+
+func main() {
+    dog := Dog{
+        Animal: Animal{Name: "Buddy"},
+        Breed:  "Golden Retriever",
+    }
+
+    fmt.Println(dog.Speak())
+    fmt.Println(dog.Name)  // 直接存取嵌入欄位（提升）
+    fmt.Println(dog.Breed)
+
+    // 也可以透過嵌入類型存取
+    fmt.Println(dog.Animal.Name)
+}
+```
+</UniversalEditor>
+
+### 多重組合
+
+<UniversalEditor title="多重组合">
+```python !! py
+# Python - 多重繼承
+class Flyable:
+    def fly(self):
+        return "Flying"
+
+class Swimmable:
+    def swim(self):
+        return "Swimming"
+
+class Duck(Flyable, Swimmable):
+    def __init__(self, name):
+        self.name = name
+
+duck = Duck("Donald")
+print(duck.fly())
+print(duck.swim())
+```
+
+```go !! go
+// Go - 多重组合
+package main
+
+import "fmt"
+
+type Flyable struct{}
+
+func (f Flyable) Fly() string {
+    return "Flying"
+}
+
+type Swimmable struct{}
+
+func (s Swimmable) Swim() string {
+    return "Swimming"
+}
+
+type Duck struct {
+    Flyable
+    Swimmable
+    Name string
+}
+
+func main() {
+    duck := Duck{
+        Name: "Donald",
+    }
+
+    fmt.Println(duck.Fly())
+    fmt.Println(duck.Swim())
+    fmt.Println(duck.Name)
+}
+```
+</UniversalEditor>
+
+### 方法解析和遮蔽
+
+<UniversalEditor title="方法遮蔽">
+```python !! py
+# Python - MRO（方法解析順序）
+class A:
+    def show(self):
+        print("A")
+
+class B(A):
+    def show(self):
+        print("B")
+
+class C(B):
+    pass
+
+obj = C()
+obj.show()  # 列印 "B"（先在 B 中找到）
+```
+
+```go !! go
+// Go - 方法提升和遮蔽
+package main
+
+import "fmt"
+
+type Animal struct {
+    Name string
+}
+
+func (a Animal) Speak() string {
+    return "Animal sound"
+}
+
+type Dog struct {
+    Animal
+    Breed string
+}
+
+// Dog 的 Speak 遮蔽了 Animal 的 Speak
+func (d Dog) Speak() string {
+    return "Woof!"
+}
+
+func main() {
+    animal := Animal{Name: "Generic"}
+    dog := Dog{
+        Animal: Animal{Name: "Buddy"},
+        Breed:  "Golden",
+    }
+
+    fmt.Println(animal.Speak())  // "Animal sound"
+    fmt.Println(dog.Speak())      // "Woof!"（Dog 的方法）
+
+    // 仍然可以透過嵌入欄位呼叫 Animal 的方法
+    fmt.Println(dog.Animal.Speak())  // "Animal sound"
+}
+```
+</UniversalEditor>
+
+## 介面
+
+介面是隱式實作的——不需要顯式的 "implements" 關鍵字。這是 Go 最強大的特性之一。
+
+### 基本介面
+
+<UniversalEditor title="隱式介面滿足">
+```python !! py
+# Python - 鴨子類型（隱式）
+class Duck:
+    def quack(self):
+        return "Quack!"
+
+class Person:
+    def quack(self):
+        return "I'm quacking like a duck!"
+
+def make_it_quack(thing):
+    if hasattr(thing, 'quack'):
+        print(thing.quack())
+
+duck = Duck()
+person = Person()
+
+make_it_quack(duck)    # 可以工作
+make_it_quack(person)  # 也可以工作！
+```
+
+```go !! go
+// Go - 隱式介面
+package main
+
+import "fmt"
+
+type Quacker interface {
+    Quack() string
+}
+
+type Duck struct{}
+
+func (d Duck) Quack() string {
+    return "Quack!"
+}
+
+type Person struct{}
+
+func (p Person) Quack() string {
+    return "I'm quacking like a duck!"
+}
+
+func makeItQuack(q Quacker) {
+    fmt.Println(q.Quack())
+}
+
+func main() {
+    duck := Duck{}
+    person := Person{}
+
+    makeItQuack(duck)    // 可以工作
+    makeItQuack(person)  // 也可以工作！
+
+    // 類型自動滿足介面
+    // 不需要宣告 "type Duck implements Quacker"
+}
+```
+</UniversalEditor>
+
+### 介面組合
+
+<UniversalEditor title="介面組合">
+```python !! py
+# Python - 多個基底類別
+class Reader:
+    def read(self):
+        pass
+
+class Writer:
+    def write(self, data):
+        pass
+
+class ReadWriter(Reader, Writer):
+    pass
+```
+
+```go !! go
+// Go - 介面組合
+package main
+
+import "fmt"
+
+type Reader interface {
+    Read(p []byte) (n int, err error)
+}
+
+type Writer interface {
+    Write(p []byte) (n int, err error)
+}
+
+type ReadWriter interface {
+    Reader  // 嵌入介面
+    Writer  // 嵌入介面
+}
+
+// File 同時實作了 Read 和 Write
+type File struct {
+    name string
+}
+
+func (f File) Read(p []byte) (n int, err error) {
+    // 實作
+    return len(p), nil
+}
+
+func (f File) Write(p []byte) (n int, err error) {
+    // 實作
+    return len(p), nil
+}
+
+func process(rw ReadWriter) {
+    buf := make([]byte, 1024)
+    rw.Read(buf)
+    rw.Write(buf)
+}
+
+func main() {
+    file := File{name: "test.txt"}
+    process(file)  // File 滿足 ReadWriter
+}
+```
+</UniversalEditor>
+
+### 空介面
+
+<UniversalEditor title="空介面">
+```python !! py
+# Python - 任意類型
+def print_anything(value):
+    print(value)
+    print(type(value))
+
+print_anything(42)
+print_anything("hello")
+print_anything([1, 2, 3])
+```
+
+```go !! go
+// Go - 空介面（interface{}）
+package main
+
+import "fmt"
+
+func printAnything(value interface{}) {
+    fmt.Println(value)
+    fmt.Printf("Type: %T\n", value)
+}
+
+func main() {
+    printAnything(42)
+    printAnything("hello")
+    printAnything([]int{1, 2, 3})
+
+    // 空介面可以容納任何值
+    var anything interface{}
+    anything = 42
+    anything = "hello"
+    anything = []int{1, 2, 3}
+}
+```
+</UniversalEditor>
+
+### 空介面 - 使用時機
+
+<UniversalEditor title="空介面最佳實踐">
+```go
+// 避免:空介面當類型已知時
+func process(data interface{}) {
+    // data 是什麼類型？不清楚！
+    // 到處都需要類型斷言
+}
+
+// 推薦:特定介面
+func process(data []byte) {
+    // 類型清晰
+}
+
+// 可以:空介面用於真正的異質資料
+func printAll(items ...interface{}) {
+    for _, item := range items {
+        fmt.Println(item)
+    }
+}
+
+// 可以:JSON 反序列化
+var data map[string]interface{}
+json.Unmarshal(jsonBytes, &data)
+
+// 推薦:特定結構體
+type Config struct {
+    Host string `json:"host"`
+    Port int    `json:"port"`
+}
+var config Config
+json.Unmarshal(jsonBytes, &config)
+```
+</UniversalEditor>
+
+## 類型斷言和類型選擇
+
+### 類型斷言
+
+<UniversalEditor title="類型斷言">
+```python !! py
+# Python - 類型檢查
+def process(value):
+    if isinstance(value, int):
+        print(f"Integer: {value}")
+        return value * 2
+    elif isinstance(value, str):
+        print(f"String: {value}")
+        return value.upper()
+    elif isinstance(value, list):
+        print(f"List: {value}")
+        return len(value)
+    else:
+        print(f"Unknown type: {type(value)}")
+        return None
+```
+
+```go !! go
+// Go - 類型斷言
+package main
+
+import (
+    "fmt"
+    "strings"
+)
+
+func process(value interface{}) interface{} {
+    // 帶逗號-ok 模式的類型斷言
+    if i, ok := value.(int); ok {
+        fmt.Printf("Integer: %d\n", i)
+        return i * 2
+    }
+
+    if s, ok := value.(string); ok {
+        fmt.Printf("String: %s\n", s)
+        return strings.ToUpper(s)
+    }
+
+    if lst, ok := value.([]int); ok {
+        fmt.Printf("Int slice: %v\n", lst)
+        return len(lst)
+    }
+
+    fmt.Printf("Unknown type: %T\n", value)
+    return nil
+}
+
+// 不安全的類型斷言（類型錯誤會 panic）
+func double(value interface{}) int {
+    return value.(int) * 2  // 如果 value 不是 int 會 panic
+}
+
+func main() {
+    process(42)
+    process("hello")
+    process([]int{1, 2, 3})
+
+    // 安全使用
+    if i, ok := interface{}(42).(int); ok {
+        fmt.Println("Double:", i*2)
+    }
+}
+```
+</UniversalEditor>
+
+### 類型選擇
+
+<UniversalEditor title="類型選擇">
+```python !! py
+# Python - 多個類型檢查
+def handle(value):
+    if isinstance(value, int):
+        return "integer"
+    elif isinstance(value, str):
+        return "string"
+    elif isinstance(value, list):
+        return "list"
+    elif isinstance(value, dict):
+        return "dict"
+    else:
+        return f"unknown: {type(value)}"
+```
+
+```go !! go
+// Go - 類型選擇
+package main
+
+import "fmt"
+
+func handle(value interface{}) string {
+    switch v := value.(type) {
+    case int:
+        return fmt.Sprintf("integer: %d", v)
+    case string:
+        return fmt.Sprintf("string: %s", v)
+    case []int:
+        return fmt.Sprintf("int slice: %v", v)
+    case map[string]interface{}:
+        return fmt.Sprintf("map: %d keys", len(v))
+    case nil:
+        return "nil value"
+    default:
+        return fmt.Sprintf("unknown: %T", v)
+    }
+}
+
+func main() {
+    fmt.Println(handle(42))
+    fmt.Println(handle("hello"))
+    fmt.Println(handle([]int{1, 2, 3}))
+    fmt.Println(handle(map[string]interface{}{"a": 1}))
+    fmt.Println(handle(nil))
+}
+```
+</UniversalEditor>
+
+### 多種情況的類型選擇
+
+<UniversalEditor title="類型選擇多情況">
+```go
+// 一個 case 中多種類型
+func process(value interface{}) string {
+    switch v := value.(type) {
+    case int, int8, int16, int32, int64:
+        return "integer type"
+    case uint, uint8, uint16, uint32, uint64:
+        return "unsigned integer type"
+    case float32, float64:
+        return "float type"
+    case string:
+        return "string"
+    case bool:
+        return "boolean"
+    default:
+        return "other type"
+    }
+}
+```
+</UniversalEditor>
+
+## 標準庫介面
+
+Go 標準庫定義了許多有用的介面:
+
+### Stringer 介面
+
+<UniversalEditor title="Stringer 介面">
+```python !! py
+# Python - __str__ 和 __repr__
+class Person:
+    def __init__(self, name, age):
+        self.name = name
+        self.age = age
+
+    def __str__(self):
+        return f"Person(name={self.name})"
+
+    def __repr__(self):
+        return f"Person(name={self.name}, age={self.age})"
+
+p = Person("Alice", 30)
+print(p)      # 使用 __str__
+print(repr(p)) # 使用 __repr__
+```
+
+```go !! go
+// Go - Stringer 介面
+package main
+
+import (
+    "fmt"
+)
+
+type Person struct {
+    Name string
+    Age  int
+}
+
+// Stringer 介面（類似 __str__）
+func (p Person) String() string {
+    return fmt.Sprintf("Person(name=%s)", p.Name)
+}
+
+func main() {
+    person := Person{Name: "Alice", Age: 30}
+
+    // fmt.Println 自動呼叫 String()
+    fmt.Println(person)
+
+    // String 也使用 String()
+    fmt.Sprintf("%s", person)
+}
+```
+</UniversalEditor>
+
+### Error 介面
+
+<UniversalEditor title="Error 介面">
+```python !! py
+# Python - Exception
+class ValidationError(Exception):
+    def __init__(self, message, field):
+        self.message = message
+        self.field = field
+
+    def __str__(self):
+        return f"{self.field}: {self.message}"
+
+raise ValidationError("Invalid email", "email")
+```
+
+```go !! go
+// Go - Error 介面
+package main
+
+import "fmt"
+
+// Error 介面是內建的：
+// type error interface {
+//     Error() string
+// }
+
+type ValidationError struct {
+    Message string
+    Field   string
+}
+
+func (e ValidationError) Error() string {
+    return fmt.Sprintf("%s: %s", e.Field, e.Message)
+}
+
+func validateEmail(email string) error {
+    if email == "" {
+        return ValidationError{
+            Message: "cannot be empty",
+            Field:   "email",
+        }
+    }
+    return nil
+}
+
+func main() {
+    if err := validateEmail(""); err != nil {
+        fmt.Println(err)  // 自動呼叫 Error()
+    }
+}
+```
+</UniversalEditor>
+
+### 其他常用介面
+
+<UniversalEditor title="常用介面">
+```go
+// Reader 介面（io 套件）
+type Reader interface {
+    Read(p []byte) (n int, err error)
+}
+
+// Writer 介面（io 套件）
+type Writer interface {
+    Write(p []byte) (n int, err error)
+}
+
+// Closer 介面（io 套件）
+type Closer interface {
+    Close() error
+}
+
+// ReadWriter 介面（組合）
+type ReadWriter interface {
+    Reader
+    Writer
+}
+
+// ReadWriteCloser 介面
+type ReadWriteCloser interface {
+    Reader
+    Writer
+    Closer
+}
+```
+</UniversalEditor>
+
+## 介面最佳實踐
+
+### 接受介面,返回結構體
+
+<UniversalEditor title="介面最佳實踐">
+```python !! py
+# Python - 返回特定類型
+def get_user():
+    return User("Alice", 30)
+
+# 接受鴨子類型介面
+def process(obj):
+    if hasattr(obj, 'process'):
+        obj.process()
+```
+
+```go !! go
+// Go - 接受介面,返回結構體
+package main
+
+// 好:返回具體類型
+func NewUser(name string, age int) User {
+    return User{Name: name, Age: age}
+}
+
+// 好:接受介面
+func processUser(u UserInterface) {
+    u.Process()
+}
+
+// 避免:返回介面（除非必要）
+func getUser() UserInterface {  // 不要這樣做
+    return User{Name: "Alice"}
+}
+
+// 推薦:返回具體類型
+func getUser() User {  // 應該這樣做
+    return User{Name: "Alice"}
+}
+
+// 例外:返回 nil 時返回介面
+func findUser(id int) (User, error) {
+    if id == 0 {
+        return User{}, fmt.Errorf("invalid id")
+    }
+    // ...
+}
+```
+</UniversalEditor>
+
+### 小介面
+
+<UniversalEditor title="小介面原則">
+```go
+// 好:小而專注的介面
+type Reader interface {
+    Read(p []byte) (n int, err error)
+}
+
+type Writer interface {
+    Write(p []byte) (n int, err error)
+}
+
+// 避免:大型、單體介面
+type FileHandler interface {
+    Read(p []byte) (n int, err error)
+    Write(p []byte) (n int, err error)
+    Close() error
+    Sync() error
+    Stat() (os.FileInfo, error)
+    // ... 更多方法
+}
+
+// 推薦:組合小介面
+type ReadWriteCloser interface {
+    Reader
+    Writer
+    io.Closer
+}
+```
+</UniversalEditor>
+
+### 介面 Nil 陷阱
+
+<UniversalEditor title="介面 Nil 陷阱">
+```go
+// 小心 nil 介面值！
+package main
+
+import "fmt"
+
+type MyError struct {
+    Message string
+}
+
+func (e *MyError) Error() string {
+    return e.Message
+}
+
+func returnsError() error {
+    var p *MyError = nil
+    return p  // 返回 nil 指標,但非 nil 介面！
+}
+
+func returnsErrorCorrect() error {
+    var p *MyError = nil
+    return nil  // 返回 nil 介面
+}
+
+func main() {
+    err := returnsError()
+    if err != nil {
+        fmt.Println("Error is not nil!")
+        // 這會列印！即使 p 是 nil！
+        // 介面本身不是 nil
+    }
+
+    // 正確方式
+    err2 := returnsErrorCorrect()
+    if err2 != nil {
+        fmt.Println("Error2 is not nil!")
+    }
+    // 這不會列印
+}
+```
+</UniversalEditor>
+
+## 指標接收者 vs 值接收者
+
+### 何時使用每種
+
+<UniversalEditor title="選擇接收者類型">
+```python !! py
+# Python - 方法可以修改
+class Counter:
+    def __init__(self):
+        self.count = 0
+
+    def increment(self):
+        self.count += 1  # 修改物件
+
+    def get_count(self):
+        return self.count
+
+    def double(self):
+        self.count *= 2  # 修改物件
+```
+
+```go !! go
+// Go - 仔細選擇接收者類型
+package main
+
+import "fmt"
+
+type Counter struct {
+    count int
+}
+
+// 值接收者 - 不能修改
+// 使用場景:
+// - 方法不需要修改
+// - 結構體很小（複製成本低）
+// - 一致性（如果所有方法都使用值）
+func (c Counter) GetCount() int {
+    return c.count
+}
+
+// 指標接收者 - 可以修改
+// 使用場景:
+// - 方法需要修改
+// - 結構體很大（避免複製）
+// - 一致性（如果任何方法使用指標）
+func (c *Counter) Increment() {
+    c.count++
+}
+
+// 即使對於大型結構體的唯讀方法,
+// 也使用指標來避免複製
+func (c *Counter) Double() {
+    c.count *= 2
+}
+
+// 對於小型不可變值,值接收者可以
+type Point struct {
+    X, Y int
+}
+
+func (p Point) Distance() int {
+    return p.X*p.X + p.Y*p.Y
+}
+
+func main() {
+    counter := Counter{count: 0}
+    counter.Increment()
+    counter.Double()
+    fmt.Println(counter.GetCount())  // 2
+}
+```
+</UniversalEditor>
+
+### 接收者類型指南
+
+<UniversalEditor title="接收者指南">
+```go
+// 指南 1:如果方法需要修改則使用指標接收者
+func (c *Counter) Increment() {
+    c.count++
+}
+
+// 指南 2:大型結構體使用指標接收者
+type BigStruct struct {
+    data [1024]int
+}
+
+func (b *BigStruct) Process() {
+    // 避免複製 1024 個 int
+}
+
+// 指南 3:小型不可變值使用值接收者
+type Point struct {
+    X, Y int
+}
+
+func (p Point) String() string {
+    return fmt.Sprintf("(%d, %d)", p.X, p.Y)
+}
+
+// 指南 4:保持一致 - 不要混合接收者類型
+// 不好:混合接收者
+type MyStruct struct {
+    value int
+}
+
+func (m MyStruct) GetValue() int {
+    return m.value
+}
+
+func (m *MyStruct) SetValue(v int) {
+    m.value = v
+}
+
+// 好:所有指標接收者
+func (m *MyStruct) GetValue() int {
+    return m.value
+}
+
+func (m *MyStruct) SetValue(v int) {
+    m.value = v
+}
+```
+</UniversalEditor>
+
+## 實際範例
+
+### JSON 編碼/解碼
+
+<UniversalEditor title="JSON 和結構體">
+```python !! py
+# Python - JSON 序列化
+import json
+
+class User:
+    def __init__(self, name, email):
+        self.name = name
+        self.email = email
+
+    def to_dict(self):
+        return {
+            'name': self.name,
+            'email': self.email
+        }
+
+    @classmethod
+    def from_dict(cls, data):
+        return cls(data['name'], data['email'])
+
+user = User("Alice", "alice@example.com")
+json_str = json.dumps(user.to_dict())
+parsed = User.from_dict(json.loads(json_str))
+```
+
+```go !! go
+// Go - JSON 和結構體標籤
+package main
+
+import (
+    "encoding/json"
+    "fmt"
+)
+
+type User struct {
+    Name  string `json:"name"`
+    Email string `json:"email"`
+    Age   int    `json:"age,omitempty"`  // 如果為零值則省略
+}
+
+func main() {
+    // 編碼
+    user := User{
+        Name:  "Alice",
+        Email: "alice@example.com",
+    }
+
+    jsonBytes, err := json.Marshal(user)
+    if err != nil {
+        panic(err)
+    }
+    fmt.Println(string(jsonBytes))
+    // {"name":"Alice","email":"alice@example.com"}
+
+    // 解碼
+    var parsed User
+    if err := json.Unmarshal(jsonBytes, &parsed); err != nil {
+        panic(err)
+    }
+    fmt.Printf("%+v\n", parsed)
+}
+```
+</UniversalEditor>
+
+### 資料庫模型
+
+<UniversalEditor title="資料庫模型">
+```python !! py
+# Python - SQLAlchemy 模型
+from sqlalchemy import Column, Integer, String
+from sqlalchemy.ext.declarative import declarative_base
+
+Base = declarative_base()
+
+class User(Base):
+    __tablename__ = 'users'
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String(100))
+    email = Column(String(200))
+```
+
+```go !! go
+// Go - 帶結構體標籤的資料庫模型
+package main
+
+type User struct {
+    ID        int       `json:"id" db:"id"`
+    Name      string    `json:"name" db:"name"`
+    Email     string    `json:"email" db:"email"`
+    CreatedAt time.Time `json:"created_at" db:"created_at"`
+    UpdatedAt time.Time `json:"updated_at" db:"updated_at"`
+}
+
+// 表名映射
+func (User) TableName() string {
+    return "users"
+}
+
+// 自訂類型的 Scanner 和 Valuer
+type NullString struct {
+    String string
+    Valid  bool
+}
+
+func (ns *NullString) Scan(value interface{}) error {
+    if value == nil {
+        ns.String, ns.Valid = "", false
+        return nil
+    }
+    ns.Valid = true
+    return nil
+}
+```
+</UniversalEditor>
+
+## 總結
+
+在本模組中,你學習了:
+
+1. **結構體** - Go 的類別替代品
+2. **欄位可見性** - 匯出 vs 未匯出
+3. **結構體標籤** - JSON、資料庫等元資料
+4. **匿名結構體** - 快速、一次性結構
+5. **組合** - 優於繼承
+6. **多重组合** - 組合多個類型
+7. **方法提升** - 存取嵌入方法
+8. **介面** - 隱式實作,靈活
+9. **空介面** - 容納任何值（小心使用）
+10. **類型斷言** - 檢查和轉換類型
+11. **類型選擇** - 類型切換
+12. **標準介面** - Stringer、Error、Reader、Writer
+13. **介面最佳實踐** - 小而專注的介面
+14. **接收者類型** - 指標 vs 值
+15. **Nil 介面陷阱** - 介面 vs 具體 nil
+
+## 與 Python 的主要區別
+
+| Python | Go |
+|--------|-----|
+| 類別和繼承 | 結構體和組合 |
+| `__init__` 初始化 | 結構體字面量或建構函式 |
+| 透過 `__` 前綴私有 | 未匯出（小寫） |
+| `self` 參數 | 接收者參數 |
+| 魔術方法（`__str__`、`__eq__`） | 介面（Stringer 等） |
+| 鴨子類型（執行時） | 介面（編譯時 + 鴨子類型） |
+| 多重繼承 | 組合 + 介面組合 |
+| `isinstance()` 檢查 | 類型斷言和類型選擇 |
+
+## 最佳實踐
+
+1. **優先使用組合**而非繼承
+2. **保持介面小** - 1-2 個方法最理想
+3. **接受介面,返回結構體** - 返回值要具體
+4. **使用指標接收者**當需要修改或結構體較大時
+5. **保持一致**接收者類型
+6. **使用結構體標籤**作為序列化元資料
+7. **避免空介面**除非真正必要
+8. **小心 nil 介面** - 理解陷阱
+9. **嵌入用於組合** - 提升欄位/方法
+10. **實作標準介面** - Stringer、Error 等
+
+## 練習
+
+1. 建立一個帶有匯出和未匯出欄位的結構體
+2. 在自訂類型上實作 Stringer 介面
+3. 使用組合來組合多個結構體
+4. 撰寫類型選擇來處理不同類型
+5. 建立指標接收者和值接收者並比較行為
+6. 使用標籤實作自訂 JSON 編組
+7. 建立一個介面並讓多個類型滿足它
+8. 使用結構體標籤建構小型資料庫模型
+
+## 下一步
+
+下一模組:**套件管理** - 理解 Go 模組和匯入。

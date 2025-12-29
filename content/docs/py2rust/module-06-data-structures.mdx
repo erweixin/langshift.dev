@@ -1,0 +1,999 @@
+---
+title: "Module 6: Data Structures"
+description: "Master Rust's data structures - structs, enums, and collections - by comparing them with Python's classes and data structures."
+---
+
+# Module 6: Data Structures
+
+Data structures are the building blocks of any program. While Python uses classes for everything, Rust provides specialized tools for different use cases: structs for data, enums for variants, and powerful collection types.
+
+## Learning Objectives
+
+By the end of this module, you'll understand:
+- ✅ Structs: Named, Tuple, and Unit structs
+- ✅ Enums: Data-carrying enums and Option/Result
+- ✅ Methods: impl blocks and self
+- ✅ Collections: Vec, HashMap, HashSet, and more
+- ✅ Strings: String vs &str
+- ✅ Arrays and Slices
+- ✅ Pattern matching on data structures
+- ✅ Deriving traits and custom implementations
+
+## Structs
+
+Structs are Rust's way of grouping related data together.
+
+### Named Field Structs
+
+<UniversalEditor compare={true} title="Named Field Structs">
+```python !! py
+# Python: Using dataclass or class
+from dataclasses import dataclass
+
+@dataclass
+class Person:
+    name: str
+    age: int
+    email: str
+
+# Create instance
+person = Person("Alice", 25, "alice@example.com")
+
+# Access fields
+print(person.name)
+print(person.age)
+
+# Update (creates new instance if frozen)
+person.age = 26
+```
+
+```rust !! rs
+// Rust: Named field structs
+struct Person {
+    name: String,
+    age: u32,
+    email: String,
+}
+
+// Create instance
+let person = Person {
+    name: String::from("Alice"),
+    age: 25,
+    email: String::from("alice@example.com"),
+};
+
+// Access fields
+println!("{}", person.name);
+println!("{}", person.age);
+
+// Update (requires mut)
+let mut person = person;
+person.age = 26;
+
+// Or create new instance with update syntax
+let person2 = Person {
+    age: 27,
+    ..person  // Move remaining fields
+};
+```
+</UniversalEditor>
+
+### Tuple Structs
+
+<UniversalEditor compare={true} title="Tuple Structs">
+```python !! py
+# Python: Using namedtuple or tuples
+from collections import namedtuple
+Color = namedtuple('Color', ['red', 'green', 'blue'])
+
+black = Color(0, 0, 0)
+print(black.red)
+
+# Or just use tuples
+color = (255, 0, 0)
+print(color[0])  # 255
+```
+
+```rust !! rs
+// Rust: Tuple structs
+struct Color(u8, u8, u8);
+
+let black = Color(0, 0, 0);
+println!("{}", black.0);  // Access by index
+
+// Can also destructure
+let Color(r, g, b) = black;
+println!("R: {}, G: {}, B: {}", r, g, b);
+
+// Useful for single-field wrappers (newtype pattern)
+struct Meters(u32);
+struct Kilometers(u32);
+
+let distance = Meters(1000);
+// Meters and Kilometers are different types!
+```
+</UniversalEditor>
+
+### Unit-Like Structs
+
+<UniversalEditor compare={true} title="Unit-Like Structs">
+```python !! py
+# Python: Singleton or marker class
+class Singleton:
+    instance = None
+
+    def __new__(cls):
+        if cls.instance is None:
+            cls.instance = super().__new__(cls)
+        return cls.instance
+
+# Or just use a class for namespacing
+class Marker:
+    pass
+```
+
+```rust !! rs
+// Rust: Unit-like struct (no fields)
+struct Singleton;
+
+impl Singleton {
+    fn instance() -> &'static Singleton {
+        // Implementation would use OnceLock or lazy_static
+        &Singleton
+    }
+}
+
+// Marker types
+struct Marker;
+
+// Useful for phantom types and markers
+struct PhantomData<T>;
+```
+</UniversalEditor>
+
+## Enums
+
+Enums are powerful in Rust - they can carry data!
+
+<UniversalEditor compare={true} title="Basic Enums">
+```python !! py
+# Python: Enum (from enum module)
+from enum import Enum
+
+class Color(Enum):
+    RED = 1
+    GREEN = 2
+    BLUE = 3
+
+color = Color.RED
+print(color)  # Color.RED
+```
+
+```rust !! rs
+// Rust: Enums can carry data!
+enum Color {
+    Red,
+    Green,
+    Blue,
+    RGB(u8, u8, u8),  // Can carry data!
+    CMYK { c: u8, m: u8, y: u8, k: u8 },  // Or named fields
+}
+
+let color = Color::Red;
+
+// Match on enum
+match color {
+    Color::Red => println!("Red"),
+    Color::Green => println!("Green"),
+    Color::Blue => println!("Blue"),
+    Color::RGB(r, g, b) => println!("RGB: {},{},{}", r, g, b),
+    Color::CMYK { c, m, y, k } => println!("CMYK: {},{},{},{}", c, m, y, k),
+}
+```
+</UniversalEditor>
+
+### Option and Result
+
+<UniversalEditor compare={true} title="Option vs None">
+```python !! py
+# Python: None represents absence
+def find_user(user_id):
+    if user_id == 1:
+        return {"name": "Alice"}
+    return None
+
+user = find_user(1)
+if user is not None:
+    print(user["name"])
+
+# Or use Optional type hints
+from typing import Optional
+
+def find_user_typed(user_id: int) -> Optional[dict]:
+    if user_id == 1:
+        return {"name": "Alice"}
+    return None
+```
+
+```rust !! rs
+// Rust: Option enum for absent values
+fn find_user(user_id: i32) -> Option<&'static str> {
+    if user_id == 1 {
+        Some("Alice")
+    } else {
+        None
+    }
+}
+
+let user = find_user(1);
+if let Some(name) = user {
+    println!("{}", name);
+}
+
+// Must handle None explicitly
+let user = find_user(999);
+match user {
+    Some(name) => println!("Found: {}", name),
+    None => println!("Not found"),
+}
+
+// Use ? for early return
+fn get_user_name(user_id: i32) -> Option<&'static str> {
+    let name = find_user(user_id)?;
+    Some(name)
+}
+```
+</UniversalEditor>
+
+<UniversalEditor compare={true} title="Result vs Exceptions">
+```python !! py
+# Python: Exceptions for errors
+def divide(a, b):
+    if b == 0:
+        raise ValueError("Division by zero")
+    return a / b
+
+try:
+    result = divide(10, 0)
+except ValueError as e:
+    print(f"Error: {e}")
+```
+
+```rust !! rs
+// Rust: Result enum for errors
+fn divide(a: f64, b: f64) -> Result<f64, String> {
+    if b == 0.0 {
+        Err(String::from("Division by zero"))
+    } else {
+        Ok(a / b)
+    }
+}
+
+match divide(10.0, 0.0) {
+    Ok(result) => println!("Result: {}", result),
+    Err(e) => println!("Error: {}", e),
+}
+
+// Use ? for error propagation
+fn calculate() -> Result<f64, String> {
+    let result = divide(10.0, 2.0)?;
+    Ok(result * 2.0)
+}
+```
+</UniversalEditor>
+
+## Methods
+
+Methods are functions defined within an `impl` block.
+
+<UniversalEditor compare={true} title="Defining Methods">
+```python !! py
+# Python: Methods in class
+class Rectangle:
+    def __init__(self, width, height):
+        self.width = width
+        self.height = height
+
+    def area(self):
+        return self.width * self.height
+
+    def scale(self, factor):
+        return Rectangle(self.width * factor, self.height * factor)
+
+rect = Rectangle(10, 20)
+print(rect.area())  # 200
+```
+
+```rust !! rs
+// Rust: Methods in impl block
+struct Rectangle {
+    width: u32,
+    height: u32,
+}
+
+impl Rectangle {
+    // Associated function (like static method)
+    fn new(width: u32, height: u32) -> Self {
+        Rectangle { width, height }
+    }
+
+    // Method taking &self
+    fn area(&self) -> u32 {
+        self.width * self.height
+    }
+
+    // Method taking &mut self
+    fn scale(&mut self, factor: u32) {
+        self.width *= factor;
+        self.height *= factor;
+    }
+
+    // Method consuming self
+    fn into_square(self) -> Rectangle {
+        let size = self.width.max(self.height);
+        Rectangle { width: size, height: size }
+    }
+}
+
+let rect = Rectangle::new(10, 20);
+println!("{}", rect.area());  // 200
+```
+</UniversalEditor>
+
+## Collections
+
+Rust provides powerful collection types in the standard library.
+
+### Vec (Dynamic Array)
+
+<UniversalEditor compare={true} title="Vec vs List">
+```python !! py
+# Python: List
+items = [1, 2, 3, 4, 5]
+
+# Add elements
+items.append(6)
+
+# Access
+print(items[0])  # 1
+
+# Iterate
+for item in items:
+    print(item)
+
+# List comprehension
+doubled = [x * 2 for x in items]
+```
+
+```rust !! rs
+// Rust: Vec<T>
+let mut items = vec![1, 2, 3, 4, 5];
+
+// Add elements
+items.push(6);
+
+// Access
+println!("{}", items[0]);  // 1
+
+// Iterate
+for item in &items {
+    println!("{}", item);
+}
+
+// With closure (map)
+let doubled: Vec<i32> = items.iter().map(|x| x * 2).collect();
+```
+</UniversalEditor>
+
+### HashMap
+
+<UniversalEditor compare={true} title="HashMap vs Dict">
+```python !! py
+# Python: Dictionary
+scores = {"Alice": 100, "Bob": 95}
+
+# Access
+print(scores["Alice"])
+
+# Add/Update
+scores["Charlie"] = 90
+
+# Check existence
+if "Bob" in scores:
+    print(scores["Bob"])
+
+# Get with default
+print(scores.get("David", 0))
+```
+
+```rust !! rs
+// Rust: HashMap<K, V>
+use std::collections::HashMap;
+
+let mut scores = HashMap::new();
+
+// Insert
+scores.insert("Alice", 100);
+scores.insert("Bob", 95);
+
+// Access
+println!("{}", scores.get("Alice").unwrap_or(&0));
+
+// Add/Update
+scores.insert("Charlie", 90);
+
+// Check existence
+if scores.contains_key("Bob") {
+    println!("{}", scores["Bob"]);
+}
+
+// Entry API for complex operations
+scores.entry("David").or_insert(0);
+```
+</UniversalEditor>
+
+### HashSet
+
+<UniversalEditor compare={true} title="HashSet vs Set">
+```python !! py
+# Python: Set
+unique_numbers = {1, 2, 3, 4, 5}
+
+# Add
+unique_numbers.add(6)
+
+# Check membership
+if 3 in unique_numbers:
+    print("Found 3")
+
+# Set operations
+set1 = {1, 2, 3}
+set2 = {3, 4, 5}
+print(set1 & set2)  # Intersection: {3}
+print(set1 | set2)  # Union: {1, 2, 3, 4, 5}
+```
+
+```rust !! rs
+// Rust: HashSet<T>
+use std::collections::HashSet;
+
+let mut unique_numbers: HashSet<i32> = [1, 2, 3, 4, 5].iter().cloned().collect();
+
+// Add
+unique_numbers.insert(6);
+
+// Check membership
+if unique_numbers.contains(&3) {
+    println!("Found 3");
+}
+
+// Set operations
+let set1: HashSet<i32> = [1, 2, 3].iter().cloned().collect();
+let set2: HashSet<i32> = [3, 4, 5].iter().cloned().collect();
+
+// Intersection
+let intersection: HashSet<&i32> = set1.intersection(&set2).collect();
+println!("{:?}", intersection);  // {3}
+
+// Union
+let union: HashSet<i32> = set1.union(&set2).cloned().collect();
+println!("{:?}", union);  // {1, 2, 3, 4, 5}
+```
+</UniversalEditor>
+
+## Strings
+
+Rust has multiple string types, which can be confusing.
+
+<UniversalEditor compare={true} title="String Types">
+```python !! py
+# Python: Just str
+s1 = "Hello"
+s2 = "World"
+s3 = s1 + " " + s2
+
+# Strings are immutable
+# s1[0] = "h"  # TypeError
+```
+
+```rust !! rs
+// Rust: &str and String
+let s1: &str = "Hello";  // String slice, immutable
+let s2: String = String::from("World");  // Owned, growable
+
+let s3: String = s1.to_string() + " " + &s2;
+
+// Strings are immutable
+// s1[0] = "h";  // ERROR: cannot mutate &str
+
+// But String can be modified
+let mut s2 = String::from("World");
+s2.push_str("!");
+```
+</UniversalEditor>
+
+### String Operations
+
+<UniversalEditor compare={true} title="String Operations">
+```python !! py
+# Python: String methods
+s = "hello world"
+
+# Length
+print(len(s))  # 11
+
+# Substring
+print(s[0:5])  # "hello"
+
+# Split
+words = s.split()  # ["hello", "world"]
+
+# Replace
+new_s = s.replace("hello", "hi")
+
+# Trim
+s2 = "  text  "
+print(s2.strip())
+```
+
+```rust !! rs
+// Rust: String operations
+let s = "hello world";
+
+// Length (bytes, not chars!)
+println!("{}", s.len());  // 11
+
+// Substring (needs careful indexing)
+println!("{}", &s[0..5]);  // "hello"
+
+// Split
+let words: Vec<&str> = s.split_whitespace().collect();
+
+// Replace
+let new_s = s.replace("hello", "hi");
+
+// Trim
+let s2 = "  text  ";
+println!("{}", s2.trim());
+
+// Iterate over characters
+for c in s.chars() {
+    println!("{}", c);
+}
+```
+</UniversalEditor>
+
+## Arrays and Slices
+
+<UniversalEditor compare={true} title="Arrays vs Lists">
+```python !! py
+# Python: List (dynamic)
+items = [1, 2, 3, 4, 5]
+
+# Can grow
+items.append(6)
+
+# Slicing
+subset = items[1:4]  # [2, 3, 4]
+```
+
+```rust !! rs
+// Rust: Arrays (fixed-size)
+let items: [i32; 5] = [1, 2, 3, 4, 5];
+
+// Cannot grow
+// items.push(6);  // ERROR: no method named `push`
+
+// Slices (views into arrays/Vecs)
+let subset = &items[1..4];  // &[2, 3, 4]
+
+// Vec (dynamic)
+let mut items_vec = vec![1, 2, 3, 4, 5];
+items_vec.push(6);
+
+// Slice of Vec
+let subset_vec: &[i32] = &items_vec[1..4];
+```
+</UniversalEditor>
+
+## Pattern Matching
+
+Pattern matching works great with data structures.
+
+<UniversalEditor compare={true} title="Pattern Matching">
+```python !! py
+# Python: if-elif chains or isinstance
+def process(value):
+    if isinstance(value, dict):
+        return "dict"
+    elif isinstance(value, list):
+        return "list"
+    elif isinstance(value, str):
+        return "str"
+    return "other"
+
+# Or match (Python 3.10+)
+match value:
+    case {"name": name, "age": age}:
+        print(f"Person: {name}, {age}")
+    case [x, y, z]:
+        print(f"Three items: {x}, {y}, {z}")
+    case _:
+        print("Other")
+```
+
+```rust !! rs
+// Rust: Powerful pattern matching
+enum Value {
+    Number(i32),
+    Text(String),
+    Pair(i32, i32),
+}
+
+fn process(value: &Value) -> &str {
+    match value {
+        Value::Number(n) if *n > 0 => "positive number",
+        Value::Number(_) => "number",
+        Value::Text(s) if !s.is_empty() => "non-empty text",
+        Value::Text(_) => "text",
+        Value::Pair(x, y) if x == y => "equal pair",
+        Value::Pair(_, _) => "pair",
+    }
+}
+
+// Destructuring structs
+struct Point { x: i32, y: i32 }
+
+let p = Point { x: 10, y: 20 };
+match p {
+    Point { x: 0, y } => println!("On y-axis at {}", y),
+    Point { x, y: 0 } => println!("On x-axis at {}", x),
+    Point { x, y } => println!("At ({}, {})", x, y),
+}
+```
+</UniversalEditor>
+
+## Deriving Traits
+
+Rust can automatically implement common traits.
+
+<UniversalEditor compare={true} title="Derived Traits">
+```python !! py
+# Python: dataclasses with features
+from dataclasses import dataclass, field
+
+@dataclass
+class Person:
+    name: str
+    age: int
+
+    def __str__(self):
+        return f"Person(name={self.name}, age={self.age})"
+
+    def __eq__(self, other):
+        if not isinstance(other, Person):
+            return False
+        return self.name == other.name and self.age == other.age
+
+person1 = Person("Alice", 25)
+person2 = Person("Alice", 25)
+print(person1 == person2)  # True
+```
+
+```rust !! rs
+// Rust: Derive common traits
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Person {
+    name: String,
+    age: u32,
+}
+
+let person1 = Person {
+    name: String::from("Alice"),
+    age: 25,
+};
+let person2 = Person {
+    name: String::from("Alice"),
+    age: 25,
+};
+
+println!("{:?}", person1);  // Debug output
+println!("{}", person1 == person2);  // true
+
+// Or use manual impl
+impl std::fmt::Display for Person {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "Person(name={}, age={})", self.name, self.age)
+    }
+}
+
+println!("{}", person1);  // Uses Display
+```
+</UniversalEditor>
+
+## Putting It All Together
+
+<UniversalEditor compare={true} title="Complete Example">
+```python !! py
+from dataclasses import dataclass
+from typing import Optional
+from enum import Enum
+
+class Status(Enum):
+    ACTIVE = "active"
+    INACTIVE = "inactive"
+    PENDING = "pending"
+
+@dataclass
+class User:
+    id: int
+    name: str
+    email: str
+    status: Status
+    friends: list[int]
+
+    def add_friend(self, friend_id: int) -> None:
+        if friend_id not in self.friends:
+            self.friends.append(friend_id)
+
+    def is_active(self) -> bool:
+        return self.status == Status.ACTIVE
+
+def find_user(users: list[User], user_id: int) -> Optional[User]:
+    for user in users:
+        if user.id == user_id:
+            return user
+    return None
+
+# Usage
+users = [
+    User(1, "Alice", "alice@example.com", Status.ACTIVE, []),
+    User(2, "Bob", "bob@example.com", Status.INACTIVE, [1]),
+]
+
+user = find_user(users, 1)
+if user:
+    print(f"Found: {user.name}")
+    user.add_friend(2)
+```
+
+```rust !! rs
+use std::collections::{HashMap, HashSet};
+
+#[derive(Debug, Clone, PartialEq)]
+enum Status {
+    Active,
+    Inactive,
+    Pending,
+}
+
+#[derive(Debug, Clone)]
+struct User {
+    id: u32,
+    name: String,
+    email: String,
+    status: Status,
+    friends: HashSet<u32>,
+}
+
+impl User {
+    fn new(id: u32, name: &str, email: &str, status: Status) -> Self {
+        User {
+            id,
+            name: String::from(name),
+            email: String::from(email),
+            status,
+            friends: HashSet::new(),
+        }
+    }
+
+    fn add_friend(&mut self, friend_id: u32) {
+        self.friends.insert(friend_id);
+    }
+
+    fn is_active(&self) -> bool {
+        self.status == Status::Active
+    }
+}
+
+fn find_user(users: &[User], user_id: u32) -> Option<&User> {
+    users.iter().find(|u| u.id == user_id)
+}
+
+fn main() {
+    let mut users = vec![
+        User::new(1, "Alice", "alice@example.com", Status::Active),
+        User::new(2, "Bob", "bob@example.com", Status::Inactive),
+    ];
+
+    users[1].add_friend(1);
+
+    if let Some(user) = find_user(&users, 1) {
+        println!("Found: {}", user.name);
+    }
+
+    // Using HashMap for faster lookups
+    let mut user_map: HashMap<u32, User> = users
+        .into_iter()
+        .map(|u| (u.id, u))
+        .collect();
+
+    if let Some(user) = user_map.get(&1) {
+        println!("Found: {}", user.name);
+    }
+}
+```
+</UniversalEditor>
+
+## Summary
+
+In this module, you learned:
+- ✅ Structs group related data
+- ✅ Enums represent variants with optional data
+- ✅ Methods are defined in impl blocks
+- ✅ Vec, HashMap, HashSet for collections
+- ✅ String vs &str for strings
+- ✅ Arrays (fixed) vs slices (views)
+- ✅ Pattern matching on data structures
+- ✅ Derive common traits automatically
+
+## Key Differences from Python
+
+1. **Structs not classes**: Data only, behavior in impl blocks
+2. **No inheritance**: Use composition and traits
+3. **Enum variants**: Can carry data
+4. **Multiple string types**: String (owned) vs &str (borrowed)
+5. **Fixed arrays**: [T; N] vs dynamic `Vec<T>`
+6. **Explicit mutability**: mut keyword required
+7. **Pattern matching**: More powerful than if-elif
+
+## Exercises
+
+### Exercise 1: Implement a Stack
+
+Create a Stack data structure:
+- Use generics for element type
+- Implement push, pop, and is_empty methods
+- Use Vec internally
+
+<details>
+<summary>Solution</summary>
+
+```rust
+#[derive(Debug)]
+struct Stack<T> {
+    items: Vec<T>,
+}
+
+impl<T> Stack<T> {
+    fn new() -> Self {
+        Stack { items: Vec::new() }
+    }
+
+    fn push(&mut self, item: T) {
+        self.items.push(item);
+    }
+
+    fn pop(&mut self) -> Option<T> {
+        self.items.pop()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.items.is_empty()
+    }
+}
+
+fn main() {
+    let mut stack = Stack::new();
+    stack.push(1);
+    stack.push(2);
+    stack.push(3);
+
+    while let Some(item) = stack.pop() {
+        println!("{}", item);
+    }
+}
+```
+
+</details>
+
+### Exercise 2: Generic Key-Value Store
+
+Create a generic key-value store:
+- Store key-value pairs
+- Implement get, set, and remove methods
+- Use HashMap internally
+
+<details>
+<summary>Solution</summary>
+
+```rust
+use std::collections::HashMap;
+
+struct Store<K, V> {
+    data: HashMap<K, V>,
+}
+
+impl<K, V> Store<K, V>
+where
+    K: std::hash::Hash + Eq,
+{
+    fn new() -> Self {
+        Store { data: HashMap::new() }
+    }
+
+    fn set(&mut self, key: K, value: V) {
+        self.data.insert(key, value);
+    }
+
+    fn get(&self, key: &K) -> Option<&V> {
+        self.data.get(key)
+    }
+
+    fn remove(&mut self, key: &K) -> Option<V> {
+        self.data.remove(key)
+    }
+}
+
+fn main() {
+    let mut store = Store::new();
+    store.set("name", "Alice");
+    store.set("age", 25);
+
+    println!("{:?}", store.get(&"name"));
+}
+```
+
+</details>
+
+### Exercise 3: Result Wrapper
+
+Create an enum that wraps values with metadata:
+- Variants for Success and Error
+- Include timestamp and status code
+- Implement Display trait
+
+<details>
+<summary>Solution</summary>
+
+```rust
+#[derive(Debug)]
+enum Result<T> {
+    Success { value: T, timestamp: u64 },
+    Error { code: u32, message: String },
+}
+
+impl<T: std::fmt::Display> std::fmt::Display for Result<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Result::Success { value, timestamp } => {
+                write!(f, "[{}] Success: {}", timestamp, value)
+            }
+            Result::Error { code, message } => {
+                write!(f, "[{}] Error: {}", code, message)
+            }
+        }
+    }
+}
+
+fn main() {
+    let success = Result::Success { value: 42, timestamp: 1234567890 };
+    let error = Result::Error { code: 404, message: String::from("Not found") };
+
+    println!("{}", success);
+    println!("{}", error);
+}
+```
+
+</details>
+
+## Next Steps
+
+Now that you understand data structures:
+1. **[Module 7: Error Handling](./module-07-error-handling)** - Learn Rust's error handling approach
+2. Practice with structs and enums
+3. Explore more collection types
+
+---
+
+**Next:** [Module 7 - Error Handling](./module-07-error-handling) →

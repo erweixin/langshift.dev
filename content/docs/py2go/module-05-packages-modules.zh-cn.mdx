@@ -1,0 +1,979 @@
+---
+title: "模块 5: 包管理"
+description: "Go 模块和包系统与 Python 的对比"
+---
+
+## 简介
+
+Go 使用 **Go Modules** 进行依赖管理（自 Go 1.11 起），取代了旧的 GOPATH 系统。这类似于 Python 的 pip/virtualenv，但有一些关键差异和改进。
+
+## Go Modules vs Python 工具
+
+### 基本设置
+
+<UniversalEditor title="项目设置对比">
+```bash
+# Python - 虚拟环境设置
+python -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
+pip install requests flask
+pip freeze > requirements.txt
+```
+
+```bash
+# Go - Go module 设置
+mkdir myproject
+cd myproject
+go mod init github.com/username/myproject
+# 创建 go.mod 文件
+
+go get github.com/gin-gonic/gin  # 添加依赖
+go mod tidy                       # 清理依赖
+# go.mod 和 go.sum 自动更新
+```
+</UniversalEditor>
+
+### 项目结构
+
+<UniversalEditor title="项目结构对比">
+```bash
+# Python 项目结构
+myproject/
+├── venv/                    # 虚拟环境
+│   ├── lib/
+│   └── bin/
+├── requirements.txt         # 依赖
+├── src/
+│   ├── __init__.py
+│   ├── main.py
+│   └── utils.py
+└── tests/
+    ├── __init__.py
+    └── test_utils.py
+```
+
+```bash
+# Go 项目结构
+myproject/
+├── go.mod                  # 模块定义
+├── go.sum                  # 依赖校验和（自动生成）
+├── main.go                 # 入口点
+├── utils.go                # 工具代码
+└── utils_test.go          # 测试文件（*_test.go 约定）
+```
+</UniversalEditor>
+
+## go.mod 文件
+
+<UniversalEditor title="go.mod vs requirements.txt">
+```python
+# Python - requirements.txt
+flask==2.3.0
+requests>=2.28.0
+django>=3.2,<4.0
+```
+
+```go
+// Go - go.mod
+module github.com/username/myproject
+
+go 1.21
+
+require (
+    github.com/gin-gonic/gin v1.9.1
+    github.com/stretchr/testify v1.8.4
+)
+
+// 直接依赖
+require github.com/go-redis/redis/v8 v8.11.5
+
+// 间接依赖（在 go mod why 中显示）
+// 间接依赖在 go.mod 中用 // indirect 标记
+```
+</UniversalEditor>
+
+## 导入包
+
+### 基本导入
+
+<UniversalEditor title="导入语句">
+```python !! py
+# Python - 导入
+import math
+import os.path
+from collections import defaultdict, Counter
+from . import local_module
+from .utils import helper
+from package import Class
+import package as p
+```
+
+```go !! go
+// Go - 导入
+package main
+
+import (
+    "fmt"           // 标准库
+    "math"          // 标准库
+    "os"            // 标准库
+    "strings"       // 标准库
+
+    // 第三方包（来自 go.mod）
+    "github.com/gin-gonic/gin"
+    "github.com/go-redis/redis/v8"
+
+    // 本地包（相对于模块根目录）
+    "myproject/utils"
+    "myproject/internal/app"
+
+    // 带别名导入
+    myfmt "myproject/format"
+)
+
+func main() {
+    fmt.Println("Hello from main")
+    utils.Helper()
+}
+```
+</UniversalEditor>
+
+### 包组织
+
+<UniversalEditor title="包命名">
+```python !! py
+# Python - 包 = 目录
+# myproject/utils/__init__.py
+# myproject/utils/helper.py
+
+# 使用
+from utils import helper
+from utils.helper import process_data
+```
+
+```go !! go
+// Go - 包声明在文件顶部
+// utils/helper.go
+package utils
+
+func Helper() {
+    fmt.Println("Helper function")
+}
+
+// utils/constants.go
+package utils
+
+const MaxRetries = 3
+
+// 使用（从 main.go）
+import "myproject/utils"
+
+func main() {
+    utils.Helper()
+    fmt.Println(utils.MaxRetries)
+}
+```
+</UniversalEditor>
+
+## 包可见性
+
+<UniversalEditor title="导出 vs 未导出">
+```python !! py
+# Python - 公共 vs 私有（基于约定）
+# utils.py
+
+PUBLIC_VAR = "Anyone can access"
+
+_internal_var = "Private by convention"
+
+__private_var = "Name mangling"
+
+def public_function():
+    pass
+
+def _internal_function():
+    pass
+
+def __private_function():
+    pass
+```
+
+```go !! go
+// Go - 导出 vs 未导出（严格）
+package utils
+
+const MaxRetries = 3        // 导出（首字母大写）
+const defaultTimeout = 30  // 未导出（小写）
+
+var GlobalVar string         // 导出
+var internalState int       // 未导出
+
+func PublicFunction() {}     // 导出
+func internalHelper() {}    // 未导出
+
+type PublicStruct struct {}  // 导出
+type privateStruct struct{} // 未导出
+
+// 从另一个包
+import "myproject/utils"
+
+func main() {
+    utils.MaxRetries        // OK - 导出
+    utils.defaultTimeout    // 错误：未导出
+}
+```
+</UniversalEditor>
+
+## go.mod 命令
+
+<UniversalEditor title="常用命令">
+```bash
+# Python - pip 命令
+pip install requests
+pip list
+pip freeze
+pip install --upgrade requests
+pip uninstall requests
+pip show requests
+```
+
+```bash
+# Go - module 命令
+go mod init github.com/username/project  # 初始化
+go mod tidy                                 # 添加缺失，移除未使用
+go mod download                              # 下载所有依赖
+go mod verify                                # 验证依赖（检查校验和）
+go mod graph                                 # 显示依赖图
+go mod why github.com/pkg/errors          # 解释为什么需要包
+go list -m all                               # 列出所有依赖
+go get -u ./...                                # 更新所有依赖
+go get -u github.com/pkg/errors             # 更新特定包
+```
+</UniversalEditor>
+
+### 详细命令示例
+
+<UniversalEditor title="命令示例">
+```bash
+# 初始化新模块
+$ mkdir myproject
+$ cd myproject
+$ go mod init github.com/username/myproject
+go: creating new go.mod: module github.com/username/myproject
+
+# 添加依赖
+$ go get github.com/gin-gonic/gin
+go: downloading github.com/gin-gonic/gin v1.9.1
+go: added github.com/gin-gonic/gin v1.9.1
+
+# 清理依赖（移除未使用的，添加缺失的）
+$ go mod tidy
+
+# 检查依赖
+$ cat go.mod
+module github.com/username/myproject
+
+go 1.21
+
+require github.com/gin-gonic/gin v1.9.1
+
+require (
+    github.com/stretchr/testify v1.8.4 // Indirect
+)
+
+# 查看依赖图
+$ go mod graph
+github.com/username/myproject github.com/gin-gonic/gin
+github.com/gin-gonic/gin github.com/gin-contrib/sse
+...
+
+# 为什么需要这个包？
+$ go mod why github.com/stretchr/testify
+github.com/username/myproject
+└── github.com/gin-gonic/gin
+    └── github.com/stretchr/testify
+
+# 更新所有依赖
+$ go get -u ./...
+```
+</UniversalEditor>
+
+## 依赖版本
+
+<UniversalEditor title="版本管理">
+```python
+# Python - 版本锁定
+flask==2.3.0              # 精确版本
+requests>=2.28.0         # 最低版本
+django~=3.2.0             # 兼容版本（3.2.x，不包括 3.3+）
+```
+
+```go
+// Go - go.mod 中的语义化版本
+module github.com/username/myproject
+
+go 1.21
+
+require (
+    // 特定版本
+    github.com/pkg/errors v0.9.1
+
+    // 带最低版本的版本范围
+    github.com/gin-gonic/gin v1.9.1 // v1.9.1 或更高版本（使用 SemVer）
+
+    // 间接依赖
+    github.com/stretchr/testify v1.8.4 // indirect
+)
+
+// Go 使用语义化版本（SemVer）：
+// v1.2.3 = MAJOR.MINOR.PATCH
+// v1.2 = 1.2.x（兼容，补丁版本）
+// v1 = 1.x.x（兼容，次版本和补丁版本）
+```
+</UniversalEditor>
+
+## go.sum 文件
+
+<UniversalEditor title="依赖校验和">
+```bash
+# Python - 默认没有校验和
+# 可以使用 pip hash-checking 模式
+pip install --require-hashes -r requirements.txt
+
+# requirements.txt
+flask==2.3.0 --hash=sha256:a8b...
+```
+
+```bash
+# Go - go.sum（自动生成，不要编辑）
+$ cat go.sum
+github.com/gin-gonic/gin v1.9.1 h1:...
+github.com/gin-gonic/gin v1.9.1/go.mod h1:...
+github.com/stretchr/testify v1.8.4 h1:...
+github.com/stretchr/testify v1.8.4/go.mod h1:...
+
+# go.sum 包含：
+# - 所有依赖的加密哈希
+# - 确保依赖完整性
+# - 由 Go 工具自动管理
+# - 永远不要手动编辑
+# - 提交到版本控制
+```
+</UniversalEditor>
+
+## 内部包
+
+Go 保留 `internal` 目录用于私有代码：
+
+<UniversalEditor title="内部包">
+```python
+# Python - 没有 internal 概念
+# 使用命名约定或工具
+myproject/
+├── utils.py
+├── _private.py
+└── tests/
+    └── test_utils.py
+```
+
+```bash
+# Go - internal 目录（私有）
+myproject/
+├── go.mod
+├── main.go
+├── internal/
+│   ├── app/
+│   │   └── app.go
+│   └── database/
+│       └── db.go
+└── pkg/
+    └── utils/
+        └── utils.go
+
+// internal/ 只能在 myproject 内访问
+// pkg/ 可以公开导入
+```
+
+```go
+// internal/app/app.go
+package app
+
+// 只能被 myproject 中的代码导入
+// 不能被以下访问：
+// - github.com/other-project
+// - github.com/username/myproject/internal（不同路径）
+
+// 可以被以下访问：
+// - myproject/main.go
+// - myproject/pkg/utils
+
+func Run() {
+    fmt.Println("App running")
+}
+```
+</UniversalEditor>
+
+## Vendor 目录
+
+<UniversalEditor title="Vendor 依赖">
+```bash
+# Python - Vendor
+pip install -t vendor/ -r requirements.txt
+
+# 或使用 pipenv
+pipenv install
+pipenv vendor
+```
+
+```bash
+# Go - Vendor 依赖
+$ go mod vendor
+
+# 创建包含所有源代码的 vendor/ 目录
+$ ls vendor/
+github.com/
+    gin-gonic/
+    stretchr/
+    ...
+
+# 如果存在 vendor/ 目录，Go 将使用它
+# 将 vendor/ 提交到版本控制以实现可重现构建
+
+# 如需要清理 vendor
+$ rm -rf vendor/
+```
+</UniversalEditor>
+
+## 导入策略
+
+### 远程导入
+
+<UniversalEditor title="导入远程包">
+```python !! py
+# Python - 先安装再导入
+# 首先：pip install pyyaml
+# 然后：
+import yaml
+
+data = yaml.safe_load("""
+    name: Alice
+    age: 30
+""")
+```
+
+```go !! go
+// Go - 导入并使用
+package main
+
+import (
+    "fmt"
+    "gopkg.in/yaml.v3"  // 非 GitHub 仓库的域前缀
+)
+
+func main() {
+    data := []byte(`
+        name: Alice
+        age: 30
+    `)
+
+    var result map[string]interface{}
+    yaml.Unmarshal(data, &result)
+
+    fmt.Printf("Name: %v, Age: %v", result["name"], result["age"])
+}
+```
+</UniversalEditor>
+
+## 版本冲突和解决
+
+<UniversalEditor title="依赖冲突">
+```python
+# Python - 依赖冲突
+# requirements.txt
+package-a==1.0.0
+package-b==2.0.0
+
+# 如果 package-a 需要 package-b==1.5.0
+# pip install -r requirements.txt
+# 错误：需求冲突
+```
+
+```go
+// Go - 最小冲突（MVS - 最小版本选择）
+// go.mod
+module myproject
+
+go 1.21
+
+require (
+    package-a v1.0.0
+    package-b v2.0.0
+)
+
+// 如果 package-a 需要 package-b v1.5.0
+// Go 使用 MVS 算法：
+// - v1.5.0 和 v2.0.0 都满足 package-b 的需求
+// - Go 选择 v1.5.0（满足所有需求的最小版本）
+// - 没有版本冲突！
+
+// 这是相比 Python pip 的主要优势
+```
+</UniversalEditor>
+
+## 替换依赖
+
+<UniversalEditor title="依赖替换">
+```python
+# Python - 覆盖版本
+# requirements.txt
+package-a==2.0.0
+
+# 或使用 pip-tools
+pip install package-a==2.0.0
+pip-compile  # 从所有包创建 requirements.txt
+```
+
+```go
+// Go - replace 指令
+module myproject
+
+go 1.21
+
+require (
+    github.com/original/package v1.0.0
+)
+
+// 替换为本地 fork 或不同版本
+replace github.com/original/package => ../fork/package
+
+// 或使用特定版本
+replace github.com/original/package => v1.1.0
+
+// 或使用不同模块
+replace github.com/original/package => github.com/myfork/package v1.0.0
+```
+</UniversalEditor>
+
+## 私有模块
+
+<UniversalEditor title="私有 Go 模块">
+```bash
+# Python - 私有 PyPI 仓库
+# 设置私有 PyPI 服务器
+pip install --index-url https://pypi.example.com/simple/ mypackage
+```
+
+```bash
+# Go - 私有模块
+# 选项 1：直接 Git 仓库
+require (
+    github.com/mycompany/privatepackage v1.0.0
+)
+
+# 配置 git 进行身份验证
+git config credential.helper store
+
+# 选项 2：私有 Go proxy
+# 设置 GOPROXY
+export GOPROXY=https://goproxy.example.com
+
+# 选项 3：替换为本地路径
+replace github.com/mycompany/privatepackage => ../privatepackage
+
+# 选项 4：GOPRIVATE 设置
+export GOPRIVATE=github.com/mycompany/*
+# 私有模块绕过代理
+```
+</UniversalEditor>
+
+## 模块代理
+
+<UniversalEditor title="Go 模块代理">
+```bash
+# Python - PyPI 和包索引
+export PIP_INDEX_URL=https://pypi.org/simple
+export PIP_EXTRA_INDEX_URL=https://pypi.example.com/simple
+```
+
+```bash
+# Go - 模块代理
+# 默认情况下，Go 使用：
+# - https://proxy.golang.org（公共代理）
+# - 直接连接到 VCS（Git）
+
+# 设置模块代理
+export GOPROXY=https://goproxy.cn,direct
+export GONOSUMDB=github.com/*  # 对这些绕过代理
+
+# 私有模块代理
+export GOPRIVATE=github.com/mycompany/*  # 不使用代理
+
+# 检查代理
+go env GOPROXY
+
+# 关闭代理（仅直接连接）
+export GOPROXY=direct
+```
+</UniversalEditor>
+
+## 常见包模式
+
+### Main 包
+
+<UniversalEditor title="Main 包">
+```python !! py
+# Python - 入口点
+if __name__ == "__main__":
+    main()
+```
+
+```go !! go
+// Go - main 包（入口点）
+package main
+
+import "fmt"
+
+func main() {
+    fmt.Println("Hello, World!")
+}
+
+// main 包中的 main() 函数是入口点
+// 可以有多个 main 包用于不同命令
+```
+</UniversalEditor>
+
+### 包别名
+
+<UniversalEditor title="导入别名">
+```python !! py
+# Python - 导入别名
+import numpy as np
+import pandas as pd
+from matplotlib import pyplot as plt
+```
+
+```go !! go
+// Go - 导入别名
+package main
+
+import (
+    fmtpkg "fmt"             // 别名
+    stdlib "github.com/mylib"  // 别名
+)
+
+func main() {
+    fmtpkg.Println("Using alias")
+    stdlib.Helper()
+}
+```
+</UniversalEditor>
+
+### 点导入
+
+<UniversalEditor title="点导入">
+```python !! py
+# Python - from 导入
+from math import sin, cos, pi
+# 直接使用：sin(x)、cos(x)、pi
+```
+
+```go !! go
+// Go - 点导入（罕见，小心使用）
+package main
+
+import (
+    . "fmt"  // 点导入
+)
+
+func main() {
+    // 可以直接使用 Println，不需要 fmt 前缀
+    Println("Hello, World!")
+    // 警告：可能导致命名冲突！
+}
+```
+</UniversalEditor>
+
+## Init 函数
+
+<UniversalEditor title="包初始化">
+```python !! py
+# Python - 模块级代码在导入时运行
+# config.py
+CONFIG = load_config()
+setup_database()
+
+# main.py
+import config  # CONFIG 被初始化，DB 被设置
+```
+
+```go !! go
+// Go - init() 函数
+package utils
+
+var config *Config
+
+func init() {
+    // 在包导入时自动运行
+    // 可以有多个 init() 文件（按顺序执行）
+    config = loadConfig()
+}
+
+// 或者（优先显式初始化）
+var config *Config = loadConfig()  // 包级初始化
+
+func init() {
+    // 在 main() 之前运行
+    setupDatabase()
+}
+
+// main.go
+package main
+
+import (
+    "myproject/utils"
+    _ "myproject/database"  // 为副作用导入（init 运行）
+)
+```
+</UniversalEditor>
+
+## 第三方包管理
+
+<UniversalEditor title="管理依赖">
+```bash
+# Python - requirements.txt
+# requirements.txt
+flask==2.3.0
+requests>=2.28.0
+gunicorn>=20.1.0
+
+# 开发
+pytest>=7.0.0
+black>=22.0.0
+
+# 安装所有
+pip install -r requirements.txt
+
+# 仅安装生产环境
+pip install -r requirements.txt --no-deps
+
+# 升级
+pip install --upgrade -r requirements.txt
+```
+
+```bash
+# Go - go.mod
+module myproject
+
+go 1.21
+
+// 构建依赖
+require (
+    github.com/gin-gonic/gin v1.9.1
+    github.com/go-redis/redis/v8 v8.11.5
+)
+
+// 开发依赖
+// Go 不分离开发依赖
+// 所有依赖都在 go.mod 中
+
+// 添加依赖
+$ go get github.com/pkg/errors
+
+// 更新依赖
+$ go get -u github.com/pkg/errors
+
+// 移除未使用的依赖
+$ go mod tidy
+
+// 更新所有
+$ go get -u ./...
+```
+</UniversalEditor>
+
+## 工作区模式（Go 1.18+）
+
+<UniversalEditor title="工作区模式">
+```bash
+# Python - 没有工作区概念
+# 使用 monorepo 工具或独立的虚拟环境
+```
+
+```bash
+# Go - 工作区（多模块项目）
+# workspace/go.work
+go 1.21
+
+use (
+    ./app
+    ./utils
+    ./api
+)
+
+# 所有模块共享依赖
+# 可以在一个模块中使用另一个模块的代码
+$ go work sync
+```
+</UniversalEditor>
+
+## 测试和包
+
+<UniversalEditor title="测试包结构">
+```bash
+# Python - 测试结构
+myproject/
+├── src/
+│   └── calculator.py
+└── tests/
+    ├── __init__.py
+    ├── test_calculator.py
+    └── fixtures/
+        └── test_data.json
+```
+
+```bash
+# Go - 测试结构（相同包）
+myproject/
+├── calculator.go
+├── calculator_test.go  // *_test.go 约定
+└── calculator_example_test.go  // *_example_test.go 用于示例
+
+// 测试文件可以在同一包中：
+package myproject
+
+// 或在 _test 包中（黑盒测试）：
+package myproject_test
+```
+</UniversalEditor>
+
+## 工具和最佳实践
+
+### 依赖管理最佳实践
+
+<UniversalEditor title="最佳实践">
+```go
+// 做：提交 go.mod 和 go.sum
+$ git add go.mod go.sum
+$ git commit -m "Add gin-gonic dependency"
+
+// 做：提交前运行 go mod tidy
+$ go mod tidy
+$ git add go.mod go.sum
+
+// 不要：手动编辑 go.sum
+// 让 Go 工具管理它
+
+// 做：在 go.mod 中使用特定版本
+require github.com/pkg/errors v0.9.1
+
+// 不要：未经测试就使用最新版本
+// 需要时更新依赖，不要自动更新
+
+// 做：在 CI 中使用 go mod verify
+$ go mod verify
+```
+</UniversalEditor>
+
+### 常见模式
+
+<UniversalEditor title="常见包模式">
+```go
+// 1. 仓储模式
+package repository
+
+type UserRepository interface {
+    Find(id int) (*User, error)
+    Save(user *User) error
+}
+
+type userRepository struct {
+    db *sql.DB
+}
+
+func NewUserRepository(db *sql.DB) UserRepository {
+    return &userRepository{db: db}
+}
+
+// 2. 服务模式
+package service
+
+type UserService struct {
+    repo UserRepository
+}
+
+func NewUserService(repo UserRepository) *UserService {
+    return &UserService{repo: repo}
+}
+
+// 3. 工厂模式
+package factory
+
+func NewServer(config *Config) *Server {
+    return &Server{
+        config: config,
+        router: NewRouter(),
+    }
+}
+```
+</UniversalEditor>
+
+## 总结
+
+在本模块中，你学习了：
+
+1. **Go Modules** - 现代依赖管理
+2. **go.mod** - 模块定义和依赖
+3. **go.sum** - 依赖校验和以保障安全
+4. **包组织** - 目录和命名
+5. **导入语句** - 标准库、第三方、本地
+6. **导出 vs 未导出** - 首字母大写规则
+7. **内部包** - 模块内的私有代码
+8. **Vendor 目录** - Vendor 依赖
+9. **版本管理** - 语义化版本
+10. **go mod 命令** - tidy、download、verify、graph、why
+11. **私有模块** - 身份验证和代理
+12. **模块代理** - GOPROXY 和 GOPRIVATE
+13. **工作区** - 多模块项目
+14. **Init 函数** - 包初始化
+15. **测试** - 测试文件约定
+
+## 与 Python 的主要区别
+
+| Python | Go |
+|--------|-----|
+| `pip install` | `go get` |
+| `requirements.txt` | `go.mod` |
+| 虚拟环境 | Go 模块（不需要 venv） |
+| `__pycache__` | 模块缓存 |
+| `setup.py` | `go.mod` |
+| `from X import Y` | `import "package"` |
+| 通过 `_` 前缀私有 | 通过小写私有 |
+| 没有 internal 概念 | `internal/` 目录 |
+| 默认没有校验和 | `go.sum`（总是） |
+| 版本冲突常见 | MVS（最小冲突） |
+
+## 最佳实践
+
+1. **始终一起提交 go.mod 和 go.sum**
+2. **提交前运行 `go mod tidy`**
+3. **为你的模块使用语义化版本**
+4. **不要手动编辑 go.sum**
+5. **使用 `internal/`** 用于私有代码
+6. **明确依赖** - 避免不必要的包
+7. **在 CI/CD 中使用 `go mod verify`**
+8. **Vendor 依赖**（如需要可重现构建）
+9. **多模块项目使用工作区模式**
+10. **优先使用直接导入**而非点导入
+
+## 练习
+
+1. 创建一个包含多个包的新 Go 模块
+2. 添加和更新第三方依赖
+3. 创建一个内部包并测试可见性
+4. 使用 go mod 命令分析依赖
+5. 设置私有模块仓库
+6. 在包中实现仓储模式
+7. 创建包含多个模块的工作区
+8. 编写 init() 函数进行包设置
+
+## 下一步
+
+下一模块：**错误处理** - 理解 Go 的显式错误处理和错误接口。

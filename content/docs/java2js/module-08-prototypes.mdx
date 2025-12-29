@@ -1,0 +1,971 @@
+---
+title: "Module 8: Prototypes and Prototype Chain"
+description: "Understand JavaScript's prototype system and how it enables inheritance"
+---
+
+## Module 8: Prototypes and Prototype Chain
+
+Now that you understand ES6 classes, let's look under the hood at how JavaScript actually works. Classes are syntactic sugar over JavaScript's prototype-based inheritance system. Understanding prototypes is crucial for advanced JavaScript development.
+
+## Learning Objectives
+
+By the end of this module, you will:
+✅ Understand what prototypes are
+✅ Master the prototype chain lookup
+✅ Learn Object.create() and prototype inheritance
+✅ Understand constructor functions
+✅ Know the relationship between classes and prototypes
+✅ Learn when to use prototypes vs classes
+
+## Prototypes vs Classes
+
+Java uses class-based inheritance, while JavaScript uses prototype-based inheritance:
+
+<UniversalEditor title="Inheritance Models">
+```java !! java
+// Java - Class-based inheritance
+public class Animal {
+    public void speak() {
+        System.out.println("Some sound");
+    }
+}
+
+public class Dog extends Animal {
+    @Override
+    public void speak() {
+        System.out.println("Woof!");
+    }
+}
+
+// Instance methods are defined in class
+// Each instance has same methods
+Animal animal = new Dog();
+animal.speak();  // "Woof!"
+```
+
+```javascript !! js
+// JavaScript - Prototype-based inheritance
+// Objects inherit directly from other objects
+
+const animal = {
+    speak() {
+        console.log("Some sound");
+    }
+};
+
+const dog = Object.create(animal);
+dog.speak = function() {
+    console.log("Woof!");
+};
+
+dog.speak();  // "Woof!"
+// But can still access animal's methods via prototype
+delete dog.speak;
+dog.speak();  // "Some sound" (from prototype!)
+
+// Classes are just sugar over prototypes
+class Animal2 {
+    speak() {
+        console.log("Some sound");
+    }
+}
+
+class Dog2 extends Animal2 {
+    speak() {
+        console.log("Woof!");
+    }
+}
+
+const dog2 = new Dog2();
+console.log(Object.getPrototypeOf(dog2) === Dog2.prototype);  // true
+console.log(Object.getPrototypeOf(Dog2.prototype) === Animal2.prototype);  // true
+```
+</UniversalEditor>
+
+## The Prototype Chain
+
+Every object has an internal link to another object called its prototype. This forms a chain:
+
+<UniversalEditor title="Prototype Chain">
+```java !! java
+// Java - Class hierarchy
+Object -> Animal -> Dog
+
+// Method lookup: Check class, then parent class
+Dog dog = new Dog();
+// dog.toString() looks in Dog, then Animal, then Object
+```
+
+```javascript !! js
+// JavaScript - Prototype chain
+const grandParent = {
+    name: "GrandParent",
+    greet() {
+        console.log(`Hello from ${this.name}`);
+    }
+};
+
+const parent = Object.create(grandParent);
+parent.name = "Parent";
+
+const child = Object.create(parent);
+child.name = "Child";
+
+// Lookup walks up the chain
+child.greet();  // "Hello from Child"
+// 1. Check child - has name property
+// 2. Check child for greet() - not found
+// 3. Check parent - no greet()
+// 4. Check grandParent - found greet()!
+
+console.log(child.hasOwnProperty("name"));  // true
+console.log(child.hasOwnProperty("greet")); // false (inherited)
+
+// Full prototype chain
+console.log(Object.getPrototypeOf(child) === parent);              // true
+console.log(Object.getPrototypeOf(parent) === grandParent);        // true
+console.log(Object.getPrototypeOf(grandParent) === Object.prototype); // true
+console.log(Object.getPrototypeOf(Object.prototype) === null);     // true (end of chain)
+
+// Property lookup with hasOwnProperty
+for (let key in child) {
+    console.log(key, child.hasOwnProperty(key));
+    // name true (own property)
+    // greet false (inherited)
+}
+```
+</UniversalEditor>
+
+## Object.create()
+
+Object.create() creates a new object with a specified prototype:
+
+<UniversalEditor title="Object.create()">
+```java !! java
+// Java - Inheritance requires classes
+public class Animal {
+    public void speak() {
+        System.out.println("Sound");
+    }
+}
+
+public class Dog extends Animal {
+    // Dog inherits from Animal
+}
+```
+
+```javascript !! js
+// JavaScript - Direct object inheritance
+
+// Create object with specific prototype
+const animal = {
+    speak() {
+        console.log("Some sound");
+    }
+};
+
+const dog = Object.create(animal);
+dog.bark = function() {
+    console.log("Woof!");
+};
+
+dog.speak();  // "Some sound" (from prototype)
+dog.bark();   // "Woof!" (own property)
+
+console.log(Object.getPrototypeOf(dog) === animal);  // true
+
+// Create null prototype (no inherited methods)
+const empty = Object.create(null);
+empty.toString();  // TypeError! (no Object.prototype methods)
+
+// Object.create with property descriptors
+const person = Object.create(Object.prototype, {
+    name: {
+        value: "John",
+        writable: true,
+        enumerable: true,
+        configurable: true
+    },
+    age: {
+        value: 25,
+        writable: true
+    }
+});
+
+console.log(person.name);  // "John"
+
+// Practical: Create object with default methods
+const withLogging = {
+    log(method) {
+        return function(...args) {
+            console.log(`Calling ${method} with:`, args);
+            const result = this[method](...args);
+            console.log(`Result:`, result);
+            return result;
+        };
+    }
+};
+
+const calculator = Object.create(withLogging);
+calculator.add = function(a, b) {
+    return a + b;
+};
+
+calculator.multiply = function(a, b) {
+    return a * b;
+};
+
+calculator.log("add")(5, 3);  // Logs then returns 8
+```
+</UniversalEditor>
+
+## Constructor Functions
+
+Before ES6 classes, JavaScript used constructor functions:
+
+<UniversalEditor title="Constructor Functions">
+```java !! java
+// Java - Class constructors
+public class User {
+    private String name;
+
+    public User(String name) {
+        this.name = name;
+    }
+}
+
+User user = new User("John");
+```
+
+```javascript !! js
+// JavaScript - Constructor functions (pre-ES6)
+
+function User(name) {
+    this.name = name;
+}
+
+// Methods added to prototype
+User.prototype.greet = function() {
+    console.log(`Hello, I'm ${this.name}`);
+};
+
+User.prototype.getAge = function() {
+    return this.age;
+};
+
+// Create instance with 'new'
+const user = new User("John");
+user.greet();  // "Hello, I'm John"
+
+// What 'new' does:
+// 1. Creates new object
+// 2. Sets object's __proto__ to constructor's prototype
+// 3. Executes constructor with 'this' = new object
+// 4. Returns new object (or explicit return)
+
+// Manual equivalent of 'new'
+function createFromConstructor(Constructor, ...args) {
+    const obj = Object.create(Constructor.prototype);
+    const result = Constructor.apply(obj, args);
+    return result instanceof Object ? result : obj;
+}
+
+const user2 = createFromConstructor(User, "Jane");
+user2.greet();  // "Hello, I'm Jane"
+
+// Check instance
+console.log(user instanceof User);  // true
+console.log(user instanceof Object);  // true
+
+// Constructor property
+console.log(User.prototype.constructor === User);  // true
+console.log(user.constructor === User);  // true
+
+// Arrow functions cannot be constructors
+const BadUser = (name) => {
+    this.name = name;
+};
+
+// const bad = new BadUser("John");  // TypeError!
+```
+</UniversalEditor>
+
+## Prototype Properties vs Instance Properties
+
+<UniversalEditor title="Property Placement">
+```java !! java
+// Java - Instance methods (same for all instances)
+public class User {
+    public void greet() {
+        // Same method for all User instances
+    }
+}
+
+// Static methods (class-level)
+public static User create(String name) {
+    return new User(name);
+}
+```
+
+```javascript ^^ js
+// JavaScript - Prototype vs instance
+
+// Methods on prototype (shared)
+function User(name) {
+    this.name = name;  // Instance property (unique per instance)
+}
+
+// Prototype property (shared)
+User.prototype.species = "Homo sapiens";
+
+// Prototype method (shared)
+User.prototype.greet = function() {
+    console.log(`Hi, I'm ${this.name}`);
+};
+
+const user1 = new User("John");
+const user2 = new User("Jane");
+
+console.log(user1.greet === user2.greet);  // true (same function)
+console.log(user1.species === user2.species);  // true
+
+// Override prototype property
+user1.species = "Alien";
+console.log(user1.species);  // "Alien" (instance property)
+console.log(user2.species);  // "Homo sapiens" (prototype)
+
+// Delete to reveal prototype again
+delete user1.species;
+console.log(user1.species);  // "Homo sapiens" (from prototype)
+
+// When to use prototype vs instance:
+// - Methods: prototype (shared)
+// - Instance data: constructor (unique)
+// - Class constants: prototype or static
+
+// Modern equivalent with classes
+class User2 {
+    static species = "Homo sapiens";  // Static (class-level)
+
+    constructor(name) {
+        this.name = name;  // Instance
+    }
+
+    greet() {  // Prototype (shared)
+        console.log(`Hi, I'm ${this.name}`);
+    }
+}
+```
+</UniversalEditor>
+
+## Modifying Prototypes
+
+You can modify prototypes even after objects are created:
+
+<UniversalEditor title="Prototype Modification">
+```java !! java
+// Java - Cannot modify classes at runtime
+// (except with bytecode manipulation)
+```
+
+```javascript !! js
+// JavaScript - Prototypes are modifiable
+
+const arr = [1, 2, 3];
+// arr.sum() doesn't exist
+
+// Add method to Array prototype
+Array.prototype.sum = function() {
+    return this.reduce((a, b) => a + b, 0);
+};
+
+console.log(arr.sum());  // 6
+
+// All arrays now have sum()
+const arr2 = [4, 5, 6];
+console.log(arr2.sum());  // 15
+
+// ⚠️ Be careful modifying built-in prototypes!
+// Can break code or cause conflicts
+
+// Better: Create your own class
+class MyArray extends Array {
+    sum() {
+        return this.reduce((a, b) => a + b, 0);
+    }
+}
+
+const myArr = new MyArray(1, 2, 3);
+console.log(myArr.sum());  // 6
+
+// Polyfill example (adding missing methods)
+if (!Array.prototype.first) {
+    Array.prototype.first = function() {
+        return this[0];
+    };
+}
+
+if (!String.prototype.capitalize) {
+    String.prototype.capitalize = function() {
+        return this.charAt(0).toUpperCase() + this.slice(1);
+    };
+}
+
+console.log("hello".capitalize());  // "Hello"
+```
+</UniversalEditor>
+
+## Prototype Inheritance Patterns
+
+### Pattern 1: Prototype Delegation
+
+<UniversalEditor title="Prototype Delegation">
+```javascript !! js
+// Simple prototype chain
+const animal = {
+    init(name) {
+        this.name = name;
+    },
+    speak() {
+        console.log(`${this.name} makes a sound`);
+    }
+};
+
+const dog = Object.create(animal);
+dog.bark = function() {
+    console.log(`${this.name} barks`);
+};
+
+const myDog = Object.create(dog);
+myDog.init("Buddy");
+
+myDog.speak();  // "Buddy makes a sound" (from animal)
+myDog.bark();   // "Buddy barks" (from dog)
+
+console.log(myDog instanceof Object);  // true
+// No way to check instanceof for prototype chains without constructors
+```
+</UniversalEditor>
+
+### Pattern 2: Constructor Inheritance
+
+<UniversalEditor title="Constructor Inheritance">
+```javascript !! js
+// Parent constructor
+function Animal(name) {
+    this.name = name;
+}
+
+Animal.prototype.speak = function() {
+    console.log(`${this.name} makes a sound`);
+};
+
+// Child constructor
+function Dog(name, breed) {
+    Animal.call(this, name);  // Call parent constructor
+    this.breed = breed;
+}
+
+// Inherit prototype
+Dog.prototype = Object.create(Animal.prototype);
+Dog.prototype.constructor = Dog;  // Fix constructor
+
+// Add child methods
+Dog.prototype.bark = function() {
+    console.log(`${this.name} barks`);
+};
+
+// Override parent method
+Dog.prototype.speak = function() {
+    Animal.prototype.speak.call(this);  // Call parent
+    this.bark();
+};
+
+const dog = new Dog("Buddy", "Labrador");
+dog.speak();  // "Buddy makes a sound" then "Buddy barks"
+
+console.log(dog instanceof Dog);     // true
+console.log(dog instanceof Animal);  // true
+
+// Modern equivalent (classes are easier!)
+class Animal2 {
+    constructor(name) {
+        this.name = name;
+    }
+    speak() {
+        console.log(`${this.name} makes a sound`);
+    }
+}
+
+class Dog2 extends Animal2 {
+    constructor(name, breed) {
+        super(name);
+        this.breed = breed;
+    }
+    bark() {
+        console.log(`${this.name} barks`);
+    }
+    speak() {
+        super.speak();
+        this.bark();
+    }
+}
+```
+</UniversalEditor>
+
+### Pattern 3: Functional Inheritance
+
+<UniversalEditor title="Functional Inheritance">
+```java !! java
+// Java - Composition over inheritance
+interface Flyable {
+    void fly();
+}
+
+class Bird implements Flyable {
+    public void fly() {
+        System.out.println("Flying");
+    }
+}
+
+class Bat implements Flyable {
+    public void fly() {
+        System.out.println("Flying");
+    }
+}
+```
+
+```javascript ^^ js
+// JavaScript - Mixins with prototypes
+
+const Flyable = {
+    fly() {
+        console.log("Flying!");
+    }
+};
+
+const Swimmable = {
+    swim() {
+        console.log("Swimming!");
+    }
+};
+
+function Duck(name) {
+    this.name = name;
+}
+
+// Mix in capabilities
+Object.assign(Duck.prototype, Flyable, Swimmable);
+
+const duck = new Duck("Donald");
+duck.fly();   // "Flying!"
+duck.swim();  // "Swimming!"
+
+// Or use Object.create with multiple prototypes
+const flyingSwimmer = Object.assign(
+    Object.create(Object.prototype),
+    Flyable,
+    Swimmable
+);
+
+const duck2 = Object.create(flyingSwimmer);
+duck2.name = "Daisy";
+duck2.fly();   // "Flying!"
+```
+</UniversalEditor>
+
+## Prototypes vs Classes
+
+<UniversalEditor title="Prototypes vs Classes">
+```javascript !! js
+// Prototypes (flexible, dynamic)
+const animal = {
+    speak() {
+        console.log("Sound");
+    }
+};
+
+const dog = Object.create(animal);
+
+// Can modify prototype anytime
+animal.speak = function() {
+    console.log("Loud sound");
+};
+
+dog.speak();  // "Loud sound" (reflects prototype change)
+
+// Classes (structured, familiar)
+class Animal2 {
+    speak() {
+        console.log("Sound");
+    }
+}
+
+class Dog2 extends Animal2 {
+    // Can't easily modify Animal2.prototype after creation
+    // Better to use inheritance or override methods
+}
+
+// When to use each:
+
+// Use prototypes when:
+// - Need dynamic modification
+// - Creating simple object hierarchies
+// - Want memory efficiency (shared methods)
+// - Don't need 'new' operator
+
+const utils = {
+    log(msg) {
+        console.log(msg);
+    },
+    warn(msg) {
+        console.warn(msg);
+    }
+};
+
+// Use classes when:
+// - Need constructor logic
+// - Want familiar OOP structure
+// - Need instanceof checks
+// - Building complex applications
+
+class UserService {
+    constructor(apiUrl) {
+        this.apiUrl = apiUrl;
+    }
+
+    async getUser(id) {
+        const response = await fetch(`${this.apiUrl}/users/${id}`);
+        return response.json();
+    }
+}
+```
+</UniversalEditor>
+
+## Performance Considerations
+
+<UniversalEditor title="Prototype Performance">
+```javascript !! js
+// Prototype lookup has a cost
+const obj = {
+    a: 1,
+    b: 2,
+    c: 3
+};
+
+// Direct property access (fast)
+console.log(obj.a);
+
+// Deep prototype chain (slower)
+const proto1 = { x: 1 };
+const proto2 = Object.create(proto1);
+const proto3 = Object.create(proto2);
+const obj2 = Object.create(proto3);
+
+// Many lookups needed to find x
+console.log(obj2.x);  // Checks obj2, proto3, proto2, proto1
+
+// Shallow prototype chain (faster)
+const obj3 = Object.create({ x: 1 });
+console.log(obj3.x);  // Only one lookup
+
+// Caching frequently accessed prototype properties
+function fastAccess(obj) {
+    const proto = Object.getPrototypeOf(obj);
+    const method = proto.method;
+
+    // Use cached reference
+    return function() {
+        return method.call(obj);
+    };
+}
+
+// Own properties are faster than prototype lookups
+const fast = { name: "Fast" };
+const slow = Object.create({ name: "Slow" });
+
+// Direct access vs prototype lookup
+console.time("direct");
+for (let i = 0; i < 1000000; i++) {
+    fast.name;
+}
+console.timeEnd("direct");  // ~2ms
+
+console.time("prototype");
+for (let i = 0; i < 1000000; i++) {
+    slow.name;
+}
+console.timeEnd("prototype");  // ~3ms (slightly slower)
+```
+</UniversalEditor>
+
+## Common Pitfalls
+
+### Pitfall 1: Modifying Object.prototype
+
+<UniversalEditor title="Don't Modify Object.prototype">
+```javascript !! js
+// ❌ BAD: Modifying Object.prototype affects everything
+Object.prototype.each = function(fn) {
+    for (let key in this) {
+        fn(this[key], key);
+    }
+};
+
+// Now even empty objects have 'each'
+const empty = {};
+empty.each(x => console.log(x));  // Unexpected!
+
+// Also breaks for...in loops
+for (let key in empty) {
+    console.log(key);  // "each" (unwanted!)
+}
+
+// ✅ GOOD: Use your own base object
+const MyBaseObject = {
+    each(fn) {
+        for (let key in this) {
+            if (this.hasOwnProperty(key)) {
+                fn(this[key], key);
+            }
+        }
+    }
+};
+
+const myObj = Object.create(MyyBaseObject);
+myObj.each(x => console.log(x));  // Works as expected
+```
+</UniversalEditor>
+
+### Pitfall 2: Prototype Pollution
+
+<UniversalEditor title="Prototype Pollution">
+```javascript !! js
+// Security vulnerability: Prototype pollution
+
+function merge(target, source) {
+    for (let key in source) {
+        if (typeof source[key] === "object" && typeof target[key] === "object") {
+            merge(target[key], source[key]);
+        } else {
+            target[key] = source[key];
+        }
+    }
+    return target;
+}
+
+// Malicious input
+const malicious = {
+    __proto__: {
+        isAdmin: true
+    }
+};
+
+const empty = {};
+merge(empty, malicious);
+
+// Now all objects have isAdmin = true!
+console.log(({}).isAdmin);  // true (security issue!)
+
+// ✅ GOOD: Validate keys
+function safeMerge(target, source) {
+    for (let key in source) {
+        // Skip dangerous keys
+        if (key === "__proto__" || key === "constructor" || key === "prototype") {
+            continue;
+        }
+        // ... rest of merge logic
+    }
+    return target;
+}
+
+// Or use Object.create(null) for pure data objects
+const pure = Object.create(null);
+// pure has no prototype, so no prototype pollution possible
+```
+</UniversalEditor>
+
+## Best Practices
+
+<UniversalEditor title="Prototype Best Practices">
+```java !! java
+// Java: Clear class hierarchy
+public abstract class Animal {
+    public abstract void speak();
+}
+
+public class Dog extends Animal {
+    public void speak() {
+        System.out.println("Woof!");
+    }
+}
+```
+
+```javascript !! js
+// JavaScript: Choose the right approach
+
+// 1. Use classes for most cases (modern, familiar)
+class Animal {
+    speak() {
+        console.log("Sound");
+    }
+}
+
+class Dog extends Animal {
+    speak() {
+        console.log("Woof!");
+    }
+}
+
+// 2. Use Object.create for simple prototypes
+const animal = {
+    speak() {
+        console.log("Sound");
+    }
+};
+
+const dog = Object.create(animal);
+
+// 3. Don't modify built-in prototypes
+// ❌ Array.prototype.first = function() { return this[0]; };
+
+// ✅ Create subclass or utility function
+class MyArray extends Array {
+    first() {
+        return this[0];
+    }
+}
+
+// 4. Use hasOwnProperty in for...in
+for (let key in obj) {
+    if (obj.hasOwnProperty(key)) {
+        // Only own properties
+    }
+}
+
+// Or use Object.keys()
+Object.keys(obj).forEach(key => {
+    // Only own enumerable properties
+});
+
+// 5. Understand instanceof limitations
+// Only works with constructors
+const obj = Object.create(null);
+obj instanceof Object;  // false (no prototype chain)
+
+// Use Object.getPrototypeOf() instead
+console.log(Object.getPrototypeOf(obj) === null);  // true
+
+// 6. Prefer composition over deep prototype chains
+// Bad: Deep inheritance
+class A {}
+class B extends A {}
+class C extends B {}
+class D extends C {}
+
+// Good: Composition
+class D {
+    constructor(a, b, c) {
+        this.a = a;
+        this.b = b;
+        this.c = c;
+    }
+}
+```
+</UniversalEditor>
+
+## Exercises
+
+### Exercise 1: Prototype Chain
+```javascript
+const grandParent = { a: 1 };
+const parent = Object.create(grandParent);
+parent.b = 2;
+const child = Object.create(parent);
+child.c = 3;
+
+// What will these output?
+console.log(child.a);
+console.log(child.b);
+console.log(child.hasOwnProperty("a"));
+console.log(child.hasOwnProperty("b"));
+```
+
+### Exercise 2: Create with Object.create
+```javascript
+// Create a vehicle prototype with start() and stop() methods
+// Create car and motorcycle objects that inherit from vehicle
+```
+
+### Exercise 3: Constructor Function
+```javascript
+// Create a Book constructor function
+// Add methods to prototype: getTitle(), getAuthor()
+// Create instances and test
+```
+
+### Exercise 4: Prototype Chain Lookup
+```javascript
+// Create prototype chain of 3 levels
+// Add a method that only exists on level 3
+// Test that level 1 can access it
+```
+
+## Summary
+
+### Key Takeaways
+
+1. **Prototypes:**
+   - Every object has a prototype
+   - Prototype chain for property lookup
+   - Enables inheritance without classes
+
+2. **Object.create():**
+   - Creates object with specific prototype
+   - Supports property descriptors
+   - Can create null-prototype objects
+
+3. **Constructor Functions:**
+   - Pre-ES6 pattern for classes
+   - Methods added to prototype
+   - 'new' keyword creates instances
+
+4. **Prototype Chain:**
+   - Lookups walk up the chain
+   - Own properties found first
+   - Ends at Object.prototype then null
+
+5. **Classes vs Prototypes:**
+   - Classes are sugar over prototypes
+   - Classes are clearer for most cases
+   - Prototypes offer more flexibility
+
+6. **Best Practices:**
+   - Don't modify built-in prototypes
+   - Use classes for structure
+   - Use Object.create for simple inheritance
+   - Understand prototype performance
+
+### Comparison Table: Java vs JavaScript
+
+| Feature | Java | JavaScript |
+|---------|------|------------|
+| **Inheritance** | Class-based | Prototype-based |
+| **Chain** | Class hierarchy | Prototype chain |
+| **Methods** | In class definition | On prototype object |
+| **Lookup** | Compile-time | Runtime (chain walk) |
+| **Modification** | Cannot modify at runtime | Can modify anytime |
+| **Checking** | `instanceof` | `instanceof` or `Object.getPrototypeOf()` |
+
+## What's Next?
+
+You've mastered JavaScript's prototype system! Next up is **Module 9: This and Context**, where we'll explore:
+
+- How `this` binding works
+- Call, apply, and bind methods
+- Arrow functions and lexical this
+- This in different contexts
+- Common this-related pitfalls
+- Best practices for managing context
+
+Ready to master the `this` keyword? Let's continue!

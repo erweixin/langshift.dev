@@ -1,0 +1,682 @@
+---
+title: "Module 14: Cloud Native Development"
+description: "Building cloud-native applications with Go and Kubernetes"
+---
+
+## Introduction
+
+Go is the language of the cloud-native ecosystem. Kubernetes, Docker, Terraform, and many other cloud tools are written in Go. This module covers cloud-native development patterns.
+
+## Why Go for Cloud Native?
+
+Go's advantages for cloud-native development:
+- **Small binaries** - Easy containerization
+- **Fast compilation** - Quick iteration
+- **Low memory** - Efficient resource usage
+- **Static linking** - No dependencies
+- **Cross-compilation** - Build anywhere, deploy anywhere
+
+## Kubernetes Controllers
+
+<UniversalEditor title="Kubernetes Operator Pattern">
+```python !! py
+# Python - Kubernetes operator with kopf
+import kopf
+
+@kopf.on.create('myapp.example.com', 'v1', 'myapp')
+def create_fn(body, spec, **kwargs):
+    print(f"Creating MyApp: {body.metadata.name}")
+
+    # Create resources
+    # Handle logic
+    return {'created': True}
+
+@kopf.on.update('myapp.example.com', 'v1', 'myapp')
+def update_fn(body, spec, **kwargs):
+    print(f"Updating MyApp: {body.metadata.name}")
+    return {'updated': True}
+```
+
+```go !! go
+// Go - Kubernetes controller with controller-runtime
+package main
+
+import (
+    "context"
+    "fmt"
+
+    "k8s.io/apimachinery/pkg/runtime"
+    ctrl "sigs.k8s.io/controller-runtime"
+    "sigs.k8s.io/controller-runtime/pkg/client"
+)
+
+// MyApp reconciler
+type MyAppReconciler struct {
+    client.Client
+    Scheme *runtime.Scheme
+}
+
+func (r *MyAppReconciler) Reconcile(
+    ctx context.Context,
+    req ctrl.Request,
+) (ctrl.Result, error) {
+    fmt.Printf("Reconciling MyApp: %s\n", req.Name)
+
+    // Fetch resource
+    // Check status
+    // Create/update resources
+
+    return ctrl.Result{}, nil
+}
+
+func (r *MyAppReconciler) SetupWithManager(mgr ctrl.Manager) error {
+    return ctrl.NewControllerManagedBy(mgr).
+        For(&myappv1.MyApp{}).
+        Complete(r)
+}
+
+func main() {
+    mgr, err := ctrl.NewManager(
+        ctrl.GetConfigOrDie(),
+        ctrl.Options{
+            Scheme: scheme,
+        },
+    )
+    if err != nil {
+        panic(err)
+    }
+
+    reconciler := &MyAppReconciler{
+        Client: mgr.GetClient(),
+        Scheme: mgr.GetScheme(),
+    }
+
+    if err := reconciler.SetupWithManager(mgr); err != nil {
+        panic(err)
+    }
+
+    mgr.Start(ctrl.SetupSignalHandler())
+}
+```
+</UniversalEditor>
+
+## Custom Resource Definitions
+
+<UniversalEditor title="CRD Definition">
+```yaml
+# CRD YAML (same for both)
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: myapps.myapp.example.com
+spec:
+  group: myapp.example.com
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                replicas:
+                  type: integer
+                image:
+                  type: string
+  scope: Namespaced
+  names:
+    plural: myapps
+    singular: myapp
+    kind: MyApp
+    shortNames:
+    - ma
+```
+
+```go
+// Go - CRD Go types
+package v1
+
+import (
+    metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
+
+// +genclient
+// +kubebuilder:object:root=true
+
+type MyApp struct {
+    metav1.TypeMeta   `json:",inline"`
+    metav1.ObjectMeta `json:"metadata,omitempty"`
+
+    Spec   MyAppSpec   `json:"spec,omitempty"`
+    Status MyAppStatus `json:"status,omitempty"`
+}
+
+type MyAppSpec struct {
+    Replicas int    `json:"replicas"`
+    Image    string `json:"image"`
+}
+
+type MyAppStatus struct {
+    ReadyReplicas int `json:"readyReplicas"`
+}
+
+// +kubebuilder:object:root=true
+
+type MyAppList struct {
+    metav1.TypeMeta `json:",inline"`
+    metav1.ListMeta `json:"metadata,omitempty"`
+
+    Items []MyApp `json:"items"`
+}
+
+func init() {
+    SchemeBuilder.Register(&MyApp{}, &MyAppList{})
+}
+```
+</UniversalEditor>
+
+## Configuration Maps and Secrets
+
+<UniversalEditor title="ConfigMap and Secrets">
+```python !! py
+# Python - Read from environment or files
+import os
+from kubernetes import client, config
+
+config.load_kube_config()
+v1 = client.CoreV1Api()
+
+# Get ConfigMap
+cm = v1.read_namespaced_config_map(
+    'app-config',
+    'default'
+)
+print(cm.data)
+
+# Get Secret
+secret = v1.read_namespaced_secret(
+    'app-secret',
+    'default'
+)
+print(secret.data)
+```
+
+```go !! go
+// Go - Watch ConfigMaps and Secrets
+package main
+
+import (
+    "context"
+    "fmt"
+
+    corev1 "k8s.io/api/core/v1"
+    "k8s.io/apimachinery/pkg/labels"
+    "sigs.k8s.io/controller-runtime/pkg/client"
+)
+
+func watchConfig(ctx context.Context, c client.Client) error {
+    configMap := &corev1.ConfigMap{}
+    err := c.Get(
+        ctx,
+        client.ObjectKey{
+            Name:      "app-config",
+            Namespace: "default",
+        },
+        configMap,
+    )
+
+    if err != nil {
+        return err
+    }
+
+    fmt.Println("Config data:", configMap.Data)
+
+    // Watch for changes
+    watcher, err := c.Watch(
+        ctx,
+        &corev1.ConfigMap{},
+        client.InNamespace("default"),
+    )
+    if err != nil {
+        return err
+    }
+
+    for event := range watcher.ResultChan() {
+        cm := event.Object.(*corev1.ConfigMap)
+        fmt.Printf("Config updated: %s\n", cm.Name)
+    }
+
+    return nil
+}
+```
+</UniversalEditor>
+
+## Probes (Liveness, Readiness, Startup)
+
+<UniversalEditor title="Health Probes">
+```python !! py
+# Python - Flask health endpoints
+from flask import Flask
+
+app = Flask(__name__)
+
+@app.route('/healthz')
+def liveness():
+    # Liveness probe - is the app alive?
+    return {'status': 'alive'}, 200
+
+@app.route('/readyz')
+def readiness():
+    # Readiness probe - can it serve traffic?
+    try:
+        db.ping()
+        return {'status': 'ready'}, 200
+    except:
+        return {'status': 'not ready'}, 503
+
+@app.route('/startupz')
+def startup():
+    # Startup probe - has the app started?
+    return {'status': 'started'}, 200
+```
+
+```go !! go
+// Go - Health probe handlers
+package main
+
+import (
+    "database/sql"
+    "net/http"
+)
+
+func livenessHandler(w http.ResponseWriter, r *http.Request) {
+    w.WriteHeader(http.StatusOK)
+    w.Write([]byte("OK"))
+}
+
+func readinessHandler(db *sql.DB) http.HandlerFunc {
+    return func(w http.ResponseWriter, r *http.Request) {
+        if err := db.Ping(); err != nil {
+            http.Error(w, "Database not ready", http.StatusServiceUnavailable)
+            return
+        }
+
+        w.WriteHeader(http.StatusOK)
+        w.Write([]byte("OK"))
+    }
+}
+
+func startupHandler(isReady *bool) http.HandlerFunc {
+    return func(w http.ResponseWriter, r *http.Request) {
+        if !*isReady {
+            http.Error(w, "Starting up", http.StatusServiceUnavailable)
+            return
+        }
+
+        w.WriteHeader(http.StatusOK)
+        w.Write([]byte("OK"))
+    }
+}
+
+func main() {
+    http.HandleFunc("/healthz", livenessHandler)
+    http.HandleFunc("/readyz", readinessHandler(db))
+    http.HandleFunc("/startupz", startupHandler(&ready))
+
+    http.ListenAndServe(":8080", nil)
+}
+```
+</UniversalEditor>
+
+## Graceful Shutdown
+
+<UniversalEditor title="Graceful Shutdown">
+```python !! py
+# Python - Signal handling
+import signal
+import sys
+
+def shutdown_handler(signum, frame):
+    print("Shutting down gracefully...")
+    # Cleanup
+    # Close connections
+    # Finish requests
+    sys.exit(0)
+
+signal.signal(signal.SIGTERM, shutdown_handler)
+signal.signal(signal.SIGINT, shutdown_handler)
+
+app.run()
+```
+
+```go !! go
+// Go - Graceful shutdown
+package main
+
+import (
+    "context"
+    "log"
+    "net/http"
+    "os"
+    "os/signal"
+    "syscall"
+    "time"
+)
+
+func main() {
+    server := &http.Server{
+        Addr:    ":8080",
+        Handler: newHandler(),
+    }
+
+    // Start server in goroutine
+    go func() {
+        log.Println("Server starting")
+        if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+            log.Fatalf("Server error: %v", err)
+        }
+    }()
+
+    // Wait for interrupt signal
+    quit := make(chan os.Signal, 1)
+    signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+    <-quit
+
+    log.Println("Shutting down server...")
+
+    // Graceful shutdown with timeout
+    ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+    defer cancel()
+
+    if err := server.Shutdown(ctx); err != nil {
+        log.Fatalf("Server shutdown error: %v", err)
+    }
+
+    log.Println("Server gracefully stopped")
+}
+```
+</UniversalEditor>
+
+## Structured Logging
+
+<UniversalEditor title="Structured Logging">
+```python !! py
+# Python - Structlog
+import structlog
+
+log = structlog.get_logger()
+
+def process_order(order_id):
+    log.info(
+        "processing_order",
+        order_id=order_id,
+        user_id=123,
+    )
+
+    try:
+        # Process order
+        log.info(
+            "order_processed",
+            order_id=order_id,
+            amount=99.99,
+        )
+    except Exception as e:
+        log.error(
+            "order_failed",
+            order_id=order_id,
+            error=str(e),
+            exc_info=e,
+        )
+```
+
+```go !! go
+// Go - Zap structured logging
+package main
+
+import (
+    "go.uber.org/zap"
+)
+
+func main() {
+    logger, _ := zap.NewProduction()
+    defer logger.Sync()
+
+    sugar := logger.Sugar()
+
+    func processOrder(orderID string) {
+        sugar.Infow(
+            "processing_order",
+            "order_id", orderID,
+            "user_id", 123,
+        )
+
+        if err := process(orderID); err != nil {
+            sugar.Errorw(
+                "order_failed",
+                "order_id", orderID,
+                "error", err,
+            )
+            return
+        }
+
+        sugar.Infow(
+            "order_processed",
+            "order_id", orderID,
+            "amount", 99.99,
+        )
+    }
+}
+```
+</UniversalEditor>
+
+## Metrics with Prometheus
+
+<UniversalEditor title="Prometheus Metrics">
+```python !! py
+# Python - Prometheus client
+from prometheus_client import Counter, Histogram, start_http_server
+
+request_count = Counter(
+    'http_requests_total',
+    'Total HTTP requests',
+    ['method', 'endpoint']
+)
+
+request_duration = Histogram(
+    'http_request_duration_seconds',
+    'HTTP request duration',
+    ['method', 'endpoint']
+)
+
+@app.route('/api/users')
+def get_users():
+    request_count.labels(
+        method='GET',
+        endpoint='/api/users'
+    ).inc()
+
+    with request_duration.labels(
+        method='GET',
+        endpoint='/api/users'
+    ).time():
+        # Handle request
+        return jsonify(users)
+
+start_http_server(9090)
+```
+
+```go !! go
+// Go - Prometheus metrics
+package main
+
+import (
+    "net/http"
+
+    "github.com/prometheus/client_golang/prometheus"
+    "github.com/prometheus/client_golang/prometheus/promhttp"
+)
+
+var (
+    requestCount = prometheus.NewCounterVec(
+        prometheus.CounterOpts{
+            Name: "http_requests_total",
+            Help: "Total HTTP requests",
+        },
+        []string{"method", "endpoint"},
+    )
+
+    requestDuration = prometheus.NewHistogramVec(
+        prometheus.HistogramOpts{
+            Name: "http_request_duration_seconds",
+            Help: "HTTP request duration",
+        },
+        []string{"method", "endpoint"},
+    )
+)
+
+func init() {
+    prometheus.MustRegister(requestCount)
+    prometheus.MustRegister(requestDuration)
+}
+
+func instrumentHandler(method, endpoint string, next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        requestCount.WithLabelValues(method, endpoint).Inc()
+
+        timer := prometheus.NewTimer(
+            requestDuration.WithLabelValues(method, endpoint),
+        )
+
+        next.ServeHTTP(w, r)
+
+        timer.ObserveDuration()
+    })
+}
+
+func main() {
+    // Metrics endpoint
+    http.Handle("/metrics", promhttp.Handler())
+
+    // Application endpoints
+    http.Handle("/api/users",
+        instrumentHandler("GET", "/api/users",
+            usersHandler(),
+        ),
+    )
+
+    http.ListenAndServe(":8080", nil)
+}
+```
+</UniversalEditor>
+
+## Distributed Tracing Recap
+
+<UniversalEditor title="OpenTelemetry Setup">
+```go
+// Complete OpenTelemetry setup
+package main
+
+import (
+    "context"
+    "go.opentelemetry.io/otel"
+    "go.opentelemetry.io/otel/attribute"
+    "go.opentelemetry.io/otel/exporters/jaeger"
+    "go.opentelemetry.io/otel/sdk/resource"
+    tracesdk "go.opentelemetry.io/otel/sdk/trace"
+    semconv "go.opentelemetry.io/otel/semconv/v1.4.0"
+)
+
+func initTracer(serviceName, jaegerEndpoint string) error {
+    exporter, err := jaeger.New(jaeger.WithCollectorEndpoint(
+        jaeger.WithEndpoint(jaegerEndpoint),
+    ))
+    if err != nil {
+        return err
+    }
+
+    tp := tracesdk.NewTracerProvider(
+        tracesdk.WithBatcher(exporter),
+        tracesdk.WithResource(resource.NewWithAttributes(
+            semconv.SchemaURL,
+            semconv.ServiceNameKey.String(serviceName),
+        )),
+    )
+
+    otel.SetTracerProvider(tp)
+    return nil
+}
+
+func handleRequest(ctx context.Context) {
+    tracer := otel.Tracer("my-service")
+
+    ctx, span := tracer.Start(ctx, "handleRequest")
+    defer span.End()
+
+    span.SetAttributes(
+        attribute.String("http.method", "GET"),
+        attribute.String("http.route", "/api/users"),
+    )
+
+    // Handle request
+    users := getUsers(ctx)
+
+    span.SetAttributes(
+        attribute.Int("user.count", len(users)),
+    )
+}
+```
+</UniversalEditor>
+
+## Summary
+
+In this module, you learned:
+
+1. **Cloud-native advantages** of Go
+2. **Kubernetes controllers** with controller-runtime
+3. **Custom Resource Definitions** in Go
+4. **ConfigMaps and Secrets** handling
+5. **Health probes** (liveness, readiness, startup)
+6. **Graceful shutdown** patterns
+7. **Structured logging** with Zap
+8. **Prometheus metrics** integration
+9. **Distributed tracing** with OpenTelemetry
+
+## Cloud Native Best Practices
+
+1. **12-Factor App methodology**
+   - Config via environment variables
+   - Stateless processes
+   - Port binding
+   - Disposability
+
+2. **Resource management**
+   - Set resource limits
+   - Profile memory usage
+   - Handle OOM kills gracefully
+
+3. **Observability**
+   - Structured logging
+   - Metrics collection
+   - Distributed tracing
+   - Health checks
+
+4. **Security**
+   - Minimal containers
+   - Secrets management
+   - Network policies
+   - RBAC
+
+## Exercises
+
+1. Create a Kubernetes operator for a custom resource
+2. Implement health probes for your service
+3. Add Prometheus metrics to an application
+4. Set up distributed tracing with Jaeger
+5. Deploy a Go application to Kubernetes with Helm
+
+## Next Steps
+
+Next module: **Common Pitfalls and Best Practices** - Avoiding mistakes and writing idiomatic Go.

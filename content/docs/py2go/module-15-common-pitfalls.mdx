@@ -1,0 +1,533 @@
+---
+title: "Module 15: Common Pitfalls and Best Practices"
+description: "Avoiding common mistakes when transitioning from Python to Go"
+---
+
+## Introduction
+
+This module covers common mistakes Python developers make when learning Go, and best practices for writing idiomatic Go code.
+
+## Pitfall 1: Using Pointers Incorrectly
+
+<UniversalEditor title="Pointer Usage">
+```python !! py
+# Python - Everything is a reference
+def modify_item(item):
+    item['value'] = 42  # Modifies original
+
+data = {'value': 0}
+modify_item(data)
+print(data['value'])  # 42
+```
+
+```go !! go
+// WRONG - Unnecessary pointer
+func (p *MyStruct) GetValue() int {
+    return p.value  // No need for pointer receiver
+}
+
+// RIGHT - Pointer only when modifying
+func (p *MyStruct) SetValue(v int) {
+    p.value = v  // Pointer receiver needed
+}
+
+// RIGHT - Value receiver for read-only
+func (m MyStruct) GetValue() int {
+    return m.value  // Value receiver is fine
+}
+```
+</UniversalEditor>
+
+## Pitfall 2: Not Handling Errors
+
+<UniversalEditor title="Error Handling">
+```python !! py
+# Python - Exceptions are automatic
+def divide(a, b):
+    return a / b  # May raise ZeroDivisionError
+
+try:
+    result = divide(10, 0)
+except ZeroDivisionError:
+    print("Cannot divide by zero")
+```
+
+```go !! go
+// WRONG - Ignoring errors
+func divide(a, b int) int {
+    return a / b  // Panics on b=0
+}
+
+// RIGHT - Return errors
+func divide(a, b int) (int, error) {
+    if b == 0 {
+        return 0, errors.New("division by zero")
+    }
+    return a / b, nil
+}
+
+// RIGHT - Always check errors
+result, err := divide(10, 0)
+if err != nil {
+    log.Println("Error:", err)
+    return
+}
+fmt.Println(result)
+```
+</UniversalEditor>
+
+## Pitfall 3: Goroutine Leaks
+
+<UniversalEditor title="Goroutine Leaks">
+```python !! py
+# Python - Thread may not exit
+import threading
+
+def worker():
+    while True:
+        data = queue.get()
+        if data == "STOP":
+            break
+        process(data)
+
+t = threading.Thread(target=worker)
+t.start()
+# If we forget to send "STOP", thread never exits
+```
+
+```go !! go
+// WRONG - Goroutine never exits
+func worker() {
+    for {
+        data := <-ch
+        process(data)
+    }
+}
+
+// RIGHT - Always have exit condition
+func worker(stop <-chan struct{}) {
+    for {
+        select {
+        case data := <-ch:
+            process(data)
+        case <-stop:
+            return  // Exit goroutine
+        }
+    }
+}
+
+// Usage
+stop := make(chan struct{})
+go worker(stop)
+
+// Signal stop
+close(stop)
+```
+</UniversalEditor>
+
+## Pitfall 4: Loop Variable Capture
+
+<UniversalEditor title="Closure Gotcha">
+```python !! py
+# Python - Late binding closure issue
+funcs = []
+for i in range(3):
+    funcs.append(lambda: print(i))
+
+for f in funcs:
+    f()  # Prints 2, 2, 2 (all reference same i)
+
+# Fix - capture value
+funcs = []
+for i in range(3):
+    funcs.append(lambda i=i: print(i))
+```
+
+```go !! go
+// WRONG - All goroutines capture same i
+for i := 0; i < 3; i++ {
+    go func() {
+        fmt.Println(i)  // May print 3, 3, 3
+    }()
+}
+
+// RIGHT - Pass as parameter
+for i := 0; i < 3; i++ {
+    go func(n int) {
+        fmt.Println(n)  // Prints 0, 1, 2
+    }(i)
+}
+```
+</UniversalEditor>
+
+## Pitfall 5: defer in Loops
+
+<UniversalEditor title="Defer in Loops">
+```python !! py
+# Python - Cleanup happens immediately or with context manager
+for filename in filenames:
+    with open(filename) as f:
+        process(f)
+    # File closed here
+```
+
+```go !! go
+// WRONG - defer runs at function exit, not loop iteration
+func processFiles(filenames []string) {
+    for _, filename := range filenames {
+        file, err := os.Open(filename)
+        if err != nil {
+            return err
+        }
+        defer file.Close()  // Wrong! Runs at function exit
+
+        process(file)
+    }
+    // All files closed here (too late, may run out of file descriptors)
+}
+
+// RIGHT - Create function or close immediately
+func processFiles(filenames []string) error {
+    for _, filename := range filenames {
+        if err := processFile(filename); err != nil {
+            return err
+        }
+    }
+    return nil
+}
+
+func processFile(filename string) error {
+    file, err := os.Open(filename)
+    if err != nil {
+        return err
+    }
+    defer file.Close()  // OK - runs when processFile returns
+
+    process(file)
+    return nil
+}
+```
+</UniversalEditor>
+
+## Pitfall 6: String vs []byte
+
+<UniversalEditor title="String vs Byte Slice">
+```python !! py
+# Python - Strings and bytes
+text = "hello"
+data = b"hello"  # bytes
+
+# Conversion
+text = data.decode()
+data = text.encode()
+```
+
+```go !! go
+// WRONG - Unnecessary conversions
+func processData(data string) []byte {
+    return []byte(data)  // Creates copy
+}
+
+// RIGHT - Use bytes directly when possible
+func processData(data []byte) {
+    // Process bytes directly
+}
+
+// RIGHT - Only convert when necessary
+func readJSON(r io.Reader) (map[string]interface{}, error) {
+    var result map[string]interface{}
+    decoder := json.NewDecoder(r)
+    err := decoder.Decode(&result)
+    return result, err
+}
+```
+</UniversalEditor>
+
+## Pitfall 7: Channel Blocking
+
+<UniversalEditor title="Channel Blocking">
+```python !! py
+# Python - Queue with timeout
+try:
+    item = queue.get(timeout=1.0)
+except queue.Empty:
+    item = None
+```
+
+```go !! go
+// WRONG - May block forever
+item := <-ch
+
+// RIGHT - Use select with timeout
+select {
+case item := <-ch:
+    // Process item
+case <-time.After(time.Second):
+    // Handle timeout
+}
+
+// RIGHT - Use default for non-blocking
+select {
+case item := <-ch:
+    // Process item
+default:
+    // No data available
+}
+```
+</UniversalEditor>
+
+## Pitfall 8: Nil Slices vs Empty Slices
+
+<UniversalEditor title="Nil vs Empty Slices">
+```python !! py
+# Python - None vs empty list
+items1 = None
+items2 = []
+
+if items1:
+    print("Has items")  # Doesn't print
+
+if items2:
+    print("Has items")  # Doesn't print
+```
+
+```go !! go
+// Go - Important distinction
+var nilSlice []int       // nil slice
+emptySlice := []int{}    // empty slice
+
+// Both have len() == 0
+fmt.Println(len(nilSlice))   // 0
+fmt.Println(len(emptySlice)) // 0
+
+// But JSON encoding differs
+json.Marshal(nilSlice)   // null
+json.Marshal(emptySlice) // []
+
+// RIGHT - Use empty slice for JSON
+func processItems() []int {
+    result := make([]int, 0)  // Empty, not nil
+
+    // Process...
+    return result  // Always returns [], never null
+}
+```
+</UniversalEditor>
+
+## Best Practices
+
+### 1. Error Messages
+
+<UniversalEditor title="Error Messages">
+```python !! py
+# Python
+raise ValueError("Invalid user ID")
+```
+
+```go !! go
+// WRONG - Generic error
+return fmt.Errorf("error")
+
+// WRONG - Error without context
+return errors.New("not found")
+
+// RIGHT - Descriptive error
+return fmt.Errorf("user not found: ID %d", userID)
+
+// RIGHT - Wrap errors with context
+return fmt.Errorf("failed to process user: %w", err)
+```
+</UniversalEditor>
+
+### 2. Variable Naming
+
+<UniversalEditor title="Naming Conventions">
+```python !! py
+# Python - snake_case
+user_name = "Alice"
+total_count = 42
+MAX_CONNECTIONS = 100
+```
+
+```go !! go
+// Go - camelCase (exported = PascalCase)
+userName := "Alice"
+totalCount := 42
+const MaxConnections = 100  // Exported
+const maxRetries = 3        // Unexported
+```
+</UniversalEditor>
+
+### 3. Interface Design
+
+<UniversalEditor title="Interface Design">
+```python !! py
+# Python - Duck typing, no explicit interfaces
+def process(obj):
+    if hasattr(obj, 'process'):
+        obj.process()
+```
+
+```go !! go
+// WRONG - Giant interface
+type Processor interface {
+    Process()
+    Validate()
+    Save()
+    Delete()
+    Update()
+}
+
+// RIGHT - Small, focused interfaces
+type Processor interface {
+    Process() error
+}
+
+type Validator interface {
+    Validate() error
+}
+
+// RIGHT - Accept interface, return struct
+func ProcessData(p Processor) error {
+    return p.Process()
+}
+```
+</UniversalEditor>
+
+### 4. Package Structure
+
+<UniversalEditor title="Package Organization">
+```bash
+# Python - Flat or nested
+project/
+├── __init__.py
+├── models.py
+├── views.py
+└── utils.py
+```
+
+```bash
+# Go - Hierarchical
+project/
+├── go.mod
+├── main.go
+├── internal/
+│   ├── app/
+│   ├── handler/
+│   └── service/
+├── pkg/
+│   └── util/
+└── api/
+    └── v1/
+```
+</UniversalEditor>
+
+### 5. Concurrency Patterns
+
+<UniversalEditor title="Concurrency Best Practices">
+```python !! py
+# Python - Limited by GIL
+import threading
+
+def worker():
+    # Only one thread runs at a time
+    process()
+
+threads = [threading.Thread(target=worker) for _ in range(10)]
+for t in threads:
+    t.start()
+```
+
+```go !! go
+// RIGHT - Use worker pools
+func workerPool(jobs <-chan Job, results chan<- Result) {
+    const numWorkers = 10
+
+    var wg sync.WaitGroup
+    for i := 0; i < numWorkers; i++ {
+        wg.Add(1)
+        go func() {
+            defer wg.Done()
+            for job := range jobs {
+                results <- process(job)
+            }
+        }()
+    }
+
+    go func() {
+        wg.Wait()
+        close(results)
+    }()
+}
+```
+</UniversalEditor>
+
+## Idiomatic Go Patterns
+
+### Context for Cancellation
+
+<UniversalEditor title="Context Usage">
+```go
+// RIGHT - Always accept context as first parameter
+func GetUser(ctx context.Context, userID int) (*User, error) {
+    // Check for cancellation
+    select {
+    case <-ctx.Done():
+        return nil, ctx.Err()
+    default:
+    }
+
+    // Query database
+    user, err := db.QueryUser(ctx, userID)
+    if err != nil {
+        return nil, err
+    }
+
+    return user, nil
+}
+
+// RIGHT - Pass context through call chain
+func processRequest(ctx context.Context, req Request) error {
+    user, err := GetUser(ctx, req.UserID)
+    if err != nil {
+        return err
+    }
+
+    return UpdateUser(ctx, user)
+}
+```
+</UniversalEditor>
+
+## Summary
+
+Common pitfalls to avoid:
+1. **Unnecessary pointers** - Use only when needed
+2. **Ignoring errors** - Always check error returns
+3. **Goroutine leaks** - Always provide exit condition
+4. **Loop variable capture** - Pass as parameter
+5. **defer in loops** - Use separate function
+6. **String vs []byte** - Use appropriate type
+7. **Channel blocking** - Use select with timeout/default
+8. **Nil vs empty slices** - Understand the difference
+
+Best practices:
+1. **Descriptive errors** - Include context
+2. **Proper naming** - Follow Go conventions
+3. **Small interfaces** - Focused, composable
+4. **Package organization** - internal/, pkg/
+5. **Worker pools** - Limit goroutines
+6. **Context propagation** - Pass through calls
+7. **Early returns** - Check errors first
+8. **Explicit is better** - Clear and readable
+
+## Exercises
+
+1. Find and fix goroutine leaks in sample code
+2. Refactor to use proper error handling
+3. Implement a worker pool pattern
+4. Convert Python-style code to idiomatic Go
+5. Review code for common pitfalls
+
+## Next Steps
+
+Next module: **Real-world Projects** - Complete projects to solidify your knowledge.

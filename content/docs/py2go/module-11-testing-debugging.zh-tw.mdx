@@ -1,0 +1,664 @@
+---
+title: "模組 11: 測試和除錯"
+description: "Go 中的測試方法和除錯技巧"
+---
+
+## 簡介
+
+Go 內建了對測試的支援，使用 `testing` 包。與 Python 需要使用 pytest 或 unittest 不同，Go 的測試是標準庫的一部分，遵循簡單的約定。
+
+## 基本測試
+
+<UniversalEditor title="撰寫測試">
+```python !! py
+# Python - pytest
+def test_add():
+    assert add(2, 3) == 5
+
+def test_add_negative():
+    assert add(-1, 1) == 0
+
+# 執行: pytest test_file.py
+```
+
+```go !! go
+// Go - testing 包
+package main
+
+import "testing"
+
+func TestAdd(t *testing.T) {
+    result := Add(2, 3)
+    if result != 5 {
+        t.Errorf("Add(2, 3) = %d; want 5", result)
+    }
+}
+
+func TestAddNegative(t *testing.T) {
+    result := Add(-1, 1)
+    if result != 0 {
+        t.Errorf("Add(-1, 1) = %d; want 0", result)
+    }
+}
+
+// 執行: go test
+```
+</UniversalEditor>
+
+## 測試檔案組織
+
+<UniversalEditor title="測試檔案結構">
+```bash
+# Python
+project/
+├── src/
+│   ├── __init__.py
+│   └── calculator.py
+└── tests/
+    ├── __init__.py
+    └── test_calculator.py
+```
+
+```bash
+# Go
+project/
+├── calculator.go
+└── calculator_test.go  // 同一個包，_test.go 後綴
+```
+</UniversalEditor>
+
+## 表驅動測試
+
+Go 測試多個用例的慣用方式：
+
+<UniversalEditor title="表驅動測試">
+```python !! py
+# Python - parametrize
+import pytest
+
+@pytest.mark.parametrize("a,b,expected", [
+    (1, 2, 3),
+    (0, 0, 0),
+    (-1, 1, 0),
+    (100, 200, 300),
+])
+def test_add(a, b, expected):
+    assert add(a, b) == expected
+```
+
+```go !! go
+// Go - 表驅動測試
+package main
+
+import "testing"
+
+func TestAdd(t *testing.T) {
+    tests := []struct {
+        name     string
+        a, b     int
+        expected int
+    }{
+        {"basic", 1, 2, 3},
+        {"zeros", 0, 0, 0},
+        {"negative", -1, 1, 0},
+        {"large", 100, 200, 300},
+    }
+
+    for _, tt := range tests {
+        t.Run(tt.name, func(t *testing.T) {
+            result := Add(tt.a, tt.b)
+            if result != tt.expected {
+                t.Errorf("Add(%d, %d) = %d; want %d",
+                    tt.a, tt.b, result, tt.expected)
+            }
+        })
+    }
+}
+```
+</UniversalEditor>
+
+## 測試輔助和設置
+
+<UniversalEditor title="設置和清理">
+```python !! py
+# Python - pytest fixtures
+import pytest
+
+@pytest.fixture
+def database():
+    db = Database(":memory:")
+    db.init()
+    yield db
+    db.cleanup()
+
+def test_query(database):
+    result = database.query("SELECT * FROM users")
+    assert len(result) > 0
+```
+
+```go !! go
+// Go - 設置和清理
+package main
+
+import (
+    "testing"
+)
+
+func setupTestDB(t *testing.T) *Database {
+    db := &Database{Path: ":memory:"}
+    if err := db.Init(); err != nil {
+        t.Fatalf("Failed to init DB: %v", err)
+    }
+    return db
+}
+
+func TestQuery(t *testing.T) {
+    db := setupTestDB(t)
+    defer db.Cleanup()
+
+    result := db.Query("SELECT * FROM users")
+    if len(result) == 0 {
+        t.Error("Expected results, got none")
+    }
+}
+```
+</UniversalEditor>
+
+## 錯誤測試
+
+<UniversalEditor title="錯誤測試">
+```python !! py
+# Python - pytest
+import pytest
+
+def test_divide_by_zero():
+    with pytest.raises(ValueError):
+        divide(10, 0)
+
+def test_file_not_found():
+    with pytest.raises(FileNotFoundError):
+        read_file("nonexistent.txt")
+```
+
+```go !! go
+// Go - 測試錯誤
+package main
+
+import "testing"
+
+func TestDivideByZero(t *testing.T) {
+    result, err := divide(10, 0)
+    if err == nil {
+        t.Error("Expected error for division by zero, got nil")
+    }
+    if result != 0 {
+        t.Errorf("Expected result 0, got %d", result)
+    }
+}
+
+func TestFileNotFound(t *testing.T) {
+    _, err := ReadFile("nonexistent.txt")
+    if err == nil {
+        t.Error("Expected error for nonexistent file, got nil")
+    }
+}
+```
+</UniversalEditor>
+
+## Mock 和介面
+
+<UniversalEditor title="使用介面 Mock">
+```python !! py
+# Python - mocking
+from unittest.mock import Mock, patch
+
+def test_send_notification():
+    mock_service = Mock()
+    mock_service.send.return_value = True
+
+    with patch('app.notification_service', mock_service):
+        result = send_notification("Hello")
+        assert result == True
+        mock_service.send.assert_called_once_with("Hello")
+```
+
+```go !! go
+// Go - 使用介面 Mock
+package main
+
+import "testing"
+
+// 介面
+type NotificationService interface {
+    Send(message string) bool
+}
+
+// Mock 實作
+type MockNotificationService struct {
+    SendCalled bool
+    Message    string
+}
+
+func (m *MockNotificationService) Send(message string) bool {
+    m.SendCalled = true
+    m.Message = message
+    return true
+}
+
+func TestSendNotification(t *testing.T) {
+    mock := &MockNotificationService{}
+
+    result := SendNotification(mock, "Hello")
+
+    if !result {
+        t.Error("Expected true, got false")
+    }
+    if !mock.SendCalled {
+        t.Error("Send was not called")
+    }
+    if mock.Message != "Hello" {
+        t.Errorf("Wrong message: %s", mock.Message)
+    }
+}
+```
+</UniversalEditor>
+
+## 基準測試
+
+<UniversalEditor title="效能測試">
+```python !! py
+# Python - pytest-benchmark
+import pytest
+
+def test_parse_json(benchmark):
+    data = '{"name": "Alice", "age": 30}'
+    result = benchmark(json.loads, data)
+    assert result['name'] == 'Alice'
+```
+
+```go !! go
+// Go - 基準測試
+package main
+
+import (
+    "encoding/json"
+    "testing"
+)
+
+func BenchmarkParseJSON(b *testing.B) {
+    data := []byte(`{"name": "Alice", "age": 30}`)
+
+    b.ResetTimer()  // 在實際基準測試前重置計時器
+    for i := 0; i < b.N; i++ {
+        var result map[string]interface{}
+        json.Unmarshal(data, &result)
+    }
+}
+
+// 執行: go test -bench=.
+```
+</UniversalEditor>
+
+## HTTP 測試
+
+<UniversalEditor title="測試 HTTP 處理器">
+```python !! py
+# Python - pytest with Flask 測試客戶端
+def test_home_page(client):
+    response = client.get('/')
+    assert response.status_code == 200
+    assert b'Welcome' in response.data
+
+def test_api_endpoint(client):
+    response = client.post('/api/users', json={'name': 'Alice'})
+    assert response.status_code == 201
+```
+
+```go !! go
+// Go - HTTP 測試
+package main
+
+import (
+    "net/http"
+    "net/http/httptest"
+    "testing"
+)
+
+func TestHomeHandler(t *testing.T) {
+    req := httptest.NewRequest("GET", "/", nil)
+    w := httptest.NewRecorder()
+
+    homeHandler(w, req)
+
+    if w.Code != http.StatusOK {
+        t.Errorf("Expected status 200, got %d", w.Code)
+    }
+
+    if !contains(w.Body.String(), "Welcome") {
+        t.Error("Response should contain 'Welcome'")
+    }
+}
+
+func TestCreateUserHandler(t *testing.T) {
+    jsonData := `{"name": "Alice"}`
+    req := httptest.NewRequest("POST", "/api/users", strings.NewReader(jsonData))
+    req.Header.Set("Content-Type", "application/json")
+    w := httptest.NewRecorder()
+
+    createUserHandler(w, req)
+
+    if w.Code != http.StatusCreated {
+        t.Errorf("Expected status 201, got %d", w.Code)
+    }
+}
+```
+</UniversalEditor>
+
+## 競態條件測試
+
+<UniversalEditor title="偵測競態條件">
+```python !! py
+# Python - 沒有內建的競態偵測
+# 使用線程安全分析器等工具
+```
+
+```go !! go
+// Go - 競態偵測器
+package main
+
+import (
+    "sync"
+    "testing"
+)
+
+func TestConcurrentAccess(t *testing.T) {
+    var counter int
+    var wg sync.WaitGroup
+
+    for i := 0; i < 100; i++ {
+        wg.Add(1)
+        go func() {
+            defer wg.Done()
+            counter++  // 資料競爭！
+        }()
+    }
+
+    wg.Wait()
+}
+
+// 執行: go test -race
+// 輸出將警告資料競爭
+```
+</UniversalEditor>
+
+## 覆蓋率報告
+
+<UniversalEditor title="程式碼覆蓋率">
+```bash
+# Python - pytest with coverage
+pytest --cov=src --cov-report=html
+
+# 輸出: 覆蓋率報告
+# Name                Stmts   Miss  Cover
+# ---------------------------------------
+# src/calculator.py      20      2    90%
+```
+
+```bash
+# Go - 內建覆蓋率
+go test -coverprofile=coverage.out
+go tool cover -html=coverage.out
+
+# 輸出: 瀏覽器中的覆蓋率報告
+# coverage: 85.7% of statements
+```
+</UniversalEditor>
+
+## 除錯
+
+<UniversalEditor title="除錯工具">
+```python !! py
+# Python - pdb
+import pdb; pdb.set_trace()
+
+# 或使用 breakpoint() (Python 3.7+)
+def my_function():
+    breakpoint()  # 執行在此停止
+    x = 42
+    return x
+```
+
+```go !! go
+// Go - Delve 除錯器
+package main
+
+func main() {
+    x := 42
+    // 在 Delve 中設定斷點
+    println(x)
+}
+
+// 執行:
+// dlv debug main.go
+// (dlv) break main.go:8
+// (dlv) continue
+```
+</UniversalEditor>
+
+## 日誌
+
+<UniversalEditor title="除錯日誌">
+```python !! py
+# Python - logging 模組
+import logging
+
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
+
+def process(data):
+    logger.debug(f"Processing: {data}")
+    result = transform(data)
+    logger.info(f"Result: {result}")
+    return result
+```
+
+```go !! go
+// Go - log 包
+package main
+
+import "log"
+
+func process(data string) string {
+    log.Printf("Processing: %s", data)
+    result := transform(data)
+    log.Printf("Result: %s", result)
+    return result
+}
+
+// 或使用結構化日誌
+import "go.uber.org/zap"
+
+func processWithLogger(data string) string {
+    logger := zap.NewExample()
+    logger.Debug("Processing", zap.String("data", data))
+    return transform(data)
+}
+```
+</UniversalEditor>
+
+## 示例測試
+
+<UniversalEditor title="示例">
+```python !! py
+# Python - doctests
+def add(a, b):
+    """
+    加兩個數。
+
+    >>> add(2, 3)
+    5
+    >>> add(-1, 1)
+    0
+    """
+    return a + b
+
+# 執行: python -m doctest file.py
+```
+
+```go !! go
+// Go - 示例測試
+package main
+
+import "fmt"
+
+func ExampleAdd() {
+    result := Add(2, 3)
+    fmt.Println(result)
+    // Output: 5
+}
+
+func ExampleAdd_multiple() {
+    fmt.Println(Add(1, 2))
+    fmt.Println(Add(-1, 1))
+    // Output:
+    // 3
+    // 0
+}
+
+// 執行: go test
+```
+</UniversalEditor>
+
+## 子測試和並行測試
+
+<UniversalEditor title="高級測試組織">
+```python !! py
+# Python - pytest 類別
+class TestUserOperations:
+    def test_create(self):
+        pass
+
+    def test_update(self):
+        pass
+
+    def test_delete(self):
+        pass
+```
+
+```go !! go
+// Go - 子測試和並行測試
+package main
+
+import "testing"
+
+func TestUserOperations(t *testing.T) {
+    tests := []struct {
+        name string
+        test func(*testing.T)
+    }{
+        {"create", func(t *testing.T) {
+            // 測試建立
+        }},
+        {"update", func(t *testing.T) {
+            // 測試更新
+        }},
+        {"delete", func(t *testing.T) {
+            // 測試刪除
+        }},
+    }
+
+    for _, tt := range tests {
+        t.Run(tt.name, func(t *testing.T) {
+            t.Parallel()  // 並行執行
+            tt.test(t)
+        })
+    }
+}
+
+// 執行: go test -parallel 4
+```
+</UniversalEditor>
+
+## 測試最佳實踐
+
+<UniversalEditor title="測試組織">
+```python !! py
+# Python - 測試結構
+class TestCalculator:
+    def setup_method(self):
+        self.calc = Calculator()
+
+    def teardown_method(self):
+        self.calc.cleanup()
+
+    def test_add_positive_numbers(self):
+        assert self.calc.add(2, 3) == 5
+```
+
+```go !! go
+// Go - 測試組織
+package main
+
+import "testing"
+
+func TestCalculator(t *testing.T) {
+    // 設置
+    calc := NewCalculator()
+    defer calc.Cleanup()
+
+    t.Run("AddPositiveNumbers", func(t *testing.T) {
+        result := calc.Add(2, 3)
+        if result != 5 {
+            t.Errorf("Expected 5, got %d", result)
+        }
+    })
+
+    t.Run("AddNegativeNumbers", func(t *testing.T) {
+        result := calc.Add(-2, -3)
+        if result != -5 {
+            t.Errorf("Expected -5, got %d", result)
+        }
+    })
+}
+```
+</UniversalEditor>
+
+## 總結
+
+在本模組中，你學習了：
+
+1. **testing 包** - 內建測試支援
+2. **表驅動測試** - Go 的慣用測試模式
+3. **測試輔助** - 設置和清理
+4. **錯誤測試** - 檢查錯誤返回值
+5. **Mock** - 使用介面
+6. **基準測試** - 效能測試
+7. **HTTP 測試** - httptest 包
+8. **競態偵測** - `-race` 標誌
+9. **覆蓋率** - 內建覆蓋率報告
+10. **除錯** - Delve 除錯器
+11. **日誌** - log 包用於除錯
+
+## 主要差別
+
+| Python | Go |
+|--------|-----|
+| pytest/unittest | 內建 `testing` |
+| `@pytest.mark.parametrize` | 表驅動測試 |
+| `pytest.raises()` | 檢查錯誤返回值 |
+| `unittest.mock` | 介面用於 mock |
+| `--cov` 標誌 | `-coverprofile` |
+| pdb 除錯器 | Delve 除錯器 |
+| 沒有競態偵測 | `-race` 標誌 |
+
+## 練習
+
+1. 為計算器包撰寫全面的測試
+2. 建立基準測試比較字串串連方法
+3. 測試使用各種輸入的 HTTP 處理器
+4. 使用競態偵測器發現並行 bug
+5. 為你的程式碼產生覆蓋率報告
+
+## 下一步
+
+下一模組：**效能優化** - 分析和優化 Go 應用程式。

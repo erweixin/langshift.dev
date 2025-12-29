@@ -1,0 +1,798 @@
+---
+title: "Module 16: 真实项目"
+description: "构建完整的项目以应用你的 Go 知识"
+---
+
+## 简介
+
+到了将所有内容整合在一起的时候了!本模块展示完整的实用项目,演示真实的 Go 开发。
+
+## 项目 1: URL 短链服务
+
+构建一个生产就绪的 URL 短链,包含:
+- RESTful API
+- 数据库持久化
+- 缓存层
+- 指标收集
+- Docker 部署
+
+### 架构
+
+```
+┌─────────────┐
+│   Client    │
+└──────┬──────┘
+       │
+       ▼
+┌─────────────────┐
+│  API Gateway    │
+└────────┬────────┘
+         │
+    ┌────┴────┐
+    ▼         ▼
+┌───────┐ ┌───────┐
+│  API  │ │ Cache │
+└───┬───┘ └───────┘
+    │
+    ▼
+┌───────┐
+│  DB   │
+└───────┘
+```
+
+### 实现
+
+<UniversalEditor title="URL 短链 - 模型">
+```python !! py
+# Python - 模型
+from dataclasses import dataclass
+from datetime import datetime
+import hashlib
+import random
+import string
+
+@dataclass
+class URL:
+    id: int
+    short_code: str
+    original_url: str
+    created_at: datetime
+    clicks: int
+
+def generate_short_code(url: str) -> str:
+    # 生成随机 6 字符代码
+    chars = string.ascii_letters + string.digits
+    return ''.join(random.choices(chars, k=6))
+```
+
+```go !! go
+// Go - 模型
+package models
+
+import "time"
+
+type URL struct {
+    ID          int       `json:"id"`
+    ShortCode   string    `json:"short_code"`
+    OriginalURL string    `json:"original_url"`
+    CreatedAt   time.Time `json:"created_at"`
+    Clicks      int       `json:"clicks"`
+}
+
+func GenerateShortCode() string {
+    // 生成随机 6 字符代码
+    const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+    b := make([]byte, 6)
+    for i := range b {
+        b[i] = chars[rand.Intn(len(chars))]
+    }
+    return string(b)
+}
+```
+</UniversalEditor>
+
+<UniversalEditor title="URL 短链 - API">
+```python !! py
+# Python - Flask API
+from flask import Flask, request, jsonify, redirect
+from datetime import datetime
+
+app = Flask(__name__)
+
+@app.route('/shorten', methods=['POST'])
+def shorten():
+    data = request.get_json()
+    url = data.get('url')
+
+    if not url:
+        return jsonify({'error': 'URL required'}), 400
+
+    short_code = generate_short_code(url)
+
+    # 保存到数据库
+    url_obj = URL(
+        id=1,
+        short_code=short_code,
+        original_url=url,
+        created_at=datetime.now(),
+        clicks=0
+    )
+
+    return jsonify({
+        'short_url': f'https://short.ly/{short_code}'
+    }), 201
+
+@app.route('/<short_code>')
+def redirect_url(short_code):
+    # 查找 URL
+    url_obj = get_url(short_code)
+
+    if not url_obj:
+        return jsonify({'error': 'Not found'}), 404
+
+    # 增加点击数
+    url_obj.clicks += 1
+
+    return redirect(url_obj.original_url)
+```
+
+```go !! go
+// Go - HTTP API
+package main
+
+import (
+    "database/sql"
+    "encoding/json"
+    "fmt"
+    "net/http"
+    "time"
+
+    _ "github.com/lib/pq"
+)
+
+type Server struct {
+    db *sql.DB
+}
+
+func (s *Server) shortenHandler(w http.ResponseWriter, r *http.Request) {
+    var req struct {
+        URL string `json:"url"`
+    }
+
+    if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+        http.Error(w, err.Error(), http.StatusBadRequest)
+        return
+    }
+
+    if req.URL == "" {
+        http.Error(w, "URL required", http.StatusBadRequest)
+        return
+    }
+
+    shortCode := GenerateShortCode()
+
+    // 保存到数据库
+    var id int
+    err := s.db.QueryRow(
+        "INSERT INTO urls (short_code, original_url, created_at, clicks) VALUES ($1, $2, $3, $4) RETURNING id",
+        shortCode, req.URL, time.Now(), 0,
+    ).Scan(&id)
+
+    if err != nil {
+        http.Error(w, err.Error(), http.StatusInternalServerError)
+        return
+    }
+
+    w.Header().Set("Content-Type", "application/json")
+    w.WriteHeader(http.StatusCreated)
+    json.NewEncoder(w).Encode(map[string]string{
+        "short_url": fmt.Sprintf("https://short.ly/%s", shortCode),
+    })
+}
+
+func (s *Server) redirectHandler(w http.ResponseWriter, r *http.Request) {
+    shortCode := r.URL.Path[1:] // 移除前导 '/'
+
+    var originalURL string
+    err := s.db.QueryRow(
+        "SELECT original_url FROM urls WHERE short_code = $1",
+        shortCode,
+    ).Scan(&originalURL)
+
+    if err == sql.ErrNoRows {
+        http.Error(w, "Not found", http.StatusNotFound)
+        return
+    } else if err != nil {
+        http.Error(w, err.Error(), http.StatusInternalServerError)
+        return
+    }
+
+    // 增加点击数
+    s.db.Exec("UPDATE urls SET clicks = clicks + 1 WHERE short_code = $1", shortCode)
+
+    http.Redirect(w, r, originalURL, http.StatusMovedPermanently)
+}
+```
+</UniversalEditor>
+
+<UniversalEditor title="URL 短链 - 数据库">
+```sql
+-- Schema (两者相同)
+CREATE TABLE urls (
+    id SERIAL PRIMARY KEY,
+    short_code VARCHAR(10) UNIQUE NOT NULL,
+    original_url TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    clicks INTEGER DEFAULT 0
+);
+
+CREATE INDEX idx_short_code ON urls(short_code);
+```
+</UniversalEditor>
+
+## 项目 2: WebSocket 聊天服务器
+
+支持多房间的实时聊天:
+
+<UniversalEditor title="WebSocket 聊天">
+```python !! py
+# Python - FastAPI WebSockets
+from fastapi import FastAPI, WebSocket
+from typing import Dict
+
+app = FastAPI()
+
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: Dict[str, list[WebSocket]] = {}
+
+    async def connect(self, websocket: WebSocket, room: str):
+        await websocket.accept()
+        if room not in self.active_connections:
+            self.active_connections[room] = []
+        self.active_connections[room].append(websocket)
+
+    async def broadcast(self, message: str, room: str):
+        for connection in self.active_connections.get(room, []):
+            await connection.send_text(message)
+
+manager = ConnectionManager()
+
+@app.websocket("/ws/{room}")
+async def websocket_endpoint(websocket: WebSocket, room: str):
+    await manager.connect(websocket, room)
+    try:
+        while True:
+            data = await websocket.receive_text()
+            await manager.broadcast(f"User: {data}", room)
+    except:
+        manager.disconnect(websocket, room)
+```
+
+```go !! go
+// Go - Gorilla WebSocket
+package main
+
+import (
+    "log"
+    "net/http"
+    "sync"
+
+    "github.com/gorilla/websocket"
+)
+
+type Hub struct {
+    rooms map[string]*Room
+    mu    sync.RWMutex
+}
+
+type Room struct {
+    clients    map[*Client]bool
+    broadcast  chan []byte
+    register   chan *Client
+    unregister chan *Client
+}
+
+type Client struct {
+    hub  *Hub
+    room *Room
+    conn *websocket.Conn
+    send chan []byte
+}
+
+var upgrader = websocket.Upgrader{
+    CheckOrigin: func(r *http.Request) bool {
+        return true
+    },
+}
+
+func NewHub() *Hub {
+    return &Hub{
+        rooms: make(map[string]*Room),
+    }
+}
+
+func (h *Hub) GetRoom(roomName string) *Room {
+    h.mu.Lock()
+    defer h.mu.Unlock()
+
+    if room, exists := h.rooms[roomName]; exists {
+        return room
+    }
+
+    room := &Room{
+        clients:    make(map[*Client]bool),
+        broadcast:  make(chan []byte),
+        register:   make(chan *Client),
+        unregister: make(chan *Client),
+    }
+
+    h.rooms[roomName] = room
+    go room.run()
+
+    return room
+}
+
+func (r *Room) run() {
+    for {
+        select {
+        case client := <-r.register:
+            r.clients[client] = true
+
+        case client := <-r.unregister:
+            if _, ok := r.clients[client]; ok {
+                delete(r.clients, client)
+                close(client.send)
+            }
+
+        case message := <-r.broadcast:
+            for client := range r.clients {
+                select {
+                case client.send <- message:
+                default:
+                    close(client.send)
+                    delete(r.clients, client)
+                }
+            }
+        }
+    }
+}
+
+func (h *Hub) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
+    roomName := r.URL.Path[len("/ws/"):]
+    conn, err := upgrader.Upgrade(w, r, nil)
+    if err != nil {
+        log.Println(err)
+        return
+    }
+
+    room := h.GetRoom(roomName)
+
+    client := &Client{
+        hub:  h,
+        room: room,
+        conn: conn,
+        send: make(chan []byte, 256),
+    }
+
+    room.register <- client
+
+    go client.writePump()
+    go client.readPump()
+}
+
+func (c *Client) readPump() {
+    defer func() {
+        c.room.unregister <- c
+        c.conn.Close()
+    }()
+
+    for {
+        _, message, err := c.conn.ReadMessage()
+        if err != nil {
+            break
+        }
+
+        c.room.broadcast <- message
+    }
+}
+
+func (c *Client) writePump() {
+    defer c.conn.Close()
+
+    for {
+        select {
+        case message, ok := <-c.send:
+            if !ok {
+                c.conn.WriteMessage(websocket.CloseMessage, []byte{})
+                return
+            }
+
+            c.conn.WriteMessage(websocket.TextMessage, message)
+        }
+    }
+}
+
+func main() {
+    hub := NewHub()
+
+    http.HandleFunc("/ws/", hub.HandleWebSocket)
+
+    log.Println("Server starting on :8080")
+    log.Fatal(http.ListenAndServe(":8080", nil))
+}
+```
+</UniversalEditor>
+
+## 项目 3: 任务队列系统
+
+使用 Redis 的后台任务处理:
+
+<UniversalEditor title="任务队列">
+```python !! py
+# Python - Celery
+from celery import Celery
+
+app = Celery('tasks', broker='redis://localhost:6379')
+
+@app.task
+def process_image(image_path):
+    # 处理图片
+    result = resize_image(image_path)
+    return result
+
+# 使用
+process_image.delay('/path/to/image.jpg')
+```
+
+```go !! go
+// Go - 使用 Redis 的任务队列
+package main
+
+import (
+    "encoding/json"
+    "fmt"
+    "log"
+
+    "github.com/go-redis/redis/v8"
+    "golang.org/x/net/context"
+)
+
+type Task struct {
+    ID   string                 `json:"id"`
+    Type string                 `json:"type"`
+    Data map[string]interface{} `json:"data"`
+}
+
+type Worker struct {
+    redis   *redis.Client
+    queues  []string
+    handler func(Task) error
+}
+
+func NewWorker(redisAddr string, queues []string, handler func(Task) error) *Worker {
+    rdb := redis.NewClient(&redis.Options{
+        Addr:     redisAddr,
+        Password: "",
+        DB:       0,
+    })
+
+    return &Worker{
+        redis:   rdb,
+        queues:  queues,
+        handler: handler,
+    }
+}
+
+func (w *Worker) Start(ctx context.Context) error {
+    for _, queue := range w.queues {
+        go w.processQueue(ctx, queue)
+    }
+
+    <-ctx.Done()
+    return nil
+}
+
+func (w *Worker) processQueue(ctx context.Context, queue string) {
+    for {
+        select {
+        case <-ctx.Done():
+            return
+
+        default:
+            // 带超时的 BRPOP
+            result, err := w.redis.BRPop(ctx, queue, time.Second).Result()
+            if err != nil {
+                continue
+            }
+
+            if len(result) < 2 {
+                continue
+            }
+
+            var task Task
+            if err := json.Unmarshal([]byte(result[1]), &task); err != nil {
+                log.Printf("Error unmarshaling task: %v", err)
+                continue
+            }
+
+            log.Printf("Processing task: %s", task.ID)
+
+            if err := w.handler(task); err != nil {
+                log.Printf("Error processing task: %v", err)
+            }
+        }
+    }
+}
+
+func enqueueTask(rdb *redis.Client, queue string, task Task) error {
+    data, err := json.Marshal(task)
+    if err != nil {
+        return err
+    }
+
+    return rdb.LPush(context.Background(), queue, data).Err()
+}
+
+func main() {
+    worker := NewWorker("localhost:6379", []string{"images", "emails"}, func(task Task) error {
+        switch task.Type {
+        case "process_image":
+            imagePath := task.Data["path"].(string)
+            return processImage(imagePath)
+
+        case "send_email":
+            email := task.Data["email"].(string)
+            return sendEmail(email)
+
+        default:
+            return fmt.Errorf("unknown task type: %s", task.Type)
+        }
+    })
+
+    ctx, cancel := context.WithCancel(context.Background())
+    defer cancel()
+
+    if err := worker.Start(ctx); err != nil {
+        log.Fatal(err)
+    }
+}
+```
+</UniversalEditor>
+
+## 项目 4: CLI 工具
+
+面向开发者的命令行工具:
+
+<UniversalEditor title="CLI 工具">
+```python !! py
+# Python - Click CLI
+import click
+
+@click.group()
+def cli():
+    """开发者工具"""
+    pass
+
+@cli.command()
+@click.argument('name')
+def create(name):
+    """创建新项目"""
+    click.echo(f"Creating project: {name}")
+
+@cli.command()
+def status():
+    """显示状态"""
+    click.echo("Status: OK")
+
+if __name__ == '__main__':
+    cli()
+```
+
+```go !! go
+// Go - Cobra CLI
+package main
+
+import (
+    "fmt"
+    "os"
+
+    "github.com/spf13/cobra"
+)
+
+var rootCmd = &cobra.Command{
+    Use:   "devtool",
+    Short: "Developer tools",
+    Long:  "A collection of developer utilities",
+}
+
+var createCmd = &cobra.Command{
+    Use:   "create [name]",
+    Short: "Create new project",
+    Args:  cobra.ExactArgs(1),
+    Run: func(cmd *cobra.Command, args []string) {
+        name := args[0]
+        fmt.Printf("Creating project: %s\n", name)
+        // 创建项目...
+    },
+}
+
+var statusCmd = &cobra.Command{
+    Use:   "status",
+    Short: "Show status",
+    Run: func(cmd *cobra.Command, args []string) {
+        fmt.Println("Status: OK")
+    },
+}
+
+func init() {
+    rootCmd.AddCommand(createCmd)
+    rootCmd.AddCommand(statusCmd)
+}
+
+func main() {
+    if err := rootCmd.Execute(); err != nil {
+        fmt.Println(err)
+        os.Exit(1)
+    }
+}
+```
+</UniversalEditor>
+
+## 项目 5: 微服务日志记录器
+
+集中式日志服务:
+
+<UniversalEditor title="日志记录器微服务">
+```go
+// Go - 日志服务
+package main
+
+import (
+    "encoding/json"
+    "io"
+    "log"
+    "net/http"
+    "os"
+    "sync"
+
+    "github.com/go-redis/redis/v8"
+)
+
+type LogEntry struct {
+    Level     string                 `json:"level"`
+    Message   string                 `json:"message"`
+    Service   string                 `json:"service"`
+    Timestamp string                 `json:"timestamp"`
+    Metadata  map[string]interface{} `json:"metadata,omitempty"`
+}
+
+type Logger struct {
+    mu   sync.Mutex
+    file *os.File
+}
+
+func NewLogger(filename string) (*Logger, error) {
+    file, err := os.OpenFile(filename, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+    if err != nil {
+        return nil, err
+    }
+
+    return &Logger{file: file}, nil
+}
+
+func (l *Logger) Log(entry LogEntry) error {
+    l.mu.Lock()
+    defer l.mu.Unlock()
+
+    data, err := json.Marshal(entry)
+    if err != nil {
+        return err
+    }
+
+    _, err = l.file.Write(append(data, '\n'))
+    return err
+}
+
+func (l *Logger) logHandler(w http.ResponseWriter, r *http.Request) {
+    if r.Method != http.MethodPost {
+        http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+        return
+    }
+
+    var entry LogEntry
+    if err := json.NewDecoder(r.Body).Decode(&entry); err != nil {
+        http.Error(w, err.Error(), http.StatusBadRequest)
+        return
+    }
+
+    if err := l.Log(entry); err != nil {
+        http.Error(w, err.Error(), http.StatusInternalServerError)
+        return
+    }
+
+    // 同时发送到 Redis 进行实时查看
+    // redis.Publish(ctx, "logs", data)
+
+    w.WriteHeader(http.StatusCreated)
+}
+
+func (l *Logger) streamHandler(w http.ResponseWriter, r *http.Request) {
+    flusher, ok := w.(http.Flusher)
+    if !ok {
+        http.Error(w, "Streaming not supported", http.StatusInternalServerError)
+        return
+    }
+
+    w.Header().Set("Content-Type", "text/event-stream")
+    w.Header().Set("Cache-Control", "no-cache")
+    w.Header().Set("Connection", "keep-alive")
+
+    // 订阅 Redis
+    // pubsub := redis.Subscribe(ctx, "logs")
+
+    for {
+        // msg, err := pubsub.ReceiveMessage(ctx)
+        // if err != nil {
+        //     return
+        // }
+
+        // fmt.Fprintf(w, "data: %s\n\n", msg.Payload)
+        fmt.Fprintf(w, "data: {\"level\": \"info\", \"message\": \"test\"}\n\n")
+        flusher.Flush()
+    }
+}
+
+func main() {
+    logger, err := NewLogger("app.log")
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    http.HandleFunc("/log", logger.logHandler)
+    http.HandleFunc("/stream", logger.streamHandler)
+
+    log.Println("Logger service starting on :8080")
+    log.Fatal(http.ListenAndServe(":8080", nil))
+}
+```
+</UniversalEditor>
+
+## 总结
+
+在本模块中,你学习了构建:
+
+1. **URL 短链** - 带数据库的 REST API
+2. **WebSocket 聊天** - 实时通信
+3. **任务队列** - 后台任务处理
+4. **CLI 工具** - 命令行界面
+5. **日志服务** - 微服务日志
+
+## 项目最佳实践
+
+1. **结构** - 逻辑组织代码
+2. **错误处理** - 始终检查错误
+3. **测试** - 为关键路径编写测试
+4. **文档** - 记录你的代码
+5. **Docker** - 容器化应用
+6. **监控** - 添加指标和日志
+7. **安全** - 验证输入,使用 HTTPS
+
+## 最终练习
+
+1. 完整构建 URL 短链
+2. 为聊天服务器添加身份验证
+3. 创建任务队列的控制面板
+4. 使用更多命令扩展 CLI 工具
+5. 将项目部署到 Kubernetes
+
+## 结语
+
+你已经完成了 Python → Go 学习路径!你现在拥有:
+- 对 Go 基础知识的扎实理解
+- Go 并发模型的经验
+- Go Web 开发的知识
+- 构建生产就绪服务的技能
+- 地道 Go 的最佳实践
+
+继续构建项目并探索 Go 生态系统。祝你编程愉快!

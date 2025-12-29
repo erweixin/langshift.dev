@@ -1,0 +1,315 @@
+---
+title: "模組 9：錯誤處理"
+description: "掌握 Rust 的錯誤處理哲學，包括 panic!、Result、? 運算符和健壯錯誤管理的最佳實踐"
+---
+
+# 模組 9：錯誤處理
+
+歡迎來到模組 9！錯誤處理是 Rust 最獨特的功能之一。與 Python 基於異常的方法不同，Rust 使用型別安全的顯式系統，在編譯時捕獲整類錯誤。
+
+## 學習目標
+
+完成本模組後，你將能夠：
+- 理解 Rust 的兩種錯誤處理類別：可恢復和不可恢復
+- 對不可恢復錯誤使用 `panic!`
+- 對可恢復錯誤使用 `Result<T, E>`
+- 利用 `?` 運算符進行清晰的錯誤傳播
+- 建立自訂錯誤型別
+- 應用錯誤處理最佳實踐
+
+## 9.1 兩種錯誤類別
+
+### Python：所有東西都用異常
+
+Python 對所有錯誤使用異常：
+
+```python
+# Python - 所有東西都用異常
+try:
+    file = open("nonexistent.txt")
+except FileNotFoundError:
+    print("File not found")
+```
+
+### Rust：顯式類別
+
+Rust 區分可恢復和不可恢復錯誤：
+
+<UniversalEditor compare={true} title="錯誤類別">
+```python !! py
+# Python - 語言層級沒有區分
+def divide(a, b):
+    if b == 0:
+        raise ValueError("Division by zero")
+    return a / b
+```
+
+```rust !! rs
+// Rust - 顯式類別
+// 可恢復：Result<T, E>
+fn divide(a: f64, b: f64) -> Result<f64, String> {
+    if b == 0.0 {
+        return Err(String::from("Division by zero"));
+    }
+    Ok(a / b)
+}
+
+// 不可恢復：panic!
+fn critical_error() {
+    panic!("Critical system failure!");
+}
+```
+</UniversalEditor>
+
+## 9.2 使用 panic! 的不可恢復錯誤
+
+<UniversalEditor compare={true} title="Panic 基礎">
+```rust !! rs
+// Rust - 帶堆疊追蹤的 panic
+fn bad_function() {
+    panic!("Bad value!");
+}
+
+// 常見的 panic 場景
+let nums = vec![1, 2, 3];
+// let val = nums[10];  // Panic!
+
+// 更好的替代方案
+let val = nums.get(10);  // 返回 None
+
+// 斷言
+let x = 10;
+assert_eq!(x, 10, "x should be 10");
+```
+</UniversalEditor>
+
+## 9.3 使用 `Result<T, E>` 的可恢復錯誤
+
+<UniversalEditor compare={true} title="Result 模式">
+```python !! py
+# Python - 手動錯誤處理
+def parse_number(s):
+    try:
+        return int(s)
+    except ValueError:
+        return None
+```
+
+```rust !! rs
+// Rust - 型別安全的錯誤處理
+fn parse_number(s: &str) -> Result<i32, ParseIntError> {
+    s.parse::<i32>()
+}
+
+// 使用 match
+match parse_number("42") {
+    Ok(num) => println!("Got: {}", num),
+    Err(e) => println!("Parse error: {}", e),
+}
+
+// 提供預設值
+let num = parse_number("invalid").unwrap_or(0);
+```
+</UniversalEditor>
+
+## 9.4 ? 運算符深入
+
+### 理解 ?
+
+`?` 運算符是錯誤傳播的語法糖：
+
+<UniversalEditor compare={true} title="? 運算符展開">
+```rust !! rs
+// Rust - ? 運算符執行以下操作：
+fn operation() -> Result<T, E> {
+    let value = risky_function()?;
+
+    // 展開為：
+    // match risky_function() {
+    //     Ok(v) => v,
+    //     Err(e) => return Err(e),
+    // }
+
+    process(value)
+}
+```
+</UniversalEditor>
+
+## 9.5 自訂錯誤型別
+
+<UniversalEditor compare={true} title="自訂錯誤型別">
+```rust !! rs
+// Rust - 代數錯誤型別
+#[derive(Debug)]
+enum AppError {
+    ValidationError(String),
+    NetworkError { status_code: u16, message: String },
+    DatabaseError(String),
+}
+
+impl std::fmt::Display for AppError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            AppError::ValidationError(msg) => {
+                write!(f, "Validation error: {}", msg)
+            }
+            AppError::NetworkError { status_code, message } => {
+                write!(f, "Network error ({}): {}", status_code, message)
+            }
+            AppError::DatabaseError(msg) => {
+                write!(f, "Database error: {}", msg)
+            }
+        }
+    }
+}
+
+impl std::error::Error for AppError {}
+```
+</UniversalEditor>
+
+## 9.6 錯誤處理模式
+
+### 模式 1：上下文錯誤
+
+<UniversalEditor compare={true} title="為錯誤添加上下文">
+```rust !! rs
+// Rust - 使用 map_err 添加上下文
+fn load_config() -> Result<String, String> {
+    std::fs::read_to_string("config.toml")
+        .map_err(|e| format!("Failed to load config: {}", e))
+}
+```
+</UniversalEditor>
+
+### 模式 2：重試邏輯
+
+<UniversalEditor compare={true} title="帶退避的重試">
+```rust !! rs
+// Rust - 帶退避的重試
+use std::time::Duration;
+use std::thread;
+
+fn fetch_with_retry(url: &str, max_retries: u32) -> Result<String, String> {
+    for attempt in 0..max_retries {
+        match fetch(url) {
+            Ok(data) => return Ok(data),
+            Err(e) if attempt < max_retries - 1 => {
+                let backoff = Duration::from_secs(2_u64.pow(attempt));
+                thread::sleep(backoff);
+            }
+            Err(e) => return Err(e),
+        }
+    }
+    unreachable!()
+}
+```
+</UniversalEditor>
+
+## 常見陷阱
+
+### 陷阱 1：在庫中使用 panic!
+
+```rust
+// 不要：在庫程式碼中 panic
+pub fn parse_config(s: &str) -> Config {
+    if s.is_empty() {
+        panic!("Config cannot be empty");  // 錯誤！
+    }
+}
+
+// 應該：返回 Result
+pub fn parse_config(s: &str) -> Result<Config, Error> {
+    if s.is_empty() {
+        return Err(Error::EmptyConfig);
+    }
+}
+```
+
+### 陷阱 2：忽略錯誤
+
+```rust
+// 不要：忽略錯誤
+let _ = File::open("config.txt");  // 錯誤被忽略！
+
+// 應該：顯式處理錯誤
+let file = File::open("config.txt")?;
+```
+
+## 最佳實踐
+
+1. **對可恢復錯誤使用 Result** - 將 panic! 用於真正的不可恢復情況
+2. **實現自訂錯誤型別** - 使用枚舉進行結構化錯誤處理
+3. **提供上下文** - 添加關於哪個操作失敗的資訊
+4. **使用庫** - 在庫中使用 thiserror，在應用中使用 anyhow
+5. **記錄錯誤** - 記錄哪些錯誤可以被返回
+6. **測試錯誤路徑** - 為錯誤條件編寫測試
+
+## 總結
+
+在本模組中，我們涵蓋了：
+
+- **兩種錯誤類別**：可恢復（Result）vs 不可恢復（panic!）
+- **panic!**：用於不可恢復錯誤，帶堆疊展開
+- **`Result<T, E>`**：型別安全的錯誤處理
+- **? 運算符**：清晰的錯誤傳播
+- **自訂錯誤**：具有 Display/Error trait 的結構化錯誤型別
+- **錯誤模式**：上下文、收集、重試邏輯
+
+關鍵要點：
+- Rust 使錯誤顯式和型別安全
+- Result 在編譯時捕獲錯誤
+- ? 運算符提供清晰的錯誤傳播
+- 自訂錯誤型別實現結構化錯誤處理
+- 為你的上下文選擇正確的錯誤處理策略
+
+## 練習
+
+創建一個文件處理應用程式，它：
+1. 讀取文件（處理 IO 錯誤）
+2. 解析內容（處理解析錯誤）
+3. 驗證資料（處理驗證錯誤）
+4. 使用自訂錯誤型別
+5. 提供有用的錯誤訊息
+
+<details>
+<summary>檢視解決方案</summary>
+
+```rust
+use std::fs;
+use std::io;
+use std::num::ParseIntError;
+
+#[derive(Debug)]
+enum ProcessError {
+    Io(io::Error),
+    Parse(ParseIntError),
+    Validation(String),
+}
+
+impl std::fmt::Display for ProcessError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            ProcessError::Io(e) => write!(f, "IO error: {}", e),
+            ProcessError::Parse(e) => write!(f, "Parse error: {}", e),
+            ProcessError::Validation(msg) => write!(f, "Validation error: {}", msg),
+        }
+    }
+}
+
+fn process_file(path: &str) -> Result<i32, ProcessError> {
+    let content = fs::read_to_string(path)?;
+    let number: i32 = content.trim().parse()?;
+
+    if number < 0 {
+        return Err(ProcessError::Validation(
+            "Number must be positive".to_string()
+        ));
+    }
+
+    Ok(number * 2)
+}
+```
+
+</details>
+
+接下來：**模組 10 - 特徵和泛型**，我們將探索 Rust 強大的型別系統，用於編寫靈活、可重用的程式碼！

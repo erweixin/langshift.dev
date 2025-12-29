@@ -1,0 +1,112 @@
+---
+title: "模組 17：微服務架構"
+---
+
+本模組介紹使用 Go 建構微服務，與 Java 的 Spring Boot/Cloud 方法進行比較。
+
+## 微服務哲學
+
+**Java 微服務（Spring Cloud）：**
+- Spring Boot：快速建立服務
+- Spring Cloud：分散式系統模式
+- 使用 Eureka/Consul 進行服務發現
+- 使用 Spring Cloud Gateway 的 API 閘道
+- 使用 Spring Cloud Config 的設定
+- 使用 Resilience4j 的斷路器
+- 使用 Sleuth/Zipkin 的分散式追蹤
+
+**Go 微服務：**
+- 輕量級、快速的服務
+- 最小的資源使用
+- 快速啟動時間
+- 簡單的部署
+- 使用 goroutine 內建並行
+- 分散式模式的社群函式庫
+
+<UniversalEditor title="微服務設定">
+```java !! java
+// Java: Spring Boot 微服務
+@SpringBootApplication
+@EnableDiscoveryClient
+@EnableCircuitBreaker
+public class UserServiceApplication {
+
+    public static void main(String[] args) {
+        SpringApplication.run(UserServiceApplication.class, args);
+    }
+}
+
+@RestController
+@RequestMapping("/api/users")
+public class UserController {
+
+    @GetMapping("/{id}/orders")
+    @CircuitBreaker(name = "orderService", fallbackMethod = "getOrdersFallback")
+    public List<Order> getUserOrders(@PathVariable Long id) {
+        return restTemplate.getForObject(
+            "http://order-service/api/orders?userId=" + id,
+            List.class
+        );
+    }
+
+    public List<Order> getOrdersFallback(Long id, Exception e) {
+        return Collections.emptyList();
+    }
+}
+```
+
+```go !! go
+// Go: 使用 Gin 的微服務
+package main
+
+import (
+    "context"
+    "net/http"
+    "time"
+    "github.com/gin-gonic/gin"
+)
+
+type UserService struct {
+    orderServiceClient *OrderServiceClient
+    userRepo          *UserRepository
+}
+
+func (s *UserService) GetUserOrders(c *gin.Context) {
+    id := c.Param("id")
+
+    // 呼叫訂單服務，帶逾時
+    ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+    defer cancel()
+
+    orders, err := s.orderServiceClient.GetOrdersByUserID(ctx, id)
+    if err != nil {
+        c.JSON(http.StatusServiceUnavailable, gin.H{
+            "error": "Order service unavailable",
+            "orders": []Order{}, // Fallback
+        })
+        return
+    }
+
+    c.JSON(http.StatusOK, orders)
+}
+```
+</UniversalEditor>
+
+---
+
+### 練習問題：
+1. 為什麼 Go 微服務比 Java Spring Boot 微服務更輕量？
+2. Go 中的服務發現與 Spring Cloud 相比如何工作？
+3. 使用 Go 建構微服務有什麼優勢？
+4. 什麼時候你會選擇 Go 而不是 Java 來建構微服務？
+
+### 專案想法：
+- 使用 Go 建構完整的微服務架構
+- 使用 Consul 實作服務發現
+- 建立具有速率限制的 API 閘道
+- 設定分散式追蹤
+
+### 下一步：
+- 學習真實世界專案模式
+- 探索生產就緒的應用程式架構
+- 建構完整的系統

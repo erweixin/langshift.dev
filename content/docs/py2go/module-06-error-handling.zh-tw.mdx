@@ -1,0 +1,1687 @@
+---
+title: "模組 6: 錯誤處理"
+description: "Go 的顯式錯誤處理與 Python 異常的對比"
+---
+
+## 簡介
+
+Go 採用與 Python 根本不同的錯誤處理方法。Go 不使用異常，而是將錯誤作為顯式返回的值。這使得錯誤處理可見、可預測，並強制開發者顯式處理錯誤。
+
+### 關鍵差異
+
+**Python 異常：**
+- 錯誤自動沿呼叫堆疊向上冒泡
+- 可以在任何層級捕獲
+- 在函數簽章中不可見
+- 容易忽略（直到它們使程式崩潰）
+- 通過異常進行控制流
+
+**Go 錯誤：**
+- 錯誤作為值返回
+- 必須在每一層顯式處理
+- 在函數簽章中可見
+- 不能在沒有故意操作的情況下忽略
+- 線性控制流
+
+## 基本錯誤處理
+
+### Error 介面
+
+在 Go 中，`error` 是一個介面：
+
+```go
+type error interface {
+    Error() string
+}
+```
+
+任何實現 `Error() string` 的型別都可以用作錯誤。
+
+<UniversalEditor title="錯誤處理對比">
+```python !! py
+# Python - 異常
+def divide(a, b):
+    if b == 0:
+        raise ValueError("Cannot divide by zero")
+    return a / b
+
+try:
+    result = divide(10, 0)
+except ValueError as e:
+    print(f"Error: {e}")
+    # 可能記錄、可能重試、可能中止
+```
+
+```go !! go
+// Go - 錯誤作為返回值
+package main
+
+import (
+    "errors"
+    "fmt"
+)
+
+func divide(a int, b int) (int, error) {
+    if b == 0 {
+        return 0, errors.New("cannot divide by zero")
+    }
+    return a / b, nil
+}
+
+func main() {
+    result, err := divide(10, 0)
+    if err != nil {
+        fmt.Printf("Error: %v\n", err)
+        return
+    }
+    fmt.Printf("Result: %d\n", result)
+}
+```
+</UniversalEditor>
+
+### Nil 錯誤約定
+
+在 Go 中，`nil` 表示"沒有錯誤"：
+
+<UniversalEditor title="Nil 錯誤約定">
+```python !! py
+# Python - 沒有異常意味著成功
+def get_user(id):
+    user = db.query(id)
+    if user:
+        return user
+    return None  # 不是錯誤，只是沒有結果
+```
+
+```go !! go
+// Go - nil 錯誤意味著成功
+func getUser(id int) (*User, error) {
+    user, err := db.Query(id)
+    if err != nil {
+        return nil, err  // 資料庫錯誤
+    }
+    if user == nil {
+        return nil, nil  // 沒有錯誤，但沒有結果
+    }
+    return user, nil  // 成功
+}
+
+// 使用
+user, err := getUser(123)
+if err != nil {
+    // 處理實際錯誤
+    log.Fatal(err)
+}
+if user == nil {
+    // 沒有找到使用者，但沒有錯誤
+    fmt.Println("User not found")
+}
+```
+</UniversalEditor>
+
+## 自訂錯誤型別
+
+### 哨兵錯誤
+
+哨兵錯誤是可以直接比較的預定義錯誤值：
+
+<UniversalEditor title="哨兵錯誤">
+```python !! py
+# Python - 自訂異常
+class ValidationError(Exception):
+    pass
+
+class NotFoundError(Exception):
+    pass
+
+def validate_age(age):
+    if age < 0:
+        raise ValidationError("Age cannot be negative")
+    if age > 120:
+        raise ValidationError("Age too high")
+
+def get_user(id):
+    user = db.find(id)
+    if not user:
+        raise NotFoundError(f"User {id} not found")
+    return user
+
+# 使用
+try:
+    validate_age(-5)
+except ValidationError as e:
+    print(f"Validation error: {e}")
+except NotFoundError as e:
+    print(f"Not found: {e}")
+```
+
+```go !! go
+// Go - 哨兵錯誤
+package main
+
+import (
+    "errors"
+    "fmt"
+)
+
+var (
+    ErrNegativeAge   = errors.New("age cannot be negative")
+    ErrAgeTooHigh    = errors.New("age too high")
+    ErrUserNotFound  = errors.New("user not found")
+)
+
+func validateAge(age int) error {
+    if age < 0 {
+        return ErrNegativeAge
+    }
+    if age > 120 {
+        return ErrAgeTooHigh
+    }
+    return nil
+}
+
+func getUser(id int) (*User, error) {
+    user := db.Find(id)
+    if user == nil {
+        return nil, ErrUserNotFound
+    }
+    return user, nil
+}
+
+func main() {
+    err := validateAge(-5)
+    if err != nil {
+        // 直接比較
+        if errors.Is(err, ErrNegativeAge) {
+            fmt.Println("Age is negative")
+        } else if errors.Is(err, ErrAgeTooHigh) {
+            fmt.Println("Age is too high")
+        } else {
+            fmt.Println("Other error:", err)
+        }
+    }
+}
+```
+</UniversalEditor>
+
+### 自訂錯誤結構體
+
+對於更複雜的錯誤處理，建立自訂錯誤型別：
+
+<UniversalEditor title="自訂錯誤結構體">
+```python !! py
+# Python - 帶資料的異常
+class ValidationError(Exception):
+    def __init__(self, field, message):
+        self.field = field
+        self.message = message
+        super().__init__(f"{field}: {message}")
+
+def validate_user(user):
+    if not user.email:
+        raise ValidationError("email", "is required")
+    if "@" not in user.email:
+        raise ValidationError("email", "is invalid")
+
+# 使用
+try:
+    validate_user(user)
+except ValidationError as e:
+    print(f"Field {e.field}: {e.message}")
+```
+
+```go !! go
+// Go - 自訂錯誤結構體
+package main
+
+import "fmt"
+
+// ValidationError 是自訂錯誤型別
+type ValidationError struct {
+    Field   string
+    Message string
+}
+
+// Error 實作錯誤介面
+func (e *ValidationError) Error() string {
+    return fmt.Sprintf("%s: %s", e.Field, e.Message)
+}
+
+// User 表示使用者
+type User struct {
+    Email string
+    Age   int
+}
+
+func validateUser(user *User) error {
+    if user.Email == "" {
+        return &ValidationError{
+            Field:   "email",
+            Message: "is required",
+        }
+    }
+    // 更多驗證...
+    return nil
+}
+
+func main() {
+    user := &User{}
+    err := validateUser(user)
+    if err != nil {
+        // 型別斷言以存取自訂欄位
+        if validationErr, ok := err.(*ValidationError); ok {
+            fmt.Printf("Field %s: %s\n", validationErr.Field, validationErr.Message)
+        } else {
+            fmt.Println("Error:", err)
+        }
+    }
+}
+```
+</UniversalEditor>
+
+### 帶方法的錯誤
+
+你的自訂錯誤可以有額外的方法：
+
+<UniversalEditor title="豐富錯誤型別">
+```python !! py
+# Python - 豐富異常
+class PaymentError(Exception):
+    def __init__(self, code, message, retryable):
+        self.code = code
+        self.message = message
+        self.retryable = retryable
+
+    def is_retryable(self):
+        return self.retryable
+
+# 使用
+try:
+    process_payment()
+except PaymentError as e:
+    if e.is_retryable():
+        retry()
+```
+
+```go !! go
+// Go - 帶方法的錯誤
+package main
+
+import "fmt"
+
+// PaymentError 表示支付處理錯誤
+type PaymentError struct {
+    Code      int
+    Message   string
+    Retryable bool
+}
+
+func (e *PaymentError) Error() string {
+    return fmt.Sprintf("payment error [%d]: %s", e.Code, e.Message)
+}
+
+func (e *PaymentError) IsRetryable() bool {
+    return e.Retryable
+}
+
+func processPayment(amount float64) error {
+    if amount <= 0 {
+        return &PaymentError{
+            Code:      1001,
+            Message:   "invalid amount",
+            Retryable: false,
+        }
+    }
+    if amount > 10000 {
+        return &PaymentError{
+            Code:      1002,
+            Message:   "amount exceeds limit",
+            Retryable: true,
+        }
+    }
+    return nil
+}
+
+func main() {
+    err := processPayment(15000)
+    if err != nil {
+        if paymentErr, ok := err.(*PaymentError); ok {
+            fmt.Println("Error:", paymentErr)
+            if paymentErr.IsRetryable() {
+                fmt.Println("This error is retryable")
+            }
+        }
+    }
+}
+```
+</UniversalEditor>
+
+## 錯誤包裝
+
+### 新增上下文
+
+Go 1.13+ 引入了使用 `%w` 動詞的錯誤包裝：
+
+<UniversalEditor title="錯誤包裝">
+```python !! py
+# Python - 異常鏈
+try:
+    data = load_data()
+except ValueError as e:
+    raise ValueError("Failed to process data") from e
+
+# 或 Python 3 的隱式連結
+try:
+    data = load_data()
+except ValueError:
+    raise ValueError("Failed to process data")
+```
+
+```go !! go
+// Go - 錯誤包裝
+package main
+
+import (
+    "errors"
+    "fmt"
+)
+
+func loadData() error {
+    return errors.New("file not found")
+}
+
+func processData() error {
+    err := loadData()
+    if err != nil {
+        // 使用 %w 包裝錯誤並新增上下文
+        return fmt.Errorf("processData failed: %w", err)
+    }
+    return nil
+}
+
+func main() {
+    err := processData()
+    if err != nil {
+        fmt.Println("Error:", err)
+
+        // 解包以獲取原始錯誤
+        unwrapped := errors.Unwrap(err)
+        fmt.Println("Original:", unwrapped)
+
+        // 檢查特定錯誤是否在鏈中
+        if errors.Is(err, errors.New("file not found")) {
+            fmt.Println("File not found in error chain")
+        }
+    }
+}
+```
+</UniversalEditor>
+
+### 多層包裝
+
+錯誤可以被包裝多次：
+
+<UniversalEditor title="多層包裝">
+```python !! py
+# Python - 異常鏈
+def layer3():
+    raise ValueError("Base error")
+
+def layer2():
+    try:
+        layer3()
+    except ValueError as e:
+        raise RuntimeError("Layer 2 failed") from e
+
+def layer1():
+    try:
+        layer2()
+    except RuntimeError as e:
+        raise RuntimeError("Layer 1 failed") from e
+
+# 回溯顯示完整鏈
+```
+
+```go !! go
+// Go - 多層包裝
+package main
+
+import (
+    "errors"
+    "fmt"
+)
+
+func layer3() error {
+    return errors.New("base error")
+}
+
+func layer2() error {
+    err := layer3()
+    if err != nil {
+        return fmt.Errorf("layer2: %w", err)
+    }
+    return nil
+}
+
+func layer1() error {
+    err := layer2()
+    if err != nil {
+        return fmt.Errorf("layer1: %w", err)
+    }
+    return nil
+}
+
+func main() {
+    err := layer1()
+    if err != nil {
+        fmt.Println("Full error:", err)
+
+        // 多次解包
+        err = errors.Unwrap(err) // "layer2: base error"
+        err = errors.Unwrap(err) // "base error"
+
+        // 或檢查特定錯誤是否在鏈中的任何位置
+        err = layer1()
+        if errors.Is(err, errors.New("base error")) {
+            fmt.Println("Base error found in chain")
+        }
+    }
+}
+```
+</UniversalEditor>
+
+### 錯誤格式化動詞
+
+<UniversalEditor title="錯誤格式化動詞">
+```go !! go
+// Go - 格式化動詞
+package main
+
+import (
+    "errors"
+    "fmt"
+)
+
+func main() {
+    baseErr := errors.New("base error")
+
+    // %v - 只是錯誤文本
+    fmt1 := fmt.Errorf("context: %v", baseErr)
+    fmt.Println(fmt1) // "context: base error"
+
+    // %w - 包裝錯誤（支援 errors.Is/As）
+    fmt2 := fmt.Errorf("context: %w", baseErr)
+    fmt.Println(errors.Is(fmt2, baseErr)) // true
+
+    // %+v - （如果錯誤支援）詳細輸出
+    // 某些錯誤型別實作 Formatter 介面
+    // 用於堆疊追蹤和額外細節
+}
+```
+</UniversalEditor>
+
+## 錯誤比較和型別斷言
+
+### errors.Is()
+
+檢查錯誤是否與鏈中的特定值匹配：
+
+<UniversalEditor title="錯誤比較">
+```python !! py
+# Python - 異常型別檢查
+try:
+    process()
+except ValueError:
+    print("Value error")
+except RuntimeError as e:
+    if "timeout" in str(e):
+        print("Timeout error")
+```
+
+```go !! go
+// Go - errors.Is 用於比較
+package main
+
+import (
+    "errors"
+    "fmt"
+)
+
+var (
+    ErrNotFound = errors.New("not found")
+    ErrTimeout  = errors.New("timeout")
+)
+
+func process() error {
+    return fmt.Errorf("process failed: %w", ErrNotFound)
+}
+
+func main() {
+    err := process()
+
+    // 檢查特定錯誤是否在鏈中
+    if errors.Is(err, ErrNotFound) {
+        fmt.Println("Not found error occurred")
+    }
+
+    if errors.Is(err, ErrTimeout) {
+        fmt.Println("Timeout error occurred")
+    }
+
+    // 也可以檢查新錯誤
+    if errors.Is(err, errors.New("not found")) {
+        fmt.Println("Not found (new instance)")
+    }
+}
+```
+</UniversalEditor>
+
+### errors.As()
+
+錯誤鏈的型別斷言：
+
+<UniversalEditor title="型別斷言">
+```python !! py
+# Python - 異常實例檢查
+try:
+    process()
+except ValidationError as e:
+    print(f"Validation error: {e.field}")
+except PaymentError as e:
+    print(f"Payment error: {e.code}")
+```
+
+```go !! go
+// Go - errors.As 用於型別斷言
+package main
+
+import (
+    "errors"
+    "fmt"
+)
+
+type ValidationError struct {
+    Field string
+}
+
+func (e *ValidationError) Error() string {
+    return fmt.Sprintf("validation error: %s", e.Field)
+}
+
+type PaymentError struct {
+    Code int
+}
+
+func (e *PaymentError) Error() string {
+    return fmt.Sprintf("payment error: %d", e.Code)
+}
+
+func process() error {
+    return &ValidationError{Field: "email"}
+}
+
+func main() {
+    err := process()
+
+    // 檢查錯誤是否為特定型別
+    var validationErr *ValidationError
+    if errors.As(err, &validationErr) {
+        fmt.Printf("Validation error on field: %s\n", validationErr.Field)
+    }
+
+    var paymentErr *PaymentError
+    if errors.As(err, &paymentErr) {
+        fmt.Printf("Payment error code: %d\n", paymentErr.Code)
+    }
+
+    // 也可以直接檢查
+    if _, ok := err.(*ValidationError); ok {
+        fmt.Println("This is a ValidationError")
+    }
+}
+```
+</UniversalEditor>
+
+## 錯誤處理模式
+
+### 重試邏輯
+
+<UniversalEditor title="重試模式">
+```python !! py
+# Python - 重試裝飾器
+import time
+
+def retry(max_attempts=3, delay=1):
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            for attempt in range(max_attempts):
+                try:
+                    return func(*args, **kwargs)
+                except IOError as e:
+                    if attempt == max_attempts - 1:
+                        raise
+                    time.sleep(delay)
+            return None
+        return wrapper
+    return decorator
+
+@retry(max_attempts=3)
+def fetch_data():
+    return api_call()
+```
+
+```go !! go
+// Go - 重試函數
+package main
+
+import (
+    "errors"
+    "fmt"
+    "time"
+)
+
+var ErrTemporary = errors.New("temporary error")
+
+func fetch() error {
+    // 模擬失敗
+    return ErrTemporary
+}
+
+func retry(attempts int, delay time.Duration, fn func() error) error {
+    var err error
+    for i := 0; i < attempts; i++ {
+        err = fn()
+        if err == nil {
+            return nil
+        }
+
+        // 檢查錯誤是否可重試
+        if !errors.Is(err, ErrTemporary) {
+            return err
+        }
+
+        if i < attempts-1 {
+            fmt.Printf("Attempt %d failed, retrying...\n", i+1)
+            time.Sleep(delay)
+        }
+    }
+    return fmt.Errorf("after %d attempts: %w", attempts, err)
+}
+
+func main() {
+    err := retry(3, time.Second, fetch)
+    if err != nil {
+        fmt.Println("Final error:", err)
+    }
+}
+```
+</UniversalEditor>
+
+### 錯誤聚合
+
+<UniversalEditor title="錯誤聚合">
+```python !! py
+# Python - 收集多個錯誤
+class MultiError(Exception):
+    def __init__(self, errors):
+        self.errors = errors
+        super().__init__(f"{len(errors)} errors occurred")
+
+def process_all(items):
+    errors = []
+    for item in items:
+        try:
+            process(item)
+        except Exception as e:
+            errors.append(e)
+
+    if errors:
+        raise MultiError(errors)
+```
+
+```go !! go
+// Go - 收集多個錯誤
+package main
+
+import (
+    "fmt"
+    "strings"
+)
+
+// MultiError 收集多個錯誤
+type MultiError struct {
+    Errors []error
+}
+
+func (e *MultiError) Error() string {
+    var sb strings.Builder
+    sb.WriteString(fmt.Sprintf("%d errors occurred:", len(e.Errors)))
+    for _, err := range e.Errors {
+        sb.WriteString("\n  - ")
+        sb.WriteString(err.Error())
+    }
+    return sb.String()
+}
+
+func processAll(items []int) error {
+    var errs []error
+    for _, item := range items {
+        if err := process(item); err != nil {
+            errs = append(errs, err)
+        }
+    }
+
+    if len(errs) > 0 {
+        return &MultiError{Errors: errs}
+    }
+    return nil
+}
+
+func process(item int) error {
+    if item < 0 {
+        return fmt.Errorf("invalid item: %d", item)
+    }
+    return nil
+}
+
+func main() {
+    items := []int{1, 2, -3, 4, -5}
+    err := processAll(items)
+    if err != nil {
+        fmt.Println(err)
+    }
+}
+```
+</UniversalEditor>
+
+### 臨時 vs 永久錯誤
+
+<UniversalEditor title="臨時 vs 永久">
+```python !! py
+# Python - 自訂異常
+class TemporaryError(Exception):
+    """重試此操作"""
+    pass
+
+class PermanentError(Exception):
+    """不要重試，放棄"""
+    pass
+
+def handle_error(error):
+    if isinstance(error, TemporaryError):
+        return "retry"
+    elif isinstance(error, PermanentError):
+        return "give up"
+```
+
+```go !! go
+// Go - 行為的錯誤介面
+package main
+
+import (
+    "errors"
+    "time"
+)
+
+// Temporary 指示錯誤是臨時的
+type Temporary interface {
+    Temporary() bool
+}
+
+// TemporaryError 可重試
+type TemporaryError struct {
+    Msg string
+}
+
+func (e *TemporaryError) Error() string {
+    return e.Msg
+}
+
+func (e *TemporaryError) Temporary() bool {
+    return true
+}
+
+// PermanentError 不可重試
+type PermanentError struct {
+    Msg string
+}
+
+func (e *PermanentError) Error() string {
+    return e.Msg
+}
+
+func shouldRetry(err error) bool {
+    // 檢查錯誤是否實作 Temporary 介面
+    if te, ok := err.(Temporary); ok {
+        return te.Temporary()
+    }
+    return false
+}
+
+func retryOperation(fn func() error) error {
+    for i := 0; i < 3; i++ {
+        err := fn()
+        if err == nil {
+            return nil
+        }
+
+        if !shouldRetry(err) {
+            return err // 永久錯誤，不要重試
+        }
+
+        // 臨時錯誤，重試
+        time.Sleep(time.Second)
+    }
+    return errors.New("max retries exceeded")
+}
+
+func main() {
+    tempErr := &TemporaryError{Msg: "connection timeout"}
+    permErr := &PermanentError{Msg: "authentication failed"}
+
+    fmt.Println("Temporary retryable?", shouldRetry(tempErr)) // true
+    fmt.Println("Permanent retryable?", shouldRetry(permErr)) // false
+}
+```
+</UniversalEditor>
+
+## Context 和錯誤
+
+### Context 取消
+
+<UniversalEditor title="Context 取消">
+```python !! py
+# Python - 使用執行緒取消
+import threading
+
+def worker(stop_event):
+    while not stop_event.is_set():
+        # 做工作
+        if stop_event.is_set():
+            break
+        process()
+
+stop_event = threading.Event()
+thread = threading.Thread(target=worker, args=(stop_event,))
+thread.start()
+
+# 取消
+stop_event.set()
+```
+
+```go !! go
+// Go - Context 用於取消
+package main
+
+import (
+    "context"
+    "fmt"
+    "time"
+)
+
+func worker(ctx context.Context) error {
+    ticker := time.NewTicker(100 * time.Millisecond)
+    defer ticker.Stop()
+
+    for {
+        select {
+        case <-ctx.Done():
+            // Context 被取消
+            return ctx.Err()
+        case <-ticker.C:
+            // 做工作
+            fmt.Println("Working...")
+        }
+    }
+}
+
+func main() {
+    // 建立可取消的 context
+    ctx, cancel := context.WithCancel(context.Background())
+
+    // 啟動 worker
+    go func() {
+        if err := worker(ctx); err != nil {
+            fmt.Println("Worker error:", err)
+        }
+    }()
+
+    // 500ms 後取消
+    time.Sleep(500 * time.Millisecond)
+    cancel()
+
+    // 等待一點時間以清理
+    time.Sleep(100 * time.Millisecond)
+}
+```
+</UniversalEditor>
+
+### Context 超時
+
+<UniversalEditor title="Context 超時">
+```python !! py
+# Python - 使用信號超時
+import signal
+
+class TimeoutError(Exception):
+    pass
+
+def handler(signum, frame):
+    raise TimeoutError("Operation timed out")
+
+def fetch_with_timeout(url, timeout=5):
+    # 設置鬧鐘
+    signal.signal(signal.SIGALRM, handler)
+    signal.alarm(timeout)
+
+    try:
+        result = fetch(url)
+        signal.alarm(0)  # 取消鬧鐘
+        return result
+    except TimeoutError:
+        return None
+```
+
+```go !! go
+// Go - 帶超時的 Context
+package main
+
+import (
+    "context"
+    "fmt"
+    "time"
+)
+
+func fetchData(ctx context.Context, url string) (string, error) {
+    // 模擬慢操作
+    select {
+    case <-time.After(3 * time.Second):
+        return "data", nil
+    case <-ctx.Done():
+        return "", ctx.Err() // context.DeadlineExceeded
+    }
+}
+
+func main() {
+    // 建立帶超時的 context
+    ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+    defer cancel() // 始終取消以釋放資源
+
+    data, err := fetchData(ctx, "http://example.com")
+    if err != nil {
+        fmt.Println("Error:", err) // context.DeadlineExceeded
+        return
+    }
+
+    fmt.Println("Data:", data)
+}
+```
+</UniversalEditor>
+
+## Defer 用於清理
+
+### 資源清理
+
+<UniversalEditor title="Defer 和錯誤">
+```python !! py
+# Python - try-finally
+file = None
+try:
+    file = open("data.txt")
+    process(file)
+except IOError as e:
+    print(f"Error: {e}")
+finally:
+    if file:
+        file.close()
+```
+
+```go !! go
+// Go - defer 始終運行
+package main
+
+import (
+    "fmt"
+    "os"
+)
+
+func processData() error {
+    file, err := os.Open("data.txt")
+    if err != nil {
+        return err
+    }
+    defer file.Close() // 始終運行，即使出錯
+
+    // 處理檔案...
+    return nil
+}
+
+func main() {
+    if err := processData(); err != nil {
+        fmt.Println("Error:", err)
+    }
+}
+```
+</UniversalEditor>
+
+### Defer 和錯誤處理
+
+<UniversalEditor title="Defer 錯誤處理">
+```go !! go
+// Go - 帶命名返回值的 defer
+package main
+
+import (
+    "fmt"
+    "os"
+)
+
+func processData() (err error) {
+    file, err := os.Open("data.txt")
+    if err != nil {
+        return err
+    }
+
+    // Defer 可以修改命名返回值
+    defer func() {
+        closeErr := file.Close()
+        if closeErr != nil {
+            // 如果處理已經失敗，保留該錯誤
+            if err == nil {
+                err = closeErr
+            }
+        }
+    }()
+
+    // 處理檔案...
+    return nil
+}
+
+func main() {
+    if err := processData(); err != nil {
+        fmt.Println("Error:", err)
+    }
+}
+```
+</UniversalEditor>
+
+## Panic 和 Recover
+
+### 何時使用 Panic
+
+Panic 不像 Python 異常。僅用於：
+- 真正無法恢復的錯誤
+- 程式設計師錯誤（不應該在生產環境中發生）
+- 初始化失敗
+
+<UniversalEditor title="Panic 指南">
+```python !! py
+# Python - 異常用於控制流
+def divide(a, b):
+    if b == 0:
+        raise ValueError("Cannot divide by zero")
+    return a / b
+
+# 這在 Python 中是正常的
+```
+
+```go !! go
+// Go - Panic 僅用於異常情況
+package main
+
+import "errors"
+
+// 錯誤 - 不要對預期錯誤 panic
+func divide(a, b int) int {
+    if b == 0 {
+        panic("division by zero") // 錯誤！
+    }
+    return a / b
+}
+
+// 正確 - 返回錯誤
+func divideCorrect(a, b int) (int, error) {
+    if b == 0 {
+        return 0, errors.New("division by zero")
+    }
+    return a / b, nil
+}
+
+// 可以 - Panic 用於程式設計師錯誤
+func MustGetUser(id int) *User {
+    user, err := db.GetUser(id)
+    if err != nil {
+        panic("database not initialized") // 程式設計師錯誤
+    }
+    if user == nil {
+        panic("user must exist") // 程式設計師錯誤
+    }
+    return user
+}
+```
+</UniversalEditor>
+
+### 從 Panic 恢復
+
+<UniversalEditor title="恢復模式">
+```python !! py
+# Python - 捕獲所有
+try:
+    risky_operation()
+except Exception as e:
+    print(f"Caught: {e}")
+```
+
+```go !! go
+// Go - 從 panic 恢復（很少需要）
+package main
+
+import (
+    "fmt"
+    "log"
+)
+
+func risky() (result string) {
+    // Defer + recover 捕獲 panic
+    defer func() {
+        if r := recover(); r != nil {
+            // 將 panic 轉換為錯誤
+            result = fmt.Sprintf("Recovered from: %v", r)
+            log.Printf("Panic recovered: %v", r)
+        }
+    }()
+
+    panic("something went wrong")
+}
+
+func main() {
+    fmt.Println(risky()) // "Recovered from: something went wrong"
+}
+```
+</UniversalEditor>
+
+### 伺服器恢復中介軟體
+
+<UniversalEditor title="HTTP 伺服器恢復">
+```go !! go
+// Go - HTTP 伺服器的恢復中介軟體
+package main
+
+import (
+    "fmt"
+    "log"
+    "net/http"
+)
+
+func recoveryMiddleware(next http.HandlerFunc) http.HandlerFunc {
+    return func(w http.ResponseWriter, r *http.Request) {
+        defer func() {
+            if err := recover(); err != nil {
+                log.Printf("Panic recovered: %v", err)
+                http.Error(w, "Internal Server Error", 500)
+            }
+        }()
+        next(w, r)
+    }
+}
+
+func handler(w http.ResponseWriter, r *http.Request) {
+    panic("oops!")
+}
+
+func main() {
+    http.HandleFunc("/", recoveryMiddleware(handler))
+    fmt.Println("Server starting on :8080")
+    log.Fatal(http.ListenAndServe(":8080", nil))
+}
+```
+</UniversalEditor>
+
+## 最佳實踐
+
+### 1. 始終檢查錯誤
+
+<UniversalEditor title="錯誤檢查">
+```python !! py
+# Python - 異常強制處理
+try:
+    result = dangerous_operation()
+except ValueError:
+    handle_error()
+```
+
+```go !! go
+// Go - 顯式錯誤檢查
+// 錯誤 - 忽略錯誤
+file, _ := os.Open("data.txt") // 不要這樣做！
+
+// 正確 - 始終檢查錯誤
+file, err := os.Open("data.txt")
+if err != nil {
+    return err
+}
+```
+</UniversalEditor>
+
+### 2. 為錯誤新增上下文
+
+<UniversalEditor title="錯誤上下文">
+```python !! py
+# Python - 帶上下文的異常
+try:
+    user = get_user(id)
+except ValueError as e:
+    raise ValueError(f"Failed to get user {id}: {e}")
+```
+
+```go !! go
+// Go - 包裝上下文
+// 錯誤 - 丟失原始錯誤
+func processUser(id int) error {
+    user, err := getUser(id)
+    if err != nil {
+        return errors.New("user not found") // 丟失上下文！
+    }
+    return nil
+}
+
+// 正確 - 包裝上下文
+func processUser(id int) error {
+    user, err := getUser(id)
+    if err != nil {
+        return fmt.Errorf("processUser(%d): %w", id, err)
+    }
+    return nil
+}
+```
+</UniversalEditor>
+
+### 3. 立即處理錯誤
+
+<UniversalEditor title="早期錯誤處理">
+```python !! py
+# Python - 早期返回
+def process(data):
+    if not data:
+        return None
+
+    if len(data) < 10:
+        return None
+
+    return transform(data)
+```
+
+```go !! go
+// Go - 立即處理錯誤
+func process(data string) (string, error) {
+    if data == "" {
+        return "", fmt.Errorf("empty data")
+    }
+
+    if len(data) < 10 {
+        return "", fmt.Errorf("data too short: got %d, want >= 10", len(data))
+    }
+
+    return transform(data), nil
+}
+```
+</UniversalEditor>
+
+### 4. 錯誤變數
+
+<UniversalEditor title="錯誤變數">
+```go !! go
+// Go - 定義錯誤變數
+package mypackage
+
+import "errors"
+
+var (
+    ErrNotFound    = errors.New("not found")
+    ErrInvalid     = errors.New("invalid input")
+    ErrPermission  = errors.New("permission denied")
+)
+
+// 匯出的錯誤可以被呼叫者檢查
+func FindItem(id int) (*Item, error) {
+    // ...
+    return nil, ErrNotFound
+}
+
+// 呼叫者可以檢查
+item, err := mypackage.FindItem(123)
+if errors.Is(err, mypackage.ErrNotFound) {
+    // 處理未找到
+}
+```
+</UniversalEditor>
+
+### 5. 不要在程式庫中 Panic
+
+<UniversalEditor title="程式庫錯誤處理">
+```python !! py
+# Python - 程式庫拋出異常
+def process(data):
+    if not data:
+        raise ValueError("Invalid data")
+    return result
+```
+
+```go !! go
+// Go - 程式庫返回錯誤
+// 錯誤 - 程式庫函數 panic
+func Process(data string) string {
+    if data == "" {
+        panic("data is empty") // 不要在程式庫中 panic！
+    }
+    return data
+}
+
+// 正確 - 程式庫函數返回錯誤
+func Process(data string) (string, error) {
+    if data == "" {
+        return "", errors.New("data is empty")
+    }
+    return data, nil
+}
+```
+</UniversalEditor>
+
+## 實際範例
+
+### 檔案操作
+
+<UniversalEditor title="檔案處理">
+```python !! py
+# Python - 檔案操作
+def process_file(path):
+    try:
+        with open(path) as f:
+            data = f.read()
+        return parse(data)
+    except IOError as e:
+        print(f"Failed to read {path}: {e}")
+        return None
+```
+
+```go !! go
+// Go - 檔案操作
+package main
+
+import (
+    "fmt"
+    "os"
+)
+
+func processFile(path string) error {
+    // 開啟檔案
+    file, err := os.Open(path)
+    if err != nil {
+        return fmt.Errorf("failed to open %s: %w", path, err)
+    }
+    defer file.Close()
+
+    // 讀取檔案
+    data := make([]byte, 1024)
+    n, err := file.Read(data)
+    if err != nil {
+        return fmt.Errorf("failed to read %s: %w", path, err)
+    }
+
+    // 處理資料
+    if err := parse(data[:n]); err != nil {
+        return fmt.Errorf("failed to parse %s: %w", path, err)
+    }
+
+    return nil
+}
+
+func main() {
+    if err := processFile("data.txt"); err != nil {
+        fmt.Println("Error:", err)
+    }
+}
+```
+</UniversalEditor>
+
+### 資料庫操作
+
+<UniversalEditor title="資料庫操作">
+```python !! py
+# Python - 帶異常的資料庫
+class UserNotFound(Exception):
+    pass
+
+class DatabaseError(Exception):
+    pass
+
+def get_user(db, id):
+    try:
+        cursor = db.cursor()
+        cursor.execute("SELECT * FROM users WHERE id = ?", (id,))
+        result = cursor.fetchone()
+        if not result:
+            raise UserNotFound(f"User {id} not found")
+        return User(result)
+    except sqlite3.Error as e:
+        raise DatabaseError(f"Database error: {e}")
+```
+
+```go !! go
+// Go - 帶錯誤的資料庫
+package main
+
+import (
+    "database/sql"
+    "errors"
+    "fmt"
+)
+
+var (
+    ErrUserNotFound = errors.New("user not found")
+    ErrDatabase     = errors.New("database error")
+)
+
+func getUser(db *sql.DB, id int) (*User, error) {
+    var user User
+
+    err := db.QueryRow(
+        "SELECT id, name, email FROM users WHERE id = $1",
+        id,
+    ).Scan(&user.ID, &user.Name, &user.Email)
+
+    if err == sql.ErrNoRows {
+        return nil, fmt.Errorf("user %d: %w", id, ErrUserNotFound)
+    }
+    if err != nil {
+        return nil, fmt.Errorf("query user %d: %w", id, err)
+    }
+
+    return &user, nil
+}
+
+func main() {
+    db, err := sql.Open("postgres", connString)
+    if err != nil {
+        panic(err)
+    }
+    defer db.Close()
+
+    user, err := getUser(db, 123)
+    if err != nil {
+        if errors.Is(err, ErrUserNotFound) {
+            fmt.Println("User not found")
+        } else {
+            fmt.Println("Database error:", err)
+        }
+        return
+    }
+
+    fmt.Printf("User: %+v\n", user)
+}
+```
+</UniversalEditor>
+
+### HTTP 客戶端
+
+<UniversalEditor title="帶重試的 HTTP 客戶端">
+```python !! py
+# Python - 帶重試的 HTTP
+import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
+def fetch_with_retry(url, max_retries=3):
+    session = requests.Session()
+    retry = Retry(total=max_retries, backoff_factor=1)
+    adapter = HTTPAdapter(max_retries=retry)
+    session.mount('http://', adapter)
+
+    try:
+        response = session.get(url, timeout=5)
+        response.raise_for_status()
+        return response.json()
+    except requests.RequestException as e:
+        print(f"Request failed: {e}")
+        return None
+```
+
+```go !! go
+// Go - 帶重試的 HTTP 客戶端
+package main
+
+import (
+    "context"
+    "fmt"
+    "io"
+    "net/http"
+    "time"
+)
+
+func fetchWithRetry(ctx context.Context, url string, maxRetries int) ([]byte, error) {
+    var lastErr error
+
+    for attempt := 0; attempt < maxRetries; attempt++ {
+        req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+        if err != nil {
+            return nil, err
+        }
+
+        resp, err := http.DefaultClient.Do(req)
+        if err != nil {
+            lastErr = err
+            time.Sleep(time.Duration(attempt+1) * time.Second)
+            continue
+        }
+
+        defer resp.Body.Close()
+
+        if resp.StatusCode == http.StatusOK {
+            return io.ReadAll(resp.Body)
+        }
+
+        lastErr = fmt.Errorf("unexpected status: %d", resp.StatusCode)
+
+        if resp.StatusCode >= 400 && resp.StatusCode < 500 {
+            // 客戶端錯誤，不要重試
+            return nil, lastErr
+        }
+
+        // 伺服器錯誤，重試
+        time.Sleep(time.Duration(attempt+1) * time.Second)
+    }
+
+    return nil, fmt.Errorf("after %d attempts: %w", maxRetries, lastErr)
+}
+
+func main() {
+    ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+    defer cancel()
+
+    data, err := fetchWithRetry(ctx, "http://example.com", 3)
+    if err != nil {
+        fmt.Println("Error:", err)
+        return
+    }
+
+    fmt.Println("Data:", string(data))
+}
+```
+</UniversalEditor>
+
+## 總結
+
+### 關鍵概念
+
+1. **錯誤是值**：顯式返回，不是拋出
+2. **nil 意味著成功**：非 nil 錯誤表示失敗
+3. **始終檢查錯誤**：立即顯式處理
+4. **新增上下文**：使用 fmt.Errorf 和 %w 包裝錯誤
+5. **哨兵錯誤**：定義錯誤變數用於比較
+6. **自訂型別**：建立錯誤結構體以獲得豐富錯誤資料
+7. **errors.Is/As**：從鏈中檢查和提取錯誤
+8. **Panic 很罕見**：僅用於無法恢復的情況
+
+### 常見模式
+
+- **返回模式**：`(result, error)` - 錯誤是最後一個返回值
+- **早期返回**：先檢查錯誤，早期返回
+- **錯誤包裝**：`fmt.Errorf("context: %w", err)`
+- **錯誤檢查**：`errors.Is(err, ErrNotFound)`
+- **型別斷言**：`errors.As(err, &customErr)`
+- **Defer 清理**：始終運行，即使 panic
+
+### 最佳實踐
+
+1. 立即處理錯誤
+2. 包裝時新增上下文
+3. 對已知情況使用哨兵錯誤
+4. 不要忽略錯誤（少用 `_`）
+5. 不要在程式庫中 panic
+6. Defer 清理操作
+7. 檢查 defer 函數中的錯誤
+8. 使用 context 進行取消/超時
+
+### 與 Python 的對比
+
+| Python | Go |
+|--------|-----|
+| 異常向上冒泡 | 錯誤顯式返回 |
+| try/except 區塊 | if err != nil 檢查 |
+| 異常型別 | 錯誤值/型別 |
+| raise Exception | return error |
+| 簽章中不可見 | 簽章中可見 |
+| 通過異常進行控制流 | 線性控制流 |
+
+## 練習
+
+1. 建立一個包含以下內容的自訂錯誤型別：
+   - 錯誤代碼
+   - 錯誤訊息
+   - HTTP 狀態碼
+   - IsRetryable() 方法
+
+2. 實作重試邏輯：
+   - 最大重試次數
+   - 指數退避
+   - 僅在臨時錯誤時重試
+
+3. 撰寫一個函數：
+   - 開啟檔案
+   - 讀取內容
+   - 解析資料
+   - 在每一步正確包裝錯誤
+
+4. 建立錯誤聚合系統：
+   - 收集多個錯誤
+   - 很好地格式化它們
+   - 檢查特定錯誤是否在集合中
+
+5. 實作基於 context 的取消：
+   - 建立長時間運行的操作
+   - 支援通過 context 取消
+   - 取消時清理資源
+
+## 下一步
+
+下一模組：**Goroutines 和並發** - 擺脫 GIL 並學習強大的 Go 並發原語。

@@ -1,0 +1,973 @@
+---
+title: "模块 5:函数与闭包"
+description: "通过与 Python 对比来掌握 Rust 的函数系统、闭包和函数式编程特性。"
+---
+
+# 模块 5:函数与闭包
+
+函数在 Python 和 Rust 中都是一等公民,但 Rust 通过其类型系统、所有权和闭包特性将其提升到了新的高度。本模块将向你展示如何利用 Rust 强大的函数系统。
+
+## 学习目标
+
+完成本模块后,你将理解:
+- ✅ 函数定义和签名
+- ✅ 参数、参数传递
+- ✅ 返回类型和 `return` 关键字
+- ✅ 闭包及其捕获模式
+- ✅ 作为值的函数指针和闭包
+- ✅ 高阶函数
+- ✅ 迭代器和函数式编程模式
+- ✅ 闭包 vs 函数的性能
+
+## 函数定义
+
+### 基本函数语法
+
+<UniversalEditor compare={true} title="函数定义">
+```python !! py
+# Python: 动态、灵活的函数
+def greet(name):
+    return f"Hello, {name}!"
+
+def add(a, b):
+    return a + b
+
+def no_return():
+    print("Side effect")
+    # 隐式返回 None
+```
+
+```rust !! rs
+// Rust: 静态类型,显式签名
+fn greet(name: &str) -> String {
+    format!("Hello, {}!", name)
+}
+
+fn add(a: i32, b: i32) -> i32 {
+    a + b  // 无分号 = 返回值
+}
+
+fn no_return() {
+    println!("Side effect");
+    // 隐式返回 ()
+}
+```
+</UniversalEditor>
+
+### 类型注解是必需的
+
+<UniversalEditor compare={true} title="类型注解">
+```python !! py
+# Python: 类型提示可选
+def add(a: int, b: int) -> int:
+    return a + b
+
+def add_no_hints(a, b):
+    return a + b  # 可以正常工作!
+
+def flexible(x):
+    if x > 0:
+        return 42
+    return "negative"  # 不同类型也可以
+```
+
+```rust !! rs
+// Rust: 参数和返回值需要类型注解
+fn add(a: i32, b: i32) -> i32 {
+    a + b
+}
+
+// fn add_no_hints(a, b) {  // 错误:需要类型
+//     a + b
+// }
+
+// 不能返回不同的类型
+// fn flexible(x: i32) -> ??? {  // 什么类型?
+//     if x > 0 {
+//         return 42;
+//     }
+//     return "negative";  // 错误:类型不匹配
+// }
+
+// 使用枚举处理不同返回类型
+enum Either {
+    Number(i32),
+    Text(&'static str),
+}
+
+fn flexible(x: i32) -> Either {
+    if x > 0 {
+        Either::Number(42)
+    } else {
+        Either::Text("negative")
+    }
+}
+```
+</UniversalEditor>
+
+### 多返回值
+
+<UniversalEditor compare={true} title="多返回值">
+```python !! py
+# Python: 使用元组返回多个值
+def divide_and_remainder(a, b):
+    quotient = a // b
+    remainder = a % b
+    return quotient, remainder
+
+q, r = divide_and_remainder(10, 3)
+
+# 可以返回任意数量的值
+def many_returns():
+    return 1, 2, 3, 4, 5
+
+a, b, c, d, e = many_returns()
+```
+
+```rust !! rs
+// Rust: 使用元组返回多个值
+fn divide_and_remainder(a: i32, b: i32) -> (i32, i32) {
+    (a / b, a % b)
+}
+
+let (q, r) = divide_and_remainder(10, 3);
+
+// 可以返回任意数量的值
+fn many_returns() -> (i32, i32, i32, i32, i32) {
+    (1, 2, 3, 4, 5)
+}
+
+let (a, b, c, d, e) = many_returns();
+
+// 使用命名字段提高清晰度
+struct DivisionResult {
+    quotient: i32,
+    remainder: i32,
+}
+
+fn divide_struct(a: i32, b: i32) -> DivisionResult {
+    DivisionResult {
+        quotient: a / b,
+        remainder: a % b,
+    }
+}
+```
+</UniversalEditor>
+
+## 参数和参数传递
+
+### 值传递 vs 引用传递
+
+<UniversalEditor compare={true} title="传递语义">
+```python !! py
+# Python: 一切都是引用(对象)
+def modify_list(items):
+    items.append(4)  # 修改原始列表!
+    print(items)
+
+my_list = [1, 2, 3]
+modify_list(my_list)
+print(my_list)  # [1, 2, 3, 4]
+
+# 但重新赋值不影响调用者
+def reassign_list(items):
+    items = [4, 5, 6]  # 只影响局部变量
+
+my_list = [1, 2, 3]
+reassign_list(my_list)
+print(my_list)  # [1, 2, 3]
+```
+
+```rust !! rs
+// Rust: 显式的所有权和借用
+fn modify_list(items: &mut Vec<i32>) {
+    items.push(4);  // 修改原始列表
+    println!("{:?}", items);
+}
+
+let mut my_list = vec![1, 2, 3];
+modify_list(&mut my_list);
+println!("{:?}", my_list);  // [1, 2, 3, 4]
+
+// 获取所有权(消耗向量)
+fn consume_list(items: Vec<i32>) {
+    println!("{:?}", items);
+}  // items 在此处被丢弃
+
+let my_list = vec![1, 2, 3];
+consume_list(my_list);
+// println!("{:?}", my_list);  // 错误:值已被移动
+
+// 不修改地借用
+fn read_list(items: &[i32]) {
+    println!("{:?}", items);
+}
+
+let my_list = vec![1, 2, 3];
+read_list(&my_list);
+println!("{:?}", my_list);  // 仍然可访问
+```
+</UniversalEditor>
+
+### 默认参数
+
+<UniversalEditor compare={true} title="默认参数">
+```python !! py
+# Python: 默认参数
+def greet(name, greeting="Hello"):
+    return f"{greeting}, {name}!"
+
+print(greet("Alice"))  # Hello, Alice!
+print(greet("Bob", "Hi"))  # Hi, Bob!
+
+# 可以有多个默认值
+def func(a, b=1, c=2):
+    return a + b + c
+
+print(func(1))  # 4
+print(func(1, 10))  # 13
+print(func(1, 10, 20))  # 31
+```
+
+```rust !! rs
+// Rust: 没有默认参数(使用方法或构建器)
+fn greet(name: &str, greeting: &str) -> String {
+    format!("{}, {}!", greeting, name)
+}
+
+println!("{}", greet("Alice", "Hello"));
+println!("{}", greet("Bob", "Hi"));
+
+// 模式:使用 Option 表示默认值
+fn greet_optional(name: &str, greeting: Option<&str>) -> String {
+    let greeting = greeting.unwrap_or("Hello");
+    format!("{}, {}!", greeting, name)
+}
+
+println!("{}", greet_optional("Alice", None));
+println!("{}", greet_optional("Bob", Some("Hi")));
+
+// 模式:使用构建器模式
+struct GreetingBuilder {
+    name: String,
+    greeting: Option<String>,
+}
+
+impl GreetingBuilder {
+    fn new(name: &str) -> Self {
+        GreetingBuilder {
+            name: name.to_string(),
+            greeting: None,
+        }
+    }
+
+    fn greeting(mut self, greeting: &str) -> Self {
+        self.greeting = Some(greeting.to_string());
+        self
+    }
+
+    fn build(self) -> String {
+        let greeting = self.greeting.as_deref().unwrap_or("Hello");
+        format!("{}, {}!", greeting, self.name)
+    }
+}
+
+println!("{}", GreetingBuilder::new("Alice").build());
+println!("{}", GreetingBuilder::new("Bob").greeting("Hi").build());
+```
+</UniversalEditor>
+
+### 可变参数
+
+<UniversalEditor compare={true} title="可变参数">
+```python !! py
+# Python: *args 和 **kwargs
+def sum_all(*args):
+    return sum(args)
+
+print(sum_all(1, 2, 3))  # 6
+print(sum_all(1, 2, 3, 4, 5))  # 15
+
+def print_info(**kwargs):
+    for key, value in kwargs.items():
+        print(f"{key}: {value}")
+
+print_info(name="Alice", age=25)
+
+def combined(a, b, *args, **kwargs):
+    print(f"a={a}, b={b}")
+    print(f"args={args}")
+    print(f"kwargs={kwargs}")
+```
+
+```rust !! rs
+// Rust: 使用迭代器、切片或宏
+fn sum_all(numbers: &[i32]) -> i32 {
+    numbers.iter().sum()
+}
+
+println!("{}", sum_all(&[1, 2, 3]));  // 6
+println!("{}", sum_all(&[1, 2, 3, 4, 5]));  // 15
+
+// 对于真正的可变参数,使用宏
+macro_rules! sum_all_macro {
+    ($($x:expr),*) => {{
+        let mut sum = 0;
+        $(sum += $x;)*
+        sum
+    }};
+}
+
+println!("{}", sum_all_macro!(1, 2, 3));  // 6
+
+// 对于异构数据,使用结构体或枚举
+struct Info {
+    data: std::collections::HashMap<String, String>,
+}
+
+fn print_info(info: &Info) {
+    for (key, value) in &info.data {
+        println!("{}: {}", key, value);
+    }
+}
+```
+</UniversalEditor>
+
+## 返回值
+
+### 基于表达式的返回
+
+<UniversalEditor compare={true} title="返回值">
+```python !! py
+# Python: 需要显式 return
+def add(a, b):
+    return a + b
+
+def multiple_returns(x):
+    if x > 0:
+        return "positive"
+    return "non-positive"
+
+def no_return():
+    pass  # 返回 None
+```
+
+```rust !! rs
+// Rust: 最后一个表达式是返回值
+fn add(a: i32, b: i32) -> i32 {
+    a + b  // 无分号 = 返回值
+}
+
+fn multiple_returns(x: i32) -> &'static str {
+    if x > 0 {
+        "positive"  // 无分号
+    } else {
+        "non-positive"  // 无分号
+    }
+}
+
+fn no_return() {
+    // 隐式返回 ()
+}
+
+// 可以使用 return 关键字进行提前返回
+fn early_return(x: i32) -> i32 {
+    if x < 0 {
+        return 0;  // return 可以有分号
+    }
+    x * 2
+}
+```
+</UniversalEditor>
+
+### 永不返回类型
+
+<UniversalEditor compare={true} title="! 永不类型">
+```python !! py
+# Python: 永不返回的函数
+def forever():
+    while True:
+        pass
+
+def error_out():
+    raise ValueError("Error")
+```
+
+```rust !! rs
+// Rust: ! 永不类型
+fn forever() -> ! {
+    loop {}  // 永不返回
+}
+
+fn error_out() -> ! {
+    panic!("Error");  // 永不返回
+}
+
+// 可以在任何需要类型的地方使用 !
+fn always_errors() -> ! {
+    panic!("Always errors");
+}
+
+let x: i32 = always_errors();  // OK,! 可以强制转换为任何类型
+
+// 在 match 分支中
+fn get_number(opt: Option<i32>) -> i32 {
+    match opt {
+        Some(num) => num,
+        None => panic!("No number"),  // ! 与 i32 兼容
+    }
+}
+```
+</UniversalEditor>
+
+## 闭包
+
+闭包是可以捕获其环境的匿名函数。
+
+<UniversalEditor compare={true} title="基本闭包">
+```python !! py
+# Python: Lambda 函数
+add = lambda x, y: x + y
+print(add(1, 2))  # 3
+
+# 也可以使用 def
+def make_adder(n):
+    def adder(x):
+        return x + n
+    return adder
+
+add_5 = make_adder(5)
+print(add_5(10))  # 15
+```
+
+```rust !! rs
+// Rust: 类型推断的闭包
+let add = |x: i32, y: i32| -> i32 { x + y };
+println!("{}", add(1, 2));  // 3
+
+// 类型通常可以推断
+let add = |x, y| x + y;
+println!("{}", add(1i32, 2));  // 3
+
+// 捕获环境
+fn make_adder(n: i32) -> impl Fn(i32) -> i32 {
+    move |x| x + n  // move 关键字转移所有权
+}
+
+let add_5 = make_adder(5);
+println!("{}", add_5(10));  // 15
+```
+</UniversalEditor>
+
+### 闭包捕获模式
+
+<UniversalEditor compare={true} title="闭包捕获">
+```python !! py
+# Python: 通过引用捕获
+def make_counter():
+    count = 0
+    def increment():
+        nonlocal count
+        count += 1
+        return count
+    return increment
+
+counter = make_counter()
+print(counter())  # 1
+print(counter())  # 2
+```
+
+```rust !! rs
+// Rust: 三种捕获模式
+// 1. 借用 (Fn)
+let data = vec![1, 2, 3];
+let borrow = || {
+    println!("{:?}", data);  // 借用 data
+};
+borrow();
+println!("{:?}", data);  // 仍然可访问
+
+// 2. 可变借用 (FnMut)
+let mut data = vec![1, 2, 3];
+let mut borrow_mut = || {
+    data.push(4);  // 可变借用 data
+};
+borrow_mut();
+println!("{:?}", data);  // [1, 2, 3, 4]
+
+// 3. 获取所有权 (使用 move 的 FnOnce)
+let data = vec![1, 2, 3];
+let take_ownership = move || {
+    println!("{:?}", data);  // 移动 data
+};
+take_ownership();
+// println!("{:?}", data);  // 错误:data 已被移动
+
+// 函数特质
+// Fn: 可以多次调用,借用
+// FnMut: 可以多次调用,可变借用
+// FnOnce: 只能调用一次,消耗捕获的值
+```
+</UniversalEditor>
+
+### 闭包类型推断
+
+<UniversalEditor compare={true} title="闭包类型推断">
+```python !! py
+# Python: 动态类型
+def apply(func, value):
+    return func(value)
+
+double = lambda x: x * 2
+print(apply(double, 5))  # 10
+
+to_upper = lambda s: s.upper()
+print(apply(to_upper, "hello"))  # HELLO
+```
+
+```rust !! rs
+// Rust: 闭包类型是推断的
+fn apply<F, T, R>(func: F, value: T) -> R
+where
+    F: Fn(T) -> R,
+{
+    func(value)
+}
+
+let double = |x: i32| x * 2;
+println!("{}", apply(double, 5));  // 10
+
+// 不能对不同的闭包类型使用 apply
+// let to_upper = |s: &str| s.to_uppercase();
+// println!("{}", apply(to_upper, "hello"));  // 错误:类型不匹配
+
+// 但具有相同签名的闭包是兼容的
+let add = |x: i32| x + 10;
+let sub = |x: i32| x - 10;
+fn use_func(f: impl Fn(i32) -> i32, x: i32) -> i32 {
+    f(x)
+}
+println!("{}", use_func(add, 5));  // 15
+println!("{}", use_func(sub, 5));  // -5
+```
+</UniversalEditor>
+
+### 闭包性能
+
+<UniversalEditor compare={true} title="闭包性能">
+```python !! py
+# Python: 函数调用开销
+def apply_function(func, items):
+    return [func(x) for x in items]
+
+items = list(range(1000000))
+result = apply_function(lambda x: x * 2, items)
+```
+
+```rust !! rs
+// Rust: 闭包通常是零成本抽象
+fn apply_function<F>(func: F, items: &[i32]) -> Vec<i32>
+where
+    F: Fn(i32) -> i32,
+{
+    items.iter().map(|&x| func(x)).collect()
+}
+
+let items: Vec<i32> = (0..1000000).collect();
+let result = apply_function(|x| x * 2, &items);
+
+// 闭包编译为常规函数
+// 编译器可以内联它们
+// 相比函数没有运行时开销
+```
+</UniversalEditor>
+
+## 高阶函数
+
+接受或返回其他函数的函数。
+
+<UniversalEditor compare={true} title="高阶函数">
+```python !! py
+# Python: 函数作为值
+def apply_operation(x, y, operation):
+    return operation(x, y)
+
+def add(a, b):
+    return a + b
+
+def multiply(a, b):
+    return a * b
+
+print(apply_operation(5, 3, add))  # 8
+print(apply_operation(5, 3, multiply))  # 15
+
+# 返回函数
+def make_operation(operation):
+    if operation == "add":
+        return lambda x, y: x + y
+    elif operation == "multiply":
+        return lambda x, y: x * y
+
+add_func = make_operation("add")
+print(add_func(5, 3))  # 8
+```
+
+```rust !! rs
+// Rust: 函数指针和闭包
+type BinaryOp = fn(i32, i32) -> i32;
+
+fn apply_operation(x: i32, y: i32, operation: BinaryOp) -> i32 {
+    operation(x, y)
+}
+
+fn add(a: i32, b: i32) -> i32 {
+    a + b
+}
+
+fn multiply(a: i32, b: i32) -> i32 {
+    a * b
+}
+
+println!("{}", apply_operation(5, 3, add));  // 8
+println!("{}", apply_operation(5, 3, multiply));  // 15
+
+// 返回闭包(需要 impl Fn)
+fn make_operation(operation: &str) -> impl Fn(i32, i32) -> i32 {
+    move |x, y| match operation {
+        "add" => x + y,
+        "multiply" => x * y,
+        _ => panic!("Unknown operation"),
+    }
+}
+
+let add_func = make_operation("add");
+println!("{}", add_func(5, 3));  // 8
+```
+</UniversalEditor>
+
+## 迭代器和闭包
+
+Rust 的迭代器方法与闭包无缝协作。
+
+<UniversalEditor compare={true} title="迭代器方法">
+```python !! py
+# Python: 列表推导式和函数
+items = [1, 2, 3, 4, 5]
+
+# 映射
+doubled = [x * 2 for x in items]
+
+# 过滤
+evens = [x for x in items if x % 2 == 0]
+
+# 自定义操作
+def process(x):
+    return x * 2 if x % 2 == 0 else x
+
+processed = [process(x) for x in items]
+```
+
+```rust !! rs
+// Rust: 使用闭包的迭代器方法
+let items = vec![1, 2, 3, 4, 5];
+
+// 映射
+let doubled: Vec<i32> = items.iter().map(|x| x * 2).collect();
+
+// 过滤
+let evens: Vec<&i32> = items.iter().filter(|&x| x % 2 == 0).collect();
+
+// 自定义操作
+let processed: Vec<i32> = items.iter()
+    .map(|&x| if x % 2 == 0 { x * 2 } else { x })
+    .collect();
+
+// 链式调用
+let result: Vec<i32> = items.iter()
+    .filter(|&&x| x % 2 == 0)
+    .map(|&x| x * 2)
+    .take(2)
+    .collect();
+```
+</UniversalEditor>
+
+### 常见迭代器模式
+
+<UniversalEditor compare={true} title="常见模式">
+```python !! py
+# Python: 常见模式
+items = [1, 2, 3, 4, 5]
+
+# 平方和
+sum_squares = sum(x * x for x in items)
+
+# 第一个匹配项
+first_large = next((x for x in items if x > 3), None)
+
+# 全部/任意
+all_positive = all(x > 0 for x in items)
+any_large = any(x > 10 for x in items)
+
+# 折叠/归约
+total = sum(items)
+product = 1
+for x in items:
+    product *= x
+```
+
+```rust !! rs
+// Rust: 迭代器模式
+let items = vec![1, 2, 3, 4, 5];
+
+// 平方和
+let sum_squares: i32 = items.iter().map(|&x| x * x).sum();
+
+// 第一个匹配项
+let first_large = items.iter().find(|&&x| x > 3);
+
+// 全部/任意
+let all_positive = items.iter().all(|&x| x > 0);
+let any_large = items.iter().any(|&x| x > 10);
+
+// 折叠/归约
+let total: i32 = items.iter().sum();
+let product: i32 = items.iter().product();
+```
+</UniversalEditor>
+
+## 综合运用
+
+让我们构建一个完整的例子:
+
+<UniversalEditor compare={true} title="完整示例">
+```python !! py
+from typing import List, Callable, Optional
+
+def process_numbers(
+    numbers: List[int],
+    transform: Callable[[int], int],
+    predicate: Callable[[int], bool]
+) -> List[int]:
+    """使用转换处理数字并按谓词过滤。"""
+    result = []
+    for num in numbers:
+        if predicate(num):
+            result.append(transform(num))
+    return result
+
+def double(x: int) -> int:
+    return x * 2
+
+def is_positive(x: int) -> bool:
+    return x > 0
+
+# 使用
+numbers = [1, -2, 3, -4, 5]
+result = process_numbers(numbers, double, is_positive)
+print(result)  # [2, 6, 10]
+
+# 使用 lambda
+result = process_numbers(numbers, lambda x: x * 3, is_positive)
+print(result)  # [3, 9, 15]
+
+# 组合操作
+def compose(f, g):
+    return lambda x: f(g(x))
+
+double_then_square = compose(lambda x: x * x, double)
+print(double_then_square(5))  # 100
+```
+
+```rust !! rs
+use std::collections::HashMap;
+
+fn process_numbers<F, P>(
+    numbers: &[i32],
+    transform: F,
+    predicate: P,
+) -> Vec<i32>
+where
+    F: Fn(i32) -> i32,
+    P: Fn(i32) -> bool,
+{
+    numbers
+        .iter()
+        .filter(|&&x| predicate(x))
+        .map(|&x| transform(x))
+        .collect()
+}
+
+fn double(x: i32) -> i32 {
+    x * 2
+}
+
+fn is_positive(x: i32) -> bool {
+    x > 0
+}
+
+fn main() {
+    // 使用
+    let numbers = vec![1, -2, 3, -4, 5];
+    let result = process_numbers(&numbers, double, is_positive);
+    println!("{:?}", result);  // [2, 6, 10]
+
+    // 使用闭包
+    let result = process_numbers(&numbers, |x| x * 3, is_positive);
+    println!("{:?}", result);  // [3, 9, 15]
+
+    // 组合操作
+    fn compose<F, G, A, B, C>(f: F, g: G) -> impl Fn(A) -> C
+    where
+        F: Fn(B) -> C,
+        G: Fn(A) -> B,
+    {
+        move |x| f(g(x))
+    }
+
+    let double_then_square = compose(|x: i32| x * x, double);
+    println!("{}", double_then_square(5));  // 100
+
+    // 实际例子:计数单词
+    let text = "hello world hello rust world";
+    let mut counts = HashMap::new();
+
+    for word in text.split_whitespace() {
+        *counts.entry(word).or_insert(0) += 1;
+    }
+
+    println!("{:?}", counts);  // {"hello": 2, "world": 2, "rust": 1}
+}
+```
+</UniversalEditor>
+
+## 总结
+
+在本模块中,你学习了:
+- ✅ 函数签名需要显式类型
+- ✅ 返回值是最后一个表达式
+- ✅ 闭包有三种捕获环境的方式
+- ✅ 函数特质:Fn、FnMut、FnOnce
+- ✅ 使用函数指针的高阶函数
+- ✅ 迭代器方法广泛使用闭包
+- ✅ 闭包是零成本抽象
+
+## 与 Python 的主要区别
+
+1. **类型注解**: 所有参数和返回值都需要
+2. **返回值**: 最后一个表达式,不是显式的 `return`
+3. **闭包捕获**: 显式的所有权(move vs 借用)
+4. **没有默认参数**: 使用构建器或 Option
+5. **函数特质**: 三种特质用于不同捕获模式
+6. **闭包高效**: 通常编译为内联代码
+7. **没有可变参数**: 使用切片、迭代器或宏
+
+## 练习
+
+### 练习 1: 自定义迭代器
+
+创建一个返回闭包的函数:
+- 闭包应该维护计数器
+- 每次调用返回下一个数字
+- 使用 `FnMut` 特质
+
+<details>
+<summary>解决方案</summary>
+
+```rust
+fn make_counter(start: i32) -> impl FnMut() -> i32 {
+    let mut counter = start;
+    move || {
+        let current = counter;
+        counter += 1;
+        current
+    }
+}
+
+fn main() {
+    let mut count = make_counter(0);
+    println!("{}", count());  // 0
+    println!("{}", count());  // 1
+    println!("{}", count());  // 2
+}
+```
+
+</details>
+
+### 练习 2: 高阶映射
+
+实现一个通用的映射函数:
+- 接受一个切片和转换函数
+- 返回包含转换后值的新向量
+- 使用泛型和 impl Fn
+
+<details>
+<summary>解决方案</summary>
+
+```rust
+fn my_map<T, U, F>(items: &[T], f: F) -> Vec<U>
+where
+    F: Fn(&T) -> U,
+{
+    items.iter().map(f).collect()
+}
+
+fn main() {
+    let numbers = vec![1, 2, 3, 4, 5];
+    let doubled: Vec<i32> = my_map(&numbers, |&x| x * 2);
+    println!("{:?}", doubled);  // [2, 4, 6, 8, 10]
+
+    let words = vec!["hello", "world"];
+    let upper: Vec<String> = my_map(&words, |&s| s.to_uppercase());
+    println!("{:?}", upper);  // ["HELLO", "WORLD"]
+}
+```
+
+</details>
+
+### 练习 3: 使用闭包过滤
+
+创建一个灵活的过滤函数:
+- 接受一个切片和谓词闭包
+- 返回匹配谓词的项目
+- 展示多种谓词类型的使用
+
+<details>
+<summary>解决方案</summary>
+
+```rust
+fn my_filter<T, F>(items: &[T], predicate: F) -> Vec<&T>
+where
+    F: Fn(&T) -> bool,
+{
+    items.iter().filter(|x| predicate(x)).collect()
+}
+
+fn main() {
+    let numbers = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+
+    // 过滤偶数
+    let evens = my_filter(&numbers, |&x| x % 2 == 0);
+    println!("{:?}", evens);  // [2, 4, 6, 8, 10]
+
+    // 过滤大于 5 的数
+    let large = my_filter(&numbers, |&x| x > 5);
+    println!("{:?}", large);  // [6, 7, 8, 9, 10]
+
+    // 过滤范围
+    let range = my_filter(&numbers, |&x| x >= 3 && x <= 7);
+    println!("{:?}", range);  // [3, 4, 5, 6, 7]
+}
+```
+
+</details>
+
+## 下一步
+
+现在你已经理解了函数和闭包:
+1. **[模块 6: 数据结构](./module-06-data-structures)** - 学习结构体、枚举和集合
+2. 练习函数式模式
+3. 探索更多迭代器方法
+
+---
+
+**下一节:** [模块 6 - 数据结构](./module-06-data-structures) →

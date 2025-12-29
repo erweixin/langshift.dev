@@ -1,0 +1,1287 @@
+---
+title: "Module 11: Idiomatic Go"
+description: "Learn the Go programming philosophy and idiomatic patterns that distinguish elegant Go code from Java-style Go code"
+---
+
+# Module 11: Idiomatic Go
+
+## Learning Objectives
+
+By the end of this module, you will:
+- Understand Go's programming philosophy
+- Write idiomatic Go code vs Java-style Go
+- Apply "Errors are values" pattern
+- Use interfaces effectively (accept interfaces, return structs)
+- Leverage defer for resource cleanup
+- Understand goroutine ownership patterns
+- Use contexts effectively
+- Follow Go naming conventions
+- Structure packages properly
+- Apply common Go patterns and idioms
+
+## Introduction
+
+Writing Go code that "feels like Go" rather than "Java translated to Go" is key to becoming an effective Go developer. This module covers the philosophy, patterns, and idioms that make Go code elegant and maintainable.
+
+## 1. Go Programming Philosophy
+
+### Less is Exponentially More
+
+<UniversalEditor title="Philosophy: Simplicity vs Complexity">
+```java !! java
+// Java - Often verbose with multiple layers
+public interface UserService {
+    User getUserById(Long id) throws UserNotFoundException;
+}
+
+public class UserServiceImpl implements UserService {
+    private final UserRepository userRepository;
+    private final UserCache userCache;
+
+    @Autowired
+    public UserServiceImpl(UserRepository userRepository, UserCache userCache) {
+        this.userRepository = userRepository;
+        this.userCache = userCache;
+    }
+
+    @Override
+    public User getUserById(Long id) throws UserNotFoundException {
+        User user = userCache.get(id);
+        if (user == null) {
+            user = userRepository.findById(id)
+                .orElseThrow(() -> new UserNotFoundException("User not found: " + id));
+            userCache.put(id, user);
+        }
+        return user;
+    }
+}
+```
+
+```go !! go
+// Go - Simple and direct
+type UserService struct {
+    repo  UserRepository
+    cache UserCache
+}
+
+func (s *UserService) GetUser(id int64) (*User, error) {
+    // Try cache first
+    if user, ok := s.cache.Get(id); ok {
+        return user, nil
+    }
+
+    // Fallback to repository
+    user, err := s.repo.FindByID(id)
+    if err != nil {
+        return nil, fmt.Errorf("user not found: %d", id)
+    }
+
+    s.cache.Put(id, user)
+    return user, nil
+}
+```
+</UniversalEditor>
+
+### Key Principles
+
+1. **Simplicity**: Avoid unnecessary abstraction
+2. **Readability**: Code is read more than written
+3. **Orthogonality**: Features work well together
+4. **Safety**: Type safety and memory safety
+5. **Performance**: Efficient compilation and execution
+
+## 2. "Errors are Values" Pattern
+
+### The Philosophy
+
+In Java, errors are often treated as exceptional control flow. In Go, errors are values that are handled like any other data.
+
+<UniversalEditor title="Error Handling Philosophy">
+```java !! java
+// Java - Exceptions for control flow
+public void processUser(Long userId) {
+    try {
+        User user = userRepository.findById(userId).orElseThrow();
+        validateUser(user);
+        sendEmail(user);
+    } catch (UserNotFoundException e) {
+        logger.error("User not found", e);
+        throw new BusinessException("Invalid user");
+    } catch (ValidationException e) {
+        logger.error("Validation failed", e);
+        throw new BusinessException("Invalid data");
+    } catch (EmailException e) {
+        logger.error("Email failed", e);
+        throw new BusinessException("Communication error");
+    }
+}
+```
+
+```go !! go
+// Go - Errors are values
+func (s *Service) ProcessUser(userID int64) error {
+    user, err := s.repo.FindByID(userID)
+    if err != nil {
+        return fmt.Errorf("find user: %w", err)
+    }
+
+    if err := s.validateUser(user); err != nil {
+        return fmt.Errorf("validate: %w", err)
+    }
+
+    if err := s.sendEmail(user); err != nil {
+        return fmt.Errorf("send email: %w", err)
+    }
+
+    return nil
+}
+
+// Idiomatic: Sentinel errors
+var (
+    ErrUserNotFound  = errors.New("user not found")
+    ErrInvalidInput  = errors.New("invalid input")
+    ErrInternalError = errors.New("internal error")
+)
+
+func (s *Service) ProcessUser(userID int64) error {
+    user, err := s.repo.FindByID(userID)
+    if errors.Is(err, ErrUserNotFound) {
+        return ErrUserNotFound
+    }
+    if err != nil {
+        return fmt.Errorf("find user: %w", err)
+    }
+    // ... rest of logic
+    return nil
+}
+```
+</UniversalEditor>
+
+### Custom Error Types
+
+<UniversalEditor title="Custom Error Types">
+```java !! java
+// Java - Custom exception with error code
+public class ApiException extends RuntimeException {
+    private final ErrorCode code;
+    private final int statusCode;
+
+    public ApiException(ErrorCode code, String message) {
+        super(message);
+        this.code = code;
+        this.statusCode = code.getHttpCode();
+    }
+}
+```
+
+```go !! go
+// Go - Custom error type
+type APIError struct {
+    Code      ErrorCode
+    Message   string
+    StatusCode int
+    Err       error
+}
+
+func (e *APIError) Error() string {
+    if e.Err != nil {
+        return fmt.Sprintf("%s: %v", e.Message, e.Err)
+    }
+    return e.Message
+}
+
+func (e *APIError) Unwrap() error {
+    return e.Err
+}
+
+// Usage
+func (s *Service) ProcessUser(id int64) error {
+    user, err := s.repo.FindByID(id)
+    if err != nil {
+        return &APIError{
+            Code:      ErrNotFound,
+            Message:   "User not found",
+            StatusCode: 404,
+            Err:       err,
+        }
+    }
+    return nil
+}
+```
+</UniversalEditor>
+
+## 3. Interfaces: Accept Interfaces, Return Structs
+
+### The Golden Rule
+
+<UniversalEditor title="Interface Usage Pattern">
+```java !! java
+// Java - Interfaces everywhere (often overused)
+public interface UserRepository extends Repository<User, Long> {
+}
+
+public interface UserService {
+    User getUserById(Long id);
+}
+
+@Service
+public class UserServiceImpl implements UserService {
+    private final UserRepository userRepository;
+
+    public UserServiceImpl(UserRepository userRepository) {
+        this.userRepository = userRepository;
+    }
+}
+```
+
+```go !! go
+// Go - Define interfaces at the consumer side
+// WRONG: Defining interface alongside implementation
+type UserRepository interface {
+    FindByID(id int64) (*User, error)
+}
+
+type MySQLUserRepository struct {
+    db *sql.DB
+}
+
+func (r *MySQLUserRepository) FindByID(id int64) (*User, error) {
+    // ...
+}
+
+// CORRECT: Define interface where it's used
+type UserFinder interface {
+    FindByID(id int64) (*User, error)
+}
+
+type UserService struct {
+    repo UserFinder // Accept interface
+}
+
+func NewUserService(repo UserFinder) *UserService {
+    return &UserService{repo: repo}
+}
+
+// Return concrete struct
+func NewUserRepository(db *sql.DB) *MySQLUserRepository {
+    return &MySQLUserRepository{db: db}
+}
+```
+</UniversalEditor>
+
+### Small Interfaces
+
+<UniversalEditor title="Interface Size">
+```java !! java
+// Java - Large interfaces are common
+public interface Repository<T, ID> {
+    T save(T entity);
+    Optional<T> findById(ID id);
+    List<T> findAll();
+    List<T> findAllById(Iterable<ID> ids);
+    long count();
+    void deleteById(ID id);
+    void delete(T entity);
+    boolean existsById(ID id);
+}
+```
+
+```go !! go
+// Go - Small, focused interfaces
+// io package example
+type Reader interface {
+    Read(p []byte) (n int, err error)
+}
+
+type Writer interface {
+    Write(p []byte) (n int, err error)
+}
+
+type ReadWriter interface {
+    Reader
+    Writer
+}
+
+// Compose interfaces as needed
+type UserReader interface {
+    FindByID(id int64) (*User, error)
+    FindByEmail(email string) (*User, error)
+}
+
+type UserWriter interface {
+    Create(user *User) error
+    Update(user *User) error
+    Delete(id int64) error
+}
+
+type UserReaderWriter interface {
+    UserReader
+    UserWriter
+}
+```
+</UniversalEditor>
+
+### Interface Satisfaction is Implicit
+
+<UniversalEditor title="Implicit Interface Satisfaction">
+```java !! java
+// Java - Explicit implementation
+public class FileLogger implements Logger {
+    @Override
+    public void log(String message) {
+        System.out.println(message);
+    }
+}
+
+// Must declare "implements Logger"
+```
+
+```go !! go
+// Go - Implicit satisfaction
+type Logger interface {
+    Log(message string)
+}
+
+// FileLogger automatically satisfies Logger
+type FileLogger struct {
+    file *os.File
+}
+
+func (l *FileLogger) Log(message string) {
+    fmt.Fprintln(l.file, message)
+}
+
+// No "implements" declaration needed!
+
+// This enables adding interface satisfaction externally
+type Console struct{}
+
+func (c *Console) Log(message string) {
+    fmt.Println(message)
+}
+
+// Console now satisfies Logger interface
+```
+</UniversalEditor>
+
+## 4. Defer for Cleanup
+
+### Replacing try-finally
+
+<UniversalEditor title="Resource Cleanup">
+```java !! java
+// Java - try-finally or try-with-resources
+public void processFile(String path) throws IOException {
+    FileInputStream fis = null;
+    try {
+        fis = new FileInputStream(path);
+        // Process file
+    } finally {
+        if (fis != null) {
+            fis.close();
+        }
+    }
+}
+
+// Better: try-with-resources
+public void processFile(String path) throws IOException {
+    try (FileInputStream fis = new FileInputStream(path)) {
+        // Process file
+    }
+}
+```
+
+```go !! go
+// Go - defer for cleanup
+func processFile(path string) error {
+    f, err := os.Open(path)
+    if err != nil {
+        return err
+    }
+    defer f.Close() // Always executed
+
+    // Process file
+    return nil
+}
+
+// Multiple defers execute LIFO
+func processMultiple() {
+    defer fmt.Println("First")
+    defer fmt.Println("Second")
+    defer fmt.Println("Third")
+
+    // Output: Third, Second, First
+}
+
+// Defer with error handling
+func processFileWithError(path string) error {
+    f, err := os.Open(path)
+    if err != nil {
+        return err
+    }
+    defer func() {
+        if err := f.Close(); err != nil {
+            log.Printf("Warning: failed to close file: %v", err)
+        }
+    }()
+
+    // Process file
+    return nil
+}
+```
+</UniversalEditor>
+
+### Defer Gotchas and Best Practices
+
+<UniversalEditor title="Defer Best Practices">
+```go !! go
+// GOTCHA: Loop variable capture
+func processFiles(files []string) error {
+    for _, file := range files {
+        f, err := os.Open(file)
+        if err != nil {
+            return err
+        }
+        defer f.Close() // WRONG: All closes happen at function exit!
+    }
+    return nil
+}
+
+// CORRECT: Use closure in loop
+func processFilesCorrect(files []string) error {
+    for _, file := range files {
+        if err := func() error {
+            f, err := os.Open(file)
+            if err != nil {
+                return err
+            }
+            defer f.Close() // Closed after each iteration
+            // Process file
+            return nil
+        }(); err != nil {
+            return err
+        }
+    }
+    return nil
+}
+
+// GOTCHA: Parameters evaluated immediately
+func process() {
+    start := time.Now()
+    defer fmt.Println("Duration:", time.Since(start)) // Evaluated at defer!
+
+    time.Sleep(1 * time.Second)
+    // Prints Duration: 0s (wrong!)
+}
+
+// CORRECT: Use function
+func process() {
+    start := time.Now()
+    defer func() {
+        fmt.Println("Duration:", time.Since(start)) // Evaluated at execution
+    }()
+
+    time.Sleep(1 * time.Second)
+    // Prints Duration: 1s (correct!)
+}
+```
+</UniversalEditor>
+
+## 5. Goroutine Ownership
+
+### Who Creates, Who Cleans Up
+
+<UniversalEditor title="Goroutine Lifecycle Management">
+```java !! java
+// Java - ExecutorService manages thread lifecycle
+ExecutorService executor = Executors.newFixedThreadPool(10);
+
+public void processTasks(List<Task> tasks) {
+    List<Future<Result>> futures = new ArrayList<>();
+    for (Task task : tasks) {
+        Future<Result> future = executor.submit(() -> {
+            return task.execute();
+        });
+        futures.add(future);
+    }
+
+    // Wait for all to complete
+    for (Future<Result> future : futures) {
+        future.get(); // blocks
+    }
+}
+```
+
+```go !! go
+// Go - Parent goroutine manages children
+func ProcessTasks(ctx context.Context, tasks []Task) ([]Result, error) {
+    ctx, cancel := context.WithCancel(ctx)
+    defer cancel() // Ensure children are cancelled
+
+    results := make([]Result, len(tasks))
+    errChan := make(chan error, len(tasks))
+
+    for i, task := range tasks {
+        go func(idx int, t Task) {
+            result, err := t.Execute(ctx)
+            if err != nil {
+                errChan <- err
+                cancel() // Cancel other goroutines
+                return
+            }
+            results[idx] = result
+        }(i, task)
+    }
+
+    // Wait for all or first error
+    for range tasks {
+        select {
+        case <-ctx.Done():
+            return nil, ctx.Err()
+        case err := <-errChan:
+            return nil, err
+        }
+    }
+
+    return results, nil
+}
+```
+</UniversalEditor>
+
+### WaitGroups for Coordination
+
+<UniversalEditor title="Using WaitGroups">
+```java !! java
+// Java - CountDownLatch
+CountDownLatch latch = new CountDownLatch(taskCount);
+for (Task task : tasks) {
+    executor.submit(() -> {
+        try {
+            task.execute();
+        } finally {
+            latch.countDown();
+        }
+    });
+}
+latch.await(); // Wait for all
+```
+
+```go !! go
+// Go - WaitGroup
+func processTasks(tasks []Task) {
+    var wg sync.WaitGroup
+
+    for _, task := range tasks {
+        wg.Add(1) // Increment counter
+        go func(t Task) {
+            defer wg.Done() // Decrement when done
+            t.Execute()
+        }(task)
+    }
+
+    wg.Wait() // Wait for all goroutines
+}
+
+// With error handling
+func processTasks(tasks []Task) error {
+    var wg sync.WaitGroup
+    errChan := make(chan error, len(tasks))
+
+    for _, task := range tasks {
+        wg.Add(1)
+        go func(t Task) {
+            defer wg.Done()
+            if err := t.Execute(); err != nil {
+                errChan <- err
+            }
+        }(task)
+    }
+
+    wg.Wait()
+    close(errChan)
+
+    // Collect errors
+    var errors []error
+    for err := range errChan {
+        errors = append(errors, err)
+    }
+
+    if len(errors) > 0 {
+        return fmt.Errorf("tasks failed: %v", errors)
+    }
+    return nil
+}
+```
+</UniversalEditor>
+
+## 6. Effective Use of Contexts
+
+### Context for Cancellation
+
+<UniversalEditor title="Context for Cancellation">
+```java !! java
+// Java - Future cancellation
+Future<String> future = executor.submit(() -> {
+    return longRunningTask();
+});
+
+try {
+    String result = future.get(5, TimeUnit.SECONDS);
+} catch (TimeoutException e) {
+    future.cancel(true); // May interrupt
+}
+```
+
+```go !! go
+// Go - Context for cancellation
+func longRunningTask(ctx context.Context) error {
+    for {
+        select {
+        case <-ctx.Done():
+            return ctx.Err() // Context cancelled
+        default:
+            // Do work
+            if err := processChunk(); err != nil {
+                return err
+            }
+        }
+    }
+}
+
+// Usage
+func processWithTimeout() error {
+    ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+    defer cancel()
+
+    return longRunningTask(ctx)
+}
+```
+</UniversalEditor>
+
+### Context Values (Use Sparingly)
+
+<UniversalEditor title="Context Values">
+```java !! java
+// Java - ThreadLocal
+public class RequestContext {
+    private static final ThreadLocal<String> userId = new ThreadLocal<>();
+
+    public static void setUserId(String id) {
+        userId.set(id);
+    }
+
+    public static String getUserId() {
+        return userId.get();
+    }
+}
+```
+
+```go !! go
+// Go - Context values (use sparingly!)
+type contextKey string
+
+const (
+    userIDKey contextKey = "userID"
+    traceIDKey contextKey = "traceID"
+)
+
+func withUserID(ctx context.Context, userID string) context.Context {
+    return context.WithValue(ctx, userIDKey, userID)
+}
+
+func getUserID(ctx context.Context) (string, bool) {
+    userID, ok := ctx.Value(userIDKey).(string)
+    return userID, ok
+}
+
+// Usage
+func handleRequest(w http.ResponseWriter, r *http.Request) {
+    ctx := r.Context()
+
+    userID, ok := getUserID(ctx)
+    if !ok {
+        http.Error(w, "Unauthorized", http.StatusUnauthorized)
+        return
+    }
+
+    // Process request
+}
+```
+</UniversalEditor>
+
+## 7. Naming Conventions
+
+### Package Names
+
+<UniversalEditor title="Package Naming">
+```java !! java
+// Java - Reverse domain notation
+package com.example.myapp.service;
+
+public class UserService {
+    // ...
+}
+```
+
+```go !! go
+// Go - Short, lowercase, single word
+// In file: user/service.go
+package service
+
+type Service struct {
+    // Since package is 'service', type is just 'User', not 'UserService'
+}
+
+func NewService() *Service {
+    return &Service{}
+}
+```
+</UniversalEditor>
+
+### Interface Names
+
+<UniversalEditor title="Interface Naming">
+```java !! java
+// Java - Often ends with "Impl" for implementations
+public interface UserRepository {
+}
+
+public class JdbcUserRepository implements UserRepository {
+}
+
+public class JpaUserRepository implements UserRepository {
+}
+```
+
+```go !! go
+// Go - Interface names often end with -er
+type Reader interface {
+    Read(p []byte) (n int, err error)
+}
+
+type Writer interface {
+    Write(p []byte) (n int, err error)
+}
+
+// For more complex interfaces, use descriptive names
+type UserRepository interface {
+    FindByID(id int64) (*User, error)
+}
+
+type MySQLUserRepository struct {
+    db *sql.DB
+}
+
+type PostgresUserRepository struct {
+    db *sql.DB
+}
+```
+</UniversalEditor>
+
+### Acronyms
+
+<UniversalEditor title="Acronym Handling">
+```java !! java
+// Java - Acronyms are uppercase
+URL url = new URL("https://example.com");
+HTTPServer server = new HTTPServer();
+```
+
+```go !! go
+// Go - Acronyms are treated as words
+// Correct
+type URL struct {
+    Scheme string
+    Host   string
+}
+
+func getURL() *URL {
+    return &URL{}
+}
+
+type HTTPServer struct {
+    addr string
+}
+
+// Incorrect (don't do this)
+type Url struct {}
+type HttpServer struct {}
+```
+</UniversalEditor>
+
+## 8. Package Structure
+
+### Standard Layout
+
+<UniversalEditor title="Package Organization">
+```
+// Java - Maven/Gradle structure
+src/
+├── main/
+│   ├── java/
+│   │   └── com/
+│   │       └── example/
+│   │           └── app/
+│   │               ├── controller/
+│   │               ├── service/
+│   │               ├── repository/
+│   │               └── model/
+│   └── resources/
+└── test/
+    └── java/
+```
+
+```
+# Go - Standard project layout
+myapp/
+├── cmd/
+│   ├── myapp/
+│   │   └── main.go           # Application entry point
+│   └── myappctl/
+│       └── main.go           # CLI tool
+├── internal/
+│   ├── auth/                 # Private auth code
+│   ├── database/             # Private database code
+│   └── user/                 # Private user logic
+├── pkg/
+│   ├── api/                  # Public API library
+│   └── util/                 # Public utilities
+├── api/
+│   ├── openapi/              # OpenAPI specs
+│   └── proto/                # Protocol buffers
+├── web/
+│   ├── static/               # Static assets
+│   └── templates/            # HTML templates
+├── configs/                  # Configuration files
+├── scripts/                  # Build and deployment scripts
+├── test/                     # Additional test data
+├── docs/                     # Documentation
+├── go.mod
+├── go.sum
+├── Makefile
+└── README.md
+```
+</UniversalEditor>
+
+### The internal Package
+
+<UniversalEditor title="Internal Package Usage">
+```go !! go
+// internal/auth/auth.go
+package auth
+
+// This code cannot be imported by packages outside myapp
+type Authenticator struct {
+    // ...
+}
+
+func New() *Authenticator {
+    return &Authenticator{}
+}
+
+// cmd/myapp/main.go can import this
+package main
+
+import "myapp/internal/auth"
+
+func main() {
+    auth := auth.New()
+    // ...
+}
+
+// But external packages cannot:
+// This would fail to compile:
+// package external
+// import "myapp/internal/auth" // ERROR!
+```
+</UniversalEditor>
+
+## 9. Code Organization
+
+### File Organization
+
+<UniversalEditor title="File Organization">
+```java !! java
+// Java - One public class per file
+// UserService.java
+package com.example.service;
+
+public class UserService {
+    // All user service logic here
+}
+
+// UserRepository.java
+package com.example.repository;
+
+public interface UserRepository {
+    // All repository methods here
+}
+```
+
+```go !! go
+// Go - Organize by functionality, not just types
+// service.go
+package user
+
+type Service struct {
+    repo Repository
+    cache Cache
+}
+
+func NewService(repo Repository, cache Cache) *Service {
+    return &Service{
+        repo:  repo,
+        cache: cache,
+    }
+}
+
+func (s *Service) GetUser(id int64) (*User, error) {
+    // ...
+}
+
+// repository.go
+package user
+
+type Repository interface {
+    FindByID(id int64) (*User, error)
+}
+
+type mysqlRepository struct {
+    db *sql.DB
+}
+
+func NewMySQLRepository(db *sql.DB) Repository {
+    return &mysqlRepository{db: db}
+}
+
+// models.go
+package user
+
+type User struct {
+    ID        int64
+    Email     string
+    Name      string
+    CreatedAt time.Time
+}
+```
+</UniversalEditor>
+
+### Exporting Rules
+
+<UniversalEditor title="Exported vs Unexported">
+```java !! java
+// Java - public/private keywords
+public class UserService {
+    private UserRepository repository;
+
+    public UserService(UserRepository repository) {
+        this.repository = repository;
+    }
+
+    public User getUser(Long id) {
+        return repository.findById(id);
+    }
+
+    private void validate(User user) {
+        // Internal validation
+    }
+}
+```
+
+```go !! go
+// Go - Capitalization determines export
+package service
+
+type Service struct {          // Exported
+    repo  repository          // Unexported
+    cache cache                // Unexported
+}
+
+func NewService(repo repository) *Service {
+    return &Service{repo: repo}
+}
+
+func (s *Service) GetUser(id int64) (*User, error) {  // Exported
+    return s.repo.FindByID(id)
+}
+
+func (s *Service) validate(user *User) error {         // Unexported
+    // Internal validation
+    return nil
+}
+
+// Interface fields must be exported in embedding
+type Server struct {
+    *http.Server              // Embedded, exported
+    logger   *log.Logger      // Unexported field
+}
+```
+</UniversalEditor>
+
+## 10. Common Go Patterns
+
+### The Option Pattern
+
+<UniversalEditor title="Option Pattern for Configuration">
+```java !! java
+// Java - Builder pattern
+public class Server {
+    private int port = 8080;
+    private String host = "localhost";
+    private int timeout = 30;
+
+    private Server(Builder builder) {
+        this.port = builder.port;
+        this.host = builder.host;
+        this.timeout = builder.timeout;
+    }
+
+    public static class Builder {
+        private int port = 8080;
+        private String host = "localhost";
+        private int timeout = 30;
+
+        public Builder port(int port) {
+            this.port = port;
+            return this;
+        }
+
+        public Builder host(String host) {
+            this.host = host;
+            return this;
+        }
+
+        public Builder timeout(int timeout) {
+            this.timeout = timeout;
+            return this;
+        }
+
+        public Server build() {
+            return new Server(this);
+        }
+    }
+}
+
+// Usage
+Server server = new Server.Builder()
+    .port(9090)
+    .host("0.0.0.0")
+    .timeout(60)
+    .build();
+```
+
+```go !! go
+// Go - Functional options pattern
+type Server struct {
+    port    int
+    host    string
+    timeout time.Duration
+}
+
+type Option func(*Server)
+
+func WithPort(port int) Option {
+    return func(s *Server) {
+        s.port = port
+    }
+}
+
+func WithHost(host string) Option {
+    return func(s *Server) {
+        s.host = host
+    }
+}
+
+func WithTimeout(timeout time.Duration) Option {
+    return func(s *Server) {
+        s.timeout = timeout
+    }
+}
+
+func NewServer(opts ...Option) *Server {
+    server := &Server{
+        port:    8080,
+        host:    "localhost",
+        timeout: 30 * time.Second,
+    }
+
+    for _, opt := range opts {
+        opt(server)
+    }
+
+    return server
+}
+
+// Usage
+server := NewServer(
+    WithPort(9090),
+    WithHost("0.0.0.0"),
+    WithTimeout(60*time.Second),
+)
+```
+</UniversalEditor>
+
+### The Table-Driven Test
+
+<UniversalEditor title="Table-Driven Tests">
+```java !! java
+// Java - Separate test methods
+@Test
+public void testAddition() {
+    assertEquals(4, Calculator.add(2, 2));
+    assertEquals(0, Calculator.add(0, 0));
+    assertEquals(-2, Calculator.add(2, -4));
+}
+
+@Test
+public void testSubtraction() {
+    assertEquals(0, Calculator.subtract(2, 2));
+    assertEquals(2, Calculator.subtract(0, -2));
+}
+```
+
+```go !! go
+// Go - Table-driven tests
+func TestAdd(t *testing.T) {
+    tests := []struct {
+        name     string
+        a, b     int
+        expected int
+    }{
+        {"positive numbers", 2, 2, 4},
+        {"zeros", 0, 0, 0},
+        {"negative result", 2, -4, -2},
+        {"large numbers", 1000000, 2000000, 3000000},
+    }
+
+    for _, tt := range tests {
+        t.Run(tt.name, func(t *testing.T) {
+            result := Add(tt.a, tt.b)
+            if result != tt.expected {
+                t.Errorf("Add(%d, %d) = %d; want %d",
+                    tt.a, tt.b, result, tt.expected)
+            }
+        })
+    }
+}
+
+// Test helpers
+func assertEqual[T comparable](t *testing.T, got, want T) {
+    t.Helper()
+    if got != want {
+        t.Errorf("got %v, want %v", got, want)
+    }
+}
+```
+</UniversalEditor>
+
+### Channel Patterns
+
+<UniversalEditor title="Pipeline Pattern">
+```java !! java
+// Java - Stream API
+List<Integer> result = numbers.stream()
+    .filter(n -> n % 2 == 0)
+    .map(n -> n * 2)
+    .collect(Collectors.toList());
+```
+
+```go !! go
+// Go - Pipeline with goroutines and channels
+func generator(nums ...int) <-chan int {
+    out := make(chan int)
+    go func() {
+        for _, n := range nums {
+            out <- n
+        }
+        close(out)
+    }()
+    return out
+}
+
+func filter(in <-chan int, predicate func(int) bool) <-chan int {
+    out := make(chan int)
+    go func() {
+        for n := range in {
+            if predicate(n) {
+                out <- n
+            }
+        }
+        close(out)
+    }()
+    return out
+}
+
+func mapChan(in <-chan int, transform func(int) int) <-chan int {
+    out := make(chan int)
+    go func() {
+        for n := range in {
+            out <- transform(n)
+        }
+        close(out)
+    }()
+    return out
+}
+
+// Usage
+func main() {
+    numbers := generator(1, 2, 3, 4, 5, 6)
+
+    evens := filter(numbers, func(n int) bool {
+        return n%2 == 0
+    })
+
+    doubled := mapChan(evens, func(n int) int {
+        return n * 2
+    })
+
+    for result := range doubled {
+        fmt.Println(result)
+    }
+}
+```
+</UniversalEditor>
+
+## Summary
+
+Key principles for writing idiomatic Go:
+
+1. **Simplicity**: Avoid over-engineering
+2. **Errors are values**: Handle errors explicitly, don't use exceptions
+3. **Accept interfaces, return structs**: Define interfaces at consumption point
+4. **Use defer**: For cleanup and resource management
+5. **Own your goroutines**: Manage their lifecycle
+6. **Context for cancellation**: Use contexts for deadlines and cancellation
+7. **Follow naming conventions**: Package names, interface names, acronyms
+8. **Organize by functionality**: Not by type like Java
+9. **Use functional options**: For configurable objects
+10. **Table-driven tests**: For comprehensive testing
+
+## Practice Questions
+
+1. Why should interfaces be defined at the consumer side rather than the producer side?
+2. What's wrong with using context values for request-scoped data?
+3. When should you use `defer` versus explicit cleanup?
+4. How does Go's implicit interface satisfaction affect package design?
+5. Why are small interfaces preferred over large ones?
+
+## Project Idea
+
+Create a "Go Idioms Linter" that:
+- Detects Java-style patterns in Go code
+- Suggests more idiomatic alternatives
+- Provides before/after examples
+- Covers common patterns from this module
+
+## Next Steps
+
+- **Module 12**: Performance optimization techniques
+- **Module 13**: Deployment and production considerations
+- **Module 14**: Build a complete real-world project
+
+## Further Reading
+
+- [Effective Go](https://go.dev/doc/effective_go)
+- [Go Code Review Comments](https://github.com/golang/go/wiki/CodeReviewComments)
+- [The Go Blog: Go Proverbs](https://go-proverbs.github.io/)
+- [Standard Library Package Names](https://go.dev/pkg/)

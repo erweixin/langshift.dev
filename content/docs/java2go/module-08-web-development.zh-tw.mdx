@@ -1,0 +1,278 @@
+---
+title: "模組 08：Web 開發 - 建構 HTTP 伺服器"
+description: "使用 net/http 掌握 Go Web 開發。與 Java/Spring Boot 比較，學習路由、JSON 處理、中介軟體和流行的 Go 框架。"
+---
+
+# 模組 08：Web 開發 - 建構 HTTP 伺服器
+
+在本模組中，你將學習如何使用 **net/http** 套件建構 Go Web 應用程式。你將看到 Go 的 Web 開發方法與 Java 的 Spring Boot 有何不同，通常需要更少的樣板程式碼和相依性。
+
+## 學習目標
+
+完成本模組後，你將能夠：
+- 使用 net/http 建立 HTTP 伺服器
+- 實作路由和處理程式
+- 處理 JSON 請求和回應
+- 建立中介軟體
+- 將 Go 的方法與 Spring Boot 進行比較
+- 使用流行的 Go Web 框架（Gin、Echo）
+- 建構 RESTful API
+
+## 背景：Go vs Spring Boot
+
+### 哲學差異
+
+**Java/Spring Boot:**
+- 具有許多抽象的重量級框架
+- 註解驅動的設定
+- 相依性注入容器
+- 自動設定和魔法
+- 大記憶體佔用
+
+**Go/net/http:**
+- 最小標準庫方法
+- 顯式程式碼優於設定
+- 沒有內建相依性注入
+- 簡單且可預測
+- 小記憶體佔用
+
+<UniversalEditor title="Hello Web 伺服器：Java vs Go">
+```java !! java
+// Java: Spring Boot REST 控制器
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+public class HelloApplication {
+    @GetMapping("/hello")
+    public String hello() {
+        return "Hello, World!";
+    }
+}
+```
+
+```go !! go
+// Go: 標準庫 HTTP 伺服器
+package main
+
+import (
+	"fmt"
+	"net/http"
+)
+
+func helloHandler(w http.ResponseWriter, r *http.Request) {
+	fmt.Fprint(w, "Hello, World!")
+}
+
+func main() {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /hello", helloHandler)
+	http.ListenAndServe(":8080", mux)
+}
+```
+</UniversalEditor>
+
+## 基本 HTTP 伺服器
+
+<UniversalEditor title="基本 HTTP 伺服器">
+```java !! java
+// Java: 基本 Spring Boot 應用
+@RestController
+@RequestMapping("/api")
+public class BasicController {
+    @GetMapping("/ping")
+    public String ping() {
+        return "pong";
+    }
+}
+```
+
+```go !! go
+// Go: 基本 HTTP 伺服器
+package main
+
+import (
+	"encoding/json"
+	"net/http"
+)
+
+func pingHandler(w http.ResponseWriter, r *http.Request) {
+	fmt.Fprint(w, "pong")
+}
+
+func healthHandler(w http.ResponseWriter, r *http.Request) {
+	response := map[string]string{"status": "UP"}
+	json.NewEncoder(w).Encode(response)
+}
+
+func main() {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/ping", pingHandler)
+	http.ListenAndServe(":8080", mux)
+}
+```
+</UniversalEditor>
+
+## 路由和處理程式
+
+<UniversalEditor title="路由模式">
+```java !! java
+// Java: Spring Boot 路由
+@RestController
+@RequestMapping("/users")
+public class UserController {
+    @GetMapping
+    public List<User> getUsers() {
+        return userService.getUsers();
+    }
+}
+```
+
+```go !! go
+// Go: HTTP 路由
+package main
+
+import (
+	"encoding/json"
+	"net/http"
+)
+
+type User struct {
+	ID    int    `json:"id"`
+	Name  string `json:"name"`
+	Email string `json:"email"`
+}
+
+func getUsersHandler(w http.ResponseWriter, r *http.Request) {
+	users := []User{
+		{ID: 1, Name: "Alice", Email: "alice@example.com"},
+	}
+	json.NewEncoder(w).Encode(users)
+}
+
+func main() {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /users", getUsersHandler)
+	http.ListenAndServe(":8080", mux)
+}
+```
+</UniversalEditor>
+
+## JSON 處理
+
+<UniversalEditor title="JSON 處理">
+```java !! java
+// Java: JSON with Spring Boot
+@PostMapping("/users")
+public ResponseEntity<User> createUser(@RequestBody CreateUserRequest request) {
+    User user = new User();
+    user.setName(request.getName());
+    return ResponseEntity.status(HttpStatus.CREATED).body(user);
+}
+```
+
+```go !! go
+// Go: JSON 處理
+func createUserHandler(w http.ResponseWriter, r *http.Request) {
+	var req CreateUserRequest
+	json.NewDecoder(r.Body).Decode(&req)
+
+	user := User{ID: 1, Name: req.Name}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(user)
+}
+```
+</UniversalEditor>
+
+## 中介軟體
+
+<UniversalEditor title="中介軟體實作">
+```go !! go
+// Go: 中介軟體函式
+package main
+
+import (
+	"log"
+	"net/http"
+)
+
+// 日誌中介軟體
+func loggingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("%s %s", r.Method, r.URL.Path)
+		next.ServeHTTP(w, r)
+	})
+}
+
+func main() {
+	mux := http.NewServeMux()
+	handler := loggingMiddleware(mux)
+	http.ListenAndServe(":8080", handler)
+}
+```
+</UniversalEditor>
+
+## Go Web 框架
+
+### 使用 Gin 框架
+
+<UniversalEditor title="Gin 框架範例">
+```go !! go
+// Go: Gin 框架
+package main
+
+import (
+	"github.com/gin-gonic/gin"
+)
+
+type Product struct {
+	ID    int     `json:"id"`
+	Name  string  `json:"name"`
+	Price float64 `json:"price"`
+}
+
+func getAllProducts(c *gin.Context) {
+	products := []Product{{ID: 1, Name: "Laptop", Price: 999.99}}
+	c.JSON(http.StatusOK, products)
+}
+
+func main() {
+	r := gin.Default()
+	api := r.Group("/api/products")
+	{
+		api.GET("", getAllProducts)
+	}
+	r.Run(":8080")
+}
+```
+</UniversalEditor>
+
+## 練習題
+
+1. **簡潔性**：是什麼讓 Go 的 Web 開發方法比 Spring Boot 更簡單？
+
+2. **相依性**：為什麼你可能選擇 Go 的標準庫而不是像 Gin 這樣的框架？
+
+## 專案想法
+
+1. **RESTful Blog API**：建構完整的部落格 API
+2. **任務管理系統**：建立任務管理器
+3. **即時聊天**：實作 WebSocket 聊天伺服器
+
+## 下一步
+
+現在你已經理解了 Go 的 Web 開發：
+
+- **下一模組**：學習 Go 中的 **測試**
+- **練習**：使用 net/http 和框架建構 RESTful API
+
+## 總結
+
+**Go vs Spring Boot 用於 Web 開發：**
+- Go 需要更少的樣板程式碼和設定
+- 標準庫 (net/http) 是生產就緒的
+- 更簡單的部署（單個二進位檔案）
+- 更好的效能和更低的記憶體使用
+
+**關鍵要點**：Go 的 Web 開發方法優先考慮簡單性和效能，而不是框架魔法。

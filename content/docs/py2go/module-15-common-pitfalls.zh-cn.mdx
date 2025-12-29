@@ -1,0 +1,533 @@
+---
+title: "Module 15: 常见陷阱和最佳实践"
+description: "避免从 Python 转到 Go 时的常见错误"
+---
+
+## 简介
+
+本模块涵盖 Python 开发者在学习 Go 时常犯的错误,以及编写地道 Go 代码的最佳实践。
+
+## 陷阱 1: 错误使用指针
+
+<UniversalEditor title="指针使用">
+```python !! py
+# Python - 一切都是引用
+def modify_item(item):
+    item['value'] = 42  # 修改原始对象
+
+data = {'value': 0}
+modify_item(data)
+print(data['value'])  # 42
+```
+
+```go !! go
+// 错误 - 不必要的指针
+func (p *MyStruct) GetValue() int {
+    return p.value  // 不需要指针接收者
+}
+
+// 正确 - 只在修改时使用指针
+func (p *MyStruct) SetValue(v int) {
+    p.value = v  // 需要指针接收者
+}
+
+// 正确 - 只读使用值接收者
+func (m MyStruct) GetValue() int {
+    return m.value  // 值接收者就可以
+}
+```
+</UniversalEditor>
+
+## 陷阱 2: 不处理错误
+
+<UniversalEditor title="错误处理">
+```python !! py
+# Python - 异常是自动的
+def divide(a, b):
+    return a / b  # 可能引发 ZeroDivisionError
+
+try:
+    result = divide(10, 0)
+except ZeroDivisionError:
+    print("Cannot divide by zero")
+```
+
+```go !! go
+// 错误 - 忽略错误
+func divide(a, b int) int {
+    return a / b  // 当 b=0 时会 panic
+}
+
+// 正确 - 返回错误
+func divide(a, b int) (int, error) {
+    if b == 0 {
+        return 0, errors.New("division by zero")
+    }
+    return a / b, nil
+}
+
+// 正确 - 始终检查错误
+result, err := divide(10, 0)
+if err != nil {
+    log.Println("Error:", err)
+    return
+}
+fmt.Println(result)
+```
+</UniversalEditor>
+
+## 陷阱 3: Goroutine 泄漏
+
+<UniversalEditor title="Goroutine 泄漏">
+```python !! py
+# Python - 线程可能不会退出
+import threading
+
+def worker():
+    while True:
+        data = queue.get()
+        if data == "STOP":
+            break
+        process(data)
+
+t = threading.Thread(target=worker)
+t.start()
+# 如果忘记发送 "STOP",线程永远不会退出
+```
+
+```go !! go
+// 错误 - Goroutine 永不退出
+func worker() {
+    for {
+        data := <-ch
+        process(data)
+    }
+}
+
+// 正确 - 始终有退出条件
+func worker(stop <-chan struct{}) {
+    for {
+        select {
+        case data := <-ch:
+            process(data)
+        case <-stop:
+            return  // 退出 goroutine
+        }
+    }
+}
+
+// 使用
+stop := make(chan struct{})
+go worker(stop)
+
+// 发送停止信号
+close(stop)
+```
+</UniversalEditor>
+
+## 陷阱 4: 循环变量捕获
+
+<UniversalEditor title="闭包陷阱">
+```python !! py
+# Python - 延迟绑定闭包问题
+funcs = []
+for i in range(3):
+    funcs.append(lambda: print(i))
+
+for f in funcs:
+    f()  # 打印 2, 2, 2 (都引用同一个 i)
+
+# 修复 - 捕获值
+funcs = []
+for i in range(3):
+    funcs.append(lambda i=i: print(i))
+```
+
+```go !! go
+// 错误 - 所有 goroutine 捕获同一个 i
+for i := 0; i < 3; i++ {
+    go func() {
+        fmt.Println(i)  // 可能打印 3, 3, 3
+    }()
+}
+
+// 正确 - 作为参数传递
+for i := 0; i < 3; i++ {
+    go func(n int) {
+        fmt.Println(n)  // 打印 0, 1, 2
+    }(i)
+}
+```
+</UniversalEditor>
+
+## 陷阱 5: 循环中的 defer
+
+<UniversalEditor title="循环中的 defer">
+```python !! py
+# Python - 清理立即发生或使用上下文管理器
+for filename in filenames:
+    with open(filename) as f:
+        process(f)
+    # 文件在此处关闭
+```
+
+```go !! go
+// 错误 - defer 在函数退出时运行,而非循环迭代时
+func processFiles(filenames []string) {
+    for _, filename := range filenames {
+        file, err := os.Open(filename)
+        if err != nil {
+            return err
+        }
+        defer file.Close()  // 错误! 在函数退出时运行
+
+        process(file)
+    }
+    // 所有文件在此处关闭 (太晚了,可能会耗尽文件描述符)
+}
+
+// 正确 - 创建函数或立即关闭
+func processFiles(filenames []string) error {
+    for _, filename := range filenames {
+        if err := processFile(filename); err != nil {
+            return err
+        }
+    }
+    return nil
+}
+
+func processFile(filename string) error {
+    file, err := os.Open(filename)
+    if err != nil {
+        return err
+    }
+    defer file.Close()  // 正确 - 在 processFile 返回时运行
+
+    process(file)
+    return nil
+}
+```
+</UniversalEditor>
+
+## 陷阱 6: 字符串 vs []byte
+
+<UniversalEditor title="字符串 vs 字节切片">
+```python !! py
+# Python - 字符串和字节
+text = "hello"
+data = b"hello"  # 字节
+
+# 转换
+text = data.decode()
+data = text.encode()
+```
+
+```go !! go
+// 错误 - 不必要的转换
+func processData(data string) []byte {
+    return []byte(data)  // 创建副本
+}
+
+// 正确 - 尽可能直接使用字节
+func processData(data []byte) {
+    // 直接处理字节
+}
+
+// 正确 - 只在必要时转换
+func readJSON(r io.Reader) (map[string]interface{}, error) {
+    var result map[string]interface{}
+    decoder := json.NewDecoder(r)
+    err := decoder.Decode(&result)
+    return result, err
+}
+```
+</UniversalEditor>
+
+## 陷阱 7: Channel 阻塞
+
+<UniversalEditor title="Channel 阻塞">
+```python !! py
+# Python - 带超时的队列
+try:
+    item = queue.get(timeout=1.0)
+except queue.Empty:
+    item = None
+```
+
+```go !! go
+// 错误 - 可能永久阻塞
+item := <-ch
+
+// 正确 - 使用 select 和超时
+select {
+case item := <-ch:
+    // 处理 item
+case <-time.After(time.Second):
+    // 处理超时
+}
+
+// 正确 - 使用 default 实现非阻塞
+select {
+case item := <-ch:
+    // 处理 item
+default:
+    // 没有可用数据
+}
+```
+</UniversalEditor>
+
+## 陷阱 8: Nil 切片 vs 空切片
+
+<UniversalEditor title="Nil vs 空切片">
+```python !! py
+# Python - None vs 空列表
+items1 = None
+items2 = []
+
+if items1:
+    print("Has items")  # 不打印
+
+if items2:
+    print("Has items")  # 不打印
+```
+
+```go !! go
+// Go - 重要区别
+var nilSlice []int       // nil 切片
+emptySlice := []int{}    // 空切片
+
+// 两者长度都是 0
+fmt.Println(len(nilSlice))   // 0
+fmt.Println(len(emptySlice)) // 0
+
+// 但 JSON 编码不同
+json.Marshal(nilSlice)   // null
+json.Marshal(emptySlice) // []
+
+// 正确 - JSON 使用空切片
+func processItems() []int {
+    result := make([]int, 0)  // 空的,不是 nil
+
+    // 处理...
+    return result  // 始终返回 [],从不返回 null
+}
+```
+</UniversalEditor>
+
+## 最佳实践
+
+### 1. 错误消息
+
+<UniversalEditor title="错误消息">
+```python !! py
+# Python
+raise ValueError("Invalid user ID")
+```
+
+```go !! go
+// 错误 - 通用错误
+return fmt.Errorf("error")
+
+// 错误 - 没有上下文的错误
+return errors.New("not found")
+
+// 正确 - 描述性错误
+return fmt.Errorf("user not found: ID %d", userID)
+
+// 正确 - 包装错误并添加上下文
+return fmt.Errorf("failed to process user: %w", err)
+```
+</UniversalEditor>
+
+### 2. 变量命名
+
+<UniversalEditor title="命名约定">
+```python !! py
+# Python - snake_case
+user_name = "Alice"
+total_count = 42
+MAX_CONNECTIONS = 100
+```
+
+```go !! go
+// Go - camelCase (导出 = PascalCase)
+userName := "Alice"
+totalCount := 42
+const MaxConnections = 100  // 导出的
+const maxRetries = 3        // 未导出的
+```
+</UniversalEditor>
+
+### 3. 接口设计
+
+<UniversalEditor title="接口设计">
+```python !! py
+# Python - 鸭子类型,没有显式接口
+def process(obj):
+    if hasattr(obj, 'process'):
+        obj.process()
+```
+
+```go !! go
+// 错误 - 巨大的接口
+type Processor interface {
+    Process()
+    Validate()
+    Save()
+    Delete()
+    Update()
+}
+
+// 正确 - 小而专注的接口
+type Processor interface {
+    Process() error
+}
+
+type Validator interface {
+    Validate() error
+}
+
+// 正确 - 接受接口,返回结构体
+func ProcessData(p Processor) error {
+    return p.Process()
+}
+```
+</UniversalEditor>
+
+### 4. 包结构
+
+<UniversalEditor title="包组织">
+```bash
+# Python - 扁平或嵌套
+project/
+├── __init__.py
+├── models.py
+├── views.py
+└── utils.py
+```
+
+```bash
+# Go - 层次化
+project/
+├── go.mod
+├── main.go
+├── internal/
+│   ├── app/
+│   ├── handler/
+│   └── service/
+├── pkg/
+│   └── util/
+└── api/
+    └── v1/
+```
+</UniversalEditor>
+
+### 5. 并发模式
+
+<UniversalEditor title="并发最佳实践">
+```python !! py
+# Python - 受 GIL 限制
+import threading
+
+def worker():
+    # 一次只能运行一个线程
+    process()
+
+threads = [threading.Thread(target=worker) for _ in range(10)]
+for t in threads:
+    t.start()
+```
+
+```go !! go
+// 正确 - 使用 worker pool
+func workerPool(jobs <-chan Job, results chan<- Result) {
+    const numWorkers = 10
+
+    var wg sync.WaitGroup
+    for i := 0; i < numWorkers; i++ {
+        wg.Add(1)
+        go func() {
+            defer wg.Done()
+            for job := range jobs {
+                results <- process(job)
+            }
+        }()
+    }
+
+    go func() {
+        wg.Wait()
+        close(results)
+    }()
+}
+```
+</UniversalEditor>
+
+## 地道的 Go 模式
+
+### Context 用于取消
+
+<UniversalEditor title="Context 使用">
+```go
+// 正确 - 始终接受 context 作为第一个参数
+func GetUser(ctx context.Context, userID int) (*User, error) {
+    // 检查取消
+    select {
+    case <-ctx.Done():
+        return nil, ctx.Err()
+    default:
+    }
+
+    // 查询数据库
+    user, err := db.QueryUser(ctx, userID)
+    if err != nil {
+        return nil, err
+    }
+
+    return user, nil
+}
+
+// 正确 - 通过调用链传递 context
+func processRequest(ctx context.Context, req Request) error {
+    user, err := GetUser(ctx, req.UserID)
+    if err != nil {
+        return err
+    }
+
+    return UpdateUser(ctx, user)
+}
+```
+</UniversalEditor>
+
+## 总结
+
+需要避免的常见陷阱:
+1. **不必要的指针** - 只在需要时使用
+2. **忽略错误** - 始终检查错误返回
+3. **Goroutine 泄漏** - 始终提供退出条件
+4. **循环变量捕获** - 作为参数传递
+5. **循环中的 defer** - 使用单独的函数
+6. **字符串 vs []byte** - 使用适当的类型
+7. **Channel 阻塞** - 使用带超时/默认的 select
+8. **Nil vs 空切片** - 理解区别
+
+最佳实践:
+1. **描述性错误** - 包含上下文
+2. **正确的命名** - 遵循 Go 约定
+3. **小接口** - 专注、可组合
+4. **包组织** - internal/、pkg/
+5. **Worker pool** - 限制 goroutine 数量
+6. **Context 传播** - 通过调用传递
+7. **提前返回** - 先检查错误
+8. **显式优于隐式** - 清晰易读
+
+## 练习
+
+1. 在示例代码中查找并修复 goroutine 泄漏
+2. 重构以使用正确的错误处理
+3. 实现 worker pool 模式
+4. 将 Python 风格的代码转换为地道的 Go
+5. 审查代码中的常见陷阱
+
+## 下一步
+
+下一模块: **真实项目** - 完整的项目以巩固你的知识。

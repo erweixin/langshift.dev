@@ -1,0 +1,879 @@
+---
+title: "模块 12: 智能指针 - 高级内存管理"
+description: "掌握 Rust 的智能指针(Box、Rc、Arc、RefCell)并理解它们如何与 Python 的内存管理模型进行比较。"
+---
+
+# 模块 12: 智能指针 - 高级内存管理
+
+在本模块中,你将学习 Rust 中的**智能指针**。智能指针是行为类似指针但具有额外元数据和功能的数据结构。它们类似于 Python 的引用计数,但具有显式控制和编译时保证。
+
+## 学习目标
+
+完成本模块后,你将能够:
+- 使用 `Box<T>` 进行堆分配
+- 使用 `Rc<T>` 进行单线程引用计数
+- 使用 `Arc<T>` 进行多线程引用计数
+- 使用 `RefCell<T>` 实现内部可变性
+- 理解何时使用每种智能指针类型
+- 比较 Rust 的智能指针与 Python 的内存模型
+
+## 背景:指针 vs 引用
+
+在 Rust 中,**引用**和**智能指针**有重要区别:
+
+<UniversalEditor compare={true} title="引用 vs 智能指针">
+```python !! py
+# Python: 所有变量都是引用
+x = [1, 2, 3]  # x 是对列表的引用
+y = x  # y 是对同一列表的另一个引用
+y.append(4)
+print(x)  # [1, 2, 3, 4] - 两者引用同一个对象
+```
+
+```rust !! rs
+// Rust: 引用(&) vs 智能指针
+// 引用:借用,无所有权
+let x = vec![1, 2, 3];
+let y: &Vec<i32> = &x;  // y 借用 x
+// y 不能修改 x(除非是 &mut)
+
+// 智能指针:具有额外功能的所有权
+let z: Box<Vec<i32>> = Box::new(vec![1, 2, 3]);
+// z 拥有堆上的数据
+```
+</UniversalEditor>
+
+## `Box<T>`: 堆分配
+
+`Box<T>` 是最简单的智能指针。它允许你在堆而不是栈上存储数据。
+
+### 何时使用 Box
+
+<UniversalEditor compare={true} title="Box 使用场景">
+```python !! py
+# Python: 列表总是在堆上分配
+large_data = list(range(1_000_000))
+# 列表对象在堆上,元素也是堆分配的
+
+# 递归数据结构工作正常
+class TreeNode:
+    def __init__(self, value, left=None, right=None):
+        self.value = value
+        self.left = left
+        self.right = right
+
+# Python 自动处理这个问题
+```
+
+```rust !! rs
+// Rust: Box 用于堆分配
+// 使用场景 1: 堆上的大数据
+let large_data: Box<[i32]> = (0..1_000_000).collect::<Vec<_>>().into_boxed_slice();
+// 数据在堆上,large_data 是栈指针
+
+// 使用场景 2: 递归类型
+enum TreeNode {
+    Leaf(i32),
+    Node {
+        value: i32,
+        left: Box<TreeNode>,  // 递归需要 Box
+        right: Box<TreeNode>,
+    },
+}
+
+let leaf = TreeNode::Leaf(5);
+let node = TreeNode::Node {
+    value: 10,
+    left: Box::new(leaf),
+    right: Box::new(TreeNode::Leaf(15)),
+};
+
+// 使用场景 3: trait 对象
+trait Drawable {
+    fn draw(&self);
+}
+
+struct Circle { radius: f64 }
+struct Rectangle { width: f64, height: f64 }
+
+impl Drawable for Circle {
+    fn draw(&self) { println!("Drawing circle"); }
+}
+
+impl Drawable for Rectangle {
+    fn draw(&self) { println!("Drawing rectangle"); }
+}
+
+let shapes: Vec<Box<dyn Drawable>> = vec![
+    Box::new(Circle { radius: 5.0 }),
+    Box::new(Rectangle { width: 10.0, height: 20.0 }),
+];
+
+for shape in shapes.iter() {
+    shape.draw();
+}
+```
+</UniversalEditor>
+
+### Box 性能
+
+<UniversalEditor compare={true} title="Box 性能特征">
+```python !! py
+# Python: 一切都是引用
+# 传递大列表很便宜(只是复制引用)
+def process_list(lst):
+    return sum(lst)
+
+large = list(range(1_000_000))
+result = process_list(large)  # 便宜 - 只是引用复制
+```
+
+```rust !! rs
+// Rust: Box 有成本(堆分配)但启用模式
+use std::time::Instant;
+
+fn process_vec(data: Vec<i32>) -> i32 {
+    data.iter().sum()
+}
+
+fn process_box(data: Box<[i32]>) -> i32 {
+    data.iter().sum()
+}
+
+let vec_data: Vec<i32> = (0..1_000_000).collect();
+let boxed_data: Box<[i32]> = vec_data.into_boxed_slice();
+
+// Vec 是栈分配的,带有堆缓冲区
+let start = Instant::now();
+let _ = process_vec(vec_data);
+println!("Vec: {:?}", start.elapsed());
+
+// Box 总是堆分配的
+let start = Instant::now();
+let _ = process_box(boxed_data);
+println!("Box: {:?}", start.elapsed());
+// Box 有轻微开销但启用递归类型
+```
+</UniversalEditor>
+
+## `Rc<T>`: 引用计数
+
+`Rc<T>`(Reference Counting)提供类似于 Python 内存模型的共享所有权。它允许多个所有者拥有相同的数据。
+
+<UniversalEditor compare={true} title="Rc vs Python 引用">
+```python !! py
+# Python: 同一对象的多个引用
+data = [1, 2, 3]
+ref1 = data
+ref2 = data
+ref3 = data
+
+# 都引用同一个列表
+ref1.append(4)
+print(ref2)  # [1, 2, 3, 4]
+print(ref3)  # [1, 2, 3, 4]
+
+# Python 内部使用引用计数
+import sys
+print(f"refcount: {sys.getrefcount(data)}")  # 4 (data + ref1 + ref2 + ref3)
+```
+
+```rust !! rs
+// Rust: Rc 用于共享所有权(单线程)
+use std::rc::Rc;
+
+let data = Rc::new(vec![1, 2, 3]);
+let ref1 = Rc::clone(&data);
+let ref2 = Rc::clone(&data);
+let ref3 = Rc::clone(&data);
+
+// 都引用相同的数据
+println!("refcount: {}", Rc::strong_count(&data));  // 4
+
+// Rc 不允许通过共享引用进行修改
+// 要修改,需要 RefCell(稍后介绍)
+```
+</UniversalEditor>
+
+### Rc 引用计数
+
+<UniversalEditor compare={true} title="Rc 引用计数实际操作">
+```python !! py
+# Python: 引用计数自动发生
+class Data:
+    def __init__(self, value):
+        self.value = value
+        print(f"Created Data({value})")
+
+    def __del__(self):
+        print(f"Destroyed Data({self.value})")
+
+def create_shared():
+    local = Data(10)
+    return local
+
+# 引用计数跟踪使用情况
+shared = create_shared()
+another = shared
+print(f"refcount: {sys.getrefcount(shared)}")  # 3 (shared + another + getrefcount 参数)
+del another
+# 引用计数达到 0 时数据被销毁
+```
+
+```rust !! rs
+// Rust: Rc 引用计数是显式的
+use std::rc::Rc;
+
+struct Data {
+    value: i32,
+}
+
+impl Drop for Data {
+    fn drop(&mut self) {
+        println!("Destroyed Data({})", self.value);
+    }
+}
+
+fn create_shared() -> Rc<Data> {
+    let local = Rc::new(Data { value: 10 });
+    println!("Created, refcount: {}", Rc::strong_count(&local));
+    local
+}
+
+let shared = create_shared();
+println!("After create, refcount: {}", Rc::strong_count(&shared));
+
+let another = Rc::clone(&shared);
+println!("After clone, refcount: {}", Rc::strong_count(&shared));
+
+drop(another);
+println!("After drop, refcount: {}", Rc::strong_count(&shared));
+// 引用计数达到 0 时数据被销毁
+```
+</UniversalEditor>
+
+### Rc 与循环
+
+<UniversalEditor compare={true} title="引用循环">
+```python !! py
+# Python: 垃圾回收器处理引用循环
+class Node:
+    def __init__(self, value):
+        self.value = value
+        self.parent = None
+        self.children = []
+
+# 创建循环
+parent = Node(1)
+child = Node(2)
+parent.children.append(child)
+child.parent = parent  # 创建循环
+
+# Python 的 GC 会检测并清理这个
+```
+
+```rust !! rs
+// Rust: Rc 会因循环而造成内存泄漏!
+use std::rc::Rc;
+use std::cell::RefCell;
+
+struct Node {
+    value: i32,
+    parent: RefCell<Option<Rc<Node>>>,
+    children: RefCell<Vec<Rc<Node>>>,
+}
+
+// 警告: 这会造成内存泄漏!
+let parent = Rc::new(Node {
+    value: 1,
+    parent: RefCell::new(None),
+    children: RefCell::new(vec![]),
+});
+
+let child = Rc::new(Node {
+    value: 2,
+    parent: RefCell::new(None),
+    children: RefCell::new(vec![]),
+});
+
+// 创建循环
+parent.children.borrow_mut().push(Rc::clone(&child));
+*child.parent.borrow_mut() = Some(Rc::clone(&parent));
+
+// 内存泄漏! 引用计数永远不会达到 0
+// 解决方案: 使用 Weak<Rc> 进行反向引用
+```
+</UniversalEditor>
+
+## `Arc<T>`: 原子引用计数
+
+`Arc<T>`(Atomic Reference Counting)类似于 `Rc<T>`,但是是线程安全的。当你需要跨线程的共享所有权时使用它。
+
+<UniversalEditor compare={true} title="Arc 用于线程安全">
+```python !! py
+# Python: 引用计数是线程安全的(GIL 保护)
+import threading
+
+data = [1, 2, 3]
+
+def worker():
+    print(f"Worker sees: {data}")
+
+thread = threading.Thread(target=worker)
+thread.start()
+thread.join()
+# Python 的 GIL 使引用计数线程安全
+```
+
+```rust !! rs
+// Rust: Arc 用于线程安全的引用计数
+use std::sync::{Arc, Mutex};
+use std::thread;
+
+let data = Arc::new(vec![1, 2, 3]);
+let data_clone = Arc::clone(&data);
+
+let handle = thread::spawn(move || {
+    println!("Worker sees: {:?}", data_clone);
+});
+
+handle.join().unwrap();
+// Arc 使用原子操作确保线程安全
+```
+</UniversalEditor>
+
+### Arc 性能
+
+<UniversalEditor compare={true} title="Arc vs Rc 性能">
+```python !! py
+# Python: GIL 使操作线程安全但很慢
+import time
+import threading
+
+counter = [0]
+
+def increment():
+    for _ in range(100_000):
+        counter[0] += 1
+
+threads = [threading.Thread(target=increment) for _ in range(4)]
+for t in threads:
+    t.start()
+for t in threads:
+    t.join()
+
+print(f"Counter: {counter[0]}")  # 可能不是 400,000 由于 GIL 争用
+```
+
+```rust !! rs
+// Rust: Arc 有开销但启用真正的并行
+use std::sync::{Arc, Mutex};
+use std::thread;
+
+let counter = Arc::new(Mutex::new(0));
+let mut handles = vec![];
+
+for _ in 0..4 {
+    let counter_clone = Arc::clone(&counter);
+    let handle = thread::spawn(move || {
+        for _ in 0..100_000 {
+            let mut num = counter_clone.lock().unwrap();
+            *num += 1;
+        }
+    });
+    handles.push(handle);
+}
+
+for handle in handles {
+    handle.join().unwrap();
+}
+
+println!("Counter: {}", *counter.lock().unwrap());
+// 正确是 400,000 - 真正的并行
+```
+</UniversalEditor>
+
+## `RefCell<T>`: 内部可变性
+
+`RefCell<T>` 允许你通过不可变引用修改数据。这被称为**内部可变性**。
+
+<UniversalEditor compare={true} title="内部可变性">
+```python !! py
+# Python: 对象总是可变的
+class Container:
+    def __init__(self, value):
+        self.value = value
+
+container = Container(10)
+container.value = 20  # 变更总是被允许的
+
+# 即使通过"不可变"引用
+def modify(cont):
+    cont.value = 30  # 工作正常
+
+modify(container)
+print(container.value)  # 30
+```
+
+```rust !! rs
+// Rust: RefCell 启用内部可变性
+use std::cell::RefCell;
+
+struct Container {
+    value: RefCell<i32>,  // 内部可变性
+}
+
+let container = Container {
+    value: RefCell::new(10),
+};
+
+*container.value.borrow_mut() += 20;
+println!("Value: {}", container.value.borrow());
+
+// RefCell 在运行时强制执行借用规则
+// 多个不可变借用 或 一个可变借用
+let borrow1 = container.value.borrow();
+let borrow2 = container.value.borrow();  // OK: 多个不可变
+println!("Borrow1: {}, Borrow2: {}", borrow1, borrow2);
+
+drop(borrow1);
+drop(borrow2);
+
+let mut borrow3 = container.value.borrow_mut();  // OK: 释放后可变
+*borrow3 += 10;
+println!("After mutation: {}", borrow3);
+```
+</UniversalEditor>
+
+### RefCell 借用规则
+
+<UniversalEditor compare={true} title="RefCell 运行时借用检查">
+```python !! py
+# Python: 没有借用规则
+data = [1, 2, 3]
+
+iterator = iter(data)
+data.append(4)  # 迭代时修改
+
+try:
+    for item in iterator:
+        print(item)
+except RuntimeError as e:
+    print(f"Error: {e}")  # 运行时错误
+```
+
+```rust !! rs
+// Rust: RefCell 在运行时检查借用规则
+use std::cell::RefCell;
+
+let data = RefCell::new(vec![1, 2, 3]);
+
+let borrow1 = data.borrow();
+// let borrow2 = data.borrow_mut();  // 恐慌! 已经被不可变借用
+
+println!("First borrow: {:?}", borrow1);
+drop(borrow1);
+
+let mut borrow2 = data.borrow_mut();  // OK: 释放后
+borrow2.push(4);
+println!("After mutation: {:?}", borrow2);
+```
+</UniversalEditor>
+
+### Rc + RefCell 模式
+
+<UniversalEditor compare={true} title="Rc<RefCell<T>> 模式">
+```python !! py
+# Python: 共享可变状态很容易
+class SharedData:
+    def __init__(self):
+        self.items = []
+
+def add_item(shared, item):
+    shared.items.append(item)
+
+data = SharedData()
+add_item(data, 1)
+add_item(data, 2)
+print(data.items)  # [1, 2]
+```
+
+```rust !! rs
+// Rust: Rc<RefCell<T>> 用于共享可变状态
+use std::rc::Rc;
+use std::cell::RefCell;
+
+struct SharedData {
+    items: RefCell<Vec<i32>>,
+}
+
+fn add_item(shared: &Rc<SharedData>, item: i32) {
+    shared.items.borrow_mut().push(item);
+}
+
+let data = Rc::new(SharedData {
+    items: RefCell::new(vec![]),
+});
+
+add_item(&data, 1);
+add_item(&data, 2);
+println!("Items: {:?}", data.items.borrow());
+```
+</UniversalEditor>
+
+## 比较表: 智能指针类型
+
+| 智能指针 | 线程安全 | 允许变更 | 使用场景 | Python 等价物 |
+|---------|---------|---------|---------|--------------|
+| `Box<T>` | 是 | 通过 `&mut` | 堆分配、递归 | 无直接等价物 |
+| `Rc<T>` | 否 | 与 `RefCell` | 共享所有权(单线程) | 标准引用 |
+| `Arc<T>` | 是 | 与 `Mutex` | 共享所有权(多线程) | 线程安全引用 |
+| `RefCell<T>` | N/A | 是(运行时检查) | 内部可变性 | 所有 Python 对象 |
+| `Mutex<T>` | 是 | 是(运行时检查) | 线程安全可变状态 | threading.Lock |
+
+## 常见模式
+
+### 图结构
+
+<UniversalEditor compare={true} title="使用 Rc 和 RefCell 的图">
+```python !! py
+# Python: 图很简单
+class Node:
+    def __init__(self, value):
+        self.value = value
+        self.edges = []
+
+node1 = Node(1)
+node2 = Node(2)
+node1.edges.append(node2)
+node2.edges.append(node1)  # 双向
+```
+
+```rust !! rs
+// Rust: 使用 Rc<RefCell<Node>> 的图
+use std::rc::Rc;
+use std::cell::RefCell;
+
+struct Node {
+    value: i32,
+    edges: RefCell<Vec<Rc<Node>>>,
+}
+
+impl Node {
+    fn new(value: i32) -> Rc<Self> {
+        Rc::new(Node {
+            value,
+            edges: RefCell::new(vec![]),
+        })
+    }
+
+    fn add_edge(&self, other: &Rc<Node>) {
+        self.edges.borrow_mut().push(Rc::clone(other));
+    }
+}
+
+let node1 = Node::new(1);
+let node2 = Node::new(2);
+
+node1.add_edge(&node2);
+node2.add_edge(&node1);
+
+println!("Node1 has {} edges", node1.edges.borrow().len());
+println!("Node2 has {} edges", node2.edges.borrow().len());
+```
+</UniversalEditor>
+
+### 不可变数据,可变视图
+
+<UniversalEditor compare={true} title="带有可变部分的不可变数据">
+```python !! py
+# Python: 所有数据默认是可变的
+class Config:
+    def __init__(self):
+        self.settings = {}
+        self.cache = {}
+
+def update_cache(config):
+    config.cache["key"] = "value"
+
+config = Config()
+update_cache(config)
+```
+
+```rust !! rs
+// Rust: 带有可变字段的不可变结构体
+use std::cell::RefCell;
+
+struct Config {
+    settings: Vec<String>,  // 不可变
+    cache: RefCell<std::collections::HashMap<String, String>>,  // 可变
+}
+
+fn update_cache(config: &Config) {
+    config.cache.borrow_mut().insert("key".to_string(), "value".to_string());
+}
+
+let config = Config {
+    settings: vec!["setting1".to_string()],
+    cache: RefCell::new(std::collections::HashMap::new()),
+};
+
+update_cache(&config);
+println!("Cache: {:?}", config.cache.borrow());
+```
+</UniversalEditor>
+
+## 内存管理比较
+
+<UniversalEditor compare={true} title="Python vs Rust 内存管理">
+```python !! py
+# Python: 自动内存管理
+import sys
+import gc
+
+class Data:
+    def __init__(self, value):
+        self.value = value
+
+# 引用计数
+a = Data(1)
+b = a
+print(f"refcount: {sys.getrefcount(a)}")  # 3
+
+# 循环检测
+x = Data(10)
+x.self_ref = x  # 创建循环
+del x
+gc.collect()  # 清理循环
+
+# 内存自动释放
+```
+
+```rust !! rs
+// Rust: 使用智能指针的显式所有权
+use std::rc::{Rc, Weak};
+use std::cell::RefCell;
+
+struct Data {
+    value: i32,
+}
+
+// 使用 Rc 进行引用计数
+let a = Rc::new(Data { value: 1 });
+let b = Rc::clone(&a);
+println!("refcount: {}", Rc::strong_count(&a));  // 2
+
+// 使用 Weak 打破循环
+struct Node {
+    value: i32,
+    parent: RefCell<Weak<Node>>,  // Weak 不增加引用计数
+    children: RefCell<Vec<Rc<Node>>>,
+}
+
+let parent = Rc::new(Node {
+    value: 1,
+    parent: RefCell::new(Weak::new()),
+    children: RefCell::new(vec![]),
+});
+
+let child = Rc::new(Node {
+    value: 2,
+    parent: RefCell::new(Weak::new()),
+    children: RefCell::new(vec![]),
+});
+
+// 使用 Weak 进行反向引用以避免循环
+parent.children.borrow_mut().push(Rc::clone(&child));
+*child.parent.borrow_mut() = Rc::downgrade(&parent);  // 弱引用
+
+// 没有内存泄漏!
+```
+</UniversalEditor>
+
+## 性能考虑
+
+<UniversalEditor compare={true} title="智能指针性能">
+```python !! py
+# Python: 引用计数开销
+import time
+
+def many_references():
+    data = list(range(1000))
+    refs = []
+    for _ in range(100_000):
+        refs.append(data)  # 每次都改变引用计数
+
+start = time.time()
+many_references()
+print(f"Python: {time.time() - start:.3}s")
+```
+
+```rust !! rs
+// Rust: 智能指针开销
+use std::rc::Rc;
+use std::time::Instant;
+
+fn many_references() {
+    let data = Rc::new((0..1000).collect::<Vec<_>>());
+    let mut refs = Vec::new();
+    for _ in 0..100_000 {
+        refs.push(Rc::clone(&data));  // 原子递增
+    }
+}
+
+let start = Instant::now();
+many_references();
+println!("Rc: {:?}", start.elapsed());
+// Rust 更快但仍有开销
+```
+</UniversalEditor>
+
+## 常见陷阱
+
+### 陷阱 1: Rc 的引用循环
+
+<UniversalEditor compare={true} title="避免引用循环">
+```python !! py
+# Python: GC 处理循环
+class Node:
+    def __init__(self, value):
+        self.value = value
+        self.other = None
+
+a = Node(1)
+b = Node(2)
+a.other = b
+b.other = a  # 循环
+# GC 会清理这个
+```
+
+```rust !! rs
+// Rust: 使用 Weak 打破循环
+use std::rc::{Rc, Weak};
+use std::cell::RefCell;
+
+struct Node {
+    value: i32,
+    other: RefCell<Weak<Node>>,  // 一个方向使用 Weak
+}
+
+let a = Rc::new(Node {
+    value: 1,
+    other: RefCell::new(Weak::new()),
+});
+
+let b = Rc::new(Node {
+    value: 2,
+    other: RefCell::new(Weak::new()),
+});
+
+*a.other.borrow_mut() = Rc::downgrade(&b);
+*b.other.borrow_mut() = Rc::downgrade(&a);
+// 没有循环 - 可以被清理
+```
+</UniversalEditor>
+
+### 陷阱 2: RefCell 运行时恐慌
+
+<UniversalEditor compare={true} title="避免 RefCell 恐慌">
+```python !! py
+# Python: 迭代时修改会导致错误
+data = [1, 2, 3]
+for item in data:
+    data.append(item)  # RuntimeError: 列表大小改变
+```
+
+```rust !! rs
+// Rust: RefCell 在借用违规时恐慌
+use std::cell::RefCell;
+
+let data = RefCell::new(vec![1, 2, 3]);
+
+let borrow1 = data.borrow();
+// let mut borrow2 = data.borrow_mut();  // 恐慌!
+
+// 在获取可变借用之前始终释放借用
+drop(borrow1);
+let mut borrow2 = data.borrow_mut();  // OK
+borrow2.push(4);
+```
+</UniversalEditor>
+
+### 陷阱 3: 跨线程使用 Rc
+
+<UniversalEditor compare={true} title="线程安全">
+```python !! py
+# Python: GIL 使一切都是线程安全的
+import threading
+
+data = [1, 2, 3]
+
+def worker():
+    print(data)  # 安全
+
+thread = threading.Thread(target=worker)
+thread.start()
+```
+
+```rust !! rs
+// Rust: Rc 不是线程安全的!
+use std::rc::Rc;
+use std::sync::Arc;
+use std::thread;
+
+// 这不会编译:
+// let data = Rc::new(vec![1, 2, 3]);
+// let handle = thread::spawn(move || {
+//     println!("{:?}", data);
+// });
+
+// 正确: 使用 Arc 确保线程安全
+let data = Arc::new(vec![1, 2, 3]);
+let handle = thread::spawn(move || {
+    println!("{:?}", data);
+});
+
+handle.join().unwrap();
+```
+</UniversalEditor>
+
+## 最佳实践
+
+### 应该做:
+
+1. **使用 Box 进行递归** - 递归数据结构必需
+2. **单线程共享所有权首选 Rc** - 开销比 Arc 低
+3. **多线程代码使用 Arc** - 线程安全必需
+4. **谨慎使用 RefCell** - 仅在需要内部可变性时
+5. **使用 Weak 打破循环** - 防止内存泄漏
+6. **显式释放借用** - 避免 RefCell 恐慌
+
+### 不应该做:
+
+1. **跨线程使用 Rc** - 改用 Arc
+2. **创建引用循环** - 使用 Weak 进行反向引用
+3. **过度使用 RefCell** - 可能时优先使用普通借用
+4. **忽略 RefCell 恐慌** - 它们指示逻辑错误
+5. **Rc 足够时使用 Arc** - 不必要的开销
+
+## 总结
+
+- **`Box<T>`** 提供堆分配并启用递归
+- **`Rc<T>`** 为单线程代码提供共享所有权
+- **`Arc<T>`** 提供线程安全的共享所有权
+- **`RefCell<T>`** 启用具有运行时检查的内部可变性
+- **Rust 的智能指针**提供对内存的显式控制
+- **Python 的引用**是自动的但有运行时开销
+- **根据所有权和线程需求选择合适的工具**
+
+## 练习
+
+1. 使用 Box 创建二叉树作为递归结构
+2. 使用 `Rc<RefCell<>>` 实现共享缓存
+3. 使用 `Arc<Mutex<>>` 构建线程安全计数器
+4. 使用 Rc 和 Weak 创建图结构以避免循环
+5. 比较你的用例中 Box vs Rc vs Arc 的性能
+
+## 下一模块
+
+在下一模块中,我们将探索 Rust 中的**模块和包**,包括模块系统、use 声明、Cargo.toml 和发布到 crates.io。你将学习如何组织代码和管理依赖。

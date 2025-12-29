@@ -1,0 +1,1057 @@
+---
+title: "Module 10: Asynchronous Programming Basics"
+description: "Understand JavaScript's asynchronous programming model, callbacks, and the event loop"
+---
+
+## Module 10: Asynchronous Programming Basics
+
+Asynchronous programming is fundamental to JavaScript. Unlike Java's multi-threaded model, JavaScript uses a single-threaded event loop. Understanding this model is crucial for writing effective JavaScript code.
+
+## Learning Objectives
+
+By the end of this module, you will:
+✅ Understand the JavaScript event loop
+✅ Learn synchronous vs asynchronous execution
+✅ Master callback functions
+✅ Understand error handling in callbacks
+✅ Learn about timing and scheduling
+✅ Know common async patterns and pitfalls
+
+## Concurrency Models: Java vs JavaScript
+
+<UniversalEditor title="Concurrency Models">
+```java !! java
+// Java - Multi-threaded
+public class Example {
+    public static void main(String[] args) {
+        // Each thread runs independently
+        Thread thread1 = new Thread(() -> {
+            System.out.println("Thread 1");
+            try {
+                Thread.sleep(1000);
+                System.out.println("Thread 1 done");
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+        });
+
+        Thread thread2 = new Thread(() -> {
+            System.out.println("Thread 2");
+        });
+
+        thread1.start();
+        thread2.start();
+
+        System.out.println("Main thread");
+    }
+}
+// Output: Main thread, Thread 1, Thread 2 (parallel execution)
+```
+
+```javascript !! js
+// JavaScript - Single-threaded with event loop
+console.log("Start");
+
+setTimeout(() => {
+    console.log("Timeout 1");
+}, 0);
+
+console.log("Middle");
+
+setTimeout(() => {
+    console.log("Timeout 2");
+}, 0);
+
+console.log("End");
+
+// Output:
+// Start
+// Middle
+// End
+// Timeout 1
+// Timeout 2
+
+// Even with 0ms delay, callbacks run after synchronous code
+```
+</UniversalEditor>
+
+## The Event Loop
+
+JavaScript has a single call stack and an event loop that manages execution:
+
+<UniversalEditor title="Event Loop Concept">
+```java !! java
+// Java - Multiple call stacks (threads)
+public class MultiThread {
+    public static void main(String[] args) {
+        // Main thread
+        new Thread(() -> method1()).start();
+        new Thread(() -> method2()).start();
+        // Both run concurrently on different stacks
+    }
+
+    static void method1() {
+        // Own stack
+    }
+
+    static void method2() {
+        // Own stack
+    }
+}
+```
+
+```javascript !! js
+// JavaScript - Single call stack, event loop
+
+console.log("1. Synchronous");
+
+// Callback goes to task queue (microtask for promise, macrotask for setTimeout)
+setTimeout(() => {
+    console.log("2. Async (macrotask)");
+}, 0);
+
+Promise.resolve().then(() => {
+    console.log("3. Async (microtask)");
+});
+
+console.log("4. Synchronous");
+
+// Output:
+// 1. Synchronous
+// 4. Synchronous
+// 3. Async (microtask) - runs before macrotasks
+// 2. Async (macrotask)
+
+// Event loop process:
+// 1. Execute synchronous code (call stack)
+// 2. Process all microtasks (Promise callbacks)
+// 3. Render UI (browser)
+// 4. Process one macrotask (setTimeout, setInterval, I/O)
+// 5. Repeat
+
+// Microtasks (higher priority):
+// - Promise.then/catch/finally
+// - queueMicrotask()
+// - MutationObserver
+
+// Macrotasks (lower priority):
+// - setTimeout
+// - setInterval
+// - setImmediate (Node.js)
+// - I/O operations
+// - UI rendering
+```
+</UniversalEditor>
+
+### Visualizing the Event Loop
+
+<UniversalEditor title="Event Loop Example">
+```javascript !! js
+console.log("Start");
+
+// Macrotask 1
+setTimeout(() => {
+    console.log("Timeout 1");
+}, 0);
+
+// Microtask 1
+Promise.resolve().then(() => {
+    console.log("Promise 1");
+});
+
+// Macrotask 2
+setTimeout(() => {
+    console.log("Timeout 2");
+    // Microtask inside macrotask
+    Promise.resolve().then(() => {
+        console.log("Promise 2");
+    });
+}, 0);
+
+// Synchronous
+console.log("End");
+
+// Execution order:
+// 1. "Start" (synchronous)
+// 2. "End" (synchronous)
+// 3. Clear call stack
+// 4. Process microtasks -> "Promise 1"
+// 5. Process one macrotask -> "Timeout 1"
+// 6. Check for new microtasks -> None
+// 7. Process next macrotask -> "Timeout 2"
+// 8. Check for new microtasks -> "Promise 2"
+// 9. No more tasks, wait for new events
+
+// Final output:
+// Start
+// End
+// Promise 1
+// Timeout 1
+// Timeout 2
+// Promise 2
+```
+</UniversalEditor>
+
+## Callback Functions
+
+Callbacks are functions passed as arguments to be executed later:
+
+<UniversalEditor title="Callbacks">
+```java !! java
+// Java - Callbacks with interfaces
+public interface Callback {
+    void onComplete(String result);
+}
+
+public class DataFetcher {
+    public void fetchData(Callback callback) {
+        // Simulate async operation
+        new Thread(() -> {
+            String result = "Data";
+            callback.onComplete(result);
+        }).start();
+    }
+}
+
+// Usage
+fetcher.fetchData(result -> {
+    System.out.println("Received: " + result);
+});
+```
+
+```javascript !! js
+// JavaScript - First-class callback functions
+
+function fetchData(callback) {
+    // Simulate async operation
+    setTimeout(() => {
+        const data = { id: 1, name: "John" };
+        callback(data);
+    }, 1000);
+}
+
+// Callback function
+fetchData(function(data) {
+    console.log("Received:", data);
+});
+
+// Arrow function callback
+fetchData(data => {
+    console.log("Received:", data);
+});
+
+// Synchronous callback (executes immediately)
+function map(array, callback) {
+    const result = [];
+    for (const item of array) {
+        result.push(callback(item));
+    }
+    return result;
+}
+
+const doubled = map([1, 2, 3], x => x * 2);
+console.log(doubled);  // [2, 4, 6]
+
+// Asynchronous callback
+function fetchUser(id, callback) {
+    setTimeout(() => {
+        const user = { id, name: "User " + id };
+        callback(null, user);
+    }, 1000);
+}
+
+fetchUser(1, (error, user) => {
+    if (error) {
+        console.error("Error:", error);
+        return;
+    }
+    console.log("User:", user);
+});
+```
+</UniversalEditor>
+
+### Callback Patterns
+
+<UniversalEditor title="Callback Patterns">
+```java !! java
+// Java - Synchronous vs asynchronous
+public class FileProcessor {
+    // Synchronous (blocks)
+    public String readFile(String path) {
+        return java.nio.file.Files.readString(path);
+    }
+
+    // Asynchronous (uses CompletableFuture)
+    public CompletableFuture<String> readFileAsync(String path) {
+        return CompletableFuture.supplyAsync(() -> {
+            return readFile(path);
+        });
+    }
+}
+```
+
+```javascript !! fs
+// JavaScript - Callback patterns
+
+// Pattern 1: Error-first callback (Node.js convention)
+function readFile(path, callback) {
+    setTimeout(() => {
+        if (path.endsWith(".txt")) {
+            callback(null, "File content");
+        } else {
+            callback(new Error("Invalid file type"));
+        }
+    }, 1000);
+}
+
+readFile("data.txt", (error, content) => {
+    if (error) {
+        console.error("Error:", error.message);
+        return;
+    }
+    console.log("Content:", content);
+});
+
+// Pattern 2: Success/error callbacks
+function fetchUserData(userId, onSuccess, onError) {
+    setTimeout(() => {
+        if (userId > 0) {
+            onSuccess({ id: userId, name: "John" });
+        } else {
+            onError(new Error("Invalid user ID"));
+        }
+    }, 1000);
+}
+
+fetchUserData(
+    1,
+    user => console.log("User:", user),
+    error => console.error("Error:", error.message)
+);
+
+// Pattern 3: Event emitter pattern
+class EventEmitter {
+    constructor() {
+        this.events = {};
+    }
+
+    on(event, callback) {
+        if (!this.events[event]) {
+            this.events[event] = [];
+        }
+        this.events[event].push(callback);
+    }
+
+    emit(event, data) {
+        if (this.events[event]) {
+            this.events[event].forEach(callback => callback(data));
+        }
+    }
+}
+
+const emitter = new EventEmitter();
+
+emitter.on("data", data => {
+    console.log("Received data:", data);
+});
+
+emitter.emit("data", { message: "Hello" });
+```
+</UniversalEditor>
+
+## Callback Hell and Solutions
+
+<UniversalEditor title="Callback Hell">
+```javascript !! js
+// ❌ BAD: Callback hell (pyramid of doom)
+getUser(userId, (error, user) => {
+    if (error) {
+        console.error(error);
+        return;
+    }
+
+    getOrders(user.id, (error, orders) => {
+        if (error) {
+            console.error(error);
+            return;
+        }
+
+        getOrderItems(orders[0].id, (error, items) => {
+            if (error) {
+                console.error(error);
+                return;
+            }
+
+            console.log("Items:", items);
+        });
+    });
+});
+
+// ✅ Solution 1: Named functions
+function handleUser(error, user) {
+    if (error) return console.error(error);
+    getOrders(user.id, handleOrders);
+}
+
+function handleOrders(error, orders) {
+    if (error) return console.error(error);
+    getOrderItems(orders[0].id, handleItems);
+}
+
+function handleItems(error, items) {
+    if (error) return console.error(error);
+    console.log("Items:", items);
+}
+
+getUser(userId, handleUser);
+
+// ✅ Solution 2: Promise chaining (preferred)
+getUser(userId)
+    .then(user => getOrders(user.id))
+    .then(orders => getOrderItems(orders[0].id))
+    .then(items => console.log("Items:", items))
+    .catch(error => console.error(error));
+
+// ✅ Solution 3: Async/await (modern)
+async function fetchItems() {
+    try {
+        const user = await getUser(userId);
+        const orders = await getOrders(user.id);
+        const items = await getOrderItems(orders[0].id);
+        console.log("Items:", items);
+    } catch (error) {
+        console.error(error);
+    }
+}
+```
+</UniversalEditor>
+
+## Timing Functions
+
+JavaScript provides several timing functions:
+
+<UniversalEditor title="Timing Functions">
+```java !! java
+// Java - ScheduledExecutorService
+ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
+
+// Delay execution
+scheduler.schedule(() -> {
+    System.out.println("Delayed");
+}, 1, TimeUnit.SECONDS);
+
+// Periodic execution
+scheduler.scheduleAtFixedRate(() -> {
+    System.out.println("Repeated");
+}, 0, 1, TimeUnit.SECONDS);
+```
+
+```javascript !! js
+// JavaScript - Timing functions
+
+// setTimeout: Execute once after delay
+const timeoutId = setTimeout(() => {
+    console.log("Delayed execution");
+}, 1000);
+
+// Cancel timeout
+clearTimeout(timeoutId);
+
+// setInterval: Execute repeatedly
+let count = 0;
+const intervalId = setInterval(() => {
+    count++;
+    console.log("Repeated:", count);
+
+    if (count >= 5) {
+        clearInterval(intervalId);  // Stop after 5 times
+    }
+}, 1000);
+
+// setImmediate: Execute after current call stack (Node.js)
+setImmediate(() => {
+    console.log("Immediate");
+});
+
+// Practical: Debounce
+function debounce(fn, delay) {
+    let timeoutId;
+    return function(...args) {
+        clearTimeout(timeoutId);
+        timeoutId = setTimeout(() => fn.apply(this, args), delay);
+    };
+}
+
+const searchInput = debounce((value) => {
+    console.log("Searching for:", value);
+}, 300);
+
+searchInput("a");
+searchInput("ab");
+searchInput("abc");
+// Only searches once, 300ms after last input
+
+// Practical: Throttle
+function throttle(fn, delay) {
+    let lastCall = 0;
+    return function(...args) {
+        const now = Date.now();
+        if (now - lastCall >= delay) {
+            lastCall = now;
+            fn.apply(this, args);
+        }
+    };
+}
+
+const handleScroll = throttle(() => {
+    console.log("Scroll handler");
+}, 100);
+
+window.addEventListener("scroll", handleScroll);
+```
+</UniversalEditor>
+
+## Error Handling in Callbacks
+
+<UniversalEditor title="Error Handling Patterns">
+```java !! java
+// Java - Try-catch works with threads
+try {
+    future.get();  // Wait for result
+} catch (InterruptedException | ExecutionException e) {
+    e.printStackTrace();
+}
+```
+
+```javascript !! js
+// JavaScript - Try-catch doesn't catch async errors
+
+try {
+    setTimeout(() => {
+        throw new Error("Async error");  // Uncaught!
+    }, 1000);
+} catch (e) {
+    console.error("Caught:", e);  // Never runs
+}
+
+// ❌ BAD: Callback errors need explicit handling
+function fetchData(callback) {
+    setTimeout(() => {
+        const data = JSON.parse(invalidJson);  // Throws!
+        callback(null, data);
+    }, 1000);
+}
+
+// ✅ GOOD: Try-catch inside callback
+function fetchData(callback) {
+    setTimeout(() => {
+        try {
+            const data = JSON.parse(jsonString);
+            callback(null, data);
+        } catch (error) {
+            callback(error);
+        }
+    }, 1000);
+}
+
+// ✅ GOOD: Error-first callback convention
+fs.readFile("data.txt", (error, data) => {
+    if (error) {
+        console.error("Read error:", error);
+        return;
+    }
+
+    try {
+        const parsed = JSON.parse(data);
+        console.log("Parsed:", parsed);
+    } catch (parseError) {
+        console.error("Parse error:", parseError);
+    }
+});
+
+// Error propagation in nested callbacks
+function processUser(userId, callback) {
+    getUser(userId, (error, user) => {
+        if (error) {
+            return callback(error);  // Propagate error
+        }
+
+        getOrders(user.id, (error, orders) => {
+            if (error) {
+                return callback(error);  // Propagate error
+            }
+
+            callback(null, orders);
+        });
+    });
+}
+
+processUser(1, (error, orders) => {
+    if (error) {
+        console.error("Failed:", error);
+        return;
+    }
+
+    console.log("Orders:", orders);
+});
+```
+</UniversalEditor>
+
+## Common Patterns
+
+### Pattern 1: Parallel Async Operations
+
+<UniversalEditor title="Parallel Operations">
+```java !! java
+// Java - CompletableFuture for parallel operations
+CompletableFuture<String> future1 = CompletableFuture.supplyAsync(() -> fetchData1());
+CompletableFuture<String> future2 = CompletableFuture.supplyAsync(() -> fetchData2());
+
+CompletableFuture.allOf(future1, future2)
+    .thenRun(() -> {
+        String result1 = future1.join();
+        String result2 = future2.join();
+        System.out.println(result1 + result2);
+    });
+```
+
+```javascript !! js
+// JavaScript - Parallel callbacks
+
+function parallel(tasks, callback) {
+    let completed = 0;
+    const results = [];
+    let hasError = false;
+
+    tasks.forEach((task, index) => {
+        task((error, result) => {
+            if (hasError) return;  // Already failed
+
+            if (error) {
+                hasError = true;
+                callback(error);
+                return;
+            }
+
+            results[index] = result;
+            completed++;
+
+            if (completed === tasks.length) {
+                callback(null, results);
+            }
+        });
+    });
+}
+
+// Usage
+const tasks = [
+    cb => setTimeout(() => cb(null, "Result 1"), 1000),
+    cb => setTimeout(() => cb(null, "Result 2"), 500),
+    cb => setTimeout(() => cb(null, "Result 3"), 1500)
+];
+
+parallel(tasks, (error, results) => {
+    if (error) {
+        console.error(error);
+        return;
+    }
+    console.log("All results:", results);
+    // All results: ["Result 1", "Result 2", "Result 3"]
+    // Total time: ~1500ms (longest task), not 3000ms
+});
+```
+</UniversalEditor>
+
+### Pattern 2: Sequential Async Operations
+
+<UniversalEditor title="Sequential Operations">
+```javascript !! js
+// JavaScript - Sequential execution with callbacks
+
+function series(tasks, callback) {
+    let index = 0;
+
+    function runNext() {
+        if (index >= tasks.length) {
+            return callback(null);
+        }
+
+        tasks[index]((error, result) => {
+            if (error) {
+                return callback(error);
+            }
+
+            index++;
+            runNext();  // Next task
+        });
+    }
+
+    runNext();
+}
+
+// Usage
+const tasks = [
+    cb => setTimeout(() => {
+        console.log("Task 1");
+        cb(null);
+    }, 1000),
+    cb => setTimeout(() => {
+        console.log("Task 2");
+        cb(null);
+    }, 500),
+    cb => setTimeout(() => {
+        console.log("Task 3");
+        cb(null);
+    }, 100)
+];
+
+series(tasks, (error) => {
+    if (error) {
+        console.error(error);
+        return;
+    }
+    console.log("All tasks done");
+    // Total time: 1600ms (sum of all tasks)
+});
+```
+</UniversalEditor>
+
+### Pattern 3: Waterfall (Pass Results)
+
+<UniversalEditor title="Waterfall Pattern">
+```javascript !! js
+// JavaScript - Waterfall (each task gets previous results)
+
+function waterfall(tasks, callback) {
+    let index = 0;
+    const results = [];
+
+    function runNext(...args) {
+        if (index >= tasks.length) {
+            return callback(null, ...results);
+        }
+
+        const task = tasks[index];
+
+        // First task gets no arguments
+        const taskArgs = index === 0 ? [] : [args];
+
+        task(...taskArgs, (error, ...result) => {
+            if (error) {
+                return callback(error);
+            }
+
+            results.push(...result);
+            index++;
+            runNext(...result);
+        });
+    }
+
+    runNext();
+}
+
+// Usage
+const tasks = [
+    (cb) => {
+        setTimeout(() => cb(null, "User 1"), 100);
+    },
+    (user, cb) => {
+        setTimeout(() => cb(null, user, "Orders"), 100);
+    },
+    (user, orders, cb) => {
+        setTimeout(() => cb(null, user, orders, "Items"), 100);
+    }
+];
+
+waterfall(tasks, (error, user, orders, items) => {
+    if (error) {
+        console.error(error);
+        return;
+    }
+    console.log("Final:", { user, orders, items });
+    // Final: { user: "User 1", orders: "Orders", items: "Items" }
+});
+```
+</UniversalEditor>
+
+## Common Pitfalls
+
+### Pitfall 1: Forgetting Return
+
+<UniversalEditor title="Missing Return in Callbacks">
+```javascript !! js
+// ❌ BAD: Forgetting return leads to continued execution
+function processData(data, callback) {
+    if (!data) {
+        callback(new Error("No data"));
+        // Missing return - execution continues!
+    }
+
+    const result = transform(data);
+    callback(null, result);
+}
+
+// ✅ GOOD: Always return after callback
+function processData(data, callback) {
+    if (!data) {
+        return callback(new Error("No data"));
+    }
+
+    const result = transform(data);
+    callback(null, result);
+}
+```
+</UniversalEditor>
+
+### Pitfall 2: Loop Issues
+
+<UniversalEditor title="Callbacks in Loops">
+```javascript !! js
+// ❌ BAD: Closure issue in loop
+for (var i = 0; i < 3; i++) {
+    setTimeout(() => {
+        console.log(i);  // 3, 3, 3 (not 0, 1, 2!)
+    }, 100);
+}
+
+// ✅ Solution 1: Use let
+for (let i = 0; i < 3; i++) {
+    setTimeout(() => {
+        console.log(i);  // 0, 1, 2
+    }, 100);
+}
+
+// ✅ Solution 2: IIFE (for var)
+for (var i = 0; i < 3; i++) {
+    (function(j) {
+        setTimeout(() => {
+            console.log(j);  // 0, 1, 2
+        }, 100);
+    })(i);
+}
+
+// ✅ Solution 3: forEach (with callbacks)
+[0, 1, 2].forEach(i => {
+    setTimeout(() => {
+        console.log(i);  // 0, 1, 2
+    }, 100);
+});
+```
+</UniversalEditor>
+
+### Pitfall 3: This Context
+
+<UniversalEditor title="This in Callbacks">
+```javascript !! js
+// ❌ BAD: 'this' lost in callback
+class Timer {
+    constructor() {
+        this.seconds = 0;
+    }
+
+    start() {
+        setTimeout(function() {
+            this.seconds++;  // Error: 'this' is not Timer
+        }, 1000);
+    }
+}
+
+// ✅ GOOD: Use arrow function
+class Timer {
+    constructor() {
+        this.seconds = 0;
+    }
+
+    start() {
+        setTimeout(() => {
+            this.seconds++;  // 'this' is Timer
+        }, 1000);
+    }
+}
+
+// ✅ ALSO GOOD: Bind
+class Timer {
+    constructor() {
+        this.seconds = 0;
+    }
+
+    start() {
+        setTimeout(function() {
+            this.seconds++;
+        }.bind(this), 1000);
+    }
+}
+```
+</UniversalEditor>
+
+## Best Practices
+
+<UniversalEditor title="Async Best Practices">
+```java !! java
+// Java: Clear exception handling
+try {
+    future.get();
+} catch (ExecutionException e) {
+    logger.error("Failed", e);
+}
+```
+
+```javascript !! js
+// JavaScript: Callback best practices
+
+// 1. Error-first callback convention (Node.js style)
+function operation(callback) {
+    // callback(error, result)
+    callback(null, "success");
+}
+
+operation((error, result) => {
+    if (error) {
+        // Handle error
+        return;
+    }
+    // Use result
+});
+
+// 2. Always check for errors
+fs.readFile("data.txt", (error, data) => {
+    if (error) {
+        console.error("Read failed:", error);
+        return;
+    }
+    console.log("Data:", data);
+});
+
+// 3. Return after callback
+function process(data, callback) {
+    if (!data) {
+        return callback(new Error("No data"));
+    }
+    callback(null, processData(data));
+}
+
+// 4. Prefer named functions for callbacks
+// Good: Debuggable, reusable
+function handleData(error, data) {
+    if (error) return console.error(error);
+    console.log(data);
+}
+
+fetchData(handleData);
+
+// 5. Handle errors in async operations
+function safeOperation(callback) {
+    setTimeout(() => {
+        try {
+            const result = riskyOperation();
+            callback(null, result);
+        } catch (error) {
+            callback(error);
+        }
+    }, 1000);
+}
+
+// 6. Avoid callback hell - use promises/async-await
+// We'll cover this in Module 11!
+```
+</UniversalEditor>
+
+## Exercises
+
+### Exercise 1: Fix Callback Order
+```javascript
+console.log("Start");
+setTimeout(() => console.log("Timeout"), 0);
+console.log("End");
+// What's the output and why?
+```
+
+### Exercise 2: Implement Debounce
+```javascript
+function debounce(fn, delay) {
+    // Implement debounce function
+}
+
+const search = debounce((query) => {
+    console.log("Searching:", query);
+}, 300);
+```
+
+### Exercise 3: Sequential Execution
+```javascript
+// Execute these tasks sequentially:
+// Task 1: Wait 1s, log "Task 1"
+// Task 2: Wait 2s, log "Task 2"
+// Task 3: Wait 1s, log "Task 3"
+```
+
+### Exercise 4: Parallel Execution
+```javascript
+// Execute tasks in parallel and get all results
+const tasks = [
+    (cb) => setTimeout(() => cb(null, "A"), 1000),
+    (cb) => setTimeout(() => cb(null, "B"), 500),
+    (cb) => setTimeout(() => cb(null, "C"), 1500)
+];
+// Implement parallel() function
+```
+
+## Summary
+
+### Key Takeaways
+
+1. **Event Loop:**
+   - Single-threaded execution
+   - Microtasks before macrotasks
+   - Non-blocking I/O
+
+2. **Callbacks:**
+   - Functions passed as arguments
+   - Execute after async operation
+   - Error-first convention
+
+3. **Timing:**
+   - setTimeout: Delayed execution
+   - setInterval: Repeated execution
+   - Debounce/throttle for optimization
+
+4. **Patterns:**
+   - Parallel: Multiple operations
+   - Series: Sequential execution
+   - Waterfall: Pass results
+
+5. **Pitfalls:**
+   - Callback hell
+   - This context loss
+   - Loop closure issues
+   - Uncaught async errors
+
+6. **Best Practices:**
+   - Error-first callbacks
+   - Always check for errors
+   - Use named functions
+   - Prefer promises/async-await
+
+### Comparison Table: Java vs JavaScript
+
+| Feature | Java | JavaScript |
+|---------|------|------------|
+| **Model** | Multi-threaded | Single-threaded + event loop |
+| **Blocking** | Common | Avoided |
+| **Async** | CompletableFuture/Threads | Callbacks/Promises |
+| **Parallelism** | True parallel | Event loop (single thread) |
+| **Error Handling** | Try-catch works | Need error callbacks |
+| **Timing** | ScheduledExecutorService | setTimeout/setInterval |
+
+## What's Next?
+
+You've learned JavaScript's asynchronous basics! Next up is **Module 11: Asynchronous Programming Advanced**, where we'll explore:
+
+- Promises and promise chaining
+- async/await syntax
+- Error handling with promises
+- Promise.all, Promise.race, etc.
+- Converting callbacks to promises
+- Modern async patterns
+
+Ready to master modern async JavaScript? Let's continue!

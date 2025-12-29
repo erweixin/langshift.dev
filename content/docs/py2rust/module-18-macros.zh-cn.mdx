@@ -1,0 +1,205 @@
+---
+title: "模块 18: 宏"
+description: "掌握 Rust 宏,包括使用 macro_rules! 的声明式宏、派生宏和过程宏"
+---
+
+# 模块 18: 宏
+
+## 学习目标
+
+完成本模块后,你将能够:
+- 使用 `macro_rules!` 编写声明式宏
+- 创建自定义派生宏
+- 理解过程宏
+- 在编译时生成代码
+- 使用宏减少样板代码
+
+## 宏简介
+
+Python 有装饰器和元类用于元编程。Rust 有更强大的宏系统,在编译时运行。
+
+<UniversalEditor compare={true} title="基本宏概念">
+```python !! py
+# Python - 用于元编程的装饰器
+def timing_decorator(func):
+    def wrapper(*args, **kwargs):
+        import time
+        start = time.time()
+        result = func(*args, **kwargs)
+        end = time.time()
+        print(f"{func.__name__} took {end - start:.4f}s")
+        return result
+    return wrapper
+
+@timing_decorator
+def slow_function():
+    import time
+    time.sleep(0.1)
+    return "done"
+```
+
+```rust !! rs
+// Rust - 用于代码生成的声明式宏
+macro_rules! time_it {
+    ($func:expr) => {{
+        let start = std::time::Instant::now();
+        let result = $func;
+        let duration = start.elapsed();
+        println!(" took {:?}", duration);
+        result
+    }};
+}
+
+fn slow_function() -> &'static str {
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    "done"
+}
+
+fn main() {
+    time_it!(slow_function());
+}
+```
+</UniversalEditor>
+
+**关键区别:** Python 装饰器在运行时修改函数,而 Rust 宏在编译时生成代码,零运行时成本。
+
+## 使用 `macro_rules!` 的声明式宏
+
+### 模式匹配
+
+<UniversalEditor compare={true} title="基本模式匹配">
+```python !! py
+# Python - 没有直接等价物
+# 会使用装饰器或元类
+def create_getter_setter(field_name):
+    # 这是运行时的,不是编译时的
+    pass
+```
+
+```rust !! rs
+// Rust - 编译时代码生成
+macro_rules! make_getter_setter {
+    ($field:ident, $type:ty) => {
+        fn get_$field(&self) -> &$type {
+            &self.$field
+        }
+
+        fn set_$field(&mut self, value: $type) {
+            self.$field = value;
+        }
+    };
+}
+
+struct Person {
+    name: String,
+    age: u32,
+}
+
+impl Person {
+    make_getter_setter!(name, String);
+    make_getter_setter!(age, u32);
+}
+```
+</UniversalEditor>
+
+## 派生宏
+
+派生宏自动为结构体和枚举实现 trait。
+
+<UniversalEditor compare={true} title="自定义派生宏">
+```python !! py
+# Python - 没有直接等价物
+# 会使用元类或类装饰器
+from dataclasses import dataclass
+
+@dataclass
+class Person:
+    name: str
+    age: int
+```
+
+```rust !! rs
+// Rust - 自定义派生宏
+use proc_macro::TokenStream;
+use quote::quote;
+use syn::{parse_macro_input, DeriveInput};
+
+#[proc_macro_derive(ToDict)]
+pub fn to_dict_derive(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    let name = &input.ident;
+
+    let expanded = quote! {
+        impl ToDict for #name {
+            fn to_dict(&self) -> std::collections::HashMap<String, String> {
+                let mut map = std::collections::HashMap::new();
+                map.insert(stringify!(#name).to_string(), format!("{:?}", self));
+                map
+            }
+        }
+    };
+
+    TokenStream::from(expanded)
+}
+```
+</UniversalEditor>
+
+## 宏的最佳实践
+
+### 1. 优先使用宏而非复制粘贴代码
+
+<UniversalEditor compare={true} title="DRY 原则">
+```python !! py
+# Python - 使用装饰器避免重复
+def log_result(func):
+    def wrapper(*args, **kwargs):
+        result = func(*args, **kwargs)
+        print(f"{func.__name__} = {:?}", result)
+        return result
+    return wrapper
+```
+
+```rust !! rs
+// Rust - 使用宏避免样板代码
+macro_rules! impl_math_op {
+    ($func_name:ident, $op:tt) => {
+        fn $func_name(x: i32, y: i32) -> i32 {
+            let result = x $op y;
+            println!("{} = {:?}", stringify!($func_name), result);
+            result
+        }
+    };
+}
+
+impl_math_op!(add, +);
+impl_math_op!(multiply, *);
+```
+</UniversalEditor>
+
+## 关键要点
+
+### 何时使用宏
+- **使用宏** 消除代码重复
+- **使用宏** 创建领域特定语言 (DSL)
+- **使用宏** 实现编译时验证
+- **使用派生宏** 自动实现 trait
+
+### 何时不使用宏
+- **避免宏** 当普通函数可以工作时
+- **避免宏** 用于简单的类型抽象(改用泛型)
+- **避免宏** 使代码含义模糊
+
+### Python vs Rust 元编程
+- **Python 装饰器**: 运行时修改,灵活但较慢
+- **Rust 宏**: 编译时代码生成,类型安全,零成本
+
+## 练习
+
+1. 创建一个生成带有关联数据的枚举变体的宏
+2. 构建一个派生宏来生成 JSON 序列化代码
+3. 实现一个为函数自动添加日志的属性宏
+4. 创建一个用于构建复杂数据结构的宏
+
+## 下一模块
+
+在模块 19 中,我们将探索 **性能优化**,涵盖零成本抽象、迭代器、基准测试和性能分析技术。

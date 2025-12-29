@@ -1,0 +1,230 @@
+---
+title: "模块 17：微服务架构"
+---
+
+本模块介绍使用 Go 构建微服务，与 Java 的 Spring Boot/Cloud 方法进行比较。
+
+## 微服务哲学
+
+**Java 微服务（Spring Cloud）：**
+- Spring Boot：快速创建服务
+- Spring Cloud：分布式系统模式
+- 使用 Eureka/Consul 进行服务发现
+- 使用 Spring Cloud Gateway 的 API 网关
+- 使用 Spring Cloud Config 的配置
+- 使用 Resilience4j 的断路器
+- 使用 Sleuth/Zipkin 的分布式追踪
+
+**Go 微服务：**
+- 轻量级、快速的服务
+- 最小的资源使用
+- 快速启动时间
+- 简单的部署
+- 使用 goroutine 内置并发
+- 分布式模式的社区库
+
+<UniversalEditor title="微服务设置">
+```java !! java
+// Java: Spring Boot 微服务
+@SpringBootApplication
+@EnableDiscoveryClient
+@EnableCircuitBreaker
+public class UserServiceApplication {
+
+    public static void main(String[] args) {
+        SpringApplication.run(UserServiceApplication.class, args);
+    }
+}
+
+@RestController
+@RequestMapping("/api/users")
+public class UserController {
+
+    @GetMapping("/{id}/orders")
+    @CircuitBreaker(name = "orderService", fallbackMethod = "getOrdersFallback")
+    public List<Order> getUserOrders(@PathVariable Long id) {
+        return restTemplate.getForObject(
+            "http://order-service/api/orders?userId=" + id,
+            List.class
+        );
+    }
+
+    public List<Order> getOrdersFallback(Long id, Exception e) {
+        return Collections.emptyList();
+    }
+}
+```
+
+```go !! go
+// Go: 使用 Gin 的微服务
+package main
+
+import (
+    "context"
+    "net/http"
+    "time"
+    "github.com/gin-gonic/gin"
+)
+
+type UserService struct {
+    orderServiceClient *OrderServiceClient
+    userRepo          *UserRepository
+}
+
+func (s *UserService) GetUserOrders(c *gin.Context) {
+    id := c.Param("id")
+
+    // 调用订单服务，带超时
+    ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+    defer cancel()
+
+    orders, err := s.orderServiceClient.GetOrdersByUserID(ctx, id)
+    if err != nil {
+        c.JSON(http.StatusServiceUnavailable, gin.H{
+            "error": "Order service unavailable",
+            "orders": []Order{}, // Fallback
+        })
+        return
+    }
+
+    c.JSON(http.StatusOK, orders)
+}
+
+// 使用 Consul 注册服务
+func RegisterWithConsul(serviceID, serviceName, address string, port int) error {
+    config := api.DefaultConfig()
+    config.Address = "consul:8500"
+
+    client, err := api.NewClient(config)
+    if err != nil {
+        return err
+    }
+
+    registration := &api.AgentServiceRegistration{
+        ID:      serviceID,
+        Name:    serviceName,
+        Address: address,
+        Port:    port,
+        Check: &api.AgentServiceCheck{
+            HTTP:                           fmt.Sprintf("http://%s:%d/health", address, port),
+            Interval:                       "10s",
+            Timeout:                        "3s",
+            DeregisterCriticalServiceAfter: "30s",
+        },
+    }
+
+    return client.Agent().ServiceRegister(registration)
+}
+```
+</UniversalEditor>
+
+## 服务发现
+
+<UniversalEditor title="服务发现实现">
+```java !! java
+// Java: Eureka 客户端
+@Service
+public class OrderService {
+
+    @Autowired
+    private RestTemplate restTemplate;
+
+    public User getUser(Long userId) {
+        // 服务发现与负载均衡
+        return restTemplate.getForObject(
+            "http://user-service/api/users/" + userId,
+            User.class
+        );
+    }
+}
+```
+
+```go !! go
+// Go: Consul 服务发现
+package main
+
+import (
+    "github.com/hashicorp/consul/api"
+)
+
+type ServiceDiscovery struct {
+    client *api.Client
+}
+
+func (sd *ServiceDiscovery) DiscoverService(serviceName string) (string, int, error) {
+    services, _, err := sd.client.Health().Service(serviceName, "", true, nil)
+    if err != nil {
+        return "", 0, err
+    }
+
+    if len(services) == 0 {
+        return "", 0, fmt.Errorf("no instances found for service: %s", serviceName)
+    }
+
+    // 简单负载均衡（轮询）
+    service := services[0]
+    return service.Service.Address, service.Service.Port, nil
+}
+
+type OrderServiceClient struct {
+    discovery *ServiceDiscovery
+    httpClient *http.Client
+    currentIndex int
+    services []*api.ServiceEntry
+}
+
+func (c *OrderServiceClient) GetOrdersByUserID(ctx context.Context, userID string) ([]Order, error) {
+    if len(c.services) == 0 {
+        return nil, fmt.Errorf("no order service instances available")
+    }
+
+    // 轮询负载均衡
+    service := c.services[c.currentIndex%len(c.services)]
+    c.currentIndex++
+
+    url := fmt.Sprintf(
+        "http://%s:%d/api/orders?userId=%s",
+        service.Service.Address,
+        service.Service.Port,
+        userID,
+    )
+
+    req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+    if err != nil {
+        return nil, err
+    }
+
+    resp, err := c.httpClient.Do(req)
+    if err != nil {
+        return nil, err
+    }
+    defer resp.Body.Close()
+
+    var orders []Order
+    if err := json.NewDecoder(resp.Body).Decode(&orders); err != nil {
+        return nil, err
+    }
+
+    return orders, nil
+}
+```
+</UniversalEditor>
+
+---
+
+### 练习问题：
+1. 为什么 Go 微服务比 Java Spring Boot 微服务更轻量？
+2. Go 中的服务发现与 Spring Cloud 相比如何工作？
+3. 使用 Go 构建微服务有什么优势？
+4. 什么时候你会选择 Go 而不是 Java 来构建微服务？
+
+### 项目想法：
+- 使用 Go 构建完整的微服务架构
+- 使用 Consul 实现服务发现
+- 创建具有速率限制的 API 网关
+- 设置分布式追踪
+
+### 下一步：
+- 学习真实世界项目模式
+- 探索生产就绪的应用程序架构
+- 构建完整的系统

@@ -1,0 +1,716 @@
+---
+title: "Module 19: Performance"
+description: "Master performance optimization in Rust with zero-cost abstractions, iterators, benchmarking, and profiling"
+---
+
+# Module 19: Performance
+
+## Learning Objectives
+
+By the end of this module, you'll be able to:
+- Understand zero-cost abstractions
+- Use iterators for efficient data processing
+- Write benchmark tests with Criterion
+- Profile Rust applications
+- Optimize memory allocations
+- Apply performance optimization patterns
+
+## Zero-Cost Abstractions
+
+Rust's zero-cost abstractions mean you don't pay performance penalties for high-level constructs.
+
+<UniversalEditor compare={true} title="Abstraction Cost">
+```python !! py
+# Python - Abstractions have runtime overhead
+def process_list(items):
+    # List comprehension is faster but still creates intermediate lists
+    return [x * 2 for x in items if x > 0]
+
+# Generator is more memory efficient
+def process_gen(items):
+    for x in items:
+        if x > 0:
+            yield x * 2
+
+# Both have interpreter overhead
+```
+
+```rust !! rs
+// Rust - Abstractions compile to efficient machine code
+fn process_list(items: &[i32]) -> Vec<i32> {
+    items.iter()
+        .filter(|&&x| x > 0)
+        .map(|&x| x * 2)
+        .collect()
+}
+
+// This compiles to code as efficient as hand-written loops
+// No allocations for intermediate results
+```
+</UniversalEditor>
+
+**Key Insight:** Rust compiler optimizes iterator chains to be as fast as hand-written loops.
+
+## Iterators vs Loops
+
+<UniversalEditor compare={true} title="Iterator Performance">
+```python !! py
+# Python - Loop vs comprehension
+import timeit
+
+def loop_sum(numbers):
+    total = 0
+    for n in numbers:
+        total += n
+    return total
+
+def comprehension_sum(numbers):
+    return sum(numbers)
+
+# List comprehension is generally faster
+numbers = range(1000)
+print("Loop:", timeit.timeit(lambda: loop_sum(numbers), number=1000))
+print("Built-in:", timeit.timeit(lambda: comprehension_sum(numbers), number=1000))
+```
+
+```rust !! rs
+// Rust - Iterator vs for loop
+use std::time::Instant;
+
+fn loop_sum(numbers: &[i32]) -> i32 {
+    let mut total = 0;
+    for &n in numbers {
+        total += n;
+    }
+    total
+}
+
+fn iterator_sum(numbers: &[i32]) -> i32 {
+    numbers.iter().sum()
+}
+
+// Both compile to identical machine code!
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_sums() {
+        let numbers: Vec<i32> = (0..1000).collect();
+        assert_eq!(loop_sum(&numbers), iterator_sum(&numbers));
+    }
+}
+```
+</UniversalEditor>
+
+## Lazy Evaluation
+
+<UniversalEditor compare={true} title="Lazy Iterator Chains">
+```python !! py
+# Python - Generators are lazy
+import itertools
+
+def process_numbers():
+    # Generator expressions are lazy
+    numbers = (x * 2 for x in range(1000000))
+    filtered = (x for x in numbers if x % 3 == 0)
+    # Nothing computed until we consume
+    return sum(filtered)
+
+# Efficient memory usage
+result = process_numbers()
+```
+
+```rust !! rs
+// Rust - Iterators are lazy by default
+fn process_numbers() -> i64 {
+    // Nothing is computed until collect() or similar
+    (0..1_000_000)
+        .map(|x| x * 2)
+        .filter(|&x| x % 3 == 0)
+        .sum()
+}
+
+// Zero heap allocations, entirely stack-based
+fn main() {
+    let result = process_numbers();
+    println!("Sum: {}", result);
+}
+```
+</UniversalEditor>
+
+## Benchmarking with Criterion
+
+<UniversalEditor compare={true} title="Benchmarking Setup">
+```python !! py
+# Python - pytest-benchmark
+import pytest
+
+def fibonacci(n):
+    if n <= 1:
+        return n
+    return fibonacci(n - 1) + fibonacci(n - 2)
+
+@pytest.mark.benchmark(group="fib")
+def test_fib_10(benchmark):
+    result = benchmark(fibonacci, 10)
+    assert result == 55
+
+@pytest.mark.benchmark(group="fib")
+def test_fib_20(benchmark):
+    result = benchmark(fibonacci, 20)
+    assert result == 6765
+```
+
+```rust !! rs
+// Rust - Criterion benchmarks
+// Cargo.toml:
+// [dev-dependencies]
+// criterion = "0.5"
+
+// [[bench]]
+// name = "fibonacci"
+// harness = false
+
+fn fibonacci(n: u64) -> u64 {
+    match n {
+        0 => 0,
+        1 => 1,
+        _ => fibonacci(n - 1) + fibonacci(n - 2),
+    }
+}
+
+// benches/fibonacci.rs:
+use criterion::{black_box, criterion_group, criterion_main, Criterion};
+
+fn benchmark_fibonacci(c: &mut Criterion) {
+    c.bench_function("fib 10", |b| {
+        b.iter(|| fibonacci(black_box(10)))
+    });
+
+    c.bench_function("fib 20", |b| {
+        b.iter(|| fibonacci(black_box(20)))
+    });
+}
+
+criterion_group!(benches, benchmark_fibonacci);
+criterion_main!(benches);
+
+// Run: cargo bench
+```
+</UniversalEditor>
+
+## Memory Optimization
+
+### Stack vs Heap Allocations
+
+<UniversalEditor compare={true} title="Allocation Strategies">
+```python !! py
+# Python - Mostly heap allocations
+def process_small_data():
+    # Small integers are interned (cached)
+    a = 256
+    b = 256
+    return a is b  # True for small integers
+
+def process_large_data():
+    # Large data always on heap
+    data = [x for x in range(1000000)]
+    return sum(data)
+```
+
+```rust !! rs
+// Rust - Control over allocations
+fn process_small_data() {
+    // Primitives on stack
+    let a: i32 = 256;
+    let b: i32 = 256;
+    // No heap allocation
+}
+
+fn process_large_data() -> i64 {
+    // Vec controls heap allocation
+    let data: Vec<i64> = (0..1_000_000).collect();
+    data.iter().sum()
+}
+
+fn stack_allocated() -> [i32; 1000] {
+    // Fixed-size array on stack
+    [0; 1000]
+}
+```
+</UniversalEditor>
+
+### String vs &str
+
+<UniversalEditor compare={true} title="String Types">
+```python !! py
+# Python - String overhead
+def process_strings():
+    # All strings are heap-allocated
+    name = "Alice"
+    greeting = f"Hello, {name}"
+    return greeting
+```
+
+```rust !! rs
+// Rust - Choose based on ownership needs
+fn use_static_string() -> &'static str {
+    // No allocation, compile-time constant
+    "Hello"
+}
+
+fn use_owned_string() -> String {
+    // Heap-allocated, owned data
+    "Alice".to_string()
+}
+
+fn use_borrowed_string(s: &str) -> usize {
+    // Just a reference, no allocation
+    s.len()
+}
+
+// Use &str for function parameters when possible
+fn print_greeting(name: &str) {
+    println!("Hello, {}", name);
+}
+```
+</UniversalEditor>
+
+## Profiling Tools
+
+<UniversalEditor compare={true} title="Profiling Setup">
+```bash !! bash
+# Python - cProfile and py-spy
+# Built-in profiling
+python -m cProfile -o profile.stats script.py
+
+# py-spy for sampling profiler
+py-spy record --output profile.svg -- python script.py
+
+# Memory profiling
+python -m memory_profiler script.py
+```
+
+```rust !! rs
+// Rust - Flamegraph and perf
+// Install flamegraph: cargo install flamegraph
+
+// Run with flamegraph
+cargo flamegraph
+
+// Or use perf (Linux)
+perf record -g cargo run
+perf script | flamegraph.pl > flamegraph.svg
+
+// Valgrind for detailed analysis
+cargo install cargo-valgrind
+cargo valgrind run
+```
+</UniversalEditor>
+
+## Optimization Techniques
+
+### 1. Allocations
+
+<UniversalEditor compare={true} title="Minimize Allocations">
+```python !! py
+# Python - Use generators to reduce memory
+import sys
+
+def bad_memory():
+    # Creates entire list in memory
+    return [x * 2 for x in range(1000000)]
+
+def good_memory():
+    # Generator uses constant memory
+    return (x * 2 for x in range(1000000))
+
+print("List:", sys.getsizeof(bad_memory()))
+print("Generator:", sys.getsizeof(good_memory()))
+```
+
+```rust !! rs
+// Rust - Pre-allocate when size is known
+fn bad_allocations() -> Vec<i32> {
+    let mut vec = Vec::new();
+    for i in 0..1_000_000 {
+        vec.push(i * 2);  // May reallocate multiple times
+    }
+    vec
+}
+
+fn good_allocations() -> Vec<i32> {
+    let mut vec = Vec::with_capacity(1_000_000);
+    for i in 0..1_000_000 {
+        vec.push(i * 2);  // No reallocation
+    }
+    vec
+}
+
+// Even better: use iterators
+fn best_allocations() -> Vec<i32> {
+    (0..1_000_000)
+        .map(|i| i * 2)
+        .collect()  // Allocates exact size once
+}
+```
+</UniversalEditor>
+
+### 2. Algorithmic Optimization
+
+<UniversalEditor compare={true} title="Algorithm Efficiency">
+```python !! py
+# Python - Choose right data structure
+import time
+
+def linear_search(items, target):
+    for item in items:
+        if item == target:
+            return True
+    return False
+
+def binary_search(items, target):
+    # Requires sorted list
+    import bisect
+    index = bisect.bisect_left(items, target)
+    return index < len(items) and items[index] == target
+
+items = list(range(1000000))
+start = time.time()
+linear_search(items, 999999)
+print(f"Linear: {time.time() - start:.6f}s")
+
+start = time.time()
+binary_search(items, 999999)
+print(f"Binary: {time.time() - start:.6f}s")
+```
+
+```rust !! rs
+// Rust - Use appropriate collections
+use std::collections::HashSet;
+
+fn linear_search(items: &[i32], target: i32) -> bool {
+    items.iter().any(|&x| x == target)
+}
+
+fn hash_set_search(items: &HashSet<i32>, target: i32) -> bool {
+    items.contains(&target)  // O(1) average
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_search() {
+        let items: Vec<i32> = (0..1_000_000).collect();
+        let set: HashSet<i32> = items.iter().copied().collect();
+
+        assert!(linear_search(&items, 999_999));
+        assert!(hash_set_search(&set, 999_999));
+    }
+}
+```
+</UniversalEditor>
+
+### 3. Parallel Processing
+
+<UniversalEditor compare={true} title="Parallel Iterators">
+```python !! py
+# Python - multiprocessing
+from multiprocessing import Pool
+import time
+
+def process_item(x):
+    return x * x
+
+def sequential(items):
+    return [process_item(x) for x in items]
+
+def parallel(items):
+    with Pool() as pool:
+        return pool.map(process_item, items)
+
+items = range(1000000)
+start = time.time()
+sequential(items)
+print(f"Sequential: {time.time() - start:.2f}s")
+
+start = time.time()
+parallel(items)
+print(f"Parallel: {time.time() - start:.2f}s")
+```
+
+```rust !! rs
+// Rust - Rayon for parallelism
+use rayon::prelude::*;
+
+fn process_item(x: i32) -> i32 {
+    x * x
+}
+
+fn sequential(items: &[i32]) -> Vec<i32> {
+    items.iter()
+        .map(|&x| process_item(x))
+        .collect()
+}
+
+fn parallel(items: &[i32]) -> Vec<i32> {
+    items.par_iter()  // Parallel iterator
+        .map(|&x| process_item(x))
+        .collect()
+}
+
+fn main() {
+    let items: Vec<i32> = (0..1_000_000).collect();
+
+    let start = std::time::Instant::now();
+    let _result = sequential(&items);
+    println!("Sequential: {:?}", start.elapsed());
+
+    let start = std::time::Instant::now();
+    let _result = parallel(&items);
+    println!("Parallel: {:?}", start.elapsed());
+}
+```
+</UniversalEditor>
+
+## SIMD Optimization
+
+<UniversalEditor compare={true} title="Vector Operations">
+```python !! py
+# Python - NumPy for vectorized operations
+import numpy as np
+import time
+
+def python_loop(size):
+    data = list(range(size))
+    return [x * 2 for x in data]
+
+def numpy_vectorized(size):
+    data = np.arange(size)
+    return data * 2  # SIMD operations
+
+size = 10_000_000
+
+start = time.time()
+python_loop(size)
+print(f"Python loop: {time.time() - start:.3f}s")
+
+start = time.time()
+numpy_vectorized(size)
+print(f"NumPy: {time.time() - start:.3f}s")
+```
+
+```rust !! rs
+// Rust - Packed_simd or automatic SIMD
+use std::time::Instant;
+
+fn simple_loop(data: &[f32]) -> Vec<f32> {
+    data.iter().map(|&x| x * 2.0).collect()
+}
+
+// Rust compiler may auto-vectorize this
+fn potentially_simd(data: &[f32]) -> Vec<f32> {
+    data.iter()
+        .map(|&x| x * 2.0)
+        .collect()
+}
+
+// Check assembly with: cargo rustc --release -- --emit asm
+fn main() {
+    let data: Vec<f32> = (0..1_000_000).map(|i| i as f32).collect();
+
+    let start = Instant::now();
+    let _result = simple_loop(&data);
+    println!("Simple: {:?}", start.elapsed());
+
+    let start = Instant::now();
+    let _result = potentially_simd(&data);
+    println!("Potential SIMD: {:?}", start.elapsed());
+}
+```
+</UniversalEditor>
+
+## Memory Layout Optimization
+
+<UniversalEditor compare={true} title="Struct Layout">
+```python !! py
+# Python - No control over memory layout
+class Data:
+    def __init__(self):
+        self.flag = True  # bool
+        self.value = 42   # int
+        self.name = "test"  # str
+```
+
+```rust !! rs
+// Rust - Control memory layout for cache efficiency
+// Bad: interleaved small and large fields
+struct BadLayout {
+    flag: bool,      // 1 byte + 7 padding
+    number: u64,     // 8 bytes
+    another_flag: bool,  // 1 byte + 7 padding
+    value: u64,      // 8 bytes
+}  // Total: 32 bytes
+
+// Good: group by size
+struct GoodLayout {
+    number: u64,     // 8 bytes
+    value: u64,      // 8 bytes
+    flag: bool,      // 1 byte
+    another_flag: bool,  // 1 byte
+    // 6 bytes padding
+}  // Total: 24 bytes
+
+// Even better: use #[repr(C)] for FFI or pack
+#[repr(C)]
+struct PackedLayout {
+    flag: bool,
+    number: u64,
+    another_flag: bool,
+    value: u64,
+}
+
+fn main() {
+    println!("Bad: {}", std::mem::size_of::<BadLayout>());
+    println!("Good: {}", std::mem::size_of::<GoodLayout>());
+}
+```
+</UniversalEditor>
+
+## Zero-Cost abstractions in Practice
+
+<UniversalEditor compare={true} title="Iterators Optimization">
+```python !! py
+# Python - Multiple passes create temporary lists
+def process(items):
+    # Each comprehension creates a new list
+    filtered = [x for x in items if x > 0]
+    doubled = [x * 2 for x in filtered]
+    return sum(doubled)
+
+# More efficient version
+def process_gen(items):
+    return sum(x * 2 for x in items if x > 0)
+```
+
+```rust !! rs
+// Rust - Single pass, no intermediate allocations
+fn process(items: &[i32]) -> i32 {
+    items.iter()
+        .filter(|&&x| x > 0)
+        .map(|&x| x * 2)
+        .sum()
+}
+
+// Compiles to code equivalent to:
+fn process_optimized(items: &[i32]) -> i32 {
+    let mut total = 0;
+    for &x in items {
+        if x > 0 {
+            total += x * 2;
+        }
+    }
+    total
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_optimization() {
+        let items = vec![-1, 2, -3, 4, 5];
+        assert_eq!(process(&items), 22);
+        assert_eq!(process_optimized(&items), 22);
+    }
+}
+```
+</UniversalEditor>
+
+## Release Mode Optimization
+
+<UniversalEditor compare={true} title="Build Profiles">
+```bash !! bash
+# Python - Always interpreted, no release mode
+python script.py
+
+# Use PyPy or Cython for performance
+pypy script.py
+```
+
+```rust !! rs
+// Rust - Debug vs Release builds
+
+// Debug: No optimization, fast compile, includes checks
+// cargo build
+
+// Release: Full optimization, slower compile
+// cargo build --release
+
+// Optimize for binary size:
+// cargo build --release
+// Add to Cargo.toml:
+// [profile.release]
+// opt-level = "z"  # or "s" for size
+
+// Profile-guided optimization:
+// 1. Build with profiling instrumentation
+// cargo build --release
+// 2. Run typical workload to generate profile data
+// 3. Rebuild using profile data
+// cargo build --release
+```
+</UniversalEditor>
+
+## Performance Tips Summary
+
+### Memory
+- Use `Vec::with_capacity()` when size is known
+- Prefer `&str` over `String` for function arguments
+- Use stack arrays `[T; N]` for small, fixed-size data
+- Avoid unnecessary clones
+
+### Algorithms
+- Choose appropriate data structures (HashSet, HashMap, BTreeMap)
+- Use iterators for lazy evaluation
+- Profile before optimizing
+- Consider parallelism with Rayon
+
+### Compilation
+- Always benchmark in release mode (`--release`)
+- Use `cargo flamegraph` for visualization
+- Check assembly output: `cargo rustc -- --emit asm`
+- Enable link-time optimization: `lto = true` in Cargo.toml
+
+## Key Takeaways
+
+### Performance Philosophy
+- **Python**: "Premature optimization is the root of all evil" - optimize based on profiling
+- **Rust**: Zero-cost abstractions - write idiomatic code, it's already fast
+
+### When to Optimize
+1. **Profile first**: Measure before optimizing
+2. **Optimize hot paths**: Focus on code that runs frequently
+3. **Consider tradeoffs**: Readability vs performance
+
+### Rust Performance Advantages
+- No garbage collector pauses
+- Predictable performance
+- Zero-cost abstractions
+- Manual memory control
+- Compile-time optimization
+
+## Exercises
+
+1. Benchmark different sorting algorithms
+2. Optimize a data processing pipeline using iterators
+3. Profile an application and optimize the bottleneck
+4. Implement parallel processing with Rayon
+5. Compare string handling strategies
+
+## Next Module
+
+In Module 20, our final module, we'll build a **Complete REST API Project** using Actix-web or Axum, including database integration, JWT authentication, testing, and deployment preparation.

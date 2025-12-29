@@ -1,0 +1,1619 @@
+---
+title: "Module 7: Goroutines and Concurrency"
+description: "Lightweight concurrency with goroutines"
+---
+
+## Introduction
+
+Python's Global Interpreter Lock (GIL) is one of the biggest limitations for CPU-bound concurrent tasks. Go was designed from the ground up with concurrency in mind, using goroutines - lightweight threads managed by the Go runtime.
+
+### What is the GIL?
+
+The **Global Interpreter Lock (GIL)** is a mutex that protects access to Python objects, preventing multiple native threads from executing Python bytecodes at once. This means:
+
+**In Python:**
+- Only one thread executes Python bytecode at a time
+- CPU-bound tasks see no performance benefit from threading
+- I/O-bound tasks can benefit from threading (due to I/O waiting)
+- Multiprocessing is needed for true parallelism
+
+**In Go:**
+- No GIL limitation
+- Multiple goroutines can execute truly in parallel
+- Goroutines are multiplexed onto OS threads (M:N scheduling)
+- Perfect for both CPU-bound and I/O-bound tasks
+
+## GIL vs Goroutines
+
+<UniversalEditor title="Concurrency Limitations">
+```python !! py
+# Python - Limited by GIL for CPU-bound tasks
+import threading
+import time
+
+def cpu_bound_task(n):
+    """CPU-intensive computation"""
+    total = 0
+    for i in range(n):
+        total += i * i
+    return total
+
+def run_parallel():
+    threads = []
+    start = time.time()
+
+    for _ in range(4):
+        t = threading.Thread(target=cpu_bound_task, args=(10_000_000,))
+        threads.append(t)
+        t.start()
+
+    for t in threads:
+        t.join()
+
+    elapsed = time.time() - start
+    print(f"Threading time: {elapsed:.2f}s")
+
+# Result: ~4 seconds (threads run sequentially due to GIL)
+# Same code with multiprocessing: ~1 second (true parallelism)
+```
+
+```go !! go
+// Go - True parallelism with goroutines
+package main
+
+import (
+    "fmt"
+    "sync"
+    "time"
+)
+
+func cpuBoundTask(n int) int {
+    total := 0
+    for i := 0; i < n; i++ {
+        total += i * i
+    }
+    return total
+}
+
+func runParallel() {
+    var wg sync.WaitGroup
+    start := time.Now()
+
+    for i := 0; i < 4; i++ {
+        wg.Add(1)
+        go func() {
+            defer wg.Done()
+            cpuBoundTask(10_000_000)
+        }()
+    }
+
+    wg.Wait()
+    elapsed := time.Since(start)
+    fmt.Printf("Goroutines time: %v\n", elapsed)
+}
+
+// Result: ~1 second (goroutines run in parallel on all CPUs)
+func main() {
+    runParallel()
+}
+```
+</UniversalEditor>
+
+## Goroutine Internals
+
+### What are Goroutines?
+
+Goroutines are lightweight threads managed by the Go runtime:
+
+<UniversalEditor title="Thread vs Goroutine">
+```python !! py
+# Python - OS Threads
+import threading
+import sys
+
+# Each Python thread uses an OS thread
+# Typical memory: ~8 MB per thread
+# Creation cost: High (OS system call)
+
+def thread_info():
+    thread = threading.current_thread()
+    print(f"Thread: {thread.name}")
+
+# Creating 10,000 threads would likely crash your system
+threads = []
+for i in range(100):  # Even 100 is heavy
+    t = threading.Thread(target=thread_info)
+    threads.append(t)
+    t.start()
+
+for t in threads:
+    t.join()
+```
+
+```go !! go
+// Go - Goroutines
+package main
+
+import (
+    "fmt"
+    "runtime"
+    "sync"
+    "time"
+)
+
+// Goroutines are extremely lightweight:
+// - Stack size: starts at 2KB, grows as needed
+// - Creation cost: Very low
+// - Scheduling: Go runtime (M:N model)
+
+func goroutineInfo(id int) {
+    fmt.Printf("Goroutine %d\n", id)
+}
+
+func main() {
+    // Can easily create 10,000+ goroutines
+    var wg sync.WaitGroup
+
+    for i := 0; i < 10000; i++ {
+        wg.Add(1)
+        go func(id int) {
+            defer wg.Done()
+            goroutineInfo(id)
+        }(i)
+    }
+
+    wg.Wait()
+    fmt.Printf("Goroutines: %d\n", runtime.NumGoroutine())
+    fmt.Printf("CPUs: %d\n", runtime.NumCPU())
+}
+
+// This works perfectly! Memory usage stays reasonable.
+```
+</UniversalEditor>
+
+### Goroutine Scheduling
+
+Go uses an **M:N scheduler**:
+- **M** goroutines are multiplexed onto **N** OS threads
+- The Go runtime handles scheduling, not the OS
+- Goroutines are cooperatively scheduled (preemptive since Go 1.14)
+
+<UniversalEditor title="Scheduler Comparison">
+```python !! py
+# Python - OS Scheduling (1:1)
+#
+# Thread 1 -> OS Thread 1 -> CPU Core
+# Thread 2 -> OS Thread 2 -> CPU Core
+# Thread 3 -> OS Thread 3 -> CPU Core
+#
+# Issues:
+# - OS manages scheduling (expensive context switches)
+# - Limited by number of OS threads
+# - High memory per thread (~8MB)
+
+import threading
+import time
+
+def worker():
+    time.sleep(0.001)  # Context switch here
+
+# OS decides when to switch threads
+for _ in range(100):
+    t = threading.Thread(target=worker)
+    t.start()
+    t.join()
+```
+
+```go !! go
+// Go - Go Runtime Scheduling (M:N)
+package main
+
+import (
+    "fmt"
+    "runtime"
+    "time"
+)
+
+// Goroutine 1 --\                             /--> CPU Core 1
+// Goroutine 2 ---> [Go Scheduler] --[N OS Threads]---> CPU Core 2
+// Goroutine 3 --/                              \--> CPU Core 3
+//
+// Benefits:
+// - Go runtime manages scheduling (cheap context switches)
+// - Many goroutines per OS thread
+// - Automatic load balancing
+// - Grows and shrinks OS threads as needed
+
+func worker(id int) {
+    time.Sleep(time.Millisecond)
+    fmt.Printf("Worker %d\n", id)
+}
+
+func main() {
+    // Set max number of OS threads (optional)
+    runtime.GOMAXPROCS(runtime.NumCPU())
+
+    for i := 0; i < 100; i++ {
+        go worker(i)
+    }
+
+    time.Sleep(100 * time.Millisecond)
+}
+```
+</UniversalEditor>
+
+## Starting Goroutines
+
+### Basic Goroutine Launch
+
+<UniversalEditor title="Starting Goroutines">
+```python !! py
+# Python - Threading
+import threading
+import time
+
+def task(name, duration):
+    """Run a task"""
+    time.sleep(duration)
+    print(f"Task {name} completed")
+
+# Create and start thread
+thread = threading.Thread(target=task, args=("A", 1))
+thread.start()  # Start execution
+
+# Wait for completion
+thread.join()
+print("Main continues")
+```
+
+```go !! go
+// Go - Goroutines
+package main
+
+import (
+    "fmt"
+    "time"
+)
+
+func task(name string, duration time.Duration) {
+    time.Sleep(duration)
+    fmt.Printf("Task %s completed\n", name)
+}
+
+func main() {
+    // Start goroutine
+    go task("A", time.Second)
+
+    // Wait for goroutine to finish
+    // (In real code, use WaitGroup or channels)
+    time.Sleep(2 * time.Second)
+    fmt.Println("Main continues")
+}
+```
+</UniversalEditor>
+
+### Multiple Goroutines
+
+<UniversalEditor title="Multiple Concurrent Tasks">
+```python !! py
+# Python - Multiple threads
+import threading
+import time
+
+def download(url, delay):
+    """Simulate download"""
+    time.sleep(delay)
+    print(f"Downloaded {url}")
+
+urls = [
+    ("http://example.com/file1", 1),
+    ("http://example.com/file2", 2),
+    ("http://example.com/file3", 1),
+]
+
+threads = []
+for url, delay in urls:
+    t = threading.Thread(target=download, args=(url, delay))
+    threads.append(t)
+    t.start()
+
+for t in threads:
+    t.join()
+
+print("All downloads complete")
+```
+
+```go !! go
+// Go - Multiple goroutines
+package main
+
+import (
+    "fmt"
+    "sync"
+    "time"
+)
+
+type Download struct {
+    URL    string
+    Delay time.Duration
+}
+
+func download(d Download, wg *sync.WaitGroup) {
+    defer wg.Done()
+    time.Sleep(d.Delay)
+    fmt.Printf("Downloaded %s\n", d.URL)
+}
+
+func main() {
+    downloads := []Download{
+        {"http://example.com/file1", time.Second},
+        {"http://example.com/file2", 2 * time.Second},
+        {"http://example.com/file3", time.Second},
+    }
+
+    var wg sync.WaitGroup
+
+    for _, d := range downloads {
+        wg.Add(1)
+        go download(d, &wg)
+    }
+
+    wg.Wait()
+    fmt.Println("All downloads complete")
+}
+```
+</UniversalEditor>
+
+## Anonymous Goroutines
+
+### Quick Inline Tasks
+
+<UniversalEditor title="Anonymous Functions">
+```python !! py
+# Python - Lambda/thread
+import threading
+import time
+
+# Start anonymous task
+thread = threading.Thread(
+    target=lambda: print("Anonymous task")
+)
+thread.start()
+thread.join()
+
+# With parameters
+thread = threading.Thread(
+    target=lambda x, y: print(f"Sum: {x + y}"),
+    args=(5, 3)
+)
+thread.start()
+thread.join()
+```
+
+```go !! go
+// Go - Anonymous goroutine
+package main
+
+import (
+    "fmt"
+    "time"
+)
+
+func main() {
+    // Simple anonymous goroutine
+    go func() {
+        fmt.Println("Anonymous task")
+    }()
+
+    time.Sleep(time.Millisecond)
+
+    // With parameters
+    go func(x int, y int) {
+        fmt.Printf("Sum: %d\n", x+y)
+    }(5, 3)
+
+    time.Sleep(time.Millisecond)
+}
+```
+</UniversalEditor>
+
+## Goroutines with Closures
+
+### The Loop Variable Capture Gotcha
+
+This is one of the most common mistakes in Go!
+
+<UniversalEditor title="Closure Gotcha">
+```python !! py
+# Python - Late binding closure issue
+import threading
+
+funcs = []
+for i in range(3):
+    funcs.append(lambda: print(i))
+
+for f in funcs:
+    f()  # Prints 2, 2, 2 (all reference same i)
+
+# Fix - capture value with default argument
+funcs = []
+for i in range(3):
+    funcs.append(lambda i=i: print(i))
+
+for f in funcs:
+    f()  # Prints 0, 1, 2
+```
+
+```go !! go
+// Go - Loop variable capture
+package main
+
+import (
+    "fmt"
+    "sync"
+    "time"
+)
+
+func main() {
+    // WRONG - All goroutines capture same i variable
+    var wg sync.WaitGroup
+    for i := 0; i < 3; i++ {
+        wg.Add(1)
+        go func() {
+            defer wg.Done()
+            fmt.Println(i) // May print 3, 3, 3 or unpredictable
+        }()
+    }
+    wg.Wait()
+    time.Sleep(time.Millisecond)
+
+    fmt.Println("---")
+
+    // RIGHT - Pass i as parameter
+    var wg2 sync.WaitGroup
+    for i := 0; i < 3; i++ {
+        wg2.Add(1)
+        go func(n int) {
+            defer wg2.Done()
+            fmt.Println(n) // Prints 0, 1, 2
+        }(i) // Pass current value of i
+    }
+    wg2.Wait()
+}
+```
+</UniversalEditor>
+
+### Why Does This Happen?
+
+The closure captures the **variable**, not the **value**. All goroutines share the same loop variable, which may be modified before the goroutine runs.
+
+## WaitGroup: Proper Synchronization
+
+Using `time.Sleep()` to wait for goroutines is bad practice. Use `sync.WaitGroup` instead.
+
+<UniversalEditor title="WaitGroup">
+```python !! py
+# Python - Join threads
+import threading
+import time
+
+def worker(id):
+    time.sleep(0.1)
+    print(f"Worker {id} done")
+
+threads = []
+for i in range(5):
+    t = threading.Thread(target=worker, args=(i,))
+    threads.append(t)
+    t.start()
+
+# Wait for all threads
+for t in threads:
+    t.join()
+
+print("All workers done")
+```
+
+```go !! go
+// Go - WaitGroup
+package main
+
+import (
+    "fmt"
+    "sync"
+    "time"
+)
+
+func worker(id int, wg *sync.WaitGroup) {
+    defer wg.Done() // Decrement counter when done
+    time.Sleep(100 * time.Millisecond)
+    fmt.Printf("Worker %d done\n", id)
+}
+
+func main() {
+    var wg sync.WaitGroup
+
+    for i := 0; i < 5; i++ {
+        wg.Add(1) // Increment counter
+        go worker(i, &wg)
+    }
+
+    wg.Wait() // Wait until counter is 0
+    fmt.Println("All workers done")
+}
+```
+</UniversalEditor>
+
+### WaitGroup Best Practices
+
+<UniversalEditor title="WaitGroup Patterns">
+```go !! go
+// Go - WaitGroup patterns
+package main
+
+import (
+    "fmt"
+    "sync"
+)
+
+// Pattern 1: Add in caller, Done in goroutine
+func worker1(id int, wg *sync.WaitGroup) {
+    defer wg.Done()
+    fmt.Printf("Worker %d\n", id)
+}
+
+func pattern1() {
+    var wg sync.WaitGroup
+
+    for i := 0; i < 3; i++ {
+        wg.Add(1) // Add before starting goroutine
+        go worker1(i, &wg)
+    }
+
+    wg.Wait()
+}
+
+// Pattern 2: Add inside goroutine
+func worker2(id int) {
+    fmt.Printf("Worker %d\n", id)
+}
+
+func pattern2() {
+    var wg sync.WaitGroup
+
+    for i := 0; i < 3; i++ {
+        go func(id int) {
+            wg.Add(1) // Add at start of goroutine
+            defer wg.Done()
+            worker2(id)
+        }(i)
+    }
+
+    wg.Wait()
+}
+
+// Pattern 3: WaitGroup with return values
+type Result struct {
+    ID    int
+    Value int
+}
+
+func workerWithResult(id int, results chan<- Result, wg *sync.WaitGroup) {
+    defer wg.Done()
+    results <- Result{ID: id, Value: id * 2}
+}
+
+func pattern3() {
+    var wg sync.WaitGroup
+    results := make(chan Result, 3)
+
+    for i := 0; i < 3; i++ {
+        wg.Add(1)
+        go workerWithResult(i, results, &wg)
+    }
+
+    // Close channel when all workers done
+    go func() {
+        wg.Wait()
+        close(results)
+    }()
+
+    // Collect results
+    for r := range results {
+        fmt.Printf("Worker %d: %d\n", r.ID, r.Value)
+    }
+}
+
+func main() {
+    fmt.Println("Pattern 1:")
+    pattern1()
+
+    fmt.Println("\nPattern 2:")
+    pattern2()
+
+    fmt.Println("\nPattern 3:")
+    pattern3()
+}
+```
+</UniversalEditor>
+
+## Mutual Exclusion (Mutex)
+
+When multiple goroutines access shared data, you need synchronization.
+
+<UniversalEditor title="Mutex Basics">
+```python !! py
+# Python - Lock
+import threading
+
+counter = 0
+lock = threading.Lock()
+
+def increment():
+    global counter
+    with lock:  # Acquire lock
+        counter += 1  # Critical section
+    # Lock released automatically
+
+# Start 100 threads
+threads = []
+for _ in range(100):
+    t = threading.Thread(target=increment)
+    threads.append(t)
+    t.start()
+
+for t in threads:
+    t.join()
+
+print(f"Counter: {counter}")  # 100
+```
+
+```go !! go
+// Go - Mutex
+package main
+
+import (
+    "fmt"
+    "sync"
+)
+
+var (
+    counter int
+    mutex   sync.Mutex
+)
+
+func increment() {
+    mutex.Lock()         // Acquire lock
+    counter++            // Critical section
+    mutex.Unlock()       // Release lock
+}
+
+func main() {
+    var wg sync.WaitGroup
+
+    for i := 0; i < 100; i++ {
+        wg.Add(1)
+        go func() {
+            defer wg.Done()
+            increment()
+        }()
+    }
+
+    wg.Wait()
+    fmt.Printf("Counter: %d\n", counter) // 100
+}
+```
+</UniversalEditor>
+
+### Using defer with Mutex
+
+<UniversalEditor title="Defer with Mutex">
+```go !! go
+// Go - Defer for Unlock
+package main
+
+import (
+    "fmt"
+    "sync"
+)
+
+var (
+    counter int
+    mutex   sync.Mutex
+)
+
+func incrementGood() {
+    mutex.Lock()
+    defer mutex.Unlock() // Guaranteed to run
+
+    counter++
+
+    // Even if panic occurs, Unlock will run
+    // if somethingBad() { panic("oops") }
+}
+
+func incrementBad() {
+    mutex.Lock()
+    counter++
+    mutex.Unlock()
+
+    // If panic occurs here, mutex stays locked!
+    // if somethingBad() { panic("oops") }
+}
+
+func main() {
+    var wg sync.WaitGroup
+
+    for i := 0; i < 100; i++ {
+        wg.Add(1)
+        go func() {
+            defer wg.Done()
+            incrementGood()
+        }()
+    }
+
+    wg.Wait()
+    fmt.Printf("Counter: %d\n", counter)
+}
+```
+</UniversalEditor>
+
+## RWMutex: Read-Write Locks
+
+For read-heavy workloads, `sync.RWMutex` allows multiple readers or one writer.
+
+<UniversalEditor title="RWMutex">
+```python !! py
+# Python - Read-Write Lock
+import threading
+
+rwlock = threading.RLock()
+
+def read_data():
+    with rwlock:
+        # Multiple readers can hold this lock
+        data = get_data()
+    return data
+
+def write_data(new_data):
+    with rwlock:
+        # Writer gets exclusive access
+        set_data(new_data)
+```
+
+```go !! go
+// Go - RWMutex
+package main
+
+import (
+    "fmt"
+    "sync"
+    "time"
+)
+
+type DataStore struct {
+    mu   sync.RWMutex
+    data map[string]string
+}
+
+func NewDataStore() *DataStore {
+    return &DataStore{
+        data: make(map[string]string),
+    }
+}
+
+// Read - multiple goroutines can read simultaneously
+func (ds *DataStore) Read(key string) (string, bool) {
+    ds.mu.RLock()         // Read lock
+    defer ds.mu.RUnlock()
+    time.Sleep(time.Millisecond) // Simulate work
+    val, ok := ds.data[key]
+    return val, ok
+}
+
+// Write - exclusive access
+func (ds *DataStore) Write(key, value string) {
+    ds.mu.Lock()          // Write lock (exclusive)
+    defer ds.mu.Unlock()
+    time.Sleep(10 * time.Millisecond) // Simulate work
+    ds.data[key] = value
+}
+
+func main() {
+    ds := NewDataStore()
+    var wg sync.WaitGroup
+
+    // Start 100 readers
+    for i := 0; i < 100; i++ {
+        wg.Add(1)
+        go func(id int) {
+            defer wg.Done()
+            ds.Read(fmt.Sprintf("key-%d", id))
+        }(i)
+    }
+
+    // Start 10 writers
+    for i := 0; i < 10; i++ {
+        wg.Add(1)
+        go func(id int) {
+            defer wg.Done()
+            ds.Write(fmt.Sprintf("key-%d", id), fmt.Sprintf("value-%d", id))
+        }(i)
+    }
+
+    wg.Wait()
+    fmt.Println("All operations complete")
+}
+```
+</UniversalEditor>
+
+### When to Use RWMutex vs Mutex
+
+<UniversalEditor title="Mutex Selection">
+```go !! go
+// Go - When to use which
+package main
+
+import "sync"
+
+// Use regular Mutex when:
+// - Writes are frequent
+// - Critical section is short
+// - Don't need read optimization
+type Counter struct {
+    mu    sync.Mutex
+    value int
+}
+
+// Use RWMutex when:
+// - Reads greatly outnumber writes
+// - Critical section is longer
+// - Multiple concurrent readers are beneficial
+type Cache struct {
+    mu    sync.RWMutex
+    data  map[string]interface{}
+}
+
+func (c *Cache) Get(key string) (interface{}, bool) {
+    c.mu.RLock()         // Allow concurrent reads
+    defer c.mu.RUnlock()
+    val, ok := c.data[key]
+    return val, ok
+}
+
+func (c *Cache) Set(key string, val interface{}) {
+    c.mu.Lock()          // Exclusive write
+    defer c.mu.Unlock()
+    c.data[key] = val
+}
+```
+</UniversalEditor>
+
+## sync.Once: Single Initialization
+
+Ensure a function runs exactly once, even from multiple goroutines.
+
+<UniversalEditor title="sync.Once">
+```python !! py
+# Python - Singleton with threading
+import threading
+
+class Singleton:
+    _instance = None
+    _lock = threading.Lock()
+
+    def __new__(cls):
+        if cls._instance is None:
+            with cls._lock:
+                # Double-check
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+        return cls._instance
+
+# Usage
+s1 = Singleton()
+s2 = Singleton()
+assert s1 is s2
+```
+
+```go !! go
+// Go - sync.Once
+package main
+
+import (
+    "fmt"
+    "sync"
+)
+
+type Singleton struct {
+    data string
+}
+
+var (
+    instance *Singleton
+    once     sync.Once
+)
+
+func getInstance() *Singleton {
+    once.Do(func() {
+        // This runs exactly once, ever
+        instance = &Singleton{data: "initialized"}
+        fmt.Println("Singleton initialized")
+    })
+    return instance
+}
+
+func main() {
+    var wg sync.WaitGroup
+
+    // Multiple goroutines trying to initialize
+    for i := 0; i < 10; i++ {
+        wg.Add(1)
+        go func(id int) {
+            defer wg.Done()
+            inst := getInstance()
+            fmt.Printf("Goroutine %d: %p\n", id, inst)
+        }(i)
+    }
+
+    wg.Wait()
+    // "Singleton initialized" prints only once
+}
+```
+</UniversalEditor>
+
+### Once Patterns
+
+<UniversalEditor title="sync.Once Patterns">
+```go !! go
+// Go - Common sync.Once patterns
+package main
+
+import (
+    "fmt"
+    "sync"
+)
+
+// Pattern 1: Lazy initialization
+var (
+    config     map[string]string
+    configOnce sync.Once
+)
+
+func getConfig() map[string]string {
+    configOnce.Do(func() {
+        // Expensive initialization
+        config = make(map[string]string)
+        config["host"] = "localhost"
+        config["port"] = "8080"
+        fmt.Println("Config initialized")
+    })
+    return config
+}
+
+// Pattern 2: Multiple Once instances
+type ConnectionPool struct {
+    once sync.Once
+    pool []*Connection
+}
+
+func (cp *ConnectionPool) Init() {
+    cp.once.Do(func() {
+        // Initialize pool
+        cp.pool = make([]*Connection, 10)
+        fmt.Println("Connection pool initialized")
+    })
+}
+
+// Pattern 3: Once with error handling
+var (
+    cache     Cache
+    cacheOnce sync.Once
+    cacheErr  error
+)
+
+func getCache() (Cache, error) {
+    cacheOnce.Do(func() {
+        cache, cacheErr = initCache()
+    })
+    return cache, cacheErr
+}
+
+func initCache() (Cache, error) {
+    // Initialization that might fail
+    return Cache{}, nil
+}
+
+type Cache struct{}
+
+func main() {
+    getConfig()
+    getConfig()
+    // "Config initialized" prints only once
+
+    pool := &ConnectionPool{}
+    pool.Init()
+    pool.Init()
+    // Connection pool initializes only once
+}
+```
+</UniversalEditor>
+
+## Atomic Operations
+
+For simple operations, use atomic package instead of mutex.
+
+<UniversalEditor title="Atomic Operations">
+```python !! py
+# Python - Atomic operations (thread-safe)
+import threading
+
+counter = 0
+
+# Increment is atomic in CPython due to GIL
+# but not guaranteed in all implementations
+
+# For guaranteed atomicity, use locks
+lock = threading.Lock()
+
+def increment():
+    global counter
+    with lock:
+        counter += 1
+```
+
+```go !! go
+// Go - Atomic operations
+package main
+
+import (
+    "sync"
+    "sync/atomic"
+)
+
+// Mutex approach
+type MutexCounter struct {
+    mu    sync.Mutex
+    value int64
+}
+
+func (c *MutexCounter) Increment() {
+    c.mu.Lock()
+    c.value++
+    c.mu.Unlock()
+}
+
+// Atomic approach (faster for simple operations)
+type AtomicCounter struct {
+    value int64
+}
+
+func (c *AtomicCounter) Increment() {
+    atomic.AddInt64(&c.value, 1)
+}
+
+func (c *AtomicCounter) Get() int64 {
+    return atomic.LoadInt64(&c.value)
+}
+
+// Common atomic operations
+func main() {
+    var counter int64 = 0
+
+    // Add
+    atomic.AddInt64(&counter, 1)
+
+    // Load
+    val := atomic.LoadInt64(&counter)
+
+    // Store
+    atomic.StoreInt64(&counter, 100)
+
+    // Compare and Swap
+    atomic.CompareAndSwapInt64(&counter, 100, 200)
+
+    // Swap
+    old := atomic.SwapInt64(&counter, 300)
+
+    _, _ = val, old
+}
+```
+</UniversalEditor>
+
+## Goroutine Leaks
+
+Goroutines are cheap, but not free. Leaking goroutines can cause memory issues.
+
+<UniversalEditor title="Goroutine Leaks">
+```python !! py
+# Python - Thread leak
+import threading
+import time
+
+def worker():
+    while True:
+        time.sleep(1)
+        # Never exits!
+
+# Create thread that never exits
+t = threading.Thread(target=worker)
+t.start()
+
+# Thread keeps running, consuming resources
+```
+
+```go !! go
+// Go - Goroutine leak
+package main
+
+import (
+    "fmt"
+    "runtime"
+    "time"
+)
+
+// WRONG - Goroutine never exits
+func leakWorker() {
+    for {
+        time.Sleep(time.Second)
+        // Never returns!
+    }
+}
+
+// RIGHT - Always have exit condition
+func goodWorker(stop <-chan struct{}) {
+    for {
+        select {
+        case <-stop:
+            return // Exit goroutine
+        default:
+            time.Sleep(time.Second)
+            // Do work...
+        }
+    }
+}
+
+func main() {
+    fmt.Println("Goroutines:", runtime.NumGoroutine())
+
+    // Leak goroutine
+    go leakWorker()
+    time.Sleep(time.Millisecond)
+    fmt.Println("Goroutines (after leak):", runtime.NumGoroutine())
+
+    // Proper goroutine with stop channel
+    stop := make(chan struct{})
+    go goodWorker(stop)
+    time.Sleep(time.Millisecond)
+
+    close(stop) // Signal goroutine to stop
+    time.Sleep(time.Millisecond)
+    fmt.Println("Goroutines (after cleanup):", runtime.NumGoroutine())
+}
+```
+</UniversalEditor>
+
+## Worker Pools
+
+Limit the number of concurrent goroutines to avoid resource exhaustion.
+
+<UniversalEditor title="Worker Pool">
+```python !! py
+# Python - Worker pool with ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor
+
+def process_task(task_id):
+    print(f"Processing {task_id}")
+    return task_id * 2
+
+# Limit to 10 workers
+with ThreadPoolExecutor(max_workers=10) as executor:
+    futures = [executor.submit(process_task, i) for i in range(100)]
+    results = [f.result() for f in futures]
+```
+
+```go !! go
+// Go - Worker pool
+package main
+
+import (
+    "fmt"
+    "sync"
+)
+
+func worker(id int, jobs <-chan int, results chan<- int, wg *sync.WaitGroup) {
+    defer wg.Done()
+    for job := range jobs {
+        fmt.Printf("Worker %d processing job %d\n", id, job)
+        results <- job * 2
+    }
+}
+
+func main() {
+    numWorkers := 10
+    numJobs := 100
+
+    jobs := make(chan int, numJobs)
+    results := make(chan int, numJobs)
+
+    var wg sync.WaitGroup
+
+    // Start workers
+    for i := 0; i < numWorkers; i++ {
+        wg.Add(1)
+        go worker(i, jobs, results, &wg)
+    }
+
+    // Send jobs
+    for j := 0; j < numJobs; j++ {
+        jobs <- j
+    }
+    close(jobs)
+
+    // Wait for workers to finish
+    go func() {
+        wg.Wait()
+        close(results)
+    }()
+
+    // Collect results
+    for result := range results {
+        _ = result
+    }
+
+    fmt.Println("All jobs processed")
+}
+```
+</UniversalEditor>
+
+## Context with Goroutines
+
+Use context for cancellation and timeout handling.
+
+<UniversalEditor title="Context Cancellation">
+```python !! py
+# Python - Cancellation with Event
+import threading
+import time
+
+def worker(stop_event):
+    while not stop_event.is_set():
+        time.sleep(0.1)
+        print("Working...")
+    print("Stopped")
+
+stop_event = threading.Event()
+t = threading.Thread(target=worker, args=(stop_event,))
+t.start()
+
+time.sleep(1)
+stop_event.set()  # Signal stop
+t.join()
+```
+
+```go !! go
+// Go - Context for cancellation
+package main
+
+import (
+    "context"
+    "fmt"
+    "time"
+)
+
+func worker(ctx context.Context) {
+    for {
+        select {
+        case <-ctx.Done():
+            fmt.Println("Stopped")
+            return
+        default:
+            time.Sleep(100 * time.Millisecond)
+            fmt.Println("Working...")
+        }
+    }
+}
+
+func main() {
+    // Create cancellable context
+    ctx, cancel := context.WithCancel(context.Background())
+
+    go worker(ctx)
+
+    // Let it run for a second
+    time.Sleep(time.Second)
+
+    // Cancel context
+    cancel()
+
+    // Wait for cleanup
+    time.Sleep(100 * time.Millisecond)
+}
+```
+</UniversalEditor>
+
+## Best Practices
+
+### 1. Know When to Use Goroutines
+
+<UniversalEditor title="Goroutine Usage Guidelines">
+```go !! go
+// GOOD - Use goroutines for:
+// 1. I/O-bound operations (network, disk)
+// 2. Independent tasks
+// 3. Parallel processing
+
+func fetchUserData(userID int) {
+    // Network I/O - perfect for goroutines
+    resp := http.Get(fmt.Sprintf("http://api/user/%d", userID))
+    // ...
+}
+
+func processImages(images []Image) {
+    // CPU-bound parallel work
+    for _, img := range images {
+        go processImage(img)
+    }
+}
+
+// BAD - Don't use goroutines for:
+// 1. Simple operations (overhead)
+// 2. Tight loops (use channels for coordination)
+// 3. When order matters
+
+func add(a, b int) int {
+    // Don't do this:
+    go func() {
+        result = a + b  // Race condition!
+    }()
+
+    // Just do the work directly
+    return a + b
+}
+```
+</UniversalEditor>
+
+### 2. Always Have Exit Conditions
+
+<UniversalEditor title="Goroutine Exit">
+```go !! go
+// GOOD - Always exit
+func worker(stop <-chan struct{}) {
+    ticker := time.NewTicker(time.Second)
+    defer ticker.Stop()
+
+    for {
+        select {
+        case <-stop:
+            return // Clean exit
+        case <-ticker.C:
+            // Work...
+        }
+    }
+}
+
+// BAD - Never exits
+func worker() {
+    for {
+        time.Sleep(time.Second)
+        // No exit condition!
+    }
+}
+```
+</UniversalEditor>
+
+### 3. Be Careful with Shared State
+
+<UniversalEditor title="Avoid Shared State">
+```go !! go
+// GOOD - Use channels for communication
+func producer(out chan<- int) {
+    for i := 0; i < 10; i++ {
+        out <- i
+    }
+    close(out)
+}
+
+func consumer(in <-chan int) {
+    for val := range in {
+        fmt.Println(val)
+    }
+}
+
+// BAD - Shared mutable state
+var data []int
+
+func producer() {
+    for i := 0; i < 10; i++ {
+        data = append(data, i) // Race condition!
+    }
+}
+
+func consumer() {
+    for _, val := range data {
+        fmt.Println(val) // Race condition!
+    }
+}
+```
+</UniversalEditor>
+
+### 4. Use WaitGroup Properly
+
+<UniversalEditor title="WaitGroup Usage">
+```go !! go
+// GOOD - Add before starting goroutine
+func processItems(items []Item) {
+    var wg sync.WaitGroup
+
+    for _, item := range items {
+        wg.Add(1) // Add before goroutine
+        go func(i Item) {
+            defer wg.Done()
+            process(i)
+        }(item)
+    }
+
+    wg.Wait()
+}
+
+// BAD - Add inside goroutine
+func processItemsBad(items []Item) {
+    var wg sync.WaitGroup
+
+    for _, item := range items {
+        go func(i Item) {
+            wg.Add(1) // Race condition!
+            defer wg.Done()
+            process(i)
+        }(item)
+    }
+
+    wg.Wait() // May return too early!
+}
+```
+</UniversalEditor>
+
+### 5. Handle Panics in Goroutines
+
+<UniversalEditor title="Panic Recovery">
+```go !! go
+// GOOD - Recover from panics
+func safeWorker() {
+    defer func() {
+        if r := recover(); r != nil {
+            fmt.Printf("Recovered: %v\n", r)
+        }
+    }()
+
+    // Work that might panic
+    panic("oops")
+}
+
+// BAD - Panic crashes goroutine
+func unsafeWorker() {
+    panic("oops") // Goroutine dies, no recovery
+}
+```
+</UniversalEditor>
+
+## Performance Considerations
+
+### Goroutine vs Thread Overhead
+
+<UniversalEditor title="Performance Comparison">
+```go !! go
+// Go - Memory and creation cost
+package main
+
+import (
+    "fmt"
+    "runtime"
+    "time"
+)
+
+func main() {
+    // Goroutines are very lightweight
+    start := time.Now()
+
+    var wg sync.WaitGroup
+    for i := 0; i < 100000; i++ {
+        wg.Add(1)
+        go func() {
+            defer wg.Done()
+            time.Sleep(time.Second)
+        }()
+    }
+
+    fmt.Printf("Created 100k goroutines in %v\n", time.Since(start))
+    fmt.Printf("Goroutines: %d\n", runtime.NumGoroutine())
+
+    wg.Wait()
+}
+
+// Comparison:
+// Python threads: ~8MB per thread, ~1ms creation time
+// Go goroutines: ~2KB per goroutine (grows), ~0.001ms creation time
+```
+</UniversalEditor>
+
+## Summary
+
+### Key Concepts
+
+1. **No GIL**: Go has true parallelism, Python limited by GIL
+2. **Lightweight**: Goroutines use ~2KB stack, threads use ~8MB
+3. **M:N Scheduling**: Go runtime manages goroutine scheduling
+4. **WaitGroup**: Proper synchronization without sleeping
+5. **Mutex/RWMutex**: Protect shared state
+6. **sync.Once**: Guaranteed single execution
+7. **Atomic operations**: Lock-free synchronization for simple cases
+8. **Worker pools**: Limit concurrent goroutines
+9. **Context**: Cancellation and timeouts
+10. **Avoid leaks**: Always provide exit conditions
+
+### Common Patterns
+
+- **WaitGroup**: Wait for multiple goroutines
+- **Mutex**: Protect shared data
+- **RWMutex**: Multiple readers, single writer
+- **Channels**: Communication between goroutines (next module)
+- **Context**: Cancellation propagation
+- **Worker pool**: Bounded concurrency
+
+### Best Practices
+
+1. Always have exit conditions for goroutines
+2. Use WaitGroup instead of time.Sleep
+3. Be careful with shared state (prefer channels)
+4. Handle panics in goroutines
+5. Use worker pools for many tasks
+6. Use RWMutex for read-heavy workloads
+7. Use atomic operations for simple counters
+8. Use context for cancellation
+
+### Comparison with Python
+
+| Python | Go |
+|--------|-----|
+| GIL limits parallelism | No GIL, true parallelism |
+| Threading limited by GIL | Goroutines on all CPUs |
+| Thread ~8MB memory | Goroutine ~2KB stack |
+| OS manages scheduling | Go runtime schedules |
+| `threading.Thread` | `go` keyword |
+| `threading.Lock` | `sync.Mutex` |
+| `threading.RLock` | `sync.RWMutex` |
+| `threading.Event` | `context.Context` |
+
+## Exercises
+
+1. Create a worker pool that:
+   - Processes 1000 tasks
+   - Uses 20 workers
+   - Collects all results
+   - Measures execution time
+
+2. Implement a concurrent web scraper:
+   - Fetch multiple URLs concurrently
+   - Use WaitGroup for synchronization
+   - Handle panics gracefully
+   - Implement timeout with context
+
+3. Build a rate limiter:
+   - Limit to N requests per second
+   - Use goroutines and channels
+   - Drop or queue excess requests
+
+4. Create a concurrent cache:
+   - Use RWMutex for thread safety
+   - Implement Get/Set/Delete operations
+   - Add TTL (time-to-live) support
+
+5. Parallel data processing:
+   - Split large file into chunks
+   - Process chunks concurrently
+   - Aggregate results
+   - Handle errors properly
+
+## Next Steps
+
+Next module: **Channels and Communication** - Learn how goroutines communicate safely and effectively.

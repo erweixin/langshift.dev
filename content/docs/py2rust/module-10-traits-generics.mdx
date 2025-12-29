@@ -1,0 +1,781 @@
+---
+title: "Module 10: Traits and Generics"
+description: "Master Rust's trait system and generics for writing flexible, reusable, and type-safe code"
+---
+
+# Module 10: Traits and Generics
+
+Welcome to Module 10! This is where Rust's type system truly shines. Traits and generics enable you to write flexible, reusable code without sacrificing type safety or performance.
+
+## Learning Objectives
+
+By the end of this module, you'll be able to:
+- Define and implement traits for shared behavior
+- Use generics for type-agnostic code
+- Understand trait bounds and constraints
+- Leverage standard library traits
+- Use trait objects for dynamic dispatch
+- Apply advanced trait patterns
+
+## 10.1 Traits: Shared Behavior
+
+### Python: Duck Typing
+
+Python uses duck typing ("if it walks like a duck..."):
+
+```python
+# Python - Duck typing
+def describe(obj):
+    if hasattr(obj, 'name'):
+        return obj.name
+    return str(obj)
+
+class Dog:
+    def __init__(self, name):
+        self.name = name
+
+class Person:
+    def __init__(self, name):
+        self.name = name
+
+describe(Dog("Fido"))  # "Fido"
+describe(Person("Alice"))  # "Alice"
+```
+
+### Rust: Traits for Shared Behavior
+
+<UniversalEditor compare={true} title="Defining Traits">
+```python !! py
+# Python - Informal interfaces
+class Dog:
+    def speak(self):
+        return "Woof!"
+
+class Cat:
+    def speak(self):
+        return "Meow!"
+
+def make_sound(animal):
+    return animal.speak()
+```
+
+```rust !! rs
+// Rust - Formal trait definitions
+trait Speak {
+    fn speak(&self) -> String;
+}
+
+struct Dog;
+impl Speak for Dog {
+    fn speak(&self) -> String {
+        String::from("Woof!")
+    }
+}
+
+struct Cat;
+impl Speak for Cat {
+    fn speak(&self) -> String {
+        String::from("Meow!")
+    }
+}
+
+fn make_sound(animal: &impl Speak) -> String {
+    animal.speak()
+}
+
+// Usage
+println!("{}", make_sound(&Dog));  // Woof!
+println!("{}", make_sound(&Cat));  // Meow!
+```
+</UniversalEditor>
+
+### Trait as Parameters
+
+<UniversalEditor compare={true} title="Trait Bounds Syntax">
+```rust !! rs
+// Three ways to write trait bounds
+
+// 1. impl Trait syntax (simple, concise)
+fn print_speak(speaker: &impl Speak) {
+    println!("{}", speaker.speak());
+}
+
+// 2. Trait bound syntax (more explicit)
+fn print_speak<T: Speak>(speaker: &T) {
+    println!("{}", speaker.speak());
+}
+
+// 3. where clause (for complex bounds)
+fn print_speak<T>(speaker: &T)
+where
+    T: Speak,
+{
+    println!("{}", speaker.speak());
+}
+
+// Multiple trait bounds
+fn compare_speakers<T>(a: &T, b: &T) -> bool
+where
+    T: Speak + PartialEq,
+{
+    a.speak() == b.speak()
+}
+```
+</UniversalEditor>
+
+## 10.2 Standard Library Traits
+
+Rust's standard library provides many useful traits:
+
+<UniversalEditor compare={true} title="Common Standard Traits">
+```python !! py
+# Python - Special methods
+class Point:
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+
+    def __str__(self):
+        return f"Point({self.x}, {self.y})"
+
+    def __repr__(self):
+        return f"Point(x={self.x}, y={self.y})"
+
+    def __eq__(self, other):
+        return self.x == other.x and self.y == other.y
+```
+
+```rust !! rs
+// Rust - Derive and implement traits
+#[derive(Debug, PartialEq)]  // Auto-implement these traits
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+// Custom Display implementation
+impl std::fmt::Display for Point {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "Point({}, {})", self.x, self.y)
+    }
+}
+
+// Clone trait
+impl Clone for Point {
+    fn clone(&self) -> Self {
+        Point { x: self.x, y: self.y }
+    }
+}
+
+// Copy trait (requires Clone)
+impl Copy for Point {}
+
+// Usage
+let p1 = Point { x: 1, y: 2 };
+let p2 = p1;  // Copy, not move!
+println!("{}", p1);  // Still valid
+println!("{:?}", p1);  // Debug output
+```
+</UniversalEditor>
+
+### Iterator Trait
+
+<UniversalEditor compare={true} title="Implementing Iterator">
+```python !! py
+# Python - Iterator protocol
+class Counter:
+    def __init__(self, max):
+        self.max = max
+        self.current = 0
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        if self.current < self.max:
+            value = self.current
+            self.current += 1
+            return value
+        raise StopIteration
+
+for i in Counter(5):
+    print(i)
+```
+
+```rust !! rs
+// Rust - Iterator trait
+struct Counter {
+    max: u32,
+    current: u32,
+}
+
+impl Counter {
+    fn new(max: u32) -> Counter {
+        Counter { max, current: 0 }
+    }
+}
+
+impl Iterator for Counter {
+    type Item = u32;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.current < self.max {
+            let value = self.current;
+            self.current += 1;
+            Some(value)
+        } else {
+            None
+        }
+    }
+}
+
+// Usage
+for i in Counter::new(5) {
+    println!("{}", i);
+}
+
+// Iterator methods available automatically
+let sum: u32 = Counter::new(5).sum();
+println!("Sum: {}", sum);  // 10
+```
+</UniversalEditor>
+
+## 10.3 Generics: Type-Agnostic Code
+
+### Python: Dynamic Typing
+
+Python handles different types dynamically:
+
+```python
+# Python - Works with any type
+def first(items):
+    return items[0] if items else None
+
+first([1, 2, 3])  # 1
+first(["a", "b"])  # "a"
+```
+
+### Rust: Generic Functions
+
+<UniversalEditor compare={true} title="Generic Functions">
+```python !! py
+# Python - Dynamic typing
+def get_first(items):
+    if not items:
+        return None
+    return items[0]
+```
+
+```rust !! rs
+// Rust - Generic function
+fn get_first<T>(items: &[T]) -> Option<&T> {
+    if items.is_empty() {
+        None
+    } else {
+        Some(&items[0])
+    }
+}
+
+// Usage with different types
+let numbers = vec![1, 2, 3];
+let strings = vec!["a", "b", "c"];
+
+println!("{:?}", get_first(&numbers));  // Some(1)
+println!("{:?}", get_first(&strings));  // Some("a")
+
+// Multiple generic parameters
+fn pair<A, B>(a: A, b: B) -> (A, B) {
+    (a, b)
+}
+```
+</UniversalEditor>
+
+### Generic Structs
+
+<UniversalEditor compare={true} title="Generic Data Structures">
+```python !! py
+# Python - Works with any type
+class Container:
+    def __init__(self, value):
+        self.value = value
+
+container1 = Container(42)
+container2 = Container("hello")
+```
+
+```rust !! rs
+// Rust - Generic structs
+struct Container<T> {
+    value: T,
+}
+
+impl<T> Container<T> {
+    fn new(value: T) -> Self {
+        Container { value }
+    }
+
+    fn get(&self) -> &T {
+        &self.value
+    }
+}
+
+// Usage with different types
+let container1: Container<i32> = Container::new(42);
+let container2: Container<&str> = Container::new("hello");
+
+// Multiple type parameters
+struct Pair<A, B> {
+    first: A,
+    second: B,
+}
+
+impl<A, B> Pair<A, B> {
+    fn new(first: A, second: B) -> Self {
+        Pair { first, second }
+    }
+}
+```
+</UniversalEditor>
+
+## 10.4 Trait Bounds and Constraints
+
+### Basic Trait Bounds
+
+<UniversalEditor compare={true} title="Trait Bound Examples">
+```python !! py
+# Python - Duck typing (runtime checks)
+def process(items):
+    # Assumes items supports iteration and len()
+    for item in items:
+        print(item)
+    return len(items)
+```
+
+```rust !! rs
+// Rust - Trait bounds (compile-time checks)
+use std::fmt::Debug;
+
+fn process<T: std::fmt::Display>(items: &[T]) -> usize {
+    for item in items {
+        println!("{}", item);  // Requires Display
+    }
+    items.len()
+}
+
+// Multiple bounds
+fn clone_and_compare<T>(item: &T) -> T
+where
+    T: Clone + PartialEq,
+{
+    let cloned = item.clone();
+    cloned
+}
+
+// Bounded by lifetime
+fn longest<'a, T>(x: &'a T, y: &'a T) -> &'a T
+where
+    T: PartialOrd,
+{
+    if x > y { x } else { y }
+}
+```
+</UniversalEditor>
+
+### Conditional Implementation
+
+<UniversalEditor compare={true} title="Generic Implementation with Trait Bounds">
+```rust !! rs
+// Implement methods only when trait bounds are met
+struct Wrapper<T>(T);
+
+impl<T> Wrapper<T> {
+    fn new(value: T) -> Self {
+        Wrapper(value)
+    }
+}
+
+// Only implement display for types that implement Display
+impl<T: std::fmt::Display> Wrapper<T> {
+    fn display(&self) {
+        println!("{}", self.0);
+    }
+}
+
+// Only implement comparison for types that implement PartialEq
+impl<T: PartialEq> Wrapper<T> {
+    fn equals(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+
+// Usage
+let w1 = Wrapper::new(42);
+w1.display();  // Works: i32 implements Display
+
+let w2 = Wrapper::new(vec![1, 2, 3]);
+// w2.display();  // Error: Vec doesn't implement Display
+```
+</UniversalEditor>
+
+## 10.5 Trait Objects: Dynamic Dispatch
+
+### Static vs Dynamic Dispatch
+
+<UniversalEditor compare={true} title="Dispatch Comparison">
+```python !! py
+# Python - Always dynamic dispatch
+def process(obj):
+    obj.speak()  # Resolved at runtime
+```
+
+```rust !! rs
+// Rust - Static dispatch (default, faster)
+fn process_static<T: Speak>(speaker: T) {
+    speaker.speak();  // Resolved at compile time
+}
+
+// Dynamic dispatch (trait objects)
+fn process_dynamic(speaker: &dyn Speak) {
+    speaker.speak();  // Resolved at runtime via vtable
+}
+
+// When to use which
+// Static dispatch: When you know the type at compile time (faster)
+// Dynamic dispatch: When you need a collection of different types
+```
+</UniversalEditor>
+
+### Trait Objects in Practice
+
+<UniversalEditor compare={true} title="Trait Object Collections">
+```python !! py
+# Python - Heterogeneous collections
+animals = [Dog("Fido"), Cat("Whiskers")]
+for animal in animals:
+    print(animal.speak())
+```
+
+```rust !! rs
+// Rust - Trait objects for heterogeneous collections
+trait Speak {
+    fn speak(&self) -> String;
+}
+
+struct Dog { name: String }
+impl Speak for Dog {
+    fn speak(&self) -> String {
+        format!("{} says Woof!", self.name)
+    }
+}
+
+struct Cat { name: String }
+impl Speak for Cat {
+    fn speak(&self) -> String {
+        format!("{} says Meow!", self.name)
+    }
+}
+
+// Collection of trait objects
+fn demo_trait_objects() {
+    let dog = Dog { name: String::from("Fido") };
+    let cat = Cat { name: String::from("Whiskers") };
+
+    // Must use references (&dyn Speak) or Box<dyn Speak>
+    let animals: Vec<Box<dyn Speak>> = vec![
+        Box::new(dog),
+        Box::new(cat),
+    ];
+
+    for animal in animals.iter() {
+        println!("{}", animal.speak());
+    }
+}
+```
+</UniversalEditor>
+
+### Object Safety
+
+<UniversalEditor compare={true} title="Object Safety">
+```rust !! rs
+// Not all traits can be trait objects (must be "object safe")
+trait NotObjectSafe {
+    // Generic methods not allowed
+    fn generic_method<T>(&self, item: T);
+
+    // Self return type not allowed
+    fn clone_self(&self) -> Self;
+}
+
+// Object-safe trait
+trait ObjectSafe {
+    // No generic methods
+    fn speak(&self) -> String;
+
+    // No Self return
+    fn get_name(&self) -> &str;
+}
+
+// This works
+fn use_trait_object(obj: &dyn ObjectSafe) {
+    println!("{}", obj.speak());
+}
+```
+</UniversalEditor>
+
+## 10.6 Advanced Trait Patterns
+
+### Associated Types
+
+<UniversalEditor compare={true} title="Associated Types">
+```python !! py
+# Python - Associated type via convention
+class Iterator:
+    # Type of items is implicit
+    def next(self):
+        pass
+```
+
+```rust !! rs
+// Rust - Associated types (more precise than generics)
+trait Iterator {
+    type Item;  // Associated type
+
+    fn next(&mut self) -> Option<Self::Item>;
+}
+
+struct Counter;
+impl Iterator for Counter {
+    type Item = i32;  // Specify the associated type
+
+    fn next(&mut self) -> Option<Self::Item> {
+        Some(42)
+    }
+}
+
+// Why associated types instead of generics?
+// trait Iterator<Item> { ... }  // Would be overly flexible
+// Associated types make the relationship clearer
+```
+</UniversalEditor>
+
+### Default Implementations
+
+<UniversalEditor compare={true} title="Default Trait Methods">
+```rust !! rs
+// Traits can provide default implementations
+trait Animal {
+    fn speak(&self) -> String {
+        String::from("Unknown sound")
+    }
+
+    fn intro(&self) -> String {
+        format!("I say: {}", self.speak())
+    }
+}
+
+struct Dog;
+impl Animal for Dog {
+    fn speak(&self) -> String {
+        String::from("Woof!")
+    }
+    // intro() uses default implementation
+}
+
+struct Cat;
+impl Animal for Cat {
+    fn speak(&self) -> String {
+        String::from("Meow!")
+    }
+
+    fn intro(&self) -> String {
+        format!("The cat says: {}", self.speak())  // Override default
+    }
+}
+
+// Usage
+let dog = Dog;
+println!("{}", dog.intro());  // I say: Woof!
+
+let cat = Cat;
+println!("{}", cat.intro());  // The cat says: Meow!
+```
+</UniversalEditor>
+
+### Supertraits
+
+<UniversalEditor compare={true} title="Trait Inheritance">
+```python !! py
+# Python - Inheritance
+class Animal:
+    def name(self):
+        pass
+
+class Pet(Animal):
+    def cuddle(self):
+        pass
+```
+
+```rust !! rs
+// Rust - Supertraits (trait inheritance)
+trait Animal {
+    fn name(&self) -> &str;
+}
+
+trait Pet: Animal {  // Pet requires Animal
+    fn cuddle(&self) {
+        println!("{} is being cuddled", self.name());
+    }
+}
+
+struct Dog { name: String }
+
+impl Animal for Dog {
+    fn name(&self) -> &str {
+        &self.name
+    }
+}
+
+impl Pet for Dog {
+    // cuddle() uses default, can also override
+}
+
+// Usage
+let dog = Dog { name: String::from("Buddy") };
+dog.cuddle();  // Has access to both traits
+```
+</UniversalEditor>
+
+## Common Pitfalls
+
+### Pitfall 1: Orphan Rule
+
+```rust
+// DON'T: Implement external trait on external type
+// impl Display for Vec<i32> { }  // Error!
+
+// DO: Use newtype pattern
+struct MyVec(Vec<i32>);
+
+impl std::fmt::Display for MyVec {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{:?}", self.0)
+    }
+}
+```
+
+### Pitfall 2: Overusing Trait Objects
+
+```rust
+// DON'T: Use trait objects when static dispatch works
+fn process(items: &[&dyn Speak]) { }  // Slower
+
+// DO: Use generics when possible
+fn process<T: Speak>(items: &[T]) { }  // Faster
+```
+
+### Pitfall 3: Complex Trait Bounds
+
+```rust
+// DON'T: Too many bounds (hard to read)
+fn process<T: Clone + Display + Debug + PartialEq>(x: T) { }
+
+// DO: Use where clause for clarity
+fn process<T>(x: T)
+where
+    T: Clone + Display + Debug + PartialEq,
+{
+}
+```
+
+## Best Practices
+
+1. **Prefer static dispatch** - Use generics over trait objects when possible
+2. **Keep traits focused** - Small, cohesive traits are better than large ones
+3. **Provide default implementations** - Make traits easier to implement
+4. **Use standard library traits** - Don't reinvent Display, Debug, Clone, etc.
+5. **Consider object safety** - Decide if trait should be usable as trait object
+6. **Document trait contracts** - Clearly document what implementers must provide
+
+## Summary
+
+In this module, we covered:
+
+- **Traits**: Shared behavior with formal contracts
+- **Generics**: Type-agnostic code with type safety
+- **Trait Bounds**: Compile-time constraints on generic types
+- **Standard Library Traits**: Display, Debug, Clone, Iterator, etc.
+- **Trait Objects**: Dynamic dispatch for runtime polymorphism
+- **Advanced Patterns**: Associated types, default implementations, supertraits
+
+Key takeaways:
+- Traits provide shared behavior with zero-cost abstraction
+- Generics enable flexible, type-safe code
+- Static dispatch is preferred, trait objects when needed
+- The standard library provides many useful traits
+- Trait bounds enable powerful compile-time polymorphism
+- Rust's type system enables both flexibility and performance
+
+## Exercise
+
+Create a generic data processing library that:
+1. Defines a `Processable` trait with `process` method
+2. Implements it for multiple types
+3. Uses generics to process collections
+4. Demonstrates both static and dynamic dispatch
+5. Uses trait bounds to constrain functionality
+
+<details>
+<summary>View Solution</summary>
+
+```rust
+use std::fmt::Display;
+
+trait Processable {
+    type Output;
+    fn process(&self) -> Self::Output;
+}
+
+#[derive(Debug)]
+struct Number(i32);
+
+impl Processable for Number {
+    type Output = String;
+
+    fn process(&self) -> Self::Output {
+        format!("Doubled: {}", self.0 * 2)
+    }
+}
+
+#[derive(Debug)]
+struct Text(String);
+
+impl Processable for Text {
+    type Output = usize;
+
+    fn process(&self) -> Self::Output {
+        self.0.len()
+    }
+}
+
+// Generic function using trait
+fn process_item<T: Processable>(item: &T) -> String {
+    format!("{:?}", item.process())
+}
+
+// Trait object version
+fn process_dynamic(item: &dyn Processable<Output = String>) -> String {
+    item.process()
+}
+
+fn main() {
+    let num = Number(42);
+    let text = Text("Hello");
+
+    println!("{}", process_item(&num));  // "Doubled: 84"
+    println!("{}", process_item(&text));  // "5"
+}
+```
+
+</details>
+
+Congratulations on completing Module 10! You now have a solid understanding of Rust's trait and generics system. These features enable you to write flexible, reusable, and type-safe code that's also performant. Continue practicing with real-world projects to master these concepts!

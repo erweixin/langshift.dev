@@ -1,0 +1,572 @@
+---
+title: "模块 10：特征和泛型"
+description: "掌握 Rust 的特征系统和泛型，用于编写灵活、可重用和类型安全的代码"
+---
+
+# 模块 10：特征和泛型
+
+欢迎来到模块 10！这是 Rust 类型系统真正闪耀的地方。特征和泛型使你能够编写灵活、可重用的代码，而不牺牲类型安全或性能。
+
+## 学习目标
+
+完成本模块后，你将能够：
+- 定义和实现特征以共享行为
+- 使用泛型编写类型无关代码
+- 理解特征边界和约束
+- 利用标准库特征
+- 使用特征对象进行动态分发
+- 应用高级特征模式
+
+## 10.1 特征：共享行为
+
+### Python：鸭子类型
+
+Python 使用鸭子类型（"如果它走路像鸭子..."）：
+
+```python
+# Python - 鸭子类型
+class Dog:
+    def speak(self):
+        return "Woof!"
+
+class Cat:
+    def speak(self):
+        return "Meow!"
+
+def make_sound(animal):
+    return animal.speak()
+```
+
+### Rust：用于共享行为的特征
+
+<UniversalEditor compare={true} title="定义特征">
+```python !! py
+# Python - 非正式接口
+class Dog:
+    def speak(self):
+        return "Woof!"
+
+class Cat:
+    def speak(self):
+        return "Meow!"
+```
+
+```rust !! rs
+// Rust - 形式化特征定义
+trait Speak {
+    fn speak(&self) -> String;
+}
+
+struct Dog;
+impl Speak for Dog {
+    fn speak(&self) -> String {
+        String::from("Woof!")
+    }
+}
+
+struct Cat;
+impl Speak for Cat {
+    fn speak(&self) -> String {
+        String::from("Meow!")
+    }
+}
+
+fn make_sound(animal: &impl Speak) -> String {
+    animal.speak()
+}
+
+// 使用
+println!("{}", make_sound(&Dog));  // Woof!
+println!("{}", make_sound(&Cat));  // Meow!
+```
+</UniversalEditor>
+
+### 特征作为参数
+
+<UniversalEditor compare={true} title="特征边界语法">
+```rust !! rs
+// 编写特征边界的三种方式
+
+// 1. impl Trait 语法（简单，简洁）
+fn print_speak(speaker: &impl Speak) {
+    println!("{}", speaker.speak());
+}
+
+// 2. 特征边界语法（更明确）
+fn print_speak<T: Speak>(speaker: &T) {
+    println!("{}", speaker.speak());
+}
+
+// 3. where 子句（用于复杂边界）
+fn print_speak<T>(speaker: &T)
+where
+    T: Speak,
+{
+    println!("{}", speaker.speak());
+}
+
+// 多个特征边界
+fn compare_speakers<T>(a: &T, b: &T) -> bool
+where
+    T: Speak + PartialEq,
+{
+    a.speak() == b.speak()
+}
+```
+</UniversalEditor>
+
+## 10.2 标准库特征
+
+Rust 的标准库提供了许多有用的特征：
+
+<UniversalEditor compare={true} title="常见标准特征">
+```python !! py
+# Python - 特殊方法
+class Point:
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+
+    def __str__(self):
+        return f"Point({self.x}, {self.y})"
+```
+
+```rust !! rs
+// Rust - 派生和实现特征
+#[derive(Debug, PartialEq)]  // 自动实现这些特征
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+// 自定义 Display 实现
+impl std::fmt::Display for Point {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "Point({}, {})", self.x, self.y)
+    }
+}
+
+// 使用
+let p1 = Point { x: 1, y: 2 };
+let p2 = p1;  // 拷贝，不是移动！
+println!("{}", p1);  // 仍然有效
+println!("{:?}", p1);  // Debug 输出
+```
+</UniversalEditor>
+
+### Iterator 特征
+
+<UniversalEditor compare={true} title="实现 Iterator">
+```python !! py
+# Python - 迭代器协议
+class Counter:
+    def __init__(self, max):
+        self.max = max
+        self.current = 0
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        if self.current < self.max:
+            value = self.current
+            self.current += 1
+            return value
+        raise StopIteration
+```
+
+```rust !! rs
+// Rust - Iterator 特征
+struct Counter {
+    max: u32,
+    current: u32,
+}
+
+impl Iterator for Counter {
+    type Item = u32;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.current < self.max {
+            let value = self.current;
+            self.current += 1;
+            Some(value)
+        } else {
+            None
+        }
+    }
+}
+
+// 迭代器方法自动可用
+let sum: u32 = Counter::new(5).sum();
+println!("Sum: {}", sum);  // 10
+```
+</UniversalEditor>
+
+## 10.3 泛型：类型无关代码
+
+### Python：动态类型
+
+Python 动态处理不同类型：
+
+```python
+# Python - 适用于任何类型
+def first(items):
+    return items[0] if items else None
+```
+
+### Rust：泛型函数
+
+<UniversalEditor compare={true} title="泛型函数">
+```python !! py
+# Python - 动态类型
+def get_first(items):
+    if not items:
+        return None
+    return items[0]
+```
+
+```rust !! rs
+// Rust - 泛型函数
+fn get_first<T>(items: &[T]) -> Option<&T> {
+    if items.is_empty() {
+        None
+    } else {
+        Some(&items[0])
+    }
+}
+
+// 使用不同类型
+let numbers = vec![1, 2, 3];
+let strings = vec!["a", "b", "c"];
+
+println!("{:?}", get_first(&numbers));  // Some(1)
+println!("{:?}", get_first(&strings));  // Some("a")
+
+// 多个泛型参数
+fn pair<A, B>(a: A, b: B) -> (A, B) {
+    (a, b)
+}
+```
+</UniversalEditor>
+
+### 泛型结构体
+
+<UniversalEditor compare={true} title="泛型数据结构">
+```python !! py
+# Python - 适用于任何类型
+class Container:
+    def __init__(self, value):
+        self.value = value
+```
+
+```rust !! rs
+// Rust - 泛型结构体
+struct Container<T> {
+    value: T,
+}
+
+impl<T> Container<T> {
+    fn new(value: T) -> Self {
+        Container { value }
+    }
+
+    fn get(&self) -> &T {
+        &self.value
+    }
+}
+
+// 使用不同类型
+let container1: Container<i32> = Container::new(42);
+let container2: Container<&str> = Container::new("hello");
+```
+</UniversalEditor>
+
+## 10.4 特征边界和约束
+
+### 基本特征边界
+
+<UniversalEditor compare={true} title="特征边界示例">
+```python !! py
+# Python - 鸭子类型（运行时检查）
+def process(items):
+    for item in items:
+        print(item)
+    return len(items)
+```
+
+```rust !! rs
+// Rust - 特征边界（编译时检查）
+fn process<T: std::fmt::Display>(items: &[T]) -> usize {
+    for item in items {
+        println!("{}", item);  // 需要 Display
+    }
+    items.len()
+}
+
+// 多个边界
+fn clone_and_compare<T>(item: &T) -> T
+where
+    T: Clone + PartialEq,
+{
+    let cloned = item.clone();
+    cloned
+}
+```
+</UniversalEditor>
+
+## 10.5 特征对象：动态分发
+
+### 静态 vs 动态分发
+
+<UniversalEditor compare={true} title="分发比较">
+```python !! py
+# Python - 始终动态分发
+def process(obj):
+    obj.speak()  # 运行时解析
+```
+
+```rust !! rs
+// Rust - 静态分发（默认，更快）
+fn process_static<T: Speak>(speaker: T) {
+    speaker.speak();  // 编译时解析
+}
+
+// 动态分发（特征对象）
+fn process_dynamic(speaker: &dyn Speak) {
+    speaker.speak();  // 运行时通过 vtable 解析
+}
+
+// 何时使用哪个
+// 静态分发：编译时知道类型时（更快）
+// 动态分发：需要不同类型的集合时
+```
+</UniversalEditor>
+
+### 特征对象实践
+
+<UniversalEditor compare={true} title="特征对象集合">
+```python !! py
+# Python - 异构集合
+animals = [Dog("Fido"), Cat("Whiskers")]
+for animal in animals:
+    print(animal.speak())
+```
+
+```rust !! rs
+// Rust - 异构集合的特征对象
+trait Speak {
+    fn speak(&self) -> String;
+}
+
+struct Dog { name: String }
+impl Speak for Dog {
+    fn speak(&self) -> String {
+        format!("{} says Woof!", self.name)
+    }
+}
+
+struct Cat { name: String }
+impl Speak for Cat {
+    fn speak(&self) -> String {
+        format!("{} says Meow!", self.name)
+    }
+}
+
+// 特征对象集合
+let dog = Dog { name: String::from("Fido") };
+let cat = Cat { name: String::from("Whiskers") };
+
+// 必须使用引用 (&dyn Speak) 或 Box<dyn Speak>
+let animals: Vec<Box<dyn Speak>> = vec![
+    Box::new(dog),
+    Box::new(cat),
+];
+
+for animal in animals.iter() {
+    println!("{}", animal.speak());
+}
+```
+</UniversalEditor>
+
+## 10.6 高级特征模式
+
+### 关联类型
+
+<UniversalEditor compare={true} title="关联类型">
+```rust !! rs
+// Rust - 关联类型（比泛型更精确）
+trait Iterator {
+    type Item;  // 关联类型
+
+    fn next(&mut self) -> Option<Self::Item>;
+}
+
+struct Counter;
+impl Iterator for Counter {
+    type Item = i32;  // 指定关联类型
+
+    fn next(&mut self) -> Option<Self::Item> {
+        Some(42)
+    }
+}
+```
+</UniversalEditor>
+
+### 默认实现
+
+<UniversalEditor compare={true} title="默认特征方法">
+```rust !! rs
+// 特征可以提供默认实现
+trait Animal {
+    fn speak(&self) -> String {
+        String::from("Unknown sound")
+    }
+
+    fn intro(&self) -> String {
+        format!("I say: {}", self.speak())
+    }
+}
+
+struct Dog;
+impl Animal for Dog {
+    fn speak(&self) -> String {
+        String::from("Woof!")
+    }
+    // intro() 使用默认实现
+}
+
+// 使用
+let dog = Dog;
+println!("{}", dog.intro());  // I say: Woof!
+```
+</UniversalEditor>
+
+### 超特征
+
+<UniversalEditor compare={true} title="特征继承">
+```rust !! rs
+// Rust - 超特征（特征继承）
+trait Animal {
+    fn name(&self) -> &str;
+}
+
+trait Pet: Animal {  // Pet 要求 Animal
+    fn cuddle(&self) {
+        println!("{} is being cuddled", self.name());
+    }
+}
+
+struct Dog { name: String }
+
+impl Animal for Dog {
+    fn name(&self) -> &str {
+        &self.name
+    }
+}
+
+impl Pet for Dog {
+    // cuddle() 使用默认，也可以覆盖
+}
+```
+</UniversalEditor>
+
+## 常见陷阱
+
+### 陷阱 1：孤儿规则
+
+```rust
+// 不要：在外部类型上实现外部特征
+// impl Display for Vec<i32> { }  // 错误！
+
+// 应该：使用 newtype 模式
+struct MyVec(Vec<i32>);
+
+impl std::fmt::Display for MyVec {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{:?}", self.0)
+    }
+}
+```
+
+### 陷阱 2：过度使用特征对象
+
+```rust
+// 不要：静态分发可行时使用特征对象
+fn process(items: &[&dyn Speak]) { }  // 更慢
+
+// 应该：尽可能使用泛型
+fn process<T: Speak>(items: &[T]) { }  // 更快
+```
+
+## 最佳实践
+
+1. **优先使用静态分发** - 尽可能使用泛型而不是特征对象
+2. **保持特征聚焦** - 小型、内聚的特征比大型特征更好
+3. **提供默认实现** - 使特征更容易实现
+4. **使用标准库特征** - 不要重新发明 Display、Debug、Clone 等
+5. **考虑对象安全** - 决定特征是否应该可用作特征对象
+6. **记录特征契约** - 清楚地记录实现者必须提供什么
+
+## 总结
+
+在本模块中，我们涵盖了：
+
+- **特征**：具有形式化契约的共享行为
+- **泛型**：类型安全的类型无关代码
+- **特征边界**：泛型类型的编译时约束
+- **标准库特征**：Display、Debug、Clone、Iterator 等
+- **特征对象**：运行时多态的动态分发
+- **高级模式**：关联类型、默认实现、超特征
+
+关键要点：
+- 特征提供零成本抽象的共享行为
+- 泛型实现灵活、类型安全的代码
+- 优先静态分发，需要时使用特征对象
+- 标准库提供许多有用的特征
+- 特征边界实现强大的编译时多态
+- Rust 的类型系统同时实现灵活性和性能
+
+## 练习
+
+创建一个通用数据处理库：
+1. 定义带有 `process` 方法的 `Processable` 特征
+2. 为多个类型实现它
+3. 使用泛型处理集合
+4. 演示静态和动态分发
+5. 使用特征边界约束功能
+
+<details>
+<summary>查看解决方案</summary>
+
+```rust
+use std::fmt::Display;
+
+trait Processable {
+    type Output;
+    fn process(&self) -> Self::Output;
+}
+
+#[derive(Debug)]
+struct Number(i32);
+
+impl Processable for Number {
+    type Output = String;
+
+    fn process(&self) -> Self::Output {
+        format!("Doubled: {}", self.0 * 2)
+    }
+}
+
+fn process_item<T: Processable>(item: &T) -> String {
+    format!("{:?}", item.process())
+}
+
+fn main() {
+    let num = Number(42);
+    println!("{}", process_item(&num));  // "Doubled: 84"
+}
+```
+
+</details>
+
+恭喜完成模块 10！你现在对 Rust 的特征和泛型系统有了扎实的理解。这些功能使你能够编写灵活、可重用和高性能的类型安全代码。继续通过实际项目练习以掌握这些概念！

@@ -1,0 +1,325 @@
+---
+title: "模块 14:ES6+ 模块"
+description: "掌握 JavaScript ES6 模块、导入和导出"
+---
+
+## 模块 14:ES6+ 模块
+
+JavaScript 模块允许你将代码拆分为单独的文件,使代码更易维护和可重用。
+
+## 学习目标
+
+完成本模块后,你将:
+✅ 理解 ES6 模块语法
+✅ 掌握导入和导出语句
+✅ 学习默认导出 vs 命名导出
+✅ 理解模块加载
+✅ 了解常见模块模式
+✅ 掌握代码组织的最佳实践
+
+## 模块: Java vs JavaScript
+
+<UniversalEditor title="模块系统">
+```java !! java
+// Java - 包和导入
+package com.example.app;
+
+import java.util.List;
+import java.util.ArrayList;
+
+public class MyClass {
+    public static void main(String[] args) {
+        List<String> list = new ArrayList<>();
+    }
+}
+```
+
+```javascript !! js
+// JavaScript - ES6 模块
+// utils.js
+export function add(a, b) {
+    return a + b;
+}
+
+export const PI = 3.14159;
+
+// main.js
+import { add, PI } from "./utils.js";
+import MyClass from "./MyClass.js";
+```
+</UniversalEditor>
+
+## 导出
+
+<UniversalEditor title="导出">
+```javascript !! js
+// 命名导出
+export const PI = 3.14159;
+export function add(a, b) {
+    return a + b;
+}
+export class Calculator {
+    // ...
+}
+
+// 导出列表
+const name = "John";
+const age = 25;
+function greet() {
+    console.log("Hello!");
+}
+export { name, age, greet };
+
+// 导出时重命名
+export { greet as sayHello };
+
+// 默认导出
+export default class UserService {
+    // ...
+}
+
+// 或
+class UserService { }
+export { UserService as default };
+
+// 混合导出(一个默认 + 命名)
+export default class API {
+    // ...
+}
+export const BASE_URL = "https://api.example.com";
+export function get(endpoint) {
+    // ...
+}
+
+// 重新导出
+export { add, subtract } from "./math.js";
+export * from "./utils.js";
+export { default as Calculator } from "./calc.js";
+```
+</UniversalEditor>
+
+## 导入
+
+<UniversalEditor title="导入">
+```javascript !! js
+// 命名导入
+import { add, subtract } from "./math.js";
+import { add as sum } from "./math.js";
+
+// 默认导入
+import Calculator from "./calc.js";
+
+// 混合导入
+import UserService, { BASE_URL, get } from "./api.js";
+
+// 导入所有(命名空间导入)
+import * as math from "./math.js";
+math.add(1, 2);
+
+// 导入副作用(无导入)
+import "./polyfills.js";
+
+// 动态导入(异步)
+const module = await import("./math.js");
+const { add } = module;
+
+// 带错误处理的动态导入
+async function loadModule() {
+    try {
+        const { default: Component } = await import("./Component.js");
+        return Component;
+    } catch (error) {
+        console.error("Failed to load module:", error);
+    }
+}
+
+// 延迟加载
+button.addEventListener("click", async () => {
+    const { handleAuth } = await import("./auth.js");
+    handleAuth();
+});
+```
+</UniversalEditor>
+
+## 模块结构
+
+<UniversalEditor title="模块组织">
+```javascript !! js
+// 文件结构:
+// src/
+//   utils/
+//     math.js
+//     string.js
+//   services/
+//     api.js
+//     auth.js
+//   components/
+//     Button.js
+//     Modal.js
+//   main.js
+
+// utils/math.js
+export function add(a, b) { return a + b; }
+export function subtract(a, b) { return a - b; }
+
+// utils/string.js
+export function capitalize(str) {
+    return str.charAt(0).toUpperCase() + str.slice(1);
+}
+
+// utils/index.js (桶文件)
+export * from "./math.js";
+export * from "./string.js";
+
+// services/api.js
+const BASE_URL = "https://api.example.com";
+export async function get(url) {
+    const response = await fetch(BASE_URL + url);
+    return response.json();
+}
+
+// main.js
+import { add, capitalize } from "./utils/index.js";
+import { get } from "./services/api.js";
+
+// 使用
+add(1, 2);
+capitalize("hello");
+get("/users");
+```
+</UniversalEditor>
+
+## 最佳实践
+
+<UniversalEditor title="模块最佳实践">
+```javascript !! js
+// 1. 对工具函数使用命名导出
+// utils.js
+export function add(a, b) { return a + b; }
+export function subtract(a, b) { return a - b; }
+
+// 2. 对主类/组件使用默认导出
+// UserService.js
+export default class UserService {
+    // ...
+}
+
+// 3. 按功能组织
+// features/auth/
+//   auth.js
+//   login.js
+//   logout.js
+
+// 4. 使用 index.js 进行清晰导入
+// components/
+//   Button.js
+//   Modal.js
+//   index.js
+
+export { default as Button } from "./Button.js";
+export { default as Modal } from "./Modal.js";
+
+// 现在从 components 导入
+import { Button, Modal } from "./components/index.js";
+
+// 5. 避免循环依赖
+// 不好:a.js 导入 b.js, b.js 导入 a.js
+// 好:创建共享模块 c.js
+
+// 6. 使用动态导入进行代码分割
+const router = {
+    home: () => import("./pages/Home.js"),
+    about: () => import("./pages/About.js")
+};
+```
+</UniversalEditor>
+
+## 常见模式
+
+<UniversalEditor title="模块模式">
+```javascript !! js
+// 模式 1:单例
+let instance;
+
+export default class Database {
+    constructor() {
+        if (instance) {
+            return instance;
+        }
+        instance = this;
+    }
+}
+
+// 模式 2:工厂
+export function createClient(config) {
+    return new APIClient(config);
+}
+
+// 模式 3:带私有状态的模块
+const privateData = new WeakMap();
+
+export class User {
+    constructor(name) {
+        privateData.set(this, { secret: "xyz" });
+        this.name = name;
+    }
+
+    getSecret() {
+        return privateData.get(this).secret;
+    }
+}
+
+// 模式 4:测试导出
+export function internalFunction() {
+    // 仅用于测试
+}
+
+export function publicFunction() {
+    return internalFunction();
+}
+```
+</UniversalEditor>
+
+## 练习
+
+### 练习 1:创建模块
+```javascript
+// 创建带有 add、subtract、multiply、divide 的 math.js
+// 将它们作为命名导出导出
+// 创建导入并使用它们的 main.js
+```
+
+### 练习 2:默认导出
+```javascript
+// 创建带有默认导出的 APIClass.js
+// 导入并实例化它
+```
+
+### 练习 3:桶文件
+```javascript
+// 创建从其他文件重新导出的 utils/index.js
+```
+
+## 总结
+
+### 关键要点
+
+1. **命名导出:**每个模块多个
+2. **默认导出:**每个模块一个
+3. **导入:**命名、默认、命名空间
+4. **动态:**import() 用于代码分割
+5. **组织:**基于功能的文件夹
+
+### 对比:Java vs JavaScript
+
+| 特性 | Java | JavaScript |
+|------|------|-----------|
+| **模块** | 包 | ES6 模块 |
+| **导入** | import 关键字 | import 语句 |
+| **导出** | public 关键字 | export 关键字 |
+| **加载** | 编译时 | 运行时(异步) |
+| **循环** | 允许 | 避免 |
+
+## 接下来是什么?
+
+接下来:**模块 15:工具和构建** - 学习 webpack、Vite 和现代构建工具!

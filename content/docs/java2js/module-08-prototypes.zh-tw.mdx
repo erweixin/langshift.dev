@@ -1,0 +1,333 @@
+---
+title: "Module 8: Prototypes and Prototype Chain"
+description: "理解 JavaScript 原型系統和繼承機制"
+---
+
+## Module 8: Prototypes and Prototype Chain
+
+現在您了解了 ES6 類別，讓我們看看 JavaScript 底層的運作方式。類別是 JavaScript 原型繼承系統的語法糖。理解原型對於進階 JavaScript 開發至關重要。
+
+## Learning Objectives
+
+完成本模組後，你將：
+✅ 理解什麼是原型
+✅ 掌握原型鏈查找
+✅ 學習 Object.create() 和原型繼承
+✅ 理解建構函數
+✅ 知道類別與原型的關係
+✅ 學習何時使用原型 vs 類別
+
+## Prototypes vs Classes
+
+Java 使用基於類別的繼承，而 JavaScript 使用基於原型的繼承：
+
+<UniversalEditor title="繼承模型比較">
+```java !! java
+// Java - 基於類別的繼承
+public class Animal {
+    public void speak() {
+        System.out.println("Some sound");
+    }
+}
+
+public class Dog extends Animal {
+    @Override
+    public void speak() {
+        System.out.println("Woof!");
+    }
+}
+
+// 實例方法在類別中定義
+// 每個實例有相同的方法
+Animal animal = new Dog();
+animal.speak();  // "Woof!"
+```
+
+```javascript !! js
+// JavaScript - 基於原型的繼承
+// 物件直接從其他物件繼承
+
+const animal = {
+    speak() {
+        console.log("Some sound");
+    }
+};
+
+const dog = Object.create(animal);
+dog.speak = function() {
+    console.log("Woof!");
+};
+
+dog.speak();  // "Woof!"
+// 但仍可透過原型訪問 animal 的方法
+delete dog.speak;
+dog.speak();  // "Some sound"（來自原型！）
+
+// 類別只是原型的語法糖
+class Animal2 {
+    speak() {
+        console.log("Some sound");
+    }
+}
+
+class Dog2 extends Animal2 {
+    speak() {
+        console.log("Woof!");
+    }
+}
+
+const dog2 = new Dog2();
+console.log(Object.getPrototypeOf(dog2) === Dog2.prototype);  // true
+console.log(Object.getPrototypeOf(Dog2.prototype) === Animal2.prototype);  // true
+```
+</UniversalEditor>
+
+## The Prototype Chain
+
+每個物件都有一個指向另一個物件的內部鏈結，稱為其原型。這形成了一個鏈：
+
+<UniversalEditor title="原型鏈">
+```java !! java
+// Java - 類別層次結構
+Object -> Animal -> Dog
+
+// 方法查找：檢查類別，然後父類別
+Dog dog = new Dog();
+// dog.toString() 查找 Dog，然後 Animal，然後 Object
+```
+
+```javascript !! js
+// JavaScript - 原型鏈
+const grandParent = {
+    name: "GrandParent",
+    greet() {
+        console.log(`Hello from ${this.name}`);
+    }
+};
+
+const parent = Object.create(grandParent);
+parent.name = "Parent";
+
+const child = Object.create(parent);
+child.name = "Child";
+
+// 查找沿著鏈向上
+child.greet();  // "Hello from Child"
+// 1. 檢查 child - 有 name 屬性
+// 2. 檢查 child 是否有 greet() - 未找到
+// 3. 檢查 parent - 沒有 greet()
+// 4. 檢查 grandParent - 找到 greet()！
+
+console.log(child.hasOwnProperty("name"));  // true
+console.log(child.hasOwnProperty("greet")); // false（繼承）
+
+// 完整原型鏈
+console.log(Object.getPrototypeOf(child) === parent);              // true
+console.log(Object.getPrototypeOf(parent) === grandParent);        // true
+console.log(Object.getPrototypeOf(grandParent) === Object.prototype); // true
+console.log(Object.getPrototypeOf(Object.prototype) === null);     // true（鏈的末端）
+```
+</UniversalEditor>
+
+## Object.create()
+
+Object.create() 創建具有指定原型的新物件：
+
+<UniversalEditor title="Object.create()">
+```java !! java
+// Java - 繼承需要類別
+public class Animal {
+    public void speak() {
+        System.out.println("Sound");
+    }
+}
+
+public class Dog extends Animal {
+    // Dog 從 Animal 繼承
+}
+```
+
+```javascript !! js
+// JavaScript - 直接物件繼承
+
+// 創建具有特定原型的物件
+const animal = {
+    speak() {
+        console.log("Some sound");
+    }
+};
+
+const dog = Object.create(animal);
+dog.bark = function() {
+    console.log("Woof!");
+};
+
+dog.speak();  // "Some sound"（來自原型）
+dog.bark();   // "Woof!"（自有屬性）
+
+// 創建 null 原型（無繼承方法）
+const empty = Object.create(null);
+empty.toString();  // TypeError!（無 Object.prototype 方法）
+```
+</UniversalEditor>
+
+## Constructor Functions
+
+在 ES6 類別之前，JavaScript 使用建構函數：
+
+<UniversalEditor title="建構函數">
+```java !! java
+// Java - 類別建構函數
+public class User {
+    private String name;
+
+    public User(String name) {
+        this.name = name;
+    }
+}
+
+User user = new User("John");
+```
+
+```javascript !! js
+// JavaScript - 建構函數（ES6 之前）
+
+function User(name) {
+    this.name = name;
+}
+
+// 方法添加到原型
+User.prototype.greet = function() {
+    console.log(`Hello, I'm ${this.name}`);
+};
+
+// 使用 'new' 創建實例
+const user = new User("John");
+user.greet();  // "Hello, I'm John"
+
+// 檢查實例
+console.log(user instanceof User);  // true
+console.log(user instanceof Object);  // true
+
+// 箭頭函數不能是建構函數
+const BadUser = (name) => {
+    this.name = name;
+};
+
+// const bad = new BadUser("John");  // TypeError!
+```
+</UniversalEditor>
+
+## Prototype vs Classes
+
+<UniversalEditor title="原型 vs 類別">
+```javascript !! js
+// 原型（靈活、動態）
+const animal = {
+    speak() {
+        console.log("Sound");
+    }
+};
+
+const dog = Object.create(animal);
+
+// 可隨時修改原型
+animal.speak = function() {
+    console.log("Loud sound");
+};
+
+dog.speak();  // "Loud sound"（反映原型變更）
+
+// 類別（結構化、熟悉）
+class Animal2 {
+    speak() {
+        console.log("Sound");
+    }
+}
+
+class Dog2 extends Animal2 {
+    // 創建後不易修改 Animal2.prototype
+    // 最好使用繼承或覆寫方法
+}
+
+// 何時使用每種：
+
+// 使用原型當：
+// - 需要動態修改
+// - 創建簡單物件層次結構
+// - 想要記憶效率（共享方法）
+// - 不需要 'new' 運算符
+
+// 使用類別當：
+// - 需要建構邏輯
+// - 想要熟悉的 OOP 結構
+// - 需要 instanceof 檢查
+// - 構建複雜應用程式
+```
+</UniversalEditor>
+
+## Best Practices
+
+<UniversalEditor title="原型最佳實踐">
+```java !! java
+// Java: 清晰的類別層次結構
+public abstract class Animal {
+    public abstract void speak();
+}
+
+public class Dog extends Animal {
+    public void speak() {
+        System.out.println("Woof!");
+    }
+}
+```
+
+```javascript !! js
+// JavaScript: 選擇正確的方法
+
+// 1. 大多數情況使用類別（現代、熟悉）
+class Animal {
+    speak() {
+        console.log("Sound");
+    }
+}
+
+class Dog extends Animal {
+    speak() {
+        console.log("Woof!");
+    }
+}
+
+// 2. 簡單原型使用 Object.create
+const animal = {
+    speak() {
+        console.log("Sound");
+    }
+};
+
+const dog = Object.create(animal);
+
+// 3. 不要修改內置原型
+// ❌ Array.prototype.first = function() { return this[0]; };
+
+// ✅ 創建子類別或工具函數
+class MyArray extends Array {
+    first() {
+        return this[0];
+    }
+}
+```
+</UniversalEditor>
+
+## Summary
+
+### Key Takeaways
+
+1. **Prototypes:** 每個物件都有原型
+2. **Object.create():** 創建具有特定原型的物件
+3. **Constructor Functions:** ES6 之前的類別模式
+4. **Classes vs Prototypes:** 類別是原型的語法糖
+
+## What's Next?
+
+接下來是 **Module 9: This and Context** - 探索 this 關鍵字！

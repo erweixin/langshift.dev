@@ -1,0 +1,845 @@
+---
+title: "模块 04: 接口和组合"
+description: "掌握 Go 的接口系统与 Java 接口的比较 - 隐式实现、接口组合、类型断言和多态模式"
+---
+
+# 模块 04: 接口和组合
+
+欢迎来到模块 04!在本模块中,你将学习 Go 强大而灵活的接口系统,它与 Java 的显式接口实现有显著不同。
+
+## 学习目标
+
+完成本模块后,你将:
+- 理解 Go 接口与 Java 接口的区别
+- 掌握隐式实现(无 "implements" 关键字)
+- 学习接口组合
+- 理解空接口(interface{})
+- 掌握类型断言和类型开关
+- 学习组合与继承模式
+- 理解 Go 与 Java 中的多态
+
+## 1. 接口:Go vs Java
+
+### Java: 显式接口实现
+
+在 Java 中,必须显式声明类实现的接口:
+
+```java
+public interface Drawable {
+    void draw();
+    void resize(int width, int height);
+}
+
+public class Circle implements Drawable {
+    private int radius;
+
+    public Circle(int radius) {
+        this.radius = radius;
+    }
+
+    @Override
+    public void draw() {
+        System.out.println("Drawing circle with radius " + radius);
+    }
+
+    @Override
+    public void resize(int width, int height) {
+        this.radius = Math.min(width, height) / 2;
+    }
+}
+```
+
+### Go: 隐式接口实现
+
+Go 使用隐式实现 - 如果类型拥有接口所需的所有方法,它就自动实现该接口:
+
+<UniversalEditor title="接口实现: Java vs Go">
+```java !! java
+// Java: 显式 "implements" 关键字
+public interface Speaker {
+    void speak();
+}
+
+public class Dog implements Speaker {
+    @Override
+    public void speak() {
+        System.out.println("Woof!");
+    }
+}
+
+// 必须声明 implements Speaker
+```
+
+```go !! go
+// Go: 隐式实现
+type Speaker interface {
+    Speak()
+}
+
+type Dog struct{}
+
+func (d Dog) Speak() {
+    fmt.Println("Woof!")
+}
+
+// Dog 自动实现 Speaker
+// 不需要 "implements" 关键字!
+// 任何有 Speak() 方法的类型都是 Speaker
+```
+</UniversalEditor>
+
+## 2. 定义接口
+
+### 基本接口定义
+
+<UniversalEditor title="基本接口定义">
+```java !! java
+// Java: 带方法签名的接口
+public interface Calculator {
+    int add(int a, int b);
+    int subtract(int a, int b);
+    int multiply(int a, int b);
+}
+
+public class BasicCalculator implements Calculator {
+    @Override
+    public int add(int a, int b) {
+        return a + b;
+    }
+
+    @Override
+    public int subtract(int a, int b) {
+        return a - b;
+    }
+
+    @Override
+    public int multiply(int a, int b) {
+        return a * b;
+    }
+}
+```
+
+```go !! go
+// Go: 带方法签名的接口
+type Calculator interface {
+    Add(a, b int) int
+    Subtract(a, b int) int
+    Multiply(a, b int) int
+}
+
+type BasicCalculator struct{}
+
+func (c BasicCalculator) Add(a, b int) int {
+    return a + b
+}
+
+func (c BasicCalculator) Subtract(a, b int) int {
+    return a - b
+}
+
+func (c BasicCalculator) Multiply(a, b int) int {
+    return a * b
+}
+
+// BasicCalculator 自动实现 Calculator
+```
+</UniversalEditor>
+
+### Interface with Multiple Method Signatures
+
+<UniversalEditor title="Complex Interface Example">
+```java !! java
+// Java: Interface with various method types
+public interface DataStore {
+    void save(String key, String value);
+    String load(String key);
+    boolean exists(String key);
+    void delete(String key);
+    List<String> getAllKeys();
+}
+```
+
+```go !! go
+// Go: Interface with multiple methods
+type DataStore interface {
+    Save(key, value string)
+    Load(key string) string
+    Exists(key string) bool
+    Delete(key string)
+    GetAllKeys() []string
+}
+
+// Multiple types can implement this independently
+type MemoryStore struct {
+    data map[string]string
+}
+
+func (m *MemoryStore) Save(key, value string) {
+    m.data[key] = value
+}
+
+func (m *MemoryStore) Load(key string) string {
+    return m.data[key]
+}
+
+func (m *MemoryStore) Exists(key string) bool {
+    _, exists := m.data[key]
+    return exists
+}
+
+func (m *MemoryStore) Delete(key string) {
+    delete(m.data, key)
+}
+
+func (m *MemoryStore) GetAllKeys() []string {
+    keys := make([]string, 0, len(m.data))
+    for k := range m.data {
+        keys = append(keys, k)
+    }
+    return keys
+}
+```
+</UniversalEditor>
+
+## 3. 隐式实现
+
+### Multiple Interface Implementation
+
+<UniversalEditor title="Multiple Interface Implementation">
+```java !! java
+// Java: Explicitly implement multiple interfaces
+public interface Reader {
+    String read();
+}
+
+public interface Writer {
+    void write(String data);
+}
+
+public class FileHandler implements Reader, Writer {
+    @Override
+    public String read() {
+        return "file contents";
+    }
+
+    @Override
+    public void write(String data) {
+        System.out.println("Writing: " + data);
+    }
+}
+```
+
+```go !! go
+// Go: Automatically implements both interfaces
+type Reader interface {
+    Read() string
+}
+
+type Writer interface {
+    Write(data string)
+}
+
+type FileHandler struct{}
+
+func (f FileHandler) Read() string {
+    return "file contents"
+}
+
+func (f FileHandler) Write(data string) {
+    fmt.Println("Writing:", data)
+}
+
+// FileHandler implements both Reader and Writer
+// No need to declare it!
+
+func process(r Reader) {
+    content := r.Read()
+    fmt.Println("Read:", content)
+}
+
+func save(w Writer, data string) {
+    w.Write(data)
+}
+```
+</UniversalEditor>
+
+### Interface Satisfaction at Compile Time
+
+<UniversalEditor title="Compile-Time Interface Checking">
+```java !! java
+// Java: Compile-time checking
+public interface Flyable {
+    void fly();
+}
+
+// This won't compile - missing fly() method
+public class Airplane implements Flyable {
+    public void takeOff() {
+        System.out.println("Taking off");
+    }
+    // Compiler error: Airplane is not abstract and does not override abstract method fly()
+}
+```
+
+```go !! go
+// Go: Compile-time checking
+type Flyable interface {
+    Fly()
+}
+
+// This won't compile - missing Fly() method
+type Airplane struct{}
+
+func (a Airplane) TakeOff() {
+    fmt.Println("Taking off")
+}
+
+// Uncommenting this causes compile error:
+// var _ Flyable = Airplane{}
+
+// Correct implementation:
+func (a Airplane) Fly() {
+    fmt.Println("Flying")
+}
+
+// Compile-time assertion (optional but useful):
+var _ Flyable = Airplane{} // Verifies Airplane implements Flyable
+```
+</UniversalEditor>
+
+## 4. 接口组合
+
+Go allows you to compose interfaces from other interfaces.
+
+<UniversalEditor title="Interface Composition">
+```java !! java
+// Java: Interface inheritance
+public interface Readable {
+    String read();
+}
+
+public interface Writable {
+    void write(String data);
+}
+
+public interface ReadWrite extends Readable, Writable {
+    void flush();
+}
+
+public class File implements ReadWrite {
+    @Override
+    public String read() { return "data"; }
+
+    @Override
+    public void write(String data) { }
+
+    @Override
+    public void flush() { }
+}
+```
+
+```go !! go
+// Go: Interface composition
+type Readable interface {
+    Read() string
+}
+
+type Writable interface {
+    Write(data string)
+}
+
+type ReadWrite interface {
+    Readable // Compose Readable interface
+    Writable // Compose Writable interface
+    Flush()  // Add new method
+}
+
+type File struct{}
+
+func (f File) Read() string {
+    return "data"
+}
+
+func (f File) Write(data string) {
+    // Write implementation
+}
+
+func (f File) Flush() {
+    // Flush implementation
+}
+
+// File implements ReadWrite (implements Readable, Writable, and Flush)
+```
+</UniversalEditor>
+
+### Standard Library Interface Composition
+
+<UniversalEditor title="Standard Library Example: io.ReadWriter">
+```java !! java
+// Java: Multiple interfaces
+public interface Reader {
+    int read(byte[] buffer);
+}
+
+public interface Writer {
+    void write(byte[] buffer);
+}
+
+public interface ReadWriter extends Reader, Writer {
+    // Inherits both read() and write()
+}
+```
+
+```go !! go
+// Go: Standard library uses interface composition
+package io
+
+type Reader interface {
+    Read(p []byte) (n int, err error)
+}
+
+type Writer interface {
+    Write(p []byte) (n int, err error)
+}
+
+type ReadWriter interface {
+    Reader
+    Writer
+}
+
+// ReadWriter combines Reader and Writer
+// Any type that has both Read() and Write() methods
+// automatically implements ReadWriter
+```
+</UniversalEditor>
+
+## 5. 空接口
+
+The empty interface `interface{}` (or `any` in Go 1.18+) can hold values of any type.
+
+<UniversalEditor title="Empty Interface (Go's Any Type)">
+```java !! java
+// Java: Object is the root of all classes
+public void process(Object obj) {
+    if (obj instanceof String) {
+        String str = (String) obj;
+        System.out.println("String: " + str);
+    } else if (obj instanceof Integer) {
+        Integer num = (Integer) obj;
+        System.out.println("Integer: " + num);
+    }
+}
+```
+
+```go !! go
+// Go: interface{} can hold any type
+func process(obj interface{}) {
+    switch v := obj.(type) {
+    case string:
+        fmt.Println("String:", v)
+    case int:
+        fmt.Println("Integer:", v)
+    default:
+        fmt.Println("Unknown type")
+    }
+}
+
+func main() {
+    process("hello")
+    process(42)
+    process(3.14)
+}
+```
+</UniversalEditor>
+
+### Using interface{} for Flexibility
+
+<UniversalEditor title="Practical Empty Interface Usage">
+```java !! java
+// Java: Using Object for generic storage
+public class Container {
+    private Object value;
+
+    public Container(Object value) {
+        this.value = value;
+    }
+
+    public Object getValue() {
+        return value;
+    }
+
+    @SuppressWarnings("unchecked")
+    public <T> T getValue(Class<T> type) {
+        return type.cast(value);
+    }
+}
+```
+
+```go !! go
+// Go: Using interface{} for flexible storage
+type Container struct {
+    value interface{}
+}
+
+func NewContainer(value interface{}) *Container {
+    return &Container{value: value}
+}
+
+func (c *Container) GetValue() interface{} {
+    return c.value
+}
+
+func main() {
+    strContainer := NewContainer("hello")
+    numContainer := NewContainer(42)
+
+    fmt.Println(strContainer.GetValue()) // "hello"
+    fmt.Println(numContainer.GetValue()) // 42
+}
+```
+</UniversalEditor>
+
+## 6. 类型断言
+
+Type assertions allow you to extract the concrete value from an interface.
+
+<UniversalEditor title="Type Assertions">
+```java !! java
+// Java: Type casting with instanceof
+public void process(Object obj) {
+    if (obj instanceof String) {
+        String str = (String) obj; // Explicit cast
+        System.out.println(str.toUpperCase());
+    }
+}
+```
+
+```go !! go
+// Go: Type assertions
+func process(obj interface{}) {
+    // Type assertion (will panic if wrong type)
+    str := obj.(string)
+    fmt.Println(strings.ToUpper(str))
+}
+
+// Safe type assertion with comma-ok pattern
+func processSafe(obj interface{}) {
+    str, ok := obj.(string)
+    if !ok {
+        fmt.Println("Not a string!")
+        return
+    }
+    fmt.Println(strings.ToUpper(str))
+}
+```
+</UniversalEditor>
+
+### Type Assertion Examples
+
+<UniversalEditor title="Type Assertion Patterns">
+```java !! java
+// Java: Multiple type checks
+public void handle(Object obj) {
+    if (obj instanceof String) {
+        String s = (String) obj;
+        // Handle string
+    } else if (obj instanceof Integer) {
+        Integer i = (Integer) obj;
+        // Handle integer
+    } else if (obj instanceof List) {
+        List<?> list = (List<?>) obj;
+        // Handle list
+    }
+}
+```
+
+```go !! go
+// Go: Type assertions
+func handle(obj interface{}) {
+    // Safe type assertion
+    if str, ok := obj.(string); ok {
+        fmt.Println("String:", str)
+        return
+    }
+
+    if num, ok := obj.(int); ok {
+        fmt.Println("Integer:", num)
+        return
+    }
+
+    if list, ok := obj.([]string); ok {
+        fmt.Println("String slice:", list)
+        return
+    }
+
+    fmt.Println("Unknown type")
+}
+```
+</UniversalEditor>
+
+## 7. 类型开关
+
+Type switches are a cleaner way to handle multiple type assertions.
+
+<UniversalEditor title="Type Switch vs instanceof Chain">
+```java !! java
+// Java: Chain of instanceof checks
+public void describe(Object obj) {
+    if (obj instanceof String) {
+        String s = (String) obj;
+        System.out.println("String: " + s);
+    } else if (obj instanceof Integer) {
+        Integer i = (Integer) obj;
+        System.out.println("Integer: " + i);
+    } else if (obj instanceof Boolean) {
+        Boolean b = (Boolean) obj;
+        System.out.println("Boolean: " + b);
+    } else {
+        System.out.println("Unknown: " + obj.getClass().getName());
+    }
+}
+```
+
+```go !! go
+// Go: Type switch
+func describe(obj interface{}) {
+    switch v := obj.(type) {
+    case string:
+        fmt.Println("String:", v)
+    case int:
+        fmt.Println("Integer:", v)
+    case bool:
+        fmt.Println("Boolean:", v)
+    default:
+        fmt.Printf("Unknown: %T\n", v) // %T prints type
+    }
+}
+
+func main() {
+    describe("hello")
+    describe(42)
+    describe(true)
+    describe(3.14)
+}
+```
+</UniversalEditor>
+
+### Type Switch with Multiple Cases
+
+<UniversalEditor title="Advanced Type Switch">
+```java !! java
+// Java: Pattern matching (Java 16+)
+public void process(Object obj) {
+    if (obj instanceof Integer i) {
+        System.out.println("Integer: " + i);
+    } else if (obj instanceof Long l) {
+        System.out.println("Long: " + l);
+    } else if (obj instanceof String s) {
+        System.out.println("String: " + s);
+    }
+}
+```
+
+```go !! go
+// Go: Type switch with multiple cases
+func process(obj interface{}) {
+    switch v := obj.(type) {
+    case int, int32, int64:
+        fmt.Println("Integer type:", v)
+    case uint, uint32, uint64:
+        fmt.Println("Unsigned integer:", v)
+    case string:
+        fmt.Println("String:", v)
+    case nil:
+        fmt.Println("Nil value")
+    default:
+        fmt.Printf("Other type %T: %v\n", v, v)
+    }
+}
+```
+</UniversalEditor>
+
+## 8. Go 中的多态
+
+Go achieves polymorphism through interfaces, not inheritance.
+
+<UniversalEditor title="Polymorphism: Java vs Go">
+```java !! java
+// Java: Polymorphism through inheritance
+public abstract class Animal {
+    public abstract void makeSound();
+}
+
+public class Dog extends Animal {
+    @Override
+    public void makeSound() {
+        System.out.println("Woof!");
+    }
+}
+
+public class Cat extends Animal {
+    @Override
+    public void makeSound() {
+        System.out.println("Meow!");
+    }
+}
+
+public class Main {
+    public static void main(String[] args) {
+        List<Animal> animals = Arrays.asList(
+            new Dog(),
+            new Cat()
+        );
+
+        for (Animal animal : animals) {
+            animal.makeSound(); // Polymorphic call
+        }
+    }
+}
+```
+
+```go !! go
+// Go: Polymorphism through interfaces
+type Animal interface {
+    MakeSound()
+}
+
+type Dog struct{}
+
+func (d Dog) MakeSound() {
+    fmt.Println("Woof!")
+}
+
+type Cat struct{}
+
+func (c Cat) MakeSound() {
+    fmt.Println("Meow!")
+}
+
+func main() {
+    animals := []Animal{
+        Dog{},
+        Cat{},
+    }
+
+    for _, animal := range animals {
+        animal.MakeSound() // Polymorphic call
+    }
+}
+```
+</UniversalEditor>
+
+## 9. 最佳实践
+
+### Interface Design Guidelines
+
+<UniversalEditor title="Interface Design Best Practices">
+```go !! go
+// Go: Accept interfaces, return structs
+// Define small interfaces
+type Reader interface {
+    Read(p []byte) (n int, err error)
+}
+
+type Writer interface {
+    Write(p []byte) (n int, err error)
+}
+
+// Function accepts interface (flexible)
+func Copy(dst Writer, src Reader) (written int64, err error) {
+    // Implementation
+    return 0, nil
+}
+
+// Function returns concrete type (stable)
+func NewFileReader(path string) *FileReader {
+    return &FileReader{path: path}
+}
+
+// Don't: Don't return interfaces unless necessary
+// This is usually wrong:
+// func NewReader() Reader { ... }
+// Unless you're returning different implementations
+```
+</UniversalEditor>
+
+## 10. 关键要点
+
+- **隐式实现**: 无需 "implements" 关键字 - 如果它走起路来像鸭子,它就是鸭子
+- **小接口**: 优先使用小而专注的接口(1-3 个方法)
+- **接口组合**: 从简单接口构建复杂接口
+- **接受接口,返回结构体**: 函数应该接受接口,返回具体类型
+- **类型断言**: 使用 comma-ok 模式进行安全断言
+- **类型开关**: 多个类型断言的清晰替代方案
+- **空接口**: `interface{}` 保存任何类型,但要谨慎使用
+- **多态**: 通过接口实现,而非继承
+
+## 11. 练习题
+
+### Beginner
+
+1. Create a `Shape` interface with `Area()` and `Perimeter()` methods
+   - Implement `Rectangle`, `Circle`, and `Triangle` types
+   - Create a slice of `Shape` and calculate total area
+
+2. Create a `Notifier` interface with `Notify(message string)` method
+   - Implement `EmailNotifier`, `SMSNotifier`, and `PushNotifier`
+   - Write a function that accepts a `Notifier` slice
+
+### Intermediate
+
+3. Create a `Database` interface with CRUD methods
+   - Implement `MemoryDatabase` and `FileDatabase`
+   - Use type assertions to handle specific implementations
+   - Demonstrate interface composition
+
+4. Build a plugin system:
+   - Define `Plugin` interface
+   - Create multiple plugin implementations
+   - Load plugins dynamically (using type assertions)
+   - Execute plugins through the interface
+
+### Advanced
+
+5. Create a middleware chain:
+   - Define `Middleware` interface
+   - Implement logging, authentication, and rate limiting
+   - Compose middlewares in a chain
+   - Use interface composition for flexibility
+
+6. Build a type-safe container:
+   - Use `interface{}` for storage
+   - Implement type assertions safely
+   - Use type switches for different types
+   - Demonstrate proper error handling
+
+## 12. 项目想法
+
+### Project 1: Plugin Architecture
+
+Create a plugin system for a text editor:
+- `Plugin` interface with `Execute()` and `GetName()` methods
+- Multiple plugins: SpellCheck, WordCount, Format
+- Plugin manager that loads and executes plugins
+- Type-safe plugin registration
+
+### Project 2: Data Processing Pipeline
+
+Build a flexible data processing system:
+- `Processor` interface with `Process(input interface{}) interface{}`
+- Multiple processors: Filter, Transform, Validate
+- Compose processors into pipelines
+- Type assertions for type-specific processing
+
+## 13. 下一步
+
+在下一个模块中,我们将探索:
+- Go 错误处理 vs Java 异常
+- 错误作为返回值
+- 自定义错误类型
+- 错误包装(Go 1.13+)
+- Panic 和 recover vs try-catch-finally
+- 何时使用 panic vs errors
+- 错误处理最佳实践
+
+继续学习 [模块 05: 错误处理](/docs/java2go/module-05-error-handling),了解 Go 如何以不同于 Java 的方式处理错误!

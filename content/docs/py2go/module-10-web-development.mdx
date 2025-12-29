@@ -1,0 +1,746 @@
+---
+title: "Module 10: Web Development"
+description: "Building web servers and APIs in Go compared to Python frameworks"
+---
+
+## Introduction
+
+Go's standard library includes a powerful HTTP server. Unlike Python where you need frameworks like Flask or FastAPI, Go's `net/http` package provides everything needed for production-ready web services.
+
+## Basic HTTP Server
+
+<UniversalEditor title="Hello World Server">
+```python !! py
+# Python - Flask
+from flask import Flask
+
+app = Flask(__name__)
+
+@app.route('/')
+def hello():
+    return "Hello, World!"
+
+@app.route('/user/<name>')
+def user(name):
+    return f"Hello, {name}!"
+
+if __name__ == '__main__':
+    app.run(port=8080)
+```
+
+```go !! go
+// Go - net/http (no framework needed!)
+package main
+
+import (
+    "fmt"
+    "net/http"
+)
+
+func helloHandler(w http.ResponseWriter, r *http.Request) {
+    fmt.Fprint(w, "Hello, World!")
+}
+
+func userHandler(w http.ResponseWriter, r *http.Request) {
+    name := r.URL.Path[len("/user/"):]
+    fmt.Fprintf(w, "Hello, %s!", name)
+}
+
+func main() {
+    http.HandleFunc("/", helloHandler)
+    http.HandleFunc("/user/", userHandler)
+
+    fmt.Println("Server starting on :8080")
+    http.ListenAndServe(":8080", nil)
+}
+```
+</UniversalEditor>
+
+## HTTP Methods and Routing
+
+<UniversalEditor title="HTTP Methods">
+```python !! py
+# Python - Flask
+from flask import Flask, request, jsonify
+
+app = Flask(__name__)
+
+@app.route('/api/user', methods=['GET'])
+def get_user():
+    return jsonify({"name": "Alice"})
+
+@app.route('/api/user', methods=['POST'])
+def create_user():
+    data = request.get_json()
+    return jsonify({"created": True}), 201
+
+@app.route('/api/user', methods=['PUT', 'PATCH'])
+def update_user():
+    data = request.get_json()
+    return jsonify({"updated": True})
+
+@app.route('/api/user', methods=['DELETE'])
+def delete_user():
+    return jsonify({"deleted": True})
+```
+
+```go !! go
+// Go - HTTP methods
+package main
+
+import (
+    "encoding/json"
+    "fmt"
+    "net/http"
+)
+
+func userHandler(w http.ResponseWriter, r *http.Request) {
+    switch r.Method {
+    case http.MethodGet:
+        json.NewEncoder(w).Encode(map[string]string{"name": "Alice"})
+
+    case http.MethodPost:
+        var data map[string]interface{}
+        json.NewDecoder(r.Body).Decode(&data)
+        w.WriteHeader(http.StatusCreated)
+        json.NewEncoder(w).Encode(map[string]bool{"created": true})
+
+    case http.MethodPut, http.MethodPatch:
+        var data map[string]interface{}
+        json.NewDecoder(r.Body).Decode(&data)
+        json.NewEncoder(w).Encode(map[string]bool{"updated": true})
+
+    case http.MethodDelete:
+        json.NewEncoder(w).Encode(map[string]bool{"deleted": true})
+
+    default:
+        http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+    }
+}
+
+func main() {
+    http.HandleFunc("/api/user", userHandler)
+    http.ListenAndServe(":8080", nil)
+}
+```
+</UniversalEditor>
+
+## Query Parameters and Forms
+
+<UniversalEditor title="Query Parameters">
+```python !! py
+# Python - Flask
+from flask import request
+
+@app.route('/search')
+def search():
+    query = request.args.get('q', '')
+    page = int(request.args.get('page', 1))
+    return f"Search: {q}, Page: {page}"
+
+@app.route('/form', methods=['POST'])
+def form():
+    name = request.form.get('name')
+    email = request.form.get('email')
+    return f"Name: {name}, Email: {email}"
+```
+
+```go !! go
+// Go - Query parameters and forms
+package main
+
+import (
+    "fmt"
+    "net/http"
+    "strconv"
+)
+
+func searchHandler(w http.ResponseWriter, r *http.Request) {
+    query := r.URL.Query().Get("q")
+    pageStr := r.URL.Query().Get("page")
+    page, _ := strconv.Atoi(pageStr)
+    if page == 0 {
+        page = 1
+    }
+
+    fmt.Fprintf(w, "Search: %s, Page: %d", query, page)
+}
+
+func formHandler(w http.ResponseWriter, r *http.Request) {
+    if r.Method == http.MethodPost {
+        r.ParseForm()
+        name := r.FormValue("name")
+        email := r.FormValue("email")
+        fmt.Fprintf(w, "Name: %s, Email: %s", name, email)
+    }
+}
+
+func main() {
+    http.HandleFunc("/search", searchHandler)
+    http.HandleFunc("/form", formHandler)
+    http.ListenAndServe(":8080", nil)
+}
+```
+</UniversalEditor>
+
+## JSON Request/Response
+
+<UniversalEditor title="JSON Handling">
+```python !! py
+# Python - Flask with JSON
+from flask import Flask, request, jsonify
+
+app = Flask(__name__)
+
+class User:
+    def __init__(self, name, email):
+        self.name = name
+        self.email = email
+
+@app.route('/api/user', methods=['POST'])
+def create_user():
+    data = request.get_json()
+    user = User(data['name'], data['email'])
+    return jsonify({
+        'name': user.name,
+        'email': user.email
+    }), 201
+```
+
+```go !! go
+// Go - JSON with struct tags
+package main
+
+import (
+    "encoding/json"
+    "net/http"
+)
+
+type User struct {
+    Name  string `json:"name"`
+    Email string `json:"email"`
+}
+
+func createUserHandler(w http.ResponseWriter, r *http.Request) {
+    if r.Method != http.MethodPost {
+        http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+        return
+    }
+
+    var user User
+    if err := json.NewDecoder(r.Body).Decode(&user); err != nil {
+        http.Error(w, err.Error(), http.StatusBadRequest)
+        return
+    }
+
+    w.Header().Set("Content-Type", "application/json")
+    w.WriteHeader(http.StatusCreated)
+    json.NewEncoder(w).Encode(user)
+}
+
+func main() {
+    http.HandleFunc("/api/user", createUserHandler)
+    http.ListenAndServe(":8080", nil)
+}
+```
+</UniversalEditor>
+
+## Path Variables and Routing
+
+<UniversalEditor title="Path Variables">
+```python !! py
+# Python - Flask path variables
+@app.route('/user/<username>')
+def profile(username):
+    return f"Profile: {username}"
+
+@app.route('/post/<int:post_id>')
+def show_post(post_id):
+    return f"Post ID: {post_id}"
+```
+
+```go !! go
+// Go - Manual path parsing (or use a router)
+package main
+
+import (
+    "fmt"
+    "net/http"
+    "strings"
+)
+
+func profileHandler(w http.ResponseWriter, r *http.Request) {
+    // Extract username from path
+    parts := strings.Split(r.URL.Path, "/")
+    if len(parts) < 3 {
+        http.Error(w, "User not found", http.StatusNotFound)
+        return
+    }
+    username := parts[2]
+    fmt.Fprintf(w, "Profile: %s", username)
+}
+
+func main() {
+    http.HandleFunc("/user/", profileHandler)
+    http.ListenAndServe(":8080", nil)
+}
+```
+</UniversalEditor>
+
+## Middleware
+
+<UniversalEditor title="Middleware">
+```python !! py
+# Python - Flask decorators
+from functools import wraps
+from flask import request, jsonify
+
+def require_auth(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = request.headers.get('Authorization')
+        if not token or not validate_token(token):
+            return jsonify({"error": "Unauthorized"}), 401
+        return f(*args, **kwargs)
+    return decorated
+
+@app.route('/protected')
+@require_auth
+def protected():
+    return jsonify({"message": "Access granted"})
+```
+
+```go !! go
+// Go - Middleware with closures
+package main
+
+import (
+    "fmt"
+    "net/http"
+)
+
+func requireAuth(next http.HandlerFunc) http.HandlerFunc {
+    return func(w http.ResponseWriter, r *http.Request) {
+        token := r.Header.Get("Authorization")
+        if token == "" || !validateToken(token) {
+            http.Error(w, "Unauthorized", http.StatusUnauthorized)
+            return
+        }
+        next(w, r)
+    }
+}
+
+func validateToken(token string) bool {
+    return token == "valid-token"
+}
+
+func protectedHandler(w http.ResponseWriter, r *http.Request) {
+    fmt.Fprint(w, `{"message": "Access granted"}`)
+}
+
+func loggingMiddleware(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        fmt.Printf("%s %s\n", r.Method, r.URL.Path)
+        next.ServeHTTP(w, r)
+    })
+}
+
+func main() {
+    http.Handle("/protected", requireAuth(protectedHandler))
+
+    // Chain middleware
+    handler := loggingMiddleware(http.DefaultServeMux)
+    http.ListenAndServe(":8080", handler)
+}
+```
+</UniversalEditor>
+
+## File Upload
+
+<UniversalEditor title="File Upload">
+```python !! py
+# Python - Flask file upload
+from flask import Flask, request
+from werkzeug.utils import secure_filename
+
+app = Flask(__name__)
+app.config['UPLOAD_FOLDER'] = '/uploads'
+
+@app.route('/upload', methods=['POST'])
+def upload_file():
+    if 'file' not in request.files:
+        return "No file", 400
+
+    file = request.files['file']
+    filename = secure_filename(file.filename)
+    file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
+    return "File uploaded"
+```
+
+```go !! go
+// Go - File upload
+package main
+
+import (
+    "fmt"
+    "io"
+    "net/http"
+    "os"
+)
+
+func uploadHandler(w http.ResponseWriter, r *http.Request) {
+    if r.Method != http.MethodPost {
+        http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+        return
+    }
+
+    // Parse multipart form (max 10MB)
+    err := r.ParseMultipartForm(10 << 20)
+    if err != nil {
+        http.Error(w, err.Error(), http.StatusBadRequest)
+        return
+    }
+
+    file, handler, err := r.FormFile("file")
+    if err != nil {
+        http.Error(w, "Error retrieving file", http.StatusBadRequest)
+        return
+    }
+    defer file.Close()
+
+    // Create uploaded file
+    dst, err := os.Create("uploads/" + handler.Filename)
+    if err != nil {
+        http.Error(w, err.Error(), http.StatusInternalServerError)
+        return
+    }
+    defer dst.Close()
+
+    // Copy file
+    if _, err := io.Copy(dst, file); err != nil {
+        http.Error(w, err.Error(), http.StatusInternalServerError)
+        return
+    }
+
+    fmt.Fprintf(w, "File uploaded: %s", handler.Filename)
+}
+
+func main() {
+    http.HandleFunc("/upload", uploadHandler)
+    http.ListenAndServe(":8080", nil)
+}
+```
+</UniversalEditor>
+
+## Using Web Frameworks
+
+While Go's standard library is sufficient, frameworks add convenience:
+
+### Popular Go Web Frameworks
+
+1. **Gin** - Fast, feature-rich
+2. **Echo** - Minimalist, high performance
+3. **Fiber** - Express-like API
+4. **Chi** - Lightweight, composable
+
+<UniversalEditor title="Using Gin Framework">
+```python !! py
+# Python - Flask
+from flask import Flask, jsonify
+
+app = Flask(__name__)
+
+@app.route('/api/users/<int:id>')
+def get_user(id):
+    return jsonify({"id": id, "name": "Alice"})
+```
+
+```go !! go
+// Go - Gin framework
+package main
+
+import (
+    "github.com/gin-gonic/gin"
+)
+
+type User struct {
+    ID   int    `json:"id"`
+    Name string `json:"name"`
+}
+
+func main() {
+    r := gin.Default()
+
+    r.GET("/api/users/:id", func(c *gin.Context) {
+        id := c.Param("id")
+        c.JSON(200, User{
+            ID:   1,
+            Name: "Alice",
+        })
+    })
+
+    r.Run(":8080")
+}
+```
+</UniversalEditor>
+
+## RESTful API Example
+
+<UniversalEditor title="Complete REST API">
+```python !! py
+# Python - Flask RESTful API
+from flask import Flask, request, jsonify
+from typing import Dict
+
+app = Flask(__name__)
+users: Dict[int, dict] = {
+    1: {"id": 1, "name": "Alice", "email": "alice@example.com"},
+}
+
+@app.route('/api/users', methods=['GET'])
+def get_users():
+    return jsonify(list(users.values()))
+
+@app.route('/api/users/<int:user_id>', methods=['GET'])
+def get_user(user_id):
+    user = users.get(user_id)
+    if not user:
+        return jsonify({"error": "Not found"}), 404
+    return jsonify(user)
+
+@app.route('/api/users', methods=['POST'])
+def create_user():
+    data = request.get_json()
+    user_id = max(users.keys()) + 1
+    data['id'] = user_id
+    users[user_id] = data
+    return jsonify(data), 201
+```
+
+```go !! go
+// Go - RESTful API
+package main
+
+import (
+    "encoding/json"
+    "net/http"
+    "strconv"
+    "sync"
+)
+
+type User struct {
+    ID    int    `json:"id"`
+    Name  string `json:"name"`
+    Email string `json:"email"`
+}
+
+var (
+    users = map[int]User{
+        1: {ID: 1, Name: "Alice", Email: "alice@example.com"},
+    }
+    mu   sync.RWMutex
+    nextID = 2
+)
+
+func getUsersHandler(w http.ResponseWriter, r *http.Request) {
+    mu.RLock()
+    defer mu.RUnlock()
+
+    userList := make([]User, 0, len(users))
+    for _, user := range users {
+        userList = append(userList, user)
+    }
+
+    w.Header().Set("Content-Type", "application/json")
+    json.NewEncoder(w).Encode(userList)
+}
+
+func getUserHandler(w http.ResponseWriter, r *http.Request) {
+    idStr := r.URL.Path[len("/api/users/"):]
+    id, err := strconv.Atoi(idStr)
+    if err != nil {
+        http.Error(w, "Invalid user ID", http.StatusBadRequest)
+        return
+    }
+
+    mu.RLock()
+    user, exists := users[id]
+    mu.RUnlock()
+
+    if !exists {
+        http.Error(w, "User not found", http.StatusNotFound)
+        return
+    }
+
+    w.Header().Set("Content-Type", "application/json")
+    json.NewEncoder(w).Encode(user)
+}
+
+func createUserHandler(w http.ResponseWriter, r *http.Request) {
+    if r.Method != http.MethodPost {
+        http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+        return
+    }
+
+    var user User
+    if err := json.NewDecoder(r.Body).Decode(&user); err != nil {
+        http.Error(w, err.Error(), http.StatusBadRequest)
+        return
+    }
+
+    mu.Lock()
+    user.ID = nextID
+    nextID++
+    users[user.ID] = user
+    mu.Unlock()
+
+    w.Header().Set("Content-Type", "application/json")
+    w.WriteHeader(http.StatusCreated)
+    json.NewEncoder(w).Encode(user)
+}
+
+func main() {
+    http.HandleFunc("/api/users", getUsersHandler)
+    http.HandleFunc("/api/users/", getUserHandler)
+    http.HandleFunc("/api/users", createUserHandler)
+
+    fmt.Println("Server starting on :8080")
+    http.ListenAndServe(":8080", nil)
+}
+```
+</UniversalEditor>
+
+## HTTP Client
+
+<UniversalEditor title="Making HTTP Requests">
+```python !! py
+# Python - requests library
+import requests
+
+response = requests.get('https://api.example.com/data')
+data = response.json()
+
+response = requests.post(
+    'https://api.example.com/users',
+    json={'name': 'Alice'},
+    headers={'Authorization': 'Bearer token'}
+)
+```
+
+```go !! go
+// Go - net/http client
+package main
+
+import (
+    "encoding/json"
+    "fmt"
+    "io"
+    "net/http"
+)
+
+func main() {
+    // GET request
+    resp, err := http.Get("https://api.example.com/data")
+    if err != nil {
+        panic(err)
+    }
+    defer resp.Body.Close()
+
+    body, _ := io.ReadAll(resp.Body)
+    fmt.Println(string(body))
+
+    // POST request
+    data := map[string]string{"name": "Alice"}
+    jsonData, _ := json.Marshal(data)
+
+    req, _ := http.NewRequest(
+        "POST",
+        "https://api.example.com/users",
+        jsonData,
+    )
+    req.Header.Set("Authorization", "Bearer token")
+    req.Header.Set("Content-Type", "application/json")
+
+    client := &http.Client{}
+    resp2, err := client.Do(req)
+    if err != nil {
+        panic(err)
+    }
+    defer resp2.Body.Close()
+}
+```
+</UniversalEditor>
+
+## Performance Comparison
+
+<UniversalEditor title="Performance">
+```python !! py
+# Python Flask
+# Typical: 500-2,000 requests/second
+# Memory: 50-100 MB
+
+from flask import Flask
+app = Flask(__name__)
+
+@app.route('/')
+def index():
+    return "Hello"
+
+app.run(threaded=True)
+```
+
+```go !! go
+// Go net/http
+// Typical: 10,000-50,000+ requests/second
+// Memory: 5-20 MB
+
+package main
+
+import "net/http"
+
+func handler(w http.ResponseWriter, r *http.Request) {
+    w.Write([]byte("Hello"))
+}
+
+func main() {
+    http.HandleFunc("/", handler)
+    http.ListenAndServe(":8080", nil)
+}
+```
+</UniversalEditor>
+
+## Summary
+
+In this module, you learned:
+
+1. **net/http** - Powerful HTTP server in standard library
+2. **Routing** - HandleFunc and manual routing
+3. **JSON** - Encoding/decoding with struct tags
+4. **Middleware** - Composable middleware chains
+5. **File uploads** - Multipart form handling
+6. **Web frameworks** - Gin, Echo, Chi for convenience
+7. **REST APIs** - Complete CRUD operations
+8. **HTTP client** - Making external requests
+9. **Performance** - Go significantly faster than Python
+
+## Key Differences
+
+| Python | Go |
+|--------|-----|
+| Flask/Django needed | Standard library sufficient |
+| `@app.route` decorator | `http.HandleFunc` |
+| `request.get_json()` | `json.NewDecoder(r.Body)` |
+| `@require_auth` | Middleware functions |
+| 500-2,000 req/s | 10,000-50,000+ req/s |
+
+## Exercises
+
+1. Build a complete REST API with CRUD operations
+2. Implement authentication middleware
+3. Add file upload functionality
+4. Create a WebSocket server
+5. Compare performance with your Python applications
+
+## Next Steps
+
+Next module: **Testing and Debugging** - Writing tests and debugging Go code.

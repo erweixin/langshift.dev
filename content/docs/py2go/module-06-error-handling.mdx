@@ -1,0 +1,1687 @@
+---
+title: "Module 6: Error Handling"
+description: "Go's explicit error handling compared to Python's exceptions"
+---
+
+## Introduction
+
+Go takes a fundamentally different approach to error handling than Python. Instead of exceptions, Go treats errors as values that are returned explicitly. This makes error handling visible, predictable, and force developers to handle errors explicitly.
+
+### Key Differences
+
+**Python Exceptions:**
+- Errors "bubble up" the call stack automatically
+- Can be caught at any level
+- Invisible in function signatures
+- Easy to ignore (until they crash your program)
+- Control flow via exceptions
+
+**Go Errors:**
+- Errors are returned as values
+- Must be handled explicitly at each level
+- Visible in function signatures
+- Cannot be ignored without deliberate action
+- Linear control flow
+
+## Basic Error Handling
+
+### The Error Interface
+
+In Go, `error` is an interface:
+
+```go
+type error interface {
+    Error() string
+}
+```
+
+Any type that implements `Error() string` can be used as an error.
+
+<UniversalEditor title="Error Handling Comparison">
+```python !! py
+# Python - Exceptions
+def divide(a, b):
+    if b == 0:
+        raise ValueError("Cannot divide by zero")
+    return a / b
+
+try:
+    result = divide(10, 0)
+except ValueError as e:
+    print(f"Error: {e}")
+    # Maybe log, maybe retry, maybe abort
+```
+
+```go !! go
+// Go - Error as return value
+package main
+
+import (
+    "errors"
+    "fmt"
+)
+
+func divide(a int, b int) (int, error) {
+    if b == 0 {
+        return 0, errors.New("cannot divide by zero")
+    }
+    return a / b, nil
+}
+
+func main() {
+    result, err := divide(10, 0)
+    if err != nil {
+        fmt.Printf("Error: %v\n", err)
+        return
+    }
+    fmt.Printf("Result: %d\n", result)
+}
+```
+</UniversalEditor>
+
+### The nil Error Convention
+
+In Go, `nil` represents "no error":
+
+<UniversalEditor title="Nil Error Convention">
+```python !! py
+# Python - No exception means success
+def get_user(id):
+    user = db.query(id)
+    if user:
+        return user
+    return None  # Not an error, just no result
+```
+
+```go !! go
+// Go - nil error means success
+func getUser(id int) (*User, error) {
+    user, err := db.Query(id)
+    if err != nil {
+        return nil, err  // Database error
+    }
+    if user == nil {
+        return nil, nil  // No error, but no result either
+    }
+    return user, nil  // Success
+}
+
+// Usage
+user, err := getUser(123)
+if err != nil {
+    // Handle actual error
+    log.Fatal(err)
+}
+if user == nil {
+    // No user found, but no error
+    fmt.Println("User not found")
+}
+```
+</UniversalEditor>
+
+## Custom Error Types
+
+### Sentinel Errors
+
+Sentinel errors are predefined error values that can be compared directly:
+
+<UniversalEditor title="Sentinel Errors">
+```python !! py
+# Python - Custom exceptions
+class ValidationError(Exception):
+    pass
+
+class NotFoundError(Exception):
+    pass
+
+def validate_age(age):
+    if age < 0:
+        raise ValidationError("Age cannot be negative")
+    if age > 120:
+        raise ValidationError("Age too high")
+
+def get_user(id):
+    user = db.find(id)
+    if not user:
+        raise NotFoundError(f"User {id} not found")
+    return user
+
+# Usage
+try:
+    validate_age(-5)
+except ValidationError as e:
+    print(f"Validation error: {e}")
+except NotFoundError as e:
+    print(f"Not found: {e}")
+```
+
+```go !! go
+// Go - Sentinel errors
+package main
+
+import (
+    "errors"
+    "fmt"
+)
+
+var (
+    ErrNegativeAge   = errors.New("age cannot be negative")
+    ErrAgeTooHigh    = errors.New("age too high")
+    ErrUserNotFound  = errors.New("user not found")
+)
+
+func validateAge(age int) error {
+    if age < 0 {
+        return ErrNegativeAge
+    }
+    if age > 120 {
+        return ErrAgeTooHigh
+    }
+    return nil
+}
+
+func getUser(id int) (*User, error) {
+    user := db.Find(id)
+    if user == nil {
+        return nil, ErrUserNotFound
+    }
+    return user, nil
+}
+
+func main() {
+    err := validateAge(-5)
+    if err != nil {
+        // Direct comparison
+        if errors.Is(err, ErrNegativeAge) {
+            fmt.Println("Age is negative")
+        } else if errors.Is(err, ErrAgeTooHigh) {
+            fmt.Println("Age is too high")
+        } else {
+            fmt.Println("Other error:", err)
+        }
+    }
+}
+```
+</UniversalEditor>
+
+### Custom Error Structs
+
+For more complex error handling, create custom error types:
+
+<UniversalEditor title="Custom Error Structs">
+```python !! py
+# Python - Exception with data
+class ValidationError(Exception):
+    def __init__(self, field, message):
+        self.field = field
+        self.message = message
+        super().__init__(f"{field}: {message}")
+
+def validate_user(user):
+    if not user.email:
+        raise ValidationError("email", "is required")
+    if "@" not in user.email:
+        raise ValidationError("email", "is invalid")
+
+# Usage
+try:
+    validate_user(user)
+except ValidationError as e:
+    print(f"Field {e.field}: {e.message}")
+```
+
+```go !! go
+// Go - Custom error struct
+package main
+
+import "fmt"
+
+// ValidationError is a custom error type
+type ValidationError struct {
+    Field   string
+    Message string
+}
+
+// Error implements the error interface
+func (e *ValidationError) Error() string {
+    return fmt.Sprintf("%s: %s", e.Field, e.Message)
+}
+
+// User represents a user
+type User struct {
+    Email string
+    Age   int
+}
+
+func validateUser(user *User) error {
+    if user.Email == "" {
+        return &ValidationError{
+            Field:   "email",
+            Message: "is required",
+        }
+    }
+    // More validation...
+    return nil
+}
+
+func main() {
+    user := &User{}
+    err := validateUser(user)
+    if err != nil {
+        // Type assertion to access custom fields
+        if validationErr, ok := err.(*ValidationError); ok {
+            fmt.Printf("Field %s: %s\n", validationErr.Field, validationErr.Message)
+        } else {
+            fmt.Println("Error:", err)
+        }
+    }
+}
+```
+</UniversalEditor>
+
+### Error with Methods
+
+Your custom errors can have additional methods:
+
+<UniversalEditor title="Rich Error Types">
+```python !! py
+# Python - Rich exception
+class PaymentError(Exception):
+    def __init__(self, code, message, retryable):
+        self.code = code
+        self.message = message
+        self.retryable = retryable
+
+    def is_retryable(self):
+        return self.retryable
+
+# Usage
+try:
+    process_payment()
+except PaymentError as e:
+    if e.is_retryable():
+        retry()
+```
+
+```go !! go
+// Go - Error with methods
+package main
+
+import "fmt"
+
+// PaymentError represents payment processing errors
+type PaymentError struct {
+    Code      int
+    Message   string
+    Retryable bool
+}
+
+func (e *PaymentError) Error() string {
+    return fmt.Sprintf("payment error [%d]: %s", e.Code, e.Message)
+}
+
+func (e *PaymentError) IsRetryable() bool {
+    return e.Retryable
+}
+
+func processPayment(amount float64) error {
+    if amount <= 0 {
+        return &PaymentError{
+            Code:      1001,
+            Message:   "invalid amount",
+            Retryable: false,
+        }
+    }
+    if amount > 10000 {
+        return &PaymentError{
+            Code:      1002,
+            Message:   "amount exceeds limit",
+            Retryable: true,
+        }
+    }
+    return nil
+}
+
+func main() {
+    err := processPayment(15000)
+    if err != nil {
+        if paymentErr, ok := err.(*PaymentError); ok {
+            fmt.Println("Error:", paymentErr)
+            if paymentErr.IsRetryable() {
+                fmt.Println("This error is retryable")
+            }
+        }
+    }
+}
+```
+</UniversalEditor>
+
+## Error Wrapping
+
+### Adding Context
+
+Go 1.13+ introduced error wrapping with `%w` verb:
+
+<UniversalEditor title="Error Wrapping">
+```python !! py
+# Python - Exception chaining
+try:
+    data = load_data()
+except ValueError as e:
+    raise ValueError("Failed to process data") from e
+
+# Or Python 3's implicit chaining
+try:
+    data = load_data()
+except ValueError:
+    raise ValueError("Failed to process data")
+```
+
+```go !! go
+// Go - Error wrapping
+package main
+
+import (
+    "errors"
+    "fmt"
+)
+
+func loadData() error {
+    return errors.New("file not found")
+}
+
+func processData() error {
+    err := loadData()
+    if err != nil {
+        // Wrap error with context using %w
+        return fmt.Errorf("processData failed: %w", err)
+    }
+    return nil
+}
+
+func main() {
+    err := processData()
+    if err != nil {
+        fmt.Println("Error:", err)
+
+        // Unwrap to get original error
+        unwrapped := errors.Unwrap(err)
+        fmt.Println("Original:", unwrapped)
+
+        // Check if specific error is in chain
+        if errors.Is(err, errors.New("file not found")) {
+            fmt.Println("File not found in error chain")
+        }
+    }
+}
+```
+</UniversalEditor>
+
+### Multiple Wrapping Levels
+
+Errors can be wrapped multiple times:
+
+<UniversalEditor title="Multiple Wrapping Levels">
+```python !! py
+# Python - Exception chain
+def layer3():
+    raise ValueError("Base error")
+
+def layer2():
+    try:
+        layer3()
+    except ValueError as e:
+        raise RuntimeError("Layer 2 failed") from e
+
+def layer1():
+    try:
+        layer2()
+    except RuntimeError as e:
+        raise RuntimeError("Layer 1 failed") from e
+
+# Traceback shows full chain
+```
+
+```go !! go
+// Go - Multiple wrapping levels
+package main
+
+import (
+    "errors"
+    "fmt"
+)
+
+func layer3() error {
+    return errors.New("base error")
+}
+
+func layer2() error {
+    err := layer3()
+    if err != nil {
+        return fmt.Errorf("layer2: %w", err)
+    }
+    return nil
+}
+
+func layer1() error {
+    err := layer2()
+    if err != nil {
+        return fmt.Errorf("layer1: %w", err)
+    }
+    return nil
+}
+
+func main() {
+    err := layer1()
+    if err != nil {
+        fmt.Println("Full error:", err)
+
+        // Unwrap multiple times
+        err = errors.Unwrap(err) // "layer2: base error"
+        err = errors.Unwrap(err) // "base error"
+
+        // Or check if specific error is anywhere in chain
+        err = layer1()
+        if errors.Is(err, errors.New("base error")) {
+            fmt.Println("Base error found in chain")
+        }
+    }
+}
+```
+</UniversalEditor>
+
+### Error Formatting Verbs
+
+<UniversalEditor title="Error Formatting Verbs">
+```go !! go
+// Go - Formatting verbs
+package main
+
+import (
+    "errors"
+    "fmt"
+)
+
+func main() {
+    baseErr := errors.New("base error")
+
+    // %v - just the error text
+    fmt1 := fmt.Errorf("context: %v", baseErr)
+    fmt.Println(fmt1) // "context: base error"
+
+    // %w - wrapped error (supports errors.Is/As)
+    fmt2 := fmt.Errorf("context: %w", baseErr)
+    fmt.Println(errors.Is(fmt2, baseErr)) // true
+
+    // %+v - (if error supports it) detailed output
+    // Some error types implement Formatter interface
+    // for stack traces and additional details
+}
+```
+</UniversalEditor>
+
+## Error Comparison and Type Assertion
+
+### errors.Is()
+
+Check if an error matches a specific value in the chain:
+
+<UniversalEditor title="Error Comparison">
+```python !! py
+# Python - Exception type checking
+try:
+    process()
+except ValueError:
+    print("Value error")
+except RuntimeError as e:
+    if "timeout" in str(e):
+        print("Timeout error")
+```
+
+```go !! go
+// Go - errors.Is for comparison
+package main
+
+import (
+    "errors"
+    "fmt"
+)
+
+var (
+    ErrNotFound = errors.New("not found")
+    ErrTimeout  = errors.New("timeout")
+)
+
+func process() error {
+    return fmt.Errorf("process failed: %w", ErrNotFound)
+}
+
+func main() {
+    err := process()
+
+    // Check if specific error is in chain
+    if errors.Is(err, ErrNotFound) {
+        fmt.Println("Not found error occurred")
+    }
+
+    if errors.Is(err, ErrTimeout) {
+        fmt.Println("Timeout error occurred")
+    }
+
+    // Can check against new errors too
+    if errors.Is(err, errors.New("not found")) {
+        fmt.Println("Not found (new instance)")
+    }
+}
+```
+</UniversalEditor>
+
+### errors.As()
+
+Type assertion for error chains:
+
+<UniversalEditor title="Type Assertion">
+```python !! py
+# Python - Exception instance checking
+try:
+    process()
+except ValidationError as e:
+    print(f"Validation error: {e.field}")
+except PaymentError as e:
+    print(f"Payment error: {e.code}")
+```
+
+```go !! go
+// Go - errors.As for type assertion
+package main
+
+import (
+    "errors"
+    "fmt"
+)
+
+type ValidationError struct {
+    Field string
+}
+
+func (e *ValidationError) Error() string {
+    return fmt.Sprintf("validation error: %s", e.Field)
+}
+
+type PaymentError struct {
+    Code int
+}
+
+func (e *PaymentError) Error() string {
+    return fmt.Sprintf("payment error: %d", e.Code)
+}
+
+func process() error {
+    return &ValidationError{Field: "email"}
+}
+
+func main() {
+    err := process()
+
+    // Check if error is of specific type
+    var validationErr *ValidationError
+    if errors.As(err, &validationErr) {
+        fmt.Printf("Validation error on field: %s\n", validationErr.Field)
+    }
+
+    var paymentErr *PaymentError
+    if errors.As(err, &paymentErr) {
+        fmt.Printf("Payment error code: %d\n", paymentErr.Code)
+    }
+
+    // Can also check directly
+    if _, ok := err.(*ValidationError); ok {
+        fmt.Println("This is a ValidationError")
+    }
+}
+```
+</UniversalEditor>
+
+## Error Handling Patterns
+
+### Retry Logic
+
+<UniversalEditor title="Retry Pattern">
+```python !! py
+# Python - Retry decorator
+import time
+
+def retry(max_attempts=3, delay=1):
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            for attempt in range(max_attempts):
+                try:
+                    return func(*args, **kwargs)
+                except IOError as e:
+                    if attempt == max_attempts - 1:
+                        raise
+                    time.sleep(delay)
+            return None
+        return wrapper
+    return decorator
+
+@retry(max_attempts=3)
+def fetch_data():
+    return api_call()
+```
+
+```go !! go
+// Go - Retry function
+package main
+
+import (
+    "errors"
+    "fmt"
+    "time"
+)
+
+var ErrTemporary = errors.New("temporary error")
+
+func fetch() error {
+    // Simulate failure
+    return ErrTemporary
+}
+
+func retry(attempts int, delay time.Duration, fn func() error) error {
+    var err error
+    for i := 0; i < attempts; i++ {
+        err = fn()
+        if err == nil {
+            return nil
+        }
+
+        // Check if error is retryable
+        if !errors.Is(err, ErrTemporary) {
+            return err
+        }
+
+        if i < attempts-1 {
+            fmt.Printf("Attempt %d failed, retrying...\n", i+1)
+            time.Sleep(delay)
+        }
+    }
+    return fmt.Errorf("after %d attempts: %w", attempts, err)
+}
+
+func main() {
+    err := retry(3, time.Second, fetch)
+    if err != nil {
+        fmt.Println("Final error:", err)
+    }
+}
+```
+</UniversalEditor>
+
+### Error Aggregation
+
+<UniversalEditor title="Error Aggregation">
+```python !! py
+# Python - Collect multiple errors
+class MultiError(Exception):
+    def __init__(self, errors):
+        self.errors = errors
+        super().__init__(f"{len(errors)} errors occurred")
+
+def process_all(items):
+    errors = []
+    for item in items:
+        try:
+            process(item)
+        except Exception as e:
+            errors.append(e)
+
+    if errors:
+        raise MultiError(errors)
+```
+
+```go !! go
+// Go - Collect multiple errors
+package main
+
+import (
+    "fmt"
+    "strings"
+)
+
+// MultiError collects multiple errors
+type MultiError struct {
+    Errors []error
+}
+
+func (e *MultiError) Error() string {
+    var sb strings.Builder
+    sb.WriteString(fmt.Sprintf("%d errors occurred:", len(e.Errors)))
+    for _, err := range e.Errors {
+        sb.WriteString("\n  - ")
+        sb.WriteString(err.Error())
+    }
+    return sb.String()
+}
+
+func processAll(items []int) error {
+    var errs []error
+    for _, item := range items {
+        if err := process(item); err != nil {
+            errs = append(errs, err)
+        }
+    }
+
+    if len(errs) > 0 {
+        return &MultiError{Errors: errs}
+    }
+    return nil
+}
+
+func process(item int) error {
+    if item < 0 {
+        return fmt.Errorf("invalid item: %d", item)
+    }
+    return nil
+}
+
+func main() {
+    items := []int{1, 2, -3, 4, -5}
+    err := processAll(items)
+    if err != nil {
+        fmt.Println(err)
+    }
+}
+```
+</UniversalEditor>
+
+### Temporary vs Permanent Errors
+
+<UniversalEditor title="Temporary vs Permanent">
+```python !! py
+# Python - Custom exceptions
+class TemporaryError(Exception):
+    """Retry this operation"""
+    pass
+
+class PermanentError(Exception):
+    """Don't retry, give up"""
+    pass
+
+def handle_error(error):
+    if isinstance(error, TemporaryError):
+        return "retry"
+    elif isinstance(error, PermanentError):
+        return "give up"
+```
+
+```go !! go
+// Go - Error interface for behavior
+package main
+
+import (
+    "errors"
+    "time"
+)
+
+// Temporary indicates an error is temporary
+type Temporary interface {
+    Temporary() bool
+}
+
+// TemporaryError is retryable
+type TemporaryError struct {
+    Msg string
+}
+
+func (e *TemporaryError) Error() string {
+    return e.Msg
+}
+
+func (e *TemporaryError) Temporary() bool {
+    return true
+}
+
+// PermanentError is not retryable
+type PermanentError struct {
+    Msg string
+}
+
+func (e *PermanentError) Error() string {
+    return e.Msg
+}
+
+func shouldRetry(err error) bool {
+    // Check if error implements Temporary interface
+    if te, ok := err.(Temporary); ok {
+        return te.Temporary()
+    }
+    return false
+}
+
+func retryOperation(fn func() error) error {
+    for i := 0; i < 3; i++ {
+        err := fn()
+        if err == nil {
+            return nil
+        }
+
+        if !shouldRetry(err) {
+            return err // Permanent error, don't retry
+        }
+
+        // Temporary error, retry
+        time.Sleep(time.Second)
+    }
+    return errors.New("max retries exceeded")
+}
+
+func main() {
+    tempErr := &TemporaryError{Msg: "connection timeout"}
+    permErr := &PermanentError{Msg: "authentication failed"}
+
+    fmt.Println("Temporary retryable?", shouldRetry(tempErr)) // true
+    fmt.Println("Permanent retryable?", shouldRetry(permErr)) // false
+}
+```
+</UniversalEditor>
+
+## Context and Errors
+
+### Context Cancellation
+
+<UniversalEditor title="Context Cancellation">
+```python !! py
+# Python - Cancellation with threading
+import threading
+
+def worker(stop_event):
+    while not stop_event.is_set():
+        # Do work
+        if stop_event.is_set():
+            break
+        process()
+
+stop_event = threading.Event()
+thread = threading.Thread(target=worker, args=(stop_event,))
+thread.start()
+
+# To cancel
+stop_event.set()
+```
+
+```go !! go
+// Go - Context for cancellation
+package main
+
+import (
+    "context"
+    "fmt"
+    "time"
+)
+
+func worker(ctx context.Context) error {
+    ticker := time.NewTicker(100 * time.Millisecond)
+    defer ticker.Stop()
+
+    for {
+        select {
+        case <-ctx.Done():
+            // Context was cancelled
+            return ctx.Err()
+        case <-ticker.C:
+            // Do work
+            fmt.Println("Working...")
+        }
+    }
+}
+
+func main() {
+    // Create cancellable context
+    ctx, cancel := context.WithCancel(context.Background())
+
+    // Start worker
+    go func() {
+        if err := worker(ctx); err != nil {
+            fmt.Println("Worker error:", err)
+        }
+    }()
+
+    // Cancel after 500ms
+    time.Sleep(500 * time.Millisecond)
+    cancel()
+
+    // Wait a bit for cleanup
+    time.Sleep(100 * time.Millisecond)
+}
+```
+</UniversalEditor>
+
+### Context Timeout
+
+<UniversalEditor title="Context Timeout">
+```python !! py
+# Python - Timeout with signal
+import signal
+
+class TimeoutError(Exception):
+    pass
+
+def handler(signum, frame):
+    raise TimeoutError("Operation timed out")
+
+def fetch_with_timeout(url, timeout=5):
+    # Set alarm
+    signal.signal(signal.SIGALRM, handler)
+    signal.alarm(timeout)
+
+    try:
+        result = fetch(url)
+        signal.alarm(0)  # Cancel alarm
+        return result
+    except TimeoutError:
+        return None
+```
+
+```go !! go
+// Go - Context with timeout
+package main
+
+import (
+    "context"
+    "fmt"
+    "time"
+)
+
+func fetchData(ctx context.Context, url string) (string, error) {
+    // Simulate slow operation
+    select {
+    case <-time.After(3 * time.Second):
+        return "data", nil
+    case <-ctx.Done():
+        return "", ctx.Err() // context.DeadlineExceeded
+    }
+}
+
+func main() {
+    // Create context with timeout
+    ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+    defer cancel() // Always cancel to release resources
+
+    data, err := fetchData(ctx, "http://example.com")
+    if err != nil {
+        fmt.Println("Error:", err) // context.DeadlineExceeded
+        return
+    }
+
+    fmt.Println("Data:", data)
+}
+```
+</UniversalEditor>
+
+## Defer for Cleanup
+
+### Resource Cleanup
+
+<UniversalEditor title="Defer with Errors">
+```python !! py
+# Python - try-finally
+file = None
+try:
+    file = open("data.txt")
+    process(file)
+except IOError as e:
+    print(f"Error: {e}")
+finally:
+    if file:
+        file.close()
+```
+
+```go !! go
+// Go - defer always runs
+package main
+
+import (
+    "fmt"
+    "os"
+)
+
+func processData() error {
+    file, err := os.Open("data.txt")
+    if err != nil {
+        return err
+    }
+    defer file.Close() // Always runs, even on error
+
+    // Process file...
+    return nil
+}
+
+func main() {
+    if err := processData(); err != nil {
+        fmt.Println("Error:", err)
+    }
+}
+```
+</UniversalEditor>
+
+### Defer with Error Handling
+
+<UniversalEditor title="Defer Error Handling">
+```go !! go
+// Go - Named return values with defer
+package main
+
+import (
+    "fmt"
+    "os"
+)
+
+func processData() (err error) {
+    file, err := os.Open("data.txt")
+    if err != nil {
+        return err
+    }
+
+    // Defer can modify named return value
+    defer func() {
+        closeErr := file.Close()
+        if closeErr != nil {
+            // If processing already failed, keep that error
+            if err == nil {
+                err = closeErr
+            }
+        }
+    }()
+
+    // Process file...
+    return nil
+}
+
+func main() {
+    if err := processData(); err != nil {
+        fmt.Println("Error:", err)
+    }
+}
+```
+</UniversalEditor>
+
+## Panic and Recover
+
+### When to Use Panic
+
+Panic is NOT like Python exceptions. Use it ONLY for:
+- Truly unrecoverable errors
+- Programmer errors (should not happen in production)
+- Initialization failures
+
+<UniversalEditor title="Panic Guidelines">
+```python !! py
+# Python - Exceptions for control flow
+def divide(a, b):
+    if b == 0:
+        raise ValueError("Cannot divide by zero")
+    return a / b
+
+# This is normal in Python
+```
+
+```go !! go
+// Go - Panic for exceptional cases only
+package main
+
+import "errors"
+
+// WRONG - Don't panic for expected errors
+func divide(a, b int) int {
+    if b == 0 {
+        panic("division by zero") // WRONG!
+    }
+    return a / b
+}
+
+// RIGHT - Return error
+func divideCorrect(a, b int) (int, error) {
+    if b == 0 {
+        return 0, errors.New("division by zero")
+    }
+    return a / b, nil
+}
+
+// OK - Panic for programmer errors
+func MustGetUser(id int) *User {
+    user, err := db.GetUser(id)
+    if err != nil {
+        panic("database not initialized") // Programmer error
+    }
+    if user == nil {
+        panic("user must exist") // Programmer error
+    }
+    return user
+}
+```
+</UniversalEditor>
+
+### Recover from Panic
+
+<UniversalEditor title="Recover Pattern">
+```python !! py
+# Python - Catch everything
+try:
+    risky_operation()
+except Exception as e:
+    print(f"Caught: {e}")
+```
+
+```go !! go
+// Go - Recover from panic (rarely needed)
+package main
+
+import (
+    "fmt"
+    "log"
+)
+
+func risky() (result string) {
+    // Defer + recover to catch panic
+    defer func() {
+        if r := recover(); r != nil {
+            // Convert panic to error
+            result = fmt.Sprintf("Recovered from: %v", r)
+            log.Printf("Panic recovered: %v", r)
+        }
+    }()
+
+    panic("something went wrong")
+}
+
+func main() {
+    fmt.Println(risky()) // "Recovered from: something went wrong"
+}
+```
+</UniversalEditor>
+
+### Server Recover Middleware
+
+<UniversalEditor title="HTTP Server Recovery">
+```go !! go
+// Go - Recover middleware for HTTP servers
+package main
+
+import (
+    "fmt"
+    "log"
+    "net/http"
+)
+
+func recoveryMiddleware(next http.HandlerFunc) http.HandlerFunc {
+    return func(w http.ResponseWriter, r *http.Request) {
+        defer func() {
+            if err := recover(); err != nil {
+                log.Printf("Panic recovered: %v", err)
+                http.Error(w, "Internal Server Error", 500)
+            }
+        }()
+        next(w, r)
+    }
+}
+
+func handler(w http.ResponseWriter, r *http.Request) {
+    panic("oops!")
+}
+
+func main() {
+    http.HandleFunc("/", recoveryMiddleware(handler))
+    fmt.Println("Server starting on :8080")
+    log.Fatal(http.ListenAndServe(":8080", nil))
+}
+```
+</UniversalEditor>
+
+## Best Practices
+
+### 1. Always Check Errors
+
+<UniversalEditor title="Error Checking">
+```python !! py
+# Python - Exceptions force handling
+try:
+    result = dangerous_operation()
+except ValueError:
+    handle_error()
+```
+
+```go !! go
+// Go - Explicit error checking
+// WRONG - Ignoring error
+file, _ := os.Open("data.txt") // Don't do this!
+
+// RIGHT - Always check error
+file, err := os.Open("data.txt")
+if err != nil {
+    return err
+}
+```
+</UniversalEditor>
+
+### 2. Add Context to Errors
+
+<UniversalEditor title="Error Context">
+```python !! py
+# Python - Exception with context
+try:
+    user = get_user(id)
+except ValueError as e:
+    raise ValueError(f"Failed to get user {id}: {e}")
+```
+
+```go !! go
+// Go - Wrap with context
+// WRONG - Lose original error
+func processUser(id int) error {
+    user, err := getUser(id)
+    if err != nil {
+        return errors.New("user not found") // Lost context!
+    }
+    return nil
+}
+
+// RIGHT - Wrap with context
+func processUser(id int) error {
+    user, err := getUser(id)
+    if err != nil {
+        return fmt.Errorf("processUser(%d): %w", id, err)
+    }
+    return nil
+}
+```
+</UniversalEditor>
+
+### 3. Handle Errors Immediately
+
+<UniversalEditor title="Early Error Handling">
+```python !! py
+# Python - Early return
+def process(data):
+    if not data:
+        return None
+
+    if len(data) < 10:
+        return None
+
+    return transform(data)
+```
+
+```go !! go
+// Go - Handle errors right away
+func process(data string) (string, error) {
+    if data == "" {
+        return "", fmt.Errorf("empty data")
+    }
+
+    if len(data) < 10 {
+        return "", fmt.Errorf("data too short: got %d, want >= 10", len(data))
+    }
+
+    return transform(data), nil
+}
+```
+</UniversalEditor>
+
+### 4. Error Variables
+
+<UniversalEditor title="Error Variables">
+```go !! go
+// Go - Define error variables
+package mypackage
+
+import "errors"
+
+var (
+    ErrNotFound    = errors.New("not found")
+    ErrInvalid     = errors.New("invalid input")
+    ErrPermission  = errors.New("permission denied")
+)
+
+// Exported errors can be checked by callers
+func FindItem(id int) (*Item, error) {
+    // ...
+    return nil, ErrNotFound
+}
+
+// Caller can check
+item, err := mypackage.FindItem(123)
+if errors.Is(err, mypackage.ErrNotFound) {
+    // Handle not found
+}
+```
+</UniversalEditor>
+
+### 5. Don't Panic in Libraries
+
+<UniversalEditor title="Library Error Handling">
+```python !! py
+# Python - Libraries raise exceptions
+def process(data):
+    if not data:
+        raise ValueError("Invalid data")
+    return result
+```
+
+```go !! go
+// Go - Libraries return errors
+// WRONG - Library function panics
+func Process(data string) string {
+    if data == "" {
+        panic("data is empty") // Don't panic in libraries!
+    }
+    return data
+}
+
+// RIGHT - Library function returns error
+func Process(data string) (string, error) {
+    if data == "" {
+        return "", errors.New("data is empty")
+    }
+    return data, nil
+}
+```
+</UniversalEditor>
+
+## Real-World Examples
+
+### File Operations
+
+<UniversalEditor title="File Processing">
+```python !! py
+# Python - File operations
+def process_file(path):
+    try:
+        with open(path) as f:
+            data = f.read()
+        return parse(data)
+    except IOError as e:
+        print(f"Failed to read {path}: {e}")
+        return None
+```
+
+```go !! go
+// Go - File operations
+package main
+
+import (
+    "fmt"
+    "os"
+)
+
+func processFile(path string) error {
+    // Open file
+    file, err := os.Open(path)
+    if err != nil {
+        return fmt.Errorf("failed to open %s: %w", path, err)
+    }
+    defer file.Close()
+
+    // Read file
+    data := make([]byte, 1024)
+    n, err := file.Read(data)
+    if err != nil {
+        return fmt.Errorf("failed to read %s: %w", path, err)
+    }
+
+    // Process data
+    if err := parse(data[:n]); err != nil {
+        return fmt.Errorf("failed to parse %s: %w", path, err)
+    }
+
+    return nil
+}
+
+func main() {
+    if err := processFile("data.txt"); err != nil {
+        fmt.Println("Error:", err)
+    }
+}
+```
+</UniversalEditor>
+
+### Database Operations
+
+<UniversalEditor title="Database Operations">
+```python !! py
+# Python - Database with exceptions
+class UserNotFound(Exception):
+    pass
+
+class DatabaseError(Exception):
+    pass
+
+def get_user(db, id):
+    try:
+        cursor = db.cursor()
+        cursor.execute("SELECT * FROM users WHERE id = ?", (id,))
+        result = cursor.fetchone()
+        if not result:
+            raise UserNotFound(f"User {id} not found")
+        return User(result)
+    except sqlite3.Error as e:
+        raise DatabaseError(f"Database error: {e}")
+```
+
+```go !! go
+// Go - Database with errors
+package main
+
+import (
+    "database/sql"
+    "errors"
+    "fmt"
+)
+
+var (
+    ErrUserNotFound = errors.New("user not found")
+    ErrDatabase     = errors.New("database error")
+)
+
+func getUser(db *sql.DB, id int) (*User, error) {
+    var user User
+
+    err := db.QueryRow(
+        "SELECT id, name, email FROM users WHERE id = $1",
+        id,
+    ).Scan(&user.ID, &user.Name, &user.Email)
+
+    if err == sql.ErrNoRows {
+        return nil, fmt.Errorf("user %d: %w", id, ErrUserNotFound)
+    }
+    if err != nil {
+        return nil, fmt.Errorf("query user %d: %w", id, err)
+    }
+
+    return &user, nil
+}
+
+func main() {
+    db, err := sql.Open("postgres", connString)
+    if err != nil {
+        panic(err)
+    }
+    defer db.Close()
+
+    user, err := getUser(db, 123)
+    if err != nil {
+        if errors.Is(err, ErrUserNotFound) {
+            fmt.Println("User not found")
+        } else {
+            fmt.Println("Database error:", err)
+        }
+        return
+    }
+
+    fmt.Printf("User: %+v\n", user)
+}
+```
+</UniversalEditor>
+
+### HTTP Client
+
+<UniversalEditor title="HTTP Client with Retries">
+```python !! py
+# Python - HTTP with retries
+import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
+def fetch_with_retry(url, max_retries=3):
+    session = requests.Session()
+    retry = Retry(total=max_retries, backoff_factor=1)
+    adapter = HTTPAdapter(max_retries=retry)
+    session.mount('http://', adapter)
+
+    try:
+        response = session.get(url, timeout=5)
+        response.raise_for_status()
+        return response.json()
+    except requests.RequestException as e:
+        print(f"Request failed: {e}")
+        return None
+```
+
+```go !! go
+// Go - HTTP client with retries
+package main
+
+import (
+    "context"
+    "fmt"
+    "io"
+    "net/http"
+    "time"
+)
+
+func fetchWithRetry(ctx context.Context, url string, maxRetries int) ([]byte, error) {
+    var lastErr error
+
+    for attempt := 0; attempt < maxRetries; attempt++ {
+        req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+        if err != nil {
+            return nil, err
+        }
+
+        resp, err := http.DefaultClient.Do(req)
+        if err != nil {
+            lastErr = err
+            time.Sleep(time.Duration(attempt+1) * time.Second)
+            continue
+        }
+
+        defer resp.Body.Close()
+
+        if resp.StatusCode == http.StatusOK {
+            return io.ReadAll(resp.Body)
+        }
+
+        lastErr = fmt.Errorf("unexpected status: %d", resp.StatusCode)
+
+        if resp.StatusCode >= 400 && resp.StatusCode < 500 {
+            // Client error, don't retry
+            return nil, lastErr
+        }
+
+        // Server error, retry
+        time.Sleep(time.Duration(attempt+1) * time.Second)
+    }
+
+    return nil, fmt.Errorf("after %d attempts: %w", maxRetries, lastErr)
+}
+
+func main() {
+    ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+    defer cancel()
+
+    data, err := fetchWithRetry(ctx, "http://example.com", 3)
+    if err != nil {
+        fmt.Println("Error:", err)
+        return
+    }
+
+    fmt.Println("Data:", string(data))
+}
+```
+</UniversalEditor>
+
+## Summary
+
+### Key Concepts
+
+1. **Errors are values**: Returned explicitly, not thrown
+2. **nil means success**: Non-nil error indicates failure
+3. **Always check errors**: Handle immediately and explicitly
+4. **Add context**: Wrap errors with fmt.Errorf and %w
+5. **Sentinel errors**: Define error variables for comparison
+6. **Custom types**: Create error structs for rich error data
+7. **errors.Is/As**: Check and extract errors from chains
+8. **Panic is rare**: Only for unrecoverable conditions
+
+### Common Patterns
+
+- **Return pattern**: `(result, error)` - error is last return value
+- **Early return**: Check errors first, return early
+- **Error wrapping**: `fmt.Errorf("context: %w", err)`
+- **Error checking**: `errors.Is(err, ErrNotFound)`
+- **Type assertion**: `errors.As(err, &customErr)`
+- **Defer cleanup**: Always runs, even on panic
+
+### Best Practices
+
+1. Handle errors immediately
+2. Add context when wrapping
+3. Use sentinel errors for known cases
+4. Don't ignore errors (use `_` sparingly)
+5. Don't panic in libraries
+6. Defer cleanup operations
+7. Check errors in defer functions
+8. Use context for cancellation/timeouts
+
+### Comparison with Python
+
+| Python | Go |
+|--------|-----|
+| Exceptions bubble up | Errors returned explicitly |
+| try/except blocks | if err != nil checks |
+| Exception types | Error values/types |
+| raise Exception | return error |
+| Invisible in signature | Visible in signature |
+| Control flow via exceptions | Linear control flow |
+
+## Exercises
+
+1. Create a custom error type that includes:
+   - Error code
+   - Error message
+   - HTTP status code
+   - IsRetryable() method
+
+2. Implement retry logic with:
+   - Max retry attempts
+   - Exponential backoff
+   - Retry only on temporary errors
+
+3. Write a function that:
+   - Opens a file
+   - Reads its contents
+   - Parses the data
+   - Properly wraps errors at each step
+
+4. Create an error aggregation system:
+   - Collect multiple errors
+   - Format them nicely
+   - Check if specific error is in the collection
+
+5. Implement context-based cancellation:
+   - Create a long-running operation
+   - Support cancellation via context
+   - Clean up resources when cancelled
+
+## Next Steps
+
+Next module: **Goroutines and Concurrency** - Breaking free from the GIL and learning Go's powerful concurrency primitives.

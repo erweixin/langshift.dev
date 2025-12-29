@@ -1,0 +1,455 @@
+---
+title: "模組 8：列舉和模式匹配"
+description: "探索 Rust 強大的列舉系統和模式匹配功能，與 Python 的類層次結構和控制流進行對比"
+---
+
+# 模組 8：列舉和模式匹配
+
+歡迎來到模組 8！這是 Rust 真正閃耀的地方。Rust 的列舉系統和模式匹配遠比 Python 中的任何功能都強大，能夠實現型別安全、表達性強的程式碼，這在動態語言中是無法複製的。
+
+## 學習目標
+
+完成本模組後，你將能夠：
+- 定義和使用帶有資料變體的列舉
+- 利用 `Option<T>` 實現空值安全程式設計
+- 使用 `Result<T, E>` 進行錯誤處理
+- 使用 `match` 表達式編寫強大的模式匹配
+- 使用 `if let` 和 `while let` 進行簡潔的模式匹配
+- 理解窮盡匹配和編譯器保證
+
+## 8.1 列舉：不僅僅是常量
+
+### Python：有限的列舉支援
+
+Python 的列舉相對簡單：
+
+```python
+# Python - 基本列舉
+from enum import Enum
+
+class Color(Enum):
+    RED = 1
+    GREEN = 2
+    BLUE = 3
+
+# 使用
+color = Color.RED
+print(color.value)  # 1
+```
+
+### Rust：攜帶資料的列舉
+
+Rust 列舉要強大得多 - 它們可以攜帶資料：
+
+<UniversalEditor compare={true} title="列舉基礎">
+```python !! py
+# Python - 使用類模擬資料變體
+class Color:
+    def __init__(self, value):
+        self.value = value
+
+class RGB(Color):
+    def __init__(self, r, g, b):
+        self.r = r
+        self.g = g
+        self.b = b
+
+class HSV(Color):
+    def __init__(self, h, s, v):
+        self.h = h
+        self.s = s
+        self.v = v
+
+# 型別檢查是手動的
+color = RGB(255, 0, 0)
+if isinstance(color, RGB):
+    print(f"R={color.r}, G={color.g}, B={color.b}")
+```
+
+```rust !! rs
+// Rust - 代數資料型別
+enum Color {
+    RGB(u8, u8, u8),
+    HSV(u8, u8, u8),
+}
+
+// 使用
+let color = Color::RGB(255, 0, 0);
+
+// 模式匹配提取資料
+match color {
+    Color::RGB(r, g, b) => {
+        println!("R={}, G={}, B={}", r, g, b);
+    }
+    Color::HSV(h, s, v) => {
+        println!("H={}, S={}, V={}", h, s, v);
+    }
+}
+
+// 使用命名字段
+enum Message {
+    Quit,
+    Move { x: i32, y: i32 },
+    Write(String),
+    ChangeColor(u8, u8, u8),
+}
+
+let msg = Message::Move { x: 10, y: 20 };
+```
+</UniversalEditor>
+
+## 8.2 `Option<T>`：消除 Null
+
+### Python：None 和執行時錯誤
+
+Python 使用 `None` 表示不存在，但這可能導致執行時錯誤：
+
+<UniversalEditor compare={true} title="空值安全對比">
+```python !! py
+# Python - None 無處不在
+def find_user(user_id):
+    if user_id == 1:
+        return {"name": "Alice", "email": "alice@example.com"}
+    return None
+
+# 如果忘記檢查會出現執行時錯誤！
+user = find_user(2)
+print(user["name"])  # TypeError: 'NoneType' is not subscriptable
+```
+
+```rust !! rs
+// Rust - Option<T> 強制處理
+fn find_user(user_id: u32) -> Option<&'static str> {
+    if user_id == 1 {
+        Some("Alice")
+    } else {
+        None
+    }
+}
+
+// 編譯器強制你處理 None 情況
+let user = find_user(2);
+match user {
+    Some(name) => println!("User: {}", name),
+    None => println!("User not found"),
+}
+```
+</UniversalEditor>
+
+## 8.3 `Result<T, E>`：正確的錯誤處理
+
+### Python：異常和 Try/Catch
+
+Python 使用異常進行錯誤處理：
+
+<UniversalEditor compare={true} title="錯誤處理方法">
+```python !! py
+# Python - 異常
+def divide(a, b):
+    if b == 0:
+        raise ValueError("Cannot divide by zero")
+    return a / b
+
+# 必須使用 try/catch
+try:
+    result = divide(10, 0)
+except ValueError as e:
+    print(f"Error: {e}")
+```
+
+```rust !! rs
+// Rust - Result<T, E> 用於顯式錯誤
+fn divide(a: f64, b: f64) -> Result<f64, String> {
+    if b == 0.0 {
+        Err(String::from("Cannot divide by zero"))
+    } else {
+        Ok(a / b)
+    }
+}
+
+// 必須處理兩種情況
+let result = divide(10.0, 0.0);
+match result {
+    Ok(value) => println!("Result: {}", value),
+    Err(e) => println!("Error: {}", e),
+}
+```
+</UniversalEditor>
+
+## 8.4 使用 match 進行模式匹配
+
+### Rust：窮盡模式匹配
+
+<UniversalEditor compare={true} title="Match 表達式基礎">
+```python !! py
+# Python - 多個條件
+def get_day_name(n):
+    if n == 1:
+        return "Monday"
+    elif n == 2:
+        return "Tuesday"
+    # ... 更多條件
+    else:
+        return "Invalid day"
+```
+
+```rust !! rs
+// Rust - 窮盡 match
+fn get_day_name(n: u32) -> &'static str {
+    match n {
+        1 => "Monday",
+        2 => "Tuesday",
+        3 => "Wednesday",
+        4 => "Thursday",
+        5 => "Friday",
+        6 => "Saturday",
+        7 => "Sunday",
+        _ => "Invalid day",  // 捕獲所有
+    }
+}
+
+// 或使用範圍
+fn classify_number(n: i32) -> &'static str {
+    match n {
+        0 => "zero",
+        1..=9 => "single digit",
+        10..=99 => "double digit",
+        _ => "other",
+    }
+}
+```
+</UniversalEditor>
+
+### 列舉的模式匹配
+
+<UniversalEditor compare={true} title="匹配列舉">
+```rust !! rs
+// Rust - 列舉上的模式匹配
+enum Message {
+    Quit,
+    Move { x: i32, y: i32 },
+    Write(String),
+    ChangeColor(i32, i32, i32),
+}
+
+fn handle_message(msg: &Message) {
+    match msg {
+        Message::Quit => {
+            println!("Quitting...");
+        }
+        Message::Move { x, y } => {
+            println!("Moving to ({}, {})", x, y);
+        }
+        Message::Write(text) => {
+            println!("Writing: {}", text);
+        }
+        Message::ChangeColor(r, g, b) => {
+            println!("Color: {}, {}, {}", r, g, b);
+        }
+    }
+}
+```
+</UniversalEditor>
+
+## 8.5 簡潔模式：if let 和 while let
+
+### if let：匹配單個模式
+
+<UniversalEditor compare={true} title="if let vs match">
+```rust !! rs
+// Rust - if let 用於單模式匹配
+fn process_option(value: Option<&str>) {
+    // 只匹配 Some，忽略 None
+    if let Some(v) = value {
+        println!("Got: {}", v);
+    } else {
+        println!("Got nothing");
+    }
+}
+
+// 或更簡潔（else 是可選的）
+fn process_option_concise(value: Option<&str>) {
+    if let Some(v) = value {
+        println!("Got: {}", v);
+    }
+}
+```
+</UniversalEditor>
+
+### while let：重複匹配
+
+<UniversalEditor compare={true} title="while let 模式">
+```rust !! rs
+// Rust - while let 用於重複匹配
+fn pop_until_empty(stack: &mut Vec<i32>) -> Vec<i32> {
+    let mut results = Vec::new();
+
+    // 保持彈出直到沒有元素
+    while let Some(val) = stack.pop() {
+        results.push(val);
+    }
+
+    results
+}
+```
+</UniversalEditor>
+
+## 8.6 高級模式
+
+### 匹配多個模式
+
+<UniversalEditor compare={true} title="模式組合">
+```rust !! rs
+// Rust - 使用 | 的多個模式
+fn describe_value(x: i32) -> &'static str {
+    match x {
+        1 | 3 | 5 | 7 | 9 => "odd digit",
+        0 | 2 | 4 | 6 | 8 => "even digit",
+        _ => "other",
+    }
+}
+
+// 範圍和多個模式
+fn classify_number_advanced(x: i32) -> &'static str {
+    match x {
+        1..=10 => "1-10",
+        20 | 30 | 40 => "20, 30, or 40",
+        _ => "other",
+    }
+}
+```
+</UniversalEditor>
+
+### @ 綁定
+
+<UniversalEditor compare={true} title="@ 綁定模式">
+```rust !! rs
+// Rust - @ 綁定用於匹配和捕獲
+enum Message {
+    Move { x: i32, y: i32 },
+}
+
+fn describe_message(msg: &Message) -> String {
+    match msg {
+        // 使用 @ 匹配和綁定
+        Message::Move { x: x_val @ (10 | 20 | 30), y } => {
+            format!("Special move at x={}, y={}", x_val, y)
+        }
+        Message::Move { x, y } => {
+            format!("Normal move at x={}, y={}", x, y)
+        }
+    }
+}
+```
+</UniversalEditor>
+
+## 常見陷阱
+
+### 陷阱 1：忘記處理 None
+
+```rust
+// 不要：忘記處理 None
+let opt: Option<i32> = None;
+let val = opt.unwrap();  // 恐慌！
+
+// 應該：正確處理 None
+let opt: Option<i32> = None;
+let val = opt.unwrap_or(0);
+```
+
+### 陷阱 2：非窮盡匹配
+
+```rust
+// 不要：忘記 match 情況（不會編譯）
+enum Color { Red, Blue, Green }
+let color = Color::Red;
+match color {
+    Color::Red => println!("Red"),
+    Color::Blue => println!("Blue"),
+    // 缺少 Green！編譯器錯誤！
+}
+
+// 應該：處理所有情況
+match color {
+    Color::Red => println!("Red"),
+    Color::Blue => println!("Blue"),
+    Color::Green => println!("Green"),
+}
+```
+
+## 最佳實踐
+
+1. **優先使用 `Option` 而不是 null 值** - 永遠不要使用空指標值
+2. **對可恢復錯誤使用 `Result`** - 將 `panic!` 用於不可恢復的錯誤
+3. **利用 `match` 進行窮盡處理** - 讓編譯器確保正確性
+4. **對單個模式使用 `if let`** - 比完整的 match 更簡潔
+5. **與 `?` 運算符結合** - 清晰的錯誤傳播
+
+## 總結
+
+在本模組中，我們涵蓋了：
+
+- **列舉**：用於型別安全建模的資料攜帶變體
+- **`Option<T>`**：沒有執行時錯誤的空值安全程式設計
+- **`Result<T, E>`**：沒有異常的顯式錯誤處理
+- **模式匹配**：窮盡的、編譯器檢查的控制流
+- **簡潔模式**：`if let` 和 `while let` 提高可讀性
+
+關鍵要點：
+- Rust 的列舉是代數資料型別，遠比 Python 的強大
+- Option 和 Result 消除了整類執行時錯誤
+- 模式匹配是窮盡的且經過編譯器驗證
+- ? 運算符提供清晰的錯誤傳播
+- 模式匹配實現了無法複製的型別安全性
+
+## 練習
+
+創建一個簡單的表達式求值器：
+1. 定義表達式列舉（Number、Add、Multiply 等）
+2. 使用模式匹配實現 eval 函數
+3. 使用 Result 優雅地處理錯誤
+4. 展示嵌套模式匹配
+
+<details>
+<summary>檢視解決方案</summary>
+
+```rust
+#[derive(Debug)]
+enum Expr {
+    Number(f64),
+    Add(Box<Expr>, Box<Expr>),
+    Multiply(Box<Expr>, Box<Expr>),
+    Variable(String),
+}
+
+#[derive(Debug)]
+enum EvalError {
+    DivisionByZero,
+    UnknownVariable(String),
+}
+
+fn eval(expr: &Expr, vars: &std::collections::HashMap<String, f64>) -> Result<f64, EvalError> {
+    match expr {
+        Expr::Number(n) => Ok(*n),
+        Expr::Add(left, right) => {
+            let l = eval(left, vars)?;
+            let r = eval(right, vars)?;
+            Ok(l + r)
+        }
+        Expr::Multiply(left, right) => {
+            let l = eval(left, vars)?;
+            let r = eval(right, vars)?;
+            Ok(l * r)
+        }
+        Expr::Variable(name) => {
+            vars.get(name)
+                .copied()
+                .ok_or(EvalError::UnknownVariable(name.clone()))
+        }
+    }
+}
+```
+
+</details>
+
+接下來：**模組 9 - 錯誤處理**，我們將深入研究 Rust 的錯誤處理模式和最佳實踐！

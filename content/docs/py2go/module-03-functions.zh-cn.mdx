@@ -1,0 +1,1231 @@
+---
+title: "模块 3:函数和方法"
+description: "理解 Go 的函数系统,与 Python 对比"
+---
+
+## 简介
+
+Go 的函数系统与 Python 相似,但有关键差异:静态类型、多返回值和显式错误处理。本模块深入涵盖函数、方法、闭包等。
+
+## 基本函数
+
+### 函数声明语法
+
+<UniversalEditor title="基本函数声明">
+```python !! py
+# Python - 函数定义
+def add(a, b):
+    return a + b
+
+def greet(name, greeting="Hello"):
+    return f"{greeting}, {name}!"
+
+def calculate(x, y, z):
+    result = x + y * z
+    return result
+
+# 调用
+result = add(5, 3)
+message = greet("Alice")
+message = greet("Bob", "Hi")
+calc_result = calculate(1, 2, 3)
+```
+
+```go !! go
+// Go - 函数定义
+package main
+
+import "fmt"
+
+// 基本函数
+func add(a int, b int) int {
+    return a + b
+}
+
+// 当参数共享类型时,可以简写
+func addShort(a, b int) int {
+    return a + b
+}
+
+func greet(name string, greeting string) string {
+    return fmt.Sprintf("%s, %s!", greeting, name)
+}
+
+func calculate(x, y, z int) int {
+    result := x + y*z
+    return result
+}
+
+// 相同类型的多个参数
+func sum(a, b, c, d int) int {
+    return a + b + c + d
+}
+
+func main() {
+    result := add(5, 3)
+    message := greet("Alice", "Hello")
+    calcResult := calculate(1, 2, 3)
+    total := sum(1, 2, 3, 4)
+
+    fmt.Println(result)
+    fmt.Println(message)
+    fmt.Println(calcResult)
+    fmt.Println(total)
+}
+```
+</UniversalEditor>
+
+### 无默认参数
+
+Go 没有默认参数。使用多个函数代替:
+
+<UniversalEditor title="默认参数替代方案">
+```python !! py
+# Python - 默认参数
+def connect(host, port=5432, timeout=30):
+    return f"Connected to {host}:{port}"
+
+# 使用默认值调用
+connect("localhost")
+
+# 覆盖部分
+connect("localhost", port=3306)
+
+# 覆盖全部
+connect("localhost", 5432, 60)
+```
+
+```go !! go
+// Go - 无默认参数,使用多个函数
+package main
+
+import "fmt"
+
+// 方法 1: 多个函数
+func Connect(host string) string {
+    return ConnectPort(host, 5432)
+}
+
+func ConnectPort(host string, port int) string {
+    return ConnectTimeout(host, port, 30)
+}
+
+func ConnectTimeout(host string, port int, timeout int) string {
+    return fmt.Sprintf("Connected to %s:%d (timeout: %d)", host, port, timeout)
+}
+
+// 方法 2: 配置结构体
+type Config struct {
+    Host    string
+    Port    int
+    Timeout int
+}
+
+func ConnectWithConfig(config Config) string {
+    // 提供默认值
+    if config.Port == 0 {
+        config.Port = 5432
+    }
+    if config.Timeout == 0 {
+        config.Timeout = 30
+    }
+
+    return fmt.Sprintf("Connected to %s:%d (timeout: %d)",
+        config.Host, config.Port, config.Timeout)
+}
+
+// 方法 3: 函数式选项模式
+type Server struct {
+    host    string
+    port    int
+    timeout int
+}
+
+type Option func(*Server)
+
+func WithPort(port int) Option {
+    return func(s *Server) {
+        s.port = port
+    }
+}
+
+func WithTimeout(timeout int) Option {
+    return func(s *Server) {
+        s.timeout = timeout
+    }
+}
+
+func NewServer(host string, opts ...Option) *Server {
+    s := &Server{
+        host:    host,
+        port:    5432,  // 默认值
+        timeout: 30,    // 默认值
+    }
+
+    for _, opt := range opts {
+        opt(s)
+    }
+
+    return s
+}
+
+func main() {
+    // 多个函数方法
+    fmt.Println(Connect("localhost"))
+    fmt.Println(ConnectPort("localhost", 3306))
+
+    // 配置结构体方法
+    config := Config{Host: "localhost"}
+    fmt.Println(ConnectWithConfig(config))
+
+    // 函数式选项方法
+    server := NewServer("localhost", WithPort(8080), WithTimeout(60))
+    fmt.Printf("Server: %+v\n", server)
+}
+```
+</UniversalEditor>
+
+## 多返回值
+
+这是 Go 最强大的特性之一:
+
+<UniversalEditor title="多返回值 - 基础">
+```python !! py
+# Python - 返回元组
+def divide(a, b):
+    if b == 0:
+        return None, "Division by zero"
+    return a / b, None
+
+result, error = divide(10, 2)
+if error:
+    print(f"Error: {error}")
+else:
+    print(f"Result: {result}")
+
+# 可以用 _ 忽略值
+result, _ = divide(10, 2)
+```
+
+```go !! go
+// Go - 多返回值 (惯用)
+package main
+
+import "fmt"
+
+func divide(a int, b int) (int, error) {
+    if b == 0 {
+        return 0, fmt.Errorf("division by zero")
+    }
+    return a / b, nil
+}
+
+func main() {
+    result, err := divide(10, 2)
+    if err != nil {
+        fmt.Printf("Error: %v\n", err)
+        return
+    }
+    fmt.Printf("Result: %d\n", result)
+
+    // 使用空白标识符忽略错误
+    result2, _ := divide(20, 4)
+    fmt.Printf("Result2: %d\n", result2)
+
+    // 忽略结果
+    _, err2 := divide(10, 0)
+    if err2 != nil {
+        fmt.Printf("Expected error: %v\n", err2)
+    }
+}
+```
+</UniversalEditor>
+
+### 真实世界的多返回值
+
+<UniversalEditor title="真实世界示例 - HTTP 请求">
+```python !! py
+# Python - 带多返回值的 HTTP 请求
+import requests
+
+def fetch_user(user_id):
+    try:
+        response = requests.get(f"/api/users/{user_id}")
+        return response.json(), None
+    except requests.RequestException as e:
+        return None, str(e)
+
+user, error = fetch_user(123)
+if error:
+    print(f"Failed: {error}")
+else:
+    print(f"User: {user['name']}")
+```
+
+```go !! go
+// Go - 带多返回值的 HTTP 请求
+package main
+
+import (
+    "encoding/json"
+    "fmt"
+    "net/http"
+)
+
+type User struct {
+    ID    int    `json:"id"`
+    Name  string `json:"name"`
+    Email string `json:"email"`
+}
+
+func fetchUser(userID int) (*User, error) {
+    resp, err := http.Get(fmt.Sprintf("http://api.example.com/users/%d", userID))
+    if err != nil {
+        return nil, fmt.Errorf("request failed: %w", err)
+    }
+    defer resp.Body.Close()
+
+    if resp.StatusCode != http.StatusOK {
+        return nil, fmt.Errorf("unexpected status: %d", resp.StatusCode)
+    }
+
+    var user User
+    if err := json.NewDecoder(resp.Body).Decode(&user); err != nil {
+        return nil, fmt.Errorf("decode failed: %w", err)
+    }
+
+    return &user, nil
+}
+
+func main() {
+    user, err := fetchUser(123)
+    if err != nil {
+        fmt.Printf("Failed: %v\n", err)
+        return
+    }
+
+    fmt.Printf("User: %s\n", user.Name)
+}
+```
+</UniversalEditor>
+
+## 命名返回值
+
+命名返回值使代码更清晰,但应谨慎使用:
+
+<UniversalEditor title="命名返回值">
+```python !! py
+# Python - 无命名返回值 (但可以返回字典)
+def calculate(a, b):
+    sum_result = a + b
+    product = a * b
+    difference = a - b
+    return {
+        'sum': sum_result,
+        'product': product,
+        'difference': difference
+    }
+
+result = calculate(5, 3)
+print(result['sum'], result['product'])
+```
+
+```go !! go
+// Go - 命名返回值
+package main
+
+import "fmt"
+
+// 命名返回值 (创建变量 sum 和 product)
+func calculate(a int, b int) (sum int, product int) {
+    sum = a + b      // 无需声明
+    product = a * b  // 无需声明
+    return           // 裸返回 (返回 sum, product)
+}
+
+// 不同类型的命名返回值
+func analyze(numbers []int) (count int, sum int, average float64) {
+    for _, n := range numbers {
+        sum += n
+        count++
+    }
+    if count > 0 {
+        average = float64(sum) / float64(count)
+    }
+    return // 返回 count, sum, average
+}
+
+// 在 defer 中使用命名返回值
+func readFile(filename string) (content string, err error) {
+    defer func() {
+        if err != nil {
+            err = fmt.Errorf("readFile(%s): %w", filename, err)
+        }
+    }()
+
+    data, err := os.ReadFile(filename)
+    if err != nil {
+        return "", err
+    }
+
+    content = string(data)
+    return content, nil
+}
+
+func main() {
+    s, p := calculate(5, 3)
+    fmt.Printf("Sum: %d, Product: %d\n", s, p)
+
+    count, sum, avg := analyze([]int{1, 2, 3, 4, 5})
+    fmt.Printf("Count: %d, Sum: %d, Average: %.2f\n", count, sum, avg)
+}
+```
+</UniversalEditor>
+
+### 何时使用命名返回值
+
+<UniversalEditor title="命名返回值最佳实践">
+```go
+// 好: 命名返回值用于简短函数的清晰性
+func calculateRectangle(width, height int) (area int, perimeter int) {
+    area = width * height
+    perimeter = 2 * (width + height)
+    return
+}
+
+// 好: 命名返回值当需要在 defer 中修改时
+func transaction(db *DB) (result string, err error) {
+    defer func() {
+        if err != nil {
+            err = fmt.Errorf("transaction failed: %w", err)
+        }
+    }()
+    // ... 事务逻辑
+    return
+}
+
+// 避免: 在长函数中使用命名返回值 (难以跟踪)
+func complexOperation(data []string) (output string, err error) {
+    // 许多行代码...
+    // 难以跟踪 'output' 在哪里设置
+    return
+}
+
+// 首选: 在复杂函数中使用常规返回值
+func complexOperation(data []string) (string, error) {
+    output := process(data)
+    return output, nil
+}
+```
+</UniversalEditor>
+
+## 可变参数函数
+
+<UniversalEditor title="可变参数函数深入">
+```python !! py
+# Python - *args 和 **kwargs
+def func(*args, **kwargs):
+    print("Args:", args)
+    print("Kwargs:", kwargs)
+
+func(1, 2, 3, name="Alice", age=30)
+
+# 也可以传递列表/字典
+numbers = [1, 2, 3]
+func(*numbers)
+```
+
+```go !! go
+// Go - 可变参数函数
+package main
+
+import "fmt"
+
+// 基本可变参数函数
+func sumAll(numbers ...int) int {
+    total := 0
+    for _, num := range numbers {
+        total += num
+    }
+    return total
+}
+
+// 混合参数 (可变参数必须在最后)
+func greet(prefix string, names ...string) {
+    for _, name := range names {
+        fmt.Printf("%s %s\n", prefix, name)
+    }
+}
+
+// 不同类型的可变参数
+func printAny(items ...interface{}) {
+    for _, item := range items {
+        fmt.Println(item)
+    }
+}
+
+func main() {
+    // 直接调用
+    total := sumAll(1, 2, 3, 4, 5)
+    fmt.Println("Total:", total)
+
+    // 使用 slice (用 ... 展开)
+    numbers := []int{10, 20, 30}
+    total = sumAll(numbers...)
+    fmt.Println("Total from slice:", total)
+
+    // 混合参数
+    greet("Hello:", "Alice", "Bob", "Charlie")
+
+    // 空可变参数
+    total = sumAll()
+    fmt.Println("Empty sum:", total)
+}
+```
+</UniversalEditor>
+
+### 真实世界的可变参数示例
+
+<UniversalEditor title="真实世界的可变参数函数">
+```go
+// SQL 查询构建器
+func Query(db *sql.DB, query string, args ...interface{}) (*sql.Rows, error) {
+    return db.Query(query, args...)
+}
+
+// 日志
+func Log(level string, messages ...string) {
+    fmt.Printf("[%s] %s\n", level, strings.Join(messages, " "))
+}
+
+// 错误包装
+func Wrap(err error, messages ...string) error {
+    msg := strings.Join(messages, ": ")
+    return fmt.Errorf("%s: %w", msg, err)
+}
+
+// 使用
+rows, err := Query(db, "SELECT * FROM users WHERE id = $1", userID)
+Log("ERROR", "Database", "Connection failed")
+err = Wrap(err, "Failed to fetch user", userID)
+```
+</UniversalEditor>
+
+## 闭包和匿名函数
+
+<UniversalEditor title="闭包深入">
+```python !! py
+# Python - 闭包
+def make_multiplier(factor):
+    def multiply(x):
+        return x * factor
+    return multiply
+
+times3 = make_multiplier(3)
+print(times3(5))  # 15
+
+# Lambda
+add = lambda x, y: x + y
+print(add(3, 4))  # 7
+
+# 带状态的闭包
+def counter():
+    count = 0
+    def increment():
+        nonlocal count
+        count += 1
+        return count
+    return increment
+
+c = counter()
+print(c())  # 1
+print(c())  # 2
+```
+
+```go !! go
+// Go - 闭包
+package main
+
+import "fmt"
+
+// 基本闭包
+func makeMultiplier(factor int) func(int) int {
+    return func(x int) int {
+        return x * factor
+    }
+}
+
+// 带状态的闭包
+func counter() func() int {
+    count := 0
+    return func() int {
+        count++
+        return count
+    }
+}
+
+// 带多个值的闭包
+func accumulator() (func(int), func() int) {
+    sum := 0
+    add := func(x int) {
+        sum += x
+    }
+    get := func() int {
+        return sum
+    }
+    return add, get
+}
+
+func main() {
+    // 基本闭包
+    times3 := makeMultiplier(3)
+    fmt.Println(times3(5))  // 15
+
+    // 匿名函数
+    add := func(x, y int) int {
+        return x + y
+    }
+    fmt.Println(add(3, 4))  // 7
+
+    // IIFE (立即调用函数表达式)
+    result := func(x int) int {
+        return x * 2
+    }(5)
+    fmt.Println(result)  // 10
+
+    // 带状态的计数器
+    c := counter()
+    fmt.Println(c())  // 1
+    fmt.Println(c())  // 2
+    fmt.Println(c())  // 3
+
+    // 共享状态的多个闭包
+    addVal, getSum := accumulator()
+    addVal(10)
+    addVal(20)
+    fmt.Println(getSum())  // 30
+}
+```
+</UniversalEditor>
+
+### 常见闭包模式
+
+<UniversalEditor title="闭包模式">
+```go
+// 1. 迭代器模式
+func iterate(numbers []int) func() (int, bool) {
+    index := 0
+    return func() (int, bool) {
+        if index >= len(numbers) {
+            return 0, false
+        }
+        val := numbers[index]
+        index++
+        return val, true
+    }
+}
+
+// 使用
+it := iterate([]int{1, 2, 3})
+for val, ok := it(); ok; val, ok = it() {
+    fmt.Println(val)
+}
+
+// 2. 记忆化
+func memoize(fn func(int) int) func(int) int {
+    cache := make(map[int]int)
+    return func(x int) int {
+        if val, exists := cache[x]; exists {
+            return val
+        }
+        result := fn(x)
+        cache[x] = result
+        return result
+    }
+}
+
+var fib = memoize(func(n int) int {
+    if n < 2 {
+        return n
+    }
+    return fib(n-1) + fib(n-2)
+})
+
+// 3. Defer 与闭包
+func process() {
+    defer func() {
+        fmt.Println("Cleanup done")
+    }()
+    fmt.Println("Processing")
+}
+```
+</UniversalEditor>
+
+## 方法
+
+Go 没有类,但在任何类型上都有方法:
+
+<UniversalEditor title="方法深入">
+```python !! py
+# Python - 类方法
+class Rectangle:
+    def __init__(self, width, height):
+        self.width = width
+        self.height = height
+
+    def area(self):
+        return self.width * self.height
+
+    def perimeter(self):
+        return 2 * (self.width + self.height)
+
+    def scale(self, factor):
+        self.width *= factor
+        self.height *= factor
+
+rect = Rectangle(5, 3)
+print(rect.area())  # 15
+rect.scale(2)
+print(rect.area())  # 60
+```
+
+```go !! go
+// Go - 类型上的方法
+package main
+
+import "fmt"
+
+type Rectangle struct {
+    width  int
+    height int
+}
+
+// 值接收者 (不修改原始值)
+func (r Rectangle) Area() int {
+    return r.width * r.height
+}
+
+func (r Rectangle) Perimeter() int {
+    return 2 * (r.width + r.height)
+}
+
+// 指针接收者 (可以修改)
+func (r *Rectangle) Scale(factor int) {
+    r.width *= factor
+    r.height *= factor
+}
+
+// 非结构体类型上的方法
+type MyInt int
+
+func (m MyInt) Double() MyInt {
+    return m * 2
+}
+
+func main() {
+    rect := Rectangle{width: 5, height: 3}
+    fmt.Println(rect.Area())     // 15
+    fmt.Println(rect.Perimeter()) // 16
+
+    rect.Scale(2)
+    fmt.Println(rect.Area())     // 60
+
+    // 非结构体上的方法
+    num := MyInt(5)
+    fmt.Println(num.Double())  // 10
+}
+```
+</UniversalEditor>
+
+### 值 vs 指针接收者
+
+<UniversalEditor title="接收者类型">
+```python !! py
+# Python - 方法可以修改对象
+class Counter:
+    def __init__(self):
+        self.count = 0
+
+    def increment(self):
+        self.count += 1
+
+    def get_count(self):
+        return self.count
+
+counter = Counter()
+counter.increment()
+print(counter.get_count())  # 1
+```
+
+```go !! go
+// Go - 仔细选择接收者类型
+package main
+
+import "fmt"
+
+type Counter struct {
+    count int
+}
+
+// 值接收者 (不能修改)
+func (c Counter) GetCount() int {
+    return c.count
+}
+
+// 指针接收者 (可以修改)
+func (c *Counter) Increment() {
+    c.count++
+}
+
+// 何时使用指针接收者:
+// 1. 方法需要修改接收者
+// 2. 结构体很大 (避免复制)
+// 3. 一致性 (如果某些方法使用指针,所有方法都应该使用)
+
+func main() {
+    counter := Counter{count: 0}
+
+    // 两者都工作
+    counter.Increment()
+    fmt.Println(counter.GetCount())  // 1
+
+    // 可以在值上调用指针接收者方法
+    // (Go 自动获取地址)
+    c := Counter{}
+    c.Increment()  // 自动转换为 (&c).Increment()
+}
+```
+</UniversalEditor>
+
+### 方法集和接口
+
+<UniversalEditor title="方法集">
+```go
+// 值接收者方法在值方法集中
+type ValueInterface interface {
+    Method()  // 可以用值或指针调用
+}
+
+// 指针接收者方法仅在指针方法集中
+type PointerInterface interface {
+    Method()  // 只能用指针调用
+}
+
+// 示例
+type User struct {
+    Name string
+}
+
+func (u User) GetName() string {
+    return u.Name
+}
+
+func (u *User) SetName(name string) {
+    u.Name = name
+}
+
+func processUser(u User) {
+    // 可以在值上调用 GetName
+    fmt.Println(u.GetName())
+
+    // 不能在值上调用 SetName
+    // u.SetName("Bob")  // 编译错误!
+}
+
+func processUserPtr(u *User) {
+    // 可以在指针上调用两个方法
+    fmt.Println(u.GetName())
+    u.SetName("Bob")  // OK!
+}
+```
+</UniversalEditor>
+
+## 高阶函数
+
+<UniversalEditor title="高阶函数">
+```python !! py
+# Python - Map, filter, reduce
+numbers = [1, 2, 3, 4, 5]
+
+# Map
+doubled = list(map(lambda x: x * 2, numbers))
+
+# Filter
+evens = list(filter(lambda x: x % 2 == 0, numbers))
+
+# Reduce
+from functools import reduce
+total = reduce(lambda x, y: x + y, numbers)
+
+# 列表推导 (更 Pythonic)
+doubled = [x * 2 for x in numbers]
+evens = [x for x in numbers if x % 2 == 0]
+```
+
+```go !! go
+// Go - 高阶函数
+package main
+
+import "fmt"
+
+func mapInts(nums []int, f func(int) int) []int {
+    result := make([]int, len(nums))
+    for i, num := range nums {
+        result[i] = f(num)
+    }
+    return result
+}
+
+func filterInts(nums []int, f func(int) bool) []int {
+    result := []int{}
+    for _, num := range nums {
+        if f(num) {
+            result = append(result, num)
+        }
+    }
+    return result
+}
+
+func reduceInts(nums []int, initial int, f func(int, int) int) int {
+    result := initial
+    for _, num := range nums {
+        result = f(result, num)
+    }
+    return result
+}
+
+func main() {
+    numbers := []int{1, 2, 3, 4, 5}
+
+    // Map
+    doubled := mapInts(numbers, func(x int) int {
+        return x * 2
+    })
+    fmt.Println("Doubled:", doubled)  // [2 4 6 8 10]
+
+    // Filter
+    evens := filterInts(numbers, func(x int) bool {
+        return x%2 == 0
+    })
+    fmt.Println("Evens:", evens)  // [2 4]
+
+    // Reduce
+    sum := reduceInts(numbers, 0, func(acc, val int) int {
+        return acc + val
+    })
+    fmt.Println("Sum:", sum)  // 15
+
+    // 链式
+    result := reduceInts(
+        filterInts(
+            mapInts(numbers, func(x int) int { return x * 2 }),
+            func(x int) bool { return x > 4 },
+        ),
+        0,
+        func(acc, val int) int { return acc + val },
+    )
+    fmt.Println("Chained:", result)  // 6 + 8 + 10 = 24
+}
+```
+</UniversalEditor>
+
+## 函数中的 Defer
+
+<UniversalEditor title="Defer 深入">
+```python !! py
+# Python - 上下文管理器
+def process_file(filename):
+    with open(filename) as f:
+        data = f.read()
+        return process(data)
+
+# 多个清理
+def process():
+    with open("file1.txt") as f1:
+        with open("file2.txt") as f2:
+            process_both(f1, f2)
+```
+
+```go !! go
+// Go - 函数中的 Defer
+package main
+
+import (
+    "fmt"
+    "os"
+)
+
+// 基本 defer
+func processFile(filename string) error {
+    file, err := os.Open(filename)
+    if err != nil {
+        return err
+    }
+    defer file.Close()  // 函数返回时执行
+
+    // 处理文件...
+    return nil
+}
+
+// 多个 defer (LIFO 顺序)
+func processMultiple() {
+    defer fmt.Println("Third")
+    defer fmt.Println("Second")
+    defer fmt.Println("First")
+    // 输出: First, Second, Third
+}
+
+// 带参数的 defer
+func deferWithArgs() {
+    i := 0
+    defer fmt.Println(i)  // 打印 0 (现在求值)
+    i = 10
+}
+
+// Defer 用于清理
+func connectDatabase() (*sql.DB, error) {
+    db, err := sql.Open("driver", "dsn")
+    if err != nil {
+        return nil, err
+    }
+
+    // Defer rollback 如果未提交
+    var tx *sql.Tx
+    defer func() {
+        if tx != nil {
+            tx.Rollback()
+        }
+    }()
+
+    tx, err = db.Begin()
+    if err != nil {
+        return nil, err
+    }
+
+    // ... 使用 tx ...
+
+    if err := tx.Commit(); err != nil {
+        return nil, err
+    }
+    tx = nil  // 不要 rollback
+
+    return db, nil
+}
+```
+</UniversalEditor>
+
+### 常见 Defer 模式
+
+<UniversalEditor title="Defer 模式">
+```go
+// 1. 解锁互斥锁
+func process(data map[string]int) {
+    mu.Lock()
+    defer mu.Unlock()
+
+    data["key"] = 42
+    // 自动解锁
+}
+
+// 2. 关闭响应体
+func fetch(url string) error {
+    resp, err := http.Get(url)
+    if err != nil {
+        return err
+    }
+    defer resp.Body.Close()
+
+    // 处理响应...
+    return nil
+}
+
+// 3. 从 panic 恢复
+func safeOperation() (err error) {
+    defer func() {
+        if r := recover(); r != nil {
+            err = fmt.Errorf("panic: %v", r)
+        }
+    }()
+
+    // 有风险的操作...
+    return nil
+}
+
+// 4. 测量执行时间
+func timedOperation() {
+    defer func(start time.Time) {
+        fmt.Printf(" Took %v\n", time.Since(start))
+    }(time.Now())
+
+    // 操作...
+}
+
+// 5. 资源清理
+func processFiles(filenames []string) error {
+    files := make([]*os.File, 0, len(filenames))
+
+    for _, filename := range filenames {
+        file, err := os.Open(filename)
+        if err != nil {
+            return err
+        }
+        files = append(files, file)
+    }
+
+    // 返回时关闭所有文件
+    defer func() {
+        for _, file := range files {
+            file.Close()
+        }
+    }()
+
+    // 处理文件...
+    return nil
+}
+```
+</UniversalEditor>
+
+## Panic 和 Recover
+
+<UniversalEditor title="Panic 和 Recover">
+```python !! py
+# Python - Try/except
+def risky_operation():
+    try:
+        result = divide(10, 0)
+        return result
+    except ZeroDivisionError as e:
+        print(f"Caught: {e}")
+        return None
+    finally:
+        print("Cleanup always runs")
+
+def divide(a, b):
+    if b == 0:
+        raise ZeroDivisionError("Cannot divide by zero")
+    return a / b
+```
+
+```go !! go
+// Go - Panic/recover (很少使用,首选错误)
+package main
+
+import (
+    "fmt"
+    "log"
+)
+
+// Panic 类似 raise,recover 类似 except
+func riskyOperation() (result int) {
+    // defer with recover
+    defer func() {
+        if r := recover(); r != nil {
+            log.Printf("Recovered from panic: %v", r)
+            result = 0
+        }
+    }()
+
+    result = divide(10, 0)
+    return result
+}
+
+func divide(a, b int) int {
+    if b == 0 {
+        panic("cannot divide by zero")  // 类似 raise
+    }
+    return a / b
+}
+
+// 在 main 中恢复
+func main() {
+    defer func() {
+        if r := recover(); r != nil {
+            fmt.Printf("Main recovered: %v\n", r)
+        }
+    }()
+
+    riskyOperation()
+}
+```
+</UniversalEditor>
+
+### 何时使用 Panic
+
+<UniversalEditor title="Panic 指南">
+```go
+// 不要: 对正常错误使用 panic
+func getUser(id int) (*User, error) {
+    if id < 0 {
+        panic("invalid id")  // 不好!
+    }
+    // ...
+}
+
+// 应该: 返回错误
+func getUser(id int) (*User, error) {
+    if id < 0 {
+        return nil, fmt.Errorf("invalid id: %d", id)
+    }
+    // ...
+}
+
+// 可以: 对真正不可恢复的条件使用 panic
+func init() {
+    if apiKey == "" {
+        panic("API_KEY environment variable required")
+    }
+}
+
+// 可以: Panic 在程序员错误中
+func process(data []int) int {
+    if len(data) == 0 {
+        panic("process called with empty slice")  // 程序员错误
+    }
+    // ...
+}
+```
+</UniversalEditor>
+
+## 总结
+
+在本模块中,你学习了:
+
+1. **函数声明** 带类型参数
+2. **无默认参数** - 使用多个函数或函数式选项
+3. **多返回值** - Go 错误处理的超能力
+4. **命名返回值** - 在简单函数中用于清晰
+5. **可变参数函数** 使用 `...` 实现灵活参数
+6. **闭包** - 捕获上下文的匿名函数
+7. **方法** - 任何类型上的函数 (不需要类)
+8. **值 vs 指针接收者** - 何时使用哪个
+9. **高阶函数** - 函数作为参数
+10. **Defer** - 保证按 LIFO 顺序清理
+11. **Panic/recover** - 仅用于异常情况
+
+## 与 Python 的主要差异
+
+| Python | Go |
+|--------|-----|
+| 动态参数 | 类型化参数 |
+| 默认参数 | 多个函数或选项模式 |
+| 单返回 (或元组) | 多返回值常见 |
+| `lambda x: x+1` | `func(x int) int { return x+1 }` |
+| 类方法 | 任何类型上的方法 |
+| `try/except/finally` | 错误返回 + panic/recover |
+| 列表推导 | 高阶函数 (但循环常见) |
+| 上下文管理器 | `defer` 语句 |
+
+## 练习
+
+1. 编写一个返回除法的商和余数的函数
+2. 为 Server 配置实现函数式选项模式
+3. 创建一个维护状态的闭包 (计数器、累加器)
+4. 在自定义结构体上实现值和指针接收者
+5. 编写 `min()`、`max()` 和 `sum()` 的可变参数函数
+6. 使用 `defer` 测量函数执行时间
+7. 使用闭包创建记忆化助手
+8. 实现 `map`、`filter` 和 `reduce` 函数
+
+## 下一步
+
+下一模块:**结构体和接口** - Go 没有类的面向对象编程方法。

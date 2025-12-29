@@ -1,0 +1,848 @@
+---
+title: "Module 18: Macros"
+description: "Master Rust macros including declarative macros with macro_rules!, derive macros, and procedural macros"
+---
+
+# Module 18: Macros
+
+## Learning Objectives
+
+By the end of this module, you'll be able to:
+- Write declarative macros using `macro_rules!`
+- Create custom derive macros
+- Understand procedural macros
+- Generate code at compile time
+- Use macros to reduce boilerplate
+
+## Introduction to Macros
+
+Python has decorators and metaclasses for metaprogramming. Rust has a more powerful macro system that operates at compile time.
+
+<UniversalEditor compare={true} title="Basic Macro Concept">
+```python !! py
+# Python - Decorators for metaprogramming
+def timing_decorator(func):
+    def wrapper(*args, **kwargs):
+        import time
+        start = time.time()
+        result = func(*args, **kwargs)
+        end = time.time()
+        print(f"{func.__name__} took {end - start:.4f}s")
+        return result
+    return wrapper
+
+@timing_decorator
+def slow_function():
+    import time
+    time.sleep(0.1)
+    return "done"
+
+# Use the decorated function
+slow_function()
+```
+
+```rust !! rs
+// Rust - Declarative macros for code generation
+macro_rules! time_it {
+    ($func:expr) => {{
+        let start = std::time::Instant::now();
+        let result = $func;
+        let duration = start.elapsed();
+        println!(" took {:?}", duration);
+        result
+    }};
+}
+
+fn slow_function() -> &'static str {
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    "done"
+}
+
+fn main() {
+    time_it!(slow_function());
+}
+```
+</UniversalEditor>
+
+**Key Difference:** Python decorators modify functions at runtime, while Rust macros generate code at compile time with zero runtime cost.
+
+## Declarative Macros with `macro_rules!`
+
+### Pattern Matching
+
+<UniversalEditor compare={true} title="Basic Pattern Matching">
+```python !! py
+# Python - No direct equivalent
+# Would use decorators or metaclasses
+def create_getter_setter(field_name):
+    # This is runtime, not compile-time
+    pass
+
+class Person:
+    pass
+
+# Dynamically add attributes (runtime)
+Person.name = property(
+    lambda self: self._name,
+    lambda self, value: setattr(self, '_name', value)
+)
+```
+
+```rust !! rs
+// Rust - Compile-time code generation
+macro_rules! make_getter_setter {
+    ($field:ident, $type:ty) => {
+        fn get_$field(&self) -> &$type {
+            &self.$field
+        }
+
+        fn set_$field(&mut self, value: $type) {
+            self.$field = value;
+        }
+    };
+}
+
+struct Person {
+    name: String,
+    age: u32,
+}
+
+impl Person {
+    make_getter_setter!(name, String);
+    make_getter_setter!(age, u32);
+}
+
+fn main() {
+    let mut p = Person {
+        name: "Alice".to_string(),
+        age: 30,
+    };
+
+    println!("Name: {}", p.get_name());
+    p.set_age(31);
+}
+```
+</UniversalEditor>
+
+### Multiple Patterns
+
+<UniversalEditor compare={true} title="Multiple Pattern Matching">
+```python !! py
+# Python - Function overloading is not built-in
+# Use type checking or multiple dispatch
+from functools import singledispatch
+
+@singledispatch
+def process(value):
+    raise TypeError("Unsupported type")
+
+@process.register
+def _(value: int):
+    return f"Integer: {value}"
+
+@process.register
+def _(value: str):
+    return f"String: {value}"
+
+print(process(42))
+print(process("hello"))
+```
+
+```rust !! rs
+// Rust - Pattern matching in macros
+macro_rules! process {
+    // Pattern 1: Integer
+    ($value:expr) => {
+        println!("Processing: {}", $value);
+    };
+
+    // Pattern 2: Key-value
+    (key $key:expr, value $value:expr) => {
+        println!("Key: {}, Value: {}", $key, $value);
+    };
+
+    // Pattern 3: Multiple values
+    ($($value:expr),*) => {
+        $(
+            println!("Item: {}", $value);
+        )*
+    };
+}
+
+fn main() {
+    process!(42);
+    process!(key "name", value "Alice");
+    process!(1, 2, 3, 4);
+}
+```
+</UniversalEditor>
+
+### Repetition
+
+<UniversalEditor compare={true} title="Macro Repetition">
+```python !! py
+# Python - Runtime code generation with eval
+def create_vector(*args):
+    # Not type-safe, runtime
+    return list(args)
+
+v = create_vector(1, 2, 3, 4, 5)
+print(v)
+```
+
+```rust !! rs
+// Rust - Compile-time repetition
+macro_rules! vec {
+    ( $( $x:expr ),* $(,)? ) => {
+        {
+            let mut temp_vec = Vec::new();
+            $(
+                temp_vec.push($x);
+            )*
+            temp_vec
+        }
+    };
+}
+
+fn main() {
+    let v = vec!(1, 2, 3, 4, 5);
+    println!("{:?}", v);
+}
+```
+</UniversalEditor>
+
+## Practical Macro Examples
+
+### Building HashMap
+
+<UniversalEditor compare={true} title="HashMap Macro">
+```python !! py
+# Python - Dictionary literal
+data = {
+    "name": "Alice",
+    "age": 30,
+    "city": "New York",
+}
+```
+
+```rust !! rs
+// Rust - Create HashMap macro
+macro_rules! map {
+    ( $($key:expr => $value:expr),* $(,)? ) => {{
+        let mut m = std::collections::HashMap::new();
+        $(
+            m.insert($key, $value);
+        )*
+        m
+    }};
+}
+
+fn main() {
+    let data = map!(
+        "name" => "Alice",
+        "age" => 30,
+        "city" => "New York",
+    );
+
+    println!("{:?}", data);
+}
+```
+</UniversalEditor>
+
+### Token Trees and Hygiene
+
+<UniversalEditor compare={true} title="Macro Hygiene">
+```python !! py
+# Python - Variable capture issues
+def wrapper(func):
+    def inner():
+        value = 10  # May conflict with outer scope
+        return func()
+    return inner
+
+@wrapper
+def my_func():
+    value = 20
+    return value
+
+# Rust macros are hygienic by default
+```
+
+```rust !! rs
+// Rust - Hygienic macros
+macro_rules! double {
+    ($x:expr) => {{
+        let x = $x * 2;  // Local variable, doesn't conflict
+        x
+    }};
+}
+
+fn main() {
+    let x = 10;
+    let doubled = double!(x + 5);
+    println!("Original: {}, Doubled: {}", x, doubled);
+}
+```
+</UniversalEditor>
+
+## Derive Macros
+
+Derive macros automatically implement traits for structs and enums.
+
+<UniversalEditor compare={true} title="Custom Derive Macro">
+```python !! py
+# Python - No direct equivalent
+# Would use metaclasses or class decorators
+from dataclasses import dataclass
+
+@dataclass
+class Person:
+    name: str
+    age: int
+
+    def to_dict(self):
+        return {"name": self.name, "age": self.age}
+```
+
+```rust !! rs
+// Rust - Custom derive macro
+// In: person_derive_macro/src/lib.rs
+use proc_macro::TokenStream;
+use quote::quote;
+use syn::{parse_macro_input, DeriveInput};
+
+#[proc_macro_derive(ToDict)]
+pub fn to_dict_derive(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    let name = &input.ident;
+
+    let expanded = quote! {
+        impl ToDict for #name {
+            fn to_dict(&self) -> std::collections::HashMap<String, String> {
+                let mut map = std::collections::HashMap::new();
+                map.insert(stringify!(#name).to_string(), format!("{:?}", self));
+                map
+            }
+        }
+    };
+
+    TokenStream::from(expanded)
+}
+
+// In: main.rs
+use person_derive_macro::ToDict;
+
+#[derive(ToDict)]
+struct Person {
+    name: String,
+    age: u32,
+}
+
+trait ToDict {
+    fn to_dict(&self) -> std::collections::HashMap<String, String>;
+}
+
+fn main() {
+    let p = Person {
+        name: "Alice".to_string(),
+        age: 30,
+    };
+
+    let dict = p.to_dict();
+    println!("{:?}", dict);
+}
+```
+</UniversalEditor>
+
+## Attribute Macros
+
+Attribute macros modify items they're attached to.
+
+<UniversalEditor compare={true} title="Attribute Macro">
+```python !! py
+# Python - Decorators as attribute macros
+def route(method: str, path: str):
+    def decorator(func):
+        func.route_info = (method, path)
+        return func
+    return decorator
+
+class API:
+    @route("GET", "/users")
+    def get_users(self):
+        return [{"id": 1, "name": "Alice"}]
+
+    @route("POST", "/users")
+    def create_user(self):
+        return {"id": 2, "name": "Bob"}
+```
+
+```rust !! rs
+// Rust - Attribute-like procedural macro
+// In: route_macro/src/lib.rs
+use proc_macro::TokenStream;
+use quote::quote;
+use syn::{parse_macro_input, ItemFn};
+
+#[proc_macro_attribute]
+pub fn route(_attr: TokenStream, item: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(item as ItemFn);
+    let name = &input.sig.ident;
+
+    let expanded = quote! {
+        #[allow(non_camel_case_types)]
+        struct #name {}
+
+        impl #name {
+            pub const ROUTE: &'static str = concat!(
+                "/", stringify!(#name)
+            );
+        }
+
+        #input
+    };
+
+    TokenStream::from(expanded)
+}
+
+// In: main.rs
+use route_macro::route;
+
+struct API;
+
+impl API {
+    #[route]
+    fn get_users() -> Vec<User> {
+        vec![User { id: 1, name: "Alice" }]
+    }
+
+    #[route]
+    fn create_user() -> User {
+        User { id: 2, name: "Bob" }
+    }
+}
+
+#[derive(Debug)]
+struct User {
+    id: u32,
+    name: &'static str,
+}
+
+fn main() {
+    println!("Route: {}", get_users::ROUTE);
+}
+```
+</UniversalEditor>
+
+## Function-like Macros
+
+<UniversalEditor compare={true} title="Function-like Procedural Macro">
+```python !! py
+# Python - Function with dynamic code
+import sqlparse
+
+def sql(query: str):
+    # Validate and format SQL at runtime
+    parsed = sqlparse.parse(query)[0]
+    return str(parsed)
+
+query = sql("SELECT * FROM users WHERE id = 1")
+```
+
+```rust !! rs
+// Rust - Compile-time SQL validation
+// In: sql_macro/src/lib.rs
+use proc_macro::{TokenStream, TokenTree};
+use quote::quote;
+
+#[proc_macro]
+pub fn sql(input: TokenStream) -> TokenStream {
+    // Simple validation (check for SELECT keyword)
+    let tokens: Vec<TokenTree> = input.into_iter().collect();
+
+    if let Some(token) = tokens.first() {
+        let token_str = token.to_string();
+        if token_str.to_uppercase().contains("SELECT") {
+            // Generate validated SQL string
+            let expanded = quote! {
+                #token_str
+            };
+            return TokenStream::from(expanded);
+        }
+    }
+
+    panic!("Invalid SQL: Must contain SELECT");
+}
+
+// In: main.rs
+use sql_macro::sql;
+
+fn main() {
+    let query = sql!(SELECT * FROM users WHERE id = 1);
+    println!("Valid SQL: {}", query);
+}
+```
+</UniversalEditor>
+
+## Advanced Macro Patterns
+
+### Builder Pattern Macro
+
+<UniversalEditor compare={true} title="Builder Macro">
+```python !! py
+# Python - Chained methods (runtime)
+class QueryBuilder:
+    def __init__(self):
+        self._select = []
+        self._where = []
+
+    def select(self, *fields):
+        self._select.extend(fields)
+        return self
+
+    def where_clause(self, condition):
+        self._where.append(condition)
+        return self
+
+    def build(self):
+        return f"SELECT {', '.join(self._select)} WHERE {' AND '.join(self._where)}"
+
+query = QueryBuilder().select("name", "age").where_clause("age > 18").build()
+```
+
+```rust !! rs
+// Rust - Compile-time builder generation
+macro_rules! builder {
+    ($struct_name:ident { $($field:ident: $field_type:ty),* $(,)? }) => {
+        struct $struct_name {
+            $($field: Option<$field_type>),*
+        }
+
+        impl $struct_name {
+            fn new() -> Self {
+                $struct_name {
+                    $($field: None),*
+                }
+            }
+
+            $(
+                fn $field(mut self, value: $field_type) -> Self {
+                    self.$field = Some(value);
+                    self
+                }
+            )*
+
+            fn build(self) -> Result<String, String> {
+                Ok(stringify!($struct_name).to_string())
+            }
+        }
+    };
+}
+
+builder!(QueryBuilder {
+    select: Vec<String>,
+    where_clause: String,
+});
+
+fn main() {
+    let builder = QueryBuilder::new()
+        .select(vec!["name".to_string(), "age".to_string()])
+        .where_clause("age > 18".to_string());
+
+    println!("{:?}", builder.build());
+}
+```
+</UniversalEditor>
+
+## Macro Best Practices
+
+### 1. Prefer Macros Over Code Copy-Paste
+
+<UniversalEditor compare={true} title="DRY Principle">
+```python !! py
+# Python - Use decorators to avoid repetition
+def log_result(func):
+    def wrapper(*args, **kwargs):
+        result = func(*args, **kwargs)
+        print(f"{func.__name__} = {:?}", result)
+        return result
+    return wrapper
+
+@log_result
+def add(x, y):
+    return x + y
+
+@log_result
+def multiply(x, y):
+    return x * y
+```
+
+```rust !! rs
+// Rust - Use macros to avoid boilerplate
+macro_rules! impl_math_op {
+    ($func_name:ident, $op:tt) => {
+        fn $func_name(x: i32, y: i32) -> i32 {
+            let result = x $op y;
+            println!("{} = {:?}", stringify!($func_name), result);
+            result
+        }
+    };
+}
+
+impl_math_op!(add, +);
+impl_math_op!(multiply, *);
+
+fn main() {
+    add(5, 3);
+    multiply(4, 7);
+}
+```
+</UniversalEditor>
+
+### 2. Document Macros Clearly
+
+<UniversalEditor compare={true} title="Macro Documentation">
+```rust !! rs
+/// Macro to create a HashMap with initial key-value pairs.
+///
+/// # Examples
+///
+/// ```
+/// use std::collections::HashMap;
+///
+/// let map = hashmap!(
+///     "name" => "Alice",
+///     "age" => 30
+/// );
+/// ```
+///
+/// # Syntax
+///
+/// `hashmap!(key1 => value1, key2 => value2, ...)`
+macro_rules! hashmap {
+    ( $($key:expr => $value:expr),* $(,)? ) => {{
+        let mut m = std::collections::HashMap::new();
+        $(
+            m.insert($key, $value);
+        )*
+        m
+    }};
+}
+```
+</UniversalEditor>
+
+### 3. Test Macros Thoroughly
+
+<UniversalEditor compare={true} title="Testing Macros">
+```rust !! rs
+macro_rules! compute {
+    ($x:expr, $op:tt, $y:expr) => {{
+        let x = $x;
+        let y = $y;
+        x $op y
+    }};
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_compute_addition() {
+        assert_eq!(compute!(5, +, 3), 8);
+    }
+
+    #[test]
+    fn test_compute_multiplication() {
+        assert_eq!(compute!(5, *, 3), 15);
+    }
+
+    #[test]
+    fn test_compute_complex() {
+        assert_eq!(compute!(2 + 3, *, 4), 20);
+    }
+}
+```
+</UniversalEditor>
+
+## Common Use Cases
+
+### 1. Serialization
+
+<UniversalEditor compare={true} title="Serialization Macros">
+```python !! py
+# Python - dataclasses with asdict
+from dataclasses import dataclass, asdict
+
+@dataclass
+class User:
+    id: int
+    name: str
+
+user = User(id=1, name="Alice")
+print(asdict(user))
+```
+
+```rust !! rs
+// Rust - Serialize derive (from serde)
+use serde::{Serialize, Deserialize};
+
+#[derive(Serialize, Deserialize)]
+struct User {
+    id: u32,
+    name: String,
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let user = User { id: 1, name: "Alice".to_string() };
+    let json = serde_json::to_string(&user)?;
+    println!("{}", json);
+    Ok(())
+}
+```
+</UniversalEditor>
+
+### 2. Error Handling
+
+<UniversalEditor compare={true} title="Error Macros">
+```python !! py
+# Python - Custom exceptions
+class ValidationError(Exception):
+    pass
+
+def validate_age(age: int):
+    if age < 0:
+        raise ValidationError("Age cannot be negative")
+    return age
+```
+
+```rust !! rs
+// Rust - thiserror macro for error types
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+pub enum ValidationError {
+    #[error("Age cannot be negative: {0}")]
+    NegativeAge(i32),
+
+    #[error("Invalid name: {0}")]
+    InvalidName(String),
+}
+
+fn validate_age(age: i32) -> Result<i32, ValidationError> {
+    if age < 0 {
+        Err(ValidationError::NegativeAge(age))
+    } else {
+        Ok(age)
+    }
+}
+
+fn main() {
+    match validate_age(-5) {
+        Ok(age) => println!("Valid age: {}", age),
+        Err(e) => println!("Error: {}", e),
+    }
+}
+```
+</UniversalEditor>
+
+### 3. Testing Utilities
+
+<UniversalEditor compare={true} title="Test Macros">
+```python !! py
+# Python - pytest fixtures and parametrize
+import pytest
+
+@pytest.mark.parametrize("input,expected", [
+    (2, 4),
+    (3, 9),
+    (4, 16),
+])
+def test_square(input, expected):
+    assert input * input == expected
+```
+
+```rust !! rs
+// Rust - Custom test macro
+macro_rules! test_cases {
+    ($test_name:ident, $func:expr, $(($input:expr, $expected:expr)),+) => {
+        #[test]
+        fn $test_name() {
+            $(
+                assert_eq!($func($input), $expected);
+            )+
+        }
+    };
+}
+
+fn square(x: i32) -> i32 {
+    x * x
+}
+
+test_cases!(test_square, square,
+    (2, 4),
+    (3, 9),
+    (4, 16)
+);
+```
+</UniversalEditor>
+
+## Debugging Macros
+
+<UniversalEditor compare={true} title="Macro Debugging">
+```rust !! rs
+// Use cargo expand to see macro expansion
+// Install: cargo install cargo-expand
+// Run: cargo expand
+
+macro_rules! debug_macro {
+    ($expr:expr) => {
+        println!("{} = {:?}", stringify!($expr), $expr);
+    };
+}
+
+fn main() {
+    let x = 42;
+    debug_macro!(x * 2);
+    // Output: x * 2 = 84
+}
+
+// To see expanded code:
+// cargo expand --macro debug_macro
+```
+</UniversalEditor>
+
+## Key Takeaways
+
+### When to Use Macros
+- **Use macros** to eliminate code duplication
+- **Use macros** to create domain-specific languages (DSLs)
+- **Use macros** to implement compile-time validation
+- **Use derive macros** for automatic trait implementations
+
+### When NOT to Use Macros
+- **Avoid macros** when a regular function works
+- **Avoid macros** for simple type abstractions (use generics instead)
+- **Avoid macros** that obscure code meaning
+
+### Macro Types
+1. **Declarative macros** (`macro_rules!`): Pattern-based, simpler
+2. **Derive macros**: Auto-implement traits
+3. **Attribute macros**: Modify item behavior
+4. **Function-like macros**: Custom syntax extensions
+
+### Python vs Rust Metaprogramming
+- **Python decorators**: Runtime modification, flexible but slower
+- **Rust macros**: Compile-time code generation, type-safe, zero-cost
+
+## Exercises
+
+1. Create a macro that generates enum variants with associated data
+2. Build a derive macro that generates JSON serialization code
+3. Implement an attribute macro that adds automatic logging to functions
+4. Create a macro for building complex data structures
+5. Build a domain-specific language using macros
+
+## Next Module
+
+In Module 19, we'll explore **Performance Optimization**, covering zero-cost abstractions, iterators, benchmarking, and profiling techniques.

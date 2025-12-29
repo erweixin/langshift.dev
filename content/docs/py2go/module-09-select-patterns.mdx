@@ -1,0 +1,1477 @@
+---
+title: "Module 9: Select and Concurrency Patterns"
+description: "Advanced concurrency patterns with select"
+---
+
+## Introduction
+
+The `select` statement is one of Go's most powerful concurrency primitives. It enables goroutines to wait on multiple communication operations simultaneously, making it possible to implement complex coordination patterns safely and expressively.
+
+### Select Statement Features
+
+- **Wait on multiple channels**: Proceed when any channel is ready
+- **Non-blocking operations**: Use `default` case
+- **Timeout support**: With `time.After` or context
+- **Random selection**: When multiple cases are ready
+- **Send and receive**: Can include both operations
+
+## Non-Blocking Operations
+
+Using `select` with a `default` case enables non-blocking sends and receives.
+
+<UniversalEditor title="Non-Blocking Operations">
+```python !! py
+# Python - Non-blocking queue operations
+import queue
+
+q = queue.Queue()
+
+# Non-blocking get
+try:
+    item = q.get(block=False)
+    print("Got:", item)
+except queue.Empty:
+    print("No item available")
+
+# Non-blocking put
+try:
+    q.put(item, block=False)
+    print("Put successful")
+except queue.Full:
+    print("Queue full")
+```
+
+```go !! go
+// Go - Non-blocking with default case
+package main
+
+import "fmt"
+
+func main() {
+    ch := make(chan int)
+
+    // Non-blocking receive
+    select {
+    case value := <-ch:
+        fmt.Println("Received:", value)
+    default:
+        fmt.Println("No value available")
+    }
+
+    // Non-blocking send
+    ch2 := make(chan int, 1)
+    ch2 <- 1
+
+    select {
+    case ch2 <- 2:
+        fmt.Println("Sent successfully")
+    default:
+        fmt.Println("Channel full, can't send")
+    }
+}
+```
+</UniversalEditor>
+
+### Polling Pattern
+
+<UniversalEditor title="Polling with Select">
+```python !! py
+# Python - Polling multiple queues
+import queue
+import select
+
+def poll_multiple(*queues):
+    readable, _, _ = select.select(queues, [], [], 0)
+    results = []
+    for q in readable:
+        try:
+            results.append(q.get(block=False))
+        except queue.Empty:
+            pass
+    return results
+```
+
+```go !! go
+// Go - Poll with select
+package main
+
+import (
+    "fmt"
+    "time"
+)
+
+func poll(channels ...<-chan int) []int {
+    var results []int
+
+    for _, ch := range channels {
+        select {
+        case val := <-ch:
+            results = append(results, val)
+        default:
+            // Channel not ready, skip
+        }
+    }
+
+    return results
+}
+
+func main() {
+    ch1 := make(chan int, 1)
+    ch2 := make(chan int, 1)
+    ch3 := make(chan int) // Unbuffered, no sender
+
+    ch1 <- 1
+    // ch2 has no value yet
+
+    results := poll(ch1, ch2, ch3)
+    fmt.Println("Poll results:", results) // [1]
+}
+```
+</UniversalEditor>
+
+## Timeout Patterns
+
+### Basic Timeout
+
+<UniversalEditor title="Timeout with time.After">
+```python !! py
+# Python - Timeout with queue
+import queue
+
+try:
+    item = queue.get(timeout=5.0)
+    print("Got:", item)
+except queue.Empty:
+    print("Timeout after 5 seconds")
+```
+
+```go !! go
+// Go - Timeout with time.After
+package main
+
+import (
+    "fmt"
+    "time"
+)
+
+func operationWithTimeout(ch <-chan string) {
+    select {
+    case result := <-ch:
+        fmt.Println("Result:", result)
+    case <-time.After(3 * time.Second):
+        fmt.Println("Operation timed out")
+    }
+}
+
+func main() {
+    ch := make(chan string)
+    go func() {
+        time.Sleep(5 * time.Second)
+        ch <- "done"
+    }()
+
+    operationWithTimeout(ch)
+}
+```
+</UniversalEditor>
+
+### Context Timeout (Preferred)
+
+<UniversalEditor title="Context Timeout Pattern">
+```python !! py
+# Python - Timeout with concurrent.futures
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import time
+
+def task():
+    time.sleep(5)
+    return "done"
+
+with ThreadPoolExecutor() as executor:
+    future = executor.submit(task)
+    try:
+        result = future.result(timeout=3)
+        print(result)
+    except TimeoutError:
+        print("Task timed out")
+```
+
+```go !! go
+// Go - Context timeout (preferred)
+package main
+
+import (
+    "context"
+    "fmt"
+    "time"
+)
+
+func operationWithContext(ctx context.Context) error {
+    ch := make(chan string)
+
+    go func() {
+        time.Sleep(5 * time.Second)
+        select {
+        case ch <- "done":
+        case <-ctx.Done():
+            return
+        }
+    }()
+
+    select {
+    case result := <-ch:
+        fmt.Println("Result:", result)
+        return nil
+    case <-ctx.Done():
+        return ctx.Err() // context.DeadlineExceeded
+    }
+}
+
+func main() {
+    ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+    defer cancel()
+
+    err := operationWithContext(ctx)
+    if err != nil {
+        fmt.Println("Error:", err)
+    }
+}
+```
+</UniversalEditor>
+
+### Cancel After First Response
+
+<UniversalEditor title="First Response Pattern">
+```go !! go
+// Go - Wait for first response, cancel others
+package main
+
+import (
+    "context"
+    "fmt"
+    "time"
+)
+
+func query(ctx context.Context, server string, result chan<- string) {
+    start := time.Now()
+    defer func() {
+        fmt.Printf("%s took %v\n", server, time.Since(start))
+    }()
+
+    // Simulate variable response time
+    time.Sleep(time.Duration(server[1]) * 300 * time.Millisecond)
+
+    select {
+    case result <- fmt.Sprintf("response from %s", server):
+    case <-ctx.Done():
+        fmt.Printf("%s was cancelled\n", server)
+    }
+}
+
+func main() {
+    ctx, cancel := context.WithCancel(context.Background())
+    defer cancel()
+
+    results := make(chan string)
+    servers := []string{"s1", "s2", "s3"}
+
+    for _, server := range servers {
+        go query(ctx, server, results)
+    }
+
+    // Wait for first result
+    result := <-results
+    fmt.Println("First result:", result)
+
+    // Context is cancelled, other queries stop
+    time.Sleep(time.Second) // Let cancellations complete
+}
+```
+</UniversalEditor>
+
+## Heartbeat Pattern
+
+Heartbeats signal that a long-running operation is still alive.
+
+<UniversalEditor title="Heartbeat Pattern">
+```python !! py
+# Python - Heartbeat with threading
+import threading
+import time
+
+def worker(heartbeat):
+    while True:
+        # Do work
+        time.sleep(1)
+        heartbeat.set()  # Signal alive
+        heartbeat.clear()
+
+heartbeat = threading.Event()
+thread = threading.Thread(target=worker, args=(heartbeat,))
+thread.start()
+
+# Monitor heartbeat
+while True:
+    heartbeat.wait(timeout=5)
+    if heartbeat.is_set():
+        print("Worker is alive")
+    else:
+        print("Worker timeout!")
+        break
+```
+
+```go !! go
+// Go - Heartbeat with ticker
+package main
+
+import (
+    "fmt"
+    "time"
+)
+
+func worker(done <-chan struct{}, heartbeat <-chan time.Time) {
+    for {
+        select {
+        case <-done:
+            fmt.Println("Worker exiting")
+            return
+        case <-heartbeat:
+            fmt.Println("Worker heartbeat")
+            // Do some work...
+        }
+    }
+}
+
+func monitor(workers int) {
+    done := make(chan struct{})
+    heartbeat := time.NewTicker(500 * time.Millisecond)
+    defer heartbeat.Stop()
+
+    for i := 0; i < workers; i++ {
+        go worker(done, heartbeat.C)
+    }
+
+    // Monitor for 3 seconds
+    time.Sleep(3 * time.Second)
+    close(done)
+    time.Sleep(100 * time.Millisecond)
+    fmt.Println("Monitor done")
+}
+
+func main() {
+    monitor(3)
+}
+```
+</UniversalEditor>
+
+## Rate Limiting
+
+Control the rate of operations using ticker and select.
+
+<UniversalEditor title="Rate Limiting">
+```python !! py
+# Python - Rate limiting
+import time
+from collections import deque
+
+class RateLimiter:
+    def __init__(self, rate):
+        self.rate = rate  # requests per second
+        self.tokens = deque()
+
+    def acquire(self):
+        now = time.time()
+        # Remove old tokens
+        while self.tokens and now - self.tokens[0] > 1:
+            self.tokens.popleft()
+
+        if len(self.tokens) < self.rate:
+            self.tokens.append(now)
+            return True
+        return False
+
+limiter = RateLimiter(10)  # 10 requests per second
+
+for i in range(20):
+    if limiter.acquire():
+        process_request(i)
+    else:
+        time.sleep(0.1)  # Wait and retry
+```
+
+```go !! go
+// Go - Rate limiting with ticker
+package main
+
+import (
+    "fmt"
+    "time"
+)
+
+func processRequests(requests []int, rateLimit time.Duration) {
+    limiter := time.NewTicker(rateLimit)
+    defer limiter.Stop()
+
+    for i, req := range requests {
+        <-limiter.C // Wait for rate limit token
+        fmt.Printf("Processing request %d at %v\n", i, time.Now())
+    }
+}
+
+func main() {
+    requests := make([]int, 10)
+    for i := range requests {
+        requests[i] = i
+    }
+
+    fmt.Println("Processing at 3 requests per second")
+    processRequests(requests, 333*time.Millisecond)
+}
+```
+</UniversalEditor>
+
+### Bursty Rate Limiter
+
+<UniversalEditor title="Bursty Rate Limiter">
+```go !! go
+// Go - Bursty rate limiter
+package main
+
+import (
+    "fmt"
+    "time"
+)
+
+// Allows bursts but maintains average rate
+func burstyLimiter(requests []int) {
+    // Fill bucket with 3 tokens
+    bucket := make(chan time.Time, 3)
+
+    // Add tokens at 1 per second
+    go func() {
+        ticker := time.NewTicker(time.Second)
+        defer ticker.Stop()
+        for t := range ticker.C {
+            select {
+            case bucket <- t:
+                // Token added
+            default:
+                // Bucket full, token discarded
+            }
+        }
+    }()
+
+    // Consume tokens
+    for i, req := range requests {
+        t := <-bucket // Wait for token
+        fmt.Printf("Request %d at %v\n", req, t.Format("15:04:05.000"))
+    }
+}
+
+func main() {
+    requests := make([]int, 5)
+    for i := range requests {
+        requests[i] = i
+    }
+
+    burstyLimiter(requests)
+}
+```
+</UniversalEditor>
+
+## Worker Pool with Shutdown
+
+Graceful shutdown pattern for worker pools.
+
+<UniversalEditor title="Worker Pool Shutdown">
+```python !! py
+# Python - Worker pool with shutdown
+import threading
+import queue
+
+class WorkerPool:
+    def __init__(self, num_workers):
+        self.tasks = queue.Queue()
+        self.workers = []
+        self.shutdown = threading.Event()
+
+        for i in range(num_workers):
+            t = threading.Thread(target=self.worker, args=(i,))
+            t.start()
+            self.workers.append(t)
+
+    def worker(self, id):
+        while not self.shutdown.is_set():
+            try:
+                task = self.tasks.get(timeout=0.1)
+                task()
+            except queue.Empty:
+                continue
+
+    def add_task(self, task):
+        self.tasks.put(task)
+
+    def stop(self):
+        self.shutdown.set()
+        for t in self.workers:
+            t.join()
+```
+
+```go !! go
+// Go - Worker pool with graceful shutdown
+package main
+
+import (
+    "context"
+    "fmt"
+    "sync"
+    "time"
+)
+
+func worker(id int, ctx context.Context, jobs <-chan int, results chan<- int, wg *sync.WaitGroup) {
+    defer wg.Done()
+    for {
+        select {
+        case <-ctx.Done():
+            fmt.Printf("Worker %d: shutting down\n", id)
+            return
+        case job, ok := <-jobs:
+            if !ok {
+                return
+            }
+            fmt.Printf("Worker %d: processing job %d\n", id, job)
+            results <- job * 2
+        }
+    }
+}
+
+func main() {
+    ctx, cancel := context.WithCancel(context.Background())
+    jobs := make(chan int, 100)
+    results := make(chan int, 100)
+
+    var wg sync.WaitGroup
+
+    // Start workers
+    for w := 1; w <= 3; w++ {
+        wg.Add(1)
+        go worker(w, ctx, jobs, results, &wg)
+    }
+
+    // Send some jobs
+    go func() {
+        for j := 1; j <= 5; j++ {
+            jobs <- j
+        }
+    }()
+
+    // Wait a bit then cancel
+    time.Sleep(time.Millisecond)
+    cancel()
+    close(jobs)
+
+    // Wait for workers to finish
+    go func() {
+        wg.Wait()
+        close(results)
+    }()
+
+    // Collect results
+    for result := range results {
+        fmt.Println("Result:", result)
+    }
+
+    fmt.Println("All workers shut down")
+}
+```
+</UniversalEditor>
+
+## Context Patterns
+
+### Context Hierarchy
+
+<UniversalEditor title="Context Hierarchy">
+```python !! py
+# Python - Context with threading.local
+import threading
+
+class Context:
+    def __init__(self, parent=None):
+        self.parent = parent
+        self.data = threading.local()
+        self.cancelled = False
+
+    def cancel(self):
+        self.cancelled = True
+
+    def check_cancelled(self):
+        if self.cancelled:
+            raise CancelledError()
+        if self.parent:
+            self.parent.check_cancelled()
+
+# Usage
+ctx = Context()
+child_ctx = Context(parent=ctx)
+ctx.cancel()  # Cancels both ctx and child_ctx
+```
+
+```go !! go
+// Go - Context hierarchy
+package main
+
+import (
+    "context"
+    "fmt"
+    "time"
+)
+
+func operation(ctx context.Context, name string) {
+    for {
+        select {
+        case <-ctx.Done():
+            fmt.Printf("%s: %v\n", name, ctx.Err())
+            return
+        case <-time.After(500 * time.Millisecond):
+            fmt.Printf("%s: working...\n", name)
+        }
+    }
+}
+
+func main() {
+    // Parent context with timeout
+    parent, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+    defer cancel()
+
+    // Child context inherits parent's deadline
+    child, cancelChild := context.WithCancel(parent)
+    defer cancelChild()
+
+    go operation(parent, "parent")
+    go operation(child, "child")
+
+    time.Sleep(time.Second)
+    cancelChild() // Cancel child early
+
+    time.Sleep(2 * time.Second)
+}
+```
+</UniversalEditor>
+
+### Context With Values
+
+<UniversalEditor title="Context Values">
+```python !! py
+# Python - Thread-local context values
+import threading
+from contextvars import ContextVar
+
+request_id = ContextVar('request_id', default=None)
+
+def handle_request():
+    rid = request_id.get()
+    print(f"Handling request {rid}")
+
+def middleware():
+    # Set context value
+    request_id.set('req-123')
+    handle_request()
+```
+
+```go !! go
+// Go - Context values
+package main
+
+import (
+    "context"
+    "fmt"
+)
+
+type contextKey string
+
+const (
+    userIDKey   contextKey = "userID"
+    requestIDKey contextKey = "requestID"
+)
+
+func handleRequest(ctx context.Context) {
+    userID := ctx.Value(userIDKey).(string)
+    requestID := ctx.Value(requestIDKey).(string)
+
+    fmt.Printf("User: %s, Request: %s\n", userID, requestID)
+}
+
+func main() {
+    ctx := context.Background()
+
+    // Add values to context
+    ctx = context.WithValue(ctx, userIDKey, "user-123")
+    ctx = context.WithValue(ctx, requestIDKey, "req-456")
+
+    handleRequest(ctx)
+}
+```
+</UniversalEditor>
+
+## Advanced Patterns
+
+### Generator Pattern
+
+<UniversalEditor title="Generator Pattern">
+```python !! py
+# Python - Generator with yield
+def generate_numbers(n):
+    for i in range(n):
+        yield i
+
+def square(numbers):
+    for n in numbers:
+        yield n * n
+
+# Chain generators
+result = list(square(generate_numbers(5)))
+print(result)  # [0, 1, 4, 9, 16]
+```
+
+```go !! go
+// Go - Generator with channels
+package main
+
+import "fmt"
+
+// Generator function that produces numbers
+func generate(n int) <-chan int {
+    out := make(chan int)
+    go func() {
+        defer close(out)
+        for i := 0; i < n; i++ {
+            out <- i
+        }
+    }()
+    return out
+}
+
+// Transformer function
+func square(in <-chan int) <-chan int {
+    out := make(chan int)
+    go func() {
+        defer close(out)
+        for n := range in {
+            out <- n * n
+        }
+    }()
+    return out
+}
+
+func main() {
+    // Chain generators
+    for n := range square(generate(5)) {
+        fmt.Println(n)
+    }
+}
+```
+</UniversalEditor>
+
+### Tee Pattern: Split Channel
+
+<UniversalEditor title="Tee Pattern">
+```python !! py
+# Python - Split iterator
+import itertools
+
+def tee(iterable, n=2):
+    it = iter(iterable)
+    deques = [collections.deque() for _ in range(n)]
+
+    def gen(dq):
+        while True:
+            if not dq:
+                try:
+                    val = next(it)
+                except StopIteration:
+                    return
+                for d in deques:
+                    d.append(val)
+            yield dq.popleft()
+
+    return [gen(d) for d in deques]
+
+it1, it2, it3 = tee(range(5), 3)
+```
+
+```go !! go
+// Go - Tee: split channel to multiple
+package main
+
+import (
+    "fmt"
+    "sync"
+)
+
+func tee(in <-chan int, n int) []<-chan int {
+    outs := make([]chan int, n)
+    for i := 0; i < n; i++ {
+        outs[i] = make(chan int)
+    }
+
+    go func() {
+        var wg sync.WaitGroup
+        for _, out := range outs {
+            wg.Add(1)
+            go func(ch chan<- int) {
+                defer wg.Done()
+                for val := range in {
+                    ch <- val
+                }
+                close(ch)
+            }(out)
+        }
+        wg.Wait()
+    }()
+
+    // Convert to read-only channels
+    result := make([]<-chan int, n)
+    for i, out := range outs {
+        result[i] = out
+    }
+    return result
+}
+
+func main() {
+    in := make(chan int)
+    go func() {
+        defer close(in)
+        for i := 0; i < 5; i++ {
+            in <- i
+        }
+    }()
+
+    // Split to 3 channels
+    channels := tee(in, 3)
+
+    var wg sync.WaitGroup
+    for i, ch := range channels {
+        wg.Add(1)
+        go func(idx int, c <-chan int) {
+            defer wg.Done()
+            for val := range c {
+                fmt.Printf("Channel %d: %d\n", idx, val)
+            }
+        }(i, ch)
+    }
+
+    wg.Wait()
+}
+```
+</UniversalEditor>
+
+### Bridge Pattern: Channel Sequence
+
+<UniversalEditor title="Bridge Pattern">
+```go !! go
+// Go - Bridge: consume channel of channels
+package main
+
+import "fmt"
+
+// Bridge takes a channel of channels and returns a single channel
+func bridge(done <-chan struct{}, chanStream <-chan <-chan int) <-chan int {
+    valStream := make(chan int)
+    go func() {
+        defer close(valStream)
+        for {
+            var stream <-chan int
+            select {
+            case maybeStream, ok := <-chanStream:
+                if !ok {
+                    return
+                }
+                stream = maybeStream
+            case <-done:
+                return
+            }
+
+            for val := range orDone(done, stream) {
+                select {
+                case valStream <- val:
+                case <-done:
+                }
+            }
+        }
+    }()
+    return valStream
+}
+
+func orDone(done <-chan struct{}, c <-chan int) <-chan int {
+    valStream := make(chan int)
+    go func() {
+        defer close(valStream)
+        for {
+            select {
+            case <-done:
+                return
+            case v, ok := <-c:
+                if !ok {
+                    return
+                }
+                select {
+                case valStream <- v:
+                case <-done:
+                }
+            }
+        }
+    }()
+    return valStream
+}
+
+func main() {
+    done := make(chan struct{})
+    defer close(done)
+
+    chanStream := make(chan (<-chan int))
+    go func() {
+        for i := 0; i < 5; i++ {
+            ch := make(chan int, 1)
+            ch <- i
+            close(ch)
+            chanStream <- ch
+        }
+        close(chanStream)
+    }()
+
+    for val := range bridge(done, chanStream) {
+        fmt.Println(val)
+    }
+}
+```
+</UniversalEditor>
+
+## Broadcast Pattern
+
+Send same message to multiple receivers.
+
+<UniversalEditor title="Broadcast Pattern">
+```python !! py
+# Python - Broadcast with threading
+import threading
+
+def broadcaster():
+    while True:
+        msg = queue.get()
+        for listener in listeners:
+            listener.put(msg)
+```
+
+```go !! go
+// Go - Broadcast pattern
+package main
+
+import (
+    "fmt"
+    "sync"
+)
+
+type Broadcaster struct {
+    mu       sync.Mutex
+    listeners []chan<- string
+}
+
+func (b *Broadcaster) AddListener(ch chan<- string) {
+    b.mu.Lock()
+    defer b.mu.Unlock()
+    b.listeners = append(b.listeners, ch)
+}
+
+func (b *Broadcaster) Broadcast(msg string) {
+    b.mu.Lock()
+    defer b.mu.Unlock()
+
+    for _, listener := range b.listeners {
+        select {
+        case listener <- msg:
+        default:
+            // Channel full, drop message
+        }
+    }
+}
+
+func main() {
+    b := &Broadcaster{}
+
+    // Add listeners
+    ch1 := make(chan string, 10)
+    ch2 := make(chan string, 10)
+    ch3 := make(chan string, 10)
+
+    b.AddListener(ch1)
+    b.AddListener(ch2)
+    b.AddListener(ch3)
+
+    // Broadcast messages
+    messages := []string{"hello", "world", "goodbye"}
+    for _, msg := range messages {
+        b.Broadcast(msg)
+    }
+
+    // Collect messages
+    close(ch1)
+    close(ch2)
+    close(ch3)
+
+    for msg := range ch1 {
+        fmt.Println("ch1:", msg)
+    }
+}
+```
+</UniversalEditor>
+
+## Dining Philosophers
+
+Classic concurrency problem solved with select.
+
+<UniversalEditor title="Dining Philosophers">
+```python !! py
+# Python - Dining philosophers with locks
+import threading
+
+class Philosopher(threading.Thread):
+    def __init__(self, name, left_fork, right_fork):
+        super().__init__()
+        self.name = name
+        self.left_fork = left_fork
+        self.right_fork = right_fork
+
+    def run(self):
+        while True:
+            with self.left_fork:
+                with self.right_fork:
+                    self.eat()
+            self.think()
+```
+
+```go !! go
+// Go - Dining philosophers with select
+package main
+
+import (
+    "fmt"
+    "sync"
+    "time"
+)
+
+type Philosopher struct {
+    name      string
+    leftFork  *sync.Mutex
+    rightFork *sync.Mutex
+}
+
+func (p *Philosopher) dine(wg *sync.WaitGroup, seat chan *Philosopher, quit chan struct{}) {
+    defer wg.Done()
+
+    for {
+        select {
+        case seat <- p: // Acquire seat
+            p.leftFork.Lock()
+            p.rightFork.Lock()
+
+            fmt.Printf("%s is eating\n", p.name)
+            time.Sleep(time.Millisecond)
+
+            p.rightFork.Unlock()
+            p.leftFork.Unlock()
+
+            <-seat // Release seat
+            fmt.Printf("%s is thinking\n", p.name)
+
+        case <-quit: // Shutdown
+            return
+        }
+    }
+}
+
+func main() {
+    philosophers := []*Philosopher{
+        {"Plato", &sync.Mutex{}, &sync.Mutex{}},
+        {"Socrates", &sync.Mutex{}, &sync.Mutex{}},
+        {"Aristotle", &sync.Mutex{}, &sync.Mutex{}},
+    }
+
+    quit := make(chan struct{})
+    seat := make(chan *Philosopher, len(philosophers)-1)
+
+    var wg sync.WaitGroup
+    for _, p := range philosophers {
+        wg.Add(1)
+        go p.dine(&wg, seat, quit)
+    }
+
+    time.Sleep(time.Second)
+    close(quit)
+    wg.Wait()
+}
+```
+</UniversalEditor>
+
+## Best Practices
+
+### 1. Always Include Context in Select
+
+<UniversalEditor title="Context in Select">
+```go !! go
+// GOOD - Always check context
+func worker(ctx context.Context, jobs <-chan int) {
+    for {
+        select {
+        case <-ctx.Done():
+            return // Clean exit
+        case job, ok := <-jobs:
+            if !ok {
+                return
+            }
+            process(job)
+        }
+    }
+}
+
+// BAD - No cancellation
+func workerBad(jobs <-chan int) {
+    for {
+        select {
+        case job := <-jobs:
+            process(job)
+            // Can't exit cleanly!
+        }
+    }
+}
+```
+</UniversalEditor>
+
+### 2. Handle Channel Close in Select
+
+<UniversalEditor title="Handle Channel Close">
+```go !! go
+// GOOD - Check ok to detect close
+func receiver(ch <-chan int) {
+    for {
+        select {
+        case val, ok := <-ch:
+            if !ok {
+                fmt.Println("Channel closed")
+                return
+            }
+            fmt.Println("Received:", val)
+        case <-time.After(time.Second):
+            fmt.Println("Timeout")
+        }
+    }
+}
+
+// BAD - Doesn't detect close
+func receiverBad(ch <-chan int) {
+    for {
+        select {
+        case val := <-ch:
+            fmt.Println(val) // Gets zero value on close!
+        }
+    }
+}
+```
+</UniversalEditor>
+
+### 3. Avoid time.After in Loops
+
+<UniversalEditor title="Avoid Leaking Tickers">
+```go !! go
+// BAD - time.After leaks in loops
+func badTicker() {
+    for {
+        select {
+        case <-time.After(time.Second):
+            fmt.Println("tick")
+            // time.After creates new goroutine each loop!
+        }
+    }
+}
+
+// GOOD - Reuse ticker
+func goodTicker() {
+    ticker := time.NewTicker(time.Second)
+    defer ticker.Stop()
+
+    for {
+        select {
+        case <-ticker.C:
+            fmt.Println("tick")
+        }
+    }
+}
+```
+</UniversalEditor>
+
+### 4. Use Default Sparingly
+
+<UniversalEditor title="Default Case Usage">
+```go !! go
+// GOOD - Default for non-blocking
+func trySend(ch chan<- int, val int) bool {
+    select {
+    case ch <- val:
+        return true
+    default:
+        return false
+    }
+}
+
+// BAD - Busy wait with default
+func busyWait(ch <-chan int) int {
+    for {
+        select {
+        case val := <-ch:
+            return val
+        default:
+            // Spins CPU! Very bad!
+        }
+    }
+}
+
+// GOOD - Sleep or use timeout
+func goodWait(ch <-chan int) int {
+    for {
+        select {
+        case val := <-ch:
+            return val
+        case <-time.After(50 * time.Millisecond):
+            // Yield CPU
+        }
+    }
+}
+```
+</UniversalEditor>
+
+## Real-World Examples
+
+### Pub-Sub System
+
+<UniversalEditor title="Pub-Sub Pattern">
+```go !! go
+// Go - Simple pub-sub
+package main
+
+import (
+    "fmt"
+    "sync"
+)
+
+type Broker struct {
+    mu       sync.RWMutex
+    topics   map[string][]chan string
+}
+
+func NewBroker() *Broker {
+    return &Broker{
+        topics: make(map[string][]chan string),
+    }
+}
+
+func (b *Broker) Subscribe(topic string) <-chan string {
+    b.mu.Lock()
+    defer b.mu.Unlock()
+
+    ch := make(chan string, 10)
+    b.topics[topic] = append(b.topics[topic], ch)
+    return ch
+}
+
+func (b *Broker) Publish(topic, msg string) {
+    b.mu.RLock()
+    defer b.mu.RUnlock()
+
+    for _, sub := range b.topics[topic] {
+        go func(ch chan<- string) {
+            select {
+            case ch <- msg:
+            default:
+                // Subscriber slow, drop
+            }
+        }(sub)
+    }
+}
+
+func main() {
+    broker := NewBroker()
+
+    // Subscribe to topics
+    sub1 := broker.Subscribe("news")
+    sub2 := broker.Subscribe("news")
+    sub3 := broker.Subscribe("sports")
+
+    // Publish messages
+    broker.Publish("news", "Breaking: Go is awesome!")
+    broker.Publish("sports", "Game update: 5-3")
+
+    // Receive
+    fmt.Println("Sub1:", <-sub1)
+    fmt.Println("Sub2:", <-sub2)
+    fmt.Println("Sub3:", <-sub3)
+}
+```
+</UniversalEditor>
+
+### Load Balancer
+
+<UniversalEditor title="Load Balancer Pattern">
+```go !! go
+// Go - Simple load balancer
+package main
+
+import (
+    "fmt"
+    "sync"
+)
+
+type Server struct {
+    id int
+}
+
+type LoadBalancer struct {
+    servers []chan Request
+    current int
+    mu      sync.Mutex
+}
+
+type Request struct {
+    URL    string
+    Result chan<- string
+}
+
+func NewLoadBalancer(numServers int) *LoadBalancer {
+    lb := &LoadBalancer{
+        servers: make([]chan Request, numServers),
+    }
+
+    for i := 0; i < numServers; i++ {
+        lb.servers[i] = make(chan Request, 10)
+        s := &Server{id: i}
+        go s.handle(lb.servers[i])
+    }
+
+    return lb
+}
+
+func (s *Server) handle(reqs <-chan Request) {
+    for req := range reqs {
+        result := fmt.Sprintf("Server %d handled %s", s.id, req.URL)
+        req.Result <- result
+    }
+}
+
+func (lb *LoadBalancer) Balance(req Request) {
+    lb.mu.Lock()
+    lb.current = (lb.current + 1) % len(lb.servers)
+    server := lb.servers[lb.current]
+    lb.mu.Unlock()
+
+    server <- req
+}
+
+func main() {
+    lb := NewLoadBalancer(3)
+
+    results := make(chan string, 10)
+
+    for i := 0; i < 10; i++ {
+        go func(id int) {
+            req := Request{
+                URL:    fmt.Sprintf("/request-%d", id),
+                Result: results,
+            }
+            lb.Balance(req)
+        }(i)
+    }
+
+    for i := 0; i < 10; i++ {
+        fmt.Println(<-results)
+    }
+}
+```
+</UniversalEditor>
+
+## Summary
+
+### Key Concepts
+
+1. **Non-blocking operations**: Default case for non-blocking I/O
+2. **Timeout patterns**: time.After vs context
+3. **Heartbeat**: Keep-alive signals
+4. **Rate limiting**: Control operation frequency
+5. **Worker pools**: Graceful shutdown with context
+6. **Context hierarchy**: Cancellation propagation
+7. **Generators**: Channel-based sequences
+8. **Fan-out/fan-in**: Distribute and aggregate
+9. **Pipeline**: Chain processing stages
+10. **Broadcast**: One-to-many communication
+
+### Common Patterns
+
+- **Or-done**: Multiple cancellation sources
+- **Bridge**: Consume channel of channels
+- **Tee**: Split channel to multiple
+- **Heartbeat**: Liveness signals
+- **Rate limiter**: Throttle operations
+- **Pub-sub**: Topic-based messaging
+- **Load balancer**: Distribute requests
+- **Worker pool**: Bounded concurrency
+
+### Best Practices
+
+1. Include context in select for cancellation
+2. Check `ok` to detect channel close
+3. Avoid `time.After` in loops (leaks!)
+4. Use default sparingly
+5. Close channels only from sender
+6. Handle panics in goroutines
+7. Prevent goroutine leaks
+8. Use defer for cleanup
+
+### Comparison with Python
+
+| Python | Go |
+|--------|-----|
+| `queue.get(block=False)` | `select` with `default` |
+| `queue.get(timeout=5)` | `select` with `time.After` |
+| `threading.Event` | `context.Context` |
+| `select.select` | `select` statement |
+| Generator functions | Channel generators |
+| Threading primitives | Goroutine patterns |
+
+## Exercises
+
+1. Implement a pub-sub system:
+   - Topics: "news", "sports", "tech"
+   - Multiple subscribers per topic
+   - Blocking and non-blocking publish
+
+2. Build a rate limiter:
+   - 10 requests per second
+   - Allow burst of 5
+   - Drop or queue excess requests
+
+3. Create a work queue:
+   - Multiple producers
+   - Multiple consumers
+   - Graceful shutdown
+   - Result collection
+
+4. Implement a pipeline:
+   - Generate → Filter → Transform → Aggregate
+   - Each stage in separate goroutine
+   - Context cancellation propagation
+
+5. Build a load balancer:
+   - Round-robin distribution
+   - Handle server failures
+   - Circuit breaker pattern
+
+## Next Steps
+
+Next module: **Testing in Go** - Writing tests, benchmarks, and table-driven tests.

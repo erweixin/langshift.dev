@@ -1,0 +1,711 @@
+---
+title: "Module 15: Threads & Concurrency - Fearless Parallelism"
+description: "Master Rust's threading model, channels, mutexes, and fearless concurrency compared to Python's threading and multiprocessing."
+---
+
+# Module 15: Threads & Concurrency - Fearless Parallelism
+
+In this final module, you'll learn how Rust handles **threads and concurrency**, providing **fearless concurrency** through compile-time guarantees that prevent data races.
+
+## Learning Objectives
+
+By the end of this module, you'll be able to:
+- Spawn threads in Rust
+- Use channels for message passing
+- Use Mutex for shared state
+- Understand Rust's ownership model in concurrent contexts
+- Compare Rust's concurrency with Python's threading
+- Build safe concurrent programs
+
+## Background: Python vs Rust Concurrency
+
+<UniversalEditor compare={true} title="Concurrency Models">
+```python !! py
+# Python: GIL (Global Interpreter Lock) limits true parallelism
+import threading
+import time
+
+def count_down(n):
+    while n > 0:
+        print(f"Count: {n}")
+        n -= 1
+        time.sleep(0.1)
+
+# Threads don't run in parallel due to GIL
+t1 = threading.Thread(target=count_down, args=(5,))
+t2 = threading.Thread(target=count_down, args=(5,))
+
+t1.start()
+t2.start()
+t1.join()
+t2.join()
+
+# For true parallelism, use multiprocessing
+from multiprocessing import Process
+p = Process(target=count_down, args=(5,))
+p.start()
+p.join()
+```
+
+```rust !! rs
+// Rust: True parallelism without GIL
+use std::thread;
+use std::time::Duration;
+
+fn count_down(n: i32) {
+    let mut n = n;
+    while n > 0 {
+        println!("Count: {}", n);
+        n -= 1;
+        thread::sleep(Duration::from_millis(100));
+    }
+}
+
+fn main() {
+    // Threads run in true parallel
+    let t1 = thread::spawn(|| count_down(5));
+    let t2 = thread::spawn(|| count_down(5));
+
+    t1.join().unwrap();
+    t2.join().unwrap();
+
+    // No GIL - full CPU utilization!
+}
+```
+</UniversalEditor>
+
+## Spawning Threads
+
+### Basic Thread Creation
+
+<UniversalEditor compare={true} title="Creating Threads">
+```python !! py
+# Python: Basic threading
+import threading
+import time
+
+def worker(name):
+    print(f"Worker {name} starting")
+    time.sleep(1)
+    print(f"Worker {name} done")
+
+# Create and start thread
+thread = threading.Thread(target=worker, args=("Alice",))
+thread.start()
+thread.join()
+
+# With lambda
+thread2 = threading.Thread(target=lambda: print("Quick task"))
+thread2.start()
+thread2.join()
+```
+
+```rust !! rs
+// Rust: Spawning threads
+use std::thread;
+use std::time::Duration;
+
+fn worker(name: &str) {
+    println!("Worker {} starting", name);
+    thread::sleep(Duration::from_secs(1));
+    println!("Worker {} done", name);
+}
+
+fn main() {
+    // Create and start thread
+    let handle = thread::spawn(|| {
+        worker("Alice");
+    });
+
+    handle.join().unwrap();
+
+    // With closure
+    let handle2 = thread::spawn(|| {
+        println!("Quick task");
+    });
+
+    handle2.join().unwrap();
+}
+```
+</UniversalEditor>
+
+### Moving Data into Threads
+
+<UniversalEditor compare={true} title="Moving Data to Threads">
+```python !! py
+# Python: Data shared by default (but GIL protects it)
+import threading
+
+data = [1, 2, 3, 4, 5]
+
+def process():
+    for item in data:
+        print(f"Processing {item}")
+
+thread = threading.Thread(target=process)
+thread.start()
+thread.join()
+
+# Data is accessible from all threads
+print(data)
+```
+
+```rust !! rs
+// Rust: Must move ownership into threads
+use std::thread;
+
+fn main() {
+    let data = vec![1, 2, 3, 4, 5];
+
+    // Move ownership into thread
+    let handle = thread::spawn(move || {
+        for item in data {
+            println!("Processing {}", item);
+        }
+        // data is now owned by this thread
+    });
+
+    handle.join().unwrap();
+    // println!("{:?}", data);  // ERROR: data was moved
+}
+```
+</UniversalEditor>
+
+### Returning Values from Threads
+
+<UniversalEditor compare={true} title="Thread Return Values">
+```python !! py
+# Python: Return values via shared state
+import threading
+
+result = []
+
+def worker():
+    result.append(42)
+
+thread = threading.Thread(target=worker)
+thread.start()
+thread.join()
+
+print(result[0])  # 42
+
+# Or use concurrent.futures
+from concurrent.futures import ThreadPoolExecutor
+
+def compute():
+    return 42
+
+with ThreadPoolExecutor() as executor:
+    future = executor.submit(compute)
+    print(future.result())  # 42
+```
+
+```rust !! rs
+// Rust: Return values via JoinHandle
+use std::thread;
+
+fn main() {
+    let handle = thread::spawn(|| {
+        // Expensive computation
+        42
+    });
+
+    let result = handle.join().unwrap();
+    println!("Result: {}", result);
+
+    // With move closure
+    let data = vec![1, 2, 3, 4, 5];
+    let handle = thread::spawn(move || {
+        data.iter().sum::<i32>()
+    });
+
+    let sum = handle.join().unwrap();
+    println!("Sum: {}", sum);
+}
+```
+</UniversalEditor>
+
+## Channels: Message Passing
+
+Rust channels provide **message passing concurrency** following the "do not communicate by sharing memory; instead, share memory by communicating" philosophy.
+
+### Multiple Producer, Single Consumer (mpsc)
+
+<UniversalEditor compare={true} title="Channel Communication">
+```python !! py
+# Python: Queue for thread communication
+import threading
+import queue
+
+q = queue.Queue()
+
+def producer():
+    for i in range(5):
+        q.put(i)
+    q.put(None)  # Sentinel
+
+def consumer():
+    while True:
+        item = q.get()
+        if item is None:
+            break
+        print(f"Received: {item}")
+
+t1 = threading.Thread(target=producer)
+t2 = threading.Thread(target=consumer)
+
+t1.start()
+t2.start()
+
+t1.join()
+t2.join()
+```
+
+```rust !! rs
+// Rust: mpsc channels for message passing
+use std::sync::mpsc;
+use std::thread;
+
+fn main() {
+    let (tx, rx) = mpsc::channel();
+
+    let producer = thread::spawn(move || {
+        for i in 0..5 {
+            tx.send(i).unwrap();
+        }
+        // Channel closes when tx is dropped
+    });
+
+    let consumer = thread::spawn(move || {
+        for received in rx {
+            println!("Received: {}", received);
+        }
+    });
+
+    producer.join().unwrap();
+    consumer.join().unwrap();
+}
+```
+</UniversalEditor>
+
+### Multiple Producers
+
+<UniversalEditor compare={true} title="Multiple Producers">
+```python !! py
+# Python: Multiple producers
+import threading
+import queue
+
+q = queue.Queue()
+
+def producer(id):
+    for i in range(3):
+        q.put(f"Producer {id}: {i}")
+
+def consumer():
+    while True:
+        item = q.get()
+        if item == "DONE":
+            break
+        print(item)
+
+threads = []
+for i in range(3):
+    t = threading.Thread(target=producer, args=(i,))
+    t.start()
+    threads.append(t)
+
+consumer_thread = threading.Thread(target=consumer)
+consumer_thread.start()
+
+for t in threads:
+    t.join()
+
+q.put("DONE")
+consumer_thread.join()
+```
+
+```rust !! rs
+// Rust: Multiple producers with cloning
+use std::sync::mpsc;
+use std::thread;
+
+fn main() {
+    let (tx, rx) = mpsc::channel();
+
+    let mut producers = Vec::new();
+    for id in 0..3 {
+        let tx_clone = tx.clone();
+        let handle = thread::spawn(move || {
+            for i in 0..3 {
+                tx_clone.send(format!("Producer {}: {}", id, i)).unwrap();
+            }
+        });
+        producers.push(handle);
+    }
+
+    // Drop original tx so rx knows when all producers are done
+    drop(tx);
+
+    let consumer = thread::spawn(move || {
+        for received in rx {
+            println!("{}", received);
+        }
+    });
+
+    for handle in producers {
+        handle.join().unwrap();
+    }
+
+    consumer.join().unwrap();
+}
+```
+</UniversalEditor>
+
+## Shared State: Mutex
+
+When you need **shared mutable state**, use `Mutex<T>` for thread-safe access.
+
+<UniversalEditor compare={true} title="Mutex for Shared State">
+```python !! py
+# Python: threading.Lock for shared state
+import threading
+
+counter = [0]
+lock = threading.Lock()
+
+def increment():
+    for _ in range(1000):
+        with lock:
+            counter[0] += 1
+
+threads = []
+for _ in range(5):
+    t = threading.Thread(target=increment)
+    t.start()
+    threads.append(t)
+
+for t in threads:
+    t.join()
+
+print(f"Counter: {counter[0]}")  # 5000
+```
+
+```rust !! rs
+// Rust: Mutex for shared mutable state
+use std::sync::{Arc, Mutex};
+use std::thread;
+
+fn main() {
+    let counter = Arc::new(Mutex::new(0));
+    let mut handles = vec![];
+
+    for _ in 0..5 {
+        let counter_clone = Arc::clone(&counter);
+        let handle = thread::spawn(move || {
+            for _ in 0..1000 {
+                let mut num = counter_clone.lock().unwrap();
+                *num += 1;
+            }
+        });
+        handles.push(handle);
+    }
+
+    for handle in handles {
+        handle.join().unwrap();
+    }
+
+    println!("Counter: {}", *counter.lock().unwrap());
+}
+```
+</UniversalEditor>
+
+### Arc vs Rc
+
+<UniversalEditor compare={true} title="Arc for Thread Safety">
+```python !! py
+# Python: References are thread-safe due to GIL
+import threading
+
+data = [1, 2, 3, 4, 5]
+
+def worker():
+    print(sum(data))
+
+threads = [threading.Thread(target=worker) for _ in range(5)]
+for t in threads:
+    t.start()
+for t in threads:
+    t.join()
+```
+
+```rust !! rs
+// Rust: Use Arc for thread-safe reference counting
+use std::sync::Arc;
+use std::thread;
+
+fn main() {
+    let data = Arc::new(vec![1, 2, 3, 4, 5]);
+    let mut handles = vec![];
+
+    for _ in 0..5 {
+        let data_clone = Arc::clone(&data);
+        let handle = thread::spawn(move || {
+            let sum: i32 = data_clone.iter().sum();
+            println!("Sum: {}", sum);
+        });
+        handles.push(handle);
+    }
+
+    for handle in handles {
+        handle.join().unwrap();
+    }
+}
+```
+</UniversalEditor>
+
+## Comparison: Rust vs Python Concurrency
+
+### Performance Comparison
+
+<UniversalEditor compare={true} title="Performance: GIL vs True Parallelism">
+```python !! py
+# Python: GIL limits CPU-bound parallelism
+import threading
+import time
+
+def cpu_bound():
+    count = 0
+    for i in range(10_000_000):
+        count += i
+    return count
+
+start = time.time()
+threads = [threading.Thread(target=cpu_bound) for _ in range(4)]
+for t in threads:
+    t.start()
+for t in threads:
+    t.join()
+print(f"Time with threads: {time.time() - start:.2}s")
+
+# Faster with multiprocessing
+from multiprocessing import Process
+
+start = time.time()
+processes = [Process(target=cpu_bound) for _ in range(4)]
+for p in processes:
+    p.start()
+for p in processes:
+    p.join()
+print(f"Time with processes: {time.time() - start:.2}s")
+```
+
+```rust !! rs
+// Rust: True parallelism, no GIL
+use std::thread;
+use std::time::Instant;
+
+fn cpu_bound() -> i64 {
+    (0..10_000_000).fold(0i64, |acc, i| acc + i as i64)
+}
+
+fn main() {
+    let start = Instant::now();
+
+    let mut handles = vec![];
+    for _ in 0..4 {
+        let handle = thread::spawn(|| cpu_bound());
+        handles.push(handle);
+    }
+
+    for handle in handles {
+        handle.join().unwrap();
+    }
+
+    println!("Time: {:?}", start.elapsed());
+    // Much faster than Python with threads!
+}
+```
+</UniversalEditor>
+
+### Safety Comparison
+
+<UniversalEditor compare={true} title="Data Race Prevention">
+```python !! py
+# Python: Data races possible without locks
+import threading
+
+counter = [0]
+
+def unsafe_increment():
+    for _ in range(1000):
+        counter[0] += 1  # Potential race condition
+
+threads = [threading.Thread(target=unsafe_increment) for _ in range(10)]
+for t in threads:
+    t.start()
+for t in threads:
+    t.join()
+
+print(f"Counter: {counter[0]}")  # May not be 10000!
+```
+
+```rust !! rs
+// Rust: Compiler prevents data races!
+use std::sync::{Arc, Mutex};
+use std::thread;
+
+fn main() {
+    let counter = Arc::new(Mutex::new(0));
+
+    // This won't compile without Mutex:
+    // let counter = Arc::new(0);
+    // let handle = thread::spawn(|| {
+    //     *counter += 1;  // ERROR: can't modify across threads
+    // });
+
+    let mut handles = vec![];
+    for _ in 0..10 {
+        let counter_clone = Arc::clone(&counter);
+        let handle = thread::spawn(move || {
+            for _ in 0..1000 {
+                let mut num = counter_clone.lock().unwrap();
+                *num += 1;
+            }
+        });
+        handles.push(handle);
+    }
+
+    for handle in handles {
+        handle.join().unwrap();
+    }
+
+    println!("Counter: {}", *counter.lock().unwrap());
+    // Always 10000 - no data races!
+}
+```
+</UniversalEditor>
+
+## Common Patterns
+
+### Work Stealing with Channels
+
+<UniversalEditor compare={true} title="Work Queue Pattern">
+```python !! py
+# Python: Work queue pattern
+import threading
+import queue
+
+def worker(worker_id, q):
+    while True:
+        item = q.get()
+        if item is None:
+            break
+        print(f"Worker {worker_id}: processing {item}")
+        q.task_done()
+
+work_queue = queue.Queue()
+for i in range(10):
+    work_queue.put(i)
+
+threads = []
+for i in range(3):
+    t = threading.Thread(target=worker, args=(i, work_queue))
+    t.start()
+    threads.append(t)
+
+work_queue.join()
+
+for _ in threads:
+    work_queue.put(None)
+
+for t in threads:
+    t.join()
+```
+
+```rust !! rs
+// Rust: Work queue with channels
+use std::sync::mpsc;
+use std::thread;
+
+fn worker(worker_id: i32, receiver: mpsc::Receiver<i32>) {
+    for item in receiver {
+        println!("Worker {}: processing {}", worker_id, item);
+    }
+}
+
+fn main() {
+    let (tx, rx) = mpsc::channel();
+
+    // Send work items
+    for i in 0..10 {
+        tx.send(i).unwrap();
+    }
+    // Drop tx to signal completion
+    drop(tx);
+
+    // Split receiver for multiple workers
+    let (tx1, rx1) = mpsc::channel();
+    let (tx2, rx2) = mpsc::channel();
+    let (tx3, rx3) = mpsc::channel();
+
+    thread::spawn(|| worker(0, rx1));
+    thread::spawn(|| worker(1, rx2));
+    thread::spawn(|| worker(2, rx3));
+}
+```
+</UniversalEditor>
+
+## Best Practices
+
+### DO:
+
+1. **Use channels for message passing** - Prefer over shared state
+2. **Use `Arc<Mutex<T>>` for shared state** - When necessary
+3. **Move data into threads** - Use `move` closures
+4. **Handle join errors** - Don't use `.unwrap()` in production
+5. **Prefer scoped threads** - Use `crossbeam` when possible
+
+### DON'T:
+
+1. **Share state without synchronization** - Data races are undefined behavior
+2. **Use Rc across threads** - Use Arc instead
+3. **Forget to join threads** - Or they'll become detached
+4. **Panic in threads without handling** - Can abort your program
+5. **Ignore deadlocks** - Design lock hierarchies to avoid them
+
+## Summary
+
+- **Threads** in Rust provide true parallelism
+- **Channels** enable safe message passing
+- **Mutex** provides thread-safe shared state
+- **Arc** enables shared ownership across threads
+- **Rust prevents data races at compile time**
+- **Python's GIL** limits true parallelism in threads
+- **Rust's fearless concurrency** is safer and faster
+
+## Practice Exercises
+
+1. Build a parallel web scraper using threads
+2. Implement a parallel map-reduce pattern
+3. Create a thread-safe cache with `Arc<RwLock<>>`
+4. Build a work queue with multiple workers
+5. Implement a producer-consumer system with backpressure
+
+## Congratulations!
+
+You've completed all 15 modules of the Python → Rust learning path! You now have:
+- Understanding of Rust's ownership and type system
+- Knowledge of pattern matching and error handling
+- Experience with smart pointers and lifetimes
+- Skills in concurrent programming
+- Ability to write safe, performant Rust code
+
+Continue your journey by building real projects and exploring the Rust ecosystem!
+
+## Additional Resources
+
+- [The Rust Book](https://doc.rust-lang.org/book/)
+- [Rust by Example](https://doc.rust-lang.org/rust-by-example/)
+- [Rust Standard Library](https://doc.rust-lang.org/std/)
+- [Crates.io](https://crates.io/) for packages

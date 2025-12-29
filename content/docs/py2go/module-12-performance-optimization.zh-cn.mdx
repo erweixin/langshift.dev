@@ -1,0 +1,715 @@
+---
+title: "模块 12: 性能优化"
+description: "分析和优化 Go 应用程序"
+---
+
+## 简介
+
+Go 是为性能而设计的，但了解如何分析和优化代码至关重要。本模块介绍性能分析工具和优化技巧。
+
+## 使用 pprof 进行性能分析
+
+Go 在标准库中包含了强大的性能分析工具：
+
+<UniversalEditor title="CPU 性能分析">
+```python !! py
+# Python - cProfile
+import cProfile
+
+def my_function():
+    # 要分析的代码
+    pass
+
+cProfile.run('my_function()', 'output.stats')
+
+# 或使用 line_profiler
+# @profile
+# def my_function():
+#     pass
+```
+
+```go !! go
+// Go - CPU 性能分析
+package main
+
+import (
+    "os"
+    "runtime/pprof"
+)
+
+func main() {
+    // 开始 CPU 性能分析
+    f, _ := os.Create("cpu.prof")
+    pprof.StartCPUProfile(f)
+    defer pprof.StopCPUProfile()
+
+    // 你的代码
+    myFunction()
+}
+
+// 运行程序后:
+// go tool pprof cpu.prof
+```
+</UniversalEditor>
+
+## 内存性能分析
+
+<UniversalEditor title="内存性能分析">
+```python !! py
+# Python - memory_profiler
+from memory_profiler import profile
+
+@profile
+def my_function():
+    data = [x for x in range(1000000)]
+    return data
+
+if __name__ == '__main__':
+    my_function()
+```
+
+```go !! go
+// Go - 内存性能分析
+package main
+
+import (
+    "os"
+    "runtime/pprof"
+)
+
+func main() {
+    myFunction()
+
+    // 写入内存性能分析
+    f, _ := os.Create("mem.prof")
+    pprof.WriteHeapProfile(f)
+    f.Close()
+}
+
+// 使用以下命令分析:
+// go tool pprof mem.prof
+```
+</UniversalEditor>
+
+## 基准测试和对比
+
+<UniversalEditor title="字符串连接基准测试">
+```python !! py
+# Python - 字符串连接
+import time
+
+def test_concatenate(n):
+    start = time.time()
+    result = ""
+    for i in range(n):
+        result += str(i)
+    return time.time() - start
+
+def test_join(n):
+    start = time.time()
+    parts = [str(i) for i in range(n)]
+    result = "".join(parts)
+    return time.time() - start
+
+n = 10000
+print(f"Concatenate: {test_concatenate(n):.4f}s")
+print(f"Join: {test_join(n):.4f}s")
+
+# Concatenate 慢得多！
+```
+
+```go !! go
+// Go - 字符串连接基准测试
+package main
+
+import (
+    "fmt"
+    "strconv"
+    "strings"
+    "testing"
+)
+
+func BenchmarkConcatenate(b *testing.B) {
+    for i := 0; i < b.N; i++ {
+        result := ""
+        for j := 0; j < 100; j++ {
+            result += strconv.Itoa(j)
+        }
+    }
+}
+
+func BenchmarkStringsBuilder(b *testing.B) {
+    for i := 0; i < b.N; i++ {
+        var builder strings.Builder
+        for j := 0; j < 100; j++ {
+            builder.WriteString(strconv.Itoa(j))
+        }
+        _ = builder.String()
+    }
+}
+
+// 运行: go test -bench=.
+// BenchmarkConcatenate-8     50000    35000 ns/op
+// BenchmarkStringsBuilder-8  500000    3500 ns/op
+// Builder 快 10 倍！
+```
+</UniversalEditor>
+
+## 切片 vs Map 性能
+
+<UniversalEditor title="数据结构性能">
+```python !! py
+# Python - List vs Dict 查找
+import time
+
+def test_list_lookup(n):
+    items = list(range(n))
+    start = time.time()
+    for i in range(n):
+        _ = i in items  # O(n) 查找
+    return time.time() - start
+
+def test_dict_lookup(n):
+    items = {i: i for i in range(n)}
+    start = time.time()
+    for i in range(n):
+        _ = i in items  # O(1) 查找
+    return time.time() - start
+
+n = 10000
+print(f"List: {test_list_lookup(n):.4f}s")
+print(f"Dict: {test_dict_lookup(n):.4f}s")
+```
+
+```go !! go
+// Go - 切片 vs Map 性能
+package main
+
+import "testing"
+
+func BenchmarkSliceLookup(b *testing.B) {
+    items := make([]int, 1000)
+    for i := range items {
+        items[i] = i
+    }
+
+    b.ResetTimer()
+    for i := 0; i < b.N; i++ {
+        for j := 0; j < 1000; j++ {
+            _ = contains(items, j)  // O(n)
+        }
+    }
+}
+
+func BenchmarkMapLookup(b *testing.B) {
+    items := make(map[int]bool)
+    for i := 0; i < 1000; i++ {
+        items[i] = true
+    }
+
+    b.ResetTimer()
+    for i := 0; i < b.N; i++ {
+        for j := 0; j < 1000; j++ {
+            _ = items[j]  // O(1)
+        }
+    }
+}
+
+func contains(slice []int, item int) bool {
+    for _, v := range slice {
+        if v == item {
+            return true
+        }
+    }
+    return false
+}
+
+// Map 在查找方面明显更快
+```
+</UniversalEditor>
+
+## Goroutine 池模式
+
+<UniversalEditor title="Goroutine 池">
+```python !! py
+# Python - ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor
+
+def process_task(task_id):
+    return task_id * 2
+
+with ThreadPoolExecutor(max_workers=10) as executor:
+    results = executor.map(process_task, range(1000))
+```
+
+```go !! go
+// Go - Worker 池（限制 goroutines）
+package main
+
+import (
+    "fmt"
+    "sync"
+    "time"
+)
+
+func worker(id int, jobs <-chan int, results chan<- int, wg *sync.WaitGroup) {
+    defer wg.Done()
+    for job := range jobs {
+        // 模拟工作
+        time.Sleep(time.Millisecond)
+        results <- job * 2
+    }
+}
+
+func main() {
+    jobs := make(chan int, 100)
+    results := make(chan int, 100)
+
+    var wg sync.WaitGroup
+
+    // 启动 10 个 worker（限制 goroutines）
+    for w := 1; w <= 10; w++ {
+        wg.Add(1)
+        go worker(w, jobs, results, &wg)
+    }
+
+    // 发送任务
+    for j := 0; j < 1000; j++ {
+        jobs <- j
+    }
+    close(jobs)
+
+    // 等待 worker 完成
+    go func() {
+        wg.Wait()
+        close(results)
+    }()
+
+    // 收集结果
+    for result := range results {
+        fmt.Println(result)
+    }
+}
+```
+</UniversalEditor>
+
+## 高效的 JSON 处理
+
+<UniversalEditor title="JSON 性能">
+```python !! py
+# Python - json 模块
+import json
+import time
+
+data = {"users": [{"id": i, "name": f"User{i}"} for i in range(1000)]}
+
+# 序列化
+start = time.time()
+json_str = json.dumps(data)
+print(f"Serialize: {time.time() - start:.4f}s")
+
+# 反序列化
+start = time.time()
+parsed = json.loads(json_str)
+print(f"Deserialize: {time.time() - start:.4f}s")
+```
+
+```go !! go
+// Go - 高效的 JSON 流式处理
+package main
+
+import (
+    "encoding/json"
+    "os"
+    "testing"
+)
+
+type User struct {
+    ID   int    `json:"id"`
+    Name string `json:"name"`
+}
+
+type Data struct {
+    Users []User `json:"users"`
+}
+
+func BenchmarkJSONMarshal(b *testing.B) {
+    users := make([]User, 1000)
+    for i := range users {
+        users[i] = User{ID: i, Name: fmt.Sprintf("User%d", i)}
+    }
+    data := Data{Users: users}
+
+    b.ResetTimer()
+    for i := 0; i < b.N; i++ {
+        json.Marshal(data)
+    }
+}
+
+func BenchmarkJSONStream(b *testing.B) {
+    users := make([]User, 1000)
+    for i := range users {
+        users[i] = User{ID: i, Name: fmt.Sprintf("User%d", i)}
+    }
+
+    b.ResetTimer()
+    for i := 0; i < b.N; i++ {
+        encoder := json.NewEncoder(os.Stdout)
+        encoder.Encode(users)
+    }
+}
+
+// 流式处理更节省内存
+```
+</UniversalEditor>
+
+## 使用 sync.Map 缓存
+
+<UniversalEditor title="并发缓存">
+```python !! py
+# Python - 带有线程安全的 lru_cache
+from functools import lru_cache
+import threading
+
+@lru_cache(maxsize=1000)
+def expensive_computation(n):
+    return n * n
+
+# 或使用自定义缓存
+cache = {}
+lock = threading.Lock()
+
+def get_value(key):
+    with lock:
+        if key not in cache:
+            cache[key] = expensive_computation(key)
+        return cache[key]
+```
+
+```go !! go
+// Go - sync.Map 用于并发访问
+package main
+
+import (
+    "sync"
+    "testing"
+)
+
+// 带互斥锁的常规 map（大多数情况下更好）
+type Cache struct {
+    mu   sync.RWMutex
+    data map[int]int
+}
+
+func NewCache() *Cache {
+    return &Cache{
+        data: make(map[int]int),
+    }
+}
+
+func (c *Cache) Get(key int) (int, bool) {
+    c.mu.RLock()
+    defer c.mu.RUnlock()
+    val, ok := c.data[key]
+    return val, ok
+}
+
+func (c *Cache) Set(key, value int) {
+    c.mu.Lock()
+    defer c.mu.Unlock()
+    c.data[key] = value
+}
+
+// sync.Map（适合缓存类工作负载）
+func BenchmarkMapWithMutex(b *testing.B) {
+    cache := NewCache()
+    cache.Set(1, 100)
+
+    b.RunParallel(func(pb *testing.PB) {
+        for pb.Next() {
+            cache.Get(1)
+        }
+    })
+}
+
+func BenchmarkSyncMap(b *testing.B) {
+    var m sync.Map
+    m.Store(1, 100)
+
+    b.RunParallel(func(pb *testing.PB) {
+        for pb.Next() {
+            m.Load(1)
+        }
+    })
+}
+```
+</UniversalEditor>
+
+## 避免内存分配
+
+<UniversalEditor title="减少分配">
+```python !! py
+# Python - 重用对象（控制有限）
+class Buffer:
+    def __init__(self):
+        self.data = []
+
+    def process(self, items):
+        # 重用列表而不是创建新的
+        self.data.clear()
+        self.data.extend(items)
+        return self.data
+```
+
+```go !! go
+// Go - 重用缓冲区以减少分配
+package main
+
+import "testing"
+
+func AllocateNew() []int {
+    // 每次都分配新的
+    return make([]int, 1000)
+}
+
+var buffer = make([]int, 1000)
+
+func ReuseBuffer() []int {
+    // 重用缓冲区（先清零）
+    for i := range buffer {
+        buffer[i] = 0
+    }
+    return buffer
+}
+
+func BenchmarkAllocate(b *testing.B) {
+    for i := 0; i < b.N; i++ {
+        _ = AllocateNew()
+    }
+}
+
+func BenchmarkReuse(b *testing.B) {
+    for i := 0; i < b.N; i++ {
+        _ = ReuseBuffer()
+    }
+}
+
+// ReuseBuffer 快得多（无分配）
+```
+</UniversalEditor>
+
+## 高效的字符串操作
+
+<UniversalEditor title="String vs []byte">
+```python !! py
+# Python - 字符串是不可变的
+data = "hello world"
+# data[0] = 'H'  # TypeError!
+
+# 必须创建新字符串
+data = "H" + data[1:]
+
+# 对于可变数据，使用 list
+chars = list(data)
+chars[0] = 'H'
+data = ''.join(chars)
+```
+
+```go !! go
+// Go - 使用 []byte 处理可变数据
+package main
+
+import "testing"
+
+func processString(s string) string {
+    // 字符串是不可变的 - 创建新字符串
+    return "H" + s[1:]
+}
+
+func processBytes(b []byte) []byte {
+    // 字节是可变的 - 原地修改
+    if len(b) > 0 {
+        b[0] = 'H'
+    }
+    return b
+}
+
+func BenchmarkString(b *testing.B) {
+    for i := 0; i < b.N; i++ {
+        _ = processString("hello world")
+    }
+}
+
+func BenchmarkBytes(b *testing.B) {
+    for i := 0; i < b.N; i++ {
+        data := []byte("hello world")
+        _ = processBytes(data)
+    }
+}
+
+// 字节版本避免分配
+```
+</UniversalEditor>
+
+## 性能监控
+
+<UniversalEditor title="运行时指标">
+```python !! py
+# Python - 使用 psutil 监控
+import psutil
+import time
+
+def monitor():
+    process = psutil.Process()
+    print(f"CPU: {process.cpu_percent()}%")
+    print(f"Memory: {process.memory_info().rss / 1024 / 1024:.2f} MB")
+    print(f"Threads: {process.num_threads()}")
+```
+
+```go !! go
+// Go - 运行时指标
+package main
+
+import (
+    "fmt"
+    "runtime"
+    "time"
+)
+
+func main() {
+    var m runtime.MemStats
+
+    // 每秒打印统计信息
+    for i := 0; i < 5; i++ {
+        runtime.ReadMemStats(&m)
+
+        fmt.Printf("Goroutines: %d\n", runtime.NumGoroutine())
+        fmt.Printf("Memory: %.2f MB\n", float64(m.Alloc)/1024/1024)
+        fmt.Printf("GC cycles: %d\n", m.NumGC)
+
+        time.Sleep(time.Second)
+    }
+}
+```
+</UniversalEditor>
+
+## HTTP 性能技巧
+
+<UniversalEditor title="优化 HTTP 服务器">
+```python !! py
+# Python - 性能考虑
+from flask import Flask
+
+app = Flask(__name__)
+
+# 使用 JSON 编码器以提高性能
+app.json_encoder = MyCustomEncoder
+
+# 启用 gzip 压缩
+from flask_compress import Compress
+Compress(app)
+
+# 使用连接池
+import requests
+session = requests.Session()
+session.get('http://example.com')
+```
+
+```go !! go
+// Go - HTTP 性能技巧
+package main
+
+import (
+    "compress/gzip"
+    "net/http"
+    "sync"
+)
+
+// 连接池
+var transport = &http.Transport{
+    MaxIdleConns:        100,
+    MaxIdleConnsPerHost: 100,
+    IdleConnTimeout:     90 * time.Second,
+}
+
+var client = &http.Client{
+    Transport: transport,
+    Timeout:   30 * time.Second,
+}
+
+// 响应压缩
+func gzipHandler(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        if acceptsGzip(r) {
+            w = gzip.NewWriter(w)
+            defer w.(interface{ Flush() }).Flush()
+        }
+        next.ServeHTTP(w, r)
+    })
+}
+
+// 重用缓冲区
+var bufferPool = sync.Pool{
+    New: func() interface{} {
+        return make([]byte, 1024)
+    },
+}
+
+func getBuffer() []byte {
+    return bufferPool.Get().([]byte)
+}
+
+func putBuffer(b []byte) {
+    bufferPool.Put(b)
+}
+```
+</UniversalEditor>
+
+## 总结
+
+在本模块中，你学习了：
+
+1. **CPU 性能分析** 使用 `pprof`
+2. **内存性能分析** 和堆分析
+3. **基准测试** 使用 `testing` 包
+4. **字符串优化** - 使用 `strings.Builder`
+5. **数据结构选择** - map vs slice
+6. **Goroutine 池** - 限制并发
+7. **JSON 流式处理** 处理大数据
+8. **并发缓存** - `sync.Map` vs mutex+map
+9. **缓冲区重用** - 减少分配
+10. **Byte vs string** - 可变字节数组
+11. **运行时指标** - 监控性能
+12. **HTTP 优化** - 池化、压缩、重用
+
+## 性能技巧总结
+
+| 领域 | Python | Go 优化 |
+|------|--------|---------|
+| 字符串连接 | 使用 `join()` | 使用 `strings.Builder` |
+| 大数据集 | 生成器 | 流式处理、缓冲区 |
+| 并发 | `ThreadPoolExecutor` | Worker 池 |
+| 缓存 | `lru_cache` | `sync.Map` 或 mutex+map |
+| 内存 | 控制有限 | 缓冲区池、重用 |
+| 性能分析 | `cProfile`、`memory_profiler` | 内置 `pprof` |
+
+## 常见性能陷阱
+
+1. **循环中的字符串连接** - 使用 `strings.Builder`
+2. **过度分配** - 重用缓冲区
+3. **无限制的 goroutines** - 使用 worker 池
+4. **互斥锁竞争** - 对读密集型工作负载使用 RWMutex
+5. **select 中阻塞** - 添加 default case 实现非阻塞
+6. **大结构体复制** - 使用指针
+
+## 练习
+
+1. 分析 Go 应用程序并找到瓶颈
+2. 对不同的字符串连接方法进行基准测试
+3. 实现 worker 池进行并发处理
+4. 优化大文件的 JSON 处理
+5. 比较 sync.Map vs mutex-protected map 的性能
+
+## 下一步
+
+下一模块：**微服务架构** - 使用 Go 构建分布式系统。

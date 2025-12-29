@@ -1,0 +1,1524 @@
+---
+title: "Module 8: Channel 与通信"
+description: "Goroutine 之间的安全通信"
+---
+
+## 简介
+
+Go 的并发哲学在这个名言中得到了完美体现:
+
+> **"不要通过共享内存来通信;通过通信来共享内存。"**
+> — Go 谚语
+
+Go 不使用锁和共享变量(像 Python 的线程那样)，而是使用 **channel** 在 goroutine 之间传递数据。这种方法:
+
+- **从设计上防止竞态条件**
+- **使数据流在代码中显式可见**
+- **鼓励 goroutine 之间的松耦合**
+- **遵循 CSP(通信顺序进程)模型**
+
+## 为什么使用 Channel 而非共享内存?
+
+<UniversalEditor title="共享内存 vs Channel">
+```python !! py
+# Python - 使用锁的共享内存
+import threading
+
+counter = 0
+lock = threading.Lock()
+
+def increment():
+    global counter
+    with lock:
+        counter += 1
+
+# 问题: 容易忘记锁
+# 问题: 锁可能导致死锁
+# 问题: 难以推理状态
+```
+
+```go !! go
+// Go - 通过通信共享内存
+package main
+
+func increment(out chan<- int) {
+    out <- 1
+}
+
+func sum(values <-chan int, result chan<- int) {
+    total := 0
+    for v := range values {
+        total += v
+    }
+    result <- total
+}
+
+// 优势:
+// - 不需要锁
+// - 数据流显式
+// - 每个 goroutine 拥有自己的数据
+// - 无竞态条件
+```
+</UniversalEditor>
+
+## Channel 基础
+
+### 创建 Channel
+
+<UniversalEditor title="创建 Channel">
+```python !! py
+# Python - 用于线程通信的 Queue
+import queue
+import threading
+
+# 创建 queue
+q = queue.Queue()
+
+def producer():
+    for i in range(5):
+        q.put(i)
+    print("Producer done")
+
+def consumer():
+    for i in range(5):
+        value = q.get()
+        print(f"Got: {value}")
+
+t1 = threading.Thread(target=producer)
+t2 = threading.Thread(target=consumer)
+t1.start()
+t2.start()
+t1.join()
+t2.join()
+```
+
+```go !! go
+// Go - Channels
+package main
+
+import (
+    "fmt"
+    "sync"
+)
+
+func main() {
+    // 创建无缓冲 channel
+    ch := make(chan int)
+
+    var wg sync.WaitGroup
+
+    // 生产者
+    wg.Add(1)
+    go func() {
+        defer wg.Done()
+        for i := 0; i < 5; i++ {
+            ch <- i // 发送操作
+        }
+        fmt.Println("Producer done")
+    }()
+
+    // 消费者
+    wg.Add(1)
+    go func() {
+        defer wg.Done()
+        for i := 0; i < 5; i++ {
+            value := <-ch // 接收操作
+            fmt.Printf("Got: %d\n", value)
+        }
+    }()
+
+    wg.Wait()
+}
+```
+</UniversalEditor>
+
+### 无缓冲 Channel
+
+无缓冲 channel 提供**同步通信**——发送者和接收者都必须准备好。
+
+<UniversalEditor title="无缓冲 Channel 阻塞">
+```python !! py
+# Python - 阻塞队列(不支持大小为 0)
+# Python 队列总是有缓冲的
+# 使用 threading.Event 进行同步
+
+import threading
+
+ready = threading.Event()
+data = None
+
+def producer():
+    global data
+    data = 42
+    ready.set()  # 信号数据准备就绪
+
+def consumer():
+    ready.wait()  # 等待信号
+    print(f"Got: {data}")
+
+t1 = threading.Thread(target=producer)
+t2 = threading.Thread(target=consumer)
+t2.start()
+t1.start()
+t1.join()
+t2.join()
+```
+
+```go !! go
+// Go - 无缓冲 channel(同步)
+package main
+
+import (
+    "fmt"
+    "sync"
+)
+
+func main() {
+    ch := make(chan int) // 无缓冲 = 同步
+
+    var wg sync.WaitGroup
+
+    // 如果先启动生产者，它会阻塞直到接收者准备好
+    wg.Add(1)
+    go func() {
+        defer wg.Done()
+        fmt.Println("Producer sending...")
+        ch <- 42 // 阻塞直到接收者准备好!
+        fmt.Println("Producer sent")
+    }()
+
+    // 启动接收者
+    wg.Add(1)
+    go func() {
+        defer wg.Done()
+        fmt.Println("Consumer waiting...")
+        value := <-ch // 阻塞直到发送者准备好!
+        fmt.Printf("Consumer got: %d\n", value)
+    }()
+
+    wg.Wait()
+    // 两个 goroutine 必须同时相遇
+}
+```
+</UniversalEditor>
+
+### 有缓冲 Channel
+
+有缓冲 channel 允许**异步通信**——发送者可以在没有接收者的情况下发送多达缓冲区大小的值。
+
+<UniversalEditor title="有缓冲 Channel">
+```python !! py
+# Python - 有界队列
+import queue
+
+# 最大大小的队列
+q = queue.Queue(maxsize=5)
+
+# 生产者可以在没有消费者的情况下添加最多 5 个项
+for i in range(5):
+    q.put(i)  # 不阻塞
+    print(f"Put: {i}")
+
+# q.put(5)  # 这会阻塞(队列满)
+
+print("Queue full!")
+```
+
+```go !! go
+// Go - 有缓冲 channel
+package main
+
+import "fmt"
+
+func main() {
+    // 缓冲大小为 5 的 channel
+    ch := make(chan int, 5)
+
+    // 可以在没有接收者的情况下发送多达 5 个值
+    for i := 0; i < 5; i++ {
+        ch <- i // 不阻塞
+        fmt.Printf("Put: %d\n", i)
+    }
+
+    // ch <- 5 // 这会阻塞(缓冲区满)
+
+    fmt.Println("Channel full!")
+
+    // 消费值
+    for i := 0; i < 5; i++ {
+        value := <-ch
+        fmt.Printf("Got: %d\n", value)
+    }
+}
+```
+</UniversalEditor>
+
+### 缓冲区大小指南
+
+<UniversalEditor title="选择缓冲区大小">
+```go !! go
+// Go - 缓冲区大小考虑
+package main
+
+// 无缓冲(大小 0)
+// - 同步握手
+// - 保证接收者准备好
+// - 用于协调、同步
+func unbufferedExample() {
+    ch := make(chan int)       // 无缓冲
+    ch <- 1                    // 阻塞直到接收者
+    value := <-ch              // 阻塞直到发送者
+    _ = value
+}
+
+// 有缓冲(大小 1)
+// - 小缓冲
+// - 用于信号量、信号
+// - 允许一个项在传输中
+func bufferedOneExample() {
+    ch := make(chan int, 1)    // 缓冲为 1
+    ch <- 1                    // 不阻塞(缓冲区有空间)
+    value := <-ch              // 获取缓冲值
+    _ = value
+}
+
+// 有缓冲(大小 N)
+// - 异步处理
+// - 解耦生产者/消费者速度
+// - 根据预期负载选择
+func bufferedNExample() {
+    // 缓冲 100 - 允许 100 个项排队
+    ch := make(chan int, 100)
+
+    // 生产者可以发送 100 项而不阻塞
+    for i := 0; i < 100; i++ {
+        ch <- i
+    }
+    close(ch)
+
+    // 消费者以自己的节奏处理
+    for value := range ch {
+        _ = value
+    }
+}
+
+// 经验法则:
+// - 从无缓冲开始(同步更安全)
+// - 如果测量到竞争再添加缓冲
+// - 保持缓冲区小(通常 10-100)
+// - 大缓冲区可能隐藏问题
+```
+</UniversalEditor>
+
+## Channel 方向
+
+Go 在编译时强制 channel 方向，使数据流显式并防止错误。
+
+<UniversalEditor title="Channel 方向">
+```python !! py
+# Python - 无编译时检查
+def process(queue):
+    # 可以读也可以写
+    item = queue.get()
+    result = process_item(item)
+    queue.put(result)
+
+# 容易误用
+# 无法在编译时强制只读或只写
+```
+
+```go !! go
+// Go - Channel 方向
+package main
+
+import "fmt"
+
+// 只发送 channel (chan<-)
+func producer(ch chan<- int) {
+    ch <- 42
+    // value := <-ch  // 编译错误!
+}
+
+// 只接收 channel (<-chan)
+func consumer(ch <-chan int) {
+    value := <-ch
+    fmt.Println(value)
+    // ch <- 1  // 编译错误!
+}
+
+// 双向 channel (chan)
+func inout(ch chan int) {
+    value := <-ch  // OK
+    ch <- value    // OK
+}
+
+func main() {
+    ch := make(chan int)
+
+    // 可以将双向 channel 传递给只发送或只接收
+    go producer(ch)
+    consumer(ch)
+}
+```
+</UniversalEditor>
+
+### 方向强制
+
+<UniversalEditor title="方向优势">
+```go !! go
+// Go - 方向强制防止 bug
+package main
+
+import "fmt"
+
+// sendOnly - 明确指示此函数只发送
+func sendOnly(ch chan<- int) {
+    ch <- 1
+    // ch <- 2
+    // close(ch)  // 只能关闭只发送 channel
+}
+
+// receiveOnly - 明确指示此函数只接收
+func receiveOnly(ch <-chan int) {
+    // 不能关闭只接收 channel!
+    for value := range ch {
+        fmt.Println(value)
+    }
+}
+
+// 优势:
+// 1. 文档 - 函数签名显示意图
+// 2. 安全 - 编译器防止误用
+// 3. 清晰所有权 - 谁发送，谁接收
+
+func pipeline(numbers <-chan int, results chan<- int) {
+    // 处理数字，发送到结果
+    for n := range numbers {
+        results <- n * 2
+    }
+    close(results) // 我们拥有发送方
+}
+
+func main() {
+    numbers := make(chan int)
+    results := make(chan int)
+
+    go func() {
+        for i := 0; i < 5; i++ {
+            numbers <- i
+        }
+        close(numbers)
+    }()
+
+    go pipeline(numbers, results)
+
+    for result := range results {
+        fmt.Println(result)
+    }
+}
+```
+</UniversalEditor>
+
+## 关闭 Channel
+
+关闭表示不再发送值。这允许接收者检测完成。
+
+<UniversalEditor title="关闭 Channel">
+```python !! py
+# Python - 哨兵值或 None
+import queue
+
+def producer(q):
+    for i in range(5):
+        q.put(i)
+    q.put(None)  # 哨兵表示完成
+
+def consumer(q):
+    while True:
+        item = q.get()
+        if item is None:  # 检查哨兵
+            break
+        print(f"Got: {item}")
+
+q = queue.Queue()
+# ... 启动线程
+```
+
+```go !! go
+// Go - 关闭 channel
+package main
+
+import "fmt"
+
+func producer(ch chan<- int) {
+    for i := 0; i < 5; i++ {
+        ch <- i
+    }
+    close(ch)  // 信号不再有值
+}
+
+func consumer(ch <-chan int) {
+    // range 自动检测关闭
+    for value := range ch {
+        fmt.Printf("Got: %d\n", value)
+    }
+    fmt.Println("Consumer done")
+}
+
+func main() {
+    ch := make(chan int)
+
+    go producer(ch)
+    consumer(ch)
+}
+```
+</UniversalEditor>
+
+### 检测关闭的 Channel
+
+<UniversalEditor title="逗号 OK 惯用语">
+```go !! go
+// Go - 检测关闭的 channel
+package main
+
+import "fmt"
+
+func main() {
+    ch := make(chan int, 2)
+    ch <- 1
+    ch <- 2
+    close(ch)
+
+    // 方法 1: range(自动关闭检测)
+    fmt.Println("Method 1: range")
+    for value := range ch {
+        fmt.Println(value)
+    }
+
+    // 方法 2: 逗号-ok 惯用语
+    ch2 := make(chan int, 2)
+    ch2 <- 1
+    ch2 <- 2
+    close(ch2)
+
+    fmt.Println("\nMethod 2: comma-ok")
+    for {
+        value, ok := <-ch2
+        if !ok {
+            fmt.Println("Channel closed")
+            break
+        }
+        fmt.Printf("Got: %d\n", value)
+    }
+
+    // 方法 3: select 使用逗号-ok
+    ch3 := make(chan int, 2)
+    ch3 <- 1
+    close(ch3)
+
+    fmt.Println("\nMethod 3: select")
+    for {
+        select {
+        case value, ok := <-ch3:
+            if !ok {
+                fmt.Println("Channel closed in select")
+                return
+            }
+            fmt.Printf("Got: %d\n", value)
+        }
+    }
+}
+```
+</UniversalEditor>
+
+### 关闭规则
+
+<UniversalEditor title="Channel 关闭规则">
+```go !! go
+// Go - Channel 关闭规则
+package main
+
+import "fmt"
+
+// 规则 1: 只有发送者应该关闭
+func sender(ch chan<- int) {
+    for i := 0; i < 5; i++ {
+        ch <- i
+    }
+    close(ch) // OK - 我们是发送者
+}
+
+// 规则 2: 不要在接收方关闭
+func receiver(ch <-chan int) {
+    // close(ch)  // 编译错误! 不能关闭只接收 channel
+    for value := range ch {
+        fmt.Println(value)
+    }
+}
+
+// 规则 3: 只关闭一次(否则 panic)
+func closeOnce(ch chan int) {
+    close(ch)
+    // close(ch)  // Panic: 关闭已关闭的 channel
+}
+
+// 规则 4: 向已关闭 channel 发送会 panic
+func sendToClosed(ch chan int) {
+    close(ch)
+    // ch <- 1  // Panic: 向已关闭 channel 发送
+}
+
+// 规则 5: 从已关闭 channel 接收成功
+func receiveFromClosed(ch chan int) {
+    ch <- 1
+    close(ch)
+
+    value, ok := <-ch  // 获取缓冲值
+    fmt.Printf("Value: %d, OK: %v\n", value, ok) // OK = true
+
+    value, ok = <-ch  // 零值，false
+    fmt.Printf("Value: %d, OK: %v\n", value, ok) // OK = false
+}
+
+// 规则 6: 如果不使用 range 则不必关闭
+func optionalClose(ch chan int) {
+    // 如果知道接收者会退出，关闭是可选的
+    // 但为了清理这是好习惯
+}
+```
+</UniversalEditor>
+
+## 遍历 Channel
+
+使用 `range` 自动接收直到 channel 关闭。
+
+<UniversalEditor title="遍历 Channel">
+```python !! py
+# Python - 迭代直到哨兵
+import queue
+
+def consumer(q):
+    while True:
+        item = q.get()
+        if item is None:  # 手动检查
+            break
+        process(item)
+```
+
+```go !! go
+// Go - 遍历 channel
+package main
+
+import "fmt"
+
+func producer(ch chan<- int) {
+    for i := 0; i < 5; i++ {
+        ch <- i
+    }
+    close(ch) // range 需要关闭才能退出
+}
+
+func consumer(ch <-chan int) {
+    // range 自动:
+    // 1. 从 channel 接收
+    // 2. 在 channel 关闭时退出
+    for value := range ch {
+        fmt.Printf("Received: %d\n", value)
+    }
+    fmt.Println("Done")
+}
+
+func main() {
+    ch := make(chan int)
+    go producer(ch)
+    consumer(ch)
+}
+```
+</UniversalEditor>
+
+## Select 语句
+
+`select` 等待多个 channel 操作。它就像 channel 的 switch。
+
+<UniversalEditor title="Select 语句">
+```python !! py
+# Python - 无直接等价物
+# 需要复杂的轮询或回调
+
+import queue
+import select
+
+def wait_for_multiple(q1, q2):
+    while True:
+        # 轮询队列(低效)
+        readable, _, _ = select.select([q1, q2], [], [], 0.1)
+        if readable:
+            if q1 in readable:
+                handle(q1.get())
+            if q2 in readable:
+                handle(q2.get())
+```
+
+```go !! go
+// Go - Select 语句
+package main
+
+import (
+    "fmt"
+    "time"
+)
+
+func main() {
+    ch1 := make(chan string)
+    ch2 := make(chan string)
+
+    go func() {
+        time.Sleep(100 * time.Millisecond)
+        ch1 <- "one"
+    }()
+
+    go func() {
+        time.Sleep(200 * time.Millisecond)
+        ch2 <- "two"
+    }()
+
+    // Select 等待任何 case 准备好
+    for i := 0; i < 2; i++ {
+        select {
+        case msg1 := <-ch1:
+            fmt.Println("Received from ch1:", msg1)
+        case msg2 := <-ch2:
+            fmt.Println("Received from ch2:", msg2)
+        }
+    }
+
+    fmt.Println("Done")
+}
+```
+</UniversalEditor>
+
+### Select 行为
+
+<UniversalEditor title="Select 规则">
+```go !! go
+// Go - Select 语句行为
+package main
+
+import (
+    "fmt"
+    "time"
+)
+
+func main() {
+    // 规则 1: 等待直到一个 case 准备好
+    ch1 := make(chan string)
+    ch2 := make(chan string)
+
+    go func() { time.Sleep(100 * time.Millisecond); ch1 <- "first" }()
+    go func() { time.Sleep(200 * time.Millisecond); ch2 <- "second" }()
+
+    select {
+    case msg1 := <-ch1:  // 这会赢
+        fmt.Println(msg1)
+    case msg2 := <-ch2:
+        fmt.Println(msg2)
+    }
+
+    // 规则 2: 如果多个准备好随机选择
+    ch3 := make(chan string, 1)
+    ch4 := make(chan string, 1)
+
+    ch3 <- "ready"
+    ch4 <- "also ready"
+
+    select {
+    case msg := <-ch3:
+        fmt.Println("ch3 won:", msg)  // 随机!
+    case msg := <-ch4:
+        fmt.Println("ch4 won:", msg)  // 随机!
+    }
+
+    // 规则 3: 如果没有准备好则阻塞
+    ch5 := make(chan string)
+    ch6 := make(chan string)
+
+    // select {
+    // case msg := <-ch5:  // 会永远阻塞!
+    //     fmt.Println(msg)
+    // case msg := <-ch6:
+    //     fmt.Println(msg)
+    // }
+
+    // 规则 4: Default case 使其非阻塞
+    select {
+    case msg := <-ch5:
+        fmt.Println(msg)
+    case msg := <-ch6:
+        fmt.Println(msg)
+    default:
+        fmt.Println("No channel ready")  // 这会执行
+    }
+}
+```
+</UniversalEditor>
+
+### 带超时的 Select
+
+<UniversalEditor title="Select 超时模式">
+```python !! py
+# Python - 使用 queue 的超时
+import queue
+
+try:
+    item = q.get(timeout=1.0)
+    print(item)
+except queue.Empty:
+    print("Timeout")
+```
+
+```go !! go
+// Go - 使用 select 的超时
+package main
+
+import (
+    "context"
+    "fmt"
+    "time"
+)
+
+func main() {
+    ch := make(chan string)
+
+    // 方法 1: time.After
+    select {
+    case msg := <-ch:
+        fmt.Println("Received:", msg)
+    case <-time.After(time.Second):
+        fmt.Println("Timeout after 1 second")
+    }
+
+    // 方法 2: time.NewTicker(用于重复超时)
+    ticker := time.NewTicker(500 * time.Millisecond)
+    defer ticker.Stop()
+
+    select {
+    case msg := <-ch:
+        fmt.Println("Received:", msg)
+    case <-ticker.C:
+        fmt.Println("Timeout after 500ms")
+    }
+
+    // 方法 3: context(实际代码中首选)
+    ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+    defer cancel()
+
+    select {
+    case msg := <-ch:
+        fmt.Println("Received:", msg)
+    case <-ctx.Done():
+        fmt.Println("Context timeout")
+    }
+}
+```
+</UniversalEditor>
+
+### 非阻塞操作
+
+<UniversalEditor title="非阻塞 Select">
+```python !! py
+# Python - 非阻塞队列操作
+import queue
+
+q = queue.Queue()
+
+# 非阻塞获取
+try:
+    item = q.get(block=False)
+except queue.Empty:
+    print("Empty")
+
+# 非阻塞放入
+try:
+    q.put(item, block=False)
+except queue.Full:
+    print("Full")
+```
+
+```go !! go
+// Go - 使用 default case 的非阻塞
+package main
+
+import "fmt"
+
+func main() {
+    ch := make(chan int)
+
+    // 非阻塞接收
+    select {
+    case value := <-ch:
+        fmt.Println("Received:", value)
+    default:
+        fmt.Println("No value available")
+    }
+
+    // 非阻塞发送
+    ch2 := make(chan int, 1)
+    ch2 <- 1
+    ch2 <- 2  // 缓冲区满
+
+    select {
+    case ch2 <- 3:
+        fmt.Println("Sent")
+    default:
+        fmt.Println("Channel full, can't send")
+    }
+
+    // 检查 channel 是否有值
+    value := 0
+    select {
+    case value = <-ch2:
+        fmt.Println("Got:", value)
+    default:
+        fmt.Println("No value")
+    }
+}
+```
+</UniversalEditor>
+
+## 常见 Channel 模式
+
+### Fan-Out: 分发工作
+
+<UniversalEditor title="Fan-Out 模式">
+```python !! py
+# Python - 工作分发
+import queue
+import threading
+
+work_queue = queue.Queue()
+
+def worker(id):
+    while True:
+        item = work_queue.get()
+        if item is None:
+            break
+        print(f"Worker {id} processing {item}")
+
+# Fan-out 到多个 worker
+for i in range(5):
+    threading.Thread(target=worker, args=(i,)).start()
+
+for item in work_items:
+    work_queue.put(item)
+```
+
+```go !! go
+// Go - Fan-out 模式
+package main
+
+import (
+    "fmt"
+    "sync"
+)
+
+func worker(id int, jobs <-chan int, wg *sync.WaitGroup) {
+    defer wg.Done()
+    for job := range jobs {
+        fmt.Printf("Worker %d processing job %d\n", id, job)
+    }
+}
+
+func main() {
+    jobs := make(chan int, 100)
+    var wg sync.WaitGroup
+
+    // Fan-out: 分发工作到 5 个 worker
+    for w := 1; w <= 5; w++ {
+        wg.Add(1)
+        go worker(w, jobs, &wg)
+    }
+
+    // 发送任务
+    for j := 1; j <= 10; j++ {
+        jobs <- j
+    }
+    close(jobs)
+
+    wg.Wait()
+    fmt.Println("All jobs processed")
+}
+```
+</UniversalEditor>
+
+### Fan-In: 聚合结果
+
+<UniversalEditor title="Fan-In 模式">
+```python !! py
+# Python - 聚合结果
+import queue
+import threading
+
+results = queue.Queue()
+
+def worker(id, work_queue, results):
+    for item in iter(work_queue.get, None):
+        result = process(item)
+        results.put(result)
+
+# Fan-in: 多个 worker 到单个结果队列
+workers = []
+for i in range(5):
+    t = threading.Thread(target=worker, args=(i, work, results))
+    workers.append(t)
+    t.start()
+
+# 收集结果
+while any(t.is_alive() for t in workers) or not results.empty():
+    result = results.get()
+    process_result(result)
+```
+
+```go !! go
+// Go - Fan-in 模式
+package main
+
+import (
+    "fmt"
+    "sync"
+)
+
+func worker(id int, jobs <-chan int, results chan<- int, wg *sync.WaitGroup) {
+    defer wg.Done()
+    for job := range jobs {
+        results <- job * 2  // Fan-in 到单个结果 channel
+    }
+}
+
+func main() {
+    jobs := make(chan int, 100)
+    results := make(chan int, 100)
+    var wg sync.WaitGroup
+
+    // Fan-out 到 workers
+    for w := 1; w <= 5; w++ {
+        wg.Add(1)
+        go worker(w, jobs, results, &wg)
+    }
+
+    // 发送任务
+    for j := 1; j <= 10; j++ {
+        jobs <- j
+    }
+    close(jobs)
+
+    // 所有 worker 完成时关闭结果
+    go func() {
+        wg.Wait()
+        close(results)
+    }()
+
+    // Fan-in: 收集所有结果
+    for result := range results {
+        fmt.Printf("Result: %d\n", result)
+    }
+}
+```
+</UniversalEditor>
+
+### Pipeline: 处理阶段
+
+<UniversalEditor title="Pipeline 模式">
+```python !! py
+# Python - 使用队列的 pipeline
+import queue
+
+def generator(out):
+    for i in range(10):
+        out.put(i)
+    out.put(None)  // 哨兵
+
+def stage1(in_queue, out_queue):
+    while True:
+        item = in_queue.get()
+        if item is None:
+            out_queue.put(None)
+            break
+        out_queue.put(item * 2)
+
+def stage2(in_queue, out_queue):
+    while True:
+        item = in_queue.get()
+        if item is None:
+            break
+        out_queue.put(item + 10)
+
+# 连接 pipeline
+q1 = queue.Queue()
+q2 = queue.Queue()
+q3 = queue.Queue()
+
+threading.Thread(target=generator, args=(q1,)).start()
+threading.Thread(target=stage1, args=(q1, q2)).start()
+threading.Thread(target=stage2, args=(q2, q3)).start()
+```
+
+```go !! go
+// Go - Pipeline 模式
+package main
+
+import "fmt"
+
+// 阶段 1: 生成数字
+func generator(out chan<- int) {
+    for i := 0; i < 10; i++ {
+        out <- i
+    }
+    close(out)
+}
+
+// 阶段 2: 乘以 2
+func multiply(in <-chan int, out chan<- int) {
+    for n := range in {
+        out <- n * 2
+    }
+    close(out)
+}
+
+// 阶段 3: 加 10
+func add(in <-chan int, out chan<- int) {
+    for n := range in {
+        out <- n + 10
+    }
+    close(out)
+}
+
+func main() {
+    // 创建 pipeline 阶段
+    ch1 := make(chan int)
+    ch2 := make(chan int)
+    ch3 := make(chan int)
+
+    // 启动 pipeline
+    go generator(ch1)
+    go multiply(ch1, ch2)
+    go add(ch2, ch3)
+
+    // 消费最终结果
+    for result := range ch3 {
+        fmt.Println(result)
+    }
+}
+```
+</UniversalEditor>
+
+### Or-Channel: 多取消源
+
+<UniversalEditor title="Or-Channel 模式">
+```go !! go
+// Go - Or-channel: 等待多个 channel
+package main
+
+import (
+    "fmt"
+    "time"
+)
+
+// orChannel 等待多个 channel，任意一个关闭时返回
+func orChannel(channels ...<-chan interface{}) <-chan interface{} {
+    switch len(channels) {
+    case 0:
+        return nil
+    case 1:
+        return channels[0]
+    default:
+        orDone := make(chan interface{})
+        go func() {
+            defer close(orDone)
+            switch len(channels) {
+            case 2:
+                select {
+                case <-channels[0]:
+                case <-channels[1]:
+                }
+            default:
+                select {
+                case <-channels[0]:
+                case <-channels[1]:
+                case <-channels[2]:
+                case <-orChannel(channels[3:]...):
+                }
+            }
+        }()
+        return orDone
+    }
+}
+
+func main() {
+    sig := func(after time.Duration) <-chan interface{} {
+        c := make(chan interface{})
+        go func() {
+            defer close(c)
+            time.Sleep(after)
+        }()
+        return c
+    }
+
+    start := time.Now()
+    <-orChannel(
+        sig(2*time.Hour),
+        sig(5*time.Minute),
+        sig(1*time.Second),
+        sig(1*time.Hour),
+        sig(2*time.Minute),
+    )
+
+    fmt.Printf("Done after %v\n", time.Since(start))
+}
+```
+</UniversalEditor>
+
+### Channel 作为信号量
+
+<UniversalEditor title="信号量模式">
+```python !! py
+# Python - 使用 threading 的信号量
+import threading
+
+semaphore = threading.Semaphore(5)  # 最多 5 个并发
+
+def worker():
+    with semaphore:
+        # 限制为 5 个并发 worker
+        do_work()
+```
+
+```go !! go
+// Go - Channel 作为信号量
+package main
+
+import (
+    "fmt"
+    "sync"
+    "time"
+)
+
+func main() {
+    // 有缓冲 channel 作为信号量
+    // 缓冲大小 = 最大并发操作数
+    semaphore := make(chan struct{}, 5)
+
+    var wg sync.WaitGroup
+
+    for i := 0; i < 10; i++ {
+        wg.Add(1)
+        go func(id int) {
+            defer wg.Done()
+
+            // 获取
+            semaphore <- struct{}{}
+            defer func() { <-semaphore }() // 释放
+
+            // 这里一次只有 5 个 goroutine
+            fmt.Printf("Worker %d starting\n", id)
+            time.Sleep(time.Second)
+            fmt.Printf("Worker %d done\n", id)
+        }(i)
+    }
+
+    wg.Wait()
+}
+```
+</UniversalEditor>
+
+## 最佳实践
+
+### 1. Channel 所有权
+
+<UniversalEditor title="Channel 所有权">
+```go !! go
+// Go - 清晰的 channel 所有权
+package main
+
+// 好的: 单所有者
+func producer() <-chan int {
+    ch := make(chan int)
+    go func() {
+        defer close(ch) // 所有者关闭
+        for i := 0; i < 5; i++ {
+            ch <- i
+        }
+    }()
+    return ch // 返回只接收给调用者
+}
+
+func main() {
+    ch := producer() // 我们只接收
+    for value := range ch {
+        println(value)
+    }
+}
+
+// 坏的: 所有权不明确
+func producer(ch chan int) {
+    // 谁关闭? 谁发送?
+    ch <- 1
+}
+```
+</UniversalEditor>
+
+### 2. 避免 Goroutine 泄漏
+
+<UniversalEditor title="防止 Goroutine 泄漏">
+```go !! go
+// Go - 防止 goroutine 泄漏
+package main
+
+import "time"
+
+// 坏的: Goroutine 泄漏
+func leak() {
+    ch := make(chan int)
+    go func() {
+        val := <-ch // 会永远等待!
+        println(val)
+    }()
+    // 函数返回，goroutine 泄漏
+}
+
+// 好的: 始终有退出条件
+func noLeak() {
+    ch := make(chan int)
+    done := make(chan struct{})
+
+    go func() {
+        select {
+        case val := <-ch:
+            println(val)
+        case <-done: // 可以退出
+            return
+        }
+    }()
+
+    // 信号清理
+    close(done)
+}
+
+// 好的: 使用 context
+func withContext() {
+    ctx, cancel := context.WithCancel(context.Background())
+    ch := make(chan int)
+
+    go func() {
+        select {
+        case val := <-ch:
+            println(val)
+        case <-ctx.Done(): // 取消时退出
+            return
+        }
+    }()
+
+    cancel() // 清理
+}
+```
+</UniversalEditor>
+
+### 3. 知道何时使用有缓冲 vs 无缓冲
+
+<UniversalEditor title="Channel 选择">
+```go !! go
+// Go - 何时使用有缓冲 vs 无缓冲
+package main
+
+// 使用无缓冲当:
+// - 需要同步/握手
+// - 接收者必须在发送者继续前准备好
+// - 想要强制严格排序
+
+func syncHandshake() {
+    ch := make(chan int) // 无缓冲
+
+    go func() {
+        ch <- 42  // 阻塞直到接收者准备好
+    }()
+
+    val := <-ch  // 保证我们准备好
+    println(val)
+}
+
+// 使用有缓冲当:
+// - 生产者和消费者以不同速率运行
+// - 想要解耦两者
+// - 小缓冲提高吞吐量
+
+func asyncProcessing() {
+    ch := make(chan int, 100) // 有缓冲
+
+    go func() {
+        for i := 0; i < 100; i++ {
+            ch <- i // 不阻塞(有缓冲)
+        }
+        close(ch)
+    }()
+
+    // 消费者以自己的节奏处理
+    for val := range ch {
+        process(val)
+    }
+}
+
+func process(val int) {}
+```
+</UniversalEditor>
+
+### 4. 只从发送方关闭
+
+<UniversalEditor title="关闭最佳实践">
+```go !! go
+// Go - 正确关闭 channel
+package main
+
+// 好的: 发送者关闭
+func producer(ch chan<- int) {
+    for i := 0; i < 5; i++ {
+        ch <- i
+    }
+    close(ch) // 发送者知道何时完成
+}
+
+func consumer(ch <-chan int) {
+    for val := range ch {
+        println(val)
+    }
+    // 不要关闭 - 只是接收者
+}
+
+// 好的: 如果不关闭要文档化
+func stream(ch chan<- int) {
+    // 调用者拥有并必须关闭
+    for i := 0; i < 5; i++ {
+        ch <- i
+    }
+    // 不关闭 - 在函数文档中说明
+}
+
+// 坏的: 从接收者关闭
+func badConsumer(ch <-chan int) {
+    // close(ch) // 反正编译错误
+}
+```
+</UniversalEditor>
+
+### 5. 处理关闭 Channel 的零值
+
+<UniversalEditor title="零值处理">
+```go !! go
+// Go - 关闭 channel 的零值
+package main
+
+import "fmt"
+
+func main() {
+    ch := make(chan int, 2)
+    ch <- 1
+    ch <- 2
+    close(ch)
+
+    // 接收首先获取缓冲值
+    val1, ok1 := <-ch
+    fmt.Printf("Value: %d, OK: %v\n", val1, ok1) // 1, true
+
+    val2, ok2 := <-ch
+    fmt.Printf("Value: %d, OK: %v\n", val2, ok2) // 2, true
+
+    // 后续接收获取零值
+    val3, ok3 := <-ch
+    fmt.Printf("Value: %d, OK: %v\n", val3, ok3) // 0, false
+
+    // 小心零值!
+    // 如果需要区分"无值"和"零值"，
+    // 使用指针 channel 或检查 ok 布尔值
+}
+```
+</UniversalEditor>
+
+## 总结
+
+### 核心概念
+
+1. **Channel**: Goroutine 之间的类型化数据管道
+2. **无缓冲**: 同步、阻塞通信
+3. **有缓冲**: 异步、基于容量的通信
+4. **方向**: 只发送、只接收、双向
+5. **关闭**: 信号不再有值，用 range 检测
+6. **Select**: 等待多个 channel 操作
+7. **Range**: 迭代直到 channel 关闭
+8. **Fan-out/Fan-in**: 分发和聚合工作
+9. **Pipeline**: 链式处理阶段
+10. **所有权**: 明确谁发送、接收和关闭
+
+### 常见模式
+
+- **无缓冲 channel**: 同步、握手
+- **有缓冲 channel**: 异步处理、信号量
+- **Fan-out**: 一个源到多个 worker
+- **Fan-in**: 聚合到一个接收者
+- **Pipeline**: 顺序处理阶段
+- **Worker pool**: 有界并发
+- **Or-channel**: 多取消源
+
+### 最佳实践
+
+1. 优先使用 channel 而非共享内存
+2. 使用无缓冲 channel 进行同步
+3. 使 channel 方向显式
+4. 只从发送方关闭 channel
+5. 使用 `range` 接收直到关闭
+6. 使用 `select` 进行多个操作
+7. 始终防止 goroutine 泄漏
+8. 保持缓冲区小
+
+### 与 Python 的比较
+
+| Python | Go |
+|--------|-----|
+| `queue.Queue()` | `make(chan Type)` |
+| `queue.get()` | `<-ch` |
+| `queue.put()` | `ch <-` |
+| `queue.Empty` 异常 | 逗号-ok 惯用语 |
+| 哨兵值(None) | `close(ch)` |
+| `select` 模块 | `select` 语句 |
+| 轮询 | 阻塞/select |
+| 无类型安全 | 类型化 channel |
+
+## 练习
+
+1. 实现一个 3 阶段的 pipeline:
+   - 阶段 1: 生成数字 1-100
+   - 阶段 2: 过滤偶数
+   - 阶段 3: 对数字平方
+   - 收集最终结果
+
+2. 构建一个 worker pool:
+   - 有 10 个 worker
+   - 处理 1000 个任务
+   - 通过 channel 返回结果
+   - 测量执行时间
+
+3. 创建超时模式:
+   - 操作应在 2 秒内完成
+   - 超时返回错误
+   - 使用 context 取消
+
+4. 实现 fan-in 模式:
+   - 5 个生产者生成数据
+   - 1 个消费者收集所有数据
+   - 使用 channel 协调
+
+5. 构建限流器:
+   - 允许每秒 N 次操作
+   - 如果超过速率则阻塞
+   - 使用 ticker + channel
+
+## 下一步
+
+下一个模块: **Select 与并发模式** - 使用 select 语句和 channel 的高级模式和惯用语。

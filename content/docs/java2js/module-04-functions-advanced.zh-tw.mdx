@@ -1,0 +1,976 @@
+---
+title: "Module 4: Functions Advanced"
+description: "Master closures, higher-order functions, currying, and advanced function patterns"
+---
+
+## Module 4: Functions Advanced
+
+在掌握了函數基礎後，讓我們深入探討使 JavaScript 函數真正強大的進階概念。Closures（閉包）、higher-order functions（高階函數）、currying（柯里化）等模式將改變你思考程式設計的方式。
+
+## Learning Objectives
+
+完成本模組後，你將：
+✅ 深入理解 closures 及其用途
+✅ 掌握 higher-order functions
+✅ 學習 currying 和 partial application
+✅ 理解 memoization 技術
+✅ 掌握遞迴模式
+✅ 了解 generator functions
+
+## Closures
+
+Closures 是 JavaScript 中最重要且最強大的概念之一：
+
+<UniversalEditor title="Closures Comparison">
+```java !! java
+// Java - Anonymous classes/closures with "effectively final"
+public class Greeter {
+    public Function<String, String> createGreeter(String greeting) {
+        // greeting must be effectively final
+        return name -> greeting + ", " + name + "!";
+    }
+
+    public static void main(String[] args) {
+        Greeter greeter = new Greeter();
+        Function<String, String> sayHi = greeter.createGreeter("Hi");
+        System.out.println(sayHi.apply("Alice"));  // "Hi, Alice!"
+    }
+}
+
+// Java's closure is limited compared to JavaScript
+```
+
+```javascript !! js
+// JavaScript - True closures
+function createGreeter(greeting) {
+    // greeting is "closed over" - accessible even after createGreeter returns
+    return function(name) {
+        console.log(`${greeting}, ${name}!`);
+    };
+}
+
+const sayHi = createGreeter("Hi");
+const sayHello = createGreeter("Hello");
+
+sayHi("Alice");    // "Hi, Alice!"
+sayHello("Bob");   // "Hello, Bob!"
+
+// Each closure has its own scope
+console.log(sayHi.greeting);  // undefined（private）
+
+// Closure with mutable state
+function createCounter() {
+    let count = 0;  // Private variable
+
+    return {
+        increment() {
+            count++;
+            return count;
+        },
+        decrement() {
+            count--;
+            return count;
+        },
+        getCount() {
+            return count;
+        }
+    };
+}
+
+const counter1 = createCounter();
+const counter2 = createCounter();
+
+console.log(counter1.increment());  // 1
+console.log(counter1.increment());  // 2
+console.log(counter2.increment());  // 1（separate closure）
+console.log(counter1.getCount());   // 2
+console.log(counter2.getCount());   // 1
+```
+</UniversalEditor>
+
+### Closure Patterns
+
+<UniversalEditor title="Closure Patterns">
+```java !! java
+// Java - Need classes for private state
+public class User {
+    private String name;
+    private int age;
+
+    public User(String name, int age) {
+        this.name = name;
+        this.age = age;
+    }
+
+    public String getName() { return name; }
+    public void setName(String name) { this.name = name; }
+    public int getAge() { return age; }
+}
+```
+
+```javascript !! js
+// JavaScript - Private state with closures
+function createUser(name, age) {
+    // Private variables
+    let _name = name;
+    let _age = age;
+
+    return {
+        getName() {
+            return _name;
+        },
+        setName(newName) {
+            _name = newName;
+        },
+        getAge() {
+            return _age;
+        },
+        setAge(newAge) {
+            if (newAge > 0) {
+                _age = newAge;
+            }
+        },
+        // Computed property
+        getDetails() {
+            return `${_name} is ${_age} years old`;
+        }
+    };
+}
+
+const user = createUser("Alice", 25);
+console.log(user.getName());     // "Alice"
+console.log(user._name);         // undefined（truly private）
+user.setName("Bob");
+console.log(user.getName());     // "Bob"
+
+// Closure for configuration
+function createMultiplier(multiplier) {
+    return function(number) {
+        return number * multiplier;
+    };
+}
+
+const double = createMultiplier(2);
+const triple = createMultiplier(3);
+const quadruple = createMultiplier(4);
+
+console.log(double(5));      // 10
+console.log(triple(5));      // 15
+console.log(quadruple(5));   // 20
+```
+</UniversalEditor>
+
+### Common Closure Pitfalls
+
+<UniversalEditor title="Closure Pitfalls">
+```javascript !! js
+// Pitfall 1: Loop closures
+// Problem
+const handlers = [];
+for (var i = 0; i < 3; i++) {
+    handlers.push(function() {
+        console.log(i);
+    });
+}
+
+handlers[0]();  // 3（not 0!）
+handlers[1]();  // 3（not 1!）
+handlers[2]();  // 3（not 2!）
+
+// Solution 1: Use let（block scope）
+const handlers2 = [];
+for (let i = 0; i < 3; i++) {
+    handlers2.push(function() {
+        console.log(i);
+    });
+}
+handlers2[0]();  // 0
+handlers2[1]();  // 1
+handlers2[2]();  // 2
+
+// Solution 2: IIFE（for var）
+const handlers3 = [];
+for (var i = 0; i < 3; i++) {
+    (function(j) {
+        handlers3.push(function() {
+            console.log(j);
+        });
+    })(i);
+}
+
+handlers3[0]();  // 0
+handlers3[1]();  // 1
+handlers3[2]();  // 2
+
+// Pitfall 2: Memory leaks
+function createElement() {
+    const element = { data: "large data" };
+
+    return function() {
+        console.log("Element created");
+        // If element is referenced here, it won't be garbage collected
+        console.log(element.data);
+    };
+}
+
+// Better: Don't capture unnecessary data
+function createElementBetter() {
+    const element = { data: "large data" };
+
+    // Extract only what's needed
+    const data = element.data;
+
+    return function() {
+        console.log("Element created");
+        console.log(data);  // Only capture the string, not whole object
+    };
+}
+```
+</UniversalEditor>
+
+## Higher-Order Functions
+
+接受或返回函數的函數：
+
+<UniversalEditor title="Higher-Order Functions">
+```java !! java
+// Java - Functional interfaces
+@FunctionalInterface
+interface Predicate<T> {
+    boolean test(T t);
+}
+
+public class Filter {
+    public static List<Integer> filter(List<Integer> list, Predicate<Integer> predicate) {
+        List<Integer> result = new ArrayList<>();
+        for (Integer item : list) {
+            if (predicate.test(item)) {
+                result.add(item);
+            }
+        }
+        return result;
+    }
+
+    public static void main(String[] args) {
+        List<Integer> numbers = Arrays.asList(1, 2, 3, 4, 5, 6);
+        List<Integer> evens = filter(numbers, n -> n % 2 == 0);
+        System.out.println(evens);  // [2, 4, 6]
+    }
+}
+```
+
+```javascript !! js
+// JavaScript - Native higher-order functions
+const numbers = [1, 2, 3, 4, 5, 6];
+
+// Built-in HOFs
+const evens = numbers.filter(n => n % 2 === 0);
+console.log(evens);  // [2, 4, 6]
+
+// Custom HOF
+function filter(array, predicate) {
+    const result = [];
+    for (const item of array) {
+        if (predicate(item)) {
+            result.push(item);
+        }
+    }
+    return result;
+}
+
+const odds = filter(numbers, n => n % 2 !== 0);
+console.log(odds);  // [1, 3, 5]
+
+// HOF that returns a function
+function createComparator(property) {
+    return function(a, b) {
+        if (a[property] < b[property]) return -1;
+        if (a[property] > b[property]) return 1;
+        return 0;
+    };
+}
+
+const users = [
+    { name: "Alice", age: 25 },
+    { name: "Bob", age: 20 },
+    { name: "Charlie", age: 30 }
+];
+
+users.sort(createComparator("age"));
+console.log(users);
+// [
+//   { name: "Bob", age: 20 },
+//   { name: "Alice", age: 25 },
+//   { name: "Charlie", age: 30 }
+// ]
+
+// Practical: Memoization HOF
+function memoize(fn) {
+    const cache = new Map();
+
+    return function(...args) {
+        const key = JSON.stringify(args);
+
+        if (cache.has(key)) {
+            console.log("From cache:", key);
+            return cache.get(key);
+        }
+
+        const result = fn.apply(this, args);
+        cache.set(key, result);
+        return result;
+    };
+}
+
+function slowFibonacci(n) {
+    if (n <= 1) return n;
+    return slowFibonacci(n - 1) + slowFibonacci(n - 2);
+}
+
+const fibonacci = memoize(slowFibonacci);
+console.log(fibonacci(40));  // 102334155（fast with cache）
+console.log(fibonacci(40));  // From cache, instant
+```
+</UniversalEditor>
+
+## Currying
+
+將接受多個參數的函數轉換為一系列接受單一參數的函數：
+
+<UniversalEditor title="Currying">
+```java !! java
+// Java - No built-in currying
+// Need to manually create curried versions
+public class Calculator {
+    public int add(int a, int b) {
+        return a + b;
+    }
+
+    public Function<Integer, Integer> addCurried(int a) {
+        return b -> a + b;
+    }
+
+    public static void main(String[] args) {
+        Calculator calc = new Calculator();
+        Function<Integer, Integer> addFive = calc.addCurried(5);
+        System.out.println(addFive.apply(3));  // 8
+    }
+}
+```
+
+```javascript !! js
+// JavaScript - Currying
+function add(a, b, c) {
+    return a + b + c;
+}
+
+// Manual currying
+function curriedAdd(a) {
+    return function(b) {
+        return function(c) {
+            return a + b + c;
+        };
+    };
+}
+
+console.log(curriedAdd(1)(2)(3));  // 6
+
+// Arrow function currying（more concise）
+const curriedAdd2 = a => b => c => a + b + c;
+console.log(curriedAdd2(1)(2)(3));  // 6
+
+// Partial application
+const addFive = curriedAdd2(5);
+const addFiveAndThree = addFive(3);
+console.log(addFiveAndThree(2));  // 10
+
+// Generic curry function
+function curry(fn) {
+    return function curried(...args) {
+        if (args.length >= fn.length) {
+            return fn.apply(this, args);
+        }
+        return function(...more) {
+            return curried.apply(this, [...args, ...more]);
+        };
+    };
+}
+
+const curriedSum = curry((a, b, c, d) => a + b + c + d);
+console.log(curriedSum(1)(2)(3)(4));  // 10
+console.log(curriedSum(1, 2)(3, 4));  // 10
+console.log(curriedSum(1, 2, 3, 4));  // 10
+
+// Practical: Curried API
+function fetch(url) {
+    return function(method) {
+        return function(body) {
+            console.log(`Fetching ${url} with ${method}`, body);
+            // Would actually fetch here
+        };
+    };
+}
+
+const getUser = fetch("/api/users")("GET")(null);
+const createUser = fetch("/api/users")("POST")({ name: "Alice" });
+
+getUser();
+// "Fetching /api/users with GET null"
+
+createUser();
+// "Fetching /api/users with POST { name: 'Alice' }"
+
+// Practical: Event handlers
+function handleEvent(eventType) {
+    return function(selector) {
+        return function(callback) {
+            document.querySelectorAll(selector).forEach(el => {
+                el.addEventListener(eventType, callback);
+            });
+        };
+    };
+}
+
+const onClick = handleEvent("click");
+const onButtons = onClick("button");
+const logClick = onButtons(e => console.log("Button clicked:", e.target));
+```
+</UniversalEditor>
+
+## Partial Application
+
+與 currying 類似，但更靈活：
+
+<UniversalEditor title="Partial Application">
+```java !! java
+// Java - Method references achieve partial application
+public class Greeter {
+    public String greet(String greeting, String name) {
+        return greeting + ", " + name + "!";
+    }
+
+    // Cannot partially apply without creating new methods
+}
+```
+
+```javascript !! js
+// JavaScript - Partial application with bind
+function greet(greeting, name, punctuation) {
+    return `${greeting}, ${name}${punctuation}`;
+}
+
+const sayHello = greet.bind(null, "Hello");
+console.log(sayHello("Alice", "!"));  // "Hello, Alice!"
+
+const sayHelloAlice = sayHello.bind(null, "Alice");
+console.log(sayHelloAlice("~"));  // "Hello, Alice~"
+
+// Partial application function
+function partial(fn, ...presetArgs) {
+    return function(...laterArgs) {
+        return fn.apply(this, [...presetArgs, ...laterArgs]);
+    };
+}
+
+const add = (a, b, c) => a + b + c;
+const addFiveAndThree = partial(add, 5, 3);
+console.log(addFiveAndThree(2));  // 10
+
+// Practical: Configuration
+function fetch(url, options, callback) {
+    console.log(`Fetching ${url}`, options);
+    callback(null, { data: "response" });
+}
+
+const apiFetch = partial(fetch, "https://api.example.com");
+const apiGet = partial(apiFetch, { method: "GET" });
+
+apiGet((err, data) => {
+    console.log("Got:", data);
+});
+// "Fetching https://api.example.com { method: 'GET' }"
+// "Got: { data: 'response' }"
+```
+</UniversalEditor>
+
+## Memoization
+
+快取函數結果以提高效能：
+
+<UniversalEditor title="Memoization">
+```java !! java
+// Java - Manual memoization
+public class Fibonacci {
+    private Map<Integer, Long> cache = new HashMap<>();
+
+    public long fib(int n) {
+        if (n <= 1) return n;
+
+        if (cache.containsKey(n)) {
+            return cache.get(n);
+        }
+
+        long result = fib(n - 1) + fib(n - 2);
+        cache.put(n, result);
+        return result;
+    }
+}
+```
+
+```javascript !! js
+// JavaScript - Memoization closure
+function memoize(fn) {
+    const cache = new Map();
+
+    return function(...args) {
+        const key = JSON.stringify(args);
+
+        if (cache.has(key)) {
+            return cache.get(key);
+        }
+
+        const result = fn.apply(this, args);
+        cache.set(key, result);
+        return result;
+    };
+}
+
+// Expensive function
+function fibonacci(n) {
+    if (n <= 1) return n;
+    return fibonacci(n - 1) + fibonacci(n - 2);
+}
+
+// Without memoization（very slow）
+// console.log(fibonacci(40));  // Takes seconds
+
+// With memoization（instant）
+const fastFibonacci = memoize(fibonacci);
+console.log(fastFibonacci(40));  // 102334155（instant）
+console.log(fastFibonacci(40));  // From cache
+
+// Memoization with multiple arguments
+function add(a, b, c) {
+    console.log("Computing...");
+    return a + b + c;
+}
+
+const memoizedAdd = memoize(add);
+console.log(memoizedAdd(1, 2, 3));  // "Computing..." then 6
+console.log(memoizedAdd(1, 2, 3));  // 6（no "Computing..."）
+
+// Memoization with size limit
+function memoizeLimited(fn, maxSize = 100) {
+    const cache = new Map();
+
+    return function(...args) {
+        const key = JSON.stringify(args);
+
+        if (cache.has(key)) {
+            return cache.get(key);
+        }
+
+        if (cache.size >= maxSize) {
+            const firstKey = cache.keys().next().value;
+            cache.delete(firstKey);
+        }
+
+        const result = fn.apply(this, args);
+        cache.set(key, result);
+        return result;
+    };
+}
+
+// Practical: API memoization
+function memoizedFetch(url) {
+    const cache = new Map();
+
+    return async function() {
+        if (cache.has(url)) {
+            console.log("From cache:", url);
+            return cache.get(url);
+        }
+
+        console.log("Fetching:", url);
+        const response = await fetch(url);
+        const data = await response.json();
+        cache.set(url, data);
+        return data;
+    };
+}
+
+const getUser = memoizedFetch("/api/user/1");
+// First call: "Fetching: /api/user/1"
+// Second call: "From cache: /api/user/1"
+```
+</UniversalEditor>
+
+## Recursion
+
+JavaScript 中的遞迴與 Java 類似，但有一些注意事項：
+
+<UniversalEditor title="Recursion">
+```java !! java
+// Java - Recursion
+public class Recursion {
+    public int factorial(int n) {
+        if (n <= 1) return 1;
+        return n * factorial(n - 1);
+    }
+
+    public int fibonacci(int n) {
+        if (n <= 1) return n;
+        return fibonacci(n - 1) + fibonacci(n - 2);
+    }
+
+    // Tail recursion（Java doesn't optimize）
+    public int factorialTail(int n, int accumulator) {
+        if (n <= 1) return accumulator;
+        return factorialTail(n - 1, n * accumulator);
+    }
+}
+```
+
+```javascript !! js
+// JavaScript - Recursion
+function factorial(n) {
+    if (n <= 1) return 1;
+    return n * factorial(n - 1);
+}
+
+console.log(factorial(5));  // 120
+
+// Tail recursion（not optimized in most JS engines）
+function factorialTail(n, accumulator = 1) {
+    if (n <= 1) return accumulator;
+    return factorialTail(n - 1, n * accumulator);
+}
+
+console.log(factorialTail(5));  // 120
+
+// Practical: Deep clone
+function deepClone(obj) {
+    if (obj === null || typeof obj !== "object") {
+        return obj;
+    }
+
+    if (Array.isArray(obj)) {
+        return obj.map(deepClone);
+    }
+
+    const cloned = {};
+    for (const key in obj) {
+        if (obj.hasOwnProperty(key)) {
+            cloned[key] = deepClone(obj[key]);
+        }
+    }
+    return cloned;
+}
+
+// Practical: Tree traversal
+const tree = {
+    value: 1,
+    left: {
+        value: 2,
+        left: { value: 4 },
+        right: { value: 5 }
+    },
+    right: {
+        value: 3,
+        left: { value: 6 },
+        right: { value: 7 }
+    }
+};
+
+function inOrderTraversal(node, result = []) {
+    if (!node) return result;
+
+    inOrderTraversal(node.left, result);
+    result.push(node.value);
+    inOrderTraversal(node.right, result);
+
+    return result;
+}
+
+console.log(inOrderTraversal(tree));  // [4, 2, 5, 1, 6, 3, 7]
+
+// ⚠️ Stack overflow risk
+function recurseDeeply(n) {
+    if (n <= 0) return "done";
+    return recurseDeeply(n - 1);
+}
+
+// recurseDeeply(100000);  // Stack overflow!
+
+// Solution: Trampoline（covered in generators section）
+```
+</UniversalEditor>
+
+## Generator Functions
+
+Generators 提供了一種特殊的函數，可以暫停和恢復執行：
+
+<UniversalEditor title="Generators">
+```java !! java
+// Java - Iterators
+public class Range implements Iterable<Integer> {
+    private int start;
+    private int end;
+
+    public Range(int start, int end) {
+        this.start = start;
+        this.end = end;
+    }
+
+    @Override
+    public Iterator<Integer> iterator() {
+        return new Iterator<Integer>() {
+            private int current = start;
+
+            @Override
+            public boolean hasNext() {
+                return current < end;
+            }
+
+            @Override
+            public Integer next() {
+                return current++;
+            }
+        };
+    }
+
+    public static void main(String[] args) {
+        Range range = new Range(0, 5);
+        for (int i : range) {
+            System.out.println(i);
+        }
+    }
+}
+```
+
+```javascript !! js
+// JavaScript - Generators
+function* range(start, end) {
+    for (let i = start; i < end; i++) {
+        yield i;
+    }
+}
+
+for (const n of range(0, 5)) {
+    console.log(n);  // 0, 1, 2, 3, 4
+}
+
+// Generator object
+const gen = range(0, 5);
+console.log(gen.next());  // { value: 0, done: false }
+console.log(gen.next());  // { value: 1, done: false }
+console.log(gen.next());  // { value: 2, done: false }
+console.log(gen.next());  // { value: 3, done: false }
+console.log(gen.next());  // { value: 4, done: false }
+console.log(gen.next());  // { value: undefined, done: true }
+
+// Infinite sequence
+function* fibonacci() {
+    let [prev, curr] = [0, 1];
+    while (true) {
+        yield curr;
+        [prev, curr] = [curr, prev + curr];
+    }
+}
+
+const fib = fibonacci();
+console.log(fib.next().value);  // 1
+console.log(fib.next().value);  // 1
+console.log(fib.next().value);  // 2
+console.log(fib.next().value);  // 3
+console.log(fib.next().value);  // 5
+
+// Practical: State machines
+function* trafficLight() {
+    while (true) {
+        yield "red";
+        yield "yellow";
+        yield "green";
+    }
+}
+
+const light = trafficLight();
+console.log(light.next().value);  // "red"
+console.log(light.next().value);  // "yellow"
+console.log(light.next().value);  // "green"
+console.log(light.next().value);  // "red"
+
+// Practical: Async iteration（simplified）
+function* fetchUsers(ids) {
+    for (const id of ids) {
+        // In real code, would yield fetch promise
+        yield { id, name: `User ${id}` };
+    }
+}
+
+const users = fetchUsers([1, 2, 3]);
+for (const user of users) {
+    console.log(user);
+}
+// { id: 1, name: "User 1" }
+// { id: 2, name: "User 2" }
+// { id: 3, name: "User 3" }
+```
+</UniversalEditor>
+
+## Best Practices
+
+<UniversalEditor title="Advanced Function Best Practices">
+```javascript !! js
+// 1. Use closures for encapsulation
+function createStack() {
+    const items = [];
+
+    return {
+        push(item) {
+            items.push(item);
+        },
+        pop() {
+            return items.pop();
+        },
+        isEmpty() {
+            return items.length === 0;
+        }
+    };
+}
+
+// 2. Use HOFs for abstraction
+const withLogging = (fn) => (...args) => {
+    console.log("Calling:", fn.name, args);
+    const result = fn.apply(this, args);
+    console.log("Result:", result);
+    return result;
+};
+
+const add = (a, b) => a + b;
+const loggedAdd = withLogging(add);
+loggedAdd(5, 3);
+// "Calling: add [5, 3]"
+// "Result: 8"
+
+// 3. Memoize expensive operations
+const memoizedExpensive = memoize(expensiveOperation);
+
+// 4. Use generators for sequences
+function* naturalNumbers() {
+    let n = 1;
+    while (true) {
+        yield n++;
+    }
+}
+
+// 5. Currying for configuration
+const connect = curry((host, port, ssl) => ({
+    host,
+    port,
+    ssl,
+    url: `${ssl ? "https" : "http"}://${host}:${port}`
+}));
+
+const localhost = connect("localhost");
+const api = localhost(3000);
+console.log(api(false));  // { host: "localhost", port: 3000, ssl: false, url: "..." }
+
+// 6. Avoid closures in hot paths（performance）
+function createHandlerClosure() {
+    let count = 0;
+    return function() {
+        count++;
+        // Closure lookup has small overhead
+    };
+}
+
+// Better: Use object
+function createHandlerObject() {
+    return {
+        count: 0,
+        handle() {
+            this.count++;
+            // Property access is faster
+        }
+    };
+}
+```
+</UniversalEditor>
+
+## Exercises
+
+### Exercise 1: Create Counter with Closure
+```javascript
+function createCounter(start) {
+    // Return object with increment, decrement, reset methods
+}
+```
+
+### Exercise 2: Curry Function
+```javascript
+function multiply(a, b, c) {
+    return a * b * c;
+}
+
+// Create curried version that can be called like:
+// curriedMultiply(2)(3)(4)  // 24
+// curriedMultiply(2, 3)(4)  // 24
+```
+
+### Exercise 3: Memoize
+```javascript
+// Implement memoize function that caches results
+function memoize(fn) {
+    // Implementation
+}
+```
+
+### Exercise 4: Generator Range
+```javascript
+// Create generator that yields range of numbers
+function* range(start, end, step = 1) {
+    // Implementation
+}
+```
+
+## Summary
+
+### Key Takeaways
+
+1. **Closures:**
+   - Functions remember their scope
+   - Enable private state
+   - Powerful but can cause memory leaks
+
+2. **Higher-Order Functions:**
+   - Accept/return functions
+   - Enable abstraction
+   - Core of functional programming
+
+3. **Currying & Partial Application:**
+   - Transform multi-arg functions
+   - Enable configuration
+   - Improve code reusability
+
+4. **Memoization:**
+   - Cache expensive operations
+   - Trade memory for speed
+   - Use with pure functions
+
+5. **Recursion & Generators:**
+   - Recursion for divide-and-conquer
+   - Generators for sequences
+   - Both enable elegant solutions
+
+## What's Next?
+
+你已經掌握了進階函數概念！接下來是 **Module 5: Arrays and Collections**，我們將探討：
+
+- Array methods in depth
+- Set and Map data structures
+- Array-like objects
+- Typed arrays
+- Collection performance
+
+準備好深入學習 JavaScript 集合了嗎？讓我們繼續！

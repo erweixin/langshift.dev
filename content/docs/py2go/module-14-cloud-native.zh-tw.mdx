@@ -1,0 +1,682 @@
+---
+title: "Module 14: 雲端原生開發"
+description: "使用 Go 和 Kubernetes 建構雲端原生應用"
+---
+
+## 簡介
+
+Go 是雲端原生生態系統的語言。Kubernetes、Docker、Terraform 和許多其他雲端工具都是用 Go 編寫的。本模組涵蓋雲端原生開發模式。
+
+## 為什麼 Go 適合雲端原生?
+
+Go 在雲端原生開發中的優勢:
+- **小體積二進位** - 易於容器化
+- **快速編譯** - 快速迭代
+- **低記憶體佔用** - 高效的資源使用
+- **靜態連結** - 無相依性
+- **交叉編譯** - 在任何地方建構,部署到任何地方
+
+## Kubernetes 控制器
+
+<UniversalEditor title="Kubernetes Operator 模式">
+```python !! py
+# Python - 使用 kopf 的 Kubernetes operator
+import kopf
+
+@kopf.on.create('myapp.example.com', 'v1', 'myapp')
+def create_fn(body, spec, **kwargs):
+    print(f"Creating MyApp: {body.metadata.name}")
+
+    # 建立資源
+    # 處理邏輯
+    return {'created': True}
+
+@kopf.on.update('myapp.example.com', 'v1', 'myapp')
+def update_fn(body, spec, **kwargs):
+    print(f"Updating MyApp: {body.metadata.name}")
+    return {'updated': True}
+```
+
+```go !! go
+// Go - 使用 controller-runtime 的 Kubernetes controller
+package main
+
+import (
+    "context"
+    "fmt"
+
+    "k8s.io/apimachinery/pkg/runtime"
+    ctrl "sigs.k8s.io/controller-runtime"
+    "sigs.k8s.io/controller-runtime/pkg/client"
+)
+
+// MyApp reconciler
+type MyAppReconciler struct {
+    client.Client
+    Scheme *runtime.Scheme
+}
+
+func (r *MyAppReconciler) Reconcile(
+    ctx context.Context,
+    req ctrl.Request,
+) (ctrl.Result, error) {
+    fmt.Printf("Reconciling MyApp: %s\n", req.Name)
+
+    // 取得資源
+    // 檢查狀態
+    // 建立/更新資源
+
+    return ctrl.Result{}, nil
+}
+
+func (r *MyAppReconciler) SetupWithManager(mgr ctrl.Manager) error {
+    return ctrl.NewControllerManagedBy(mgr).
+        For(&myappv1.MyApp{}).
+        Complete(r)
+}
+
+func main() {
+    mgr, err := ctrl.NewManager(
+        ctrl.GetConfigOrDie(),
+        ctrl.Options{
+            Scheme: scheme,
+        },
+    )
+    if err != nil {
+        panic(err)
+    }
+
+    reconciler := &MyAppReconciler{
+        Client: mgr.GetClient(),
+        Scheme: mgr.GetScheme(),
+    }
+
+    if err := reconciler.SetupWithManager(mgr); err != nil {
+        panic(err)
+    }
+
+    mgr.Start(ctrl.SetupSignalHandler())
+}
+```
+</UniversalEditor>
+
+## 自訂資源定義
+
+<UniversalEditor title="CRD 定義">
+```yaml
+# CRD YAML (兩者相同)
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: myapps.myapp.example.com
+spec:
+  group: myapp.example.com
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                replicas:
+                  type: integer
+                image:
+                  type: string
+  scope: Namespaced
+  names:
+    plural: myapps
+    singular: myapp
+    kind: MyApp
+    shortNames:
+    - ma
+```
+
+```go
+// Go - CRD Go 類型
+package v1
+
+import (
+    metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
+
+// +genclient
+// +kubebuilder:object:root=true
+
+type MyApp struct {
+    metav1.TypeMeta   `json:",inline"`
+    metav1.ObjectMeta `json:"metadata,omitempty"`
+
+    Spec   MyAppSpec   `json:"spec,omitempty"`
+    Status MyAppStatus `json:"status,omitempty"`
+}
+
+type MyAppSpec struct {
+    Replicas int    `json:"replicas"`
+    Image    string `json:"image"`
+}
+
+type MyAppStatus struct {
+    ReadyReplicas int `json:"readyReplicas"`
+}
+
+// +kubebuilder:object:root=true
+
+type MyAppList struct {
+    metav1.TypeMeta `json:",inline"`
+    metav1.ListMeta `json:"metadata,omitempty"`
+
+    Items []MyApp `json:"items"`
+}
+
+func init() {
+    SchemeBuilder.Register(&MyApp{}, &MyAppList{})
+}
+```
+</UniversalEditor>
+
+## ConfigMap 和 Secret
+
+<UniversalEditor title="ConfigMap 和 Secret">
+```python !! py
+# Python - 從環境或檔案讀取
+import os
+from kubernetes import client, config
+
+config.load_kube_config()
+v1 = client.CoreV1Api()
+
+# 取得 ConfigMap
+cm = v1.read_namespaced_config_map(
+    'app-config',
+    'default'
+)
+print(cm.data)
+
+# 取得 Secret
+secret = v1.read_namespaced_secret(
+    'app-secret',
+    'default'
+)
+print(secret.data)
+```
+
+```go !! go
+// Go - 監聽 ConfigMaps 和 Secrets
+package main
+
+import (
+    "context"
+    "fmt"
+
+    corev1 "k8s.io/api/core/v1"
+    "k8s.io/apimachinery/pkg/labels"
+    "sigs.k8s.io/controller-runtime/pkg/client"
+)
+
+func watchConfig(ctx context.Context, c client.Client) error {
+    configMap := &corev1.ConfigMap{}
+    err := c.Get(
+        ctx,
+        client.ObjectKey{
+            Name:      "app-config",
+            Namespace: "default",
+        },
+        configMap,
+    )
+
+    if err != nil {
+        return err
+    }
+
+    fmt.Println("Config data:", configMap.Data)
+
+    // 監聽變更
+    watcher, err := c.Watch(
+        ctx,
+        &corev1.ConfigMap{},
+        client.InNamespace("default"),
+    )
+    if err != nil {
+        return err
+    }
+
+    for event := range watcher.ResultChan() {
+        cm := event.Object.(*corev1.ConfigMap)
+        fmt.Printf("Config updated: %s\n", cm.Name)
+    }
+
+    return nil
+}
+```
+</UniversalEditor>
+
+## 探針(Liveness、Readiness、Startup)
+
+<UniversalEditor title="健康探針">
+```python !! py
+# Python - Flask 健康端點
+from flask import Flask
+
+app = Flask(__name__)
+
+@app.route('/healthz')
+def liveness():
+    # 存活探針 - 應用是否存活?
+    return {'status': 'alive'}, 200
+
+@app.route('/readyz')
+def readiness():
+    # 就緒探針 - 是否可以處理流量?
+    try:
+        db.ping()
+        return {'status': 'ready'}, 200
+    except:
+        return {'status': 'not ready'}, 503
+
+@app.route('/startupz')
+def startup():
+    # 啟動探針 - 應用是否已啟動?
+    return {'status': 'started'}, 200
+```
+
+```go !! go
+// Go - 健康探針處理器
+package main
+
+import (
+    "database/sql"
+    "net/http"
+)
+
+func livenessHandler(w http.ResponseWriter, r *http.Request) {
+    w.WriteHeader(http.StatusOK)
+    w.Write([]byte("OK"))
+}
+
+func readinessHandler(db *sql.DB) http.HandlerFunc {
+    return func(w http.ResponseWriter, r *http.Request) {
+        if err := db.Ping(); err != nil {
+            http.Error(w, "Database not ready", http.StatusServiceUnavailable)
+            return
+        }
+
+        w.WriteHeader(http.StatusOK)
+        w.Write([]byte("OK"))
+    }
+}
+
+func startupHandler(isReady *bool) http.HandlerFunc {
+    return func(w http.ResponseWriter, r *http.Request) {
+        if !*isReady {
+            http.Error(w, "Starting up", http.StatusServiceUnavailable)
+            return
+        }
+
+        w.WriteHeader(http.StatusOK)
+        w.Write([]byte("OK"))
+    }
+}
+
+func main() {
+    http.HandleFunc("/healthz", livenessHandler)
+    http.HandleFunc("/readyz", readinessHandler(db))
+    http.HandleFunc("/startupz", startupHandler(&ready))
+
+    http.ListenAndServe(":8080", nil)
+}
+```
+</UniversalEditor>
+
+## 優雅關閉
+
+<UniversalEditor title="優雅關閉">
+```python !! py
+# Python - 訊號處理
+import signal
+import sys
+
+def shutdown_handler(signum, frame):
+    print("Shutting down gracefully...")
+    # 清理
+    # 關閉連線
+    # 完成請求
+    sys.exit(0)
+
+signal.signal(signal.SIGTERM, shutdown_handler)
+signal.signal(signal.SIGINT, shutdown_handler)
+
+app.run()
+```
+
+```go !! go
+// Go - 優雅關閉
+package main
+
+import (
+    "context"
+    "log"
+    "net/http"
+    "os"
+    "os/signal"
+    "syscall"
+    "time"
+)
+
+func main() {
+    server := &http.Server{
+        Addr:    ":8080",
+        Handler: newHandler(),
+    }
+
+    // 在 goroutine 中啟動伺服器
+    go func() {
+        log.Println("Server starting")
+        if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+            log.Fatalf("Server error: %v", err)
+        }
+    }()
+
+    // 等待中斷訊號
+    quit := make(chan os.Signal, 1)
+    signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+    <-quit
+
+    log.Println("Shutting down server...")
+
+    // 帶逾時的優雅關閉
+    ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+    defer cancel()
+
+    if err := server.Shutdown(ctx); err != nil {
+        log.Fatalf("Server shutdown error: %v", err)
+    }
+
+    log.Println("Server gracefully stopped")
+}
+```
+</UniversalEditor>
+
+## 結構化日誌
+
+<UniversalEditor title="結構化日誌">
+```python !! py
+# Python - Structlog
+import structlog
+
+log = structlog.get_logger()
+
+def process_order(order_id):
+    log.info(
+        "processing_order",
+        order_id=order_id,
+        user_id=123,
+    )
+
+    try:
+        # 處理訂單
+        log.info(
+            "order_processed",
+            order_id=order_id,
+            amount=99.99,
+        )
+    except Exception as e:
+        log.error(
+            "order_failed",
+            order_id=order_id,
+            error=str(e),
+            exc_info=e,
+        )
+```
+
+```go !! go
+// Go - Zap 結構化日誌
+package main
+
+import (
+    "go.uber.org/zap"
+)
+
+func main() {
+    logger, _ := zap.NewProduction()
+    defer logger.Sync()
+
+    sugar := logger.Sugar()
+
+    func processOrder(orderID string) {
+        sugar.Infow(
+            "processing_order",
+            "order_id", orderID,
+            "user_id", 123,
+        )
+
+        if err := process(orderID); err != nil {
+            sugar.Errorw(
+                "order_failed",
+                "order_id", orderID,
+                "error", err,
+            )
+            return
+        }
+
+        sugar.Infow(
+            "order_processed",
+            "order_id", orderID,
+            "amount", 99.99,
+        )
+    }
+}
+```
+</UniversalEditor>
+
+## Prometheus 指標
+
+<UniversalEditor title="Prometheus 指標">
+```python !! py
+# Python - Prometheus 客戶端
+from prometheus_client import Counter, Histogram, start_http_server
+
+request_count = Counter(
+    'http_requests_total',
+    'Total HTTP requests',
+    ['method', 'endpoint']
+)
+
+request_duration = Histogram(
+    'http_request_duration_seconds',
+    'HTTP request duration',
+    ['method', 'endpoint']
+)
+
+@app.route('/api/users')
+def get_users():
+    request_count.labels(
+        method='GET',
+        endpoint='/api/users'
+    ).inc()
+
+    with request_duration.labels(
+        method='GET',
+        endpoint='/api/users'
+    ).time():
+        # 處理請求
+        return jsonify(users)
+
+start_http_server(9090)
+```
+
+```go !! go
+// Go - Prometheus 指標
+package main
+
+import (
+    "net/http"
+
+    "github.com/prometheus/client_golang/prometheus"
+    "github.com/prometheus/client_golang/prometheus/promhttp"
+)
+
+var (
+    requestCount = prometheus.NewCounterVec(
+        prometheus.CounterOpts{
+            Name: "http_requests_total",
+            Help: "Total HTTP requests",
+        },
+        []string{"method", "endpoint"},
+    )
+
+    requestDuration = prometheus.NewHistogramVec(
+        prometheus.HistogramOpts{
+            Name: "http_request_duration_seconds",
+            Help: "HTTP request duration",
+        },
+        []string{"method", "endpoint"},
+    )
+)
+
+func init() {
+    prometheus.MustRegister(requestCount)
+    prometheus.MustRegister(requestDuration)
+}
+
+func instrumentHandler(method, endpoint string, next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        requestCount.WithLabelValues(method, endpoint).Inc()
+
+        timer := prometheus.NewTimer(
+            requestDuration.WithLabelValues(method, endpoint),
+        )
+
+        next.ServeHTTP(w, r)
+
+        timer.ObserveDuration()
+    })
+}
+
+func main() {
+    // 指標端點
+    http.Handle("/metrics", promhttp.Handler())
+
+    // 應用端點
+    http.Handle("/api/users",
+        instrumentHandler("GET", "/api/users",
+            usersHandler(),
+        ),
+    )
+
+    http.ListenAndServe(":8080", nil)
+}
+```
+</UniversalEditor>
+
+## 分散式追蹤回顧
+
+<UniversalEditor title="OpenTelemetry 設定">
+```go
+// 完整的 OpenTelemetry 設定
+package main
+
+import (
+    "context"
+    "go.opentelemetry.io/otel"
+    "go.opentelemetry.io/otel/attribute"
+    "go.opentelemetry.io/otel/exporters/jaeger"
+    "go.opentelemetry.io/otel/sdk/resource"
+    tracesdk "go.opentelemetry.io/otel/sdk/trace"
+    semconv "go.opentelemetry.io/otel/semconv/v1.4.0"
+)
+
+func initTracer(serviceName, jaegerEndpoint string) error {
+    exporter, err := jaeger.New(jaeger.WithCollectorEndpoint(
+        jaeger.WithEndpoint(jaegerEndpoint),
+    ))
+    if err != nil {
+        return err
+    }
+
+    tp := tracesdk.NewTracerProvider(
+        tracesdk.WithBatcher(exporter),
+        tracesdk.WithResource(resource.NewWithAttributes(
+            semconv.SchemaURL,
+            semconv.ServiceNameKey.String(serviceName),
+        )),
+    )
+
+    otel.SetTracerProvider(tp)
+    return nil
+}
+
+func handleRequest(ctx context.Context) {
+    tracer := otel.Tracer("my-service")
+
+    ctx, span := tracer.Start(ctx, "handleRequest")
+    defer span.End()
+
+    span.SetAttributes(
+        attribute.String("http.method", "GET"),
+        attribute.String("http.route", "/api/users"),
+    )
+
+    // 處理請求
+    users := getUsers(ctx)
+
+    span.SetAttributes(
+        attribute.Int("user.count", len(users)),
+    )
+}
+```
+</UniversalEditor>
+
+## 總結
+
+在本模組中,你學習了:
+
+1. Go 的**雲端原生優勢**
+2. 使用 controller-runtime 的 **Kubernetes 控制器**
+3. Go 中的**自訂資源定義**
+4. **ConfigMaps 和 Secrets** 處理
+5. **健康探針**(liveness、readiness、startup)
+6. **優雅關閉**模式
+7. 使用 Zap 的**結構化日誌**
+8. **Prometheus 指標**整合
+9. 使用 OpenTelemetry 的**分散式追蹤**
+
+## 雲端原生最佳實踐
+
+1. **12-Factor 應用方法論**
+   - 透過環境變數設定
+   - 無狀態程序
+   - 連接埠綁定
+   - 可拋棄性
+
+2. **資源管理**
+   - 設定資源限制
+   - 分析記憶體使用
+   - 優雅處理 OOM 殺死
+
+3. **可觀測性**
+   - 結構化日誌
+   - 指標收集
+   - 分散式追蹤
+   - 健康檢查
+
+4. **安全**
+   - 最小化容器
+   - Secret 管理
+   - 網路原則
+   - RBAC
+
+## 練習
+
+1. 為自訂資源建立 Kubernetes operator
+2. 為你的服務實作健康探針
+3. 為應用程式新增 Prometheus 指標
+4. 使用 Jaeger 設定分散式追蹤
+5. 使用 Helm 將 Go 應用部署到 Kubernetes
+
+## 下一步
+
+下一模組: **常見陷阱和最佳實踐** - 避免錯誤並編寫地道的 Go 程式碼。

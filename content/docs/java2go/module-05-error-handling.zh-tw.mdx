@@ -1,0 +1,448 @@
+---
+title: "模組 05: 錯誤處理"
+description: "掌握 Go 的錯誤處理方法與 Java 例外狀況的比較 - 錯誤作為值、自訂錯誤型別、錯誤包裝和 panic/recover 模式"
+---
+
+# 模組 05: 錯誤處理
+
+歡迎來到模組 05!在本模組中,你將學習 Go 與 Java 例外狀況系統根本不同的錯誤處理方法。
+
+## 學習目標
+
+完成本模組後,你將:
+- 理解 Go 錯誤處理 vs Java 例外
+- 掌握錯誤作為返回值
+- 學習自訂錯誤型別
+- 理解錯誤包裝(Go 1.13+)
+- 掌握 panic 和 recover vs try-catch-finally
+- 學習何時使用 panic vs errors
+- 理解錯誤處理最佳實踐
+- 比較 try-catch 模式與 Go 慣用語
+
+## 1. 大局觀:例外 vs 錯誤值
+
+### Java: 基於例外的錯誤處理
+
+Java 使用例外進行錯誤處理:
+
+```java
+public class FileProcessor {
+    public String readFile(String path) throws IOException {
+        File file = new File(path);
+        if (!file.exists()) {
+            throw new FileNotFoundException("File not found: " + path);
+        }
+        return "file content";
+    }
+
+    public void processFile(String path) {
+        try {
+            String content = readFile(path);
+            System.out.println("Processing: " + content);
+        } catch (FileNotFoundException e) {
+            System.err.println("File not found: " + e.getMessage());
+        } catch (IOException e) {
+            System.err.println("IO error: " + e.getMessage());
+        } finally {
+            System.out.println("Cleanup code");
+        }
+    }
+}
+```
+
+### Go: 錯誤值
+
+Go 將錯誤視為值:
+
+<UniversalEditor title="Java 例外 vs Go 錯誤值">
+```java !! java
+// Java: 基於例外
+public String readFile(String path) throws IOException {
+    File file = new File(path);
+    if (!file.exists()) {
+        throw new FileNotFoundException("File not found");
+    }
+    return Files.readString(file.toPath());
+}
+
+// 使用
+try {
+    String content = readFile(path);
+    System.out.println(content);
+} catch (IOException e) {
+    System.err.println("Error: " + e);
+}
+```
+
+```go !! go
+// Go: 錯誤作為值
+func readFile(path string) (string, error) {
+    file, err := os.Open(path)
+    if err != nil {
+        return "", err
+    }
+    defer file.Close()
+
+    content, err := io.ReadAll(file)
+    if err != nil {
+        return "", err
+    }
+    return string(content), nil
+}
+
+// 使用
+content, err := readFile(path)
+if err != nil {
+    fmt.Println("Error:", err)
+    return
+}
+fmt.Println(content)
+```
+</UniversalEditor>
+
+## 2. 錯誤作為返回值
+
+### 基本錯誤處理
+
+<UniversalEditor title="基本錯誤處理">
+```java !! java
+// Java: 拋出例外
+public class Calculator {
+    public int divide(int a, int b) throws ArithmeticException {
+        if (b == 0) {
+            throw new ArithmeticException("Division by zero");
+        }
+        return a / b;
+    }
+
+    public void calculate() {
+        try {
+            int result = divide(10, 0);
+            System.out.println("Result: " + result);
+        } catch (ArithmeticException e) {
+            System.err.println("Error: " + e.getMessage());
+        }
+    }
+}
+```
+
+```go !! go
+// Go: 返回錯誤
+func divide(a, b int) (int, error) {
+    if b == 0 {
+        return 0, errors.New("division by zero")
+    }
+    return a / b, nil
+}
+
+func calculate() {
+    result, err := divide(10, 0)
+    if err != nil {
+        fmt.Println("Error:", err)
+        return
+    }
+    fmt.Println("Result:", result)
+}
+```
+</UniversalEditor>
+
+## 3. 自訂錯誤型別
+
+### Java: 自訂例外
+
+<UniversalEditor title="自訂例外 vs 自訂錯誤">
+```java !! java
+// Java: 自訂例外類別
+public class ValidationError extends Exception {
+    private final String field;
+    private final String value;
+
+    public ValidationError(String field, String value, String message) {
+        super(message);
+        this.field = field;
+        this.value = value;
+    }
+
+    public String getField() { return field; }
+    public String getValue() { return value; }
+}
+
+// 使用
+public void validate(String email) throws ValidationError {
+    if (email == null || email.isEmpty()) {
+        throw new ValidationError("email", email, "Email is required");
+    }
+}
+```
+
+```go !! go
+// Go: 自訂錯誤型別
+type ValidationError struct {
+    Field   string
+    Value   string
+    Message string
+}
+
+func (e ValidationError) Error() string {
+    return fmt.Sprintf("%s: %s (value: %s)", e.Field, e.Message, e.Value)
+}
+
+// 使用
+func validate(email string) error {
+    if email == "" {
+        return ValidationError{
+            Field:   "email",
+            Value:   email,
+            Message: "Email is required",
+        }
+    }
+    return nil
+}
+```
+</UniversalEditor>
+
+## 4. 錯誤包裝(Go 1.13+)
+
+Go 1.13 引入了使用 `fmt.Errorf` 中的 `%w` 動詞進行錯誤包裝。
+
+<UniversalEditor title="錯誤包裝">
+```java !! java
+// Java: 例外鏈
+public void processFile(String path) throws IOException {
+    try {
+        readFile(path);
+    } catch (IOException e) {
+        throw new IOException("Failed to process file: " + path, e);
+    }
+}
+
+// 堆疊追蹤顯示兩個例外
+```
+
+```go !! go
+// Go: 使用 %w 進行錯誤包裝
+func processFile(path string) error {
+    content, err := readFile(path)
+    if err != nil {
+        return fmt.Errorf("failed to process file %s: %w", path, err)
+    }
+    fmt.Println(content)
+    return nil
+}
+
+// 檢查是否包裝了特定錯誤
+func main() {
+    err := processFile("test.txt")
+    if err != nil {
+        // 檢查錯誤是否包裝了特定錯誤
+        if errors.Is(err, os.ErrNotExist) {
+            fmt.Println("File does not exist")
+        } else {
+            fmt.Println("Error:", err)
+        }
+    }
+}
+```
+</UniversalEditor>
+
+## 5. Panic 和 Recover vs Try-Catch-Finally
+
+Go 的 `panic` 和 `recover` 類似於 Java 的例外,但應該謹慎使用。
+
+<UniversalEditor title="Panic/Recover vs Try-Catch-Finally">
+```java !! java
+// Java: try-catch-finally
+public void processFile(String path) {
+    File file = null;
+    try {
+        file = new File(path);
+        if (file.length() > 1000000) {
+            throw new RuntimeException("File too large");
+        }
+    } catch (RuntimeException e) {
+        System.err.println("Error: " + e.getMessage());
+    } finally {
+        if (file != null) {
+            System.out.println("Cleanup");
+        }
+    }
+}
+```
+
+```go !! go
+// Go: panic 和 recover
+func processFile(path string) (err error) {
+    // 帶有 recover 的 defer(類似於 finally)
+    defer func() {
+        if r := recover(); r != nil {
+            fmt.Println("Recovered from panic:", r)
+            err = fmt.Errorf("panic: %v", r)
+        }
+    }()
+
+    file, err := os.Open(path)
+    if err != nil {
+        return err
+    }
+    defer file.Close()
+
+    info, err := file.Stat()
+    if err != nil {
+        return err
+    }
+
+    if info.Size() > 1000000 {
+        panic("file too large") // Panic(類似 throw)
+    }
+
+    return nil
+}
+```
+</UniversalEditor>
+
+## 6. 延遲清理
+
+Go 的 `defer` 陳述式通常比 Java 的 `finally` 更好。
+
+<UniversalEditor title="Defer vs Finally">
+```java !! java
+// Java: finally 用於清理
+public void processFile(String path) {
+    FileInputStream fis = null;
+    try {
+        fis = new FileInputStream(path);
+    } catch (IOException e) {
+        System.err.println("Error: " + e);
+    } finally {
+        if (fis != null) {
+            try {
+                fis.close();
+            } catch (IOException e) {
+                System.err.println("Error closing: " + e);
+            }
+        }
+    }
+}
+```
+
+```go !! go
+// Go: defer 用於清理
+func processFile(path string) error {
+    file, err := os.Open(path)
+    if err != nil {
+        return err
+    }
+    defer file.Close() // 函式返回時自動呼叫
+
+    // 處理檔案
+    return nil
+}
+```
+</UniversalEditor>
+
+## 7. 最佳實踐
+
+### 錯誤處理指南
+
+<UniversalEditor title="錯誤處理最佳實踐">
+```go !! go
+// Go: 不要忽略錯誤
+func process() {
+    data := riskyOperation() // ✗ 不要忽略錯誤
+    fmt.Println(data)
+}
+
+// ✓ 要檢查錯誤
+func process() error {
+    data, err := riskyOperation()
+    if err != nil {
+        return fmt.Errorf("risky operation failed: %w", err)
+    }
+    fmt.Println(data)
+    return nil
+}
+
+// 只有在有充分理由時才忽略
+data, _ := riskyOperation() // 有時可以,對於已測試的條件
+```
+</UniversalEditor>
+
+### 錯誤訊息
+
+<UniversalEditor title="編寫好的錯誤訊息">
+```go !! go
+// Go: 錯誤訊息不應大寫
+// 也不應以標點符號結尾
+func findUser(id string) (*User, error) {
+    user := database.Query(id)
+    if user == nil {
+        return nil, fmt.Errorf("user not found: %s", id)
+    }
+    return user, nil
+}
+
+// 前綴上下文,不要後綴
+func saveUser(u User) error {
+    if err := validate(u); err != nil {
+        return fmt.Errorf("validation failed: %w", err) // ✓ 好
+        // return fmt.Errorf("%w: validation failed", err) // ✗ 不好
+    }
+    return nil
+}
+```
+</UniversalEditor>
+
+## 8. 練習題
+
+### 初級
+
+1. 建立返回錯誤的函式:
+   - `divide(a, b int) (int, error)` - 檢查除零
+   - `sqrt(x float64) (float64, error)` - 檢查負數
+   - 適當處理錯誤
+
+2. 建立自訂錯誤型別:
+   - `InvalidInputError` 帶有欄位和訊息
+   - 在驗證函式中使用它
+   - 演示錯誤型別斷言
+
+### 中級
+
+3. 建構錯誤包裝:
+   - 建立呼叫其他函式的函式
+   - 使用上下文包裝錯誤
+   - 使用 `errors.Is` 和 `errors.As` 檢查錯誤
+
+4. 建立檔案處理器:
+   - 使用適當的錯誤處理讀取檔案
+   - 使用 `defer` 進行清理
+   - 處理多種錯誤型別
+   - 使用上下文包裝錯誤
+
+### 高級
+
+5. 實作重試邏輯:
+   - 在特定錯誤時重試操作
+   - 使用 `errors.Is` 檢查可重試錯誤
+   - 實作指數退避
+   - 處理上下文取消
+
+## 9. 關鍵要點
+
+- **錯誤作為值**: Go 返回錯誤作為值,不拋出例外
+- **始終檢查錯誤**: 永遠不要忽略返回的錯誤
+- **錯誤包裝**: 使用 `%w` 用上下文包裝錯誤
+- **自訂錯誤**: 為自訂錯誤型別實作 `Error()` 方法
+- **errors.Is**: 檢查錯誤是否包裝了特定錯誤
+- **errors.As**: 檢查錯誤是否匹配特定型別
+- **謹慎使用 Panic**: 僅對真正的異常情況使用 panic
+- **Defer 清理**: 使用 `defer` 進行清理,比 `finally` 更好
+
+## 10. 下一步
+
+在接下來的模組中,我們將探索:
+- **模組 06**: Goroutines vs Java 執行緒
+- **模組 07**: 用於通訊的通道
+- **模組 08**: 並行模式和最佳實踐
+
+繼續學習 [模組 06: Goroutines 和執行緒](/docs/java2go/module-06-goroutines-threads),了解 Go 的輕量級執行緒!

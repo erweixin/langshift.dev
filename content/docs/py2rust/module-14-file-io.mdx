@@ -1,0 +1,485 @@
+---
+title: "Module 14: File I/O & Stdlib - Working with Files"
+description: "Learn file input/output, path manipulation, command-line arguments, and environment variables in Rust compared to Python's approach."
+---
+
+# Module 14: File I/O & Stdlib - Working with Files
+
+In this module, you'll learn how Rust handles file I/O and system interactions, and how this compares to Python's approach.
+
+## Learning Objectives
+
+By the end of this module, you'll be able to:
+- Read and write files in Rust
+- Manipulate file system paths
+- Handle command-line arguments
+- Work with environment variables
+- Use Rust's standard library effectively
+- Compare Rust's I/O with Python's file handling
+
+## Reading Files
+
+### Reading Entire Files
+
+<UniversalEditor compare={true} title="Reading Entire Files">
+```python !! py
+# Python: Simple file reading
+with open('file.txt', 'r') as f:
+    content = f.read()  # Entire file as string
+    print(content)
+
+# Or read lines
+with open('file.txt', 'r') as f:
+    lines = f.readlines()  # List of lines
+```
+
+```rust !! rs
+// Rust: Reading entire file
+use std::fs;
+use std::error::Error;
+
+fn read_file() -> Result<String, Box<dyn Error>> {
+    let content = fs::read_to_string("file.txt")?;
+    Ok(content)
+}
+
+// Or read to bytes
+fn read_bytes() -> Result<Vec<u8>, Box<dyn Error>> {
+    let content = fs::read("file.txt")?;
+    Ok(content)
+}
+
+fn main() {
+    match read_file() {
+        Ok(content) => println!("{}", content),
+        Err(e) => eprintln!("Error: {}", e),
+    }
+}
+```
+</UniversalEditor>
+
+### Reading Line by Line
+
+<UniversalEditor compare={true} title="Reading Lines">
+```python !! py
+# Python: Line by line iteration
+with open('file.txt', 'r') as f:
+    for line in f:
+        print(line.strip())  # Automatic memory management
+
+# Or with explicit line handling
+with open('file.txt', 'r') as f:
+    while True:
+        line = f.readline()
+        if not line:
+            break
+        print(line.strip())
+```
+
+```rust !! rs
+// Rust: Buffered reading line by line
+use std::fs::File;
+use std::io::{self, BufRead, BufReader};
+
+fn read_lines() -> io::Result<()> {
+    let file = File::open("file.txt")?;
+    let reader = BufReader::new(file);
+
+    for line in reader.lines() {
+        let line = line?;
+        println!("{}", line);
+    }
+
+    Ok(())
+}
+
+// Or with more control
+fn read_lines_manual() -> io::Result<()> {
+    let file = File::open("file.txt")?;
+    let reader = BufReader::new(file);
+
+    for line in reader.split(b'\n') {
+        let line = line?;
+        println!("{}", String::from_utf8_lossy(&line));
+    }
+
+    Ok(())
+}
+```
+</UniversalEditor>
+
+## Writing Files
+
+<UniversalEditor compare={true} title="Writing Files">
+```python !! py
+# Python: Writing files
+with open('output.txt', 'w') as f:
+    f.write("Hello, World!\n")
+    f.write("Second line\n")
+
+# Append mode
+with open('output.txt', 'a') as f:
+    f.write("Appended line\n")
+
+# Write multiple lines
+lines = ["Line 1\n", "Line 2\n", "Line 3\n"]
+with open('output.txt', 'w') as f:
+    f.writelines(lines)
+```
+
+```rust !! rs
+// Rust: Writing files
+use std::fs::File;
+use std::io::{self, Write};
+
+fn write_file() -> io::Result<()> {
+    let mut file = File::create("output.txt")?;
+    file.write_all(b"Hello, World!\n")?;
+    file.write_all(b"Second line\n")?;
+    Ok(())
+}
+
+// Append mode
+fn append_file() -> io::Result<()> {
+    let mut file = OpenOptions::new()
+        .append(true)
+        .open("output.txt")?;
+    file.write_all(b"Appended line\n")?;
+    Ok(())
+}
+
+// Use std::fs::write for simple cases
+fn write_simple() -> io::Result<()> {
+    fs::write("output.txt", "Content\n")?;
+    Ok(())
+}
+```
+</UniversalEditor>
+
+## Path Manipulation
+
+<UniversalEditor compare={true} title="Working with Paths">
+```python !! py
+# Python: pathlib for cross-platform paths
+from pathlib import Path
+
+path = Path("data") / "files" / "example.txt"
+print(path)  # data/files/example.txt
+
+# Path components
+print(path.parent)  # data/files
+print(path.name)  # example.txt
+print(path.stem)  # example
+print(path.suffix)  # .txt
+
+# Check if exists
+if path.exists():
+    print(f"Size: {path.stat().st_size} bytes")
+
+# Join paths
+base = Path("/home/user")
+full = base / "documents" / "file.txt"
+```
+
+```rust !! rs
+// Rust: std::path::Path for cross-platform paths
+use std::path::{Path, PathBuf};
+
+fn path_operations() {
+    let path = Path::new("data/files/example.txt");
+
+    // Path components
+    println!("Parent: {:?}", path.parent());
+    println!("File name: {:?}", path.file_name());
+    println!("Stem: {:?}", path.file_stem());
+    println!("Extension: {:?}", path.extension());
+
+    // Check if exists
+    if path.exists() {
+        let metadata = std::fs::metadata(path).unwrap();
+        println!("Size: {} bytes", metadata.len());
+    }
+
+    // Build paths
+    let mut path_buf = PathBuf::new();
+    path_buf.push("data");
+    path_buf.push("files");
+    path_buf.push("example.txt");
+
+    // Or use Path::join
+    let base = Path::new("/home/user");
+    let full = base.join("documents").join("file.txt");
+}
+```
+</UniversalEditor>
+
+## Command-Line Arguments
+
+<UniversalEditor compare={true} title="Command-Line Arguments">
+```python !! py
+# Python: sys.argv for command-line arguments
+import sys
+
+def main():
+    if len(sys.argv) < 2:
+        print(f"Usage: {sys.argv[0]} <filename>")
+        sys.exit(1)
+
+    filename = sys.argv[1]
+    print(f"Processing: {filename}")
+
+    # Named arguments with argparse
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--verbose", action="store_true")
+    parser.add_argument("--output", default="out.txt")
+    args = parser.parse_args()
+
+    if args.verbose:
+        print(f"Output to: {args.output}")
+
+if __name__ == "__main__":
+    main()
+```
+
+```rust !! rs
+// Rust: std::env::args for command-line arguments
+use std::env;
+
+fn main() {
+    let args: Vec<String> = env::args().collect();
+
+    if args.len() < 2 {
+        eprintln!("Usage: {} <filename>", args[0]);
+        std::process::exit(1);
+    }
+
+    let filename = &args[1];
+    println!("Processing: {}", filename);
+
+    // For complex argument parsing, use crates like clap
+    // Cargo.toml: clap = { version = "4.0", features = ["derive"] }
+
+    /*
+    use clap::Parser;
+
+    #[derive(Parser)]
+    struct Cli {
+        #[arg(short, long)]
+        verbose: bool,
+
+        #[arg(short, long, default_value = "out.txt")]
+        output: String,
+    }
+
+    fn main_with_clap() {
+        let cli = Cli::parse();
+        if cli.verbose {
+            println!("Output to: {}", cli.output);
+        }
+    }
+    */
+}
+```
+</UniversalEditor>
+
+## Environment Variables
+
+<UniversalEditor compare={true} title="Environment Variables">
+```python !! py
+# Python: os.environ for environment variables
+import os
+
+# Get environment variable
+home = os.environ.get("HOME", "/default/home")
+print(f"Home: {home}")
+
+# Set environment variable
+os.environ["MY_VAR"] = "value"
+
+# Check if variable exists
+if "PATH" in os.environ:
+    print("PATH is set")
+
+# List all environment variables
+for key, value in os.environ.items():
+    print(f"{key}={value}")
+```
+
+```rust !! rs
+// Rust: std::env for environment variables
+use std::env;
+
+fn env_vars() {
+    // Get environment variable
+    let home = env::var("HOME").unwrap_or("/default/home".to_string());
+    println!("Home: {}", home);
+
+    // Set environment variable
+    env::set_var("MY_VAR", "value");
+
+    // Check if variable exists
+    if env::var("PATH").is_ok() {
+        println!("PATH is set");
+    }
+
+    // List all environment variables
+    for (key, value) in env::vars() {
+        println!("{}={}", key, value);
+    }
+}
+```
+</UniversalEditor>
+
+## File System Operations
+
+<UniversalEditor compare={true} title="File System Operations">
+```python !! py
+# Python: os and pathlib for file operations
+import os
+from pathlib import Path
+
+# Create directory
+Path("new_dir").mkdir(exist_ok=True)
+
+# Create nested directories
+Path("a/b/c").mkdir(parents=True, exist_ok=True)
+
+# Remove file
+Path("file.txt").unlink(missing_ok=True)
+
+# Remove directory
+Path("dir").rmdir()
+
+# List directory
+for item in Path(".").iterdir():
+    print(item)
+
+# Check file type
+if Path("file.txt").is_file():
+    print("It's a file")
+
+if Path("dir").is_dir():
+    print("It's a directory")
+```
+
+```rust !! rs
+// Rust: std::fs for file operations
+use std::fs;
+use std::path::Path;
+
+fn fs_operations() -> std::io::Result<()> {
+    // Create directory
+    fs::create_dir("new_dir")?;
+
+    // Create nested directories
+    fs::create_dir_all("a/b/c")?;
+
+    // Remove file
+    fs::remove_file("file.txt")?;
+
+    // Remove directory (must be empty)
+    fs::remove_dir("dir")?;
+
+    // Remove directory and contents
+    fs::remove_dir_all("dir_with_contents")?;
+
+    // List directory
+    for entry in fs::read_dir(".")? {
+        let entry = entry?;
+        println!("{}", entry.path().display());
+    }
+
+    // Check file type
+    let path = Path::new("file.txt");
+    if path.is_file() {
+        println!("It's a file");
+    }
+
+    if path.is_dir() {
+        println!("It's a directory");
+    }
+
+    Ok(())
+}
+```
+</UniversalEditor>
+
+## Error Handling Comparison
+
+<UniversalEditor compare={true} title="Error Handling in I/O">
+```python !! py
+# Python: Exceptions for I/O errors
+try:
+    with open('nonexistent.txt', 'r') as f:
+        content = f.read()
+except FileNotFoundError:
+    print("File not found")
+except PermissionError:
+    print("Permission denied")
+except IOError as e:
+    print(f"I/O error: {e}")
+```
+
+```rust !! rs
+// Rust: Result types for I/O errors
+use std::fs;
+use std::io;
+
+fn read_file_safe() -> Result<String, io::Error> {
+    let content = fs::read_to_string("nonexistent.txt")?;
+    Ok(content)
+}
+
+fn main() {
+    match read_file_safe() {
+        Ok(content) => println!("{}", content),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {
+            eprintln!("File not found");
+        }
+        Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
+            eprintln!("Permission denied");
+        }
+        Err(e) => eprintln!("I/O error: {}", e),
+    }
+}
+```
+</UniversalEditor>
+
+## Best Practices
+
+### DO:
+
+1. **Use `BufReader` for line-by-line reading** - More efficient
+2. **Use `?` operator for error propagation** - Cleaner code
+3. **Use `Path` and `PathBuf`** - Cross-platform compatibility
+4. **Use `OpenOptions` for fine-grained control** - When needed
+5. **Handle errors properly** - Don't use `.unwrap()` in production
+
+### DON'T:
+
+1. **Read entire files into memory unnecessarily** - Use streaming
+2. **Ignore I/O errors** - Handle them properly
+3. **Use string concatenation for paths** - Use Path methods
+4. **Forget to flush buffers** - When manual buffering is used
+
+## Summary
+
+- **File I/O** in Rust uses `std::fs` and `std::io`
+- **Paths** are handled with `std::path` for cross-platform support
+- **Command-line args** via `std::env::args`
+- **Environment variables** via `std::env`
+- **Error handling** is explicit with `Result` types
+- **Rust's approach** is more verbose but safer than Python's
+
+## Practice Exercises
+
+1. Create a program that reads a file and counts word frequencies
+2. Build a simple file copy utility
+3. Create a directory listing tool with recursive traversal
+4. Implement a configuration file reader
+5. Build a CLI tool with argument parsing
+
+## Next Module
+
+In the final module, we'll explore **threads and concurrency**, including spawning threads, channels, mutexes, and how Rust's fearless concurrency compares to Python's threading model.

@@ -1,0 +1,259 @@
+---
+title: "Module 10: Asynchronous Programming Basics"
+description: "理解 JavaScript 非同步程式設計模型、回調和事件循環"
+---
+
+## Module 10: Asynchronous Programming Basics
+
+非同步程式設計是 JavaScript 的基礎。與 Java 的多線程模型不同，JavaScript 使用單線程事件循環。理解這個模型對於編寫有效的 JavaScript 程式碼至關重要。
+
+## Learning Objectives
+
+完成本模組後，你將：
+✅ 理解 JavaScript 事件循環
+✅ 學習同步 vs 非同步執行
+✅ 掌握回調函數
+✅ 理解回調中的錯誤處理
+✅ 學習計時和調度
+✅ 知道常見的非同步模式和陷阱
+
+## Concurrency Models: Java vs JavaScript
+
+<UniversalEditor title="並發模型比較">
+```java !! java
+// Java - 多線程
+public class Example {
+    public static void main(String[] args) {
+        Thread thread1 = new Thread(() -> {
+            System.out.println("Thread 1");
+        });
+
+        Thread thread2 = new Thread(() -> {
+            System.out.println("Thread 2");
+        });
+
+        thread1.start();
+        thread2.start();
+        System.out.println("Main thread");
+    }
+}
+// 輸出：並行執行
+```
+
+```javascript !! js
+// JavaScript - 單線程與事件循環
+console.log("Start");
+
+setTimeout(() => {
+    console.log("Timeout");
+}, 0);
+
+console.log("End");
+
+// 輸出：
+// Start
+// End
+// Timeout
+
+// 即使 0ms 延遲，回調也在同步代碼之後運行
+```
+</UniversalEditor>
+
+## The Event Loop
+
+JavaScript 有一個單一調用棧和一個管理執行的事件循環：
+
+<UniversalEditor title="事件循環概念">
+```javascript !! js
+console.log("1. Synchronous");
+
+setTimeout(() => {
+    console.log("2. Async (macrotask)");
+}, 0);
+
+Promise.resolve().then(() => {
+    console.log("3. Async (microtask)");
+});
+
+console.log("4. Synchronous");
+
+// 輸出：
+// 1. Synchronous
+// 4. Synchronous
+// 3. Async (microtask) - 在 macrotasks 之前運行
+// 2. Async (macrotask)
+
+// 事件循環過程：
+// 1. 執行同步代碼（調用棧）
+// 2. 處理所有 microtasks（Promise 回調）
+// 3. 渲染 UI（瀏覽器）
+// 4. 處理一個 macrotask（setTimeout、I/O）
+// 5. 重複
+```
+</UniversalEditor>
+
+## Callback Functions
+
+回調是作為參數傳遞以供稍後執行的函數：
+
+<UniversalEditor title="回調函數">
+```java !! java
+// Java - 介面回調
+public interface Callback {
+    void onComplete(String result);
+}
+
+public class DataFetcher {
+    public void fetchData(Callback callback) {
+        new Thread(() -> {
+            String result = "Data";
+            callback.onComplete(result);
+        }).start();
+    }
+}
+```
+
+```javascript !! js
+// JavaScript - 一等回調函數
+
+function fetchData(callback) {
+    setTimeout(() => {
+        const data = { id: 1, name: "John" };
+        callback(data);
+    }, 1000);
+}
+
+// 回調函數
+fetchData(function(data) {
+    console.log("Received:", data);
+});
+
+// Error-first callback（Node.js 約定）
+fetchUser(1, (error, user) => {
+    if (error) {
+        console.error("Error:", error);
+        return;
+    }
+    console.log("User:", user);
+});
+```
+</UniversalEditor>
+
+## Timing Functions
+
+JavaScript 提供了幾個計時函數：
+
+<UniversalEditor title="計時函數">
+```java !! java
+// Java - ScheduledExecutorService
+ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
+
+scheduler.schedule(() -> {
+    System.out.println("Delayed");
+}, 1, TimeUnit.SECONDS);
+```
+
+```javascript !! js
+// JavaScript - 計時函數
+
+// setTimeout: 延遲後執行一次
+const timeoutId = setTimeout(() => {
+    console.log("Delayed execution");
+}, 1000);
+
+// 取消超時
+clearTimeout(timeoutId);
+
+// setInterval: 重複執行
+let count = 0;
+const intervalId = setInterval(() => {
+    count++;
+    if (count >= 5) {
+        clearInterval(intervalId);  // 5 次後停止
+    }
+}, 1000);
+
+// Debounce（實用模式）
+function debounce(fn, delay) {
+    let timeoutId;
+    return function(...args) {
+        clearTimeout(timeoutId);
+        timeoutId = setTimeout(() => fn.apply(this, args), delay);
+    };
+}
+```
+</UniversalEditor>
+
+## Error Handling in Callbacks
+
+<UniversalEditor title="回調中的錯誤處理">
+```javascript !! js
+// Try-catch 不捕獲非同步錯誤
+
+try {
+    setTimeout(() => {
+        throw new Error("Async error");  // Uncaught!
+    }, 1000);
+} catch (e) {
+    console.error("Caught:", e);  // 永遠不運行
+}
+
+// ✅ GOOD: 回調內部 try-catch
+function fetchData(callback) {
+    setTimeout(() => {
+        try {
+            const data = JSON.parse(jsonString);
+            callback(null, data);
+        } catch (error) {
+            callback(error);
+        }
+    }, 1000);
+}
+```
+</UniversalEditor>
+
+## Best Practices
+
+<UniversalEditor title="非同步最佳實踐">
+```javascript !! js
+// 1. Error-first callback 約定
+function operation(callback) {
+    callback(null, "success");
+}
+
+operation((error, result) => {
+    if (error) return;
+    console.log(result);
+});
+
+// 2. 總是檢查錯誤
+fs.readFile("data.txt", (error, data) => {
+    if (error) {
+        console.error("Read failed:", error);
+        return;
+    }
+    console.log("Data:", data);
+});
+
+// 3. 回調後返回
+function process(data, callback) {
+    if (!data) {
+        return callback(new Error("No data"));
+    }
+    callback(null, processData(data));
+}
+```
+</UniversalEditor>
+
+## Summary
+
+### Key Takeaways
+
+1. **Event Loop:** 單線程執行、microtasks 優先
+2. **Callbacks:** 函數作為參數傳遞
+3. **Timing:** setTimeout、setInterval、debounce/throttle
+4. **Pitfalls:** Callback hell、this 丟失、循環閉包
+
+## What's Next?
+
+接下來是 **Module 11: Asynchronous Programming Advanced** - 學習 Promise 和 async/await！

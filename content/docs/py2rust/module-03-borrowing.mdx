@@ -1,0 +1,1001 @@
+---
+title: "Module 3: Borrowing & References"
+description: "Understanding Rust's ownership system through borrowing and references, with comparisons to Python's reference semantics"
+---
+
+# Module 3: Borrowing & References
+
+## Learning Objectives
+
+By the end of this module, you'll understand:
+- How Rust's borrowing system works compared to Python's references
+- The difference between immutable and mutable references
+- Rust's borrowing rules at compile time
+- How the borrow checker prevents memory safety issues
+- Common borrowing patterns and idioms
+
+## Introduction: Python vs Rust Reference Models
+
+In Python, you're used to passing references to objects around freely. Python's garbage collector handles memory management automatically, and you rarely need to think about who "owns" a piece of data.
+
+Rust takes a different approach with its **borrowing system**, which enforces memory safety at compile time without a garbage collector. This is one of Rust's most unique and powerful features.
+
+### Python: Everything is a Reference
+
+<UniversalEditor compare={true} title="Python References - Always Work">
+```python !! py
+# Python: References work everywhere
+data = [1, 2, 3]
+
+# Multiple references to the same data
+ref1 = data
+ref2 = data
+
+# All references work independently
+ref1.append(4)
+print(ref2)  # [1, 2, 3, 4] - sees the change!
+
+# Can pass to functions freely
+def modify_list(lst):
+    lst.append(5)
+
+modify_list(data)
+print(data)  # [1, 2, 3, 4, 5]
+
+# Can have multiple mutable references
+a = data
+b = data
+c = data
+a.append(6)
+b.append(7)
+print(c)  # All work fine!
+```
+</UniversalEditor>
+
+### Rust: Controlled Borrowing
+
+<UniversalEditor compare={true} title="Rust Borrowing - Compile-Time Rules">
+```rust !! rs
+// Rust: Borrowing follows strict rules
+fn main() {
+    let data = vec![1, 2, 3];
+
+    // Immutable references - can have many!
+    let ref1 = &data;
+    let ref2 = &data;
+    let ref3 = &data;
+
+    println!("{:?} {:?} {:?}", ref1, ref2, ref3);
+
+    // Mutable reference - exclusive access
+    let mut data_mut = vec![1, 2, 3];
+    let mref = &mut data_mut;
+    mref.push(4);
+
+    // Can't use data_mut while mref exists!
+    // data_mut.push(5); // ERROR: data_mut was borrowed
+
+    println!("{:?}", mref);
+}
+```
+</UniversalEditor>
+
+## Rust's Borrowing Rules
+
+Rust enforces these rules at **compile time**:
+
+1. **You can have multiple immutable references** (`&T`) to a value
+2. **You can have one mutable reference** (`&mut T`) to a value
+3. **References must always be valid** (no dangling pointers)
+
+These rules prevent data races and use-after-free bugs at compile time!
+
+### Rule 1: Multiple Immutable References
+
+<UniversalEditor compare={true} title="Multiple Immutable References - Always Safe">
+```python !! py
+# Python: Many references, one object
+numbers = [1, 2, 3, 4, 5]
+
+# Multiple "immutable" reads (Python doesn't enforce)
+def read_first(lst):
+    return lst[0]
+
+def read_last(lst):
+    return lst[-1]
+
+print(read_first(numbers))  # 1
+print(read_last(numbers))   # 5
+print(numbers[0])           # 1
+# All safe because we're only reading
+```
+
+```rust !! rs
+// Rust: Multiple immutable references are safe
+fn main() {
+    let numbers = vec![1, 2, 3, 4, 5];
+
+    // Many immutable references at once
+    let first = &numbers[0];
+    let last = &numbers[numbers.len() - 1];
+    let middle = &numbers[2];
+
+    // All can coexist safely
+    println!("First: {}, Last: {}, Middle: {}", first, last, middle);
+
+    // Can pass to functions
+    print_length(&numbers);
+    print_length(&numbers);  // Again!
+
+    // Original still accessible
+    println!("{:?}", numbers);
+}
+
+fn print_length(vec: &Vec<i32>) {
+    println!("Length: {}", vec.len());
+}
+```
+</UniversalEditor>
+
+### Rule 2: One Mutable Reference (Exclusive Access)
+
+<UniversalEditor compare={true} title="Mutable References - Exclusive Access">
+```python !! py
+# Python: Multiple mutable references allowed
+data = {"count": 0}
+
+ref_a = data
+ref_b = data
+
+# Both can modify - potential data race in threads!
+ref_a["count"] += 1
+ref_b["count"] += 1
+
+print(data["count"])  # 2
+
+# Python doesn't prevent this - you must be careful!
+```
+
+```rust !! rs
+// Rust: Only ONE mutable reference at a time
+fn main() {
+    let mut data = vec![1, 2, 3];
+
+    // ONE mutable reference
+    let ref1 = &mut data;
+    ref1.push(4);
+
+    // Can't create another mutable reference
+    // let ref2 = &mut data;  // ERROR!
+    // Cannot borrow `data` as mutable more than once
+
+    // Can't even use the original name
+    // data.push(5);  // ERROR!
+    // Cannot borrow `data` as mutable
+    // because it is also borrowed as mutable
+
+    println!("{:?}", ref1);
+
+    // After ref1 is no longer used, we can borrow again
+    let ref2 = &mut data;
+    ref2.push(5);
+    println!("{:?}", ref2);
+}
+```
+</UniversalEditor>
+
+### Rule 3: Cannot Mix Mutable and Immutable
+
+<UniversalEditor compare={true} title="Immutable + Mutable - Not Allowed">
+```python !! py
+# Python: Can mix reads and writes
+data = [1, 2, 3]
+
+read_ref = data
+write_ref = data
+
+# Read through read_ref while write_ref modifies
+print(read_ref[0])  # 1
+write_ref.append(4)
+print(read_ref)     # [1, 2, 3, 4] - sees the change!
+
+# Python allows this - can lead to bugs
+```
+
+```rust !! rs
+// Rust: Cannot mix mutable and immutable
+fn main() {
+    let mut data = vec![1, 2, 3];
+
+    // Immutable reference
+    let read_ref = &data;
+    println!("Read: {:?}", read_ref);
+
+    // Can't create mutable while immutable exists
+    // let write_ref = &mut data;  // ERROR!
+    // Cannot borrow `data` as mutable
+    // because it is also borrowed as immutable
+
+    // After read_ref is no longer used
+    let write_ref = &mut data;
+    write_ref.push(4);
+    println!("Write: {:?}", write_ref);
+
+    // Now immutable again
+    let new_read = &data;
+    println!("New read: {:?}", new_read);
+}
+```
+</UniversalEditor>
+
+## Borrow Checker Examples
+
+The Rust compiler (borrow checker) ensures all borrowing rules are followed. Let's see common scenarios.
+
+### Example 1: Borrowing in Functions
+
+<UniversalEditor compare={true} title="Passing References to Functions">
+```python !! py
+# Python: References passed implicitly
+def double_items(items):
+    for i in range(len(items)):
+        items[i] *= 2
+
+def print_items(items):
+    print(items)
+
+numbers = [1, 2, 3]
+print_items(numbers)  # Read
+double_items(numbers)  # Write
+print_items(numbers)  # Read again - [2, 4, 6]
+```
+
+```rust !! rs
+// Rust: Explicit borrowing in functions
+fn main() {
+    let mut numbers = vec![1, 2, 3];
+
+    // Immutable borrow for reading
+    print_items(&numbers);
+
+    // Mutable borrow for writing
+    double_items(&mut numbers);
+
+    // Immutable borrow again
+    print_items(&numbers);
+
+    // Original still owned by main
+    println!("Owned: {:?}", numbers);
+}
+
+fn double_items(items: &mut Vec<i32>) {
+    for item in items.iter_mut() {
+        *item *= 2;
+    }
+}
+
+fn print_items(items: &Vec<i32>) {
+    println!("{:?}", items);
+}
+```
+</UniversalEditor>
+
+### Example 2: Borrowing in Loops
+
+<UniversalEditor compare={true} title="Borrowing in Loops - Common Pattern">
+```python !! py
+# Python: Can collect and modify freely
+data = ["hello", "world", "rust"]
+
+# Collect references
+first_letters = [word[0] for word in data]
+
+# Modify original
+data[0] = data[0].upper()
+
+print(first_letters)  # ['h', 'w', 'r']
+print(data)          # ['HELLO', 'world', 'rust']
+```
+
+```rust !! rs
+// Rust: Careful with borrows in loops
+fn main() {
+    let mut data = vec!["hello", "world", "rust"];
+
+    // Collect immutable references
+    let first_letters: Vec<&str> = data.iter()
+        .map(|s| &s[0..1])
+        .collect();
+
+    println!("{:?}", first_letters);
+
+    // Can't modify while references exist
+    // data[0] = "HELLO";  // ERROR!
+    // Cannot borrow `data` as mutable
+    // because it is also borrowed as immutable
+
+    // After first_letters is used, we can modify
+    drop(first_letters);  // Explicitly drop
+    data[0] = "HELLO";
+
+    println!("{:?}", data);
+}
+```
+</UniversalEditor>
+
+### Example 3: Returning References
+
+<UniversalEditor compare={true} title="Returning References from Functions">
+```python !! py
+# Python: Can return references freely
+def get_first(items):
+    return items[0]
+
+data = [10, 20, 30]
+first = get_first(data)
+print(first)  # 10
+
+# Even after function returns
+data[0] = 100
+print(first)  # Still 10 (not a reference to data[0] anymore)
+```
+
+```rust !! rs
+// Rust: Lifetime ensures validity
+fn main() {
+    let data = vec![10, 20, 30];
+
+    // Borrow from data
+    let first = get_first(&data);
+    println!("First: {}", first);
+
+    // Can't modify while borrowed
+    // data[0] = 100;  // ERROR!
+
+    println!("Data: {:?}", data);
+}
+
+// Lifetime annotation: returned reference
+// lives at least as long as the input
+fn get_first<'a>(items: &'a Vec<i32>) -> &'a i32 {
+    &items[0]
+}
+
+// This won't compile - dangling reference!
+// fn get_first_bad() -> &i32 {
+//     let value = 42;
+//     &value  // ERROR: returns a reference to dropped data
+// }
+```
+</UniversalEditor>
+
+## Dangling References Prevention
+
+Rust's borrow checker ensures references never point to invalid memory.
+
+### What is a Dangling Reference?
+
+<UniversalEditor compare={true} title="Dangling Reference - Python vs Rust">
+```python !! py
+# Python: Garbage collector prevents dangling refs
+def create_ref():
+    data = [1, 2, 3]
+    return data  # Returns reference, object stays alive
+
+ref = create_ref()
+print(ref)  # [1, 2, 3] - Python keeps it alive
+
+# Even with explicit reference
+import weakref
+
+class MyClass:
+    def __init__(self, value):
+        self.value = value
+
+obj = MyClass(42)
+weak_ref = weakref.ref(obj)
+
+del obj  # Delete original
+print(weak_ref())  # None - object was deleted
+```
+
+```rust !! rs
+// Rust: Compile-time prevention of dangling refs
+fn main() {
+    // This works - reference to valid data
+    let data = vec![1, 2, 3];
+    let first = &data[0];
+    println!("First: {}", first);
+
+    // This won't compile - dangling reference!
+    // let bad_ref = create_dangling();
+    // println!("{:?}", bad_ref);
+}
+
+// This function won't compile!
+// fn create_dangling() -> &i32 {
+//     let value = 42;
+//     &value  // ERROR: returns a reference to dropped data
+// }
+
+// Correct version: return owned value
+fn create_owned() -> i32 {
+    let value = 42;
+    value  // Ownership transferred
+}
+
+// Or return reference to something that exists
+fn create_valid<'a>(data: &'a Vec<i32>) -> &'a i32 {
+    &data[0]
+}
+```
+</UniversalEditor>
+
+### Scope-Based Validity
+
+<UniversalEditor compare={true} title="Reference Scope and Validity">
+```python !! py
+# Python: References work until GC collects
+def process():
+    local_data = [1, 2, 3]
+    return local_data[:]  # Return copy
+
+result = process()
+print(result)  # [1, 2, 3] - works fine
+
+# Original local_data is gone, but we have a copy
+```
+
+```rust !! rs
+// Rust: References tied to scope
+fn main() {
+    // Reference must live shorter than owner
+    let result;
+    {
+        let data = vec![1, 2, 3];
+        result = data.len();  // Copy value, not reference
+    }  // data is dropped here
+
+    println!("Length: {}", result);  // Works fine
+
+    // This wouldn't work:
+    // let ref_result;
+    // {
+    //     let data = vec![1, 2, 3];
+    //     ref_result = &data[0];  // ERROR!
+    // }  // data dropped, ref_result would be dangling
+    // println!("{:?}", ref_result);
+}
+```
+</UniversalEditor>
+
+## Multiple Borrowing Scenarios
+
+Let's explore common borrowing patterns and pitfalls.
+
+### Scenario 1: Iterator Invalidaton
+
+<UniversalEditor compare={true} title="Iterator Invalidation - Common Pitfall">
+```python !! py
+# Python: Modifying while iterating (buggy!)
+numbers = [1, 2, 3, 4, 5]
+
+# This skips elements!
+for i, num in enumerate(numbers):
+    if num % 2 == 0:
+        numbers.pop(i)  # Modifying while iterating
+
+print(numbers)  # [1, 3, 5] - 2 was removed, but 4 stayed!
+```
+
+```rust !! rs
+// Rust: Compile-time protection
+fn main() {
+    let mut numbers = vec![1, 2, 3, 4, 5];
+
+    // Can't borrow mutably while iterating
+    // for num in numbers.iter() {
+    //     if num % 2 == 0 {
+    //         numbers.push(10);  // ERROR!
+    //         Cannot borrow `numbers` as mutable
+    //         because it is also borrowed as immutable
+    //     }
+    // }
+
+    // Correct approach: collect indices first
+    let to_remove: Vec<usize> = numbers.iter()
+        .enumerate()
+        .filter(|(_, &num)| num % 2 == 0)
+        .map(|(i, _)| i)
+        .collect();
+
+    // Then modify (in reverse order to keep indices valid)
+    for i in to_remove.into_iter().rev() {
+        numbers.remove(i);
+    }
+
+    println!("{:?}", numbers);  // [1, 3, 5]
+
+    // Or use retain()
+    let mut numbers = vec![1, 2, 3, 4, 5];
+    numbers.retain(|&x| x % 2 != 0);
+    println!("{:?}", numbers);  // [1, 3, 5]
+}
+```
+</UniversalEditor>
+
+### Scenario 2: Struct Field Borrowing
+
+<UniversalEditor compare={true} title="Borrowing Struct Fields">
+```python !! py
+# Python: Can access multiple fields
+class Point:
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+
+p = Point(10, 20)
+x_ref = p.x
+y_ref = p.y
+
+print(x_ref, y_ref)  # 10 20
+p.x = 30
+print(x_ref)  # 10 (not updated)
+```
+
+```rust !! rs
+// Rust: Borrowing struct fields
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+fn main() {
+    let mut p = Point { x: 10, y: 20 };
+
+    // Multiple immutable borrows of different fields
+    let x_ref = &p.x;
+    let y_ref = &p.y;
+    println!("X: {}, Y: {}", x_ref, y_ref);
+
+    // Can't borrow mutably while borrows exist
+    // p.x = 30;  // ERROR!
+
+    // After borrows end, can modify
+    let x_mut = &mut p.x;
+    *x_mut = 30;
+    println!("X: {}", p.x);
+
+    // Can borrow multiple fields mutably (non-overlapping)
+    {
+        let x_ref = &mut p.x;
+        *x_ref += 1;
+    }  // x_ref ends here
+    {
+        let y_ref = &mut p.y;
+        *y_ref += 1;
+    }  // y_ref ends here
+
+    println!("Point: ({}, {})", p.x, p.y);
+}
+```
+</UniversalEditor>
+
+### Scenario 3: Conditional Borrowing
+
+<UniversalEditor compare={true} title="Conditional Borrowing Pattern">
+```python !! py
+# Python: Conditional modifications
+data = [1, 2, 3, 4, 5]
+
+def maybe_modify(items, should_modify):
+    if should_modify:
+        items.append(6)
+    return items
+
+result = maybe_modify(data, True)
+print(result)  # [1, 2, 3, 4, 5, 6]
+
+result = maybe_modify(data, False)
+print(result)  # [1, 2, 3, 4, 5, 6]
+```
+
+```rust !! rs
+// Rust: Conditional borrowing
+fn main() {
+    let mut data = vec![1, 2, 3, 4, 5];
+
+    // Conditional modification
+    let result = maybe_modify(&mut data, true);
+    println!("{:?}", result);  // [1, 2, 3, 4, 5, 6]
+
+    let result = maybe_modify(&mut data, false);
+    println!("{:?}", result);  // [1, 2, 3, 4, 5, 6]
+}
+
+fn maybe_modify(items: &mut Vec<i32>, should_modify: bool) -> &Vec<i32> {
+    if should_modify {
+        items.push(6);
+    }
+    items  // Return reference
+}
+```
+</UniversalEditor>
+
+## Comparison: Python References vs Rust Borrowing
+
+### Conceptual Differences
+
+| Aspect | Python | Rust |
+|--------|--------|------|
+| **Memory Safety** | Runtime (GC) | Compile-time (borrow checker) |
+| **Mutable References** | Unlimited | Only one at a time |
+| **Mixing Read/Write** | Allowed | Not allowed simultaneously |
+| **Dangling References** | Possible (weakref) | Prevented at compile time |
+| **Performance** | GC overhead | Zero-cost |
+| **Thread Safety** | Developer's responsibility | Guaranteed by compiler |
+
+### Practical Implications
+
+<UniversalEditor compare={true} title="Python Reference Semantics">
+```python !! py
+# Python: Everything is a reference
+def modify_shared_data(data1, data2):
+    # Both can modify shared state
+    data1.append(1)
+    data2.append(2)
+
+shared = []
+modify_shared_data(shared, shared)
+print(shared)  # [1, 2]
+
+# In concurrent code, this causes data races!
+# Python relies on GIL and developer discipline
+```
+</UniversalEditor>
+
+<UniversalEditor compare={true} title="Rust Borrowing Semantics">
+```rust !! rs
+// Rust: Compile-time prevention of issues
+fn main() {
+    let mut shared = vec![];
+
+    // Can't pass as mutable twice
+    // modify_shared_data(&mut shared, &mut shared);
+    // ERROR: use of moved value: `shared`
+
+    // Must pass once, or use interior mutability
+    modify_once(&mut shared);
+    modify_once(&mut shared);
+
+    println!("{:?}", shared);  // [1, 2]
+}
+
+fn modify_once(data: &mut Vec<i32>) {
+    data.push(1);
+}
+```
+</UniversalEditor>
+
+## Best Practices
+
+### DO: Use References for Read-Only Access
+
+<UniversalEditor compare={true} title="Best Practice - Immutable References">
+```rust !! rs
+fn main() {
+    let data = vec![1, 2, 3, 4, 5];
+
+    // Use & for read-only
+    calculate_sum(&data);
+    calculate_sum(&data);  // Can call multiple times
+    print_first(&data);
+}
+
+fn calculate_sum(numbers: &Vec<i32>) -> i32 {
+    numbers.iter().sum()
+}
+
+fn print_first(numbers: &Vec<i32>) {
+    println!("First: {}", numbers[0]);
+}
+```
+</UniversalEditor>
+
+### DO: Borrow for the Minimum Necessary Scope
+
+<UniversalEditor compare={true} title="Best Practice - Minimize Borrow Scope">
+```rust !! rs
+fn main() {
+    let mut data = vec![1, 2, 3, 4, 5];
+
+    // Borrow only when needed
+    {
+        let first = &data[0];
+        println!("First: {}", first);
+    }  // Borrow ends here
+
+    // Can now modify
+    data.push(6);
+
+    // Another borrow
+    {
+        let last = &data[data.len() - 1];
+        println!("Last: {}", last);
+    }
+}
+```
+</UniversalEditor>
+
+### DON'T: Create Unnecessary Mutable Borrows
+
+<UniversalEditor compare={true} title="Anti-Pattern - Unnecessary Mutability">
+```rust !! rs
+fn main() {
+    let data = vec![1, 2, 3, 4, 5];
+
+    // DON'T: Use mutable when immutable suffices
+    // print_items(&mut data);  // Unnecessary!
+
+    // DO: Use immutable for read-only
+    print_items(&data);
+}
+
+fn print_items(items: &Vec<i32>) {
+    println!("{:?}", items);
+}
+```
+</UniversalEditor>
+
+## Common Borrowing Pitfalls
+
+### Pitfall 1: Forgetting to Drop Borrows
+
+<UniversalEditor compare={true} title="Pitfall - Borrow Lifetime">
+```python !! py
+# Python: No issue
+data = [1, 2, 3]
+
+ref = data
+print(ref)
+
+data.append(4)  # Works fine
+print(ref)
+```
+
+```rust !! rs
+// Rust: Borrow persists until last use
+fn main() {
+    let mut data = vec![1, 2, 3];
+
+    let ref_vec = &data;
+    println!("{:?}", ref_vec);
+
+    // Can't modify while ref_vec is "alive"
+    // data.push(4);  // ERROR!
+
+    // Even though we printed it, compiler thinks it's still used
+    // Solution: explicitly drop or use smaller scope
+
+    // Explicit drop
+    drop(ref_vec);
+    data.push(4);  // Now works!
+
+    println!("{:?}", data);
+}
+```
+</UniversalEditor>
+
+### Pitfall 2: Collecting References
+
+<UniversalEditor compare={true} title="Pitfall - Collected References">
+```rust !! rs
+fn main() {
+    let mut data = vec![1, 2, 3, 4, 5];
+
+    // Collect references
+    let evens: Vec<&i32> = data.iter()
+        .filter(|&&x| x % 2 == 0)
+        .collect();
+
+    println!("{:?}", evens);
+
+    // Can't modify while evens holds references
+    // data.push(6);  // ERROR!
+
+    // Must drop evens first
+    drop(evens);
+    data.push(6);
+
+    println!("{:?}", data);
+}
+```
+</UniversalEditor>
+
+### Pitfall 3: Closure Borrowing
+
+<UniversalEditor compare={true} title="Pitfall - Closure Borrows">
+```rust !! rs
+fn main() {
+    let data = vec![1, 2, 3, 4, 5];
+
+    // Closure borrows data
+    let sum = || {
+        data.iter().sum::<i32>()
+    };
+
+    println!("Sum: {}", sum());
+
+    // Can't modify while closure exists
+    // let mut data_mut = data;
+    // data_mut.push(6);  // ERROR!
+
+    // After closure is used, can consume
+    let mut data_mut = data;
+    data_mut.push(6);
+
+    println!("{:?}", data_mut);
+}
+```
+</UniversalEditor>
+
+## Advanced: Smart Pointers and Borrowing
+
+For more complex scenarios, Rust provides smart pointers with interior mutability.
+
+<UniversalEditor compare={true} title="Interior Mutability - Rc and RefCell">
+```python !! py
+# Python: Shared mutable state everywhere
+counter = [0]
+
+def increment():
+    counter[0] += 1
+
+increment()
+increment()
+print(counter[0])  # 2
+```
+
+```rust !! rs
+use std::rc::Rc;
+use std::cell::RefCell;
+
+fn main() {
+    // Runtime borrow checking with RefCell
+    let counter = Rc::new(RefCell::new(0));
+
+    // Clone the Rc (reference count increases)
+    let counter_ref1 = Rc::clone(&counter);
+    let counter_ref2 = Rc::clone(&counter);
+
+    // Multiple mutable references at runtime!
+    // Will panic if there's a conflict
+    *counter_ref1.borrow_mut() += 1;
+    *counter_ref2.borrow_mut() += 1;
+
+    println!("Count: {}", counter.borrow());  // 2
+
+    // Use for shared ownership with runtime checking
+    // Less efficient but more flexible
+}
+```
+</UniversalEditor>
+
+## Exercises
+
+### Exercise 1: Fix the Borrow Checker
+
+<UniversalEditor compare={true} title="Exercise 1 - Fix the Errors">
+```rust !! rs
+// FIX THE ERRORS in this code
+
+fn main() {
+    let mut numbers = vec![1, 2, 3, 4, 5];
+
+    let first = &numbers[0];
+    let last = &numbers[numbers.len() - 1];
+
+    numbers.push(6);  // ERROR: Why?
+
+    println!("First: {}, Last: {}", first, last);
+    println!("{:?}", numbers);
+}
+
+// HINT: Adjust the order or use scopes
+```
+</UniversalEditor>
+
+### Exercise 2: Implement a Function
+
+<UniversalEditor compare={true} title="Exercise 2 - Implement find_largest">
+```rust !! rs
+// IMPLEMENT this function using borrowing
+
+fn main() {
+    let numbers = vec![10, 20, 30, 40, 50];
+    let largest = find_largest(&numbers);
+    println!("Largest: {}", largest);  // Should print 50
+}
+
+// TODO: Implement find_largest
+// It should:
+// 1. Take a reference to a Vec<i32>
+// 2. Return the largest value
+// 3. Use borrowing (not take ownership)
+fn find_largest(numbers: &Vec<i32>) -> i32 {
+    // Your code here
+    unimplemented!()
+}
+```
+</UniversalEditor>
+
+### Exercise 3: Borrowing in Structs
+
+<UniversalEditor compare={true} title="Exercise 3 - Struct with References">
+```rust !! rs
+// IMPLEMENT a struct that holds a reference
+
+fn main() {
+    let data = vec![1, 2, 3, 4, 5];
+
+    // Create a DataView that references the data
+    let view = create_view(&data);
+
+    println!("First: {}", view.first());  // 1
+    println!("Last: {}", view.last());    // 5
+
+    println!("{:?}", data);  // Still accessible
+}
+
+// TODO: Define DataView struct with a reference
+// HINT: You'll need lifetime annotations
+struct DataView {
+    // Your fields here
+}
+
+fn create_view(data: &Vec<i32>) -> DataView {
+    // Your code here
+    unimplemented!()
+}
+
+// Implement methods for DataView
+// impl DataView {
+//     fn first(&self) -> i32 { ... }
+//     fn last(&self) -> i32 { ... }
+// }
+```
+</UniversalEditor>
+
+## Summary
+
+In this module, you learned:
+
+### Key Concepts
+- **Borrowing**: Rust's system for temporary access without ownership transfer
+- **Immutable References (`&T`)**: Multiple readers allowed simultaneously
+- **Mutable References (`&mut T`)**: Exclusive access, only one at a time
+- **Borrow Checker**: Compile-time enforcement of memory safety
+
+### Borrowing Rules
+1. Multiple immutable references are OK
+2. One mutable reference is OK
+3. Cannot mix mutable and immutable references
+4. References must always be valid
+
+### Python vs Rust
+- **Python**: Runtime memory management with GC, flexible references
+- **Rust**: Compile-time guarantees, zero-cost safety
+
+### Best Practices
+- Use `&T` for read-only access
+- Use `&mut T` only when mutation is needed
+- Minimize borrow scope
+- Drop references explicitly when needed
+- Use smart pointers (Rc, RefCell) for complex sharing scenarios
+
+### Next Steps
+In [Module 4: Structs and Enums](/docs/py2rust/module-04-structs-enums), we'll explore Rust's type system and how to define custom data types with structs and enums, comparing them to Python's classes and enums.
+
+---
+
+**Practice**: Try rewriting some Python code that uses references in Rust, paying attention to the borrowing rules. The borrow checker will guide you toward safe patterns!

@@ -1,0 +1,808 @@
+---
+title: "Module 13: Building and Deployment"
+---
+
+This module covers building and deploying Go applications, comparing Go's simple deployment model with Java's more complex deployment strategies.
+
+## Deployment Philosophy: Go vs Java
+
+**Java Deployment:**
+- Requires JVM installed on target machine
+- JAR/WAR files containing bytecode
+- Application servers (Tomcat, Jetty, WebSphere)
+- Heavy startup time and memory footprint
+- Complex dependency management (Maven/Gradle)
+
+**Go Deployment:**
+- Single static binary executable
+- No runtime dependencies required
+- Cross-compilation support
+- Fast startup and minimal memory footprint
+- Simple dependency management (go.mod)
+
+<UniversalEditor title="Building Applications">
+```java !! java
+// Java: Build with Maven/Gradle
+// pom.xml
+/*
+<project>
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>com.example</groupId>
+    <artifactId>myapp</artifactId>
+    <version>1.0.0</version>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.8.1</version>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-shade-plugin</artifactId>
+                <version>3.2.4</version>
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals><goal>shade</goal></goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>
+*/
+
+// Build commands:
+// mvn clean package
+// java -jar target/myapp-1.0.0.jar
+
+public class Main {
+    public static void main(String[] args) {
+        System.out.println("Hello, World!");
+    }
+}
+```
+
+```go !! go
+// Go: Build with go build
+// go.mod
+/*
+module myapp
+
+go 1.21
+
+require github.com/gin-gonic/gin v1.9.1
+*/
+
+package main
+
+import "fmt"
+
+func main() {
+    fmt.Println("Hello, World!")
+}
+
+// Build commands:
+// go build -o myapp
+// ./myapp
+
+// Cross-compilation:
+// GOOS=linux GOARCH=amd64 go build -o myapp-linux
+// GOOS=windows GOARCH=amd64 go build -o myapp.exe
+// GOOS=darwin GOARCH=arm64 go build -o myapp-mac-arm
+```
+</UniversalEditor>
+
+## Cross-Compilation
+
+Go makes cross-compilation trivial compared to Java's platform-specific builds.
+
+<UniversalEditor title="Cross-Compilation Comparison">
+```java !! java
+// Java: Platform-specific considerations
+/*
+Java is "write once, run anywhere" but requires:
+1. JVM for each target platform
+2. Platform-specific native libraries (JNI)
+3. Different application servers
+
+Building native images with GraalVM:
+*/
+public class NativeBuild {
+    // Requires GraalVM installed
+    // native-image:native-image -jar myapp.jar
+
+    public static void main(String[] args) {
+        System.out.println("Native image!");
+    }
+}
+
+/*
+Build process:
+1. Install GraalVM
+2. Build native image (takes minutes)
+3. Platform-specific binary produced
+4. Limited support for some Java features
+*/
+```
+
+```go !! go
+// Go: Easy cross-compilation
+package main
+
+import (
+    "fmt"
+    "runtime"
+)
+
+func main() {
+    fmt.Printf("OS: %s, Arch: %s\n", runtime.GOOS, runtime.GOARCH)
+    fmt.Println("Cross-compilation is easy!")
+}
+
+/*
+Build for different platforms:
+# Linux (amd64)
+GOOS=linux GOARCH=amd64 go build -o myapp-linux
+
+# Windows (amd64)
+GOOS=windows GOARCH=amd64 go build -o myapp.exe
+
+# macOS (Apple Silicon)
+GOOS=darwin GOARCH=arm64 go build -o myapp-mac-arm
+
+# Linux ARM (Raspberry Pi)
+GOOS=linux GOARCH=arm64 go build -o myapp-pi
+
+# Build for all platforms at once
+GOOS=linux GOARCH=amd64 go build -o dist/linux-amd64/myapp
+GOOS=windows GOARCH=amd64 go build -o dist/windows-amd64/myapp.exe
+GOOS=darwin GOARCH=amd64 go build -o dist/darwin-amd64/myapp
+GOOS=darwin GOARCH=arm64 go build -o dist/darwin-arm64/myapp
+*/
+```
+</UniversalEditor>
+
+## Docker Deployment
+
+<UniversalEditor title="Dockerfile Comparison">
+```dockerfile !! dockerfile
+# Java: Multi-stage Dockerfile
+FROM maven:3.8-openjdk-17 AS builder
+
+WORKDIR /app
+COPY pom.xml .
+COPY src ./src
+
+RUN mvn clean package -DskipTests
+
+# Runtime stage
+FROM openjdk:17-slim
+
+WORKDIR /app
+COPY --from=builder /app/target/myapp.jar app.jar
+
+# Expose port
+EXPOSE 8080
+
+# Set JVM options
+ENV JAVA_OPTS="-Xmx512m -Xms256m"
+
+ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]
+
+# Result: ~400-500MB image
+# Startup time: 2-5 seconds
+```
+
+```dockerfile !! dockerfile
+# Go: Multi-stage Dockerfile
+FROM golang:1.21-alpine AS builder
+
+WORKDIR /app
+
+# Download dependencies first (better layer caching)
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+
+# Build the application
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o main .
+
+# Runtime stage - minimal base image
+FROM alpine:latest
+
+WORKDIR /app
+
+# Copy the binary
+COPY --from=builder /app/main .
+
+# Expose port
+EXPOSE 8080
+
+# Run the binary
+ENTRYPOINT ["./main"]
+
+# Result: ~10-20MB image
+# Startup time: <100ms
+```
+</UniversalEditor>
+
+## Build Optimization
+
+<UniversalEditor title="Build Optimization">
+```bash !! bash
+# Java: Build optimization
+
+## Maven
+# Skip tests for faster builds
+mvn package -DskipTests
+
+# Parallel builds
+mvn -T 4 package
+
+# Offline mode (uses cached dependencies)
+mvn -o package
+
+# Profile-specific builds
+mvn package -P production
+
+## Gradle
+# Configure build cache
+org.gradle.caching=true
+
+# Parallel execution
+org.gradle.parallel=true
+
+# Configuration cache
+org.gradle.configuration-cache=true
+```
+
+```go !! go
+// Go: Build optimization techniques
+
+// 1. Build tags and constraints
+//go:build !windows
+
+package main
+
+import "fmt"
+
+func main() {
+    fmt.Println("Not built for Windows")
+}
+
+// 2. Link-time optimization
+// go build -ldflags="-s -w"
+// -s: Remove symbol table
+// -w: Remove DWARF debug info
+// Result: 20-30% smaller binary
+
+// 3. Build tags for platform-specific code
+//go:build linux && amd64
+
+package main
+
+func optimizeForLinuxAMD64() {
+    // Linux AMD64-specific optimizations
+}
+
+// 4. Trim paths for smaller binaries
+// go build -trimpath
+
+// 5. Upx compression (after build)
+// upx --best --lzma myapp
+// Can reduce size by 50-70%
+```
+</UniversalEditor>
+
+## Dependency Management
+
+<UniversalEditor title="Dependency Management Comparison">
+```xml !! xml
+<!-- Java: Maven dependencies (pom.xml) -->
+<project>
+    <dependencies>
+        <!-- Direct dependency -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+            <version>3.1.0</version>
+        </dependency>
+
+        <!-- Transitive dependencies managed automatically -->
+        <!-- Can conflict, require exclusion -->
+        <dependency>
+            <groupId>com.example</groupId>
+            <artifactId>some-library</artifactId>
+            <version>2.0.0</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>conflicting.lib</groupId>
+                    <artifactId>bad-version</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+
+        <!-- Dependency management section -->
+        <dependencyManagement>
+            <dependencies>
+                <dependency>
+                    <groupId>org.springframework.boot</groupId>
+                    <artifactId>spring-boot-dependencies</artifactId>
+                    <version>3.1.0</version>
+                    <type>pom</type>
+                    <scope>import</scope>
+                </dependency>
+            </dependencies>
+        </dependencyManagement>
+    </dependencies>
+</project>
+```
+
+```go !! go
+// Go: go.mod for dependency management
+module myapp
+
+go 1.21
+
+require (
+    github.com/gin-gonic/gin v1.9.1
+    github.com/go-redis/redis/v8 v8.11.5
+    gorm.io/gorm v1.25.4
+)
+
+// Go solves diamond dependency problem differently:
+// - Minimal version selection (MVS)
+// - No need for conflict resolution
+// - All versions must be compatible
+
+/*
+Commands:
+go mod init myapp          # Initialize module
+go mod tidy                # Clean up dependencies
+go get github.com/gin-gonic/gin@latest  # Add dependency
+go get -u ./...            # Update all dependencies
+go mod verify              # Verify dependencies
+go mod vendor              # Vendor dependencies
+*/
+```
+</UniversalEditor>
+
+## Environment Configuration
+
+<UniversalEditor title="Configuration Management">
+```java !! java
+// Java: Configuration approaches
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.PropertySource;
+
+@Configuration
+@PropertySource(value = "classpath:application-${environment}.properties")
+public class AppConfig {
+
+    @Value("${app.port}")
+    private int port;
+
+    @Value("${app.database.url}")
+    private String databaseUrl;
+
+    @Value("${app.api.key}")
+    private String apiKey;
+
+    // application.properties:
+    // app.port=8080
+    // app.database.url=jdbc:postgresql://localhost:5432/mydb
+    // app.api.key=${API_KEY}
+
+    // Environment variables:
+    // export API_KEY="secret-key"
+    // java -jar app.jar --spring.profiles.active=production
+}
+
+// Or use external config files:
+// java -jar app.jar --spring.config.location=file:/path/to/config/
+```
+
+```go !! go
+// Go: Configuration approaches
+package main
+
+import (
+    "fmt"
+    "os"
+    "strconv"
+)
+
+// Simple struct-based configuration
+type Config struct {
+    Port        int
+    DatabaseURL string
+    APIKey      string
+}
+
+func LoadConfig() *Config {
+    config := &Config{
+        Port:        getEnvInt("PORT", 8080),
+        DatabaseURL: getEnv("DATABASE_URL", "postgres://localhost:5432/mydb"),
+        APIKey:      getEnv("API_KEY", ""),
+    }
+    return config
+}
+
+func getEnv(key, defaultValue string) string {
+    if value := os.Getenv(key); value != "" {
+        return value
+    }
+    return defaultValue
+}
+
+func getEnvInt(key string, defaultValue int) int {
+    if value := os.Getenv(key); value != "" {
+        if intVal, err := strconv.Atoi(value); err == nil {
+            return intVal
+        }
+    }
+    return defaultValue
+}
+
+// Using viper for advanced configuration:
+/*
+import github.com/spf13/viper
+
+viper.SetConfigName("config")
+viper.SetConfigType("yaml")
+viper.AddConfigPath(".")
+viper.AddConfigPath("/etc/myapp/")
+viper.AutomaticEnv()
+
+viper.SetDefault("port", 8080)
+viper.BindEnv("api_key", "API_KEY")
+
+if err := viper.ReadInConfig(); err != nil {
+    log.Fatalf("Error reading config: %v", err)
+}
+
+port := viper.GetInt("port")
+apiKey := viper.GetString("api_key")
+*/
+```
+</UniversalEditor>
+
+## Cloud Deployment
+
+<UniversalEditor title="Cloud Platform Deployment">
+```yaml !! yaml
+# Java: Kubernetes Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: java-app
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: java-app
+  template:
+    metadata:
+      labels:
+        app: java-app
+    spec:
+      containers:
+      - name: app
+        image: myregistry/java-app:latest
+        ports:
+        - containerPort: 8080
+        env:
+        - name: JAVA_OPTS
+          value: "-Xmx512m -Xms256m"
+        - name: SPRING_PROFILES_ACTIVE
+          value: "production"
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8080
+          initialDelaySeconds: 60
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 5
+```
+
+```yaml !! yaml
+# Go: Kubernetes Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: go-app
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: go-app
+  template:
+    metadata:
+      labels:
+        app: go-app
+    spec:
+      containers:
+      - name: app
+        image: myregistry/go-app:latest
+        ports:
+        - containerPort: 8080
+        env:
+        - name: PORT
+          value: "8080"
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: db-secret
+              key: url
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
+            memory: "128Mi"
+            cpu: "100m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 2
+          periodSeconds: 5
+```
+</UniversalEditor>
+
+## CI/CD Pipeline
+
+<UniversalEditor title="CI/CD Configuration">
+```yaml !! yaml
+# Java: GitHub Actions for Maven
+name: Java CI
+
+on: [push, pull_request]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up JDK 17
+      uses: actions/setup-java@v3
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+
+    - name: Cache Maven packages
+      uses: actions/cache@v3
+      with:
+        path: ~/.m2
+        key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+
+    - name: Build with Maven
+      run: mvn -B package --file pom.xml
+
+    - name: Run tests
+      run: mvn test
+
+    - name: Build Docker image
+      run: docker build -t myapp:${{ github.sha }} .
+```
+
+```yaml !! yaml
+# Go: GitHub Actions
+name: Go CI
+
+on: [push, pull_request]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.21'
+
+    - name: Cache Go modules
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cache/go-build
+          ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
+
+    - name: Download dependencies
+      run: go mod download
+
+    - name: Run go vet
+      run: go vet ./...
+
+    - name: Run tests
+      run: go test -v -race -coverprofile=coverage.txt ./...
+
+    - name: Build
+      run: go build -v ./...
+
+    - name: Build Docker image
+      run: docker build -t myapp:${{ github.sha }} .
+```
+</UniversalEditor>
+
+## Zero-Downtime Deployment
+
+<UniversalEditor title="Deployment Strategies">
+```java !! java
+// Java: Zero-downtime deployment considerations
+/*
+1. Rolling updates with Kubernetes
+2. Blue-green deployment
+3. Canary deployments
+4. Load balancer configuration
+
+Example: Spring Boot with graceful shutdown
+*/
+@Component
+public class ShutdownConfig {
+
+    @PreDestroy
+    public void onShutdown() {
+        // Close connections gracefully
+        // Finish in-flight requests
+        // Release resources
+    }
+}
+
+// application.properties:
+server.shutdown=graceful
+spring.lifecycle.timeout-per-shutdown-phase=30s
+
+/*
+Challenges:
+- Long JVM warmup time
+- Memory-intensive
+- Complex class loading
+- Session state management
+*/
+```
+
+```go !! go
+// Go: Zero-downtime deployment
+package main
+
+import (
+    "context"
+    "fmt"
+    "net/http"
+    "os"
+    "os/signal"
+    "syscall"
+    "time"
+)
+
+func main() {
+    server := &http.Server{
+        Addr:    ":8080",
+        Handler: newHandler(),
+    }
+
+    // Start server in goroutine
+    go func() {
+        fmt.Println("Server starting on :8080")
+        if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+            fmt.Printf("Server error: %v\n", err)
+        }
+    }()
+
+    // Wait for interrupt signal
+    quit := make(chan os.Signal, 1)
+    signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+    <-quit
+
+    fmt.Println("Shutting down server...")
+
+    // Graceful shutdown with timeout
+    ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+    defer cancel()
+
+    if err := server.Shutdown(ctx); err != nil {
+        fmt.Printf("Server shutdown error: %v\n", err)
+    }
+
+    fmt.Println("Server stopped")
+}
+
+func newHandler() http.Handler {
+    mux := http.NewServeMux()
+    mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+        fmt.Fprintln(w, "Hello, World!")
+    })
+    mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+        fmt.Fprintln(w, "OK")
+    })
+    return mux
+}
+
+/*
+Advantages:
+- Instant startup (<100ms)
+- Low memory footprint
+- Easy graceful shutdown
+- No session state to manage
+- Simple process management
+*/
+```
+</UniversalEditor>
+
+## Production Checklist
+
+### Java Production Checklist:
+- [ ] JVM heap size configured
+- [ ] GC strategy selected
+- [ ] Application server tuned
+- [ ] Connection pools sized
+- [ ] Monitoring enabled (JMX, Micrometer)
+- [ ] Logging configured
+- [ ] Security hardening
+- [ ] Database connection testing
+- [ ] Load testing performed
+- [ ] Backup and recovery plan
+
+### Go Production Checklist:
+- [ ] Binary stripped and optimized
+- [ ] Error handling and logging
+- [ ] Health check endpoints
+- [ ] Graceful shutdown implemented
+- [ ] Memory profiling tested
+- [ ] CPU profiling tested
+- [ ] Rate limiting configured
+- [ ] Security headers set
+- [ ] Database connection pooling
+- [ ] Metrics and tracing enabled
+
+---
+
+### Practice Questions:
+1. Why does Go produce smaller Docker images than Java?
+2. What are the advantages of Go's cross-compilation over Java's "write once, run anywhere"?
+3. How does Go's minimal version selection differ from Maven's dependency resolution?
+4. Why is zero-downtime deployment easier with Go?
+
+### Project Ideas:
+- Create a multi-stage Dockerfile for a Go microservice
+- Set up a CI/CD pipeline for a Go application
+- Implement blue-green deployment for a Go service
+- Build a deployment automation tool
+
+### Next Steps:
+- Learn about Go's build tools and ecosystem
+- Explore Go's third-party libraries and frameworks
+- Understand database integration in Go
+- Build production-ready applications

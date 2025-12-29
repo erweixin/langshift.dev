@@ -1,0 +1,1216 @@
+---
+title: "Module 06: Goroutines vs Threads - Lightweight Concurrency"
+description: "Master Go's goroutines and compare them with Java threads. Learn about lightweight concurrency, goroutine lifecycle, WaitGroups, and performance characteristics."
+---
+
+# Module 06: Goroutines vs Threads - Lightweight Concurrency
+
+In this module, you'll learn how Go handles **concurrency through goroutines**, comparing them with Java's threading model. Go's goroutines are lightweight, cheap to create, and make concurrent programming significantly easier and more efficient.
+
+## Learning Objectives
+
+By the end of this module, you'll be able to:
+- Create and manage goroutines
+- Compare goroutines with Java threads
+- Use WaitGroups for synchronization
+- Understand goroutine scheduling and lifecycle
+- Analyze memory footprint differences
+- Implement common goroutine patterns
+- Build concurrent programs efficiently
+
+## Background: Java Threads vs Go Goroutines
+
+### The Fundamental Difference
+
+**Java Threads:**
+- Heavyweight - each thread maps to an OS thread
+- Expensive to create (~1MB stack per thread)
+- Limited by OS resources (thousands at most)
+- Context switching is expensive (kernel-level)
+- Complex synchronization (synchronized, Lock, Condition)
+
+**Go Goroutines:**
+- Lightweight - managed by Go runtime
+- Extremely cheap to create (~2KB stack initially)
+- Can spawn millions of goroutines
+- Context switching is cheap (user-level)
+- Simple synchronization through channels
+
+<UniversalEditor title="Hello World Concurrency: Java vs Go">
+```java !! java
+// Java: Creating threads is heavy
+public class ThreadExample {
+    public static void main(String[] args) {
+        // Create and start a thread
+        Thread thread = new Thread(() -> {
+            System.out.println("Hello from thread!");
+        });
+        thread.start();
+
+        // Wait for thread to finish
+        try {
+            thread.join();
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+
+        System.out.println("Main thread done");
+    }
+}
+```
+
+```go !! go
+// Go: Goroutines are lightweight
+package main
+
+import (
+	"fmt"
+)
+
+func main() {
+	// Spawn a goroutine
+	go func() {
+		fmt.Println("Hello from goroutine!")
+	}()
+
+	// Wait a bit (not ideal - we'll learn better ways)
+	fmt.Println("Main goroutine done")
+}
+```
+</UniversalEditor>
+
+## Creating Goroutines
+
+### Basic Goroutine Creation
+
+<UniversalEditor title="Creating Concurrent Tasks">
+```java !! java
+// Java: Multiple threads for concurrent tasks
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
+public class MultiThread {
+    public static void main(String[] args) {
+        // Using thread pool (better than creating threads directly)
+        ExecutorService executor = Executors.newFixedThreadPool(5);
+
+        for (int i = 0; i < 5; i++) {
+            final int taskId = i;
+            executor.submit(() -> {
+                System.out.println("Task " + taskId +
+                    " running on " + Thread.currentThread().getName());
+            });
+        }
+
+        executor.shutdown();
+    }
+}
+```
+
+```go !! go
+// Go: Spawning goroutines
+package main
+
+import (
+	"fmt"
+	"time"
+)
+
+func task(id int) {
+	fmt.Printf("Task %d running\n", id)
+}
+
+func main() {
+	// Spawn 5 goroutines
+	for i := 0; i < 5; i++ {
+		go task(i)
+	}
+
+	// Wait for goroutines to finish
+	time.Sleep(time.Millisecond)
+}
+```
+</UniversalEditor>
+
+### Anonymous Goroutines
+
+<UniversalEditor title="Anonymous Functions vs Closures">
+```java !! java
+// Java: Anonymous Runnable and lambda
+public class AnonymousThread {
+    public static void main(String[] args) {
+        // Anonymous class
+        Thread t1 = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                System.out.println("Anonymous class");
+            }
+        });
+
+        // Lambda (preferred)
+        Thread t2 = new Thread(() -> {
+            System.out.println("Lambda expression");
+        });
+
+        t1.start();
+        t2.start();
+    }
+}
+```
+
+```go !! go
+// Go: Anonymous goroutines with closures
+package main
+
+import (
+	"fmt"
+)
+
+func main() {
+	// Anonymous goroutine
+	go func() {
+		fmt.Println("Anonymous goroutine")
+	}()
+
+	// Goroutine with parameters
+	go func(msg string) {
+		fmt.Printf("Message: %s\n", msg)
+	}("Hello from closure")
+
+	// Wait for goroutines
+	time.Sleep(100 * time.Millisecond)
+}
+```
+</UniversalEditor>
+
+## WaitGroups vs CountDownLatch
+
+### Synchronization Primitives
+
+<UniversalEditor title="Waiting for Multiple Tasks">
+```java !! java
+// Java: CountDownLatch to wait for multiple threads
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
+public class LatchExample {
+    public static void main(String[] args) throws InterruptedException {
+        final int TASK_COUNT = 3;
+        CountDownLatch latch = new CountDownLatch(TASK_COUNT);
+        ExecutorService executor = Executors.newFixedThreadPool(TASK_COUNT);
+
+        for (int i = 0; i < TASK_COUNT; i++) {
+            final int taskId = i;
+            executor.submit(() -> {
+                try {
+                    Thread.sleep(1000);
+                    System.out.println("Task " + taskId + " completed");
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                } finally {
+                    latch.countDown(); // Signal completion
+                }
+            });
+        }
+
+        latch.await(); // Wait for all tasks
+        System.out.println("All tasks completed");
+        executor.shutdown();
+    }
+}
+```
+
+```go !! go
+// Go: WaitGroup for synchronization
+package main
+
+import (
+	"fmt"
+	"sync"
+	"time"
+)
+
+func worker(id int, wg *sync.WaitGroup) {
+	defer wg.Done() // Signal completion when done
+
+	fmt.Printf("Worker %d starting\n", id)
+	time.Sleep(time.Second)
+	fmt.Printf("Worker %d done\n", id)
+}
+
+func main() {
+	var wg sync.WaitGroup
+
+	// Spawn 3 workers
+	for i := 1; i <= 3; i++ {
+		wg.Add(1) // Increment counter
+		go worker(i, &wg)
+	}
+
+	wg.Wait() // Wait for all workers
+	fmt.Println("All workers completed")
+}
+```
+</UniversalEditor>
+
+### WaitGroup Best Practices
+
+<UniversalEditor title="WaitGroup Patterns">
+```java !! java
+// Java: More complex synchronization scenarios
+import java.util.concurrent.*;
+import java.util.*;
+
+public class ComplexSync {
+    static class Result {
+        List<String> results = new ArrayList<>();
+    }
+
+    public static void main(String[] args) throws Exception {
+        int taskCount = 5;
+        CountDownLatch latch = new CountDownLatch(taskCount);
+        Result result = new Result();
+
+        ExecutorService executor = Executors.newFixedThreadPool(10);
+
+        for (int i = 0; i < taskCount; i++) {
+            final int taskId = i;
+            executor.submit(() -> {
+                try {
+                    String data = "Result " + taskId;
+                    synchronized (result.results) {
+                        result.results.add(data);
+                    }
+                } finally {
+                    latch.countDown();
+                }
+            });
+        }
+
+        latch.await();
+        System.out.println("Collected: " + result.results);
+        executor.shutdown();
+    }
+}
+```
+
+```go !! go
+// Go: Cleaner WaitGroup patterns
+package main
+
+import (
+	"fmt"
+	"sync"
+)
+
+func collectResults(id int, wg *sync.WaitGroup, results *[]string) {
+	defer wg.Done()
+
+	data := fmt.Sprintf("Result %d", id)
+	*results = append(*results, data)
+}
+
+func main() {
+	var wg sync.WaitGroup
+	var results []string
+	var mu sync.Mutex // Protect shared slice
+
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+
+			data := fmt.Sprintf("Result %d", id)
+
+			mu.Lock()
+			results = append(results, data)
+			mu.Unlock()
+		}(i)
+	}
+
+	wg.Wait()
+	fmt.Println("Collected:", results)
+}
+```
+</UniversalEditor>
+
+## Goroutine Lifecycle and Scheduling
+
+### Understanding Goroutine States
+
+<UniversalEditor title="Thread vs Goroutine Lifecycle">
+```java !! java
+// Java: Thread states (NEW, RUNNABLE, BLOCKED, WAITING, TIMED_WAITING, TERMINATED)
+public class ThreadStates {
+    public static void main(String[] args) throws Exception {
+        Thread thread = new Thread(() -> {
+            try {
+                // RUNNABLE
+                System.out.println("Thread running");
+
+                // TIMED_WAITING
+                Thread.sleep(1000);
+
+                // WAITING
+                synchronized (ThreadStates.class) {
+                    ThreadStates.class.wait();
+                }
+            } catch (InterruptedException e) {
+                // TERMINATED
+            }
+        });
+
+        // NEW state
+        System.out.println("State: " + thread.getState());
+
+        thread.start(); // RUNNABLE
+
+        Thread.sleep(100);
+        System.out.println("State: " + thread.getState());
+    }
+}
+```
+
+```go !! go
+// Go: Goroutine states (simpler model)
+package main
+
+import (
+	"fmt"
+	"runtime"
+	"time"
+)
+
+func goroutineStates() {
+	// Goroutine is executing
+	fmt.Println("Goroutine running")
+
+	// Goroutine is blocked (waiting)
+	time.Sleep(time.Second)
+
+	// Goroutine completes and is garbage collected
+	fmt.Println("Goroutine done")
+}
+
+func main() {
+	// Before goroutine: no goroutine yet
+	fmt.Printf("Goroutines: %d\n", runtime.NumGoroutine())
+
+	go goroutineStates()
+
+	time.Sleep(100 * time.Millisecond)
+	fmt.Printf("Goroutines: %d\n", runtime.NumGoroutine())
+
+	time.Sleep(2 * time.Second)
+	fmt.Printf("Goroutines: %d\n", runtime.NumGoroutine())
+}
+```
+</UniversalEditor>
+
+### Goroutine Scheduler (M:N Scheduler)
+
+<UniversalEditor title="Scheduler Comparison">
+```java !! java
+// Java: 1:1 threading model (one Java thread = one OS thread)
+// Managed by OS scheduler
+public class JavaScheduler {
+    public static void main(String[] args) {
+        // Each thread creates an OS thread
+        for (int i = 0; i < 10; i++) {
+            new Thread(() -> {
+                // This maps 1:1 to an OS thread
+                Thread.currentThread().setName("Worker");
+                System.out.println(Thread.currentThread().getName());
+            }).start();
+        }
+    }
+}
+
+/* OS manages scheduling - expensive context switches */
+```
+
+```go !! go
+// Go: M:N scheduler (M goroutines : N OS threads)
+// Go runtime manages scheduling
+package main
+
+import (
+	"fmt"
+	"runtime"
+	"time"
+)
+
+func main() {
+	// Set number of OS threads (GOMAXPROCS)
+	fmt.Printf("GOMAXPROCS: %d\n", runtime.GOMAXPROCS(0))
+
+	// Can spawn thousands of goroutines
+	for i := 0; i < 1000; i++ {
+		go func(id int) {
+			time.Sleep(100 * time.Millisecond)
+			fmt.Printf("Goroutine %d\n", id)
+		}(i)
+	}
+
+	// Go runtime multiplexes goroutines onto fewer OS threads
+	time.Sleep(time.Second)
+	fmt.Printf("Total goroutines created: 1000\n")
+}
+```
+</UniversalEditor>
+
+## Memory Footprint Comparison
+
+### Stack Size and Memory Usage
+
+<UniversalEditor title="Memory Footprint Analysis">
+```java !! java
+// Java: Threads have large stack sizes
+public class ThreadMemory {
+    public static void main(String[] args) {
+        // Default stack size: ~1MB per thread
+        // 1000 threads = ~1GB memory!
+
+        Runtime runtime = Runtime.getRuntime();
+        long before = runtime.totalMemory() - runtime.freeMemory();
+
+        for (int i = 0; i < 100; i++) {
+            new Thread(() -> {
+                try {
+                    Thread.sleep(60000); // Keep alive
+                } catch (InterruptedException e) {}
+            }).start();
+        }
+
+        long after = runtime.totalMemory() - runtime.freeMemory();
+        System.out.println("Memory used: " + (after - before) / 1024 / 1024 + " MB");
+        System.out.println("100 threads created");
+    }
+}
+```
+
+```go !! go
+// Go: Goroutines start with tiny stacks (2KB)
+package main
+
+import (
+	"fmt"
+	"runtime"
+	"time"
+)
+
+func main() {
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+	before := m.Alloc
+
+	// Create 100,000 goroutines!
+	for i := 0; i < 100000; i++ {
+		go func() {
+			time.Sleep(time.Minute)
+		}()
+	}
+
+	runtime.ReadMemStats(&m)
+	after := m.Alloc
+
+	fmt.Printf("Memory used: %d MB\n", (after-before)/1024/1024)
+	fmt.Printf("100,000 goroutines created\n")
+}
+```
+</UniversalEditor>
+
+### Practical Performance Comparison
+
+<UniversalEditor title="Concurrent Task Performance">
+```java !! java
+// Java: Performance with thread pool
+import java.util.concurrent.*;
+import java.util.*;
+
+public class ThreadPerformance {
+    public static void main(String[] args) throws Exception {
+        int tasks = 10000;
+
+        ExecutorService executor = Executors.newFixedThreadPool(100);
+        long start = System.currentTimeMillis();
+
+        List<Future<Integer>> futures = new ArrayList<>();
+
+        for (int i = 0; i < tasks; i++) {
+            final int taskId = i;
+            futures.add(executor.submit(() -> {
+                int sum = 0;
+                for (int j = 0; j < 100; j++) {
+                    sum += j;
+                }
+                return sum;
+            }));
+        }
+
+        int total = 0;
+        for (Future<Integer> future : futures) {
+            total += future.get();
+        }
+
+        long end = System.currentTimeMillis();
+        System.out.println("Time: " + (end - start) + "ms");
+        System.out.println("Total: " + total);
+
+        executor.shutdown();
+    }
+}
+```
+
+```go !! go
+// Go: Performance with goroutines
+package main
+
+import (
+	"fmt"
+	"sync"
+	"time"
+)
+
+func task() int {
+	sum := 0
+	for i := 0; i < 100; i++ {
+		sum += i
+	}
+	return sum
+}
+
+func main() {
+	tasks := 10000
+
+	start := time.Now()
+	var wg sync.WaitGroup
+	results := make(chan int, tasks)
+
+	for i := 0; i < tasks; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			results <- task()
+		}()
+	}
+
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	total := 0
+	for result := range results {
+		total += result
+	}
+
+	elapsed := time.Since(start)
+	fmt.Printf("Time: %dms\n", elapsed.Milliseconds())
+	fmt.Printf("Total: %d\n", total)
+}
+```
+</UniversalEditor>
+
+## Common Goroutine Patterns
+
+### Worker Pool Pattern
+
+<UniversalEditor title="Worker Pool Implementation">
+```java !! java
+// Java: Worker pool with ExecutorService
+import java.util.concurrent.*;
+import java.util.*;
+
+public class WorkerPool {
+    static class Job {
+        int id;
+        String data;
+
+        Job(int id, String data) {
+            this.id = id;
+            this.data = data;
+        }
+    }
+
+    public static void main(String[] args) throws Exception {
+        int numWorkers = 5;
+        ExecutorService executor = Executors.newFixedThreadPool(numWorkers);
+
+        List<Job> jobs = new ArrayList<>();
+        for (int i = 0; i < 20; i++) {
+            jobs.add(new Job(i, "Task " + i));
+        }
+
+        for (Job job : jobs) {
+            executor.submit(() -> {
+                System.out.println("Processing " + job.id);
+                try {
+                    Thread.sleep(100);
+                } catch (InterruptedException e) {}
+                System.out.println("Completed " + job.id);
+            });
+        }
+
+        executor.shutdown();
+        executor.awaitTermination(1, TimeUnit.MINUTES);
+    }
+}
+```
+
+```go !! go
+// Go: Worker pool with buffered channel
+package main
+
+import (
+	"fmt"
+	"sync"
+	"time"
+)
+
+type Job struct {
+	ID   int
+	Data string
+}
+
+func worker(id int, jobs <-chan Job, wg *sync.WaitGroup) {
+	defer wg.Done()
+
+	for job := range jobs {
+		fmt.Printf("Worker %d processing job %d\n", id, job.ID)
+		time.Sleep(100 * time.Millisecond)
+		fmt.Printf("Worker %d completed job %d\n", id, job.ID)
+	}
+}
+
+func main() {
+	numWorkers := 5
+	numJobs := 20
+
+	jobs := make(chan Job, numJobs)
+	var wg sync.WaitGroup
+
+	// Start workers
+	for i := 1; i <= numWorkers; i++ {
+		wg.Add(1)
+		go worker(i, jobs, &wg)
+	}
+
+	// Send jobs
+	for i := 0; i < numJobs; i++ {
+		jobs <- Job{ID: i, Data: fmt.Sprintf("Task %d", i)}
+	}
+	close(jobs)
+
+	// Wait for all workers
+	wg.Wait()
+	fmt.Println("All jobs completed")
+}
+```
+</UniversalEditor>
+
+### Fan-Out / Fan-In Pattern
+
+<UniversalEditor title="Fan-Out Fan-In Pattern">
+```java !! java
+// Java: Fan-out with multiple consumers
+import java.util.concurrent.*;
+import java.util.*;
+
+public class FanOutFanIn {
+    public static void main(String[] args) throws Exception {
+        ExecutorService executor = Executors.newFixedThreadPool(10);
+
+        List<Future<Integer>> futures = new ArrayList<>();
+
+        // Fan-out: distribute work
+        for (int i = 0; i < 10; i++) {
+            final int input = i;
+            futures.add(executor.submit(() -> {
+                return process(input);
+            }));
+        }
+
+        // Fan-in: collect results
+        int sum = 0;
+        for (Future<Integer> future : futures) {
+            sum += future.get();
+        }
+
+        System.out.println("Sum: " + sum);
+        executor.shutdown();
+    }
+
+    private static int process(int n) {
+        return n * n;
+    }
+}
+```
+
+```go !! go
+// Go: Elegant fan-out/fan-in with channels
+package main
+
+import (
+	"fmt"
+	"sync"
+)
+
+func process(n int) int {
+	return n * n
+}
+
+func fanOut(inputs <-chan int) <-chan int {
+	results := make(chan int)
+
+	var wg sync.WaitGroup
+	for i := 0; i < 3; i++ { // 3 workers
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for n := range inputs {
+				results <- process(n)
+			}
+		}()
+	}
+
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	return results
+}
+
+func main() {
+	inputs := make(chan int)
+
+	// Fan-out
+	results := fanOut(inputs)
+
+	// Send inputs
+	go func() {
+		for i := 0; i < 10; i++ {
+			inputs <- i
+		}
+		close(inputs)
+	}()
+
+	// Fan-in: collect results
+	sum := 0
+	for result := range results {
+		sum += result
+	}
+
+	fmt.Println("Sum:", sum)
+}
+```
+</UniversalEditor>
+
+### Pipeline Pattern
+
+<UniversalEditor title="Pipeline Processing">
+```java !! java
+// Java: Pipeline with CompletableFuture
+import java.util.concurrent.*;
+import java.util.stream.*;
+
+public class Pipeline {
+    public static void main(String[] args) throws Exception {
+        CompletableFuture.supplyAsync(() -> {
+            // Stage 1: Generate data
+            return IntStream.range(0, 10).boxed().collect(Collectors.toList());
+        }).thenComposeAsync(data -> {
+            // Stage 2: Transform data
+            List<CompletableFuture<Integer>> futures = data.stream()
+                .map(n -> CompletableFuture.supplyAsync(() -> n * 2))
+                .collect(Collectors.toList());
+
+            return CompletableFuture.allOf(
+                futures.toArray(new CompletableFuture[0])
+            ).thenApply(v -> futures.stream()
+                .map(CompletableFuture::join)
+                .collect(Collectors.toList())
+            );
+        }).thenAcceptAsync(results -> {
+            // Stage 3: Consume results
+            results.forEach(System.out::println);
+        }).get();
+    }
+}
+```
+
+```go !! go
+// Go: Pipeline with channels
+package main
+
+import (
+	"fmt"
+)
+
+func generate(nums ...int) <-chan int {
+	out := make(chan int)
+	go func() {
+		for _, n := range nums {
+			out <- n
+		}
+		close(out)
+	}()
+	return out
+}
+
+func square(in <-chan int) <-chan int {
+	out := make(chan int)
+	go func() {
+		for n := range in {
+			out <- n * n
+		}
+		close(out)
+	}()
+	return out
+}
+
+func main() {
+	// Set up pipeline
+	numbers := generate(0, 1, 2, 3, 4, 5, 6, 7, 8, 9)
+	squares := square(numbers)
+
+	// Consume results
+	for result := range squares {
+		fmt.Println(result)
+	}
+}
+```
+</UniversalEditor>
+
+## Goroutine Gotchas and Best Practices
+
+### Common Pitfalls
+
+<UniversalEditor title="Goroutine Pitfalls">
+```java !! java
+// Java: Common thread pitfalls
+public class Pitfalls {
+    // Pitfall 1: Not handling exceptions in threads
+    public static void pitfall1() {
+        new Thread(() -> {
+            throw new RuntimeException("Unhandled!"); // Thread dies silently
+        }).start();
+    }
+
+    // Pitfall 2: Shared mutable state without synchronization
+    static int counter = 0;
+    public static void pitfall2() throws Exception {
+        for (int i = 0; i < 1000; i++) {
+            new Thread(() -> counter++).start(); // Race condition!
+        }
+        Thread.sleep(1000);
+        System.out.println("Counter: " + counter); // Unpredictable!
+    }
+
+    // Pitfall 3: Thread leakage
+    public static void pitfall3() {
+        ExecutorService executor = Executors.newCachedThreadPool();
+        for (int i = 0; i < 100000; i++) {
+            executor.submit(() -> {
+                try {
+                    Thread.sleep(1000);
+                } catch (InterruptedException e) {}
+            });
+        }
+        // Forgot to shutdown - threads never terminate!
+    }
+}
+```
+
+```go !! go
+// Go: Common goroutine pitfalls
+package main
+
+import (
+	"fmt"
+	"sync"
+	"time"
+)
+
+// Pitfall 1: Not waiting for goroutines
+func pitfall1() {
+	go func() {
+		fmt.Println("Goroutine running")
+	}()
+	// Main exits immediately, goroutine never completes
+}
+
+// Pitfall 2: Shared mutable state without synchronization
+func pitfall2() {
+	var counter int
+	var wg sync.WaitGroup
+
+	for i := 0; i < 1000; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			counter++ // Race condition!
+		}()
+	}
+
+	wg.Wait()
+	fmt.Println("Counter:", counter) // Unpredictable!
+}
+
+// Pitfall 3: Goroutine leakage
+func pitfall3() {
+	for i := 0; i < 100000; i++ {
+		go func() {
+			time.Sleep(time.Hour) // Goroutine never exits
+		}()
+	}
+	// Goroutines pile up, memory leak!
+}
+
+func main() {
+	fmt.Println("Demonstrating pitfall 2:")
+	pitfall2()
+}
+```
+</UniversalEditor>
+
+### Best Practices
+
+<UniversalEditor title="Goroutine Best Practices">
+```java !! java
+// Java: Thread best practices
+import java.util.concurrent.*;
+
+public class BestPractices {
+
+    // Good: Use thread pools
+    public static void good1() {
+        ExecutorService executor = Executors.newFixedThreadPool(10);
+
+        for (int i = 0; i < 100; i++) {
+            final int taskId = i;
+            executor.submit(() -> {
+                System.out.println("Task " + taskId);
+            });
+        }
+
+        executor.shutdown();
+        try {
+            executor.awaitTermination(1, TimeUnit.MINUTES);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    // Good: Proper synchronization
+    static class SafeCounter {
+        private int count = 0;
+
+        public synchronized void increment() {
+            count++;
+        }
+
+        public synchronized int get() {
+            return count;
+        }
+    }
+
+    // Good: Handle exceptions
+    public static void good3() {
+        Thread thread = new Thread(() -> {
+            try {
+                // Work that might throw
+            } catch (Exception e) {
+                e.printStackTrace(); // Handle exception
+            }
+        });
+        thread.setUncaughtExceptionHandler((t, e) -> {
+            System.err.println("Exception in thread " + t.getName());
+        });
+        thread.start();
+    }
+}
+```
+
+```go !! go
+// Go: Goroutine best practices
+package main
+
+import (
+	"fmt"
+	"sync"
+	"time"
+)
+
+// Good: Always manage goroutine lifecycle
+func good1() {
+	var wg sync.WaitGroup
+
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			fmt.Printf("Worker %d\n", id)
+		}(i)
+	}
+
+	wg.Wait()
+}
+
+// Good: Proper synchronization
+type SafeCounter struct {
+	mu    sync.Mutex
+	count int
+}
+
+func (c *SafeCounter) Increment() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.count++
+}
+
+func (c *SafeCounter) Get() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.count
+}
+
+// Good: Handle panics in goroutines
+func good3() {
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				fmt.Printf("Recovered: %v\n", r)
+			}
+		}()
+
+		// Work that might panic
+		panic("Oops!")
+	}()
+
+	time.Sleep(time.Second)
+}
+
+func main() {
+	fmt.Println("Example 1: Proper lifecycle management")
+	good1()
+
+	fmt.Println("\nExample 2: Safe counter")
+	counter := &SafeCounter{}
+	var wg sync.WaitGroup
+
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			counter.Increment()
+		}()
+	}
+
+	wg.Wait()
+	fmt.Printf("Counter: %d\n", counter.Get())
+}
+```
+</UniversalEditor>
+
+## Performance Benchmarks
+
+<UniversalEditor title="Benchmark: Thread vs Goroutine Creation">
+```java !! java
+// Java: Benchmark thread creation
+public class ThreadBenchmark {
+    public static void main(String[] args) throws Exception {
+        int iterations = 10000;
+
+        long start = System.currentTimeMillis();
+
+        for (int i = 0; i < iterations; i++) {
+            Thread t = new Thread(() -> {});
+            t.start();
+            t.join();
+        }
+
+        long end = System.currentTimeMillis();
+        System.out.println("Created and joined " + iterations +
+            " threads in " + (end - start) + "ms");
+    }
+}
+```
+
+```go !! go
+// Go: Benchmark goroutine creation
+package main
+
+import (
+	"fmt"
+	"sync"
+	"time"
+)
+
+func main() {
+	iterations := 10000
+
+	start := time.Now()
+
+	var wg sync.WaitGroup
+	for i := 0; i < iterations; i++ {
+		wg.Add(1)
+		go func() {
+			wg.Done()
+		}()
+	}
+
+	wg.Wait()
+
+	elapsed := time.Since(start)
+	fmt.Printf("Created and waited for %d goroutines in %dms\n",
+		iterations, elapsed.Milliseconds())
+}
+```
+</UniversalEditor>
+
+## Practice Questions
+
+1. **Memory Efficiency**: Why can Go spawn millions of goroutines while Java can only spawn thousands of threads?
+
+2. **Synchronization**: How does `sync.WaitGroup` compare to `CountDownLatch`? When would you use each?
+
+3. **Scheduling**: Explain the M:N scheduler in Go and how it differs from Java's 1:1 thread model.
+
+4. **Best Practices**: What are the common pitfalls when working with goroutines, and how can you avoid them?
+
+5. **Performance**: In what scenarios would goroutines significantly outperform Java threads?
+
+## Project Ideas
+
+1. **Concurrent Web Scraper**: Build a web scraper that fetches multiple URLs concurrently using goroutines
+
+2. **Parallel Data Processing**: Create a program that processes large CSV files in parallel chunks
+
+3. **Worker Pool System**: Implement a robust worker pool with job queuing, result collection, and error handling
+
+4. **Real-time Data Pipeline**: Build a pipeline that ingests, transforms, and outputs data using the pipeline pattern
+
+5. **Concurrent Cache**: Implement a thread-safe in-memory cache with expiration and concurrent access
+
+## Next Steps
+
+Now that you understand goroutines and concurrency:
+
+- **Next Module**: Learn about **Channels and Select** for communication between goroutines
+- **Go Deeper**: Study Go's memory model and synchronization patterns
+- **Practice**: Build concurrent applications to get comfortable with goroutines
+- **Compare**: Analyze how goroutines compare to other concurrency models (async/await, actors)
+
+## Summary
+
+**Goroutines vs Java Threads:**
+- Goroutines are lightweight (~2KB) vs Threads (~1MB)
+- Go uses M:N scheduling for efficiency
+- `sync.WaitGroup` simplifies synchronization
+- Goroutines enable massive concurrency
+- Channels (next module) provide safe communication
+
+**Key Takeaway**: Go's goroutines make concurrent programming significantly more efficient and approachable compared to Java's threading model. You can spawn millions of goroutines with minimal overhead, enabling new patterns of concurrent programming that would be impractical with Java threads.

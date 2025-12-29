@@ -1,0 +1,1287 @@
+---
+title: "模块 11: 地道的 Go 语言"
+description: "学习 Go 编程哲学和惯用模式,这些模式能让优雅的 Go 代码区别于 Java 风格的 Go 代码"
+---
+
+# 模块 11: 地道的 Go 语言
+
+## 学习目标
+
+学完本模块后,你将:
+- 理解 Go 的编程哲学
+- 编写地道的 Go 代码而非 Java 风格的 Go 代码
+- 应用"错误是值"模式
+- 有效使用接口(接受接口,返回结构体)
+- 利用 defer 进行资源清理
+- 理解 goroutine 所有权模式
+- 有效使用 context
+- 遵循 Go 命名约定
+- 合理组织包结构
+- 应用常见的 Go 模式和惯用法
+
+## 简介
+
+编写"感觉像 Go"而非"Java 翻译成 Go"的代码是成为高效 Go 开发者的关键。本模块涵盖使 Go 代码优雅和可维护的哲学、模式和惯用法。
+
+## 1. Go 编程哲学
+
+### 少即是指数级的更多
+
+<UniversalEditor title="哲学: 简单 vs 复杂">
+```java !! java
+// Java - 通常冗长且有多层抽象
+public interface UserService {
+    User getUserById(Long id) throws UserNotFoundException;
+}
+
+public class UserServiceImpl implements UserService {
+    private final UserRepository userRepository;
+    private final UserCache userCache;
+
+    @Autowired
+    public UserServiceImpl(UserRepository userRepository, UserCache userCache) {
+        this.userRepository = userRepository;
+        this.userCache = userCache;
+    }
+
+    @Override
+    public User getUserById(Long id) throws UserNotFoundException {
+        User user = userCache.get(id);
+        if (user == null) {
+            user = userRepository.findById(id)
+                .orElseThrow(() -> new UserNotFoundException("User not found: " + id));
+            userCache.put(id, user);
+        }
+        return user;
+    }
+}
+```
+
+```go !! go
+// Go - 简单直接
+type UserService struct {
+    repo  UserRepository
+    cache UserCache
+}
+
+func (s *UserService) GetUser(id int64) (*User, error) {
+    // 先尝试缓存
+    if user, ok := s.cache.Get(id); ok {
+        return user, nil
+    }
+
+    // 回退到仓库
+    user, err := s.repo.FindByID(id)
+    if err != nil {
+        return nil, fmt.Errorf("user not found: %d", id)
+    }
+
+    s.cache.Put(id, user)
+    return user, nil
+}
+```
+</UniversalEditor>
+
+### 核心原则
+
+1. **简单性**: 避免不必要的抽象
+2. **可读性**: 代码被阅读的次数多于编写的次数
+3. **正交性**: 功能特性协同工作
+4. **安全性**: 类型安全和内存安全
+5. **性能**: 高效的编译和执行
+
+## 2. "错误是值"模式
+
+### 哲学
+
+在 Java 中,错误通常被视为异常控制流。在 Go 中,错误是像任何其他数据一样处理的值。
+
+<UniversalEditor title="错误处理哲学">
+```java !! java
+// Java - 使用异常进行控制流
+public void processUser(Long userId) {
+    try {
+        User user = userRepository.findById(userId).orElseThrow();
+        validateUser(user);
+        sendEmail(user);
+    } catch (UserNotFoundException e) {
+        logger.error("User not found", e);
+        throw new BusinessException("Invalid user");
+    } catch (ValidationException e) {
+        logger.error("Validation failed", e);
+        throw new BusinessException("Invalid data");
+    } catch (EmailException e) {
+        logger.error("Email failed", e);
+        throw new BusinessException("Communication error");
+    }
+}
+```
+
+```go !! go
+// Go - 错误是值
+func (s *Service) ProcessUser(userID int64) error {
+    user, err := s.repo.FindByID(userID)
+    if err != nil {
+        return fmt.Errorf("find user: %w", err)
+    }
+
+    if err := s.validateUser(user); err != nil {
+        return fmt.Errorf("validate: %w", err)
+    }
+
+    if err := s.sendEmail(user); err != nil {
+        return fmt.Errorf("send email: %w", err)
+    }
+
+    return nil
+}
+
+// 惯用法: 哨兵错误
+var (
+    ErrUserNotFound  = errors.New("user not found")
+    ErrInvalidInput  = errors.New("invalid input")
+    ErrInternalError = errors.New("internal error")
+)
+
+func (s *Service) ProcessUser(userID int64) error {
+    user, err := s.repo.FindByID(userID)
+    if errors.Is(err, ErrUserNotFound) {
+        return ErrUserNotFound
+    }
+    if err != nil {
+        return fmt.Errorf("find user: %w", err)
+    }
+    // ... 其余逻辑
+    return nil
+}
+```
+</UniversalEditor>
+
+### 自定义错误类型
+
+<UniversalEditor title="自定义错误类型">
+```java !! java
+// Java - 带错误码的自定义异常
+public class ApiException extends RuntimeException {
+    private final ErrorCode code;
+    private final int statusCode;
+
+    public ApiException(ErrorCode code, String message) {
+        super(message);
+        this.code = code;
+        this.statusCode = code.getHttpCode();
+    }
+}
+```
+
+```go !! go
+// Go - 自定义错误类型
+type APIError struct {
+    Code      ErrorCode
+    Message   string
+    StatusCode int
+    Err       error
+}
+
+func (e *APIError) Error() string {
+    if e.Err != nil {
+        return fmt.Sprintf("%s: %v", e.Message, e.Err)
+    }
+    return e.Message
+}
+
+func (e *APIError) Unwrap() error {
+    return e.Err
+}
+
+// 使用
+func (s *Service) ProcessUser(id int64) error {
+    user, err := s.repo.FindByID(id)
+    if err != nil {
+        return &APIError{
+            Code:      ErrNotFound,
+            Message:   "User not found",
+            StatusCode: 404,
+            Err:       err,
+        }
+    }
+    return nil
+}
+```
+</UniversalEditor>
+
+## 3. 接口: 接受接口,返回结构体
+
+### 黄金法则
+
+<UniversalEditor title="接口使用模式">
+```java !! java
+// Java - 到处都是接口(经常过度使用)
+public interface UserRepository extends Repository<User, Long> {
+}
+
+public interface UserService {
+    User getUserById(Long id);
+}
+
+@Service
+public class UserServiceImpl implements UserService {
+    private final UserRepository userRepository;
+
+    public UserServiceImpl(UserRepository userRepository) {
+        this.userRepository = userRepository;
+    }
+}
+```
+
+```go !! go
+// Go - 在消费者端定义接口
+// 错误: 在实现旁边定义接口
+type UserRepository interface {
+    FindByID(id int64) (*User, error)
+}
+
+type MySQLUserRepository struct {
+    db *sql.DB
+}
+
+func (r *MySQLUserRepository) FindByID(id int64) (*User, error) {
+    // ...
+}
+
+// 正确: 在使用的地方定义接口
+type UserFinder interface {
+    FindByID(id int64) (*User, error)
+}
+
+type UserService struct {
+    repo UserFinder // 接受接口
+}
+
+func NewUserService(repo UserFinder) *UserService {
+    return &UserService{repo: repo}
+}
+
+// 返回具体结构体
+func NewUserRepository(db *sql.DB) *MySQLUserRepository {
+    return &MySQLUserRepository{db: db}
+}
+```
+</UniversalEditor>
+
+### 小接口
+
+<UniversalEditor title="接口大小">
+```java !! java
+// Java - 大接口很常见
+public interface Repository<T, ID> {
+    T save(T entity);
+    Optional<T> findById(ID id);
+    List<T> findAll();
+    List<T> findAllById(Iterable<ID> ids);
+    long count();
+    void deleteById(ID id);
+    void delete(T entity);
+    boolean existsById(ID id);
+}
+```
+
+```go !! go
+// Go - 小而专注的接口
+// io 包示例
+type Reader interface {
+    Read(p []byte) (n int, err error)
+}
+
+type Writer interface {
+    Write(p []byte) (n int, err error)
+}
+
+type ReadWriter interface {
+    Reader
+    Writer
+}
+
+// 按需组合接口
+type UserReader interface {
+    FindByID(id int64) (*User, error)
+    FindByEmail(email string) (*User, error)
+}
+
+type UserWriter interface {
+    Create(user *User) error
+    Update(user *User) error
+    Delete(id int64) error
+}
+
+type UserReaderWriter interface {
+    UserReader
+    UserWriter
+}
+```
+</UniversalEditor>
+
+### 接口满足是隐式的
+
+<UniversalEditor title="隐式接口满足">
+```java !! java
+// Java - 显式实现
+public class FileLogger implements Logger {
+    @Override
+    public void log(String message) {
+        System.out.println(message);
+    }
+}
+
+// 必须声明 "implements Logger"
+```
+
+```go !! go
+// Go - 隐式满足
+type Logger interface {
+    Log(message string)
+}
+
+// FileLogger 自动满足 Logger
+type FileLogger struct {
+    file *os.File
+}
+
+func (l *FileLogger) Log(message string) {
+    fmt.Fprintln(l.file, message)
+}
+
+// 不需要 "implements" 声明!
+
+// 这使得可以在外部添加接口满足
+type Console struct{}
+
+func (c *Console) Log(message string) {
+    fmt.Println(message)
+}
+
+// Console 现在满足 Logger 接口
+```
+</UniversalEditor>
+
+## 4. 使用 Defer 进行清理
+
+### 替换 try-finally
+
+<UniversalEditor title="资源清理">
+```java !! java
+// Java - try-finally 或 try-with-resources
+public void processFile(String path) throws IOException {
+    FileInputStream fis = null;
+    try {
+        fis = new FileInputStream(path);
+        // 处理文件
+    } finally {
+        if (fis != null) {
+            fis.close();
+        }
+    }
+}
+
+// 更好: try-with-resources
+public void processFile(String path) throws IOException {
+    try (FileInputStream fis = new FileInputStream(path)) {
+        // 处理文件
+    }
+}
+```
+
+```go !! go
+// Go - defer 用于清理
+func processFile(path string) error {
+    f, err := os.Open(path)
+    if err != nil {
+        return err
+    }
+    defer f.Close() // 总是执行
+
+    // 处理文件
+    return nil
+}
+
+// 多个 defer 按 LIFO 顺序执行
+func processMultiple() {
+    defer fmt.Println("First")
+    defer fmt.Println("Second")
+    defer fmt.Println("Third")
+
+    // 输出: Third, Second, First
+}
+
+// 带错误处理的 defer
+func processFileWithError(path string) error {
+    f, err := os.Open(path)
+    if err != nil {
+        return err
+    }
+    defer func() {
+        if err := f.Close(); err != nil {
+            log.Printf("Warning: failed to close file: %v", err)
+        }
+    }()
+
+    // 处理文件
+    return nil
+}
+```
+</UniversalEditor>
+
+### Defer 陷阱和最佳实践
+
+<UniversalEditor title="Defer 最佳实践">
+```go !! go
+// 陷阱: 循环变量捕获
+func processFiles(files []string) error {
+    for _, file := range files {
+        f, err := os.Open(file)
+        if err != nil {
+            return err
+        }
+        defer f.Close() // 错误: 所有 close 在函数退出时发生!
+    }
+    return nil
+}
+
+// 正确: 在循环中使用闭包
+func processFilesCorrect(files []string) error {
+    for _, file := range files {
+        if err := func() error {
+            f, err := os.Open(file)
+            if err != nil {
+                return err
+            }
+            defer f.Close() // 每次迭代后关闭
+            // 处理文件
+            return nil
+        }(); err != nil {
+            return err
+        }
+    }
+    return nil
+}
+
+// 陷阱: 参数立即求值
+func process() {
+    start := time.Now()
+    defer fmt.Println("Duration:", time.Since(start)) // 在 defer 时求值!
+
+    time.Sleep(1 * time.Second)
+    // 输出 Duration: 0s (错误!)
+}
+
+// 正确: 使用函数
+func process() {
+    start := time.Now()
+    defer func() {
+        fmt.Println("Duration:", time.Since(start)) // 执行时求值
+    }()
+
+    time.Sleep(1 * time.Second)
+    // 输出 Duration: 1s (正确!)
+}
+```
+</UniversalEditor>
+
+## 5. Goroutine 所有权
+
+### 谁创建,谁清理
+
+<UniversalEditor title="Goroutine 生命周期管理">
+```java !! java
+// Java - ExecutorService 管理线程生命周期
+ExecutorService executor = Executors.newFixedThreadPool(10);
+
+public void processTasks(List<Task> tasks) {
+    List<Future<Result>> futures = new ArrayList<>();
+    for (Task task : tasks) {
+        Future<Result> future = executor.submit(() -> {
+            return task.execute();
+        });
+        futures.add(future);
+    }
+
+    // 等待所有完成
+    for (Future<Result> future : futures) {
+        future.get(); // 阻塞
+    }
+}
+```
+
+```go !! go
+// Go - 父 goroutine 管理子 goroutine
+func ProcessTasks(ctx context.Context, tasks []Task) ([]Result, error) {
+    ctx, cancel := context.WithCancel(ctx)
+    defer cancel() // 确保子 goroutine 被取消
+
+    results := make([]Result, len(tasks))
+    errChan := make(chan error, len(tasks))
+
+    for i, task := range tasks {
+        go func(idx int, t Task) {
+            result, err := t.Execute(ctx)
+            if err != nil {
+                errChan <- err
+                cancel() // 取消其他 goroutine
+                return
+            }
+            results[idx] = result
+        }(i, task)
+    }
+
+    // 等待所有或第一个错误
+    for range tasks {
+        select {
+        case <-ctx.Done():
+            return nil, ctx.Err()
+        case err := <-errChan:
+            return nil, err
+        }
+    }
+
+    return results, nil
+}
+```
+</UniversalEditor>
+
+### 使用 WaitGroup 进行协调
+
+<UniversalEditor title="使用 WaitGroups">
+```java !! java
+// Java - CountDownLatch
+CountDownLatch latch = new CountDownLatch(taskCount);
+for (Task task : tasks) {
+    executor.submit(() -> {
+        try {
+            task.execute();
+        } finally {
+            latch.countDown();
+        }
+    });
+}
+latch.await(); // 等待所有
+```
+
+```go !! go
+// Go - WaitGroup
+func processTasks(tasks []Task) {
+    var wg sync.WaitGroup
+
+    for _, task := range tasks {
+        wg.Add(1) // 增加计数器
+        go func(t Task) {
+            defer wg.Done() // 完成时减少计数器
+            t.Execute()
+        }(task)
+    }
+
+    wg.Wait() // 等待所有 goroutine
+}
+
+// 带错误处理
+func processTasks(tasks []Task) error {
+    var wg sync.WaitGroup
+    errChan := make(chan error, len(tasks))
+
+    for _, task := range tasks {
+        wg.Add(1)
+        go func(t Task) {
+            defer wg.Done()
+            if err := t.Execute(); err != nil {
+                errChan <- err
+            }
+        }(task)
+    }
+
+    wg.Wait()
+    close(errChan)
+
+    // 收集错误
+    var errors []error
+    for err := range errChan {
+        errors = append(errors, err)
+    }
+
+    if len(errors) > 0 {
+        return fmt.Errorf("tasks failed: %v", errors)
+    }
+    return nil
+}
+```
+</UniversalEditor>
+
+## 6. 有效使用 Context
+
+### Context 用于取消
+
+<UniversalEditor title="Context 用于取消">
+```java !! java
+// Java - Future 取消
+Future<String> future = executor.submit(() -> {
+    return longRunningTask();
+});
+
+try {
+    String result = future.get(5, TimeUnit.SECONDS);
+} catch (TimeoutException e) {
+    future.cancel(true); // 可能中断
+}
+```
+
+```go !! go
+// Go - Context 用于取消
+func longRunningTask(ctx context.Context) error {
+    for {
+        select {
+        case <-ctx.Done():
+            return ctx.Err() // Context 被取消
+        default:
+            // 执行工作
+            if err := processChunk(); err != nil {
+                return err
+            }
+        }
+    }
+}
+
+// 使用
+func processWithTimeout() error {
+    ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+    defer cancel()
+
+    return longRunningTask(ctx)
+}
+```
+</UniversalEditor>
+
+### Context 值(谨慎使用)
+
+<UniversalEditor title="Context 值">
+```java !! java
+// Java - ThreadLocal
+public class RequestContext {
+    private static final ThreadLocal<String> userId = new ThreadLocal<>();
+
+    public static void setUserId(String id) {
+        userId.set(id);
+    }
+
+    public static String getUserId() {
+        return userId.get();
+    }
+}
+```
+
+```go !! go
+// Go - Context 值(谨慎使用!)
+type contextKey string
+
+const (
+    userIDKey contextKey = "userID"
+    traceIDKey contextKey = "traceID"
+)
+
+func withUserID(ctx context.Context, userID string) context.Context {
+    return context.WithValue(ctx, userIDKey, userID)
+}
+
+func getUserID(ctx context.Context) (string, bool) {
+    userID, ok := ctx.Value(userIDKey).(string)
+    return userID, ok
+}
+
+// 使用
+func handleRequest(w http.ResponseWriter, r *http.Request) {
+    ctx := r.Context()
+
+    userID, ok := getUserID(ctx)
+    if !ok {
+        http.Error(w, "Unauthorized", http.StatusUnauthorized)
+        return
+    }
+
+    // 处理请求
+}
+```
+</UniversalEditor>
+
+## 7. 命名约定
+
+### 包名
+
+<UniversalEditor title="包命名">
+```java !! java
+// Java - 反向域名符号
+package com.example.myapp.service;
+
+public class UserService {
+    // ...
+}
+```
+
+```go !! go
+// Go - 短小、小写、单词
+// 在文件: user/service.go 中
+package service
+
+type Service struct {
+    // 因为包名是 'service',类型是 'User',不是 'UserService'
+}
+
+func NewService() *Service {
+    return &Service{}
+}
+```
+</UniversalEditor>
+
+### 接口名
+
+<UniversalEditor title="接口命名">
+```java !! java
+// Java - 实现类通常以 "Impl" 结尾
+public interface UserRepository {
+}
+
+public class JdbcUserRepository implements UserRepository {
+}
+
+public class JpaUserRepository implements UserRepository {
+}
+```
+
+```go !! go
+// Go - 接口名通常以 -er 结尾
+type Reader interface {
+    Read(p []byte) (n int, err error)
+}
+
+type Writer interface {
+    Write(p []byte) (n int, err error)
+}
+
+// 对于更复杂的接口,使用描述性名称
+type UserRepository interface {
+    FindByID(id int64) (*User, error)
+}
+
+type MySQLUserRepository struct {
+    db *sql.DB
+}
+
+type PostgresUserRepository struct {
+    db *sql.DB
+}
+```
+</UniversalEditor>
+
+### 缩写词
+
+<UniversalEditor title="缩写词处理">
+```java !! java
+// Java - 缩写词大写
+URL url = new URL("https://example.com");
+HTTPServer server = new HTTPServer();
+```
+
+```go !! go
+// Go - 缩写词被视为单词
+// 正确
+type URL struct {
+    Scheme string
+    Host   string
+}
+
+func getURL() *URL {
+    return &URL{}
+}
+
+type HTTPServer struct {
+    addr string
+}
+
+// 错误(不要这样做)
+type Url struct {}
+type HttpServer struct {}
+```
+</UniversalEditor>
+
+## 8. 包结构
+
+### 标准布局
+
+<UniversalEditor title="包组织">
+```
+// Java - Maven/Gradle 结构
+src/
+├── main/
+│   ├── java/
+│   │   └── com/
+│   │       └── example/
+│   │           └── app/
+│   │               ├── controller/
+│   │               ├── service/
+│   │               ├── repository/
+│   │               └── model/
+│   └── resources/
+└── test/
+    └── java/
+```
+
+```
+# Go - 标准项目布局
+myapp/
+├── cmd/
+│   ├── myapp/
+│   │   └── main.go           # 应用程序入口
+│   └── myappctl/
+│       └── main.go           # CLI 工具
+├── internal/
+│   ├── auth/                 # 私有 auth 代码
+│   ├── database/             # 私有 database 代码
+│   └── user/                 # 私有 user 逻辑
+├── pkg/
+│   ├── api/                  # 公共 API 库
+│   └── util/                 # 公共工具
+├── api/
+│   ├── openapi/              # OpenAPI 规范
+│   └── proto/                # Protocol buffers
+├── web/
+│   ├── static/               # 静态资源
+│   └── templates/            # HTML 模板
+├── configs/                  # 配置文件
+├── scripts/                  # 构建和部署脚本
+├── test/                     # 额外的测试数据
+├── docs/                     # 文档
+├── go.mod
+├── go.sum
+├── Makefile
+└── README.md
+```
+</UniversalEditor>
+
+### internal 包
+
+<UniversalEditor title="内部包使用">
+```go !! go
+// internal/auth/auth.go
+package auth
+
+// 此代码不能被 myapp 外部的包导入
+type Authenticator struct {
+    // ...
+}
+
+func New() *Authenticator {
+    return &Authenticator{}
+}
+
+// cmd/myapp/main.go 可以导入这个
+package main
+
+import "myapp/internal/auth"
+
+func main() {
+    auth := auth.New()
+    // ...
+}
+
+// 但外部包不能:
+// 这将无法编译:
+// package external
+// import "myapp/internal/auth" // 错误!
+```
+</UniversalEditor>
+
+## 9. 代码组织
+
+### 文件组织
+
+<UniversalEditor title="文件组织">
+```java !! java
+// Java - 每个文件一个公共类
+// UserService.java
+package com.example.service;
+
+public class UserService {
+    // 所有用户服务逻辑在这里
+}
+
+// UserRepository.java
+package com.example.repository;
+
+public interface UserRepository {
+    // 所有仓库方法在这里
+}
+```
+
+```go !! go
+// Go - 按功能组织,而不仅仅是类型
+// service.go
+package user
+
+type Service struct {
+    repo Repository
+    cache Cache
+}
+
+func NewService(repo Repository, cache Cache) *Service {
+    return &Service{
+        repo:  repo,
+        cache: cache,
+    }
+}
+
+func (s *Service) GetUser(id int64) (*User, error) {
+    // ...
+}
+
+// repository.go
+package user
+
+type Repository interface {
+    FindByID(id int64) (*User, error)
+}
+
+type mysqlRepository struct {
+    db *sql.DB
+}
+
+func NewMySQLRepository(db *sql.DB) Repository {
+    return &mysqlRepository{db: db}
+}
+
+// models.go
+package user
+
+type User struct {
+    ID        int64
+    Email     string
+    Name      string
+    CreatedAt time.Time
+}
+```
+</UniversalEditor>
+
+### 导出规则
+
+<UniversalEditor title="导出 vs 未导出">
+```java !! java
+// Java - public/private 关键字
+public class UserService {
+    private UserRepository repository;
+
+    public UserService(UserRepository repository) {
+        this.repository = repository;
+    }
+
+    public User getUser(Long id) {
+        return repository.findById(id);
+    }
+
+    private void validate(User user) {
+        // 内部验证
+    }
+}
+```
+
+```go !! go
+// Go - 大小写决定导出
+package service
+
+type Service struct {          // 导出
+    repo  repository          // 未导出
+    cache cache               // 未导出
+}
+
+func NewService(repo repository) *Service {
+    return &Service{repo: repo}
+}
+
+func (s *Service) GetUser(id int64) (*User, error) {  // 导出
+    return s.repo.FindByID(id)
+}
+
+func (s *Service) validate(user *User) error {         // 未导出
+    // 内部验证
+    return nil
+}
+
+// 嵌入中的接口字段必须导出
+type Server struct {
+    *http.Server              // 嵌入,导出
+    logger   *log.Logger      // 未导出字段
+}
+```
+</UniversalEditor>
+
+## 10. 常见 Go 模式
+
+### 选项模式
+
+<UniversalEditor title="配置的选项模式">
+```java !! java
+// Java - Builder 模式
+public class Server {
+    private int port = 8080;
+    private String host = "localhost";
+    private int timeout = 30;
+
+    private Server(Builder builder) {
+        this.port = builder.port;
+        this.host = builder.host;
+        this.timeout = builder.timeout;
+    }
+
+    public static class Builder {
+        private int port = 8080;
+        private String host = "localhost";
+        private int timeout = 30;
+
+        public Builder port(int port) {
+            this.port = port;
+            return this;
+        }
+
+        public Builder host(String host) {
+            this.host = host;
+            return this;
+        }
+
+        public Builder timeout(int timeout) {
+            this.timeout = timeout;
+            return this;
+        }
+
+        public Server build() {
+            return new Server(this);
+        }
+    }
+}
+
+// 使用
+Server server = new Server.Builder()
+    .port(9090)
+    .host("0.0.0.0")
+    .timeout(60)
+    .build();
+```
+
+```go !! go
+// Go - 函数式选项模式
+type Server struct {
+    port    int
+    host    string
+    timeout time.Duration
+}
+
+type Option func(*Server)
+
+func WithPort(port int) Option {
+    return func(s *Server) {
+        s.port = port
+    }
+}
+
+func WithHost(host string) Option {
+    return func(s *Server) {
+        s.host = host
+    }
+}
+
+func WithTimeout(timeout time.Duration) Option {
+    return func(s *Server) {
+        s.timeout = timeout
+    }
+}
+
+func NewServer(opts ...Option) *Server {
+    server := &Server{
+        port:    8080,
+        host:    "localhost",
+        timeout: 30 * time.Second,
+    }
+
+    for _, opt := range opts {
+        opt(server)
+    }
+
+    return server
+}
+
+// 使用
+server := NewServer(
+    WithPort(9090),
+    WithHost("0.0.0.0"),
+    WithTimeout(60*time.Second),
+)
+```
+</UniversalEditor>
+
+### 表驱动测试
+
+<UniversalEditor title="表驱动测试">
+```java !! java
+// Java - 独立的测试方法
+@Test
+public void testAddition() {
+    assertEquals(4, Calculator.add(2, 2));
+    assertEquals(0, Calculator.add(0, 0));
+    assertEquals(-2, Calculator.add(2, -4));
+}
+
+@Test
+public void testSubtraction() {
+    assertEquals(0, Calculator.subtract(2, 2));
+    assertEquals(2, Calculator.subtract(0, -2));
+}
+```
+
+```go !! go
+// Go - 表驱动测试
+func TestAdd(t *testing.T) {
+    tests := []struct {
+        name     string
+        a, b     int
+        expected int
+    }{
+        {"positive numbers", 2, 2, 4},
+        {"zeros", 0, 0, 0},
+        {"negative result", 2, -4, -2},
+        {"large numbers", 1000000, 2000000, 3000000},
+    }
+
+    for _, tt := range tests {
+        t.Run(tt.name, func(t *testing.T) {
+            result := Add(tt.a, tt.b)
+            if result != tt.expected {
+                t.Errorf("Add(%d, %d) = %d; want %d",
+                    tt.a, tt.b, result, tt.expected)
+            }
+        })
+    }
+}
+
+// 测试辅助函数
+func assertEqual[T comparable](t *testing.T, got, want T) {
+    t.Helper()
+    if got != want {
+        t.Errorf("got %v, want %v", got, want)
+    }
+}
+```
+</UniversalEditor>
+
+### 通道模式
+
+<UniversalEditor title="管道模式">
+```java !! java
+// Java - Stream API
+List<Integer> result = numbers.stream()
+    .filter(n -> n % 2 == 0)
+    .map(n -> n * 2)
+    .collect(Collectors.toList());
+```
+
+```go !! go
+// Go - 使用 goroutine 和通道的管道
+func generator(nums ...int) <-chan int {
+    out := make(chan int)
+    go func() {
+        for _, n := range nums {
+            out <- n
+        }
+        close(out)
+    }()
+    return out
+}
+
+func filter(in <-chan int, predicate func(int) bool) <-chan int {
+    out := make(chan int)
+    go func() {
+        for n := range in {
+            if predicate(n) {
+                out <- n
+            }
+        }
+        close(out)
+    }()
+    return out
+}
+
+func mapChan(in <-chan int, transform func(int) int) <-chan int {
+    out := make(chan int)
+    go func() {
+        for n := range in {
+            out <- transform(n)
+        }
+        close(out)
+    }()
+    return out
+}
+
+// 使用
+func main() {
+    numbers := generator(1, 2, 3, 4, 5, 6)
+
+    evens := filter(numbers, func(n int) bool {
+        return n%2 == 0
+    })
+
+    doubled := mapChan(evens, func(n int) int {
+        return n * 2
+    })
+
+    for result := range doubled {
+        fmt.Println(result)
+    }
+}
+```
+</UniversalEditor>
+
+## 总结
+
+编写地道 Go 代码的关键原则:
+
+1. **简单性**: 避免过度工程化
+2. **错误是值**: 显式处理错误,不要使用异常
+3. **接受接口,返回结构体**: 在消费点定义接口
+4. **使用 defer**: 用于清理和资源管理
+5. **拥有你的 goroutine**: 管理它们的生命周期
+6. **Context 用于取消**: 使用 context 进行超时和取消
+7. **遵循命名约定**: 包名、接口名、缩写词
+8. **按功能组织**: 而不是像 Java 那样按类型组织
+9. **使用函数式选项**: 用于可配置对象
+10. **表驱动测试**: 用于全面测试
+
+## 练习题
+
+1. 为什么接口应该在消费端而不是生产端定义?
+2. 使用 context 值传递请求范围的数据有什么问题?
+3. 什么时候应该使用 `defer` 而不是显式清理?
+4. Go 的隐式接口满足如何影响包设计?
+5. 为什么小接口优于大接口?
+
+## 项目想法
+
+创建一个"Go 惯用法检查器"工具:
+- 检测 Go 代码中的 Java 风格模式
+- 建议更地道的替代方案
+- 提供前后对比示例
+- 涵盖本模块的常见模式
+
+## 下一步
+
+- **模块 12**: 性能优化技术
+- **模块 13**: 部署和生产环境考虑
+- **模块 14**: 构建完整的真实项目
+
+## 延伸阅读
+
+- [Effective Go](https://go.dev/doc/effective_go)
+- [Go Code Review Comments](https://github.com/golang/go/wiki/CodeReviewComments)
+- [The Go Blog: Go Proverbs](https://go-proverbs.github.io/)
+- [Standard Library Package Names](https://go.dev/pkg/)

@@ -1,0 +1,367 @@
+---
+title: "Module 13: Event Handling"
+description: "Master JavaScript events, propagation, and event delegation"
+---
+
+## Module 13: Event Handling
+
+Events are actions that happen in the browser. Understanding events is crucial for creating interactive web applications.
+
+## Learning Objectives
+
+By the end of this module, you will:
+✅ Understand event handlers and listeners
+✅ Master event propagation (bubbling and capturing)
+✅ Learn event delegation
+✅ Know common event types
+✅ Understand event objects
+✅ Master event best practices
+
+## Event Handling: Java vs JavaScript
+
+<UniversalEditor title="Event Comparison">
+```java !! java
+// Java - ActionListener
+button.addActionListener(new ActionListener() {
+    public void actionPerformed(ActionEvent e) {
+        System.out.println("Clicked!");
+    }
+});
+
+// Java 8+ Lambda
+button.addActionListener(e -> System.out.println("Clicked!"));
+```
+
+```javascript !! js
+// JavaScript - Event listeners
+button.addEventListener("click", function(e) {
+    console.log("Clicked!");
+});
+
+// Arrow function
+button.addEventListener("click", (e) => {
+    console.log("Clicked!");
+});
+```
+</UniversalEditor>
+
+## Adding Event Listeners
+
+<UniversalEditor title="Event Listeners">
+```javascript !! js
+const button = document.querySelector("#myButton");
+
+// Add listener
+button.addEventListener("click", function(event) {
+    console.log("Button clicked!");
+});
+
+// Arrow function (no own 'this')
+button.addEventListener("click", (event) => {
+    console.log(this);  // Window (not button!)
+});
+
+// Named function (better for removal)
+function handleClick(event) {
+    console.log("Handled!");
+}
+
+button.addEventListener("click", handleClick);
+
+// Remove listener
+button.removeEventListener("click", handleClick);
+
+// Options parameter
+button.addEventListener("click", handleClick, {
+    capture: false,      // Use capturing phase
+    once: true,          // Remove after first call
+    passive: true        // Don't prevent default
+});
+
+// Event attributes (avoid)
+<button onclick="handleClick()">Click</button>
+```
+</UniversalEditor>
+
+## Event Propagation
+
+<UniversalEditor title="Event Phases">
+```html
+<div id="outer">
+    <div id="middle">
+        <div id="inner">Click me</div>
+    </div>
+</div>
+
+<script>
+const inner = document.getElementById("inner");
+const middle = document.getElementById("middle");
+const outer = document.getElementById("outer");
+
+// Three phases:
+// 1. Capturing (down) -> outer -> middle -> inner
+// 2. Target (at inner)
+// 3. Bubbling (up) -> inner -> middle -> outer
+
+// Capturing phase
+inner.addEventListener("click", () => console.log("Inner capture"), true);
+middle.addEventListener("click", () => console.log("Middle capture"), true);
+outer.addEventListener("click", () => console.log("Outer capture"), true);
+
+// Bubbling phase (default)
+inner.addEventListener("click", () => console.log("Inner bubble"));
+middle.addEventListener("click", () => console.log("Middle bubble"));
+outer.addEventListener("click", () => console.log("Outer bubble"));
+
+// Stop propagation
+inner.addEventListener("click", (e) => {
+    e.stopPropagation();  // Stop event from going further
+    console.log("Inner (stopped)");
+});
+
+// Stop immediate propagation
+outer.addEventListener("click", (e) => {
+    e.stopImmediatePropagation();  // Stop other listeners on same element
+    console.log("Outer first");
+});
+
+outer.addEventListener("click", () => {
+    console.log("Outer second");  // Won't run
+});
+</script>
+```
+</UniversalEditor>
+
+## Event Delegation
+
+<UniversalEditor title="Event Delegation">
+```javascript !! js
+// Bad: Individual listeners (memory intensive)
+const buttons = document.querySelectorAll("button");
+buttons.forEach(button => {
+    button.addEventListener("click", handleClick);
+});
+
+// Good: Event delegation (single listener)
+document.addEventListener("click", (e) => {
+    if (e.target.matches("button")) {
+        handleClick(e);
+    }
+});
+
+// Practical: Dynamic content
+const list = document.getElementById("list");
+
+// Add listener to parent
+list.addEventListener("click", (e) => {
+    const item = e.target.closest("li");
+    if (!item) return;
+    
+    console.log("Clicked:", item.textContent);
+});
+
+// Add items dynamically (no need to add listeners)
+function addItem(text) {
+    const li = document.createElement("li");
+    li.textContent = text;
+    list.appendChild(li);
+}
+
+// Delegation with data attributes
+document.addEventListener("click", (e) => {
+    const button = e.target.closest("[data-action]");
+    if (!button) return;
+    
+    const action = button.dataset.action;
+    switch (action) {
+        case "save":
+            handleSave(button);
+            break;
+        case "delete":
+            handleDelete(button);
+            break;
+    }
+});
+```
+</UniversalEditor>
+
+## Common Events
+
+<UniversalEditor title="Common Events">
+```javascript !! js
+// Mouse events
+element.addEventListener("click", handler);
+element.addEventListener("dblclick", handler);
+element.addEventListener("mousedown", handler);
+element.addEventListener("mouseup", handler);
+element.addEventListener("mouseover", handler);
+element.addEventListener("mouseout", handler);
+element.addEventListener("mouseenter", handler);  // Doesn't bubble
+element.addEventListener("mouseleave", handler);  // Doesn't bubble
+element.addEventListener("mousemove", handler);
+
+// Keyboard events
+element.addEventListener("keydown", handler);
+element.addEventListener("keyup", handler);
+element.addEventListener("keypress", handler);
+
+// Form events
+form.addEventListener("submit", handler);
+input.addEventListener("input", handler);      // On any change
+input.addEventListener("change", handler);     // On blur
+input.addEventListener("focus", handler);
+input.addEventListener("blur", handler);
+
+// Document events
+document.addEventListener("DOMContentLoaded", handler);
+window.addEventListener("load", handler);
+window.addEventListener("resize", handler);
+window.addEventListener("scroll", handler);
+
+// Practical: Keyboard shortcuts
+document.addEventListener("keydown", (e) => {
+    // Ctrl+S
+    if (e.ctrlKey && e.key === "s") {
+        e.preventDefault();
+        save();
+    }
+    
+    // Escape
+    if (e.key === "Escape") {
+        closeModal();
+    }
+});
+```
+</UniversalEditor>
+
+## Event Object
+
+<UniversalEditor title="Event Object">
+```javascript !! js
+element.addEventListener("click", (e) => {
+    // Target vs currentTarget
+    console.log(e.target);        // Element clicked
+    console.log(e.currentTarget);  // Element with listener
+    
+    // Coordinates
+    console.log(e.clientX, e.clientY);  // Relative to viewport
+    console.log(e.pageX, e.pageY);      // Relative to document
+    console.log(e.offsetX, e.offsetY);  // Relative to target
+    
+    // Modifiers
+    console.log(e.ctrlKey);
+    console.log(e.shiftKey);
+    console.log(e.altKey);
+    console.log(e.metaKey);
+    
+    // Button (mouse)
+    console.log(e.button);  // 0: left, 1: middle, 2: right
+    
+    // Key
+    console.log(e.key);      // Character
+    console.log(e.code);     // Physical key
+    console.log(e.keyCode);  // Deprecated
+    
+    // Prevent default
+    e.preventDefault();  // Stop default behavior
+    
+    // Form validation
+    form.addEventListener("submit", (e) => {
+        if (!isValid()) {
+            e.preventDefault();  // Stop form submission
+        }
+    });
+    
+    // Stop propagation
+    e.stopPropagation();  // Stop bubbling
+});
+```
+</UniversalEditor>
+
+## Best Practices
+
+<UniversalEditor title="Event Best Practices">
+```javascript !! js
+// 1. Use event delegation for dynamic content
+container.addEventListener("click", (e) => {
+    if (e.target.matches(".item")) {
+        handleItemClick(e);
+    }
+});
+
+// 2. Remove listeners when done
+function setup() {
+    const handler = (e) => console.log(e);
+    button.addEventListener("click", handler);
+    
+    // Later
+    button.removeEventListener("click", handler);
+}
+
+// 3. Use passive listeners for scroll/touch
+window.addEventListener("scroll", handler, { passive: true });
+
+// 4. Debounce expensive handlers
+const handleResize = debounce(() => {
+    // Expensive operation
+}, 100);
+
+window.addEventListener("resize", handleResize);
+
+// 5. Don't inline event handlers
+// Bad
+<button onclick="doSomething()">Click</button>
+
+// Good
+<button id="btn">Click</button>
+document.getElementById("btn").addEventListener("click", doSomething);
+```
+</UniversalEditor>
+
+## Exercises
+
+### Exercise 1: Event Delegation
+```javascript
+// Add click handling to dynamically created list items
+function setupList(items) {
+    // Create list and add delegation
+}
+```
+
+### Exercise 2: Keyboard Navigation
+```javascript
+// Add arrow key navigation to list
+function setupNavigation(items) {
+    // Implementation
+}
+```
+
+### Exercise 3: Form Validation
+```javascript
+// Validate on blur and submit
+function setupFormValidation(form) {
+    // Implementation
+}
+```
+
+## Summary
+
+### Key Takeaways
+
+1. **Listeners:** addEventListener is preferred
+2. **Propagation:** Capturing → Target → Bubbling
+3. **Delegation:** Single listener for multiple elements
+4. **Best:** Use delegation, remove unused listeners
+
+### Comparison: Java vs JavaScript
+
+| Feature | Java | JavaScript |
+|---------|------|------------|
+| **Listeners** | Interfaces | addEventListener |
+| **Propagation** | None | Capturing/Bubbling |
+| **Delegation** | Event sources | DOM hierarchy |
+| **Removal** | removeListener | removeEventListener |
+
+## What's Next?
+
+Next: **Module 14: ES6+ Modules** - Learn modern JavaScript module system!

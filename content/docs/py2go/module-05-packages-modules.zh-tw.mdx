@@ -1,0 +1,979 @@
+---
+title: "模組 5: 套件管理"
+description: "Go 模組和套件系統與 Python 的對比"
+---
+
+## 簡介
+
+Go 使用 **Go Modules** 進行依賴管理（自 Go 1.11 起），取代了舊的 GOPATH 系統。這類似於 Python 的 pip/virtualenv，但有一些關鍵差異和改進。
+
+## Go Modules vs Python 工具
+
+### 基本設置
+
+<UniversalEditor title="專案設置對比">
+```bash
+# Python - 虛擬環境設置
+python -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
+pip install requests flask
+pip freeze > requirements.txt
+```
+
+```bash
+# Go - Go module 設置
+mkdir myproject
+cd myproject
+go mod init github.com/username/myproject
+# 建立 go.mod 檔案
+
+go get github.com/gin-gonic/gin  # 新增依賴
+go mod tidy                       # 清理依賴
+# go.mod 和 go.sum 自動更新
+```
+</UniversalEditor>
+
+### 專案結構
+
+<UniversalEditor title="專案結構對比">
+```bash
+# Python 專案結構
+myproject/
+├── venv/                    # 虛擬環境
+│   ├── lib/
+│   └── bin/
+├── requirements.txt         # 依賴
+├── src/
+│   ├── __init__.py
+│   ├── main.py
+│   └── utils.py
+└── tests/
+    ├── __init__.py
+    └── test_utils.py
+```
+
+```bash
+# Go 專案結構
+myproject/
+├── go.mod                  # 模組定義
+├── go.sum                  # 依賴校驗和（自動生成）
+├── main.go                 # 進入點
+├── utils.go                # 工具程式碼
+└── utils_test.go          # 測試檔案（*_test.go 約定）
+```
+</UniversalEditor>
+
+## go.mod 檔案
+
+<UniversalEditor title="go.mod vs requirements.txt">
+```python
+# Python - requirements.txt
+flask==2.3.0
+requests>=2.28.0
+django>=3.2,<4.0
+```
+
+```go
+// Go - go.mod
+module github.com/username/myproject
+
+go 1.21
+
+require (
+    github.com/gin-gonic/gin v1.9.1
+    github.com/stretchr/testify v1.8.4
+)
+
+// 直接依賴
+require github.com/go-redis/redis/v8 v8.11.5
+
+// 間接依賴（在 go mod why 中顯示）
+// 間接依賴在 go.mod 中用 // indirect 標記
+```
+</UniversalEditor>
+
+## 匯入套件
+
+### 基本匯入
+
+<UniversalEditor title="匯入語句">
+```python !! py
+# Python - 匯入
+import math
+import os.path
+from collections import defaultdict, Counter
+from . import local_module
+from .utils import helper
+from package import Class
+import package as p
+```
+
+```go !! go
+// Go - 匯入
+package main
+
+import (
+    "fmt"           // 標準庫
+    "math"          // 標準庫
+    "os"            // 標準庫
+    "strings"       // 標準庫
+
+    // 第三方套件（來自 go.mod）
+    "github.com/gin-gonic/gin"
+    "github.com/go-redis/redis/v8"
+
+    // 本地套件（相對於模組根目錄）
+    "myproject/utils"
+    "myproject/internal/app"
+
+    // 帶別名匯入
+    myfmt "myproject/format"
+)
+
+func main() {
+    fmt.Println("Hello from main")
+    utils.Helper()
+}
+```
+</UniversalEditor>
+
+### 套件組織
+
+<UniversalEditor title="套件命名">
+```python !! py
+# Python - 套件 = 目錄
+# myproject/utils/__init__.py
+# myproject/utils/helper.py
+
+# 使用
+from utils import helper
+from utils.helper import process_data
+```
+
+```go !! go
+// Go - 套件宣告在檔案頂部
+// utils/helper.go
+package utils
+
+func Helper() {
+    fmt.Println("Helper function")
+}
+
+// utils/constants.go
+package utils
+
+const MaxRetries = 3
+
+// 使用（從 main.go）
+import "myproject/utils"
+
+func main() {
+    utils.Helper()
+    fmt.Println(utils.MaxRetries)
+}
+```
+</UniversalEditor>
+
+## 套件可見性
+
+<UniversalEditor title="匯出 vs 未匯出">
+```python !! py
+# Python - 公共 vs 私有（基於約定）
+# utils.py
+
+PUBLIC_VAR = "Anyone can access"
+
+_internal_var = "Private by convention"
+
+__private_var = "Name mangling"
+
+def public_function():
+    pass
+
+def _internal_function():
+    pass
+
+def __private_function():
+    pass
+```
+
+```go !! go
+// Go - 匯出 vs 未匯出（嚴格）
+package utils
+
+const MaxRetries = 3        // 匯出（首字母大寫）
+const defaultTimeout = 30  // 未匯出（小寫）
+
+var GlobalVar string         // 匯出
+var internalState int       // 未匯出
+
+func PublicFunction() {}     // 匯出
+func internalHelper() {}    // 未匯出
+
+type PublicStruct struct {}  // 匯出
+type privateStruct struct{} // 未匯出
+
+// 從另一個套件
+import "myproject/utils"
+
+func main() {
+    utils.MaxRetries        // OK - 匯出
+    utils.defaultTimeout    // 錯誤：未匯出
+}
+```
+</UniversalEditor>
+
+## go.mod 指令
+
+<UniversalEditor title="常用指令">
+```bash
+# Python - pip 指令
+pip install requests
+pip list
+pip freeze
+pip install --upgrade requests
+pip uninstall requests
+pip show requests
+```
+
+```bash
+# Go - module 指令
+go mod init github.com/username/project  # 初始化
+go mod tidy                                 # 新增缺失，移除未使用
+go mod download                              # 下載所有依賴
+go mod verify                                # 驗證依賴（檢查校驗和）
+go mod graph                                 # 顯示依賴圖
+go mod why github.com/pkg/errors          # 解釋為什麼需要套件
+go list -m all                               # 列出所有依賴
+go get -u ./...                                # 更新所有依賴
+go get -u github.com/pkg/errors             # 更新特定套件
+```
+</UniversalEditor>
+
+### 詳細指令範例
+
+<UniversalEditor title="指令範例">
+```bash
+# 初始化新模組
+$ mkdir myproject
+$ cd myproject
+$ go mod init github.com/username/myproject
+go: creating new go.mod: module github.com/username/myproject
+
+# 新增依賴
+$ go get github.com/gin-gonic/gin
+go: downloading github.com/gin-gonic/gin v1.9.1
+go: added github.com/gin-gonic/gin v1.9.1
+
+# 清理依賴（移除未使用的，新增缺失的）
+$ go mod tidy
+
+# 檢查依賴
+$ cat go.mod
+module github.com/username/myproject
+
+go 1.21
+
+require github.com/gin-gonic/gin v1.9.1
+
+require (
+    github.com/stretchr/testify v1.8.4 // Indirect
+)
+
+# 查看依賴圖
+$ go mod graph
+github.com/username/myproject github.com/gin-gonic/gin
+github.com/gin-gonic/gin github.com/gin-contrib/sse
+...
+
+# 為什麼需要這個套件？
+$ go mod why github.com/stretchr/testify
+github.com/username/myproject
+└── github.com/gin-gonic/gin
+    └── github.com/stretchr/testify
+
+# 更新所有依賴
+$ go get -u ./...
+```
+</UniversalEditor>
+
+## 依賴版本
+
+<UniversalEditor title="版本管理">
+```python
+# Python - 版本鎖定
+flask==2.3.0              # 精確版本
+requests>=2.28.0         # 最低版本
+django~=3.2.0             # 相容版本（3.2.x，不包括 3.3+）
+```
+
+```go
+// Go - go.mod 中的語義化版本
+module github.com/username/myproject
+
+go 1.21
+
+require (
+    // 特定版本
+    github.com/pkg/errors v0.9.1
+
+    // 帶最低版本的版本範圍
+    github.com/gin-gonic/gin v1.9.1 // v1.9.1 或更高版本（使用 SemVer）
+
+    // 間接依賴
+    github.com/stretchr/testify v1.8.4 // indirect
+)
+
+// Go 使用語義化版本（SemVer）：
+// v1.2.3 = MAJOR.MINOR.PATCH
+// v1.2 = 1.2.x（相容，補丁版本）
+// v1 = 1.x.x（相容，次版本和補丁版本）
+```
+</UniversalEditor>
+
+## go.sum 檔案
+
+<UniversalEditor title="依賴校驗和">
+```bash
+# Python - 預設沒有校驗和
+# 可以使用 pip hash-checking 模式
+pip install --require-hashes -r requirements.txt
+
+# requirements.txt
+flask==2.3.0 --hash=sha256:a8b...
+```
+
+```bash
+# Go - go.sum（自動生成，不要編輯）
+$ cat go.sum
+github.com/gin-gonic/gin v1.9.1 h1:...
+github.com/gin-gonic/gin v1.9.1/go.mod h1:...
+github.com/stretchr/testify v1.8.4 h1:...
+github.com/stretchr/testify v1.8.4/go.mod h1:...
+
+# go.sum 包含：
+# - 所有依賴的加密雜湊
+# - 確保依賴完整性
+# - 由 Go 工具自動管理
+# - 永遠不要手動編輯
+# - 提交到版本控制
+```
+</UniversalEditor>
+
+## 內部套件
+
+Go 保留 `internal` 目錄用於私有程式碼：
+
+<UniversalEditor title="內部套件">
+```python
+# Python - 沒有 internal 概念
+# 使用命名約定或工具
+myproject/
+├── utils.py
+├── _private.py
+└── tests/
+    └── test_utils.py
+```
+
+```bash
+# Go - internal 目錄（私有）
+myproject/
+├── go.mod
+├── main.go
+├── internal/
+│   ├── app/
+│   │   └── app.go
+│   └── database/
+│       └── db.go
+└── pkg/
+    └── utils/
+        └── utils.go
+
+// internal/ 只能在 myproject 內存取
+// pkg/ 可以公開匯入
+```
+
+```go
+// internal/app/app.go
+package app
+
+// 只能被 myproject 中的程式碼匯入
+// 不能被以下存取：
+// - github.com/other-project
+// - github.com/username/myproject/internal（不同路徑）
+
+// 可以被以下存取：
+// - myproject/main.go
+// - myproject/pkg/utils
+
+func Run() {
+    fmt.Println("App running")
+}
+```
+</UniversalEditor>
+
+## Vendor 目錄
+
+<UniversalEditor title="Vendor 依賴">
+```bash
+# Python - Vendor
+pip install -t vendor/ -r requirements.txt
+
+# 或使用 pipenv
+pipenv install
+pipenv vendor
+```
+
+```bash
+# Go - Vendor 依賴
+$ go mod vendor
+
+# 建立包含所有原始碼的 vendor/ 目錄
+$ ls vendor/
+github.com/
+    gin-gonic/
+    stretchr/
+    ...
+
+# 如果存在 vendor/ 目錄，Go 將使用它
+# 將 vendor/ 提交到版本控制以實現可重現建構
+
+# 如需要清理 vendor
+$ rm -rf vendor/
+```
+</UniversalEditor>
+
+## 匯入策略
+
+### 遠端匯入
+
+<UniversalEditor title="匯入遠端套件">
+```python !! py
+# Python - 先安裝再匯入
+# 首先：pip install pyyaml
+# 然後：
+import yaml
+
+data = yaml.safe_load("""
+    name: Alice
+    age: 30
+""")
+```
+
+```go !! go
+// Go - 匯入並使用
+package main
+
+import (
+    "fmt"
+    "gopkg.in/yaml.v3"  // 非 GitHub 倉庫的域前綴
+)
+
+func main() {
+    data := []byte(`
+        name: Alice
+        age: 30
+    `)
+
+    var result map[string]interface{}
+    yaml.Unmarshal(data, &result)
+
+    fmt.Printf("Name: %v, Age: %v", result["name"], result["age"])
+}
+```
+</UniversalEditor>
+
+## 版本衝突和解決
+
+<UniversalEditor title="依賴衝突">
+```python
+# Python - 依賴衝突
+# requirements.txt
+package-a==1.0.0
+package-b==2.0.0
+
+# 如果 package-a 需要 package-b==1.5.0
+# pip install -r requirements.txt
+# 錯誤：需求衝突
+```
+
+```go
+// Go - 最小衝突（MVS - 最小版本選擇）
+// go.mod
+module myproject
+
+go 1.21
+
+require (
+    package-a v1.0.0
+    package-b v2.0.0
+)
+
+// 如果 package-a 需要 package-b v1.5.0
+// Go 使用 MVS 演算法：
+// - v1.5.0 和 v2.0.0 都滿足 package-b 的需求
+// - Go 選擇 v1.5.0（滿足所有需求的最小版本）
+// - 沒有版本衝突！
+
+// 這是相比 Python pip 的主要優勢
+```
+</UniversalEditor>
+
+## 替換依賴
+
+<UniversalEditor title="依賴替換">
+```python
+# Python - 覆蓋版本
+# requirements.txt
+package-a==2.0.0
+
+# 或使用 pip-tools
+pip install package-a==2.0.0
+pip-compile  # 從所有套件建立 requirements.txt
+```
+
+```go
+// Go - replace 指令
+module myproject
+
+go 1.21
+
+require (
+    github.com/original/package v1.0.0
+)
+
+// 替換為本地 fork 或不同版本
+replace github.com/original/package => ../fork/package
+
+// 或使用特定版本
+replace github.com/original/package => v1.1.0
+
+// 或使用不同模組
+replace github.com/original/package => github.com/myfork/package v1.0.0
+```
+</UniversalEditor>
+
+## 私有模組
+
+<UniversalEditor title="私有 Go 模組">
+```bash
+# Python - 私有 PyPI 倉庫
+# 設置私有 PyPI 伺服器
+pip install --index-url https://pypi.example.com/simple/ mypackage
+```
+
+```bash
+# Go - 私有模組
+# 選項 1：直接 Git 倉庫
+require (
+    github.com/mycompany/privatepackage v1.0.0
+)
+
+# 配置 git 進行身份驗證
+git config credential.helper store
+
+# 選項 2：私有 Go proxy
+# 設置 GOPROXY
+export GOPROXY=https://goproxy.example.com
+
+# 選項 3：替換為本地路徑
+replace github.com/mycompany/privatepackage => ../privatepackage
+
+# 選項 4：GOPRIVATE 設置
+export GOPRIVATE=github.com/mycompany/*
+# 私有模組繞過代理
+```
+</UniversalEditor>
+
+## 模組代理
+
+<UniversalEditor title="Go 模組代理">
+```bash
+# Python - PyPI 和套件索引
+export PIP_INDEX_URL=https://pypi.org/simple
+export PIP_EXTRA_INDEX_URL=https://pypi.example.com/simple
+```
+
+```bash
+# Go - 模組代理
+# 預設情況下，Go 使用：
+# - https://proxy.golang.org（公共代理）
+# - 直接連接到 VCS（Git）
+
+# 設置模組代理
+export GOPROXY=https://goproxy.cn,direct
+export GONOSUMDB=github.com/*  # 對這些繞過代理
+
+# 私有模組代理
+export GOPRIVATE=github.com/mycompany/*  # 不使用代理
+
+# 檢查代理
+go env GOPROXY
+
+# 關閉代理（僅直接連接）
+export GOPROXY=direct
+```
+</UniversalEditor>
+
+## 常見套件模式
+
+### Main 套件
+
+<UniversalEditor title="Main 套件">
+```python !! py
+# Python - 進入點
+if __name__ == "__main__":
+    main()
+```
+
+```go !! go
+// Go - main 套件（進入點）
+package main
+
+import "fmt"
+
+func main() {
+    fmt.Println("Hello, World!")
+}
+
+// main 套件中的 main() 函數是進入點
+// 可以有多個 main 套件用於不同指令
+```
+</UniversalEditor>
+
+### 套件別名
+
+<UniversalEditor title="匯入別名">
+```python !! py
+# Python - 匯入別名
+import numpy as np
+import pandas as pd
+from matplotlib import pyplot as plt
+```
+
+```go !! go
+// Go - 匯入別名
+package main
+
+import (
+    fmtpkg "fmt"             // 別名
+    stdlib "github.com/mylib"  // 別名
+)
+
+func main() {
+    fmtpkg.Println("Using alias")
+    stdlib.Helper()
+}
+```
+</UniversalEditor>
+
+### 點匯入
+
+<UniversalEditor title="點匯入">
+```python !! py
+# Python - from 匯入
+from math import sin, cos, pi
+# 直接使用：sin(x)、cos(x)、pi
+```
+
+```go !! go
+// Go - 點匯入（罕見，小心使用）
+package main
+
+import (
+    . "fmt"  // 點匯入
+)
+
+func main() {
+    // 可以直接使用 Println，不需要 fmt 前綴
+    Println("Hello, World!")
+    // 警告：可能導致命名衝突！
+}
+```
+</UniversalEditor>
+
+## Init 函數
+
+<UniversalEditor title="套件初始化">
+```python !! py
+# Python - 模組級程式碼在匯入時運行
+# config.py
+CONFIG = load_config()
+setup_database()
+
+# main.py
+import config  # CONFIG 被初始化，DB 被設置
+```
+
+```go !! go
+// Go - init() 函數
+package utils
+
+var config *Config
+
+func init() {
+    // 在套件匯入時自動運行
+    // 可以有多個 init() 檔案（按順序執行）
+    config = loadConfig()
+}
+
+// 或者（優先顯式初始化）
+var config *Config = loadConfig()  // 套件級初始化
+
+func init() {
+    // 在 main() 之前運行
+    setupDatabase()
+}
+
+// main.go
+package main
+
+import (
+    "myproject/utils"
+    _ "myproject/database"  // 為副作用匯入（init 運行）
+)
+```
+</UniversalEditor>
+
+## 第三方套件管理
+
+<UniversalEditor title="管理依賴">
+```bash
+# Python - requirements.txt
+# requirements.txt
+flask==2.3.0
+requests>=2.28.0
+gunicorn>=20.1.0
+
+# 開發
+pytest>=7.0.0
+black>=22.0.0
+
+# 安裝所有
+pip install -r requirements.txt
+
+# 僅安裝生產環境
+pip install -r requirements.txt --no-deps
+
+# 升級
+pip install --upgrade -r requirements.txt
+```
+
+```bash
+# Go - go.mod
+module myproject
+
+go 1.21
+
+// 建構依賴
+require (
+    github.com/gin-gonic/gin v1.9.1
+    github.com/go-redis/redis/v8 v8.11.5
+)
+
+// 開發依賴
+// Go 不分離開發依賴
+// 所有依賴都在 go.mod 中
+
+// 新增依賴
+$ go get github.com/pkg/errors
+
+// 更新依賴
+$ go get -u github.com/pkg/errors
+
+// 移除未使用的依賴
+$ go mod tidy
+
+// 更新所有
+$ go get -u ./...
+```
+</UniversalEditor>
+
+## 工作區模式（Go 1.18+）
+
+<UniversalEditor title="工作區模式">
+```bash
+# Python - 沒有工作區概念
+# 使用 monorepo 工具或獨立的虛擬環境
+```
+
+```bash
+# Go - 工作區（多模組專案）
+# workspace/go.work
+go 1.21
+
+use (
+    ./app
+    ./utils
+    ./api
+)
+
+# 所有模組共用依賴
+# 可以在一個模組中使用另一個模組的程式碼
+$ go work sync
+```
+</UniversalEditor>
+
+## 測試和套件
+
+<UniversalEditor title="測試套件結構">
+```bash
+# Python - 測試結構
+myproject/
+├── src/
+│   └── calculator.py
+└── tests/
+    ├── __init__.py
+    ├── test_calculator.py
+    └── fixtures/
+        └── test_data.json
+```
+
+```bash
+# Go - 測試結構（相同套件）
+myproject/
+├── calculator.go
+├── calculator_test.go  // *_test.go 約定
+└── calculator_example_test.go  // *_example_test.go 用於範例
+
+// 測試檔案可以在同一套件中：
+package myproject
+
+// 或在 _test 套件中（黑盒測試）：
+package myproject_test
+```
+</UniversalEditor>
+
+## 工具和最佳實踐
+
+### 依賴管理最佳實踐
+
+<UniversalEditor title="最佳實踐">
+```go
+// 做：提交 go.mod 和 go.sum
+$ git add go.mod go.sum
+$ git commit -m "Add gin-gonic dependency"
+
+// 做：提交前運行 go mod tidy
+$ go mod tidy
+$ git add go.mod go.sum
+
+// 不要：手動編輯 go.sum
+// 讓 Go 工具管理它
+
+// 做：在 go.mod 中使用特定版本
+require github.com/pkg/errors v0.9.1
+
+// 不要：未經測試就使用最新版本
+// 需要時更新依賴，不要自動更新
+
+// 做：在 CI 中使用 go mod verify
+$ go mod verify
+```
+</UniversalEditor>
+
+### 常見模式
+
+<UniversalEditor title="常見套件模式">
+```go
+// 1. 倉儲模式
+package repository
+
+type UserRepository interface {
+    Find(id int) (*User, error)
+    Save(user *User) error
+}
+
+type userRepository struct {
+    db *sql.DB
+}
+
+func NewUserRepository(db *sql.DB) UserRepository {
+    return &userRepository{db: db}
+}
+
+// 2. 服務模式
+package service
+
+type UserService struct {
+    repo UserRepository
+}
+
+func NewUserService(repo UserRepository) *UserService {
+    return &UserService{repo: repo}
+}
+
+// 3. 工廠模式
+package factory
+
+func NewServer(config *Config) *Server {
+    return &Server{
+        config: config,
+        router: NewRouter(),
+    }
+}
+```
+</UniversalEditor>
+
+## 總結
+
+在本模組中，你學習了：
+
+1. **Go Modules** - 現代依賴管理
+2. **go.mod** - 模組定義和依賴
+3. **go.sum** - 依賴校驗和以保障安全
+4. **套件組織** - 目錄和命名
+5. **匯入語句** - 標準庫、第三方、本地
+6. **匯出 vs 未匯出** - 首字母大寫規則
+7. **內部套件** - 模組內的私有程式碼
+8. **Vendor 目錄** - Vendor 依賴
+9. **版本管理** - 語義化版本
+10. **go mod 指令** - tidy、download、verify、graph、why
+11. **私有模組** - 身份驗證和代理
+12. **模組代理** - GOPROXY 和 GOPRIVATE
+13. **工作區** - 多模組專案
+14. **Init 函數** - 套件初始化
+15. **測試** - 測試檔案約定
+
+## 與 Python 的主要差異
+
+| Python | Go |
+|--------|-----|
+| `pip install` | `go get` |
+| `requirements.txt` | `go.mod` |
+| 虛擬環境 | Go 模組（不需要 venv） |
+| `__pycache__` | 模組快取 |
+| `setup.py` | `go.mod` |
+| `from X import Y` | `import "package"` |
+| 通過 `_` 前綴私有 | 通過小寫私有 |
+| 沒有 internal 概念 | `internal/` 目錄 |
+| 預設沒有校驗和 | `go.sum`（總是） |
+| 版本衝突常見 | MVS（最小衝突） |
+
+## 最佳實踐
+
+1. **始終一起提交 go.mod 和 go.sum**
+2. **提交前運行 `go mod tidy`**
+3. **為你的模組使用語義化版本**
+4. **不要手動編輯 go.sum**
+5. **使用 `internal/`** 用於私有程式碼
+6. **明確依賴** - 避免不必要的套件
+7. **在 CI/CD 中使用 `go mod verify`**
+8. **Vendor 依賴**（如需要可重現建構）
+9. **多模組專案使用工作區模式**
+10. **優先使用直接匯入**而非點匯入
+
+## 練習
+
+1. 建立一個包含多個套件的新 Go 模組
+2. 新增和更新第三方依賴
+3. 建立一個內部套件並測試可見性
+4. 使用 go mod 指令分析依賴
+5. 設置私有模組倉庫
+6. 在套件中實現倉儲模式
+7. 建立包含多個模組的工作區
+8. 撰寫 init() 函數進行套件設置
+
+## 下一步
+
+下一模組：**錯誤處理** - 理解 Go 的顯式錯誤處理和錯誤介面。

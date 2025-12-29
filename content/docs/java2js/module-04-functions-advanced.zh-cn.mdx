@@ -1,0 +1,1157 @@
+---
+title: "模块 4: 函数高级"
+description: "掌握闭包、高阶函数、柯里化和高级函数模式"
+---
+
+## 模块 4: 函数高级
+
+既然你已经理解了基础知识,让我们探索 JavaScript 的高级函数功能。这些概念非常强大,能够为复杂问题提供优雅的解决方案。
+
+## 学习目标
+
+完成本模块后,你将:
+✅ 理解闭包和词法作用域
+✅ 掌握高阶函数
+✅ 学习柯里化和部分应用
+✅ 理解记忆化以提高性能
+✅ 了解递归模式和尾调用优化
+✅ 学习函数组合和链式调用
+
+## 闭包
+
+闭包是 JavaScript 最强大的功能之一。闭包允许你从内部函数访问外部函数的作用域。
+
+<UniversalEditor title="理解闭包">
+```java !! java
+// Java - Limited closure support (lambda with captured variables)
+public class ClosureExample {
+    public static Supplier<Integer> makeCounter() {
+        int[] count = {0};  // Must use array for mutability
+        return () -> {
+            count[0]++;
+            return count[0];
+        };
+    }
+
+    public static void main(String[] args) {
+        Supplier<Integer> counter1 = makeCounter();
+        Supplier<Integer> counter2 = makeCounter();
+
+        System.out.println(counter1.get());  // 1
+        System.out.println(counter1.get());  // 2
+        System.out.println(counter2.get());  // 1 (separate counter)
+    }
+}
+```
+
+```javascript !! js
+// JavaScript - True closures
+function makeCounter() {
+    let count = 0;  // Private variable
+
+    // Inner function has access to outer scope
+    return function() {
+        count++;
+        return count;
+    };
+}
+
+const counter1 = makeCounter();
+const counter2 = makeCounter();
+
+console.log(counter1());  // 1
+console.log(counter1());  // 2
+console.log(counter2());  // 1 (separate closure)
+
+// Practical example: Private data
+function createUser(name) {
+    let age = 0;  // Private
+
+    return {
+        getName: () => name,
+        getAge: () => age,
+        setAge: (newAge) => {
+            if (newAge >= 0) {
+                age = newAge;
+            }
+        },
+        incrementAge: () => {
+            age++;
+        }
+    };
+}
+
+const user = createUser("John");
+console.log(user.getName());  // "John"
+console.log(user.getAge());   // 0
+user.setAge(25);
+console.log(user.getAge());   // 25
+user.incrementAge();
+console.log(user.getAge());   // 26
+console.log(user.age);        // undefined (private!)
+```
+</UniversalEditor>
+
+### 闭包用例
+
+<UniversalEditor title="闭包模式">
+```java !! java
+// Java - Need classes for state
+public class Cache {
+    private Map<String, String> storage = new HashMap<>();
+
+    public String get(String key) {
+        return storage.get(key);
+    }
+
+    public void set(String key, value) {
+        storage.put(key, value);
+    }
+}
+```
+
+```javascript !! js
+// JavaScript - Closures for encapsulation
+
+// Pattern 1: Function factory
+function createCache() {
+    const cache = new Map();
+
+    return {
+        get(key) {
+            return cache.get(key);
+        },
+        set(key, value) {
+            cache.set(key, value);
+        },
+        has(key) {
+            return cache.has(key);
+        },
+        clear() {
+            cache.clear();
+        }
+    };
+}
+
+const userCache = createCache();
+userCache.set("user1", { name: "John" });
+console.log(userCache.get("user1"));  // { name: "John" }
+
+// Pattern 2: Configuration
+function createLogger(prefix) {
+    return function(message) {
+        const timestamp = new Date().toISOString();
+        console.log(`[${timestamp}] [${prefix}] ${message}`);
+    };
+}
+
+const errorLogger = createLogger("ERROR");
+const infoLogger = createLogger("INFO");
+
+errorLogger("Database connection failed");
+infoLogger("User logged in");
+
+// Pattern 3: Rate limiter
+function rateLimit(func, delay) {
+    let lastCall = 0;
+    let timer = null;
+
+    return function(...args) {
+        const now = Date.now();
+        const timeSinceLastCall = now - lastCall;
+
+        if (timeSinceLastCall >= delay) {
+            lastCall = now;
+            return func.apply(this, args);
+        } else {
+            // Clear pending call
+            if (timer) clearTimeout(timer);
+
+            // Schedule new call
+            timer = setTimeout(() => {
+                lastCall = Date.now();
+                func.apply(this, args);
+            }, delay - timeSinceLastCall);
+        }
+    };
+}
+
+const saveData = rateLimit((data) => {
+    console.log("Saving:", data);
+}, 1000);
+
+saveData({ id: 1 });  // Executes immediately
+saveData({ id: 2 });  // Debounced
+```
+</UniversalEditor>
+
+### 常见闭包陷阱
+
+<UniversalEditor title="闭包陷阱">
+```javascript !! js
+// Pitfall 1: Loop closures
+// ❌ BAD: All functions capture same variable
+const funcs = [];
+for (var i = 0; i < 3; i++) {
+    funcs.push(() => console.log(i));
+}
+funcs[0]();  // 3 (not 0!)
+funcs[1]();  // 3 (not 1!)
+funcs[2]();  // 3 (not 2!)
+
+// ✅ GOOD: Use let (block-scoped)
+const funcs2 = [];
+for (let i = 0; i < 3; i++) {
+    funcs2.push(() => console.log(i));
+}
+funcs2[0]();  // 0
+funcs2[1]();  // 1
+funcs2[2]();  // 2
+
+// ✅ GOOD: Use IIFE (for var)
+const funcs3 = [];
+for (var i = 0; i < 3; i++) {
+    (function(j) {
+        funcs3.push(() => console.log(j));
+    })(i);
+}
+funcs3[0]();  // 0
+
+// Pitfall 2: Memory leaks
+function setupHandlers() {
+    const hugeData = new Array(1000000).fill("data");
+
+    document.getElementById("button").addEventListener("click", function() {
+        console.log("Clicked");  // Closes over hugeData!
+    });
+}
+
+// ✅ GOOD: Minimize closure scope
+function setupHandlers() {
+    const button = document.getElementById("button");
+    const handler = () => console.log("Clicked");
+
+    button.addEventListener("click", handler);
+    // hugeData not captured
+}
+```
+</UniversalEditor>
+
+## 高阶函数
+
+接受或返回其他函数的函数:
+
+<UniversalEditor title="高阶函数">
+```java !! java
+// Java - Functional interfaces
+public interface Predicate<T> {
+    boolean test(T t);
+}
+
+public class Utils {
+    public static <T> List<T> filter(List<T> list, Predicate<T> predicate) {
+        List<T> result = new ArrayList<>();
+        for (T item : list) {
+            if (predicate.test(item)) {
+                result.add(item);
+            }
+        }
+        return result;
+    }
+
+    // Higher-order function that returns a function
+    public static Predicate<Integer> greaterThan(int n) {
+        return x -> x > n;
+    }
+}
+```
+
+```javascript !! js
+// JavaScript - Native higher-order functions
+
+// Function that takes a function
+function filter(array, predicate) {
+    const result = [];
+    for (const item of array) {
+        if (predicate(item)) {
+            result.push(item);
+        }
+    }
+    return result;
+}
+
+const numbers = [1, 2, 3, 4, 5];
+const evens = filter(numbers, n => n % 2 === 0);
+console.log(evens);  // [2, 4]
+
+// Function that returns a function
+function greaterThan(n) {
+    return function(x) {
+        return x > n;
+    };
+}
+
+const greaterThan5 = greaterThan(5);
+console.log(greaterThan5(3));  // false
+console.log(greaterThan5(10)); // true
+
+// Practical example: Notifier
+function createNotifier(sender) {
+    return function(recipient, message) {
+        console.log(`From: ${sender}`);
+        console.log(`To: ${recipient}`);
+        console.log(`Message: ${message}`);
+    };
+}
+
+const adminNotifier = createNotifier("admin@app.com");
+adminNotifier("user@app.com", "Welcome!");
+
+// Composition
+function compose(f, g) {
+    return function(x) {
+        return f(g(x));
+    };
+}
+
+const toUpper = str => str.toUpperCase();
+const exclaim = str => str + "!";
+
+const shout = compose(exclaim, toUpper);
+console.log(shout("hello"));  // "HELLO!"
+```
+</UniversalEditor>
+
+### 数组方法作为高阶函数
+
+<UniversalEditor title="内置高阶函数">
+```java !! java
+// Java - Stream operations
+List<Integer> numbers = Arrays.asList(1, 2, 3, 4, 5);
+
+List<Integer> result = numbers.stream()
+    .filter(n -> n % 2 == 0)
+    .map(n -> n * 2)
+    .collect(Collectors.toList());
+```
+
+```javascript !! js
+// JavaScript - Array methods (all are higher-order functions)
+const numbers = [1, 2, 3, 4, 5];
+
+// filter: Takes predicate function
+const evens = numbers.filter(n => n % 2 === 0);
+
+// map: Takes transform function
+const doubled = numbers.map(n => n * 2);
+
+// reduce: Takes reducer function
+const sum = numbers.reduce((acc, n) => acc + n, 0);
+
+// find: Takes predicate function
+const found = numbers.find(n => n > 3);
+
+// every: Takes predicate function
+const allPositive = numbers.every(n => n > 0);
+
+// some: Takes predicate function
+const hasEven = numbers.some(n => n % 2 === 0);
+
+// Chaining higher-order functions
+const result = numbers
+    .filter(n => n % 2 === 0)      // Keep evens
+    .map(n => n * 2)               // Double them
+    .reduce((acc, n) => acc + n, 0); // Sum them
+
+console.log(result);  // 12 (2*2 + 4*2 = 4 + 8)
+```
+</UniversalEditor>
+
+## 柯里化和部分应用
+
+柯里化将具有多个参数的函数转换为接受单个参数的函数序列:
+
+<UniversalEditor title="柯里化">
+```java !! java
+// Java - No built-in currying
+// Would need custom implementation
+public interface TriFunction<A, B, C, R> {
+    R apply(A a, B b, C c);
+}
+
+public static <A, B, C, R> Function<A, Function<B, Function<C, R>>> curry(
+    TriFunction<A, B, C, R> f
+) {
+    return a -> b -> c -> f.apply(a, b, c);
+}
+
+// Usage is verbose
+```
+
+```javascript !! js
+// JavaScript - Currying
+
+// Non-curried function
+function add(a, b, c) {
+    return a + b + c;
+}
+
+console.log(add(1, 2, 3));  // 6
+
+// Curried function
+function curryAdd(a) {
+    return function(b) {
+        return function(c) {
+            return a + b + c;
+        };
+    };
+}
+
+console.log(curryAdd(1)(2)(3));  // 6
+
+// Arrow function curry (more concise)
+const curryAdd2 = a => b => c => a + b + c;
+
+// Partial application
+const add1 = curryAdd2(1);
+const add1And2 = add1(2);
+
+console.log(add1And2(3));  // 6
+
+// Practical example: API client
+function createApiFetcher(baseUrl) {
+    return function(endpoint) {
+        return function(options) {
+            return fetch(`${baseUrl}${endpoint}`, options)
+                .then(res => res.json());
+        };
+    };
+}
+
+const jsonApi = createApiFetcher("https://api.example.com");
+const userApi = jsonApi("/users");
+const getAdmins = userApi({ ?role=admin });
+
+// Currying utility
+function curry(fn) {
+    return function curried(...args) {
+        if (args.length >= fn.length) {
+            return fn.apply(this, args);
+        }
+        return function(...more) {
+            return curried.apply(this, [...args, ...more]);
+        };
+    };
+}
+
+const curriedMap = curry((fn, array) => array.map(fn));
+const doubleAll = curriedMap(x => x * 2);
+
+console.log(doubleAll([1, 2, 3]));  // [2, 4, 6]
+```
+</UniversalEditor>
+
+### 部分应用
+
+<UniversalEditor title="部分应用">
+```java !! java
+// Java - Method references (limited partial application)
+public class Printer {
+    public void print(String prefix, String message) {
+        System.out.println(prefix + ": " + message);
+    }
+
+    public void printInfo(String message) {
+        print("INFO", message);  // Partial application
+    }
+}
+```
+
+```javascript !! js
+// JavaScript - Partial application
+
+// Using bind()
+function greet(greeting, name) {
+    console.log(`${greeting}, ${name}`);
+}
+
+const sayHello = greet.bind(null, "Hello");
+sayHello("John");  // "Hello, John"
+
+// Using closures (more flexible)
+function partial(fn, ...presetArgs) {
+    return function(...laterArgs) {
+        return fn(...presetArgs, ...laterArgs);
+    };
+}
+
+const greetHello = partial(greet, "Hello");
+greetHello("Jane");  // "Hello, Jane"
+
+// Practical: Event handlers
+function handleClick(element, callback) {
+    element.addEventListener("click", function(event) {
+        callback(element, event);
+    });
+}
+
+handleClick(button, (elem, e) => {
+    console.log("Clicked:", elem);
+    console.log("Event:", e);
+});
+
+// Partial application for configuration
+function fetch(url, options, timeout) {
+    // Implementation
+}
+
+const fetchJson = partial(fetch, null, { headers: { "Accept": "application/json" } });
+fetchJson("https://api.example.com", 5000);
+```
+</UniversalEditor>
+
+## 记忆化
+
+记忆化缓存函数结果以避免冗余计算:
+
+<UniversalEditor title="记忆化">
+```java !! java
+// Java - Need custom caching
+public class Memoizer {
+    private Map<Integer, Integer> cache = new HashMap<>();
+
+    public int fibonacci(int n) {
+        if (n <= 1) return n;
+
+        if (cache.containsKey(n)) {
+            return cache.get(n);
+        }
+
+        int result = fibonacci(n - 1) + fibonacci(n - 2);
+        cache.put(n, result);
+        return result;
+    }
+}
+```
+
+```javascript !! js
+// JavaScript - Memoization utility
+
+function memoize(fn) {
+    const cache = new Map();
+
+    return function(...args) {
+        const key = JSON.stringify(args);
+
+        if (cache.has(key)) {
+            console.log("From cache:", key);
+            return cache.get(key);
+        }
+
+        const result = fn.apply(this, args);
+        cache.set(key, result);
+        return result;
+    };
+}
+
+// Expensive function
+function fibonacci(n) {
+    if (n <= 1) return n;
+    return fibonacci(n - 1) + fibonacci(n - 2);
+}
+
+const memoFib = memoize(fibonacci);
+
+console.log(memoFib(40));  // Slow (first time)
+console.log(memoFib(40));  // Fast (from cache)
+
+// Practical example: API calls
+function fetchUserData(userId) {
+    return fetch(`/api/users/${userId}`)
+        .then(res => res.json());
+}
+
+const memoFetch = memoize(fetchUserData);
+
+// Subsequent calls for same user are cached
+memoFetch(1).then(console.log);
+memoFetch(1).then(console.log);  // From cache
+
+// Memoization with TTL
+function memoizeTTL(fn, ttl = 1000) {
+    const cache = new Map();
+
+    return function(...args) {
+        const key = JSON.stringify(args);
+        const cached = cache.get(key);
+
+        if (cached && Date.now() - cached.timestamp < ttl) {
+            return cached.value;
+        }
+
+        const result = fn.apply(this, args);
+        cache.set(key, {
+            value: result,
+            timestamp: Date.now()
+        });
+
+        return result;
+    };
+}
+
+const memoFetchTTL = memoizeTTL(fetchUserData, 5000);  // 5 second cache
+```
+</UniversalEditor>
+
+## 递归
+
+JavaScript 支持递归,尽管在大多数实现中缺乏尾调用优化:
+
+<UniversalEditor title="递归">
+```java !! java
+// Java - Recursion with tail call optimization
+public class Recursion {
+    public int factorial(int n) {
+        if (n <= 1) return 1;
+        return n * factorial(n - 1);
+    }
+
+    // Tail-recursive version
+    public int factorialTail(int n) {
+        return factorialTailHelper(n, 1);
+    }
+
+    private int factorialTailHelper(int n, int accumulator) {
+        if (n <= 1) return accumulator;
+        return factorialTailHelper(n - 1, n * accumulator);
+    }
+}
+```
+
+```javascript !! js
+// JavaScript - Recursion
+
+// Factorial (not tail-optimized)
+function factorial(n) {
+    if (n <= 1) return 1;
+    return n * factorial(n - 1);
+}
+
+console.log(factorial(5));  // 120
+
+// Tail-recursive version (not optimized in most JS engines)
+function factorialTail(n, accumulator = 1) {
+    if (n <= 1) return accumulator;
+    return factorialTail(n - 1, n * accumulator);
+}
+
+console.log(factorialTail(5));  // 120
+
+// Practical: Tree traversal
+const fileSystem = {
+    name: "root",
+    type: "folder",
+    children: [
+        {
+            name: "docs",
+            type: "folder",
+            children: [
+                { name: "report.txt", type: "file" },
+                { name: "notes.txt", type: "file" }
+            ]
+        },
+        {
+            name: "photos",
+            type: "folder",
+            children: [
+                { name: "vacation.jpg", type: "file" }
+            ]
+        }
+    ]
+};
+
+function findFiles(node, type = "file") {
+    if (node.type === type) {
+        return [node.name];
+    }
+
+    if (!node.children) {
+        return [];
+    }
+
+    return node.children.flatMap(child => findFiles(child, type));
+}
+
+console.log(findFiles(fileSystem));
+// ["report.txt", "notes.txt", "vacation.jpg"]
+
+// Recursion with trampoline (for deep recursion)
+function trampoline(fn) {
+    return function(...args) {
+        let result = fn(...args);
+
+        while (typeof result === "function") {
+            result = result();
+        }
+
+        return result;
+    };
+}
+
+function factorialTramp(n, acc = 1) {
+    if (n <= 1) return acc;
+    return () => factorialTramp(n - 1, n * acc);
+}
+
+const safeFactorial = trampoline(factorialTramp);
+```
+</UniversalEditor>
+
+## 函数组合
+
+组合函数以创建新函数:
+
+<UniversalEditor title="函数组合">
+```java !! java
+// Java - Composing functions manually
+public class Composer {
+    public static Function<Integer, Integer> compose(
+        Function<Integer, Integer> f,
+        Function<Integer, Integer> g
+    ) {
+        return x -> f.apply(g.apply(x));
+    }
+
+    // or using default method in Function interface
+    // f.compose(g) or f.andThen(g)
+}
+```
+
+```javascript !! js
+// JavaScript - Function composition
+
+// Basic composition
+function compose(f, g) {
+    return function(x) {
+        return f(g(x));
+    };
+}
+
+// Compose multiple functions
+function composeMany(...functions) {
+    return function(x) {
+        return functions.reduceRight((acc, fn) => fn(acc), x);
+    };
+}
+
+const toUpper = str => str.toUpperCase();
+const trim = str => str.trim();
+const exclaim = str => `${str}!`;
+
+const process = composeMany(exclaim, toUpper, trim);
+console.log(process("  hello  "));  // "HELLO!"
+
+// Pipe (left-to-right composition)
+function pipe(...functions) {
+    return function(x) {
+        return functions.reduce((acc, fn) => fn(acc), x);
+    };
+}
+
+const process2 = pipe(trim, toUpper, exclaim);
+console.log(process2("  hello  "));  // "HELLO!"
+
+// Practical: Data transformation pipeline
+const users = [
+    { name: "john doe", age: 25 },
+    { name: "jane smith", age: 30 }
+];
+
+const pipeline = pipe(
+    arr => arr.map(u => u.name),
+    arr => arr.map(n => n.split(" ")),
+    arr => arr.flatMap(parts => parts),
+    arr => arr.map(n => n.charAt(0).toUpperCase() + n.slice(1)),
+    arr => arr.join(" ")
+);
+
+console.log(pipeline(users));  // "John Doe Jane Smith"
+
+// Point-free style (partially applied)
+const prop = key => obj => obj[key];
+const map = fn => arr => arr.map(fn);
+const filter = predicate => arr => arr.filter(predicate);
+
+const getNames = map(prop("name"));
+const getAdults = filter(user => user.age >= 18);
+
+const adultNames = pipe(getAdults, getNames);
+console.log(adultNames(users));  // ["john doe", "jane smith"]
+```
+</UniversalEditor>
+
+## 惰性求值
+
+<UniversalEditor title="惰性求值">
+```java !! java
+// Java - Streams are lazy
+List<Integer> numbers = Arrays.asList(1, 2, 3, 4, 5);
+
+int result = numbers.stream()
+    .filter(n -> {
+        System.out.println("Filtering: " + n);
+        return n % 2 == 0;
+    })
+    .map(n -> {
+        System.out.println("Mapping: " + n);
+        return n * 2;
+    })
+    .findFirst()
+    .orElse(0);
+// Only processes until first match found
+```
+
+```javascript !! js
+// JavaScript - Generators for lazy evaluation
+
+function* filter(iterator, predicate) {
+    for (const item of iterator) {
+        if (predicate(item)) {
+            yield item;
+        }
+    }
+}
+
+function* map(iterator, fn) {
+    for (const item of iterator) {
+        yield fn(item);
+    }
+}
+
+function* take(iterator, n) {
+    let count = 0;
+    for (const item of iterator) {
+        if (count >= n) break;
+        yield item;
+        count++;
+    }
+}
+
+// Infinite sequence
+function* naturals() {
+    let n = 1;
+    while (true) {
+        yield n++;
+    }
+}
+
+// Lazy pipeline
+const result = take(
+    map(
+        filter(naturals(), n => n % 2 === 0),
+        n => n * 2
+    ),
+    5
+);
+
+console.log([...result]);  // [4, 8, 12, 16, 20]
+
+// Practical: Lazy file processing
+function* processFile(lines) {
+    for (const line of lines) {
+        if (line.trim() === "") continue;  // Skip empty
+        if (line.startsWith("#")) continue;  // Skip comments
+        yield JSON.parse(line);  // Parse JSON
+    }
+}
+
+// Only processes what's consumed
+const firstValid = processFile(fileLines).next().value;
+```
+</UniversalEditor>
+
+## 常见模式
+
+### 模式 1: 中间件
+
+<UniversalEditor title="中间件模式">
+```javascript !! js
+// Express-style middleware
+function composeMiddleware(...middlewares) {
+    return function(context, next) {
+        let index = -1;
+
+        function dispatch(i) {
+            if (i <= index) {
+                throw new Error("next() called multiple times");
+            }
+            index = i;
+
+            const fn = middlewares[i];
+
+            if (!fn) {
+                return next();
+            }
+
+            return fn(context, () => dispatch(i + 1));
+        }
+
+        return dispatch(0);
+    };
+}
+
+const logger = (ctx, next) => {
+    console.log("Request:", ctx.url);
+    return next().then(() => {
+        console.log("Response:", ctx.status);
+    });
+};
+
+const auth = (ctx, next) => {
+    if (!ctx.headers.authorization) {
+        ctx.status = 401;
+        return;  // Stop middleware chain
+    }
+    return next();
+};
+
+const handler = (ctx, next) => {
+    ctx.status = 200;
+    ctx.body = "OK";
+};
+
+const middleware = composeMiddleware(logger, auth, handler);
+middleware({ url: "/api", headers: {} }, () => {});
+```
+</UniversalEditor>
+
+### 模式 2: 函数装饰器
+
+<UniversalEditor title="装饰器模式">
+```javascript !! js
+// Decorator: Add behavior to function
+function withTiming(fn) {
+    return function(...args) {
+        const start = Date.now();
+        const result = fn.apply(this, args);
+        const end = Date.now();
+        console.log(`${fn.name} took ${end - start}ms`);
+        return result;
+    };
+}
+
+function withLogging(fn) {
+    return function(...args) {
+        console.log(`Calling ${fn.name} with:`, args);
+        const result = fn.apply(this, args);
+        console.log(`${fn.name} returned:`, result);
+        return result;
+    };
+}
+
+// Stack decorators
+function fetchData(userId) {
+    // Expensive operation
+    return { id: userId, name: "John" };
+}
+
+const decoratedFetch = withTiming(withLogging(fetchData));
+decoratedFetch(123);
+
+// Method decorator (for classes)
+function readonly(target, key, descriptor) {
+    descriptor.writable = false;
+    return descriptor;
+}
+
+class User {
+    constructor(name) {
+        this.name = name;
+    }
+
+    @readonly
+    getId() {
+        return 123;
+    }
+}
+```
+</UniversalEditor>
+
+## 最佳实践
+
+<UniversalEditor title="高级函数最佳实践">
+```java !! java
+// Java: Clear structure, minimal side effects
+public class DataProcessor {
+    private final DataValidator validator;
+    private final DataTransformer transformer;
+
+    public DataProcessor(DataValidator validator, DataTransformer transformer) {
+        this.validator = validator;
+        this.transformer = transformer;
+    }
+
+    public Result processData(Input input) {
+        if (!validator.isValid(input)) {
+            return Result.error("Invalid input");
+        }
+
+        Data transformed = transformer.transform(input);
+        return Result.success(transformed);
+    }
+}
+```
+
+```javascript !! js
+// JavaScript: Same principles
+
+// 1. Prefer pure functions (no side effects)
+function add(a, b) {
+    return a + b;  // Pure
+}
+
+function addToGlobal(x) {
+    globalResult += x;  // Impure - side effect
+}
+
+// 2. Keep closures minimal
+function createHandler() {
+    const config = { timeout: 5000 };
+
+    return async function(request) {
+        // Only captures what's needed
+        return processRequest(request, config);
+    };
+}
+
+// 3. Memoize expensive pure functions
+const expensiveOperation = memoize((input) => {
+    // Complex calculation
+});
+
+// 4. Use currying for specialization
+const multiply = (a, b) => a * b;
+const double = multiply.bind(null, 2);
+// Or: const double = a => multiply(2, a);
+
+// 5. Compose small functions
+const notEmpty = str => str.length > 0;
+const notBlank = str => str.trim().length > 0;
+const isValidString = str => notEmpty(str) && notBlank(str);
+
+// 6. Handle recursion depth
+function recursiveSearch(data, depth = 0) {
+    if (depth > 1000) {
+        throw new Error("Maximum depth exceeded");
+    }
+
+    // Recursive logic
+}
+```
+</UniversalEditor>
+
+## 练习
+
+### 练习 1: 创建闭包
+创建一个生成唯一 ID 的函数:
+```javascript
+function createIdGenerator() {
+    // Return a function that returns incrementing IDs
+}
+
+const genId = createIdGenerator();
+console.log(genId());  // 1
+console.log(genId());  // 2
+console.log(genId());  // 3
+```
+
+### 练习 2: 实现记忆化
+为这个函数添加记忆化:
+```javascript
+function slowFunction(x) {
+    console.log("Computing...");
+    return x * x;
+}
+
+// Add memoization
+```
+
+### 练习 3: 柯里化函数
+将其转换为柯里化函数:
+```javascript
+function multiply(a, b, c) {
+    return a * b * c;
+}
+
+// Create curried version
+```
+
+### 练习 4: 组合函数
+创建管道:
+```javascript
+const addOne = x => x + 1;
+const double = x => x * 2;
+const toString = x => x.toString();
+
+// Create compose or pipe function
+const pipeline = pipe(addOne, double, toString);
+console.log(pipeline(5));  // "12"
+```
+
+## 总结
+
+### 关键要点
+
+1. **闭包:**
+   - 内部函数访问外部作用域
+   - 支持私有数据和封装
+   - 如果不小心可能导致内存泄漏
+
+2. **高阶函数:**
+   - 接受函数作为参数
+   - 返回函数
+   - 支持抽象和组合
+
+3. **柯里化:**
+   - 将多参数函数转换为单参数
+   - 支持部分应用
+   - 提高可重用性
+
+4. **记忆化:**
+   - 缓存函数结果
+   - 提高性能
+   - 最适合纯函数
+
+5. **递归:**
+   - 函数调用自身
+   - 适用于树/数据结构
+   - 注意堆栈溢出
+
+6. **组合:**
+   - 组合简单函数
+   - 构建复杂行为
+   - 支持声明式代码
+
+### 比较表: Java vs JavaScript
+
+| 特性 | Java | JavaScript |
+|------|------|-----------|
+| **闭包** | 有限(lambda 捕获实际上是 final) | 完全支持 |
+| **高阶函数** | 是(函数式接口) | 是(原生) |
+| **柯里化** | 手动(冗长) | 原生支持 |
+| **记忆化** | 手动缓存 | 使用闭包很容易 |
+| **尾调用优化** | 是 | 否(大多) |
+| **函数组合** | 是(andThen/compose) | 是(自定义) |
+
+## 下一步是什么?
+
+你已经掌握了高级函数!接下来是**模块 5: 数组和集合**,我们将探索:
+
+- 数组创建和操作
+- 数组方法(map、filter、reduce 等)
+- Set 和 Map 数据结构
+- WeakSet 和 WeakMap
+- 数组解构
+- 数组的 spread 运算符
+
+准备好深入了解 JavaScript 的集合类型了吗?让我们继续!

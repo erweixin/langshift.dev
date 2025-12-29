@@ -1,0 +1,296 @@
+---
+title: "模块 15: 线程与并发 - 无畏并发"
+description: "掌握 Rust 的线程模型、通道、互斥锁和无畏并发,与 Python 的线程和多进程进行比较。"
+---
+
+# 模块 15: 线程与并发 - 无畏并发
+
+在最后一个模块中,你将学习 Rust 如何处理**线程和并发**,通过编译时保证防止数据竞争,提供**无畏并发**。
+
+## 学习目标
+
+完成本模块后,你将能够:
+- 在 Rust 中生成线程
+- 使用通道进行消息传递
+- 使用 Mutex 进行共享状态
+- 理解 Rust 在并发上下文中的所有权模型
+- 比较 Rust 的并发与 Python 的线程
+- 构建安全的并发程序
+
+## 背景:Python vs Rust 并发
+
+<UniversalEditor compare={true} title="并发模型">
+```python !! py
+# Python: GIL(全局解释器锁)限制真正的并行
+import threading
+
+def worker():
+    print("Working...")
+
+# 由于 GIL,线程不能真正并行运行
+t = threading.Thread(target=worker)
+t.start()
+t.join()
+
+# 要获得真正的并行,使用多进程
+from multiprocessing import Process
+p = Process(target=worker)
+p.start()
+p.join()
+```
+
+```rust !! rs
+// Rust: 没有 GIL 的真正并行
+use std::thread;
+
+fn worker() {
+    println!("Working...");
+}
+
+fn main() {
+    // 线程真正并行运行
+    let t = thread::spawn(|| worker());
+    t.join().unwrap();
+
+    // 没有 GIL - 完全利用 CPU!
+}
+```
+</UniversalEditor>
+
+## 生成线程
+
+<UniversalEditor compare={true} title="创建线程">
+```python !! py
+# Python: 基本线程
+import threading
+
+def worker(name):
+    print(f"Worker {name}")
+
+thread = threading.Thread(target=worker, args=("Alice",))
+thread.start()
+thread.join()
+```
+
+```rust !! rs
+// Rust: 生成线程
+use std::thread;
+
+fn worker(name: &str) {
+    println!("Worker {}", name);
+}
+
+fn main() {
+    let handle = thread::spawn(|| {
+        worker("Alice");
+    });
+
+    handle.join().unwrap();
+}
+```
+</UniversalEditor>
+
+## 通道:消息传递
+
+<UniversalEditor compare={true} title="通道通信">
+```python !! py
+# Python: Queue 用于线程通信
+import threading
+import queue
+
+q = queue.Queue()
+
+def producer():
+    for i in range(5):
+        q.put(i)
+
+def consumer():
+    while True:
+        item = q.get()
+        print(f"Received: {item}")
+
+t1 = threading.Thread(target=producer)
+t2 = threading.Thread(target=consumer)
+
+t1.start()
+t2.start()
+t1.join()
+t2.join()
+```
+
+```rust !! rs
+// Rust: mpsc 通道用于消息传递
+use std::sync::mpsc;
+use std::thread;
+
+fn main() {
+    let (tx, rx) = mpsc::channel();
+
+    let producer = thread::spawn(move || {
+        for i in 0..5 {
+            tx.send(i).unwrap();
+        }
+    });
+
+    let consumer = thread::spawn(move || {
+        for received in rx {
+            println!("Received: {}", received);
+        }
+    });
+
+    producer.join().unwrap();
+    consumer.join().unwrap();
+}
+```
+</UniversalEditor>
+
+## 共享状态: Mutex
+
+当需要**共享可变状态**时,使用 `Mutex<T>` 进行线程安全访问。
+
+<UniversalEditor compare={true} title="Mutex 用于共享状态">
+```python !! py
+# Python: threading.Lock 用于共享状态
+import threading
+
+counter = [0]
+lock = threading.Lock()
+
+def increment():
+    for _ in range(1000):
+        with lock:
+            counter[0] += 1
+
+threads = []
+for _ in range(5):
+    t = threading.Thread(target=increment)
+    t.start()
+    threads.append(t)
+
+for t in threads:
+    t.join()
+
+print(f"Counter: {counter[0]}")
+```
+
+```rust !! rs
+// Rust: Mutex 用于共享可变状态
+use std::sync::{Arc, Mutex};
+use std::thread;
+
+fn main() {
+    let counter = Arc::new(Mutex::new(0));
+    let mut handles = vec![];
+
+    for _ in 0..5 {
+        let counter_clone = Arc::clone(&counter);
+        let handle = thread::spawn(move || {
+            for _ in 0..1000 {
+                let mut num = counter_clone.lock().unwrap();
+                *num += 1;
+            }
+        });
+        handles.push(handle);
+    }
+
+    for handle in handles {
+        handle.join().unwrap();
+    }
+
+    println!("Counter: {}", *counter.lock().unwrap());
+}
+```
+</UniversalEditor>
+
+## 比较: Rust vs Python 并发
+
+<UniversalEditor compare={true} title="性能: GIL vs 真正并行">
+```python !! py
+# Python: GIL 限制 CPU 密集型并行
+import threading
+import time
+
+def cpu_bound():
+    count = 0
+    for i in range(10_000_000):
+        count += i
+    return count
+
+start = time.time()
+threads = [threading.Thread(target=cpu_bound) for _ in range(4)]
+for t in threads:
+    t.start()
+for t in threads:
+    t.join()
+print(f"Time: {time.time() - start:.2}s")
+```
+
+```rust !! rs
+// Rust: 真正并行,没有 GIL
+use std::thread;
+use std::time::Instant;
+
+fn cpu_bound() -> i64 {
+    (0..10_000_000).fold(0i64, |acc, i| acc + i as i64)
+}
+
+fn main() {
+    let start = Instant::now();
+
+    let mut handles = vec![];
+    for _ in 0..4 {
+        let handle = thread::spawn(|| cpu_bound());
+        handles.push(handle);
+    }
+
+    for handle in handles {
+        handle.join().unwrap();
+    }
+
+    println!("Time: {:?}", start.elapsed());
+    // 比 Python 线程快得多!
+}
+```
+</UniversalEditor>
+
+## 最佳实践
+
+### 应该做:
+
+1. **使用通道进行消息传递** - 优先于共享状态
+2. **对共享状态使用 `Arc<Mutex<T>>`** - 必要时
+3. **将数据移入线程** - 使用 `move` 闭包
+4. **处理 join 错误** - 生产环境中不要使用 `.unwrap()`
+
+### 不应该做:
+
+1. **在没有同步的情况下共享状态** - 数据竞争是未定义行为
+2. **跨线程使用 Rc** - 改用 Arc
+3. **忘记 join 线程** - 否则它们会变成分离的
+
+## 总结
+
+- **线程**在 Rust 中提供真正的并行
+- **通道**实现安全消息传递
+- **Mutex** 提供线程安全的共享状态
+- **Arc** 启用跨线程的共享所有权
+- **Rust 在编译时防止数据竞争**
+- **Python 的 GIL** 限制线程中的真正并行
+- **Rust 的无畏并发**更安全更快
+
+## 练习
+
+1. 使用线程构建并行网页爬虫
+2. 实现并行 map-reduce 模式
+3. 创建线程安全的缓存
+
+## 恭喜!
+
+你已完成 Python → Rust 学习路径的全部 15 个模块!你现在拥有:
+- 对 Rust 所有权和类型系统的理解
+- 模式匹配和错误处理的知识
+- 智能指针和生命周期的经验
+- 并发编程技能
+- 编写安全、高性能 Rust 代码的能力
+
+继续你的旅程,构建真实项目并探索 Rust 生态系统!

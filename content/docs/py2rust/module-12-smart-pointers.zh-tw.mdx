@@ -1,0 +1,320 @@
+---
+title: "模組 12: 智能指針 - 高級記憶體管理"
+description: "掌握 Rust 的智能指針(Box、Rc、Arc、RefCell)並理解它們如何與 Python 的記憶體管理模型進行比較。"
+---
+
+# 模組 12: 智能指針 - 高級記憶體管理
+
+在本模組中,你將學習 Rust 中的**智能指針**。智能指針是行為類似指針但具有額外元数据和功能的數據結構。它們類似於 Python 的引用計數,但具有顯式控制和編譯時保證。
+
+## 學習目標
+
+完成本模組後,你將能夠:
+- 使用 `Box<T>` 進行堆分配
+- 使用 `Rc<T>` 進行單線程引用計數
+- 使用 `Arc<T>` 進行多線程引用計數
+- 使用 `RefCell<T>` 實現內部可變性
+- 理解何時使用每種智能指針類型
+- 比較 Rust 的智能指針與 Python 的記憶體模型
+
+## 背景:指針 vs 引用
+
+在 Rust 中,**引用**和**智能指針**有重要區別:
+
+<UniversalEditor compare={true} title="引用 vs 智能指針">
+```python !! py
+# Python: 所有變量都是引用
+x = [1, 2, 3]  # x 是對列表的引用
+y = x  # y 是對同一列表的另一個引用
+y.append(4)
+print(x)  # [1, 2, 3, 4] - 兩者引用同一個對象
+```
+
+```rust !! rs
+// Rust: 引用(&) vs 智能指針
+// 引用:借用,無所有權
+let x = vec![1, 2, 3];
+let y: &Vec<i32> = &x;  // y 借用 x
+// y 不能修改 x(除非是 &mut)
+
+// 智能指針:具有額外功能的所有權
+let z: Box<Vec<i32>> = Box::new(vec![1, 2, 3]);
+// z 擁有堆上的數據
+```
+</UniversalEditor>
+
+## `Box<T>`: 堆分配
+
+`Box<T>` 是最簡單的智能指針。它允許你在堆而不是棧上存儲數據。
+
+### 何時使用 Box
+
+<UniversalEditor compare={true} title="Box 使用場景">
+```python !! py
+# Python: 列表總是在堆上分配
+large_data = list(range(1_000_000))
+# 列表對象在堆上,元素也是堆分配的
+
+# 遞歸數據結構工作正常
+class TreeNode:
+    def __init__(self, value, left=None, right=None):
+        self.value = value
+        self.left = left
+        self.right = right
+
+# Python 自動處理這個問題
+```
+
+```rust !! rs
+// Rust: Box 用於堆分配
+// 使用場景 1: 堆上的大數據
+let large_data: Box<[i32]> = (0..1_000_000).collect::<Vec<_>>().into_boxed_slice();
+// 數據在堆上, large_data 是棧指針
+
+// 使用場景 2: 遞歸類型
+enum TreeNode {
+    Leaf(i32),
+    Node {
+        value: i32,
+        left: Box<TreeNode>,  // 遞歸需要 Box
+        right: Box<TreeNode>,
+    },
+}
+
+let leaf = TreeNode::Leaf(5);
+let node = TreeNode::Node {
+    value: 10,
+    left: Box::new(leaf),
+    right: Box::new(TreeNode::Leaf(15)),
+};
+
+// 使用場景 3: trait 對象
+trait Drawable {
+    fn draw(&self);
+}
+
+struct Circle { radius: f64 }
+struct Rectangle { width: f64, height: f64 }
+
+impl Drawable for Circle {
+    fn draw(&self) { println!("Drawing circle"); }
+}
+
+impl Drawable for Rectangle {
+    fn draw(&self) { println!("Drawing rectangle"); }
+}
+
+let shapes: Vec<Box<dyn Drawable>> = vec![
+    Box::new(Circle { radius: 5.0 }),
+    Box::new(Rectangle { width: 10.0, height: 20.0 }),
+];
+
+for shape in shapes.iter() {
+    shape.draw();
+}
+```
+</UniversalEditor>
+
+## `Rc<T>`: 引用計數
+
+`Rc<T>`(Reference Counting)提供類似於 Python 記憶體模型的共享所有權。它允許多個所有者擁有相同的數據。
+
+<UniversalEditor compare={true} title="Rc vs Python 引用">
+```python !! py
+# Python: 同一對象的多個引用
+data = [1, 2, 3]
+ref1 = data
+ref2 = data
+ref3 = data
+
+# 都引用同一個列表
+ref1.append(4)
+print(ref2)  # [1, 2, 3, 4]
+print(ref3)  # [1, 2, 3, 4]
+
+# Python 內部使用引用計數
+import sys
+print(f"refcount: {sys.getrefcount(data)}")  # 4
+```
+
+```rust !! rs
+// Rust: Rc 用於共享所有權(單線程)
+use std::rc::Rc;
+
+let data = Rc::new(vec![1, 2, 3]);
+let ref1 = Rc::clone(&data);
+let ref2 = Rc::clone(&data);
+let ref3 = Rc::clone(&data);
+
+println!("refcount: {}", Rc::strong_count(&data));  // 4
+```
+</UniversalEditor>
+
+## `Arc<T>`: 原子引用計數
+
+`Arc<T>` 是線程安全的引用計數智能指針,用於多線程環境。
+
+<UniversalEditor compare={true} title="Arc 用於線程安全">
+```python !! py
+# Python: GIL 使引用計數線程安全
+import threading
+
+data = [1, 2, 3]
+
+def worker():
+    print(f"Worker sees: {data}")
+
+thread = threading.Thread(target=worker)
+thread.start()
+thread.join()
+```
+
+```rust !! rs
+// Rust: Arc 用於線程安全的引用計數
+use std::sync::{Arc, Mutex};
+use std::thread;
+
+let data = Arc::new(vec![1, 2, 3]);
+let data_clone = Arc::clone(&data);
+
+let handle = thread::spawn(move || {
+    println!("Worker sees: {:?}", data_clone);
+});
+
+handle.join().unwrap();
+```
+</UniversalEditor>
+
+## `RefCell<T>`: 內部可變性
+
+`RefCell<T>` 允許通過不可變引用修改數據,稱為**內部可變性**。
+
+<UniversalEditor compare={true} title="內部可變性">
+```python !! py
+# Python: 對象總是可變的
+class Container:
+    def __init__(self, value):
+        self.value = value
+
+container = Container(10)
+container.value = 20  # 變更總是被允許的
+```
+
+```rust !! rs
+// Rust: RefCell 啟用內部可變性
+use std::cell::RefCell;
+
+struct Container {
+    value: RefCell<i32>,
+}
+
+let container = Container {
+    value: RefCell::new(10),
+};
+
+*container.value.borrow_mut() += 20;
+println!("Value: {}", container.value.borrow());
+```
+</UniversalEditor>
+
+## 比較表: 智能指針類型
+
+| 智能指針 | 線程安全 | 允許變更 | 使用場景 | Python 等價物 |
+|---------|---------|---------|---------|--------------|
+| `Box<T>` | 是 | 通過 `&mut` | 堆分配、遞歸 | 無直接等價物 |
+| `Rc<T>` | 否 | 與 `RefCell` | 共享所有權(單線程) | 標準引用 |
+| `Arc<T>` | 是 | 與 `Mutex` | 共享所有權(多線程) | 線程安全引用 |
+| `RefCell<T>` | N/A | 是(運行時檢查) | 內部可變性 | 所有 Python 對象 |
+| `Mutex<T>` | 是 | 是(運行時檢查) | 線程安全可變狀態 | threading.Lock |
+
+## 常見模式
+
+### 圖結構
+
+<UniversalEditor compare={true} title="使用 Rc 和 RefCell 的圖">
+```python !! py
+# Python: 圖很簡單
+class Node:
+    def __init__(self, value):
+        self.value = value
+        self.edges = []
+
+node1 = Node(1)
+node2 = Node(2)
+node1.edges.append(node2)
+node2.edges.append(node1)
+```
+
+```rust !! rs
+// Rust: 使用 Rc<RefCell<Node>> 的圖
+use std::rc::Rc;
+use std::cell::RefCell;
+
+struct Node {
+    value: i32,
+    edges: RefCell<Vec<Rc<Node>>>,
+}
+
+impl Node {
+    fn new(value: i32) -> Rc<Self> {
+        Rc::new(Node {
+            value,
+            edges: RefCell::new(vec![]),
+        })
+    }
+
+    fn add_edge(&self, other: &Rc<Node>) {
+        self.edges.borrow_mut().push(Rc::clone(other));
+    }
+}
+
+let node1 = Node::new(1);
+let node2 = Node::new(2);
+
+node1.add_edge(&node2);
+node2.add_edge(&node1);
+
+println!("Node1 has {} edges", node1.edges.borrow().len());
+println!("Node2 has {} edges", node2.edges.borrow().len());
+```
+</UniversalEditor>
+
+## 最佳實踐
+
+### 應該做:
+
+1. **使用 Box 進行遞歸** - 遞歸數據結構必需
+2. **單線程共享所有權首選 Rc** - 開銷比 Arc 低
+3. **多線程代碼使用 Arc** - 線程安全必需
+4. **謹慎使用 RefCell** - 僅在需要內部可變性時
+5. **使用 Weak 打破循環** - 防止記憶體泄漏
+
+### 不應該做:
+
+1. **跨線程使用 Rc** - 改用 Arc
+2. **創建引用循環** - 使用 Weak 進行反向引用
+3. **過度使用 RefCell** - 可能時優先使用普通借用
+4. **忽略 RefCell 恐慌** - 它們指示邏輯錯誤
+5. **Rc 足夠時使用 Arc** - 不必要的開銷
+
+## 總結
+
+- **`Box<T>`** 提供堆分配並啟用遞歸
+- **`Rc<T>`** 為單線程代碼提供共享所有權
+- **`Arc<T>`** 提供線程安全的共享所有權
+- **`RefCell<T>`** 啟用具有運行時檢查的內部可變性
+- **Rust 的智能指針**提供對記憶體的顯式控制
+- **Python 的引用**是自動的但有運行時開銷
+- **根據所有權和線程需求選擇合適的工具**
+
+## 練習
+
+1. 使用 Box 創建二叉樹作為遞歸結構
+2. 使用 `Rc<RefCell<>>` 實現共享緩存
+3. 使用 `Arc<Mutex<>>` 構建線程安全計數器
+4. 使用 Rc 和 Weak 創建圖結構以避免循環
+5. 比較你的用例中 Box vs Rc vs Arc 的性能
+
+## 下一模組
+
+在下一模組中,我們將探索 Rust 中的**模組和包**,包括模組系統、use 聲明、Cargo.toml 和發布到 crates.io。你將學習如何組織代碼和管理依賴。

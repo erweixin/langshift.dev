@@ -1,0 +1,723 @@
+---
+title: "Module 13: Modules & Packages - Code Organization"
+description: "Learn Rust's module system, how to organize code with Cargo.toml, and publish packages to crates.io compared to Python's packaging ecosystem."
+---
+
+# Module 13: Modules & Packages - Code Organization
+
+In this module, you'll learn how Rust organizes code into **modules** and **packages**, and how this compares to Python's import system and package management.
+
+## Learning Objectives
+
+By the end of this module, you'll be able to:
+- Understand Rust's module system
+- Use `mod`, `use`, and `pub` keywords
+- Organize code with file hierarchies
+- Work with Cargo.toml for dependency management
+- Publish and consume packages from crates.io
+- Compare Rust's packaging with Python's setuptools/PyPI
+
+## Module System Basics
+
+Rust's module system provides **namespaces** and **access control**. Unlike Python's implicit module system, Rust's is explicit and file-based.
+
+### Defining Modules
+
+<UniversalEditor compare={true} title="Module Definition">
+```python !! py
+# Python: Modules are files themselves
+# math_utils.py
+def add(a, b):
+    return a + b
+
+class Calculator:
+    def multiply(self, a, b):
+        return a * b
+
+PI = 3.14159
+
+# Use it:
+# from math_utils import add, Calculator, PI
+# result = add(1, 2)
+```
+
+```rust !! rs
+// Rust: Modules are explicitly declared
+// math_utils.rs
+pub fn add(a: i32, b: i32) -> i32 {
+    a + b
+}
+
+pub struct Calculator {
+    pub value: i32,
+}
+
+impl Calculator {
+    pub fn multiply(&self, a: i32, b: i32) -> i32 {
+        a * b
+    }
+}
+
+pub const PI: f64 = 3.14159;
+
+// In main.rs or lib.rs:
+mod math_utils;  // Declare the module
+
+fn main() {
+    let result = math_utils::add(1, 2);
+    println!("Result: {}", result);
+}
+```
+</UniversalEditor>
+
+### Inline Modules
+
+<UniversalEditor compare={true} title="Inline Modules">
+```python !! py
+# Python: No inline modules - must be separate files
+# Everything is file-based
+```
+
+```rust !! rs
+// Rust: Can define modules inline
+mod utils {
+    pub fn helper() -> String {
+        String::from("helper function")
+    }
+
+    mod internal {
+        pub fn internal_helper() -> String {
+            String::from("internal")
+        }
+    }
+}
+
+fn main() {
+    println!("{}", utils::helper());
+    // println!("{}", utils::internal::internal_helper());  // Error: not public
+}
+```
+</UniversalEditor>
+
+## Use Declarations
+
+The `use` keyword brings items into scope, similar to Python's `import`.
+
+<UniversalEditor compare={true} title="Import vs Use">
+```python !! py
+# Python: Import statements
+import os
+from collections import defaultdict
+from math import pi as PI
+from mymodule import MyClass, my_function
+
+# Direct use
+path = os.path.join("a", "b")
+d = defaultdict(int)
+```
+
+```rust !! rs
+// Rust: Use declarations
+use std::fs;  // Like: import fs
+use std::collections::HashMap;  // Like: from collections import HashMap
+use std::io::{self, Write};  // Like: from io import io, Write
+use std::fmt::Result as FmtResult;  // Like: from fmt import Result as FmtResult
+
+// Nested paths
+use std::{cmp::Ordering, collections::HashMap};
+
+// Glob imports (use sparingly!)
+use std::prelude::v1::*;  // Rust's std library prelude
+
+fn main() {
+    let path = fs::File::create("test.txt").unwrap();
+}
+```
+</UniversalEditor>
+
+### Use Conventions
+
+<UniversalEditor compare={true} title="Import Conventions">
+```python !! py
+# Python: PEP 8 conventions
+import os  # Module
+from collections import defaultdict  # Specific import
+from pandas import DataFrame as df  # Alias
+
+# Avoid: from module import * (wildcard imports)
+```
+
+```rust !! rs
+// Rust: Idiomatic use
+use std::collections::HashMap;  // Full path for functions
+
+use std::io::{self, Result};  // When using multiple items
+
+use crate::my_module::MyType;  // For types and traits
+
+fn main() {
+    let map = HashMap::new();  // Can use HashMap directly
+    // Full path not needed
+}
+```
+</UniversalEditor>
+
+## File Hierarchy Organization
+
+Rust organizes modules in a **file hierarchy** that mirrors the module structure.
+
+<UniversalEditor compare={true} title="File Organization">
+```python !! py
+# Python: Package structure
+# myproject/
+# ├── __init__.py
+# ├── utils.py
+# ├── models/
+# │   ├── __init__.py
+# │   ├── user.py
+# │   └── post.py
+# └── services/
+#     ├── __init__.py
+#     └── auth.py
+
+# Usage:
+# from models.user import User
+# from services.auth import authenticate
+```
+
+```rust !! rs
+// Rust: Crate structure
+// myproject/
+// ├── Cargo.toml
+// ├── src/
+// │   ├── main.rs
+// │   ├── utils.rs
+// │   ├── models/
+// │   │   ├── mod.rs
+// │   │   ├── user.rs
+// │   │   └── post.rs
+// │   └── services/
+// │       ├── mod.rs
+// │       └── auth.rs
+// └── tests/
+//     └── integration_test.rs
+
+// In src/main.rs:
+mod utils;
+mod models;
+mod services;
+
+use models::user::User;
+use services::auth::authenticate;
+
+fn main() {
+    let user = User::new("Alice");
+    authenticate(&user);
+}
+
+// In src/models/mod.rs:
+pub mod user;
+pub mod post;
+```
+</UniversalEditor>
+
+### Module Files vs mod.rs
+
+<UniversalEditor compare={true} title="Module Declaration Styles">
+```python !! py
+# Python: Always __init__.py
+# package/
+# ├── __init__.py  # Makes it a package
+# └── module.py
+```
+
+```rust !! rs
+// Rust: Two styles (2018 edition prefers file per module)
+// Style 1: Traditional mod.rs
+// models/
+// ├── mod.rs  (declare submodules here)
+// ├── user.rs
+// └── post.rs
+
+// In models/mod.rs:
+pub mod user;
+pub mod post;
+
+// Style 2: Modern (Rust 2018+)
+// models.rs  (file for models module)
+// Or models/  (directory with mod.rs)
+```
+</UniversalEditor>
+
+## Visibility and Privacy
+
+Rust has **default private** visibility, unlike Python's "we're all adults here" philosophy.
+
+<UniversalEditor compare={true} title="Visibility Control">
+```python !! py
+# Python: No true privacy (convention-based)
+class MyClass:
+    def __init__(self):
+        self.public = "visible"
+        self._protected = "convention: don't touch"
+        self.__private = "name mangled, still accessible"
+
+# All attributes are accessible
+obj = MyClass()
+print(obj.public)  # OK
+print(obj._protected)  # OK but discouraged
+print(obj._MyClass__private)  # Still accessible!
+```
+
+```rust !! rs
+// Rust: True privacy with visibility keywords
+mod my_module {
+    pub struct PublicStruct {
+        pub public_field: i32,
+        private_field: i32,  // Private by default
+    }
+
+    impl PublicStruct {
+        pub fn new() -> Self {
+            PublicStruct {
+                public_field: 0,
+                private_field: 0,
+            }
+        }
+
+        pub fn public_method(&self) {
+            println!("Public method");
+        }
+
+        fn private_method(&self) {
+            println!("Private method");
+        }
+    }
+
+    // Completely private struct
+    struct PrivateStruct {
+        value: i32,
+    }
+}
+
+fn main() {
+    let obj = my_module::PublicStruct::new();
+    obj.public_method();
+    // obj.private_method();  // ERROR: private method
+    // println!("{}", obj.private_field);  // ERROR: private field
+}
+```
+</UniversalEditor>
+
+### Visibility Modifiers
+
+<UniversalEditor compare={true} title="Visibility Modifiers">
+```python !! py
+# Python: Only convention-based privacy
+class Parent:
+    def public_method(self):
+        pass
+
+    def _protected_method(self):
+        pass
+
+    def __private_method(self):
+        pass
+```
+
+```rust !! rs
+// Rust: Explicit visibility modifiers
+pub fn public_function() {}  // Visible everywhere
+
+fn private_function() {}  // Visible only in this module
+
+pub(crate) fn crate_public() {}  // Visible in entire crate
+
+pub(super) fn visible_to_parent() {}  // Visible in parent module
+
+pub(in crate::my_module) fn scoped_public() {}  // Visible in specific path
+
+struct MyStruct {
+    pub x: i32,  // Public field
+    y: i32,  // Private field
+}
+```
+</UniversalEditor>
+
+## Cargo.toml and Dependencies
+
+`Cargo.toml` is like Python's `setup.py` or `pyproject.toml`, but more opinionated.
+
+<UniversalEditor compare={true} title="Package Configuration">
+```python !! py
+# Python: pyproject.toml or setup.py
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mypackage"
+version = "1.0.0"
+description = "My Python package"
+dependencies = [
+    "requests>=2.28.0",
+    "pandas>=1.5.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0", "black>=22.0"]
+```
+
+```rust !! rs
+// Rust: Cargo.toml
+[package]
+name = "mycrate"
+version = "0.1.0"
+edition = "2021"
+description = "My Rust crate"
+authors = ["Your Name <you@example.com>"]
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+tokio = { version = "1.0", features = ["full"] }
+regex = "1.8"
+
+[dev-dependencies]
+criterion = "0.5"  # Benchmarking
+proptest = "1.0"   # Property testing
+
+[[bin]]
+name = "myapp"
+path = "src/main.rs"
+
+[lib]
+name = "mylib"
+path = "src/lib.rs"
+```
+</UniversalEditor>
+
+## Dependency Management
+
+<UniversalEditor compare={true} title="Adding Dependencies">
+```python !! py
+# Python: Using pip and requirements.txt
+# Install: pip install requests pandas
+
+# requirements.txt:
+requests==2.28.0
+pandas>=1.5.0,<2.0.0
+numpy
+
+# Or in pyproject.toml:
+[project.dependencies]
+requests = ">=2.28.0"
+pandas = ">=1.5.0"
+```
+
+```rust !! rs
+// Rust: Using Cargo
+// Command line:
+// cargo add serde
+// cargo add tokio --features full
+
+// Or edit Cargo.toml manually:
+[dependencies]
+serde = "1.0"  # caret requirement (^1.0.0)
+serde_json = "1.0"
+rand = "0.8"   // Means >=0.8.0,<0.9.0
+
+// Cargo.lock pins exact versions (like Pipfile.lock)
+```
+</UniversalEditor>
+
+## Publishing to crates.io
+
+<UniversalEditor compare={true} title="Publishing Packages">
+```python !! py
+# Python: Publishing to PyPI
+# 1. Register account on PyPI
+# 2. Build distribution
+python -m build
+
+# 3. Upload
+twine upload dist/*
+
+# Or use flit/poetry for publishing
+poetry publish
+```
+
+```rust !! rs
+// Rust: Publishing to crates.io
+// 1. Login to crates.io
+cargo login
+
+// 2. Ensure package documentation
+// Add documentation to lib.rs!
+//! # My Crate
+//!
+//! This crate does amazing things.
+
+/// This function does X
+pub fn amazing_function() -> i32 {
+    42
+}
+
+// 3. Publish
+cargo publish
+
+// 4. Update version and publish again
+// (bump version in Cargo.toml)
+cargo publish
+```
+</UniversalEditor>
+
+## Workspaces: Multi-Package Projects
+
+<UniversalEditor compare={true} title="Workspaces vs Python Monorepos">
+```python !! py
+# Python: Monorepo structure
+# project/
+# ├── services/
+# │   ├── auth/
+# │   │   ├── pyproject.toml
+# │   │   └── src/
+# │   └── user/
+# │       ├── pyproject.toml
+# │       └── src/
+# ├── pyproject.toml
+# └── requirements.txt
+
+# Use Poetry workspaces or setup.py for linking
+```
+
+```rust !! rs
+// Rust: Cargo workspaces
+// workspace/
+// ├── Cargo.toml  (workspace root)
+// ├── Cargo.lock
+// ├── service-auth/  (crate)
+// │   ├── Cargo.toml
+// │   └── src/
+// ├── service-user/  (crate)
+// │   ├── Cargo.toml
+// │   └── src/
+// └── shared/  (crate)
+//     ├── Cargo.toml
+//     └── src/
+
+// In root Cargo.toml:
+[workspace]
+members = [
+    "service-auth",
+    "service-user",
+    "shared",
+]
+
+[workspace.dependencies]
+serde = "1.0"
+tokio = "1.0"
+
+// In member crate Cargo.toml:
+[dependencies]
+serde = { workspace = true }
+tokio = { workspace = true }
+shared = { path = "../shared" }
+```
+</UniversalEditor>
+
+## Testing Organization
+
+<UniversalEditor compare={true} title="Test Organization">
+```python !! py
+# Python: test files alongside source
+# myproject/
+# ├── mymodule.py
+# └── test_mymodule.py
+
+# Or tests/ directory
+# tests/
+# ├── __init__.py
+# ├── test_auth.py
+# └── test_user.py
+
+# Run with pytest
+```
+
+```rust !! rs
+// Rust: Unit tests in same file, integration tests in tests/
+// In src/lib.rs or src/main.rs:
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_addition() {
+        assert_eq!(add(2, 2), 4);
+    }
+
+    #[test]
+    fn test_multiplication() {
+        assert_eq!(multiply(2, 3), 6);
+    }
+}
+
+// Integration tests in tests/ directory:
+// tests/integration_test.rs
+
+#[test]
+fn test_full_workflow() {
+    // Test multiple modules working together
+}
+```
+</UniversalEditor>
+
+## Build Profiles and Optimization
+
+<UniversalEditor compare={true} title="Build Configurations">
+```python !! py
+# Python: No native compilation
+# Performance comes from C extensions
+# Optimization: code design, algorithms
+
+# For distribution:
+python -m compileall  # Bytecode compilation
+```
+
+```rust !! rs
+// Rust: Cargo profiles
+[profile.dev]
+opt-level = 0  # No optimization for fast compilation
+
+[profile.release]
+opt-level = 3  # Maximum optimization
+lto = true  # Link-time optimization
+codegen-units = 1  # Better optimization at cost of compile time
+
+[profile.bench]
+inherits = "release"
+
+[profile.test]
+opt-level = 1  # Slight optimization for tests
+
+// Build commands:
+// cargo build  # Debug
+// cargo build --release  # Optimized
+```
+</UniversalEditor>
+
+## Common Patterns
+
+### Re-exports
+
+<UniversalEditor compare={true} title="Re-exporting Items">
+```python !! py
+# Python: Re-exporting in __init__.py
+# mypackage/__init__.py
+from .module1 import func1
+from .module2 import Class2
+
+# Usage:
+from mypackage import func1, Class2
+```
+
+```rust !! rs
+// Rust: pub use for re-exporting
+// In lib.rs:
+mod auth;
+mod database;
+mod utils;
+
+// Re-export for convenience
+pub use auth::{login, logout};
+pub use database::{Database, Connection};
+pub use utils::*;
+
+// Users can now import directly:
+use mycrate::{login, Database};
+```
+</UniversalEditor>
+
+### Preloading Modules
+
+<UniversalEditor compare={true} title="Module Prelude">
+```python !! py
+# Python: No built-in prelude mechanism
+# But you can create __init__.py that imports common items
+
+# mypackage/__init__.py
+from .types import User, Post, Comment
+from .utils import validate, sanitize
+from .api import Client
+```
+
+```rust !! rs
+// Rust: Create a prelude module
+// src/prelude.rs
+pub use crate::types::{User, Post, Comment};
+pub use crate::utils::{validate, sanitize};
+pub use crate::api::Client;
+
+// In lib.rs:
+pub mod prelude;
+
+// Users can import everything at once:
+use mycrate::prelude::*;
+```
+</UniversalEditor>
+
+## Comparison Table
+
+| Feature | Python | Rust |
+|---------|--------|------|
+| Module files | Any `.py` file | Explicit `mod` declaration |
+| Import system | `import`, `from ... import` | `use`, `mod` |
+| Default visibility | Public | Private |
+| Package config | `pyproject.toml` | `Cargo.toml` |
+| Dependency file | `requirements.txt` or `pyproject.toml` | `Cargo.toml` only |
+| Version locking | `Pipfile.lock`, `poetry.lock` | `Cargo.lock` |
+| Registry | PyPI | crates.io |
+| Publishing | `twine upload`, `poetry publish` | `cargo publish` |
+| Multi-package | Poetry workspaces, manual | Cargo workspaces |
+| Test location | `tests/` or `test_*.py` | `tests/` + inline `#[cfg(test)]` |
+
+## Best Practices
+
+### DO:
+
+1. **Use modules to organize code** - Group related functionality
+2. **Make APIs public, implementation private** - Encapsulation
+3. **Use `pub use` for convenience** - Re-export common items
+4. **Leverage workspaces** - For multi-package projects
+5. **Document public APIs** - With `///` and `//!` comments
+6. **Use semantic versioning** - Follow Cargo conventions
+
+### DON'T:
+
+1. **Overuse `use *`** - Be explicit about imports
+2. **Make everything public** - Respect encapsulation
+3. **Ignore Cargo warnings** - They catch real issues
+4. **Publish without documentation** - Document your crate
+5. **Mix release and debug** - Use profiles appropriately
+
+## Summary
+
+- **Modules** provide namespace organization
+- **Use** declarations bring items into scope
+- **Cargo.toml** is the single source of truth for dependencies
+- **crates.io** is the official package registry
+- **Workspaces** enable multi-package projects
+- **Rust's system** is more explicit than Python's
+- **Both ecosystems** provide dependency management and publishing
+
+## Practice Exercises
+
+1. Create a multi-module project with proper file hierarchy
+2. Set up a workspace with multiple related crates
+3. Publish a small crate to crates.io
+4. Create a prelude module for convenient imports
+5. Configure different build profiles for optimization
+
+## Next Module
+
+In the next module, we'll explore **file I/O and the standard library**, including reading/writing files, path manipulation, command-line arguments, and environment variables. You'll learn how Rust's approach compares to Python's file handling.
