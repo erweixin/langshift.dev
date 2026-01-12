@@ -1,0 +1,993 @@
+---
+title: "模組 03: 套件系統"
+description: "理解 Go 的套件系統與 Java 套件的比較,包括匯入、可見性、Go 模組依賴管理和套件設計最佳實踐"
+---
+
+# 模組 03: 套件系統
+
+歡迎來到模組 03!在本模組中,你將學習 Go 如何透過套件組織程式碼,它與 Java 的套件系統有何不同,以及如何使用 Go 模組管理相依性。
+
+## 學習目標
+
+完成本模組後,你將:
+- 理解 Go 套件與 Java 套件的區別
+- 學習 Go 的匯入約定
+- 掌握匯出/未匯出識別符
+- 理解 Go 模組(go.mod)與 Maven/Gradle
+- 學習套件命名最佳實踐
+- 理解 vendor 目錄
+- 掌握 Go 中的相依性管理
+
+## 1. 套件:Go vs Java
+
+### Java 套件
+
+在 Java 中,套件組織類別並提供命名空間隔離:
+
+```java
+// 檔案: com/example/myapp/utils/StringUtil.java
+package com.example.myapp.utils;
+
+public class StringUtil {
+    public static boolean isEmpty(String str) {
+        return str == null || str.isEmpty();
+    }
+}
+```
+
+### Go 套件
+
+Go 套件更簡單 - 套件名由 `package` 宣告決定,而不是目錄結構:
+
+<UniversalEditor title="套件宣告: Java vs Go">
+```java !! java
+// Java: 套件必須符合目錄結構
+// 檔案: com/example/myapp/utils/StringUtils.java
+package com.example.myapp.utils;
+
+public class StringUtils {
+    public static boolean isEmpty(String str) {
+        return str == null || str.length() == 0;
+    }
+}
+
+// 使用
+import com.example.myapp.utils.StringUtils;
+```
+
+```go !! go
+// Go: 套件名在檔案中宣告
+// 檔案: myapp/utils/stringutil.go (或任何 .go 檔案)
+package utils // 套件名,不是目錄路徑
+
+func IsEmpty(str string) bool {
+    return str == ""
+}
+
+// 目錄路徑用於匯入,但套件名是你在程式碼中使用的
+```
+</UniversalEditor>
+
+## 2. 匯入約定
+
+### Java 匯入
+
+<UniversalEditor title="匯入陳述式: Java vs Go">
+```java !! java
+// Java: 顯式匯入
+import com.example.utils.StringUtil;
+import com.example.models.User;
+import java.util.List;
+import java.util.ArrayList;
+
+// 或萬用字元匯入(不推薦)
+import com.example.utils.*;
+
+public class Example {
+    public void process() {
+        String name = StringUtil.trim("  hello  ");
+        List<String> items = new ArrayList<>();
+    }
+}
+```
+
+```go !! go
+// Go: 匯入是分組的
+package main
+
+import (
+    "fmt"           // 標準庫
+    "strings"       // 標準庫
+    "myapp/utils"   // 本地套件 - 使用目錄路徑
+    "myapp/models"  // 本地套件
+)
+
+func main() {
+    name := strings.TrimSpace("  hello  ")
+    fmt.Println(name)
+
+    // 使用套件名(utils),不是目錄路徑
+    user := models.NewUser("Alice")
+}
+```
+</UniversalEditor>
+
+### 匯入別名
+
+<UniversalEditor title="匯入別名">
+```java !! java
+// Java 沒有匯入別名
+// 如果有衝突,必須使用完全限定名
+import com.example.json.JSON;
+import org.json.JSONObject;
+
+public class Example {
+    public void process() {
+        // 必須使用完全限定名
+        JSONObject obj = new JSONObject();
+    }
+}
+```
+
+```go !! go
+// Go: 使用匯入別名解決衝突
+package main
+
+import (
+    myjson "myapp/json"        // 我的 json 套件的別名
+    "encoding/json"            // 標準庫 json
+)
+
+func main() {
+    // 使用別名區分
+    obj1 := json.NewEncoder(nil)  // 標準庫
+    obj2 := myjson.NewEncoder()   // 我的套件
+}
+```
+</UniversalEditor>
+
+### 空白匯入
+
+<UniversalEditor title="空白匯入(僅 Go)">
+```java !! java
+// Java: 沒有與空白匯入等價的東西
+// 你必須顯式使用所有匯入的內容
+```
+
+```go !! go
+// Go: 空白匯入僅為了副作用匯入
+package main
+
+import (
+    _ "fmt"        // ✗ 無用 - 沒有副作用
+    _ "image/jpeg" // ✓ 好 - 註冊 JPEG 解碼器
+    "database/sql"
+    _ "github.com/lib/pq" // ✓ 好 - 註冊 PostgreSQL 驅動程式
+)
+
+func main() {
+    // 不能直接使用 fmt(它是空白匯入)
+    // 但 JPEG 格式現在可用於圖像解碼
+    // 並且 PostgreSQL 驅動程式已在 database/sql 中註冊
+}
+```
+</UniversalEditor>
+
+## 3. 匯出 vs 未匯出識別符
+
+Go 使用首字母大寫確定可見性,不像 Java 的 `public`/`private` 關鍵字。
+
+### Java 可見性修飾符
+
+<UniversalEditor title="可見性修飾符">
+```java !! java
+package com.example.myapp;
+
+public class UserService {
+    private String apiKey;           // 此類別私有
+    protected String dbUrl;          // 私有 + 子類別
+    String defaultConfig;            // 套件私有(預設)
+    public String version;           // 到處公開
+
+    private void validate() { }      // 私有方法
+    public void process() { }        // 公開方法
+
+    // 私有內部類別
+    private class Config { }
+
+    // 公開內部類別
+    public class Result { }
+}
+```
+
+```go !! go
+package users
+
+import "fmt"
+
+// 匯出(公開) - 以大寫字母開頭
+type UserService struct {
+    APIKey  string // 匯出欄位
+    dbUrl   string // 未匯出欄位(私有)
+    Version string // 匯出欄位
+}
+
+// 匯出建構函式
+func NewUserService(key string) *UserService {
+    return &UserService{
+        APIKey: key,
+        dbUrl:  "localhost:5432", // 私有欄位
+    }
+}
+
+// 未匯出方法(私有)
+func (s *UserService) validate() {
+    fmt.Println("validating...")
+}
+
+// 匯出方法(公開)
+func (s *UserService) Process() {
+    s.validate() // 可以呼叫私有方法
+}
+
+// 未匯出類型(私有)
+type config struct {
+    debug bool
+}
+
+// 匯出類型(公開)
+type Result struct {
+    Success bool
+    Message string
+}
+```
+</UniversalEditor>
+
+### 實際範例
+
+<UniversalEditor title="實際中的匯出/未匯出">
+```java !! java
+// Java: 顯式可見性關鍵字
+package com.example.models;
+
+public class User {
+    private String id;
+    private String email;
+    public String name;
+
+    public User(String id, String email, String name) {
+        this.id = id;
+        this.email = email;
+        this.name = name;
+    }
+
+    public String getId() { return id; }
+    public String getEmail() { return email; }
+    private boolean isValid() {
+        return email != null && email.contains("@");
+    }
+}
+```
+
+```go !! go
+package models
+
+// User 是匯出的(首字母大寫)
+type User struct {
+    ID    string // 匯出欄位
+    email string // 未匯出欄位(私有)
+    Name  string // 匯出欄位
+}
+
+// 匯出建構函式
+func NewUser(id, email, name string) *User {
+    return &User{
+        ID:    id,
+        email: email,
+        Name:  name,
+    }
+}
+
+// 匯出 getter
+func (u *User) GetEmail() string {
+    return u.email
+}
+
+// 未匯出方法(私有)
+func (u *User) isValid() bool {
+    return strings.Contains(u.email, "@")
+}
+```
+</UniversalEditor>
+
+## 4. 套件命名最佳實踐
+
+### 套件名指南
+
+<UniversalEditor title="套件命名約定">
+```java !! java
+// Java: 套件名小寫,網域反轉
+package com.example.companyname.projectname.module;
+package org.apache.commons.lang3;
+package com.google.gson;
+
+// 檔案結構必須符合套件結構
+// com/example/companyname/projectname/module/Class.java
+```
+
+```go !! go
+// Go: 套件名應該簡短、小寫、單詞
+package user     // ✓ 好
+package users    // ✓ 好
+package http     // ✓ 好
+package json     // ✓ 好
+
+// 避免:
+package userData // ✗ 太冗長
+package myUser   // ✗ 包含 "my"
+package httpServer // ✗ 兩個詞,使用 "http" 或 "server"
+
+// 目錄: go/src/github.com/user/project/
+// 檔案: go/src/github.com/user/project/storage.go
+package storage // 套件名,不是完整路徑
+
+// 套件名不需要跨專案唯一
+// 匯入路徑(目錄路徑)提供唯一性
+```
+</UniversalEditor>
+
+### 套件組織
+
+<UniversalEditor title="套件結構">
+```java !! java
+// Java: 分層套件結構
+com/
+└── example/
+    └── myapp/
+        ├── model/
+        │   ├── User.java
+        │   └── Product.java
+        ├── service/
+        │   ├── UserService.java
+        │   └── ProductService.java
+        ├── util/
+        │   └── StringUtil.java
+        └── Main.java
+```
+
+```go !! go
+// Go: 扁平套件結構(通常)
+myapp/
+├── model/
+│   ├── user.go    // package model
+│   └── product.go // package model
+├── service/
+│   ├── user.go    // package service
+│   └── product.go // package service
+├── util/
+│   └── string.go  // package util
+└── main.go        // package main
+
+// 不要建立深層嵌套套件,如:
+// myapp/model/user/profile/
+// 保持扁平: myapp/model/
+```
+</UniversalEditor>
+
+## 5. Go 模組(go.mod)
+
+Go 模組管理相依性和版本控制,類似於 Java 中的 Maven/Gradle。
+
+### 建立 Go 模組
+
+<UniversalEditor title="相依性管理: Maven vs Go 模組">
+```xml
+<!-- Maven: pom.xml -->
+<project>
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>com.example</groupId>
+    <artifactId>myapp</artifactId>
+    <version>1.0.0</version>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.google.code.gson</groupId>
+            <artifactId>gson</artifactId>
+            <version>2.10.1</version>
+        </dependency>
+    </dependencies>
+</project>
+```
+
+```go
+// Go: go.mod
+module github.com/user/myapp
+
+go 1.21
+
+require (
+    github.com/gin-gonic/gin v1.9.1
+    github.com/google/uuid v1.3.1
+)
+```
+</UniversalEditor>
+
+### 模組指令
+
+<UniversalEditor title="相依性管理指令">
+```bash
+# Java: Maven 指令
+mvn dependency:tree          # 顯示相依性樹
+mvn dependency:resolve       # 解析相依性
+mvn clean install           # 建構和安裝
+mvn package                 # 建立 JAR
+```
+
+```bash
+# Go: 模組指令
+go mod init github.com/user/myapp     # 初始化模組
+go mod tidy                           # 新增缺失/刪除未使用的相依性
+go mod vendor                         # 複製相依性到 vendor/
+go get github.com/pkg/errors@latest   # 新增/更新相依性
+go get github.com/pkg/errors@v1.9.0  # 使用特定版本
+go build                              # 建構模組
+go test                               # 執行測試
+```
+</UniversalEditor>
+
+### 語義化版本控制
+
+<UniversalEditor title="版本管理">
+```xml
+<!-- Maven: 顯式版本 -->
+<dependency>
+    <groupId>com.fasterxml.jackson.core</groupId>
+    <artifactId>jackson-databind</artifactId>
+    <version>2.15.2</version>
+</dependency>
+
+<!-- 或使用範圍 -->
+<version>[2.15,3.0)</version>
+```
+
+```go
+// go.mod: 語義化匯入版本
+module github.com/user/myapp
+
+go 1.21
+
+require (
+    // 特定版本
+    github.com/gin-gonic/gin v1.9.1
+
+    // 預發布版本
+    github.com/example/pkg v1.3.0-beta
+
+    // 無標籤提交的偽版本
+    github.com/example/other v0.0.0-20231201123456-abc123
+)
+
+// go.mod 自動更新:
+// - 匯入路徑中的主版本(v1, v2 等)
+// - go.mod 中追蹤的次版本和補丁版本
+```
+</UniversalEditor>
+
+## 6. Vendor 目錄
+
+vendor 目錄在專案中本地儲存相依性。
+
+<UniversalEditor title="Vendor 目錄">
+```bash
+# Java: Maven/Gradle 本地儲存庫
+# 相依性儲存在 ~/.m2/ 或 ~/.gradle/
+
+# 專案級相依性:
+# Maven: mvn dependency:copy-dependencies
+# 建立: target/dependency/
+```
+
+```bash
+# Go: Vendor 目錄
+# 執行: go mod vendor
+myapp/
+├── go.mod
+├── go.sum
+├── main.go
+└── vendor/
+    ├── github.com/
+    │   ├── gin-gonic/
+    │   │   └── gin/...
+    │   └── google/
+    │       └── uuid/...
+    └── golang.org/
+        └── x/...
+
+# 使用 vendor 建構:
+# go build -mod=vendor
+
+# 好處:
+# - 可重現建構
+# - 離線建構
+# - 相依性的版本控制
+```
+</UniversalEditor>
+
+## 7. 套件可見性範例
+
+### 實際範例: HTTP 伺服器
+
+<UniversalEditor title="HTTP 伺服器套件設計">
+```java !! java
+// Java: 多個檔案,可見性關鍵字
+package com.example.server;
+
+import java.io.*;
+import java.net.*;
+
+public class HTTPServer {
+    private int port;
+    private ServerSocket serverSocket;
+
+    public HTTPServer(int port) {
+        this.port = port;
+    }
+
+    public void start() throws IOException {
+        serverSocket = new ServerSocket(port);
+    }
+
+    private void handleConnection(Socket socket) {
+        // 私有實作
+    }
+}
+
+class RequestHandler {
+    // 套件私有類別
+    void handle(Socket socket) { }
+}
+```
+
+```go !! go
+// Go: 透過首字母大寫匯出/未匯出
+package server
+
+import "net"
+
+// Server 是匯出的
+type Server struct {
+    port    int          // 匯出欄位
+    listener net.Listener // 未匯出欄位
+}
+
+// NewServer 是匯出的(建構函式)
+func NewServer(port int) *Server {
+    return &Server{port: port}
+}
+
+// Start 是匯出的
+func (s *Server) Start() error {
+    var err error
+    s.listener, err = net.Listen("tcp", ":"+strconv.Itoa(s.port))
+    return err
+}
+
+// handleConnection 是未匯出的(私有)
+func (s *Server) handleConnection(conn net.Conn) {
+    // 私有實作
+}
+
+// RequestHandler 是匯出的
+type RequestHandler struct {
+    // 未匯出欄位
+}
+
+// Handle 是匯出的
+func (h *RequestHandler) Handle(conn net.Conn) {
+    // 實作
+}
+```
+</UniversalEditor>
+
+## 8. 匯入管理
+
+### 匯入分組
+
+<UniversalEditor title="匯入組織">
+```java !! java
+// Java: 匯入通常由 IDE 組織
+package com.example;
+
+// 標準庫優先
+import java.util.List;
+import java.util.ArrayList;
+
+// 第三方函式庫
+import com.google.gson.Gson;
+import org.apache.commons.lang3.StringUtils;
+
+// 專案匯入
+import com.example.models.User;
+import com.example.services.UserService;
+```
+
+```go !! go
+// Go: 匯入被分組和排序,由 go fmt 完成
+package main
+
+import (
+    // 標準庫
+    "fmt"
+    "net/http"
+    "strings"
+
+    // 本地/第三方套件
+    "github.com/gin-gonic/gin"
+    "myapp/models"
+    "myapp/services"
+)
+
+// go fmt 會自動分組和排序匯入
+```
+</UniversalEditor>
+
+### 點匯入(謹慎使用)
+
+<UniversalEditor title="點匯入樣式">
+```java !! java
+// Java: 靜態匯入
+import static java.lang.Math.*;
+import static java.util.Collections.*;
+
+public class Example {
+    public void calculate() {
+        double result = sqrt(16.0); // 無 Math. 前綴
+        List<String> list = emptyList(); // 無 Collections. 前綴
+    }
+}
+```
+
+```go !! go
+// Go: 點匯入(謹慎使用!)
+package main
+
+import (
+    . "fmt"      // ✗ 避免: 可能導致混淆
+    "math"
+)
+
+func main() {
+    Println("Hello") // 無 fmt. 前綴(混淆!)
+    println("Bye")   // 這是 fmt 還是另一個套件?
+}
+
+// 更好的方法: 使用適當的套件名
+package main
+
+import (
+    "fmt"
+    "math"
+)
+
+func main() {
+    fmt.Println("Hello") // 清楚哪個套件
+    math.Sqrt(16.0)
+}
+```
+</UniversalEditor>
+
+## 9. 最佳實踐
+
+### 套件設計
+
+<UniversalEditor title="套件設計原則">
+```java !! java
+// Java: 為不同關注點分離套件
+package com.example.repository;
+public interface UserRepository { }
+
+package com.example.service;
+public class UserService { }
+
+package com.example.model;
+public class User { }
+```
+
+```go !! go
+// Go: 扁平套件結構,清晰的名稱
+// repository/user.go
+package repository
+
+type UserRepository interface {
+    Find(id string) (*User, error)
+}
+
+// service/user.go
+package service
+
+type UserService struct {
+    repo repository.UserRepository
+}
+
+// model/user.go
+package model
+
+type User struct {
+    ID    string
+    Name  string
+    Email string
+}
+
+// 不要: 不要建立:
+// repository/user/user.go (冗餘)
+// service/user/service.go (冗餘)
+```
+</UniversalEditor>
+
+### 避免循環
+
+<UniversalEditor title="避免匯入循環">
+```java !! java
+// Java: 套件循環
+// com.example.a 相依於 com.example.b
+// com.example.b 相依於 com.example.a
+// 編譯錯誤!(通常)
+```
+
+```go !! go
+// Go: 檢測到匯入循環
+// 套件 a 匯入套件 b
+// 套件 b 匯入套件 a
+
+// a/a.go
+package a
+
+import "myapp/b"
+
+func Process() {
+    b.DoSomething()
+}
+
+// b/b.go
+package b
+
+import "myapp/a" // ✗ 匯入循環!
+
+func DoSomething() {
+    a.OtherProcess()
+}
+
+// 解決方案: 重構建立套件 c
+// a 和 b 都可以匯入 c
+```
+</UniversalEditor>
+
+## 10. 套件範例
+
+### 資料庫套件
+
+<UniversalEditor title="資料庫套件範例">
+```java !! java
+// Java: 帶介面的資料庫套件
+package com.example.database;
+
+public interface Database {
+    Connection getConnection() throws SQLException;
+    void close() throws SQLException;
+}
+
+public class MySQLDatabase implements Database {
+    private String url;
+    private Connection connection;
+
+    public MySQLDatabase(String url) {
+        this.url = url;
+    }
+
+    @Override
+    public Connection getConnection() {
+        if (connection == null) {
+            connection = DriverManager.getConnection(url);
+        }
+        return connection;
+    }
+
+    @Override
+    public void close() {
+        if (connection != null) {
+            connection.close();
+        }
+    }
+}
+```
+
+```go !! go
+// database/database.go
+package database
+
+import "database/sql"
+
+// Database 是匯出的
+type Database struct {
+    db *sql.DB // 未匯出
+}
+
+// NewDatabase 是匯出的
+func NewDatabase(driver, dsn string) (*Database, error) {
+    db, err := sql.Open(driver, dsn)
+    if err != nil {
+        return nil, err
+    }
+    return &Database{db: db}, nil
+}
+
+// Conn 是匯出的(取得連線)
+func (d *Database) Conn() *sql.DB {
+    return d.db
+}
+
+// Close 是匯出的
+func (d *Database) Close() error {
+    return d.db.Close()
+}
+
+// Ping 是匯出的(健康檢查)
+func (d *Database) Ping() error {
+    return d.db.Ping()
+}
+```
+</UniversalEditor>
+
+### 工具套件
+
+<UniversalEditor title="工具套件範例">
+```java !! java
+// Java: 帶靜態方法的工具類別
+package com.example.utils;
+
+public class StringUtil {
+    // 私有建構函式 - 工具類別
+    private StringUtil() { }
+
+    public static boolean isEmpty(String str) {
+        return str == null || str.isEmpty();
+    }
+
+    public static String truncate(String str, int maxLen) {
+        if (str == null) return null;
+        if (str.length() <= maxLen) return str;
+        return str.substring(0, maxLen) + "...";
+    }
+
+    public static String reverse(String str) {
+        return new StringBuilder(str).reverse().toString();
+    }
+}
+```
+
+```go !! go
+// utils/string.go
+package utils
+
+// IsEmpty 是匯出的
+func IsEmpty(str string) bool {
+    return str == ""
+}
+
+// Truncate 是匯出的
+func Truncate(str string, maxLen int) string {
+    if len(str) <= maxLen {
+        return str
+    }
+    return str[:maxLen] + "..."
+}
+
+// Reverse 是匯出的
+func Reverse(str string) string {
+    runes := []rune(str)
+    for i, j := 0, len(runes)-1; i < j; i, j = i+1, j-1 {
+        runes[i], runes[j] = runes[j], runes[i]
+    }
+    return string(runes)
+}
+
+// 不需要建構函式或 "static" 關鍵字
+// 所有函式都是套件層級的
+```
+</UniversalEditor>
+
+## 11. 練習題
+
+### 初級
+
+1. 建立套件 `mathops`,包含函式:
+   - `Add(a, b int) int`
+   - `Multiply(a, b int) int`
+   - 編寫使用 `mathops` 的 main 套件
+
+2. 建立 `shapes` 套件:
+   - 匯出類型: `Rectangle`
+   - 未匯出欄位: `width`, `height`
+   - 匯出方法: `Area()`
+   - 使用該套件編寫測試
+
+### 中級
+
+3. 建立多套件專案:
+   - `models` 套件: `User` 結構體
+   - `repository` 套件: `UserRepository` 介面
+   - `service` 套件: `UserService` 結構體
+   - 演示適當的匯入循環(避免它們!)
+
+4. 建立 Go 模組:
+   - 用 `go mod init` 初始化
+   - 新增相依性(如 `github.com/google/uuid`)
+   - 在程式碼中使用相依性
+   - 執行 `go mod tidy` 並檢查 go.sum
+
+### 高級
+
+5. 設計配置套件:
+   - 匯出介面: `Config`
+   - 未匯出實作: `fileConfig`
+   - 工廠函式: `LoadConfig(path string)`
+   - 適當的錯誤處理
+
+6. 建立帶子目錄的套件:
+   - `storage/storage.go` (package storage)
+   - `storage/memory/memory.go` (package memory)
+   - `storage/disk/disk.go` (package disk)
+   - 實作公共介面
+
+## 12. 專案想法
+
+### 專案 1: Web 應用的套件結構
+
+建立具有適當套件結構的 Web 應用:
+```
+myapp/
+├── go.mod
+├── main.go
+├── handlers/    # HTTP 處理器
+├── services/    # 業務邏輯
+├── models/      # 資料模型
+├── repository/  # 資料存取
+└── config/      # 配置
+```
+
+### 專案 2: 工具庫
+
+建立可重用的工具庫:
+- `strings` 套件: 字串操作函式
+- `timeutils` 套件: 時間/日期助手
+- `mathutils` 套件: 數學運算
+- 發布為 Go 模組
+
+### 專案 3: SDK 套件
+
+為假設的 API 建立 SDK:
+- `client` 套件: API 用戶端
+- `resources` 套件: API 資源類型
+- `errors` 套件: 自訂錯誤類型
+- 演示匯出/未匯出設計
+
+## 13. 關鍵要點
+
+- **簡單宣告**: 套件名在檔案中宣告,不從目錄派生
+- **首字母大寫 = 匯出**: 大寫字母 = 公開,小寫 = 私有
+- **匯入路徑 != 套件名**: 匯入路徑是目錄,套件名在檔案中
+- **Go 模組**: 使用 `go.mod` 管理相依性(像 Maven/Gradle)
+- **扁平結構**: 優先使用扁平套件結構而非深層次
+- **無循環**: Go 禁止匯入循環
+- **語義化版本**: 匯入路徑中的主版本(v2, v3 等)
+
+## 14. 下一步
+
+在下一個模組中,我們將探索:
+- Go 介面 vs Java 介面
+- 隱式實作(無 "implements" 關鍵字)
+- 介面組合
+- 型別斷言和型別開關
+- Go vs Java 中的多型
+
+繼續學習 [模組 04: 介面和組合](/docs/java2go/module-04-interfaces-composition),了解 Go 強大的介面系統!

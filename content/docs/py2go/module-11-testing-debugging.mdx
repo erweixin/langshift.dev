@@ -1,0 +1,664 @@
+---
+title: "Module 11: Testing and Debugging"
+description: "Testing methodology and debugging techniques in Go"
+---
+
+## Introduction
+
+Go has built-in testing support with the `testing` package. Unlike Python where you need pytest or unittest, Go's testing is part of the standard library and follows simple conventions.
+
+## Basic Testing
+
+<UniversalEditor title="Writing Tests">
+```python !! py
+# Python - pytest
+def test_add():
+    assert add(2, 3) == 5
+
+def test_add_negative():
+    assert add(-1, 1) == 0
+
+# Run with: pytest test_file.py
+```
+
+```go !! go
+// Go - testing package
+package main
+
+import "testing"
+
+func TestAdd(t *testing.T) {
+    result := Add(2, 3)
+    if result != 5 {
+        t.Errorf("Add(2, 3) = %d; want 5", result)
+    }
+}
+
+func TestAddNegative(t *testing.T) {
+    result := Add(-1, 1)
+    if result != 0 {
+        t.Errorf("Add(-1, 1) = %d; want 0", result)
+    }
+}
+
+// Run with: go test
+```
+</UniversalEditor>
+
+## Test File Organization
+
+<UniversalEditor title="Test File Structure">
+```bash
+# Python
+project/
+├── src/
+│   ├── __init__.py
+│   └── calculator.py
+└── tests/
+    ├── __init__.py
+    └── test_calculator.py
+```
+
+```bash
+# Go
+project/
+├── calculator.go
+└── calculator_test.go  // Same package, _test.go suffix
+```
+</UniversalEditor>
+
+## Table-Driven Tests
+
+Go's idiomatic way to test multiple cases:
+
+<UniversalEditor title="Table-Driven Tests">
+```python !! py
+# Python - parametrize
+import pytest
+
+@pytest.mark.parametrize("a,b,expected", [
+    (1, 2, 3),
+    (0, 0, 0),
+    (-1, 1, 0),
+    (100, 200, 300),
+])
+def test_add(a, b, expected):
+    assert add(a, b) == expected
+```
+
+```go !! go
+// Go - Table-driven tests
+package main
+
+import "testing"
+
+func TestAdd(t *testing.T) {
+    tests := []struct {
+        name     string
+        a, b     int
+        expected int
+    }{
+        {"basic", 1, 2, 3},
+        {"zeros", 0, 0, 0},
+        {"negative", -1, 1, 0},
+        {"large", 100, 200, 300},
+    }
+
+    for _, tt := range tests {
+        t.Run(tt.name, func(t *testing.T) {
+            result := Add(tt.a, tt.b)
+            if result != tt.expected {
+                t.Errorf("Add(%d, %d) = %d; want %d",
+                    tt.a, tt.b, result, tt.expected)
+            }
+        })
+    }
+}
+```
+</UniversalEditor>
+
+## Test Helpers and Setup
+
+<UniversalEditor title="Setup and Teardown">
+```python !! py
+# Python - pytest fixtures
+import pytest
+
+@pytest.fixture
+def database():
+    db = Database(":memory:")
+    db.init()
+    yield db
+    db.cleanup()
+
+def test_query(database):
+    result = database.query("SELECT * FROM users")
+    assert len(result) > 0
+```
+
+```go !! go
+// Go - Setup and teardown
+package main
+
+import (
+    "testing"
+)
+
+func setupTestDB(t *testing.T) *Database {
+    db := &Database{Path: ":memory:"}
+    if err := db.Init(); err != nil {
+        t.Fatalf("Failed to init DB: %v", err)
+    }
+    return db
+}
+
+func TestQuery(t *testing.T) {
+    db := setupTestDB(t)
+    defer db.Cleanup()
+
+    result := db.Query("SELECT * FROM users")
+    if len(result) == 0 {
+        t.Error("Expected results, got none")
+    }
+}
+```
+</UniversalEditor>
+
+## Testing Errors
+
+<UniversalEditor title="Error Testing">
+```python !! py
+# Python - pytest
+import pytest
+
+def test_divide_by_zero():
+    with pytest.raises(ValueError):
+        divide(10, 0)
+
+def test_file_not_found():
+    with pytest.raises(FileNotFoundError):
+        read_file("nonexistent.txt")
+```
+
+```go !! go
+// Go - Testing errors
+package main
+
+import "testing"
+
+func TestDivideByZero(t *testing.T) {
+    result, err := divide(10, 0)
+    if err == nil {
+        t.Error("Expected error for division by zero, got nil")
+    }
+    if result != 0 {
+        t.Errorf("Expected result 0, got %d", result)
+    }
+}
+
+func TestFileNotFound(t *testing.T) {
+    _, err := ReadFile("nonexistent.txt")
+    if err == nil {
+        t.Error("Expected error for nonexistent file, got nil")
+    }
+}
+```
+</UniversalEditor>
+
+## Mocking and Interfaces
+
+<UniversalEditor title="Mocking with Interfaces">
+```python !! py
+# Python - mocking
+from unittest.mock import Mock, patch
+
+def test_send_notification():
+    mock_service = Mock()
+    mock_service.send.return_value = True
+
+    with patch('app.notification_service', mock_service):
+        result = send_notification("Hello")
+        assert result == True
+        mock_service.send.assert_called_once_with("Hello")
+```
+
+```go !! go
+// Go - Mock with interfaces
+package main
+
+import "testing"
+
+// Interface
+type NotificationService interface {
+    Send(message string) bool
+}
+
+// Mock implementation
+type MockNotificationService struct {
+    SendCalled bool
+    Message    string
+}
+
+func (m *MockNotificationService) Send(message string) bool {
+    m.SendCalled = true
+    m.Message = message
+    return true
+}
+
+func TestSendNotification(t *testing.T) {
+    mock := &MockNotificationService{}
+
+    result := SendNotification(mock, "Hello")
+
+    if !result {
+        t.Error("Expected true, got false")
+    }
+    if !mock.SendCalled {
+        t.Error("Send was not called")
+    }
+    if mock.Message != "Hello" {
+        t.Errorf("Wrong message: %s", mock.Message)
+    }
+}
+```
+</UniversalEditor>
+
+## Benchmarking
+
+<UniversalEditor title="Performance Testing">
+```python !! py
+# Python - pytest-benchmark
+import pytest
+
+def test_parse_json(benchmark):
+    data = '{"name": "Alice", "age": 30}'
+    result = benchmark(json.loads, data)
+    assert result['name'] == 'Alice'
+```
+
+```go !! go
+// Go - Benchmarking
+package main
+
+import (
+    "encoding/json"
+    "testing"
+)
+
+func BenchmarkParseJSON(b *testing.B) {
+    data := []byte(`{"name": "Alice", "age": 30}`)
+
+    b.ResetTimer()  // Reset timer before actual benchmark
+    for i := 0; i < b.N; i++ {
+        var result map[string]interface{}
+        json.Unmarshal(data, &result)
+    }
+}
+
+// Run with: go test -bench=.
+```
+</UniversalEditor>
+
+## HTTP Testing
+
+<UniversalEditor title="Testing HTTP Handlers">
+```python !! py
+# Python - pytest with Flask test client
+def test_home_page(client):
+    response = client.get('/')
+    assert response.status_code == 200
+    assert b'Welcome' in response.data
+
+def test_api_endpoint(client):
+    response = client.post('/api/users', json={'name': 'Alice'})
+    assert response.status_code == 201
+```
+
+```go !! go
+// Go - HTTP testing
+package main
+
+import (
+    "net/http"
+    "net/http/httptest"
+    "testing"
+)
+
+func TestHomeHandler(t *testing.T) {
+    req := httptest.NewRequest("GET", "/", nil)
+    w := httptest.NewRecorder()
+
+    homeHandler(w, req)
+
+    if w.Code != http.StatusOK {
+        t.Errorf("Expected status 200, got %d", w.Code)
+    }
+
+    if !contains(w.Body.String(), "Welcome") {
+        t.Error("Response should contain 'Welcome'")
+    }
+}
+
+func TestCreateUserHandler(t *testing.T) {
+    jsonData := `{"name": "Alice"}`
+    req := httptest.NewRequest("POST", "/api/users", strings.NewReader(jsonData))
+    req.Header.Set("Content-Type", "application/json")
+    w := httptest.NewRecorder()
+
+    createUserHandler(w, req)
+
+    if w.Code != http.StatusCreated {
+        t.Errorf("Expected status 201, got %d", w.Code)
+    }
+}
+```
+</UniversalEditor>
+
+## Race Condition Testing
+
+<UniversalEditor title="Detecting Race Conditions">
+```python !! py
+# Python - No built-in race detection
+# Use tools like thread-safety analyzers
+```
+
+```go !! go
+// Go - Race detector
+package main
+
+import (
+    "sync"
+    "testing"
+)
+
+func TestConcurrentAccess(t *testing.T) {
+    var counter int
+    var wg sync.WaitGroup
+
+    for i := 0; i < 100; i++ {
+        wg.Add(1)
+        go func() {
+            defer wg.Done()
+            counter++  // Data race!
+        }()
+    }
+
+    wg.Wait()
+}
+
+// Run with: go test -race
+// Output will warn about data race
+```
+</UniversalEditor>
+
+## Coverage Reports
+
+<UniversalEditor title="Code Coverage">
+```bash
+# Python - pytest with coverage
+pytest --cov=src --cov-report=html
+
+# Output: Coverage report
+# Name                Stmts   Miss  Cover
+# ---------------------------------------
+# src/calculator.py      20      2    90%
+```
+
+```bash
+# Go - built-in coverage
+go test -coverprofile=coverage.out
+go tool cover -html=coverage.out
+
+# Output: Coverage report in browser
+# coverage: 85.7% of statements
+```
+</UniversalEditor>
+
+## Debugging
+
+<UniversalEditor title="Debugging Tools">
+```python !! py
+# Python - pdb
+import pdb; pdb.set_trace()
+
+# Or use breakpoint() (Python 3.7+)
+def my_function():
+    breakpoint()  # Execution stops here
+    x = 42
+    return x
+```
+
+```go !! go
+// Go - Delve debugger
+package main
+
+func main() {
+    x := 42
+    // Set breakpoint in Delve
+    println(x)
+}
+
+// Run with:
+// dlv debug main.go
+// (dlv) break main.go:8
+// (dlv) continue
+```
+</UniversalEditor>
+
+## Logging
+
+<UniversalEditor title="Logging for Debugging">
+```python !! py
+# Python - logging module
+import logging
+
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
+
+def process(data):
+    logger.debug(f"Processing: {data}")
+    result = transform(data)
+    logger.info(f"Result: {result}")
+    return result
+```
+
+```go !! go
+// Go - log package
+package main
+
+import "log"
+
+func process(data string) string {
+    log.Printf("Processing: %s", data)
+    result := transform(data)
+    log.Printf("Result: %s", result)
+    return result
+}
+
+// Or use structured logging
+import "go.uber.org/zap"
+
+func processWithLogger(data string) string {
+    logger := zap.NewExample()
+    logger.Debug("Processing", zap.String("data", data))
+    return transform(data)
+}
+```
+</UniversalEditor>
+
+## Example-Based Tests (Examples)
+
+<UniversalEditor title="Examples">
+```python !! py
+# Python - doctests
+def add(a, b):
+    """
+    Add two numbers.
+
+    >>> add(2, 3)
+    5
+    >>> add(-1, 1)
+    0
+    """
+    return a + b
+
+# Run with: python -m doctest file.py
+```
+
+```go !! go
+// Go - Example tests
+package main
+
+import "fmt"
+
+func ExampleAdd() {
+    result := Add(2, 3)
+    fmt.Println(result)
+    // Output: 5
+}
+
+func ExampleAdd_multiple() {
+    fmt.Println(Add(1, 2))
+    fmt.Println(Add(-1, 1))
+    // Output:
+    // 3
+    // 0
+}
+
+// Run with: go test
+```
+</UniversalEditor>
+
+## Subtests and Parallel Tests
+
+<UniversalEditor title="Advanced Test Organization">
+```python !! py
+# Python - pytest classes
+class TestUserOperations:
+    def test_create(self):
+        pass
+
+    def test_update(self):
+        pass
+
+    def test_delete(self):
+        pass
+```
+
+```go !! go
+// Go - Subtests and parallel tests
+package main
+
+import "testing"
+
+func TestUserOperations(t *testing.T) {
+    tests := []struct {
+        name string
+        test func(*testing.T)
+    }{
+        {"create", func(t *testing.T) {
+            // Test create
+        }},
+        {"update", func(t *testing.T) {
+            // Test update
+        }},
+        {"delete", func(t *testing.T) {
+            // Test delete
+        }},
+    }
+
+    for _, tt := range tests {
+        t.Run(tt.name, func(t *testing.T) {
+            t.Parallel()  // Run in parallel
+            tt.test(t)
+        })
+    }
+}
+
+// Run with: go test -parallel 4
+```
+</UniversalEditor>
+
+## Test Best Practices
+
+<UniversalEditor title="Test Organization">
+```python !! py
+# Python - Test structure
+class TestCalculator:
+    def setup_method(self):
+        self.calc = Calculator()
+
+    def teardown_method(self):
+        self.calc.cleanup()
+
+    def test_add_positive_numbers(self):
+        assert self.calc.add(2, 3) == 5
+```
+
+```go !! go
+// Go - Test organization
+package main
+
+import "testing"
+
+func TestCalculator(t *testing.T) {
+    // Setup
+    calc := NewCalculator()
+    defer calc.Cleanup()
+
+    t.Run("AddPositiveNumbers", func(t *testing.T) {
+        result := calc.Add(2, 3)
+        if result != 5 {
+            t.Errorf("Expected 5, got %d", result)
+        }
+    })
+
+    t.Run("AddNegativeNumbers", func(t *testing.T) {
+        result := calc.Add(-2, -3)
+        if result != -5 {
+            t.Errorf("Expected -5, got %d", result)
+        }
+    })
+}
+```
+</UniversalEditor>
+
+## Summary
+
+In this module, you learned:
+
+1. **Testing package** - Built-in testing with `testing`
+2. **Table-driven tests** - Idiomatic Go test pattern
+3. **Test helpers** - Setup and teardown
+4. **Error testing** - Checking error returns
+5. **Mocking** - Using interfaces
+6. **Benchmarking** - Performance tests
+7. **HTTP testing** - httptest package
+8. **Race detector** - `-race` flag
+9. **Coverage** - Built-in coverage reports
+10. **Debugging** - Delve debugger
+11. **Logging** - log package for debugging
+
+## Key Differences
+
+| Python | Go |
+|--------|-----|
+| pytest/unittest | Built-in `testing` |
+| `@pytest.mark.parametrize` | Table-driven tests |
+| `pytest.raises()` | Check error return value |
+| `unittest.mock` | Interfaces for mocking |
+| `--cov` flag | `-coverprofile` |
+| pdb debugger | Delve debugger |
+| No race detection | `-race` flag |
+
+## Exercises
+
+1. Write comprehensive tests for a calculator package
+2. Create benchmarks comparing string concatenation methods
+3. Test an HTTP handler with various inputs
+4. Use the race detector to find concurrency bugs
+5. Generate a coverage report for your code
+
+## Next Steps
+
+Next module: **Performance Optimization** - Profiling and optimizing Go applications.

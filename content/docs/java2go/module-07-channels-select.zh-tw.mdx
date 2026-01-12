@@ -1,0 +1,625 @@
+---
+title: "模組 07：Channel 和 Select - 安全通訊"
+description: "掌握 Go 的 channel 用於安全的 goroutine 通訊。了解緩衝/無緩衝 channel、select 陳述式、channel 方向和並行模式。"
+---
+
+# 模組 07：Channel 和 Select - 安全通訊
+
+在本模組中，你將學習 Go 如何使用 **channel** 在 goroutine 之間安全通訊。Go 的哲學是：**"不要透過共享記憶體來通訊；透過通訊來共享記憶體。"** 這與 Java 的共享狀態並行模型有著根本的不同。
+
+## 學習目標
+
+完成本模組後，你將能夠：
+- 建立和使用緩衝及無緩衝 channel
+- 理解 channel 方向（發送、接收、雙向）
+- 使用 select 陳述式進行多 channel 操作
+- 使用 select 實作超時模式
+- 關閉 channel 並遍歷 channel
+- 構建 fan-in 和 fan-out 模式
+- 建立生產者-消費者系統
+- 將 channel 與 Java 的 BlockingQueue 和 CompletableFuture 進行比較
+
+## 背景：共享記憶體 vs Channel 通訊
+
+### 哲學差異
+
+**Java**：透過通訊共享記憶體（需要同步）
+- 執行緒存取共享資料結構
+- 必須使用鎖、synchronized 區塊、原子變數
+- 容易出現死鎖和競態條件
+- 複雜的協調邏輯
+
+**Go**：透過通訊共享記憶體
+- Goroutine 透過 channel 發送資料
+- Channel 操作不需要顯式加鎖
+- 設計安全（所有權轉移）
+- 透過訊息傳遞簡化協調
+
+<UniversalEditor title="並行哲學：Java vs Go">
+```java !! java
+// Java：使用同步的共享記憶體
+import java.util.concurrent.*;
+
+public class SharedMemory {
+    private static int counter = 0;
+    private static final Object lock = new Object();
+
+    public static void main(String[] args) throws Exception {
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+
+        executor.submit(() -> {
+            synchronized (lock) {
+                counter++;
+                System.out.println("Incremented: " + counter);
+            }
+        });
+
+        executor.shutdown();
+        executor.awaitTermination(1, TimeUnit.SECONDS);
+    }
+}
+```
+
+```go !! go
+// Go：透過通訊共享記憶體
+package main
+
+import (
+	"fmt"
+	"sync"
+)
+
+func main() {
+	counter := make(chan int)
+	var wg sync.WaitGroup
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		counter <- 1
+		fmt.Println("Sent: 1")
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		value := <-counter
+		fmt.Printf("Received: %d\n", value)
+	}()
+
+	wg.Wait()
+}
+```
+</UniversalEditor>
+
+## 建立 Channel
+
+### 無緩衝 vs 緩衝 Channel
+
+<UniversalEditor title="Channel 類型">
+```java !! java
+// Java：BlockingQueue（類似緩衝 channel）
+import java.util.concurrent.*;
+
+public class QueueExample {
+    public static void main(String[] args) throws Exception {
+        BlockingQueue<String> synchronousQueue = new SynchronousQueue<>();
+        BlockingQueue<String> bufferedQueue = new LinkedBlockingQueue<>(10);
+
+        new Thread(() -> {
+            try {
+                synchronousQueue.put("Message");
+                System.out.println("Sent to synchronous queue");
+            } catch (InterruptedException e) {}
+        }).start();
+
+        new Thread(() -> {
+            try {
+                String msg = synchronousQueue.take();
+                System.out.println("Received: " + msg);
+            } catch (InterruptedException e) {}
+        }).start();
+    }
+}
+```
+
+```go !! go
+// Go：無緩衝和緩衝 channel
+package main
+
+import (
+	"fmt"
+	"time"
+)
+
+func main() {
+	unbuffered := make(chan int)
+	buffered := make(chan string, 10)
+
+	go func() {
+		fmt.Println("Sending to unbuffered...")
+		unbuffered <- 42
+		fmt.Println("Sent to unbuffered!")
+	}()
+
+	time.Sleep(time.Second)
+	value := <-unbuffered
+	fmt.Printf("Received from unbuffered: %d\n", value)
+
+	buffered <- "Hello"
+	buffered <- "World"
+	fmt.Printf("Buffered length: %d\n", len(buffered))
+}
+```
+</UniversalEditor>
+
+## Channel 方向
+
+### 限制 Channel 使用
+
+<UniversalEditor title="Channel 方向">
+```java !! java
+// Java：沒有內建的 channel 方向限制
+import java.util.concurrent.*;
+
+public class ChannelDirections {
+    static class Producer {
+        private final BlockingQueue<String> queue;
+
+        Producer(BlockingQueue<String> queue) {
+            this.queue = queue;
+        }
+
+        void produce(String message) throws InterruptedException {
+            queue.put(message);
+        }
+    }
+}
+```
+
+```go !! go
+// Go：雙向、只發送、只接收 channel
+package main
+
+import (
+	"fmt"
+)
+
+func producer(ch chan<- int) {
+	ch <- 42
+	close(ch)
+}
+
+func consumer(ch <-chan int) {
+	value := <-ch
+	fmt.Printf("Received: %d\n", value)
+}
+
+func main() {
+	ch := make(chan int)
+	go producer(ch)
+	consumer(ch)
+}
+```
+</UniversalEditor>
+
+## 關閉 Channel
+
+### 優雅關閉
+
+<UniversalEditor title="關閉 Channel">
+```java !! java
+// Java：使用毒丸或特殊值表示完成
+import java.util.concurrent.*;
+
+public class ClosingChannels {
+    static final String POISON_PILL = "POISON";
+
+    public static void main(String[] args) throws Exception {
+        BlockingQueue<String> queue = new LinkedBlockingQueue<>();
+
+        new Thread(() -> {
+            try {
+                for (int i = 0; i < 5; i++) {
+                    queue.put("Message " + i);
+                }
+                queue.put(POISON_PILL);
+            } catch (InterruptedException e) {}
+        }).start();
+
+        new Thread(() -> {
+            try {
+                while (true) {
+                    String msg = queue.take();
+                    if (msg.equals(POISON_PILL)) break;
+                    System.out.println("Processed: " + msg);
+                }
+            } catch (InterruptedException e) {}
+        }).start();
+    }
+}
+```
+
+```go !! go
+// Go：關閉 channel 表示沒有更多值
+package main
+
+import (
+	"fmt"
+)
+
+func producer(ch chan<- int) {
+	for i := 0; i < 5; i++ {
+		ch <- i
+	}
+	close(ch)
+}
+
+func consumer(ch <-chan int) {
+	for value := range ch {
+		fmt.Printf("Received: %d\n", value)
+	}
+}
+
+func main() {
+	ch := make(chan int)
+	go producer(ch)
+	consumer(ch)
+}
+```
+</UniversalEditor>
+
+## Select 陳述式
+
+### 等待多個 Channel
+
+<UniversalEditor title="Select - 多 Channel 操作">
+```java !! java
+// Java：沒有 select 的直接等價物
+import java.util.concurrent.*;
+
+public class SelectEquivalent {
+    public static void main(String[] args) throws Exception {
+        BlockingQueue<String> queue1 = new LinkedBlockingQueue<>();
+        BlockingQueue<String> queue2 = new LinkedBlockingQueue<>();
+
+        new Thread(() -> {
+            try {
+                while (true) {
+                    String msg;
+                    if ((msg = queue1.poll(100, TimeUnit.MILLISECONDS)) != null) {
+                        System.out.println("From queue1: " + msg);
+                        break;
+                    }
+                    if ((msg = queue2.poll(100, TimeUnit.MILLISECONDS)) != null) {
+                        System.out.println("From queue2: " + msg);
+                        break;
+                    }
+                }
+            } catch (InterruptedException e) {}
+        }).start();
+
+        Thread.sleep(50);
+        queue1.put("Hello");
+    }
+}
+```
+
+```go !! go
+// Go：Select 陳述式等待多個 channel
+package main
+
+import (
+	"fmt"
+	"time"
+)
+
+func main() {
+	ch1 := make(chan string)
+	ch2 := make(chan string)
+
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		ch1 <- "one"
+	}()
+
+	go func() {
+		time.Sleep(200 * time.Millisecond)
+		ch2 <- "two"
+	}()
+
+	for i := 0; i < 2; i++ {
+		select {
+		case msg1 := <-ch1:
+			fmt.Println("Received from ch1:", msg1)
+		case msg2 := <-ch2:
+			fmt.Println("Received from ch2:", msg2)
+		}
+	}
+}
+```
+</UniversalEditor>
+
+### 超時模式
+
+<UniversalEditor title="超時模式">
+```java !! java
+// Java：使用 poll(timeout) 實作超時
+import java.util.concurrent.*;
+
+public class TimeoutPattern {
+    public static void main(String[] args) throws Exception {
+        BlockingQueue<String> queue = new LinkedBlockingQueue<>();
+
+        new Thread(() -> {
+            try {
+                Thread.sleep(2000);
+                queue.put("Delayed message");
+            } catch (InterruptedException e) {}
+        }).start();
+
+        String msg = queue.poll(1, TimeUnit.SECONDS);
+        if (msg == null) {
+            System.out.println("Timeout");
+        }
+    }
+}
+```
+
+```go !! go
+// Go：Select with time.After 實作超時
+package main
+
+import (
+	"fmt"
+	"time"
+)
+
+func main() {
+	ch := make(chan string)
+
+	go func() {
+		time.Sleep(2 * time.Second)
+		ch <- "Result"
+	}()
+
+	select {
+	case result := <-ch:
+		fmt.Println("Received:", result)
+	case <-time.After(1 * time.Second):
+		fmt.Println("Timeout")
+	}
+}
+```
+</UniversalEditor>
+
+## Fan-Out 和 Fan-In 模式
+
+### Fan-Out：分發工作
+
+<UniversalEditor title="Fan-Out 模式">
+```java !! java
+// Java：使用多個消費者的 fan-out
+import java.util.concurrent.*;
+
+public class FanOut {
+    static BlockingQueue<Integer> queue = new LinkedBlockingQueue<>(100);
+
+    static class Worker implements Runnable {
+        public void run() {
+            try {
+                while (true) {
+                    Integer task = queue.take();
+                    System.out.println("Processing " + task);
+                    Thread.sleep(100);
+                }
+            } catch (InterruptedException e) {}
+        }
+    }
+}
+```
+
+```go !! go
+// Go：使用多個 goroutine 的 fan-out
+package main
+
+import (
+	"fmt"
+	"sync"
+	"time"
+)
+
+func worker(id int, jobs <-chan int, wg *sync.WaitGroup) {
+	defer wg.Done()
+
+	for job := range jobs {
+		fmt.Printf("Worker %d processing job %d\n", id, job)
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+func main() {
+	jobs := make(chan int, 10)
+	var wg sync.WaitGroup
+
+	for i := 1; i <= 3; i++ {
+		wg.Add(1)
+		go worker(i, jobs, &wg)
+	}
+
+	for j := 0; j < 10; j++ {
+		jobs <- j
+	}
+	close(jobs)
+
+	wg.Wait()
+}
+```
+</UniversalEditor>
+
+## 生產者-消費者模式
+
+<UniversalEditor title="生產者-消費者模式">
+```java !! java
+// Java：使用 BlockingQueue 的經典生產者-消費者
+import java.util.concurrent.*;
+
+public class ProducerConsumer {
+    private static final BlockingQueue<Integer> queue = new ArrayBlockingQueue<>(10);
+
+    static class Producer implements Runnable {
+        public void run() {
+            try {
+                for (int i = 0; i < 20; i++) {
+                    queue.put(i);
+                    System.out.println("Produced: " + i);
+                    Thread.sleep(50);
+                }
+            } catch (InterruptedException e) {}
+        }
+    }
+
+    static class Consumer implements Runnable {
+        public void run() {
+            try {
+                while (true) {
+                    Integer value = queue.poll(1, TimeUnit.SECONDS);
+                    if (value == null) break;
+                    System.out.println("Consumed: " + value);
+                    Thread.sleep(100);
+                }
+            } catch (InterruptedException e) {}
+        }
+    }
+}
+```
+
+```go !! go
+// Go：使用 channel 的生產者-消費者
+package main
+
+import (
+	"fmt"
+	"sync"
+	"time"
+)
+
+func producer(id int, items chan<- int, wg *sync.WaitGroup) {
+	defer wg.Done()
+
+	for i := 0; i < 10; i++ {
+		item := id*10 + i
+		items <- item
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+func consumer(items <-chan int, done chan<- bool) {
+	for item := range items {
+		fmt.Printf("Consumed: %d\n", item)
+		time.Sleep(100 * time.Millisecond)
+	}
+	done <- true
+}
+
+func main() {
+	items := make(chan int, 10)
+	done := make(chan bool)
+	var wg sync.WaitGroup
+
+	wg.Add(2)
+	go producer(1, items, &wg)
+	go producer(2, items, &wg)
+
+	go func() {
+		wg.Wait()
+		close(items)
+	}()
+
+	go consumer(items, done)
+	<-done
+}
+```
+</UniversalEditor>
+
+## 最佳實踐
+
+<UniversalEditor title="Channel 最佳實踐">
+```go !! go
+// Go：Channel 最佳實踐
+package main
+
+import (
+	"context"
+	"fmt"
+	"time"
+)
+
+func producer(ctx context.Context, ch chan<- int) <-chan struct{} {
+	done := make(chan struct{})
+
+	go func() {
+		defer close(ch)
+		defer close(done)
+
+		for i := 0; i < 5; i++ {
+			select {
+			case ch <- i:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
+	return done
+}
+
+func consumer(ch <-chan int) {
+	for value := range ch {
+		fmt.Printf("Received: %d\n", value)
+	}
+}
+
+func main() {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	ch := make(chan int)
+	done := producer(ctx, ch)
+
+	go consumer(ch)
+	<-done
+}
+```
+</UniversalEditor>
+
+## 練習題
+
+1. **哲學**：為什麼 Go 倡導"透過通訊共享記憶體"而不是"透過共享記憶體通訊"？
+
+2. **Channel 類型**：何時使用無緩衝 channel vs 緩衝 channel？
+
+3. **Select**：Go 的 select 陳述式與 Java 的阻塞佇列操作相比有什麼強大之處？
+
+## 專案想法
+
+1. **並行資料 Pipeline**：構建多階段 pipeline
+2. **作業佇列系統**：實作分布式作業佇列
+3. **限流器**：使用 channel 和 ticker 建立令牌桶限流器
+
+## 下一步
+
+現在你已經理解了 channel 和 select：
+
+- **下一模組**：學習使用 Go 的 net/http 套件進行 **Web 開發**
+- **練習**：廣泛使用 channel 建構並行應用
+
+## 總結
+
+**Channel vs Java 的 BlockingQueue：**
+- Channel 是語言原語，不僅僅是庫類別
+- 方向類型提供編譯時安全
+- Select 陳述式支援強大的多 channel 操作
+- Go 的 CSP 模型促進更安全的並行
+
+**關鍵要點**：Go 的 channel 和 select 陳述式為協調 goroutine 提供了強大且安全的方式。透過通訊共享記憶體，你可以避免整類並行 bug。

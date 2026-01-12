@@ -73,6 +73,14 @@ const SOURCE_LANGUAGES = [
         path: 'js2kotlin',
         status: 'completed' as const,
       },
+      {
+        id: 'java',
+        name: 'Java',
+        icon: '☕',
+        gradient: 'from-red-500 to-rose-500',
+        path: 'js2java',
+        status: 'completed' as const,
+      },
     ]
   },
   {
@@ -90,7 +98,48 @@ const SOURCE_LANGUAGES = [
         gradient: 'from-yellow-500 to-orange-500',
         path: 'py2js',
         status: 'completed' as const,
-      }
+      },
+      {
+        id: 'rust',
+        name: 'Rust',
+        icon: '🦀',
+        gradient: 'from-orange-500 to-red-500',
+        path: 'py2rust',
+        status: 'completed' as const,
+      },
+      {
+        id: 'go',
+        name: 'Go',
+        icon: '🐹',
+        gradient: 'from-cyan-500 to-blue-500',
+        path: 'py2go',
+        status: 'completed' as const,
+      },
+    ]
+  },
+  {
+    id: 'java',
+    name: 'Java',
+    icon: '☕',
+    gradient: 'from-red-500 to-rose-500',
+    status: 'completed' as const,
+    targets: [
+      {
+        id: 'javascript',
+        name: 'JavaScript',
+        icon: '🚀',
+        gradient: 'from-yellow-500 to-orange-500',
+        path: 'java2js',
+        status: 'completed' as const,
+      },
+      {
+        id: 'go',
+        name: 'Go',
+        icon: '🐹',
+        gradient: 'from-cyan-500 to-blue-500',
+        path: 'java2go',
+        status: 'completed' as const,
+      },
     ]
   }
   // 未来可以添加其他源语言

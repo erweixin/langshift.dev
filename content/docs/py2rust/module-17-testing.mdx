@@ -1,0 +1,920 @@
+---
+title: "Module 17: Testing"
+description: "Master testing in Rust including unit tests, integration tests, property-based testing, and mocking strategies"
+---
+
+# Module 17: Testing
+
+## Learning Objectives
+
+By the end of this module, you'll be able to:
+- Write unit tests with the `#[test]` attribute
+- Create integration tests in the `tests/` directory
+- Use assertions and custom test output
+- Test async code with Tokio
+- Implement property-based testing with proptest
+- Mock dependencies for isolated testing
+
+## Introduction to Testing in Rust
+
+Rust has built-in testing support, unlike Python which requires external frameworks like pytest (though pytest is very popular).
+
+<UniversalEditor compare={true} title="Basic Test Setup">
+```python !! py
+# Python - pytest structure
+# test_calculator.py
+import pytest
+
+def add(a: int, b: int) -> int:
+    return a + b
+
+def test_add_positive():
+    assert add(2, 3) == 5
+
+def test_add_negative():
+    assert add(-1, 1) == 0
+
+@pytest.mark.parametrize("a,b,expected", [
+    (1, 2, 3),
+    (0, 0, 0),
+    (-1, 1, 0),
+])
+def test_add_various(a, b, expected):
+    assert add(a, b) == expected
+
+# Run with: pytest test_calculator.py
+```
+
+```rust !! rs
+// Rust - built-in testing
+// calculator.rs or tests/calculator_test.rs
+
+fn add(a: i32, b: i32) -> i32 {
+    a + b
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_add_positive() {
+        assert_eq!(add(2, 3), 5);
+    }
+
+    #[test]
+    fn test_add_negative() {
+        assert_eq!(add(-1, 1), 0);
+    }
+
+    // No built-in parametrize, but we can iterate
+    #[test]
+    fn test_add_various() {
+        let cases = [(1, 2, 3), (0, 0, 0), (-1, 1, 0)];
+        for (a, b, expected) in cases {
+            assert_eq!(add(a, b), expected);
+        }
+    }
+}
+
+// Run with: cargo test
+```
+</UniversalEditor>
+
+## Unit Tests vs Integration Tests
+
+Rust has two types of tests with different locations:
+
+<UniversalEditor compare={true} title="Test Organization">
+```python !! py
+# Python - Flat structure
+# src/calculator.py
+def add(a, b):
+    return a + b
+
+# tests/test_calculator.py
+import pytest
+from calculator import add
+
+def test_add():
+    assert add(2, 3) == 5
+```
+
+```rust !! rs
+// Rust - Separated unit and integration tests
+// src/lib.rs or src/main.rs
+pub fn add(a: i32, b: i32) -> i32 {
+    a + b
+}
+
+// Unit tests: in the same file
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_add() {
+        assert_eq!(add(2, 3), 5);
+    }
+}
+
+// Integration tests: in tests/ directory
+// tests/integration_test.rs
+use my_crate::add;
+
+#[test]
+fn test_integration_add() {
+    assert_eq!(add(10, 20), 30);
+}
+```
+</UniversalEditor>
+
+**Key Point:**
+- **Unit tests**: Test private functions, placed in the same module
+- **Integration tests**: Test public API, placed in `tests/` directory
+
+## Assertions and Output
+
+<UniversalEditor compare={true} title="Assertion Types">
+```python !! py
+# Python - pytest assertions
+import pytest
+
+def divide(a, b):
+    if b == 0:
+        raise ValueError("Cannot divide by zero")
+    return a / b
+
+def test_divide():
+    assert divide(10, 2) == 5
+    assert divide(10, 2) != 4
+
+    with pytest.raises(ValueError):
+        divide(10, 0)
+
+    # Custom message
+    assert divide(10, 2) > 0, "Result should be positive"
+
+    # Approximate equality
+    assert abs(0.1 + 0.2 - 0.3) < 1e-10
+```
+
+```rust !! rs
+// Rust - assertion macros
+fn divide(a: f64, b: f64) -> Result<f64, String> {
+    if b == 0.0 {
+        Err("Cannot divide by zero".to_string())
+    } else {
+        Ok(a / b)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_divide() {
+        assert_eq!(divide(10.0, 2.0).unwrap(), 5.0);
+        assert_ne!(divide(10.0, 2.0).unwrap(), 4.0);
+
+        // Test for error
+        assert!(divide(10.0, 0.0).is_err());
+
+        // Custom message
+        assert!(divide(10.0, 2.0).unwrap() > 0.0,
+                "Result should be positive");
+
+        // Approximate equality
+        let result = 0.1_f64 + 0.2;
+        assert!((result - 0.3).abs() < 1e-10);
+    }
+
+    #[test]
+    #[should_panic(expected = "Cannot divide")]
+    fn test_divide_panic() {
+        let _ = divide(10.0, 0.0).unwrap();
+    }
+}
+```
+</UniversalEditor>
+
+## Testing Async Code
+
+<UniversalEditor compare={true} title="Async Tests">
+```python !! py
+# Python - pytest-asyncio
+import pytest
+import asyncio
+
+async def fetch_data(url: str) -> dict:
+    await asyncio.sleep(0.1)
+    return {"status": "ok", "data": [1, 2, 3]}
+
+@pytest.mark.asyncio
+async def test_fetch_data():
+    result = await fetch_data("https://api.example.com")
+    assert result["status"] == "ok"
+    assert len(result["data"]) == 3
+
+# Or use pytest fixture
+@pytest.fixture
+async def async_fixture():
+    await asyncio.sleep(0.01)
+    return {"initialized": True}
+
+@pytest.mark.asyncio
+async def test_with_fixture(async_fixture):
+    assert async_fixture["initialized"]
+```
+
+```rust !! rs
+// Rust - Tokio test macros
+use tokio::time::{sleep, Duration};
+
+async fn fetch_data(url: &str) -> serde_json::Value {
+    sleep(Duration::from_millis(100)).await;
+    json!({"status": "ok", "data": [1, 2, 3]})
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Use tokio::test for async tests
+    #[tokio::test]
+    async fn test_fetch_data() {
+        let result = fetch_data("https://api.example.com").await;
+        assert_eq!(result["status"], "ok");
+        assert_eq!(result["data"].as_array().unwrap().len(), 3);
+    }
+
+    // Test timeout
+    #[tokio::test]
+    async fn test_with_timeout() {
+        let result = tokio::time::timeout(
+            Duration::from_millis(200),
+            fetch_data("https://api.example.com")
+        ).await;
+
+        assert!(result.is_ok());
+    }
+}
+```
+</UniversalEditor>
+
+## Property-Based Testing
+
+<UniversalEditor compare={true} title="Property-Based Testing">
+```python !! py
+# Python - hypothesis
+from hypothesis import given, strategies as st
+
+def reverse_string(s: str) -> str:
+    return s[::-1]
+
+@given(st.text())
+def test_reverse_double_reverse(s):
+    # Property: reversing twice gives original
+    assert reverse_string(reverse_string(s)) == s
+
+@given(st.text(), st.text())
+def test_reverse_concat(s1, s2):
+    # Property: reverse concatenation
+    combined = s1 + s2
+    reversed_combined = reverse_string(combined)
+    assert reversed_combined == reverse_string(s2) + reverse_string(s1)
+```
+
+```rust !! rs
+// Rust - proptest
+use proptest::prelude::*;
+
+fn reverse_string(s: &str) -> String {
+    s.chars().rev().collect()
+}
+
+proptest! {
+    #[test]
+    fn test_reverse_double_reverse(s in ".*") {
+        // Property: reversing twice gives original
+        prop_assert_eq!(
+            reverse_string(&reverse_string(&s)),
+            s
+        );
+    }
+
+    #[test]
+    fn test_reverse_concat(s1 in ".*", s2 in ".*") {
+        // Property: reverse concatenation
+        let combined = format!("{}{}", s1, s2);
+        let reversed_combined = reverse_string(&combined);
+        prop_assert_eq!(
+            reversed_combined,
+            format!("{}{}", reverse_string(&s2), reverse_string(&s1))
+        );
+    }
+}
+```
+</UniversalEditor>
+
+## Custom Test Output
+
+<UniversalEditor compare={true} title="Test Output and Debugging">
+```python !! py
+# Python - pytest output
+import pytest
+
+def process_data(items):
+    results = []
+    for item in items:
+        result = item * 2
+        results.append(result)
+    return results
+
+def test_process_data(capsys):
+    data = [1, 2, 3]
+    print(f"Processing: {data}")
+    result = process_data(data)
+    print(f"Result: {result}")
+
+    assert result == [2, 4, 6]
+
+    # Capture output
+    captured = capsys.readouterr()
+    assert "Processing:" in captured.out
+```
+
+```rust !! rs
+// Rust - custom test output
+fn process_data(items: &[i32]) -> Vec<i32> {
+    items.iter().map(|&x| x * 2).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_process_data() {
+        let data = vec![1, 2, 3];
+        println!("Processing: {:?}", data);
+
+        let result = process_data(&data);
+        println!("Result: {:?}", result);
+
+        assert_eq!(result, vec![2, 4, 6]);
+    }
+
+    // Show values even on panic
+    #[test]
+    #[should_panic]
+    fn test_with_debug_output() {
+        let data = vec![1, 2, 3];
+        let result = process_data(&data);
+        // This will panic and show data
+        assert_eq!(result, vec![1, 2, 3]);
+    }
+}
+
+// Run with: cargo test -- --nocapture (show print output)
+// or: cargo test -- --show-output (show test output)
+```
+</UniversalEditor>
+
+## Test Organization and Fixtures
+
+<UniversalEditor compare={true} title="Test Fixtures">
+```python !! py
+# Python - pytest fixtures
+import pytest
+
+class Database:
+    def __init__(self):
+        self.data = {}
+
+    def insert(self, key, value):
+        self.data[key] = value
+
+    def get(self, key):
+        return self.data.get(key)
+
+@pytest.fixture
+def db():
+    database = Database()
+    database.insert("test", "value")
+    yield database
+    # Cleanup happens here
+
+def test_database(db):
+    assert db.get("test") == "value"
+    db.insert("new", "data")
+    assert db.get("new") == "data"
+```
+
+```rust !! rs
+// Rust - manual setup/teardown
+struct Database {
+    data: std::collections::HashMap<String, String>,
+}
+
+impl Database {
+    fn new() -> Self {
+        let mut db = Self {
+            data: std::collections::HashMap::new(),
+        };
+        db.insert("test".to_string(), "value".to_string());
+        db
+    }
+
+    fn insert(&mut self, key: String, value: String) {
+        self.data.insert(key, value);
+    }
+
+    fn get(&self, key: &str) -> Option<&String> {
+        self.data.get(key)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_database() {
+        // Manual setup
+        let mut db = Database::new();
+
+        assert_eq!(db.get("test"), Some(&"value".to_string()));
+
+        db.insert("new".to_string(), "data".to_string());
+        assert_eq!(db.get("new"), Some(&"data".to_string()));
+
+        // Automatic cleanup when db goes out of scope
+    }
+}
+```
+</UniversalEditor>
+
+## Mocking Dependencies
+
+<UniversalEditor compare={true} title="Mocking with Traits">
+```python !! py
+# Python - pytest monkeypatch or unittest.mock
+from unittest.mock import Mock, patch
+
+class UserService:
+    def __init__(self, api_client):
+        self.api_client = api_client
+
+    def get_user(self, user_id):
+        return self.api_client.fetch(f"/users/{user_id}")
+
+def test_user_service():
+    mock_api = Mock()
+    mock_api.fetch.return_value = {"id": 1, "name": "Alice"}
+
+    service = UserService(mock_api)
+    user = service.get_user(1)
+
+    assert user["name"] == "Alice"
+    mock_api.fetch.assert_called_once_with("/users/1")
+```
+
+```rust !! rs
+// Rust - trait-based mocking
+trait ApiClient {
+    fn fetch(&self, path: &str) -> serde_json::Value;
+}
+
+struct UserService<T: ApiClient> {
+    api_client: T,
+}
+
+impl<T: ApiClient> UserService<T> {
+    fn new(api_client: T) -> Self {
+        Self { api_client }
+    }
+
+    fn get_user(&self, user_id: i32) -> serde_json::Value {
+        let path = format!("/users/{}", user_id);
+        self.api_client.fetch(&path)
+    }
+}
+
+// Mock implementation for testing
+struct MockApiClient {
+    response: serde_json::Value,
+}
+
+impl ApiClient for MockApiClient {
+    fn fetch(&self, _path: &str) -> serde_json::Value {
+        self.response.clone()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_user_service() {
+        let mock_api = MockApiClient {
+            response: json!({"id": 1, "name": "Alice"}),
+        };
+
+        let service = UserService::new(mock_api);
+        let user = service.get_user(1);
+
+        assert_eq!(user["name"], "Alice");
+        assert_eq!(user["id"], 1);
+    }
+}
+```
+</UniversalEditor>
+
+## Benchmarking
+
+<UniversalEditor compare={true} title="Performance Testing">
+```python !! py
+# Python - pytest-benchmark
+import pytest
+
+def fibonacci(n):
+    if n <= 1:
+        return n
+    return fibonacci(n - 1) + fibonacci(n - 2)
+
+@pytest.mark.benchmark(group="fibonacci")
+def test_fib_10(benchmark):
+    result = benchmark(fibonacci, 10)
+    assert result == 55
+
+@pytest.mark.benchmark(group="fibonacci")
+def test_fib_20(benchmark):
+    result = benchmark(fibonacci, 20)
+    assert result == 6765
+```
+
+```rust !! rs
+// Rust - Criterion (external crate)
+// Add criterion to dev-dependencies
+// [[bench]]
+// name = "fibonacci"
+// harness = false
+
+fn fibonacci(n: u64) -> u64 {
+    match n {
+        0 => 0,
+        1 => 1,
+        _ => fibonacci(n - 1) + fibonacci(n - 2),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_fibonacci() {
+        assert_eq!(fibonacci(10), 55);
+        assert_eq!(fibonacci(20), 6765);
+    }
+}
+
+// benches/fibonacci.rs
+use criterion::{black_box, criterion_group, criterion_main, Criterion};
+
+fn fibonacci_benchmark(c: &mut Criterion) {
+    c.bench_function("fib 10", |b| {
+        b.iter(|| fibonacci(black_box(10)))
+    });
+
+    c.bench_function("fib 20", |b| {
+        b.iter(|| fibonacci(black_box(20)))
+    });
+}
+
+criterion_group!(benches, fibonacci_benchmark);
+criterion_main!(benches);
+
+// Run with: cargo bench
+```
+</UniversalEditor>
+
+## Testing Error Handling
+
+<UniversalEditor compare={true} title="Error Testing">
+```python !! py
+# Python - Exception testing
+import pytest
+
+class ValidationError(Exception):
+    pass
+
+def validate_email(email: str) -> str:
+    if "@" not in email:
+        raise ValidationError("Invalid email")
+    return email.lower()
+
+def test_valid_email():
+    assert validate_email("USER@EXAMPLE.COM") == "user@example.com"
+
+def test_invalid_email():
+    with pytest.raises(ValidationError) as exc:
+        validate_email("invalid")
+    assert "Invalid email" in str(exc.value)
+```
+
+```rust !! rs
+// Rust - Result testing
+#[derive(Debug, PartialEq)]
+enum ValidationError {
+    InvalidEmail(String),
+}
+
+fn validate_email(email: &str) -> Result<String, ValidationError> {
+    if !email.contains('@') {
+        Err(ValidationError::InvalidEmail("Invalid email".to_string()))
+    } else {
+        Ok(email.to_lowercase())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_valid_email() {
+        let result = validate_email("USER@EXAMPLE.COM");
+        assert_eq!(result, Ok("user@example.com".to_string()));
+    }
+
+    #[test]
+    fn test_invalid_email() {
+        let result = validate_email("invalid");
+        assert!(result.is_err());
+
+        if let Err(ValidationError::InvalidEmail(msg)) = result {
+            assert!(msg.contains("Invalid email"));
+        } else {
+            panic!("Expected InvalidEmail error");
+        }
+    }
+
+    #[test]
+    fn test_invalid_email_short() {
+        assert!(validate_email("invalid").is_err());
+    }
+}
+```
+</UniversalEditor>
+
+## Practical Example: Testing a REST Client
+
+<UniversalEditor compare={true} title="Complete Test Suite">
+```python !! py
+# Python - Testing HTTP client
+import pytest
+from unittest.mock import Mock, patch
+import aiohttp
+
+class RestClient:
+    def __init__(self, base_url: str):
+        self.base_url = base_url
+
+    async def get_user(self, user_id: int) -> dict:
+        async with aiohttp.ClientSession() as session:
+            url = f"{self.base_url}/users/{user_id}"
+            async with session.get(url) as response:
+                return await response.json()
+
+@pytest.mark.asyncio
+async def test_get_user_success():
+    client = RestClient("https://api.example.com")
+
+    # Mock the HTTP request
+    with patch("aiohttp.ClientSession.get") as mock_get:
+        mock_response = Mock()
+        mock_response.json.return_value = {"id": 1, "name": "Alice"}
+        mock_get.return_value.__aenter__.return_value = mock_response
+
+        user = await client.get_user(1)
+        assert user["name"] == "Alice"
+```
+
+```rust !! rs
+// Rust - Testing HTTP client with mock
+use reqwest::Client;
+
+pub struct RestClient {
+    base_url: String,
+    client: Client,
+}
+
+impl RestClient {
+    pub fn new(base_url: &str) -> Self {
+        Self {
+            base_url: base_url.to_string(),
+            client: Client::new(),
+        }
+    }
+
+    pub async fn get_user(&self, user_id: i32) -> Result<serde_json::Value, reqwest::Error> {
+        let url = format!("{}/users/{}", self.base_url, user_id);
+        let response = self.client.get(&url).send().await?;
+        response.json().await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wiremock::{matchers, Mock, MockServer, ResponseTemplate};
+
+    #[tokio::test]
+    async fn test_get_user_success() {
+        // Create mock server
+        let mock_server = MockServer::start().await;
+
+        // Setup mock response
+        Mock::given(matchers::method("GET"))
+            .and(matchers::path("/users/1"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(
+                json!({"id": 1, "name": "Alice"})
+            ))
+            .mount(&mock_server)
+            .await;
+
+        // Create client with mock server URL
+        let client = RestClient::new(&mock_server.uri());
+        let user = client.get_user(1).await.unwrap();
+
+        assert_eq!(user["name"], "Alice");
+        assert_eq!(user["id"], 1);
+    }
+}
+```
+</UniversalEditor>
+
+## Test-Driven Development Example
+
+<UniversalEditor compare={true} title="TDD Workflow">
+```python !! py
+# Python - TDD approach
+# 1. Write failing test first
+def test_calculate_discount():
+    customer = Customer(premium=True, years=5)
+    discount = calculate_discount(customer, 100)
+    assert discount == 20  # 20% discount
+
+# 2. Implement minimum code to pass
+def calculate_discount(customer, amount):
+    if customer.premium:
+        return amount * 0.2
+    return 0
+
+# 3. Refactor with more rules
+def calculate_discount(customer, amount):
+    discount = 0
+    if customer.premium:
+        discount += 0.1
+    if customer.years >= 5:
+        discount += 0.1
+    return amount * discount
+```
+
+```rust !! rs
+// Rust - TDD approach
+// 1. Write failing test first
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_calculate_discount() {
+        let customer = Customer {
+            premium: true,
+            years: 5,
+        };
+        let discount = calculate_discount(&customer, 100);
+        assert_eq!(discount, 20); // 20% discount
+    }
+}
+
+// 2. Implement minimum code to pass
+pub struct Customer {
+    pub premium: bool,
+    pub years: u32,
+}
+
+pub fn calculate_discount(customer: &Customer, amount: u32) -> u32 {
+    if customer.premium {
+        amount * 20 / 100
+    } else {
+        0
+    }
+}
+
+// 3. Refactor with more rules
+pub fn calculate_discount(customer: &Customer, amount: u32) -> u32 {
+    let mut discount_percent = 0;
+
+    if customer.premium {
+        discount_percent += 10;
+    }
+    if customer.years >= 5 {
+        discount_percent += 10;
+    }
+
+    amount * discount_percent / 100
+}
+```
+</UniversalEditor>
+
+## Running Tests
+
+<UniversalEditor compare={true} title="Test Commands">
+```bash !! bash
+# Python - pytest commands
+# Run all tests
+pytest
+
+# Run specific file
+pytest test_calculator.py
+
+# Run verbose
+pytest -v
+
+# Run with coverage
+pytest --cov=src --cov-report=html
+
+# Stop on first failure
+pytest -x
+
+# Run matching pattern
+pytest -k "test_add"
+```
+
+```rust !! rs
+// Rust - cargo test commands
+// Run all tests
+cargo test
+
+// Run specific test
+cargo test test_add
+
+// Run tests in specific file
+cargo test --lib calculator
+
+// Run verbose (show print output)
+cargo test -- --nocapture
+
+// Run integration tests only
+cargo test --test integration_test
+
+// Run doc tests (examples in documentation)
+cargo test --doc
+
+// Run tests with stdout
+cargo test -- --show-output
+
+// Run tests in release mode (faster)
+cargo test --release
+```
+</UniversalEditor>
+
+## Key Takeaways
+
+### Testing Philosophy
+- **Python**: Emphasis on simplicity and expressiveness with pytest
+- **Rust**: Built-in testing with focus on safety and performance
+
+### Test Organization
+- **Python**: Tests in `test_*.py` files or `tests/` directory
+- **Rust**: Unit tests in same file, integration tests in `tests/` directory
+
+### Async Testing
+- **Python**: Requires pytest-asyncio plugin
+- **Rust**: Requires `#[tokio::test]` macro
+
+### Property-Based Testing
+- **Python**: Hypothesis framework
+- **Rust**: Proptest crate
+
+### Mocking
+- **Python**: unittest.mock or monkeypatch
+- **Rust**: Trait-based mocking or dedicated mocking libraries
+
+## Exercises
+
+1. Write unit tests for a calculator with all basic operations
+2. Create integration tests for a REST API client
+3. Implement property-based tests for a sorting algorithm
+4. Build a mock implementation for a database trait
+5. Add benchmark tests for different sorting algorithms
+
+## Next Module
+
+In Module 18, we'll explore **Macros in Rust**, including declarative macros with `macro_rules!`, derive macros, and procedural macros.

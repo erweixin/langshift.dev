@@ -1,0 +1,818 @@
+---
+title: "模組 6:數據結構"
+description: "透過與 Python 的類和數據結構比較來掌握 Rust 的數據結構——結構體、枚舉和集合。"
+---
+
+# 模組 6:數據結構
+
+數據結構是任何程式的構建塊。Python 使用類來處理一切,而 Rust 為不同用例提供了專門的工具:結構體用於數據,枚舉用於變體,以及強大的集合類型。
+
+## 學習目標
+
+完成本模組後,你將理解:
+- ✅ 結構體:命名結構體、元組結構體和單元結構體
+- ✅ 枚舉:攜帶數據的枚舉和 Option/Result
+- ✅ 方法:impl 塊和 self
+- ✅ 集合:Vec、HashMap、HashSet 等
+- ✅ 字符串:String vs &str
+- ✅ 數組和切片
+- ✅ 數據結構的模式匹配
+- ✅ 派生特質和自定義實現
+
+## 結構體
+
+結構體是 Rust 將相關數據分組在一起的方式。
+
+### 命名字段結構體
+
+<UniversalEditor compare={true} title="命名字段結構體">
+```python !! py
+# Python: 使用 dataclass 或類
+from dataclasses import dataclass
+
+@dataclass
+class Person:
+    name: str
+    age: int
+    email: str
+
+# 創建實例
+person = Person("Alice", 25, "alice@example.com")
+
+# 訪問字段
+print(person.name)
+print(person.age)
+
+# 更新(如果凍結則創建新實例)
+person.age = 26
+```
+
+```rust !! rs
+// Rust: 命名字段結構體
+struct Person {
+    name: String,
+    age: u32,
+    email: String,
+}
+
+// 創建實例
+let person = Person {
+    name: String::from("Alice"),
+    age: 25,
+    email: String::from("alice@example.com"),
+};
+
+// 訪問字段
+println!("{}", person.name);
+println!("{}", person.age);
+
+// 更新(需要 mut)
+let mut person = person;
+person.age = 26;
+
+// 或使用更新語法創建新實例
+let person2 = Person {
+    age: 27,
+    ..person  // 移動剩餘字段
+};
+```
+</UniversalEditor>
+
+### 元組結構體
+
+<UniversalEditor compare={true} title="元組結構體">
+```python !! py
+# Python: 使用 namedtuple 或元組
+from collections import namedtuple
+Color = namedtuple('Color', ['red', 'green', 'blue'])
+
+black = Color(0, 0, 0)
+print(black.red)
+
+# 或直接使用元組
+color = (255, 0, 0)
+print(color[0])  # 255
+```
+
+```rust !! rs
+// Rust: 元組結構體
+struct Color(u8, u8, u8);
+
+let black = Color(0, 0, 0);
+println!("{}", black.0);  // 通過索引訪問
+
+// 也可以解構
+let Color(r, g, b) = black;
+println!("R: {}, G: {}, B: {}", r, g, b);
+
+// 用於單字段包裝器(newtype 模式)
+struct Meters(u32);
+struct Kilometers(u32);
+
+let distance = Meters(1000);
+// Meters 和 Kilometers 是不同的類型!
+```
+</UniversalEditor>
+
+### 類單元結構體
+
+<UniversalEditor compare={true} title="類單元結構體">
+```python !! py
+# Python: 單例或標記類
+class Singleton:
+    instance = None
+
+    def __new__(cls):
+        if cls.instance is None:
+            cls.instance = super().__new__(cls)
+        return cls.instance
+```
+
+```rust !! rs
+// Rust: 類單元結構體(無字段)
+struct Singleton;
+
+impl Singleton {
+    fn instance() -> &'static Singleton {
+        // 實現會使用 OnceLock 或 lazy_static
+        &Singleton
+    }
+}
+
+// 標記類型
+struct Marker;
+```
+</UniversalEditor>
+
+## 枚舉
+
+Rust 中的枚舉很強大——它們可以攜帶數據!
+
+<UniversalEditor compare={true} title="基本枚舉">
+```python !! py
+# Python: Enum(來自 enum 模組)
+from enum import Enum
+
+class Color(Enum):
+    RED = 1
+    GREEN = 2
+    BLUE = 3
+
+color = Color.RED
+print(color)  # Color.RED
+```
+
+```rust !! rs
+// Rust: 枚舉可以攜帶數據!
+enum Color {
+    Red,
+    Green,
+    Blue,
+    RGB(u8, u8, u8),  // 可以攜帶數據!
+    CMYK { c: u8, m: u8, y: u8, k: u8 },  // 或命名字段
+}
+
+let color = Color::Red;
+
+// 在枚舉上匹配
+match color {
+    Color::Red => println!("Red"),
+    Color::Green => println!("Green"),
+    Color::Blue => println!("Blue"),
+    Color::RGB(r, g, b) => println!("RGB: {},{},{}", r, g, b),
+    Color::CMYK { c, m, y, k } => println!("CMYK: {},{},{},{}", c, m, y, k),
+}
+```
+</UniversalEditor>
+
+### Option 和 Result
+
+<UniversalEditor compare={true} title="Option vs None">
+```python !! py
+# Python: None 表示缺失
+def find_user(user_id):
+    if user_id == 1:
+        return {"name": "Alice"}
+    return None
+
+user = find_user(1)
+if user is not None:
+    print(user["name"])
+```
+
+```rust !! rs
+// Rust: Option 枚舉用於缺失值
+fn find_user(user_id: i32) -> Option<&'static str> {
+    if user_id == 1 {
+        Some("Alice")
+    } else {
+        None
+    }
+}
+
+let user = find_user(1);
+if let Some(name) = user {
+    println!("{}", name);
+}
+
+// 必須顯式處理 None
+let user = find_user(999);
+match user {
+    Some(name) => println!("Found: {}", name),
+    None => println!("Not found"),
+}
+
+// 使用 ? 進行提前返回
+fn get_user_name(user_id: i32) -> Option<&'static str> {
+    let name = find_user(user_id)?;
+    Some(name)
+}
+```
+</UniversalEditor>
+
+<UniversalEditor compare={true} title="Result vs 異常">
+```python !! py
+# Python: 使用異常處理錯誤
+def divide(a, b):
+    if b == 0:
+        raise ValueError("Division by zero")
+    return a / b
+
+try:
+    result = divide(10, 0)
+except ValueError as e:
+    print(f"Error: {e}")
+```
+
+```rust !! rs
+// Rust: Result 枚舉用於錯誤
+fn divide(a: f64, b: f64) -> Result<f64, String> {
+    if b == 0.0 {
+        Err(String::from("Division by zero"))
+    } else {
+        Ok(a / b)
+    }
+}
+
+match divide(10.0, 0.0) {
+    Ok(result) => println!("Result: {}", result),
+    Err(e) => println!("Error: {}", e),
+}
+
+// 使用 ? 進行錯誤傳播
+fn calculate() -> Result<f64, String> {
+    let result = divide(10.0, 2.0)?;
+    Ok(result * 2.0)
+}
+```
+</UniversalEditor>
+
+## 方法
+
+方法是在 `impl` 塊中定義的函數。
+
+<UniversalEditor compare={true} title="定義方法">
+```python !! py
+# Python: 類中的方法
+class Rectangle:
+    def __init__(self, width, height):
+        self.width = width
+        self.height = height
+
+    def area(self):
+        return self.width * self.height
+
+rect = Rectangle(10, 20)
+print(rect.area())  # 200
+```
+
+```rust !! rs
+// Rust: impl 塊中的方法
+struct Rectangle {
+    width: u32,
+    height: u32,
+}
+
+impl Rectangle {
+    // 關聯函數(類似靜態方法)
+    fn new(width: u32, height: u32) -> Self {
+        Rectangle { width, height }
+    }
+
+    // 接收 &self 的方法
+    fn area(&self) -> u32 {
+        self.width * self.height
+    }
+
+    // 接收 &mut self 的方法
+    fn scale(&mut self, factor: u32) {
+        self.width *= factor;
+        self.height *= factor;
+    }
+}
+
+let rect = Rectangle::new(10, 20);
+println!("{}", rect.area());  // 200
+```
+</UniversalEditor>
+
+## 集合
+
+Rust 在標準庫中提供了強大的集合類型。
+
+### Vec (動態數組)
+
+<UniversalEditor compare={true} title="Vec vs List">
+```python !! py
+# Python: 列表
+items = [1, 2, 3, 4, 5]
+
+# 添加元素
+items.append(6)
+
+# 訪問
+print(items[0])  # 1
+
+# 迭代
+for item in items:
+    print(item)
+```
+
+```rust !! rs
+// Rust: Vec<T>
+let mut items = vec![1, 2, 3, 4, 5];
+
+// 添加元素
+items.push(6);
+
+// 訪問
+println!("{}", items[0]);  // 1
+
+// 迭代
+for item in &items {
+    println!("{}", item);
+}
+
+// 使用閉包(map)
+let doubled: Vec<i32> = items.iter().map(|x| x * 2).collect();
+```
+</UniversalEditor>
+
+### HashMap
+
+<UniversalEditor compare={true} title="HashMap vs Dict">
+```python !! py
+# Python: 字典
+scores = {"Alice": 100, "Bob": 95}
+
+# 訪問
+print(scores["Alice"])
+
+# 添加/更新
+scores["Charlie"] = 90
+
+# 檢查存在性
+if "Bob" in scores:
+    print(scores["Bob"])
+```
+
+```rust !! rs
+// Rust: HashMap<K, V>
+use std::collections::HashMap;
+
+let mut scores = HashMap::new();
+
+// 插入
+scores.insert("Alice", 100);
+scores.insert("Bob", 95);
+
+// 訪問
+println!("{}", scores.get("Alice").unwrap_or(&0));
+
+// 添加/更新
+scores.insert("Charlie", 90);
+
+// 檢查存在性
+if scores.contains_key("Bob") {
+    println!("{}", scores["Bob"]);
+}
+```
+</UniversalEditor>
+
+### HashSet
+
+<UniversalEditor compare={true} title="HashSet vs Set">
+```python !! py
+# Python: 集合
+unique_numbers = {1, 2, 3, 4, 5}
+
+# 添加
+unique_numbers.add(6)
+
+# 檢查成員資格
+if 3 in unique_numbers:
+    print("Found 3")
+
+# 集合操作
+set1 = {1, 2, 3}
+set2 = {3, 4, 5}
+print(set1 & set2)  # 交集: {3}
+```
+
+```rust !! rs
+// Rust: HashSet<T>
+use std::collections::HashSet;
+
+let mut unique_numbers: HashSet<i32> = [1, 2, 3, 4, 5].iter().cloned().collect();
+
+// 添加
+unique_numbers.insert(6);
+
+// 檢查成員資格
+if unique_numbers.contains(&3) {
+    println!("Found 3");
+}
+
+// 集合操作
+let set1: HashSet<i32> = [1, 2, 3].iter().cloned().collect();
+let set2: HashSet<i32> = [3, 4, 5].iter().cloned().collect();
+
+// 交集
+let intersection: HashSet<&i32> = set1.intersection(&set2).collect();
+println!("{:?}", intersection);  // {3}
+```
+</UniversalEditor>
+
+## 字符串
+
+Rust 有多種字符串類型。
+
+<UniversalEditor compare={true} title="字符串類型">
+```python !! py
+# Python: 只有 str
+s1 = "Hello"
+s2 = "World"
+s3 = s1 + " " + s2
+
+# 字符串不可變
+# s1[0] = "h"  # TypeError
+```
+
+```rust !! rs
+// Rust: &str 和 String
+let s1: &str = "Hello";  // 字符串切片,不可變
+let s2: String = String::from("World");  // 擁有,可增長
+
+let s3: String = s1.to_string() + " " + &s2;
+
+// 字符串不可變
+// s1[0] = "h";  // 錯誤:不能修改 &str
+
+// 但 String 可以修改
+let mut s2 = String::from("World");
+s2.push_str("!");
+```
+</UniversalEditor>
+
+### 字符串操作
+
+<UniversalEditor compare={true} title="字符串操作">
+```python !! py
+# Python: 字符串方法
+s = "hello world"
+
+# 長度
+print(len(s))  # 11
+
+# 子字符串
+print(s[0:5])  # "hello"
+
+# 分割
+words = s.split()  # ["hello", "world"]
+```
+
+```rust !! rs
+// Rust: 字符串操作
+let s = "hello world";
+
+// 長�(字节,不是字符!)
+println!("{}", s.len());  // 11
+
+// 子字符串(需要小心索引)
+println!("{}", &s[0..5]);  // "hello"
+
+// 分割
+let words: Vec<&str> = s.split_whitespace().collect();
+
+// 替換
+let new_s = s.replace("hello", "hi");
+```
+</UniversalEditor>
+
+## 數組和切片
+
+<UniversalEditor compare={true} title="數組 vs 列表">
+```python !! py
+# Python: 列表(動態)
+items = [1, 2, 3, 4, 5]
+
+# 可以增長
+items.append(6)
+
+# 切片
+subset = items[1:4]  # [2, 3, 4]
+```
+
+```rust !! rs
+// Rust: 數組(固定大小)
+let items: [i32; 5] = [1, 2, 3, 4, 5];
+
+// 不能增長
+// items.push(6);  // 錯誤
+
+// 切片(數組/Vec 的視圖)
+let subset = &items[1..4];  // &[2, 3, 4]
+
+// Vec(動態)
+let mut items_vec = vec![1, 2, 3, 4, 5];
+items_vec.push(6);
+```
+</UniversalEditor>
+
+## 模式匹配
+
+模式匹配與數據結構配合得很好。
+
+<UniversalEditor compare={true} title="模式匹配">
+```python !! py
+# Python: if-elif 鏈
+def process(value):
+    if isinstance(value, dict):
+        return "dict"
+    elif isinstance(value, list):
+        return "list"
+    return "other"
+```
+
+```rust !! rs
+// Rust: 強大的模式匹配
+enum Value {
+    Number(i32),
+    Text(String),
+    Pair(i32, i32),
+}
+
+fn process(value: &Value) -> &str {
+    match value {
+        Value::Number(n) if *n > 0 => "positive number",
+        Value::Number(_) => "number",
+        Value::Text(s) if !s.is_empty() => "non-empty text",
+        Value::Text(_) => "text",
+        Value::Pair(x, y) if x == y => "equal pair",
+        Value::Pair(_, _) => "pair",
+    }
+}
+
+// 解構結構體
+struct Point { x: i32, y: i32 }
+
+let p = Point { x: 10, y: 20 };
+match p {
+    Point { x: 0, y } => println!("On y-axis at {}", y),
+    Point { x, y: 0 } => println!("On x-axis at {}", x),
+    Point { x, y } => println!("At ({}, {})", x, y),
+}
+```
+</UniversalEditor>
+
+## 派生特質
+
+Rust 可以自動實現常見特質。
+
+<UniversalEditor compare={true} title="派生特質">
+```python !! py
+# Python: dataclasses
+@dataclass
+class Person:
+    name: str
+    age: int
+
+person1 = Person("Alice", 25)
+person2 = Person("Alice", 25)
+print(person1 == person2)  # True
+```
+
+```rust !! rs
+// Rust: 派生常見特質
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Person {
+    name: String,
+    age: u32,
+}
+
+let person1 = Person {
+    name: String::from("Alice"),
+    age: 25,
+};
+let person2 = Person {
+    name: String::from("Alice"),
+    age: 25,
+};
+
+println!("{:?}", person1);  // Debug 輸出
+println!("{}", person1 == person2);  // true
+```
+</UniversalEditor>
+
+## 綜合運用
+
+<UniversalEditor compare={true} title="完整示例">
+```python !! py
+from dataclasses import dataclass
+from enum import Enum
+
+class Status(Enum):
+    ACTIVE = "active"
+    INACTIVE = "inactive"
+
+@dataclass
+class User:
+    id: int
+    name: str
+    status: Status
+
+    def is_active(self) -> bool:
+        return self.status == Status.ACTIVE
+```
+
+```rust !! rs
+use std::collections::HashSet;
+
+#[derive(Debug, Clone, PartialEq)]
+enum Status {
+    Active,
+    Inactive,
+}
+
+#[derive(Debug, Clone)]
+struct User {
+    id: u32,
+    name: String,
+    status: Status,
+    friends: HashSet<u32>,
+}
+
+impl User {
+    fn new(id: u32, name: &str, status: Status) -> Self {
+        User {
+            id,
+            name: String::from(name),
+            status,
+            friends: HashSet::new(),
+        }
+    }
+
+    fn is_active(&self) -> bool {
+        self.status == Status::Active
+    }
+}
+
+fn main() {
+    let users = vec![
+        User::new(1, "Alice", Status::Active),
+        User::new(2, "Bob", Status::Inactive),
+    ];
+
+    if let Some(user) = users.iter().find(|u| u.id == 1) {
+        println!("Found: {}", user.name);
+    }
+}
+```
+</UniversalEditor>
+
+## 總結
+
+在本模組中,你學習了:
+- ✅ 結構體將相關數據分組
+- ✅ 枚舉表示帶可選數據的變體
+- ✅ 方法在 impl 塊中定義
+- ✅ Vec、HashMap、HashSet 用於集合
+- ✅ String vs &str 用於字符串
+- ✅ 數組(固定)vs 切片(視圖)
+- ✅ 數據結構的模式匹配
+- ✅ 自動派生常見特質
+
+## 與 Python 的主要區別
+
+1. **結構體不是類**: 僅數據,行為在 impl 塊中
+2. **沒有繼承**: 使用組合和特質
+3. **枚舉變體**: 可以攜帶數據
+4. **多種字符串類型**: String(擁有)vs &str(借用)
+5. **固定數組**: [T; N] vs 動態 `Vec<T>`
+6. **顯式可變性**: 需要 mut 關鍵字
+7. **模式匹配**: 比 if-elif 更強大
+
+## 練習
+
+### 練習 1: 實現棧
+
+創建一個棧數據結構:
+- 使用泛型表示元素類型
+- 實現 push、pop 和 is_empty 方法
+- 內部使用 Vec
+
+<details>
+<summary>解決方案</summary>
+
+```rust
+#[derive(Debug)]
+struct Stack<T> {
+    items: Vec<T>,
+}
+
+impl<T> Stack<T> {
+    fn new() -> Self {
+        Stack { items: Vec::new() }
+    }
+
+    fn push(&mut self, item: T) {
+        self.items.push(item);
+    }
+
+    fn pop(&mut self) -> Option<T> {
+        self.items.pop()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.items.is_empty()
+    }
+}
+
+fn main() {
+    let mut stack = Stack::new();
+    stack.push(1);
+    stack.push(2);
+    stack.push(3);
+
+    while let Some(item) = stack.pop() {
+        println!("{}", item);
+    }
+}
+```
+
+</details>
+
+### 練習 2: 泛型鍵值存儲
+
+創建一個泛型鍵值存儲:
+- 存儲鍵值對
+- 實現 get、set 和 remove 方法
+- 內部使用 HashMap
+
+<details>
+<summary>解決方案</summary>
+
+```rust
+use std::collections::HashMap;
+
+struct Store<K, V> {
+    data: HashMap<K, V>,
+}
+
+impl<K, V> Store<K, V>
+where
+    K: std::hash::Hash + Eq,
+{
+    fn new() -> Self {
+        Store { data: HashMap::new() }
+    }
+
+    fn set(&mut self, key: K, value: V) {
+        self.data.insert(key, value);
+    }
+
+    fn get(&self, key: &K) -> Option<&V> {
+        self.data.get(key)
+    }
+}
+
+fn main() {
+    let mut store = Store::new();
+    store.set("name", "Alice");
+
+    println!("{:?}", store.get(&"name"));
+}
+```
+
+</details>
+
+## 下一步
+
+現在你已經理解了數據結構:
+1. **[模組 7: 錯誤處理](./module-07-error-handling)** - 學習 Rust 的錯誤處理方法
+2. 練習使用結構體和枚舉
+3. 探索更多集合類型
+
+---
+
+**下一節:** [模組 7 - 錯誤處理](./module-07-error-handling) →

@@ -1,0 +1,915 @@
+---
+title: "Module 8: Enums and Pattern Matching"
+description: "Explore Rust's powerful enum system and pattern matching capabilities, comparing with Python's class hierarchies and control flow"
+---
+
+# Module 8: Enums and Pattern Matching
+
+Welcome to Module 8! This is where Rust truly shines. Rust's enum system and pattern matching are far more powerful than anything in Python, enabling type-safe, expressive code that's impossible to replicate in dynamic languages.
+
+## Learning Objectives
+
+By the end of this module, you'll be able to:
+- Define and use enums with data variants
+- Leverage `Option<T>` for null-safe programming
+- Use `Result<T, E>` for error handling
+- Write powerful pattern matches with `match` expressions
+- Use `if let` and `while let` for concise pattern matching
+- Understand exhaustive matching and compiler guarantees
+
+## 8.1 Enums: More Than Just Constants
+
+### Python: Limited Enum Support
+
+Python's enums are relatively simple:
+
+```python
+# Python - Basic enums
+from enum import Enum
+
+class Color(Enum):
+    RED = 1
+    GREEN = 2
+    BLUE = 3
+
+# Usage
+color = Color.RED
+print(color.value)  # 1
+```
+
+### Rust: Data-Carrying Enums
+
+Rust enums are far more powerful - they can carry data:
+
+<UniversalEditor compare={true} title="Enum Basics">
+```python !! py
+# Python - Classes to simulate data variants
+class Color:
+    def __init__(self, value):
+        self.value = value
+
+class RGB(Color):
+    def __init__(self, r, g, b):
+        self.r = r
+        self.g = g
+        self.b = b
+
+class HSV(Color):
+    def __init__(self, h, s, v):
+        self.h = h
+        self.s = s
+        self.v = v
+
+# Type checking is manual
+color = RGB(255, 0, 0)
+if isinstance(color, RGB):
+    print(f"R={color.r}, G={color.g}, B={color.b}")
+```
+
+```rust !! rs
+// Rust - Algebraic data types
+enum Color {
+    RGB(u8, u8, u8),
+    HSV(u8, u8, u8),
+}
+
+// Usage
+let color = Color::RGB(255, 0, 0);
+
+// Pattern matching to extract data
+match color {
+    Color::RGB(r, g, b) => {
+        println!("R={}, G={}, B={}", r, g, b);
+    }
+    Color::HSV(h, s, v) => {
+        println!("H={}, S={}, V={}", h, s, v);
+    }
+}
+
+// With named fields
+enum Message {
+    Quit,
+    Move { x: i32, y: i32 },
+    Write(String),
+    ChangeColor(u8, u8, u8),
+}
+
+let msg = Message::Move { x: 10, y: 20 };
+```
+</UniversalEditor>
+
+### The Power of Enums
+
+<UniversalEditor compare={true} title="Real-World Enum Example">
+```python !! py
+# Python - Manual type checking and errors
+class Shape:
+    pass
+
+class Circle(Shape):
+    def __init__(self, radius):
+        self.radius = radius
+
+class Rectangle(Shape):
+    def __init__(self, width, height):
+        self.width = width
+        self.height = height
+
+def area(shape):
+    if isinstance(shape, Circle):
+        return 3.14 * shape.radius ** 2
+    elif isinstance(shape, Rectangle):
+        return shape.width * shape.height
+    else:
+        raise ValueError("Unknown shape")
+```
+
+```rust !! rs
+// Rust - Type-safe with exhaustive matching
+enum Shape {
+    Circle(f64),
+    Rectangle { width: f64, height: f64 },
+}
+
+fn area(shape: &Shape) -> f64 {
+    match shape {
+        Shape::Circle(radius) => 3.14 * radius * radius,
+        Shape::Rectangle { width, height } => width * height,
+    }
+}
+
+// Compiler ensures all cases are covered!
+let circle = Shape::Circle(5.0);
+println!("Area: {}", area(&circle));
+```
+</UniversalEditor>
+
+## 8.2 `Option<T>`: Eliminating Null
+
+### Python: None and Runtime Errors
+
+Python uses `None` to represent absence, but this can lead to runtime errors:
+
+<UniversalEditor compare={true} title="Null Safety Comparison">
+```python !! py
+# Python - None is everywhere
+def find_user(user_id):
+    if user_id == 1:
+        return {"name": "Alice", "email": "alice@example.com"}
+    return None
+
+# Runtime error if we forget to check!
+user = find_user(2)
+print(user["name"])  # TypeError: 'NoneType' is not subscriptable
+
+# Must check manually
+user = find_user(2)
+if user is not None:
+    print(user["name"])
+else:
+    print("User not found")
+```
+
+```rust !! rs
+// Rust - Option<T> forces handling
+fn find_user(user_id: u32) -> Option<&'static str> {
+    if user_id == 1 {
+        Some("Alice")
+    } else {
+        None
+    }
+}
+
+// Compiler forces you to handle None case
+let user = find_user(2);
+match user {
+    Some(name) => println!("User: {}", name),
+    None => println!("User not found"),
+}
+
+// Or use helper methods
+let user = find_user(1);
+println!("User: {}", user.unwrap_or("Unknown"));
+
+// Chaining operations
+let user = find_user(2)
+    .map(|name| name.to_uppercase())
+    .unwrap_or_else(|| "DEFAULT".to_string());
+```
+</UniversalEditor>
+
+### Option Methods
+
+<UniversalEditor compare={true} title="Working with Option">
+```python !! py
+# Python - Manual None handling
+def get_score(name):
+    scores = {"Alice": 95, "Bob": 87}
+    return scores.get(name)
+
+# Manual checking
+score = get_score("Charlie")
+if score is not None:
+    print(f"Score: {score}")
+else:
+    print("No score")
+
+# Provide default
+score = get_score("Charlie") or 0
+print(f"Score: {score}")
+```
+
+```rust !! rs
+// Rust - Rich Option API
+fn get_score(name: &str) -> Option<i32> {
+    let scores = [("Alice", 95), ("Bob", 87)];
+    scores.iter()
+        .find(|(n, _)| *n == name)
+        .map(|(_, score)| *score)
+}
+
+// Pattern matching
+let score = get_score("Charlie");
+match score {
+    Some(s) => println!("Score: {}", s),
+    None => println!("No score"),
+}
+
+// Provide default
+let score = get_score("Charlie").unwrap_or(0);
+println!("Score: {}", score);
+
+// Transform with map
+let doubled = get_score("Alice").map(|s| s * 2);
+println!("Doubled: {:?}", doubled);
+
+// Chain operations
+let result = get_score("Charlie")
+    .or(Some(0))
+    .map(|s| s * 2)
+    .unwrap_or(0);
+```
+</UniversalEditor>
+
+## 8.3 `Result<T, E>`: Proper Error Handling
+
+### Python: Exceptions and Try/Catch
+
+Python uses exceptions for error handling:
+
+<UniversalEditor compare={true} title="Error Handling Approach">
+```python !! py
+# Python - Exceptions
+def divide(a, b):
+    if b == 0:
+        raise ValueError("Cannot divide by zero")
+    return a / b
+
+# Must use try/catch
+try:
+    result = divide(10, 0)
+except ValueError as e:
+    print(f"Error: {e}")
+else:
+    print(f"Result: {result}")
+
+# Multiple exception types
+try:
+    result = divide(10, "2")
+except ValueError as e:
+    print(f"ValueError: {e}")
+except TypeError as e:
+    print(f"TypeError: {e}")
+```
+
+```rust !! rs
+// Rust - Result<T, E> for explicit errors
+fn divide(a: f64, b: f64) -> Result<f64, String> {
+    if b == 0.0 {
+        Err(String::from("Cannot divide by zero"))
+    } else {
+        Ok(a / b)
+    }
+}
+
+// Must handle both cases
+let result = divide(10.0, 0.0);
+match result {
+    Ok(value) => println!("Result: {}", value),
+    Err(e) => println!("Error: {}", e),
+}
+
+// Or use ? operator (in functions that return Result)
+fn calculate() -> Result<(), String> {
+    let result = divide(10.0, 2.0)?;
+    println!("Result: {}", result);
+    Ok(())
+}
+
+// Multiple error types with custom error enum
+#[derive(Debug)]
+enum MathError {
+    DivisionByZero,
+    InvalidInput(String),
+}
+
+fn divide_safe(a: f64, b: f64) -> Result<f64, MathError> {
+    if b == 0.0 {
+        Err(MathError::DivisionByZero)
+    } else if a.is_nan() || b.is_nan() {
+        Err(MathError::InvalidInput("NaN detected".to_string()))
+    } else {
+        Ok(a / b)
+    }
+}
+```
+</UniversalEditor>
+
+### Combining Results
+
+<UniversalEditor compare={true} title="Chaining Results">
+```python !! py
+# Python - Manual error propagation
+def step1():
+    return "data"
+
+def step2(data):
+    if data == "error":
+        raise ValueError("Step 2 failed")
+    return data + "_processed"
+
+def pipeline():
+    try:
+        data = step1()
+        result = step2(data)
+        return result
+    except ValueError as e:
+        print(f"Pipeline failed: {e}")
+        return None
+```
+
+```rust !! rs
+// Rust - Composable Result operations
+fn step1() -> Result<&'static str, String> {
+    Ok("data")
+}
+
+fn step2(data: &str) -> Result<String, String> {
+    if data == "error" {
+        Err("Step 2 failed".to_string())
+    } else {
+        Ok(format!("{}_processed", data))
+    }
+}
+
+// Manual propagation with match
+fn pipeline() -> Result<String, String> {
+    let data = step1()?;
+    let result = step2(&data)?;
+    Ok(result)
+}
+
+// Or use and_then for chaining
+fn_pipeline() -> Result<String, String> {
+    step1()
+        .and_then(|data| step2(data))
+}
+
+// Compose multiple operations
+fn pipeline_complex() -> Result<String, String> {
+    step1()
+        .and_then(|data| step2(data))
+        .map(|result| result.to_uppercase())
+        .map_err(|e| format!("Pipeline failed: {}", e))
+}
+```
+</UniversalEditor>
+
+## 8.4 Pattern Matching with match
+
+### Python: if/elif/else Chains
+
+Python relies on if/elif/else chains:
+
+```python
+# Python - if/elif/else
+def describe_number(n):
+    if n < 0:
+        return "negative"
+    elif n == 0:
+        return "zero"
+    elif n < 10:
+        return "small"
+    else:
+        return "large"
+```
+
+### Rust: Exhaustive Pattern Matching
+
+<UniversalEditor compare={true} title="Match Expression Basics">
+```python !! py
+# Python - Multiple conditions
+def get_day_name(n):
+    if n == 1:
+        return "Monday"
+    elif n == 2:
+        return "Tuesday"
+    elif n == 3:
+        return "Wednesday"
+    elif n == 4:
+        return "Thursday"
+    elif n == 5:
+        return "Friday"
+    elif n == 6:
+        return "Saturday"
+    elif n == 7:
+        return "Sunday"
+    else:
+        return "Invalid day"
+```
+
+```rust !! rs
+// Rust - Exhaustive match
+fn get_day_name(n: u32) -> &'static str {
+    match n {
+        1 => "Monday",
+        2 => "Tuesday",
+        3 => "Wednesday",
+        4 => "Thursday",
+        5 => "Friday",
+        6 => "Saturday",
+        7 => "Sunday",
+        _ => "Invalid day",  // Catch-all
+    }
+}
+
+// Or use ranges
+fn classify_number(n: i32) -> &'static str {
+    match n {
+        0 => "zero",
+        1..=9 => "single digit",  // Inclusive range
+        10..=99 => "double digit",
+        _ => "other",
+    }
+}
+```
+</UniversalEditor>
+
+### Destructuring in Patterns
+
+<UniversalEditor compare={true} title="Pattern Destructuring">
+```python !! py
+# Python - Manual field access
+class Point:
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+
+def describe_point(point):
+    if point.x == 0 and point.y == 0:
+        return "origin"
+    elif point.x == 0:
+        return "on y-axis"
+    elif point.y == 0:
+        return "on x-axis"
+    else:
+        return f"at ({point.x}, {point.y})"
+```
+
+```rust !! rs
+// Rust - Destructuring in match
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+fn describe_point(point: &Point) -> String {
+    match point {
+        Point { x: 0, y: 0 } => String::from("origin"),
+        Point { x: 0, y } => format!("on y-axis at y={}", y),
+        Point { x, y: 0 } => format!("on x-axis at x={}", x),
+        Point { x, y } => format!("at ({}, {})", x, y),
+    }
+}
+
+// Or with shorthand
+fn describe_point_short(point: &Point) -> String {
+    match point {
+        Point { x: 0, y: 0 } => String::from("origin"),
+        Point { x: 0, y } => format!("y={}", y),
+        Point { x, y: 0 } => format!("x={}", x),
+        Point { x, y } => format!("({}, {})", x, y),
+    }
+}
+```
+</UniversalEditor>
+
+### Matching Enums
+
+<UniversalEditor compare={true} title="Matching on Enums">
+```python !! py
+# Python - Instance checking
+class Message:
+    pass
+
+class Quit(Message):
+    pass
+
+class Move(Message):
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+
+def handle_message(msg):
+    if isinstance(msg, Quit):
+        print("Quitting...")
+    elif isinstance(msg, Move):
+        print(f"Moving to ({msg.x}, {msg.y})")
+    else:
+        print("Unknown message")
+```
+
+```rust !! rs
+// Rust - Pattern matching on enums
+enum Message {
+    Quit,
+    Move { x: i32, y: i32 },
+    Write(String),
+    ChangeColor(i32, i32, i32),
+}
+
+fn handle_message(msg: &Message) {
+    match msg {
+        Message::Quit => {
+            println!("Quitting...");
+        }
+        Message::Move { x, y } => {
+            println!("Moving to ({}, {})", x, y);
+        }
+        Message::Write(text) => {
+            println!("Writing: {}", text);
+        }
+        Message::ChangeColor(r, g, b) => {
+            println!("Color: {}, {}, {}", r, g, b);
+        }
+    }
+}
+
+// Guards in match arms
+fn handle_message_with_guard(msg: &Message) {
+    match msg {
+        Message::Move { x, y } if x < 0 || y < 0 => {
+            println!("Invalid move!");
+        }
+        Message::Move { x, y } => {
+            println!("Moving to ({}, {})", x, y);
+        }
+        _ => println!("Other message"),
+    }
+}
+```
+</UniversalEditor>
+
+## 8.5 Concise Patterns: if let and while let
+
+### if let: Match One Pattern
+
+<UniversalEditor compare={true} title="if let vs match">
+```python !! py
+# Python - Check and extract
+def process_option(value):
+    if value is not None:
+        # Work with value
+        print(f"Got: {value}")
+    else:
+        # Handle None
+        print("Got nothing")
+```
+
+```rust !! rs
+// Rust - if let for single pattern matching
+fn process_option(value: Option<&str>) {
+    // Match only Some, ignore None
+    if let Some(v) = value {
+        println!("Got: {}", v);
+    } else {
+        println!("Got nothing");
+    }
+}
+
+// Or even more concise
+fn process_option_concise(value: Option<&str>) {
+    if let Some(v) = value {
+        println!("Got: {}", v);
+    }
+    // else is optional!
+}
+
+// if let with else
+fn process_option_else(value: Option<&str>) {
+    if let Some(v) = value {
+        println!("Processing: {}", v);
+    } else {
+        println!("No value provided");
+    }
+}
+```
+</UniversalEditor>
+
+### while let: Match Repeatedly
+
+<UniversalEditor compare={true} title="while let Pattern">
+```python !! py
+# Python - Loop until condition
+def pop_until_empty(stack):
+    results = []
+    while stack:
+        results.append(stack.pop())
+    return results
+```
+
+```rust !! rs
+// Rust - while let for repeated matching
+fn pop_until_empty(stack: &mut Vec<i32>) -> Vec<i32> {
+    let mut results = Vec::new();
+
+    // Keep popping while there are elements
+    while let Some(val) = stack.pop() {
+        results.push(val);
+    }
+
+    results
+}
+
+// More complex example
+fn process_results(values: Vec<Option<i32>>) -> Vec<i32> {
+    let mut results = Vec::new();
+
+    for mut opt in values {
+        // Keep taking values until None
+        while let Some(val) = opt {
+            results.push(val);
+            opt = None;  // Simulated state change
+        }
+    }
+
+    results
+}
+```
+</UniversalEditor>
+
+## 8.6 Advanced Patterns
+
+### Matching Multiple Patterns
+
+<UniversalEditor compare={true} title="Pattern Combinations">
+```python !! py
+# Python - Multiple conditions
+def describe_value(x):
+    if x == 1 or x == 3 or x == 5 or x == 7 or x == 9:
+        return "odd digit"
+    elif x == 0 or x == 2 or x == 4 or x == 6 or x == 8:
+        return "even digit"
+    else:
+        return "other"
+```
+
+```rust !! rs
+// Rust - Multiple patterns with |
+fn describe_value(x: i32) -> &'static str {
+    match x {
+        1 | 3 | 5 | 7 | 9 => "odd digit",
+        0 | 2 | 4 | 6 | 8 => "even digit",
+        _ => "other",
+    }
+}
+
+// Ranges with multiple patterns
+fn classify_number_advanced(x: i32) -> &'static str {
+    match x {
+        1..=10 => "1-10",
+        20 | 30 | 40 => "20, 30, or 40",
+        _ => "other",
+    }
+}
+```
+</UniversalEditor>
+
+### Ignoring Values
+
+<UniversalEditor compare={true} title="Ignoring Patterns">
+```python !! py
+# Python - Ignore with _
+result, _ = some_function()  # Ignore second value
+```
+
+```rust !! rs
+// Rust - Multiple ways to ignore
+// Ignore single value
+let (x, _) = (1, 2);  // x = 1, ignore 2
+
+// Ignore multiple values
+let _ = (1, 2, 3);  // Ignore entire tuple
+
+// Ignoring in struct patterns
+struct Point3D {
+    x: i32,
+    y: i32,
+    z: i32,
+}
+
+fn get_x(point: Point3D) -> i32 {
+    match point {
+        Point3D { x, .. } => x,  // Only care about x
+    }
+}
+
+// Ignore with _ prefix (unused variable warning suppression)
+let _x = 5;  // Prefix with _ to suppress warning
+```
+</UniversalEditor>
+
+### @ Binding
+
+<UniversalEditor compare={true} title="@ Binding Patterns">
+```python !! py
+# Python - Need to both test and capture
+class Message:
+    pass
+
+class Move(Message):
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+
+msg = Move(10, 20)
+if isinstance(msg, Move) and msg.x > 5:
+    print(f"Large move: {msg.x}, {msg.y}")
+```
+
+```rust !! rs
+// Rust - @ binding for match and capture
+enum Message {
+    Move { x: i32, y: i32 },
+}
+
+fn describe_message(msg: &Message) -> String {
+    match msg {
+        // Match and bind with @
+        Message::Move { x: x_val @ (10 | 20 | 30), y } => {
+            format!("Special move at x={}, y={}", x_val, y)
+        }
+        Message::Move { x, y } => {
+            format!("Normal move at x={}, y={}", x, y)
+        }
+    }
+}
+
+// Another example
+fn classify_range(n: i32) -> &'static str {
+    match n {
+        m @ 0..=10 => "small",
+        m @ 11..=100 => "medium",
+        m @ 101..=1000 => "large",
+        _ => "huge",
+    }
+}
+```
+</UniversalEditor>
+
+## Common Pitfalls
+
+### Pitfall 1: Forgetting to Handle None
+
+```rust
+// DON'T: Forget to handle None
+let opt: Option<i32> = None;
+let val = opt.unwrap();  // Panic!
+
+// DO: Handle None properly
+let opt: Option<i32> = None;
+let val = opt.unwrap_or(0);
+```
+
+### Pitfall 2: Non-Exhaustive Matches
+
+```rust
+// DON'T: Forget match cases (won't compile)
+enum Color { Red, Blue, Green }
+let color = Color::Red;
+match color {
+    Color::Red => println!("Red"),
+    Color::Blue => println!("Blue"),
+    // Missing Green! Compiler error!
+}
+
+// DO: Handle all cases
+match color {
+    Color::Red => println!("Red"),
+    Color::Blue => println!("Blue"),
+    Color::Green => println!("Green"),
+}
+```
+
+### Pitfall 3: Expect Instead of Unwrap
+
+```rust
+// DON'T: Use unwrap in production
+let val = opt.unwrap();  // Panics with generic message
+
+// DO: Use expect for better error messages
+let val = opt.expect("Failed to get value from config");
+```
+
+## Best Practices
+
+1. **Prefer `Option` over null values** - Never use null pointer values
+2. **Use `Result` for recoverable errors** - Save `panic!` for unrecoverable errors
+3. **Leverage `match` for exhaustive handling** - Let the compiler ensure correctness
+4. **Use `if let` for single patterns** - More concise than full match
+5. **Combine with `?` operator** - Clean error propagation
+6. **Create custom error types** - Type-safe error handling
+
+## Summary
+
+In this module, we covered:
+
+- **Enums**: Data-carrying variants for type-safe modeling
+- **`Option<T>`**: Null-safe programming without runtime errors
+- **`Result<T, E>`**: Explicit error handling without exceptions
+- **Pattern Matching**: Exhaustive, compiler-checked control flow
+- **Concise Patterns**: `if let` and `while let` for readability
+
+Key takeaways:
+- Rust's enums are algebraic data types, far more powerful than Python's
+- Option and Result eliminate entire classes of runtime errors
+- Pattern matching is exhaustive and compiler-verified
+- The ? operator provides clean error propagation
+- Pattern matching enables impossible-to-replicate type safety
+
+## Exercise
+
+Create a simple expression evaluator that:
+1. Defines an enum for expressions (Number, Add, Multiply, etc.)
+2. Implements an eval function using pattern matching
+3. Handles errors gracefully with Result
+4. Demonstrates nested pattern matching
+
+<details>
+<summary>View Solution</summary>
+
+```rust
+#[derive(Debug)]
+enum Expr {
+    Number(f64),
+    Add(Box<Expr>, Box<Expr>),
+    Multiply(Box<Expr>, Box<Expr>),
+    Variable(String),
+}
+
+#[derive(Debug)]
+enum EvalError {
+    DivisionByZero,
+    UnknownVariable(String),
+}
+
+fn eval(expr: &Expr, vars: &std::collections::HashMap<String, f64>) -> Result<f64, EvalError> {
+    match expr {
+        Expr::Number(n) => Ok(*n),
+        Expr::Add(left, right) => {
+            let l = eval(left, vars)?;
+            let r = eval(right, vars)?;
+            Ok(l + r)
+        }
+        Expr::Multiply(left, right) => {
+            let l = eval(left, vars)?;
+            let r = eval(right, vars)?;
+            Ok(l * r)
+        }
+        Expr::Variable(name) => {
+            vars.get(name)
+                .copied()
+                .ok_or(EvalError::UnknownVariable(name.clone()))
+        }
+    }
+}
+
+fn main() {
+    let expr = Expr::Add(
+        Box::new(Expr::Number(5.0)),
+        Box::new(Expr::Multiply(
+            Box::new(Expr::Number(3.0)),
+            Box::new(Expr::Number(2.0)),
+        )),
+    );
+
+    match eval(&expr, &std::collections::HashMap::new()) {
+        Ok(result) => println!("Result: {}", result),  // 11.0
+        Err(e) => println!("Error: {:?}", e),
+    }
+}
+```
+
+</details>
+
+Next up: **Module 9 - Error Handling**, where we'll dive deep into Rust's error handling patterns and best practices!

@@ -711,7 +711,7 @@ export default function UniversalEditor(params: UniversalEditorProps) {
     theme = 'auto',
     readOnly = false,
     showOutput = true,
-    compare = false,
+    compare = true,
     code = [],
     height = 300,
     preloadLibraries = [],

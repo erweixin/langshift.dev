@@ -1,0 +1,515 @@
+---
+title: "Module 18: Real-World Project Architecture"
+---
+
+This module explores real-world project architecture patterns in Go compared to Java enterprise applications.
+
+## Project Structure
+
+**Java Enterprise Structure:**
+- Layered architecture (controller, service, repository)
+- Separate modules for different concerns
+- Heavy use of dependency injection
+- Configuration-driven
+
+**Go Project Structure:**
+- Practical, domain-driven organization
+- Interface-based design
+- Minimal magic, explicit dependencies
+- Code organization over framework conventions
+
+<UniversalEditor title="Project Structure Comparison">
+```
+# Java: Spring Boot Multi-Module Project
+myapp/
+├── pom.xml
+├── myapp-api/
+│   └── src/main/java/
+│       └── com/example/myapp/api/
+│           ├── UserController.java
+│           └── dto/
+├── myapp-service/
+│   └── src/main/java/
+│       └── com/example/myapp/service/
+│           ├── UserService.java
+│           └── impl/
+├── myapp-repository/
+│   └── src/main/java/
+│       └── com/example/myapp/repository/
+│           ├── UserRepository.java
+│           └── entities/
+├── myapp-common/
+│   └── src/main/java/
+│       └── com/example/myapp/common/
+│           ├── exceptions/
+│           ├── utils/
+│           └── config/
+└── myapp-integration-tests/
+```
+
+```
+# Go: Standard Project Layout
+myapp/
+├── cmd/
+│   └── myapp/
+│       └── main.go                # Application entry point
+├── internal/
+│   ├── api/
+│   │   ├── handler/
+│   │   │   └── user_handler.go
+│   │   ├── middleware/
+│   │   └── router.go
+│   ├── service/
+│   │   ├── user_service.go
+│   │   └── auth_service.go
+│   ├── repository/
+│   │   ├── user_repository.go
+│   │   └── postgres.go
+│   ├── domain/
+│   │   ├── user.go
+│   │   └── errors.go
+│   └── config/
+│       └── config.go
+├── pkg/                            # Public libraries
+│   └── logger/
+│       └── logger.go
+├── api/
+│   └── openapi/                    # API definitions
+├── migrations/                      # Database migrations
+├── scripts/                         # Build and deploy scripts
+├── configs/                         # Configuration files
+├── go.mod
+├── go.sum
+├── Dockerfile
+├── Makefile
+└── README.md
+```
+</UniversalEditor>
+
+## Clean Architecture in Go
+
+<UniversalEditor title="Clean Architecture Implementation">
+```go !! go
+// internal/domain/user.go
+package domain
+
+import (
+    "errors"
+    "time"
+)
+
+var (
+    ErrUserNotFound      = errors.New("user not found")
+    ErrInvalidEmail      = errors.New("invalid email")
+    ErrEmailAlreadyTaken = errors.New("email already taken")
+)
+
+type User struct {
+    ID        uint
+    Email     string
+    Name      string
+    Password  string
+    Active    bool
+    CreatedAt time.Time
+    UpdatedAt time.Time
+}
+
+type UserRepository interface {
+    FindByID(id uint) (*User, error)
+    FindByEmail(email string) (*User, error)
+    Create(user *User) error
+    Update(user *User) error
+    Delete(id uint) error
+    ExistsByEmail(email string) (bool, error)
+}
+
+type UserService interface {
+    Register(email, password, name string) (*User, error)
+    Login(email, password string) (*User, error)
+    GetProfile(id uint) (*User, error)
+    UpdateProfile(id uint, name string) (*User, error)
+}
+
+// internal/service/user_service.go
+package service
+
+import (
+    "crypto/rand"
+    "encoding/base64"
+    "fmt"
+
+    "myapp/internal/domain"
+    "myapp/internal/repository"
+    "myapp/pkg/logger"
+)
+
+type userServiceImpl struct {
+    userRepo domain.UserRepository
+    logger   logger.Logger
+}
+
+func NewUserService(userRepo domain.UserRepository, log logger.Logger) domain.UserService {
+    return &userServiceImpl{
+        userRepo: userRepo,
+        logger:   log,
+    }
+}
+
+func (s *userServiceImpl) Register(email, password, name string) (*domain.User, error) {
+    // Validate email
+    if email == "" {
+        return nil, domain.ErrInvalidEmail
+    }
+
+    // Check if email exists
+    exists, err := s.userRepo.ExistsByEmail(email)
+    if err != nil {
+        s.logger.Error("Failed to check email existence", "error", err)
+        return nil, err
+    }
+
+    if exists {
+        return nil, domain.ErrEmailAlreadyTaken
+    }
+
+    // Hash password
+    hashedPassword, err := s.hashPassword(password)
+    if err != nil {
+        return nil, err
+    }
+
+    // Create user
+    user := &domain.User{
+        Email:    email,
+        Name:     name,
+        Password: hashedPassword,
+        Active:   true,
+    }
+
+    if err := s.userRepo.Create(user); err != nil {
+        s.logger.Error("Failed to create user", "error", err)
+        return nil, err
+    }
+
+    s.logger.Info("User created", "user_id", user.ID)
+    return user, nil
+}
+
+func (s *userServiceImpl) Login(email, password string) (*domain.User, error) {
+    user, err := s.userRepo.FindByEmail(email)
+    if err != nil {
+        return nil, domain.ErrUserNotFound
+    }
+
+    if !s.verifyPassword(user.Password, password) {
+        return nil, domain.ErrInvalidCredentials
+    }
+
+    return user, nil
+}
+
+// internal/api/handler/user_handler.go
+package handler
+
+import (
+    "net/http"
+
+    "myapp/internal/domain"
+    "myapp/internal/service"
+
+    "github.com/gin-gonic/gin"
+)
+
+type UserHandler struct {
+    userService domain.UserService
+}
+
+func NewUserHandler(userService domain.UserService) *UserHandler {
+    return &UserHandler{
+        userService: userService,
+    }
+}
+
+func (h *UserHandler) Register(c *gin.Context) {
+    var req struct {
+        Email    string `json:"email" binding:"required,email"`
+        Password string `json:"password" binding:"required,min=8"`
+        Name     string `json:"name" binding:"required"`
+    }
+
+    if err := c.ShouldBindJSON(&req); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
+
+    user, err := h.userService.Register(req.Email, req.Password, req.Name)
+    if err != nil {
+        if err == domain.ErrEmailAlreadyTaken {
+            c.JSON(http.StatusConflict, gin.H{"error": "Email already taken"})
+            return
+        }
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create user"})
+        return
+    }
+
+    c.JSON(http.StatusCreated, gin.H{
+        "id":    user.ID,
+        "email": user.Email,
+        "name":  user.Name,
+    })
+}
+
+func (h *UserHandler) Login(c *gin.Context) {
+    var req struct {
+        Email    string `json:"email" binding:"required"`
+        Password string `json:"password" binding:"required"`
+    }
+
+    if err := c.ShouldBindJSON(&req); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
+
+    user, err := h.userService.Login(req.Email, req.Password)
+    if err != nil {
+        c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
+        return
+    }
+
+    token, err := generateToken(user)
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
+        return
+    }
+
+    c.JSON(http.StatusOK, gin.H{
+        "token": token,
+        "user": gin.H{
+            "id":    user.ID,
+            "email": user.Email,
+            "name":  user.Name,
+        },
+    })
+}
+```
+</UniversalEditor>
+
+## Configuration Management
+
+<UniversalEditor title="Configuration Patterns">
+```go !! go
+// internal/config/config.go
+package config
+
+import (
+    "time"
+
+    "github.com/spf13/viper"
+)
+
+type Config struct {
+    Server   ServerConfig
+    Database DatabaseConfig
+    Redis    RedisConfig
+    Auth     AuthConfig
+    Log      LogConfig
+}
+
+type ServerConfig struct {
+    Port            int           `mapstructure:"port"`
+    ReadTimeout     time.Duration `mapstructure:"read_timeout"`
+    WriteTimeout    time.Duration `mapstructure:"write_timeout"`
+    ShutdownTimeout time.Duration `mapstructure:"shutdown_timeout"`
+}
+
+type DatabaseConfig struct {
+    Host            string `mapstructure:"host"`
+    Port            int    `mapstructure:"port"`
+    User            string `mapstructure:"user"`
+    Password        string `mapstructure:"password"`
+    DBName          string `mapstructure:"dbname"`
+    SSLMode         string `mapstructure:"sslmode"`
+    MaxOpenConns    int    `mapstructure:"max_open_conns"`
+    MaxIdleConns    int    `mapstructure:"max_idle_conns"`
+    ConnMaxLifetime time.Duration `mapstructure:"conn_max_lifetime"`
+}
+
+type AuthConfig struct {
+    JWTSecret     string        `mapstructure:"jwt_secret"`
+    JWTExpiration time.Duration `mapstructure:"jwt_expiration"`
+}
+
+func Load(path string) (*Config, error) {
+    viper.SetConfigName("config")
+    viper.SetConfigType("yaml")
+    viper.AddConfigPath(path)
+    viper.AddConfigPath(".")
+    viper.AddConfigPath("/etc/myapp/")
+
+    // Set defaults
+    setDefaults()
+
+    // Read environment variables
+    viper.AutomaticEnv()
+    viper.SetEnvPrefix("APP")
+
+    // Read config file
+    if err := viper.ReadInConfig(); err != nil {
+        return nil, err
+    }
+
+    var config Config
+    if err := viper.Unmarshal(&config); err != nil {
+        return nil, err
+    }
+
+    return &config, nil
+}
+
+func setDefaults() {
+    viper.SetDefault("server.port", 8080)
+    viper.SetDefault("server.read_timeout", 10*time.Second)
+    viper.SetDefault("server.write_timeout", 10*time.Second)
+    viper.SetDefault("server.shutdown_timeout", 30*time.Second)
+
+    viper.SetDefault("database.max_open_conns", 25)
+    viper.SetDefault("database.max_idle_conns", 5)
+    viper.SetDefault("database.conn_max_lifetime", 5*time.Minute)
+
+    viper.SetDefault("auth.jwt_expiration", 24*time.Hour)
+}
+```
+</UniversalEditor>
+
+## Dependency Injection
+
+<UniversalEditor title="Dependency Injection Patterns">
+```java !! java
+// Java: Spring DI
+@Configuration
+public class AppConfig {
+
+    @Bean
+    public UserRepository userRepository(DataSource dataSource) {
+        return new JdbcUserRepository(dataSource);
+    }
+
+    @Bean
+    public PasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder();
+    }
+
+    @Bean
+    public UserService userService(
+            UserRepository userRepository,
+            PasswordEncoder passwordEncoder) {
+        return new UserServiceImpl(userRepository, passwordEncoder);
+    }
+
+    @Bean
+    public UserRestController userController(UserService userService) {
+        return new UserRestController(userService);
+    }
+}
+```
+
+```go !! go
+// Go: Wire (compile-time dependency injection)
+// cmd/myapp/wire.go
+//go:build wireinject
+// +build wireinject
+
+package main
+
+import (
+    "github.com/google/wire"
+    "myapp/internal/api/handler"
+    "myapp/internal/repository"
+    "myapp/internal/service"
+    "myapp/pkg/logger"
+)
+
+func InitializeApplication(cfg *config.Config) (*Application, error) {
+    wire.Build(
+        // Providers
+        logger.NewLogger,
+        repository.NewUserRepository,
+        service.NewUserService,
+        handler.NewUserHandler,
+
+        // Application
+        NewApplication,
+    )
+    return &Application{}, nil
+}
+
+// cmd/myapp/wire_gen.go (generated)
+// +build !wireinject
+
+func InitializeApplication(cfg *config.Config) (*Application, error) {
+    log := logger.NewLogger(cfg.Log)
+    userRepo := repository.NewUserRepository(cfg.Database, log)
+    userService := service.NewUserService(userRepo, log)
+    userHandler := handler.NewUserHandler(userService)
+    application := NewApplication(cfg, userHandler, log)
+    return application, nil
+}
+
+// cmd/myapp/main.go
+package main
+
+func main() {
+    cfg, err := config.Load("./configs")
+    if err != nil {
+        log.Fatal("Failed to load config", err)
+    }
+
+    app, err := InitializeApplication(cfg)
+    if err != nil {
+        log.Fatal("Failed to initialize application", err)
+    }
+
+    if err := app.Run(); err != nil {
+        log.Fatal("Application error", err)
+    }
+}
+
+// Or use Fx (runtime dependency injection)
+import "go.uber.org/fx"
+
+func main() {
+    fx.New(
+        fx.Provide(
+            config.Load,
+            logger.NewLogger,
+            repository.NewUserRepository,
+            service.NewUserService,
+            handler.NewUserHandler,
+        ),
+        fx.Invoke(RegisterHandlers),
+        fx.Invoke(func(app *Application) {
+            app.Run()
+        }),
+    ).Run()
+}
+```
+</UniversalEditor>
+
+---
+
+### Practice Questions:
+1. Why does Go favor explicit dependency injection over frameworks?
+2. How does Go's clean architecture differ from Java's?
+3. What are the advantages of the standard Go project layout?
+4. When should you use Wire vs Fx for dependency injection?
+
+### Project Ideas:
+- Build a complete REST API with clean architecture
+- Implement authentication and authorization
+- Set up logging and monitoring
+- Create a reusable project template
+
+### Next Steps:
+- Learn best practices for Go applications
+- Build production-ready systems
+- Explore advanced topics

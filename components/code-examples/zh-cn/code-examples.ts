@@ -425,10 +425,10 @@ int main() {
   std::cout << "5 + 10 = " << add(5, 10) << std::endl;
 
   // 2. 用于字符串拼接 (T 被推导为 std::string)
-  std::cout << "\"Hello, \" + \"World!\" = " 
-            << add(std::string("Hello, "), std::string("World!")) 
+  std::cout << "\"Hello, \" + \"World!\" = "
+            << add(std::string("Hello, "), std::string("World!"))
             << std::endl;
-            
+
   return 0;
 }`,
     leftLanguage: 'javascript',
@@ -439,5 +439,461 @@ int main() {
     tags: ['类型系统', '函数', '模板', '动态 vs 静态'],
     difficulty: 'beginner',
     category: '核心概念'
+  },
+  'js-go': {
+    leftCode: `// JavaScript 异步编程：Promise 和 async/await
+// 模拟异步操作
+function fetchData() {
+  return new Promise((resolve) => {
+    setTimeout(() => {
+      resolve({ id: 1, name: 'Alice' });
+    }, 1000);
+  });
+}
+
+// 使用 async/await
+async function getUser() {
+  console.log('获取用户数据...');
+  const user = await fetchData();
+  console.log('用户:', user);
+  return user;
+}
+
+// 使用 Promise.then()
+fetchData().then(user => {
+  console.log('用户:', user);
+});
+
+// 并发请求
+Promise.all([
+  fetchData(),
+  fetchData(),
+]).then(users => {
+  console.log('多个用户:', users);
+});`,
+    rightCode: `// Go 并发编程：Goroutines 和 Channels
+package main
+
+import (
+  "fmt"
+  "time"
+)
+
+// 模拟异步操作
+func fetchData(userChan chan<- map[string]interface{}) {
+  time.Sleep(time.Second)
+  userChan <- map[string]interface{}{
+    "id":   1,
+    "name": "Alice",
+  }
+}
+
+// 使用 goroutine 和 channel
+func getUser() {
+  fmt.Println("获取用户数据...")
+  userChan := make(chan map[string]interface{})
+  go fetchData(userChan)
+  user := <-userChan
+  fmt.Println("用户:", user)
+}
+
+// 使用 goroutine 和 channel
+func main() {
+  // 单个请求
+  userChan := make(chan map[string]interface{})
+  go fetchData(userChan)
+  user := <-userChan
+  fmt.Println("用户:", user)
+
+  // 并发请求（类似 Promise.all）
+  userChan1 := make(chan map[string]interface{})
+  userChan2 := make(chan map[string]interface{})
+  go fetchData(userChan1)
+  go fetchData(userChan2)
+  user1 := <-userChan1
+  user2 := <-userChan2
+  fmt.Println("多个用户:", []map[string]interface{}{user1, user2})
+}`,
+    leftLanguage: 'javascript',
+    rightLanguage: 'go',
+    titleLeft: 'JavaScript',
+    titleRight: 'Go',
+    description: '异步编程模式对比 - Promise/async-await vs Goroutines/Channels',
+    tags: ['异步编程', '并发', 'Promise', 'Goroutines'],
+    difficulty: 'intermediate',
+    category: '异步编程'
+  },
+  'js-swift': {
+    leftCode: `// JavaScript 数组和高阶函数
+const numbers = [1, 2, 3, 4, 5];
+
+// Map - 转换数组
+const doubled = numbers.map(x => x * 2);
+console.log(doubled); // [2, 4, 6, 8, 10]
+
+// Filter - 过滤数组
+const evens = numbers.filter(x => x % 2 === 0);
+console.log(evens); // [2, 4]
+
+// Reduce - 归约数组
+const sum = numbers.reduce((acc, x) => acc + x, 0);
+console.log(sum); // 15
+
+// 链式调用
+const result = numbers
+  .filter(x => x % 2 === 0)
+  .map(x => x * 2)
+  .reduce((acc, x) => acc + x, 0);
+console.log(result); // 12
+
+// Find - 查找元素
+const found = numbers.find(x => x > 3);
+console.log(found); // 4`,
+    rightCode: `// Swift 数组和高阶函数
+import Foundation
+
+let numbers = [1, 2, 3, 4, 5]
+
+// Map - 转换数组
+let doubled = numbers.map { $0 * 2 }
+print(doubled) // [2, 4, 6, 8, 10]
+
+// Filter - 过滤数组
+let evens = numbers.filter { $0 % 2 == 0 }
+print(evens) // [2, 4]
+
+// Reduce - 归约数组
+let sum = numbers.reduce(0) { $0 + $1 }
+print(sum) // 15
+
+// 链式调用
+let result = numbers
+  .filter { $0 % 2 == 0 }
+  .map { $0 * 2 }
+  .reduce(0) { $0 + $1 }
+print(result) // 12
+
+// Find - 查找元素
+let found = numbers.first { $0 > 3 }
+print(found as Any) // Optional(4)
+
+// CompactMap - 处理可选值
+let strings = ["1", "2", "abc", "4"]
+let numbersFromStrings = strings.compactMap { Int($0) }
+print(numbersFromStrings) // [1, 2, 4]`,
+    leftLanguage: 'javascript',
+    rightLanguage: 'swift',
+    titleLeft: 'JavaScript',
+    titleRight: 'Swift',
+    description: '数组和函数式编程 - 高阶函数和链式调用',
+    tags: ['数组', '函数式编程', '高阶函数', 'Map/Filter/Reduce'],
+    difficulty: 'beginner',
+    category: '数据结构'
+  },
+  'js-c': {
+    leftCode: `// JavaScript: 动态数组和对象
+// 数组可以动态增长
+const arr = [1, 2, 3];
+arr.push(4);
+arr.push(5);
+console.log(arr); // [1, 2, 3, 4, 5]
+
+// 数组可以存储任意类型
+arr.push("hello");
+arr.push({ name: "Alice" });
+console.log(arr); // [1, 2, 3, 4, 5, "hello", { name: "Alice" }]
+
+// 对象动态添加属性
+const obj = {};
+obj.name = "Alice";
+obj.age = 30;
+obj.greet = function() {
+  return \`Hello, I'm \${this.name}\`;
+};
+console.log(obj.greet()); // "Hello, I'm Alice"
+
+// 自动内存管理
+let data = [];
+for (let i = 0; i < 1000; i++) {
+  data.push({ id: i, value: Math.random() });
+}
+// 垃圾回收器会自动清理内存`,
+    rightCode: `#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+// C: 手动内存管理和固定大小数组
+// 数组大小必须固定
+int arr[5] = {1, 2, 3, 4, 5};
+
+// 动态数组需要手动管理内存
+int* create_dynamic_array(int size) {
+  int* arr = (int*)malloc(size * sizeof(int));
+  if (arr == NULL) {
+    fprintf(stderr, "内存分配失败\\n");
+    exit(1);
+  }
+  return arr;
+}
+
+// 结构体定义
+struct Person {
+  char name[50];
+  int age;
+};
+
+// 结构体数组
+struct Person* create_person_array(int size) {
+  struct Person* people = (struct Person*)malloc(size * sizeof(struct Person));
+  if (people == NULL) {
+    fprintf(stderr, "内存分配失败\\n");
+    exit(1);
+  }
+  return people;
+}
+
+int main() {
+  // 动态数组示例
+  int size = 1000;
+  int* data = create_dynamic_array(size);
+
+  for (int i = 0; i < size; i++) {
+    data[i] = i;
+  }
+
+  // 使用完必须手动释放内存
+  free(data);
+
+  // 结构体数组示例
+  struct Person* people = create_person_array(10);
+  strcpy(people[0].name, "Alice");
+  people[0].age = 30;
+
+  printf("Name: %s, Age: %d\\n", people[0].name, people[0].age);
+
+  // 手动释放内存
+  free(people);
+
+  return 0;
+}`,
+    leftLanguage: 'javascript',
+    rightLanguage: 'c',
+    titleLeft: 'JavaScript',
+    titleRight: 'C',
+    description: '内存管理对比 - 垃圾回收 vs 手动内存管理',
+    tags: ['内存管理', '数组', '动态 vs 静态', '指针'],
+    difficulty: 'advanced',
+    category: '内存管理'
+  },
+  'js-kt': {
+    leftCode: `// JavaScript 类和面向对象编程
+class Person {
+  constructor(name, age) {
+    this.name = name;
+    this.age = age;
+  }
+
+  greet() {
+    return \`Hello, I'm \${this.name}\`;
+  }
+
+  introduce() {
+    return \`I'm \${this.age} years old\`;
+  }
+}
+
+// 继承
+class Student extends Person {
+  constructor(name, age, studentId) {
+    super(name, age);
+    this.studentId = studentId;
+  }
+
+  greet() {
+    return \`Hi, I'm \${this.name} (ID: \${this.studentId})\`;
+  }
+}
+
+// 使用
+const person = new Person("Alice", 25);
+console.log(person.greet()); // "Hello, I'm Alice"
+
+const student = new Student("Bob", 20, "S12345");
+console.log(student.greet()); // "Hi, I'm Bob (ID: S12345)"`,
+    rightCode: `// Kotlin 类和面向对象编程
+// 数据类 - 自动生成 equals, hashCode, toString, copy
+data class Person(
+  val name: String,
+  val age: Int
+) {
+  fun greet() = "Hello, I'm $name"
+
+  fun introduce() = "I'm $age years old"
+}
+
+// 密封类 - 受限的类继承结构
+sealed class StudentStatus {
+  data class Active(val gpa: Double) : StudentStatus()
+  data class OnProbation(val reason: String) : StudentStatus()
+  object Graduated : StudentStatus()
+}
+
+// 继承
+open class Animal(val name: String) {
+  open fun makeSound() = "Some sound"
+}
+
+class Dog(name: String) : Animal(name) {
+  override fun makeSound() = "Woof!"
+}
+
+// 使用
+fun main() {
+  val person = Person("Alice", 25)
+  println(person.greet()) // "Hello, I'm Alice"
+
+  // 数据类的 copy 功能
+  val olderPerson = person.copy(age = 26)
+  println(olderPerson) // "Person(name=Alice, age=26)"
+
+  val dog = Dog("Buddy")
+  println(dog.makeSound()) // "Woof!"
+
+  // 智能类型转换
+  fun checkStatus(status: StudentStatus) = when (status) {
+    is StudentStatus.Active -> "Active with GPA \${status.gpa}"
+    is StudentStatus.OnProbation -> "On probation: \${status.reason}"
+    is StudentStatus.Graduated -> "Graduated"
+  }
+}`,
+    leftLanguage: 'javascript',
+    rightLanguage: 'kotlin',
+    titleLeft: 'JavaScript',
+    titleRight: 'Kotlin',
+    description: '面向对象编程对比 - 类继承 vs 数据类和密封类',
+    tags: ['面向对象', '类', '继承', '数据类'],
+    difficulty: 'intermediate',
+    category: '面向对象编程'
+  },
+  'js-java': {
+    leftCode: `// JavaScript: 灵活的函数定义
+// 函数声明
+function add(a, b) {
+  return a + b;
+}
+
+// 函数表达式
+const multiply = function(a, b) {
+  return a * b;
+};
+
+// 箭头函数
+const subtract = (a, b) => a - b;
+
+// 默认参数
+function greet(name = "World", greeting = "Hello") {
+  return \`\${greeting}, \${name}!\`;
+}
+
+// 解构参数
+function createUser({ name, age, email }) {
+  return { name, age, email };
+}
+
+const user = createUser({
+  name: "Alice",
+  age: 30,
+  email: "alice@example.com"
+});
+
+// 剩余参数
+function sum(...numbers) {
+  return numbers.reduce((acc, n) => acc + n, 0);
+}
+
+console.log(sum(1, 2, 3, 4, 5)); // 15`,
+    rightCode: `// Java: 严格的方法定义
+public class Main {
+  // 方法重载 - 相同方法名，不同参数
+  public static int add(int a, int b) {
+    return a + b;
+  }
+
+  public static double add(double a, double b) {
+    return a + b;
+  }
+
+  // 可变参数
+  public static int sum(int... numbers) {
+    int total = 0;
+    for (int num : numbers) {
+      total += num;
+    }
+    return total;
+  }
+
+  // 使用类封装参数（类似解构）
+  static class User {
+    String name;
+    int age;
+    String email;
+
+    User(String name, int age, String email) {
+      this.name = name;
+      this.age = age;
+      this.email = email;
+    }
+  }
+
+  public static User createUser(User user) {
+    return user;
+  }
+
+  // 使用 Builder 模式（更灵活的参数传递）
+  static class UserBuilder {
+    private String name;
+    private int age;
+    private String email;
+
+    public UserBuilder setName(String name) {
+      this.name = name;
+      return this;
+    }
+
+    public UserBuilder setAge(int age) {
+      this.age = age;
+      return this;
+    }
+
+    public UserBuilder setEmail(String email) {
+      this.email = email;
+      return this;
+    }
+
+    public User build() {
+      return new User(name, age, email);
+    }
+  }
+
+  public static void main(String[] args) {
+    System.out.println(add(5, 3)); // 8
+    System.out.println(add(5.5, 3.2)); // 8.7
+    System.out.println(sum(1, 2, 3, 4, 5)); // 15
+
+    User user = new UserBuilder()
+      .setName("Alice")
+      .setAge(30)
+      .setEmail("alice@example.com")
+      .build();
+  }
+}`,
+    leftLanguage: 'javascript',
+    rightLanguage: 'java',
+    titleLeft: 'JavaScript',
+    titleRight: 'Java',
+    description: '函数和方法定义对比 - 灵活性 vs 严格性',
+    tags: ['函数', '方法', '参数', '重载'],
+    difficulty: 'intermediate',
+    category: '函数编程'
   }
 };

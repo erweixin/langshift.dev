@@ -1,0 +1,726 @@
+---
+title: "Module 7: Collections and Data Structures"
+description: "Master Rust's collection types including Vec, String, HashMap, and iterators through comparison with Python's built-in collections"
+---
+
+# Module 7: Collections and Data Structures
+
+Welcome to Module 7! In this module, we'll explore Rust's collection types and how they compare to Python's built-in collections. Understanding these differences is crucial for writing idiomatic Rust code.
+
+## Learning Objectives
+
+By the end of this module, you'll be able to:
+- Use Rust's `Vec<T>` type compared to Python's `list`
+- Distinguish between `String` and `&str` types
+- Work with `HashMap<K, V>` for key-value storage
+- Leverage Rust's powerful iterator system
+- Choose the right collection for your use case
+
+## 7.1 `Vec<T>` vs Python's list
+
+### Python Lists: Flexible and Dynamic
+
+In Python, lists are dynamically typed and can hold any type:
+
+```python
+# Python - Dynamic typing
+numbers = [1, 2, 3, 4, 5]
+mixed = [1, "hello", 3.14, True]
+
+# Append and remove
+numbers.append(6)
+numbers.pop()  # Removes and returns last element
+
+# List comprehension
+squares = [x**2 for x in range(10)]
+```
+
+### Rust `Vec<T>`: Type-Safe and Contiguous
+
+Rust's `Vec<T>` is a growable array type with contiguous memory:
+
+<UniversalEditor compare={true} title="Vector Creation and Manipulation">
+```python !! py
+# Python - Dynamic lists
+numbers = [1, 2, 3, 4, 5]
+numbers.append(6)
+
+# List comprehension
+squares = [x**2 for x in range(10)]
+print(squares)  # [0, 1, 4, 9, 16, 25, 36, 49, 64, 81]
+
+# Mixed types (allowed in Python)
+mixed = [1, "hello", 3.14]
+```
+
+```rust !! rs
+// Rust - Typed vectors
+let mut numbers: Vec<i32> = vec![1, 2, 3, 4, 5];
+numbers.push(6);
+
+// Iterator equivalent to list comprehension
+let squares: Vec<i32> = (0..10).map(|x| x * x).collect();
+println!("{:?}", squares); // [0, 1, 4, 9, 16, 25, 36, 49, 64, 81]
+
+// Mixed types? Use enums or trait objects!
+#[derive(Debug)]
+enum Mixed {
+    Int(i32),
+    String(String),
+    Float(f64),
+}
+
+let mixed: Vec<Mixed> = vec![
+    Mixed::Int(1),
+    Mixed::String(String::from("hello")),
+    Mixed::Float(3.14),
+];
+println!("{:?}", mixed);
+```
+</UniversalEditor>
+
+### Key Differences
+
+1. **Type Safety**: Rust vectors are homogeneous (same type `T`)
+2. **Memory Layout**: Contiguous memory like Python's list
+3. **Capacity Management**: Rust vectors have explicit capacity control
+
+<UniversalEditor compare={true} title="Capacity Management">
+```python !! py
+# Python - Automatic memory management
+numbers = []
+for i in range(1000):
+    numbers.append(i)
+# Python handles all memory allocation automatically
+```
+
+```rust !! rs
+// Rust - Explicit capacity control
+let mut numbers = Vec::with_capacity(1000);
+for i in 0..1000 {
+    numbers.push(i);
+}
+// Pre-allocating capacity is more efficient than repeated reallocation
+
+// Check capacity and length
+println!("Capacity: {}, Length: {}", numbers.capacity(), numbers.len());
+
+// Shrink to fit if needed
+numbers.shrink_to_fit();
+```
+</UniversalEditor>
+
+## 7.2 String vs &str: The String Type System
+
+One of the most confusing aspects for Python developers is Rust's string types.
+
+### String Types Overview
+
+<UniversalEditor compare={true} title="String Types Comparison">
+```python !! py
+# Python - Only one string type
+s1 = "Hello"
+s2 = s1  # Reference, no copy
+s3 = s1 + " World"  # New string
+
+# Strings are immutable
+# s1[0] = 'h'  # Error!
+```
+
+```rust !! rs
+// Rust - Two main string types
+// String: Owned, growable, heap-allocated
+let mut s1: String = String::from("Hello");
+s1.push_str(" World");
+
+// &str: String slice, immutable view
+let s2: &str = "Hello";
+let s3: &str = &s1[0..5];  // Slice of String
+
+// &str can't be modified
+// s2.push('!');  // Error!
+
+// String to &str (cheap conversion)
+let s4: &str = &s1;
+```
+</UniversalEditor>
+
+### String Creation Methods
+
+<UniversalEditor compare={true} title="Creating Strings">
+```python !! py
+# Python - String creation
+s1 = "Hello"
+s2 = str(42)
+s3 = f"Number: {42}"
+s4 = " ".join(["Hello", "World"])
+```
+
+```rust !! rs
+// Rust - Multiple ways to create strings
+let s1: String = String::from("Hello");
+let s2: String = "World".to_string();
+let s3: String = format!("Number: {}", 42);
+let s4: String = vec!["Hello", "World"].join(" ");
+
+// From characters
+let s5: String = ['H', 'e', 'l', 'l', 'o'].iter().collect();
+
+// With capacity
+let mut s6 = String::with_capacity(10);
+s6.push_str("Hello");
+```
+</UniversalEditor>
+
+### String Manipulation
+
+<UniversalEditor compare={true} title="String Operations">
+```python !! py
+# Python - String manipulation
+text = "Hello, World!"
+
+# Length (characters)
+print(len(text))  # 13
+
+# Slicing (bytes, not characters!)
+print(text[0:5])  # "Hello"
+
+# Splitting
+words = text.split(", ")
+print(list(words))  # ['Hello', 'World!']
+
+# Trimming
+trimmed = "  hello  ".strip()
+```
+
+```rust !! rs
+// Rust - String manipulation
+let text = String::from("Hello, World!");
+
+// Length (bytes, not characters!)
+println!("Length: {}", text.len());  // 13 bytes
+
+// Character count (different from len())
+println!("Chars: {}", text.chars().count());  // 13 chars
+
+// Slicing (must be at valid UTF-8 boundary)
+let hello = &text[0..5];  // "Hello"
+
+// Splitting
+let words: Vec<&str> = text.split(", ").collect();
+println!("{:?}", words);  // ["Hello", "World!"]
+
+// Trimming
+let trimmed = "  hello  ".trim();
+println!("{}", trimmed);  // "hello"
+
+// Character iteration
+for c in text.chars() {
+    println!("{}", c);
+}
+```
+</UniversalEditor>
+
+### Common Pitfall: UTF-8 Encoding
+
+<UniversalEditor compare={true} title="UTF-8 Handling">
+```python !! py
+# Python - Unicode handled automatically
+emoji = "Hello 😊"
+print(len(emoji))  # 8 (characters)
+print(emoji[6])    # 😊
+```
+
+```rust !! rs
+// Rust - UTF-8 awareness required
+let emoji = String::from("Hello 😊");
+
+// Byte length vs character count
+println!("Bytes: {}", emoji.len());      // 10 bytes (😊 is 4 bytes)
+println!("Chars: {}", emoji.chars().count());  // 8 chars
+
+// Can't index by position (might split multi-byte char)
+// let c = emoji[6];  // Panic! Not at character boundary
+
+// Correct way to get nth character
+let c = emoji.chars().nth(6).unwrap();
+println!("{}", c);  // 😊
+```
+</UniversalEditor>
+
+## 7.3 `HashMap<K, V>`
+
+### Python Dictionaries vs Rust HashMap
+
+<UniversalEditor compare={true} title="HashMap Basics">
+```python !! py
+# Python - Dictionary
+scores = {
+    "Alice": 95,
+    "Bob": 87,
+    "Charlie": 92,
+}
+
+# Access with default
+print(scores.get("David", 0))  # 0
+
+# Add/Update
+scores["David"] = 88
+
+# Check existence
+if "Alice" in scores:
+    print(f"Alice scored {scores['Alice']}")
+```
+
+```rust !! rs
+// Rust - HashMap
+use std::collections::HashMap;
+
+let mut scores: HashMap<&str, i32> = HashMap::new();
+
+// Insert
+scores.insert("Alice", 95);
+scores.insert("Bob", 87);
+scores.insert("Charlie", 92);
+
+// Access with default
+println!("{:?}", scores.get("David").unwrap_or(&0));  // 0
+
+// Add/Update
+scores.insert("David", 88);
+
+// Check existence
+if let Some(score) = scores.get("Alice") {
+    println!("Alice scored {}", score);
+}
+
+// Entry API for conditional insert
+scores.entry("Eve").or_insert(90);
+```
+</UniversalEditor>
+
+### HashMap Ownership
+
+<UniversalEditor compare={true} title="HashMap and Ownership">
+```python !! py
+# Python - References work naturally
+key = "name"
+data = {key: "Alice"}  # Works fine
+```
+
+```rust !! rs
+// Rust - Ownership matters
+use std::collections::HashMap;
+
+let key = String::from("name");
+let mut map: HashMap<String, String> = HashMap::new();
+
+// Error: key was moved
+// map.insert(key, "Alice");
+
+// Solution: Clone the key
+map.insert(key.clone(), "Alice");
+println!("{}", key);  // Still accessible
+
+// Or use references
+let key_ref = &key;
+map.insert(key_ref.clone(), "Bob");
+```
+</UniversalEditor>
+
+### HashMap Iteration
+
+<UniversalEditor compare={true} title="Iterating HashMaps">
+```python !! py
+# Python - Dict iteration
+scores = {"Alice": 95, "Bob": 87}
+
+# Keys
+for name in scores.keys():
+    print(name)
+
+# Values
+for score in scores.values():
+    print(score)
+
+# Both
+for name, score in scores.items():
+    print(f"{name}: {score}")
+```
+
+```rust !! rs
+// Rust - HashMap iteration
+use std::collections::HashMap;
+
+let scores = HashMap::from([
+    ("Alice", 95),
+    ("Bob", 87),
+]);
+
+// Keys
+for name in scores.keys() {
+    println!("{}", name);
+}
+
+// Values
+for score in scores.values() {
+    println!("{}", score);
+}
+
+// Both
+for (name, score) in &scores {
+    println!("{}: {}", name, score);
+}
+```
+</UniversalEditor>
+
+## 7.4 Iterators: Lazy and Powerful
+
+Rust's iterator system is more powerful and explicit than Python's.
+
+### Iterator Basics
+
+<UniversalEditor compare={true} title="Iterator Creation">
+```python !! py
+# Python - Iterators everywhere
+numbers = [1, 2, 3, 4, 5]
+
+# Iterator (implicit)
+for n in numbers:
+    print(n)
+
+# Explicit iterator
+it = iter(numbers)
+print(next(it))  # 1
+print(next(it))  # 2
+
+# List comprehension (eager)
+squares = [x**2 for x in numbers]
+```
+
+```rust !! rs
+// Rust - Explicit iterator types
+let numbers = vec![1, 2, 3, 4, 5];
+
+// For loop uses iterator implicitly
+for n in &numbers {
+    println!("{}", n);
+}
+
+// Explicit iterator
+let mut it = numbers.iter();
+println!("{:?}", it.next());  // Some(1)
+println!("{:?}", it.next());  // Some(2)
+
+// collect() is eager like list comprehension
+let squares: Vec<i32> = numbers.iter().map(|x| x * x).collect();
+println!("{:?}", squares);
+```
+</UniversalEditor>
+
+### Iterator Chains
+
+<UniversalEditor compare={true} title="Chaining Iterator Methods">
+```python !! py
+# Python - Method chaining with generators
+numbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+
+# Multiple operations
+result = [
+    x * 2
+    for x in numbers
+    if x % 2 == 0
+]
+print(result)  # [4, 8, 12, 16, 20]
+
+# With filter and map (using generators)
+result2 = list(
+    map(lambda x: x * 2,
+        filter(lambda x: x % 2 == 0, numbers))
+)
+```
+
+```rust !! rs
+// Rust - Fluent iterator chains
+let numbers = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+
+// Fluent chain of methods
+let result: Vec<i32> = numbers
+    .iter()
+    .filter(|&&x| x % 2 == 0)  // Keep evens
+    .map(|x| x * 2)            // Double them
+    .collect();
+println!("{:?}", result);  // [4, 8, 12, 16, 20]
+
+// Laziness: nothing happens until collect()
+let chain = numbers.iter()
+    .filter(|&&x| x % 2 == 0)
+    .map(|x| x * 2);
+// No computation yet!
+let result: Vec<i32> = chain.collect();  // Now it runs
+```
+</UniversalEditor>
+
+### Iterator Consumption
+
+<UniversalEditor compare={true} title="Consuming Iterators">
+```python !! py
+# Python - Consume iterators
+numbers = [1, 2, 3, 4, 5]
+
+# Sum
+total = sum(numbers)  # 15
+
+# Any/All
+has_even = any(n % 2 == 0 for n in numbers)  # True
+all_positive = all(n > 0 for n in numbers)   # True
+
+# Find
+first_even = next((n for n in numbers if n % 2 == 0), None)
+print(first_even)  # 2
+```
+
+```rust !! rs
+// Rust - Consuming iterators
+let numbers = vec![1, 2, 3, 4, 5];
+
+// Sum
+let total: i32 = numbers.iter().sum();  // 15
+
+// Any/All
+let has_even = numbers.iter().any(|&x| x % 2 == 0);  // true
+let all_positive = numbers.iter().all(|&x| x > 0);   // true
+
+// Find
+let first_even = numbers.iter().find(|&&x| x % 2 == 0);
+println!("{:?}", first_even);  // Some(2)
+
+// Fold (like reduce)
+let sum = numbers.iter().fold(0, |acc, &x| acc + x);
+println!("{}", sum);  // 15
+```
+</UniversalEditor>
+
+### IntoIterator: Different Iteration Types
+
+<UniversalEditor compare={true} title="Iterator, IntoIterator, and IterMut">
+```python !! py
+# Python - Different iteration patterns
+numbers = [1, 2, 3]
+
+# Read elements
+for n in numbers:
+    print(n)
+
+# Modify elements (in-place)
+for i in range(len(numbers)):
+    numbers[i] *= 2
+```
+
+```rust !! rs
+// Rust - Three types of iteration
+let numbers = vec![1, 2, 3];
+
+// iter() - Borrowed elements (read-only)
+for n in numbers.iter() {
+    println!("{}", n);
+}
+
+// into_iter() - Owned elements (consumes vector)
+for n in numbers.into_iter() {
+    println!("{}", n);
+}
+// numbers is no longer available!
+
+// iter_mut() - Mutable borrows (modify in-place)
+let mut numbers = vec![1, 2, 3];
+for n in numbers.iter_mut() {
+    *n *= 2;
+}
+println!("{:?}", numbers);  // [2, 4, 6]
+```
+</UniversalEditor>
+
+## 7.5 Performance Comparison
+
+Let's compare the performance characteristics of these collections.
+
+<UniversalEditor compare={true} title="Performance Characteristics">
+```python !! py
+# Python - Performance considerations
+# List append: O(1) amortized
+# List access: O(1)
+# List insert at beginning: O(n)
+
+# Dict lookup: O(1) average
+# Dict insert: O(1) average
+
+# String concatenation in loop: O(n²) if done wrong
+# (Use ''.join() for O(n))
+```
+
+```rust !! rs
+// Rust - Performance characteristics
+// Vec push: O(1) amortized
+// Vec access: O(1)
+// Vec insert at beginning: O(n)
+
+// HashMap lookup: O(1) average
+// HashMap insert: O(1) average
+
+// String concatenation: Use with_capacity() for efficiency
+let mut result = String::with_capacity(100);
+for i in 0..10 {
+    result.push_str(&format!("Number {}", i));
+}
+// Much faster than repeated string concatenation
+```
+</UniversalEditor>
+
+## 7.6 Choosing the Right Collection
+
+<UniversalEditor compare={true} title="Collection Selection Guide">
+```python !! py
+# Python - Collection choices
+# list: Ordered sequence, dynamic size
+# dict: Key-value mapping, fast lookup
+# set: Unique elements, fast membership test
+# tuple: Immutable sequence
+# frozenset: Immutable set
+```
+
+```rust !! rs
+// Rust - Collection choices
+// Vec<T>: Default choice for sequences
+// [T; N]: Fixed-size array (known at compile time)
+// String: Owned, growable string
+// &str: String slice (view into String)
+// HashMap<K, V>: Key-value mapping (default)
+// BTreeMap<K, V>: Ordered key-value mapping
+// HashSet<T>: Unique elements, fast membership
+// BTreeSet<T>: Ordered unique elements
+// VecDeque<T>: Double-ended queue
+// LinkedList<T>: Doubly linked list (rarely needed!)
+```
+</UniversalEditor>
+
+## Common Pitfalls
+
+### Pitfall 1: String Indexing
+
+```rust
+// DON'T: Index into strings
+let s = String::from("hello");
+// let c = s[0];  // Panic!
+
+// DO: Use chars() or bytes()
+let c = s.chars().next().unwrap();
+```
+
+### Pitfall 2: forgetting to Clone
+
+```rust
+// DON'T: Move values into HashMap unexpectedly
+use std::collections::HashMap;
+
+let name = String::from("Alice");
+let mut map = HashMap::new();
+map.insert(name, 95);
+// println!("{}", name);  // Error: name was moved!
+
+// DO: Clone when needed
+let name = String::from("Alice");
+map.insert(name.clone(), 95);
+println!("{}", name);  // Works!
+```
+
+### Pitfall 3: Unnecessary Collect
+
+```rust
+// DON'T: Collect unnecessarily
+let result: Vec<i32> = numbers.iter()
+    .map(|x| x * 2)
+    .collect();
+let sum: i32 = result.iter().sum();
+
+// DO: Chain operations
+let sum: i32 = numbers.iter()
+    .map(|x| x * 2)
+    .sum();
+```
+
+## Best Practices
+
+1. **Pre-allocate capacity** when you know the size
+2. **Use `String::with_capacity()`** for building strings
+3. **Leverage iterator chains** instead of intermediate collections
+4. **Use `&str` for function parameters** (more flexible)
+5. **Prefer `Vec` over `LinkedList`** (better cache locality)
+6. **Use `entry()` API** for conditional HashMap operations
+
+## Summary
+
+In this module, we covered:
+
+- **`Vec<T>`**: Type-safe, growable arrays with capacity control
+- **String vs &str**: Owned strings vs string slices
+- **`HashMap<K, V>`**: Key-value storage with ownership semantics
+- **Iterators**: Lazy, composable, and powerful
+
+Key takeaways:
+- Rust's collections are type-safe and explicit about ownership
+- String types require understanding UTF-8 encoding
+- Iterators are lazy and chainable for efficient data processing
+- Choose collections based on your performance needs
+
+## Exercise
+
+Create a word frequency counter that:
+1. Reads text and splits into words
+2. Counts word occurrences using a HashMap
+3. Returns the top 5 most common words
+4. Handle Unicode text properly
+
+<details>
+<summary>View Solution</summary>
+
+```rust
+use std::collections::HashMap;
+
+fn word_frequency(text: &str) -> Vec<(String, usize)> {
+    let mut freq = HashMap::new();
+
+    // Split on whitespace and count
+    for word in text.split_whitespace() {
+        // Clean word: remove punctuation, lowercase
+        let cleaned = word
+            .to_lowercase()
+            .chars()
+            .filter(|c| c.is_alphabetic())
+            .collect::<String>();
+
+        if !cleaned.is_empty() {
+            *freq.entry(cleaned).or_insert(0) += 1;
+        }
+    }
+
+    // Convert to vector and sort
+    let mut counts: Vec<(String, usize)> = freq.into_iter().collect();
+    counts.sort_by(|a, b| b.1.cmp(&a.1));  // Descending by count
+
+    counts
+}
+
+fn main() {
+    let text = "Hello world hello RUST world rust World";
+    let top_words = word_frequency(text);
+
+    for (word, count) in top_words.iter().take(5) {
+        println!("{}: {}", word, count);
+    }
+}
+```
+
+</details>
+
+Next up: **Module 8 - Enums & Pattern Matching**, where we'll explore Rust's powerful enum system and pattern matching capabilities!

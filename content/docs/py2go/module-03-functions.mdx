@@ -1,0 +1,1231 @@
+---
+title: "Module 3: Functions and Methods"
+description: "Understanding Go's function system compared to Python"
+---
+
+## Introduction
+
+Go's function system is similar to Python but with key differences: static typing, multiple return values, and explicit error handling. This module covers functions, methods, closures, and more in depth.
+
+## Basic Functions
+
+### Function Declaration Syntax
+
+<UniversalEditor title="Basic Function Declaration">
+```python !! py
+# Python - Function definition
+def add(a, b):
+    return a + b
+
+def greet(name, greeting="Hello"):
+    return f"{greeting}, {name}!"
+
+def calculate(x, y, z):
+    result = x + y * z
+    return result
+
+# Call
+result = add(5, 3)
+message = greet("Alice")
+message = greet("Bob", "Hi")
+calc_result = calculate(1, 2, 3)
+```
+
+```go !! go
+// Go - Function definition
+package main
+
+import "fmt"
+
+// Basic function
+func add(a int, b int) int {
+    return a + b
+}
+
+// When parameters share type, can shorten
+func addShort(a, b int) int {
+    return a + b
+}
+
+func greet(name string, greeting string) string {
+    return fmt.Sprintf("%s, %s!", greeting, name)
+}
+
+func calculate(x, y, z int) int {
+    result := x + y*z
+    return result
+}
+
+// Multiple parameters of same type
+func sum(a, b, c, d int) int {
+    return a + b + c + d
+}
+
+func main() {
+    result := add(5, 3)
+    message := greet("Alice", "Hello")
+    calcResult := calculate(1, 2, 3)
+    total := sum(1, 2, 3, 4)
+
+    fmt.Println(result)
+    fmt.Println(message)
+    fmt.Println(calcResult)
+    fmt.Println(total)
+}
+```
+</UniversalEditor>
+
+### No Default Parameters
+
+Go doesn't have default parameters. Use multiple functions instead:
+
+<UniversalEditor title="Default Parameters Workaround">
+```python !! py
+# Python - Default parameters
+def connect(host, port=5432, timeout=30):
+    return f"Connected to {host}:{port}"
+
+# Call with defaults
+connect("localhost")
+
+# Override some
+connect("localhost", port=3306)
+
+# Override all
+connect("localhost", 5432, 60)
+```
+
+```go !! go
+// Go - No default parameters, use multiple functions
+package main
+
+import "fmt"
+
+// Approach 1: Multiple functions
+func Connect(host string) string {
+    return ConnectPort(host, 5432)
+}
+
+func ConnectPort(host string, port int) string {
+    return ConnectTimeout(host, port, 30)
+}
+
+func ConnectTimeout(host string, port int, timeout int) string {
+    return fmt.Sprintf("Connected to %s:%d (timeout: %d)", host, port, timeout)
+}
+
+// Approach 2: Configuration struct
+type Config struct {
+    Host    string
+    Port    int
+    Timeout int
+}
+
+func ConnectWithConfig(config Config) string {
+    // Provide defaults
+    if config.Port == 0 {
+        config.Port = 5432
+    }
+    if config.Timeout == 0 {
+        config.Timeout = 30
+    }
+
+    return fmt.Sprintf("Connected to %s:%d (timeout: %d)",
+        config.Host, config.Port, config.Timeout)
+}
+
+// Approach 3: Functional options pattern
+type Server struct {
+    host    string
+    port    int
+    timeout int
+}
+
+type Option func(*Server)
+
+func WithPort(port int) Option {
+    return func(s *Server) {
+        s.port = port
+    }
+}
+
+func WithTimeout(timeout int) Option {
+    return func(s *Server) {
+        s.timeout = timeout
+    }
+}
+
+func NewServer(host string, opts ...Option) *Server {
+    s := &Server{
+        host:    host,
+        port:    5432,  // default
+        timeout: 30,    // default
+    }
+
+    for _, opt := range opts {
+        opt(s)
+    }
+
+    return s
+}
+
+func main() {
+    // Multiple functions approach
+    fmt.Println(Connect("localhost"))
+    fmt.Println(ConnectPort("localhost", 3306))
+
+    // Config struct approach
+    config := Config{Host: "localhost"}
+    fmt.Println(ConnectWithConfig(config))
+
+    // Functional options approach
+    server := NewServer("localhost", WithPort(8080), WithTimeout(60))
+    fmt.Printf("Server: %+v\n", server)
+}
+```
+</UniversalEditor>
+
+## Multiple Return Values
+
+This is one of Go's most powerful features:
+
+<UniversalEditor title="Multiple Return Values - Basic">
+```python !! py
+# Python - Return tuple
+def divide(a, b):
+    if b == 0:
+        return None, "Division by zero"
+    return a / b, None
+
+result, error = divide(10, 2)
+if error:
+    print(f"Error: {error}")
+else:
+    print(f"Result: {result}")
+
+# Can ignore values with _
+result, _ = divide(10, 2)
+```
+
+```go !! go
+// Go - Multiple return values (idiomatic)
+package main
+
+import "fmt"
+
+func divide(a int, b int) (int, error) {
+    if b == 0 {
+        return 0, fmt.Errorf("division by zero")
+    }
+    return a / b, nil
+}
+
+func main() {
+    result, err := divide(10, 2)
+    if err != nil {
+        fmt.Printf("Error: %v\n", err)
+        return
+    }
+    fmt.Printf("Result: %d\n", result)
+
+    // Ignore error with blank identifier
+    result2, _ := divide(20, 4)
+    fmt.Printf("Result2: %d\n", result2)
+
+    // Ignore result
+    _, err2 := divide(10, 0)
+    if err2 != nil {
+        fmt.Printf("Expected error: %v\n", err2)
+    }
+}
+```
+</UniversalEditor>
+
+### Real-World Multiple Returns
+
+<UniversalEditor title="Real-World Example - HTTP Request">
+```python !! py
+# Python - HTTP request with multiple returns
+import requests
+
+def fetch_user(user_id):
+    try:
+        response = requests.get(f"/api/users/{user_id}")
+        return response.json(), None
+    except requests.RequestException as e:
+        return None, str(e)
+
+user, error = fetch_user(123)
+if error:
+    print(f"Failed: {error}")
+else:
+    print(f"User: {user['name']}")
+```
+
+```go !! go
+// Go - HTTP request with multiple returns
+package main
+
+import (
+    "encoding/json"
+    "fmt"
+    "net/http"
+)
+
+type User struct {
+    ID    int    `json:"id"`
+    Name  string `json:"name"`
+    Email string `json:"email"`
+}
+
+func fetchUser(userID int) (*User, error) {
+    resp, err := http.Get(fmt.Sprintf("http://api.example.com/users/%d", userID))
+    if err != nil {
+        return nil, fmt.Errorf("request failed: %w", err)
+    }
+    defer resp.Body.Close()
+
+    if resp.StatusCode != http.StatusOK {
+        return nil, fmt.Errorf("unexpected status: %d", resp.StatusCode)
+    }
+
+    var user User
+    if err := json.NewDecoder(resp.Body).Decode(&user); err != nil {
+        return nil, fmt.Errorf("decode failed: %w", err)
+    }
+
+    return &user, nil
+}
+
+func main() {
+    user, err := fetchUser(123)
+    if err != nil {
+        fmt.Printf("Failed: %v\n", err)
+        return
+    }
+
+    fmt.Printf("User: %s\n", user.Name)
+}
+```
+</UniversalEditor>
+
+## Named Return Values
+
+Named return values make code clearer but should be used judiciously:
+
+<UniversalEditor title="Named Return Values">
+```python !! py
+# Python - No named returns (but can return dict)
+def calculate(a, b):
+    sum_result = a + b
+    product = a * b
+    difference = a - b
+    return {
+        'sum': sum_result,
+        'product': product,
+        'difference': difference
+    }
+
+result = calculate(5, 3)
+print(result['sum'], result['product'])
+```
+
+```go !! go
+// Go - Named return values
+package main
+
+import "fmt"
+
+// Named return values (creates variables sum and product)
+func calculate(a int, b int) (sum int, product int) {
+    sum = a + b      // No need to declare
+    product = a * b  // No need to declare
+    return           // Naked return (returns sum, product)
+}
+
+// Named returns with different types
+func analyze(numbers []int) (count int, sum int, average float64) {
+    for _, n := range numbers {
+        sum += n
+        count++
+    }
+    if count > 0 {
+        average = float64(sum) / float64(count)
+    }
+    return // Returns count, sum, average
+}
+
+// Using named returns with defer
+func readFile(filename string) (content string, err error) {
+    defer func() {
+        if err != nil {
+            err = fmt.Errorf("readFile(%s): %w", filename, err)
+        }
+    }()
+
+    data, err := os.ReadFile(filename)
+    if err != nil {
+        return "", err
+    }
+
+    content = string(data)
+    return content, nil
+}
+
+func main() {
+    s, p := calculate(5, 3)
+    fmt.Printf("Sum: %d, Product: %d\n", s, p)
+
+    count, sum, avg := analyze([]int{1, 2, 3, 4, 5})
+    fmt.Printf("Count: %d, Sum: %d, Average: %.2f\n", count, sum, avg)
+}
+```
+</UniversalEditor>
+
+### When to Use Named Returns
+
+<UniversalEditor title="Named Returns Best Practices">
+```go
+// GOOD: Named returns for clarity in short functions
+func calculateRectangle(width, height int) (area int, perimeter int) {
+    area = width * height
+    perimeter = 2 * (width + height)
+    return
+}
+
+// GOOD: Named returns when you need to modify in defer
+func transaction(db *DB) (result string, err error) {
+    defer func() {
+        if err != nil {
+            err = fmt.Errorf("transaction failed: %w", err)
+        }
+    }()
+    // ... transaction logic
+    return
+}
+
+// AVOID: Named returns in long functions (hard to track)
+func complexOperation(data []string) (output string, err error) {
+    // Many lines of code...
+    // Hard to track where 'output' is set
+    return
+}
+
+// PREFER: Regular returns in complex functions
+func complexOperation(data []string) (string, error) {
+    output := process(data)
+    return output, nil
+}
+```
+</UniversalEditor>
+
+## Variadic Functions
+
+<UniversalEditor title="Variadic Functions in Depth">
+```python !! py
+# Python - *args and **kwargs
+def func(*args, **kwargs):
+    print("Args:", args)
+    print("Kwargs:", kwargs)
+
+func(1, 2, 3, name="Alice", age=30)
+
+# Can also pass list/dict
+numbers = [1, 2, 3]
+func(*numbers)
+```
+
+```go !! go
+// Go - Variadic functions
+package main
+
+import "fmt"
+
+// Basic variadic function
+func sumAll(numbers ...int) int {
+    total := 0
+    for _, num := range numbers {
+        total += num
+    }
+    return total
+}
+
+// Mixed parameters (variadic must be last)
+func greet(prefix string, names ...string) {
+    for _, name := range names {
+        fmt.Printf("%s %s\n", prefix, name)
+    }
+}
+
+// Variadic with different types
+func printAny(items ...interface{}) {
+    for _, item := range items {
+        fmt.Println(item)
+    }
+}
+
+func main() {
+    // Direct call
+    total := sumAll(1, 2, 3, 4, 5)
+    fmt.Println("Total:", total)
+
+    // With slice (spread with ...)
+    numbers := []int{10, 20, 30}
+    total = sumAll(numbers...)
+    fmt.Println("Total from slice:", total)
+
+    // Mixed parameters
+    greet("Hello:", "Alice", "Bob", "Charlie")
+
+    // Empty variadic
+    total = sumAll()
+    fmt.Println("Empty sum:", total)
+}
+```
+</UniversalEditor>
+
+### Real-World Variadic Examples
+
+<UniversalEditor title="Real-World Variadic Functions">
+```go
+// SQL query builder
+func Query(db *sql.DB, query string, args ...interface{}) (*sql.Rows, error) {
+    return db.Query(query, args...)
+}
+
+// Logging
+func Log(level string, messages ...string) {
+    fmt.Printf("[%s] %s\n", level, strings.Join(messages, " "))
+}
+
+// Error wrapping
+func Wrap(err error, messages ...string) error {
+    msg := strings.Join(messages, ": ")
+    return fmt.Errorf("%s: %w", msg, err)
+}
+
+// Usage
+rows, err := Query(db, "SELECT * FROM users WHERE id = $1", userID)
+Log("ERROR", "Database", "Connection failed")
+err = Wrap(err, "Failed to fetch user", userID)
+```
+</UniversalEditor>
+
+## Closures and Anonymous Functions
+
+<UniversalEditor title="Closures in Depth">
+```python !! py
+# Python - Closures
+def make_multiplier(factor):
+    def multiply(x):
+        return x * factor
+    return multiply
+
+times3 = make_multiplier(3)
+print(times3(5))  # 15
+
+# Lambda
+add = lambda x, y: x + y
+print(add(3, 4))  # 7
+
+# Closure with state
+def counter():
+    count = 0
+    def increment():
+        nonlocal count
+        count += 1
+        return count
+    return increment
+
+c = counter()
+print(c())  # 1
+print(c())  # 2
+```
+
+```go !! go
+// Go - Closures
+package main
+
+import "fmt"
+
+// Basic closure
+func makeMultiplier(factor int) func(int) int {
+    return func(x int) int {
+        return x * factor
+    }
+}
+
+// Closure with state
+func counter() func() int {
+    count := 0
+    return func() int {
+        count++
+        return count
+    }
+}
+
+// Closure with multiple values
+func accumulator() (func(int), func() int) {
+    sum := 0
+    add := func(x int) {
+        sum += x
+    }
+    get := func() int {
+        return sum
+    }
+    return add, get
+}
+
+func main() {
+    // Basic closure
+    times3 := makeMultiplier(3)
+    fmt.Println(times3(5))  // 15
+
+    // Anonymous function
+    add := func(x, y int) int {
+        return x + y
+    }
+    fmt.Println(add(3, 4))  // 7
+
+    // IIFE (Immediately Invoked Function Expression)
+    result := func(x int) int {
+        return x * 2
+    }(5)
+    fmt.Println(result)  // 10
+
+    // Counter with state
+    c := counter()
+    fmt.Println(c())  // 1
+    fmt.Println(c())  // 2
+    fmt.Println(c())  // 3
+
+    // Multiple closures sharing state
+    addVal, getSum := accumulator()
+    addVal(10)
+    addVal(20)
+    fmt.Println(getSum())  // 30
+}
+```
+</UniversalEditor>
+
+### Common Closure Patterns
+
+<UniversalEditor title="Closure Patterns">
+```go
+// 1. Iterator pattern
+func iterate(numbers []int) func() (int, bool) {
+    index := 0
+    return func() (int, bool) {
+        if index >= len(numbers) {
+            return 0, false
+        }
+        val := numbers[index]
+        index++
+        return val, true
+    }
+}
+
+// Usage
+it := iterate([]int{1, 2, 3})
+for val, ok := it(); ok; val, ok = it() {
+    fmt.Println(val)
+}
+
+// 2. Memoization
+func memoize(fn func(int) int) func(int) int {
+    cache := make(map[int]int)
+    return func(x int) int {
+        if val, exists := cache[x]; exists {
+            return val
+        }
+        result := fn(x)
+        cache[x] = result
+        return result
+    }
+}
+
+var fib = memoize(func(n int) int {
+    if n < 2 {
+        return n
+    }
+    return fib(n-1) + fib(n-2)
+})
+
+// 3. Defer with closure
+func process() {
+    defer func() {
+        fmt.Println("Cleanup done")
+    }()
+    fmt.Println("Processing")
+}
+```
+</UniversalEditor>
+
+## Methods
+
+Go doesn't have classes, but has methods on any type:
+
+<UniversalEditor title="Methods Deep Dive">
+```python !! py
+# Python - Class methods
+class Rectangle:
+    def __init__(self, width, height):
+        self.width = width
+        self.height = height
+
+    def area(self):
+        return self.width * self.height
+
+    def perimeter(self):
+        return 2 * (self.width + self.height)
+
+    def scale(self, factor):
+        self.width *= factor
+        self.height *= factor
+
+rect = Rectangle(5, 3)
+print(rect.area())  # 15
+rect.scale(2)
+print(rect.area())  # 60
+```
+
+```go !! go
+// Go - Methods on types
+package main
+
+import "fmt"
+
+type Rectangle struct {
+    width  int
+    height int
+}
+
+// Value receiver (doesn't modify original)
+func (r Rectangle) Area() int {
+    return r.width * r.height
+}
+
+func (r Rectangle) Perimeter() int {
+    return 2 * (r.width + r.height)
+}
+
+// Pointer receiver (can modify)
+func (r *Rectangle) Scale(factor int) {
+    r.width *= factor
+    r.height *= factor
+}
+
+// Methods on non-struct types
+type MyInt int
+
+func (m MyInt) Double() MyInt {
+    return m * 2
+}
+
+func main() {
+    rect := Rectangle{width: 5, height: 3}
+    fmt.Println(rect.Area())     // 15
+    fmt.Println(rect.Perimeter()) // 16
+
+    rect.Scale(2)
+    fmt.Println(rect.Area())     // 60
+
+    // Method on non-struct
+    num := MyInt(5)
+    fmt.Println(num.Double())  // 10
+}
+```
+</UniversalEditor>
+
+### Value vs Pointer Receivers
+
+<UniversalEditor title="Receiver Types">
+```python !! py
+# Python - Methods can modify object
+class Counter:
+    def __init__(self):
+        self.count = 0
+
+    def increment(self):
+        self.count += 1
+
+    def get_count(self):
+        return self.count
+
+counter = Counter()
+counter.increment()
+print(counter.get_count())  # 1
+```
+
+```go !! go
+// Go - Choose receiver type carefully
+package main
+
+import "fmt"
+
+type Counter struct {
+    count int
+}
+
+// Value receiver (cannot modify)
+func (c Counter) GetCount() int {
+    return c.count
+}
+
+// Pointer receiver (can modify)
+func (c *Counter) Increment() {
+    c.count++
+}
+
+// When to use pointer receivers:
+// 1. Method needs to modify the receiver
+// 2. Struct is large (avoids copying)
+// 3. Consistency (if some methods use pointers, all should)
+
+func main() {
+    counter := Counter{count: 0}
+
+    // Both work
+    counter.Increment()
+    fmt.Println(counter.GetCount())  // 1
+
+    // Can call pointer receiver method on value
+    // (Go automatically takes address)
+    c := Counter{}
+    c.Increment()  // Automatically converted to (&c).Increment()
+}
+```
+</UniversalEditor>
+
+### Method Sets and Interfaces
+
+<UniversalEditor title="Method Sets">
+```go
+// Value receiver methods are in the value method set
+type ValueInterface interface {
+    Method()  // Can be called with value or pointer
+}
+
+// Pointer receiver methods are only in pointer method set
+type PointerInterface interface {
+    Method()  // Can ONLY be called with pointer
+}
+
+// Example
+type User struct {
+    Name string
+}
+
+func (u User) GetName() string {
+    return u.Name
+}
+
+func (u *User) SetName(name string) {
+    u.Name = name
+}
+
+func processUser(u User) {
+    // Can call GetName on value
+    fmt.Println(u.GetName())
+
+    // CANNOT call SetName on value
+    // u.SetName("Bob")  // Compilation error!
+}
+
+func processUserPtr(u *User) {
+    // Can call both methods on pointer
+    fmt.Println(u.GetName())
+    u.SetName("Bob")  // OK!
+}
+```
+</UniversalEditor>
+
+## Higher-Order Functions
+
+<UniversalEditor title="Higher-Order Functions">
+```python !! py
+# Python - Map, filter, reduce
+numbers = [1, 2, 3, 4, 5]
+
+# Map
+doubled = list(map(lambda x: x * 2, numbers))
+
+# Filter
+evens = list(filter(lambda x: x % 2 == 0, numbers))
+
+# Reduce
+from functools import reduce
+total = reduce(lambda x, y: x + y, numbers)
+
+# List comprehension (more Pythonic)
+doubled = [x * 2 for x in numbers]
+evens = [x for x in numbers if x % 2 == 0]
+```
+
+```go !! go
+// Go - Higher-order functions
+package main
+
+import "fmt"
+
+func mapInts(nums []int, f func(int) int) []int {
+    result := make([]int, len(nums))
+    for i, num := range nums {
+        result[i] = f(num)
+    }
+    return result
+}
+
+func filterInts(nums []int, f func(int) bool) []int {
+    result := []int{}
+    for _, num := range nums {
+        if f(num) {
+            result = append(result, num)
+        }
+    }
+    return result
+}
+
+func reduceInts(nums []int, initial int, f func(int, int) int) int {
+    result := initial
+    for _, num := range nums {
+        result = f(result, num)
+    }
+    return result
+}
+
+func main() {
+    numbers := []int{1, 2, 3, 4, 5}
+
+    // Map
+    doubled := mapInts(numbers, func(x int) int {
+        return x * 2
+    })
+    fmt.Println("Doubled:", doubled)  // [2 4 6 8 10]
+
+    // Filter
+    evens := filterInts(numbers, func(x int) bool {
+        return x%2 == 0
+    })
+    fmt.Println("Evens:", evens)  // [2 4]
+
+    // Reduce
+    sum := reduceInts(numbers, 0, func(acc, val int) int {
+        return acc + val
+    })
+    fmt.Println("Sum:", sum)  // 15
+
+    // Chaining
+    result := reduceInts(
+        filterInts(
+            mapInts(numbers, func(x int) int { return x * 2 }),
+            func(x int) bool { return x > 4 },
+        ),
+        0,
+        func(acc, val int) int { return acc + val },
+    )
+    fmt.Println("Chained:", result)  // 6 + 8 + 10 = 24
+}
+```
+</UniversalEditor>
+
+## Defer in Functions
+
+<UniversalEditor title="Defer in Depth">
+```python !! py
+# Python - Context managers
+def process_file(filename):
+    with open(filename) as f:
+        data = f.read()
+        return process(data)
+
+# Multiple cleanup
+def process():
+    with open("file1.txt") as f1:
+        with open("file2.txt") as f2:
+            process_both(f1, f2)
+```
+
+```go !! go
+// Go - Defer in functions
+package main
+
+import (
+    "fmt"
+    "os"
+)
+
+// Basic defer
+func processFile(filename string) error {
+    file, err := os.Open(filename)
+    if err != nil {
+        return err
+    }
+    defer file.Close()  // Executed when function returns
+
+    // Process file...
+    return nil
+}
+
+// Multiple defers (LIFO order)
+func processMultiple() {
+    defer fmt.Println("Third")
+    defer fmt.Println("Second")
+    defer fmt.Println("First")
+    // Output: First, Second, Third
+}
+
+// Defer with arguments
+func deferWithArgs() {
+    i := 0
+    defer fmt.Println(i)  // Prints 0 (evaluated now)
+    i = 10
+}
+
+// Defer for cleanup
+func connectDatabase() (*sql.DB, error) {
+    db, err := sql.Open("driver", "dsn")
+    if err != nil {
+        return nil, err
+    }
+
+    // Defer rollback if not committed
+    var tx *sql.Tx
+    defer func() {
+        if tx != nil {
+            tx.Rollback()
+        }
+    }()
+
+    tx, err = db.Begin()
+    if err != nil {
+        return nil, err
+    }
+
+    // ... use tx ...
+
+    if err := tx.Commit(); err != nil {
+        return nil, err
+    }
+    tx = nil  // Don't rollback
+
+    return db, nil
+}
+```
+</UniversalEditor>
+
+### Common Defer Patterns
+
+<UniversalEditor title="Defer Patterns">
+```go
+// 1. Unlock mutex
+func process(data map[string]int) {
+    mu.Lock()
+    defer mu.Unlock()
+
+    data["key"] = 42
+    // Automatically unlocked
+}
+
+// 2. Close response body
+func fetch(url string) error {
+    resp, err := http.Get(url)
+    if err != nil {
+        return err
+    }
+    defer resp.Body.Close()
+
+    // Process response...
+    return nil
+}
+
+// 3. Recover from panic
+func safeOperation() (err error) {
+    defer func() {
+        if r := recover(); r != nil {
+            err = fmt.Errorf("panic: %v", r)
+        }
+    }()
+
+    // Risky operation...
+    return nil
+}
+
+// 4. Measure execution time
+func timedOperation() {
+    defer func(start time.Time) {
+        fmt.Printf(" Took %v\n", time.Since(start))
+    }(time.Now())
+
+    // Operation...
+}
+
+// 5. Resource cleanup
+func processFiles(filenames []string) error {
+    files := make([]*os.File, 0, len(filenames))
+
+    for _, filename := range filenames {
+        file, err := os.Open(filename)
+        if err != nil {
+            return err
+        }
+        files = append(files, file)
+    }
+
+    // Close all files on return
+    defer func() {
+        for _, file := range files {
+            file.Close()
+        }
+    }()
+
+    // Process files...
+    return nil
+}
+```
+</UniversalEditor>
+
+## Panic and Recover
+
+<UniversalEditor title="Panic and Recover">
+```python !! py
+# Python - Try/except
+def risky_operation():
+    try:
+        result = divide(10, 0)
+        return result
+    except ZeroDivisionError as e:
+        print(f"Caught: {e}")
+        return None
+    finally:
+        print("Cleanup always runs")
+
+def divide(a, b):
+    if b == 0:
+        raise ZeroDivisionError("Cannot divide by zero")
+    return a / b
+```
+
+```go !! go
+// Go - Panic/recover (rarely used, prefer errors)
+package main
+
+import (
+    "fmt"
+    "log"
+)
+
+// Panic is like raise, recover is like except
+func riskyOperation() (result int) {
+    // defer with recover
+    defer func() {
+        if r := recover(); r != nil {
+            log.Printf("Recovered from panic: %v", r)
+            result = 0
+        }
+    }()
+
+    result = divide(10, 0)
+    return result
+}
+
+func divide(a, b int) int {
+    if b == 0 {
+        panic("cannot divide by zero")  // Like raise
+    }
+    return a / b
+}
+
+// Recovering in main
+func main() {
+    defer func() {
+        if r := recover(); r != nil {
+            fmt.Printf("Main recovered: %v\n", r)
+        }
+    }()
+
+    riskyOperation()
+}
+```
+</UniversalEditor>
+
+### When to Use Panic
+
+<UniversalEditor title="Panic Guidelines">
+```go
+// DON'T: Use panic for normal errors
+func getUser(id int) (*User, error) {
+    if id < 0 {
+        panic("invalid id")  // BAD!
+    }
+    // ...
+}
+
+// DO: Return error
+func getUser(id int) (*User, error) {
+    if id < 0 {
+        return nil, fmt.Errorf("invalid id: %d", id)
+    }
+    // ...
+}
+
+// OK: Panic for truly unrecoverable conditions
+func init() {
+    if apiKey == "" {
+        panic("API_KEY environment variable required")
+    }
+}
+
+// OK: Panic in programmer error
+func process(data []int) int {
+    if len(data) == 0 {
+        panic("process called with empty slice")  // Programmer error
+    }
+    // ...
+}
+```
+</UniversalEditor>
+
+## Summary
+
+In this module, you learned:
+
+1. **Function declarations** with typed parameters
+2. **No default parameters** - use multiple functions or functional options
+3. **Multiple return values** - Go's superpower for error handling
+4. **Named return values** - use for clarity in simple functions
+5. **Variadic functions** with `...` for flexible arguments
+6. **Closures** - anonymous functions capturing context
+7. **Methods** - functions on any type (no classes needed)
+8. **Value vs pointer receivers** - when to use each
+9. **Higher-order functions** - functions as parameters
+10. **Defer** - guaranteed cleanup in LIFO order
+11. **Panic/recover** - only for exceptional cases
+
+## Key Differences from Python
+
+| Python | Go |
+|--------|-----|
+| Dynamic parameters | Typed parameters |
+| Default parameters | Multiple functions or options pattern |
+| Single return (or tuple) | Multiple returns common |
+| `lambda x: x+1` | `func(x int) int { return x+1 }` |
+| Class methods | Methods on any type |
+| `try/except/finally` | Error returns + panic/recover |
+| List comprehensions | Higher-order functions (but loops are common) |
+| Context managers | `defer` statements |
+
+## Exercises
+
+1. Write a function that returns both the quotient and remainder of division
+2. Implement the functional options pattern for a Server configuration
+3. Create a closure that maintains state (counter, accumulator)
+4. Implement both value and pointer receivers on a custom struct
+5. Write variadic functions for `min()`, `max()`, and `sum()`
+6. Use `defer` to measure function execution time
+7. Create a memoization helper with closures
+8. Implement `map`, `filter`, and `reduce` functions
+
+## Next Steps
+
+Next module: **Structs and Interfaces** - Go's approach to object-oriented programming without classes.

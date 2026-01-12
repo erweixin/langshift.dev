@@ -1,0 +1,561 @@
+---
+title: "模組 5:函數與閉包"
+description: "透過與 Python 比較來掌握 Rust 的函數系統、閉包和函數式程式設計特性。"
+---
+
+# 模組 5:函數與閉包
+
+函數在 Python 和 Rust 中都是一等公民,但 Rust 透過其類型系統、所有權和閉包特性將其提升到了新的高度。本模組將向你展示如何利用 Rust 強大的函數系統。
+
+## 學習目標
+
+完成本模組後,你將理解:
+- ✅ 函數定義和簽名
+- ✅ 參數、參數傳遞
+- ✅ 返回類型和 `return` 關鍵字
+- ✅ 閉包及其捕獲模式
+- ✅ 作為值的函數指標和閉包
+- ✅ 高階函數
+- ✅ 迭代器和函數式程式設計模式
+- ✅ 閉包 vs 函數的效能
+
+## 函數定義
+
+### 基本函數語法
+
+<UniversalEditor compare={true} title="函數定義">
+```python !! py
+# Python: 動態、靈活的函數
+def greet(name):
+    return f"Hello, {name}!"
+
+def add(a, b):
+    return a + b
+
+def no_return():
+    print("Side effect")
+    # 隱式返回 None
+```
+
+```rust !! rs
+// Rust: 靜態類型,顯式簽名
+fn greet(name: &str) -> String {
+    format!("Hello, {}!", name)
+}
+
+fn add(a: i32, b: i32) -> i32 {
+    a + b  // 無分號 = 返回值
+}
+
+fn no_return() {
+    println!("Side effect");
+    // 隱式返回 ()
+}
+```
+</UniversalEditor>
+
+### 類型註解是必需的
+
+<UniversalEditor compare={true} title="類型註解">
+```python !! py
+# Python: 類型提示可選
+def add(a: int, b: int) -> int:
+    return a + b
+
+def add_no_hints(a, b):
+    return a + b  # 可以正常工作!
+
+def flexible(x):
+    if x > 0:
+        return 42
+    return "negative"  # 不同類型也可以
+```
+
+```rust !! rs
+// Rust: 參數和返回值需要類型註解
+fn add(a: i32, b: i32) -> i32 {
+    a + b
+}
+
+// fn add_no_hints(a, b) {  // 錯誤:需要類型
+//     a + b
+// }
+
+// 不能返回不同的類型
+// fn flexible(x: i32) -> ??? {  // 什麼類型?
+//     if x > 0 {
+//         return 42;
+//     }
+//     return "negative";  // 錯誤:類型不匹配
+// }
+
+// 使用枚舉處理不同返回類型
+enum Either {
+    Number(i32),
+    Text(&'static str),
+}
+
+fn flexible(x: i32) -> Either {
+    if x > 0 {
+        Either::Number(42)
+    } else {
+        Either::Text("negative")
+    }
+}
+```
+</UniversalEditor>
+
+### 多返回值
+
+<UniversalEditor compare={true} title="多返回值">
+```python !! py
+# Python: 使用元組返回多個值
+def divide_and_remainder(a, b):
+    quotient = a // b
+    remainder = a % b
+    return quotient, remainder
+
+q, r = divide_and_remainder(10, 3)
+
+# 可以返回任意數量的值
+def many_returns():
+    return 1, 2, 3, 4, 5
+
+a, b, c, d, e = many_returns()
+```
+
+```rust !! rs
+// Rust: 使用元組返回多個值
+fn divide_and_remainder(a: i32, b: i32) -> (i32, i32) {
+    (a / b, a % b)
+}
+
+let (q, r) = divide_and_remainder(10, 3);
+
+// 可以返回任意數量的值
+fn many_returns() -> (i32, i32, i32, i32, i32) {
+    (1, 2, 3, 4, 5)
+}
+
+let (a, b, c, d, e) = many_returns();
+
+// 使用命名字段提高清晰度
+struct DivisionResult {
+    quotient: i32,
+    remainder: i32,
+}
+
+fn divide_struct(a: i32, b: i32) -> DivisionResult {
+    DivisionResult {
+        quotient: a / b,
+        remainder: a % b,
+    }
+}
+```
+</UniversalEditor>
+
+## 參數和參數傳遞
+
+### 值傳遞 vs 引用傳遞
+
+<UniversalEditor compare={true} title="傳遞語義">
+```python !! py
+# Python: 一切都是引用(物件)
+def modify_list(items):
+    items.append(4)  # 修改原始列表!
+    print(items)
+
+my_list = [1, 2, 3]
+modify_list(my_list)
+print(my_list)  # [1, 2, 3, 4]
+
+# 但重新賦值不影響調用者
+def reassign_list(items):
+    items = [4, 5, 6]  # 只影響局部變數
+
+my_list = [1, 2, 3]
+reassign_list(my_list)
+print(my_list)  # [1, 2, 3]
+```
+
+```rust !! rs
+// Rust: 顯式的所有權和借用
+fn modify_list(items: &mut Vec<i32>) {
+    items.push(4);  // 修改原始列表
+    println!("{:?}", items);
+}
+
+let mut my_list = vec![1, 2, 3];
+modify_list(&mut my_list);
+println!("{:?}", my_list);  // [1, 2, 3, 4]
+
+// 獲取所有權(消耗向量)
+fn consume_list(items: Vec<i32>) {
+    println!("{:?}", items);
+}  // items 在此處被丟棄
+
+let my_list = vec![1, 2, 3];
+consume_list(my_list);
+// println!("{:?}", my_list);  // 錯誤:值已被移動
+
+// 不修改地借用
+fn read_list(items: &[i32]) {
+    println!("{:?}", items);
+}
+
+let my_list = vec![1, 2, 3];
+read_list(&my_list);
+println!("{:?}", my_list);  // 仍然可訪問
+```
+</UniversalEditor>
+
+### 預設參數
+
+<UniversalEditor compare={true} title="預設參數">
+```python !! py
+# Python: 預設參數
+def greet(name, greeting="Hello"):
+    return f"{greeting}, {name}!"
+
+print(greet("Alice"))  # Hello, Alice!
+print(greet("Bob", "Hi"))  # Hi, Bob!
+```
+
+```rust !! rs
+// Rust: 沒有預設參數(使用方法或構建器)
+fn greet(name: &str, greeting: &str) -> String {
+    format!("{}, {}!", greeting, name)
+}
+
+// 使用 Option 表示預設值
+fn greet_optional(name: &str, greeting: Option<&str>) -> String {
+    let greeting = greeting.unwrap_or("Hello");
+    format!("{}, {}!", greeting, name)
+}
+```
+</UniversalEditor>
+
+## 返回值
+
+### 基於表達式的返回
+
+<UniversalEditor compare={true} title="返回值">
+```python !! py
+# Python: 需要顯式 return
+def add(a, b):
+    return a + b
+
+def multiple_returns(x):
+    if x > 0:
+        return "positive"
+    return "non-positive"
+```
+
+```rust !! rs
+// Rust: 最後一個表達式是返回值
+fn add(a: i32, b: i32) -> i32 {
+    a + b  // 無分號 = 返回值
+}
+
+fn multiple_returns(x: i32) -> &'static str {
+    if x > 0 {
+        "positive"  // 無分號
+    } else {
+        "non-positive"  // 無分號
+    }
+}
+
+// 可以使用 return 關鍵字進行提前返回
+fn early_return(x: i32) -> i32 {
+    if x < 0 {
+        return 0;  // return 可以有分號
+    }
+    x * 2
+}
+```
+</UniversalEditor>
+
+## 閉包
+
+閉包是可以捕獲其環境的匿名函數。
+
+<UniversalEditor compare={true} title="基本閉包">
+```python !! py
+# Python: Lambda 函數
+add = lambda x, y: x + y
+print(add(1, 2))  # 3
+
+# 也可以使用 def
+def make_adder(n):
+    def adder(x):
+        return x + n
+    return adder
+
+add_5 = make_adder(5)
+print(add_5(10))  # 15
+```
+
+```rust !! rs
+// Rust: 類型推斷的閉包
+let add = |x: i32, y: i32| -> i32 { x + y };
+println!("{}", add(1, 2));  // 3
+
+// 類型通常可以推斷
+let add = |x, y| x + y;
+
+// 捕獲環境
+fn make_adder(n: i32) -> impl Fn(i32) -> i32 {
+    move |x| x + n  // move 關鍵字轉移所有權
+}
+
+let add_5 = make_adder(5);
+println!("{}", add_5(10));  // 15
+```
+</UniversalEditor>
+
+### 閉包捕獲模式
+
+<UniversalEditor compare={true} title="閉包捕獲">
+```python !! py
+# Python: 透過引用捕獲
+def make_counter():
+    count = 0
+    def increment():
+        nonlocal count
+        count += 1
+        return count
+    return increment
+
+counter = make_counter()
+print(counter())  # 1
+print(counter())  # 2
+```
+
+```rust !! rs
+// Rust: 三種捕獲模式
+// 1. 借用 (Fn)
+let data = vec![1, 2, 3];
+let borrow = || {
+    println!("{:?}", data);  // 借用 data
+};
+borrow();
+println!("{:?}", data);  // 仍然可訪問
+
+// 2. 可變借用 (FnMut)
+let mut data = vec![1, 2, 3];
+let mut borrow_mut = || {
+    data.push(4);  // 可變借用 data
+};
+borrow_mut();
+println!("{:?}", data);  // [1, 2, 3, 4]
+
+// 3. 獲取所有權 (使用 move 的 FnOnce)
+let data = vec![1, 2, 3];
+let take_ownership = move || {
+    println!("{:?}", data);  // 移動 data
+};
+take_ownership();
+// println!("{:?}", data);  // 錯誤:data 已被移動
+
+// 函數特質
+// Fn: 可以多次調用,借用
+// FnMut: 可以多次調用,可變借用
+// FnOnce: 只能調用一次,消耗捕獲的值
+```
+</UniversalEditor>
+
+### 閉包效能
+
+<UniversalEditor compare={true} title="閉包效能">
+```python !! py
+# Python: 函數調用開銷
+def apply_function(func, items):
+    return [func(x) for x in items]
+
+items = list(range(1000000))
+result = apply_function(lambda x: x * 2, items)
+```
+
+```rust !! rs
+// Rust: 閉包通常是零成本抽象
+fn apply_function<F>(func: F, items: &[i32]) -> Vec<i32>
+where
+    F: Fn(i32) -> i32,
+{
+    items.iter().map(|&x| func(x)).collect()
+}
+
+let items: Vec<i32> = (0..1000000).collect();
+let result = apply_function(|x| x * 2, &items);
+
+// 閉包編譯為常規函數
+// 編譯器可以內聯它們
+// 相比函數沒有運行時開銷
+```
+</UniversalEditor>
+
+## 高階函數
+
+接受或返回其他函數的函數。
+
+<UniversalEditor compare={true} title="高階函數">
+```python !! py
+# Python: 函數作為值
+def apply_operation(x, y, operation):
+    return operation(x, y)
+
+def add(a, b):
+    return a + b
+
+def multiply(a, b):
+    return a * b
+
+print(apply_operation(5, 3, add))  # 8
+print(apply_operation(5, 3, multiply))  # 15
+```
+
+```rust !! rs
+// Rust: 函數指標和閉包
+type BinaryOp = fn(i32, i32) -> i32;
+
+fn apply_operation(x: i32, y: i32, operation: BinaryOp) -> i32 {
+    operation(x, y)
+}
+
+fn add(a: i32, b: i32) -> i32 {
+    a + b
+}
+
+fn multiply(a: i32, b: i32) -> i32 {
+    a * b
+}
+
+println!("{}", apply_operation(5, 3, add));  // 8
+println!("{}", apply_operation(5, 3, multiply));  // 15
+```
+</UniversalEditor>
+
+## 迭代器和閉包
+
+Rust 的迭代器方法與閉包無縫協作。
+
+<UniversalEditor compare={true} title="迭代器方法">
+```python !! py
+# Python: 列表推導式和函數
+items = [1, 2, 3, 4, 5]
+
+# 映射
+doubled = [x * 2 for x in items]
+
+# 過濾
+evens = [x for x in items if x % 2 == 0]
+```
+
+```rust !! rs
+// Rust: 使用閉包的迭代器方法
+let items = vec![1, 2, 3, 4, 5];
+
+// 映射
+let doubled: Vec<i32> = items.iter().map(|x| x * 2).collect();
+
+// 過濾
+let evens: Vec<&i32> = items.iter().filter(|&x| x % 2 == 0).collect();
+
+// 鏈式調用
+let result: Vec<i32> = items.iter()
+    .filter(|&&x| x % 2 == 0)
+    .map(|&x| x * 2)
+    .take(2)
+    .collect();
+```
+</UniversalEditor>
+
+## 總結
+
+在本模組中,你學習了:
+- ✅ 函數簽名需要顯式類型
+- ✅ 返回值是最後一個表達式
+- ✅ 閉包有三種捕獲環境的方式
+- ✅ 函數特質:Fn、FnMut、FnOnce
+- ✅ 使用函數指標的高階函數
+- ✅ 迭代器方法廣泛使用閉包
+- ✅ 閉包是零成本抽象
+
+## 與 Python 的主要差別
+
+1. **類型註解**: 所有參數和返回值都需要
+2. **返回值**: 最後一個表達式,不是顯式的 `return`
+3. **閉包捕獲**: 顯式的所有權(move vs 借用)
+4. **沒有預設參數**: 使用構建器或 Option
+5. **函數特質**: 三種特質用於不同捕獲模式
+6. **閉包高效**: 通常編譯為內聯代碼
+
+## 練習
+
+### 練習 1: 自定義迭代器
+
+創建一個返回閉包的函數:
+- 閉包應該維護計數器
+- 每次調用返回下一個數字
+- 使用 `FnMut` 特質
+
+<details>
+<summary>解決方案</summary>
+
+```rust
+fn make_counter(start: i32) -> impl FnMut() -> i32 {
+    let mut counter = start;
+    move || {
+        let current = counter;
+        counter += 1;
+        current
+    }
+}
+
+fn main() {
+    let mut count = make_counter(0);
+    println!("{}", count());  // 0
+    println!("{}", count());  // 1
+    println!("{}", count());  // 2
+}
+```
+
+</details>
+
+### 練習 2: 高階映射
+
+實現一個通用的映射函數:
+- 接受一個切片和轉換函數
+- 返回包含轉換後值的新向量
+- 使用泛型和 impl Fn
+
+<details>
+<summary>解決方案</summary>
+
+```rust
+fn my_map<T, U, F>(items: &[T], f: F) -> Vec<U>
+where
+    F: Fn(&T) -> U,
+{
+    items.iter().map(f).collect()
+}
+
+fn main() {
+    let numbers = vec![1, 2, 3, 4, 5];
+    let doubled: Vec<i32> = my_map(&numbers, |&x| x * 2);
+    println!("{:?}", doubled);  // [2, 4, 6, 8, 10]
+}
+```
+
+</details>
+
+## 下一步
+
+現在你已經理解了函數和閉包:
+1. **[模組 6: 數據結構](./module-06-data-structures)** - 學習結構體、枚舉和集合
+2. 練習函數式模式
+3. 探索更多迭代器方法
+
+---
+
+**下一節:** [模組 6 - 數據結構](./module-06-data-structures) →

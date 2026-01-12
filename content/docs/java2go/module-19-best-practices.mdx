@@ -1,0 +1,615 @@
+---
+title: "Module 19: Best Practices and Idiomatic Go"
+---
+
+This final module covers best practices and idiomatic Go patterns, comparing them with Java conventions.
+
+## Code Style and Conventions
+
+**Java Conventions:**
+- CamelCase for classes and methods
+- PascalCase for classes, camelCase for methods
+- Extensive use of getters/setters
+- Annotation-driven configuration
+- Heavy use of inheritance
+
+**Go Conventions:**
+- PascalCase for exported, camelCase for unexported
+- No getters/setters pattern
+- Interface-based design
+- Composition over inheritance
+- Explicit is better than implicit
+
+<UniversalEditor title="Naming Conventions">
+```java !! java
+// Java: Naming conventions
+public class UserService {
+
+    private UserRepository userRepository;  // camelCase
+    private static final int MAX_RETRIES = 3;  // UPPER_CASE
+
+    @Autowired
+    public UserService(UserRepository userRepository) {
+        this.userRepository = userRepository;
+    }
+
+    public User getUserById(Long userId) {  // camelCase
+        return userRepository.findById(userId)
+            .orElseThrow(() -> new UserNotFoundException(userId));
+    }
+
+    public void createUser(CreateUserRequest request) {  // camelCase
+        User user = new User();
+        user.setEmail(request.getEmail());
+        user.setName(request.getName());
+        userRepository.save(user);
+    }
+
+    // Getters and setters
+    public UserRepository getUserRepository() {
+        return userRepository;
+    }
+
+    public void setUserRepository(UserRepository userRepository) {
+        this.userRepository = userRepository;
+    }
+}
+```
+
+```go !! go
+// Go: Naming conventions
+package user
+
+type Service struct {  // PascalCase for exported
+    repo   Repository  // No "this", clear naming
+    logger Logger
+}
+
+// PascalCase for exported
+func NewService(repo Repository, logger Logger) *Service {
+    return &Service{
+        repo:   repo,
+        logger: logger,
+    }
+}
+
+// PascalCase for exported
+func (s *Service) GetUserByID(id uint) (*User, error) {
+    return s.repo.FindByID(id)
+}
+
+// No request objects needed, use parameters directly
+func (s *Service) CreateUser(email, name string) (*User, error) {
+    user := &User{
+        Email: email,
+        Name:  name,
+    }
+
+    if err := s.repo.Create(user); err != nil {
+        return nil, err
+    }
+
+    return user, nil
+}
+
+// No getters/setters needed
+// Exported fields are accessed directly
+```
+</UniversalEditor>
+
+## Error Handling
+
+<UniversalEditor title="Error Handling Patterns">
+```java !! java
+// Java: Exception-based error handling
+public class UserService {
+
+    public User getUser(Long id) {
+        try {
+            return userRepository.findById(id)
+                .orElseThrow(() -> new UserNotFoundException(id));
+        } catch (DataAccessException e) {
+            throw new ServiceException("Failed to access database", e);
+        }
+    }
+
+    public void createUser(CreateUserRequest request) {
+        try {
+            if (userRepository.existsByEmail(request.getEmail())) {
+                throw new DuplicateEmailException(request.getEmail());
+            }
+
+            User user = new User();
+            user.setEmail(request.getEmail());
+            userRepository.save(user);
+
+        } catch (DataIntegrityViolationException e) {
+            throw new ServiceException("Data integrity violation", e);
+        }
+    }
+
+    // Checked exceptions
+    public void exportUsers(OutputStream out) throws IOException {
+        // Write to output stream
+    }
+}
+```
+
+```go !! go
+// Go: Error return values
+package user
+
+import (
+    "errors"
+    "fmt"
+)
+
+var (
+    ErrUserNotFound    = errors.New("user not found")
+    ErrDuplicateEmail  = errors.New("email already exists")
+    ErrInvalidInput    = errors.New("invalid input")
+)
+
+func (s *Service) GetUser(id uint) (*User, error) {
+    user, err := s.repo.FindByID(id)
+    if err != nil {
+        if errors.Is(err, gorm.ErrRecordNotFound) {
+            return nil, fmt.Errorf("%w: %d", ErrUserNotFound, id)
+        }
+        return nil, fmt.Errorf("failed to find user: %w", err)
+    }
+
+    return user, nil
+}
+
+func (s *Service) CreateUser(email, name string) (*User, error) {
+    // Validate input
+    if email == "" || name == "" {
+        return nil, ErrInvalidInput
+    }
+
+    // Check for duplicate
+    exists, err := s.repo.ExistsByEmail(email)
+    if err != nil {
+        return nil, fmt.Errorf("failed to check email: %w", err)
+    }
+
+    if exists {
+        return nil, fmt.Errorf("%w: %s", ErrDuplicateEmail, email)
+    }
+
+    // Create user
+    user := &User{
+        Email: email,
+        Name:  name,
+    }
+
+    if err := s.repo.Create(user); err != nil {
+        return nil, fmt.Errorf("failed to create user: %w", err)
+    }
+
+    return user, nil
+}
+
+// Wrap errors with context
+func (s *Service) ProcessUser(id uint) error {
+    user, err := s.GetUser(id)
+    if err != nil {
+        return fmt.Errorf("process user: %w", err)
+    }
+
+    // Process user
+    return nil
+}
+
+// Custom error types
+type ValidationError struct {
+    Field   string
+    Message string
+}
+
+func (e *ValidationError) Error() string {
+    return fmt.Sprintf("validation failed for field '%s': %s", e.Field, e.Message)
+}
+
+// Usage
+if email == "" {
+    return &ValidationError{Field: "email", Message: "required"}
+}
+```
+</UniversalEditor>
+
+## Concurrency Patterns
+
+<UniversalEditor title="Concurrency Best Practices">
+```java !! java
+// Java: Thread-based concurrency
+@Service
+public class UserService {
+
+    @Async
+    public CompletableFuture<User> getUserAsync(Long id) {
+        return CompletableFuture.supplyAsync(() -> {
+            return userRepository.findById(id)
+                .orElse(null);
+        });
+    }
+
+    public List<User> getUsersBatch(List<Long> ids) {
+        // Parallel stream
+        return ids.parallelStream()
+            .map(userRepository::findById)
+            .filter(Optional::isPresent)
+            .map(Optional::get)
+            .collect(Collectors.toList());
+    }
+
+    // Synchronized method
+    public synchronized void updateUser(User user) {
+        userRepository.save(user);
+    }
+
+    // Thread pool
+    private final ExecutorService executor = Executors.newFixedThreadPool(10);
+
+    public void processUsers(List<User> users) {
+        users.forEach(user -> {
+            executor.submit(() -> processUser(user));
+        });
+    }
+}
+```
+
+```go !! go
+// Go: Goroutine-based concurrency
+package user
+
+import (
+    "sync"
+    "context"
+)
+
+func (s *Service) GetUserAsync(ctx context.Context, id uint) (<-chan *User, <-chan error) {
+    userCh := make(chan *User, 1)
+    errCh := make(chan error, 1)
+
+    go func() {
+        defer close(userCh)
+        defer close(errCh)
+
+        user, err := s.repo.FindByID(id)
+        if err != nil {
+            errCh <- err
+            return
+        }
+
+        select {
+        case userCh <- user:
+        case <-ctx.Done():
+            errCh <- ctx.Err()
+        }
+    }()
+
+    return userCh, errCh
+}
+
+func (s *Service) GetUsersBatch(ctx context.Context, ids []uint) ([]*User, error) {
+    var (
+        wg     sync.WaitGroup
+        mu     sync.Mutex
+        users  = make([]*User, 0, len(ids))
+        errors = make([]error, 0)
+    )
+
+    for _, id := range ids {
+        wg.Add(1)
+        go func(id uint) {
+            defer wg.Done()
+
+            user, err := s.repo.FindByID(id)
+            if err != nil {
+                mu.Lock()
+                errors = append(errors, err)
+                mu.Unlock()
+                return
+            }
+
+            mu.Lock()
+            users = append(users, user)
+            mu.Unlock()
+        }(id)
+    }
+
+    wg.Wait()
+
+    if len(errors) > 0 {
+        return nil, fmt.Errorf("failed to get some users: %v", errors)
+    }
+
+    return users, nil
+}
+
+// Worker pool pattern
+func (s *Service) ProcessUsers(users []*User) error {
+    const numWorkers = 10
+
+    jobs := make(chan *User, len(users))
+    results := make(chan error, len(users))
+
+    // Start workers
+    var wg sync.WaitGroup
+    for i := 0; i < numWorkers; i++ {
+        wg.Add(1)
+        go func() {
+            defer wg.Done()
+            for user := range jobs {
+                results <- s.processUser(user)
+            }
+        }()
+    }
+
+    // Send jobs
+    for _, user := range users {
+        jobs <- user
+    }
+    close(jobs)
+
+    // Wait for completion
+    go func() {
+        wg.Wait()
+        close(results)
+    }()
+
+    // Collect results
+    var errors []error
+    for err := range results {
+        if err != nil {
+            errors = append(errors, err)
+        }
+    }
+
+    if len(errors) > 0 {
+        return fmt.Errorf("failed to process some users: %v", errors)
+    }
+
+    return nil
+}
+```
+</UniversalEditor>
+
+## Interface Design
+
+<UniversalEditor title="Interface Patterns">
+```java !! java
+// Java: Interface-heavy design
+public interface UserRepository extends JpaRepository<User, Long> {
+    Optional<User> findByEmail(String email);
+    List<User> findByNameContainingIgnoreCase(String name);
+}
+
+public interface UserService {
+    User createUser(CreateUserRequest request);
+    Optional<User> getUserById(Long id);
+    List<User> searchUsers(String keyword);
+    void deleteUser(Long id);
+}
+
+@Service
+public class UserServiceImpl implements UserService {
+
+    @Autowired
+    private UserRepository userRepository;
+
+    @Override
+    public User createUser(CreateUserRequest request) {
+        // Implementation
+    }
+}
+```
+
+```go !! go
+// Go: Accept interfaces, return structs
+package user
+
+// Small, focused interfaces
+type Repository interface {
+    FindByID(id uint) (*User, error)
+    FindByEmail(email string) (*User, error)
+    Create(user *User) error
+    Update(user *User) error
+    Delete(id uint) error
+}
+
+// Service is a concrete struct
+type Service struct {
+    repo   Repository
+    cache  Cache
+    logger Logger
+}
+
+// Accept interfaces
+func NewService(repo Repository, cache Cache, logger Logger) *Service {
+    return &Service{
+        repo:   repo,
+        cache:  cache,
+        logger: logger,
+    }
+}
+
+// No need for separate interface unless multiple implementations
+func (s *Service) CreateUser(email, name string) (*User, error) {
+    // Implementation
+}
+
+// Define interface where it's used (consumer side)
+type UserFinder interface {
+    FindByID(id uint) (*User, error)
+}
+
+func ProcessUser(id uint, finder UserFinder) error {
+    user, err := finder.FindByID(id)
+    if err != nil {
+        return err
+    }
+
+    // Process user
+    return nil
+}
+```
+</UniversalEditor>
+
+## Testing Best Practices
+
+<UniversalEditor title="Testing Patterns">
+```go !! go
+// Table-driven tests
+func TestService_CreateUser(t *testing.T) {
+    tests := []struct {
+        name    string
+        email   string
+        nameStr string
+        setup   func(*MockRepository)
+        wantErr error
+    }{
+        {
+            name:    "successful creation",
+            email:   "test@example.com",
+            nameStr: "Test User",
+            setup: func(m *MockRepository) {
+                m.On("ExistsByEmail", "test@example.com").Return(false)
+                m.On("Create", mock.Anything).Return(nil)
+            },
+            wantErr: nil,
+        },
+        {
+            name:    "duplicate email",
+            email:   "test@example.com",
+            nameStr: "Test User",
+            setup: func(m *MockRepository) {
+                m.On("ExistsByEmail", "test@example.com").Return(true)
+            },
+            wantErr: ErrDuplicateEmail,
+        },
+    }
+
+    for _, tt := range tests {
+        t.Run(tt.name, func(t *testing.T) {
+            mock := new(MockRepository)
+            tt.setup(mock)
+
+            svc := NewService(mock, &mockLogger{})
+
+            user, err := svc.CreateUser(tt.email, tt.nameStr)
+
+            if tt.wantErr != nil {
+                assert.Error(t, err)
+                assert.ErrorIs(t, err, tt.wantErr)
+            } else {
+                assert.NoError(t, err)
+                assert.NotNil(t, user)
+            }
+
+            mock.AssertExpectations(t)
+        })
+    }
+}
+
+// Test helpers
+func setupTestDB(t *testing.T) *gorm.DB {
+    db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+    require.NoError(t, err)
+
+    err = db.AutoMigrate(&User{})
+    require.NoError(t, err)
+
+    return db
+}
+
+func cleanupTestDB(t *testing.T, db *gorm.DB) {
+    sqlDB, _ := db.DB()
+    sqlDB.Close()
+}
+```
+</UniversalEditor>
+
+## Performance Tips
+
+<UniversalEditor title="Performance Optimizations">
+```go !! go
+// Pre-allocate slices
+func BuildUserSlice(count int) []*User {
+    users := make([]*User, 0, count)  // Pre-allocate capacity
+    for i := 0; i < count; i++ {
+        users = append(users, &User{ID: uint(i)})
+    }
+    return users
+}
+
+// Reuse buffers with sync.Pool
+var bufferPool = sync.Pool{
+    New: func() interface{} {
+        return new(bytes.Buffer)
+    },
+}
+
+func ProcessData(data []byte) ([]byte, error) {
+    buf := bufferPool.Get().(*bytes.Buffer)
+    defer func() {
+        buf.Reset()
+        bufferPool.Put(buf)
+    }()
+
+    // Use buffer
+    buf.Write(data)
+    // ... process
+
+    return buf.Bytes(), nil
+}
+
+// Avoid string allocations in loops
+// Bad:
+result := ""
+for _, s := range items {
+    result += s  // New allocation each iteration
+}
+
+// Good:
+var builder strings.Builder
+builder.Grow(len(items) * 10)
+for _, s := range items {
+    builder.WriteString(s)
+}
+result := builder.String()
+```
+</UniversalEditor>
+
+---
+
+### Summary of Go Best Practices:
+
+1. **Keep it simple** - Avoid over-engineering
+2. **Errors are values** - Handle them explicitly
+3. **Use composition** - Prefer over inheritance
+4. **Accept interfaces, return structs** - Define interfaces where used
+5. **Less is more** - Minimal code that works is better
+6. **Test thoroughly** - Table-driven tests are idiomatic
+7. **Profile before optimizing** - Measure first
+8. **Use goroutines wisely** - Don't create too many
+9. **Handle resources properly** - defer cleanup
+10. **Follow standard conventions** - Use go fmt and standard layouts
+
+### Congratulations!
+
+You've completed the Java to Go learning path! You now have:
+- Understanding of Go's syntax and features
+- Knowledge of Go's ecosystem and tools
+- Experience with Go's patterns and best practices
+- Ability to build production-ready Go applications
+
+Continue practicing and building real projects to master Go!
+
+### Next Steps:
+- Build real projects in Go
+- Contribute to open-source Go projects
+- Explore advanced Go topics
+- Join the Go community

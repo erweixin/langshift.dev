@@ -1,0 +1,1231 @@
+---
+title: "模組 3:函式和方法"
+description: "理解 Go 的函式系統,與 Python 對比"
+---
+
+## 簡介
+
+Go 的函式系統與 Python 相似,但有關鍵差異:靜態類型、多返回值和顯式錯誤處理。本模組深入涵蓋函式、方法、閉包等。
+
+## 基本函式
+
+### 函式宣告語法
+
+<UniversalEditor title="基本函式宣告">
+```python !! py
+# Python - 函式定義
+def add(a, b):
+    return a + b
+
+def greet(name, greeting="Hello"):
+    return f"{greeting}, {name}!"
+
+def calculate(x, y, z):
+    result = x + y * z
+    return result
+
+# 呼叫
+result = add(5, 3)
+message = greet("Alice")
+message = greet("Bob", "Hi")
+calc_result = calculate(1, 2, 3)
+```
+
+```go !! go
+// Go - 函式定義
+package main
+
+import "fmt"
+
+// 基本函式
+func add(a int, b int) int {
+    return a + b
+}
+
+// 當參數共享類型時,可以簡寫
+func addShort(a, b int) int {
+    return a + b
+}
+
+func greet(name string, greeting string) string {
+    return fmt.Sprintf("%s, %s!", greeting, name)
+}
+
+func calculate(x, y, z int) int {
+    result := x + y*z
+    return result
+}
+
+// 相同類型的多個參數
+func sum(a, b, c, d int) int {
+    return a + b + c + d
+}
+
+func main() {
+    result := add(5, 3)
+    message := greet("Alice", "Hello")
+    calcResult := calculate(1, 2, 3)
+    total := sum(1, 2, 3, 4)
+
+    fmt.Println(result)
+    fmt.Println(message)
+    fmt.Println(calcResult)
+    fmt.Println(total)
+}
+```
+</UniversalEditor>
+
+### 無預設參數
+
+Go 沒有預設參數。使用多個函式代替:
+
+<UniversalEditor title="預設參數替代方案">
+```python !! py
+# Python - 預設參數
+def connect(host, port=5432, timeout=30):
+    return f"Connected to {host}:{port}"
+
+# 使用預設值呼叫
+connect("localhost")
+
+# 覆蓋部分
+connect("localhost", port=3306)
+
+# 覆蓋全部
+connect("localhost", 5432, 60)
+```
+
+```go !! go
+// Go - 無預設參數,使用多個函式
+package main
+
+import "fmt"
+
+// 方法 1: 多個函式
+func Connect(host string) string {
+    return ConnectPort(host, 5432)
+}
+
+func ConnectPort(host string, port int) string {
+    return ConnectTimeout(host, port, 30)
+}
+
+func ConnectTimeout(host string, port int, timeout int) string {
+    return fmt.Sprintf("Connected to %s:%d (timeout: %d)", host, port, timeout)
+}
+
+// 方法 2: 組態結構體
+type Config struct {
+    Host    string
+    Port    int
+    Timeout int
+}
+
+func ConnectWithConfig(config Config) string {
+    // 提供預設值
+    if config.Port == 0 {
+        config.Port = 5432
+    }
+    if config.Timeout == 0 {
+        config.Timeout = 30
+    }
+
+    return fmt.Sprintf("Connected to %s:%d (timeout: %d)",
+        config.Host, config.Port, config.Timeout)
+}
+
+// 方法 3: 函式選項模式
+type Server struct {
+    host    string
+    port    int
+    timeout int
+}
+
+type Option func(*Server)
+
+func WithPort(port int) Option {
+    return func(s *Server) {
+        s.port = port
+    }
+}
+
+func WithTimeout(timeout int) Option {
+    return func(s *Server) {
+        s.timeout = timeout
+    }
+}
+
+func NewServer(host string, opts ...Option) *Server {
+    s := &Server{
+        host:    host,
+        port:    5432,  // 預設值
+        timeout: 30,    // 預設值
+    }
+
+    for _, opt := range opts {
+        opt(s)
+    }
+
+    return s
+}
+
+func main() {
+    // 多個函式方法
+    fmt.Println(Connect("localhost"))
+    fmt.Println(ConnectPort("localhost", 3306))
+
+    // 組態結構體方法
+    config := Config{Host: "localhost"}
+    fmt.Println(ConnectWithConfig(config))
+
+    // 函式選項方法
+    server := NewServer("localhost", WithPort(8080), WithTimeout(60))
+    fmt.Printf("Server: %+v\n", server)
+}
+```
+</UniversalEditor>
+
+## 多返回值
+
+這是 Go 最強大的特性之一:
+
+<UniversalEditor title="多返回值 - 基礎">
+```python !! py
+# Python - 返回元組
+def divide(a, b):
+    if b == 0:
+        return None, "Division by zero"
+    return a / b, None
+
+result, error = divide(10, 2)
+if error:
+    print(f"Error: {error}")
+else:
+    print(f"Result: {result}")
+
+# 可以用 _ 忽略值
+result, _ = divide(10, 2)
+```
+
+```go !! go
+// Go - 多返回值 (慣用)
+package main
+
+import "fmt"
+
+func divide(a int, b int) (int, error) {
+    if b == 0 {
+        return 0, fmt.Errorf("division by zero")
+    }
+    return a / b, nil
+}
+
+func main() {
+    result, err := divide(10, 2)
+    if err != nil {
+        fmt.Printf("Error: %v\n", err)
+        return
+    }
+    fmt.Printf("Result: %d\n", result)
+
+    // 使用空白識別符忽略錯誤
+    result2, _ := divide(20, 4)
+    fmt.Printf("Result2: %d\n", result2)
+
+    // 忽略結果
+    _, err2 := divide(10, 0)
+    if err2 != nil {
+        fmt.Printf("Expected error: %v\n", err2)
+    }
+}
+```
+</UniversalEditor>
+
+### 真實世界的多返回值
+
+<UniversalEditor title="真實世界範例 - HTTP 請求">
+```python !! py
+# Python - 帶多返回值的 HTTP 請求
+import requests
+
+def fetch_user(user_id):
+    try:
+        response = requests.get(f"/api/users/{user_id}")
+        return response.json(), None
+    except requests.RequestException as e:
+        return None, str(e)
+
+user, error = fetch_user(123)
+if error:
+    print(f"Failed: {error}")
+else:
+    print(f"User: {user['name']}")
+```
+
+```go !! go
+// Go - 帶多返回值的 HTTP 請求
+package main
+
+import (
+    "encoding/json"
+    "fmt"
+    "net/http"
+)
+
+type User struct {
+    ID    int    `json:"id"`
+    Name  string `json:"name"`
+    Email string `json:"email"`
+}
+
+func fetchUser(userID int) (*User, error) {
+    resp, err := http.Get(fmt.Sprintf("http://api.example.com/users/%d", userID))
+    if err != nil {
+        return nil, fmt.Errorf("request failed: %w", err)
+    }
+    defer resp.Body.Close()
+
+    if resp.StatusCode != http.StatusOK {
+        return nil, fmt.Errorf("unexpected status: %d", resp.StatusCode)
+    }
+
+    var user User
+    if err := json.NewDecoder(resp.Body).Decode(&user); err != nil {
+        return nil, fmt.Errorf("decode failed: %w", err)
+    }
+
+    return &user, nil
+}
+
+func main() {
+    user, err := fetchUser(123)
+    if err != nil {
+        fmt.Printf("Failed: %v\n", err)
+        return
+    }
+
+    fmt.Printf("User: %s\n", user.Name)
+}
+```
+</UniversalEditor>
+
+## 命名返回值
+
+命名返回值使程式碼更清晰,但應謹慎使用:
+
+<UniversalEditor title="命名返回值">
+```python !! py
+# Python - 無命名返回值 (但可以返回字典)
+def calculate(a, b):
+    sum_result = a + b
+    product = a * b
+    difference = a - b
+    return {
+        'sum': sum_result,
+        'product': product,
+        'difference': difference
+    }
+
+result = calculate(5, 3)
+print(result['sum'], result['product'])
+```
+
+```go !! go
+// Go - 命名返回值
+package main
+
+import "fmt"
+
+// 命名返回值 (建立變數 sum 和 product)
+func calculate(a int, b int) (sum int, product int) {
+    sum = a + b      // 無需宣告
+    product = a * b  // 無需宣告
+    return           // 裸返回 (返回 sum, product)
+}
+
+// 不同類型的命名返回值
+func analyze(numbers []int) (count int, sum int, average float64) {
+    for _, n := range numbers {
+        sum += n
+        count++
+    }
+    if count > 0 {
+        average = float64(sum) / float64(count)
+    }
+    return // 返回 count, sum, average
+}
+
+// 在 defer 中使用命名返回值
+func readFile(filename string) (content string, err error) {
+    defer func() {
+        if err != nil {
+            err = fmt.Errorf("readFile(%s): %w", filename, err)
+        }
+    }()
+
+    data, err := os.ReadFile(filename)
+    if err != nil {
+        return "", err
+    }
+
+    content = string(data)
+    return content, nil
+}
+
+func main() {
+    s, p := calculate(5, 3)
+    fmt.Printf("Sum: %d, Product: %d\n", s, p)
+
+    count, sum, avg := analyze([]int{1, 2, 3, 4, 5})
+    fmt.Printf("Count: %d, Sum: %d, Average: %.2f\n", count, sum, avg)
+}
+```
+</UniversalEditor>
+
+### 何時使用命名返回值
+
+<UniversalEditor title="命名返回值最佳實踐">
+```go
+// 好: 命名返回值用於簡短函式的清晰性
+func calculateRectangle(width, height int) (area int, perimeter int) {
+    area = width * height
+    perimeter = 2 * (width + height)
+    return
+}
+
+// 好: 命名返回值當需要在 defer 中修改時
+func transaction(db *DB) (result string, err error) {
+    defer func() {
+        if err != nil {
+            err = fmt.Errorf("transaction failed: %w", err)
+        }
+    }()
+    // ... 交易邏輯
+    return
+}
+
+// 避免: 在長函式中使用命名返回值 (難以追蹤)
+func complexOperation(data []string) (output string, err error) {
+    // 許多行程式碼...
+    // 難以追蹤 'output' 在哪裡設定
+    return
+}
+
+// 首選: 在複雜函式中使用常規返回值
+func complexOperation(data []string) (string, error) {
+    output := process(data)
+    return output, nil
+}
+```
+</UniversalEditor>
+
+## 可變參數函式
+
+<UniversalEditor title="可變參數函式深入">
+```python !! py
+# Python - *args 和 **kwargs
+def func(*args, **kwargs):
+    print("Args:", args)
+    print("Kwargs:", kwargs)
+
+func(1, 2, 3, name="Alice", age=30)
+
+# 也可以傳遞列表/字典
+numbers = [1, 2, 3]
+func(*numbers)
+```
+
+```go !! go
+// Go - 可變參數函式
+package main
+
+import "fmt"
+
+// 基本可變參數函式
+func sumAll(numbers ...int) int {
+    total := 0
+    for _, num := range numbers {
+        total += num
+    }
+    return total
+}
+
+// 混合參數 (可變參數必須在最後)
+func greet(prefix string, names ...string) {
+    for _, name := range names {
+        fmt.Printf("%s %s\n", prefix, name)
+    }
+}
+
+// 不同類型的可變參數
+func printAny(items ...interface{}) {
+    for _, item := range items {
+        fmt.Println(item)
+    }
+}
+
+func main() {
+    // 直接呼叫
+    total := sumAll(1, 2, 3, 4, 5)
+    fmt.Println("Total:", total)
+
+    // 使用 slice (用 ... 展開)
+    numbers := []int{10, 20, 30}
+    total = sumAll(numbers...)
+    fmt.Println("Total from slice:", total)
+
+    // 混合參數
+    greet("Hello:", "Alice", "Bob", "Charlie")
+
+    // 空可變參數
+    total = sumAll()
+    fmt.Println("Empty sum:", total)
+}
+```
+</UniversalEditor>
+
+### 真實世界的可變參數範例
+
+<UniversalEditor title="真實世界的可變參數函式">
+```go
+// SQL 查詢建構器
+func Query(db *sql.DB, query string, args ...interface{}) (*sql.Rows, error) {
+    return db.Query(query, args...)
+}
+
+// 日誌
+func Log(level string, messages ...string) {
+    fmt.Printf("[%s] %s\n", level, strings.Join(messages, " "))
+}
+
+// 錯誤包裝
+func Wrap(err error, messages ...string) error {
+    msg := strings.Join(messages, ": ")
+    return fmt.Errorf("%s: %w", msg, err)
+}
+
+// 使用
+rows, err := Query(db, "SELECT * FROM users WHERE id = $1", userID)
+Log("ERROR", "Database", "Connection failed")
+err = Wrap(err, "Failed to fetch user", userID)
+```
+</UniversalEditor>
+
+## 閉包和匿名函式
+
+<UniversalEditor title="閉包深入">
+```python !! py
+# Python - 閉包
+def make_multiplier(factor):
+    def multiply(x):
+        return x * factor
+    return multiply
+
+times3 = make_multiplier(3)
+print(times3(5))  # 15
+
+# Lambda
+add = lambda x, y: x + y
+print(add(3, 4))  # 7
+
+# 帶狀態的閉包
+def counter():
+    count = 0
+    def increment():
+        nonlocal count
+        count += 1
+        return count
+    return increment
+
+c = counter()
+print(c())  # 1
+print(c())  # 2
+```
+
+```go !! go
+// Go - 閉包
+package main
+
+import "fmt"
+
+// 基本閉包
+func makeMultiplier(factor int) func(int) int {
+    return func(x int) int {
+        return x * factor
+    }
+}
+
+// 帶狀態的閉包
+func counter() func() int {
+    count := 0
+    return func() int {
+        count++
+        return count
+    }
+}
+
+// 帶多個值的閉包
+func accumulator() (func(int), func() int) {
+    sum := 0
+    add := func(x int) {
+        sum += x
+    }
+    get := func() int {
+        return sum
+    }
+    return add, get
+}
+
+func main() {
+    // 基本閉包
+    times3 := makeMultiplier(3)
+    fmt.Println(times3(5))  // 15
+
+    // 匿名函式
+    add := func(x, y int) int {
+        return x + y
+    }
+    fmt.Println(add(3, 4))  // 7
+
+    // IIFE (立即呼叫函式運算式)
+    result := func(x int) int {
+        return x * 2
+    }(5)
+    fmt.Println(result)  // 10
+
+    // 帶狀態的計數器
+    c := counter()
+    fmt.Println(c())  // 1
+    fmt.Println(c())  // 2
+    fmt.Println(c())  // 3
+
+    // 共享狀態的多個閉包
+    addVal, getSum := accumulator()
+    addVal(10)
+    addVal(20)
+    fmt.Println(getSum())  // 30
+}
+```
+</UniversalEditor>
+
+### 常見閉包模式
+
+<UniversalEditor title="閉包模式">
+```go
+// 1. 迭代器模式
+func iterate(numbers []int) func() (int, bool) {
+    index := 0
+    return func() (int, bool) {
+        if index >= len(numbers) {
+            return 0, false
+        }
+        val := numbers[index]
+        index++
+        return val, true
+    }
+}
+
+// 使用
+it := iterate([]int{1, 2, 3})
+for val, ok := it(); ok; val, ok = it() {
+    fmt.Println(val)
+}
+
+// 2. 記憶化
+func memoize(fn func(int) int) func(int) int {
+    cache := make(map[int]int)
+    return func(x int) int {
+        if val, exists := cache[x]; exists {
+            return val
+        }
+        result := fn(x)
+        cache[x] = result
+        return result
+    }
+}
+
+var fib = memoize(func(n int) int {
+    if n < 2 {
+        return n
+    }
+    return fib(n-1) + fib(n-2)
+})
+
+// 3. Defer 與閉包
+func process() {
+    defer func() {
+        fmt.Println("Cleanup done")
+    }()
+    fmt.Println("Processing")
+}
+```
+</UniversalEditor>
+
+## 方法
+
+Go 沒有類,但在任何類型上都有方法:
+
+<UniversalEditor title="方法深入">
+```python !! py
+# Python - 類別方法
+class Rectangle:
+    def __init__(self, width, height):
+        self.width = width
+        self.height = height
+
+    def area(self):
+        return self.width * self.height
+
+    def perimeter(self):
+        return 2 * (self.width + self.height)
+
+    def scale(self, factor):
+        self.width *= factor
+        self.height *= factor
+
+rect = Rectangle(5, 3)
+print(rect.area())  # 15
+rect.scale(2)
+print(rect.area())  # 60
+```
+
+```go !! go
+// Go - 類型上的方法
+package main
+
+import "fmt"
+
+type Rectangle struct {
+    width  int
+    height int
+}
+
+// 值接收者 (不修改原始值)
+func (r Rectangle) Area() int {
+    return r.width * r.height
+}
+
+func (r Rectangle) Perimeter() int {
+    return 2 * (r.width + r.height)
+}
+
+// 指標接收者 (可以修改)
+func (r *Rectangle) Scale(factor int) {
+    r.width *= factor
+    r.height *= factor
+}
+
+// 非結構體類型上的方法
+type MyInt int
+
+func (m MyInt) Double() MyInt {
+    return m * 2
+}
+
+func main() {
+    rect := Rectangle{width: 5, height: 3}
+    fmt.Println(rect.Area())     // 15
+    fmt.Println(rect.Perimeter()) // 16
+
+    rect.Scale(2)
+    fmt.Println(rect.Area())     // 60
+
+    // 非結構體上的方法
+    num := MyInt(5)
+    fmt.Println(num.Double())  // 10
+}
+```
+</UniversalEditor>
+
+### 值 vs 指標接收者
+
+<UniversalEditor title="接收者類型">
+```python !! py
+# Python - 方法可以修改物件
+class Counter:
+    def __init__(self):
+        self.count = 0
+
+    def increment(self):
+        self.count += 1
+
+    def get_count(self):
+        return self.count
+
+counter = Counter()
+counter.increment()
+print(counter.get_count())  # 1
+```
+
+```go !! go
+// Go - 仔細選擇接收者類型
+package main
+
+import "fmt"
+
+type Counter struct {
+    count int
+}
+
+// 值接收者 (不能修改)
+func (c Counter) GetCount() int {
+    return c.count
+}
+
+// 指標接收者 (可以修改)
+func (c *Counter) Increment() {
+    c.count++
+}
+
+// 何時使用指標接收者:
+// 1. 方法需要修改接收者
+// 2. 結構體很大 (避免複製)
+// 3. 一致性 (如果某些方法使用指標,所有方法都應該使用)
+
+func main() {
+    counter := Counter{count: 0}
+
+    // 兩者都工作
+    counter.Increment()
+    fmt.Println(counter.GetCount())  // 1
+
+    // 可以在值上呼叫指標接收者方法
+    // (Go 自動取得位址)
+    c := Counter{}
+    c.Increment()  // 自動轉換為 (&c).Increment()
+}
+```
+</UniversalEditor>
+
+### 方法集和介面
+
+<UniversalEditor title="方法集">
+```go
+// 值接收者方法在值方法集中
+type ValueInterface interface {
+    Method()  // 可以用值或指標呼叫
+}
+
+// 指標接收者方法僅在指標方法集中
+type PointerInterface interface {
+    Method()  // 只能用指標呼叫
+}
+
+// 範例
+type User struct {
+    Name string
+}
+
+func (u User) GetName() string {
+    return u.Name
+}
+
+func (u *User) SetName(name string) {
+    u.Name = name
+}
+
+func processUser(u User) {
+    // 可以在值上呼叫 GetName
+    fmt.Println(u.GetName())
+
+    // 不能在值上呼叫 SetName
+    // u.SetName("Bob")  // 編譯錯誤!
+}
+
+func processUserPtr(u *User) {
+    // 可以在指標上呼叫兩個方法
+    fmt.Println(u.GetName())
+    u.SetName("Bob")  // OK!
+}
+```
+</UniversalEditor>
+
+## 高階函式
+
+<UniversalEditor title="高階函式">
+```python !! py
+# Python - Map, filter, reduce
+numbers = [1, 2, 3, 4, 5]
+
+# Map
+doubled = list(map(lambda x: x * 2, numbers))
+
+# Filter
+evens = list(filter(lambda x: x % 2 == 0, numbers))
+
+# Reduce
+from functools import reduce
+total = reduce(lambda x, y: x + y, numbers)
+
+# 列表推導 (更 Pythonic)
+doubled = [x * 2 for x in numbers]
+evens = [x for x in numbers if x % 2 == 0]
+```
+
+```go !! go
+// Go - 高階函式
+package main
+
+import "fmt"
+
+func mapInts(nums []int, f func(int) int) []int {
+    result := make([]int, len(nums))
+    for i, num := range nums {
+        result[i] = f(num)
+    }
+    return result
+}
+
+func filterInts(nums []int, f func(int) bool) []int {
+    result := []int{}
+    for _, num := range nums {
+        if f(num) {
+            result = append(result, num)
+        }
+    }
+    return result
+}
+
+func reduceInts(nums []int, initial int, f func(int, int) int) int {
+    result := initial
+    for _, num := range nums {
+        result = f(result, num)
+    }
+    return result
+}
+
+func main() {
+    numbers := []int{1, 2, 3, 4, 5}
+
+    // Map
+    doubled := mapInts(numbers, func(x int) int {
+        return x * 2
+    })
+    fmt.Println("Doubled:", doubled)  // [2 4 6 8 10]
+
+    // Filter
+    evens := filterInts(numbers, func(x int) bool {
+        return x%2 == 0
+    })
+    fmt.Println("Evens:", evens)  // [2 4]
+
+    // Reduce
+    sum := reduceInts(numbers, 0, func(acc, val int) int {
+        return acc + val
+    })
+    fmt.Println("Sum:", sum)  // 15
+
+    // 鏈式
+    result := reduceInts(
+        filterInts(
+            mapInts(numbers, func(x int) int { return x * 2 }),
+            func(x int) bool { return x > 4 },
+        ),
+        0,
+        func(acc, val int) int { return acc + val },
+    )
+    fmt.Println("Chained:", result)  // 6 + 8 + 10 = 24
+}
+```
+</UniversalEditor>
+
+## 函式中的 Defer
+
+<UniversalEditor title="Defer 深入">
+```python !! py
+# Python - 上下文管理器
+def process_file(filename):
+    with open(filename) as f:
+        data = f.read()
+        return process(data)
+
+# 多個清理
+def process():
+    with open("file1.txt") as f1:
+        with open("file2.txt") as f2:
+            process_both(f1, f2)
+```
+
+```go !! go
+// Go - 函式中的 Defer
+package main
+
+import (
+    "fmt"
+    "os"
+)
+
+// 基本 defer
+func processFile(filename string) error {
+    file, err := os.Open(filename)
+    if err != nil {
+        return err
+    }
+    defer file.Close()  // 函式返回時執行
+
+    // 處理檔案...
+    return nil
+}
+
+// 多個 defer (LIFO 順序)
+func processMultiple() {
+    defer fmt.Println("Third")
+    defer fmt.Println("Second")
+    defer fmt.Println("First")
+    // 輸出: First, Second, Third
+}
+
+// 帶參數的 defer
+func deferWithArgs() {
+    i := 0
+    defer fmt.Println(i)  // 列印 0 (現在求值)
+    i = 10
+}
+
+// Defer 用於清理
+func connectDatabase() (*sql.DB, error) {
+    db, err := sql.Open("driver", "dsn")
+    if err != nil {
+        return nil, err
+    }
+
+    // Defer rollback 如果未提交
+    var tx *sql.Tx
+    defer func() {
+        if tx != nil {
+            tx.Rollback()
+        }
+    }()
+
+    tx, err = db.Begin()
+    if err != nil {
+        return nil, err
+    }
+
+    // ... 使用 tx ...
+
+    if err := tx.Commit(); err != nil {
+        return nil, err
+    }
+    tx = nil  // 不要 rollback
+
+    return db, nil
+}
+```
+</UniversalEditor>
+
+### 常見 Defer 模式
+
+<UniversalEditor title="Defer 模式">
+```go
+// 1. 解鎖互斥鎖
+func process(data map[string]int) {
+    mu.Lock()
+    defer mu.Unlock()
+
+    data["key"] = 42
+    // 自動解鎖
+}
+
+// 2. 關閉回應體
+func fetch(url string) error {
+    resp, err := http.Get(url)
+    if err != nil {
+        return err
+    }
+    defer resp.Body.Close()
+
+    // 處理回應...
+    return nil
+}
+
+// 3. 從 panic 恢復
+func safeOperation() (err error) {
+    defer func() {
+        if r := recover(); r != nil {
+            err = fmt.Errorf("panic: %v", r)
+        }
+    }()
+
+    // 有風險的操作...
+    return nil
+}
+
+// 4. 測量執行時間
+func timedOperation() {
+    defer func(start time.Time) {
+        fmt.Printf(" Took %v\n", time.Since(start))
+    }(time.Now())
+
+    // 操作...
+}
+
+// 5. 資源清理
+func processFiles(filenames []string) error {
+    files := make([]*os.File, 0, len(filenames))
+
+    for _, filename := range filenames {
+        file, err := os.Open(filename)
+        if err != nil {
+            return err
+        }
+        files = append(files, file)
+    }
+
+    // 返回時關閉所有檔案
+    defer func() {
+        for _, file := range files {
+            file.Close()
+        }
+    }()
+
+    // 處理檔案...
+    return nil
+}
+```
+</UniversalEditor>
+
+## Panic 和 Recover
+
+<UniversalEditor title="Panic 和 Recover">
+```python !! py
+# Python - Try/except
+def risky_operation():
+    try:
+        result = divide(10, 0)
+        return result
+    except ZeroDivisionError as e:
+        print(f"Caught: {e}")
+        return None
+    finally:
+        print("Cleanup always runs")
+
+def divide(a, b):
+    if b == 0:
+        raise ZeroDivisionError("Cannot divide by zero")
+    return a / b
+```
+
+```go !! go
+// Go - Panic/recover (很少使用,首選錯誤)
+package main
+
+import (
+    "fmt"
+    "log"
+)
+
+// Panic 類似 raise,recover 類似 except
+func riskyOperation() (result int) {
+    // defer with recover
+    defer func() {
+        if r := recover(); r != nil {
+            log.Printf("Recovered from panic: %v", r)
+            result = 0
+        }
+    }()
+
+    result = divide(10, 0)
+    return result
+}
+
+func divide(a, b int) int {
+    if b == 0 {
+        panic("cannot divide by zero")  // 類似 raise
+    }
+    return a / b
+}
+
+// 在 main 中恢復
+func main() {
+    defer func() {
+        if r := recover(); r != nil {
+            fmt.Printf("Main recovered: %v\n", r)
+        }
+    }()
+
+    riskyOperation()
+}
+```
+</UniversalEditor>
+
+### 何時使用 Panic
+
+<UniversalEditor title="Panic 指南">
+```go
+// 不要: 對正常錯誤使用 panic
+func getUser(id int) (*User, error) {
+    if id < 0 {
+        panic("invalid id")  // 不好!
+    }
+    // ...
+}
+
+// 應該: 返回錯誤
+func getUser(id int) (*User, error) {
+    if id < 0 {
+        return nil, fmt.Errorf("invalid id: %d", id)
+    }
+    // ...
+}
+
+// 可以: 對真正不可恢復的條件使用 panic
+func init() {
+    if apiKey == "" {
+        panic("API_KEY environment variable required")
+    }
+}
+
+// 可以: Panic 在程式設計師錯誤中
+func process(data []int) int {
+    if len(data) == 0 {
+        panic("process called with empty slice")  // 程式設計師錯誤
+    }
+    // ...
+}
+```
+</UniversalEditor>
+
+## 總結
+
+在本模組中,你學習了:
+
+1. **函式宣告** 帶類型參數
+2. **無預設參數** - 使用多個函式或函式選項
+3. **多返回值** - Go 錯誤處理的超能力
+4. **命名返回值** - 在簡單函式中用於清晰
+5. **可變參數函式** 使用 `...` 實現靈活參數
+6. **閉包** - 捕獲上下文的匿名函式
+7. **方法** - 任何類型上的函式 (不需要類)
+8. **值 vs 指標接收者** - 何時使用哪個
+9. **高階函式** - 函式作為參數
+10. **Defer** - 保證按 LIFO 順序清理
+11. **Panic/recover** - 僅用於異常情況
+
+## 與 Python 的主要差異
+
+| Python | Go |
+|--------|-----|
+| 動態參數 | 類型化參數 |
+| 預設參數 | 多個函式或選項模式 |
+| 單返回 (或元組) | 多返回值常見 |
+| `lambda x: x+1` | `func(x int) int { return x+1 }` |
+| 類別方法 | 任何類型上的方法 |
+| `try/except/finally` | 錯誤返回 + panic/recover |
+| 列表推導 | 高階函式 (但迴圈常見) |
+| 上下文管理器 | `defer` 語句 |
+
+## 練習
+
+1. 撰寫一個返回除法的商和餘數的函式
+2. 為 Server 組態實作函式選項模式
+3. 建立一個維護狀態的閉包 (計數器、累加器)
+4. 在自訂結構體上實作值和指標接收者
+5. 撰寫 `min()`、`max()` 和 `sum()` 的可變參數函式
+6. 使用 `defer` 測量函式執行時間
+7. 使用閉包建立記憶化助手
+8. 實作 `map`、`filter` 和 `reduce` 函式
+
+## 下一步
+
+下一模組:**結構體和介面** - Go 沒有類別的物件導向程式設計方法。

@@ -1,0 +1,346 @@
+---
+title: "模組 09：測試 - 表驅動測試和基準測試"
+description: "掌握 Go 的測試框架。學習表驅動測試、基準測試、測試覆蓋率，並與 JUnit 和 Mockito 進行比較。"
+---
+
+# 模組 09：測試 - 表驅動測試和基準測試
+
+在本模組中，你將學習 Go 如何以與 Java 不同的方式處理**測試**。Go 的測試哲學強調簡潔性、表驅動測試和內建基準測試 - 所有這些都不需要外部框架。
+
+## 學習目標
+
+完成本模組後，你將能夠：
+- 使用 Go 的 testing 套件編寫測試
+- 建立表驅動測試
+- 測量測試覆蓋率
+- 編寫基準測試
+- 使用測試斷言
+- 使用介面模擬相依性
+- 使用 _test.go 檔案組織測試
+- 使用 `go test` 執行測試
+
+## 背景：JUnit vs Go Testing
+
+### 哲學差異
+
+**Java (JUnit + Mockito):**
+- 單獨的測試框架
+- 基於註解（@Test、@Before、@Mock）
+- 需要外部模擬框架
+- 使用 @RunWith 進行複雜設定
+- 大量使用反射
+
+**Go (testing package):**
+- 測試內建於標準庫中
+- 基於約定（_test.go 檔案）
+- 使用介面進行模擬（無需框架）
+- 簡單的基於函式的測試
+
+<UniversalEditor title="基本測試：Java vs Go">
+```java !! java
+// Java: JUnit 測試
+import org.junit.jupiter.api.*;
+
+class CalculatorTest {
+    private Calculator calculator;
+
+    @BeforeEach
+    void setUp() {
+        calculator = new Calculator();
+    }
+
+    @Test
+    void testAdd() {
+        int result = calculator.add(2, 3);
+        assertEquals(5, result);
+    }
+}
+```
+
+```go !! go
+// Go: 使用 testing 套件測試
+package main
+
+import (
+	"testing"
+)
+
+func TestAdd(t *testing.T) {
+	result := Add(2, 3)
+	if result != 5 {
+		t.Errorf("Add(2, 3) = %d; want 5", result)
+	}
+}
+```
+</UniversalEditor>
+
+## 表驅動測試
+
+### 測試多個場景
+
+<UniversalEditor title="表驅動測試">
+```java !! java
+// Java: 參數化測試
+@ParameterizedTest
+@CsvSource({
+    "2, 3, 5",
+    "0, 0, 0"
+})
+void testAdd(int a, int b, int expected) {
+    assertEquals(expected, calculator.add(a, b));
+}
+```
+
+```go !! go
+// Go: 表驅動測試（非常符合 Go 慣例）
+package main
+
+import (
+	"testing"
+)
+
+func TestAdd(t *testing.T) {
+	tests := []struct {
+		name     string
+		a, b     int
+		expected int
+	}{
+		{"positive numbers", 2, 3, 5},
+		{"zeros", 0, 0, 0},
+		{"large numbers", 100, 200, 300},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := Add(tt.a, tt.b)
+			if result != tt.expected {
+				t.Errorf("Add(%d, %d) = %d; want %d",
+					tt.a, tt.b, result, tt.expected)
+			}
+		})
+	}
+}
+```
+</UniversalEditor>
+
+## 使用介面進行模擬
+
+### 相依性注入用於測試
+
+<UniversalEditor title="模擬：Java Mockito vs Go 介面">
+```java !! java
+// Java: Mockito 模擬
+class UserServiceTest {
+    @Mock
+    private Repository repository;
+
+    @InjectMocks
+    private UserService userService;
+
+    @Test
+    void testGetUser() {
+        when(repository.findById(1L)).thenReturn(expectedUser);
+        User user = userService.getUser(1L);
+        assertEquals("Alice", user.getName());
+    }
+}
+```
+
+```go !! go
+// Go: 使用介面模擬（無需框架！）
+package main
+
+import (
+	"testing"
+)
+
+// Repository 介面
+type Repository interface {
+	FindById(id int) (*User, error)
+}
+
+// Mock 實作
+type MockRepository struct {
+	users map[int]*User
+}
+
+func NewMockRepository() *MockRepository {
+	return &MockRepository{
+		users: make(map[int]*User),
+	}
+}
+
+func (m *MockRepository) FindById(id int) (*User, error) {
+	return m.users[id], nil
+}
+
+// 測試
+func TestUserService_GetUser(t *testing.T) {
+	mockRepo := NewMockRepository()
+	mockRepo.users[1] = &User{ID: 1, Name: "Alice"}
+
+	userService := NewUserService(mockRepo)
+	user, err := userService.GetUser(1)
+
+	if user.Name != "Alice" {
+		t.Errorf("expected name Alice, got %s", user.Name)
+	}
+}
+```
+</UniversalEditor>
+
+## 基準測試
+
+### 效能測試
+
+<UniversalEditor title="基準測試">
+```go !! go
+// Go: 內建基準測試
+package main
+
+import (
+	"testing"
+)
+
+func BenchmarkAdd(b *testing.B) {
+	calculator := &Calculator{}
+
+	for i := 0; i < b.N; i++ {
+		calculator.Add(10, 20)
+	}
+}
+
+// 並行基準測試
+func BenchmarkParallelAdd(b *testing.B) {
+	calculator := &Calculator{}
+
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			calculator.Add(10, 20)
+		}
+	})
+}
+
+// 執行：go test -bench=. -benchmem
+```
+</UniversalEditor>
+
+## 測試覆蓋率
+
+<UniversalEditor title="測試覆蓋率">
+```bash
+# Go: 內建覆蓋率工具
+
+# 執行測試並顯示覆蓋率
+go test -cover
+
+# 產生覆蓋率報告
+go test -coverprofile=coverage.out
+
+# 在瀏覽器中查看
+go tool cover -html=coverage.out
+
+# 所有子目錄的覆蓋率
+go test -cover ./...
+```
+</UniversalEditor>
+
+## 執行測試
+
+<UniversalEditor title="執行測試">
+```bash
+# Go: go test
+
+# 當前目錄的所有測試
+go test
+
+# 詳細輸出
+go test -v
+
+# 執行特定測試
+go test -run TestAdd
+
+# 帶覆蓋率
+go test -cover
+
+# 基準測試
+go test -bench=.
+
+# 競態檢測器
+go test -race
+```
+</UniversalEditor>
+
+## 最佳實踐
+
+<UniversalEditor title="測試最佳實踐">
+```go !! go
+// Go: 測試最佳實踐
+
+// 1. 使用描述性測試名稱
+tests := []struct {
+	name     string
+	input    int
+	expected int
+}{
+	{"should return 5 for 2+3", 2, 3, 5},
+}
+
+// 2. 保持測試簡單可讀
+func TestAdd(t *testing.T) {
+	result := Add(2, 3)
+	if result != 5 {
+		t.Errorf("got %d, want 5", result)
+	}
+}
+
+// 3. 對多個場景使用表驅動測試
+func TestMultiply(t *testing.T) {
+	tests := []struct {
+		a, b, expected int
+	}{
+		{2, 3, 6},
+		{0, 5, 0},
+	}
+	for _, tt := range tests {
+		if got := Multiply(tt.a, tt.b); got != tt.expected {
+			t.Errorf("got %d, want %d", got, tt.expected)
+		}
+	}
+}
+
+// 4. 使用介面進行模擬
+type MockRepository struct {
+	users map[int]*User
+}
+```
+</UniversalEditor>
+
+## 練習題
+
+1. **表驅動測試**：為什麼表驅動測試被認為是 Go 的慣用方法？
+
+2. **模擬**：Go 的基於介面的模擬方法與 Mockito 相比如何？
+
+## 專案想法
+
+1. **測試覆蓋率**：為 Go 專案實作 80%+ 的測試覆蓋率
+2. **基準測試套件**：為資料結構建立全面的基準測試
+
+## 下一步
+
+現在你已經理解了 Go 的測試：
+
+- **回顧**：回顧所有之前的模組
+- **練習**：為你的 Go 專案編寫全面的測試
+
+## 總結
+
+**Go Testing vs JUnit/Mockito:**
+- 內建測試套件（無外部相依性）
+- 表驅動測試是慣用且強大的
+- 基於介面的模擬（無需模擬框架）
+- 簡單快速的測試執行
+- 內建基準測試和覆蓋率工具
+
+**關鍵要點**：Go 的測試哲學強調簡潔性和約定而非設定。testing 套件為單元測試、基準測試和程式碼覆蓋率提供了所需的一切，無需外部框架。

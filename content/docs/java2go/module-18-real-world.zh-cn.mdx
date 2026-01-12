@@ -1,0 +1,199 @@
+---
+title: "模块 18：真实世界项目架构"
+---
+
+本模块探索 Go 中的真实世界项目架构模式，与 Java 企业应用程序进行比较。
+
+## 项目结构
+
+**Java 企业结构：**
+- 分层架构（controller、service、repository）
+- 针对不同关注点的单独模块
+- 大量使用依赖注入
+- 配置驱动
+
+**Go 项目结构：**
+- 实用的、领域驱动的组织
+- 基于接口的设计
+- 最少的魔法，显式的依赖
+- 代码组织优于框架约定
+
+<UniversalEditor title="项目结构比较">
+```
+# Java: Spring Boot 多模块项目
+myapp/
+├── pom.xml
+├── myapp-api/
+├── myapp-service/
+├── myapp-repository/
+├── myapp-common/
+└── myapp-integration-tests/
+```
+
+```
+# Go: 标准项目布局
+myapp/
+├── cmd/
+│   └── myapp/
+│       └── main.go                # 应用程序入口点
+├── internal/
+│   ├── api/
+│   │   ├── handler/
+│   │   ├── middleware/
+│   │   └── router.go
+│   ├── service/
+│   ├── repository/
+│   ├── domain/
+│   └── config/
+├── pkg/                            # 公共库
+├── api/
+│   └── openapi/                    # API 定义
+├── migrations/                      # 数据库迁移
+├── scripts/                         # 构建和部署脚本
+├── configs/                         # 配置文件
+├── go.mod
+├── Dockerfile
+└── Makefile
+```
+</UniversalEditor>
+
+## Go 中的清洁架构
+
+<UniversalEditor title="清洁架构实现">
+```go !! go
+// internal/domain/user.go
+package domain
+
+import (
+    "errors"
+    "time"
+)
+
+var (
+    ErrUserNotFound      = errors.New("user not found")
+    ErrInvalidEmail      = errors.New("invalid email")
+    ErrEmailAlreadyTaken = errors.New("email already taken")
+)
+
+type User struct {
+    ID        uint
+    Email     string
+    Name      string
+    Password  string
+    Active    bool
+    CreatedAt time.Time
+    UpdatedAt time.Time
+}
+
+type UserRepository interface {
+    FindByID(id uint) (*User, error)
+    FindByEmail(email string) (*User, error)
+    Create(user *User) error
+    Update(user *User) error
+    Delete(id uint) error
+}
+
+type UserService interface {
+    Register(email, password, name string) (*User, error)
+    Login(email, password string) (*User, error)
+}
+
+// internal/service/user_service.go
+package service
+
+type userServiceImpl struct {
+    userRepo domain.UserRepository
+    logger   logger.Logger
+}
+
+func NewUserService(userRepo domain.UserRepository, log logger.Logger) domain.UserService {
+    return &userServiceImpl{
+        userRepo: userRepo,
+        logger:   log,
+    }
+}
+
+func (s *userServiceImpl) Register(email, password, name string) (*domain.User, error) {
+    // 验证邮箱
+    if email == "" {
+        return nil, domain.ErrInvalidEmail
+    }
+
+    // 检查邮箱是否存在
+    exists, err := s.userRepo.ExistsByEmail(email)
+    if err != nil {
+        return nil, err
+    }
+
+    if exists {
+        return nil, domain.ErrEmailAlreadyTaken
+    }
+
+    // 创建用户
+    user := &domain.User{
+        Email:    email,
+        Name:     name,
+        Password: hashedPassword,
+        Active:   true,
+    }
+
+    if err := s.userRepo.Create(user); err != nil {
+        return nil, err
+    }
+
+    return user, nil
+}
+
+// internal/api/handler/user_handler.go
+package handler
+
+type UserHandler struct {
+    userService domain.UserService
+}
+
+func NewUserHandler(userService domain.UserService) *UserHandler {
+    return &UserHandler{
+        userService: userService,
+    }
+}
+
+func (h *UserHandler) Register(c *gin.Context) {
+    var req struct {
+        Email    string `json:"email" binding:"required,email"`
+        Password string `json:"password" binding:"required,min=8"`
+        Name     string `json:"name" binding:"required"`
+    }
+
+    user, err := h.userService.Register(req.Email, req.Password, req.Name)
+    if err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
+
+    c.JSON(http.StatusCreated, gin.H{
+        "id":    user.ID,
+        "email": user.Email,
+        "name":  user.Name,
+    })
+}
+```
+</UniversalEditor>
+
+---
+
+### 练习问题：
+1. 为什么 Go 偏好显式依赖注入而不是框架？
+2. Go 的清洁架构与 Java 的有什么不同？
+3. 标准 Go 项目布局有什么优势？
+4. 什么时候应该使用 Wire vs Fx 进行依赖注入？
+
+### 项目想法：
+- 使用清洁架构构建完整的 REST API
+- 实现身份验证和授权
+- 设置日志和监控
+- 创建可重用的项目模板
+
+### 下一步：
+- 学习 Go 应用程序的最佳实践
+- 构建生产就绪的系统
+- 探索高级主题

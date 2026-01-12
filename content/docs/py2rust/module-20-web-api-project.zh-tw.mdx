@@ -1,0 +1,274 @@
+---
+title: "模組 20: REST API 專案"
+description: "使用 Axum 建構完整的 REST API,包括資料庫整合、JWT 認證、測試和部署"
+---
+
+# 模組 20: REST API 專案
+
+## 學習目標
+
+完成本模組後,你將建構:
+- 使用 Axum 的完整 REST API
+- 使用 SQLx 的資料庫整合
+- JWT 認證系統
+- 全面的測試套件
+- 生產就緒的部署設定
+
+## 專案概述
+
+我們將建構一個任務管理 API,包含:
+- 使用者註冊和認證
+- 任務的 CRUD 操作
+- 基於 JWT 的認證
+- PostgreSQL 資料庫
+- 全面的測試
+
+<UniversalEditor compare={true} title="專案結構">
+```python !! py
+# Python - FastAPI 專案結構
+task_api/
+├── app/
+│   ├── main.py          # FastAPI 應用
+│   ├── models.py        # SQLAlchemy 模型
+│   ├── auth.py          # 認證
+│   └── database.py      # 資料庫設定
+├── tests/
+└── requirements.txt
+```
+
+```rust !! rs
+// Rust - Axum 專案結構
+task_api/
+├── Cargo.toml
+├── src/
+│   ├── main.rs          # Axum 應用設定
+│   ├── models.rs        # 資料庫模型
+│   ├── handlers.rs      # 請求處理
+│   ├── auth.rs          # JWT 認證
+│   └── db.rs            # 資料庫連線
+└── tests/
+```
+</UniversalEditor>
+
+## Cargo.toml 設定
+
+<UniversalEditor compare={true} title="依賴項">
+```python !! py
+# Python - requirements.txt
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+sqlalchemy==2.0.25
+pydantic==2.5.3
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+```
+
+```rust !! rs
+// Rust - Cargo.toml
+[dependencies]
+axum = "0.7"
+tokio = { version = "1", features = ["full"] }
+sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["serde", "v4"] }
+chrono = { version = "0.4", features = ["serde"] }
+jsonwebtoken = "9"
+bcrypt = "0.15"
+tower-http = { version = "0.5", features = ["cors", "trace"] }
+anyhow = "1"
+```
+</UniversalEditor>
+
+## 資料庫模型
+
+<UniversalEditor compare={true} title="資料模型">
+```python !! py
+# Python - SQLAlchemy 模型
+from sqlalchemy import Column, String, Boolean, DateTime
+from sqlalchemy.dialects.postgresql import UUID
+import uuid
+
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    email = Column(String, unique=True, nullable=False, index=True)
+    password_hash = Column(String, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+```
+
+```rust !! rs
+// Rust - SQLx 模型
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+use sqlx::FromRow;
+use uuid::Uuid;
+
+#[derive(Debug, Serialize, Deserialize, FromRow)]
+pub struct User {
+    pub id: Uuid,
+    pub email: String,
+    pub password_hash: String,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateUser {
+    pub email: String,
+    pub password: String,
+}
+```
+</UniversalEditor>
+
+## 主應用程式
+
+<UniversalEditor compare={true} title="應用設定">
+```python !! py
+# Python - FastAPI 應用
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+app = FastAPI(title="Task API")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+```
+
+```rust !! rs
+// Rust - Axum 應用
+use axum::{
+    routing::{get, post},
+    Router,
+};
+use tower_http::cors::{CorsLayer, Any};
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let app = Router::new()
+        .route("/", get(root))
+        .route("/register", post(register))
+        .route("/tasks", get(list_tasks).post(create_task))
+        .layer(CorsLayer::new().allow_origin(Any))
+        .with_state(app_state);
+
+    let listener = TcpListener::bind("0.0.0.0:8000").await?;
+    axum::serve(listener, app).await?;
+
+    Ok(())
+}
+```
+</UniversalEditor>
+
+## 部署
+
+<UniversalEditor compare={true} title="部署配置">
+```dockerfile !! dockerfile
+# Rust - Dockerfile
+FROM rust:1.75 as builder
+
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY src ./src
+
+RUN cargo build --release
+
+FROM debian:bookworm-slim
+
+WORKDIR /app
+COPY --from=builder /app/target/release/task_api /app/task_api
+
+EXPOSE 8000
+
+CMD ["./task_api"]
+```
+
+```yaml !! yaml
+# docker-compose.yml
+version: '3.8'
+
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://user:pass@db:5432/taskdb
+    depends_on:
+      - db
+
+  db:
+    image: postgres:16
+    environment:
+      - POSTGRES_DB=taskdb
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:
+```
+</UniversalEditor>
+
+## 專案總結
+
+### 我們建構了什麼
+
+1. **使用 Axum 的 REST API**
+   - 使用者註冊和認證
+   - 任務的 CRUD 操作
+   - 基於 JWT 的安全
+
+2. **資料庫整合**
+   - 使用 SQLx 的 PostgreSQL
+   - 型別安全的查詢
+   - 遷移支援
+
+3. **生產就緒**
+   - Docker 部署
+   - 環境設定
+   - 錯誤處理
+
+### 關鍵要點
+
+**Python/FastAPI:**
+- 快速開發
+- 易於閱讀和修改
+- 動態型別靈活性
+- 適合原型開發
+
+**Rust/Axum:**
+- 型別安全的資料庫查詢
+- 零成本抽象
+- 記憶體安全保證
+- 卓越的效能
+- 編譯時錯誤檢查
+
+## 最終練習
+
+1. 新增任務過濾和分頁
+2. 實作任務分類/標籤
+3. 新增郵件通知
+4. 建立前端客戶端
+5. 部署到生產環境
+
+## 結語
+
+恭喜!你已完成 Python 到 Rust 的學習路徑。你現在擁有:
+
+- Rust 語法和概念的堅實基礎
+- 實際 Rust 開發經驗
+- 理解 Rust 的效能優勢
+- 測試和部署實踐知識
+
+繼續你的 Rust 之旅:
+- 為開源 Rust 專案貢獻
+- 建構更複雜的應用
+- 深入探索非同步 Rust
+- 學習使用 Rust 的 WebAssembly
+
+愉快地使用 Rust 編碼! 🦀

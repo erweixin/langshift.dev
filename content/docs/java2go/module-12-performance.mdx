@@ -1,0 +1,917 @@
+---
+title: "Module 12: Performance Optimization in Go"
+---
+
+This module covers performance optimization techniques in Go, comparing them with Java's performance tuning approaches.
+
+## Performance Philosophy: Go vs Java
+
+**Java Performance Philosophy:**
+- JVM optimizations (JIT compilation, GC tuning)
+- Profiling with VisualVM, JProfiler
+- Garbage collection tuning
+- Memory pool management
+- Thread pool configuration
+
+**Go Performance Philosophy:**
+- Simple, predictable performance
+- Built-in profiling tools (pprof)
+- Efficient memory allocation patterns
+- Minimal runtime overhead
+- Direct compilation to machine code
+
+<UniversalEditor title="Performance Philosophy Comparison">
+```java !! java
+// Java: Performance considerations
+public class Performance {
+    // JVM warm-up required for optimal performance
+    // JIT compilation happens at runtime
+    // Garbage collection pauses possible
+
+    private List<Integer> numbers = new ArrayList<>();
+
+    public void addNumber(int num) {
+        numbers.add(num); // May trigger GC and array resize
+    }
+
+    // Object allocation overhead
+    public String processData(String input) {
+        StringBuilder sb = new StringBuilder();
+        // String operations create intermediate objects
+        return sb.toString();
+    }
+}
+```
+
+```go !! go
+// Go: Predictable performance
+package main
+
+// No warm-up needed
+// Direct compilation
+// Simple GC with minimal pauses
+
+type Performance struct {
+    numbers []int
+}
+
+func (p *Performance) AddNumber(num int) {
+    p.numbers = append(p.numbers, num) // Efficient growth
+}
+
+// Minimal allocation overhead
+func (p *Performance) ProcessData(input string) string {
+    var builder strings.Builder
+    // Efficient string building
+    return builder.String()
+}
+```
+</UniversalEditor>
+
+## Built-in Profiling Tools
+
+Go provides excellent built-in profiling tools that are easier to use than Java's external profilers.
+
+### CPU Profiling
+
+<UniversalEditor title="CPU Profiling Comparison">
+```java !! java
+// Java: CPU Profiling with VisualVM/JProfiler
+/*
+1. Start application with profiling agent:
+   java -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=5005 MyApp
+
+2. Connect with VisualVM or JProfiler
+
+3. Take CPU snapshot
+
+4. Analyze hotspots
+
+Example: Using Java Flight Recorder
+*/
+import jdk.jfr.Category;
+import jdk.jfr.Event;
+import jdk.jfr.Label;
+
+@Label("Processing Event")
+@Category("Processing")
+public class ProcessingEvent extends Event {
+    @Label "Items Processed"
+    public int items;
+}
+
+public class ProfilerDemo {
+    public void processItems(int count) {
+        ProcessingEvent event = new ProcessingEvent();
+        event.begin();
+        event.items = count;
+
+        // Processing logic
+        for (int i = 0; i < count; i++) {
+            // Do work
+        }
+
+        event.end();
+        event.commit();
+    }
+}
+```
+
+```go !! go
+// Go: Built-in CPU Profiling
+package main
+
+import (
+    "fmt"
+    "os"
+    "runtime/pprof"
+    "time"
+)
+
+func main() {
+    // Start CPU profiling
+    f, _ := os.Create("cpu.prof")
+    pprof.StartCPUProfile(f)
+    defer pprof.StopCPUProfile()
+
+    // Run code to profile
+    processItems(1000000)
+
+    f.Close()
+    fmt.Println("Profile saved to cpu.prof")
+    // Analyze with: go tool pprof cpu.prof
+}
+
+func processItems(count int) {
+    for i := 0; i < count; i++ {
+        // Do work
+        calculate(i)
+    }
+}
+
+func calculate(n int) int {
+    result := 0
+    for i := 0; i < n; i++ {
+        result += i
+    }
+    return result
+}
+```
+</UniversalEditor>
+
+### Memory Profiling
+
+<UniversalEditor title="Memory Profiling Comparison">
+```java !! java
+// Java: Heap Analysis
+import java.util.ArrayList;
+import java.util.List;
+
+public class MemoryProfiler {
+    private List<byte[]> allocations = new ArrayList<>();
+
+    public void allocateMemory() {
+        // Runtime.getRuntime().gc() to force GC
+        // MemoryMXBean for heap usage
+
+        for (int i = 0; i < 1000; i++) {
+            allocations.add(new byte[1024]); // 1KB each
+        }
+
+        // Analyze heap dump
+        Runtime runtime = Runtime.getRuntime();
+        long usedMemory = runtime.totalMemory() - runtime.freeMemory();
+        System.out.println("Used memory: " + usedMemory + " bytes");
+    }
+
+    // Use VisualVM to analyze heap dumps
+    // jmap -dump:format=b,file=heap.hprof <pid>
+}
+```
+
+```go !! go
+// Go: Memory Profiling
+package main
+
+import (
+    "fmt"
+    "os"
+    "runtime/pprof"
+)
+
+func main() {
+    // Memory profiling
+    f, _ := os.Create("mem.prof")
+    defer f.Close()
+
+    // Take memory snapshot
+    pprof.WriteHeapProfile(f)
+    fmt.Println("Memory profile saved to mem.prof")
+    // Analyze with: go tool pprof mem.prof
+}
+
+func allocateMemory() {
+    allocations := make([][]byte, 0)
+
+    for i := 0; i < 1000; i++ {
+        allocations = append(allocations, make([]byte, 1024))
+    }
+
+    // Get memory stats
+    var m runtime.MemStats
+    runtime.ReadMemStats(&m)
+    fmt.Printf("Allocated memory: %d bytes\n", m.Alloc)
+    fmt.Printf("Total allocations: %d\n", m.TotalAlloc)
+    fmt.Printf("Heap objects: %d\n", m.HeapObjects)
+}
+```
+</UniversalEditor>
+
+## Memory Allocation Patterns
+
+### Avoiding Unnecessary Allocations
+
+<UniversalEditor title="Memory Efficiency Comparison">
+```java !! java
+// Java: Common allocation patterns
+public class Allocations {
+    // String concatenation in loops - BAD
+    public String buildStringBad(String[] items) {
+        String result = "";
+        for (String item : items) {
+            result += item; // Creates new String each iteration
+        }
+        return result;
+    }
+
+    // Using StringBuilder - GOOD
+    public String buildStringGood(String[] items) {
+        StringBuilder sb = new StringBuilder();
+        for (String item : items) {
+            sb.append(item); // Efficient
+        }
+        return sb.toString();
+    }
+
+    // Object pooling example
+    private static final ObjectPool<Buffer> bufferPool =
+        new ObjectPool<>(() -> new Buffer());
+
+    public Buffer getBuffer() {
+        return bufferPool.borrow();
+    }
+
+    public void returnBuffer(Buffer buffer) {
+        bufferPool.release(buffer);
+    }
+}
+```
+
+```go !! go
+// Go: Efficient allocation patterns
+package main
+
+import (
+    "strings"
+)
+
+// Bad: String concatenation in loop
+func buildStringBad(items []string) string {
+    result := ""
+    for _, item := range items {
+        result += item // Creates new string each iteration
+    }
+    return result
+}
+
+// Good: Use strings.Builder
+func buildStringGood(items []string) string {
+    var builder strings.Builder
+    builder.Grow(len(items) * 10) // Pre-allocate capacity
+
+    for _, item := range items {
+        builder.WriteString(item) // Efficient
+    }
+    return builder.String()
+}
+
+// Good: Use buffer pool
+var bufferPool = sync.Pool{
+    New: func() interface{} {
+        return new(bytes.Buffer)
+    },
+}
+
+func getBuffer() *bytes.Buffer {
+    return bufferPool.Get().(*bytes.Buffer)
+}
+
+func returnBuffer(buf *bytes.Buffer) {
+    buf.Reset()
+    bufferPool.Put(buf)
+}
+
+// Good: Pre-allocate slices
+func preAllocateSlice(count int) []int {
+    // Make with capacity avoids reallocation
+    slice := make([]int, 0, count)
+    for i := 0; i < count; i++ {
+        slice = append(slice, i) // No reallocation needed
+    }
+    return slice
+}
+```
+</UniversalEditor>
+
+## Benchmarking
+
+<UniversalEditor title="Benchmarking Comparison">
+```java !! java
+// Java: JMH Benchmarking
+import org.openjdk.jmh.annotations.*;
+import java.util.concurrent.TimeUnit;
+
+@BenchmarkMode(Mode.AverageTime)
+@OutputTimeUnit(TimeUnit.MILLISECONDS)
+@State(Scope.Benchmark)
+public class Benchmarks {
+    private int[] data;
+
+    @Setup
+    public void setup() {
+        data = new int[1000];
+        for (int i = 0; i < data.length; i++) {
+            data[i] = i;
+        }
+    }
+
+    @Benchmark
+    public int sumWithLoop() {
+        int sum = 0;
+        for (int num : data) {
+            sum += num;
+        }
+        return sum;
+    }
+
+    @Benchmark
+    public int sumWithStream() {
+        return java.util.Arrays.stream(data).sum();
+    }
+}
+
+// Run with: java -jar benchmarks.jar
+```
+
+```go !! go
+// Go: Built-in Benchmarking
+package main
+
+import (
+    "testing"
+)
+
+var data []int
+
+func setup() {
+    data = make([]int, 1000)
+    for i := 0; i < len(data); i++ {
+        data[i] = i
+    }
+}
+
+func BenchmarkSumWithLoop(b *testing.B) {
+    setup()
+    b.ResetTimer()
+
+    for i := 0; i < b.N; i++ {
+        sum := 0
+        for _, num := range data {
+            sum += num
+        }
+    }
+}
+
+func BenchmarkSumWithRange(b *testing.B) {
+    setup()
+    b.ResetTimer()
+
+    for i := 0; i < b.N; i++ {
+        sum := 0
+        for i := range data {
+            sum += data[i]
+        }
+    }
+}
+
+// Run with: go test -bench=. -benchmem
+```
+</UniversalEditor>
+
+## Goroutine Performance
+
+<UniversalEditor title="Goroutine vs Thread Performance">
+```java !! java
+// Java: Thread overhead
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+
+public class ThreadPerformance {
+    private static final int TASK_COUNT = 100000;
+
+    public void runWithThreads() throws InterruptedException {
+        long start = System.currentTimeMillis();
+
+        ExecutorService executor = Executors.newFixedThreadPool(100);
+
+        for (int i = 0; i < TASK_COUNT; i++) {
+            final int taskNum = i;
+            executor.submit(() -> {
+                // Simulate work
+                int result = taskNum * 2;
+            });
+        }
+
+        executor.shutdown();
+        executor.awaitTermination(1, TimeUnit.MINUTES);
+
+        long duration = System.currentTimeMillis() - start;
+        System.out.println("Threads: " + duration + "ms");
+        // Output: Threads: ~2000-5000ms
+        // Memory: ~500MB-1GB for 100K threads
+    }
+}
+```
+
+```go !! go
+// Go: Goroutine efficiency
+package main
+
+import (
+    "fmt"
+    "sync"
+    "time"
+)
+
+const taskCount = 100000
+
+func runWithGoroutines() {
+    start := time.Now()
+
+    var wg sync.WaitGroup
+
+    for i := 0; i < taskCount; i++ {
+        wg.Add(1)
+        go func(taskNum int) {
+            defer wg.Done()
+            // Simulate work
+            result := taskNum * 2
+            _ = result
+        }(i)
+    }
+
+    wg.Wait()
+
+    duration := time.Since(start)
+    fmt.Printf("Goroutines: %v\n", duration)
+    // Output: Goroutines: ~200-500ms
+    // Memory: ~50-100MB for 100K goroutines
+}
+
+func main() {
+    runWithGoroutines()
+}
+```
+</UniversalEditor>
+
+## Channel Performance
+
+<UniversalEditor title="Channel Optimization">
+```java !! java
+// Java: BlockingQueue
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.BlockingQueue;
+
+public class QueuePerformance {
+    private BlockingQueue<Integer> queue = new ArrayBlockingQueue<>(100);
+
+    public void producer() throws InterruptedException {
+        for (int i = 0; i < 1000000; i++) {
+            queue.put(i); // Blocking if full
+        }
+    }
+
+    public void consumer() throws InterruptedException {
+        while (true) {
+            Integer value = queue.take(); // Blocking if empty
+            // Process value
+        }
+    }
+}
+```
+
+```go !! go
+// Go: Buffered channels
+package main
+
+import "sync"
+
+// Unbuffered channel (synchronous)
+func unbufferedChannel() {
+    ch := make(chan int)
+    go func() {
+        for i := 0; i < 1000000; i++ {
+            ch <- i // Blocks until receiver ready
+        }
+        close(ch)
+    }()
+
+    for value := range ch {
+        _ = value
+    }
+}
+
+// Buffered channel (asynchronous)
+func bufferedChannel() {
+    ch := make(chan int, 100) // Buffer size 100
+    go func() {
+        for i := 0; i < 1000000; i++ {
+            ch <- i // Doesn't block until buffer is full
+        }
+        close(ch)
+    }()
+
+    for value := range ch {
+        _ = value
+    }
+}
+
+// Best practice: Choose buffer size based on workload
+func optimizedChannel() {
+    // For producer-consumer with different rates
+    ch := make(chan int, 1000) // Larger buffer for faster producer
+
+    var wg sync.WaitGroup
+
+    // Multiple producers
+    for i := 0; i < 10; i++ {
+        wg.Add(1)
+        go func(id int) {
+            defer wg.Done()
+            for j := 0; j < 10000; j++ {
+                ch <- id*10000 + j
+            }
+        }(i)
+    }
+
+    // Single consumer
+    go func() {
+        for value := range ch {
+            _ = value
+        }
+    }()
+
+    wg.Wait()
+    close(ch)
+}
+```
+</UniversalEditor>
+
+## String Optimization
+
+<UniversalEditor title="String Performance">
+```java !! java
+// Java: String optimization
+public class StringOptimization {
+    // Bad: String concatenation in loop
+    public String concatenateBad(List<String> items) {
+        String result = "";
+        for (String item : items) {
+            result += item; // Creates new objects
+        }
+        return result;
+    }
+
+    // Good: StringBuilder
+    public String concatenateGood(List<String> items) {
+        StringBuilder sb = new StringBuilder(items.size() * 16);
+        for (String item : items) {
+            sb.append(item);
+        }
+        return sb.toString();
+    }
+
+    // String comparison
+    public boolean compareStrings(String a, String b) {
+        return a.equals(b); // Correct way
+        // return a == b; // WRONG! Compares references
+    }
+
+    // String interning for memory efficiency
+    public void stringInterning() {
+        String s1 = "hello".intern(); // Interned
+        String s2 = "hello".intern(); // Same reference
+        boolean same = (s1 == s2); // true
+    }
+}
+```
+
+```go !! go
+// Go: String optimization
+package main
+
+import (
+    "strings"
+)
+
+// Bad: String concatenation in loop
+func concatenateBad(items []string) string {
+    result := ""
+    for _, item := range items {
+        result += item // Inefficient
+    }
+    return result
+}
+
+// Good: strings.Builder
+func concatenateGood(items []string) string {
+    var builder strings.Builder
+    // Pre-allocate capacity
+    builder.Grow(len(items) * 16)
+
+    for _, item := range items {
+        builder.WriteString(item)
+    }
+    return builder.String()
+}
+
+// String comparison (direct == works in Go!)
+func compareStrings(a, b string) bool {
+    return a == b // Efficient and correct
+}
+
+// String interning (manual)
+var internPool = sync.Pool{
+    New: func() interface{} {
+        return make(map[string]string)
+    },
+}
+
+// String reuse pattern
+func stringReuse() {
+    // Common pattern: use byte slices for building
+    // Convert to string only at the end
+    data := []byte("hello")
+    str := string(data) // One allocation
+    _ = str
+}
+
+// Efficient string joining
+func joinStrings(items []string) string {
+    return strings.Join(items, ",") // Efficient
+}
+```
+</UniversalEditor>
+
+## Slice Performance
+
+<UniversalEditor title="Slice vs Array Performance">
+```java !! java
+// Java: ArrayList vs Array
+public class CollectionPerformance {
+    // ArrayList (dynamic)
+    public void arrayListTest() {
+        List<Integer> list = new ArrayList<>();
+        for (int i = 0; i < 100000; i++) {
+            list.add(i); // May need resize
+        }
+    }
+
+    // Array (fixed size, faster)
+    public void arrayTest() {
+        int[] array = new int[100000];
+        for (int i = 0; i < 100000; i++) {
+            array[i] = i; // Direct access
+        }
+    }
+
+    // Pre-sized ArrayList
+    public void preSizedList() {
+        List<Integer> list = new ArrayList<>(100000);
+        for (int i = 0; i < 100000; i++) {
+            list.add(i); // No resize needed
+        }
+    }
+}
+```
+
+```go !! go
+// Go: Slice vs Array
+package main
+
+// Slice (dynamic)
+func sliceTest() {
+    slice := make([]int, 0)
+    for i := 0; i < 100000; i++ {
+        slice = append(slice, i) // May grow and copy
+    }
+}
+
+// Pre-allocated slice (faster)
+func preAllocatedSlice() {
+    slice := make([]int, 0, 100000) // Capacity pre-allocated
+    for i := 0; i < 100000; i++ {
+        slice = append(slice, i) // No copying needed
+    }
+}
+
+// Array (fixed size, fastest)
+func arrayTest() {
+    var array [100000]int
+    for i := 0; i < 100000; i++ {
+        array[i] = i // Direct access, no bounds checking overhead
+    }
+}
+
+// Slice tricks for performance
+func sliceTricks() {
+    // Reuse slice backing array
+    buffer := make([]int, 100)
+
+    // Use same buffer multiple times
+    work1 := buffer[:50]  // First 50 elements
+    work2 := buffer[50:]  // Remaining 50 elements
+
+    _ = work1
+    _ = work2
+}
+
+// Clear slice efficiently
+func clearSlice(slice []int) {
+    // Good: Reuse backing array
+    for i := range slice {
+        slice[i] = 0
+    }
+
+    // Alternative: Create new slice (may allocate)
+    // slice = make([]int, len(slice))
+}
+```
+</UniversalEditor>
+
+## Performance Best Practices
+
+### 1. Pre-allocate When Possible
+
+```go
+// Bad: Repeated allocations
+func badGrowth() {
+    data := []int{}
+    for i := 0; i < 1000000; i++ {
+        data = append(data, i) // Multiple reallocations
+    }
+}
+
+// Good: Pre-allocate capacity
+func goodGrowth() {
+    data := make([]int, 0, 1000000)
+    for i := 0; i < 1000000; i++ {
+        data = append(data, i) // No reallocation
+    }
+}
+```
+
+### 2. Use Value Types Where Appropriate
+
+```go
+// Prefer value types for small structs
+type Point struct {
+    X, Y int
+}
+
+// Pass by value (efficient for small structs)
+func distance(p1, p2 Point) int {
+    dx := p1.X - p2.X
+    dy := p1.Y - p2.Y
+    return dx*dx + dy*dy
+}
+
+// Use pointer only for large structs
+type LargeStruct struct {
+    data [1024]int
+}
+
+func process(l *LargeStruct) {
+    // Use pointer to avoid copying
+}
+```
+
+### 3. Avoid Premature Optimization
+
+```go
+// Write clear code first
+func processData(items []string) string {
+    var result strings.Builder
+    for _, item := range items {
+        result.WriteString(item)
+        result.WriteString(",")
+    }
+    return result.String()
+}
+
+// Profile first, optimize hotspots only
+// Use: go test -bench=. -cpuprofile=cpu.prof
+```
+
+## Common Performance Pitfalls
+
+### 1. Substring Allocations
+
+<UniversalEditor title="String Slicing">
+```java !! java
+// Java: substring() copies data (before Java 7u6)
+public class Substrings {
+    public void processString(String text) {
+        // Creates new String object
+        String sub = text.substring(0, 10);
+        System.out.println(sub);
+    }
+}
+```
+
+```go !! go
+// Go: String slicing doesn't copy
+package main
+
+func processString(text string) {
+    // No allocation! Just slices the string
+    sub := text[:10]
+    println(sub)
+}
+
+// But beware: keeps original string in memory
+func memoryLeakExample() {
+    // Read 1GB file
+    data := readFile("largefile.txt") // 1GB
+
+    // Extract small portion
+    firstLine := getFirstLine(data) // First 100 chars
+
+    // firstLine still references entire 1GB data!
+    useString(firstLine)
+
+    // Fix: convert to []byte and back
+}
+
+func getFirstLine(data string) string {
+    // This keeps entire data in memory
+    return data[:100]
+
+    // Better: copy to new string
+    // return strings.Clone(data[:100])
+}
+```
+</UniversalEditor>
+
+### 2. Range Loop Variable Capture
+
+```go
+// Wrong: All goroutines capture same variable
+func wrongRange() {
+    items := []int{1, 2, 3, 4, 5}
+    for _, item := range items {
+        go func() {
+            println(item) // Always prints 5
+        }()
+    }
+}
+
+// Correct: Pass variable as parameter
+func correctRange() {
+    items := []int{1, 2, 3, 4, 5}
+    for _, item := range items {
+        go func(val int) {
+            println(val) // Prints correct values
+        }(item)
+    }
+}
+```
+
+---
+
+### Practice Questions:
+1. When should you pre-allocate slice capacity vs using append?
+2. How does Go's garbage collection differ from Java's?
+3. What are the trade-offs between buffered and unbuffered channels?
+4. Why is string slicing in Go more efficient than Java's substring()?
+
+### Project Ideas:
+- Create a performance comparison tool that benchmarks equivalent Java and Go code
+- Build a web service that demonstrates goroutine efficiency vs Java threads
+- Implement a memory profiling dashboard for Go applications
+
+### Next Steps:
+- Learn about deployment strategies for Go applications
+- Understand production monitoring and observability
+- Explore real-world project architecture

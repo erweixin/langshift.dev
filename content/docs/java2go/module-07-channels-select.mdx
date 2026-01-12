@@ -1,0 +1,1494 @@
+---
+title: "Module 07: Channels and Select - Safe Communication"
+description: "Master Go's channels for safe goroutine communication. Learn about buffered/unbuffered channels, select statements, channel directions, and concurrency patterns."
+---
+
+# Module 07: Channels and Select - Safe Communication
+
+In this module, you'll learn how Go uses **channels** to communicate safely between goroutines. Go's philosophy is: **"Don't communicate by sharing memory; share memory by communicating."** This is a fundamental shift from Java's shared-state concurrency model.
+
+## Learning Objectives
+
+By the end of this module, you'll be able to:
+- Create and use buffered and unbuffered channels
+- Understand channel directions (send, receive, bidirectional)
+- Use select statements for multiple channel operations
+- Implement timeout patterns with select
+- Close channels and range over them
+- Build fan-in and fan-out patterns
+- Create producer-consumer systems
+- Compare channels with Java's BlockingQueue and CompletableFuture
+
+## Background: Shared Memory vs Channel Communication
+
+### The Philosophy Difference
+
+**Java:** Share memory by communicating (with synchronization)
+- Threads access shared data structures
+- Must use locks, synchronized blocks, atomic variables
+- Prone to deadlocks, race conditions
+- Complex coordination logic
+
+**Go:** Communicate to share memory
+- Goroutines send data through channels
+- No explicit locking needed for channel operations
+- Safe by design (ownership transfer)
+- Simpler coordination through message passing
+
+<UniversalEditor title="Concurrency Philosophy: Java vs Go">
+```java !! java
+// Java: Shared memory with synchronization
+import java.util.concurrent.*;
+
+public class SharedMemory {
+    private static int counter = 0;
+    private static final Object lock = new Object();
+
+    public static void main(String[] args) throws Exception {
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+
+        // Multiple threads access shared counter
+        executor.submit(() -> {
+            synchronized (lock) {
+                counter++;
+                System.out.println("Incremented: " + counter);
+            }
+        });
+
+        executor.submit(() -> {
+            synchronized (lock) {
+                counter++;
+                System.out.println("Incremented: " + counter);
+            }
+        });
+
+        executor.shutdown();
+        executor.awaitTermination(1, TimeUnit.SECONDS);
+    }
+}
+```
+
+```go !! go
+// Go: Share memory by communicating
+package main
+
+import (
+	"fmt"
+	"sync"
+)
+
+func main() {
+	// Channel for communication
+	counter := make(chan int)
+
+	var wg sync.WaitGroup
+
+	// Goroutine 1: Send to channel
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		counter <- 1
+		fmt.Println("Sent: 1")
+	}()
+
+	// Goroutine 2: Send to channel
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		counter <- 2
+		fmt.Println("Sent: 2")
+	}()
+
+	// Main goroutine: Receive from channel
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		value := <-counter
+		fmt.Printf("Received: %d\n", value)
+	}()
+
+	wg.Wait()
+}
+```
+</UniversalEditor>
+
+## Creating Channels
+
+### Unbuffered vs Buffered Channels
+
+<UniversalEditor title="Channel Types">
+```java !! java
+// Java: BlockingQueue (similar to buffered channels)
+import java.util.concurrent.*;
+
+public class QueueExample {
+    public static void main(String[] args) throws Exception {
+        // SynchronousQueue (like unbuffered channel)
+        BlockingQueue<String> synchronousQueue = new SynchronousQueue<>();
+
+        // LinkedBlockingQueue with capacity (like buffered channel)
+        BlockingQueue<String> bufferedQueue = new LinkedBlockingQueue<>(10);
+
+        // Producer
+        new Thread(() -> {
+            try {
+                synchronousQueue.put("Message"); // Blocks until consumer takes
+                System.out.println("Sent to synchronous queue");
+            } catch (InterruptedException e) {}
+        }).start();
+
+        // Consumer
+        new Thread(() -> {
+            try {
+                String msg = synchronousQueue.take(); // Blocks until available
+                System.out.println("Received: " + msg);
+            } catch (InterruptedException e) {}
+        }).start();
+    }
+}
+```
+
+```go !! go
+// Go: Unbuffered and buffered channels
+package main
+
+import (
+	"fmt"
+	"time"
+)
+
+func main() {
+	// Unbuffered channel (synchronous)
+	unbuffered := make(chan int)
+
+	// Buffered channel (asynchronous)
+	buffered := make(chan string, 10)
+
+	// Unbuffered: sender blocks until receiver ready
+	go func() {
+		fmt.Println("Sending to unbuffered...")
+		unbuffered <- 42
+		fmt.Println("Sent to unbuffered!")
+	}()
+
+	time.Sleep(time.Second) // Ensure receiver is ready
+	value := <-unbuffered
+	fmt.Printf("Received from unbuffered: %d\n", value)
+
+	// Buffered: sender doesn't block if buffer has space
+	buffered <- "Hello"
+	buffered <- "World"
+	fmt.Printf("Buffered length: %d\n", len(buffered))
+
+	msg := <-buffered
+	fmt.Printf("Received from buffered: %s\n", msg)
+}
+```
+</UniversalEditor>
+
+### Channel Capacity and Operations
+
+<UniversalEditor title="Channel Operations">
+```java !! java
+// Java: BlockingQueue operations
+import java.util.concurrent.*;
+
+public class QueueOperations {
+    public static void main(String[] args) throws Exception {
+        BlockingQueue<Integer> queue = new ArrayBlockingQueue<>(5);
+
+        // add() - Throws exception if full
+        queue.add(1);
+
+        // offer() - Returns false if full
+        boolean success = queue.offer(2);
+        System.out.println("Offer success: " + success);
+
+        // put() - Blocks if full
+        queue.put(3);
+
+        // poll() - Returns null if empty
+        Integer value = queue.poll();
+        System.out.println("Polled: " + value);
+
+        // take() - Blocks if empty
+        Integer taken = queue.take();
+        System.out.println("Taken: " + taken);
+
+        // peek() - Looks at head without removing
+        Integer head = queue.peek();
+        System.out.println("Peeked: " + head);
+
+        System.out.println("Remaining capacity: " + queue.remainingCapacity());
+    }
+}
+```
+
+```go !! go
+// Go: Channel operations
+package main
+
+import (
+	"fmt"
+)
+
+func main() {
+	// Buffered channel
+	ch := make(chan int, 5)
+
+	// Send (blocks if channel is full)
+	ch <- 1
+	ch <- 2
+	ch <- 3
+
+	// Receive (blocks if channel is empty)
+	value := <-ch
+	fmt.Printf("Received: %d\n", value)
+
+	// Check length and capacity
+	fmt.Printf("Length: %d, Capacity: %d\n", len(ch), cap(ch))
+
+	// Receive without blocking (comma-ok idiom)
+	v, ok := <-ch
+	fmt.Printf("Value: %d, Ok: %t\n", v, ok)
+
+	// Send to full channel (would block, so we don't do it)
+	// Use select with default for non-blocking operations
+}
+```
+</UniversalEditor>
+
+## Channel Directions
+
+### Restricting Channel Usage
+
+<UniversalEditor title="Channel Directions">
+```java !! java
+// Java: No built-in channel direction restriction
+// You must document producer/consumer roles
+import java.util.concurrent.*;
+
+public class ChannelDirections {
+    static class Producer {
+        private final BlockingQueue<String> queue;
+
+        Producer(BlockingQueue<String> queue) {
+            this.queue = queue;
+        }
+
+        void produce(String message) throws InterruptedException {
+            queue.put(message); // Can only send
+        }
+    }
+
+    static class Consumer {
+        private final BlockingQueue<String> queue;
+
+        Consumer(BlockingQueue<String> queue) {
+            this.queue = queue;
+        }
+
+        String consume() throws InterruptedException {
+            return queue.take(); // Can only receive
+        }
+    }
+
+    public static void main(String[] args) throws Exception {
+        BlockingQueue<String> queue = new LinkedBlockingQueue<>();
+
+        Producer producer = new Producer(queue);
+        Consumer consumer = new Consumer(queue);
+
+        producer.produce("Hello");
+        String msg = consumer.consume();
+        System.out.println("Consumed: " + msg);
+    }
+}
+```
+
+```go !! go
+// Go: Bidirectional, send-only, and receive-only channels
+package main
+
+import (
+	"fmt"
+)
+
+// Send-only channel parameter
+func producer(ch chan<- int) {
+	ch <- 42
+	// <-ch // Compile error: cannot receive from send-only channel
+	close(ch)
+}
+
+// Receive-only channel parameter
+func consumer(ch <-chan int) {
+	value := <-ch
+	fmt.Printf("Received: %d\n", value)
+	// ch <- 1 // Compile error: cannot send to receive-only channel
+}
+
+// Bidirectional channel parameter
+func relay(in <-chan int, out chan<- int) {
+	value := <-in
+	out <- value
+}
+
+func main() {
+	// Bidirectional channel
+	ch := make(chan int)
+
+	// Convert to send-only or receive-only when passing
+	go producer(ch)
+	consumer(ch)
+
+	// Relay example
+	in := make(chan int)
+	out := make(chan int)
+
+	go func() {
+		in <- 100
+		close(in)
+	}()
+
+	relay(in, out)
+	fmt.Printf("Relayed: %d\n", <-out)
+}
+```
+</UniversalEditor>
+
+## Closing Channels
+
+### Graceful Shutdown
+
+<UniversalEditor title="Closing Channels">
+```java !! java
+// Java: Poison pill or special value to signal completion
+import java.util.concurrent.*;
+import java.util.*;
+
+public class ClosingChannels {
+    static final String POISON_PILL = "POISON";
+
+    public static void main(String[] args) throws Exception {
+        BlockingQueue<String> queue = new LinkedBlockingQueue<>();
+
+        // Producer
+        new Thread(() -> {
+            try {
+                for (int i = 0; i < 5; i++) {
+                    queue.put("Message " + i);
+                    Thread.sleep(100);
+                }
+                // Send poison pill to signal completion
+                queue.put(POISON_PILL);
+            } catch (InterruptedException e) {}
+        }).start();
+
+        // Consumer
+        new Thread(() -> {
+            try {
+                while (true) {
+                    String msg = queue.take();
+                    if (msg.equals(POISON_PILL)) {
+                        System.out.println("Received poison pill, stopping");
+                        break;
+                    }
+                    System.out.println("Processed: " + msg);
+                }
+            } catch (InterruptedException e) {}
+        }).start();
+    }
+}
+```
+
+```go !! go
+// Go: Close channels to signal no more values
+package main
+
+import (
+	"fmt"
+	"time"
+)
+
+func producer(ch chan<- int) {
+	for i := 0; i < 5; i++ {
+		ch <- i
+		time.Sleep(100 * time.Millisecond)
+	}
+	close(ch) // Signal no more values
+}
+
+func consumer(ch <-chan int) {
+	for value := range ch { // Automatically stops when channel closed
+		fmt.Printf("Received: %d\n", value)
+	}
+	fmt.Println("Channel closed, consumer done")
+}
+
+func main() {
+	ch := make(chan int)
+
+	go producer(ch)
+	consumer(ch)
+}
+```
+</UniversalEditor>
+
+### Detecting Closed Channels
+
+<UniversalEditor title="Closed Channel Detection">
+```java !! java
+// Java: Handle poison pill or check for null
+import java.util.concurrent.*;
+
+public class ClosedDetection {
+    public static void main(String[] args) throws Exception {
+        BlockingQueue<String> queue = new LinkedBlockingQueue<>();
+        String doneSignal = "DONE";
+
+        // Producer
+        new Thread(() -> {
+            try {
+                for (int i = 0; i < 3; i++) {
+                    queue.put("Item " + i);
+                }
+                queue.put(doneSignal);
+            } catch (InterruptedException e) {}
+        }).start();
+
+        // Consumer
+        new Thread(() -> {
+            try {
+                while (true) {
+                    String item = queue.take();
+                    if (item.equals(doneSignal)) {
+                        break;
+                    }
+                    System.out.println("Processed: " + item);
+                }
+            } catch (InterruptedException e) {}
+        }).start();
+    }
+}
+```
+
+```go !! go
+// Go: Comma-ok idiom to detect closed channel
+package main
+
+import (
+	"fmt"
+	"time"
+)
+
+func main() {
+	ch := make(chan int, 3)
+
+	// Producer
+	go func() {
+		for i := 1; i <= 3; i++ {
+			ch <- i
+		}
+		close(ch)
+	}()
+
+	// Consumer with comma-ok idiom
+	for {
+		value, ok := <-ch
+		if !ok {
+			fmt.Println("Channel closed!")
+			break
+		}
+		fmt.Printf("Received: %d\n", value)
+	}
+
+	// Alternative: range automatically detects close
+	ch2 := make(chan string, 2)
+	go func() {
+		ch2 <- "Hello"
+		ch2 <- "World"
+		close(ch2)
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+	for msg := range ch2 {
+		fmt.Println("Range:", msg)
+	}
+	fmt.Println("Done ranging")
+}
+```
+</UniversalEditor>
+
+## Select Statements
+
+### Waiting on Multiple Channels
+
+<UniversalEditor title="Select - Multiple Channel Operations">
+```java !! java
+// Java: No direct equivalent to select
+// You must use complex polling or CompletableFuture
+import java.util.concurrent.*;
+import java.util.*;
+
+public class SelectEquivalent {
+    public static void main(String[] args) throws Exception {
+        BlockingQueue<String> queue1 = new LinkedBlockingQueue<>();
+        BlockingQueue<String> queue2 = new LinkedBlockingQueue<>();
+
+        // Simulate select with polling (not efficient)
+        new Thread(() -> {
+            try {
+                while (true) {
+                    String msg;
+
+                    // Poll with timeout (inefficient)
+                    if ((msg = queue1.poll(100, TimeUnit.MILLISECONDS)) != null) {
+                        System.out.println("From queue1: " + msg);
+                        break;
+                    }
+
+                    if ((msg = queue2.poll(100, TimeUnit.MILLISECONDS)) != null) {
+                        System.out.println("From queue2: " + msg);
+                        break;
+                    }
+                }
+            } catch (InterruptedException e) {}
+        }).start();
+
+        Thread.sleep(50);
+        queue1.put("Hello");
+    }
+}
+```
+
+```go !! go
+// Go: Select statement waits on multiple channels
+package main
+
+import (
+	"fmt"
+	"time"
+)
+
+func main() {
+	ch1 := make(chan string)
+	ch2 := make(chan string)
+
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		ch1 <- "one"
+	}()
+
+	go func() {
+		time.Sleep(200 * time.Millisecond)
+		ch2 <- "two"
+	}()
+
+	for i := 0; i < 2; i++ {
+		select {
+		case msg1 := <-ch1:
+			fmt.Println("Received from ch1:", msg1)
+		case msg2 := <-ch2:
+			fmt.Println("Received from ch2:", msg2)
+		}
+	}
+
+	fmt.Println("Done")
+}
+```
+</UniversalEditor>
+
+### Non-Blocking Operations with Default
+
+<UniversalEditor title="Non-Blocking Select">
+```java !! java
+// Java: poll() and offer() for non-blocking operations
+import java.util.concurrent.*;
+
+public class NonBlockingOps {
+    public static void main(String[] args) {
+        BlockingQueue<String> queue = new LinkedBlockingQueue<>(1);
+
+        // Non-blocking offer
+        boolean offered = queue.offer("Message");
+        System.out.println("Offered: " + offered);
+
+        // Non-blocking poll
+        String msg = queue.poll();
+        System.out.println("Polled: " + msg);
+
+        // Non-blocking poll when empty
+        String empty = queue.poll();
+        System.out.println("Poll empty: " + empty); // Returns null
+    }
+}
+```
+
+```go !! go
+// Go: Select with default for non-blocking operations
+package main
+
+import (
+	"fmt"
+)
+
+func main() {
+	ch := make(chan int, 1)
+
+	// Non-blocking send
+	select {
+	case ch <- 42:
+		fmt.Println("Sent 42")
+	default:
+		fmt.Println("Could not send (channel full or no receiver)")
+	}
+
+	// Non-blocking receive
+	select {
+	case value := <-ch:
+		fmt.Printf("Received: %d\n", value)
+	default:
+		fmt.Println("Could not receive (channel empty)")
+	}
+
+	// Try receive again
+	select {
+	case value := <-ch:
+		fmt.Printf("Received: %d\n", value)
+	default:
+		fmt.Println("No value available")
+	}
+}
+```
+</UniversalEditor>
+
+### Timeout Patterns
+
+<UniversalEditor title="Timeout Patterns">
+```java !! java
+// Java: Timeout with poll(timeout)
+import java.util.concurrent.*;
+import java.util.*;
+
+public class TimeoutPattern {
+    public static void main(String[] args) throws Exception {
+        BlockingQueue<String> queue = new LinkedBlockingQueue<>();
+
+        // Producer with delay
+        new Thread(() -> {
+            try {
+                Thread.sleep(2000);
+                queue.put("Delayed message");
+            } catch (InterruptedException e) {}
+        }).start();
+
+        // Consumer with timeout
+        String msg = queue.poll(1, TimeUnit.SECONDS);
+        if (msg == null) {
+            System.out.println("Timeout - no message received");
+        } else {
+            System.out.println("Received: " + msg);
+        }
+
+        // Using CompletableFuture with timeout
+        CompletableFuture<String> future = CompletableFuture.supplyAsync(() -> {
+            try {
+                Thread.sleep(2000);
+                return "Result";
+            } catch (InterruptedException e) {
+                return "Error";
+            }
+        });
+
+        try {
+            String result = future.get(1, TimeUnit.SECONDS);
+            System.out.println("Got: " + result);
+        } catch (TimeoutException e) {
+            System.out.println("Future timeout");
+        }
+    }
+}
+```
+
+```go !! go
+// Go: Select with time.After for timeout
+package main
+
+import (
+	"fmt"
+	"time"
+)
+
+func main() {
+	ch := make(chan string)
+
+	go func() {
+		time.Sleep(2 * time.Second)
+		ch <- "Result"
+	}()
+
+	select {
+	case result := <-ch:
+		fmt.Println("Received:", result)
+	case <-time.After(1 * time.Second):
+		fmt.Println("Timeout - no message received")
+	}
+
+	// Using context with timeout (more idiomatic)
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+
+	select {
+	case <-ctx.Done():
+		fmt.Println("Context timeout")
+	case result := <-ch:
+		fmt.Println("Received:", result)
+	}
+}
+```
+</UniversalEditor>
+
+## Fan-Out and Fan-In Patterns
+
+### Fan-Out: Distribute Work
+
+<UniversalEditor title="Fan-Out Pattern">
+```java !! java
+// Java: Fan-out with multiple consumers
+import java.util.concurrent.*;
+import java.util.*;
+
+public class FanOut {
+    static BlockingQueue<Integer> queue = new LinkedBlockingQueue<>(100);
+
+    static class Worker implements Runnable {
+        private final String name;
+
+        Worker(String name) {
+            this.name = name;
+        }
+
+        @Override
+        public void run() {
+            try {
+                while (true) {
+                    Integer task = queue.take();
+                    if (task == null) break; // Poison pill
+
+                    System.out.println(name + " processing " + task);
+                    Thread.sleep(100);
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+    }
+
+    public static void main(String[] args) throws Exception {
+        int numWorkers = 3;
+
+        // Start workers
+        ExecutorService executor = Executors.newFixedThreadPool(numWorkers);
+        for (int i = 0; i < numWorkers; i++) {
+            executor.submit(new Worker("Worker-" + i));
+        }
+
+        // Distribute work
+        for (int i = 0; i < 10; i++) {
+            queue.put(i);
+        }
+
+        Thread.sleep(2000);
+        executor.shutdownNow();
+    }
+}
+```
+
+```go !! go
+// Go: Fan-out with multiple goroutines
+package main
+
+import (
+	"fmt"
+	"sync"
+	"time"
+)
+
+func worker(id int, jobs <-chan int, wg *sync.WaitGroup) {
+	defer wg.Done()
+
+	for job := range jobs {
+		fmt.Printf("Worker %d processing job %d\n", id, job)
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+func main() {
+	numWorkers := 3
+	numJobs := 10
+
+	jobs := make(chan int, numJobs)
+	var wg sync.WaitGroup
+
+	// Start workers
+	for i := 1; i <= numWorkers; i++ {
+		wg.Add(1)
+		go worker(i, jobs, &wg)
+	}
+
+	// Distribute jobs
+	for j := 0; j < numJobs; j++ {
+		jobs <- j
+	}
+	close(jobs)
+
+	wg.Wait()
+	fmt.Println("All jobs completed")
+}
+```
+</UniversalEditor>
+
+### Fan-In: Collect Results
+
+<UniversalEditor title="Fan-In Pattern">
+```java !! java
+// Java: Fan-in collecting results from multiple sources
+import java.util.concurrent.*;
+import java.util.*;
+
+public class FanIn {
+    public static void main(String[] args) throws Exception {
+        ExecutorService executor = Executors.newFixedThreadPool(3);
+
+        List<Future<Integer>> futures = new ArrayList<>();
+
+        // Submit tasks
+        for (int i = 0; i < 5; i++) {
+            final int taskId = i;
+            futures.add(executor.submit(() -> {
+                Thread.sleep(100);
+                return taskId * taskId;
+            }));
+        }
+
+        // Collect results (fan-in)
+        int sum = 0;
+        for (Future<Integer> future : futures) {
+            sum += future.get();
+        }
+
+        System.out.println("Total sum: " + sum);
+        executor.shutdown();
+    }
+}
+```
+
+```go !! go
+// Go: Fan-in with channels
+package main
+
+import (
+	"fmt"
+	"sync"
+)
+
+func worker(id int, results chan<- int, wg *sync.WaitGroup) {
+	defer wg.Done()
+
+	result := id * id
+	results <- result
+}
+
+func main() {
+	numWorkers := 5
+
+	results := make(chan int, numWorkers)
+	var wg sync.WaitGroup
+
+	// Fan-out: start workers
+	for i := 0; i < numWorkers; i++ {
+		wg.Add(1)
+		go worker(i, results, &wg)
+	}
+
+	// Wait for all workers in background
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	// Fan-in: collect results
+	sum := 0
+	for result := range results {
+		sum += result
+	}
+
+	fmt.Printf("Total sum: %d\n", sum)
+}
+```
+</UniversalEditor>
+
+## Producer-Consumer Pattern
+
+### Complete Producer-Consumer System
+
+<UniversalEditor title="Producer-Consumer Pattern">
+```java !! java
+// Java: Classic producer-consumer with BlockingQueue
+import java.util.concurrent.*;
+
+public class ProducerConsumer {
+    private static final BlockingQueue<Integer> queue = new ArrayBlockingQueue<>(10);
+
+    static class Producer implements Runnable {
+        public void run() {
+            try {
+                for (int i = 0; i < 20; i++) {
+                    queue.put(i);
+                    System.out.println("Produced: " + i);
+                    Thread.sleep(50);
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+    }
+
+    static class Consumer implements Runnable {
+        public void run() {
+            try {
+                while (true) {
+                    Integer value = queue.poll(1, TimeUnit.SECONDS);
+                    if (value == null) break;
+
+                    System.out.println("Consumed: " + value);
+                    Thread.sleep(100);
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+    }
+
+    public static void main(String[] args) throws Exception {
+        ExecutorService executor = Executors.newFixedThreadPool(3);
+
+        executor.submit(new Producer());
+        executor.submit(new Producer());
+        executor.submit(new Consumer());
+
+        executor.shutdown();
+        executor.awaitTermination(10, TimeUnit.SECONDS);
+    }
+}
+```
+
+```go !! go
+// Go: Producer-consumer with channels
+package main
+
+import (
+	"fmt"
+	"sync"
+	"time"
+)
+
+func producer(id int, items chan<- int, wg *sync.WaitGroup) {
+	defer wg.Done()
+
+	for i := 0; i < 10; i++ {
+		item := id*10 + i
+		items <- item
+		fmt.Printf("Producer %d produced: %d\n", id, item)
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+func consumer(items <-chan int, done chan<- bool) {
+	for item := range items {
+		fmt.Printf("Consumed: %d\n", item)
+		time.Sleep(100 * time.Millisecond)
+	}
+	done <- true
+}
+
+func main() {
+	items := make(chan int, 10)
+	done := make(chan bool)
+	var wg sync.WaitGroup
+
+	// Start producers
+	wg.Add(2)
+	go producer(1, items, &wg)
+	go producer(2, items, &wg)
+
+	// Wait for producers then close channel
+	go func() {
+		wg.Wait()
+		close(items)
+	}()
+
+	// Start consumer
+	go consumer(items, done)
+
+	<-done
+	fmt.Println("All done")
+}
+```
+</UniversalEditor>
+
+## Advanced Patterns
+
+### Pipeline of Stages
+
+<UniversalEditor title="Pipeline Pattern">
+```java !! java
+// Java: Pipeline with CompletionStage
+import java.util.concurrent.*;
+import java.util.stream.*;
+
+public class PipelinePattern {
+    public static void main(String[] args) throws Exception {
+        CompletableFuture.supplyAsync(() -> {
+            // Stage 1: Generate
+            return IntStream.range(0, 10).boxed().collect(Collectors.toList());
+        }).thenApplyAsync(numbers -> {
+            // Stage 2: Transform
+            return numbers.stream()
+                .map(n -> n * 2)
+                .collect(Collectors.toList());
+        }).thenAcceptAsync(results -> {
+            // Stage 3: Consume
+            results.forEach(System.out::println);
+        }).get();
+    }
+}
+```
+
+```go !! go
+// Go: Pipeline with channels
+package main
+
+import (
+	"fmt"
+)
+
+func generate(numbers ...int) <-chan int {
+	out := make(chan int)
+	go func() {
+		defer close(out)
+		for _, n := range numbers {
+			out <- n
+		}
+	}()
+	return out
+}
+
+func double(in <-chan int) <-chan int {
+	out := make(chan int)
+	go func() {
+		defer close(out)
+		for n := range in {
+			out <- n * 2
+		}
+	}()
+	return out
+}
+
+func main() {
+	// Create pipeline: generate -> double
+	numbers := generate(0, 1, 2, 3, 4, 5, 6, 7, 8, 9)
+	doubled := double(numbers)
+
+	// Consume results
+	for result := range doubled {
+		fmt.Println(result)
+	}
+}
+```
+</UniversalEditor>
+
+### Bounded Parallelism
+
+<UniversalEditor title="Bounded Parallelism">
+```java !! java
+// Java: Semaphores for bounded parallelism
+import java.util.concurrent.*;
+
+public class BoundedParallelism {
+    public static void main(String[] args) throws Exception {
+        int maxConcurrent = 3;
+        Semaphore semaphore = new Semaphore(maxConcurrent);
+        ExecutorService executor = Executors.newCachedThreadPool();
+
+        for (int i = 0; i < 10; i++) {
+            final int taskId = i;
+            executor.submit(() -> {
+                try {
+                    semaphore.acquire();
+                    System.out.println("Task " + taskId + " started");
+                    Thread.sleep(1000);
+                    System.out.println("Task " + taskId + " completed");
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                } finally {
+                    semaphore.release();
+                }
+            });
+        }
+
+        executor.shutdown();
+        executor.awaitTermination(1, TimeUnit.MINUTES);
+    }
+}
+```
+
+```go !! go
+// Go: Bounded parallelism with buffered channel
+package main
+
+import (
+	"fmt"
+	"time"
+)
+
+func main() {
+	maxConcurrent := 3
+	sem := make(chan struct{}, maxConcurrent)
+
+	tasks := make(chan int, 10)
+
+	// Generate tasks
+	go func() {
+		for i := 0; i < 10; i++ {
+			tasks <- i
+		}
+		close(tasks)
+	}()
+
+	// Process with bounded parallelism
+	for task := range tasks {
+		sem <- struct{}{} // Acquire
+
+		go func(id int) {
+			defer func() { <-sem }() // Release
+
+			fmt.Printf("Task %d started\n", id)
+			time.Sleep(time.Second)
+			fmt.Printf("Task %d completed\n", id)
+		}(task)
+	}
+
+	// Wait for all goroutines
+	for i := 0; i < maxConcurrent; i++ {
+		sem <- struct{}{}
+	}
+
+	fmt.Println("All tasks completed")
+}
+```
+</UniversalEditor>
+
+## Channel Gotchas and Best Practices
+
+### Common Pitfalls
+
+<UniversalEditor title="Channel Pitfalls">
+```java !! java
+// Java: Common concurrency pitfalls
+import java.util.concurrent.*;
+
+public class Pitfalls {
+    // Pitfall 1: Deadlock
+    public static void deadlock() {
+        final Object lock1 = new Object();
+        final Object lock2 = new Object();
+
+        new Thread(() -> {
+            synchronized (lock1) {
+                try { Thread.sleep(100); } catch (Exception e) {}
+                synchronized (lock2) { } // Deadlock if other thread holds lock2
+            }
+        }).start();
+
+        new Thread(() -> {
+            synchronized (lock2) {
+                try { Thread.sleep(100); } catch (Exception e) {}
+                synchronized (lock1) { } // Deadlock!
+            }
+        }).start();
+    }
+
+    // Pitfall 2: Forgotten signal
+    public static void forgottenSignal() {
+        final boolean[] ready = {false};
+
+        new Thread(() -> {
+            // Waiting for ready flag
+            while (!ready[0]) {
+                // Busy waiting - inefficient!
+            }
+            System.out.println("Ready!");
+        }).start();
+
+        // Forgot to set ready[0] = true
+    }
+
+    // Pitfall 3: Sending to closed channel (no Java equivalent for channels)
+}
+```
+
+```go !! go
+// Go: Common channel pitfalls
+package main
+
+import (
+	"fmt"
+	"sync"
+	"time"
+)
+
+// Pitfall 1: Sending to closed channel
+func closedChannelSend() {
+	ch := make(chan int, 1)
+	close(ch)
+
+	// ch <- 42 // Panic: send on closed channel
+	fmt.Println("Cannot send to closed channel")
+}
+
+// Pitfall 2: Closing channel from receiver
+func closeFromReceiver() {
+	ch := make(chan int)
+
+	go func() {
+		// close(ch) // Wrong: only sender should close
+		value := <-ch
+		fmt.Printf("Received: %d\n", value)
+	}()
+
+	ch <- 42
+	time.Sleep(time.Second)
+}
+
+// Pitfall 3: Forgetting to close channel
+func forgetToClose() {
+	ch := make(chan int)
+
+	go func() {
+		for i := 0; i < 5; i++ {
+			ch <- i
+		}
+		// Forgot: close(ch)
+	}()
+
+	for value := range ch { // Deadlock! Channel never closed
+		fmt.Println(value)
+		if value == 4 {
+			break // Must break manually
+		}
+	}
+}
+
+// Pitfall 4: Goroutine leak with channel
+func goroutineLeak() {
+	ch := make(chan int)
+
+	go func() {
+		value := <-ch // Goroutine blocks forever
+		fmt.Printf("Received: %d\n", value)
+	}()
+
+	// Never send to ch - goroutine leaks!
+	time.Sleep(time.Second)
+}
+
+func main() {
+	fmt.Println("Demonstrating pitfalls...")
+
+	closedChannelSend()
+
+	fmt.Println("\nDemonstrating forget to close:")
+	forgetToClose()
+}
+```
+</UniversalEditor>
+
+### Best Practices
+
+<UniversalEditor title="Channel Best Practices">
+```java !! java
+// Java: Best practices for concurrent collections
+import java.util.concurrent.*;
+
+public class BestPractices {
+
+    // Good 1: Use appropriate queue type
+    public static void good1() throws Exception {
+        // SynchronousQueue for handoff
+        BlockingQueue<String> handoff = new SynchronousQueue<>();
+
+        // LinkedBlockingQueue for unbounded
+        BlockingQueue<String> unbounded = new LinkedBlockingQueue<>();
+
+        // ArrayBlockingQueue for bounded
+        BlockingQueue<String> bounded = new ArrayBlockingQueue<>(100);
+    }
+
+    // Good 2: Always handle InterruptedException
+    public static void good2() {
+        BlockingQueue<String> queue = new LinkedBlockingQueue<>();
+
+        new Thread(() -> {
+            try {
+                String msg = queue.take();
+                System.out.println("Received: " + msg);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                System.out.println("Interrupted");
+            }
+        }).start();
+    }
+
+    // Good 3: Use try-finally for cleanup
+    public static void good3() {
+        BlockingQueue<String> queue = new LinkedBlockingQueue<>();
+        ExecutorService executor = Executors.newFixedThreadPool(10);
+
+        try {
+            // Do work
+        } finally {
+            executor.shutdown();
+        }
+    }
+}
+```
+
+```go !! go
+// Go: Channel best practices
+package main
+
+import (
+	"context"
+	"fmt"
+	"sync"
+	"time"
+)
+
+// Good 1: Own the channel you close
+func producer(ctx context.Context, ch chan<- int) <-chan struct{} {
+	done := make(chan struct{})
+
+	go func() {
+		defer close(ch) // Only sender closes
+		defer close(done)
+
+		for i := 0; i < 5; i++ {
+			select {
+			case ch <- i:
+			case <-ctx.Done():
+				return
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+	}()
+
+	return done
+}
+
+// Good 2: Use range for receiving
+func consumer(ch <-chan int) {
+	for value := range ch { // Automatically handles close
+		fmt.Printf("Received: %d\n", value)
+	}
+	fmt.Println("Consumer done")
+}
+
+// Good 3: Use select for timeout/cancellation
+func withTimeout(ch chan int, timeout time.Duration) bool {
+	select {
+	case val := <-ch:
+		fmt.Printf("Got: %d\n", val)
+		return true
+	case <-time.After(timeout):
+		fmt.Println("Timeout")
+		return false
+	}
+}
+
+// Good 4: Buffer only when needed
+func bufferedVsUnbuffered() {
+	// Unbuffered: synchronous, guarantees delivery
+	unbuffered := make(chan int)
+	go func() {
+		unbuffered <- 42 // Will wait for receiver
+	}()
+	fmt.Println(<-unbuffered)
+
+	// Buffered: asynchronous for throughput
+	buffered := make(chan int, 10)
+	buffered <- 1 // Won't block
+	buffered <- 2
+	fmt.Printf("Buffered length: %d\n", len(buffered))
+}
+
+func main() {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	ch := make(chan int)
+	done := producer(ctx, ch)
+
+	go consumer(ch)
+	<-done
+
+	fmt.Println("\nBuffered vs unbuffered:")
+	bufferedVsUnbuffered()
+}
+```
+</UniversalEditor>
+
+## Practice Questions
+
+1. **Philosophy**: Why does Go advocate "sharing memory by communicating" instead of "communicating by sharing memory"?
+
+2. **Channel Types**: When would you use an unbuffered channel vs a buffered channel?
+
+3. **Select**: What makes Go's select statement powerful compared to Java's blocking queue operations?
+
+4. **Closing**: Why is it important to close channels, and who should be responsible for closing them?
+
+5. **Patterns**: How do fan-out and fan-in patterns improve throughput in concurrent programs?
+
+## Project Ideas
+
+1. **Concurrent Data Pipeline**: Build a multi-stage pipeline that processes data through multiple transformation steps
+
+2. **Job Queue System**: Implement a distributed job queue with multiple workers and priority channels
+
+3. **Rate Limiter**: Create a token bucket rate limiter using channels and tickers
+
+4. **Pub/Sub System**: Build a publish-subscribe system with multiple topics and subscribers
+
+5. **Work Stealing Pool**: Implement a work-stealing thread pool using channels for load balancing
+
+## Next Steps
+
+Now that you understand channels and select:
+
+- **Next Module**: Learn about **Web Development** with Go's net/http package
+- **Practice**: Build concurrent applications using channels extensively
+- **Explore**: Study Go's context package for cancellation and timeouts
+- **Compare**: Analyze how Go's CSP model compares to actor models and other concurrency paradigms
+
+## Summary
+
+**Channels vs Java's BlockingQueue:**
+- Channels are language primitives, not just library classes
+- Directional types provide compile-time safety
+- Select statement enables powerful multi-channel operations
+- Closing channels provides clean shutdown semantics
+- Go's CSP model promotes safer concurrency
+
+**Key Takeaway**: Go's channels and select statements provide a powerful and safe way to coordinate goroutines. By sharing memory through communication rather than communicating through shared memory, you can avoid entire classes of concurrency bugs like deadlocks and race conditions.

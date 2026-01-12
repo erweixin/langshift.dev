@@ -1,0 +1,353 @@
+---
+title: "模块 9：错误处理"
+description: "掌握 Rust 的错误处理哲学，包括 panic!、Result、? 运算符和健壮错误管理的最佳实践"
+---
+
+# 模块 9：错误处理
+
+欢迎来到模块 9！错误处理是 Rust 最独特的功能之一。与 Python 基于异常的方法不同，Rust 使用类型安全的显式系统，在编译时捕获整类错误。
+
+## 学习目标
+
+完成本模块后，你将能够：
+- 理解 Rust 的两种错误处理类别：可恢复和不可恢复
+- 对不可恢复错误使用 `panic!`
+- 对可恢复错误使用 `Result<T, E>`
+- 利用 `?` 运算符进行清晰的错误传播
+- 创建自定义错误类型
+- 应用错误处理最佳实践
+
+## 9.1 两种错误类别
+
+### Python：所有东西都用异常
+
+Python 对所有错误使用异常：
+
+```python
+# Python - 所有东西都用异常
+try:
+    file = open("nonexistent.txt")
+except FileNotFoundError:
+    print("File not found")
+```
+
+### Rust：显式类别
+
+Rust 区分可恢复和不可恢复错误：
+
+<UniversalEditor compare={true} title="错误类别">
+```python !! py
+# Python - 语言级别没有区分
+def divide(a, b):
+    if b == 0:
+        raise ValueError("Division by zero")
+    return a / b
+```
+
+```rust !! rs
+// Rust - 显式类别
+// 可恢复：Result<T, E>
+fn divide(a: f64, b: f64) -> Result<f64, String> {
+    if b == 0.0 {
+        return Err(String::from("Division by zero"));
+    }
+    Ok(a / b)
+}
+
+// 不可恢复：panic!
+fn critical_error() {
+    panic!("Critical system failure!");
+}
+```
+</UniversalEditor>
+
+## 9.2 使用 panic! 的不可恢复错误
+
+<UniversalEditor compare={true} title="Panic 基础">
+```python !! py
+# Python - 异常的堆栈跟踪
+def bad_function():
+    raise ValueError("Bad value!")
+```
+
+```rust !! rs
+// Rust - 带堆栈跟踪的 panic
+fn bad_function() {
+    panic!("Bad value!");
+}
+
+// 常见的 panic 场景
+let nums = vec![1, 2, 3];
+// let val = nums[10];  // Panic!
+
+// 更好的替代方案
+let val = nums.get(10);  // 返回 None
+
+// 断言
+let x = 10;
+assert_eq!(x, 10, "x should be 10");
+```
+</UniversalEditor>
+
+## 9.3 使用 `Result<T, E>` 的可恢复错误
+
+<UniversalEditor compare={true} title="Result 模式">
+```python !! py
+# Python - 手动错误处理
+def parse_number(s):
+    try:
+        return int(s)
+    except ValueError:
+        return None
+```
+
+```rust !! rs
+// Rust - 类型安全的错误处理
+fn parse_number(s: &str) -> Result<i32, ParseIntError> {
+    s.parse::<i32>()
+}
+
+// 使用 match
+match parse_number("42") {
+    Ok(num) => println!("Got: {}", num),
+    Err(e) => println!("Parse error: {}", e),
+}
+
+// 提供默认值
+let num = parse_number("invalid").unwrap_or(0);
+```
+</UniversalEditor>
+
+## 9.4 ? 运算符深入
+
+### 理解 ?
+
+`?` 运算符是错误传播的语法糖：
+
+<UniversalEditor compare={true} title="? 运算符展开">
+```rust !! rs
+// Rust - ? 运算符执行以下操作：
+fn operation() -> Result<T, E> {
+    let value = risky_function()?;
+
+    // 展开为：
+    // match risky_function() {
+    //     Ok(v) => v,
+    //     Err(e) => return Err(e),
+    // }
+
+    process(value)
+}
+```
+</UniversalEditor>
+
+## 9.5 自定义错误类型
+
+<UniversalEditor compare={true} title="自定义错误类型">
+```rust !! rs
+// Rust - 代数错误类型
+#[derive(Debug)]
+enum AppError {
+    ValidationError(String),
+    NetworkError { status_code: u16, message: String },
+    DatabaseError(String),
+}
+
+impl std::fmt::Display for AppError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            AppError::ValidationError(msg) => {
+                write!(f, "Validation error: {}", msg)
+            }
+            AppError::NetworkError { status_code, message } => {
+                write!(f, "Network error ({}): {}", status_code, message)
+            }
+            AppError::DatabaseError(msg) => {
+                write!(f, "Database error: {}", msg)
+            }
+        }
+    }
+}
+
+impl std::error::Error for AppError {}
+```
+</UniversalEditor>
+
+## 9.6 错误处理模式
+
+### 模式 1：上下文错误
+
+<UniversalEditor compare={true} title="为错误添加上下文">
+```python !! py
+# Python - 链式异常
+def load_config():
+    try:
+        return read_file("config.toml")
+    except IOError as e:
+        raise ConfigError(f"Failed to load config: {e}") from e
+```
+
+```rust !! rs
+// Rust - 使用 map_err 添加上下文
+fn load_config() -> Result<String, String> {
+    std::fs::read_to_string("config.toml")
+        .map_err(|e| format!("Failed to load config: {}", e))
+}
+```
+</UniversalEditor>
+
+### 模式 2：重试逻辑
+
+<UniversalEditor compare={true} title="带退避的重试">
+```python !! py
+# Python - 重试逻辑
+import time
+
+def fetch_with_retry(url, max_retries=3):
+    for attempt in range(max_retries):
+        try:
+            return fetch(url)
+        except NetworkError as e:
+            if attempt == max_retries - 1:
+                raise
+            time.sleep(2 ** attempt)
+```
+
+```rust !! rs
+// Rust - 带退避的重试
+use std::time::Duration;
+use std::thread;
+
+fn fetch_with_retry(url: &str, max_retries: u32) -> Result<String, String> {
+    for attempt in 0..max_retries {
+        match fetch(url) {
+            Ok(data) => return Ok(data),
+            Err(e) if attempt < max_retries - 1 => {
+                let backoff = Duration::from_secs(2_u64.pow(attempt));
+                thread::sleep(backoff);
+            }
+            Err(e) => return Err(e),
+        }
+    }
+    unreachable!()
+}
+```
+</UniversalEditor>
+
+## 常见陷阱
+
+### 陷阱 1：在库中使用 panic!
+
+```rust
+// 不要：在库代码中 panic
+pub fn parse_config(s: &str) -> Config {
+    if s.is_empty() {
+        panic!("Config cannot be empty");  // 错误！
+    }
+}
+
+// 应该：返回 Result
+pub fn parse_config(s: &str) -> Result<Config, Error> {
+    if s.is_empty() {
+        return Err(Error::EmptyConfig);
+    }
+    // ...
+}
+```
+
+### 陷阱 2：忽略错误
+
+```rust
+// 不要：忽略错误
+let _ = File::open("config.txt");  // 错误被忽略！
+
+// 应该：显式处理错误
+let file = File::open("config.txt")?;
+```
+
+## 最佳实践
+
+1. **对可恢复错误使用 Result** - 将 panic! 用于真正的不可恢复情况
+2. **实现自定义错误类型** - 使用枚举进行结构化错误处理
+3. **提供上下文** - 添加关于哪个操作失败的信息
+4. **使用库** - 在库中使用 thiserror，在应用中使用 anyhow
+5. **记录错误** - 记录哪些错误可以被返回
+6. **测试错误路径** - 为错误条件编写测试
+
+## 总结
+
+在本模块中，我们涵盖了：
+
+- **两种错误类别**：可恢复（Result）vs 不可恢复（panic!）
+- **panic!**：用于不可恢复错误，带堆栈展开
+- **`Result<T, E>`**：类型安全的错误处理
+- **? 运算符**：清晰的错误传播
+- **自定义错误**：具有 Display/Error trait 的结构化错误类型
+- **错误模式**：上下文、收集、重试逻辑
+
+关键要点：
+- Rust 使错误显式和类型安全
+- Result 在编译时捕获错误
+- ? 运算符提供清晰的错误传播
+- 自定义错误类型实现结构化错误处理
+- 为你的上下文选择正确的错误处理策略
+
+## 练习
+
+创建一个文件处理应用程序，它：
+1. 读取文件（处理 IO 错误）
+2. 解析内容（处理解析错误）
+3. 验证数据（处理验证错误）
+4. 使用自定义错误类型
+5. 提供有用的错误消息
+
+<details>
+<summary>查看解决方案</summary>
+
+```rust
+use std::fs;
+use std::io;
+use std::num::ParseIntError;
+
+#[derive(Debug)]
+enum ProcessError {
+    Io(io::Error),
+    Parse(ParseIntError),
+    Validation(String),
+}
+
+impl std::fmt::Display for ProcessError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            ProcessError::Io(e) => write!(f, "IO error: {}", e),
+            ProcessError::Parse(e) => write!(f, "Parse error: {}", e),
+            ProcessError::Validation(msg) => write!(f, "Validation error: {}", msg),
+        }
+    }
+}
+
+impl std::error::Error for ProcessError {}
+
+impl From<io::Error> for ProcessError {
+    fn from(e: io::Error) -> Self {
+        ProcessError::Io(e)
+    }
+}
+
+fn process_file(path: &str) -> Result<i32, ProcessError> {
+    let content = fs::read_to_string(path)?;
+    let number: i32 = content.trim().parse()?;
+
+    if number < 0 {
+        return Err(ProcessError::Validation(
+            "Number must be positive".to_string()
+        ));
+    }
+
+    Ok(number * 2)
+}
+```
+
+</details>
+
+接下来：**模块 10 - 特征和泛型**，我们将探索 Rust 强大的类型系统，用于编写灵活、可重用的代码！

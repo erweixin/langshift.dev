@@ -1,0 +1,259 @@
+---
+title: "Module 11: Asynchronous Programming Advanced"
+description: "掌握 Promise、async/await 和現代非同步模式"
+---
+
+## Module 11: Asynchronous Programming Advanced
+
+現在您了解了回調，讓我們探索 Promise 和 async/await - 使非同步程式碼更易管理和閱讀的現代 JavaScript 功能。
+
+## Learning Objectives
+
+完成本模組後，你將：
+✅ 掌握 Promise 和 promise chaining
+✅ 學習 async/await 語法
+✅ 理解 Promise 的錯誤處理
+✅ 知道 Promise.all、Promise.race、Promise.allSettled
+✅ 學習將回調轉換為 Promise
+✅ 掌握現代非同步模式和最佳實踐
+
+## Promises: Java vs JavaScript
+
+<UniversalEditor title="非同步比較">
+```java !! java
+// Java - CompletableFuture
+CompletableFuture<String> future = CompletableFuture.supplyAsync(() -> {
+    try {
+        Thread.sleep(1000);
+        return "Data";
+    } catch (InterruptedException e) {
+        throw new RuntimeException(e);
+    }
+});
+
+future.thenAccept(data -> System.out.println("Received: " + data))
+       .exceptionally(error -> {
+           System.err.println("Error: " + error);
+           return null;
+       });
+```
+
+```javascript !! js
+// JavaScript - Promises
+const promise = new Promise((resolve, reject) => {
+    setTimeout(() => {
+        resolve("Data");
+        // 或：reject(new Error("Failed"));
+    }, 1000);
+});
+
+promise
+    .then(data => console.log("Received:", data))
+    .catch(error => console.error("Error:", error));
+
+// 現代：async/await
+async function fetchData() {
+    try {
+        const data = await promise;
+        console.log("Received:", data);
+    } catch (error) {
+        console.error("Error:", error);
+    }
+}
+```
+</UniversalEditor>
+
+## Creating Promises
+
+<UniversalEditor title="創建 Promise">
+```javascript !! js
+function fetchUser(id) {
+    return new Promise((resolve, reject) => {
+        setTimeout(() => {
+            if (id > 0) {
+                resolve({ id, name: "User " + id });
+            } else {
+                reject(new Error("Invalid user ID"));
+            }
+        }, 1000);
+    });
+}
+
+// Promise 狀態：
+// - Pending: 初始狀態
+// - Fulfilled: 操作成功完成
+// - Rejected: 操作失敗
+// - Settled: 已完成或已拒絕（最終）
+
+// 一旦 settled，不能改變狀態
+```
+</UniversalEditor>
+
+## Promise Chaining
+
+<UniversalEditor title="Promise Chaining">
+```java !! java
+// Java - CompletableFuture chaining
+CompletableFuture.supplyAsync(() -> getUser(id))
+    .thenCompose(user -> getOrders(user.id))
+    .thenApply(orders -> processOrders(orders))
+    .thenAccept(processed -> System.out.println(processed));
+```
+
+```javascript !! js
+// JavaScript - Promise chaining
+fetchUser(1)
+    .then(user => {
+        console.log("User:", user);
+        return getOrders(user.id);  // 返回 promise
+    })
+    .then(orders => {
+        console.log("Orders:", orders);
+        return getOrderItems(orders[0].id);
+    })
+    .then(items => {
+        console.log("Items:", items);
+    })
+    .catch(error => {
+        console.error("Error:", error);
+    });
+```
+</UniversalEditor>
+
+## Async/Await
+
+Async/await 是 Promise 的語法糖：
+
+<UniversalEditor title="Async/Await">
+```javascript !! js
+async function fetchData() {
+    try {
+        const response = await fetch("/api/data");
+        const data = await response.json();
+        return data;
+    } catch (error) {
+        console.error("Error:", error);
+        throw error;
+    }
+}
+
+// async 總是返回 Promise
+async function fn() {
+    return "Value";  // 自動包裝在 Promise 中
+}
+
+// 並行執行
+async function fetchMultiple() {
+    const [user, posts, comments] = await Promise.all([
+        fetchUser(1),
+        fetchPosts(1),
+        fetchComments(1)
+    ]);
+
+    return { user, posts, comments };
+}
+```
+</UniversalEditor>
+
+## Promise Combinators
+
+<UniversalEditor title="Promise 組合器">
+```java !! java
+// Java - CompletableFuture 組合器
+CompletableFuture<String> f1 = CompletableFuture.supplyAsync(() -> "A");
+CompletableFuture<String> f2 = CompletableFuture.supplyAsync(() -> "B");
+
+CompletableFuture.allOf(f1, f2);
+CompletableFuture.anyOf(f1, f2);
+```
+
+```javascript !! js
+// JavaScript - Promise 組合器
+
+// Promise.all: 全部必須成功
+Promise.all([p1, p2, p3])
+    .then(values => console.log(values));
+
+// Promise.race: 第一個完成的獲勝
+Promise.race([slow, fast])
+    .then(value => console.log(value));
+
+// Promise.allSettled: 等待全部，不會因拒絕而失敗
+Promise.allSettled([promise1, promise2, promise3])
+    .then(results => {
+        results.forEach(result => {
+            if (result.status === "fulfilled") {
+                console.log("Value:", result.value);
+            } else {
+                console.error("Reason:", result.reason);
+            }
+        });
+    });
+
+// Promise.any: 第一個成功獲勝
+try {
+    const first = await Promise.any([
+        Promise.reject("Error 1"),
+        Promise.resolve("Success")
+    ]);
+    console.log(first);  // "Success"
+} catch (error) {
+    console.error("All rejected:", error);
+}
+```
+</UniversalEditor>
+
+## Best Practices
+
+<UniversalEditor title="非同步最佳實踐">
+```javascript !! js
+// 1. 總是處理 promise 拒絕
+Promise.resolve()
+    .then(() => {
+        throw new Error("Oops");
+    })
+    .catch(error => {
+        console.error(error);  // 總是捕獲
+    });
+
+// 2. 使用 async/await 提高清晰度
+async function process() {
+    const user = await getUser(id);
+    const orders = await getOrders(user.id);
+    return orders;
+}
+
+// 3. 並行化獨立操作
+async function fetchAll() {
+    const [user, posts, comments] = await Promise.all([
+        fetchUser(),
+        fetchPosts(),
+        fetchComments()
+    ]);
+    return { user, posts, comments };
+}
+
+// 4. 使用 finally 進行清理
+async function withResource(callback) {
+    const resource = acquireResource();
+    try {
+        return await callback(resource);
+    } finally {
+        resource.release();  // 總是運行
+    }
+}
+```
+</UniversalEditor>
+
+## Summary
+
+### Key Takeaways
+
+1. **Promises:** 代表未來值
+2. **Async/Await:** 使非同步代碼看起來同步
+3. **Combinators:** Promise.all、Promise.race、Promise.allSettled、Promise.any
+4. **Best Practices:** 總是處理錯誤、並行化、使用 async/await
+
+## What's Next?
+
+接下來是 **Module 12: DOM Manipulation** - 學習如何操作網頁！

@@ -1,0 +1,518 @@
+---
+title: "模块 14：构建工具和依赖管理"
+---
+
+本模块介绍 Go 的构建工具和依赖管理，与 Java 的 Maven 和 Gradle 生态系统进行比较。
+
+## Go 工具 vs Java 构建工具
+
+**Java 构建工具：**
+- Maven：基于 XML，约定优于配置
+- Gradle：Groovy/Kotlin DSL，灵活强大
+- 复杂的依赖解析和传递冲突
+- 各种任务的插件生态系统
+- 构建生命周期管理
+
+**Go 构建工具：**
+- `go`：官方命令行工具链
+- 简单、快速、有主见
+- 最小版本选择（MVS）用于依赖
+- 标准化的项目结构
+- 内置测试、基准测试和性能分析
+
+<UniversalEditor title="构建命令比较">
+```bash !! bash
+# Java: Maven 命令
+mvn clean                    # 清理构建产物
+mvn compile                  # 编译源代码
+mvn test                     # 运行测试
+mvn package                  # 创建 JAR/WAR
+mvn install                  # 安装到本地仓库
+mvn deploy                   # 部署到远程仓库
+mvn dependency:tree          # 显示依赖树
+mvn versions:display-dependency-updates  # 检查更新
+
+# Java: Gradle 命令
+gradle clean                 # 清理构建产物
+gradle build                 # 构建项目
+gradle test                  # 运行测试
+gradle bootRun              # 运行 Spring Boot 应用
+gradle dependencies         # 显示依赖
+gradle dependencyUpdates    # 检查更新
+
+# 两者都支持：
+# - 多模块项目
+# - 自定义插件
+# - 构建配置文件
+# - 持续集成
+```
+
+```bash !! bash
+# Go: go 命令
+go build                    # 构建可执行文件
+go test                     # 运行测试
+go run main.go             # 构建并运行
+go fmt ./...               # 格式化代码
+go vet ./...               # 运行静态分析
+go mod init                # 初始化模块
+go mod tidy                # 清理依赖
+go get github.com/pkg/pkg  # 添加依赖
+go install github.com/pkg/cmd@latest  # 安装工具
+
+# Go 工具：
+go list -m all             # 列出所有依赖
+go mod graph               # 显示依赖图
+go mod verify              # 验证依赖
+go mod why github.com/pkg  # 解释为什么需要依赖
+go generate                # 生成代码
+go tool cover              # 覆盖率分析
+
+# 优势：
+# - 单一工具链
+# - 更快的构建
+# - 更简单的依赖模型
+# - 内置于语言
+```
+</UniversalEditor>
+
+## 依赖管理
+
+<UniversalEditor title="依赖管理">
+```xml !! xml
+<!-- Java: Maven pom.xml -->
+<project>
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>com.example</groupId>
+    <artifactId>myapp</artifactId>
+    <version>1.0.0</version>
+    <packaging>jar</packaging>
+
+    <properties>
+        <java.version>17</java.version>
+        <spring.boot.version>3.1.0</spring.boot.version>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <version>1.18.28</version>
+            <scope>provided</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-dependencies</artifactId>
+                <version>${spring.boot.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+</project>
+```
+
+```go !! go
+// Go: go.mod
+module github.com/example/myapp
+
+go 1.21
+
+require (
+    github.com/gin-gonic/gin v1.9.1
+    github.com/go-redis/redis/v8 v8.11.5
+    gorm.io/gorm v1.25.4
+)
+
+require (
+    github.com/cespare/xxhash/v2 v2.2.0 // indirect
+    github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
+    github.com/jinzhu/inflection v1.0.0 // indirect
+)
+
+// go.sum 包含所有依赖的校验和
+// 由 Go 工具自动管理
+
+// Go 中没有版本冲突！
+// 最小版本选择（MVS）算法：
+// - 使用满足所有要求的最小版本
+// - 可预测和可复现的构建
+// - 无需冲突解决
+```
+</UniversalEditor>
+
+## 项目结构
+
+<UniversalEditor title="项目结构比较">
+```
+# Java: Maven 标准布局
+myapp/
+├── pom.xml
+├── src/
+│   ├── main/
+│   │   ├── java/
+│   │   │   └── com/
+│   │   │       └── example/
+│   │   │           └── myapp/
+│   │   │               ├── Main.java
+│   │   │               ├── service/
+│   │   │               └── model/
+│   │   └── resources/
+│   │       ├── application.properties
+│   │       └── static/
+│   └── test/
+│       ├── java/
+│       └── resources/
+└── target/                    # 构建输出
+
+# 特性：
+# - 严格的约定优于配置
+# - 关注点分离
+# - 资源管理
+# - 多种输出类型（jar、war）
+```
+
+```
+# Go: 标准布局
+myapp/
+├── go.mod
+├── go.sum
+├── main.go
+├── api/
+│   └── handler/
+├── service/
+├── model/
+├── repository/
+├── config/
+│   └── config.go
+├── go build                  # 构建输出（如果需要）
+├── myapp                     # 二进制输出
+├── main_test.go              # 测试文件在源码旁边
+└── README.md
+
+# 特性：
+# - 灵活的结构
+# - 测试文件在源码旁边
+#   或在单独的 _test.go 文件中
+# - 简单直接
+# - 无强制约定
+```
+</UniversalEditor>
+
+## 测试
+
+<UniversalEditor title="测试设置">
+```java !! java
+// Java: JUnit 5 测试
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
+
+@DisplayName("User Service Tests")
+class UserServiceTest {
+
+    private UserRepository userRepository;
+    private UserService userService;
+
+    @BeforeEach
+    void setUp() {
+        userRepository = mock(UserRepository.class);
+        userService = new UserService(userRepository);
+    }
+
+    @Test
+    @DisplayName("Should create user successfully")
+    void shouldCreateUser() {
+        // Given
+        User user = new User("john@example.com");
+        when(userRepository.save(any(User.class)))
+            .thenReturn(user);
+
+        // When
+        User result = userService.create(user);
+
+        // Then
+        assertNotNull(result);
+        assertEquals("john@example.com", result.getEmail());
+        verify(userRepository).save(user);
+    }
+
+    @Test
+    @DisplayName("Should throw exception for duplicate email")
+    void shouldThrowForDuplicate() {
+        // Given
+        User user = new User("john@example.com");
+        when(userRepository.existsByEmail("john@example.com"))
+            .thenReturn(true);
+
+        // When & Then
+        assertThrows(DuplicateEmailException.class,
+            () -> userService.create(user));
+    }
+}
+```
+
+```go !! go
+// Go: 测试
+package main
+
+import (
+    "testing"
+    "github.com/stretchr/testify/assert"
+    "github.com/stretchr/testify/mock"
+)
+
+// Mock 仓储
+type MockUserRepository struct {
+    mock.Mock
+}
+
+func (m *MockUserRepository) Save(user *User) error {
+    args := m.Called(user)
+    return args.Error(0)
+}
+
+func (m *MockUserRepository) ExistsByEmail(email string) bool {
+    args := m.Called(email)
+    return args.Bool(0)
+}
+
+func TestUserService_Create(t *testing.T) {
+    tests := []struct {
+        name        string
+        email       string
+        mockSetup   func(*MockUserRepository)
+        wantErr     bool
+        errType     error
+    }{
+        {
+            name:  "successful creation",
+            email: "john@example.com",
+            mockSetup: func(m *MockUserRepository) {
+                m.On("ExistsByEmail", "john@example.com").Return(false)
+                m.On("Save", mock.Anything).Return(nil)
+            },
+            wantErr: false,
+        },
+        {
+            name:  "duplicate email",
+            email: "john@example.com",
+            mockSetup: func(m *MockUserRepository) {
+                m.On("ExistsByEmail", "john@example.com").Return(true)
+            },
+            wantErr: true,
+            errType: ErrDuplicateEmail,
+        },
+    }
+
+    for _, tt := range tests {
+        t.Run(tt.name, func(t *testing.T) {
+            mockRepo := new(MockUserRepository)
+            tt.mockSetup(mockRepo)
+
+            service := NewUserService(mockRepo)
+            user := &User{Email: tt.email}
+
+            err := service.Create(user)
+
+            if tt.wantErr {
+                assert.Error(t, err)
+                if tt.errType != nil {
+                    assert.ErrorIs(t, err, tt.errType)
+                }
+            } else {
+                assert.NoError(t, err)
+            }
+
+            mockRepo.AssertExpectations(t)
+        })
+    }
+}
+```
+</UniversalEditor>
+
+## 代码生成
+
+<UniversalEditor title="代码生成">
+```java !! java
+// Java: 注解处理
+import javax.annotation.processing.*;
+import javax.lang.model.element.*;
+import javax.tools.*;
+import lombok.Data;
+import lombok.Builder;
+
+// 使用 Lombok 进行代码生成
+@Data                                      // 生成 getter/setter
+@Builder                                   // 生成构建器
+@AllArgsConstructor                      // 生成构造函数
+@NoArgsConstructor                       // 生成无参构造函数
+public class User {
+    private Long id;
+    private String email;
+    private String name;
+
+    // Lombok 生成：
+    // - Getter 和 setter
+    // - equals() 和 hashCode()
+    // - toString()
+    // - 构建器模式
+}
+
+// 或使用注解处理器进行自定义生成：
+@Generated("MyProcessor")
+public class GeneratedClass {
+    // 自定义生成的代码
+}
+```
+
+```go !! go
+// Go: go generate
+//go:generate go run github.com/google/golang-api/cmd/goapi
+
+package main
+
+// 生成字符串方法
+//go:generate stringer -type=Role
+
+type Role int
+
+const (
+    RoleGuest Role = iota
+    RoleUser
+    RoleAdmin
+)
+
+//go:generate mockgen -destination=mocks/mock_repository.go -package=mocks github.com/example/myapp Repository
+
+type Repository interface {
+    GetUser(id int) (*User, error)
+}
+
+// 用法：
+// 1. 添加 //go:generate 注释
+// 2. 运行：go generate ./...
+// 3. 生成的文件出现在源码树中
+
+// 常用生成器：
+// - stringer：生成 String() 方法
+// - mockgen：生成 mock（来自 gomock）
+// - go run：自定义生成器
+// - protoc：Protocol buffer 代码
+```
+</UniversalEditor>
+
+## 构建标签和约束
+
+<UniversalEditor title="特定于平台的代码">
+```java !! java
+// Java: 特定于平台的代码
+public class PlatformUtils {
+    public static String getPlatformInfo() {
+        String os = System.getProperty("os.name").toLowerCase();
+        String arch = System.getProperty("os.arch").toLowerCase();
+
+        if (os.contains("win")) {
+            return "Windows";
+        } else if (os.contains("mac")) {
+            return "macOS";
+        } else if (os.contains("nix") || os.contains("nux")) {
+            return "Linux";
+        }
+
+        return "Unknown";
+    }
+
+    // 或使用条件编译
+    // 配合不同的源码集
+}
+
+// 或使用 JNI 的原生库：
+// - 每个平台不同的 .so/.dll 文件
+// - 复杂的设置
+// - 运行时加载问题
+```
+
+```go !! go
+// Go: 用于条件编译的构建标签
+
+//go:build !windows
+
+package main
+
+import "fmt"
+
+func getPlatformFeatures() []string {
+    return []string{"符号链接", "Unix 套接字", "信号"}
+}
+
+// 文件：platform_linux.go
+//go:build linux
+
+package main
+
+func getOSSpecificInfo() string {
+    return "Linux 特定功能"
+}
+
+// 文件：platform_windows.go
+//go:build windows
+
+package main
+
+func getOSSpecificInfo() string {
+    return "Windows 特定功能"
+}
+
+// 构建约束支持：
+// - 操作系统：linux、darwin、windows
+// - 架构：amd64、arm64
+// - 编译器：gc、gccgo
+// - 自定义标签：!cgo、integration
+
+// 示例：在正常构建中忽略集成测试
+//go:build integration
+
+package main_test
+
+func TestIntegration(t *testing.T) {
+    // 仅集成测试
+}
+```
+</UniversalEditor>
+
+---
+
+### 练习问题：
+1. 为什么 Go 的依赖管理比 Java 更简单？
+2. Go 中内置测试的优势是什么？
+3. 构建标签如何在 Go 中启用特定于平台的代码？
+4. 为什么 Go 通常不需要 Makefile 而 Java 项目经常需要？
+
+### 项目想法：
+- 为样板代码创建自定义 Go 生成器
+- 为 Go 项目设置全面的 CI/CD 管道
+- 构建分析 Go 依赖图的工具
+- 实现基于工作区的多模块 Go 项目
+
+### 下一步：
+- 探索 Go 的生态系统和流行库
+- 学习 Go 中的数据库集成
+- 了解微服务架构
+- 构建生产就绪的应用程序

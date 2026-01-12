@@ -1,0 +1,889 @@
+---
+title: "模組 11: 生命週期 - 無需垃圾回收的記憶體安全"
+description: "理解 Rust 的生命週期系統,它如何在不需垃圾回收器的情況下確保記憶體安全,以及它與 Python 引用計數的區別。"
+---
+
+# 模組 11: 生命週期 - 無需垃圾回收的記憶體安全
+
+在本模組中,你將學習 Rust 最獨特的功能之一:**生命週期**。生命週期是 Rust 在沒有垃圾回收器的情況下實現記憶體安全的方式,這與 Python 的引用計數方法有本質區別。
+
+## 學習目標
+
+完成本模組後,你將能夠:
+- 理解什麼是生命週期以及為什麼 Rust 需要它們
+- 在函數簽名中使用生命週期註解
+- 理解生命週期省略規則
+- 使用 `'static` 生命週期
+- 比較 Rust 的所有權模型與 Python 的引用計數
+
+## 背景:Python vs Rust 記憶體管理
+
+### Python 的記憶體模型
+
+Python 使用**引用計數**和循環檢測垃圾回收器:
+
+```python
+# Python: 通過引用計數進行自動記憶體管理
+def process_data(data):
+    # data 是一個引用,引用計數增加
+    result = transform(data)
+    # 當函數返回時,引用計數減少
+    return result
+
+# 當引用計數達到 0 時,對象被釋放
+# 垃圾回收器處理引用循環
+```
+
+### Rust 的記憶體模型
+
+Rust 使用**所有權**和**生命週期**進行編譯時記憶體管理:
+
+```rust
+// Rust: 使用生命週期的編譯時記憶體管理
+fn process_data<'a>(data: &'a str) -> &'a str {
+    // 編譯器驗證返回的引用
+    // 與輸入引用一樣有效
+    let result = transform(data);
+    result
+}
+// 記憶體在所有者離開作用域時被釋放
+// 不需要垃圾回收器!
+```
+
+## 什麼是生命週期?
+
+生命週期是 Rust 編譯器追蹤**引用有效時間**的方式。它們確保你永遠不會擁有懸垂引用 - 指向已釋放記憶體的引用。
+
+### 生命週期解決的問題
+
+考慮這個在沒有生命週期檢查的語言中會有危險的例子:
+
+<UniversalEditor compare={true} title="懸垂引用問題">
+```python !! py
+# Python: 沒有懸垂引用(GC 防止了這個問題)
+def get_reference():
+    local = "臨時數據"
+    return local  # 返回對象,而不是記憶體引用
+
+# 在 Python 中,對象存活到引用計數為 0
+ref = get_reference()
+print(ref)  # 工作正常,對象仍然存活
+```
+
+```rust !! rs
+// Rust: 這不會編譯 - 懸垂引用被阻止
+// fn get_reference() -> &str {  // 錯誤: 缺少生命週期
+//     let local = String::from("臨時數據");
+//     &local  // 錯誤: 返回對已釋放數據的引用
+// }  // local 在這裡被釋放!
+
+// Rust 編譯器在編譯時阻止這種情況!
+```
+</UniversalEditor>
+
+## 生命週期註解
+
+生命週期註解告訴編譯器**引用之間如何關聯**。它們不會改變引用存活多長時間 - 它們只是描述關係。
+
+### 基本生命週期語法
+
+<UniversalEditor compare={true} title="生命週期註解語法">
+```python !! py
+# Python: 不需要生命週期註解
+# 垃圾回收器處理一切
+
+def first_word(text: str) -> str:
+    words = text.split()
+    return words[0] if words else ""
+
+# 工作正常 - Python 保持字符串存活
+s = "hello world"
+word = first_word(s)
+```
+
+```rust !! rs
+// Rust: 顯式生命週期註解
+// 'a 生命週期參數連接輸入和輸出
+fn first_word<'a>(text: &'a str) -> &'a str {
+    // 返回的引用只要輸入引用有效就有效
+    match text.split(' ').next() {
+        Some(word) => word,
+        None => "",
+    }
+}
+
+// 編譯器驗證 'a 是否有意義
+let s = String::from("hello world");
+let word = first_word(&s);
+// word 只要 s 有效就有效
+```
+</UniversalEditor>
+
+### 結構體中的生命週期參數
+
+當結構體持有引用時,必須指定生命週期:
+
+<UniversalEditor compare={true} title="帶有引用的結構體">
+```python !! py
+# Python: 類可以自由持有引用
+class Processor:
+    def __init__(self, data):
+        self.data = data  # 對數據的引用
+
+data = [1, 2, 3, 4, 5]
+processor = Processor(data)
+# 列表在 processor 需要時保持存活
+print(processor.data)
+```
+
+```rust !! rs
+// Rust: 帶有引用的結構體需要生命週期註解
+struct Processor<'a> {
+    // 這個引用對 'a 生命週期有效
+    data: &'a [i32],
+}
+
+impl<'a> Processor<'a> {
+    fn new(data: &'a [i32]) -> Self {
+        Processor { data }
+    }
+
+    fn process(&self) -> i32 {
+        self.data.iter().sum()
+    }
+}
+
+let data = vec![1, 2, 3, 4, 5];
+let processor = Processor::new(&data);
+// processor 只要 data 有效就有效
+println!("{}", processor.process());
+```
+</UniversalEditor>
+
+### 多個生命週期參數
+
+你可以有多個生命週期參數來顯示不同的關係:
+
+<UniversalEditor compare={true} title="多個生命週期參數">
+```python !! py
+# Python: 引用可以有不同的生命週期
+class Pair:
+    def __init__(self, first, second):
+        self.first = first
+        self.second = second
+
+a = "first"
+b = "second"
+pair = Pair(a, b)
+# 兩個字符串都保持存活
+```
+
+```rust !! rs
+// Rust: 不同引用的不同生命週期
+struct Pair<'a, 'b> {
+    first: &'a str,
+    second: &'b str,
+}
+
+impl<'a, 'b> Pair<'a, 'b> {
+    fn new(first: &'a str, second: &'b str) -> Self {
+        Pair { first, second }
+    }
+
+    fn compare(&self) -> bool {
+        self.first == self.second
+    }
+}
+
+let a = String::from("first");
+let b = String::from("second");
+
+{
+    let b_ref = &b;
+    let pair = Pair::new(&a, b_ref);
+    // a 和 b_ref 可以有不同的生命週期
+    println!("{}", pair.compare());
+}
+```
+</UniversalEditor>
+
+## 生命週期省略規則
+
+Rust 有**生命週期省略規則**,讓你在常見情況下省略生命週期註解。編譯器會為你推斷生命週期。
+
+### 規則 1: 輸入生命週期
+
+每個引用參數獲得自己的生命週期參數:
+
+<UniversalEditor compare={true} title="生命週期省略規則 1">
+```python !! py
+# Python: 不需要註解
+def single_arg(text: str) -> str:
+    return text.upper()
+
+def two_args(a: str, b: str) -> str:
+    return a + b
+```
+
+```rust !! rs
+// Rust: 規則 1 - 每個引用獲得一個生命週期
+fn single_arg(text: &str) -> &str {  // 省略
+    // 編譯器推斷: fn single_arg<'a>(text: &'a str) -> &'a str
+    text.to_uppercase().leak()  // 僅用於演示!
+}
+
+fn two_args(a: &str, b: &str) -> &str {  // 省略
+    // 編譯器推斷: fn two_args<'a, 'b>(a: &'a str, b: &'b str) -> &_
+    // 但這無法編譯,返回值需要顯式生命週期
+    "沒有顯式生命週期無法實現"
+}
+```
+</UniversalEditor>
+
+### 規則 2: 單個輸入生命週期
+
+如果只有一個輸入生命週期,它被分配給所有輸出生命週期:
+
+<UniversalEditor compare={true} title="生命週期省略規則 2">
+```python !! py
+# Python: 簡單的引用處理
+def get_first(data: list) -> any:
+    return data[0] if data else None
+```
+
+```rust !! rs
+// Rust: 規則 2 - 單個輸入生命週期應用於輸出
+fn get_first(data: &[i32]) -> Option<&i32> {  // 省略
+    // 編譯器推斷: fn get_first<'a>(data: &'a [i32]) -> Option<&'a i32>
+    data.first()
+}
+
+// 完全註解版本:
+fn get_first_explicit<'a>(data: &'a [i32]) -> Option<&'a i32> {
+    data.first()
+}
+```
+</UniversalEditor>
+
+### 規則 3: 帶 &self 或 &mut self 的方法
+
+如果有 &self 或 &mut self 參數,它的生命週期被分配給所有輸出生命週期:
+
+<UniversalEditor compare={true} title="生命週期省略規則 3">
+```python !! py
+# Python: 方法不需要生命週期註解
+class Container:
+    def __init__(self, items):
+        self.items = items
+
+    def get_first(self):
+        return self.items[0] if self.items else None
+
+    def get_last(self):
+        return self.items[-1] if self.items else None
+```
+
+```rust !! rs
+// Rust: 規則 3 - &self 生命週期應用於輸出
+struct Container {
+    items: Vec<i32>,
+}
+
+impl Container {
+    fn get_first(&self) -> Option<&i32> {  // 省略
+        // 編譯器推斷: fn get_first<'a>(&'a self) -> Option<&'a i32>
+        self.items.first()
+    }
+
+    fn get_last(&self) -> Option<&i32> {  // 省略
+        self.items.last()
+    }
+}
+
+// 完全註解版本:
+impl Container {
+    fn get_first_explicit<'a>(&'a self) -> Option<&'a i32> {
+        self.items.first()
+    }
+
+    fn get_last_explicit<'a>(&'a self) -> Option<&'a i32> {
+        self.items.last()
+    }
+}
+```
+</UniversalEditor>
+
+## 何時需要顯式生命週期
+
+當省略規則不適用時,你需要顯式生命週期註解,特別是在有多個輸入引用時:
+
+<UniversalEditor compare={true} title="何時需要顯式生命週期">
+```python !! py
+# Python: 多個引用沒有問題
+def choose_longer(a: str, b: str) -> str:
+    return a if len(a) > len(b) else b
+```
+
+```rust !! rs
+// Rust: 多個輸入引用需要顯式生命週期
+fn choose_longer<'a>(a: &'a str, b: &'a str) -> &'a str {
+    // 兩個輸入必須至少與輸出一樣長
+    if a.len() > b.len() {
+        a
+    } else {
+        b
+    }
+}
+
+// 使用它:
+let s1 = String::from("short");
+let s2 = String::from("much longer string");
+let result = choose_longer(&s1, &s2);
+println!("{}", result);
+```
+</UniversalEditor>
+
+## 'static 生命週期
+
+`'static` 生命週期是一個特殊的生命週期,持續**程式的整個持續時間**。
+
+<UniversalEditor compare={true} title="靜態生命週期 vs 普通引用">
+```python !! py
+# Python: 模組級常量永遠存在
+CONFIG = {
+    "timeout": 30,
+    "retries": 3
+}
+
+def get_config():
+    return CONFIG  # 始終有效
+
+# 此外: 字符串字面量被駐留並永遠存在
+message = "hello"  # 這個字符串保留在記憶體中
+```
+
+```rust !! rs
+// Rust: 'static 生命週期 - 存在於整個程式
+// 字符串字面量具有 'static 生命週期
+const CONFIG: &str = "default config";
+
+fn get_config() -> &'static str {
+    CONFIG  // OK: CONFIG 具有 'static 生命週期
+}
+
+// 靜態變量
+static TIMEOUT: u32 = 30;
+
+fn get_timeout() -> u32 {
+    TIMEOUT  // 始終有效
+}
+
+// 字符串字面量是 'static
+fn get_message() -> &'static str {
+    "hello"  // 這個字符串存儲在二進制文件中
+}
+
+// 與非靜態的比較
+fn temporary_string() -> String {
+    String::from("temporary")
+}
+```
+</UniversalEditor>
+
+### 何時使用 'static
+
+<UniversalEditor compare={true} title="適當使用 'static">
+```python !! py
+# Python: 全局緩存(永遠存在)
+cache = {}
+
+def memoize(func):
+    def wrapper(key):
+        if key not in cache:
+            cache[key] = func(key)
+        return cache[key]
+    return wrapper
+
+@memoize
+def expensive_computation(n):
+    return sum(range(n))
+```
+
+```rust !! rs
+// Rust: 使用 'static 進行全局數據
+use std::collections::HashMap;
+use std::sync::Mutex;
+
+// 靜態可變數據需要 Mutex 以確保線程安全
+static CACHE: Mutex<HashMap<&str, String>> = Mutex::new(HashMap::new());
+
+fn memoize_computation(key: &'static str) -> String {
+    let mut cache = CACHE.lock().unwrap();
+    if let Some(value) = cache.get(key) {
+        value.clone()
+    } else {
+        let computed = format!("computed for {}", key);
+        cache.insert(key, computed.clone());
+        computed
+    }
+}
+
+// 靜態字符串很常見
+fn get_static_str() -> &'static str {
+    "This lives forever"
+}
+
+// 小心: 不要過度使用 'static
+fn example() {
+    // 不要這樣寫:
+    // fn unnecessary_static(s: &'static str) -> &'static str { s }
+
+    // 更好 - 讓編譯器推斷最短生命週期
+    fn better(s: &str) -> &str { s }
+}
+```
+</UniversalEditor>
+
+## 生命週期子類型
+
+生命週期支持子類型 - 更長的生命週期可以在需要較短生命週期的地方使用:
+
+<UniversalEditor compare={true} title="生命週期子類型">
+```python !! py
+# Python: 不需要顯式子類型
+def with_string(data: str):
+    print(data)
+
+s = "hello"
+with_string(s)  # 工作正常
+```
+
+```rust !! rs
+// Rust: 更長的生命週期可用作更短的生命週期
+fn with_short<'a>(s: &'a str) {
+    println!("{}", s);
+}
+
+fn with_long<'b>(s: &'b str)
+where
+    'b: 'a,
+{
+    // 'b 比 'a 長,所以我們可以傳遞給 with_short
+    with_short(s);
+}
+
+let long_lived = String::from("I live a long time");
+with_long(&long_lived);
+```
+</UniversalEditor>
+
+## 常見生命週期模式
+
+### 從函數返回引用
+
+<UniversalEditor compare={true} title="返回引用模式">
+```python !! py
+# Python: 返回對輸入部分的引用
+def find_item(items, target):
+    for item in items:
+        if item == target:
+            return item
+    return None
+
+items = ["apple", "banana", "cherry"]
+found = find_item(items, "banana")
+```
+
+```rust !! rs
+// Rust: 返回對輸入數據的引用
+fn find_item<'a>(items: &'a [String], target: &str) -> Option<&'a String> {
+    items.iter().find(|item| item == target)
+}
+
+let items = vec![
+    String::from("apple"),
+    String::from("banana"),
+    String::from("cherry"),
+];
+
+let found = find_item(&items, "banana");
+// found 只要 items 有效就有效
+```
+</UniversalEditor>
+
+### 帶有多個引用的結構體
+
+<UniversalEditor compare={true} title="帶有多個生命週期的複雜結構體">
+```python !! py
+# Python: 帶有多個引用的上下文對象
+class ProcessingContext:
+    def __init__(self, config, data):
+        self.config = config
+        self.data = data
+        self.timestamp = time.time()
+
+config = {"timeout": 30}
+data = [1, 2, 3]
+ctx = ProcessingContext(config, data)
+```
+
+```rust !! rs
+// Rust: 帶有不同生命週期的上下文
+struct ProcessingContext<'a, 'b> {
+    config: &'a Config,
+    data: &'b [i32],
+    timestamp: u64,
+}
+
+struct Config {
+    timeout: u32,
+}
+
+impl<'a, 'b> ProcessingContext<'a, 'b> {
+    fn new(config: &'a Config, data: &'b [i32]) -> Self {
+        ProcessingContext {
+            config,
+            data,
+            timestamp: 0, // 會獲取實際時間
+        }
+    }
+
+    fn process(&self) -> u32 {
+        self.data.iter().sum::<i32>() as u32 * self.config.timeout
+    }
+}
+
+let config = Config { timeout: 30 };
+let data = vec![1, 2, 3];
+let ctx = ProcessingContext::new(&config, &data);
+```
+</UniversalEditor>
+
+## 生命週期邊界
+
+你可以為泛型類型添加生命週期邊界:
+
+<UniversalEditor compare={true} title="泛型上的生命週期邊界">
+```python !! py
+# Python: 不需要顯式邊界
+class Container:
+    def __init__(self, value):
+        self.value = value
+
+def extract(container):
+    return container.value
+```
+
+```rust !! rs
+// Rust: 泛型上的生命週期邊界
+struct Container<'a, T: 'a> {
+    // T 必須比 'a 長命
+    value: &'a T,
+}
+
+impl<'a, T: 'a> Container<'a, T> {
+    fn new(value: &'a T) -> Self {
+        Container { value }
+    }
+
+    fn get_value(&self) -> &'a T {
+        self.value
+    }
+}
+
+let x = 42;
+let container = Container::new(&x);
+println!("{}", container.get_value());
+```
+</UniversalEditor>
+
+## 比較:Python 引用計數 vs Rust 生命週期
+
+### 記憶體管理比較
+
+<UniversalEditor compare={true} title="Python 引用計數">
+```python !! py
+# Python: 運行時引用計數
+import sys
+
+class Data:
+    def __init__(self, value):
+        self.value = value
+        print(f"Created Data({value}), refcount: {sys.getrefcount(self)}")
+
+    def __del__(self):
+        print(f"Destroyed Data({self.value})")
+
+# 引用計數在運行時發生
+def process():
+    data = Data(10)  # 引用計數增加
+    print(f"In function: {sys.getrefcount(data)}")
+    return data  # 引用計數轉移
+
+result = process()
+print(f"After call: {sys.getrefcount(result)}")
+# 當引用計數達到 0 時自動清理
+```
+
+```rust !! rs
+// Rust: 編譯時生命週期檢查
+struct Data {
+    value: i32,
+}
+
+impl Data {
+    fn new(value: i32) -> Self {
+        println!("Created Data({})", value);
+        Data { value }
+    }
+}
+
+impl Drop for Data {
+    fn drop(&mut self) {
+        println!("Destroyed Data({})", self.value);
+    }
+}
+
+fn process() -> Data {
+    let data = Data::new(10);
+    data  // 所有權移動
+}
+
+let result = process();
+// result 在作用域結束時自動被釋放
+```
+</UniversalEditor>
+
+### 性能影響
+
+<UniversalEditor compare={true} title="性能比較">
+```python !! py
+# Python: 引用計數開銷
+def process_many():
+    # 每次賦值都會改變引用計數
+    items = []
+    for i in range(1_000_000):
+        items.append(i)  # 引用計數操作
+        temp = items[-1]  # 引用計數操作
+        # 更多引用計數操作...
+
+process_many()  # 數百萬次引用計數操作
+```
+
+```rust !! rs
+// Rust: 零成本生命週期檢查
+fn process_many() {
+    let mut items = Vec::new();
+    for i in 0..1_000_000 {
+        items.push(i);
+        let temp = items.last();
+        // 沒有運行時開銷 - 生命週期在編譯時檢查
+    }
+}
+
+process_many();  // 生命週期沒有運行時成本!
+```
+</UniversalEditor>
+
+### 安全性比較
+
+<UniversalEditor compare={true} title="安全性: 釋放後使用">
+```python !! py
+# Python: 受引用計數保護
+def dangerous():
+    local = [1, 2, 3]
+    return local
+
+reference = dangerous()
+# reference 有效,因為列表仍然存活
+print(reference)  # 安全!
+```
+
+```rust !! rs
+// Rust: 受編譯時檢查保護
+// fn dangerous() -> &Vec<i32> {
+//     let local = vec![1, 2, 3];
+//     &local  // 錯誤: 返回對已釋放值的引用
+// }  // local 在這裡被釋放
+
+// 正確版本 - 移動所有權
+fn safe() -> Vec<i32> {
+    let local = vec![1, 2, 3];
+    local  // 所有權移出
+}
+
+let reference = safe();
+// reference 擁有數據,不可能有懸垂引用
+println!("{:?}", reference);
+```
+</UniversalEditor>
+
+## 常見陷阱及如何避免它們
+
+### 陷阱 1: 嘗試存儲臨時引用
+
+<UniversalEditor compare={true} title="正確存儲引用">
+```python !! py
+# Python: 存儲引用沒問題
+class Cache:
+    def __init__(self):
+        self.cache = {}
+
+    def get_or_compute(self, key, compute_fn):
+        if key not in self.cache:
+            self.cache[key] = compute_fn()
+        return self.cache[key]
+
+cache = Cache()
+result = cache.get_or_compute("expensive", lambda: sum(range(1000)))
+```
+
+```rust !! rs
+// Rust: 不要存儲對臨時數據的引用
+struct Cache<'a> {
+    cache: std::collections::HashMap<String, &'a str>,
+}
+
+impl<'a> Cache<'a> {
+    fn get_or_compute<F>(&mut self, key: &str, compute_fn: F) -> &'a str
+    where
+        F: FnOnce() -> &'a str,
+    {
+        if !self.cache.contains_key(key) {
+            self.cache.insert(key.to_string(), compute_fn());
+        }
+        self.cache.get(key).unwrap()
+    }
+}
+
+// 更好: 使用擁有的數據
+struct Cache {
+    cache: std::collections::HashMap<String, String>,
+}
+
+impl Cache {
+    fn get_or_compute<F>(&mut self, key: &str, compute_fn: F) -> String
+    where
+        F: FnOnce() -> String,
+    {
+        if !self.cache.contains_key(key) {
+            self.cache.insert(key.to_string(), compute_fn());
+        }
+        self.cache.get(key).unwrap().clone()
+    }
+}
+```
+</UniversalEditor>
+
+### 陷阱 2: 過度使用 'static
+
+<UniversalEditor compare={true} title="避免不必要的 'static">
+```python !! py
+# Python: 普通引用工作正常
+def process(data: str) -> str:
+    return data.upper()
+```
+
+```rust !! rs
+// Rust: 除非必要,否則不要使用 'static
+// 太嚴格:
+// fn process_static(data: &'static str) -> &'static str {
+//     data.to_uppercase().leak()  // 壞: 記憶體洩漏!
+// }
+
+// 更好 - 讓編譯器推斷生命週期:
+fn process(data: &str) -> String {
+    data.to_uppercase()  // 返回擁有的 String
+}
+
+// 最好 - 使用生命週期省略:
+fn process_ref(data: &str) -> String {
+    data.to_uppercase()
+}
+```
+</UniversalEditor>
+
+### 陷阱 3: 自引用結構體
+
+<UniversalEditor compare={true} title="自引用結構體需要小心">
+```python !! py
+# Python: 自引用很容易
+class TreeNode:
+    def __init__(self, value):
+        self.value = value
+        self.children = []
+
+    def add_child(self, child):
+        self.children.append(child)
+```
+
+```rust !! rs
+// Rust: 自引用需要特殊處理
+// 這行不通:
+// struct TreeNode<'a> {
+//     value: String,
+//     children: Vec<&'a TreeNode<'a>>,  // 有問題!
+// }
+
+// 更好的方法 - 使用索引或 Rc
+use std::rc::Rc;
+
+struct TreeNode {
+    value: String,
+    children: Vec<Rc<TreeNode>>,
+}
+
+impl TreeNode {
+    fn new(value: String) -> Self {
+        TreeNode {
+            value,
+            children: Vec::new(),
+        }
+    }
+
+    fn add_child(&mut self, child: Rc<TreeNode>) {
+        self.children.push(child);
+    }
+}
+```
+</UniversalEditor>
+
+## 最佳實踐
+
+### 應該做:
+
+1. **讓編譯器幫助你** - 信任 Rust 的生命週期推斷
+2. **從省略的生命週期開始** - 只在需要時添加顯式註解
+3. **保持生命週期簡短** - 最小化引用的範圍
+4. **不確定時使用擁有的數據** - 適當時移動而不是借用
+5. **閱讀錯誤消息** - Rust 的編譯器提供出色的生命週期診斷
+
+### 不應該做:
+
+1. **添加不必要的 'static** - 僅在數據真正永遠存在時使用
+2. **使用普通引用創建自引用** - 使用 Rc、Arc 或索引
+3. **試圖智勝借用檢查器** - 它正在防止真正的錯誤
+4. **使用 unsafe 繞過生命週期** - 除非絕對必要
+5. **忽略生命週期警告** - 它們試圖幫助你
+
+## 總結
+
+- **生命週期**是確保引用有效的編譯時檢查
+- **生命週期註解**描述引用之間的關係
+- **省略規則**讓你在常見情況下省略註解
+- **'static 生命週期**意味著"在整個程式期間有效"
+- **Rust 的生命週期**在沒有運行時開銷的情況下提供記憶體安全
+- **Python 的引用計數**以運行時成本提供安全性
+- **Rust 以複雜性換取性能和安全性**
+
+## 練習
+
+1. 編寫一個函數,接受兩個字符串切片並返回較長的一個
+2. 創建一個結構體,持有對配置和數據的引用
+3. 實現一個具有適當生命週期管理的緩存系統
+4. 重構代碼,在可能的情況下使用生命週期省略
+5. 比較使用擁有數據的遞歸函數與引用的性能
+
+## 下一模組
+
+在下一個模組中,我們將探索**智能指針**(Box、Rc、Arc、RefCell)以及它們如何與 Python 的記憶體模型進行比較。你將學習何時使用每種類型,以及它們如何啟用共享所有權和內部可變性等模式。

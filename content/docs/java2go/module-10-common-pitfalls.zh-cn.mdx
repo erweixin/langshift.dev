@@ -1,0 +1,1053 @@
+---
+title: "Module 10: Common Pitfalls"
+description: "Java 开发者过渡到 Go 时的常见错误以及如何避免它们"
+---
+
+# Module 10: Common Pitfalls
+# 模块 10：常见陷阱
+
+## Learning Objectives
+## 学习目标
+
+完成本模块后，您将：
+- 识别 Java 开发者在 Go 中常犯的错误
+- 理解 nil 和 null 之间的区别
+- 避免切片和数组的陷阱
+- 防止 goroutine 和闭包的陷阱
+- 正确处理错误
+- 正确使用通道
+- 理解接口的 nil 混淆
+
+## Introduction
+## 简介
+
+从 Java 过渡到 Go 不仅仅是学习新语法。它需要理解两种语言在内存管理、并发和错误处理方面的根本差异。在本模块中，我们将探讨 Java 开发者在编写 Go 代码时遇到的最常见陷阱。
+
+## 1. Nil vs Null Confusion
+## 1. Nil 与 Null 的混淆
+
+### The Problem
+### 问题
+
+在 Java 中，`null` 是一个可以赋值给任何非原始类型的通用值。Go 有 `nil`，但它在不同类型上的行为不同。
+
+### Pitfall: Not Checking Nil Pointers
+### 陷阱：未检查 Nil 指针
+
+<UniversalEditor title="Nil Pointer Dereference - Java vs Go">
+```java !! java
+// Java - NPE 是常见的运行时错误
+public class User {
+    private String name;
+
+    public String getName() {
+        return name; // 可能返回 null
+    }
+
+    public void printNameLength() {
+        // 如果 getName() 返回 null 则抛出 NullPointerException
+        System.out.println(getName().length());
+    }
+}
+```
+
+```go !! go
+// Go - 必须显式处理 nil
+type User struct {
+    name *string // 指针可以为 nil
+}
+
+func (u *User) Name() *string {
+    return u.name // 如果未设置则返回 nil
+}
+
+func (u *User) PrintNameLength() {
+    if u.name == nil {
+        fmt.Println("Name not set")
+        return
+    }
+    fmt.Println(len(*u.name))
+}
+```
+</UniversalEditor>
+
+### Pitfall: Nil Interface Values
+### 陷阱：Nil 接口值
+
+<UniversalEditor title="Interface Nil Confusion">
+```java !! java
+// Java - 引用比较很直接
+String s = null;
+if (s == null) {
+    System.out.println("s is null");
+}
+
+List<String> list = null;
+if (list == null) {
+    System.out.println("list is null");
+}
+```
+
+```go !! go
+// Go - 接口 nil 很棘手
+type Printer interface {
+    Print()
+}
+
+type MyPrinter struct{}
+
+func (p *MyPrinter) Print() {
+    fmt.Println("Printing")
+}
+
+func main() {
+    var p Printer // p 是 nil
+    fmt.Println(p == nil) // true
+
+    var mp *MyPrinter // mp 是 nil
+    p = mp            // p 包含一个 nil *MyPrinter
+    fmt.Println(p == nil) // FALSE! 这是一个常见的陷阱
+
+    // 接口值本身不是 nil，
+    // 它持有一个 nil 的具体值
+}
+```
+</UniversalEditor>
+
+**Best Practice:** **最佳实践：** 始终检查接口和具体类型：
+
+```go
+if p == nil || p.(*MyPrinter) == nil {
+    fmt.Println("Printer is not properly initialized")
+}
+```
+
+## 2. Slice Gotchas
+## 2. 切片陷阱
+
+### Pitfall: Slice Reference Semantics
+### 陷阱：切片引用语义
+
+<UniversalEditor title="Slice Modification - Unexpected Behavior">
+```java !! java
+// Java - 数组通过引用传递
+public class SliceExample {
+    public static void modifyArray(int[] arr) {
+        arr[0] = 999;
+    }
+
+    public static void main(String[] args) {
+        int[] arr = {1, 2, 3};
+        modifyArray(arr);
+        System.out.println(Arrays.toString(arr)); // [999, 2, 3]
+    }
+}
+```
+
+```go !! go
+// Go - 切片是对底层数组的引用
+func modifySlice(s []int) {
+    s[0] = 999
+    // 这会修改原始数组
+}
+
+func main() {
+    s := []int{1, 2, 3}
+    modifySlice(s)
+    fmt.Println(s) // [999 2 3] - 被修改了！
+
+    // 但追加并不总是按预期工作
+    appendToSlice(s)
+    fmt.Println(s) // 仍然是 [999 2 3] - append 没有影响原始值
+}
+
+func appendToSlice(s []int) {
+    s = append(s, 4) // 这会创建一个新的切片！
+}
+```
+</UniversalEditor>
+
+### Pitfall: Slice Capacity and Reallocation
+### 陷阱：切片容量和重新分配
+
+<UniversalEditor title="Slice Capacity Issues">
+```java !! java
+// Java - ArrayList 自动处理容量
+ArrayList<Integer> list = new ArrayList<>();
+for (int i = 0; i < 1000; i++) {
+    list.add(i); // 容量自动增长
+}
+```
+
+```go !! go
+// Go - 理解切片容量至关重要
+func main() {
+    s := make([]int, 3, 5) // length=3, capacity=5
+    fmt.Printf("len=%d cap=%d %v\n", len(s), cap(s), s)
+
+    s = append(s, 4, 5)
+    fmt.Printf("len=%d cap=%d %v\n", len(s), cap(s), s)
+
+    // 这个追加会导致重新分配
+    s = append(s, 6)
+    fmt.Printf("len=%d cap=%d %v\n", len(s), cap(s), s)
+    // 容量可能翻倍
+
+    // 常见错误：循环中追加而不预分配
+    var result []int
+    for i := 0; i < 100000; i++ {
+        result = append(result, i) // 多次重新分配！
+    }
+
+    // 更好：预分配
+    result = make([]int, 0, 100000)
+    for i := 0; i < 100000; i++ {
+        result = append(result, i) // 单次分配
+    }
+}
+```
+</UniversalEditor>
+
+### Pitfall: Slice Subtlety with Sub-slicing
+### 陷阱：子切片的微妙之处
+
+<UniversalEditor title="Sub-slicing Memory Leaks">
+```java !! java
+// Java - SubList 保持对原始列表的引用
+List<Integer> bigList = new ArrayList<>();
+for (int i = 0; i < 1000000; i++) {
+    bigList.add(i);
+}
+List<Integer> small = bigList.subList(0, 10);
+// bigList 在 small 存在期间无法被 GC
+```
+
+```go !! go
+// Go - 子切片保持对整个后备数组的引用
+func main() {
+    bigSlice := make([]byte, 1024*1024) // 1 MB
+    for i := range bigSlice {
+        bigSlice[i] = 'x'
+    }
+
+    // 只需要前 10 个字节
+    smallSlice := bigSlice[:10]
+
+    // bigSlice 仍在内存中，因为 smallSlice
+    // 引用同一个后备数组！
+
+    // 解决方案：复制到新切片
+    tinySlice := make([]byte, 10)
+    copy(tinySlice, bigSlice[:10])
+    // 现在可以垃圾回收 bigSlice
+}
+```
+</UniversalEditor>
+
+## 3. Range Loop Variable Capture
+## 3. Range 循环变量捕获
+
+### Pitfall: Goroutine Closure Capture
+### 陷阱：Goroutine 闭包捕获
+
+<UniversalEditor title="Range Loop Variable Capture - Classic Mistake">
+```java !! java
+// Java - 每次迭代都有自己的变量
+List<Integer> numbers = Arrays.asList(1, 2, 3, 4, 5);
+List<Future<Integer>> futures = new ArrayList<>();
+
+for (Integer number : numbers) {
+    Future<Integer> future = executor.submit(() -> {
+        return number * 2; // 每个闭包捕获自己的 number
+    });
+    futures.add(future);
+}
+
+// 结果：2, 4, 6, 8, 10
+```
+
+```go !! go
+// Go - 错误！所有 goroutine 捕获同一个变量
+func main() {
+    numbers := []int{1, 2, 3, 4, 5}
+
+    for _, number := range numbers {
+        go func() {
+            fmt.Println(number * 2) // 都打印 10！
+        }()
+    }
+
+    time.Sleep(time.Second)
+}
+
+// 正确：将变量作为参数传递
+func main() {
+    numbers := []int{1, 2, 3, 4, 5}
+
+    for _, number := range numbers {
+        go func(n int) {
+            fmt.Println(n * 2) // 打印：2, 4, 6, 8, 10
+        }(number) // 作为参数传递
+    }
+
+    time.Sleep(time.Second)
+}
+
+// 也正确：在循环作用域中创建新变量
+func main() {
+    numbers := []int{1, 2, 3, 4, 5}
+
+    for _, number := range numbers {
+        number := number // 创建新变量
+        go func() {
+            fmt.Println(number * 2) // 正确！
+        }()
+    }
+
+    time.Sleep(time.Second)
+}
+```
+</UniversalEditor>
+
+## 4. Error Handling Mistakes
+## 4. 错误处理错误
+
+### Pitfall: Ignoring Errors
+### 陷阱：忽略错误
+
+<UniversalEditor title="Error Handling - Java vs Go">
+```java !! java
+// Java - 异常可以被忽略（坏实践）
+public void readFile() {
+    try {
+        Files.readAllLines(Paths.get("file.txt"));
+    } catch (IOException e) {
+        // 空的 catch 块 - 静默失败
+    }
+}
+```
+
+```go !! go
+// Go - 必须显式处理错误
+func readFile() error {
+    data, err := os.ReadFile("file.txt")
+    if err != nil {
+        return err // 必须处理错误
+    }
+    fmt.Println(string(data))
+    return nil
+}
+
+// 错误：忽略错误
+func readFileBad() {
+    data, _ := os.ReadFile("file.txt") // 永远不要忽略错误！
+    fmt.Println(string(data))
+}
+
+// 常见陷阱：defer 中的错误
+func processFile(filename string) error {
+    f, err := os.Open(filename)
+    if err != nil {
+        return err
+    }
+    defer f.Close() // 无法检查这个错误！
+
+    // 更好：使用包装函数
+    defer func() {
+        if err := f.Close(); err != nil {
+            log.Printf("Error closing file: %v", err)
+        }
+    }()
+
+    return nil
+}
+```
+</UniversalEditor>
+
+### Pitfall: Wrapping Errors Incorrectly
+### 陷阱：错误包装不正确
+
+<UniversalEditor title="Error Wrapping">
+```java !! java
+// Java - 异常链
+try {
+    // ... 抛出异常的代码
+} catch (IOException e) {
+    throw new RuntimeException("Failed to process", e);
+}
+```
+
+```go !! go
+// Go - 正确的错误包装
+func processFile(path string) error {
+    f, err := os.Open(path)
+    if err != nil {
+        return fmt.Errorf("failed to open %s: %w", path, err)
+    }
+    defer f.Close()
+
+    // ... 处理 ...
+
+    return nil
+}
+
+// 常见错误：未包装上下文
+func processFileBad(path string) error {
+    f, err := os.Open(path)
+    if err != nil {
+        return err // 丢失了哪个文件的上下文！
+    }
+    defer f.Close()
+
+    return nil
+}
+```
+</UniversalEditor>
+
+## 5. Channel Misuse
+## 5. 通道误用
+
+### Pitfall: Forgetting to Close Channels
+### 陷阱：忘记关闭通道
+
+<UniversalEditor title="Channel Closing">
+```java !! java
+// Java - BlockingQueue 不需要显式关闭
+BlockingQueue<String> queue = new LinkedBlockingQueue<>();
+```
+
+```go !! go
+// Go - 通道必须由发送者关闭
+func producer(ch chan<- int) {
+    for i := 0; i < 10; i++ {
+        ch <- i
+    }
+    close(ch) // 关键：必须关闭以信号完成
+}
+
+func consumer(ch <-chan int) {
+    for value := range ch { // 通道关闭时循环终止
+        fmt.Println(value)
+    }
+}
+
+// 错误：消费者关闭通道
+func consumerBad(ch <-chan int) {
+    for value := range ch {
+        fmt.Println(value)
+    }
+    close(ch) // PANIC！不能关闭只接收通道
+}
+```
+</UniversalEditor>
+
+### Pitfall: Deadlock with Unbuffered Channels
+### 陷阱：无缓冲通道的死锁
+
+<UniversalEditor title="Channel Deadlock">
+```java !! java
+// Java - 同步块可能会死锁
+public synchronized void method1() {
+    // 持有锁
+    method2(); // 需要相同的锁 - 在 Java 中可行
+}
+
+public synchronized void method2() {
+    // 可重入锁 - 同一线程可以获取
+}
+```
+
+```go !! go
+// Go - goroutine 通信的死锁
+func main() {
+    ch := make(chan int) // 无缓冲
+
+    // 错误：死锁！
+    ch <- 42 // 阻塞 - 没有接收者
+    // 致命错误：所有 goroutine 都在休眠 - 死锁！
+}
+
+// 正确：准备好接收者
+func main() {
+    ch := make(chan int)
+
+    go func() {
+        ch <- 42
+    }()
+
+    value := <-ch
+    fmt.Println(value)
+}
+
+// 或使用缓冲通道
+func main() {
+    ch := make(chan int, 1) // 缓冲
+    ch <- 42 // 不阻塞
+    value := <-ch
+    fmt.Println(value)
+}
+```
+</UniversalEditor>
+
+### Pitfall: Sending Nil Values
+### 陷阱：发送 Nil 值
+
+<UniversalEditor title="Nil Channel Operations">
+```go !! go
+// Go - nil 通道可能有用但很棘手
+func main() {
+    var ch chan int // nil 通道
+
+    // 这些操作永远阻塞！
+    // ch <- 42     // 会阻塞
+    // value := <-ch // 会阻塞
+
+    // 用例：select 与 nil 通道
+    var send, receive chan int
+    receive = make(chan int)
+
+    go func() {
+        receive <- 42
+    }()
+
+    select {
+    case v := <-receive:
+        fmt.Println("Received:", v)
+    case send <- 42: // send 是 nil，所以这个 case 被跳过
+        fmt.Println("Sent") // 永远不执行
+    }
+}
+```
+</UniversalEditor>
+
+## 6. Variable Shadowing
+## 6. 变量遮蔽
+
+### Pitfall: Unintended Shadowing
+### 陷阱：意外的遮蔽
+
+<UniversalEditor title="Variable Shadowing">
+```java !! java
+// Java - 编译器警告遮蔽
+public class Shadow {
+    private int count = 0;
+
+    public void increment() {
+        int count = 5; // 警告：遮蔽字段
+        count++;
+    }
+}
+```
+
+```go !! go
+// Go - 遮蔽可能导致微妙的错误
+func process() error {
+    err := fmt.Errorf("initial error")
+
+    if true {
+        err := fmt.Errorf("new error") // 遮蔽外部 err！
+        // 这个 err 与外部 err 不同
+    }
+
+    return err // 返回 "initial error"，而不是 "new error"！
+}
+
+// 正确：不要使用 :=
+func processCorrect() error {
+    err := fmt.Errorf("initial error")
+
+    if true {
+        err = fmt.Errorf("new error") // 重新赋值外部 err
+    }
+
+    return err // 返回 "new error"
+}
+
+// for 循环中的常见陷阱
+func processItems(items []string) error {
+    var err error
+
+    for _, item := range items {
+        err := processItem(item) // 遮蔽外部 err！
+        if err != nil {
+            // 这里的错误处理不影响外部 err
+        }
+    }
+
+    return err // 总是 nil！
+}
+```
+</UniversalEditor>
+
+## 7. Map Safety
+## 7. Map 安全性
+
+### Pitfall: Concurrent Map Access
+### 陷阱：并发 Map 访问
+
+<UniversalEditor title="Concurrent Map Access">
+```java !! java
+// Java - ConcurrentHashMap 是线程安全的
+Map<String, Integer> map = new ConcurrentHashMap<>();
+
+// 多个线程可以安全访问
+map.put("key", 1);
+Integer value = map.get("key");
+```
+
+```go !! go
+// Go - 普通 map 不是线程安全的
+var m = make(map[string]int)
+
+// 错误：并发访问导致 panic
+go func() {
+    for i := 0; i < 1000; i++ {
+        m["key"] = i // PANIC: 并发 map 写入
+    }
+}()
+
+go func() {
+    for i := 0; i < 1000; i++ {
+        m["key"] = i // PANIC: 并发 map 写入
+    }
+}()
+
+// 解决方案 1：使用 mutex
+var (
+    mu sync.Mutex
+    m  = make(map[string]int)
+)
+
+func safeWrite(key string, value int) {
+    mu.Lock()
+    m[key] = value
+    mu.Unlock()
+}
+
+func safeRead(key string) int {
+    mu.Lock()
+    defer mu.Unlock()
+    return m[key]
+}
+
+// 解决方案 2：使用 sync.Map（用于特定用例）
+var m sync.Map
+
+m.Store("key", 42)
+if value, ok := m.Load("key"); ok {
+    fmt.Println(value.(int))
+}
+```
+</UniversalEditor>
+
+## 8. Defer Pitfalls
+## 8. Defer 陷阱
+
+### Pitfall: Defer Execution Order
+### 陷阱：Defer 执行顺序
+
+<UniversalEditor title="Defer Execution">
+```java !! java
+// Java - try-finally 按顺序执行
+public void process() {
+    try {
+        System.out.println("Processing");
+    } finally {
+        System.out.println("Cleanup");
+    }
+}
+```
+
+```go !! go
+// Go - defer 执行 LIFO（后进先出）
+func main() {
+    defer fmt.Println("First defer")
+    defer fmt.Println("Second defer")
+    defer fmt.Println("Third defer")
+
+    fmt.Println("Function body")
+
+    // 输出：
+    // Function body
+    // Third defer
+    // Second defer
+    // First defer
+}
+
+// 陷阱：defer 与循环变量
+func processFiles(files []string) error {
+    for _, file := range files {
+        f, err := os.Open(file)
+        if err != nil {
+            return err
+        }
+        defer f.Close() // 错误：所有关闭都在函数退出时发生！
+
+        // 处理文件...
+    }
+    // 所有文件保持打开状态直到函数返回！
+    return nil
+}
+
+// 正确：使用匿名函数
+func processFilesCorrect(files []string) error {
+    for _, file := range files {
+        if err := func() error {
+            f, err := os.Open(file)
+            if err != nil {
+                return err
+            }
+            defer f.Close() // 每次迭代后关闭
+
+            // 处理文件...
+            return nil
+        }(); err != nil {
+            return err
+        }
+    }
+    return nil
+}
+```
+</UniversalEditor>
+
+### Pitfall: Defer with Method Values
+### 陷阱：Defer 与方法值
+
+<UniversalEditor title="Defer Method Evaluation">
+```go !! go
+// Go - defer 中的参数立即被求值
+type Counter struct {
+    count int
+}
+
+func (c *Counter) Increment() {
+    c.count++
+}
+
+func (c *Counter) Value() int {
+    return c.count
+}
+
+func main() {
+    c := &Counter{count: 0}
+
+    defer fmt.Println(c.Value()) // 现在求值：打印 0
+
+    c.Increment()
+    c.Increment()
+
+    // 输出：0，而不是 2！
+}
+
+// 要正确地延迟方法调用
+func main() {
+    c := &Counter{count: 0}
+
+    defer func() {
+        fmt.Println(c.Value()) // 稍后求值：打印 2
+    }()
+
+    c.Increment()
+    c.Increment()
+}
+```
+</UniversalEditor>
+
+## 9. Goroutine Leaks
+## 9. Goroutine 泄漏
+
+### Pitfall: Goroutine Never Exiting
+### 陷阱：Goroutine 永不退出
+
+<UniversalEditor title="Goroutine Leaks">
+```java !! java
+// Java - 线程可以是守护线程或具有超时
+ExecutorService executor = Executors.newCachedThreadPool();
+Future<String> future = executor.submit(() -> {
+    // 长时间运行的任务
+    return "result";
+});
+
+try {
+    String result = future.get(1, TimeUnit.SECONDS);
+} catch (TimeoutException e) {
+    future.cancel(true); // 中断线程
+}
+```
+
+```go !! go
+// Go - Goroutine 泄漏很容易创建
+func leakyGoroutine() {
+    ch := make(chan int)
+
+    go func() {
+        value := <-ch // 永远等待
+        fmt.Println(value)
+    }()
+
+    // 函数返回，但 goroutine 仍在等待！
+    // Goroutine 泄漏！
+}
+
+// 正确：使用 context 进行取消
+func correctGoroutine(ctx context.Context) error {
+    ch := make(chan int)
+
+    done := make(chan struct{})
+    go func() {
+        select {
+        case value := <-ch:
+            fmt.Println(value)
+        case <-ctx.Done():
+            return // context 取消时退出
+        }
+        close(done)
+    }()
+
+    select {
+    case <-done:
+        return nil
+    case <-ctx.Done():
+        return ctx.Err()
+    }
+}
+
+// 或使用超时
+func withTimeout() error {
+    ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+    defer cancel()
+
+    return correctGoroutine(ctx)
+}
+```
+</UniversalEditor>
+
+## 10. String Encoding Pitfalls
+## 10. 字符串编码陷阱
+
+### Pitfall: String vs []byte
+### 陷阱：String vs []byte
+
+<UniversalEditor title="String Encoding">
+```java !! java
+// Java - Strings 是 UTF-16，bytes 是平台特定的
+String str = "Hello";
+byte[] bytes = str.getBytes(StandardCharsets.UTF_8);
+String decoded = new String(bytes, StandardCharsets.UTF_8);
+```
+
+```go !! go
+// Go - Strings 是只读的，bytes 是可变的
+func processString() {
+    s := "hello"
+
+    // 错误：不能对 Unicode 使用字符串字节索引
+    fmt.Println(s[0]) // 打印 104（ASCII 'h'），对 ASCII 有效
+    fmt.Println(s[0:1]) // "h"
+
+    // 对于 Unicode：使用 range
+    for i, r := range s {
+        fmt.Printf("%d: %c\n", i, r)
+    }
+
+    // 在 string 和 []byte 之间转换会创建副本
+    b := []byte(s) // 复制：堆分配
+    s2 := string(b) // 另一个复制
+
+    // 对于 []rune（Unicode 码点）
+    runes := []rune(s) // 使用 rune 转换复制
+}
+
+// 常见错误：通过 []byte "修改"字符串
+func modifyStringBad(s string) string {
+    b := []byte(s)
+    b[0] = 'H' // 修改副本，不是原始值
+    return string(b) // 创建新字符串
+}
+
+// 对于高效的字符串构建
+func buildString() string {
+    var b strings.Builder
+    for i := 0; i < 1000; i++ {
+        b.WriteString("text")
+    }
+    return b.String() // 高效：单次分配
+}
+```
+</UniversalEditor>
+
+## 11. Method Receiver Pitfalls
+## 11. 方法接收者陷阱
+
+### Pitfall: Value vs Pointer Receivers
+### 陷阱：值与指针接收者
+
+<UniversalEditor title="Method Receivers">
+```java !! java
+// Java - 方法总是在引用上
+public class Counter {
+    private int count;
+
+    public void increment() {
+        this.count++;
+    }
+
+    public int getValue() {
+        return this.count;
+    }
+}
+
+Counter c = new Counter();
+c.increment(); // 修改对象
+```
+
+```go !! go
+// Go - 值与指针接收者很重要
+type Counter struct {
+    count int
+}
+
+// 值接收者 - 获取副本
+func (c Counter) Increment() {
+    c.count++ // 修改副本，不是原始值！
+}
+
+// 指针接收者 - 修改原始值
+func (c *Counter) IncrementCorrect() {
+    c.count++ // 修改原始值
+}
+
+func main() {
+    c := Counter{count: 0}
+    c.Increment()        // 没有作用！
+    fmt.Println(c.count) // 仍然是 0
+
+    c.IncrementCorrect() // 有效
+    fmt.Println(c.count) // 现在是 1
+}
+
+// 陷阱：不一致
+type BadCounter struct {
+    count int
+}
+
+func (c BadCounter) Increment() {
+    c.count++
+}
+
+func (c *BadCounter) GetValue() int {
+    return c.count
+}
+
+// 令人困惑：有些方法使用指针，有些使用值
+// 最佳实践：保持一致 - 全部指针或全部值
+```
+</UniversalEditor>
+
+## 12. Interface Satisfaction
+## 12. 接口满足
+
+### Pitfall: Implicit Interface Satisfaction
+### 陷阱：隐式接口满足
+
+<UniversalEditor title="Interface Satisfaction">
+```java !! java
+// Java - 显式 implements 关键字
+public class MyReader implements Reader {
+    @Override
+    public int read(char[] cbuf) throws IOException {
+        return 0;
+    }
+
+    @Override
+    public void close() throws IOException {
+    }
+}
+```
+
+```go !! go
+// Go - 隐式满足可能导致错误
+type Reader interface {
+    Read([]byte) (int, error)
+}
+
+type MyReader struct{}
+
+// 错误：方法签名不匹配
+func (r MyReader) Read(p []byte) (int, error) {
+    return 0, nil
+}
+
+// 正确：指针接收者以匹配接口
+func (r *MyReader) Read(p []byte) (int, error) {
+    return 0, nil
+}
+
+// 陷阱：方法值与方法表达式
+func process() {
+    var r Reader = &MyReader{}
+
+    // 方法值 - 绑定到实例
+    fn1 := r.Read
+    fn1([]byte{}) // 有效
+
+    // 方法表达式 - 需要显式接收者
+    fn2 := (*MyReader).Read
+    fn2(&MyReader{}, []byte{}) // 也有效
+
+    // 容易混淆！
+}
+```
+</UniversalEditor>
+
+## Summary
+## 总结
+
+从 Java 过渡到 Go 时的常见陷阱：
+
+1. **Nil vs null**：Go 的 nil 更类型特定
+2. **Slice 陷阱**：理解后备数组和容量
+3. **Range 循环**：注意 goroutine 中的变量捕获
+4. **错误处理**：永远不要忽略错误，始终处理它们
+5. **通道**：记得关闭，避免死锁
+6. **遮蔽**：小心新作用域中的 `:=`
+7. **Maps**：使用 mutex 或 sync.Map 进行并发访问
+8. **Defer**：执行 LIFO，参数立即求值
+9. **Goroutine 泄漏**：始终提供取消机制
+10. **字符串编码**：使用 range 进行 Unicode 迭代
+11. **方法接收者**：理解值与指针
+12. **接口**：检查方法签名是否完全匹配
+
+## Practice Questions
+## 练习问题
+
+1. 为什么在某些情况下 `fmt.Println(interface{}(nil) == nil)` 返回 `false`？
+2. 使用通道时如何防止 goroutine 泄漏？
+3. `close(ch)` 和保持通道打开有什么区别？
+4. 为什么预分配切片容量可能会提高性能？
+5. Go 的错误处理与 Java 的异常有何不同？
+
+## Project Idea
+## 项目想法
+
+创建一个"Go 陷阱检测器"工具：
+- 扫描 Go 代码以查找常见陷阱
+- 为每个检测到的问题建议修复
+- 包括错误与正确代码的示例
+- 为每个陷阱提供解释
+
+## Next Steps
+## 下一步
+
+- **Module 11**：学习地道的 Go 模式和哲学
+- **Module 12**：性能优化技术
+- **Module 13**：部署和生产考虑
+- **Module 14**：构建一个完整的真实世界项目
+
+## Further Reading
+## 延伸阅读
+
+- [Go Common Mistakes](https://github.com/golang/go/wiki/CommonMistakes)
+- [Effective Go](https://go.dev/doc/effective_go)
+- [Go Code Review Comments](https://github.com/golang/go/wiki/CodeReviewComments)
+- [The Go Blog: Go Concurrency Patterns](https://go.dev/blog/concurrency-patterns)

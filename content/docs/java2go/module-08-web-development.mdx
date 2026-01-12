@@ -1,0 +1,883 @@
+---
+title: "Module 08: Web Development - Building HTTP Servers"
+description: "Master web development in Go with net/http. Compare with Java/Spring Boot, learn routing, JSON handling, middleware, and popular Go frameworks."
+---
+
+# Module 08: Web Development - Building HTTP Servers
+
+In this module, you'll learn how to build web applications in Go using the **net/http** package. You'll see how Go's approach to web development differs from Java's Spring Boot, often requiring less boilerplate and fewer dependencies.
+
+## Learning Objectives
+
+By the end of this module, you'll be able to:
+- Create HTTP servers with net/http
+- Implement routing and handlers
+- Handle JSON requests and responses
+- Create middleware
+- Compare Go's approach with Spring Boot
+- Use popular Go web frameworks (Gin, Echo)
+- Build RESTful APIs
+- Implement WebSocket support
+- Use template rendering
+
+## Background: Go vs Spring Boot
+
+### The Philosophy Difference
+
+**Java/Spring Boot:**
+- Heavy framework with many abstractions
+- Annotation-driven configuration
+- Dependency injection container
+- Auto-configuration and magic
+- Large memory footprint
+- Longer startup times
+
+**Go/net/http:**
+- Minimal standard library approach
+- Explicit code over configuration
+- No built-in dependency injection
+- Simple and predictable
+- Small memory footprint
+- Fast startup and execution
+
+<UniversalEditor title="Hello Web Server: Java vs Go">
+```java !! java
+// Java: Spring Boot REST controller
+import org.springframework.boot.*;
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@SpringBootApplication
+public class HelloApplication {
+    @GetMapping("/hello")
+    public String hello() {
+        return "Hello, World!";
+    }
+
+    @GetMapping("/hello/{name}")
+    public String helloName(@PathVariable String name) {
+        return "Hello, " + name + "!";
+    }
+
+    public static void main(String[] args) {
+        SpringApplication.run(HelloApplication.class, args);
+    }
+}
+```
+
+```go !! go
+// Go: Standard library HTTP server
+package main
+
+import (
+	"fmt"
+	"net/http"
+)
+
+func helloHandler(w http.ResponseWriter, r *http.Request) {
+	fmt.Fprint(w, "Hello, World!")
+}
+
+func helloNameHandler(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	fmt.Fprintf(w, "Hello, %s!", name)
+}
+
+func main() {
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("GET /hello", helloHandler)
+	mux.HandleFunc("GET /hello/{name}", helloNameHandler)
+
+	fmt.Println("Server starting on :8080")
+	http.ListenAndServe(":8080", mux)
+}
+```
+</UniversalEditor>
+
+## Basic HTTP Server
+
+### Creating a Simple Server
+
+<UniversalEditor title="Basic HTTP Server">
+```java !! java
+// Java: Basic Spring Boot application
+import org.springframework.boot.*;
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequestMapping("/api")
+public class BasicController {
+
+    @GetMapping("/ping")
+    public String ping() {
+        return "pong";
+    }
+
+    @GetMapping("/health")
+    public Map<String, String> health() {
+        Map<String, String> status = new HashMap<>();
+        status.put("status", "UP");
+        return status;
+    }
+
+    public static void main(String[] args) {
+        SpringApplication.run(BasicController.class, args);
+    }
+}
+```
+
+```go !! go
+// Go: Basic HTTP server
+package main
+
+import (
+	"encoding/json"
+	"net/http"
+)
+
+func pingHandler(w http.ResponseWriter, r *http.Request) {
+	fmt.Fprint(w, "pong")
+}
+
+func healthHandler(w http.ResponseWriter, r *http.Request) {
+	response := map[string]string{
+		"status": "UP",
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+func main() {
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("GET /api/ping", pingHandler)
+	mux.HandleFunc("GET /api/health", healthHandler)
+
+	fmt.Println("Server starting on :8080")
+	http.ListenAndServe(":8080", mux)
+}
+```
+</UniversalEditor>
+
+## Routing and Handlers
+
+### Path Variables and Query Parameters
+
+<UniversalEditor title="Routing Patterns">
+```java !! java
+// Java: Spring Boot routing
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequestMapping("/users")
+public class UserController {
+
+    @GetMapping
+    public List<User> getUsers(
+        @RequestParam(defaultValue = "0") int page,
+        @RequestParam(defaultValue = "10") int size
+    ) {
+        return userService.getUsers(page, size);
+    }
+
+    @GetMapping("/{id}")
+    public User getUser(@PathVariable Long id) {
+        return userService.getById(id);
+    }
+
+    @PostMapping
+    public User createUser(@RequestBody User user) {
+        return userService.save(user);
+    }
+
+    @PutMapping("/{id}")
+    public User updateUser(
+        @PathVariable Long id,
+        @RequestBody User user
+    ) {
+        return userService.update(id, user);
+    }
+
+    @DeleteMapping("/{id}")
+    public void deleteUser(@PathVariable Long id) {
+        userService.delete(id);
+    }
+}
+```
+
+```go !! go
+// Go: HTTP routing
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"strconv"
+)
+
+type User struct {
+	ID    int    `json:"id"`
+	Name  string `json:"name"`
+	Email string `json:"email"`
+}
+
+func getUsersHandler(w http.ResponseWriter, r *http.Request) {
+	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	size, _ := strconv.Atoi(r.URL.Query().Get("size"))
+
+	if page == 0 {
+		page = 1
+	}
+	if size == 0 {
+		size = 10
+	}
+
+	users := []User{
+		{ID: 1, Name: "Alice", Email: "alice@example.com"},
+		{ID: 2, Name: "Bob", Email: "bob@example.com"},
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(users)
+}
+
+func getUserHandler(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	id, _ := strconv.Atoi(idStr)
+
+	user := User{ID: id, Name: "Alice", Email: "alice@example.com"}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(user)
+}
+
+func main() {
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("GET /users", getUsersHandler)
+	mux.HandleFunc("GET /users/{id}", getUserHandler)
+
+	fmt.Println("Server starting on :8080")
+	http.ListenAndServe(":8080", mux)
+}
+```
+</UniversalEditor>
+
+## JSON Handling
+
+### Request and Response with JSON
+
+<UniversalEditor title="JSON Handling">
+```java !! java
+// Java: JSON with Spring Boot
+import org.springframework.web.bind.annotation.*;
+import com.fasterxml.jackson.annotation.*;
+
+@RestController
+@RequestMapping("/api")
+public class JsonController {
+
+    static class CreateUserRequest {
+        private String name;
+        private String email;
+
+        // Getters and setters
+        public String getName() { return name; }
+        public void setName(String name) { this.name = name; }
+        public String getEmail() { return email; }
+        public void setEmail(String email) { this.email = email; }
+    }
+
+    @PostMapping("/users")
+    public ResponseEntity<User> createUser(@RequestBody CreateUserRequest request) {
+        User user = new User();
+        user.setName(request.getName());
+        user.setEmail(request.getEmail());
+        user.setId(1L);
+
+        return ResponseEntity.status(HttpStatus.CREATED).body(user);
+    }
+}
+```
+
+```go !! go
+// Go: JSON handling
+package main
+
+import (
+	"encoding/json"
+	"net/http"
+)
+
+type CreateUserRequest struct {
+	Name  string `json:"name"`
+	Email string `json:"email"`
+}
+
+type User struct {
+	ID    int    `json:"id"`
+	Name  string `json:"name"`
+	Email string `json:"email"`
+}
+
+func createUserHandler(w http.ResponseWriter, r *http.Request) {
+	var req CreateUserRequest
+
+	// Decode JSON request
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Create user
+	user := User{
+		ID:    1,
+		Name:  req.Name,
+		Email: req.Email,
+	}
+
+	// Encode JSON response
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(user)
+}
+
+func main() {
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/users", createUserHandler)
+
+	http.ListenAndServe(":8080", mux)
+}
+```
+</UniversalEditor>
+
+## Middleware
+
+### Logging, Authentication, CORS
+
+<UniversalEditor title="Middleware Implementation">
+```java !! java
+// Java: Spring Boot filters/interceptors
+import org.springframework.web.filter.*;
+import javax.servlet.*;
+import javax.servlet.http.HttpServletResponse;
+import java.io.IOException;
+
+@Component
+public class LoggingFilter extends OncePerRequestFilter {
+    @Override
+    protected void doFilterInternal(
+        HttpServletRequest request,
+        HttpServletResponse response,
+        FilterChain filterChain
+    ) throws ServletException, IOException {
+
+        System.out.println(request.getMethod() + " " + request.getRequestURI());
+
+        long start = System.currentTimeMillis();
+
+        filterChain.doFilter(request, response);
+
+        long duration = System.currentTimeMillis() - start;
+        response.setHeader("X-Response-Time", String.valueOf(duration));
+    }
+}
+
+@Component
+public class CorsFilter implements Filter {
+    @Override
+    public void doFilter(
+        ServletRequest request,
+        ServletResponse response,
+        FilterChain chain
+    ) throws IOException, ServletException {
+
+        HttpServletResponse httpResponse = (HttpServletResponse) response;
+        httpResponse.setHeader("Access-Control-Allow-Origin", "*");
+        httpResponse.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE");
+        chain.doFilter(request, response);
+    }
+}
+```
+
+```go !! go
+// Go: Middleware functions
+package main
+
+import (
+	"log"
+	"net/http"
+	"time"
+)
+
+// Logging middleware
+func loggingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+
+		log.Printf("%s %s", r.Method, r.URL.Path)
+
+		// Call next handler
+		next.ServeHTTP(w, r)
+
+		duration := time.Since(start)
+		w.Header().Set("X-Response-Time", duration.String())
+	})
+}
+
+// CORS middleware
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+// Authentication middleware
+func authMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		token := r.Header.Get("Authorization")
+
+		if token == "" {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		// Validate token (simplified)
+		if token != "Bearer valid-token" {
+			http.Error(w, "Invalid token", http.StatusUnauthorized)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+func main() {
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("GET /public", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "Public endpoint")
+	})
+
+	mux.HandleFunc("GET /protected", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "Protected endpoint")
+	})
+
+	// Apply middleware
+	handler := loggingMiddleware(corsMiddleware(mux))
+
+	fmt.Println("Server starting on :8080")
+	http.ListenAndServe(":8080", handler)
+}
+```
+</UniversalEditor>
+
+## Go Web Frameworks
+
+### Using Gin Framework
+
+<UniversalEditor title="Spring Boot vs Gin">
+```java !! java
+// Java: Spring Boot REST controller
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequestMapping("/api/products")
+public class ProductController {
+
+    @Autowired
+    private ProductService productService;
+
+    @GetMapping
+    public List<Product> getAllProducts() {
+        return productService.findAll();
+    }
+
+    @GetMapping("/{id}")
+    public Product getProduct(@PathVariable Long id) {
+        return productService.findById(id);
+    }
+
+    @PostMapping
+    @ResponseStatus(HttpStatus.CREATED)
+    public Product createProduct(@RequestBody Product product) {
+        return productService.save(product);
+    }
+
+    @PutMapping("/{id}")
+    public Product updateProduct(
+        @PathVariable Long id,
+        @RequestBody Product product
+    ) {
+        return productService.update(id, product);
+    }
+
+    @DeleteMapping("/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteProduct(@PathVariable Long id) {
+        productService.delete(id);
+    }
+}
+```
+
+```go !! go
+// Go: Gin framework
+package main
+
+import (
+	"net/http"
+
+	"github.com/gin-gonic/gin"
+)
+
+type Product struct {
+	ID    int     `json:"id"`
+	Name  string  `json:"name"`
+	Price float64 `json:"price"`
+}
+
+var products = []Product{
+	{ID: 1, Name: "Laptop", Price: 999.99},
+	{ID: 2, Name: "Mouse", Price: 29.99},
+}
+
+func getAllProducts(c *gin.Context) {
+	c.JSON(http.StatusOK, products)
+}
+
+func getProduct(c *gin.Context) {
+	id := c.Param("id")
+
+	for _, product := range products {
+		if product.ID == atoi(id) {
+			c.JSON(http.StatusOK, product)
+			return
+		}
+	}
+
+	c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
+}
+
+func createProduct(c *gin.Context) {
+	var newProduct Product
+
+	if err := c.ShouldBindJSON(&newProduct); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	newProduct.ID = len(products) + 1
+	products = append(products, newProduct)
+
+	c.JSON(http.StatusCreated, newProduct)
+}
+
+func main() {
+	r := gin.Default()
+
+	// Middleware
+	r.Use(corsMiddleware())
+
+	// Routes
+	api := r.Group("/api/products")
+	{
+		api.GET("", getAllProducts)
+		api.GET("/:id", getProduct)
+		api.POST("", createProduct)
+		api.PUT("/:id", updateProduct)
+		api.DELETE("/:id", deleteProduct)
+	}
+
+	r.Run(":8080")
+}
+```
+</UniversalEditor>
+
+### Using Echo Framework
+
+<UniversalEditor title="Echo Framework Example">
+```go !! go
+// Go: Echo framework
+package main
+
+import (
+	"net/http"
+
+	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v4/middleware"
+)
+
+type User struct {
+	ID    int    `json:"id"`
+	Name  string `json:"name"`
+	Email string `json:"email"`
+}
+
+func main() {
+	e := echo.New()
+
+	// Middleware
+	e.Use(middleware.Logger())
+	e.Use(middleware.Recover())
+	e.Use(middleware.CORS())
+
+	// Routes
+	e.GET("/users", getUsers)
+	e.GET("/users/:id", getUser)
+	e.POST("/users", createUser)
+	e.PUT("/users/:id", updateUser)
+	e.DELETE("/users/:id", deleteUser)
+
+	e.Logger.Fatal(e.Start(":8080"))
+}
+
+func getUsers(c echo.Context) error {
+	users := []User{
+		{ID: 1, Name: "Alice", Email: "alice@example.com"},
+	}
+	return c.JSON(http.StatusOK, users)
+}
+
+func getUser(c echo.Context) error {
+	id := c.Param("id")
+	user := User{ID: atoi(id), Name: "Alice"}
+	return c.JSON(http.StatusOK, user)
+}
+
+func createUser(c echo.Context) error {
+	u := new(User)
+	if err := c.Bind(u); err != nil {
+		return err
+	}
+
+	u.ID = 1
+	return c.JSON(http.StatusCreated, u)
+}
+```
+</UniversalEditor>
+
+## Complete REST API Example
+
+### Building a Complete API
+
+<UniversalEditor title="Complete REST API">
+```java !! java
+// Java: Complete Spring Boot REST API
+import org.springframework.boot.*;
+import org.springframework.web.bind.annotation.*;
+import javax.persistence.*;
+import java.util.*;
+
+@Entity
+class Todo {
+    @Id
+    @GeneratedValue
+    private Long id;
+    private String title;
+    private boolean completed;
+
+    // Getters and setters
+}
+
+@RestController
+@RequestMapping("/api/todos")
+public class TodoController {
+
+    @Autowired
+    private TodoRepository todoRepository;
+
+    @GetMapping
+    public List<Todo> getAllTodos() {
+        return todoRepository.findAll();
+    }
+
+    @PostMapping
+    public Todo createTodo(@RequestBody Todo todo) {
+        return todoRepository.save(todo);
+    }
+
+    @PutMapping("/{id}")
+    public Todo updateTodo(@PathVariable Long id, @RequestBody Todo todo) {
+        todo.setId(id);
+        return todoRepository.save(todo);
+    }
+
+    @DeleteMapping("/{id}")
+    public void deleteTodo(@PathVariable Long id) {
+        todoRepository.deleteById(id);
+    }
+}
+```
+
+```go !! go
+// Go: Complete REST API with net/http
+package main
+
+import (
+	"encoding/json"
+	"net/http"
+	"sync"
+)
+
+type Todo struct {
+	ID        int    `json:"id"`
+	Title     string `json:"title"`
+	Completed bool   `json:"completed"`
+}
+
+type TodoStore struct {
+	mu     sync.RWMutex
+	todos  map[int]*Todo
+	nextID int
+}
+
+func NewTodoStore() *TodoStore {
+	return &TodoStore{
+		todos:  make(map[int]*Todo),
+		nextID: 1,
+	}
+}
+
+func (s *TodoStore) GetAll() []*Todo {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	todos := make([]*Todo, 0, len(s.todos))
+	for _, todo := range s.todos {
+		todos = append(todos, todo)
+	}
+	return todos
+}
+
+func (s *TodoStore) Create(title string) *Todo {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	todo := &Todo{
+		ID:        s.nextID,
+		Title:     title,
+		Completed: false,
+	}
+	s.todos[todo.ID] = todo
+	s.nextID++
+
+	return todo
+}
+
+func (s *TodoStore) Update(id int, title string, completed bool) *Todo {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	todo := s.todos[id]
+	if todo == nil {
+		return nil
+	}
+
+	todo.Title = title
+	todo.Completed = completed
+	return todo
+}
+
+func (s *TodoStore) Delete(id int) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, exists := s.todos[id]; !exists {
+		return false
+	}
+
+	delete(s.todos, id)
+	return true
+}
+
+var store = NewTodoStore()
+
+func getAllTodosHandler(w http.ResponseWriter, r *http.Request) {
+	todos := store.GetAll()
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(todos)
+}
+
+func createTodoHandler(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Title string `json:"title"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	todo := store.Create(req.Title)
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(todo)
+}
+
+func main() {
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("GET /api/todos", getAllTodosHandler)
+	mux.HandleFunc("POST /api/todos", createTodoHandler)
+
+	fmt.Println("Server starting on :8080")
+	http.ListenAndServe(":8080", mux)
+}
+```
+</UniversalEditor>
+
+## Practice Questions
+
+1. **Simplicity**: What makes Go's web development approach simpler than Spring Boot?
+
+2. **Dependencies**: Why might you choose Go's standard library over a framework like Gin?
+
+3. **Performance**: How does Go's concurrency model benefit web applications?
+
+4. **Middleware**: How does Go's middleware pattern compare to Spring's filters and interceptors?
+
+## Project Ideas
+
+1. **RESTful Blog API**: Build a complete blog API with posts, comments, and tags
+
+2. **Task Management System**: Create a task manager with CRUD operations and authentication
+
+3. **Real-time Chat**: Implement a WebSocket chat server
+
+4. **File Upload Service**: Build a file upload and download service
+
+5. **URL Shortener**: Create a URL shortening service with analytics
+
+## Next Steps
+
+Now that you understand web development in Go:
+
+- **Next Module**: Learn about **Testing** in Go
+- **Practice**: Build RESTful APIs using net/http and frameworks
+- **Explore**: Study Go's template system for HTML rendering
+- **Deploy**: Learn to deploy Go web applications
+
+## Summary
+
+**Go vs Spring Boot for Web Development:**
+- Go requires less boilerplate and configuration
+- Standard library (net/http) is production-ready
+- Simpler deployment (single binary)
+- Better performance and lower memory usage
+- Concurrency built into the language
+
+**Key Takeaway**: Go's approach to web development prioritizes simplicity and performance over framework magic. The standard library's net/http package provides everything you need to build production web services, while frameworks like Gin and Echo offer additional features when needed.

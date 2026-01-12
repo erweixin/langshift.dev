@@ -1,0 +1,146 @@
+---
+title: "模組 19：最佳實踐和慣用 Go"
+---
+
+最後一個模組涵蓋 Go 的最佳實踐和慣用模式，與 Java 約定進行比較。
+
+## 程式碼風格和約定
+
+**Java 約定：**
+- 類別和方法使用駝峰命名
+- 類別使用 PascalCase，方法使用 camelCase
+- 大量使用 getter/setter
+- 註解驅動的設定
+- 大量使用繼承
+
+**Go 約定：**
+- 匯出使用 PascalCase，未匯出使用 camelCase
+- 無 getter/setter 模式
+- 基於介面的設計
+- 組合優於繼承
+- 顯式優於隱式
+
+<UniversalEditor title="命名約定">
+```java !! java
+// Java: 命名約定
+public class UserService {
+
+    private UserRepository userRepository;
+
+    @Autowired
+    public UserService(UserRepository userRepository) {
+        this.userRepository = userRepository;
+    }
+
+    public User getUserById(Long userId) {
+        return userRepository.findById(userId)
+            .orElseThrow(() -> new UserNotFoundException(userId));
+    }
+}
+```
+
+```go !! go
+// Go: 命名約定
+package user
+
+type Service struct {  // 匯出使用 PascalCase
+    repo   Repository
+    logger Logger
+}
+
+func NewService(repo Repository, logger Logger) *Service {
+    return &Service{
+        repo:   repo,
+        logger: logger,
+    }
+}
+
+func (s *Service) GetUserByID(id uint) (*User, error) {
+    return s.repo.FindByID(id)
+}
+
+// 不需要 getter/setter
+// 匯出的欄位可以直接存取
+```
+</UniversalEditor>
+
+## 錯誤處理
+
+<UniversalEditor title="錯誤處理模式">
+```java !! java
+// Java: 基於例外的錯誤處理
+public class UserService {
+
+    public User getUser(Long id) {
+        try {
+            return userRepository.findById(id)
+                .orElseThrow(() -> new UserNotFoundException(id));
+        } catch (DataAccessException e) {
+            throw new ServiceException("Failed to access database", e);
+        }
+    }
+}
+```
+
+```go !! go
+// Go: 錯誤傳回值
+package user
+
+import (
+    "errors"
+    "fmt"
+)
+
+var (
+    ErrUserNotFound    = errors.New("user not found")
+    ErrDuplicateEmail  = errors.New("email already exists")
+)
+
+func (s *Service) GetUser(id uint) (*User, error) {
+    user, err := s.repo.FindByID(id)
+    if err != nil {
+        if errors.Is(err, gorm.ErrRecordNotFound) {
+            return nil, fmt.Errorf("%w: %d", ErrUserNotFound, id)
+        }
+        return nil, fmt.Errorf("failed to find user: %w", err)
+    }
+
+    return user, nil
+}
+
+// 使用上下文包裝錯誤
+func (s *Service) ProcessUser(id uint) error {
+    user, err := s.GetUser(id)
+    if err != nil {
+        return fmt.Errorf("process user: %w", err)
+    }
+
+    return nil
+}
+```
+</UniversalEditor>
+
+---
+
+### Go 最佳實踐總結：
+
+1. **保持簡單** - 避免過度工程
+2. **錯誤是值** - 顯式處理它們
+3. **使用組合** - 優於繼承
+4. **接受介面，傳回結構體** - 在使用處定義介面
+5. **少即是多** - 有效的極簡程式碼更好
+6. **徹底測試** - 表驅動測試是慣用的
+7. **優化前先分析** - 先測量
+8. **明智使用 goroutine** - 不要建立太多
+9. **正確處理資源** - defer 清理
+10. **遵循標準約定** - 使用 go fmt 和標準佈局
+
+### 恭喜！
+
+您已完成 Java 到 Go 的學習路徑！
+
+### 下一步：
+- 用 Go 建構真實專案
+- 為開源 Go 專案貢獻
+- 探索進階 Go 主題
+- 加入 Go 社群

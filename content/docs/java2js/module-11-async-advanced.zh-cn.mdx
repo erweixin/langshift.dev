@@ -1,0 +1,734 @@
+---
+title: "模块 11:异步编程进阶"
+description: "掌握 Promises、async/await 和现代异步模式"
+---
+
+## 模块 11:异步编程进阶
+
+既然你已经理解了回调,让我们探索 Promises 和 async/await - 让异步代码更易管理和可读的现代 JavaScript 特性。
+
+## 学习目标
+
+完成本模块后,你将:
+✅ 掌握 Promises 和 promise 链
+✅ 学习 async/await 语法
+✅ 理解使用 promises 处理错误
+✅ 了解 Promise.all、Promise.race、Promise.allSettled
+✅ 学习将回调转换为 promises
+✅ 掌握现代异步模式和最佳实践
+
+## Promises: Java vs JavaScript
+
+<UniversalEditor title="异步比较">
+```java !! java
+// Java - CompletableFuture
+CompletableFuture<String> future = CompletableFuture.supplyAsync(() -> {
+    try {
+        Thread.sleep(1000);
+        return "Data";
+    } catch (InterruptedException e) {
+        throw new RuntimeException(e);
+    }
+});
+
+future.thenAccept(data -> System.out.println("Received: " + data))
+       .exceptionally(error -> {
+           System.err.println("Error: " + error);
+           return null;
+       });
+```
+
+```javascript !! js
+// JavaScript - Promises
+const promise = new Promise((resolve, reject) => {
+    setTimeout(() => {
+        resolve("Data");
+        // 或: reject(new Error("Failed"));
+    }, 1000);
+});
+
+promise
+    .then(data => console.log("Received:", data))
+    .catch(error => console.error("Error:", error));
+
+// 现代:async/await
+async function fetchData() {
+    try {
+        const data = await promise;
+        console.log("Received:", data);
+    } catch (error) {
+        console.error("Error:", error);
+    }
+}
+```
+</UniversalEditor>
+
+## 创建 Promises
+
+<UniversalEditor title="创建 Promises">
+```javascript !! js
+// 基本 promise 构造函数
+function fetchUser(id) {
+    return new Promise((resolve, reject) => {
+        setTimeout(() => {
+            if (id > 0) {
+                resolve({ id, name: "User " + id });
+            } else {
+                reject(new Error("Invalid user ID"));
+            }
+        }, 1000);
+    });
+}
+
+// 使用 promise
+fetchUser(1)
+    .then(user => console.log("User:", user))
+    .catch(error => console.error("Error:", error.message));
+
+// Promise 状态:
+// - Pending:初始状态
+// - Fulfilled:操作成功完成
+// - Rejected:操作失败
+// - Settled:已兑现或已拒绝(最终)
+
+// 一旦 settled,无法更改状态
+const promise = new Promise((resolve, reject) => {
+    resolve("Success");
+    reject("Fail");  // 被忽略 - 已 settled
+});
+
+// Promises 是急切的(立即执行)
+const eager = new Promise(resolve => {
+    console.log("Executing now!");  // 立即运行
+    resolve("Done");
+});
+
+console.log("After creation");
+// 输出:
+// Executing now!
+// After creation
+
+// 延迟执行,包装在函数中
+function createDeferredPromise() {
+    return new Promise(resolve => {
+        console.log("Executing when called");
+        resolve("Done");
+    });
+}
+
+// 延迟执行
+const lazy = createDeferredPromise();  // 只在调用时执行
+```
+</UniversalEditor>
+
+## Promise 链
+
+<UniversalEditor title="Promise 链">
+```java !! java
+// Java - CompletableFuture 链
+CompletableFuture.supplyAsync(() -> getUser(id))
+    .thenCompose(user -> getOrders(user.id))
+    .thenApply(orders -> processOrders(orders))
+    .thenAccept(processed -> System.out.println(processed));
+```
+
+```javascript !! js
+// JavaScript - Promise 链
+fetchUser(1)
+    .then(user => {
+        console.log("User:", user);
+        return getOrders(user.id);  // 返回 promise
+    })
+    .then(orders => {
+        console.log("Orders:", orders);
+        return getOrderItems(orders[0].id);
+    })
+    .then(items => {
+        console.log("Items:", items);
+    })
+    .catch(error => {
+        console.error("Error:", error);
+    });
+
+// 每个 then() 返回新 promise
+Promise.resolve(1)
+    .then(value => {
+        console.log(value);  // 1
+        return value + 1;
+    })
+    .then(value => {
+        console.log(value);  // 2
+        return value + 1;
+    })
+    .then(value => {
+        console.log(value);  // 3
+    });
+
+// 返回非 promise 值
+Promise.resolve(10)
+    .then(value => {
+        return value * 2;  // 自动包装在 promise 中
+    })
+    .then(value => {
+        console.log(value);  // 20
+    });
+
+// 在 then() 中抛出触发 catch
+Promise.resolve()
+    .then(() => {
+        throw new Error("Failed");
+    })
+    .catch(error => {
+        console.error(error.message);  // "Failed"
+    });
+```
+</UniversalEditor>
+
+## Async/Await
+
+Async/await 是 promises 的语法糖:
+
+<UniversalEditor title="Async/Await">
+```java !! java
+// Java - 看起来同步的异步代码
+public String fetchData() {
+    try {
+        // 看起来同步但阻塞线程
+        String result = future.get();
+        return result;
+    } catch (Exception e) {
+        throw new RuntimeException(e);
+    }
+}
+```
+
+```javascript !! js
+// JavaScript - Async/await(非阻塞)
+async function fetchData() {
+    try {
+        const response = await fetch("/api/data");
+        const data = await response.json();
+        return data;
+    } catch (error) {
+        console.error("Error:", error);
+        throw error;
+    }
+}
+
+// 使用
+fetchData().then(data => console.log(data));
+
+// async 总是返回 Promise
+async function fn() {
+    return "Value";  // 自动包装在 Promise 中
+}
+
+fn().then(value => console.log(value));  // "Value"
+
+// await 暂停函数执行(非阻塞)
+async function example() {
+    console.log("Start");
+
+    const result1 = await Promise.resolve(1);
+    console.log("After first await:", result1);
+
+    const result2 = await Promise.resolve(2);
+    console.log("After second await:", result2);
+
+    return "Done";
+}
+
+example().then(console.log);
+// 输出:
+// Start
+// After first await: 1
+// After second await: 2
+// Done
+
+// 使用 Promise.all 并行执行
+async function fetchMultiple() {
+    const [user, posts, comments] = await Promise.all([
+        fetchUser(1),
+        fetchPosts(1),
+        fetchComments(1)
+    ]);
+
+    return { user, posts, comments };
+}
+
+// 顺序 vs 并行
+// 顺序(慢 - ~3 秒)
+async function sequential() {
+    const a = await delay(1000, "A");
+    const b = await delay(1000, "B");
+    const c = await delay(1000, "C");
+    return [a, b, c];
+}
+
+// 并行(快 - ~1 秒)
+async function parallel() {
+    const [a, b, c] = await Promise.all([
+        delay(1000, "A"),
+        delay(1000, "B"),
+        delay(1000, "C")
+    ]);
+    return [a, b, c];
+}
+
+function delay(ms, value) {
+    return new Promise(resolve => setTimeout(() => resolve(value), ms));
+}
+```
+</UniversalEditor>
+
+## 错误处理
+
+<UniversalEditor title="错误处理">
+```java !! java
+// Java - Try-catch 与 CompletableFuture
+CompletableFuture.supplyAsync(() -> {
+    if (error) {
+        throw new RuntimeException("Failed");
+    }
+    return "Success";
+})
+.exceptionally(error -> {
+    System.err.println("Error: " + error.getMessage());
+    return null;  // 回退值
+});
+```
+
+```javascript !! js
+// JavaScript - Promise 错误处理
+
+// .catch() 处理任何拒绝
+Promise.reject(new Error("Failed"))
+    .catch(error => {
+        console.error("Caught:", error.message);
+    });
+
+// 异步函数中的 try-catch
+async function handleError() {
+    try {
+        const data = await riskyOperation();
+        return data;
+    } catch (error) {
+        console.error("Error:", error);
+        return null;  // 回退
+    }
+}
+
+// .then(null, error) 与 .catch(error) 相同
+Promise.reject("error")
+    .then(null, error => {
+        console.error("Caught:", error);
+    });
+
+// .finally() 总是运行
+Promise.resolve("value")
+    .then(value => {
+        console.log("Value:", value);
+        throw new Error("Failed");
+    })
+    .catch(error => {
+        console.error("Error:", error.message);
+    })
+    .finally(() => {
+        console.log("Cleanup");  // 总是运行
+    });
+
+// 实用:资源清理
+async function withResource(callback) {
+    const resource = acquireResource();
+    try {
+        return await callback(resource);
+    } finally {
+        resource.release();  // 总是清理
+    }
+}
+
+// 多个错误处理器
+Promise.resolve()
+    .then(() => {
+        throw new Error("Error 1");
+    })
+    .catch(error => {
+        console.error("First catch:", error.message);
+        return "Recovered";  // 从错误恢复
+    })
+    .then(value => {
+        console.log("Continue:", value);  // 运行因为错误已处理
+    });
+```
+</UniversalEditor>
+
+## Promise 组合器
+
+<UniversalEditor title="Promise 组合器">
+```java !! java
+// Java - CompletableFuture 组合器
+CompletableFuture<String> f1 = CompletableFuture.supplyAsync(() -> "A");
+CompletableFuture<String> f2 = CompletableFuture.supplyAsync(() -> "B");
+
+// 所有必须完成
+CompletableFuture<Void> all = CompletableFuture.allOf(f1, f2);
+
+// 任何一个完成
+CompletableFuture<Object> any = CompletableFuture.anyOf(f1, f2);
+```
+
+```javascript !! js
+// JavaScript - Promise 组合器
+
+// Promise.all:所有必须兑现(或任何一个拒绝)
+const p1 = Promise.resolve(1);
+const p2 = Promise.resolve(2);
+const p3 = Promise.resolve(3);
+
+Promise.all([p1, p2, p3])
+    .then(values => {
+        console.log(values);  // [1, 2, 3]
+    })
+    .catch(error => {
+        console.error("One failed:", error);
+    });
+
+// 实用:获取多个资源
+async function fetchDashboard() {
+    const [user, posts, stats] = await Promise.all([
+        fetchUser(1),
+        fetchPosts(1),
+        fetchStats()
+    ]);
+
+    return { user, posts, stats };
+}
+
+// Promise.race:第一个 settled 的获胜
+const slow = new Promise(resolve => setTimeout(() => resolve("Slow"), 1000));
+const fast = new Promise(resolve => setTimeout(() => resolve("Fast"), 100));
+
+Promise.race([slow, fast])
+    .then(value => {
+        console.log(value);  // "Fast"
+    });
+
+// 实用:使用 race 的超时
+function fetchWithTimeout(url, timeout = 5000) {
+    return Promise.race([
+        fetch(url),
+        new Promise((_, reject) =>
+            setTimeout(() => reject(new Error("Timeout")), timeout)
+        )
+    ]);
+}
+
+// Promise.allSettled:所有 settle,拒绝不会失败
+const promise1 = Promise.resolve(1);
+const promise2 = Promise.reject("Error");
+const promise3 = Promise.resolve(3);
+
+Promise.allSettled([promise1, promise2, promise3])
+    .then(results => {
+        results.forEach(result => {
+            if (result.status === "fulfilled") {
+                console.log("Value:", result.value);
+            } else {
+                console.error("Reason:", result.reason);
+            }
+        });
+    });
+
+// Promise.any:第一个兑现获胜(所有拒绝都失败)
+try {
+    const first = await Promise.any([
+        Promise.reject("Error 1"),
+        Promise.reject("Error 2"),
+        Promise.resolve("Success")
+    ]);
+    console.log(first);  // "Success"
+} catch (error) {
+    console.error("All rejected:", error);
+}
+```
+</UniversalEditor>
+
+## 将回调转换为 Promises
+
+<UniversalEditor title="Promise 包装">
+```javascript !! js
+// 在 Promise 中包装基于回调的函数
+function promisify(fn) {
+    return function(...args) {
+        return new Promise((resolve, reject) => {
+            fn(...args, (error, result) => {
+                if (error) {
+                    reject(error);
+                } else {
+                    resolve(result);
+                }
+            });
+        });
+    };
+}
+
+// Node.js util.promisify(内置)
+const fs = require("fs").promises;
+
+// 之前(回调)
+fs.readFile("data.txt", (error, data) => {
+    if (error) throw error;
+    console.log(data);
+});
+
+// 之后(promise)
+fs.readFile("data.txt")
+    .then(data => console.log(data))
+    .catch(error => console.error(error));
+
+// 或 async/await
+async function readFile() {
+    try {
+        const data = await fs.readFile("data.txt");
+        console.log(data);
+    } catch (error) {
+        console.error(error);
+    }
+}
+
+// 手动 promise 包装器
+function readFile(path) {
+    return new Promise((resolve, reject) => {
+        fs.readFile(path, (error, data) => {
+            if (error) {
+                reject(error);
+            } else {
+                resolve(data);
+            }
+        });
+    });
+}
+
+// 自定义 promisification
+function fetchUserCallback(id, callback) {
+    setTimeout(() => {
+        if (id > 0) {
+            callback(null, { id, name: "User " + id });
+        } else {
+            callback(new Error("Invalid ID"));
+        }
+    }, 1000);
+}
+
+// 包装它
+const fetchUser = promisify(fetchUserCallback);
+
+// 现在作为 promise 使用
+fetchUser(1)
+    .then(user => console.log("User:", user))
+    .catch(error => console.error("Error:", error));
+```
+</UniversalEditor>
+
+## 最佳实践
+
+<UniversalEditor title="异步最佳实践">
+```java !! java
+// Java:适当的异常处理
+public Result process() {
+    try {
+        Data data = fetchData();
+        return transform(data);
+    } catch (Exception e) {
+        logger.error("Failed", e);
+        return Result.failure(e);
+    }
+}
+```
+
+```javascript !! js
+// JavaScript:异步最佳实践
+
+// 1. 总是处理 promise 拒绝
+Promise.resolve()
+    .then(() => {
+        throw new Error("Oops");
+    })
+    .catch(error => {
+        console.error(error);  // 总是 catch
+    });
+
+// 2. 使用 async/await 提高清晰度
+// 好
+async function process() {
+    const user = await getUser(id);
+    const orders = await getOrders(user.id);
+    return orders;
+}
+
+// 避免过度的 .then() 链
+// 不好
+Promise.resolve()
+    .then(() => Promise.resolve())
+    .then(() => Promise.resolve())
+    .then(() => Promise.resolve());
+
+// 3. 并行化独立操作
+// 不好(顺序)
+async function fetchAll() {
+    const user = await fetchUser();
+    const posts = await fetchPosts();
+    const comments = await fetchComments();
+    return { user, posts, comments };
+}
+
+// 好(并行)
+async function fetchAll() {
+    const [user, posts, comments] = await Promise.all([
+        fetchUser(),
+        fetchPosts(),
+        fetchComments()
+    ]);
+    return { user, posts, comments };
+}
+
+// 4. 在适当级别处理错误
+async function fetchUser(id) {
+    const response = await fetch(`/api/users/${id}`);
+    if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+    }
+    return response.json();
+}
+
+async function init() {
+    try {
+        const user = await fetchUser(1);
+        console.log(user);
+    } catch (error) {
+        console.error("Failed to initialize:", error);
+    }
+}
+
+// 5. 使用 finally 清理
+async function withLock(fn) {
+    const lock = await acquireLock();
+    try {
+        return await fn(lock);
+    } finally {
+        await lock.release();  // 总是运行
+    }
+}
+
+// 6. 不要混用回调和 promises
+// 不好
+function bad() {
+    fetch("/api/data")
+        .then(response => {
+            response.json(data => {
+                console.log(data);
+            });
+        });
+}
+
+// 好
+function good() {
+    return fetch("/api/data")
+        .then(response => response.json())
+        .then(data => console.log(data));
+}
+
+// 或 async/await
+async function good2() {
+    const response = await fetch("/api/data");
+    const data = await response.json();
+    console.log(data);
+}
+```
+</UniversalEditor>
+
+## 练习
+
+### 练习 1:Promise 链
+```javascript
+// 链接这些操作:
+// 1. 通过 ID 获取用户
+// 2. 获取用户的订单
+// 3. 获取第一个订单的项目
+// 使用 .then() 链
+```
+
+### 练习 2:Async/Await
+```javascript
+// 使用 async/await 重写练习 1
+async function getOrderItems(userId) {
+    // 实现
+}
+```
+
+### 练习 3:并行执行
+```javascript
+// 并行获取用户、帖子和评论
+// 使用 Promise.all
+```
+
+### 练习 4:错误处理
+```javascript
+// 为异步函数添加适当的错误处理
+async function process(id) {
+    const user = await fetchUser(id);
+    const orders = await getOrders(user.id);
+    return orders;
+}
+```
+
+## 总结
+
+### 关键要点
+
+1. **Promises:**
+   - 代表未来值
+   - 三种状态:pending、fulfilled、rejected
+   - 可用 .then() 链接
+   - 使用 .catch() 处理错误
+
+2. **Async/Await:**
+   - Promises 的语法糖
+   - 使异步代码看起来同步
+   - 非阻塞
+   - 使用 try/catch 处理错误
+
+3. **组合器:**
+   - Promise.all:所有必须成功
+   - Promise.race:第一个 settle
+   - Promise.allSettled:等待所有
+   - Promise.any:第一个成功
+
+4. **最佳实践:**
+   - 总是处理错误
+   - 尽可能并行化
+   - 优先使用 async/await
+   - 不要混用回调和 promises
+
+### 对比表:Java vs JavaScript
+
+| 特性 | Java | JavaScript |
+|------|------|-----------|
+| **异步** | CompletableFuture, Future | Promise, async/await |
+| **链式** | .thenCompose(), .thenApply() | .then(), await |
+| **错误** | .exceptionally() | .catch(), try/catch |
+| **并行** | CompletableFuture.allOf() | Promise.all() |
+| **竞态** | CompletableFuture.anyOf() | Promise.race() |
+
+## 接下来是什么?
+
+你已经掌握了现代异步 JavaScript!接下来是**模块 12:DOM 操作**,我们将探索:
+
+- DOM 结构和遍历
+- 查询元素
+- 修改 DOM
+- 创建和删除元素
+- 事件处理基础
+- DOM 性能
+
+准备学习如何操作网页了吗?让我们继续!

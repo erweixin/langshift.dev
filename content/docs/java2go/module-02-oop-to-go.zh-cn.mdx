@@ -1,0 +1,1288 @@
+---
+title: "模块 02:面向对象编程到 Go"
+description: "学习 Go 如何在没有类的情况下实现面向对象编程 - 使用结构体、方法和组合来替代传统的继承"
+---
+
+# 模块 02:面向对象编程到 Go
+
+欢迎来到模块 02!在本模块中,你将学习 Go 如何以不同于 Java 的方式处理面向对象编程。虽然 Java 严重依赖类和继承,但 Go 使用结构体、方法和组合来实现类似的目标,代码更简单、更灵活。
+
+## 学习目标
+
+完成本模块后,你将:
+- 理解 Go 如何在没有类的情况下实现 OOP 概念
+- 学习如何使用结构体替代类
+- 掌握值接收者与指针接收者
+- 理解组合优于继承
+- 学习工厂函数替代构造函数
+- 比较 Java OOP 模式与 Go 等价实现
+
+## 1. 大局观:类与结构体
+
+### Java: 类和对象
+
+在 Java 中,所有内容都围绕类构建。类定义数据(字段)和行为(方法):
+
+```java
+public class Person {
+    // 私有字段
+    private String name;
+    private int age;
+
+    // 构造函数
+    public Person(String name, int age) {
+        this.name = name;
+        this.age = age;
+    }
+
+    // 方法
+    public String getName() {
+        return name;
+    }
+
+    public void setAge(int age) {
+        this.age = age;
+    }
+
+    public void introduce() {
+        System.out.println("Hi, I'm " + name + ", " + age + " years old");
+    }
+}
+```
+
+### Go: 结构体和方法
+
+Go 将数据定义(结构体)与行为(方法)分离:
+
+<UniversalEditor title="Person 类 vs Person 结构体">
+```java !! java
+public class Person {
+    private String name;
+    private int age;
+
+    public Person(String name, int age) {
+        this.name = name;
+        this.age = age;
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public void introduce() {
+        System.out.println("Hi, I'm " + name);
+    }
+}
+```
+
+```go !! go
+// Person 结构体 - 仅数据
+type Person struct {
+    Name string
+    Age  int
+}
+
+// 在 Person 上定义的方法
+func (p Person) Introduce() {
+    fmt.Printf("Hi, I'm %s\n", p.Name)
+}
+
+// 注意:Go 不需要 getter/setter
+// 对于简单字段,直接访问是惯用的
+```
+</UniversalEditor>
+
+## 2. 定义结构体
+
+### 基本结构体声明
+
+<UniversalEditor title="基本结构体声明">
+```java !! java
+public class Rectangle {
+    private double width;
+    private double height;
+
+    public Rectangle(double width, double height) {
+        this.width = width;
+        this.height = height;
+    }
+
+    public double getWidth() { return width; }
+    public double getHeight() { return height; }
+    public void setWidth(double width) { this.width = width; }
+    public void setHeight(double height) { this.height = height; }
+}
+```
+
+```go !! go
+// Rectangle 结构体
+type Rectangle struct {
+    Width  float64
+    Height float64
+}
+
+// Go 中不需要 getter/setter
+// 直接字段访问是惯用的
+func main() {
+    r := Rectangle{Width: 10.0, Height: 5.0}
+    fmt.Println(r.Width) // 直接访问
+    r.Width = 15.0       // 直接修改
+}
+```
+</UniversalEditor>
+
+### 包含不同字段类型的结构体
+
+<UniversalEditor title="复杂结构体示例">
+```java !! java
+public class Employee {
+    private int id;
+    private String name;
+    private double salary;
+    private String[] skills;
+    private Address address;
+
+    public Employee(int id, String name, double salary, String[] skills, Address address) {
+        this.id = id;
+        this.name = name;
+        this.salary = salary;
+        this.skills = skills;
+        this.address = address;
+    }
+}
+
+class Address {
+    private String street;
+    private String city;
+    // 构造函数、getter 等
+}
+```
+
+```go !! go
+// Employee 结构体,包含多种字段类型
+type Employee struct {
+    ID      int
+    Name    string
+    Salary  float64
+    Skills  []string
+    Address Address // 嵌入结构体
+}
+
+// Address 结构体
+type Address struct {
+    Street string
+    City   string
+}
+
+func main() {
+    emp := Employee{
+        ID:     1,
+        Name:   "Alice",
+        Salary: 75000.0,
+        Skills: []string{"Go", "Java", "Python"},
+        Address: Address{
+            Street: "123 Main St",
+            City:   "San Francisco",
+        },
+    }
+}
+```
+</UniversalEditor>
+
+## 3. 方法:值接收者与指针接收者
+
+这是 Go 中最重要的概念之一!方法可以在值或指针上定义。
+
+### 值接收者
+
+<UniversalEditor title="值接收者方法">
+```java !! java
+public class Counter {
+    private int count;
+
+    public Counter(int count) {
+        this.count = count;
+    }
+
+    // 此方法不修改状态
+    public int getCount() {
+        return count;
+    }
+
+    // 此方法确实修改状态
+    public void increment() {
+        this.count++;
+    }
+}
+```
+
+```go !! go
+type Counter struct {
+    Count int
+}
+
+// 值接收者 - 不修改原始值
+func (c Counter) GetCount() int {
+    return c.Count
+}
+
+// 指针接收者 - 可以修改原始值
+func (c *Counter) Increment() {
+    c.Count++ // 修改原始 Counter
+}
+
+func main() {
+    counter := Counter{Count: 0}
+
+    // 值接收者创建副本
+    fmt.Println(counter.GetCount()) // 0
+
+    // 指针接收者修改原始值
+    counter.Increment()
+    fmt.Println(counter.Count) // 1
+}
+```
+</UniversalEditor>
+
+### 何时使用值与指针接收者
+
+<UniversalEditor title="接收者决策指南">
+```java !! java
+// 在 Java 中,对象方法始终可以修改状态
+// 你不需要考虑这个问题
+
+public class Circle {
+    private double radius;
+
+    public Circle(double radius) {
+        this.radius = radius;
+    }
+
+    // 计算方法(无状态变化)
+    public double getArea() {
+        return Math.PI * radius * radius;
+    }
+
+    // 修改状态的方法
+    public void setRadius(double radius) {
+        this.radius = radius;
+    }
+}
+```
+
+```go !! go
+type Circle struct {
+    Radius float64
+}
+
+// 使用值接收者当:
+// - 方法不需要修改结构体
+// - 方法使用小结构体更高效
+// - 你希望不可变性
+func (c Circle) Area() float64 {
+    return math.Pi * c.Radius * c.Radius
+}
+
+// 使用指针接收者当:
+// - 方法需要修改结构体
+// - 结构体很大(避免复制)
+// - 一致性:如果一个方法使用指针,所有都应该使用
+func (c *Circle) SetRadius(r float64) {
+    c.Radius = r
+}
+
+func (c *Circle) Grow(factor float64) {
+    c.Radius *= factor
+}
+```
+</UniversalEditor>
+
+### 实际示例:银行账户
+
+<UniversalEditor title="银行账户:正确的接收者使用">
+```java !! java
+public class BankAccount {
+    private String owner;
+    private double balance;
+
+    public BankAccount(String owner, double initialBalance) {
+        this.owner = owner;
+        this.balance = initialBalance;
+    }
+
+    // 查询方法 - 无状态变化
+    public double getBalance() {
+        return balance;
+    }
+
+    // 修改状态
+    public void deposit(double amount) {
+        if (amount > 0) {
+            balance += amount;
+        }
+    }
+
+    public boolean withdraw(double amount) {
+        if (amount > 0 && balance >= amount) {
+            balance -= amount;
+            return true;
+        }
+        return false;
+    }
+}
+```
+
+```go !! go
+type BankAccount struct {
+    Owner   string
+    Balance float64
+}
+
+// 查询使用值接收者
+func (a BankAccount) GetBalance() float64 {
+    return a.Balance
+}
+
+// 修改操作使用指针接收者
+func (a *BankAccount) Deposit(amount float64) {
+    if amount > 0 {
+        a.Balance += amount
+    }
+}
+
+func (a *BankAccount) Withdraw(amount float64) bool {
+    if amount > 0 && a.Balance >= amount {
+        a.Balance -= amount
+        return true
+    }
+    return false
+}
+
+func main() {
+    account := BankAccount{
+        Owner:   "Alice",
+        Balance: 1000.0,
+    }
+
+    account.Deposit(500.0)
+    account.Withdraw(200.0)
+    fmt.Println(account.GetBalance()) // 1300.0
+}
+```
+</UniversalEditor>
+
+## 4. 无构造函数:工厂函数
+
+Go 没有构造函数。相反,使用工厂函数。
+
+### 基本工厂函数
+
+<UniversalEditor title="构造函数 vs 工厂函数">
+```java !! java
+public class User {
+    private String username;
+    private String email;
+    private int age;
+
+    // 构造函数
+    public User(String username, String email, int age) {
+        this.username = username;
+        this.email = email;
+        this.age = age;
+    }
+
+    // 静态工厂方法
+    public static User createAdult(String username, String email) {
+        return new User(username, email, 18);
+    }
+}
+```
+
+```go !! go
+type User struct {
+    Username string
+    Email    string
+    Age      int
+}
+
+// 工厂函数(约定: NewTypeName)
+func NewUser(username, email string, age int) *User {
+    return &User{
+        Username: username,
+        Email:    email,
+        Age:      age,
+    }
+}
+
+// 带默认值的工厂函数
+func NewAdultUser(username, email string) *User {
+    return &User{
+        Username: username,
+        Email:    email,
+        Age:      18,
+    }
+}
+
+func main() {
+    // 使用工厂函数
+    user := NewUser("alice", "alice@example.com", 25)
+    adult := NewAdultUser("bob", "bob@example.com")
+}
+```
+</UniversalEditor>
+
+### 带验证的工厂函数
+
+<UniversalEditor title="带验证的工厂函数">
+```java !! java
+public class Product {
+    private String name;
+    private double price;
+
+    private Product(String name, double price) {
+        this.name = name;
+        this.price = price;
+    }
+
+    public static Product create(String name, double price) {
+        if (name == null || name.isEmpty()) {
+            throw new IllegalArgumentException("Name cannot be empty");
+        }
+        if (price < 0) {
+            throw new IllegalArgumentException("Price cannot be negative");
+        }
+        return new Product(name, price);
+    }
+}
+```
+
+```go !! go
+type Product struct {
+    Name  string
+    Price float64
+}
+
+// 返回错误的工厂函数用于验证
+func NewProduct(name string, price float64) (*Product, error) {
+    if name == "" {
+        return nil, errors.New("name cannot be empty")
+    }
+    if price < 0 {
+        return nil, errors.New("price cannot be negative")
+    }
+
+    return &Product{
+        Name:  name,
+        Price: price,
+    }, nil
+}
+
+func main() {
+    product, err := NewProduct("Laptop", 999.99)
+    if err != nil {
+        fmt.Println("Error creating product:", err)
+        return
+    }
+    fmt.Println("Created:", product.Name)
+}
+```
+</UniversalEditor>
+
+### 多个构造函数变体
+
+<UniversalEditor title="多个工厂函数">
+```java !! java
+public class Configuration {
+    private String host;
+    private int port;
+    private boolean useSSL;
+    private int timeout;
+
+    public Configuration(String host, int port) {
+        this(host, port, true, 30);
+    }
+
+    public Configuration(String host, int port, boolean useSSL) {
+        this(host, port, useSSL, 30);
+    }
+
+    public Configuration(String host, int port, boolean useSSL, int timeout) {
+        this.host = host;
+        this.port = port;
+        this.useSSL = useSSL;
+        this.timeout = timeout;
+    }
+}
+```
+
+```go !! go
+type Configuration struct {
+    Host    string
+    Port    int
+    UseSSL  bool
+    Timeout int
+}
+
+// 默认配置
+func NewDefaultConfig() *Configuration {
+    return &Configuration{
+        Host:    "localhost",
+        Port:    8080,
+        UseSSL:  true,
+        Timeout: 30,
+    }
+}
+
+// 自定义配置
+func NewConfig(host string, port int) *Configuration {
+    return &Configuration{
+        Host:    host,
+        Port:    port,
+        UseSSL:  true,
+        Timeout: 30,
+    }
+}
+
+// 完全自定义配置
+func NewCustomConfig(host string, port int, useSSL bool, timeout int) *Configuration {
+    return &Configuration{
+        Host:    host,
+        Port:    port,
+        UseSSL:  useSSL,
+        Timeout: timeout,
+    }
+}
+```
+</UniversalEditor>
+
+## 5. 组合优于继承
+
+Go 没有继承。相反,它使用组合从更简单的类型构建复杂类型。
+
+### Java: 继承
+
+```java
+public class Animal {
+    protected String name;
+
+    public Animal(String name) {
+        this.name = name;
+    }
+
+    public void eat() {
+        System.out.println(name + " is eating");
+    }
+
+    public void sleep() {
+        System.out.println(name + " is sleeping");
+    }
+}
+
+public class Dog extends Animal {
+    private String breed;
+
+    public Dog(String name, String breed) {
+        super(name);
+        this.breed = breed;
+    }
+
+    public void bark() {
+        System.out.println(name + " is barking");
+    }
+}
+```
+
+### Go: 组合
+
+<UniversalEditor title="继承 vs 组合">
+```java !! java
+// Java: 使用继承
+public class Vehicle {
+    protected String make;
+    protected String model;
+
+    public Vehicle(String make, String model) {
+        this.make = make;
+        this.model = model;
+    }
+
+    public void start() {
+        System.out.println("Vehicle starting");
+    }
+}
+
+public class Car extends Vehicle {
+    private int numDoors;
+
+    public Car(String make, String model, int numDoors) {
+        super(make, model);
+        this.numDoors = numDoors;
+    }
+
+    public void honk() {
+        System.out.println("Beep beep!");
+    }
+}
+```
+
+```go !! go
+// Go: 使用组合
+type Vehicle struct {
+    Make  string
+    Model string
+}
+
+func (v Vehicle) Start() {
+    fmt.Println("Vehicle starting")
+}
+
+// Car 嵌入 Vehicle(组合)
+type Car struct {
+    Vehicle // 嵌入结构体(匿名字段)
+    NumDoors int
+}
+
+func (c Car) Honk() {
+    fmt.Println("Beep beep!")
+}
+
+func main() {
+    car := Car{
+        Vehicle: Vehicle{
+            Make:  "Toyota",
+            Model: "Camry",
+        },
+        NumDoors: 4,
+    }
+
+    // Car 可以访问 Vehicle 的字段和方法
+    car.Start() // 通过嵌入调用
+    fmt.Println(car.Make) // 直接访问嵌入字段
+    car.Honk()
+}
+```
+</UniversalEditor>
+
+### 嵌入以共享行为
+
+<UniversalEditor title="结构体嵌入示例">
+```java !! java
+// Java: 不允许多重继承(除了接口)
+public class Engine {
+    public void start() {
+        System.out.println("Engine starting");
+    }
+}
+
+public class AudioSystem {
+    public void playMusic() {
+        System.out.println("Playing music");
+    }
+}
+
+public class Car {
+    private Engine engine;
+    private AudioSystem audio;
+
+    public Car() {
+        this.engine = new Engine();
+        this.audio = new AudioSystem();
+    }
+
+    public void startEngine() {
+        engine.start();
+    }
+
+    public void playMusic() {
+        audio.playMusic();
+    }
+}
+```
+
+```go !! go
+// Go: 嵌入多个类型
+type Engine struct {
+    Horsepower int
+}
+
+func (e Engine) Start() {
+    fmt.Println("Engine starting")
+}
+
+type AudioSystem struct {
+    Brand string
+}
+
+func (a AudioSystem) PlayMusic() {
+    fmt.Println("Playing music")
+}
+
+// Car 嵌入 Engine 和 AudioSystem
+type Car struct {
+    Engine
+    AudioSystem
+    Make string
+}
+
+func main() {
+    car := Car{
+        Engine: Engine{Horsepower: 200},
+        AudioSystem: AudioSystem{Brand: "Bose"},
+        Make: "Tesla",
+    }
+
+    // 直接访问嵌入方法
+    car.Start()       // 来自 Engine
+    car.PlayMusic()   // 来自 AudioSystem
+    fmt.Println(car.Make)
+}
+```
+</UniversalEditor>
+
+### 覆盖方法
+
+<UniversalEditor title="方法覆盖">
+```java !! java
+public class BaseClass {
+    public void greet() {
+        System.out.println("Hello from BaseClass");
+    }
+}
+
+public class DerivedClass extends BaseClass {
+    @Override
+    public void greet() {
+        System.out.println("Hello from DerivedClass");
+        super.greet(); // 调用父方法
+    }
+}
+```
+
+```go !! go
+type Base struct {
+    Name string
+}
+
+func (b Base) Greet() {
+    fmt.Println("Hello from Base")
+}
+
+type Derived struct {
+    Base // 嵌入
+    ExtraField string
+}
+
+// 覆盖 Greet 方法
+func (d Derived) Greet() {
+    fmt.Println("Hello from Derived")
+    // 可以通过字段名调用 Base 方法
+    d.Base.Greet()
+}
+
+func main() {
+    base := Base{Name: "Base"}
+    derived := Derived{
+        Base: Base{Name: "Base"},
+        ExtraField: "Extra",
+    }
+
+    base.Greet()     // "Hello from Base"
+    derived.Greet()  // "Hello from Derived" 然后 "Hello from Base"
+}
+```
+</UniversalEditor>
+
+## 6. 实际示例:文件系统
+
+让我们使用组合构建一个更复杂的示例。
+
+<UniversalEditor title="文件系统:组合实践">
+```java !! java
+// Java: 使用继承的文件系统
+public abstract class FileSystemNode {
+    protected String name;
+
+    public FileSystemNode(String name) {
+        this.name = name;
+    }
+
+    public abstract int getSize();
+}
+
+public class File extends FileSystemNode {
+    private int size;
+
+    public File(String name, int size) {
+        super(name);
+        this.size = size;
+    }
+
+    @Override
+    public int getSize() {
+        return size;
+    }
+}
+
+public class Directory extends FileSystemNode {
+    private List<FileSystemNode> children;
+
+    public Directory(String name) {
+        super(name);
+        this.children = new ArrayList<>();
+    }
+
+    public void addChild(FileSystemNode child) {
+        children.add(child);
+    }
+
+    @Override
+    public int getSize() {
+        int total = 0;
+        for (FileSystemNode child : children) {
+            total += child.getSize();
+        }
+        return total;
+    }
+}
+```
+
+```go !! go
+// Go: 使用组合的文件系统
+type FileSystemNode interface {
+    GetName() string
+    GetSize() int
+}
+
+type File struct {
+    Name string
+    Size int
+}
+
+func (f File) GetName() string {
+    return f.Name
+}
+
+func (f File) GetSize() int {
+    return f.Size
+}
+
+type Directory struct {
+    Name     string
+    Children []FileSystemNode
+}
+
+func NewDirectory(name string) *Directory {
+    return &Directory{
+        Name:     name,
+        Children: make([]FileSystemNode, 0),
+    }
+}
+
+func (d *Directory) AddChild(child FileSystemNode) {
+    d.Children = append(d.Children, child)
+}
+
+func (d Directory) GetName() string {
+    return d.Name
+}
+
+func (d Directory) GetSize() int {
+    total := 0
+    for _, child := range d.Children {
+        total += child.GetSize()
+    }
+    return total
+}
+
+func main() {
+    file1 := File{Name: "file1.txt", Size: 100}
+    file2 := File{Name: "file2.txt", Size: 200}
+
+    dir := NewDirectory("documents")
+    dir.AddChild(file1)
+    dir.AddChild(file2)
+
+    fmt.Printf("Directory %s size: %d bytes\n", dir.GetName(), dir.GetSize())
+}
+```
+</UniversalEditor>
+
+## 7. 最佳实践
+
+### 何时使用值与指针接收者
+
+<UniversalEditor title="接收者最佳实践">
+```go !! go
+// 规则 1: 使用指针接收者进行修改
+type Account struct {
+    balance float64
+}
+
+func (a *Account) Deposit(amount float64) {
+    a.balance += amount // ✓ 正确:指针接收者
+}
+
+// 规则 2: 使用值接收者进行不可变操作
+func (a Account) CanWithdraw(amount float64) bool {
+    return a.balance >= amount // ✓ 正确:无修改
+}
+
+// 规则 3: 保持一致性 - 如果一个方法使用指针,所有都应该使用
+type Circle struct {
+    radius float64
+}
+
+func (c *Circle) Area() float64 { // 所有方法都用指针接收者
+    return math.Pi * c.radius * c.radius
+}
+
+func (c *Circle) SetRadius(r float64) {
+    c.radius = r
+}
+
+// 规则 4: 小结构体使用值接收者
+type Point struct {
+    X, Y int
+}
+
+func (p Point) Distance() float64 {
+    return math.Sqrt(float64(p.X*p.X + p.Y*p.Y))
+}
+```
+</UniversalEditor>
+
+### 工厂函数约定
+
+<UniversalEditor title="工厂函数模式">
+```go !! go
+// 模式 1: 简单工厂 - 返回指针
+func NewUser(name string) *User {
+    return &User{Name: name}
+}
+
+// 模式 2: 带验证的工厂 - 返回错误
+func NewValidUser(name string, age int) (*User, error) {
+    if name == "" {
+        return nil, errors.New("name required")
+    }
+    if age < 0 || age > 150 {
+        return nil, errors.New("invalid age")
+    }
+    return &User{Name: name, Age: age}, nil
+}
+
+// 模式 3: 带选项的工厂(函数式选项)
+type ServerOption func(*Server)
+
+func WithPort(port int) ServerOption {
+    return func(s *Server) {
+        s.Port = port
+    }
+}
+
+func WithTLS(tls bool) ServerOption {
+    return func(s *Server) {
+        s.UseTLS = tls
+    }
+}
+
+func NewServer(opts ...ServerOption) *Server {
+    server := &Server{
+        Port:   8080,
+        UseTLS: false,
+    }
+    for _, opt := range opts {
+        opt(server)
+    }
+    return server
+}
+
+// 使用:
+// server := NewServer(WithPort(9000), WithTLS(true))
+```
+</UniversalEditor>
+
+### 组合指南
+
+<UniversalEditor title="组合最佳实践">
+```go !! go
+// 应该: 嵌入真正代表"是"关系的类型
+type Animal struct {
+    Name string
+}
+
+func (a Animal) Eat() {
+    fmt.Println("Eating")
+}
+
+type Dog struct {
+    Animal // Dog 是动物
+    Breed  string
+}
+
+// 不应该: 仅为了方便而嵌入
+type Logger struct{}
+
+func (l Logger) Log(msg string) {
+    fmt.Println(msg)
+}
+
+type Service struct {
+    *Logger // ✗ 避免: Service 并不是真正的 Logger
+    Name    string
+}
+
+// 应该: 对"有"关系使用常规字段
+type Service struct {
+    logger *Logger // ✓ 更好: Service 有一个 logger
+    Name   string
+}
+
+func (s Service) DoWork() {
+    s.logger.Log("Working") // 意图清晰
+}
+```
+</UniversalEditor>
+
+## 8. 常见模式
+
+### 构建器模式
+
+<UniversalEditor title="构建器模式">
+```java !! java
+// Java: 构建器模式
+public class StringBuilder {
+    private String data;
+
+    public StringBuilder() {
+        this.data = "";
+    }
+
+    public StringBuilder append(String str) {
+        this.data += str;
+        return this;
+    }
+
+    public StringBuilder appendLine(String str) {
+        this.data += str + "\n";
+        return this;
+    }
+
+    public String build() {
+        return data;
+    }
+}
+
+// 使用:
+// String result = new StringBuilder()
+//     .append("Hello")
+//     .appendLine("World")
+//     .build();
+```
+
+```go !! go
+// Go: 使用函数式选项的构建器模式
+type QueryBuilder struct {
+    selectFields []string
+    fromTable    string
+    whereClause  string
+    orderBy      string
+}
+
+type QueryOption func(*QueryBuilder)
+
+func Select(fields ...string) QueryOption {
+    return func(qb *QueryBuilder) {
+        qb.selectFields = fields
+    }
+}
+
+func From(table string) QueryOption {
+    return func(qb *QueryBuilder) {
+        qb.fromTable = table
+    }
+}
+
+func Where(where string) QueryOption {
+    return func(qb *QueryBuilder) {
+        qb.whereClause = where
+    }
+}
+
+func OrderBy(order string) QueryOption {
+    return func(qb *QueryBuilder) {
+        qb.orderBy = order
+    }
+}
+
+func NewQuery(opts ...QueryOption) *QueryBuilder {
+    qb := &QueryBuilder{}
+    for _, opt := range opts {
+        opt(qb)
+    }
+    return qb
+}
+
+func (qb *QueryBuilder) Build() string {
+    query := "SELECT " + strings.Join(qb.selectFields, ", ")
+    query += " FROM " + qb.fromTable
+    if qb.whereClause != "" {
+        query += " WHERE " + qb.whereClause
+    }
+    if qb.orderBy != "" {
+        query += " ORDER BY " + qb.orderBy
+    }
+    return query
+}
+
+// 使用:
+// query := NewQuery(
+//     Select("name", "age", "email"),
+//     From("users"),
+//     Where("age > 18"),
+//     OrderBy("name"),
+// )
+// fmt.Println(query.Build())
+```
+</UniversalEditor>
+
+### 单例模式
+
+<UniversalEditor title="单例模式">
+```java !! java
+// Java: 单例模式
+public class Database {
+    private static Database instance;
+    private String connection;
+
+    private Database() {
+        this.connection = "connected";
+    }
+
+    public static Database getInstance() {
+        if (instance == null) {
+            instance = new Database();
+        }
+        return instance;
+    }
+}
+```
+
+```go !! go
+// Go: 使用 sync.Once 的单例
+type Database struct {
+    connection string
+}
+
+var (
+    instance *Database
+    once     sync.Once
+)
+
+func GetDatabase() *Database {
+    once.Do(func() {
+        instance = &Database{
+            connection: "connected",
+        }
+    })
+    return instance
+}
+
+// 或者更简单: 使用包 init
+var db *Database
+
+func init() {
+    db = &Database{connection: "connected"}
+}
+
+func GetDB() *Database {
+    return db
+}
+```
+</UniversalEditor>
+
+## 9. 练习题
+
+### 初级
+
+1. 创建一个 `Book` 结构体,包含字段: Title、Author、ISBN、Price
+   - 添加工厂函数 `NewBook`
+   - 添加方法: `GetDiscountedPrice(discount float64)`
+   - 使用适当的接收者
+
+2. 创建一个 `Rectangle` 结构体,包含 Width 和 Height
+   - 添加方法: `Area()`、`Perimeter()`、`Scale(factor float64)`
+   - 决定哪些方法应该使用值或指针接收者
+
+### 中级
+
+3. 创建一个 `BankAccount` 结构体,包含:
+   - 字段: AccountNumber、Owner、Balance
+   - 方法: `Deposit`、`Withdraw`、`TransferTo`、`GetStatement`
+   - 包含验证(无负金额,余额充足)
+
+4. 使用组合创建文件系统:
+   - `File` 结构体,包含 Name、Size、Content
+   - `Directory` 结构体,可以包含 Files 和 Directories
+   - 添加项目和计算总大小的方法
+
+### 高级
+
+5. 实现一个简化的电商系统:
+   - `Product`、`Customer`、`Order` 结构体
+   - Order 应该包含多个 Products
+   - 添加项目、计算总计、应用折扣的方法
+   - 适当使用组合和嵌入
+
+6. 创建游戏角色系统:
+   - `Character` 结构体,包含基本属性
+   - 使用组合(而非继承!)创建 `Warrior`、`Mage`、`Archer`
+   - 每种类型都有独特的能力
+   - 演示方法覆盖
+
+## 10. 项目想法
+
+### 项目 1: 图书馆管理系统
+
+创建一个图书馆系统,包含以下组件:
+- `Book`、`Member`、`Loan` 结构体
+- 借书、还书、搜索图书的方法
+- 跟踪到期日期并计算罚款
+- 使用组合表示不同成员类型(Student、Faculty)
+
+### 项目 2: 任务管理系统
+
+构建任务管理器,包含:
+- `Task`、`Project`、`User` 结构体
+- 任务可以分配给用户
+- 项目包含多个任务
+- 实现优先级、状态跟踪
+- 使用工厂函数创建不同类型的任务
+
+### 项目 3: 简单数据库
+
+创建内存数据库:
+- `Table`、`Row`、`Column` 结构体
+- CRUD 操作方法
+- 使用函数式选项构建查询
+- 演示复杂查询的组合
+
+## 11. 关键要点
+
+- **无类**: Go 使用结构体替代类
+- **分离**: 数据(结构体)与行为(方法)分离
+- **值与指针**: 对不可变操作使用值接收者,对修改操作使用指针接收者
+- **无构造函数**: 使用工厂函数替代
+- **组合优于继承**: Go 更倾向于组合而非类继承
+- **嵌入**: 结构体嵌入提供行为复用,无需传统继承
+- **简单性**: Go 的方法导致更简单、更灵活的代码
+
+## 12. 下一步
+
+在下一个模块中,我们将探索:
+- Go 的包系统与 Java 包的比较
+- 导入约定和可见性
+- 使用 Go 模块进行依赖管理
+- 包设计最佳实践
+
+继续学习 [模块 03: 包系统](/docs/java2go/module-03-package-system),了解 Go 如何组织代码!

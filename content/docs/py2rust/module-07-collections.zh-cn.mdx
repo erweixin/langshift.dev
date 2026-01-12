@@ -1,0 +1,726 @@
+---
+title: "模块 7：集合与数据结构"
+description: "通过与 Python 内置集合对比，掌握 Rust 的集合类型，包括 Vec、String、HashMap 和迭代器"
+---
+
+# 模块 7：集合与数据结构
+
+欢迎来到模块 7！在本模块中，我们将探索 Rust 的集合类型，以及它们与 Python 内置集合的对比。理解这些差异对于编写地道的 Rust 代码至关重要。
+
+## 学习目标
+
+完成本模块后，你将能够：
+- 使用 Rust 的 `Vec<T>` 类型，并与 Python 的 `list` 进行对比
+- 区分 `String` 和 `&str` 类型
+- 使用 `HashMap<K, V>` 进行键值存储
+- 利用 Rust 强大的迭代器系统
+- 为你的用例选择合适的集合
+
+## 7.1 `Vec<T>` vs Python 的 list
+
+### Python 列表：灵活且动态
+
+在 Python 中，列表是动态类型的，可以保存任何类型：
+
+```python
+# Python - 动态类型
+numbers = [1, 2, 3, 4, 5]
+mixed = [1, "hello", 3.14, True]
+
+# 追加和删除
+numbers.append(6)
+numbers.pop()  # 删除并返回最后一个元素
+
+# 列表推导式
+squares = [x**2 for x in range(10)]
+```
+
+### Rust `Vec<T>`：类型安全且连续
+
+Rust 的 `Vec<T>` 是具有连续内存的可增长数组类型：
+
+<UniversalEditor compare={true} title="向量创建和操作">
+```python !! py
+# Python - 动态列表
+numbers = [1, 2, 3, 4, 5]
+numbers.append(6)
+
+# 列表推导式
+squares = [x**2 for x in range(10)]
+print(squares)  # [0, 1, 4, 9, 16, 25, 36, 49, 64, 81]
+
+# 混合类型（Python 中允许）
+mixed = [1, "hello", 3.14]
+```
+
+```rust !! rs
+// Rust - 类型化向量
+let mut numbers: Vec<i32> = vec![1, 2, 3, 4, 5];
+numbers.push(6);
+
+// 迭代器等价于列表推导式
+let squares: Vec<i32> = (0..10).map(|x| x * x).collect();
+println!("{:?}", squares); // [0, 1, 4, 9, 16, 25, 36, 49, 64, 81]
+
+// 混合类型？使用枚举或 trait 对象！
+#[derive(Debug)]
+enum Mixed {
+    Int(i32),
+    String(String),
+    Float(f64),
+}
+
+let mixed: Vec<Mixed> = vec![
+    Mixed::Int(1),
+    Mixed::String(String::from("hello")),
+    Mixed::Float(3.14),
+];
+println!("{:?}", mixed);
+```
+</UniversalEditor>
+
+### 主要差异
+
+1. **类型安全**：Rust 向量是同构的（相同类型 `T`）
+2. **内存布局**：像 Python 列表一样的连续内存
+3. **容量管理**：Rust 向量具有显式的容量控制
+
+<UniversalEditor compare={true} title="容量管理">
+```python !! py
+# Python - 自动内存管理
+numbers = []
+for i in range(1000):
+    numbers.append(i)
+# Python 自动处理所有内存分配
+```
+
+```rust !! rs
+// Rust - 显式容量控制
+let mut numbers = Vec::with_capacity(1000);
+for i in 0..1000 {
+    numbers.push(i);
+}
+// 预分配容量比重复重新分配更高效
+
+// 检查容量和长度
+println!("Capacity: {}, Length: {}", numbers.capacity(), numbers.len());
+
+// 如果需要，收缩以适应
+numbers.shrink_to_fit();
+```
+</UniversalEditor>
+
+## 7.2 String vs &str：字符串类型系统
+
+对于 Python 开发者来说，最令人困惑的方面之一是 Rust 的字符串类型。
+
+### 字符串类型概述
+
+<UniversalEditor compare={true} title="字符串类型对比">
+```python !! py
+# Python - 只有一种字符串类型
+s1 = "Hello"
+s2 = s1  # 引用，不复制
+s3 = s1 + " World"  # 新字符串
+
+# 字符串是不可变的
+# s1[0] = 'h'  # 错误！
+```
+
+```rust !! rs
+// Rust - 两种主要字符串类型
+// String: 拥有的、可增长的、堆分配的
+let mut s1: String = String::from("Hello");
+s1.push_str(" World");
+
+// &str: 字符串切片，不可变视图
+let s2: &str = "Hello";
+let s3: &str = &s1[0..5];  // String 的切片
+
+// &str 不能被修改
+// s2.push('!');  // 错误！
+
+// String 到 &str（廉价转换）
+let s4: &str = &s1;
+```
+</UniversalEditor>
+
+### 字符串创建方法
+
+<UniversalEditor compare={true} title="创建字符串">
+```python !! py
+# Python - 字符串创建
+s1 = "Hello"
+s2 = str(42)
+s3 = f"Number: {42}"
+s4 = " ".join(["Hello", "World"])
+```
+
+```rust !! rs
+// Rust - 多种创建字符串的方式
+let s1: String = String::from("Hello");
+let s2: String = "World".to_string();
+let s3: String = format!("Number: {}", 42);
+let s4: String = vec!["Hello", "World"].join(" ");
+
+// 从字符创建
+let s5: String = ['H', 'e', 'l', 'l', 'o'].iter().collect();
+
+// 带容量
+let mut s6 = String::with_capacity(10);
+s6.push_str("Hello");
+```
+</UniversalEditor>
+
+### 字符串操作
+
+<UniversalEditor compare={true} title="字符串操作">
+```python !! py
+# Python - 字符串操作
+text = "Hello, World!"
+
+# 长度（字符）
+print(len(text))  # 13
+
+# 切片（字节，不是字符！）
+print(text[0:5])  # "Hello"
+
+# 分割
+words = text.split(", ")
+print(list(words))  # ['Hello', 'World!']
+
+# 去除空格
+trimmed = "  hello  ".strip()
+```
+
+```rust !! rs
+// Rust - 字符串操作
+let text = String::from("Hello, World!");
+
+// 长度（字节，不是字符！）
+println!("Length: {}", text.len());  // 13 字节
+
+// 字符计数（与 len() 不同）
+println!("Chars: {}", text.chars().count());  // 13 字符
+
+// 切片（必须在有效的 UTF-8 边界上）
+let hello = &text[0..5];  // "Hello"
+
+// 分割
+let words: Vec<&str> = text.split(", ").collect();
+println!("{:?}", words);  // ["Hello", "World!"]
+
+// 去除空格
+let trimmed = "  hello  ".trim();
+println!("{}", trimmed);  // "hello"
+
+// 字符迭代
+for c in text.chars() {
+    println!("{}", c);
+}
+```
+</UniversalEditor>
+
+### 常见陷阱：UTF-8 编码
+
+<UniversalEditor compare={true} title="UTF-8 处理">
+```python !! py
+# Python - 自动处理 Unicode
+emoji = "Hello 😊"
+print(len(emoji))  # 8（字符）
+print(emoji[6])    # 😊
+```
+
+```rust !! rs
+// Rust - 需要 UTF-8 意识
+let emoji = String::from("Hello 😊");
+
+// 字节长度 vs 字符计数
+println!("Bytes: {}", emoji.len());      // 10 字节（😊 是 4 字节）
+println!("Chars: {}", emoji.chars().count());  // 8 字符
+
+// 不能通过位置索引（可能分割多字节字符）
+// let c = emoji[6];  // 恐慌！不在字符边界上
+
+// 获取第 n 个字符的正确方法
+let c = emoji.chars().nth(6).unwrap();
+println!("{}", c);  // 😊
+```
+</UniversalEditor>
+
+## 7.3 `HashMap<K, V>`
+
+### Python 字典 vs Rust HashMap
+
+<UniversalEditor compare={true} title="HashMap 基础">
+```python !! py
+# Python - 字典
+scores = {
+    "Alice": 95,
+    "Bob": 87,
+    "Charlie": 92,
+}
+
+# 使用默认值访问
+print(scores.get("David", 0))  # 0
+
+# 添加/更新
+scores["David"] = 88
+
+# 检查存在性
+if "Alice" in scores:
+    print(f"Alice scored {scores['Alice']}")
+```
+
+```rust !! rs
+// Rust - HashMap
+use std::collections::HashMap;
+
+let mut scores: HashMap<&str, i32> = HashMap::new();
+
+// 插入
+scores.insert("Alice", 95);
+scores.insert("Bob", 87);
+scores.insert("Charlie", 92);
+
+// 使用默认值访问
+println!("{:?}", scores.get("David").unwrap_or(&0));  // 0
+
+// 添加/更新
+scores.insert("David", 88);
+
+// 检查存在性
+if let Some(score) = scores.get("Alice") {
+    println!("Alice scored {}", score);
+}
+
+// Entry API 用于条件插入
+scores.entry("Eve").or_insert(90);
+```
+</UniversalEditor>
+
+### HashMap 所有权
+
+<UniversalEditor compare={true} title="HashMap 和所有权">
+```python !! py
+# Python - 引用自然工作
+key = "name"
+data = {key: "Alice"}  # 工作正常
+```
+
+```rust !! rs
+// Rust - 所有权很重要
+use std::collections::HashMap;
+
+let key = String::from("name");
+let mut map: HashMap<String, String> = HashMap::new();
+
+// 错误：key 被移动了
+// map.insert(key, "Alice");
+
+// 解决方案：克隆 key
+map.insert(key.clone(), "Alice");
+println!("{}", key);  // 仍然可访问
+
+// 或使用引用
+let key_ref = &key;
+map.insert(key_ref.clone(), "Bob");
+```
+</UniversalEditor>
+
+### HashMap 迭代
+
+<UniversalEditor compare={true} title="迭代 HashMap">
+```python !! py
+# Python - 字典迭代
+scores = {"Alice": 95, "Bob": 87}
+
+# 键
+for name in scores.keys():
+    print(name)
+
+# 值
+for score in scores.values():
+    print(score)
+
+# 两者
+for name, score in scores.items():
+    print(f"{name}: {score}")
+```
+
+```rust !! rs
+// Rust - HashMap 迭代
+use std::collections::HashMap;
+
+let scores = HashMap::from([
+    ("Alice", 95),
+    ("Bob", 87),
+]);
+
+// 键
+for name in scores.keys() {
+    println!("{}", name);
+}
+
+// 值
+for score in scores.values() {
+    println!("{}", score);
+}
+
+// 两者
+for (name, score) in &scores {
+    println!("{}: {}", name, score);
+}
+```
+</UniversalEditor>
+
+## 7.4 迭代器：惰性和强大
+
+Rust 的迭代器系统比 Python 的更强大和显式。
+
+### 迭代器基础
+
+<UniversalEditor compare={true} title="创建迭代器">
+```python !! py
+# Python - 迭代器无处不在
+numbers = [1, 2, 3, 4, 5]
+
+# 迭代器（隐式）
+for n in numbers:
+    print(n)
+
+# 显式迭代器
+it = iter(numbers)
+print(next(it))  # 1
+print(next(it))  # 2
+
+# 列表推导式（急切）
+squares = [x**2 for x in numbers]
+```
+
+```rust !! rs
+// Rust - 显式迭代器类型
+let numbers = vec![1, 2, 3, 4, 5];
+
+// for 循环隐式使用迭代器
+for n in &numbers {
+    println!("{}", n);
+}
+
+// 显式迭代器
+let mut it = numbers.iter();
+println!("{:?}", it.next());  // Some(1)
+println!("{:?}", it.next());  // Some(2)
+
+// collect() 是急切的，像列表推导式
+let squares: Vec<i32> = numbers.iter().map(|x| x * x).collect();
+println!("{:?}", squares);
+```
+</UniversalEditor>
+
+### 迭代器链
+
+<UniversalEditor compare={true} title="链式迭代器方法">
+```python !! py
+# Python - 使用生成器的方法链
+numbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+
+# 多个操作
+result = [
+    x * 2
+    for x in numbers
+    if x % 2 == 0
+]
+print(result)  # [4, 8, 12, 16, 20]
+
+# 使用 filter 和 map（使用生成器）
+result2 = list(
+    map(lambda x: x * 2,
+        filter(lambda x: x % 2 == 0, numbers))
+)
+```
+
+```rust !! rs
+// Rust - 流畅的迭代器链
+let numbers = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+
+// 方法的流畅链
+let result: Vec<i32> = numbers
+    .iter()
+    .filter(|&&x| x % 2 == 0)  // 保留偶数
+    .map(|x| x * 2)            // 加倍
+    .collect();
+println!("{:?}", result);  // [4, 8, 12, 16, 20]
+
+// 惰性：直到 collect() 才会发生任何事情
+let chain = numbers.iter()
+    .filter(|&&x| x % 2 == 0)
+    .map(|x| x * 2);
+// 还没有计算！
+let result: Vec<i32> = chain.collect();  // 现在运行
+```
+</UniversalEditor>
+
+### 迭代器消费
+
+<UniversalEditor compare={true} title="消费迭代器">
+```python !! py
+# Python - 消费迭代器
+numbers = [1, 2, 3, 4, 5]
+
+# 求和
+total = sum(numbers)  # 15
+
+# Any/All
+has_even = any(n % 2 == 0 for n in numbers)  # True
+all_positive = all(n > 0 for n in numbers)   # True
+
+# 查找
+first_even = next((n for n in numbers if n % 2 == 0), None)
+print(first_even)  # 2
+```
+
+```rust !! rs
+// Rust - 消费迭代器
+let numbers = vec![1, 2, 3, 4, 5];
+
+// 求和
+let total: i32 = numbers.iter().sum();  // 15
+
+// Any/All
+let has_even = numbers.iter().any(|&x| x % 2 == 0);  // true
+let all_positive = numbers.iter().all(|&x| x > 0);   // true
+
+// 查找
+let first_even = numbers.iter().find(|&&x| x % 2 == 0);
+println!("{:?}", first_even);  // Some(2)
+
+// Fold（像 reduce）
+let sum = numbers.iter().fold(0, |acc, &x| acc + x);
+println!("{}", sum);  // 15
+```
+</UniversalEditor>
+
+### IntoIterator：不同的迭代类型
+
+<UniversalEditor compare={true} title="Iterator、IntoIterator 和 IterMut">
+```python !! py
+# Python - 不同的迭代模式
+numbers = [1, 2, 3]
+
+# 读取元素
+for n in numbers:
+    print(n)
+
+# 修改元素（就地）
+for i in range(len(numbers)):
+    numbers[i] *= 2
+```
+
+```rust !! rs
+// Rust - 三种迭代类型
+let numbers = vec![1, 2, 3];
+
+// iter() - 借用的元素（只读）
+for n in numbers.iter() {
+    println!("{}", n);
+}
+
+// into_iter() - 拥有的元素（消耗向量）
+for n in numbers.into_iter() {
+    println!("{}", n);
+}
+// numbers 不再可用！
+
+// iter_mut() - 可变借用（就地修改）
+let mut numbers = vec![1, 2, 3];
+for n in numbers.iter_mut() {
+    *n *= 2;
+}
+println!("{:?}", numbers);  // [2, 4, 6]
+```
+</UniversalEditor>
+
+## 7.5 性能比较
+
+让我们比较这些集合的性能特征。
+
+<UniversalEditor compare={true} title="性能特征">
+```python !! py
+# Python - 性能考虑
+# 列表追加：O(1) 摊销
+# 列表访问：O(1)
+# 列表在开头插入：O(n)
+
+# 字典查找：O(1) 平均
+# 字典插入：O(1) 平均
+
+# 循环中的字符串连接：如果做错是 O(n²)
+# （使用 ''.join() 实现 O(n)）
+```
+
+```rust !! rs
+// Rust - 性能特征
+// Vec push: O(1) 摊销
+// Vec 访问: O(1)
+// Vec 在开头插入: O(n)
+
+// HashMap 查找: O(1) 平均
+// HashMap 插入: O(1) 平均
+
+// 字符串连接：使用 with_capacity() 提高效率
+let mut result = String::with_capacity(100);
+for i in 0..10 {
+    result.push_str(&format!("Number {}", i));
+}
+// 比重复的字符串连接快得多
+```
+</UniversalEditor>
+
+## 7.6 选择合适的集合
+
+<UniversalEditor compare={true} title="集合选择指南">
+```python !! py
+# Python - 集合选择
+# list: 有序序列，动态大小
+# dict: 键值映射，快速查找
+# set: 唯一元素，快速成员测试
+# tuple: 不可变序列
+# frozenset: 不可变集合
+```
+
+```rust !! rs
+// Rust - 集合选择
+// Vec<T>: 序列的默认选择
+// [T; N]: 固定大小数组（编译时已知）
+// String: 拥有的、可增长的字符串
+// &str: 字符串切片（String 的视图）
+// HashMap<K, V>: 键值映射（默认）
+// BTreeMap<K, V>: 有序键值映射
+// HashSet<T>: 唯一元素，快速成员测试
+// BTreeSet<T>: 有序唯一元素
+// VecDeque<T>: 双端队列
+// LinkedList<T>: 双向链表（很少需要！）
+```
+</UniversalEditor>
+
+## 常见陷阱
+
+### 陷阱 1：字符串索引
+
+```rust
+// 不要：对字符串进行索引
+let s = String::from("hello");
+// let c = s[0];  // 恐慌！
+
+// 应该：使用 chars() 或 bytes()
+let c = s.chars().next().unwrap();
+```
+
+### 陷阱 2：忘记克隆
+
+```rust
+// 不要：意外地将值移动到 HashMap
+use std::collections::HashMap;
+
+let name = String::from("Alice");
+let mut map = HashMap::new();
+map.insert(name, 95);
+// println!("{}", name);  // 错误：name 被移动了！
+
+// 应该：需要时克隆
+let name = String::from("Alice");
+map.insert(name.clone(), 95);
+println!("{}", name);  // 工作！
+```
+
+### 陷阱 3：不必要的 collect
+
+```rust
+// 不要：不必要地收集
+let result: Vec<i32> = numbers.iter()
+    .map(|x| x * 2)
+    .collect();
+let sum: i32 = result.iter().sum();
+
+// 应该：链接操作
+let sum: i32 = numbers.iter()
+    .map(|x| x * 2)
+    .sum();
+```
+
+## 最佳实践
+
+1. 当你知道大小时，**预分配容量**
+2. 使用 `String::with_capacity()` **构建字符串**
+3. **利用迭代器链** 而不是中间集合
+4. **使用 `&str` 作为函数参数**（更灵活）
+5. **优先选择 `Vec` 而不是 `LinkedList`**（更好的缓存局部性）
+6. **使用 `entry()` API** 进行条件 HashMap 操作
+
+## 总结
+
+在本模块中，我们涵盖了：
+
+- **`Vec<T>`**：类型安全、可增长的数组，具有容量控制
+- **String vs &str**：拥有的字符串 vs 字符串切片
+- **`HashMap<K, V>`**：具有所有权语义的键值存储
+- **迭代器**：惰性、可组合且强大
+
+关键要点：
+- Rust 的集合是类型安全的，并且显式处理所有权
+- 字符串类型需要理解 UTF-8 编码
+- 迭代器是惰性且可链式的，用于高效的数据处理
+- 根据你的性能需求选择集合
+
+## 练习
+
+创建一个词频计数器，它：
+1. 读取文本并分割成单词
+2. 使用 HashMap 计算单词出现次数
+3. 返回前 5 个最常见的单词
+4. 正确处理 Unicode 文本
+
+<details>
+<summary>查看解决方案</summary>
+
+```rust
+use std::collections::HashMap;
+
+fn word_frequency(text: &str) -> Vec<(String, usize)> {
+    let mut freq = HashMap::new();
+
+    // 分割空格并计数
+    for word in text.split_whitespace() {
+        // 清理单词：删除标点符号，小写
+        let cleaned = word
+            .to_lowercase()
+            .chars()
+            .filter(|c| c.is_alphabetic())
+            .collect::<String>();
+
+        if !cleaned.is_empty() {
+            *freq.entry(cleaned).or_insert(0) += 1;
+        }
+    }
+
+    // 转换为向量并排序
+    let mut counts: Vec<(String, usize)> = freq.into_iter().collect();
+    counts.sort_by(|a, b| b.1.cmp(&a.1));  // 按计数降序
+
+    counts
+}
+
+fn main() {
+    let text = "Hello world hello RUST world rust World";
+    let top_words = word_frequency(text);
+
+    for (word, count) in top_words.iter().take(5) {
+        println!("{}: {}", word, count);
+    }
+}
+```
+
+</details>
+
+接下来：**模块 8 - 枚举和模式匹配**，我们将探索 Rust 强大的枚举系统和模式匹配功能！

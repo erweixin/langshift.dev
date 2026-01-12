@@ -1,0 +1,959 @@
+---
+title: "模組 0：Go 語言介紹"
+description: "理解 Go 的設計理念、歷史以及設定開發環境"
+---
+
+## Go 語言歷史和設計哲學
+
+Go（也稱為 Golang）是由 Google 的 Robert Griesemer、Rob Pike 和 Ken Thompson 設計的一門靜態類型、編譯型程式語言。它創建於 2007 年，並於 2009 年正式發布。Go 的設計旨在解決現代軟體開發中的挑戰，特別是在大規模分散式系統和雲端運算環境中。
+
+### 為什麼創建 Go
+
+Go 的誕生源於對 Google 現有語言的挫敗感：
+
+- **C++** 太複雜，編譯速度慢
+- **Java** 語法冗長，記憶體佔用大
+- **Python** 易於編寫但執行緩慢，由於 GIL 導致並發支援差
+
+Go 的創造者想要一門語言：
+- 像 Python 啟動一樣快地編譯
+- 像 C 或 C++ 一樣快地執行
+- 提供出色的並發支援
+- 簡潔、清晰的語法
+- 使建構可靠軟體變得容易
+
+### Go 的設計哲學
+
+Go 的設計由這些核心原則指導：
+
+#### 1. 簡潔性
+- **最少關鍵字**：語言只有 25 個關鍵字
+- **清晰語法**：易於讀寫
+- **正交特性**：特性之間一致地協作
+- **無隱藏複雜性**：所見即所得
+
+<UniversalEditor title="簡潔性：變數宣告">
+```python !! py
+# Python - 多種變數宣告方式
+x = 5
+y: int = 10
+z = list([1, 2, 3])
+```
+
+```go !! go
+// Go - 一致的方式
+var x int = 5
+y := 10  // 短變數宣告（最常用）
+```
+</UniversalEditor>
+
+#### 2. 並發
+- **Goroutines**：輕量級執行緒（數千個可以同時執行）
+- **Channels**：goroutine 之間的安全通訊
+- **Select**：協調多個操作
+- **無 GIL**：真正的平行執行
+
+<UniversalEditor title="並發：Python vs Go">
+```python !! py
+# Python - 受 GIL 限制
+import threading
+import time
+
+def worker():
+    time.sleep(1)
+    print("Done")
+
+# 由於 GIL，這些不能平行執行
+threads = [threading.Thread(target=worker) for _ in range(5)]
+for t in threads:
+    t.start()
+for t in threads:
+    t.join()
+```
+
+```go !! go
+// Go - 真正的平行
+package main
+
+import (
+    "fmt"
+    "time"
+)
+
+func worker() {
+    time.Sleep(time.Second)
+    fmt.Println("Done")
+}
+
+func main() {
+    // 這些平行執行
+    for i := 0; i < 5; i++ {
+        go worker()
+    }
+    time.Sleep(2 * time.Second)
+}
+```
+</UniversalEditor>
+
+#### 3. 效能
+- **編譯為機器碼**：無直譯器開銷
+- **高效垃圾回收器**：低暫停時間
+- **靜態類型**：編譯時最佳化
+- **零成本抽象**：高階構造沒有執行時開銷
+
+#### 4. 安全性
+- **強類型**：編譯時擷取錯誤
+- **記憶體安全**：無指標運算（除非使用 unsafe 套件）
+- **垃圾回收**：自動記憶體管理
+- **顯式錯誤處理**：錯誤是值，不是異常
+
+<UniversalEditor title="錯誤處理對比">
+```python !! py
+# Python - 例外
+try:
+    result = divide(10, 0)
+except ZeroDivisionError as e:
+    print(f"Error: {e}")
+```
+
+```go !! go
+// Go - 顯式錯誤檢查
+result, err := divide(10, 0)
+if err != nil {
+    fmt.Printf("Error: %v\n", err)
+    return
+}
+```
+</UniversalEditor>
+
+## 與 Python 的比較
+
+| 特性 | Python | Go |
+|------|--------|-----|
+| **範式** | 多範式（OO、函數式、程序式） | 多範式（程序式、並發、帶 OO 特性） |
+| **類型** | 動態（鴨子類型） | 靜態（帶類型推斷） |
+| **執行** | 直譯執行（CPython），JIT（PyPy） | 編譯（AOT）為機器碼 |
+| **效能** | 比 C 慢 10-100 倍 | 類似 C/C++（10-20% 以內） |
+| **並發** | 受 GIL 限制（執行緒），透過多程序平行 | 原生 goroutines 和 channels，無 GIL |
+| **記憶體** | 引用計數 + 循環偵測器 | 追蹤式垃圾回收器 |
+| **啟動時間** | 快（直譯器啟動快） | 中等（編譯快但不即時） |
+| **部署** | 需要 Python 執行時、依賴 | 單個二進位，無依賴 |
+| **套件管理** | pip + 虛擬環境 | go mod（內建） |
+| **標準庫** | 豐富（"自帶電池"） | 全面但較小 |
+| **學習曲線** | 平緩 | 中等（靜態類型需要適應） |
+| **最適合** | 資料科學、ML、腳本、Web 後端、自動化 | 微服務、雲端工具、系統程式設計、高效能服務 |
+
+## 編譯型 vs 直譯型
+
+### Python（直譯型/JIT）
+
+Python 程式碼由直譯器執行：
+
+1. **原始碼**（`.py` 檔案）被解析為位元組碼
+2. **位元組碼**由 Python 虛擬機執行
+3. **動態類型**意味著類型在執行時檢查
+4. **GIL** 限制平行執行
+
+**優點：**
+- 快速開發週期（無編譯步驟）
+- 互動式 shell（REPL）
+- 動態類型提供彈性
+- 易於原型設計
+
+**缺點：**
+- 執行較慢
+- 執行時類型錯誤
+- GIL 限制真正的平行
+- 需要執行時環境
+
+### Go（編譯型）
+
+Go 程式碼在執行前編譯：
+
+1. **原始碼**（`.go` 檔案）被解析和類型檢查
+2. **程式碼被編譯**為目標平台的機器碼
+3. **二進位檔案**是獨立的可執行檔
+4. **靜態類型**在編譯時擷取錯誤
+
+**優點：**
+- 快速執行（類似 C/C++）
+- 無執行時依賴
+- 編譯時錯誤檢查
+- 真正的平行執行
+- 單個二進位部署
+
+**缺點：**
+- 編譯步驟（雖然 Go 很快）
+- 比動態類型彈性差
+- 原型設計週期較慢
+
+<UniversalEditor title="執行模型對比">
+```python !! py
+# Python - 直接執行
+$ python script.py
+# 無編譯步驟，但執行較慢
+```
+
+```go !! go
+// Go - 編譯然後執行
+$ go build -o myapp main.go
+$ ./myapp
+// 快速編譯，然後快速執行
+```
+</UniversalEditor>
+
+## Go 的使用場景和優勢
+
+### 主要使用場景
+
+#### 1. 雲原生基礎設施
+Go 是雲的語言：
+- **Kubernetes**：容器編排
+- **Docker**：容器平台
+- **Terraform**：基礎設施即程式碼
+- **Prometheus**：監控系統
+
+#### 2. 微服務
+- **高效能**：快速執行和低記憶體佔用
+- **易於部署**：每個服務單個二進位
+- **內建並發**：同時處理多個請求
+- **快速編譯**：開發期間快速迭代
+
+<UniversalEditor title="微服務效能">
+```python !! py
+# Python Flask 微服務
+# 典型：500-2000 請求/秒
+from flask import Flask
+app = Flask(__name__)
+
+@app.route('/')
+def hello():
+    return "Hello World"
+```
+
+```go !! go
+// Go 微服務
+// 典型：10,000-50,000+ 請求/秒
+package main
+
+import (
+    "fmt"
+    "net/http"
+)
+
+func handler(w http.ResponseWriter, r *http.Request) {
+    fmt.Fprintf(w, "Hello World")
+}
+
+func main() {
+    http.HandleFunc("/", handler)
+    http.ListenAndServe(":8080", nil)
+}
+```
+</UniversalEditor>
+
+#### 3. 網路工具
+- 高效能網路伺服器
+- 代理和負載平衡器
+- API 閘道
+- 即時通訊系統
+
+#### 4. DevOps 工具
+- CI/CD 工具（GitHub Actions runner、Drone）
+- 監控代理
+- 日誌聚合器
+- 組態管理
+
+#### 5. 命令列工具
+- 快速執行
+- 單個二進位分發
+- 跨平台支援
+- 易於安裝和使用
+
+### 核心優勢
+
+#### 1. 效能
+- **執行速度**：對於 CPU 密集型任務比 Python 快 10-100 倍
+- **記憶體效率**：更低的記憶體佔用
+- **啟動時間**：快（雖然不是瞬間）
+- **可擴展性**：處理更多並發操作
+
+<UniversalEditor title="效能：JSON 處理">
+```python !! py
+# Python - 處理 10,000 筆記錄約 50ms
+import json
+
+data = [{"id": i, "name": f"User{i}"} for i in range(10000)]
+json_str = json.dumps(data)
+parsed = json.loads(json_str)
+```
+
+```go !! go
+// Go - 處理 10,000 筆記錄約 5ms（快 10 倍）
+package main
+
+import (
+    "encoding/json"
+    "fmt"
+)
+
+type User struct {
+    ID   int    `json:"id"`
+    Name string `json:"name"`
+}
+
+func main() {
+    var data []User
+    for i := 0; i < 10000; i++ {
+        data = append(data, User{ID: i, Name: fmt.Sprintf("User%d", i)})
+    }
+
+    b, _ := json.Marshal(data)
+    var parsed []User
+    json.Unmarshal(b, &parsed)
+}
+```
+</UniversalEditor>
+
+#### 2. 並發
+- **Goroutines**：啟動數千個並發操作
+- **Channels**：安全通訊
+- **Select**：等待多個操作
+- **無 GIL**：真正的平行執行
+
+#### 3. 簡潔性
+- **易於學習**：語言表面小
+- **快速編寫**：比 Java 更少的樣板程式碼
+- **易於閱讀**：清晰、顯式的程式碼
+- **快速上手**：新開發者快速變得高效
+
+#### 4. 工具
+- **內建工具**：`go fmt`、`go test`、`go vet`、`go doc`
+- **快速編譯**：幾秒內編譯大型專案
+- **交叉編譯**：從任何機器為任何平台建構
+- **標準庫**：全面且設計良好
+
+#### 5. 部署
+- **單個二進位**：無依賴地獄
+- **跨平台**：隨處執行
+- **小二進位**：通常 5-20 MB
+- **快速啟動**：適合無伺服器函式
+
+<UniversalEditor title="部署對比">
+```bash
+# Python 部署
+$ pip install -r requirements.txt
+$ python app.py
+# 需要：Python 執行時、所有依賴、正確版本
+```
+
+```bash
+# Go 部署
+$ scp myapp server:/usr/local/bin/
+$ ssh server ./myapp
+# 只需：一個二進位檔案
+```
+</UniversalEditor>
+
+## 開發環境設定
+
+### 前置要求
+
+無特殊前置要求 - Go 支援以下環境：
+- **Linux**：任何現代發行版
+- **macOS**：10.15 Catalina 或更高版本
+- **Windows**：Windows 10 或更高版本
+- **架構**：x86-64、ARM64 等
+
+### 安裝方法
+
+#### 方法 1：官方安裝程式（推薦給初學者）
+
+**macOS：**
+```bash
+# 從 https://golang.org/dl/ 下載
+# 或使用 Homebrew
+brew install go
+```
+
+**Linux (Ubuntu/Debian)：**
+```bash
+# 下載並安裝
+wget https://go.dev/dl/go1.21.5.linux-amd64.tar.gz
+sudo rm -rf /usr/local/go
+sudo tar -C /usr/local -xzf go1.21.5.linux-amd64.tar.gz
+
+# 新增到 PATH（新增到 ~/.bashrc 或 ~/.zshrc）
+export PATH=$PATH:/usr/local/go/bin
+export GOPATH=$HOME/go
+```
+
+**Windows：**
+1. 從 https://golang.org/dl/ 下載 MSI 安裝程式
+2. 執行安裝程式
+3. 重新啟動終端
+
+#### 方法 2：版本管理器（推薦給高級使用者）
+
+**使用 g（Go 版本管理器）：**
+```bash
+# 安裝 g
+curl -sSL https://raw.githubusercontent.com/voidint/g/master/install.sh | bash
+
+# 安裝並使用特定 Go 版本
+g install 1.21.5
+g use 1.21.5
+```
+
+### 驗證安裝
+
+```bash
+$ go version
+go version go1.21.5 darwin/amd64
+
+$ go env
+GO111MODULE="on"
+GOARCH="amd64"
+GOBIN=""
+GOCACHE="/Users/you/Library/Caches/go-build"
+GOHOSTARCH="amd64"
+GOHOSTOS="darwin"
+GOOS="darwin"
+...
+```
+
+### 理解 Go 環境
+
+#### GOPATH vs Go Modules
+
+**GOPATH（舊方式，仍然相關）：**
+- `GOPATH` 是你的工作區目錄
+- 包含三個子目錄：
+  - `src/`：原始碼
+  - `pkg/`：編譯的套件檔案
+  - `bin/`：可執行二進位檔案
+
+**Go Modules（新方式，推薦）：**
+- 模組感知模式（Go 1.16 起預設）
+- `go.mod` 檔案定義你的模組和依賴
+- 無需 GOPATH
+- 依賴儲存在模組快取中
+
+<UniversalEditor title="專案結構對比">
+```bash
+# Python - 虛擬環境
+myproject/
+├── venv/              # 虛擬環境
+├── requirements.txt   # 依賴
+└── src/              # 原始碼
+    └── main.py
+```
+
+```bash
+# Go - Go 模組
+myproject/
+├── go.mod            # 模組定義
+├── go.sum            # 依賴校驗和
+└── main.go           # 原始碼
+```
+</UniversalEditor>
+
+### 推薦的 IDE 設定
+
+#### 1. Visual Studio Code（最受歡迎）
+
+**安裝擴充功能：**
+```bash
+# 安裝 Go 擴充功能
+code --install-extension golang.go
+```
+
+**特性：**
+- IntelliSense（自動完成）
+- 程式碼導航
+- 重構工具
+- 整合除錯
+- 測試覆蓋率視覺化
+
+#### 2. GoLand（JetBrains）
+
+**特性：**
+- 全功能 IDE
+- 進階重構
+- 資料庫工具
+- 內建除錯器
+- 版本控制整合
+
+**價格：**付費，但學生免費
+
+#### 3. Vim/Neovim
+
+**安裝 vim-go：**
+```vim
+# 在 .vimrc 中
+Plug 'fatih/vim-go'
+```
+
+### 必備的 Go 工具
+
+這些工具隨 Go 一起提供：
+
+```bash
+# 自動格式化程式碼
+go fmt ./...
+
+# 執行測試
+go test ./...
+
+# 檢查問題
+go vet ./...
+
+# 列出依賴
+go list -m all
+
+# 更新依賴
+go get -u ./...
+
+# 整理依賴
+go mod tidy
+
+# 建構可執行檔
+go build -o myapp
+
+# 直接執行
+go run main.go
+
+# 下載依賴
+go mod download
+
+# 驗證依賴
+go mod verify
+```
+
+<UniversalEditor title="必備工具對比">
+```python !! py
+# Python 等效命令
+# 格式化
+black .
+
+# 執行測試
+pytest
+
+# 類型檢查
+mypy .
+
+# 安裝依賴
+pip install -r requirements.txt
+
+# 執行應用程式
+python main.py
+```
+
+```go !! go
+// Go 等效命令
+// 格式化
+go fmt ./...
+
+// 執行測試
+go test ./...
+
+// Vet（檢查問題）
+go vet ./...
+
+// 下載依賴
+go mod download
+
+// 執行應用程式
+go run main.go
+```
+</UniversalEditor>
+
+## 你的第一個 Go 程式
+
+讓我們編寫一個簡單的 Go 程式來開始：
+
+<UniversalEditor title="你的第一個 Go 程式">
+```python !! py
+# Python - Hello World
+def greet(name):
+    return f"Hello, {name}!"
+
+def main():
+    names = ["Alice", "Bob", "Charlie"]
+    for name in names:
+        print(greet(name))
+
+if __name__ == "__main__":
+    main()
+```
+
+```go !! go
+// Go - Hello World
+package main
+
+import "fmt"
+
+func greet(name string) string {
+    return fmt.Sprintf("Hello, %s!", name)
+}
+
+func main() {
+    names := []string{"Alice", "Bob", "Charlie"}
+    for _, name := range names {
+        fmt.Println(greet(name))
+    }
+}
+```
+</UniversalEditor>
+
+### Go 程式剖析
+
+```go
+package main           // 1. 套件宣告（入口點）
+
+import "fmt"           // 2. 匯入套件
+
+func greet(name string) string {    // 3. 函式定義
+    return fmt.Sprintf("Hello, %s!", name)  // 4. 傳回陳述式
+}
+
+func main() {          // 5. Main 函式（入口點）
+    fmt.Println("Hello, World!")  // 6. 函式呼叫
+}
+```
+
+**與 Python 的主要區別：**
+1. **分號**：不需要（自動插入）
+2. **類型**：顯式類型註解（`name string`）
+3. **套件宣告**：頂部必需
+4. **匯入**：必須在引號中
+5. **匯出名稱**：大寫（例如 `fmt.Printf`）
+6. **Main 函式**：必須在 `package main` 中，名為 `main`，無參數
+
+### 執行你的第一個程式
+
+```bash
+# 建立檔案
+cat > main.go << 'EOF'
+package main
+
+import "fmt"
+
+func main() {
+    fmt.Println("Hello, World!")
+}
+EOF
+
+# 直接執行（一步編譯和執行）
+go run main.go
+# 輸出: Hello, World!
+
+# 編譯為二進位
+go build -o hello main.go
+
+# 執行二進位
+./hello
+# 輸出: Hello, World!
+
+# 查看生成的二進位
+ls -lh hello
+# 簡單程式通常 1-2 MB
+```
+
+## 設定 Go 專案
+
+### 初始化 Go 模組
+
+```bash
+# 建立專案目錄
+mkdir myproject
+cd myproject
+
+# 初始化 Go 模組
+go mod init github.com/username/myproject
+
+# 這會建立 go.mod 檔案：
+cat go.mod
+```
+
+**go.mod 內容：**
+```go
+module github.com/username/myproject
+
+go 1.21
+```
+
+### 專案結構
+
+<UniversalEditor title="專案結構對比">
+```bash
+# Python 專案
+myproject/
+├── venv/                 # 虛擬環境
+├── requirements.txt      # 依賴
+├── src/
+│   ├── __init__.py
+│   ├── main.py
+│   └── utils.py
+└── tests/
+    ├── __init__.py
+    └── test_utils.py
+```
+
+```bash
+# Go 專案
+myproject/
+├── go.mod               # 模組定義
+├── go.sum               # 依賴校驗和
+├── main.go              # 入口點
+├── utils.go             # 工具函式
+└── utils_test.go        # 測試（file_test.go 約定）
+```
+</UniversalEditor>
+
+### 示例專案
+
+讓我們建立一個簡單的專案：
+
+```bash
+# 初始化
+go mod init github.com/username/myproject
+
+# 建立main.go
+cat > main.go << 'EOF'
+package main
+
+import (
+    "fmt"
+    "strings"
+)
+
+func greet(name string) string {
+    return fmt.Sprintf("Hello, %s!", strings.Title(name))
+}
+
+func main() {
+    names := []string{"alice", "bob", "charlie"}
+    for _, name := range names {
+        fmt.Println(greet(name))
+    }
+}
+EOF
+
+# 執行它
+go run main.go
+# Hello, Alice!
+# Hello, Bob!
+# Hello, Charlie!
+
+# 格式化程式碼
+go fmt main.go
+
+# 建構它
+go build -o myproject
+
+# 執行二進位
+./myproject
+```
+
+## 效能對比：親身體驗
+
+讓我們用實際例子比較 Python 和 Go 效能：
+
+<UniversalEditor title="效能：檔案處理">
+```python !! py
+# Python - 統計大檔案中的單詞
+import time
+from collections import Counter
+
+def count_words(filename):
+    with open(filename, 'r') as f:
+        words = f.read().lower().split()
+    return Counter(words)
+
+start = time.time()
+result = count_words('large_file.txt')
+print(f"Time: {time.time() - start:.2f}s")
+```
+
+```go !! go
+// Go - 統計大檔案中的單詞
+package main
+
+import (
+    "bufio"
+    "fmt"
+    "os"
+    "strings"
+    "time"
+)
+
+func countWords(filename string) map[string]int {
+    file, _ := os.Open(filename)
+    defer file.Close()
+
+    scanner := bufio.NewScanner(file)
+    counts := make(map[string]int)
+
+    for scanner.Scan() {
+        words := strings.Fields(strings.ToLower(scanner.Text()))
+        for _, word := range words {
+            counts[word]++
+        }
+    }
+
+    return counts
+}
+
+func main() {
+    start := time.Now()
+    counts := countWords("large_file.txt")
+    elapsed := time.Since(start)
+
+    fmt.Printf("Time: %.2fs\n", elapsed.Seconds())
+}
+```
+</UniversalEditor>
+
+**典型結果：**
+- **Python**：100MB 檔案 2-5 秒
+- **Go**：100MB 檔案 0.3-0.8 秒（快 3-10 倍）
+
+## Python 開發者常見問題
+
+### Q1：Go 難學嗎？
+
+**答：** 不，Go 比大多數靜態類型語言更容易學：
+- 簡單語法，只有 25 個關鍵字
+- 無複雜的類別階層
+- 最少的樣板程式碼
+- 良好的錯誤訊息
+
+**Python 開發者的挑戰：** 靜態類型需要適應，但類型推斷有幫助。
+
+### Q2：Go 會取代 Python 嗎？
+
+**答：** 不會，它們服務於不同目的：
+- **Python**：最適合資料科學、ML、腳本、快速原型設計
+- **Go**：最適合系統程式設計、微服務、雲端基礎設施
+
+它們是互補的，不是競爭的。
+
+### Q3：我可以將 Go 與 Python 一起使用嗎？
+
+**答：** 可以！常見模式：
+- 使用 Go 處理效能關鍵服務
+- 使用 Python 進行資料處理/ML
+- 透過 HTTP、gRPC 或訊息佇列通訊
+
+<UniversalEditor title="混合架構">
+```python !! py
+# Python - ML 模型服務
+from flask import Flask, request
+import my_ml_model
+
+app = Flask(__name__)
+
+@app.route('/predict', methods=['POST'])
+def predict():
+    data = request.json
+    result = my_ml_model.predict(data)
+    return {'prediction': result}
+```
+
+```go !! go
+// Go - API 閘道
+package main
+
+import "net/http"
+
+func proxyHandler(w http.ResponseWriter, r *http.Request) {
+    // 代理到 Python ML 服務
+    // 處理 auth、限流、快取
+}
+
+func main() {
+    http.ListenAndServe(":8080", nil)
+}
+```
+</UniversalEditor>
+
+### Q4：Go vs pip 如何處理依賴？
+
+**答：** Go 使用 Go Modules：
+
+```bash
+# Python
+pip install requests
+
+# Go
+go get github.com/gin-gonic/gin
+```
+
+**主要區別：**
+- Go：Vendor 目錄或模組快取（無需虛擬環境）
+- Python：需要虛擬環境進行隔離
+
+### Q5：測試呢？
+
+**答：** Go 有內建測試：
+
+<UniversalEditor title="測試對比">
+```python !! py
+# Python - pytest
+def test_add():
+    assert add(2, 3) == 5
+
+# 執行: pytest test_file.py
+```
+
+```go !! go
+// Go - 內建測試
+func TestAdd(t *testing.T) {
+    result := Add(2, 3)
+    if result != 5 {
+        t.Errorf("Add(2, 3) = %d; want 5", result)
+    }
+}
+
+// 執行: go test
+```
+</UniversalEditor>
+
+## 總結
+
+在本模組中，你學到了：
+
+1. **Go 的歷史和設計哲學**：簡潔性、並發、效能、安全性
+2. **與 Python 的主要區別**：靜態類型、編譯、無 GIL、顯式錯誤處理
+3. **Go 的使用場景**：雲原生、微服務、DevOps 工具、CLI
+4. **開發環境**：安裝、IDE 設定、Go 模組
+5. **你的第一個 Go 程式**：結構、編譯、執行
+6. **效能特徵**：許多任務比 Python 快 10-100 倍
+
+### 下一步
+
+你準備好深入瞭解 Go 語法了！在下一模組中，你將學習：
+- 與 Python 的基本語法差異
+- 變數、類型和宣告
+- 控制流程和函式
+- 如何將 Python 習語翻譯為 Go
+
+## 練習
+
+1. **安裝 Go**（如果尚未安裝）
+2. **建立 "Hello, World!"** 程式
+3. **初始化 Go 模組**用於新專案
+4. **編寫簡單程式**，它：
+   - 建立字串切片
+   - 遍歷它們
+   - 以不同格式列印
+5. **比較效能**：用 Python 和 Go 實作相同的簡單演算法，然後使用 `time` 命令比較執行時間
+
+## 其他資源
+
+- **Go 官方網站**：https://go.dev/
+- **Go Tour**：https://go.dev/tour/welcome/1
+- **Effective Go**：https://go.dev/doc/effective_go
+- **Go by Example**：https://gobyexample.com/
+- **Go Playground**：https://go.dev/play/（在瀏覽器中執行 Go）

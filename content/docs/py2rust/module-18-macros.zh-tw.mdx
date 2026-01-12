@@ -1,0 +1,182 @@
+---
+title: "模組 18: 巨集"
+description: "掌握 Rust 巨集,包括使用 macro_rules! 的宣告式巨集、派生巨集和程序巨集"
+---
+
+# 模組 18: 巨集
+
+## 學習目標
+
+完成本模組後,你將能夠:
+- 使用 `macro_rules!` 編寫宣告式巨集
+- 建立自訂派生巨集
+- 理解程序巨集
+- 在編譯時生成程式碼
+- 使用巨集減少樣板程式碼
+
+## 巨集簡介
+
+Python 有裝飾器和元類用於元程式設計。Rust 有更強大的巨集系統,在編譯時執行。
+
+<UniversalEditor compare={true} title="基本巨集概念">
+```python !! py
+# Python - 用於元程式設計的裝飾器
+def timing_decorator(func):
+    def wrapper(*args, **kwargs):
+        import time
+        start = time.time()
+        result = func(*args, **kwargs)
+        end = time.time()
+        print(f"{func.__name__} took {end - start:.4f}s")
+        return result
+    return wrapper
+```
+
+```rust !! rs
+// Rust - 用於程式碼生成的宣告式巨集
+macro_rules! time_it {
+    ($func:expr) => {{
+        let start = std::time::Instant::now();
+        let result = $func;
+        let duration = start.elapsed();
+        println!(" took {:?}", duration);
+        result
+    }};
+}
+```
+</UniversalEditor>
+
+**關鍵區別:** Python 裝飾器在執行時修改函式,而 Rust 巨集在編譯時生成程式碼,零執行時成本。
+
+## 使用 `macro_rules!` 的宣告式巨集
+
+### 模式匹配
+
+<UniversalEditor compare={true} title="基本模式匹配">
+```python !! py
+# Python - 沒有直接等價物
+# 會使用裝飾器或元類
+```
+
+```rust !! rs
+// Rust - 編譯時程式碼生成
+macro_rules! make_getter_setter {
+    ($field:ident, $type:ty) => {
+        fn get_$field(&self) -> &$type {
+            &self.$field
+        }
+
+        fn set_$field(&mut self, value: $type) {
+            self.$field = value;
+        }
+    };
+}
+
+struct Person {
+    name: String,
+    age: u32,
+}
+
+impl Person {
+    make_getter_setter!(name, String);
+    make_getter_setter!(age, u32);
+}
+```
+</UniversalEditor>
+
+## 派生巨集
+
+派生巨集自動為結構體和列舉實作 trait。
+
+<UniversalEditor compare={true} title="自訂派生巨集">
+```python !! py
+# Python - 沒有直接等價物
+# 會使用元類或類裝飾器
+from dataclasses import dataclass
+
+@dataclass
+class Person:
+    name: str
+    age: int
+```
+
+```rust !! rs
+// Rust - 自訂派生巨集
+use proc_macro::TokenStream;
+use quote::quote;
+use syn::{parse_macro_input, DeriveInput};
+
+#[proc_macro_derive(ToDict)]
+pub fn to_dict_derive(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    let name = &input.ident;
+
+    let expanded = quote! {
+        impl ToDict for #name {
+            fn to_dict(&self) -> std::collections::HashMap<String, String> {
+                let mut map = std::collections::HashMap::new();
+                map.insert(stringify!(#name).to_string(), format!("{:?}", self));
+                map
+            }
+        }
+    };
+
+    TokenStream::from(expanded)
+}
+```
+</UniversalEditor>
+
+## 巨集的最佳實踐
+
+### 1. 優先使用巨集而非複製貼上程式碼
+
+<UniversalEditor compare={true} title="DRY 原則">
+```python !! py
+# Python - 使用裝飾器避免重複
+def log_result(func):
+    def wrapper(*args, **kwargs):
+        result = func(*args, **kwargs)
+        print(f"{func.__name__} = {:?}", result)
+        return result
+    return wrapper
+```
+
+```rust !! rs
+// Rust - 使用巨集避免樣板程式碼
+macro_rules! impl_math_op {
+    ($func_name:ident, $op:tt) => {
+        fn $func_name(x: i32, y: i32) -> i32 {
+            let result = x $op y;
+            println!("{} = {:?}", stringify!($func_name), result);
+            result
+        }
+    };
+}
+
+impl_math_op!(add, +);
+impl_math_op!(multiply, *);
+```
+</UniversalEditor>
+
+## 關鍵要點
+
+### 何時使用巨集
+- **使用巨集** 消除程式碼重複
+- **使用巨集** 建立領域特定語言 (DSL)
+- **使用巨集** 實作編譯時驗證
+- **使用派生巨集** 自動實作 trait
+
+### 何時不使用巨集
+- **避免巨集** 當普通函式可以工作時
+- **避免巨集** 用於簡單的型別抽象(改用泛型)
+- **避免巨集** 使程式碼含義模糊
+
+## 練習
+
+1. 建立一個生成帶有關聯資料的列舉變體的巨集
+2. 建構一個派生巨集來生成 JSON 序列化程式碼
+3. 實作一個為函式自動新增日誌的屬性巨集
+
+## 下一模組
+
+在模組 19 中,我們將探索 **效能優化**,涵蓋零成本抽象、迭代器、基準測試和效能分析技術。

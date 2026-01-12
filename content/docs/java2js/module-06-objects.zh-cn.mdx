@@ -1,0 +1,969 @@
+---
+title: "模块 6：对象"
+description: "掌握 JavaScript 对象字面量、方法和操作技巧"
+---
+
+## 模块 6：对象
+
+JavaScript 对象与 Java 对象有很大不同。它们是动态的、可变的属性集合。让我们探索如何有效地使用对象。
+
+## 学习目标
+
+完成本模块后，您将：
+✅ 理解对象字面量和创建
+✅ 掌握属性访问（点号 vs 括号表示法）
+✅ 学习对象方法和计算属性
+✅ 理解属性描述符和特性
+✅ 知道如何克隆和合并对象
+✅ 掌握对象解构
+
+## 对象字面量
+
+JavaScript 对象使用字面量语法创建：
+
+<UniversalEditor title="对象创建">
+```java !! java
+// Java - 需要类
+public class User {
+    private String name;
+    private int age;
+
+    public User(String name, int age) {
+        this.name = name;
+        this.age = age;
+    }
+
+    public String getName() { return name; }
+    public int getAge() { return age; }
+}
+
+User user = new User("John", 25);
+```
+
+```javascript !! js
+// JavaScript - 对象字面量（简单直接）
+const user = {
+    name: "John",
+    age: 25
+};
+
+console.log(user.name);  // "John"
+console.log(user.age);   // 25
+
+// 可以随时添加属性
+user.email = "john@example.com";
+user.isActive = true;
+
+// 可以删除属性
+delete user.isActive;
+
+// 空对象
+const empty = {};
+
+// 嵌套对象
+const person = {
+    name: "John",
+    address: {
+        street: "123 Main St",
+        city: "NYC",
+        country: "USA"
+    }
+};
+
+console.log(person.address.city);  // "NYC"
+```
+</UniversalEditor>
+
+### 属性访问
+
+<UniversalEditor title="属性访问模式">
+```java !! java
+// Java - 直接字段访问或 getter/setter
+User user = new User("John", 25);
+String name = user.getName();  // Getter
+user.setAge(26);               // Setter
+
+// 直接访问字段（如果是 public）
+user.name = "Jane";
+```
+
+```javascript !! js
+// JavaScript - 点号表示法 vs 括号表示法
+const user = {
+    name: "John",
+    age: 25,
+    "first name": "John",  // 带空格的属性
+    "user-email": "john@example.com"  // 作为标识符无效
+};
+
+// 点号表示法（最常见）
+console.log(user.name);  // "John"
+
+// 括号表示法（用于动态键或特殊字符）
+console.log(user["first name"]);  // "John"
+console.log(user["user-email"]);  // "john@example.com"
+
+// 括号表示法与变量
+const key = "age";
+console.log(user[key]);  // 25
+
+// 动态属性访问
+function getProperty(obj, prop) {
+    return obj[prop];
+}
+
+console.log(getProperty(user, "name"));  // "John"
+
+// 嵌套访问
+const config = {
+    server: {
+        port: 3000,
+        host: "localhost"
+    }
+};
+
+const serverKey = "server";
+const portKey = "port";
+console.log(config[serverKey][portKey]);  // 3000
+
+// 可选链（ES2020）
+const data = {
+    user: {
+        address: {
+            city: "NYC"
+        }
+    }
+};
+
+console.log(data.user?.address?.city);  // "NYC"
+console.log(data.user?.phone?.number);  // undefined（不会报错）
+console.log(data.nonExistent?.property);  // undefined
+```
+</UniversalEditor>
+
+### 计算属性
+
+<UniversalEditor title="计算属性">
+```java !! java
+// Java - 动态属性不常见
+// 会使用 Map
+Map<String, Object> data = new HashMap<>();
+data.put("field_" + 1, "value1");
+data.put("field_" + 2, "value2");
+```
+
+```javascript !! js
+// JavaScript - 计算属性名（ES6+）
+const prefix = "user";
+const id = 1;
+
+const user = {
+    [`${prefix}_${id}`]: "John",
+    [`${prefix}_${id + 1}`]: "Jane"
+};
+
+console.log(user.user_1);  // "John"
+console.log(user.user_2);  // "Jane"
+
+// 动态方法名
+const methodName = "greet";
+const calc = {
+    [methodName]() {
+        return "Hello!";
+    },
+    ["calc_" + "sum"](a, b) {
+        return a + b;
+    }
+};
+
+console.log(calc.greet());       // "Hello!"
+console.log(calc.calc_sum(5, 3));  // 8
+
+// 实用：动态创建 getter/setter
+function createAccessor(propertyName) {
+    return {
+        get [propertyName]() {
+            return this[`_${propertyName}`];
+        },
+        set [propertyName](value) {
+            this[`_${propertyName}`] = value;
+        }
+    };
+}
+
+const user = Object.assign(
+    { _name: "John" },
+    createAccessor("name")
+);
+
+console.log(user.name);  // "John"
+user.name = "Jane";
+console.log(user.name);  // "Jane"
+```
+</UniversalEditor>
+
+## 对象方法
+
+JavaScript 提供了多种处理对象的方法：
+
+<UniversalEditor title="Object 静态方法">
+```java !! java
+// Java - 反射
+import java.lang.reflect.Field;
+
+User user = new User("John", 25);
+Class<?> clazz = user.getClass();
+Field[] fields = clazz.getDeclaredFields();
+
+for (Field field : fields) {
+    field.setAccessible(true);
+    System.out.println(field.getName() + ": " + field.get(user));
+}
+```
+
+```javascript !! js
+// JavaScript - Object 方法
+
+const user = {
+    name: "John",
+    age: 25,
+    email: "john@example.com"
+};
+
+// Object.keys(): 获取属性名
+const keys = Object.keys(user);
+console.log(keys);  // ["name", "age", "email"]
+
+// Object.values(): 获取属性值
+const values = Object.values(user);
+console.log(values);  // ["John", 25, "john@example.com"]
+
+// Object.entries(): 获取 [键, 值] 对
+const entries = Object.entries(user);
+console.log(entries);
+// [["name", "John"], ["age", 25], ["email", "john@example.com"]]
+
+// 将 entries 转换回对象
+const fromEntries = Object.fromEntries(entries);
+console.log(fromEntries);  // { name: "John", age: 25, email: "john@example.com" }
+
+// Object.assign(): 复制属性
+const target = { a: 1, b: 2 };
+const source = { b: 3, c: 4 };
+const merged = Object.assign(target, source);
+console.log(merged);  // { a: 1, b: 3, c: 4 }
+// 注意：target 被修改了！
+
+// 更安全：展开运算符
+const merged2 = { ...target, ...source };
+console.log(merged2);  // { a: 1, b: 3, c: 4 }
+// target 未改变
+
+// Object.freeze(): 使其不可变
+const frozen = Object.freeze({ name: "John" });
+frozen.name = "Jane";  // 静默失败（严格模式下报错）
+console.log(frozen.name);  // "John"
+
+// Object.seal(): 防止添加/删除属性
+const sealed = Object.seal({ name: "John" });
+sealed.name = "Jane";  // 允许
+sealed.age = 25;       // 失败
+console.log(sealed);  // { name: "Jane" }
+
+// 检查状态
+console.log(Object.isFrozen(frozen));  // true
+console.log(Object.isSealed(sealed));  // true
+```
+</UniversalEditor>
+
+### 属性描述符
+
+<UniversalEditor title="属性描述符">
+```java !! java
+// Java - 没有直接等价物
+// 属性由字段和方法决定
+```
+
+```javascript !! js
+// JavaScript - 细粒度属性控制
+
+const user = { name: "John" };
+
+// 获取属性描述符
+const descriptor = Object.getOwnPropertyDescriptor(user, "name");
+console.log(descriptor);
+// {
+//   value: "John",
+//   writable: true,
+//   enumerable: true,
+//   configurable: true
+// }
+
+// 使用描述符定义属性
+const person = {};
+Object.defineProperty(person, "name", {
+    value: "John",
+    writable: false,      // 不能被修改
+    enumerable: true,     // 在循环中显示
+    configurable: false   // 不能被删除或重新配置
+});
+
+person.name = "Jane";  // 静默失败
+console.log(person.name);  // "John"
+
+// Getter 和 setter
+const user2 = {
+    _firstName: "John",
+    _lastName: "Doe",
+
+    get firstName() {
+        return this._firstName;
+    },
+
+    set firstName(value) {
+        this._firstName = value;
+    },
+
+    get fullName() {
+        return `${this._firstName} ${this._lastName}`;
+    }
+};
+
+console.log(user2.firstName);  // "John"
+user2.firstName = "Jane";
+console.log(user2.fullName);  // "Jane Doe"
+
+// 使用 getter/setter 定义属性
+const account = {
+    _balance: 0,
+
+    get balance() {
+        return this._balance;
+    },
+
+    set balance(value) {
+        if (value >= 0) {
+            this._balance = value;
+        }
+    }
+};
+
+account.balance = 100;
+console.log(account.balance);  // 100
+
+account.balance = -50;  // 验证失败
+console.log(account.balance);  // 100（未改变）
+
+// 多个属性
+Object.defineProperties(user, {
+    firstName: {
+        value: "John",
+        writable: true
+    },
+    lastName: {
+        value: "Doe",
+        writable: true
+    },
+    fullName: {
+        get() {
+            return `${this.firstName} ${this.lastName}`;
+        }
+    }
+});
+```
+</UniversalEditor>
+
+## 对象解构
+
+解构将属性解包到变量中：
+
+<UniversalEditor title="对象解构">
+```java !! java
+// Java - 手动提取
+User user = new User("John", 25);
+String name = user.getName();
+int age = user.getAge();
+
+// 或使用对象/元组（Java 16+）
+record User(String name, int age) {}
+User user = new User("John", 25);
+String name = user.name();
+int age = user.age();
+```
+
+```javascript !! js
+// JavaScript - 对象解构
+
+const user = {
+    name: "John",
+    age: 25,
+    email: "john@example.com",
+    city: "NYC"
+};
+
+// 基本解构
+const { name, age } = user;
+console.log(name);  // "John"
+console.log(age);   // 25
+
+// 不同的变量名
+const { name: userName, age: userAge } = user;
+console.log(userName);  // "John"
+
+// 默认值
+const { name: n, country = "USA" } = user;
+console.log(country);  // "USA"（user 没有 country 属性）
+
+// 嵌套解构
+const data = {
+    user: {
+        name: "John",
+        address: {
+            city: "NYC",
+            country: "USA"
+        }
+    }
+};
+
+const { user: { name, address: { city } } } = data;
+console.log(name);  // "John"
+console.log(city);  // "NYC"
+
+// 剩余运算符
+const { name, ...rest } = user;
+console.log(name);  // "John"
+console.log(rest);  // { age: 25, email: "john@example.com", city: "NYC" }
+
+// 函数参数中的解构
+function greet({ name, age = 30 }) {
+    console.log(`Hello ${name}, you are ${age}`);
+}
+
+greet(user);  // "Hello John, you are 25"
+
+// 数组解构
+const users = [
+    { id: 1, name: "Alice" },
+    { id: 2, name: "Bob" }
+];
+
+const [{ id: firstId }, { name: secondName }] = users;
+console.log(firstId);    // 1
+console.log(secondName); // "Bob"
+
+// 实用：API 响应
+function processUser({ data: { user: { name, email }, meta } }) {
+    console.log(name, email, meta);
+}
+
+processUser({
+    data: {
+        user: { name: "John", email: "john@example.com" },
+        meta: { timestamp: 1234567890 }
+    }
+});
+```
+</UniversalEditor>
+
+## 对象克隆和合并
+
+<UniversalEditor title="对象克隆">
+```java !! java
+// Java - 克隆不简单
+// 需要实现 Cloneable 或使用拷贝构造函数
+
+public class User implements Cloneable {
+    private String name;
+    private int age;
+
+    public User(User other) {
+        this.name = other.name;
+        this.age = other.age;
+    }
+
+    @Override
+    protected Object clone() throws CloneNotSupportedException {
+        return super.clone();
+    }
+}
+
+User original = new User("John", 25);
+User copy = new User(original);
+```
+
+```javascript !! js
+// JavaScript - 多种克隆方式
+
+// 使用展开运算符进行浅克隆
+const original = { name: "John", age: 25 };
+const clone = { ...original };
+
+clone.name = "Jane";
+console.log(original.name);  // "John"（未改变）
+
+// 使用 Object.assign() 进行浅克隆
+const clone2 = Object.assign({}, original);
+
+// ⚠️ 浅克隆问题：嵌套对象
+const nested = {
+    user: {
+        name: "John",
+        address: {
+            city: "NYC"
+        }
+    }
+};
+
+const shallow = { ...nested };
+shallow.user.name = "Jane";
+shallow.user.address.city = "LA";
+
+console.log(nested.user.name);  // "Jane"（改变了！）
+console.log(nested.user.address.city);  // "LA"（改变了！）
+
+// 使用 JSON 进行深克隆
+const deep1 = JSON.parse(JSON.stringify(nested));
+deep1.user.name = "Alice";
+console.log(nested.user.name);  // "Jane"（未改变）
+
+// 使用 structuredClone 进行深克隆（现代）
+const deep2 = structuredClone(nested);
+
+// 深克隆工具函数
+function deepClone(obj) {
+    if (obj === null || typeof obj !== "object") {
+        return obj;
+    }
+
+    if (obj instanceof Date) {
+        return new Date(obj);
+    }
+
+    if (obj instanceof Array) {
+        return obj.map(item => deepClone(item));
+    }
+
+    const cloned = {};
+    for (const key in obj) {
+        if (obj.hasOwnProperty(key)) {
+            cloned[key] = deepClone(obj[key]);
+        }
+    }
+    return cloned;
+}
+
+// 合并对象
+const defaults = {
+    theme: "light",
+    language: "en",
+    timeout: 5000
+};
+
+const userConfig = {
+    language: "fr",
+    timeout: 10000
+};
+
+// 合并（userConfig 覆盖 defaults）
+const config = { ...defaults, ...userConfig };
+console.log(config);
+// { theme: "light", language: "fr", timeout: 10000 }
+
+// 深度合并工具函数
+function deepMerge(target, ...sources) {
+    if (!sources.length) return target;
+    const source = sources.shift();
+
+    if (isObject(target) && isObject(source)) {
+        for (const key in source) {
+            if (isObject(source[key])) {
+                if (!target[key]) Object.assign(target, { [key]: {} });
+                deepMerge(target[key], source[key]);
+            } else {
+                Object.assign(target, { [key]: source[key] });
+            }
+        }
+    }
+    return deepMerge(target, ...sources);
+}
+
+function isObject(item) {
+    return item && typeof item === "object" && !Array.isArray(item);
+}
+
+const merged = deepMerge(
+    { user: { name: "John", settings: { theme: "light" } } },
+    { user: { settings: { language: "en" } } }
+);
+console.log(merged);
+// { user: { name: "John", settings: { theme: "light", language: "en" } } }
+```
+</UniversalEditor>
+
+## 对象中的 This 上下文
+
+<UniversalEditor title="对象中的 This">
+```java !! java
+// Java - 'this' 始终引用当前实例
+public class Counter {
+    private int count = 0;
+
+    public void increment() {
+        this.count++;  // 'this' 是 Counter 实例
+    }
+}
+```
+
+```javascript !! js
+// JavaScript - 'this' 取决于调用位置
+
+const user = {
+    name: "John",
+    age: 25,
+
+    greet() {
+        console.log(`Hello, I'm ${this.name}`);
+    },
+
+    // 箭头函数：'this' 来自外部作用域
+    greetArrow: () => {
+        console.log(`Hello, I'm ${this.name}`);  // undefined!
+    },
+
+    // 嵌套函数问题
+    nestedGreet() {
+        // 'this' 在这里有效
+        console.log(this.name);
+
+        setTimeout(function() {
+            // 'this' 在这里丢失了！
+            console.log(this.name);  // undefined
+        }, 1000);
+
+        // 解决方案 1：箭头函数
+        setTimeout(() => {
+            console.log(this.name);  // "John" - 有效！
+        }, 1000);
+
+        // 解决方案 2：Bind
+        setTimeout(function() {
+            console.log(this.name);  // "John"
+        }.bind(this), 1000);
+
+        // 解决方案 3：捕获 this
+        const self = this;
+        setTimeout(function() {
+            console.log(self.name);  // "John"
+        }, 1000);
+    }
+};
+
+user.greet();       // "Hello, I'm John"
+user.greetArrow();  // "Hello, I'm undefined"
+
+// 'this' 取决于调用位置
+const greet = user.greet;
+greet();  // "Hello, I'm undefined"（不是作为方法调用）
+
+// 显式 this 绑定
+const greet2 = user.greet.bind(user);
+greet2();  // "Hello, I'm John"
+
+// Call 和 apply
+user.greet.call({ name: "Jane" });  // "Hello, I'm Jane"
+user.greet.apply({ name: "Bob" });  // "Hello, I'm Bob"
+```
+</UniversalEditor>
+
+## 常见模式
+
+### 模式 1：工厂函数
+
+<UniversalEditor title="工厂函数">
+```java !! java
+// Java - 静态工厂方法
+public class User {
+    private String name;
+    private int age;
+
+    public static User create(String name, int age) {
+        return new User(name, age);
+    }
+
+    public static User fromJson(String json) {
+        // 解析并创建
+    }
+}
+```
+
+```javascript !! js
+// JavaScript - 工厂函数（简单，不需要类）
+
+function createUser(name, age) {
+    return {
+        name,
+        age,
+        greet() {
+            console.log(`Hi, I'm ${this.name}`);
+        },
+        incrementAge() {
+            this.age++;
+            return this;  // 链式调用
+        }
+    };
+}
+
+const user = createUser("John", 25);
+user.greet();  // "Hi, I'm John"
+user.incrementAge().greet();  // 链式调用
+
+// 使用闭包的工厂（私有数据）
+function createCounter() {
+    let count = 0;  // 私有
+
+    return {
+        increment() {
+            count++;
+            return this;
+        },
+        getCount() {
+            return count;
+        },
+        reset() {
+            count = 0;
+            return this;
+        }
+    };
+}
+
+const counter = createCounter();
+console.log(counter.increment().increment().getCount());  // 2
+console.log(counter.count);  // undefined（真正私有）
+```
+</UniversalEditor>
+
+### 模式 2：选项对象模式
+
+<UniversalEditor title="选项对象模式">
+```javascript !! js
+// 带多个参数的函数（不好）
+function createUser(name, age, email, active, role, permissions) {
+    // 难以记住参数顺序
+    // 不能跳过可选参数
+}
+
+// 选项对象模式（好）
+function createUser(options) {
+    const defaults = {
+        active: true,
+        role: "user",
+        permissions: []
+    };
+
+    const config = { ...defaults, ...options };
+
+    return {
+        ...config,
+        createdAt: new Date()
+    };
+}
+
+const user = createUser({
+    name: "John",
+    age: 25,
+    role: "admin"
+});
+
+console.log(user);
+// {
+//   name: "John",
+//   age: 25,
+//   active: true,  // 来自 defaults
+//   role: "admin",
+//   permissions: [],  // 来自 defaults
+//   createdAt: Date
+// }
+
+// 使用解构
+function createUser2({ name, age, active = true, role = "user" } = {}) {
+    return { name, age, active, role, createdAt: new Date() };
+}
+
+const user2 = createUser2({ name: "Jane", age: 30 });
+console.log(user2);
+```
+</UniversalEditor>
+
+## 最佳实践
+
+<UniversalEditor title="对象最佳实践">
+```java !! java
+// Java：使用类、封装
+public class User {
+    private String name;
+    private int age;
+
+    public User(String name, int age) {
+        this.name = name;
+        this.age = age;
+    }
+
+    public String getName() { return name; }
+    public void setName(String name) { this.name = name; }
+
+    // 所有字段的 getter/setter
+}
+```
+
+```javascript !! js
+// JavaScript：拥抱对象字面量
+
+// 1. 对简单数据使用对象字面量
+const user = {
+    name: "John",
+    age: 25
+};
+
+// 2. 对动态键使用计算属性
+const key = "user_" + Date.now();
+const users = {
+    [key]: { name: "John" }
+};
+
+// 3. 使用方法简写
+const calculator = {
+    add(a, b) {  // 不是：add: function(a, b)
+        return a + b;
+    },
+
+    subtract(a, b) {
+        return a - b;
+    }
+};
+
+// 4. 使用解构进行清晰的属性访问
+const { name, age } = getUser();
+
+// 5. 使用展开进行不可变更新
+const updatedUser = { ...user, age: 26 };
+
+// 6. 使用 Object.freeze 定义常量
+const CONFIG = Object.freeze({
+    apiUrl: "https://api.example.com",
+    timeout: 5000
+});
+
+// 7. 使用可选链进行安全访问
+const city = user?.address?.city ?? "Unknown";
+
+// 8. 对象字面量避免使用原型
+//（我们将在模块 7 中讨论类）
+```
+</UniversalEditor>
+
+## 练习
+
+### 练习 1：对象操作
+```javascript
+const user = { name: "John", age: 25, email: "john@example.com" };
+
+// 1. 添加 phone 属性
+// 2. 删除 email 属性
+// 3. 将 age 更新为 26
+// 4. 克隆对象
+// 5. 获取所有属性名
+// 6. 获取所有属性值
+```
+
+### 练习 2：解构
+```javascript
+const config = {
+    server: {
+        host: "localhost",
+        port: 3000
+    },
+    database: {
+        name: "mydb",
+        port: 5432
+    }
+};
+
+// 提取：serverHost, serverPort, dbName
+```
+
+### 练习 3：合并对象
+```javascript
+const defaults = { theme: "light", lang: "en", timeout: 5000 };
+const userSettings = { lang: "fr", notifications: true };
+
+// 合并，userSettings 覆盖 defaults
+```
+
+### 练习 4：工厂函数
+```javascript
+// 创建一个工厂函数，制作矩形对象
+// 包含：width、height、area() 方法、perimeter() 方法
+function createRectangle(width, height) {
+    // 返回带有方法的对象
+}
+```
+
+## 总结
+
+### 关键要点
+
+1. **对象字面量：**
+   - 简单直接的语法
+   - 可以随时添加/删除属性
+   - 支持嵌套结构
+
+2. **属性访问：**
+   - 点号表示法用于已知键
+   - 括号表示法用于动态/特殊键
+   - 可选链用于安全访问
+
+3. **对象方法：**
+   - `Object.keys()`: 获取属性名
+   - `Object.values()`: 获取属性值
+   - `Object.entries()`: 获取键值对
+   - `Object.assign()`: 合并对象
+
+4. **解构：**
+   - 清晰地提取属性
+   - 支持默认值
+   - 重命名和嵌套解构
+
+5. **克隆：**
+   - 展开运算符用于浅克隆
+   - `structuredClone()` 用于深克隆
+   - 注意嵌套对象
+
+6. **This 上下文：**
+   - 取决于调用位置
+   - 箭头函数捕获外部 this
+   - 使用 `bind()` 进行显式绑定
+
+### 对比表：Java vs JavaScript
+
+| 特性 | Java | JavaScript |
+|---------|------|------------|
+| **创建** | `new Class()` | 字面量 `{}` |
+| **属性** | 固定（字段） | 动态 |
+| **方法** | 类方法 | 对象函数 |
+| **访问** | 直接或 getter/setter | 点号或括号表示法 |
+| **This** | 始终是当前实例 | 取决于调用位置 |
+| **克隆** | 手动或 Cloneable | 展开或 structuredClone |
+| **不可变** | `final` 字段 | `Object.freeze()` |
+
+## 下一步？
+
+您已掌握 JavaScript 对象！接下来是 **模块 7：类和继承**，我们将探索：
+
+- ES6 类语法
+- 构造函数和方法
+- 使用 `extends` 的继承
+- Super 关键字
+- 静态方法和属性
+- 私有字段（ES2022）
+
+准备好探索 JavaScript 的类系统了吗？让我们继续！

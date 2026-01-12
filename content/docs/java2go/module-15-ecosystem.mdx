@@ -1,0 +1,863 @@
+---
+title: "Module 15: Go Ecosystem and Libraries"
+---
+
+This module explores the Go ecosystem, comparing popular Go libraries with their Java counterparts.
+
+## Web Frameworks
+
+**Java Web Frameworks:**
+- Spring Boot: Comprehensive, feature-rich
+- Jakarta EE: Enterprise-focused
+- Micronaut: Modern, compile-time focused
+- Quarkus: Cloud-native, fast startup
+
+**Go Web Frameworks:**
+- Gin: Fast, minimalist
+- Echo: High performance, minimalist
+- Fiber: Express-like, fast
+- Chi: Lightweight, composable
+
+<UniversalEditor title="Web Framework Comparison">
+```java !! java
+// Java: Spring Boot REST Controller
+import org.springframework.web.bind.annotation.*;
+import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
+
+@RestController
+@RequestMapping("/api/users")
+public class UserController {
+
+    @Autowired
+    private UserService userService;
+
+    @GetMapping
+    public List<User> getAllUsers() {
+        return userService.findAll();
+    }
+
+    @GetMapping("/{id}")
+    public ResponseEntity<User> getUser(@PathVariable Long id) {
+        return userService.findById(id)
+            .map(user -> ResponseEntity.ok().body(user))
+            .orElse(ResponseEntity.notFound().build());
+    }
+
+    @PostMapping
+    @ResponseStatus(HttpStatus.CREATED)
+    public User createUser(@Valid @RequestBody User user) {
+        return userService.save(user);
+    }
+
+    @PutMapping("/{id}")
+    public User updateUser(@PathVariable Long id, @RequestBody User user) {
+        user.setId(id);
+        return userService.save(user);
+    }
+
+    @DeleteMapping("/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteUser(@PathVariable Long id) {
+        userService.deleteById(id);
+    }
+}
+```
+
+```go !! go
+// Go: Gin REST Handler
+package main
+
+import (
+    "net/http"
+    "github.com/gin-gonic/gin"
+)
+
+type User struct {
+    ID    uint   `json:"id"`
+    Name  string `json:"name" binding:"required"`
+    Email string `json:"email" binding:"required,email"`
+}
+
+func SetupRoutes(r *gin.Engine) {
+    users := r.Group("/api/users")
+    {
+        users.GET("", getAllUsers)
+        users.GET("/:id", getUser)
+        users.POST("", createUser)
+        users.PUT("/:id", updateUser)
+        users.DELETE("/:id", deleteUser)
+    }
+}
+
+func getAllUsers(c *gin.Context) {
+    users, err := userService.FindAll()
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+        return
+    }
+    c.JSON(http.StatusOK, users)
+}
+
+func getUser(c *gin.Context) {
+    id := c.Param("id")
+    user, err := userService.FindByID(id)
+    if err != nil {
+        c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+        return
+    }
+    c.JSON(http.StatusOK, user)
+}
+
+func createUser(c *gin.Context) {
+    var user User
+    if err := c.ShouldBindJSON(&user); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
+
+    if err := userService.Save(&user); err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+        return
+    }
+
+    c.JSON(http.StatusCreated, user)
+}
+
+func updateUser(c *gin.Context) {
+    id := c.Param("id")
+    var user User
+    if err := c.ShouldBindJSON(&user); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
+
+    if err := userService.Update(id, &user); err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+        return
+    }
+
+    c.JSON(http.StatusOK, user)
+}
+
+func deleteUser(c *gin.Context) {
+    id := c.Param("id")
+    if err := userService.Delete(id); err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+        return
+    }
+    c.Status(http.StatusNoContent)
+}
+```
+</UniversalEditor>
+
+## ORM and Database Libraries
+
+<UniversalEditor title="Database Libraries">
+```java !! java
+// Java: Spring Data JPA
+import org.springframework.data.jpa.repository.*;
+import org.springframework.data.domain.*;
+import javax.persistence.*;
+
+@Entity
+@Table(name = "users")
+public class User {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(nullable = false, unique = true)
+    private String email;
+
+    private String name;
+
+    @CreationTimestamp
+    private LocalDateTime createdAt;
+
+    // Getters and setters
+}
+
+interface UserRepository extends JpaRepository<User, Long> {
+    Optional<User> findByEmail(String email);
+
+    List<User> findByNameContainingIgnoreCase(String name);
+
+    @Query("SELECT u FROM User u WHERE u.email LIKE %:email%")
+    List<User> searchByEmail(@Param("email") String email);
+}
+
+@Service
+public class UserService {
+    @Autowired
+    private UserRepository userRepository;
+
+    public List<User> searchUsers(String keyword) {
+        return userRepository.findByNameContainingIgnoreCase(keyword);
+    }
+
+    @Transactional
+    public User createUser(User user) {
+        return userRepository.save(user);
+    }
+}
+```
+
+```go !! go
+// Go: GORM
+package main
+
+import (
+    "time"
+    "gorm.io/gorm"
+)
+
+type User struct {
+    ID        uint           `gorm:"primarykey" json:"id"`
+    Email     string         `gorm:"uniqueIndex;not null" json:"email"`
+    Name      string         `json:"name"`
+    CreatedAt time.Time      `json:"created_at"`
+    UpdatedAt time.Time      `json:"updated_at"`
+    DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
+}
+
+// Repository pattern
+type UserRepository struct {
+    db *gorm.DB
+}
+
+func NewUserRepository(db *gorm.DB) *UserRepository {
+    return &UserRepository{db: db}
+}
+
+func (r *UserRepository) FindByID(id uint) (*User, error) {
+    var user User
+    err := r.db.First(&user, id).Error
+    if err != nil {
+        return nil, err
+    }
+    return &user, nil
+}
+
+func (r *UserRepository) FindByEmail(email string) (*User, error) {
+    var user User
+    err := r.db.Where("email = ?", email).First(&user).Error
+    if err != nil {
+        return nil, err
+    }
+    return &user, nil
+}
+
+func (r *UserRepository) SearchByName(keyword string) ([]User, error) {
+    var users []User
+    err := r.db.Where("name ILIKE ?", "%"+keyword+"%").Find(&users).Error
+    return users, err
+}
+
+func (r *UserRepository) Create(user *User) error {
+    return r.db.Create(user).Error
+}
+
+func (r *UserRepository) Update(user *User) error {
+    return r.db.Save(user).Error
+}
+
+func (r *UserRepository) Delete(id uint) error {
+    return r.db.Delete(&User{}, id).Error
+}
+
+// Pagination
+func (r *UserRepository) List(page, pageSize int) ([]User, int64, error) {
+    var users []User
+    var total int64
+
+    err := r.db.Model(&User{}).Count(&total).Error
+    if err != nil {
+        return nil, 0, err
+    }
+
+    err = r.db.Offset((page - 1) * pageSize).
+        Limit(pageSize).
+        Find(&users).Error
+
+    return users, total, err
+}
+```
+</UniversalEditor>
+
+## Configuration Management
+
+<UniversalEditor title="Configuration Libraries">
+```java !! java
+// Java: Spring Boot Configuration
+// application.yml
+spring:
+  application:
+    name: myapp
+  datasource:
+    url: jdbc:postgresql://localhost:5432/mydb
+    username: user
+    password: ${DB_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+
+server:
+  port: ${PORT:8080}
+
+app:
+  name: MyApp
+  api-key: ${API_KEY}
+  features:
+    enabled: true
+
+@Configuration
+@ConfigurationProperties(prefix = "app")
+public class AppConfig {
+    private String name;
+    private String apiKey;
+    private Features features;
+
+    // Getters and setters
+
+    public static class Features {
+        private boolean enabled;
+        // Getters and setters
+    }
+}
+```
+
+```go !! go
+// Go: Viper configuration
+package main
+
+import (
+    "github.com/spf13/viper"
+)
+
+type Config struct {
+    Name     string `mapstructure:"name"`
+    APIKey   string `mapstructure:"api_key"`
+    Server   ServerConfig
+    Database DatabaseConfig
+}
+
+type ServerConfig struct {
+    Port int `mapstructure:"port"`
+}
+
+type DatabaseConfig struct {
+    Host     string `mapstructure:"host"`
+    Port     int    `mapstructure:"port"`
+    User     string `mapstructure:"user"`
+    Password string `mapstructure:"password"`
+    DBName   string `mapstructure:"dbname"`
+}
+
+func LoadConfig(path string) (*Config, error) {
+    viper.SetConfigName("config")
+    viper.SetConfigType("yaml")
+    viper.AddConfigPath(path)
+    viper.AddConfigPath(".")
+    viper.AddConfigPath("/etc/myapp/")
+
+    // Set defaults
+    viper.SetDefault("server.port", 8080)
+    viper.SetDefault("database.port", 5432)
+
+    // Allow environment variables
+    viper.AutomaticEnv()
+    viper.SetEnvPrefix("APP")
+    viper.BindEnv("database.password", "DB_PASSWORD")
+
+    // Read config file
+    if err := viper.ReadInConfig(); err != nil {
+        return nil, err
+    }
+
+    var config Config
+    if err := viper.Unmarshal(&config); err != nil {
+        return nil, err
+    }
+
+    return &config, nil
+}
+```
+</UniversalEditor>
+
+## Logging
+
+<UniversalEditor title="Logging Libraries">
+```java !! java
+// Java: SLF4J with Logback
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Service;
+
+@Service
+public class UserService {
+    private static final Logger logger = LoggerFactory.getLogger(UserService.class);
+
+    public User createUser(User user) {
+        logger.debug("Creating user: {}", user.getEmail());
+
+        try {
+            User result = userRepository.save(user);
+            logger.info("User created successfully with ID: {}", result.getId());
+            return result;
+
+        } catch (DataIntegrityViolationException e) {
+            logger.error("Failed to create user. Email already exists: {}", user.getEmail(), e);
+            throw new DuplicateEmailException(user.getEmail());
+        }
+    }
+
+    public User getUser(Long id) {
+        logger.trace("Fetching user with ID: {}", id);
+
+        return userRepository.findById(id)
+            .orElseThrow(() -> {
+                logger.warn("User not found with ID: {}", id);
+                return new UserNotFoundException(id);
+            });
+    }
+}
+
+// logback-spring.xml
+<configuration>
+    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>logs/application.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>logs/application.%d{yyyy-MM-dd}.log</fileNamePattern>
+            <maxHistory>30</maxHistory>
+        </rollingPolicy>
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="STDOUT" />
+        <appender-ref ref="FILE" />
+    </root>
+</configuration>
+```
+
+```go !! go
+// Go: Logrus / Zap / Zerolog
+package main
+
+import (
+    "go.uber.org/zap"
+    "go.uber.org/zap/zapcore"
+)
+
+var logger *zap.Logger
+
+func InitLogger(env string) error {
+    var config zap.Config
+
+    if env == "production" {
+        config = zap.NewProductionConfig()
+    } else {
+        config = zap.NewDevelopmentConfig()
+    }
+
+    config.EncoderConfig.TimeKey = "timestamp"
+    config.EncoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
+
+    log, err := config.Build()
+    if err != nil {
+        return err
+    }
+
+    logger = log
+    return nil
+}
+
+type UserService struct {
+    repo *UserRepository
+}
+
+func (s *UserService) CreateUser(user *User) error {
+    logger.Debug("Creating user",
+        zap.String("email", user.Email))
+
+    if err := s.repo.Create(user); err != nil {
+        logger.Error("Failed to create user",
+            zap.String("email", user.Email),
+            zap.Error(err))
+
+        return err
+    }
+
+    logger.Info("User created successfully",
+        zap.Uint("id", user.ID),
+        zap.String("email", user.Email))
+
+    return nil
+}
+
+func (s *UserService) GetUser(id uint) (*User, error) {
+    logger.Debug("Fetching user",
+        zap.Uint("id", id))
+
+    user, err := s.repo.FindByID(id)
+    if err != nil {
+        logger.Warn("User not found",
+            zap.Uint("id", id))
+        return nil, err
+    }
+
+    return user, nil
+}
+
+// Structured logging with context
+func (s *UserService) UpdateUser(id uint, updates map[string]interface{}) error {
+    logger.Info("Updating user",
+        zap.Uint("id", id),
+        zap.Any("updates", updates))
+
+    // Update logic here
+    return nil
+}
+```
+</UniversalEditor>
+
+## HTTP Client Libraries
+
+<UniversalEditor title="HTTP Client Comparison">
+```java !! java
+// Java: RestTemplate / WebClient
+import org.springframework.web.client.*;
+import org.springframework.http.*;
+import reactor.core.publisher.Mono;
+
+@Service
+public class ApiClient {
+
+    // RestTemplate (synchronous, being phased out)
+    private final RestTemplate restTemplate;
+
+    public ApiClient() {
+        this.restTemplate = new RestTemplate();
+    }
+
+    public User getUserById(Long id) {
+        String url = "https://api.example.com/users/" + id;
+
+        ResponseEntity<User> response = restTemplate.getForEntity(
+            url,
+            User.class
+        );
+
+        return response.getBody();
+    }
+
+    public User createUser(User user) {
+        String url = "https://api.example.com/users";
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+
+        HttpEntity<User> request = new HttpEntity<>(user, headers);
+
+        ResponseEntity<User> response = restTemplate.postForEntity(
+            url,
+            request,
+            User.class
+        );
+
+        return response.getBody();
+    }
+
+    // WebClient (asynchronous, modern)
+    private final WebClient webClient;
+
+    public ApiClient(WebClient.Builder webClientBuilder) {
+        this.webClient = webClientBuilder
+            .baseUrl("https://api.example.com")
+            .build();
+    }
+
+    public Mono<User> getUserAsync(Long id) {
+        return webClient.get()
+            .uri("/users/{id}", id)
+            .retrieve()
+            .bodyToMono(User.class);
+    }
+
+    public Mono<User> createUserAsync(User user) {
+        return webClient.post()
+            .uri("/users")
+            .contentType(MediaType.APPLICATION_JSON)
+            .bodyValue(user)
+            .retrieve()
+            .bodyToMono(User.class);
+    }
+}
+```
+
+```go !! go
+// Go: resty
+package main
+
+import (
+    "github.com/go-resty/resty/v2"
+)
+
+type APIClient struct {
+    client *resty.Client
+    baseURL string
+}
+
+func NewAPIClient(baseURL string) *APIClient {
+    client := resty.New().
+        SetHeader("Content-Type", "application/json").
+        SetHeader("Accept", "application/json")
+
+    return &APIClient{
+        client: client,
+        baseURL: baseURL,
+    }
+}
+
+func (c *APIClient) GetUser(id uint) (*User, error) {
+    var user User
+
+    resp, err := c.client.R().
+        SetPathParams(map[string]string{
+            "id": string(rune(id)),
+        }).
+        SetResult(&user).
+        Get(c.baseURL + "/users/{id}")
+
+    if err != nil {
+        return nil, err
+    }
+
+    if resp.IsError() {
+        return nil, fmt.Errorf("API error: %s", resp.Status())
+    }
+
+    return &user, nil
+}
+
+func (c *APIClient) CreateUser(user *User) (*User, error) {
+    var result User
+
+    resp, err := c.client.R().
+        SetBody(user).
+        SetResult(&result).
+        Post(c.baseURL + "/users")
+
+    if err != nil {
+        return nil, err
+    }
+
+    if resp.IsError() {
+        return nil, fmt.Errorf("API error: %s", resp.Status())
+    }
+
+    return &result, nil
+}
+
+// With retry logic
+func NewAPIClientWithRetry(baseURL string) *APIClient {
+    client := resty.New().
+        SetRetryCount(3).
+        SetRetryWaitTime(1 * time.Second).
+        SetRetryMaxWaitTime(10 * time.Second).
+        AddRetryCondition(
+            func(r *resty.Response, err error) bool {
+                return r.StatusCode() >= 500 || err != nil
+            },
+        )
+
+    return &APIClient{
+        client: client,
+        baseURL: baseURL,
+    }
+}
+```
+</UniversalEditor>
+
+## Testing Libraries
+
+<UniversalEditor title="Testing Libraries Comparison">
+```java !! java
+// Java: JUnit 5 + Mockito + AssertJ
+import org.junit.jupiter.api.*;
+import org.mockito.Mockito;
+import static org.assertj.core.api.Assertions.*;
+import static org.mockito.Mockito.*;
+
+@DisplayName("UserService Tests")
+class UserServiceTest {
+
+    private UserRepository userRepository;
+    private UserService userService;
+
+    @BeforeEach
+    void setUp() {
+        userRepository = Mockito.mock(UserRepository.class);
+        userService = new UserService(userRepository);
+    }
+
+    @Test
+    @DisplayName("Should create user successfully")
+    void shouldCreateUser() {
+        // Given
+        User user = new User("john@example.com");
+        when(userRepository.save(any(User.class)))
+            .thenAnswer(invocation -> invocation.getArgument(0));
+
+        // When
+        User result = userService.create(user);
+
+        // Then
+        assertThat(result).isNotNull();
+        assertThat(result.getEmail()).isEqualTo("john@example.com");
+        verify(userRepository).save(user);
+    }
+
+    @Test
+    @DisplayName("Should throw exception for duplicate email")
+    void shouldThrowForDuplicateEmail() {
+        // Given
+        User user = new User("john@example.com");
+        when(userRepository.existsByEmail("john@example.com"))
+            .thenReturn(true);
+
+        // When & Then
+        assertThatThrownBy(() -> userService.create(user))
+            .isInstanceOf(DuplicateEmailException.class)
+            .hasMessageContaining("john@example.com");
+    }
+}
+```
+
+```go !! go
+// Go: testing + testify
+package main
+
+import (
+    "testing"
+    "github.com/stretchr/testify/assert"
+    "github.com/stretchr/testify/mock"
+)
+
+type MockUserRepository struct {
+    mock.Mock
+}
+
+func (m *MockUserRepository) Save(user *User) error {
+    args := m.Called(user)
+    return args.Error(0)
+}
+
+func (m *MockUserRepository) ExistsByEmail(email string) bool {
+    args := m.Called(email)
+    return args.Bool(0)
+}
+
+func TestUserService_CreateUser(t *testing.T) {
+    tests := []struct {
+        name    string
+        user    *User
+        setup   func(*MockUserRepository)
+        wantErr bool
+        errType error
+    }{
+        {
+            name: "successful creation",
+            user: &User{Email: "john@example.com"},
+            setup: func(m *MockUserRepository) {
+                m.On("ExistsByEmail", "john@example.com").Return(false)
+                m.On("Save", mock.AnythingOfType("*User")).Return(nil)
+            },
+            wantErr: false,
+        },
+        {
+            name: "duplicate email",
+            user: &User{Email: "john@example.com"},
+            setup: func(m *MockUserRepository) {
+                m.On("ExistsByEmail", "john@example.com").Return(true)
+            },
+            wantErr: true,
+            errType: ErrDuplicateEmail,
+        },
+    }
+
+    for _, tt := range tests {
+        t.Run(tt.name, func(t *testing.T) {
+            mockRepo := new(MockUserRepository)
+            tt.setup(mockRepo)
+
+            service := NewUserService(mockRepo)
+            err := service.Create(tt.user)
+
+            if tt.wantErr {
+                assert.Error(t, err)
+                if tt.errType != nil {
+                    assert.ErrorIs(t, err, tt.errType)
+                }
+            } else {
+                assert.NoError(t, err)
+                assert.NotNil(t, tt.user.ID)
+            }
+
+            mockRepo.AssertExpectations(t)
+        })
+    }
+}
+```
+</UniversalEditor>
+
+## Popular Go Libraries by Category
+
+| Category | Java Library | Go Library |
+|----------|--------------|------------|
+| Web Framework | Spring Boot | Gin, Echo, Fiber |
+| ORM | Hibernate/JPA | GORM, sqlx |
+| Validation | Hibernate Validator | go-playground/validator |
+| Configuration | Spring Cloud Config | Viper |
+| Logging | SLF4J + Logback | Zap, Zerolog |
+| Testing | JUnit + Mockito | testing + testify |
+| HTTP Client | RestTemplate/WebClient | resty, fasthttp |
+| Dependency Injection | Spring DI / Google Guice | Wire, Fx |
+| Rate Limiting | Resilience4j | uber-go/ratelimit |
+| Caching | Caffeine / Redis | go-redis, bigcache |
+| Authentication | Spring Security | casbin, jwt-go |
+| CLI | Picocli | cobra, viper |
+| Database Migrations | Flyway / Liquibase | golang-migrate, goose |
+| Message Queue | Kafka/RabbitMQ | Kafka, amqp091-go |
+| Tracing | OpenTelemetry | OpenTelemetry Go |
+
+---
+
+### Practice Questions:
+1. Why does Go favor smaller, focused libraries over comprehensive frameworks?
+2. How does Go's approach to dependency injection differ from Spring's?
+3. What are the advantages of Go's standard library over Java's?
+4. When would you choose GORM over sqlx?
+
+### Project Ideas:
+- Build a REST API using Gin and GORM
+- Create a CLI tool with Cobra
+- Implement a microservice with proper logging and monitoring
+- Set up a project using Wire for dependency injection
+
+### Next Steps:
+- Learn database integration in Go
+- Understand microservices architecture
+- Explore real-world project patterns
+- Build production-ready applications

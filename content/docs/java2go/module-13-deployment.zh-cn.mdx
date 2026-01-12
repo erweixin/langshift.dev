@@ -1,0 +1,808 @@
+---
+title: "模块 13：构建和部署"
+---
+
+本模块介绍 Go 应用程序的构建和部署，比较 Go 的简单部署模型与 Java 更复杂的部署策略。
+
+## 部署哲学：Go vs Java
+
+**Java 部署：**
+- 需要在目标机器上安装 JVM
+- 包含字节码的 JAR/WAR 文件
+- 应用服务器（Tomcat、Jetty、WebSphere）
+- 重的启动时间和内存占用
+- 复杂的依赖管理（Maven/Gradle）
+
+**Go 部署：**
+- 单个静态二进制可执行文件
+- 无需运行时依赖
+- 支持交叉编译
+- 快速启动和最小内存占用
+- 简单的依赖管理（go.mod）
+
+<UniversalEditor title="构建应用程序">
+```java !! java
+// Java: 使用 Maven/Gradle 构建
+// pom.xml
+/*
+<project>
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>com.example</groupId>
+    <artifactId>myapp</artifactId>
+    <version>1.0.0</version>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.8.1</version>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-shade-plugin</artifactId>
+                <version>3.2.4</version>
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals><goal>shade</goal></goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>
+*/
+
+// 构建命令：
+// mvn clean package
+// java -jar target/myapp-1.0.0.jar
+
+public class Main {
+    public static void main(String[] args) {
+        System.out.println("Hello, World!");
+    }
+}
+```
+
+```go !! go
+// Go: 使用 go build 构建
+// go.mod
+/*
+module myapp
+
+go 1.21
+
+require github.com/gin-gonic/gin v1.9.1
+*/
+
+package main
+
+import "fmt"
+
+func main() {
+    fmt.Println("Hello, World!")
+}
+
+// 构建命令：
+// go build -o myapp
+// ./myapp
+
+// 交叉编译：
+// GOOS=linux GOARCH=amd64 go build -o myapp-linux
+// GOOS=windows GOARCH=amd64 go build -o myapp.exe
+// GOOS=darwin GOARCH=arm64 go build -o myapp-mac-arm
+```
+</UniversalEditor>
+
+## 交叉编译
+
+与 Java 特定平台的构建相比，Go 使交叉编译变得轻而易举。
+
+<UniversalEditor title="交叉编译比较">
+```java !! java
+// Java: 特定平台的考虑
+/*
+Java 是"一次编写，到处运行"但需要：
+1. 每个目标平台的 JVM
+2. 特定于平台的本机库（JNI）
+3. 不同的应用服务器
+
+使用 GraalVM 构建本机镜像：
+*/
+public class NativeBuild {
+    // 需要安装 GraalVM
+    // native-image:native-image -jar myapp.jar
+
+    public static void main(String[] args) {
+        System.out.println("Native image!");
+    }
+}
+
+/*
+构建过程：
+1. 安装 GraalVM
+2. 构建本机镜像（需要几分钟）
+3. 生成特定于平台的二进制文件
+4. 对某些 Java 功能的支持有限
+*/
+```
+
+```go !! go
+// Go: 简单的交叉编译
+package main
+
+import (
+    "fmt"
+    "runtime"
+)
+
+func main() {
+    fmt.Printf("OS: %s, Arch: %s\n", runtime.GOOS, runtime.GOARCH)
+    fmt.Println("交叉编译很简单！")
+}
+
+/*
+为不同平台构建：
+# Linux (amd64)
+GOOS=linux GOARCH=amd64 go build -o myapp-linux
+
+# Windows (amd64)
+GOOS=windows GOARCH=amd64 go build -o myapp.exe
+
+# macOS (Apple Silicon)
+GOOS=darwin GOARCH=arm64 go build -o myapp-mac-arm
+
+# Linux ARM (Raspberry Pi)
+GOOS=linux GOARCH=arm64 go build -o myapp-pi
+
+# 一次为所有平台构建
+GOOS=linux GOARCH=amd64 go build -o dist/linux-amd64/myapp
+GOOS=windows GOARCH=amd64 go build -o dist/windows-amd64/myapp.exe
+GOOS=darwin GOARCH=amd64 go build -o dist/darwin-amd64/myapp
+GOOS=darwin GOARCH=arm64 go build -o dist/darwin-arm64/myapp
+*/
+```
+</UniversalEditor>
+
+## Docker 部署
+
+<UniversalEditor title="Dockerfile 比较">
+```dockerfile !! dockerfile
+# Java: 多阶段 Dockerfile
+FROM maven:3.8-openjdk-17 AS builder
+
+WORKDIR /app
+COPY pom.xml .
+COPY src ./src
+
+RUN mvn clean package -DskipTests
+
+# 运行时阶段
+FROM openjdk:17-slim
+
+WORKDIR /app
+COPY --from=builder /app/target/myapp.jar app.jar
+
+# 暴露端口
+EXPOSE 8080
+
+# 设置 JVM 选项
+ENV JAVA_OPTS="-Xmx512m -Xms256m"
+
+ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]
+
+# 结果: ~400-500MB 镜像
+# 启动时间: 2-5 秒
+```
+
+```dockerfile !! dockerfile
+# Go: 多阶段 Dockerfile
+FROM golang:1.21-alpine AS builder
+
+WORKDIR /app
+
+# 首先下载依赖（更好的层缓存）
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+
+# 构建应用程序
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o main .
+
+# 运行时阶段 - 最小基础镜像
+FROM alpine:latest
+
+WORKDIR /app
+
+# 复制二进制文件
+COPY --from=builder /app/main .
+
+# 暴露端口
+EXPOSE 8080
+
+# 运行二进制文件
+ENTRYPOINT ["./main"]
+
+# 结果: ~10-20MB 镜像
+# 启动时间: <100ms
+```
+</UniversalEditor>
+
+## 构建优化
+
+<UniversalEditor title="构建优化">
+```bash !! bash
+# Java: 构建优化
+
+## Maven
+# 跳过测试以加快构建
+mvn package -DskipTests
+
+# 并行构建
+mvn -T 4 package
+
+# 离线模式（使用缓存的依赖）
+mvn -o package
+
+# 特定配置文件的构建
+mvn package -P production
+
+## Gradle
+# 配置构建缓存
+org.gradle.caching=true
+
+# 并行执行
+org.gradle.parallel=true
+
+# 配置缓存
+org.gradle.configuration-cache=true
+```
+
+```go !! go
+// Go: 构建优化技术
+
+// 1. 构建标签和约束
+//go:build !windows
+
+package main
+
+import "fmt"
+
+func main() {
+    fmt.Println("未为 Windows 构建")
+}
+
+// 2. 链接时优化
+// go build -ldflags="-s -w"
+// -s: 删除符号表
+// -w: 删除 DWARF 调试信息
+// 结果: 二进制文件小 20-30%
+
+// 3. 特定于平台代码的构建标签
+//go:build linux && amd64
+
+package main
+
+func optimizeForLinuxAMD64() {
+    // Linux AMD64 特定的优化
+}
+
+// 4. 修剪路径以获得更小的二进制文件
+// go build -trimpath
+
+// 5. Upx 压缩（构建后）
+// upx --best --lzma myapp
+// 可以减小 50-70% 的大小
+```
+</UniversalEditor>
+
+## 依赖管理
+
+<UniversalEditor title="依赖管理比较">
+```xml !! xml
+<!-- Java: Maven 依赖 (pom.xml) -->
+<project>
+    <dependencies>
+        <!-- 直接依赖 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+            <version>3.1.0</version>
+        </dependency>
+
+        <!-- 传递依赖自动管理 -->
+        <!-- 可能冲突，需要排除 -->
+        <dependency>
+            <groupId>com.example</groupId>
+            <artifactId>some-library</artifactId>
+            <version>2.0.0</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>conflicting.lib</groupId>
+                    <artifactId>bad-version</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+
+        <!-- 依赖管理部分 -->
+        <dependencyManagement>
+            <dependencies>
+                <dependency>
+                    <groupId>org.springframework.boot</groupId>
+                    <artifactId>spring-boot-dependencies</artifactId>
+                    <version>3.1.0</version>
+                    <type>pom</type>
+                    <scope>import</scope>
+                </dependency>
+            </dependencies>
+        </dependencyManagement>
+    </dependencies>
+</project>
+```
+
+```go !! go
+// Go: go.mod 用于依赖管理
+module myapp
+
+go 1.21
+
+require (
+    github.com/gin-gonic/gin v1.9.1
+    github.com/go-redis/redis/v8 v8.11.5
+    gorm.io/gorm v1.25.4
+)
+
+// Go 以不同方式解决菱形依赖问题：
+// - 最小版本选择（MVS）
+// - 无需冲突解决
+// - 所有版本必须兼容
+
+/*
+命令：
+go mod init myapp          # 初始化模块
+go mod tidy                # 清理依赖
+go get github.com/gin-gonic/gin@latest  # 添加依赖
+go get -u ./...            # 更新所有依赖
+go mod verify              # 验证依赖
+go mod vendor              # 将依赖 vendor 化
+*/
+```
+</UniversalEditor>
+
+## 环境配置
+
+<UniversalEditor title="配置管理">
+```java !! java
+// Java: 配置方法
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.PropertySource;
+
+@Configuration
+@PropertySource(value = "classpath:application-${environment}.properties")
+public class AppConfig {
+
+    @Value("${app.port}")
+    private int port;
+
+    @Value("${app.database.url}")
+    private String databaseUrl;
+
+    @Value("${app.api.key}")
+    private String apiKey;
+
+    // application.properties:
+    // app.port=8080
+    // app.database.url=jdbc:postgresql://localhost:5432/mydb
+    // app.api.key=${API_KEY}
+
+    // 环境变量：
+    // export API_KEY="secret-key"
+    // java -jar app.jar --spring.profiles.active=production
+}
+
+// 或使用外部配置文件：
+// java -jar app.jar --spring.config.location=file:/path/to/config/
+```
+
+```go !! go
+// Go: 配置方法
+package main
+
+import (
+    "fmt"
+    "os"
+    "strconv"
+)
+
+// 基于结构体的简单配置
+type Config struct {
+    Port        int
+    DatabaseURL string
+    APIKey      string
+}
+
+func LoadConfig() *Config {
+    config := &Config{
+        Port:        getEnvInt("PORT", 8080),
+        DatabaseURL: getEnv("DATABASE_URL", "postgres://localhost:5432/mydb"),
+        APIKey:      getEnv("API_KEY", ""),
+    }
+    return config
+}
+
+func getEnv(key, defaultValue string) string {
+    if value := os.Getenv(key); value != "" {
+        return value
+    }
+    return defaultValue
+}
+
+func getEnvInt(key string, defaultValue int) int {
+    if value := os.Getenv(key); value != "" {
+        if intVal, err := strconv.Atoi(value); err == nil {
+            return intVal
+        }
+    }
+    return defaultValue
+}
+
+// 使用 viper 进行高级配置：
+/*
+import github.com/spf13/viper
+
+viper.SetConfigName("config")
+viper.SetConfigType("yaml")
+viper.AddConfigPath(".")
+viper.AddConfigPath("/etc/myapp/")
+viper.AutomaticEnv()
+
+viper.SetDefault("port", 8080)
+viper.BindEnv("api_key", "API_KEY")
+
+if err := viper.ReadInConfig(); err != nil {
+    log.Fatalf("Error reading config: %v", err)
+}
+
+port := viper.GetInt("port")
+apiKey := viper.GetString("api_key")
+*/
+```
+</UniversalEditor>
+
+## 云平台部署
+
+<UniversalEditor title="云平台部署">
+```yaml !! yaml
+# Java: Kubernetes 部署
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: java-app
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: java-app
+  template:
+    metadata:
+      labels:
+        app: java-app
+    spec:
+      containers:
+      - name: app
+        image: myregistry/java-app:latest
+        ports:
+        - containerPort: 8080
+        env:
+        - name: JAVA_OPTS
+          value: "-Xmx512m -Xms256m"
+        - name: SPRING_PROFILES_ACTIVE
+          value: "production"
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8080
+          initialDelaySeconds: 60
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 5
+```
+
+```yaml !! yaml
+# Go: Kubernetes 部署
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: go-app
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: go-app
+  template:
+    metadata:
+      labels:
+        app: go-app
+    spec:
+      containers:
+      - name: app
+        image: myregistry/go-app:latest
+        ports:
+        - containerPort: 8080
+        env:
+        - name: PORT
+          value: "8080"
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: db-secret
+              key: url
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
+            memory: "128Mi"
+            cpu: "100m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 2
+          periodSeconds: 5
+```
+</UniversalEditor>
+
+## CI/CD 管道
+
+<UniversalEditor title="CI/CD 配置">
+```yaml !! yaml
+# Java: Maven 的 GitHub Actions
+name: Java CI
+
+on: [push, pull_request]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up JDK 17
+      uses: actions/setup-java@v3
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+
+    - name: Cache Maven packages
+      uses: actions/cache@v3
+      with:
+        path: ~/.m2
+        key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+
+    - name: Build with Maven
+      run: mvn -B package --file pom.xml
+
+    - name: Run tests
+      run: mvn test
+
+    - name: Build Docker image
+      run: docker build -t myapp:${{ github.sha }} .
+```
+
+```yaml !! yaml
+# Go: GitHub Actions
+name: Go CI
+
+on: [push, pull_request]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.21'
+
+    - name: Cache Go modules
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cache/go-build
+          ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
+
+    - name: Download dependencies
+      run: go mod download
+
+    - name: Run go vet
+      run: go vet ./...
+
+    - name: Run tests
+      run: go test -v -race -coverprofile=coverage.txt ./...
+
+    - name: Build
+      run: go build -v ./...
+
+    - name: Build Docker image
+      run: docker build -t myapp:${{ github.sha }} .
+```
+</UniversalEditor>
+
+## 零停机部署
+
+<UniversalEditor title="部署策略">
+```java !! java
+// Java: 零停机部署考虑
+/*
+1. 使用 Kubernetes 进行滚动更新
+2. 蓝绿部署
+3. 金丝雀部署
+4. 负载均衡器配置
+
+示例：Spring Boot 优雅关闭
+*/
+@Component
+public class ShutdownConfig {
+
+    @PreDestroy
+    public void onShutdown() {
+        // 优雅地关闭连接
+        // 完成进行中的请求
+        // 释放资源
+    }
+}
+
+// application.properties:
+server.shutdown=graceful
+spring.lifecycle.timeout-per-shutdown-phase=30s
+
+/*
+挑战：
+- JVM 预热时间长
+- 内存密集
+- 复杂的类加载
+- 会话状态管理
+*/
+```
+
+```go !! go
+// Go: 零停机部署
+package main
+
+import (
+    "context"
+    "fmt"
+    "net/http"
+    "os"
+    "os/signal"
+    "syscall"
+    "time"
+)
+
+func main() {
+    server := &http.Server{
+        Addr:    ":8080",
+        Handler: newHandler(),
+    }
+
+    // 在 goroutine 中启动服务器
+    go func() {
+        fmt.Println("Server starting on :8080")
+        if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+            fmt.Printf("Server error: %v\n", err)
+        }
+    }()
+
+    // 等待中断信号
+    quit := make(chan os.Signal, 1)
+    signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+    <-quit
+
+    fmt.Println("Shutting down server...")
+
+    // 带超时的优雅关闭
+    ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+    defer cancel()
+
+    if err := server.Shutdown(ctx); err != nil {
+        fmt.Printf("Server shutdown error: %v\n", err)
+    }
+
+    fmt.Println("Server stopped")
+}
+
+func newHandler() http.Handler {
+    mux := http.NewServeMux()
+    mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+        fmt.Fprintln(w, "Hello, World!")
+    })
+    mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+        fmt.Fprintln(w, "OK")
+    })
+    return mux
+}
+
+/*
+优势：
+- 即时启动（<100ms）
+- 低内存占用
+- 易于优雅关闭
+- 无需管理会话状态
+- 简单的进程管理
+*/
+```
+</UniversalEditor>
+
+## 生产检查清单
+
+### Java 生产检查清单：
+- [ ] JVM 堆大小已配置
+- [ ] GC 策略已选择
+- [ ] 应用服务器已调优
+- [ ] 连接池大小已设置
+- [ ] 监控已启用（JMX、Micrometer）
+- [ ] 日志已配置
+- [ ] 安全加固
+- [ ] 数据库连接测试
+- [ ] 已执行负载测试
+- [ ] 备份和恢复计划
+
+### Go 生产检查清单：
+- [ ] 二进制文件已剥离和优化
+- [ ] 错误处理和日志
+- [ ] 健康检查端点
+- [ ] 优雅关闭已实现
+- [ ] 内存性能测试
+- [ ] CPU 性能测试
+- [ ] 速率限制已配置
+- [ ] 安全头已设置
+- [ ] 数据库连接池
+- [ ] 指标和跟踪已启用
+
+---
+
+### 练习问题：
+1. 为什么 Go 产生的 Docker 镜像比 Java 小？
+2. Go 的交叉编译比 Java 的"一次编写，到处运行"有什么优势？
+3. Go 的最小版本选择与 Maven 的依赖解决有什么不同？
+4. 为什么零停机部署在 Go 中更容易？
+
+### 项目想法：
+- 为 Go 微服务创建多阶段 Dockerfile
+- 为 Go 应用程序设置 CI/CD 管道
+- 为 Go 服务实现蓝绿部署
+- 构建部署自动化工具
+
+### 下一步：
+- 学习 Go 的构建工具和生态系统
+- 探索 Go 的第三方库和框架
+- 了解 Go 中的数据库集成
+- 构建生产就绪的应用程序

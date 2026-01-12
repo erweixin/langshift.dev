@@ -1,0 +1,1288 @@
+---
+title: "Module 02: OOP to Go"
+description: "Learn how Go handles object-oriented programming without classes - using structs, methods, and composition instead of traditional inheritance"
+---
+
+# Module 02: OOP to Go
+
+Welcome to Module 02! In this module, you'll learn how Go approaches object-oriented programming differently from Java. While Java relies heavily on classes and inheritance, Go uses structs, methods, and composition to achieve similar goals with simpler, more flexible code.
+
+## Learning Objectives
+
+By the end of this module, you will:
+- Understand how Go implements OOP concepts without classes
+- Learn how to use structs instead of classes
+- Master value receivers vs pointer receivers
+- Understand composition over inheritance
+- Learn factory functions instead of constructors
+- Compare Java OOP patterns with Go equivalents
+
+## 1. The Big Picture: Classes vs Structs
+
+### Java: Classes and Objects
+
+In Java, everything is built around classes. A class defines both data (fields) and behavior (methods):
+
+```java
+public class Person {
+    // Private fields
+    private String name;
+    private int age;
+
+    // Constructor
+    public Person(String name, int age) {
+        this.name = name;
+        this.age = age;
+    }
+
+    // Methods
+    public String getName() {
+        return name;
+    }
+
+    public void setAge(int age) {
+        this.age = age;
+    }
+
+    public void introduce() {
+        System.out.println("Hi, I'm " + name + ", " + age + " years old");
+    }
+}
+```
+
+### Go: Structs and Methods
+
+Go separates data definition (structs) from behavior (methods):
+
+<UniversalEditor title="Person Class vs Person Struct">
+```java !! java
+public class Person {
+    private String name;
+    private int age;
+
+    public Person(String name, int age) {
+        this.name = name;
+        this.age = age;
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public void introduce() {
+        System.out.println("Hi, I'm " + name);
+    }
+}
+```
+
+```go !! go
+// Person struct - data only
+type Person struct {
+    Name string
+    Age  int
+}
+
+// Method defined on Person
+func (p Person) Introduce() {
+    fmt.Printf("Hi, I'm %s\n", p.Name)
+}
+
+// Note: Go doesn't have getters/setters
+// Direct access is idiomatic for simple fields
+```
+</UniversalEditor>
+
+## 2. Defining Structs
+
+### Basic Struct Declaration
+
+<UniversalEditor title="Basic Struct Declaration">
+```java !! java
+public class Rectangle {
+    private double width;
+    private double height;
+
+    public Rectangle(double width, double height) {
+        this.width = width;
+        this.height = height;
+    }
+
+    public double getWidth() { return width; }
+    public double getHeight() { return height; }
+    public void setWidth(double width) { this.width = width; }
+    public void setHeight(double height) { this.height = height; }
+}
+```
+
+```go !! go
+// Rectangle struct
+type Rectangle struct {
+    Width  float64
+    Height float64
+}
+
+// No need for getters/setters in Go
+// Direct field access is idiomatic
+func main() {
+    r := Rectangle{Width: 10.0, Height: 5.0}
+    fmt.Println(r.Width) // Direct access
+    r.Width = 15.0       // Direct modification
+}
+```
+</UniversalEditor>
+
+### Struct with Different Field Types
+
+<UniversalEditor title="Complex Struct Example">
+```java !! java
+public class Employee {
+    private int id;
+    private String name;
+    private double salary;
+    private String[] skills;
+    private Address address;
+
+    public Employee(int id, String name, double salary, String[] skills, Address address) {
+        this.id = id;
+        this.name = name;
+        this.salary = salary;
+        this.skills = skills;
+        this.address = address;
+    }
+}
+
+class Address {
+    private String street;
+    private String city;
+    // constructor, getters, etc.
+}
+```
+
+```go !! go
+// Employee struct with multiple field types
+type Employee struct {
+    ID      int
+    Name    string
+    Salary  float64
+    Skills  []string
+    Address Address // Embedded struct
+}
+
+// Address struct
+type Address struct {
+    Street string
+    City   string
+}
+
+func main() {
+    emp := Employee{
+        ID:     1,
+        Name:   "Alice",
+        Salary: 75000.0,
+        Skills: []string{"Go", "Java", "Python"},
+        Address: Address{
+            Street: "123 Main St",
+            City:   "San Francisco",
+        },
+    }
+}
+```
+</UniversalEditor>
+
+## 3. Methods: Value vs Pointer Receivers
+
+This is one of the most important concepts in Go! Methods can be defined on either values or pointers.
+
+### Value Receivers
+
+<UniversalEditor title="Value Receiver Methods">
+```java !! java
+public class Counter {
+    private int count;
+
+    public Counter(int count) {
+        this.count = count;
+    }
+
+    // This method doesn't modify state
+    public int getCount() {
+        return count;
+    }
+
+    // This method DOES modify state
+    public void increment() {
+        this.count++;
+    }
+}
+```
+
+```go !! go
+type Counter struct {
+    Count int
+}
+
+// Value receiver - doesn't modify original
+func (c Counter) GetCount() int {
+    return c.Count
+}
+
+// Pointer receiver - CAN modify original
+func (c *Counter) Increment() {
+    c.Count++ // Modifies the original Counter
+}
+
+func main() {
+    counter := Counter{Count: 0}
+
+    // Value receiver creates a copy
+    fmt.Println(counter.GetCount()) // 0
+
+    // Pointer receiver modifies original
+    counter.Increment()
+    fmt.Println(counter.Count) // 1
+}
+```
+</UniversalEditor>
+
+### When to Use Value vs Pointer Receivers
+
+<UniversalEditor title="Receiver Decision Guide">
+```java !! java
+// In Java, methods on objects can always modify state
+// You don't have to think about it
+
+public class Circle {
+    private double radius;
+
+    public Circle(double radius) {
+        this.radius = radius;
+    }
+
+    // Method that calculates (no state change)
+    public double getArea() {
+        return Math.PI * radius * radius;
+    }
+
+    // Method that modifies state
+    public void setRadius(double radius) {
+        this.radius = radius;
+    }
+}
+```
+
+```go !! go
+type Circle struct {
+    Radius float64
+}
+
+// Use VALUE receiver when:
+// - Method doesn't need to modify struct
+// - Method is more efficient with small structs
+// - You want immutability
+func (c Circle) Area() float64 {
+    return math.Pi * c.Radius * c.Radius
+}
+
+// Use POINTER receiver when:
+// - Method needs to modify struct
+// - Struct is large (avoid copying)
+// - Consistency: if one method uses pointer, all should
+func (c *Circle) SetRadius(r float64) {
+    c.Radius = r
+}
+
+func (c *Circle) Grow(factor float64) {
+    c.Radius *= factor
+}
+```
+</UniversalEditor>
+
+### Practical Example: Bank Account
+
+<UniversalEditor title="Bank Account: Proper Receiver Usage">
+```java !! java
+public class BankAccount {
+    private String owner;
+    private double balance;
+
+    public BankAccount(String owner, double initialBalance) {
+        this.owner = owner;
+        this.balance = initialBalance;
+    }
+
+    // Query method - no state change
+    public double getBalance() {
+        return balance;
+    }
+
+    // Modify state
+    public void deposit(double amount) {
+        if (amount > 0) {
+            balance += amount;
+        }
+    }
+
+    public boolean withdraw(double amount) {
+        if (amount > 0 && balance >= amount) {
+            balance -= amount;
+            return true;
+        }
+        return false;
+    }
+}
+```
+
+```go !! go
+type BankAccount struct {
+    Owner   string
+    Balance float64
+}
+
+// Value receiver for queries
+func (a BankAccount) GetBalance() float64 {
+    return a.Balance
+}
+
+// Pointer receiver for modifications
+func (a *BankAccount) Deposit(amount float64) {
+    if amount > 0 {
+        a.Balance += amount
+    }
+}
+
+func (a *BankAccount) Withdraw(amount float64) bool {
+    if amount > 0 && a.Balance >= amount {
+        a.Balance -= amount
+        return true
+    }
+    return false
+}
+
+func main() {
+    account := BankAccount{
+        Owner:   "Alice",
+        Balance: 1000.0,
+    }
+
+    account.Deposit(500.0)
+    account.Withdraw(200.0)
+    fmt.Println(account.GetBalance()) // 1300.0
+}
+```
+</UniversalEditor>
+
+## 4. No Constructors: Factory Functions
+
+Go doesn't have constructors. Instead, use factory functions.
+
+### Basic Factory Function
+
+<UniversalEditor title="Constructor vs Factory Function">
+```java !! java
+public class User {
+    private String username;
+    private String email;
+    private int age;
+
+    // Constructor
+    public User(String username, String email, int age) {
+        this.username = username;
+        this.email = email;
+        this.age = age;
+    }
+
+    // Static factory method
+    public static User createAdult(String username, String email) {
+        return new User(username, email, 18);
+    }
+}
+```
+
+```go !! go
+type User struct {
+    Username string
+    Email    string
+    Age      int
+}
+
+// Factory function (convention: NewTypeName)
+func NewUser(username, email string, age int) *User {
+    return &User{
+        Username: username,
+        Email:    email,
+        Age:      age,
+    }
+}
+
+// Factory function with default values
+func NewAdultUser(username, email string) *User {
+    return &User{
+        Username: username,
+        Email:    email,
+        Age:      18,
+    }
+}
+
+func main() {
+    // Using factory function
+    user := NewUser("alice", "alice@example.com", 25)
+    adult := NewAdultUser("bob", "bob@example.com")
+}
+```
+</UniversalEditor>
+
+### Factory Function with Validation
+
+<UniversalEditor title="Factory Function with Validation">
+```java !! java
+public class Product {
+    private String name;
+    private double price;
+
+    private Product(String name, double price) {
+        this.name = name;
+        this.price = price;
+    }
+
+    public static Product create(String name, double price) {
+        if (name == null || name.isEmpty()) {
+            throw new IllegalArgumentException("Name cannot be empty");
+        }
+        if (price < 0) {
+            throw new IllegalArgumentException("Price cannot be negative");
+        }
+        return new Product(name, price);
+    }
+}
+```
+
+```go !! go
+type Product struct {
+    Name  string
+    Price float64
+}
+
+// Factory function returning error for validation
+func NewProduct(name string, price float64) (*Product, error) {
+    if name == "" {
+        return nil, errors.New("name cannot be empty")
+    }
+    if price < 0 {
+        return nil, errors.New("price cannot be negative")
+    }
+
+    return &Product{
+        Name:  name,
+        Price: price,
+    }, nil
+}
+
+func main() {
+    product, err := NewProduct("Laptop", 999.99)
+    if err != nil {
+        fmt.Println("Error creating product:", err)
+        return
+    }
+    fmt.Println("Created:", product.Name)
+}
+```
+</UniversalEditor>
+
+### Multiple Constructor Variants
+
+<UniversalEditor title="Multiple Factory Functions">
+```java !! java
+public class Configuration {
+    private String host;
+    private int port;
+    private boolean useSSL;
+    private int timeout;
+
+    public Configuration(String host, int port) {
+        this(host, port, true, 30);
+    }
+
+    public Configuration(String host, int port, boolean useSSL) {
+        this(host, port, useSSL, 30);
+    }
+
+    public Configuration(String host, int port, boolean useSSL, int timeout) {
+        this.host = host;
+        this.port = port;
+        this.useSSL = useSSL;
+        this.timeout = timeout;
+    }
+}
+```
+
+```go !! go
+type Configuration struct {
+    Host    string
+    Port    int
+    UseSSL  bool
+    Timeout int
+}
+
+// Default configuration
+func NewDefaultConfig() *Configuration {
+    return &Configuration{
+        Host:    "localhost",
+        Port:    8080,
+        UseSSL:  true,
+        Timeout: 30,
+    }
+}
+
+// Custom configuration
+func NewConfig(host string, port int) *Configuration {
+    return &Configuration{
+        Host:    host,
+        Port:    port,
+        UseSSL:  true,
+        Timeout: 30,
+    }
+}
+
+// Full custom configuration
+func NewCustomConfig(host string, port int, useSSL bool, timeout int) *Configuration {
+    return &Configuration{
+        Host:    host,
+        Port:    port,
+        UseSSL:  useSSL,
+        Timeout: timeout,
+    }
+}
+```
+</UniversalEditor>
+
+## 5. Composition Over Inheritance
+
+Go doesn't have inheritance. Instead, it uses composition to build complex types from simpler ones.
+
+### Java: Inheritance
+
+```java
+public class Animal {
+    protected String name;
+
+    public Animal(String name) {
+        this.name = name;
+    }
+
+    public void eat() {
+        System.out.println(name + " is eating");
+    }
+
+    public void sleep() {
+        System.out.println(name + " is sleeping");
+    }
+}
+
+public class Dog extends Animal {
+    private String breed;
+
+    public Dog(String name, String breed) {
+        super(name);
+        this.breed = breed;
+    }
+
+    public void bark() {
+        System.out.println(name + " is barking");
+    }
+}
+```
+
+### Go: Composition
+
+<UniversalEditor title="Inheritance vs Composition">
+```java !! java
+// Java: Using inheritance
+public class Vehicle {
+    protected String make;
+    protected String model;
+
+    public Vehicle(String make, String model) {
+        this.make = make;
+        this.model = model;
+    }
+
+    public void start() {
+        System.out.println("Vehicle starting");
+    }
+}
+
+public class Car extends Vehicle {
+    private int numDoors;
+
+    public Car(String make, String model, int numDoors) {
+        super(make, model);
+        this.numDoors = numDoors;
+    }
+
+    public void honk() {
+        System.out.println("Beep beep!");
+    }
+}
+```
+
+```go !! go
+// Go: Using composition
+type Vehicle struct {
+    Make  string
+    Model string
+}
+
+func (v Vehicle) Start() {
+    fmt.Println("Vehicle starting")
+}
+
+// Car embeds Vehicle (composition)
+type Car struct {
+    Vehicle // Embedded struct (anonymous field)
+    NumDoors int
+}
+
+func (c Car) Honk() {
+    fmt.Println("Beep beep!")
+}
+
+func main() {
+    car := Car{
+        Vehicle: Vehicle{
+            Make:  "Toyota",
+            Model: "Camry",
+        },
+        NumDoors: 4,
+    }
+
+    // Car has access to Vehicle's fields and methods
+    car.Start() // Called through embedding
+    fmt.Println(car.Make) // Direct access to embedded field
+    car.Honk()
+}
+```
+</UniversalEditor>
+
+### Embedding for Behavior Sharing
+
+<UniversalEditor title="Struct Embedding Example">
+```java !! java
+// Java: Multiple inheritance is not allowed (except interfaces)
+public class Engine {
+    public void start() {
+        System.out.println("Engine starting");
+    }
+}
+
+public class AudioSystem {
+    public void playMusic() {
+        System.out.println("Playing music");
+    }
+}
+
+public class Car {
+    private Engine engine;
+    private AudioSystem audio;
+
+    public Car() {
+        this.engine = new Engine();
+        this.audio = new AudioSystem();
+    }
+
+    public void startEngine() {
+        engine.start();
+    }
+
+    public void playMusic() {
+        audio.playMusic();
+    }
+}
+```
+
+```go !! go
+// Go: Embed multiple types
+type Engine struct {
+    Horsepower int
+}
+
+func (e Engine) Start() {
+    fmt.Println("Engine starting")
+}
+
+type AudioSystem struct {
+    Brand string
+}
+
+func (a AudioSystem) PlayMusic() {
+    fmt.Println("Playing music")
+}
+
+// Car embeds both Engine and AudioSystem
+type Car struct {
+    Engine
+    AudioSystem
+    Make string
+}
+
+func main() {
+    car := Car{
+        Engine: Engine{Horsepower: 200},
+        AudioSystem: AudioSystem{Brand: "Bose"},
+        Make: "Tesla",
+    }
+
+    // Direct access to embedded methods
+    car.Start()       // From Engine
+    car.PlayMusic()   // From AudioSystem
+    fmt.Println(car.Make)
+}
+```
+</UniversalEditor>
+
+### Overriding Methods
+
+<UniversalEditor title="Method Overriding">
+```java !! java
+public class BaseClass {
+    public void greet() {
+        System.out.println("Hello from BaseClass");
+    }
+}
+
+public class DerivedClass extends BaseClass {
+    @Override
+    public void greet() {
+        System.out.println("Hello from DerivedClass");
+        super.greet(); // Call parent method
+    }
+}
+```
+
+```go !! go
+type Base struct {
+    Name string
+}
+
+func (b Base) Greet() {
+    fmt.Println("Hello from Base")
+}
+
+type Derived struct {
+    Base // Embedded
+    ExtraField string
+}
+
+// Override Greet method
+func (d Derived) Greet() {
+    fmt.Println("Hello from Derived")
+    // Can call Base method via field name
+    d.Base.Greet()
+}
+
+func main() {
+    base := Base{Name: "Base"}
+    derived := Derived{
+        Base: Base{Name: "Base"},
+        ExtraField: "Extra",
+    }
+
+    base.Greet()     // "Hello from Base"
+    derived.Greet()  // "Hello from Derived" then "Hello from Base"
+}
+```
+</UniversalEditor>
+
+## 6. Real-World Example: File System
+
+Let's build a more complex example using composition.
+
+<UniversalEditor title="File System: Composition in Action">
+```java !! java
+// Java: File system with inheritance
+public abstract class FileSystemNode {
+    protected String name;
+
+    public FileSystemNode(String name) {
+        this.name = name;
+    }
+
+    public abstract int getSize();
+}
+
+public class File extends FileSystemNode {
+    private int size;
+
+    public File(String name, int size) {
+        super(name);
+        this.size = size;
+    }
+
+    @Override
+    public int getSize() {
+        return size;
+    }
+}
+
+public class Directory extends FileSystemNode {
+    private List<FileSystemNode> children;
+
+    public Directory(String name) {
+        super(name);
+        this.children = new ArrayList<>();
+    }
+
+    public void addChild(FileSystemNode child) {
+        children.add(child);
+    }
+
+    @Override
+    public int getSize() {
+        int total = 0;
+        for (FileSystemNode child : children) {
+            total += child.getSize();
+        }
+        return total;
+    }
+}
+```
+
+```go !! go
+// Go: File system with composition
+type FileSystemNode interface {
+    GetName() string
+    GetSize() int
+}
+
+type File struct {
+    Name string
+    Size int
+}
+
+func (f File) GetName() string {
+    return f.Name
+}
+
+func (f File) GetSize() int {
+    return f.Size
+}
+
+type Directory struct {
+    Name     string
+    Children []FileSystemNode
+}
+
+func NewDirectory(name string) *Directory {
+    return &Directory{
+        Name:     name,
+        Children: make([]FileSystemNode, 0),
+    }
+}
+
+func (d *Directory) AddChild(child FileSystemNode) {
+    d.Children = append(d.Children, child)
+}
+
+func (d Directory) GetName() string {
+    return d.Name
+}
+
+func (d Directory) GetSize() int {
+    total := 0
+    for _, child := range d.Children {
+        total += child.GetSize()
+    }
+    return total
+}
+
+func main() {
+    file1 := File{Name: "file1.txt", Size: 100}
+    file2 := File{Name: "file2.txt", Size: 200}
+
+    dir := NewDirectory("documents")
+    dir.AddChild(file1)
+    dir.AddChild(file2)
+
+    fmt.Printf("Directory %s size: %d bytes\n", dir.GetName(), dir.GetSize())
+}
+```
+</UniversalEditor>
+
+## 7. Best Practices
+
+### When to Use Value vs Pointer Receivers
+
+<UniversalEditor title="Receiver Best Practices">
+```go !! go
+// Rule 1: Use pointer receivers for mutations
+type Account struct {
+    balance float64
+}
+
+func (a *Account) Deposit(amount float64) {
+    a.balance += amount // ✓ Correct: pointer receiver
+}
+
+// Rule 2: Use value receivers for immutable operations
+func (a Account) CanWithdraw(amount float64) bool {
+    return a.balance >= amount // ✓ Correct: no mutation
+}
+
+// Rule 3: Be consistent - if one method uses pointer, all should
+type Circle struct {
+    radius float64
+}
+
+func (c *Circle) Area() float64 { // All pointer receivers
+    return math.Pi * c.radius * c.radius
+}
+
+func (c *Circle) SetRadius(r float64) {
+    c.radius = r
+}
+
+// Rule 4: Use value receivers for small structs
+type Point struct {
+    X, Y int
+}
+
+func (p Point) Distance() float64 {
+    return math.Sqrt(float64(p.X*p.X + p.Y*p.Y))
+}
+```
+</UniversalEditor>
+
+### Factory Function Conventions
+
+<UniversalEditor title="Factory Function Patterns">
+```go !! go
+// Pattern 1: Simple factory - returns pointer
+func NewUser(name string) *User {
+    return &User{Name: name}
+}
+
+// Pattern 2: Factory with validation - returns error
+func NewValidUser(name string, age int) (*User, error) {
+    if name == "" {
+        return nil, errors.New("name required")
+    }
+    if age < 0 || age > 150 {
+        return nil, errors.New("invalid age")
+    }
+    return &User{Name: name, Age: age}, nil
+}
+
+// Pattern 3: Factory with options (functional options)
+type ServerOption func(*Server)
+
+func WithPort(port int) ServerOption {
+    return func(s *Server) {
+        s.Port = port
+    }
+}
+
+func WithTLS(tls bool) ServerOption {
+    return func(s *Server) {
+        s.UseTLS = tls
+    }
+}
+
+func NewServer(opts ...ServerOption) *Server {
+    server := &Server{
+        Port:   8080,
+        UseTLS: false,
+    }
+    for _, opt := range opts {
+        opt(server)
+    }
+    return server
+}
+
+// Usage:
+// server := NewServer(WithPort(9000), WithTLS(true))
+```
+</UniversalEditor>
+
+### Composition Guidelines
+
+<UniversalEditor title="Composition Best Practices">
+```go !! go
+// DO: Embed types that truly represent "is-a" relationship
+type Animal struct {
+    Name string
+}
+
+func (a Animal) Eat() {
+    fmt.Println("Eating")
+}
+
+type Dog struct {
+    Animal // Dog IS an Animal
+    Breed  string
+}
+
+// DON'T: Embed just for convenience
+type Logger struct{}
+
+func (l Logger) Log(msg string) {
+    fmt.Println(msg)
+}
+
+type Service struct {
+    *Logger // ✗ Avoid: Service is not really a Logger
+    Name    string
+}
+
+// DO: Use regular fields for "has-a" relationship
+type Service struct {
+    logger *Logger // ✓ Better: Service HAS a logger
+    Name   string
+}
+
+func (s Service) DoWork() {
+    s.logger.Log("Working") // Clear intent
+}
+```
+</UniversalEditor>
+
+## 8. Common Patterns
+
+### Builder Pattern
+
+<UniversalEditor title="Builder Pattern">
+```java !! java
+// Java: Builder pattern
+public class StringBuilder {
+    private String data;
+
+    public StringBuilder() {
+        this.data = "";
+    }
+
+    public StringBuilder append(String str) {
+        this.data += str;
+        return this;
+    }
+
+    public StringBuilder appendLine(String str) {
+        this.data += str + "\n";
+        return this;
+    }
+
+    public String build() {
+        return data;
+    }
+}
+
+// Usage:
+// String result = new StringBuilder()
+//     .append("Hello")
+//     .appendLine("World")
+//     .build();
+```
+
+```go !! go
+// Go: Builder pattern using functional options
+type QueryBuilder struct {
+    selectFields []string
+    fromTable    string
+    whereClause  string
+    orderBy      string
+}
+
+type QueryOption func(*QueryBuilder)
+
+func Select(fields ...string) QueryOption {
+    return func(qb *QueryBuilder) {
+        qb.selectFields = fields
+    }
+}
+
+func From(table string) QueryOption {
+    return func(qb *QueryBuilder) {
+        qb.fromTable = table
+    }
+}
+
+func Where(where string) QueryOption {
+    return func(qb *QueryBuilder) {
+        qb.whereClause = where
+    }
+}
+
+func OrderBy(order string) QueryOption {
+    return func(qb *QueryBuilder) {
+        qb.orderBy = order
+    }
+}
+
+func NewQuery(opts ...QueryOption) *QueryBuilder {
+    qb := &QueryBuilder{}
+    for _, opt := range opts {
+        opt(qb)
+    }
+    return qb
+}
+
+func (qb *QueryBuilder) Build() string {
+    query := "SELECT " + strings.Join(qb.selectFields, ", ")
+    query += " FROM " + qb.fromTable
+    if qb.whereClause != "" {
+        query += " WHERE " + qb.whereClause
+    }
+    if qb.orderBy != "" {
+        query += " ORDER BY " + qb.orderBy
+    }
+    return query
+}
+
+// Usage:
+// query := NewQuery(
+//     Select("name", "age", "email"),
+//     From("users"),
+//     Where("age > 18"),
+//     OrderBy("name"),
+// )
+// fmt.Println(query.Build())
+```
+</UniversalEditor>
+
+### Singleton Pattern
+
+<UniversalEditor title="Singleton Pattern">
+```java !! java
+// Java: Singleton pattern
+public class Database {
+    private static Database instance;
+    private String connection;
+
+    private Database() {
+        this.connection = "connected";
+    }
+
+    public static Database getInstance() {
+        if (instance == null) {
+            instance = new Database();
+        }
+        return instance;
+    }
+}
+```
+
+```go !! go
+// Go: Singleton using sync.Once
+type Database struct {
+    connection string
+}
+
+var (
+    instance *Database
+    once     sync.Once
+)
+
+func GetDatabase() *Database {
+    once.Do(func() {
+        instance = &Database{
+            connection: "connected",
+        }
+    })
+    return instance
+}
+
+// Or even simpler: use package init
+var db *Database
+
+func init() {
+    db = &Database{connection: "connected"}
+}
+
+func GetDB() *Database {
+    return db
+}
+```
+</UniversalEditor>
+
+## 9. Practice Questions
+
+### Beginner
+
+1. Create a `Book` struct with fields: Title, Author, ISBN, Price
+   - Add a factory function `NewBook`
+   - Add methods: `GetDiscountedPrice(discount float64)`
+   - Use appropriate receivers
+
+2. Create a `Rectangle` struct with Width and Height
+   - Add methods: `Area()`, `Perimeter()`, `Scale(factor float64)`
+   - Decide which methods should use value vs pointer receivers
+
+### Intermediate
+
+3. Create a `BankAccount` struct with:
+   - Fields: AccountNumber, Owner, Balance
+   - Methods: `Deposit`, `Withdraw`, `TransferTo`, `GetStatement`
+   - Include validation (no negative amounts, sufficient balance)
+
+4. Create a file system using composition:
+   - `File` struct with Name, Size, Content
+   - `Directory` struct that can contain Files and Directories
+   - Methods to add items and calculate total size
+
+### Advanced
+
+5. Implement a simplified e-commerce system:
+   - `Product`, `Customer`, `Order` structs
+   - Order should contain multiple Products
+   - Methods for adding items, calculating totals, applying discounts
+   - Use composition and embedding appropriately
+
+6. Create a game character system:
+   - `Character` struct with basic stats
+   - `Warrior`, `Mage`, `Archer` using composition (not inheritance!)
+   - Each type has unique abilities
+   - Demonstrate method overriding
+
+## 10. Project Ideas
+
+### Project 1: Library Management System
+
+Create a library system with these components:
+- `Book`, `Member`, `Loan` structs
+- Methods for borrowing, returning, searching books
+- Track due dates and calculate fines
+- Use composition for different member types (Student, Faculty)
+
+### Project 2: Task Management System
+
+Build a task manager with:
+- `Task`, `Project`, `User` structs
+- Tasks can be assigned to users
+- Projects contain multiple tasks
+- Implement priority, status tracking
+- Use factory functions for different task types
+
+### Project 3: Simple Database
+
+Create an in-memory database:
+- `Table`, `Row`, `Column` structs
+- Methods for CRUD operations
+- Query building using functional options
+- Demonstrate composition for complex queries
+
+## 11. Key Takeaways
+
+- **No Classes**: Go uses structs instead of classes
+- **Separation**: Data (structs) is separate from behavior (methods)
+- **Value vs Pointer**: Use value receivers for immutable operations, pointer receivers for mutations
+- **No Constructors**: Use factory functions instead
+- **Composition over Inheritance**: Go favors composition over class inheritance
+- **Embedding**: Struct embedding provides behavior reuse without traditional inheritance
+- **Simplicity**: Go's approach leads to simpler, more flexible code
+
+## 12. Next Steps
+
+In the next module, we'll explore:
+- Go's package system compared to Java packages
+- Import conventions and visibility
+- Dependency management with Go modules
+- Package design best practices
+
+Continue to [Module 03: Package System](/docs/java2go/module-03-package-system) to learn how Go organizes code!
