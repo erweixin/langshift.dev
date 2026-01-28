@@ -1,0 +1,276 @@
+---
+title: 子串（题单顺序）
+description: 热题 100 - 子串分组（按题单顺序）：560 / 239 / 76
+---
+
+import { LeetCodeProblem } from "@/components/leetcode/LeetCodeProblem"
+
+本页包含题单「子串」分组的全部题目，顺序与 `list.json` 保持一致。
+
+---
+
+## 560. 和为 K 的子数组
+
+<LeetCodeProblem titleSlug="subarray-sum-equals-k" />
+
+<details>
+<summary><strong>最优解</strong>（前缀和 + 哈希表：把“求区间和”改成“找差值”）</summary>
+
+<UniversalEditor title="内存模型比较" compare={true}>
+```javascript !! js
+function subarraySum(nums, k) {
+  // countByPrefix[sum] = 前缀和 sum 出现的次数
+  const countByPrefix = new Map()
+  countByPrefix.set(0, 1) // 空前缀，保证从 0 开始的子数组也能被统计
+
+  let prefix = 0
+  let ans = 0
+  for (const x of nums) {
+    prefix += x
+    const need = prefix - k
+    ans += countByPrefix.get(need) || 0
+    countByPrefix.set(prefix, (countByPrefix.get(prefix) || 0) + 1)
+  }
+  return ans
+}
+
+// 5 个测试用例
+console.log(subarraySum([1, 1, 1], 2)) // 2
+console.log(subarraySum([1, 2, 3], 3)) // 2 ([1,2],[3])
+console.log(subarraySum([1, -1, 0], 0)) // 3
+console.log(subarraySum([0, 0, 0], 0)) // 6
+console.log(subarraySum([-1, -1, 1], 0)) // 1
+```
+</UniversalEditor>
+
+</details>
+
+<details>
+<summary><strong>最优解讲解</strong>（通俗版 + 推理过程）</summary>
+
+- **先写出区间和的公式**：设 `prefix[i]` 表示前 i 个数的和（从 0 开始），那么子数组 `nums[l..r]` 的和是：
+  - `sum(l..r) = prefix[r+1] - prefix[l]`
+- **题目要的是 `sum(l..r) = k`**，把上式改写：
+  - `prefix[r+1] - prefix[l] = k`
+  - `prefix[l] = prefix[r+1] - k`
+- **这一步很关键：把“找一段区间”变成“找一个历史前缀值”**。
+  - 当我们遍历到 `r`（也就是当前前缀和 `prefix`），想知道有多少个 `l` 能让区间和为 `k`，
+  - 只需要问：以前出现过多少次 `prefix - k`？
+- **为什么要存“次数”而不是“下标”？**
+  - 因为可能有多个 `l` 让 `prefix[l]` 相同（例如有 0、正负抵消），每一个都对应一个合法子数组。
+  - 所以 `Map` 里存的是 `前缀和 -> 出现次数`。
+- **为什么初始要 `countByPrefix.set(0,1)`？**
+  - 表示“在任何元素之前，前缀和为 0 出现过一次”。
+  - 这样当某个前缀和本身就等于 k 时（即从 0 开始到当前位置的子数组），也能正确统计到。
+- **小例子走一遍**：`nums=[1,1,1]`, `k=2`
+  - 初始：count[0]=1
+  - 扫到第 2 个 1（prefix=2）时，need=0，count[0]=1 → ans+=1（子数组 [1,1]）
+  - 扫到第 3 个 1（prefix=3）时，need=1，count[1]=1 → ans+=1（子数组 [1,1] 从第二个开始）
+- **为什么不是滑动窗口？**：因为数组里可能有负数，窗口右移/左移时区间和不具备单调性，滑动窗口会失效；前缀和 + 哈希才是通用解。
+- **复杂度**：时间 \(O(n)\)，空间 \(O(n)\)（最坏情况下前缀和都不同）。
+
+</details>
+
+<details>
+<summary><strong>类似题目</strong>（前缀和 + 哈希：统计满足差值的区间）</summary>
+
+```javascript
+const freq = new Map()
+freq.set(0, 1)
+
+let prefix = 0
+let ans = 0
+for (const x of nums) {
+  prefix += x
+  // 关键：把“区间条件”改写成“前缀差值条件”
+  ans += freq.get(prefix - target) || 0
+  freq.set(prefix, (freq.get(prefix) || 0) + 1)
+}
+```
+
+</details>
+
+---
+
+## 239. 滑动窗口最大值
+
+<LeetCodeProblem titleSlug="sliding-window-maximum" />
+
+<details>
+<summary><strong>最优解</strong>（单调队列：队头永远是最大值）</summary>
+
+<UniversalEditor title="内存模型比较" compare={true}>
+```javascript !! js
+function maxSlidingWindow(nums, k) {
+  const n = nums.length
+  if (k === 0 || n === 0) return []
+
+  // 存下标，保证 nums[idx] 从队头到队尾递减
+  const dq = []
+  const ans = []
+
+  for (let i = 0; i < n; i++) {
+    // 1) 把队尾所有比当前值小的都踢掉（它们不可能再当最大值）
+    while (dq.length && nums[dq[dq.length - 1]] <= nums[i]) dq.pop()
+    dq.push(i)
+
+    // 2) 把窗口外的队头踢掉
+    if (dq[0] <= i - k) dq.shift()
+
+    // 3) 窗口形成后，记录最大值（队头）
+    if (i >= k - 1) ans.push(nums[dq[0]])
+  }
+
+  return ans
+}
+
+// 5 个测试用例
+console.log(maxSlidingWindow([1, 3, -1, -3, 5, 3, 6, 7], 3)) // [3,3,5,5,6,7]
+console.log(maxSlidingWindow([1], 1)) // [1]
+console.log(maxSlidingWindow([9, 8, 7, 6], 2)) // [9,8,7]
+console.log(maxSlidingWindow([4, 4, 4, 4], 2)) // [4,4,4]
+console.log(maxSlidingWindow([1, -1], 1)) // [1,-1]
+```
+</UniversalEditor>
+
+</details>
+
+<details>
+<summary><strong>最优解讲解</strong>（通俗版 + 推理过程）</summary>
+
+- **题意翻译**：窗口长度固定为 `k`，每向右滑一步，就输出当前窗口里的最大值。
+- **朴素做法**：每个窗口都扫一遍找最大值，单个窗口 \(O(k)\)，总共 \(O(nk)\)，k 大就超时。
+- **关键观察：窗口滑动时，只进一个元素、出一个元素**。我们想维护一个数据结构，让“取最大值”是 \(O(1)\)。
+- **为什么用“单调队列”？**
+  - 我们维护一个队列，里面存的是“可能成为当前/未来窗口最大值”的候选下标。
+  - 队列对应的值必须从头到尾递减：这样队头永远是最大值。
+- **推理队列规则（最容易写对的部分）**：
+  1. **新元素进来时**：把队尾所有 `<= 新元素` 的都弹掉  
+     - 因为新元素更大（或相等且更新），而且更靠右、活得更久；那些更小的再也不可能成为最大值。
+  2. **窗口右移时**：如果队头下标已经滑出窗口（`<= i-k`），就把它弹掉。
+  3. **窗口形成后**：直接取 `nums[dq[0]]` 作为最大值。
+- **为什么是 \(O(n)\)**：每个元素最多进队一次、出队一次，所有 `pop/shift` 总次数是线性的。
+- **复杂度**：时间 \(O(n)\)，空间 \(O(k)\)（队列最多保留一个窗口内的候选下标）。
+
+</details>
+
+<details>
+<summary><strong>类似题目</strong>（单调队列模板：维护“最值”）</summary>
+
+```javascript
+const dq = [] // 存下标，保证单调
+for (let i = 0; i < n; i++) {
+  while (dq.length && worse(dq[dq.length - 1], i)) dq.pop()
+  dq.push(i)
+  if (dq[0] <= i - k) dq.shift()
+  if (i >= k - 1) ans.push(value(dq[0]))
+}
+```
+
+</details>
+
+---
+
+## 76. 最小覆盖子串
+
+<LeetCodeProblem titleSlug="minimum-window-substring" />
+
+<details>
+<summary><strong>最优解</strong>（滑动窗口：先扩张满足，再收缩到最短）</summary>
+
+<UniversalEditor title="内存模型比较" compare={true}>
+```javascript !! js
+function minWindow(s, t) {
+  if (!t.length) return ""
+
+  const need = new Map()
+  for (const ch of t) need.set(ch, (need.get(ch) || 0) + 1)
+
+  let missing = t.length
+  let left = 0
+  let bestL = 0
+  let bestLen = Infinity
+
+  for (let right = 0; right < s.length; right++) {
+    const ch = s[right]
+    if (need.has(ch)) {
+      if (need.get(ch) > 0) missing--
+      need.set(ch, need.get(ch) - 1)
+    }
+
+    // 当窗口已经覆盖 t（missing == 0），开始收缩 left，尽量变短
+    while (missing === 0) {
+      const len = right - left + 1
+      if (len < bestLen) {
+        bestLen = len
+        bestL = left
+      }
+
+      const out = s[left]
+      if (need.has(out)) {
+        need.set(out, need.get(out) + 1)
+        if (need.get(out) > 0) missing++ // 变成缺少了
+      }
+      left++
+    }
+  }
+
+  return bestLen === Infinity ? "" : s.slice(bestL, bestL + bestLen)
+}
+
+// 5 个测试用例
+console.log(minWindow("ADOBECODEBANC", "ABC")) // "BANC"
+console.log(minWindow("a", "a")) // "a"
+console.log(minWindow("a", "aa")) // ""
+console.log(minWindow("aa", "aa")) // "aa"
+console.log(minWindow("bba", "ab")) // "ba"
+```
+</UniversalEditor>
+
+</details>
+
+<details>
+<summary><strong>最优解讲解</strong>（通俗版 + 推理过程）</summary>
+
+- **题意翻译**：在 `s` 中找一个最短子串，要求它包含 `t` 的所有字符（包含次数也要满足，比如 `t="AABC"` 就需要 2 个 A）。
+- **为什么不能暴力？**：枚举所有子串是 \(O(n^2)\)，每个子串再检查是否覆盖 t，又会更慢。
+- **滑动窗口的适用前提**：我们要找的是“满足条件的最短窗口”，这类题通常都能用：
+  - 右指针负责“让窗口满足条件”
+  - 一旦满足条件，左指针就尽量“压缩”窗口
+- **怎么判定“窗口是否已经覆盖 t”？**
+  - 用 `need` 记录每个字符还差多少个（可以为负，表示窗口里多出来了）。
+  - 用 `missing` 记录还缺多少个字符（总缺口）：当 `missing == 0`，说明覆盖成功。
+- **为什么 `need` 可以变成负数？**
+  - 负数代表“这个字符窗口里多了”，多了并不影响覆盖，只影响我们能否把左边界往右缩。
+  - 正数才代表“还缺”，一旦某个字符从 0 变回 1，说明窗口不再覆盖。
+- **推理窗口过程**：
+  1. `right` 右移：每看到一个 `t` 里需要的字符，就把 `need[ch]--`；如果它原本还缺（`need[ch] > 0`），则 `missing--`。
+  2. 当 `missing == 0`：窗口已经“够用了”，此时再扩大只会更长，所以开始移动 `left` 尝试缩短。
+  3. `left` 右移时如果移走了一个关键字符（导致 `need[out] > 0`），说明窗口不够了，停止收缩，回到步骤 1 继续扩张。
+- **小例子抓住直觉**：`s="ADOBECODEBANC", t="ABC"`
+  - 先扩到第一次覆盖（包含 A/B/C），然后开始收缩左边，缩到刚好不能再缩为止；
+  - 再继续往右扩，找到新的覆盖，再收缩……不断更新最短答案，最终得到 "BANC"。
+- **易错点**：
+  - `missing` 只在“确实补上了缺口”时才 `--`；移出字符后只有在 `need[out] > 0`（变回缺口）时才 `++`。
+  - `need` 允许为负数是正常的，它表示“窗口里多出来的字符”，不应当触发 `missing` 变化。
+- **复杂度**：左右指针都只单调前进，整体时间 \(O(n)\)，空间 \(O(|\Sigma|)\)（字符表大小，常见场景可视为常数）。
+
+</details>
+
+<details>
+<summary><strong>类似题目</strong>（可变长窗口：先满足再极限收缩）</summary>
+
+```javascript
+let left = 0
+for (let right = 0; right < n; right++) {
+  add(arr[right])
+  while (windowIsValid()) {
+    ans = update(ans, left, right) // 在“合法”状态下更新最短/最优
+    remove(arr[left])
+    left++
+  }
+}
+```
+
+</details>
+

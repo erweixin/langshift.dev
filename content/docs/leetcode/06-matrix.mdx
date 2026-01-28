@@ -1,0 +1,310 @@
+---
+title: 矩阵（题单顺序）
+description: 热题 100 - 矩阵分组（按题单顺序）：73 / 54 / 48 / 240
+---
+
+import { LeetCodeProblem } from "@/components/leetcode/LeetCodeProblem"
+
+本页包含题单「矩阵」分组的全部题目，顺序与 `list.json` 保持一致。
+
+---
+
+## 73. 矩阵置零
+
+<LeetCodeProblem titleSlug="set-matrix-zeroes" />
+
+<details>
+<summary><strong>最优解</strong>（原地标记：用第一行/第一列当“记号板”）</summary>
+
+<UniversalEditor title="内存模型比较" compare={true}>
+```javascript !! js
+function setZeroes(matrix) {
+  const m = matrix.length
+  const n = matrix[0].length
+
+  let firstRowZero = false
+  let firstColZero = false
+
+  for (let j = 0; j < n; j++) if (matrix[0][j] === 0) firstRowZero = true
+  for (let i = 0; i < m; i++) if (matrix[i][0] === 0) firstColZero = true
+
+  // 用第一行/第一列标记：某行/某列是否需要清零
+  for (let i = 1; i < m; i++) {
+    for (let j = 1; j < n; j++) {
+      if (matrix[i][j] === 0) {
+        matrix[i][0] = 0
+        matrix[0][j] = 0
+      }
+    }
+  }
+
+  // 根据标记清零（从 1 开始避免破坏标记）
+  for (let i = 1; i < m; i++) {
+    for (let j = 1; j < n; j++) {
+      if (matrix[i][0] === 0 || matrix[0][j] === 0) matrix[i][j] = 0
+    }
+  }
+
+  // 最后处理第一行/第一列
+  if (firstRowZero) for (let j = 0; j < n; j++) matrix[0][j] = 0
+  if (firstColZero) for (let i = 0; i < m; i++) matrix[i][0] = 0
+
+  return matrix
+}
+
+// 5 个测试用例
+console.log(JSON.stringify(setZeroes([[1, 1, 1], [1, 0, 1], [1, 1, 1]]))) // [[1,0,1],[0,0,0],[1,0,1]]
+console.log(JSON.stringify(setZeroes([[0, 1, 2, 0], [3, 4, 5, 2], [1, 3, 1, 5]]))) // [[0,0,0,0],[0,4,5,0],[0,3,1,0]]
+console.log(JSON.stringify(setZeroes([[1]]))) // [[1]]
+console.log(JSON.stringify(setZeroes([[0]]))) // [[0]]
+console.log(JSON.stringify(setZeroes([[1, 0, 3]]))) // [[0,0,0]]
+```
+</UniversalEditor>
+
+</details>
+
+<details>
+<summary><strong>最优解讲解</strong>（通俗版 + 推理过程）</summary>
+
+- **题意翻译**：只要某个格子是 0，就要把它所在整行整列都变成 0，并且要原地做。
+- **朴素做法的坑**：你如果边扫边改，一旦把某个格子改成 0，会“污染”后续判断，导致清零范围无限扩大。
+- **正确做法必须分两步**：
+  1. 先“记录”哪些行/列需要清零
+  2. 再统一执行清零
+- **为什么不用额外数组也能记录？**：把第一行/第一列当“记号板”：
+  - 当发现 `matrix[i][j]==0`，就做标记：`matrix[i][0]=0`（第 i 行要清零）、`matrix[0][j]=0`（第 j 列要清零）。
+- **但是第一行/第一列本身怎么办？**：它们既当数据又当标记，必须单独记录：
+  - 用 `firstRowZero / firstColZero` 先记住第一行/第一列是否原本就含 0。
+- **执行顺序为什么重要？**
+  - 标记阶段从 (1,1) 开始，避免直接覆盖第一行/列的“是否清零信息”。
+  - 清零阶段也从 (1,1) 开始，最后再看 `firstRowZero/firstColZero` 处理第一行/列。
+- **复杂度**：两趟扫描，时间 \(O(mn)\)，额外空间 \(O(1)\)。
+- **最常见坑**：忘记单独处理第一行/第一列，导致标记被覆盖后信息丢失。
+- **为什么要“先标记再清零”？**：因为清零会改变原矩阵，如果一边扫一边清，会把新产生的 0 当成“原本就有的 0”，造成错误扩散。
+
+</details>
+
+<details>
+<summary><strong>类似题目</strong>（原地标记：用边界当标记位）</summary>
+
+```javascript
+// 典型套路：把某一行/列/区域当做“标记数组”，再二次遍历应用标记
+```
+
+</details>
+
+---
+
+## 54. 螺旋矩阵
+
+<LeetCodeProblem titleSlug="spiral-matrix" />
+
+<details>
+<summary><strong>最优解</strong>（四个边界：上/下/左/右，按圈走）</summary>
+
+<UniversalEditor title="内存模型比较" compare={true}>
+```javascript !! js
+function spiralOrder(matrix) {
+  const m = matrix.length
+  const n = matrix[0].length
+  let top = 0, bottom = m - 1
+  let left = 0, right = n - 1
+  const res = []
+
+  while (top <= bottom && left <= right) {
+    for (let j = left; j <= right; j++) res.push(matrix[top][j])
+    top++
+    for (let i = top; i <= bottom; i++) res.push(matrix[i][right])
+    right--
+    if (top <= bottom) {
+      for (let j = right; j >= left; j--) res.push(matrix[bottom][j])
+      bottom--
+    }
+    if (left <= right) {
+      for (let i = bottom; i >= top; i--) res.push(matrix[i][left])
+      left++
+    }
+  }
+  return res
+}
+
+// 5 个测试用例
+console.log(JSON.stringify(spiralOrder([[1, 2, 3], [4, 5, 6], [7, 8, 9]]))) // [1,2,3,6,9,8,7,4,5]
+console.log(JSON.stringify(spiralOrder([[1, 2, 3, 4], [5, 6, 7, 8], [9, 10, 11, 12]]))) // [1,2,3,4,8,12,11,10,9,5,6,7]
+console.log(JSON.stringify(spiralOrder([[1]]))) // [1]
+console.log(JSON.stringify(spiralOrder([[1, 2, 3]]))) // [1,2,3]
+console.log(JSON.stringify(spiralOrder([[1], [2], [3]]))) // [1,2,3]
+```
+</UniversalEditor>
+
+</details>
+
+<details>
+<summary><strong>最优解讲解</strong>（通俗版 + 推理过程）</summary>
+
+- **题意翻译**：按螺旋方式输出矩阵：先最外圈一圈圈往里。
+- **关键思路：用“边界”描述当前还没走过的区域**：
+  - 上边界 `top`、下边界 `bottom`、左边界 `left`、右边界 `right`。
+  - 每走完一条边，就把对应边界往里缩一格。
+- **为什么要做两次 if 判断？**
+  - 当矩阵变成一行或一列时，走完上边/右边后，可能已经没有下边或左边了；
+  - `top<=bottom`、`left<=right` 是为了避免重复走/越界。
+- **直觉**：你可以把它想成“剥洋葱”：每轮剥掉外层四条边，边界往里收缩，直到没有东西可剥。
+- **边界判断为什么是两次 if？**：当只剩一行或一列时，底边/左边可能不存在，不加判断就会重复输出或越界。
+- **复杂度**：每个格子输出一次，时间 \(O(mn)\)，空间 \(O(1)\)（不算结果数组）。
+
+</details>
+
+<details>
+<summary><strong>类似题目</strong>（边界收缩模板）</summary>
+
+```javascript
+while (top <= bottom && left <= right) {
+  walkTop(); top++
+  walkRight(); right--
+  if (top <= bottom) { walkBottom(); bottom-- }
+  if (left <= right) { walkLeft(); left++ }
+}
+```
+
+</details>
+
+---
+
+## 48. 旋转图像
+
+<LeetCodeProblem titleSlug="rotate-image" />
+
+<details>
+<summary><strong>最优解</strong>（先转置，再每行翻转）</summary>
+
+<UniversalEditor title="内存模型比较" compare={true}>
+```javascript !! js
+function rotate(matrix) {
+  const n = matrix.length
+
+  // 转置：matrix[i][j] <-> matrix[j][i]
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      ;[matrix[i][j], matrix[j][i]] = [matrix[j][i], matrix[i][j]]
+    }
+  }
+
+  // 每行翻转
+  for (let i = 0; i < n; i++) {
+    let l = 0, r = n - 1
+    while (l < r) {
+      ;[matrix[i][l], matrix[i][r]] = [matrix[i][r], matrix[i][l]]
+      l++
+      r--
+    }
+  }
+  return matrix
+}
+
+// 5 个测试用例
+console.log(JSON.stringify(rotate([[1, 2, 3], [4, 5, 6], [7, 8, 9]]))) // [[7,4,1],[8,5,2],[9,6,3]]
+console.log(JSON.stringify(rotate([[1]]))) // [[1]]
+console.log(JSON.stringify(rotate([[1, 2], [3, 4]]))) // [[3,1],[4,2]]
+console.log(JSON.stringify(rotate([[2, 29, 20, 26, 16], [13, 14, 15, 16, 17], [1, 2, 3, 4, 5], [6, 7, 8, 9, 10], [11, 12, 13, 14, 15]])))
+console.log(JSON.stringify(rotate([[0, 1], [1, 0]]))) // [[1,0],[0,1]]
+```
+</UniversalEditor>
+
+</details>
+
+<details>
+<summary><strong>最优解讲解</strong>（通俗版 + 推理过程）</summary>
+
+- **题意翻译**：把 \(n\times n\) 矩阵顺时针旋转 90°，原地完成。
+- **关键等价变形**：顺时针 90° 的映射是：
+  - 新位置 `(i,j)` 来自旧位置 `(n-1-j, i)`
+- **直接按映射挪会很麻烦**：原地替换会覆盖尚未使用的值，需要分圈做四元交换，代码更绕。
+- **更好理解的推理：把旋转拆成两步**：
+  1. **转置**：把行列互换（沿主对角线翻折），`(i,j) -> (j,i)`
+  2. **每行翻转**：把转置后的每一行左右翻转
+  组合起来恰好等价于顺时针 90°。
+- **为什么这两步刚好等价？**：  
+  转置把 `(n-1-j, i)` 变成 `(i, n-1-j)`（落到第 i 行），再翻转一行把列 `n-1-j` 变成 `j`，于是得到 `(i,j)`。
+- **复杂度**：两次原地操作（转置 + 翻转），时间 \(O(n^2)\)，额外空间 \(O(1)\)。
+
+</details>
+
+<details>
+<summary><strong>类似题目</strong>（矩阵变换：用“拆解操作”代替复杂的原地搬运）</summary>
+
+```javascript
+// 常见拆解：转置 + 翻转行/列；或按圈做四元交换
+```
+
+</details>
+
+---
+
+## 240. 搜索二维矩阵 II
+
+<LeetCodeProblem titleSlug="search-a-2d-matrix-ii" />
+
+<details>
+<summary><strong>最优解</strong>（从右上角出发：大了左移，小了下移）</summary>
+
+<UniversalEditor title="内存模型比较" compare={true}>
+```javascript !! js
+function searchMatrix(matrix, target) {
+  const m = matrix.length
+  const n = matrix[0].length
+
+  let i = 0
+  let j = n - 1 // 右上角
+
+  while (i < m && j >= 0) {
+    const x = matrix[i][j]
+    if (x === target) return true
+    if (x > target) j-- // 太大，往左变小
+    else i++ // 太小，往下变大
+  }
+  return false
+}
+
+// 5 个测试用例
+console.log(searchMatrix([[1, 4, 7, 11, 15], [2, 5, 8, 12, 19], [3, 6, 9, 16, 22], [10, 13, 14, 17, 24], [18, 21, 23, 26, 30]], 5)) // true
+console.log(searchMatrix([[1, 4, 7, 11, 15], [2, 5, 8, 12, 19], [3, 6, 9, 16, 22], [10, 13, 14, 17, 24], [18, 21, 23, 26, 30]], 20)) // false
+console.log(searchMatrix([[1]], 1)) // true
+console.log(searchMatrix([[1]], 2)) // false
+console.log(searchMatrix([[1, 2, 3], [4, 5, 6]], 6)) // true
+```
+</UniversalEditor>
+
+</details>
+
+<details>
+<summary><strong>最优解讲解</strong>（通俗版 + 推理过程）</summary>
+
+- **题目给了两个“单调性”**：每行从左到右递增、每列从上到下递增。
+- **朴素做法**：每行二分或全矩阵扫，能做但还可以更巧妙。
+- **关键选择：从右上角开始**（也可以从左下角开始）：
+  - 右上角的特点：它的左边都更小，它的下边都更大。
+- **推理移动规则**：
+  - 当前值 `x`：
+    - 如果 `x > target`：目标更小，只可能在左侧，所以 **左移**（`j--`）。
+    - 如果 `x < target`：目标更大，只可能在下方，所以 **下移**（`i++`）。
+  - 每一步都能排除一整行或一整列的候选区域，所以不会回头。
+- **复杂度**：最多走 `m+n` 步，时间 \(O(m+n)\)，空间 \(O(1)\)。
+
+</details>
+
+<details>
+<summary><strong>类似题目</strong>（二维单调矩阵：从角出发“削掉一行/一列”）</summary>
+
+```javascript
+let i = 0, j = n - 1
+while (i < m && j >= 0) {
+  if (a[i][j] === target) return true
+  if (a[i][j] > target) j--
+  else i++
+}
+return false
+```
+
+</details>
+

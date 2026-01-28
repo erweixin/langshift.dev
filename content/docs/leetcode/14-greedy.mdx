@@ -1,0 +1,262 @@
+---
+title: 贪心算法（题单顺序）
+description: 热题 100 - 贪心算法分组（按题单顺序）：121 / 55 / 45 / 763
+---
+
+import { LeetCodeProblem } from "@/components/leetcode/LeetCodeProblem"
+
+本页包含题单「贪心算法」分组的全部题目，顺序与 `list.json` 保持一致。
+
+<details>
+<summary><strong>贪心题统一“自检清单”</strong>（点击展开）</summary>
+
+- **你在每一步做的局部选择是什么？**（例如：当前最小买入价、当前能覆盖到的最远位置、当前段的最远右边界）
+- **为什么“局部最优 ⇒ 全局最优”？** 常见证明方式：不变量、交换论证（exchange argument）、单调性剪枝。
+- **什么时候贪心不适用？** 一旦局部选择会影响未来多种分支且无法用不变量锁死，往往要转 DP/图搜索。
+
+</details>
+
+---
+
+## 121. 买卖股票的最佳时机
+
+<LeetCodeProblem titleSlug="best-time-to-buy-and-sell-stock" />
+
+<details>
+<summary><strong>最优解</strong>（一次遍历：维护历史最低价）</summary>
+
+<UniversalEditor title="内存模型比较" compare={true}>
+```javascript !! js
+function maxProfit(prices) {
+  let minPrice = Infinity
+  let best = 0
+  for (const p of prices) {
+    best = Math.max(best, p - minPrice)
+    minPrice = Math.min(minPrice, p)
+  }
+  return best
+}
+
+// 5 个测试用例
+console.log(maxProfit([7,1,5,3,6,4])) // 5
+console.log(maxProfit([7,6,4,3,1])) // 0
+console.log(maxProfit([1,2,3,4,5])) // 4
+console.log(maxProfit([2,4,1])) // 2
+console.log(maxProfit([3])) // 0
+```
+</UniversalEditor>
+
+</details>
+
+<details>
+<summary><strong>最优解讲解</strong>（通俗版 + 推理过程）</summary>
+
+- 这题就是在问：选一个买入日 i、一个卖出日 j（j>i），最大化 `prices[j]-prices[i]`。
+- **朴素做法**：枚举 i、j，\(O(n^2)\)。
+- **关键推理：卖出当天的最佳买入价一定是“它之前出现过的最低价”**。
+  - 你每天都可以把“到今天为止的最低价”记住：`minPrice`。
+  - 今天如果卖出，利润就是 `prices[t] - minPrice`。
+  - 一边扫一边更新最大利润即可。
+- 这就是贪心：每一天都做局部最优的“最低买入价更新”，最终得到全局最优利润。
+
+</details>
+
+<details>
+<summary><strong>类似题目</strong>（前缀最值：维护历史最小/最大）</summary>
+
+```javascript
+minSoFar = +inf
+for x in arr:
+  ans = max(ans, x - minSoFar)
+  minSoFar = min(minSoFar, x)
+```
+
+</details>
+
+---
+
+## 55. 跳跃游戏
+
+<LeetCodeProblem titleSlug="jump-game" />
+
+<details>
+<summary><strong>最优解</strong>（贪心：维护能到达的最远下标）</summary>
+
+<UniversalEditor title="内存模型比较" compare={true}>
+```javascript !! js
+function canJump(nums) {
+  let far = 0
+  for (let i = 0; i < nums.length; i++) {
+    if (i > far) return false
+    far = Math.max(far, i + nums[i])
+    if (far >= nums.length - 1) return true
+  }
+  return true
+}
+
+// 5 个测试用例
+console.log(canJump([2,3,1,1,4])) // true
+console.log(canJump([3,2,1,0,4])) // false
+console.log(canJump([0])) // true
+console.log(canJump([1,0,1,0])) // false
+console.log(canJump([2,0,0])) // true
+```
+</UniversalEditor>
+
+</details>
+
+<details>
+<summary><strong>最优解讲解</strong>（通俗版 + 推理过程）</summary>
+
+- **题意翻译**：从 0 出发，每个位置 i 最多跳 `nums[i]` 步，问能不能到最后。
+- **关键推理：你不需要知道“怎么跳”，只需要知道“最远能覆盖到哪”**。
+  - 设 `far` 表示目前为止能到达的最远下标。
+  - 扫描到位置 i 时：
+    - 如果 `i > far`，说明你连 i 都到不了，后面更到不了 → false。
+    - 否则你可以从 i 再扩展覆盖：`far = max(far, i + nums[i])`。
+  - 一旦 `far` 覆盖到末尾，就一定可达。
+- 这就是贪心：每一步都把“覆盖范围”扩到最大，不回头、不枚举路径。
+
+</details>
+
+<details>
+<summary><strong>类似题目</strong>（区间覆盖：维护 farthest reach）</summary>
+
+```javascript
+for i:
+  if i > far: fail
+  far = max(far, i + step[i])
+```
+
+</details>
+
+---
+
+## 45. 跳跃游戏 II
+
+<LeetCodeProblem titleSlug="jump-game-ii" />
+
+<details>
+<summary><strong>最优解</strong>（贪心分层：每层代表一次跳跃）</summary>
+
+<UniversalEditor title="内存模型比较" compare={true}>
+```javascript !! js
+function jump(nums) {
+  if (nums.length <= 1) return 0
+  let steps = 0
+  let end = 0      // 当前这一步能覆盖到的右边界
+  let farthest = 0 // 在当前覆盖范围内，下一步能到的最远
+
+  for (let i = 0; i < nums.length - 1; i++) {
+    farthest = Math.max(farthest, i + nums[i])
+    if (i === end) {
+      steps++
+      end = farthest
+      if (end >= nums.length - 1) break
+    }
+  }
+  return steps
+}
+
+// 5 个测试用例
+console.log(jump([2,3,1,1,4])) // 2
+console.log(jump([2,3,0,1,4])) // 2
+console.log(jump([0])) // 0
+console.log(jump([1,2])) // 1
+console.log(jump([1,1,1,1])) // 3
+```
+</UniversalEditor>
+
+</details>
+
+<details>
+<summary><strong>最优解讲解</strong>（通俗版 + 推理过程）</summary>
+
+- **和 55 的区别**：55 只问能不能到，45 要最少跳几次。
+- **关键推理：把跳跃看成 BFS 的“层”**（但用贪心实现）：
+  - 第 0 次跳能覆盖 `[0..end]`。
+  - 在这段覆盖范围里，你可以选择任意一个点作为落脚点，再跳一次。
+  - 这一层里最好的选择，一定是让下一层覆盖的最远边界最大：`farthest = max(i + nums[i])`。
+- **为什么 i==end 时 steps++？**
+  - 说明你已经扫描完了“当前这一跳能覆盖的所有位置”，必须进行下一跳了。
+  - 把 `end` 更新成 `farthest`，相当于进入下一层。
+- 这就是贪心：每一跳都把“下一跳能覆盖的最远边界”做到最大，保证跳数最少。
+
+</details>
+
+<details>
+<summary><strong>类似题目</strong>（分层贪心：currentEnd / farthest）</summary>
+
+```javascript
+for i:
+  farthest = max(farthest, i+step[i])
+  if i==end: steps++; end=farthest
+```
+
+</details>
+
+---
+
+## 763. 划分字母区间
+
+<LeetCodeProblem titleSlug="partition-labels" />
+
+<details>
+<summary><strong>最优解</strong>（贪心：先记每个字符最后出现位置，再尽量扩区间）</summary>
+
+<UniversalEditor title="内存模型比较" compare={true}>
+```javascript !! js
+function partitionLabels(s) {
+  const last = new Map()
+  for (let i = 0; i < s.length; i++) last.set(s[i], i)
+
+  const res = []
+  let start = 0
+  let end = 0
+  for (let i = 0; i < s.length; i++) {
+    end = Math.max(end, last.get(s[i]))
+    if (i === end) {
+      res.push(end - start + 1)
+      start = i + 1
+    }
+  }
+  return res
+}
+
+// 5 个测试用例
+console.log(JSON.stringify(partitionLabels("ababcbacadefegdehijhklij"))) // [9,7,8]
+console.log(JSON.stringify(partitionLabels("eccbbbbdec"))) // [10]
+console.log(JSON.stringify(partitionLabels("a"))) // [1]
+console.log(JSON.stringify(partitionLabels("ab"))) // [1,1]
+console.log(JSON.stringify(partitionLabels("caedbdedda"))) // [1,9]
+```
+</UniversalEditor>
+
+</details>
+
+<details>
+<summary><strong>最优解讲解</strong>（通俗版 + 推理过程）</summary>
+
+- **题意翻译**：把字符串切成尽可能多段，每个字母只能出现在其中一段里。
+- **关键推理：一段的右边界必须至少覆盖这段里所有字符的“最后一次出现位置”**：
+  - 先预处理 `last[ch]`：每个字符最后出现的下标。
+  - 从左到右扫：
+    - 当前字符 `s[i]` 的最后出现位置是 `last[s[i]]`。
+    - 当前段的右边界 `end` 必须至少到达它：`end = max(end, last[s[i]])`。
+  - 当 `i == end` 时，说明从 start 到 end 之间出现过的所有字符，它们的最后出现位置都 ≤ end。
+    - 换句话说：这段里的字符不会再出现在后面了，段可以安全切开。
+- **为什么这是“最多段”？**
+  - 一旦满足 `i==end` 就立刻切，贪心地尽早结束当前段，才能留下更多空间给后面的段。
+
+</details>
+
+<details>
+<summary><strong>类似题目</strong>（区间扩张：先预处理 last，再遇到字符扩 end）</summary>
+
+```javascript
+end = max(end, last[s[i]])
+if i==end: cut
+```
+
+</details>
+

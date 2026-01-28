@@ -1,0 +1,370 @@
+---
+title: 栈（题单顺序）
+description: 热题 100 - 栈分组（按题单顺序）：20 / 155 / 394 / 739 / 84
+---
+
+import { LeetCodeProblem } from "@/components/leetcode/LeetCodeProblem"
+
+本页包含题单「栈」分组的全部题目，顺序与 `list.json` 保持一致。
+
+<details>
+<summary><strong>栈题统一“思维抓手”</strong>（点击展开）</summary>
+
+- **栈适合解决“最近的/成对的/回退”的关系**：最近的左括号、最近更大/更小元素、解析嵌套结构等。
+- **单调栈的核心不变量**：栈内元素按值单调（递增或递减），被弹出的元素说明“它的答案已经确定”。
+- **下标 vs 值**：多数数组类栈题（739/84）栈里存**下标**，因为需要算距离/宽度。
+
+</details>
+
+---
+
+## 20. 有效的括号
+
+<LeetCodeProblem titleSlug="valid-parentheses" />
+
+<details>
+<summary><strong>最优解</strong>（栈：遇到右括号就匹配最近的左括号）</summary>
+
+<UniversalEditor title="内存模型比较" compare={true}>
+```javascript !! js
+function isValid(s) {
+  const st = []
+  const match = { ")": "(", "]": "[", "}": "{" }
+  for (const ch of s) {
+    if (ch === "(" || ch === "[" || ch === "{") st.push(ch)
+    else {
+      if (!st.length) return false
+      const top = st.pop()
+      if (top !== match[ch]) return false
+    }
+  }
+  return st.length === 0
+}
+
+// 5 个测试用例
+console.log(isValid("()")) // true
+console.log(isValid("()[]{}")) // true
+console.log(isValid("(]")) // false
+console.log(isValid("([)]")) // false
+console.log(isValid("{[]}")) // true
+```
+</UniversalEditor>
+
+</details>
+
+<details>
+<summary><strong>最优解讲解</strong>（通俗版 + 推理过程）</summary>
+
+- **括号合法的本质**：必须“后开先关”。最近打开的括号一定要最先被关闭。
+- 这句“后开先关”就是典型的 **栈** 行为（LIFO）。
+- **推理流程**：
+  - 遇到左括号：先记下来，等后面来关它 → 入栈
+  - 遇到右括号：必须和“最近的左括号”匹配 → 出栈并检查类型
+- **为什么最后还要栈空？**：如果还有没关掉的左括号，字符串也不合法。
+
+</details>
+
+<details>
+<summary><strong>类似题目</strong>（括号/消消乐：栈匹配最近元素）</summary>
+
+```javascript
+for ch in s:
+  if opening: push
+  else: pop and check
+return stack empty
+```
+
+</details>
+
+---
+
+## 155. 最小栈
+
+<LeetCodeProblem titleSlug="min-stack" />
+
+<details>
+<summary><strong>最优解</strong>（双栈：数据栈 + 最小值栈）</summary>
+
+<UniversalEditor title="内存模型比较" compare={true}>
+```javascript !! js
+function MinStack() {
+  this.st = []
+  this.minSt = []
+}
+
+MinStack.prototype.push = function(val) {
+  this.st.push(val)
+  const curMin = this.minSt.length ? Math.min(this.minSt[this.minSt.length - 1], val) : val
+  this.minSt.push(curMin)
+}
+
+MinStack.prototype.pop = function() {
+  this.st.pop()
+  this.minSt.pop()
+}
+
+MinStack.prototype.top = function() {
+  return this.st[this.st.length - 1]
+}
+
+MinStack.prototype.getMin = function() {
+  return this.minSt[this.minSt.length - 1]
+}
+
+// 5 个测试用例
+{
+  const ms = new MinStack()
+  ms.push(-2); ms.push(0); ms.push(-3)
+  console.log(ms.getMin()) // -3
+  ms.pop()
+  console.log(ms.top()) // 0
+  console.log(ms.getMin()) // -2
+}
+{
+  const ms = new MinStack()
+  ms.push(2); ms.push(2); ms.push(1)
+  console.log(ms.getMin()) // 1
+  ms.pop()
+  console.log(ms.getMin()) // 2
+}
+{
+  const ms = new MinStack()
+  ms.push(5)
+  console.log(ms.getMin()) // 5
+  ms.pop()
+  ms.push(7)
+  console.log(ms.getMin()) // 7
+}
+```
+</UniversalEditor>
+
+</details>
+
+<details>
+<summary><strong>最优解讲解</strong>（通俗版 + 推理过程）</summary>
+
+- **难点**：普通栈的 `pop/top` 都是 \(O(1)\)，但 `getMin` 如果每次都扫描一遍栈，会变成 \(O(n)\)。
+- **关键推理：把“历史最小值”也一起压栈**：
+  - 当我们 push 一个值 `val`，我们其实想知道“push 之后栈里的最小值是多少”。
+  - 这个最小值 = `min(之前的最小值, val)`。
+  - 所以用另一个栈 `minSt`，让 `minSt[i]` 记录“主栈 st 在高度 i 时的最小值”。
+- **为什么 pop 时两个栈都 pop？**：因为它们是一一对应的，栈高度必须同步。
+
+</details>
+
+<details>
+<summary><strong>类似题目</strong>（栈增强：额外维护一个“前缀最值/前缀信息”栈）</summary>
+
+```javascript
+push(x): minSt.push(min(minSt.top, x))
+pop(): st.pop(); minSt.pop()
+getMin(): minSt.top
+```
+
+</details>
+
+---
+
+## 394. 字符串解码
+
+<LeetCodeProblem titleSlug="decode-string" />
+
+<details>
+<summary><strong>最优解</strong>（栈：遇到 ] 就把最近一段出栈展开）</summary>
+
+<UniversalEditor title="内存模型比较" compare={true}>
+```javascript !! js
+function decodeString(s) {
+  const st = []
+  let num = 0
+  let cur = ""
+
+  for (const ch of s) {
+    if (ch >= "0" && ch <= "9") {
+      num = num * 10 + (ch.charCodeAt(0) - 48)
+    } else if (ch === "[") {
+      st.push([cur, num])
+      cur = ""
+      num = 0
+    } else if (ch === "]") {
+      const [prev, k] = st.pop()
+      cur = prev + cur.repeat(k)
+    } else {
+      cur += ch
+    }
+  }
+  return cur
+}
+
+// 5 个测试用例
+console.log(decodeString("3[a]2[bc]")) // "aaabcbc"
+console.log(decodeString("3[a2[c]]")) // "accaccacc"
+console.log(decodeString("2[abc]3[cd]ef")) // "abcabccdcdcdef"
+console.log(decodeString("10[a]")) // 10 个 a
+console.log(decodeString("abc3[cd]xyz")) // "abccdcdcdxyz"
+```
+</UniversalEditor>
+
+</details>
+
+<details>
+<summary><strong>最优解讲解</strong>（通俗版 + 推理过程）</summary>
+
+- **题目结构像“嵌套盒子”**：`k[ ... ]` 表示把括号里的内容重复 k 次，并且括号可以嵌套。
+- **为什么需要栈？**：因为嵌套意味着你会“进入一层括号”，之后还要“回到上一层继续拼接”，这正是栈保存上下文的场景。
+- **我们需要保存什么上下文？**
+  - 进入 `[` 前已经拼好的字符串 `prev`
+  - 对应的重复次数 `k`
+- **推理执行过程**：
+  - 读数字：累积成 `num`（注意可能是多位数）
+  - 读到 `[`：把 `[prev, num]` 入栈，然后开始构造新的 `cur`
+  - 读到 `]`：弹出 `[prev, k]`，把 `cur.repeat(k)` 接回 `prev`，成为新的 `cur`
+- 这样每遇到 `]`，就完成最近一层的展开，天然符合“后开先关”。
+
+</details>
+
+<details>
+<summary><strong>类似题目</strong>（解析嵌套结构：栈保存上层状态）</summary>
+
+```javascript
+on "[": push(currentState); reset
+on "]": state = pop(); merge
+```
+
+</details>
+
+---
+
+## 739. 每日温度
+
+<LeetCodeProblem titleSlug="daily-temperatures" />
+
+<details>
+<summary><strong>最优解</strong>（单调栈：栈里保持“递减温度下标”）</summary>
+
+<UniversalEditor title="内存模型比较" compare={true}>
+```javascript !! js
+function dailyTemperatures(temperatures) {
+  const n = temperatures.length
+  const ans = new Array(n).fill(0)
+  const st = [] // 存下标，温度递减
+
+  for (let i = 0; i < n; i++) {
+    while (st.length && temperatures[i] > temperatures[st[st.length - 1]]) {
+      const j = st.pop()
+      ans[j] = i - j
+    }
+    st.push(i)
+  }
+  return ans
+}
+
+// 5 个测试用例
+console.log(JSON.stringify(dailyTemperatures([73,74,75,71,69,72,76,73]))) // [1,1,4,2,1,1,0,0]
+console.log(JSON.stringify(dailyTemperatures([30,40,50,60]))) // [1,1,1,0]
+console.log(JSON.stringify(dailyTemperatures([30,60,90]))) // [1,1,0]
+console.log(JSON.stringify(dailyTemperatures([90,80,70]))) // [0,0,0]
+console.log(JSON.stringify(dailyTemperatures([70,70,70,71]))) // [3,2,1,0]
+```
+</UniversalEditor>
+
+</details>
+
+<details>
+<summary><strong>最优解讲解</strong>（通俗版 + 推理过程）</summary>
+
+- **题意翻译**：对每一天，找下一次更高温度出现要等几天。
+- **朴素做法**：对每个 i 往后扫，最坏 \(O(n^2)\)。
+- **关键推理：用栈保存“还没找到更高温度的天”**：
+  - 栈里放下标，并保持对应温度 **递减**。
+  - 当今天温度 `T[i]` 比栈顶那天温度更高时，说明栈顶那天终于等到了更热的一天，答案就是 `i - j`。
+  - 继续弹栈，直到栈顶温度比今天更高（或栈空）。
+- **为什么要递减？**：
+  - 递减保证“栈顶是最容易被今天打败的那天”，一旦今天更热，就能连续解决一串天数。
+  - 每个元素最多进栈一次、出栈一次，所以总复杂度 \(O(n)\)。
+
+</details>
+
+<details>
+<summary><strong>类似题目</strong>（下一个更大元素：单调栈）</summary>
+
+```javascript
+for i:
+  while stack not empty and a[i] > a[stack.top]:
+    ans[stack.top] = i - stack.top
+    stack.pop()
+  stack.push(i)
+```
+
+</details>
+
+---
+
+## 84. 柱状图中最大的矩形
+
+<LeetCodeProblem titleSlug="largest-rectangle-in-histogram" />
+
+<details>
+<summary><strong>最优解</strong>（单调栈：每根柱子当“最矮”时的最大宽度）</summary>
+
+<UniversalEditor title="内存模型比较" compare={true}>
+```javascript !! js
+function largestRectangleArea(heights) {
+  const h = heights.slice()
+  h.unshift(0)
+  h.push(0)
+  const st = [] // 存下标，保持高度递增
+  let best = 0
+
+  for (let i = 0; i < h.length; i++) {
+    while (st.length && h[i] < h[st[st.length - 1]]) {
+      const mid = st.pop()
+      const left = st[st.length - 1]
+      const width = i - left - 1
+      best = Math.max(best, h[mid] * width)
+    }
+    st.push(i)
+  }
+  return best
+}
+
+// 5 个测试用例
+console.log(largestRectangleArea([2,1,5,6,2,3])) // 10
+console.log(largestRectangleArea([2,4])) // 4
+console.log(largestRectangleArea([1,1,1,1])) // 4
+console.log(largestRectangleArea([6,2,5,4,5,1,6])) // 12
+console.log(largestRectangleArea([0])) // 0
+```
+</UniversalEditor>
+
+</details>
+
+<details>
+<summary><strong>最优解讲解</strong>（通俗版 + 推理过程）</summary>
+
+- **朴素思路**：枚举每个柱子往左右扩展找能延伸多宽，最坏 \(O(n^2)\)。
+- **关键推理：最大矩形一定有一个“最矮柱子”决定高度**：
+  - 如果我们把某根柱子 `mid` 当作矩形的最矮高度，那么矩形能延伸的左右边界就是：
+    - 左边第一个 < `h[mid]` 的位置
+    - 右边第一个 < `h[mid]` 的位置
+  - 宽度一旦确定，面积就是 `h[mid] * width`。
+- **怎么快速找到“左右第一个更矮”？用单调递增栈**：
+  - 栈里保持高度递增，这样当遇到更矮的柱子 `h[i]` 时，说明栈顶柱子的“右边界”就是 i。
+  - 弹出栈顶 `mid` 后，新的栈顶 `left` 就是 `mid` 的左边界（第一个更矮）。
+  - 宽度 = `i - left - 1`。
+- **为什么两端加 0？**
+  - 让所有柱子都能在某个时刻被弹出并计算面积，避免最后还要额外清栈的逻辑。
+
+</details>
+
+<details>
+<summary><strong>类似题目</strong>（单调栈求左右边界）</summary>
+
+```javascript
+add sentinel 0 at both ends
+maintain increasing stack
+on drop: pop mid, left = stack.top, right = i
+```
+
+</details>
+

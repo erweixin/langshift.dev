@@ -1,0 +1,381 @@
+---
+title: 普通数组（题单顺序）
+description: 热题 100 - 普通数组分组（按题单顺序）：53 / 56 / 189 / 238 / 41
+---
+
+import { LeetCodeProblem } from "@/components/leetcode/LeetCodeProblem"
+
+本页包含题单「普通数组」分组的全部题目，顺序与 `list.json` 保持一致。
+
+---
+
+## 53. 最大子数组和
+
+<LeetCodeProblem titleSlug="maximum-subarray" />
+
+<details>
+<summary><strong>最优解</strong>（Kadane：要么接着累加，要么从当前重开）</summary>
+
+<UniversalEditor title="内存模型比较" compare={true}>
+```javascript !! js
+function maxSubArray(nums) {
+  let best = -Infinity
+  let cur = 0
+  for (const x of nums) {
+    // cur 表示“以当前位置结尾”的最大子数组和
+    cur = Math.max(x, cur + x)
+    best = Math.max(best, cur)
+  }
+  return best
+}
+
+// 5 个测试用例
+console.log(maxSubArray([-2, 1, -3, 4, -1, 2, 1, -5, 4])) // 6
+console.log(maxSubArray([1])) // 1
+console.log(maxSubArray([5, 4, -1, 7, 8])) // 23
+console.log(maxSubArray([-1, -2, -3])) // -1
+console.log(maxSubArray([0, 0, 0])) // 0
+```
+</UniversalEditor>
+
+</details>
+
+<details>
+<summary><strong>最优解讲解</strong>（通俗版 + 推理过程）</summary>
+
+- **问题本质**：在连续子数组里挑一段，让它的和最大。
+- **朴素想法**：枚举所有区间 \((l,r)\) 求和取最大，\(O(n^2)\)（或更慢）。
+- **关键推理：只看“以 i 结尾”的最优解**  
+  设 `cur` 表示“以当前位置 i 结尾的最大子数组和”。当我们处理 `nums[i]=x` 时，只有两种选择：
+  - **接着前面那段**：`cur + x`
+  - **从当前重新开一段**：`x`
+  所以 `cur = max(x, cur + x)`。
+- **为什么这样就够了？**：因为任何最优子数组一定有一个“结尾位置”，我们在遍历时把每个结尾的最优都算出来，并用 `best` 取最大即可。
+- **直觉解释**：如果你手里的 `cur` 已经是负数，那么再加上 `x` 只会拖后腿，还不如从 `x` 重开。
+- **复杂度**：时间 \(O(n)\)，空间 \(O(1)\)（只用常数变量）。
+
+</details>
+
+<details>
+<summary><strong>类似题目</strong>（一维 DP：以 i 结尾的最优）</summary>
+
+```javascript
+let cur = init
+let best = init
+for (const x of arr) {
+  cur = transition(cur, x) // 常见形式：max(x, cur + x)
+  best = Math.max(best, cur)
+}
+```
+
+</details>
+
+---
+
+## 56. 合并区间
+
+<LeetCodeProblem titleSlug="merge-intervals" />
+
+<details>
+<summary><strong>最优解</strong>（排序 + 一次扫描合并）</summary>
+
+<UniversalEditor title="内存模型比较" compare={true}>
+```javascript !! js
+function merge(intervals) {
+  if (!intervals.length) return []
+  intervals.sort((a, b) => a[0] - b[0])
+
+  const res = []
+  let [curL, curR] = intervals[0]
+
+  for (let i = 1; i < intervals.length; i++) {
+    const [l, r] = intervals[i]
+    if (l <= curR) {
+      // 有重叠：扩大右边界
+      curR = Math.max(curR, r)
+    } else {
+      // 无重叠：结算上一段，开启新段
+      res.push([curL, curR])
+      curL = l
+      curR = r
+    }
+  }
+  res.push([curL, curR])
+  return res
+}
+
+// 5 个测试用例
+console.log(JSON.stringify(merge([[1, 3], [2, 6], [8, 10], [15, 18]]))) // [[1,6],[8,10],[15,18]]
+console.log(JSON.stringify(merge([[1, 4], [4, 5]]))) // [[1,5]]
+console.log(JSON.stringify(merge([]))) // []
+console.log(JSON.stringify(merge([[1, 4]]))) // [[1,4]]
+console.log(JSON.stringify(merge([[1, 4], [0, 2], [3, 5]]))) // [[0,5]]
+```
+</UniversalEditor>
+
+</details>
+
+<details>
+<summary><strong>最优解讲解</strong>（通俗版 + 推理过程）</summary>
+
+- **先想清楚为什么要排序**：如果区间乱序，你很难判断“当前区间该和谁合并”。把区间按起点排序后，区间会按时间线从左到右出现。
+- **排序后的关键性质**：当你处理到某个区间 `[l,r]`，它的起点 `l` 一定不小于前面任何区间的起点。
+- **用一个“当前正在合并的区间”滚动维护**：
+  - 当前合并段是 `[curL, curR]`。
+  - 来了新区间 `[l,r]`：
+    - 如果 `l <= curR`：说明有重叠（或刚好相接），两段可以合并，新的右边界是 `max(curR, r)`。
+    - 如果 `l > curR`：说明彻底断开，上一段已经不可能再与后面重叠（因为后面起点只会更大），所以把 `[curL,curR]` 放进答案，然后开启新段。
+- **为什么一次扫描就够？**：排序保证“不会出现后面区间突然跑到当前区间左边”的情况，所以每个区间只需处理一次。
+- **边界情况**：输入为空直接返回空；只有一个区间直接返回它本身。
+- **复杂度**：排序 \(O(n\log n)\) + 扫描 \(O(n)\)，总时间 \(O(n\log n)\)，空间 \(O(1)\)（不算输出）。
+
+</details>
+
+<details>
+<summary><strong>类似题目</strong>（区间题通用套路：排序 + 贪心合并/选择）</summary>
+
+```javascript
+arr.sort((a, b) => a.start - b.start)
+let cur = arr[0]
+for (const x of arr.slice(1)) {
+  if (overlap(cur, x)) cur = merge(cur, x)
+  else {
+    ans.push(cur)
+    cur = x
+  }
+}
+ans.push(cur)
+```
+
+</details>
+
+---
+
+## 189. 轮转数组
+
+<LeetCodeProblem titleSlug="rotate-array" />
+
+<details>
+<summary><strong>最优解</strong>（三次翻转：整体翻转 + 两段翻转）</summary>
+
+<UniversalEditor title="内存模型比较" compare={true}>
+```javascript !! js
+function rotate(nums, k) {
+  const n = nums.length
+  if (n === 0) return nums
+  k %= n
+
+  function rev(l, r) {
+    while (l < r) {
+      ;[nums[l], nums[r]] = [nums[r], nums[l]]
+      l++
+      r--
+    }
+  }
+
+  // 例：1234567 右转 3 → 5671234
+  // 1) 全翻：7654321
+  // 2) 翻前 k：5674321
+  // 3) 翻后 n-k：5671234
+  rev(0, n - 1)
+  rev(0, k - 1)
+  rev(k, n - 1)
+  return nums
+}
+
+// 5 个测试用例
+console.log(rotate([1, 2, 3, 4, 5, 6, 7], 3)) // [5,6,7,1,2,3,4]
+console.log(rotate([-1, -100, 3, 99], 2)) // [3,99,-1,-100]
+console.log(rotate([1, 2], 0)) // [1,2]
+console.log(rotate([1, 2], 3)) // [2,1]
+console.log(rotate([1], 100)) // [1]
+```
+</UniversalEditor>
+
+</details>
+
+<details>
+<summary><strong>最优解讲解</strong>（通俗版 + 推理过程）</summary>
+
+- **题意翻译**：把数组整体向右挪 `k` 步，超出末尾的元素绕回开头，要求原地。
+- **朴素做法**：右移一步做 `k` 次，每次都要挪动很多元素，会很慢。
+- **关键观察：右旋 k 等价于把数组分成两段**：
+  - 后 `k` 个元素会跑到最前面
+  - 前 `n-k` 个元素会整体往后挪
+- **三次翻转的推理**（最重要的“魔法”）：
+  - 假设数组是 `A | B`（A 长度 `n-k`，B 长度 `k`），目标是 `B | A`。
+  - 先整体翻转：`reverse(A|B) = reverse(B) | reverse(A)`
+  - 再分别把前 k、后 n-k 翻转回来：
+    - `reverse(reverse(B)) = B`
+    - `reverse(reverse(A)) = A`
+  - 最终得到 `B | A`，正好是旋转结果。
+- **为什么是原地且最优**：只做常数次翻转，每次翻转是交换，时间 \(O(n)\)，空间 \(O(1)\)。
+- **k 的处理细节**：一定要先做 `k %= n`，否则 k 可能很大；k 为 0 时翻转前 k 段会变成空区间，代码需天然兼容（本实现兼容）。
+
+</details>
+
+<details>
+<summary><strong>类似题目</strong>（翻转技巧：用 reverse 组合实现“切换顺序”）</summary>
+
+```javascript
+// 目标：把 A|B 变成 B|A（或其它段交换）
+reverse(whole)
+reverse(part1)
+reverse(part2)
+```
+
+</details>
+
+---
+
+## 238. 除了自身以外数组的乘积
+
+<LeetCodeProblem titleSlug="product-of-array-except-self" />
+
+<details>
+<summary><strong>最优解</strong>（前缀积 + 后缀积：两趟扫描，O(1) 额外空间）</summary>
+
+<UniversalEditor title="内存模型比较" compare={true}>
+```javascript !! js
+function productExceptSelf(nums) {
+  const n = nums.length
+  const res = new Array(n).fill(1)
+
+  // res[i] 先放“左侧所有数的乘积”
+  let left = 1
+  for (let i = 0; i < n; i++) {
+    res[i] = left
+    left *= nums[i]
+  }
+
+  // 再乘上“右侧所有数的乘积”
+  let right = 1
+  for (let i = n - 1; i >= 0; i--) {
+    res[i] *= right
+    right *= nums[i]
+  }
+
+  return res
+}
+
+// 5 个测试用例
+console.log(productExceptSelf([1, 2, 3, 4])) // [24,12,8,6]
+console.log(productExceptSelf([-1, 1, 0, -3, 3])) // [0,0,9,0,0]
+console.log(productExceptSelf([0, 0])) // [0,0]
+console.log(productExceptSelf([2, 3])) // [3,2]
+console.log(productExceptSelf([5])) // [1]
+```
+</UniversalEditor>
+
+</details>
+
+<details>
+<summary><strong>最优解讲解</strong>（通俗版 + 推理过程）</summary>
+
+- **题意翻译**：对每个位置 i，输出“除了 nums[i] 之外所有数的乘积”，不能用除法。
+- **朴素思路**：对每个 i 再扫一遍乘起来，\(O(n^2)\)。
+- **关键分解：乘积可以拆成左边乘积 × 右边乘积**：
+  - `ans[i] = (nums[0..i-1] 的乘积) * (nums[i+1..n-1] 的乘积)`
+- **怎么在 \(O(n)\) 求出所有左乘积/右乘积？**
+  - 左乘积：从左到右扫一遍，用 `left` 累乘，`res[i] = left`，再 `left *= nums[i]`
+  - 右乘积：从右到左扫一遍，用 `right` 累乘，`res[i] *= right`，再 `right *= nums[i]`
+- **为什么不需要额外数组？**：`res` 先存左乘积，再原地乘上右乘积即可，所以额外变量只有 `left/right` 两个。
+- **0 的情况为什么也能处理？**
+  - 因为我们没有除法，纯粹用乘积拆分；如果某侧有 0，乘出来自然就是 0，符合题意。
+- **复杂度**：两趟扫描，时间 \(O(n)\)，额外空间 \(O(1)\)（输出数组 `res` 不算额外）。
+
+</details>
+
+<details>
+<summary><strong>类似题目</strong>（前缀/后缀分解：把全局贡献拆成两边）</summary>
+
+```javascript
+// ans[i] = leftAgg(i) * rightAgg(i)
+let left = identity
+for i=0..n-1: ans[i]=left; left=combine(left, nums[i])
+let right = identity
+for i=n-1..0: ans[i]=combine(ans[i], right); right=combine(nums[i], right)
+```
+
+</details>
+
+---
+
+## 41. 缺失的第一个正数
+
+<LeetCodeProblem titleSlug="first-missing-positive" />
+
+<details>
+<summary><strong>最优解</strong>（原地哈希：把值 x 放到下标 x-1）</summary>
+
+<UniversalEditor title="内存模型比较" compare={true}>
+```javascript !! js
+function firstMissingPositive(nums) {
+  const n = nums.length
+
+  // 目标：如果 1..n 都存在，那么答案是 n+1
+  // 尝试把每个值 x 放到它应该在的位置：index = x-1
+  for (let i = 0; i < n; i++) {
+    while (true) {
+      const x = nums[i]
+      const j = x - 1
+      if (x < 1 || x > n) break
+      if (nums[j] === x) break // 已经在正确位置或重复值
+      ;[nums[i], nums[j]] = [nums[j], nums[i]]
+    }
+  }
+
+  for (let i = 0; i < n; i++) {
+    if (nums[i] !== i + 1) return i + 1
+  }
+  return n + 1
+}
+
+// 5 个测试用例
+console.log(firstMissingPositive([1, 2, 0])) // 3
+console.log(firstMissingPositive([3, 4, -1, 1])) // 2
+console.log(firstMissingPositive([7, 8, 9, 11, 12])) // 1
+console.log(firstMissingPositive([1, 1])) // 2
+console.log(firstMissingPositive([2])) // 1
+```
+</UniversalEditor>
+
+</details>
+
+<details>
+<summary><strong>最优解讲解</strong>（通俗版 + 推理过程）</summary>
+
+- **题意翻译**：找数组里缺失的最小正整数。
+- **这题的“最优”很苛刻**：要 \(O(n)\) 时间 + \(O(1)\) 额外空间，所以不能用 Set/排序（排序 \(O(n\log n)\)）。
+- **关键观察：答案一定在 \([1, n+1]\)**：
+  - 如果 1 不在，答案就是 1。
+  - 如果 1..n 都在，答案就是 n+1。
+  - 所以我们只关心 1..n 这些值，其它负数/0/大于 n 的数都不影响答案。
+- **核心想法：把数组当成“哈希表”用**  
+  让值 `x` 去它该去的位置：下标 `x-1`。这样如果所有值都摆对了，位置 i 上就应该是 `i+1`。
+- **为什么要用 while 反复交换？**
+  - 因为交换后 `nums[i]` 变成了另一个值，它可能也需要被送到自己的位置。
+  - 反复把当前格子里的值送走，直到这个格子里是“无关值/已就位/重复值”为止。
+- **如何拿到答案？**
+  - 第二趟从左到右扫，找到第一个 `nums[i] != i+1` 的位置，答案就是 `i+1`。
+- **为什么是 \(O(n)\)？**
+  - 每次交换都把至少一个元素放到了正确位置，元素不会无限交换；整体交换次数是线性的。
+- **最常见坑**：没处理重复值会造成死循环，所以要用 `if (nums[j] === x) break` 兜住。
+- **复杂度**：时间 \(O(n)\)，空间 \(O(1)\)。
+
+</details>
+
+<details>
+<summary><strong>类似题目</strong>（原地哈希模板：值映射到下标）</summary>
+
+```javascript
+for (let i = 0; i < n; i++) {
+  while (needSwap(nums[i])) {
+    swap(nums, i, targetIndex(nums[i]))
+  }
+}
+// 再扫一遍找第一个不符合的位置
+```
+
+</details>
+

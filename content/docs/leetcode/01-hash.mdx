@@ -1,0 +1,249 @@
+---
+title: 哈希（题单顺序）
+description: 热题 100 - 哈希分组（按题单顺序）：1 / 49 / 128
+---
+
+import { LeetCodeProblem } from "@/components/leetcode/LeetCodeProblem"
+
+本页包含题单「哈希」分组的全部题目，顺序与 `list.json` 保持一致。原题正文来自力扣官方页面动态拉取。
+
+## 1. 两数之和
+
+<LeetCodeProblem titleSlug="two-sum" />
+
+<details>
+<summary><strong>最优解</strong>（哈希表：一边遍历一边查）</summary>
+
+<UniversalEditor title="内存模型比较" compare={true}>
+```javascript !! js
+function twoSum(nums, target) {
+  const indexByValue = new Map()
+
+  for (let i = 0; i < nums.length; i++) {
+    const x = nums[i]
+    const need = target - x
+
+    const j = indexByValue.get(need)
+    if (j !== undefined) return [j, i]
+
+    indexByValue.set(x, i)
+  }
+
+  // 题目保证有解，这里只是兜底
+  return []
+}
+
+// 5 个测试用例
+console.log(twoSum([2, 7, 11, 15], 9)) // [0,1]
+console.log(twoSum([3, 2, 4], 6)) // [1,2]
+console.log(twoSum([3, 3], 6)) // [0,1]
+console.log(twoSum([-1, -2, -3, -4, -5], -8)) // [2,4]
+console.log(twoSum([0, 4, 3, 0], 0)) // [0,3]
+```
+</UniversalEditor>
+</details>
+
+<details>
+<summary><strong>最优解讲解</strong>（通俗版）</summary>
+
+- **先从最笨的方法想**：两层循环枚举所有 \((i,j)\)，看 `nums[i] + nums[j]` 是否等于 `target`。一定能找到，但时间是 \(O(n^2)\)，数组一大就吃不消。
+- **优化的关键在于：别重复“找补数”**。当你拿到当前数字 \(x\)，你真正想问的是：**有没有一个数等于 \(target-x\)**？如果每次都扫一遍数组去找，复杂度就降不下来。
+- **把问题改写成“查字典”**：我们一边遍历，一边用 `Map` 记住“某个值出现过，位置是多少”（`value -> index`）。
+  - 走到位置 `i` 时，先算 `need = target - nums[i]`；
+  - **先查**：`map.get(need)` 是否存在？存在就说明之前见过这个补数，直接返回 `[j, i]`；
+  - **再存**：如果没找到，就把当前 `nums[i]` 存进去，给后面的元素当“补数”用。
+- **为什么要“先查再存”？**：避免把同一个元素用两次。比如 `target=6`、当前 `x=3`，如果先存再查，可能会把自己当成补数拿出来。
+- **用一个例子走一遍推理过程**：`[2,7,11,15]`、`target=9`
+  - i=0，x=2，need=7，map 里没有 7 → 存 `2 -> 0`
+  - i=1，x=7，need=2，map 里有 `2 -> 0` → 返回 `[0,1]`
+- **重复值是否会出问题？**：不会。题目保证有解，我们只要找到任意一对即可；`Map` 存某个值的一个下标就足够。
+</details>
+
+### 复杂度
+
+- **时间**：\(O(n)\)
+- **空间**：\(O(n)\)
+
+<details>
+<summary><strong>类似题目</strong>（“补数”套路）</summary>
+
+```javascript
+// 目标：找一对/一组元素满足某种和/差条件
+const map = new Map() // value -> index / count
+for (let i = 0; i < arr.length; i++) {
+  const need = target - arr[i] // 或其它“补数”定义
+  if (map.has(need)) {
+    // 命中：用 map.get(need) 和 i 组成答案
+  }
+  map.set(arr[i], i) // 或 map.set(arr[i], (map.get(arr[i]) ?? 0) + 1)
+}
+```
+</details>
+
+---
+
+## 49. 字母异位词分组
+
+<LeetCodeProblem titleSlug="group-anagrams" />
+
+<details>
+<summary><strong>最优解</strong>（计数签名当 key：比排序更稳）</summary>
+
+<UniversalEditor title="内存模型比较" compare={true}>
+```javascript !! js
+function groupAnagrams(strs) {
+  const groups = new Map()
+
+  for (const s of strs) {
+    const cnt = new Array(26).fill(0)
+    for (let i = 0; i < s.length; i++) {
+      cnt[s.charCodeAt(i) - 97]++
+    }
+    // 用 "#a#b#c..." 作为唯一签名（避免 "11" + "1" 这种拼接歧义）
+    const key = cnt.join("#")
+
+    const list = groups.get(key)
+    if (list) list.push(s)
+    else groups.set(key, [s])
+  }
+
+  return Array.from(groups.values())
+}
+
+// 5 个测试用例
+console.log(groupAnagrams(["eat", "tea", "tan", "ate", "nat", "bat"]))
+console.log(groupAnagrams([""]))
+console.log(groupAnagrams(["a"]))
+console.log(groupAnagrams(["ab", "ba", "abc", "cab", "bca", "bbb"]))
+console.log(groupAnagrams(["listen", "silent", "enlist", "google", "gogole"]))
+```
+</UniversalEditor>
+</details>
+
+<details>
+<summary><strong>最优解讲解</strong>（通俗版）</summary>
+
+- **先搞清楚“异位词”相等的本质**：顺序可以不同，但**每个字母出现次数必须完全一样**。例如 `eat` 与 `tea`：a/e/t 都各出现 1 次。
+- **朴素思路的问题**：如果你把每个新字符串拿去和已有分组逐个比对，最坏会变成 \(O(n^2)\) 的比较，非常慢。
+- **要想快，就要给每个字符串做一个“身份证（key）”**：
+  - 是异位词 → key 一定相同
+  - 不是异位词 → key 尽量不同（避免碰撞）
+- **两种常见 key**：
+  - **排序 key**：`s.split('').sort().join('')`。好理解，但每次排序成本 \(O(k\log k)\)。
+  - **计数 key（本题推荐）**：只处理 26 个小写字母，做一个长度 26 的计数数组 `cnt`，扫一遍字符串就行（\(O(k)\)）。再把 `cnt` 序列化成字符串当 key。
+- **为什么 key 要用 `join("#")`？**：为了避免拼接歧义。没有分隔符时，`[1,11]` 和 `[11,1]` 这类情况可能会撞在同一个字符串上；用 `#` 分隔就能区分开。
+- **最后一步：按 key 分桶**：`Map<key, string[]>`，同 key 的字符串直接 `push` 到同一个数组里，最终输出所有桶即可。
+- **例子快走一遍**：`["eat","tea","tan","ate","nat","bat"]`
+  - `eat/tea/ate` 的计数 key 相同 → 一桶
+  - `tan/nat` 一桶
+  - `bat` 一桶
+- **易错点**：
+  - 如果题目字符集不是 26 个小写字母（比如包含大写/Unicode），计数 key 需要相应调整；否则建议用“排序 key”更通用。
+  - 计数数组序列化时最好加分隔符（如 `join("#")`），避免拼接歧义。
+</details>
+
+### 复杂度
+
+设总字符数为 \(S\)：
+- **时间**：\(O(S)\)（只遍历字符；生成 key 视作常数 26）
+- **空间**：\(O(S)\)
+
+<details>
+<summary><strong>类似题目</strong>（“签名分桶”套路）</summary>
+
+```javascript
+const buckets = new Map()
+for (const item of items) {
+  const key = buildSignature(item) // 排序签名 / 计数签名 / 结构化签名
+  ;(buckets.get(key) ?? buckets.set(key, []).get(key)!).push(item)
+}
+return [...buckets.values()]
+```
+</details>
+
+---
+
+## 128. 最长连续序列
+
+<LeetCodeProblem titleSlug="longest-consecutive-sequence" />
+
+<details>
+<summary><strong>最优解</strong>（哈希集合 + 只从“起点”扩展）</summary>
+
+<UniversalEditor title="内存模型比较" compare={true}>
+```javascript !! js
+function longestConsecutive(nums) {
+  const set = new Set(nums)
+  let ans = 0
+
+  for (const x of set) {
+    // 只有当 x-1 不在集合里时，x 才可能是某段连续序列的起点
+    if (set.has(x - 1)) continue
+
+    let cur = x
+    let len = 1
+    while (set.has(cur + 1)) {
+      cur++
+      len++
+    }
+    ans = Math.max(ans, len)
+  }
+
+  return ans
+}
+
+// 5 个测试用例
+console.log(longestConsecutive([100, 4, 200, 1, 3, 2])) // 4
+console.log(longestConsecutive([0, 3, 7, 2, 5, 8, 4, 6, 0, 1])) // 9
+console.log(longestConsecutive([])) // 0
+console.log(longestConsecutive([1, 2, 0, 1])) // 3
+console.log(longestConsecutive([9, 1, 4, 7, 3, -1, 0, 5, 8, -1, 6])) // 7
+```
+</UniversalEditor>
+</details>
+
+<details>
+<summary><strong>最优解讲解</strong>（通俗版）</summary>
+
+- **先想最直接的方法**：排序后线性扫一遍统计连续段长度，确实能做，但排序要 \(O(n\log n)\)。
+- **关键洞察：我们只需要“某个数在不在”，并不需要排序后的顺序**。所以把所有数放进 `Set`，用均摊 \(O(1)\) 判断 `x` 是否存在。
+- **为什么不能从每个数都往右数？**：会重复计数。比如 `1,2,3,4`，从 1 数一次、从 2 再数一次，很多工作是重复的。
+- **核心推理：只从“真正的起点”出发，就不会重复**：
+  - 如果 `x-1` 在集合里，说明 `x` 不是起点（它属于某段从更小数开始的连续段），此时从 `x` 开始往右数只会重复别人已经数过的部分。
+  - 只有当 `x-1` 不在集合里时，`x` 才是起点，我们才从 `x` 往右扩展：`x, x+1, x+2...`
+- **为什么整体是 \(O(n)\)（均摊）？**：
+  - 每个元素最多被当作“起点候选”检查一次（常数操作）；
+  - 也最多在 while 扩展中被走过一次（因为只有从起点那次扩展会走到它）。
+  - 所以总步数是线性的。
+- **用例子走一遍**：`[100,4,200,1,3,2]`
+  - `set = {1,2,3,4,100,200}`
+  - 看 1：0 不在 set → 起点，往右数到 4 → 长度 4
+  - 看 2：1 在 set → 不是起点，跳过（避免重复）
+  - 看 100：99 不在 → 长度 1；看 200：199 不在 → 长度 1
+  - 最大长度就是 4
+- **重复元素怎么办？**：`Set` 会自动去重，不影响连续段的定义。
+- **易错点**：最好 `for (const x of set)` 遍历去重后的集合（而不是遍历原数组），这样能少做重复的“起点判定”。
+</details>
+
+### 复杂度
+
+- **时间**：\(O(n)\)（均摊）
+- **空间**：\(O(n)\)
+
+<details>
+<summary><strong>类似题目</strong>（“起点扩展”套路）</summary>
+
+```javascript
+const set = new Set(nums)
+let best = 0
+
+for (const x of set) {
+  if (set.has(x - 1)) continue // 不是起点就跳过
+
+  let y = x
+  while (set.has(y + 1)) y++
+  best = Math.max(best, y - x + 1)
+}
+```
+</details>
+

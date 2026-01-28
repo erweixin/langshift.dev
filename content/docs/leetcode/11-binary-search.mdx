@@ -1,0 +1,410 @@
+---
+title: 二分查找（题单顺序）
+description: 热题 100 - 二分查找分组（按题单顺序）：35 / 74 / 34 / 33 / 153 / 4
+---
+
+import { LeetCodeProblem } from "@/components/leetcode/LeetCodeProblem"
+
+本页包含题单「二分查找」分组的全部题目，顺序与 `list.json` 保持一致。
+
+<details>
+<summary><strong>二分查找统一“防坑提醒”</strong>（点击展开）</summary>
+
+- **先选定区间语义**：`[l, r)`（右开）或 `[l, r]`（双闭），一旦选定就不要混用。
+- **写清楚不变量**：例如 lower_bound 的不变量通常是「答案始终在 `[l, r)` 内」。
+- **更新规则要对应语义**：右开区间常见写法是 `while (l < r)`，命中条件时 `r = mid`，否则 `l = mid + 1`。
+- **边界用例一定要过**：空数组、单元素、全相等、目标在两端、目标不存在。
+
+</details>
+
+---
+
+## 35. 搜索插入位置
+
+<LeetCodeProblem titleSlug="search-insert-position" />
+
+<details>
+<summary><strong>最优解</strong>（二分找 lower_bound：第一个 >= target 的位置）</summary>
+
+<UniversalEditor title="内存模型比较" compare={true}>
+```javascript !! js
+function searchInsert(nums, target) {
+  let l = 0
+  let r = nums.length // 注意：右边界是 n（开区间），方便返回插入位置
+  while (l < r) {
+    const mid = (l + r) >> 1
+    if (nums[mid] >= target) r = mid
+    else l = mid + 1
+  }
+  return l
+}
+
+// 5 个测试用例
+console.log(searchInsert([1,3,5,6], 5)) // 2
+console.log(searchInsert([1,3,5,6], 2)) // 1
+console.log(searchInsert([1,3,5,6], 7)) // 4
+console.log(searchInsert([1,3,5,6], 0)) // 0
+console.log(searchInsert([], 10)) // 0
+```
+</UniversalEditor>
+
+</details>
+
+<details>
+<summary><strong>最优解讲解</strong>（通俗版 + 推理过程）</summary>
+
+- **题意翻译**：如果 target 在数组里，返回下标；不在的话，返回“插进去还能保持有序”的位置。
+- **关键推理：插入位置就是第一个 >= target 的位置**（也叫 lower_bound）。
+  - 如果数组里存在 target，这个位置正好是它第一次出现的位置；
+  - 如果不存在，落在“刚好比它大的数前面”，插进去仍然有序。
+- **为什么用右开区间 `[0, n)` 更舒服？**
+  - `r` 直接从 n 开始，最后 `l==r` 时就是答案；
+  - 不用特殊处理“插到末尾”的情况。
+
+</details>
+
+<details>
+<summary><strong>类似题目</strong>（二分模板：lower_bound）</summary>
+
+```javascript
+let l = 0, r = n
+while (l < r) {
+  mid = (l+r)>>1
+  if (a[mid] >= x) r = mid
+  else l = mid + 1
+}
+return l
+```
+
+</details>
+
+---
+
+## 74. 搜索二维矩阵
+
+<LeetCodeProblem titleSlug="search-a-2d-matrix" />
+
+<details>
+<summary><strong>最优解</strong>（把矩阵当成一维有序数组做二分）</summary>
+
+<UniversalEditor title="内存模型比较" compare={true}>
+```javascript !! js
+function searchMatrix(matrix, target) {
+  const m = matrix.length
+  const n = matrix[0].length
+  let l = 0
+  let r = m * n - 1
+  while (l <= r) {
+    const mid = (l + r) >> 1
+    const x = matrix[Math.floor(mid / n)][mid % n]
+    if (x === target) return true
+    if (x < target) l = mid + 1
+    else r = mid - 1
+  }
+  return false
+}
+
+// 5 个测试用例
+console.log(searchMatrix([[1,3,5,7],[10,11,16,20],[23,30,34,60]], 3)) // true
+console.log(searchMatrix([[1,3,5,7],[10,11,16,20],[23,30,34,60]], 13)) // false
+console.log(searchMatrix([[1]], 1)) // true
+console.log(searchMatrix([[1]], 2)) // false
+console.log(searchMatrix([[1,2,3]], 2)) // true
+```
+</UniversalEditor>
+
+</details>
+
+<details>
+<summary><strong>最优解讲解</strong>（通俗版 + 推理过程）</summary>
+
+- 题目保证：每行递增，且下一行的第一个 > 上一行最后一个，所以整体是“按行拼起来也递增”。
+- **关键推理**：把整个矩阵按行展开成一维数组，仍然是升序。
+- **如何在一维下标 mid 和二维坐标之间转换？**
+  - 行号：`Math.floor(mid / n)`
+  - 列号：`mid % n`
+- 这样就能直接在区间 `[0, m*n-1]` 上二分。
+
+</details>
+
+<details>
+<summary><strong>类似题目</strong>（二维 → 一维映射二分）</summary>
+
+```javascript
+value(mid) = a[Math.floor(mid / cols)][mid % cols]
+```
+
+</details>
+
+---
+
+## 34. 在排序数组中查找元素的第一个和最后一个位置
+
+<LeetCodeProblem titleSlug="find-first-and-last-position-of-element-in-sorted-array" />
+
+<details>
+<summary><strong>最优解</strong>（两次二分：lower_bound 与 upper_bound-1）</summary>
+
+<UniversalEditor title="内存模型比较" compare={true}>
+```javascript !! js
+function searchRange(nums, target) {
+  function lowerBound(x) {
+    let l = 0, r = nums.length
+    while (l < r) {
+      const mid = (l + r) >> 1
+      if (nums[mid] >= x) r = mid
+      else l = mid + 1
+    }
+    return l
+  }
+
+  const left = lowerBound(target)
+  const rightPlus = lowerBound(target + 1) // 第一个 >= target+1
+  const right = rightPlus - 1
+
+  if (left >= nums.length || nums[left] !== target) return [-1, -1]
+  return [left, right]
+}
+
+// 5 个测试用例
+console.log(JSON.stringify(searchRange([5,7,7,8,8,10], 8))) // [3,4]
+console.log(JSON.stringify(searchRange([5,7,7,8,8,10], 6))) // [-1,-1]
+console.log(JSON.stringify(searchRange([], 0))) // [-1,-1]
+console.log(JSON.stringify(searchRange([1,1,1,1], 1))) // [0,3]
+console.log(JSON.stringify(searchRange([1,2,3], 2))) // [1,1]
+```
+</UniversalEditor>
+
+</details>
+
+<details>
+<summary><strong>最优解讲解</strong>（通俗版 + 推理过程）</summary>
+
+- **目标**：找 target 的最左下标和最右下标。
+- **关键推理：范围问题可以拆成两个“边界问题”**：
+  - 最左边 = 第一个 >= target（lower_bound）
+  - 最右边 = 第一个 >= target+1 的位置 - 1（也就是 upper_bound(target)-1）
+- 这比“找到一个 target 再往两边扩”更稳，因为扩展最坏会变成 \(O(n)\)。
+
+</details>
+
+<details>
+<summary><strong>类似题目</strong>（找区间：lb(x) 与 lb(x+1)-1）</summary>
+
+```javascript
+L = lowerBound(x)
+R = lowerBound(x+1) - 1
+```
+
+</details>
+
+---
+
+## 33. 搜索旋转排序数组
+
+<LeetCodeProblem titleSlug="search-in-rotated-sorted-array" />
+
+<details>
+<summary><strong>最优解</strong>（二分：每次判断哪一半是有序的）</summary>
+
+<UniversalEditor title="内存模型比较" compare={true}>
+```javascript !! js
+function search(nums, target) {
+  let l = 0, r = nums.length - 1
+  while (l <= r) {
+    const mid = (l + r) >> 1
+    if (nums[mid] === target) return mid
+
+    // 左半有序
+    if (nums[l] <= nums[mid]) {
+      if (nums[l] <= target && target < nums[mid]) r = mid - 1
+      else l = mid + 1
+    } else {
+      // 右半有序
+      if (nums[mid] < target && target <= nums[r]) l = mid + 1
+      else r = mid - 1
+    }
+  }
+  return -1
+}
+
+// 5 个测试用例
+console.log(search([4,5,6,7,0,1,2], 0)) // 4
+console.log(search([4,5,6,7,0,1,2], 3)) // -1
+console.log(search([1], 0)) // -1
+console.log(search([1,3], 3)) // 1
+console.log(search([3,1], 1)) // 1
+```
+</UniversalEditor>
+
+</details>
+
+<details>
+<summary><strong>最优解讲解</strong>（通俗版 + 推理过程）</summary>
+
+- **旋转数组的结构**：本来是全有序的，旋转后变成“两个有序段拼起来”，中间有一个断点。
+- **二分还能用吗？能，但比较规则要变**：
+  - 在 `[l, mid]` 或 `[mid, r]` 里必有一半是有序的（因为只有一个断点）。
+- **推理步骤**：
+  1. 先判断左半是否有序：`nums[l] <= nums[mid]`
+  2. 如果左半有序，再判断 target 是否落在左半区间内；落在就缩右边界，否则去右半。
+  3. 如果左半无序，那么右半必有序，同理判断 target 是否落在右半。
+- 每次都能排除一半区间，保持 \(O(\log n)\)。
+
+</details>
+
+<details>
+<summary><strong>类似题目</strong>（旋转数组二分模板：先判有序半区再缩边界）</summary>
+
+```javascript
+if leftSorted:
+  if target in [l,mid): r=mid-1 else l=mid+1
+else:
+  if target in (mid,r]: l=mid+1 else r=mid-1
+```
+
+</details>
+
+---
+
+## 153. 寻找旋转排序数组中的最小值
+
+<LeetCodeProblem titleSlug="find-minimum-in-rotated-sorted-array" />
+
+<details>
+<summary><strong>最优解</strong>（二分：最小值在“无序的一侧”）</summary>
+
+<UniversalEditor title="内存模型比较" compare={true}>
+```javascript !! js
+function findMin(nums) {
+  let l = 0, r = nums.length - 1
+  while (l < r) {
+    const mid = (l + r) >> 1
+    if (nums[mid] > nums[r]) {
+      // 最小值在右侧（mid 还在左段）
+      l = mid + 1
+    } else {
+      // 最小值在左侧或就是 mid
+      r = mid
+    }
+  }
+  return nums[l]
+}
+
+// 5 个测试用例
+console.log(findMin([3,4,5,1,2])) // 1
+console.log(findMin([4,5,6,7,0,1,2])) // 0
+console.log(findMin([11,13,15,17])) // 11
+console.log(findMin([2,1])) // 1
+console.log(findMin([1])) // 1
+```
+</UniversalEditor>
+
+</details>
+
+<details>
+<summary><strong>最优解讲解</strong>（通俗版 + 推理过程）</summary>
+
+- **核心观察**：最小值是旋转断点后的第一个元素。
+- **怎么用二分定位断点？**：用 `nums[r]` 当参照。
+  - 如果 `nums[mid] > nums[r]`，说明 mid 还在左侧那段大数区，最小值一定在右边。
+  - 否则 mid 在右侧（或就是最小值），最小值在左边包含 mid 的区间。
+- 这就是“比较 mid 和右端”，每次缩一半。
+
+</details>
+
+<details>
+<summary><strong>类似题目</strong>（找旋转断点：比较 mid 与端点）</summary>
+
+```javascript
+if a[mid] > a[r]: l=mid+1 else r=mid
+```
+
+</details>
+
+---
+
+## 4. 寻找两个正序数组的中位数
+
+<LeetCodeProblem titleSlug="median-of-two-sorted-arrays" />
+
+<details>
+<summary><strong>最优解</strong>（二分切分：在较短数组上找“完美分割”）</summary>
+
+<UniversalEditor title="内存模型比较" compare={true}>
+```javascript !! js
+function findMedianSortedArrays(nums1, nums2) {
+  // 保证 nums1 是更短的那个
+  if (nums1.length > nums2.length) return findMedianSortedArrays(nums2, nums1)
+  const m = nums1.length
+  const n = nums2.length
+
+  const totalLeft = Math.floor((m + n + 1) / 2)
+  let l = 0, r = m
+
+  while (l <= r) {
+    const i = (l + r) >> 1 // nums1 左边取 i 个
+    const j = totalLeft - i // nums2 左边取 j 个
+
+    const aLeft = i === 0 ? -Infinity : nums1[i - 1]
+    const aRight = i === m ? Infinity : nums1[i]
+    const bLeft = j === 0 ? -Infinity : nums2[j - 1]
+    const bRight = j === n ? Infinity : nums2[j]
+
+    // 找到完美分割：左边最大 <= 右边最小
+    if (aLeft <= bRight && bLeft <= aRight) {
+      if ((m + n) % 2 === 1) return Math.max(aLeft, bLeft)
+      return (Math.max(aLeft, bLeft) + Math.min(aRight, bRight)) / 2
+    }
+
+    // i 太大：aLeft 太大，需要减少 i
+    if (aLeft > bRight) r = i - 1
+    else l = i + 1
+  }
+  return null
+}
+
+// 5 个测试用例
+console.log(findMedianSortedArrays([1,3], [2])) // 2
+console.log(findMedianSortedArrays([1,2], [3,4])) // 2.5
+console.log(findMedianSortedArrays([], [1])) // 1
+console.log(findMedianSortedArrays([0,0], [0,0])) // 0
+console.log(findMedianSortedArrays([2], [])) // 2
+```
+</UniversalEditor>
+
+</details>
+
+<details>
+<summary><strong>最优解讲解</strong>（通俗版 + 推理过程）</summary>
+
+- **目标**：不把两个数组合并（合并要 \(O(m+n)\)），而是用 \(O(\log \min(m,n))\) 找中位数。
+- **关键想法：把“中位数”改写成“把所有数分成左右两半”**：
+  - 左半部分包含总数的一半（向下取整），右半部分包含剩下的。
+  - 中位数只和“左半最大值”“右半最小值”有关。
+- **我们要找到一种切分**：在 nums1 里切一刀取 i 个到左边，在 nums2 里取 j 个到左边，使得：
+  - 左边元素总数 = `totalLeft`
+  - 且左边最大 ≤ 右边最小（两数组各自有序后，这个条件可用四个边界值判断）
+- **完美分割条件为什么是这两个不等式？**
+  - 左边最大可能来自 `aLeft` 或 `bLeft`
+  - 右边最小可能来自 `aRight` 或 `bRight`
+  - 只要 `aLeft <= bRight` 且 `bLeft <= aRight`，就保证“所有左边都 ≤ 所有右边”。
+- **为什么在短数组上二分？**
+  - i 的范围是 `[0..m]`，m 越小二分越快，而且 j 会自动由 `totalLeft - i` 决定。
+- **找到完美分割后怎么取答案？**
+  - 总长度奇数：中位数就是左半最大值 `max(aLeft,bLeft)`
+  - 总长度偶数：中位数是 `(左半最大 + 右半最小)/2`
+
+</details>
+
+<details>
+<summary><strong>类似题目</strong>（二分切分：用四个边界判断是否“分割正确”）</summary>
+
+```javascript
+choose i in A, j in B
+if A[i-1] <= B[j] && B[j-1] <= A[i]: ok
+else adjust i by binary search
+```
+
+</details>
+
