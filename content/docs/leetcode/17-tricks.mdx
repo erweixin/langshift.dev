@@ -1,0 +1,333 @@
+---
+title: 技巧（题单顺序）
+description: 热题 100 - 技巧分组（按题单顺序）：136 / 169 / 75 / 31 / 287
+---
+
+import { LeetCodeProblem } from "@/components/leetcode/LeetCodeProblem"
+
+本页包含题单「技巧」分组的全部题目，顺序与 `list.json` 保持一致。
+
+<details>
+<summary><strong>“技巧题”统一抓手</strong>（点击展开）</summary>
+
+- **位运算（XOR）**：`a^a=0`、`a^0=a`、交换律/结合律 → “成对抵消”“只剩唯一”。
+- **原地改数组**：优先想“用下标当桶/用符号当标记/用区间翻转实现旋转或排列”。
+- **环检测**：数组里出现“值当 next 指针”的结构时（如 287），优先想到 Floyd 快慢指针。
+
+</details>
+
+---
+
+## 136. 只出现一次的数字
+
+<LeetCodeProblem titleSlug="single-number" />
+
+<details>
+<summary><strong>最优解</strong>（位运算 XOR：成对抵消）</summary>
+
+<UniversalEditor title="内存模型比较" compare={true}>
+```javascript !! js
+function singleNumber(nums) {
+  let x = 0
+  for (const n of nums) x ^= n
+  return x
+}
+
+// 5 个测试用例
+console.log(singleNumber([2,2,1])) // 1
+console.log(singleNumber([4,1,2,1,2])) // 4
+console.log(singleNumber([1])) // 1
+console.log(singleNumber([0,0,7])) // 7
+console.log(singleNumber([-1,-1,-2])) // -2
+```
+</UniversalEditor>
+
+</details>
+
+<details>
+<summary><strong>最优解讲解</strong>（通俗版 + 推理过程）</summary>
+
+- XOR 的三个关键性质：
+  - `a ^ a = 0`（同一个数异或两次会抵消）
+  - `a ^ 0 = a`
+  - 异或满足交换律/结合律（顺序无关）
+- 因为除了一个数只出现一次，其它都出现两次，所以把所有数 XOR 在一起：
+  - 成对的数字会抵消为 0
+  - 最终只剩下那个单独出现的数字
+- 一趟遍历，空间 \(O(1)\)。
+
+</details>
+
+<details>
+<summary><strong>类似题目</strong>（成对抵消：XOR/位运算套路）</summary>
+
+```javascript
+ans = 0
+for x in arr: ans ^= x
+```
+
+</details>
+
+---
+
+## 169. 多数元素
+
+<LeetCodeProblem titleSlug="majority-element" />
+
+<details>
+<summary><strong>最优解</strong>（Boyer-Moore 投票：不同就互相抵消）</summary>
+
+<UniversalEditor title="内存模型比较" compare={true}>
+```javascript !! js
+function majorityElement(nums) {
+  let cand = null
+  let cnt = 0
+  for (const x of nums) {
+    if (cnt === 0) { cand = x; cnt = 1 }
+    else if (x === cand) cnt++
+    else cnt--
+  }
+  return cand
+}
+
+// 5 个测试用例
+console.log(majorityElement([3,2,3])) // 3
+console.log(majorityElement([2,2,1,1,1,2,2])) // 2
+console.log(majorityElement([1])) // 1
+console.log(majorityElement([1,1,2])) // 1
+console.log(majorityElement([6,5,5])) // 5
+```
+</UniversalEditor>
+
+</details>
+
+<details>
+<summary><strong>最优解讲解</strong>（通俗版 + 推理过程）</summary>
+
+- 多数元素出现次数 > n/2。
+- **关键推理：多数元素和“非多数元素”两两抵消，最后剩下的一定是多数元素**：
+  - 维护一个候选 `cand` 和计数 `cnt`。
+  - 看到同样的数就 `cnt++`，看到不同的数就 `cnt--`（相当于和候选抵消一对）。
+  - 当 `cnt==0`，说明候选已经被抵消完了，换一个新候选继续。
+- 因为多数元素比其它所有元素加起来还多，所以最后留下的候选必然是多数元素。
+
+</details>
+
+<details>
+<summary><strong>类似题目</strong>（投票/抵消思想）</summary>
+
+```javascript
+if cnt==0: cand=x
+cnt += (x==cand ? 1 : -1)
+```
+
+</details>
+
+---
+
+## 75. 颜色分类
+
+<LeetCodeProblem titleSlug="sort-colors" />
+
+<details>
+<summary><strong>最优解</strong>（荷兰国旗：三指针划分 0/1/2）</summary>
+
+<UniversalEditor title="内存模型比较" compare={true}>
+```javascript !! js
+function sortColors(nums) {
+  let low = 0
+  let mid = 0
+  let high = nums.length - 1
+
+  // [0..low-1] 都是 0
+  // [low..mid-1] 都是 1
+  // [mid..high] 未处理
+  // [high+1..] 都是 2
+  while (mid <= high) {
+    if (nums[mid] === 0) {
+      ;[nums[low], nums[mid]] = [nums[mid], nums[low]]
+      low++; mid++
+    } else if (nums[mid] === 1) {
+      mid++
+    } else {
+      ;[nums[mid], nums[high]] = [nums[high], nums[mid]]
+      high--
+    }
+  }
+  return nums
+}
+
+// 5 个测试用例
+console.log(sortColors([2,0,2,1,1,0])) // [0,0,1,1,2,2]
+console.log(sortColors([2,0,1])) // [0,1,2]
+console.log(sortColors([0])) // [0]
+console.log(sortColors([1,1,1,0,2,0])) // [0,0,1,1,1,2]
+console.log(sortColors([2,2,2,1,0])) // [0,1,2,2,2]
+```
+</UniversalEditor>
+
+</details>
+
+<details>
+<summary><strong>最优解讲解</strong>（通俗版 + 推理过程）</summary>
+
+- 目标是把 0、1、2 原地排序。
+- **关键推理：用三个指针把数组分成四段**（见代码注释）：
+  - `low`：下一个 0 应该放的位置
+  - `high`：下一个 2 应该放的位置
+  - `mid`：当前正在看的元素
+- 遇到：
+  - 0：和 low 交换，low 和 mid 都前进（因为交换过来的 mid 位置一定是 1 区或已处理过）
+  - 1：mid 前进
+  - 2：和 high 交换，high 后退，但 mid 不动（因为换过来的新值还没处理）
+
+</details>
+
+<details>
+<summary><strong>类似题目</strong>（三路划分：< pivot / == pivot / > pivot）</summary>
+
+```javascript
+while (mid <= high):
+  if a[mid] < p: swap(low, mid); low++; mid++
+  else if a[mid] == p: mid++
+  else: swap(mid, high); high--
+```
+
+</details>
+
+---
+
+## 31. 下一个排列
+
+<LeetCodeProblem titleSlug="next-permutation" />
+
+<details>
+<summary><strong>最优解</strong>（从右找下降点 + 换更大一点 + 反转后缀）</summary>
+
+<UniversalEditor title="内存模型比较" compare={true}>
+```javascript !! js
+function nextPermutation(nums) {
+  const n = nums.length
+  let i = n - 2
+  while (i >= 0 && nums[i] >= nums[i + 1]) i--
+
+  if (i >= 0) {
+    let j = n - 1
+    while (nums[j] <= nums[i]) j--
+    ;[nums[i], nums[j]] = [nums[j], nums[i]]
+  }
+
+  // 反转 i+1..末尾，使之变成最小
+  let l = i + 1, r = n - 1
+  while (l < r) {
+    ;[nums[l], nums[r]] = [nums[r], nums[l]]
+    l++; r--
+  }
+  return nums
+}
+
+// 5 个测试用例
+console.log(nextPermutation([1,2,3])) // [1,3,2]
+console.log(nextPermutation([3,2,1])) // [1,2,3]
+console.log(nextPermutation([1,1,5])) // [1,5,1]
+console.log(nextPermutation([1,3,2])) // [2,1,3]
+console.log(nextPermutation([2,3,1,3,3])) // [2,3,3,1,3]
+```
+</UniversalEditor>
+
+</details>
+
+<details>
+<summary><strong>最优解讲解</strong>（通俗版 + 推理过程）</summary>
+
+- **目标**：得到“字典序刚好比当前大一点点”的排列（尽量小的更大排列）。
+- **关键推理 1：从右往左找第一个上升位置 i**：
+  - 从右往左如果一直是非递增，说明后缀已经是“最大的排列”，要想变大必须动更左边。
+  - 找到 `nums[i] < nums[i+1]` 的位置 i，表示这里还有“变大空间”。
+- **关键推理 2：在右侧后缀里找一个“刚好比 nums[i] 大”的元素交换**：
+  - 为了让整体变大但尽量小，交换的那个元素要尽可能小但又比 `nums[i]` 大。
+  - 由于后缀是非递增的，从右往左找第一个 `> nums[i]` 就是最合适的。
+- **关键推理 3：交换后把后缀变成最小**：
+  - 交换后，后缀仍然是非递增的，把它反转成递增，就得到最小后缀，从而整体“最小地变大”。
+
+</details>
+
+<details>
+<summary><strong>类似题目</strong>（字典序下一个：pivot + swap + reverse suffix）</summary>
+
+```javascript
+find pivot i
+find successor j
+swap(i,j)
+reverse(i+1..end)
+```
+
+</details>
+
+---
+
+## 287. 寻找重复数
+
+<LeetCodeProblem titleSlug="find-the-duplicate-number" />
+
+<details>
+<summary><strong>最优解</strong>（Floyd 判环：把数组当成 next 指针）</summary>
+
+<UniversalEditor title="内存模型比较" compare={true}>
+```javascript !! js
+function findDuplicate(nums) {
+  // nums 值在 [1..n]，把 i -> nums[i] 看成 next 指针
+  let slow = nums[0]
+  let fast = nums[0]
+  do {
+    slow = nums[slow]
+    fast = nums[nums[fast]]
+  } while (slow !== fast)
+
+  // 找入口
+  let p = nums[0]
+  let q = slow
+  while (p !== q) {
+    p = nums[p]
+    q = nums[q]
+  }
+  return p
+}
+
+// 5 个测试用例
+console.log(findDuplicate([1,3,4,2,2])) // 2
+console.log(findDuplicate([3,1,3,4,2])) // 3
+console.log(findDuplicate([1,1])) // 1
+console.log(findDuplicate([1,1,2])) // 1
+console.log(findDuplicate([2,5,9,6,9,3,8,9,7,1])) // 9
+```
+</UniversalEditor>
+
+</details>
+
+<details>
+<summary><strong>最优解讲解</strong>（通俗版 + 推理过程）</summary>
+
+- 条件：长度 n+1，数字范围 1..n，至少有一个重复。
+- **关键建模：把数组当成链表**：
+  - 把“下标”当节点，把 `next(i) = nums[i]` 当指针。
+  - 因为 `next(i)` 总在 1..n，指针永远不会指向 0 以外的地方，必然进入一个循环。
+- **为什么重复数就是环入口？**
+  - 两个不同下标指向同一个值 `d`（重复），相当于两条边汇入同一个节点，形成环的入口结构。
+- **Floyd 两阶段**：
+  1. 快慢指针在环内相遇（证明同链表判环）
+  2. 一个从起点走，一个从相遇点走，步速相同，在入口相遇（和 142 的推理同款）
+- 好处：不改数组、\(O(1)\) 空间、\(O(n)\) 时间。
+
+</details>
+
+<details>
+<summary><strong>类似题目</strong>（数组判环：i -> nums[i]）</summary>
+
+```javascript
+meet = floydMeet()
+entry = findEntry()
+```
+
+</details>
+

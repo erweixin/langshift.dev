@@ -1,0 +1,1213 @@
+---
+title: 二叉树（题单顺序）
+description: 热题 100 - 二叉树分组（按题单顺序）：94 / 104 / 226 / 101 / 543 / 102 / 108 / 98 / 230 / 199 / 114 / 105 / 437 / 236 / 124
+---
+
+import { LeetCodeProblem } from "@/components/leetcode/LeetCodeProblem"
+
+本页包含题单「二叉树」分组的全部题目，顺序与 `list.json` 保持一致。
+
+<details>
+<summary><strong>说明</strong>（点击展开）</summary>
+
+为了让测试用例可运行，本页代码里会自带 `TreeNode`、`buildTree` 等小工具（不影响 LeetCode 提交）。
+
+</details>
+
+---
+
+## 94. 二叉树的中序遍历
+
+<LeetCodeProblem titleSlug="binary-tree-inorder-traversal" />
+
+<details>
+<summary><strong>最优解</strong>（迭代栈：一路向左入栈，再回退处理右子树）</summary>
+
+<UniversalEditor title="内存模型比较" compare={true}>
+```javascript !! js
+function inorderTraversal(root) {
+  const res = []
+  const st = []
+  let cur = root
+  while (cur || st.length) {
+    while (cur) { st.push(cur); cur = cur.left }
+    cur = st.pop()
+    res.push(cur.val)
+    cur = cur.right
+  }
+  return res
+}
+
+// 测试辅助
+function TreeNode(val){this.val=val;this.left=this.right=null}
+function buildTree(arr){
+  if (!arr.length || arr[0]==null) return null
+  const nodes = arr.map(v => v==null?null:new TreeNode(v))
+  let i=0, j=1
+  while (j < nodes.length) {
+    if (nodes[i]) {
+      nodes[i].left = nodes[j++] || null
+      if (j < nodes.length) nodes[i].right = nodes[j++] || null
+    } else {
+      j += 2
+    }
+    i++
+  }
+  return nodes[0]
+}
+
+// 5 个测试用例
+console.log(inorderTraversal(buildTree([1,null,2,3]))) // [1,3,2]
+console.log(inorderTraversal(buildTree([]))) // []
+console.log(inorderTraversal(buildTree([1]))) // [1]
+console.log(inorderTraversal(buildTree([2,1,3]))) // [1,2,3]
+console.log(inorderTraversal(buildTree([3,1,4,null,2]))) // [1,2,3,4]
+```
+</UniversalEditor>
+
+</details>
+
+<details>
+<summary><strong>最优解讲解</strong>（通俗版 + 推理过程）</summary>
+
+- **中序遍历顺序**：左 → 根 → 右。
+- **递归很好写，但迭代要自己维护“回来的路”**：这条“回来的路”就是栈。
+- **推理流程**：
+  - 只要能往左走，就一直把节点压栈（表示“我回来还要处理它和它的右子树”）。
+  - 走到最左空了，就弹栈：此时左边都处理完了，轮到“根”。
+  - 处理完根后，再去它的右子树，重复上述过程。
+- **不变量**：栈里存的是“左子树已经走到底但根还没输出”的节点路径。
+- **为什么一定按这个顺序压栈/弹栈？**
+  - 你可以把它当成“手动展开递归”：递归在进入左子树前会把当前节点压到调用栈里，等左子树处理完再回来处理根和右子树；迭代栈就是在模拟同一件事。
+- **复杂度**：每个节点入栈/出栈各一次，时间 \(O(n)\)；栈深度最多树高 \(O(h)\)。
+
+</details>
+
+<details>
+<summary><strong>类似题目</strong>（DFS 迭代模板：栈模拟递归）</summary>
+
+```javascript
+while (cur || stack.length) {
+  while (cur) { stack.push(cur); cur = cur.left }
+  cur = stack.pop()
+  visit(cur)
+  cur = cur.right
+}
+```
+
+</details>
+
+---
+
+## 104. 二叉树的最大深度
+
+<LeetCodeProblem titleSlug="maximum-depth-of-binary-tree" />
+
+<details>
+<summary><strong>最优解</strong>（DFS：深度 = 1 + max(左深, 右深)）</summary>
+
+<UniversalEditor title="内存模型比较" compare={true}>
+```javascript !! js
+function maxDepth(root) {
+  if (!root) return 0
+  return 1 + Math.max(maxDepth(root.left), maxDepth(root.right))
+}
+
+// 测试辅助
+function TreeNode(val){this.val=val;this.left=this.right=null}
+function buildTree(arr){
+  if (!arr.length || arr[0]==null) return null
+  const nodes = arr.map(v => v==null?null:new TreeNode(v))
+  let i=0, j=1
+  while (j < nodes.length) {
+    if (nodes[i]) {
+      nodes[i].left = nodes[j++] || null
+      if (j < nodes.length) nodes[i].right = nodes[j++] || null
+    } else j += 2
+    i++
+  }
+  return nodes[0]
+}
+
+// 5 个测试用例
+console.log(maxDepth(buildTree([3,9,20,null,null,15,7]))) // 3
+console.log(maxDepth(buildTree([1,null,2]))) // 2
+console.log(maxDepth(buildTree([]))) // 0
+console.log(maxDepth(buildTree([1]))) // 1
+console.log(maxDepth(buildTree([1,2,3,4,5,null,6]))) // 3
+```
+</UniversalEditor>
+
+</details>
+
+<details>
+<summary><strong>最优解讲解</strong>（通俗版 + 推理过程）</summary>
+
+- **深度的定义**：从根到最远叶子的节点数。
+- **关键推理**：站在一个节点上，它的最大深度就是：
+  - 如果是空节点：深度 0
+  - 否则：`1 + max(左子树最大深度, 右子树最大深度)`
+- 这就是典型的树形递归：把“大问题”拆成两个子问题。
+- **小例子**：根的左子树深度 2、右子树深度 3，那么整棵树深度就是 `1 + max(2,3) = 4`。
+- **复杂度**：每个节点访问一次，时间 \(O(n)\)，递归栈深度 \(O(h)\)。
+
+</details>
+
+<details>
+<summary><strong>类似题目</strong>（树的高度/深度：1 + max 子树）</summary>
+
+```javascript
+if (!node) return 0
+return 1 + Math.max(dfs(node.left), dfs(node.right))
+```
+
+</details>
+
+---
+
+## 226. 翻转二叉树
+
+<LeetCodeProblem titleSlug="invert-binary-tree" />
+
+<details>
+<summary><strong>最优解</strong>（递归：交换左右子树）</summary>
+
+<UniversalEditor title="内存模型比较" compare={true}>
+```javascript !! js
+function invertTree(root) {
+  if (!root) return null
+  const tmp = root.left
+  root.left = invertTree(root.right)
+  root.right = invertTree(tmp)
+  return root
+}
+
+// 测试辅助
+function TreeNode(val){this.val=val;this.left=this.right=null}
+function buildTree(arr){
+  if (!arr.length || arr[0]==null) return null
+  const nodes = arr.map(v => v==null?null:new TreeNode(v))
+  let i=0, j=1
+  while (j < nodes.length) {
+    if (nodes[i]) {
+      nodes[i].left = nodes[j++] || null
+      if (j < nodes.length) nodes[i].right = nodes[j++] || null
+    } else j += 2
+    i++
+  }
+  return nodes[0]
+}
+function levelOrder(root){
+  if (!root) return []
+  const q=[root], res=[]
+  while(q.length){
+    const node=q.shift()
+    res.push(node?node.val:null)
+    if(node){ q.push(node.left); q.push(node.right) }
+  }
+  while(res.length && res[res.length-1]===null) res.pop()
+  return res
+}
+
+// 5 个测试用例
+console.log(JSON.stringify(levelOrder(invertTree(buildTree([4,2,7,1,3,6,9]))))) // [4,7,2,9,6,3,1]
+console.log(JSON.stringify(levelOrder(invertTree(buildTree([2,1,3]))))) // [2,3,1]
+console.log(JSON.stringify(levelOrder(invertTree(buildTree([]))))) // []
+console.log(JSON.stringify(levelOrder(invertTree(buildTree([1]))))) // [1]
+console.log(JSON.stringify(levelOrder(invertTree(buildTree([1,2,null,3]))))) // [1,null,2,null,3]
+```
+</UniversalEditor>
+
+</details>
+
+<details>
+<summary><strong>最优解讲解</strong>（通俗版 + 推理过程）</summary>
+
+- **翻转的定义**：每个节点都交换它的左子树和右子树。
+- **为什么递归最自然**：树的操作通常都是“当前节点做一次操作 + 递归处理子树”。
+- **推理顺序**：
+  - 先把左右子树分别翻转（或者先交换再翻转也行）
+  - 再把它们互换挂回去
+- 每个节点恰好访问一次，时间 \(O(n)\)。
+- **为什么不会丢节点？**：我们只是交换指针指向（`left/right`），并没有创建/删除节点；递归会把原本的子树继续翻转完再挂回去。
+- **复杂度**：时间 \(O(n)\)，递归栈 \(O(h)\)。
+
+</details>
+
+<details>
+<summary><strong>类似题目</strong>（树结构变换：对每个节点做局部修改）</summary>
+
+```javascript
+if (!node) return null
+swap(node.left, node.right)
+dfs(node.left); dfs(node.right)
+```
+
+</details>
+
+---
+
+## 101. 对称二叉树
+
+<LeetCodeProblem titleSlug="symmetric-tree" />
+
+<details>
+<summary><strong>最优解</strong>（递归判镜像：左的左 vs 右的右）</summary>
+
+<UniversalEditor title="内存模型比较" compare={true}>
+```javascript !! js
+function isSymmetric(root) {
+  function isMirror(a, b) {
+    if (!a && !b) return true
+    if (!a || !b) return false
+    if (a.val !== b.val) return false
+    return isMirror(a.left, b.right) && isMirror(a.right, b.left)
+  }
+  return isMirror(root, root)
+}
+
+// 测试辅助
+function TreeNode(val){this.val=val;this.left=this.right=null}
+function buildTree(arr){
+  if (!arr.length || arr[0]==null) return null
+  const nodes = arr.map(v => v==null?null:new TreeNode(v))
+  let i=0, j=1
+  while (j < nodes.length) {
+    if (nodes[i]) {
+      nodes[i].left = nodes[j++] || null
+      if (j < nodes.length) nodes[i].right = nodes[j++] || null
+    } else j += 2
+    i++
+  }
+  return nodes[0]
+}
+
+// 5 个测试用例
+console.log(isSymmetric(buildTree([1,2,2,3,4,4,3]))) // true
+console.log(isSymmetric(buildTree([1,2,2,null,3,null,3]))) // false
+console.log(isSymmetric(buildTree([]))) // true
+console.log(isSymmetric(buildTree([1]))) // true
+console.log(isSymmetric(buildTree([1,2,2,2,null,2]))) // false
+```
+</UniversalEditor>
+
+</details>
+
+<details>
+<summary><strong>最优解讲解</strong>（通俗版 + 推理过程）</summary>
+
+- **对称的本质不是“值相同”这么简单**，而是结构和对应位置都要像镜子一样。
+- **关键推理：把问题改成“判断两棵树是否互为镜像”**：
+  - 两棵树镜像 ⇔ 根值相同，且：
+    - 左树的左子树 ⇔ 右树的右子树
+    - 左树的右子树 ⇔ 右树的左子树
+- 用递归对这两对关系做同样检查即可。
+- **最常见的坑**：只比较“每层值是否对称”是不够的，结构（空节点位置）也必须对称。
+- **复杂度**：每个节点最多比较一次，时间 \(O(n)\)，递归栈 \(O(h)\)。
+
+</details>
+
+<details>
+<summary><strong>类似题目</strong>（双树比较：结构 + 值）</summary>
+
+```javascript
+if (!a && !b) return true
+if (!a || !b) return false
+return a.val === b.val && dfs(a.left, b.right) && dfs(a.right, b.left)
+```
+
+</details>
+
+---
+
+## 543. 二叉树的直径
+
+<LeetCodeProblem titleSlug="diameter-of-binary-tree" />
+
+<details>
+<summary><strong>最优解</strong>（DFS 计算高度，顺便更新“经过当前节点的最长路径”）</summary>
+
+<UniversalEditor title="内存模型比较" compare={true}>
+```javascript !! js
+function diameterOfBinaryTree(root) {
+  let best = 0
+  function height(node) {
+    if (!node) return 0
+    const lh = height(node.left)
+    const rh = height(node.right)
+    // 直径按“边数”计：左高度 + 右高度
+    best = Math.max(best, lh + rh)
+    return 1 + Math.max(lh, rh)
+  }
+  height(root)
+  return best
+}
+
+// 测试辅助
+function TreeNode(val){this.val=val;this.left=this.right=null}
+function buildTree(arr){
+  if (!arr.length || arr[0]==null) return null
+  const nodes = arr.map(v => v==null?null:new TreeNode(v))
+  let i=0, j=1
+  while (j < nodes.length) {
+    if (nodes[i]) {
+      nodes[i].left = nodes[j++] || null
+      if (j < nodes.length) nodes[i].right = nodes[j++] || null
+    } else j += 2
+    i++
+  }
+  return nodes[0]
+}
+
+// 5 个测试用例
+console.log(diameterOfBinaryTree(buildTree([1,2,3,4,5]))) // 3
+console.log(diameterOfBinaryTree(buildTree([1,2]))) // 1
+console.log(diameterOfBinaryTree(buildTree([1]))) // 0
+console.log(diameterOfBinaryTree(buildTree([]))) // 0
+console.log(diameterOfBinaryTree(buildTree([4,2,7,1,3,6,9]))) // 4
+```
+</UniversalEditor>
+
+</details>
+
+<details>
+<summary><strong>最优解讲解</strong>（通俗版 + 推理过程）</summary>
+
+- **直径是什么**：任意两点之间最长路径的边数，不一定经过根。
+- **朴素想法**：枚举每个节点作为路径拐点再算，容易重复计算。
+- **关键推理：直径一定是某个节点的“左最高 + 右最高”**：
+  - 如果最长路径经过某节点，那么它从左子树某叶子走到右子树某叶子。
+  - 这条路径长度就是“左子树高度 + 右子树高度”（按边数）。
+- 所以我们写一个求高度的 DFS，同时在每个节点更新一次 `best`，一趟 DFS 就搞定。
+- **为什么能用“高度”来表达？**：经过当前节点的最长路径，一定由“左边最深叶子到当前节点” + “右边最深叶子到当前节点”拼起来，而这两段长度就是左右高度。
+- **复杂度**：后序遍历一次，时间 \(O(n)\)，递归栈 \(O(h)\)。
+
+</details>
+
+<details>
+<summary><strong>类似题目</strong>（后序 DFS：返回高度/贡献，顺便更新全局答案）</summary>
+
+```javascript
+function dfs(node){
+  lh = dfs(node.left); rh = dfs(node.right)
+  best = max(best, combine(lh,rh))
+  return 1 + max(lh,rh)
+}
+```
+
+</details>
+
+---
+
+## 102. 二叉树的层序遍历
+
+<LeetCodeProblem titleSlug="binary-tree-level-order-traversal" />
+
+<details>
+<summary><strong>最优解</strong>（BFS 队列：按层取 size）</summary>
+
+<UniversalEditor title="内存模型比较" compare={true}>
+```javascript !! js
+function levelOrder(root) {
+  if (!root) return []
+  const q = [root]
+  const res = []
+  while (q.length) {
+    const size = q.length
+    const level = []
+    for (let i = 0; i < size; i++) {
+      const node = q.shift()
+      level.push(node.val)
+      if (node.left) q.push(node.left)
+      if (node.right) q.push(node.right)
+    }
+    res.push(level)
+  }
+  return res
+}
+
+// 测试辅助
+function TreeNode(val){this.val=val;this.left=this.right=null}
+function buildTree(arr){
+  if (!arr.length || arr[0]==null) return null
+  const nodes = arr.map(v => v==null?null:new TreeNode(v))
+  let i=0, j=1
+  while (j < nodes.length) {
+    if (nodes[i]) {
+      nodes[i].left = nodes[j++] || null
+      if (j < nodes.length) nodes[i].right = nodes[j++] || null
+    } else j += 2
+    i++
+  }
+  return nodes[0]
+}
+
+// 5 个测试用例
+console.log(JSON.stringify(levelOrder(buildTree([3,9,20,null,null,15,7])))) // [[3],[9,20],[15,7]]
+console.log(JSON.stringify(levelOrder(buildTree([1])))) // [[1]]
+console.log(JSON.stringify(levelOrder(buildTree([])))) // []
+console.log(JSON.stringify(levelOrder(buildTree([1,2,3,4,5,6,7])))) // [[1],[2,3],[4,5,6,7]]
+console.log(JSON.stringify(levelOrder(buildTree([1,null,2,3])))) // [[1],[2],[3]]
+```
+</UniversalEditor>
+
+</details>
+
+<details>
+<summary><strong>最优解讲解</strong>（通俗版 + 推理过程）</summary>
+
+- **层序遍历就是 BFS**：从根开始，一层一层往下扩散。
+- **怎么分层？**：在进入一层时，队列里正好存着这一层所有节点，所以先记录 `size = q.length`，然后弹出 `size` 次就是这一层。
+- **不变量**：每轮循环开始时，队列只包含“当前层”的节点；处理完 size 个后，队列里变成“下一层”的节点。
+- **为什么 `size` 必须先存下来？**：因为你在处理这一层时会不断 `push` 子节点进队列，如果不锁定 size，就会把下一层也混进当前层。
+- **复杂度**：每个节点进队/出队一次，时间 \(O(n)\)，空间 \(O(w)\)（w 为最大层宽）。
+
+</details>
+
+<details>
+<summary><strong>类似题目</strong>（按层 BFS 模板）</summary>
+
+```javascript
+while (q.length) {
+  size = q.length
+  for i in 1..size: pop + push children
+}
+```
+
+</details>
+
+---
+
+## 108. 将有序数组转换为二叉搜索树
+
+<LeetCodeProblem titleSlug="convert-sorted-array-to-binary-search-tree" />
+
+<details>
+<summary><strong>最优解</strong>（分治：取中点当根，左右递归）</summary>
+
+<UniversalEditor title="内存模型比较" compare={true}>
+```javascript !! js
+function sortedArrayToBST(nums) {
+  function build(l, r) {
+    if (l > r) return null
+    const mid = (l + r) >> 1
+    const root = { val: nums[mid], left: null, right: null }
+    root.left = build(l, mid - 1)
+    root.right = build(mid + 1, r)
+    return root
+  }
+  return build(0, nums.length - 1)
+}
+
+function inorder(root, res=[]){
+  if(!root) return res
+  inorder(root.left, res); res.push(root.val); inorder(root.right, res)
+  return res
+}
+
+// 5 个测试用例（用中序遍历验证仍是有序数组）
+console.log(JSON.stringify(inorder(sortedArrayToBST([-10,-3,0,5,9])))) // [-10,-3,0,5,9]
+console.log(JSON.stringify(inorder(sortedArrayToBST([1,3])))) // [1,3]
+console.log(JSON.stringify(inorder(sortedArrayToBST([])))) // []
+console.log(JSON.stringify(inorder(sortedArrayToBST([0])))) // [0]
+console.log(JSON.stringify(inorder(sortedArrayToBST([1,2,3,4,5,6,7])))) // [1..7]
+```
+</UniversalEditor>
+
+</details>
+
+<details>
+<summary><strong>最优解讲解</strong>（通俗版 + 推理过程）</summary>
+
+- 要构造“高度平衡”的 BST，直觉就是：**根尽量选中间**，这样左右子树大小接近。
+- 因为数组有序，取中点做根后：
+  - 左边部分都比根小 → 递归建左子树
+  - 右边部分都比根大 → 递归建右子树
+- 递归到区间为空结束。整体时间 \(O(n)\)，每个元素只用一次。
+- **为什么中序遍历能验证结果？**：BST 的中序遍历一定是升序；我们用它检查“建出来的树仍能还原原数组”，说明结构符合 BST。
+- **复杂度**：时间 \(O(n)\)，递归栈深度 \(O(\log n)\)（平衡时）。
+
+</details>
+
+<details>
+<summary><strong>类似题目</strong>（分治构造：中点做根/主元）</summary>
+
+```javascript
+root = mid
+left = build(l, mid-1)
+right = build(mid+1, r)
+```
+
+</details>
+
+---
+
+## 98. 验证二叉搜索树
+
+<LeetCodeProblem titleSlug="validate-binary-search-tree" />
+
+<details>
+<summary><strong>最优解</strong>（上下界递归：每个节点都要落在 (min, max) 内）</summary>
+
+<UniversalEditor title="内存模型比较" compare={true}>
+```javascript !! js
+function isValidBST(root) {
+  function dfs(node, low, high) {
+    if (!node) return true
+    if (!(node.val > low && node.val < high)) return false
+    return dfs(node.left, low, node.val) && dfs(node.right, node.val, high)
+  }
+  return dfs(root, -Infinity, Infinity)
+}
+
+// 测试辅助
+function TreeNode(val){this.val=val;this.left=this.right=null}
+function buildTree(arr){
+  if (!arr.length || arr[0]==null) return null
+  const nodes = arr.map(v => v==null?null:new TreeNode(v))
+  let i=0, j=1
+  while (j < nodes.length) {
+    if (nodes[i]) {
+      nodes[i].left = nodes[j++] || null
+      if (j < nodes.length) nodes[i].right = nodes[j++] || null
+    } else j += 2
+    i++
+  }
+  return nodes[0]
+}
+
+// 5 个测试用例
+console.log(isValidBST(buildTree([2,1,3]))) // true
+console.log(isValidBST(buildTree([5,1,4,null,null,3,6]))) // false
+console.log(isValidBST(buildTree([1,1]))) // false
+console.log(isValidBST(buildTree([]))) // true
+console.log(isValidBST(buildTree([10,5,15,null,null,6,20]))) // false
+```
+</UniversalEditor>
+
+</details>
+
+<details>
+<summary><strong>最优解讲解</strong>（通俗版 + 推理过程）</summary>
+
+- **BST 的坑**：不是只要 `左 < 根 < 右` 就行，左子树所有节点都要小于根，右子树所有节点都要大于根。
+- **关键推理：每个节点都有“允许的取值范围”**：
+  - 根：(-∞, +∞)
+  - 走到左子树：上界变成当前节点值
+  - 走到右子树：下界变成当前节点值
+- 只要某个节点越界，就不是 BST。
+- **为什么不能只检查父子关系？**
+  - 因为右子树里的某个节点可能比根还小（典型反例：根 5，右子树里出现 3），它和父节点可能仍满足局部大小关系，但整体违反 BST。
+- **复杂度**：时间 \(O(n)\)，递归栈 \(O(h)\)。
+
+</details>
+
+<details>
+<summary><strong>类似题目</strong>（递归传上下界模板）</summary>
+
+```javascript
+dfs(node, low, high):
+  check low < node.val < high
+  dfs(left, low, node.val)
+  dfs(right, node.val, high)
+```
+
+</details>
+
+---
+
+## 230. 二叉搜索树中第 K 小的元素
+
+<LeetCodeProblem titleSlug="kth-smallest-element-in-a-bst" />
+
+<details>
+<summary><strong>最优解</strong>（BST 中序遍历就是升序：数到第 k 个）</summary>
+
+<UniversalEditor title="内存模型比较" compare={true}>
+```javascript !! js
+function kthSmallest(root, k) {
+  const st = []
+  let cur = root
+  while (cur || st.length) {
+    while (cur) { st.push(cur); cur = cur.left }
+    cur = st.pop()
+    k--
+    if (k === 0) return cur.val
+    cur = cur.right
+  }
+  return null
+}
+
+// 测试辅助
+function TreeNode(val){this.val=val;this.left=this.right=null}
+function buildTree(arr){
+  if (!arr.length || arr[0]==null) return null
+  const nodes = arr.map(v => v==null?null:new TreeNode(v))
+  let i=0, j=1
+  while (j < nodes.length) {
+    if (nodes[i]) {
+      nodes[i].left = nodes[j++] || null
+      if (j < nodes.length) nodes[i].right = nodes[j++] || null
+    } else j += 2
+    i++
+  }
+  return nodes[0]
+}
+
+// 5 个测试用例
+console.log(kthSmallest(buildTree([3,1,4,null,2]), 1)) // 1
+console.log(kthSmallest(buildTree([3,1,4,null,2]), 2)) // 2
+console.log(kthSmallest(buildTree([5,3,6,2,4,null,null,1]), 3)) // 3
+console.log(kthSmallest(buildTree([2,1,3]), 2)) // 2
+console.log(kthSmallest(buildTree([1]), 1)) // 1
+```
+</UniversalEditor>
+
+</details>
+
+<details>
+<summary><strong>最优解讲解</strong>（通俗版 + 推理过程）</summary>
+
+- **BST 的一个黄金性质**：中序遍历（左-根-右）输出的序列一定是从小到大。
+- 所以“第 k 小”就变成：做一次中序遍历，数到第 k 个节点即可。
+- 用迭代栈可以避免递归深度问题；每弹出一次栈，就相当于“访问到一个新的最小值”。
+- **为什么是“弹栈时计数”？**
+  - 因为中序的“访问节点”发生在“左子树处理完之后”，而迭代实现中正对应 `cur = stack.pop()` 那一刻。
+- **复杂度**：最坏要走到第 k 个节点，时间 \(O(h+k)\)（最坏 \(O(n)\)），空间 \(O(h)\)。
+
+</details>
+
+<details>
+<summary><strong>类似题目</strong>（BST 的顺序统计：中序 + 计数）</summary>
+
+```javascript
+inorder: visitCount++; if visitCount==k return node.val
+```
+
+</details>
+
+---
+
+## 199. 二叉树的右视图
+
+<LeetCodeProblem titleSlug="binary-tree-right-side-view" />
+
+<details>
+<summary><strong>最优解</strong>（BFS 按层：每层最后一个就是右视图）</summary>
+
+<UniversalEditor title="内存模型比较" compare={true}>
+```javascript !! js
+function rightSideView(root) {
+  if (!root) return []
+  const q = [root]
+  const res = []
+  while (q.length) {
+    const size = q.length
+    for (let i = 0; i < size; i++) {
+      const node = q.shift()
+      if (node.left) q.push(node.left)
+      if (node.right) q.push(node.right)
+      if (i === size - 1) res.push(node.val)
+    }
+  }
+  return res
+}
+
+// 测试辅助
+function TreeNode(val){this.val=val;this.left=this.right=null}
+function buildTree(arr){
+  if (!arr.length || arr[0]==null) return null
+  const nodes = arr.map(v => v==null?null:new TreeNode(v))
+  let i=0, j=1
+  while (j < nodes.length) {
+    if (nodes[i]) {
+      nodes[i].left = nodes[j++] || null
+      if (j < nodes.length) nodes[i].right = nodes[j++] || null
+    } else j += 2
+    i++
+  }
+  return nodes[0]
+}
+
+// 5 个测试用例
+console.log(rightSideView(buildTree([1,2,3,null,5,null,4]))) // [1,3,4]
+console.log(rightSideView(buildTree([1,null,3]))) // [1,3]
+console.log(rightSideView(buildTree([]))) // []
+console.log(rightSideView(buildTree([1,2,3,4]))) // [1,3,4]
+console.log(rightSideView(buildTree([1,2,3,null,null,6,7]))) // [1,3,7]
+```
+</UniversalEditor>
+
+</details>
+
+<details>
+<summary><strong>最优解讲解</strong>（通俗版 + 推理过程）</summary>
+
+- **右视图的含义**：从右侧看过去，每一层你能看到的“最右边”那个节点。
+- **关键推理：按层遍历时，每层的最后一个节点就是最右边**：
+  - BFS 队列一次弹出一层 `size` 个节点；
+  - 第 `size-1` 个弹出的就是这一层的最右节点（与入队顺序无关，只要同层都处理到即可）。
+- 另一种等价做法是 DFS 先走右子树并记录“第一次到达某层”的节点。
+- **为什么“最后一个”一定是可见的？**：同层节点从左到右排列，右侧视角只能看到最右端的那个（其它都被挡住）。
+- **复杂度**：时间 \(O(n)\)，空间 \(O(w)\)。
+
+</details>
+
+<details>
+<summary><strong>类似题目</strong>（按层取特征：每层第一个/最后一个）</summary>
+
+```javascript
+for each level:
+  if i==0 take left view
+  if i==size-1 take right view
+```
+
+</details>
+
+---
+
+## 114. 二叉树展开为链表
+
+<LeetCodeProblem titleSlug="flatten-binary-tree-to-linked-list" />
+
+<details>
+<summary><strong>最优解</strong>（反向前序：右→左→根，用 prev 串起来）</summary>
+
+<UniversalEditor title="内存模型比较" compare={true}>
+```javascript !! js
+function flatten(root) {
+  let prev = null
+  function dfs(node) {
+    if (!node) return
+    dfs(node.right)
+    dfs(node.left)
+    node.right = prev
+    node.left = null
+    prev = node
+  }
+  dfs(root)
+  return root
+}
+
+// 测试辅助
+function TreeNode(val){this.val=val;this.left=this.right=null}
+function buildTree(arr){
+  if (!arr.length || arr[0]==null) return null
+  const nodes = arr.map(v => v==null?null:new TreeNode(v))
+  let i=0, j=1
+  while (j < nodes.length) {
+    if (nodes[i]) {
+      nodes[i].left = nodes[j++] || null
+      if (j < nodes.length) nodes[i].right = nodes[j++] || null
+    } else j += 2
+    i++
+  }
+  return nodes[0]
+}
+function toRightList(root){
+  const res=[]
+  let p=root
+  while(p){res.push(p.val); if(p.left) return ["left-not-null"]; p=p.right}
+  return res
+}
+
+// 5 个测试用例
+console.log(JSON.stringify(toRightList(flatten(buildTree([1,2,5,3,4,null,6]))))) // [1,2,3,4,5,6]
+console.log(JSON.stringify(toRightList(flatten(buildTree([]))))) // []
+console.log(JSON.stringify(toRightList(flatten(buildTree([0]))))) // [0]
+console.log(JSON.stringify(toRightList(flatten(buildTree([1,null,2,3]))))) // [1,2,3]
+console.log(JSON.stringify(toRightList(flatten(buildTree([1,2]))))) // [1,2]
+```
+</UniversalEditor>
+
+</details>
+
+<details>
+<summary><strong>最优解讲解</strong>（通俗版 + 推理过程）</summary>
+
+- **目标结构**：按前序遍历顺序，把树“拉直”成只用 `right` 指针的链表，且 `left` 全部置空。
+- **关键推理：如果我们从后往前把节点串起来会更容易**：
+  - 最终链表的“下一个”是谁？就是前序遍历里当前节点的下一个节点。
+  - 反过来想：如果我们按“前序的逆序”遍历（右→左→根），就能在回溯时用一个 `prev` 指针把链表串起来：
+    - 当前节点的 `right` 指向 `prev`
+    - 更新 `prev = 当前节点`
+- **为什么是右→左→根？**：前序是 根→左→右，逆过来就是 右→左→根。
+- **为什么要把 `left` 置空？**：题目要求展开后是“只用 right 指针”的链表，如果 left 不置空就不符合输出结构。
+- **复杂度**：每个节点访问一次，时间 \(O(n)\)，递归栈 \(O(h)\)。
+
+</details>
+
+<details>
+<summary><strong>类似题目</strong>（反向遍历 + prev 指针重建链）</summary>
+
+```javascript
+dfs(node.right); dfs(node.left)
+node.right = prev; node.left = null; prev = node
+```
+
+</details>
+
+---
+
+## 105. 从前序与中序遍历序列构造二叉树
+
+<LeetCodeProblem titleSlug="construct-binary-tree-from-preorder-and-inorder-traversal" />
+
+<details>
+<summary><strong>最优解</strong>（分治：前序定根，中序切左右）</summary>
+
+<UniversalEditor title="内存模型比较" compare={true}>
+```javascript !! js
+function buildTree(preorder, inorder) {
+  const idx = new Map()
+  for (let i = 0; i < inorder.length; i++) idx.set(inorder[i], i)
+
+  let prePos = 0
+  function helper(inL, inR) {
+    if (inL > inR) return null
+    const rootVal = preorder[prePos++]
+    const mid = idx.get(rootVal)
+    const root = { val: rootVal, left: null, right: null }
+    root.left = helper(inL, mid - 1)
+    root.right = helper(mid + 1, inR)
+    return root
+  }
+  return helper(0, inorder.length - 1)
+}
+
+function inorderTrav(root, res=[]){ if(!root) return res; inorderTrav(root.left,res); res.push(root.val); inorderTrav(root.right,res); return res }
+function preorderTrav(root, res=[]){ if(!root) return res; res.push(root.val); preorderTrav(root.left,res); preorderTrav(root.right,res); return res }
+
+// 5 个测试用例（用遍历结果验证）
+{
+  const pre=[3,9,20,15,7], ino=[9,3,15,20,7]
+  const t=buildTree(pre,ino)
+  console.log(JSON.stringify(preorderTrav(t))===JSON.stringify(pre)) // true
+  console.log(JSON.stringify(inorderTrav(t))===JSON.stringify(ino)) // true
+}
+{
+  const pre=[-1], ino=[-1]
+  const t=buildTree(pre,ino)
+  console.log(JSON.stringify(preorderTrav(t))) // [-1]
+}
+{
+  const pre=[1,2,3], ino=[2,1,3]
+  const t=buildTree(pre,ino)
+  console.log(JSON.stringify(inorderTrav(t))) // [2,1,3]
+}
+{
+  const pre=[1,2], ino=[2,1]
+  const t=buildTree(pre,ino)
+  console.log(JSON.stringify(preorderTrav(t))) // [1,2]
+}
+{
+  const pre=[1], ino=[1]
+  const t=buildTree(pre,ino)
+  console.log(JSON.stringify(inorderTrav(t))) // [1]
+}
+```
+</UniversalEditor>
+
+</details>
+
+<details>
+<summary><strong>最优解讲解</strong>（通俗版 + 推理过程）</summary>
+
+- **前序的第一个一定是根**：因为前序是 根→左→右。
+- **中序里根的位置把左右子树切开**：中序是 左→根→右，所以根左边都是左子树，根右边都是右子树。
+- **递归构造的推理**：
+  1. 取当前前序指针 `prePos` 指向的值作为根
+  2. 在中序中找到根的位置 `mid`
+  3. 递归构造左子树（中序区间 `[inL, mid-1]`）
+  4. 递归构造右子树（中序区间 `[mid+1, inR]`）
+- **为什么要 Map 加速？**：不然每次找根在中序的位置都要线性搜索，会退化成 \(O(n^2)\)；用 Map 后整体 \(O(n)\)。
+- **为什么递归区间长度正确？**
+  - 中序中 `mid` 左边的长度就是左子树节点数；而前序会按“根→左→右”消费节点，所以只要用 `prePos` 作为全局游标，递归自然会按正确数量把节点分配给左/右子树。
+- **复杂度**：每个节点只创建一次，查位置 \(O(1)\)，总时间 \(O(n)\)，递归栈 \(O(h)\)。
+
+</details>
+
+<details>
+<summary><strong>类似题目</strong>（遍历序列建树：一个序列定根，一个序列切左右）</summary>
+
+```javascript
+root = preorder[next]
+mid = pos[root] in inorder
+left = build(inL, mid-1)
+right = build(mid+1, inR)
+```
+
+</details>
+
+---
+
+## 437. 路径总和 III
+
+<LeetCodeProblem titleSlug="path-sum-iii" />
+
+<details>
+<summary><strong>最优解</strong>（前缀和 + 哈希：树上也能用“差为 target”）</summary>
+
+<UniversalEditor title="内存模型比较" compare={true}>
+```javascript !! js
+function pathSum(root, targetSum) {
+  const freq = new Map()
+  freq.set(0, 1)
+  let ans = 0
+
+  function dfs(node, prefix) {
+    if (!node) return
+    prefix += node.val
+    ans += freq.get(prefix - targetSum) || 0
+
+    freq.set(prefix, (freq.get(prefix) || 0) + 1)
+    dfs(node.left, prefix)
+    dfs(node.right, prefix)
+    freq.set(prefix, freq.get(prefix) - 1) // 回溯：离开这条路径
+  }
+
+  dfs(root, 0)
+  return ans
+}
+
+// 测试辅助
+function TreeNode(val){this.val=val;this.left=this.right=null}
+function buildTree(arr){
+  if (!arr.length || arr[0]==null) return null
+  const nodes = arr.map(v => v==null?null:new TreeNode(v))
+  let i=0, j=1
+  while (j < nodes.length) {
+    if (nodes[i]) {
+      nodes[i].left = nodes[j++] || null
+      if (j < nodes.length) nodes[i].right = nodes[j++] || null
+    } else j += 2
+    i++
+  }
+  return nodes[0]
+}
+
+// 5 个测试用例
+console.log(pathSum(buildTree([10,5,-3,3,2,null,11,3,-2,null,1]), 8)) // 3
+console.log(pathSum(buildTree([5,4,8,11,null,13,4,7,2,null,null,5,1]), 22)) // 3
+console.log(pathSum(buildTree([1]), 1)) // 1
+console.log(pathSum(buildTree([1,null,2,null,3,null,4]), 3)) // 2
+console.log(pathSum(buildTree([]), 0)) // 0
+```
+</UniversalEditor>
+
+</details>
+
+<details>
+<summary><strong>最优解讲解</strong>（通俗版 + 推理过程）</summary>
+
+- **路径定义**：从某个节点往下走到某个节点（必须向下），不要求从根开始，也不要求到叶子结束。
+- **朴素做法**：以每个节点为起点做一次 DFS 累加，会重复很多，最坏 \(O(n^2)\)。
+- **关键推理：把树上的“路径和”也写成前缀和差值**：
+  - 在一条从根到当前节点的路径上，设 `prefix` 是到当前节点的累计和。
+  - 如果某段向下路径和为 `target`，就意味着：存在一个祖先前缀 `oldPrefix`，使得 `prefix - oldPrefix = target`，也就是 `oldPrefix = prefix - target`。
+  - 所以到达一个节点时，只要知道“当前路径上有多少个前缀和等于 `prefix-target`”，就能一次性统计出所有以当前节点为结尾的合法路径数。
+- **为什么要回溯减频次？**
+  - `freq` 只应该统计“当前这条根到当前节点路径”上的前缀和。
+  - DFS 走完一个子树回到父节点时，要把子树路径上的前缀和移除，否则会把另一条分支当成同一路径，统计出错误答案。
+- **为什么这能覆盖“不从根开始”的路径？**
+  - 因为我们统计的是“当前 prefix 与历史 prefix 的差值”，历史 prefix 可以来自任意祖先节点，所以对应的路径起点也可以是任意节点。
+- **复杂度**：每个节点进出一次，时间 \(O(n)\)，空间 \(O(h)\)（Map 在一条根到叶路径上的前缀和数量）。
+
+</details>
+
+<details>
+<summary><strong>类似题目</strong>（树上前缀和模板：进入 +1，离开 -1）</summary>
+
+```javascript
+dfs(node, prefix):
+  prefix += node.val
+  ans += freq[prefix-target]
+  freq[prefix]++
+  dfs(children)
+  freq[prefix]-- // backtrack
+```
+
+</details>
+
+---
+
+## 236. 二叉树的最近公共祖先
+
+<LeetCodeProblem titleSlug="lowest-common-ancestor-of-a-binary-tree" />
+
+<details>
+<summary><strong>最优解</strong>（后序 DFS：左右各返回“是否找到目标”）</summary>
+
+<UniversalEditor title="内存模型比较" compare={true}>
+```javascript !! js
+function lowestCommonAncestor(root, p, q) {
+  let ans = null
+  function dfs(node) {
+    if (!node) return false
+    const left = dfs(node.left)
+    const right = dfs(node.right)
+    const mid = node === p || node === q
+    if ((mid && left) || (mid && right) || (left && right)) ans = node
+    return mid || left || right
+  }
+  dfs(root)
+  return ans
+}
+
+// 测试辅助
+function TreeNode(val){this.val=val;this.left=this.right=null}
+function buildTree(arr){
+  if (!arr.length || arr[0]==null) return null
+  const nodes = arr.map(v => v==null?null:new TreeNode(v))
+  let i=0, j=1
+  while (j < nodes.length) {
+    if (nodes[i]) {
+      nodes[i].left = nodes[j++] || null
+      if (j < nodes.length) nodes[i].right = nodes[j++] || null
+    } else j += 2
+    i++
+  }
+  return nodes[0]
+}
+function find(root, val){
+  if(!root) return null
+  if(root.val===val) return root
+  return find(root.left,val) || find(root.right,val)
+}
+
+// 5 个测试用例
+{
+  const t=buildTree([3,5,1,6,2,0,8,null,null,7,4])
+  console.log(lowestCommonAncestor(t, find(t,5), find(t,1)).val) // 3
+}
+{
+  const t=buildTree([3,5,1,6,2,0,8,null,null,7,4])
+  console.log(lowestCommonAncestor(t, find(t,5), find(t,4)).val) // 5
+}
+{
+  const t=buildTree([1,2])
+  console.log(lowestCommonAncestor(t, find(t,1), find(t,2)).val) // 1
+}
+{
+  const t=buildTree([1])
+  console.log(lowestCommonAncestor(t, find(t,1), find(t,1)).val) // 1
+}
+{
+  const t=buildTree([2,1,3])
+  console.log(lowestCommonAncestor(t, find(t,1), find(t,3)).val) // 2
+}
+```
+</UniversalEditor>
+
+</details>
+
+<details>
+<summary><strong>最优解讲解</strong>（通俗版 + 推理过程）</summary>
+
+- **最近公共祖先**：离 p、q 最近的那个“同时是它们祖先”的节点。
+- **关键推理：后序遍历最合适**（先处理子树，再决定当前节点）：
+  - 让 DFS 返回一个布尔值：当前子树里是否包含 p 或 q。
+  - 当前节点成为 LCA 的三种情况：
+    1. 左子树找到一个，右子树找到一个（分居两侧）
+    2. 当前节点本身是 p/q，且左/右子树里找到另一个
+- 一旦满足，就把 `ans` 记录下来。
+- **为什么要用后序？**
+  - 因为“当前节点是否是 LCA”取决于左右子树各自是否包含目标节点，必须先知道子树结果再做判断（先子后父）。
+- **复杂度**：每个节点访问一次，时间 \(O(n)\)，递归栈 \(O(h)\)。
+
+</details>
+
+<details>
+<summary><strong>类似题目</strong>（后序汇总：子树返回信息，父节点做判断）</summary>
+
+```javascript
+left = dfs(left); right = dfs(right); mid = isTarget(node)
+if ((left&&right) || (mid&&(left||right))) ans=node
+return left || right || mid
+```
+
+</details>
+
+---
+
+## 124. 二叉树中的最大路径和
+
+<LeetCodeProblem titleSlug="binary-tree-maximum-path-sum" />
+
+<details>
+<summary><strong>最优解</strong>（后序 DFS：返回“向上贡献”，同时更新“过当前节点的最优”）</summary>
+
+<UniversalEditor title="内存模型比较" compare={true}>
+```javascript !! js
+function maxPathSum(root) {
+  let best = -Infinity
+  function dfs(node) {
+    if (!node) return 0
+    // 向上贡献：如果子树贡献是负的，宁可不要
+    const left = Math.max(0, dfs(node.left))
+    const right = Math.max(0, dfs(node.right))
+
+    // 经过当前节点的路径（可以左右都取）
+    best = Math.max(best, node.val + left + right)
+
+    // 返回给父节点：只能选一条路向上（不能分叉）
+    return node.val + Math.max(left, right)
+  }
+  dfs(root)
+  return best
+}
+
+// 测试辅助
+function TreeNode(val){this.val=val;this.left=this.right=null}
+function buildTree(arr){
+  if (!arr.length || arr[0]==null) return null
+  const nodes = arr.map(v => v==null?null:new TreeNode(v))
+  let i=0, j=1
+  while (j < nodes.length) {
+    if (nodes[i]) {
+      nodes[i].left = nodes[j++] || null
+      if (j < nodes.length) nodes[i].right = nodes[j++] || null
+    } else j += 2
+    i++
+  }
+  return nodes[0]
+}
+
+// 5 个测试用例
+console.log(maxPathSum(buildTree([1,2,3]))) // 6
+console.log(maxPathSum(buildTree([-10,9,20,null,null,15,7]))) // 42
+console.log(maxPathSum(buildTree([-3]))) // -3
+console.log(maxPathSum(buildTree([2,-1]))) // 2
+console.log(maxPathSum(buildTree([5,4,8,11,null,13,4,7,2,null,null,null,1]))) // 48
+```
+</UniversalEditor>
+
+</details>
+
+<details>
+<summary><strong>最优解讲解</strong>（通俗版 + 推理过程）</summary>
+
+- **路径定义**：可以从任意节点到任意节点，但必须沿父子连接走；路径可以在某个节点“拐弯”一次（左右各走一段），但不能分叉成三条。
+- **两个概念要分清**：
+  1. **全局最优路径**：可能在任意位置拐弯，所以需要一个全局 `best`。
+  2. **向上贡献值**：返回给父节点时，路径不能左右都拿（否则父节点会分叉），所以只能选“左或右里更大的一边”。
+- **关键推理（后序）**：
+  - 先算出左右子树给你的“向上贡献”；如果贡献是负数，等于拖后腿，直接当 0（不选）。
+  - 经过当前节点的最佳路径是：`node.val + left + right`（可以两边都拿，表示在这里拐弯）。
+  - 但返回给父节点只能是一条：`node.val + max(left, right)`。
+- **为什么贡献要和 0 比较？**
+  - 因为路径可以从任意节点开始，如果某一侧贡献为负，选上它只会让总和变小，不如直接在当前节点“重新开始”。
+- **复杂度**：时间 \(O(n)\)，递归栈 \(O(h)\)。
+
+</details>
+
+<details>
+<summary><strong>类似题目</strong>（树形 DP：返回局部贡献，更新全局答案）</summary>
+
+```javascript
+gain = node.val + max(0, leftGain, rightGain)
+best = max(best, node.val + max(0,leftGain) + max(0,rightGain))
+```
+
+</details>
+

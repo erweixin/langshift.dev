@@ -1,0 +1,329 @@
+---
+title: 堆（题单顺序）
+description: 热题 100 - 堆分组（按题单顺序）：215 / 347 / 295
+---
+
+import { LeetCodeProblem } from "@/components/leetcode/LeetCodeProblem"
+
+本页包含题单「堆」分组的全部题目，顺序与 `list.json` 保持一致。
+
+<details>
+<summary><strong>堆题统一“选型口诀”</strong>（点击展开）</summary>
+
+- **Top K 最大**：用“小根堆”保留 k 个（堆顶是第 k 大）。
+- **Top K 最小**：用“大根堆”保留 k 个（堆顶是第 k 小）。
+- **中位数维护**：左边大根堆 + 右边小根堆，保持尺寸差不超过 1。
+- **存什么**：需要比较时就把比较键（值/频次/距离）放到堆的 comparator 里，堆里通常存“元素本体或下标”。
+
+</details>
+
+---
+
+## 215. 数组中的第 K 个最大元素
+
+<LeetCodeProblem titleSlug="kth-largest-element-in-an-array" />
+
+<details>
+<summary><strong>最优解</strong>（小根堆保留 k 个最大：堆顶就是第 k 大）</summary>
+
+<UniversalEditor title="内存模型比较" compare={true}>
+```javascript !! js
+class MinHeap {
+  constructor() { this.a = [] }
+  size() { return this.a.length }
+  peek() { return this.a[0] }
+  push(x) { this.a.push(x); this._up(this.a.length - 1) }
+  pop() {
+    if (!this.a.length) return null
+    const top = this.a[0]
+    const last = this.a.pop()
+    if (this.a.length) { this.a[0] = last; this._down(0) }
+    return top
+  }
+  _up(i) {
+    while (i > 0) {
+      const p = (i - 1) >> 1
+      if (this.a[p] <= this.a[i]) break
+      ;[this.a[p], this.a[i]] = [this.a[i], this.a[p]]
+      i = p
+    }
+  }
+  _down(i) {
+    const n = this.a.length
+    while (true) {
+      let best = i
+      const l = i * 2 + 1
+      const r = i * 2 + 2
+      if (l < n && this.a[l] < this.a[best]) best = l
+      if (r < n && this.a[r] < this.a[best]) best = r
+      if (best === i) break
+      ;[this.a[i], this.a[best]] = [this.a[best], this.a[i]]
+      i = best
+    }
+  }
+}
+
+function findKthLargest(nums, k) {
+  const heap = new MinHeap()
+  for (const x of nums) {
+    heap.push(x)
+    if (heap.size() > k) heap.pop()
+  }
+  return heap.peek()
+}
+
+// 5 个测试用例
+console.log(findKthLargest([3,2,1,5,6,4], 2)) // 5
+console.log(findKthLargest([3,2,3,1,2,4,5,5,6], 4)) // 4
+console.log(findKthLargest([1], 1)) // 1
+console.log(findKthLargest([-1,-1], 1)) // -1
+console.log(findKthLargest([7,6,5,4,3,2,1], 7)) // 1
+```
+</UniversalEditor>
+
+</details>
+
+<details>
+<summary><strong>最优解讲解</strong>（通俗版 + 推理过程）</summary>
+
+- **题意翻译**：找第 k 大，不要求把整个数组排序完。
+- **朴素做法**：排序后取第 k 大，时间 \(O(n\log n)\)。
+- **关键推理：我们只关心“最大的 k 个数”，剩下的都可以丢**：
+  - 用一个大小为 k 的 **小根堆** 保存“当前最大的 k 个数”。
+  - 堆顶是这 k 个数里最小的那个，也就是“第 k 大”的候选。
+  - 每来一个新数：
+    - 先放进堆
+    - 如果堆超过 k 个，就弹出最小的（也就是把不够大的淘汰）
+- 处理完所有数后，堆里刚好是最大的 k 个，堆顶就是第 k 大。
+
+</details>
+
+<details>
+<summary><strong>类似题目</strong>（TopK 模板：小根堆保留 k 个最好）</summary>
+
+```javascript
+for x in nums:
+  heap.push(x)
+  if heap.size > k: heap.pop() // 弹最差
+return heap.peek()
+```
+
+</details>
+
+---
+
+## 347. 前 K 个高频元素
+
+<LeetCodeProblem titleSlug="top-k-frequent-elements" />
+
+<details>
+<summary><strong>最优解</strong>（哈希计数 + 小根堆按频次保留 k 个）</summary>
+
+<UniversalEditor title="内存模型比较" compare={true}>
+```javascript !! js
+class MinHeapByFreq {
+  constructor() { this.a = [] } // [num, freq]
+  size() { return this.a.length }
+  peek() { return this.a[0] }
+  push(x) { this.a.push(x); this._up(this.a.length - 1) }
+  pop() {
+    if (!this.a.length) return null
+    const top = this.a[0]
+    const last = this.a.pop()
+    if (this.a.length) { this.a[0] = last; this._down(0) }
+    return top
+  }
+  _less(i, j) { return this.a[i][1] < this.a[j][1] }
+  _up(i) {
+    while (i > 0) {
+      const p = (i - 1) >> 1
+      if (!this._less(i, p)) break
+      ;[this.a[p], this.a[i]] = [this.a[i], this.a[p]]
+      i = p
+    }
+  }
+  _down(i) {
+    const n = this.a.length
+    while (true) {
+      let best = i
+      const l = i * 2 + 1
+      const r = i * 2 + 2
+      if (l < n && this._less(l, best)) best = l
+      if (r < n && this._less(r, best)) best = r
+      if (best === i) break
+      ;[this.a[i], this.a[best]] = [this.a[best], this.a[i]]
+      i = best
+    }
+  }
+}
+
+function topKFrequent(nums, k) {
+  const freq = new Map()
+  for (const x of nums) freq.set(x, (freq.get(x) || 0) + 1)
+
+  const heap = new MinHeapByFreq()
+  for (const [num, f] of freq.entries()) {
+    heap.push([num, f])
+    if (heap.size() > k) heap.pop()
+  }
+
+  const res = []
+  while (heap.size()) res.push(heap.pop()[0])
+  return res
+}
+
+function sortNum(a){ return a.slice().sort((x,y)=>x-y) }
+
+// 5 个测试用例
+console.log(JSON.stringify(sortNum(topKFrequent([1,1,1,2,2,3], 2)))) // [1,2]
+console.log(JSON.stringify(sortNum(topKFrequent([1], 1)))) // [1]
+console.log(JSON.stringify(sortNum(topKFrequent([4,4,4,5,5,6], 1)))) // [4]
+console.log(topKFrequent([1,2,3,4], 2).length) // 2
+console.log(JSON.stringify(sortNum(topKFrequent([0,0,0,-1,-1,-2], 2)))) // [-1,0]
+```
+</UniversalEditor>
+
+</details>
+
+<details>
+<summary><strong>最优解讲解</strong>（通俗版 + 推理过程）</summary>
+
+- **问题拆解**：
+  1. 先统计每个数出现次数（哈希表）
+  2. 再从这些“(数,频次)”里选出频次最高的 k 个（TopK）
+- **为什么用小根堆？**：和 215 一样，“保留最好的 k 个”最稳的做法就是小根堆：
+  - 堆顶是当前 k 个里频次最小的（最容易被淘汰）。
+  - 新元素频次更大时，会把堆顶挤掉。
+- **复杂度**：统计 \(O(n)\)，堆操作 \(O(u\log k)\)（u 是不同元素个数），整体很高效。
+
+</details>
+
+<details>
+<summary><strong>类似题目</strong>（先计数再 TopK）</summary>
+
+```javascript
+freq = count()
+heap keep k by key=freq
+```
+
+</details>
+
+---
+
+## 295. 数据流的中位数
+
+<LeetCodeProblem titleSlug="find-median-from-data-stream" />
+
+<details>
+<summary><strong>最优解</strong>（双堆：大根堆存左半，小根堆存右半）</summary>
+
+<UniversalEditor title="内存模型比较" compare={true}>
+```javascript !! js
+class Heap {
+  constructor(cmp) { this.a = []; this.cmp = cmp } // cmp(x,y) <0 表示 x 更小
+  size() { return this.a.length }
+  peek() { return this.a[0] }
+  push(x) { this.a.push(x); this._up(this.a.length - 1) }
+  pop() {
+    if (!this.a.length) return null
+    const top = this.a[0]
+    const last = this.a.pop()
+    if (this.a.length) { this.a[0] = last; this._down(0) }
+    return top
+  }
+  _up(i) {
+    while (i > 0) {
+      const p = (i - 1) >> 1
+      if (this.cmp(this.a[p], this.a[i]) <= 0) break
+      ;[this.a[p], this.a[i]] = [this.a[i], this.a[p]]
+      i = p
+    }
+  }
+  _down(i) {
+    const n = this.a.length
+    while (true) {
+      let best = i
+      const l = i * 2 + 1
+      const r = i * 2 + 2
+      if (l < n && this.cmp(this.a[l], this.a[best]) < 0) best = l
+      if (r < n && this.cmp(this.a[r], this.a[best]) < 0) best = r
+      if (best === i) break
+      ;[this.a[i], this.a[best]] = [this.a[best], this.a[i]]
+      i = best
+    }
+  }
+}
+
+function MedianFinder() {
+  // left: max-heap (存较小的一半，堆顶是左半最大)
+  // right: min-heap (存较大的一半，堆顶是右半最小)
+  this.left = new Heap((x, y) => y - x)
+  this.right = new Heap((x, y) => x - y)
+}
+
+MedianFinder.prototype.addNum = function(num) {
+  if (this.left.size() === 0 || num <= this.left.peek()) this.left.push(num)
+  else this.right.push(num)
+
+  // 重新平衡：left 允许比 right 多 1
+  if (this.left.size() > this.right.size() + 1) this.right.push(this.left.pop())
+  if (this.right.size() > this.left.size()) this.left.push(this.right.pop())
+}
+
+MedianFinder.prototype.findMedian = function() {
+  if (this.left.size() > this.right.size()) return this.left.peek()
+  return (this.left.peek() + this.right.peek()) / 2
+}
+
+// 5 个测试用例
+{
+  const mf = new MedianFinder()
+  mf.addNum(1); mf.addNum(2)
+  console.log(mf.findMedian()) // 1.5
+  mf.addNum(3)
+  console.log(mf.findMedian()) // 2
+}
+{
+  const mf = new MedianFinder()
+  mf.addNum(5); console.log(mf.findMedian()) // 5
+  mf.addNum(15); console.log(mf.findMedian()) // 10
+  mf.addNum(1); console.log(mf.findMedian()) // 5
+  mf.addNum(3); console.log(mf.findMedian()) // 4
+}
+```
+</UniversalEditor>
+
+</details>
+
+<details>
+<summary><strong>最优解讲解</strong>（通俗版 + 推理过程）</summary>
+
+- **中位数的本质**：把数据分成左右两半：
+  - 左半都 ≤ 右半
+  - 两边数量尽量相等（最多差 1）
+- **关键推理：用两个堆维护这两个半区**：
+  - `left`（大根堆）：存较小的一半，堆顶是左半最大值
+  - `right`（小根堆）：存较大的一半，堆顶是右半最小值
+- **插入一个数怎么做？**
+  - 先把它放进合适的一边（`<=` left 顶就进 left，否则进 right）。
+  - 然后做“平衡操作”：让 left 的大小永远 >= right，且最多多 1。
+- **中位数怎么取？**
+  - 总数奇数：left 比 right 多 1，中位数就是 `left.peek()`
+  - 总数偶数：两边一样大，中位数是 `(left.peek()+right.peek())/2`
+
+</details>
+
+<details>
+<summary><strong>类似题目</strong>（动态维护中位数：双堆平衡）</summary>
+
+```javascript
+add:
+  push to left/right
+  rebalance sizes
+median:
+  if left bigger: left.top
+  else avg(left.top, right.top)
+```
+
+</details>
+

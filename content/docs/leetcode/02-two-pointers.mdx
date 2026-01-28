@@ -1,0 +1,358 @@
+---
+title: 双指针（题单顺序）
+description: 热题 100 - 双指针分组（按题单顺序）：283 / 11 / 15 / 42
+---
+
+import { LeetCodeProblem } from "@/components/leetcode/LeetCodeProblem"
+
+本页包含题单「双指针」分组的全部题目，顺序与 `list.json` 保持一致。
+
+---
+
+## 283. 移动零
+
+<LeetCodeProblem titleSlug="move-zeroes" />
+
+<details>
+<summary><strong>最优解</strong>（快慢指针：把非 0 往前压）</summary>
+
+<UniversalEditor title="内存模型比较" compare={true}>
+```javascript !! js
+function moveZeroes(nums) {
+  // slow 指向“下一个该放非 0 的位置”
+  let slow = 0
+  for (let fast = 0; fast < nums.length; fast++) {
+    if (nums[fast] !== 0) {
+      ;[nums[slow], nums[fast]] = [nums[fast], nums[slow]]
+      slow++
+    }
+  }
+  return nums
+}
+
+// 5 个测试用例
+console.log(moveZeroes([0, 1, 0, 3, 12])) // [1,3,12,0,0]
+console.log(moveZeroes([0])) // [0]
+console.log(moveZeroes([1, 2, 3])) // [1,2,3]
+console.log(moveZeroes([0, 0, 0, 1])) // [1,0,0,0]
+console.log(moveZeroes([4, 0, 5, 0, 0, 6])) // [4,5,6,0,0,0]
+```
+</UniversalEditor>
+
+</details>
+
+<details>
+<summary><strong>最优解讲解</strong>（通俗版）</summary>
+
+- **先把题意翻译成大白话**：把数组里的 0 全部挪到最后，其他非 0 的元素顺序不能乱，而且要“原地”做（不新建一个同样大的数组）。
+- **朴素想法为什么不够好**：
+  - 你可以先把所有非 0 抠出来，再补 0，但这要么用额外数组，要么实现起来容易写成 \(O(n^2)\) 的移动。
+  - 题目要的是：一次遍历、原地完成。
+- **关键思路：把数组想象成两段**：
+  - 左边是一段“已经整理好的非 0 区”（保持原顺序）
+  - 右边是“还没处理的区域”
+- **怎么维护这两段？用快慢指针**：
+  - `fast`：从左到右扫一遍，负责“发现”非 0 元素
+  - `slow`：永远指向“下一个该放非 0 的位置”（也就是非 0 区的尾巴）
+- **不变量（保证你不会写乱）**：
+  - 在任何时刻，区间 `[0, slow)` 都是整理好的非 0（顺序与原数组一致）
+  - 区间 `[slow, fast]` 是被扫过但还没完全整理的位置
+- **为什么看到非 0 就交换？**：
+  - 当 `fast` 指到一个非 0，说明这个数应该进入左侧非 0 区。
+  - `slow` 指向非 0 区尾巴的下一个位置，把 `fast` 的非 0 交换到 `slow`，等于“把非 0 往前收纳”。
+  - 然后 `slow++`，非 0 区变长。
+- **用例子走一遍**：`[0,1,0,3,12]`
+  - fast=0 看到 0：不动
+  - fast=1 看到 1：与 slow=0 交换 → `[1,0,0,3,12]`，slow=1
+  - fast=3 看到 3：与 slow=1 交换 → `[1,3,0,0,12]`，slow=2
+  - fast=4 看到 12：与 slow=2 交换 → `[1,3,12,0,0]`，slow=3
+- **为什么顺序不会乱？**：`fast` 是从左到右按原顺序发现非 0 的，发现一个就按 `slow` 的顺序依次放进去，所以非 0 的相对顺序天然保持。
+- **复杂度**：时间 \(O(n)\)，空间 \(O(1)\)（原地交换）。
+
+</details>
+
+<details>
+<summary><strong>类似题目</strong>（快慢指针：稳定压缩）</summary>
+
+```javascript
+// 目标：原地删除/移动某类元素，保持其他元素相对顺序
+let slow = 0
+for (let fast = 0; fast < arr.length; fast++) {
+  if (keep(arr[fast])) {
+    arr[slow] = arr[fast] // 或 swap(arr, slow, fast)
+    slow++
+  }
+}
+// slow 之后的位置按题意补齐（例如补 0、截断等）
+```
+
+</details>
+
+---
+
+## 11. 盛最多水的容器
+
+<LeetCodeProblem titleSlug="container-with-most-water" />
+
+<details>
+<summary><strong>最优解</strong>（左右指针夹逼：短板先动）</summary>
+
+<UniversalEditor title="内存模型比较" compare={true}>
+```javascript !! js
+function maxArea(height) {
+  let l = 0
+  let r = height.length - 1
+  let ans = 0
+
+  while (l < r) {
+    const h = Math.min(height[l], height[r])
+    ans = Math.max(ans, h * (r - l))
+
+    // 谁短谁先动：因为面积受短板限制，动长板只会让宽度变小，短板不变 => 不可能更好
+    if (height[l] < height[r]) l++
+    else r--
+  }
+  return ans
+}
+
+// 5 个测试用例
+console.log(maxArea([1, 8, 6, 2, 5, 4, 8, 3, 7])) // 49
+console.log(maxArea([1, 1])) // 1
+console.log(maxArea([4, 3, 2, 1, 4])) // 16
+console.log(maxArea([1, 2, 1])) // 2
+console.log(maxArea([2, 3, 10, 5, 7, 8, 9])) // 36
+```
+</UniversalEditor>
+
+</details>
+
+<details>
+<summary><strong>最优解讲解</strong>（通俗版）</summary>
+
+- **先写出“你在最大化什么”**：两条线 `l` 和 `r` 形成的容器面积
+  - 宽：`r - l`
+  - 高：`min(height[l], height[r])`（短板效应）
+  - 面积：`(r-l) * min(...)`
+- **朴素做法为什么慢**：枚举所有 \((l,r)\) 组合是 \(O(n^2)\)。
+- **关键推理：为什么“短板先动”是正确的？**
+  - 假设当前 `height[l] < height[r]`，也就是左边是短板。
+  - 你如果移动右指针 `r--`：
+    - 宽度变小（必然）
+    - 高度仍然最多是 `height[l]`（因为短板还在左边没变）
+    - 所以面积**不可能变大**（宽变小，高上限不变）
+  - 只有移动左指针 `l++` 才有机会找到更高的左边线，让短板变高，从而抵消宽度变小带来的损失。
+  - 右边短板时同理，移动右指针。
+- **你可以把它理解成一种“剪枝”**：每一步都排除一大批“不可能更优”的组合，所以整体只需一趟 \(O(n)\)。
+- **用一个小片段走一遍**（只展示关键几步）：`[1,8,6,2,5,4,8,3,7]`
+  - l=0(1), r=8(7) → 面积 8*1=8，短板是左边 → l++
+  - l=1(8), r=8(7) → 面积 7*7=49，短板是右边 → r--
+  - 接着继续夹逼，最终最大就是 49
+- **为什么不会漏掉最优解？**：因为每次移动短板，都是在“保证不会错过更优解”的前提下丢弃一个指针位置（上面的推理已经证明移动长板不可能更优）。
+- **复杂度**：左右指针各走一遍，时间 \(O(n)\)，空间 \(O(1)\)。
+
+</details>
+
+<details>
+<summary><strong>类似题目</strong>（双指针夹逼：用“单调性”剪枝）</summary>
+
+```javascript
+let l = 0, r = n - 1
+let best = -Infinity
+while (l < r) {
+  // 用 l,r 计算一次候选答案
+  best = Math.max(best, score(l, r))
+
+  // 按题目性质移动一侧，使“可能变好”的条件更容易发生
+  if (shouldMoveLeft(l, r)) l++
+  else r--
+}
+```
+
+</details>
+
+---
+
+## 15. 三数之和
+
+<LeetCodeProblem titleSlug="3sum" />
+
+<details>
+<summary><strong>最优解</strong>（排序 + 固定一个数 + 双指针去重）</summary>
+
+<UniversalEditor title="内存模型比较" compare={true}>
+```javascript !! js
+function threeSum(nums) {
+  nums.sort((a, b) => a - b)
+  const res = []
+
+  for (let i = 0; i < nums.length; i++) {
+    if (i > 0 && nums[i] === nums[i - 1]) continue // i 去重
+    if (nums[i] > 0) break // 后面都 >= nums[i]，不可能凑出 0
+
+    let l = i + 1
+    let r = nums.length - 1
+    while (l < r) {
+      const s = nums[i] + nums[l] + nums[r]
+      if (s === 0) {
+        res.push([nums[i], nums[l], nums[r]])
+        l++
+        r--
+        while (l < r && nums[l] === nums[l - 1]) l++ // l 去重
+        while (l < r && nums[r] === nums[r + 1]) r-- // r 去重
+      } else if (s < 0) {
+        l++
+      } else {
+        r--
+      }
+    }
+  }
+  return res
+}
+
+// 5 个测试用例
+console.log(threeSum([-1, 0, 1, 2, -1, -4])) // [[-1,-1,2],[-1,0,1]]
+console.log(threeSum([0, 1, 1])) // []
+console.log(threeSum([0, 0, 0])) // [[0,0,0]]
+console.log(threeSum([0, 0, 0, 0])) // [[0,0,0]]
+console.log(threeSum([-2, 0, 1, 1, 2])) // [[-2,0,2],[-2,1,1]]
+```
+</UniversalEditor>
+
+</details>
+
+<details>
+<summary><strong>最优解讲解</strong>（通俗版）</summary>
+
+- **先从最笨的思路出发**：三层循环枚举 \((i,j,k)\) 看和是不是 0，时间 \(O(n^3)\)，直接超时。
+- **怎么降维？先排序**：
+  - 排序后数组有序，很多“移动指针就能让和变大/变小”的推理才成立。
+  - 排序还能让“去重”变得简单（相同值会挨在一起）。
+- **固定一个数，把 3Sum 变成 2Sum**：
+  - 固定 `nums[i]` 后，目标变成：在区间 `[i+1, n-1]` 找两数之和等于 `-nums[i]`。
+  - 这就是经典的有序数组 2Sum：左右指针夹逼。
+- **双指针为什么能工作？（推理过程）**
+  - 当前和 `s = nums[i] + nums[l] + nums[r]`
+  - 如果 `s < 0`，说明总和太小；因为数组有序，想让和变大，最直接就是让 `l++`（换一个更大的数）。
+  - 如果 `s > 0`，说明总和太大；想让和变小，就 `r--`（换一个更小的数）。
+  - `s == 0` 就记录答案，然后两边都收缩继续找。
+- **两个重要剪枝**：
+  - `nums[i] > 0` 时可以 `break`：因为后面都 ≥ `nums[i]`，三数之和不可能再等于 0。
+  - `i` 去重：`nums[i] === nums[i-1]` 时跳过，否则会产生重复三元组。
+- **去重为什么必须做（而且怎么做）**：
+  - 找到一个解后 `l++/r--`，然后把连续相同的 `nums[l]`、`nums[r]` 跳过去，这样每一种值组合只会记录一次。
+- **用例子走一遍关键步骤**：`[-1,0,1,2,-1,-4]`
+  - 排序后 `[-4,-1,-1,0,1,2]`
+  - i=-1（第一个 -1）时，用 l/r 夹逼能找到 `[-1,-1,2]` 和 `[-1,0,1]`
+  - i 到第二个 -1 会被去重跳过，所以不会重复输出
+- **总体复杂度**：排序 \(O(n\log n)\) + 外层循环 \(n\) 次、内层双指针整体均摊 \(O(n)\) → 总体 \(O(n^2)\)
+- **最常见坑**：去重一定要在 `i`、`l`、`r` 三处都做（尤其是找到解后要用 while 跳过连续相同值），否则会产生重复三元组。
+
+</details>
+
+<details>
+<summary><strong>类似题目</strong>（kSum：排序 + 固定 + 双指针）</summary>
+
+```javascript
+// 经典套路：先排序，然后递归固定前 k-2 个数，最后用双指针做 2Sum
+function kSum(nums, start, k, target) {
+  // k === 2: two pointers
+  // k > 2: for i in [start..] 固定 nums[i]，递归 k-1Sum(target-nums[i])，并注意去重
+}
+```
+
+</details>
+
+---
+
+## 42. 接雨水
+
+<LeetCodeProblem titleSlug="trapping-rain-water" />
+
+<details>
+<summary><strong>最优解</strong>（双指针：维护左右最高墙）</summary>
+
+<UniversalEditor title="内存模型比较" compare={true}>
+```javascript !! js
+function trap(height) {
+  let l = 0
+  let r = height.length - 1
+  let leftMax = 0
+  let rightMax = 0
+  let ans = 0
+
+  while (l < r) {
+    if (height[l] < height[r]) {
+      leftMax = Math.max(leftMax, height[l])
+      ans += leftMax - height[l]
+      l++
+    } else {
+      rightMax = Math.max(rightMax, height[r])
+      ans += rightMax - height[r]
+      r--
+    }
+  }
+  return ans
+}
+
+// 5 个测试用例
+console.log(trap([0, 1, 0, 2, 1, 0, 1, 3, 2, 1, 2, 1])) // 6
+console.log(trap([4, 2, 0, 3, 2, 5])) // 9
+console.log(trap([])) // 0
+console.log(trap([2, 0, 2])) // 2
+console.log(trap([3, 0, 1, 3, 0, 5])) // 8
+```
+</UniversalEditor>
+
+</details>
+
+<details>
+<summary><strong>最优解讲解</strong>（通俗版）</summary>
+
+- **先把“能装多少水”说清楚**：在位置 `i` 上方能装的水量是
+  - `min(左侧最高, 右侧最高) - height[i]`
+  - 直觉：水位由两边挡板里更矮的那一边决定（短板效应），再减去当前位置本身的高度。
+- **朴素做法为什么慢**：
+  - 对每个 `i` 都去左边扫一遍找最高、右边扫一遍找最高 → \(O(n^2)\)。
+  - 或者用两个数组预处理 `leftMax[i] / rightMax[i]` → \(O(n)\) 但要额外 \(O(n)\) 空间。
+- **双指针的核心思想：一边走一边“结算”可以确定的那一侧**：
+  - 我们维护 `leftMax`：从左边走过的最高墙
+  - 维护 `rightMax`：从右边走过的最高墙
+  - 指针 `l/r` 从两端往里收缩
+- **为什么可以只结算一侧？（推理过程，抓住“谁是短板”）**
+  - 如果当前 `height[l] < height[r]`，说明右边此刻至少有一堵高度为 `height[r]` 的墙挡着。
+  - 对 `l` 这个位置来说，真正决定水位上限的，已经变成“左边最高 `leftMax` 能到多高”（因为右边这堵墙不比 `height[l]` 低，右侧不会先漏）。
+  - 所以这一步可以安全地把 `l` 的水量算出来：`leftMax - height[l]`（先更新 `leftMax`）。
+  - 反过来，当 `height[l] >= height[r]` 时，同理结算右边，用 `rightMax - height[r]`。
+- **用小例子走一遍直觉**：`[2,0,2]`
+  - l=0,r=2，左右一样高，走右边：rightMax=2，位置 2 结算 0
+  - r=1，height[l]=2 >= height[r]=0，继续结算右边：rightMax=2，水量 `2-0=2`
+  - 最终答案 2
+- **为什么是 \(O(n)\) 且 \(O(1)\) 空间？**
+  - `l/r` 每次至少移动一个，总共最多移动 n 次
+  - 只维护几个变量，不需要辅助数组
+- **边界情况**：空数组或长度 < 3 直接是 0；实现时要注意先更新 `leftMax/rightMax` 再结算，避免负数加到答案里。
+
+</details>
+
+<details>
+<summary><strong>类似题目</strong>（两端夹逼 + 维护边界信息）</summary>
+
+```javascript
+let l = 0, r = n - 1
+let leftBest = init, rightBest = init
+let ans = 0
+while (l < r) {
+  if (arr[l] < arr[r]) {
+    leftBest = update(leftBest, arr[l])
+    ans += calc(leftBest, arr[l])
+    l++
+  } else {
+    rightBest = update(rightBest, arr[r])
+    ans += calc(rightBest, arr[r])
+    r--
+  }
+}
+```
+
+</details>
+

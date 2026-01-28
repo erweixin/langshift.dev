@@ -1,0 +1,677 @@
+---
+title: 回溯（题单顺序）
+description: 热题 100 - 回溯分组（按题单顺序）：46 / 78 / 17 / 39 / 22 / 79 / 131 / 51
+---
+
+import { LeetCodeProblem } from "@/components/leetcode/LeetCodeProblem"
+
+本页包含题单「回溯」分组的全部题目，顺序与 `list.json` 保持一致。
+
+<details>
+<summary><strong>回溯的核心</strong>（点击展开）</summary>
+
+把“所有可能”看成一棵决策树，DFS 走下去，走不通就撤销选择（backtrack）换一条路。
+
+</details>
+
+---
+
+## 46. 全排列
+
+<LeetCodeProblem titleSlug="permutations" />
+
+<details>
+<summary><strong>最优解</strong>（回溯：用 used 标记已选元素）</summary>
+
+<UniversalEditor title="内存模型比较" compare={true}>
+```javascript !! js
+function permute(nums) {
+  const res = []
+  const path = []
+  const used = new Array(nums.length).fill(false)
+
+  function dfs() {
+    if (path.length === nums.length) {
+      res.push(path.slice())
+      return
+    }
+    for (let i = 0; i < nums.length; i++) {
+      if (used[i]) continue
+      used[i] = true
+      path.push(nums[i])
+      dfs()
+      path.pop()
+      used[i] = false
+    }
+  }
+
+  dfs()
+  return res
+}
+
+function norm2D(a){ return a.map(x=>x.join(",")).sort() }
+
+// 5 个测试用例
+console.log(norm2D(permute([1,2,3])).length) // 6
+console.log(JSON.stringify(norm2D(permute([0,1])))) // ["0,1","1,0"]
+console.log(JSON.stringify(norm2D(permute([1])))) // ["1"]
+console.log(norm2D(permute([1,2,3,4])).length) // 24
+console.log(JSON.stringify(norm2D(permute([-1,0,1]))).includes("-1,0,1")) // true
+```
+</UniversalEditor>
+
+</details>
+
+<details>
+<summary><strong>最优解讲解</strong>（通俗版 + 推理过程）</summary>
+
+- **题意翻译**：把数组里的每个数字都用一次，生成所有不同的排列顺序。
+- **为什么天然是回溯？**  
+  你可以把它想成“填空题”：
+  - 第 1 个位置放谁？
+  - 第 2 个位置放谁？
+  - …
+  每一步都有多个候选，选错了就换别的，这正是决策树 + DFS 的场景。
+- **状态怎么设计（写回溯最关键的一步）**：
+  - `path`：当前已经选出来的前缀排列（长度就是当前深度）
+  - `used[i]`：`nums[i]` 是否已经被用过（保证“每个元素只用一次”）
+- **递归终止条件为什么是 `path.length === nums.length`？**  
+  因为排列必须用满所有元素，长度达到 n 就是一组完整答案，拷贝 `path` 记录即可（必须 `slice()`，否则后面回溯会把它改掉）。
+- **回溯的核心动作永远就两步**：
+  1. 做选择：`used[i]=true` + `path.push(nums[i])`
+  2. 撤销选择：`path.pop()` + `used[i]=false`
+- **用一个小例子走一遍**：`[1,2,3]`
+  - 先选 1 → 再选 2 → 再选 3 → 得到 `[1,2,3]`
+  - 回退：把 3 弹出，换成 2 的其它选择（这里没有）→ 再回退到 1 的层
+  - 让第二个位置换成 3 → 形成 `[1,3,2]`
+  - 再回到第一层把 1 换成 2/3……最终得到 6 种
+- **复杂度直觉**：分支数是 \(n \times (n-1) \times \dots \times 1\)，也就是 \(O(n!)\)（输出本身就这么多）。
+
+</details>
+
+<details>
+<summary><strong>类似题目</strong>（排列/组合回溯模板）</summary>
+
+```javascript
+function dfs() {
+  if (endCondition) { record(); return }
+  for (choice of choices) {
+    if (invalid(choice)) continue
+    make(choice)
+    dfs()
+    undo(choice)
+  }
+}
+```
+
+</details>
+
+---
+
+## 78. 子集
+
+<LeetCodeProblem titleSlug="subsets" />
+
+<details>
+<summary><strong>最优解</strong>（回溯：每个位置“选/不选”）</summary>
+
+<UniversalEditor title="内存模型比较" compare={true}>
+```javascript !! js
+function subsets(nums) {
+  const res = []
+  const path = []
+
+  function dfs(start) {
+    // 走到任何节点都是一个子集
+    res.push(path.slice())
+    for (let i = start; i < nums.length; i++) {
+      path.push(nums[i])
+      dfs(i + 1)
+      path.pop()
+    }
+  }
+
+  dfs(0)
+  return res
+}
+
+function norm2D(a){ return a.map(x=>x.join(",")).sort() }
+
+// 5 个测试用例
+console.log(norm2D(subsets([1,2,3])).length) // 8
+console.log(JSON.stringify(norm2D(subsets([0])))) // ["","0"]
+console.log(JSON.stringify(norm2D(subsets([])))) // [""]
+console.log(norm2D(subsets([1,2,3,4])).length) // 16
+console.log(JSON.stringify(norm2D(subsets([1,2])))) // ["","1","1,2","2"]
+```
+</UniversalEditor>
+
+</details>
+
+<details>
+<summary><strong>最优解讲解</strong>（通俗版 + 推理过程）</summary>
+
+- **子集的本质**：对每个元素只有两种决定——“选它”或“不选它”，所以总数是 \(2^n\)。
+- **为什么还用回溯？**：位运算枚举当然能做，但回溯是“组合题通用语言”，后面遇到约束/剪枝时更好扩展。
+- **`start` 的意义（避免重复的关键）**：
+  - 子集不看顺序，所以 `[1,2]` 和 `[2,1]` 是同一个。
+  - 我们规定：下一次只能从 `start` 往后选，这样路径永远是按下标递增生成的，自然不会出现顺序颠倒导致的重复。
+- **为什么“每到一个节点都要记录一次 path”？**
+  - 在这棵树里，任何一个节点都代表“当前已经选出来的集合”，它本身就是一个合法子集。
+  - 所以进入 `dfs(start)` 的那一刻，就应该把 `path` 放进答案。
+- **小例子**：`[1,2,3]`
+  - 先记录 `[]`
+  - 选 1 → 记录 `[1]` → 再选 2 → `[1,2]` → 再选 3 → `[1,2,3]`
+  - 回退后改选 3 → `[1,3]`
+  - 回到根层改选 2 → `[2]`、`[2,3]`；改选 3 → `[3]`
+  - 一共 8 个，正好 \(2^3\)。
+- **复杂度**：输出规模本身是 \(2^n\)，所以时间/空间至少也是这个量级。
+
+</details>
+
+<details>
+<summary><strong>类似题目</strong>（组合类：start 控制下一步可选范围）</summary>
+
+```javascript
+dfs(start):
+  record(path)
+  for i from start..:
+    choose i
+    dfs(i+1)
+    undo
+```
+
+</details>
+
+---
+
+## 17. 电话号码的字母组合
+
+<LeetCodeProblem titleSlug="letter-combinations-of-a-phone-number" />
+
+<details>
+<summary><strong>最优解</strong>（回溯：每一位数字选一个字母）</summary>
+
+<UniversalEditor title="内存模型比较" compare={true}>
+```javascript !! js
+function letterCombinations(digits) {
+  if (!digits) return []
+  const map = {
+    "2": "abc", "3": "def", "4": "ghi", "5": "jkl",
+    "6": "mno", "7": "pqrs", "8": "tuv", "9": "wxyz"
+  }
+  const res = []
+  const path = []
+
+  function dfs(pos) {
+    if (pos === digits.length) {
+      res.push(path.join(""))
+      return
+    }
+    const letters = map[digits[pos]]
+    for (const ch of letters) {
+      path.push(ch)
+      dfs(pos + 1)
+      path.pop()
+    }
+  }
+
+  dfs(0)
+  return res
+}
+
+function sorted(a){ return a.slice().sort() }
+
+// 5 个测试用例
+console.log(JSON.stringify(sorted(letterCombinations("23")))) // 9 个组合
+console.log(letterCombinations("").length) // 0
+console.log(JSON.stringify(letterCombinations("2"))) // ["a","b","c"]
+console.log(letterCombinations("79").length) // 4*4=16
+console.log(letterCombinations("234").length) // 3*3*3=27
+```
+</UniversalEditor>
+
+</details>
+
+<details>
+<summary><strong>最优解讲解</strong>（通俗版 + 推理过程）</summary>
+
+- **把题目看成“固定长度的多叉树”**：digits 有几位，就有几层要做选择。
+  - 第 `pos` 层要做的事：从 `digits[pos]` 对应的字母集合里挑 1 个。
+- **为什么回溯很合适？**
+  - digits 长度不固定（可能 1 位、2 位、4 位……），用回溯就不需要写很多层嵌套循环。
+  - 每一层都做同样的动作：“遍历当前可选字母 → 选择一个 → 进入下一层 → 回退”。
+- **状态是什么？**
+  - `pos`：当前处理到第几位数字
+  - `path`：已经拼好的前缀字符串（用数组存字符，最后 `join`）
+- **终止条件为什么是 `pos === digits.length`？**
+  - 说明每一位都已经选了一个字母，路径长度也等于 digits 长度，此时 `path.join("")` 就是一组完整答案。
+- **小例子**：digits="23"
+  - "2" → `a/b/c`；"3" → `d/e/f`
+  - 所以答案是 3×3=9 个：`ad, ae, ..., cf`。
+- **复杂度直觉**：答案数量本身是各位分支数的乘积（最坏每位 4 个字母，所以最多 \(4^n\)）。
+
+</details>
+
+<details>
+<summary><strong>类似题目</strong>（固定长度多叉选择：按位置递归）</summary>
+
+```javascript
+dfs(pos):
+  if pos==n: record
+  else for ch in choices[pos]: choose; dfs(pos+1); undo
+```
+
+</details>
+
+---
+
+## 39. 组合总和
+
+<LeetCodeProblem titleSlug="combination-sum" />
+
+<details>
+<summary><strong>最优解</strong>（回溯：可重复选，同一层 i 不变）</summary>
+
+<UniversalEditor title="内存模型比较" compare={true}>
+```javascript !! js
+function combinationSum(candidates, target) {
+  candidates.sort((a,b)=>a-b)
+  const res = []
+  const path = []
+
+  function dfs(start, remain) {
+    if (remain === 0) { res.push(path.slice()); return }
+    for (let i = start; i < candidates.length; i++) {
+      const x = candidates[i]
+      if (x > remain) break // 剪枝：后面更大
+      path.push(x)
+      dfs(i, remain - x) // i 不变：允许重复使用
+      path.pop()
+    }
+  }
+
+  dfs(0, target)
+  return res
+}
+
+function norm2D(a){ return a.map(x=>x.join(",")).sort() }
+
+// 5 个测试用例
+console.log(JSON.stringify(norm2D(combinationSum([2,3,6,7], 7)))) // ["2,2,3","7"]
+console.log(JSON.stringify(norm2D(combinationSum([2,3,5], 8)))) // ["2,2,2,2","2,3,3","3,5"]
+console.log(JSON.stringify(norm2D(combinationSum([2], 1)))) // []
+console.log(JSON.stringify(norm2D(combinationSum([1], 2)))) // ["1,1"]
+console.log(norm2D(combinationSum([2,3,6,7], 200)).length > 0) // true
+```
+</UniversalEditor>
+
+</details>
+
+<details>
+<summary><strong>最优解讲解</strong>（通俗版 + 推理过程）</summary>
+
+- **题意翻译**：从候选数里选若干个数（允许重复使用同一个候选），凑出 target；输出所有组合（组合不看顺序）。
+- **先分清“组合 vs 排列”**：
+  - 组合不看顺序：`[2,2,3]` 和 `[2,3,2]` 应该算同一个答案。
+  - 所以我们必须在生成过程中避免“同一组数的不同顺序”。
+- **`start` 的意义**：保证组合按非递减顺序构造
+  - 下一次只能从 `start` 开始选，等价于“只能选当前数或更大的数”。
+  - 这样就不会出现先选 3 再选 2 的情况，自然去重。
+- **为什么递归用 `dfs(i, remain-x)`？**
+  - 因为题目允许重复使用 `candidates[i]`，所以选了 x 之后，下一层仍然可以继续选 i（不跳到 i+1）。
+- **排序是为了剪枝，不是为了去重**：
+  - 当候选已排序后，如果 `x > remain`，后面只会更大，直接 `break`。
+  - 这能大量减少无意义分支。
+- **终止条件**：
+  - `remain == 0`：刚好凑满，记录 `path`
+  - `remain < 0`：这条路超了（由于剪枝，代码里不会走到负数）
+- **小例子**：candidates=[2,3,6,7], target=7
+  - 先选 2 → remain=5 → 继续选 2 → remain=3 → 选 3 → remain=0 得到 `[2,2,3]`
+  - 直接选 7 → remain=0 得到 `[7]`
+- **复杂度**：本质取决于答案数量与剪枝效果，回溯题通常以“搜索树大小”为主导。
+
+</details>
+
+<details>
+<summary><strong>类似题目</strong>（可重复选：递归仍从 i 开始）</summary>
+
+```javascript
+for i from start..:
+  choose a[i]
+  dfs(i, remain-a[i]) // repeat allowed
+  undo
+```
+
+</details>
+
+---
+
+## 22. 括号生成
+
+<LeetCodeProblem titleSlug="generate-parentheses" />
+
+<details>
+<summary><strong>最优解</strong>（回溯 + 剪枝：左括号剩余 & 右括号合法性）</summary>
+
+<UniversalEditor title="内存模型比较" compare={true}>
+```javascript !! js
+function generateParenthesis(n) {
+  const res = []
+  const path = []
+
+  function dfs(openUsed, closeUsed) {
+    if (openUsed === n && closeUsed === n) {
+      res.push(path.join(""))
+      return
+    }
+    // 还能放 '('
+    if (openUsed < n) {
+      path.push("(")
+      dfs(openUsed + 1, closeUsed)
+      path.pop()
+    }
+    // 只有当 closeUsed < openUsed 才能放 ')'
+    if (closeUsed < openUsed) {
+      path.push(")")
+      dfs(openUsed, closeUsed + 1)
+      path.pop()
+    }
+  }
+
+  dfs(0, 0)
+  return res
+}
+
+function sorted(a){ return a.slice().sort() }
+
+// 5 个测试用例
+console.log(generateParenthesis(1)) // ["()"]
+console.log(sorted(generateParenthesis(3)).length) // 5
+console.log(sorted(generateParenthesis(2))) // ["(())","()()"]
+console.log(generateParenthesis(0)) // [""]
+console.log(sorted(generateParenthesis(4)).length) // 14
+```
+</UniversalEditor>
+
+</details>
+
+<details>
+<summary><strong>最优解讲解</strong>（通俗版 + 推理过程）</summary>
+
+- **为什么这题必须剪枝？**：长度是 2n 的括号串一共有 \(2^{2n}\) 种，先全生成再过滤会爆炸。
+- **合法括号串的两条铁律（不变量）**：
+  1. 最终：左括号和右括号都恰好用 n 个
+  2. 过程中任意前缀：右括号数量永远不能超过左括号数量（否则会出现“还没开就先关”的非法状态）
+- **把不变量直接写进递归条件，就是最强剪枝**：
+  - `openUsed < n` 才能放 `'('`（否则左括号超量）
+  - `closeUsed < openUsed` 才能放 `')'`（保证任意前缀合法）
+- **小例子（n=3）帮你理解为什么 `closeUsed < openUsed` 必须有**：
+  - 如果一上来就放 `')'`，不管后面怎么补，都不可能变成合法串，所以这条分支应该立刻剪掉。
+- **终止条件**：当 `openUsed==n && closeUsed==n`，长度正好 2n，且一路都合法，记录答案。
+- **复杂度直觉**：仍然是指数级（答案数是卡特兰数），但我们只走“可能合法”的分支，实际数量远小于 \(2^{2n}\)。
+
+</details>
+
+<details>
+<summary><strong>类似题目</strong>（生成合法序列：用计数维护前缀合法性）</summary>
+
+```javascript
+if openUsed < n: add "("
+if closeUsed < openUsed: add ")"
+```
+
+</details>
+
+---
+
+## 79. 单词搜索
+
+<LeetCodeProblem titleSlug="word-search" />
+
+<details>
+<summary><strong>最优解</strong>（回溯 DFS：从每个格子出发尝试匹配）</summary>
+
+<UniversalEditor title="内存模型比较" compare={true}>
+```javascript !! js
+function exist(board, word) {
+  const m = board.length, n = board[0].length
+  const dirs = [[1,0],[-1,0],[0,1],[0,-1]]
+
+  function dfs(i, j, k) {
+    if (board[i][j] !== word[k]) return false
+    if (k === word.length - 1) return true
+
+    const tmp = board[i][j]
+    board[i][j] = "#" // 标记已用
+    for (const [di, dj] of dirs) {
+      const ni = i + di, nj = j + dj
+      if (ni < 0 || ni >= m || nj < 0 || nj >= n) continue
+      if (board[ni][nj] === "#") continue
+      if (dfs(ni, nj, k + 1)) { board[i][j] = tmp; return true }
+    }
+    board[i][j] = tmp
+    return false
+  }
+
+  for (let i = 0; i < m; i++) {
+    for (let j = 0; j < n; j++) {
+      if (dfs(i, j, 0)) return true
+    }
+  }
+  return false
+}
+
+// 5 个测试用例
+console.log(exist([["A","B","C","E"],["S","F","C","S"],["A","D","E","E"]], "ABCCED")) // true
+console.log(exist([["A","B","C","E"],["S","F","C","S"],["A","D","E","E"]], "SEE")) // true
+console.log(exist([["A","B","C","E"],["S","F","C","S"],["A","D","E","E"]], "ABCB")) // false
+console.log(exist([["a"]], "a")) // true
+console.log(exist([["a","b"],["c","d"]], "abcd")) // false
+```
+</UniversalEditor>
+
+</details>
+
+<details>
+<summary><strong>最优解讲解</strong>（通俗版 + 推理过程）</summary>
+
+- **题意翻译**：从某个起点格子出发，走上下左右相邻格子，把经过的字符依次拼成 word；同一格子不能重复使用。
+- **为什么这是典型回溯？**
+  - 你每走一步，都要决定“下一步走四个方向里的哪一个”，这是一棵 4 叉的决策树。
+  - 走到一半发现不匹配，就必须退回上一步换方向（这就是 backtrack）。
+- **状态定义**：
+  - `(i,j)`：当前所在格子
+  - `k`：已经匹配到 word 的第 k 个字符
+- **最关键的两个细节（写错就会 WA）**：
+  1. **visited 标记必须是“路径级别”的**：同一个格子在同一路径里不能重复用，但换一条路径是可以用的。
+     - 所以用“把格子临时改成 `#`”来表示占用；
+     - 递归返回时必须恢复原字符（撤销选择），否则会污染别的起点/别的分支。
+  2. **剪枝要越早越好**：一进函数就判断 `board[i][j] !== word[k]`，不匹配立刻 return false，别再扩展四个方向。
+- **为什么要从每个格子都试起点？**：word 的第一个字符可能出现在任意位置，起点不固定。
+
+</details>
+
+<details>
+<summary><strong>类似题目</strong>（网格回溯模板：改格子当 visited，再恢复）</summary>
+
+```javascript
+tmp = board[i][j]
+board[i][j] = "#"
+for dir in 4:
+  if dfs(next): return true
+board[i][j] = tmp
+```
+
+</details>
+
+---
+
+## 131. 分割回文串
+
+<LeetCodeProblem titleSlug="palindrome-partitioning" />
+
+<details>
+<summary><strong>最优解</strong>（回溯 + 回文预处理 DP：O(1) 判断回文）</summary>
+
+<UniversalEditor title="内存模型比较" compare={true}>
+```javascript !! js
+function partition(s) {
+  const n = s.length
+  // pal[i][j] 表示 s[i..j] 是否回文
+  const pal = Array.from({ length: n }, () => new Array(n).fill(false))
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = i; j < n; j++) {
+      if (s[i] === s[j] && (j - i <= 2 || pal[i + 1][j - 1])) pal[i][j] = true
+    }
+  }
+
+  const res = []
+  const path = []
+
+  function dfs(start) {
+    if (start === n) { res.push(path.slice()); return }
+    for (let end = start; end < n; end++) {
+      if (!pal[start][end]) continue
+      path.push(s.slice(start, end + 1))
+      dfs(end + 1)
+      path.pop()
+    }
+  }
+
+  dfs(0)
+  return res
+}
+
+function norm2D(a){ return a.map(x=>x.join("|")).sort() }
+
+// 5 个测试用例
+console.log(JSON.stringify(norm2D(partition("aab")))) // ["a|a|b","aa|b"]
+console.log(JSON.stringify(norm2D(partition("a")))) // ["a"]
+console.log(JSON.stringify(norm2D(partition("aba")))) // ["a|b|a","aba"]
+console.log(norm2D(partition("aaa")).length) // 4
+console.log(norm2D(partition("racecar")).includes("racecar")) // true
+```
+</UniversalEditor>
+
+</details>
+
+<details>
+<summary><strong>最优解讲解</strong>（通俗版 + 推理过程）</summary>
+
+- **题意翻译**：把字符串切成若干段，每段都是回文，输出所有切法。
+- **回溯树怎么长（核心建模）**：
+  - 站在位置 `start`，你要决定“下一刀切到哪里 end”。
+  - 只要 `s[start..end]` 是回文，这一刀就合法，递归去处理 `end+1`。
+  - 当 `start == n`，说明刚好切到末尾，`path` 就是一种完整切法。
+- **性能瓶颈在哪里？**：回溯会反复问同一句话：“这段子串是不是回文？”
+  - 如果每次都现用双指针检查，会在不同分支里重复检查同一段子串，成本很高。
+- **关键优化：先用 DP 把所有回文子串预处理出来**：
+  - `pal[i][j]` 表示 `s[i..j]` 是否回文，回溯时直接 \(O(1)\) 查表。
+- **DP 为什么这样填表（推理顺序）**：
+  - `s[i] === s[j]` 且内部 `s[i+1..j-1]` 是回文 ⇒ `pal[i][j]=true`
+  - 但这依赖 `pal[i+1][j-1]`，所以 i 要从右往左枚举（保证内部先算好），j 从 i 往右扩展。
+  - `j-i <= 2`（长度 1/2/3）时内部为空或单字符，可直接作为 base case。
+- **小例子**：`"aab"`
+  - `a | a | b`（每段都是回文）
+  - `aa | b`（`"aa"` 也是回文）
+- **复杂度**：DP 预处理 \(O(n^2)\)，回溯输出规模取决于答案数量（最坏指数级），但查回文变成了常数。
+
+</details>
+
+<details>
+<summary><strong>类似题目</strong>（回溯 + 预处理表：把昂贵判断变成 O(1)）</summary>
+
+```javascript
+precompute good[i][j]
+dfs(start):
+  for end>=start:
+    if good[start][end]:
+      choose segment
+      dfs(end+1)
+      undo
+```
+
+</details>
+
+---
+
+## 51. N 皇后
+
+<LeetCodeProblem titleSlug="n-queens" />
+
+<details>
+<summary><strong>最优解</strong>（回溯：逐行放皇后 + 三个集合剪枝）</summary>
+
+<UniversalEditor title="内存模型比较" compare={true}>
+```javascript !! js
+function solveNQueens(n) {
+  const res = []
+  const cols = new Set()
+  const diag1 = new Set() // r-c
+  const diag2 = new Set() // r+c
+  const board = Array.from({ length: n }, () => new Array(n).fill("."))
+
+  function dfs(r) {
+    if (r === n) {
+      res.push(board.map(row => row.join("")))
+      return
+    }
+    for (let c = 0; c < n; c++) {
+      const d1 = r - c
+      const d2 = r + c
+      if (cols.has(c) || diag1.has(d1) || diag2.has(d2)) continue
+      cols.add(c); diag1.add(d1); diag2.add(d2)
+      board[r][c] = "Q"
+      dfs(r + 1)
+      board[r][c] = "."
+      cols.delete(c); diag1.delete(d1); diag2.delete(d2)
+    }
+  }
+
+  dfs(0)
+  return res
+}
+
+// 5 个测试用例
+console.log(solveNQueens(1).length) // 1
+console.log(solveNQueens(2).length) // 0
+console.log(solveNQueens(3).length) // 0
+console.log(solveNQueens(4).length) // 2
+console.log(solveNQueens(5).length) // 10
+```
+</UniversalEditor>
+
+</details>
+
+<details>
+<summary><strong>最优解讲解</strong>（通俗版 + 推理过程）</summary>
+
+- **题意翻译**：在 n×n 棋盘上放 n 个皇后，要求任意两个皇后都互不攻击（同列/同对角线都不行；按“逐行放”会天然避免同行冲突）。
+- **为什么按“行”回溯是最优建模？**
+  - 规则里隐含了一个强约束：每一行最多放 1 个皇后（否则同行必冲突）。
+  - 所以我们把第 r 层定义为“给第 r 行选一个列 c”，这会大幅减少无效状态。
+- **三个集合剪枝是怎么推理出来的？**
+  - **列冲突**：同列不能放 → 用 `cols` 存已占用列 c
+  - **主对角线冲突**：同一条主对角线满足 `r-c` 相等 → 用 `diag1` 存 `r-c`
+  - **副对角线冲突**：同一条副对角线满足 `r+c` 相等 → 用 `diag2` 存 `r+c`
+- **为什么这三类就够了？**：皇后的攻击路径只有“竖直”和“两条斜线”，不存在其它方向，所以只要这三类都不冲突，就一定安全。
+- **回溯的撤销动作要配套**：
+  - 放置时：往三套集合里 add + 在棋盘写 `Q`
+  - 回退时：从三套集合里 delete + 恢复 `.`
+- **复杂度直觉**：最坏接近 \(O(n!)\) 的搜索（每行选一列），剪枝会大幅减少实际分支。
+
+</details>
+
+<details>
+<summary><strong>类似题目</strong>（逐行/逐层回溯 + 集合剪枝）</summary>
+
+```javascript
+dfs(row):
+  for col in 0..n-1:
+    if col/diag conflict: continue
+    place; dfs(row+1); remove
+```
+
+</details>
+

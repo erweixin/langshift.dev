@@ -1,0 +1,193 @@
+---
+title: 滑动窗口（题单顺序）
+description: 热题 100 - 滑动窗口分组（按题单顺序）：3 / 438
+---
+
+import { LeetCodeProblem } from "@/components/leetcode/LeetCodeProblem"
+
+本页包含题单「滑动窗口」分组的全部题目，顺序与 `list.json` 保持一致。
+
+---
+
+## 3. 无重复字符的最长子串
+
+<LeetCodeProblem titleSlug="longest-substring-without-repeating-characters" />
+
+<details>
+<summary><strong>最优解</strong>（滑动窗口 + 记录字符最近出现位置）</summary>
+
+<UniversalEditor title="内存模型比较" compare={true}>
+```javascript !! js
+function lengthOfLongestSubstring(s) {
+  // lastPos[ch] = ch 最近一次出现的下标
+  const lastPos = new Map()
+  let left = 0
+  let ans = 0
+
+  for (let right = 0; right < s.length; right++) {
+    const ch = s[right]
+
+    if (lastPos.has(ch)) {
+      // 如果 ch 在窗口内出现过，left 需要跳到“上次出现位置 + 1”
+      left = Math.max(left, lastPos.get(ch) + 1)
+    }
+
+    lastPos.set(ch, right)
+    ans = Math.max(ans, right - left + 1)
+  }
+  return ans
+}
+
+// 5 个测试用例
+console.log(lengthOfLongestSubstring("abcabcbb")) // 3
+console.log(lengthOfLongestSubstring("bbbbb")) // 1
+console.log(lengthOfLongestSubstring("pwwkew")) // 3
+console.log(lengthOfLongestSubstring("")) // 0
+console.log(lengthOfLongestSubstring("abba")) // 2
+```
+</UniversalEditor>
+
+</details>
+
+<details>
+<summary><strong>最优解讲解</strong>（通俗版 + 推理过程）</summary>
+
+- **朴素想法**：枚举所有子串，检查是否有重复字符，取最长。子串数量是 \(O(n^2)\)，每次检查还要扫一遍，整体会更慢。
+- **瓶颈在哪里？**：我们在重复做“从某个位置开始，往右扩展直到出现重复字符”的事情；很多扩展过程是重叠的。
+- **关键观察（窗口的本质）**：如果我们维护一个区间 `[left, right]`，保证这段子串里**没有重复字符**，那么右指针每往右走一步，我们只需要处理“新增的那一个字符”会不会造成冲突。
+- **冲突怎么处理？为什么 left 不是一步步挪？**
+  - 当 `s[right] = ch` 在窗口里已经出现过时，窗口不再合法。
+  - 你真正需要的是：把 `left` 直接跳过上一次 `ch` 出现的位置（否则窗口里仍然会有两个 `ch`）。
+  - 所以我们记录 `ch` 最近一次出现的下标 `lastPos[ch]`，并让 `left = max(left, lastPos[ch] + 1)`。
+  - 这里用 `max` 是因为：`left` 可能已经在更右边（比如处理过别的重复），不能往回退。
+- **为什么整体是 \(O(n)\)**：`right` 从左到右只走一遍；`left` 也只会向右移动且最多移动 n 次。Map 查询均摊 \(O(1)\)。
+- **用例子走一遍（抓住“跳跃”）**：`"abba"`
+  - right=0 'a'：窗口 "a"，ans=1
+  - right=1 'b'：窗口 "ab"，ans=2
+  - right=2 'b'：重复，`left` 跳到上次 b 的位置+1 → `left=2`，窗口变 "b"
+  - right=3 'a'：上次 a 在 0，不在窗口内（left=2），窗口 "ba"，ans 仍 2
+- **易错点**：`left` 只能前进不能后退，所以要写成 `left = Math.max(left, lastPos.get(ch) + 1)`。
+- **复杂度**：时间 \(O(n)\)，空间 \(O(\Sigma)\)（字符集大小）。
+
+</details>
+
+<details>
+<summary><strong>类似题目</strong>（滑动窗口通用模板：右扩张 + 左收缩）</summary>
+
+```javascript
+let left = 0
+for (let right = 0; right < n; right++) {
+  add(arr[right]) // 把右端加入窗口
+
+  while (!windowIsValid()) {
+    remove(arr[left]) // 让窗口重新合法
+    left++
+  }
+
+  // 此时窗口合法，可更新答案
+  ans = update(ans, left, right)
+}
+```
+
+</details>
+
+---
+
+## 438. 找到字符串中所有字母异位词
+
+<LeetCodeProblem titleSlug="find-all-anagrams-in-a-string" />
+
+<details>
+<summary><strong>最优解</strong>（定长滑动窗口 + 计数差为 0）</summary>
+
+<UniversalEditor title="内存模型比较" compare={true}>
+```javascript !! js
+function findAnagrams(s, p) {
+  const n = s.length
+  const m = p.length
+  if (m > n) return []
+
+  const a = "a".charCodeAt(0)
+  const diff = new Array(26).fill(0)
+
+  // diff[x] = 窗口里 x 的数量 - p 里 x 的数量
+  for (let i = 0; i < m; i++) {
+    diff[s.charCodeAt(i) - a]++
+    diff[p.charCodeAt(i) - a]--
+  }
+
+  let nonZero = 0
+  for (let i = 0; i < 26; i++) if (diff[i] !== 0) nonZero++
+
+  const ans = []
+  if (nonZero === 0) ans.push(0)
+
+  for (let i = m; i < n; i++) {
+    const inIdx = s.charCodeAt(i) - a
+    const outIdx = s.charCodeAt(i - m) - a
+
+    // 进窗口
+    if (diff[inIdx] === 0) nonZero++
+    diff[inIdx]++
+    if (diff[inIdx] === 0) nonZero--
+
+    // 出窗口
+    if (diff[outIdx] === 0) nonZero++
+    diff[outIdx]--
+    if (diff[outIdx] === 0) nonZero--
+
+    if (nonZero === 0) ans.push(i - m + 1)
+  }
+
+  return ans
+}
+
+// 5 个测试用例
+console.log(findAnagrams("cbaebabacd", "abc")) // [0,6]
+console.log(findAnagrams("abab", "ab")) // [0,1,2]
+console.log(findAnagrams("aaaaa", "aa")) // [0,1,2,3]
+console.log(findAnagrams("a", "ab")) // []
+console.log(findAnagrams("baa", "aa")) // [1]
+```
+</UniversalEditor>
+
+</details>
+
+<details>
+<summary><strong>最优解讲解</strong>（通俗版 + 推理过程）</summary>
+
+- **题意翻译**：在 `s` 里找所有起点 `i`，使得长度为 `p.length` 的子串 `s[i..i+m-1]` 和 `p` 是异位词（字母次数完全一样）。
+- **朴素做法**：对每个起点都数一遍 26 个字母次数，再比较一次 → 每个窗口要 \(O(26 + m)\)，窗口有 \(O(n)\) 个，整体也会偏慢。
+- **关键观察：窗口长度是固定的 \(m\)**。固定长度意味着：窗口每右移一步，只会“进来一个字符、出去一个字符”，其余字符不变。
+- **怎么判断两个字符串是不是异位词？**：看 26 个字母的计数是否完全相同。
+- **把“相同”改写成“差为 0”**：
+  - 我们维护 `diff[26] = count(window) - count(p)`
+  - 如果 `diff` 全部为 0，就说明窗口与 `p` 完全一致（异位词）。
+- **如何 \(O(1)\) 判断“全部为 0”？**：
+  - 直接每次扫 26 个也可以（仍是 \(O(26n)\)，对 26 这种常数通常够快）。
+  - 这里更“套路化”：维护一个 `nonZero` 计数，表示 `diff[i] != 0` 的位置有多少个。`nonZero==0` 就代表全为 0。
+  - 每次窗口移动只会影响两个字符的下标，所以 `nonZero` 也能 \(O(1)\) 更新。
+- **易错点**：维护 `nonZero` 时要同时处理“从 0 变非 0”和“从非 0 变 0”两种变化，否则会错判窗口是否匹配。
+- **复杂度**：时间 \(O(n)\)，空间 \(O(1)\)（固定 26 个计数）。
+- **小例子走一遍**：`s="abab"`, `p="ab"`, m=2
+  - 初始窗口 "ab"：diff 全 0 → 记录 0
+  - 窗口右移：出 'a' 进 'a'，diff 仍全 0 → 记录 1
+  - 再右移同理 → 记录 2
+
+</details>
+
+<details>
+<summary><strong>类似题目</strong>（定长窗口：进一出一维护计数/差分）</summary>
+
+```javascript
+// 固定窗口长度 m
+initWindow(0, m - 1)
+for (let i = m; i < n; i++) {
+  add(arr[i])        // 进
+  remove(arr[i - m]) // 出
+  if (isGood()) ans.push(i - m + 1)
+}
+```
+
+</details>
+

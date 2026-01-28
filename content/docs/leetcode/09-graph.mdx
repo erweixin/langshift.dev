@@ -1,0 +1,336 @@
+---
+title: 图论（题单顺序）
+description: 热题 100 - 图论分组（按题单顺序）：200 / 994 / 207 / 208
+---
+
+import { LeetCodeProblem } from "@/components/leetcode/LeetCodeProblem"
+
+本页包含题单「图论」分组的全部题目，顺序与 `list.json` 保持一致。
+
+---
+
+## 200. 岛屿数量
+
+<LeetCodeProblem titleSlug="number-of-islands" />
+
+<details>
+<summary><strong>最优解</strong>（DFS/BFS 泛洪：看到 1 就把整座岛“淹掉”并计数）</summary>
+
+<UniversalEditor title="内存模型比较" compare={true}>
+```javascript !! js
+function numIslands(grid) {
+  const m = grid.length
+  const n = grid[0].length
+  let ans = 0
+
+  function dfs(i, j) {
+    if (i < 0 || i >= m || j < 0 || j >= n) return
+    if (grid[i][j] !== "1") return
+    grid[i][j] = "0"
+    dfs(i + 1, j); dfs(i - 1, j); dfs(i, j + 1); dfs(i, j - 1)
+  }
+
+  for (let i = 0; i < m; i++) {
+    for (let j = 0; j < n; j++) {
+      if (grid[i][j] === "1") {
+        ans++
+        dfs(i, j)
+      }
+    }
+  }
+  return ans
+}
+
+// 5 个测试用例
+console.log(numIslands([["1","1","1","1","0"],["1","1","0","1","0"],["1","1","0","0","0"],["0","0","0","0","0"]])) // 1
+console.log(numIslands([["1","1","0","0","0"],["1","1","0","0","0"],["0","0","1","0","0"],["0","0","0","1","1"]])) // 3
+console.log(numIslands([["0"]])) // 0
+console.log(numIslands([["1"]])) // 1
+console.log(numIslands([["1","0","1"],["0","1","0"],["1","0","1"]])) // 5
+```
+</UniversalEditor>
+
+</details>
+
+<details>
+<summary><strong>最优解讲解</strong>（通俗版 + 推理过程）</summary>
+
+- **把岛屿看成“连通块”**：上下左右相邻的 '1' 属于同一座岛。
+- **朴素问题**：如果你只是计数，不标记，会重复数到同一座岛上的其它格子。
+- **关键推理：每发现一个 '1'，就把整座岛的 '1' 全部标成 '0'**：
+  - 这一步相当于“泛洪填充”（flood fill）。
+  - 淹完之后，这座岛不会被再次发现，于是计数 +1 是安全的。
+- **为什么是 \(O(mn)\)**：每个格子最多被访问一次（从 '1' 变成 '0' 后就不会再次 DFS）。
+- **为什么要“改成 0”而不是只计数？**
+  - 改成 0 本质上就是“做 visited 标记”，让这座岛只会被发现一次，避免重复计数。
+- **边界与实现细节**：
+  - 如果你不想改原网格，也可以用一个 `visited` 数组记录访问过的格子（空间会变成 \(O(mn)\)）。
+- **复杂度**：时间 \(O(mn)\)，递归 DFS 的栈深度最坏 \(O(mn)\)（建议在很大网格时用 BFS 避免爆栈）。
+
+</details>
+
+<details>
+<summary><strong>类似题目</strong>（网格 DFS/BFS：连通块/泛洪模板）</summary>
+
+```javascript
+if cell is target:
+  ans++
+  floodFill(cell) // 标记 visited
+```
+
+</details>
+
+---
+
+## 994. 腐烂的橘子
+
+<LeetCodeProblem titleSlug="rotting-oranges" />
+
+<details>
+<summary><strong>最优解</strong>（多源 BFS：所有烂橘子同时扩散）</summary>
+
+<UniversalEditor title="内存模型比较" compare={true}>
+```javascript !! js
+function orangesRotting(grid) {
+  const m = grid.length
+  const n = grid[0].length
+  const q = []
+  let fresh = 0
+
+  for (let i = 0; i < m; i++) {
+    for (let j = 0; j < n; j++) {
+      if (grid[i][j] === 2) q.push([i, j])
+      if (grid[i][j] === 1) fresh++
+    }
+  }
+  if (fresh === 0) return 0
+
+  let minutes = -1
+  const dirs = [[1,0],[-1,0],[0,1],[0,-1]]
+
+  while (q.length) {
+    const size = q.length
+    minutes++
+    for (let s = 0; s < size; s++) {
+      const [i, j] = q.shift()
+      for (const [di, dj] of dirs) {
+        const ni = i + di, nj = j + dj
+        if (ni < 0 || ni >= m || nj < 0 || nj >= n) continue
+        if (grid[ni][nj] !== 1) continue
+        grid[ni][nj] = 2
+        fresh--
+        q.push([ni, nj])
+      }
+    }
+  }
+
+  return fresh === 0 ? minutes : -1
+}
+
+// 5 个测试用例
+console.log(orangesRotting([[2,1,1],[1,1,0],[0,1,1]])) // 4
+console.log(orangesRotting([[2,1,1],[0,1,1],[1,0,1]])) // -1
+console.log(orangesRotting([[0,2]])) // 0
+console.log(orangesRotting([[1]])) // -1
+console.log(orangesRotting([[2,2],[1,1],[0,1]])) // 2
+```
+</UniversalEditor>
+
+</details>
+
+<details>
+<summary><strong>最优解讲解</strong>（通俗版 + 推理过程）</summary>
+
+- **这题的关键是“同时扩散”**：每分钟所有烂橘子都会让周围的新鲜橘子变烂。
+- **朴素模拟的坑**：如果你一个个烂橘子依次扩散，会把“同一分钟发生的变化”变成先后顺序，时间会被算错。
+- **正确建模：多源 BFS**：
+  - 把所有初始烂橘子都放进队列，作为第 0 层（同一时间的起点）。
+  - 每一层 BFS 代表 1 分钟扩散：处理当前队列 size 个节点，把能腐烂的新鲜橘子入队。
+- **为什么要维护 fresh 计数？**：最后判断是否还有无法被感染的新鲜橘子（被 0 隔离）→ 有则 -1。
+- **为什么 minutes 从 -1 开始？**
+  - BFS 的每一层代表“过了 1 分钟”，但初始腐烂状态并不算过了一分钟，所以先设为 -1；
+  - 第一次处理初始层后 minutes 变成 0，刚好代表“0 分钟时的状态”。
+- **复杂度**：每个格子最多入队一次，时间 \(O(mn)\)，空间 \(O(mn)\)（队列最坏装满网格）。
+
+</details>
+
+<details>
+<summary><strong>类似题目</strong>（多源 BFS：所有源点同层扩散）</summary>
+
+```javascript
+queue = allSources
+minutes = -1
+while queue:
+  minutes++
+  process current layer
+```
+
+</details>
+
+---
+
+## 207. 课程表
+
+<LeetCodeProblem titleSlug="course-schedule" />
+
+<details>
+<summary><strong>最优解</strong>（拓扑排序：看是否能处理完所有点）</summary>
+
+<UniversalEditor title="内存模型比较" compare={true}>
+```javascript !! js
+function canFinish(numCourses, prerequisites) {
+  const g = Array.from({ length: numCourses }, () => [])
+  const indeg = new Array(numCourses).fill(0)
+
+  for (const [a, b] of prerequisites) {
+    // b -> a
+    g[b].push(a)
+    indeg[a]++
+  }
+
+  const q = []
+  for (let i = 0; i < numCourses; i++) if (indeg[i] === 0) q.push(i)
+
+  let taken = 0
+  while (q.length) {
+    const x = q.shift()
+    taken++
+    for (const y of g[x]) {
+      indeg[y]--
+      if (indeg[y] === 0) q.push(y)
+    }
+  }
+
+  return taken === numCourses
+}
+
+// 5 个测试用例
+console.log(canFinish(2, [[1,0]])) // true
+console.log(canFinish(2, [[1,0],[0,1]])) // false
+console.log(canFinish(1, [])) // true
+console.log(canFinish(3, [[1,0],[2,1]])) // true
+console.log(canFinish(3, [[1,0],[2,1],[0,2]])) // false
+```
+</UniversalEditor>
+
+</details>
+
+<details>
+<summary><strong>最优解讲解</strong>（通俗版 + 推理过程）</summary>
+
+- **把课程依赖看成有向图**：`b -> a` 表示学 a 之前必须先学 b。
+- **能否学完 ⇔ 图里有没有环**：有环就意味着互相依赖，永远无法开始。
+- **拓扑排序的推理**：
+  - 入度为 0 的点表示“没有前置课”，可以立刻学。
+  - 学完一个课，就相当于把它指向的边删除（后继课程入度减 1）。
+  - 不断把新的入度为 0 的课加入队列。
+  - 最后如果学完数量 == 总课程数，说明没有环；否则剩下的点都在环里。
+- **为什么入度为 0 的点一定可以学？**：它没有任何前置依赖，放在当前顺序最前面不会违反约束。
+- **为什么处理不完就代表有环？**：如果有剩余节点但都入度 > 0，说明它们互相依赖形成闭环，永远不会变成 0 入度。
+- **复杂度**：建图 \(O(V+E)\)，拓扑排序 \(O(V+E)\)，空间 \(O(V+E)\)。
+
+</details>
+
+<details>
+<summary><strong>类似题目</strong>（判断有向图是否有环：Kahn 拓扑）</summary>
+
+```javascript
+queue = all nodes with indegree 0
+while queue: pop, relax outgoing edges
+return processedCount === n
+```
+
+</details>
+
+---
+
+## 208. 实现 Trie (前缀树)
+
+<LeetCodeProblem titleSlug="implement-trie-prefix-tree" />
+
+<details>
+<summary><strong>最优解</strong>（Trie 节点 = children 映射 + isEnd 标记）</summary>
+
+<UniversalEditor title="内存模型比较" compare={true}>
+```javascript !! js
+function Trie() {
+  this.root = { children: new Map(), end: false }
+}
+
+Trie.prototype.insert = function(word) {
+  let node = this.root
+  for (const ch of word) {
+    if (!node.children.has(ch)) node.children.set(ch, { children: new Map(), end: false })
+    node = node.children.get(ch)
+  }
+  node.end = true
+}
+
+Trie.prototype.search = function(word) {
+  let node = this.root
+  for (const ch of word) {
+    if (!node.children.has(ch)) return false
+    node = node.children.get(ch)
+  }
+  return node.end === true
+}
+
+Trie.prototype.startsWith = function(prefix) {
+  let node = this.root
+  for (const ch of prefix) {
+    if (!node.children.has(ch)) return false
+    node = node.children.get(ch)
+  }
+  return true
+}
+
+// 5 个测试用例
+{
+  const trie = new Trie()
+  trie.insert("apple")
+  console.log(trie.search("apple")) // true
+  console.log(trie.search("app")) // false
+  console.log(trie.startsWith("app")) // true
+  trie.insert("app")
+  console.log(trie.search("app")) // true
+}
+{
+  const trie = new Trie()
+  trie.insert("")
+  console.log(trie.search("")) // true
+  console.log(trie.startsWith("")) // true
+  console.log(trie.search("a")) // false
+  trie.insert("a")
+  console.log(trie.search("a")) // true
+}
+```
+</UniversalEditor>
+
+</details>
+
+<details>
+<summary><strong>最优解讲解</strong>（通俗版 + 推理过程）</summary>
+
+- **Trie 是干什么的？**：专门用来做“字符串前缀查询”的树结构。把单词按字符一层层往下走。
+- **节点需要存什么信息？**
+  - `children`：从当前节点出发，不同字符的下一步（可以用 Map 或数组 26）。
+  - `end`：这个节点是否是某个单词的结尾（解决 “app” 和 “apple” 共用前缀的情况）。
+- **insert 的推理**：沿着字符往下走，缺节点就创建，最后把 end 标成 true。
+- **search vs startsWith 的区别**：
+  - `search(word)` 要求走到最后节点且 `end=true`。
+  - `startsWith(prefix)` 只要路径存在即可，不要求 `end`。
+
+</details>
+
+<details>
+<summary><strong>类似题目</strong>（字典树模板）</summary>
+
+```javascript
+node = root
+for ch in word:
+  node = node.children[ch] (create if needed)
+node.end = true
+```
+
+</details>
+

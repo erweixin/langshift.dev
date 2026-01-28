@@ -118,4 +118,17 @@ export const getCourses = (t: TranslationKeys) => ([
     borderColor: 'border-red-500/20',
     gradient: 'from-red-400/20 to-orange-500/20',
   },
+  {
+    name: 'leetcode',
+    title: t.home.courses.leetcode.title,
+    description: t.home.courses.leetcode.description,
+    features: t.home.courses.leetcode.features,
+    duration: t.home.courses.leetcode.duration,
+    level: t.home.courses.leetcode.level,
+    icon: '📋',
+    color: 'from-amber-500 to-yellow-600',
+    bgColor: 'bg-amber-500/10',
+    borderColor: 'border-amber-500/20',
+    gradient: 'from-amber-400/20 to-yellow-500/20',
+  },
 ]);
