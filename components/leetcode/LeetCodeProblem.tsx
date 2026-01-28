@@ -87,20 +87,20 @@ export async function LeetCodeProblem({ titleSlug }: { titleSlug: string }) {
     const html = q.translatedContent || q.content || ""
 
     return (
-      <section className="my-4 rounded-lg border p-4">
-        <div className="flex flex-wrap items-center gap-2">
-          <a className="text-sm underline underline-offset-4" href={leetcodeCnUrl} target="_blank" rel="noreferrer">
+      <section className="my-4 rounded-lg border p-4 overflow-x-auto">
+        <div className="flex min-w-0 flex-nowrap items-center gap-2 overflow-x-auto pb-1">
+          <a className="shrink-0 text-sm underline underline-offset-4" href={leetcodeCnUrl} target="_blank" rel="noreferrer">
             力扣原题：{q.questionFrontendId}. {title}
           </a>
-          <Badge variant={difficultyVariant(q.difficulty)}>{q.difficulty}</Badge>
+          <Badge className="shrink-0" variant={difficultyVariant(q.difficulty)}>{q.difficulty}</Badge>
           {q.topicTags?.slice(0, 6)?.map((t) => (
-            <Badge key={t.slug} variant="outline">
+            <Badge key={t.slug} className="shrink-0" variant="outline">
               {t.translatedName || t.name}
             </Badge>
           ))}
         </div>
 
-        <div className="prose prose-neutral mt-3 max-w-none dark:prose-invert" dangerouslySetInnerHTML={{ __html: html }} />
+        <div className="leetcode-prose prose prose-neutral mt-3 max-w-none dark:prose-invert" dangerouslySetInnerHTML={{ __html: html }} />
       </section>
     )
   } catch (err) {
