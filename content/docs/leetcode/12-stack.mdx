@@ -48,6 +48,37 @@ console.log(isValid("(]")) // false
 console.log(isValid("([)]")) // false
 console.log(isValid("{[]}")) // true
 ```
+
+```go !! go
+package main
+
+import "fmt"
+
+func isValid(s string) bool {
+	var st []byte
+	match := map[byte]byte{')': '(', ']': '[', '}': '{'}
+	for i := 0; i < len(s); i++ {
+		ch := s[i]
+		if ch == '(' || ch == '[' || ch == '{' {
+			st = append(st, ch)
+		} else {
+			if len(st) == 0 {
+				return false
+			}
+			top := st[len(st)-1]
+			st = st[:len(st)-1]
+			if top != match[ch] {
+				return false
+			}
+		}
+	}
+	return len(st) == 0
+}
+
+func main() {
+	fmt.Println(isValid("()"), isValid("()[]{}"), isValid("(]"), isValid("([)]"), isValid("{[]}"))
+}
+```
 </UniversalEditor>
 
 </details>
@@ -136,6 +167,53 @@ MinStack.prototype.getMin = function() {
   console.log(ms.getMin()) // 7
 }
 ```
+
+```go !! go
+package main
+
+import "fmt"
+
+type MinStack struct {
+	st   []int
+	minSt []int
+}
+
+func Constructor() MinStack {
+	return MinStack{}
+}
+
+func (m *MinStack) Push(val int) {
+	m.st = append(m.st, val)
+	curMin := val
+	if len(m.minSt) > 0 && m.minSt[len(m.minSt)-1] < val {
+		curMin = m.minSt[len(m.minSt)-1]
+	}
+	m.minSt = append(m.minSt, curMin)
+}
+
+func (m *MinStack) Pop() {
+	m.st = m.st[:len(m.st)-1]
+	m.minSt = m.minSt[:len(m.minSt)-1]
+}
+
+func (m *MinStack) Top() int {
+	return m.st[len(m.st)-1]
+}
+
+func (m *MinStack) GetMin() int {
+	return m.minSt[len(m.minSt)-1]
+}
+
+func main() {
+	ms := Constructor()
+	ms.Push(-2)
+	ms.Push(0)
+	ms.Push(-3)
+	fmt.Println(ms.GetMin())
+	ms.Pop()
+	fmt.Println(ms.Top(), ms.GetMin())
+}
+```
 </UniversalEditor>
 
 </details>
@@ -203,6 +281,50 @@ console.log(decodeString("2[abc]3[cd]ef")) // "abcabccdcdcdef"
 console.log(decodeString("10[a]")) // 10 个 a
 console.log(decodeString("abc3[cd]xyz")) // "abccdcdcdxyz"
 ```
+
+```go !! go
+package main
+
+import (
+	"fmt"
+	"strings"
+)
+
+func decodeString(s string) string {
+	type state struct {
+		cur string
+		num int
+	}
+	var st []state
+	num := 0
+	cur := ""
+	for i := 0; i < len(s); i++ {
+		ch := s[i]
+		if ch >= '0' && ch <= '9' {
+			num = num*10 + int(ch-'0')
+		} else if ch == '[' {
+			st = append(st, state{cur, num})
+			cur = ""
+			num = 0
+		} else if ch == ']' {
+			prev := st[len(st)-1]
+			st = st[:len(st)-1]
+			cur = prev.cur + strings.Repeat(cur, prev.num)
+		} else {
+			cur += string(ch)
+		}
+	}
+	return cur
+}
+
+func main() {
+	fmt.Println(decodeString("3[a]2[bc]"))
+	fmt.Println(decodeString("3[a2[c]]"))
+	fmt.Println(decodeString("2[abc]3[cd]ef"))
+	fmt.Println(decodeString("10[a]"))
+	fmt.Println(decodeString("abc3[cd]xyz"))
+}
+```
 </UniversalEditor>
 
 </details>
@@ -265,6 +387,35 @@ console.log(JSON.stringify(dailyTemperatures([30,40,50,60]))) // [1,1,1,0]
 console.log(JSON.stringify(dailyTemperatures([30,60,90]))) // [1,1,0]
 console.log(JSON.stringify(dailyTemperatures([90,80,70]))) // [0,0,0]
 console.log(JSON.stringify(dailyTemperatures([70,70,70,71]))) // [3,2,1,0]
+```
+
+```go !! go
+package main
+
+import "fmt"
+
+func dailyTemperatures(temperatures []int) []int {
+	n := len(temperatures)
+	ans := make([]int, n)
+	var st []int
+	for i := 0; i < n; i++ {
+		for len(st) > 0 && temperatures[i] > temperatures[st[len(st)-1]] {
+			j := st[len(st)-1]
+			st = st[:len(st)-1]
+			ans[j] = i - j
+		}
+		st = append(st, i)
+	}
+	return ans
+}
+
+func main() {
+	fmt.Println(dailyTemperatures([]int{73, 74, 75, 71, 69, 72, 76, 73}))
+	fmt.Println(dailyTemperatures([]int{30, 40, 50, 60}))
+	fmt.Println(dailyTemperatures([]int{30, 60, 90}))
+	fmt.Println(dailyTemperatures([]int{90, 80, 70}))
+	fmt.Println(dailyTemperatures([]int{70, 70, 70, 71}))
+}
 ```
 </UniversalEditor>
 
@@ -334,6 +485,44 @@ console.log(largestRectangleArea([2,4])) // 4
 console.log(largestRectangleArea([1,1,1,1])) // 4
 console.log(largestRectangleArea([6,2,5,4,5,1,6])) // 12
 console.log(largestRectangleArea([0])) // 0
+```
+
+```go !! go
+package main
+
+import "fmt"
+
+func largestRectangleArea(heights []int) int {
+	h := make([]int, len(heights)+2)
+	copy(h[1:], heights)
+	h[0], h[len(h)-1] = 0, 0
+	var st []int
+	best := 0
+	for i := 0; i < len(h); i++ {
+		for len(st) > 0 && h[i] < h[st[len(st)-1]] {
+			mid := st[len(st)-1]
+			st = st[:len(st)-1]
+			left := 0
+			if len(st) > 0 {
+				left = st[len(st)-1]
+			}
+			width := i - left - 1
+			if h[mid]*width > best {
+				best = h[mid] * width
+			}
+		}
+		st = append(st, i)
+	}
+	return best
+}
+
+func main() {
+	fmt.Println(largestRectangleArea([]int{2, 1, 5, 6, 2, 3}))
+	fmt.Println(largestRectangleArea([]int{2, 4}))
+	fmt.Println(largestRectangleArea([]int{1, 1, 1, 1}))
+	fmt.Println(largestRectangleArea([]int{6, 2, 5, 4, 5, 1, 6}))
+	fmt.Println(largestRectangleArea([]int{0}))
+}
 ```
 </UniversalEditor>
 

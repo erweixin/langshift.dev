@@ -48,6 +48,46 @@ console.log(numIslands([["0"]])) // 0
 console.log(numIslands([["1"]])) // 1
 console.log(numIslands([["1","0","1"],["0","1","0"],["1","0","1"]])) // 5
 ```
+
+```go !! go
+package main
+
+import "fmt"
+
+func numIslands(grid [][]byte) int {
+	m, n := len(grid), len(grid[0])
+	ans := 0
+	var dfs func(i, j int)
+	dfs = func(i, j int) {
+		if i < 0 || i >= m || j < 0 || j >= n || grid[i][j] != '1' {
+			return
+		}
+		grid[i][j] = '0'
+		dfs(i+1, j)
+		dfs(i-1, j)
+		dfs(i, j+1)
+		dfs(i, j-1)
+	}
+	for i := 0; i < m; i++ {
+		for j := 0; j < n; j++ {
+			if grid[i][j] == '1' {
+				ans++
+				dfs(i, j)
+			}
+		}
+	}
+	return ans
+}
+
+func main() {
+	g1 := [][]byte{{'1', '1', '1', '1', '0'}, {'1', '1', '0', '1', '0'}, {'1', '1', '0', '0', '0'}, {'0', '0', '0', '0', '0'}}
+	fmt.Println(numIslands(g1))
+	g2 := [][]byte{{'1', '1', '0', '0', '0'}, {'1', '1', '0', '0', '0'}, {'0', '0', '1', '0', '0'}, {'0', '0', '0', '1', '1'}}
+	fmt.Println(numIslands(g2))
+	fmt.Println(numIslands([][]byte{{'0'}}))
+	fmt.Println(numIslands([][]byte{{'1'}}))
+}
+```
 </UniversalEditor>
 
 </details>
@@ -134,6 +174,61 @@ console.log(orangesRotting([[0,2]])) // 0
 console.log(orangesRotting([[1]])) // -1
 console.log(orangesRotting([[2,2],[1,1],[0,1]])) // 2
 ```
+
+```go !! go
+package main
+
+import "fmt"
+
+func orangesRotting(grid [][]int) int {
+	m, n := len(grid), len(grid[0])
+	var q [][2]int
+	fresh := 0
+	for i := 0; i < m; i++ {
+		for j := 0; j < n; j++ {
+			if grid[i][j] == 2 {
+				q = append(q, [2]int{i, j})
+			} else if grid[i][j] == 1 {
+				fresh++
+			}
+		}
+	}
+	if fresh == 0 {
+		return 0
+	}
+	dirs := [][2]int{{1, 0}, {-1, 0}, {0, 1}, {0, -1}}
+	minutes := -1
+	for len(q) > 0 {
+		size := len(q)
+		minutes++
+		for s := 0; s < size; s++ {
+			cell := q[0]
+			q = q[1:]
+			i, j := cell[0], cell[1]
+			for _, d := range dirs {
+				ni, nj := i+d[0], j+d[1]
+				if ni >= 0 && ni < m && nj >= 0 && nj < n && grid[ni][nj] == 1 {
+					grid[ni][nj] = 2
+					fresh--
+					q = append(q, [2]int{ni, nj})
+				}
+			}
+		}
+	}
+	if fresh != 0 {
+		return -1
+	}
+	return minutes
+}
+
+func main() {
+	fmt.Println(orangesRotting([][]int{{2, 1, 1}, {1, 1, 0}, {0, 1, 1}}))
+	fmt.Println(orangesRotting([][]int{{2, 1, 1}, {0, 1, 1}, {1, 0, 1}}))
+	fmt.Println(orangesRotting([][]int{{0, 2}}))
+	fmt.Println(orangesRotting([][]int{{1}}))
+	fmt.Println(orangesRotting([][]int{{2, 2}, {1, 1}, {0, 1}}))
+}
+```
 </UniversalEditor>
 
 </details>
@@ -210,6 +305,49 @@ console.log(canFinish(2, [[1,0],[0,1]])) // false
 console.log(canFinish(1, [])) // true
 console.log(canFinish(3, [[1,0],[2,1]])) // true
 console.log(canFinish(3, [[1,0],[2,1],[0,2]])) // false
+```
+
+```go !! go
+package main
+
+import "fmt"
+
+func canFinish(numCourses int, prerequisites [][]int) bool {
+	g := make([][]int, numCourses)
+	indeg := make([]int, numCourses)
+	for _, e := range prerequisites {
+		b, a := e[1], e[0]
+		g[b] = append(g[b], a)
+		indeg[a]++
+	}
+	var q []int
+	for i := 0; i < numCourses; i++ {
+		if indeg[i] == 0 {
+			q = append(q, i)
+		}
+	}
+	taken := 0
+	for len(q) > 0 {
+		x := q[0]
+		q = q[1:]
+		taken++
+		for _, y := range g[x] {
+			indeg[y]--
+			if indeg[y] == 0 {
+				q = append(q, y)
+			}
+		}
+	}
+	return taken == numCourses
+}
+
+func main() {
+	fmt.Println(canFinish(2, [][]int{{1, 0}}))
+	fmt.Println(canFinish(2, [][]int{{1, 0}, {0, 1}}))
+	fmt.Println(canFinish(1, nil))
+	fmt.Println(canFinish(3, [][]int{{1, 0}, {2, 1}}))
+	fmt.Println(canFinish(3, [][]int{{1, 0}, {2, 1}, {0, 2}}))
+}
 ```
 </UniversalEditor>
 
@@ -304,6 +442,69 @@ class Trie {
   console.log(trie.search("a")) // false
   trie.insert("a")
   console.log(trie.search("a")) // true
+}
+```
+
+```go !! go
+package main
+
+import "fmt"
+
+type TrieNode struct {
+	children map[byte]*TrieNode
+	end      bool
+}
+
+type Trie struct {
+	root *TrieNode
+}
+
+func Constructor() Trie {
+	return Trie{root: &TrieNode{children: make(map[byte]*TrieNode)}}
+}
+
+func (t *Trie) Insert(word string) {
+	node := t.root
+	for i := 0; i < len(word); i++ {
+		ch := word[i]
+		if node.children[ch] == nil {
+			node.children[ch] = &TrieNode{children: make(map[byte]*TrieNode)}
+		}
+		node = node.children[ch]
+	}
+	node.end = true
+}
+
+func (t *Trie) Search(word string) bool {
+	node := t.root
+	for i := 0; i < len(word); i++ {
+		ch := word[i]
+		if node.children[ch] == nil {
+			return false
+		}
+		node = node.children[ch]
+	}
+	return node.end
+}
+
+func (t *Trie) StartsWith(prefix string) bool {
+	node := t.root
+	for i := 0; i < len(prefix); i++ {
+		ch := prefix[i]
+		if node.children[ch] == nil {
+			return false
+		}
+		node = node.children[ch]
+	}
+	return true
+}
+
+func main() {
+	trie := Constructor()
+	trie.Insert("apple")
+	fmt.Println(trie.Search("apple"), trie.Search("app"), trie.StartsWith("app"))
+	trie.Insert("app")
+	fmt.Println(trie.Search("app"))
 }
 ```
 </UniversalEditor>
