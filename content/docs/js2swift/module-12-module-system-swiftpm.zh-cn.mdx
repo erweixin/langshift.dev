@@ -1,0 +1,780 @@
+---
+title: "第 12 模块：模块系统与 Swift Package Manager"
+description: "学习 Swift 的模块系统、访问控制级别、Swift Package Manager 依赖管理，以及如何组织 Swift 项目结构——与 JavaScript 的 npm 生态系统对比。"
+---
+
+# 第 12 模块：模块系统与 Swift Package Manager
+
+Swift 的模块系统和 Swift Package Manager（SPM）是 Swift 生态系统中代码组织与依赖管理的核心基础。如果你来自 JavaScript 和 npm/yarn，很多概念会感觉很熟悉——但 Swift 的方式更深入，具有编译器强制执行的访问控制，以及内置在工具链中的第一方包管理器。
+
+## 学习目标
+
+✅ 理解 Swift 模块是什么，以及它与 ES 模块的区别
+✅ 应用 Swift 的四个访问控制级别：`public`、`internal`、`fileprivate` 和 `private`
+✅ 使用 `import` 语句将模块和特定声明引入作用域
+✅ 初始化 Swift Package Manager 项目并理解 `Package.swift`
+✅ 在 SPM 中使用语义版本控制添加第三方依赖
+✅ 将 SPM 项目结构与 Node.js 的 `package.json` 配置进行比较
+
+---
+
+## 1. Swift 模块概述
+
+在 JavaScript 中，**模块**通常是单个文件。在 Swift 中，**模块**是一个编译单元——它可以是单个文件，也可以是整个库/框架。当你构建一个 Swift 包目标时，该目标中的所有内容都成为一个模块。使用方通过 `import` 模块名称来引入整个模块。
+
+<UniversalEditor title="模块概念：JS 与 Swift 对比" compare={true}>
+```javascript !! js
+// JavaScript：每个文件都是自己的模块
+// math.js
+export function add(a, b) {
+  return a + b;
+}
+
+export const PI = 3.14159;
+
+// main.js
+import { add, PI } from './math.js';
+
+console.log(add(2, 3));   // 5
+console.log(PI);           // 3.14159
+
+// 也可以进行命名空间导入
+import * as MathUtils from './math.js';
+console.log(MathUtils.add(1, 2)); // 3
+```
+
+```swift !! swift
+// Swift：模块是一个编译的*目标*（库或可执行文件）
+// 同一目标中的所有内容共享同一个模块命名空间。
+
+// Sources/MathUtils/Arithmetic.swift
+public func add(_ a: Int, _ b: Int) -> Int {
+    return a + b
+}
+
+public let pi = 3.14159
+
+// Sources/App/main.swift
+import MathUtils   // 导入整个模块
+
+print(add(2, 3))   // 5
+print(pi)          // 3.14159
+
+// 不能用 `import MathUtils.add` 选择性导入单个符号
+// （Swift 不支持用户自定义模块的部分导入）
+// 但可以从系统框架导入特定声明：
+import func Foundation.NSLog
+```
+</UniversalEditor>
+
+---
+
+## 2. 访问控制
+
+JavaScript 没有内置的访问控制——任何导出的内容都可以在任何地方被导入。Swift 在**编译器层面**通过四个级别强制执行访问控制，从限制最少到最多：
+
+| 级别 | 作用域 | JS 等价物 |
+|---|---|---|
+| `public` | 任何模块都可见 | `export` |
+| `internal` | 仅在同一模块内可见（默认） | 不显式导出 |
+| `fileprivate` | 仅在同一 `.swift` 文件内可见 | 无等价物 |
+| `private` | 仅在所在声明体内可见 | 无等价物 |
+
+<UniversalEditor title="访问控制级别" compare={true}>
+```javascript !! js
+// JavaScript：访问控制只是约定，没有编译器强制执行
+
+// user.js
+// "公开" API — 显式导出
+export class User {
+  constructor(name, email) {
+    this.name = name;
+    this.email = email;
+    this._passwordHash = null; // 约定：下划线前缀 = "私有"
+  }
+
+  // "公开"方法
+  getDisplayName() {
+    return this.name;
+  }
+
+  // 仅按约定"私有" — 外部仍可访问
+  _hashPassword(password) {
+    return btoa(password); // 不是真正的哈希！
+  }
+
+  setPassword(password) {
+    this._passwordHash = this._hashPassword(password);
+  }
+}
+
+// 任何人仍然可以调用：user._hashPassword("secret")
+// JavaScript 无法阻止这一点！
+```
+
+```swift !! swift
+// Swift：访问控制由编译器强制执行
+
+// Sources/Models/User.swift
+public struct User {
+    // public：任何模块都可访问
+    public let name: String
+    public let email: String
+
+    // internal：同一模块内可访问（默认）
+    var lastLoginDate: Date?
+
+    // private：只能在此结构体声明内访问
+    private var passwordHash: String?
+
+    public init(name: String, email: String) {
+        self.name = name
+        self.email = email
+    }
+
+    public func getDisplayName() -> String {
+        return name
+    }
+
+    public mutating func setPassword(_ password: String) {
+        // 在同一声明体内可以调用私有方法
+        passwordHash = hashPassword(password)
+    }
+
+    // private：不能从结构体外部调用
+    private func hashPassword(_ password: String) -> String {
+        // 实际实现会使用 CryptoKit
+        return password.reversed().map { String($0) }.joined()
+    }
+}
+
+// 外部代码不能调用 user.hashPassword("secret") — 编译错误！
+```
+</UniversalEditor>
+
+<UniversalEditor title="fileprivate 与 private" compare={true}>
+```javascript !! js
+// JavaScript 没有 fileprivate 等价物。
+// 文件中的所有内容要么被导出（公开），要么不导出（模块级私有）。
+
+// helpers.js
+function formatName(first, last) {   // 未导出 = 约定上的"文件私有"
+  return `${first} ${last}`;
+}
+
+class UserFormatter {
+  format(user) {
+    return formatName(user.first, user.last);
+  }
+}
+
+class AdminFormatter {
+  format(admin) {
+    // 也可以工作 — 同一文件可以调用 formatName
+    return `[ADMIN] ${formatName(admin.first, admin.last)}`;
+  }
+}
+
+export { UserFormatter, AdminFormatter };
+```
+
+```swift !! swift
+// Swift：fileprivate 在同一文件内可见，但在文件外不可见。
+
+// Sources/Formatters.swift
+
+// fileprivate：UserFormatter 和 AdminFormatter（在此文件中）都可以使用它，
+// 但其他文件中的代码不能使用。
+fileprivate func formatName(first: String, last: String) -> String {
+    return "\(first) \(last)"
+}
+
+public struct UserFormatter {
+    public func format(user: (first: String, last: String)) -> String {
+        return formatName(first: user.first, last: user.last)
+    }
+}
+
+public struct AdminFormatter {
+    public func format(admin: (first: String, last: String)) -> String {
+        // 也可以工作 — 同一文件
+        return "[ADMIN] \(formatName(first: admin.first, last: admin.last))"
+    }
+}
+
+// 另一个文件中的类型不能调用 formatName — 编译错误。
+```
+</UniversalEditor>
+
+---
+
+## 3. Swift 中的 import
+
+Swift 的 `import` 比 JavaScript 的更简单：你总是通过名称导入整个模块。你不能解构导入，但可以消除特定声明的歧义。
+
+<UniversalEditor title="导入语法对比" compare={true}>
+```javascript !! js
+// JavaScript：灵活的导入语法
+
+// 命名导入
+import { readFile, writeFile } from 'fs/promises';
+
+// 默认导入
+import express from 'express';
+
+// 命名空间导入
+import * as path from 'path';
+
+// 导入时重命名
+import { readFile as readFileAsync } from 'fs/promises';
+
+// 动态导入（懒加载）
+async function loadModule() {
+  const { default: lodash } = await import('lodash');
+  return lodash.chunk([1, 2, 3, 4], 2);
+}
+
+// 仅副作用导入
+import './polyfills.js';
+```
+
+```swift !! swift
+// Swift：通过名称导入整个模块
+
+import Foundation           // Apple 的核心实用框架
+import Swift                // （隐式 — 始终可用）
+
+// 从包中导入特定模块
+import Vapor                // 第三方 Vapor Web 框架
+import ArgumentParser       // Swift Argument Parser 库
+
+// 消除特定声明的歧义（避免名称冲突）
+// import func Foundation.NSLog
+// import struct Foundation.URL
+// import typealias Foundation.TimeInterval
+
+// Swift 中没有动态/懒加载导入（模块在编译时链接）
+
+// 实际示例：使用 Foundation 类型
+let url = URL(string: "https://example.com")!
+let data = try Data(contentsOf: url)   // Foundation 的 Data 类型
+
+// 使用 Swift 标准库（始终隐式导入）
+let numbers = [1, 2, 3, 4, 5]
+let doubled = numbers.map { $0 * 2 }
+print(doubled) // [2, 4, 6, 8, 10]
+```
+</UniversalEditor>
+
+---
+
+## 4. Swift Package Manager
+
+SPM 是 Swift 官方的第一方包管理器。它随 Swift 工具链一起提供——无需单独安装。清单文件是 `Package.swift`，类似于 `package.json`。
+
+<UniversalEditor title="项目初始化：npm 与 SPM 对比" compare={true}>
+```javascript !! js
+// JavaScript / Node.js — 初始化新项目
+
+// $ mkdir my-project && cd my-project
+// $ npm init -y
+
+// 生成 package.json：
+// {
+//   "name": "my-project",
+//   "version": "1.0.0",
+//   "description": "",
+//   "main": "index.js",
+//   "scripts": {
+//     "start": "node index.js",
+//     "test": "jest"
+//   },
+//   "dependencies": {},
+//   "devDependencies": {}
+// }
+
+// 然后安装依赖：
+// $ npm install express
+
+// 项目结构：
+// my-project/
+//   package.json
+//   package-lock.json
+//   node_modules/        <-- 所有依赖在这里
+//   index.js
+//   src/
+```
+
+```swift !! swift
+// Swift — 初始化新包
+// $ mkdir MyProject && cd MyProject
+// $ swift package init --type executable
+
+// 生成 Package.swift 和以下结构：
+// MyProject/
+//   Package.swift        <-- 清单（类似 package.json）
+//   Package.resolved     <-- 锁定文件（类似 package-lock.json）
+//   Sources/
+//     MyProject/
+//       main.swift       <-- 入口点
+//   Tests/
+//     MyProjectTests/
+//       MyProjectTests.swift
+
+// 其他初始化类型：
+// $ swift package init --type library       # 可复用库
+// $ swift package init --type plugin        # 构建插件
+
+// 构建和运行：
+// $ swift build
+// $ swift run
+// $ swift test
+```
+</UniversalEditor>
+
+---
+
+## 5. Package.swift 结构
+
+`Package.swift` 是一个声明包的 Swift 源文件。它比 JSON 更强大，因为它是真正的代码——你可以使用条件判断、循环和 Swift 的类型系统。
+
+<UniversalEditor title="包清单：package.json 与 Package.swift 对比" compare={true}>
+```javascript !! js
+// package.json — JSON 格式
+{
+  "name": "task-api",
+  "version": "1.0.0",
+  "description": "简单的任务管理 REST API",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "test": "jest --coverage",
+    "build": "tsc"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "dotenv": "^16.0.3"
+  },
+  "devDependencies": {
+    "jest": "^29.0.0",
+    "nodemon": "^3.0.0",
+    "@types/express": "^4.17.18"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
+```
+
+```swift !! swift
+// Package.swift — Swift 源文件
+// swift-tools-version: 5.9
+import PackageDescription
+
+let package = Package(
+    name: "TaskAPI",
+    // 最低平台版本（可选但推荐）
+    platforms: [
+        .macOS(.v13)
+    ],
+    // products：此包向使用方暴露的内容
+    products: [
+        .executable(name: "TaskAPI", targets: ["TaskAPI"]),
+        // 对于库：.library(name: "TaskAPI", targets: ["TaskAPI"])
+    ],
+    // dependencies：第三方包（类似 package.json 的 "dependencies"）
+    dependencies: [
+        .package(
+            url: "https://github.com/vapor/vapor.git",
+            from: "4.89.0"
+        ),
+        .package(
+            url: "https://github.com/apple/swift-argument-parser.git",
+            from: "1.2.0"
+        ),
+    ],
+    // targets：此包内的编译单元
+    targets: [
+        .executableTarget(
+            name: "TaskAPI",
+            dependencies: [
+                .product(name: "Vapor", package: "vapor"),
+                .product(name: "ArgumentParser", package: "swift-argument-parser"),
+            ],
+            path: "Sources/TaskAPI"
+        ),
+        .testTarget(
+            name: "TaskAPITests",
+            dependencies: ["TaskAPI"],
+            path: "Tests/TaskAPITests"
+        ),
+    ]
+)
+```
+</UniversalEditor>
+
+---
+
+## 6. 添加依赖
+
+<UniversalEditor title="添加依赖：npm 与 SPM 对比" compare={true}>
+```javascript !! js
+// JavaScript：从 npm 仓库安装
+// $ npm install express@4.18.2
+// $ npm install --save-dev jest
+
+// package.json 自动更新。
+// package.json 中的语义版本控制：
+// "^4.18.2"  — 兼容 4.x.x（允许次要版本 + 补丁更新）
+// "~4.18.2"  — 仅补丁更新（4.18.x）
+// "4.18.2"   — 精确版本
+// "*"        — 任意版本（危险！）
+
+// 更新所有依赖：
+// $ npm update
+
+// 安全审计：
+// $ npm audit
+
+// 锁定文件：package-lock.json（提交到 git）
+// node_modules/ 在 .gitignore 中
+```
+
+```swift !! swift
+// Swift：手动将包 URL 添加到 Package.swift，
+// 然后用 $ swift package resolve 解析
+// （目前没有 "swift add" 命令 — 需要直接编辑 Package.swift）
+
+// SPM 中的语义版本控制选项：
+
+// 最低版本（最常用 — 类似 npm 的 "^"）：
+.package(url: "https://github.com/vapor/vapor.git", from: "4.89.0")
+
+// 精确版本：
+.package(url: "https://github.com/vapor/vapor.git", exact: "4.89.0")
+
+// 版本范围：
+.package(
+    url: "https://github.com/vapor/vapor.git",
+    "4.0.0"..<"5.0.0"
+)
+
+// 分支（开发期间很有用 — 类似 npm 的 git 依赖）：
+.package(url: "https://github.com/vapor/vapor.git", branch: "main")
+
+// 本地路径依赖（类似 npm 的 "file:" 前缀）：
+.package(path: "../MyLocalPackage")
+
+// 编辑 Package.swift 后：
+// $ swift package resolve      -- 下载并锁定依赖
+// $ swift package update       -- 更新到最新允许的版本
+// Package.resolved 是你的锁定文件（提交到 git！）
+```
+</UniversalEditor>
+
+---
+
+## 7. 目标与产品
+
+SPM 区分**目标**（编译单元）和**产品**（你暴露的内容）。这在 npm 中没有直接对应物，但类似于 monorepo 工作区。
+
+<UniversalEditor title="多目标包结构" compare={true}>
+```javascript !! js
+// JavaScript 使用工作区的 monorepo（npm workspaces）
+// package.json（根目录）
+// {
+//   "workspaces": ["packages/*"],
+//   "scripts": { "test": "jest" }
+// }
+
+// packages/core/package.json
+// { "name": "@myapp/core", "main": "src/index.js" }
+
+// packages/cli/package.json
+// { "name": "@myapp/cli", "dependencies": { "@myapp/core": "*" } }
+
+// packages/server/package.json
+// { "name": "@myapp/server", "dependencies": { "@myapp/core": "*" } }
+
+// 目录结构：
+// packages/
+//   core/src/index.js
+//   cli/src/index.js
+//   server/src/index.js
+// node_modules/
+```
+
+```swift !! swift
+// Swift：所有目标都在一个 Package.swift 中
+// swift-tools-version: 5.9
+import PackageDescription
+
+let package = Package(
+    name: "MyApp",
+    products: [
+        // 将库暴露给其他包使用
+        .library(name: "Core", targets: ["Core"]),
+        // 暴露 CLI 可执行文件
+        .executable(name: "MyCLI", targets: ["CLI"]),
+    ],
+    dependencies: [
+        .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.2.0"),
+    ],
+    targets: [
+        // 共享核心库
+        .target(
+            name: "Core",
+            path: "Sources/Core"
+        ),
+        // 依赖 Core 的 CLI
+        .executableTarget(
+            name: "CLI",
+            dependencies: [
+                "Core",
+                .product(name: "ArgumentParser", package: "swift-argument-parser"),
+            ],
+            path: "Sources/CLI"
+        ),
+        // Core 的测试
+        .testTarget(
+            name: "CoreTests",
+            dependencies: ["Core"],
+            path: "Tests/CoreTests"
+        ),
+    ]
+)
+
+// 目录结构：
+// Sources/
+//   Core/     （库目标）
+//   CLI/      （可执行目标）
+// Tests/
+//   CoreTests/
+```
+</UniversalEditor>
+
+---
+
+## 8. 流行的 Swift 包
+
+就像 npm 有 Express、Lodash 和 Jest 一样，Swift 生态系统也有用于服务端开发的知名包。
+
+<UniversalEditor title="流行包：npm 与 SPM 对比" compare={true}>
+```javascript !! js
+// 用于服务端开发的流行 npm 包
+
+// Express — Web 框架
+import express from 'express';
+const app = express();
+app.get('/', (req, res) => res.send('Hello World'));
+app.listen(3000);
+
+// Axios — HTTP 客户端
+import axios from 'axios';
+const response = await axios.get('https://api.github.com/users/octocat');
+console.log(response.data.name);
+
+// Lodash — 工具函数
+import _ from 'lodash';
+const grouped = _.groupBy([1, 2, 3, 4], n => n % 2 === 0 ? 'even' : 'odd');
+
+// dotenv — 环境变量
+import 'dotenv/config';
+const apiKey = process.env.API_KEY;
+
+// Jest — 测试
+import { describe, test, expect } from '@jest/globals';
+test('加法', () => expect(1 + 1).toBe(2));
+```
+
+```swift !! swift
+// 用于 Swift 开发的流行 SPM 包
+
+// Vapor — Web 框架（服务端 Swift 中 Express 的等价物）
+// https://github.com/vapor/vapor
+import Vapor
+let app = Application()
+app.get("") { req in "Hello World" }
+try app.run()
+
+// AsyncHTTPClient — HTTP 客户端（SwiftNIO 生态系统的一部分）
+// https://github.com/swift-server/async-http-client
+import AsyncHTTPClient
+let httpClient = HTTPClient(eventLoopGroupProvider: .singleton)
+let response = try await httpClient.get(url: "https://api.github.com/users/octocat").get()
+
+// Swift Algorithms — 工具算法（由 Apple 提供）
+// https://github.com/apple/swift-algorithms
+import Algorithms
+let grouped = [1, 2, 3, 4].grouped(by: { $0.isMultiple(of: 2) ? "even" : "odd" })
+
+// swift-dotenv — 环境变量
+// https://github.com/thebarndog/swift-dotenv
+import SwiftDotenv
+try Dotenv.configure()
+let apiKey = Dotenv["API_KEY"]?.stringValue
+
+// Swift Testing / XCTest — 测试（内置，无需安装）
+import Testing
+@Test func addition() { #expect(1 + 1 == 2) }
+```
+</UniversalEditor>
+
+---
+
+## 总结对比表
+
+| 概念 | JavaScript / npm | Swift / SPM |
+|---|---|---|
+| 模块单元 | 单个文件 | 编译目标（一个或多个文件） |
+| 清单文件 | `package.json`（JSON） | `Package.swift`（Swift 代码） |
+| 锁定文件 | `package-lock.json` | `Package.resolved` |
+| 依赖安装 | `npm install` | `swift package resolve` |
+| 运行项目 | `npm start` / `node index.js` | `swift run` |
+| 运行测试 | `npm test` | `swift test` |
+| 访问控制 | 无（仅约定） | `public`、`internal`、`fileprivate`、`private` |
+| 导入语法 | `import { x } from 'y'` | `import ModuleName` |
+| 仓库 | npmjs.com | GitHub / GitLab URL（无中央仓库） |
+| 初始化命令 | `npm init` | `swift package init` |
+| 更新依赖 | `npm update` | `swift package update` |
+| 构建输出 | `dist/` 或无 | `.build/` |
+
+---
+
+## 练习
+
+**练习 1：** 为名为 `StringUtils` 的库创建 Swift 包清单，该库暴露一个公开函数 `func titleCase(_ string: String) -> String`。包没有外部依赖，支持 macOS 13+。
+
+<details>
+<summary>查看答案</summary>
+
+```swift
+// Package.swift
+// swift-tools-version: 5.9
+import PackageDescription
+
+let package = Package(
+    name: "StringUtils",
+    platforms: [.macOS(.v13)],
+    products: [
+        .library(name: "StringUtils", targets: ["StringUtils"]),
+    ],
+    targets: [
+        .target(name: "StringUtils", path: "Sources/StringUtils"),
+        .testTarget(
+            name: "StringUtilsTests",
+            dependencies: ["StringUtils"],
+            path: "Tests/StringUtilsTests"
+        ),
+    ]
+)
+
+// Sources/StringUtils/StringUtils.swift
+public func titleCase(_ string: String) -> String {
+    return string.split(separator: " ")
+        .map { $0.prefix(1).uppercased() + $0.dropFirst().lowercased() }
+        .joined(separator: " ")
+}
+```
+</details>
+
+---
+
+**练习 2：** 编写一个 Swift 文件 `BankAccount.swift`，定义一个具有以下访问规则的 `BankAccount` 结构体：
+- `accountNumber` 和 `ownerName` 是 `public` 只读的
+- `balance` 可以公开读取，但只能私有设置
+- `deposit(amount:)` 方法是 `public` 的
+- `validateAmount(_:)` 辅助方法是 `private` 的
+
+<details>
+<summary>查看答案</summary>
+
+```swift
+// Sources/BankAccount.swift
+public struct BankAccount {
+    public let accountNumber: String
+    public let ownerName: String
+
+    // 公开 getter，私有 setter
+    public private(set) var balance: Double
+
+    public init(accountNumber: String, ownerName: String, initialBalance: Double = 0) {
+        self.accountNumber = accountNumber
+        self.ownerName = ownerName
+        self.balance = initialBalance
+    }
+
+    public mutating func deposit(amount: Double) throws {
+        guard validateAmount(amount) else {
+            throw BankError.invalidAmount
+        }
+        balance += amount
+    }
+
+    public mutating func withdraw(amount: Double) throws {
+        guard validateAmount(amount) else {
+            throw BankError.invalidAmount
+        }
+        guard amount <= balance else {
+            throw BankError.insufficientFunds
+        }
+        balance -= amount
+    }
+
+    private func validateAmount(_ amount: Double) -> Bool {
+        return amount > 0 && amount.isFinite
+    }
+}
+
+public enum BankError: Error {
+    case invalidAmount
+    case insufficientFunds
+}
+```
+</details>
+
+---
+
+**练习 3：** 将以下 JavaScript `package.json` 依赖块转换为等效的 SPM `Package.swift` 依赖和目标依赖数组。
+
+```json
+{
+  "dependencies": {
+    "vapor": "4.89.0",
+    "swift-log": "1.5.0"
+  }
+}
+```
+
+<details>
+<summary>查看答案</summary>
+
+```swift
+// Package.swift
+// swift-tools-version: 5.9
+import PackageDescription
+
+let package = Package(
+    name: "MyServer",
+    platforms: [.macOS(.v13)],
+    products: [
+        .executable(name: "MyServer", targets: ["MyServer"]),
+    ],
+    dependencies: [
+        .package(url: "https://github.com/vapor/vapor.git", from: "4.89.0"),
+        .package(url: "https://github.com/apple/swift-log.git", from: "1.5.0"),
+    ],
+    targets: [
+        .executableTarget(
+            name: "MyServer",
+            dependencies: [
+                .product(name: "Vapor", package: "vapor"),
+                .product(name: "Logging", package: "swift-log"),
+            ],
+            path: "Sources/MyServer"
+        ),
+    ]
+)
+```
+</details>

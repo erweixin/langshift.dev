@@ -1,0 +1,764 @@
+---
+title: "第 15 模块：测试与代码质量"
+description: "学习 Rust 的内置测试框架：同文件单元测试、集成测试、文档测试，以及代码质量工具 clippy 和 rustfmt。"
+---
+
+# 第 15 模块：测试与代码质量
+
+## 学习目标
+
+学完本模块后，你将能够：
+
+- ✅ 使用 `#[cfg(test)]` 模块在同一源文件中编写单元测试——对 JavaScript 开发者而言是新概念
+- ✅ 用 `#[test]` 标记测试函数，用 `cargo test` 运行测试，并按名称过滤特定测试
+- ✅ 使用 `assert!`、`assert_eq!` 和 `assert_ne!` 宏，理解它们与 Jest 的 `expect()` 的比较
+- ✅ 用 `#[should_panic]` 测试预期的 panic，编写返回 `Result` 类型的测试
+- ✅ 在 `tests/` 目录中创建集成测试，理解它们与单元测试的区别
+- ✅ 在 `///` 注释中编写文档测试，使用 `cargo clippy` 和 `cargo fmt` 进行自动化代码质量检查
+
+---
+
+## 1. 测试与代码在同一文件
+
+与 JavaScript 测试最大的不同：Rust 测试**与被测代码在同一文件中**，放在 `#[cfg(test)]` 模块里。JavaScript 使用独立的测试文件（`.test.js`、`.spec.js`）。Rust 的方式使得直接测试私有函数变得简单。
+
+<UniversalEditor title="测试与代码同文件 vs 独立测试文件" compare={true}>
+```javascript !! js
+// JavaScript：独立的测试文件（math.test.js）
+// 在 math.js 中：
+function add(a, b) { return a + b; }
+function multiply(a, b) { return a * b; }
+// 私有辅助函数——不导出就难以测试
+function clamp(n, min, max) {
+    return Math.min(Math.max(n, min), max);
+}
+// module.exports = { add, multiply }; // 必须导出才能测试
+
+// 在 math.test.js 中（Jest）：
+// const { add, multiply } = require('./math');
+// describe('math', () => {
+//     test('add works', () => {
+//         expect(add(2, 3)).toBe(5);
+//     });
+//     // 无法测试 clamp，因为它没有导出
+// });
+
+// 运行：npx jest   或   npm test
+console.log("JavaScript 使用独立的测试文件");
+```
+
+```rust !! rs
+// Rust：测试与代码在同一文件中
+
+fn add(a: i32, b: i32) -> i32 { a + b }
+fn multiply(a: i32, b: i32) -> i32 { a * b }
+
+// 私有函数——可以在 #[cfg(test)] 模块内直接测试
+fn clamp(n: i32, min: i32, max: i32) -> i32 {
+    n.min(max).max(min)
+}
+
+// #[cfg(test)] 表示该模块只在 `cargo test` 时编译
+// 它不会出现在生产二进制文件中
+#[cfg(test)]
+mod tests {
+    use super::*; // 导入父模块中的所有内容
+
+    #[test]
+    fn test_add() {
+        assert_eq!(add(2, 3), 5);
+    }
+
+    #[test]
+    fn test_multiply() {
+        assert_eq!(multiply(3, 4), 12);
+    }
+
+    #[test]
+    fn test_clamp() {
+        // 可以直接测试私有函数——无需导出！
+        assert_eq!(clamp(5, 0, 10), 5);
+        assert_eq!(clamp(-3, 0, 10), 0);
+        assert_eq!(clamp(15, 0, 10), 10);
+    }
+}
+
+fn main() {
+    println!("{}", add(2, 3)); // 5
+}
+// 运行所有测试：cargo test
+// 运行特定测试：cargo test test_add
+```
+</UniversalEditor>
+
+---
+
+## 2. #\[test\] 属性与 cargo test
+
+Rust 的 `cargo test` 会编译并运行所有用 `#[test]` 标记的函数。它自动捕获输出（通过测试的 stdout 默认隐藏）并报告结果。测试可以过滤、并行运行或串行运行。
+
+<UniversalEditor title="编写和运行 cargo test 测试" compare={true}>
+```javascript !! js
+// Jest 测试结构
+// describe() 分组测试；test() / it() 定义单个测试
+
+// describe('Calculator', () => {
+//
+//     beforeEach(() => {
+//         // 每个测试前的设置
+//     });
+//
+//     test('adds two numbers', () => {
+//         expect(add(1, 2)).toBe(3);
+//     });
+//
+//     test('handles negative numbers', () => {
+//         expect(add(-1, 1)).toBe(0);
+//     });
+//
+//     test.skip('future test', () => {
+//         // 跳过
+//     });
+// });
+
+// 过滤：npx jest -t "adds two"
+// 监视模式：npx jest --watch
+// 覆盖率：npx jest --coverage
+
+console.log("Jest：需要独立配置、npm install、package.json 脚本");
+```
+
+```rust !! rs
+fn add(a: i32, b: i32) -> i32 { a + b }
+fn divide(a: f64, b: f64) -> Option<f64> {
+    if b == 0.0 { None } else { Some(a / b) }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // 基本测试函数
+    #[test]
+    fn test_add_positive() {
+        assert_eq!(add(1, 2), 3);
+    }
+
+    #[test]
+    fn test_add_negative() {
+        assert_eq!(add(-1, 1), 0);
+    }
+
+    // 忽略的测试（类似 Jest 的 test.skip）——用 cargo test -- --ignored 运行
+    #[test]
+    #[ignore]
+    fn expensive_test() {
+        // 默认跳过
+        assert_eq!(1 + 1, 2);
+    }
+
+    // 带自定义失败消息的测试
+    #[test]
+    fn test_divide_success() {
+        let result = divide(10.0, 2.0);
+        assert!(result.is_some(), "divide(10, 2) 应该返回 Some");
+        assert_eq!(result.unwrap(), 5.0);
+    }
+
+    #[test]
+    fn test_divide_by_zero() {
+        assert!(divide(10.0, 0.0).is_none());
+    }
+}
+
+// cargo test                    — 运行所有测试
+// cargo test test_add           — 运行名称包含 "test_add" 的测试
+// cargo test -- --nocapture     — 显示通过测试的 println! 输出
+// cargo test -- --test-thread=1 — 串行运行测试（无并行）
+// cargo test -- --ignored       — 也运行被忽略的测试
+
+fn main() {}
+```
+</UniversalEditor>
+
+---
+
+## 3. 断言宏
+
+Rust 提供三个内置断言宏。它们在失败时打印包含实际值的信息性错误消息。这相当于 Jest 的 `expect()` 匹配器系列。
+
+<UniversalEditor title="断言宏 vs Jest expect()" compare={true}>
+```javascript !! js
+// Jest 断言匹配器
+// expect(actual).toBe(expected)         — 严格相等（===）
+// expect(actual).toEqual(expected)      — 深度相等
+// expect(actual).toBeTruthy()           — 真值
+// expect(actual).toContain(item)        — 数组/字符串包含
+// expect(actual).toThrow()              — 函数抛出异常
+
+// 示例：
+// test('assertions', () => {
+//     expect(1 + 1).toBe(2);
+//     expect([1, 2, 3]).toContain(2);
+//     expect({ a: 1 }).toEqual({ a: 1 });
+//     expect(true).toBeTruthy();
+//     expect(false).not.toBeTruthy();
+// });
+
+console.log("Jest 需要 npm install、配置文件、独立文件");
+```
+
+```rust !! rs
+fn is_even(n: i32) -> bool { n % 2 == 0 }
+fn reverse(s: &str) -> String { s.chars().rev().collect() }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_assert() {
+        // assert!：测试布尔表达式
+        assert!(is_even(4));
+        assert!(!is_even(3));
+        assert!(2 + 2 == 4);
+
+        // assert! 带自定义消息（format! 风格）
+        let x = 5;
+        assert!(x > 0, "x 应该为正数，但实际为 {}", x);
+    }
+
+    #[test]
+    fn test_assert_eq() {
+        // assert_eq!(left, right)：必须相等
+        // 失败时显示左值和右值及标签
+        assert_eq!(reverse("hello"), "olleh");
+        assert_eq!(2 + 2, 4, "基本算术失败");
+
+        // assert_ne!(left, right)：必须不相等
+        assert_ne!(is_even(3), true);
+        assert_ne!(reverse("abc"), "abc");
+    }
+
+    #[test]
+    fn test_float_comparison() {
+        // 浮点相等——需要容差
+        let result = 0.1 + 0.2;
+        // assert_eq!(result, 0.3); // 可能因浮点精度而失败！
+        assert!((result - 0.3).abs() < 1e-10, "浮点比较失败");
+    }
+
+    #[test]
+    fn test_vector() {
+        let v = vec![1, 2, 3, 4, 5];
+        assert_eq!(v.len(), 5);
+        assert!(v.contains(&3));
+        assert_eq!(v[0], 1);
+        assert_ne!(v, vec![1, 2, 3]); // 长度不同
+    }
+}
+
+fn main() {}
+```
+</UniversalEditor>
+
+---
+
+## 4. 测试 panic 和返回 Result 的测试
+
+某些函数应该在无效输入时 panic。`#[should_panic]` 验证函数是否如预期 panic。或者，测试可以返回 `Result<(), E>`，用 `?` 运算符进行更简洁的错误传播。
+
+<UniversalEditor title="#[should_panic] 和返回 Result 的测试" compare={true}>
+```javascript !! js
+// Jest：测试抛出的错误
+// test('invalid input throws', () => {
+//     expect(() => {
+//         parsePositive(-1);
+//     }).toThrow();
+//
+//     expect(() => {
+//         parsePositive(-1);
+//     }).toThrow("Value must be positive");
+// });
+
+// 异步错误测试：
+// test('async error', async () => {
+//     await expect(fetchUser(-1)).rejects.toThrow("User not found");
+// });
+
+console.log("Jest 使用 .toThrow() 来测试 panic 等价情况");
+```
+
+```rust !! rs
+fn parse_positive(n: i32) -> u32 {
+    if n <= 0 { panic!("值必须为正数，实际为 {}", n); }
+    n as u32
+}
+
+fn parse_number(s: &str) -> Result<i32, std::num::ParseIntError> {
+    s.trim().parse()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // #[should_panic]：函数 panic 时测试通过
+    #[test]
+    #[should_panic]
+    fn test_panics_on_zero() {
+        parse_positive(0); // 应该 panic
+    }
+
+    // 用 expected = "..." 检查 panic 消息
+    // 只有当 panic 消息包含 expected 子串时测试才通过
+    #[test]
+    #[should_panic(expected = "必须为正数")]
+    fn test_panics_with_message() {
+        parse_positive(-5); // panic 消息包含 "必须为正数"
+    }
+
+    // 正常情况——不应该 panic
+    #[test]
+    fn test_valid_positive() {
+        assert_eq!(parse_positive(42), 42);
+    }
+
+    // 返回 Result 的测试：用 ? 运算符简洁地传播错误
+    // 返回 Err(_) 时测试失败
+    #[test]
+    fn test_parse_number() -> Result<(), std::num::ParseIntError> {
+        let n = parse_number("42")?; // ? 将错误作为测试失败传播
+        assert_eq!(n, 42);
+
+        let m = parse_number(" -7 ")?;
+        assert_eq!(m, -7);
+
+        Ok(()) // 测试通过
+    }
+
+    #[test]
+    fn test_parse_invalid() {
+        // 对于预期错误，使用 assert!(result.is_err())
+        assert!(parse_number("abc").is_err());
+        assert!(parse_number("").is_err());
+    }
+}
+
+fn main() {}
+```
+</UniversalEditor>
+
+---
+
+## 5. 集成测试
+
+集成测试放在项目根目录的独立 `tests/` 目录中。它们只测试 crate 的公共 API（就像外部用户那样）。`tests/` 中的每个文件都是单独的测试二进制文件。
+
+<UniversalEditor title="集成测试 vs 单元测试" compare={true}>
+```javascript !! js
+// JavaScript：没有单元测试和集成测试的结构性区分
+// 惯例：单元测试放在 __tests__/ 或 *.test.js
+//       集成测试放在 tests/ 或 *.integration.test.js
+
+// Jest 配置可以通过 testMatch 模式分离它们：
+// 单元测试：src/**/*.test.js
+// 集成测试：tests/**/*.test.js
+
+// 集成测试文件（tests/api.integration.test.js）：
+// const { createApp } = require('../src/app');
+// describe('API integration', () => {
+//     let app;
+//     beforeAll(() => { app = createApp(); });
+//     test('GET /users returns array', async () => {
+//         const res = await request(app).get('/users');
+//         expect(res.status).toBe(200);
+//     });
+// });
+
+console.log("JavaScript 没有结构性强制区分");
+```
+
+```rust !! rs
+// src/lib.rs——带有公共 API 的库
+pub fn add(a: i32, b: i32) -> i32 { a + b }
+pub fn greeting(name: &str) -> String { format!("Hello, {}!", name) }
+// 私有函数——集成测试无法访问
+fn internal_helper() -> i32 { 42 }
+
+// 单元测试（在同一文件中，可以测试私有函数）
+#[cfg(test)]
+mod unit_tests {
+    use super::*;
+    #[test]
+    fn test_internal() {
+        assert_eq!(internal_helper(), 42); // 这里可以访问
+    }
+}
+
+// ─── tests/integration_test.rs ───────────────────────────────────────────────
+// （这将是项目中 tests/integration_test.rs 的独立文件）
+//
+// use my_crate::add;         // 只导入公共 API
+// use my_crate::greeting;
+//
+// #[test]
+// fn test_add_integration() {
+//     assert_eq!(add(10, 20), 30);
+// }
+//
+// #[test]
+// fn test_greeting_integration() {
+//     assert_eq!(greeting("World"), "Hello, World!");
+// }
+//
+// // 无法访问 internal_helper()——它不是 pub
+// ─────────────────────────────────────────────────────────────────────────────
+
+// 主要区别：
+// - 单元测试：同文件，可访问私有项
+// - 集成测试：tests/ 目录，仅公共 API
+// - tests/*.rs 中的每个文件编译为单独的二进制文件
+// - cargo test 自动运行两种测试
+
+fn main() {
+    println!("{}", greeting("Rust")); // "Hello, Rust!"
+}
+```
+</UniversalEditor>
+
+---
+
+## 6. 文档测试
+
+Rust 的独特杀手特性：`///` 文档注释中的代码示例会被 `cargo test` **自动编译和运行**。这确保文档始终与实际 API 保持同步。
+
+<UniversalEditor title="文档测试：注释中可执行的代码" compare={true}>
+```javascript !! js
+// JavaScript：JSDoc 注释不会执行——可能是错误的
+/**
+ * 将两个数字相加。
+ * @param {number} a - 第一个数字
+ * @param {number} b - 第二个数字
+ * @returns {number} 两数之和
+ * @example
+ * add(2, 3); // 返回 5
+ * add(-1, 1); // 返回 0
+ * // 没有任何东西会检查这些示例是否正确！
+ * add(2, 3); // 返回 99  ← 错误，但没人发现
+ */
+function add(a, b) {
+    return a + b;
+}
+
+console.log("JSDoc 示例从不被验证");
+```
+
+```rust !! rs
+/// 将两个整数相加。
+///
+/// # 示例
+///
+/// ```
+/// let result = my_crate::add(2, 3);
+/// assert_eq!(result, 5);
+/// ```
+///
+/// 负数也有效：
+///
+/// ```
+/// assert_eq!(my_crate::add(-1, 1), 0);
+/// assert_eq!(my_crate::add(-5, -3), -8);
+/// ```
+pub fn add(a: i32, b: i32) -> i32 {
+    a + b
+}
+
+/// 除两个浮点数，除数为零时返回 `None`。
+///
+/// # 示例
+///
+/// ```
+/// assert_eq!(my_crate::safe_divide(10.0, 2.0), Some(5.0));
+/// ```
+///
+/// 除以零返回 `None`：
+///
+/// ```
+/// assert_eq!(my_crate::safe_divide(5.0, 0.0), None);
+/// ```
+pub fn safe_divide(a: f64, b: f64) -> Option<f64> {
+    if b == 0.0 { None } else { Some(a / b) }
+}
+
+// cargo test 会：
+// 1. 运行单元测试（在 #[cfg(test)] 模块中）
+// 2. 运行集成测试（在 tests/ 目录中）
+// 3. 运行文档测试（在 /// 注释的代码块中）
+//
+// 如果你修改 add() 使其返回 a - b，文档测试会失败。
+// 文档永远不会静默地过期！
+
+fn main() {}
+```
+</UniversalEditor>
+
+---
+
+## 7. cargo clippy 与 cargo fmt
+
+Rust 内置了两个代码质量工具。`cargo clippy` 是有数百条规则的 linter（类似 ESLint）。`cargo fmt` 自动格式化代码（类似 Prettier）。两者都是零配置的。
+
+<UniversalEditor title="clippy 和 fmt vs ESLint 和 Prettier" compare={true}>
+```javascript !! js
+// JavaScript 需要 npm 包和配置文件：
+// npm install --save-dev eslint prettier
+// .eslintrc.json 配置
+// .prettierrc 配置
+// package.json 脚本
+
+// ESLint 检测：
+// - 未使用的变量
+// - 不可达代码
+// - 错误的参数数量
+// - 潜在的 bug
+
+// Prettier 格式化：
+// - 缩进
+// - 尾逗号
+// - 分号
+// - 引号风格
+
+// ESLint 警告示例：
+// let x = 5;  // 'x' 被赋值但从未使用
+
+// Prettier 格式化示例：
+// const foo = {a:1,b:2}
+// 变为：const foo = { a: 1, b: 2 };
+
+console.log("需要：npm install、.eslintrc.json、.prettierrc");
+```
+
+```rust !! rs
+// cargo clippy——捕获常见错误并建议改进
+// cargo fmt   ——自动格式化代码（使用 rustfmt）
+// 两者都内置于 Rust 工具链——无需配置！
+
+// ── clippy 会捕获的示例 ──────────────────────────────────────────
+
+fn example_clippy_warnings() {
+    // clippy::needless_range_loop：使用 iter 代替
+    let v = vec![1, 2, 3];
+    // for i in 0..v.len() { println!("{}", v[i]); }  // clippy 会警告
+    for item in &v { println!("{}", item); }           // clippy 的建议
+
+    // clippy::map_unwrap_or：简化 Option 链
+    let opt: Option<i32> = Some(5);
+    // let _ = opt.map(|x| x * 2).unwrap_or(0); // clippy 建议：
+    let _ = opt.map_or(0, |x| x * 2);
+
+    // clippy::bool_comparison：不要写 `if x == true {`
+    let flag = true;
+    // if flag == true { }  // clippy 警告
+    if flag { }            // 惯用写法
+}
+
+// ── rustfmt 格式化示例 ──────────────────────────────────────────
+
+// cargo fmt 之前（有效但丑陋）：
+fn messy(x:i32,y:i32)->i32{x+y}
+
+// cargo fmt 之后（自动应用）：
+fn clean(x: i32, y: i32) -> i32 {
+    x + y
+}
+
+// Cargo 命令：
+// cargo clippy                — 显示所有警告
+// cargo clippy -- -D warnings — 将警告视为错误（CI 模式）
+// cargo fmt                  — 原地格式化
+// cargo fmt --check          — 检查但不修改（CI 模式）
+
+fn main() {
+    example_clippy_warnings();
+    println!("{}", clean(1, 2));
+}
+```
+</UniversalEditor>
+
+---
+
+## 8. 总结对比
+
+| 概念 | JavaScript（Jest） | Rust |
+|---|---|---|
+| 测试文件位置 | 独立的 `*.test.js` 文件 | 同文件的 `#[cfg(test)]` 模块 |
+| 测试运行器设置 | `npm install jest` + 配置 | 内置于 `cargo`——零设置 |
+| 定义测试 | `test('name', () => { ... })` | `#[test] fn name() { ... }` |
+| 相等断言 | `expect(a).toBe(b)` | `assert_eq!(a, b)` |
+| 布尔断言 | `expect(x).toBeTruthy()` | `assert!(x)` |
+| 不等断言 | `expect(a).not.toBe(b)` | `assert_ne!(a, b)` |
+| 测试预期错误 | `expect(() => f()).toThrow()` | `#[should_panic]` |
+| 跳过测试 | `test.skip(...)` | `#[ignore]` |
+| 测试分组 | `describe('name', () => {...})` | `mod tests { ... }` |
+| 访问私有函数 | 必须导出 | `#[cfg(test)]` 内直接访问 |
+| 集成测试 | 按惯例的独立文件 | `tests/` 目录（结构性强制） |
+| 文档测试 | 无（JSDoc 从不执行） | `///` 代码块被 `cargo test` 运行 |
+| Linting | ESLint（npm 包 + 配置） | `cargo clippy`（内置） |
+| 格式化 | Prettier（npm 包 + 配置） | `cargo fmt`（内置） |
+| CI lint 模式 | `eslint . --max-warnings=0` | `cargo clippy -- -D warnings` |
+
+---
+
+## 练习
+
+### 练习 1：测试数学库
+
+编写函数 `factorial(n: u64) -> u64` 和 `is_prime(n: u64) -> bool`，然后在 `#[cfg(test)]` 模块中编写覆盖边界情况的测试。
+
+<details>
+<summary>显示答案</summary>
+
+```rust
+fn factorial(n: u64) -> u64 {
+    (1..=n).product()
+}
+
+fn is_prime(n: u64) -> bool {
+    if n < 2 { return false; }
+    if n == 2 { return true; }
+    if n % 2 == 0 { return false; }
+    let mut i = 3;
+    while i * i <= n {
+        if n % i == 0 { return false; }
+        i += 2;
+    }
+    true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_factorial_base_cases() {
+        assert_eq!(factorial(0), 1);
+        assert_eq!(factorial(1), 1);
+    }
+
+    #[test]
+    fn test_factorial_general() {
+        assert_eq!(factorial(5), 120);
+        assert_eq!(factorial(10), 3628800);
+    }
+
+    #[test]
+    fn test_is_prime_small() {
+        assert!(!is_prime(0));
+        assert!(!is_prime(1));
+        assert!(is_prime(2));
+        assert!(is_prime(3));
+        assert!(!is_prime(4));
+        assert!(is_prime(5));
+    }
+
+    #[test]
+    fn test_is_prime_larger() {
+        assert!(is_prime(97));
+        assert!(!is_prime(100));
+    }
+}
+
+fn main() {
+    println!("{}", factorial(5));  // 120
+    println!("{}", is_prime(97));  // true
+}
+```
+
+</details>
+
+### 练习 2：should_panic 测试
+
+编写函数 `get_element(v: &[i32], index: usize) -> i32`，当索引超出边界时以消息 `"index out of range"` panic。同时编写正常测试和 `#[should_panic]` 测试。
+
+<details>
+<summary>显示答案</summary>
+
+```rust
+fn get_element(v: &[i32], index: usize) -> i32 {
+    if index >= v.len() {
+        panic!("index out of range: {} >= {}", index, v.len());
+    }
+    v[index]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_valid_index() {
+        let v = vec![10, 20, 30];
+        assert_eq!(get_element(&v, 0), 10);
+        assert_eq!(get_element(&v, 2), 30);
+    }
+
+    #[test]
+    #[should_panic(expected = "index out of range")]
+    fn test_out_of_range() {
+        let v = vec![1, 2, 3];
+        get_element(&v, 10);
+    }
+}
+
+fn main() {}
+```
+
+</details>
+
+### 练习 3：返回 Result 的测试
+
+编写函数 `parse_coordinate(s: &str) -> Result<(f64, f64), String>`，将 `"3.0,4.5"` 解析为 `(3.0, 4.5)`。使用 `?` 编写返回 `Result` 的测试。
+
+<details>
+<summary>显示答案</summary>
+
+```rust
+fn parse_coordinate(s: &str) -> Result<(f64, f64), String> {
+    let parts: Vec<&str> = s.split(',').collect();
+    if parts.len() != 2 {
+        return Err(format!("期望 2 个部分，实际有 {}", parts.len()));
+    }
+    let x = parts[0].trim().parse::<f64>()
+        .map_err(|e| format!("无效的 x：{}", e))?;
+    let y = parts[1].trim().parse::<f64>()
+        .map_err(|e| format!("无效的 y：{}", e))?;
+    Ok((x, y))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_valid_coordinate() -> Result<(), String> {
+        let (x, y) = parse_coordinate("3.0, 4.5")?;
+        assert_eq!(x, 3.0);
+        assert_eq!(y, 4.5);
+        Ok(())
+    }
+
+    #[test]
+    fn test_invalid_coordinate() {
+        assert!(parse_coordinate("not,a,coord").is_err());
+        assert!(parse_coordinate("abc,1.0").is_err());
+        assert!(parse_coordinate("1.0").is_err());
+    }
+}
+
+fn main() {
+    println!("{:?}", parse_coordinate("3.0, 4.5")); // Ok((3.0, 4.5))
+}
+```
+
+</details>

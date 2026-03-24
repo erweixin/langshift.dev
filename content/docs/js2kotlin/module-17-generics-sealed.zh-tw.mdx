@@ -1,0 +1,614 @@
+---
+title: "第 17 模組：泛型與密封類別"
+description: "掌握 Kotlin 泛型：型別參數、型變（in/out）、具體化型別、密封類別層次結構與代數資料型別——與 JavaScript/TypeScript 泛型對比。"
+---
+
+# 第 17 模組：泛型與密封類別
+
+歡迎來到 JavaScript 到 Kotlin 轉換課程的第 17 模組！本模組深入探討 Kotlin 型別系統中最強大的特性之一：泛型與密封類別。這些工具讓你編寫可重用、型別安全的程式碼，並精準建模領域問題——遠超普通 JavaScript 所能實現的。
+
+## 學習目標
+
+完成本模組後，你將能夠：
+
+- ✅ 在 Kotlin 中定義帶型別參數的泛型函式與類別
+- ✅ 應用型變注解（`in` 和 `out`）控制泛型型別之間的關係
+- ✅ 使用 `reified` 型別參數結合 `inline` 函式在執行時期檢查型別
+- ✅ 用 `sealed class` 和窮舉 `when` 表達式建模代數資料型別
+- ✅ 利用 `sealed interface` 實現靈活的多檔案層次結構（Kotlin 1.5+）
+- ✅ 應用泛型約束（`<T : SomeType>`）並與 TypeScript 的 `extends` 對比
+
+---
+
+## 1. 泛型函式與類別
+
+JavaScript 是動態型別的，因此很少需要顯式泛型函式。TypeScript 加入了泛型，但 Kotlin 的泛型在編譯時期的檢查更為嚴格。
+
+<UniversalEditor title="泛型標識函式" compare={true}>
+```javascript !! js
+// JavaScript — 無需型別，任何值都可使用
+function identity(x) {
+  return x;
+}
+
+// TypeScript 等價泛型版本：
+// function identity<T>(x: T): T { return x; }
+
+console.log(identity(42));        // 42
+console.log(identity("hello"));   // "hello"
+console.log(identity([1, 2, 3])); // [1, 2, 3]
+
+// 泛型陣列工具函式
+function firstOrNull(arr) {
+  return arr.length > 0 ? arr[0] : null;
+}
+
+console.log(firstOrNull([10, 20])); // 10
+console.log(firstOrNull([]));       // null
+```
+
+```kotlin !! kotlin
+// Kotlin — 顯式型別參數 <T>
+fun <T> identity(x: T): T = x
+
+fun main() {
+    println(identity(42))          // 42
+    println(identity("hello"))     // hello
+    println(identity(listOf(1,2,3))) // [1, 2, 3]
+
+    // 泛型工具函式
+    fun <T> firstOrNull(list: List<T>): T? =
+        if (list.isNotEmpty()) list[0] else null
+
+    println(firstOrNull(listOf(10, 20))) // 10
+    println(firstOrNull(emptyList<Int>())) // null
+}
+```
+</UniversalEditor>
+
+<UniversalEditor title="泛型類別" compare={true}>
+```javascript !! js
+// JavaScript 類似泛型的類別（無型別安全）
+class Box {
+  constructor(value) {
+    this.value = value;
+  }
+
+  getValue() {
+    return this.value;
+  }
+
+  map(transform) {
+    return new Box(transform(this.value));
+  }
+
+  toString() {
+    return `Box(${this.value})`;
+  }
+}
+
+// TypeScript 版本：
+// class Box<T> {
+//   constructor(public readonly value: T) {}
+//   map<U>(transform: (v: T) => U): Box<U> { return new Box(transform(this.value)); }
+// }
+
+const intBox = new Box(42);
+const strBox = intBox.map(n => n.toString());
+console.log(intBox.getValue()); // 42
+console.log(strBox.getValue()); // "42"
+
+// Pair 類別
+class Pair {
+  constructor(first, second) {
+    this.first = first;
+    this.second = second;
+  }
+}
+
+const p = new Pair("name", 25);
+console.log(p.first, p.second); // "name" 25
+```
+
+```kotlin !! kotlin
+// Kotlin 泛型類別，具有完整型別安全
+data class Box<T>(val value: T) {
+    fun <U> map(transform: (T) -> U): Box<U> =
+        Box(transform(value))
+
+    override fun toString(): String = "Box($value)"
+}
+
+// 泛型資料類別
+data class Pair<A, B>(val first: A, val second: B)
+
+fun main() {
+    val intBox = Box(42)
+    val strBox = intBox.map { it.toString() }
+
+    println(intBox.value)   // 42
+    println(strBox.value)   // "42"
+    println(intBox)         // Box(42)
+
+    val p = Pair("name", 25)
+    println("${p.first} ${p.second}") // name 25
+
+    // 編譯器知道確切的型別
+    val numBox: Box<Int> = Box(100)
+    // val wrong: Box<String> = numBox  // 編譯錯誤！
+}
+```
+</UniversalEditor>
+
+---
+
+## 2. 型變：`in` 與 `out`
+
+型變控制 `Container<T>` 與 `Container<Subtype>` 之間的關係。TypeScript 使用結構子型別；Kotlin 使用顯式宣告點型變。
+
+<UniversalEditor title="協變（out）與逆變（in）" compare={true}>
+```javascript !! js
+// JavaScript / TypeScript 型變
+// TypeScript 使用 'extends' 進行有界泛型
+// 但型變大多是結構性的（隱式的）
+
+// 生產者 — 讀取 T，從不寫入
+class Producer {
+  constructor(items) {
+    this.items = items;
+  }
+  get(index) {
+    return this.items[index];
+  }
+}
+
+// 消費者 — 寫入 T，從不以 T 的形式讀取
+class Consumer {
+  constructor() {
+    this.log = [];
+  }
+  accept(value) {
+    this.log.push(value.toString());
+  }
+}
+
+// 在 TypeScript 中：
+// const numProducer: Producer<number> = new Producer([1,2,3]);
+// const anyProducer: Producer<any> = numProducer; // 使用 'out' 時 OK
+
+const producer = new Producer([1, 2, 3]);
+console.log(producer.get(0)); // 1
+
+const consumer = new Consumer();
+consumer.accept(42);
+consumer.accept("hello");
+console.log(consumer.log); // ["42", "hello"]
+```
+
+```kotlin !! kotlin
+// Kotlin 宣告點型變
+
+// 'out T' = 協變 = 生產者（只能回傳 T）
+class Producer<out T>(private val items: List<T>) {
+    fun get(index: Int): T = items[index]
+    // fun set(t: T) {} // 編譯錯誤！不能消費 out 型別
+}
+
+// 'in T' = 逆變 = 消費者（只能接受 T）
+class Consumer<in T> {
+    private val log = mutableListOf<String>()
+    fun accept(value: T) { log.add(value.toString()) }
+    fun printLog() = println(log)
+}
+
+fun main() {
+    val numProducer: Producer<Int> = Producer(listOf(1, 2, 3))
+    // 協變：Producer<Int> 是 Producer<Number> 的子型別
+    val numericProducer: Producer<Number> = numProducer // OK！
+    println(numericProducer.get(0)) // 1
+
+    val anyConsumer: Consumer<Any> = Consumer()
+    // 逆變：Consumer<Any> 是 Consumer<Int> 的子型別
+    val intConsumer: Consumer<Int> = anyConsumer // OK！
+    intConsumer.accept(42)
+    anyConsumer.accept("hello")
+    anyConsumer.printLog() // [42, hello]
+}
+```
+</UniversalEditor>
+
+---
+
+## 3. 具體化型別參數
+
+JavaScript 在執行時期沒有型別資訊。Kotlin 的 `inline` 函式配合 `reified` 型別參數允許你在執行時期存取實際型別 `T`——這在普通泛型中因 JVM 型別抹除而無法實現。
+
+<UniversalEditor title="具體化型別——執行時期型別檢查" compare={true}>
+```javascript !! js
+// JavaScript — 使用 instanceof 或 typeof 在執行時期檢查
+function isType(value, type) {
+  if (type === 'string') return typeof value === 'string';
+  if (type === 'number') return typeof value === 'number';
+  return value instanceof type;
+}
+
+console.log(isType("hello", 'string'));  // true
+console.log(isType(42, 'string'));       // false
+console.log(isType([], Array));          // true
+
+// TypeScript 泛型在執行時期被抹除——無法等價於 reified！
+// TS 版本在沒有變通方案的情況下無法在執行時期實際檢查 T。
+
+// 依型別篩選
+function filterByType(arr, type) {
+  return arr.filter(item => isType(item, type));
+}
+
+const mixed = [1, "a", 2, "b", true];
+console.log(filterByType(mixed, 'string')); // ["a", "b"]
+console.log(filterByType(mixed, 'number')); // [1, 2]
+```
+
+```kotlin !! kotlin
+// Kotlin 具體化型別參數——T 在執行時期可用！
+inline fun <reified T> isType(value: Any): Boolean =
+    value is T
+
+inline fun <reified T> filterByType(list: List<Any>): List<T> =
+    list.filterIsInstance<T>()
+
+// 具體化允許我們取得類別本身
+inline fun <reified T> classNameOf(): String =
+    T::class.simpleName ?: "Unknown"
+
+fun main() {
+    println(isType<String>("hello"))   // true
+    println(isType<Int>(42))           // true
+    println(isType<String>(42))        // false
+
+    val mixed: List<Any> = listOf(1, "a", 2, "b", true, 3.14)
+    println(filterByType<String>(mixed))  // [a, b]
+    println(filterByType<Int>(mixed))     // [1, 2]
+
+    println(classNameOf<String>())  // String
+    println(classNameOf<Int>())     // Int
+}
+```
+</UniversalEditor>
+
+---
+
+## 4. 密封類別作為代數資料型別
+
+TypeScript 使用辨別聯合型別建模領域型別。Kotlin 的 `sealed class` 提供同等能力，並透過編譯器檢查 `when` 表達式的窮舉性。
+
+<UniversalEditor title="密封類別與 TypeScript 辨別聯合" compare={true}>
+```javascript !! js
+// TypeScript 辨別聯合（JS 沒有型別級等價物）
+// JavaScript 使用普通物件 + kind 欄位模擬
+function makeCircle(radius) {
+  return { kind: 'circle', radius };
+}
+function makeRectangle(width, height) {
+  return { kind: 'rectangle', width, height };
+}
+function makeTriangle(base, height) {
+  return { kind: 'triangle', base, height };
+}
+
+function area(shape) {
+  switch (shape.kind) {
+    case 'circle':
+      return Math.PI * shape.radius ** 2;
+    case 'rectangle':
+      return shape.width * shape.height;
+    case 'triangle':
+      return 0.5 * shape.base * shape.height;
+    default:
+      throw new Error(`未知圖形: ${shape.kind}`);
+  }
+}
+
+const shapes = [
+  makeCircle(5),
+  makeRectangle(4, 6),
+  makeTriangle(3, 8),
+];
+
+shapes.forEach(s => console.log(`面積: ${area(s).toFixed(2)}`));
+// 面積: 78.54
+// 面積: 24.00
+// 面積: 12.00
+```
+
+```kotlin !! kotlin
+// Kotlin 密封類別——編譯器強制窮舉 when
+sealed class Shape {
+    data class Circle(val radius: Double) : Shape()
+    data class Rectangle(val width: Double, val height: Double) : Shape()
+    data class Triangle(val base: Double, val height: Double) : Shape()
+}
+
+fun area(shape: Shape): Double = when (shape) {
+    is Shape.Circle    -> Math.PI * shape.radius * shape.radius
+    is Shape.Rectangle -> shape.width * shape.height
+    is Shape.Triangle  -> 0.5 * shape.base * shape.height
+    // 不需要 'else'——編譯器驗證所有情況都已覆蓋！
+}
+
+fun describe(shape: Shape): String = when (shape) {
+    is Shape.Circle    -> "半徑為 ${shape.radius} 的圓"
+    is Shape.Rectangle -> "矩形 ${shape.width}x${shape.height}"
+    is Shape.Triangle  -> "三角形 底=${shape.base} 高=${shape.height}"
+}
+
+fun main() {
+    val shapes: List<Shape> = listOf(
+        Shape.Circle(5.0),
+        Shape.Rectangle(4.0, 6.0),
+        Shape.Triangle(3.0, 8.0),
+    )
+
+    shapes.forEach { s ->
+        println("${describe(s)} → 面積: ${"%.2f".format(area(s))}")
+    }
+}
+```
+</UniversalEditor>
+
+---
+
+## 5. 密封介面（Kotlin 1.5+）
+
+<UniversalEditor title="密封介面" compare={true}>
+```javascript !! js
+// JavaScript 狀態管理模擬
+const UiState = {
+  loading: () => ({ kind: 'loading' }),
+  success: (data) => ({ kind: 'success', data }),
+  error: (message) => ({ kind: 'error', message }),
+};
+
+function renderState(state) {
+  switch (state.kind) {
+    case 'loading': return '載入中...';
+    case 'success': return `資料: ${JSON.stringify(state.data)}`;
+    case 'error':   return `錯誤: ${state.message}`;
+    default:        return '未知狀態';
+  }
+}
+
+const states = [
+  UiState.loading(),
+  UiState.success({ users: ['Alice', 'Bob'] }),
+  UiState.error('網路逾時'),
+];
+
+states.forEach(s => console.log(renderState(s)));
+// 載入中...
+// 資料: {"users":["Alice","Bob"]}
+// 錯誤: 網路逾時
+```
+
+```kotlin !! kotlin
+// Kotlin 密封介面——實作類別可以繼承其他類別
+sealed interface UiState<out T>
+
+data object Loading : UiState<Nothing>
+
+data class Success<T>(val data: T) : UiState<T>
+
+data class Error(val message: String, val cause: Throwable? = null) : UiState<Nothing>
+
+sealed interface Refreshable
+data object Refreshing : UiState<Nothing>, Refreshable
+
+fun <T> renderState(state: UiState<T>): String = when (state) {
+    is Loading    -> "載入中..."
+    is Success    -> "資料: ${state.data}"
+    is Error      -> "錯誤: ${state.message}"
+    is Refreshing -> "重新整理中..."
+}
+
+fun main() {
+    val states: List<UiState<*>> = listOf(
+        Loading,
+        Success(mapOf("users" to listOf("Alice", "Bob"))),
+        Error("網路逾時"),
+        Refreshing,
+    )
+
+    states.forEach { println(renderState(it)) }
+}
+```
+</UniversalEditor>
+
+---
+
+## 6. 泛型約束
+
+<UniversalEditor title="泛型約束與上界" compare={true}>
+```javascript !! js
+// JavaScript — 沒有編譯時期約束強制
+function max(a, b) {
+  if (typeof a !== typeof b) throw new Error('型別不符');
+  return a > b ? a : b;
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+console.log(max(3, 7));              // 7
+console.log(max("apple", "banana")); // "banana"
+console.log(clamp(15, 0, 10));      // 10
+
+// TypeScript 多重約束：
+// function process<T extends Serializable & Loggable>(item: T): void
+
+function sortList(arr, compareFn) {
+  return [...arr].sort(compareFn);
+}
+
+const nums = sortList([3,1,4,1,5], (a, b) => a - b);
+const strs = sortList(['banana','apple','cherry'], (a, b) => a.localeCompare(b));
+console.log(nums); // [1, 1, 3, 4, 5]
+console.log(strs); // ["apple", "banana", "cherry"]
+```
+
+```kotlin !! kotlin
+// Kotlin 泛型約束與上界
+fun <T : Comparable<T>> max(a: T, b: T): T = if (a > b) a else b
+
+fun <T : Comparable<T>> clamp(value: T, min: T, max: T): T =
+    if (value < min) min else if (value > max) max else value
+
+// 使用 'where' 的多重上界
+interface Printable { fun print() }
+interface Serializable { fun serialize(): String }
+
+fun <T> processItem(item: T) where T : Printable, T : Serializable {
+    item.print()
+    println(item.serialize())
+}
+
+// 帶約束型別的泛型擴充
+fun <T : Comparable<T>> List<T>.sortedAndDistinct(): List<T> =
+    this.toSortedSet().toList()
+
+fun main() {
+    println(max(3, 7))              // 7
+    println(max("apple", "banana")) // banana
+    println(clamp(15, 0, 10))      // 10
+
+    val nums = listOf(3, 1, 4, 1, 5, 9, 2, 6, 5)
+    println(nums.sortedAndDistinct())  // [1, 2, 3, 4, 5, 6, 9]
+
+    val words = listOf("banana", "apple", "cherry", "apple")
+    println(words.sortedAndDistinct()) // [apple, banana, cherry]
+}
+```
+</UniversalEditor>
+
+---
+
+## 總結對照表
+
+| 概念 | JavaScript / TypeScript | Kotlin |
+|---|---|---|
+| 泛型函式 | `function f<T>(x: T): T` | `fun <T> f(x: T): T` |
+| 泛型類別 | `class Box<T>` | `class Box<T>(val v: T)` |
+| 協變 | 結構性（隱式） | `out T`（宣告點） |
+| 逆變 | 結構性（隱式） | `in T`（宣告點） |
+| 具體化型別 | 不可用（被抹除） | `inline fun <reified T>` |
+| 辨別聯合 | TS: `type A = X \| Y` | `sealed class` / `sealed interface` |
+| 窮舉檢查 | TS: 無強制 | `when` 不完整則編譯錯誤 |
+| 泛型約束 | `<T extends Comparable>` | `<T : Comparable<T>>` |
+| 多重約束 | `<T extends A & B>` | `where T : A, T : B` |
+| 密封子類別 | 不適用 | `data class X : Sealed()` |
+
+---
+
+## 練習
+
+### 練習 1：泛型堆疊
+
+用 Kotlin 實作一個泛型 `Stack<T>` 類別，包含 `push`、`pop`、`peek` 和 `isEmpty` 操作。確保 `pop` 和 `peek` 安全回傳 `T?`。
+
+<details>
+<summary>查看解答</summary>
+
+```kotlin
+class Stack<T> {
+    private val elements = mutableListOf<T>()
+
+    fun push(item: T) { elements.add(item) }
+
+    fun pop(): T? = if (elements.isNotEmpty()) elements.removeLast() else null
+
+    fun peek(): T? = elements.lastOrNull()
+
+    val isEmpty: Boolean get() = elements.isEmpty()
+
+    val size: Int get() = elements.size
+
+    override fun toString(): String = "Stack($elements)"
+}
+
+fun main() {
+    val stack = Stack<Int>()
+    stack.push(1)
+    stack.push(2)
+    stack.push(3)
+    println(stack.peek())  // 3
+    println(stack.pop())   // 3
+    println(stack.size)    // 2
+    println(stack)         // Stack([1, 2])
+}
+```
+
+</details>
+
+### 練習 2：網路狀態密封類別
+
+建模一個 `NetworkResult<T>` 密封類別，包含三個狀態：`Loading`、`Success(data: T)` 和 `Error(code: Int, message: String)`。編寫一個 `handleResult` 函式，使用 `when` 為每個狀態印出不同訊息。
+
+<details>
+<summary>查看解答</summary>
+
+```kotlin
+sealed class NetworkResult<out T> {
+    data object Loading : NetworkResult<Nothing>()
+    data class Success<T>(val data: T) : NetworkResult<T>()
+    data class Error(val code: Int, val message: String) : NetworkResult<Nothing>()
+}
+
+fun <T> handleResult(result: NetworkResult<T>) {
+    when (result) {
+        is NetworkResult.Loading ->
+            println("正在取得資料，請稍候...")
+        is NetworkResult.Success ->
+            println("取得資料成功: ${result.data}")
+        is NetworkResult.Error ->
+            println("錯誤 ${result.code}: ${result.message}")
+    }
+}
+
+fun main() {
+    handleResult(NetworkResult.Loading)
+    handleResult(NetworkResult.Success(listOf("Alice", "Bob")))
+    handleResult(NetworkResult.Error(404, "找不到資源"))
+}
+```
+
+</details>
+
+### 練習 3：帶約束的泛型 `findFirst`
+
+編寫一個泛型函式 `findFirst`，接受 `List<T>` 和謂詞 `(T) -> Boolean`，回傳第一個匹配元素 `T?`。再編寫變體 `findFirstComparable`，僅適用於實作 `Comparable<T>` 的型別，同時回傳所有匹配項中的最小值。
+
+<details>
+<summary>查看解答</summary>
+
+```kotlin
+fun <T> findFirst(list: List<T>, predicate: (T) -> Boolean): T? =
+    list.firstOrNull(predicate)
+
+fun <T : Comparable<T>> findFirstComparable(
+    list: List<T>,
+    predicate: (T) -> Boolean
+): Pair<T?, T?> {
+    val matches = list.filter(predicate)
+    return Pair(matches.firstOrNull(), matches.minOrNull())
+}
+
+fun main() {
+    val numbers = listOf(5, 3, 8, 1, 9, 2, 7)
+    println(findFirst(numbers) { it > 6 })  // 8
+
+    val (first, min) = findFirstComparable(numbers) { it > 4 }
+    println("第一個 > 4: $first, 最小 > 4: $min")
+}
+```
+
+</details>

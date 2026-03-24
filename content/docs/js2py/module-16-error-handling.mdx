@@ -1,0 +1,1033 @@
+---
+title: "Module 16: Error Handling"
+description: "Master Python's exception system: try/except/else/finally, custom exceptions, context managers with 'with', and comparison with JavaScript's try/catch."
+---
+
+# Module 16: Error Handling
+
+## Learning Objectives
+
+By the end of this module, you will:
+
+- ✅ Understand Python's `try/except` syntax and how it maps to JavaScript's `try/catch`
+- ✅ Learn to catch specific exception types and understand Python's exception hierarchy
+- ✅ Master the `else` and `finally` clauses unique to Python's exception handling
+- ✅ Know how to raise exceptions with `raise` and create custom exception classes
+- ✅ Use the `with` statement and context managers for safe resource management
+- ✅ Build custom context managers using `contextlib.contextmanager`
+
+---
+
+## 1. try/except vs try/catch
+
+The most fundamental difference is naming: JavaScript uses `catch`, Python uses `except`. Both serve the same purpose — catching errors and preventing your program from crashing.
+
+<UniversalEditor title="Basic try/except vs try/catch">
+```javascript !! js
+// JavaScript: try/catch/finally
+function divideNumbers(a, b) {
+  try {
+    if (b === 0) {
+      throw new Error("Division by zero is not allowed");
+    }
+    const result = a / b;
+    console.log(`Result: ${result}`);
+    return result;
+  } catch (error) {
+    console.error(`Error caught: ${error.message}`);
+    return null;
+  } finally {
+    console.log("This always runs");
+  }
+}
+
+divideNumbers(10, 2);   // Result: 5
+divideNumbers(10, 0);   // Error caught: Division by zero...
+```
+
+```python !! py
+# Python: try/except/finally
+def divide_numbers(a, b):
+    try:
+        if b == 0:
+            raise ValueError("Division by zero is not allowed")
+        result = a / b
+        print(f"Result: {result}")
+        return result
+    except ValueError as e:
+        print(f"Error caught: {e}")
+        return None
+    finally:
+        print("This always runs")
+
+divide_numbers(10, 2)   # Result: 5.0
+divide_numbers(10, 0)   # Error caught: Division by zero...
+```
+</UniversalEditor>
+
+### Catching Multiple Exception Types
+
+Python allows you to catch multiple exception types in a single `except` clause or with multiple `except` blocks.
+
+<UniversalEditor title="Catching Multiple Exception Types">
+```javascript !! js
+// JavaScript: single catch block handles all errors
+function parseUserInput(input) {
+  try {
+    const parsed = JSON.parse(input);
+
+    if (typeof parsed.age !== 'number') {
+      throw new TypeError("Age must be a number");
+    }
+    if (parsed.age < 0 || parsed.age > 150) {
+      throw new RangeError("Age must be between 0 and 150");
+    }
+
+    return parsed;
+  } catch (error) {
+    // Must check the type manually
+    if (error instanceof TypeError) {
+      console.error(`Type error: ${error.message}`);
+    } else if (error instanceof RangeError) {
+      console.error(`Range error: ${error.message}`);
+    } else if (error instanceof SyntaxError) {
+      console.error(`JSON parse error: ${error.message}`);
+    } else {
+      console.error(`Unknown error: ${error.message}`);
+    }
+    return null;
+  }
+}
+
+parseUserInput('{"name": "Alice", "age": 25}');
+parseUserInput('invalid json');
+parseUserInput('{"name": "Bob", "age": -5}');
+```
+
+```python !! py
+# Python: multiple except blocks — clean and explicit
+import json
+
+def parse_user_input(input_str):
+    try:
+        parsed = json.loads(input_str)
+
+        if not isinstance(parsed.get("age"), (int, float)):
+            raise TypeError("Age must be a number")
+        if not (0 <= parsed["age"] <= 150):
+            raise ValueError("Age must be between 0 and 150")
+
+        return parsed
+
+    except json.JSONDecodeError as e:
+        print(f"JSON parse error: {e}")
+    except TypeError as e:
+        print(f"Type error: {e}")
+    except ValueError as e:
+        print(f"Value error: {e}")
+    except Exception as e:
+        # Catch-all for unexpected errors
+        print(f"Unexpected error: {e}")
+
+    return None
+
+parse_user_input('{"name": "Alice", "age": 25}')
+parse_user_input('invalid json')
+parse_user_input('{"name": "Bob", "age": -5}')
+```
+</UniversalEditor>
+
+---
+
+## 2. Exception Hierarchy
+
+Python exceptions form a class hierarchy. Understanding this hierarchy helps you catch the right level of specificity.
+
+<UniversalEditor title="Exception Hierarchy and Specificity">
+```javascript !! js
+// JavaScript exception hierarchy is flat — all inherit from Error
+// Error
+// ├── TypeError
+// ├── RangeError
+// ├── SyntaxError
+// ├── ReferenceError
+// ├── URIError
+// └── EvalError
+
+function demonstrateErrors() {
+  // TypeError
+  try {
+    null.toString();
+  } catch (e) {
+    console.log(`${e.constructor.name}: ${e.message}`);
+  }
+
+  // RangeError
+  try {
+    new Array(-1);
+  } catch (e) {
+    console.log(`${e.constructor.name}: ${e.message}`);
+  }
+
+  // ReferenceError
+  try {
+    console.log(undeclaredVariable);
+  } catch (e) {
+    console.log(`${e.constructor.name}: ${e.message}`);
+  }
+}
+
+demonstrateErrors();
+```
+
+```python !! py
+# Python exception hierarchy:
+# BaseException
+# ├── SystemExit
+# ├── KeyboardInterrupt
+# ├── GeneratorExit
+# └── Exception
+#     ├── ArithmeticError
+#     │   ├── ZeroDivisionError
+#     │   └── OverflowError
+#     ├── LookupError
+#     │   ├── IndexError
+#     │   └── KeyError
+#     ├── TypeError
+#     ├── ValueError
+#     ├── FileNotFoundError (subclass of OSError)
+#     └── ... many more
+
+def demonstrate_errors():
+    # ZeroDivisionError
+    try:
+        result = 1 / 0
+    except ZeroDivisionError as e:
+        print(f"ZeroDivisionError: {e}")
+
+    # IndexError
+    try:
+        lst = [1, 2, 3]
+        val = lst[10]
+    except IndexError as e:
+        print(f"IndexError: {e}")
+
+    # KeyError
+    try:
+        d = {"a": 1}
+        val = d["b"]
+    except KeyError as e:
+        print(f"KeyError: {e}")
+
+    # Catching a parent class catches all subclasses
+    try:
+        lst = []
+        val = lst[0]
+    except LookupError as e:
+        # Catches both IndexError and KeyError
+        print(f"LookupError (parent): {type(e).__name__}: {e}")
+
+demonstrate_errors()
+```
+</UniversalEditor>
+
+---
+
+## 3. else and finally Clauses
+
+Python's `try/except` supports an `else` clause that has **no equivalent in JavaScript**. The `else` block runs only when no exception was raised — perfect for code that should only run on success.
+
+<UniversalEditor title="Python's else Clause — No JS Equivalent">
+```javascript !! js
+// JavaScript: no else clause for try/catch
+// Must use flags or nested logic to replicate behavior
+
+async function fetchUserData(userId) {
+  let success = false;
+  let data = null;
+
+  try {
+    const response = await fetch(`/api/users/${userId}`);
+    if (!response.ok) {
+      throw new Error(`HTTP error: ${response.status}`);
+    }
+    data = await response.json();
+    success = true;  // Must track success manually
+  } catch (error) {
+    console.error(`Failed to fetch user: ${error.message}`);
+  } finally {
+    console.log("Request completed");
+  }
+
+  // Awkward: success logic outside try/catch
+  if (success) {
+    console.log(`User fetched: ${data.name}`);
+    saveToCache(userId, data);
+  }
+}
+
+function saveToCache(id, data) {
+  console.log(`Cached user ${id}`);
+}
+```
+
+```python !! py
+# Python: else clause runs ONLY if no exception occurred
+import urllib.request
+import json
+
+def fetch_user_data(user_id):
+    try:
+        url = f"https://jsonplaceholder.typicode.com/users/{user_id}"
+        with urllib.request.urlopen(url) as response:
+            data = json.loads(response.read())
+
+    except urllib.error.URLError as e:
+        print(f"Network error: {e}")
+
+    except json.JSONDecodeError as e:
+        print(f"Invalid JSON: {e}")
+
+    else:
+        # Runs ONLY when try succeeded (no exception)
+        # This is the key difference from JavaScript
+        print(f"User fetched: {data['name']}")
+        save_to_cache(user_id, data)
+
+    finally:
+        # Always runs, whether exception or not
+        print("Request completed")
+
+def save_to_cache(user_id, data):
+    print(f"Cached user {user_id}")
+
+# Demonstrate with a mock version
+def safe_divide(a, b):
+    try:
+        result = a / b
+    except ZeroDivisionError:
+        print("Cannot divide by zero!")
+    else:
+        # Only prints when division succeeded
+        print(f"Success! {a} / {b} = {result}")
+    finally:
+        print("---")
+
+safe_divide(10, 2)   # prints Success, then ---
+safe_divide(10, 0)   # prints Cannot divide, then ---
+```
+</UniversalEditor>
+
+---
+
+## 4. Raising Exceptions
+
+Python uses `raise` where JavaScript uses `throw`. You can raise built-in exceptions or your own custom types.
+
+<UniversalEditor title="Raising Exceptions: raise vs throw">
+```javascript !! js
+// JavaScript: throw any value (usually an Error instance)
+function validateAge(age) {
+  if (typeof age !== 'number') {
+    throw new TypeError(`Expected number, got ${typeof age}`);
+  }
+  if (age < 0) {
+    throw new RangeError(`Age cannot be negative: ${age}`);
+  }
+  if (age > 150) {
+    throw new RangeError(`Unrealistic age: ${age}`);
+  }
+  return age;
+}
+
+// Re-throwing errors
+function processUser(userData) {
+  try {
+    const age = validateAge(userData.age);
+    console.log(`Valid age: ${age}`);
+  } catch (error) {
+    console.error(`Validation failed: ${error.message}`);
+    throw error;  // Re-throw after logging
+  }
+}
+
+try {
+  processUser({ age: -5 });
+} catch (e) {
+  console.log(`Caught re-thrown: ${e.message}`);
+}
+```
+
+```python !! py
+# Python: raise exception instances or classes
+def validate_age(age):
+    if not isinstance(age, (int, float)):
+        raise TypeError(f"Expected number, got {type(age).__name__}")
+    if age < 0:
+        raise ValueError(f"Age cannot be negative: {age}")
+    if age > 150:
+        raise ValueError(f"Unrealistic age: {age}")
+    return age
+
+# Re-raising exceptions
+def process_user(user_data):
+    try:
+        age = validate_age(user_data.get("age"))
+        print(f"Valid age: {age}")
+    except (TypeError, ValueError) as e:
+        print(f"Validation failed: {e}")
+        raise  # Re-raise the SAME exception (preserves traceback)
+
+try:
+    process_user({"age": -5})
+except ValueError as e:
+    print(f"Caught re-raised: {e}")
+
+# Raise with a cause (exception chaining)
+def load_config(path):
+    try:
+        with open(path) as f:
+            return f.read()
+    except FileNotFoundError as e:
+        # Chain the original exception as the cause
+        raise RuntimeError(f"Config not found at {path}") from e
+
+try:
+    load_config("/nonexistent/config.json")
+except RuntimeError as e:
+    print(f"RuntimeError: {e}")
+    print(f"Caused by: {e.__cause__}")
+```
+</UniversalEditor>
+
+---
+
+## 5. Custom Exceptions
+
+Python makes it easy to create rich custom exception classes by inheriting from `Exception`.
+
+<UniversalEditor title="Custom Exception Classes">
+```javascript !! js
+// JavaScript: extend Error class
+class ValidationError extends Error {
+  constructor(message, field, value) {
+    super(message);
+    this.name = 'ValidationError';
+    this.field = field;
+    this.value = value;
+  }
+}
+
+class DatabaseError extends Error {
+  constructor(message, query, code) {
+    super(message);
+    this.name = 'DatabaseError';
+    this.query = query;
+    this.errorCode = code;
+  }
+}
+
+function createUser(data) {
+  if (!data.email || !data.email.includes('@')) {
+    throw new ValidationError(
+      'Invalid email address',
+      'email',
+      data.email
+    );
+  }
+  // Simulate DB error
+  throw new DatabaseError(
+    'Connection refused',
+    'INSERT INTO users...',
+    1045
+  );
+}
+
+try {
+  createUser({ email: 'not-an-email' });
+} catch (e) {
+  if (e instanceof ValidationError) {
+    console.log(`Validation failed on field '${e.field}': ${e.message}`);
+  } else if (e instanceof DatabaseError) {
+    console.log(`DB error ${e.errorCode}: ${e.message}`);
+  }
+}
+```
+
+```python !! py
+# Python: inherit from Exception (or a subclass)
+
+class AppError(Exception):
+    """Base exception for this application."""
+    pass
+
+class ValidationError(AppError):
+    """Raised when input validation fails."""
+
+    def __init__(self, message, field=None, value=None):
+        super().__init__(message)
+        self.field = field
+        self.value = value
+
+    def __str__(self):
+        if self.field:
+            return f"ValidationError on '{self.field}': {super().__str__()}"
+        return super().__str__()
+
+class DatabaseError(AppError):
+    """Raised when a database operation fails."""
+
+    def __init__(self, message, query=None, error_code=None):
+        super().__init__(message)
+        self.query = query
+        self.error_code = error_code
+
+def create_user(data):
+    if not data.get("email") or "@" not in data["email"]:
+        raise ValidationError(
+            "Invalid email address",
+            field="email",
+            value=data.get("email")
+        )
+    # Simulate DB error
+    raise DatabaseError(
+        "Connection refused",
+        query="INSERT INTO users...",
+        error_code=1045
+    )
+
+try:
+    create_user({"email": "not-an-email"})
+except ValidationError as e:
+    print(e)                    # Uses __str__
+    print(f"Field: {e.field}")
+    print(f"Value: {e.value}")
+except DatabaseError as e:
+    print(f"DB error {e.error_code}: {e}")
+except AppError as e:
+    # Catches any AppError subclass
+    print(f"App error: {e}")
+```
+</UniversalEditor>
+
+---
+
+## 6. Context Managers (with Statement)
+
+The `with` statement is Python's elegant way to manage resources like files, network connections, and locks. It guarantees cleanup even if an exception occurs. JavaScript has no direct equivalent (though `using` is a Stage 3 proposal).
+
+<UniversalEditor title="Context Managers: with Statement vs Manual Cleanup">
+```javascript !! js
+// JavaScript: manual resource management (try/finally pattern)
+const fs = require('fs');
+
+function readFileContent(filePath) {
+  let fileHandle;
+  try {
+    // Must manually open and track the handle
+    fileHandle = fs.openSync(filePath, 'r');
+    const buffer = Buffer.alloc(1024);
+    const bytesRead = fs.readSync(fileHandle, buffer, 0, 1024, 0);
+    return buffer.toString('utf8', 0, bytesRead);
+  } catch (error) {
+    console.error(`Error reading file: ${error.message}`);
+    return null;
+  } finally {
+    // Must manually close in finally block
+    if (fileHandle !== undefined) {
+      fs.closeSync(fileHandle);
+      console.log("File handle closed");
+    }
+  }
+}
+
+// More modern approach with fs.promises and using
+async function readFileModern(filePath) {
+  try {
+    const content = await fs.promises.readFile(filePath, 'utf8');
+    return content;
+  } catch (error) {
+    console.error(`Error: ${error.message}`);
+  }
+}
+
+console.log("Reading file...");
+```
+
+```python !! py
+# Python: with statement handles open/close automatically
+
+# Reading a file — the classic use case
+def read_file_content(file_path):
+    try:
+        # __enter__ is called on open(), __exit__ closes the file
+        with open(file_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+            return content
+        # File is automatically closed here, even if exception occurs
+    except FileNotFoundError:
+        print(f"File not found: {file_path}")
+        return None
+
+# Multiple context managers in one with statement
+def copy_file(src, dst):
+    try:
+        with open(src, 'r') as source, open(dst, 'w') as dest:
+            dest.write(source.read())
+        print(f"Copied {src} to {dst}")
+    except IOError as e:
+        print(f"Copy failed: {e}")
+
+# with works with any object that implements __enter__ and __exit__
+import threading
+
+lock = threading.Lock()
+
+def thread_safe_operation():
+    with lock:  # Automatically acquires and releases the lock
+        # Critical section
+        print("Lock acquired, doing work...")
+    # Lock is released here automatically
+
+# Demonstrate with a simple example
+def demo_context_manager():
+    # Write a temp file
+    with open("/tmp/test_cm.txt", "w") as f:
+        f.write("Hello, context managers!\n")
+
+    # Read it back
+    content = read_file_content("/tmp/test_cm.txt")
+    print(f"Read: {content.strip()}")
+
+demo_context_manager()
+```
+</UniversalEditor>
+
+---
+
+## 7. Creating Custom Context Managers
+
+You can create your own context managers in two ways: by implementing `__enter__` and `__exit__` methods, or by using `contextlib.contextmanager`.
+
+<UniversalEditor title="Custom Context Managers">
+```javascript !! js
+// JavaScript: no native context manager protocol
+// Simulate with a class and a "use" helper function
+
+class Timer {
+  constructor(name) {
+    this.name = name;
+    this.startTime = null;
+  }
+
+  start() {
+    this.startTime = performance.now();
+    console.log(`[${this.name}] Started`);
+    return this;
+  }
+
+  stop() {
+    const elapsed = performance.now() - this.startTime;
+    console.log(`[${this.name}] Finished in ${elapsed.toFixed(2)}ms`);
+  }
+}
+
+// Must manually call start/stop — no language support
+async function withTimer(name, fn) {
+  const timer = new Timer(name).start();
+  try {
+    await fn();
+  } finally {
+    timer.stop();
+  }
+}
+
+// Usage requires wrapping in a function
+withTimer("database-query", async () => {
+  // Simulate work
+  await new Promise(resolve => setTimeout(resolve, 100));
+  console.log("Query complete");
+});
+```
+
+```python !! py
+# Python: two ways to create custom context managers
+
+# ── Method 1: Class with __enter__ and __exit__ ──────────────────
+import time
+
+class Timer:
+    """Context manager that times a code block."""
+
+    def __init__(self, name):
+        self.name = name
+        self.elapsed = 0
+
+    def __enter__(self):
+        self._start = time.perf_counter()
+        print(f"[{self.name}] Started")
+        return self  # Value assigned to 'as' variable
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.elapsed = time.perf_counter() - self._start
+        print(f"[{self.name}] Finished in {self.elapsed*1000:.2f}ms")
+        # Return False (or None) to propagate exceptions
+        # Return True to suppress exceptions
+        return False
+
+with Timer("computation") as t:
+    total = sum(range(1_000_000))
+    print(f"Sum: {total}")
+# t.elapsed is available here
+
+
+# ── Method 2: contextlib.contextmanager decorator ─────────────────
+from contextlib import contextmanager
+
+@contextmanager
+def managed_resource(name):
+    """Simulate acquiring and releasing a resource."""
+    print(f"Acquiring {name}...")
+    resource = {"name": name, "active": True}
+    try:
+        yield resource           # Execution pauses here (enters the with block)
+    except Exception as e:
+        print(f"Error during {name}: {e}")
+        raise
+    finally:
+        resource["active"] = False
+        print(f"Released {name}")
+
+with managed_resource("database connection") as db:
+    print(f"Using resource: {db['name']}")
+    print(f"Active: {db['active']}")
+```
+</UniversalEditor>
+
+---
+
+## 8. Exception Best Practices
+
+Here is a side-by-side look at common patterns and antipatterns when handling errors in both languages.
+
+<UniversalEditor title="Error Handling Best Practices">
+```javascript !! js
+// JavaScript Best Practices
+
+// ✅ Be specific about what you catch
+async function fetchData(url) {
+  try {
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+    return await response.json();
+  } catch (error) {
+    if (error instanceof TypeError) {
+      // Network error (fetch itself failed)
+      console.error("Network error:", error.message);
+    } else {
+      // HTTP error or JSON parse error
+      console.error("Request error:", error.message);
+    }
+    return null;
+  }
+}
+
+// ✅ Always clean up resources in finally
+function withTransaction(db, callback) {
+  const tx = db.beginTransaction();
+  try {
+    const result = callback(tx);
+    tx.commit();
+    return result;
+  } catch (error) {
+    tx.rollback();
+    throw error;
+  } finally {
+    tx.close();  // Always close
+  }
+}
+
+// ❌ Avoid: swallowing errors silently
+function badPattern() {
+  try {
+    riskyOperation();
+  } catch (e) {
+    // Silent catch — hides bugs!
+  }
+}
+```
+
+```python !! py
+# Python Best Practices
+
+# ✅ Catch specific exceptions, not bare except
+def parse_config(path):
+    try:
+        with open(path) as f:
+            import json
+            return json.load(f)
+    except FileNotFoundError:
+        print(f"Config not found: {path}, using defaults")
+        return {}
+    except json.JSONDecodeError as e:
+        print(f"Invalid JSON in config: {e}")
+        return {}
+    # Let unexpected exceptions propagate naturally
+
+# ✅ Use context managers instead of try/finally
+def process_file(path):
+    with open(path) as f:       # Cleaner than try/finally
+        return f.read()
+
+# ✅ Use exception chaining to preserve context
+def load_user(user_id):
+    try:
+        data = parse_config(f"users/{user_id}.json")
+    except Exception as e:
+        raise RuntimeError(f"Failed to load user {user_id}") from e
+
+# ✅ Create specific exception types for your domain
+class InsufficientFundsError(ValueError):
+    def __init__(self, balance, amount):
+        self.balance = balance
+        self.amount = amount
+        super().__init__(
+            f"Cannot withdraw {amount}: balance is only {balance}"
+        )
+
+# ❌ Avoid: bare except (catches even SystemExit, KeyboardInterrupt)
+def bad_pattern():
+    try:
+        risky_operation()
+    except:        # Never do this
+        pass       # Silently swallows ALL exceptions
+
+# ❌ Avoid: catching Exception for flow control
+# Use if/else for conditions, not exceptions
+def check_key_bad(d, key):
+    try:
+        return d[key]
+    except KeyError:
+        return None   # Use d.get(key) instead!
+```
+</UniversalEditor>
+
+---
+
+## Summary Table
+
+| Concept | JavaScript | Python |
+|---|---|---|
+| Basic syntax | `try { } catch (e) { }` | `try: ... except ExceptionType as e:` |
+| Multiple error types | Single `catch`, check with `instanceof` | Multiple `except` blocks |
+| Cleanup | `finally { }` | `finally:` |
+| Success-only code | Must use flag variable | `else:` clause (runs if no exception) |
+| Throw/raise | `throw new Error("msg")` | `raise ValueError("msg")` |
+| Re-throw | `throw error` | `raise` (bare, preserves traceback) |
+| Exception chaining | Manual (set `error.cause`) | `raise NewError() from original` |
+| Custom exceptions | `class MyError extends Error` | `class MyError(Exception): pass` |
+| Resource management | `try/finally` manually | `with` statement (context manager) |
+| Custom resource manager | No native protocol | `__enter__`/`__exit__` or `@contextmanager` |
+| Catch-all (avoid!) | `catch (e) { }` | `except Exception:` |
+| True catch-all (dangerous) | Same catch block | `except:` (catches SystemExit too!) |
+
+---
+
+## Exercises
+
+### Exercise 1: Safe File Reader
+
+Write a Python function `safe_read_json(filepath)` that:
+- Reads a JSON file from the given path
+- Returns the parsed data on success
+- Handles `FileNotFoundError`, `PermissionError`, and `json.JSONDecodeError` separately
+- Always prints a "Done" message (use `finally`)
+- Returns `None` on any error
+
+<details>
+<summary>Show Answer</summary>
+
+```python
+import json
+
+def safe_read_json(filepath):
+    try:
+        with open(filepath, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        print(f"Error: File '{filepath}' does not exist.")
+        return None
+    except PermissionError:
+        print(f"Error: No permission to read '{filepath}'.")
+        return None
+    except json.JSONDecodeError as e:
+        print(f"Error: Invalid JSON in '{filepath}': {e}")
+        return None
+    else:
+        print(f"Successfully read {len(str(data))} bytes of data.")
+        return data
+    finally:
+        print("Done.")
+
+# Test it
+import tempfile, os
+
+# Create a valid JSON file
+with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+    json.dump({"name": "Alice", "age": 30}, f)
+    valid_path = f.name
+
+result = safe_read_json(valid_path)
+print(f"Result: {result}")
+print()
+
+# Test with missing file
+result = safe_read_json("/nonexistent/file.json")
+print(f"Result: {result}")
+
+os.unlink(valid_path)
+```
+
+</details>
+
+---
+
+### Exercise 2: Custom Exception Hierarchy
+
+Create a custom exception hierarchy for a bank account system:
+- `BankError` (base exception)
+- `InsufficientFundsError(BankError)` — stores `balance` and `amount` attributes
+- `InvalidAmountError(BankError)` — for negative or zero amounts
+- `AccountLockedError(BankError)` — when account is locked
+- Write a `withdraw(balance, amount, locked=False)` function that raises the appropriate exception
+
+<details>
+<summary>Show Answer</summary>
+
+```python
+class BankError(Exception):
+    """Base class for all bank-related errors."""
+    pass
+
+class InsufficientFundsError(BankError):
+    def __init__(self, balance, amount):
+        self.balance = balance
+        self.amount = amount
+        self.shortfall = amount - balance
+        super().__init__(
+            f"Cannot withdraw ${amount:.2f}: "
+            f"balance is ${balance:.2f} (short by ${self.shortfall:.2f})"
+        )
+
+class InvalidAmountError(BankError):
+    def __init__(self, amount):
+        self.amount = amount
+        super().__init__(
+            f"Invalid withdrawal amount: ${amount}. Must be positive."
+        )
+
+class AccountLockedError(BankError):
+    def __init__(self, reason="security hold"):
+        super().__init__(f"Account is locked: {reason}")
+
+def withdraw(balance, amount, locked=False):
+    if locked:
+        raise AccountLockedError()
+    if amount <= 0:
+        raise InvalidAmountError(amount)
+    if amount > balance:
+        raise InsufficientFundsError(balance, amount)
+    new_balance = balance - amount
+    print(f"Withdrew ${amount:.2f}. New balance: ${new_balance:.2f}")
+    return new_balance
+
+# Test the exceptions
+test_cases = [
+    (100.0, 50.0, False),    # Success
+    (100.0, 150.0, False),   # InsufficientFunds
+    (100.0, -10.0, False),   # InvalidAmount
+    (100.0, 50.0, True),     # AccountLocked
+]
+
+for balance, amount, locked in test_cases:
+    try:
+        withdraw(balance, amount, locked)
+    except InsufficientFundsError as e:
+        print(f"InsufficientFunds: {e} (shortfall: ${e.shortfall:.2f})")
+    except InvalidAmountError as e:
+        print(f"InvalidAmount: {e}")
+    except AccountLockedError as e:
+        print(f"AccountLocked: {e}")
+    except BankError as e:
+        print(f"BankError: {e}")
+```
+
+</details>
+
+---
+
+### Exercise 3: Custom Context Manager
+
+Create a context manager `temp_file_writer(filename, content)` using `@contextmanager` that:
+- Creates and writes to a temporary file on enter
+- Yields the file path
+- Deletes the file on exit (even if an exception occurs)
+- Prints a message when the file is created and when it's deleted
+
+<details>
+<summary>Show Answer</summary>
+
+```python
+import os
+import tempfile
+from contextlib import contextmanager
+
+@contextmanager
+def temp_file_writer(filename_hint, content):
+    """
+    Creates a temporary file, yields its path,
+    and ensures deletion on exit.
+    """
+    # Use a temp directory with the given filename hint
+    temp_dir = tempfile.gettempdir()
+    filepath = os.path.join(temp_dir, filename_hint)
+
+    try:
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write(content)
+        print(f"Created temp file: {filepath}")
+        yield filepath          # Caller receives the path
+
+    except Exception as e:
+        print(f"Error while using temp file: {e}")
+        raise                   # Re-raise so caller knows about it
+
+    finally:
+        if os.path.exists(filepath):
+            os.remove(filepath)
+            print(f"Deleted temp file: {filepath}")
+
+# Usage — successful case
+with temp_file_writer("report.txt", "Hello, world!\nLine 2") as path:
+    with open(path) as f:
+        content = f.read()
+    print(f"File content: {content!r}")
+    print(f"File size: {len(content)} bytes")
+
+print()
+
+# File is gone after the with block
+try:
+    with temp_file_writer("data.txt", "some data") as path:
+        with open(path) as f:
+            print(f"Read: {f.read()!r}")
+        # Simulate an error
+        raise RuntimeError("Processing failed!")
+except RuntimeError as e:
+    print(f"Caught: {e}")
+    # File is still deleted (finally block ran)
+```
+
+</details>

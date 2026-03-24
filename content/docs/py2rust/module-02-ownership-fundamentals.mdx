@@ -1,0 +1,633 @@
+---
+title: "Module 2: Ownership Fundamentals"
+description: "Understand Rust's ownership system by contrasting it with Python's reference counting and garbage collection. The essential bridge before learning the borrow checker."
+---
+
+# Module 2: Ownership Fundamentals
+
+You've learned Rust's syntax in Module 1. Now it's time to tackle the concept that makes Rust unique — and the one that trips up every developer coming from Python: **ownership**.
+
+This module builds the mental model you need before diving into borrowing rules in Module 3.
+
+## Learning Objectives
+
+By the end of this module, you'll understand:
+- ✅ Why ownership exists and what problems it solves
+- ✅ Python's reference counting vs Rust's compile-time ownership
+- ✅ The three rules of ownership
+- ✅ Move semantics vs Python's "always a reference" model
+- ✅ Stack vs heap memory (and why Rust exposes this)
+- ✅ Copy types vs Move types
+- ✅ How ownership applies to function calls
+
+---
+
+## Why Memory Management Matters
+
+Before comparing Python and Rust, let's understand the problem both are solving: **how do you safely reclaim memory that's no longer needed?**
+
+Three main strategies exist:
+1. **Manual management** (C/C++) — programmer calls `malloc`/`free`. Fast, but prone to use-after-free bugs and memory leaks.
+2. **Garbage collection** (Python, Java, Go) — runtime periodically scans memory and reclaims unused objects. Safe, but adds runtime overhead and unpredictable pauses.
+3. **Ownership** (Rust) — compiler tracks who owns each value and automatically inserts cleanup code at compile time. Zero runtime cost, and as safe as GC.
+
+Rust's bet: the compiler can enforce memory safety at zero runtime cost if you follow strict ownership rules.
+
+---
+
+## Python's Memory Model: Reference Counting
+
+Python uses **reference counting** — every object tracks how many variables point to it. When the count drops to zero, the object is freed.
+
+<UniversalEditor title="Python Reference Counting">
+```python !! py
+import sys
+
+# Python creates an object and counts references
+data = [1, 2, 3]
+print(sys.getrefcount(data))  # 2 (data + getrefcount arg)
+
+# Another reference to the same object
+other = data
+print(sys.getrefcount(data))  # 3
+
+# Remove a reference
+del other
+print(sys.getrefcount(data))  # 2 again
+
+# Both variables point to the SAME object in memory
+a = [10, 20, 30]
+b = a          # b points to the same list
+b.append(40)
+print(a)       # [10, 20, 30, 40] - a sees the change!
+print(a is b)  # True - same object
+
+# When count reaches 0, Python frees the memory
+del a
+del b
+# Object is now freed (ref count = 0)
+```
+
+```rust !! rs
+// Rust has no reference counting by default
+// Each value has exactly ONE owner at compile time
+fn main() {
+    let data = vec![1, 2, 3];
+    // `data` is the sole owner of this Vec
+
+    // This MOVES ownership — data is no longer valid
+    let other = data;
+    // println!("{:?}", data);  // ERROR: value moved!
+
+    println!("{:?}", other);  // OK: other owns it now
+
+    // To have two variables with the same content,
+    // you must explicitly clone
+    let a = vec![10, 20, 30];
+    let b = a.clone();   // b gets its OWN copy
+    println!("{:?}", a); // OK: a still owns its copy
+    println!("{:?}", b); // OK: b owns its copy
+    // Both are freed when they go out of scope
+}
+```
+</UniversalEditor>
+
+**The key difference:** Python always gives you a reference to a shared object. Rust gives you an owned value — and only one variable can own it at a time.
+
+---
+
+## The Three Rules of Ownership
+
+Rust enforces these three rules at compile time. Every valid Rust program obeys them:
+
+> **Rule 1:** Each value in Rust has an *owner*.
+> **Rule 2:** There can only be *one owner at a time*.
+> **Rule 3:** When the owner goes *out of scope*, the value is dropped (freed).
+
+Let's see each rule in action:
+
+<UniversalEditor title="Rule 3: Scope-Based Cleanup">
+```python !! py
+# Python: objects live until reference count = 0
+# (or garbage collector runs for cycles)
+
+def create_data():
+    temp = [1, 2, 3]
+    # temp's ref count drops to 0 when function returns
+    # Python MAY free it now (or the GC will later)
+    return  # temp goes out of scope here
+
+# After this call, [1, 2, 3] may still be in memory
+# until Python's GC decides to clean it up
+create_data()
+
+# You can even inspect "freed" memory:
+class TrackDeletion:
+    def __del__(self):
+        print("I was freed!")
+
+obj = TrackDeletion()
+del obj  # Triggers __del__ (but timing isn't guaranteed)
+```
+
+```rust !! rs
+// Rust: values are freed EXACTLY when owner goes out of scope
+// This is called "drop" — it's deterministic and immediate
+
+struct TrackDeletion {
+    name: String,
+}
+
+impl Drop for TrackDeletion {
+    fn drop(&mut self) {
+        println!("{} was freed!", self.name);
+    }
+}
+
+fn create_data() {
+    let temp = vec![1, 2, 3];
+    println!("Using temp: {:?}", temp);
+    // temp is freed HERE — exactly when scope ends
+    // No GC, no delay, no runtime overhead
+}
+
+fn main() {
+    create_data();
+    println!("After create_data");
+
+    {
+        let obj = TrackDeletion { name: String::from("obj") };
+        println!("obj created");
+    } // "obj was freed!" prints HERE — deterministic!
+
+    println!("After inner scope");
+}
+// Output:
+// Using temp: [1, 2, 3]
+// After create_data
+// obj created
+// obj was freed!
+// After inner scope
+```
+</UniversalEditor>
+
+---
+
+## Move Semantics: The Biggest Surprise for Python Developers
+
+In Python, assigning a variable to another variable always creates another reference to the same object. In Rust, assigning *moves* ownership.
+
+<UniversalEditor title="Python References vs Rust Moves">
+```python !! py
+# Python: assignment creates a new reference
+# (for mutable objects like lists)
+original = [1, 2, 3]
+moved = original  # Both point to same list
+
+# original is still valid!
+print(original)   # [1, 2, 3]
+print(moved)      # [1, 2, 3]
+
+# For immutable objects, Python may copy or reference
+# but you never notice because you can't mutate them
+x = 42
+y = x
+y = 100
+print(x)  # 42 — integers appear to be "copied"
+print(y)  # 100
+```
+
+```rust !! rs
+fn main() {
+    // Rust: assignment MOVES ownership for heap types
+    let original = vec![1, 2, 3];  // heap-allocated
+    let moved = original;           // ownership transferred!
+
+    // original is no longer valid — the compiler knows this
+    // println!("{:?}", original);  // ERROR: use of moved value
+
+    println!("{:?}", moved);   // OK
+
+    // For stack types (integers, bools, etc.), assignment COPIES
+    let x: i32 = 42;
+    let y = x;    // x is COPIED, not moved
+    println!("{}", x);  // OK! i32 implements Copy trait
+    println!("{}", y);  // OK!
+
+    // The difference: Vec is heap-allocated (expensive to copy)
+    // i32 is stack-allocated (cheap to copy)
+    // Rust is explicit about which is which
+}
+```
+</UniversalEditor>
+
+### Why Does Rust Do This?
+
+If Rust allowed two owners, both could try to free the same memory — a **double-free** bug. By allowing only one owner, Rust guarantees the value is freed exactly once.
+
+```
+Python approach:
+  a ──┐
+      ├──▶ [heap: 1,2,3] (freed when refcount=0)
+  b ──┘
+
+Rust approach:
+  original ──▶ [heap: 1,2,3]
+  let moved = original;
+  original ✗  (invalid)
+  moved ──▶ [heap: 1,2,3] (freed when moved goes out of scope)
+```
+
+---
+
+## Stack vs Heap: Rust Exposes What Python Hides
+
+Python hides all memory details from you. Rust exposes them — and for good reason.
+
+<UniversalEditor title="Stack vs Heap Memory">
+```python !! py
+# Python hides the stack/heap distinction completely
+# All objects live on the heap (even small integers are objects)
+x = 42        # heap-allocated integer object!
+s = "hello"   # heap-allocated string object
+lst = [1,2,3] # heap-allocated list object
+
+# Python always gives you a reference (pointer) to heap memory
+# This is why all Python variables are "references"
+
+# id() shows the memory address (heap location)
+print(id(x))   # some heap address
+print(id(s))   # some heap address
+
+# Even "small" values are heap objects in CPython
+# (though CPython caches small integers -5 to 256)
+a = 1000
+b = 1000
+print(a is b)  # False! Different heap objects
+```
+
+```rust !! rs
+fn main() {
+    // Rust: you explicitly choose stack vs heap
+
+    // STACK: fixed-size, fast, automatically freed
+    let x: i32 = 42;         // 4 bytes on stack
+    let b: bool = true;       // 1 byte on stack
+    let f: f64 = 3.14;        // 8 bytes on stack
+    let arr: [i32; 3] = [1, 2, 3];  // 12 bytes on stack
+
+    // HEAP: dynamic size, manually managed via ownership
+    let s = String::from("hello");  // metadata on stack, text on heap
+    let v = vec![1, 2, 3];          // metadata on stack, data on heap
+
+    // String literals (&str) are stack references to read-only memory
+    let literal: &str = "hello";  // pointer + length on stack
+
+    println!("Stack: {}, {}, {}, {:?}", x, b, f, arr);
+    println!("Heap: {}, {:?}", s, v);
+    println!("Literal: {}", literal);
+    // All heap memory freed here when owners go out of scope
+}
+```
+</UniversalEditor>
+
+**Why does this matter?** Stack allocation is nearly free — just move a pointer. Heap allocation requires the allocator to find free memory. Rust lets you choose which you need, and its ownership system ensures heap memory is always freed exactly once.
+
+---
+
+## Copy Types vs Move Types
+
+Rust has two categories of types based on whether assignment copies or moves:
+
+<UniversalEditor title="Copy vs Move Types">
+```python !! py
+# Python has no explicit Copy/Move distinction
+# Everything is a reference, but immutable objects
+# appear to be "copied" (you can't observe the sharing)
+
+# These behave like "copy" types (immutable in Python):
+a = 42
+b = a
+b = 100
+print(a)   # 42 — a is unchanged (b got a new object)
+
+x = "hello"
+y = x
+y = "world"
+print(x)   # "hello" — x is unchanged
+
+# These behave like "move/reference" types:
+lst1 = [1, 2, 3]
+lst2 = lst1
+lst2.append(4)
+print(lst1)  # [1, 2, 3, 4] — SAME object!
+```
+
+```rust !! rs
+fn main() {
+    // COPY types (stack-only, cheap to duplicate):
+    // i8, i16, i32, i64, i128, isize
+    // u8, u16, u32, u64, u128, usize
+    // f32, f64
+    // bool
+    // char
+    // Tuples/arrays of Copy types
+
+    let a: i32 = 42;
+    let b = a;       // COPIES the value
+    println!("{}", a);  // OK! a still valid
+    println!("{}", b);  // OK! b has its own copy
+
+    let t = (1, true, 3.14);
+    let t2 = t;      // COPIES — all fields are Copy
+    println!("{:?}", t);   // OK!
+    println!("{:?}", t2);  // OK!
+
+    // MOVE types (heap-allocated, expensive to duplicate):
+    // String, Vec<T>, HashMap, Box<T>, etc.
+
+    let s = String::from("hello");
+    let s2 = s;      // MOVES ownership
+    // println!("{}", s);  // ERROR: moved
+
+    // To copy a Move type, use .clone()
+    let v1 = vec![1, 2, 3];
+    let v2 = v1.clone();   // Explicit deep copy
+    println!("{:?}", v1);  // OK! v1 kept its data
+    println!("{:?}", v2);  // OK! v2 has its own copy
+}
+```
+</UniversalEditor>
+
+**The rule of thumb:** If a type has a fixed size known at compile time and lives entirely on the stack, it probably implements `Copy`. If it has heap-allocated data, it uses move semantics.
+
+---
+
+## Ownership and Functions
+
+When you pass a value to a function, the same ownership rules apply: either the value is moved into the function, or it's copied.
+
+<UniversalEditor title="Ownership Through Function Calls">
+```python !! py
+# Python: passing to a function passes a reference
+# The function can modify the original if it's mutable
+def append_item(lst, item):
+    lst.append(item)
+    # lst is a reference to the original list
+
+numbers = [1, 2, 3]
+append_item(numbers, 4)
+print(numbers)  # [1, 2, 3, 4] — original modified!
+
+# Functions don't "take" ownership — they share it
+def use_string(s):
+    print(f"Using: {s}")
+    # s is just another reference
+
+name = "Alice"
+use_string(name)
+print(name)  # "Alice" still accessible
+```
+
+```rust !! rs
+fn take_ownership(s: String) {
+    println!("Got: {}", s);
+    // s is dropped here when function ends
+}
+
+fn copy_value(n: i32) {
+    println!("Got: {}", n);
+    // n is a copy — original still valid
+}
+
+fn give_back(s: String) -> String {
+    println!("Using: {}", s);
+    s  // Return the value — transfer ownership back!
+}
+
+fn main() {
+    let s1 = String::from("hello");
+    take_ownership(s1);      // s1 MOVED into function
+    // println!("{}", s1);   // ERROR: s1 no longer valid!
+
+    let n = 42;
+    copy_value(n);           // n COPIED into function
+    println!("{}", n);       // OK! n is still valid (i32 is Copy)
+
+    let s2 = String::from("world");
+    let s3 = give_back(s2);  // s2 moved in, ownership returned as s3
+    // s2 no longer valid, but s3 is
+    println!("{}", s3);      // OK!
+}
+```
+</UniversalEditor>
+
+Moving ownership in and out of functions is verbose. That's exactly why **borrowing** (Module 3) exists — it lets you temporarily lend ownership without transferring it.
+
+---
+
+## Returning Ownership
+
+You can also create ownership in a function and return it to the caller:
+
+<UniversalEditor title="Returning Owned Values">
+```python !! py
+# Python: functions just return references
+def create_list():
+    result = [1, 2, 3, 4, 5]
+    return result  # Returns a reference to the list
+
+data = create_list()
+print(data)  # [1, 2, 3, 4, 5]
+# data now holds a reference to the list
+```
+
+```rust !! rs
+fn create_vec() -> Vec<i32> {
+    let result = vec![1, 2, 3, 4, 5];
+    result  // Ownership TRANSFERRED to the caller
+}
+
+fn create_string(greeting: &str, name: &str) -> String {
+    // Build a new String and return ownership to caller
+    format!("{}, {}!", greeting, name)
+}
+
+fn main() {
+    let data = create_vec();   // Ownership transferred here
+    println!("{:?}", data);    // data owns the Vec
+
+    let msg = create_string("Hello", "Alice");
+    println!("{}", msg);       // msg owns the String
+    // Both data and msg freed here
+}
+```
+</UniversalEditor>
+
+---
+
+## Common Ownership Patterns
+
+Here are the patterns you'll use most in real Rust code:
+
+<UniversalEditor title="Common Ownership Patterns">
+```python !! py
+# Pattern 1: Build and use in same scope
+items = []
+for i in range(5):
+    items.append(i * 2)
+print(items)
+
+# Pattern 2: Transform data
+original = [1, 2, 3]
+doubled = [x * 2 for x in original]
+# original still accessible
+
+# Pattern 3: Conditional ownership
+def get_greeting(use_formal: bool) -> str:
+    if use_formal:
+        return "Good day"
+    else:
+        return "Hey"
+
+greeting = get_greeting(True)
+print(greeting)
+```
+
+```rust !! rs
+fn main() {
+    // Pattern 1: Build and use in same scope
+    let mut items: Vec<i32> = Vec::new();
+    for i in 0..5 {
+        items.push(i * 2);
+    }
+    println!("{:?}", items);
+
+    // Pattern 2: Transform data (clone if you need both)
+    let original = vec![1, 2, 3];
+    let doubled: Vec<i32> = original.iter().map(|x| x * 2).collect();
+    println!("Original: {:?}", original);  // Still valid
+    println!("Doubled: {:?}", doubled);
+
+    // Pattern 3: Conditional ownership
+    fn get_greeting(formal: bool) -> String {
+        if formal {
+            String::from("Good day")
+        } else {
+            String::from("Hey")
+        }
+    }
+
+    let greeting = get_greeting(true);
+    println!("{}", greeting);
+
+    // Pattern 4: Scope to control lifetime
+    let result;
+    {
+        let temp = vec![10, 20, 30];
+        result = temp.clone();  // Clone before temp is dropped
+    } // temp dropped here
+    println!("{:?}", result);   // Works: result owns its own data
+}
+```
+</UniversalEditor>
+
+---
+
+## Summary: Python vs Rust Memory Model
+
+| Concept | Python | Rust |
+|---------|--------|------|
+| Memory management | Garbage collection + ref counting | Compile-time ownership rules |
+| Variable assignment | Creates a new reference | Moves ownership (for heap types) |
+| Multiple variables, same data | Easy — just assign | Requires `clone()` for owned types |
+| Memory freed when | Ref count = 0 (or GC cycle) | Owner goes out of scope (deterministic) |
+| Stack allocation | Mostly hidden | Explicit — primitives are stack-allocated |
+| Runtime overhead | GC pauses, ref count updates | Zero — all resolved at compile time |
+| Safety | Runtime errors possible (rare) | Compile-time guarantee (no memory bugs) |
+
+---
+
+## Looking Ahead: Module 3
+
+You now understand the foundation. In the next module, you'll learn **borrowing** — Rust's solution to the verbosity of moving ownership in and out of functions.
+
+Instead of moving a value, you can *lend* it temporarily:
+
+```rust
+// Instead of moving ownership:
+let result = take_and_return(my_string);
+
+// You can BORROW it:
+use_string(&my_string);   // &String = immutable borrow
+println!("{}", my_string); // still valid!
+```
+
+The borrow checker enforces two rules you'll see in Module 3:
+- You can have **many immutable borrows** at the same time, OR
+- You can have **exactly one mutable borrow** — but not both simultaneously
+
+This is what prevents data races at compile time. See you in Module 3!
+
+---
+
+## Practice Exercises
+
+<details>
+<summary>Exercise 1: Predict the Behavior</summary>
+
+What does this code do? Will it compile?
+
+```rust
+fn main() {
+    let s = String::from("hello");
+    let t = s;
+    let u = s;
+    println!("{}", u);
+}
+```
+
+**Answer:** It will NOT compile. `s` is moved into `t` on line 3. When line 4 tries to move `s` into `u`, the compiler rejects it because `s` was already moved. Fix: use `s.clone()` when assigning to `t`.
+</details>
+
+<details>
+<summary>Exercise 2: Copy vs Move</summary>
+
+Which of these will compile? Why?
+
+```rust
+fn main() {
+    let a: f64 = 3.14;
+    let b = a;
+    println!("{} {}", a, b);  // (A)
+
+    let v = vec![1, 2, 3];
+    let w = v;
+    println!("{:?} {:?}", v, w);  // (B)
+}
+```
+
+**Answer:** (A) compiles — `f64` implements `Copy`, so `b = a` makes a copy and both remain valid. (B) does NOT compile — `Vec<i32>` is a Move type, so `w = v` transfers ownership and `v` becomes invalid.
+</details>
+
+<details>
+<summary>Exercise 3: Fix the Ownership Error</summary>
+
+Fix this code without changing what it does:
+
+```rust
+fn print_vec(v: Vec<i32>) {
+    println!("{:?}", v);
+}
+
+fn main() {
+    let nums = vec![1, 2, 3];
+    print_vec(nums);
+    print_vec(nums);  // ERROR
+}
+```
+
+**Answer:** Two approaches:
+1. Clone before passing: `print_vec(nums.clone()); print_vec(nums);`
+2. (Better, covered in Module 3) Use borrowing: change parameter to `v: &Vec<i32>` and call `print_vec(&nums)`.
+</details>

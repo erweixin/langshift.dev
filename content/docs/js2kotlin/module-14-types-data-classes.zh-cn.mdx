@@ -1,0 +1,721 @@
+---
+title: "第 14 模块：类型系统与数据类"
+description: "掌握 Kotlin 的类型系统：空安全、智能转换、数据类、密封类和类型别名——与 JavaScript 的动态类型进行全面对比。"
+---
+
+# 第 14 模块：类型系统与数据类
+
+欢迎来到 JavaScript 到 Kotlin 转换的第 14 模块！本模块深入探讨 Kotlin 强大的类型系统——这是从 JavaScript 动态世界转变中最大的变化之一。你将学习 Kotlin 如何通过空安全、智能转换以及用数据类和密封类进行表达性数据建模来消除整类运行时错误。
+
+## 学习目标
+
+完成本模块后，你将能够：
+
+- ✅ 理解可空类型（`String?`）以及 Kotlin 如何在编译时防止空指针异常
+- ✅ 使用智能转换和 `is`/`as` 运算符安全地处理不同类型
+- ✅ 定义具有自动 `equals`、`hashCode`、`copy` 和 `toString` 实现的数据类
+- ✅ 使用密封类和 `when` 表达式对穷举状态进行建模
+- ✅ 创建可读的类型别名以提高代码清晰度
+- ✅ 理解 Kotlin 的类型层次结构：`Any`、`Nothing` 和 `Unit`
+
+---
+
+## 1. 空安全：Kotlin 与 JavaScript
+
+JavaScript 的 `null` 和 `undefined` 是臭名昭著的运行时错误来源——令人烦恼的"无法读取 null 的属性"。Kotlin 使用可空类型在编译时消除了这整类错误。
+
+<UniversalEditor title="空安全：可空类型" compare={true}>
+```javascript !! js
+// JavaScript - null 和 undefined 可以出现在任何地方
+function greetUser(user) {
+  // 这在运行时可能抛出异常："Cannot read properties of null"
+  console.log("你好，" + user.name.toUpperCase());
+}
+
+// 没有编译时保护——在运行时崩溃
+greetUser(null);         // TypeError!
+greetUser(undefined);   // TypeError!
+greetUser({ name: null }); // TypeError!
+
+// 开发者必须在各处手动防护
+function safeGreet(user) {
+  if (user != null && user.name != null) {
+    console.log("你好，" + user.name.toUpperCase());
+  } else {
+    console.log("你好，陌生人！");
+  }
+}
+
+let maybeUser = null;
+let name = maybeUser?.name ?? "陌生人"; // 可选链（ES2020）
+console.log(name);
+```
+
+```kotlin !! kotlin
+// Kotlin - 空安全由类型系统强制执行
+
+// 非空类型：String 永远不能为 null
+fun greetUser(name: String) {
+    println("你好，${name.uppercase()}")
+}
+
+// greetUser(null) // 编译错误！Null 不能是非空类型 String 的值
+
+// 可空类型：String? 可以为 null
+fun greetNullable(name: String?) {
+    // 使用前必须处理 null
+    // name.uppercase() // 编译错误！只允许安全调用(?.)或非空断言(!!)
+    println("你好，${name?.uppercase() ?: "陌生人"}！")
+}
+
+greetNullable("Alice")  // 你好，ALICE！
+greetNullable(null)     // 你好，陌生人！
+
+// 安全调用运算符 ?.
+val user: String? = null
+val length: Int? = user?.length  // null（不会崩溃）
+
+// Elvis 运算符 ?: （当为 null 时提供默认值）
+val displayName: String = user ?: "匿名"
+
+// 非空断言 !!（如果为 null 则抛出异常——谨慎使用）
+val definitelyNotNull: String = user!! // 抛出 KotlinNullPointerException
+```
+</UniversalEditor>
+
+<UniversalEditor title="空安全：let 块与空检查" compare={true}>
+```javascript !! js
+// JavaScript 空检查模式
+function processUser(user) {
+  if (user === null || user === undefined) {
+    console.log("未提供用户");
+    return;
+  }
+  // user 在这里"已知"为非空，但没有编译时保证
+  console.log(user.name);
+  console.log(user.email.toLowerCase()); // 如果 email 为 null 仍可能崩溃！
+}
+
+// 链式可选访问
+function getCity(user) {
+  return user?.address?.city ?? "未知";
+}
+
+// 可能为 null 的数组项
+const users = ["Alice", null, "Bob", null];
+const names = users.filter(u => u !== null).map(u => u.toUpperCase());
+console.log(names); // ["ALICE", "BOB"]
+```
+
+```kotlin !! kotlin
+// Kotlin 空检查模式
+
+// 空检查后，Kotlin 会自动进行智能转换
+fun processUser(user: String?) {
+    if (user == null) {
+        println("未提供用户")
+        return
+    }
+    // user 在这里自动智能转换为 String（非空类型）
+    println(user.uppercase()) // 不需要 ?.！
+}
+
+// 使用可空类型进行安全链式调用
+data class Address(val city: String?)
+data class User(val name: String, val address: Address?)
+
+fun getCity(user: User?): String {
+    return user?.address?.city ?: "未知"
+}
+
+// let 块：仅在非空时执行
+val maybeEmail: String? = "alice@example.com"
+maybeEmail?.let { email ->
+    println(email.lowercase()) // 安全——email 在这里是 String，不是 String?
+}
+
+// filterNotNull：清理可空项列表
+val users: List<String?> = listOf("Alice", null, "Bob", null)
+val names: List<String> = users.filterNotNull()
+println(names.map { it.uppercase() }) // [ALICE, BOB]
+```
+</UniversalEditor>
+
+---
+
+## 2. 智能转换
+
+Kotlin 的编译器会跟踪类型检查并自动缩小类型范围——检查之后无需显式转换。
+
+<UniversalEditor title="智能转换：is 和 as 运算符" compare={true}>
+```javascript !! js
+// JavaScript 使用 instanceof 进行类型检查
+function describeValue(value) {
+  if (value instanceof String || typeof value === "string") {
+    console.log("字符串长度：" + value.length);
+  } else if (typeof value === "number") {
+    console.log("数字：" + value.toFixed(2));
+  } else if (Array.isArray(value)) {
+    console.log("数组，包含 " + value.length + " 个元素");
+  } else {
+    console.log("未知类型：" + typeof value);
+  }
+}
+
+describeValue("hello");  // 字符串长度：5
+describeValue(3.14159); // 数字：3.14
+describeValue([1, 2, 3]); // 数组，包含 3 个元素
+```
+
+```kotlin !! kotlin
+// Kotlin 智能转换——is 检查后自动缩小类型
+
+fun describeValue(value: Any) {
+    when (value) {
+        is String -> {
+            // 智能转换：value 在这里自动变为 String 类型
+            println("字符串长度：${value.length}")
+            println("大写：${value.uppercase()}")
+        }
+        is Int -> {
+            // 智能转换：value 在这里是 Int 类型
+            println("整数 × 2 = ${value * 2}")
+        }
+        is Double -> {
+            println("双精度：${"%.2f".format(value)}")
+        }
+        is List<*> -> {
+            // 智能转换：value 在这里是 List<*> 类型
+            println("列表，包含 ${value.size} 个元素")
+        }
+        else -> println("未知类型：${value::class.simpleName}")
+    }
+}
+
+describeValue("hello")       // 字符串长度：5
+describeValue(42)            // 整数 × 2 = 84
+describeValue(3.14159)       // 双精度：3.14
+describeValue(listOf(1,2,3)) // 列表，包含 3 个元素
+
+// 使用 as? 进行显式安全转换
+val value: Any = "Kotlin"
+val asString: String? = value as? String  // 如果转换失败返回 null（安全）
+val asInt: Int? = value as? Int           // null（不是 Int）
+
+println(asString) // Kotlin
+println(asInt)    // null
+```
+</UniversalEditor>
+
+---
+
+## 3. 数据类
+
+JavaScript 使用普通对象或手动编写的类作为数据容器。Kotlin 的 `data class` 自动生成 `equals`、`hashCode`、`toString`、`copy` 和组件函数。
+
+<UniversalEditor title="数据类：自动生成的方法" compare={true}>
+```javascript !! js
+// JavaScript — 值对象的手动样板代码
+class Person {
+  constructor(name, age, email) {
+    this.name = name;
+    this.age = age;
+    this.email = email;
+  }
+
+  // 必须手动实现
+  toString() {
+    return `Person(name=${this.name}, age=${this.age}, email=${this.email})`;
+  }
+
+  // 结构相等必须手动编写
+  equals(other) {
+    return other instanceof Person &&
+      this.name === other.name &&
+      this.age === other.age &&
+      this.email === other.email;
+  }
+
+  // 带修改的拷贝——手动实现
+  copyWith(changes) {
+    return new Person(
+      changes.name ?? this.name,
+      changes.age ?? this.age,
+      changes.email ?? this.email
+    );
+  }
+}
+
+const alice = new Person("Alice", 30, "alice@example.com");
+const alice2 = new Person("Alice", 30, "alice@example.com");
+
+console.log(alice.toString()); // Person(name=Alice, age=30, email=alice@example.com)
+console.log(alice.equals(alice2)); // true（使用手动 equals）
+console.log(alice === alice2);     // false（引用相等）
+
+const olderAlice = alice.copyWith({ age: 31 });
+console.log(olderAlice.toString());
+```
+
+```kotlin !! kotlin
+// Kotlin 数据类——一切自动生成
+
+data class Person(
+    val name: String,
+    val age: Int,
+    val email: String
+)
+
+val alice = Person("Alice", 30, "alice@example.com")
+val alice2 = Person("Alice", 30, "alice@example.com")
+
+// toString()——自动生成
+println(alice) // Person(name=Alice, age=30, email=alice@example.com)
+
+// equals()——结构相等，自动生成
+println(alice == alice2)  // true（结构相等）
+println(alice === alice2) // false（引用相等——不同对象）
+
+// copy() 带命名参数——自动生成
+val olderAlice = alice.copy(age = 31)
+println(olderAlice) // Person(name=Alice, age=31, email=alice@example.com)
+
+// hashCode()——自动生成（适合用作 HashMap 键）
+val map = mapOf(alice to "主要", olderAlice to "已更新")
+println(map[alice2]) // "主要"（alice2 == alice 按值相等）
+
+// 通过组件函数进行解构——自动生成
+val (name, age, email) = alice
+println("$name 今年 $age 岁") // Alice 今年 30 岁
+```
+</UniversalEditor>
+
+<UniversalEditor title="数据类：嵌套和复杂结构" compare={true}>
+```javascript !! js
+// JavaScript 嵌套对象——深拷贝很麻烦
+class Address {
+  constructor(street, city, country) {
+    this.street = street;
+    this.city = city;
+    this.country = country;
+  }
+}
+
+class Employee {
+  constructor(name, salary, address) {
+    this.name = name;
+    this.salary = salary;
+    this.address = address;
+  }
+
+  withRaise(amount) {
+    return new Employee(
+      this.name,
+      this.salary + amount,
+      new Address(this.address.street, this.address.city, this.address.country)
+    );
+  }
+}
+
+const emp = new Employee("Bob", 80000, new Address("中山路123号", "北京", "CN"));
+const promoted = emp.withRaise(10000);
+console.log(promoted.salary); // 90000
+console.log(emp.salary);      // 80000（原始未改变）
+```
+
+```kotlin !! kotlin
+// Kotlin 嵌套数据类——copy() 在每层级都有效
+
+data class Address(
+    val street: String,
+    val city: String,
+    val country: String
+)
+
+data class Employee(
+    val name: String,
+    val salary: Int,
+    val address: Address
+)
+
+val emp = Employee(
+    name = "Bob",
+    salary = 80_000,
+    address = Address("中山路123号", "北京", "CN")
+)
+
+// copy() 是浅拷贝——对于嵌套更改，链式 copy
+val promoted = emp.copy(
+    salary = emp.salary + 10_000,
+    address = emp.address.copy(city = "上海")
+)
+
+println(promoted)
+// Employee(name=Bob, salary=90000, address=Address(street=中山路123号, city=上海, country=CN))
+
+println(emp.salary)         // 80000（原始未改变——数据类默认不可变）
+println(emp.address.city)   // 北京
+
+// 比较嵌套数据类
+val addr1 = Address("公园大道1号", "北京", "CN")
+val addr2 = Address("公园大道1号", "北京", "CN")
+println(addr1 == addr2) // true——深层结构相等
+```
+</UniversalEditor>
+
+---
+
+## 4. 密封类
+
+密封类让你定义受限的类型层次结构。结合 `when`，它们提供穷举的模式匹配——如果你遗漏了某个情况，编译器会警告你。这是 Kotlin 对 TypeScript 可辨识联合类型的回答。
+
+<UniversalEditor title="密封类：穷举的 when 表达式" compare={true}>
+```javascript !! js
+// JavaScript / TypeScript 可辨识联合（TypeScript 语法）
+// type Result<T> =
+//   | { type: "success"; data: T }
+//   | { type: "error"; message: string }
+//   | { type: "loading" }
+
+// 在纯 JavaScript 中——没有编译时穷举检查
+function handleResult(result) {
+  switch (result.type) {
+    case "success":
+      console.log("数据：", result.data);
+      break;
+    case "error":
+      console.error("错误：", result.message);
+      break;
+    case "loading":
+      console.log("加载中...");
+      break;
+    // 忘记某个情况？纯 JS 中没有警告！
+    default:
+      console.log("未知状态");
+  }
+}
+
+handleResult({ type: "success", data: { id: 1, name: "Alice" } });
+handleResult({ type: "error", message: "网络超时" });
+handleResult({ type: "loading" });
+```
+
+```kotlin !! kotlin
+// Kotlin 密封类——编译器强制穷举
+
+sealed class Result<out T> {
+    data class Success<T>(val data: T) : Result<T>()
+    data class Error(val message: String, val code: Int = 0) : Result<Nothing>()
+    object Loading : Result<Nothing>()
+}
+
+fun handleResult(result: Result<String>) {
+    // 密封类上的 when 必须覆盖所有情况（当用作表达式时）
+    val message = when (result) {
+        is Result.Success -> "数据：${result.data}"   // 每个分支内自动智能转换
+        is Result.Error   -> "错误 ${result.code}：${result.message}"
+        is Result.Loading -> "加载中..."
+        // 不需要 else——编译器保证穷举性！
+        // 遗漏某个分支 = 编译错误
+    }
+    println(message)
+}
+
+handleResult(Result.Success("Alice"))
+// 数据：Alice
+
+handleResult(Result.Error("网络超时", 503))
+// 错误 503：网络超时
+
+handleResult(Result.Loading)
+// 加载中...
+```
+</UniversalEditor>
+
+<UniversalEditor title="密封类：建模 UI 状态" compare={true}>
+```javascript !! js
+// JavaScript UI 状态管理（例如 React 风格）
+const STATES = {
+  IDLE: "idle",
+  LOADING: "loading",
+  SUCCESS: "success",
+  ERROR: "error"
+};
+
+function renderScreen(state) {
+  switch (state.status) {
+    case STATES.IDLE:
+      return `<button>加载数据</button>`;
+    case STATES.LOADING:
+      return `<Spinner delay=${state.delayMs} />`;
+    case STATES.SUCCESS:
+      return state.users.map(u => `<UserCard user=${u} />`).join("");
+    case STATES.ERROR:
+      return `<ErrorBanner message="${state.error}" retryable=${state.canRetry} />`;
+    default:
+      return `<div>未知状态</div>`;
+  }
+}
+```
+
+```kotlin !! kotlin
+// Kotlin——用于 UI 状态的密封类（清晰、类型安全）
+
+sealed class ScreenState {
+    object Idle : ScreenState()
+    data class Loading(val delayMs: Int = 0) : ScreenState()
+    data class Success(val users: List<String>) : ScreenState()
+    data class Error(val message: String, val canRetry: Boolean) : ScreenState()
+}
+
+fun renderScreen(state: ScreenState): String = when (state) {
+    is ScreenState.Idle    -> "<button>加载数据</button>"
+    is ScreenState.Loading -> "<Spinner delay=${state.delayMs} />"
+    is ScreenState.Success -> state.users.joinToString("") { "<UserCard user=$it />" }
+    is ScreenState.Error   -> "<ErrorBanner message=\"${state.message}\" retryable=${state.canRetry} />"
+    // 所有情况已覆盖——编译器强制执行
+}
+
+println(renderScreen(ScreenState.Idle))
+println(renderScreen(ScreenState.Loading(200)))
+println(renderScreen(ScreenState.Success(listOf("Alice", "Bob"))))
+println(renderScreen(ScreenState.Error("超时", canRetry = true)))
+```
+</UniversalEditor>
+
+---
+
+## 5. 类型别名
+
+类型别名为复杂类型提供有意义的名称，在不创建新运行时类型的情况下提高可读性。
+
+<UniversalEditor title="类型别名：可读的类型名称" compare={true}>
+```javascript !! js
+// JavaScript / TypeScript 类型别名（TypeScript 语法）
+// type UserId = string;
+// type UserMap = Map<string, User>;
+// type Callback<T> = (value: T) => void;
+// type Predicate<T> = (item: T) => boolean;
+
+// 在纯 JavaScript 中，没有真正的类型别名——只有约定
+function findUser(userId, userMap) {
+  return userMap.get(userId) ?? null;
+}
+
+function processItems(items, callback) {
+  items.forEach(item => callback(item));
+}
+
+const users = new Map([["u1", { name: "Alice" }], ["u2", { name: "Bob" }]]);
+const user = findUser("u1", users);
+console.log(user); // { name: "Alice" }
+```
+
+```kotlin !! kotlin
+// Kotlin 类型别名——为复杂类型提供有意义的名称
+
+typealias UserId = String
+typealias UserMap = Map<UserId, String>
+typealias Predicate<T> = (T) -> Boolean
+typealias Transform<A, B> = (A) -> B
+typealias StringCallback = (String) -> Unit
+
+// 现在函数的可读性大大提高：
+fun findUser(userId: UserId, userMap: UserMap): String? {
+    return userMap[userId]
+}
+
+fun filterUsers(users: List<String>, predicate: Predicate<String>): List<String> {
+    return users.filter(predicate)
+}
+
+fun processItems(items: List<String>, callback: StringCallback) {
+    items.forEach(callback)
+}
+
+val users: UserMap = mapOf("u1" to "Alice", "u2" to "Bob")
+println(findUser("u1", users)) // Alice
+println(findUser("u3", users)) // null
+
+val longNames = filterUsers(listOf("小明", "Alice", "Bob", "Charlotte")) { it.length > 3 }
+println(longNames) // [Alice, Charlotte]
+```
+</UniversalEditor>
+
+---
+
+## 6. Kotlin 的类型层次结构
+
+Kotlin 有一个定义明确的类型层次结构。理解 `Any`、`Unit` 和 `Nothing` 可以直接映射到 JavaScript 的概念。
+
+<UniversalEditor title="类型层次：Any、Unit 和 Nothing" compare={true}>
+```javascript !! js
+// JavaScript 类型对应
+
+// Object（大致对应 Any）——所有对象的基类
+function printAnything(value) {
+  console.log(String(value));
+}
+printAnything(42);
+printAnything("hello");
+printAnything({ key: "val" });
+
+// void（大致对应 Unit）——不返回任何内容的函数
+function logMessage(msg) {
+  console.log(msg);
+  // 隐式返回 undefined
+}
+const result = logMessage("hi"); // result 是 undefined
+
+// never（TypeScript）——永不返回的函数
+// function fail(msg: string): never {
+//   throw new Error(msg);
+// }
+
+// null / undefined——值的缺失
+let x = null;
+let y = undefined;
+```
+
+```kotlin !! kotlin
+// Kotlin 类型层次结构
+
+// Any——所有非空类型的根（类似 Java 中的 Object）
+fun printAnything(value: Any) {
+    println(value.toString())
+}
+printAnything(42)
+printAnything("hello")
+printAnything(mapOf("key" to "val"))
+
+// Any?——包含可空类型在内的所有类型的根
+fun acceptsAbsolutelyAnything(value: Any?) {
+    println(value ?: "空值")
+}
+acceptsAbsolutelyAnything(null) // 没问题
+
+// Unit——等同于 void；返回 Unit 的函数无需声明
+fun logMessage(msg: String): Unit {  // ": Unit" 是可选的，可以推断
+    println(msg)
+}
+val result: Unit = logMessage("hi") // Unit 是一个真正的单例对象
+
+// Nothing——一个没有实例的类型；表示不可达的代码
+fun fail(message: String): Nothing {
+    throw IllegalStateException(message)
+}
+
+fun infiniteLoop(): Nothing {
+    while (true) { /* 永不返回 */ }
+}
+
+// Nothing 很有用：编译器用它来确定可达性
+val name: String? = null
+val definite: String = name ?: fail("名称不能为空")
+// 编译器知道：如果 ?: 分支运行，执行停止——definite 始终是 String
+println(definite)
+```
+</UniversalEditor>
+
+---
+
+## 7. 总结表
+
+| 概念 | JavaScript | Kotlin |
+|---|---|---|
+| 空安全 | `null`/`undefined` 可出现在任何地方；运行时崩溃 | `String` vs `String?`；编译时强制执行 |
+| 空检查 | `if (x != null)` / 可选链 `?.` | `?.`、`?:` (Elvis)、`!!`、if 检查后智能转换 |
+| 类型检查 | `typeof`、`instanceof` | `is` 带自动智能转换 |
+| 显式转换 | `value as Type`（TypeScript）| `as`（抛出）或 `as?`（安全，返回 null）|
+| 值对象 | 手动类，手动实现 `equals`/`toString` | `data class`——自动生成一切 |
+| 可辨识联合 | TypeScript 联合类型或 tag 字段上的 switch | `sealed class`——编译器强制穷举 |
+| 类型别名 | `type Alias = ...`（仅 TypeScript）| `typealias Alias = ...` |
+| 顶层类型 | `object`（JS）/ `any`（TypeScript）| `Any`（非空）/ `Any?`（可空）|
+| Void 类型 | `undefined` / `void`（TypeScript）| `Unit` |
+| 不可达类型 | `never`（TypeScript）| `Nothing` |
+
+---
+
+## 练习
+
+### 练习 1：空安全的用户简介
+
+编写一个 Kotlin 函数 `getDisplayName(user: User?)`，其中 `User` 是一个具有 `firstName: String?` 和 `lastName: String` 的数据类。如果 firstName 不为 null，函数应返回 `"$firstName $lastName"`，否则只返回 `lastName`。
+
+<details>
+<summary>显示答案</summary>
+
+```kotlin
+data class User(val firstName: String?, val lastName: String)
+
+fun getDisplayName(user: User?): String {
+    if (user == null) return "访客"
+    return user.firstName?.let { "$it ${user.lastName}" } ?: user.lastName
+}
+
+println(getDisplayName(User("Alice", "Smith")))  // Alice Smith
+println(getDisplayName(User(null, "Smith")))     // Smith
+println(getDisplayName(null))                    // 访客
+```
+
+</details>
+
+### 练习 2：支付状态密封类
+
+用密封类 `PaymentState` 建模支付流程，包含：`Pending`、`Processing(val transactionId: String)`、`Completed(val amount: Double, val currency: String)` 和 `Failed(val reason: String)`。使用 `when` 编写 `describePayment` 函数。
+
+<details>
+<summary>显示答案</summary>
+
+```kotlin
+sealed class PaymentState {
+    object Pending : PaymentState()
+    data class Processing(val transactionId: String) : PaymentState()
+    data class Completed(val amount: Double, val currency: String) : PaymentState()
+    data class Failed(val reason: String) : PaymentState()
+}
+
+fun describePayment(state: PaymentState): String = when (state) {
+    is PaymentState.Pending         -> "等待处理..."
+    is PaymentState.Processing      -> "处理中，交易号：${state.transactionId}"
+    is PaymentState.Completed       -> "已支付 ${"%.2f".format(state.amount)} ${state.currency}"
+    is PaymentState.Failed          -> "支付失败：${state.reason}"
+}
+
+println(describePayment(PaymentState.Pending))
+println(describePayment(PaymentState.Processing("TXN-42")))
+println(describePayment(PaymentState.Completed(49.99, "CNY")))
+println(describePayment(PaymentState.Failed("余额不足")))
+```
+
+</details>
+
+### 练习 3：简单事件系统的类型别名
+
+为 `EventName = String`、`Listener<T> = (T) -> Unit` 和 `EventMap<T> = MutableMap<EventName, MutableList<Listener<T>>>` 创建类型别名。然后编写 `subscribe` 和 `emit` 函数。
+
+<details>
+<summary>显示答案</summary>
+
+```kotlin
+typealias EventName = String
+typealias Listener<T> = (T) -> Unit
+typealias EventMap<T> = MutableMap<EventName, MutableList<Listener<T>>>
+
+fun <T> subscribe(events: EventMap<T>, name: EventName, listener: Listener<T>) {
+    events.getOrPut(name) { mutableListOf() }.add(listener)
+}
+
+fun <T> emit(events: EventMap<T>, name: EventName, payload: T) {
+    events[name]?.forEach { it(payload) }
+}
+
+val events: EventMap<String> = mutableMapOf()
+subscribe(events, "登录") { user -> println("用户已登录：$user") }
+subscribe(events, "登录") { user -> println("审计日志：$user 已登录") }
+emit(events, "登录", "Alice")
+// 用户已登录：Alice
+// 审计日志：Alice 已登录
+```
+
+</details>

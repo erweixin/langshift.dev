@@ -1,0 +1,817 @@
+---
+title: "第 16 模块：函数式编程模式"
+description: "掌握 Rust 基于迭代器的函数式编程：惰性迭代器链、Option/Result 链式调用、? 运算符和自定义迭代器。"
+---
+
+# 第 16 模块：函数式编程模式
+
+## 学习目标
+
+完成本模块后，你将能够：
+
+- ✅ 理解为什么 Rust 迭代器是**惰性**（按需求值）的，而 JavaScript 数组方法是**及早求值**（立即执行）的，并利用这一特性进行性能优化
+- ✅ 使用 `map`、`filter`、`flat_map`、`take`、`skip`、`zip`、`enumerate` 和 `chain` 构建富有表达力的迭代器适配器链
+- ✅ 使用 `fold` 和 `scan` 在序列上累积状态，并区分它们与 JavaScript `reduce` 的不同之处
+- ✅ 通过 `map`、`and_then`、`or_else` 和 `unwrap_or` 链式变换 `Option<T>`，替代嵌套的 null 检查金字塔
+- ✅ 链式变换 `Result<T, E>` 并使用 `?` 运算符传播错误，实现简洁可读的错误处理
+- ✅ 在自定义类型上实现 `Iterator` trait，通过提供 `next()` 方法惰性地产出值
+
+---
+
+## 1. 惰性迭代器 vs 及早求值的数组
+
+JavaScript 的 `Array.map()`、`filter()` 等方法会立即执行，并在每一步创建新的内存数组。Rust 迭代器是**惰性**的——在你调用**消费适配器**（如 `collect()`、`sum()` 或 `for_each()`）之前，不会做任何工作。这意味着一长串适配器链只会进行一次遍历。
+
+<UniversalEditor title="惰性 vs 及早求值：性能与内存分配" compare={true}>
+```javascript !! js
+// JavaScript: 每个数组方法都会创建一个新的中间数组
+const numbers = Array.from({ length: 1000000 }, (_, i) => i);
+
+// 这会创建 3 个中间数组（每次方法调用一个）：
+const result = numbers
+    .filter(n => n % 2 === 0)  // → 500,000 个元素的新数组
+    .map(n => n * n)           // → 500,000 个元素的新数组
+    .slice(0, 5);              // → 5 个元素的新数组
+// 内存：~500K + ~500K + 5 次分配
+
+console.log(result); // [0, 4, 16, 36, 64]
+
+// 惰性求值的变通方案：使用生成器（实际中很少这样做）
+function* lazyFilter(iterable, pred) {
+    for (const item of iterable) {
+        if (pred(item)) yield item;
+    }
+}
+function* lazyMap(iterable, fn) {
+    for (const item of iterable) yield fn(item);
+}
+function* lazyTake(iterable, n) {
+    let count = 0;
+    for (const item of iterable) {
+        if (count++ >= n) break;
+        yield item;
+    }
+}
+const lazyResult = [...lazyTake(lazyMap(lazyFilter(numbers, n => n % 2 === 0), n => n * n), 5)];
+console.log(lazyResult); // [0, 4, 16, 36, 64] — 但写法很冗长！
+```
+
+```rust !! rs
+fn main() {
+    // Rust: 零中间分配 — 单次遍历
+    let result: Vec<u64> = (0u64..1_000_000)
+        .filter(|n| n % 2 == 0)   // 惰性：还不做任何工作
+        .map(|n| n * n)            // 惰性：还不做任何工作
+        .take(5)                   // 惰性：仍然不做任何工作
+        .collect();                // 消费：现在才执行单次遍历
+
+    // 内存：只分配最终的 5 元素 Vec
+    println!("{:?}", result); // [0, 4, 16, 36, 64]
+
+    // 提前终止：如果只需要前 5 个，Rust 会提前停止
+    // .take(5) 使迭代器在 5 个元素后停止
+    // — 即使我们从 0..1_000_000 开始
+
+    // 演示惰性：没有消费者就不会运行任何代码
+    let chain = (0..10)
+        .filter(|n| {
+            println!("filter called on {}", n); // 在消费之前不会打印
+            n % 2 == 0
+        })
+        .map(|n| n * 2);
+    // 还没有打印任何内容！
+
+    println!("About to consume...");
+    let v: Vec<i32> = chain.collect(); // 现在 filter 和 map 才运行
+    println!("{:?}", v); // [0, 4, 8, 12, 16]
+
+    // sum/product 也是消费适配器
+    let total: u64 = (1..=100).filter(|n| n % 2 == 0).sum();
+    println!("Sum of evens 1..100: {}", total); // 2550
+}
+```
+</UniversalEditor>
+
+---
+
+## 2. 迭代器适配器链
+
+Rust 的 `std::iter` 提供了数十种适配器。这些是可组合的、零成本的变换，可作用于任何迭代器。以下是最重要的几种。
+
+<UniversalEditor title="迭代器适配器：map、filter、flat_map、zip、enumerate" compare={true}>
+```javascript !! js
+const words = ["hello world", "foo bar baz", "rust is great"];
+
+// flatMap：先 map 再展开一层
+const allWords = words.flatMap(s => s.split(" "));
+console.log(allWords); // ["hello", "world", "foo", "bar", "baz", "rust", "is", "great"]
+
+// zip：将两个数组的元素配对（JS 中需手动实现）
+const a = [1, 2, 3];
+const b = ["one", "two", "three"];
+const zipped = a.map((n, i) => [n, b[i]]);
+console.log(zipped); // [[1, "one"], [2, "two"], [3, "three"]]
+
+// enumerate：索引 + 值
+const fruits = ["apple", "banana", "cherry"];
+fruits.forEach((fruit, i) => console.log(`${i}: ${fruit}`));
+
+// chain：拼接可迭代对象
+const c1 = [1, 2, 3];
+const c2 = [4, 5, 6];
+const chained = [...c1, ...c2];
+console.log(chained); // [1, 2, 3, 4, 5, 6]
+
+// skip + take (slice)
+const nums = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+const page = nums.slice(2, 5); // 跳过 2 个，取 3 个
+console.log(page); // [2, 3, 4]
+```
+
+```rust !! rs
+fn main() {
+    let words = vec!["hello world", "foo bar baz", "rust is great"];
+
+    // flat_map：先 map 再展开一层（类似 JS 的 flatMap）
+    let all_words: Vec<&str> = words.iter()
+        .flat_map(|s| s.split(' '))
+        .collect();
+    println!("{:?}", all_words);
+
+    // zip：将两个迭代器的元素配对
+    let a = vec![1, 2, 3];
+    let b = vec!["one", "two", "three"];
+    let zipped: Vec<(i32, &&str)> = a.iter().zip(b.iter()).map(|(&n, s)| (n, s)).collect();
+    // 更简洁的写法：
+    let zipped2: Vec<_> = a.iter().copied().zip(b.iter().copied()).collect();
+    println!("{:?}", zipped2); // [(1, "one"), (2, "two"), (3, "three")]
+
+    // enumerate：产出 (index, item) 对
+    let fruits = vec!["apple", "banana", "cherry"];
+    for (i, fruit) in fruits.iter().enumerate() {
+        println!("{}: {}", i, fruit);
+    }
+
+    // chain：拼接两个迭代器（惰性）
+    let c1 = vec![1, 2, 3];
+    let c2 = vec![4, 5, 6];
+    let chained: Vec<i32> = c1.iter().chain(c2.iter()).copied().collect();
+    println!("{:?}", chained); // [1, 2, 3, 4, 5, 6]
+
+    // skip + take（零拷贝，惰性）
+    let page: Vec<i32> = (0..10).skip(2).take(3).collect();
+    println!("{:?}", page); // [2, 3, 4]
+
+    // step_by：类似 for(i=0; i<10; i+=2)
+    let evens: Vec<i32> = (0..10).step_by(2).collect();
+    println!("{:?}", evens); // [0, 2, 4, 6, 8]
+
+    // windows 和 chunks（用于切片）
+    let data = vec![1, 2, 3, 4, 5];
+    let windows: Vec<&[i32]> = data.windows(3).collect();
+    println!("{:?}", windows); // [[1,2,3], [2,3,4], [3,4,5]]
+}
+```
+</UniversalEditor>
+
+---
+
+## 3. fold 和 scan
+
+`fold` 是 Rust 的 `reduce`——它在迭代器上累积一个值。与 JavaScript 的 `reduce` 不同，`fold` 始终需要一个显式的初始值。`scan` 类似于 `fold`，但会产出每一步的中间结果。
+
+<UniversalEditor title="fold 和 scan vs JavaScript 的 reduce" compare={true}>
+```javascript !! js
+const numbers = [1, 2, 3, 4, 5];
+
+// 带初始值的 reduce（类似 fold）
+const sum = numbers.reduce((acc, n) => acc + n, 0);
+console.log(sum); // 15
+
+// 不带初始值的 reduce（行为不同！）
+const sum2 = numbers.reduce((acc, n) => acc + n);
+console.log(sum2); // 15（使用第一个元素作为初始值）
+
+// 构建复杂的累积器
+const freq = ["a", "b", "a", "c", "b", "a"]
+    .reduce((acc, letter) => {
+        acc[letter] = (acc[letter] ?? 0) + 1;
+        return acc;
+    }, {});
+console.log(freq); // { a: 3, b: 2, c: 1 }
+
+// 累积运行总计（类似 scan）— JS 中没有内置支持
+const runningTotal = numbers.reduce((acc, n) => {
+    acc.push((acc.at(-1) ?? 0) + n);
+    return acc;
+}, []);
+console.log(runningTotal); // [1, 3, 6, 10, 15]
+```
+
+```rust !! rs
+use std::collections::HashMap;
+
+fn main() {
+    let numbers = vec![1i32, 2, 3, 4, 5];
+
+    // fold：始终需要显式的初始值
+    let sum = numbers.iter().fold(0, |acc, &n| acc + n);
+    println!("{}", sum); // 15
+
+    // fold 构建复杂的累积器
+    let letters = vec!["a", "b", "a", "c", "b", "a"];
+    let freq: HashMap<&str, usize> = letters.iter().fold(
+        HashMap::new(),
+        |mut map, &word| {
+            *map.entry(word).or_insert(0) += 1;
+            map
+        }
+    );
+    println!("{:?}", freq); // {"a": 3, "b": 2, "c": 1}
+
+    // sum、product、min、max — 专用 fold（更高效）
+    let product: i32 = numbers.iter().copied().product();
+    let max: Option<&i32> = numbers.iter().max();
+    let min: Option<&i32> = numbers.iter().min();
+    println!("product={}, max={:?}, min={:?}", product, max, min);
+
+    // scan：类似 fold，但产出每个中间累积值
+    // scan(initial, |state, item| { *state = new_state; Some(yield_value) })
+    let running_total: Vec<i32> = numbers.iter()
+        .scan(0, |acc, &n| {
+            *acc += n;
+            Some(*acc) // 产出运行总计
+        })
+        .collect();
+    println!("{:?}", running_total); // [1, 3, 6, 10, 15]
+
+    // any 和 all — 短路 fold
+    let has_even = numbers.iter().any(|&n| n % 2 == 0);
+    let all_pos  = numbers.iter().all(|&n| n > 0);
+    println!("has_even={}, all_pos={}", has_even, all_pos);
+
+    // count、find、position
+    let count = numbers.iter().filter(|&&n| n > 2).count();
+    let first_big = numbers.iter().find(|&&n| n > 3);
+    let pos = numbers.iter().position(|&n| n == 4);
+    println!("count={}, first_big={:?}, pos={:?}", count, first_big, pos);
+}
+```
+</UniversalEditor>
+
+---
+
+## 4. Option 作为函子
+
+`Option<T>` 支持一套完整的变换方法，允许你链式操作可能不存在的值，而无需嵌套 `if let` 或 `match` 表达式。
+
+<UniversalEditor title="Option 链式调用 vs null 检查金字塔" compare={true}>
+```javascript !! js
+// JavaScript：null 检查金字塔
+function getUserCity(userId) {
+    const user = getUser(userId);
+    if (user === null) return null;
+    const address = user.address;
+    if (address === null) return null;
+    const city = address.city;
+    return city ?? null;
+}
+
+// 可选链（现代 JS）— 好多了
+function getUserCityModern(userId) {
+    return getUser(userId)?.address?.city ?? "Unknown";
+}
+
+// 示例数据
+function getUser(id) {
+    return id === 1 ? { name: "Alice", address: { city: "NYC" } } : null;
+}
+
+console.log(getUserCity(1));       // "NYC"
+console.log(getUserCity(99));      // null
+console.log(getUserCityModern(1)); // "NYC"
+console.log(getUserCityModern(99)); // "Unknown"
+```
+
+```rust !! rs
+#[derive(Debug)]
+struct Address { city: String }
+
+#[derive(Debug)]
+struct User { name: String, address: Option<Address> }
+
+fn get_user(id: u32) -> Option<User> {
+    if id == 1 {
+        Some(User {
+            name: "Alice".to_string(),
+            address: Some(Address { city: "NYC".to_string() }),
+        })
+    } else {
+        None
+    }
+}
+
+fn get_user_city(id: u32) -> Option<String> {
+    // Option::and_then 链接返回 Option 的函数（类似 flatMap）
+    get_user(id)
+        .and_then(|user| user.address)   // Option<User> → Option<Address>
+        .map(|addr| addr.city)           // Option<Address> → Option<String>
+}
+
+fn main() {
+    // map：将 Some(T) 变换为 Some(U)，None 保持不变
+    let opt: Option<i32> = Some(5);
+    let doubled = opt.map(|n| n * 2);
+    println!("{:?}", doubled); // Some(10)
+
+    let none: Option<i32> = None;
+    println!("{:?}", none.map(|n| n * 2)); // None
+
+    // and_then：类似 map，但函数返回 Option（flatMap）
+    let result = Some("42")
+        .and_then(|s| s.parse::<i32>().ok()) // parse 返回 Result，.ok() → Option
+        .map(|n| n * 2);
+    println!("{:?}", result); // Some(84)
+
+    // unwrap_or：为 None 提供默认值
+    let city = get_user_city(1).unwrap_or("Unknown".to_string());
+    println!("{}", city); // "NYC"
+
+    let city2 = get_user_city(99).unwrap_or("Unknown".to_string());
+    println!("{}", city2); // "Unknown"
+
+    // unwrap_or_else：惰性计算默认值（在默认值开销较大时很有用）
+    let city3 = get_user_city(99).unwrap_or_else(|| "Default City".to_string());
+    println!("{}", city3);
+
+    // or_else：当当前 Option 为 None 时，尝试另一个 Option
+    let first_try: Option<i32> = None;
+    let second_try: Option<i32> = Some(42);
+    let result = first_try.or_else(|| second_try);
+    println!("{:?}", result); // Some(42)
+
+    // filter：当谓词不满足时，将 Some(x) 变为 None
+    let even_only = Some(4).filter(|&n| n % 2 == 0);
+    println!("{:?}", even_only); // Some(4)
+    let odd = Some(3).filter(|&n| n % 2 == 0);
+    println!("{:?}", odd); // None
+}
+```
+</UniversalEditor>
+
+---
+
+## 5. Result 链式调用与 ? 运算符
+
+`Result<T, E>` 支持与 `Option` 相同的链式方法。`?` 运算符是语法糖，它将错误向上传播到调用栈，使错误处理代码与正常路径代码一样简洁可读。
+
+<UniversalEditor title="Result 链式调用与 ? 运算符" compare={true}>
+```javascript !! js
+// JavaScript：使用 async/await 进行顺序错误处理
+async function processInput(raw) {
+    try {
+        const trimmed = raw.trim();
+        if (!trimmed) throw new Error("Empty input");
+
+        const n = parseInt(trimmed);
+        if (isNaN(n)) throw new Error(`Not a number: ${trimmed}`);
+
+        const doubled = n * 2;
+        if (doubled > 100) throw new Error(`Result too large: ${doubled}`);
+
+        return doubled;
+    } catch (e) {
+        return { error: e.message };
+    }
+}
+
+// Promise 链式调用
+function processAsync(raw) {
+    return Promise.resolve(raw.trim())
+        .then(s => {
+            if (!s) throw new Error("Empty input");
+            return s;
+        })
+        .then(s => {
+            const n = parseInt(s);
+            if (isNaN(n)) throw new Error("Not a number");
+            return n;
+        })
+        .then(n => n * 2)
+        .catch(e => ({ error: e.message }));
+}
+
+processInput("21").then(console.log); // 42
+processInput("abc").then(console.log); // { error: "Not a number: abc" }
+```
+
+```rust !! rs
+use std::num::ParseIntError;
+use std::fmt;
+
+#[derive(Debug)]
+enum AppError {
+    Empty,
+    ParseError(ParseIntError),
+    TooLarge(i32),
+}
+
+impl fmt::Display for AppError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            AppError::Empty          => write!(f, "Empty input"),
+            AppError::ParseError(e)  => write!(f, "Not a number: {}", e),
+            AppError::TooLarge(n)    => write!(f, "Result too large: {}", n),
+        }
+    }
+}
+
+// ? 运算符：如果是 Err，立即从当前函数返回 Err
+fn process_input(raw: &str) -> Result<i32, AppError> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err(AppError::Empty);
+    }
+
+    // parse() 返回 Result<i32, ParseIntError>
+    // map_err 将 ParseIntError 转换为 AppError
+    // ? 在解析失败时向上传播 Err
+    let n: i32 = trimmed.parse()
+        .map_err(AppError::ParseError)?; // ? 解包 Ok，或返回 Err
+
+    let doubled = n * 2;
+    if doubled > 100 {
+        return Err(AppError::TooLarge(doubled));
+    }
+
+    Ok(doubled)
+}
+
+fn main() {
+    // map：将 Ok(T) 变换为 Ok(U)
+    let r: Result<i32, _> = "21".parse::<i32>().map(|n| n * 2);
+    println!("{:?}", r); // Ok(42)
+
+    // and_then：链接返回 Result 的函数
+    let r2 = "21".parse::<i32>()
+        .and_then(|n| if n > 0 { Ok(n * 2) } else { Err("negative".parse::<i32>().unwrap_err()) });
+    println!("{:?}", r2); // Ok(42)
+
+    // map_err：变换错误类型
+    let r3: Result<i32, String> = "abc".parse::<i32>()
+        .map_err(|e| format!("Parse failed: {}", e));
+    println!("{:?}", r3); // Err("Parse failed: ...")
+
+    // unwrap_or：错误时使用默认值
+    let n = "abc".parse::<i32>().unwrap_or(0);
+    println!("{}", n); // 0
+
+    // 测试 process_input 函数
+    println!("{:?}", process_input("21"));    // Ok(42)
+    println!("{:?}", process_input("abc"));   // Err(ParseError(...))
+    println!("{:?}", process_input("  "));    // Err(Empty)
+    println!("{:?}", process_input("100"));   // Err(TooLarge(200))
+}
+```
+</UniversalEditor>
+
+---
+
+## 6. ? 运算符深入讲解
+
+`?` 运算符值得单独讲解，因为它彻底改变了错误处理的人体工程学。它等价于一个在 `Err` 时提前返回的 `match`，但在复杂函数中更具可读性。
+
+<UniversalEditor title="? 运算符：链接可能失败的操作" compare={true}>
+```javascript !! js
+// JavaScript：对一系列可能失败的操作使用冗长的 try/catch 或 .catch 链接
+const fs = require('fs');
+
+// 冗长写法：嵌套 try/catch
+function readAndParse(path) {
+    let content;
+    try {
+        content = fs.readFileSync(path, 'utf-8');
+    } catch (e) {
+        return { error: `Read failed: ${e.message}` };
+    }
+
+    let data;
+    try {
+        data = JSON.parse(content);
+    } catch (e) {
+        return { error: `Parse failed: ${e.message}` };
+    }
+
+    return data;
+}
+
+// 现代写法：async/await 仍然需要 try/catch 块
+async function readAndParseAsync(path) {
+    try {
+        const content = await fs.promises.readFile(path, 'utf-8');
+        return JSON.parse(content);
+    } catch (e) {
+        throw new Error(`Processing failed: ${e.message}`);
+    }
+}
+```
+
+```rust !! rs
+use std::fs;
+use std::num::ParseIntError;
+
+// 不使用 ?：必须手动匹配每个 Result
+fn parse_double_manual(s: &str) -> Result<i32, ParseIntError> {
+    let n = match s.trim().parse::<i32>() {
+        Ok(n)  => n,
+        Err(e) => return Err(e),
+    };
+    Ok(n * 2)
+}
+
+// 使用 ?：更加简洁 — 语义相同
+fn parse_double(s: &str) -> Result<i32, ParseIntError> {
+    let n = s.trim().parse::<i32>()?; // 解包 Ok，或立即返回 Err
+    Ok(n * 2)
+}
+
+// 单个函数中多个 ? — 读起来像正常路径代码
+fn read_and_sum(path: &str) -> Result<i32, Box<dyn std::error::Error>> {
+    // 每个 ? 在失败时传播错误
+    let content = fs::read_to_string(path)?;           // io::Error
+    let numbers: Result<Vec<i32>, _> = content
+        .lines()
+        .map(|line| line.trim().parse::<i32>())        // ParseIntError
+        .collect();
+    let sum = numbers?.iter().sum();
+    Ok(sum)
+}
+
+// ? 也可以在返回 Option 的函数中用于 Option<T>
+fn first_even_doubled(numbers: &[i32]) -> Option<i32> {
+    let first_even = numbers.iter().find(|&&n| n % 2 == 0)?; // None → 返回 None
+    Some(first_even * 2)
+}
+
+fn main() {
+    println!("{:?}", parse_double("21"));   // Ok(42)
+    println!("{:?}", parse_double("abc"));  // Err(ParseIntError)
+
+    println!("{:?}", first_even_doubled(&[1, 3, 5]));      // None
+    println!("{:?}", first_even_doubled(&[1, 4, 5]));      // Some(8)
+}
+```
+</UniversalEditor>
+
+---
+
+## 7. 自定义迭代器
+
+你可以在自定义类型上实现 `Iterator` trait。唯一必须实现的方法是 `next()`——所有适配器方法（`map`、`filter` 等）都会自动提供。
+
+<UniversalEditor title="自定义迭代器：实现 Iterator trait" compare={true}>
+```javascript !! js
+// JavaScript：为自定义可迭代对象实现 Symbol.iterator
+class Range {
+    constructor(start, end, step = 1) {
+        this.start = start;
+        this.end   = end;
+        this.step  = step;
+    }
+
+    [Symbol.iterator]() {
+        let current = this.start;
+        const { end, step } = this;
+        return {
+            next() {
+                if (current < end) {
+                    const value = current;
+                    current += step;
+                    return { value, done: false };
+                }
+                return { value: undefined, done: true };
+            }
+        };
+    }
+}
+
+const range = new Range(0, 10, 2);
+console.log([...range]);              // [0, 2, 4, 6, 8]
+console.log([...range].filter(n => n > 4)); // [6, 8]
+
+for (const n of range) {
+    process.stdout.write(n + " ");
+}
+// 0 2 4 6 8
+```
+
+```rust !! rs
+// 自定义迭代器：斐波那契数列
+struct Fibonacci {
+    a: u64,
+    b: u64,
+}
+
+impl Fibonacci {
+    fn new() -> Self {
+        Fibonacci { a: 0, b: 1 }
+    }
+}
+
+// 实现 Iterator trait — 只需要 next()
+impl Iterator for Fibonacci {
+    type Item = u64; // 产出值的类型
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let next_val = self.a;
+        let new_b = self.a + self.b;
+        self.a = self.b;
+        self.b = new_b;
+        Some(next_val) // 无限迭代器 — 始终是 Some
+        // 返回 None 表示序列结束
+    }
+}
+
+// 带步长的自定义范围迭代器
+struct StepRange {
+    current: i32,
+    end:     i32,
+    step:    i32,
+}
+
+impl StepRange {
+    fn new(start: i32, end: i32, step: i32) -> Self {
+        StepRange { current: start, end, step }
+    }
+}
+
+impl Iterator for StepRange {
+    type Item = i32;
+
+    fn next(&mut self) -> Option<i32> {
+        if self.current < self.end {
+            let val = self.current;
+            self.current += self.step;
+            Some(val)
+        } else {
+            None // 表示迭代结束
+        }
+    }
+}
+
+fn main() {
+    // 斐波那契 — 使用 .take() 限制无限迭代器
+    let fibs: Vec<u64> = Fibonacci::new().take(10).collect();
+    println!("{:?}", fibs); // [0, 1, 1, 2, 3, 5, 8, 13, 21, 34]
+
+    // 一旦实现了 Iterator，所有适配器方法都可以免费使用！
+    let sum_of_first_10_fibs: u64 = Fibonacci::new().take(10).sum();
+    println!("Sum: {}", sum_of_first_10_fibs); // 88
+
+    let first_fib_over_100 = Fibonacci::new().find(|&n| n > 100);
+    println!("{:?}", first_fib_over_100); // Some(144)
+
+    // 带步长的自定义范围
+    let stepped: Vec<i32> = StepRange::new(0, 10, 2).collect();
+    println!("{:?}", stepped); // [0, 2, 4, 6, 8]
+
+    // chain、zip、map 都开箱即用
+    let paired: Vec<_> = StepRange::new(0, 6, 2)
+        .zip(["a", "b", "c"].iter())
+        .collect();
+    println!("{:?}", paired); // [(0, "a"), (2, "b"), (4, "c")]
+}
+```
+</UniversalEditor>
+
+---
+
+## 8. 概念对照表
+
+| 概念 | JavaScript | Rust |
+|---|---|---|
+| 数组迭代 | 及早求值 — 创建新数组 | 惰性 — 消费前不做任何工作 |
+| map/filter 返回类型 | 新的 `Array` | 迭代器适配器（尚未实体化） |
+| 展开一层 | `flatMap(fn)` | `flat_map(fn)` |
+| 配对两个序列 | 手动 `map((x, i) => [x, b[i]])` | `zip(other_iter)` |
+| 索引 + 值 | `.forEach((v, i) => ...)` | `.enumerate()` 产出 `(i, &v)` |
+| 拼接可迭代对象 | 展开 `[...a, ...b]` | `.chain(other)` |
+| 跳过 / 取出 | `.slice(n, m)`（复制） | `.skip(n).take(m)`（惰性） |
+| 带初始值的累积 | `reduce(fn, init)` | `fold(init, fn)` |
+| 运行累积器 | `.reduce` 配合数组 push | `.scan(state, fn)` |
+| 无初始值的 reduce | `reduce(fn)`（可选初始值） | 无等价物 — `fold` 始终需要初始值 |
+| Optional 变换 | `?.` + `??` | `option.map(fn).unwrap_or(default)` |
+| Optional flatMap | 无 | `option.and_then(fn)` |
+| Result 变换 | `promise.then()` | `result.map(fn)` |
+| 传播错误 | `async/await` + `try/catch` | `?` 运算符 |
+| 自定义迭代器 | `class + [Symbol.iterator]` | `impl Iterator { fn next() }` |
+| 免费适配器方法 | 必须重新实现或使用库 | 实现 `Iterator` 后自动获得 |
+
+---
+
+## 练习
+
+### 练习 1：惰性管道
+
+给定范围 `1..=1000`，使用惰性迭代器链计算小于 50 的**奇数的平方和**。在单个链中完成，不使用中间数组分配。
+
+<details>
+<summary>显示答案</summary>
+
+```rust
+fn main() {
+    let result: u64 = (1u64..=1000)
+        .filter(|n| n % 2 != 0)  // 保留奇数
+        .map(|n| n * n)           // 求平方
+        .take_while(|&n| n < 50) // 当平方达到 50 时停止
+        .sum();
+
+    println!("{}", result);
+    // 奇数：1, 3, 5, 7
+    // 平方：1, 9, 25, 49（下一个是 81 ≥ 50）
+    // 和：  1 + 9 + 25 + 49 = 84
+}
+```
+
+</details>
+
+### 练习 2：Option 管道
+
+编写函数 `safe_sqrt_reciprocal(s: &str) -> Option<f64>`，功能如下：
+1. 将字符串解析为 `f64`
+2. 如果解析失败，返回 `None`
+3. 如果数字为负数或零，返回 `None`
+4. 返回 `Some(1.0 / sqrt(n))`
+
+只使用 `Option` 方法——不使用 `match` 或 `if let`。
+
+<details>
+<summary>显示答案</summary>
+
+```rust
+fn safe_sqrt_reciprocal(s: &str) -> Option<f64> {
+    s.trim()
+        .parse::<f64>().ok()              // Result → Option
+        .filter(|&n| n > 0.0)             // 移除非正数
+        .map(|n| 1.0 / n.sqrt())          // 计算平方根的倒数
+}
+
+fn main() {
+    println!("{:?}", safe_sqrt_reciprocal("4.0"));  // Some(0.5)
+    println!("{:?}", safe_sqrt_reciprocal("0.0"));  // None
+    println!("{:?}", safe_sqrt_reciprocal("-1.0")); // None
+    println!("{:?}", safe_sqrt_reciprocal("abc"));  // None
+    println!("{:?}", safe_sqrt_reciprocal("16.0")); // Some(0.25)
+}
+```
+
+</details>
+
+### 练习 3：自定义计数器迭代器
+
+实现一个 `Counter` 结构体，产出值 `1, 2, 3, 4, 5` 后停止。配合 `zip`、`map` 和 `sum` 计算两个 `Counter` 实例配对后各对乘积之和。
+
+<details>
+<summary>显示答案</summary>
+
+```rust
+struct Counter {
+    count: u32,
+    max:   u32,
+}
+
+impl Counter {
+    fn new(max: u32) -> Self {
+        Counter { count: 0, max }
+    }
+}
+
+impl Iterator for Counter {
+    type Item = u32;
+
+    fn next(&mut self) -> Option<u32> {
+        if self.count < self.max {
+            self.count += 1;
+            Some(self.count)
+        } else {
+            None
+        }
+    }
+}
+
+fn main() {
+    // 配对两个计数器并求乘积之和
+    // (1,2), (2,3), (3,4), (4,5) — Counter(5).skip(1) 偏移一位
+    let sum: u32 = Counter::new(5)
+        .zip(Counter::new(5).skip(1))
+        .map(|(a, b)| a * b)
+        .sum();
+    println!("{}", sum); // 1*2 + 2*3 + 3*4 + 4*5 = 2+6+12+20 = 40
+
+    // 所有适配器方法都可用，因为我们实现了 Iterator
+    let collected: Vec<u32> = Counter::new(5).collect();
+    println!("{:?}", collected); // [1, 2, 3, 4, 5]
+}
+```
+
+</details>

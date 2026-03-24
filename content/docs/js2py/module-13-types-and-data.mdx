@@ -1,0 +1,635 @@
+---
+title: "Module 13: Python Type System and Data Types"
+description: "Deep dive into Python's type system: dynamic typing differences from JavaScript, numeric types, None vs null/undefined, strings, and type hints."
+---
+
+# Module 13: Python Type System and Data Types
+
+Python and JavaScript are both dynamically typed languages, but they handle types in fundamentally different ways. JavaScript is known for its implicit type coercion and the surprising results it can produce. Python takes a stricter approach: it is dynamically typed but strongly typed, meaning it will not silently convert between incompatible types.
+
+## Learning Objectives
+
+After completing this module, you will be able to:
+
+- ✅ Explain the difference between dynamic/weak typing (JavaScript) and dynamic/strong typing (Python)
+- ✅ Work with Python's numeric types: `int`, `float`, `complex`, and `Decimal`
+- ✅ Understand `None` and how it compares to JavaScript's `null` and `undefined`
+- ✅ Use Python string features: f-strings, multiline strings, and immutability
+- ✅ Inspect types at runtime using `type()` and `isinstance()`
+- ✅ Write type hints using PEP 484 annotations (`Optional`, `Union`, `List`, `Dict`)
+
+---
+
+## 1. Dynamic Typing: Python vs JavaScript
+
+Both languages determine types at runtime, but JavaScript will implicitly coerce values between types in ways that can surprise you. Python refuses to do this and raises a `TypeError` instead.
+
+<UniversalEditor title="Implicit Coercion: JavaScript vs Python">
+```javascript !! js
+// JavaScript: implicit type coercion
+console.log("5" + 5);      // "55"  (number coerced to string)
+console.log("5" - 5);      // 0     (string coerced to number)
+console.log(true + 1);     // 2     (boolean coerced to number)
+console.log([] + {});      // "[object Object]"
+console.log(null + 1);     // 1
+console.log(undefined + 1);// NaN
+
+// Equality with coercion
+console.log(0 == false);   // true
+console.log("" == false);  // true
+console.log(null == undefined); // true
+```
+
+```python !! py
+# Python: strong typing — no implicit coercion
+try:
+    result = "5" + 5   # TypeError!
+except TypeError as e:
+    print(f"Error: {e}")
+# Output: Error: can only concatenate str (not "int") to str
+
+# Explicit conversion is required
+result = "5" + str(5)   # "55"
+result = int("5") + 5   # 10
+print(result)           # 10
+
+# Python equality is strict
+print(0 == False)       # True  (False IS 0 in Python — bool is a subclass of int)
+print("" == False)      # False (no coercion here)
+print(None == None)     # True
+print(None is None)     # True (preferred way to check for None)
+```
+</UniversalEditor>
+
+### Dynamic Typing at Runtime
+
+Both languages allow variables to hold any type, and that type can change during execution:
+
+<UniversalEditor title="Dynamic Typing — Variable Reassignment">
+```javascript !! js
+// JavaScript: variable can hold any type
+let x = 42;
+console.log(typeof x);   // "number"
+
+x = "hello";
+console.log(typeof x);   // "string"
+
+x = [1, 2, 3];
+console.log(typeof x);   // "object"  (arrays are objects in JS)
+
+x = null;
+console.log(typeof x);   // "object"  (famous JS quirk)
+```
+
+```python !! py
+# Python: same dynamic behavior
+x = 42
+print(type(x))    # <class 'int'>
+
+x = "hello"
+print(type(x))    # <class 'str'>
+
+x = [1, 2, 3]
+print(type(x))    # <class 'list'>
+
+x = None
+print(type(x))    # <class 'NoneType'>
+# No quirky results — types are always accurate
+```
+</UniversalEditor>
+
+---
+
+## 2. Python's Numeric Types
+
+JavaScript has one `Number` type (IEEE 754 double-precision float) plus `BigInt`. Python has `int`, `float`, `complex`, and the standard-library `Decimal`.
+
+<UniversalEditor title="Integer Precision: JavaScript vs Python">
+```javascript !! js
+// JavaScript: all numbers are 64-bit floats
+console.log(Number.MAX_SAFE_INTEGER);       // 9007199254740991
+console.log(9007199254740991 + 1);          // 9007199254740992 (correct)
+console.log(9007199254740991 + 2);          // 9007199254740992 (WRONG!)
+
+// BigInt for arbitrary precision
+const big = 9007199254740991n + 2n;
+console.log(big);   // 9007199254740993n
+
+// Floating-point surprise
+console.log(0.1 + 0.2);   // 0.30000000000000004
+console.log(0.1 + 0.2 === 0.3);  // false
+```
+
+```python !! py
+# Python: int has ARBITRARY precision — no overflow
+big = 9007199254740991 + 2
+print(big)   # 9007199254740993  (correct, always)
+
+# Even larger
+factorial = 1
+for i in range(1, 101):
+    factorial *= i
+print(factorial)   # 100! — a 158-digit number, no problem
+
+# float has the same IEEE 754 issue
+print(0.1 + 0.2)            # 0.30000000000000004
+print(0.1 + 0.2 == 0.3)     # False
+
+# Use Decimal for exact decimal arithmetic
+from decimal import Decimal
+print(Decimal("0.1") + Decimal("0.2"))           # 0.3
+print(Decimal("0.1") + Decimal("0.2") == Decimal("0.3"))  # True
+```
+</UniversalEditor>
+
+<UniversalEditor title="Python Numeric Types Overview">
+```javascript !! js
+// JavaScript numeric types
+const integer = 42;           // Just a number (float internally)
+const float   = 3.14;
+const bigInt  = 12345678901234567890n;  // BigInt
+const hex     = 0xFF;         // 255
+const binary  = 0b1010;       // 10
+const octal   = 0o17;         // 15
+const inf     = Infinity;
+const notNum  = NaN;
+
+console.log(typeof integer);  // "number"
+console.log(typeof bigInt);   // "bigint"
+```
+
+```python !! py
+# Python numeric types
+integer  = 42          # int — arbitrary precision
+float_n  = 3.14        # float — IEEE 754 double
+complex_n = 3 + 4j     # complex — built-in!
+hex_n    = 0xFF        # 255  (int)
+binary_n = 0b1010      # 10   (int)
+octal_n  = 0o17        # 15   (int)
+large    = 1_000_000   # Underscores for readability
+
+# Special float values
+import math
+inf      = math.inf
+neg_inf  = -math.inf
+nan      = math.nan
+
+print(type(integer))   # <class 'int'>
+print(type(float_n))   # <class 'float'>
+print(type(complex_n)) # <class 'complex'>
+print(complex_n.real)  # 3.0
+print(complex_n.imag)  # 4.0
+print(abs(complex_n))  # 5.0  (magnitude)
+```
+</UniversalEditor>
+
+---
+
+## 3. None vs null vs undefined
+
+JavaScript has two "nothing" values: `null` (intentional absence) and `undefined` (uninitialized). Python has exactly one: `None`.
+
+<UniversalEditor title="None, null, and undefined Comparison">
+```javascript !! js
+// JavaScript: two distinct "nothing" values
+let a;                    // undefined — declared but not assigned
+let b = null;             // null — intentionally empty
+
+console.log(a);           // undefined
+console.log(b);           // null
+console.log(typeof a);    // "undefined"
+console.log(typeof b);    // "object"  (JS quirk)
+
+// Checking for nothing
+console.log(a == null);   // true  (== checks for both null and undefined)
+console.log(a === null);  // false (strict: undefined !== null)
+console.log(a === undefined); // true
+
+// Function with no return value
+function noReturn() {}
+console.log(noReturn());  // undefined
+
+// Optional chaining
+const obj = null;
+console.log(obj?.name);   // undefined (no error)
+```
+
+```python !! py
+# Python: one "nothing" value — None
+a = None              # Explicit assignment
+print(a)              # None
+print(type(a))        # <class 'NoneType'>
+
+# Python has NO undefined — accessing an unassigned name is a NameError
+# print(b)            # NameError: name 'b' is not defined
+
+# Checking for None — use 'is', not '=='
+print(a is None)      # True  (preferred)
+print(a is not None)  # False
+print(a == None)      # True  (works, but not idiomatic)
+
+# Function with no return statement returns None
+def no_return():
+    pass
+
+result = no_return()
+print(result)         # None
+print(result is None) # True
+
+# None as a sentinel / default argument
+def greet(name=None):
+    if name is None:
+        return "Hello, stranger!"
+    return f"Hello, {name}!"
+
+print(greet())         # Hello, stranger!
+print(greet("Alice"))  # Hello, Alice!
+```
+</UniversalEditor>
+
+---
+
+## 4. Strings in Python
+
+Python strings are immutable sequences of Unicode characters. They support several literal forms and have powerful methods. JavaScript template literals map closely to Python f-strings.
+
+<UniversalEditor title="String Literals and Interpolation">
+```javascript !! js
+// JavaScript string types
+const single   = 'Hello';
+const double   = "World";
+const template = `Hello, ${name}!`;  // Template literal
+
+const name = "Alice";
+const age  = 30;
+
+// Interpolation
+console.log(`Name: ${name}, Age: ${age}`);
+// "Name: Alice, Age: 30"
+
+// Expression in template
+console.log(`Next year: ${age + 1}`);
+// "Next year: 31"
+
+// Multiline
+const multiline = `Line 1
+Line 2
+Line 3`;
+
+// String repetition
+console.log("ha".repeat(3));   // "hahaha"
+```
+
+```python !! py
+# Python string types
+single   = 'Hello'
+double   = "World"
+name     = "Alice"
+age      = 30
+
+# f-strings (Python 3.6+) — the Python template literal
+print(f"Name: {name}, Age: {age}")
+# Name: Alice, Age: 30
+
+# Expressions inside f-strings
+print(f"Next year: {age + 1}")
+# Next year: 31
+
+# Format spec in f-strings
+pi = 3.14159
+print(f"Pi is approximately {pi:.2f}")
+# Pi is approximately 3.14
+
+# Multiline strings — triple quotes
+multiline = """Line 1
+Line 2
+Line 3"""
+
+# Also works with single quotes
+alt = '''Line 1
+Line 2'''
+
+# String repetition
+print("ha" * 3)   # "hahaha"
+```
+</UniversalEditor>
+
+<UniversalEditor title="String Immutability and Common Methods">
+```javascript !! js
+// JavaScript strings are immutable too
+let s = "Hello";
+// s[0] = "h"; // silent failure in non-strict mode
+
+// Common string methods
+console.log("hello".toUpperCase());   // "HELLO"
+console.log("HELLO".toLowerCase());   // "hello"
+console.log("  hello  ".trim());      // "hello"
+console.log("hello world".split(" ")); // ["hello", "world"]
+console.log("hello".includes("ell")); // true
+console.log("hello".startsWith("he")); // true
+console.log("hello".replace("l", "r")); // "herlo" (first only)
+console.log("hello".replaceAll("l", "r")); // "herro"
+console.log("hello"[1]);             // "e"
+console.log("hello".slice(1, 3));    // "el"
+```
+
+```python !! py
+# Python strings are also immutable
+s = "Hello"
+# s[0] = "h"  # TypeError: 'str' object does not support item assignment
+
+# Common string methods
+print("hello".upper())            # "HELLO"
+print("HELLO".lower())            # "hello"
+print("  hello  ".strip())        # "hello"
+print("hello world".split(" "))   # ['hello', 'world']
+print("ell" in "hello")           # True  (membership test)
+print("hello".startswith("he"))   # True
+print("hello".replace("l", "r"))  # "herro"  (ALL occurrences, not just first!)
+print("hello"[1])                 # "e"
+print("hello"[1:3])               # "el"  (slicing)
+print("hello"[::-1])              # "olleh"  (reverse with step)
+
+# Joining a list of strings
+words = ["hello", "world"]
+print(" ".join(words))            # "hello world"
+```
+</UniversalEditor>
+
+---
+
+## 5. Type Checking
+
+JavaScript uses `typeof` for primitives and `instanceof` for objects. Python provides `type()` for exact type checks and `isinstance()` for inheritance-aware checks.
+
+<UniversalEditor title="Runtime Type Inspection">
+```javascript !! js
+// JavaScript type checking
+console.log(typeof 42);          // "number"
+console.log(typeof "hello");     // "string"
+console.log(typeof true);        // "boolean"
+console.log(typeof undefined);   // "undefined"
+console.log(typeof null);        // "object" (infamous quirk)
+console.log(typeof []);          // "object"
+console.log(typeof {});          // "object"
+console.log(typeof function(){}); // "function"
+
+// instanceof for objects
+console.log([] instanceof Array);  // true
+console.log({} instanceof Object); // true
+
+// Array.isArray is more reliable
+console.log(Array.isArray([]));    // true
+console.log(Array.isArray({}));    // false
+```
+
+```python !! py
+# Python type checking
+
+# type() returns the exact type
+print(type(42))          # <class 'int'>
+print(type("hello"))     # <class 'str'>
+print(type(True))        # <class 'bool'>
+print(type(None))        # <class 'NoneType'>
+print(type([]))          # <class 'list'>
+print(type({}))          # <class 'dict'>
+print(type(()))          # <class 'tuple'>
+print(type(lambda: None)) # <class 'function'>
+
+# type() for exact equality (no inheritance)
+print(type(True) == bool)   # True
+print(type(True) == int)    # False  (even though bool IS a subclass of int)
+
+# isinstance() — inheritance-aware (PREFERRED in most cases)
+print(isinstance(True, bool))   # True
+print(isinstance(True, int))    # True  (bool is a subclass of int!)
+print(isinstance([], list))     # True
+print(isinstance([], (list, tuple)))  # True — check multiple types at once
+```
+</UniversalEditor>
+
+---
+
+## 6. Type Hints (PEP 484)
+
+Python 3.5+ supports optional type hints. They are not enforced at runtime but enable static type checkers (like `mypy`) and improve IDE support. They serve the same purpose as TypeScript's type annotations.
+
+<UniversalEditor title="Basic Type Hints">
+```javascript !! js
+// TypeScript / JavaScript type annotations
+let name: string = "Alice";
+let age: number = 30;
+let isActive: boolean = true;
+let scores: number[] = [90, 85, 92];
+
+// Function with typed parameters and return type
+function greet(name: string, greeting: string = "Hello"): string {
+    return `${greeting}, ${name}!`;
+}
+
+// Optional parameter
+function findUser(id: number, verbose?: boolean): string {
+    return `User ${id}`;
+}
+
+console.log(greet("Alice"));
+console.log(findUser(1, true));
+```
+
+```python !! py
+# Python type hints (PEP 484)
+name: str = "Alice"
+age: int = 30
+is_active: bool = True
+scores: list[int] = [90, 85, 92]  # Python 3.9+
+
+# Function with type hints
+def greet(name: str, greeting: str = "Hello") -> str:
+    return f"{greeting}, {name}!"
+
+# Optional parameter — two ways to express it
+from typing import Optional
+
+def find_user(user_id: int, verbose: Optional[bool] = None) -> str:
+    return f"User {user_id}"
+
+# Python 3.10+ syntax: use X | Y instead of Optional / Union
+def find_user_new(user_id: int, verbose: bool | None = None) -> str:
+    return f"User {user_id}"
+
+print(greet("Alice"))              # Hello, Alice!
+print(find_user(1, verbose=True))  # User 1
+```
+</UniversalEditor>
+
+<UniversalEditor title="Complex Type Hints: Union, List, Dict">
+```javascript !! js
+// TypeScript complex types
+type ID = string | number;  // Union type
+let userId: ID = 42;
+userId = "abc-123";         // also valid
+
+// Generic collections
+let names: Array<string> = ["Alice", "Bob"];
+let lookup: Map<string, number> = new Map([["a", 1]]);
+let record: Record<string, any> = { key: "value" };
+
+// Nullable
+let maybeNull: string | null = null;
+let maybeUndef: string | undefined = undefined;
+
+// Function type
+type Transformer = (input: string) => number;
+const parse: Transformer = (s) => parseInt(s);
+```
+
+```python !! py
+from typing import Union, List, Dict, Tuple, Set, Callable, Optional
+
+# Union type — value can be one of several types
+UserId = Union[str, int]          # Python 3.9 and below
+user_id: UserId = 42
+user_id = "abc-123"               # also valid
+
+# Python 3.10+ shorthand
+def process(user_id: str | int) -> str:
+    return str(user_id)
+
+# Generic collections
+names: List[str] = ["Alice", "Bob"]     # Old style
+names2: list[str] = ["Alice", "Bob"]    # Python 3.9+ (no import needed)
+
+lookup: Dict[str, int] = {"a": 1}
+lookup2: dict[str, int] = {"a": 1}     # Python 3.9+
+
+# Tuple with fixed types
+point: Tuple[int, int] = (10, 20)
+point2: tuple[int, int] = (10, 20)     # Python 3.9+
+
+# Optional — equivalent to Union[T, None]
+maybe: Optional[str] = None
+maybe2: str | None = None              # Python 3.10+
+
+# Callable type
+from typing import Callable
+Transformer = Callable[[str], int]
+parse: Transformer = int
+
+print(parse("42"))  # 42
+```
+</UniversalEditor>
+
+---
+
+## 7. Summary Table
+
+| Concept | JavaScript | Python |
+|---|---|---|
+| Typing style | Dynamic + weak (implicit coercion) | Dynamic + strong (no implicit coercion) |
+| Integer overflow | Limited to `Number.MAX_SAFE_INTEGER` | Arbitrary precision, never overflows |
+| "Nothing" values | `null` and `undefined` | `None` only |
+| Template strings | `` `Hello ${name}` `` | `f"Hello {name}"` |
+| String mutability | Immutable | Immutable |
+| Type check (exact) | `typeof x === "number"` | `type(x) is int` |
+| Type check (with inheritance) | `x instanceof Array` | `isinstance(x, list)` |
+| Optional type hint | `string \| undefined` | `Optional[str]` / `str \| None` |
+| Union type hint | `string \| number` | `Union[str, int]` / `str \| int` |
+| Float precision | IEEE 754 (same issue) | IEEE 754 (same issue) |
+| Exact decimal math | `Decimal.js` (library) | `from decimal import Decimal` |
+
+---
+
+## Exercises
+
+### Exercise 1: Type Coercion Detective
+
+Write a Python function `safe_add(a, b)` that accepts two values. If both are numbers (`int` or `float`), return their sum. If both are strings, return them concatenated. Otherwise, raise a `TypeError` with a helpful message.
+
+<details>
+<summary>Show Answer</summary>
+
+```python
+def safe_add(a, b):
+    if isinstance(a, (int, float)) and isinstance(b, (int, float)):
+        return a + b
+    elif isinstance(a, str) and isinstance(b, str):
+        return a + b
+    else:
+        raise TypeError(
+            f"Cannot add {type(a).__name__} and {type(b).__name__}. "
+            "Both arguments must be the same type (int/float or str)."
+        )
+
+# Tests
+print(safe_add(3, 4))         # 7
+print(safe_add(3.0, 4))       # 7.0
+print(safe_add("hello", " world"))  # "hello world"
+try:
+    safe_add(3, "4")
+except TypeError as e:
+    print(e)
+# Cannot add int and str. Both arguments must be the same type (int/float or str).
+```
+</details>
+
+### Exercise 2: Decimal Precision
+
+JavaScript developers often hit floating-point bugs. Write a Python function `sum_prices(prices: list[str]) -> str` that accepts a list of price strings like `["1.10", "2.20", "3.30"]` and returns their sum as a string with exactly 2 decimal places, using `Decimal` for accuracy.
+
+<details>
+<summary>Show Answer</summary>
+
+```python
+from decimal import Decimal
+
+def sum_prices(prices: list[str]) -> str:
+    total = sum(Decimal(p) for p in prices)
+    return f"{total:.2f}"
+
+# Test
+prices = ["0.10", "0.20"]
+print(sum_prices(prices))   # "0.30"  (not "0.30000000000000004"!)
+
+prices2 = ["1.99", "2.50", "0.01"]
+print(sum_prices(prices2))  # "4.50"
+```
+</details>
+
+### Exercise 3: Type Hints Practice
+
+Add full type hints to the following function. Use `Optional`, `Union`, and return type annotations:
+
+```python
+def lookup_user(users, user_id, default=None):
+    return users.get(user_id, default)
+```
+
+<details>
+<summary>Show Answer</summary>
+
+```python
+from typing import Optional, Union
+
+# The users dict maps either int or str keys to str values
+def lookup_user(
+    users: dict[Union[int, str], str],
+    user_id: Union[int, str],
+    default: Optional[str] = None,
+) -> Optional[str]:
+    return users.get(user_id, default)
+
+# Python 3.10+ shorthand
+def lookup_user_modern(
+    users: dict[int | str, str],
+    user_id: int | str,
+    default: str | None = None,
+) -> str | None:
+    return users.get(user_id, default)
+
+# Tests
+db = {1: "Alice", 2: "Bob", "admin": "Carol"}
+print(lookup_user(db, 1))           # "Alice"
+print(lookup_user(db, 99))          # None
+print(lookup_user(db, 99, "Guest")) # "Guest"
+```
+</details>

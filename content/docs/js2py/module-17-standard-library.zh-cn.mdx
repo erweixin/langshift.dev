@@ -1,0 +1,848 @@
+---
+title: "第 17 模块：Python 标准库"
+description: "探索 Python 丰富的标准库：用于文件操作的 os/pathlib、datetime、json、用于正则表达式的 re、itertools 以及 functools——全部与 JavaScript/Node.js 对应模块进行映射对比。"
+---
+
+# 第 17 模块：Python 标准库
+
+## 学习目标
+
+完成本模块后，你将能够：
+
+- ✅ 使用 `os` 和 `pathlib` 进行跨平台文件和路径操作
+- ✅ 使用 `datetime` 模块处理日期和时间
+- ✅ 使用 `json` 模块序列化和反序列化数据
+- ✅ 使用 `re` 模块应用正则表达式
+- ✅ 使用 `itertools` 编写优雅的迭代代码
+- ✅ 使用 `functools` 应用函数式编程模式
+- ✅ 通过 `sys` 和 `os.environ` 读取命令行参数和环境变量
+
+---
+
+## 1. 文件系统：os 与 pathlib
+
+Python 提供两种操作文件系统的方式：较旧的 `os`/`os.path` API（类似于 Node.js 的 `path` + `fs`）以及现代的、面向对象的 `pathlib.Path`。
+
+<UniversalEditor title="文件系统：pathlib 与 Node.js path/fs 对比">
+```javascript !! js
+// Node.js: path 模块 + fs 模块
+const path = require('path');
+const fs = require('fs');
+
+// 路径拼接
+const base = '/home/user/projects';
+const filePath = path.join(base, 'app', 'config.json');
+console.log(filePath);
+
+// 路径组成部分
+console.log(path.dirname(filePath));   // /home/user/projects/app
+console.log(path.basename(filePath));  // config.json
+console.log(path.extname(filePath));   // .json
+
+// 检查是否存在
+if (fs.existsSync(filePath)) {
+  const stat = fs.statSync(filePath);
+  console.log(`文件大小: ${stat.size} 字节`);
+}
+
+// 列出目录
+const files = fs.readdirSync('/tmp');
+console.log(files);
+
+// 创建目录（递归）
+fs.mkdirSync('/tmp/new/nested/dir', { recursive: true });
+
+// 读写文件
+fs.writeFileSync('/tmp/hello.txt', 'Hello World', 'utf8');
+const content = fs.readFileSync('/tmp/hello.txt', 'utf8');
+console.log(content);
+```
+
+```python !! py
+# Python: pathlib（现代推荐方式）
+from pathlib import Path
+
+# 路径拼接——使用 / 运算符连接部分
+base = Path('/home/user/projects')
+file_path = base / 'app' / 'config.json'
+print(file_path)
+
+# 路径组成部分
+print(file_path.parent)   # /home/user/projects/app
+print(file_path.name)     # config.json
+print(file_path.stem)     # config
+print(file_path.suffix)   # .json
+
+# 检查是否存在
+if file_path.exists():
+    stat = file_path.stat()
+    print(f"文件大小: {stat.st_size} 字节")
+
+# 列出目录（返回 Path 对象的生成器）
+tmp = Path('/tmp')
+files = list(tmp.iterdir())
+print(files[:3])
+
+# 使用 glob 模式匹配
+py_files = list(Path('.').glob('**/*.py'))
+print(f"找到 {len(py_files)} 个 Python 文件")
+
+# 创建目录（parents=True 相当于 recursive: true）
+Path('/tmp/new/nested/dir').mkdir(parents=True, exist_ok=True)
+
+# 读写文件
+Path('/tmp/hello.txt').write_text('Hello World', encoding='utf-8')
+content = Path('/tmp/hello.txt').read_text(encoding='utf-8')
+print(content)
+```
+</UniversalEditor>
+
+---
+
+## 2. datetime 模块
+
+Python 的 `datetime` 模块比 JavaScript 的 `Date` 对象更为结构化。它为日期、时间和日期时间组合提供了独立的类。
+
+<UniversalEditor title="datetime 与 JavaScript Date 对比">
+```javascript !! js
+// JavaScript: Date 对象
+const now = new Date();
+console.log(now.toISOString());
+
+// 创建特定日期（月份从 0 开始！）
+const birthday = new Date(1990, 5, 15);
+console.log(birthday.getFullYear());     // 1990
+console.log(birthday.getMonth() + 1);   // 6（六月）
+
+// 日期运算（毫秒）
+const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+console.log(tomorrow.toDateString());
+
+// 计算天数差
+const diff = Math.floor(
+  (now - birthday) / (1000 * 60 * 60 * 24)
+);
+console.log(`生日距今: ${diff} 天`);
+
+// 格式化（需要 Intl API）
+const formatter = new Intl.DateTimeFormat('zh-CN', {
+  year: 'numeric', month: 'long', day: 'numeric'
+});
+console.log(formatter.format(now));
+```
+
+```python !! py
+# Python: datetime 模块（更有结构）
+from datetime import date, time, datetime, timedelta, timezone
+
+# 当前日期和时间
+now = datetime.now()
+today = date.today()
+print(now.isoformat())    # 2024-03-15T10:30:00.123456
+print(today.isoformat())  # 2024-03-15
+
+# 创建特定日期——月份从 1 开始（更自然！）
+birthday = date(1990, 6, 15)
+print(birthday.year)    # 1990
+print(birthday.month)   # 6
+print(birthday.day)     # 15
+
+# 使用 timedelta 进行日期运算
+tomorrow = today + timedelta(days=1)
+next_week = today + timedelta(weeks=1)
+print(tomorrow)
+print(next_week)
+
+# 两个日期相减返回 timedelta
+delta = today - birthday
+print(f"生日距今: {delta.days} 天")
+
+# 用 strftime 格式化
+print(now.strftime("%Y年%m月%d日"))
+print(now.strftime("%Y-%m-%d %H:%M:%S"))
+
+# 从字符串解析
+parsed = datetime.strptime("2024-03-15", "%Y-%m-%d")
+print(type(parsed))  # <class 'datetime.datetime'>
+
+# 带时区的 datetime
+utc_now = datetime.now(timezone.utc)
+print(utc_now.isoformat())  # 包含 +00:00
+```
+</UniversalEditor>
+
+---
+
+## 3. json 模块
+
+`json` 模块几乎完全镜像了 JavaScript 的 `JSON` 对象，只是遵循 Python 的命名规范。
+
+<UniversalEditor title="json 模块与 JSON 对象对比">
+```javascript !! js
+// JavaScript: 内置 JSON
+const data = {
+  name: "Alice",
+  age: 30,
+  scores: [95, 87, 92],
+  active: true,
+  registered: null
+};
+
+// 序列化为 JSON 字符串
+const jsonString = JSON.stringify(data);
+console.log(jsonString);
+
+// 美化打印
+const pretty = JSON.stringify(data, null, 2);
+console.log(pretty);
+
+// 反序列化
+const parsed = JSON.parse(jsonString);
+console.log(parsed.name);
+console.log(typeof parsed.age);  // "number"
+```
+
+```python !! py
+# Python: json 模块
+import json
+from pathlib import Path
+
+data = {
+    "name": "Alice",
+    "age": 30,
+    "scores": [95, 87, 92],
+    "active": True,    # Python 的 True，不是 JS 的 true
+    "registered": None # Python 的 None，不是 JS 的 null
+}
+
+# 序列化为 JSON 字符串（dumps = dump to String）
+json_string = json.dumps(data)
+print(json_string)
+
+# 美化打印（indent = 空格数）
+pretty = json.dumps(data, indent=2, ensure_ascii=False)
+print(pretty)
+
+# 反序列化（loads = load from String）
+parsed = json.loads(json_string)
+print(parsed["name"])
+print(type(parsed["age"]))     # <class 'int'>
+print(parsed["active"])        # True
+print(parsed["registered"])    # None
+
+# 读写 JSON 文件（dump/load，不带 's' = 文件对象）
+path = Path("/tmp/data.json")
+with open(path, 'w', encoding='utf-8') as f:
+    json.dump(data, f, indent=2, ensure_ascii=False)
+
+with open(path, 'r', encoding='utf-8') as f:
+    from_file = json.load(f)
+
+# 自定义序列化（处理非 JSON 类型）
+from datetime import date
+
+class DateEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, date):
+            return obj.isoformat()
+        return super().default(obj)
+
+event = {"name": "技术大会", "date": date(2024, 6, 15)}
+print(json.dumps(event, cls=DateEncoder, ensure_ascii=False))
+```
+</UniversalEditor>
+
+---
+
+## 4. 正则表达式：re 模块
+
+Python 的 `re` 模块提供了完整的正则表达式支持。与 JavaScript 内置的 RegExp 方法相比，API 更偏向函数式风格。
+
+<UniversalEditor title="re 模块与 JavaScript RegExp 对比">
+```javascript !! js
+// JavaScript: RegExp（内置于语言中）
+const text = "联系我们：support@example.com 或 sales@company.org";
+const emailRegex = /[\w.+-]+@[\w-]+\.[a-z]{2,}/gi;
+
+// test() — 检查模式是否存在
+console.log(emailRegex.test(text));  // true
+
+// match() — 查找匹配
+const matches = text.match(emailRegex);
+console.log(matches);
+
+// replace() — 替换
+const sanitized = text.replace(emailRegex, "[邮箱]");
+console.log(sanitized);
+
+// 命名捕获组
+const dateRegex = /(?<year>\d{4})-(?<month>\d{2})-(?<day>\d{2})/;
+const match = "2024-03-15".match(dateRegex);
+console.log(match.groups.year);   // "2024"
+console.log(match.groups.month);  // "03"
+```
+
+```python !! py
+# Python: re 模块
+import re
+
+text = "联系我们：support@example.com 或 sales@company.org"
+email_pattern = r'[\w.+-]+@[\w-]+\.[a-z]{2,}'
+
+# re.search() — 查找字符串中的第一个匹配
+match = re.search(email_pattern, text, re.IGNORECASE)
+if match:
+    print(match.group())    # support@example.com
+    print(match.start())    # 起始位置
+
+# re.findall() — 查找所有匹配（返回字符串列表）
+emails = re.findall(email_pattern, text, re.IGNORECASE)
+print(emails)
+
+# re.finditer() — 查找所有匹配（返回匹配对象迭代器）
+for m in re.finditer(email_pattern, text, re.IGNORECASE):
+    print(f"在位置 {m.start()} 找到 '{m.group()}'")
+
+# re.sub() — 替换（类似 JS 的 replace）
+sanitized = re.sub(email_pattern, "[邮箱]", text, flags=re.IGNORECASE)
+print(sanitized)
+
+# 命名捕获组，使用 (?P<name>...)
+date_pattern = r'(?P<year>\d{4})-(?P<month>\d{2})-(?P<day>\d{2})'
+m = re.match(date_pattern, "2024-03-15")
+if m:
+    print(m.group('year'))    # 2024
+    print(m.group('month'))   # 03
+    print(m.groupdict())      # {'year': '2024', 'month': '03', 'day': '15'}
+
+# 编译以提高性能
+compiled = re.compile(email_pattern, re.IGNORECASE)
+print(compiled.findall(text))
+```
+</UniversalEditor>
+
+---
+
+## 5. itertools 模块
+
+`itertools` 提供了一组快速、内存高效的工具，用于处理可迭代对象。大多数操作都是惰性的（基于生成器），非常适合处理大数据集。
+
+<UniversalEditor title="itertools 与手动 JavaScript 实现对比">
+```javascript !! js
+// JavaScript: 手动实现 itertools 模式
+
+// chain — 展平多个数组
+const arr1 = [1, 2, 3];
+const arr2 = [4, 5, 6];
+const chained = [...arr1, ...arr2];
+console.log(chained);
+
+// combinations — 没有内置，需手动实现
+function* combinations(arr, r) {
+  if (r === 1) { for (const x of arr) yield [x]; return; }
+  for (let i = 0; i <= arr.length - r; i++) {
+    for (const rest of combinations(arr.slice(i + 1), r - 1)) {
+      yield [arr[i], ...rest];
+    }
+  }
+}
+console.log([...combinations([1,2,3,4], 2)]);
+
+// product — 笛卡尔积，需手动实现
+const colors = ['红', '蓝'];
+const sizes = ['S', 'M', 'L'];
+const variants = [];
+for (const c of colors) {
+  for (const s of sizes) {
+    variants.push([c, s]);
+  }
+}
+console.log(variants);
+```
+
+```python !! py
+# Python: itertools 模块（全部基于生成器，惰性求值）
+import itertools
+
+# chain — 顺序遍历多个可迭代对象（惰性）
+arr1 = [1, 2, 3]
+arr2 = [4, 5, 6]
+arr3 = [7, 8, 9]
+chained = list(itertools.chain(arr1, arr2, arr3))
+print(chained)  # [1, 2, 3, 4, 5, 6, 7, 8, 9]
+
+# combinations — n 选 r 的组合
+combos = list(itertools.combinations([1, 2, 3, 4], 2))
+print(combos)   # [(1,2),(1,3),(1,4),(2,3),(2,4),(3,4)]
+
+# product — 笛卡尔积（相当于嵌套 for 循环）
+colors = ['红', '蓝']
+sizes = ['S', 'M', 'L']
+variants = list(itertools.product(colors, sizes))
+print(variants)
+
+# islice — 从任意迭代器中截取片段（惰性）
+natural_numbers = itertools.count(1)  # 无限序列: 1, 2, 3, ...
+first_ten = list(itertools.islice(natural_numbers, 10))
+print(first_ten)  # [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+
+# groupby — 按键对连续元素进行分组
+data = [
+    {"dept": "工程", "name": "Alice"},
+    {"dept": "工程", "name": "Bob"},
+    {"dept": "人事", "name": "Carol"},
+]
+data.sort(key=lambda x: x["dept"])  # 必须先排序！
+for dept, members in itertools.groupby(data, key=lambda x: x["dept"]):
+    print(f"{dept}: {[m['name'] for m in members]}")
+
+# takewhile / dropwhile
+nums = [1, 3, 5, 2, 4, 6]
+small = list(itertools.takewhile(lambda x: x < 4, nums))
+print(small)  # [1, 3]（遇到 5 时停止，因为 5 >= 4）
+```
+</UniversalEditor>
+
+---
+
+## 6. functools 模块
+
+`functools` 提供了高阶函数和实用工具，用于将函数作为一等对象处理。
+
+<UniversalEditor title="functools：partial、reduce 和 lru_cache">
+```javascript !! js
+// JavaScript: 手动函数式工具
+
+// partial — 绑定部分参数
+function multiply(a, b) { return a * b; }
+const double = multiply.bind(null, 2);
+const triple = multiply.bind(null, 3);
+console.log(double(5));  // 10
+console.log(triple(5));  // 15
+
+// reduce — 使用 Array.reduce()
+const numbers = [1, 2, 3, 4, 5];
+const sum = numbers.reduce((acc, n) => acc + n, 0);
+console.log(sum);  // 15
+
+// 记忆化——必须手动实现
+function memoize(fn) {
+  const cache = new Map();
+  return function(...args) {
+    const key = JSON.stringify(args);
+    if (cache.has(key)) return cache.get(key);
+    const result = fn.apply(this, args);
+    cache.set(key, result);
+    return result;
+  };
+}
+
+function fib(n) {
+  if (n <= 1) return n;
+  return fib(n - 1) + fib(n - 2);
+}
+const fastFib = memoize(fib);
+console.log(fastFib(10));
+```
+
+```python !! py
+# Python: functools 模块
+import functools
+
+# partial — 创建预填充了部分参数的新函数
+def multiply(a, b):
+    return a * b
+
+double = functools.partial(multiply, 2)
+triple = functools.partial(multiply, 3)
+print(double(5))  # 10
+print(triple(5))  # 15
+
+# 带关键字参数的 partial
+def greet(name, greeting="你好", punctuation="！"):
+    return f"{greeting}，{name}{punctuation}"
+
+formal_greet = functools.partial(greet, greeting="您好", punctuation="。")
+print(formal_greet("爱丽丝"))  # 您好，爱丽丝。
+
+# reduce — 对可迭代对象累积应用函数
+numbers = [1, 2, 3, 4, 5]
+total = functools.reduce(lambda acc, n: acc + n, numbers, 0)
+product = functools.reduce(lambda acc, n: acc * n, numbers, 1)
+print(total)    # 15
+print(product)  # 120
+
+# lru_cache — 自动记忆化装饰器
+@functools.lru_cache(maxsize=None)  # None = 不限缓存大小
+def fib(n):
+    if n <= 1:
+        return n
+    return fib(n - 1) + fib(n - 2)
+
+print(fib(50))           # 12586269025（极快！）
+print(fib.cache_info())  # 命中次数、未命中次数、缓存大小
+
+# @cache（Python 3.9+）——lru_cache(maxsize=None) 的简写
+@functools.cache
+def factorial(n):
+    return n * factorial(n - 1) if n > 0 else 1
+
+print(factorial(10))  # 3628800
+```
+</UniversalEditor>
+
+---
+
+## 7. sys 和 os.environ
+
+<UniversalEditor title="sys 和 os.environ 与 Node.js process 对比">
+```javascript !! js
+// Node.js: process 对象
+
+// 命令行参数
+// process.argv = ['node', 'script.js', 'arg1', 'arg2']
+const args = process.argv.slice(2);
+console.log(args);
+
+// 环境变量
+const dbUrl = process.env.DATABASE_URL || 'sqlite://localhost/dev.db';
+const port = parseInt(process.env.PORT || '3000', 10);
+const debug = process.env.NODE_ENV === 'development';
+
+console.log(`数据库: ${dbUrl}`);
+console.log(`端口: ${port}`);
+console.log(`调试模式: ${debug}`);
+
+// 检查必需的环境变量
+if (!process.env.SECRET_KEY) {
+  console.error("错误: 必须设置 SECRET_KEY");
+  process.exit(1);
+}
+```
+
+```python !! py
+# Python: sys 和 os 模块
+import sys
+import os
+import argparse
+
+# 命令行参数
+# sys.argv = ['script.py', 'arg1', 'arg2']
+args = sys.argv[1:]  # 跳过脚本名称
+print(args)
+
+# 正式用法推荐 argparse
+parser = argparse.ArgumentParser(description="我的命令行工具")
+parser.add_argument("--output", "-o", default="result.txt", help="输出文件")
+parser.add_argument("--verbose", "-v", action="store_true", help="详细模式")
+parser.add_argument("input", nargs="?", default="-", help="输入文件或标准输入")
+
+# 演示用（真实使用时调用 parser.parse_args()）
+parsed = parser.parse_args(["--output", "out.txt", "--verbose", "data.csv"])
+print(f"输入: {parsed.input}")
+print(f"输出: {parsed.output}")
+print(f"详细模式: {parsed.verbose}")
+
+# 环境变量
+db_url = os.environ.get("DATABASE_URL", "sqlite:///dev.db")
+port = int(os.environ.get("PORT", "3000"))
+debug = os.environ.get("PYTHON_ENV", "production") == "development"
+
+print(f"数据库: {db_url}")
+print(f"端口: {port}")
+print(f"调试模式: {debug}")
+
+# 检查必需的环境变量
+required = ["SECRET_KEY", "DATABASE_URL"]
+missing = [var for var in required if not os.environ.get(var)]
+if missing:
+    print(f"错误: 缺少必需的环境变量: {missing}", file=sys.stderr)
+    sys.exit(1)
+```
+</UniversalEditor>
+
+---
+
+## 8. collections 模块
+
+<UniversalEditor title="collections：Counter、defaultdict 和 namedtuple">
+```javascript !! js
+// JavaScript: 手动实现 collections 模式
+
+// 统计出现次数
+const words = ["苹果", "香蕉", "苹果", "樱桃", "香蕉", "苹果"];
+const counter = {};
+for (const word of words) {
+  counter[word] = (counter[word] || 0) + 1;
+}
+const sorted = Object.entries(counter).sort(([,a], [,b]) => b - a);
+console.log(sorted);
+
+// 按分组自动初始化
+const groups = {};
+const people = [
+  { name: 'Alice', dept: '工程' },
+  { name: 'Bob', dept: '人事' },
+  { name: 'Charlie', dept: '工程' },
+];
+for (const person of people) {
+  if (!groups[person.dept]) groups[person.dept] = [];
+  groups[person.dept].push(person.name);
+}
+console.log(groups);
+```
+
+```python !! py
+# Python: collections 模块
+from collections import Counter, defaultdict, namedtuple, deque
+
+# Counter — 自动统计出现次数
+words = ["苹果", "香蕉", "苹果", "樱桃", "香蕉", "苹果"]
+counter = Counter(words)
+print(counter)              # Counter({'苹果': 3, '香蕉': 2, '樱桃': 1})
+print(counter["苹果"])      # 3
+print(counter["缺失的词"])  # 0（不会抛出 KeyError！）
+
+# 最常见的元素
+print(counter.most_common(2))  # [('苹果', 3), ('香蕉', 2)]
+
+# defaultdict — 自动创建缺失的键
+groups = defaultdict(list)  # 默认值是空列表
+people = [
+    ("Alice", "工程"),
+    ("Bob", "人事"),
+    ("Charlie", "工程"),
+]
+for name, dept in people:
+    groups[dept].append(name)  # 无需检查键是否存在！
+print(dict(groups))
+
+# namedtuple — 不可变的命名元组（轻量级类）
+Point = namedtuple('Point', ['x', 'y'])
+p = Point(3, 4)
+print(p.x, p.y)   # 3 4
+print(p)          # Point(x=3, y=4)
+
+# deque — 双端队列（两端插入/删除效率高）
+dq = deque([1, 2, 3])
+dq.appendleft(0)  # 从左添加: [0, 1, 2, 3]
+dq.append(4)      # 从右添加: [0, 1, 2, 3, 4]
+dq.popleft()      # 从左删除: 0
+print(dq)         # deque([1, 2, 3, 4])
+
+# 带 maxlen 的 deque — 滑动窗口
+recent = deque(maxlen=3)
+for i in range(6):
+    recent.append(i)
+    print(list(recent))  # 只保留最近 3 个
+```
+</UniversalEditor>
+
+---
+
+## 总结对比表
+
+| 任务 | JavaScript（Node.js） | Python |
+|---|---|---|
+| 路径拼接 | `path.join(a, b)` | `Path(a) / b` 或 `os.path.join(a, b)` |
+| 文件是否存在 | `fs.existsSync(p)` | `Path(p).exists()` |
+| 读取文件 | `fs.readFileSync(p, 'utf8')` | `Path(p).read_text()` |
+| 写入文件 | `fs.writeFileSync(p, data)` | `Path(p).write_text(data)` |
+| 列出目录 | `fs.readdirSync(dir)` | `Path(dir).iterdir()` |
+| 当前日期 | `new Date()` | `date.today()` / `datetime.now()` |
+| 日期差 | `(d1 - d2) / 86400000` | `(d1 - d2).days` |
+| 格式化日期 | `Intl.DateTimeFormat` | `dt.strftime("%Y-%m-%d")` |
+| JSON 序列化 | `JSON.stringify(obj, null, 2)` | `json.dumps(obj, indent=2)` |
+| JSON 反序列化 | `JSON.parse(str)` | `json.loads(str)` |
+| 正则匹配测试 | `/pattern/.test(str)` | `bool(re.search(pattern, str))` |
+| 查找所有匹配 | `str.match(/pattern/g)` | `re.findall(pattern, str)` |
+| 正则替换 | `str.replace(/pattern/g, sub)` | `re.sub(pattern, sub, str)` |
+| 合并可迭代对象 | `[...a, ...b, ...c]` | `itertools.chain(a, b, c)` |
+| 组合 | 手动实现 | `itertools.combinations(arr, r)` |
+| 偏函数 | `fn.bind(null, arg)` | `functools.partial(fn, arg)` |
+| 记忆化 | 手动 `Map` 缓存 | `@functools.lru_cache` |
+| 统计出现次数 | 用 `reduce` 累积到对象 | `Counter(iterable)` |
+| 默认字典 | `obj[k] = obj[k] \|\| []` | `defaultdict(list)` |
+| 命令行参数 | `process.argv.slice(2)` | `sys.argv[1:]` 或 `argparse` |
+| 环境变量 | `process.env.VAR` | `os.environ.get('VAR')` |
+
+---
+
+## 练习题
+
+### 练习 1：目录统计
+
+使用 `pathlib` 编写函数 `dir_stats(path)`，返回包含以下内容的字典：
+- `total_files`：所有文件数量（递归）
+- `total_dirs`：所有目录数量（递归）
+- `total_size_kb`：所有文件的总大小（KB）
+- `by_extension`：文件扩展名的 `Counter`
+
+<details>
+<summary>查看答案</summary>
+
+```python
+from pathlib import Path
+from collections import Counter
+
+def dir_stats(path):
+    """递归统计目录信息。"""
+    root = Path(path)
+    if not root.exists():
+        raise FileNotFoundError(f"路径不存在: {path}")
+    if not root.is_dir():
+        raise NotADirectoryError(f"不是目录: {path}")
+
+    total_files = 0
+    total_dirs = 0
+    total_bytes = 0
+    by_extension = Counter()
+
+    for item in root.rglob('*'):
+        if item.is_file():
+            total_files += 1
+            total_bytes += item.stat().st_size
+            ext = item.suffix.lower() or '(无扩展名)'
+            by_extension[ext] += 1
+        elif item.is_dir():
+            total_dirs += 1
+
+    return {
+        "total_files": total_files,
+        "total_dirs": total_dirs,
+        "total_size_kb": round(total_bytes / 1024, 2),
+        "by_extension": dict(by_extension.most_common()),
+    }
+
+import tempfile
+with tempfile.TemporaryDirectory() as tmp:
+    tmp_path = Path(tmp)
+    (tmp_path / "readme.txt").write_text("你好")
+    (tmp_path / "data.json").write_text('{"key": "value"}')
+    sub = tmp_path / "子目录"
+    sub.mkdir()
+    (sub / "script.py").write_text("print('hi')")
+    (sub / "notes.txt").write_text("笔记内容")
+
+    stats = dir_stats(tmp)
+    for key, value in stats.items():
+        print(f"{key}: {value}")
+```
+
+</details>
+
+---
+
+### 练习 2：日志解析器
+
+给定格式为 `"2024-03-15 10:30:45 ERROR 数据库连接失败"` 的日志行列表，编写 `parse_logs(lines)` 函数：
+- 使用 `re` 提取：日期、时间、级别、消息
+- 返回字典列表
+- 使用 `defaultdict` 按级别分组日志
+
+<details>
+<summary>查看答案</summary>
+
+```python
+import re
+from collections import defaultdict
+
+LOG_PATTERN = re.compile(
+    r'(?P<date>\d{4}-\d{2}-\d{2})\s+'
+    r'(?P<time>\d{2}:\d{2}:\d{2})\s+'
+    r'(?P<level>[A-Z]+)\s+'
+    r'(?P<message>.+)'
+)
+
+def parse_logs(lines):
+    """解析日志行并按级别分组。"""
+    parsed = []
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        match = LOG_PATTERN.match(line)
+        if match:
+            parsed.append(match.groupdict())
+        else:
+            print(f"警告：无法解析: {line!r}")
+
+    by_level = defaultdict(list)
+    for entry in parsed:
+        by_level[entry["level"]].append(entry)
+
+    return parsed, dict(by_level)
+
+sample_logs = [
+    "2024-03-15 10:30:45 INFO  服务器在端口 8080 启动",
+    "2024-03-15 10:31:15 ERROR 数据库连接失败",
+    "2024-03-15 10:31:16 ERROR 第 1 次重试（共 3 次）",
+    "2024-03-15 10:31:30 WARN  响应时间超过 2000ms",
+    "invalid log line",
+]
+
+entries, grouped = parse_logs(sample_logs)
+print(f"条目总数: {len(entries)}")
+for level, items in sorted(grouped.items()):
+    print(f"\n{level} ({len(items)}):")
+    for item in items:
+        print(f"  [{item['time']}] {item['message']}")
+```
+
+</details>
+
+---
+
+### 练习 3：使用 functools 实现记忆化斐波那契
+
+使用 `functools.lru_cache` 和 `itertools.islice`，编写一个 Fibonacci 生成器和一个返回前 `n` 个斐波那契数的函数，并展示缓存统计信息。
+
+<details>
+<summary>查看答案</summary>
+
+```python
+import functools
+import itertools
+
+@functools.lru_cache(maxsize=None)
+def fib(n):
+    """记忆化斐波那契——总工作量 O(n)，缓存占用 O(n)。"""
+    if n < 2:
+        return n
+    return fib(n - 1) + fib(n - 2)
+
+def fib_sequence(n):
+    """返回前 n 个斐波那契数。"""
+    return [fib(i) for i in range(n)]
+
+def fib_generator():
+    """无限惰性斐波那契生成器。"""
+    a, b = 0, 1
+    while True:
+        yield a
+        a, b = b, a + b
+
+print("前 15 个斐波那契数:")
+print(fib_sequence(15))
+
+print("\n计算 fib(14) 后的缓存信息:")
+print(fib.cache_info())
+
+gen = fib_generator()
+first_20 = list(itertools.islice(gen, 20))
+print(f"\n生成器产生的前 20 个: {first_20}")
+
+# 超过 1000 的第一个斐波那契数
+gen = fib_generator()
+result = next(x for x in gen if x > 1000)
+print(f"\n第一个超过 1000 的斐波那契数: {result}")
+
+# 400 万以内所有偶数斐波那契数之和（欧拉计划第 2 题）
+even_fibs = itertools.takewhile(
+    lambda x: x <= 4_000_000,
+    (x for x in fib_generator() if x % 2 == 0)
+)
+print(f"400 万以内偶数斐波那契数之和: {sum(even_fibs)}")
+```
+
+</details>

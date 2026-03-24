@@ -1,0 +1,762 @@
+---
+title: "Module 15: Collections and Data Structures"
+description: "Master Python's built-in collections: lists with slicing, tuples, dictionaries, sets, and the powerful collections module — all compared to JavaScript equivalents."
+---
+
+# Module 15: Collections and Data Structures
+
+Python ships with a rich set of built-in collection types: `list`, `tuple`, `dict`, and `set`. Each has a clear purpose and a well-defined interface. The `collections` module adds specialized variants for common patterns. Coming from JavaScript, you will find many familiar concepts, but also some important differences — especially in how slicing works and how dictionaries guarantee insertion order.
+
+## Learning Objectives
+
+After completing this module, you will be able to:
+
+- ✅ Use Python lists: append, extend, slicing with `[start:stop:step]`, and common methods
+- ✅ Choose between `tuple` and `list`, and use named tuples for structured data
+- ✅ Work with Python dicts: `.items()`, `.keys()`, `.values()`, and dict comprehensions
+- ✅ Perform set operations: union, intersection, difference, and symmetric difference
+- ✅ Use `collections.defaultdict`, `Counter`, `deque`, and `namedtuple`
+- ✅ Sort collections with `sorted()`, `min()`, `max()`, and the `key=` parameter
+
+---
+
+## 1. Lists
+
+Python's `list` is the closest equivalent to JavaScript's `Array`. Both are mutable, ordered sequences. The key difference is Python's powerful slice notation.
+
+<UniversalEditor title="List Basics and Common Methods">
+```javascript !! js
+// JavaScript Array methods
+const fruits = ["apple", "banana", "cherry"];
+
+// Add elements
+fruits.push("date");         // add to end
+fruits.unshift("avocado");   // add to start
+
+// Remove elements
+const last  = fruits.pop();    // remove from end, return it
+const first = fruits.shift();  // remove from start, return it
+
+console.log(fruits.length);    // length
+console.log(fruits.indexOf("banana")); // 1
+
+// splice for insert/remove at position
+fruits.splice(1, 0, "blueberry");  // insert at index 1
+fruits.splice(2, 1);               // remove 1 element at index 2
+
+// Copy
+const copy = [...fruits];          // spread copy
+const copy2 = fruits.slice();      // slice copy
+```
+
+```python !! py
+# Python list methods
+fruits = ["apple", "banana", "cherry"]
+
+# Add elements
+fruits.append("date")          # add to end (like push)
+fruits.insert(0, "avocado")    # add at specific index (like unshift)
+
+# Remove elements
+last  = fruits.pop()           # remove from end, return it
+first = fruits.pop(0)          # remove from start (index 0)
+
+print(len(fruits))             # length
+print(fruits.index("banana"))  # 1  (raises ValueError if not found)
+print("banana" in fruits)      # True  (membership check)
+
+# Insert at position
+fruits.insert(1, "blueberry")  # insert at index 1
+
+# Remove by value
+fruits.remove("blueberry")     # remove first occurrence
+
+# Copy
+copy  = fruits.copy()          # shallow copy
+copy2 = fruits[:]              # slice copy
+
+# Extend (add all elements of another list)
+fruits.extend(["elderberry", "fig"])
+```
+</UniversalEditor>
+
+<UniversalEditor title="Slicing — Python's Superpower">
+```javascript !! js
+// JavaScript: slice (read-only, returns new array)
+const nums = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+
+console.log(nums.slice(2, 5));   // [2, 3, 4]
+console.log(nums.slice(-3));     // [7, 8, 9]
+console.log(nums.slice(0, -2));  // [0, 1, 2, 3, 4, 5, 6, 7]
+
+// No step/stride support in native JS
+// Must use filter or reduce for every-other-element
+const everyOther = nums.filter((_, i) => i % 2 === 0);
+console.log(everyOther);  // [0, 2, 4, 6, 8]
+
+// Reverse
+const reversed = [...nums].reverse();  // reverse() is in-place, so copy first
+```
+
+```python !! py
+# Python: slicing with [start:stop:step]
+nums = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+
+print(nums[2:5])       # [2, 3, 4]        — from index 2 up to (not including) 5
+print(nums[-3:])       # [7, 8, 9]        — last 3 elements
+print(nums[:-2])       # [0,1,2,3,4,5,6,7] — everything except last 2
+print(nums[::2])       # [0, 2, 4, 6, 8]  — every other element (step=2)
+print(nums[1::2])      # [1, 3, 5, 7, 9]  — odd-index elements
+print(nums[::-1])      # [9,8,7,6,5,4,3,2,1,0] — reverse!
+print(nums[2:8:2])     # [2, 4, 6]        — start=2, stop=8, step=2
+
+# Slicing works on strings too
+s = "Hello, World!"
+print(s[7:12])         # "World"
+print(s[::-1])         # "!dlroW ,olleH"
+
+# Slice assignment (modify in-place)
+nums[2:5] = [20, 30, 40]
+print(nums)   # [0, 1, 20, 30, 40, 5, 6, 7, 8, 9]
+```
+</UniversalEditor>
+
+---
+
+## 2. Tuples
+
+A `tuple` is an immutable sequence. Once created, you cannot add, remove, or change its elements. Use tuples when the data should not change — function return values, dictionary keys, or named records.
+
+<UniversalEditor title="Tuples vs Arrays">
+```javascript !! js
+// JavaScript has no built-in tuple type
+// Arrays are always mutable
+const point = [10, 20];    // mutable
+point[0] = 99;             // allowed
+point.push(30);            // allowed
+
+// Use Object.freeze for shallow immutability
+const frozenPoint = Object.freeze([10, 20]);
+// frozenPoint[0] = 99;  // TypeError in strict mode
+
+// TypeScript has readonly tuples
+// const readonlyPt: readonly [number, number] = [10, 20];
+
+// Return multiple values from a function
+function getMinMax(arr) {
+    return [Math.min(...arr), Math.max(...arr)];
+}
+const [min, max] = getMinMax([3, 1, 4, 1, 5, 9]);
+```
+
+```python !! py
+# Python tuples — immutable sequences
+point = (10, 20)           # tuple literal
+point_no_parens = 10, 20   # parentheses are optional!
+single = (42,)             # single-element tuple — NOTE the comma!
+empty  = ()                # empty tuple
+
+# point[0] = 99            # TypeError: tuple doesn't support item assignment
+
+# Tuples as dictionary keys (lists cannot be dict keys)
+grid = {(0, 0): "origin", (1, 0): "right", (0, 1): "up"}
+print(grid[(1, 0)])        # "right"
+
+# Tuple unpacking (destructuring)
+x, y = point
+print(x, y)                # 10 20
+
+# Return multiple values (Python functions always return one value —
+# returning a tuple looks like multiple return values)
+def min_max(lst):
+    return min(lst), max(lst)   # returns a tuple
+
+low, high = min_max([3, 1, 4, 1, 5, 9])
+print(low, high)            # 1 9
+
+# Extended unpacking
+first, *rest = [1, 2, 3, 4, 5]
+print(first)    # 1
+print(rest)     # [2, 3, 4, 5]
+
+*head, last = [1, 2, 3, 4, 5]
+print(head)     # [1, 2, 3, 4]
+print(last)     # 5
+```
+</UniversalEditor>
+
+<UniversalEditor title="Named Tuples — Structured Data Without a Class">
+```javascript !! js
+// JavaScript: use objects for named fields
+const point = { x: 10, y: 20, label: "origin" };
+console.log(point.x);    // 10
+console.log(point.y);    // 20
+
+// Or use a class
+class Point {
+    constructor(x, y, label = "") {
+        this.x = x;
+        this.y = y;
+        this.label = label;
+    }
+}
+const p = new Point(10, 20, "origin");
+const [px, py] = [p.x, p.y];  // manual destructuring
+```
+
+```python !! py
+from collections import namedtuple
+from typing import NamedTuple
+
+# namedtuple — factory function style
+Point = namedtuple("Point", ["x", "y", "label"])
+p = Point(10, 20, "origin")
+
+print(p.x)       # 10     — access by name
+print(p.y)       # 20
+print(p[0])      # 10     — access by index still works
+print(p._asdict())        # {'x': 10, 'y': 20, 'label': 'origin'}
+
+# NamedTuple class style — cleaner, supports type hints
+class Point3D(NamedTuple):
+    x: float
+    y: float
+    z: float = 0.0    # default value
+
+p3 = Point3D(1.0, 2.0)
+print(p3)          # Point3D(x=1.0, y=2.0, z=0.0)
+print(p3.z)        # 0.0
+
+# Immutable — cannot change fields
+# p3.x = 99      # AttributeError
+
+# Named tuples are still tuples — unpacking works
+x, y, z = p3
+print(x, y, z)   # 1.0 2.0 0.0
+```
+</UniversalEditor>
+
+---
+
+## 3. Dictionaries
+
+Python dicts are ordered (since Python 3.7), fast, and versatile. They map to JavaScript's plain objects and `Map` simultaneously.
+
+<UniversalEditor title="Dictionary Basics and Iteration">
+```javascript !! js
+// JavaScript objects and Map
+const obj = { name: "Alice", age: 30, city: "NYC" };
+
+// Access
+console.log(obj.name);           // "Alice"
+console.log(obj["age"]);         // 30
+console.log(obj.missing);        // undefined (no error)
+
+// Iteration
+for (const key of Object.keys(obj)) { console.log(key); }
+for (const val of Object.values(obj)) { console.log(val); }
+for (const [k, v] of Object.entries(obj)) {
+    console.log(`${k}: ${v}`);
+}
+
+// Check key existence
+console.log("name" in obj);       // true
+console.log(obj.hasOwnProperty("age")); // true
+
+// Delete
+delete obj.city;
+```
+
+```python !! py
+# Python dict
+person = {"name": "Alice", "age": 30, "city": "NYC"}
+
+# Access
+print(person["name"])             # "Alice"
+print(person.get("age"))          # 30
+print(person.get("missing"))      # None  (no KeyError)
+print(person.get("missing", 0))   # 0    (default value)
+
+# Iteration
+for key in person:                # iterates keys by default
+    print(key)
+for key in person.keys():
+    print(key)
+for value in person.values():
+    print(value)
+for key, value in person.items(): # like Object.entries
+    print(f"{key}: {value}")
+
+# Check key existence
+print("name" in person)           # True
+print("missing" in person)        # False
+
+# Delete
+del person["city"]
+
+# setdefault — get or set if missing
+person.setdefault("country", "USA")  # adds "country": "USA"
+print(person["country"])          # "USA"
+```
+</UniversalEditor>
+
+<UniversalEditor title="Dict Merging and Comprehensions">
+```javascript !! js
+// JavaScript dict merging
+const defaults = { color: "blue", size: "medium", weight: 1.0 };
+const overrides = { color: "red", weight: 2.5 };
+
+// Spread to merge (overrides wins)
+const merged = { ...defaults, ...overrides };
+console.log(merged);
+// { color: "red", size: "medium", weight: 2.5 }
+
+// Build object from two arrays
+const keys   = ["a", "b", "c"];
+const values = [1, 2, 3];
+const lookup = Object.fromEntries(keys.map((k, i) => [k, values[i]]));
+console.log(lookup);  // { a: 1, b: 2, c: 3 }
+```
+
+```python !! py
+# Python dict merging
+defaults  = {"color": "blue", "size": "medium", "weight": 1.0}
+overrides = {"color": "red", "weight": 2.5}
+
+# dict unpacking to merge (Python 3.5+)
+merged = {**defaults, **overrides}
+print(merged)
+# {'color': 'red', 'size': 'medium', 'weight': 2.5}
+
+# Python 3.9+ merge operator
+merged2 = defaults | overrides   # same result
+defaults |= overrides            # in-place update (like +=)
+
+# Dict comprehension from two lists
+keys   = ["a", "b", "c"]
+values = [1, 2, 3]
+lookup = {k: v for k, v in zip(keys, values)}
+print(lookup)   # {'a': 1, 'b': 2, 'c': 3}
+
+# Filter a dict
+scores = {"Alice": 92, "Bob": 75, "Carol": 88, "Dave": 60}
+passing = {name: score for name, score in scores.items() if score >= 80}
+print(passing)  # {'Alice': 92, 'Carol': 88}
+
+# Swap keys and values
+inverted = {v: k for k, v in lookup.items()}
+print(inverted)  # {1: 'a', 2: 'b', 3: 'c'}
+```
+</UniversalEditor>
+
+---
+
+## 4. Sets
+
+Python's `set` is an unordered collection of unique elements, with built-in mathematical set operations.
+
+<UniversalEditor title="Sets and Set Operations">
+```javascript !! js
+// JavaScript Set
+const a = new Set([1, 2, 3, 4, 5]);
+const b = new Set([3, 4, 5, 6, 7]);
+
+// Basic operations
+a.add(6);
+a.delete(1);
+console.log(a.has(3));   // true
+console.log(a.size);     // 5
+
+// Set operations (no built-in operators — must implement manually)
+const union        = new Set([...a, ...b]);
+const intersection = new Set([...a].filter(x => b.has(x)));
+const difference   = new Set([...a].filter(x => !b.has(x)));
+
+console.log([...union]);        // [2, 3, 4, 5, 6, 7]
+console.log([...intersection]); // [3, 4, 5, 6]
+console.log([...difference]);   // [2]
+```
+
+```python !! py
+# Python set — built-in set operations with clean syntax
+a = {1, 2, 3, 4, 5}           # set literal
+b = {3, 4, 5, 6, 7}
+empty_set = set()              # NOTE: {} creates an empty dict, not set!
+
+# Basic operations
+a.add(6)
+a.discard(1)    # remove if present — no error if missing
+a.remove(2)     # remove — raises KeyError if missing
+print(3 in a)   # True
+print(len(a))   # 4
+
+# Set operations with clean operator syntax
+union        = a | b            # or a.union(b)
+intersection = a & b            # or a.intersection(b)
+difference   = a - b            # or a.difference(b) — in a but not b
+sym_diff     = a ^ b            # or a.symmetric_difference(b)
+
+print(union)        # {3, 4, 5, 6, 7}
+print(intersection) # {3, 4, 5, 6}
+print(difference)   # set()  (everything in a is also in b now)
+print(sym_diff)     # {7}    (in one but not both)
+
+# Subset/superset checks
+x = {3, 4}
+print(x <= a)   # True  — x is a subset of a
+print(a >= x)   # True  — a is a superset of x
+```
+</UniversalEditor>
+
+<UniversalEditor title="frozenset — Immutable Sets">
+```javascript !! js
+// JavaScript has no frozen Set
+// Object.freeze only freezes one level
+const s = Object.freeze(new Set([1, 2, 3]));
+// s.add(4);  // TypeError
+
+// Sets as dict keys (Sets can't be Map keys due to reference equality)
+const map = new Map();
+// map.set(new Set([1,2]), "value"); // same Set objects won't match
+
+// Workaround: serialize to string
+const key = JSON.stringify([1, 2, 3].sort());
+map.set(key, "value");
+```
+
+```python !! py
+# Python frozenset — immutable set, can be used as dict key
+fs = frozenset([1, 2, 3])
+# fs.add(4)   # AttributeError: 'frozenset' doesn't support add
+
+# frozenset as dict key (regular set can't be a key — unhashable)
+lookup = {
+    frozenset({"apple", "banana"}): "fruit salad",
+    frozenset({"carrot", "celery"}): "veggie mix",
+}
+
+order = frozenset({"banana", "apple"})  # order doesn't matter
+print(lookup[order])   # "fruit salad"
+
+# Converting between set types
+s  = {1, 2, 3}
+fs = frozenset(s)
+s2 = set(fs)
+print(type(fs))   # <class 'frozenset'>
+```
+</UniversalEditor>
+
+---
+
+## 5. The collections Module
+
+The `collections` module provides specialized container types for common patterns.
+
+<UniversalEditor title="defaultdict and Counter">
+```javascript !! js
+// JavaScript: building frequency maps manually
+const words = ["apple", "banana", "apple", "cherry", "banana", "apple"];
+
+// Manual frequency count
+const freq = {};
+for (const word of words) {
+    freq[word] = (freq[word] || 0) + 1;
+}
+console.log(freq);  // { apple: 3, banana: 2, cherry: 1 }
+
+// Grouping items
+const lengths = {};
+for (const word of words) {
+    const len = word.length;
+    if (!lengths[len]) lengths[len] = [];
+    lengths[len].push(word);
+}
+console.log(lengths);
+```
+
+```python !! py
+from collections import defaultdict, Counter
+
+words = ["apple", "banana", "apple", "cherry", "banana", "apple"]
+
+# Counter — purpose-built for frequency counting
+freq = Counter(words)
+print(freq)
+# Counter({'apple': 3, 'banana': 2, 'cherry': 1})
+
+print(freq.most_common(2))   # [('apple', 3), ('banana', 2)]
+print(freq["missing"])        # 0  (no KeyError!)
+
+# Counter works on any iterable
+letter_freq = Counter("hello world")
+print(letter_freq)
+# Counter({'l': 3, 'o': 2, ' ': 1, 'h': 1, 'e': 1, 'w': 1, 'r': 1, 'd': 1})
+
+# defaultdict — dict that creates missing values automatically
+from collections import defaultdict
+
+# Grouping: default is an empty list
+groups = defaultdict(list)
+for word in words:
+    groups[len(word)].append(word)
+print(dict(groups))
+# {5: ['apple', 'apple', 'apple'], 6: ['banana', 'banana', 'cherry']}
+
+# defaultdict with int (default 0)
+count = defaultdict(int)
+for word in words:
+    count[word] += 1    # no need to check if key exists
+print(dict(count))
+# {'apple': 3, 'banana': 2, 'cherry': 1}
+```
+</UniversalEditor>
+
+<UniversalEditor title="deque — Double-Ended Queue">
+```javascript !! js
+// JavaScript Array used as queue/deque
+const queue = [];
+
+// Enqueue at end, dequeue from front (slow for large arrays)
+queue.push("a");
+queue.push("b");
+queue.push("c");
+const front = queue.shift();   // O(n) — shifts all elements!
+console.log(front);  // "a"
+
+// Add to front
+queue.unshift("z");   // O(n) — shifts all elements!
+
+// For efficient queue, use a circular buffer library
+```
+
+```python !! py
+from collections import deque
+
+# deque — O(1) append and pop from BOTH ends
+dq = deque()
+
+# Add to right
+dq.append("b")
+dq.append("c")
+
+# Add to left (O(1)!)
+dq.appendleft("a")
+
+print(dq)    # deque(['a', 'b', 'c'])
+
+# Remove from right
+right = dq.pop()        # "c"
+# Remove from left (O(1)!)
+left  = dq.popleft()    # "a"
+print(dq)    # deque(['b'])
+
+# deque with maxlen — sliding window
+recent = deque(maxlen=3)
+for i in range(6):
+    recent.append(i)
+    print(list(recent))
+# [0]
+# [0, 1]
+# [0, 1, 2]
+# [1, 2, 3]  <- 0 dropped
+# [2, 3, 4]  <- 1 dropped
+# [3, 4, 5]  <- 2 dropped
+
+# Rotate
+dq = deque([1, 2, 3, 4, 5])
+dq.rotate(2)     # rotate right by 2
+print(list(dq))  # [4, 5, 1, 2, 3]
+```
+</UniversalEditor>
+
+---
+
+## 6. Sorting
+
+Python's `sorted()` and `.sort()` are flexible and efficient, supporting a `key=` function for custom ordering.
+
+<UniversalEditor title="Sorting with key= Parameter">
+```javascript !! js
+// JavaScript sorting
+const nums  = [3, 1, 4, 1, 5, 9, 2, 6];
+const words = ["banana", "Apple", "cherry", "Date"];
+
+// sort() modifies in place
+nums.sort((a, b) => a - b);     // ascending
+console.log(nums);   // [1, 1, 2, 3, 4, 5, 6, 9]
+
+nums.sort((a, b) => b - a);     // descending
+console.log(nums);   // [9, 6, 5, 4, 3, 2, 1, 1]
+
+// Sort strings
+words.sort();   // lexicographic, case-sensitive
+console.log(words);  // ["Apple", "Date", "banana", "cherry"]
+
+// Case-insensitive sort
+words.sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+
+// Sort objects by a field
+const people = [{name: "Bob", age: 30}, {name: "Alice", age: 25}];
+people.sort((a, b) => a.age - b.age);
+```
+
+```python !! py
+nums  = [3, 1, 4, 1, 5, 9, 2, 6]
+words = ["banana", "Apple", "cherry", "Date"]
+
+# sorted() returns a NEW list, original unchanged
+asc  = sorted(nums)              # ascending
+desc = sorted(nums, reverse=True) # descending
+print(asc)    # [1, 1, 2, 3, 4, 5, 6, 9]
+print(desc)   # [9, 6, 5, 4, 3, 2, 1, 1]
+
+# .sort() modifies in place (like JS sort)
+nums.sort()
+nums.sort(reverse=True)
+
+# Case-insensitive sort with key=
+words_sorted = sorted(words, key=str.lower)
+print(words_sorted)   # ['Apple', 'banana', 'cherry', 'Date']
+
+# Sort objects by a field
+people = [{"name": "Bob", "age": 30}, {"name": "Alice", "age": 25}]
+by_age  = sorted(people, key=lambda p: p["age"])
+by_name = sorted(people, key=lambda p: p["name"])
+print(by_age)    # [{'name': 'Alice', 'age': 25}, {'name': 'Bob', 'age': 30}]
+
+# min() and max() with key=
+youngest = min(people, key=lambda p: p["age"])
+print(youngest)  # {'name': 'Alice', 'age': 25}
+
+# Sort by multiple criteria: primary age, secondary name (alphabetically)
+mixed = [
+    {"name": "Carol", "age": 30},
+    {"name": "Alice", "age": 25},
+    {"name": "Bob",   "age": 25},
+]
+multi = sorted(mixed, key=lambda p: (p["age"], p["name"]))
+print(multi)
+# [{'name': 'Alice', 'age': 25}, {'name': 'Bob', 'age': 25}, {'name': 'Carol', 'age': 30}]
+```
+</UniversalEditor>
+
+---
+
+## 7. Summary Table
+
+| Concept | JavaScript | Python |
+|---|---|---|
+| Ordered mutable sequence | `Array` | `list` |
+| Ordered immutable sequence | No built-in (use `Object.freeze`) | `tuple` |
+| Key-value mapping | Plain object or `Map` | `dict` (ordered since 3.7) |
+| Unique collection | `Set` | `set` |
+| Immutable unique collection | No built-in | `frozenset` |
+| Slice with step | Not supported natively | `lst[start:stop:step]` |
+| Negative indices | `arr.at(-1)` | `lst[-1]` |
+| Frequency counting | Manual `{}` counting | `collections.Counter` |
+| Auto-default dict | Manual `||` check | `collections.defaultdict` |
+| Efficient front+back queue | Manual (O(n) shift) | `collections.deque` (O(1)) |
+| Named fields without class | Destructuring / plain object | `collections.namedtuple` / `NamedTuple` |
+| Sort in place | `arr.sort()` | `lst.sort()` |
+| Sort returning new | `[...arr].sort()` | `sorted(lst)` |
+| Set union | `new Set([...a, ...b])` | `a \| b` |
+| Set intersection | `new Set([...a].filter(x => b.has(x)))` | `a & b` |
+| Set difference | `new Set([...a].filter(x => !b.has(x)))` | `a - b` |
+
+---
+
+## Exercises
+
+### Exercise 1: Slicing Challenge
+
+Given `data = list(range(20))`, use slicing to extract:
+1. Elements at indices 5 through 14 (inclusive)
+2. Every third element starting from the end, going backwards
+3. The middle 10 elements
+
+<details>
+<summary>Show Answer</summary>
+
+```python
+data = list(range(20))
+# data = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+
+# 1. Elements at indices 5 through 14 (inclusive)
+print(data[5:15])
+# [5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
+
+# 2. Every third element starting from the end, going backwards
+print(data[::-3])
+# [19, 16, 13, 10, 7, 4, 1]
+
+# 3. The middle 10 elements (indices 5..14)
+mid = len(data) // 2
+print(data[mid - 5 : mid + 5])
+# [5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
+```
+</details>
+
+### Exercise 2: Word Frequency
+
+Using `Counter` and `defaultdict`, write a function `analyze_text(text: str)` that returns a dict with:
+- `"top3"`: the 3 most common words
+- `"by_length"`: a dict mapping word length to list of words
+
+<details>
+<summary>Show Answer</summary>
+
+```python
+from collections import Counter, defaultdict
+
+def analyze_text(text: str) -> dict:
+    words = text.lower().split()
+
+    # Top 3 most common words
+    freq  = Counter(words)
+    top3  = [word for word, _ in freq.most_common(3)]
+
+    # Group words by length
+    by_length = defaultdict(list)
+    for word in set(words):   # use set to avoid duplicates
+        by_length[len(word)].append(word)
+
+    return {"top3": top3, "by_length": dict(by_length)}
+
+sample = "the quick brown fox jumps over the lazy dog the fox"
+result = analyze_text(sample)
+print(result["top3"])        # ['the', 'fox', 'quick']  (order may vary for ties)
+print(result["by_length"][3])  # ['the', 'fox', 'dog', 'the'] (unique)
+```
+</details>
+
+### Exercise 3: Set Operations
+
+Given two lists of user IDs, write a function `user_report(list_a, list_b)` that returns a dict with:
+- `"only_a"`: users in A but not B
+- `"only_b"`: users in B but not A
+- `"both"`: users in both
+- `"either"`: users in either (union)
+
+<details>
+<summary>Show Answer</summary>
+
+```python
+def user_report(list_a: list, list_b: list) -> dict:
+    a = set(list_a)
+    b = set(list_b)
+    return {
+        "only_a": sorted(a - b),
+        "only_b": sorted(b - a),
+        "both":   sorted(a & b),
+        "either": sorted(a | b),
+    }
+
+premium_users = [1, 2, 3, 4, 5]
+active_users  = [3, 4, 5, 6, 7]
+report = user_report(premium_users, active_users)
+print(report["only_a"])   # [1, 2]     — premium but not active
+print(report["only_b"])   # [6, 7]     — active but not premium
+print(report["both"])     # [3, 4, 5]  — both premium and active
+print(report["either"])   # [1,2,3,4,5,6,7] — any user
+```
+</details>

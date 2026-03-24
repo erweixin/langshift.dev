@@ -1,0 +1,787 @@
+---
+title: "Module 15: Testing and Code Quality"
+description: "Learn Rust's built-in testing framework: unit tests in the same file, integration tests, documentation tests, and code quality tools clippy and rustfmt."
+---
+
+# Module 15: Testing and Code Quality
+
+## Learning Objectives
+
+By the end of this module, you will be able to:
+
+- ✅ Write unit tests inside the same source file using `#[cfg(test)]` modules — a new concept for JavaScript developers
+- ✅ Mark test functions with `#[test]`, run them with `cargo test`, and filter specific tests by name
+- ✅ Use `assert!`, `assert_eq!`, and `assert_ne!` macros, and understand how they compare to Jest's `expect()`
+- ✅ Test for expected panics with `#[should_panic]` and write tests that return `Result` types
+- ✅ Create integration tests in the `tests/` directory and understand how they differ from unit tests
+- ✅ Write doc tests in `///` comments and use `cargo clippy` and `cargo fmt` for automated code quality
+
+---
+
+## 1. Tests in the Same File
+
+The biggest difference from JavaScript testing: Rust tests live **in the same file** as the code they test, inside a `#[cfg(test)]` module. JavaScript uses separate test files (`.test.js`, `.spec.js`). Rust's approach makes it easy to test private functions directly.
+
+<UniversalEditor title="Tests Collocated with Code vs Separate Test Files" compare={true}>
+```javascript !! js
+// JavaScript: separate test file (math.test.js)
+// In math.js:
+function add(a, b) { return a + b; }
+function multiply(a, b) { return a * b; }
+// Private helper — hard to test without exporting
+function clamp(n, min, max) {
+    return Math.min(Math.max(n, min), max);
+}
+// module.exports = { add, multiply }; // must export to test
+
+// In math.test.js (Jest):
+// const { add, multiply } = require('./math');
+// describe('math', () => {
+//     test('add works', () => {
+//         expect(add(2, 3)).toBe(5);
+//     });
+//     test('multiply works', () => {
+//         expect(multiply(3, 4)).toBe(12);
+//     });
+//     // Cannot easily test clamp since it's not exported
+// });
+
+// Run: npx jest   or   npm test
+console.log("JavaScript uses separate test files");
+```
+
+```rust !! rs
+// Rust: tests live in the SAME file as the code
+
+fn add(a: i32, b: i32) -> i32 { a + b }
+fn multiply(a: i32, b: i32) -> i32 { a * b }
+
+// Private function — can still be tested inside the #[cfg(test)] module
+fn clamp(n: i32, min: i32, max: i32) -> i32 {
+    n.min(max).max(min)
+}
+
+// #[cfg(test)] means this module is only compiled during `cargo test`
+// It does NOT appear in your production binary
+#[cfg(test)]
+mod tests {
+    use super::*; // import everything from the parent module
+
+    #[test]
+    fn test_add() {
+        assert_eq!(add(2, 3), 5);
+    }
+
+    #[test]
+    fn test_multiply() {
+        assert_eq!(multiply(3, 4), 12);
+    }
+
+    #[test]
+    fn test_clamp() {
+        // Can test private function directly — no export needed!
+        assert_eq!(clamp(5, 0, 10), 5);
+        assert_eq!(clamp(-3, 0, 10), 0);
+        assert_eq!(clamp(15, 0, 10), 10);
+    }
+}
+
+fn main() {
+    println!("{}", add(2, 3)); // 5
+}
+// Run all tests: cargo test
+// Run specific: cargo test test_add
+```
+</UniversalEditor>
+
+---
+
+## 2. The #\[test\] Attribute and cargo test
+
+Rust's `cargo test` compiles and runs all functions marked with `#[test]`. It automatically captures output (stdout is hidden for passing tests) and reports results. Tests can be filtered, run in parallel, or run serially.
+
+<UniversalEditor title="Writing and Running Tests with cargo test" compare={true}>
+```javascript !! js
+// Jest test structure
+// describe() groups tests; test() / it() defines individual tests
+
+// describe('Calculator', () => {
+//
+//     beforeEach(() => {
+//         // setup before each test
+//     });
+//
+//     test('adds two numbers', () => {
+//         expect(add(1, 2)).toBe(3);
+//     });
+//
+//     test('handles negative numbers', () => {
+//         expect(add(-1, 1)).toBe(0);
+//     });
+//
+//     test.skip('future test', () => {
+//         // skipped
+//     });
+// });
+
+// Filtering: npx jest -t "adds two"
+// Watch mode: npx jest --watch
+// Coverage: npx jest --coverage
+
+console.log("Jest: separate config, npm install, package.json scripts");
+```
+
+```rust !! rs
+fn add(a: i32, b: i32) -> i32 { a + b }
+fn divide(a: f64, b: f64) -> Option<f64> {
+    if b == 0.0 { None } else { Some(a / b) }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Basic test function
+    #[test]
+    fn test_add_positive() {
+        assert_eq!(add(1, 2), 3);
+    }
+
+    #[test]
+    fn test_add_negative() {
+        assert_eq!(add(-1, 1), 0);
+    }
+
+    // Ignored test (like test.skip in Jest) — run with cargo test -- --ignored
+    #[test]
+    #[ignore]
+    fn expensive_test() {
+        // Skipped by default
+        assert_eq!(1 + 1, 2);
+    }
+
+    // Test with a custom failure message
+    #[test]
+    fn test_divide_success() {
+        let result = divide(10.0, 2.0);
+        assert!(result.is_some(), "divide(10, 2) should return Some");
+        assert_eq!(result.unwrap(), 5.0);
+    }
+
+    #[test]
+    fn test_divide_by_zero() {
+        assert!(divide(10.0, 0.0).is_none());
+    }
+}
+
+// cargo test                    — run all tests
+// cargo test test_add           — run tests whose name contains "test_add"
+// cargo test -- --nocapture     — show println! output for passing tests
+// cargo test -- --test-thread=1 — run tests serially (no parallelism)
+// cargo test -- --ignored       — run ignored tests too
+
+fn main() {}
+```
+</UniversalEditor>
+
+---
+
+## 3. Assertion Macros
+
+Rust provides three built-in assertion macros. They print informative error messages on failure, showing the actual values involved. This is equivalent to Jest's `expect()` matcher family.
+
+<UniversalEditor title="Assertion Macros vs Jest expect()" compare={true}>
+```javascript !! js
+// Jest assertion matchers
+// expect(actual).toBe(expected)         — strict equality (===)
+// expect(actual).toEqual(expected)      — deep equality
+// expect(actual).toBeTruthy()           — truthy value
+// expect(actual).toContain(item)        — array/string contains
+// expect(actual).toThrow()              — function throws
+
+// Examples:
+// test('assertions', () => {
+//     expect(1 + 1).toBe(2);
+//     expect([1, 2, 3]).toContain(2);
+//     expect({ a: 1 }).toEqual({ a: 1 });
+//     expect(true).toBeTruthy();
+//     expect(false).not.toBeTruthy();
+//
+//     // Custom message
+//     expect(42).toBe(42); // no built-in custom message
+//
+//     // On failure, Jest shows:
+//     // Expected: 3
+//     // Received: 2
+// });
+
+console.log("Jest needs npm install, config files, separate files");
+```
+
+```rust !! rs
+fn is_even(n: i32) -> bool { n % 2 == 0 }
+fn reverse(s: &str) -> String { s.chars().rev().collect() }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_assert() {
+        // assert!: test a boolean expression
+        assert!(is_even(4));
+        assert!(!is_even(3));
+        assert!(2 + 2 == 4);
+
+        // assert! with custom message (format! style)
+        let x = 5;
+        assert!(x > 0, "x should be positive but was {}", x);
+    }
+
+    #[test]
+    fn test_assert_eq() {
+        // assert_eq!(left, right): must be equal
+        // On failure: shows left and right values with labels
+        assert_eq!(reverse("hello"), "olleh");
+        assert_eq!(2 + 2, 4, "basic arithmetic failed");
+
+        // assert_ne!(left, right): must NOT be equal
+        assert_ne!(is_even(3), true);
+        assert_ne!(reverse("abc"), "abc");
+    }
+
+    #[test]
+    fn test_float_comparison() {
+        // Float equality — need tolerance for floating point
+        let result = 0.1 + 0.2;
+        // assert_eq!(result, 0.3); // might FAIL due to float precision!
+        assert!((result - 0.3).abs() < 1e-10, "float comparison failed");
+    }
+
+    #[test]
+    fn test_vector() {
+        let v = vec![1, 2, 3, 4, 5];
+        assert_eq!(v.len(), 5);
+        assert!(v.contains(&3));
+        assert_eq!(v[0], 1);
+        assert_ne!(v, vec![1, 2, 3]); // different length
+    }
+}
+
+fn main() {}
+```
+</UniversalEditor>
+
+---
+
+## 4. Testing for Panics and Result-Returning Tests
+
+Some functions should panic on invalid input. `#[should_panic]` verifies that a function panics as expected. Alternatively, tests can return `Result<(), E>` to use the `?` operator for cleaner error propagation.
+
+<UniversalEditor title="#[should_panic] and Result-Returning Tests" compare={true}>
+```javascript !! js
+// Jest: testing for thrown errors
+// test('throws on invalid input', () => {
+//     expect(() => {
+//         parsePositive(-1);
+//     }).toThrow();
+//
+//     expect(() => {
+//         parsePositive(-1);
+//     }).toThrow("Value must be positive");
+// });
+
+// Async tests with try/catch:
+// test('async error handling', async () => {
+//     await expect(fetchUser(-1)).rejects.toThrow("User not found");
+// });
+
+console.log("Jest uses .toThrow() for panic-equivalent tests");
+```
+
+```rust !! rs
+fn parse_positive(n: i32) -> u32 {
+    if n <= 0 { panic!("Value must be positive, got {}", n); }
+    n as u32
+}
+
+fn parse_number(s: &str) -> Result<i32, std::num::ParseIntError> {
+    s.trim().parse()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // #[should_panic]: test PASSES if the function panics
+    #[test]
+    #[should_panic]
+    fn test_panics_on_zero() {
+        parse_positive(0); // should panic
+    }
+
+    // Check the panic MESSAGE with expected = "..."
+    // Test passes only if the panic message CONTAINS the expected substring
+    #[test]
+    #[should_panic(expected = "must be positive")]
+    fn test_panics_with_message() {
+        parse_positive(-5); // panics with "Value must be positive, got -5"
+    }
+
+    // Normal case — should not panic
+    #[test]
+    fn test_valid_positive() {
+        assert_eq!(parse_positive(42), 42);
+    }
+
+    // Result-returning test: use ? operator for ergonomic error propagation
+    // Test FAILS if it returns Err(_)
+    #[test]
+    fn test_parse_number() -> Result<(), std::num::ParseIntError> {
+        let n = parse_number("42")?; // ? propagates the error as test failure
+        assert_eq!(n, 42);
+
+        let m = parse_number(" -7 ")?;
+        assert_eq!(m, -7);
+
+        Ok(()) // test passes
+    }
+
+    #[test]
+    fn test_parse_invalid() {
+        // For expected errors, use assert!(result.is_err())
+        assert!(parse_number("abc").is_err());
+        assert!(parse_number("").is_err());
+    }
+}
+
+fn main() {}
+```
+</UniversalEditor>
+
+---
+
+## 5. Integration Tests
+
+Integration tests live in a separate `tests/` directory at the project root. They test only the public API of your crate (like an external user would). Each file in `tests/` is a separate test binary.
+
+<UniversalEditor title="Integration Tests vs Unit Tests" compare={true}>
+```javascript !! js
+// JavaScript: no structural distinction between unit and integration tests
+// Convention: unit tests in __tests__/ or *.test.js
+//             integration tests in tests/ or *.integration.test.js
+
+// Jest config can separate them with testMatch patterns:
+// unit:        src/**/*.test.js
+// integration: tests/**/*.test.js
+
+// Integration test file (tests/api.integration.test.js):
+// const { createApp } = require('../src/app');
+//
+// describe('API integration', () => {
+//     let app;
+//     beforeAll(() => { app = createApp(); });
+//
+//     test('GET /users returns array', async () => {
+//         const res = await request(app).get('/users');
+//         expect(res.status).toBe(200);
+//         expect(Array.isArray(res.body)).toBe(true);
+//     });
+// });
+
+console.log("No structural enforcement in JavaScript");
+```
+
+```rust !! rs
+// src/lib.rs — library with PUBLIC API
+pub fn add(a: i32, b: i32) -> i32 { a + b }
+pub fn greeting(name: &str) -> String { format!("Hello, {}!", name) }
+// Private function — NOT accessible from integration tests
+fn internal_helper() -> i32 { 42 }
+
+// Unit tests (in the same file, can test private functions)
+#[cfg(test)]
+mod unit_tests {
+    use super::*;
+    #[test]
+    fn test_internal() {
+        assert_eq!(internal_helper(), 42); // accessible here
+    }
+}
+
+// ─── tests/integration_test.rs ───────────────────────────────────────────────
+// (This would be a separate file at tests/integration_test.rs in your project)
+//
+// use my_crate::add;         // import public API only
+// use my_crate::greeting;
+//
+// #[test]
+// fn test_add_integration() {
+//     assert_eq!(add(10, 20), 30);
+// }
+//
+// #[test]
+// fn test_greeting_integration() {
+//     assert_eq!(greeting("World"), "Hello, World!");
+// }
+//
+// // Cannot access internal_helper() — it's not pub
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Key differences:
+// - Unit tests: same file, can access private items
+// - Integration tests: tests/ directory, public API only
+// - Each tests/*.rs file is compiled as a separate binary
+// - cargo test runs both automatically
+
+fn main() {
+    println!("{}", greeting("Rust")); // "Hello, Rust!"
+}
+```
+</UniversalEditor>
+
+---
+
+## 6. Documentation Tests
+
+Rust's unique killer feature: code examples in `///` doc comments are **automatically compiled and run** by `cargo test`. This ensures documentation stays in sync with the actual API.
+
+<UniversalEditor title="Doc Tests: Executable Code in Comments" compare={true}>
+```javascript !! js
+// JavaScript: JSDoc comments are NOT executed — they can be wrong
+/**
+ * Adds two numbers together.
+ * @param {number} a - First number
+ * @param {number} b - Second number
+ * @returns {number} The sum
+ * @example
+ * add(2, 3); // returns 5
+ * add(-1, 1); // returns 0
+ * // Nothing checks that these examples are actually correct!
+ * add(2, 3); // returns 99  ← WRONG but no one catches it
+ */
+function add(a, b) {
+    return a + b;
+}
+
+// Some tools (like doctests in Python/Rust) enforce this,
+// but not standard JavaScript tooling.
+console.log("JSDoc examples are never verified");
+```
+
+```rust !! rs
+/// Adds two integers together.
+///
+/// # Examples
+///
+/// ```
+/// let result = my_crate::add(2, 3);
+/// assert_eq!(result, 5);
+/// ```
+///
+/// Negative numbers work too:
+///
+/// ```
+/// assert_eq!(my_crate::add(-1, 1), 0);
+/// assert_eq!(my_crate::add(-5, -3), -8);
+/// ```
+pub fn add(a: i32, b: i32) -> i32 {
+    a + b
+}
+
+/// Divides two floats, returning `None` if the divisor is zero.
+///
+/// # Examples
+///
+/// ```
+/// assert_eq!(my_crate::safe_divide(10.0, 2.0), Some(5.0));
+/// ```
+///
+/// Division by zero returns `None`:
+///
+/// ```
+/// assert_eq!(my_crate::safe_divide(5.0, 0.0), None);
+/// ```
+///
+/// # Panics
+///
+/// This function does not panic.
+pub fn safe_divide(a: f64, b: f64) -> Option<f64> {
+    if b == 0.0 { None } else { Some(a / b) }
+}
+
+// cargo test will:
+// 1. Run unit tests (in #[cfg(test)] modules)
+// 2. Run integration tests (in tests/ directory)
+// 3. Run doc tests (code blocks in /// comments)
+//
+// If you change add() to return a - b, the doc test will FAIL.
+// Documentation can never silently go out of date!
+
+fn main() {}
+```
+</UniversalEditor>
+
+---
+
+## 7. cargo clippy and cargo fmt
+
+Rust ships two code quality tools out of the box. `cargo clippy` is a linter with hundreds of rules (analogous to ESLint). `cargo fmt` auto-formats code (analogous to Prettier). Both are zero-config.
+
+<UniversalEditor title="clippy and fmt vs ESLint and Prettier" compare={true}>
+```javascript !! js
+// JavaScript requires npm packages and config files:
+// npm install --save-dev eslint prettier
+// .eslintrc.json configuration
+// .prettierrc configuration
+// package.json scripts
+
+// ESLint catches:
+// - Unused variables
+// - Unreachable code
+// - Wrong argument counts
+// - Potential bugs
+
+// Prettier formats:
+// - Indentation
+// - Trailing commas
+// - Semicolons
+// - Quote style
+
+// Example ESLint warning:
+// let x = 5;  // 'x' is assigned a value but never used
+
+// Example Prettier format:
+// const foo = {a:1,b:2}
+// becomes: const foo = { a: 1, b: 2 };
+
+console.log("Requires: npm install, .eslintrc.json, .prettierrc");
+```
+
+```rust !! rs
+// cargo clippy — catches common mistakes and suggests improvements
+// cargo fmt    — auto-formats code (uses rustfmt under the hood)
+// Both are built into the Rust toolchain — zero config needed!
+
+// ── Examples of what clippy catches: ─────────────────────────────
+
+fn example_clippy_warnings() {
+    // clippy::needless_range_loop: use iter instead
+    let v = vec![1, 2, 3];
+    // for i in 0..v.len() { println!("{}", v[i]); }  // clippy warns
+    for item in &v { println!("{}", item); }           // clippy suggestion
+
+    // clippy::map_unwrap_or: simplify Option chain
+    let opt: Option<i32> = Some(5);
+    // let _ = opt.map(|x| x * 2).unwrap_or(0); // clippy suggests:
+    let _ = opt.map_or(0, |x| x * 2);
+
+    // clippy::clone_on_ref_ptr: avoid unnecessary clones
+    // clippy::bool_comparison: don't write `if x == true {`
+    let flag = true;
+    // if flag == true { }  // clippy warns
+    if flag { }            // idiomatic
+
+    // clippy::inefficient_to_string: avoid .to_string() on &str
+    let _s: String = "hello".to_string(); // ok
+}
+
+// ── Examples of what rustfmt formats: ───────────────────────────
+
+// Before rustfmt (valid but ugly):
+fn messy(x:i32,y:i32)->i32{x+y}
+
+// After cargo fmt (automatically applied):
+fn clean(x: i32, y: i32) -> i32 {
+    x + y
+}
+
+// Cargo commands:
+// cargo clippy                — show all warnings
+// cargo clippy -- -D warnings — treat warnings as errors (CI mode)
+// cargo fmt                  — format in place
+// cargo fmt --check          — check without modifying (CI mode)
+
+fn main() {
+    example_clippy_warnings();
+    println!("{}", clean(1, 2));
+}
+```
+</UniversalEditor>
+
+---
+
+## 8. Summary Table
+
+| Concept | JavaScript (Jest) | Rust |
+|---|---|---|
+| Test file location | Separate `*.test.js` files | Same file in `#[cfg(test)]` module |
+| Test runner setup | `npm install jest` + config | Built into `cargo` — zero setup |
+| Define a test | `test('name', () => { ... })` | `#[test] fn name() { ... }` |
+| Equality assertion | `expect(a).toBe(b)` | `assert_eq!(a, b)` |
+| Boolean assertion | `expect(x).toBeTruthy()` | `assert!(x)` |
+| Inequality | `expect(a).not.toBe(b)` | `assert_ne!(a, b)` |
+| Test expected error | `expect(() => f()).toThrow()` | `#[should_panic]` |
+| Skip a test | `test.skip(...)` | `#[ignore]` |
+| Test grouping | `describe('name', () => {...})` | `mod tests { ... }` |
+| Access private fns | Must export | Direct access inside `#[cfg(test)]` |
+| Integration tests | Separate file by convention | `tests/` directory (enforced) |
+| Doc tests | None (JSDoc never executed) | `///` code blocks run by `cargo test` |
+| Linting | ESLint (npm package + config) | `cargo clippy` (built-in) |
+| Formatting | Prettier (npm package + config) | `cargo fmt` (built-in) |
+| CI lint mode | `eslint . --max-warnings=0` | `cargo clippy -- -D warnings` |
+
+---
+
+## Exercises
+
+### Exercise 1: Test a Math Library
+
+Write functions `factorial(n: u64) -> u64` and `is_prime(n: u64) -> bool`, then write tests in a `#[cfg(test)]` module covering edge cases.
+
+<details>
+<summary>Show Answer</summary>
+
+```rust
+fn factorial(n: u64) -> u64 {
+    (1..=n).product()
+}
+
+fn is_prime(n: u64) -> bool {
+    if n < 2 { return false; }
+    if n == 2 { return true; }
+    if n % 2 == 0 { return false; }
+    let mut i = 3;
+    while i * i <= n {
+        if n % i == 0 { return false; }
+        i += 2;
+    }
+    true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_factorial_base_cases() {
+        assert_eq!(factorial(0), 1);
+        assert_eq!(factorial(1), 1);
+    }
+
+    #[test]
+    fn test_factorial_general() {
+        assert_eq!(factorial(5), 120);
+        assert_eq!(factorial(10), 3628800);
+    }
+
+    #[test]
+    fn test_is_prime_small() {
+        assert!(!is_prime(0));
+        assert!(!is_prime(1));
+        assert!(is_prime(2));
+        assert!(is_prime(3));
+        assert!(!is_prime(4));
+        assert!(is_prime(5));
+    }
+
+    #[test]
+    fn test_is_prime_larger() {
+        assert!(is_prime(97));
+        assert!(!is_prime(100));
+    }
+}
+
+fn main() {
+    println!("{}", factorial(5));  // 120
+    println!("{}", is_prime(97));  // true
+}
+```
+
+</details>
+
+### Exercise 2: should_panic Test
+
+Write a function `get_element(v: &[i32], index: usize) -> i32` that panics with the message `"index out of range"` when the index exceeds bounds. Write both a normal test and a `#[should_panic]` test.
+
+<details>
+<summary>Show Answer</summary>
+
+```rust
+fn get_element(v: &[i32], index: usize) -> i32 {
+    if index >= v.len() {
+        panic!("index out of range: {} >= {}", index, v.len());
+    }
+    v[index]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_valid_index() {
+        let v = vec![10, 20, 30];
+        assert_eq!(get_element(&v, 0), 10);
+        assert_eq!(get_element(&v, 2), 30);
+    }
+
+    #[test]
+    #[should_panic(expected = "index out of range")]
+    fn test_out_of_range() {
+        let v = vec![1, 2, 3];
+        get_element(&v, 10);
+    }
+}
+
+fn main() {}
+```
+
+</details>
+
+### Exercise 3: Result-Returning Test
+
+Write a function `parse_coordinate(s: &str) -> Result<(f64, f64), String>` that parses `"3.0,4.5"` into `(3.0, 4.5)`. Write a `Result`-returning test using `?`.
+
+<details>
+<summary>Show Answer</summary>
+
+```rust
+fn parse_coordinate(s: &str) -> Result<(f64, f64), String> {
+    let parts: Vec<&str> = s.split(',').collect();
+    if parts.len() != 2 {
+        return Err(format!("Expected 2 parts, got {}", parts.len()));
+    }
+    let x = parts[0].trim().parse::<f64>()
+        .map_err(|e| format!("Invalid x: {}", e))?;
+    let y = parts[1].trim().parse::<f64>()
+        .map_err(|e| format!("Invalid y: {}", e))?;
+    Ok((x, y))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_valid_coordinate() -> Result<(), String> {
+        let (x, y) = parse_coordinate("3.0, 4.5")?;
+        assert_eq!(x, 3.0);
+        assert_eq!(y, 4.5);
+        Ok(())
+    }
+
+    #[test]
+    fn test_invalid_coordinate() {
+        assert!(parse_coordinate("not,a,coord").is_err());
+        assert!(parse_coordinate("abc,1.0").is_err());
+        assert!(parse_coordinate("1.0").is_err());
+    }
+}
+
+fn main() {
+    println!("{:?}", parse_coordinate("3.0, 4.5")); // Ok((3.0, 4.5))
+}
+```
+
+</details>

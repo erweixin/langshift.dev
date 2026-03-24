@@ -1,0 +1,777 @@
+---
+title: "第 13 模块：测试与代码质量"
+description: "掌握 Swift 测试：XCTest、现代 Swift Testing 框架、异步测试支持、性能测试，以及使用 SwiftLint 保证代码质量——与 JavaScript 的 Jest 对比。"
+---
+
+# 第 13 模块：测试与代码质量
+
+测试在 Swift 生态系统中是一等公民。Swift 提供了两个测试框架：经过实战检验的 **XCTest**（自 Swift 1.0 起可用）和在 Swift 5.9 中引入的现代 **Swift Testing** 框架，后者提供了优雅的基于宏的 API。如果你来自 JavaScript 的 Jest，你会发现很多熟悉的概念，以及一些强大的新特性。
+
+## 学习目标
+
+✅ 使用 XCTest 编写单元测试，类比 Jest 的 `describe`/`test` 结构
+✅ 使用 XCTAssert 函数验证行为（等价于 Jest 的 `expect` 匹配器）
+✅ 使用 `@Test`、`#expect` 和 `@Suite` 应用现代 Swift Testing 框架
+✅ 在 XCTest 和 Swift Testing 中编写 async/await 测试
+✅ 使用 `measure {}` 块进行性能测量——Jest 没有直接等价的功能
+✅ 配置 SwiftLint 进行代码风格检查，类比 ESLint
+
+---
+
+## 1. XCTest 框架
+
+XCTest 是 Swift 的基础测试框架。测试是继承自 `XCTestCase` 的类上的方法。将 `XCTestCase` 视为 Jest 的 `describe`，`setUp` 视为 `beforeEach`，`tearDown` 视为 `afterEach`。
+
+<UniversalEditor title="测试结构：Jest 与 XCTest 对比" compare={true}>
+```javascript !! js
+// Jest — JavaScript 测试框架
+
+import { TaskService } from './taskService.js';
+
+describe('TaskService', () => {
+  let service;
+
+  // 每个测试前执行
+  beforeEach(() => {
+    service = new TaskService();
+  });
+
+  // 每个测试后执行
+  afterEach(() => {
+    service.clear();
+  });
+
+  test('用标题创建任务', () => {
+    const task = service.createTask('买杂货');
+    expect(task.title).toBe('买杂货');
+    expect(task.completed).toBe(false);
+  });
+
+  test('标题为空时抛出错误', () => {
+    expect(() => service.createTask('')).toThrow('Title cannot be empty');
+  });
+
+  // 嵌套 describe
+  describe('完成状态', () => {
+    test('将任务标记为已完成', () => {
+      const task = service.createTask('写测试');
+      service.complete(task.id);
+      expect(service.getTask(task.id).completed).toBe(true);
+    });
+  });
+});
+```
+
+```swift !! swift
+// XCTest — Swift 内置测试框架
+import XCTest
+@testable import TaskAPI   // @testable 允许访问 internal 声明
+
+final class TaskServiceTests: XCTestCase {
+    var service: TaskService!
+
+    // 每个测试方法前执行
+    override func setUp() {
+        super.setUp()
+        service = TaskService()
+    }
+
+    // 每个测试方法后执行
+    override func tearDown() {
+        service.clear()
+        super.tearDown()
+    }
+
+    func testCreatesTaskWithTitle() {
+        let task = service.createTask(title: "买杂货")
+        XCTAssertEqual(task.title, "买杂货")
+        XCTAssertFalse(task.completed)
+    }
+
+    func testThrowsWhenTitleIsEmpty() {
+        XCTAssertThrowsError(try service.createTask(title: "")) { error in
+            XCTAssertEqual(error as? TaskError, TaskError.emptyTitle)
+        }
+    }
+
+    // "嵌套"测试：使用单独的 XCTestCase 类或命名前缀
+    func testCompletion_marksTaskAsCompleted() {
+        let task = service.createTask(title: "写测试")
+        service.complete(id: task.id)
+        XCTAssertTrue(service.getTask(id: task.id)!.completed)
+    }
+}
+```
+</UniversalEditor>
+
+---
+
+## 2. XCTAssert 函数
+
+XCTest 提供了丰富的断言函数集。将其与 Jest 的 `expect()` 匹配器进行比较。
+
+<UniversalEditor title="断言：Jest expect 与 XCTAssert 对比" compare={true}>
+```javascript !! js
+// Jest 断言
+
+// 相等性
+expect(result).toBe(42);           // 严格相等 (===)
+expect(obj).toEqual({ x: 1 });     // 深度相等
+
+// 真值检查
+expect(isValid).toBeTruthy();
+expect(value).toBeFalsy();
+expect(pointer).toBeNull();
+expect(name).toBeDefined();
+expect(missing).toBeUndefined();
+
+// 数字
+expect(price).toBeGreaterThan(0);
+expect(discount).toBeLessThanOrEqual(100);
+expect(pi).toBeCloseTo(3.14159, 5);
+
+// 字符串/数组
+expect(message).toContain('hello');
+expect(items).toHaveLength(3);
+
+// 错误
+expect(() => risky()).toThrow();
+expect(() => risky()).toThrow(TypeError);
+expect(() => risky()).toThrow('预期消息');
+
+// 异步
+await expect(fetchUser(1)).resolves.toEqual({ id: 1, name: 'Alice' });
+await expect(fetchUser(-1)).rejects.toThrow('Not found');
+```
+
+```swift !! swift
+// XCTest 断言
+
+// 相等性
+XCTAssertEqual(result, 42)
+XCTAssertEqual(obj, expected)  // 需要 Equatable 协议
+
+// 不相等
+XCTAssertNotEqual(a, b)
+
+// 真值检查
+XCTAssertTrue(isValid)
+XCTAssertFalse(isInvalid)
+XCTAssertNil(optionalValue)
+XCTAssertNotNil(optionalValue)
+
+// 数字（浮点数使用带 accuracy 的 XCTAssertEqual）
+XCTAssertGreaterThan(price, 0)
+XCTAssertLessThanOrEqual(discount, 100.0)
+XCTAssertEqual(pi, 3.14159, accuracy: 0.00001)
+
+// 字符串/集合
+XCTAssert(message.contains("hello"))
+XCTAssertEqual(items.count, 3)
+
+// 错误
+XCTAssertThrowsError(try riskyOperation())
+XCTAssertThrowsError(try riskyOperation()) { error in
+    XCTAssertTrue(error is TaskError)
+}
+XCTAssertNoThrow(try safeOperation())
+
+// 自定义失败消息（所有 XCTAssert 函数都接受尾随消息）
+XCTAssertEqual(actual, expected, "转换后的值应该相等")
+
+// 无条件失败
+XCTFail("不应该到达这个代码路径")
+```
+</UniversalEditor>
+
+---
+
+## 3. Swift Testing 框架（现代，Swift 5.9+）
+
+Swift 5.9 引入的 Swift Testing 框架，集成在 Xcode 16 中，带来了更符合人体工程学的基于宏的 API。
+
+<UniversalEditor title="现代 Swift Testing 与 Jest 对比" compare={true}>
+```javascript !! js
+// Jest — 使用 describe/it 的现代风格
+
+import { describe, it, expect, beforeEach } from '@jest/globals';
+import { Calculator } from './calculator.js';
+
+describe('Calculator', () => {
+  let calc;
+
+  beforeEach(() => {
+    calc = new Calculator();
+  });
+
+  it('计算两数之和', () => {
+    expect(calc.add(2, 3)).toBe(5);
+  });
+
+  it('除以零时抛出错误', () => {
+    expect(() => calc.divide(10, 0)).toThrow('Division by zero');
+  });
+
+  // 参数化测试（Jest 的 test.each）
+  it.each([
+    [2, 3, 5],
+    [0, 0, 0],
+    [-1, 1, 0],
+  ])('add(%i, %i) = %i', (a, b, expected) => {
+    expect(calc.add(a, b)).toBe(expected);
+  });
+});
+```
+
+```swift !! swift
+// Swift Testing — 基于宏的 API，Swift 5.9+
+import Testing
+
+// @Suite 组织相关测试（类似 Jest 的 describe）
+@Suite("Calculator")
+struct CalculatorTests {
+    let calc = Calculator()
+
+    // @Test 标记测试函数（类似 Jest 的 it/test）
+    @Test("计算两数之和")
+    func addsTwoNumbers() {
+        // #expect 是主要的断言宏
+        #expect(calc.add(2, 3) == 5)
+    }
+
+    @Test("除以零时抛出错误")
+    func throwsOnDivisionByZero() {
+        // #expect(throws:) 用于错误检查
+        #expect(throws: CalculatorError.divisionByZero) {
+            try calc.divide(10, by: 0)
+        }
+    }
+
+    // 参数化测试，使用 @Test(arguments:)
+    @Test("加法", arguments: [
+        (2, 3, 5),
+        (0, 0, 0),
+        (-1, 1, 0),
+    ])
+    func addition(a: Int, b: Int, expected: Int) {
+        #expect(calc.add(a, b) == expected)
+    }
+}
+
+// 嵌套 Suite
+@Suite("Calculator — 边界情况")
+struct CalculatorEdgeCaseTests {
+    @Test("处理 Int.max 不溢出")
+    func handlesOverflow() {
+        let result = Calculator().safeAdd(Int.max, 1)
+        #expect(result == nil)  // 溢出时返回 nil
+    }
+}
+```
+</UniversalEditor>
+
+---
+
+## 4. 异步测试
+
+XCTest 和 Swift Testing 都原生支持 `async/await`。与 Jest 的异步测试模式进行比较。
+
+<UniversalEditor title="异步测试：Jest 与 Swift 对比" compare={true}>
+```javascript !! js
+// Jest — 异步测试
+
+import { UserAPI } from './userApi.js';
+
+describe('UserAPI', () => {
+  // async/await 风格
+  test('通过 ID 获取用户', async () => {
+    const user = await UserAPI.fetchUser(1);
+    expect(user.id).toBe(1);
+    expect(user.name).toBeDefined();
+  });
+
+  // Promise 风格
+  test('未找到用户时以 404 拒绝', () => {
+    return expect(UserAPI.fetchUser(999)).rejects.toMatchObject({
+      status: 404,
+    });
+  });
+
+  // 模拟异步函数
+  test('使用模拟数据', async () => {
+    jest.spyOn(UserAPI, 'fetchUser').mockResolvedValue({ id: 1, name: '模拟' });
+    const user = await UserAPI.fetchUser(1);
+    expect(user.name).toBe('模拟');
+  });
+});
+```
+
+```swift !! swift
+// XCTest — async/await 测试（Swift 5.5+）
+import XCTest
+@testable import TaskAPI
+
+final class UserAPITests: XCTestCase {
+    // 将测试标记为 async — XCTest 处理事件循环
+    func testFetchesUserByID() async throws {
+        let user = try await UserAPI.fetchUser(id: 1)
+        XCTAssertEqual(user.id, 1)
+        XCTAssertFalse(user.name.isEmpty)
+    }
+
+    func testThrowsForMissingUser() async {
+        do {
+            _ = try await UserAPI.fetchUser(id: 999)
+            XCTFail("预期应抛出错误")
+        } catch let error as APIError {
+            XCTAssertEqual(error, .notFound(id: 999))
+        } catch {
+            XCTFail("意外错误：\(error)")
+        }
+    }
+}
+
+// Swift Testing — 异步测试同样自然
+import Testing
+
+@Suite("UserAPI")
+struct UserAPITestsSuite {
+    @Test("通过 ID 获取用户")
+    func fetchesUserByID() async throws {
+        let user = try await UserAPI.fetchUser(id: 1)
+        #expect(user.id == 1)
+        #expect(!user.name.isEmpty)
+    }
+
+    @Test("未找到用户时抛出 .notFound")
+    func throwsForMissingUser() async {
+        await #expect(throws: APIError.notFound(id: 999)) {
+            try await UserAPI.fetchUser(id: 999)
+        }
+    }
+}
+```
+</UniversalEditor>
+
+---
+
+## 5. 性能测试
+
+XCTest 包含使用 `measure {}` 块的内置性能测量。Jest 没有直接等价物；你需要像 `benchmark.js` 这样的单独基准测试库。
+
+<UniversalEditor title="性能测试：Jest 与 XCTest 对比" compare={true}>
+```javascript !! js
+// JavaScript — Jest 中没有内置性能测试
+// 通常使用 benchmark.js 或类似工具
+
+// Jest 没有原生性能测试，但可以近似：
+test('排序足够快', () => {
+  const arr = Array.from({ length: 10000 }, () => Math.random());
+
+  const start = performance.now();
+  arr.sort((a, b) => a - b);
+  const end = performance.now();
+
+  // 这种方式不稳定 — 取决于机器速度
+  expect(end - start).toBeLessThan(100); // 毫秒
+});
+
+// 使用 benchmark.js（需要单独安装）：
+// import Benchmark from 'benchmark';
+// const suite = new Benchmark.Suite();
+// suite.add('Array#sort', () => arr.sort())
+//      .on('complete', (event) => console.log(event.target.toString()))
+//      .run();
+```
+
+```swift !! swift
+// XCTest — 内置性能测量
+import XCTest
+@testable import TaskAPI
+
+final class PerformanceTests: XCTestCase {
+    func testSortPerformance() {
+        let numbers = (0..<10_000).map { _ in Int.random(in: 0..<100_000) }
+
+        // measure 运行代码块 10 次，报告平均值 + 标准差
+        measure {
+            _ = numbers.sorted()
+        }
+        // XCTest 自动建立基准，如果性能下降超过 10%（可配置）会发出警告。
+    }
+
+    func testJSONDecodingPerformance() throws {
+        let jsonData = try loadTestFixture("large_response.json")
+
+        // 使用 measureWithOptions 进行精细控制
+        let options = XCTMeasureOptions()
+        options.iterationCount = 20
+
+        measure(options: options) {
+            _ = try? JSONDecoder().decode([TaskDTO].self, from: jsonData)
+        }
+    }
+}
+```
+</UniversalEditor>
+
+---
+
+## 6. Package.swift 中的测试组织
+
+在 JavaScript/Jest 中，测试文件与源文件放在一起（或在 `__tests__` 文件夹中），Jest 自动发现它们。在 SPM 中，测试目标在 `Package.swift` 中显式声明。
+
+<UniversalEditor title="测试文件组织" compare={true}>
+```javascript !! js
+// JavaScript：Jest 自动发现测试文件
+// jest.config.js
+export default {
+  testMatch: [
+    '**/__tests__/**/*.js',
+    '**/*.test.js',
+    '**/*.spec.js',
+  ],
+  setupFilesAfterFramework: ['./tests/setup.js'],
+  collectCoverageFrom: ['src/**/*.js'],
+};
+
+// 项目结构：
+// src/
+//   task.js
+//   taskService.js
+// __tests__/
+//   task.test.js
+//   taskService.test.js
+
+// 运行所有测试：   npx jest
+// 运行单个文件：   npx jest taskService
+// 带覆盖率：       npx jest --coverage
+// 监听模式：       npx jest --watch
+```
+
+```swift !! swift
+// Swift：在 Package.swift 中显式声明测试目标
+// swift-tools-version: 5.9
+import PackageDescription
+
+let package = Package(
+    name: "TaskAPI",
+    targets: [
+        .executableTarget(
+            name: "TaskAPI",
+            path: "Sources/TaskAPI"
+        ),
+        // XCTest 目标
+        .testTarget(
+            name: "TaskAPITests",
+            dependencies: ["TaskAPI"],
+            path: "Tests/TaskAPITests"
+        ),
+    ]
+)
+
+// 项目结构：
+// Sources/
+//   TaskAPI/
+//     Task.swift
+//     TaskService.swift
+// Tests/
+//   TaskAPITests/
+//     TaskTests.swift
+//     TaskServiceTests.swift
+
+// 运行所有测试：           swift test
+// 运行单个测试类：         swift test --filter TaskServiceTests
+// 带详细输出：             swift test --verbose
+// 生成代码覆盖率：         swift test --enable-code-coverage
+```
+</UniversalEditor>
+
+---
+
+## 7. SwiftLint
+
+SwiftLint 是 Swift 的事实标准代码检查工具，相当于 JavaScript 的 ESLint。它强制执行风格规则并发现常见错误。
+
+<UniversalEditor title="代码检查配置：ESLint 与 SwiftLint 对比" compare={true}>
+```javascript !! js
+// .eslintrc.json — ESLint 配置
+{
+  "env": {
+    "es2022": true,
+    "node": true
+  },
+  "extends": ["eslint:recommended", "plugin:@typescript-eslint/recommended"],
+  "rules": {
+    "no-unused-vars": "error",
+    "no-console": "warn",
+    "prefer-const": "error",
+    "eqeqeq": ["error", "always"],
+    "semi": ["error", "always"],
+    "indent": ["error", 2],
+    "max-len": ["warn", { "code": 120 }]
+  },
+  "ignorePatterns": ["dist/", "node_modules/"]
+}
+
+// 运行：       npx eslint src/
+// 修复：       npx eslint src/ --fix
+// CI 检查：    npx eslint src/ --max-warnings 0
+```
+
+```swift !! swift
+// .swiftlint.yml — SwiftLint 配置
+# 安装：brew install swiftlint 或作为 SPM 插件添加
+
+disabled_rules:
+  - trailing_whitespace   # 由编辑器处理
+
+opt_in_rules:
+  - array_init
+  - closure_spacing
+  - contains_over_first_not_nil
+  - empty_count
+  - force_unwrapping        # 对 ! 强制解包发出警告
+  - implicitly_unwrapped_optional
+  - sorted_imports
+
+# 配置内置规则
+line_length:
+  warning: 120
+  error: 200
+
+function_body_length:
+  warning: 50
+  error: 100
+
+identifier_name:
+  min_length: 2
+  excluded: [id, x, y, i, j]
+
+# 包含/排除路径
+included:
+  - Sources
+  - Tests
+excluded:
+  - .build
+  - Package.swift
+
+# 自定义规则
+custom_rules:
+  no_print_in_release:
+    name: "生产代码中不使用 print"
+    regex: "^\\s*print\\("
+    included: "Sources/(?!.*Tests).*\\.swift"
+    message: "在生产代码中使用 logger 而不是 print()"
+    severity: warning
+
+# 运行：     swiftlint lint
+# 修复：     swiftlint --fix
+```
+</UniversalEditor>
+
+---
+
+## 8. 测试替身：Swift 与 Jest 中的模拟
+
+<UniversalEditor title="测试替身与模拟" compare={true}>
+```javascript !! js
+// Jest — 强大的内置模拟功能
+
+jest.mock('./emailService.js');
+
+import { EmailService } from './emailService.js';
+import { UserService } from './userService.js';
+
+test('注册时发送欢迎邮件', async () => {
+  EmailService.send.mockResolvedValue({ success: true });
+
+  const service = new UserService(EmailService);
+  await service.register({ name: 'Alice', email: 'alice@example.com' });
+
+  expect(EmailService.send).toHaveBeenCalledTimes(1);
+  expect(EmailService.send).toHaveBeenCalledWith({
+    to: 'alice@example.com',
+    subject: '欢迎！',
+  });
+});
+
+// 监视现有函数
+const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+consoleSpy.mockRestore();
+```
+
+```swift !! swift
+// Swift — 通过协议进行模拟（无基于反射的魔法模拟）
+// 定义真实服务遵循的协议：
+protocol EmailServiceProtocol {
+    func send(to: String, subject: String) async throws
+}
+
+// 生产实现
+struct EmailService: EmailServiceProtocol {
+    func send(to: String, subject: String) async throws {
+        // 真实实现：调用 SMTP 服务器
+    }
+}
+
+// 测试用的模拟实现
+final class MockEmailService: EmailServiceProtocol {
+    var sentMessages: [(to: String, subject: String)] = []
+    var shouldThrow = false
+
+    func send(to: String, subject: String) async throws {
+        if shouldThrow { throw EmailError.networkFailure }
+        sentMessages.append((to: to, subject: subject))
+    }
+}
+
+// 使用模拟进行测试
+import XCTest
+@testable import TaskAPI
+
+final class UserServiceTests: XCTestCase {
+    func testSendsWelcomeEmailOnRegistration() async throws {
+        let mockEmail = MockEmailService()
+        let service = UserService(emailService: mockEmail)
+
+        try await service.register(name: "Alice", email: "alice@example.com")
+
+        XCTAssertEqual(mockEmail.sentMessages.count, 1)
+        XCTAssertEqual(mockEmail.sentMessages[0].to, "alice@example.com")
+        XCTAssertEqual(mockEmail.sentMessages[0].subject, "欢迎！")
+    }
+}
+```
+</UniversalEditor>
+
+---
+
+## 总结对比表
+
+| 概念 | JavaScript / Jest | Swift |
+|---|---|---|
+| 测试框架 | Jest | XCTest（内置），Swift Testing（5.9+） |
+| 测试类 | `describe()` 回调 | `XCTestCase` 子类 / `@Suite` 结构体 |
+| 单个测试 | `test()` / `it()` | `func testXxx()` / `@Test` |
+| 设置/清理 | `beforeEach` / `afterEach` | `setUp()` / `tearDown()` |
+| 断言风格 | `expect(x).toBe(y)` | `XCTAssertEqual(x, y)` / `#expect(x == y)` |
+| 异步测试 | `async/await` + `done` | `async throws` 测试函数 |
+| 参数化测试 | `test.each(table)` | `@Test(arguments:)` |
+| 性能测试 | 第三方（benchmark.js） | `measure {}` 内置于 XCTest |
+| 模拟 | `jest.mock()`，`jest.spyOn()` | 基于协议的手动模拟 |
+| 代码覆盖率 | `jest --coverage` | `swift test --enable-code-coverage` |
+| 代码检查工具 | ESLint + `.eslintrc` | SwiftLint + `.swiftlint.yml` |
+| 自动修复 | `eslint --fix` | `swiftlint --fix` |
+
+---
+
+## 练习
+
+**练习 1：** 使用现代 **Swift Testing** 框架（`@Suite`、`@Test`、`#expect`）重写以下 Jest 测试。
+
+```javascript
+describe('StringUtils', () => {
+  test('reverses a string', () => {
+    expect(reverse('hello')).toBe('olleh');
+  });
+  test('returns empty string for empty input', () => {
+    expect(reverse('')).toBe('');
+  });
+});
+```
+
+<details>
+<summary>查看答案</summary>
+
+```swift
+import Testing
+
+@Suite("StringUtils")
+struct StringUtilsTests {
+    @Test("反转字符串")
+    func reversesAString() {
+        #expect(reverse("hello") == "olleh")
+    }
+
+    @Test("空字符串输入返回空字符串")
+    func returnsEmptyForEmptyInput() {
+        #expect(reverse("") == "")
+    }
+}
+```
+</details>
+
+---
+
+**练习 2：** 编写一个 XCTest 性能测试，测量使用 `JSONEncoder` 将 1,000 个 `Task` 对象编码为 JSON 所需的时间。`Task` 结构体应遵循 `Codable`。
+
+<details>
+<summary>查看答案</summary>
+
+```swift
+import XCTest
+@testable import TaskAPI
+
+struct Task: Codable {
+    let id: UUID
+    let title: String
+    let completed: Bool
+    let createdAt: Date
+}
+
+final class JSONPerformanceTests: XCTestCase {
+    func testJSONEncodingPerformance() {
+        // 在测量块外生成 1000 个任务
+        let tasks = (0..<1_000).map { i in
+            Task(
+                id: UUID(),
+                title: "任务 \(i)",
+                completed: i.isMultiple(of: 2),
+                createdAt: Date()
+            )
+        }
+        let encoder = JSONEncoder()
+
+        measure {
+            // 只对编码计时
+            _ = try? encoder.encode(tasks)
+        }
+    }
+}
+```
+</details>
+
+---
+
+**练习 3：** 添加一个 `.swiftlint.yml` 规则，当函数有超过 3 个参数时发出警告（使用 `function_parameter_count` 内置规则，设置 `warning: 3` 和 `error: 6`）。同时添加一个自定义规则，标记 `Sources/` 文件中任何 `TODO:` 注释的使用。
+
+<details>
+<summary>查看答案</summary>
+
+```yaml
+# .swiftlint.yml
+
+opt_in_rules:
+  - function_parameter_count
+
+function_parameter_count:
+  warning: 3
+  error: 6
+  ignores_default_parameters: true
+
+included:
+  - Sources
+  - Tests
+excluded:
+  - .build
+
+custom_rules:
+  no_todo_comments:
+    name: "源代码中不使用 TODO 注释"
+    regex: "//\\s*TODO:"
+    included: "Sources/(?!.*Tests).*\\.swift"
+    message: "合并前解决 TODO。使用 GitHub Issue 进行跟踪。"
+    severity: warning
+```
+</details>

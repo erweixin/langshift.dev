@@ -1,0 +1,760 @@
+---
+title: "第 14 模块：结构体、枚举与模式匹配"
+description: "掌握 Rust 类型系统的核心：结构体作为数据容器、枚举作为代数数据类型，以及模式匹配作为操作它们的主要方式。"
+---
+
+# 第 14 模块：结构体、枚举与模式匹配
+
+## 学习目标
+
+学完本模块后，你将能够：
+
+- ✅ 定义具名字段结构体、元组结构体和单元结构体，并将其与 JavaScript 类和对象进行比较
+- ✅ 编写 `impl` 块，使用 `&self`、`&mut self` 和关联函数（如 `new` 模式）附加方法
+- ✅ 定义携带数据的枚举变体——Rust 的代数数据类型，远比 JS/TS 枚举强大
+- ✅ 理解 `Option<T>` 和 `Result<T, E>` 只是标准库中定义的枚举
+- ✅ 对结构体和枚举进行复杂的模式匹配，包括解构、守卫和 `@` 绑定
+- ✅ 使用 `#[derive]` 自动实现 `Debug`、`Clone`、`PartialEq` 和 `Hash` 等常用特质
+
+---
+
+## 1. 结构体
+
+Rust 结构体是对相关数据进行分组的主要方式。它类似于 JavaScript 的普通对象或类（仅数据部分），但是静态类型的，没有原型链。
+
+<UniversalEditor title="结构体 vs JavaScript 类和对象" compare={true}>
+```javascript !! js
+// JavaScript：普通对象和类
+// 普通对象——没有类型约束
+const point = { x: 10.0, y: 20.0 };
+console.log(point.x, point.y); // 10 20
+
+// 类作为结构化类型
+class Rectangle {
+    constructor(width, height) {
+        this.width  = width;
+        this.height = height;
+    }
+}
+
+const rect = new Rectangle(30, 20);
+console.log(rect.width); // 30
+
+// 解构
+const { width, height } = rect;
+console.log(width, height); // 30 20
+
+// "元组结构体"的等价——只是一个数组，没有类型名称
+const rgb = [255, 128, 0];
+console.log(rgb[0]); // 255
+
+// 展开复制
+const rect2 = { ...rect, width: 50 };
+console.log(rect2); // { width: 50, height: 20 }
+```
+
+```rust !! rs
+// 具名字段结构体——最常见的形式
+#[derive(Debug)]
+struct Point {
+    x: f64,
+    y: f64,
+}
+
+// 元组结构体——按位置访问字段
+#[derive(Debug)]
+struct Color(u8, u8, u8); // RGB
+
+// 单元结构体——没有字段；适用于标记类型
+struct Marker;
+
+#[derive(Debug)]
+struct Rectangle {
+    width:  f64,
+    height: f64,
+}
+
+fn main() {
+    // 创建实例
+    let point = Point { x: 10.0, y: 20.0 };
+    println!("{} {}", point.x, point.y); // 10 20
+
+    let rect = Rectangle { width: 30.0, height: 20.0 };
+    println!("{}", rect.width); // 30
+
+    // 解构结构体
+    let Rectangle { width, height } = rect;
+    println!("{} {}", width, height); // 30 20
+
+    // 按索引访问元组结构体
+    let color = Color(255, 128, 0);
+    println!("{} {} {}", color.0, color.1, color.2); // 255 128 0
+
+    // 结构体更新语法（类似 JS 展开）
+    let rect2 = Rectangle { width: 50.0, ..rect };
+    println!("{:?}", rect2); // Rectangle { width: 50.0, height: 20.0 }
+
+    // 用 {:?} 调试打印
+    let p = Point { x: 1.0, y: 2.0 };
+    println!("{:?}", p);  // Point { x: 1.0, y: 2.0 }
+    println!("{:#?}", p); // 格式化打印
+}
+```
+</UniversalEditor>
+
+---
+
+## 2. 结构体上的方法
+
+Rust 通过 `impl` 块将方法附加到类型。这与数据定义是分开的，不像 JavaScript 那样方法在类体内部定义。关联函数（没有 `self`）类似于静态方法，通常用作构造器。
+
+<UniversalEditor title="impl 块：方法和关联函数" compare={true}>
+```javascript !! js
+class Rectangle {
+    constructor(width, height) {
+        this.width  = width;
+        this.height = height;
+    }
+
+    // 实例方法（读取数据）
+    area() {
+        return this.width * this.height;
+    }
+
+    // 实例方法（修改数据）
+    scale(factor) {
+        this.width  *= factor;
+        this.height *= factor;
+    }
+
+    // 静态方法（类似构造器）
+    static square(size) {
+        return new Rectangle(size, size);
+    }
+
+    toString() {
+        return `Rectangle(${this.width}x${this.height})`;
+    }
+}
+
+const r = new Rectangle(10, 5);
+console.log(r.area());    // 50
+r.scale(2);
+console.log(r.width);     // 20
+
+const sq = Rectangle.square(8);
+console.log(sq.area());   // 64
+```
+
+```rust !! rs
+use std::fmt;
+
+#[derive(Debug, Clone)]
+struct Rectangle {
+    width:  f64,
+    height: f64,
+}
+
+// impl 块将方法附加到结构体
+impl Rectangle {
+    // 关联函数（无 self）——作为构造器
+    fn new(width: f64, height: f64) -> Rectangle {
+        Rectangle { width, height } // 字段名与变量名相同时的简写
+    }
+
+    // 另一个构造器：正方形
+    fn square(size: f64) -> Rectangle {
+        Rectangle { width: size, height: size }
+    }
+
+    // &self 方法——不可变借用，不获取所有权
+    fn area(&self) -> f64 {
+        self.width * self.height
+    }
+
+    fn perimeter(&self) -> f64 {
+        2.0 * (self.width + self.height)
+    }
+
+    fn is_square(&self) -> bool {
+        (self.width - self.height).abs() < f64::EPSILON
+    }
+
+    // &mut self 方法——可变借用，可以修改字段
+    fn scale(&mut self, factor: f64) {
+        self.width  *= factor;
+        self.height *= factor;
+    }
+}
+
+// 单独的 impl 块用于特质实现（常见模式）
+impl fmt::Display for Rectangle {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Rectangle({}x{})", self.width, self.height)
+    }
+}
+
+fn main() {
+    let mut r = Rectangle::new(10.0, 5.0); // 关联函数调用
+    println!("{}", r.area());       // 50
+    r.scale(2.0);
+    println!("{}", r.width);        // 20
+    println!("{}", r);              // "Rectangle(20x10)"
+
+    let sq = Rectangle::square(8.0);
+    println!("{}", sq.area());      // 64
+    println!("是正方形: {}", sq.is_square()); // true
+}
+```
+</UniversalEditor>
+
+---
+
+## 3. 枚举作为代数数据类型
+
+Rust 枚举远比 JavaScript/TypeScript 枚举强大。每个变体可以携带不同的数据，使它们成为**代数数据类型**（也称为和类型）。它们让你以类型安全的方式对"是这几种形态之一"的数据建模。
+
+<UniversalEditor title="携带数据的枚举：代数数据类型" compare={true}>
+```javascript !! js
+// TypeScript 枚举——功能有限，只是命名的整数或字符串
+// 要模拟携带数据的变体，需要可辨识联合类型：
+// type Shape =
+//   | { kind: "circle",    radius: number }
+//   | { kind: "rectangle", width: number, height: number }
+
+// 在普通 JavaScript 中——手动模式：
+function area(shape) {
+    switch (shape.kind) {
+        case "circle":
+            return Math.PI * shape.radius ** 2;
+        case "rectangle":
+            return shape.width * shape.height;
+        case "triangle":
+            return 0.5 * shape.base * shape.height;
+        default:
+            throw new Error(`Unknown shape: ${shape.kind}`);
+    }
+}
+
+const c = { kind: "circle",    radius: 5 };
+const r = { kind: "rectangle", width: 4, height: 3 };
+console.log(area(c)); // 78.54...
+console.log(area(r)); // 12
+
+// 无法阻止无效形状——没有编译器检查
+const bad = { kind: "hexagon" }; // 编译通过，运行时失败
+```
+
+```rust !! rs
+use std::f64::consts::PI;
+
+// Rust 枚举：变体可以携带不同类型的数据
+#[derive(Debug)]
+enum Shape {
+    Circle    { radius: f64 },                   // 具名字段
+    Rectangle { width: f64, height: f64 },       // 具名字段
+    Triangle  { base: f64, height: f64 },        // 具名字段
+    Point,                                        // 单元变体
+}
+
+impl Shape {
+    fn area(&self) -> f64 {
+        match self {
+            Shape::Circle    { radius }         => PI * radius * radius,
+            Shape::Rectangle { width, height }  => width * height,
+            Shape::Triangle  { base, height }   => 0.5 * base * height,
+            Shape::Point                        => 0.0,
+        }
+        // 穷尽性：如果添加新变体，编译器会在这里发出警告
+    }
+
+    fn name(&self) -> &str {
+        match self {
+            Shape::Circle    { .. } => "circle",
+            Shape::Rectangle { .. } => "rectangle",
+            Shape::Triangle  { .. } => "triangle",
+            Shape::Point            => "point",
+        }
+    }
+}
+
+fn main() {
+    let shapes = vec![
+        Shape::Circle    { radius: 5.0 },
+        Shape::Rectangle { width: 4.0, height: 3.0 },
+        Shape::Triangle  { base: 6.0, height: 4.0 },
+    ];
+
+    for shape in &shapes {
+        println!("{}: area = {:.2}", shape.name(), shape.area());
+    }
+}
+```
+</UniversalEditor>
+
+---
+
+## 4. Option\<T\> 剖析
+
+`Option<T>` 只是标准库中定义的一个枚举。没有任何魔法——它只有两个变体：`Some(T)` 表示有值，`None` 表示没有值。这强制你显式处理"无值"情况，不像 JavaScript 的 `undefined` 和 `null` 那样隐式存在。
+
+<UniversalEditor title="Option<T> vs JavaScript null/undefined" compare={true}>
+```javascript !! js
+// JavaScript：null 和 undefined 在各处隐式存在
+function findUser(id) {
+    const db = { 1: "Alice", 2: "Bob" };
+    return db[id]; // 找不到时返回 undefined——静默！
+}
+
+// 可能忘记检查
+const user = findUser(99);
+console.log(user.length); // TypeError：无法读取 undefined 的属性
+
+// 使用现代空值安全模式
+const name = findUser(1) ?? "Unknown";
+const len  = findUser(99)?.length ?? 0;
+console.log(name); // "Alice"
+console.log(len);  // 0
+```
+
+```rust !! rs
+// Option<T> 就是这个枚举（已在作用域内，无需导入）：
+// enum Option<T> {
+//     Some(T),
+//     None,
+// }
+
+fn find_user(id: u32) -> Option<String> {
+    match id {
+        1 => Some("Alice".to_string()),
+        2 => Some("Bob".to_string()),
+        _ => None, // 必须返回 Option——编译器强制
+    }
+}
+
+fn main() {
+    // 必须处理两种情况——编译器不允许忽略 None
+    let user = find_user(1);
+
+    // match 是最明确的方式
+    match user {
+        Some(name) => println!("Found: {}", name),
+        None       => println!("Not found"),
+    }
+
+    // Option 上的简洁方法
+    let name = find_user(1).unwrap_or("Unknown".to_string()); // None 时的默认值
+    println!("{}", name); // "Alice"
+
+    let len = find_user(99)
+        .map(|s| s.len())     // Some 时变换
+        .unwrap_or(0);        // None 时默认值
+    println!("{}", len); // 0
+
+    // and_then 链式调用（Option 的 flatMap）
+    fn get_domain(email: &str) -> Option<&str> {
+        email.find('@').map(|pos| &email[pos + 1..])
+    }
+    let domain = find_user(1)
+        .as_deref()
+        .and_then(|name| get_domain(name))
+        .unwrap_or("no domain");
+    println!("{}", domain);
+
+    // is_some() / is_none()
+    println!("{}", find_user(1).is_some()); // true
+    println!("{}", find_user(9).is_none()); // true
+}
+```
+</UniversalEditor>
+
+---
+
+## 5. Result\<T, E\> 剖析
+
+`Result<T, E>` 也只是一个枚举，有两个变体：`Ok(T)` 表示成功，`Err(E)` 表示失败。它是 Rust 处理可恢复错误的主要机制。
+
+<UniversalEditor title="Result<T, E> 用于类型化错误处理" compare={true}>
+```javascript !! js
+// JavaScript：异常是无类型且隐式的
+function parseAge(input) {
+    const n = parseInt(input);
+    if (isNaN(n)) throw new Error(`"${input}" 不是有效年龄`);
+    if (n < 0 || n > 150) throw new Error(`年龄 ${n} 超出范围`);
+    return n;
+}
+
+try {
+    console.log(parseAge("25")); // 25
+    console.log(parseAge("abc")); // 抛出异常
+} catch (e) {
+    console.log("错误:", e.message);
+}
+
+// 错误类型未知——没有编译时检查
+// 可以抛出任何东西：throw 42; throw "oops"; throw {};
+```
+
+```rust !! rs
+use std::fmt;
+
+// 定义自定义错误类型
+#[derive(Debug)]
+enum AgeError {
+    NotANumber(String),
+    OutOfRange(i32),
+}
+
+impl fmt::Display for AgeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            AgeError::NotANumber(s)  => write!(f, "\"{}\" 不是有效年龄", s),
+            AgeError::OutOfRange(n)  => write!(f, "年龄 {} 超出范围", n),
+        }
+    }
+}
+
+fn parse_age(input: &str) -> Result<u32, AgeError> {
+    let n: i32 = input.parse()
+        .map_err(|_| AgeError::NotANumber(input.to_string()))?;
+    if n < 0 || n > 150 {
+        return Err(AgeError::OutOfRange(n));
+    }
+    Ok(n as u32)
+}
+
+fn main() {
+    // 必须处理 Ok 和 Err 两种情况
+    match parse_age("25") {
+        Ok(age)  => println!("年龄: {}", age),
+        Err(e)   => println!("错误: {}", e),
+    }
+
+    match parse_age("abc") {
+        Ok(age)  => println!("年龄: {}", age),
+        Err(e)   => println!("错误: {}", e),
+    }
+
+    // 简洁方法
+    let age = parse_age("30").unwrap_or(0);
+    println!("{}", age); // 30
+
+    let doubled = parse_age("20").map(|a| a * 2).unwrap_or(0);
+    println!("{}", doubled); // 40
+
+    println!("{}", parse_age("25").is_ok());   // true
+    println!("{}", parse_age("abc").is_err()); // true
+}
+```
+</UniversalEditor>
+
+---
+
+## 6. 对结构体和枚举的模式匹配
+
+Rust 的 `match` 可以在单个步骤中解构结构体和枚举。匹配守卫（arm 内的 `if` 条件）和 `@` 绑定（同时捕获和测试）使模式非常具有表达力。
+
+<UniversalEditor title="match 中的解构、守卫和 @ 绑定" compare={true}>
+```javascript !! js
+// JavaScript 解构（赋值，不是模式匹配）
+const point = { x: 3, y: -5 };
+const { x, y } = point;
+console.log(x, y); // 3 -5
+
+// 用 if/else 链模拟 match
+function describePoint(p) {
+    const { x, y } = p;
+    if (x === 0 && y === 0)  return "origin";
+    if (x === 0)             return `on y-axis at y=${y}`;
+    if (y === 0)             return `on x-axis at x=${x}`;
+    if (x > 0 && y > 0)     return "quadrant I";
+    if (x < 0 && y > 0)     return "quadrant II";
+    if (x < 0 && y < 0)     return "quadrant III";
+    return "quadrant IV";
+}
+
+console.log(describePoint({ x: 0, y: 0 }));    // "origin"
+console.log(describePoint({ x: 3, y: -5 }));   // "quadrant IV"
+console.log(describePoint({ x: 0, y: 4 }));    // "on y-axis at y=4"
+```
+
+```rust !! rs
+#[derive(Debug)]
+struct Point { x: i32, y: i32 }
+
+#[derive(Debug)]
+enum Message {
+    Quit,
+    Move { x: i32, y: i32 },
+    Write(String),
+    ChangeColor(u8, u8, u8),
+}
+
+fn describe_point(p: &Point) -> String {
+    // 在 match 中直接解构结构体
+    match p {
+        Point { x: 0, y: 0 }               => "origin".to_string(),
+        Point { x: 0, y }                  => format!("on y-axis at y={}", y),
+        Point { x, y: 0 }                  => format!("on x-axis at x={}", x),
+        Point { x, y } if *x > 0 && *y > 0 => "quadrant I".to_string(),   // 匹配守卫
+        Point { x, y } if *x < 0 && *y > 0 => "quadrant II".to_string(),
+        Point { x, y } if *x < 0 && *y < 0 => "quadrant III".to_string(),
+        _                                   => "quadrant IV".to_string(),
+    }
+}
+
+fn process_message(msg: &Message) {
+    match msg {
+        Message::Quit                     => println!("Quit"),
+        Message::Move { x, y }            => println!("Move to ({}, {})", x, y),
+        Message::Write(text)              => println!("Write: {}", text),
+        Message::ChangeColor(r, g, b)     => println!("Color: rgb({},{},{})", r, g, b),
+    }
+}
+
+fn main() {
+    println!("{}", describe_point(&Point { x: 0, y: 0 }));  // "origin"
+    println!("{}", describe_point(&Point { x: 3, y: -5 })); // "quadrant IV"
+    println!("{}", describe_point(&Point { x: 0, y: 4 }));  // "on y-axis at y=4"
+
+    let msgs = vec![
+        Message::Move { x: 10, y: 20 },
+        Message::Write("hello".to_string()),
+        Message::ChangeColor(255, 0, 128),
+        Message::Quit,
+    ];
+    for msg in &msgs { process_message(msg); }
+
+    // @ 绑定：测试值的同时绑定到名称
+    let n = 7u32;
+    match n {
+        x @ 1..=5  => println!("{} 在 1 到 5 之间", x),
+        x @ 6..=10 => println!("{} 在 6 到 10 之间", x), // 匹配！
+        x          => println!("{} 超出范围", x),
+    }
+}
+```
+</UniversalEditor>
+
+---
+
+## 7. #\[derive\] 属性
+
+`#[derive]` 自动生成特质实现。JavaScript 类需要手动实现相等性检查（`===` 只对引用有效）、JSON 序列化库，以及没有内置的哈希支持。Rust 的 derive 宏在编译时处理这一切，零运行时开销。
+
+<UniversalEditor title="#[derive] vs 手动 JavaScript 实现" compare={true}>
+```javascript !! js
+// JavaScript：没有自动相等、克隆或哈希
+class Point {
+    constructor(x, y) {
+        this.x = x;
+        this.y = y;
+    }
+
+    // 必须手动实现：
+    equals(other) {
+        return this.x === other.x && this.y === other.y;
+    }
+
+    clone() {
+        return new Point(this.x, this.y);
+    }
+
+    toString() {
+        return `Point { x: ${this.x}, y: ${this.y} }`;
+    }
+    // 哈希 / 作为 Map 键：没有内置支持
+    // （Map 对对象使用引用相等）
+}
+
+const p1 = new Point(1, 2);
+const p2 = new Point(1, 2);
+console.log(p1 === p2);        // false（引用相等）
+console.log(p1.equals(p2));    // true（手动）
+console.log(p1.toString());    // "Point { x: 1, y: 2 }"
+
+// 不能按值作为 Map 键使用
+const map = new Map();
+map.set(p1, "first");
+console.log(map.get(p2)); // undefined（p2 !== p1，引用不同）
+```
+
+```rust !! rs
+use std::collections::HashMap;
+
+// derive 自动实现所有这些特质：
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+// derive(Debug)     → 启用 {:?} 和 {:#?} 打印
+// derive(Clone)     → 启用 .clone()
+// derive(PartialEq) → 启用 == 和 != 运算符
+// derive(Eq)        → 全序相等（Hash 所需）
+// derive(Hash)      → 允许用作 HashMap/HashSet 的键
+
+fn main() {
+    let p1 = Point { x: 1, y: 2 };
+    let p2 = Point { x: 1, y: 2 };
+    let p3 = p1.clone();
+
+    println!("{:?}", p1);       // Point { x: 1, y: 2 }  ← Debug
+    println!("{}", p1 == p2);   // true                   ← PartialEq
+    println!("{}", p1 == p3);   // true                   ← Clone + PartialEq
+
+    // 可以作为 HashMap 键，因为我们派生了 Hash + Eq
+    let mut map: HashMap<Point, &str> = HashMap::new();
+    map.insert(Point { x: 1, y: 2 }, "first");
+    println!("{:?}", map.get(&p2)); // Some("first")——值相等！
+
+    // 枚举上的 derive 同样有效
+    #[derive(Debug, Clone, PartialEq)]
+    enum Color { Red, Green, Blue, Custom(u8, u8, u8) }
+
+    let c1 = Color::Custom(255, 0, 128);
+    let c2 = c1.clone();
+    println!("{:?}", c1);       // Custom(255, 0, 128)
+    println!("{}", c1 == c2);   // true
+
+    // PartialOrd 和 Ord 用于排序
+    #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+    struct Version { major: u32, minor: u32, patch: u32 }
+
+    let v1 = Version { major: 1, minor: 2, patch: 3 };
+    let v2 = Version { major: 2, minor: 0, patch: 0 };
+    println!("{}", v1 < v2); // true——字典序比较
+}
+```
+</UniversalEditor>
+
+---
+
+## 8. 总结对比
+
+| 概念 | JavaScript | Rust |
+|---|---|---|
+| 数据分组 | 对象字面量 `{}` 或 `class` | `struct` |
+| 方法 | 在 `class` 体内 | `impl` 块（分开） |
+| 构造器模式 | `constructor()` 或工厂函数 | 关联函数 `fn new()` |
+| "修改 self" | `this.field = ...` | `&mut self` 方法 |
+| 和类型 / 变体 | 可辨识联合（手动） | `enum`，每个变体可携带数据 |
+| 空 / 缺失值 | `null` / `undefined`（隐式） | `Option<T>`（显式枚举） |
+| 错误类型 | `Error` 类（无类型抛出） | `Result<T, E>`（类型化枚举） |
+| 模式匹配 | `switch` + 解构（手动） | `match` 带内联解构 |
+| 匹配守卫 | 无 | arm 内的 `if condition` |
+| 绑定并测试 | 无 | `x @ pattern` |
+| `==` 运算符 | 对象引用相等 | `PartialEq` derive 实现值相等 |
+| `clone()` | 手动实现 | `#[derive(Clone)]` |
+| 调试打印 | `console.log()` / `toString()` | `#[derive(Debug)]` + `{:?}` |
+| 用作 Map/Set 键 | 仅引用相等 | `#[derive(Hash, Eq)]` |
+
+---
+
+## 练习
+
+### 练习 1：形状面积枚举
+
+定义一个枚举 `Shape`，包含变体 `Circle(f64)`、`Rectangle(f64, f64)` 和 `Triangle(f64, f64)`。在其上实现方法 `area(&self) -> f64`。
+
+<details>
+<summary>显示答案</summary>
+
+```rust
+use std::f64::consts::PI;
+
+#[derive(Debug)]
+enum Shape {
+    Circle(f64),
+    Rectangle(f64, f64),
+    Triangle(f64, f64),
+}
+
+impl Shape {
+    fn area(&self) -> f64 {
+        match self {
+            Shape::Circle(r)           => PI * r * r,
+            Shape::Rectangle(w, h)    => w * h,
+            Shape::Triangle(base, h)  => 0.5 * base * h,
+        }
+    }
+}
+
+fn main() {
+    let shapes = vec![
+        Shape::Circle(5.0),
+        Shape::Rectangle(4.0, 6.0),
+        Shape::Triangle(3.0, 8.0),
+    ];
+    for s in &shapes {
+        println!("{:?} → area = {:.2}", s, s.area());
+    }
+}
+```
+
+</details>
+
+### 练习 2：带方法的 Point
+
+创建 `Point { x: f64, y: f64 }` 结构体。实现 `new`、`distance_from_origin` 和 `translate(&mut self, dx, dy)`。派生 `Debug` 和 `PartialEq`。
+
+<details>
+<summary>显示答案</summary>
+
+```rust
+#[derive(Debug, PartialEq, Clone)]
+struct Point {
+    x: f64,
+    y: f64,
+}
+
+impl Point {
+    fn new(x: f64, y: f64) -> Self {
+        Point { x, y }
+    }
+
+    fn distance_from_origin(&self) -> f64 {
+        (self.x * self.x + self.y * self.y).sqrt()
+    }
+
+    fn translate(&mut self, dx: f64, dy: f64) {
+        self.x += dx;
+        self.y += dy;
+    }
+}
+
+fn main() {
+    let mut p = Point::new(3.0, 4.0);
+    println!("{:.2}", p.distance_from_origin()); // 5.00
+    p.translate(1.0, -1.0);
+    println!("{:?}", p); // Point { x: 4.0, y: 3.0 }
+    println!("{}", p == Point::new(4.0, 3.0)); // true
+}
+```
+
+</details>
+
+### 练习 3：Result 链式调用
+
+编写函数 `parse_and_double(input: &str) -> Result<i32, String>`，将输入解析为整数并翻倍，解析失败时返回描述性的 `Err(String)`。
+
+<details>
+<summary>显示答案</summary>
+
+```rust
+fn parse_and_double(input: &str) -> Result<i32, String> {
+    input.trim()
+        .parse::<i32>()
+        .map(|n| n * 2)
+        .map_err(|e| format!("解析 \"{}\" 失败：{}", input.trim(), e))
+}
+
+fn main() {
+    println!("{:?}", parse_and_double("21"));   // Ok(42)
+    println!("{:?}", parse_and_double(" 10 ")); // Ok(20)
+    println!("{:?}", parse_and_double("abc"));  // Err("解析...")
+}
+```
+
+</details>

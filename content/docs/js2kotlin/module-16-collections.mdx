@@ -1,0 +1,773 @@
+---
+title: "Module 16: Collections"
+description: "Master Kotlin's collection system: immutable vs mutable collections, List/Map/Set, extension functions, sequences for lazy evaluation, and collection operations."
+---
+
+# Module 16: Collections
+
+Welcome to Module 16! Kotlin's collection system is one of its most productive features. Unlike JavaScript — where arrays and objects are always mutable — Kotlin draws a sharp line between **read-only** and **mutable** collections at the type level. Add in powerful extension functions, lazy `Sequence` evaluation, and a rich standard library, and you have tools that make complex data transformations concise and safe.
+
+## Learning Objectives
+
+By the end of this module, you will be able to:
+
+- ✅ Understand the difference between immutable (`listOf`) and mutable (`mutableListOf`) collections and why it matters
+- ✅ Use `List` operations: `map`, `filter`, `reduce`, `fold`, `groupBy`, `partition`, and more
+- ✅ Work with `Map`: create, access, transform, and iterate entries
+- ✅ Use `Set` with `union`, `intersect`, and `subtract` for mathematical set operations
+- ✅ Use `Sequence` for lazy, efficient evaluation of large or infinite data streams
+- ✅ Apply advanced extension functions: `flatMap`, `zip`, `windowed`, `chunked`
+
+---
+
+## 1. Immutable vs Mutable Collections
+
+The most important distinction in Kotlin's collection system: **read-only vs mutable**. JavaScript arrays and objects are always mutable; Kotlin enforces a choice at the type level, preventing accidental mutations.
+
+<UniversalEditor title="Immutable vs Mutable: The Core Distinction" compare={true}>
+```javascript !! js
+// JavaScript — all arrays are mutable by default
+const fruits = ["apple", "banana", "cherry"];
+
+// Both reads and writes work on any array
+fruits.push("date");         // mutates the original
+fruits[0] = "avocado";       // mutates the original
+console.log(fruits); // ["avocado", "banana", "cherry", "date"]
+
+// 'const' only prevents reassignment, NOT mutation
+const items = [1, 2, 3];
+items.push(4); // This works! const doesn't freeze the array
+// items = [5, 6]; // This fails — can't reassign const
+
+// Object.freeze() prevents mutation — but it's shallow and rarely used
+const frozen = Object.freeze([1, 2, 3]);
+// frozen.push(4); // TypeError in strict mode — but only shallow
+
+// In practice, JS has no type-level read-only collections
+// Developers rely on conventions or TypeScript's readonly modifier
+// readonly fruits: ReadonlyArray<string> = ["a", "b"]; // TypeScript only
+```
+
+```kotlin !! kotlin
+// Kotlin — two separate interfaces: read-only and mutable
+
+// Read-only List — you can read but NOT write
+val fruits: List<String> = listOf("apple", "banana", "cherry")
+println(fruits[0]) // apple
+println(fruits.size) // 3
+// fruits.add("date")    // Compile error! List has no add()
+// fruits[0] = "avocado" // Compile error! List has no set()
+
+// Mutable List — both reads and writes allowed
+val mutableFruits: MutableList<String> = mutableListOf("apple", "banana", "cherry")
+mutableFruits.add("date")      // OK
+mutableFruits[0] = "avocado"   // OK
+println(mutableFruits) // [avocado, banana, cherry, date]
+
+// Read-only does NOT mean immutable under the hood
+// If someone has a MutableList reference, they can still mutate it
+// But through a List reference, you're protected from accidental writes
+
+// Best practice: expose List, keep MutableList private
+class UserRepository {
+    private val _users: MutableList<String> = mutableListOf()
+    val users: List<String> get() = _users  // callers see read-only
+
+    fun addUser(name: String) { _users.add(name) }
+}
+
+val repo = UserRepository()
+repo.addUser("Alice")
+repo.addUser("Bob")
+println(repo.users) // [Alice, Bob]
+// repo.users.add("Charlie") // Compile error!
+```
+</UniversalEditor>
+
+---
+
+## 2. List Operations
+
+Kotlin's `List` has a rich set of extension functions. Most map directly to JavaScript's `Array` methods, but Kotlin's versions are type-safe and part of the language's standard library.
+
+<UniversalEditor title="List Operations: map, filter, reduce, fold" compare={true}>
+```javascript !! js
+// JavaScript Array operations
+const numbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+
+// map
+const doubled = numbers.map(n => n * 2);
+console.log(doubled); // [2, 4, 6, 8, 10, 12, 14, 16, 18, 20]
+
+// filter
+const evens = numbers.filter(n => n % 2 === 0);
+console.log(evens); // [2, 4, 6, 8, 10]
+
+// reduce
+const sum = numbers.reduce((acc, n) => acc + n, 0);
+console.log(sum); // 55
+
+// find
+const firstOver5 = numbers.find(n => n > 5);
+console.log(firstOver5); // 6
+
+// some / every
+console.log(numbers.some(n => n > 9));  // true
+console.log(numbers.every(n => n > 0)); // true
+
+// flat/flatMap
+const nested = [[1, 2], [3, 4], [5, 6]];
+const flat = nested.flat();
+console.log(flat); // [1, 2, 3, 4, 5, 6]
+
+const words = ["Hello World", "Foo Bar"];
+const allWords = words.flatMap(s => s.split(" "));
+console.log(allWords); // ["Hello", "World", "Foo", "Bar"]
+```
+
+```kotlin !! kotlin
+// Kotlin List operations — nearly 1:1 with JS Array methods
+
+val numbers = listOf(1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+
+// map
+val doubled = numbers.map { it * 2 }
+println(doubled) // [2, 4, 6, 8, 10, 12, 14, 16, 18, 20]
+
+// filter
+val evens = numbers.filter { it % 2 == 0 }
+println(evens) // [2, 4, 6, 8, 10]
+
+// reduce (no initial value — throws on empty list)
+val sum = numbers.reduce { acc, n -> acc + n }
+println(sum) // 55
+
+// fold (with initial value — safe on empty list)
+val product = numbers.fold(1) { acc, n -> acc * n }
+println(product) // 3628800
+
+// find (returns nullable T?)
+val firstOver5 = numbers.find { it > 5 }
+println(firstOver5) // 6
+
+// any / all
+println(numbers.any { it > 9 })  // true
+println(numbers.all { it > 0 })  // true
+
+// flatMap
+val nested = listOf(listOf(1, 2), listOf(3, 4), listOf(5, 6))
+val flat = nested.flatten()
+println(flat) // [1, 2, 3, 4, 5, 6]
+
+val words = listOf("Hello World", "Foo Bar")
+val allWords = words.flatMap { it.split(" ") }
+println(allWords) // [Hello, World, Foo, Bar]
+```
+</UniversalEditor>
+
+<UniversalEditor title="List Operations: groupBy, partition, sortedBy" compare={true}>
+```javascript !! js
+// JavaScript — groupBy and partition require manual implementation
+const people = [
+  { name: "Alice", dept: "Engineering", salary: 90000 },
+  { name: "Bob",   dept: "Marketing",   salary: 75000 },
+  { name: "Carol", dept: "Engineering", salary: 95000 },
+  { name: "Dave",  dept: "Marketing",   salary: 80000 },
+  { name: "Eve",   dept: "Engineering", salary: 85000 }
+];
+
+// groupBy — must implement manually (or use lodash)
+const byDept = people.reduce((acc, person) => {
+  const key = person.dept;
+  if (!acc[key]) acc[key] = [];
+  acc[key].push(person);
+  return acc;
+}, {});
+console.log(Object.keys(byDept)); // ["Engineering", "Marketing"]
+
+// partition — split into two arrays
+const [highPaid, lowPaid] = people.reduce(
+  ([high, low], p) => p.salary >= 85000 ? [[...high, p], low] : [high, [...low, p]],
+  [[], []]
+);
+
+// sort
+const sorted = [...people].sort((a, b) => b.salary - a.salary);
+console.log(sorted[0].name); // Carol
+```
+
+```kotlin !! kotlin
+// Kotlin — groupBy and partition are built-in
+
+data class Person(val name: String, val dept: String, val salary: Int)
+
+val people = listOf(
+    Person("Alice", "Engineering", 90_000),
+    Person("Bob",   "Marketing",   75_000),
+    Person("Carol", "Engineering", 95_000),
+    Person("Dave",  "Marketing",   80_000),
+    Person("Eve",   "Engineering", 85_000)
+)
+
+// groupBy — returns Map<K, List<T>>
+val byDept: Map<String, List<Person>> = people.groupBy { it.dept }
+println(byDept.keys) // [Engineering, Marketing]
+println(byDept["Engineering"]?.map { it.name }) // [Alice, Carol, Eve]
+
+// partition — returns Pair<List<T>, List<T>>
+val (highPaid, lowPaid) = people.partition { it.salary >= 85_000 }
+println(highPaid.map { it.name }) // [Alice, Carol, Eve]
+println(lowPaid.map { it.name })  // [Bob, Dave]
+
+// sortedBy / sortedByDescending
+val sorted = people.sortedByDescending { it.salary }
+println(sorted.first().name) // Carol
+
+// count with predicate
+val engineerCount = people.count { it.dept == "Engineering" }
+println(engineerCount) // 3
+
+// sumOf / maxOf / minOf
+val totalPayroll = people.sumOf { it.salary }
+val topSalary = people.maxOf { it.salary }
+println("Payroll: $totalPayroll, Top: $topSalary") // Payroll: 425000, Top: 95000
+```
+</UniversalEditor>
+
+---
+
+## 3. Map Operations
+
+<UniversalEditor title="Map: Creation, Access, and Transformation" compare={true}>
+```javascript !! js
+// JavaScript Map and plain objects
+// Plain object
+const scores = { Alice: 95, Bob: 87, Carol: 92 };
+console.log(scores["Alice"]); // 95
+console.log(scores["Dave"] ?? 0); // 0 (default)
+
+// ES6 Map
+const userMap = new Map([
+  ["u1", { name: "Alice", role: "admin" }],
+  ["u2", { name: "Bob",   role: "user"  }]
+]);
+console.log(userMap.get("u1")?.name); // Alice
+console.log(userMap.has("u3")); // false
+userMap.set("u3", { name: "Carol", role: "user" });
+
+// Iterating
+for (const [key, value] of userMap.entries()) {
+  console.log(`${key}: ${value.name}`);
+}
+
+// Transforming (no built-in mapValues — need manual)
+const upperNames = Object.fromEntries(
+  Object.entries(scores).map(([k, v]) => [k, v + 10])
+);
+console.log(upperNames); // { Alice: 105, Bob: 97, Carol: 102 }
+```
+
+```kotlin !! kotlin
+// Kotlin Map operations
+
+// Read-only map
+val scores: Map<String, Int> = mapOf("Alice" to 95, "Bob" to 87, "Carol" to 92)
+println(scores["Alice"]) // 95
+println(scores["Dave"])  // null (not found)
+println(scores.getOrDefault("Dave", 0)) // 0
+
+// Mutable map
+val userMap: MutableMap<String, String> = mutableMapOf(
+    "u1" to "Alice",
+    "u2" to "Bob"
+)
+userMap["u3"] = "Carol"
+userMap.remove("u2")
+println(userMap) // {u1=Alice, u3=Carol}
+
+// Safe access patterns
+val role = scores["Alice"] ?: 0  // Elvis for default
+println(role) // 95
+
+// getOrPut: get existing or compute and store
+val cache = mutableMapOf<String, Int>()
+val value = cache.getOrPut("key") { computeExpensiveValue() }
+
+// Iterating
+for ((name, score) in scores) {
+    println("$name: $score")
+}
+
+// Transforming maps
+val boosted = scores.mapValues { (_, v) -> v + 10 }
+println(boosted) // {Alice=105, Bob=97, Carol=102}
+
+val initials = scores.mapKeys { (k, _) -> k.first().toString() }
+println(initials) // {A=95, B=87, C=92}
+
+// Filtering a map
+val topStudents = scores.filter { (_, score) -> score >= 90 }
+println(topStudents) // {Alice=95, Carol=92}
+
+fun computeExpensiveValue() = 42
+```
+</UniversalEditor>
+
+---
+
+## 4. Set Operations
+
+<UniversalEditor title="Set: Mathematical Set Operations" compare={true}>
+```javascript !! js
+// JavaScript Set
+const setA = new Set([1, 2, 3, 4, 5]);
+const setB = new Set([4, 5, 6, 7, 8]);
+
+// Basic operations
+setA.add(6);
+setA.delete(1);
+console.log(setA.has(3)); // true
+console.log(setA.size);   // 5
+
+// Set operations (must implement manually in JS!)
+// Union
+const union = new Set([...setA, ...setB]);
+console.log([...union]); // [2, 3, 4, 5, 6, 7, 8]
+
+// Intersection
+const intersection = new Set([...setA].filter(x => setB.has(x)));
+console.log([...intersection]); // [4, 5, 6]
+
+// Difference (A - B)
+const difference = new Set([...setA].filter(x => !setB.has(x)));
+console.log([...difference]); // [2, 3]
+
+// Converting between array and set (for deduplication)
+const withDupes = [1, 2, 2, 3, 3, 3, 4];
+const unique = [...new Set(withDupes)];
+console.log(unique); // [1, 2, 3, 4]
+```
+
+```kotlin !! kotlin
+// Kotlin Set — mathematical operations are built-in
+
+val setA: Set<Int> = setOf(1, 2, 3, 4, 5)
+val setB: Set<Int> = setOf(4, 5, 6, 7, 8)
+
+// Basic operations
+println(3 in setA)   // true
+println(setA.size)   // 5
+println(setA.contains(6)) // false
+
+// Mutable Set
+val mutableSet = mutableSetOf(1, 2, 3)
+mutableSet.add(4)
+mutableSet.remove(1)
+println(mutableSet) // [2, 3, 4]
+
+// Set operations — built into the standard library!
+val union        = setA union setB         // or setA + setB
+val intersection = setA intersect setB
+val difference   = setA subtract setB      // or setA - setB
+
+println(union)        // [1, 2, 3, 4, 5, 6, 7, 8]
+println(intersection) // [4, 5]
+println(difference)   // [1, 2, 3]
+
+// Deduplication with toSet()
+val withDupes = listOf(1, 2, 2, 3, 3, 3, 4)
+val unique = withDupes.toSet()
+println(unique) // [1, 2, 3, 4]
+val backToList = unique.toList()
+
+// LinkedHashSet preserves insertion order (default for setOf())
+// HashSet offers O(1) lookups but no ordering
+// TreeSet sorts elements (sortedSetOf())
+val sorted = sortedSetOf(5, 3, 1, 4, 2)
+println(sorted) // [1, 2, 3, 4, 5]
+```
+</UniversalEditor>
+
+---
+
+## 5. Sequences: Lazy Evaluation
+
+Sequences are Kotlin's lazy collection — operations are not executed until a terminal operation is called. This is similar to Rust iterators or JavaScript generators, and essential for performance with large datasets.
+
+<UniversalEditor title="Sequences vs Eager Collections: Performance" compare={true}>
+```javascript !! js
+// JavaScript — array methods are eager (execute immediately)
+const numbers = Array.from({ length: 1_000_000 }, (_, i) => i + 1);
+
+// Each step creates a new intermediate array — 3 million elements allocated!
+const result = numbers
+  .filter(n => n % 2 === 0)      // creates 500,000-element array
+  .map(n => n * n)                // creates 500,000-element array
+  .slice(0, 5);                   // only then takes 5
+console.log(result); // [4, 16, 36, 64, 100]
+
+// JavaScript generators are lazy (like Kotlin sequences)
+function* lazyRange(start, end) {
+  for (let i = start; i <= end; i++) yield i;
+}
+
+function* lazyFilter(iter, pred) {
+  for (const item of iter) {
+    if (pred(item)) yield item;
+  }
+}
+
+function* lazyMap(iter, fn) {
+  for (const item of iter) yield fn(item);
+}
+
+function take(iter, n) {
+  const result = [];
+  for (const item of iter) {
+    result.push(item);
+    if (result.length >= n) break;
+  }
+  return result;
+}
+
+const lazyResult = take(
+  lazyMap(lazyFilter(lazyRange(1, 1_000_000), n => n % 2 === 0), n => n * n),
+  5
+);
+console.log(lazyResult); // [4, 16, 36, 64, 100] — only processes what's needed
+```
+
+```kotlin !! kotlin
+// Kotlin Sequences — lazy by default, like JS generators
+
+// Eager (List): creates intermediate collections at each step
+val eagerResult = (1..1_000_000).toList()
+    .filter { it % 2 == 0 }   // creates 500,000-element list
+    .map { it * it }           // creates 500,000-element list
+    .take(5)                   // only then takes 5
+println(eagerResult) // [4, 16, 36, 64, 100]
+
+// Lazy (Sequence): processes elements one-at-a-time through the pipeline
+val lazyResult = (1..1_000_000).asSequence()
+    .filter { it % 2 == 0 }   // no work done yet
+    .map { it * it }           // no work done yet
+    .take(5)                   // terminal: NOW processes only 10 elements total!
+    .toList()                  // materialise the result
+println(lazyResult) // [4, 16, 36, 64, 100]
+
+// generateSequence: infinite sequences
+val naturalNumbers = generateSequence(1) { it + 1 }
+val firstFibPastHundred = generateSequence(Pair(0, 1)) { (a, b) -> Pair(b, a + b) }
+    .map { it.first }
+    .first { it > 100 }
+println(firstFibPastHundred) // 144
+
+// Sequence with yield (like a generator)
+val collatz = sequence {
+    var n = 27
+    while (n != 1) {
+        yield(n)
+        n = if (n % 2 == 0) n / 2 else 3 * n + 1
+    }
+    yield(1)
+}
+println(collatz.take(5).toList()) // [27, 82, 41, 124, 62]
+println(collatz.count())         // Collatz sequence length for n=27
+```
+</UniversalEditor>
+
+---
+
+## 6. Advanced Collection Extension Functions
+
+Kotlin's standard library includes powerful collection transformations that have no direct JavaScript equivalents.
+
+<UniversalEditor title="flatMap, zip, windowed, chunked" compare={true}>
+```javascript !! js
+// JavaScript — some operations need manual implementation
+
+const matrix = [[1, 2, 3], [4, 5, 6], [7, 8, 9]];
+const flat = matrix.flat(); // flatMap + identity
+console.log(flat); // [1, 2, 3, 4, 5, 6, 7, 8, 9]
+
+// zip — must implement manually
+function zip(a, b) {
+  return a.map((item, i) => [item, b[i]]);
+}
+const names = ["Alice", "Bob", "Carol"];
+const scores = [95, 87, 92];
+const paired = zip(names, scores);
+console.log(paired); // [["Alice", 95], ["Bob", 87], ["Carol", 92]]
+
+// windowed (sliding window) — manual
+function windowed(arr, size) {
+  return arr.slice(0, arr.length - size + 1).map((_, i) => arr.slice(i, i + size));
+}
+const temps = [20, 22, 19, 25, 23, 21];
+const windows = windowed(temps, 3);
+console.log(windows); // [[20,22,19], [22,19,25], [19,25,23], [25,23,21]]
+
+// chunked (batch)
+function chunked(arr, size) {
+  const chunks = [];
+  for (let i = 0; i < arr.length; i += size) {
+    chunks.push(arr.slice(i, i + size));
+  }
+  return chunks;
+}
+const items = [1, 2, 3, 4, 5, 6, 7];
+console.log(chunked(items, 3)); // [[1,2,3], [4,5,6], [7]]
+```
+
+```kotlin !! kotlin
+// Kotlin — all built into the standard library
+
+val matrix = listOf(listOf(1, 2, 3), listOf(4, 5, 6), listOf(7, 8, 9))
+val flat = matrix.flatten()
+println(flat) // [1, 2, 3, 4, 5, 6, 7, 8, 9]
+
+// flatMap: map + flatten in one step
+val sentences = listOf("Hello World", "Foo Bar Baz")
+val allWords = sentences.flatMap { it.split(" ") }
+println(allWords) // [Hello, World, Foo, Bar, Baz]
+
+// zip: pair up two lists
+val names = listOf("Alice", "Bob", "Carol")
+val scores = listOf(95, 87, 92)
+val paired = names.zip(scores)
+println(paired) // [(Alice, 95), (Bob, 87), (Carol, 92)]
+
+// zip with transform function
+val summary = names.zip(scores) { name, score -> "$name: $score" }
+println(summary) // [Alice: 95, Bob: 87, Carol: 92]
+
+// windowed: sliding window over a list
+val temps = listOf(20, 22, 19, 25, 23, 21)
+val windows = temps.windowed(3)
+println(windows) // [[20, 22, 19], [22, 19, 25], [19, 25, 23], [25, 23, 21]]
+
+// windowed with step and transform
+val movingAvg = temps.windowed(3, step = 1) { window -> window.average() }
+println(movingAvg) // [20.33, 22.0, 22.33, 23.0]
+
+// chunked: split into fixed-size groups
+val items = listOf(1, 2, 3, 4, 5, 6, 7)
+val chunks = items.chunked(3)
+println(chunks) // [[1, 2, 3], [4, 5, 6], [7]]
+
+// chunked with transform: process each batch
+val batchSums = items.chunked(3) { batch -> batch.sum() }
+println(batchSums) // [6, 15, 7]
+```
+</UniversalEditor>
+
+<UniversalEditor title="associate, distinct, scan, runningFold" compare={true}>
+```javascript !! js
+// JavaScript equivalents (mostly manual)
+
+const users = [
+  { id: "u1", name: "Alice" },
+  { id: "u2", name: "Bob" },
+  { id: "u3", name: "Carol" }
+];
+
+// Build a lookup map — Object.fromEntries or reduce
+const userById = Object.fromEntries(users.map(u => [u.id, u]));
+console.log(userById["u2"].name); // Bob
+
+// distinct / unique
+const tags = ["kotlin", "java", "kotlin", "android", "java"];
+const uniqueTags = [...new Set(tags)];
+console.log(uniqueTags); // ["kotlin", "java", "android"]
+
+// scan / running total (manual)
+const numbers = [1, 2, 3, 4, 5];
+const runningTotal = numbers.reduce((acc, n) => {
+  acc.push((acc.at(-1) ?? 0) + n);
+  return acc;
+}, []);
+console.log(runningTotal); // [1, 3, 6, 10, 15]
+
+// take / drop
+const first3 = numbers.slice(0, 3);
+const after2  = numbers.slice(2);
+console.log(first3); // [1, 2, 3]
+console.log(after2);  // [3, 4, 5]
+```
+
+```kotlin !! kotlin
+// Kotlin — all these are built-in standard library functions
+
+data class User(val id: String, val name: String)
+val users = listOf(User("u1", "Alice"), User("u2", "Bob"), User("u3", "Carol"))
+
+// associate: list → map
+val userById: Map<String, User> = users.associateBy { it.id }
+println(userById["u2"]?.name) // Bob
+
+// associateWith: use list items as keys
+val names = listOf("Alice", "Bob", "Carol")
+val nameLengths: Map<String, Int> = names.associateWith { it.length }
+println(nameLengths) // {Alice=5, Bob=3, Carol=5}
+
+// distinct / distinctBy
+val tags = listOf("kotlin", "java", "kotlin", "android", "java")
+println(tags.distinct())                    // [kotlin, java, android]
+println(users.distinctBy { it.name.length }) // Users with unique name lengths
+
+// scan / runningFold: cumulative operations
+val numbers = listOf(1, 2, 3, 4, 5)
+val runningTotal = numbers.scan(0) { acc, n -> acc + n }
+println(runningTotal) // [0, 1, 3, 6, 10, 15] (includes initial value)
+
+val runningMax = numbers.runningFold(Int.MIN_VALUE) { acc, n -> maxOf(acc, n) }
+println(runningMax) // [-2147483648, 1, 2, 3, 4, 5]
+
+// take / drop / takeWhile / dropWhile
+println(numbers.take(3))          // [1, 2, 3]
+println(numbers.drop(2))          // [3, 4, 5]
+println(numbers.takeWhile { it < 4 }) // [1, 2, 3]
+println(numbers.dropWhile { it < 4 }) // [4, 5]
+```
+</UniversalEditor>
+
+---
+
+## 7. Summary Table
+
+| Concept | JavaScript | Kotlin |
+|---|---|---|
+| Read-only collection | `const arr = []` (not truly read-only) | `listOf()`, `mapOf()`, `setOf()` |
+| Mutable collection | `let arr = []` (all arrays) | `mutableListOf()`, `mutableMapOf()`, `mutableSetOf()` |
+| map | `Array.map()` | `list.map { }` |
+| filter | `Array.filter()` | `list.filter { }` |
+| reduce | `Array.reduce()` | `list.reduce { acc, n -> }` |
+| fold (with initial) | `Array.reduce(fn, initial)` | `list.fold(initial) { acc, n -> }` |
+| find | `Array.find()` | `list.find { }` (returns `T?`) |
+| groupBy | Manual / lodash | `list.groupBy { }` |
+| partition | Manual | `list.partition { }` |
+| Set union | `new Set([...a, ...b])` | `setA union setB` |
+| Set intersection | Manual filter | `setA intersect setB` |
+| Set difference | Manual filter | `setA subtract setB` |
+| Lazy evaluation | Generator functions | `list.asSequence()` |
+| Infinite sequence | Generator functions | `generateSequence { }` |
+| zip two lists | Manual | `list1.zip(list2)` |
+| Sliding window | Manual | `list.windowed(n)` |
+| Fixed-size batches | Manual | `list.chunked(n)` |
+| List → Map by key | `Object.fromEntries(...)` | `list.associateBy { }` |
+| Cumulative fold | Manual reduce | `list.scan(initial) { }` |
+
+---
+
+## Exercises
+
+### Exercise 1: Word Frequency Counter
+
+Given a list of strings (a paragraph split by words), write a Kotlin function `wordFrequency(words: List<String>): Map<String, Int>` that counts how many times each word appears, sorted by frequency descending.
+
+<details>
+<summary>Show Answer</summary>
+
+```kotlin
+fun wordFrequency(words: List<String>): Map<String, Int> {
+    return words
+        .map { it.lowercase().trim(',', '.', '!', '?') }
+        .filter { it.isNotBlank() }
+        .groupingBy { it }
+        .eachCount()
+        .entries
+        .sortedByDescending { it.value }
+        .associate { it.key to it.value }
+}
+
+val paragraph = "the quick brown fox jumps over the lazy dog the fox".split(" ")
+val freq = wordFrequency(paragraph)
+freq.entries.take(5).forEach { (word, count) ->
+    println("$word: $count")
+}
+// the: 3
+// fox: 2
+// quick: 1
+// brown: 1
+// jumps: 1
+```
+
+</details>
+
+### Exercise 2: Lazy Prime Generator
+
+Use `generateSequence` to create an infinite sequence of prime numbers, then take the first 10.
+
+<details>
+<summary>Show Answer</summary>
+
+```kotlin
+fun isPrime(n: Int): Boolean {
+    if (n < 2) return false
+    if (n == 2) return true
+    if (n % 2 == 0) return false
+    return (3..Math.sqrt(n.toDouble()).toInt() step 2).none { n % it == 0 }
+}
+
+val primes = generateSequence(2) { n ->
+    var next = n + 1
+    while (!isPrime(next)) next++
+    next
+}
+
+println(primes.take(10).toList())
+// [2, 3, 5, 7, 11, 13, 17, 19, 23, 29]
+
+// Bonus: sum of first 100 primes
+println(primes.take(100).sum()) // 24133
+```
+
+</details>
+
+### Exercise 3: Student Report with Multiple Operations
+
+Given a `Student` data class with `name: String`, `grades: List<Int>`, and `subject: String`, write a function `generateReport(students: List<Student>)` that:
+1. Groups students by subject
+2. Computes the average grade per student
+3. Finds the top student per subject
+4. Prints a formatted summary
+
+<details>
+<summary>Show Answer</summary>
+
+```kotlin
+data class Student(val name: String, val grades: List<Int>, val subject: String)
+
+fun generateReport(students: List<Student>) {
+    val withAvg = students.map { s -> s to s.grades.average() }
+
+    val bySubject = withAvg.groupBy { (student, _) -> student.subject }
+
+    bySubject.forEach { (subject, group) ->
+        val top = group.maxByOrNull { (_, avg) -> avg }
+        val subjectAvg = group.map { (_, avg) -> avg }.average()
+
+        println("=== $subject ===")
+        println("Class average: ${"%.1f".format(subjectAvg)}")
+        top?.let { (student, avg) ->
+            println("Top student: ${student.name} (${"%.1f".format(avg)})")
+        }
+        group.sortedByDescending { (_, avg) -> avg }.forEach { (student, avg) ->
+            println("  ${student.name}: ${"%.1f".format(avg)}")
+        }
+        println()
+    }
+}
+
+val students = listOf(
+    Student("Alice", listOf(90, 85, 92), "Math"),
+    Student("Bob",   listOf(78, 82, 80), "Math"),
+    Student("Carol", listOf(95, 91, 88), "Science"),
+    Student("Dave",  listOf(70, 75, 72), "Science"),
+    Student("Eve",   listOf(88, 90, 87), "Math")
+)
+
+generateReport(students)
+```
+
+</details>

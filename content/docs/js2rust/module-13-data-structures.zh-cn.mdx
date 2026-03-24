@@ -1,0 +1,680 @@
+---
+title: "第 13 模块：数据结构与集合"
+description: "掌握 Rust 的核心集合类型：Vec<T>、HashMap、HashSet、String 与 &str，以及切片，并理解每种集合类型的所有权含义。"
+---
+
+# 第 13 模块：数据结构与集合
+
+## 学习目标
+
+学完本模块后，你将能够：
+
+- ✅ 使用 `Vec<T>` 作为 Rust 的主要动态数组，掌握 push/pop/iter 等惯用操作
+- ✅ 理解切片 `&[T]` 是序列的轻量级引用视图，没有对应的 JavaScript 等价物
+- ✅ 区分 `String`（拥有所有权、堆分配）与 `&str`（借用字符串切片），并正确选择使用
+- ✅ 使用 `HashMap<K, V>` 存储键值对，包括强大的 `entry` API 用于插入或更新
+- ✅ 使用 `HashSet<T>` 存储唯一元素，并执行集合运算
+- ✅ 掌握三种迭代遍历模式：`iter()`、`iter_mut()` 和 `into_iter()`
+
+---
+
+## 1. Vec\<T\>：主要的动态数组
+
+`Vec<T>` 是 Rust 中 JavaScript `Array` 的对应类型。它堆分配、可增长、类型统一。与 JavaScript 数组不同，所有元素必须是相同类型——如果需要异构数据，请使用枚举。
+
+<UniversalEditor title="Vec<T> vs JavaScript Array" compare={true}>
+```javascript !! js
+// JavaScript Array——动态、异构、引用类型
+const numbers = [1, 2, 3, 4, 5];
+const mixed   = [1, "hello", true, null]; // JS 中允许
+
+// 基本操作
+numbers.push(6);
+const last = numbers.pop();
+console.log(numbers.length); // 5
+
+// 越界访问（编译时无检查）
+console.log(numbers[0]);   // 1
+console.log(numbers[100]); // undefined（不报错！）
+
+// 迭代
+for (const n of numbers) {
+    console.log(n);
+}
+
+// 数组方法
+const doubled = numbers.map(n => n * 2);
+const sum = numbers.reduce((acc, n) => acc + n, 0);
+console.log(doubled); // [2, 4, 6, 8, 10]
+console.log(sum);     // 15
+
+// 切片（返回新数组副本）
+const slice = numbers.slice(1, 4); // [2, 3, 4]
+
+// 展开 / 拼接
+const combined = [...numbers, 10, 11];
+```
+
+```rust !! rs
+fn main() {
+    // Vec<T>——类型统一、堆分配、可增长
+    let mut numbers: Vec<i32> = vec![1, 2, 3, 4, 5];
+
+    // 基本操作
+    numbers.push(6);              // 追加
+    let last = numbers.pop();     // 返回 Option<T>
+    println!("{:?}", last);       // Some(6)
+    println!("{}", numbers.len()); // 5
+
+    // 访问——越界时 panic（用 .get() 进行安全访问）
+    println!("{}", numbers[0]);   // 1
+    // numbers[100];  // PANIC：索引越界
+
+    // 安全访问返回 Option<&T>
+    match numbers.get(100) {
+        Some(val) => println!("{}", val),
+        None      => println!("索引越界"),
+    }
+
+    // 迭代（按引用——迭代后 numbers 仍可使用）
+    for n in &numbers {
+        println!("{}", n);
+    }
+
+    // 通过迭代器的函数式操作
+    let doubled: Vec<i32> = numbers.iter().map(|&n| n * 2).collect();
+    let sum: i32 = numbers.iter().sum();
+    println!("{:?}", doubled); // [2, 4, 6, 8, 10]
+    println!("{}", sum);       // 15
+
+    // 切片——返回 &[i32] 引用（无复制！）
+    let slice = &numbers[1..4]; // [2, 3, 4]
+    println!("{:?}", slice);
+
+    // 扩展
+    let mut combined = numbers.clone();
+    combined.extend_from_slice(&[10, 11]);
+    println!("{:?}", combined);
+
+    // 预分配容量以提升性能
+    let mut v: Vec<i32> = Vec::with_capacity(100);
+    v.push(1);
+    println!("len={}, capacity={}", v.len(), v.capacity()); // 1, 100
+}
+```
+</UniversalEditor>
+
+---
+
+## 2. 切片：&\[T\] 与 &str
+
+切片是对内存中连续序列的引用。切片不拥有所有权——它们借用底层集合。JavaScript 没有直接的等价物；`Array.slice()` 会创建副本，而 Rust 的切片是零成本视图。
+
+<UniversalEditor title="切片作为数据的零成本视图" compare={true}>
+```javascript !! js
+// JavaScript：没有零成本切片——slice() 总是复制
+const arr = [10, 20, 30, 40, 50];
+
+// slice() 返回一个新数组（内存分配）
+const part = arr.slice(1, 4); // [20, 30, 40]——新数组
+part[0] = 999;
+console.log(arr[1]); // 20——原数组不受影响
+
+const str = "hello world";
+const word = str.slice(0, 5); // "hello"——新字符串
+
+function sumFirst3(arr) {
+    return arr.slice(0, 3).reduce((a, b) => a + b, 0);
+}
+console.log(sumFirst3([1, 2, 3, 4, 5])); // 6
+```
+
+```rust !! rs
+fn sum_slice(data: &[i32]) -> i32 {
+    // &[i32] 是切片——对连续 i32 元素的引用
+    // 存储指针 + 长度，不复制数据
+    data.iter().sum()
+}
+
+fn first_word(s: &str) -> &str {
+    // 返回输入的切片——零复制
+    let bytes = s.as_bytes();
+    for (i, &byte) in bytes.iter().enumerate() {
+        if byte == b' ' {
+            return &s[..i];
+        }
+    }
+    s
+}
+
+fn main() {
+    let arr = [10, 20, 30, 40, 50];
+
+    // &arr[1..4] 是切片——借用 arr，无复制
+    let part: &[i32] = &arr[1..4]; // [20, 30, 40]
+    println!("{:?}", part);
+    println!("arr 仍然可用: {:?}", arr);
+
+    // 向接受 &[i32] 的函数传递 Vec 的切片
+    let v = vec![1, 2, 3, 4, 5];
+    println!("所有元素之和: {}", sum_slice(&v));        // 15
+    println!("[0..3] 之和: {}", sum_slice(&v[..3]));   // 6
+
+    // 数组和 Vec 会自动强制转换为切片
+    println!("数组之和: {}", sum_slice(&arr));
+
+    // 字符串切片
+    let sentence = String::from("hello world");
+    let word = first_word(&sentence); // 借用 sentence
+    println!("第一个单词: {}", word); // "hello"
+
+    // &str 就是切片——字符串数据的视图
+    let literal: &str = "hello"; // 指向程序二进制中的只读内存
+    let owned: String = String::from("world");
+    let slice_of_owned: &str = &owned[..3]; // "wor"
+    println!("{} {}", literal, slice_of_owned);
+}
+```
+</UniversalEditor>
+
+---
+
+## 3. String 与 &str
+
+这是 Rust 中新手最容易困惑的区别之一。`String` 是拥有所有权的、堆分配的、可增长的字符串。`&str` 是借用的字符串切片——它指向已有的字符串数据，不拥有所有权。只读取字符串的函数应该接受 `&str` 以获得最大灵活性。
+
+<UniversalEditor title="String 与 &str：所有权与借用" compare={true}>
+```javascript !! js
+// JavaScript：字符串是不可变基本类型，没有所有权概念
+const greeting = "Hello";
+const name = new String("Alice"); // String 对象（很少使用）
+
+// 所有字符串操作都返回新字符串
+const full = greeting + ", " + name + "!";
+console.log(full); // "Hello, Alice!"
+
+// 字符串插值
+const message = `${greeting}, ${name}!`;
+console.log(message);
+
+// "修改"字符串意味着重新赋值
+let s = "hello";
+s = s + " world"; // 创建新字符串，重新赋值给 s
+console.log(s); // "hello world"
+
+// 函数接受任意字符串类型值
+function printLength(s) {
+    console.log(s.length);
+}
+printLength("literal");           // 7
+printLength(new String("object")); // 6
+```
+
+```rust !! rs
+fn print_length(s: &str) {
+    // 接受 &str——对 String 和字符串字面量都有效
+    // 这是只读字符串参数的惯用写法
+    println!("Length: {}", s.len());
+}
+
+fn make_greeting(name: &str) -> String {
+    // 返回 String（拥有所有权），因为我们创建了新的字符串数据
+    format!("Hello, {}!", name)
+}
+
+fn main() {
+    // &str：字符串切片——不可变、借用、无分配
+    let literal: &str = "hello world"; // 指向程序二进制
+
+    // String：拥有所有权、堆分配、可增长
+    let mut owned: String = String::from("hello");
+    owned.push_str(" world"); // 原地修改
+    owned.push('!');
+
+    println!("{}", literal); // "hello world"
+    println!("{}", owned);   // "hello world!"
+
+    // String 自动强制转换为 &str（&String → &str）
+    print_length(literal);         // &str 直接使用
+    print_length(&owned);          // &String 强制转换为 &str
+    print_length(&owned[..5]);     // String 的切片 → &str
+
+    // 构建 String 的多种方式
+    let s1 = String::from("hello");
+    let s2 = "world".to_string();  // &str 转 String
+    let s3 = "world".to_owned();   // 同上
+    let combined = format!("{} {}", s1, s2); // format! 返回 String
+
+    println!("{}", combined); // "hello world"
+
+    // 用 + 拼接会移走左操作数
+    let s4 = s1 + " " + &s2; // s1 在这里被移走了！
+    // println!("{}", s1); // 错误：s1 已被移走
+    println!("{}", s4); // "hello world"
+
+    let greeting = make_greeting("Alice");
+    println!("{}", greeting); // "Hello, Alice!"
+}
+```
+</UniversalEditor>
+
+---
+
+## 4. HashMap\<K, V\>
+
+`HashMap<K, V>` 将键映射到值，类似于 JavaScript 的 `Map` 或普通对象。Rust 的 `HashMap` 在 `std::collections` 中。强大的 `entry` API 可以在不进行双重查找的情况下实现插入或更新。
+
+<UniversalEditor title="HashMap vs JavaScript Map 和对象" compare={true}>
+```javascript !! js
+// JavaScript Map
+const scores = new Map();
+scores.set("Alice", 95);
+scores.set("Bob",   87);
+scores.set("Carol", 92);
+
+console.log(scores.get("Alice"));       // 95
+console.log(scores.has("Dave"));        // false
+console.log(scores.size);               // 3
+
+// 迭代
+for (const [name, score] of scores) {
+    console.log(`${name}: ${score}`);
+}
+
+// 插入或更新模式
+function incrementScore(map, name) {
+    map.set(name, (map.get(name) ?? 0) + 1);
+}
+const visits = new Map();
+incrementScore(visits, "Alice");
+incrementScore(visits, "Alice");
+incrementScore(visits, "Bob");
+console.log(visits); // Alice: 2, Bob: 1
+```
+
+```rust !! rs
+use std::collections::HashMap;
+
+fn main() {
+    let mut scores: HashMap<String, i32> = HashMap::new();
+    scores.insert("Alice".to_string(), 95);
+    scores.insert("Bob".to_string(),   87);
+    scores.insert("Carol".to_string(), 92);
+
+    // get 返回 Option<&V>
+    if let Some(score) = scores.get("Alice") {
+        println!("Alice: {}", score); // 95
+    }
+
+    println!("Has Dave: {}", scores.contains_key("Dave")); // false
+    println!("Size: {}", scores.len()); // 3
+
+    // 迭代（顺序不保证）
+    for (name, score) in &scores {
+        println!("{}: {}", name, score);
+    }
+
+    // entry API：无需双重查找即可插入或更新
+    let mut visits: HashMap<String, u32> = HashMap::new();
+    *visits.entry("Alice".to_string()).or_insert(0) += 1;
+    *visits.entry("Alice".to_string()).or_insert(0) += 1;
+    *visits.entry("Bob".to_string()).or_insert(0)   += 1;
+    println!("{:?}", visits); // {"Alice": 2, "Bob": 1}
+
+    // or_insert_with：惰性计算默认值
+    let mut word_count: HashMap<&str, usize> = HashMap::new();
+    let text = "hello world hello rust world hello";
+    for word in text.split_whitespace() {
+        let count = word_count.entry(word).or_insert(0);
+        *count += 1;
+    }
+    println!("{:?}", word_count);
+
+    // 从迭代器收集到 HashMap
+    let pairs = vec![("one", 1), ("two", 2), ("three", 3)];
+    let map: HashMap<&str, i32> = pairs.into_iter().collect();
+    println!("{:?}", map);
+
+    // 删除键
+    scores.remove("Bob");
+    println!("删除后: {:?}", scores);
+}
+```
+</UniversalEditor>
+
+---
+
+## 5. HashSet\<T\>
+
+`HashSet<T>` 存储唯一值，支持快速成员检测以及集合代数运算（并集、交集、差集）。它对应 JavaScript 的 `Set`。
+
+<UniversalEditor title="HashSet vs JavaScript Set" compare={true}>
+```javascript !! js
+// JavaScript Set
+const a = new Set([1, 2, 3, 4]);
+const b = new Set([3, 4, 5, 6]);
+
+console.log(a.has(3)); // true
+console.log(a.has(9)); // false
+
+a.add(10);
+a.delete(1);
+console.log(a.size); // 4
+
+// 集合运算（没有内置方法，需要手动实现）
+const union        = new Set([...a, ...b]);
+const intersection = new Set([...a].filter(x => b.has(x)));
+const difference   = new Set([...a].filter(x => !b.has(x)));
+
+console.log([...union]);        // [2, 3, 4, 10, 5, 6]
+console.log([...intersection]); // [3, 4]
+console.log([...difference]);   // [2, 10]
+
+// 数组去重
+const arr = [1, 1, 2, 2, 3, 3];
+const unique = [...new Set(arr)];
+console.log(unique); // [1, 2, 3]
+```
+
+```rust !! rs
+use std::collections::HashSet;
+
+fn main() {
+    let a: HashSet<i32> = [1, 2, 3, 4].iter().cloned().collect();
+    let b: HashSet<i32> = [3, 4, 5, 6].iter().cloned().collect();
+
+    println!("{}", a.contains(&3)); // true
+    println!("{}", a.contains(&9)); // false
+
+    let mut mutable_a = a.clone();
+    mutable_a.insert(10);
+    mutable_a.remove(&1);
+    println!("len: {}", mutable_a.len()); // 4
+
+    // 集合运算——HashSet 内置！
+    let union: HashSet<&i32>        = a.union(&b).collect();
+    let intersection: HashSet<&i32> = a.intersection(&b).collect();
+    let difference: HashSet<&i32>   = a.difference(&b).collect();
+
+    let mut inter_sorted: Vec<&&i32> = intersection.iter().collect();
+    inter_sorted.sort();
+    println!("交集: {:?}", inter_sorted); // [3, 4]
+
+    let mut diff_sorted: Vec<&&i32> = difference.iter().collect();
+    diff_sorted.sort();
+    println!("差集: {:?}", diff_sorted); // [1, 2]
+
+    // is_subset / is_superset
+    let small: HashSet<i32> = [3, 4].iter().cloned().collect();
+    println!("small 是 a 的子集: {}", small.is_subset(&a)); // true
+
+    // 去重
+    let arr = vec![1, 1, 2, 2, 3, 3];
+    let unique: HashSet<i32> = arr.into_iter().collect();
+    let mut sorted: Vec<i32> = unique.into_iter().collect();
+    sorted.sort();
+    println!("{:?}", sorted); // [1, 2, 3]
+}
+```
+</UniversalEditor>
+
+---
+
+## 6. 迭代器协议：iter()、iter\_mut()、into\_iter()
+
+Rust 有三种遍历集合的方式，选择正确的方式对所有权的正确性至关重要。这与 JavaScript 的单一 `for...of` / `Symbol.iterator` 协议不同。
+
+<UniversalEditor title="三种遍历模式：iter、iter_mut、into_iter" compare={true}>
+```javascript !! js
+// JavaScript：所有情况使用统一的迭代协议
+const arr = [1, 2, 3, 4, 5];
+
+// 只读迭代——没有"所有权"概念
+for (const n of arr) {
+    console.log(n);
+}
+// 迭代后 arr 仍然可用
+
+// 迭代时修改（需要用索引或修改方法）
+for (let i = 0; i < arr.length; i++) {
+    arr[i] *= 2;
+}
+console.log(arr); // [2, 4, 6, 8, 10]
+
+// "消耗"迭代——JS 没有移走数据的概念
+arr.forEach(n => console.log(n));
+console.log(arr); // [2, 4, 6, 8, 10]——仍然存在
+```
+
+```rust !! rs
+fn main() {
+    let mut numbers = vec![1, 2, 3, 4, 5];
+
+    // iter()——不可变借用；产出 &T；集合迭代后仍可使用
+    println!("--- iter() ---");
+    for n in numbers.iter() {        // n 是 &i32
+        println!("{}", n);
+    }
+    println!("仍然可用: {:?}", numbers);
+
+    // iter_mut()——可变借用；产出 &mut T；可以原地修改
+    println!("--- iter_mut() ---");
+    for n in numbers.iter_mut() {    // n 是 &mut i32
+        *n *= 2;                     // 解引用并修改
+    }
+    println!("翻倍后: {:?}", numbers); // [2, 4, 6, 8, 10]
+
+    // into_iter()——移走集合；产出 T（拥有所有权的值）
+    println!("--- into_iter() ---");
+    let owned_numbers = vec!["a", "b", "c"];
+    for s in owned_numbers.into_iter() {
+        println!("{}", s);
+    }
+    // owned_numbers 不再可用——已被消耗
+
+    // for 循环按值迭代时默认使用 into_iter()
+    let v = vec![10, 20, 30];
+    for n in v {          // 等同于 v.into_iter()
+        println!("{}", n);
+    }
+    // v 已被移走——循环后不能再使用
+
+    // for 循环中用 & 或 &mut 分别对应 iter() 和 iter_mut()
+    let w = vec![1, 2, 3];
+    for n in &w    { println!("{}", n); } // 不可变借用
+    println!("{:?}", w); // w 仍然可访问
+}
+```
+</UniversalEditor>
+
+---
+
+## 7. 收集结果
+
+迭代器链末尾的 `.collect()` 方法将惰性迭代器具化为具体的集合。它是 Rust 中最强大、最灵活的方法之一。
+
+<UniversalEditor title="collect() 收集到 Vec、HashMap、String" compare={true}>
+```javascript !! js
+// JavaScript：数组方法返回数组；没有通用的"collect"
+const numbers = [1, 2, 3, 4, 5];
+
+// 数组方法链式调用并返回数组
+const result = numbers
+    .filter(n => n % 2 !== 0)
+    .map(n => n * n);
+console.log(result); // [1, 9, 25]
+
+// 从键值对构建 Map
+const pairs = [["a", 1], ["b", 2], ["c", 3]];
+const map = new Map(pairs);
+console.log(map);
+
+// 从数组构建 Set
+const unique = new Set([1, 1, 2, 2, 3]);
+console.log(unique);
+
+// 数组转字符串
+const words = ["hello", "world"];
+const sentence = words.join(" ");
+console.log(sentence); // "hello world"
+```
+
+```rust !! rs
+use std::collections::{HashMap, HashSet};
+
+fn main() {
+    let numbers = vec![1, 2, 3, 4, 5];
+
+    // collect() 到 Vec<T>
+    let odds_squared: Vec<i32> = numbers.iter()
+        .filter(|&&n| n % 2 != 0)
+        .map(|&n| n * n)
+        .collect();
+    println!("{:?}", odds_squared); // [1, 9, 25]
+
+    // collect() 到 HashMap<K, V>
+    let pairs = vec![("a", 1), ("b", 2), ("c", 3)];
+    let map: HashMap<&str, i32> = pairs.into_iter().collect();
+    println!("{:?}", map);
+
+    // collect() 到 HashSet<T>（自动去重）
+    let with_dups = vec![1, 1, 2, 2, 3, 3];
+    let unique: HashSet<i32> = with_dups.into_iter().collect();
+    println!("{:?}", unique);
+
+    // collect() 到 String
+    let chars = vec!['h', 'e', 'l', 'l', 'o'];
+    let word: String = chars.into_iter().collect();
+    println!("{}", word); // "hello"
+
+    // collect() 与 Result——将 Vec<Result<T,E>> 收集为 Result<Vec<T>, E>
+    let strings = vec!["1", "2", "3", "4"];
+    let parsed: Result<Vec<i32>, _> = strings.iter()
+        .map(|s| s.parse::<i32>())
+        .collect(); // 第一个错误时快速失败
+    println!("{:?}", parsed); // Ok([1, 2, 3, 4])
+
+    let bad_strings = vec!["1", "two", "3"];
+    let parsed_bad: Result<Vec<i32>, _> = bad_strings.iter()
+        .map(|s| s.parse::<i32>())
+        .collect();
+    println!("{:?}", parsed_bad); // Err(ParseIntError)
+}
+```
+</UniversalEditor>
+
+---
+
+## 8. 总结对比
+
+| 概念 | JavaScript | Rust |
+|---|---|---|
+| 动态数组 | `Array` | `Vec<T>` |
+| 数组越界访问 | `undefined`（静默） | panic（用 `.get()` 获取 `Option`） |
+| 零成本数组视图 | 无（`.slice()` 复制） | `&[T]` 切片 |
+| 拥有所有权的字符串 | `String`（基本类型/对象） | `String` |
+| 借用字符串视图 | 无区别 | `&str` |
+| 键值存储 | `Map` 或 `{}` | `HashMap<K, V>` |
+| 插入或更新 | `map.set(k, (map.get(k) ?? 0) + 1)` | `entry().or_insert(0)` |
+| 唯一值集合 | `Set` | `HashSet<T>` |
+| 集合运算 | 手动（filter、展开） | 内置（`.union()`、`.intersection()`） |
+| 只读迭代 | `for...of` | `iter()` → 产出 `&T` |
+| 修改迭代 | 基于索引的 `for` | `iter_mut()` → 产出 `&mut T` |
+| 消耗迭代 | `forEach`（集合保留） | `into_iter()` → 集合被移走 |
+| 具化迭代器 | 不需要（数组始终具体） | `.collect()` |
+
+---
+
+## 练习
+
+### 练习 1：词频统计
+
+编写一个函数，接受 `&str` 并返回 `HashMap<String, usize>`，统计每个单词出现的次数。
+
+<details>
+<summary>显示答案</summary>
+
+```rust
+use std::collections::HashMap;
+
+fn word_frequency(text: &str) -> HashMap<String, usize> {
+    let mut freq = HashMap::new();
+    for word in text.split_whitespace() {
+        let clean: String = word.chars()
+            .filter(|c| c.is_alphabetic())
+            .map(|c| c.to_lowercase().next().unwrap())
+            .collect();
+        if !clean.is_empty() {
+            *freq.entry(clean).or_insert(0) += 1;
+        }
+    }
+    freq
+}
+
+fn main() {
+    let text = "the quick brown fox jumps over the lazy dog the fox";
+    let freq = word_frequency(text);
+    let mut pairs: Vec<(&String, &usize)> = freq.iter().collect();
+    pairs.sort_by_key(|(word, _)| word.as_str());
+    for (word, count) in pairs {
+        println!("{}: {}", word, count);
+    }
+}
+```
+
+</details>
+
+### 练习 2：Vec 去重排序
+
+给定一个可能包含重复项的 `Vec<i32>`，在不使用 `HashSet` 的情况下返回已排序且去重的 `Vec<i32>`。
+
+<details>
+<summary>显示答案</summary>
+
+```rust
+fn dedup_sorted(mut v: Vec<i32>) -> Vec<i32> {
+    v.sort();
+    v.dedup(); // 删除连续重复项（排序后有效）
+    v
+}
+
+fn main() {
+    let data = vec![3, 1, 4, 1, 5, 9, 2, 6, 5, 3, 5];
+    println!("{:?}", dedup_sorted(data)); // [1, 2, 3, 4, 5, 6, 9]
+}
+```
+
+</details>
+
+### 练习 3：按首字母分组
+
+给定 `Vec<&str>`，构建 `HashMap<char, Vec<&str>>`，按首字符对单词进行分组。
+
+<details>
+<summary>显示答案</summary>
+
+```rust
+use std::collections::HashMap;
+
+fn group_by_first(words: Vec<&str>) -> HashMap<char, Vec<&str>> {
+    let mut map: HashMap<char, Vec<&str>> = HashMap::new();
+    for word in words {
+        if let Some(first) = word.chars().next() {
+            map.entry(first).or_default().push(word);
+        }
+    }
+    map
+}
+
+fn main() {
+    let words = vec!["apple", "ant", "banana", "avocado", "blueberry", "cherry"];
+    let grouped = group_by_first(words);
+    let mut keys: Vec<char> = grouped.keys().cloned().collect();
+    keys.sort();
+    for k in keys {
+        println!("{}: {:?}", k, grouped[&k]);
+    }
+}
+```
+
+</details>

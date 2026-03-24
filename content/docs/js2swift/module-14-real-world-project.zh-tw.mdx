@@ -1,0 +1,875 @@
+---
+title: "第 14 模組：真實專案與最佳實踐"
+description: "使用 Vapor 構建完整的 REST API 伺服器，應用課程中的所有概念。學習 Swift 慣用法、JavaScript 開發者的常見陷阱，以及 Swift 生態系統概覽。"
+---
+
+# 第 14 模組：真實專案與最佳實踐
+
+恭喜你到達最後一個模組！你已經學習了 Swift 的型別系統、可選值、協定、並行、記憶體管理、模組和測試。現在是時候將所有內容整合在一起，使用 **Vapor**——最流行的伺服器端 Swift 框架——構建一個真實的、可執行的 JSON REST API。我們將每個步驟與你已熟悉的 Express.js 模式進行比較。
+
+## 學習目標
+
+✅ 搭建 Vapor 專案，理解其與 Express 相比的專案結構
+✅ 使用 Vapor 的 `app.get()` / `app.post()` API 定義路由
+✅ 使用 `Codable` 替代 `JSON.parse`/`JSON.stringify` 實現自動 JSON 序列化
+✅ 使用 Swift 並行撰寫非同步路由處理器和中介軟體
+✅ 使用 Vapor 的 `AbortError` 和 Swift 的 `throw` 慣用地處理錯誤
+✅ 應用 Swift 最佳實踐，避免 JS 開發者最常見的陷阱
+
+---
+
+## 1. 專案概述
+
+我們將構建 **TaskAPI**——一個包含以下端點的極簡任務管理器 REST API：
+
+| 方法 | 路徑 | 描述 |
+|---|---|---|
+| `GET` | `/tasks` | 列出所有任務 |
+| `POST` | `/tasks` | 建立任務 |
+| `GET` | `/tasks/:id` | 取得單個任務 |
+| `PATCH` | `/tasks/:id` | 更新完成狀態 |
+| `DELETE` | `/tasks/:id` | 刪除任務 |
+
+這與你用 Express + 記憶體儲存構建的內容非常接近，因此你可以專注於 Swift/Vapor 的差異。
+
+---
+
+## 2. 搭建 Vapor
+
+<UniversalEditor title="專案搭建：Express 與 Vapor 對比" compare={true}>
+```javascript !! js
+// Express 搭建
+// $ mkdir task-api && cd task-api
+// $ npm init -y
+// $ npm install express
+
+// package.json
+// {
+//   "type": "module",
+//   "scripts": { "start": "node src/index.js" },
+//   "dependencies": { "express": "^4.18.2" }
+// }
+
+// 專案結構：
+// task-api/
+//   package.json
+//   src/
+//     index.js        ← 進入點
+//     routes/
+//       tasks.js
+//     models/
+//       task.js
+
+// src/index.js
+import express from 'express';
+const app = express();
+app.use(express.json());   // 解析 JSON 請求體
+
+app.listen(3000, () => {
+  console.log('伺服器執行在 http://localhost:3000');
+});
+```
+
+```swift !! swift
+// Vapor 搭建
+// $ brew install vapor
+// $ vapor new TaskAPI --template=bare
+// -- 或 --
+// $ mkdir TaskAPI && cd TaskAPI
+// $ swift package init --type executable
+
+// Package.swift
+// swift-tools-version: 5.9
+// import PackageDescription
+// let package = Package(
+//     name: "TaskAPI",
+//     platforms: [.macOS(.v13)],
+//     dependencies: [
+//         .package(url: "https://github.com/vapor/vapor.git", from: "4.89.0"),
+//     ],
+//     targets: [
+//         .executableTarget(
+//             name: "TaskAPI",
+//             dependencies: [.product(name: "Vapor", package: "vapor")],
+//             path: "Sources/TaskAPI"
+//         )
+//     ]
+// )
+
+// 專案結構：
+// TaskAPI/
+//   Package.swift
+//   Sources/TaskAPI/
+//     entrypoint.swift    ← 進入點（@main）
+//     configure.swift     ← 應用程式設定（類似 Express 中介軟體設定）
+//     routes.swift        ← 路由註冊
+//     Models/
+//       Task.swift
+
+// Sources/TaskAPI/entrypoint.swift
+import Vapor
+
+@main
+struct Entrypoint {
+    static func main() async throws {
+        var env = try Environment.detect()
+        try LoggingSystem.bootstrap(from: &env)
+        let app = Application(env)
+        defer { app.shutdown() }
+        try configure(app)
+        try await app.runFromAsyncMainEntrypoint()
+    }
+}
+```
+</UniversalEditor>
+
+---
+
+## 3. Task 模型
+
+<UniversalEditor title="Task 模型：JS 物件與 Swift 結構體對比" compare={true}>
+```javascript !! js
+// JavaScript：普通物件 + 手動驗證
+
+// src/models/task.js
+import { randomUUID } from 'crypto';
+
+export class Task {
+  constructor(title) {
+    if (!title || title.trim() === '') {
+      throw new Error('Title cannot be empty');
+    }
+    this.id = randomUUID();
+    this.title = title.trim();
+    this.completed = false;
+    this.createdAt = new Date().toISOString();
+  }
+}
+
+// 記憶體儲存（演示用簡單 Map）
+export const taskStore = new Map();
+
+// JSON 序列化透過 res.json() 自動完成
+// JSON 反序列化透過 req.body（經過 express.json()）
+```
+
+```swift !! swift
+// Swift：Codable 結構體——免費獲得序列化！
+
+// Sources/TaskAPI/Models/Task.swift
+import Vapor
+import Foundation
+
+// Content = Vapor 的請求/回應型別協定（封裝了 Codable）
+struct Task: Content, Identifiable {
+    let id: UUID
+    var title: String
+    var completed: Bool
+    let createdAt: Date
+
+    init(title: String) throws {
+        guard !title.trimmingCharacters(in: .whitespaces).isEmpty else {
+            throw Abort(.badRequest, reason: "Title cannot be empty")
+        }
+        self.id = UUID()
+        self.title = title.trimmingCharacters(in: .whitespaces)
+        self.completed = false
+        self.createdAt = Date()
+    }
+}
+
+// 建立任務的 DTO（只包含客戶端傳送的內容）
+struct CreateTaskRequest: Content {
+    let title: String
+}
+
+// 更新任務的 DTO
+struct UpdateTaskRequest: Content {
+    let completed: Bool?
+    let title: String?
+}
+
+// 記憶體儲存（使用 actor 保證執行緒安全——見第 9 模組）
+actor TaskStore {
+    private var tasks: [UUID: Task] = [:]
+
+    func all() -> [Task] { Array(tasks.values).sorted { $0.createdAt < $1.createdAt } }
+    func get(_ id: UUID) -> Task? { tasks[id] }
+    func create(_ task: Task) { tasks[task.id] = task }
+    func update(_ task: Task) { tasks[task.id] = task }
+    func delete(_ id: UUID) { tasks.removeValue(forKey: id) }
+}
+```
+</UniversalEditor>
+
+---
+
+## 4. Vapor 中的路由
+
+<UniversalEditor title="路由：Express 與 Vapor 對比" compare={true}>
+```javascript !! js
+// Express 路由
+const router = Router();
+
+// GET /tasks
+router.get('/', (req, res) => {
+  const tasks = Array.from(taskStore.values());
+  res.json(tasks);
+});
+
+// POST /tasks
+router.post('/', (req, res) => {
+  try {
+    const task = new Task(req.body.title);
+    taskStore.set(task.id, task);
+    res.status(201).json(task);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// GET /tasks/:id
+router.get('/:id', (req, res) => {
+  const task = taskStore.get(req.params.id);
+  if (!task) return res.status(404).json({ error: 'Task not found' });
+  res.json(task);
+});
+
+// DELETE /tasks/:id
+router.delete('/:id', (req, res) => {
+  if (!taskStore.delete(req.params.id)) {
+    return res.status(404).json({ error: 'Task not found' });
+  }
+  res.status(204).send();
+});
+
+export default router;
+```
+
+```swift !! swift
+// Vapor 路由
+import Vapor
+
+let store = TaskStore()
+
+func routes(_ app: Application) throws {
+    let tasks = app.grouped("tasks")
+
+    // GET /tasks
+    tasks.get { req async throws -> [Task] in
+        await store.all()
+    }
+
+    // POST /tasks
+    tasks.post { req async throws -> Response in
+        let body = try req.content.decode(CreateTaskRequest.self)
+        let task = try Task(title: body.title)
+        await store.create(task)
+        return try await task.encodeResponse(status: .created, for: req)
+    }
+
+    // GET /tasks/:id
+    tasks.get(":id") { req async throws -> Task in
+        let id = try req.parameters.require("id", as: UUID.self)
+        guard let task = await store.get(id) else {
+            throw Abort(.notFound, reason: "Task \(id) not found")
+        }
+        return task
+    }
+
+    // PATCH /tasks/:id
+    tasks.patch(":id") { req async throws -> Task in
+        let id = try req.parameters.require("id", as: UUID.self)
+        guard var task = await store.get(id) else {
+            throw Abort(.notFound)
+        }
+        let update = try req.content.decode(UpdateTaskRequest.self)
+        if let completed = update.completed { task.completed = completed }
+        if let title = update.title { task.title = title }
+        await store.update(task)
+        return task
+    }
+
+    // DELETE /tasks/:id
+    tasks.delete(":id") { req async throws -> HTTPStatus in
+        let id = try req.parameters.require("id", as: UUID.self)
+        guard await store.get(id) != nil else { throw Abort(.notFound) }
+        await store.delete(id)
+        return .noContent
+    }
+}
+```
+</UniversalEditor>
+
+---
+
+## 5. 使用 Codable 處理 JSON
+
+Swift 的 `Codable` 協定消除了 Express 中存在的手動序列化樣板程式碼。
+
+<UniversalEditor title="JSON 序列化：JS 與 Swift Codable 對比" compare={true}>
+```javascript !! js
+// JavaScript：手動 JSON 處理
+
+app.post('/tasks', (req, res) => {
+  const { title } = req.body;  // 已經是解析後的物件
+});
+
+app.get('/tasks', (req, res) => {
+  res.json(getAll());   // 自動設定 Content-Type: application/json
+});
+
+// 自訂序列化
+class TaskDTO {
+  constructor(task) {
+    this.taskId = task.id;
+    this.name = task.title;
+    this.isDone = task.completed;
+    this.createdAt = task.createdAt.toISOString();
+  }
+}
+
+const response = {
+  data: tasks.map(t => new TaskDTO(t)),
+  total: tasks.length,
+  page: 1,
+};
+res.json(response);
+```
+
+```swift !! swift
+// Swift：Codable 自動處理一切
+
+// 解碼傳入的 JSON
+app.post("tasks") { req async throws -> Task in
+    let body = try req.content.decode(CreateTaskRequest.self)
+    return try Task(title: body.title)
+}
+
+// 編碼為 JSON — 只需回傳遵循 Content 的型別
+app.get("tasks") { req async throws -> [Task] in
+    return await store.all()
+}
+
+// 自訂 DTO
+struct TaskDTO: Content {
+    let taskId: UUID
+    let name: String
+    let isDone: Bool
+    let createdAt: String
+
+    init(from task: Task) {
+        self.taskId = task.id
+        self.name = task.title
+        self.isDone = task.completed
+        self.createdAt = ISO8601DateFormatter().string(from: task.createdAt)
+    }
+}
+
+// 帶泛型的分頁回應物件
+struct PagedResponse<T: Content>: Content {
+    let data: [T]
+    let total: Int
+    let page: Int
+}
+
+app.get("tasks") { req async throws -> PagedResponse<TaskDTO> in
+    let tasks = await store.all()
+    return PagedResponse(data: tasks.map(TaskDTO.init), total: tasks.count, page: 1)
+}
+```
+</UniversalEditor>
+
+---
+
+## 6. Vapor 中的 Async/Await
+
+<UniversalEditor title="非同步路由處理器：Express 與 Vapor 對比" compare={true}>
+```javascript !! js
+// Express：非同步中介軟體和路由處理器
+
+async function requireAuth(req, res, next) {
+  try {
+    const token = req.headers.authorization?.split(' ')[1];
+    if (!token) return res.status(401).json({ error: 'Unauthorized' });
+    const permissions = await fetchUserPermissions(token);
+    req.user = { permissions };
+    next();
+  } catch (err) {
+    next(err);
+  }
+}
+
+app.get('/tasks', requireAuth, async (req, res, next) => {
+  try {
+    const tasks = await db.query('SELECT * FROM tasks');
+    res.json(tasks);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// 全域錯誤處理器（必須有 4 個參數）
+app.use((err, req, res, next) => {
+  res.status(err.status ?? 500).json({ error: err.message });
+});
+```
+
+```swift !! swift
+// Vapor：async/await 是預設方式——沒有回呼地獄
+
+import Vapor
+
+// 非同步中介軟體
+struct AuthMiddleware: AsyncMiddleware {
+    func respond(to request: Request, chainingTo next: AsyncResponder) async throws -> Response {
+        guard let token = request.headers.bearerAuthorization?.token else {
+            throw Abort(.unauthorized, reason: "Missing bearer token")
+        }
+        let permissions = try await fetchUserPermissions(token: token, db: request.db)
+        request.storage[PermissionsKey.self] = permissions
+        return try await next.respond(to: request)
+    }
+}
+
+// 受中介軟體保護的路由群組
+func routes(_ app: Application) throws {
+    let protected = app.grouped(AuthMiddleware())
+
+    protected.get("tasks") { req async throws -> [Task] in
+        return try await Task.query(on: req.db).all()
+    }
+}
+
+// 自訂錯誤類型
+struct ValidationError: AbortError {
+    var status: HTTPResponseStatus { .unprocessableEntity }
+    var reason: String
+}
+```
+</UniversalEditor>
+
+---
+
+## 7. Vapor 中的錯誤處理
+
+<UniversalEditor title="錯誤處理：Express 與 Vapor 對比" compare={true}>
+```javascript !! js
+// Express 錯誤處理
+
+class AppError extends Error {
+  constructor(message, status = 500) {
+    super(message);
+    this.status = status;
+  }
+}
+
+app.get('/tasks/:id', async (req, res, next) => {
+  try {
+    const task = await db.findById(req.params.id);
+    if (!task) throw new AppError('Task not found', 404);
+    res.json(task);
+  } catch (err) {
+    next(err);   // 必須手動傳遞給錯誤處理器
+  }
+});
+
+app.use((err, req, res, next) => {
+  if (err instanceof AppError) {
+    return res.status(err.status).json({ error: err.message });
+  }
+  res.status(500).json({ error: 'Internal server error' });
+});
+```
+
+```swift !! swift
+// Vapor 錯誤處理——更簡潔
+
+app.get("tasks", ":id") { req async throws -> Task in
+    let id = try req.parameters.require("id", as: UUID.self)
+    guard let task = try await Task.find(id, on: req.db) else {
+        throw Abort(.notFound, reason: "Task \(id) not found")
+    }
+    return task
+}
+
+// 自訂領域錯誤
+enum TaskError: AbortError {
+    case emptyTitle
+    case alreadyCompleted(UUID)
+
+    var status: HTTPResponseStatus {
+        switch self {
+        case .emptyTitle: return .badRequest
+        case .alreadyCompleted: return .conflict
+        }
+    }
+
+    var reason: String {
+        switch self {
+        case .emptyTitle:
+            return "Task title cannot be empty"
+        case .alreadyCompleted(let id):
+            return "Task \(id) is already completed"
+        }
+    }
+}
+
+// 在路由中使用：
+// throw TaskError.emptyTitle
+// → HTTP 400 { "error": true, "reason": "Task title cannot be empty" }
+```
+</UniversalEditor>
+
+---
+
+## 8. JavaScript 開發者的常見陷阱
+
+<UniversalEditor title="常見陷阱 1：濫用強制解包（!）" compare={true}>
+```javascript !! js
+// JavaScript：自然地用 || 或 ?. 處理 undefined/null
+const name = user?.profile?.name || 'Anonymous';
+const port = process.env.PORT || 3000;
+
+function getConfig(key) {
+  const value = process.env[key];
+  if (!value) throw new Error(`Missing config: ${key}`);
+  return value;
+}
+```
+
+```swift !! swift
+// Swift 陷阱：過度使用 !（強制解包）
+
+// 錯誤——如果值為 nil 會在執行時崩潰
+let name = user.profile!.name!
+let port = Int(ProcessInfo.processInfo.environment["PORT"]!)!
+
+// 正確——使用 guard let 或 if let
+guard let portString = ProcessInfo.processInfo.environment["PORT"],
+      let port = Int(portString) else {
+    fatalError("PORT 環境變數缺失或不是數字")
+}
+
+// 正確——使用 nil 合併運算子 ??
+let name = user.profile?.name ?? "Anonymous"
+
+// 正確——在函式中使用 guard let 提前退出
+func getConfig(_ key: String) throws -> String {
+    guard let value = ProcessInfo.processInfo.environment[key],
+          !value.isEmpty else {
+        throw ConfigError.missing(key: key)
+    }
+    return value
+}
+```
+</UniversalEditor>
+
+<UniversalEditor title="常見陷阱 2：閉包中的循環參考" compare={true}>
+```javascript !! js
+// JavaScript：垃圾收集器處理大多數記憶體問題。
+
+class Timer {
+  constructor() {
+    this.count = 0;
+  }
+
+  start() {
+    // 箭頭函式透過詞法作用域捕獲 `this` — 正常運作
+    setInterval(() => {
+      this.count++;
+      console.log(this.count);
+    }, 1000);
+    // JavaScript GC 處理清理；不需要擔心循環參考。
+  }
+}
+```
+
+```swift !! swift
+// Swift 陷阱：閉包中的強參考循環
+
+class TaskViewController {
+    var tasks: [Task] = []
+    var onUpdate: (() -> Void)?
+
+    func setupUpdateHandler() {
+        // 錯誤：`self` 被強引用捕獲——循環參考！
+        onUpdate = {
+            self.tasks = []       // 強引用捕獲 self
+            print("Updated")
+        }
+    }
+
+    func setupUpdateHandlerCorrect() {
+        // 正確：[weak self] 打破循環
+        onUpdate = { [weak self] in
+            guard let self = self else { return }
+            self.tasks = []
+            print("Updated")
+        }
+    }
+
+    func setupTimer() {
+        Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            self?.tick()
+        }
+    }
+
+    func tick() { print("tick") }
+}
+```
+</UniversalEditor>
+
+<UniversalEditor title="常見陷阱 3：值型別的變異" compare={true}>
+```javascript !! js
+// JavaScript：物件是參考型別——變異始終就地進行。
+
+const task = { id: 1, title: '買牛奶', completed: false };
+
+function complete(t) {
+  t.completed = true;   // 直接變異原始物件
+}
+
+complete(task);
+console.log(task.completed);  // true — 同一個物件被變異了
+```
+
+```swift !! swift
+// Swift 陷阱：結構體是值型別——變異建立副本
+
+struct Task {
+    var completed: Bool
+}
+
+// 錯誤：函式接收副本；原始值不會被變異
+func completeTask(_ task: Task) {
+    var copy = task
+    copy.completed = true   // 修改副本，不修改原始值
+}
+
+var myTask = Task(completed: false)
+completeTask(myTask)
+print(myTask.completed)  // 仍然是 false！
+
+// 正確方案 1：inout 參數
+func completeTaskInout(_ task: inout Task) {
+    task.completed = true
+}
+completeTaskInout(&myTask)
+print(myTask.completed)  // true
+
+// 正確方案 2：回傳修改後的副本
+func completed(_ task: Task) -> Task {
+    var copy = task
+    copy.completed = true
+    return copy
+}
+myTask = completed(myTask)
+
+// 正確方案 3：當變異是主要使用場景時使用類別（參考型別）
+class TaskRef {
+    var completed: Bool = false
+}
+```
+</UniversalEditor>
+
+---
+
+## 9. Swift 慣用法和最佳實踐
+
+<UniversalEditor title="Swift 慣用法：guard let 與提前回傳" compare={true}>
+```javascript !! js
+// JavaScript：巢狀 if/else（厄運金字塔）
+function processUser(user) {
+  if (user) {
+    if (user.profile) {
+      if (user.profile.email) {
+        const email = user.profile.email.toLowerCase();
+        if (isValidEmail(email)) {
+          sendWelcome(email);
+          return { success: true };
+        } else {
+          return { error: 'Invalid email' };
+        }
+      } else {
+        return { error: 'No email' };
+      }
+    } else {
+      return { error: 'No profile' };
+    }
+  } else {
+    return { error: 'No user' };
+  }
+}
+```
+
+```swift !! swift
+// Swift 慣用法：guard let 提前回傳（無厄運金字塔）
+func processUser(_ user: User?) throws -> ProcessResult {
+    guard let user = user else { throw UserError.noUser }
+    guard let profile = user.profile else { throw UserError.noProfile }
+    guard let email = profile.email else { throw UserError.noEmail }
+    guard isValidEmail(email) else { throw UserError.invalidEmail(email) }
+
+    // 到這裡，所有值都已安全解包且有效
+    let normalized = email.lowercased()
+    try sendWelcome(to: normalized)
+    return .success
+}
+
+// 何時使用 guard let 而不是 if let：
+// - 失敗應該退出目前作用域
+// - 成功是繼續向下的「快樂路徑」
+// 當需要在同一作用域中處理兩個分支時使用 if let。
+```
+</UniversalEditor>
+
+<UniversalEditor title="Swift 慣用法：Result 型別與值型別" compare={true}>
+```javascript !! js
+// JavaScript：async 用 Promise，或帶 (err, result) 的回呼
+async function fetchTask(id) {
+  const task = await db.find(id);
+  if (!task) throw new NotFoundError(id);
+  return task;
+}
+
+// 沒有內建的 Result 型別
+const result = { ok: true, value: task };
+const error  = { ok: false, error: 'Not found' };
+```
+
+```swift !! swift
+// Swift：Result<Success, Failure> 用於同步可失敗操作
+enum FetchError: Error {
+    case notFound(UUID)
+    case networkError(String)
+}
+
+func loadCachedTask(id: UUID) -> Result<Task, FetchError> {
+    if let task = cache[id] { return .success(task) }
+    return .failure(.notFound(id))
+}
+
+switch loadCachedTask(id: taskID) {
+case .success(let task):
+    print("找到：\(task.title)")
+case .failure(.notFound(let id)):
+    print("沒有 id 為 \(id) 的任務")
+case .failure(.networkError(let msg)):
+    print("網路錯誤：\(msg)")
+}
+
+// 優先使用值型別（結構體）作為資料模型
+struct User: Codable {
+    let id: UUID
+    var name: String
+    var email: String
+}
+
+// 共享可變狀態——使用 actor，不使用類別
+actor UserCache {
+    private var cache: [UUID: User] = [:]
+    func get(_ id: UUID) -> User? { cache[id] }
+    func set(_ user: User) { cache[user.id] = user }
+}
+```
+</UniversalEditor>
+
+---
+
+## 10. Swift 生態系統概覽
+
+<UniversalEditor title="生態系統概覽：Node.js 與 Swift 對比" compare={true}>
+```javascript !! js
+// JavaScript / Node.js 生態系統
+
+// 平台
+// - Web 前端：    React, Vue, Angular
+// - 伺服器端：    Node.js + Express / Fastify / NestJS
+// - 行動端：      React Native
+// - 桌面：        Electron
+// - CLI 工具：    Node.js 腳本
+
+// 流行工具
+// - 套件管理器：  npm / yarn / pnpm
+// - 打包工具：    Webpack, Vite, esbuild
+// - 測試：        Jest, Vitest, Playwright
+// - 程式碼檢查：  ESLint, Prettier
+// - ORM：         Prisma, TypeORM, Drizzle
+// - 部署：        Vercel, Netlify, Railway
+
+// 社群
+// - npmjs.com（數百萬個套件）
+// - GitHub, Stack Overflow
+// - Node.js 基金會
+```
+
+```swift !! swift
+// Swift 生態系統
+
+// 平台
+// - iOS / iPadOS 應用程式：  UIKit, SwiftUI
+// - macOS 應用程式：         AppKit, SwiftUI
+// - watchOS / tvOS：         SwiftUI
+// - 伺服器端 Swift：         Vapor, Hummingbird
+// - 嵌入式 Swift：           微控制器（Swift 5.9+）
+// - CLI 工具：               Swift Argument Parser
+
+// 流行的 SPM 套件
+// - Web 框架：               Vapor
+// - HTTP 用戶端：            AsyncHTTPClient
+// - 資料庫 ORM：             Fluent（隨 Vapor），GRDB
+// - 日誌：                   swift-log（Apple）
+// - 測試：                   XCTest（內建），Swift Testing（內建）
+// - 程式碼檢查：             SwiftLint, SwiftFormat
+// - 密碼學：                 CryptoKit（Apple，內建）
+// - 參數解析：               swift-argument-parser（Apple）
+
+// 社群與學習資源
+// - Swift.org             — 官方文件、部落格、演進提案
+// - Swift Forums          — swift.org/forums
+// - WWDC 議程             — developer.apple.com（免費）
+// - 伺服器端 Swift        — swift.org/server
+// - Hacking with Swift    — hackingwithswift.com（Paul Hudson）
+
+// 與 npm 的關鍵差異：
+// 沒有中央套件登錄檔。套件透過 Git URL 解析。
+// Apple 維護幾個基礎套件：
+//   swift-collections, swift-algorithms, swift-argument-parser,
+//   swift-crypto, swift-log, swift-metrics
+```
+</UniversalEditor>
+
+---
+
+## 總結對比表
+
+| 概念 | JavaScript（Express） | Swift（Vapor） |
+|---|---|---|
+| 框架搭建 | `npm install express` | 在 `Package.swift` 中新增 Vapor |
+| 進入點 | `app.listen(3000)` | `@main` 結構體 + `app.run()` |
+| JSON 請求體解析 | `express.json()` 中介軟體 | 透過 `Content` 協定自動處理 |
+| 路由定義 | `app.get('/path', handler)` | `app.get("path") { req in }` |
+| URL 參數 | `req.params.id` | `req.parameters.require("id")` |
+| 請求體 | `req.body.title` | `req.content.decode(DTO.self)` |
+| 回應 JSON | `res.json(data)` | 回傳遵循 `Content` 的型別 |
+| HTTP 狀態碼 | `res.status(201).json(data)` | `encodeResponse(status: .created)` |
+| 錯誤處理 | `next(err)` + 4 參數中介軟體 | `throw Abort(.notFound)` |
+| 非同步處理器 | `async (req, res) => { }` | `{ req async throws -> T in }` |
+| 中介軟體 | `app.use(fn)` | `app.grouped(MiddlewareType())` |
+| 共享狀態 | 模組層級變數 | `actor` + `await` |
+| 空值安全 | 可選鏈 `?.` + `??` | `guard let` / `if let` / `??` |
+
+---
+
+## 後續步驟
+
+你已經完成了 JavaScript → Swift 學習路徑。以下是後續方向：
+
+- **SwiftUI** — 用宣告式 UI 構建原生 iOS/macOS 應用程式（你的下一個 Swift 大冒險）
+- **Fluent** — Vapor 的資料庫 ORM（PostgreSQL, SQLite, MySQL）
+- **swift.org/server** — 伺服器端 Swift 生態系統、部署指南
+- **Hacking with Swift** — hackingwithswift.com，Paul Hudson 的深度教學
+- **Swift Forums** — forums.swift.org，語言演進討論的地方
+- **WWDC 議程** — developer.apple.com/videos，Apple 的免費深度 Swift 演講
+- **Swift Evolution** — github.com/apple/swift-evolution，了解即將到來的特性

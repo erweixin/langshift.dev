@@ -1,0 +1,453 @@
+---
+title: "第 2 模組：所有權基礎"
+description: "透過對比 Python 的參考計數和垃圾回收機制，理解 Rust 的所有權系統。學習借用檢查器之前必須掌握的核心心智模型。"
+---
+
+# 第 2 模組：所有權基礎
+
+在第 1 模組中，你已經掌握了 Rust 的基礎語法。現在是時候深入了解讓 Rust 獨一無二的概念——也是從 Python 轉過來的開發者最容易卡住的地方：**所有權（Ownership）**。
+
+本模組將幫助你建立理解第 3 模組借用規則所必需的心智模型。
+
+## 學習目標
+
+完成本模組後，你將能夠：
+- ✅ 理解所有權的存在意義及其解決的問題
+- ✅ 區分 Python 的參考計數與 Rust 的編譯期所有權
+- ✅ 掌握所有權三大規則
+- ✅ 理解移動語意與 Python「始終是參考」模型的差異
+- ✅ 了解堆疊記憶體與堆積記憶體（以及為什麼 Rust 要暴露這一區別）
+- ✅ 區分 Copy 型別與 Move 型別
+- ✅ 理解所有權在函式呼叫中的應用
+
+---
+
+## 為什麼記憶體管理很重要
+
+在對比 Python 和 Rust 之前，我們先理解兩者共同面對的問題：**如何安全地回收不再需要的記憶體？**
+
+主要有三種策略：
+1. **手動管理**（C/C++）—— 程式設計師手動呼叫 `malloc`/`free`。效能最優，但容易出現 use-after-free 漏洞和記憶體洩漏。
+2. **垃圾回收**（Python、Java、Go）—— 執行時定期掃描記憶體並回收未使用的物件。安全，但有執行時開銷和不可預期的暫停。
+3. **所有權**（Rust）—— 編譯器追蹤每個值的所有者，在編譯時自動插入清理程式碼。零執行時開銷，安全性與 GC 相當。
+
+Rust 的核心理念：只要遵守嚴格的所有權規則，編譯器就能在零執行時成本的前提下保證記憶體安全。
+
+---
+
+## Python 的記憶體模型：參考計數
+
+Python 使用**參考計數**——每個物件記錄有多少個變數指向它。當計數降為零時，物件被釋放。
+
+<UniversalEditor title="Python 參考計數 vs Rust 所有權">
+```python !! py
+import sys
+
+# Python 建立物件並計算參考數
+data = [1, 2, 3]
+print(sys.getrefcount(data))  # 2（data + getrefcount 參數）
+
+# 另一個參考指向同一個物件
+other = data
+print(sys.getrefcount(data))  # 3
+
+# 刪除一個參考
+del other
+print(sys.getrefcount(data))  # 又回到 2
+
+# 兩個變數指向記憶體中的同一個物件
+a = [10, 20, 30]
+b = a          # b 指向同一個串列
+b.append(40)
+print(a)       # [10, 20, 30, 40] — a 能看到變化！
+print(a is b)  # True — 是同一個物件
+
+# 當參考計數降為 0，Python 釋放記憶體
+del a
+del b
+# 物件現在被釋放了（參考計數 = 0）
+```
+
+```rust !! rs
+// Rust 預設不使用參考計數
+// 每個值在編譯時只有唯一一個所有者
+fn main() {
+    let data = vec![1, 2, 3];
+    // `data` 是這個 Vec 的唯一所有者
+
+    // 這會轉移所有權 — data 之後不再有效
+    let other = data;
+    // println!("{:?}", data);  // 錯誤：值已被移走！
+
+    println!("{:?}", other);  // OK：other 現在是所有者
+
+    // 如果需要兩個變數持有相同內容，
+    // 必須顯式克隆
+    let a = vec![10, 20, 30];
+    let b = a.clone();   // b 獲得自己的獨立副本
+    println!("{:?}", a); // OK：a 仍然擁有自己的副本
+    println!("{:?}", b); // OK：b 擁有自己的副本
+    // 兩者在離開作用域時都會被釋放
+}
+```
+</UniversalEditor>
+
+**核心區別：** Python 總是給你一個指向共享物件的參考。Rust 給你一個已擁有的值——並且同一時間只有一個變數能擁有它。
+
+---
+
+## 所有權三大規則
+
+Rust 在編譯時強制執行以下三條規則。每一個有效的 Rust 程式都必須遵守：
+
+> **規則一：** Rust 中的每個值都有一個*所有者*（owner）。
+> **規則二：** 同一時間只能有*一個所有者*。
+> **規則三：** 當所有者*離開作用域*時，值會被丟棄（釋放）。
+
+<UniversalEditor title="規則三：基於作用域的自動清理">
+```python !! py
+# Python：物件存活直到參考計數 = 0
+
+def create_data():
+    temp = [1, 2, 3]
+    # 函式返回時 temp 的參考計數降為 0
+    return  # temp 在此離開作用域
+
+create_data()
+
+# 可以追蹤物件被刪除的時機：
+class TrackDeletion:
+    def __del__(self):
+        print("我被釋放了！")
+
+obj = TrackDeletion()
+del obj  # 觸發 __del__（但時機不確定）
+```
+
+```rust !! rs
+// Rust：值在所有者離開作用域時被 *立即* 釋放
+
+struct TrackDeletion {
+    name: String,
+}
+
+impl Drop for TrackDeletion {
+    fn drop(&mut self) {
+        println!("{} 被釋放了！", self.name);
+    }
+}
+
+fn create_data() {
+    let temp = vec![1, 2, 3];
+    println!("使用 temp：{:?}", temp);
+    // temp 在這裡被釋放——作用域結束時精確釋放
+}
+
+fn main() {
+    create_data();
+    println!("create_data 呼叫後");
+
+    {
+        let obj = TrackDeletion { name: String::from("obj") };
+        println!("obj 已建立");
+    } // "obj 被釋放了！" 在這裡印出——確定性的！
+
+    println!("內部作用域結束後");
+}
+```
+</UniversalEditor>
+
+---
+
+## 移動語意：Python 開發者最大的意外
+
+在 Python 中，將一個變數賦值給另一個變數，總是建立一個指向同一物件的新參考。在 Rust 中，賦值會*轉移*所有權。
+
+<UniversalEditor title="Python 參考 vs Rust 移動">
+```python !! py
+# Python：賦值建立新參考（對於可變物件如串列）
+original = [1, 2, 3]
+moved = original  # 兩者指向同一個串列
+
+# original 仍然有效！
+print(original)   # [1, 2, 3]
+print(moved)      # [1, 2, 3]
+
+# 對於不可變物件，Python 可能複製也可能參考
+x = 42
+y = x
+y = 100
+print(x)  # 42 — 整數看起來像是「被複製了」
+print(y)  # 100
+```
+
+```rust !! rs
+fn main() {
+    // Rust：堆積型別的賦值會轉移所有權
+    let original = vec![1, 2, 3];  // 堆積分配
+    let moved = original;           // 所有權被轉移！
+
+    // original 不再有效 — 編譯器知道這一點
+    // println!("{:?}", original);  // 錯誤：使用了已移走的值
+
+    println!("{:?}", moved);   // OK
+
+    // 對於堆疊型別（整數、布林等），賦值會複製
+    let x: i32 = 42;
+    let y = x;    // x 被複製，不是移動
+    println!("{}", x);  // OK！i32 實作了 Copy trait
+    println!("{}", y);  // OK！
+}
+```
+</UniversalEditor>
+
+### 為什麼 Rust 要這樣做？
+
+如果 Rust 允許兩個所有者，兩者都可能嘗試釋放同一塊記憶體——這就是**雙重釋放**（double-free）漏洞。透過只允許一個所有者，Rust 保證值只被釋放一次。
+
+---
+
+## 堆疊 vs 堆積：Rust 暴露了 Python 隱藏的細節
+
+<UniversalEditor title="堆疊記憶體 vs 堆積記憶體">
+```python !! py
+# Python 完全隱藏了堆疊/堆積的區別
+# 所有物件都在堆積上（連小整數也是物件！）
+x = 42        # 堆積上的整數物件！
+s = "hello"   # 堆積上的字串物件
+lst = [1,2,3] # 堆積上的串列物件
+
+# Python 總是給你一個指向堆積記憶體的參考
+print(id(x))   # 某個堆積位址
+print(id(s))   # 某個堆積位址
+
+a = 1000
+b = 1000
+print(a is b)  # False！不同的堆積物件
+```
+
+```rust !! rs
+fn main() {
+    // Rust：你可以明確選擇堆疊還是堆積
+
+    // 堆疊：大小固定，速度快，自動釋放
+    let x: i32 = 42;         // 堆疊上 4 位元組
+    let b: bool = true;       // 堆疊上 1 位元組
+    let f: f64 = 3.14;        // 堆疊上 8 位元組
+    let arr: [i32; 3] = [1, 2, 3];  // 堆疊上 12 位元組
+
+    // 堆積：大小動態，透過所有權管理
+    let s = String::from("hello");  // 元資料在堆疊，文字在堆積
+    let v = vec![1, 2, 3];          // 元資料在堆疊，資料在堆積
+
+    // 字串字面量（&str）是指向唯讀記憶體的堆疊參考
+    let literal: &str = "hello";  // 堆疊上的指標 + 長度
+
+    println!("堆疊：{}, {}, {}, {:?}", x, b, f, arr);
+    println!("堆積：{}, {:?}", s, v);
+    println!("字面量：{}", literal);
+}
+```
+</UniversalEditor>
+
+---
+
+## Copy 型別 vs Move 型別
+
+<UniversalEditor title="Copy 型別 vs Move 型別">
+```python !! py
+# Python 沒有明確的 Copy/Move 區別
+
+# 這些行為像「copy」型別（Python 中不可變）：
+a = 42
+b = a
+b = 100
+print(a)   # 42 — a 沒變
+
+# 這些行為像「參考」型別：
+lst1 = [1, 2, 3]
+lst2 = lst1
+lst2.append(4)
+print(lst1)  # [1, 2, 3, 4] — 同一個物件！
+```
+
+```rust !! rs
+fn main() {
+    // Copy 型別（純堆疊型別，複製代價低）：
+    // i8, i16, i32, i64, i128, isize
+    // u8, u16, u32, u64, u128, usize
+    // f32, f64, bool, char
+    // 由 Copy 型別組成的元組/陣列
+
+    let a: i32 = 42;
+    let b = a;       // 複製該值
+    println!("{}", a);  // OK！a 仍然有效
+    println!("{}", b);  // OK！b 有自己的副本
+
+    // Move 型別（堆積分配，複製代價高）：
+    // String、Vec<T>、HashMap、Box<T> 等
+
+    let s = String::from("hello");
+    let s2 = s;      // 轉移所有權
+    // println!("{}", s);  // 錯誤：已被移走
+
+    // 要複製 Move 型別，使用 .clone()
+    let v1 = vec![1, 2, 3];
+    let v2 = v1.clone();   // 顯式深層複製
+    println!("{:?}", v1);  // OK！v1 保留了資料
+    println!("{:?}", v2);  // OK！v2 有自己的副本
+}
+```
+</UniversalEditor>
+
+---
+
+## 所有權與函式
+
+<UniversalEditor title="函式呼叫中的所有權">
+```python !! py
+# Python：傳遞給函式時傳遞的是參考
+def append_item(lst, item):
+    lst.append(item)
+
+numbers = [1, 2, 3]
+append_item(numbers, 4)
+print(numbers)  # [1, 2, 3, 4] — 原始串列被修改！
+
+def use_string(s):
+    print(f"使用：{s}")
+
+name = "Alice"
+use_string(name)
+print(name)  # "Alice" 仍然可用
+```
+
+```rust !! rs
+fn take_ownership(s: String) {
+    println!("獲得：{}", s);
+    // 函式結束時 s 在此被丟棄
+}
+
+fn copy_value(n: i32) {
+    println!("獲得：{}", n);
+    // n 是副本——原始值仍然有效
+}
+
+fn give_back(s: String) -> String {
+    println!("使用：{}", s);
+    s  // 返回值——將所有權轉移回去！
+}
+
+fn main() {
+    let s1 = String::from("hello");
+    take_ownership(s1);      // s1 被移入函式
+    // println!("{}", s1);   // 錯誤：s1 不再有效！
+
+    let n = 42;
+    copy_value(n);           // n 被複製到函式中
+    println!("{}", n);       // OK！n 仍然有效
+
+    let s2 = String::from("world");
+    let s3 = give_back(s2);  // s2 移入，所有權以 s3 的形式返回
+    println!("{}", s3);      // OK！
+}
+```
+</UniversalEditor>
+
+---
+
+## 總結：Python vs Rust 記憶體模型
+
+| 概念 | Python | Rust |
+|------|--------|------|
+| 記憶體管理 | 垃圾回收 + 參考計數 | 編譯期所有權規則 |
+| 變數賦值 | 建立新參考 | 轉移所有權（對於堆積型別） |
+| 多變數持有同一資料 | 簡單，直接賦值 | 需要 `.clone()` |
+| 記憶體釋放時機 | 參考計數 = 0（或 GC） | 所有者離開作用域時（確定性） |
+| 堆疊分配 | 大多隱藏 | 顯式——基本型別在堆疊上 |
+| 執行時開銷 | GC 暫停、參考計數更新 | 零——全部在編譯時解決 |
+| 安全性 | 可能出現執行時錯誤（少見） | 編譯時保證（無記憶體漏洞） |
+
+---
+
+## 展望：第 3 模組
+
+你現在已經掌握了基礎。在下一個模組中，你將學習**借用（Borrowing）**——Rust 解決函式間頻繁移動所有權之繁瑣的方案。
+
+```rust
+// 與其轉移所有權：
+let result = take_and_return(my_string);
+
+// 可以借用它：
+use_string(&my_string);    // &String = 不可變借用
+println!("{}", my_string); // 仍然有效！
+```
+
+借用檢查器在第 3 模組中強制執行兩條規則：
+- 可以同時有**多個不可變借用**，或者
+- 可以有**恰好一個可變借用**——但兩種情況不能同時存在
+
+第 3 模組見！
+
+---
+
+## 練習題
+
+<details>
+<summary>練習 1：預測行為</summary>
+
+這段程式碼會發生什麼？能編譯通過嗎？
+
+```rust
+fn main() {
+    let s = String::from("hello");
+    let t = s;
+    let u = s;
+    println!("{}", u);
+}
+```
+
+**答案：** 編譯失敗。第 3 行 `s` 的所有權被移動到 `t`。當第 4 行嘗試將 `s` 移動到 `u` 時，編譯器會拒絕。修復方法：賦值給 `t` 時使用 `s.clone()`。
+</details>
+
+<details>
+<summary>練習 2：Copy vs Move</summary>
+
+以下哪些程式碼能編譯？為什麼？
+
+```rust
+fn main() {
+    let a: f64 = 3.14;
+    let b = a;
+    println!("{} {}", a, b);  // (A)
+
+    let v = vec![1, 2, 3];
+    let w = v;
+    println!("{:?} {:?}", v, w);  // (B)
+}
+```
+
+**答案：** (A) 可以編譯——`f64` 實作了 `Copy`，複製後兩者都有效。(B) 無法編譯——`Vec<i32>` 是 Move 型別，`w = v` 轉移了所有權，`v` 變為無效。
+</details>
+
+<details>
+<summary>練習 3：修復所有權錯誤</summary>
+
+在不改變功能的前提下修復以下程式碼：
+
+```rust
+fn print_vec(v: Vec<i32>) {
+    println!("{:?}", v);
+}
+
+fn main() {
+    let nums = vec![1, 2, 3];
+    print_vec(nums);
+    print_vec(nums);  // 錯誤
+}
+```
+
+**答案：** 兩種方式：
+1. 傳入前克隆：`print_vec(nums.clone()); print_vec(nums);`
+2. （更好的方式，第 3 模組會講）使用借用：將參數改為 `v: &Vec<i32>` 並呼叫 `print_vec(&nums)`。
+</details>

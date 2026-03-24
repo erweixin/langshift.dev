@@ -1,0 +1,633 @@
+---
+title: "第 17 模块：泛型与密封类"
+description: "掌握 Kotlin 泛型：类型参数、型变（in/out）、具体化类型、密封类层次结构与代数数据类型——与 JavaScript/TypeScript 泛型对比。"
+---
+
+# 第 17 模块：泛型与密封类
+
+欢迎来到 JavaScript 到 Kotlin 转换课程的第 17 模块！本模块深入探讨 Kotlin 类型系统中最强大的特性之一：泛型与密封类。这些工具让你编写可复用、类型安全的代码，并精准建模领域问题——远超普通 JavaScript 所能实现的。
+
+## 学习目标
+
+完成本模块后，你将能够：
+
+- ✅ 在 Kotlin 中定义带类型参数的泛型函数与类
+- ✅ 应用型变注解（`in` 和 `out`）控制泛型类型之间的关系
+- ✅ 使用 `reified` 类型参数结合 `inline` 函数在运行时检查类型
+- ✅ 用 `sealed class` 和穷举 `when` 表达式建模代数数据类型
+- ✅ 利用 `sealed interface` 实现灵活的多文件层次结构（Kotlin 1.5+）
+- ✅ 应用泛型约束（`<T : SomeType>`）并与 TypeScript 的 `extends` 对比
+
+---
+
+## 1. 泛型函数与类
+
+JavaScript 是动态类型的，因此很少需要显式泛型函数。TypeScript 添加了泛型，但 Kotlin 的泛型在编译时检查更为严格。
+
+<UniversalEditor title="泛型标识函数" compare={true}>
+```javascript !! js
+// JavaScript — 无需类型，任何值都可使用
+function identity(x) {
+  return x;
+}
+
+// TypeScript 等价泛型版本：
+// function identity<T>(x: T): T { return x; }
+
+console.log(identity(42));        // 42
+console.log(identity("hello"));   // "hello"
+console.log(identity([1, 2, 3])); // [1, 2, 3]
+
+// 泛型数组工具函数
+function firstOrNull(arr) {
+  return arr.length > 0 ? arr[0] : null;
+}
+
+console.log(firstOrNull([10, 20])); // 10
+console.log(firstOrNull([]));       // null
+```
+
+```kotlin !! kotlin
+// Kotlin — 显式类型参数 <T>
+fun <T> identity(x: T): T = x
+
+fun main() {
+    println(identity(42))          // 42
+    println(identity("hello"))     // hello
+    println(identity(listOf(1,2,3))) // [1, 2, 3]
+
+    // 泛型工具函数
+    fun <T> firstOrNull(list: List<T>): T? =
+        if (list.isNotEmpty()) list[0] else null
+
+    println(firstOrNull(listOf(10, 20))) // 10
+    println(firstOrNull(emptyList<Int>())) // null
+}
+```
+</UniversalEditor>
+
+<UniversalEditor title="泛型类" compare={true}>
+```javascript !! js
+// JavaScript 类似泛型的类（无类型安全）
+class Box {
+  constructor(value) {
+    this.value = value;
+  }
+
+  getValue() {
+    return this.value;
+  }
+
+  map(transform) {
+    return new Box(transform(this.value));
+  }
+
+  toString() {
+    return `Box(${this.value})`;
+  }
+}
+
+// TypeScript 版本：
+// class Box<T> {
+//   constructor(public readonly value: T) {}
+//   map<U>(transform: (v: T) => U): Box<U> { return new Box(transform(this.value)); }
+// }
+
+const intBox = new Box(42);
+const strBox = intBox.map(n => n.toString());
+console.log(intBox.getValue()); // 42
+console.log(strBox.getValue()); // "42"
+
+// Pair 类
+class Pair {
+  constructor(first, second) {
+    this.first = first;
+    this.second = second;
+  }
+}
+
+const p = new Pair("name", 25);
+console.log(p.first, p.second); // "name" 25
+```
+
+```kotlin !! kotlin
+// Kotlin 泛型类，具有完整类型安全
+data class Box<T>(val value: T) {
+    fun <U> map(transform: (T) -> U): Box<U> =
+        Box(transform(value))
+
+    override fun toString(): String = "Box($value)"
+}
+
+// 泛型数据类
+data class Pair<A, B>(val first: A, val second: B)
+
+fun main() {
+    val intBox = Box(42)
+    val strBox = intBox.map { it.toString() }
+
+    println(intBox.value)   // 42
+    println(strBox.value)   // "42"
+    println(intBox)         // Box(42)
+
+    val p = Pair("name", 25)
+    println("${p.first} ${p.second}") // name 25
+
+    // 编译器知道确切的类型
+    val numBox: Box<Int> = Box(100)
+    // val wrong: Box<String> = numBox  // 编译错误！
+}
+```
+</UniversalEditor>
+
+---
+
+## 2. 型变：`in` 与 `out`
+
+型变控制 `Container<T>` 与 `Container<Subtype>` 之间的关系。TypeScript 使用结构子类型；Kotlin 使用显式声明点型变。
+
+<UniversalEditor title="协变（out）与逆变（in）" compare={true}>
+```javascript !! js
+// JavaScript / TypeScript 型变
+// TypeScript 使用 'extends' 进行有界泛型
+// 但型变大多是结构性的（隐式的）
+
+// 生产者 — 读取 T，从不写入
+class Producer {
+  constructor(items) {
+    this.items = items;
+  }
+  get(index) {
+    return this.items[index];
+  }
+}
+
+// 消费者 — 写入 T，从不以 T 的形式读取
+class Consumer {
+  constructor() {
+    this.log = [];
+  }
+  accept(value) {
+    this.log.push(value.toString());
+  }
+}
+
+// 在 TypeScript 中：
+// const numProducer: Producer<number> = new Producer([1,2,3]);
+// const anyProducer: Producer<any> = numProducer; // 使用 'out' 时 OK
+
+const producer = new Producer([1, 2, 3]);
+console.log(producer.get(0)); // 1
+
+const consumer = new Consumer();
+consumer.accept(42);
+consumer.accept("hello");
+console.log(consumer.log); // ["42", "hello"]
+```
+
+```kotlin !! kotlin
+// Kotlin 声明点型变
+
+// 'out T' = 协变 = 生产者（只能返回 T）
+class Producer<out T>(private val items: List<T>) {
+    fun get(index: Int): T = items[index]
+    // fun set(t: T) {} // 编译错误！不能消费 out 类型
+}
+
+// 'in T' = 逆变 = 消费者（只能接受 T）
+class Consumer<in T> {
+    private val log = mutableListOf<String>()
+    fun accept(value: T) { log.add(value.toString()) }
+    fun printLog() = println(log)
+}
+
+fun main() {
+    val numProducer: Producer<Int> = Producer(listOf(1, 2, 3))
+    // 协变：Producer<Int> 是 Producer<Number> 的子类型
+    val numericProducer: Producer<Number> = numProducer // OK！
+    println(numericProducer.get(0)) // 1
+
+    val anyConsumer: Consumer<Any> = Consumer()
+    // 逆变：Consumer<Any> 是 Consumer<Int> 的子类型
+    val intConsumer: Consumer<Int> = anyConsumer // OK！
+    intConsumer.accept(42)
+    anyConsumer.accept("hello")
+    anyConsumer.printLog() // [42, hello]
+}
+```
+</UniversalEditor>
+
+---
+
+## 3. 具体化类型参数
+
+JavaScript 在运行时没有类型信息。Kotlin 的 `inline` 函数配合 `reified` 类型参数允许你在运行时访问实际类型 `T`——这在普通泛型中因 JVM 类型擦除而无法实现。
+
+<UniversalEditor title="具体化类型——运行时类型检查" compare={true}>
+```javascript !! js
+// JavaScript — 使用 instanceof 或 typeof 在运行时检查
+function isType(value, type) {
+  if (type === 'string') return typeof value === 'string';
+  if (type === 'number') return typeof value === 'number';
+  return value instanceof type;
+}
+
+console.log(isType("hello", 'string'));  // true
+console.log(isType(42, 'string'));       // false
+console.log(isType([], Array));          // true
+
+// TypeScript 泛型在运行时被擦除——无法等价于 reified！
+// function isType<T>(value: unknown): value is T { ... }
+// TS 版本在没有变通方案的情况下无法在运行时实际检查 T。
+
+// 按类型过滤
+function filterByType(arr, type) {
+  return arr.filter(item => isType(item, type));
+}
+
+const mixed = [1, "a", 2, "b", true];
+console.log(filterByType(mixed, 'string')); // ["a", "b"]
+console.log(filterByType(mixed, 'number')); // [1, 2]
+```
+
+```kotlin !! kotlin
+// Kotlin 具体化类型参数——T 在运行时可用！
+inline fun <reified T> isType(value: Any): Boolean =
+    value is T
+
+inline fun <reified T> filterByType(list: List<Any>): List<T> =
+    list.filterIsInstance<T>()
+
+// 具体化允许我们获取类本身
+inline fun <reified T> classNameOf(): String =
+    T::class.simpleName ?: "Unknown"
+
+fun main() {
+    println(isType<String>("hello"))   // true
+    println(isType<Int>(42))           // true
+    println(isType<String>(42))        // false
+
+    val mixed: List<Any> = listOf(1, "a", 2, "b", true, 3.14)
+    println(filterByType<String>(mixed))  // [a, b]
+    println(filterByType<Int>(mixed))     // [1, 2]
+
+    println(classNameOf<String>())  // String
+    println(classNameOf<Int>())     // Int
+}
+```
+</UniversalEditor>
+
+---
+
+## 4. 密封类作为代数数据类型
+
+TypeScript 使用辨别联合类型建模领域类型。Kotlin 的 `sealed class` 提供同等能力，并通过编译器检查 `when` 表达式的穷举性。
+
+<UniversalEditor title="密封类与 TypeScript 辨别联合" compare={true}>
+```javascript !! js
+// TypeScript 辨别联合（JS 没有类型级等价物）
+// type Shape =
+//   | { kind: 'circle'; radius: number }
+//   | { kind: 'rectangle'; width: number; height: number }
+//   | { kind: 'triangle'; base: number; height: number }
+
+// JavaScript 使用普通对象 + kind 字段模拟
+function makeCircle(radius) {
+  return { kind: 'circle', radius };
+}
+function makeRectangle(width, height) {
+  return { kind: 'rectangle', width, height };
+}
+function makeTriangle(base, height) {
+  return { kind: 'triangle', base, height };
+}
+
+function area(shape) {
+  switch (shape.kind) {
+    case 'circle':
+      return Math.PI * shape.radius ** 2;
+    case 'rectangle':
+      return shape.width * shape.height;
+    case 'triangle':
+      return 0.5 * shape.base * shape.height;
+    default:
+      throw new Error(`未知图形: ${shape.kind}`);
+  }
+}
+
+const shapes = [
+  makeCircle(5),
+  makeRectangle(4, 6),
+  makeTriangle(3, 8),
+];
+
+shapes.forEach(s => console.log(`面积: ${area(s).toFixed(2)}`));
+// 面积: 78.54
+// 面积: 24.00
+// 面积: 12.00
+```
+
+```kotlin !! kotlin
+// Kotlin 密封类——编译器强制穷举 when
+sealed class Shape {
+    data class Circle(val radius: Double) : Shape()
+    data class Rectangle(val width: Double, val height: Double) : Shape()
+    data class Triangle(val base: Double, val height: Double) : Shape()
+}
+
+fun area(shape: Shape): Double = when (shape) {
+    is Shape.Circle    -> Math.PI * shape.radius * shape.radius
+    is Shape.Rectangle -> shape.width * shape.height
+    is Shape.Triangle  -> 0.5 * shape.base * shape.height
+    // 不需要 'else'——编译器验证所有情况都已覆盖！
+    // 添加新子类而不更新 'when' = 编译错误
+}
+
+fun describe(shape: Shape): String = when (shape) {
+    is Shape.Circle    -> "半径为 ${shape.radius} 的圆"
+    is Shape.Rectangle -> "矩形 ${shape.width}x${shape.height}"
+    is Shape.Triangle  -> "三角形 底=${shape.base} 高=${shape.height}"
+}
+
+fun main() {
+    val shapes: List<Shape> = listOf(
+        Shape.Circle(5.0),
+        Shape.Rectangle(4.0, 6.0),
+        Shape.Triangle(3.0, 8.0),
+    )
+
+    shapes.forEach { s ->
+        println("${describe(s)} → 面积: ${"%.2f".format(area(s))}")
+    }
+}
+```
+</UniversalEditor>
+
+---
+
+## 5. 密封接口（Kotlin 1.5+）
+
+`sealed interface` 比 `sealed class` 更灵活——实现类可以继承其他类或实现多个密封接口。
+
+<UniversalEditor title="密封接口" compare={true}>
+```javascript !! js
+// JavaScript 状态管理模拟
+const UiState = {
+  loading: () => ({ kind: 'loading' }),
+  success: (data) => ({ kind: 'success', data }),
+  error: (message) => ({ kind: 'error', message }),
+};
+
+function renderState(state) {
+  switch (state.kind) {
+    case 'loading': return '加载中...';
+    case 'success': return `数据: ${JSON.stringify(state.data)}`;
+    case 'error':   return `错误: ${state.message}`;
+    default:        return '未知状态';
+  }
+}
+
+const states = [
+  UiState.loading(),
+  UiState.success({ users: ['Alice', 'Bob'] }),
+  UiState.error('网络超时'),
+];
+
+states.forEach(s => console.log(renderState(s)));
+// 加载中...
+// 数据: {"users":["Alice","Bob"]}
+// 错误: 网络超时
+```
+
+```kotlin !! kotlin
+// Kotlin 密封接口——实现类可以继承其他类
+sealed interface UiState<out T>
+
+data object Loading : UiState<Nothing>
+
+data class Success<T>(val data: T) : UiState<T>
+
+data class Error(val message: String, val cause: Throwable? = null) : UiState<Nothing>
+
+// 一个类可以实现多个密封接口
+sealed interface Refreshable
+data object Refreshing : UiState<Nothing>, Refreshable
+
+fun <T> renderState(state: UiState<T>): String = when (state) {
+    is Loading    -> "加载中..."
+    is Success    -> "数据: ${state.data}"
+    is Error      -> "错误: ${state.message}"
+    is Refreshing -> "刷新中..."
+}
+
+fun main() {
+    val states: List<UiState<*>> = listOf(
+        Loading,
+        Success(mapOf("users" to listOf("Alice", "Bob"))),
+        Error("网络超时"),
+        Refreshing,
+    )
+
+    states.forEach { println(renderState(it)) }
+    // 加载中...
+    // 数据: {users=[Alice, Bob]}
+    // 错误: 网络超时
+    // 刷新中...
+}
+```
+</UniversalEditor>
+
+---
+
+## 6. 泛型约束
+
+<UniversalEditor title="泛型约束与上界" compare={true}>
+```javascript !! js
+// JavaScript — 没有编译时约束强制
+// TypeScript: function max<T extends Comparable>(a: T, b: T): T
+
+// JS 运行时检查方式
+function max(a, b) {
+  if (typeof a !== typeof b) throw new Error('类型不匹配');
+  return a > b ? a : b;
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+console.log(max(3, 7));              // 7
+console.log(max("apple", "banana")); // "banana"
+console.log(clamp(15, 0, 10));      // 10
+
+// TypeScript 多重约束：
+// function process<T extends Serializable & Loggable>(item: T): void
+
+// JS 泛型排序——对任何类型都有效但没有类型安全
+function sortList(arr, compareFn) {
+  return [...arr].sort(compareFn);
+}
+
+const nums = sortList([3,1,4,1,5], (a, b) => a - b);
+const strs = sortList(['banana','apple','cherry'], (a, b) => a.localeCompare(b));
+console.log(nums); // [1, 1, 3, 4, 5]
+console.log(strs); // ["apple", "banana", "cherry"]
+```
+
+```kotlin !! kotlin
+// Kotlin 泛型约束与上界
+fun <T : Comparable<T>> max(a: T, b: T): T = if (a > b) a else b
+
+fun <T : Comparable<T>> clamp(value: T, min: T, max: T): T =
+    if (value < min) min else if (value > max) max else value
+
+// 使用 'where' 的多重上界
+interface Printable { fun print() }
+interface Serializable { fun serialize(): String }
+
+fun <T> processItem(item: T) where T : Printable, T : Serializable {
+    item.print()
+    println(item.serialize())
+}
+
+// 带约束类型的泛型扩展
+fun <T : Comparable<T>> List<T>.sortedAndDistinct(): List<T> =
+    this.toSortedSet().toList()
+
+fun main() {
+    println(max(3, 7))              // 7
+    println(max("apple", "banana")) // banana
+    println(clamp(15, 0, 10))      // 10
+    println(clamp(5, 0, 10))       // 5
+
+    val nums = listOf(3, 1, 4, 1, 5, 9, 2, 6, 5)
+    println(nums.sortedAndDistinct())  // [1, 2, 3, 4, 5, 6, 9]
+
+    val words = listOf("banana", "apple", "cherry", "apple")
+    println(words.sortedAndDistinct()) // [apple, banana, cherry]
+}
+```
+</UniversalEditor>
+
+---
+
+## 总结对照表
+
+| 概念 | JavaScript / TypeScript | Kotlin |
+|---|---|---|
+| 泛型函数 | `function f<T>(x: T): T` | `fun <T> f(x: T): T` |
+| 泛型类 | `class Box<T>` | `class Box<T>(val v: T)` |
+| 协变 | 结构性（隐式） | `out T`（声明点） |
+| 逆变 | 结构性（隐式） | `in T`（声明点） |
+| 具体化类型 | 不可用（被擦除） | `inline fun <reified T>` |
+| 辨别联合 | TS: `type A = X \| Y` | `sealed class` / `sealed interface` |
+| 穷举检查 | TS: 无强制 | `when` 不完整则编译错误 |
+| 泛型约束 | `<T extends Comparable>` | `<T : Comparable<T>>` |
+| 多重约束 | `<T extends A & B>` | `where T : A, T : B` |
+| 密封子类 | 不适用 | `data class X : Sealed()` |
+
+---
+
+## 练习
+
+### 练习 1：泛型栈
+
+用 Kotlin 实现一个泛型 `Stack<T>` 类，包含 `push`、`pop`、`peek` 和 `isEmpty` 操作。确保 `pop` 和 `peek` 安全返回 `T?`。
+
+<details>
+<summary>查看答案</summary>
+
+```kotlin
+class Stack<T> {
+    private val elements = mutableListOf<T>()
+
+    fun push(item: T) { elements.add(item) }
+
+    fun pop(): T? = if (elements.isNotEmpty()) elements.removeLast() else null
+
+    fun peek(): T? = elements.lastOrNull()
+
+    val isEmpty: Boolean get() = elements.isEmpty()
+
+    val size: Int get() = elements.size
+
+    override fun toString(): String = "Stack($elements)"
+}
+
+fun main() {
+    val stack = Stack<Int>()
+    stack.push(1)
+    stack.push(2)
+    stack.push(3)
+    println(stack.peek())  // 3
+    println(stack.pop())   // 3
+    println(stack.size)    // 2
+    println(stack)         // Stack([1, 2])
+}
+```
+
+</details>
+
+### 练习 2：网络状态密封类
+
+建模一个 `NetworkResult<T>` 密封类，包含三个状态：`Loading`、`Success(data: T)` 和 `Error(code: Int, message: String)`。编写一个 `handleResult` 函数，使用 `when` 为每个状态打印不同消息。
+
+<details>
+<summary>查看答案</summary>
+
+```kotlin
+sealed class NetworkResult<out T> {
+    data object Loading : NetworkResult<Nothing>()
+    data class Success<T>(val data: T) : NetworkResult<T>()
+    data class Error(val code: Int, val message: String) : NetworkResult<Nothing>()
+}
+
+fun <T> handleResult(result: NetworkResult<T>) {
+    when (result) {
+        is NetworkResult.Loading ->
+            println("正在获取数据，请稍候...")
+        is NetworkResult.Success ->
+            println("获取数据成功: ${result.data}")
+        is NetworkResult.Error ->
+            println("错误 ${result.code}: ${result.message}")
+    }
+}
+
+fun main() {
+    handleResult(NetworkResult.Loading)
+    handleResult(NetworkResult.Success(listOf("Alice", "Bob")))
+    handleResult(NetworkResult.Error(404, "未找到"))
+}
+```
+
+</details>
+
+### 练习 3：带约束的泛型 `findFirst`
+
+编写一个泛型函数 `findFirst`，接受 `List<T>` 和谓词 `(T) -> Boolean`，返回第一个匹配元素 `T?`。再编写变体 `findFirstComparable`，仅适用于实现 `Comparable<T>` 的类型，同时返回所有匹配项中的最小值。
+
+<details>
+<summary>查看答案</summary>
+
+```kotlin
+fun <T> findFirst(list: List<T>, predicate: (T) -> Boolean): T? =
+    list.firstOrNull(predicate)
+
+fun <T : Comparable<T>> findFirstComparable(
+    list: List<T>,
+    predicate: (T) -> Boolean
+): Pair<T?, T?> {
+    val matches = list.filter(predicate)
+    return Pair(matches.firstOrNull(), matches.minOrNull())
+}
+
+fun main() {
+    val numbers = listOf(5, 3, 8, 1, 9, 2, 7)
+    println(findFirst(numbers) { it > 6 })  // 8
+
+    val (first, min) = findFirstComparable(numbers) { it > 4 }
+    println("第一个 > 4: $first, 最小 > 4: $min")  // 第一个 > 4: 5, 最小 > 4: 5
+}
+```
+
+</details>

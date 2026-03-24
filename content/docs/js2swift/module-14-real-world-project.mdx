@@ -1,0 +1,1091 @@
+---
+title: "Module 14: Real-World Project and Best Practices"
+description: "Build a complete REST API server using Vapor, applying all course concepts. Learn Swift idioms, common pitfalls for JavaScript developers, and the Swift ecosystem overview."
+---
+
+# Module 14: Real-World Project and Best Practices
+
+Congratulations on reaching the final module! You've covered Swift's type system, optionals, protocols, concurrency, memory management, modules, and testing. Now it's time to bring everything together by building a real, runnable JSON REST API using **Vapor** — the most popular server-side Swift framework. We'll compare every step to the Express.js patterns you already know.
+
+## Learning Objectives
+
+✅ Set up a Vapor project and understand its structure compared to Express
+✅ Define routes with Vapor's `app.get()` / `app.post()` API
+✅ Use `Codable` for automatic JSON serialisation in place of `JSON.parse`/`JSON.stringify`
+✅ Write async route handlers and middleware with Swift concurrency
+✅ Handle errors idiomatically using Vapor's `AbortError` and Swift's `throw`
+✅ Apply Swift best practices and avoid the most common pitfalls for JS developers
+
+---
+
+## 1. Project Overview
+
+We'll build **TaskAPI** — a minimal task manager REST API with these endpoints:
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/tasks` | List all tasks |
+| `POST` | `/tasks` | Create a task |
+| `GET` | `/tasks/:id` | Get one task |
+| `PATCH` | `/tasks/:id` | Update completed status |
+| `DELETE` | `/tasks/:id` | Delete a task |
+
+This is intentionally close to what you'd build with Express + a plain in-memory store, so you can focus on the Swift/Vapor differences.
+
+---
+
+## 2. Setting Up Vapor
+
+<UniversalEditor title="Project Setup: Express vs Vapor" compare={true}>
+```javascript !! js
+// Express setup
+// $ mkdir task-api && cd task-api
+// $ npm init -y
+// $ npm install express
+
+// package.json
+// {
+//   "type": "module",
+//   "scripts": { "start": "node src/index.js" },
+//   "dependencies": { "express": "^4.18.2" }
+// }
+
+// Project structure:
+// task-api/
+//   package.json
+//   src/
+//     index.js        ← entry point
+//     routes/
+//       tasks.js
+//     models/
+//       task.js
+
+// src/index.js
+import express from 'express';
+const app = express();
+app.use(express.json());   // parse JSON bodies
+
+app.listen(3000, () => {
+  console.log('Server running on http://localhost:3000');
+});
+```
+
+```swift !! swift
+// Vapor setup
+// $ brew install vapor          (or use Mint / SPM directly)
+// $ vapor new TaskAPI --template=bare
+// -- OR --
+// $ mkdir TaskAPI && cd TaskAPI
+// $ swift package init --type executable
+
+// Package.swift
+// swift-tools-version: 5.9
+// import PackageDescription
+// let package = Package(
+//     name: "TaskAPI",
+//     platforms: [.macOS(.v13)],
+//     dependencies: [
+//         .package(url: "https://github.com/vapor/vapor.git", from: "4.89.0"),
+//     ],
+//     targets: [
+//         .executableTarget(
+//             name: "TaskAPI",
+//             dependencies: [.product(name: "Vapor", package: "vapor")],
+//             path: "Sources/TaskAPI"
+//         )
+//     ]
+// )
+
+// Project structure:
+// TaskAPI/
+//   Package.swift
+//   Sources/TaskAPI/
+//     entrypoint.swift    ← entry point (@main)
+//     configure.swift     ← app configuration (like Express middleware setup)
+//     routes.swift        ← route registration
+//     Models/
+//       Task.swift
+
+// Sources/TaskAPI/entrypoint.swift
+import Vapor
+
+@main
+struct Entrypoint {
+    static func main() async throws {
+        var env = try Environment.detect()
+        try LoggingSystem.bootstrap(from: &env)
+        let app = Application(env)
+        defer { app.shutdown() }
+        try configure(app)
+        try await app.runFromAsyncMainEntrypoint()
+    }
+}
+```
+</UniversalEditor>
+
+---
+
+## 3. The Task Model
+
+<UniversalEditor title="Task Model: JS Object vs Swift Struct" compare={true}>
+```javascript !! js
+// JavaScript: plain objects + validation by hand
+
+// src/models/task.js
+import { randomUUID } from 'crypto';
+
+export class Task {
+  constructor(title) {
+    if (!title || title.trim() === '') {
+      throw new Error('Title cannot be empty');
+    }
+    this.id = randomUUID();
+    this.title = title.trim();
+    this.completed = false;
+    this.createdAt = new Date().toISOString();
+  }
+}
+
+// In-memory store (a simple Map for this demo)
+export const taskStore = new Map();
+
+// JSON serialization is automatic via res.json()
+// JSON deserialization via req.body (after express.json())
+```
+
+```swift !! swift
+// Swift: Codable struct — serialisation for FREE
+
+// Sources/TaskAPI/Models/Task.swift
+import Vapor
+import Foundation
+
+// Content = Vapor's protocol for request/response types (wraps Codable)
+struct Task: Content, Identifiable {
+    let id: UUID
+    var title: String
+    var completed: Bool
+    let createdAt: Date
+
+    init(title: String) throws {
+        guard !title.trimmingCharacters(in: .whitespaces).isEmpty else {
+            throw Abort(.badRequest, reason: "Title cannot be empty")
+        }
+        self.id = UUID()
+        self.title = title.trimmingCharacters(in: .whitespaces)
+        self.completed = false
+        self.createdAt = Date()
+    }
+}
+
+// DTO for creating a task (only what the client sends)
+struct CreateTaskRequest: Content {
+    let title: String
+}
+
+// DTO for updating a task
+struct UpdateTaskRequest: Content {
+    let completed: Bool?
+    let title: String?
+}
+
+// In-memory store (actor for thread safety — see Module 9)
+actor TaskStore {
+    private var tasks: [UUID: Task] = [:]
+
+    func all() -> [Task] { Array(tasks.values).sorted { $0.createdAt < $1.createdAt } }
+    func get(_ id: UUID) -> Task? { tasks[id] }
+    func create(_ task: Task) { tasks[task.id] = task }
+    func update(_ task: Task) { tasks[task.id] = task }
+    func delete(_ id: UUID) { tasks.removeValue(forKey: id) }
+}
+```
+</UniversalEditor>
+
+---
+
+## 4. Routing in Vapor
+
+<UniversalEditor title="Routing: Express vs Vapor" compare={true}>
+```javascript !! js
+// Express routing
+// src/routes/tasks.js
+import { Router } from 'express';
+import { Task, taskStore } from '../models/task.js';
+
+const router = Router();
+
+// GET /tasks
+router.get('/', (req, res) => {
+  const tasks = Array.from(taskStore.values());
+  res.json(tasks);
+});
+
+// POST /tasks
+router.post('/', (req, res) => {
+  try {
+    const task = new Task(req.body.title);
+    taskStore.set(task.id, task);
+    res.status(201).json(task);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// GET /tasks/:id
+router.get('/:id', (req, res) => {
+  const task = taskStore.get(req.params.id);
+  if (!task) return res.status(404).json({ error: 'Task not found' });
+  res.json(task);
+});
+
+// PATCH /tasks/:id
+router.patch('/:id', (req, res) => {
+  const task = taskStore.get(req.params.id);
+  if (!task) return res.status(404).json({ error: 'Task not found' });
+  if (req.body.completed !== undefined) task.completed = req.body.completed;
+  if (req.body.title !== undefined) task.title = req.body.title;
+  taskStore.set(task.id, task);
+  res.json(task);
+});
+
+// DELETE /tasks/:id
+router.delete('/:id', (req, res) => {
+  if (!taskStore.delete(req.params.id)) {
+    return res.status(404).json({ error: 'Task not found' });
+  }
+  res.status(204).send();
+});
+
+export default router;
+```
+
+```swift !! swift
+// Vapor routing
+// Sources/TaskAPI/routes.swift
+import Vapor
+
+// The store is a shared singleton in this demo
+let store = TaskStore()
+
+func routes(_ app: Application) throws {
+    let tasks = app.grouped("tasks")
+
+    // GET /tasks
+    tasks.get { req async throws -> [Task] in
+        await store.all()
+        // Vapor automatically JSON-encodes the returned [Task] (it's Content)
+    }
+
+    // POST /tasks
+    tasks.post { req async throws -> Response in
+        let body = try req.content.decode(CreateTaskRequest.self)
+        let task = try Task(title: body.title)
+        await store.create(task)
+        // Return 201 Created with the task body
+        return try Response(
+            status: .created,
+            content: task,
+            using: req.application
+        )
+    }
+
+    // GET /tasks/:id
+    tasks.get(":id") { req async throws -> Task in
+        let id = try req.parameters.require("id", as: UUID.self)
+        guard let task = await store.get(id) else {
+            throw Abort(.notFound, reason: "Task \(id) not found")
+        }
+        return task
+    }
+
+    // PATCH /tasks/:id
+    tasks.patch(":id") { req async throws -> Task in
+        let id = try req.parameters.require("id", as: UUID.self)
+        guard var task = await store.get(id) else {
+            throw Abort(.notFound, reason: "Task \(id) not found")
+        }
+        let update = try req.content.decode(UpdateTaskRequest.self)
+        if let completed = update.completed { task.completed = completed }
+        if let title = update.title { task.title = title }
+        await store.update(task)
+        return task
+    }
+
+    // DELETE /tasks/:id
+    tasks.delete(":id") { req async throws -> HTTPStatus in
+        let id = try req.parameters.require("id", as: UUID.self)
+        guard await store.get(id) != nil else {
+            throw Abort(.notFound, reason: "Task \(id) not found")
+        }
+        await store.delete(id)
+        return .noContent   // 204
+    }
+}
+```
+</UniversalEditor>
+
+---
+
+## 5. Handling JSON with Codable
+
+Swift's `Codable` protocol eliminates the manual serialisation boilerplate that exists in Express. Compare how the same data flows through both stacks.
+
+<UniversalEditor title="JSON Serialisation: JS vs Swift Codable" compare={true}>
+```javascript !! js
+// JavaScript: manual JSON handling
+
+// Parsing incoming JSON (done by express.json() middleware)
+app.post('/tasks', (req, res) => {
+  const { title, priority } = req.body;  // already parsed object
+  // ...
+});
+
+// Serialising to JSON (res.json does JSON.stringify)
+app.get('/tasks', (req, res) => {
+  const tasks = getAll();
+  res.json(tasks);   // automatically sets Content-Type: application/json
+});
+
+// Custom serialisation (e.g., rename fields, format dates)
+class TaskDTO {
+  constructor(task) {
+    this.taskId = task.id;           // rename id -> taskId
+    this.name = task.title;          // rename title -> name
+    this.isDone = task.completed;
+    this.createdAt = task.createdAt.toISOString();
+  }
+}
+
+// Nested objects require no special handling
+const response = {
+  data: tasks.map(t => new TaskDTO(t)),
+  total: tasks.length,
+  page: 1,
+};
+res.json(response);
+```
+
+```swift !! swift
+// Swift: Codable handles everything automatically
+
+// Decoding incoming JSON — just call req.content.decode()
+app.post("tasks") { req async throws -> Task in
+    // Vapor decodes JSON body into CreateTaskRequest automatically
+    let body = try req.content.decode(CreateTaskRequest.self)
+    return try Task(title: body.title)
+}
+
+// Encoding to JSON — just return a Content-conforming type
+app.get("tasks") { req async throws -> [Task] in
+    return await store.all()
+    // Vapor encodes [Task] to JSON and sets Content-Type automatically
+}
+
+// Custom serialisation via CodingKeys
+struct TaskDTO: Content {
+    let taskId: UUID
+    let name: String
+    let isDone: Bool
+    let createdAt: String
+
+    init(from task: Task) {
+        self.taskId = task.id
+        self.name = task.title
+        self.isDone = task.completed
+        let formatter = ISO8601DateFormatter()
+        self.createdAt = formatter.string(from: task.createdAt)
+    }
+
+    // CodingKeys lets you rename JSON fields without a DTO
+    // enum CodingKeys: String, CodingKey {
+    //     case taskId = "task_id"   // JSON uses snake_case
+    //     case name, isDone, createdAt
+    // }
+}
+
+// Nested response object
+struct PagedResponse<T: Content>: Content {
+    let data: [T]
+    let total: Int
+    let page: Int
+}
+
+app.get("tasks") { req async throws -> PagedResponse<TaskDTO> in
+    let tasks = await store.all()
+    return PagedResponse(
+        data: tasks.map(TaskDTO.init),
+        total: tasks.count,
+        page: 1
+    )
+}
+```
+</UniversalEditor>
+
+---
+
+## 6. Async/Await in Vapor
+
+<UniversalEditor title="Async Route Handlers: Express vs Vapor" compare={true}>
+```javascript !! js
+// Express: async middleware and route handlers
+
+import { fetchUserPermissions } from './authService.js';
+
+// Async middleware
+async function requireAuth(req, res, next) {
+  try {
+    const token = req.headers.authorization?.split(' ')[1];
+    if (!token) return res.status(401).json({ error: 'Unauthorized' });
+
+    const permissions = await fetchUserPermissions(token);
+    req.user = { permissions };
+    next();
+  } catch (err) {
+    next(err);  // pass to error handler
+  }
+}
+
+// Async route handler
+app.get('/tasks', requireAuth, async (req, res, next) => {
+  try {
+    const tasks = await db.query('SELECT * FROM tasks');
+    res.json(tasks);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Global error handler (must have 4 params)
+app.use((err, req, res, next) => {
+  console.error(err);
+  res.status(err.status ?? 500).json({ error: err.message });
+});
+```
+
+```swift !! swift
+// Vapor: async/await is the default — no callback hell
+
+import Vapor
+
+// Async middleware
+struct AuthMiddleware: AsyncMiddleware {
+    func respond(to request: Request, chainingTo next: AsyncResponder) async throws -> Response {
+        guard let token = request.headers.bearerAuthorization?.token else {
+            throw Abort(.unauthorized, reason: "Missing bearer token")
+        }
+        // Async call — just await it, no callbacks needed
+        let permissions = try await fetchUserPermissions(token: token, db: request.db)
+        request.storage[PermissionsKey.self] = permissions
+        return try await next.respond(to: request)
+    }
+}
+
+// Route group protected by middleware
+func routes(_ app: Application) throws {
+    let protected = app.grouped(AuthMiddleware())
+
+    protected.get("tasks") { req async throws -> [Task] in
+        // Async database query — just await
+        return try await Task.query(on: req.db).all()
+    }
+}
+
+// Error handling: throw Abort errors from anywhere
+// Vapor catches them and sends proper HTTP responses automatically.
+// For custom error responses, conform to AbortError:
+struct ValidationError: AbortError {
+    var status: HTTPResponseStatus { .unprocessableEntity }
+    var reason: String
+}
+
+// Throw from a route:
+// throw ValidationError(reason: "Title must be at least 3 characters")
+// → Vapor responds: HTTP 422 { "error": true, "reason": "..." }
+```
+</UniversalEditor>
+
+---
+
+## 7. Error Handling in Vapor
+
+<UniversalEditor title="Error Handling: Express vs Vapor" compare={true}>
+```javascript !! js
+// Express error handling
+
+// Custom error class
+class AppError extends Error {
+  constructor(message, status = 500) {
+    super(message);
+    this.status = status;
+    this.name = 'AppError';
+  }
+}
+
+// Throwing in a route
+app.get('/tasks/:id', async (req, res, next) => {
+  try {
+    const task = await db.findById(req.params.id);
+    if (!task) throw new AppError('Task not found', 404);
+    res.json(task);
+  } catch (err) {
+    next(err);   // must manually pass to error handler
+  }
+});
+
+// Global error handler — Express requires exactly 4 params
+app.use((err, req, res, next) => {
+  if (err instanceof AppError) {
+    return res.status(err.status).json({
+      error: err.message,
+    });
+  }
+  console.error('Unhandled error:', err);
+  res.status(500).json({ error: 'Internal server error' });
+});
+```
+
+```swift !! swift
+// Vapor error handling — much cleaner
+
+// Throwing from a route (no try/catch needed at the route level)
+app.get("tasks", ":id") { req async throws -> Task in
+    let id = try req.parameters.require("id", as: UUID.self)
+    // Abort throws an HTTPResponseStatus error automatically
+    guard let task = try await Task.find(id, on: req.db) else {
+        throw Abort(.notFound, reason: "Task \(id) not found")
+    }
+    return task
+    // If ANY error is thrown, Vapor catches it and sends HTTP 500
+    // (or the specific status if it's an AbortError)
+}
+
+// Custom domain errors
+enum TaskError: AbortError {
+    case emptyTitle
+    case alreadyCompleted(UUID)
+
+    var status: HTTPResponseStatus {
+        switch self {
+        case .emptyTitle: return .badRequest
+        case .alreadyCompleted: return .conflict
+        }
+    }
+
+    var reason: String {
+        switch self {
+        case .emptyTitle:
+            return "Task title cannot be empty"
+        case .alreadyCompleted(let id):
+            return "Task \(id) is already completed"
+        }
+    }
+}
+
+// Use in a route:
+// throw TaskError.emptyTitle
+// → HTTP 400 { "error": true, "reason": "Task title cannot be empty" }
+
+// Custom error middleware (for logging, etc.)
+app.middleware.use(ErrorMiddleware.custom(environment: app.environment))
+```
+</UniversalEditor>
+
+---
+
+## 8. Common Pitfalls for JavaScript Developers
+
+These are the issues most likely to trip you up when moving from JavaScript to Swift.
+
+<UniversalEditor title="Common Pitfall 1: Force Unwrapping (!) Abuse" compare={true}>
+```javascript !! js
+// JavaScript: you naturally handle undefined/null with || or ?.
+const name = user?.profile?.name || 'Anonymous';
+const port = process.env.PORT || 3000;
+
+// No equivalent of force unwrapping — JS can't "crash" on a null dereference
+// in the same abrupt way Swift can.
+function getConfig(key) {
+  const value = process.env[key];
+  if (!value) throw new Error(`Missing config: ${key}`);
+  return value;
+}
+```
+
+```swift !! swift
+// Swift pitfall: overusing ! (force unwrap)
+
+// WRONG — crashes at runtime if the value is nil
+let name = user.profile!.name!   // fatal error if nil
+let port = Int(ProcessInfo.processInfo.environment["PORT"]!)!  // double crash risk
+
+// CORRECT — use guard let or if let
+guard let portString = ProcessInfo.processInfo.environment["PORT"],
+      let port = Int(portString) else {
+    fatalError("PORT environment variable is missing or not a number")
+}
+
+// CORRECT — use nil coalescing ??
+let name = user.profile?.name ?? "Anonymous"
+
+// CORRECT — use guard let for early exit in a function
+func getConfig(_ key: String) throws -> String {
+    guard let value = ProcessInfo.processInfo.environment[key], !value.isEmpty else {
+        throw ConfigError.missing(key: key)
+    }
+    return value
+}
+
+// RULE: Only use ! when you have a logical guarantee the value exists AND
+// you want to crash loudly in debug builds (e.g., IBOutlets, test fixtures).
+```
+</UniversalEditor>
+
+<UniversalEditor title="Common Pitfall 2: Closures and Retain Cycles" compare={true}>
+```javascript !! js
+// JavaScript: garbage collector handles most memory for you.
+// Closures capturing `this` is a common source of bugs but not leaks.
+
+class Timer {
+  constructor() {
+    this.count = 0;
+  }
+
+  start() {
+    // Arrow function captures `this` lexically — works fine
+    setInterval(() => {
+      this.count++;
+      console.log(this.count);
+    }, 1000);
+    // JavaScript GC handles cleanup; no retain cycle concern here.
+  }
+}
+```
+
+```swift !! swift
+// Swift pitfall: strong reference cycles in closures
+
+class TaskViewController {
+    var tasks: [Task] = []
+    var onUpdate: (() -> Void)?  // a stored closure property
+
+    func setupUpdateHandler() {
+        // WRONG: `self` is captured strongly — retain cycle!
+        // onUpdate captures self, self holds onUpdate → neither is freed.
+        onUpdate = {
+            self.tasks = []       // strong capture of self
+            print("Updated")
+        }
+    }
+
+    func setupUpdateHandlerCorrect() {
+        // CORRECT: [weak self] breaks the cycle
+        onUpdate = { [weak self] in
+            guard let self = self else { return }
+            self.tasks = []
+            print("Updated")
+        }
+    }
+
+    // [unowned self] is an alternative when you're sure self outlives the closure
+    func setupTimer() {
+        Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            self?.tick()
+        }
+    }
+
+    func tick() { print("tick") }
+}
+```
+</UniversalEditor>
+
+<UniversalEditor title="Common Pitfall 3: Mutating Value Types" compare={true}>
+```javascript !! js
+// JavaScript: objects are reference types — mutation is always in-place.
+
+const task = { id: 1, title: 'Buy milk', completed: false };
+
+function complete(t) {
+  t.completed = true;   // mutates the original object directly
+}
+
+complete(task);
+console.log(task.completed);  // true — same object was mutated
+```
+
+```swift !! swift
+// Swift pitfall: structs are value types — mutation creates a copy
+
+struct Task {
+    var completed: Bool
+}
+
+// WRONG: function receives a copy; original is not mutated
+func completeTask(_ task: Task) {
+    var copy = task
+    copy.completed = true   // modifies the copy, not the original
+    // The original `task` outside this function is unchanged!
+}
+
+var myTask = Task(completed: false)
+completeTask(myTask)
+print(myTask.completed)  // still false!
+
+// CORRECT option 1: inout parameter
+func completeTaskInout(_ task: inout Task) {
+    task.completed = true
+}
+completeTaskInout(&myTask)
+print(myTask.completed)  // true
+
+// CORRECT option 2: return the modified copy
+func completed(_ task: Task) -> Task {
+    var copy = task
+    copy.completed = true
+    return copy
+}
+myTask = completed(myTask)
+
+// CORRECT option 3: use a class (reference type) when mutation is the primary use case
+class TaskRef {
+    var completed: Bool = false
+}
+```
+</UniversalEditor>
+
+---
+
+## 9. Swift Idioms and Best Practices
+
+<UniversalEditor title="Swift Idioms: guard let and Early Return" compare={true}>
+```javascript !! js
+// JavaScript: nested if/else (pyramid of doom)
+function processUser(user) {
+  if (user) {
+    if (user.profile) {
+      if (user.profile.email) {
+        const email = user.profile.email.toLowerCase();
+        if (isValidEmail(email)) {
+          sendWelcome(email);
+          return { success: true };
+        } else {
+          return { error: 'Invalid email' };
+        }
+      } else {
+        return { error: 'No email' };
+      }
+    } else {
+      return { error: 'No profile' };
+    }
+  } else {
+    return { error: 'No user' };
+  }
+}
+```
+
+```swift !! swift
+// Swift idiom: guard let for early return (no pyramid of doom)
+func processUser(_ user: User?) throws -> ProcessResult {
+    // Each guard exits early on failure — code stays flat
+    guard let user = user else {
+        throw UserError.noUser
+    }
+    guard let profile = user.profile else {
+        throw UserError.noProfile
+    }
+    guard let email = profile.email else {
+        throw UserError.noEmail
+    }
+    guard isValidEmail(email) else {
+        throw UserError.invalidEmail(email)
+    }
+
+    // By here, all values are safely unwrapped and valid
+    let normalized = email.lowercased()
+    try sendWelcome(to: normalized)
+    return .success
+}
+
+// Prefer guard let over if let when:
+// - Failure should exit the current scope
+// - Success is the "happy path" that continues below
+// Use if let when you need both branches in the same scope.
+```
+</UniversalEditor>
+
+<UniversalEditor title="Swift Idioms: Result Type and Value Types" compare={true}>
+```javascript !! js
+// JavaScript: Promise for async, or callbacks with (err, result)
+function fetchTask(id, callback) {
+  db.find(id, (err, task) => {
+    if (err) callback(err, null);
+    else callback(null, task);
+  });
+}
+
+// Modern: async/await with try/catch
+async function fetchTask(id) {
+  const task = await db.find(id);
+  if (!task) throw new NotFoundError(id);
+  return task;
+}
+
+// No built-in Result type — you'd use a library or custom pattern
+const result = { ok: true, value: task };
+const error  = { ok: false, error: 'Not found' };
+```
+
+```swift !! swift
+// Swift: Result<Success, Failure> for synchronous fallible operations
+// (async/await is preferred for async work, but Result is useful for callbacks)
+
+enum FetchError: Error {
+    case notFound(UUID)
+    case networkError(String)
+}
+
+// Synchronous Result
+func loadCachedTask(id: UUID) -> Result<Task, FetchError> {
+    if let task = cache[id] {
+        return .success(task)
+    }
+    return .failure(.notFound(id))
+}
+
+// Using Result
+switch loadCachedTask(id: taskID) {
+case .success(let task):
+    print("Found: \(task.title)")
+case .failure(.notFound(let id)):
+    print("No task with id \(id)")
+case .failure(.networkError(let msg)):
+    print("Network error: \(msg)")
+}
+
+// Prefer value types (structs) for data models
+// Prefer reference types (classes / actors) for:
+// - Shared mutable state (use actors!)
+// - Identity-based objects
+// - Inheritance hierarchies
+
+// Idiomatic Swift model
+struct User: Codable {  // struct, not class
+    let id: UUID
+    var name: String
+    var email: String
+}
+
+// Shared mutable state — actor, not class
+actor UserCache {
+    private var cache: [UUID: User] = [:]
+    func get(_ id: UUID) -> User? { cache[id] }
+    func set(_ user: User) { cache[user.id] = user }
+}
+```
+</UniversalEditor>
+
+---
+
+## 10. Swift Ecosystem Overview
+
+<UniversalEditor title="Ecosystem Overview: Node.js vs Swift" compare={true}>
+```javascript !! js
+// JavaScript / Node.js ecosystem
+
+// Platforms
+// - Web frontend: React, Vue, Angular
+// - Server:       Node.js + Express / Fastify / NestJS
+// - Mobile:       React Native
+// - Desktop:      Electron
+// - CLI tools:    Node.js scripts
+
+// Popular tools
+// - Package manager: npm / yarn / pnpm
+// - Bundlers:        Webpack, Vite, esbuild
+// - Testing:         Jest, Vitest, Playwright
+// - TypeScript:      tsc, ts-node
+// - Linting:         ESLint, Prettier
+// - ORM:             Prisma, TypeORM, Drizzle
+// - Deployment:      Vercel, Netlify, Railway, Render
+
+// Community
+// - npmjs.com (millions of packages)
+// - GitHub, Stack Overflow
+// - Node.js Foundation
+```
+
+```swift !! swift
+// Swift ecosystem
+
+// Platforms
+// - iOS / iPadOS apps: UIKit, SwiftUI
+// - macOS apps:        AppKit, SwiftUI
+// - watchOS / tvOS:    SwiftUI
+// - Server-side Swift: Vapor, Hummingbird
+// - Embedded Swift:    microcontrollers (Swift 5.9+)
+// - CLI tools:         Swift Argument Parser
+
+// Popular packages (via SPM)
+// - Web framework:     Vapor (https://vapor.codes)
+// - HTTP client:       AsyncHTTPClient
+// - Database ORM:      Fluent (with Vapor), GRDB
+// - Migrations:        Fluent Migrations
+// - Logging:           swift-log (Apple)
+// - Metrics:           swift-metrics (Apple)
+// - Testing:           XCTest (built-in), Swift Testing (built-in)
+// - Linting:           SwiftLint, SwiftFormat
+// - Cryptography:      CryptoKit (Apple, built-in)
+// - Argument parser:   swift-argument-parser (Apple)
+
+// Community & learning
+// - Swift.org         — official docs, blog, evolution proposals
+// - Swift Forums      — swift.org/forums
+// - SwiftUI Cookbook  — community recipes
+// - WWDC sessions     — Apple's yearly deep-dives (free on developer.apple.com)
+// - Server-side Swift — swift.org/server
+// - Hacking with Swift — hackingwithswift.com (Paul Hudson)
+
+// Key difference from npm:
+// No central package registry. Packages are resolved from Git URLs.
+// Apple maintains several foundational packages:
+//   swift-collections, swift-algorithms, swift-async-algorithms,
+//   swift-argument-parser, swift-crypto, swift-log, swift-metrics
+```
+</UniversalEditor>
+
+---
+
+## 11. Full Vapor App — Putting It All Together
+
+<UniversalEditor title="Complete Vapor App: configure.swift + routes.swift" compare={true}>
+```javascript !! js
+// Express: complete app setup (src/index.js)
+import express from 'express';
+import { taskRouter } from './routes/tasks.js';
+
+const app = express();
+
+// Middleware
+app.use(express.json());
+app.use((req, res, next) => {
+  console.log(`${req.method} ${req.url}`);
+  next();
+});
+
+// Routes
+app.use('/tasks', taskRouter);
+
+// Error handler
+app.use((err, req, res, next) => {
+  res.status(err.status ?? 500).json({ error: err.message });
+});
+
+app.listen(3000, () => {
+  console.log('Listening on http://localhost:3000');
+});
+```
+
+```swift !! swift
+// Vapor: configure.swift
+import Vapor
+
+public func configure(_ app: Application) throws {
+    // Set port from environment (like process.env.PORT)
+    app.http.server.configuration.port =
+        Environment.get("PORT").flatMap(Int.init) ?? 8080
+
+    // Encoder/Decoder configuration (dates as ISO8601)
+    let encoder = JSONEncoder()
+    encoder.dateEncodingStrategy = .iso8601
+    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+    ContentConfiguration.global.use(encoder: encoder, for: .json)
+
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    ContentConfiguration.global.use(decoder: decoder, for: .json)
+
+    // Register routes
+    try routes(app)
+}
+
+// routes.swift
+import Vapor
+
+func routes(_ app: Application) throws {
+    // Health check (common in production services)
+    app.get("health") { _ in ["status": "ok"] }
+
+    let tasks = app.grouped("tasks")
+
+    tasks.get { req async throws -> [Task] in
+        await store.all()
+    }
+
+    tasks.post { req async throws -> Response in
+        let body = try req.content.decode(CreateTaskRequest.self)
+        let task = try Task(title: body.title)
+        await store.create(task)
+        var headers = HTTPHeaders()
+        headers.add(name: .location, value: "/tasks/\(task.id)")
+        return try await task.encodeResponse(status: .created, headers: headers, for: req)
+    }
+
+    tasks.get(":id") { req async throws -> Task in
+        let id = try req.parameters.require("id", as: UUID.self)
+        guard let task = await store.get(id) else { throw Abort(.notFound) }
+        return task
+    }
+
+    tasks.patch(":id") { req async throws -> Task in
+        let id = try req.parameters.require("id", as: UUID.self)
+        guard var task = await store.get(id) else { throw Abort(.notFound) }
+        let update = try req.content.decode(UpdateTaskRequest.self)
+        if let c = update.completed { task.completed = c }
+        if let t = update.title { task.title = t }
+        await store.update(task)
+        return task
+    }
+
+    tasks.delete(":id") { req async throws -> HTTPStatus in
+        let id = try req.parameters.require("id", as: UUID.self)
+        guard await store.get(id) != nil else { throw Abort(.notFound) }
+        await store.delete(id)
+        return .noContent
+    }
+}
+```
+</UniversalEditor>
+
+---
+
+## Summary Table
+
+| Concept | JavaScript (Express) | Swift (Vapor) |
+|---|---|---|
+| Framework setup | `npm install express` | Add Vapor to `Package.swift` |
+| Entry point | `app.listen(3000)` | `@main` struct + `app.run()` |
+| JSON body parsing | `express.json()` middleware | Automatic via `Content` protocol |
+| Route definition | `app.get('/path', handler)` | `app.get("path") { req in }` |
+| URL parameters | `req.params.id` | `req.parameters.require("id")` |
+| Request body | `req.body.title` | `req.content.decode(DTO.self)` |
+| Response JSON | `res.json(data)` | Return `Content`-conforming type |
+| HTTP status | `res.status(201).json(data)` | `encodeResponse(status: .created)` |
+| Error handling | `next(err)` + 4-arg middleware | `throw Abort(.notFound)` |
+| Async handlers | `async (req, res) => { }` | `{ req async throws -> T in }` |
+| Middleware | `app.use(fn)` | `app.grouped(MiddlewareType())` |
+| Shared state | Module-level variable | `actor` with `await` |
+| Null safety | Optional chaining `?.` + `??` | `guard let` / `if let` / `??` |
+
+---
+
+## Next Steps
+
+You've completed the JavaScript → Swift learning path. Here's where to go from here:
+
+- **SwiftUI** — Build native iOS/macOS apps with declarative UI (your next big Swift adventure)
+- **Fluent** — Vapor's ORM for databases (PostgreSQL, SQLite, MySQL)
+- **swift.org/server** — Server-side Swift ecosystem, deployment guides
+- **Hacking with Swift** — hackingwithswift.com, deep-dive tutorials by Paul Hudson
+- **Swift Forums** — forums.swift.org, the place for language evolution discussion
+- **WWDC Sessions** — developer.apple.com/videos, Apple's free in-depth Swift talks
+- **Swift Evolution** — github.com/apple/swift-evolution, see what's coming next

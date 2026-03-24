@@ -1,0 +1,713 @@
+---
+title: "Module 13: Data Structures and Collections"
+description: "Master Rust's core collections: Vec<T>, HashMap, HashSet, String vs &str, slices, and understand ownership implications of each collection type."
+---
+
+# Module 13: Data Structures and Collections
+
+## Learning Objectives
+
+By the end of this module, you will be able to:
+
+- ✅ Use `Vec<T>` as Rust's primary dynamic array, with idiomatic push/pop/iter patterns
+- ✅ Understand slices `&[T]` as lightweight references into sequences, with no JavaScript equivalent
+- ✅ Distinguish `String` (owned, heap-allocated) from `&str` (borrowed string slice) and choose correctly
+- ✅ Use `HashMap<K, V>` for key-value storage including the powerful `entry` API for insert-or-update
+- ✅ Use `HashSet<T>` for unique element collections and perform set operations
+- ✅ Navigate the three iterator traversal modes: `iter()`, `iter_mut()`, and `into_iter()`
+
+---
+
+## 1. Vec\<T\>: The Primary Dynamic Array
+
+`Vec<T>` is Rust's equivalent of JavaScript's `Array`. It is heap-allocated, growable, and typed. Unlike JavaScript arrays, every element must be the same type — use an enum if you need heterogeneous data.
+
+<UniversalEditor title="Vec<T> vs JavaScript Array" compare={true}>
+```javascript !! js
+// JavaScript Array — dynamic, heterogeneous, reference-typed
+const numbers = [1, 2, 3, 4, 5];
+const mixed   = [1, "hello", true, null]; // allowed in JS
+
+// Basic operations
+numbers.push(6);          // append
+const last = numbers.pop(); // remove last
+console.log(numbers.length); // 5
+
+// Access (no bounds checking at compile time)
+console.log(numbers[0]);   // 1
+console.log(numbers[100]); // undefined (no error!)
+
+// Iteration
+for (const n of numbers) {
+    console.log(n);
+}
+
+// Array methods
+const doubled = numbers.map(n => n * 2);
+const sum = numbers.reduce((acc, n) => acc + n, 0);
+console.log(doubled); // [2, 4, 6, 8, 10]
+console.log(sum);     // 15
+
+// Slicing (returns a new array copy)
+const slice = numbers.slice(1, 4); // [2, 3, 4]
+console.log(slice);
+
+// Spreading / concatenating
+const combined = [...numbers, 10, 11];
+console.log(combined);
+```
+
+```rust !! rs
+fn main() {
+    // Vec<T> — typed, heap-allocated, growable
+    let mut numbers: Vec<i32> = vec![1, 2, 3, 4, 5];
+
+    // Basic operations
+    numbers.push(6);              // append
+    let last = numbers.pop();     // returns Option<T>
+    println!("{:?}", last);       // Some(6)
+    println!("{}", numbers.len()); // 5
+
+    // Access — panics on out of bounds (use .get() for safe access)
+    println!("{}", numbers[0]);   // 1
+    // numbers[100];  // PANIC: index out of bounds
+
+    // Safe access returns Option<&T>
+    match numbers.get(100) {
+        Some(val) => println!("{}", val),
+        None      => println!("Index out of bounds"),
+    }
+
+    // Iteration (by reference — numbers is still usable after)
+    for n in &numbers {
+        println!("{}", n);
+    }
+
+    // Functional operations via iterators
+    let doubled: Vec<i32> = numbers.iter().map(|&n| n * 2).collect();
+    let sum: i32 = numbers.iter().sum();
+    println!("{:?}", doubled); // [2, 4, 6, 8, 10]
+    println!("{}", sum);       // 15
+
+    // Slicing — returns a &[i32] reference (no copy!)
+    let slice = &numbers[1..4]; // &[2, 3, 4]
+    println!("{:?}", slice);
+
+    // Extending
+    let mut combined = numbers.clone();
+    combined.extend_from_slice(&[10, 11]);
+    println!("{:?}", combined);
+
+    // Creating with capacity for performance
+    let mut v: Vec<i32> = Vec::with_capacity(100);
+    v.push(1);
+    println!("len={}, capacity={}", v.len(), v.capacity()); // 1, 100
+}
+```
+</UniversalEditor>
+
+---
+
+## 2. Slices: &\[T\] and &str
+
+A slice is a reference to a contiguous sequence in memory. Slices have no ownership — they borrow from the underlying collection. JavaScript has no direct equivalent; `Array.slice()` creates a copy, whereas a Rust slice is a zero-cost view.
+
+<UniversalEditor title="Slices as Zero-Cost Views into Data" compare={true}>
+```javascript !! js
+// JavaScript: no zero-cost slices — slice() always copies
+const arr = [10, 20, 30, 40, 50];
+
+// slice() returns a NEW array (memory allocation)
+const part = arr.slice(1, 4); // [20, 30, 40] — new array
+part[0] = 999;
+console.log(arr[1]); // 20 — original unchanged
+
+// String slicing also copies
+const str = "hello world";
+const word = str.slice(0, 5); // "hello" — new string
+console.log(word);
+
+// No way to pass a "view" of an array without copying
+function sumFirst3(arr) {
+    // receives full array reference, but conceptually only needs [0..3]
+    return arr.slice(0, 3).reduce((a, b) => a + b, 0);
+}
+console.log(sumFirst3([1, 2, 3, 4, 5])); // 6
+```
+
+```rust !! rs
+fn sum_slice(data: &[i32]) -> i32 {
+    // &[i32] is a slice — a reference to contiguous i32 elements
+    // It stores a pointer + length, no data copied
+    data.iter().sum()
+}
+
+fn first_word(s: &str) -> &str {
+    // Returns a slice of the input — zero copy
+    let bytes = s.as_bytes();
+    for (i, &byte) in bytes.iter().enumerate() {
+        if byte == b' ' {
+            return &s[..i]; // slice up to the space
+        }
+    }
+    s // the whole string if no space found
+}
+
+fn main() {
+    let arr = [10, 20, 30, 40, 50];
+
+    // &arr[1..4] is a slice — borrows arr, no copy
+    let part: &[i32] = &arr[1..4]; // [20, 30, 40]
+    println!("{:?}", part);
+    println!("arr still usable: {:?}", arr);
+
+    // Passing a slice of a Vec to a function that accepts &[i32]
+    let v = vec![1, 2, 3, 4, 5];
+    println!("Sum of all: {}", sum_slice(&v));        // 15
+    println!("Sum of [0..3]: {}", sum_slice(&v[..3])); // 6
+
+    // Arrays and Vecs coerce to slices automatically
+    println!("Sum of array: {}", sum_slice(&arr));
+
+    // String slices
+    let sentence = String::from("hello world");
+    let word = first_word(&sentence); // borrows sentence
+    println!("First word: {}", word); // "hello"
+    // sentence is still valid (word only borrows)
+
+    // &str IS a slice — a view into string data
+    let literal: &str = "hello"; // points to read-only memory
+    let owned: String = String::from("world");
+    let slice_of_owned: &str = &owned[..3]; // "wor"
+    println!("{} {}", literal, slice_of_owned);
+}
+```
+</UniversalEditor>
+
+---
+
+## 3. String vs &str
+
+This is one of Rust's most confusing distinctions for newcomers. `String` is an owned, heap-allocated, growable string. `&str` is a borrowed string slice — it points into existing string data without owning it. Functions that only read strings should accept `&str` for maximum flexibility.
+
+<UniversalEditor title="String vs &str: Ownership and Borrowing" compare={true}>
+```javascript !! js
+// JavaScript: strings are immutable primitives, no ownership concept
+const greeting = "Hello";          // string literal
+const name = new String("Alice");  // String object (rarely used)
+
+// All string operations return new strings
+const full = greeting + ", " + name + "!"; // new string
+console.log(full); // "Hello, Alice!"
+
+// String interpolation
+const message = `${greeting}, ${name}!`;
+console.log(message);
+
+// "Mutating" a string means reassigning
+let s = "hello";
+s = s + " world"; // creates new string, reassigns s
+console.log(s); // "hello world"
+
+// Functions accept any string-like value
+function printLength(s) {
+    console.log(s.length);
+}
+printLength("literal");           // 7
+printLength(new String("object")); // 6
+```
+
+```rust !! rs
+fn print_length(s: &str) {
+    // Accept &str — works for both String and string literals
+    // This is idiomatic for read-only string parameters
+    println!("Length: {}", s.len());
+}
+
+fn make_greeting(name: &str) -> String {
+    // Returns String (owned) because we create new string data
+    format!("Hello, {}!", name)
+}
+
+fn main() {
+    // &str: string slice — immutable, borrowed, no allocation
+    let literal: &str = "hello world"; // points to program binary
+
+    // String: owned, heap-allocated, growable
+    let mut owned: String = String::from("hello");
+    owned.push_str(" world"); // mutate in place
+    owned.push('!');
+
+    println!("{}", literal); // "hello world"
+    println!("{}", owned);   // "hello world!"
+
+    // String coerces to &str automatically (&String → &str)
+    print_length(literal);         // &str directly
+    print_length(&owned);          // &String coerces to &str
+    print_length(&owned[..5]);     // slice of String → &str
+
+    // Constructing Strings
+    let s1 = String::from("hello");
+    let s2 = "world".to_string();      // &str to String
+    let s3 = "world".to_owned();       // also &str to String
+    let combined = format!("{} {}", s1, s2); // format! returns String
+
+    println!("{}", combined); // "hello world"
+
+    // Concatenation with + moves left operand
+    let s4 = s1 + " " + &s2; // s1 is moved here!
+    // println!("{}", s1); // ERROR: s1 was moved
+    println!("{}", s4); // "hello world"
+
+    // Common pattern: accept &str, return String
+    let greeting = make_greeting("Alice");
+    println!("{}", greeting); // "Hello, Alice!"
+}
+```
+</UniversalEditor>
+
+---
+
+## 4. HashMap\<K, V\>
+
+`HashMap<K, V>` maps keys to values, similar to JavaScript's `Map` or plain objects. Rust's `HashMap` is in `std::collections`. The powerful `entry` API lets you insert-or-update without double lookups.
+
+<UniversalEditor title="HashMap vs JavaScript Map and Objects" compare={true}>
+```javascript !! js
+// JavaScript Map
+const scores = new Map();
+scores.set("Alice", 95);
+scores.set("Bob",   87);
+scores.set("Carol", 92);
+
+console.log(scores.get("Alice"));       // 95
+console.log(scores.has("Dave"));        // false
+console.log(scores.size);               // 3
+
+// Iterating
+for (const [name, score] of scores) {
+    console.log(`${name}: ${score}`);
+}
+
+// Insert-or-update pattern
+function incrementScore(map, name) {
+    map.set(name, (map.get(name) ?? 0) + 1);
+}
+const visits = new Map();
+incrementScore(visits, "Alice");
+incrementScore(visits, "Alice");
+incrementScore(visits, "Bob");
+console.log(visits); // Alice: 2, Bob: 1
+
+// Plain object as map (older pattern)
+const obj = { alice: 95, bob: 87 };
+console.log(obj["alice"]); // 95
+console.log(Object.keys(obj)); // ["alice", "bob"]
+```
+
+```rust !! rs
+use std::collections::HashMap;
+
+fn main() {
+    let mut scores: HashMap<String, i32> = HashMap::new();
+    scores.insert("Alice".to_string(), 95);
+    scores.insert("Bob".to_string(),   87);
+    scores.insert("Carol".to_string(), 92);
+
+    // get returns Option<&V>
+    if let Some(score) = scores.get("Alice") {
+        println!("Alice: {}", score); // 95
+    }
+
+    println!("Has Dave: {}", scores.contains_key("Dave")); // false
+    println!("Size: {}", scores.len()); // 3
+
+    // Iterating (order is not guaranteed)
+    for (name, score) in &scores {
+        println!("{}: {}", name, score);
+    }
+
+    // The entry API: insert-or-update without double lookup
+    let mut visits: HashMap<String, u32> = HashMap::new();
+    *visits.entry("Alice".to_string()).or_insert(0) += 1;
+    *visits.entry("Alice".to_string()).or_insert(0) += 1;
+    *visits.entry("Bob".to_string()).or_insert(0)   += 1;
+    println!("{:?}", visits); // {"Alice": 2, "Bob": 1}
+
+    // or_insert_with: lazily compute default value
+    let mut word_count: HashMap<&str, usize> = HashMap::new();
+    let text = "hello world hello rust world hello";
+    for word in text.split_whitespace() {
+        let count = word_count.entry(word).or_insert(0);
+        *count += 1;
+    }
+    println!("{:?}", word_count);
+
+    // Collecting from an iterator into HashMap
+    let pairs = vec![("one", 1), ("two", 2), ("three", 3)];
+    let map: HashMap<&str, i32> = pairs.into_iter().collect();
+    println!("{:?}", map);
+
+    // Remove a key
+    scores.remove("Bob");
+    println!("After remove: {:?}", scores);
+}
+```
+</UniversalEditor>
+
+---
+
+## 5. HashSet\<T\>
+
+`HashSet<T>` stores unique values and supports fast membership testing plus set algebra operations (union, intersection, difference). It mirrors JavaScript's `Set`.
+
+<UniversalEditor title="HashSet vs JavaScript Set" compare={true}>
+```javascript !! js
+// JavaScript Set
+const a = new Set([1, 2, 3, 4]);
+const b = new Set([3, 4, 5, 6]);
+
+// Membership
+console.log(a.has(3)); // true
+console.log(a.has(9)); // false
+
+// Add and delete
+a.add(10);
+a.delete(1);
+console.log(a.size); // 4
+
+// Set operations (no built-in, must implement manually)
+const union        = new Set([...a, ...b]);
+const intersection = new Set([...a].filter(x => b.has(x)));
+const difference   = new Set([...a].filter(x => !b.has(x)));
+
+console.log([...union]);        // [2, 3, 4, 10, 5, 6]
+console.log([...intersection]); // [3, 4]
+console.log([...difference]);   // [2, 10]
+
+// Deduplication
+const arr = [1, 1, 2, 2, 3, 3];
+const unique = [...new Set(arr)];
+console.log(unique); // [1, 2, 3]
+```
+
+```rust !! rs
+use std::collections::HashSet;
+
+fn main() {
+    let a: HashSet<i32> = [1, 2, 3, 4].iter().cloned().collect();
+    let b: HashSet<i32> = [3, 4, 5, 6].iter().cloned().collect();
+
+    // Membership
+    println!("{}", a.contains(&3)); // true
+    println!("{}", a.contains(&9)); // false
+
+    // Add and remove
+    let mut mutable_a = a.clone();
+    mutable_a.insert(10);
+    mutable_a.remove(&1);
+    println!("len: {}", mutable_a.len()); // 4
+
+    // Set operations — built into HashSet!
+    let union: HashSet<&i32>        = a.union(&b).collect();
+    let intersection: HashSet<&i32> = a.intersection(&b).collect();
+    let difference: HashSet<&i32>   = a.difference(&b).collect();
+
+    let mut union_sorted: Vec<&&i32> = union.iter().collect();
+    union_sorted.sort();
+    println!("Union: {:?}", union_sorted);
+
+    let mut inter_sorted: Vec<&&i32> = intersection.iter().collect();
+    inter_sorted.sort();
+    println!("Intersection: {:?}", inter_sorted); // [3, 4]
+
+    let mut diff_sorted: Vec<&&i32> = difference.iter().collect();
+    diff_sorted.sort();
+    println!("Difference: {:?}", diff_sorted); // [1, 2]
+
+    // is_subset / is_superset
+    let small: HashSet<i32> = [3, 4].iter().cloned().collect();
+    println!("small is subset of a: {}", small.is_subset(&a)); // true
+
+    // Deduplication
+    let arr = vec![1, 1, 2, 2, 3, 3];
+    let unique: HashSet<i32> = arr.into_iter().collect();
+    let mut sorted: Vec<i32> = unique.into_iter().collect();
+    sorted.sort();
+    println!("{:?}", sorted); // [1, 2, 3]
+}
+```
+</UniversalEditor>
+
+---
+
+## 6. Iterator Protocol: iter(), iter\_mut(), into\_iter()
+
+Rust has three ways to iterate a collection, and choosing the right one is critical for ownership correctness. This is unlike JavaScript, which has a single `for...of` / `Symbol.iterator` protocol.
+
+<UniversalEditor title="Three Traversal Modes: iter, iter_mut, into_iter" compare={true}>
+```javascript !! js
+// JavaScript: single iteration protocol for all cases
+const arr = [1, 2, 3, 4, 5];
+
+// Read-only iteration — no concept of "ownership"
+for (const n of arr) {
+    console.log(n);
+}
+// arr still usable after
+
+// Mutation during iteration (need index or mutation method)
+for (let i = 0; i < arr.length; i++) {
+    arr[i] *= 2;
+}
+console.log(arr); // [2, 4, 6, 8, 10]
+
+// "Consuming" iteration — JS has no concept of moving data
+// forEach "consumes" but arr is still accessible
+arr.forEach(n => console.log(n));
+console.log(arr); // [2, 4, 6, 8, 10] — still there
+
+// Map returns new array (conceptually "consumes" and produces)
+const doubled = arr.map(n => n * 2);
+console.log(doubled);
+```
+
+```rust !! rs
+fn main() {
+    let mut numbers = vec![1, 2, 3, 4, 5];
+
+    // iter() — borrows immutably; yields &T; collection still usable
+    println!("--- iter() ---");
+    for n in numbers.iter() {        // n is &i32
+        println!("{}", n);
+    }
+    println!("Still usable: {:?}", numbers); // numbers still owned
+
+    // iter_mut() — borrows mutably; yields &mut T; can mutate in place
+    println!("--- iter_mut() ---");
+    for n in numbers.iter_mut() {    // n is &mut i32
+        *n *= 2;                     // dereference and mutate
+    }
+    println!("After doubling: {:?}", numbers); // [2, 4, 6, 8, 10]
+
+    // into_iter() — MOVES the collection; yields T (owned values)
+    println!("--- into_iter() ---");
+    let owned_numbers = vec!["a", "b", "c"];
+    for s in owned_numbers.into_iter() { // s is &str (String is moved into loop)
+        println!("{}", s);
+    }
+    // owned_numbers is no longer usable here — it was consumed
+
+    // for loops use into_iter() by default when iterating by value
+    let v = vec![10, 20, 30];
+    for n in v {          // same as v.into_iter()
+        println!("{}", n); // n is i32 (owned)
+    }
+    // v is moved — cannot use it after the loop
+
+    // Using & or &mut in the for loop is shorthand for iter()/iter_mut()
+    let w = vec![1, 2, 3];
+    for n in &w    { println!("{}", n); } // immutable borrow
+    for n in &mut numbers.clone() { *n += 1; } // mutable borrow
+    println!("{:?}", w); // w still accessible
+}
+```
+</UniversalEditor>
+
+---
+
+## 7. Collecting Results
+
+The `.collect()` method at the end of an iterator chain materializes lazy iterators into concrete collections. It is one of Rust's most powerful and flexible methods.
+
+<UniversalEditor title="collect() into Vec, HashMap, String" compare={true}>
+```javascript !! js
+// JavaScript: Array methods return arrays; no generic "collect"
+const numbers = [1, 2, 3, 4, 5];
+
+// Array methods chain and return arrays
+const result = numbers
+    .filter(n => n % 2 !== 0)
+    .map(n => n * n);
+console.log(result); // [1, 9, 25]
+
+// Building a Map from pairs
+const pairs = [["a", 1], ["b", 2], ["c", 3]];
+const map = new Map(pairs);
+console.log(map); // Map { 'a' => 1, 'b' => 2, 'c' => 3 }
+
+// Building a Set from an array
+const unique = new Set([1, 1, 2, 2, 3]);
+console.log(unique); // Set { 1, 2, 3 }
+
+// Joining array to string
+const words = ["hello", "world"];
+const sentence = words.join(" ");
+console.log(sentence); // "hello world"
+```
+
+```rust !! rs
+use std::collections::{HashMap, HashSet};
+
+fn main() {
+    let numbers = vec![1, 2, 3, 4, 5];
+
+    // collect() into Vec<T>
+    let odds_squared: Vec<i32> = numbers.iter()
+        .filter(|&&n| n % 2 != 0)
+        .map(|&n| n * n)
+        .collect();
+    println!("{:?}", odds_squared); // [1, 9, 25]
+
+    // collect() into HashMap<K, V>
+    let pairs = vec![("a", 1), ("b", 2), ("c", 3)];
+    let map: HashMap<&str, i32> = pairs.into_iter().collect();
+    println!("{:?}", map);
+
+    // collect() into HashSet<T> (automatic deduplication)
+    let with_dups = vec![1, 1, 2, 2, 3, 3];
+    let unique: HashSet<i32> = with_dups.into_iter().collect();
+    println!("{:?}", unique); // {1, 2, 3}
+
+    // collect() into String
+    let chars = vec!['h', 'e', 'l', 'l', 'o'];
+    let word: String = chars.into_iter().collect();
+    println!("{}", word); // "hello"
+
+    // Joining strings with collect (via itertools pattern)
+    let words = vec!["hello", "world"];
+    let sentence = words.join(" "); // Vec<&str> has join()
+    println!("{}", sentence); // "hello world"
+
+    // collect() with Result — collects a Vec<Result<T,E>> into Result<Vec<T>, E>
+    let strings = vec!["1", "2", "3", "4"];
+    let parsed: Result<Vec<i32>, _> = strings.iter()
+        .map(|s| s.parse::<i32>())
+        .collect(); // fails fast on first error
+    println!("{:?}", parsed); // Ok([1, 2, 3, 4])
+
+    let bad_strings = vec!["1", "two", "3"];
+    let parsed_bad: Result<Vec<i32>, _> = bad_strings.iter()
+        .map(|s| s.parse::<i32>())
+        .collect();
+    println!("{:?}", parsed_bad); // Err(ParseIntError)
+}
+```
+</UniversalEditor>
+
+---
+
+## 8. Summary Table
+
+| Concept | JavaScript | Rust |
+|---|---|---|
+| Dynamic array | `Array` | `Vec<T>` |
+| Array access out-of-bounds | `undefined` (silent) | panic (use `.get()` for `Option`) |
+| Zero-cost array view | No (`.slice()` copies) | `&[T]` slice |
+| Owned string | `String` (primitive/object) | `String` |
+| Borrowed string view | No distinction | `&str` |
+| Key-value store | `Map` or `{}` | `HashMap<K, V>` |
+| Insert-or-update | `map.set(k, (map.get(k) ?? 0) + 1)` | `entry().or_insert(0)` |
+| Unique values | `Set` | `HashSet<T>` |
+| Set operations | Manual (`filter`, spread) | Built-in (`.union()`, `.intersection()`) |
+| Read-only iteration | `for...of` | `iter()` → yields `&T` |
+| Mutating iteration | index-based `for` | `iter_mut()` → yields `&mut T` |
+| Consuming iteration | `forEach` (collection stays) | `into_iter()` → collection moved |
+| Materialize iterator | n/a (arrays always concrete) | `.collect()` |
+
+---
+
+## Exercises
+
+### Exercise 1: Word Frequency Counter
+
+Write a function that takes a `&str` and returns a `HashMap<String, usize>` counting how many times each word appears.
+
+<details>
+<summary>Show Answer</summary>
+
+```rust
+use std::collections::HashMap;
+
+fn word_frequency(text: &str) -> HashMap<String, usize> {
+    let mut freq = HashMap::new();
+    for word in text.split_whitespace() {
+        // lowercase and strip punctuation for fair comparison
+        let clean: String = word.chars()
+            .filter(|c| c.is_alphabetic())
+            .map(|c| c.to_lowercase().next().unwrap())
+            .collect();
+        if !clean.is_empty() {
+            *freq.entry(clean).or_insert(0) += 1;
+        }
+    }
+    freq
+}
+
+fn main() {
+    let text = "the quick brown fox jumps over the lazy dog the fox";
+    let freq = word_frequency(text);
+    let mut pairs: Vec<(&String, &usize)> = freq.iter().collect();
+    pairs.sort_by_key(|(word, _)| word.as_str());
+    for (word, count) in pairs {
+        println!("{}: {}", word, count);
+    }
+}
+```
+
+</details>
+
+### Exercise 2: Vec Dedup and Sort
+
+Given a `Vec<i32>` that may contain duplicates, return a sorted `Vec<i32>` with all duplicates removed, without using `HashSet`.
+
+<details>
+<summary>Show Answer</summary>
+
+```rust
+fn dedup_sorted(mut v: Vec<i32>) -> Vec<i32> {
+    v.sort();
+    v.dedup(); // removes consecutive duplicates (works after sort)
+    v
+}
+
+fn main() {
+    let data = vec![3, 1, 4, 1, 5, 9, 2, 6, 5, 3, 5];
+    println!("{:?}", dedup_sorted(data)); // [1, 2, 3, 4, 5, 6, 9]
+}
+```
+
+</details>
+
+### Exercise 3: Group by First Letter
+
+Given a `Vec<&str>`, build a `HashMap<char, Vec<&str>>` grouping words by their first character.
+
+<details>
+<summary>Show Answer</summary>
+
+```rust
+use std::collections::HashMap;
+
+fn group_by_first(words: Vec<&str>) -> HashMap<char, Vec<&str>> {
+    let mut map: HashMap<char, Vec<&str>> = HashMap::new();
+    for word in words {
+        if let Some(first) = word.chars().next() {
+            map.entry(first).or_default().push(word);
+        }
+    }
+    map
+}
+
+fn main() {
+    let words = vec!["apple", "ant", "banana", "avocado", "blueberry", "cherry"];
+    let grouped = group_by_first(words);
+    let mut keys: Vec<char> = grouped.keys().cloned().collect();
+    keys.sort();
+    for k in keys {
+        println!("{}: {:?}", k, grouped[&k]);
+    }
+}
+```
+
+</details>

@@ -1,0 +1,713 @@
+---
+title: "第 14 模組：控制流與函式"
+description: "掌握 Python 的控制流：if/elif/else 的真值規則、對可迭代物件的 for 迴圈、while/else 子句、推導式，以及 *args/**kwargs 等函式特性。"
+---
+
+# 第 14 模組：控制流與函式
+
+Python 的控制流簡潔易讀，但與 JavaScript 有一些重要的差異。真值規則更為嚴格，`for` 迴圈直接作用於可迭代物件，Python 還有獨特的 `while/else` 子句和串列推導式。函式也更靈活，支援關鍵字引數、`*args` 和 `**kwargs`。
+
+## 學習目標
+
+完成本模組後，你將能夠：
+
+- ✅ 在 `if/elif/else` 陳述式中應用 Python 的真值規則
+- ✅ 使用 `for` 直接遍歷可迭代物件，並使用 `range()`、`enumerate()` 和 `zip()`
+- ✅ 使用獨特的 `while/else` 和 `for/else` 子句
+- ✅ 編寫串列、字典和集合推導式，作為 `map`/`filter` 的替代方案
+- ✅ 定義帶有預設引數、關鍵字引數、`*args` 和 `**kwargs` 的函式
+- ✅ 使用 `lambda` 編寫簡潔的匿名函式
+- ✅ 理解 Python 的 LEGB 作用域規則
+
+---
+
+## 1. if/elif/else 與真值
+
+Python 的 `if` 陳述式看起來與 JavaScript 的類似，但真值規則有重要差異。Python 更為明確：只有特定的值是假值，不會對物件進行隱式轉換。
+
+<UniversalEditor title="真值差異：JavaScript vs Python">
+```javascript !! js
+// JavaScript 的假值
+if (!0)          console.log("0 是假值");         // 是的
+if (!"")         console.log("'' 是假值");         // 是的
+if (!null)       console.log("null 是假值");       // 是的
+if (!undefined)  console.log("undefined 是假值");  // 是的
+if (!NaN)        console.log("NaN 是假值");        // 是的
+if (!false)      console.log("false 是假值");      // 是的
+
+// JavaScript 中令人意外的真值
+if ([])    console.log("[] 是真值！");    // 是的——空陣列是真值
+if ({})    console.log("{} 是真值！");    // 是的——空物件是真值
+if ("0")   console.log('"0" 是真值！');  // 是的——非空字串是真值
+```
+
+```python !! py
+# Python 的假值
+if not 0:          print("0 是假值")        # 是的
+if not 0.0:        print("0.0 是假值")      # 是的
+if not "":         print("'' 是假值")        # 是的
+if not None:       print("None 是假值")      # 是的
+if not False:      print("False 是假值")     # 是的
+if not []:         print("[] 是假值")        # 是的——Python 中空串列是假值！
+if not {}:         print("{} 是假值")        # 是的——Python 中空字典是假值！
+if not ():         print("() 是假值")        # 是的——空元組是假值
+if not set():      print("set() 是假值")     # 是的——空集合是假值
+
+# Python 真值：非零數字、非空字串、非空集合
+if [1, 2]:   print("[1,2] 是真值")    # 是的
+if {"a": 1}: print("{'a':1} 是真值")  # 是的
+if "0":      print('"0" 是真值')      # 是的——與 JS 相同
+```
+</UniversalEditor>
+
+<UniversalEditor title="if/elif/else 結構">
+```javascript !! js
+// JavaScript if/else if/else
+function classify(score) {
+    if (score >= 90) {
+        return "A";
+    } else if (score >= 80) {
+        return "B";
+    } else if (score >= 70) {
+        return "C";
+    } else if (score >= 60) {
+        return "D";
+    } else {
+        return "F";
+    }
+}
+
+console.log(classify(95));  // "A"
+console.log(classify(72));  // "C"
+console.log(classify(55));  // "F"
+
+// 三元運算子
+const score = 72;
+const status = score >= 60 ? "通過" : "不通過";
+```
+
+```python !! py
+# Python if/elif/else —— 注意：是 "elif" 而不是 "else if"
+def classify(score):
+    if score >= 90:
+        return "A"
+    elif score >= 80:
+        return "B"
+    elif score >= 70:
+        return "C"
+    elif score >= 60:
+        return "D"
+    else:
+        return "F"
+
+print(classify(95))  # A
+print(classify(72))  # C
+print(classify(55))  # F
+
+# 條件運算式（三元）—— 注意順序是反的！
+score = 72
+status = "通過" if score >= 60 else "不通過"
+print(status)  # 通過
+```
+</UniversalEditor>
+
+---
+
+## 2. 對可迭代物件使用 for 迴圈
+
+在 JavaScript 中，`for...of` 遍歷可迭代物件。在 Python 中，`for` 總是直接遍歷可迭代物件。Python 中不存在傳統的 C 風格 `for (let i = 0; i < n; i++)` ——需要用 `range()` 代替。
+
+<UniversalEditor title="for 迴圈基礎">
+```javascript !! js
+// JavaScript for 迴圈
+const fruits = ["apple", "banana", "cherry"];
+
+// for...of（遍歷值）
+for (const fruit of fruits) {
+    console.log(fruit);
+}
+
+// for...in（遍歷鍵——通常不適用於陣列）
+for (const index in fruits) {
+    console.log(index, fruits[index]);
+}
+
+// 傳統 C 風格迴圈
+for (let i = 0; i < 5; i++) {
+    console.log(i);  // 0 1 2 3 4
+}
+
+// 帶索引的 forEach
+fruits.forEach((fruit, index) => {
+    console.log(index, fruit);
+});
+```
+
+```python !! py
+# Python for 迴圈
+fruits = ["apple", "banana", "cherry"]
+
+# for 直接遍歷可迭代物件
+for fruit in fruits:
+    print(fruit)
+
+# range() 用於計數迴圈
+for i in range(5):
+    print(i)    # 0 1 2 3 4
+
+for i in range(2, 8):
+    print(i)    # 2 3 4 5 6 7
+
+for i in range(0, 10, 2):
+    print(i)    # 0 2 4 6 8
+
+# enumerate() —— 同時取得索引和值（替代帶索引的 forEach）
+for index, fruit in enumerate(fruits):
+    print(index, fruit)
+# 0 apple
+# 1 banana
+# 2 cherry
+
+# 從不同的索引開始
+for index, fruit in enumerate(fruits, start=1):
+    print(index, fruit)  # 1 apple, 2 banana, ...
+```
+</UniversalEditor>
+
+<UniversalEditor title="zip() 與平行迭代">
+```javascript !! js
+// JavaScript：同時遍歷兩個陣列
+const names  = ["Alice", "Bob", "Carol"];
+const scores = [90, 85, 92];
+
+// 使用索引
+for (let i = 0; i < names.length; i++) {
+    console.log(`${names[i]}: ${scores[i]}`);
+}
+
+// 使用 map 配對
+const pairs = names.map((name, i) => [name, scores[i]]);
+pairs.forEach(([name, score]) => {
+    console.log(`${name}: ${score}`);
+});
+```
+
+```python !! py
+# Python：使用 zip() 進行平行迭代
+names  = ["Alice", "Bob", "Carol"]
+scores = [90, 85, 92]
+
+# zip() 將多個可迭代物件的元素配對
+for name, score in zip(names, scores):
+    print(f"{name}: {score}")
+# Alice: 90
+# Bob: 85
+# Carol: 92
+
+# zip() 在最短的可迭代物件耗盡時停止
+# itertools 中的 zip_longest 則在最長的耗盡時停止
+from itertools import zip_longest
+
+extra_scores = [90, 85]
+for name, score in zip_longest(names, extra_scores, fillvalue=0):
+    print(f"{name}: {score}")
+# Alice: 90
+# Bob: 85
+# Carol: 0（填充值）
+
+# 結合 zip 和 enumerate
+for i, (name, score) in enumerate(zip(names, scores), 1):
+    print(f"#{i} {name}: {score}")
+```
+</UniversalEditor>
+
+---
+
+## 3. while 迴圈與 else 子句
+
+Python 的 `while` 迴圈與 JavaScript 的工作方式相同，但 Python 為 `while` 和 `for` 迴圈添加了獨特的 `else` 子句。如果迴圈正常完成（沒有觸發 `break`），則執行 `else` 區塊。
+
+<UniversalEditor title="while 迴圈與 else 子句">
+```javascript !! js
+// JavaScript while 迴圈
+let count = 0;
+while (count < 5) {
+    console.log(count);
+    count++;
+}
+
+// 使用旗標變數搜尋
+const items = [3, 7, 2, 8, 4];
+let found = false;
+let i = 0;
+while (i < items.length) {
+    if (items[i] === 8) {
+        console.log(`在索引 ${i} 處找到了 8`);
+        found = true;
+        break;
+    }
+    i++;
+}
+if (!found) {
+    console.log("未找到");
+}
+```
+
+```python !! py
+# Python while 迴圈
+count = 0
+while count < 5:
+    print(count)
+    count += 1
+
+# Python 獨特的 while/else —— 如果沒有 break，else 就會執行
+items = [3, 7, 2, 8, 4]
+i = 0
+while i < len(items):
+    if items[i] == 8:
+        print(f"在索引 {i} 處找到了 8")
+        break       # else 區塊被跳過
+    i += 1
+else:
+    print("未找到")  # 只有在 while 沒有 break 的情況下才執行
+
+# for/else 的工作方式相同
+target = 99
+for item in items:
+    if item == target:
+        print(f"找到了 {target}")
+        break
+else:
+    print(f"{target} 不在串列中")  # 執行了——串列中沒有 99
+```
+</UniversalEditor>
+
+---
+
+## 4. 串列、字典和集合推導式
+
+推導式是建立集合的一種簡潔、Pythonic 的方式。它們取代了 JavaScript 中許多 `map()` 和 `filter()` 的用法。
+
+<UniversalEditor title="串列推導式 vs map/filter">
+```javascript !! js
+// JavaScript：map 和 filter
+const numbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+
+// map —— 轉換每個元素
+const squares = numbers.map(n => n ** 2);
+console.log(squares);  // [1, 4, 9, 16, 25, 36, 49, 64, 81, 100]
+
+// filter —— 保留滿足條件的元素
+const evens = numbers.filter(n => n % 2 === 0);
+console.log(evens);    // [2, 4, 6, 8, 10]
+
+// 組合 map + filter
+const evenSquares = numbers
+    .filter(n => n % 2 === 0)
+    .map(n => n ** 2);
+console.log(evenSquares);  // [4, 16, 36, 64, 100]
+
+// 展平巢狀陣列
+const nested = [[1, 2], [3, 4], [5, 6]];
+const flat = nested.flatMap(arr => arr);
+console.log(flat);   // [1, 2, 3, 4, 5, 6]
+```
+
+```python !! py
+# Python：串列推導式
+numbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+
+# [運算式 for 變數 in 可迭代物件] —— 等同於 map
+squares = [n ** 2 for n in numbers]
+print(squares)   # [1, 4, 9, 16, 25, 36, 49, 64, 81, 100]
+
+# [運算式 for 變數 in 可迭代物件 if 條件] —— map + filter
+evens = [n for n in numbers if n % 2 == 0]
+print(evens)     # [2, 4, 6, 8, 10]
+
+# 組合：先過濾再轉換
+even_squares = [n ** 2 for n in numbers if n % 2 == 0]
+print(even_squares)  # [4, 16, 36, 64, 100]
+
+# 展平巢狀串列（巢狀推導式）
+nested = [[1, 2], [3, 4], [5, 6]]
+flat = [x for sublist in nested for x in sublist]
+print(flat)      # [1, 2, 3, 4, 5, 6]
+```
+</UniversalEditor>
+
+<UniversalEditor title="字典和集合推導式">
+```javascript !! js
+// JavaScript：從可迭代物件建立物件和 Set
+const words = ["hello", "world", "foo", "bar"];
+
+// 建立一個 word -> length 的物件映射
+const lengths = Object.fromEntries(
+    words.map(w => [w, w.length])
+);
+console.log(lengths);
+// { hello: 5, world: 5, foo: 3, bar: 3 }
+
+// 建立唯一長度的 Set
+const uniqueLengths = new Set(words.map(w => w.length));
+console.log([...uniqueLengths]);  // [5, 3]
+```
+
+```python !! py
+# Python：字典和集合推導式
+words = ["hello", "world", "foo", "bar"]
+
+# 字典推導式：{鍵: 值 for 變數 in 可迭代物件}
+lengths = {w: len(w) for w in words}
+print(lengths)
+# {'hello': 5, 'world': 5, 'foo': 3, 'bar': 3}
+
+# 帶過濾的字典推導式
+long_words = {w: len(w) for w in words if len(w) > 3}
+print(long_words)
+# {'hello': 5, 'world': 5}
+
+# 集合推導式：{運算式 for 變數 in 可迭代物件}
+unique_lengths = {len(w) for w in words}
+print(unique_lengths)   # {3, 5}（集合是無序的）
+
+# 反轉字典
+original = {"a": 1, "b": 2, "c": 3}
+inverted = {v: k for k, v in original.items()}
+print(inverted)   # {1: 'a', 2: 'b', 3: 'c'}
+```
+</UniversalEditor>
+
+---
+
+## 5. 函式：def、預設引數、關鍵字引數
+
+Python 函式支援豐富的呼叫約定，遠超 JavaScript 的位置引數。
+
+<UniversalEditor title="預設引數與關鍵字引數">
+```javascript !! js
+// JavaScript 預設參數
+function greet(name, greeting = "Hello", punctuation = "!") {
+    return `${greeting}, ${name}${punctuation}`;
+}
+
+console.log(greet("Alice"));               // "Hello, Alice!"
+console.log(greet("Bob", "Hi"));           // "Hi, Bob!"
+console.log(greet("Carol", "Hey", "."));   // "Hey, Carol."
+
+// JavaScript 沒有內建的關鍵字引數
+// 必須使用物件解構來模擬
+function createUser({ name, age = 0, role = "user" } = {}) {
+    return { name, age, role };
+}
+createUser({ name: "Alice", role: "admin" });
+```
+
+```python !! py
+# Python 預設引數
+def greet(name, greeting="Hello", punctuation="!"):
+    return f"{greeting}, {name}{punctuation}"
+
+print(greet("Alice"))                      # Hello, Alice!
+print(greet("Bob", "Hi"))                  # Hi, Bob!
+print(greet("Carol", "Hey", "."))          # Hey, Carol.
+
+# Python 關鍵字引數 —— 以 name=value 的形式按任意順序呼叫
+print(greet("Dave", punctuation="..."))    # Hello, Dave...
+print(greet(punctuation="?", name="Eve", greeting="Hmm"))  # Hmm, Eve?
+
+# 警告：可變預設引數是常見陷阱！
+def bad_append(item, lst=[]):   # 不要這樣做
+    lst.append(item)
+    return lst
+
+# 使用 None 作為預設值
+def good_append(item, lst=None):
+    if lst is None:
+        lst = []
+    lst.append(item)
+    return lst
+```
+</UniversalEditor>
+
+<UniversalEditor title="*args 和 **kwargs vs JavaScript 的 rest/spread">
+```javascript !! js
+// JavaScript 剩餘參數和展開運算子
+function sum(...numbers) {
+    return numbers.reduce((acc, n) => acc + n, 0);
+}
+console.log(sum(1, 2, 3, 4));   // 10
+
+// 使用展開運算子傳遞陣列作為引數
+const nums = [1, 2, 3, 4];
+console.log(sum(...nums));       // 10
+
+// 物件展開用於關鍵字引數
+function configure({ host = "localhost", port = 3000, debug = false } = {}) {
+    return { host, port, debug };
+}
+const base = { host: "example.com" };
+configure({ ...base, port: 8080 });
+```
+
+```python !! py
+# Python *args —— 將額外的位置引數收集為元組
+def sum_all(*numbers):
+    return sum(numbers)
+
+print(sum_all(1, 2, 3, 4))    # 10
+print(sum_all(1, 2))           # 3
+
+# 解包串列作為位置引數傳遞
+nums = [1, 2, 3, 4]
+print(sum_all(*nums))          # 10，等同於 sum_all(1, 2, 3, 4)
+
+# **kwargs —— 將額外的關鍵字引數收集為字典
+def configure(**options):
+    defaults = {"host": "localhost", "port": 3000, "debug": False}
+    defaults.update(options)
+    return defaults
+
+print(configure(host="example.com", port=8080))
+# {'host': 'example.com', 'port': 8080, 'debug': False}
+
+# 解包字典作為關鍵字引數傳遞
+overrides = {"host": "example.com", "port": 8080}
+print(configure(**overrides))   # 相同結果
+
+# 組合：普通引數、*args、僅關鍵字引數、**kwargs
+def full_example(required, *args, keyword_only="default", **kwargs):
+    print(f"required={required}")
+    print(f"args={args}")
+    print(f"keyword_only={keyword_only}")
+    print(f"kwargs={kwargs}")
+
+full_example("hello", 1, 2, 3, keyword_only="custom", x=10, y=20)
+```
+</UniversalEditor>
+
+---
+
+## 6. Lambda 函式
+
+Python 的 `lambda` 建立一個小的匿名函式。它比 JavaScript 的箭頭函式更受限——只能包含單個運算式，不能是程式碼區塊。
+
+<UniversalEditor title="Lambda vs 箭頭函式">
+```javascript !! js
+// JavaScript 箭頭函式
+const double  = x => x * 2;
+const add     = (a, b) => a + b;
+const square  = x => x ** 2;
+
+console.log(double(5));    // 10
+console.log(add(3, 4));    // 7
+
+// 箭頭函式作為回呼
+const nums = [5, 2, 8, 1, 9, 3];
+nums.sort((a, b) => a - b);
+console.log(nums);   // [1, 2, 3, 5, 8, 9]
+
+const words = ["banana", "apple", "cherry"];
+words.sort((a, b) => a.length - b.length);
+console.log(words);  // ["apple", "banana", "cherry"]
+```
+
+```python !! py
+# Python lambda —— 只能是單個運算式
+double = lambda x: x * 2
+add    = lambda a, b: a + b
+square = lambda x: x ** 2
+
+print(double(5))   # 10
+print(add(3, 4))   # 7
+
+# Lambda 作為回呼
+nums = [5, 2, 8, 1, 9, 3]
+nums.sort()              # 原地升序排序
+print(nums)   # [1, 2, 3, 5, 8, 9]
+
+# 使用 key 函式的 sorted()
+words = ["banana", "apple", "cherry"]
+by_length = sorted(words, key=lambda w: len(w))
+print(by_length)   # ['apple', 'banana', 'cherry']
+
+# 多條件排序（先按長度，再按字母順序）
+multi_sort = sorted(words, key=lambda w: (len(w), w))
+print(multi_sort)  # ['apple', 'banana', 'cherry']
+
+# Lambda 與 map() 和 filter()
+squares    = list(map(lambda x: x**2, [1, 2, 3, 4]))
+evens_only = list(filter(lambda x: x % 2 == 0, [1, 2, 3, 4, 5]))
+print(squares)     # [1, 4, 9, 16]
+print(evens_only)  # [2, 4]
+# （在 Python 中，推導式通常比 map/filter 更受推崇）
+```
+</UniversalEditor>
+
+---
+
+## 7. 變數作用域：LEGB 規則
+
+Python 使用 **LEGB** 規則：**L**ocal（區域）→ **E**nclosing（閉包）→ **G**lobal（全域）→ **B**uilt-in（內建）。JavaScript 有函式作用域和區塊作用域（`let`/`const`）。
+
+<UniversalEditor title="LEGB 作用域 vs JavaScript 作用域">
+```javascript !! js
+// JavaScript 區塊作用域（let/const）
+let x = "全域";
+
+function outer() {
+    let x = "外部";
+
+    function inner() {
+        let x = "內部";
+        console.log(x);  // "內部"（區域）
+    }
+    inner();
+    console.log(x);      // "外部"（外部函式的 x）
+}
+outer();
+console.log(x);          // "全域"
+
+// 區塊作用域（JS 特性）
+{
+    let blockVar = "區塊";
+    console.log(blockVar); // "區塊"
+}
+// console.log(blockVar); // ReferenceError
+```
+
+```python !! py
+# Python LEGB 作用域
+x = "全域"
+
+def outer():
+    x = "閉包"
+
+    def inner():
+        x = "區域"
+        print(x)   # "區域"（L —— 區域作用域優先）
+    inner()
+    print(x)       # "閉包"（E —— 閉包作用域）
+
+outer()
+print(x)           # "全域"（G —— 全域作用域）
+
+# Python 沒有區塊作用域 —— if/for 不建立新的作用域
+for i in range(3):
+    loop_var = i
+print(loop_var)    # 2 —— 仍然可以存取！（與 JS 的 let 不同）
+
+# 要在函式內修改全域變數，使用 'global'
+count = 0
+def increment():
+    global count
+    count += 1
+
+increment()
+print(count)   # 1
+
+# 'nonlocal' 修改閉包（而非全域）作用域的變數
+def make_counter():
+    n = 0
+    def counter():
+        nonlocal n
+        n += 1
+        return n
+    return counter
+
+c = make_counter()
+print(c())  # 1
+print(c())  # 2
+```
+</UniversalEditor>
+
+---
+
+## 8. 總結表
+
+| 概念 | JavaScript | Python |
+|---|---|---|
+| 空陣列/串列的真值 | `[]` 是**真值** | `[]` 是**假值** |
+| 空物件/字典的真值 | `{}` 是**真值** | `{}` 是**假值** |
+| `else if` 關鍵字 | `else if` | `elif` |
+| 三元語法 | `condition ? a : b` | `a if condition else b` |
+| C 風格 `for` 迴圈 | `for (let i=0; i<n; i++)` | `for i in range(n):` |
+| 帶索引遍歷 | `arr.forEach((v, i) => ...)` | `for i, v in enumerate(arr):` |
+| 平行迭代 | 手動索引或 `.map` | `zip(a, b)` |
+| 迴圈 else 子句 | 不支援 | `for/else`、`while/else` |
+| 串列轉換 | `arr.map(fn)` | `[fn(x) for x in arr]` |
+| 串列過濾 | `arr.filter(fn)` | `[x for x in arr if fn(x)]` |
+| 剩餘參數 | `...args` | `*args` |
+| 關鍵字引數 | 物件解構 | 直接使用 `**kwargs` |
+| 匿名函式 | 箭頭函式（完整程式碼區塊） | `lambda`（僅運算式） |
+| 區塊作用域 | `let`/`const` 建立區塊作用域 | Python 沒有區塊作用域 |
+| 修改閉包變數 | 閉包（自動） | 需要 `nonlocal` 關鍵字 |
+| 修改全域變數 | 閉包（自動） | 需要 `global` 關鍵字 |
+
+---
+
+## 練習
+
+### 練習 1：推導式挑戰
+
+使用一個串列推導式，為 `range(1, 11)` 中的每個 `n` 建立形如 `"n 是奇數"` 或 `"n 是偶數"` 的字串串列。
+
+<details>
+<summary>查看答案</summary>
+
+```python
+result = [f"{n} 是{'偶數' if n % 2 == 0 else '奇數'}" for n in range(1, 11)]
+print(result)
+# ['1 是奇數', '2 是偶數', '3 是奇數', '4 是偶數', '5 是奇數',
+#  '6 是偶數', '7 是奇數', '8 是偶數', '9 是奇數', '10 是偶數']
+```
+</details>
+
+### 練習 2：*args 和 **kwargs
+
+編寫一個函式 `log_event(event_type, *tags, severity="info", **metadata)`，輸出一條結構化日誌。至少用兩種不同的引數模式呼叫它。
+
+<details>
+<summary>查看答案</summary>
+
+```python
+def log_event(event_type, *tags, severity="info", **metadata):
+    tag_str  = ", ".join(tags) if tags else "無"
+    meta_str = ", ".join(f"{k}={v}" for k, v in metadata.items())
+    print(f"[{severity.upper()}] {event_type} | 標籤: {tag_str} | {meta_str}")
+
+# 模式 1：基本呼叫
+log_event("使用者登入", "認證", "web", user_id=42, ip="192.168.1.1")
+# [INFO] 使用者登入 | 標籤: 認證, web | user_id=42, ip=192.168.1.1
+
+# 模式 2：覆蓋嚴重等級，無標籤
+log_event("付款失敗", severity="error", amount=99.99, currency="TWD")
+# [ERROR] 付款失敗 | 標籤: 無 | amount=99.99, currency=TWD
+```
+</details>
+
+### 練習 3：迴圈 else 子句
+
+編寫一個函式 `find_prime(numbers: list[int]) -> int | None`，使用帶 `else` 子句的 `for` 迴圈，回傳串列中第一個質數，如果沒有則回傳 `None`。
+
+<details>
+<summary>查看答案</summary>
+
+```python
+def find_prime(numbers: list[int]) -> int | None:
+    for n in numbers:
+        # 內層迴圈：使用 for/else 檢查 n 是否為質數
+        for i in range(2, int(n**0.5) + 1):
+            if n % i == 0:
+                break   # n 不是質數
+        else:
+            # 只有在沒有 break 的情況下才執行 else —— n 是質數！
+            if n >= 2:
+                return n
+    return None
+
+print(find_prime([4, 6, 8, 9, 10]))  # None
+print(find_prime([4, 6, 7, 9, 11]))  # 7
+print(find_prime([2, 3, 5, 7]))      # 2
+```
+</details>

@@ -1,0 +1,839 @@
+---
+title: "Module 12: Module System and Swift Package Manager"
+description: "Learn Swift's module system, access control levels, Swift Package Manager for dependencies, and how to structure Swift projects — compared to JavaScript's npm ecosystem."
+---
+
+# Module 12: Module System and Swift Package Manager
+
+Swift's module system and Swift Package Manager (SPM) are the backbone of code organisation and dependency management in the Swift ecosystem. If you're coming from JavaScript and npm/yarn, many concepts will feel familiar — but Swift's approach is deeper, with compiler-enforced access control and a first-party package manager built right into the toolchain.
+
+## Learning Objectives
+
+✅ Understand what a Swift module is and how it differs from an ES module
+✅ Apply Swift's four access control levels: `public`, `internal`, `fileprivate`, and `private`
+✅ Use `import` statements to bring modules and specific declarations into scope
+✅ Initialise a Swift Package Manager project and understand `Package.swift`
+✅ Add third-party dependencies with semantic versioning in SPM
+✅ Compare SPM project structure to a Node.js `package.json` setup
+
+---
+
+## 1. Swift Modules Overview
+
+In JavaScript, a **module** is typically a single file. In Swift, a **module** is a compiled unit — it can be a single file or an entire library/framework. When you build a Swift package target, everything in that target becomes one module. Consumers `import` the whole module by name.
+
+<UniversalEditor title="Module Concept: JS vs Swift" compare={true}>
+```javascript !! js
+// JavaScript: each file is its own module
+// math.js
+export function add(a, b) {
+  return a + b;
+}
+
+export const PI = 3.14159;
+
+// main.js
+import { add, PI } from './math.js';
+
+console.log(add(2, 3));   // 5
+console.log(PI);           // 3.14159
+
+// You can also do namespace imports
+import * as MathUtils from './math.js';
+console.log(MathUtils.add(1, 2)); // 3
+```
+
+```swift !! swift
+// Swift: a module is a compiled *target* (library or executable)
+// Everything in the same target shares the same module namespace.
+
+// Sources/MathUtils/Arithmetic.swift
+public func add(_ a: Int, _ b: Int) -> Int {
+    return a + b
+}
+
+public let pi = 3.14159
+
+// Sources/App/main.swift
+import MathUtils   // import the whole module
+
+print(add(2, 3))   // 5
+print(pi)          // 3.14159
+
+// You cannot selectively import one symbol with `import MathUtils.add`
+// (Swift doesn't support partial module imports for user-defined modules)
+// But you can import specific declarations from system frameworks:
+import func Foundation.NSLog
+```
+</UniversalEditor>
+
+---
+
+## 2. Access Control
+
+JavaScript has no built-in access control — anything exported can be imported anywhere. Swift enforces access at the **compiler level** with four levels, from most to least restrictive.
+
+| Level | Scope | JS Equivalent |
+|---|---|---|
+| `public` | Visible to any module | `export` |
+| `internal` | Visible within the same module (default) | No explicit export |
+| `fileprivate` | Visible within the same `.swift` file | No equivalent |
+| `private` | Visible within the enclosing declaration | No equivalent |
+
+<UniversalEditor title="Access Control Levels" compare={true}>
+```javascript !! js
+// JavaScript: access control is by convention only
+// No compiler enforcement
+
+// user.js
+// "Public" API — explicitly exported
+export class User {
+  constructor(name, email) {
+    this.name = name;
+    this.email = email;
+    this._passwordHash = null; // convention: underscore = "private"
+  }
+
+  // "Public" method
+  getDisplayName() {
+    return this.name;
+  }
+
+  // "Private" by convention only — still accessible from outside
+  _hashPassword(password) {
+    return btoa(password); // not real hashing!
+  }
+
+  setPassword(password) {
+    this._passwordHash = this._hashPassword(password);
+  }
+}
+
+// Anyone can still do: user._hashPassword("secret")
+// JavaScript cannot stop this!
+```
+
+```swift !! swift
+// Swift: access control is compiler-enforced
+
+// Sources/Models/User.swift
+public struct User {
+    // public: accessible from any module
+    public let name: String
+    public let email: String
+
+    // internal: accessible within the same module (default)
+    var lastLoginDate: Date?
+
+    // private: only accessible within this struct declaration
+    private var passwordHash: String?
+
+    public init(name: String, email: String) {
+        self.name = name
+        self.email = email
+    }
+
+    public func getDisplayName() -> String {
+        return name
+    }
+
+    public mutating func setPassword(_ password: String) {
+        // Can call private method from within the same declaration
+        passwordHash = hashPassword(password)
+    }
+
+    // private: cannot be called from outside this struct
+    private func hashPassword(_ password: String) -> String {
+        // Real implementation would use CryptoKit
+        return password.reversed().map { String($0) }.joined()
+    }
+}
+
+// External code CANNOT call user.hashPassword("secret") — compile error!
+```
+</UniversalEditor>
+
+<UniversalEditor title="fileprivate vs private" compare={true}>
+```javascript !! js
+// JavaScript has no fileprivate equivalent.
+// Everything in a file is either exported (public) or not (module-level private).
+
+// helpers.js
+function formatName(first, last) {   // not exported = "file private" by convention
+  return `${first} ${last}`;
+}
+
+class UserFormatter {
+  format(user) {
+    return formatName(user.first, user.last);
+  }
+}
+
+class AdminFormatter {
+  format(admin) {
+    // Also works — same file can call formatName
+    return `[ADMIN] ${formatName(admin.first, admin.last)}`;
+  }
+}
+
+export { UserFormatter, AdminFormatter };
+```
+
+```swift !! swift
+// Swift: fileprivate is visible within the same file but not outside it.
+
+// Sources/Formatters.swift
+
+// fileprivate: both UserFormatter and AdminFormatter (in this file) can use it,
+// but code in OTHER files cannot.
+fileprivate func formatName(first: String, last: String) -> String {
+    return "\(first) \(last)"
+}
+
+public struct UserFormatter {
+    public func format(user: (first: String, last: String)) -> String {
+        return formatName(first: user.first, last: user.last)
+    }
+}
+
+public struct AdminFormatter {
+    public func format(admin: (first: String, last: String)) -> String {
+        // Also works — same file
+        return "[ADMIN] \(formatName(first: admin.first, last: admin.last))"
+    }
+}
+
+// A type in ANOTHER file cannot call formatName — compile error.
+```
+</UniversalEditor>
+
+---
+
+## 3. import in Swift
+
+Swift's `import` is simpler than JavaScript's: you always import an entire module by name. You cannot destructure imports, but you can disambiguate specific declarations.
+
+<UniversalEditor title="Import Syntax Comparison" compare={true}>
+```javascript !! js
+// JavaScript: flexible import syntax
+
+// Named imports
+import { readFile, writeFile } from 'fs/promises';
+
+// Default import
+import express from 'express';
+
+// Namespace import
+import * as path from 'path';
+
+// Rename on import
+import { readFile as readFileAsync } from 'fs/promises';
+
+// Dynamic import (lazy loading)
+async function loadModule() {
+  const { default: lodash } = await import('lodash');
+  return lodash.chunk([1, 2, 3, 4], 2);
+}
+
+// Side-effect only import
+import './polyfills.js';
+```
+
+```swift !! swift
+// Swift: import entire modules by name
+
+import Foundation           // Apple's core utilities framework
+import Swift                // (implicit — always available)
+
+// Import a specific module from a package
+import Vapor                // third-party Vapor web framework
+import ArgumentParser       // Swift Argument Parser library
+
+// Disambiguate a specific declaration (to avoid name collisions)
+// import func Foundation.NSLog
+// import struct Foundation.URL
+// import typealias Foundation.TimeInterval
+
+// There is no dynamic/lazy import in Swift (modules are linked at compile time)
+
+// Practical example: using Foundation types
+let url = URL(string: "https://example.com")!
+let data = try Data(contentsOf: url)   // Foundation's Data type
+
+// Using Swift standard library (always implicitly imported)
+let numbers = [1, 2, 3, 4, 5]
+let doubled = numbers.map { $0 * 2 }
+print(doubled) // [2, 4, 6, 8, 10]
+```
+</UniversalEditor>
+
+---
+
+## 4. Swift Package Manager
+
+SPM is the official, first-party package manager for Swift. It ships with the Swift toolchain — no separate install required. The manifest file is `Package.swift`, analogous to `package.json`.
+
+<UniversalEditor title="Project Initialisation: npm vs SPM" compare={true}>
+```javascript !! js
+// JavaScript / Node.js — initialise a new project
+
+// $ mkdir my-project && cd my-project
+// $ npm init -y
+
+// Generates package.json:
+// {
+//   "name": "my-project",
+//   "version": "1.0.0",
+//   "description": "",
+//   "main": "index.js",
+//   "scripts": {
+//     "start": "node index.js",
+//     "test": "jest"
+//   },
+//   "dependencies": {},
+//   "devDependencies": {}
+// }
+
+// Then install a dependency:
+// $ npm install express
+
+// Project structure:
+// my-project/
+//   package.json
+//   package-lock.json
+//   node_modules/        <-- all dependencies here
+//   index.js
+//   src/
+```
+
+```swift !! swift
+// Swift — initialise a new package
+// $ mkdir MyProject && cd MyProject
+// $ swift package init --type executable
+
+// Generates Package.swift and this structure:
+// MyProject/
+//   Package.swift        <-- manifest (like package.json)
+//   Package.resolved     <-- lock file (like package-lock.json)
+//   Sources/
+//     MyProject/
+//       main.swift       <-- entry point
+//   Tests/
+//     MyProjectTests/
+//       MyProjectTests.swift
+
+// Other init types:
+// $ swift package init --type library       # for a reusable library
+// $ swift package init --type plugin        # for build plugins
+
+// Build and run:
+// $ swift build
+// $ swift run
+// $ swift test
+```
+</UniversalEditor>
+
+---
+
+## 5. Package.swift Structure
+
+`Package.swift` is a Swift source file that declares your package. It's more powerful than JSON because it's actual code — you can use conditionals, loops, and Swift's type system.
+
+<UniversalEditor title="Package Manifest: package.json vs Package.swift" compare={true}>
+```javascript !! js
+// package.json — JSON format
+{
+  "name": "task-api",
+  "version": "1.0.0",
+  "description": "A simple task management REST API",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "test": "jest --coverage",
+    "build": "tsc"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "dotenv": "^16.0.3"
+  },
+  "devDependencies": {
+    "jest": "^29.0.0",
+    "nodemon": "^3.0.0",
+    "@types/express": "^4.17.18"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
+```
+
+```swift !! swift
+// Package.swift — Swift source file
+// swift-tools-version: 5.9
+import PackageDescription
+
+let package = Package(
+    name: "TaskAPI",
+    // Minimum platform versions (optional but recommended)
+    platforms: [
+        .macOS(.v13)
+    ],
+    // Products: what this package exposes to consumers
+    products: [
+        .executable(name: "TaskAPI", targets: ["TaskAPI"]),
+        // For a library: .library(name: "TaskAPI", targets: ["TaskAPI"])
+    ],
+    // Dependencies: third-party packages (like package.json "dependencies")
+    dependencies: [
+        .package(
+            url: "https://github.com/vapor/vapor.git",
+            from: "4.89.0"
+        ),
+        .package(
+            url: "https://github.com/apple/swift-argument-parser.git",
+            from: "1.2.0"
+        ),
+    ],
+    // Targets: compilation units within this package
+    targets: [
+        .executableTarget(
+            name: "TaskAPI",
+            dependencies: [
+                .product(name: "Vapor", package: "vapor"),
+                .product(name: "ArgumentParser", package: "swift-argument-parser"),
+            ],
+            path: "Sources/TaskAPI"
+        ),
+        .testTarget(
+            name: "TaskAPITests",
+            dependencies: ["TaskAPI"],
+            path: "Tests/TaskAPITests"
+        ),
+    ]
+)
+```
+</UniversalEditor>
+
+---
+
+## 6. Adding Dependencies
+
+<UniversalEditor title="Adding Dependencies: npm vs SPM" compare={true}>
+```javascript !! js
+// JavaScript: install from the npm registry
+// $ npm install express@4.18.2
+// $ npm install --save-dev jest
+
+// package.json is updated automatically.
+// Semantic versioning in package.json:
+// "^4.18.2"  — compatible with 4.x.x (minor + patch updates allowed)
+// "~4.18.2"  — only patch updates (4.18.x)
+// "4.18.2"   — exact version
+// "*"        — any version (dangerous!)
+
+// To update all dependencies:
+// $ npm update
+
+// To audit for security issues:
+// $ npm audit
+
+// Lock file: package-lock.json (committed to git)
+// node_modules/ is in .gitignore
+```
+
+```swift !! swift
+// Swift: add the package URL to Package.swift manually,
+// then resolve with: $ swift package resolve
+// (There is no "swift add" command yet — you edit Package.swift directly)
+
+// Semantic versioning options in SPM:
+
+// Minimum version (most common — like npm's "^"):
+.package(url: "https://github.com/vapor/vapor.git", from: "4.89.0")
+
+// Exact version:
+.package(url: "https://github.com/vapor/vapor.git", exact: "4.89.0")
+
+// Version range:
+.package(
+    url: "https://github.com/vapor/vapor.git",
+    "4.0.0"..<"5.0.0"
+)
+
+// Branch (useful during development — like npm's git dependencies):
+.package(url: "https://github.com/vapor/vapor.git", branch: "main")
+
+// Local path dependency (like npm's "file:" prefix):
+.package(path: "../MyLocalPackage")
+
+// After editing Package.swift:
+// $ swift package resolve      -- download & lock dependencies
+// $ swift package update       -- update to latest allowed versions
+// Package.resolved is your lock file (commit it to git!)
+```
+</UniversalEditor>
+
+---
+
+## 7. Targets and Products
+
+SPM distinguishes between **targets** (compilation units) and **products** (what you expose). This has no direct counterpart in npm but is similar to a monorepo workspace.
+
+<UniversalEditor title="Multi-target Package Structure" compare={true}>
+```javascript !! js
+// JavaScript monorepo with workspaces (npm workspaces)
+// package.json (root)
+// {
+//   "workspaces": ["packages/*"],
+//   "scripts": { "test": "jest" }
+// }
+
+// packages/core/package.json
+// { "name": "@myapp/core", "main": "src/index.js" }
+
+// packages/cli/package.json
+// { "name": "@myapp/cli", "dependencies": { "@myapp/core": "*" } }
+
+// packages/server/package.json
+// { "name": "@myapp/server", "dependencies": { "@myapp/core": "*" } }
+
+// Directory structure:
+// packages/
+//   core/src/index.js
+//   cli/src/index.js
+//   server/src/index.js
+// node_modules/
+```
+
+```swift !! swift
+// Swift: all targets live in one Package.swift
+// swift-tools-version: 5.9
+import PackageDescription
+
+let package = Package(
+    name: "MyApp",
+    products: [
+        // Expose the library for use by other packages
+        .library(name: "Core", targets: ["Core"]),
+        // Expose the CLI executable
+        .executable(name: "MyCLI", targets: ["CLI"]),
+    ],
+    dependencies: [
+        .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.2.0"),
+    ],
+    targets: [
+        // Shared core library
+        .target(
+            name: "Core",
+            path: "Sources/Core"
+        ),
+        // CLI that depends on Core
+        .executableTarget(
+            name: "CLI",
+            dependencies: [
+                "Core",
+                .product(name: "ArgumentParser", package: "swift-argument-parser"),
+            ],
+            path: "Sources/CLI"
+        ),
+        // Tests for Core
+        .testTarget(
+            name: "CoreTests",
+            dependencies: ["Core"],
+            path: "Tests/CoreTests"
+        ),
+    ]
+)
+
+// Directory structure:
+// Sources/
+//   Core/     (library target)
+//   CLI/      (executable target)
+// Tests/
+//   CoreTests/
+```
+</UniversalEditor>
+
+---
+
+## 8. Popular Swift Packages
+
+Just as npm has Express, Lodash, and Jest, the Swift ecosystem has well-known packages for server-side development.
+
+<UniversalEditor title="Popular Packages: npm vs SPM" compare={true}>
+```javascript !! js
+// Popular npm packages for server-side development
+
+// Express — web framework
+import express from 'express';
+const app = express();
+app.get('/', (req, res) => res.send('Hello World'));
+app.listen(3000);
+
+// Axios — HTTP client
+import axios from 'axios';
+const response = await axios.get('https://api.github.com/users/octocat');
+console.log(response.data.name);
+
+// Lodash — utility functions
+import _ from 'lodash';
+const grouped = _.groupBy([1, 2, 3, 4], n => n % 2 === 0 ? 'even' : 'odd');
+
+// dotenv — environment variables
+import 'dotenv/config';
+const apiKey = process.env.API_KEY;
+
+// Jest — testing
+import { describe, test, expect } from '@jest/globals';
+test('adds', () => expect(1 + 1).toBe(2));
+```
+
+```swift !! swift
+// Popular SPM packages for Swift development
+
+// Vapor — web framework (server-side Swift equivalent of Express)
+// https://github.com/vapor/vapor
+import Vapor
+let app = Application()
+app.get("") { req in "Hello World" }
+try app.run()
+
+// AsyncHTTPClient — HTTP client (part of SwiftNIO ecosystem)
+// https://github.com/swift-server/async-http-client
+import AsyncHTTPClient
+let httpClient = HTTPClient(eventLoopGroupProvider: .singleton)
+let response = try await httpClient.get(url: "https://api.github.com/users/octocat").get()
+
+// Swift Algorithms — utility algorithms (by Apple)
+// https://github.com/apple/swift-algorithms
+import Algorithms
+let grouped = [1, 2, 3, 4].grouped(by: { $0.isMultiple(of: 2) ? "even" : "odd" })
+
+// swift-dotenv — environment variables
+// https://github.com/thebarndog/swift-dotenv
+import SwiftDotenv
+try Dotenv.configure()
+let apiKey = Dotenv["API_KEY"]?.stringValue
+
+// Swift Testing / XCTest — testing (built in, no install required)
+import Testing
+@Test func addition() { #expect(1 + 1 == 2) }
+```
+</UniversalEditor>
+
+---
+
+## 9. Xcode vs SPM Project Structure
+
+<UniversalEditor title="Project Structure Comparison" compare={true}>
+```javascript !! js
+// Node.js project structure
+my-api/
+├── package.json          // manifest + scripts
+├── package-lock.json     // lock file
+├── .env                  // environment variables
+├── .eslintrc.json        // linter config
+├── jest.config.js        // test config
+├── tsconfig.json         // (if using TypeScript)
+├── src/
+│   ├── index.js          // entry point
+│   ├── routes/
+│   │   ├── users.js
+│   │   └── tasks.js
+│   ├── models/
+│   │   └── task.js
+│   └── middleware/
+│       └── auth.js
+├── tests/
+│   ├── routes.test.js
+│   └── models.test.js
+└── node_modules/         // gitignored
+
+// Run: npm start | npm test | npm run build
+```
+
+```swift !! swift
+// SPM (command-line) project structure
+MyAPI/
+├── Package.swift          // manifest (like package.json + tsconfig)
+├── Package.resolved       // lock file (like package-lock.json)
+├── .swiftlint.yml         // linter config (like .eslintrc)
+├── Sources/
+│   └── MyAPI/
+│       ├── main.swift     // entry point
+│       ├── Routes/
+│       │   ├── UserRoutes.swift
+│       │   └── TaskRoutes.swift
+│       ├── Models/
+│       │   └── Task.swift
+│       └── Middleware/
+│           └── AuthMiddleware.swift
+├── Tests/
+│   └── MyAPITests/
+│       ├── UserRoutesTests.swift
+│       └── TaskModelTests.swift
+└── .build/                // gitignored (like node_modules)
+
+// Run: swift run | swift test | swift build
+// For Xcode: open Package.swift in Xcode — it understands SPM natively
+```
+</UniversalEditor>
+
+---
+
+## Summary Table
+
+| Concept | JavaScript / npm | Swift / SPM |
+|---|---|---|
+| Module unit | Single file | Compiled target (one or more files) |
+| Manifest file | `package.json` (JSON) | `Package.swift` (Swift code) |
+| Lock file | `package-lock.json` | `Package.resolved` |
+| Dependency install | `npm install` | `swift package resolve` |
+| Run project | `npm start` / `node index.js` | `swift run` |
+| Run tests | `npm test` | `swift test` |
+| Access control | None (convention only) | `public`, `internal`, `fileprivate`, `private` |
+| Import syntax | `import { x } from 'y'` | `import ModuleName` |
+| Registry | npmjs.com | GitHub / GitLab URLs (no central registry) |
+| Init command | `npm init` | `swift package init` |
+| Update deps | `npm update` | `swift package update` |
+| Build output | `dist/` or none | `.build/` |
+
+---
+
+## Exercises
+
+**Exercise 1:** Create a Swift package manifest for a library called `StringUtils` that exposes one public function `func titleCase(_ string: String) -> String`. The package should have no external dependencies and support macOS 13+.
+
+<details>
+<summary>Show Answer</summary>
+
+```swift
+// Package.swift
+// swift-tools-version: 5.9
+import PackageDescription
+
+let package = Package(
+    name: "StringUtils",
+    platforms: [.macOS(.v13)],
+    products: [
+        .library(name: "StringUtils", targets: ["StringUtils"]),
+    ],
+    targets: [
+        .target(name: "StringUtils", path: "Sources/StringUtils"),
+        .testTarget(
+            name: "StringUtilsTests",
+            dependencies: ["StringUtils"],
+            path: "Tests/StringUtilsTests"
+        ),
+    ]
+)
+
+// Sources/StringUtils/StringUtils.swift
+public func titleCase(_ string: String) -> String {
+    return string.split(separator: " ")
+        .map { $0.prefix(1).uppercased() + $0.dropFirst().lowercased() }
+        .joined(separator: " ")
+}
+```
+</details>
+
+---
+
+**Exercise 2:** Write a Swift file `BankAccount.swift` that defines a `BankAccount` struct with the following access rules:
+- `accountNumber` and `ownerName` are `public` read-only
+- `balance` is readable publicly but only settable privately
+- A `deposit(amount:)` method is `public`
+- A `validateAmount(_:)` helper is `private`
+
+<details>
+<summary>Show Answer</summary>
+
+```swift
+// Sources/BankAccount.swift
+public struct BankAccount {
+    public let accountNumber: String
+    public let ownerName: String
+
+    // public getter, private setter
+    public private(set) var balance: Double
+
+    public init(accountNumber: String, ownerName: String, initialBalance: Double = 0) {
+        self.accountNumber = accountNumber
+        self.ownerName = ownerName
+        self.balance = initialBalance
+    }
+
+    public mutating func deposit(amount: Double) throws {
+        guard validateAmount(amount) else {
+            throw BankError.invalidAmount
+        }
+        balance += amount
+    }
+
+    public mutating func withdraw(amount: Double) throws {
+        guard validateAmount(amount) else {
+            throw BankError.invalidAmount
+        }
+        guard amount <= balance else {
+            throw BankError.insufficientFunds
+        }
+        balance -= amount
+    }
+
+    private func validateAmount(_ amount: Double) -> Bool {
+        return amount > 0 && amount.isFinite
+    }
+}
+
+public enum BankError: Error {
+    case invalidAmount
+    case insufficientFunds
+}
+```
+</details>
+
+---
+
+**Exercise 3:** Convert the following JavaScript `package.json` dependency block into the equivalent SPM `Package.swift` dependencies and target dependency arrays.
+
+```json
+{
+  "dependencies": {
+    "vapor": "4.89.0",
+    "swift-log": "1.5.0"
+  }
+}
+```
+
+<details>
+<summary>Show Answer</summary>
+
+```swift
+// Package.swift
+// swift-tools-version: 5.9
+import PackageDescription
+
+let package = Package(
+    name: "MyServer",
+    platforms: [.macOS(.v13)],
+    products: [
+        .executable(name: "MyServer", targets: ["MyServer"]),
+    ],
+    dependencies: [
+        .package(url: "https://github.com/vapor/vapor.git", from: "4.89.0"),
+        .package(url: "https://github.com/apple/swift-log.git", from: "1.5.0"),
+    ],
+    targets: [
+        .executableTarget(
+            name: "MyServer",
+            dependencies: [
+                .product(name: "Vapor", package: "vapor"),
+                .product(name: "Logging", package: "swift-log"),
+            ],
+            path: "Sources/MyServer"
+        ),
+    ]
+)
+```
+</details>

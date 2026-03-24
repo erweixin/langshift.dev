@@ -1,0 +1,962 @@
+---
+title: "第 16 模組：錯誤處理"
+description: "掌握 Python 的例外系統：try/except/else/finally、自訂例外、with 語句情境管理器，以及與 JavaScript try/catch 的對比。"
+---
+
+# 第 16 模組：錯誤處理
+
+## 學習目標
+
+完成本模組後，你將能夠：
+
+- ✅ 理解 Python 的 `try/except` 語法，以及它與 JavaScript `try/catch` 的對應關係
+- ✅ 學會捕獲特定例外類型，了解 Python 的例外層級體系
+- ✅ 掌握 Python 獨有的 `else` 和 `finally` 子句
+- ✅ 使用 `raise` 拋出例外，並建立自訂例外類別
+- ✅ 使用 `with` 語句和情境管理器安全地管理資源
+- ✅ 透過 `contextlib.contextmanager` 建構自訂情境管理器
+
+---
+
+## 1. try/except 與 try/catch 對比
+
+最基本的差異是命名：JavaScript 使用 `catch`，Python 使用 `except`。兩者目的相同——捕獲錯誤，防止程式崩潰。
+
+<UniversalEditor title="基礎 try/except 與 try/catch 對比">
+```javascript !! js
+// JavaScript: try/catch/finally
+function divideNumbers(a, b) {
+  try {
+    if (b === 0) {
+      throw new Error("不允許除以零");
+    }
+    const result = a / b;
+    console.log(`結果: ${result}`);
+    return result;
+  } catch (error) {
+    console.error(`捕獲到錯誤: ${error.message}`);
+    return null;
+  } finally {
+    console.log("這裡總會執行");
+  }
+}
+
+divideNumbers(10, 2);   // 結果: 5
+divideNumbers(10, 0);   // 捕獲到錯誤: 不允許除以零...
+```
+
+```python !! py
+# Python: try/except/finally
+def divide_numbers(a, b):
+    try:
+        if b == 0:
+            raise ValueError("不允許除以零")
+        result = a / b
+        print(f"結果: {result}")
+        return result
+    except ValueError as e:
+        print(f"捕獲到錯誤: {e}")
+        return None
+    finally:
+        print("這裡總會執行")
+
+divide_numbers(10, 2)   # 結果: 5.0
+divide_numbers(10, 0)   # 捕獲到錯誤: 不允許除以零
+```
+</UniversalEditor>
+
+### 捕獲多種例外類型
+
+Python 允許在單一 `except` 子句中捕獲多種例外類型，也可以使用多個 `except` 區塊。
+
+<UniversalEditor title="捕獲多種例外類型">
+```javascript !! js
+// JavaScript: 單一 catch 區塊處理所有錯誤
+function parseUserInput(input) {
+  try {
+    const parsed = JSON.parse(input);
+
+    if (typeof parsed.age !== 'number') {
+      throw new TypeError("age 必須是數字");
+    }
+    if (parsed.age < 0 || parsed.age > 150) {
+      throw new RangeError("age 必須在 0 到 150 之間");
+    }
+
+    return parsed;
+  } catch (error) {
+    // 必須手動檢查類型
+    if (error instanceof TypeError) {
+      console.error(`型別錯誤: ${error.message}`);
+    } else if (error instanceof RangeError) {
+      console.error(`範圍錯誤: ${error.message}`);
+    } else if (error instanceof SyntaxError) {
+      console.error(`JSON 解析錯誤: ${error.message}`);
+    } else {
+      console.error(`未知錯誤: ${error.message}`);
+    }
+    return null;
+  }
+}
+
+parseUserInput('{"name": "Alice", "age": 25}');
+parseUserInput('invalid json');
+parseUserInput('{"name": "Bob", "age": -5}');
+```
+
+```python !! py
+# Python: 多個 except 區塊——清晰且明確
+import json
+
+def parse_user_input(input_str):
+    try:
+        parsed = json.loads(input_str)
+
+        if not isinstance(parsed.get("age"), (int, float)):
+            raise TypeError("age 必須是數字")
+        if not (0 <= parsed["age"] <= 150):
+            raise ValueError("age 必須在 0 到 150 之間")
+
+        return parsed
+
+    except json.JSONDecodeError as e:
+        print(f"JSON 解析錯誤: {e}")
+    except TypeError as e:
+        print(f"型別錯誤: {e}")
+    except ValueError as e:
+        print(f"值錯誤: {e}")
+    except Exception as e:
+        print(f"意外錯誤: {e}")
+
+    return None
+
+parse_user_input('{"name": "Alice", "age": 25}')
+parse_user_input('invalid json')
+parse_user_input('{"name": "Bob", "age": -5}')
+```
+</UniversalEditor>
+
+---
+
+## 2. 例外層級體系
+
+Python 例外構成類別層級結構。了解這個層級有助於你以適當的粒度捕獲例外。
+
+<UniversalEditor title="例外層級與捕獲粒度">
+```javascript !! js
+// JavaScript 例外層級較為扁平——所有例外均繼承自 Error
+// Error
+// ├── TypeError
+// ├── RangeError
+// ├── SyntaxError
+// ├── ReferenceError
+// └── ...
+
+function demonstrateErrors() {
+  try {
+    null.toString();
+  } catch (e) {
+    console.log(`${e.constructor.name}: ${e.message}`);
+  }
+
+  try {
+    new Array(-1);
+  } catch (e) {
+    console.log(`${e.constructor.name}: ${e.message}`);
+  }
+
+  try {
+    console.log(undeclaredVariable);
+  } catch (e) {
+    console.log(`${e.constructor.name}: ${e.message}`);
+  }
+}
+
+demonstrateErrors();
+```
+
+```python !! py
+# Python 例外層級:
+# BaseException
+# ├── SystemExit
+# ├── KeyboardInterrupt
+# └── Exception
+#     ├── ArithmeticError
+#     │   ├── ZeroDivisionError
+#     │   └── OverflowError
+#     ├── LookupError
+#     │   ├── IndexError
+#     │   └── KeyError
+#     ├── TypeError
+#     ├── ValueError
+#     ├── FileNotFoundError（OSError 的子類別）
+#     └── ...更多
+
+def demonstrate_errors():
+    try:
+        result = 1 / 0
+    except ZeroDivisionError as e:
+        print(f"ZeroDivisionError: {e}")
+
+    try:
+        lst = [1, 2, 3]
+        val = lst[10]
+    except IndexError as e:
+        print(f"IndexError: {e}")
+
+    try:
+        d = {"a": 1}
+        val = d["b"]
+    except KeyError as e:
+        print(f"KeyError: {e}")
+
+    # 捕獲父類別會同時捕獲所有子類別
+    try:
+        lst = []
+        val = lst[0]
+    except LookupError as e:
+        # 同時捕獲 IndexError 和 KeyError
+        print(f"LookupError（父類別）: {type(e).__name__}: {e}")
+
+demonstrate_errors()
+```
+</UniversalEditor>
+
+---
+
+## 3. else 和 finally 子句
+
+Python 的 `try/except` 支援 `else` 子句，**JavaScript 中沒有對應的語法**。`else` 區塊僅在沒有例外發生時執行——非常適合只在成功時執行的程式碼。
+
+<UniversalEditor title="Python 的 else 子句——JS 中無對應語法">
+```javascript !! js
+// JavaScript: try/catch 沒有 else 子句
+// 必須使用旗標變數或巢狀邏輯來模擬
+
+async function fetchUserData(userId) {
+  let success = false;
+  let data = null;
+
+  try {
+    const response = await fetch(`/api/users/${userId}`);
+    if (!response.ok) {
+      throw new Error(`HTTP 錯誤: ${response.status}`);
+    }
+    data = await response.json();
+    success = true;  // 必須手動追蹤成功狀態
+  } catch (error) {
+    console.error(`取得使用者失敗: ${error.message}`);
+  } finally {
+    console.log("請求已完成");
+  }
+
+  // 略顯笨拙：成功邏輯在 try/catch 外部
+  if (success) {
+    console.log(`使用者取得成功: ${data.name}`);
+    saveToCache(userId, data);
+  }
+}
+```
+
+```python !! py
+# Python: else 子句僅在沒有例外時執行
+def safe_divide(a, b):
+    try:
+        result = a / b
+    except ZeroDivisionError:
+        print("不能除以零！")
+    else:
+        # 僅在 try 成功時執行（沒有發生例外）
+        # 這是與 JavaScript 的關鍵差異
+        print(f"成功！{a} / {b} = {result}")
+    finally:
+        print("---")
+
+safe_divide(10, 2)   # 印出「成功！」，然後「---」
+safe_divide(10, 0)   # 印出「不能除以零！」，然後「---」
+
+# 檔案讀取範例：else 用於處理成功後的邏輯
+import json
+
+def load_config(path):
+    try:
+        with open(path, 'r') as f:
+            config = json.load(f)
+    except FileNotFoundError:
+        print(f"設定檔不存在: {path}，使用預設設定")
+        config = {}
+    except json.JSONDecodeError as e:
+        print(f"設定檔格式錯誤: {e}")
+        config = {}
+    else:
+        # 僅在檔案成功讀取並解析後執行
+        print(f"設定載入成功，共 {len(config)} 個索引鍵")
+    finally:
+        print("設定載入流程結束")
+
+    return config
+
+import tempfile, os
+with tempfile.NamedTemporaryFile(
+    mode='w', suffix='.json', delete=False
+) as f:
+    json.dump({"host": "localhost", "port": 8080}, f)
+    tmp_path = f.name
+
+load_config(tmp_path)
+load_config("/不存在的路徑/config.json")
+os.unlink(tmp_path)
+```
+</UniversalEditor>
+
+---
+
+## 4. 拋出例外
+
+Python 使用 `raise`，JavaScript 使用 `throw`。可以拋出內建例外或自訂例外類型。
+
+<UniversalEditor title="拋出例外：raise 與 throw">
+```javascript !! js
+// JavaScript: throw 任意值（通常是 Error 實例）
+function validateAge(age) {
+  if (typeof age !== 'number') {
+    throw new TypeError(`期望數字，得到 ${typeof age}`);
+  }
+  if (age < 0) {
+    throw new RangeError(`age 不能為負數: ${age}`);
+  }
+  if (age > 150) {
+    throw new RangeError(`不合實際的年齡: ${age}`);
+  }
+  return age;
+}
+
+function processUser(userData) {
+  try {
+    const age = validateAge(userData.age);
+    console.log(`有效年齡: ${age}`);
+  } catch (error) {
+    console.error(`驗證失敗: ${error.message}`);
+    throw error;  // 記錄後重新拋出
+  }
+}
+
+try {
+  processUser({ age: -5 });
+} catch (e) {
+  console.log(`捕獲到重拋的例外: ${e.message}`);
+}
+```
+
+```python !! py
+# Python: 使用 raise 拋出例外實例或類別
+def validate_age(age):
+    if not isinstance(age, (int, float)):
+        raise TypeError(f"期望數字，得到 {type(age).__name__}")
+    if age < 0:
+        raise ValueError(f"age 不能為負數: {age}")
+    if age > 150:
+        raise ValueError(f"不合實際的年齡: {age}")
+    return age
+
+def process_user(user_data):
+    try:
+        age = validate_age(user_data.get("age"))
+        print(f"有效年齡: {age}")
+    except (TypeError, ValueError) as e:
+        print(f"驗證失敗: {e}")
+        raise  # 不帶參數的 raise，保留原始堆疊資訊
+
+try:
+    process_user({"age": -5})
+except ValueError as e:
+    print(f"捕獲到重拋的例外: {e}")
+
+# 帶原因的例外鏈
+def load_config(path):
+    try:
+        with open(path) as f:
+            return f.read()
+    except FileNotFoundError as e:
+        # 將原始例外作為原因鏈接起來
+        raise RuntimeError(f"在 {path} 找不到設定檔") from e
+
+try:
+    load_config("/不存在的路徑/config.json")
+except RuntimeError as e:
+    print(f"RuntimeError: {e}")
+    print(f"原始原因: {e.__cause__}")
+```
+</UniversalEditor>
+
+---
+
+## 5. 自訂例外
+
+Python 透過繼承 `Exception` 可以輕鬆建立功能豐富的自訂例外類別。
+
+<UniversalEditor title="自訂例外類別">
+```javascript !! js
+// JavaScript: 繼承 Error 類別
+class ValidationError extends Error {
+  constructor(message, field, value) {
+    super(message);
+    this.name = 'ValidationError';
+    this.field = field;
+    this.value = value;
+  }
+}
+
+class DatabaseError extends Error {
+  constructor(message, query, code) {
+    super(message);
+    this.name = 'DatabaseError';
+    this.query = query;
+    this.errorCode = code;
+  }
+}
+
+function createUser(data) {
+  if (!data.email || !data.email.includes('@')) {
+    throw new ValidationError('電子郵件地址無效', 'email', data.email);
+  }
+  throw new DatabaseError('連線被拒絕', 'INSERT INTO users...', 1045);
+}
+
+try {
+  createUser({ email: 'not-an-email' });
+} catch (e) {
+  if (e instanceof ValidationError) {
+    console.log(`欄位 '${e.field}' 驗證失敗: ${e.message}`);
+  } else if (e instanceof DatabaseError) {
+    console.log(`資料庫錯誤 ${e.errorCode}: ${e.message}`);
+  }
+}
+```
+
+```python !! py
+# Python: 繼承 Exception（或其子類別）
+
+class AppError(Exception):
+    """應用程式基礎例外類別。"""
+    pass
+
+class ValidationError(AppError):
+    """輸入驗證失敗時拋出。"""
+
+    def __init__(self, message, field=None, value=None):
+        super().__init__(message)
+        self.field = field
+        self.value = value
+
+    def __str__(self):
+        if self.field:
+            return f"欄位 '{self.field}' 驗證失敗: {super().__str__()}"
+        return super().__str__()
+
+class DatabaseError(AppError):
+    """資料庫操作失敗時拋出。"""
+
+    def __init__(self, message, query=None, error_code=None):
+        super().__init__(message)
+        self.query = query
+        self.error_code = error_code
+
+def create_user(data):
+    if not data.get("email") or "@" not in data["email"]:
+        raise ValidationError(
+            "電子郵件地址無效",
+            field="email",
+            value=data.get("email")
+        )
+    raise DatabaseError(
+        "連線被拒絕",
+        query="INSERT INTO users...",
+        error_code=1045
+    )
+
+try:
+    create_user({"email": "not-an-email"})
+except ValidationError as e:
+    print(e)
+    print(f"欄位: {e.field}")
+    print(f"值: {e.value}")
+except DatabaseError as e:
+    print(f"資料庫錯誤 {e.error_code}: {e}")
+except AppError as e:
+    print(f"應用程式錯誤: {e}")
+```
+</UniversalEditor>
+
+---
+
+## 6. 情境管理器（with 語句）
+
+`with` 語句是 Python 管理檔案、網路連線和鎖等資源的優雅方式。它保證即使發生例外也能正確清理。JavaScript 沒有直接的對應語法。
+
+<UniversalEditor title="情境管理器：with 語句與手動清理對比">
+```javascript !! js
+// JavaScript: 手動資源管理（try/finally 模式）
+const fs = require('fs');
+
+function readFileContent(filePath) {
+  let fileHandle;
+  try {
+    fileHandle = fs.openSync(filePath, 'r');
+    const buffer = Buffer.alloc(1024);
+    const bytesRead = fs.readSync(fileHandle, buffer, 0, 1024, 0);
+    return buffer.toString('utf8', 0, bytesRead);
+  } catch (error) {
+    console.error(`讀取檔案錯誤: ${error.message}`);
+    return null;
+  } finally {
+    // 必須在 finally 中手動關閉
+    if (fileHandle !== undefined) {
+      fs.closeSync(fileHandle);
+      console.log("檔案控制代碼已關閉");
+    }
+  }
+}
+```
+
+```python !! py
+# Python: with 語句自動處理開啟/關閉
+
+def read_file_content(file_path):
+    try:
+        # __enter__ 在 open() 時呼叫，__exit__ 自動關閉檔案
+        with open(file_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+            return content
+        # 即使發生例外，檔案也會在這裡自動關閉
+    except FileNotFoundError:
+        print(f"檔案不存在: {file_path}")
+        return None
+
+# 在一個 with 語句中使用多個情境管理器
+def copy_file(src, dst):
+    try:
+        with open(src, 'r') as source, open(dst, 'w') as dest:
+            dest.write(source.read())
+        print(f"已將 {src} 複製到 {dst}")
+    except IOError as e:
+        print(f"複製失敗: {e}")
+
+# with 語句適用於任何實作了 __enter__ 和 __exit__ 的物件
+import threading
+
+lock = threading.Lock()
+
+def thread_safe_operation():
+    with lock:  # 自動取得和釋放鎖
+        print("已取得鎖，正在執行工作...")
+
+# 示範範例
+def demo_context_manager():
+    with open("/tmp/test_cm.txt", "w") as f:
+        f.write("你好，情境管理器！\n")
+
+    content = read_file_content("/tmp/test_cm.txt")
+    print(f"讀取內容: {content.strip()}")
+
+demo_context_manager()
+```
+</UniversalEditor>
+
+---
+
+## 7. 建立自訂情境管理器
+
+可以透過兩種方式建立自訂情境管理器：實作 `__enter__` 和 `__exit__` 方法，或使用 `contextlib.contextmanager`。
+
+<UniversalEditor title="自訂情境管理器">
+```javascript !! js
+// JavaScript: 沒有原生的情境管理器協定
+// 透過類別和輔助函式來模擬
+
+class Timer {
+  constructor(name) {
+    this.name = name;
+  }
+
+  start() {
+    this.startTime = performance.now();
+    console.log(`[${this.name}] 開始`);
+    return this;
+  }
+
+  stop() {
+    const elapsed = performance.now() - this.startTime;
+    console.log(`[${this.name}] 完成，耗時 ${elapsed.toFixed(2)}ms`);
+  }
+}
+
+async function withTimer(name, fn) {
+  const timer = new Timer(name).start();
+  try {
+    await fn();
+  } finally {
+    timer.stop();
+  }
+}
+
+withTimer("資料庫查詢", async () => {
+  await new Promise(resolve => setTimeout(resolve, 100));
+  console.log("查詢完成");
+});
+```
+
+```python !! py
+# Python: 兩種建立自訂情境管理器的方式
+
+# ── 方式 1：實作 __enter__ 和 __exit__ 的類別 ─────────────────────
+import time
+
+class Timer:
+    """計時程式碼區塊的情境管理器。"""
+
+    def __init__(self, name):
+        self.name = name
+        self.elapsed = 0
+
+    def __enter__(self):
+        self._start = time.perf_counter()
+        print(f"[{self.name}] 開始")
+        return self  # 賦值給 as 變數
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.elapsed = time.perf_counter() - self._start
+        print(f"[{self.name}] 完成，耗時 {self.elapsed*1000:.2f}ms")
+        return False  # 不抑制例外
+
+with Timer("計算") as t:
+    total = sum(range(1_000_000))
+    print(f"求和: {total}")
+
+
+# ── 方式 2：contextlib.contextmanager 裝飾器 ─────────────────────
+from contextlib import contextmanager
+
+@contextmanager
+def managed_resource(name):
+    """模擬取得和釋放資源。"""
+    print(f"正在取得 {name}...")
+    resource = {"name": name, "active": True}
+    try:
+        yield resource        # 執行暫停（進入 with 區塊）
+    except Exception as e:
+        print(f"使用 {name} 時發生錯誤: {e}")
+        raise
+    finally:
+        resource["active"] = False
+        print(f"已釋放 {name}")
+
+with managed_resource("資料庫連線") as db:
+    print(f"使用資源: {db['name']}")
+    print(f"活躍狀態: {db['active']}")
+```
+</UniversalEditor>
+
+---
+
+## 8. 例外處理最佳實踐
+
+<UniversalEditor title="錯誤處理最佳實踐">
+```javascript !! js
+// JavaScript 最佳實踐
+
+// ✅ 明確捕獲特定類型
+async function fetchData(url) {
+  try {
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+    return await response.json();
+  } catch (error) {
+    if (error instanceof TypeError) {
+      console.error("網路錯誤:", error.message);
+    } else {
+      console.error("請求錯誤:", error.message);
+    }
+    return null;
+  }
+}
+
+// ✅ 在 finally 中清理資源
+function withTransaction(db, callback) {
+  const tx = db.beginTransaction();
+  try {
+    const result = callback(tx);
+    tx.commit();
+    return result;
+  } catch (error) {
+    tx.rollback();
+    throw error;
+  } finally {
+    tx.close();
+  }
+}
+
+// ❌ 避免：默默吞掉錯誤
+function badPattern() {
+  try {
+    riskyOperation();
+  } catch (e) {
+    // 靜默捕獲——會隱藏 bug！
+  }
+}
+```
+
+```python !! py
+# Python 最佳實踐
+
+# ✅ 捕獲特定例外，而非裸 except
+def parse_config(path):
+    try:
+        with open(path) as f:
+            import json
+            return json.load(f)
+    except FileNotFoundError:
+        print(f"設定檔不存在: {path}，使用預設設定")
+        return {}
+    except json.JSONDecodeError as e:
+        print(f"設定檔 JSON 格式錯誤: {e}")
+        return {}
+    # 讓意外例外自然傳播
+
+# ✅ 使用情境管理器代替 try/finally
+def process_file(path):
+    with open(path) as f:
+        return f.read()
+
+# ✅ 使用例外鏈保留上下文
+def load_user(user_id):
+    try:
+        data = parse_config(f"users/{user_id}.json")
+    except Exception as e:
+        raise RuntimeError(f"載入使用者 {user_id} 失敗") from e
+
+# ✅ 為業務領域建立專屬例外類型
+class InsufficientFundsError(ValueError):
+    def __init__(self, balance, amount):
+        self.balance = balance
+        self.amount = amount
+        super().__init__(
+            f"無法提取 {amount}：餘額僅 {balance}"
+        )
+
+# ❌ 避免：裸 except（會捕獲 SystemExit、KeyboardInterrupt 等）
+def bad_pattern():
+    try:
+        risky_operation()
+    except:        # 永遠不要這樣做
+        pass       # 靜默吞掉所有例外
+
+# ❌ 避免：用例外控制流程
+def check_key_bad(d, key):
+    try:
+        return d[key]
+    except KeyError:
+        return None   # 應該用 d.get(key) 代替！
+```
+</UniversalEditor>
+
+---
+
+## 總結對比表
+
+| 概念 | JavaScript | Python |
+|---|---|---|
+| 基本語法 | `try { } catch (e) { }` | `try: ... except 例外類型 as e:` |
+| 多種錯誤類型 | 單一 `catch`，用 `instanceof` 判斷 | 多個 `except` 區塊 |
+| 清理程式碼 | `finally { }` | `finally:` |
+| 僅成功時執行 | 必須使用旗標變數 | `else:` 子句（無例外時執行） |
+| 拋出/引發 | `throw new Error("msg")` | `raise ValueError("msg")` |
+| 重新拋出 | `throw error` | `raise`（裸，保留堆疊資訊） |
+| 例外鏈 | 手動設定（`error.cause`） | `raise NewError() from original` |
+| 自訂例外 | `class MyError extends Error` | `class MyError(Exception): pass` |
+| 資源管理 | 手動 `try/finally` | `with` 語句（情境管理器） |
+| 自訂資源管理器 | 無原生協定 | `__enter__`/`__exit__` 或 `@contextmanager` |
+| 通用捕獲（慎用） | `catch (e) { }` | `except Exception:` |
+| 真正的全捕獲（危險） | 同上 | `except:`（連 SystemExit 也捕獲！） |
+
+---
+
+## 練習題
+
+### 練習 1：安全 JSON 檔案讀取器
+
+撰寫一個 Python 函式 `safe_read_json(filepath)`，要求：
+- 讀取指定路徑的 JSON 檔案
+- 成功時回傳解析後的資料
+- 分別處理 `FileNotFoundError`、`PermissionError` 和 `json.JSONDecodeError`
+- 總是印出「完成」訊息（使用 `finally`）
+- 發生錯誤時回傳 `None`
+
+<details>
+<summary>查看答案</summary>
+
+```python
+import json
+
+def safe_read_json(filepath):
+    try:
+        with open(filepath, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        print(f"錯誤：檔案 '{filepath}' 不存在。")
+        return None
+    except PermissionError:
+        print(f"錯誤：無權限讀取 '{filepath}'。")
+        return None
+    except json.JSONDecodeError as e:
+        print(f"錯誤：'{filepath}' 中的 JSON 格式無效: {e}")
+        return None
+    else:
+        print(f"成功讀取了 {len(str(data))} 位元組的資料。")
+        return data
+    finally:
+        print("完成。")
+
+import tempfile, os
+
+with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+    json.dump({"name": "Alice", "age": 30}, f)
+    valid_path = f.name
+
+result = safe_read_json(valid_path)
+print(f"結果: {result}\n")
+
+result = safe_read_json("/不存在的路徑/file.json")
+print(f"結果: {result}")
+
+os.unlink(valid_path)
+```
+
+</details>
+
+---
+
+### 練習 2：自訂例外層級
+
+為銀行帳戶系統建立自訂例外層級：
+- `BankError`（基礎例外）
+- `InsufficientFundsError(BankError)`——儲存 `balance` 和 `amount` 屬性
+- `InvalidAmountError(BankError)`——金額為負數或零時拋出
+- `AccountLockedError(BankError)`——帳戶被鎖定時拋出
+- 撰寫 `withdraw(balance, amount, locked=False)` 函式，拋出相應例外
+
+<details>
+<summary>查看答案</summary>
+
+```python
+class BankError(Exception):
+    """所有銀行相關錯誤的基礎類別。"""
+    pass
+
+class InsufficientFundsError(BankError):
+    def __init__(self, balance, amount):
+        self.balance = balance
+        self.amount = amount
+        self.shortfall = amount - balance
+        super().__init__(
+            f"無法提取 NT${amount:.2f}：餘額僅 NT${balance:.2f}（差額 NT${self.shortfall:.2f}）"
+        )
+
+class InvalidAmountError(BankError):
+    def __init__(self, amount):
+        self.amount = amount
+        super().__init__(f"無效的提取金額: NT${amount}，必須為正數。")
+
+class AccountLockedError(BankError):
+    def __init__(self, reason="安全限制"):
+        super().__init__(f"帳戶已鎖定: {reason}")
+
+def withdraw(balance, amount, locked=False):
+    if locked:
+        raise AccountLockedError()
+    if amount <= 0:
+        raise InvalidAmountError(amount)
+    if amount > balance:
+        raise InsufficientFundsError(balance, amount)
+    new_balance = balance - amount
+    print(f"成功提取 NT${amount:.2f}。新餘額: NT${new_balance:.2f}")
+    return new_balance
+
+test_cases = [
+    (100.0, 50.0, False),
+    (100.0, 150.0, False),
+    (100.0, -10.0, False),
+    (100.0, 50.0, True),
+]
+
+for balance, amount, locked in test_cases:
+    try:
+        withdraw(balance, amount, locked)
+    except InsufficientFundsError as e:
+        print(f"餘額不足: {e}")
+    except InvalidAmountError as e:
+        print(f"金額無效: {e}")
+    except AccountLockedError as e:
+        print(f"帳戶鎖定: {e}")
+```
+
+</details>
+
+---
+
+### 練習 3：自訂情境管理器
+
+使用 `@contextmanager` 建立情境管理器 `temp_file_writer(filename, content)`，要求：
+- 進入時建立並寫入暫存檔案
+- yield 檔案路徑
+- 退出時刪除檔案（即使發生例外也要刪除）
+- 建立和刪除時各印出一條訊息
+
+<details>
+<summary>查看答案</summary>
+
+```python
+import os
+import tempfile
+from contextlib import contextmanager
+
+@contextmanager
+def temp_file_writer(filename_hint, content):
+    """建立暫存檔案，yield 其路徑，並確保退出時刪除。"""
+    temp_dir = tempfile.gettempdir()
+    filepath = os.path.join(temp_dir, filename_hint)
+
+    try:
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write(content)
+        print(f"已建立暫存檔案: {filepath}")
+        yield filepath
+
+    except Exception as e:
+        print(f"使用暫存檔案時發生錯誤: {e}")
+        raise
+
+    finally:
+        if os.path.exists(filepath):
+            os.remove(filepath)
+            print(f"已刪除暫存檔案: {filepath}")
+
+# 正常使用
+with temp_file_writer("報告.txt", "你好，世界！\n第二行") as path:
+    with open(path) as f:
+        content = f.read()
+    print(f"檔案內容: {content!r}")
+print()
+
+# 發生例外時檔案也會被刪除
+try:
+    with temp_file_writer("資料.txt", "一些資料") as path:
+        print(f"讀取: {open(path).read()!r}")
+        raise RuntimeError("處理失敗！")
+except RuntimeError as e:
+    print(f"已捕獲: {e}")
+```
+
+</details>

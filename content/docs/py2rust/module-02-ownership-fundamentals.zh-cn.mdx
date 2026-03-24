@@ -1,0 +1,523 @@
+---
+title: "第 2 模块：所有权基础"
+description: "通过对比 Python 的引用计数和垃圾回收机制，理解 Rust 的所有权系统。学习借用检查器之前必须掌握的核心心智模型。"
+---
+
+# 第 2 模块：所有权基础
+
+在第 1 模块中，你已经掌握了 Rust 的基础语法。现在是时候深入了解让 Rust 独一无二的概念——也是从 Python 转过来的开发者最容易被卡住的地方：**所有权（Ownership）**。
+
+本模块将帮助你建立理解第 3 模块借用规则所必需的心智模型。
+
+## 学习目标
+
+完成本模块后，你将能够：
+- ✅ 理解所有权的存在意义及其解决的问题
+- ✅ 区分 Python 的引用计数与 Rust 的编译期所有权
+- ✅ 掌握所有权三大规则
+- ✅ 理解移动语义与 Python "始终是引用" 模型的差异
+- ✅ 了解栈内存与堆内存（以及为什么 Rust 要暴露这一区别）
+- ✅ 区分 Copy 类型与 Move 类型
+- ✅ 理解所有权在函数调用中的应用
+
+---
+
+## 为什么内存管理很重要
+
+在对比 Python 和 Rust 之前，我们先理解两者共同面对的问题：**如何安全地回收不再需要的内存？**
+
+主要有三种策略：
+1. **手动管理**（C/C++）—— 程序员手动调用 `malloc`/`free`。性能最优，但容易出现 use-after-free 漏洞和内存泄漏。
+2. **垃圾回收**（Python、Java、Go）—— 运行时定期扫描内存并回收未使用的对象。安全，但有运行时开销和不可预期的暂停。
+3. **所有权**（Rust）—— 编译器追踪每个值的所有者，在编译时自动插入清理代码。零运行时开销，安全性与 GC 相当。
+
+Rust 的核心理念：只要遵守严格的所有权规则，编译器就能在零运行时成本的前提下保证内存安全。
+
+---
+
+## Python 的内存模型：引用计数
+
+Python 使用**引用计数**——每个对象记录有多少个变量指向它。当计数降为零时，对象被释放。
+
+<UniversalEditor title="Python 引用计数 vs Rust 所有权">
+```python !! py
+import sys
+
+# Python 创建对象并计算引用数
+data = [1, 2, 3]
+print(sys.getrefcount(data))  # 2（data + getrefcount 参数）
+
+# 另一个引用指向同一个对象
+other = data
+print(sys.getrefcount(data))  # 3
+
+# 删除一个引用
+del other
+print(sys.getrefcount(data))  # 又回到 2
+
+# 两个变量指向内存中的同一个对象
+a = [10, 20, 30]
+b = a          # b 指向同一个列表
+b.append(40)
+print(a)       # [10, 20, 30, 40] — a 能看到变化！
+print(a is b)  # True — 是同一个对象
+
+# 当引用计数降为 0，Python 释放内存
+del a
+del b
+# 对象现在被释放了（引用计数 = 0）
+```
+
+```rust !! rs
+// Rust 默认不使用引用计数
+// 每个值在编译时只有唯一一个所有者
+fn main() {
+    let data = vec![1, 2, 3];
+    // `data` 是这个 Vec 的唯一所有者
+
+    // 这会转移所有权 — data 之后不再有效
+    let other = data;
+    // println!("{:?}", data);  // 错误：值已被移走！
+
+    println!("{:?}", other);  // OK：other 现在是所有者
+
+    // 如果需要两个变量持有相同内容，
+    // 必须显式克隆
+    let a = vec![10, 20, 30];
+    let b = a.clone();   // b 获得自己的独立副本
+    println!("{:?}", a); // OK：a 仍然拥有自己的副本
+    println!("{:?}", b); // OK：b 拥有自己的副本
+    // 两者在离开作用域时都会被释放
+}
+```
+</UniversalEditor>
+
+**核心区别：** Python 总是给你一个指向共享对象的引用。Rust 给你一个已拥有的值——并且同一时间只有一个变量能拥有它。
+
+---
+
+## 所有权三大规则
+
+Rust 在编译时强制执行以下三条规则。每一个有效的 Rust 程序都必须遵守：
+
+> **规则一：** Rust 中的每个值都有一个*所有者*（owner）。
+> **规则二：** 同一时间只能有*一个所有者*。
+> **规则三：** 当所有者*离开作用域*时，值会被丢弃（释放）。
+
+来看每条规则的实际效果：
+
+<UniversalEditor title="规则三：基于作用域的自动清理">
+```python !! py
+# Python：对象存活直到引用计数 = 0
+# （或垃圾回收器处理循环引用）
+
+def create_data():
+    temp = [1, 2, 3]
+    # 函数返回时 temp 的引用计数降为 0
+    # Python 可能现在释放它（或 GC 稍后处理）
+    return  # temp 在此离开作用域
+
+# 调用后，[1, 2, 3] 可能仍在内存中
+# 直到 Python 的 GC 决定清理
+create_data()
+
+# 可以追踪对象被删除的时机：
+class TrackDeletion:
+    def __del__(self):
+        print("我被释放了！")
+
+obj = TrackDeletion()
+del obj  # 触发 __del__（但时机不确定）
+```
+
+```rust !! rs
+// Rust：值在所有者离开作用域时被 *立即* 释放
+// 这称为 "drop"——是确定性的、即时的
+
+struct TrackDeletion {
+    name: String,
+}
+
+impl Drop for TrackDeletion {
+    fn drop(&mut self) {
+        println!("{} 被释放了！", self.name);
+    }
+}
+
+fn create_data() {
+    let temp = vec![1, 2, 3];
+    println!("使用 temp：{:?}", temp);
+    // temp 在这里被释放——作用域结束时精确释放
+    // 无 GC，无延迟，无运行时开销
+}
+
+fn main() {
+    create_data();
+    println!("create_data 调用后");
+
+    {
+        let obj = TrackDeletion { name: String::from("obj") };
+        println!("obj 已创建");
+    } // "obj 被释放了！" 在这里打印——确定性的！
+
+    println!("内部作用域结束后");
+}
+// 输出：
+// 使用 temp：[1, 2, 3]
+// create_data 调用后
+// obj 已创建
+// obj 被释放了！
+// 内部作用域结束后
+```
+</UniversalEditor>
+
+---
+
+## 移动语义：Python 开发者最大的意外
+
+在 Python 中，将一个变量赋值给另一个变量，总是创建一个指向同一对象的新引用。在 Rust 中，赋值会*转移*所有权。
+
+<UniversalEditor title="Python 引用 vs Rust 移动">
+```python !! py
+# Python：赋值创建新引用（对于可变对象如列表）
+original = [1, 2, 3]
+moved = original  # 两者指向同一个列表
+
+# original 仍然有效！
+print(original)   # [1, 2, 3]
+print(moved)      # [1, 2, 3]
+
+# 对于不可变对象，Python 可能复制也可能引用
+# 但你感知不到，因为它们不可修改
+x = 42
+y = x
+y = 100
+print(x)  # 42 — 整数看起来像是"被复制了"
+print(y)  # 100
+```
+
+```rust !! rs
+fn main() {
+    // Rust：堆类型的赋值会转移所有权
+    let original = vec![1, 2, 3];  // 堆分配
+    let moved = original;           // 所有权被转移！
+
+    // original 不再有效 — 编译器知道这一点
+    // println!("{:?}", original);  // 错误：使用了已移走的值
+
+    println!("{:?}", moved);   // OK
+
+    // 对于栈类型（整数、布尔等），赋值会复制
+    let x: i32 = 42;
+    let y = x;    // x 被复制，不是移动
+    println!("{}", x);  // OK！i32 实现了 Copy trait
+    println!("{}", y);  // OK！
+
+    // 区别在于：Vec 是堆分配的（复制代价高）
+    // i32 是栈分配的（复制代价低）
+    // Rust 对此做了明确区分
+}
+```
+</UniversalEditor>
+
+### 为什么 Rust 要这样做？
+
+如果 Rust 允许两个所有者，两者都可能尝试释放同一块内存——这就是**双重释放**（double-free）漏洞。通过只允许一个所有者，Rust 保证值只被释放一次。
+
+```
+Python 的方式：
+  a ──┐
+      ├──▶ [堆：1,2,3]（引用计数=0 时释放）
+  b ──┘
+
+Rust 的方式：
+  original ──▶ [堆：1,2,3]
+  let moved = original;
+  original ✗  （无效）
+  moved ──▶ [堆：1,2,3]（moved 离开作用域时释放）
+```
+
+---
+
+## 栈 vs 堆：Rust 暴露了 Python 隐藏的细节
+
+Python 对你完全隐藏了内存细节。Rust 则暴露了它们——有其充分的理由。
+
+<UniversalEditor title="栈内存 vs 堆内存">
+```python !! py
+# Python 完全隐藏了栈/堆的区别
+# 所有对象都在堆上（连小整数也是对象！）
+x = 42        # 堆上的整数对象！
+s = "hello"   # 堆上的字符串对象
+lst = [1,2,3] # 堆上的列表对象
+
+# Python 总是给你一个指向堆内存的引用（指针）
+# 这就是为什么所有 Python 变量都是"引用"
+
+# id() 显示内存地址（堆的位置）
+print(id(x))   # 某个堆地址
+print(id(s))   # 某个堆地址
+
+# 即使是"小"值也是堆对象（CPython 会缓存 -5 到 256 的小整数）
+a = 1000
+b = 1000
+print(a is b)  # False！不同的堆对象
+```
+
+```rust !! rs
+fn main() {
+    // Rust：你可以明确选择栈还是堆
+
+    // 栈：大小固定，速度快，自动释放
+    let x: i32 = 42;         // 栈上 4 字节
+    let b: bool = true;       // 栈上 1 字节
+    let f: f64 = 3.14;        // 栈上 8 字节
+    let arr: [i32; 3] = [1, 2, 3];  // 栈上 12 字节
+
+    // 堆：大小动态，通过所有权管理
+    let s = String::from("hello");  // 元数据在栈，文本在堆
+    let v = vec![1, 2, 3];          // 元数据在栈，数据在堆
+
+    // 字符串字面量（&str）是指向只读内存的栈上引用
+    let literal: &str = "hello";  // 栈上的指针 + 长度
+
+    println!("栈：{}, {}, {}, {:?}", x, b, f, arr);
+    println!("堆：{}, {:?}", s, v);
+    println!("字面量：{}", literal);
+    // 所有者离开作用域时，堆内存在此处被释放
+}
+```
+</UniversalEditor>
+
+**为什么这很重要？** 栈分配几乎是免费的——只需移动一个指针。堆分配需要分配器找到可用内存。Rust 让你选择使用哪种，而其所有权系统确保堆内存只被释放一次。
+
+---
+
+## Copy 类型 vs Move 类型
+
+根据赋值时是复制还是移动，Rust 将类型分为两类：
+
+<UniversalEditor title="Copy 类型 vs Move 类型">
+```python !! py
+# Python 没有明确的 Copy/Move 区别
+# 一切都是引用，但不可变对象看起来像是"被复制了"
+# （你无法观察到引用共享）
+
+# 这些行为像"copy"类型（Python 中不可变）：
+a = 42
+b = a
+b = 100
+print(a)   # 42 — a 没变（b 指向了新对象）
+
+x = "hello"
+y = x
+y = "world"
+print(x)   # "hello" — x 没变
+
+# 这些行为像"引用"类型：
+lst1 = [1, 2, 3]
+lst2 = lst1
+lst2.append(4)
+print(lst1)  # [1, 2, 3, 4] — 同一个对象！
+```
+
+```rust !! rs
+fn main() {
+    // Copy 类型（纯栈类型，复制代价低）：
+    // i8, i16, i32, i64, i128, isize
+    // u8, u16, u32, u64, u128, usize
+    // f32, f64
+    // bool
+    // char
+    // 由 Copy 类型组成的元组/数组
+
+    let a: i32 = 42;
+    let b = a;       // 复制该值
+    println!("{}", a);  // OK！a 仍然有效
+    println!("{}", b);  // OK！b 有自己的副本
+
+    let t = (1, true, 3.14);
+    let t2 = t;      // 复制——所有字段都是 Copy 类型
+    println!("{:?}", t);   // OK！
+    println!("{:?}", t2);  // OK！
+
+    // Move 类型（堆分配，复制代价高）：
+    // String、Vec<T>、HashMap、Box<T> 等
+
+    let s = String::from("hello");
+    let s2 = s;      // 转移所有权
+    // println!("{}", s);  // 错误：已被移走
+
+    // 要复制 Move 类型，使用 .clone()
+    let v1 = vec![1, 2, 3];
+    let v2 = v1.clone();   // 显式深拷贝
+    println!("{:?}", v1);  // OK！v1 保留了数据
+    println!("{:?}", v2);  // OK！v2 有自己的副本
+}
+```
+</UniversalEditor>
+
+**经验法则：** 如果一个类型在编译时有固定大小且完全存储在栈上，它很可能实现了 `Copy`。如果它有堆分配的数据，则使用移动语义。
+
+---
+
+## 所有权与函数
+
+将值传递给函数时，同样的所有权规则适用：值要么被移入函数，要么被复制。
+
+<UniversalEditor title="函数调用中的所有权">
+```python !! py
+# Python：传递给函数时传递的是引用
+# 函数可以修改原始的可变对象
+def append_item(lst, item):
+    lst.append(item)
+    # lst 是对原始列表的引用
+
+numbers = [1, 2, 3]
+append_item(numbers, 4)
+print(numbers)  # [1, 2, 3, 4] — 原始列表被修改！
+
+# 函数不会"拿走"所有权——它们是共享的
+def use_string(s):
+    print(f"使用：{s}")
+    # s 只是另一个引用
+
+name = "Alice"
+use_string(name)
+print(name)  # "Alice" 仍然可用
+```
+
+```rust !! rs
+fn take_ownership(s: String) {
+    println!("获得：{}", s);
+    // 函数结束时 s 在此被丢弃（释放）
+}
+
+fn copy_value(n: i32) {
+    println!("获得：{}", n);
+    // n 是副本——原始值仍然有效
+}
+
+fn give_back(s: String) -> String {
+    println!("使用：{}", s);
+    s  // 返回值——将所有权转移回去！
+}
+
+fn main() {
+    let s1 = String::from("hello");
+    take_ownership(s1);      // s1 被移入函数
+    // println!("{}", s1);   // 错误：s1 不再有效！
+
+    let n = 42;
+    copy_value(n);           // n 被复制到函数中
+    println!("{}", n);       // OK！n 仍然有效（i32 是 Copy 类型）
+
+    let s2 = String::from("world");
+    let s3 = give_back(s2);  // s2 移入，所有权以 s3 的形式返回
+    // s2 不再有效，但 s3 有效
+    println!("{}", s3);      // OK！
+}
+```
+</UniversalEditor>
+
+在函数之间来回移动所有权很繁琐。这正是**借用**（第 3 模块）存在的原因——它让你在不转移所有权的情况下暂时借用值。
+
+---
+
+## 总结：Python vs Rust 内存模型
+
+| 概念 | Python | Rust |
+|------|--------|------|
+| 内存管理 | 垃圾回收 + 引用计数 | 编译期所有权规则 |
+| 变量赋值 | 创建新引用 | 转移所有权（对于堆类型） |
+| 多变量持有同一数据 | 简单，直接赋值 | 需要 `.clone()` |
+| 内存释放时机 | 引用计数 = 0（或 GC） | 所有者离开作用域时（确定性） |
+| 栈分配 | 大多隐藏 | 显式——基本类型在栈上 |
+| 运行时开销 | GC 暂停、引用计数更新 | 零——全部在编译时解决 |
+| 安全性 | 可能出现运行时错误（少见） | 编译时保证（无内存漏洞） |
+
+---
+
+## 展望：第 3 模块
+
+你现在已经掌握了基础。在下一个模块中，你将学习**借用（Borrowing）**——Rust 解决函数间频繁移动所有权之繁琐的方案。
+
+与其移动值，不如*临时借用*它：
+
+```rust
+// 与其转移所有权：
+let result = take_and_return(my_string);
+
+// 可以借用它：
+use_string(&my_string);    // &String = 不可变借用
+println!("{}", my_string); // 仍然有效！
+```
+
+借用检查器在第 3 模块中强制执行两条规则：
+- 可以同时有**多个不可变借用**，或者
+- 可以有**恰好一个可变借用**——但两种情况不能同时存在
+
+这就是 Rust 在编译时防止数据竞争的方式。第 3 模块见！
+
+---
+
+## 练习题
+
+<details>
+<summary>练习 1：预测行为</summary>
+
+这段代码会发生什么？能编译通过吗？
+
+```rust
+fn main() {
+    let s = String::from("hello");
+    let t = s;
+    let u = s;
+    println!("{}", u);
+}
+```
+
+**答案：** 编译失败。第 3 行 `s` 的所有权被移动到 `t`。当第 4 行尝试将 `s` 移动到 `u` 时，编译器会拒绝，因为 `s` 已经被移走了。修复方法：赋值给 `t` 时使用 `s.clone()`。
+</details>
+
+<details>
+<summary>练习 2：Copy vs Move</summary>
+
+以下哪些代码能编译？为什么？
+
+```rust
+fn main() {
+    let a: f64 = 3.14;
+    let b = a;
+    println!("{} {}", a, b);  // (A)
+
+    let v = vec![1, 2, 3];
+    let w = v;
+    println!("{:?} {:?}", v, w);  // (B)
+}
+```
+
+**答案：** (A) 可以编译——`f64` 实现了 `Copy`，所以 `b = a` 会复制，两者都保持有效。(B) 无法编译——`Vec<i32>` 是 Move 类型，`w = v` 转移了所有权，`v` 变为无效。
+</details>
+
+<details>
+<summary>练习 3：修复所有权错误</summary>
+
+在不改变功能的前提下修复以下代码：
+
+```rust
+fn print_vec(v: Vec<i32>) {
+    println!("{:?}", v);
+}
+
+fn main() {
+    let nums = vec![1, 2, 3];
+    print_vec(nums);
+    print_vec(nums);  // 错误
+}
+```
+
+**答案：** 两种方式：
+1. 传入前克隆：`print_vec(nums.clone()); print_vec(nums);`
+2. （更好的方式，第 3 模块会讲）使用借用：将参数改为 `v: &Vec<i32>` 并调用 `print_vec(&nums)`。
+</details>

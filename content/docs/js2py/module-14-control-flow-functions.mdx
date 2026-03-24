@@ -1,0 +1,720 @@
+---
+title: "Module 14: Control Flow and Functions"
+description: "Master Python's control flow: if/elif/else truthiness rules, for loops over iterables, while/else clause, comprehensions, and function features like *args/**kwargs."
+---
+
+# Module 14: Control Flow and Functions
+
+Python's control flow is clean and readable, but it has some important differences from JavaScript. The truthiness rules are stricter, the `for` loop works over iterables directly, and Python has unique features like the `while/else` clause and list comprehensions. Functions are also more flexible, with keyword arguments, `*args`, and `**kwargs`.
+
+## Learning Objectives
+
+After completing this module, you will be able to:
+
+- ✅ Apply Python's truthiness rules in `if/elif/else` statements
+- ✅ Iterate directly over iterables with `for`, using `range()`, `enumerate()`, and `zip()`
+- ✅ Use the unique `while/else` and `for/else` clauses
+- ✅ Write list, dict, and set comprehensions as alternatives to `map`/`filter`
+- ✅ Define functions with default, keyword, `*args`, and `**kwargs` parameters
+- ✅ Use `lambda` for concise anonymous functions
+- ✅ Understand Python's LEGB scope rules
+
+---
+
+## 1. if/elif/else and Truthiness
+
+Python's `if` statement looks similar to JavaScript's, but the truthiness rules differ in important ways. Python is more explicit: only certain values are falsy, and there is no implicit coercion of objects.
+
+<UniversalEditor title="Truthiness Differences: JavaScript vs Python">
+```javascript !! js
+// JavaScript falsy values
+if (!0)          console.log("0 is falsy");       // yes
+if (!"")         console.log("'' is falsy");       // yes
+if (!null)       console.log("null is falsy");     // yes
+if (!undefined)  console.log("undefined is falsy");// yes
+if (!NaN)        console.log("NaN is falsy");      // yes
+if (!false)      console.log("false is falsy");    // yes
+
+// Truthy surprises in JavaScript
+if ([])    console.log("[] is truthy!");    // YES — empty array is truthy
+if ({})    console.log("{} is truthy!");    // YES — empty object is truthy
+if ("0")   console.log('"0" is truthy!');  // YES — non-empty string is truthy
+```
+
+```python !! py
+# Python falsy values
+if not 0:          print("0 is falsy")        # yes
+if not 0.0:        print("0.0 is falsy")      # yes
+if not "":         print("'' is falsy")        # yes
+if not None:       print("None is falsy")      # yes
+if not False:      print("False is falsy")     # yes
+if not []:         print("[] is falsy")        # YES — empty list IS falsy in Python!
+if not {}:         print("{} is falsy")        # YES — empty dict IS falsy in Python!
+if not ():         print("() is falsy")        # YES — empty tuple is falsy
+if not set():      print("set() is falsy")     # YES — empty set is falsy
+
+# Python truthy: non-zero numbers, non-empty strings, non-empty collections
+if [1, 2]:   print("[1,2] is truthy")    # yes
+if {"a": 1}: print("{'a':1} is truthy")  # yes
+if "0":      print('"0" is truthy')      # yes — same as JS
+```
+</UniversalEditor>
+
+<UniversalEditor title="if/elif/else Structure">
+```javascript !! js
+// JavaScript if/else if/else
+function classify(score) {
+    if (score >= 90) {
+        return "A";
+    } else if (score >= 80) {
+        return "B";
+    } else if (score >= 70) {
+        return "C";
+    } else if (score >= 60) {
+        return "D";
+    } else {
+        return "F";
+    }
+}
+
+console.log(classify(95));  // "A"
+console.log(classify(72));  // "C"
+console.log(classify(55));  // "F"
+
+// Ternary operator
+const status = score >= 60 ? "pass" : "fail";
+```
+
+```python !! py
+# Python if/elif/else — note: "elif" not "else if"
+def classify(score):
+    if score >= 90:
+        return "A"
+    elif score >= 80:
+        return "B"
+    elif score >= 70:
+        return "C"
+    elif score >= 60:
+        return "D"
+    else:
+        return "F"
+
+print(classify(95))  # A
+print(classify(72))  # C
+print(classify(55))  # F
+
+# Ternary (conditional expression) — note reversed order!
+score = 72
+status = "pass" if score >= 60 else "fail"
+print(status)  # pass
+```
+</UniversalEditor>
+
+---
+
+## 2. for Loops over Iterables
+
+In JavaScript, `for...of` iterates over iterables. In Python, `for` always iterates over an iterable directly. The classic C-style `for (let i = 0; i < n; i++)` does not exist in Python — you use `range()` instead.
+
+<UniversalEditor title="for Loop Basics">
+```javascript !! js
+// JavaScript for loops
+const fruits = ["apple", "banana", "cherry"];
+
+// for...of (iterates values)
+for (const fruit of fruits) {
+    console.log(fruit);
+}
+
+// for...in (iterates keys — usually not what you want for arrays)
+for (const index in fruits) {
+    console.log(index, fruits[index]);
+}
+
+// Classic C-style loop
+for (let i = 0; i < 5; i++) {
+    console.log(i);  // 0 1 2 3 4
+}
+
+// forEach with index
+fruits.forEach((fruit, index) => {
+    console.log(index, fruit);
+});
+```
+
+```python !! py
+# Python for loops
+fruits = ["apple", "banana", "cherry"]
+
+# for directly iterates over the iterable
+for fruit in fruits:
+    print(fruit)
+
+# range() for C-style counting loops
+for i in range(5):
+    print(i)    # 0 1 2 3 4
+
+for i in range(2, 8):
+    print(i)    # 2 3 4 5 6 7
+
+for i in range(0, 10, 2):
+    print(i)    # 0 2 4 6 8
+
+# enumerate() — get index AND value (replaces forEach with index)
+for index, fruit in enumerate(fruits):
+    print(index, fruit)
+# 0 apple
+# 1 banana
+# 2 cherry
+
+# Start enumerate from a different index
+for index, fruit in enumerate(fruits, start=1):
+    print(index, fruit)  # 1 apple, 2 banana, ...
+```
+</UniversalEditor>
+
+<UniversalEditor title="zip() and Parallel Iteration">
+```javascript !! js
+// JavaScript: iterate two arrays together
+const names  = ["Alice", "Bob", "Carol"];
+const scores = [90, 85, 92];
+
+// Using index
+for (let i = 0; i < names.length; i++) {
+    console.log(`${names[i]}: ${scores[i]}`);
+}
+
+// Using map to pair
+const pairs = names.map((name, i) => [name, scores[i]]);
+pairs.forEach(([name, score]) => {
+    console.log(`${name}: ${score}`);
+});
+```
+
+```python !! py
+# Python: zip() for parallel iteration
+names  = ["Alice", "Bob", "Carol"]
+scores = [90, 85, 92]
+
+# zip() pairs elements from multiple iterables
+for name, score in zip(names, scores):
+    print(f"{name}: {score}")
+# Alice: 90
+# Bob: 85
+# Carol: 92
+
+# zip() stops at the shortest iterable
+# zip_longest from itertools stops at the longest
+from itertools import zip_longest
+
+extra_scores = [90, 85]
+for name, score in zip_longest(names, extra_scores, fillvalue=0):
+    print(f"{name}: {score}")
+# Alice: 90
+# Bob: 85
+# Carol: 0   (filled in)
+
+# Combine zip and enumerate
+for i, (name, score) in enumerate(zip(names, scores), 1):
+    print(f"#{i} {name}: {score}")
+```
+</UniversalEditor>
+
+---
+
+## 3. while Loops and the else Clause
+
+Python's `while` loop works like JavaScript's, but Python adds a unique `else` clause to both `while` and `for` loops. The `else` block runs if the loop completed normally (without hitting a `break`).
+
+<UniversalEditor title="while Loop and the else Clause">
+```javascript !! js
+// JavaScript while loop
+let count = 0;
+while (count < 5) {
+    console.log(count);
+    count++;
+}
+
+// Searching with a flag
+const items = [3, 7, 2, 8, 4];
+let found = false;
+let i = 0;
+while (i < items.length) {
+    if (items[i] === 8) {
+        console.log(`Found 8 at index ${i}`);
+        found = true;
+        break;
+    }
+    i++;
+}
+if (!found) {
+    console.log("Not found");
+}
+```
+
+```python !! py
+# Python while loop
+count = 0
+while count < 5:
+    print(count)
+    count += 1
+
+# Python's unique while/else — else runs if no break occurred
+items = [3, 7, 2, 8, 4]
+i = 0
+while i < len(items):
+    if items[i] == 8:
+        print(f"Found 8 at index {i}")
+        break       # else block is SKIPPED
+    i += 1
+else:
+    print("Not found")  # Only runs if while completed without break
+
+# for/else works the same way
+target = 99
+for item in items:
+    if item == target:
+        print(f"Found {target}")
+        break
+else:
+    print(f"{target} not in list")  # This runs — 99 is not in the list
+```
+</UniversalEditor>
+
+---
+
+## 4. List, Dict, and Set Comprehensions
+
+Comprehensions are a concise, Pythonic way to create collections. They replace many uses of `map()` and `filter()` in JavaScript.
+
+<UniversalEditor title="List Comprehensions vs map/filter">
+```javascript !! js
+// JavaScript: map and filter
+const numbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+
+// map — transform each element
+const squares = numbers.map(n => n ** 2);
+console.log(squares);  // [1, 4, 9, 16, 25, 36, 49, 64, 81, 100]
+
+// filter — keep elements matching a condition
+const evens = numbers.filter(n => n % 2 === 0);
+console.log(evens);    // [2, 4, 6, 8, 10]
+
+// map + filter combined
+const evenSquares = numbers
+    .filter(n => n % 2 === 0)
+    .map(n => n ** 2);
+console.log(evenSquares);  // [4, 16, 36, 64, 100]
+
+// Flatten nested arrays
+const nested = [[1, 2], [3, 4], [5, 6]];
+const flat = nested.flatMap(arr => arr);
+console.log(flat);   // [1, 2, 3, 4, 5, 6]
+```
+
+```python !! py
+# Python: list comprehensions
+numbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+
+# [expression for item in iterable]  — equivalent to map
+squares = [n ** 2 for n in numbers]
+print(squares)   # [1, 4, 9, 16, 25, 36, 49, 64, 81, 100]
+
+# [expression for item in iterable if condition]  — map + filter
+evens = [n for n in numbers if n % 2 == 0]
+print(evens)     # [2, 4, 6, 8, 10]
+
+# Combined: filter then transform
+even_squares = [n ** 2 for n in numbers if n % 2 == 0]
+print(even_squares)  # [4, 16, 36, 64, 100]
+
+# Flatten nested lists (nested comprehension)
+nested = [[1, 2], [3, 4], [5, 6]]
+flat = [x for sublist in nested for x in sublist]
+print(flat)      # [1, 2, 3, 4, 5, 6]
+```
+</UniversalEditor>
+
+<UniversalEditor title="Dict and Set Comprehensions">
+```javascript !! js
+// JavaScript: creating objects and Sets from iterables
+const words = ["hello", "world", "foo", "bar"];
+
+// Create an object mapping word -> length
+const lengths = Object.fromEntries(
+    words.map(w => [w, w.length])
+);
+console.log(lengths);
+// { hello: 5, world: 5, foo: 3, bar: 3 }
+
+// Create a Set of unique lengths
+const uniqueLengths = new Set(words.map(w => w.length));
+console.log([...uniqueLengths]);  // [5, 3]
+```
+
+```python !! py
+# Python: dict and set comprehensions
+words = ["hello", "world", "foo", "bar"]
+
+# Dict comprehension: {key: value for item in iterable}
+lengths = {w: len(w) for w in words}
+print(lengths)
+# {'hello': 5, 'world': 5, 'foo': 3, 'bar': 3}
+
+# Filtered dict comprehension
+long_words = {w: len(w) for w in words if len(w) > 3}
+print(long_words)
+# {'hello': 5, 'world': 5}
+
+# Set comprehension: {expression for item in iterable}
+unique_lengths = {len(w) for w in words}
+print(unique_lengths)   # {3, 5}  (sets are unordered)
+
+# Invert a dictionary
+original = {"a": 1, "b": 2, "c": 3}
+inverted = {v: k for k, v in original.items()}
+print(inverted)   # {1: 'a', 2: 'b', 3: 'c'}
+```
+</UniversalEditor>
+
+---
+
+## 5. Functions: def, Default Args, Keyword Args
+
+Python functions support a rich set of calling conventions that go beyond JavaScript's positional arguments.
+
+<UniversalEditor title="Default and Keyword Arguments">
+```javascript !! js
+// JavaScript default parameters
+function greet(name, greeting = "Hello", punctuation = "!") {
+    return `${greeting}, ${name}${punctuation}`;
+}
+
+console.log(greet("Alice"));              // "Hello, Alice!"
+console.log(greet("Bob", "Hi"));          // "Hi, Bob!"
+console.log(greet("Carol", "Hey", "."));  // "Hey, Carol."
+
+// JavaScript has no built-in keyword arguments
+// Must use object destructuring to simulate them
+function createUser({ name, age = 0, role = "user" } = {}) {
+    return { name, age, role };
+}
+createUser({ name: "Alice", role: "admin" });
+```
+
+```python !! py
+# Python default parameters
+def greet(name, greeting="Hello", punctuation="!"):
+    return f"{greeting}, {name}{punctuation}"
+
+print(greet("Alice"))                     # Hello, Alice!
+print(greet("Bob", "Hi"))                 # Hi, Bob!
+print(greet("Carol", "Hey", "."))         # Hey, Carol.
+
+# Python keyword arguments — call with name=value in any order
+print(greet("Dave", punctuation="..."))   # Hello, Dave...
+print(greet(punctuation="?", name="Eve", greeting="Hmm"))  # Hmm, Eve?
+
+# WARNING: mutable default arguments are a common pitfall!
+def bad_append(item, lst=[]):   # DON'T do this
+    lst.append(item)
+    return lst
+
+# Use None as default instead
+def good_append(item, lst=None):
+    if lst is None:
+        lst = []
+    lst.append(item)
+    return lst
+```
+</UniversalEditor>
+
+<UniversalEditor title="*args and **kwargs vs JavaScript Rest/Spread">
+```javascript !! js
+// JavaScript rest parameters and spread
+function sum(...numbers) {
+    return numbers.reduce((acc, n) => acc + n, 0);
+}
+console.log(sum(1, 2, 3, 4));   // 10
+
+// Spread to pass array as arguments
+const nums = [1, 2, 3, 4];
+console.log(sum(...nums));       // 10
+
+// Object spread for keyword-like arguments
+function configure({ host = "localhost", port = 3000, debug = false } = {}) {
+    return { host, port, debug };
+}
+const base = { host: "example.com" };
+configure({ ...base, port: 8080 });
+```
+
+```python !! py
+# Python *args — collects extra positional arguments as a tuple
+def sum_all(*numbers):
+    return sum(numbers)
+
+print(sum_all(1, 2, 3, 4))    # 10
+print(sum_all(1, 2))           # 3
+
+# Unpack a list to pass as positional args
+nums = [1, 2, 3, 4]
+print(sum_all(*nums))          # 10  — equivalent to sum_all(1, 2, 3, 4)
+
+# **kwargs — collects extra keyword arguments as a dict
+def configure(**options):
+    defaults = {"host": "localhost", "port": 3000, "debug": False}
+    defaults.update(options)
+    return defaults
+
+print(configure(host="example.com", port=8080))
+# {'host': 'example.com', 'port': 8080, 'debug': False}
+
+# Unpack a dict as keyword arguments
+overrides = {"host": "example.com", "port": 8080}
+print(configure(**overrides))   # same result
+
+# Combined: regular, *args, keyword-only, **kwargs
+def full_example(required, *args, keyword_only="default", **kwargs):
+    print(f"required={required}")
+    print(f"args={args}")
+    print(f"keyword_only={keyword_only}")
+    print(f"kwargs={kwargs}")
+
+full_example("hello", 1, 2, 3, keyword_only="custom", x=10, y=20)
+```
+</UniversalEditor>
+
+---
+
+## 6. Lambda Functions
+
+Python's `lambda` creates a small anonymous function. It is more limited than JavaScript's arrow functions — it can only contain a single expression, not a block.
+
+<UniversalEditor title="Lambda vs Arrow Functions">
+```javascript !! js
+// JavaScript arrow functions
+const double  = x => x * 2;
+const add     = (a, b) => a + b;
+const square  = x => x ** 2;
+
+console.log(double(5));    // 10
+console.log(add(3, 4));    // 7
+
+// Arrow functions as callbacks
+const nums = [5, 2, 8, 1, 9, 3];
+nums.sort((a, b) => a - b);
+console.log(nums);   // [1, 2, 3, 5, 8, 9]
+
+const words = ["banana", "apple", "cherry"];
+words.sort((a, b) => a.length - b.length);
+console.log(words);  // ["apple", "banana", "cherry"]
+```
+
+```python !! py
+# Python lambda — single expression only
+double = lambda x: x * 2
+add    = lambda a, b: a + b
+square = lambda x: x ** 2
+
+print(double(5))   # 10
+print(add(3, 4))   # 7
+
+# Lambda as callback
+nums = [5, 2, 8, 1, 9, 3]
+nums.sort()              # sort in-place, ascending
+print(nums)   # [1, 2, 3, 5, 8, 9]
+
+# sorted() with key function
+words = ["banana", "apple", "cherry"]
+by_length = sorted(words, key=lambda w: len(w))
+print(by_length)   # ['apple', 'banana', 'cherry']
+
+# Sort by multiple criteria (length, then alphabetically)
+multi_sort = sorted(words, key=lambda w: (len(w), w))
+print(multi_sort)  # ['apple', 'banana', 'cherry']
+
+# Lambda in map() and filter()
+squares    = list(map(lambda x: x**2, [1, 2, 3, 4]))
+evens_only = list(filter(lambda x: x % 2 == 0, [1, 2, 3, 4, 5]))
+print(squares)     # [1, 4, 9, 16]
+print(evens_only)  # [2, 4]
+# (Comprehensions are usually preferred over map/filter in Python)
+```
+</UniversalEditor>
+
+---
+
+## 7. Variable Scope: LEGB Rule
+
+Python uses the **LEGB** rule: **L**ocal → **E**nclosing → **G**lobal → **B**uilt-in. JavaScript has function scope and block scope (`let`/`const`).
+
+<UniversalEditor title="LEGB Scope vs JavaScript Scope">
+```javascript !! js
+// JavaScript block scope with let/const
+let x = "global";
+
+function outer() {
+    let x = "outer";
+
+    function inner() {
+        let x = "inner";
+        console.log(x);  // "inner"  (local)
+    }
+    inner();
+    console.log(x);      // "outer"  (outer function's x)
+}
+outer();
+console.log(x);          // "global"
+
+// Block scope (JS specific)
+{
+    let blockVar = "block";
+    console.log(blockVar); // "block"
+}
+// console.log(blockVar); // ReferenceError
+```
+
+```python !! py
+# Python LEGB scope
+x = "global"
+
+def outer():
+    x = "enclosing"
+
+    def inner():
+        x = "local"
+        print(x)   # "local"  (L — Local scope wins)
+    inner()
+    print(x)       # "enclosing"  (E — Enclosing scope)
+
+outer()
+print(x)           # "global"  (G — Global scope)
+
+# Python has NO block scope — if/for don't create new scopes
+for i in range(3):
+    loop_var = i
+print(loop_var)    # 2 — still accessible! (different from JS let)
+
+# To modify a global variable inside a function, use 'global'
+count = 0
+def increment():
+    global count
+    count += 1
+
+increment()
+print(count)   # 1
+
+# 'nonlocal' modifies enclosing (not global) scope
+def make_counter():
+    n = 0
+    def counter():
+        nonlocal n
+        n += 1
+        return n
+    return counter
+
+c = make_counter()
+print(c())  # 1
+print(c())  # 2
+```
+</UniversalEditor>
+
+---
+
+## 8. Summary Table
+
+| Concept | JavaScript | Python |
+|---|---|---|
+| Empty array/list truthiness | `[]` is **truthy** | `[]` is **falsy** |
+| Empty object/dict truthiness | `{}` is **truthy** | `{}` is **falsy** |
+| `else if` keyword | `else if` | `elif` |
+| Ternary syntax | `condition ? a : b` | `a if condition else b` |
+| C-style `for` loop | `for (let i=0; i<n; i++)` | `for i in range(n):` |
+| Iterate with index | `arr.forEach((v, i) => ...)` | `for i, v in enumerate(arr):` |
+| Parallel iteration | Manual index or `.map` | `zip(a, b)` |
+| Loop else clause | Not available | `for/else`, `while/else` |
+| List transform | `arr.map(fn)` | `[fn(x) for x in arr]` |
+| List filter | `arr.filter(fn)` | `[x for x in arr if fn(x)]` |
+| Rest parameters | `...args` | `*args` |
+| Keyword arguments | Object destructuring | Direct `**kwargs` |
+| Anonymous function | Arrow function (full block) | `lambda` (expression only) |
+| Block scope | `let`/`const` create block scope | No block scope in Python |
+| Modify enclosing variable | Closure (automatic) | `nonlocal` keyword required |
+| Modify global variable | Closure (automatic) | `global` keyword required |
+
+---
+
+## Exercises
+
+### Exercise 1: Comprehension Challenge
+
+Using a single list comprehension, create a list of strings `"n is odd"` or `"n is even"` for `n` in `range(1, 11)`.
+
+<details>
+<summary>Show Answer</summary>
+
+```python
+result = [f"{n} is {'even' if n % 2 == 0 else 'odd'}" for n in range(1, 11)]
+print(result)
+# ['1 is odd', '2 is even', '3 is odd', '4 is even', '5 is odd',
+#  '6 is even', '7 is odd', '8 is even', '9 is odd', '10 is even']
+```
+</details>
+
+### Exercise 2: *args and **kwargs
+
+Write a function `log_event(event_type, *tags, severity="info", **metadata)` that prints a structured log line. Call it with at least two different argument patterns.
+
+<details>
+<summary>Show Answer</summary>
+
+```python
+def log_event(event_type, *tags, severity="info", **metadata):
+    tag_str  = ", ".join(tags) if tags else "none"
+    meta_str = ", ".join(f"{k}={v}" for k, v in metadata.items())
+    print(f"[{severity.upper()}] {event_type} | tags: {tag_str} | {meta_str}")
+
+# Pattern 1: basic call
+log_event("user_login", "auth", "web", user_id=42, ip="192.168.1.1")
+# [INFO] user_login | tags: auth, web | user_id=42, ip=192.168.1.1
+
+# Pattern 2: with severity override, no tags
+log_event("payment_failed", severity="error", amount=99.99, currency="USD")
+# [ERROR] payment_failed | tags: none | amount=99.99, currency=USD
+```
+</details>
+
+### Exercise 3: Loop else Clause
+
+Write a function `find_prime(numbers: list[int]) -> int | None` that uses a `for` loop with an `else` clause to return the first prime number in the list, or `None` if there are none.
+
+<details>
+<summary>Show Answer</summary>
+
+```python
+def is_prime(n: int) -> bool:
+    if n < 2:
+        return False
+    for i in range(2, int(n**0.5) + 1):
+        if n % i == 0:
+            return False
+    return True
+
+def find_prime(numbers: list[int]) -> int | None:
+    for n in numbers:
+        # Inner loop: check if n is prime using for/else
+        for i in range(2, int(n**0.5) + 1):
+            if n % i == 0:
+                break   # n is not prime
+        else:
+            # else runs only if no break occurred — n is prime!
+            if n >= 2:
+                return n
+    return None
+
+print(find_prime([4, 6, 8, 9, 10]))  # None
+print(find_prime([4, 6, 7, 9, 11]))  # 7
+print(find_prime([2, 3, 5, 7]))      # 2
+```
+</details>

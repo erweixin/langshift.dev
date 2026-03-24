@@ -1,0 +1,764 @@
+---
+title: "第 15 模块：控制流"
+description: "掌握 Kotlin 的控制流：when 作为强大的 switch 替代品、for/while 循环、范围、作用域函数（let/run/also/apply/with）和解构。"
+---
+
+# 第 15 模块：控制流
+
+欢迎来到第 15 模块！Kotlin 的控制流既熟悉又比 JavaScript 强大得多。`when` 表达式用穷举的模式匹配取代了 `switch`，范围使循环更简洁和富有表达力，而作用域函数（`let`、`run`、`also`、`apply`、`with`）是 Kotlin 的惯用写法，没有直接的 JavaScript 等价物。完成本模块后，你将能编写简洁、可读且安全的 Kotlin 控制流代码。
+
+## 学习目标
+
+完成本模块后，你将能够：
+
+- ✅ 将 `when` 用作表达式和语句，涵盖相等性、范围、类型和任意条件
+- ✅ 使用范围、`downTo`、`step` 和集合编写 `for` 循环
+- ✅ 使用 Kotlin 惯用法编写 `while` 和 `do-while` 循环
+- ✅ 将五个作用域函数（`let`、`run`、`also`、`apply`、`with`）应用于正确的场景
+- ✅ 在赋值和 `for` 循环中使用解构声明
+- ✅ 理解标签化 `return` 和 `break` 用于非局部控制流
+
+---
+
+## 1. `when` 表达式
+
+`when` 是 Kotlin 对 `switch` 的替代——但功能强大得多。它可以匹配值、类型、范围和任意布尔条件。它也可以作为表达式使用，返回一个值。
+
+<UniversalEditor title="when vs switch：基本匹配" compare={true}>
+```javascript !! js
+// JavaScript switch——仅限于相等性检查
+function getDayType(day) {
+  switch (day) {
+    case "Monday":
+    case "Tuesday":
+    case "Wednesday":
+    case "Thursday":
+    case "Friday":
+      return "工作日";
+    case "Saturday":
+    case "Sunday":
+      return "周末";
+    default:
+      return "未知";
+  }
+}
+
+console.log(getDayType("Monday"));   // 工作日
+console.log(getDayType("Saturday")); // 周末
+console.log(getDayType("Holiday"));  // 未知
+
+// switch 默认会穿透（必须使用 break）
+// switch 不能直接返回值（需要变量赋值）
+function getScore(grade) {
+  let points;
+  switch (grade) {
+    case "A": points = 4.0; break;
+    case "B": points = 3.0; break;
+    case "C": points = 2.0; break;
+    default:  points = 0.0;
+  }
+  return points;
+}
+```
+
+```kotlin !! kotlin
+// Kotlin when——没有穿透，可用作表达式
+
+fun getDayType(day: String): String = when (day) {
+    "Monday", "Tuesday", "Wednesday", "Thursday", "Friday" -> "工作日"
+    "Saturday", "Sunday" -> "周末"
+    else -> "未知"
+}
+
+println(getDayType("Monday"))   // 工作日
+println(getDayType("Saturday")) // 周末
+println(getDayType("Holiday"))  // 未知
+
+// when 作为表达式——直接返回值
+fun getScore(grade: String): Double = when (grade) {
+    "A" -> 4.0
+    "B" -> 3.0
+    "C" -> 2.0
+    else -> 0.0
+}
+
+println(getScore("A")) // 4.0
+println(getScore("D")) // 0.0
+
+// 不需要 break——没有穿透！
+// 一个分支中多个值：逗号分隔
+```
+</UniversalEditor>
+
+<UniversalEditor title="when 与范围、类型和任意条件" compare={true}>
+```javascript !! js
+// JavaScript——非相等性检查需要 if/else 链
+function classifyAge(age) {
+  if (age < 0) {
+    return "无效";
+  } else if (age <= 12) {
+    return "儿童";
+  } else if (age <= 17) {
+    return "青少年";
+  } else if (age <= 64) {
+    return "成人";
+  } else {
+    return "老年";
+  }
+}
+
+// 类型检查需要 typeof / instanceof
+function describe(value) {
+  if (typeof value === "string") {
+    return `字符串："${value}"`;
+  } else if (typeof value === "number") {
+    return `数字：${value}`;
+  } else if (Array.isArray(value)) {
+    return `数组[${value.length}]`;
+  } else if (value === null) {
+    return "Null";
+  }
+  return "其他";
+}
+
+console.log(classifyAge(8));   // 儿童
+console.log(classifyAge(25));  // 成人
+console.log(describe("hi"));  // 字符串："hi"
+console.log(describe([1,2]));  // 数组[2]
+```
+
+```kotlin !! kotlin
+// Kotlin when——范围、类型检查、任意条件
+
+fun classifyAge(age: Int): String = when {
+    // when 不带参数：将每个分支视为布尔条件
+    age < 0       -> "无效"
+    age <= 12     -> "儿童"
+    age in 13..17 -> "青少年"  // in 范围检查
+    age in 18..64 -> "成人"
+    else          -> "老年"
+}
+
+// when 带参数：带智能转换的类型检查
+fun describe(value: Any?): String = when (value) {
+    is String         -> "字符串：\"$value\""    // 智能转换为 String
+    is Int, is Double -> "数字：$value"           // 多个类型
+    is List<*>        -> "数组[${value.size}]"   // 智能转换为 List
+    null              -> "Null"
+    else              -> "其他"
+}
+
+println(classifyAge(8))   // 儿童
+println(classifyAge(25))  // 成人
+println(describe("hi"))   // 字符串："hi"
+println(describe(listOf(1,2))) // 数组[2]
+println(describe(null))   // Null
+
+// when 也可以匹配对象属性
+data class Point(val x: Int, val y: Int)
+fun quadrant(p: Point): String = when {
+    p.x > 0 && p.y > 0 -> "第一象限"
+    p.x < 0 && p.y > 0 -> "第二象限"
+    p.x < 0 && p.y < 0 -> "第三象限"
+    p.x > 0 && p.y < 0 -> "第四象限"
+    else -> "在轴上"
+}
+println(quadrant(Point(3, 5))) // 第一象限
+```
+</UniversalEditor>
+
+---
+
+## 2. `for` 循环和范围
+
+Kotlin 的 `for` 循环可以迭代任何有迭代器的对象。范围（`1..10`、`downTo`、`step`）使数字循环简洁且可读。
+
+<UniversalEditor title="for 循环：范围和集合" compare={true}>
+```javascript !! js
+// JavaScript for 循环
+// 经典 C 风格循环
+for (let i = 1; i <= 10; i++) {
+  process.stdout.write(i + " ");
+}
+// 1 2 3 4 5 6 7 8 9 10
+
+// 倒数
+for (let i = 10; i >= 1; i--) {
+  process.stdout.write(i + " ");
+}
+// 10 9 8 7 6 5 4 3 2 1
+
+// 步长为 2
+for (let i = 0; i <= 20; i += 2) {
+  process.stdout.write(i + " ");
+}
+// 0 2 4 6 8 10 12 14 16 18 20
+
+// for...of（迭代集合）
+const fruits = ["苹果", "香蕉", "樱桃"];
+for (const fruit of fruits) {
+  console.log(fruit);
+}
+
+// 带索引
+fruits.forEach((fruit, index) => {
+  console.log(`${index}: ${fruit}`);
+});
+```
+
+```kotlin !! kotlin
+// Kotlin for 循环与范围
+
+// 包含范围 1..10
+for (i in 1..10) print("$i ") // 1 2 3 4 5 6 7 8 9 10
+println()
+
+// 不包含上界：until
+for (i in 1 until 10) print("$i ") // 1 2 3 4 5 6 7 8 9
+println()
+
+// 倒数：downTo
+for (i in 10 downTo 1) print("$i ") // 10 9 8 7 6 5 4 3 2 1
+println()
+
+// 步长：每隔 2
+for (i in 0..20 step 2) print("$i ") // 0 2 4 6 8 10 12 14 16 18 20
+println()
+
+// 迭代列表
+val fruits = listOf("苹果", "香蕉", "樱桃")
+for (fruit in fruits) println(fruit)
+
+// 使用 withIndex() 带索引
+for ((index, fruit) in fruits.withIndex()) {
+    println("$index: $fruit")
+}
+
+// 迭代 Map
+val scores = mapOf("Alice" to 95, "Bob" to 87)
+for ((name, score) in scores) {
+    println("$name 得了 $score 分")
+}
+```
+</UniversalEditor>
+
+---
+
+## 3. `while` 和 `do-while`
+
+<UniversalEditor title="while 和 do-while 循环" compare={true}>
+```javascript !! js
+// JavaScript while 和 do-while
+
+// while：先检查条件
+let count = 0;
+while (count < 5) {
+  console.log("计数：" + count);
+  count++;
+}
+
+// do-while：至少执行一次
+let input = "";
+do {
+  input = prompt("输入 'quit' 退出") ?? "";
+  console.log("你输入了：" + input);
+} while (input !== "quit");
+
+// 重试模拟
+for (let attempt = 1; attempt <= 5; attempt++) {
+  const success = Math.random() > 0.7;
+  console.log(`第 ${attempt} 次尝试：${success ? "成功" : "重试"}`);
+  if (success) break;
+}
+```
+
+```kotlin !! kotlin
+// Kotlin while 和 do-while——语义与 JavaScript 相同
+
+// while：先检查条件
+var count = 0
+while (count < 5) {
+    println("计数：$count")
+    count++
+}
+
+// do-while：至少执行一次
+var input: String
+do {
+    input = readLine() ?: ""  // readLine() 从标准输入读取（可空）
+    println("你输入了：$input")
+} while (input != "quit")
+
+// 实际应用：带指数退避的重试
+fun retryUntilSuccess(maxAttempts: Int) {
+    var attempt = 0
+    var success = false
+    while (attempt < maxAttempts && !success) {
+        attempt++
+        success = Math.random() > 0.7
+        println("第 $attempt 次尝试：${if (success) "成功" else "重试..."}")
+    }
+    if (!success) println("全部 $maxAttempts 次尝试失败")
+}
+
+retryUntilSuccess(5)
+
+// repeat()——比 for (i in 0 until n) 更简洁的替代
+repeat(3) { i ->
+    println("迭代 $i")
+}
+// 迭代 0
+// 迭代 1
+// 迭代 2
+```
+</UniversalEditor>
+
+---
+
+## 4. 作用域函数：`let`、`run`、`also`、`apply`、`with`
+
+作用域函数是 Kotlin 最惯用的特性之一，没有直接的 JavaScript 等价物。它们让你在对象的上下文中执行代码块，减少重复并启用空安全链式调用。
+
+<UniversalEditor title="作用域函数：let 和 run" compare={true}>
+```javascript !! js
+// JavaScript——没有直接等价于作用域函数的写法
+// 开发者使用 IIFE、方法链或手动空检查
+
+// 模拟 let：IIFE 用于作用域
+const result = (() => {
+  const temp = computeSomething();
+  if (temp !== null) {
+    return temp.toUpperCase();
+  }
+  return "默认值";
+})();
+
+// 模拟空安全执行
+const user = getUser();
+if (user !== null && user !== undefined) {
+  // 安全块——但很繁琐
+  console.log(user.name);
+  sendWelcomeEmail(user.email);
+  logActivity(user.id);
+}
+
+// 可选链用于简单读取
+const city = user?.address?.city ?? "未知";
+
+// 构建器模式（模拟 apply）
+function createButton(config) {
+  const btn = document.createElement("button");
+  btn.text = config.text;
+  btn.style.color = config.color;
+  btn.disabled = config.disabled ?? false;
+  return btn;
+}
+```
+
+```kotlin !! kotlin
+// Kotlin 作用域函数
+
+// --- let ---
+// 上下文：'it'，返回：lambda 结果
+// 用途：空安全执行、转换值
+
+val name: String? = "  Alice  "
+val trimmed = name?.let { it.trim().uppercase() }
+println(trimmed) // ALICE
+
+// 链式调用，无需中间变量
+val result = "hello world"
+    .let { it.split(" ") }
+    .let { it.map { word -> word.replaceFirstChar { it.uppercase() } } }
+    .let { it.joinToString("-") }
+println(result) // Hello-World
+
+// --- run ---
+// 上下文：'this'，返回：lambda 结果
+// 用途：在作用域上下文中计算值
+
+val greeting = run {
+    val firstName = "Alice"
+    val lastName  = "Smith"
+    "你好，$firstName $lastName！"  // 最后一个表达式被返回
+}
+println(greeting) // 你好，Alice Smith！
+
+// 对对象调用 run（类似 let，但用 'this' 而非 'it'）
+val length = "Kotlin".run {
+    println("计算长度：$this")
+    this.length  // 被返回
+}
+println(length) // 6
+```
+</UniversalEditor>
+
+<UniversalEditor title="作用域函数：also、apply 和 with" compare={true}>
+```javascript !! js
+// JavaScript 构建器/配置模式
+
+class HttpRequest {
+  constructor() {
+    this.url = "";
+    this.method = "GET";
+    this.headers = {};
+    this.timeout = 5000;
+  }
+}
+
+// 必须先赋值给变量，然后配置
+const request = new HttpRequest();
+request.url = "https://api.example.com/users";
+request.method = "POST";
+request.headers["Content-Type"] = "application/json";
+request.timeout = 10000;
+
+// 模拟 also（链中的副作用）
+function processUser(user) {
+  console.log("处理中：", user); // 副作用
+  return user; // 必须手动返回相同对象
+}
+
+// with（对对象操作而不重复其名称）
+// 没有直接等价——必须在各处重复 'config.'
+function printConfig(config) {
+  console.log(config.host);
+  console.log(config.port);
+  console.log(config.database);
+}
+```
+
+```kotlin !! kotlin
+// Kotlin 作用域函数（续）
+
+// --- apply ---
+// 上下文：'this'，返回：接收者对象
+// 用途：对象初始化/构建器模式
+
+data class HttpRequest(
+    var url: String = "",
+    var method: String = "GET",
+    val headers: MutableMap<String, String> = mutableMapOf(),
+    var timeout: Int = 5000
+)
+
+val request = HttpRequest().apply {
+    url = "https://api.example.com/users"  // 'this' 是 HttpRequest
+    method = "POST"
+    headers["Content-Type"] = "application/json"
+    timeout = 10_000
+}
+println(request.url)    // https://api.example.com/users
+println(request.method) // POST
+
+// --- also ---
+// 上下文：'it'，返回：接收者对象
+// 用途：副作用（日志、验证），不破坏链式调用
+
+val numbers = mutableListOf(1, 2, 3)
+    .also { println("之前：$it") }   // 副作用
+    .apply { add(4); add(5) }        // 变异
+    .also { println("之后：$it") }   // 再次副作用
+// 之前：[1, 2, 3]
+// 之后：[1, 2, 3, 4, 5]
+
+// --- with ---
+// 上下文：'this'，返回：lambda 结果
+// 用途：在不重复名称的情况下对对象调用多个方法
+// （不是扩展函数——将对象作为第一个参数）
+
+data class Config(val host: String, val port: Int, val database: String)
+
+val config = Config("localhost", 5432, "myapp")
+val summary = with(config) {
+    // 不需要写 config.host、config.port 等
+    println(host)
+    println(port)
+    println(database)
+    "$host:$port/$database"  // 被返回
+}
+println(summary) // localhost:5432/myapp
+```
+</UniversalEditor>
+
+---
+
+## 5. 解构声明
+
+Kotlin 支持对数据类、Pair、Map 以及在 `for` 循环中进行解构——类似于 JavaScript 的解构，但由类型系统支撑。
+
+<UniversalEditor title="解构：变量和循环" compare={true}>
+```javascript !! js
+// JavaScript 解构
+
+// 数组解构
+const [first, second, ...rest] = [1, 2, 3, 4, 5];
+console.log(first, second, rest); // 1 2 [3, 4, 5]
+
+// 对象解构
+const { name, age, email = "未知" } = { name: "Alice", age: 30 };
+console.log(name, age, email); // Alice 30 未知
+
+// for 循环中的解构
+const users = [
+  { name: "Alice", score: 95 },
+  { name: "Bob",   score: 87 }
+];
+for (const { name, score } of users) {
+  console.log(`${name}：${score}`);
+}
+
+// 交换变量
+let a = 1, b = 2;
+[a, b] = [b, a];
+console.log(a, b); // 2 1
+
+// 函数返回值解构
+function getMinMax(arr) {
+  return [Math.min(...arr), Math.max(...arr)];
+}
+const [min, max] = getMinMax([3, 1, 4, 1, 5, 9]);
+console.log(min, max); // 1 9
+```
+
+```kotlin !! kotlin
+// Kotlin 解构——由 componentN() 函数提供支持
+
+// 数据类解构（组件是按位置的）
+data class Point(val x: Int, val y: Int)
+val (x, y) = Point(3, 7)
+println("x=$x, y=$y") // x=3, y=7
+
+// Pair 和 Triple
+val (first, second) = Pair("hello", 42)
+println("$first $second") // hello 42
+
+val (a, b, c) = Triple(1, 2, 3)
+println("$a $b $c") // 1 2 3
+
+// 用 _ 跳过组件
+data class Person(val name: String, val age: Int, val email: String)
+val (name, _, email) = Person("Alice", 30, "alice@example.com")
+println("$name $email") // Alice alice@example.com
+
+// for 循环中的解构
+val users = listOf(Person("Alice", 30, "a@x.com"), Person("Bob", 25, "b@x.com"))
+for ((personName, personAge) in users) {
+    println("$personName 今年 $personAge 岁")
+}
+
+// Map 条目——自动解构
+val scores = mapOf("Alice" to 95, "Bob" to 87)
+for ((student, score) in scores) {
+    println("$student：$score 分")
+}
+
+// 通过解构返回多个值
+fun minMax(list: List<Int>): Pair<Int, Int> = list.min() to list.max()
+val (min, max) = minMax(listOf(3, 1, 4, 1, 5, 9))
+println("最小=$min 最大=$max") // 最小=1 最大=9
+```
+</UniversalEditor>
+
+---
+
+## 6. 标签和返回
+
+Kotlin 支持标签化 `return` 和 `break` 来控制嵌套 lambda 和循环中的流程——解决了 JavaScript 中需要标志变量或额外变量才能处理的问题。
+
+<UniversalEditor title="标签：非局部返回和标签化 break" compare={true}>
+```javascript !! js
+// JavaScript 标签语句
+// 标签很少见，但对嵌套循环有用
+
+outer: for (let i = 0; i < 3; i++) {
+  for (let j = 0; j < 3; j++) {
+    if (i === 1 && j === 1) {
+      break outer;  // 跳出两层循环
+    }
+    console.log(`i=${i}, j=${j}`);
+  }
+}
+// i=0,j=0 / i=0,j=1 / i=0,j=2 / i=1,j=0
+
+// 带标签的 continue
+outer: for (let i = 0; i < 3; i++) {
+  for (let j = 0; j < 3; j++) {
+    if (j === 1) continue outer; // 跳到下一个 i
+    console.log(`i=${i}, j=${j}`);
+  }
+}
+
+// 从 lambda 返回——forEach 无法返回
+// 这不会从外层函数返回：
+function findFirst(arr, pred) {
+  let found = null;
+  arr.forEach(item => {
+    if (pred(item) && found === null) {
+      found = item; // 无法从 forEach "返回"
+    }
+  });
+  return found;
+}
+```
+
+```kotlin !! kotlin
+// Kotlin 标签——一等公民支持
+
+// 标签化 break：break@标签
+outer@ for (i in 0 until 3) {
+    for (j in 0 until 3) {
+        if (i == 1 && j == 1) break@outer  // 退出两层循环
+        println("i=$i, j=$j")
+    }
+}
+// i=0,j=0 / i=0,j=1 / i=0,j=2 / i=1,j=0
+
+// 标签化 continue
+outer@ for (i in 0 until 3) {
+    for (j in 0 until 3) {
+        if (j == 1) continue@outer  // 跳到下一个 i
+        println("i=$i, j=$j")
+    }
+}
+
+// return@标签——从 lambda 局部返回
+// 非局部返回——退出 findFirst 函数！
+fun findFirst(list: List<Int>, pred: (Int) -> Boolean): Int? {
+    list.forEach { item ->
+        if (pred(item)) return item  // 非局部返回——退出 findFirst！
+    }
+    return null
+}
+println(findFirst(listOf(1, 2, 3, 4)) { it > 2 }) // 3
+
+// return@forEach——局部返回（类似 forEach 中的 "continue"）
+fun printOdds(list: List<Int>) {
+    list.forEach { num ->
+        if (num % 2 == 0) return@forEach  // 跳过偶数，继续下一个
+        println(num)
+    }
+    println("完成")  // 这行会被执行！
+}
+printOdds(listOf(1, 2, 3, 4, 5))
+// 1 / 3 / 5 / 完成
+```
+</UniversalEditor>
+
+---
+
+## 7. 总结表
+
+| 概念 | JavaScript | Kotlin |
+|---|---|---|
+| Switch/when | `switch`（仅相等性，需要 `break`）| `when`（范围、类型、条件；无 `break`；可用作表达式）|
+| 数字 for 循环 | `for (let i=0; i<n; i++)` | `for (i in 1..n)` / `for (i in n downTo 1)` |
+| 集合循环 | `for...of` | `for (item in collection)` |
+| 带索引循环 | `.forEach((item, i) => ...)` | `for ((i, item) in list.withIndex())` |
+| 步长 | `i += 2` | `step 2` |
+| 重复 N 次 | `for (let i=0; i<n; i++)` | `repeat(n) { i -> ... }` |
+| 空安全块 | `if (x != null) { ... }` | `x?.let { ... }` |
+| 对象初始化构建器 | 手动赋值 | `.apply { ... }` |
+| 链中的副作用 | 手动返回 | `.also { ... }` |
+| 操作对象 | 重复对象名 | `with(obj) { ... }` |
+| 解构 | `const { a, b } = obj` / `const [a, b] = arr` | `val (a, b) = dataClass` / `for ((k, v) in map)` |
+| 标签化 break | `break 标签` | `break@标签` |
+| lambda 局部返回 | 不适用（forEach 无法返回）| `return@forEach` |
+
+---
+
+## 练习
+
+### 练习 1：使用 `when` 的成绩计算器
+
+编写一个 Kotlin 函数 `letterGrade(score: Int): String`，对 90-100 返回 "A"，80-89 返回 "B"，70-79 返回 "C"，60-69 返回 "D"，60 以下返回 "F"，0-100 范围之外返回 "无效"。使用带范围的 `when`。
+
+<details>
+<summary>显示答案</summary>
+
+```kotlin
+fun letterGrade(score: Int): String = when (score) {
+    in 90..100 -> "A"
+    in 80..89  -> "B"
+    in 70..79  -> "C"
+    in 60..69  -> "D"
+    in 0..59   -> "F"
+    else       -> "无效"
+}
+
+println(letterGrade(95))  // A
+println(letterGrade(82))  // B
+println(letterGrade(55))  // F
+println(letterGrade(-5))  // 无效
+println(letterGrade(105)) // 无效
+```
+
+</details>
+
+### 练习 2：使用 `apply` 和 `let` 的空安全构建器
+
+创建一个 `ServerConfig` 数据类，包含 `host: String`、`port: Int`、`maxConnections: Int` 和 `sslEnabled: Boolean`。编写一个 `buildConfig(override: ServerConfig?): ServerConfig` 函数，从默认配置开始并使用作用域函数应用覆盖。
+
+<details>
+<summary>显示答案</summary>
+
+```kotlin
+data class ServerConfig(
+    var host: String = "localhost",
+    var port: Int = 8080,
+    var maxConnections: Int = 100,
+    var sslEnabled: Boolean = false
+)
+
+fun buildConfig(override: ServerConfig?): ServerConfig {
+    return ServerConfig().apply {
+        override?.let { o ->
+            if (o.host.isNotBlank()) host = o.host
+            if (o.port > 0) port = o.port
+            if (o.maxConnections > 0) maxConnections = o.maxConnections
+            sslEnabled = o.sslEnabled
+        }
+    }.also { config ->
+        println("已构建配置：${config.host}:${config.port} (SSL=${config.sslEnabled})")
+    }
+}
+
+val config = buildConfig(ServerConfig(host = "prod.example.com", port = 443, sslEnabled = true))
+println(config.maxConnections) // 100（保留默认值）
+```
+
+</details>
+
+### 练习 3：使用标签化 break 的矩阵搜索
+
+编写一个函数 `findInMatrix(matrix: List<List<Int>>, target: Int): Pair<Int, Int>?`，返回 `target` 第一次出现的 `(行, 列)`，如果未找到则返回 `null`。使用标签化 break 在找到时立即退出两层循环。
+
+<details>
+<summary>显示答案</summary>
+
+```kotlin
+fun findInMatrix(matrix: List<List<Int>>, target: Int): Pair<Int, Int>? {
+    var found: Pair<Int, Int>? = null
+    outer@ for ((row, rowList) in matrix.withIndex()) {
+        for ((col, value) in rowList.withIndex()) {
+            if (value == target) {
+                found = row to col
+                break@outer
+            }
+        }
+    }
+    return found
+}
+
+val matrix = listOf(
+    listOf(1, 2, 3),
+    listOf(4, 5, 6),
+    listOf(7, 8, 9)
+)
+
+println(findInMatrix(matrix, 5))  // (1, 1)
+println(findInMatrix(matrix, 9))  // (2, 2)
+println(findInMatrix(matrix, 10)) // null
+```
+
+</details>

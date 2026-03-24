@@ -1,0 +1,862 @@
+---
+title: "Module 18: Error Handling"
+description: "Master Kotlin error handling: try/catch/finally, checked vs unchecked exceptions, Result type, runCatching, and Railway Oriented Programming patterns."
+---
+
+# Module 18: Error Handling
+
+Welcome to Module 18 of the JavaScript to Kotlin conversion course! Error handling is a fundamental skill that separates robust production code from fragile scripts. In this module, we compare JavaScript's error handling patterns with Kotlin's richer toolkit: unchecked exceptions, the `Result` type, null safety as error prevention, and Railway Oriented Programming with functional chaining.
+
+## Learning Objectives
+
+By the end of this module, you will be able to:
+
+- ✅ Use Kotlin's `try/catch/finally` and understand `try` as an expression
+- ✅ Explain why Kotlin has no checked exceptions (unlike Java) and how this compares to JavaScript
+- ✅ Create custom exception hierarchies with meaningful types
+- ✅ Use `Result<T>` and `runCatching` for functional error handling
+- ✅ Leverage null safety operators (`?.`, `?:`, `!!`) as a first line of defense against errors
+- ✅ Chain operations with Railway Oriented Programming using `map`, `flatMap`, and `recover`
+
+---
+
+## 1. try/catch vs JavaScript try/catch
+
+The basic structure looks similar, but Kotlin's `try` is an expression — it returns a value. This enables concise, inline error handling.
+
+<UniversalEditor title="Basic try/catch Syntax" compare={true}>
+```javascript !! js
+// JavaScript try/catch/finally
+function parseNumber(str) {
+  try {
+    const num = parseInt(str, 10);
+    if (isNaN(num)) throw new Error(`"${str}" is not a valid number`);
+    return num;
+  } catch (error) {
+    console.error('Parse failed:', error.message);
+    return 0; // fallback
+  } finally {
+    console.log('parseNumber completed');
+  }
+}
+
+console.log(parseNumber("42"));    // parseNumber completed → 42
+console.log(parseNumber("hello")); // Parse failed: ... → 0
+
+// JavaScript try does NOT return a value
+let result;
+try {
+  result = JSON.parse('{"key": 1}');
+} catch (e) {
+  result = {};
+}
+console.log(result); // { key: 1 }
+
+// Multi-catch requires instanceof checks in JS
+function handleError(fn) {
+  try {
+    return fn();
+  } catch (e) {
+    if (e instanceof TypeError) {
+      return `Type error: ${e.message}`;
+    } else if (e instanceof RangeError) {
+      return `Range error: ${e.message}`;
+    } else {
+      throw e; // rethrow unknown errors
+    }
+  }
+}
+```
+
+```kotlin !! kotlin
+// Kotlin try/catch/finally
+fun parseNumber(str: String): Int {
+    return try {
+        val num = str.toInt()
+        num
+    } catch (e: NumberFormatException) {
+        println("Parse failed: ${e.message}")
+        0 // fallback
+    } finally {
+        println("parseNumber completed")
+    }
+}
+
+fun main() {
+    println(parseNumber("42"))     // parseNumber completed → 42
+    println(parseNumber("hello"))  // Parse failed: ... → 0
+
+    // try IS an expression in Kotlin — returns a value directly
+    val result: Map<String, Int> = try {
+        mapOf("key" to 1)
+    } catch (e: Exception) {
+        emptyMap()
+    }
+    println(result) // {key=1}
+
+    // Multi-catch with specific types
+    fun handleError(block: () -> Int): String =
+        try {
+            block().toString()
+        } catch (e: NumberFormatException) {
+            "Number format error: ${e.message}"
+        } catch (e: ArithmeticException) {
+            "Arithmetic error: ${e.message}"
+        } catch (e: Exception) {
+            throw e // rethrow unknown errors
+        }
+
+    println(handleError { "not a number".toInt() }) // Number format error: ...
+    println(handleError { 10 / 0 })                 // Arithmetic error: / by zero
+}
+```
+</UniversalEditor>
+
+---
+
+## 2. Checked vs Unchecked Exceptions
+
+Java forces you to declare checked exceptions with `throws`. Kotlin dropped this — all exceptions are unchecked, just like JavaScript. This reduces boilerplate without sacrificing safety.
+
+<UniversalEditor title="No Checked Exceptions in Kotlin" compare={true}>
+```javascript !! js
+// JavaScript — all errors are unchecked (no compile-time enforcement)
+// You choose whether to handle them or let them propagate
+
+async function fetchUser(id) {
+  // No 'throws' declaration needed or possible
+  const response = await fetch(`/api/users/${id}`);
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+// Caller can handle or ignore errors freely
+async function main() {
+  // Option 1: handle it
+  try {
+    const user = await fetchUser(1);
+    console.log(user);
+  } catch (e) {
+    console.error('Failed to fetch user:', e.message);
+  }
+
+  // Option 2: let it propagate (no compiler warning)
+  const user = await fetchUser(1);
+  console.log(user);
+}
+
+// Java would require:
+// public User fetchUser(int id) throws IOException, HttpException { ... }
+// and force callers to handle or declare these exceptions
+```
+
+```kotlin !! kotlin
+// Kotlin — all exceptions are unchecked, no 'throws' declarations
+// This is intentional: Kotlin designers found checked exceptions
+// add boilerplate without meaningfully improving reliability
+
+import java.io.IOException
+
+// No need to declare throws — clean function signature
+fun fetchUserData(id: Int): String {
+    // Might throw IOException, but no compiler enforcement
+    if (id <= 0) throw IllegalArgumentException("ID must be positive: $id")
+    return "User#$id" // simplified
+}
+
+// @Throws annotation is only for Java interoperability
+@Throws(IOException::class)
+fun javaFriendlyFunction() {
+    throw IOException("This annotation helps Java callers")
+}
+
+fun main() {
+    // Option 1: handle it
+    try {
+        val user = fetchUserData(1)
+        println(user) // User#1
+    } catch (e: IllegalArgumentException) {
+        println("Bad input: ${e.message}")
+    }
+
+    // Option 2: let it propagate — compiler won't complain
+    // val user = fetchUserData(-1)  // Would throw at runtime
+
+    // Use runCatching for functional style (covered later)
+    val result = runCatching { fetchUserData(-5) }
+    println(result.isFailure) // true
+    println(result.exceptionOrNull()?.message) // ID must be positive: -5
+}
+```
+</UniversalEditor>
+
+---
+
+## 3. Custom Exceptions
+
+<UniversalEditor title="Custom Exception Hierarchies" compare={true}>
+```javascript !! js
+// JavaScript custom errors
+class AppError extends Error {
+  constructor(message, code) {
+    super(message);
+    this.name = 'AppError';
+    this.code = code;
+  }
+}
+
+class NetworkError extends AppError {
+  constructor(message, statusCode, url) {
+    super(message, 'NETWORK_ERROR');
+    this.name = 'NetworkError';
+    this.statusCode = statusCode;
+    this.url = url;
+  }
+}
+
+class ValidationError extends AppError {
+  constructor(field, message) {
+    super(message, 'VALIDATION_ERROR');
+    this.name = 'ValidationError';
+    this.field = field;
+  }
+}
+
+class AuthenticationError extends AppError {
+  constructor(reason) {
+    super(`Authentication failed: ${reason}`, 'AUTH_ERROR');
+    this.name = 'AuthenticationError';
+    this.reason = reason;
+  }
+}
+
+function processRequest(data) {
+  if (!data.token) throw new AuthenticationError('Missing token');
+  if (!data.email) throw new ValidationError('email', 'Email is required');
+  if (!data.email.includes('@')) throw new ValidationError('email', 'Invalid email format');
+  return { success: true };
+}
+
+try {
+  processRequest({ email: 'not-an-email', token: 'abc' });
+} catch (e) {
+  if (e instanceof ValidationError) {
+    console.log(`Validation failed on field '${e.field}': ${e.message}`);
+  } else if (e instanceof NetworkError) {
+    console.log(`Network error ${e.statusCode}: ${e.message}`);
+  } else {
+    throw e;
+  }
+}
+```
+
+```kotlin !! kotlin
+// Kotlin custom exception hierarchy
+sealed class AppException(message: String, cause: Throwable? = null)
+    : Exception(message, cause)
+
+class NetworkException(
+    message: String,
+    val statusCode: Int,
+    val url: String,
+    cause: Throwable? = null
+) : AppException(message, cause)
+
+class ValidationException(
+    val field: String,
+    message: String
+) : AppException("Validation failed on '$field': $message")
+
+class AuthenticationException(
+    val reason: String
+) : AppException("Authentication failed: $reason")
+
+data class RequestData(val token: String?, val email: String?)
+
+fun processRequest(data: RequestData): Map<String, Boolean> {
+    if (data.token.isNullOrBlank())
+        throw AuthenticationException("Missing token")
+    if (data.email.isNullOrBlank())
+        throw ValidationException("email", "Email is required")
+    if (!data.email.contains('@'))
+        throw ValidationException("email", "Invalid email format")
+    return mapOf("success" to true)
+}
+
+fun main() {
+    try {
+        processRequest(RequestData(token = "abc", email = "not-an-email"))
+    } catch (e: ValidationException) {
+        println("Field '${e.field}': ${e.message}")
+        // Field 'email': Validation failed on 'email': Invalid email format
+    } catch (e: NetworkException) {
+        println("Network ${e.statusCode} at ${e.url}: ${e.message}")
+    } catch (e: AuthenticationException) {
+        println("Auth error: ${e.reason}")
+    }
+}
+```
+</UniversalEditor>
+
+---
+
+## 4. The Result Type
+
+Kotlin's standard library includes `Result<T>` for functional error handling without try/catch. `runCatching` wraps any block, capturing success or failure.
+
+<UniversalEditor title="Result Type and runCatching" compare={true}>
+```javascript !! js
+// JavaScript — Promise as async Result, or manual Result pattern
+// There's no built-in synchronous Result type in JS
+
+// Manual Result pattern (common in modern JS)
+function ok(value) { return { ok: true, value }; }
+function err(error) { return { ok: false, error }; }
+
+function divide(a, b) {
+  if (b === 0) return err(new Error('Division by zero'));
+  return ok(a / b);
+}
+
+const r1 = divide(10, 2);
+const r2 = divide(10, 0);
+
+if (r1.ok) console.log(r1.value);     // 5
+if (!r2.ok) console.log(r2.error.message); // Division by zero
+
+// Promise-based (async)
+async function fetchData(url) {
+  try {
+    const response = await fetch(url);
+    return ok(await response.json());
+  } catch (e) {
+    return err(e);
+  }
+}
+
+// Chaining with optional chaining (somewhat)
+const value = r1.ok ? r1.value * 2 : null;
+console.log(value); // 10
+```
+
+```kotlin !! kotlin
+// Kotlin built-in Result<T> type
+fun divide(a: Double, b: Double): Result<Double> =
+    if (b == 0.0) Result.failure(ArithmeticException("Division by zero"))
+    else Result.success(a / b)
+
+// runCatching wraps any throwing code in a Result
+fun parseJson(json: String): Result<Map<String, Any>> =
+    runCatching {
+        // Simulate JSON parsing (using a simple approach here)
+        if (json.startsWith("{")) mapOf("parsed" to true as Any)
+        else throw IllegalArgumentException("Not a JSON object: $json")
+    }
+
+fun main() {
+    val r1 = divide(10.0, 2.0)
+    val r2 = divide(10.0, 0.0)
+
+    // Extracting values
+    println(r1.getOrNull())          // 5.0
+    println(r1.getOrDefault(0.0))    // 5.0
+    println(r2.getOrNull())          // null
+    println(r2.getOrElse { -1.0 })   // -1.0
+
+    // isSuccess / isFailure
+    println(r1.isSuccess) // true
+    println(r2.isFailure) // true
+    println(r2.exceptionOrNull()?.message) // Division by zero
+
+    // map — transforms success value
+    val doubled = r1.map { it * 2 }
+    println(doubled.getOrNull()) // 10.0
+
+    // recover — transforms failure into success
+    val recovered = r2.recover { 0.0 }
+    println(recovered.getOrNull()) // 0.0
+
+    // onSuccess / onFailure side effects
+    r1.onSuccess { println("Got: $it") }    // Got: 5.0
+    r2.onFailure { println("Err: ${it.message}") } // Err: Division by zero
+
+    // runCatching in action
+    val jsonResult = parseJson("{}")
+    println(jsonResult.isSuccess) // true
+
+    val badResult = parseJson("not json")
+    println(badResult.isFailure) // true
+    println(badResult.exceptionOrNull()?.message) // Not a JSON object: not json
+}
+```
+</UniversalEditor>
+
+---
+
+## 5. Null Safety as Error Handling
+
+Kotlin's type system distinguishes nullable (`String?`) from non-nullable (`String`) types. This prevents entire classes of runtime errors that are common in JavaScript.
+
+<UniversalEditor title="Null Safety Operators" compare={true}>
+```javascript !! js
+// JavaScript — null/undefined cause runtime errors silently
+const user = null;
+
+// This crashes: TypeError: Cannot read property 'name' of null
+// console.log(user.name);
+
+// Optional chaining (?.) — JS equivalent
+console.log(user?.name);              // undefined (no crash)
+console.log(user?.address?.city);     // undefined
+
+// Nullish coalescing (??) — JS equivalent of Elvis
+const name = user?.name ?? 'Anonymous';
+console.log(name); // Anonymous
+
+// But JS still lets you:
+function getLength(str) {
+  return str.length; // Crashes if str is null/undefined!
+}
+
+// You must check manually
+function safeGetLength(str) {
+  if (str == null) return 0;
+  return str.length;
+}
+
+console.log(safeGetLength(null));      // 0
+console.log(safeGetLength("hello"));   // 5
+
+// JS has no compile-time null safety
+let maybeNull = Math.random() > 0.5 ? "hello" : null;
+// console.log(maybeNull.toUpperCase()); // Might crash at runtime!
+```
+
+```kotlin !! kotlin
+// Kotlin null safety — enforced at compile time
+
+// Non-nullable: String can NEVER be null
+// Nullable: String? CAN be null
+val nonNull: String = "hello"
+val nullable: String? = null
+
+// Safe call operator (?.) — like JS optional chaining
+println(nullable?.length)           // null (no crash)
+println(nullable?.uppercase())      // null
+
+// Elvis operator (?:) — like JS nullish coalescing
+val length = nullable?.length ?: 0
+println(length) // 0
+
+val name = nullable ?: "Anonymous"
+println(name) // Anonymous
+
+// Non-null assertion (!!) — throws NPE if null (use sparingly!)
+// val crash = nullable!!.length  // NullPointerException!
+
+// let for safe null-check blocks
+nullable?.let { str ->
+    println("Not null: $str")
+} ?: println("Was null") // Was null
+
+val nonNullStr: String? = "Kotlin"
+nonNullStr?.let { println("Length: ${it.length}") } // Length: 6
+
+// Safe casting
+val obj: Any = "I'm a string"
+val str: String? = obj as? String   // Safe cast — returns null if fails
+val num: Int?    = obj as? Int      // null (not an Int)
+println(str) // I'm a string
+println(num) // null
+
+// Compile-time protection
+fun getLength(str: String): Int = str.length // Cannot pass null here!
+// getLength(null) // Compile error: Null can not be a value of a non-null type String
+```
+</UniversalEditor>
+
+---
+
+## 6. Railway Oriented Programming
+
+Railway Oriented Programming (ROP) is a pattern where operations are chained, and errors short-circuit the chain. Kotlin's `Result` type supports this natively.
+
+<UniversalEditor title="Railway Oriented Programming with Result" compare={true}>
+```javascript !! js
+// JavaScript — simulating ROP with Promise chaining
+// (Promises are the JS equivalent for async ROP)
+
+function validateEmail(email) {
+  if (!email.includes('@')) throw new Error(`Invalid email: ${email}`);
+  return email.toLowerCase();
+}
+
+function validateAge(age) {
+  if (age < 0 || age > 150) throw new Error(`Invalid age: ${age}`);
+  return age;
+}
+
+function createUser(email, age) {
+  return { email, age, id: Math.random().toString(36).slice(2) };
+}
+
+// Manual synchronous ROP pipeline
+function pipeline(value, ...fns) {
+  return fns.reduce((result, fn) => {
+    if (result.ok) {
+      try {
+        return { ok: true, value: fn(result.value) };
+      } catch (e) {
+        return { ok: false, error: e.message };
+      }
+    }
+    return result;
+  }, { ok: true, value });
+}
+
+// Promise-based (cleaner for async)
+async function processUser(email, age) {
+  return Promise.resolve({ email, age })
+    .then(data => ({ ...data, email: validateEmail(data.email) }))
+    .then(data => ({ ...data, age: validateAge(data.age) }))
+    .then(data => createUser(data.email, data.age))
+    .catch(e => ({ error: e.message }));
+}
+
+processUser('Alice@EXAMPLE.COM', 30)
+  .then(r => console.log(r.error ?? r));
+processUser('not-an-email', 30)
+  .then(r => console.log(r.error ?? r));
+```
+
+```kotlin !! kotlin
+// Kotlin ROP with Result type
+fun validateEmail(email: String): Result<String> = runCatching {
+    require('@' in email) { "Invalid email: $email" }
+    email.lowercase()
+}
+
+fun validateAge(age: Int): Result<Int> = runCatching {
+    require(age in 0..150) { "Invalid age: $age" }
+    age
+}
+
+data class User(val email: String, val age: Int, val id: String)
+
+fun createUser(email: String, age: Int): Result<User> = runCatching {
+    User(email, age, java.util.UUID.randomUUID().toString().take(8))
+}
+
+// Railway: each step only runs if previous succeeded
+fun processUser(email: String, age: Int): Result<User> =
+    validateEmail(email)
+        .flatMap { validEmail ->
+            validateAge(age).flatMap { validAge ->
+                createUser(validEmail, validAge)
+            }
+        }
+
+// Or using map/flatMap chain more idiomatically:
+fun processUserAlt(email: String, age: Int): Result<User> =
+    runCatching { email }
+        .map { it.also { require('@' in it) { "Invalid email: $it" } }.lowercase() }
+        .map { age.also { require(it in 0..150) { "Invalid age: $it" } }; it }
+        .mapCatching { e -> createUser(e, age).getOrThrow() }
+
+fun main() {
+    val success = processUser("Alice@EXAMPLE.COM", 30)
+    success.onSuccess { println("Created: $it") }
+    // Created: User(email=alice@example.com, age=30, id=...)
+
+    val failure = processUser("not-an-email", 30)
+    failure.onFailure { println("Error: ${it.message}") }
+    // Error: Invalid email: not-an-email
+
+    // recover to provide a default
+    val withDefault = processUser("bad", -1)
+        .recover { User("guest@example.com", 0, "guest") }
+    println(withDefault.getOrNull()) // User(email=guest@example.com, ...)
+
+    // fold — handle both success and failure
+    val message = success.fold(
+        onSuccess = { "Welcome, ${it.email}!" },
+        onFailure = { "Registration failed: ${it.message}" }
+    )
+    println(message) // Welcome, alice@example.com!
+}
+```
+</UniversalEditor>
+
+---
+
+## 7. Combining Null Safety and Result
+
+<UniversalEditor title="Practical Error Handling Pipeline" compare={true}>
+```javascript !! js
+// JavaScript — a real-world-ish error handling example
+class UserService {
+  constructor() {
+    this.users = new Map([
+      [1, { id: 1, name: 'Alice', email: 'alice@example.com', age: 30 }],
+      [2, { id: 2, name: 'Bob', email: 'bob@example.com', age: 25 }],
+    ]);
+  }
+
+  findById(id) {
+    return this.users.get(id) ?? null;
+  }
+
+  updateEmail(id, newEmail) {
+    const user = this.findById(id);
+    if (!user) return { ok: false, error: `User ${id} not found` };
+    if (!newEmail?.includes('@')) return { ok: false, error: 'Invalid email' };
+
+    const updated = { ...user, email: newEmail };
+    this.users.set(id, updated);
+    return { ok: true, value: updated };
+  }
+}
+
+const service = new UserService();
+
+// Using optional chaining
+const userName = service.findById(1)?.name ?? 'Unknown';
+console.log(userName); // Alice
+
+const missingUser = service.findById(99)?.name ?? 'Unknown';
+console.log(missingUser); // Unknown
+
+// Update operations
+const r1 = service.updateEmail(1, 'new@example.com');
+console.log(r1.ok ? r1.value.email : r1.error); // new@example.com
+
+const r2 = service.updateEmail(99, 'x@example.com');
+console.log(r2.ok ? r2.value.email : r2.error); // User 99 not found
+```
+
+```kotlin !! kotlin
+// Kotlin — combining null safety + Result for robust code
+data class User(val id: Int, val name: String, val email: String, val age: Int)
+
+class UserService {
+    private val users = mutableMapOf(
+        1 to User(1, "Alice", "alice@example.com", 30),
+        2 to User(2, "Bob", "bob@example.com", 25),
+    )
+
+    fun findById(id: Int): User? = users[id]
+
+    fun updateEmail(id: Int, newEmail: String): Result<User> = runCatching {
+        val user = findById(id)
+            ?: throw NoSuchElementException("User $id not found")
+        require('@' in newEmail) { "Invalid email: $newEmail" }
+        val updated = user.copy(email = newEmail)
+        users[id] = updated
+        updated
+    }
+}
+
+fun main() {
+    val service = UserService()
+
+    // Safe null access with Elvis
+    val userName = service.findById(1)?.name ?: "Unknown"
+    println(userName) // Alice
+
+    val missingUser = service.findById(99)?.name ?: "Unknown"
+    println(missingUser) // Unknown
+
+    // Using let for null-safe transformation
+    val userSummary = service.findById(2)?.let { u ->
+        "${u.name} (${u.email}, age ${u.age})"
+    } ?: "User not found"
+    println(userSummary) // Bob (bob@example.com, age 25)
+
+    // Update operations
+    service.updateEmail(1, "new@example.com")
+        .onSuccess { println("Updated: ${it.email}") } // Updated: new@example.com
+        .onFailure { println("Error: ${it.message}") }
+
+    service.updateEmail(99, "x@example.com")
+        .onSuccess { println("Updated: ${it.email}") }
+        .onFailure { println("Error: ${it.message}") } // Error: User 99 not found
+
+    // fold for deterministic result
+    val message = service.updateEmail(1, "bad-email").fold(
+        onSuccess = { "Email updated to ${it.email}" },
+        onFailure = { "Update failed: ${it.message}" }
+    )
+    println(message) // Update failed: Invalid email: bad-email
+}
+```
+</UniversalEditor>
+
+---
+
+## Summary Table
+
+| Concept | JavaScript | Kotlin |
+|---|---|---|
+| Basic try/catch | `try {} catch(e) {}` | `try {} catch (e: Type) {}` |
+| `try` as expression | No — statement only | Yes — returns a value |
+| Checked exceptions | None | None (unlike Java) |
+| Multiple catch types | `instanceof` checks | Multiple `catch` blocks |
+| Finally | `finally {}` | `finally {}` |
+| Custom exceptions | `class E extends Error` | `class E(msg) : Exception(msg)` |
+| Exception hierarchy | Single prototype chain | `sealed class` or hierarchy |
+| Functional error type | No built-in (Promise async) | `Result<T>` built-in |
+| Wrap in Result | Manual | `runCatching { }` |
+| Get value or default | Manual fallback | `getOrDefault(v)`, `getOrElse {}` |
+| Transform success | Manual | `.map {}` |
+| Transform failure | Manual | `.recover {}` |
+| Chain operations | Promise chaining | `.flatMap {}` |
+| Null safety | `?.` optional chaining | `?.` + type system enforcement |
+| Elvis/nullish coalesce | `??` | `?:` |
+| Non-null assert | No equivalent | `!!` (throws NPE) |
+
+---
+
+## Exercises
+
+### Exercise 1: try as Expression
+
+Write a Kotlin function `safeParseInt(s: String): Int` that uses `try` as an expression to return the parsed integer, or `-1` if parsing fails. Then write `safeParsePair(a: String, b: String): Pair<Int, Int>?` that returns `null` if either string fails to parse.
+
+<details>
+<summary>Show Answer</summary>
+
+```kotlin
+fun safeParseInt(s: String): Int = try {
+    s.trim().toInt()
+} catch (e: NumberFormatException) {
+    -1
+}
+
+fun safeParsePair(a: String, b: String): Pair<Int, Int>? {
+    val x = try { a.trim().toInt() } catch (e: NumberFormatException) { return null }
+    val y = try { b.trim().toInt() } catch (e: NumberFormatException) { return null }
+    return Pair(x, y)
+}
+
+fun main() {
+    println(safeParseInt("42"))      // 42
+    println(safeParseInt("  7  "))   // 7
+    println(safeParseInt("hello"))   // -1
+
+    println(safeParsePair("3", "4")) // (3, 4)
+    println(safeParsePair("3", "x")) // null
+}
+```
+
+</details>
+
+### Exercise 2: Result Pipeline
+
+Build a user registration pipeline using `Result<T>`. The pipeline should:
+1. Validate that the username is 3–20 characters (alphanumeric only)
+2. Validate that the password is at least 8 characters
+3. Hash the password (simulate by reversing the string)
+4. Return a `RegisteredUser(username, hashedPassword)` data class
+
+Use `runCatching` and `flatMap`/`map` chaining.
+
+<details>
+<summary>Show Answer</summary>
+
+```kotlin
+data class RegisteredUser(val username: String, val hashedPassword: String)
+
+fun validateUsername(username: String): Result<String> = runCatching {
+    require(username.length in 3..20) {
+        "Username must be 3-20 characters, got ${username.length}"
+    }
+    require(username.all { it.isLetterOrDigit() }) {
+        "Username must be alphanumeric"
+    }
+    username
+}
+
+fun validatePassword(password: String): Result<String> = runCatching {
+    require(password.length >= 8) {
+        "Password must be at least 8 characters"
+    }
+    password
+}
+
+fun hashPassword(password: String): String = password.reversed()
+
+fun registerUser(username: String, password: String): Result<RegisteredUser> =
+    validateUsername(username).flatMap { validUsername ->
+        validatePassword(password).map { validPassword ->
+            RegisteredUser(validUsername, hashPassword(validPassword))
+        }
+    }
+
+fun main() {
+    registerUser("alice", "securepass")
+        .onSuccess { println("Registered: $it") }
+        .onFailure { println("Error: ${it.message}") }
+    // Registered: RegisteredUser(username=alice, hashedPassword=ssapruces)
+
+    registerUser("ab", "securepass")
+        .onSuccess { println("Registered: $it") }
+        .onFailure { println("Error: ${it.message}") }
+    // Error: Username must be 3-20 characters, got 2
+
+    registerUser("alice", "short")
+        .onSuccess { println("Registered: $it") }
+        .onFailure { println("Error: ${it.message}") }
+    // Error: Password must be at least 8 characters
+}
+```
+
+</details>
+
+### Exercise 3: Null Safety Chain
+
+Given a data model with nested nullable types, write a function that extracts the city name using safe call operators and Elvis operator. Then rewrite it using `let` chaining.
+
+```kotlin
+data class Address(val street: String, val city: String?)
+data class Profile(val address: Address?)
+data class AppUser(val name: String, val profile: Profile?)
+```
+
+<details>
+<summary>Show Answer</summary>
+
+```kotlin
+data class Address(val street: String, val city: String?)
+data class Profile(val address: Address?)
+data class AppUser(val name: String, val profile: Profile?)
+
+// Version 1: Safe call chain with Elvis
+fun getCityV1(user: AppUser): String =
+    user.profile?.address?.city ?: "Unknown City"
+
+// Version 2: let chaining
+fun getCityV2(user: AppUser): String =
+    user.profile
+        ?.let { it.address }
+        ?.let { it.city }
+        ?: "Unknown City"
+
+fun main() {
+    val fullUser = AppUser("Alice", Profile(Address("123 Main St", "Springfield")))
+    val noCity   = AppUser("Bob",   Profile(Address("456 Oak Ave", null)))
+    val noAddr   = AppUser("Carol", Profile(null))
+    val noProfile= AppUser("Dave",  null)
+
+    listOf(fullUser, noCity, noAddr, noProfile).forEach { user ->
+        println("${user.name}: ${getCityV1(user)}")
+    }
+    // Alice: Springfield
+    // Bob: Unknown City
+    // Carol: Unknown City
+    // Dave: Unknown City
+}
+```
+
+</details>

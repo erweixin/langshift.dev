@@ -1,0 +1,633 @@
+---
+title: "第 13 模組：Python 類型系統與資料型別"
+description: "深入了解 Python 的型別系統：與 JavaScript 的動態型別差異、數值型別、None 對比 null/undefined、字串以及型別提示。"
+---
+
+# 第 13 模組：Python 類型系統與資料型別
+
+Python 和 JavaScript 都是動態型別語言，但它們處理型別的方式有根本性的不同。JavaScript 以隱式型別轉換著稱，常常產生令人意外的結果。Python 則採用更為嚴格的方式：雖然是動態型別，但同時也是強型別語言，這意味著它不會靜默地在不相容的型別之間進行轉換。
+
+## 學習目標
+
+完成本模組後，你將能夠：
+
+- ✅ 解釋動態/弱型別（JavaScript）與動態/強型別（Python）的區別
+- ✅ 使用 Python 的數值型別：`int`、`float`、`complex` 和 `Decimal`
+- ✅ 理解 `None` 以及它與 JavaScript 中 `null` 和 `undefined` 的對比
+- ✅ 使用 Python 字串特性：f-strings、多行字串及不可變性
+- ✅ 使用 `type()` 和 `isinstance()` 在執行時期檢查型別
+- ✅ 使用 PEP 484 注解編寫型別提示（`Optional`、`Union`、`List`、`Dict`）
+
+---
+
+## 1. 動態型別：Python vs JavaScript
+
+兩門語言都在執行時期確定型別，但 JavaScript 會以令人驚訝的方式隱式地在型別之間進行轉換。Python 則拒絕這樣做，遇到不相容型別時會拋出 `TypeError`。
+
+<UniversalEditor title="隱式型別轉換：JavaScript vs Python">
+```javascript !! js
+// JavaScript：隱式型別轉換
+console.log("5" + 5);       // "55"  （數字被轉換為字串）
+console.log("5" - 5);       // 0     （字串被轉換為數字）
+console.log(true + 1);      // 2     （布林值被轉換為數字）
+console.log([] + {});       // "[object Object]"
+console.log(null + 1);      // 1
+console.log(undefined + 1); // NaN
+
+// 使用 == 時發生轉換
+console.log(0 == false);          // true
+console.log("" == false);         // true
+console.log(null == undefined);   // true
+```
+
+```python !! py
+# Python：強型別 —— 不會隱式轉換
+try:
+    result = "5" + 5   # TypeError!
+except TypeError as e:
+    print(f"錯誤: {e}")
+# 輸出: 錯誤: can only concatenate str (not "int") to str
+
+# 必須顯式轉換
+result = "5" + str(5)   # "55"
+result = int("5") + 5   # 10
+print(result)           # 10
+
+# Python 等值比較是嚴格的
+print(0 == False)       # True  （False 在 Python 中就是 0，bool 是 int 的子類別）
+print("" == False)      # False （這裡不進行型別轉換）
+print(None == None)     # True
+print(None is None)     # True （檢查 None 的首選方式）
+```
+</UniversalEditor>
+
+### 執行時期的動態型別
+
+兩門語言都允許變數持有任意型別，並且型別可以在執行期間改變：
+
+<UniversalEditor title="動態型別 —— 變數重新賦值">
+```javascript !! js
+// JavaScript：變數可以持有任意型別
+let x = 42;
+console.log(typeof x);   // "number"
+
+x = "hello";
+console.log(typeof x);   // "string"
+
+x = [1, 2, 3];
+console.log(typeof x);   // "object"  （JS 中陣列是物件）
+
+x = null;
+console.log(typeof x);   // "object"  （著名的 JS 怪癖）
+```
+
+```python !! py
+# Python：相同的動態行為
+x = 42
+print(type(x))    # <class 'int'>
+
+x = "hello"
+print(type(x))    # <class 'str'>
+
+x = [1, 2, 3]
+print(type(x))    # <class 'list'>
+
+x = None
+print(type(x))    # <class 'NoneType'>
+# 沒有奇怪的結果 —— 型別始終是準確的
+```
+</UniversalEditor>
+
+---
+
+## 2. Python 的數值型別
+
+JavaScript 只有一種 `Number` 型別（IEEE 754 雙精度浮點數）加上 `BigInt`。Python 則有 `int`、`float`、`complex` 以及標準函式庫中的 `Decimal`。
+
+<UniversalEditor title="整數精度：JavaScript vs Python">
+```javascript !! js
+// JavaScript：所有數字都是 64 位元浮點數
+console.log(Number.MAX_SAFE_INTEGER);        // 9007199254740991
+console.log(9007199254740991 + 1);           // 9007199254740992（正確）
+console.log(9007199254740991 + 2);           // 9007199254740992（錯誤！）
+
+// BigInt 實現任意精度
+const big = 9007199254740991n + 2n;
+console.log(big);   // 9007199254740993n
+
+// 浮點數的精度問題
+console.log(0.1 + 0.2);             // 0.30000000000000004
+console.log(0.1 + 0.2 === 0.3);     // false
+```
+
+```python !! py
+# Python：int 具有任意精度 —— 不會溢位
+big = 9007199254740991 + 2
+print(big)   # 9007199254740993（正確，永遠正確）
+
+# 更大的數
+factorial = 1
+for i in range(1, 101):
+    factorial *= i
+print(factorial)   # 100!，一個 158 位數，沒有任何問題
+
+# float 有相同的 IEEE 754 問題
+print(0.1 + 0.2)            # 0.30000000000000004
+print(0.1 + 0.2 == 0.3)     # False
+
+# 使用 Decimal 進行精確的十進制運算
+from decimal import Decimal
+print(Decimal("0.1") + Decimal("0.2"))                    # 0.3
+print(Decimal("0.1") + Decimal("0.2") == Decimal("0.3"))  # True
+```
+</UniversalEditor>
+
+<UniversalEditor title="Python 數值型別概覽">
+```javascript !! js
+// JavaScript 數值型別
+const integer = 42;           // 只是一個數字（內部是浮點數）
+const float   = 3.14;
+const bigInt  = 12345678901234567890n;  // BigInt
+const hex     = 0xFF;         // 255
+const binary  = 0b1010;       // 10
+const octal   = 0o17;         // 15
+const inf     = Infinity;
+const notNum  = NaN;
+
+console.log(typeof integer);  // "number"
+console.log(typeof bigInt);   // "bigint"
+```
+
+```python !! py
+# Python 數值型別
+integer   = 42          # int —— 任意精度
+float_n   = 3.14        # float —— IEEE 754 雙精度
+complex_n = 3 + 4j      # complex —— 內建型別！
+hex_n     = 0xFF        # 255（int）
+binary_n  = 0b1010      # 10（int）
+octal_n   = 0o17        # 15（int）
+large     = 1_000_000   # 底線增強可讀性
+
+# 特殊浮點值
+import math
+inf     = math.inf
+neg_inf = -math.inf
+nan     = math.nan
+
+print(type(integer))    # <class 'int'>
+print(type(float_n))    # <class 'float'>
+print(type(complex_n))  # <class 'complex'>
+print(complex_n.real)   # 3.0
+print(complex_n.imag)   # 4.0
+print(abs(complex_n))   # 5.0（模）
+```
+</UniversalEditor>
+
+---
+
+## 3. None vs null vs undefined
+
+JavaScript 有兩個「空值」：`null`（有意為空）和 `undefined`（未初始化）。Python 只有一個：`None`。
+
+<UniversalEditor title="None、null 和 undefined 對比">
+```javascript !! js
+// JavaScript：兩個不同的「空值」
+let a;                     // undefined —— 已宣告但未賦值
+let b = null;              // null —— 有意為空
+
+console.log(a);            // undefined
+console.log(b);            // null
+console.log(typeof a);     // "undefined"
+console.log(typeof b);     // "object"（JS 怪癖）
+
+// 檢查空值
+console.log(a == null);    // true（== 同時檢查 null 和 undefined）
+console.log(a === null);   // false（嚴格模式：undefined !== null）
+console.log(a === undefined); // true
+
+// 沒有回傳值的函式
+function noReturn() {}
+console.log(noReturn());   // undefined
+
+// 可選鏈結
+const obj = null;
+console.log(obj?.name);    // undefined（不會報錯）
+```
+
+```python !! py
+# Python：只有一個「空值」 —— None
+a = None              # 顯式賦值
+print(a)              # None
+print(type(a))        # <class 'NoneType'>
+
+# Python 沒有 undefined —— 存取未賦值的變數名稱會觸發 NameError
+# print(b)            # NameError: name 'b' is not defined
+
+# 檢查 None —— 使用 'is'，而不是 '=='
+print(a is None)      # True（首選方式）
+print(a is not None)  # False
+print(a == None)      # True（可以用，但不夠慣用）
+
+# 沒有 return 陳述式的函式回傳 None
+def no_return():
+    pass
+
+result = no_return()
+print(result)         # None
+print(result is None) # True
+
+# None 作為哨兵值 / 預設引數
+def greet(name=None):
+    if name is None:
+        return "你好，陌生人！"
+    return f"你好，{name}！"
+
+print(greet())         # 你好，陌生人！
+print(greet("Alice"))  # 你好，Alice！
+```
+</UniversalEditor>
+
+---
+
+## 4. Python 中的字串
+
+Python 字串是不可變的 Unicode 字元序列。它們支援多種字面量形式，並擁有豐富的方法。JavaScript 的模板字面量與 Python 的 f-string 非常相似。
+
+<UniversalEditor title="字串字面量與插值">
+```javascript !! js
+// JavaScript 字串型別
+const single   = 'Hello';
+const double   = "World";
+const name     = "Alice";
+const age      = 30;
+
+// 模板字串插值
+console.log(`姓名: ${name}，年齡: ${age}`);
+// "姓名: Alice，年齡: 30"
+
+// 模板中的運算式
+console.log(`明年: ${age + 1}`);
+// "明年: 31"
+
+// 多行字串
+const multiline = `第一行
+第二行
+第三行`;
+
+// 字串重複
+console.log("ha".repeat(3));   // "hahaha"
+```
+
+```python !! py
+# Python 字串型別
+single = 'Hello'
+double = "World"
+name   = "Alice"
+age    = 30
+
+# f-string（Python 3.6+）—— Python 的模板字串
+print(f"姓名: {name}，年齡: {age}")
+# 姓名: Alice，年齡: 30
+
+# f-string 中的運算式
+print(f"明年: {age + 1}")
+# 明年: 31
+
+# f-string 中的格式化規格
+pi = 3.14159
+print(f"Pi 約等於 {pi:.2f}")
+# Pi 約等於 3.14
+
+# 多行字串 —— 三引號
+multiline = """第一行
+第二行
+第三行"""
+
+# 單引號也可以
+alt = '''第一行
+第二行'''
+
+# 字串重複
+print("ha" * 3)   # "hahaha"
+```
+</UniversalEditor>
+
+<UniversalEditor title="字串不可變性與常用方法">
+```javascript !! js
+// JavaScript 字串也是不可變的
+let s = "Hello";
+// s[0] = "h"; // 非嚴格模式下靜默失敗
+
+// 常用字串方法
+console.log("hello".toUpperCase());    // "HELLO"
+console.log("HELLO".toLowerCase());    // "hello"
+console.log("  hello  ".trim());       // "hello"
+console.log("hello world".split(" ")); // ["hello", "world"]
+console.log("hello".includes("ell"));  // true
+console.log("hello".startsWith("he")); // true
+console.log("hello".replace("l", "r")); // "herlo"（只替換第一個）
+console.log("hello".replaceAll("l", "r")); // "herro"
+console.log("hello"[1]);               // "e"
+console.log("hello".slice(1, 3));      // "el"
+```
+
+```python !! py
+# Python 字串同樣是不可變的
+s = "Hello"
+# s[0] = "h"  # TypeError: 'str' 物件不支援元素賦值
+
+# 常用字串方法
+print("hello".upper())            # "HELLO"
+print("HELLO".lower())            # "hello"
+print("  hello  ".strip())        # "hello"
+print("hello world".split(" "))   # ['hello', 'world']
+print("ell" in "hello")           # True（成員測試）
+print("hello".startswith("he"))   # True
+print("hello".replace("l", "r"))  # "herro"（替換所有，不只是第一個！）
+print("hello"[1])                 # "e"
+print("hello"[1:3])               # "el"（切片）
+print("hello"[::-1])              # "olleh"（使用步長反轉）
+
+# 將字串串列拼接
+words = ["hello", "world"]
+print(" ".join(words))            # "hello world"
+```
+</UniversalEditor>
+
+---
+
+## 5. 型別檢查
+
+JavaScript 使用 `typeof` 檢查基本型別，使用 `instanceof` 檢查物件。Python 提供 `type()` 進行精確型別檢查，以及 `isinstance()` 進行支援繼承的型別檢查。
+
+<UniversalEditor title="執行時期型別檢查">
+```javascript !! js
+// JavaScript 型別檢查
+console.log(typeof 42);           // "number"
+console.log(typeof "hello");      // "string"
+console.log(typeof true);         // "boolean"
+console.log(typeof undefined);    // "undefined"
+console.log(typeof null);         // "object"（臭名昭著的怪癖）
+console.log(typeof []);           // "object"
+console.log(typeof {});           // "object"
+console.log(typeof function(){}); // "function"
+
+// instanceof 用於物件
+console.log([] instanceof Array);  // true
+console.log({} instanceof Object); // true
+
+// Array.isArray 更可靠
+console.log(Array.isArray([]));    // true
+console.log(Array.isArray({}));    // false
+```
+
+```python !! py
+# Python 型別檢查
+
+# type() 回傳精確型別
+print(type(42))           # <class 'int'>
+print(type("hello"))      # <class 'str'>
+print(type(True))         # <class 'bool'>
+print(type(None))         # <class 'NoneType'>
+print(type([]))           # <class 'list'>
+print(type({}))           # <class 'dict'>
+print(type(()))           # <class 'tuple'>
+print(type(lambda: None)) # <class 'function'>
+
+# type() 進行精確相等比較（不考慮繼承）
+print(type(True) == bool)   # True
+print(type(True) == int)    # False（儘管 bool 是 int 的子類別）
+
+# isinstance() —— 支援繼承（大多數情況下首選）
+print(isinstance(True, bool))          # True
+print(isinstance(True, int))           # True（bool 是 int 的子類別！）
+print(isinstance([], list))            # True
+print(isinstance([], (list, tuple)))   # True —— 同時檢查多個型別
+```
+</UniversalEditor>
+
+---
+
+## 6. 型別提示（PEP 484）
+
+Python 3.5+ 支援可選的型別提示。它們在執行時期不會被強制執行，但可以啟用靜態型別檢查器（如 `mypy`）並改善 IDE 支援。它們的作用與 TypeScript 的型別注解相同。
+
+<UniversalEditor title="基本型別提示">
+```javascript !! js
+// TypeScript / JavaScript 型別注解
+let name: string = "Alice";
+let age: number = 30;
+let isActive: boolean = true;
+let scores: number[] = [90, 85, 92];
+
+// 帶有型別參數和回傳型別的函式
+function greet(name: string, greeting: string = "Hello"): string {
+    return `${greeting}, ${name}!`;
+}
+
+// 可選參數
+function findUser(id: number, verbose?: boolean): string {
+    return `使用者 ${id}`;
+}
+
+console.log(greet("Alice"));
+console.log(findUser(1, true));
+```
+
+```python !! py
+# Python 型別提示（PEP 484）
+name: str = "Alice"
+age: int = 30
+is_active: bool = True
+scores: list[int] = [90, 85, 92]  # Python 3.9+
+
+# 帶有型別提示的函式
+def greet(name: str, greeting: str = "Hello") -> str:
+    return f"{greeting}, {name}!"
+
+# 可選參數 —— 兩種表達方式
+from typing import Optional
+
+def find_user(user_id: int, verbose: Optional[bool] = None) -> str:
+    return f"使用者 {user_id}"
+
+# Python 3.10+ 語法：使用 X | Y 替代 Optional / Union
+def find_user_new(user_id: int, verbose: bool | None = None) -> str:
+    return f"使用者 {user_id}"
+
+print(greet("Alice"))               # Hello, Alice!
+print(find_user(1, verbose=True))   # 使用者 1
+```
+</UniversalEditor>
+
+<UniversalEditor title="複雜型別提示：Union、List、Dict">
+```javascript !! js
+// TypeScript 複雜型別
+type ID = string | number;  // 聯合型別
+let userId: ID = 42;
+userId = "abc-123";          // 同樣有效
+
+// 泛型集合
+let names: Array<string> = ["Alice", "Bob"];
+let lookup: Map<string, number> = new Map([["a", 1]]);
+let record: Record<string, any> = { key: "value" };
+
+// 可空型別
+let maybeNull: string | null = null;
+let maybeUndef: string | undefined = undefined;
+
+// 函式型別
+type Transformer = (input: string) => number;
+const parse: Transformer = (s) => parseInt(s);
+```
+
+```python !! py
+from typing import Union, List, Dict, Tuple, Set, Callable, Optional
+
+# 聯合型別 —— 值可以是多種型別之一
+UserId = Union[str, int]          # Python 3.9 及以下
+user_id: UserId = 42
+user_id = "abc-123"               # 同樣有效
+
+# Python 3.10+ 簡寫
+def process(user_id: str | int) -> str:
+    return str(user_id)
+
+# 泛型集合
+names: List[str] = ["Alice", "Bob"]      # 舊式寫法
+names2: list[str] = ["Alice", "Bob"]     # Python 3.9+（無需匯入）
+
+lookup: Dict[str, int] = {"a": 1}
+lookup2: dict[str, int] = {"a": 1}      # Python 3.9+
+
+# 固定型別的元組
+point: Tuple[int, int] = (10, 20)
+point2: tuple[int, int] = (10, 20)      # Python 3.9+
+
+# Optional —— 等同於 Union[T, None]
+maybe: Optional[str] = None
+maybe2: str | None = None               # Python 3.10+
+
+# Callable 型別
+from typing import Callable
+Transformer = Callable[[str], int]
+parse: Transformer = int
+
+print(parse("42"))  # 42
+```
+</UniversalEditor>
+
+---
+
+## 7. 總結表
+
+| 概念 | JavaScript | Python |
+|---|---|---|
+| 型別風格 | 動態 + 弱型別（隱式轉換） | 動態 + 強型別（不隱式轉換） |
+| 整數溢位 | 受限於 `Number.MAX_SAFE_INTEGER` | 任意精度，永不溢位 |
+| 「空值」 | `null` 和 `undefined` | 只有 `None` |
+| 模板字串 | `` `Hello ${name}` `` | `f"Hello {name}"` |
+| 字串可變性 | 不可變 | 不可變 |
+| 精確型別檢查 | `typeof x === "number"` | `type(x) is int` |
+| 繼承型別檢查 | `x instanceof Array` | `isinstance(x, list)` |
+| 可選型別提示 | `string \| undefined` | `Optional[str]` / `str \| None` |
+| 聯合型別提示 | `string \| number` | `Union[str, int]` / `str \| int` |
+| 浮點精度問題 | IEEE 754（相同問題） | IEEE 754（相同問題） |
+| 精確十進制運算 | `Decimal.js`（第三方函式庫） | `from decimal import Decimal` |
+
+---
+
+## 練習
+
+### 練習 1：型別轉換偵探
+
+編寫一個 Python 函式 `safe_add(a, b)`，接受兩個值。如果兩者都是數字（`int` 或 `float`），回傳它們的和。如果兩者都是字串，回傳串接結果。否則，拋出一個帶有有用資訊的 `TypeError`。
+
+<details>
+<summary>查看答案</summary>
+
+```python
+def safe_add(a, b):
+    if isinstance(a, (int, float)) and isinstance(b, (int, float)):
+        return a + b
+    elif isinstance(a, str) and isinstance(b, str):
+        return a + b
+    else:
+        raise TypeError(
+            f"無法將 {type(a).__name__} 和 {type(b).__name__} 相加。"
+            "兩個引數必須是相同型別（int/float 或 str）。"
+        )
+
+# 測試
+print(safe_add(3, 4))               # 7
+print(safe_add(3.0, 4))             # 7.0
+print(safe_add("hello", " world"))  # "hello world"
+try:
+    safe_add(3, "4")
+except TypeError as e:
+    print(e)
+# 無法將 int 和 str 相加。兩個引數必須是相同型別（int/float 或 str）。
+```
+</details>
+
+### 練習 2：十進制精度
+
+JavaScript 開發者經常遇到浮點數 bug。編寫一個 Python 函式 `sum_prices(prices: list[str]) -> str`，接受一個價格字串串列（如 `["1.10", "2.20", "3.30"]`），使用 `Decimal` 確保精度，並回傳保留兩位小數的總和字串。
+
+<details>
+<summary>查看答案</summary>
+
+```python
+from decimal import Decimal
+
+def sum_prices(prices: list[str]) -> str:
+    total = sum(Decimal(p) for p in prices)
+    return f"{total:.2f}"
+
+# 測試
+prices = ["0.10", "0.20"]
+print(sum_prices(prices))    # "0.30"（不是 "0.30000000000000004"！）
+
+prices2 = ["1.99", "2.50", "0.01"]
+print(sum_prices(prices2))   # "4.50"
+```
+</details>
+
+### 練習 3：型別提示練習
+
+為以下函式添加完整的型別提示，使用 `Optional`、`Union` 和回傳型別注解：
+
+```python
+def lookup_user(users, user_id, default=None):
+    return users.get(user_id, default)
+```
+
+<details>
+<summary>查看答案</summary>
+
+```python
+from typing import Optional, Union
+
+# users 字典將 int 或 str 鍵對應到 str 值
+def lookup_user(
+    users: dict[Union[int, str], str],
+    user_id: Union[int, str],
+    default: Optional[str] = None,
+) -> Optional[str]:
+    return users.get(user_id, default)
+
+# Python 3.10+ 簡寫
+def lookup_user_modern(
+    users: dict[int | str, str],
+    user_id: int | str,
+    default: str | None = None,
+) -> str | None:
+    return users.get(user_id, default)
+
+# 測試
+db = {1: "Alice", 2: "Bob", "admin": "Carol"}
+print(lookup_user(db, 1))             # "Alice"
+print(lookup_user(db, 99))            # None
+print(lookup_user(db, 99, "訪客"))    # "訪客"
+```
+</details>

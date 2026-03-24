@@ -1,0 +1,764 @@
+---
+title: "第 16 模块：集合"
+description: "掌握 Kotlin 的集合系统：不可变与可变集合、List/Map/Set、扩展函数、用于延迟求值的序列以及集合操作。"
+---
+
+# 第 16 模块：集合
+
+欢迎来到第 16 模块！Kotlin 的集合系统是其最高效的特性之一。与 JavaScript 中数组和对象始终可变不同，Kotlin 在类型层面严格区分**只读**和**可变**集合。加上强大的扩展函数、延迟 `Sequence` 求值以及丰富的标准库，你将拥有使复杂数据转换简洁且安全的工具。
+
+## 学习目标
+
+完成本模块后，你将能够：
+
+- ✅ 理解不可变（`listOf`）和可变（`mutableListOf`）集合的区别及其重要性
+- ✅ 使用 `List` 操作：`map`、`filter`、`reduce`、`fold`、`groupBy`、`partition` 等
+- ✅ 使用 `Map`：创建、访问、转换和迭代条目
+- ✅ 使用 `Set` 的 `union`、`intersect` 和 `subtract` 进行数学集合运算
+- ✅ 使用 `Sequence` 对大型或无限数据流进行延迟高效求值
+- ✅ 应用高级扩展函数：`flatMap`、`zip`、`windowed`、`chunked`
+
+---
+
+## 1. 不可变与可变集合
+
+Kotlin 集合系统中最重要的区别：**只读与可变**。JavaScript 的数组和对象始终可变；Kotlin 在类型层面强制选择，防止意外变异。
+
+<UniversalEditor title="不可变与可变：核心区别" compare={true}>
+```javascript !! js
+// JavaScript——所有数组默认可变
+const fruits = ["苹果", "香蕉", "樱桃"];
+
+// 读写都可以在任何数组上进行
+fruits.push("枣子");         // 变异原始数组
+fruits[0] = "牛油果";        // 变异原始数组
+console.log(fruits); // ["牛油果", "香蕉", "樱桃", "枣子"]
+
+// 'const' 只阻止重新赋值，不阻止变异
+const items = [1, 2, 3];
+items.push(4); // 这可以！const 不会冻结数组
+// items = [5, 6]; // 这会失败——不能重新赋值 const
+
+// Object.freeze() 防止变异——但是浅层的，很少使用
+const frozen = Object.freeze([1, 2, 3]);
+// frozen.push(4); // 严格模式下 TypeError——但只是浅层
+
+// 实际上，JS 没有类型层面的只读集合
+// 开发者依赖约定或 TypeScript 的 readonly 修饰符
+```
+
+```kotlin !! kotlin
+// Kotlin——两个独立的接口：只读和可变
+
+// 只读 List——可以读取但不能写入
+val fruits: List<String> = listOf("苹果", "香蕉", "樱桃")
+println(fruits[0]) // 苹果
+println(fruits.size) // 3
+// fruits.add("枣子")    // 编译错误！List 没有 add() 方法
+// fruits[0] = "牛油果"  // 编译错误！List 没有 set() 方法
+
+// 可变 List——读写都允许
+val mutableFruits: MutableList<String> = mutableListOf("苹果", "香蕉", "樱桃")
+mutableFruits.add("枣子")      // 正常
+mutableFruits[0] = "牛油果"   // 正常
+println(mutableFruits) // [牛油果, 香蕉, 樱桃, 枣子]
+
+// 只读不意味着底层不可变
+// 如果有人持有 MutableList 引用，仍然可以变异
+// 但通过 List 引用，你能防止意外写入
+
+// 最佳实践：暴露 List，保持 MutableList 私有
+class UserRepository {
+    private val _users: MutableList<String> = mutableListOf()
+    val users: List<String> get() = _users  // 调用者只看到只读版本
+
+    fun addUser(name: String) { _users.add(name) }
+}
+
+val repo = UserRepository()
+repo.addUser("Alice")
+repo.addUser("Bob")
+println(repo.users) // [Alice, Bob]
+// repo.users.add("Carol") // 编译错误！
+```
+</UniversalEditor>
+
+---
+
+## 2. List 操作
+
+Kotlin 的 `List` 具有丰富的扩展函数集合。大多数直接映射到 JavaScript 的 `Array` 方法，但 Kotlin 的版本是类型安全的，是语言标准库的一部分。
+
+<UniversalEditor title="List 操作：map、filter、reduce、fold" compare={true}>
+```javascript !! js
+// JavaScript 数组操作
+const numbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+
+// map
+const doubled = numbers.map(n => n * 2);
+console.log(doubled); // [2, 4, 6, 8, 10, 12, 14, 16, 18, 20]
+
+// filter
+const evens = numbers.filter(n => n % 2 === 0);
+console.log(evens); // [2, 4, 6, 8, 10]
+
+// reduce
+const sum = numbers.reduce((acc, n) => acc + n, 0);
+console.log(sum); // 55
+
+// find
+const firstOver5 = numbers.find(n => n > 5);
+console.log(firstOver5); // 6
+
+// some / every
+console.log(numbers.some(n => n > 9));  // true
+console.log(numbers.every(n => n > 0)); // true
+
+// flat/flatMap
+const nested = [[1, 2], [3, 4], [5, 6]];
+const flat = nested.flat();
+console.log(flat); // [1, 2, 3, 4, 5, 6]
+
+const words = ["Hello World", "Foo Bar"];
+const allWords = words.flatMap(s => s.split(" "));
+console.log(allWords); // ["Hello", "World", "Foo", "Bar"]
+```
+
+```kotlin !! kotlin
+// Kotlin List 操作——与 JS Array 方法几乎一一对应
+
+val numbers = listOf(1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+
+// map
+val doubled = numbers.map { it * 2 }
+println(doubled) // [2, 4, 6, 8, 10, 12, 14, 16, 18, 20]
+
+// filter
+val evens = numbers.filter { it % 2 == 0 }
+println(evens) // [2, 4, 6, 8, 10]
+
+// reduce（无初始值——空列表会抛出异常）
+val sum = numbers.reduce { acc, n -> acc + n }
+println(sum) // 55
+
+// fold（有初始值——空列表安全）
+val product = numbers.fold(1) { acc, n -> acc * n }
+println(product) // 3628800
+
+// find（返回可空 T?）
+val firstOver5 = numbers.find { it > 5 }
+println(firstOver5) // 6
+
+// any / all
+println(numbers.any { it > 9 })  // true
+println(numbers.all { it > 0 })  // true
+
+// flatMap
+val nested = listOf(listOf(1, 2), listOf(3, 4), listOf(5, 6))
+val flat = nested.flatten()
+println(flat) // [1, 2, 3, 4, 5, 6]
+
+val words = listOf("Hello World", "Foo Bar")
+val allWords = words.flatMap { it.split(" ") }
+println(allWords) // [Hello, World, Foo, Bar]
+```
+</UniversalEditor>
+
+<UniversalEditor title="List 操作：groupBy、partition、sortedBy" compare={true}>
+```javascript !! js
+// JavaScript——groupBy 和 partition 需要手动实现
+const people = [
+  { name: "Alice", dept: "工程", salary: 90000 },
+  { name: "Bob",   dept: "市场", salary: 75000 },
+  { name: "Carol", dept: "工程", salary: 95000 },
+  { name: "Dave",  dept: "市场", salary: 80000 },
+  { name: "Eve",   dept: "工程", salary: 85000 }
+];
+
+// groupBy——必须手动实现（或使用 lodash）
+const byDept = people.reduce((acc, person) => {
+  const key = person.dept;
+  if (!acc[key]) acc[key] = [];
+  acc[key].push(person);
+  return acc;
+}, {});
+
+// partition——分成两个数组
+const [highPaid, lowPaid] = people.reduce(
+  ([high, low], p) => p.salary >= 85000 ? [[...high, p], low] : [high, [...low, p]],
+  [[], []]
+);
+
+// 排序
+const sorted = [...people].sort((a, b) => b.salary - a.salary);
+console.log(sorted[0].name); // Carol
+```
+
+```kotlin !! kotlin
+// Kotlin——groupBy 和 partition 是内置的
+
+data class Person(val name: String, val dept: String, val salary: Int)
+
+val people = listOf(
+    Person("Alice", "工程", 90_000),
+    Person("Bob",   "市场", 75_000),
+    Person("Carol", "工程", 95_000),
+    Person("Dave",  "市场", 80_000),
+    Person("Eve",   "工程", 85_000)
+)
+
+// groupBy——返回 Map<K, List<T>>
+val byDept: Map<String, List<Person>> = people.groupBy { it.dept }
+println(byDept.keys) // [工程, 市场]
+println(byDept["工程"]?.map { it.name }) // [Alice, Carol, Eve]
+
+// partition——返回 Pair<List<T>, List<T>>
+val (highPaid, lowPaid) = people.partition { it.salary >= 85_000 }
+println(highPaid.map { it.name }) // [Alice, Carol, Eve]
+println(lowPaid.map { it.name })  // [Bob, Dave]
+
+// sortedBy / sortedByDescending
+val sorted = people.sortedByDescending { it.salary }
+println(sorted.first().name) // Carol
+
+// 带谓词的 count
+val engineerCount = people.count { it.dept == "工程" }
+println(engineerCount) // 3
+
+// sumOf / maxOf / minOf
+val totalPayroll = people.sumOf { it.salary }
+val topSalary = people.maxOf { it.salary }
+println("工资总额：$totalPayroll，最高：$topSalary")
+```
+</UniversalEditor>
+
+---
+
+## 3. Map 操作
+
+<UniversalEditor title="Map：创建、访问和转换" compare={true}>
+```javascript !! js
+// JavaScript Map 和普通对象
+const scores = { Alice: 95, Bob: 87, Carol: 92 };
+console.log(scores["Alice"]); // 95
+console.log(scores["Dave"] ?? 0); // 0（默认值）
+
+// ES6 Map
+const userMap = new Map([
+  ["u1", { name: "Alice", role: "管理员" }],
+  ["u2", { name: "Bob",   role: "用户"  }]
+]);
+console.log(userMap.get("u1")?.name); // Alice
+console.log(userMap.has("u3")); // false
+userMap.set("u3", { name: "Carol", role: "用户" });
+
+// 迭代
+for (const [key, value] of userMap.entries()) {
+  console.log(`${key}: ${value.name}`);
+}
+
+// 转换（没有内置 mapValues——需要手动实现）
+const boosted = Object.fromEntries(
+  Object.entries(scores).map(([k, v]) => [k, v + 10])
+);
+console.log(boosted); // { Alice: 105, Bob: 97, Carol: 102 }
+```
+
+```kotlin !! kotlin
+// Kotlin Map 操作
+
+// 只读 map
+val scores: Map<String, Int> = mapOf("Alice" to 95, "Bob" to 87, "Carol" to 92)
+println(scores["Alice"]) // 95
+println(scores["Dave"])  // null（未找到）
+println(scores.getOrDefault("Dave", 0)) // 0
+
+// 可变 map
+val userMap: MutableMap<String, String> = mutableMapOf(
+    "u1" to "Alice",
+    "u2" to "Bob"
+)
+userMap["u3"] = "Carol"
+userMap.remove("u2")
+println(userMap) // {u1=Alice, u3=Carol}
+
+// 安全访问模式
+val role = scores["Alice"] ?: 0  // Elvis 提供默认值
+println(role) // 95
+
+// getOrPut：获取已有值或计算并存储
+val cache = mutableMapOf<String, Int>()
+val value = cache.getOrPut("key") { 42 }
+
+// 迭代
+for ((name, score) in scores) {
+    println("$name: $score 分")
+}
+
+// 转换 map
+val boosted = scores.mapValues { (_, v) -> v + 10 }
+println(boosted) // {Alice=105, Bob=97, Carol=102}
+
+val initials = scores.mapKeys { (k, _) -> k.first().toString() }
+println(initials) // {A=95, B=87, C=92}
+
+// 过滤 map
+val topStudents = scores.filter { (_, score) -> score >= 90 }
+println(topStudents) // {Alice=95, Carol=92}
+```
+</UniversalEditor>
+
+---
+
+## 4. Set 操作
+
+<UniversalEditor title="Set：数学集合运算" compare={true}>
+```javascript !! js
+// JavaScript Set
+const setA = new Set([1, 2, 3, 4, 5]);
+const setB = new Set([4, 5, 6, 7, 8]);
+
+// 基本操作
+setA.add(6);
+setA.delete(1);
+console.log(setA.has(3)); // true
+console.log(setA.size);   // 5
+
+// 集合运算（JS 中必须手动实现！）
+// 并集
+const union = new Set([...setA, ...setB]);
+console.log([...union]); // [2, 3, 4, 5, 6, 7, 8]
+
+// 交集
+const intersection = new Set([...setA].filter(x => setB.has(x)));
+console.log([...intersection]); // [4, 5, 6]
+
+// 差集（A - B）
+const difference = new Set([...setA].filter(x => !setB.has(x)));
+console.log([...difference]); // [2, 3]
+
+// 数组与集合的转换（用于去重）
+const withDupes = [1, 2, 2, 3, 3, 3, 4];
+const unique = [...new Set(withDupes)];
+console.log(unique); // [1, 2, 3, 4]
+```
+
+```kotlin !! kotlin
+// Kotlin Set——数学运算是内置的
+
+val setA: Set<Int> = setOf(1, 2, 3, 4, 5)
+val setB: Set<Int> = setOf(4, 5, 6, 7, 8)
+
+// 基本操作
+println(3 in setA)   // true
+println(setA.size)   // 5
+println(setA.contains(6)) // false
+
+// 可变 Set
+val mutableSet = mutableSetOf(1, 2, 3)
+mutableSet.add(4)
+mutableSet.remove(1)
+println(mutableSet) // [2, 3, 4]
+
+// 集合运算——内置于标准库！
+val union        = setA union setB         // 或 setA + setB
+val intersection = setA intersect setB
+val difference   = setA subtract setB      // 或 setA - setB
+
+println(union)        // [1, 2, 3, 4, 5, 6, 7, 8]
+println(intersection) // [4, 5]
+println(difference)   // [1, 2, 3]
+
+// 使用 toSet() 去重
+val withDupes = listOf(1, 2, 2, 3, 3, 3, 4)
+val unique = withDupes.toSet()
+println(unique) // [1, 2, 3, 4]
+val backToList = unique.toList()
+
+// sortedSetOf() 对元素排序
+val sorted = sortedSetOf(5, 3, 1, 4, 2)
+println(sorted) // [1, 2, 3, 4, 5]
+```
+</UniversalEditor>
+
+---
+
+## 5. 序列：延迟求值
+
+序列是 Kotlin 的延迟集合——直到调用终止操作时才执行操作。这类似于 Rust 的迭代器或 JavaScript 的生成器，对于大型数据集的性能至关重要。
+
+<UniversalEditor title="序列 vs 即时集合：性能" compare={true}>
+```javascript !! js
+// JavaScript——数组方法是即时的（立即执行）
+const numbers = Array.from({ length: 1_000_000 }, (_, i) => i + 1);
+
+// 每个步骤创建一个新的中间数组——分配了 300 万个元素！
+const result = numbers
+  .filter(n => n % 2 === 0)      // 创建 50 万元素的数组
+  .map(n => n * n)                // 创建 50 万元素的数组
+  .slice(0, 5);                   // 只有这时才取 5 个
+console.log(result); // [4, 16, 36, 64, 100]
+
+// JavaScript 生成器是延迟的（类似 Kotlin 序列）
+function* lazyRange(start, end) {
+  for (let i = start; i <= end; i++) yield i;
+}
+
+function* lazyFilter(iter, pred) {
+  for (const item of iter) {
+    if (pred(item)) yield item;
+  }
+}
+
+function* lazyMap(iter, fn) {
+  for (const item of iter) yield fn(item);
+}
+
+function take(iter, n) {
+  const result = [];
+  for (const item of iter) {
+    result.push(item);
+    if (result.length >= n) break;
+  }
+  return result;
+}
+
+const lazyResult = take(
+  lazyMap(lazyFilter(lazyRange(1, 1_000_000), n => n % 2 === 0), n => n * n),
+  5
+);
+console.log(lazyResult); // [4, 16, 36, 64, 100]——只处理需要的数据
+```
+
+```kotlin !! kotlin
+// Kotlin 序列——默认延迟，类似 JS 生成器
+
+// 即时（List）：每个步骤创建中间集合
+val eagerResult = (1..1_000_000).toList()
+    .filter { it % 2 == 0 }   // 创建 50 万元素的列表
+    .map { it * it }           // 创建 50 万元素的列表
+    .take(5)                   // 只有这时才取 5 个
+println(eagerResult) // [4, 16, 36, 64, 100]
+
+// 延迟（Sequence）：元素逐个通过管道处理
+val lazyResult = (1..1_000_000).asSequence()
+    .filter { it % 2 == 0 }   // 尚未做任何工作
+    .map { it * it }           // 尚未做任何工作
+    .take(5)                   // 终止操作：现在只处理总共 10 个元素！
+    .toList()                  // 实体化结果
+println(lazyResult) // [4, 16, 36, 64, 100]
+
+// generateSequence：无限序列
+val naturalNumbers = generateSequence(1) { it + 1 }
+val firstFibPastHundred = generateSequence(Pair(0, 1)) { (a, b) -> Pair(b, a + b) }
+    .map { it.first }
+    .first { it > 100 }
+println(firstFibPastHundred) // 144
+
+// 使用 yield 的序列（类似生成器）
+val collatz = sequence {
+    var n = 27
+    while (n != 1) {
+        yield(n)
+        n = if (n % 2 == 0) n / 2 else 3 * n + 1
+    }
+    yield(1)
+}
+println(collatz.take(5).toList()) // [27, 82, 41, 124, 62]
+println(collatz.count())          // n=27 的考拉兹序列长度
+```
+</UniversalEditor>
+
+---
+
+## 6. 高级集合扩展函数
+
+Kotlin 的标准库包含强大的集合转换，没有直接的 JavaScript 等价物。
+
+<UniversalEditor title="flatMap、zip、windowed、chunked" compare={true}>
+```javascript !! js
+// JavaScript——某些操作需要手动实现
+
+const matrix = [[1, 2, 3], [4, 5, 6], [7, 8, 9]];
+const flat = matrix.flat();
+console.log(flat); // [1, 2, 3, 4, 5, 6, 7, 8, 9]
+
+// zip——必须手动实现
+function zip(a, b) {
+  return a.map((item, i) => [item, b[i]]);
+}
+const names = ["Alice", "Bob", "Carol"];
+const scores = [95, 87, 92];
+const paired = zip(names, scores);
+console.log(paired); // [["Alice", 95], ["Bob", 87], ["Carol", 92]]
+
+// windowed（滑动窗口）——手动实现
+function windowed(arr, size) {
+  return arr.slice(0, arr.length - size + 1).map((_, i) => arr.slice(i, i + size));
+}
+const temps = [20, 22, 19, 25, 23, 21];
+const windows = windowed(temps, 3);
+console.log(windows); // [[20,22,19], [22,19,25], [19,25,23], [25,23,21]]
+
+// chunked（批处理）
+function chunked(arr, size) {
+  const chunks = [];
+  for (let i = 0; i < arr.length; i += size) {
+    chunks.push(arr.slice(i, i + size));
+  }
+  return chunks;
+}
+const items = [1, 2, 3, 4, 5, 6, 7];
+console.log(chunked(items, 3)); // [[1,2,3], [4,5,6], [7]]
+```
+
+```kotlin !! kotlin
+// Kotlin——全部内置于标准库
+
+val matrix = listOf(listOf(1, 2, 3), listOf(4, 5, 6), listOf(7, 8, 9))
+val flat = matrix.flatten()
+println(flat) // [1, 2, 3, 4, 5, 6, 7, 8, 9]
+
+// flatMap：在一步中完成 map + flatten
+val sentences = listOf("你好 世界", "Foo Bar Baz")
+val allWords = sentences.flatMap { it.split(" ") }
+println(allWords) // [你好, 世界, Foo, Bar, Baz]
+
+// zip：配对两个列表
+val names = listOf("Alice", "Bob", "Carol")
+val scores = listOf(95, 87, 92)
+val paired = names.zip(scores)
+println(paired) // [(Alice, 95), (Bob, 87), (Carol, 92)]
+
+// 带转换函数的 zip
+val summary = names.zip(scores) { name, score -> "$name: $score 分" }
+println(summary) // [Alice: 95 分, Bob: 87 分, Carol: 92 分]
+
+// windowed：列表上的滑动窗口
+val temps = listOf(20, 22, 19, 25, 23, 21)
+val windows = temps.windowed(3)
+println(windows) // [[20, 22, 19], [22, 19, 25], [19, 25, 23], [25, 23, 21]]
+
+// 带步长和转换的 windowed
+val movingAvg = temps.windowed(3, step = 1) { window -> window.average() }
+println(movingAvg) // [20.33, 22.0, 22.33, 23.0]
+
+// chunked：分割成固定大小的组
+val items = listOf(1, 2, 3, 4, 5, 6, 7)
+val chunks = items.chunked(3)
+println(chunks) // [[1, 2, 3], [4, 5, 6], [7]]
+
+// 带转换的 chunked：处理每个批次
+val batchSums = items.chunked(3) { batch -> batch.sum() }
+println(batchSums) // [6, 15, 7]
+```
+</UniversalEditor>
+
+<UniversalEditor title="associate、distinct、scan、runningFold" compare={true}>
+```javascript !! js
+// JavaScript 等价物（大多需要手动实现）
+
+const users = [
+  { id: "u1", name: "Alice" },
+  { id: "u2", name: "Bob" },
+  { id: "u3", name: "Carol" }
+];
+
+// 构建查找 map——Object.fromEntries 或 reduce
+const userById = Object.fromEntries(users.map(u => [u.id, u]));
+console.log(userById["u2"].name); // Bob
+
+// distinct / unique
+const tags = ["kotlin", "java", "kotlin", "android", "java"];
+const uniqueTags = [...new Set(tags)];
+console.log(uniqueTags); // ["kotlin", "java", "android"]
+
+// scan / 运行总计（手动）
+const numbers = [1, 2, 3, 4, 5];
+const runningTotal = numbers.reduce((acc, n) => {
+  acc.push((acc.at(-1) ?? 0) + n);
+  return acc;
+}, []);
+console.log(runningTotal); // [1, 3, 6, 10, 15]
+
+// take / drop
+const first3 = numbers.slice(0, 3);
+const after2  = numbers.slice(2);
+console.log(first3); // [1, 2, 3]
+console.log(after2);  // [3, 4, 5]
+```
+
+```kotlin !! kotlin
+// Kotlin——这些都是内置的标准库函数
+
+data class User(val id: String, val name: String)
+val users = listOf(User("u1", "Alice"), User("u2", "Bob"), User("u3", "Carol"))
+
+// associate：列表 → map
+val userById: Map<String, User> = users.associateBy { it.id }
+println(userById["u2"]?.name) // Bob
+
+// associateWith：使用列表项作为键
+val names = listOf("Alice", "Bob", "Carol")
+val nameLengths: Map<String, Int> = names.associateWith { it.length }
+println(nameLengths) // {Alice=5, Bob=3, Carol=5}
+
+// distinct / distinctBy
+val tags = listOf("kotlin", "java", "kotlin", "android", "java")
+println(tags.distinct())                     // [kotlin, java, android]
+println(users.distinctBy { it.name.length }) // 不同名称长度的用户
+
+// scan / runningFold：累积操作
+val numbers = listOf(1, 2, 3, 4, 5)
+val runningTotal = numbers.scan(0) { acc, n -> acc + n }
+println(runningTotal) // [0, 1, 3, 6, 10, 15]（包含初始值）
+
+val runningMax = numbers.runningFold(Int.MIN_VALUE) { acc, n -> maxOf(acc, n) }
+println(runningMax) // [-2147483648, 1, 2, 3, 4, 5]
+
+// take / drop / takeWhile / dropWhile
+println(numbers.take(3))              // [1, 2, 3]
+println(numbers.drop(2))              // [3, 4, 5]
+println(numbers.takeWhile { it < 4 }) // [1, 2, 3]
+println(numbers.dropWhile { it < 4 }) // [4, 5]
+```
+</UniversalEditor>
+
+---
+
+## 7. 总结表
+
+| 概念 | JavaScript | Kotlin |
+|---|---|---|
+| 只读集合 | `const arr = []`（并非真正只读）| `listOf()`、`mapOf()`、`setOf()` |
+| 可变集合 | `let arr = []`（所有数组）| `mutableListOf()`、`mutableMapOf()`、`mutableSetOf()` |
+| map | `Array.map()` | `list.map { }` |
+| filter | `Array.filter()` | `list.filter { }` |
+| reduce | `Array.reduce()` | `list.reduce { acc, n -> }` |
+| fold（带初始值）| `Array.reduce(fn, initial)` | `list.fold(initial) { acc, n -> }` |
+| find | `Array.find()` | `list.find { }`（返回 `T?`）|
+| groupBy | 手动 / lodash | `list.groupBy { }` |
+| partition | 手动 | `list.partition { }` |
+| Set 并集 | `new Set([...a, ...b])` | `setA union setB` |
+| Set 交集 | 手动 filter | `setA intersect setB` |
+| Set 差集 | 手动 filter | `setA subtract setB` |
+| 延迟求值 | 生成器函数 | `list.asSequence()` |
+| 无限序列 | 生成器函数 | `generateSequence { }` |
+| zip 两个列表 | 手动 | `list1.zip(list2)` |
+| 滑动窗口 | 手动 | `list.windowed(n)` |
+| 固定大小批次 | 手动 | `list.chunked(n)` |
+| 列表 → 按键 Map | `Object.fromEntries(...)` | `list.associateBy { }` |
+| 累积 fold | 手动 reduce | `list.scan(initial) { }` |
+
+---
+
+## 练习
+
+### 练习 1：词频计数器
+
+给定一个字符串列表（按单词分割的段落），编写一个 Kotlin 函数 `wordFrequency(words: List<String>): Map<String, Int>`，统计每个单词出现的次数，按频率降序排列。
+
+<details>
+<summary>显示答案</summary>
+
+```kotlin
+fun wordFrequency(words: List<String>): Map<String, Int> {
+    return words
+        .map { it.lowercase().trim(',', '.', '!', '?') }
+        .filter { it.isNotBlank() }
+        .groupingBy { it }
+        .eachCount()
+        .entries
+        .sortedByDescending { it.value }
+        .associate { it.key to it.value }
+}
+
+val paragraph = "the quick brown fox jumps over the lazy dog the fox".split(" ")
+val freq = wordFrequency(paragraph)
+freq.entries.take(5).forEach { (word, count) ->
+    println("$word: $count 次")
+}
+// the: 3 次
+// fox: 2 次
+// quick: 1 次
+// ...
+```
+
+</details>
+
+### 练习 2：延迟素数生成器
+
+使用 `generateSequence` 创建一个无限素数序列，然后取前 10 个。
+
+<details>
+<summary>显示答案</summary>
+
+```kotlin
+fun isPrime(n: Int): Boolean {
+    if (n < 2) return false
+    if (n == 2) return true
+    if (n % 2 == 0) return false
+    return (3..Math.sqrt(n.toDouble()).toInt() step 2).none { n % it == 0 }
+}
+
+val primes = generateSequence(2) { n ->
+    var next = n + 1
+    while (!isPrime(next)) next++
+    next
+}
+
+println(primes.take(10).toList())
+// [2, 3, 5, 7, 11, 13, 17, 19, 23, 29]
+
+// 附加：前 100 个素数之和
+println(primes.take(100).sum()) // 24133
+```
+
+</details>
+
+### 练习 3：多操作学生报告
+
+给定一个包含 `name: String`、`grades: List<Int>` 和 `subject: String` 的 `Student` 数据类，编写一个函数 `generateReport(students: List<Student>)`，该函数：
+1. 按科目对学生分组
+2. 计算每个学生的平均分
+3. 找出每个科目的最优学生
+4. 打印格式化摘要
+
+<details>
+<summary>显示答案</summary>
+
+```kotlin
+data class Student(val name: String, val grades: List<Int>, val subject: String)
+
+fun generateReport(students: List<Student>) {
+    val withAvg = students.map { s -> s to s.grades.average() }
+    val bySubject = withAvg.groupBy { (student, _) -> student.subject }
+
+    bySubject.forEach { (subject, group) ->
+        val top = group.maxByOrNull { (_, avg) -> avg }
+        val subjectAvg = group.map { (_, avg) -> avg }.average()
+
+        println("=== $subject ===")
+        println("班级平均分：${"%.1f".format(subjectAvg)}")
+        top?.let { (student, avg) ->
+            println("最优学生：${student.name}（${"%.1f".format(avg)}）")
+        }
+        group.sortedByDescending { (_, avg) -> avg }.forEach { (student, avg) ->
+            println("  ${student.name}：${"%.1f".format(avg)}")
+        }
+        println()
+    }
+}
+
+val students = listOf(
+    Student("Alice", listOf(90, 85, 92), "数学"),
+    Student("Bob",   listOf(78, 82, 80), "数学"),
+    Student("Carol", listOf(95, 91, 88), "科学"),
+    Student("Dave",  listOf(70, 75, 72), "科学"),
+    Student("Eve",   listOf(88, 90, 87), "数学")
+)
+
+generateReport(students)
+```
+
+</details>

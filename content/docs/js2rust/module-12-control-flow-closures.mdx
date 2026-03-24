@@ -1,0 +1,712 @@
+---
+title: "Module 12: Control Flow and Closures"
+description: "Master Rust's control flow: if as an expression, exhaustive match, if let/while let, loop/for/while, and closures with their capture modes."
+---
+
+# Module 12: Control Flow and Closures
+
+## Learning Objectives
+
+By the end of this module, you will be able to:
+
+- ✅ Use `if` as an expression that returns a value, unlike JavaScript's statement-based `if`
+- ✅ Write exhaustive `match` expressions with pattern matching, replacing fragile `switch` statements
+- ✅ Apply `if let` and `while let` for ergonomic single-pattern matching on `Option` and `Result`
+- ✅ Use `loop`, `while`, and `for` loops including `loop`'s unique ability to return values via `break`
+- ✅ Write closures with `|x| x + 1` syntax and understand Rust's automatic type inference for them
+- ✅ Distinguish between `Fn`, `FnMut`, and `FnOnce` capture modes and use `move` closures for thread safety
+
+---
+
+## 1. if as an Expression
+
+In JavaScript, `if` is a statement — it controls flow but does not return a value. You must use the ternary operator `? :` to get inline conditional values. In Rust, `if` is an **expression**: it evaluates to a value and can be used anywhere a value is expected. Every branch must return the same type.
+
+<UniversalEditor title="if as an Expression vs JavaScript Ternary" compare={true}>
+```javascript !! js
+// JavaScript: if is a statement, use ternary for value
+const x = 10;
+
+// Statement form — cannot be assigned directly
+let label;
+if (x > 5) {
+    label = "big";
+} else {
+    label = "small";
+}
+
+// Ternary for inline value (JavaScript idiom)
+const label2 = x > 5 ? "big" : "small";
+
+// Multi-branch ternary gets messy
+const category = x < 0   ? "negative"
+               : x === 0 ? "zero"
+               : x < 10  ? "small"
+               : "large";
+
+console.log(label);     // "big"
+console.log(label2);    // "big"
+console.log(category);  // "small"
+
+// Functions returning values
+function classify(n) {
+    if (n % 2 === 0) {
+        return "even";
+    } else {
+        return "odd";
+    }
+}
+
+console.log(classify(4)); // "even"
+```
+
+```rust !! rs
+// Rust: if is an expression — it returns a value directly
+fn main() {
+    let x = 10;
+
+    // if expression assigned to a variable
+    let label = if x > 5 { "big" } else { "small" };
+
+    // Multi-branch if expression — clean and readable
+    let category = if x < 0 {
+        "negative"
+    } else if x == 0 {
+        "zero"
+    } else if x < 10 {
+        "small"
+    } else {
+        "large"
+    };
+
+    println!("{}", label);     // "big"
+    println!("{}", category);  // "small"
+
+    // Functions can return if expressions directly
+    // (no explicit return needed for the last expression)
+    fn classify(n: i32) -> &'static str {
+        if n % 2 == 0 { "even" } else { "odd" }
+    }
+
+    println!("{}", classify(4)); // "even"
+
+    // if expressions must have both branches return same type
+    let score = 85;
+    let grade = if score >= 90 {
+        "A"
+    } else if score >= 80 {
+        "B"
+    } else {
+        "C"
+    };
+    println!("Grade: {}", grade); // "B"
+}
+```
+</UniversalEditor>
+
+---
+
+## 2. match Expressions
+
+Rust's `match` is far more powerful than JavaScript's `switch`. Key differences:
+- `match` is **exhaustive**: the compiler forces you to handle every case
+- No fall-through: each arm is independent
+- Arms can match **patterns**, not just values
+- `match` is an expression and returns a value
+
+<UniversalEditor title="match vs switch: Exhaustive Pattern Matching" compare={true}>
+```javascript !! js
+// JavaScript switch — fragile, non-exhaustive, fall-through by default
+function describeNumber(n) {
+    switch (n) {
+        case 1:
+            return "one";
+        case 2:
+            return "two";
+        case 3:
+            return "three";
+        default:
+            return "other";
+        // If you forget 'default', function returns undefined silently
+    }
+}
+
+// Switch with intentional fall-through (confusing)
+function getDayType(day) {
+    switch (day) {
+        case "Monday":
+        case "Tuesday":
+        case "Wednesday":
+        case "Thursday":
+        case "Friday":
+            return "weekday";
+        case "Saturday":
+        case "Sunday":
+            return "weekend";
+        // Forgetting 'default' is a silent bug
+    }
+}
+
+console.log(describeNumber(2));     // "two"
+console.log(getDayType("Monday"));  // "weekday"
+console.log(getDayType("Holiday")); // undefined — silent bug!
+```
+
+```rust !! rs
+// Rust match — exhaustive, no fall-through, returns a value
+fn describe_number(n: i32) -> &'static str {
+    match n {
+        1 => "one",
+        2 => "two",
+        3 => "three",
+        _ => "other", // _ is the wildcard (like default)
+        // Remove _ and the compiler will error if any case is missing
+    }
+}
+
+// Multiple patterns with | (OR)
+fn get_day_type(day: &str) -> &'static str {
+    match day {
+        "Monday" | "Tuesday" | "Wednesday" | "Thursday" | "Friday" => "weekday",
+        "Saturday" | "Sunday" => "weekend",
+        _ => "unknown", // Compiler requires this for &str matching
+    }
+}
+
+// Range patterns in match
+fn classify_age(age: u32) -> &'static str {
+    match age {
+        0..=12  => "child",
+        13..=17 => "teenager",
+        18..=64 => "adult",
+        65..    => "senior",
+    }
+}
+
+fn main() {
+    println!("{}", describe_number(2));       // "two"
+    println!("{}", get_day_type("Monday"));   // "weekday"
+    println!("{}", classify_age(25));         // "adult"
+
+    // match as an expression returning a value
+    let x = 7;
+    let description = match x {
+        1 | 2 | 3 => "small",
+        4..=6     => "medium",
+        7..=9     => "large",
+        _         => "out of range",
+    };
+    println!("{}", description); // "large"
+}
+```
+</UniversalEditor>
+
+---
+
+## 3. if let and while let
+
+JavaScript has no direct equivalent of `if let`. It is Rust's ergonomic shorthand for matching a single pattern — especially useful for `Option` and `Result` types when you only care about one variant.
+
+<UniversalEditor title="if let and while let for Option Matching" compare={true}>
+```javascript !! js
+// JavaScript: manual null checking
+function findUser(id) {
+    const users = new Map([
+        [1, { name: "Alice", age: 30 }],
+        [2, { name: "Bob",   age: 25 }],
+    ]);
+    return users.get(id) ?? null;
+}
+
+// Verbose null checks
+const user = findUser(1);
+if (user !== null && user !== undefined) {
+    console.log(`Found user: ${user.name}`);
+} else {
+    console.log("User not found");
+}
+
+// Optional chaining helps but doesn't force handling
+const name = findUser(99)?.name; // undefined — easy to forget to check
+
+// Simulating "while let" with a queue
+const queue = [1, 2, 3, 4, 5];
+while (queue.length > 0) {
+    const item = queue.shift(); // item is T | undefined
+    if (item !== undefined) {
+        console.log(`Processing: ${item}`);
+    }
+}
+```
+
+```rust !! rs
+use std::collections::HashMap;
+
+fn find_user(id: u32) -> Option<String> {
+    let mut users = HashMap::new();
+    users.insert(1u32, "Alice".to_string());
+    users.insert(2u32, "Bob".to_string());
+    users.get(&id).cloned()
+}
+
+fn main() {
+    // if let: only runs the block if the pattern matches
+    if let Some(user) = find_user(1) {
+        println!("Found user: {}", user); // "Found user: Alice"
+    } else {
+        println!("User not found");
+    }
+
+    // Without if let you'd need a full match:
+    // match find_user(1) {
+    //     Some(user) => println!("Found: {}", user),
+    //     None       => println!("Not found"),
+    // }
+
+    // if let with a guard condition
+    if let Some(name) = find_user(2) {
+        if name.starts_with('B') {
+            println!("{} starts with B", name); // "Bob starts with B"
+        }
+    }
+
+    // while let: keep looping while the pattern matches
+    let mut stack = vec![1, 2, 3, 4, 5];
+    while let Some(top) = stack.pop() {
+        println!("Popped: {}", top); // 5, 4, 3, 2, 1
+    }
+    println!("Stack is empty");
+
+    // while let with Option from an iterator
+    let mut iter = vec!["a", "b", "c"].into_iter();
+    while let Some(item) = iter.next() {
+        println!("Item: {}", item);
+    }
+}
+```
+</UniversalEditor>
+
+---
+
+## 4. Loops: loop, while, for
+
+Rust has three loop constructs. The standout is `loop` — an infinite loop that can **return a value** via `break`. The `for` loop iterates over any type implementing the `Iterator` trait, including ranges.
+
+<UniversalEditor title="loop, while, and for with Range Iterators" compare={true}>
+```javascript !! js
+// JavaScript loop constructs
+// while loop
+let count = 0;
+while (count < 5) {
+    console.log(count);
+    count++;
+}
+
+// for loop with index
+for (let i = 0; i < 5; i++) {
+    console.log(i);
+}
+
+// for...of for iterables
+const fruits = ["apple", "banana", "cherry"];
+for (const fruit of fruits) {
+    console.log(fruit);
+}
+
+// Simulating a "loop until" — no clean way to return value
+let result;
+let attempts = 0;
+while (true) {
+    attempts++;
+    if (attempts >= 3) {
+        result = attempts * 10;
+        break;
+    }
+}
+console.log(`Result after ${attempts} attempts: ${result}`);
+
+// enumerate with index
+fruits.forEach((fruit, index) => {
+    console.log(`${index}: ${fruit}`);
+});
+```
+
+```rust !! rs
+fn main() {
+    // while loop — same concept as JavaScript
+    let mut count = 0;
+    while count < 5 {
+        println!("{}", count);
+        count += 1;
+    }
+
+    // for loop with a range (0..5 is exclusive end, 0..=5 is inclusive)
+    for i in 0..5 {
+        println!("{}", i); // 0, 1, 2, 3, 4
+    }
+
+    for i in 0..=5 {
+        println!("{}", i); // 0, 1, 2, 3, 4, 5
+    }
+
+    // for loop over a collection
+    let fruits = vec!["apple", "banana", "cherry"];
+    for fruit in &fruits {
+        println!("{}", fruit);
+    }
+
+    // enumerate() gives (index, value) pairs
+    for (index, fruit) in fruits.iter().enumerate() {
+        println!("{}: {}", index, fruit);
+    }
+
+    // loop — unique to Rust: infinite loop that RETURNS a value
+    let mut attempts = 0;
+    let result = loop {
+        attempts += 1;
+        if attempts >= 3 {
+            break attempts * 10; // break with a value!
+        }
+    };
+    println!("Result after {} attempts: {}", attempts, result); // "30"
+
+    // Nested loops with labels
+    'outer: for i in 0..5 {
+        for j in 0..5 {
+            if i + j == 6 {
+                println!("Breaking outer at i={}, j={}", i, j);
+                break 'outer;
+            }
+        }
+    }
+}
+```
+</UniversalEditor>
+
+---
+
+## 5. Closures
+
+Rust closures use `|params| body` syntax — analogous to JavaScript arrow functions `(params) => body`. Rust infers parameter and return types from context, so explicit annotations are rarely needed.
+
+<UniversalEditor title="Closure Syntax and Type Inference" compare={true}>
+```javascript !! js
+// JavaScript arrow functions (closures)
+const add = (x, y) => x + y;
+const double = x => x * 2;
+const greet = name => `Hello, ${name}!`;
+const multiLine = (x) => {
+    const squared = x * x;
+    return squared + 1;
+};
+
+console.log(add(3, 4));       // 7
+console.log(double(5));       // 10
+console.log(greet("Alice"));  // "Hello, Alice!"
+console.log(multiLine(3));    // 10
+
+// Closures capture variables from outer scope
+const multiplier = 3;
+const multiplyBy = x => x * multiplier; // captures 'multiplier'
+console.log(multiplyBy(7)); // 21
+
+// Closures stored in variables have inferred types
+const numbers = [1, 2, 3, 4, 5];
+const evens = numbers.filter(n => n % 2 === 0);
+const doubled = numbers.map(n => n * 2);
+console.log(evens);   // [2, 4]
+console.log(doubled); // [2, 4, 6, 8, 10]
+```
+
+```rust !! rs
+fn main() {
+    // Rust closures: |params| expression
+    let add = |x, y| x + y;
+    let double = |x| x * 2;
+    let greet = |name: &str| format!("Hello, {}!", name);
+    let multi_line = |x: i32| {
+        let squared = x * x;
+        squared + 1
+    };
+
+    println!("{}", add(3, 4));        // 7
+    println!("{}", double(5));        // 10
+    println!("{}", greet("Alice"));   // "Hello, Alice!"
+    println!("{}", multi_line(3));    // 10
+
+    // Closures capture variables from outer scope
+    let multiplier = 3;
+    let multiply_by = |x| x * multiplier; // captures 'multiplier' by reference
+    println!("{}", multiply_by(7)); // 21
+
+    // Type annotations are optional — inferred from usage
+    // Explicit form: let add_explicit = |x: i32, y: i32| -> i32 { x + y };
+
+    let numbers = vec![1, 2, 3, 4, 5];
+    let evens: Vec<i32>  = numbers.iter().filter(|&&n| n % 2 == 0).cloned().collect();
+    let doubled: Vec<i32> = numbers.iter().map(|&n| n * 2).collect();
+    println!("{:?}", evens);   // [2, 4]
+    println!("{:?}", doubled); // [2, 4, 6, 8, 10]
+}
+```
+</UniversalEditor>
+
+---
+
+## 6. Closure Capture Modes: Fn, FnMut, FnOnce
+
+Rust closures capture their environment in three ways, determined by how the closure uses the captured variables. This system enables safe use of closures across threads. JavaScript has no concept of capture modes — all closures capture by reference (and mutate freely).
+
+<UniversalEditor title="Fn, FnMut, FnOnce and move Closures" compare={true}>
+```javascript !! js
+// JavaScript: closures always capture by reference
+// No distinction between Fn / FnMut / FnOnce
+
+let count = 0;
+
+// "FnMut"-like: modifies captured variable
+const increment = () => { count++; };
+increment();
+increment();
+console.log(count); // 2
+
+// "FnOnce"-like: consuming the captured value
+// JavaScript has no enforcement — can call multiple times
+let data = [1, 2, 3];
+const consume = () => {
+    const result = data.splice(0); // empties data
+    return result;
+};
+console.log(consume()); // [1, 2, 3]
+console.log(consume()); // [] — called again, data was emptied
+
+// In JS, closures used in setTimeout still capture outer scope
+const makeCounter = (start) => {
+    let n = start;
+    return () => n++; // captures n
+};
+const counter = makeCounter(10);
+console.log(counter()); // 10
+console.log(counter()); // 11
+```
+
+```rust !! rs
+fn main() {
+    // Fn: borrows immutably — can be called multiple times
+    let greeting = String::from("Hello");
+    let say_hello = || println!("{}", greeting); // Fn: borrows greeting
+    say_hello(); // "Hello"
+    say_hello(); // "Hello" — can call many times
+    println!("{}", greeting); // greeting still usable
+
+    // FnMut: borrows mutably — can be called multiple times, mutates captured value
+    let mut count = 0;
+    let mut increment = || { count += 1; }; // FnMut
+    increment();
+    increment();
+    drop(increment); // must drop the closure before using count again
+    println!("count = {}", count); // 2
+
+    // FnOnce: consumes captured value — can only be called ONCE
+    let data = vec![1, 2, 3];
+    let consume = || {
+        let owned = data; // moves data into closure
+        println!("{:?}", owned);
+        owned // returns owned data
+    };
+    let result = consume(); // ok
+    // consume(); // ERROR: data was moved, cannot call again
+    println!("{:?}", result);
+
+    // move closure: forces capture by value (needed for threads)
+    let message = String::from("hello from thread");
+    let handle = std::thread::spawn(move || {
+        // 'move' forces 'message' to be moved into closure
+        // without 'move', the thread might outlive 'message'
+        println!("{}", message);
+    });
+    handle.join().unwrap();
+    // println!("{}", message); // ERROR: message was moved
+}
+```
+</UniversalEditor>
+
+---
+
+## 7. Higher-Order Functions with Closures
+
+Rust's standard library uses closures extensively for `map`, `filter`, `for_each`, and many other iterator adapters. These patterns feel similar to JavaScript's array methods but operate on the lazy iterator protocol.
+
+<UniversalEditor title="Higher-Order Functions: map, filter, for_each" compare={true}>
+```javascript !! js
+// JavaScript higher-order functions on arrays
+const numbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+
+// map: transform each element
+const squares = numbers.map(n => n * n);
+console.log(squares); // [1, 4, 9, 16, 25, 36, 49, 64, 81, 100]
+
+// filter: keep elements matching predicate
+const evens = numbers.filter(n => n % 2 === 0);
+console.log(evens); // [2, 4, 6, 8, 10]
+
+// forEach: side effects for each element
+numbers.forEach(n => process.stdout.write(n + " "));
+// 1 2 3 4 5 6 7 8 9 10
+
+// Chaining
+const result = numbers
+    .filter(n => n % 2 === 0)
+    .map(n => n * n)
+    .reduce((acc, n) => acc + n, 0);
+console.log(result); // 220
+
+// Passing named functions as callbacks
+function isPositive(n) { return n > 0; }
+const positives = [-1, -2, 3, 4, -5].filter(isPositive);
+console.log(positives); // [3, 4]
+
+// sort with comparator
+const words = ["banana", "apple", "cherry"];
+const sorted = [...words].sort((a, b) => a.localeCompare(b));
+console.log(sorted); // ["apple", "banana", "cherry"]
+```
+
+```rust !! rs
+fn main() {
+    let numbers: Vec<i32> = (1..=10).collect();
+
+    // map: transform each element
+    let squares: Vec<i32> = numbers.iter().map(|&n| n * n).collect();
+    println!("{:?}", squares); // [1, 4, 9, 16, 25, 36, 49, 64, 81, 100]
+
+    // filter: keep elements matching predicate
+    let evens: Vec<&i32> = numbers.iter().filter(|&&n| n % 2 == 0).collect();
+    println!("{:?}", evens); // [2, 4, 6, 8, 10]
+
+    // for_each: side effects (like forEach in JS)
+    numbers.iter().for_each(|n| print!("{} ", n));
+    println!();
+
+    // Chaining: lazy — only one pass through the data
+    let result: i32 = numbers.iter()
+        .filter(|&&n| n % 2 == 0)
+        .map(|&n| n * n)
+        .sum(); // equivalent to reduce with addition
+    println!("{}", result); // 220
+
+    // Passing named functions as higher-order functions
+    fn is_positive(n: &i32) -> bool { *n > 0 }
+    let positives: Vec<&i32> = vec![-1, -2, 3, 4, -5].iter().filter(|n| is_positive(n)).collect();
+    println!("{:?}", positives); // [3, 4]
+
+    // sort_by with a comparator closure
+    let mut words = vec!["banana", "apple", "cherry"];
+    words.sort_by(|a, b| a.cmp(b));
+    println!("{:?}", words); // ["apple", "banana", "cherry"]
+
+    // any and all — short-circuit boolean tests
+    let has_even = numbers.iter().any(|&n| n % 2 == 0);
+    let all_positive = numbers.iter().all(|&n| n > 0);
+    println!("has even: {}, all positive: {}", has_even, all_positive);
+}
+```
+</UniversalEditor>
+
+---
+
+## 8. Summary Table
+
+| Concept | JavaScript | Rust |
+|---|---|---|
+| `if` as expression | No — use ternary `? :` | Yes — `if` returns a value |
+| Pattern matching | `switch` (no exhaustiveness) | `match` (exhaustive, no fall-through) |
+| Single-pattern match | Manual `if x !== null` | `if let Some(x) = ...` |
+| Loop returning value | No — must use separate variable | `loop { break value; }` |
+| Range loop | `for (let i=0; i<n; i++)` | `for i in 0..n` |
+| Closure syntax | `(x) => x + 1` | `\|x\| x + 1` |
+| Capture by value | No enforcement | `move \|\| ...` |
+| Capture modes | Single mode (by reference) | `Fn`, `FnMut`, `FnOnce` |
+| Type inference for closures | Always inferred | Inferred from context |
+| `map`/`filter`/`forEach` | Eager (on Array) | Lazy (on Iterator) |
+
+---
+
+## Exercises
+
+### Exercise 1: FizzBuzz with match
+
+Write a FizzBuzz function using a `match` expression on a tuple `(n % 3, n % 5)`.
+
+<details>
+<summary>Show Answer</summary>
+
+```rust
+fn fizzbuzz(n: u32) -> String {
+    match (n % 3, n % 5) {
+        (0, 0) => String::from("FizzBuzz"),
+        (0, _) => String::from("Fizz"),
+        (_, 0) => String::from("Buzz"),
+        _      => n.to_string(),
+    }
+}
+
+fn main() {
+    for i in 1..=20 {
+        println!("{}", fizzbuzz(i));
+    }
+}
+```
+
+</details>
+
+### Exercise 2: Closure Counter Factory
+
+Write a function `make_counter(start: i32) -> impl FnMut() -> i32` that returns a closure capturing a mutable counter, incrementing it on each call.
+
+<details>
+<summary>Show Answer</summary>
+
+```rust
+fn make_counter(start: i32) -> impl FnMut() -> i32 {
+    let mut n = start;
+    move || {
+        let current = n;
+        n += 1;
+        current
+    }
+}
+
+fn main() {
+    let mut counter = make_counter(10);
+    println!("{}", counter()); // 10
+    println!("{}", counter()); // 11
+    println!("{}", counter()); // 12
+}
+```
+
+</details>
+
+### Exercise 3: Chained Iterator Pipeline
+
+Given a `Vec<i32>`, use an iterator chain to: filter out negatives, square each remaining number, keep only values less than 100, and collect the sum.
+
+<details>
+<summary>Show Answer</summary>
+
+```rust
+fn process(numbers: Vec<i32>) -> i32 {
+    numbers.iter()
+        .filter(|&&n| n >= 0)
+        .map(|&n| n * n)
+        .filter(|&n| n < 100)
+        .sum()
+}
+
+fn main() {
+    let data = vec![-3, 1, -2, 4, 5, 7, -1, 3, 9, 10];
+    println!("{}", process(data)); // 1 + 16 + 25 + 9 = 51
+}
+```
+
+</details>

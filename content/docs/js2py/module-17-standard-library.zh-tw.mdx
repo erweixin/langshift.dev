@@ -1,0 +1,844 @@
+---
+title: "第 17 模組：Python 標準函式庫"
+description: "探索 Python 豐富的標準函式庫：用於檔案操作的 os/pathlib、datetime、json、用於正規表示式的 re、itertools 以及 functools——全部與 JavaScript/Node.js 對應模組進行映射對比。"
+---
+
+# 第 17 模組：Python 標準函式庫
+
+## 學習目標
+
+完成本模組後，你將能夠：
+
+- ✅ 使用 `os` 和 `pathlib` 進行跨平台檔案和路徑操作
+- ✅ 使用 `datetime` 模組處理日期和時間
+- ✅ 使用 `json` 模組序列化和反序列化資料
+- ✅ 使用 `re` 模組應用正規表示式
+- ✅ 使用 `itertools` 撰寫優雅的迭代程式碼
+- ✅ 使用 `functools` 應用函數式程式設計模式
+- ✅ 透過 `sys` 和 `os.environ` 讀取命令列引數和環境變數
+
+---
+
+## 1. 檔案系統：os 與 pathlib
+
+Python 提供兩種操作檔案系統的方式：較舊的 `os`/`os.path` API（類似於 Node.js 的 `path` + `fs`）以及現代的、物件導向的 `pathlib.Path`。
+
+<UniversalEditor title="檔案系統：pathlib 與 Node.js path/fs 對比">
+```javascript !! js
+// Node.js: path 模組 + fs 模組
+const path = require('path');
+const fs = require('fs');
+
+// 路徑拼接
+const base = '/home/user/projects';
+const filePath = path.join(base, 'app', 'config.json');
+console.log(filePath);
+
+// 路徑組成部分
+console.log(path.dirname(filePath));   // /home/user/projects/app
+console.log(path.basename(filePath));  // config.json
+console.log(path.extname(filePath));   // .json
+
+// 檢查是否存在
+if (fs.existsSync(filePath)) {
+  const stat = fs.statSync(filePath);
+  console.log(`檔案大小: ${stat.size} 位元組`);
+}
+
+// 列出目錄
+const files = fs.readdirSync('/tmp');
+console.log(files);
+
+// 建立目錄（遞迴）
+fs.mkdirSync('/tmp/new/nested/dir', { recursive: true });
+
+// 讀寫檔案
+fs.writeFileSync('/tmp/hello.txt', 'Hello World', 'utf8');
+const content = fs.readFileSync('/tmp/hello.txt', 'utf8');
+console.log(content);
+```
+
+```python !! py
+# Python: pathlib（現代推薦方式）
+from pathlib import Path
+
+# 路徑拼接——使用 / 運算子連接部分
+base = Path('/home/user/projects')
+file_path = base / 'app' / 'config.json'
+print(file_path)
+
+# 路徑組成部分
+print(file_path.parent)   # /home/user/projects/app
+print(file_path.name)     # config.json
+print(file_path.stem)     # config
+print(file_path.suffix)   # .json
+
+# 檢查是否存在
+if file_path.exists():
+    stat = file_path.stat()
+    print(f"檔案大小: {stat.st_size} 位元組")
+
+# 列出目錄（回傳 Path 物件的生成器）
+tmp = Path('/tmp')
+files = list(tmp.iterdir())
+print(files[:3])
+
+# 使用 glob 模式比對
+py_files = list(Path('.').glob('**/*.py'))
+print(f"找到 {len(py_files)} 個 Python 檔案")
+
+# 建立目錄（parents=True 相當於 recursive: true）
+Path('/tmp/new/nested/dir').mkdir(parents=True, exist_ok=True)
+
+# 讀寫檔案
+Path('/tmp/hello.txt').write_text('Hello World', encoding='utf-8')
+content = Path('/tmp/hello.txt').read_text(encoding='utf-8')
+print(content)
+```
+</UniversalEditor>
+
+---
+
+## 2. datetime 模組
+
+Python 的 `datetime` 模組比 JavaScript 的 `Date` 物件更有結構。它為日期、時間和日期時間組合提供了獨立的類別。
+
+<UniversalEditor title="datetime 與 JavaScript Date 對比">
+```javascript !! js
+// JavaScript: Date 物件
+const now = new Date();
+console.log(now.toISOString());
+
+// 建立特定日期（月份從 0 開始！）
+const birthday = new Date(1990, 5, 15);
+console.log(birthday.getFullYear());     // 1990
+console.log(birthday.getMonth() + 1);   // 6（六月）
+console.log(birthday.getDate());         // 15
+
+// 日期運算（毫秒）
+const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+console.log(tomorrow.toDateString());
+
+// 計算天數差
+const diff = Math.floor(
+  (now - birthday) / (1000 * 60 * 60 * 24)
+);
+console.log(`生日距今: ${diff} 天`);
+
+// 格式化（需要 Intl API）
+const formatter = new Intl.DateTimeFormat('zh-TW', {
+  year: 'numeric', month: 'long', day: 'numeric'
+});
+console.log(formatter.format(now));
+```
+
+```python !! py
+# Python: datetime 模組（更有結構）
+from datetime import date, time, datetime, timedelta, timezone
+
+# 目前日期和時間
+now = datetime.now()
+today = date.today()
+print(now.isoformat())    # 2024-03-15T10:30:00.123456
+print(today.isoformat())  # 2024-03-15
+
+# 建立特定日期——月份從 1 開始（更自然！）
+birthday = date(1990, 6, 15)
+print(birthday.year)    # 1990
+print(birthday.month)   # 6
+print(birthday.day)     # 15
+
+# 使用 timedelta 進行日期運算
+tomorrow = today + timedelta(days=1)
+next_week = today + timedelta(weeks=1)
+print(tomorrow)
+print(next_week)
+
+# 兩個日期相減回傳 timedelta
+delta = today - birthday
+print(f"生日距今: {delta.days} 天")
+
+# 用 strftime 格式化
+print(now.strftime("%Y年%m月%d日"))
+print(now.strftime("%Y-%m-%d %H:%M:%S"))
+
+# 從字串解析
+parsed = datetime.strptime("2024-03-15", "%Y-%m-%d")
+print(type(parsed))  # <class 'datetime.datetime'>
+
+# 帶時區的 datetime
+utc_now = datetime.now(timezone.utc)
+print(utc_now.isoformat())  # 包含 +00:00
+```
+</UniversalEditor>
+
+---
+
+## 3. json 模組
+
+`json` 模組幾乎完全映射了 JavaScript 的 `JSON` 物件，只是遵循 Python 的命名慣例。
+
+<UniversalEditor title="json 模組與 JSON 物件對比">
+```javascript !! js
+// JavaScript: 內建 JSON
+const data = {
+  name: "Alice",
+  age: 30,
+  scores: [95, 87, 92],
+  active: true,
+  registered: null
+};
+
+// 序列化為 JSON 字串
+const jsonString = JSON.stringify(data);
+console.log(jsonString);
+
+// 美化輸出
+const pretty = JSON.stringify(data, null, 2);
+console.log(pretty);
+
+// 反序列化
+const parsed = JSON.parse(jsonString);
+console.log(parsed.name);
+console.log(typeof parsed.age);  // "number"
+```
+
+```python !! py
+# Python: json 模組
+import json
+from pathlib import Path
+
+data = {
+    "name": "Alice",
+    "age": 30,
+    "scores": [95, 87, 92],
+    "active": True,    # Python 的 True，不是 JS 的 true
+    "registered": None # Python 的 None，不是 JS 的 null
+}
+
+# 序列化為 JSON 字串（dumps = dump to String）
+json_string = json.dumps(data)
+print(json_string)
+
+# 美化輸出（indent = 空格數）
+pretty = json.dumps(data, indent=2, ensure_ascii=False)
+print(pretty)
+
+# 反序列化（loads = load from String）
+parsed = json.loads(json_string)
+print(parsed["name"])
+print(type(parsed["age"]))     # <class 'int'>
+print(parsed["active"])        # True
+print(parsed["registered"])    # None
+
+# 讀寫 JSON 檔案（dump/load，不帶 's' = 檔案物件）
+path = Path("/tmp/data.json")
+with open(path, 'w', encoding='utf-8') as f:
+    json.dump(data, f, indent=2, ensure_ascii=False)
+
+with open(path, 'r', encoding='utf-8') as f:
+    from_file = json.load(f)
+
+# 自訂序列化（處理非 JSON 型別）
+from datetime import date
+
+class DateEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, date):
+            return obj.isoformat()
+        return super().default(obj)
+
+event = {"name": "技術研討會", "date": date(2024, 6, 15)}
+print(json.dumps(event, cls=DateEncoder, ensure_ascii=False))
+```
+</UniversalEditor>
+
+---
+
+## 4. 正規表示式：re 模組
+
+Python 的 `re` 模組提供了完整的正規表示式支援。與 JavaScript 內建的 RegExp 方法相比，API 更偏向函式式風格。
+
+<UniversalEditor title="re 模組與 JavaScript RegExp 對比">
+```javascript !! js
+// JavaScript: RegExp（內建於語言中）
+const text = "聯絡我們：support@example.com 或 sales@company.org";
+const emailRegex = /[\w.+-]+@[\w-]+\.[a-z]{2,}/gi;
+
+// test() — 檢查模式是否存在
+console.log(emailRegex.test(text));  // true
+
+// match() — 尋找符合項目
+const matches = text.match(emailRegex);
+console.log(matches);
+
+// replace() — 替換
+const sanitized = text.replace(emailRegex, "[電子郵件]");
+console.log(sanitized);
+
+// 命名捕獲群組
+const dateRegex = /(?<year>\d{4})-(?<month>\d{2})-(?<day>\d{2})/;
+const match = "2024-03-15".match(dateRegex);
+console.log(match.groups.year);   // "2024"
+console.log(match.groups.month);  // "03"
+```
+
+```python !! py
+# Python: re 模組
+import re
+
+text = "聯絡我們：support@example.com 或 sales@company.org"
+email_pattern = r'[\w.+-]+@[\w-]+\.[a-z]{2,}'
+
+# re.search() — 尋找字串中的第一個符合項目
+match = re.search(email_pattern, text, re.IGNORECASE)
+if match:
+    print(match.group())    # support@example.com
+    print(match.start())    # 起始位置
+
+# re.findall() — 尋找所有符合項目（回傳字串清單）
+emails = re.findall(email_pattern, text, re.IGNORECASE)
+print(emails)
+
+# re.finditer() — 尋找所有符合項目（回傳符合物件迭代器）
+for m in re.finditer(email_pattern, text, re.IGNORECASE):
+    print(f"在位置 {m.start()} 找到 '{m.group()}'")
+
+# re.sub() — 替換（類似 JS 的 replace）
+sanitized = re.sub(email_pattern, "[電子郵件]", text, flags=re.IGNORECASE)
+print(sanitized)
+
+# 命名捕獲群組，使用 (?P<name>...)
+date_pattern = r'(?P<year>\d{4})-(?P<month>\d{2})-(?P<day>\d{2})'
+m = re.match(date_pattern, "2024-03-15")
+if m:
+    print(m.group('year'))    # 2024
+    print(m.group('month'))   # 03
+    print(m.groupdict())
+
+# 編譯以提升效能
+compiled = re.compile(email_pattern, re.IGNORECASE)
+print(compiled.findall(text))
+```
+</UniversalEditor>
+
+---
+
+## 5. itertools 模組
+
+`itertools` 提供了一組快速、記憶體高效的工具，用於處理可迭代物件。大多數操作都是惰性的（基於生成器），非常適合處理大型資料集。
+
+<UniversalEditor title="itertools 與手動 JavaScript 實作對比">
+```javascript !! js
+// JavaScript: 手動實作 itertools 模式
+
+// chain — 展平多個陣列
+const arr1 = [1, 2, 3];
+const arr2 = [4, 5, 6];
+const chained = [...arr1, ...arr2];
+console.log(chained);
+
+// combinations — 沒有內建，需手動實作
+function* combinations(arr, r) {
+  if (r === 1) { for (const x of arr) yield [x]; return; }
+  for (let i = 0; i <= arr.length - r; i++) {
+    for (const rest of combinations(arr.slice(i + 1), r - 1)) {
+      yield [arr[i], ...rest];
+    }
+  }
+}
+console.log([...combinations([1,2,3,4], 2)]);
+
+// product — 笛卡兒積，需手動實作
+const colors = ['紅', '藍'];
+const sizes = ['S', 'M', 'L'];
+const variants = [];
+for (const c of colors) {
+  for (const s of sizes) {
+    variants.push([c, s]);
+  }
+}
+console.log(variants);
+```
+
+```python !! py
+# Python: itertools 模組（全部基於生成器，惰性求值）
+import itertools
+
+# chain — 依序迭代多個可迭代物件（惰性）
+arr1 = [1, 2, 3]
+arr2 = [4, 5, 6]
+arr3 = [7, 8, 9]
+chained = list(itertools.chain(arr1, arr2, arr3))
+print(chained)  # [1, 2, 3, 4, 5, 6, 7, 8, 9]
+
+# combinations — n 選 r 的組合
+combos = list(itertools.combinations([1, 2, 3, 4], 2))
+print(combos)   # [(1,2),(1,3),(1,4),(2,3),(2,4),(3,4)]
+
+# product — 笛卡兒積（相當於巢狀 for 迴圈）
+colors = ['紅', '藍']
+sizes = ['S', 'M', 'L']
+variants = list(itertools.product(colors, sizes))
+print(variants)
+
+# islice — 從任意迭代器中截取片段（惰性）
+natural_numbers = itertools.count(1)  # 無限序列: 1, 2, 3, ...
+first_ten = list(itertools.islice(natural_numbers, 10))
+print(first_ten)  # [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+
+# groupby — 按鍵對連續元素進行分組
+data = [
+    {"dept": "工程", "name": "Alice"},
+    {"dept": "工程", "name": "Bob"},
+    {"dept": "人資", "name": "Carol"},
+]
+data.sort(key=lambda x: x["dept"])  # 必須先排序！
+for dept, members in itertools.groupby(data, key=lambda x: x["dept"]):
+    print(f"{dept}: {[m['name'] for m in members]}")
+
+# takewhile / dropwhile
+nums = [1, 3, 5, 2, 4, 6]
+small = list(itertools.takewhile(lambda x: x < 4, nums))
+print(small)  # [1, 3]（遇到 5 時停止，因為 5 >= 4）
+```
+</UniversalEditor>
+
+---
+
+## 6. functools 模組
+
+`functools` 提供了高階函式和實用工具，用於將函式作為一等物件處理。
+
+<UniversalEditor title="functools：partial、reduce 和 lru_cache">
+```javascript !! js
+// JavaScript: 手動函式式工具
+
+// partial — 綁定部分引數
+function multiply(a, b) { return a * b; }
+const double = multiply.bind(null, 2);
+const triple = multiply.bind(null, 3);
+console.log(double(5));  // 10
+console.log(triple(5));  // 15
+
+// reduce — 使用 Array.reduce()
+const numbers = [1, 2, 3, 4, 5];
+const sum = numbers.reduce((acc, n) => acc + n, 0);
+console.log(sum);  // 15
+
+// 記憶化——必須手動實作
+function memoize(fn) {
+  const cache = new Map();
+  return function(...args) {
+    const key = JSON.stringify(args);
+    if (cache.has(key)) return cache.get(key);
+    const result = fn.apply(this, args);
+    cache.set(key, result);
+    return result;
+  };
+}
+
+function fib(n) {
+  if (n <= 1) return n;
+  return fib(n - 1) + fib(n - 2);
+}
+const fastFib = memoize(fib);
+console.log(fastFib(10));
+```
+
+```python !! py
+# Python: functools 模組
+import functools
+
+# partial — 建立預填部分引數的新函式
+def multiply(a, b):
+    return a * b
+
+double = functools.partial(multiply, 2)
+triple = functools.partial(multiply, 3)
+print(double(5))  # 10
+print(triple(5))  # 15
+
+# 帶關鍵字引數的 partial
+def greet(name, greeting="你好", punctuation="！"):
+    return f"{greeting}，{name}{punctuation}"
+
+formal_greet = functools.partial(greet, greeting="您好", punctuation="。")
+print(formal_greet("愛麗絲"))  # 您好，愛麗絲。
+
+# reduce — 對可迭代物件累積應用函式
+numbers = [1, 2, 3, 4, 5]
+total = functools.reduce(lambda acc, n: acc + n, numbers, 0)
+product = functools.reduce(lambda acc, n: acc * n, numbers, 1)
+print(total)    # 15
+print(product)  # 120
+
+# lru_cache — 自動記憶化裝飾器
+@functools.lru_cache(maxsize=None)  # None = 不限快取大小
+def fib(n):
+    if n <= 1:
+        return n
+    return fib(n - 1) + fib(n - 2)
+
+print(fib(50))           # 12586269025（極快！）
+print(fib.cache_info())  # 命中次數、未命中次數、快取大小
+
+# @cache（Python 3.9+）——lru_cache(maxsize=None) 的簡寫
+@functools.cache
+def factorial(n):
+    return n * factorial(n - 1) if n > 0 else 1
+
+print(factorial(10))  # 3628800
+```
+</UniversalEditor>
+
+---
+
+## 7. sys 和 os.environ
+
+<UniversalEditor title="sys 和 os.environ 與 Node.js process 對比">
+```javascript !! js
+// Node.js: process 物件
+
+// 命令列引數
+const args = process.argv.slice(2);
+console.log(args);
+
+// 環境變數
+const dbUrl = process.env.DATABASE_URL || 'sqlite://localhost/dev.db';
+const port = parseInt(process.env.PORT || '3000', 10);
+const debug = process.env.NODE_ENV === 'development';
+
+console.log(`資料庫: ${dbUrl}`);
+console.log(`連接埠: ${port}`);
+console.log(`除錯模式: ${debug}`);
+
+if (!process.env.SECRET_KEY) {
+  console.error("錯誤: 必須設定 SECRET_KEY");
+  process.exit(1);
+}
+```
+
+```python !! py
+# Python: sys 和 os 模組
+import sys
+import os
+import argparse
+
+# 命令列引數
+args = sys.argv[1:]  # 跳過指令碼名稱
+print(args)
+
+# 正式用法推薦 argparse
+parser = argparse.ArgumentParser(description="我的命令列工具")
+parser.add_argument("--output", "-o", default="result.txt", help="輸出檔案")
+parser.add_argument("--verbose", "-v", action="store_true", help="詳細模式")
+parser.add_argument("input", nargs="?", default="-", help="輸入檔案或標準輸入")
+
+# 示範用（真實使用時呼叫 parser.parse_args()）
+parsed = parser.parse_args(["--output", "out.txt", "--verbose", "data.csv"])
+print(f"輸入: {parsed.input}")
+print(f"輸出: {parsed.output}")
+print(f"詳細模式: {parsed.verbose}")
+
+# 環境變數
+db_url = os.environ.get("DATABASE_URL", "sqlite:///dev.db")
+port = int(os.environ.get("PORT", "3000"))
+debug = os.environ.get("PYTHON_ENV", "production") == "development"
+
+print(f"資料庫: {db_url}")
+print(f"連接埠: {port}")
+print(f"除錯模式: {debug}")
+
+# 檢查必要的環境變數
+required = ["SECRET_KEY", "DATABASE_URL"]
+missing = [var for var in required if not os.environ.get(var)]
+if missing:
+    print(f"錯誤: 缺少必要的環境變數: {missing}", file=sys.stderr)
+    sys.exit(1)
+```
+</UniversalEditor>
+
+---
+
+## 8. collections 模組
+
+<UniversalEditor title="collections：Counter、defaultdict 和 namedtuple">
+```javascript !! js
+// JavaScript: 手動實作 collections 模式
+
+const words = ["蘋果", "香蕉", "蘋果", "櫻桃", "香蕉", "蘋果"];
+const counter = {};
+for (const word of words) {
+  counter[word] = (counter[word] || 0) + 1;
+}
+const sorted = Object.entries(counter).sort(([,a], [,b]) => b - a);
+console.log(sorted);
+
+const groups = {};
+const people = [
+  { name: 'Alice', dept: '工程' },
+  { name: 'Bob', dept: '人資' },
+  { name: 'Charlie', dept: '工程' },
+];
+for (const person of people) {
+  if (!groups[person.dept]) groups[person.dept] = [];
+  groups[person.dept].push(person.name);
+}
+console.log(groups);
+```
+
+```python !! py
+# Python: collections 模組
+from collections import Counter, defaultdict, namedtuple, deque
+
+# Counter — 自動統計出現次數
+words = ["蘋果", "香蕉", "蘋果", "櫻桃", "香蕉", "蘋果"]
+counter = Counter(words)
+print(counter)               # Counter({'蘋果': 3, '香蕉': 2, '櫻桃': 1})
+print(counter["蘋果"])       # 3
+print(counter["缺少的詞"])   # 0（不會引發 KeyError！）
+
+# 最常見的元素
+print(counter.most_common(2))
+
+# defaultdict — 自動建立缺失的索引鍵
+groups = defaultdict(list)
+people = [
+    ("Alice", "工程"),
+    ("Bob", "人資"),
+    ("Charlie", "工程"),
+]
+for name, dept in people:
+    groups[dept].append(name)  # 無需檢查索引鍵是否存在！
+print(dict(groups))
+
+# namedtuple — 不可變的命名元組（輕量級類別）
+Point = namedtuple('Point', ['x', 'y'])
+p = Point(3, 4)
+print(p.x, p.y)   # 3 4
+print(p)          # Point(x=3, y=4)
+
+# deque — 雙端佇列（兩端插入/刪除效率高）
+dq = deque([1, 2, 3])
+dq.appendleft(0)  # 從左新增: [0, 1, 2, 3]
+dq.append(4)      # 從右新增: [0, 1, 2, 3, 4]
+dq.popleft()      # 從左移除: 0
+print(dq)         # deque([1, 2, 3, 4])
+
+# 帶 maxlen 的 deque — 滑動視窗
+recent = deque(maxlen=3)
+for i in range(6):
+    recent.append(i)
+    print(list(recent))  # 只保留最近 3 個
+```
+</UniversalEditor>
+
+---
+
+## 總結對比表
+
+| 任務 | JavaScript（Node.js） | Python |
+|---|---|---|
+| 路徑拼接 | `path.join(a, b)` | `Path(a) / b` 或 `os.path.join(a, b)` |
+| 檔案是否存在 | `fs.existsSync(p)` | `Path(p).exists()` |
+| 讀取檔案 | `fs.readFileSync(p, 'utf8')` | `Path(p).read_text()` |
+| 寫入檔案 | `fs.writeFileSync(p, data)` | `Path(p).write_text(data)` |
+| 列出目錄 | `fs.readdirSync(dir)` | `Path(dir).iterdir()` |
+| 目前日期 | `new Date()` | `date.today()` / `datetime.now()` |
+| 日期差 | `(d1 - d2) / 86400000` | `(d1 - d2).days` |
+| 格式化日期 | `Intl.DateTimeFormat` | `dt.strftime("%Y-%m-%d")` |
+| JSON 序列化 | `JSON.stringify(obj, null, 2)` | `json.dumps(obj, indent=2)` |
+| JSON 反序列化 | `JSON.parse(str)` | `json.loads(str)` |
+| 正規表示式測試 | `/pattern/.test(str)` | `bool(re.search(pattern, str))` |
+| 尋找所有符合 | `str.match(/pattern/g)` | `re.findall(pattern, str)` |
+| 正規表示式替換 | `str.replace(/pattern/g, sub)` | `re.sub(pattern, sub, str)` |
+| 合併可迭代物件 | `[...a, ...b, ...c]` | `itertools.chain(a, b, c)` |
+| 組合 | 手動實作 | `itertools.combinations(arr, r)` |
+| 偏函式 | `fn.bind(null, arg)` | `functools.partial(fn, arg)` |
+| 記憶化 | 手動 `Map` 快取 | `@functools.lru_cache` |
+| 統計出現次數 | 用 `reduce` 累積到物件 | `Counter(iterable)` |
+| 預設字典 | `obj[k] = obj[k] \|\| []` | `defaultdict(list)` |
+| 命令列引數 | `process.argv.slice(2)` | `sys.argv[1:]` 或 `argparse` |
+| 環境變數 | `process.env.VAR` | `os.environ.get('VAR')` |
+
+---
+
+## 練習題
+
+### 練習 1：目錄統計
+
+使用 `pathlib` 撰寫函式 `dir_stats(path)`，回傳包含以下內容的字典：
+- `total_files`：所有檔案數量（遞迴）
+- `total_dirs`：所有目錄數量（遞迴）
+- `total_size_kb`：所有檔案的總大小（KB）
+- `by_extension`：副檔名的 `Counter`
+
+<details>
+<summary>查看答案</summary>
+
+```python
+from pathlib import Path
+from collections import Counter
+
+def dir_stats(path):
+    """遞迴統計目錄資訊。"""
+    root = Path(path)
+    if not root.exists():
+        raise FileNotFoundError(f"路徑不存在: {path}")
+    if not root.is_dir():
+        raise NotADirectoryError(f"不是目錄: {path}")
+
+    total_files = 0
+    total_dirs = 0
+    total_bytes = 0
+    by_extension = Counter()
+
+    for item in root.rglob('*'):
+        if item.is_file():
+            total_files += 1
+            total_bytes += item.stat().st_size
+            ext = item.suffix.lower() or '(無副檔名)'
+            by_extension[ext] += 1
+        elif item.is_dir():
+            total_dirs += 1
+
+    return {
+        "total_files": total_files,
+        "total_dirs": total_dirs,
+        "total_size_kb": round(total_bytes / 1024, 2),
+        "by_extension": dict(by_extension.most_common()),
+    }
+
+import tempfile
+with tempfile.TemporaryDirectory() as tmp:
+    tmp_path = Path(tmp)
+    (tmp_path / "readme.txt").write_text("你好")
+    (tmp_path / "data.json").write_text('{"key": "value"}')
+    sub = tmp_path / "子目錄"
+    sub.mkdir()
+    (sub / "script.py").write_text("print('hi')")
+    (sub / "notes.txt").write_text("筆記內容")
+
+    stats = dir_stats(tmp)
+    for key, value in stats.items():
+        print(f"{key}: {value}")
+```
+
+</details>
+
+---
+
+### 練習 2：日誌解析器
+
+給定格式為 `"2024-03-15 10:30:45 ERROR 資料庫連線失敗"` 的日誌行清單，撰寫 `parse_logs(lines)` 函式：
+- 使用 `re` 提取：日期、時間、等級、訊息
+- 回傳字典清單
+- 使用 `defaultdict` 按等級分組日誌
+
+<details>
+<summary>查看答案</summary>
+
+```python
+import re
+from collections import defaultdict
+
+LOG_PATTERN = re.compile(
+    r'(?P<date>\d{4}-\d{2}-\d{2})\s+'
+    r'(?P<time>\d{2}:\d{2}:\d{2})\s+'
+    r'(?P<level>[A-Z]+)\s+'
+    r'(?P<message>.+)'
+)
+
+def parse_logs(lines):
+    """解析日誌行並按等級分組。"""
+    parsed = []
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        match = LOG_PATTERN.match(line)
+        if match:
+            parsed.append(match.groupdict())
+        else:
+            print(f"警告：無法解析: {line!r}")
+
+    by_level = defaultdict(list)
+    for entry in parsed:
+        by_level[entry["level"]].append(entry)
+
+    return parsed, dict(by_level)
+
+sample_logs = [
+    "2024-03-15 10:30:45 INFO  伺服器在連接埠 8080 啟動",
+    "2024-03-15 10:31:15 ERROR 資料庫連線失敗",
+    "2024-03-15 10:31:16 ERROR 第 1 次重試（共 3 次）",
+    "2024-03-15 10:31:30 WARN  回應時間超過 2000ms",
+    "invalid log line",
+]
+
+entries, grouped = parse_logs(sample_logs)
+print(f"條目總數: {len(entries)}")
+for level, items in sorted(grouped.items()):
+    print(f"\n{level} ({len(items)}):")
+    for item in items:
+        print(f"  [{item['time']}] {item['message']}")
+```
+
+</details>
+
+---
+
+### 練習 3：使用 functools 實作記憶化費波那契
+
+使用 `functools.lru_cache` 和 `itertools.islice`，撰寫一個費波那契生成器和一個回傳前 `n` 個費波那契數的函式，並顯示快取統計資訊。
+
+<details>
+<summary>查看答案</summary>
+
+```python
+import functools
+import itertools
+
+@functools.lru_cache(maxsize=None)
+def fib(n):
+    """記憶化費波那契——總工作量 O(n)，快取佔用 O(n)。"""
+    if n < 2:
+        return n
+    return fib(n - 1) + fib(n - 2)
+
+def fib_sequence(n):
+    """回傳前 n 個費波那契數。"""
+    return [fib(i) for i in range(n)]
+
+def fib_generator():
+    """無限惰性費波那契生成器。"""
+    a, b = 0, 1
+    while True:
+        yield a
+        a, b = b, a + b
+
+print("前 15 個費波那契數:")
+print(fib_sequence(15))
+
+print("\n計算 fib(14) 後的快取資訊:")
+print(fib.cache_info())
+
+gen = fib_generator()
+first_20 = list(itertools.islice(gen, 20))
+print(f"\n生成器產生的前 20 個: {first_20}")
+
+# 超過 1000 的第一個費波那契數
+gen = fib_generator()
+result = next(x for x in gen if x > 1000)
+print(f"\n第一個超過 1000 的費波那契數: {result}")
+
+# 400 萬以內所有偶數費波那契數之和（歐拉計畫第 2 題）
+even_fibs = itertools.takewhile(
+    lambda x: x <= 4_000_000,
+    (x for x in fib_generator() if x % 2 == 0)
+)
+print(f"400 萬以內偶數費波那契數之和: {sum(even_fibs)}")
+```
+
+</details>

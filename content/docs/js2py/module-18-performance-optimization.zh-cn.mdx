@@ -1,0 +1,971 @@
+---
+title: "第 18 模块：性能优化"
+description: "学习 Python 性能技巧：使用 cProfile 进行性能分析、GIL 全局解释器锁、threading 与 multiprocessing 的对比、NumPy 向量化、生成器表达式，以及何时使用各种方案。"
+---
+
+# 第 18 模块：性能优化
+
+## 学习目标
+
+完成本模块后，你将能够：
+
+- ✅ 理解 Python 与 JavaScript/V8 在性能特性上的差异
+- ✅ 使用 `cProfile` 和 `timeit` 对 Python 代码进行性能分析，找到真正的瓶颈
+- ✅ 解释 GIL 的概念及其对多线程 CPU 密集型代码的影响
+- ✅ 针对不同工作负载选择 `threading`、`multiprocessing` 或 `asyncio`
+- ✅ 使用 NumPy 向量化替代缓慢的 Python 循环
+- ✅ 使用生成器表达式节省内存并提升速度
+- ✅ 使用 `functools.lru_cache` 实现自动记忆化
+
+---
+
+## 1. Python 与 JavaScript 的性能思维
+
+JavaScript（V8）使用 JIT（即时编译）技术在运行时优化热代码路径。CPython（标准 Python 解释器）是纯解释执行——不进行 JIT 编译。这是两者性能差异的根本原因。
+
+<UniversalEditor title="性能思维：解释执行与 JIT 编译">
+```javascript !! js
+// JavaScript (V8): JIT 编译器自动优化
+// V8 发现这个循环频繁运行后会将其编译为原生代码
+
+function sumArray(arr) {
+  let total = 0;
+  for (let i = 0; i < arr.length; i++) {
+    total += arr[i];  // V8 会内联并向量化这段代码
+  }
+  return total;
+}
+
+const arr = new Array(1_000_000).fill(1);
+console.time('js-sum');
+const result = sumArray(arr);
+console.timeEnd('js-sum');
+console.log(result);  // 1000000
+
+// JavaScript 性能上限：V8 JIT 可以接近 C 的速度
+// Python 性能上限：纯 Python 比 C 慢约 10-100 倍
+// 解决方案：使用 NumPy（C 实现）或 Cython 处理数值计算
+```
+
+```python !! py
+# Python (CPython): 解释执行——没有 JIT 编译
+# 纯 Python 数值循环较慢
+
+import time
+
+def sum_array_pure_python(lst):
+    """纯 Python 循环——因解释器开销而较慢。"""
+    total = 0
+    for x in lst:  # 每次迭代都有 Python 解释器开销
+        total += x
+    return total
+
+# Python 内置函数（C 实现）快得多：
+def sum_array_builtin(lst):
+    return sum(lst)  # sum() 是 C 实现——非常快
+
+lst = [1] * 1_000_000
+
+start = time.perf_counter()
+result = sum_array_pure_python(lst)
+elapsed = time.perf_counter() - start
+print(f"纯 Python 循环:  {elapsed*1000:.1f}ms = {result}")
+
+start = time.perf_counter()
+result = sum_array_builtin(lst)
+elapsed = time.perf_counter() - start
+print(f"内置 sum():      {elapsed*1000:.1f}ms = {result}")
+
+# NumPy（数值 Python 的真正答案）：
+try:
+    import numpy as np
+    arr = np.ones(1_000_000)
+    start = time.perf_counter()
+    result = arr.sum()
+    elapsed = time.perf_counter() - start
+    print(f"NumPy .sum():    {elapsed*1000:.1f}ms = {result:.0f}")
+except ImportError:
+    print("NumPy 未安装——使用 pip install numpy 安装")
+
+# 关键原则：避免用 Python 循环处理数值数据。
+# 应使用：sum()、max()、min()、map()、filter()、NumPy、pandas
+```
+</UniversalEditor>
+
+---
+
+## 2. 性能分析：找到瓶颈
+
+永远不要在分析之前就开始优化。Python 提供了 `cProfile` 用于全程序性能分析，`timeit` 用于微基准测试。
+
+<UniversalEditor title="性能分析：cProfile 和 timeit 与 Node.js --prof 对比">
+```javascript !! js
+// Node.js 性能分析选项
+
+// 1. console.time / console.timeEnd（快速粗略）
+console.time('operation');
+let sum = 0;
+for (let i = 0; i < 1_000_000; i++) sum += i;
+console.timeEnd('operation');  // operation: 2.345ms
+
+// 2. performance.now() 更精确
+function benchmark(fn, iterations = 1000) {
+  const start = performance.now();
+  for (let i = 0; i < iterations; i++) fn();
+  const elapsed = performance.now() - start;
+  return {
+    totalMs: elapsed,
+    avgMs: elapsed / iterations,
+    opsPerSec: Math.round(iterations / (elapsed / 1000))
+  };
+}
+
+function target() {
+  return Array.from({ length: 1000 }, (_, i) => i * i)
+    .reduce((a, b) => a + b, 0);
+}
+
+const stats = benchmark(target, 1000);
+console.log(`均值: ${stats.avgMs.toFixed(3)}ms | 每秒操作: ${stats.opsPerSec}`);
+```
+
+```python !! py
+# Python 性能分析工具
+
+# 1. timeit — 精确的微基准测试（自动处理预热）
+import timeit
+
+def target():
+    return sum(i * i for i in range(1000))
+
+# timeit 会多次运行函数以提高准确性
+result = timeit.timeit(target, number=10_000)
+print(f"总计: {result:.3f}s | 均值: {result/10_000*1000:.4f}ms")
+
+# 对比两种实现
+t1 = timeit.timeit("sum(i*i for i in range(1000))", number=10_000)
+t2 = timeit.timeit("[i*i for i in range(1000)]", number=10_000)
+print(f"生成器: {t1:.3f}s  |  列表推导: {t2:.3f}s")
+
+# 2. cProfile — 全程序性能分析
+import cProfile
+import pstats
+import io
+
+def slow_function():
+    """模拟有多个调用点的函数。"""
+    result = []
+    for i in range(10_000):
+        result.append(i ** 2)
+    return sum(result)
+
+def main():
+    for _ in range(100):
+        slow_function()
+
+# 性能分析并捕获输出
+profiler = cProfile.Profile()
+profiler.enable()
+main()
+profiler.disable()
+
+# 按累计时间排序打印统计信息
+stream = io.StringIO()
+stats = pstats.Stats(profiler, stream=stream)
+stats.sort_stats('cumulative')
+stats.print_stats(10)  # 前 10 个函数
+print(stream.getvalue())
+```
+</UniversalEditor>
+
+---
+
+## 3. GIL（全局解释器锁）
+
+GIL 是理解 CPython 最重要的限制。它阻止了 Python 线程在 CPU 密集型工作中真正并行执行。
+
+<UniversalEditor title="理解 GIL：CPU 密集型线程">
+```javascript !! js
+// JavaScript: 通过 Worker Threads 实现真正的并行
+const { Worker, isMainThread, parentPort, workerData } = require('worker_threads');
+
+function countPrimes(max) {
+  let count = 0;
+  for (let n = 2; n <= max; n++) {
+    let isPrime = true;
+    for (let i = 2; i <= Math.sqrt(n); i++) {
+      if (n % i === 0) { isPrime = false; break; }
+    }
+    if (isPrime) count++;
+  }
+  return count;
+}
+
+if (isMainThread) {
+  // 将工作分给 4 个 Worker——真正的并行
+  const promises = [];
+  const start = performance.now();
+  for (let i = 0; i < 4; i++) {
+    promises.push(new Promise((resolve) => {
+      const w = new Worker(__filename, { workerData: { chunk: i } });
+      w.on('message', resolve);
+    }));
+  }
+  Promise.all(promises).then(results => {
+    console.log(`耗时: ${(performance.now()-start).toFixed(0)}ms`);
+  });
+} else {
+  // Worker 代码：真正并行运行
+  parentPort.postMessage(countPrimes(25_000));
+}
+```
+
+```python !! py
+# Python: GIL 阻止 CPU 密集型线程并行
+import threading
+import multiprocessing
+import time
+
+def is_prime(n):
+    if n < 2: return False
+    for i in range(2, int(n**0.5) + 1):
+        if n % i == 0: return False
+    return True
+
+def count_primes(limit):
+    return sum(1 for n in range(2, limit) if is_prime(n))
+
+LIMIT = 100_000
+
+# ── 方法 1：单线程 ───────────────────────────────────────────────
+start = time.perf_counter()
+result = count_primes(LIMIT)
+print(f"单线程:   {time.perf_counter()-start:.2f}s → 找到 {result} 个质数")
+
+# ── 方法 2：多线程（受 GIL 限制，CPU 工作无法并行）──────────────
+# 对于 I/O 密集型任务（文件读写、网络请求），线程效果很好
+# 对于 CPU 密集型任务，由于 GIL，线程无法真正并行
+results = []
+lock = threading.Lock()
+
+def worker(start_n, end_n):
+    count = sum(1 for n in range(start_n, end_n) if is_prime(n))
+    with lock:
+        results.append(count)
+
+start = time.perf_counter()
+threads = [
+    threading.Thread(target=worker, args=(2 + i*25000, 2 + (i+1)*25000))
+    for i in range(4)
+]
+for t in threads: t.start()
+for t in threads: t.join()
+print(f"4 线程 (受 GIL 限制!): {time.perf_counter()-start:.2f}s → {sum(results)} 个质数")
+# 由于 GIL 竞争 + 开销，可能比单线程更慢！
+
+# ── 方法 3：多进程（真正的并行）──────────────────────────────────
+def count_primes_range(args):
+    start_n, end_n = args
+    return sum(1 for n in range(start_n, end_n) if is_prime(n))
+
+start = time.perf_counter()
+with multiprocessing.Pool(4) as pool:
+    chunks = [(2 + i*25000, 2 + (i+1)*25000) for i in range(4)]
+    results = pool.map(count_primes_range, chunks)
+print(f"4 进程（真正并行）: {time.perf_counter()-start:.2f}s → {sum(results)} 个质数")
+# 真正更快——每个进程有自己的 GIL！
+
+# GIL 经验法则：
+# CPU 密集型工作 → 多进程（绕过 GIL）
+# I/O 密集型工作 → 线程或 asyncio（I/O 期间 GIL 会释放）
+```
+</UniversalEditor>
+
+---
+
+## 4. threading vs multiprocessing vs asyncio
+
+Python 提供三种并发模型。选择正确的模型对性能至关重要。
+
+<UniversalEditor title="threading vs multiprocessing vs asyncio">
+```javascript !! js
+// JavaScript: 单一并发模型（事件循环 + Workers）
+
+// I/O 密集型：async/await（事件循环——无 OS 线程）
+async function fetchAll(urls) {
+  const start = performance.now();
+  // 所有请求在事件循环中并发执行
+  const results = await Promise.all(urls.map(url => fetch(url)));
+  const jsons = await Promise.all(results.map(r => r.json()));
+  console.log(`获取了 ${jsons.length} 个，耗时 ${(performance.now()-start).toFixed(0)}ms`);
+  return jsons;
+}
+
+// CPU 密集型：Worker Threads（真正的并行）
+
+// JavaScript 只有一种模型——事件循环处理并发
+// Python 有三种模型——你必须选择正确的那个
+```
+
+```python !! py
+# Python: 三种并发模型
+
+# ── 1. asyncio: I/O 密集型，单线程，事件循环 ─────────────────────
+import asyncio
+
+async def fetch_url(url):
+    await asyncio.sleep(0.1)  # 模拟网络延迟
+    return f"来自 {url} 的数据"
+
+async def fetch_all_async(urls):
+    # 所有协程在一个线程中并发执行
+    tasks = [fetch_url(url) for url in urls]
+    return await asyncio.gather(*tasks)
+
+urls = [f"https://api.example.com/item/{i}" for i in range(10)]
+results = asyncio.run(fetch_all_async(urls))
+print(f"asyncio: 并发获取了 {len(results)} 个项目")
+# 总时间约 0.1s（而非 1.0s）——真正的 I/O 并发
+
+# ── 2. threading: I/O 密集型，多 OS 线程 ─────────────────────────
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
+
+def fetch_with_sleep(url):
+    time.sleep(0.1)  # 模拟 I/O（sleep 期间 GIL 会释放）
+    return f"来自 {url} 的数据"
+
+with ThreadPoolExecutor(max_workers=10) as executor:
+    start = time.perf_counter()
+    futures = [executor.submit(fetch_with_sleep, url) for url in urls]
+    results = [f.result() for f in futures]
+    elapsed = time.perf_counter() - start
+print(f"线程池: {len(results)} 个项目，耗时 {elapsed:.2f}s")
+# 约 0.1s——因为 I/O sleep 期间 GIL 会释放
+
+# ── 3. multiprocessing: CPU 密集型，多进程 ────────────────────────
+from concurrent.futures import ProcessPoolExecutor
+import math
+
+def cpu_intensive(n):
+    return sum(math.sqrt(i) for i in range(n))
+
+with ProcessPoolExecutor(max_workers=4) as executor:
+    start = time.perf_counter()
+    futures = [executor.submit(cpu_intensive, 100_000) for _ in range(8)]
+    results = [f.result() for f in futures]
+    elapsed = time.perf_counter() - start
+print(f"进程池: {len(results)} 个任务，耗时 {elapsed:.2f}s")
+
+# ── 决策指南 ──────────────────────────────────────────────────────
+# asyncio    → 大量并发 I/O 操作（HTTP、数据库、文件）
+# threading  → I/O 密集型（配合遗留阻塞代码）
+# multiprocessing → CPU 密集型计算（数据处理、机器学习）
+```
+</UniversalEditor>
+
+---
+
+## 5. NumPy 向量化
+
+NumPy 是数值 Python 中最有影响力的性能工具。它用快速的 C 操作替代缓慢的 Python 循环。
+
+<UniversalEditor title="NumPy 向量化与 Python 循环对比">
+```javascript !! js
+// JavaScript: 标准库中没有 NumPy 的等价物
+// TypedArray 是最接近的类比
+
+function euclideanDistance(a, b) {
+  let sumSq = 0;
+  for (let i = 0; i < a.length; i++) {
+    const diff = a[i] - b[i];
+    sumSq += diff * diff;
+  }
+  return Math.sqrt(sumSq);
+}
+
+const size = 100_000;
+const a = new Float64Array(size).map((_, i) => i);
+const b = new Float64Array(size).map((_, i) => i * 2);
+
+console.time('js-distance');
+const dist = euclideanDistance(a, b);
+console.timeEnd('js-distance');
+console.log(`距离: ${dist.toFixed(2)}`);
+```
+
+```python !! py
+# Python: NumPy——必不可少的性能工具
+try:
+    import numpy as np
+    import time
+
+    size = 100_000
+    a = np.arange(size, dtype=np.float64)
+    b = np.arange(size, dtype=np.float64) * 2
+
+    # ── 纯 Python（慢）──────────────────────────────────────────
+    def euclidean_slow(a_list, b_list):
+        return sum((x - y) ** 2 for x, y in zip(a_list, b_list)) ** 0.5
+
+    a_list = list(a)
+    b_list = list(b)
+    start = time.perf_counter()
+    result_slow = euclidean_slow(a_list, b_list)
+    t_slow = time.perf_counter() - start
+    print(f"纯 Python: {t_slow*1000:.1f}ms → {result_slow:.2f}")
+
+    # ── NumPy 向量化（快）───────────────────────────────────────
+    start = time.perf_counter()
+    diff = a - b          # 逐元素相减（无循环！）
+    sq = diff ** 2        # 逐元素平方
+    result_np = np.sqrt(sq.sum())
+    t_numpy = time.perf_counter() - start
+    print(f"NumPy:     {t_numpy*1000:.1f}ms → {result_np:.2f}")
+    print(f"加速比:    {t_slow/t_numpy:.0f}x 倍")
+
+    # ── 常见 NumPy 操作模式 ──────────────────────────────────────
+    data = np.array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], dtype=float)
+
+    # 广播：无需循环即可对所有元素操作
+    normalized = (data - data.mean()) / data.std()
+    print(f"标准化: {normalized.round(2)}")
+
+    # 布尔索引（无需循环）
+    above_mean = data[data > data.mean()]
+    print(f"高于均值: {above_mean}")
+
+    # 矩阵运算
+    matrix = np.random.rand(100, 100)
+    result = matrix @ matrix.T    # 矩阵乘法
+    print(f"矩阵形状: {result.shape}")
+
+    # 按轴聚合
+    m = np.array([[1, 2, 3], [4, 5, 6], [7, 8, 9]])
+    print(f"行求和: {m.sum(axis=1)}")    # [6, 15, 24]
+    print(f"列均值: {m.mean(axis=0)}")   # [4, 5, 6]
+
+except ImportError:
+    print("请安装 NumPy: pip install numpy")
+```
+</UniversalEditor>
+
+---
+
+## 6. 生成器表达式与列表推导式
+
+生成器是惰性的——按需计算值。这节省了内存，并能加速那些不需要全部值的管道处理。
+
+<UniversalEditor title="生成器表达式：惰性求值与急切求值">
+```javascript !! js
+// JavaScript: 生成器与数组
+
+// 数组（急切）——立即分配所有值
+function squares_array(n) {
+  return Array.from({ length: n }, (_, i) => i * i);
+}
+
+// 生成器（惰性）——按需计算值
+function* squares_generator(n) {
+  for (let i = 0; i < n; i++) {
+    yield i * i;
+  }
+}
+
+const n = 1_000_000;
+
+// 数组：立即分配约 8MB
+const arr = squares_array(n);
+console.log(`数组长度: ${arr.length}`);
+
+// 生成器：几乎不分配内存
+const gen = squares_generator(n);
+console.log(`前 3 个: ${[gen.next().value, gen.next().value, gen.next().value]}`);
+
+// 提前终止：使用数组时所有工作都会提前完成
+// 使用生成器时，找到后立即停止
+const gen2 = squares_generator(1_000_000);
+const firstOver1000 = [...gen2].find(x => x > 1000);  // 仍然遍历了很多
+```
+
+```python !! py
+# Python: 生成器表达式与列表推导式
+import sys
+import time
+
+n = 1_000_000
+
+# ── 列表推导式（急切）——一次性分配所有内容 ──────────────────────
+list_comp = [i * i for i in range(n)]
+print(f"列表大小:     {sys.getsizeof(list_comp):,} 字节")   # 约 8MB
+
+# ── 生成器表达式（惰性）——几乎零内存 ─────────────────────────────
+gen_expr = (i * i for i in range(n))
+print(f"生成器大小:   {sys.getsizeof(gen_expr):,} 字节")    # 约 200 字节
+
+# 两者产生相同的值，但生成器是惰性的
+print(f"列表前 5 个: {list_comp[:5]}")
+print(f"生成器前 5 个: {[next(gen_expr) for _ in range(5)]}")
+
+# ── 性能：百万个平方数求和 ────────────────────────────────────────
+start = time.perf_counter()
+result_list = sum([i*i for i in range(n)])  # 先分配完整列表
+t_list = time.perf_counter() - start
+
+start = time.perf_counter()
+result_gen = sum(i*i for i in range(n))     # 逐个传递值
+t_gen = time.perf_counter() - start
+
+print(f"列表推导: {t_list*1000:.1f}ms")
+print(f"生成器:   {t_gen*1000:.1f}ms")
+
+# ── 生成器管道（可组合且内存高效）──────────────────────────────
+def stream_process(dataset):
+    """逐个处理数据项——O(1) 内存。"""
+    for item in dataset:
+        yield item * 2  # 一次处理一个
+
+gen = stream_process(range(1_000_000))
+print(f"生成器对象: {sys.getsizeof(gen)} 字节")  # 约 200 字节！
+
+# ── 何时使用哪种 ─────────────────────────────────────────────────
+# 列表推导：需要所有值、需要索引访问、多次重用
+# 生成器：  大数据集、只迭代一次、管道处理
+```
+</UniversalEditor>
+
+---
+
+## 7. functools.lru_cache 和 @cache
+
+使用 `lru_cache` 进行记忆化是 Python 中最简单的性能提升手段之一。它以参数为键缓存函数的返回结果。
+
+<UniversalEditor title="lru_cache：自动记忆化">
+```javascript !! js
+// JavaScript: 手动记忆化
+function memoize(fn) {
+  const cache = new Map();
+  return function(...args) {
+    const key = JSON.stringify(args);
+    if (cache.has(key)) return cache.get(key);
+    const result = fn.apply(this, args);
+    cache.set(key, result);
+    return result;
+  };
+}
+
+// 没有记忆化：O(2^n) 时间
+function fib(n) {
+  if (n <= 1) return n;
+  return fib(n - 1) + fib(n - 2);
+}
+
+// 有记忆化：但递归调用仍然调用原始的 fib()！
+const fibMemo = memoize(fib);
+// 这存在一个微妙的 bug：
+// fibMemo(40) 调用 fib(39) 和 fib(38)
+// 但 fib(39) 和 fib(38) 调用的是原始 fib，而不是 fibMemo
+// 所以递归没有真正被缓存
+console.log(fibMemo(40));
+```
+
+```python !! py
+# Python: @lru_cache——内置、正确、优雅
+import functools
+import time
+
+# ── 基础 lru_cache 用法 ────────────────────────────────────────────
+@functools.lru_cache(maxsize=None)  # maxsize=None 表示无限缓存
+def fib(n):
+    """O(2^n) → 使用缓存变为 O(n)。递归调用同样会命中缓存！"""
+    if n <= 1:
+        return n
+    return fib(n - 1) + fib(n - 2)
+    # 注意：fib 调用自身，这些调用同样会命中缓存
+    # 这就是为什么它能正确工作，而 JS 手动记忆化不行
+
+start = time.perf_counter()
+result = fib(50)
+elapsed = time.perf_counter() - start
+print(f"fib(50) = {result}，耗时 {elapsed*1000:.3f}ms")
+print(f"缓存统计: {fib.cache_info()}")
+# CacheInfo(hits=48, misses=51, maxsize=None, currsize=51)
+
+fib.cache_clear()  # 清除缓存
+
+# ── @cache（Python 3.9+）：更简单的语法 ──────────────────────────
+@functools.cache
+def expensive_compute(n):
+    """模拟一个耗时的计算。"""
+    time.sleep(0.001)  # 模拟 1ms 工作
+    return n * n * n
+
+# 第一次调用较慢，后续调用瞬间完成
+for i in [5, 10, 5, 10, 15]:  # 5 和 10 第二次调用会命中缓存
+    start = time.perf_counter()
+    result = expensive_compute(i)
+    elapsed = time.perf_counter() - start
+    print(f"compute({i:2d}) = {result:4d} | {elapsed*1000:.1f}ms")
+
+# ── 带 maxsize 的 LRU（有界缓存）────────────────────────────────
+@functools.lru_cache(maxsize=128)  # 只保留最近 128 个结果
+def process_item(item_id: int, config: str) -> str:
+    """只有可哈希的参数才能被缓存。"""
+    return f"处理 {item_id}，配置: {config}"
+
+print(process_item(1, "fast"))
+print(process_item(1, "fast"))  # 缓存命中
+print(process_item.cache_info())
+
+# ── lru_cache 最有帮助的场景 ─────────────────────────────────────
+# ✅ 递归函数（斐波那契、动态规划）
+# ✅ 可能重复的昂贵 I/O（API 调用、数据库读取）
+# ✅ 用相同参数多次调用的纯函数
+# ❌ 有副作用的函数
+# ❌ 参数可变的函数（列表、字典——不可哈希）
+```
+</UniversalEditor>
+
+---
+
+## 8. 实用优化工作流
+
+<UniversalEditor title="实用优化：先度量，再优化">
+```javascript !! js
+// JavaScript 优化工作流
+
+// 步骤 1：建立基准
+function processData_v1(data) {
+  const results = [];
+  for (const item of data) {
+    if (item.active) {
+      results.push(item.value * 2);
+    }
+  }
+  return results.reduce((a, b) => a + b, 0);
+}
+
+// 步骤 2：性能分析找到瓶颈
+// （使用浏览器开发者工具或 Node.js --prof）
+
+// 步骤 3：优化瓶颈
+function processData_v2(data) {
+  return data
+    .filter(item => item.active)
+    .reduce((sum, item) => sum + item.value * 2, 0);
+}
+
+const data = Array.from({ length: 100_000 }, (_, i) => ({
+  active: i % 3 !== 0,
+  value: i
+}));
+
+console.time('v1');
+const r1 = processData_v1(data);
+console.timeEnd('v1');
+
+console.time('v2');
+const r2 = processData_v2(data);
+console.timeEnd('v2');
+
+console.assert(r1 === r2, '结果必须一致！');
+```
+
+```python !! py
+# Python 优化工作流
+import timeit
+
+# ── 步骤 1：先写出正确的代码 ──────────────────────────────────────
+def process_data_v1(data):
+    """简单实现——正确但可能较慢。"""
+    results = []
+    for item in data:
+        if item["active"]:
+            results.append(item["value"] * 2)
+    return sum(results)
+
+# ── 步骤 2：基准测试，判断是否需要优化 ──────────────────────────
+data = [{"active": i % 3 != 0, "value": i} for i in range(100_000)]
+
+t1 = timeit.timeit(lambda: process_data_v1(data), number=100)
+print(f"v1（朴素循环）:     {t1:.3f}s（100 次运行）")
+
+# ── 步骤 3：用 Python 惯用法优化瓶颈 ────────────────────────────
+
+# 优化 A：使用生成器表达式（无中间列表）
+def process_data_v2(data):
+    return sum(item["value"] * 2 for item in data if item["active"])
+
+t2 = timeit.timeit(lambda: process_data_v2(data), number=100)
+print(f"v2（生成器）:       {t2:.3f}s → 快 {t1/t2:.1f}x")
+
+# 优化 B：使用列表推导式
+def process_data_v3(data):
+    return sum([item["value"] * 2 for item in data if item["active"]])
+
+t3 = timeit.timeit(lambda: process_data_v3(data), number=100)
+print(f"v3（列表推导）:     {t3:.3f}s → 快 {t1/t3:.1f}x")
+
+# ── 步骤 4：验证正确性 ────────────────────────────────────────────
+results = [process_data_v1(data), process_data_v2(data), process_data_v3(data)]
+assert all(r == results[0] for r in results), "结果必须一致！"
+print(f"\n所有实现结果一致: {results[0]}")
+
+print("""
+优化黄金法则：
+1. 先让代码正确运行
+2. 性能分析找到真正的瓶颈（不要凭感觉猜测）
+3. 使用内置函数和标准库（C 实现）
+4. 数值/数组操作使用 NumPy
+5. 大数据管道使用生成器
+6. 重复的昂贵计算使用 lru_cache
+7. CPU 密集型工作使用多进程
+8. I/O 密集型工作使用 asyncio/线程
+9. 每次修改后都要重新基准测试
+10. 够快就行（过度优化浪费时间）
+""")
+```
+</UniversalEditor>
+
+---
+
+## 总结对比表
+
+| 主题 | JavaScript | Python |
+|---|---|---|
+| 运行时 | V8 JIT 编译器 | CPython 解释器（无 JIT） |
+| 数值循环速度 | 接近原生（JIT） | 慢 10-100x（使用 NumPy） |
+| 性能分析工具 | `console.time`、`--prof` | `timeit`、`cProfile` |
+| 线程并行 | 真正并行（Worker Threads） | 受 GIL 限制（CPU 密集型） |
+| CPU 并行 | `Worker` / `SharedArrayBuffer` | `multiprocessing.Pool` |
+| I/O 并发 | `async/await`（事件循环） | `asyncio`（事件循环） |
+| 数值数组 | `TypedArray` | `numpy.ndarray` |
+| 惰性序列 | 生成器函数 | 生成器表达式 / `yield` |
+| 记忆化 | 手动 `Map` 缓存 | `@functools.lru_cache` |
+| 对象内存 | 取决于 V8 | 用 `__slots__` 减少 |
+| 类型化数组 | `Int32Array`、`Float64Array` | `array.array`、`numpy` |
+| 最佳优化 | 算法改进 | 同上，加上：使用 NumPy |
+
+---
+
+## 练习题
+
+### 练习 1：性能分析与优化
+
+你有一个缓慢的函数，用于统计大量字符串中的元音字母数量。使用 `timeit` 进行性能分析，并重写使其至少快 3 倍。
+
+```python
+import random, string
+
+# 生成测试数据
+words = [''.join(random.choices(string.ascii_lowercase, k=10))
+         for _ in range(10_000)]
+
+def count_vowels_slow(words):
+    """慢速实现——请分析并优化。"""
+    count = 0
+    for word in words:
+        for char in word:
+            if char in ['a', 'e', 'i', 'o', 'u']:
+                count += 1
+    return count
+```
+
+<details>
+<summary>查看答案</summary>
+
+```python
+import timeit
+import random
+import string
+
+random.seed(42)
+words = [''.join(random.choices(string.ascii_lowercase, k=10))
+         for _ in range(10_000)]
+
+def count_vowels_slow(words):
+    count = 0
+    for word in words:
+        for char in word:
+            if char in ['a', 'e', 'i', 'o', 'u']:  # 每次都是列表查找
+                count += 1
+    return count
+
+# 优化 1：使用集合（O(1) 查找，而不是 O(n) 列表）
+VOWELS = frozenset('aeiou')  # frozenset 可哈希，速度略快
+
+def count_vowels_set(words):
+    count = 0
+    for word in words:
+        for char in word:
+            if char in VOWELS:  # O(1) 哈希查找
+                count += 1
+    return count
+
+# 优化 2：使用 sum + 生成器
+def count_vowels_sum(words):
+    return sum(c in VOWELS for word in words for c in word)
+
+# 优化 3：合并所有单词后统一计数
+def count_vowels_join(words):
+    all_text = ''.join(words)
+    return sum(1 for c in all_text if c in VOWELS)
+
+# 优化 4：对每个元音使用 str.count
+def count_vowels_strcount(words):
+    all_text = ''.join(words)
+    return sum(all_text.count(v) for v in 'aeiou')
+
+# 基准测试
+n = 1000
+t_slow  = timeit.timeit(lambda: count_vowels_slow(words), number=n)
+t_set   = timeit.timeit(lambda: count_vowels_set(words), number=n)
+t_sum   = timeit.timeit(lambda: count_vowels_sum(words), number=n)
+t_join  = timeit.timeit(lambda: count_vowels_join(words), number=n)
+t_count = timeit.timeit(lambda: count_vowels_strcount(words), number=n)
+
+print(f"慢速（列表）:    {t_slow:.3f}s（基准）")
+print(f"集合查找:        {t_set:.3f}s（快 {t_slow/t_set:.1f}x）")
+print(f"sum 生成器:      {t_sum:.3f}s（快 {t_slow/t_sum:.1f}x）")
+print(f"join + 迭代:     {t_join:.3f}s（快 {t_slow/t_join:.1f}x）")
+print(f"str.count:       {t_count:.3f}s（快 {t_slow/t_count:.1f}x）")
+
+# 验证结果一致
+baseline = count_vowels_slow(words)
+assert all(f(words) == baseline for f in [
+    count_vowels_set, count_vowels_sum,
+    count_vowels_join, count_vowels_strcount
+])
+print(f"\n所有实现结果一致：共找到 {baseline} 个元音")
+```
+
+</details>
+
+---
+
+### 练习 2：GIL 感知的并行化
+
+编写一个程序：
+1. 生成 8 个"任务"（每个计算一个大型求和）
+2. 顺序执行并记录时间
+3. 使用 `ThreadPoolExecutor` 执行并记录时间
+4. 使用 `ProcessPoolExecutor` 执行并记录时间
+5. 解释结果（为什么线程没有帮助，但进程有）
+
+<details>
+<summary>查看答案</summary>
+
+```python
+import time
+import math
+from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
+
+def cpu_task(n):
+    """CPU 密集型任务：计算平方根之和。"""
+    return sum(math.sqrt(i) for i in range(n))
+
+TASKS = [500_000] * 8
+
+# 顺序执行
+start = time.perf_counter()
+sequential_results = [cpu_task(n) for n in TASKS]
+t_sequential = time.perf_counter() - start
+print(f"顺序执行:    {t_sequential:.2f}s")
+
+# 线程池（受 GIL 限制，CPU 密集型无效）
+start = time.perf_counter()
+with ThreadPoolExecutor(max_workers=4) as executor:
+    thread_results = list(executor.map(cpu_task, TASKS))
+t_threads = time.perf_counter() - start
+print(f"4 线程:      {t_threads:.2f}s（加速 {t_sequential/t_threads:.1f}x）")
+
+# 进程池（真正的并行——每个进程有自己的 GIL）
+start = time.perf_counter()
+with ProcessPoolExecutor(max_workers=4) as executor:
+    process_results = list(executor.map(cpu_task, TASKS))
+t_processes = time.perf_counter() - start
+print(f"4 进程:      {t_processes:.2f}s（加速 {t_sequential/t_processes:.1f}x）")
+
+assert sequential_results == thread_results == process_results
+
+print(f"""
+解释：
+- 顺序执行：1 个 CPU 核，所有任务依次执行
+- 线程：Python 线程争抢 GIL，CPU 代码无法并行
+  → 可能因 GIL 竞争和上下文切换而更慢
+- 进程：每个进程有自己的 Python 解释器和 GIL
+  → 跨 CPU 核真正并行 → 约 {t_sequential/t_processes:.0f}x 加速
+
+规则：CPU 密集型工作使用多进程。
+      I/O 密集型工作使用线程或 asyncio。
+""")
+```
+
+</details>
+
+---
+
+### 练习 3：NumPy 与纯 Python 对比
+
+编写两个版本的数据标准化函数（减均值，除以标准差）：一个使用纯 Python，一个使用 NumPy。对它们进行基准测试并比较结果。
+
+<details>
+<summary>查看答案</summary>
+
+```python
+import timeit
+import math
+
+try:
+    import numpy as np
+
+    data = [float(i) + 0.1 * (i % 7) for i in range(100_000)]
+
+    # ── 纯 Python 实现 ────────────────────────────────────────────
+    def normalize_python(data):
+        n = len(data)
+        mean = sum(data) / n
+        variance = sum((x - mean) ** 2 for x in data) / n
+        std = math.sqrt(variance)
+        return [(x - mean) / std for x in data]
+
+    # ── NumPy 实现 ────────────────────────────────────────────────
+    def normalize_numpy(data_list):
+        arr = np.array(data_list)
+        mean = arr.mean()
+        std = arr.std()
+        return (arr - mean) / std  # 向量化操作，无循环！
+
+    # ── 基准测试 ──────────────────────────────────────────────────
+    n_runs = 100
+    t_python = timeit.timeit(lambda: normalize_python(data), number=n_runs)
+    t_numpy  = timeit.timeit(lambda: normalize_numpy(data), number=n_runs)
+
+    print(f"纯 Python: {t_python:.3f}s（{n_runs} 次运行）")
+    print(f"NumPy:     {t_numpy:.3f}s（{n_runs} 次运行）")
+    print(f"加速比:    {t_python/t_numpy:.1f}x 倍（NumPy 更快）")
+
+    # ── 验证结果等价 ──────────────────────────────────────────────
+    py_result = normalize_python(data)
+    np_result = normalize_numpy(data)
+
+    for i in range(5):
+        diff = abs(py_result[i] - float(np_result[i]))
+        print(f"  data[{i}]: Python={py_result[i]:.6f}, NumPy={float(np_result[i]):.6f}, diff={diff:.2e}")
+
+    max_diff = max(abs(a - b) for a, b in zip(py_result, np_result))
+    print(f"最大差值: {max_diff:.2e}（应接近于零）")
+
+    # ── 内存对比 ──────────────────────────────────────────────────
+    import sys
+    py_mem = sys.getsizeof(data) + sum(sys.getsizeof(x) for x in data)
+    np_arr = np.array(data)
+    np_mem = np_arr.nbytes
+    print(f"\n内存: Python 列表={py_mem/1024:.0f}KB, NumPy 数组={np_mem/1024:.0f}KB")
+
+except ImportError:
+    print("NumPy 未安装，请使用：pip install numpy")
+```
+
+</details>

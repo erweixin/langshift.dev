@@ -1,0 +1,1028 @@
+---
+title: "Module 17: Python Standard Library"
+description: "Tour Python's rich standard library: os/pathlib for files, datetime, json, re for regex, itertools, and functools — all mapped to JavaScript/Node.js equivalents."
+---
+
+# Module 17: Python Standard Library
+
+## Learning Objectives
+
+By the end of this module, you will:
+
+- ✅ Use `os` and `pathlib` for cross-platform file and path operations
+- ✅ Work with dates and times using the `datetime` module
+- ✅ Serialize and deserialize data with the `json` module
+- ✅ Apply regular expressions with the `re` module
+- ✅ Write elegant iteration with `itertools`
+- ✅ Apply functional programming patterns with `functools`
+- ✅ Read command-line arguments and environment variables with `sys` and `os.environ`
+
+---
+
+## 1. File System: os and pathlib
+
+Python offers two ways to work with the filesystem: the older `os`/`os.path` API (similar to Node.js `path` + `fs`) and the modern, object-oriented `pathlib.Path`.
+
+<UniversalEditor title="File System: pathlib vs Node.js path/fs">
+```javascript !! js
+// Node.js: path module + fs module
+const path = require('path');
+const fs = require('fs');
+
+// Path construction
+const base = '/home/user/projects';
+const filePath = path.join(base, 'app', 'config.json');
+console.log(filePath);
+
+// Path components
+console.log(path.dirname(filePath));   // /home/user/projects/app
+console.log(path.basename(filePath));  // config.json
+console.log(path.extname(filePath));   // .json
+
+// Check existence
+if (fs.existsSync(filePath)) {
+  const stat = fs.statSync(filePath);
+  console.log(`File size: ${stat.size} bytes`);
+}
+
+// List directory
+const files = fs.readdirSync('/tmp');
+console.log(files);
+
+// Create directory (recursive)
+fs.mkdirSync('/tmp/new/nested/dir', { recursive: true });
+
+// Read / write files
+fs.writeFileSync('/tmp/hello.txt', 'Hello World', 'utf8');
+const content = fs.readFileSync('/tmp/hello.txt', 'utf8');
+console.log(content);
+```
+
+```python !! py
+# Python: pathlib (modern, recommended)
+from pathlib import Path
+
+# Path construction — use / operator to join parts
+base = Path('/home/user/projects')
+file_path = base / 'app' / 'config.json'
+print(file_path)
+
+# Path components
+print(file_path.parent)   # /home/user/projects/app
+print(file_path.name)     # config.json
+print(file_path.stem)     # config
+print(file_path.suffix)   # .json
+
+# Check existence
+if file_path.exists():
+    stat = file_path.stat()
+    print(f"File size: {stat.st_size} bytes")
+
+# List directory (returns generator of Path objects)
+tmp = Path('/tmp')
+files = list(tmp.iterdir())
+print(files[:3])
+
+# Glob patterns
+py_files = list(Path('.').glob('**/*.py'))
+print(f"Found {len(py_files)} Python files")
+
+# Create directory (parents=True is like recursive: true)
+Path('/tmp/new/nested/dir').mkdir(parents=True, exist_ok=True)
+
+# Read / write files
+Path('/tmp/hello.txt').write_text('Hello World', encoding='utf-8')
+content = Path('/tmp/hello.txt').read_text(encoding='utf-8')
+print(content)
+```
+</UniversalEditor>
+
+### os Module for System Operations
+
+<UniversalEditor title="os Module: System Operations">
+```javascript !! js
+// Node.js: process and os modules
+const os = require('os');
+const path = require('path');
+
+// Current working directory
+console.log(process.cwd());
+
+// Home directory
+console.log(os.homedir());
+
+// Platform info
+console.log(process.platform);  // 'linux', 'darwin', 'win32'
+console.log(os.arch());          // 'x64', 'arm64'
+
+// Environment variables
+console.log(process.env.HOME);
+console.log(process.env.PATH);
+
+// Path separator
+console.log(path.sep);  // '/' on Unix, '\' on Windows
+
+// Temporary directory
+console.log(os.tmpdir());
+
+// CPU count (for workers)
+console.log(os.cpus().length);
+```
+
+```python !! py
+# Python: os and os.path modules
+import os
+import platform
+
+# Current working directory
+print(os.getcwd())
+
+# Home directory
+print(os.path.expanduser("~"))
+# Or with pathlib: Path.home()
+
+# Platform info
+print(platform.system())    # 'Linux', 'Darwin', 'Windows'
+print(platform.machine())   # 'x86_64', 'arm64'
+
+# Environment variables
+print(os.environ.get('HOME'))
+print(os.environ.get('PATH'))
+
+# Path separator
+print(os.sep)       # '/' on Unix, '\' on Windows
+print(os.pathsep)   # ':' on Unix, ';' on Windows (for PATH)
+
+# Temporary directory
+import tempfile
+print(tempfile.gettempdir())
+
+# CPU count
+print(os.cpu_count())
+
+# List files in directory
+for entry in os.scandir('/tmp'):
+    if entry.is_file():
+        print(f"{entry.name}: {entry.stat().st_size} bytes")
+```
+</UniversalEditor>
+
+---
+
+## 2. datetime Module
+
+Python's `datetime` module is more structured than JavaScript's `Date` object. It provides separate classes for dates, times, and combined datetime values.
+
+<UniversalEditor title="datetime vs JavaScript Date">
+```javascript !! js
+// JavaScript: Date object
+const now = new Date();
+console.log(now.toISOString());          // 2024-03-15T10:30:00.000Z
+console.log(now.toLocaleDateString());   // locale-dependent
+
+// Create specific date
+const birthday = new Date(1990, 5, 15); // Month is 0-indexed!
+console.log(birthday.getFullYear());     // 1990
+console.log(birthday.getMonth() + 1);   // 6 (June)
+console.log(birthday.getDate());         // 15
+
+// Date arithmetic (milliseconds)
+const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+console.log(tomorrow.toDateString());
+
+// Difference in days
+const diff = Math.floor(
+  (now - birthday) / (1000 * 60 * 60 * 24)
+);
+console.log(`Days since birthday: ${diff}`);
+
+// Format (must use library like date-fns or Intl)
+const formatter = new Intl.DateTimeFormat('en-US', {
+  year: 'numeric', month: 'long', day: 'numeric'
+});
+console.log(formatter.format(now));
+```
+
+```python !! py
+# Python: datetime module (more structured)
+from datetime import date, time, datetime, timedelta, timezone
+
+# Current date and time
+now = datetime.now()
+today = date.today()
+print(now.isoformat())        # 2024-03-15T10:30:00.123456
+print(today.isoformat())      # 2024-03-15
+
+# Create specific date — months are 1-indexed (natural!)
+birthday = date(1990, 6, 15)
+print(birthday.year)    # 1990
+print(birthday.month)   # 6
+print(birthday.day)     # 15
+
+# Date arithmetic with timedelta
+tomorrow = today + timedelta(days=1)
+next_week = today + timedelta(weeks=1)
+print(tomorrow)
+print(next_week)
+
+# Difference returns a timedelta
+delta = today - birthday
+print(f"Days since birthday: {delta.days}")
+
+# Format with strftime
+print(now.strftime("%B %d, %Y"))   # March 15, 2024
+print(now.strftime("%Y-%m-%d %H:%M:%S"))
+
+# Parse from string
+parsed = datetime.strptime("2024-03-15", "%Y-%m-%d")
+print(type(parsed))  # <class 'datetime.datetime'>
+
+# UTC-aware datetime
+utc_now = datetime.now(timezone.utc)
+print(utc_now.isoformat())  # includes +00:00
+```
+</UniversalEditor>
+
+---
+
+## 3. json Module
+
+The `json` module mirrors JavaScript's `JSON` object almost exactly, with Pythonic naming conventions.
+
+<UniversalEditor title="json Module vs JSON Object">
+```javascript !! js
+// JavaScript: JSON built-in
+const data = {
+  name: "Alice",
+  age: 30,
+  scores: [95, 87, 92],
+  address: { city: "Tokyo", zip: "100-0001" },
+  active: true,
+  registered: null
+};
+
+// Serialize to JSON string
+const jsonString = JSON.stringify(data);
+console.log(jsonString);
+
+// Pretty print
+const pretty = JSON.stringify(data, null, 2);
+console.log(pretty);
+
+// Deserialize
+const parsed = JSON.parse(jsonString);
+console.log(parsed.name);        // "Alice"
+console.log(typeof parsed.age);  // "number"
+
+// Read/write JSON files with Node.js
+const fs = require('fs');
+fs.writeFileSync('data.json', pretty, 'utf8');
+const fromFile = JSON.parse(fs.readFileSync('data.json', 'utf8'));
+console.log(fromFile.address.city);  // "Tokyo"
+```
+
+```python !! py
+# Python: json module
+import json
+from pathlib import Path
+
+data = {
+    "name": "Alice",
+    "age": 30,
+    "scores": [95, 87, 92],
+    "address": {"city": "Tokyo", "zip": "100-0001"},
+    "active": True,       # Note: Python True, not JS true
+    "registered": None    # Note: Python None, not JS null
+}
+
+# Serialize to JSON string (dumps = dump to String)
+json_string = json.dumps(data)
+print(json_string)
+
+# Pretty print (indent = spaces)
+pretty = json.dumps(data, indent=2, ensure_ascii=False)
+print(pretty)
+
+# Deserialize (loads = load from String)
+parsed = json.loads(json_string)
+print(parsed["name"])          # "Alice"
+print(type(parsed["age"]))     # <class 'int'>
+print(parsed["active"])        # True
+print(parsed["registered"])    # None
+
+# Read/write JSON files (dump/load — no 's' = file)
+path = Path("/tmp/data.json")
+with open(path, 'w', encoding='utf-8') as f:
+    json.dump(data, f, indent=2, ensure_ascii=False)
+
+with open(path, 'r', encoding='utf-8') as f:
+    from_file = json.load(f)
+print(from_file["address"]["city"])  # "Tokyo"
+
+# Custom serialization for non-JSON types
+from datetime import date
+
+class DateEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, date):
+            return obj.isoformat()
+        return super().default(obj)
+
+event = {"name": "Conference", "date": date(2024, 6, 15)}
+print(json.dumps(event, cls=DateEncoder))
+```
+</UniversalEditor>
+
+---
+
+## 4. Regular Expressions: re Module
+
+Python's `re` module provides comprehensive regex support. The API is more function-based than JavaScript's built-in RegExp methods.
+
+<UniversalEditor title="re Module vs JavaScript RegExp">
+```javascript !! js
+// JavaScript: RegExp (built into the language)
+const text = "Contact us at support@example.com or sales@company.org";
+const emailRegex = /[\w.+-]+@[\w-]+\.[a-z]{2,}/gi;
+
+// test() — check if pattern exists
+console.log(emailRegex.test(text));  // true
+
+// match() — find matches
+const matches = text.match(emailRegex);
+console.log(matches);  // ['support@example.com', 'sales@company.org']
+
+// replace() — substitute
+const sanitized = text.replace(emailRegex, "[EMAIL]");
+console.log(sanitized);
+
+// Named capture groups
+const dateRegex = /(?<year>\d{4})-(?<month>\d{2})-(?<day>\d{2})/;
+const match = "2024-03-15".match(dateRegex);
+console.log(match.groups.year);   // "2024"
+console.log(match.groups.month);  // "03"
+
+// split with regex
+const parts = "one1two2three".split(/\d/);
+console.log(parts);  // ['one', 'two', 'three']
+```
+
+```python !! py
+# Python: re module
+import re
+
+text = "Contact us at support@example.com or sales@company.org"
+email_pattern = r'[\w.+-]+@[\w-]+\.[a-z]{2,}'
+
+# re.search() — find FIRST match anywhere in string
+match = re.search(email_pattern, text, re.IGNORECASE)
+if match:
+    print(match.group())   # support@example.com
+    print(match.start())   # 14 (start position)
+
+# re.findall() — find ALL matches (returns list of strings)
+emails = re.findall(email_pattern, text, re.IGNORECASE)
+print(emails)  # ['support@example.com', 'sales@company.org']
+
+# re.finditer() — find ALL matches (returns iterator of match objects)
+for m in re.finditer(email_pattern, text, re.IGNORECASE):
+    print(f"Found '{m.group()}' at position {m.start()}")
+
+# re.sub() — substitute (like JS replace)
+sanitized = re.sub(email_pattern, "[EMAIL]", text, flags=re.IGNORECASE)
+print(sanitized)
+
+# Named capture groups with (?P<name>...)
+date_pattern = r'(?P<year>\d{4})-(?P<month>\d{2})-(?P<day>\d{2})'
+m = re.match(date_pattern, "2024-03-15")
+if m:
+    print(m.group('year'))   # 2024
+    print(m.group('month'))  # 03
+    print(m.groupdict())     # {'year': '2024', 'month': '03', 'day': '15'}
+
+# re.split() — split with regex
+parts = re.split(r'\d', "one1two2three")
+print(parts)  # ['one', 'two', 'three']
+
+# Compile for reuse (performance optimization)
+compiled = re.compile(email_pattern, re.IGNORECASE)
+print(compiled.findall(text))
+```
+</UniversalEditor>
+
+---
+
+## 5. itertools Module
+
+`itertools` provides a collection of fast, memory-efficient tools for working with iterables. Most operations are lazy (generator-based), making them ideal for large datasets.
+
+<UniversalEditor title="itertools vs Manual JavaScript Equivalents">
+```javascript !! js
+// JavaScript: manual implementations of itertools patterns
+
+// chain — flatten multiple arrays
+const arr1 = [1, 2, 3];
+const arr2 = [4, 5, 6];
+const arr3 = [7, 8, 9];
+const chained = [...arr1, ...arr2, ...arr3];
+console.log(chained);  // [1,2,3,4,5,6,7,8,9]
+
+// zip — pair elements from two arrays
+function* zip(a, b) {
+  const len = Math.min(a.length, b.length);
+  for (let i = 0; i < len; i++) yield [a[i], b[i]];
+}
+const names = ['Alice', 'Bob', 'Charlie'];
+const scores = [95, 87, 92];
+console.log([...zip(names, scores)]);
+
+// combinations — no built-in
+function* combinations(arr, r) {
+  if (r === 1) { for (const x of arr) yield [x]; return; }
+  for (let i = 0; i <= arr.length - r; i++) {
+    for (const rest of combinations(arr.slice(i + 1), r - 1)) {
+      yield [arr[i], ...rest];
+    }
+  }
+}
+console.log([...combinations([1,2,3,4], 2)]);
+
+// islice — take N items
+function* islice(iter, n) {
+  let count = 0;
+  for (const item of iter) {
+    if (count++ >= n) break;
+    yield item;
+  }
+}
+```
+
+```python !! py
+# Python: itertools module (all lazy/generator-based)
+import itertools
+
+# chain — iterate multiple iterables sequentially (lazy)
+arr1 = [1, 2, 3]
+arr2 = [4, 5, 6]
+arr3 = [7, 8, 9]
+chained = list(itertools.chain(arr1, arr2, arr3))
+print(chained)  # [1, 2, 3, 4, 5, 6, 7, 8, 9]
+
+# zip is a Python built-in (not in itertools)
+names = ['Alice', 'Bob', 'Charlie']
+scores = [95, 87, 92]
+pairs = list(zip(names, scores))
+print(pairs)  # [('Alice', 95), ('Bob', 87), ('Charlie', 92)]
+
+# combinations — n-choose-r combinations
+combos = list(itertools.combinations([1, 2, 3, 4], 2))
+print(combos)  # [(1,2),(1,3),(1,4),(2,3),(2,4),(3,4)]
+
+# permutations — all orderings
+perms = list(itertools.permutations('ABC', 2))
+print(perms)  # [('A','B'),('A','C'),('B','A'),('B','C'),('C','A'),('C','B')]
+
+# product — Cartesian product (like nested for loops)
+colors = ['red', 'blue']
+sizes = ['S', 'M', 'L']
+variants = list(itertools.product(colors, sizes))
+print(variants)
+
+# islice — take a slice from any iterator (lazy)
+natural_numbers = itertools.count(1)  # infinite: 1, 2, 3, ...
+first_ten = list(itertools.islice(natural_numbers, 10))
+print(first_ten)  # [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+
+# groupby — group consecutive elements by key
+data = [
+    {"dept": "eng", "name": "Alice"},
+    {"dept": "eng", "name": "Bob"},
+    {"dept": "hr", "name": "Carol"},
+]
+data.sort(key=lambda x: x["dept"])  # Must sort first!
+for dept, members in itertools.groupby(data, key=lambda x: x["dept"]):
+    print(f"{dept}: {[m['name'] for m in members]}")
+```
+</UniversalEditor>
+
+---
+
+## 6. functools Module
+
+`functools` provides higher-order functions and utilities for working with functions as first-class objects.
+
+<UniversalEditor title="functools: partial, reduce, lru_cache">
+```javascript !! js
+// JavaScript: manual functional utilities
+
+// partial — bind some arguments
+function multiply(a, b) { return a * b; }
+const double = multiply.bind(null, 2);
+const triple = multiply.bind(null, 3);
+console.log(double(5));  // 10
+console.log(triple(5));  // 15
+
+// reduce — JS Array.reduce()
+const numbers = [1, 2, 3, 4, 5];
+const sum = numbers.reduce((acc, n) => acc + n, 0);
+const product = numbers.reduce((acc, n) => acc * n, 1);
+console.log(sum);      // 15
+console.log(product);  // 120
+
+// memoization — must implement manually
+function memoize(fn) {
+  const cache = new Map();
+  return function(...args) {
+    const key = JSON.stringify(args);
+    if (cache.has(key)) {
+      console.log(`Cache hit for ${key}`);
+      return cache.get(key);
+    }
+    const result = fn.apply(this, args);
+    cache.set(key, result);
+    return result;
+  };
+}
+
+function slowFib(n) {
+  if (n <= 1) return n;
+  return slowFib(n - 1) + slowFib(n - 2);
+}
+
+const fastFib = memoize(slowFib);
+console.log(fastFib(10));
+```
+
+```python !! py
+# Python: functools module
+import functools
+
+# partial — create new function with pre-filled arguments
+def multiply(a, b):
+    return a * b
+
+double = functools.partial(multiply, 2)
+triple = functools.partial(multiply, 3)
+print(double(5))  # 10
+print(triple(5))  # 15
+
+# Partial with keyword arguments
+def greet(name, greeting="Hello", punctuation="!"):
+    return f"{greeting}, {name}{punctuation}"
+
+formal_greet = functools.partial(greet, greeting="Good day", punctuation=".")
+print(formal_greet("Alice"))  # Good day, Alice.
+
+# reduce — applies function cumulatively
+numbers = [1, 2, 3, 4, 5]
+total = functools.reduce(lambda acc, n: acc + n, numbers, 0)
+product = functools.reduce(lambda acc, n: acc * n, numbers, 1)
+print(total)    # 15
+print(product)  # 120
+
+# lru_cache — automatic memoization decorator
+@functools.lru_cache(maxsize=None)  # None = unlimited cache size
+def fib(n):
+    if n <= 1:
+        return n
+    return fib(n - 1) + fib(n - 2)
+
+# Extremely fast even for large n, thanks to caching
+print(fib(50))      # 12586269025
+print(fib.cache_info())  # hits, misses, maxsize, currsize
+
+# @cache (Python 3.9+) — shorthand for lru_cache(maxsize=None)
+@functools.cache
+def factorial(n):
+    return n * factorial(n - 1) if n > 0 else 1
+
+print(factorial(10))  # 3628800
+
+# total_ordering — fill in comparison methods
+@functools.total_ordering
+class Version:
+    def __init__(self, major, minor):
+        self.major = major
+        self.minor = minor
+
+    def __eq__(self, other):
+        return (self.major, self.minor) == (other.major, other.minor)
+
+    def __lt__(self, other):
+        return (self.major, self.minor) < (other.major, other.minor)
+    # total_ordering auto-generates >, >=, <=
+
+v1 = Version(1, 0)
+v2 = Version(2, 3)
+print(v1 < v2)   # True
+print(v1 >= v2)  # False (auto-generated)
+```
+</UniversalEditor>
+
+---
+
+## 7. sys and os.environ
+
+For reading command-line arguments and environment variables, Python uses `sys.argv` and `os.environ` — the equivalent of Node.js's `process.argv` and `process.env`.
+
+<UniversalEditor title="sys and os.environ vs Node.js process">
+```javascript !! js
+// Node.js: process object
+
+// Command-line arguments
+// process.argv = ['node', 'script.js', 'arg1', 'arg2']
+const args = process.argv.slice(2);  // Skip 'node' and script name
+console.log(args);
+
+// Parse named arguments
+const argsMap = {};
+for (let i = 0; i < args.length; i++) {
+  if (args[i].startsWith('--')) {
+    const key = args[i].slice(2);
+    argsMap[key] = args[i + 1] || true;
+    i++;
+  }
+}
+console.log(argsMap);
+
+// Environment variables
+const dbUrl = process.env.DATABASE_URL || 'sqlite://localhost/dev.db';
+const port = parseInt(process.env.PORT || '3000', 10);
+const debug = process.env.NODE_ENV === 'development';
+
+console.log(`DB: ${dbUrl}`);
+console.log(`Port: ${port}`);
+console.log(`Debug: ${debug}`);
+
+// Exit with code
+if (!process.env.SECRET_KEY) {
+  console.error("ERROR: SECRET_KEY is required");
+  process.exit(1);
+}
+```
+
+```python !! py
+# Python: sys and os modules
+import sys
+import os
+
+# Command-line arguments
+# sys.argv = ['script.py', 'arg1', 'arg2']
+args = sys.argv[1:]  # Skip script name
+print(args)
+
+# For production argument parsing, use argparse
+import argparse
+
+parser = argparse.ArgumentParser(description="My CLI tool")
+parser.add_argument("--output", "-o", default="result.txt", help="Output file")
+parser.add_argument("--verbose", "-v", action="store_true", help="Verbose mode")
+parser.add_argument("input", nargs="?", default="-", help="Input file or stdin")
+
+# parsed = parser.parse_args()  # Reads sys.argv in real usage
+# Demo with explicit args:
+parsed = parser.parse_args(["--output", "out.txt", "--verbose", "data.csv"])
+print(f"Input: {parsed.input}")
+print(f"Output: {parsed.output}")
+print(f"Verbose: {parsed.verbose}")
+
+# Environment variables
+db_url = os.environ.get("DATABASE_URL", "sqlite:///dev.db")
+port = int(os.environ.get("PORT", "3000"))
+debug = os.environ.get("PYTHON_ENV", "production") == "development"
+
+print(f"DB: {db_url}")
+print(f"Port: {port}")
+print(f"Debug: {debug}")
+
+# Check required variables
+required = ["SECRET_KEY", "DATABASE_URL"]
+missing = [var for var in required if not os.environ.get(var)]
+if missing:
+    print(f"ERROR: Required env vars missing: {missing}", file=sys.stderr)
+    sys.exit(1)
+
+# Python version and platform info
+print(f"Python {sys.version}")
+print(f"Platform: {sys.platform}")
+print(f"Executable: {sys.executable}")
+```
+</UniversalEditor>
+
+---
+
+## 8. collections Module
+
+The `collections` module provides specialized container data types that are frequently needed.
+
+<UniversalEditor title="collections: Counter, defaultdict, namedtuple">
+```javascript !! js
+// JavaScript: manual implementations of collections patterns
+
+// Counter — count occurrences
+const words = ["apple", "banana", "apple", "cherry", "banana", "apple"];
+const counter = {};
+for (const word of words) {
+  counter[word] = (counter[word] || 0) + 1;
+}
+// Sort by count
+const sorted = Object.entries(counter)
+  .sort(([,a], [,b]) => b - a);
+console.log(sorted);  // [['apple', 3], ['banana', 2], ['cherry', 1]]
+
+// defaultdict — auto-initialize missing keys
+const groups = {};
+const people = [
+  { name: 'Alice', dept: 'eng' },
+  { name: 'Bob', dept: 'hr' },
+  { name: 'Charlie', dept: 'eng' },
+];
+for (const person of people) {
+  if (!groups[person.dept]) groups[person.dept] = [];
+  groups[person.dept].push(person.name);
+}
+console.log(groups);
+
+// namedtuple — no direct equivalent, use class or object destructuring
+function Point(x, y) { return { x, y }; }
+const p = Point(3, 4);
+console.log(`(${p.x}, ${p.y})`);
+```
+
+```python !! py
+# Python: collections module
+from collections import Counter, defaultdict, namedtuple, deque
+
+# Counter — count occurrences automatically
+words = ["apple", "banana", "apple", "cherry", "banana", "apple"]
+counter = Counter(words)
+print(counter)             # Counter({'apple': 3, 'banana': 2, 'cherry': 1})
+print(counter["apple"])    # 3
+print(counter["missing"])  # 0 (no KeyError!)
+
+# Most common elements
+print(counter.most_common(2))  # [('apple', 3), ('banana', 2)]
+
+# Counter arithmetic
+c1 = Counter(["a", "b", "a", "c"])
+c2 = Counter(["a", "b", "b", "d"])
+print(c1 + c2)   # Counter({'a': 3, 'b': 3, 'c': 1, 'd': 1})
+print(c1 - c2)   # Counter({'a': 1, 'c': 1})
+
+# defaultdict — auto-create missing keys
+groups = defaultdict(list)  # Default value is an empty list
+people = [
+    ("Alice", "eng"),
+    ("Bob", "hr"),
+    ("Charlie", "eng"),
+]
+for name, dept in people:
+    groups[dept].append(name)  # No need to check if key exists!
+print(dict(groups))  # {'eng': ['Alice', 'Charlie'], 'hr': ['Bob']}
+
+# namedtuple — immutable, named tuple (lightweight class-like)
+Point = namedtuple('Point', ['x', 'y'])
+p = Point(3, 4)
+print(p.x, p.y)    # 3 4
+print(p)           # Point(x=3, y=4)
+# Also accessible by index like a regular tuple
+print(p[0], p[1])  # 3 4
+
+# deque — double-ended queue (efficient insert/delete from both ends)
+dq = deque([1, 2, 3])
+dq.appendleft(0)   # Add to left: [0, 1, 2, 3]
+dq.append(4)       # Add to right: [0, 1, 2, 3, 4]
+dq.popleft()       # Remove from left: 0
+print(dq)          # deque([1, 2, 3, 4])
+
+# deque with maxlen — sliding window
+recent = deque(maxlen=3)
+for i in range(6):
+    recent.append(i)
+    print(list(recent))  # Only keeps last 3
+```
+</UniversalEditor>
+
+---
+
+## Summary Table
+
+| Task | JavaScript (Node.js) | Python |
+|---|---|---|
+| Path join | `path.join(a, b)` | `Path(a) / b` or `os.path.join(a, b)` |
+| File exists | `fs.existsSync(p)` | `Path(p).exists()` |
+| Read file | `fs.readFileSync(p, 'utf8')` | `Path(p).read_text()` |
+| Write file | `fs.writeFileSync(p, data)` | `Path(p).write_text(data)` |
+| List dir | `fs.readdirSync(dir)` | `Path(dir).iterdir()` |
+| Current date | `new Date()` | `date.today()` / `datetime.now()` |
+| Date diff | `(d1 - d2) / 86400000` days | `(d1 - d2).days` |
+| Format date | `Intl.DateTimeFormat` | `dt.strftime("%Y-%m-%d")` |
+| JSON stringify | `JSON.stringify(obj, null, 2)` | `json.dumps(obj, indent=2)` |
+| JSON parse | `JSON.parse(str)` | `json.loads(str)` |
+| Regex test | `/pattern/.test(str)` | `bool(re.search(pattern, str))` |
+| Regex find all | `str.match(/pattern/g)` | `re.findall(pattern, str)` |
+| Regex replace | `str.replace(/pattern/g, sub)` | `re.sub(pattern, sub, str)` |
+| Flatten iterables | `[...a, ...b, ...c]` | `itertools.chain(a, b, c)` |
+| Combinations | manual | `itertools.combinations(arr, r)` |
+| Partial apply | `fn.bind(null, arg)` | `functools.partial(fn, arg)` |
+| Memoize | manual `Map` cache | `@functools.lru_cache` |
+| Count items | `reduce` into object | `Counter(iterable)` |
+| Default dict | `obj[k] = obj[k] \|\| []` | `defaultdict(list)` |
+| Command args | `process.argv.slice(2)` | `sys.argv[1:]` or `argparse` |
+| Env variables | `process.env.VAR` | `os.environ.get('VAR')` |
+
+---
+
+## Exercises
+
+### Exercise 1: Directory Statistics
+
+Write a function `dir_stats(path)` using `pathlib` that returns a dict with:
+- `total_files`: count of all files (recursive)
+- `total_dirs`: count of all directories (recursive)
+- `total_size_kb`: total size of all files in KB
+- `by_extension`: a `Counter` of file extensions
+
+<details>
+<summary>Show Answer</summary>
+
+```python
+from pathlib import Path
+from collections import Counter
+
+def dir_stats(path):
+    """Recursively gather statistics about a directory."""
+    root = Path(path)
+    if not root.exists():
+        raise FileNotFoundError(f"Path not found: {path}")
+    if not root.is_dir():
+        raise NotADirectoryError(f"Not a directory: {path}")
+
+    total_files = 0
+    total_dirs = 0
+    total_bytes = 0
+    by_extension = Counter()
+
+    for item in root.rglob('*'):  # rglob = recursive glob
+        if item.is_file():
+            total_files += 1
+            total_bytes += item.stat().st_size
+            ext = item.suffix.lower() or '(no extension)'
+            by_extension[ext] += 1
+        elif item.is_dir():
+            total_dirs += 1
+
+    return {
+        "total_files": total_files,
+        "total_dirs": total_dirs,
+        "total_size_kb": round(total_bytes / 1024, 2),
+        "by_extension": dict(by_extension.most_common()),
+    }
+
+# Test with a temp directory structure
+import tempfile, os
+
+with tempfile.TemporaryDirectory() as tmp:
+    tmp_path = Path(tmp)
+    # Create some files
+    (tmp_path / "readme.txt").write_text("Hello")
+    (tmp_path / "data.json").write_text('{"key": "value"}')
+    sub = tmp_path / "subdir"
+    sub.mkdir()
+    (sub / "script.py").write_text("print('hi')")
+    (sub / "notes.txt").write_text("notes here")
+
+    stats = dir_stats(tmp)
+    for key, value in stats.items():
+        print(f"{key}: {value}")
+```
+
+</details>
+
+---
+
+### Exercise 2: Log Parser
+
+Given a list of log lines in the format `"2024-03-15 10:30:45 ERROR Database connection failed"`, write a function `parse_logs(lines)` that:
+- Uses `re` to extract: date, time, level, message
+- Returns a list of dicts
+- Groups logs by level using `collections.defaultdict`
+
+<details>
+<summary>Show Answer</summary>
+
+```python
+import re
+from collections import defaultdict
+
+LOG_PATTERN = re.compile(
+    r'(?P<date>\d{4}-\d{2}-\d{2})\s+'
+    r'(?P<time>\d{2}:\d{2}:\d{2})\s+'
+    r'(?P<level>[A-Z]+)\s+'
+    r'(?P<message>.+)'
+)
+
+def parse_logs(lines):
+    """Parse log lines and group them by level."""
+    parsed = []
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        match = LOG_PATTERN.match(line)
+        if match:
+            parsed.append(match.groupdict())
+        else:
+            print(f"Warning: Could not parse: {line!r}")
+
+    # Group by level
+    by_level = defaultdict(list)
+    for entry in parsed:
+        by_level[entry["level"]].append(entry)
+
+    return parsed, dict(by_level)
+
+# Test
+sample_logs = [
+    "2024-03-15 10:30:45 INFO  Server started on port 8080",
+    "2024-03-15 10:31:02 DEBUG Processing request from 192.168.1.1",
+    "2024-03-15 10:31:15 ERROR Database connection failed",
+    "2024-03-15 10:31:16 ERROR Retry attempt 1 of 3",
+    "2024-03-15 10:31:30 WARN  Response time exceeded 2000ms",
+    "2024-03-15 10:32:00 INFO  Request completed successfully",
+    "invalid log line",
+]
+
+entries, grouped = parse_logs(sample_logs)
+
+print(f"Total entries: {len(entries)}")
+for level, items in sorted(grouped.items()):
+    print(f"\n{level} ({len(items)}):")
+    for item in items:
+        print(f"  [{item['time']}] {item['message']}")
+```
+
+</details>
+
+---
+
+### Exercise 3: Memoized Fibonacci with functools
+
+Using `functools.lru_cache` and `itertools.islice`, write a generator that yields Fibonacci numbers and a function that returns the first `n` Fibonacci numbers efficiently. Also show cache statistics.
+
+<details>
+<summary>Show Answer</summary>
+
+```python
+import functools
+import itertools
+
+@functools.lru_cache(maxsize=None)
+def fib(n):
+    """Memoized Fibonacci — O(n) total work, O(n) cache."""
+    if n < 2:
+        return n
+    return fib(n - 1) + fib(n - 2)
+
+def fib_sequence(n):
+    """Return the first n Fibonacci numbers."""
+    return [fib(i) for i in range(n)]
+
+def fib_generator():
+    """Infinite lazy generator of Fibonacci numbers."""
+    a, b = 0, 1
+    while True:
+        yield a
+        a, b = b, a + b
+
+def first_fibs_above(threshold):
+    """Return first Fibonacci number exceeding threshold."""
+    gen = fib_generator()
+    return next(x for x in gen if x > threshold)
+
+# Test
+print("First 15 Fibonacci numbers:")
+print(fib_sequence(15))
+
+print("\nFib cache after computing fib(14):")
+print(fib.cache_info())
+
+# Using islice with the infinite generator
+gen = fib_generator()
+first_20 = list(itertools.islice(gen, 20))
+print(f"\nFirst 20 via generator: {first_20}")
+
+# First Fibonacci number exceeding 1000
+result = first_fibs_above(1000)
+print(f"\nFirst Fibonacci > 1000: {result}")
+
+# Sum of even Fibonacci numbers up to 4 million (Project Euler #2)
+gen = fib_generator()
+even_fibs = itertools.takewhile(
+    lambda x: x <= 4_000_000,
+    (x for x in fib_generator() if x % 2 == 0)
+)
+print(f"Sum of even Fibs ≤ 4M: {sum(even_fibs)}")
+```
+
+</details>

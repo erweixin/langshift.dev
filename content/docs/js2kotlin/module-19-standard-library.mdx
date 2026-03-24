@@ -1,0 +1,891 @@
+---
+title: "Module 19: Kotlin Standard Library"
+description: "Tour Kotlin's rich standard library: string operations, file I/O, Date/Time with kotlinx-datetime, regular expressions, and extension functions for collections."
+---
+
+# Module 19: Kotlin Standard Library
+
+Welcome to Module 19 of the JavaScript to Kotlin conversion course! This module surveys Kotlin's standard library — the built-in utilities that save you from reinventing the wheel. We compare them side-by-side with the JavaScript/Node.js equivalents you already know, so you can hit the ground running.
+
+## Learning Objectives
+
+By the end of this module, you will be able to:
+
+- ✅ Use Kotlin string templates, multiline strings, and the full set of `String` utility functions
+- ✅ Read and write files using `java.io.File` extension functions (`readText`, `writeText`, `readLines`)
+- ✅ Work with dates and times using the `kotlinx-datetime` library
+- ✅ Apply the `Regex` class for pattern matching, searching, and replacing text
+- ✅ Use `kotlin.math` functions and understand `BigDecimal` for precise arithmetic
+- ✅ Write and apply extension functions on standard Kotlin types
+
+---
+
+## 1. String Operations
+
+Kotlin strings are feature-rich. String templates replace concatenation, multiline strings avoid escape hell, and dozens of built-in extensions cover most common manipulations.
+
+<UniversalEditor title="String Templates and Multiline Strings" compare={true}>
+```javascript !! js
+// JavaScript template literals
+const name = "Alice";
+const age = 30;
+const greeting = `Hello, ${name}! You are ${age} years old.`;
+console.log(greeting);
+// Hello, Alice! You are 30 years old.
+
+// Expression in template
+const price = 9.99;
+const tax = 0.1;
+const receipt = `Total: $${(price * (1 + tax)).toFixed(2)}`;
+console.log(receipt); // Total: $10.99
+
+// Multiline strings
+const html = `
+  <div>
+    <h1>${name}</h1>
+    <p>Age: ${age}</p>
+  </div>
+`.trim();
+console.log(html);
+
+// String methods
+const str = "  Hello, World!  ";
+console.log(str.trim());           // "Hello, World!"
+console.log(str.trim().toLowerCase()); // "hello, world!"
+console.log("hello".includes("ell")); // true
+console.log("hello".startsWith("he")); // true
+console.log("hello".repeat(3));    // "hellohellohello"
+console.log("a,b,c".split(","));   // ["a", "b", "c"]
+console.log("hello".replace("l", "L")); // "heLlo" (first only)
+console.log("hello".replaceAll("l", "L")); // "heLLo"
+```
+
+```kotlin !! kotlin
+// Kotlin string templates — same idea, cleaner syntax
+val name = "Alice"
+val age = 30
+val greeting = "Hello, $name! You are $age years old."
+println(greeting)
+// Hello, Alice! You are 30 years old.
+
+// Expressions use ${...}
+val price = 9.99
+val tax = 0.1
+val receipt = "Total: ${"%.2f".format(price * (1 + tax))}"
+println(receipt) // Total: $10.99
+
+// Multiline strings with trimIndent() — removes common leading whitespace
+val html = """
+    <div>
+        <h1>$name</h1>
+        <p>Age: $age</p>
+    </div>
+""".trimIndent()
+println(html)
+
+// String utility functions
+val str = "  Hello, World!  "
+println(str.trim())               // "Hello, World!"
+println(str.trim().lowercase())   // "hello, world!"
+println("hello".contains("ell")) // true
+println("hello".startsWith("he")) // true
+println("hello".repeat(3))       // "hellohellohello"
+println("a,b,c".split(","))      // [a, b, c]
+println("hello".replace("l", "L"))  // heLLo (ALL occurrences!)
+println("hello".replaceFirst("l", "L")) // heLlo (first only)
+
+// Useful extras not in JS
+println("hello".reversed())      // "olleh"
+println("hello".capitalize())    // "Hello" (deprecated → replaceFirstChar)
+println("  ".isBlank())          // true
+println("hello".padStart(10, '*'))  // "*****hello"
+println("hello".padEnd(10, '-'))    // "hello-----"
+```
+</UniversalEditor>
+
+<UniversalEditor title="String Processing Functions" compare={true}>
+```javascript !! js
+// JavaScript string processing
+const sentence = "the quick brown fox jumps over the lazy dog";
+
+// Count occurrences
+const count = sentence.split("the").length - 1;
+console.log(`"the" appears ${count} times`); // 2 times
+
+// Extract words
+const words = sentence.split(" ");
+console.log(`Word count: ${words.length}`); // 9
+
+// Find longest word
+const longest = words.reduce((a, b) => a.length >= b.length ? a : b);
+console.log(`Longest word: ${longest}`); // "jumps" or "brown" etc.
+
+// Title case
+const titleCase = sentence
+  .split(" ")
+  .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+  .join(" ");
+console.log(titleCase);
+// The Quick Brown Fox Jumps Over The Lazy Dog
+
+// Check if palindrome
+function isPalindrome(str) {
+  const clean = str.toLowerCase().replace(/[^a-z0-9]/g, '');
+  return clean === clean.split('').reverse().join('');
+}
+console.log(isPalindrome("A man a plan a canal Panama")); // true
+```
+
+```kotlin !! kotlin
+// Kotlin string processing
+val sentence = "the quick brown fox jumps over the lazy dog"
+
+// Count occurrences
+val count = sentence.split("the").size - 1
+println("\"the\" appears $count times") // 2 times
+
+// Extract words
+val words = sentence.split(" ")
+println("Word count: ${words.size}") // 9
+
+// Find longest word
+val longest = words.maxByOrNull { it.length } ?: ""
+println("Longest word: $longest") // jumps
+
+// Title case
+val titleCase = words.joinToString(" ") { word ->
+    word.replaceFirstChar { it.uppercase() }
+}
+println(titleCase)
+// The Quick Brown Fox Jumps Over The Lazy Dog
+
+// Check if palindrome
+fun isPalindrome(str: String): Boolean {
+    val clean = str.lowercase().filter { it.isLetterOrDigit() }
+    return clean == clean.reversed()
+}
+println(isPalindrome("A man a plan a canal Panama")) // true
+
+// Kotlin-specific: chunked, windowed, lines
+val chunked = "abcdefgh".chunked(3)
+println(chunked) // [abc, def, gh]
+
+val windowed = listOf(1, 2, 3, 4, 5).windowed(3)
+println(windowed) // [[1, 2, 3], [2, 3, 4], [3, 4, 5]]
+
+val multiline = "line1\nline2\nline3"
+println(multiline.lines()) // [line1, line2, line3]
+```
+</UniversalEditor>
+
+---
+
+## 2. File I/O
+
+Kotlin runs on the JVM and ships extension functions on `java.io.File` that make file operations as concise as Node.js.
+
+<UniversalEditor title="File Reading and Writing" compare={true}>
+```javascript !! js
+// Node.js file operations
+const fs = require('fs');
+const path = require('path');
+
+// Read entire file as string
+const content = fs.readFileSync('data.txt', 'utf-8');
+console.log(content);
+
+// Read file as lines
+const lines = fs.readFileSync('data.txt', 'utf-8').split('\n');
+lines.forEach((line, i) => console.log(`${i + 1}: ${line}`));
+
+// Write file
+fs.writeFileSync('output.txt', 'Hello, file!\n', 'utf-8');
+
+// Append to file
+fs.appendFileSync('output.txt', 'Second line\n', 'utf-8');
+
+// Check if file exists
+const exists = fs.existsSync('data.txt');
+console.log(`Exists: ${exists}`);
+
+// List directory contents
+const files = fs.readdirSync('.');
+console.log(files.filter(f => f.endsWith('.txt')));
+
+// Async version (with promises)
+async function readFileAsync(filePath) {
+  const { readFile } = require('fs/promises');
+  try {
+    return await readFile(filePath, 'utf-8');
+  } catch (e) {
+    console.error(`Failed to read ${filePath}:`, e.message);
+    return null;
+  }
+}
+```
+
+```kotlin !! kotlin
+// Kotlin file operations using java.io.File extensions
+import java.io.File
+
+fun main() {
+    // Read entire file as string
+    val content = File("data.txt").readText()
+    println(content)
+
+    // Read file as lines (List<String>)
+    val lines = File("data.txt").readLines()
+    lines.forEachIndexed { i, line -> println("${i + 1}: $line") }
+
+    // Write file (overwrites)
+    File("output.txt").writeText("Hello, file!\n")
+
+    // Append to file
+    File("output.txt").appendText("Second line\n")
+
+    // Check if file exists
+    val exists = File("data.txt").exists()
+    println("Exists: $exists")
+
+    // List directory contents
+    val txtFiles = File(".").listFiles { f -> f.extension == "txt" }
+    println(txtFiles?.map { it.name })
+
+    // Read/write with buffered reader/writer
+    File("large.txt").bufferedReader().use { reader ->
+        reader.forEachLine { line ->
+            println(line)
+        }
+    } // Automatically closes the reader
+
+    // forEachLine — memory-efficient for large files
+    File("data.txt").forEachLine { line ->
+        if (line.isNotBlank()) println(line.trim())
+    }
+
+    // Safe read with runCatching
+    val safeContent = runCatching { File("maybe-missing.txt").readText() }
+        .getOrElse { "File not found" }
+    println(safeContent)
+}
+```
+</UniversalEditor>
+
+---
+
+## 3. Date and Time
+
+JavaScript's built-in `Date` is notoriously awkward. Kotlin's modern approach uses the `kotlinx-datetime` multiplatform library, which provides immutable, timezone-aware types similar to Java's `java.time`.
+
+<UniversalEditor title="Date and Time Operations" compare={true}>
+```javascript !! js
+// JavaScript Date (built-in but limited)
+const now = new Date();
+console.log(now.toISOString()); // 2026-03-24T10:30:00.000Z
+
+// Creating specific dates
+const birthday = new Date('1995-06-15');
+console.log(birthday.getFullYear()); // 1995
+console.log(birthday.getMonth() + 1); // 6 (month is 0-indexed!)
+console.log(birthday.getDate());    // 15
+
+// Date arithmetic
+const tomorrow = new Date(now);
+tomorrow.setDate(tomorrow.getDate() + 1);
+console.log(tomorrow.toDateString());
+
+// Difference between dates
+const start = new Date('2026-01-01');
+const end   = new Date('2026-12-31');
+const diffMs = end - start;
+const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+console.log(`Days in 2026: ${diffDays}`); // 364
+
+// Formatting (no built-in format — use Intl or libraries)
+const formatter = new Intl.DateTimeFormat('en-US', {
+  year: 'numeric', month: 'long', day: 'numeric'
+});
+console.log(formatter.format(now)); // March 24, 2026
+
+// Modern libraries (date-fns / Luxon / Temporal)
+// import { format, addDays } from 'date-fns';
+// console.log(format(now, 'yyyy-MM-dd'));
+// console.log(addDays(now, 7));
+```
+
+```kotlin !! kotlin
+// Kotlin kotlinx-datetime (add to build.gradle.kts):
+// implementation("org.jetbrains.kotlinx:kotlinx-datetime:0.6.1")
+import kotlinx.datetime.*
+
+fun main() {
+    // Current instant (UTC)
+    val now: Instant = Clock.System.now()
+    println(now) // 2026-03-24T10:30:00Z
+
+    // Local date (no time, no timezone)
+    val today: LocalDate = Clock.System.todayIn(TimeZone.currentSystemDefault())
+    println(today)              // 2026-03-24
+    println(today.year)         // 2026
+    println(today.monthNumber)  // 3 (1-indexed — no +1 trap!)
+    println(today.dayOfMonth)   // 24
+
+    // Create specific date
+    val birthday = LocalDate(1995, 6, 15)
+    println(birthday) // 1995-06-15
+
+    // Date arithmetic
+    val tomorrow = today.plus(1, DateTimeUnit.DAY)
+    val nextWeek = today.plus(DatePeriod(days = 7))
+    println(tomorrow) // 2026-03-25
+    println(nextWeek) // 2026-03-31
+
+    // Difference between dates
+    val start = LocalDate(2026, 1, 1)
+    val end   = LocalDate(2026, 12, 31)
+    val diff  = start.until(end, DateTimeUnit.DAY)
+    println("Days in 2026: $diff") // 364
+
+    // LocalDateTime — date + time, no timezone
+    val meeting = LocalDateTime(2026, 3, 25, 14, 30, 0)
+    println(meeting) // 2026-03-25T14:30
+
+    // Timezone-aware conversion
+    val tz = TimeZone.of("America/New_York")
+    val localNow = now.toLocalDateTime(tz)
+    println(localNow.hour) // local hour
+
+    // Parsing from string
+    val parsed = LocalDate.parse("2026-06-15")
+    println(parsed) // 2026-06-15
+}
+```
+</UniversalEditor>
+
+---
+
+## 4. Regular Expressions
+
+<UniversalEditor title="Regular Expressions" compare={true}>
+```javascript !! js
+// JavaScript RegExp
+const text = "Contact us at support@example.com or sales@company.org";
+
+// Test / match
+const emailRegex = /[\w.+-]+@[\w-]+\.[a-z]{2,}/gi;
+console.log(emailRegex.test(text));            // true
+console.log(text.match(emailRegex));           // ["support@example.com", "sales@company.org"]
+
+// Named groups
+const dateRegex = /(?<year>\d{4})-(?<month>\d{2})-(?<day>\d{2})/;
+const match = "2026-03-24".match(dateRegex);
+if (match) {
+  console.log(match.groups.year);   // 2026
+  console.log(match.groups.month);  // 03
+  console.log(match.groups.day);    // 24
+}
+
+// Replace
+const censored = text.replace(/[\w.+-]+@[\w-]+\.[a-z]{2,}/gi, '[EMAIL]');
+console.log(censored);
+// Contact us at [EMAIL] or [EMAIL]
+
+// Split by pattern
+const csv = "one, two ,  three , four";
+const items = csv.split(/\s*,\s*/);
+console.log(items); // ["one", "two", "three", "four"]
+
+// Global find all matches with details
+const allMatches = [...text.matchAll(emailRegex)];
+allMatches.forEach(m => console.log(`Found: ${m[0]} at index ${m.index}`));
+```
+
+```kotlin !! kotlin
+// Kotlin Regex class
+val text = "Contact us at support@example.com or sales@company.org"
+
+// Create regex (raw string avoids double-escaping)
+val emailRegex = Regex("""[\w.+-]+@[\w-]+\.[a-z]{2,}""", RegexOption.IGNORE_CASE)
+
+// containsMatchIn — like JS .test()
+println(emailRegex.containsMatchIn(text)) // true
+
+// findAll — all matches
+val emails = emailRegex.findAll(text).map { it.value }.toList()
+println(emails) // [support@example.com, sales@company.org]
+
+// Named groups
+val dateRegex = Regex("""(?<year>\d{4})-(?<month>\d{2})-(?<day>\d{2})""")
+val match = dateRegex.find("2026-03-24")
+if (match != null) {
+    println(match.groups["year"]?.value)   // 2026
+    println(match.groups["month"]?.value)  // 03
+    println(match.groups["day"]?.value)    // 24
+}
+
+// replace — replaces ALL occurrences
+val censored = emailRegex.replace(text, "[EMAIL]")
+println(censored)
+// Contact us at [EMAIL] or [EMAIL]
+
+// replaceFirst — replaces only the first
+val firstOnly = emailRegex.replaceFirst(text, "[REDACTED]")
+println(firstOnly)
+// Contact us at [REDACTED] or sales@company.org
+
+// split by pattern
+val csv = "one, two ,  three , four"
+val items = Regex("""\s*,\s*""").split(csv)
+println(items) // [one, two, three, four]
+
+// find with range info
+emailRegex.findAll(text).forEach { m ->
+    println("Found: ${m.value} at range ${m.range}")
+}
+
+// matchEntire — entire string must match
+val fullMatch = Regex("""\d{4}-\d{2}-\d{2}""").matchEntire("2026-03-24")
+println(fullMatch?.value) // 2026-03-24
+```
+</UniversalEditor>
+
+---
+
+## 5. Math and Numbers
+
+<UniversalEditor title="Math Functions and Number Types" compare={true}>
+```javascript !! js
+// JavaScript Math object
+console.log(Math.abs(-42));        // 42
+console.log(Math.sqrt(16));        // 4
+console.log(Math.pow(2, 10));      // 1024
+console.log(Math.floor(3.7));      // 3
+console.log(Math.ceil(3.2));       // 4
+console.log(Math.round(3.5));      // 4
+console.log(Math.min(3, 1, 4));    // 1
+console.log(Math.max(3, 1, 4));    // 4
+console.log(Math.log(Math.E));     // 1
+console.log(Math.log2(8));         // 3
+console.log(Math.PI);              // 3.141592653589793
+
+// Random
+console.log(Math.random());                    // [0, 1)
+console.log(Math.floor(Math.random() * 6) + 1); // dice roll 1-6
+
+// Floating point precision issues
+console.log(0.1 + 0.2);           // 0.30000000000000004
+console.log(0.1 + 0.2 === 0.3);   // false
+
+// BigInt for large integers
+const big = 9007199254740993n;
+console.log(big + 1n); // 9007199254740994n
+
+// Number utilities
+console.log(Number.isInteger(3.0));    // true
+console.log(Number.isFinite(Infinity)); // false
+console.log(Number.isNaN(NaN));        // true
+console.log((3.14159).toFixed(2));     // "3.14"
+```
+
+```kotlin !! kotlin
+// Kotlin kotlin.math functions
+import kotlin.math.*
+
+fun main() {
+    println(abs(-42))         // 42
+    println(sqrt(16.0))       // 4.0
+    println(2.0.pow(10))      // 1024.0
+    println(floor(3.7))       // 3.0
+    println(ceil(3.2))        // 4.0
+    println(round(3.5))       // 4  (returns Long from kotlin.math.round)
+    println(min(3, 1))        // 1
+    println(max(3, 1))        // 3
+    println(ln(E))            // 1.0
+    println(log2(8.0))        // 3.0
+    println(PI)               // 3.141592653589793
+
+    // Random (kotlin.random.Random)
+    import kotlin.random.Random
+    println(Random.nextDouble())        // [0.0, 1.0)
+    println(Random.nextInt(1, 7))       // dice roll 1-6
+    println(Random.nextInt(100))        // 0..99
+    println(listOf(1,2,3,4,5).random()) // random element
+
+    // Floating point precision: same issue as JS
+    println(0.1 + 0.2)        // 0.30000000000000004
+
+    // BigDecimal for precise arithmetic (java.math)
+    import java.math.BigDecimal
+    import java.math.RoundingMode
+
+    val a = BigDecimal("0.1")
+    val b = BigDecimal("0.2")
+    println(a + b)            // 0.3 — exact!
+    println((a + b).setScale(2, RoundingMode.HALF_UP)) // 0.30
+
+    // Number utilities
+    println(3.0.toInt())       // 3
+    println(3.14.toInt())      // 3 (truncates)
+    println(Int.MAX_VALUE)     // 2147483647
+    println(Long.MAX_VALUE)    // 9223372036854775807
+    println(Double.isInfinite(1.0 / 0.0)) // true
+    println(Double.isNaN(0.0 / 0.0))      // true
+    println("%.2f".format(3.14159))        // "3.14"
+}
+```
+</UniversalEditor>
+
+---
+
+## 6. Extension Functions on Standard Types
+
+Kotlin's standard library itself is built on extension functions — and you can add your own to any class, even ones you don't own.
+
+<UniversalEditor title="Built-in and Custom Extension Functions" compare={true}>
+```javascript !! js
+// JavaScript — prototype extension (considered bad practice for built-ins)
+// Usually done via utility functions or separate modules
+
+// Utility functions for strings (like a custom module)
+function capitalize(str) {
+  return str.charAt(0).toUpperCase() + str.slice(1);
+}
+
+function truncate(str, maxLength, suffix = '...') {
+  return str.length <= maxLength ? str : str.slice(0, maxLength) + suffix;
+}
+
+function toSlug(str) {
+  return str.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+}
+
+// Utility functions for arrays
+function sumBy(arr, fn) {
+  return arr.reduce((sum, item) => sum + fn(item), 0);
+}
+
+function groupBy(arr, keyFn) {
+  return arr.reduce((groups, item) => {
+    const key = keyFn(item);
+    (groups[key] = groups[key] || []).push(item);
+    return groups;
+  }, {});
+}
+
+const words = ['hello', 'world', 'kotlin', 'is', 'awesome'];
+console.log(words.map(capitalize));   // ['Hello', 'World', ...]
+console.log(truncate('Hello, World!', 8)); // 'Hello, W...'
+console.log(toSlug('Hello World! 2026')); // 'hello-world-2026'
+
+const people = [
+  { name: 'Alice', dept: 'Eng', salary: 90000 },
+  { name: 'Bob',   dept: 'Eng', salary: 85000 },
+  { name: 'Carol', dept: 'HR',  salary: 75000 },
+];
+console.log(sumBy(people, p => p.salary)); // 250000
+console.log(groupBy(people, p => p.dept));
+// { Eng: [...], HR: [...] }
+```
+
+```kotlin !! kotlin
+// Kotlin extension functions — add methods to ANY type
+// No modification of the original class needed
+
+// Extend String
+fun String.capitalize(): String =
+    replaceFirstChar { it.uppercase() }
+
+fun String.truncate(maxLength: Int, suffix: String = "..."): String =
+    if (length <= maxLength) this else take(maxLength) + suffix
+
+fun String.toSlug(): String =
+    lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-')
+
+// Extend List with domain-specific utilities
+data class Person(val name: String, val dept: String, val salary: Int)
+
+fun List<Person>.totalSalary(): Int = sumOf { it.salary }
+fun List<Person>.byDepartment(): Map<String, List<Person>> = groupBy { it.dept }
+fun List<Person>.averageSalary(): Double = map { it.salary.toDouble() }.average()
+
+// Extend Int / Long
+fun Int.factorial(): Long = (1..this).fold(1L) { acc, n -> acc * n }
+fun Int.isPrime(): Boolean = this > 1 && (2..sqrt(this.toDouble()).toInt()).none { this % it == 0 }
+
+// Extend collections
+fun <T> List<T>.secondOrNull(): T? = if (size >= 2) this[1] else null
+fun <T> List<T>.skipFirst(): List<T> = drop(1)
+
+fun main() {
+    // Using String extensions
+    val words = listOf("hello", "world", "kotlin", "is", "awesome")
+    println(words.map { it.capitalize() }) // [Hello, World, Kotlin, Is, Awesome]
+    println("Hello, World!".truncate(8))   // Hello, W...
+    println("Hello World! 2026".toSlug())  // hello-world-2026
+
+    // Using List<Person> extensions
+    val people = listOf(
+        Person("Alice", "Eng", 90000),
+        Person("Bob",   "Eng", 85000),
+        Person("Carol", "HR",  75000),
+    )
+    println(people.totalSalary())      // 250000
+    println(people.averageSalary())    // 83333.33...
+    println(people.byDepartment().keys) // [Eng, HR]
+
+    // Using Int extensions
+    println(5.factorial())    // 120
+    println(17.isPrime())     // true
+    println(18.isPrime())     // false
+
+    // Using collection extensions
+    val nums = listOf(10, 20, 30, 40)
+    println(nums.secondOrNull()) // 20
+    println(nums.skipFirst())    // [20, 30, 40]
+}
+```
+</UniversalEditor>
+
+---
+
+## 7. Collections: Built-in Power Functions
+
+<UniversalEditor title="Standard Library Collection Operations" compare={true}>
+```javascript !! js
+// JavaScript array operations
+const numbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+
+// Basic operations
+console.log(numbers.filter(n => n % 2 === 0));      // [2, 4, 6, 8, 10]
+console.log(numbers.map(n => n * n));                // [1, 4, 9, ...]
+console.log(numbers.reduce((a, b) => a + b, 0));     // 55
+console.log(numbers.find(n => n > 5));               // 6
+console.log(numbers.some(n => n > 9));               // true
+console.log(numbers.every(n => n > 0));              // true
+
+// Grouping and partitioning
+function partition(arr, predicate) {
+  return [arr.filter(predicate), arr.filter(x => !predicate(x))];
+}
+const [evens, odds] = partition(numbers, n => n % 2 === 0);
+console.log(evens); // [2, 4, 6, 8, 10]
+console.log(odds);  // [1, 3, 5, 7, 9]
+
+// flatMap
+const sentences = ["hello world", "foo bar baz"];
+const allWords = sentences.flatMap(s => s.split(" "));
+console.log(allWords); // ["hello", "world", "foo", "bar", "baz"]
+
+// zip
+const names = ["Alice", "Bob", "Carol"];
+const scores = [95, 87, 92];
+const zipped = names.map((name, i) => [name, scores[i]]);
+console.log(zipped); // [["Alice", 95], ["Bob", 87], ["Carol", 92]]
+
+// Distinct
+const dupes = [1, 2, 2, 3, 3, 3, 4];
+console.log([...new Set(dupes)]); // [1, 2, 3, 4]
+```
+
+```kotlin !! kotlin
+// Kotlin collection operations — rich standard library
+val numbers = (1..10).toList()
+
+// Basic operations (same API style as JS, more type-safe)
+println(numbers.filter { it % 2 == 0 })   // [2, 4, 6, 8, 10]
+println(numbers.map { it * it })           // [1, 4, 9, 16, 25, ...]
+println(numbers.sum())                     // 55
+println(numbers.sumOf { it.toLong() })     // 55L
+println(numbers.first { it > 5 })         // 6
+println(numbers.any { it > 9 })           // true
+println(numbers.all { it > 0 })           // true
+println(numbers.none { it > 100 })        // true
+
+// partition — built-in!
+val (evens, odds) = numbers.partition { it % 2 == 0 }
+println(evens) // [2, 4, 6, 8, 10]
+println(odds)  // [1, 3, 5, 7, 9]
+
+// flatMap
+val sentences = listOf("hello world", "foo bar baz")
+val allWords = sentences.flatMap { it.split(" ") }
+println(allWords) // [hello, world, foo, bar, baz]
+
+// zip
+val names = listOf("Alice", "Bob", "Carol")
+val scores = listOf(95, 87, 92)
+val zipped = names.zip(scores)
+println(zipped) // [(Alice, 95), (Bob, 87), (Carol, 92)]
+
+// distinct and groupBy
+val dupes = listOf(1, 2, 2, 3, 3, 3, 4)
+println(dupes.distinct())          // [1, 2, 3, 4]
+println(dupes.groupBy { it })      // {1=[1], 2=[2, 2], ...}
+println(dupes.groupingBy { it }.eachCount()) // {1=1, 2=2, 3=3, 4=1}
+
+// Kotlin extras: chunked, windowed, associate
+println(numbers.chunked(3))        // [[1,2,3],[4,5,6],[7,8,9],[10]]
+println(numbers.take(3))           // [1, 2, 3]
+println(numbers.drop(7))           // [8, 9, 10]
+println(numbers.sorted())          // [1..10]
+println(numbers.sortedDescending()) // [10..1]
+
+val nameToScore = names.zip(scores).toMap()
+println(nameToScore) // {Alice=95, Bob=87, Carol=92}
+```
+</UniversalEditor>
+
+---
+
+## Summary Table
+
+| Feature | JavaScript / Node.js | Kotlin |
+|---|---|---|
+| String template | `` `Hello ${name}` `` | `"Hello $name"` or `"${expr}"` |
+| Multiline string | `` ` ... ` `` | `""" ... """.trimIndent()` |
+| String reverse | `str.split('').reverse().join('')` | `str.reversed()` |
+| String check blank | `str.trim() === ''` | `str.isBlank()` |
+| Read file | `fs.readFileSync(p, 'utf-8')` | `File(p).readText()` |
+| Read lines | `.split('\n')` | `File(p).readLines()` |
+| Write file | `fs.writeFileSync(p, content)` | `File(p).writeText(content)` |
+| Append file | `fs.appendFileSync(p, content)` | `File(p).appendText(content)` |
+| Current date | `new Date()` | `Clock.System.now()` |
+| Date arithmetic | `date.setDate(d + 1)` (mutable!) | `date.plus(1, DateTimeUnit.DAY)` |
+| Month numbering | 0-indexed (trap!) | 1-indexed (natural) |
+| Regex test | `regex.test(str)` | `regex.containsMatchIn(str)` |
+| Find all matches | `str.matchAll(regex)` | `regex.findAll(str)` |
+| Replace all | `str.replaceAll(re, sub)` | `regex.replace(str, sub)` |
+| Math abs | `Math.abs(x)` | `abs(x)` (kotlin.math) |
+| Random int | `Math.floor(Math.random() * n)` | `Random.nextInt(n)` |
+| Precise decimals | External library | `BigDecimal("0.1")` |
+| Custom extension | Prototype or util function | `fun String.myFun()` |
+| Partition | Manual filter × 2 | `.partition { }` |
+| Zip | Manual map with index | `.zip(otherList)` |
+
+---
+
+## Exercises
+
+### Exercise 1: String Builder
+
+Write a function `buildReport(title: String, items: List<Pair<String, Int>>): String` that uses Kotlin's multiline string template to produce a formatted report like:
+
+```
+=== Sales Report ===
+Product A: 120
+Product B: 85
+Product C: 200
+Total: 405
+```
+
+<details>
+<summary>Show Answer</summary>
+
+```kotlin
+fun buildReport(title: String, items: List<Pair<String, Int>>): String {
+    val total = items.sumOf { it.second }
+    val itemLines = items.joinToString("\n") { (name, qty) -> "$name: $qty" }
+    return """
+        === $title ===
+        $itemLines
+        Total: $total
+    """.trimIndent()
+}
+
+fun main() {
+    val items = listOf(
+        "Product A" to 120,
+        "Product B" to 85,
+        "Product C" to 200,
+    )
+    println(buildReport("Sales Report", items))
+}
+// === Sales Report ===
+// Product A: 120
+// Product B: 85
+// Product C: 200
+// Total: 405
+```
+
+</details>
+
+### Exercise 2: Log File Parser
+
+Write a function `parseLogFile(content: String): Map<String, Int>` that takes multiline log content where each line is in the format `[LEVEL] message` (e.g., `[ERROR] Something failed`). The function should count occurrences of each log level using `Regex` and return a map like `{"ERROR" -> 3, "INFO" -> 10, "WARN" -> 2}`.
+
+<details>
+<summary>Show Answer</summary>
+
+```kotlin
+fun parseLogFile(content: String): Map<String, Int> {
+    val levelRegex = Regex("""\[(\w+)]""")
+    return content.lines()
+        .filter { it.isNotBlank() }
+        .mapNotNull { levelRegex.find(it)?.groupValues?.getOrNull(1) }
+        .groupingBy { it }
+        .eachCount()
+}
+
+fun main() {
+    val logs = """
+        [INFO] Server started on port 8080
+        [INFO] Connected to database
+        [WARN] High memory usage: 85%
+        [ERROR] Failed to process request: timeout
+        [INFO] Request completed in 120ms
+        [ERROR] Null pointer in UserService
+        [WARN] Deprecated API called
+        [ERROR] Database connection lost
+    """.trimIndent()
+
+    val counts = parseLogFile(logs)
+    counts.entries.sortedByDescending { it.value }.forEach { (level, count) ->
+        println("$level: $count")
+    }
+    // INFO: 3
+    // ERROR: 3
+    // WARN: 2
+}
+```
+
+</details>
+
+### Exercise 3: Date Range Generator
+
+Write an extension function `LocalDate.datesUntil(endDate: LocalDate): List<LocalDate>` that returns all dates from this date up to (but not including) `endDate`. Use it to find all Fridays in March 2026.
+
+<details>
+<summary>Show Answer</summary>
+
+```kotlin
+import kotlinx.datetime.*
+
+fun LocalDate.datesUntil(endDate: LocalDate): List<LocalDate> {
+    val dates = mutableListOf<LocalDate>()
+    var current = this
+    while (current < endDate) {
+        dates.add(current)
+        current = current.plus(1, DateTimeUnit.DAY)
+    }
+    return dates
+}
+
+fun main() {
+    val marchStart = LocalDate(2026, 3, 1)
+    val marchEnd   = LocalDate(2026, 4, 1)
+
+    val fridays = marchStart.datesUntil(marchEnd)
+        .filter { it.dayOfWeek == DayOfWeek.FRIDAY }
+
+    println("Fridays in March 2026:")
+    fridays.forEach { println(it) }
+    // 2026-03-06
+    // 2026-03-13
+    // 2026-03-20
+    // 2026-03-27
+
+    println("Count: ${fridays.size}") // Count: 4
+}
+```
+
+</details>

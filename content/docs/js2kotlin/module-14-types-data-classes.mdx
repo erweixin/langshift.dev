@@ -1,0 +1,747 @@
+---
+title: "Module 14: Type System and Data Classes"
+description: "Master Kotlin's type system: null safety, smart casts, data classes, sealed classes, and type aliases — all compared to JavaScript's dynamic typing."
+---
+
+# Module 14: Type System and Data Classes
+
+Welcome to Module 14 of JavaScript to Kotlin conversion! In this module, we dive deep into Kotlin's powerful type system — one of the biggest shifts from JavaScript's dynamic world. You'll learn how Kotlin eliminates entire classes of runtime errors through null safety, smart casts, and expressive data modeling with data classes and sealed classes.
+
+## Learning Objectives
+
+By the end of this module, you will be able to:
+
+- ✅ Understand nullable types (`String?`) and how Kotlin prevents null pointer exceptions at compile time
+- ✅ Use smart casts and the `is`/`as` operators to safely work with different types
+- ✅ Define data classes with automatic `equals`, `hashCode`, `copy`, and `toString` implementations
+- ✅ Model exhaustive state with sealed classes and `when` expressions
+- ✅ Create readable type aliases to improve code clarity
+- ✅ Understand Kotlin's type hierarchy: `Any`, `Nothing`, and `Unit`
+
+---
+
+## 1. Null Safety: Kotlin vs JavaScript
+
+JavaScript's `null` and `undefined` are notorious sources of runtime errors — the dreaded "Cannot read properties of null." Kotlin eliminates this entire category of bugs at compile time using nullable types.
+
+<UniversalEditor title="Null Safety: Nullable Types" compare={true}>
+```javascript !! js
+// JavaScript - null and undefined can appear anywhere
+function greetUser(user) {
+  // This can throw at runtime: "Cannot read properties of null"
+  console.log("Hello, " + user.name.toUpperCase());
+}
+
+// No compile-time protection — crashes at runtime
+greetUser(null);         // TypeError!
+greetUser(undefined);   // TypeError!
+greetUser({ name: null }); // TypeError!
+
+// Developers must manually guard everywhere
+function safeGreet(user) {
+  if (user != null && user.name != null) {
+    console.log("Hello, " + user.name.toUpperCase());
+  } else {
+    console.log("Hello, stranger!");
+  }
+}
+
+let maybeUser = null;
+let name = maybeUser?.name ?? "stranger"; // Optional chaining (ES2020)
+console.log(name);
+```
+
+```kotlin !! kotlin
+// Kotlin - null safety is enforced by the type system
+
+// Non-nullable: String can NEVER be null
+fun greetUser(name: String) {
+    println("Hello, ${name.uppercase()}")
+}
+
+// greetUser(null) // Compile error! Null can not be a value of a non-null type String
+
+// Nullable: String? CAN be null
+fun greetNullable(name: String?) {
+    // Must handle null before using
+    // name.uppercase() // Compile error! Only safe (?.) or non-null asserted (!!) calls allowed
+    println("Hello, ${name?.uppercase() ?: "stranger"}!")
+}
+
+greetNullable("Alice")  // Hello, ALICE!
+greetNullable(null)     // Hello, stranger!
+
+// Safe call operator ?.
+val user: String? = null
+val length: Int? = user?.length  // null (no crash)
+
+// Elvis operator ?: (provide default when null)
+val displayName: String = user ?: "Anonymous"
+
+// Non-null assertion !! (throws if null — use sparingly)
+val definitelyNotNull: String = user!! // Throws KotlinNullPointerException
+```
+</UniversalEditor>
+
+<UniversalEditor title="Null Safety: The let Block and Null Checks" compare={true}>
+```javascript !! js
+// JavaScript null check patterns
+function processUser(user) {
+  if (user === null || user === undefined) {
+    console.log("No user provided");
+    return;
+  }
+  // user is "known" to be non-null here, but no compile-time guarantee
+  console.log(user.name);
+  console.log(user.email.toLowerCase()); // Still might crash if email is null!
+}
+
+// Chained optional access
+function getCity(user) {
+  return user?.address?.city ?? "Unknown";
+}
+
+// Array of possibly null items
+const users = ["Alice", null, "Bob", null];
+const names = users.filter(u => u !== null).map(u => u.toUpperCase());
+console.log(names); // ["ALICE", "BOB"]
+```
+
+```kotlin !! kotlin
+// Kotlin null check patterns
+
+// After an if-null check, Kotlin smart-casts automatically
+fun processUser(user: String?) {
+    if (user == null) {
+        println("No user provided")
+        return
+    }
+    // user is now smart-cast to String (non-nullable) here
+    println(user.uppercase()) // No ?. needed!
+}
+
+// Safe chaining with nullable types
+data class Address(val city: String?)
+data class User(val name: String, val address: Address?)
+
+fun getCity(user: User?): String {
+    return user?.address?.city ?: "Unknown"
+}
+
+// let block: only executes if non-null
+val maybeEmail: String? = "alice@example.com"
+maybeEmail?.let { email ->
+    println(email.lowercase()) // Safe — email is String here, not String?
+}
+
+// filterNotNull: clean up a list of nullable items
+val users: List<String?> = listOf("Alice", null, "Bob", null)
+val names: List<String> = users.filterNotNull()
+println(names.map { it.uppercase() }) // [ALICE, BOB]
+```
+</UniversalEditor>
+
+---
+
+## 2. Smart Casts
+
+Kotlin's compiler tracks type checks and automatically narrows types — no explicit casting needed after a check.
+
+<UniversalEditor title="Smart Casts: is and as Operators" compare={true}>
+```javascript !! js
+// JavaScript type checking with instanceof
+function describeValue(value) {
+  if (value instanceof String || typeof value === "string") {
+    // Still need to use value as-is; no automatic narrowing guarantee
+    console.log("String of length: " + value.length);
+  } else if (typeof value === "number") {
+    console.log("Number: " + value.toFixed(2));
+  } else if (Array.isArray(value)) {
+    console.log("Array with " + value.length + " items");
+  } else {
+    console.log("Unknown type: " + typeof value);
+  }
+}
+
+describeValue("hello");  // String of length: 5
+describeValue(3.14159); // Number: 3.14
+describeValue([1, 2, 3]); // Array with 3 items
+
+// Explicit cast needed in JS (can fail at runtime)
+function processAnimal(animal) {
+  if (animal instanceof Dog) {
+    const dog = animal; // No real cast needed in JS — duck typing
+    dog.bark();
+  }
+}
+```
+
+```kotlin !! kotlin
+// Kotlin smart casts — automatic type narrowing after is check
+
+fun describeValue(value: Any) {
+    when (value) {
+        is String -> {
+            // Smart cast: value is automatically String here
+            println("String of length: ${value.length}")
+            println("Uppercase: ${value.uppercase()}")
+        }
+        is Int -> {
+            // Smart cast: value is Int here
+            println("Integer × 2 = ${value * 2}")
+        }
+        is Double -> {
+            println("Double: ${"%.2f".format(value)}")
+        }
+        is List<*> -> {
+            // Smart cast: value is List<*> here
+            println("List with ${value.size} items")
+        }
+        else -> println("Unknown type: ${value::class.simpleName}")
+    }
+}
+
+describeValue("hello")       // String of length: 5
+describeValue(42)            // Integer × 2 = 84
+describeValue(3.14159)       // Double: 3.14
+describeValue(listOf(1,2,3)) // List with 3 items
+
+// Explicit safe cast with as?
+val value: Any = "Kotlin"
+val asString: String? = value as? String  // Returns null if cast fails (safe)
+val asInt: Int? = value as? Int           // null (not an Int)
+
+println(asString) // Kotlin
+println(asInt)    // null
+```
+</UniversalEditor>
+
+---
+
+## 3. Data Classes
+
+JavaScript uses plain objects or manually-crafted classes for data containers. Kotlin's `data class` generates `equals`, `hashCode`, `toString`, `copy`, and component functions automatically.
+
+<UniversalEditor title="Data Classes: Auto-generated Methods" compare={true}>
+```javascript !! js
+// JavaScript — manual boilerplate for value objects
+class Person {
+  constructor(name, age, email) {
+    this.name = name;
+    this.age = age;
+    this.email = email;
+  }
+
+  // Must implement manually
+  toString() {
+    return `Person(name=${this.name}, age=${this.age}, email=${this.email})`;
+  }
+
+  // Structural equality must be written manually
+  equals(other) {
+    return other instanceof Person &&
+      this.name === other.name &&
+      this.age === other.age &&
+      this.email === other.email;
+  }
+
+  // Copy with changes — manual
+  copyWith(changes) {
+    return new Person(
+      changes.name ?? this.name,
+      changes.age ?? this.age,
+      changes.email ?? this.email
+    );
+  }
+}
+
+const alice = new Person("Alice", 30, "alice@example.com");
+const alice2 = new Person("Alice", 30, "alice@example.com");
+
+console.log(alice.toString()); // Person(name=Alice, age=30, email=alice@example.com)
+console.log(alice.equals(alice2)); // true (with manual equals)
+console.log(alice === alice2);     // false (reference equality)
+
+const olderAlice = alice.copyWith({ age: 31 });
+console.log(olderAlice.toString()); // Person(name=Alice, age=31, email=alice@example.com)
+```
+
+```kotlin !! kotlin
+// Kotlin data class — everything generated automatically
+
+data class Person(
+    val name: String,
+    val age: Int,
+    val email: String
+)
+
+val alice = Person("Alice", 30, "alice@example.com")
+val alice2 = Person("Alice", 30, "alice@example.com")
+
+// toString() — auto-generated
+println(alice) // Person(name=Alice, age=30, email=alice@example.com)
+
+// equals() — structural, auto-generated
+println(alice == alice2)  // true  (structural equality)
+println(alice === alice2) // false (reference equality — different objects)
+
+// copy() with named parameters — auto-generated
+val olderAlice = alice.copy(age = 31)
+println(olderAlice) // Person(name=Alice, age=31, email=alice@example.com)
+
+// hashCode() — auto-generated (suitable for HashMap keys)
+val map = mapOf(alice to "primary", olderAlice to "updated")
+println(map[alice2]) // "primary" (alice2 == alice by value)
+
+// Destructuring via component functions — auto-generated
+val (name, age, email) = alice
+println("$name is $age years old") // Alice is 30 years old
+```
+</UniversalEditor>
+
+<UniversalEditor title="Data Classes: Nested and Complex Structures" compare={true}>
+```javascript !! js
+// JavaScript nested objects — deep copy is painful
+class Address {
+  constructor(street, city, country) {
+    this.street = street;
+    this.city = city;
+    this.country = country;
+  }
+}
+
+class Employee {
+  constructor(name, salary, address) {
+    this.name = name;
+    this.salary = salary;
+    this.address = address;
+  }
+
+  // Deep copy with modification requires manual work
+  withRaise(amount) {
+    return new Employee(
+      this.name,
+      this.salary + amount,
+      // Must also copy nested objects
+      new Address(this.address.street, this.address.city, this.address.country)
+    );
+  }
+}
+
+const emp = new Employee("Bob", 80000, new Address("123 Main St", "NYC", "US"));
+const promoted = emp.withRaise(10000);
+console.log(promoted.salary); // 90000
+console.log(emp.salary);      // 80000 (original unchanged)
+```
+
+```kotlin !! kotlin
+// Kotlin nested data classes — copy() works at each level
+
+data class Address(
+    val street: String,
+    val city: String,
+    val country: String
+)
+
+data class Employee(
+    val name: String,
+    val salary: Int,
+    val address: Address
+)
+
+val emp = Employee(
+    name = "Bob",
+    salary = 80_000,
+    address = Address("123 Main St", "NYC", "US")
+)
+
+// copy() is shallow — for nested changes, chain copies
+val promoted = emp.copy(
+    salary = emp.salary + 10_000,
+    address = emp.address.copy(city = "San Francisco")
+)
+
+println(promoted)
+// Employee(name=Bob, salary=90000, address=Address(street=123 Main St, city=San Francisco, country=US))
+
+println(emp.salary)         // 80000 (original unchanged — data classes are immutable by default)
+println(emp.address.city)   // NYC
+
+// Comparing nested data classes
+val addr1 = Address("1 Park Ave", "NYC", "US")
+val addr2 = Address("1 Park Ave", "NYC", "US")
+println(addr1 == addr2) // true — deep structural equality
+```
+</UniversalEditor>
+
+---
+
+## 4. Sealed Classes
+
+Sealed classes let you define a restricted hierarchy of types. Combined with `when`, they provide exhaustive pattern matching — the compiler warns you if you miss a case. This is Kotlin's answer to TypeScript discriminated unions.
+
+<UniversalEditor title="Sealed Classes: Exhaustive when Expressions" compare={true}>
+```javascript !! js
+// JavaScript / TypeScript discriminated unions (TypeScript shown)
+// type Result<T> =
+//   | { type: "success"; data: T }
+//   | { type: "error"; message: string }
+//   | { type: "loading" }
+
+// In plain JavaScript — no compile-time exhaustiveness
+function handleResult(result) {
+  switch (result.type) {
+    case "success":
+      console.log("Data:", result.data);
+      break;
+    case "error":
+      console.error("Error:", result.message);
+      break;
+    case "loading":
+      console.log("Loading...");
+      break;
+    // Forgetting a case here? No warning in plain JS!
+    default:
+      console.log("Unknown state");
+  }
+}
+
+handleResult({ type: "success", data: { id: 1, name: "Alice" } });
+handleResult({ type: "error", message: "Network timeout" });
+handleResult({ type: "loading" });
+```
+
+```kotlin !! kotlin
+// Kotlin sealed classes — exhaustive by the compiler
+
+sealed class Result<out T> {
+    data class Success<T>(val data: T) : Result<T>()
+    data class Error(val message: String, val code: Int = 0) : Result<Nothing>()
+    object Loading : Result<Nothing>()
+}
+
+fun handleResult(result: Result<String>) {
+    // when on a sealed class MUST cover all cases (when used as expression)
+    val message = when (result) {
+        is Result.Success -> "Data: ${result.data}"   // smart cast inside each branch
+        is Result.Error   -> "Error ${result.code}: ${result.message}"
+        is Result.Loading -> "Loading..."
+        // No else needed — compiler guarantees exhaustiveness!
+        // Forgetting a branch = compile error
+    }
+    println(message)
+}
+
+handleResult(Result.Success("Alice"))
+// Data: Alice
+
+handleResult(Result.Error("Network timeout", 503))
+// Error 503: Network timeout
+
+handleResult(Result.Loading)
+// Loading...
+
+// Add a new subclass? Compiler flags every when that doesn't handle it.
+```
+</UniversalEditor>
+
+<UniversalEditor title="Sealed Classes: Modeling UI State" compare={true}>
+```javascript !! js
+// JavaScript UI state management (e.g., React-style)
+// State represented as plain objects — no type safety
+
+const STATES = {
+  IDLE: "idle",
+  LOADING: "loading",
+  SUCCESS: "success",
+  ERROR: "error"
+};
+
+function renderScreen(state) {
+  switch (state.status) {
+    case STATES.IDLE:
+      return `<button>Load Data</button>`;
+    case STATES.LOADING:
+      return `<Spinner delay=${state.delayMs} />`;
+    case STATES.SUCCESS:
+      // state.users might not exist — no enforcement
+      return state.users.map(u => `<UserCard user=${u} />`).join("");
+    case STATES.ERROR:
+      return `<ErrorBanner message="${state.error}" retryable=${state.canRetry} />`;
+    default:
+      return `<div>Unknown state</div>`;
+  }
+}
+```
+
+```kotlin !! kotlin
+// Kotlin — sealed class for UI state (clean, type-safe)
+
+sealed class ScreenState {
+    object Idle : ScreenState()
+    data class Loading(val delayMs: Int = 0) : ScreenState()
+    data class Success(val users: List<String>) : ScreenState()
+    data class Error(val message: String, val canRetry: Boolean) : ScreenState()
+}
+
+fun renderScreen(state: ScreenState): String = when (state) {
+    is ScreenState.Idle    -> "<button>Load Data</button>"
+    is ScreenState.Loading -> "<Spinner delay=${state.delayMs} />"
+    is ScreenState.Success -> state.users.joinToString("") { "<UserCard user=$it />" }
+    is ScreenState.Error   -> "<ErrorBanner message=\"${state.message}\" retryable=${state.canRetry} />"
+    // All cases covered — compiler enforces it
+}
+
+println(renderScreen(ScreenState.Idle))
+println(renderScreen(ScreenState.Loading(200)))
+println(renderScreen(ScreenState.Success(listOf("Alice", "Bob"))))
+println(renderScreen(ScreenState.Error("Timeout", canRetry = true)))
+```
+</UniversalEditor>
+
+---
+
+## 5. Type Aliases
+
+Type aliases give meaningful names to complex types, improving readability without creating new runtime types.
+
+<UniversalEditor title="Type Aliases: Readable Type Names" compare={true}>
+```javascript !! js
+// JavaScript / TypeScript type aliases (TypeScript syntax shown)
+// type UserId = string;
+// type UserMap = Map<string, User>;
+// type Callback<T> = (value: T) => void;
+// type Predicate<T> = (item: T) => boolean;
+
+// In plain JavaScript, no real type aliases — just conventions:
+// Functions that take a "userId" (string) or "userMap" (Map)
+function findUser(userId, userMap) {
+  return userMap.get(userId) ?? null;
+}
+
+// Callback type convention — documented but not enforced
+function processItems(items, callback) {
+  items.forEach(item => callback(item));
+}
+
+const users = new Map([["u1", { name: "Alice" }], ["u2", { name: "Bob" }]]);
+const user = findUser("u1", users);
+console.log(user); // { name: "Alice" }
+```
+
+```kotlin !! kotlin
+// Kotlin type aliases — meaningful names for complex types
+
+typealias UserId = String
+typealias UserMap = Map<UserId, String>
+typealias Predicate<T> = (T) -> Boolean
+typealias Transform<A, B> = (A) -> B
+typealias StringCallback = (String) -> Unit
+
+// Now functions are far more readable:
+fun findUser(userId: UserId, userMap: UserMap): String? {
+    return userMap[userId]
+}
+
+fun filterUsers(users: List<String>, predicate: Predicate<String>): List<String> {
+    return users.filter(predicate)
+}
+
+fun processItems(items: List<String>, callback: StringCallback) {
+    items.forEach(callback)
+}
+
+val users: UserMap = mapOf("u1" to "Alice", "u2" to "Bob")
+println(findUser("u1", users)) // Alice
+println(findUser("u3", users)) // null
+
+val longNames = filterUsers(listOf("Al", "Alice", "Bob", "Charlotte")) { it.length > 3 }
+println(longNames) // [Alice, Charlotte]
+
+// Type aliases also work with function types
+typealias JsonString = String
+fun serialize(data: Map<String, Any>): JsonString = data.toString()
+```
+</UniversalEditor>
+
+---
+
+## 6. Kotlin's Type Hierarchy
+
+Kotlin has a well-defined type hierarchy. Understanding `Any`, `Unit`, and `Nothing` maps directly to JavaScript concepts.
+
+<UniversalEditor title="Type Hierarchy: Any, Unit, and Nothing" compare={true}>
+```javascript !! js
+// JavaScript type equivalents
+
+// Object (roughly ~Any) — base of all objects
+// Every value in JS is an object (or primitive that auto-boxes)
+function printAnything(value) {
+  console.log(String(value));
+}
+printAnything(42);
+printAnything("hello");
+printAnything({ key: "val" });
+
+// void (roughly ~Unit) — functions that return nothing
+function logMessage(msg) {
+  console.log(msg);
+  // implicitly returns undefined
+}
+const result = logMessage("hi"); // result is undefined
+
+// never (TypeScript) — functions that never return
+// function fail(msg: string): never {
+//   throw new Error(msg);
+// }
+// function infiniteLoop(): never {
+//   while (true) {}
+// }
+
+// null / undefined — absence of value
+let x = null;
+let y = undefined;
+```
+
+```kotlin !! kotlin
+// Kotlin type hierarchy
+
+// Any — the root of all non-nullable types (like Object in Java)
+fun printAnything(value: Any) {
+    println(value.toString())
+}
+printAnything(42)
+printAnything("hello")
+printAnything(mapOf("key" to "val"))
+
+// Any? — the root of ALL types including nullable
+fun acceptsAbsolutelyAnything(value: Any?) {
+    println(value ?: "null value")
+}
+acceptsAbsolutelyAnything(null) // fine
+
+// Unit — equivalent to void; functions returning Unit need not declare it
+fun logMessage(msg: String): Unit {  // ": Unit" is optional, inferred
+    println(msg)
+}
+val result: Unit = logMessage("hi") // Unit is a real singleton object
+
+// Nothing — a type that has NO instances; represents unreachable code
+fun fail(message: String): Nothing {
+    throw IllegalStateException(message)
+}
+
+fun infiniteLoop(): Nothing {
+    while (true) { /* never returns */ }
+}
+
+// Nothing is useful: the compiler uses it to determine reachability
+val name: String? = null
+val definite: String = name ?: fail("Name must not be null")
+// Compiler knows: if ?: branch runs, execution stops — definite is always String
+println(definite)
+```
+</UniversalEditor>
+
+---
+
+## 7. Summary Table
+
+| Concept | JavaScript | Kotlin |
+|---|---|---|
+| Null safety | `null`/`undefined` anywhere; runtime crashes | `String` vs `String?`; compile-time enforcement |
+| Null check | `if (x != null)` / optional chaining `?.` | `?.`, `?:` (Elvis), `!!`, smart cast after if-check |
+| Type check | `typeof`, `instanceof` | `is` with automatic smart cast |
+| Explicit cast | `value as Type` (TypeScript) | `as` (throws) or `as?` (safe, returns null) |
+| Value objects | Manual class with manual `equals`/`toString` | `data class` — auto-generates everything |
+| Discriminated union | TypeScript union types or `switch` on tag field | `sealed class` — compiler-enforced exhaustiveness |
+| Type aliases | `type Alias = ...` (TypeScript only) | `typealias Alias = ...` |
+| Top type | `object` (JS) / `any` (TypeScript) | `Any` (non-null) / `Any?` (nullable) |
+| Void type | `undefined` / `void` (TypeScript) | `Unit` |
+| Unreachable type | `never` (TypeScript) | `Nothing` |
+
+---
+
+## Exercises
+
+### Exercise 1: Null-Safe User Profile
+
+Write a Kotlin function `getDisplayName(user: User?)` where `User` is a data class with `firstName: String?` and `lastName: String`. The function should return `"$firstName $lastName"` if firstName is not null, otherwise just `lastName`.
+
+<details>
+<summary>Show Answer</summary>
+
+```kotlin
+data class User(val firstName: String?, val lastName: String)
+
+fun getDisplayName(user: User?): String {
+    if (user == null) return "Guest"
+    return user.firstName?.let { "$it ${user.lastName}" } ?: user.lastName
+}
+
+println(getDisplayName(User("Alice", "Smith")))  // Alice Smith
+println(getDisplayName(User(null, "Smith")))     // Smith
+println(getDisplayName(null))                    // Guest
+```
+
+</details>
+
+### Exercise 2: Sealed Class for Payment State
+
+Model a payment flow with a sealed class `PaymentState` that has: `Pending`, `Processing(val transactionId: String)`, `Completed(val amount: Double, val currency: String)`, and `Failed(val reason: String)`. Write a `describePayment` function using `when`.
+
+<details>
+<summary>Show Answer</summary>
+
+```kotlin
+sealed class PaymentState {
+    object Pending : PaymentState()
+    data class Processing(val transactionId: String) : PaymentState()
+    data class Completed(val amount: Double, val currency: String) : PaymentState()
+    data class Failed(val reason: String) : PaymentState()
+}
+
+fun describePayment(state: PaymentState): String = when (state) {
+    is PaymentState.Pending         -> "Waiting to process..."
+    is PaymentState.Processing      -> "Processing tx: ${state.transactionId}"
+    is PaymentState.Completed       -> "Paid ${"%.2f".format(state.amount)} ${state.currency}"
+    is PaymentState.Failed          -> "Payment failed: ${state.reason}"
+}
+
+println(describePayment(PaymentState.Pending))
+println(describePayment(PaymentState.Processing("TXN-42")))
+println(describePayment(PaymentState.Completed(49.99, "USD")))
+println(describePayment(PaymentState.Failed("Insufficient funds")))
+```
+
+</details>
+
+### Exercise 3: Type Aliases for a Simple Event System
+
+Create type aliases for `EventName = String`, `Listener<T> = (T) -> Unit`, and `EventMap<T> = MutableMap<EventName, MutableList<Listener<T>>>`. Then write `subscribe` and `emit` functions.
+
+<details>
+<summary>Show Answer</summary>
+
+```kotlin
+typealias EventName = String
+typealias Listener<T> = (T) -> Unit
+typealias EventMap<T> = MutableMap<EventName, MutableList<Listener<T>>>
+
+fun <T> subscribe(events: EventMap<T>, name: EventName, listener: Listener<T>) {
+    events.getOrPut(name) { mutableListOf() }.add(listener)
+}
+
+fun <T> emit(events: EventMap<T>, name: EventName, payload: T) {
+    events[name]?.forEach { it(payload) }
+}
+
+val events: EventMap<String> = mutableMapOf()
+subscribe(events, "login") { user -> println("User logged in: $user") }
+subscribe(events, "login") { user -> println("Audit log: $user signed in") }
+emit(events, "login", "Alice")
+// User logged in: Alice
+// Audit log: Alice signed in
+```
+
+</details>

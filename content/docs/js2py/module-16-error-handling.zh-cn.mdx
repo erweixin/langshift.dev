@@ -1,0 +1,989 @@
+---
+title: "第 16 模块：错误处理"
+description: "掌握 Python 的异常系统：try/except/else/finally、自定义异常、with 语句上下文管理器，以及与 JavaScript try/catch 的对比。"
+---
+
+# 第 16 模块：错误处理
+
+## 学习目标
+
+完成本模块后，你将能够：
+
+- ✅ 理解 Python 的 `try/except` 语法，以及它与 JavaScript `try/catch` 的对应关系
+- ✅ 学会捕获特定异常类型，了解 Python 的异常层级体系
+- ✅ 掌握 Python 独有的 `else` 和 `finally` 子句
+- ✅ 使用 `raise` 抛出异常，并创建自定义异常类
+- ✅ 使用 `with` 语句和上下文管理器安全地管理资源
+- ✅ 通过 `contextlib.contextmanager` 构建自定义上下文管理器
+
+---
+
+## 1. try/except 与 try/catch 对比
+
+最基本的区别是命名：JavaScript 使用 `catch`，Python 使用 `except`。两者目的相同——捕获错误，防止程序崩溃。
+
+<UniversalEditor title="基础 try/except 与 try/catch 对比">
+```javascript !! js
+// JavaScript: try/catch/finally
+function divideNumbers(a, b) {
+  try {
+    if (b === 0) {
+      throw new Error("不允许除以零");
+    }
+    const result = a / b;
+    console.log(`结果: ${result}`);
+    return result;
+  } catch (error) {
+    console.error(`捕获到错误: ${error.message}`);
+    return null;
+  } finally {
+    console.log("这里总会执行");
+  }
+}
+
+divideNumbers(10, 2);   // 结果: 5
+divideNumbers(10, 0);   // 捕获到错误: 不允许除以零...
+```
+
+```python !! py
+# Python: try/except/finally
+def divide_numbers(a, b):
+    try:
+        if b == 0:
+            raise ValueError("不允许除以零")
+        result = a / b
+        print(f"结果: {result}")
+        return result
+    except ValueError as e:
+        print(f"捕获到错误: {e}")
+        return None
+    finally:
+        print("这里总会执行")
+
+divide_numbers(10, 2)   # 结果: 5.0
+divide_numbers(10, 0)   # 捕获到错误: 不允许除以零
+```
+</UniversalEditor>
+
+### 捕获多种异常类型
+
+Python 允许在单个 `except` 子句中捕获多种异常类型，也可以使用多个 `except` 块。
+
+<UniversalEditor title="捕获多种异常类型">
+```javascript !! js
+// JavaScript: 单一 catch 块处理所有错误
+function parseUserInput(input) {
+  try {
+    const parsed = JSON.parse(input);
+
+    if (typeof parsed.age !== 'number') {
+      throw new TypeError("age 必须是数字");
+    }
+    if (parsed.age < 0 || parsed.age > 150) {
+      throw new RangeError("age 必须在 0 到 150 之间");
+    }
+
+    return parsed;
+  } catch (error) {
+    // 必须手动检查类型
+    if (error instanceof TypeError) {
+      console.error(`类型错误: ${error.message}`);
+    } else if (error instanceof RangeError) {
+      console.error(`范围错误: ${error.message}`);
+    } else if (error instanceof SyntaxError) {
+      console.error(`JSON 解析错误: ${error.message}`);
+    } else {
+      console.error(`未知错误: ${error.message}`);
+    }
+    return null;
+  }
+}
+
+parseUserInput('{"name": "Alice", "age": 25}');
+parseUserInput('invalid json');
+parseUserInput('{"name": "Bob", "age": -5}');
+```
+
+```python !! py
+# Python: 多个 except 块——清晰且明确
+import json
+
+def parse_user_input(input_str):
+    try:
+        parsed = json.loads(input_str)
+
+        if not isinstance(parsed.get("age"), (int, float)):
+            raise TypeError("age 必须是数字")
+        if not (0 <= parsed["age"] <= 150):
+            raise ValueError("age 必须在 0 到 150 之间")
+
+        return parsed
+
+    except json.JSONDecodeError as e:
+        print(f"JSON 解析错误: {e}")
+    except TypeError as e:
+        print(f"类型错误: {e}")
+    except ValueError as e:
+        print(f"值错误: {e}")
+    except Exception as e:
+        # 捕获所有意外错误
+        print(f"意外错误: {e}")
+
+    return None
+
+parse_user_input('{"name": "Alice", "age": 25}')
+parse_user_input('invalid json')
+parse_user_input('{"name": "Bob", "age": -5}')
+```
+</UniversalEditor>
+
+---
+
+## 2. 异常层级体系
+
+Python 异常构成类层级结构。理解这个层级有助于你以合适的粒度捕获异常。
+
+<UniversalEditor title="异常层级与捕获粒度">
+```javascript !! js
+// JavaScript 异常层级较为扁平——所有异常均继承自 Error
+// Error
+// ├── TypeError
+// ├── RangeError
+// ├── SyntaxError
+// ├── ReferenceError
+// └── ...
+
+function demonstrateErrors() {
+  // TypeError
+  try {
+    null.toString();
+  } catch (e) {
+    console.log(`${e.constructor.name}: ${e.message}`);
+  }
+
+  // RangeError
+  try {
+    new Array(-1);
+  } catch (e) {
+    console.log(`${e.constructor.name}: ${e.message}`);
+  }
+
+  // ReferenceError
+  try {
+    console.log(undeclaredVariable);
+  } catch (e) {
+    console.log(`${e.constructor.name}: ${e.message}`);
+  }
+}
+
+demonstrateErrors();
+```
+
+```python !! py
+# Python 异常层级:
+# BaseException
+# ├── SystemExit
+# ├── KeyboardInterrupt
+# └── Exception
+#     ├── ArithmeticError
+#     │   ├── ZeroDivisionError
+#     │   └── OverflowError
+#     ├── LookupError
+#     │   ├── IndexError
+#     │   └── KeyError
+#     ├── TypeError
+#     ├── ValueError
+#     ├── FileNotFoundError（OSError 的子类）
+#     └── ...更多
+
+def demonstrate_errors():
+    # ZeroDivisionError
+    try:
+        result = 1 / 0
+    except ZeroDivisionError as e:
+        print(f"ZeroDivisionError: {e}")
+
+    # IndexError
+    try:
+        lst = [1, 2, 3]
+        val = lst[10]
+    except IndexError as e:
+        print(f"IndexError: {e}")
+
+    # KeyError
+    try:
+        d = {"a": 1}
+        val = d["b"]
+    except KeyError as e:
+        print(f"KeyError: {e}")
+
+    # 捕获父类会同时捕获所有子类
+    try:
+        lst = []
+        val = lst[0]
+    except LookupError as e:
+        # 同时捕获 IndexError 和 KeyError
+        print(f"LookupError（父类）: {type(e).__name__}: {e}")
+
+demonstrate_errors()
+```
+</UniversalEditor>
+
+---
+
+## 3. else 和 finally 子句
+
+Python 的 `try/except` 支持 `else` 子句，**JavaScript 中没有对应的语法**。`else` 块仅在没有异常发生时执行——非常适合只在成功时运行的代码。
+
+<UniversalEditor title="Python 的 else 子句——JS 中无对应语法">
+```javascript !! js
+// JavaScript: try/catch 没有 else 子句
+// 必须使用标志变量或嵌套逻辑来模拟
+
+async function fetchUserData(userId) {
+  let success = false;
+  let data = null;
+
+  try {
+    const response = await fetch(`/api/users/${userId}`);
+    if (!response.ok) {
+      throw new Error(`HTTP 错误: ${response.status}`);
+    }
+    data = await response.json();
+    success = true;  // 必须手动追踪成功状态
+  } catch (error) {
+    console.error(`获取用户失败: ${error.message}`);
+  } finally {
+    console.log("请求已完成");
+  }
+
+  // 略显尴尬：成功逻辑在 try/catch 外部
+  if (success) {
+    console.log(`用户获取成功: ${data.name}`);
+    saveToCache(userId, data);
+  }
+}
+
+function saveToCache(id, data) {
+  console.log(`缓存用户 ${id}`);
+}
+```
+
+```python !! py
+# Python: else 子句仅在没有异常时执行
+def safe_divide(a, b):
+    try:
+        result = a / b
+    except ZeroDivisionError:
+        print("不能除以零！")
+    else:
+        # 仅在 try 成功时执行（没有发生异常）
+        # 这是与 JavaScript 的关键区别
+        print(f"成功！{a} / {b} = {result}")
+    finally:
+        print("---")
+
+safe_divide(10, 2)   # 打印 "成功！"，然后 "---"
+safe_divide(10, 0)   # 打印 "不能除以零！"，然后 "---"
+
+# 文件读取示例：else 用于处理成功后的逻辑
+import json
+
+def load_config(path):
+    try:
+        with open(path, 'r') as f:
+            config = json.load(f)
+    except FileNotFoundError:
+        print(f"配置文件不存在: {path}，使用默认配置")
+        config = {}
+    except json.JSONDecodeError as e:
+        print(f"配置文件格式错误: {e}")
+        config = {}
+    else:
+        # 仅在文件成功读取并解析后执行
+        print(f"配置加载成功，共 {len(config)} 个键")
+        # 可以在这里执行验证或后处理
+    finally:
+        print("配置加载流程结束")
+
+    return config
+
+# 测试
+import tempfile, os
+with tempfile.NamedTemporaryFile(
+    mode='w', suffix='.json', delete=False
+) as f:
+    json.dump({"host": "localhost", "port": 8080}, f)
+    tmp_path = f.name
+
+load_config(tmp_path)
+load_config("/不存在的路径/config.json")
+os.unlink(tmp_path)
+```
+</UniversalEditor>
+
+---
+
+## 4. 抛出异常
+
+Python 使用 `raise`，JavaScript 使用 `throw`。可以抛出内置异常或自定义异常类型。
+
+<UniversalEditor title="抛出异常：raise 与 throw">
+```javascript !! js
+// JavaScript: throw 任意值（通常是 Error 实例）
+function validateAge(age) {
+  if (typeof age !== 'number') {
+    throw new TypeError(`期望数字，得到 ${typeof age}`);
+  }
+  if (age < 0) {
+    throw new RangeError(`age 不能为负数: ${age}`);
+  }
+  if (age > 150) {
+    throw new RangeError(`不合实际的年龄: ${age}`);
+  }
+  return age;
+}
+
+// 重新抛出错误
+function processUser(userData) {
+  try {
+    const age = validateAge(userData.age);
+    console.log(`有效年龄: ${age}`);
+  } catch (error) {
+    console.error(`验证失败: ${error.message}`);
+    throw error;  // 记录后重新抛出
+  }
+}
+
+try {
+  processUser({ age: -5 });
+} catch (e) {
+  console.log(`捕获到重抛的异常: ${e.message}`);
+}
+```
+
+```python !! py
+# Python: 使用 raise 抛出异常实例或类
+def validate_age(age):
+    if not isinstance(age, (int, float)):
+        raise TypeError(f"期望数字，得到 {type(age).__name__}")
+    if age < 0:
+        raise ValueError(f"age 不能为负数: {age}")
+    if age > 150:
+        raise ValueError(f"不合实际的年龄: {age}")
+    return age
+
+# 重新抛出异常
+def process_user(user_data):
+    try:
+        age = validate_age(user_data.get("age"))
+        print(f"有效年龄: {age}")
+    except (TypeError, ValueError) as e:
+        print(f"验证失败: {e}")
+        raise  # 不带参数的 raise，保留原始堆栈信息
+
+try:
+    process_user({"age": -5})
+except ValueError as e:
+    print(f"捕获到重抛的异常: {e}")
+
+# 带原因的异常链
+def load_config(path):
+    try:
+        with open(path) as f:
+            return f.read()
+    except FileNotFoundError as e:
+        # 将原始异常作为原因链接起来
+        raise RuntimeError(f"在 {path} 找不到配置文件") from e
+
+try:
+    load_config("/不存在的路径/config.json")
+except RuntimeError as e:
+    print(f"RuntimeError: {e}")
+    print(f"原始原因: {e.__cause__}")
+```
+</UniversalEditor>
+
+---
+
+## 5. 自定义异常
+
+Python 通过继承 `Exception` 可以轻松创建功能丰富的自定义异常类。
+
+<UniversalEditor title="自定义异常类">
+```javascript !! js
+// JavaScript: 继承 Error 类
+class ValidationError extends Error {
+  constructor(message, field, value) {
+    super(message);
+    this.name = 'ValidationError';
+    this.field = field;
+    this.value = value;
+  }
+}
+
+class DatabaseError extends Error {
+  constructor(message, query, code) {
+    super(message);
+    this.name = 'DatabaseError';
+    this.query = query;
+    this.errorCode = code;
+  }
+}
+
+function createUser(data) {
+  if (!data.email || !data.email.includes('@')) {
+    throw new ValidationError(
+      '邮箱地址无效',
+      'email',
+      data.email
+    );
+  }
+  throw new DatabaseError('连接被拒绝', 'INSERT INTO users...', 1045);
+}
+
+try {
+  createUser({ email: 'not-an-email' });
+} catch (e) {
+  if (e instanceof ValidationError) {
+    console.log(`字段 '${e.field}' 验证失败: ${e.message}`);
+  } else if (e instanceof DatabaseError) {
+    console.log(`数据库错误 ${e.errorCode}: ${e.message}`);
+  }
+}
+```
+
+```python !! py
+# Python: 继承 Exception（或其子类）
+
+class AppError(Exception):
+    """应用程序基础异常类。"""
+    pass
+
+class ValidationError(AppError):
+    """输入验证失败时抛出。"""
+
+    def __init__(self, message, field=None, value=None):
+        super().__init__(message)
+        self.field = field
+        self.value = value
+
+    def __str__(self):
+        if self.field:
+            return f"字段 '{self.field}' 验证失败: {super().__str__()}"
+        return super().__str__()
+
+class DatabaseError(AppError):
+    """数据库操作失败时抛出。"""
+
+    def __init__(self, message, query=None, error_code=None):
+        super().__init__(message)
+        self.query = query
+        self.error_code = error_code
+
+def create_user(data):
+    if not data.get("email") or "@" not in data["email"]:
+        raise ValidationError(
+            "邮箱地址无效",
+            field="email",
+            value=data.get("email")
+        )
+    raise DatabaseError(
+        "连接被拒绝",
+        query="INSERT INTO users...",
+        error_code=1045
+    )
+
+try:
+    create_user({"email": "not-an-email"})
+except ValidationError as e:
+    print(e)                     # 调用 __str__
+    print(f"字段: {e.field}")
+    print(f"值: {e.value}")
+except DatabaseError as e:
+    print(f"数据库错误 {e.error_code}: {e}")
+except AppError as e:
+    # 捕获任何 AppError 子类
+    print(f"应用错误: {e}")
+```
+</UniversalEditor>
+
+---
+
+## 6. 上下文管理器（with 语句）
+
+`with` 语句是 Python 管理文件、网络连接和锁等资源的优雅方式。它保证即使发生异常也能正确清理。JavaScript 没有直接的对应语法（`using` 提案尚在草案阶段）。
+
+<UniversalEditor title="上下文管理器：with 语句与手动清理对比">
+```javascript !! js
+// JavaScript: 手动资源管理（try/finally 模式）
+const fs = require('fs');
+
+function readFileContent(filePath) {
+  let fileHandle;
+  try {
+    fileHandle = fs.openSync(filePath, 'r');
+    const buffer = Buffer.alloc(1024);
+    const bytesRead = fs.readSync(fileHandle, buffer, 0, 1024, 0);
+    return buffer.toString('utf8', 0, bytesRead);
+  } catch (error) {
+    console.error(`读取文件错误: ${error.message}`);
+    return null;
+  } finally {
+    // 必须在 finally 中手动关闭
+    if (fileHandle !== undefined) {
+      fs.closeSync(fileHandle);
+      console.log("文件句柄已关闭");
+    }
+  }
+}
+```
+
+```python !! py
+# Python: with 语句自动处理打开/关闭
+
+def read_file_content(file_path):
+    try:
+        # __enter__ 在 open() 时调用，__exit__ 自动关闭文件
+        with open(file_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+            return content
+        # 即使发生异常，文件也会在这里自动关闭
+    except FileNotFoundError:
+        print(f"文件不存在: {file_path}")
+        return None
+
+# 在一个 with 语句中使用多个上下文管理器
+def copy_file(src, dst):
+    try:
+        with open(src, 'r') as source, open(dst, 'w') as dest:
+            dest.write(source.read())
+        print(f"已将 {src} 复制到 {dst}")
+    except IOError as e:
+        print(f"复制失败: {e}")
+
+# with 语句适用于任何实现了 __enter__ 和 __exit__ 的对象
+import threading
+
+lock = threading.Lock()
+
+def thread_safe_operation():
+    with lock:  # 自动获取和释放锁
+        print("已获取锁，正在执行工作...")
+    # 锁在这里自动释放
+
+# 演示示例
+def demo_context_manager():
+    with open("/tmp/test_cm.txt", "w") as f:
+        f.write("你好，上下文管理器！\n")
+
+    content = read_file_content("/tmp/test_cm.txt")
+    print(f"读取内容: {content.strip()}")
+
+demo_context_manager()
+```
+</UniversalEditor>
+
+---
+
+## 7. 创建自定义上下文管理器
+
+可以通过两种方式创建自定义上下文管理器：实现 `__enter__` 和 `__exit__` 方法，或使用 `contextlib.contextmanager`。
+
+<UniversalEditor title="自定义上下文管理器">
+```javascript !! js
+// JavaScript: 没有原生的上下文管理器协议
+// 通过类和辅助函数来模拟
+
+class Timer {
+  constructor(name) {
+    this.name = name;
+  }
+
+  start() {
+    this.startTime = performance.now();
+    console.log(`[${this.name}] 开始`);
+    return this;
+  }
+
+  stop() {
+    const elapsed = performance.now() - this.startTime;
+    console.log(`[${this.name}] 完成，耗时 ${elapsed.toFixed(2)}ms`);
+  }
+}
+
+// 必须手动调用 start/stop——没有语言层面的支持
+async function withTimer(name, fn) {
+  const timer = new Timer(name).start();
+  try {
+    await fn();
+  } finally {
+    timer.stop();
+  }
+}
+
+withTimer("数据库查询", async () => {
+  await new Promise(resolve => setTimeout(resolve, 100));
+  console.log("查询完成");
+});
+```
+
+```python !! py
+# Python: 两种创建自定义上下文管理器的方式
+
+# ── 方式 1：实现 __enter__ 和 __exit__ 的类 ───────────────────────
+import time
+
+class Timer:
+    """计时代码块的上下文管理器。"""
+
+    def __init__(self, name):
+        self.name = name
+        self.elapsed = 0
+
+    def __enter__(self):
+        self._start = time.perf_counter()
+        print(f"[{self.name}] 开始")
+        return self  # 赋值给 as 变量
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.elapsed = time.perf_counter() - self._start
+        print(f"[{self.name}] 完成，耗时 {self.elapsed*1000:.2f}ms")
+        # 返回 False（或 None）以传播异常
+        # 返回 True 以抑制异常
+        return False
+
+with Timer("计算") as t:
+    total = sum(range(1_000_000))
+    print(f"求和: {total}")
+
+
+# ── 方式 2：contextlib.contextmanager 装饰器 ──────────────────────
+from contextlib import contextmanager
+
+@contextmanager
+def managed_resource(name):
+    """模拟获取和释放资源。"""
+    print(f"正在获取 {name}...")
+    resource = {"name": name, "active": True}
+    try:
+        yield resource        # 执行暂停（进入 with 块）
+    except Exception as e:
+        print(f"使用 {name} 时出错: {e}")
+        raise
+    finally:
+        resource["active"] = False
+        print(f"已释放 {name}")
+
+with managed_resource("数据库连接") as db:
+    print(f"使用资源: {db['name']}")
+    print(f"活跃状态: {db['active']}")
+```
+</UniversalEditor>
+
+---
+
+## 8. 异常处理最佳实践
+
+<UniversalEditor title="错误处理最佳实践">
+```javascript !! js
+// JavaScript 最佳实践
+
+// ✅ 明确捕获特定类型
+async function fetchData(url) {
+  try {
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+    return await response.json();
+  } catch (error) {
+    if (error instanceof TypeError) {
+      console.error("网络错误:", error.message);
+    } else {
+      console.error("请求错误:", error.message);
+    }
+    return null;
+  }
+}
+
+// ✅ 在 finally 中清理资源
+function withTransaction(db, callback) {
+  const tx = db.beginTransaction();
+  try {
+    const result = callback(tx);
+    tx.commit();
+    return result;
+  } catch (error) {
+    tx.rollback();
+    throw error;
+  } finally {
+    tx.close();  // 总是关闭
+  }
+}
+
+// ❌ 避免：默默吞掉错误
+function badPattern() {
+  try {
+    riskyOperation();
+  } catch (e) {
+    // 静默捕获——会隐藏 bug！
+  }
+}
+```
+
+```python !! py
+# Python 最佳实践
+
+# ✅ 捕获特定异常，而非裸 except
+def parse_config(path):
+    try:
+        with open(path) as f:
+            import json
+            return json.load(f)
+    except FileNotFoundError:
+        print(f"配置文件不存在: {path}，使用默认配置")
+        return {}
+    except json.JSONDecodeError as e:
+        print(f"配置文件 JSON 格式错误: {e}")
+        return {}
+    # 让意外异常自然传播
+
+# ✅ 使用上下文管理器代替 try/finally
+def process_file(path):
+    with open(path) as f:       # 比 try/finally 更简洁
+        return f.read()
+
+# ✅ 使用异常链保留上下文
+def load_user(user_id):
+    try:
+        data = parse_config(f"users/{user_id}.json")
+    except Exception as e:
+        raise RuntimeError(f"加载用户 {user_id} 失败") from e
+
+# ✅ 为业务域创建专属异常类型
+class InsufficientFundsError(ValueError):
+    def __init__(self, balance, amount):
+        self.balance = balance
+        self.amount = amount
+        super().__init__(
+            f"无法提取 {amount}：余额仅 {balance}"
+        )
+
+# ❌ 避免：裸 except（会捕获 SystemExit、KeyboardInterrupt 等）
+def bad_pattern():
+    try:
+        risky_operation()
+    except:        # 永远不要这样做
+        pass       # 静默吞掉所有异常
+
+# ❌ 避免：用异常控制流程
+def check_key_bad(d, key):
+    try:
+        return d[key]
+    except KeyError:
+        return None   # 应该用 d.get(key) 代替！
+```
+</UniversalEditor>
+
+---
+
+## 总结对比表
+
+| 概念 | JavaScript | Python |
+|---|---|---|
+| 基本语法 | `try { } catch (e) { }` | `try: ... except 异常类型 as e:` |
+| 多种错误类型 | 单一 `catch`，用 `instanceof` 判断 | 多个 `except` 块 |
+| 清理代码 | `finally { }` | `finally:` |
+| 仅成功时执行 | 必须使用标志变量 | `else:` 子句（无异常时执行） |
+| 抛出/引发 | `throw new Error("msg")` | `raise ValueError("msg")` |
+| 重新抛出 | `throw error` | `raise`（裸，保留堆栈信息） |
+| 异常链 | 手动设置（`error.cause`） | `raise NewError() from original` |
+| 自定义异常 | `class MyError extends Error` | `class MyError(Exception): pass` |
+| 资源管理 | 手动 `try/finally` | `with` 语句（上下文管理器） |
+| 自定义资源管理器 | 无原生协议 | `__enter__`/`__exit__` 或 `@contextmanager` |
+| 通用捕获（慎用） | `catch (e) { }` | `except Exception:` |
+| 真正的全捕获（危险） | 同上 | `except:`（连 SystemExit 也捕获！） |
+
+---
+
+## 练习题
+
+### 练习 1：安全 JSON 文件读取器
+
+编写一个 Python 函数 `safe_read_json(filepath)`，要求：
+- 读取指定路径的 JSON 文件
+- 成功时返回解析后的数据
+- 分别处理 `FileNotFoundError`、`PermissionError` 和 `json.JSONDecodeError`
+- 总是打印"完成"消息（使用 `finally`）
+- 出错时返回 `None`
+
+<details>
+<summary>查看答案</summary>
+
+```python
+import json
+
+def safe_read_json(filepath):
+    try:
+        with open(filepath, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        print(f"错误：文件 '{filepath}' 不存在。")
+        return None
+    except PermissionError:
+        print(f"错误：无权限读取 '{filepath}'。")
+        return None
+    except json.JSONDecodeError as e:
+        print(f"错误：'{filepath}' 中的 JSON 格式无效: {e}")
+        return None
+    else:
+        print(f"成功读取了 {len(str(data))} 字节的数据。")
+        return data
+    finally:
+        print("完成。")
+
+# 测试
+import tempfile, os
+
+with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+    json.dump({"name": "Alice", "age": 30}, f)
+    valid_path = f.name
+
+result = safe_read_json(valid_path)
+print(f"结果: {result}\n")
+
+result = safe_read_json("/不存在的路径/file.json")
+print(f"结果: {result}")
+
+os.unlink(valid_path)
+```
+
+</details>
+
+---
+
+### 练习 2：自定义异常层级
+
+为银行账户系统创建自定义异常层级：
+- `BankError`（基础异常）
+- `InsufficientFundsError(BankError)`——存储 `balance` 和 `amount` 属性
+- `InvalidAmountError(BankError)`——金额为负数或零时抛出
+- `AccountLockedError(BankError)`——账户被锁定时抛出
+- 编写 `withdraw(balance, amount, locked=False)` 函数，抛出相应异常
+
+<details>
+<summary>查看答案</summary>
+
+```python
+class BankError(Exception):
+    """所有银行相关错误的基类。"""
+    pass
+
+class InsufficientFundsError(BankError):
+    def __init__(self, balance, amount):
+        self.balance = balance
+        self.amount = amount
+        self.shortfall = amount - balance
+        super().__init__(
+            f"无法提取 ¥{amount:.2f}：余额仅 ¥{balance:.2f}（差额 ¥{self.shortfall:.2f}）"
+        )
+
+class InvalidAmountError(BankError):
+    def __init__(self, amount):
+        self.amount = amount
+        super().__init__(f"无效的提取金额: ¥{amount}，必须为正数。")
+
+class AccountLockedError(BankError):
+    def __init__(self, reason="安全限制"):
+        super().__init__(f"账户已锁定: {reason}")
+
+def withdraw(balance, amount, locked=False):
+    if locked:
+        raise AccountLockedError()
+    if amount <= 0:
+        raise InvalidAmountError(amount)
+    if amount > balance:
+        raise InsufficientFundsError(balance, amount)
+    new_balance = balance - amount
+    print(f"成功提取 ¥{amount:.2f}。新余额: ¥{new_balance:.2f}")
+    return new_balance
+
+# 测试
+test_cases = [
+    (100.0, 50.0, False),
+    (100.0, 150.0, False),
+    (100.0, -10.0, False),
+    (100.0, 50.0, True),
+]
+
+for balance, amount, locked in test_cases:
+    try:
+        withdraw(balance, amount, locked)
+    except InsufficientFundsError as e:
+        print(f"余额不足: {e}")
+    except InvalidAmountError as e:
+        print(f"金额无效: {e}")
+    except AccountLockedError as e:
+        print(f"账户锁定: {e}")
+```
+
+</details>
+
+---
+
+### 练习 3：自定义上下文管理器
+
+使用 `@contextmanager` 创建上下文管理器 `temp_file_writer(filename, content)`，要求：
+- 进入时创建并写入临时文件
+- yield 文件路径
+- 退出时删除文件（即使发生异常也要删除）
+- 创建和删除时各打印一条消息
+
+<details>
+<summary>查看答案</summary>
+
+```python
+import os
+import tempfile
+from contextlib import contextmanager
+
+@contextmanager
+def temp_file_writer(filename_hint, content):
+    """创建临时文件，yield 其路径，并确保退出时删除。"""
+    temp_dir = tempfile.gettempdir()
+    filepath = os.path.join(temp_dir, filename_hint)
+
+    try:
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write(content)
+        print(f"已创建临时文件: {filepath}")
+        yield filepath
+
+    except Exception as e:
+        print(f"使用临时文件时出错: {e}")
+        raise
+
+    finally:
+        if os.path.exists(filepath):
+            os.remove(filepath)
+            print(f"已删除临时文件: {filepath}")
+
+# 正常使用
+with temp_file_writer("报告.txt", "你好，世界！\n第二行") as path:
+    with open(path) as f:
+        content = f.read()
+    print(f"文件内容: {content!r}")
+print()
+
+# 发生异常时文件也会被删除
+try:
+    with temp_file_writer("数据.txt", "一些数据") as path:
+        print(f"读取: {open(path).read()!r}")
+        raise RuntimeError("处理失败！")
+except RuntimeError as e:
+    print(f"已捕获: {e}")
+    # 文件已被删除（finally 块已执行）
+```
+
+</details>

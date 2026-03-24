@@ -1,0 +1,837 @@
+---
+title: "Module 17: Generics and Sealed Classes"
+description: "Master Kotlin generics: type parameters, variance (in/out), reified types, sealed class hierarchies, and algebraic data types — compared to JavaScript/TypeScript generics."
+---
+
+# Module 17: Generics and Sealed Classes
+
+Welcome to Module 17 of the JavaScript to Kotlin conversion course! In this module, we explore one of Kotlin's most powerful type system features: generics and sealed classes. These tools let you write reusable, type-safe code and model domain problems precisely — far beyond what plain JavaScript allows.
+
+## Learning Objectives
+
+By the end of this module, you will be able to:
+
+- ✅ Define generic functions and classes with type parameters in Kotlin
+- ✅ Apply variance annotations (`in` and `out`) to control how generic types relate
+- ✅ Use `reified` type parameters with `inline` functions to inspect types at runtime
+- ✅ Model algebraic data types using `sealed class` and exhaustive `when` expressions
+- ✅ Leverage `sealed interface` for flexible, multi-file hierarchies (Kotlin 1.5+)
+- ✅ Apply generic constraints (`<T : SomeType>`) and compare them to TypeScript's `extends`
+
+---
+
+## 1. Generic Functions and Classes
+
+JavaScript is dynamically typed, so you rarely write explicit generic functions. TypeScript adds generics, but Kotlin's generics are checked more strictly at compile time.
+
+<UniversalEditor title="Generic Identity Function" compare={true}>
+```javascript !! js
+// JavaScript — no types needed, any value works
+function identity(x) {
+  return x;
+}
+
+// TypeScript equivalent with generics
+// function identity<T>(x: T): T { return x; }
+
+console.log(identity(42));        // 42
+console.log(identity("hello"));   // "hello"
+console.log(identity([1, 2, 3])); // [1, 2, 3]
+
+// Generic array utility
+function firstOrNull(arr) {
+  return arr.length > 0 ? arr[0] : null;
+}
+
+console.log(firstOrNull([10, 20])); // 10
+console.log(firstOrNull([]));       // null
+```
+
+```kotlin !! kotlin
+// Kotlin — explicit type parameter <T>
+fun <T> identity(x: T): T = x
+
+fun main() {
+    println(identity(42))          // 42
+    println(identity("hello"))     // hello
+    println(identity(listOf(1,2,3))) // [1, 2, 3]
+
+    // Generic utility function
+    fun <T> firstOrNull(list: List<T>): T? =
+        if (list.isNotEmpty()) list[0] else null
+
+    println(firstOrNull(listOf(10, 20))) // 10
+    println(firstOrNull(emptyList<Int>())) // null
+}
+```
+</UniversalEditor>
+
+<UniversalEditor title="Generic Classes" compare={true}>
+```javascript !! js
+// JavaScript generic-like class (no type safety)
+class Box {
+  constructor(value) {
+    this.value = value;
+  }
+
+  getValue() {
+    return this.value;
+  }
+
+  map(transform) {
+    return new Box(transform(this.value));
+  }
+
+  toString() {
+    return `Box(${this.value})`;
+  }
+}
+
+// TypeScript version:
+// class Box<T> {
+//   constructor(public readonly value: T) {}
+//   map<U>(transform: (v: T) => U): Box<U> { return new Box(transform(this.value)); }
+// }
+
+const intBox = new Box(42);
+const strBox = intBox.map(n => n.toString());
+console.log(intBox.getValue()); // 42
+console.log(strBox.getValue()); // "42"
+
+// Pair class
+class Pair {
+  constructor(first, second) {
+    this.first = first;
+    this.second = second;
+  }
+}
+
+const p = new Pair("name", 25);
+console.log(p.first, p.second); // "name" 25
+```
+
+```kotlin !! kotlin
+// Kotlin generic class with full type safety
+data class Box<T>(val value: T) {
+    fun <U> map(transform: (T) -> U): Box<U> =
+        Box(transform(value))
+
+    override fun toString(): String = "Box($value)"
+}
+
+// Generic data class
+data class Pair<A, B>(val first: A, val second: B)
+
+fun main() {
+    val intBox = Box(42)
+    val strBox = intBox.map { it.toString() }
+
+    println(intBox.value)   // 42
+    println(strBox.value)   // "42"
+    println(intBox)         // Box(42)
+
+    val p = Pair("name", 25)
+    println("${p.first} ${p.second}") // name 25
+
+    // The compiler knows the exact types
+    val numBox: Box<Int> = Box(100)
+    // val wrong: Box<String> = numBox  // Compile error!
+}
+```
+</UniversalEditor>
+
+---
+
+## 2. Variance: `in` and `out`
+
+Variance controls how a generic type `Container<T>` relates to `Container<Subtype>`. TypeScript uses structural subtyping; Kotlin uses explicit declaration-site variance.
+
+<UniversalEditor title="Covariance (out) and Contravariance (in)" compare={true}>
+```javascript !! js
+// JavaScript / TypeScript variance
+// TypeScript uses 'extends' for bounded generics
+// but variance is mostly structural (implicit)
+
+// Producer — reads T, never writes
+// interface Producer<out T> { get(): T }  // TypeScript
+class Producer {
+  constructor(items) {
+    this.items = items;
+  }
+  get(index) {
+    return this.items[index];
+  }
+}
+
+// Consumer — writes T, never reads it back as T
+// interface Consumer<in T> { accept(value: T): void }  // TypeScript
+class Consumer {
+  constructor() {
+    this.log = [];
+  }
+  accept(value) {
+    this.log.push(value.toString());
+  }
+}
+
+// In TS:
+// const numProducer: Producer<number> = new Producer([1,2,3]);
+// const anyProducer: Producer<any> = numProducer; // OK with 'out'
+
+const producer = new Producer([1, 2, 3]);
+console.log(producer.get(0)); // 1
+
+const consumer = new Consumer();
+consumer.accept(42);
+consumer.accept("hello");
+console.log(consumer.log); // ["42", "hello"]
+```
+
+```kotlin !! kotlin
+// Kotlin declaration-site variance
+
+// 'out T' = covariant = Producer (can only return T)
+class Producer<out T>(private val items: List<T>) {
+    fun get(index: Int): T = items[index]
+    // fun set(t: T) {} // Compile error! Can't consume out-type
+}
+
+// 'in T' = contravariant = Consumer (can only accept T)
+class Consumer<in T> {
+    private val log = mutableListOf<String>()
+    fun accept(value: T) { log.add(value.toString()) }
+    fun printLog() = println(log)
+}
+
+fun main() {
+    val numProducer: Producer<Int> = Producer(listOf(1, 2, 3))
+    // Covariance: Producer<Int> is a subtype of Producer<Number>
+    val numericProducer: Producer<Number> = numProducer // OK!
+    println(numericProducer.get(0)) // 1
+
+    val anyConsumer: Consumer<Any> = Consumer()
+    // Contravariance: Consumer<Any> is a subtype of Consumer<Int>
+    val intConsumer: Consumer<Int> = anyConsumer // OK!
+    intConsumer.accept(42)
+    anyConsumer.accept("hello")
+    anyConsumer.printLog() // [42, hello]
+}
+```
+</UniversalEditor>
+
+---
+
+## 3. Reified Type Parameters
+
+JavaScript has no type information at runtime. Kotlin's `inline` functions with `reified` type parameters allow you to access the actual type `T` at runtime — something impossible in normal generics due to JVM type erasure.
+
+<UniversalEditor title="Reified Types — Runtime Type Checks" compare={true}>
+```javascript !! js
+// JavaScript — use instanceof or typeof at runtime
+function isType(value, type) {
+  if (type === 'string') return typeof value === 'string';
+  if (type === 'number') return typeof value === 'number';
+  return value instanceof type;
+}
+
+console.log(isType("hello", 'string'));  // true
+console.log(isType(42, 'string'));       // false
+console.log(isType([], Array));          // true
+
+// TypeScript generics are ERASED at runtime — no equivalent to reified!
+// function isType<T>(value: unknown): value is T { ... }
+// This TS version can't actually check T at runtime without workarounds.
+
+// Filtering by type
+function filterByType(arr, type) {
+  return arr.filter(item => isType(item, type));
+}
+
+const mixed = [1, "a", 2, "b", true];
+console.log(filterByType(mixed, 'string')); // ["a", "b"]
+console.log(filterByType(mixed, 'number')); // [1, 2]
+```
+
+```kotlin !! kotlin
+// Kotlin reified type parameters — T is available at runtime!
+inline fun <reified T> isType(value: Any): Boolean =
+    value is T
+
+inline fun <reified T> filterByType(list: List<Any>): List<T> =
+    list.filterIsInstance<T>()
+
+// Reified allows us to get the class itself
+inline fun <reified T> classNameOf(): String =
+    T::class.simpleName ?: "Unknown"
+
+fun main() {
+    println(isType<String>("hello"))   // true
+    println(isType<Int>(42))           // true
+    println(isType<String>(42))        // false
+
+    val mixed: List<Any> = listOf(1, "a", 2, "b", true, 3.14)
+    println(filterByType<String>(mixed))  // [a, b]
+    println(filterByType<Int>(mixed))     // [1, 2]
+
+    println(classNameOf<String>())  // String
+    println(classNameOf<Int>())     // Int
+
+    // Practical use: type-safe JSON parsing helper (conceptual)
+    inline fun <reified T> parseOrNull(json: String): T? =
+        try {
+            // In real code: gson.fromJson(json, T::class.java)
+            null // placeholder
+        } catch (e: Exception) { null }
+}
+```
+</UniversalEditor>
+
+---
+
+## 4. Sealed Classes as Algebraic Data Types
+
+TypeScript uses discriminated unions for modeling domain types. Kotlin's `sealed class` provides the same power with exhaustive `when` expressions checked by the compiler.
+
+<UniversalEditor title="Sealed Classes vs TypeScript Discriminated Unions" compare={true}>
+```javascript !! js
+// TypeScript discriminated union (JS has no type-level equivalent)
+// type Shape =
+//   | { kind: 'circle'; radius: number }
+//   | { kind: 'rectangle'; width: number; height: number }
+//   | { kind: 'triangle'; base: number; height: number }
+
+// JavaScript simulation using plain objects + kind field
+function makeCircle(radius) {
+  return { kind: 'circle', radius };
+}
+function makeRectangle(width, height) {
+  return { kind: 'rectangle', width, height };
+}
+function makeTriangle(base, height) {
+  return { kind: 'triangle', base, height };
+}
+
+function area(shape) {
+  switch (shape.kind) {
+    case 'circle':
+      return Math.PI * shape.radius ** 2;
+    case 'rectangle':
+      return shape.width * shape.height;
+    case 'triangle':
+      return 0.5 * shape.base * shape.height;
+    default:
+      throw new Error(`Unknown shape: ${shape.kind}`);
+  }
+}
+
+const shapes = [
+  makeCircle(5),
+  makeRectangle(4, 6),
+  makeTriangle(3, 8),
+];
+
+shapes.forEach(s => console.log(`Area: ${area(s).toFixed(2)}`));
+// Area: 78.54
+// Area: 24.00
+// Area: 12.00
+```
+
+```kotlin !! kotlin
+// Kotlin sealed class — exhaustive when enforced by compiler
+sealed class Shape {
+    data class Circle(val radius: Double) : Shape()
+    data class Rectangle(val width: Double, val height: Double) : Shape()
+    data class Triangle(val base: Double, val height: Double) : Shape()
+}
+
+fun area(shape: Shape): Double = when (shape) {
+    is Shape.Circle    -> Math.PI * shape.radius * shape.radius
+    is Shape.Rectangle -> shape.width * shape.height
+    is Shape.Triangle  -> 0.5 * shape.base * shape.height
+    // No 'else' needed — compiler verifies all cases are covered!
+    // Adding a new subclass without updating 'when' = compile error
+}
+
+fun describe(shape: Shape): String = when (shape) {
+    is Shape.Circle    -> "Circle with radius ${shape.radius}"
+    is Shape.Rectangle -> "Rectangle ${shape.width}x${shape.height}"
+    is Shape.Triangle  -> "Triangle base=${shape.base} h=${shape.height}"
+}
+
+fun main() {
+    val shapes: List<Shape> = listOf(
+        Shape.Circle(5.0),
+        Shape.Rectangle(4.0, 6.0),
+        Shape.Triangle(3.0, 8.0),
+    )
+
+    shapes.forEach { s ->
+        println("${describe(s)} → Area: ${"%.2f".format(area(s))}")
+    }
+    // Circle with radius 5.0 → Area: 78.54
+    // Rectangle 4.0x6.0 → Area: 24.00
+    // Triangle base=3.0 h=8.0 → Area: 12.00
+}
+```
+</UniversalEditor>
+
+### Result-like Types with Sealed Classes
+
+<UniversalEditor title="Modeling Results with Sealed Classes" compare={true}>
+```javascript !! js
+// JavaScript — using plain objects or classes
+class Ok {
+  constructor(value) { this.value = value; this.isOk = true; }
+}
+class Err {
+  constructor(error) { this.error = error; this.isOk = false; }
+}
+
+function divide(a, b) {
+  if (b === 0) return new Err("Division by zero");
+  return new Ok(a / b);
+}
+
+function safeSqrt(n) {
+  if (n < 0) return new Err("Cannot take sqrt of negative number");
+  return new Ok(Math.sqrt(n));
+}
+
+const result = divide(10, 2);
+if (result.isOk) {
+  console.log("Result:", result.value);     // Result: 5
+} else {
+  console.error("Error:", result.error);
+}
+
+// Chaining is verbose
+const r = divide(100, 4);
+const final = r.isOk ? safeSqrt(r.value) : r;
+console.log(final.isOk ? final.value : final.error); // 5
+```
+
+```kotlin !! kotlin
+// Kotlin sealed class as a custom Result type
+sealed class Outcome<out T> {
+    data class Success<T>(val value: T) : Outcome<T>()
+    data class Failure(val error: String) : Outcome<Nothing>()
+
+    fun getOrNull(): T? = when (this) {
+        is Success -> value
+        is Failure -> null
+    }
+
+    fun <U> map(transform: (T) -> U): Outcome<U> = when (this) {
+        is Success -> Success(transform(value))
+        is Failure -> this
+    }
+}
+
+fun divide(a: Double, b: Double): Outcome<Double> =
+    if (b == 0.0) Outcome.Failure("Division by zero")
+    else Outcome.Success(a / b)
+
+fun safeSqrt(n: Double): Outcome<Double> =
+    if (n < 0) Outcome.Failure("Cannot take sqrt of negative number")
+    else Outcome.Success(Math.sqrt(n))
+
+fun main() {
+    val result = divide(10.0, 2.0)
+    when (result) {
+        is Outcome.Success -> println("Result: ${result.value}") // Result: 5.0
+        is Outcome.Failure -> println("Error: ${result.error}")
+    }
+
+    // Chaining with map
+    val final = divide(100.0, 4.0).map { safeSqrt(it).getOrNull() ?: 0.0 }
+    println(final.getOrNull()) // 5.0
+}
+```
+</UniversalEditor>
+
+---
+
+## 5. Sealed Interfaces (Kotlin 1.5+)
+
+`sealed interface` is more flexible than `sealed class` — implementing classes can extend other classes or implement multiple sealed interfaces.
+
+<UniversalEditor title="Sealed Interfaces" compare={true}>
+```javascript !! js
+// TypeScript union of interfaces
+// interface Loadable { readonly isLoading: boolean }
+// interface Successful<T> extends Loadable { data: T }
+// interface Failed extends Loadable { error: Error }
+// type UiState<T> = { kind: 'loading' } | { kind: 'success'; data: T } | { kind: 'error'; error: string }
+
+// JavaScript simulation
+const UiState = {
+  loading: () => ({ kind: 'loading' }),
+  success: (data) => ({ kind: 'success', data }),
+  error: (message) => ({ kind: 'error', message }),
+};
+
+function renderState(state) {
+  switch (state.kind) {
+    case 'loading': return 'Loading...';
+    case 'success': return `Data: ${JSON.stringify(state.data)}`;
+    case 'error':   return `Error: ${state.message}`;
+    default:        return 'Unknown state';
+  }
+}
+
+const states = [
+  UiState.loading(),
+  UiState.success({ users: ['Alice', 'Bob'] }),
+  UiState.error('Network timeout'),
+];
+
+states.forEach(s => console.log(renderState(s)));
+// Loading...
+// Data: {"users":["Alice","Bob"]}
+// Error: Network timeout
+```
+
+```kotlin !! kotlin
+// Kotlin sealed interface — implementing classes can extend other classes
+sealed interface UiState<out T>
+
+// Implementing classes can be data classes, objects, or regular classes
+data object Loading : UiState<Nothing>
+
+data class Success<T>(val data: T) : UiState<T>
+
+data class Error(val message: String, val cause: Throwable? = null) : UiState<Nothing>
+
+// A class can implement multiple sealed interfaces
+sealed interface Refreshable
+data object Refreshing : UiState<Nothing>, Refreshable
+
+fun <T> renderState(state: UiState<T>): String = when (state) {
+    is Loading    -> "Loading..."
+    is Success    -> "Data: ${state.data}"
+    is Error      -> "Error: ${state.message}"
+    is Refreshing -> "Refreshing..."
+}
+
+fun main() {
+    val states: List<UiState<*>> = listOf(
+        Loading,
+        Success(mapOf("users" to listOf("Alice", "Bob"))),
+        Error("Network timeout"),
+        Refreshing,
+    )
+
+    states.forEach { println(renderState(it)) }
+    // Loading...
+    // Data: {users=[Alice, Bob]}
+    // Error: Network timeout
+    // Refreshing...
+}
+```
+</UniversalEditor>
+
+---
+
+## 6. Generic Constraints
+
+<UniversalEditor title="Generic Constraints and Bounds" compare={true}>
+```javascript !! js
+// JavaScript — no compile-time constraint enforcement
+// TypeScript: function max<T extends Comparable>(a: T, b: T): T
+
+// JS runtime check approach
+function max(a, b) {
+  if (typeof a !== typeof b) throw new Error('Type mismatch');
+  return a > b ? a : b;
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+console.log(max(3, 7));         // 7
+console.log(max("apple", "banana")); // "banana"
+console.log(clamp(15, 0, 10)); // 10
+
+// TypeScript multiple constraints:
+// function process<T extends Serializable & Loggable>(item: T): void
+
+// Generic sort in JS — works on anything but no type safety
+function sortList(arr, compareFn) {
+  return [...arr].sort(compareFn);
+}
+
+const nums = sortList([3,1,4,1,5], (a, b) => a - b);
+const strs = sortList(['banana','apple','cherry'], (a, b) => a.localeCompare(b));
+console.log(nums); // [1, 1, 3, 4, 5]
+console.log(strs); // ["apple", "banana", "cherry"]
+```
+
+```kotlin !! kotlin
+// Kotlin generic constraints with upper bounds
+fun <T : Comparable<T>> max(a: T, b: T): T = if (a > b) a else b
+
+fun <T : Comparable<T>> clamp(value: T, min: T, max: T): T =
+    if (value < min) min else if (value > max) max else value
+
+// Multiple upper bounds using 'where'
+interface Printable { fun print() }
+interface Serializable { fun serialize(): String }
+
+fun <T> processItem(item: T) where T : Printable, T : Serializable {
+    item.print()
+    println(item.serialize())
+}
+
+// Generic extension on constrained type
+fun <T : Comparable<T>> List<T>.sortedAndDistinct(): List<T> =
+    this.toSortedSet().toList()
+
+fun main() {
+    println(max(3, 7))             // 7
+    println(max("apple", "banana")) // banana
+    println(clamp(15, 0, 10))      // 10
+    println(clamp(5, 0, 10))       // 5
+
+    val nums = listOf(3, 1, 4, 1, 5, 9, 2, 6, 5)
+    println(nums.sortedAndDistinct())  // [1, 2, 3, 4, 5, 6, 9]
+
+    val words = listOf("banana", "apple", "cherry", "apple")
+    println(words.sortedAndDistinct()) // [apple, banana, cherry]
+}
+```
+</UniversalEditor>
+
+---
+
+## 7. Putting It All Together
+
+<UniversalEditor title="Generic Repository Pattern" compare={true}>
+```javascript !! js
+// TypeScript-style generic repository (JS version without types)
+class InMemoryRepository {
+  constructor() {
+    this.store = new Map();
+    this.nextId = 1;
+  }
+
+  save(entity) {
+    const id = this.nextId++;
+    const saved = { ...entity, id };
+    this.store.set(id, saved);
+    return saved;
+  }
+
+  findById(id) {
+    return this.store.get(id) ?? null;
+  }
+
+  findAll() {
+    return Array.from(this.store.values());
+  }
+
+  deleteById(id) {
+    return this.store.delete(id);
+  }
+
+  count() {
+    return this.store.size;
+  }
+}
+
+class User {
+  constructor(name, email) {
+    this.name = name;
+    this.email = email;
+  }
+}
+
+const repo = new InMemoryRepository();
+const alice = repo.save(new User('Alice', 'alice@example.com'));
+const bob   = repo.save(new User('Bob', 'bob@example.com'));
+
+console.log(repo.findById(1)); // { name: 'Alice', email: '...', id: 1 }
+console.log(repo.count());     // 2
+repo.deleteById(1);
+console.log(repo.findAll());   // [{ name: 'Bob', ... }]
+```
+
+```kotlin !! kotlin
+// Kotlin generic repository using sealed class + generics
+interface Entity {
+    val id: Int
+}
+
+interface Repository<T : Entity> {
+    fun save(entity: T): T
+    fun findById(id: Int): T?
+    fun findAll(): List<T>
+    fun deleteById(id: Int): Boolean
+    val count: Int
+}
+
+class InMemoryRepository<T : Entity> : Repository<T> {
+    private val store = mutableMapOf<Int, T>()
+    private var nextId = 1
+
+    // Note: In real use, you'd use a copy function or interface
+    override fun save(entity: T): T {
+        store[entity.id.takeIf { it != 0 } ?: nextId++] = entity
+        return entity
+    }
+
+    override fun findById(id: Int): T? = store[id]
+    override fun findAll(): List<T> = store.values.toList()
+    override fun deleteById(id: Int): Boolean = store.remove(id) != null
+    override val count: Int get() = store.size
+}
+
+data class User(override val id: Int, val name: String, val email: String) : Entity
+data class Product(override val id: Int, val name: String, val price: Double) : Entity
+
+fun main() {
+    val userRepo = InMemoryRepository<User>()
+    userRepo.save(User(1, "Alice", "alice@example.com"))
+    userRepo.save(User(2, "Bob", "bob@example.com"))
+
+    println(userRepo.findById(1))  // User(id=1, name=Alice, ...)
+    println(userRepo.count)        // 2
+    userRepo.deleteById(1)
+    println(userRepo.findAll())    // [User(id=2, name=Bob, ...)]
+
+    val productRepo = InMemoryRepository<Product>()
+    productRepo.save(Product(1, "Laptop", 999.99))
+    println(productRepo.findAll()) // [Product(id=1, name=Laptop, price=999.99)]
+}
+```
+</UniversalEditor>
+
+---
+
+## Summary Table
+
+| Concept | JavaScript / TypeScript | Kotlin |
+|---|---|---|
+| Generic function | `function f<T>(x: T): T` | `fun <T> f(x: T): T` |
+| Generic class | `class Box<T>` | `class Box<T>(val v: T)` |
+| Covariance | `Array<out T>` (structural) | `out T` (declaration-site) |
+| Contravariance | `Array<in T>` (structural) | `in T` (declaration-site) |
+| Reified types | Not available (erased) | `inline fun <reified T>` |
+| Discriminated unions | TS: `type A = X \| Y` | `sealed class` / `sealed interface` |
+| Exhaustive check | TS: no enforcement | `when` compile-error if incomplete |
+| Generic constraint | `<T extends Comparable>` | `<T : Comparable<T>>` |
+| Multiple constraints | `<T extends A & B>` | `where T : A, T : B` |
+| Sealed subclasses | Not applicable | `data class X : Sealed()` |
+
+---
+
+## Exercises
+
+### Exercise 1: Generic Stack
+
+Implement a generic `Stack<T>` class in Kotlin with `push`, `pop`, `peek`, and `isEmpty` operations. Ensure `pop` and `peek` return `T?` safely.
+
+<details>
+<summary>Show Answer</summary>
+
+```kotlin
+class Stack<T> {
+    private val elements = mutableListOf<T>()
+
+    fun push(item: T) { elements.add(item) }
+
+    fun pop(): T? = if (elements.isNotEmpty()) elements.removeLast() else null
+
+    fun peek(): T? = elements.lastOrNull()
+
+    val isEmpty: Boolean get() = elements.isEmpty()
+
+    val size: Int get() = elements.size
+
+    override fun toString(): String = "Stack($elements)"
+}
+
+fun main() {
+    val stack = Stack<Int>()
+    stack.push(1)
+    stack.push(2)
+    stack.push(3)
+    println(stack.peek())  // 3
+    println(stack.pop())   // 3
+    println(stack.size)    // 2
+    println(stack)         // Stack([1, 2])
+}
+```
+
+</details>
+
+### Exercise 2: Sealed Class for Network State
+
+Model a `NetworkResult<T>` sealed class with three states: `Loading`, `Success(data: T)`, and `Error(code: Int, message: String)`. Write a function `handleResult` that prints a different message for each state using `when`.
+
+<details>
+<summary>Show Answer</summary>
+
+```kotlin
+sealed class NetworkResult<out T> {
+    data object Loading : NetworkResult<Nothing>()
+    data class Success<T>(val data: T) : NetworkResult<T>()
+    data class Error(val code: Int, val message: String) : NetworkResult<Nothing>()
+}
+
+fun <T> handleResult(result: NetworkResult<T>) {
+    when (result) {
+        is NetworkResult.Loading ->
+            println("Fetching data, please wait...")
+        is NetworkResult.Success ->
+            println("Got data: ${result.data}")
+        is NetworkResult.Error ->
+            println("Error ${result.code}: ${result.message}")
+    }
+}
+
+fun main() {
+    handleResult(NetworkResult.Loading)
+    handleResult(NetworkResult.Success(listOf("Alice", "Bob")))
+    handleResult(NetworkResult.Error(404, "Not Found"))
+}
+// Fetching data, please wait...
+// Got data: [Alice, Bob]
+// Error 404: Not Found
+```
+
+</details>
+
+### Exercise 3: Generic `findFirst` with Constraint
+
+Write a generic function `findFirst` that takes a `List<T>` and a predicate `(T) -> Boolean`, returning the first matching element as `T?`. Then write a variant `findFirstComparable` that only works for types implementing `Comparable<T>` and also returns the minimum of all matches.
+
+<details>
+<summary>Show Answer</summary>
+
+```kotlin
+fun <T> findFirst(list: List<T>, predicate: (T) -> Boolean): T? =
+    list.firstOrNull(predicate)
+
+fun <T : Comparable<T>> findFirstComparable(
+    list: List<T>,
+    predicate: (T) -> Boolean
+): Pair<T?, T?> {
+    val matches = list.filter(predicate)
+    return Pair(matches.firstOrNull(), matches.minOrNull())
+}
+
+fun main() {
+    val numbers = listOf(5, 3, 8, 1, 9, 2, 7)
+    println(findFirst(numbers) { it > 6 })  // 8
+
+    val (first, min) = findFirstComparable(numbers) { it > 4 }
+    println("First > 4: $first, Min > 4: $min")  // First > 4: 5, Min > 4: 5
+
+    val words = listOf("cherry", "apple", "banana", "avocado")
+    val (fw, mw) = findFirstComparable(words) { it.startsWith("a") }
+    println("First 'a': $fw, Min 'a': $mw")  // First 'a': apple, Min 'a': apple
+}
+```
+
+</details>

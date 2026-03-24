@@ -1,0 +1,675 @@
+---
+title: "第 18 模組：錯誤處理"
+description: "掌握 Kotlin 錯誤處理：try/catch/finally、受檢與非受檢例外、Result 型別、runCatching 以及面向鐵路程式設計模式。"
+---
+
+# 第 18 模組：錯誤處理
+
+歡迎來到 JavaScript 到 Kotlin 轉換課程的第 18 模組！錯誤處理是區分健壯生產程式碼與脆弱腳本的基礎技能。本模組將 JavaScript 的錯誤處理模式與 Kotlin 更豐富的工具集進行比較：非受檢例外、`Result` 型別、空安全作為錯誤預防手段，以及使用函式鏈接的面向鐵路程式設計。
+
+## 學習目標
+
+完成本模組後，你將能夠：
+
+- ✅ 使用 Kotlin 的 `try/catch/finally`，並理解 `try` 作為表達式的特性
+- ✅ 解釋為什麼 Kotlin 沒有受檢例外（與 Java 不同），以及這與 JavaScript 的比較
+- ✅ 建立具有有意義型別的自訂例外層次結構
+- ✅ 使用 `Result<T>` 和 `runCatching` 進行函式式錯誤處理
+- ✅ 利用空安全運算子（`?.`、`?:`、`!!`）作為對抗錯誤的第一道防線
+- ✅ 使用 `map`、`flatMap` 和 `recover` 透過面向鐵路程式設計鏈接操作
+
+---
+
+## 1. try/catch 對比 JavaScript try/catch
+
+基本結構看起來相似，但 Kotlin 的 `try` 是表達式——它回傳一個值。這使得內聯錯誤處理變得簡潔。
+
+<UniversalEditor title="基本 try/catch 語法" compare={true}>
+```javascript !! js
+// JavaScript try/catch/finally
+function parseNumber(str) {
+  try {
+    const num = parseInt(str, 10);
+    if (isNaN(num)) throw new Error(`"${str}" 不是有效數字`);
+    return num;
+  } catch (error) {
+    console.error('解析失敗:', error.message);
+    return 0; // 回退值
+  } finally {
+    console.log('parseNumber 已完成');
+  }
+}
+
+console.log(parseNumber("42"));    // parseNumber 已完成 → 42
+console.log(parseNumber("hello")); // 解析失敗: ... → 0
+
+// JavaScript try 不回傳值
+let result;
+try {
+  result = JSON.parse('{"key": 1}');
+} catch (e) {
+  result = {};
+}
+console.log(result); // { key: 1 }
+
+// JS 中多重捕獲需要 instanceof 檢查
+function handleError(fn) {
+  try {
+    return fn();
+  } catch (e) {
+    if (e instanceof TypeError) {
+      return `型別錯誤: ${e.message}`;
+    } else if (e instanceof RangeError) {
+      return `範圍錯誤: ${e.message}`;
+    } else {
+      throw e; // 重新拋出未知錯誤
+    }
+  }
+}
+```
+
+```kotlin !! kotlin
+// Kotlin try/catch/finally
+fun parseNumber(str: String): Int {
+    return try {
+        val num = str.toInt()
+        num
+    } catch (e: NumberFormatException) {
+        println("解析失敗: ${e.message}")
+        0 // 回退值
+    } finally {
+        println("parseNumber 已完成")
+    }
+}
+
+fun main() {
+    println(parseNumber("42"))     // parseNumber 已完成 → 42
+    println(parseNumber("hello"))  // 解析失敗: ... → 0
+
+    // Kotlin 中 try 是表達式——直接回傳值
+    val result: Map<String, Int> = try {
+        mapOf("key" to 1)
+    } catch (e: Exception) {
+        emptyMap()
+    }
+    println(result) // {key=1}
+
+    // 多重捕獲，指定具體型別
+    fun handleError(block: () -> Int): String =
+        try {
+            block().toString()
+        } catch (e: NumberFormatException) {
+            "數字格式錯誤: ${e.message}"
+        } catch (e: ArithmeticException) {
+            "算術錯誤: ${e.message}"
+        } catch (e: Exception) {
+            throw e // 重新拋出未知錯誤
+        }
+
+    println(handleError { "not a number".toInt() }) // 數字格式錯誤: ...
+    println(handleError { 10 / 0 })                 // 算術錯誤: / by zero
+}
+```
+</UniversalEditor>
+
+---
+
+## 2. 受檢與非受檢例外
+
+Java 強制要求用 `throws` 宣告受檢例外。Kotlin 放棄了這一點——所有例外都是非受檢的，就像 JavaScript 一樣。這在不犧牲安全性的情況下減少了樣板程式碼。
+
+<UniversalEditor title="Kotlin 沒有受檢例外" compare={true}>
+```javascript !! js
+// JavaScript — 所有錯誤都是非受檢的（沒有編譯時期強制）
+// 你可以選擇處理它們或讓它們傳播
+
+async function fetchUser(id) {
+  // 不需要也不可能宣告 'throws'
+  const response = await fetch(`/api/users/${id}`);
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+// 呼叫者可以自由處理或忽略錯誤
+async function main() {
+  // 選項 1：處理它
+  try {
+    const user = await fetchUser(1);
+    console.log(user);
+  } catch (e) {
+    console.error('取得使用者失敗:', e.message);
+  }
+
+  // 選項 2：讓它傳播（沒有編譯器警告）
+  const user = await fetchUser(1);
+  console.log(user);
+}
+
+// Java 會要求：
+// public User fetchUser(int id) throws IOException, HttpException { ... }
+// 並強制呼叫者處理或宣告這些例外
+```
+
+```kotlin !! kotlin
+// Kotlin — 所有例外都是非受檢的，沒有 'throws' 宣告
+// 這是有意為之：Kotlin 設計者發現受檢例外只增加了樣板程式碼
+// 而沒有實質性提高可靠性
+
+import java.io.IOException
+
+// 不需要宣告 throws——函式簽名簡潔
+fun fetchUserData(id: Int): String {
+    // 可能拋出 IOException，但沒有編譯器強制
+    if (id <= 0) throw IllegalArgumentException("ID 必須為正數: $id")
+    return "User#$id" // 簡化版本
+}
+
+// @Throws 注解僅用於 Java 互通性
+@Throws(IOException::class)
+fun javaFriendlyFunction() {
+    throw IOException("這個注解幫助 Java 呼叫者")
+}
+
+fun main() {
+    // 選項 1：處理它
+    try {
+        val user = fetchUserData(1)
+        println(user) // User#1
+    } catch (e: IllegalArgumentException) {
+        println("輸入錯誤: ${e.message}")
+    }
+
+    // 選項 2：讓它傳播——編譯器不會抱怨
+    // val user = fetchUserData(-1)  // 執行時期會拋出
+
+    // 使用 runCatching 進行函式式風格（稍後介紹）
+    val result = runCatching { fetchUserData(-5) }
+    println(result.isFailure) // true
+    println(result.exceptionOrNull()?.message) // ID 必須為正數: -5
+}
+```
+</UniversalEditor>
+
+---
+
+## 3. 自訂例外
+
+<UniversalEditor title="自訂例外層次結構" compare={true}>
+```javascript !! js
+// JavaScript 自訂錯誤
+class AppError extends Error {
+  constructor(message, code) {
+    super(message);
+    this.name = 'AppError';
+    this.code = code;
+  }
+}
+
+class NetworkError extends AppError {
+  constructor(message, statusCode, url) {
+    super(message, 'NETWORK_ERROR');
+    this.name = 'NetworkError';
+    this.statusCode = statusCode;
+    this.url = url;
+  }
+}
+
+class ValidationError extends AppError {
+  constructor(field, message) {
+    super(message, 'VALIDATION_ERROR');
+    this.name = 'ValidationError';
+    this.field = field;
+  }
+}
+
+function processRequest(data) {
+  if (!data.token) throw new Error('缺少令牌');
+  if (!data.email) throw new ValidationError('email', '電子郵件為必填項');
+  if (!data.email.includes('@')) throw new ValidationError('email', '電子郵件格式無效');
+  return { success: true };
+}
+
+try {
+  processRequest({ email: 'not-an-email', token: 'abc' });
+} catch (e) {
+  if (e instanceof ValidationError) {
+    console.log(`欄位 '${e.field}' 驗證失敗: ${e.message}`);
+  } else if (e instanceof NetworkError) {
+    console.log(`網路錯誤 ${e.statusCode}: ${e.message}`);
+  } else {
+    throw e;
+  }
+}
+```
+
+```kotlin !! kotlin
+// Kotlin 自訂例外層次結構
+sealed class AppException(message: String, cause: Throwable? = null)
+    : Exception(message, cause)
+
+class NetworkException(
+    message: String,
+    val statusCode: Int,
+    val url: String,
+    cause: Throwable? = null
+) : AppException(message, cause)
+
+class ValidationException(
+    val field: String,
+    message: String
+) : AppException("欄位 '$field' 驗證失敗: $message")
+
+class AuthenticationException(
+    val reason: String
+) : AppException("認證失敗: $reason")
+
+data class RequestData(val token: String?, val email: String?)
+
+fun processRequest(data: RequestData): Map<String, Boolean> {
+    if (data.token.isNullOrBlank())
+        throw AuthenticationException("缺少令牌")
+    if (data.email.isNullOrBlank())
+        throw ValidationException("email", "電子郵件為必填項")
+    if (!data.email.contains('@'))
+        throw ValidationException("email", "電子郵件格式無效")
+    return mapOf("success" to true)
+}
+
+fun main() {
+    try {
+        processRequest(RequestData(token = "abc", email = "not-an-email"))
+    } catch (e: ValidationException) {
+        println("${e.message}")
+        // 欄位 'email' 驗證失敗: 電子郵件格式無效
+    } catch (e: NetworkException) {
+        println("網路 ${e.statusCode} 在 ${e.url}: ${e.message}")
+    } catch (e: AuthenticationException) {
+        println("認證錯誤: ${e.reason}")
+    }
+}
+```
+</UniversalEditor>
+
+---
+
+## 4. Result 型別
+
+Kotlin 標準函式庫包含 `Result<T>` 用於不需要 try/catch 的函式式錯誤處理。`runCatching` 包裝任意程式碼區塊，捕獲成功或失敗。
+
+<UniversalEditor title="Result 型別與 runCatching" compare={true}>
+```javascript !! js
+// JavaScript — Promise 作為非同步 Result，或手動 Result 模式
+// JS 沒有內建的同步 Result 型別
+
+// 手動 Result 模式（現代 JS 中常見）
+function ok(value) { return { ok: true, value }; }
+function err(error) { return { ok: false, error }; }
+
+function divide(a, b) {
+  if (b === 0) return err(new Error('除以零'));
+  return ok(a / b);
+}
+
+const r1 = divide(10, 2);
+const r2 = divide(10, 0);
+
+if (r1.ok) console.log(r1.value);          // 5
+if (!r2.ok) console.log(r2.error.message); // 除以零
+
+// 鏈接
+const value = r1.ok ? r1.value * 2 : null;
+console.log(value); // 10
+```
+
+```kotlin !! kotlin
+// Kotlin 內建 Result<T> 型別
+fun divide(a: Double, b: Double): Result<Double> =
+    if (b == 0.0) Result.failure(ArithmeticException("除以零"))
+    else Result.success(a / b)
+
+// runCatching 將任何拋出例外的程式碼包裝在 Result 中
+fun parseJson(json: String): Result<Map<String, Any>> =
+    runCatching {
+        if (json.startsWith("{")) mapOf("parsed" to true as Any)
+        else throw IllegalArgumentException("不是 JSON 物件: $json")
+    }
+
+fun main() {
+    val r1 = divide(10.0, 2.0)
+    val r2 = divide(10.0, 0.0)
+
+    // 提取值
+    println(r1.getOrNull())          // 5.0
+    println(r1.getOrDefault(0.0))    // 5.0
+    println(r2.getOrNull())          // null
+    println(r2.getOrElse { -1.0 })   // -1.0
+
+    // isSuccess / isFailure
+    println(r1.isSuccess) // true
+    println(r2.isFailure) // true
+    println(r2.exceptionOrNull()?.message) // 除以零
+
+    // map — 轉換成功值
+    val doubled = r1.map { it * 2 }
+    println(doubled.getOrNull()) // 10.0
+
+    // recover — 將失敗轉換為成功
+    val recovered = r2.recover { 0.0 }
+    println(recovered.getOrNull()) // 0.0
+
+    // onSuccess / onFailure 副作用
+    r1.onSuccess { println("結果: $it") }    // 結果: 5.0
+    r2.onFailure { println("錯誤: ${it.message}") } // 錯誤: 除以零
+}
+```
+</UniversalEditor>
+
+---
+
+## 5. 空安全作為錯誤處理
+
+Kotlin 的型別系統區分可空（`String?`）和非可空（`String`）型別。這防止了 JavaScript 中常見的整類執行時期錯誤。
+
+<UniversalEditor title="空安全運算子" compare={true}>
+```javascript !! js
+// JavaScript — null/undefined 會悄悄導致執行時期錯誤
+const user = null;
+
+// 這會崩潰：TypeError: Cannot read property 'name' of null
+// console.log(user.name);
+
+// 可選鏈（?.）— JS 等價物
+console.log(user?.name);              // undefined（不崩潰）
+console.log(user?.address?.city);     // undefined
+
+// 空值合併（??）— Elvis 運算子的 JS 等價物
+const name = user?.name ?? '匿名使用者';
+console.log(name); // 匿名使用者
+
+// 但 JS 仍然允許：
+function getLength(str) {
+  return str.length; // 如果 str 是 null/undefined 則崩潰！
+}
+
+function safeGetLength(str) {
+  if (str == null) return 0;
+  return str.length;
+}
+
+console.log(safeGetLength(null));    // 0
+console.log(safeGetLength("hello")); // 5
+```
+
+```kotlin !! kotlin
+// Kotlin 空安全——在編譯時期強制執行
+
+// 非可空：String 永遠不能為 null
+// 可空：String? 可以為 null
+val nonNull: String = "hello"
+val nullable: String? = null
+
+// 安全呼叫運算子（?.）— 類似 JS 可選鏈
+println(nullable?.length)           // null（不崩潰）
+println(nullable?.uppercase())      // null
+
+// Elvis 運算子（?:）— 類似 JS 空值合併
+val length = nullable?.length ?: 0
+println(length) // 0
+
+val name = nullable ?: "匿名使用者"
+println(name) // 匿名使用者
+
+// 非空斷言（!!）— 如果為 null 則拋出 NPE（謹慎使用！）
+// val crash = nullable!!.length  // NullPointerException!
+
+// let 用於安全的空檢查區塊
+nullable?.let { str ->
+    println("不為空: $str")
+} ?: println("是 null") // 是 null
+
+val nonNullStr: String? = "Kotlin"
+nonNullStr?.let { println("長度: ${it.length}") } // 長度: 6
+
+// 安全型別轉換
+val obj: Any = "我是字串"
+val str: String? = obj as? String   // 安全轉換——失敗時回傳 null
+val num: Int?    = obj as? Int      // null（不是 Int）
+println(str) // 我是字串
+println(num) // null
+```
+</UniversalEditor>
+
+---
+
+## 6. 面向鐵路程式設計
+
+面向鐵路程式設計（ROP）是一種模式，其中操作被鏈接，錯誤會短路整個鏈。Kotlin 的 `Result` 型別原生支援這種模式。
+
+<UniversalEditor title="使用 Result 的面向鐵路程式設計" compare={true}>
+```javascript !! js
+// JavaScript — 使用 Promise 鏈模擬 ROP
+
+function validateEmail(email) {
+  if (!email.includes('@')) throw new Error(`電子郵件格式無效: ${email}`);
+  return email.toLowerCase();
+}
+
+function validateAge(age) {
+  if (age < 0 || age > 150) throw new Error(`年齡無效: ${age}`);
+  return age;
+}
+
+function createUser(email, age) {
+  return { email, age, id: Math.random().toString(36).slice(2) };
+}
+
+// 基於 Promise 的（非同步 ROP）
+async function processUser(email, age) {
+  return Promise.resolve({ email, age })
+    .then(data => ({ ...data, email: validateEmail(data.email) }))
+    .then(data => ({ ...data, age: validateAge(data.age) }))
+    .then(data => createUser(data.email, data.age))
+    .catch(e => ({ error: e.message }));
+}
+
+processUser('Alice@EXAMPLE.COM', 30)
+  .then(r => console.log(r.error ?? r));
+processUser('not-an-email', 30)
+  .then(r => console.log(r.error ?? r));
+```
+
+```kotlin !! kotlin
+// Kotlin 使用 Result 型別的 ROP
+fun validateEmail(email: String): Result<String> = runCatching {
+    require('@' in email) { "電子郵件格式無效: $email" }
+    email.lowercase()
+}
+
+fun validateAge(age: Int): Result<Int> = runCatching {
+    require(age in 0..150) { "年齡無效: $age" }
+    age
+}
+
+data class User(val email: String, val age: Int, val id: String)
+
+fun createUser(email: String, age: Int): Result<User> = runCatching {
+    User(email, age, java.util.UUID.randomUUID().toString().take(8))
+}
+
+// 鐵路：每一步只在前一步成功時才執行
+fun processUser(email: String, age: Int): Result<User> =
+    validateEmail(email)
+        .flatMap { validEmail ->
+            validateAge(age).flatMap { validAge ->
+                createUser(validEmail, validAge)
+            }
+        }
+
+fun main() {
+    val success = processUser("Alice@EXAMPLE.COM", 30)
+    success.onSuccess { println("已建立: $it") }
+    // 已建立: User(email=alice@example.com, age=30, id=...)
+
+    val failure = processUser("not-an-email", 30)
+    failure.onFailure { println("錯誤: ${it.message}") }
+    // 錯誤: 電子郵件格式無效: not-an-email
+
+    // recover 提供預設值
+    val withDefault = processUser("bad", -1)
+        .recover { User("guest@example.com", 0, "guest") }
+    println(withDefault.getOrNull())
+
+    // fold — 同時處理成功和失敗
+    val message = success.fold(
+        onSuccess = { "歡迎, ${it.email}！" },
+        onFailure = { "註冊失敗: ${it.message}" }
+    )
+    println(message) // 歡迎, alice@example.com！
+}
+```
+</UniversalEditor>
+
+---
+
+## 總結對照表
+
+| 概念 | JavaScript | Kotlin |
+|---|---|---|
+| 基本 try/catch | `try {} catch(e) {}` | `try {} catch (e: Type) {}` |
+| `try` 作為表達式 | 否——僅作為語句 | 是——回傳值 |
+| 受檢例外 | 無 | 無（與 Java 不同） |
+| 多重捕獲型別 | `instanceof` 檢查 | 多個 `catch` 區塊 |
+| Finally | `finally {}` | `finally {}` |
+| 自訂例外 | `class E extends Error` | `class E(msg) : Exception(msg)` |
+| 例外層次結構 | 單一原型鏈 | `sealed class` 或層次結構 |
+| 函式式錯誤型別 | 無內建（Promise 非同步） | 內建 `Result<T>` |
+| 包裝為 Result | 手動 | `runCatching { }` |
+| 取得值或預設值 | 手動回退 | `getOrDefault(v)`、`getOrElse {}` |
+| 轉換成功值 | 手動 | `.map {}` |
+| 轉換失敗 | 手動 | `.recover {}` |
+| 鏈接操作 | Promise 鏈 | `.flatMap {}` |
+| 空安全 | `?.` 可選鏈 | `?.` + 型別系統強制 |
+| Elvis/空值合併 | `??` | `?:` |
+| 非空斷言 | 無等價物 | `!!`（拋出 NPE） |
+
+---
+
+## 練習
+
+### 練習 1：try 作為表達式
+
+編寫一個 Kotlin 函式 `safeParseInt(s: String): Int`，使用 `try` 作為表達式回傳解析的整數，如果解析失敗則回傳 `-1`。然後編寫 `safeParsePair(a: String, b: String): Pair<Int, Int>?`，如果任一字串解析失敗則回傳 `null`。
+
+<details>
+<summary>查看解答</summary>
+
+```kotlin
+fun safeParseInt(s: String): Int = try {
+    s.trim().toInt()
+} catch (e: NumberFormatException) {
+    -1
+}
+
+fun safeParsePair(a: String, b: String): Pair<Int, Int>? {
+    val x = try { a.trim().toInt() } catch (e: NumberFormatException) { return null }
+    val y = try { b.trim().toInt() } catch (e: NumberFormatException) { return null }
+    return Pair(x, y)
+}
+
+fun main() {
+    println(safeParseInt("42"))      // 42
+    println(safeParseInt("hello"))   // -1
+    println(safeParsePair("3", "4")) // (3, 4)
+    println(safeParsePair("3", "x")) // null
+}
+```
+
+</details>
+
+### 練習 2：Result 管道
+
+使用 `Result<T>` 建立使用者註冊管道。管道應該：
+1. 驗證使用者名稱為 3–20 個字元（僅限字母數字）
+2. 驗證密碼至少 8 個字元
+3. 雜湊密碼（透過反轉字串模擬）
+4. 回傳 `RegisteredUser(username, hashedPassword)` 資料類別
+
+使用 `runCatching` 和 `flatMap`/`map` 鏈接。
+
+<details>
+<summary>查看解答</summary>
+
+```kotlin
+data class RegisteredUser(val username: String, val hashedPassword: String)
+
+fun validateUsername(username: String): Result<String> = runCatching {
+    require(username.length in 3..20) { "使用者名稱必須為 3-20 個字元" }
+    require(username.all { it.isLetterOrDigit() }) { "使用者名稱必須為字母數字" }
+    username
+}
+
+fun validatePassword(password: String): Result<String> = runCatching {
+    require(password.length >= 8) { "密碼必須至少 8 個字元" }
+    password
+}
+
+fun hashPassword(password: String): String = password.reversed()
+
+fun registerUser(username: String, password: String): Result<RegisteredUser> =
+    validateUsername(username).flatMap { validUsername ->
+        validatePassword(password).map { validPassword ->
+            RegisteredUser(validUsername, hashPassword(validPassword))
+        }
+    }
+
+fun main() {
+    registerUser("alice", "securepass")
+        .onSuccess { println("已註冊: $it") }
+        .onFailure { println("錯誤: ${it.message}") }
+
+    registerUser("ab", "securepass")
+        .onFailure { println("錯誤: ${it.message}") }
+    // 錯誤: 使用者名稱必須為 3-20 個字元
+}
+```
+
+</details>
+
+### 練習 3：空安全鏈
+
+給定帶巢狀可空型別的資料模型，使用安全呼叫運算子和 Elvis 運算子編寫提取城市名稱的函式。
+
+<details>
+<summary>查看解答</summary>
+
+```kotlin
+data class Address(val street: String, val city: String?)
+data class Profile(val address: Address?)
+data class AppUser(val name: String, val profile: Profile?)
+
+fun getCityV1(user: AppUser): String =
+    user.profile?.address?.city ?: "未知城市"
+
+fun getCityV2(user: AppUser): String =
+    user.profile
+        ?.let { it.address }
+        ?.let { it.city }
+        ?: "未知城市"
+
+fun main() {
+    val fullUser = AppUser("Alice", Profile(Address("忠孝東路 123 號", "台北市")))
+    val noCity   = AppUser("Bob",   Profile(Address("中山路 456 號", null)))
+    val noProfile= AppUser("Dave",  null)
+
+    listOf(fullUser, noCity, noProfile).forEach { user ->
+        println("${user.name}: ${getCityV1(user)}")
+    }
+    // Alice: 台北市
+    // Bob: 未知城市
+    // Dave: 未知城市
+}
+```
+
+</details>

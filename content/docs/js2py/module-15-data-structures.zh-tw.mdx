@@ -1,0 +1,761 @@
+---
+title: "第 15 模組：集合與資料結構"
+description: "掌握 Python 的內建集合類型：帶切片的串列、元組、字典、集合，以及強大的 collections 模組——與 JavaScript 等價物的對比。"
+---
+
+# 第 15 模組：集合與資料結構
+
+Python 內建了豐富的集合型別：`list`、`tuple`、`dict` 和 `set`。每種型別都有明確的用途和定義良好的介面。`collections` 模組為常見模式提供了專用變體。從 JavaScript 轉來的開發者會發現許多熟悉的概念，但也有一些重要的差異——尤其是切片的工作方式以及字典保證插入順序的特性。
+
+## 學習目標
+
+完成本模組後，你將能夠：
+
+- ✅ 使用 Python 串列：append、extend、使用 `[start:stop:step]` 的切片以及常用方法
+- ✅ 在 `tuple` 和 `list` 之間做出選擇，並使用具名元組表示結構化資料
+- ✅ 操作 Python 字典：`.items()`、`.keys()`、`.values()` 和字典推導式
+- ✅ 執行集合運算：聯集、交集、差集和對稱差
+- ✅ 使用 `collections.defaultdict`、`Counter`、`deque` 和 `namedtuple`
+- ✅ 使用 `sorted()`、`min()`、`max()` 和 `key=` 參數對集合進行排序
+
+---
+
+## 1. 串列
+
+Python 的 `list` 是最接近 JavaScript `Array` 的等價物。兩者都是可變的有序序列。關鍵區別在於 Python 強大的切片語法。
+
+<UniversalEditor title="串列基礎與常用方法">
+```javascript !! js
+// JavaScript Array 方法
+const fruits = ["apple", "banana", "cherry"];
+
+// 新增元素
+fruits.push("date");         // 從末尾新增
+fruits.unshift("avocado");   // 從開頭新增
+
+// 刪除元素
+const last  = fruits.pop();    // 從末尾刪除並回傳
+const first = fruits.shift();  // 從開頭刪除並回傳
+
+console.log(fruits.length);    // 長度
+console.log(fruits.indexOf("banana")); // 1
+
+// splice 用於在指定位置插入或刪除
+fruits.splice(1, 0, "blueberry");  // 在索引 1 處插入
+fruits.splice(2, 1);               // 刪除索引 2 處的 1 個元素
+
+// 複製
+const copy  = [...fruits];         // 展開複製
+const copy2 = fruits.slice();      // slice 複製
+```
+
+```python !! py
+# Python 串列方法
+fruits = ["apple", "banana", "cherry"]
+
+# 新增元素
+fruits.append("date")          # 從末尾新增（類似 push）
+fruits.insert(0, "avocado")    # 在指定索引處新增（類似 unshift）
+
+# 刪除元素
+last  = fruits.pop()           # 從末尾刪除並回傳
+first = fruits.pop(0)          # 從開頭刪除（索引 0）
+
+print(len(fruits))             # 長度
+print(fruits.index("banana"))  # 1（如果不存在則拋出 ValueError）
+print("banana" in fruits)      # True（成員檢查）
+
+# 在指定位置插入
+fruits.insert(1, "blueberry")  # 在索引 1 處插入
+
+# 按值刪除
+fruits.remove("blueberry")     # 刪除第一次出現
+
+# 複製
+copy  = fruits.copy()          # 淺拷貝
+copy2 = fruits[:]              # 切片複製
+
+# 延伸（新增另一個串列的所有元素）
+fruits.extend(["elderberry", "fig"])
+```
+</UniversalEditor>
+
+<UniversalEditor title="切片——Python 的超能力">
+```javascript !! js
+// JavaScript：slice（唯讀，回傳新陣列）
+const nums = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+
+console.log(nums.slice(2, 5));   // [2, 3, 4]
+console.log(nums.slice(-3));     // [7, 8, 9]
+console.log(nums.slice(0, -2));  // [0, 1, 2, 3, 4, 5, 6, 7]
+
+// 原生 JS 不支援步長
+// 必須使用 filter 或 reduce 來取得每隔一個的元素
+const everyOther = nums.filter((_, i) => i % 2 === 0);
+console.log(everyOther);  // [0, 2, 4, 6, 8]
+
+// 反轉
+const reversed = [...nums].reverse();  // reverse() 原地操作，需先複製
+```
+
+```python !! py
+# Python：使用 [start:stop:step] 切片
+nums = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+
+print(nums[2:5])       # [2, 3, 4]          —— 從索引 2 到（不含）5
+print(nums[-3:])       # [7, 8, 9]          —— 最後 3 個元素
+print(nums[:-2])       # [0,1,2,3,4,5,6,7]  —— 除最後 2 個之外的所有元素
+print(nums[::2])       # [0, 2, 4, 6, 8]   —— 每隔一個（步長=2）
+print(nums[1::2])      # [1, 3, 5, 7, 9]   —— 奇數索引元素
+print(nums[::-1])      # [9,8,7,6,5,4,3,2,1,0] —— 反轉！
+print(nums[2:8:2])     # [2, 4, 6]         —— start=2, stop=8, step=2
+
+# 切片也適用於字串
+s = "Hello, World!"
+print(s[7:12])         # "World"
+print(s[::-1])         # "!dlroW ,olleH"
+
+# 切片賦值（原地修改）
+nums[2:5] = [20, 30, 40]
+print(nums)   # [0, 1, 20, 30, 40, 5, 6, 7, 8, 9]
+```
+</UniversalEditor>
+
+---
+
+## 2. 元組
+
+`tuple` 是不可變序列。一旦建立，就無法新增、刪除或更改其元素。當資料不應改變時使用元組——函式回傳值、字典鍵或具名記錄。
+
+<UniversalEditor title="元組 vs 陣列">
+```javascript !! js
+// JavaScript 沒有內建的元組型別
+// 陣列始終是可變的
+const point = [10, 20];    // 可變
+point[0] = 99;             // 允許
+point.push(30);            // 允許
+
+// 使用 Object.freeze 實現淺層不可變性
+const frozenPoint = Object.freeze([10, 20]);
+// frozenPoint[0] = 99;  // 嚴格模式下拋出 TypeError
+
+// TypeScript 有唯讀元組
+// const readonlyPt: readonly [number, number] = [10, 20];
+
+// 從函式回傳多個值
+function getMinMax(arr) {
+    return [Math.min(...arr), Math.max(...arr)];
+}
+const [min, max] = getMinMax([3, 1, 4, 1, 5, 9]);
+```
+
+```python !! py
+# Python 元組——不可變序列
+point = (10, 20)           # 元組字面量
+point_no_parens = 10, 20   # 括號是可選的！
+single = (42,)             # 單元素元組——注意逗號！
+empty  = ()                # 空元組
+
+# point[0] = 99            # TypeError: 元組不支援元素賦值
+
+# 元組作為字典鍵（串列不能作為字典鍵）
+grid = {(0, 0): "原點", (1, 0): "右", (0, 1): "上"}
+print(grid[(1, 0)])        # "右"
+
+# 元組解包（解構）
+x, y = point
+print(x, y)                # 10 20
+
+# 回傳多個值（Python 函式始終回傳一個值——
+# 回傳元組看起來像回傳多個值）
+def min_max(lst):
+    return min(lst), max(lst)   # 回傳元組
+
+low, high = min_max([3, 1, 4, 1, 5, 9])
+print(low, high)            # 1 9
+
+# 擴展解包
+first, *rest = [1, 2, 3, 4, 5]
+print(first)    # 1
+print(rest)     # [2, 3, 4, 5]
+
+*head, last = [1, 2, 3, 4, 5]
+print(head)     # [1, 2, 3, 4]
+print(last)     # 5
+```
+</UniversalEditor>
+
+<UniversalEditor title="具名元組——無需類別的結構化資料">
+```javascript !! js
+// JavaScript：使用物件表示命名欄位
+const point = { x: 10, y: 20, label: "原點" };
+console.log(point.x);    // 10
+console.log(point.y);    // 20
+
+// 或使用類別
+class Point {
+    constructor(x, y, label = "") {
+        this.x = x;
+        this.y = y;
+        this.label = label;
+    }
+}
+const p = new Point(10, 20, "原點");
+const [px, py] = [p.x, p.y];  // 手動解構
+```
+
+```python !! py
+from collections import namedtuple
+from typing import NamedTuple
+
+# namedtuple —— 工廠函式風格
+Point = namedtuple("Point", ["x", "y", "label"])
+p = Point(10, 20, "原點")
+
+print(p.x)       # 10    —— 按名稱存取
+print(p.y)       # 20
+print(p[0])      # 10    —— 按索引存取仍然有效
+print(p._asdict())        # {'x': 10, 'y': 20, 'label': '原點'}
+
+# NamedTuple 類別風格——更簡潔，支援型別提示
+class Point3D(NamedTuple):
+    x: float
+    y: float
+    z: float = 0.0    # 預設值
+
+p3 = Point3D(1.0, 2.0)
+print(p3)          # Point3D(x=1.0, y=2.0, z=0.0)
+print(p3.z)        # 0.0
+
+# 不可變——不能修改欄位
+# p3.x = 99      # AttributeError
+
+# 具名元組仍然是元組——解包有效
+x, y, z = p3
+print(x, y, z)   # 1.0 2.0 0.0
+```
+</UniversalEditor>
+
+---
+
+## 3. 字典
+
+Python 字典自 Python 3.7 起維持插入順序，速度快，用途廣泛。它同時對應 JavaScript 的普通物件和 `Map`。
+
+<UniversalEditor title="字典基礎與遍歷">
+```javascript !! js
+// JavaScript 物件和 Map
+const obj = { name: "Alice", age: 30, city: "台北" };
+
+// 存取
+console.log(obj.name);              // "Alice"
+console.log(obj["age"]);            // 30
+console.log(obj.missing);           // undefined（不報錯）
+
+// 遍歷
+for (const key of Object.keys(obj)) { console.log(key); }
+for (const val of Object.values(obj)) { console.log(val); }
+for (const [k, v] of Object.entries(obj)) {
+    console.log(`${k}: ${v}`);
+}
+
+// 檢查鍵是否存在
+console.log("name" in obj);         // true
+console.log(obj.hasOwnProperty("age")); // true
+
+// 刪除
+delete obj.city;
+```
+
+```python !! py
+# Python 字典
+person = {"name": "Alice", "age": 30, "city": "台北"}
+
+# 存取
+print(person["name"])               # "Alice"
+print(person.get("age"))            # 30
+print(person.get("missing"))        # None（不會拋出 KeyError）
+print(person.get("missing", 0))     # 0（預設值）
+
+# 遍歷
+for key in person:                  # 預設遍歷鍵
+    print(key)
+for key in person.keys():
+    print(key)
+for value in person.values():
+    print(value)
+for key, value in person.items():   # 類似 Object.entries
+    print(f"{key}: {value}")
+
+# 檢查鍵是否存在
+print("name" in person)             # True
+print("missing" in person)          # False
+
+# 刪除
+del person["city"]
+
+# setdefault——如果不存在則取得或設定
+person.setdefault("country", "台灣")  # 新增 "country": "台灣"
+print(person["country"])            # "台灣"
+```
+</UniversalEditor>
+
+<UniversalEditor title="字典合併與推導式">
+```javascript !! js
+// JavaScript 字典合併
+const defaults = { color: "藍色", size: "中", weight: 1.0 };
+const overrides = { color: "紅色", weight: 2.5 };
+
+// 使用展開運算子合併（overrides 優先）
+const merged = { ...defaults, ...overrides };
+console.log(merged);
+// { color: "紅色", size: "中", weight: 2.5 }
+
+// 從兩個陣列建立物件
+const keys   = ["a", "b", "c"];
+const values = [1, 2, 3];
+const lookup = Object.fromEntries(keys.map((k, i) => [k, values[i]]));
+console.log(lookup);  // { a: 1, b: 2, c: 3 }
+```
+
+```python !! py
+# Python 字典合併
+defaults  = {"color": "藍色", "size": "中", "weight": 1.0}
+overrides = {"color": "紅色", "weight": 2.5}
+
+# 使用字典解包合併（Python 3.5+）
+merged = {**defaults, **overrides}
+print(merged)
+# {'color': '紅色', 'size': '中', 'weight': 2.5}
+
+# Python 3.9+ 合併運算子
+merged2 = defaults | overrides   # 相同結果
+defaults |= overrides            # 原地更新（類似 +=）
+
+# 從兩個串列建立字典推導式
+keys   = ["a", "b", "c"]
+values = [1, 2, 3]
+lookup = {k: v for k, v in zip(keys, values)}
+print(lookup)   # {'a': 1, 'b': 2, 'c': 3}
+
+# 過濾字典
+scores = {"Alice": 92, "Bob": 75, "Carol": 88, "Dave": 60}
+passing = {name: score for name, score in scores.items() if score >= 80}
+print(passing)  # {'Alice': 92, 'Carol': 88}
+
+# 交換鍵和值
+inverted = {v: k for k, v in lookup.items()}
+print(inverted)  # {1: 'a', 2: 'b', 3: 'c'}
+```
+</UniversalEditor>
+
+---
+
+## 4. 集合
+
+Python 的 `set` 是一個無序的唯一元素集合，內建了數學集合運算。
+
+<UniversalEditor title="集合與集合運算">
+```javascript !! js
+// JavaScript Set
+const a = new Set([1, 2, 3, 4, 5]);
+const b = new Set([3, 4, 5, 6, 7]);
+
+// 基本操作
+a.add(6);
+a.delete(1);
+console.log(a.has(3));   // true
+console.log(a.size);     // 5
+
+// 集合運算（沒有內建運算子——必須手動實作）
+const union        = new Set([...a, ...b]);
+const intersection = new Set([...a].filter(x => b.has(x)));
+const difference   = new Set([...a].filter(x => !b.has(x)));
+
+console.log([...union]);        // [2, 3, 4, 5, 6, 7]
+console.log([...intersection]); // [3, 4, 5, 6]
+console.log([...difference]);   // [2]
+```
+
+```python !! py
+# Python set——內建集合運算，語法簡潔
+a = {1, 2, 3, 4, 5}           # 集合字面量
+b = {3, 4, 5, 6, 7}
+empty_set = set()              # 注意：{} 建立空字典，而不是空集合！
+
+# 基本操作
+a.add(6)
+a.discard(1)    # 如果存在則刪除——不存在也不報錯
+a.remove(2)     # 刪除——如果不存在則拋出 KeyError
+print(3 in a)   # True
+print(len(a))   # 4
+
+# 使用簡潔運算子語法進行集合運算
+union        = a | b            # 或 a.union(b)
+intersection = a & b            # 或 a.intersection(b)
+difference   = a - b            # 或 a.difference(b) —— 在 a 中但不在 b 中
+sym_diff     = a ^ b            # 或 a.symmetric_difference(b)
+
+print(union)        # {3, 4, 5, 6, 7}
+print(intersection) # {3, 4, 5, 6}
+print(difference)   # set()  （a 中的所有元素現在也在 b 中）
+print(sym_diff)     # {7}    （在其中一個但不在兩個中）
+
+# 子集/超集檢查
+x = {3, 4}
+print(x <= a)   # True  —— x 是 a 的子集
+print(a >= x)   # True  —— a 是 x 的超集
+```
+</UniversalEditor>
+
+<UniversalEditor title="frozenset——不可變集合">
+```javascript !! js
+// JavaScript 沒有凍結的 Set
+// Object.freeze 只凍結一層
+const s = Object.freeze(new Set([1, 2, 3]));
+// s.add(4);  // TypeError
+
+// 集合作為 Map 鍵（由於參考相等，Set 不能作為 Map 鍵）
+const map = new Map();
+
+// 變通方案：序列化為字串
+const key = JSON.stringify([1, 2, 3].sort());
+map.set(key, "value");
+```
+
+```python !! py
+# Python frozenset——不可變集合，可以用作字典鍵
+fs = frozenset([1, 2, 3])
+# fs.add(4)   # AttributeError: 'frozenset' 不支援 add
+
+# frozenset 作為字典鍵（普通 set 不能作為鍵——不可雜湊）
+lookup = {
+    frozenset({"蘋果", "香蕉"}): "水果沙拉",
+    frozenset({"胡蘿蔔", "芹菜"}): "蔬菜拼盤",
+}
+
+order = frozenset({"香蕉", "蘋果"})  # 順序無關緊要
+print(lookup[order])   # "水果沙拉"
+
+# 在集合型別之間轉換
+s  = {1, 2, 3}
+fs = frozenset(s)
+s2 = set(fs)
+print(type(fs))   # <class 'frozenset'>
+```
+</UniversalEditor>
+
+---
+
+## 5. collections 模組
+
+`collections` 模組為常見模式提供了專用容器型別。
+
+<UniversalEditor title="defaultdict 和 Counter">
+```javascript !! js
+// JavaScript：手動建立頻率表
+const words = ["apple", "banana", "apple", "cherry", "banana", "apple"];
+
+// 手動頻率計數
+const freq = {};
+for (const word of words) {
+    freq[word] = (freq[word] || 0) + 1;
+}
+console.log(freq);  // { apple: 3, banana: 2, cherry: 1 }
+
+// 按長度分組
+const lengths = {};
+for (const word of words) {
+    const len = word.length;
+    if (!lengths[len]) lengths[len] = [];
+    lengths[len].push(word);
+}
+console.log(lengths);
+```
+
+```python !! py
+from collections import defaultdict, Counter
+
+words = ["apple", "banana", "apple", "cherry", "banana", "apple"]
+
+# Counter——專為頻率計數設計
+freq = Counter(words)
+print(freq)
+# Counter({'apple': 3, 'banana': 2, 'cherry': 1})
+
+print(freq.most_common(2))   # [('apple', 3), ('banana', 2)]
+print(freq["missing"])        # 0（不會拋出 KeyError！）
+
+# Counter 適用於任何可迭代物件
+letter_freq = Counter("hello world")
+print(letter_freq)
+# Counter({'l': 3, 'o': 2, ' ': 1, 'h': 1, 'e': 1, 'w': 1, 'r': 1, 'd': 1})
+
+# defaultdict——自動建立缺失值的字典
+from collections import defaultdict
+
+# 按長度分組：預設值是空串列
+groups = defaultdict(list)
+for word in words:
+    groups[len(word)].append(word)
+print(dict(groups))
+# {5: ['apple', 'apple', 'apple'], 6: ['banana', 'banana', 'cherry']}
+
+# defaultdict(int)——預設值為 0
+count = defaultdict(int)
+for word in words:
+    count[word] += 1    # 無需檢查鍵是否存在
+print(dict(count))
+# {'apple': 3, 'banana': 2, 'cherry': 1}
+```
+</UniversalEditor>
+
+<UniversalEditor title="deque——雙端佇列">
+```javascript !! js
+// JavaScript 用陣列模擬佇列/雙端佇列
+const queue = [];
+
+// 從末尾入列，從頭部出列（大陣列時效率低）
+queue.push("a");
+queue.push("b");
+queue.push("c");
+const front = queue.shift();   // O(n)——需要移動所有元素！
+console.log(front);  // "a"
+
+// 從頭部新增
+queue.unshift("z");   // O(n)——需要移動所有元素！
+
+// 高效佇列需要使用循環緩衝區函式庫
+```
+
+```python !! py
+from collections import deque
+
+# deque——從兩端 append 和 pop 都是 O(1)
+dq = deque()
+
+# 從右側新增
+dq.append("b")
+dq.append("c")
+
+# 從左側新增（O(1)！）
+dq.appendleft("a")
+
+print(dq)    # deque(['a', 'b', 'c'])
+
+# 從右側刪除
+right = dq.pop()        # "c"
+# 從左側刪除（O(1)！）
+left  = dq.popleft()    # "a"
+print(dq)    # deque(['b'])
+
+# 帶 maxlen 的 deque——滑動視窗
+recent = deque(maxlen=3)
+for i in range(6):
+    recent.append(i)
+    print(list(recent))
+# [0]
+# [0, 1]
+# [0, 1, 2]
+# [1, 2, 3]  <- 0 被丟棄
+# [2, 3, 4]  <- 1 被丟棄
+# [3, 4, 5]  <- 2 被丟棄
+
+# 旋轉
+dq = deque([1, 2, 3, 4, 5])
+dq.rotate(2)     # 向右旋轉 2 步
+print(list(dq))  # [4, 5, 1, 2, 3]
+```
+</UniversalEditor>
+
+---
+
+## 6. 排序
+
+Python 的 `sorted()` 和 `.sort()` 靈活高效，支援用 `key=` 函式進行自訂排序。
+
+<UniversalEditor title="使用 key= 參數排序">
+```javascript !! js
+// JavaScript 排序
+const nums  = [3, 1, 4, 1, 5, 9, 2, 6];
+const words = ["banana", "Apple", "cherry", "Date"];
+
+// sort() 原地修改
+nums.sort((a, b) => a - b);     // 升序
+console.log(nums);   // [1, 1, 2, 3, 4, 5, 6, 9]
+
+nums.sort((a, b) => b - a);     // 降序
+console.log(nums);   // [9, 6, 5, 4, 3, 2, 1, 1]
+
+// 字串排序
+words.sort();   // 按字典序，區分大小寫
+console.log(words);  // ["Apple", "Date", "banana", "cherry"]
+
+// 不區分大小寫排序
+words.sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+
+// 按欄位排序物件
+const people = [{name: "Bob", age: 30}, {name: "Alice", age: 25}];
+people.sort((a, b) => a.age - b.age);
+```
+
+```python !! py
+nums  = [3, 1, 4, 1, 5, 9, 2, 6]
+words = ["banana", "Apple", "cherry", "Date"]
+
+# sorted() 回傳新串列，原串列不變
+asc  = sorted(nums)               # 升序
+desc = sorted(nums, reverse=True) # 降序
+print(asc)    # [1, 1, 2, 3, 4, 5, 6, 9]
+print(desc)   # [9, 6, 5, 4, 3, 2, 1, 1]
+
+# .sort() 原地修改（類似 JS 的 sort）
+nums.sort()
+nums.sort(reverse=True)
+
+# 使用 key= 進行不區分大小寫的排序
+words_sorted = sorted(words, key=str.lower)
+print(words_sorted)   # ['Apple', 'banana', 'cherry', 'Date']
+
+# 按欄位排序物件
+people = [{"name": "Bob", "age": 30}, {"name": "Alice", "age": 25}]
+by_age  = sorted(people, key=lambda p: p["age"])
+by_name = sorted(people, key=lambda p: p["name"])
+print(by_age)    # [{'name': 'Alice', 'age': 25}, {'name': 'Bob', 'age': 30}]
+
+# 使用 key= 的 min() 和 max()
+youngest = min(people, key=lambda p: p["age"])
+print(youngest)  # {'name': 'Alice', 'age': 25}
+
+# 多條件排序：主要按年齡，次要按姓名（字母順序）
+mixed = [
+    {"name": "Carol", "age": 30},
+    {"name": "Alice", "age": 25},
+    {"name": "Bob",   "age": 25},
+]
+multi = sorted(mixed, key=lambda p: (p["age"], p["name"]))
+print(multi)
+# [{'name': 'Alice', 'age': 25}, {'name': 'Bob', 'age': 25}, {'name': 'Carol', 'age': 30}]
+```
+</UniversalEditor>
+
+---
+
+## 7. 總結表
+
+| 概念 | JavaScript | Python |
+|---|---|---|
+| 有序可變序列 | `Array` | `list` |
+| 有序不可變序列 | 沒有內建（使用 `Object.freeze`） | `tuple` |
+| 鍵值映射 | 普通物件或 `Map` | `dict`（3.7+ 起有序） |
+| 唯一值集合 | `Set` | `set` |
+| 不可變唯一值集合 | 沒有內建 | `frozenset` |
+| 帶步長的切片 | 原生不支援 | `lst[start:stop:step]` |
+| 負索引 | `arr.at(-1)` | `lst[-1]` |
+| 頻率計數 | 手動 `{}` 計數 | `collections.Counter` |
+| 自動預設字典 | 手動 `\|\|` 檢查 | `collections.defaultdict` |
+| 高效雙端佇列 | 手動（O(n) shift） | `collections.deque`（O(1)） |
+| 無需類別的命名欄位 | 解構/普通物件 | `collections.namedtuple` / `NamedTuple` |
+| 原地排序 | `arr.sort()` | `lst.sort()` |
+| 回傳新排序串列 | `[...arr].sort()` | `sorted(lst)` |
+| 集合聯集 | `new Set([...a, ...b])` | `a \| b` |
+| 集合交集 | `new Set([...a].filter(x => b.has(x)))` | `a & b` |
+| 集合差集 | `new Set([...a].filter(x => !b.has(x)))` | `a - b` |
+
+---
+
+## 練習
+
+### 練習 1：切片挑戰
+
+給定 `data = list(range(20))`，使用切片提取：
+1. 索引 5 到 14（含）的元素
+2. 從末尾開始每隔三個元素（倒序）
+3. 中間 10 個元素
+
+<details>
+<summary>查看答案</summary>
+
+```python
+data = list(range(20))
+# data = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+
+# 1. 索引 5 到 14（含）的元素
+print(data[5:15])
+# [5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
+
+# 2. 從末尾開始每隔三個元素（倒序）
+print(data[::-3])
+# [19, 16, 13, 10, 7, 4, 1]
+
+# 3. 中間 10 個元素（索引 5..14）
+mid = len(data) // 2
+print(data[mid - 5 : mid + 5])
+# [5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
+```
+</details>
+
+### 練習 2：詞頻分析
+
+使用 `Counter` 和 `defaultdict`，編寫一個函式 `analyze_text(text: str)`，回傳一個包含以下內容的字典：
+- `"top3"`：最常見的 3 個單詞
+- `"by_length"`：將單詞長度對應到單詞串列的字典
+
+<details>
+<summary>查看答案</summary>
+
+```python
+from collections import Counter, defaultdict
+
+def analyze_text(text: str) -> dict:
+    words = text.lower().split()
+
+    # 最常見的 3 個單詞
+    freq  = Counter(words)
+    top3  = [word for word, _ in freq.most_common(3)]
+
+    # 按長度分組單詞
+    by_length = defaultdict(list)
+    for word in set(words):   # 使用 set 避免重複
+        by_length[len(word)].append(word)
+
+    return {"top3": top3, "by_length": dict(by_length)}
+
+sample = "the quick brown fox jumps over the lazy dog the fox"
+result = analyze_text(sample)
+print(result["top3"])          # ['the', 'fox', ...]
+print(result["by_length"][3])  # 3 個字母的單詞串列
+```
+</details>
+
+### 練習 3：集合運算
+
+給定兩個使用者 ID 串列，編寫一個函式 `user_report(list_a, list_b)`，回傳一個包含以下內容的字典：
+- `"only_a"`：在 A 中但不在 B 中的使用者
+- `"only_b"`：在 B 中但不在 A 中的使用者
+- `"both"`：在兩者中都有的使用者
+- `"either"`：在任一串列中的使用者（聯集）
+
+<details>
+<summary>查看答案</summary>
+
+```python
+def user_report(list_a: list, list_b: list) -> dict:
+    a = set(list_a)
+    b = set(list_b)
+    return {
+        "only_a": sorted(a - b),
+        "only_b": sorted(b - a),
+        "both":   sorted(a & b),
+        "either": sorted(a | b),
+    }
+
+premium_users = [1, 2, 3, 4, 5]
+active_users  = [3, 4, 5, 6, 7]
+report = user_report(premium_users, active_users)
+print(report["only_a"])   # [1, 2]      —— 付費但不活躍
+print(report["only_b"])   # [6, 7]      —— 活躍但未付費
+print(report["both"])     # [3, 4, 5]   —— 既付費又活躍
+print(report["either"])   # [1,2,3,4,5,6,7] —— 任意使用者
+```
+</details>

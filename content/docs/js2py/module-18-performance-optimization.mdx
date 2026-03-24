@@ -1,0 +1,1181 @@
+---
+title: "Module 18: Performance Optimization"
+description: "Learn Python performance techniques: profiling with cProfile, the GIL, threading vs multiprocessing, NumPy vectorization, generator expressions, and when to use each."
+---
+
+# Module 18: Performance Optimization
+
+## Learning Objectives
+
+By the end of this module, you will:
+
+- ✅ Understand where Python's performance characteristics differ from JavaScript/V8
+- ✅ Profile Python code with `cProfile` and `timeit` to find real bottlenecks
+- ✅ Explain the GIL and its impact on multithreaded CPU-bound code
+- ✅ Choose between `threading`, `multiprocessing`, and `asyncio` for different workloads
+- ✅ Use NumPy vectorization to replace slow Python loops
+- ✅ Save memory and improve speed with generator expressions
+- ✅ Apply `functools.lru_cache` for automatic memoization
+
+---
+
+## 1. Python vs JavaScript Performance Mindset
+
+JavaScript (V8) uses JIT (Just-In-Time) compilation to optimize hot code paths at runtime. CPython (the standard Python interpreter) is an interpreter — it does not JIT-compile. This is the fundamental performance difference.
+
+<UniversalEditor title="Performance Mindset: Interpreted vs JIT">
+```javascript !! js
+// JavaScript (V8): JIT compiler optimizes this automatically
+// V8 notices this loop runs many times and compiles it to native code
+
+function sumArray(arr) {
+  let total = 0;
+  for (let i = 0; i < arr.length; i++) {
+    total += arr[i];  // V8 inlines and vectorizes this
+  }
+  return total;
+}
+
+// V8 can often reach near-native speed for numeric loops
+const arr = new Array(1_000_000).fill(1);
+console.time('js-sum');
+const result = sumArray(arr);
+console.timeEnd('js-sum');
+console.log(result);  // 1000000
+
+// JavaScript's performance ceiling: V8 JIT can approach C speed
+// Python's performance ceiling: pure Python is ~10-100x slower
+// Solution: use NumPy (C-backed) or Cython for numeric work
+
+// TypedArrays for numeric data (closer to Python's NumPy)
+const typedArr = new Float64Array(1_000_000).fill(1.0);
+console.time('typed-sum');
+let sum = 0;
+for (let i = 0; i < typedArr.length; i++) sum += typedArr[i];
+console.timeEnd('typed-sum');
+```
+
+```python !! py
+# Python (CPython): interpreted — no JIT compilation
+# Pure Python is slow for numeric loops
+
+import time
+
+def sum_array_pure_python(lst):
+    """Pure Python loop — slow due to interpreter overhead."""
+    total = 0
+    for x in lst:  # Each iteration has Python interpreter overhead
+        total += x
+    return total
+
+# Python built-ins (implemented in C) are much faster:
+def sum_array_builtin(lst):
+    return sum(lst)  # sum() is implemented in C — very fast
+
+lst = [1] * 1_000_000
+
+start = time.perf_counter()
+result = sum_array_pure_python(lst)
+elapsed = time.perf_counter() - start
+print(f"Pure Python loop: {elapsed*1000:.1f}ms = {result}")
+
+start = time.perf_counter()
+result = sum_array_builtin(lst)
+elapsed = time.perf_counter() - start
+print(f"Built-in sum():   {elapsed*1000:.1f}ms = {result}")
+
+# NumPy (the real answer for numeric Python):
+try:
+    import numpy as np
+    arr = np.ones(1_000_000)
+    start = time.perf_counter()
+    result = arr.sum()
+    elapsed = time.perf_counter() - start
+    print(f"NumPy .sum():     {elapsed*1000:.1f}ms = {result:.0f}")
+except ImportError:
+    print("NumPy not installed — install with: pip install numpy")
+
+# Key insight: avoid Python loops for numeric data.
+# Use: sum(), max(), min(), map(), filter(), NumPy, pandas
+```
+</UniversalEditor>
+
+---
+
+## 2. Profiling: Finding Bottlenecks
+
+Never optimize without profiling first. Python provides `cProfile` for whole-program profiling and `timeit` for micro-benchmarks.
+
+<UniversalEditor title="Profiling: cProfile and timeit vs Node.js --prof">
+```javascript !! js
+// Node.js profiling options
+
+// 1. console.time / console.timeEnd (quick and dirty)
+console.time('operation');
+let sum = 0;
+for (let i = 0; i < 1_000_000; i++) sum += i;
+console.timeEnd('operation');  // operation: 2.345ms
+
+// 2. performance.now() for more precise measurement
+function benchmark(fn, iterations = 1000) {
+  const start = performance.now();
+  for (let i = 0; i < iterations; i++) fn();
+  const elapsed = performance.now() - start;
+  return {
+    totalMs: elapsed,
+    avgMs: elapsed / iterations,
+    opsPerSec: Math.round(iterations / (elapsed / 1000))
+  };
+}
+
+function target() {
+  return Array.from({ length: 1000 }, (_, i) => i * i).reduce((a, b) => a + b, 0);
+}
+
+const stats = benchmark(target, 1000);
+console.log(`Avg: ${stats.avgMs.toFixed(3)}ms | Ops/sec: ${stats.opsPerSec}`);
+
+// 3. Node.js --prof flag generates V8 profiler output
+// node --prof script.js
+// node --prof-process isolate-*.log > processed.txt
+```
+
+```python !! py
+# Python profiling tools
+
+# 1. timeit — accurate micro-benchmarking (handles warm-up)
+import timeit
+
+def target():
+    return sum(i * i for i in range(1000))
+
+# timeit runs the function many times for accuracy
+result = timeit.timeit(target, number=10_000)
+print(f"Total: {result:.3f}s | Avg: {result/10_000*1000:.4f}ms")
+
+# timeit with setup code
+result = timeit.timeit(
+    stmt="sum(i*i for i in range(1000))",
+    number=10_000
+)
+print(f"Generator: {result:.3f}s")
+
+# Compare two implementations
+t1 = timeit.timeit("sum(i*i for i in range(1000))", number=10_000)
+t2 = timeit.timeit("[i*i for i in range(1000)]", number=10_000)
+print(f"Generator: {t1:.3f}s  |  List comp: {t2:.3f}s")
+
+# 2. cProfile — whole-program profiling
+import cProfile
+import pstats
+import io
+
+def slow_function():
+    """Simulate a function with multiple call sites."""
+    result = []
+    for i in range(10_000):
+        result.append(i ** 2)
+    return sum(result)
+
+def main():
+    for _ in range(100):
+        slow_function()
+
+# Profile and capture output
+profiler = cProfile.Profile()
+profiler.enable()
+main()
+profiler.disable()
+
+# Print stats sorted by cumulative time
+stream = io.StringIO()
+stats = pstats.Stats(profiler, stream=stream)
+stats.sort_stats('cumulative')
+stats.print_stats(10)  # Top 10 functions
+print(stream.getvalue())
+```
+</UniversalEditor>
+
+---
+
+## 3. The GIL (Global Interpreter Lock)
+
+The GIL is the most important CPython limitation to understand. It prevents true parallel execution of Python threads for CPU-bound work.
+
+<UniversalEditor title="Understanding the GIL: CPU-bound Threads">
+```javascript !! js
+// JavaScript: true parallelism via Worker Threads
+const { Worker, isMainThread, parentPort, workerData } = require('worker_threads');
+
+function countPrimes(max) {
+  let count = 0;
+  for (let n = 2; n <= max; n++) {
+    let isPrime = true;
+    for (let i = 2; i <= Math.sqrt(n); i++) {
+      if (n % i === 0) { isPrime = false; break; }
+    }
+    if (isPrime) count++;
+  }
+  return count;
+}
+
+if (isMainThread) {
+  // Split work across 4 workers — TRUE parallelism
+  const LIMIT = 100_000;
+  const workers = 4;
+  const chunkSize = Math.floor(LIMIT / workers);
+  const promises = [];
+
+  const start = performance.now();
+  for (let i = 0; i < workers; i++) {
+    const min = i * chunkSize + 2;
+    const max = (i + 1) * chunkSize;
+    promises.push(new Promise((resolve) => {
+      const w = new Worker(__filename, { workerData: { min, max } });
+      w.on('message', resolve);
+    }));
+  }
+
+  Promise.all(promises).then(results => {
+    const total = results.reduce((a, b) => a + b, 0);
+    console.log(`Primes: ${total} in ${(performance.now()-start).toFixed(0)}ms`);
+  });
+} else {
+  // Worker code: actually runs in parallel
+  const count = countPrimes(workerData.max);
+  parentPort.postMessage(count);
+}
+```
+
+```python !! py
+# Python: GIL prevents CPU-bound thread parallelism
+import threading
+import multiprocessing
+import time
+
+def is_prime(n):
+    if n < 2: return False
+    for i in range(2, int(n**0.5) + 1):
+        if n % i == 0: return False
+    return True
+
+def count_primes(limit):
+    return sum(1 for n in range(2, limit) if is_prime(n))
+
+LIMIT = 100_000
+
+# ── Approach 1: Single-threaded ─────────────────────────────────
+start = time.perf_counter()
+result = count_primes(LIMIT)
+print(f"Single thread: {time.perf_counter()-start:.2f}s → {result} primes")
+
+# ── Approach 2: Multi-threading (LIMITED by GIL for CPU work) ───
+# Threading works great for I/O-bound tasks (file reads, network)
+# For CPU-bound work, threads DON'T run in parallel due to GIL
+results = []
+lock = threading.Lock()
+
+def worker(start_n, end_n):
+    count = sum(1 for n in range(start_n, end_n) if is_prime(n))
+    with lock:
+        results.append(count)
+
+start = time.perf_counter()
+threads = [
+    threading.Thread(target=worker, args=(2 + i*25000, 2 + (i+1)*25000))
+    for i in range(4)
+]
+for t in threads: t.start()
+for t in threads: t.join()
+print(f"4 threads (GIL!): {time.perf_counter()-start:.2f}s → {sum(results)} primes")
+# Often SLOWER than single-thread due to GIL contention + overhead!
+
+# ── Approach 3: Multiprocessing (TRUE parallelism) ───────────────
+def count_primes_range(args):
+    start_n, end_n = args
+    return sum(1 for n in range(start_n, end_n) if is_prime(n))
+
+start = time.perf_counter()
+with multiprocessing.Pool(4) as pool:
+    chunks = [(2 + i*25000, 2 + (i+1)*25000) for i in range(4)]
+    results = pool.map(count_primes_range, chunks)
+print(f"4 processes:      {time.perf_counter()-start:.2f}s → {sum(results)} primes")
+# This is actually faster — each process has its own GIL!
+
+# GIL rule of thumb:
+# CPU-bound work → multiprocessing (bypasses GIL)
+# I/O-bound work → threading or asyncio (GIL released during I/O)
+```
+</UniversalEditor>
+
+---
+
+## 4. threading vs multiprocessing vs asyncio
+
+Python offers three concurrency models. Choosing the right one is critical for performance.
+
+<UniversalEditor title="threading vs multiprocessing vs asyncio">
+```javascript !! js
+// JavaScript: single concurrency model (event loop + Workers)
+
+// I/O-bound work: async/await (event loop — no OS threads)
+async function fetchAll(urls) {
+  const start = performance.now();
+  // All requests run concurrently in the event loop
+  const results = await Promise.all(urls.map(url => fetch(url)));
+  const jsons = await Promise.all(results.map(r => r.json()));
+  console.log(`Fetched ${jsons.length} in ${(performance.now()-start).toFixed(0)}ms`);
+  return jsons;
+}
+
+// CPU-bound work: Worker Threads (true parallelism)
+// (see previous example)
+
+// JavaScript has ONE model — the event loop handles concurrency
+// Python has THREE models — you must choose the right one
+```
+
+```python !! py
+# Python: three concurrency models
+
+# ── 1. asyncio: I/O-bound, single thread, event loop ─────────────
+import asyncio
+
+async def fetch_url(session, url):
+    # In real code: use aiohttp
+    await asyncio.sleep(0.1)  # Simulate network delay
+    return f"data from {url}"
+
+async def fetch_all_async(urls):
+    # All coroutines run concurrently in ONE thread
+    tasks = [fetch_url(None, url) for url in urls]
+    return await asyncio.gather(*tasks)
+
+urls = [f"https://api.example.com/item/{i}" for i in range(10)]
+results = asyncio.run(fetch_all_async(urls))
+print(f"asyncio: fetched {len(results)} items concurrently")
+# Total time ≈ 0.1s (not 1.0s) — true I/O concurrency
+
+# ── 2. threading: I/O-bound, multiple OS threads ─────────────────
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
+
+def fetch_with_sleep(url):
+    time.sleep(0.1)  # Simulate I/O (GIL released during sleep)
+    return f"data from {url}"
+
+with ThreadPoolExecutor(max_workers=10) as executor:
+    start = time.perf_counter()
+    futures = [executor.submit(fetch_with_sleep, url) for url in urls]
+    results = [f.result() for f in futures]
+    elapsed = time.perf_counter() - start
+print(f"ThreadPool: {len(results)} items in {elapsed:.2f}s")
+# ~0.1s because GIL is released during I/O sleep
+
+# ── 3. multiprocessing: CPU-bound, multiple processes ────────────
+from concurrent.futures import ProcessPoolExecutor
+import math
+
+def cpu_intensive(n):
+    # Simulate CPU work: sum of square roots
+    return sum(math.sqrt(i) for i in range(n))
+
+with ProcessPoolExecutor(max_workers=4) as executor:
+    start = time.perf_counter()
+    futures = [executor.submit(cpu_intensive, 100_000) for _ in range(8)]
+    results = [f.result() for f in futures]
+    elapsed = time.perf_counter() - start
+print(f"ProcessPool: {len(results)} tasks in {elapsed:.2f}s")
+# Faster than sequential because 4 cores run in parallel
+
+# ── Decision Guide ────────────────────────────────────────────────
+# asyncio    → Many concurrent I/O operations (HTTP, DB, files)
+# threading  → I/O-bound with legacy blocking code
+# multiprocessing → CPU-bound computation (data processing, ML)
+```
+</UniversalEditor>
+
+---
+
+## 5. NumPy Vectorization
+
+NumPy is the most impactful performance tool for numerical Python. It replaces slow Python loops with fast C operations on arrays.
+
+<UniversalEditor title="NumPy Vectorization vs Python Loops">
+```javascript !! js
+// JavaScript: no NumPy equivalent in standard library
+// TypedArrays are the closest analog
+
+// Pure JS array operations
+function euclideanDistance(a, b) {
+  let sumSq = 0;
+  for (let i = 0; i < a.length; i++) {
+    const diff = a[i] - b[i];
+    sumSq += diff * diff;
+  }
+  return Math.sqrt(sumSq);
+}
+
+// Using TypedArrays for numeric work (faster than regular arrays)
+const size = 100_000;
+const a = new Float64Array(size).map((_, i) => i);
+const b = new Float64Array(size).map((_, i) => i * 2);
+
+console.time('js-distance');
+const dist = euclideanDistance(a, b);
+console.timeEnd('js-distance');
+console.log(`Distance: ${dist.toFixed(2)}`);
+
+// JavaScript doesn't have NumPy-style broadcasting or matrix ops
+// For ML/data science in JS, you'd use TensorFlow.js or similar
+```
+
+```python !! py
+# Python: NumPy — the essential performance tool
+try:
+    import numpy as np
+    import time
+
+    size = 100_000
+    a = np.arange(size, dtype=np.float64)
+    b = np.arange(size, dtype=np.float64) * 2
+
+    # ── Pure Python (slow) ───────────────────────────────────────
+    def euclidean_slow(a_list, b_list):
+        return sum((x - y) ** 2 for x, y in zip(a_list, b_list)) ** 0.5
+
+    a_list = list(a)
+    b_list = list(b)
+    start = time.perf_counter()
+    result_slow = euclidean_slow(a_list, b_list)
+    t_slow = time.perf_counter() - start
+    print(f"Pure Python: {t_slow*1000:.1f}ms → {result_slow:.2f}")
+
+    # ── NumPy vectorized (fast) ──────────────────────────────────
+    start = time.perf_counter()
+    diff = a - b          # Element-wise subtraction (no loop!)
+    sq = diff ** 2        # Element-wise square
+    result_np = np.sqrt(sq.sum())
+    t_numpy = time.perf_counter() - start
+    print(f"NumPy:       {t_numpy*1000:.1f}ms → {result_np:.2f}")
+    print(f"Speedup:     {t_slow/t_numpy:.0f}x faster")
+
+    # ── Common NumPy patterns ────────────────────────────────────
+    data = np.array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], dtype=float)
+
+    # Broadcasting: operate on all elements without a loop
+    normalized = (data - data.mean()) / data.std()
+    print(f"Normalized: {normalized.round(2)}")
+
+    # Boolean indexing (no loop needed)
+    above_mean = data[data > data.mean()]
+    print(f"Above mean: {above_mean}")
+
+    # Matrix operations
+    matrix = np.random.rand(100, 100)
+    result = matrix @ matrix.T      # Matrix multiply
+    print(f"Matrix shape: {result.shape}")
+
+    # Aggregations along axes
+    m = np.array([[1, 2, 3], [4, 5, 6], [7, 8, 9]])
+    print(f"Row sums: {m.sum(axis=1)}")   # [6, 15, 24]
+    print(f"Col means: {m.mean(axis=0)}") # [4, 5, 6]
+
+except ImportError:
+    print("Install NumPy: pip install numpy")
+    print("NumPy is essential for numeric Python work")
+```
+</UniversalEditor>
+
+---
+
+## 6. Generator Expressions vs List Comprehensions
+
+Generators are lazy — they compute values on demand. This saves memory and can speed up pipelines where not all values are needed.
+
+<UniversalEditor title="Generator Expressions: Lazy vs Eager Evaluation">
+```javascript !! js
+// JavaScript: generators vs arrays
+
+// Array (eager) — allocates all values immediately
+function squares_array(n) {
+  return Array.from({ length: n }, (_, i) => i * i);
+}
+
+// Generator (lazy) — computes values on demand
+function* squares_generator(n) {
+  for (let i = 0; i < n; i++) {
+    yield i * i;
+  }
+}
+
+// Memory comparison
+const n = 1_000_000;
+
+// Array: allocates ~8MB immediately
+const arr = squares_array(n);
+console.log(`Array length: ${arr.length}`);
+
+// Generator: allocates almost nothing
+const gen = squares_generator(n);
+console.log(`First 5: ${[gen.next().value, gen.next().value, gen.next().value]}`);
+
+// Early termination: with array, all work is done upfront
+// With generator, we stop as soon as we find what we need
+function findFirst(iterable, predicate) {
+  for (const x of iterable) {
+    if (predicate(x)) return x;
+  }
+  return null;
+}
+
+// This is efficient — stops at first match
+const gen2 = squares_generator(1_000_000);
+const firstOver1000 = findFirst(gen2, x => x > 1000);
+console.log(`First square > 1000: ${firstOver1000}`);
+```
+
+```python !! py
+# Python: generator expressions vs list comprehensions
+import sys
+import time
+
+n = 1_000_000
+
+# ── List comprehension (eager) — allocates all at once ───────────
+list_comp = [i * i for i in range(n)]
+print(f"List size:      {sys.getsizeof(list_comp):,} bytes")   # ~8MB
+
+# ── Generator expression (lazy) — nearly zero memory ─────────────
+gen_expr = (i * i for i in range(n))
+print(f"Generator size: {sys.getsizeof(gen_expr):,} bytes")    # ~200 bytes
+
+# Both produce the same values, but generators are lazy
+print(f"First 5 from list: {list_comp[:5]}")
+print(f"First 5 from gen:  {[next(gen_expr) for _ in range(5)]}")
+
+# ── Performance: sum of a million squares ────────────────────────
+start = time.perf_counter()
+result_list = sum([i*i for i in range(n)])  # Allocates full list first
+t_list = time.perf_counter() - start
+
+start = time.perf_counter()
+result_gen = sum(i*i for i in range(n))     # Passes values one at a time
+t_gen = time.perf_counter() - start
+
+print(f"List comp: {t_list*1000:.1f}ms")
+print(f"Generator: {t_gen*1000:.1f}ms")
+
+# ── Generator pipeline (composable and memory-efficient) ──────────
+# Process data one item at a time through a pipeline
+def read_lines(filename):
+    """Lazily read lines from a file."""
+    with open(filename) as f:
+        yield from f
+
+def parse_numbers(lines):
+    """Parse numbers, skip non-numeric lines."""
+    for line in lines:
+        try:
+            yield float(line.strip())
+        except ValueError:
+            pass
+
+def above_threshold(numbers, threshold):
+    """Filter numbers above a threshold."""
+    return (n for n in numbers if n > threshold)
+
+# Entire pipeline processes ONE item at a time — O(1) memory!
+# Even for a 10GB file, memory usage stays constant
+# (In contrast, a list-based pipeline would load the whole file)
+
+# ── When to use which ─────────────────────────────────────────────
+# List comprehension: need all values, need indexing, reuse multiple times
+# Generator:          large data, only iterate once, pipeline processing
+```
+</UniversalEditor>
+
+---
+
+## 7. functools.lru_cache and @cache
+
+Memoization with `lru_cache` is one of the easiest performance wins in Python. It caches function results keyed by arguments.
+
+<UniversalEditor title="lru_cache: Automatic Memoization">
+```javascript !! js
+// JavaScript: manual memoization
+function memoize(fn, maxSize = Infinity) {
+  const cache = new Map();
+  return function(...args) {
+    const key = JSON.stringify(args);
+    if (cache.has(key)) {
+      return cache.get(key);
+    }
+    if (cache.size >= maxSize) {
+      // Simple LRU: evict oldest
+      const firstKey = cache.keys().next().value;
+      cache.delete(firstKey);
+    }
+    const result = fn.apply(this, args);
+    cache.set(key, result);
+    return result;
+  };
+}
+
+// Without memoization: O(2^n) time
+function fib(n) {
+  if (n <= 1) return n;
+  return fib(n - 1) + fib(n - 2);
+}
+
+// With memoization: O(n) time
+const fibMemo = memoize(fib);
+console.time('fib-40');
+console.log(fibMemo(40));  // Slow — recursive calls not memoized
+console.timeEnd('fib-40');
+
+// Must use the wrapper consistently for memoization to work
+// This is a subtle bug — recursive calls go to fib(), not fibMemo()!
+```
+
+```python !! py
+# Python: @lru_cache — built-in, correct, and elegant
+import functools
+import time
+
+# ── Basic lru_cache usage ─────────────────────────────────────────
+@functools.lru_cache(maxsize=None)  # maxsize=None means unlimited
+def fib(n):
+    """O(2^n) → O(n) with cache. Recursive calls are also cached!"""
+    if n <= 1:
+        return n
+    return fib(n - 1) + fib(n - 2)
+    # Note: fib calls itself, and THOSE calls hit the cache too
+    # This is why it works correctly unlike JS manual memoization
+
+start = time.perf_counter()
+result = fib(50)
+elapsed = time.perf_counter() - start
+print(f"fib(50) = {result} in {elapsed*1000:.3f}ms")
+print(f"Cache stats: {fib.cache_info()}")
+# CacheInfo(hits=48, misses=51, maxsize=None, currsize=51)
+
+# Clear the cache
+fib.cache_clear()
+
+# ── @cache (Python 3.9+): simpler syntax ─────────────────────────
+@functools.cache
+def expensive_compute(n):
+    """Simulate an expensive computation."""
+    time.sleep(0.001)  # Simulate 1ms work
+    return n * n * n
+
+# First calls are slow, subsequent calls are instant
+for i in [5, 10, 5, 10, 15]:  # 5 and 10 are cached on second call
+    start = time.perf_counter()
+    result = expensive_compute(i)
+    elapsed = time.perf_counter() - start
+    print(f"compute({i:2d}) = {result:4d} | {elapsed*1000:.1f}ms")
+
+# ── LRU with maxsize (bounded cache) ─────────────────────────────
+@functools.lru_cache(maxsize=128)  # Keep only the 128 most recent results
+def process_item(item_id: int, config: str) -> str:
+    """Only hashable arguments can be cached."""
+    # Arguments must be hashable (no lists or dicts!)
+    return f"processed {item_id} with {config}"
+
+print(process_item(1, "fast"))
+print(process_item(1, "fast"))  # Cache hit
+print(process_item.cache_info())
+
+# ── When lru_cache helps most ─────────────────────────────────────
+# ✅ Recursive functions (fib, DP problems)
+# ✅ Expensive I/O that may repeat (API calls, DB reads)
+# ✅ Pure functions called with same args multiple times
+# ❌ Functions with side effects
+# ❌ Functions with mutable arguments (lists, dicts — not hashable)
+```
+</UniversalEditor>
+
+---
+
+## 8. Practical Optimization Workflow
+
+Here is a systematic approach to optimizing Python code, mirrored against JavaScript patterns.
+
+<UniversalEditor title="Practical Optimization: Measure First, Then Optimize">
+```javascript !! js
+// JavaScript optimization workflow
+
+// Step 1: Establish a baseline benchmark
+function processData_v1(data) {
+  // Naive implementation
+  const results = [];
+  for (const item of data) {
+    if (item.active) {
+      results.push(item.value * 2);
+    }
+  }
+  return results.reduce((a, b) => a + b, 0);
+}
+
+// Step 2: Profile to find bottleneck
+// (Use browser DevTools or Node.js --prof)
+
+// Step 3: Optimize the bottleneck (not random guesses)
+function processData_v2(data) {
+  // Optimized: avoid intermediate array, use filter+map or reduce
+  return data
+    .filter(item => item.active)
+    .reduce((sum, item) => sum + item.value * 2, 0);
+}
+
+// Step 4: Benchmark again to confirm improvement
+const data = Array.from({ length: 100_000 }, (_, i) => ({
+  active: i % 3 !== 0,
+  value: i
+}));
+
+console.time('v1');
+const r1 = processData_v1(data);
+console.timeEnd('v1');
+
+console.time('v2');
+const r2 = processData_v2(data);
+console.timeEnd('v2');
+
+console.assert(r1 === r2, 'Results must match!');
+```
+
+```python !! py
+# Python optimization workflow
+import timeit
+import sys
+
+# ── Step 1: Write correct code first ─────────────────────────────
+def process_data_v1(data):
+    """Naive implementation — correct but potentially slow."""
+    results = []
+    for item in data:
+        if item["active"]:
+            results.append(item["value"] * 2)
+    return sum(results)
+
+# ── Step 2: Benchmark to find if optimization is needed ──────────
+data = [{"active": i % 3 != 0, "value": i} for i in range(100_000)]
+
+t1 = timeit.timeit(lambda: process_data_v1(data), number=100)
+print(f"v1 (naive loop):     {t1:.3f}s for 100 runs")
+
+# ── Step 3: Optimize bottleneck using Python idioms ───────────────
+
+# Optimization A: use generator expression (no intermediate list)
+def process_data_v2(data):
+    return sum(item["value"] * 2 for item in data if item["active"])
+
+t2 = timeit.timeit(lambda: process_data_v2(data), number=100)
+print(f"v2 (generator):      {t2:.3f}s → {t1/t2:.1f}x faster")
+
+# Optimization B: use list comprehension (may be faster for CPython)
+def process_data_v3(data):
+    return sum([item["value"] * 2 for item in data if item["active"]])
+
+t3 = timeit.timeit(lambda: process_data_v3(data), number=100)
+print(f"v3 (list comp):      {t3:.3f}s → {t1/t3:.1f}x faster")
+
+# Optimization C: extract to local variables (avoid repeated dict lookups)
+def process_data_v4(data):
+    total = 0
+    for item in data:
+        if item["active"]:
+            total += item["value"] * 2
+    return total
+
+t4 = timeit.timeit(lambda: process_data_v4(data), number=100)
+print(f"v4 (local var):      {t4:.3f}s → {t1/t4:.1f}x faster")
+
+# ── Step 4: Verify correctness ────────────────────────────────────
+results = [process_data_v1(data), process_data_v2(data),
+           process_data_v3(data), process_data_v4(data)]
+assert all(r == results[0] for r in results), "Results must match!"
+print(f"\nAll implementations agree: {results[0]}")
+
+# ── Optimization Golden Rules ─────────────────────────────────────
+print("""
+Optimization Rules:
+1. Make it correct first
+2. Profile to find the ACTUAL bottleneck (don't guess)
+3. Use built-ins and standard library (implemented in C)
+4. Use NumPy for numeric/array operations
+5. Use generators for large data pipelines
+6. Use lru_cache for repeated expensive computations
+7. Use multiprocessing for CPU-bound work
+8. Use asyncio/threading for I/O-bound work
+9. Benchmark after each change to confirm improvement
+10. Stop when it's fast enough (over-optimization wastes time)
+""")
+```
+</UniversalEditor>
+
+---
+
+## 9. Memory Optimization
+
+<UniversalEditor title="Memory Optimization: __slots__, generators, and arrays">
+```javascript !! js
+// JavaScript: memory optimization patterns
+
+// Object pooling to avoid GC pressure
+class ObjectPool {
+  constructor(factory, size = 100) {
+    this.pool = Array.from({ length: size }, factory);
+    this.available = [...this.pool];
+  }
+
+  acquire() {
+    return this.available.pop() ?? this.pool[0];
+  }
+
+  release(obj) {
+    this.available.push(obj);
+  }
+}
+
+// TypedArrays: much more memory-efficient than regular arrays
+const regularArray = new Array(1_000_000).fill(0);    // ~8MB
+const typedArray = new Int32Array(1_000_000);          // ~4MB
+const float64Array = new Float64Array(1_000_000);      // ~8MB
+
+console.log('TypedArray length:', typedArray.length);
+
+// SharedArrayBuffer for zero-copy inter-worker data
+// const shared = new SharedArrayBuffer(4 * 1024); // 4KB shared
+```
+
+```python !! py
+# Python: memory optimization patterns
+import sys
+import array
+
+# ── __slots__: reduce memory per instance ────────────────────────
+class PointNormal:
+    """Regular class: uses __dict__, ~200+ bytes per instance."""
+    def __init__(self, x, y, z):
+        self.x = x
+        self.y = y
+        self.z = z
+
+class PointSlots:
+    """Slots class: no __dict__, ~60 bytes per instance."""
+    __slots__ = ('x', 'y', 'z')  # Declare all attributes upfront
+
+    def __init__(self, x, y, z):
+        self.x = x
+        self.y = y
+        self.z = z
+
+p_normal = PointNormal(1.0, 2.0, 3.0)
+p_slots = PointSlots(1.0, 2.0, 3.0)
+
+print(f"Normal class: {sys.getsizeof(p_normal)} bytes")
+print(f"Slots class:  {sys.getsizeof(p_slots)} bytes")
+# Significant difference when creating millions of instances
+
+# ── array module: typed arrays (like JS TypedArrays) ─────────────
+py_list = list(range(1_000_000))             # ~8MB
+py_array = array.array('i', range(1_000_000))  # ~4MB (int32)
+
+print(f"list:         {sys.getsizeof(py_list):,} bytes")
+print(f"array('i'):   {sys.getsizeof(py_array):,} bytes")
+
+# ── generators: O(1) memory for large sequences ──────────────────
+# Instead of building the full list:
+# memory_hog = [process(x) for x in huge_dataset]  # All in memory
+
+# Stream one item at a time:
+def stream_process(dataset):
+    """Process each item and yield the result — O(1) memory."""
+    for item in dataset:
+        yield item * 2  # Processed one at a time
+
+gen = stream_process(range(1_000_000))
+print(f"Generator object: {sys.getsizeof(gen)} bytes")  # ~200 bytes!
+
+# ── dataclasses with slots (Python 3.10+) ────────────────────────
+from dataclasses import dataclass
+
+@dataclass(slots=True)  # slots=True for memory efficiency
+class Particle:
+    x: float
+    y: float
+    z: float
+    mass: float = 1.0
+
+p = Particle(1.0, 2.0, 3.0)
+print(f"Dataclass with slots: {sys.getsizeof(p)} bytes")
+```
+</UniversalEditor>
+
+---
+
+## Summary Table
+
+| Topic | JavaScript | Python |
+|---|---|---|
+| Runtime | V8 JIT compiler | CPython interpreter (no JIT) |
+| Numeric loop speed | Near-native (JIT) | 10-100x slower (use NumPy) |
+| Profiling tool | `console.time`, `--prof` | `timeit`, `cProfile` |
+| Thread parallelism | True (Worker Threads) | Limited by GIL for CPU work |
+| CPU parallelism | `Worker` / `SharedArrayBuffer` | `multiprocessing.Pool` |
+| I/O concurrency | `async/await` (event loop) | `asyncio` (event loop) |
+| Numeric arrays | `TypedArray` | `numpy.ndarray` |
+| Lazy sequences | Generator functions | Generator expressions / `yield` |
+| Memoization | Manual `Map` cache | `@functools.lru_cache` |
+| Memory per object | Depends on V8 | Reduce with `__slots__` |
+| Typed arrays | `Int32Array`, `Float64Array` | `array.array`, `numpy` |
+| Profiling granularity | DevTools flame graph | `cProfile` + `pstats` |
+| Best optimization | Algorithmic improvement | Same — plus: use NumPy |
+
+---
+
+## Exercises
+
+### Exercise 1: Profile and Optimize
+
+You have a slow function that counts vowels in a large list of strings. Profile it with `timeit` and rewrite it to be at least 3x faster.
+
+```python
+import random, string
+
+# Generate test data
+words = [''.join(random.choices(string.ascii_lowercase, k=10))
+         for _ in range(10_000)]
+
+def count_vowels_slow(words):
+    """Slow implementation — profile and optimize this."""
+    count = 0
+    for word in words:
+        for char in word:
+            if char in ['a', 'e', 'i', 'o', 'u']:
+                count += 1
+    return count
+```
+
+<details>
+<summary>Show Answer</summary>
+
+```python
+import timeit
+import random
+import string
+
+random.seed(42)
+words = [''.join(random.choices(string.ascii_lowercase, k=10))
+         for _ in range(10_000)]
+
+def count_vowels_slow(words):
+    count = 0
+    for word in words:
+        for char in word:
+            if char in ['a', 'e', 'i', 'o', 'u']:  # list lookup each time
+                count += 1
+    return count
+
+# Optimization 1: use a set (O(1) lookup vs O(n) list)
+VOWELS = frozenset('aeiou')  # frozenset is hashable and slightly faster
+
+def count_vowels_set(words):
+    count = 0
+    for word in words:
+        for char in word:
+            if char in VOWELS:  # O(1) hash lookup
+                count += 1
+    return count
+
+# Optimization 2: use sum + generator (avoid loop variable overhead)
+def count_vowels_sum(words):
+    return sum(c in VOWELS for word in words for c in word)
+
+# Optimization 3: join all words, count all at once
+def count_vowels_join(words):
+    all_text = ''.join(words)
+    return sum(1 for c in all_text if c in VOWELS)
+
+# Optimization 4: use str.count for each vowel
+def count_vowels_strcount(words):
+    all_text = ''.join(words)
+    return sum(all_text.count(v) for v in 'aeiou')
+
+# Benchmark all versions
+n = 1000
+t_slow  = timeit.timeit(lambda: count_vowels_slow(words), number=n)
+t_set   = timeit.timeit(lambda: count_vowels_set(words), number=n)
+t_sum   = timeit.timeit(lambda: count_vowels_sum(words), number=n)
+t_join  = timeit.timeit(lambda: count_vowels_join(words), number=n)
+t_count = timeit.timeit(lambda: count_vowels_strcount(words), number=n)
+
+print(f"Slow (list):   {t_slow:.3f}s  (baseline)")
+print(f"Set lookup:    {t_set:.3f}s   ({t_slow/t_set:.1f}x faster)")
+print(f"Sum generator: {t_sum:.3f}s   ({t_slow/t_sum:.1f}x faster)")
+print(f"Join+iterate:  {t_join:.3f}s  ({t_slow/t_join:.1f}x faster)")
+print(f"str.count:     {t_count:.3f}s ({t_slow/t_count:.1f}x faster)")
+
+# Verify all give the same result
+baseline = count_vowels_slow(words)
+assert all(f(words) == baseline for f in [
+    count_vowels_set, count_vowels_sum,
+    count_vowels_join, count_vowels_strcount
+]), "Results don't match!"
+print(f"\nAll match: {baseline} vowels found")
+```
+
+</details>
+
+---
+
+### Exercise 2: GIL-aware Parallelism
+
+Write a program that:
+1. Generates 8 "tasks" (each computing a large sum)
+2. Runs them sequentially and records the time
+3. Runs them with `ThreadPoolExecutor` and records the time
+4. Runs them with `ProcessPoolExecutor` and records the time
+5. Explains the results (why threads don't help, but processes do)
+
+<details>
+<summary>Show Answer</summary>
+
+```python
+import time
+import math
+from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
+
+def cpu_task(n):
+    """CPU-bound task: compute sum of square roots."""
+    return sum(math.sqrt(i) for i in range(n))
+
+TASKS = [500_000] * 8  # 8 tasks, each summing 500K square roots
+
+# Sequential
+start = time.perf_counter()
+sequential_results = [cpu_task(n) for n in TASKS]
+t_sequential = time.perf_counter() - start
+print(f"Sequential:      {t_sequential:.2f}s")
+
+# Threading (limited by GIL for CPU-bound work)
+start = time.perf_counter()
+with ThreadPoolExecutor(max_workers=4) as executor:
+    thread_results = list(executor.map(cpu_task, TASKS))
+t_threads = time.perf_counter() - start
+print(f"4 threads:       {t_threads:.2f}s  ({t_sequential/t_threads:.1f}x speedup)")
+
+# Multiprocessing (true parallelism — each process has own GIL)
+start = time.perf_counter()
+with ProcessPoolExecutor(max_workers=4) as executor:
+    process_results = list(executor.map(cpu_task, TASKS))
+t_processes = time.perf_counter() - start
+print(f"4 processes:     {t_processes:.2f}s  ({t_sequential/t_processes:.1f}x speedup)")
+
+# Verify results match
+assert sequential_results == thread_results == process_results
+
+print(f"""
+Explanation:
+- Sequential: 1 CPU core, all tasks in order
+- Threads: Python threads fight over the GIL, can't run CPU code in parallel
+  → Threads may even be SLOWER due to GIL contention and context switching
+- Processes: each process has its own Python interpreter and GIL
+  → True parallelism across CPU cores → ~{t_sequential/t_processes:.0f}x speedup with 4 processes
+
+Rule: For CPU-bound work, use multiprocessing.
+      For I/O-bound work, use threading or asyncio.
+""")
+```
+
+</details>
+
+---
+
+### Exercise 3: NumPy vs Pure Python
+
+Write two versions of a function that normalizes a dataset (subtract mean, divide by std), one using pure Python and one using NumPy. Benchmark them and compare results.
+
+<details>
+<summary>Show Answer</summary>
+
+```python
+import timeit
+import math
+
+try:
+    import numpy as np
+
+    # Generate test data
+    data = [float(i) + 0.1 * (i % 7) for i in range(100_000)]
+
+    # ── Pure Python implementation ────────────────────────────────
+    def normalize_python(data):
+        n = len(data)
+        mean = sum(data) / n
+        variance = sum((x - mean) ** 2 for x in data) / n
+        std = math.sqrt(variance)
+        return [(x - mean) / std for x in data]
+
+    # ── NumPy implementation ──────────────────────────────────────
+    def normalize_numpy(data_list):
+        arr = np.array(data_list)
+        mean = arr.mean()
+        std = arr.std()
+        return (arr - mean) / std    # Vectorized operations, no loop!
+
+    # ── Benchmark ────────────────────────────────────────────────
+    n_runs = 100
+    t_python = timeit.timeit(lambda: normalize_python(data), number=n_runs)
+    t_numpy  = timeit.timeit(lambda: normalize_numpy(data), number=n_runs)
+
+    print(f"Pure Python: {t_python:.3f}s for {n_runs} runs")
+    print(f"NumPy:       {t_numpy:.3f}s for {n_runs} runs")
+    print(f"Speedup:     {t_python/t_numpy:.1f}x faster with NumPy")
+
+    # ── Verify results are equivalent ────────────────────────────
+    py_result = normalize_python(data)
+    np_result = normalize_numpy(data)
+
+    # Compare first 5 values
+    for i in range(5):
+        diff = abs(py_result[i] - float(np_result[i]))
+        print(f"  data[{i}]: Python={py_result[i]:.6f}, NumPy={float(np_result[i]):.6f}, diff={diff:.2e}")
+
+    max_diff = max(abs(a - b) for a, b in zip(py_result, np_result))
+    print(f"Max difference: {max_diff:.2e} (should be near zero)")
+
+    # ── Memory comparison ─────────────────────────────────────────
+    import sys
+    py_list_mem = sys.getsizeof(data) + sum(sys.getsizeof(x) for x in data)
+    np_array = np.array(data)
+    np_mem = np_array.nbytes
+
+    print(f"\nMemory: Python list={py_list_mem/1024:.0f}KB, NumPy array={np_mem/1024:.0f}KB")
+
+except ImportError:
+    print("NumPy not available. Install with: pip install numpy")
+    print("Showing pure Python version only:")
+
+    data = [float(i) for i in range(100_000)]
+
+    def normalize_python(data):
+        n = len(data)
+        mean = sum(data) / n
+        variance = sum((x - mean) ** 2 for x in data) / n
+        std = math.sqrt(variance)
+        return [(x - mean) / std for x in data]
+
+    import timeit
+    t = timeit.timeit(lambda: normalize_python(data), number=10)
+    print(f"Pure Python: {t:.3f}s for 10 runs")
+    result = normalize_python(data[:5])
+    print(f"First 5 normalized: {[f'{x:.4f}' for x in result]}")
+```
+
+</details>

@@ -1,0 +1,777 @@
+---
+title: "Module 15: Control Flow"
+description: "Master Kotlin's control flow: when as a powerful switch replacement, for/while loops, ranges, scope functions (let/run/also/apply/with), and destructuring."
+---
+
+# Module 15: Control Flow
+
+Welcome to Module 15! Control flow in Kotlin is both familiar and dramatically more powerful than JavaScript. The `when` expression replaces `switch` with exhaustive pattern matching, ranges make loops clean and expressive, and scope functions (`let`, `run`, `also`, `apply`, `with`) are idiomatic Kotlin with no direct JavaScript equivalents. By the end of this module, you'll write Kotlin control flow that is concise, readable, and safe.
+
+## Learning Objectives
+
+By the end of this module, you will be able to:
+
+- ✅ Use `when` as an expression and statement, covering equality, ranges, types, and arbitrary conditions
+- ✅ Write `for` loops with ranges, `downTo`, `step`, and collections
+- ✅ Use `while` and `do-while` loops with Kotlin idioms
+- ✅ Apply the five scope functions (`let`, `run`, `also`, `apply`, `with`) to the right situations
+- ✅ Use destructuring declarations in assignments and `for` loops
+- ✅ Understand labeled `return` and `break` for non-local control flow
+
+---
+
+## 1. The `when` Expression
+
+`when` is Kotlin's replacement for `switch` — but far more powerful. It can match values, types, ranges, and arbitrary boolean conditions. It also works as an expression, returning a value.
+
+<UniversalEditor title="when vs switch: Basic Matching" compare={true}>
+```javascript !! js
+// JavaScript switch — limited to equality checks
+function getDayType(day) {
+  switch (day) {
+    case "Monday":
+    case "Tuesday":
+    case "Wednesday":
+    case "Thursday":
+    case "Friday":
+      return "Weekday";
+    case "Saturday":
+    case "Sunday":
+      return "Weekend";
+    default:
+      return "Unknown";
+  }
+}
+
+console.log(getDayType("Monday"));   // Weekday
+console.log(getDayType("Saturday")); // Weekend
+console.log(getDayType("Holiday"));  // Unknown
+
+// switch falls through by default (must use break)
+// switch cannot return a value directly (needs variable assignment)
+function getScore(grade) {
+  let points;
+  switch (grade) {
+    case "A": points = 4.0; break;
+    case "B": points = 3.0; break;
+    case "C": points = 2.0; break;
+    default:  points = 0.0;
+  }
+  return points;
+}
+```
+
+```kotlin !! kotlin
+// Kotlin when — no fallthrough, works as expression
+
+fun getDayType(day: String): String = when (day) {
+    "Monday", "Tuesday", "Wednesday", "Thursday", "Friday" -> "Weekday"
+    "Saturday", "Sunday" -> "Weekend"
+    else -> "Unknown"
+}
+
+println(getDayType("Monday"))   // Weekday
+println(getDayType("Saturday")) // Weekend
+println(getDayType("Holiday"))  // Unknown
+
+// when as an expression — returns a value directly
+fun getScore(grade: String): Double = when (grade) {
+    "A" -> 4.0
+    "B" -> 3.0
+    "C" -> 2.0
+    else -> 0.0
+}
+
+println(getScore("A")) // 4.0
+println(getScore("D")) // 0.0
+
+// No breaks needed — no fallthrough!
+// Multiple values in one branch: comma-separated
+```
+</UniversalEditor>
+
+<UniversalEditor title="when with Ranges, Types, and Arbitrary Conditions" compare={true}>
+```javascript !! js
+// JavaScript — requires if/else chain for non-equality checks
+function classifyAge(age) {
+  if (age < 0) {
+    return "Invalid";
+  } else if (age <= 12) {
+    return "Child";
+  } else if (age <= 17) {
+    return "Teenager";
+  } else if (age <= 64) {
+    return "Adult";
+  } else {
+    return "Senior";
+  }
+}
+
+// Type checking requires typeof / instanceof
+function describe(value) {
+  if (typeof value === "string") {
+    return `String: "${value}"`;
+  } else if (typeof value === "number") {
+    return `Number: ${value}`;
+  } else if (Array.isArray(value)) {
+    return `Array[${value.length}]`;
+  } else if (value === null) {
+    return "Null";
+  }
+  return "Other";
+}
+
+console.log(classifyAge(8));   // Child
+console.log(classifyAge(25));  // Adult
+console.log(describe("hi"));  // String: "hi"
+console.log(describe([1,2]));  // Array[2]
+```
+
+```kotlin !! kotlin
+// Kotlin when — ranges, type checks, arbitrary conditions
+
+fun classifyAge(age: Int): String = when {
+    // when without argument: treats each branch as a boolean condition
+    age < 0       -> "Invalid"
+    age <= 12     -> "Child"
+    age in 13..17 -> "Teenager"  // in range check
+    age in 18..64 -> "Adult"
+    else          -> "Senior"
+}
+
+// when with argument: type checks with smart cast
+fun describe(value: Any?): String = when (value) {
+    is String    -> "String: \"$value\""     // smart cast to String
+    is Int, is Double -> "Number: $value"   // multiple types
+    is List<*>   -> "Array[${value.size}]"  // smart cast to List
+    null         -> "Null"
+    else         -> "Other"
+}
+
+println(classifyAge(8))   // Child
+println(classifyAge(25))  // Adult
+println(describe("hi"))   // String: "hi"
+println(describe(listOf(1,2))) // Array[2]
+println(describe(null))   // Null
+
+// when can also match on object properties
+data class Point(val x: Int, val y: Int)
+fun quadrant(p: Point): String = when {
+    p.x > 0 && p.y > 0 -> "Q1"
+    p.x < 0 && p.y > 0 -> "Q2"
+    p.x < 0 && p.y < 0 -> "Q3"
+    p.x > 0 && p.y < 0 -> "Q4"
+    else -> "On axis"
+}
+println(quadrant(Point(3, 5))) // Q1
+```
+</UniversalEditor>
+
+---
+
+## 2. `for` Loops and Ranges
+
+Kotlin's `for` loop iterates over anything with an iterator. Ranges (`1..10`, `downTo`, `step`) make numeric loops clean and readable.
+
+<UniversalEditor title="for Loops: Ranges and Collections" compare={true}>
+```javascript !! js
+// JavaScript for loops
+// Classic C-style loop
+for (let i = 1; i <= 10; i++) {
+  process.stdout.write(i + " ");
+}
+// 1 2 3 4 5 6 7 8 9 10
+
+// Counting down
+for (let i = 10; i >= 1; i--) {
+  process.stdout.write(i + " ");
+}
+// 10 9 8 7 6 5 4 3 2 1
+
+// Step by 2
+for (let i = 0; i <= 20; i += 2) {
+  process.stdout.write(i + " ");
+}
+// 0 2 4 6 8 10 12 14 16 18 20
+
+// for...of (iterating collections)
+const fruits = ["apple", "banana", "cherry"];
+for (const fruit of fruits) {
+  console.log(fruit);
+}
+
+// with index
+fruits.forEach((fruit, index) => {
+  console.log(`${index}: ${fruit}`);
+});
+```
+
+```kotlin !! kotlin
+// Kotlin for loops with ranges
+
+// Inclusive range 1..10
+for (i in 1..10) print("$i ") // 1 2 3 4 5 6 7 8 9 10
+println()
+
+// Exclusive upper bound: until
+for (i in 1 until 10) print("$i ") // 1 2 3 4 5 6 7 8 9
+println()
+
+// Counting down: downTo
+for (i in 10 downTo 1) print("$i ") // 10 9 8 7 6 5 4 3 2 1
+println()
+
+// Step: every 2
+for (i in 0..20 step 2) print("$i ") // 0 2 4 6 8 10 12 14 16 18 20
+println()
+
+// Iterating a list
+val fruits = listOf("apple", "banana", "cherry")
+for (fruit in fruits) println(fruit)
+
+// With index using withIndex()
+for ((index, fruit) in fruits.withIndex()) {
+    println("$index: $fruit")
+}
+
+// Iterating a map
+val scores = mapOf("Alice" to 95, "Bob" to 87)
+for ((name, score) in scores) {
+    println("$name scored $score")
+}
+```
+</UniversalEditor>
+
+---
+
+## 3. `while` and `do-while`
+
+<UniversalEditor title="while and do-while Loops" compare={true}>
+```javascript !! js
+// JavaScript while and do-while
+
+// while: check condition first
+let count = 0;
+while (count < 5) {
+  console.log("Count: " + count);
+  count++;
+}
+
+// do-while: execute at least once
+let input = "";
+do {
+  input = prompt("Enter 'quit' to exit") ?? "";
+  console.log("You entered: " + input);
+} while (input !== "quit");
+
+// Simulating do-while with a generator pattern
+function* retryUntilSuccess(maxAttempts) {
+  let attempt = 0;
+  while (attempt < maxAttempts) {
+    attempt++;
+    const success = Math.random() > 0.7;
+    yield { attempt, success };
+    if (success) break;
+  }
+}
+
+for (const result of retryUntilSuccess(5)) {
+  console.log(`Attempt ${result.attempt}: ${result.success ? "OK" : "retry"}`);
+  if (result.success) break;
+}
+```
+
+```kotlin !! kotlin
+// Kotlin while and do-while — same semantics as JavaScript
+
+// while: check condition first
+var count = 0
+while (count < 5) {
+    println("Count: $count")
+    count++
+}
+
+// do-while: execute at least once
+var input: String
+do {
+    input = readLine() ?: ""  // readLine() reads from stdin (nullable)
+    println("You entered: $input")
+} while (input != "quit")
+
+// Practical: retry with exponential backoff
+fun retryUntilSuccess(maxAttempts: Int) {
+    var attempt = 0
+    var success = false
+    while (attempt < maxAttempts && !success) {
+        attempt++
+        success = Math.random() > 0.7
+        println("Attempt $attempt: ${if (success) "OK" else "retry..."}")
+    }
+    if (!success) println("All $maxAttempts attempts failed")
+}
+
+retryUntilSuccess(5)
+
+// repeat() — a cleaner alternative to for (i in 0 until n)
+repeat(3) { i ->
+    println("Iteration $i")
+}
+// Iteration 0
+// Iteration 1
+// Iteration 2
+```
+</UniversalEditor>
+
+---
+
+## 4. Scope Functions: `let`, `run`, `also`, `apply`, `with`
+
+Scope functions are one of the most idiomatic features of Kotlin, with no direct JavaScript equivalent. They let you execute a block of code in the context of an object, reducing repetition and enabling null-safe chains.
+
+<UniversalEditor title="Scope Functions: let and run" compare={true}>
+```javascript !! js
+// JavaScript — no direct equivalent to scope functions
+// Developers use IIFE, method chaining, or manual null checks
+
+// Simulating let: IIFE for scoping
+const result = (() => {
+  const temp = computeSomething();
+  if (temp !== null) {
+    return temp.toUpperCase();
+  }
+  return "default";
+})();
+
+// Simulating null-safe execution
+const user = getUser();
+if (user !== null && user !== undefined) {
+  // Safe block — but repetitive
+  console.log(user.name);
+  sendWelcomeEmail(user.email);
+  logActivity(user.id);
+}
+
+// Optional chaining for simple reads
+const city = user?.address?.city ?? "Unknown";
+
+// Builder pattern (simulate apply)
+function createButton(config) {
+  const btn = document.createElement("button");
+  btn.text = config.text;
+  btn.style.color = config.color;
+  btn.disabled = config.disabled ?? false;
+  return btn;
+}
+```
+
+```kotlin !! kotlin
+// Kotlin scope functions
+
+// --- let ---
+// Context: 'it', Returns: lambda result
+// Use case: null-safe execution, transforming a value
+
+val name: String? = "  Alice  "
+val trimmed = name?.let { it.trim().uppercase() }
+println(trimmed) // ALICE
+
+// Chain without intermediate variables
+val result = "hello world"
+    .let { it.split(" ") }
+    .let { it.map { word -> word.capitalize() } }
+    .let { it.joinToString("-") }
+println(result) // Hello-World
+
+// --- run ---
+// Context: 'this', Returns: lambda result
+// Use case: computing a value in a scoped context
+
+val greeting = run {
+    val firstName = "Alice"
+    val lastName  = "Smith"
+    "Hello, $firstName $lastName!"  // last expression is returned
+}
+println(greeting) // Hello, Alice Smith!
+
+// run on an object (like let but 'this' instead of 'it')
+val length = "Kotlin".run {
+    println("Computing length of: $this")
+    this.length  // returned
+}
+println(length) // 6
+```
+</UniversalEditor>
+
+<UniversalEditor title="Scope Functions: also, apply, and with" compare={true}>
+```javascript !! js
+// JavaScript builder/configuration patterns
+
+// Simulating apply (object initialization)
+class HttpRequest {
+  constructor() {
+    this.url = "";
+    this.method = "GET";
+    this.headers = {};
+    this.timeout = 5000;
+  }
+}
+
+// Must assign to variable first, then configure
+const request = new HttpRequest();
+request.url = "https://api.example.com/users";
+request.method = "POST";
+request.headers["Content-Type"] = "application/json";
+request.timeout = 10000;
+// Now use request...
+
+// Simulating also (side effects in a chain)
+function processUser(user) {
+  console.log("Processing:", user); // side effect
+  return user; // must manually return the same object
+}
+const user = { name: "Alice" };
+const sameUser = processUser(user);
+
+// with (operating on an object without repeating its name)
+// No direct equivalent — must repeat 'config.' everywhere
+function printConfig(config) {
+  console.log(config.host);
+  console.log(config.port);
+  console.log(config.database);
+}
+```
+
+```kotlin !! kotlin
+// Kotlin scope functions continued
+
+// --- apply ---
+// Context: 'this', Returns: the RECEIVER object
+// Use case: object initialization / builder pattern
+
+data class HttpRequest(
+    var url: String = "",
+    var method: String = "GET",
+    val headers: MutableMap<String, String> = mutableMapOf(),
+    var timeout: Int = 5000
+)
+
+val request = HttpRequest().apply {
+    url = "https://api.example.com/users"  // 'this' is HttpRequest
+    method = "POST"
+    headers["Content-Type"] = "application/json"
+    timeout = 10_000
+}
+println(request.url)    // https://api.example.com/users
+println(request.method) // POST
+
+// --- also ---
+// Context: 'it', Returns: the RECEIVER object
+// Use case: side effects (logging, validation) without breaking a chain
+
+val numbers = mutableListOf(1, 2, 3)
+    .also { println("Before: $it") }   // side effect
+    .apply { add(4); add(5) }          // mutate
+    .also { println("After: $it") }    // side effect again
+// Before: [1, 2, 3]
+// After: [1, 2, 3, 4, 5]
+
+// --- with ---
+// Context: 'this', Returns: lambda result
+// Use case: calling multiple methods on an object without repeating the name
+// (Not an extension function — takes the object as first argument)
+
+data class Config(val host: String, val port: Int, val database: String)
+
+val config = Config("localhost", 5432, "myapp")
+val summary = with(config) {
+    // No need to write config.host, config.port, etc.
+    println(host)
+    println(port)
+    println(database)
+    "$host:$port/$database"  // returned
+}
+println(summary) // localhost:5432/myapp
+```
+</UniversalEditor>
+
+---
+
+## 5. Destructuring Declarations
+
+Kotlin supports destructuring for data classes, pairs, maps, and in `for` loops — similar to JavaScript destructuring but backed by the type system.
+
+<UniversalEditor title="Destructuring: Variables and Loops" compare={true}>
+```javascript !! js
+// JavaScript destructuring
+
+// Array destructuring
+const [first, second, ...rest] = [1, 2, 3, 4, 5];
+console.log(first, second, rest); // 1 2 [3, 4, 5]
+
+// Object destructuring
+const { name, age, email = "unknown" } = { name: "Alice", age: 30 };
+console.log(name, age, email); // Alice 30 unknown
+
+// Destructuring in for loops
+const users = [
+  { name: "Alice", score: 95 },
+  { name: "Bob",   score: 87 }
+];
+for (const { name, score } of users) {
+  console.log(`${name}: ${score}`);
+}
+
+// Swapping variables
+let a = 1, b = 2;
+[a, b] = [b, a];
+console.log(a, b); // 2 1
+
+// Function return value destructuring
+function getMinMax(arr) {
+  return [Math.min(...arr), Math.max(...arr)];
+}
+const [min, max] = getMinMax([3, 1, 4, 1, 5, 9]);
+console.log(min, max); // 1 9
+```
+
+```kotlin !! kotlin
+// Kotlin destructuring — powered by componentN() functions
+
+// Data class destructuring (components are positional)
+data class Point(val x: Int, val y: Int)
+val (x, y) = Point(3, 7)
+println("x=$x, y=$y") // x=3, y=7
+
+// Pair and Triple
+val (first, second) = Pair("hello", 42)
+println("$first $second") // hello 42
+
+val (a, b, c) = Triple(1, 2, 3)
+println("$a $b $c") // 1 2 3
+
+// Skip components with _ (underscore)
+data class Person(val name: String, val age: Int, val email: String)
+val (name, _, email) = Person("Alice", 30, "alice@example.com")
+println("$name $email") // Alice alice@example.com
+
+// Destructuring in for loops
+val users = listOf(Person("Alice", 30, "a@x.com"), Person("Bob", 25, "b@x.com"))
+for ((personName, personAge) in users) {
+    println("$personName is $personAge")
+}
+
+// Map entries — automatic destructuring
+val scores = mapOf("Alice" to 95, "Bob" to 87)
+for ((student, score) in scores) {
+    println("$student: $score")
+}
+
+// Returning multiple values via destructuring
+fun minMax(list: List<Int>): Pair<Int, Int> = list.min() to list.max()
+val (min, max) = minMax(listOf(3, 1, 4, 1, 5, 9))
+println("min=$min max=$max") // min=1 max=9
+```
+</UniversalEditor>
+
+---
+
+## 6. Labels and Returns
+
+Kotlin supports labeled `return` and `break` to control flow in nested lambdas and loops — solving problems that require flags or extra variables in JavaScript.
+
+<UniversalEditor title="Labels: Non-local Returns and Labeled Break" compare={true}>
+```javascript !! js
+// JavaScript labeled statements
+// Labels are rare but useful for nested loops
+
+outer: for (let i = 0; i < 3; i++) {
+  for (let j = 0; j < 3; j++) {
+    if (i === 1 && j === 1) {
+      break outer;  // break out of BOTH loops
+    }
+    console.log(`i=${i}, j=${j}`);
+  }
+}
+// i=0, j=0 / i=0, j=1 / i=0, j=2 / i=1, j=0
+
+// continue with label
+outer: for (let i = 0; i < 3; i++) {
+  for (let j = 0; j < 3; j++) {
+    if (j === 1) continue outer; // skip to next i
+    console.log(`i=${i}, j=${j}`);
+  }
+}
+
+// Returning from lambdas — forEach has no return
+// This does NOT return from the outer function:
+function findFirst(arr, pred) {
+  let found = null;
+  arr.forEach(item => {
+    if (pred(item) && found === null) {
+      found = item; // can't "return" from forEach
+    }
+  });
+  return found;
+}
+```
+
+```kotlin !! kotlin
+// Kotlin labels — first-class support
+
+// Labeled break: break@label
+outer@ for (i in 0 until 3) {
+    for (j in 0 until 3) {
+        if (i == 1 && j == 1) break@outer  // exits both loops
+        println("i=$i, j=$j")
+    }
+}
+// i=0, j=0 / i=0, j=1 / i=0, j=2 / i=1, j=0
+
+// Labeled continue
+outer@ for (i in 0 until 3) {
+    for (j in 0 until 3) {
+        if (j == 1) continue@outer  // skip to next i
+        println("i=$i, j=$j")
+    }
+}
+
+// return@label — local return from lambda
+// This returns from the lambda (like continue), NOT from the outer function
+fun findFirst(list: List<Int>, pred: (Int) -> Boolean): Int? {
+    list.forEach { item ->
+        if (pred(item)) return item  // non-local return — exits findFirst!
+    }
+    return null
+}
+println(findFirst(listOf(1, 2, 3, 4)) { it > 2 }) // 3
+
+// return@forEach — local return (like "continue" in a forEach)
+fun printOdds(list: List<Int>) {
+    list.forEach { num ->
+        if (num % 2 == 0) return@forEach  // skip evens, continue to next
+        println(num)
+    }
+    println("Done")  // This IS reached!
+}
+printOdds(listOf(1, 2, 3, 4, 5))
+// 1 / 3 / 5 / Done
+```
+</UniversalEditor>
+
+---
+
+## 7. Summary Table
+
+| Concept | JavaScript | Kotlin |
+|---|---|---|
+| Switch/when | `switch` (equality only, needs `break`) | `when` (ranges, types, conditions; no `break`; expression) |
+| Numeric for loop | `for (let i=0; i<n; i++)` | `for (i in 1..n)` / `for (i in n downTo 1)` |
+| Collection loop | `for...of` | `for (item in collection)` |
+| Loop with index | `.forEach((item, i) => ...)` | `for ((i, item) in list.withIndex())` |
+| Step | `i += 2` | `step 2` |
+| Repeat N times | `for (let i=0; i<n; i++)` | `repeat(n) { i -> ... }` |
+| Null-safe block | `if (x != null) { ... }` | `x?.let { ... }` |
+| Object init builder | Manual assignment | `.apply { ... }` |
+| Side effect in chain | Manual return | `.also { ... }` |
+| Operate on object | Repeat object name | `with(obj) { ... }` |
+| Destructuring | `const { a, b } = obj` / `const [a, b] = arr` | `val (a, b) = dataClass` / `for ((k, v) in map)` |
+| Labeled break | `break label` | `break@label` |
+| Local lambda return | N/A (forEach can't return) | `return@forEach` |
+
+---
+
+## Exercises
+
+### Exercise 1: Grade Calculator with `when`
+
+Write a Kotlin function `letterGrade(score: Int): String` that returns "A" for 90-100, "B" for 80-89, "C" for 70-79, "D" for 60-69, "F" for below 60, and "Invalid" for scores outside 0-100. Use `when` with ranges.
+
+<details>
+<summary>Show Answer</summary>
+
+```kotlin
+fun letterGrade(score: Int): String = when (score) {
+    in 90..100 -> "A"
+    in 80..89  -> "B"
+    in 70..79  -> "C"
+    in 60..69  -> "D"
+    in 0..59   -> "F"
+    else       -> "Invalid"
+}
+
+println(letterGrade(95))  // A
+println(letterGrade(82))  // B
+println(letterGrade(55))  // F
+println(letterGrade(-5))  // Invalid
+println(letterGrade(105)) // Invalid
+```
+
+</details>
+
+### Exercise 2: Null-safe Builder with `apply` and `let`
+
+Create a `ServerConfig` data class with `host: String`, `port: Int`, `maxConnections: Int`, and `sslEnabled: Boolean`. Write a function `buildConfig(override: ServerConfig?): ServerConfig` that starts from a default config and applies overrides using scope functions.
+
+<details>
+<summary>Show Answer</summary>
+
+```kotlin
+data class ServerConfig(
+    var host: String = "localhost",
+    var port: Int = 8080,
+    var maxConnections: Int = 100,
+    var sslEnabled: Boolean = false
+)
+
+fun buildConfig(override: ServerConfig?): ServerConfig {
+    return ServerConfig().apply {
+        override?.let { o ->
+            if (o.host.isNotBlank()) host = o.host
+            if (o.port > 0) port = o.port
+            if (o.maxConnections > 0) maxConnections = o.maxConnections
+            sslEnabled = o.sslEnabled
+        }
+    }.also { config ->
+        println("Built config: ${config.host}:${config.port} (SSL=${config.sslEnabled})")
+    }
+}
+
+val config = buildConfig(ServerConfig(host = "prod.example.com", port = 443, sslEnabled = true))
+println(config.maxConnections) // 100 (default preserved)
+```
+
+</details>
+
+### Exercise 3: Matrix Search with Labeled Break
+
+Write a function `findInMatrix(matrix: List<List<Int>>, target: Int): Pair<Int, Int>?` that returns the `(row, col)` of the first occurrence of `target`, or `null` if not found. Use a labeled break to exit both loops immediately when found.
+
+<details>
+<summary>Show Answer</summary>
+
+```kotlin
+fun findInMatrix(matrix: List<List<Int>>, target: Int): Pair<Int, Int>? {
+    var found: Pair<Int, Int>? = null
+    outer@ for ((row, rowList) in matrix.withIndex()) {
+        for ((col, value) in rowList.withIndex()) {
+            if (value == target) {
+                found = row to col
+                break@outer
+            }
+        }
+    }
+    return found
+}
+
+val matrix = listOf(
+    listOf(1, 2, 3),
+    listOf(4, 5, 6),
+    listOf(7, 8, 9)
+)
+
+println(findInMatrix(matrix, 5))  // (1, 1)
+println(findInMatrix(matrix, 9))  // (2, 2)
+println(findInMatrix(matrix, 10)) // null
+```
+
+</details>

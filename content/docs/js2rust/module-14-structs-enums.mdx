@@ -1,0 +1,772 @@
+---
+title: "Module 14: Structs, Enums, and Pattern Matching"
+description: "Master Rust's type system centerpieces: structs as data containers, enums as algebraic data types, and pattern matching as the primary way to work with them."
+---
+
+# Module 14: Structs, Enums, and Pattern Matching
+
+## Learning Objectives
+
+By the end of this module, you will be able to:
+
+- ✅ Define structs with named fields, tuple structs, and unit structs, comparing them to JavaScript classes and objects
+- ✅ Write `impl` blocks to attach methods using `&self`, `&mut self`, and associated functions like `new`
+- ✅ Define enums whose variants carry data — Rust's algebraic data types, far more powerful than TypeScript enums
+- ✅ Understand that `Option<T>` and `Result<T, E>` are just enums defined in the standard library
+- ✅ Write complex pattern matching on structs and enums with destructuring, guards, and `@` bindings
+- ✅ Use `#[derive]` to automatically implement common traits like `Debug`, `Clone`, `PartialEq`, and `Hash`
+
+---
+
+## 1. Structs
+
+Rust structs are the primary way to group related data. They are similar to JavaScript plain objects or classes (data side only), but they are statically typed and have no prototype chain.
+
+<UniversalEditor title="Structs vs JavaScript Classes and Objects" compare={true}>
+```javascript !! js
+// JavaScript: plain objects and classes
+// Plain object — no type enforcement
+const point = { x: 10.0, y: 20.0 };
+console.log(point.x, point.y); // 10 20
+
+// Class as a structured type
+class Rectangle {
+    constructor(width, height) {
+        this.width  = width;
+        this.height = height;
+    }
+}
+
+const rect = new Rectangle(30, 20);
+console.log(rect.width); // 30
+
+// Destructuring
+const { width, height } = rect;
+console.log(width, height); // 30 20
+
+// "Tuple struct" equivalent — unnamed fields
+const rgb = [255, 128, 0]; // just an array — no type name
+console.log(rgb[0]); // 255
+
+// Spread to copy
+const rect2 = { ...rect, width: 50 }; // copy with one field changed
+console.log(rect2); // { width: 50, height: 20 }
+```
+
+```rust !! rs
+// Named-field struct — most common form
+#[derive(Debug)]
+struct Point {
+    x: f64,
+    y: f64,
+}
+
+// Tuple struct — fields accessed by position
+#[derive(Debug)]
+struct Color(u8, u8, u8); // RGB
+
+// Unit struct — no fields; useful for marker types
+struct Marker;
+
+#[derive(Debug)]
+struct Rectangle {
+    width:  f64,
+    height: f64,
+}
+
+fn main() {
+    // Creating instances
+    let point = Point { x: 10.0, y: 20.0 };
+    println!("{} {}", point.x, point.y); // 10 20
+
+    let rect = Rectangle { width: 30.0, height: 20.0 };
+    println!("{}", rect.width); // 30
+
+    // Destructuring a struct
+    let Rectangle { width, height } = rect;
+    println!("{} {}", width, height); // 30 20
+
+    // Tuple struct access by index
+    let color = Color(255, 128, 0);
+    println!("{} {} {}", color.0, color.1, color.2); // 255 128 0
+
+    // Struct update syntax (like JS spread)
+    let rect2 = Rectangle { width: 50.0, ..rect }; // rect.height is moved
+    println!("{:?}", rect2); // Rectangle { width: 50.0, height: 20.0 }
+
+    // Debug printing with {:?}
+    let p = Point { x: 1.0, y: 2.0 };
+    println!("{:?}", p);  // Point { x: 1.0, y: 2.0 }
+    println!("{:#?}", p); // pretty-printed
+}
+```
+</UniversalEditor>
+
+---
+
+## 2. Methods on Structs
+
+Rust attaches methods to types via `impl` blocks. This is separate from the data definition, unlike JavaScript where methods live inside the class body. Associated functions (no `self`) are like static methods and are typically used for constructors.
+
+<UniversalEditor title="impl Blocks: Methods and Associated Functions" compare={true}>
+```javascript !! js
+class Rectangle {
+    constructor(width, height) {
+        this.width  = width;
+        this.height = height;
+    }
+
+    // Instance method (reads data)
+    area() {
+        return this.width * this.height;
+    }
+
+    // Instance method (modifies data)
+    scale(factor) {
+        this.width  *= factor;
+        this.height *= factor;
+    }
+
+    // Static method (constructor-like)
+    static square(size) {
+        return new Rectangle(size, size);
+    }
+
+    toString() {
+        return `Rectangle(${this.width}x${this.height})`;
+    }
+}
+
+const r = new Rectangle(10, 5);
+console.log(r.area());    // 50
+r.scale(2);
+console.log(r.width);     // 20
+
+const sq = Rectangle.square(8);
+console.log(sq.area());   // 64
+console.log(r.toString()); // "Rectangle(20x10)"
+```
+
+```rust !! rs
+use std::fmt;
+
+#[derive(Debug, Clone)]
+struct Rectangle {
+    width:  f64,
+    height: f64,
+}
+
+// impl block attaches methods to the struct
+impl Rectangle {
+    // Associated function (no self) — acts as a constructor
+    fn new(width: f64, height: f64) -> Rectangle {
+        Rectangle { width, height } // shorthand when field name = variable name
+    }
+
+    // Another constructor: square
+    fn square(size: f64) -> Rectangle {
+        Rectangle { width: size, height: size }
+    }
+
+    // &self method — borrows immutably, does not take ownership
+    fn area(&self) -> f64 {
+        self.width * self.height
+    }
+
+    fn perimeter(&self) -> f64 {
+        2.0 * (self.width + self.height)
+    }
+
+    fn is_square(&self) -> bool {
+        (self.width - self.height).abs() < f64::EPSILON
+    }
+
+    // &mut self method — borrows mutably, can modify fields
+    fn scale(&mut self, factor: f64) {
+        self.width  *= factor;
+        self.height *= factor;
+    }
+}
+
+// Separate impl block for trait implementations (common pattern)
+impl fmt::Display for Rectangle {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Rectangle({}x{})", self.width, self.height)
+    }
+}
+
+fn main() {
+    let mut r = Rectangle::new(10.0, 5.0); // associated function call
+    println!("{}", r.area());       // 50
+    r.scale(2.0);
+    println!("{}", r.width);        // 20
+    println!("{}", r);              // "Rectangle(20x10)"
+
+    let sq = Rectangle::square(8.0);
+    println!("{}", sq.area());      // 64
+    println!("Is square: {}", sq.is_square()); // true
+}
+```
+</UniversalEditor>
+
+---
+
+## 3. Enums as Algebraic Data Types
+
+Rust enums are vastly more powerful than JavaScript/TypeScript enums. Each variant can carry different data, making them **algebraic data types** (also called sum types). They let you model data that is "one of these shapes" in a type-safe way.
+
+<UniversalEditor title="Enums with Data: Algebraic Data Types" compare={true}>
+```javascript !! js
+// TypeScript enum — limited, just named integers or strings
+// enum Direction { North, South, East, West }
+
+// To simulate variants with data, you need a discriminated union:
+// type Shape =
+//   | { kind: "circle",    radius: number }
+//   | { kind: "rectangle", width: number, height: number }
+//   | { kind: "triangle",  base: number, height: number }
+
+// In plain JavaScript — manual pattern:
+function area(shape) {
+    switch (shape.kind) {
+        case "circle":
+            return Math.PI * shape.radius ** 2;
+        case "rectangle":
+            return shape.width * shape.height;
+        case "triangle":
+            return 0.5 * shape.base * shape.height;
+        default:
+            throw new Error(`Unknown shape: ${shape.kind}`);
+    }
+}
+
+const c = { kind: "circle",    radius: 5 };
+const r = { kind: "rectangle", width: 4, height: 3 };
+console.log(area(c)); // 78.54...
+console.log(area(r)); // 12
+
+// Nothing prevents invalid shapes — no compiler check
+const bad = { kind: "hexagon" }; // compiles, fails at runtime
+```
+
+```rust !! rs
+use std::f64::consts::PI;
+
+// Rust enum: variants can hold different data types
+#[derive(Debug)]
+enum Shape {
+    Circle    { radius: f64 },                   // named fields
+    Rectangle { width: f64, height: f64 },       // named fields
+    Triangle  { base: f64, height: f64 },        // named fields
+    Point,                                        // unit variant
+}
+
+impl Shape {
+    fn area(&self) -> f64 {
+        match self {
+            Shape::Circle    { radius }         => PI * radius * radius,
+            Shape::Rectangle { width, height }  => width * height,
+            Shape::Triangle  { base, height }   => 0.5 * base * height,
+            Shape::Point                        => 0.0,
+        }
+        // Exhaustiveness: if we add a new variant, compiler will warn here
+    }
+
+    fn name(&self) -> &str {
+        match self {
+            Shape::Circle    { .. } => "circle",
+            Shape::Rectangle { .. } => "rectangle",
+            Shape::Triangle  { .. } => "triangle",
+            Shape::Point            => "point",
+        }
+    }
+}
+
+fn main() {
+    let shapes = vec![
+        Shape::Circle    { radius: 5.0 },
+        Shape::Rectangle { width: 4.0, height: 3.0 },
+        Shape::Triangle  { base: 6.0, height: 4.0 },
+    ];
+
+    for shape in &shapes {
+        println!("{}: area = {:.2}", shape.name(), shape.area());
+    }
+    // circle: area = 78.54
+    // rectangle: area = 12.00
+    // triangle: area = 12.00
+}
+```
+</UniversalEditor>
+
+---
+
+## 4. Option\<T\> Anatomy
+
+`Option<T>` is simply an enum defined in the standard library. There is no magic — it is just two variants: `Some(T)` for a present value and `None` for absence. This forces you to handle the "no value" case explicitly, unlike JavaScript's `undefined` and `null`.
+
+<UniversalEditor title="Option<T> vs JavaScript null/undefined" compare={true}>
+```javascript !! js
+// JavaScript: null and undefined are implicit everywhere
+function findUser(id) {
+    const db = { 1: "Alice", 2: "Bob" };
+    return db[id]; // returns undefined if not found — silent!
+}
+
+// You might forget to check
+const user = findUser(99);
+console.log(user.length); // TypeError: Cannot read property 'length' of undefined
+
+// With null-safe patterns (optional chaining, nullish coalescing)
+const name = findUser(1) ?? "Unknown";
+const len  = findUser(99)?.length ?? 0;
+console.log(name); // "Alice"
+console.log(len);  // 0
+
+// TypeScript adds Optional but it's not enforced at runtime
+// function findUser(id: number): string | undefined { ... }
+```
+
+```rust !! rs
+// Option<T> is just this enum (already in scope, no import needed):
+// enum Option<T> {
+//     Some(T),
+//     None,
+// }
+
+fn find_user(id: u32) -> Option<String> {
+    match id {
+        1 => Some("Alice".to_string()),
+        2 => Some("Bob".to_string()),
+        _ => None, // must return Option — compiler enforced
+    }
+}
+
+fn main() {
+    // You MUST handle both cases — the compiler won't let you ignore None
+    let user = find_user(1);
+
+    // match is the most explicit approach
+    match user {
+        Some(name) => println!("Found: {}", name),
+        None       => println!("Not found"),
+    }
+
+    // Shorthand methods on Option
+    let name = find_user(1).unwrap_or("Unknown".to_string()); // default if None
+    println!("{}", name); // "Alice"
+
+    let len = find_user(99)
+        .map(|s| s.len())     // transform if Some
+        .unwrap_or(0);        // default if None
+    println!("{}", len); // 0
+
+    // Chaining with and_then (flatMap for Option)
+    fn get_domain(email: &str) -> Option<&str> {
+        email.find('@').map(|pos| &email[pos + 1..])
+    }
+    let domain = find_user(1)
+        .as_deref()                        // Option<String> → Option<&str>
+        .and_then(|name| get_domain(name)) // apply function if Some
+        .unwrap_or("no domain");
+    println!("{}", domain); // "no domain" (Alice has no @)
+
+    // is_some() / is_none()
+    println!("{}", find_user(1).is_some()); // true
+    println!("{}", find_user(9).is_none()); // true
+}
+```
+</UniversalEditor>
+
+---
+
+## 5. Result\<T, E\> Anatomy
+
+`Result<T, E>` is also just an enum with two variants: `Ok(T)` for success and `Err(E)` for failure. It is Rust's primary mechanism for recoverable error handling.
+
+<UniversalEditor title="Result<T, E> for Typed Error Handling" compare={true}>
+```javascript !! js
+// JavaScript: exceptions are untyped and implicit
+function parseAge(input) {
+    const n = parseInt(input);
+    if (isNaN(n)) throw new Error(`"${input}" is not a valid age`);
+    if (n < 0 || n > 150) throw new Error(`Age ${n} is out of range`);
+    return n;
+}
+
+try {
+    console.log(parseAge("25")); // 25
+    console.log(parseAge("abc")); // throws
+} catch (e) {
+    console.log("Error:", e.message);
+}
+
+// Error type is unknown — no compile-time check
+// You can throw anything: throw 42; throw "oops"; throw {};
+```
+
+```rust !! rs
+use std::fmt;
+
+// Define a custom error type
+#[derive(Debug)]
+enum AgeError {
+    NotANumber(String),
+    OutOfRange(i32),
+}
+
+impl fmt::Display for AgeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            AgeError::NotANumber(s)  => write!(f, "\"{}\" is not a valid age", s),
+            AgeError::OutOfRange(n)  => write!(f, "Age {} is out of range", n),
+        }
+    }
+}
+
+fn parse_age(input: &str) -> Result<u32, AgeError> {
+    let n: i32 = input.parse()
+        .map_err(|_| AgeError::NotANumber(input.to_string()))?;
+    if n < 0 || n > 150 {
+        return Err(AgeError::OutOfRange(n));
+    }
+    Ok(n as u32)
+}
+
+fn main() {
+    // Must handle both Ok and Err
+    match parse_age("25") {
+        Ok(age)  => println!("Age: {}", age), // "Age: 25"
+        Err(e)   => println!("Error: {}", e),
+    }
+
+    match parse_age("abc") {
+        Ok(age)  => println!("Age: {}", age),
+        Err(e)   => println!("Error: {}", e), // "Error: "abc" is not a valid age"
+    }
+
+    // Shorthand methods
+    let age = parse_age("30").unwrap_or(0);
+    println!("{}", age); // 30
+
+    let doubled = parse_age("20").map(|a| a * 2).unwrap_or(0);
+    println!("{}", doubled); // 40
+
+    // is_ok() / is_err()
+    println!("{}", parse_age("25").is_ok());   // true
+    println!("{}", parse_age("abc").is_err()); // true
+}
+```
+</UniversalEditor>
+
+---
+
+## 6. Pattern Matching on Structs and Enums
+
+Rust's `match` can destructure structs and enums in a single step. Match guards (`if` conditions inside arms) and `@` bindings (capture and test simultaneously) make patterns expressive.
+
+<UniversalEditor title="Destructuring, Guards, and @ Bindings in match" compare={true}>
+```javascript !! js
+// JavaScript destructuring (assignment, not pattern matching)
+const point = { x: 3, y: -5 };
+const { x, y } = point;
+console.log(x, y); // 3 -5
+
+// Simulating match with if/else chains
+function describePoint(p) {
+    const { x, y } = p;
+    if (x === 0 && y === 0)  return "origin";
+    if (x === 0)             return `on y-axis at y=${y}`;
+    if (y === 0)             return `on x-axis at x=${x}`;
+    if (x > 0 && y > 0)     return "quadrant I";
+    if (x < 0 && y > 0)     return "quadrant II";
+    if (x < 0 && y < 0)     return "quadrant III";
+    return "quadrant IV";
+}
+
+console.log(describePoint({ x: 0, y: 0 }));    // "origin"
+console.log(describePoint({ x: 3, y: -5 }));   // "quadrant IV"
+console.log(describePoint({ x: 0, y: 4 }));    // "on y-axis at y=4"
+```
+
+```rust !! rs
+#[derive(Debug)]
+struct Point { x: i32, y: i32 }
+
+#[derive(Debug)]
+enum Message {
+    Quit,
+    Move { x: i32, y: i32 },
+    Write(String),
+    ChangeColor(u8, u8, u8),
+}
+
+fn describe_point(p: &Point) -> String {
+    // Destructure a struct directly in match
+    match p {
+        Point { x: 0, y: 0 }               => "origin".to_string(),
+        Point { x: 0, y }                  => format!("on y-axis at y={}", y),
+        Point { x, y: 0 }                  => format!("on x-axis at x={}", x),
+        Point { x, y } if *x > 0 && *y > 0 => "quadrant I".to_string(),   // match guard
+        Point { x, y } if *x < 0 && *y > 0 => "quadrant II".to_string(),
+        Point { x, y } if *x < 0 && *y < 0 => "quadrant III".to_string(),
+        _                                   => "quadrant IV".to_string(),
+    }
+}
+
+fn process_message(msg: &Message) {
+    match msg {
+        Message::Quit                     => println!("Quit"),
+        Message::Move { x, y }            => println!("Move to ({}, {})", x, y),
+        Message::Write(text)              => println!("Write: {}", text),
+        Message::ChangeColor(r, g, b)     => println!("Color: rgb({},{},{})", r, g, b),
+    }
+}
+
+fn main() {
+    println!("{}", describe_point(&Point { x: 0, y: 0 }));  // "origin"
+    println!("{}", describe_point(&Point { x: 3, y: -5 })); // "quadrant IV"
+    println!("{}", describe_point(&Point { x: 0, y: 4 }));  // "on y-axis at y=4"
+
+    let msgs = vec![
+        Message::Move { x: 10, y: 20 },
+        Message::Write("hello".to_string()),
+        Message::ChangeColor(255, 0, 128),
+        Message::Quit,
+    ];
+    for msg in &msgs { process_message(msg); }
+
+    // @ bindings: test a value AND bind it to a name
+    let n = 7u32;
+    match n {
+        x @ 1..=5  => println!("{} is between 1 and 5", x),
+        x @ 6..=10 => println!("{} is between 6 and 10", x), // matches!
+        x          => println!("{} is out of range", x),
+    }
+}
+```
+</UniversalEditor>
+
+---
+
+## 7. The #\[derive\] Attribute
+
+`#[derive]` automatically generates trait implementations. JavaScript classes need manual equality checking (`===` only works for references), JSON serialization libraries, and no built-in hashing. Rust's derive macro handles this at compile time with zero runtime cost.
+
+<UniversalEditor title="#[derive] vs Manual JavaScript Implementations" compare={true}>
+```javascript !! js
+// JavaScript: no automatic equality, cloning, or hashing
+class Point {
+    constructor(x, y) {
+        this.x = x;
+        this.y = y;
+    }
+
+    // Must implement manually:
+    equals(other) {
+        return this.x === other.x && this.y === other.y;
+    }
+
+    clone() {
+        return new Point(this.x, this.y);
+    }
+
+    toString() {
+        return `Point { x: ${this.x}, y: ${this.y} }`;
+    }
+    // For hashing / use as Map key: no built-in support
+    // (Map uses reference equality for objects)
+}
+
+const p1 = new Point(1, 2);
+const p2 = new Point(1, 2);
+console.log(p1 === p2);        // false (reference equality)
+console.log(p1.equals(p2));    // true (manual)
+console.log(p1.clone());       // Point { x: 1, y: 2 }
+console.log(p1.toString());    // "Point { x: 1, y: 2 }"
+
+// Cannot use object as Map key by value
+const map = new Map();
+map.set(p1, "first");
+console.log(map.get(p2)); // undefined (p2 !== p1 by reference)
+```
+
+```rust !! rs
+use std::collections::HashMap;
+
+// Derive automatically implements all these traits:
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+// derive(Debug)    → enables {:?} and {:#?} printing
+// derive(Clone)    → enables .clone()
+// derive(PartialEq)→ enables == and != operators
+// derive(Eq)       → total equality (required for Hash)
+// derive(Hash)     → enables use as HashMap/HashSet key
+
+fn main() {
+    let p1 = Point { x: 1, y: 2 };
+    let p2 = Point { x: 1, y: 2 };
+    let p3 = p1.clone();
+
+    println!("{:?}", p1);       // Point { x: 1, y: 2 }  ← Debug
+    println!("{}", p1 == p2);   // true                   ← PartialEq
+    println!("{}", p1 == p3);   // true                   ← Clone + PartialEq
+
+    // Can use as HashMap key because we derived Hash + Eq
+    let mut map: HashMap<Point, &str> = HashMap::new();
+    map.insert(Point { x: 1, y: 2 }, "first");
+    println!("{:?}", map.get(&p2)); // Some("first") — value equality!
+
+    // derive on enums works too
+    #[derive(Debug, Clone, PartialEq)]
+    enum Color { Red, Green, Blue, Custom(u8, u8, u8) }
+
+    let c1 = Color::Custom(255, 0, 128);
+    let c2 = c1.clone();
+    println!("{:?}", c1);       // Custom(255, 0, 128)
+    println!("{}", c1 == c2);   // true
+
+    // PartialOrd and Ord for ordering
+    #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+    struct Version { major: u32, minor: u32, patch: u32 }
+
+    let v1 = Version { major: 1, minor: 2, patch: 3 };
+    let v2 = Version { major: 2, minor: 0, patch: 0 };
+    println!("{}", v1 < v2); // true — lexicographic comparison
+}
+```
+</UniversalEditor>
+
+---
+
+## 8. Summary Table
+
+| Concept | JavaScript | Rust |
+|---|---|---|
+| Data grouping | Object literal `{}` or `class` | `struct` |
+| Methods | Inside `class` body | `impl` block (separate) |
+| Constructor pattern | `constructor()` or factory function | Associated `fn new()` |
+| "Mutating self" | `this.field = ...` | `&mut self` method |
+| Sum types / variants | Discriminated union (manual) | `enum` with per-variant data |
+| Null / absent value | `null` / `undefined` (implicit) | `Option<T>` (explicit enum) |
+| Error type | `Error` class (untyped throw) | `Result<T, E>` (typed enum) |
+| Pattern matching | `switch` + destructuring (manual) | `match` with inline destructuring |
+| Match guard | n/a | `if condition` inside arm |
+| Bind and test | n/a | `x @ pattern` |
+| `==` operator | Reference equality for objects | `PartialEq` derive for value equality |
+| `clone()` | Manual implementation | `#[derive(Clone)]` |
+| Debugging print | `console.log()` / `toString()` | `#[derive(Debug)]` + `{:?}` |
+| Use as Map/Set key | Reference equality only | `#[derive(Hash, Eq)]` |
+
+---
+
+## Exercises
+
+### Exercise 1: Shape Area Enum
+
+Define an enum `Shape` with variants `Circle(f64)`, `Rectangle(f64, f64)`, and `Triangle(f64, f64)`. Implement a method `area(&self) -> f64` on it.
+
+<details>
+<summary>Show Answer</summary>
+
+```rust
+use std::f64::consts::PI;
+
+#[derive(Debug)]
+enum Shape {
+    Circle(f64),
+    Rectangle(f64, f64),
+    Triangle(f64, f64),
+}
+
+impl Shape {
+    fn area(&self) -> f64 {
+        match self {
+            Shape::Circle(r)           => PI * r * r,
+            Shape::Rectangle(w, h)    => w * h,
+            Shape::Triangle(base, h)  => 0.5 * base * h,
+        }
+    }
+}
+
+fn main() {
+    let shapes = vec![
+        Shape::Circle(5.0),
+        Shape::Rectangle(4.0, 6.0),
+        Shape::Triangle(3.0, 8.0),
+    ];
+    for s in &shapes {
+        println!("{:?} → area = {:.2}", s, s.area());
+    }
+}
+```
+
+</details>
+
+### Exercise 2: Point with Methods
+
+Create a `Point { x: f64, y: f64 }` struct. Implement `new`, `distance_from_origin`, and `translate(&mut self, dx, dy)`. Derive `Debug` and `PartialEq`.
+
+<details>
+<summary>Show Answer</summary>
+
+```rust
+#[derive(Debug, PartialEq, Clone)]
+struct Point {
+    x: f64,
+    y: f64,
+}
+
+impl Point {
+    fn new(x: f64, y: f64) -> Self {
+        Point { x, y }
+    }
+
+    fn distance_from_origin(&self) -> f64 {
+        (self.x * self.x + self.y * self.y).sqrt()
+    }
+
+    fn translate(&mut self, dx: f64, dy: f64) {
+        self.x += dx;
+        self.y += dy;
+    }
+}
+
+fn main() {
+    let mut p = Point::new(3.0, 4.0);
+    println!("{:.2}", p.distance_from_origin()); // 5.00
+    p.translate(1.0, -1.0);
+    println!("{:?}", p); // Point { x: 4.0, y: 3.0 }
+    println!("{}", p == Point::new(4.0, 3.0)); // true
+}
+```
+
+</details>
+
+### Exercise 3: Result Chain
+
+Write a function `parse_and_double(input: &str) -> Result<i32, String>` that parses the input as an integer and doubles it, returning a descriptive `Err(String)` if parsing fails.
+
+<details>
+<summary>Show Answer</summary>
+
+```rust
+fn parse_and_double(input: &str) -> Result<i32, String> {
+    input.trim()
+        .parse::<i32>()
+        .map(|n| n * 2)
+        .map_err(|e| format!("Failed to parse \"{}\": {}", input.trim(), e))
+}
+
+fn main() {
+    println!("{:?}", parse_and_double("21"));   // Ok(42)
+    println!("{:?}", parse_and_double(" 10 ")); // Ok(20)
+    println!("{:?}", parse_and_double("abc"));  // Err("Failed to parse...")
+}
+```
+
+</details>

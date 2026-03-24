@@ -1,0 +1,877 @@
+---
+title: "Module 13: Testing and Code Quality"
+description: "Master Swift testing with XCTest, the modern Swift Testing framework, async test support, performance tests, and SwiftLint for code quality — compared to JavaScript's Jest."
+---
+
+# Module 13: Testing and Code Quality
+
+Testing is a first-class citizen in the Swift ecosystem. Swift ships with two testing frameworks: the battle-tested **XCTest** (available since Swift 1.0) and the modern **Swift Testing** framework introduced in Swift 5.9 with an elegant macro-based API. If you're coming from JavaScript's Jest, you'll find familiar concepts and a few powerful new ones.
+
+## Learning Objectives
+
+✅ Write unit tests with XCTest, mirroring Jest's `describe`/`test` structure
+✅ Use XCTAssert functions to validate behaviour (equivalents of Jest's `expect` matchers)
+✅ Apply the modern Swift Testing framework using `@Test`, `#expect`, and `@Suite`
+✅ Write async/await tests in both XCTest and Swift Testing
+✅ Measure performance with `measure {}` blocks — a capability with no Jest equivalent
+✅ Configure SwiftLint for code style enforcement, analogous to ESLint
+
+---
+
+## 1. XCTest Framework
+
+XCTest is Swift's foundational testing framework. Tests are methods on a class that inherits from `XCTestCase`. Think of `XCTestCase` as Jest's `describe`, `setUp` as `beforeEach`, and `tearDown` as `afterEach`.
+
+<UniversalEditor title="Test Structure: Jest vs XCTest" compare={true}>
+```javascript !! js
+// Jest — JavaScript testing framework
+
+import { TaskService } from './taskService.js';
+
+describe('TaskService', () => {
+  let service;
+
+  // Runs before each test
+  beforeEach(() => {
+    service = new TaskService();
+  });
+
+  // Runs after each test
+  afterEach(() => {
+    service.clear();
+  });
+
+  test('creates a task with a title', () => {
+    const task = service.createTask('Buy groceries');
+    expect(task.title).toBe('Buy groceries');
+    expect(task.completed).toBe(false);
+  });
+
+  test('throws when title is empty', () => {
+    expect(() => service.createTask('')).toThrow('Title cannot be empty');
+  });
+
+  // Nested describe
+  describe('completion', () => {
+    test('marks a task as completed', () => {
+      const task = service.createTask('Write tests');
+      service.complete(task.id);
+      expect(service.getTask(task.id).completed).toBe(true);
+    });
+  });
+});
+```
+
+```swift !! swift
+// XCTest — Swift's built-in testing framework
+import XCTest
+@testable import TaskAPI   // @testable gives access to internal declarations
+
+final class TaskServiceTests: XCTestCase {
+    var service: TaskService!
+
+    // Runs before each test method
+    override func setUp() {
+        super.setUp()
+        service = TaskService()
+    }
+
+    // Runs after each test method
+    override func tearDown() {
+        service.clear()
+        super.tearDown()
+    }
+
+    func testCreatesTaskWithTitle() {
+        let task = service.createTask(title: "Buy groceries")
+        XCTAssertEqual(task.title, "Buy groceries")
+        XCTAssertFalse(task.completed)
+    }
+
+    func testThrowsWhenTitleIsEmpty() {
+        XCTAssertThrowsError(try service.createTask(title: "")) { error in
+            XCTAssertEqual(error as? TaskError, TaskError.emptyTitle)
+        }
+    }
+
+    // "Nested" tests: use a separate XCTestCase class or a naming prefix
+    func testCompletion_marksTaskAsCompleted() {
+        let task = service.createTask(title: "Write tests")
+        service.complete(id: task.id)
+        XCTAssertTrue(service.getTask(id: task.id)!.completed)
+    }
+}
+```
+</UniversalEditor>
+
+---
+
+## 2. XCTAssert Functions
+
+XCTest provides a rich set of assertion functions. Compare these to Jest's `expect()` matchers.
+
+<UniversalEditor title="Assertions: Jest expect vs XCTAssert" compare={true}>
+```javascript !! js
+// Jest assertions
+
+// Equality
+expect(result).toBe(42);           // strict equality (===)
+expect(obj).toEqual({ x: 1 });     // deep equality
+
+// Truthiness
+expect(isValid).toBeTruthy();
+expect(value).toBeFalsy();
+expect(pointer).toBeNull();
+expect(name).toBeDefined();
+expect(missing).toBeUndefined();
+
+// Numbers
+expect(price).toBeGreaterThan(0);
+expect(discount).toBeLessThanOrEqual(100);
+expect(pi).toBeCloseTo(3.14159, 5);
+
+// Strings / Arrays
+expect(message).toContain('hello');
+expect(items).toHaveLength(3);
+
+// Errors
+expect(() => risky()).toThrow();
+expect(() => risky()).toThrow(TypeError);
+expect(() => risky()).toThrow('expected message');
+
+// Async
+await expect(fetchUser(1)).resolves.toEqual({ id: 1, name: 'Alice' });
+await expect(fetchUser(-1)).rejects.toThrow('Not found');
+```
+
+```swift !! swift
+// XCTest assertions
+
+// Equality
+XCTAssertEqual(result, 42)
+XCTAssertEqual(obj, expected)  // requires Equatable
+
+// Not equal
+XCTAssertNotEqual(a, b)
+
+// Truthiness
+XCTAssertTrue(isValid)
+XCTAssertFalse(isInvalid)
+XCTAssertNil(optionalValue)
+XCTAssertNotNil(optionalValue)
+
+// Numbers (use XCTAssertEqual with accuracy for floating point)
+XCTAssertGreaterThan(price, 0)
+XCTAssertLessThanOrEqual(discount, 100.0)
+XCTAssertEqual(pi, 3.14159, accuracy: 0.00001)
+
+// Strings / Collections
+XCTAssert(message.contains("hello"))
+XCTAssertEqual(items.count, 3)
+
+// Errors
+XCTAssertThrowsError(try riskyOperation())
+XCTAssertThrowsError(try riskyOperation()) { error in
+    XCTAssertTrue(error is TaskError)
+}
+XCTAssertNoThrow(try safeOperation())
+
+// Custom failure message (all XCTAssert functions accept a trailing message)
+XCTAssertEqual(actual, expected, "Values should match after transformation")
+
+// Unconditional failure
+XCTFail("This code path should not be reached")
+```
+</UniversalEditor>
+
+---
+
+## 3. Swift Testing Framework (Modern, Swift 5.9+)
+
+The Swift Testing framework, introduced in Swift 5.9 and integrated into Xcode 16, brings a more ergonomic, macro-based API. It's analogous to the shift from Jest's older `test()` API to its modern `describe`/`it` style — but even more expressive.
+
+<UniversalEditor title="Modern Swift Testing vs Jest" compare={true}>
+```javascript !! js
+// Jest — modern style with describe/it
+
+import { describe, it, expect, beforeEach } from '@jest/globals';
+import { Calculator } from './calculator.js';
+
+describe('Calculator', () => {
+  let calc;
+
+  beforeEach(() => {
+    calc = new Calculator();
+  });
+
+  it('adds two numbers', () => {
+    expect(calc.add(2, 3)).toBe(5);
+  });
+
+  it('throws on division by zero', () => {
+    expect(() => calc.divide(10, 0)).toThrow('Division by zero');
+  });
+
+  // Parameterized test (Jest's test.each)
+  it.each([
+    [2, 3, 5],
+    [0, 0, 0],
+    [-1, 1, 0],
+  ])('add(%i, %i) = %i', (a, b, expected) => {
+    expect(calc.add(a, b)).toBe(expected);
+  });
+});
+```
+
+```swift !! swift
+// Swift Testing — macro-based, Swift 5.9+
+import Testing
+
+// @Suite groups related tests (like Jest's describe)
+@Suite("Calculator")
+struct CalculatorTests {
+    let calc = Calculator()
+
+    // @Test marks a test function (like Jest's it/test)
+    @Test("adds two numbers")
+    func addsTwoNumbers() {
+        // #expect is the primary assertion macro
+        #expect(calc.add(2, 3) == 5)
+    }
+
+    @Test("throws on division by zero")
+    func throwsOnDivisionByZero() {
+        // #expect(throws:) for error checking
+        #expect(throws: CalculatorError.divisionByZero) {
+            try calc.divide(10, by: 0)
+        }
+    }
+
+    // Parameterized tests with @Test(arguments:)
+    @Test("addition", arguments: [
+        (2, 3, 5),
+        (0, 0, 0),
+        (-1, 1, 0),
+    ])
+    func addition(a: Int, b: Int, expected: Int) {
+        #expect(calc.add(a, b) == expected)
+    }
+}
+
+// Nested suites
+@Suite("Calculator — Edge Cases")
+struct CalculatorEdgeCaseTests {
+    @Test("handles Int.max without overflow")
+    func handlesOverflow() {
+        let result = Calculator().safeAdd(Int.max, 1)
+        #expect(result == nil)  // returns nil on overflow
+    }
+}
+```
+</UniversalEditor>
+
+---
+
+## 4. Async Tests
+
+Both XCTest and Swift Testing support `async/await` natively. Compare to Jest's async test patterns.
+
+<UniversalEditor title="Async Tests: Jest vs Swift" compare={true}>
+```javascript !! js
+// Jest — async tests
+
+import { UserAPI } from './userApi.js';
+
+describe('UserAPI', () => {
+  // async/await style
+  test('fetches a user by ID', async () => {
+    const user = await UserAPI.fetchUser(1);
+    expect(user.id).toBe(1);
+    expect(user.name).toBeDefined();
+  });
+
+  // Promise style
+  test('rejects with 404 for missing user', () => {
+    return expect(UserAPI.fetchUser(999)).rejects.toMatchObject({
+      status: 404,
+    });
+  });
+
+  // Mocking async functions
+  test('uses mock data', async () => {
+    jest.spyOn(UserAPI, 'fetchUser').mockResolvedValue({ id: 1, name: 'Mock' });
+    const user = await UserAPI.fetchUser(1);
+    expect(user.name).toBe('Mock');
+  });
+
+  // Testing with fake timers
+  test('times out after 5 seconds', async () => {
+    jest.useFakeTimers();
+    const promise = UserAPI.fetchWithTimeout(5000);
+    jest.advanceTimersByTime(5001);
+    await expect(promise).rejects.toThrow('Timeout');
+  });
+});
+```
+
+```swift !! swift
+// XCTest — async/await tests (Swift 5.5+)
+import XCTest
+@testable import TaskAPI
+
+final class UserAPITests: XCTestCase {
+    // Mark test as async — XCTest handles the event loop
+    func testFetchesUserByID() async throws {
+        let user = try await UserAPI.fetchUser(id: 1)
+        XCTAssertEqual(user.id, 1)
+        XCTAssertFalse(user.name.isEmpty)
+    }
+
+    func testThrowsForMissingUser() async {
+        do {
+            _ = try await UserAPI.fetchUser(id: 999)
+            XCTFail("Expected error to be thrown")
+        } catch let error as APIError {
+            XCTAssertEqual(error, .notFound(id: 999))
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+}
+
+// Swift Testing — async tests are just as natural
+import Testing
+
+@Suite("UserAPI")
+struct UserAPITestsSuite {
+    @Test("fetches a user by ID")
+    func fetchesUserByID() async throws {
+        let user = try await UserAPI.fetchUser(id: 1)
+        #expect(user.id == 1)
+        #expect(!user.name.isEmpty)
+    }
+
+    @Test("throws .notFound for missing user")
+    func throwsForMissingUser() async {
+        await #expect(throws: APIError.notFound(id: 999)) {
+            try await UserAPI.fetchUser(id: 999)
+        }
+    }
+}
+```
+</UniversalEditor>
+
+---
+
+## 5. Performance Testing
+
+XCTest includes built-in performance measurement with `measure {}` blocks. There is no direct equivalent in Jest; you'd need a separate benchmarking library like `benchmark.js`.
+
+<UniversalEditor title="Performance Tests: Jest vs XCTest" compare={true}>
+```javascript !! js
+// JavaScript — no built-in performance testing in Jest
+// You'd typically use benchmark.js or similar
+
+// Jest doesn't have native perf tests, but you can approximate:
+test('sort is fast enough', () => {
+  const arr = Array.from({ length: 10000 }, () => Math.random());
+
+  const start = performance.now();
+  arr.sort((a, b) => a - b);
+  const end = performance.now();
+
+  // This is fragile — depends on machine speed
+  expect(end - start).toBeLessThan(100); // ms
+});
+
+// With benchmark.js (separate library):
+// import Benchmark from 'benchmark';
+// const suite = new Benchmark.Suite();
+// suite.add('Array#sort', () => arr.sort())
+//      .on('complete', (event) => console.log(event.target.toString()))
+//      .run();
+```
+
+```swift !! swift
+// XCTest — built-in performance measurement
+import XCTest
+@testable import TaskAPI
+
+final class PerformanceTests: XCTestCase {
+    func testSortPerformance() {
+        let numbers = (0..<10_000).map { _ in Int.random(in: 0..<100_000) }
+
+        // measure runs the block 10 times and reports average + std deviation
+        measure {
+            _ = numbers.sorted()
+        }
+        // XCTest automatically establishes a baseline and alerts you
+        // if performance degrades by more than 10% (configurable).
+    }
+
+    func testJSONDecodingPerformance() throws {
+        let jsonData = try loadTestFixture("large_response.json")
+
+        // measureWithOptions for fine-grained control
+        let options = XCTMeasureOptions()
+        options.iterationCount = 20
+
+        measure(options: options) {
+            _ = try? JSONDecoder().decode([TaskDTO].self, from: jsonData)
+        }
+    }
+
+    // Async performance test (Swift 5.9+)
+    func testFetchPerformance() async {
+        let api = UserAPI()
+        measure {
+            let expectation = expectation(description: "fetch")
+            Task {
+                _ = try? await api.fetchUser(id: 1)
+                expectation.fulfill()
+            }
+            wait(for: [expectation], timeout: 5)
+        }
+    }
+}
+```
+</UniversalEditor>
+
+---
+
+## 6. Test Organisation in Package.swift
+
+In JavaScript/Jest, test files live alongside source files (or in a `__tests__` folder) and Jest discovers them automatically. In SPM, test targets are explicitly declared in `Package.swift`.
+
+<UniversalEditor title="Test File Organisation" compare={true}>
+```javascript !! js
+// JavaScript: Jest discovers test files automatically
+// jest.config.js
+export default {
+  testMatch: [
+    '**/__tests__/**/*.js',
+    '**/*.test.js',
+    '**/*.spec.js',
+  ],
+  // Setup files run before every test suite
+  setupFilesAfterFramework: ['./tests/setup.js'],
+  // Coverage
+  collectCoverageFrom: ['src/**/*.js'],
+};
+
+// Project layout:
+// src/
+//   task.js
+//   taskService.js
+// __tests__/
+//   task.test.js
+//   taskService.test.js
+// tests/
+//   setup.js
+
+// Run all tests:     npx jest
+// Run one file:      npx jest taskService
+// With coverage:     npx jest --coverage
+// Watch mode:        npx jest --watch
+```
+
+```swift !! swift
+// Swift: test targets declared explicitly in Package.swift
+// swift-tools-version: 5.9
+import PackageDescription
+
+let package = Package(
+    name: "TaskAPI",
+    targets: [
+        .executableTarget(
+            name: "TaskAPI",
+            path: "Sources/TaskAPI"
+        ),
+        // XCTest target
+        .testTarget(
+            name: "TaskAPITests",
+            dependencies: ["TaskAPI"],
+            path: "Tests/TaskAPITests",
+            // Swift Testing is auto-detected; no extra config needed
+            swiftSettings: [
+                .enableExperimentalFeature("Testing")  // if needed
+            ]
+        ),
+    ]
+)
+
+// Project layout:
+// Sources/
+//   TaskAPI/
+//     Task.swift
+//     TaskService.swift
+// Tests/
+//   TaskAPITests/
+//     TaskTests.swift         (XCTest or Swift Testing)
+//     TaskServiceTests.swift
+
+// Run all tests:           swift test
+// Run one test class:      swift test --filter TaskServiceTests
+// With verbose output:     swift test --verbose
+// Generate code coverage:  swift test --enable-code-coverage
+```
+</UniversalEditor>
+
+---
+
+## 7. SwiftLint
+
+SwiftLint is the de facto linting tool for Swift, equivalent to ESLint for JavaScript. It enforces style rules and catches common mistakes.
+
+<UniversalEditor title="Linter Config: ESLint vs SwiftLint" compare={true}>
+```javascript !! js
+// .eslintrc.json — ESLint configuration
+{
+  "env": {
+    "es2022": true,
+    "node": true
+  },
+  "extends": ["eslint:recommended", "plugin:@typescript-eslint/recommended"],
+  "parser": "@typescript-eslint/parser",
+  "rules": {
+    "no-unused-vars": "error",
+    "no-console": "warn",
+    "prefer-const": "error",
+    "eqeqeq": ["error", "always"],
+    "semi": ["error", "always"],
+    "indent": ["error", 2],
+    "max-len": ["warn", { "code": 120 }]
+  },
+  "ignorePatterns": ["dist/", "node_modules/"]
+}
+
+// Run:       npx eslint src/
+// Fix:       npx eslint src/ --fix
+// CI check:  npx eslint src/ --max-warnings 0
+```
+
+```swift !! swift
+// .swiftlint.yml — SwiftLint configuration
+# Install: brew install swiftlint  OR  add as SPM plugin
+
+disabled_rules:
+  - trailing_whitespace   # handled by editor
+
+opt_in_rules:
+  - array_init
+  - closure_spacing
+  - contains_over_first_not_nil
+  - empty_count
+  - explicit_init
+  - force_unwrapping        # warn about ! unwraps
+  - implicitly_unwrapped_optional
+  - prefer_self_type_over_type_of_self
+  - sorted_imports
+  - unneeded_parentheses_in_closure_argument
+
+# Configure built-in rules
+line_length:
+  warning: 120
+  error: 200
+
+type_body_length:
+  warning: 300
+  error: 400
+
+function_body_length:
+  warning: 50
+  error: 100
+
+identifier_name:
+  min_length: 2
+  excluded: [id, x, y, i, j]
+
+# Paths to include/exclude
+included:
+  - Sources
+  - Tests
+excluded:
+  - .build
+  - Package.swift
+
+# Custom rules
+custom_rules:
+  no_print_in_release:
+    name: "No print in production code"
+    regex: "^\\s*print\\("
+    included: "Sources/(?!.*Tests).*\\.swift"
+    message: "Use a logger instead of print() in production code"
+    severity: warning
+
+# Run:     swiftlint lint
+# Fix:     swiftlint --fix
+# Analyze: swiftlint analyze
+```
+</UniversalEditor>
+
+Adding SwiftLint as an SPM build tool plugin keeps it reproducible across the team:
+
+<UniversalEditor title="SwiftLint as SPM Plugin" compare={true}>
+```javascript !! js
+// JavaScript: ESLint runs as an npm script
+// package.json
+{
+  "scripts": {
+    "lint": "eslint src/ --ext .js,.ts",
+    "lint:fix": "eslint src/ --ext .js,.ts --fix",
+    "precommit": "lint-staged"
+  },
+  "devDependencies": {
+    "eslint": "^8.0.0",
+    "lint-staged": "^14.0.0"
+  },
+  "lint-staged": {
+    "*.{js,ts}": "eslint --fix"
+  }
+}
+// Integrates with husky pre-commit hooks
+```
+
+```swift !! swift
+// Swift: SwiftLint as an SPM build plugin (runs during swift build)
+// Package.swift
+// swift-tools-version: 5.9
+import PackageDescription
+
+let package = Package(
+    name: "TaskAPI",
+    dependencies: [
+        .package(
+            url: "https://github.com/realm/SwiftLint.git",
+            from: "0.55.0"
+        ),
+    ],
+    targets: [
+        .executableTarget(
+            name: "TaskAPI",
+            path: "Sources/TaskAPI",
+            plugins: [
+                // SwiftLint runs automatically during compilation
+                .plugin(name: "SwiftLintBuildToolPlugin", package: "SwiftLint")
+            ]
+        ),
+    ]
+)
+
+// Now `swift build` will automatically lint your code.
+// Violations appear as Xcode warnings/errors.
+// Run manually: swift package plugin --allow-writing-to-package-directory swiftlint
+```
+</UniversalEditor>
+
+---
+
+## 8. Test Doubles: Mocking in Swift vs Jest
+
+<UniversalEditor title="Test Doubles and Mocking" compare={true}>
+```javascript !! js
+// Jest — powerful built-in mocking
+
+// Auto-mock a module
+jest.mock('./emailService.js');
+
+import { EmailService } from './emailService.js';
+import { UserService } from './userService.js';
+
+test('sends welcome email on registration', async () => {
+  // Mock implementation
+  EmailService.send.mockResolvedValue({ success: true });
+
+  const service = new UserService(EmailService);
+  await service.register({ name: 'Alice', email: 'alice@example.com' });
+
+  expect(EmailService.send).toHaveBeenCalledTimes(1);
+  expect(EmailService.send).toHaveBeenCalledWith({
+    to: 'alice@example.com',
+    subject: 'Welcome!',
+  });
+});
+
+// Spy on existing function
+const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+// After test:
+consoleSpy.mockRestore();
+```
+
+```swift !! swift
+// Swift — mocking via protocols (no magic reflection-based mocking)
+// Define a protocol that the real service conforms to:
+protocol EmailServiceProtocol {
+    func send(to: String, subject: String) async throws
+}
+
+// Production implementation
+struct EmailService: EmailServiceProtocol {
+    func send(to: String, subject: String) async throws {
+        // Real implementation: calls an SMTP server
+    }
+}
+
+// Mock implementation for tests
+final class MockEmailService: EmailServiceProtocol {
+    var sentMessages: [(to: String, subject: String)] = []
+    var shouldThrow = false
+
+    func send(to: String, subject: String) async throws {
+        if shouldThrow { throw EmailError.networkFailure }
+        sentMessages.append((to: to, subject: subject))
+    }
+}
+
+// Test using the mock
+import XCTest
+@testable import TaskAPI
+
+final class UserServiceTests: XCTestCase {
+    func testSendsWelcomeEmailOnRegistration() async throws {
+        let mockEmail = MockEmailService()
+        let service = UserService(emailService: mockEmail)
+
+        try await service.register(name: "Alice", email: "alice@example.com")
+
+        XCTAssertEqual(mockEmail.sentMessages.count, 1)
+        XCTAssertEqual(mockEmail.sentMessages[0].to, "alice@example.com")
+        XCTAssertEqual(mockEmail.sentMessages[0].subject, "Welcome!")
+    }
+}
+```
+</UniversalEditor>
+
+---
+
+## Summary Table
+
+| Concept | JavaScript / Jest | Swift |
+|---|---|---|
+| Test framework | Jest | XCTest (built-in), Swift Testing (5.9+) |
+| Test class | `describe()` callback | `XCTestCase` subclass / `@Suite` struct |
+| Individual test | `test()` / `it()` | `func testXxx()` / `@Test` |
+| Setup / teardown | `beforeEach` / `afterEach` | `setUp()` / `tearDown()` |
+| Assertion style | `expect(x).toBe(y)` | `XCTAssertEqual(x, y)` / `#expect(x == y)` |
+| Async tests | `async/await` + `done` | `async throws` test functions |
+| Parameterised tests | `test.each(table)` | `@Test(arguments:)` |
+| Performance tests | Third-party (benchmark.js) | `measure {}` built into XCTest |
+| Mocking | `jest.mock()`, `jest.spyOn()` | Protocol-based manual mocks |
+| Code coverage | `jest --coverage` | `swift test --enable-code-coverage` |
+| Linter | ESLint + `.eslintrc` | SwiftLint + `.swiftlint.yml` |
+| Linter auto-fix | `eslint --fix` | `swiftlint --fix` |
+
+---
+
+## Exercises
+
+**Exercise 1:** Rewrite the following Jest test using the modern **Swift Testing** framework (`@Suite`, `@Test`, `#expect`).
+
+```javascript
+describe('StringUtils', () => {
+  test('reverses a string', () => {
+    expect(reverse('hello')).toBe('olleh');
+  });
+  test('returns empty string for empty input', () => {
+    expect(reverse('')).toBe('');
+  });
+});
+```
+
+<details>
+<summary>Show Answer</summary>
+
+```swift
+import Testing
+
+// Assuming StringUtils module has:
+// public func reverse(_ string: String) -> String
+
+@Suite("StringUtils")
+struct StringUtilsTests {
+    @Test("reverses a string")
+    func reversesAString() {
+        #expect(reverse("hello") == "olleh")
+    }
+
+    @Test("returns empty string for empty input")
+    func returnsEmptyForEmptyInput() {
+        #expect(reverse("") == "")
+    }
+}
+```
+</details>
+
+---
+
+**Exercise 2:** Write an XCTest performance test that measures the time to encode 1,000 `Task` objects to JSON using `JSONEncoder`. The `Task` struct should conform to `Codable`.
+
+<details>
+<summary>Show Answer</summary>
+
+```swift
+import XCTest
+@testable import TaskAPI
+
+struct Task: Codable {
+    let id: UUID
+    let title: String
+    let completed: Bool
+    let createdAt: Date
+}
+
+final class JSONPerformanceTests: XCTestCase {
+    func testJSONEncodingPerformance() {
+        // Generate 1000 tasks outside the measurement block
+        let tasks = (0..<1_000).map { i in
+            Task(
+                id: UUID(),
+                title: "Task \(i)",
+                completed: i.isMultiple(of: 2),
+                createdAt: Date()
+            )
+        }
+        let encoder = JSONEncoder()
+
+        measure {
+            // Only the encoding is timed
+            _ = try? encoder.encode(tasks)
+        }
+    }
+}
+```
+</details>
+
+---
+
+**Exercise 3:** Add a `.swiftlint.yml` rule that warns when a function has more than 3 parameters (using the `function_parameter_count` built-in rule, with `warning: 3` and `error: 6`). Also add a custom rule that flags any use of `TODO:` comments in `Sources/` files.
+
+<details>
+<summary>Show Answer</summary>
+
+```yaml
+# .swiftlint.yml
+
+opt_in_rules:
+  - function_parameter_count
+
+function_parameter_count:
+  warning: 3
+  error: 6
+  ignores_default_parameters: true
+
+included:
+  - Sources
+  - Tests
+excluded:
+  - .build
+
+custom_rules:
+  no_todo_comments:
+    name: "No TODO comments in source"
+    regex: "//\\s*TODO:"
+    included: "Sources/(?!.*Tests).*\\.swift"
+    message: "Resolve TODO before merging. Use a GitHub issue for tracking."
+    severity: warning
+```
+</details>
