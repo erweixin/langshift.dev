@@ -1,0 +1,974 @@
+---
+title: "Python 模塊系統與項目組織"
+description: "從 JavaScript 開發者視角學習 Python 的模塊系統、包管理和項目組織最佳實踐"
+---
+
+## 1. 引言
+
+### 為什麼需要模塊系統？
+
+在前端開發中，我們已經習慣了使用 ES6 模塊或 CommonJS 來組織代碼。Python 也有自己的模塊系統，雖然語法不同，但核心概念是相似的。
+
+**模塊化的核心價值**
+- 代碼複用：避免重複編寫相同的功能
+- 命名空間隔離：避免變量名衝突
+- 項目組織：將相關功能組織在一起
+- 依賴管理：明確項目依賴關係
+
+> 💡 **學習策略**：將 Python 的模塊系統理解為 JavaScript 模塊系統的"方言版本"
+
+## 2. Python 模塊系統基礎
+
+### 2.1 什麼是模塊？
+
+在 Python 中，任何 `.py` 文件都可以作為一個模塊。這類似於 JavaScript 中的單個 `.js` 文件。
+
+<PythonEditor title="創建和使用模塊" compare={true} canRun={false}>
+```javascript !! js
+// math_utils.js - JavaScript 模塊
+export function add(a, b) {
+    return a + b;
+}
+
+export function multiply(a, b) {
+    return a * b;
+}
+
+export const PI = 3.14159;
+
+// 默認導出
+export default function calculator() {
+    console.log("計算器已初始化");
+}
+```
+
+```python !! py
+# math_utils.py - Python 模塊
+def add(a, b):
+    """加法函數"""
+    return a + b
+
+def multiply(a, b):
+    """乘法函數"""
+    return a * b
+
+# 模塊級變量（類似 JavaScript 的常量）
+PI = 3.14159
+
+# Python 沒有默認導出的概念，但可以定義 __all__ 來控制 from module import * 的行為
+__all__ = ['add', 'multiply', 'PI']
+```
+</PythonEditor>
+
+擴展閱讀：[__all__](https://docs.python.org/3/tutorial/modules.html#importing-from-a-package)
+
+### 2.2 導入模塊的方式
+
+Python 提供了多種導入模塊的方式，每種都有其適用場景。
+
+<PythonEditor title="模塊導入方式對比" compare={true} canRun={false}>
+```javascript !! js
+// JavaScript 導入方式
+
+// 1. 命名導入
+import { add, multiply } from './math_utils.js';
+
+// 2. 默認導入
+import calculator from './math_utils.js';
+
+// 3. 命名空間導入
+import * as MathUtils from './math_utils.js';
+
+// 4. 重命名導入
+import { add as addFunction } from './math_utils.js';
+
+// 5. 混合導入
+import calculator, { add, multiply } from './math_utils.js';
+
+console.log(add(5, 3));        // 8
+console.log(multiply(4, 2));   // 8
+console.log(MathUtils.PI);     // 3.14159
+```
+
+```python !! py
+# Python 導入方式
+
+# 1. 導入整個模塊
+import math_utils
+
+# 2. 從模塊導入特定函數/變量
+from math_utils import add, multiply, PI
+
+# 3. 導入所有內容（不推薦）
+from math_utils import *
+
+# 4. 重命名導入
+from math_utils import add as add_function
+
+# 5. 重命名模塊
+import math_utils as math
+
+# 6. 從模塊導入並重命名
+from math_utils import add as add_func, multiply as mul
+
+print(add(5, 3))           // 8
+print(multiply(4, 2))      // 8
+print(PI)                  // 3.14159
+print(math_utils.add(10, 5))  // 15
+```
+</PythonEditor>
+
+**導入方式對比表**
+
+| 功能 | JavaScript | Python | 說明 |
+|------|------------|--------|------|
+| **導入整個模塊** | `import * as Module` | `import module` | Python 更簡潔 |
+| **命名導入** | `import { func }` | `from module import func` | 語法不同但概念相同 |
+| **重命名** | `import { func as newName }` | `from module import func as newName` | 兩者都支持 |
+| **默認導入** | `import defaultFunc` | 無對應概念 | Python 沒有默認導出 |
+| **命名空間導入** | `import * as Namespace` | `import module as namespace` | 概念相同 |
+
+### 2.3 模塊的特殊變量
+
+Python 模塊有一些特殊的變量，類似於 JavaScript 中的一些全局變量。
+
+<PythonEditor title="模塊特殊變量" compare={true} canRun={false}>
+```javascript !! js
+// JavaScript 模塊特殊變量
+
+// __filename - 當前文件路徑
+console.log(__filename);
+
+// __dirname - 當前目錄路徑
+console.log(__dirname);
+
+// module.exports - 導出對象
+console.log(module.exports);
+
+// require.main - 判斷是否為直接運行的文件
+if (require.main === module) {
+    console.log("這個文件被直接運行");
+} else {
+    console.log("這個文件被作為模塊導入");
+}
+```
+
+```python !! py
+# Python 模塊特殊變量
+
+# __file__ - 當前文件路徑
+print(__file__)
+
+# __name__ - 模塊名稱
+print(__name__)
+
+# __doc__ - 模塊文檔字符串
+print(__doc__)
+
+# __all__ - 控制 from module import * 的行為
+print(__all__)
+
+# 判斷是否為直接運行的文件
+if __name__ == "__main__":
+    print("這個文件被直接運行")
+else:
+    print("這個文件被作為模塊導入")
+```
+</PythonEditor>
+
+
+### 2.4 運行模塊：腳本 vs 模塊
+
+這是 Python 初學者最容易困惑的地方之一：如何正確運行一個 Python 文件？
+
+**直接運行 vs 模塊運行**
+
+| 運行方式 | 命令 | `sys.path` (搜索路徑) | `__name__` | 適用場景 |
+|----------|------|-----------------------|------------|----------|
+| **腳本運行** | `python file.py` | 包含 `file.py` 所在的目錄 | `"__main__"` | 簡單的單文件腳本 |
+| **模塊運行** | `python -m package.module` | 包含**當前工作目錄** | `"__main__"` | 項目中的模塊，需要引用同級或上級包時 |
+
+**常見錯誤示例**
+
+假設目錄結構如下：
+```
+project/
+├── main.py
+└── utils.py
+```
+
+如果在 `main.py` 中有 `from . import utils` (相對導入)：
+- 運行 `python project/main.py` 會**報錯**：`ImportError: attempted relative import with no known parent package`。
+- 運行 `python -m project.main` (在 `project` 的上一級目錄) 會**成功**。
+
+> 💡 **最佳實踐**：在開發項目時，習慣在項目根目錄使用 `python -m package.module` 的方式運行代碼，這樣可以確保 `sys.path` 正確，且相對導入能正常工作。
+
+## 3. 包（Package）系統
+
+
+### 3.1 什麼是包？
+
+包是包含多個模塊的目錄，類似於 JavaScript 中的 npm 包或目錄結構。
+
+<PythonEditor title="包結構示例" compare={true} canRun={false}>
+```javascript !! js
+// JavaScript 包結構示例
+// my-package/
+// ├── package.json
+// ├── index.js
+// ├── utils/
+// │   ├── math.js
+// │   └── string.js
+// └── tests/
+//     └── test.js
+
+// index.js - 主入口文件
+export { add, multiply } from './utils/math.js';
+export { capitalize, reverse } from './utils/string.js';
+
+// utils/math.js
+export function add(a, b) {
+    return a + b;
+}
+
+export function multiply(a, b) {
+    return a * b;
+}
+
+// utils/string.js
+export function capitalize(str) {
+    return str.charAt(0).toUpperCase() + str.slice(1);
+}
+
+export function reverse(str) {
+    return str.split('').reverse().join('');
+}
+```
+
+```python !! py
+# Python 包結構示例
+# my_package/
+# ├── __init__.py          # 包初始化文件
+# ├── math_utils.py        # 數學工具模塊
+# ├── string_utils.py      # 字符串工具模塊
+# └── tests/
+#     ├── __init__.py
+#     └── test_math.py
+
+# __init__.py - 包初始化文件
+from .math_utils import add, multiply
+from .string_utils import capitalize, reverse
+
+__all__ = ['add', 'multiply', 'capitalize', 'reverse']
+
+# math_utils.py
+def add(a, b):
+    """加法函數"""
+    return a + b
+
+def multiply(a, b):
+    """乘法函數"""
+    return a * b
+
+# string_utils.py
+def capitalize(text):
+    """首字母大寫"""
+    return text.capitalize()
+
+def reverse(text):
+    """字符串反轉"""
+    return text[::-1]
+```
+</PythonEditor>
+
+### 3.2 包的導入和使用
+
+<PythonEditor title="包的導入和使用" compare={true} canRun={false}>
+```javascript !! js
+// JavaScript 包的使用
+
+// 1. 從包導入特定函數
+import { add, multiply } from 'my-package';
+
+// 2. 導入整個包
+import * as MyPackage from 'my-package';
+
+// 3. 從子模塊導入
+import { capitalize } from 'my-package/utils/string';
+
+console.log(add(5, 3));           // 8
+console.log(MyPackage.multiply(4, 2));  // 8
+console.log(capitalize("hello")); // "Hello"
+```
+
+```python !! py
+# Python 包的使用
+
+# 1. 從包導入特定函數
+from my_package import add, multiply
+
+# 2. 導入整個包
+import my_package
+
+# 3. 從子模塊導入
+from my_package.string_utils import capitalize
+
+print(add(5, 3))                    // 8
+print(my_package.multiply(4, 2))    // 8
+print(capitalize("hello"))          // "Hello"
+```
+</PythonEditor>
+
+## 4. 項目組織最佳實踐
+
+### 4.1 項目目錄結構
+
+一個良好的項目結構對於代碼維護和團隊協作至關重要。
+
+<PythonEditor title="項目目錄結構對比" compare={true} canRun={false} height={800}>
+```javascript !! js
+// JavaScript 項目結構
+// my-project/
+// ├── package.json
+// ├── README.md
+// ├── .gitignore
+// ├── src/
+// │   ├── index.js
+// │   ├── utils/
+// │   │   ├── math.js
+// │   │   └── string.js
+// │   ├── components/
+// │   │   └── Calculator.js
+// │   └── services/
+// │       └── api.js
+// ├── tests/
+// │   ├── math.test.js
+// │   └── string.test.js
+// ├── docs/
+// │   └── API.md
+// └── dist/
+//     └── bundle.js
+
+// src/index.js
+import { Calculator } from './components/Calculator.js';
+import { add, multiply } from './utils/math.js';
+
+export { Calculator, add, multiply };
+```
+
+```python !! py
+# Python 項目結構
+# my_project/
+# ├── setup.py              # 包安裝配置
+# ├── requirements.txt      # 依賴管理
+# ├── README.md
+# ├── .gitignore
+# ├── my_project/
+# │   ├── __init__.py
+# │   ├── main.py
+# │   ├── utils/
+# │   │   ├── __init__.py
+# │   │   ├── math_utils.py
+# │   │   └── string_utils.py
+# │   ├── components/
+# │   │   ├── __init__.py
+# │   │   └── calculator.py
+# │   └── services/
+# │       ├── __init__.py
+# │       └── api.py
+# ├── tests/
+# │   ├── __init__.py
+# │   ├── test_math.py
+# │   └── test_string.py
+# ├── docs/
+# │   └── api.md
+# └── build/
+#     └── dist/
+
+# my_project/__init__.py
+from .main import main
+from .components.calculator import Calculator
+from .utils.math_utils import add, multiply
+
+__all__ = ['main', 'Calculator', 'add', 'multiply']
+```
+</PythonEditor>
+
+### 4.2 依賴管理對比
+
+```json
+// package.json (JavaScript)
+{
+  "name": "my-project",
+  "version": "1.0.0",
+  "description": "A sample project",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "jest",
+    "build": "webpack",
+    "dev": "nodemon src/index.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "axios": "^1.6.0",
+    "lodash": "^4.17.21"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "eslint": "^8.55.0",
+    "webpack": "^5.89.0"
+  },
+  "keywords": ["javascript", "nodejs"],
+  "author": "Your Name",
+  "license": "MIT"
+}
+```
+
+```python
+# setup.py (Python)
+from setuptools import setup, find_packages
+
+setup(
+    name="my-project",
+    version="1.0.0",
+    description="A sample Python project",
+    author="Your Name",
+    author_email="your.email@example.com",
+    packages=find_packages(),
+    install_requires=[
+        "flask>=2.3.0",
+        "requests>=2.31.0",
+        "pandas>=2.1.0",
+    ],
+    extras_require={
+        "dev": [
+            "pytest>=7.4.0",
+            "black>=23.0.0",
+            "flake8>=6.0.0",
+        ],
+    },
+    python_requires=">=3.8",
+    classifiers=[
+        "Development Status :: 4 - Beta",
+        "Intended Audience :: Developers",
+        "License :: OSI Approved :: MIT License",
+        "Programming Language :: Python :: 3",
+        "Programming Language :: Python :: 3.8",
+        "Programming Language :: Python :: 3.9",
+        "Programming Language :: Python :: 3.10",
+    ],
+)
+
+# requirements.txt
+flask>=2.3.0
+requests>=2.31.0
+pandas>=2.1.0
+
+# requirements-dev.txt
+-r requirements.txt
+pytest>=7.4.0
+black>=23.0.0
+flake8>=6.0.0
+```
+
+## 5. 實際項目示例
+
+### 5.1 創建一個簡單的計算器包
+
+讓我們創建一個完整的計算器包，展示模塊系統的實際應用。
+
+<PythonEditor title="計算器包示例" compare={true}>
+```javascript !! js
+// calculator.js - JavaScript 版本
+class Calculator {
+    constructor() {
+        this.history = [];
+    }
+    
+    add(a, b) {
+        const result = a + b;
+        this.history.push(`${a} + ${b} = ${result}`);
+        return result;
+    }
+    
+    subtract(a, b) {
+        const result = a - b;
+        this.history.push(`${a} - ${b} = ${result}`);
+        return result;
+    }
+    
+    multiply(a, b) {
+        const result = a * b;
+        this.history.push(`${a} * ${b} = ${result}`);
+        return result;
+    }
+    
+    divide(a, b) {
+        if (b === 0) {
+            throw new Error("除數不能為零");
+        }
+        const result = a / b;
+        this.history.push(`${a} / ${b} = ${result}`);
+        return result;
+    }
+    
+    getHistory() {
+        return this.history;
+    }
+    
+    clearHistory() {
+        this.history = [];
+    }
+}
+
+// 工具函數
+function validateNumber(num) {
+    return typeof num === 'number' && !isNaN(num);
+}
+
+function formatResult(result) {
+    return `結果: ${result}`;
+}
+
+const calc = new Calculator()
+console.log(calc.add(10, 5))
+console.log(calc.multiply(4, 3))
+console.log("計算歷史:", calc.getHistory())
+```
+
+```python !! py
+# calculator.py - Python 版本
+class Calculator:
+    """計算器類，支持基本運算和歷史記錄"""
+    
+    def __init__(self):
+        self.history = []
+    
+    def add(self, a, b):
+        """加法運算"""
+        result = a + b
+        self.history.append(f"{a} + {b} = {result}")
+        return result
+    
+    def subtract(self, a, b):
+        """減法運算"""
+        result = a - b
+        self.history.append(f"{a} - {b} = {result}")
+        return result
+    
+    def multiply(self, a, b):
+        """乘法運算"""
+        result = a * b
+        self.history.append(f"{a} * {b} = {result}")
+        return result
+    
+    def divide(self, a, b):
+        """除法運算"""
+        if b == 0:
+            raise ValueError("除數不能為零")
+        result = a / b
+        self.history.append(f"{a} / {b} = {result}")
+        return result
+    
+    def get_history(self):
+        """獲取計算歷史"""
+        return self.history
+    
+    def clear_history(self):
+        """清空計算歷史"""
+        self.history = []
+
+# 工具函數
+def validate_number(num):
+    """驗證數字"""
+    return isinstance(num, (int, float)) and not isinstance(num, bool)
+
+def format_result(result):
+    """格式化結果"""
+    return f"結果: {result}"
+
+# 如果直接運行此文件
+if __name__ == "__main__":
+    calc = Calculator()
+    print(calc.add(10, 5))
+    print(calc.multiply(4, 3))
+    print("計算歷史:", calc.get_history())
+```
+</PythonEditor>
+
+### 5.2 使用計算器包
+
+<PythonEditor title="使用計算器包" compare={true} canRun={false} height={700}>
+```javascript !! js
+// main.js - 使用計算器
+import Calculator, { validateNumber, formatResult } from './calculator.js';
+
+// 創建計算器實例
+const calc = new Calculator();
+
+// 基本運算
+console.log(formatResult(calc.add(10, 5)));      // 結果: 15
+console.log(formatResult(calc.subtract(10, 3))); // 結果: 7
+console.log(formatResult(calc.multiply(4, 6)));  // 結果: 24
+console.log(formatResult(calc.divide(20, 4)));   // 結果: 5
+
+// 查看歷史記錄
+console.log("計算歷史:");
+calc.getHistory().forEach(record => {
+    console.log(`  ${record}`);
+});
+
+// 錯誤處理
+try {
+    calc.divide(10, 0);
+} catch (error) {
+    console.error("錯誤:", error.message);
+}
+
+// 驗證數字
+console.log(validateNumber(42));     // true
+console.log(validateNumber("42"));   // false
+console.log(validateNumber(NaN));    // false
+```
+
+```python !! py
+# main.py - 使用計算器
+from calculator import Calculator, validate_number, format_result
+
+def main():
+    # 創建計算器實例
+    calc = Calculator()
+    
+    # 基本運算
+    print(format_result(calc.add(10, 5)))      # 結果: 15
+    print(format_result(calc.subtract(10, 3))) # 結果: 7
+    print(format_result(calc.multiply(4, 6)))  # 結果: 24
+    print(format_result(calc.divide(20, 4)))   # 結果: 5.0
+    
+    # 查看歷史記錄
+    print("計算歷史:")
+    for record in calc.get_history():
+        print(f"  {record}")
+    
+    # 錯誤處理
+    try:
+        calc.divide(10, 0)
+    except ValueError as error:
+        print(f"錯誤: {error}")
+    
+    # 驗證數字
+    print(validate_number(42))     # True
+    print(validate_number("42"))   # False
+    print(validate_number(3.14))   # True
+
+if __name__ == "__main__":
+    main()
+```
+</PythonEditor>
+
+## 6. 高級模塊特性
+
+### 6.1 相對導入
+
+Python 支持相對導入，類似於 JavaScript 中的相對路徑導入。
+
+<PythonEditor title="相對導入示例" compare={true} canRun={false} height={500}>
+```javascript !! js
+// JavaScript 相對導入
+// project/
+// ├── src/
+// │   ├── utils/
+// │   │   ├── math.js
+// │   │   └── string.js
+// │   ├── components/
+// │   │   └── calculator.js
+// │   └── main.js
+
+// src/components/calculator.js
+import { add, multiply } from '../utils/math.js';
+import { capitalize } from '../utils/string.js';
+
+export class Calculator {
+    constructor() {
+        this.math = { add, multiply };
+        this.string = { capitalize };
+    }
+}
+
+// src/main.js
+import { Calculator } from './components/calculator.js';
+```
+
+```python !! py
+# Python 相對導入
+# project/
+# ├── my_package/
+# │   ├── utils/
+# │   │   ├── __init__.py
+# │   │   ├── math_utils.py
+# │   │   └── string_utils.py
+# │   ├── components/
+# │   │   ├── __init__.py
+# │   │   └── calculator.py
+# │   └── main.py
+
+# my_package/components/calculator.py
+from ..utils.math_utils import add, multiply
+from ..utils.string_utils import capitalize
+
+class Calculator:
+    def __init__(self):
+        self.math = {'add': add, 'multiply': multiply}
+        self.string = {'capitalize': capitalize}
+
+# my_package/main.py
+from .components.calculator import Calculator
+```
+</PythonEditor>
+
+### 6.2 動態導入
+
+Python 支持動態導入模塊，類似於 JavaScript 的動態 import()。
+
+<PythonEditor title="動態導入示例" compare={true} canRun={false} height={600}>
+```javascript !! js
+// JavaScript 動態導入
+async function loadModule(moduleName) {
+    try {
+        const module = await import(`./modules/${moduleName}.js`);
+        return module;
+    } catch (error) {
+        console.error(`無法加載模塊 ${moduleName}:`, error);
+        return null;
+    }
+}
+
+// 使用動態導入
+async function main() {
+    const mathModule = await loadModule('math');
+    if (mathModule) {
+        console.log(mathModule.add(5, 3));
+    }
+    
+    const stringModule = await loadModule('string');
+    if (stringModule) {
+        console.log(stringModule.capitalize('hello'));
+    }
+}
+
+main();
+```
+
+```python !! py
+# Python 動態導入
+import importlib
+import sys
+
+def load_module(module_name):
+    """動態加載模塊"""
+    try:
+        module = importlib.import_module(f"modules.{module_name}")
+        return module
+    except ImportError as error:
+        print(f"無法加載模塊 {module_name}: {error}")
+        return None
+
+# 使用動態導入
+def main():
+    math_module = load_module('math_utils')
+    if math_module:
+        print(math_module.add(5, 3))
+    
+    string_module = load_module('string_utils')
+    if string_module:
+        print(string_module.capitalize('hello'))
+
+if __name__ == "__main__":
+    main()
+```
+</PythonEditor>
+
+
+### 6.3 循環導入陷阱 (Circular Imports)
+
+循環導入是指兩個或多個模塊相互導入對方，形成一個閉環。這在 Python 中會導致 `ImportError` 或 `AttributeError`，因為模塊在導入時會執行頂層代碼。
+
+**問題示例**
+
+```python
+# a.py
+from b import func_b
+
+def func_a():
+    func_b()
+
+# b.py
+from a import func_a
+
+def func_b():
+    func_a()
+```
+
+**解決方案**
+
+1.  **重構代碼**：將共享的依賴提取到第三個模塊（推薦）。
+2.  **延遲導入**：將導入語句移到函數/方法內部（僅在需要時導入）。
+
+```python
+# b.py (修復後)
+def func_b():
+    # 延遲導入，打破循環
+    from a import func_a
+    func_a()
+```
+
+## 7. 練習題
+
+
+### 練習 1：創建工具包
+
+創建一個包含數學工具和字符串工具的工具包。
+
+<PythonEditor title="練習題 1：工具包" compare={true} canRun={false} height={900}>
+```javascript !! js
+// 創建以下文件結構：
+// my-utils/
+// ├── package.json
+// ├── src/
+// │   ├── index.js
+// │   ├── math.js
+// │   └── string.js
+// └── test/
+//     └── test.js
+
+// src/math.js
+export function add(a, b) {
+    return a + b;
+}
+
+export function multiply(a, b) {
+    return a * b;
+}
+
+export function factorial(n) {
+    if (n <= 1) return 1;
+    return n * factorial(n - 1);
+}
+
+// src/string.js
+export function reverse(str) {
+    return str.split('').reverse().join('');
+}
+
+export function isPalindrome(str) {
+    const clean = str.toLowerCase().replace(/[^a-z0-9]/g, '');
+    return clean === clean.split('').reverse().join('');
+}
+
+// src/index.js
+export * from './math.js';
+export * from './string.js';
+```
+
+```python !! py
+# 創建以下文件結構：
+# my_utils/
+# ├── setup.py
+# ├── my_utils/
+# │   ├── __init__.py
+# │   ├── math_utils.py
+# │   └── string_utils.py
+# └── tests/
+#     └── test_utils.py
+
+# my_utils/math_utils.py
+def add(a, b):
+    """加法函數"""
+    return a + b
+
+def multiply(a, b):
+    """乘法函數"""
+    return a * b
+
+def factorial(n):
+    """階乘函數"""
+    if n <= 1:
+        return 1
+    return n * factorial(n - 1)
+
+# my_utils/string_utils.py
+def reverse(text):
+    """字符串反轉"""
+    return text[::-1]
+
+def is_palindrome(text):
+    """判斷是否為迴文"""
+    import re
+    clean = re.sub(r'[^a-z0-9]', '', text.lower())
+    return clean == clean[::-1]
+
+# my_utils/__init__.py
+from .math_utils import add, multiply, factorial
+from .string_utils import reverse, is_palindrome
+
+__all__ = ['add', 'multiply', 'factorial', 'reverse', 'is_palindrome']
+```
+</PythonEditor>
+
+### 練習 2：模塊導入練習
+
+<PythonEditor title="練習題 2：模塊導入" compare={true} canRun={false}>
+```javascript !! js
+// 練習不同的導入方式
+import { add, multiply } from './math.js';
+import * as MathUtils from './math.js';
+import { add as addFunction } from './math.js';
+
+console.log(add(5, 3));           // 8
+console.log(MathUtils.multiply(4, 2));  // 8
+console.log(addFunction(10, 5));  // 15
+```
+
+```python !! py
+# 練習不同的導入方式
+from my_utils import add, multiply
+import my_utils
+from my_utils import add as add_function
+
+print(add(5, 3))              // 8
+print(my_utils.multiply(4, 2))  // 8
+print(add_function(10, 5))    // 15
+```
+</PythonEditor>
+
+## 8. 總結
+
+### 關鍵概念回顧
+
+1. **模塊**：任何 `.py` 文件都可以作為模塊使用
+2. **包**：包含 `__init__.py` 的目錄，可以包含多個模塊
+3. **導入方式**：`import`、`from ... import`、`as` 重命名
+4. **特殊變量**：`__name__`、`__file__`、`__all__`
+5. **項目組織**：合理的目錄結構和依賴管理
+
+### JavaScript vs Python 對比總結
+
+| 概念 | JavaScript | Python | 說明 |
+|------|------------|--------|------|
+| **模塊文件** | `.js` 文件 | `.py` 文件 | 都是單個文件作為模塊 |
+| **包** | 目錄 + `package.json` | 目錄 + `__init__.py` | Python 需要 `__init__.py` |
+| **導入語法** | `import { func }` | `from module import func` | 語法不同但概念相同 |
+| **默認導出** | `export default` | 無對應概念 | Python 沒有默認導出 |
+| **相對導入** | `../utils/math` | `..utils.math_utils` | 都支持相對路徑 |
+| **動態導入** | `import()` | `importlib.import_module()` | 都支持運行時導入 |
+
+### 下一步學習
+
+在下一個模塊中，我們將學習：
+- 面向對象編程（類、繼承、多態）
+- 函數式編程特性
+- 裝飾器和元編程
+- 特殊方法（魔術方法）
+
+這些概念將幫助你更深入地理解 Python 的編程範式，並能夠編寫更復雜和優雅的代碼。 

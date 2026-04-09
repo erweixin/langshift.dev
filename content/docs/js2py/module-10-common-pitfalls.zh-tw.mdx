@@ -1,0 +1,284 @@
+---
+title: "模塊 10: 常見陷阱"
+description: "從 JavaScript 開發者視角，解析 Python 中常見的概念陷阱和易錯點。"
+---
+
+## 1. 引言
+
+當你從一種語言切換到另一種時，最棘手的往往不是新語法，而是一些看似相同但行為卻截然不同的“陷阱”。這些細微的差異可能會導致難以察覺的 bug 和困惑。
+
+本模塊專門為你——從 JavaScript 過渡到 Python 的開發者——梳理了一些最常見的概念陷阱。
+
+> 💡 **學習策略**：不要死記硬背。理解每個陷阱背後的“為什麼”，並將其與 JavaScript 的行為進行對比，這樣你才能在實際編碼中自然而然地避開它們。
+
+## 2. 真值 (Truthy) 與假值 (Falsy)
+
+在 Python 中，空的集合類型（如列表、字典、元組）被認為是“假值”(Falsy)。這與 JavaScript 的行為有顯著不同，在 JS 中，空數組 `[]` 和空對象 `{}` 都是“真值”(Truthy)。
+
+<PythonEditor title="真值與假值對比" compare={true}>
+```javascript !! js
+// JavaScript
+if ([]) {
+  console.log("空數組在 JS 中是 truthy"); // 會被打印
+}
+
+if ({}) {
+  console.log("空對象在 JS 中是 truthy"); // 會被打印
+}
+
+if ("") {
+  console.log("空字符串是 falsy"); // 不會被打印
+}
+
+if (0) {
+  console.log("0 是 falsy"); // 不會被打印
+}
+```
+
+```python !! py
+# Python
+if []:
+    print("空列表在 Python 中是 Falsy")  # 不會被打印
+else:
+    print("空列表為假")
+
+if {}:
+    print("空字典在 Python 中是 Falsy")  # 不會被打印
+else:
+    print("空字典為假")
+
+if "":
+    print("空字符串是 Falsy")  # 不會被打印
+else:
+    print("空字符串為假")
+
+if 0:
+    print("0 是 Falsy")  # 不會被打印
+else:
+    print("0 為假")
+```
+</PythonEditor>
+
+## 3. `this` vs `self`
+
+在 JavaScript 的類方法中，`this` 是一個關鍵字，其指向在函數調用時確定。而在 Python 的實例方法中，第一個參數（按照慣例命名為 `self`）顯式地代表實例本身，它不是一個關鍵字。
+
+<PythonEditor title="this vs. self 對比" compare={true}>
+```javascript !! js
+// JavaScript
+class Counter {
+  constructor() {
+    this.count = 0;
+  }
+
+  increment() {
+    this.count++;
+    console.log(this.count);
+  }
+}
+
+const counter = new Counter();
+counter.increment(); // 1
+```
+
+```python !! py
+# Python
+class Counter:
+    def __init__(self):
+        self.count = 0
+
+    def increment(self):  # `self` 必須作為第一個參數顯式傳遞
+        self.count += 1
+        print(self.count)
+
+counter = Counter()
+counter.increment()  # 1
+```
+</PythonEditor>
+
+## 4. 變量作用域
+
+JavaScript (ES6+) 擁有塊級作用域（由 `{}` 界定），而 Python 的作用域是基於函數（或類、模塊）的。在 `for` 循環等代碼塊中定義的變量，在 Python 中會“洩漏”到外部作用域。
+
+<PythonEditor title="作用域對比" compare={true}>
+```javascript !! js
+// JavaScript (塊級作用域)
+for (let i = 0; i < 3; i++) {
+  console.log(i);
+}
+// console.log(i); // ReferenceError: i is not defined
+
+if (true) {
+  const blockVar = 'hello';
+}
+// console.log(blockVar); // ReferenceError: blockVar is not defined
+```
+
+```python !! py
+# Python (函數級作用域)
+for i in range(3):
+    print(i)
+
+print(f"循環結束後，i 仍然存在: {i}") # 輸出: 循環結束後，i 仍然存在: 2
+
+if True:
+    block_var = 'hello'
+
+print(f"if 塊結束後，變量仍然存在: {block_var}") # 輸出: if 塊結束後，變量仍然存在: hello
+```
+</PythonEditor>
+
+## 5. 可變默認參數
+
+這是一個 Python 中非常經典且臭名昭著的“陷阱”。如果函數的默認參數是一個可變對象（如列表或字典），那麼這個對象會在所有調用之間共享。這與 JavaScript 的行為完全不同。
+
+<PythonEditor title="可變默認參數對比" compare={true}>
+```javascript !! js
+// JavaScript
+function append(item, arr = []) {
+  arr.push(item);
+  return arr;
+}
+
+console.log(append(1)); // [1]
+console.log(append(2)); // [2] (每次調用都創建一個新的空數組)
+```
+
+```python !! py
+# Python (錯誤的方式)
+def append_bad(item, arr=[]):
+    arr.append(item)
+    return arr
+
+print(append_bad(1))  # [1]
+print(append_bad(2))  # [1, 2] (列表被所有調用共享！)
+
+# 正確的方式
+def append_good(item, arr=None):
+    if arr is None:
+        arr = []
+    arr.append(item)
+    return arr
+
+print(append_good(1)) # [1]
+print(append_good(2)) # [2]
+```
+</PythonEditor>
+
+## 6. `null`/`undefined` vs `None`
+
+JavaScript 中有兩個表示“無”的值：`null`（表示“有意設置的空值”）和 `undefined`（表示“未定義”）。在 Python 中，只有一個對應的概念：`None`。
+
+<PythonEditor title="null/undefined vs. None" compare={true}>
+```javascript !! js
+// JavaScript
+let a; // undefined
+let b = null; // null
+
+function greet(name) {
+  // 如果不傳參數，name 是 undefined
+  console.log(name);
+}
+```
+
+```python !! py
+# Python
+a = None  # 只有 None
+
+def greet(name=None):
+    # 通常使用 None 作為默認值
+    print(name)
+
+# 檢查是否為 None
+if a is None:
+    print("a is None")
+```
+</PythonEditor>
+
+
+## 7. 循環變量捕獲 (Loop Variable Capture)
+
+這是 Python 作用域規則的一個副作用，常發生在閉包或 lambda 函數中。
+
+<PythonEditor title="循環變量捕獲" compare={true}>
+```javascript !! js
+// JavaScript (ES6 let)
+const funcs = [];
+for (let i = 0; i < 3; i++) {
+    funcs.push(() => console.log(i));
+}
+
+funcs[0](); // 0
+funcs[1](); // 1
+funcs[2](); // 2
+// 因為 let 具有塊級作用域，每次迭代都會創建一個新的綁定
+```
+
+```python !! py
+# Python
+funcs = []
+for i in range(3):
+    funcs.append(lambda: print(i))
+
+funcs[0]()  # 2
+funcs[1]()  # 2
+funcs[2]()  # 2
+# 為什麼？因為 lambda 函數捕獲的是變量 i 的引用，而不是值。
+# 當函數執行時，循環已經結束，i 的值是 2。
+
+# 修復方法：使用默認參數綁定當前值
+funcs_fixed = []
+for i in range(3):
+    funcs_fixed.append(lambda x=i: print(x))
+
+funcs_fixed[0]()  # 0
+funcs_fixed[1]()  # 1
+funcs_fixed[2]()  # 2
+```
+</PythonEditor>
+
+## 8. 賦值 vs 拷貝 (Assignment vs Copying)
+
+在 Python 中，賦值語句 (`=`) 永遠不會複製對象，它只是創建了一個新的引用（別名）。這與 JavaScript 的對象賦值行為一致，但對於習慣了某些 C++ 行為的開發者來說可能是個陷阱。
+
+<PythonEditor title="賦值 vs 拷貝" compare={true}>
+```javascript !! js
+// JavaScript
+const list1 = [1, 2, 3];
+const list2 = list1; // 引用賦值
+
+list2.push(4);
+console.log(list1); // [1, 2, 3, 4] (也被修改了)
+
+// 淺拷貝
+const list3 = [...list1];
+list3.push(5);
+console.log(list1); // [1, 2, 3, 4] (不受影響)
+```
+
+```python !! py
+# Python
+list1 = [1, 2, 3]
+list2 = list1  # 引用賦值
+
+list2.append(4)
+print(list1)  # [1, 2, 3, 4] (也被修改了)
+
+# 淺拷貝
+list3 = list1.copy()  # 或 list1[:]
+list3.append(5)
+print(list1)  # [1, 2, 3, 4] (不受影響)
+
+# 深拷貝 (對於嵌套對象)
+import copy
+nested1 = [[1, 2], [3, 4]]
+nested2 = copy.deepcopy(nested1)
+nested2[0][0] = 999
+print(nested1[0][0])  # 1 (不受影響)
+```
+</PythonEditor>
+
+## 8. 總結
+
+
+理解並掌握這些差異，將幫助你更快地寫出健壯、無意外的 Python 代碼。當你遇到意料之外的行為時，不妨回過頭來看看這個列表，檢查是否踩中了其中的某個“陷阱”。

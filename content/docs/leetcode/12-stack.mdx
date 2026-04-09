@@ -25,7 +25,7 @@ import { LeetCodeProblem } from "@/components/leetcode/LeetCodeProblem"
 <details>
 <summary><strong>最优解</strong>（栈：遇到右括号就匹配最近的左括号）</summary>
 
-<UniversalEditor title=" " compare={true}>
+<UniversalEditor title="参考解法（JavaScript / Go）" compare={true}>
 ```javascript !! js
 function isValid(s) {
   const st = []
@@ -81,6 +81,35 @@ func main() {
 ```
 </UniversalEditor>
 
+<details>
+<summary><strong>Rust 参考</strong>（点击展开）</summary>
+
+```rust
+fn is_valid(s: &str) -> bool {
+    let mut stack: Vec<char> = vec![];
+    for ch in s.chars() {
+        match ch {
+            '(' | '[' | '{' => stack.push(ch),
+            ')' => if stack.pop() != Some('(') { return false; },
+            ']' => if stack.pop() != Some('[') { return false; },
+            '}' => if stack.pop() != Some('{') { return false; },
+            _ => {}
+        }
+    }
+    stack.is_empty()
+}
+
+fn main() {
+    println!("{}", is_valid("()"));     // true
+    println!("{}", is_valid("()[]{}")); // true
+    println!("{}", is_valid("(]"));     // false
+    println!("{}", is_valid("([)]"));   // false
+    println!("{}", is_valid("{[]}"));   // true
+}
+```
+
+</details>
+
 </details>
 
 <details>
@@ -116,30 +145,28 @@ return stack empty
 <details>
 <summary><strong>最优解</strong>（双栈：数据栈 + 最小值栈）</summary>
 
-<UniversalEditor title=" " compare={true}>
+<UniversalEditor title="参考解法（JavaScript / Go）" compare={true}>
 ```javascript !! js
-function MinStack() {
-  this.st = []
-  this.minSt = []
-}
-
-MinStack.prototype.push = function(val) {
-  this.st.push(val)
-  const curMin = this.minSt.length ? Math.min(this.minSt[this.minSt.length - 1], val) : val
-  this.minSt.push(curMin)
-}
-
-MinStack.prototype.pop = function() {
-  this.st.pop()
-  this.minSt.pop()
-}
-
-MinStack.prototype.top = function() {
-  return this.st[this.st.length - 1]
-}
-
-MinStack.prototype.getMin = function() {
-  return this.minSt[this.minSt.length - 1]
+class MinStack {
+  constructor() {
+    this.st = []
+    this.minSt = []
+  }
+  push(val) {
+    this.st.push(val)
+    const curMin = this.minSt.length ? Math.min(this.minSt[this.minSt.length - 1], val) : val
+    this.minSt.push(curMin)
+  }
+  pop() {
+    this.st.pop()
+    this.minSt.pop()
+  }
+  top() {
+    return this.st[this.st.length - 1]
+  }
+  getMin() {
+    return this.minSt[this.minSt.length - 1]
+  }
 }
 
 // 5 个测试用例
@@ -216,6 +243,36 @@ func main() {
 ```
 </UniversalEditor>
 
+<details>
+<summary><strong>Rust 参考</strong>（点击展开）</summary>
+
+```rust
+struct MinStack { st: Vec<i32>, min_st: Vec<i32> }
+
+impl MinStack {
+    fn new() -> Self { MinStack { st: vec![], min_st: vec![] } }
+    fn push(&mut self, val: i32) {
+        self.st.push(val);
+        let cur_min = self.min_st.last().map_or(val, |&m| m.min(val));
+        self.min_st.push(cur_min);
+    }
+    fn pop(&mut self) { self.st.pop(); self.min_st.pop(); }
+    fn top(&self) -> i32 { *self.st.last().unwrap() }
+    fn get_min(&self) -> i32 { *self.min_st.last().unwrap() }
+}
+
+fn main() {
+    let mut ms = MinStack::new();
+    ms.push(-2); ms.push(0); ms.push(-3);
+    println!("{}", ms.get_min()); // -3
+    ms.pop();
+    println!("{}", ms.top());     // 0
+    println!("{}", ms.get_min()); // -2
+}
+```
+
+</details>
+
 </details>
 
 <details>
@@ -250,7 +307,7 @@ getMin(): minSt.top
 <details>
 <summary><strong>最优解</strong>（双栈：numStack 存倍数，strStack 存进入 [ 前的字符串）</summary>
 
-<UniversalEditor title=" " compare={true}>
+<UniversalEditor title="参考解法（JavaScript / Go）" compare={true}>
 ```javascript !! js
 function decodeString(s) {
   const numStack = []
@@ -330,6 +387,44 @@ func main() {
 ```
 </UniversalEditor>
 
+<details>
+<summary><strong>Rust 参考</strong>（点击展开）</summary>
+
+```rust
+fn decode_string(s: &str) -> String {
+    let mut num_stack: Vec<usize> = vec![];
+    let mut str_stack: Vec<String> = vec![];
+    let mut cur_num = 0usize;
+    let mut cur_str = String::new();
+    for ch in s.chars() {
+        if ch.is_ascii_digit() {
+            cur_num = cur_num * 10 + (ch as usize - '0' as usize);
+        } else if ch == '[' {
+            num_stack.push(cur_num);
+            str_stack.push(cur_str.clone());
+            cur_num = 0; cur_str = String::new();
+        } else if ch == ']' {
+            let k = num_stack.pop().unwrap();
+            let prev = str_stack.pop().unwrap();
+            cur_str = prev + &cur_str.repeat(k);
+        } else {
+            cur_str.push(ch);
+        }
+    }
+    cur_str
+}
+
+fn main() {
+    println!("{}", decode_string("3[a]2[bc]"));    // "aaabcbc"
+    println!("{}", decode_string("3[a2[c]]"));      // "accaccacc"
+    println!("{}", decode_string("2[abc]3[cd]ef")); // "abcabccdcdcdef"
+    println!("{}", decode_string("10[a]"));         // "aaaaaaaaaa"
+    println!("{}", decode_string("abc3[cd]xyz"));   // "abccdcdcdxyz"
+}
+```
+
+</details>
+
 </details>
 
 <details>
@@ -394,7 +489,7 @@ func main() {
 <details>
 <summary><strong>最优解</strong>（单调栈：栈里保持“递减温度下标”）</summary>
 
-<UniversalEditor title=" " compare={true}>
+<UniversalEditor title="参考解法（JavaScript / Go）" compare={true}>
 ```javascript !! js
 function dailyTemperatures(temperatures) {
   const n = temperatures.length
@@ -449,6 +544,35 @@ func main() {
 ```
 </UniversalEditor>
 
+<details>
+<summary><strong>Rust 参考</strong>（点击展开）</summary>
+
+```rust
+fn daily_temperatures(temperatures: Vec<i32>) -> Vec<i32> {
+    let n = temperatures.len();
+    let mut ans = vec![0i32; n];
+    let mut st: Vec<usize> = vec![];
+    for i in 0..n {
+        while st.last().map_or(false, |&j| temperatures[i] > temperatures[j]) {
+            let j = st.pop().unwrap();
+            ans[j] = (i - j) as i32;
+        }
+        st.push(i);
+    }
+    ans
+}
+
+fn main() {
+    println!("{:?}", daily_temperatures(vec![73,74,75,71,69,72,76,73])); // [1,1,4,2,1,1,0,0]
+    println!("{:?}", daily_temperatures(vec![30,40,50,60]));              // [1,1,1,0]
+    println!("{:?}", daily_temperatures(vec![30,60,90]));                 // [1,1,0]
+    println!("{:?}", daily_temperatures(vec![90,80,70]));                 // [0,0,0]
+    println!("{:?}", daily_temperatures(vec![70,70,70,71]));              // [3,2,1,0]
+}
+```
+
+</details>
+
 </details>
 
 <details>
@@ -488,7 +612,7 @@ for i:
 <details>
 <summary><strong>最优解</strong>（单调栈：每根柱子当“最矮”时的最大宽度）</summary>
 
-<UniversalEditor title=" " compare={true}>
+<UniversalEditor title="参考解法（JavaScript / Go）" compare={true}>
 ```javascript !! js
 function largestRectangleArea(heights) {
   const h = heights.slice()
@@ -555,6 +679,39 @@ func main() {
 }
 ```
 </UniversalEditor>
+
+<details>
+<summary><strong>Rust 参考</strong>（点击展开）</summary>
+
+```rust
+fn largest_rectangle_area(heights: Vec<i32>) -> i32 {
+    let mut h = vec![0i32];
+    h.extend_from_slice(&heights);
+    h.push(0);
+    let mut st: Vec<usize> = vec![];
+    let mut best = 0;
+    for i in 0..h.len() {
+        while st.last().map_or(false, |&j| h[i] < h[j]) {
+            let mid = st.pop().unwrap();
+            let left = *st.last().unwrap_or(&0);
+            let width = (i - left - 1) as i32;
+            best = best.max(h[mid] * width);
+        }
+        st.push(i);
+    }
+    best
+}
+
+fn main() {
+    println!("{}", largest_rectangle_area(vec![2,1,5,6,2,3]));     // 10
+    println!("{}", largest_rectangle_area(vec![2,4]));              // 4
+    println!("{}", largest_rectangle_area(vec![1,1,1,1]));          // 4
+    println!("{}", largest_rectangle_area(vec![6,2,5,4,5,1,6]));   // 12
+    println!("{}", largest_rectangle_area(vec![0]));                // 0
+}
+```
+
+</details>
 
 </details>
 

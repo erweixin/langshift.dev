@@ -1,0 +1,248 @@
+---
+title: "Python 實戰項目"
+description: "通過構建真實世界的項目，鞏固你的 Python 技能，並將所學知識融會貫通。"
+---
+
+## 1. 引言
+
+### 從理論到實踐
+
+你已經學習了 Python 的基礎語法、Web 開發、數據處理等核心知識。現在，是時候將這些知識應用到真實世界的項目中了。通過動手實踐，你將更深刻地理解 Python 的強大之處，並獲得寶貴的開發經驗。
+
+本模塊將提供幾個不同領域的實戰項目，每個項目都將綜合運用前面模塊學到的技能，並提供與 JavaScript/Node.js 實現的對比思路。
+
+> 💡 **學習策略**：選擇一個你最感興趣的項目開始。嘗試獨立完成它，遇到問題時，回顧前面的模塊或查閱官方文檔。關鍵在於“做”而不是“看”。
+
+## 2. 項目一：URL 縮短服務
+
+### 項目描述
+
+構建一個功能齊全的 URL 縮短服務，類似於 `bit.ly`。用戶可以提交一個長 URL，服務會返回一個短 URL。當訪問短 URL 時，應重定向到原始的長 URL。
+
+**核心功能**
+
+*   使用 FastAPI 構建 API 端點。
+*   使用 Pydantic 進行數據驗證。
+*   使用 SQLite 或其他數據庫存儲 URL 映射。
+*   生成唯一的短 URL 標識符。
+*   實現重定向邏輯。
+
+<PythonEditor title="URL 縮短服務：FastAPI 實現思路" compare={true} canRun={false} height={900}>
+```javascript !! js
+// JavaScript (Express + nanoid)
+const express = require('express');
+const { nanoid } = require('nanoid');
+
+const app = express();
+app.use(express.json());
+
+const urlDatabase = {}; // 簡單內存存儲
+
+app.post('/shorten', (req, res) => {
+  const { longUrl } = req.body;
+  const shortId = nanoid(7);
+  urlDatabase[shortId] = longUrl;
+  res.json({ shortUrl: `http://localhost:3000/${shortId}` });
+});
+
+app.get('/:shortId', (req, res) => {
+  const longUrl = urlDatabase[req.params.shortId];
+  if (longUrl) {
+    res.redirect(longUrl);
+  } else {
+    res.status(404).send('Not Found');
+  }
+});
+
+app.listen(3000);
+```
+
+```python !! py
+# Python (FastAPI + SQLite)
+import secrets
+import sqlite3
+from fastapi import FastAPI, HTTPException, Depends
+from pydantic import BaseModel
+from starlette.responses import RedirectResponse
+
+# -- 數據庫設置 --
+DATABASE_URL = "urls.db"
+
+def get_db():
+    conn = sqlite3.connect(DATABASE_URL)
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+# -- Pydantic 模型 --
+class URLBase(BaseModel):
+    target_url: str
+
+class URLInfo(URLBase):
+    is_active: bool
+    clicks: int
+
+# -- FastAPI 應用 --
+app = FastAPI()
+
+@app.post("/shorten")
+def create_url(url: URLBase, db: sqlite3.Connection = Depends(get_db)):
+    short_id = secrets.token_urlsafe(5)
+    # ... (將 short_id 和 url.target_url 存入數據庫)
+    return {"short_url": f"http://localhost:8000/{short_id}"}
+
+@app.get("/{short_id}")
+def forward_to_target_url(short_id: str, db: sqlite3.Connection = Depends(get_db)):
+    # ... (從數據庫中查找 long_url)
+    # ... (更新點擊次數)
+    # return RedirectResponse(long_url)
+    pass
+```
+</PythonEditor>
+
+## 3. 項目二：命令行天氣應用
+
+### 項目描述
+
+創建一個命令行工具，用戶可以輸入城市名稱，程序將從天氣 API (如 OpenWeatherMap) 獲取並顯示當前的天氣信息。
+
+**核心功能**
+
+*   使用 `argparse` 或 `typer` 解析命令行參數。
+*   使用 `httpx` 或 `requests` 調用第三方 API。
+*   處理 API 響應 (JSON)。
+*   在終端中格式化並顯示天氣信息。
+
+<PythonEditor title="命令行天氣應用：Python 實現思路" compare={true} canRun={false} height={900}>
+```javascript !! js
+// JavaScript (Node.js + axios + yargs)
+const axios = require('axios');
+const yargs = require('yargs/yargs');
+const { hideBin } = require('yargs/helpers');
+
+const argv = yargs(hideBin(process.argv)).argv;
+
+async function getWeather(city) {
+  try {
+    const apiKey = 'YOUR_API_KEY';
+    const url = `https://api.openweathermap.org/data/2.5/weather?q=${city}&appid=${apiKey}`;
+    const response = await axios.get(url);
+    console.log(`Weather in ${city}:`);
+    console.log(`- Temp: ${response.data.main.temp}°K`);
+    console.log(`- Description: ${response.data.weather[0].description}`);
+  } catch (error) {
+    console.error('Error fetching weather data');
+  }
+}
+
+if (argv.city) {
+  getWeather(argv.city);
+}
+```
+
+```python !! py
+# Python (Typer + httpx)
+import typer
+import httpx
+
+API_KEY = "YOUR_API_KEY"
+
+def main(city: str):
+    """獲取並顯示指定城市的天氣信息"""
+    url = f"https://api.openweathermap.org/data/2.5/weather?q={city}&appid={API_KEY}"
+    try:
+        with httpx.Client() as client:
+            response = client.get(url)
+            response.raise_for_status()
+            data = response.json()
+            print(f"Weather in {city}:")
+            print(f"- Temp: {data['main']['temp']}°K")
+            print(f"- Description: {data['weather'][0]['description']}")
+    except httpx.HTTPStatusError as e:
+        print(f"Error: Unable to fetch weather data for {city}. {e.response.status_code}")
+    except Exception as e:
+        print(f"An error occurred: {e}")
+
+if __name__ == "__main__":
+    typer.run(main)
+
+# 運行: python weather_app.py London
+```
+</PythonEditor>
+
+## 4. 項目三：數據分析與可視化報告
+
+### 項目描述
+
+從一個 CSV 數據集（例如，關於銷售、電影或任何你感興趣的主題）中提取、分析數據，並生成一個簡單的 HTML 報告，其中包含關鍵指標和圖表。
+
+**核心功能**
+
+*   使用 `pandas` 讀取和清洗 CSV 數據。
+*   進行數據聚合和分析（例如，計算平均值、總和、分組）。
+*   使用 `matplotlib` 或 `seaborn` 創建圖表（如條形圖、折線圖）。
+*   將圖表保存為圖片。
+*   使用 `jinja2` 模板引擎生成 HTML 報告。
+
+<PythonEditor title="數據分析報告：Python 實現思路" compare={true} canRun={false} height={900}>
+```javascript !! js
+// JavaScript (Node.js + danfo.js + chart.js)
+// 這個過程在 Node.js 中相對繁瑣，通常需要多個庫的配合，
+// 並且圖表生成通常在客戶端完成。
+// 偽代碼思路：
+// 1. 使用 danfo.js 或類似庫讀取 CSV。
+// 2. 進行數據操作。
+// 3. 將數據傳遞給一個模板引擎 (e.g., EJS)。
+// 4. 在模板中，使用 Chart.js 的腳本來渲染圖表。
+```
+
+```python !! py
+# Python (Pandas + Matplotlib + Jinja2)
+import pandas as pd
+import matplotlib.pyplot as plt
+from jinja2 import Environment, FileSystemLoader
+
+# 1. 數據分析
+df = pd.read_csv("sales_data.csv")
+total_sales = df["sales"].sum()
+top_products = df.groupby("product")["sales"].sum().nlargest(5)
+
+# 2. 創建圖表
+plt.figure()
+top_products.plot(kind="bar")
+plt.title("Top 5 Products by Sales")
+plt.savefig("top_products.png")
+
+# 3. 生成 HTML 報告
+env = Environment(loader=FileSystemLoader('.'))
+template = env.get_template("report_template.html")
+
+html_content = template.render(
+    total_sales=total_sales,
+    top_products_table=top_products.to_html()
+)
+
+with open("report.html", "w") as f:
+    f.write(html_content)
+
+# report_template.html (Jinja2 模板)
+# <!DOCTYPE html>
+# <html>
+# <head><title>Sales Report</title></head>
+# <body>
+#   <h1>Sales Report</h1>
+#   <p>Total Sales: {{ total_sales }}</p>
+#   <h2>Top Products</h2>
+#   {{ top_products_table|safe }}
+#   <img src="top_products.png">
+# </body>
+# </html>
+```
+</PythonEditor>
+
+## 5. 總結
+
+完成這些項目後，你將不僅僅是一個“知道”Python 的人，而是一個能夠“使用”Python 解決實際問題的人。你的技能將得到極大的提升，並且你將對 Python 生態系統有更深入的瞭解。
+
+不要止步於此！嘗試擴展這些項目，添加新功能，或者尋找你自己的項目想法。編程學習的最好方式就是不斷地創造和實踐。

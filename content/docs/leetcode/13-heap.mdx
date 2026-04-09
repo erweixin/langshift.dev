@@ -26,7 +26,7 @@ import { LeetCodeProblem } from "@/components/leetcode/LeetCodeProblem"
 <details>
 <summary><strong>最优解</strong>（小根堆保留 k 个最大：堆顶就是第 k 大）</summary>
 
-<UniversalEditor title=" " compare={true}>
+<UniversalEditor title="参考解法（JavaScript / Go）" compare={true}>
 ```javascript !! js
 class MinHeap {
   constructor() { this.a = [] }
@@ -124,6 +124,33 @@ func main() {
 ```
 </UniversalEditor>
 
+<details>
+<summary><strong>Rust 参考</strong>（点击展开）</summary>
+
+```rust
+use std::collections::BinaryHeap;
+use std::cmp::Reverse;
+
+fn find_kth_largest(nums: Vec<i32>, k: usize) -> i32 {
+    let mut heap: BinaryHeap<Reverse<i32>> = BinaryHeap::new();
+    for x in nums {
+        heap.push(Reverse(x));
+        if heap.len() > k { heap.pop(); }
+    }
+    heap.peek().unwrap().0
+}
+
+fn main() {
+    println!("{}", find_kth_largest(vec![3,2,1,5,6,4], 2));       // 5
+    println!("{}", find_kth_largest(vec![3,2,3,1,2,4,5,5,6], 4)); // 4
+    println!("{}", find_kth_largest(vec![1], 1));                  // 1
+    println!("{}", find_kth_largest(vec![-1,-1], 1));              // -1
+    println!("{}", find_kth_largest(vec![7,6,5,4,3,2,1], 7));     // 1
+}
+```
+
+</details>
+
 </details>
 
 <details>
@@ -162,7 +189,7 @@ return heap.peek()
 <details>
 <summary><strong>最优解</strong>（哈希计数 + 小根堆按频次保留 k 个）</summary>
 
-<UniversalEditor title=" " compare={true}>
+<UniversalEditor title="参考解法（JavaScript / Go）" compare={true}>
 ```javascript !! js
 class MinHeapByFreq {
   constructor() { this.a = [] } // [num, freq]
@@ -278,6 +305,35 @@ func main() {
 ```
 </UniversalEditor>
 
+<details>
+<summary><strong>Rust 参考</strong>（点击展开）</summary>
+
+```rust
+use std::collections::{BinaryHeap, HashMap};
+use std::cmp::Reverse;
+
+fn top_k_frequent(nums: Vec<i32>, k: usize) -> Vec<i32> {
+    let mut freq: HashMap<i32, usize> = HashMap::new();
+    for x in nums { *freq.entry(x).or_insert(0) += 1; }
+    let mut heap: BinaryHeap<Reverse<(usize, i32)>> = BinaryHeap::new();
+    for (num, f) in freq {
+        heap.push(Reverse((f, num)));
+        if heap.len() > k { heap.pop(); }
+    }
+    heap.into_iter().map(|Reverse((_, n))| n).collect()
+}
+
+fn main() {
+    let mut r = top_k_frequent(vec![1,1,1,2,2,3], 2); r.sort(); println!("{:?}", r); // [1,2]
+    println!("{:?}", top_k_frequent(vec![1], 1));                                      // [1]
+    let mut r = top_k_frequent(vec![4,4,4,5,5,6], 1); r.sort(); println!("{:?}", r); // [4]
+    println!("{}", top_k_frequent(vec![1,2,3,4], 2).len());                            // 2
+    let mut r = top_k_frequent(vec![0,0,0,-1,-1,-2], 2); r.sort(); println!("{:?}", r); // [-1,0]
+}
+```
+
+</details>
+
 </details>
 
 <details>
@@ -312,7 +368,7 @@ heap keep k by key=freq
 <details>
 <summary><strong>最优解</strong>（双堆：大根堆存左半，小根堆存右半）</summary>
 
-<UniversalEditor title=" " compare={true}>
+<UniversalEditor title="参考解法（JavaScript / Go）" compare={true}>
 ```javascript !! js
 class Heap {
   constructor(cmp) { this.a = []; this.cmp = cmp } // cmp(x,y) <0 表示 x 更小
@@ -349,25 +405,25 @@ class Heap {
   }
 }
 
-function MedianFinder() {
-  // left: max-heap (存较小的一半，堆顶是左半最大)
-  // right: min-heap (存较大的一半，堆顶是右半最小)
-  this.left = new Heap((x, y) => y - x)
-  this.right = new Heap((x, y) => x - y)
-}
+class MedianFinder {
+  constructor() {
+    // left: max-heap (存较小的一半，堆顶是左半最大)
+    // right: min-heap (存较大的一半，堆顶是右半最小)
+    this.left = new Heap((x, y) => y - x)
+    this.right = new Heap((x, y) => x - y)
+  }
+  addNum(num) {
+    if (this.left.size() === 0 || num <= this.left.peek()) this.left.push(num)
+    else this.right.push(num)
 
-MedianFinder.prototype.addNum = function(num) {
-  if (this.left.size() === 0 || num <= this.left.peek()) this.left.push(num)
-  else this.right.push(num)
-
-  // 重新平衡：left 允许比 right 多 1
-  if (this.left.size() > this.right.size() + 1) this.right.push(this.left.pop())
-  if (this.right.size() > this.left.size()) this.left.push(this.right.pop())
-}
-
-MedianFinder.prototype.findMedian = function() {
-  if (this.left.size() > this.right.size()) return this.left.peek()
-  return (this.left.peek() + this.right.peek()) / 2
+    // 重新平衡：left 允许比 right 多 1
+    if (this.left.size() > this.right.size() + 1) this.right.push(this.left.pop())
+    if (this.right.size() > this.left.size()) this.left.push(this.right.pop())
+  }
+  findMedian() {
+    if (this.left.size() > this.right.size()) return this.left.peek()
+    return (this.left.peek() + this.right.peek()) / 2
+  }
 }
 
 // 5 个测试用例
@@ -463,6 +519,54 @@ func main() {
 }
 ```
 </UniversalEditor>
+
+<details>
+<summary><strong>Rust 参考</strong>（点击展开）</summary>
+
+```rust
+use std::collections::BinaryHeap;
+use std::cmp::Reverse;
+
+struct MedianFinder {
+    left: BinaryHeap<i32>,          // 大根堆（存较小的一半）
+    right: BinaryHeap<Reverse<i32>>, // 小根堆（存较大的一半）
+}
+
+impl MedianFinder {
+    fn new() -> Self { MedianFinder { left: BinaryHeap::new(), right: BinaryHeap::new() } }
+    fn add_num(&mut self, num: i32) {
+        if self.left.is_empty() || num <= *self.left.peek().unwrap() {
+            self.left.push(num);
+        } else {
+            self.right.push(Reverse(num));
+        }
+        if self.left.len() > self.right.len() + 1 {
+            let top = self.left.pop().unwrap();
+            self.right.push(Reverse(top));
+        } else if self.right.len() > self.left.len() {
+            let Reverse(top) = self.right.pop().unwrap();
+            self.left.push(top);
+        }
+    }
+    fn find_median(&self) -> f64 {
+        if self.left.len() > self.right.len() {
+            *self.left.peek().unwrap() as f64
+        } else {
+            (*self.left.peek().unwrap() as f64 + self.right.peek().unwrap().0 as f64) / 2.0
+        }
+    }
+}
+
+fn main() {
+    let mut mf = MedianFinder::new();
+    mf.add_num(1); mf.add_num(2);
+    println!("{}", mf.find_median()); // 1.5
+    mf.add_num(3);
+    println!("{}", mf.find_median()); // 2
+}
+```
+
+</details>
 
 </details>
 

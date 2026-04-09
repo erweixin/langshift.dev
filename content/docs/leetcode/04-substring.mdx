@@ -16,7 +16,7 @@ import { LeetCodeProblem } from "@/components/leetcode/LeetCodeProblem"
 <details>
 <summary><strong>最优解</strong>（前缀和 + 哈希表：把“求区间和”改成“找差值”）</summary>
 
-<UniversalEditor title=" " compare={true}>
+<UniversalEditor title="参考解法（JavaScript / Go）" compare={true}>
 ```javascript !! js
 function subarraySum(nums, k) {
   // countByPrefix[sum] = 前缀和 sum 出现的次数
@@ -69,6 +69,35 @@ func main() {
 }
 ```
 </UniversalEditor>
+
+<details>
+<summary><strong>Rust 参考</strong>（点击展开）</summary>
+
+```rust
+use std::collections::HashMap;
+
+fn subarray_sum(nums: Vec<i32>, k: i32) -> i32 {
+    let mut count_by_prefix: HashMap<i32, i32> = HashMap::new();
+    count_by_prefix.insert(0, 1);
+    let (mut prefix, mut ans) = (0, 0);
+    for x in nums {
+        prefix += x;
+        ans += count_by_prefix.get(&(prefix - k)).copied().unwrap_or(0);
+        *count_by_prefix.entry(prefix).or_insert(0) += 1;
+    }
+    ans
+}
+
+fn main() {
+    println!("{}", subarray_sum(vec![1, 1, 1], 2));   // 2
+    println!("{}", subarray_sum(vec![1, 2, 3], 3));    // 2
+    println!("{}", subarray_sum(vec![1, -1, 0], 0));   // 3
+    println!("{}", subarray_sum(vec![0, 0, 0], 0));    // 6
+    println!("{}", subarray_sum(vec![-1, -1, 1], 0));  // 1
+}
+```
+
+</details>
 
 </details>
 
@@ -126,7 +155,7 @@ for (const x of nums) {
 <details>
 <summary><strong>最优解</strong>（单调队列：队头永远是最大值）</summary>
 
-<UniversalEditor title=" " compare={true}>
+<UniversalEditor title="参考解法（JavaScript / Go）" compare={true}>
 ```javascript !! js
 function maxSlidingWindow(nums, k) {
   const n = nums.length
@@ -196,6 +225,37 @@ func main() {
 ```
 </UniversalEditor>
 
+<details>
+<summary><strong>Rust 参考</strong>（点击展开）</summary>
+
+```rust
+use std::collections::VecDeque;
+
+fn max_sliding_window(nums: Vec<i32>, k: usize) -> Vec<i32> {
+    if nums.is_empty() || k == 0 { return vec![]; }
+    let n = nums.len();
+    let mut dq: VecDeque<usize> = VecDeque::new();
+    let mut ans = vec![];
+    for i in 0..n {
+        while dq.back().map_or(false, |&j| nums[j] <= nums[i]) { dq.pop_back(); }
+        dq.push_back(i);
+        if *dq.front().unwrap() + k <= i { dq.pop_front(); }
+        if i >= k - 1 { ans.push(nums[*dq.front().unwrap()]); }
+    }
+    ans
+}
+
+fn main() {
+    println!("{:?}", max_sliding_window(vec![1, 3, -1, -3, 5, 3, 6, 7], 3)); // [3,3,5,5,6,7]
+    println!("{:?}", max_sliding_window(vec![1], 1));                          // [1]
+    println!("{:?}", max_sliding_window(vec![9, 8, 7, 6], 2));                // [9,8,7]
+    println!("{:?}", max_sliding_window(vec![4, 4, 4, 4], 2));                // [4,4,4]
+    println!("{:?}", max_sliding_window(vec![1, -1], 1));                      // [1,-1]
+}
+```
+
+</details>
+
 </details>
 
 <details>
@@ -241,7 +301,7 @@ for (let i = 0; i < n; i++) {
 <details>
 <summary><strong>最优解</strong>（滑动窗口：先扩张满足，再收缩到最短）</summary>
 
-<UniversalEditor title=" " compare={true}>
+<UniversalEditor title="参考解法（JavaScript / Go）" compare={true}>
 ```javascript !! js
 function minWindow(s, t) {
   if (!t.length) return ""
@@ -346,6 +406,49 @@ func main() {
 }
 ```
 </UniversalEditor>
+
+<details>
+<summary><strong>Rust 参考</strong>（点击展开）</summary>
+
+```rust
+use std::collections::HashMap;
+
+fn min_window(s: &str, t: &str) -> String {
+    if t.is_empty() { return String::new(); }
+    let s: Vec<char> = s.chars().collect();
+    let mut need: HashMap<char, i32> = HashMap::new();
+    for ch in t.chars() { *need.entry(ch).or_insert(0) += 1; }
+    let mut missing = t.len() as i32;
+    let (mut left, mut best_l, mut best_len) = (0, 0, usize::MAX);
+    for (right, &ch) in s.iter().enumerate() {
+        if let Some(cnt) = need.get_mut(&ch) {
+            if *cnt > 0 { missing -= 1; }
+            *cnt -= 1;
+        }
+        while missing == 0 {
+            let len = right - left + 1;
+            if len < best_len { best_len = len; best_l = left; }
+            let out = s[left];
+            if let Some(cnt) = need.get_mut(&out) {
+                *cnt += 1;
+                if *cnt > 0 { missing += 1; }
+            }
+            left += 1;
+        }
+    }
+    if best_len == usize::MAX { String::new() } else { s[best_l..best_l + best_len].iter().collect() }
+}
+
+fn main() {
+    println!("{}", min_window("ADOBECODEBANC", "ABC")); // "BANC"
+    println!("{}", min_window("a", "a"));                // "a"
+    println!("{}", min_window("a", "aa"));               // ""
+    println!("{}", min_window("aa", "aa"));              // "aa"
+    println!("{}", min_window("bba", "ab"));             // "ba"
+}
+```
+
+</details>
 
 </details>
 

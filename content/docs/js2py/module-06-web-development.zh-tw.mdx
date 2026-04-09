@@ -1,0 +1,274 @@
+---
+title: "Python Web 開發：FastAPI 指南"
+description: "從 JavaScript (Node.js/Express) 開發者視角，深入學習 Python 的現代 Web 框架 FastAPI。"
+---
+
+## 1. 引言
+
+### 從 Express 到 FastAPI
+
+作為一名 JavaScript 開發者，你很可能對 `Node.js` 和 `Express` 非常熟悉。它們是構建快速、可擴展的網絡應用的強大組合。當你轉向 Python 時，你會發現 `FastAPI` 是一個非常相似且同樣強大的選擇。
+
+`FastAPI` 是一個現代、快速（高性能）的 Web 框架，用於構建 API。它的設計靈感來源於 `Flask` 和 `Express`，並充分利用了 Python 的類型提示和異步功能。
+
+**核心概念類比**
+
+| Python (FastAPI) | JavaScript (Express) | 主要功能 |
+| --- | --- | --- |
+| **FastAPI** | `Express` | Web 框架核心 |
+| **Uvicorn/Hypercorn** | `node` / `pm2` | 應用服務器 |
+| **Pydantic 模型** | Joi / Zod / 手動驗證 | 數據驗證和序列化 |
+| **依賴注入** | 中間件 / 服務類 | 管理依賴和共享邏輯 |
+| **`async def`** | `async` 函數 | 異步請求處理 |
+
+> 💡 **學習策略**：將 FastAPI 視為一個“帶類型的、異步優先的 Express”。許多概念，如路由、請求、響應和中間件，都會讓你感到非常熟悉。
+
+## 2. 第一個 FastAPI 應用
+
+讓我們從一個經典的 "Hello, World!" 示例開始，對比 `FastAPI` 和 `Express` 的基本結構。
+
+<PythonEditor title="Hello, World: FastAPI vs. Express" compare={true}>
+```javascript !! js
+// JavaScript (Express)
+// server.js
+const express = require('express');
+const app = express();
+const port = 3000;
+
+app.get('/', (req, res) => {
+  res.send('Hello, World!');
+});
+
+app.listen(port, () => {
+  console.log(`Server is running at http://localhost:${port}`);
+});
+```
+
+```python !! py
+# Python (FastAPI)
+# main.py
+from fastapi import FastAPI
+
+app = FastAPI()
+
+@app.get("/")
+def read_root():
+    return {"message": "Hello, World!"}
+
+# 運行服務器 (在命令行中):
+# uvicorn main:app --reload
+```
+</PythonEditor>
+
+## 3. 路由與請求處理
+
+### 3.1 路徑參數
+
+<PythonEditor title="路徑參數對比" compare={true} canRun={false}>
+```javascript !! js
+// JavaScript (Express)
+app.get('/items/:itemId', (req, res) => {
+  const itemId = req.params.itemId;
+  res.json({ item_id: itemId });
+});
+```
+
+```python !! py
+# Python (FastAPI)
+from fastapi import FastAPI
+
+app = FastAPI()
+
+@app.get("/items/{item_id}")
+def read_item(item_id: int):
+    return {"item_id": item_id}
+```
+</PythonEditor>
+
+### 3.2 查詢參數
+
+<PythonEditor title="查詢參數對比" compare={true} canRun={false}>
+```javascript !! js
+// JavaScript (Express)
+app.get('/items', (req, res) => {
+  const skip = req.query.skip || 0;
+  const limit = req.query.limit || 10;
+  res.json({ skip, limit });
+});
+```
+
+```python !! py
+# Python (FastAPI)
+from fastapi import FastAPI
+
+app = FastAPI()
+
+@app.get("/items/")
+def read_items(skip: int = 0, limit: int = 10):
+    return {"skip": skip, "limit": limit}
+```
+</PythonEditor>
+
+### 3.3 請求體
+
+`FastAPI` 使用 `Pydantic` 模型來定義請求體，這使得數據驗證、序列化和文檔生成變得非常簡單。
+
+<PythonEditor title="請求體對比" compare={true} canRun={false}>
+```javascript !! js
+// JavaScript (Express)
+app.use(express.json());
+
+app.post('/items', (req, res) => {
+  const { name, price } = req.body;
+  // 手動驗證
+  if (!name || !price) {
+    return res.status(400).json({ error: 'Missing name or price' });
+  }
+  res.json({ name, price });
+});
+```
+
+```python !! py
+# Python (FastAPI)
+from fastapi import FastAPI
+from pydantic import BaseModel
+
+class Item(BaseModel):
+    name: str
+    price: float
+    is_offer: bool | None = None
+
+app = FastAPI()
+
+@app.post("/items/")
+def create_item(item: Item):
+    return item
+```
+</PythonEditor>
+
+## 4. 數據驗證與 Pydantic
+
+`Pydantic` 是 `FastAPI` 的核心優勢之一。它提供了強大的數據驗證功能，類似於 `TypeScript` 的類型系統加上 `Zod` 或 `Joi` 的運行時驗證。
+
+<PythonEditor title="數據驗證對比" compare={true} canRun={false}>
+```typescript !! ts
+// TypeScript (with Zod for runtime validation)
+import { z } from 'zod';
+
+const UserSchema = z.object({
+  username: z.string().min(3),
+  email: z.string().email(),
+  age: z.number().optional(),
+});
+
+type User = z.infer<typeof UserSchema>;
+
+function createUser(user: unknown): User {
+  return UserSchema.parse(user);
+}
+```
+
+```python !! py
+# Python (with Pydantic)
+from pydantic import BaseModel, Field, EmailStr
+
+class User(BaseModel):
+    username: str = Field(min_length=3)
+    email: EmailStr
+    age: int | None = None
+
+def create_user(user_data: dict) -> User:
+    return User(**user_data)
+```
+</PythonEditor>
+
+## 5. 依賴注入
+
+`FastAPI` 的依賴注入系統非常強大，可以輕鬆地管理數據庫連接、認證和授權等共享邏輯。
+
+<PythonEditor title="依賴注入對比" compare={true} canRun={false}>
+```javascript !! js
+// JavaScript (Express middleware)
+function getDb(req, res, next) {
+  req.db = new Database();
+  next();
+}
+
+function requireAuth(req, res, next) {
+  if (!req.headers.authorization) {
+    return res.status(401).send('Unauthorized');
+  }
+  req.user = getUserFromToken(req.headers.authorization);
+  next();
+}
+
+app.get('/profile', getDb, requireAuth, (req, res) => {
+  res.json({ user: req.user });
+});
+```
+
+```python !! py
+# Python (FastAPI dependencies)
+from fastapi import Depends, FastAPI, HTTPException, status
+
+app = FastAPI()
+
+class Database:
+    def __init__(self): ...
+
+def get_db():
+    db = Database()
+    try:
+        yield db
+    finally:
+        # close db connection
+        pass
+
+async def get_current_user(token: str = Depends(oauth2_scheme)):
+    # ... (logic to get user from token)
+    return user
+
+@app.get("/profile")
+async def read_profile(current_user: User = Depends(get_current_user), db: Database = Depends(get_db)):
+    return {"user": current_user}
+```
+</PythonEditor>
+
+## 6. 異步支持
+
+`FastAPI` 是一個異步優先的框架，可以輕鬆地處理異步任務，如數據庫查詢、API 調用等。
+
+<PythonEditor title="異步處理對比" compare={true} canRun={false} >
+```javascript !! js
+// JavaScript (Express)
+app.get('/data', async (req, res) => {
+  try {
+    const data = await fetch('https://api.example.com/data').then(r => r.json());
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch data' });
+  }
+});
+```
+
+```python !! py
+# Python (FastAPI)
+import httpx
+from fastapi import FastAPI
+
+app = FastAPI()
+
+@app.get("/data")
+async def get_data():
+    async with httpx.AsyncClient() as client:
+        response = await client.get("https://api.example.com/data")
+        response.raise_for_status()
+        return response.json()
+```
+</PythonEditor>
+
+## 7. 總結
+
+`FastAPI` 為從 `JavaScript/Express` 背景過渡而來的 Python 開發者提供了一個熟悉而強大的 Web 開發體驗。通過利用類型提示、異步和依賴注入，`FastAPI` 可以幫助你構建健壯、高性能的 API。
+
+現在你已經掌握了 `FastAPI` 的基礎知識，可以開始構建自己的 Python Web 應用了！

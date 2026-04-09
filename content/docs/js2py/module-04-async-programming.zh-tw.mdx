@@ -1,0 +1,1702 @@
+---
+title: "Python 異步編程"
+description: "從 JavaScript 開發者視角學習 Python 的異步編程、事件循環機制和異步 Web 開發"
+---
+
+## 1. 引言
+
+### 為什麼需要異步編程？
+
+作為 JavaScript 開發者，你已經熟悉了 Promise、async/await 和事件循環的概念。Python 也有自己的異步編程模型，雖然語法相似，但底層機制有所不同。
+
+**異步編程的核心價值**
+- 提高程序性能：避免阻塞 I/O 操作
+- 更好的資源利用：單線程處理多個併發任務
+- 響應性：保持程序的響應能力
+- 可擴展性：支持大量併發連接
+
+> 💡 **學習策略**：將 Python 的異步編程視為 JavaScript 異步模型的"Python 版本"
+
+## 2. 同步 vs 異步
+
+### 2.1 基本概念對比
+
+<PythonEditor title="同步 vs 異步對比" compare={true}>
+```javascript !! js
+// JavaScript 同步操作
+function syncOperation() {
+    console.log("開始同步操作");
+    // 模擬耗時操作
+    const start = Date.now();
+    while (Date.now() - start < 2000) {
+        // 阻塞 2 秒
+    }
+    console.log("同步操作完成");
+    return "同步結果";
+}
+
+// JavaScript 異步操作
+async function asyncOperation() {
+    console.log("開始異步操作");
+    // 模擬異步操作
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    console.log("異步操作完成");
+    return "異步結果";
+}
+
+// 同步調用（會阻塞）
+console.log("調用同步函數");
+const syncResult = syncOperation();
+console.log("同步結果:", syncResult);
+
+// 異步調用（不會阻塞）
+console.log("調用異步函數");
+asyncOperation().then(result => {
+    console.log("異步結果:", result);
+});
+console.log("異步調用後立即執行");
+```
+
+```python !! py
+import asyncio
+import time
+
+# Python 同步操作
+def sync_operation():
+    """同步操作"""
+    print("開始同步操作")
+    # 模擬耗時操作
+    time.sleep(2)  # 阻塞 2 秒
+    print("同步操作完成")
+    return "同步結果"
+
+# Python 異步操作
+async def async_operation():
+    """異步操作"""
+    print("開始異步操作")
+    # 模擬異步操作
+    await asyncio.sleep(2)  # 非阻塞等待
+    print("異步操作完成")
+    return "異步結果"
+
+# 同步調用（會阻塞）
+print("調用同步函數")
+sync_result = sync_operation()
+print("同步結果:", sync_result)
+
+# 異步調用（不會阻塞）
+async def main():
+    print("調用異步函數")
+    result = await async_operation()
+    print("異步結果:", result)
+
+# 運行異步函數
+print("異步調用後立即執行")
+asyncio.create_task(main())
+```
+</PythonEditor>
+
+### 2.2 事件循環機制
+
+<PythonEditor title="事件循環機制對比" compare={true}>
+```javascript !! js
+// JavaScript 事件循環
+console.log("1. 開始執行");
+
+setTimeout(() => {
+    console.log("4. 定時器回調");
+}, 0);
+
+Promise.resolve().then(() => {
+    console.log("3. Promise 微任務");
+});
+
+console.log("2. 同步代碼結束");
+
+// 輸出順序：
+// 1. 開始執行
+// 2. 同步代碼結束
+// 3. Promise 微任務
+// 4. 定時器回調
+```
+
+```python !! py
+import asyncio
+
+# Python 事件循環
+async def main():
+    print("1. 開始執行")
+    
+    # 創建任務
+    task1 = asyncio.create_task(asyncio.sleep(0))
+    task2 = asyncio.create_task(asyncio.sleep(0))
+    
+    print("2. 任務已創建")
+    
+    # 等待任務完成
+    await task1
+    print("3. 第一個任務完成")
+    
+    await task2
+    print("4. 第二個任務完成")
+
+# 運行事件循環
+# 在 Pyodide 環境中，直接調用異步函數
+asyncio.create_task(main())
+
+# 輸出順序：
+# 1. 開始執行
+# 2. 任務已創建
+# 3. 第一個任務完成
+# 4. 第二個任務完成
+```
+</PythonEditor>
+
+## 3. Python 異步編程基礎
+
+### 3.1 async/await 語法
+
+Python 的 async/await 語法與 JavaScript 非常相似，但有一些重要的差異。
+
+<PythonEditor title="async/await 語法對比" compare={true}>
+```javascript !! js
+// JavaScript async/await
+async function fetchUserData(userId) {
+    try {
+        console.log(`開始獲取用戶 ${userId} 的數據`);
+        
+        // 模擬 API 調用
+        const response = await new Promise((resolve, reject) => {
+            setTimeout(() => {
+                if (userId > 0) {
+                    resolve({
+                        id: userId,
+                        name: `用戶${userId}`,
+                        email: `user${userId}@example.com`
+                    });
+                } else {
+                    reject(new Error("用戶不存在"));
+                }
+            }, 1000);
+        });
+        
+        console.log("數據獲取成功");
+        return response;
+        
+    } catch (error) {
+        console.error("獲取數據失敗:", error.message);
+        throw error;
+    }
+}
+
+async function processUsers() {
+    console.log("開始處理用戶數據");
+    
+    try {
+        const user1 = await fetchUserData(1);
+        const user2 = await fetchUserData(2);
+        
+        console.log("用戶1:", user1);
+        console.log("用戶2:", user2);
+        
+        return [user1, user2];
+        
+    } catch (error) {
+        console.error("處理用戶數據失敗:", error.message);
+    }
+}
+
+// 調用異步函數
+processUsers().then(users => {
+    console.log("所有用戶:", users);
+});
+```
+
+```python !! py
+import asyncio
+import random
+
+# Python async/await
+async def fetch_user_data(user_id):
+    """獲取用戶數據"""
+    try:
+        print(f"開始獲取用戶 {user_id} 的數據")
+        
+        # 模擬 API 調用
+        await asyncio.sleep(1)  # 模擬網絡延遲
+        
+        if user_id > 0:
+            data = {
+                "id": user_id,
+                "name": f"用戶{user_id}",
+                "email": f"user{user_id}@example.com"
+            }
+            print("數據獲取成功")
+            return data
+        else:
+            raise ValueError("用戶不存在")
+            
+    except Exception as error:
+        print(f"獲取數據失敗: {error}")
+        raise error
+
+async def process_users():
+    """處理用戶數據"""
+    print("開始處理用戶數據")
+    
+    try:
+        # 順序執行
+        user1 = await fetch_user_data(1)
+        user2 = await fetch_user_data(2)
+        
+        print("用戶1:", user1)
+        print("用戶2:", user2)
+        
+        return [user1, user2]
+        
+    except Exception as error:
+        print(f"處理用戶數據失敗: {error}")
+
+# 運行異步函數
+async def main():
+    users = await process_users()
+    print("所有用戶:", users)
+
+# 在 Pyodide 環境中，直接調用異步函數
+asyncio.create_task(main())
+```
+</PythonEditor>
+
+### 3.2 併發執行
+
+Python 提供了多種方式來實現併發執行，類似於 JavaScript 的 Promise.all()。
+
+<PythonEditor title="併發執行對比" compare={true}>
+```javascript !! js
+// JavaScript 併發執行
+async function fetchUserData(userId) {
+    console.log(`開始獲取用戶 ${userId} 的數據`);
+    // 模擬隨機延遲
+    const delay = 500 + Math.random() * 1000;
+    await new Promise(resolve => setTimeout(resolve, delay));
+    console.log(`完成獲取用戶 ${userId} 的數據`);
+    return {
+        id: userId,
+        name: `用戶${userId}`,
+        email: `user${userId}@example.com`
+    };
+}
+
+async function processUsersConcurrently() {
+    console.log("開始併發獲取用戶數據 (Promise.all)");
+    const promises = [
+        fetchUserData(1),
+        fetchUserData(2),
+        fetchUserData(3)
+    ];
+    const users = await Promise.all(promises);
+    console.log("所有用戶數據:", users);
+    return users;
+}
+
+// 使用 Promise.race() 獲取最快的結果
+async function getFastestUser() {
+    console.log("\n開始競速獲取用戶數據 (Promise.race)");
+    const promises = [
+        fetchUserData(1),
+        fetchUserData(2),
+        fetchUserData(3)
+    ];
+    const fastestUser = await Promise.race(promises);
+    console.log("最快的用戶:", fastestUser);
+    return fastestUser;
+}
+
+// 調用函數
+processUsersConcurrently();
+getFastestUser();
+```
+
+```python !! py
+import asyncio
+import random
+
+# Python 併發執行
+async def fetch_user_data(user_id):
+    """獲取用戶數據"""
+    print(f"開始獲取用戶 {user_id} 的數據")
+    # 模擬隨機網絡延遲
+    delay = 0.5 + random.random()
+    await asyncio.sleep(delay)
+    print(f"完成獲取用戶 {user_id} 的數據")
+    return {
+        "id": user_id,
+        "name": f"用戶{user_id}",
+        "email": f"user{user_id}@example.com"
+    }
+
+async def process_users_concurrently():
+    """併發處理用戶數據 (類似 Promise.all)"""
+    print("開始併發獲取用戶數據 (asyncio.gather)")
+    tasks = [
+        fetch_user_data(1),
+        fetch_user_data(2),
+        fetch_user_data(3)
+    ]
+    users = await asyncio.gather(*tasks)
+    print("所有用戶數據:", users)
+    return users
+
+async def get_fastest_user():
+    """獲取最快的用戶數據 (類似 Promise.race)"""
+    print("\n開始競速獲取用戶數據 (asyncio.wait)")
+    tasks = [
+        asyncio.create_task(fetch_user_data(1)),
+        asyncio.create_task(fetch_user_data(2)),
+        asyncio.create_task(fetch_user_data(3))
+    ]
+    
+    # 等待第一個任務完成
+    done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+    
+    # 獲取已完成任務的結果
+    fastest_user = done.pop().result()
+    
+    # 取消其他未完成的任務
+    for task in pending:
+        task.cancel()
+        
+    print(f"最快的用戶: {fastest_user}")
+    return fastest_user
+
+# 運行併發函數
+async def main():
+    await process_users_concurrently()
+    await get_fastest_user()
+
+# 在 Pyodide 環境中，直接調用異步函數
+asyncio.create_task(main())
+```
+</PythonEditor>
+
+### 3.3 異步上下文管理器
+
+Python 的異步上下文管理器類似於 JavaScript 的 try-with-resources 模式。
+
+<PythonEditor title="異步上下文管理器" compare={true}>
+```javascript !! js
+// JavaScript 資源管理
+class AsyncResource {
+    constructor(name) {
+        this.name = name;
+        this.isOpen = false;
+    }
+    
+    async open() {
+        console.log(`打開資源: ${this.name}`);
+        this.isOpen = true;
+    }
+    
+    async close() {
+        console.log(`關閉資源: ${this.name}`);
+        this.isOpen = false;
+    }
+    
+    async use() {
+        if (!this.isOpen) {
+            throw new Error("資源未打開");
+        }
+        console.log(`使用資源: ${this.name}`);
+        await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+}
+
+// 手動資源管理
+async function useResource() {
+    const resource = new AsyncResource("數據庫連接");
+    
+    try {
+        await resource.open();
+        await resource.use();
+    } finally {
+        await resource.close();
+    }
+}
+
+// 使用資源
+useResource();
+```
+
+```python !! py
+import asyncio
+from contextlib import asynccontextmanager
+
+# Python 異步上下文管理器
+class AsyncResource:
+    """異步資源類"""
+    
+    def __init__(self, name):
+        self.name = name
+        self.is_open = False
+    
+    async def __aenter__(self):
+        """進入上下文"""
+        print(f"打開資源: {self.name}")
+        self.is_open = True
+        return self
+    
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """退出上下文"""
+        print(f"關閉資源: {self.name}")
+        self.is_open = False
+    
+    async def use(self):
+        """使用資源"""
+        if not self.is_open:
+            raise RuntimeError("資源未打開")
+        print(f"使用資源: {self.name}")
+        await asyncio.sleep(1)
+
+# 使用異步上下文管理器
+async def use_resource():
+    """使用異步資源"""
+    async with AsyncResource("數據庫連接") as resource:
+        await resource.use()
+
+# 使用裝飾器創建異步上下文管理器
+@asynccontextmanager
+async def managed_resource(name):
+    """管理的資源上下文管理器"""
+    print(f"打開資源: {name}")
+    try:
+        yield name
+    finally:
+        print(f"關閉資源: {name}")
+
+async def use_managed_resource():
+    """使用管理的資源"""
+    async with managed_resource("文件連接") as resource:
+        print(f"使用資源: {resource}")
+        await asyncio.sleep(1)
+
+# 運行示例
+async def main():
+    await use_resource()
+    await use_managed_resource()
+
+# 在 Pyodide 環境中，直接調用異步函數
+asyncio.create_task(main())
+```
+</PythonEditor>
+
+
+### 3.4 常見陷阱：異步函數中的阻塞代碼
+
+在異步函數中，絕對不能調用阻塞（同步）的 I/O 操作，否則會阻塞整個事件循環，導致所有併發任務停滯。
+
+**錯誤示例**
+```python
+import time
+import requests  # 同步 HTTP 庫
+
+async def bad_async_function():
+    # ❌ 錯誤：這會阻塞整個事件循環！
+    time.sleep(5)
+    # ❌ 錯誤：這也會阻塞！
+    requests.get("https://example.com")
+```
+
+**正確做法**
+```python
+import asyncio
+import httpx  # 異步 HTTP 庫
+
+async def good_async_function():
+    # ✅ 正確：非阻塞等待
+    await asyncio.sleep(5)
+    
+    # ✅ 正確：使用異步庫
+    async with httpx.AsyncClient() as client:
+        await client.get("https://example.com")
+```
+
+### 3.5 運行異步程序
+
+在不同的環境中，運行異步代碼的方式略有不同。
+
+**1. 標準 Python 腳本**
+使用 `asyncio.run()` 作為入口點。
+
+```python
+import asyncio
+
+async def main():
+    print("Hello")
+    await asyncio.sleep(1)
+    print("World")
+
+if __name__ == "__main__":
+    # 自動創建並管理事件循環
+    asyncio.run(main())
+```
+
+**2. Jupyter Notebook / Pyodide (本教程環境)**
+這些環境通常已經有一個正在運行的事件循環，因此不能使用 `asyncio.run()`。
+- 直接 `await async_function()` (如果在支持頂層 await 的環境中)
+- 或者 `asyncio.create_task(async_function())` (後臺運行)
+
+## 4. 異步 Web 開發
+
+
+### 4.1 FastAPI 基礎
+
+FastAPI 是 Python 的現代異步 Web 框架，類似於 JavaScript 的 Express.js。
+
+<PythonEditor title="FastAPI vs Express.js 對比" compare={true}>
+```javascript !! js
+// Express.js 服務器
+const express = require('express');
+const app = express();
+const port = 3000;
+
+// 中間件
+app.use(express.json());
+
+// 路由
+app.get('/', (req, res) => {
+    res.json({ message: 'Hello World!' });
+});
+
+app.get('/users/:id', async (req, res) => {
+    try {
+        const userId = parseInt(req.params.id);
+        const user = await fetchUserData(userId);
+        res.json(user);
+    } catch (error) {
+        res.status(404).json({ error: error.message });
+    }
+});
+
+app.post('/users', async (req, res) => {
+    try {
+        const userData = req.body;
+        const newUser = await createUser(userData);
+        res.status(201).json(newUser);
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+});
+
+// 啟動服務器
+app.listen(port, () => {
+    console.log(`服務器運行在 http://localhost:${port}`);
+});
+
+// 模擬異步函數
+async function fetchUserData(userId) {
+    await new Promise(resolve => setTimeout(resolve, 100));
+    return { id: userId, name: `用戶${userId}` };
+}
+
+async function createUser(userData) {
+    await new Promise(resolve => setTimeout(resolve, 100));
+    return { id: Date.now(), ...userData };
+}
+```
+
+```python !! py
+# FastAPI 服務器
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+from typing import Optional
+import uvicorn
+
+app = FastAPI(title="用戶 API", version="1.0.0")
+
+# 數據模型
+class User(BaseModel):
+    name: str
+    email: str
+    age: Optional[int] = None
+
+class UserResponse(BaseModel):
+    id: int
+    name: str
+    email: str
+    age: Optional[int] = None
+
+# 路由
+@app.get("/")
+async def root():
+    """根路徑"""
+    return {"message": "Hello World!"}
+
+@app.get("/users/{user_id}", response_model=UserResponse)
+async def get_user(user_id: int):
+    """獲取用戶"""
+    try:
+        user = await fetch_user_data(user_id)
+        return user
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error))
+
+@app.post("/users", response_model=UserResponse, status_code=201)
+async def create_user(user: User):
+    """創建用戶"""
+    try:
+        new_user = await create_user_data(user)
+        return new_user
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error))
+
+# 模擬異步函數
+async def fetch_user_data(user_id: int) -> UserResponse:
+    """獲取用戶數據"""
+    await asyncio.sleep(0.1)  # 模擬數據庫查詢
+    if user_id <= 0:
+        raise ValueError("用戶不存在")
+    return UserResponse(
+        id=user_id,
+        name=f"用戶{user_id}",
+        email=f"user{user_id}@example.com",
+        age=25
+    )
+
+async def create_user_data(user: User) -> UserResponse:
+    """創建用戶數據"""
+    await asyncio.sleep(0.1)  # 模擬數據庫插入
+    return UserResponse(
+        id=1,  # 實際應用中應該是數據庫生成的 ID
+        name=user.name,
+        email=user.email,
+        age=user.age
+    )
+
+# 啟動服務器
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)
+```
+</PythonEditor>
+
+### 4.2 異步數據庫操作
+
+<PythonEditor title="異步數據庫操作" compare={true}>
+```javascript !! js
+// JavaScript 異步數據庫操作
+const { Pool } = require('pg');
+
+class DatabaseService {
+    constructor() {
+        this.pool = new Pool({
+            host: 'localhost',
+            database: 'testdb',
+            user: 'username',
+            password: 'password',
+            port: 5432,
+        });
+    }
+    
+    async getUsers() {
+        const client = await this.pool.connect();
+        try {
+            const result = await client.query('SELECT * FROM users');
+            return result.rows;
+        } finally {
+            client.release();
+        }
+    }
+    
+    async getUserById(id) {
+        const client = await this.pool.connect();
+        try {
+            const result = await client.query(
+                'SELECT * FROM users WHERE id = $1',
+                [id]
+            );
+            return result.rows[0];
+        } finally {
+            client.release();
+        }
+    }
+    
+    async createUser(userData) {
+        const client = await this.pool.connect();
+        try {
+            const result = await client.query(
+                'INSERT INTO users (name, email) VALUES ($1, $2) RETURNING *',
+                [userData.name, userData.email]
+            );
+            return result.rows[0];
+        } finally {
+            client.release();
+        }
+    }
+}
+
+// 使用數據庫服務
+const dbService = new DatabaseService();
+
+async function handleGetUsers(req, res) {
+    try {
+        const users = await dbService.getUsers();
+        res.json(users);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+}
+```
+
+```python !! py
+# Python 異步數據庫操作
+import asyncpg
+from typing import List, Optional
+from pydantic import BaseModel
+
+class User(BaseModel):
+    id: Optional[int] = None
+    name: str
+    email: str
+
+class DatabaseService:
+    """數據庫服務類"""
+    
+    def __init__(self):
+        self.pool = None
+    
+    async def connect(self):
+        """連接數據庫"""
+        self.pool = await asyncpg.create_pool(
+            host='localhost',
+            database='testdb',
+            user='username',
+            password='password',
+            port=5432
+        )
+    
+    async def close(self):
+        """關閉數據庫連接"""
+        if self.pool:
+            await self.pool.close()
+    
+    async def get_users(self) -> List[User]:
+        """獲取所有用戶"""
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch('SELECT * FROM users')
+            return [User(**dict(row)) for row in rows]
+    
+    async def get_user_by_id(self, user_id: int) -> Optional[User]:
+        """根據 ID 獲取用戶"""
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                'SELECT * FROM users WHERE id = $1',
+                user_id
+            )
+            return User(**dict(row)) if row else None
+    
+    async def create_user(self, user: User) -> User:
+        """創建用戶"""
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                'INSERT INTO users (name, email) VALUES ($1, $2) RETURNING *',
+                user.name, user.email
+            )
+            return User(**dict(row))
+
+# 使用數據庫服務
+db_service = DatabaseService()
+
+async def handle_get_users():
+    """處理獲取用戶請求"""
+    try:
+        users = await db_service.get_users()
+        return users
+    except Exception as error:
+        raise HTTPException(status_code=500, detail=str(error))
+
+# 在 FastAPI 中使用
+@app.get("/users", response_model=List[User])
+async def get_users():
+    """獲取所有用戶"""
+    return await handle_get_users()
+
+@app.get("/users/{user_id}", response_model=User)
+async def get_user(user_id: int):
+    """獲取指定用戶"""
+    user = await db_service.get_user_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="用戶不存在")
+    return user
+
+@app.post("/users", response_model=User, status_code=201)
+async def create_user(user: User):
+    """創建用戶"""
+    return await db_service.create_user(user)
+```
+</PythonEditor>
+
+## 5. 異步迭代和生成器
+
+### 5.1 異步迭代器
+
+<PythonEditor title="異步迭代器對比" compare={true}>
+```javascript !! js
+// JavaScript 異步迭代器
+class AsyncDataStream {
+    constructor(data) {
+        this.data = data;
+        this.index = 0;
+    }
+    
+    async *[Symbol.asyncIterator]() {
+        for (const item of this.data) {
+            // 模擬異步處理
+            await new Promise(resolve => setTimeout(resolve, 100));
+            yield item;
+        }
+    }
+}
+
+// 使用異步迭代器
+async function processDataStream() {
+    const stream = new AsyncDataStream([1, 2, 3, 4, 5]);
+    
+    for await (const item of stream) {
+        console.log(`處理數據: ${item}`);
+    }
+}
+
+// 異步生成器函數
+async function* asyncGenerator() {
+    for (let i = 0; i < 5; i++) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+        yield i;
+    }
+}
+
+async function useAsyncGenerator() {
+    for await (const value of asyncGenerator()) {
+        console.log(`生成的值: ${value}`);
+    }
+}
+
+// 調用函數
+processDataStream();
+useAsyncGenerator();
+```
+
+```python !! py
+import asyncio
+
+# Python 異步迭代器
+class AsyncDataStream:
+    """異步數據流"""
+    
+    def __init__(self, data):
+        self.data = data
+        self.index = 0
+    
+    def __aiter__(self):
+        return self
+    
+    async def __anext__(self):
+        if self.index >= len(self.data):
+            raise StopAsyncIteration
+        
+        # 模擬異步處理
+        await asyncio.sleep(0.1)
+        item = self.data[self.index]
+        self.index += 1
+        return item
+
+# 使用異步迭代器
+async def process_data_stream():
+    """處理異步數據流"""
+    stream = AsyncDataStream([1, 2, 3, 4, 5])
+    
+    async for item in stream:
+        print(f"處理數據: {item}")
+
+# 異步生成器函數
+async def async_generator():
+    """異步生成器"""
+    for i in range(5):
+        await asyncio.sleep(0.1)
+        yield i
+
+async def use_async_generator():
+    """使用異步生成器"""
+    async for value in async_generator():
+        print(f"生成的值: {value}")
+
+# 運行示例
+async def main():
+    await process_data_stream()
+    await use_async_generator()
+
+# 在 Pyodide 環境中，直接調用異步函數
+asyncio.create_task(main())
+```
+</PythonEditor>
+
+### 5.2 異步上下文管理器與迭代器結合
+
+<PythonEditor title="異步上下文管理器與迭代器" compare={true}>
+```javascript !! js
+// JavaScript 異步資源迭代器
+class AsyncFileReader {
+    constructor(filename) {
+        this.filename = filename;
+        this.fileHandle = null;
+    }
+    
+    async open() {
+        this.fileHandle = await open(this.filename, 'r');
+    }
+    
+    async close() {
+        if (this.fileHandle) {
+            await this.fileHandle.close();
+        }
+    }
+    
+    async *readLines() {
+        if (!this.fileHandle) {
+            throw new Error('文件未打開');
+        }
+        
+        for await (const line of this.fileHandle.readLines()) {
+            yield line.trim();
+        }
+    }
+}
+
+// 使用異步文件讀取器
+async function processFile(filename) {
+    const reader = new AsyncFileReader(filename);
+    
+    try {
+        await reader.open();
+        
+        for await (const line of reader.readLines()) {
+            if (line) {
+                console.log(`處理行: ${line}`);
+            }
+        }
+    } finally {
+        await reader.close();
+    }
+}
+```
+
+```python !! py
+import asyncio
+import aiofiles
+
+# Python 異步文件讀取器
+class AsyncFileReader:
+    """異步文件讀取器"""
+    
+    def __init__(self, filename):
+        self.filename = filename
+        self.file = None
+    
+    async def __aenter__(self):
+        """進入上下文"""
+        self.file = await aiofiles.open(self.filename, mode='r')
+        return self
+    
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """退出上下文"""
+        if self.file:
+            await self.file.close()
+    
+    async def read_lines(self):
+        """讀取文件行"""
+        async for line in self.file:
+            yield line.strip()
+
+# 使用異步文件讀取器
+async def process_file(filename):
+    """處理文件"""
+    async with AsyncFileReader(filename) as reader:
+        async for line in reader.read_lines():
+            if line:
+                print(f"處理行: {line}")
+
+# 創建示例文件
+async def create_sample_file():
+    """創建示例文件"""
+    async with aiofiles.open('sample.txt', mode='w') as f:
+        await f.write("第一行\n")
+        await f.write("第二行\n")
+        await f.write("第三行\n")
+
+# 運行示例
+async def main():
+    await create_sample_file()
+    await process_file('sample.txt')
+
+# 在 Pyodide 環境中，直接調用異步函數
+asyncio.create_task(main())
+```
+</PythonEditor>
+
+## 6. 實際項目示例
+
+### 6.1 異步 Web 爬蟲
+
+<PythonEditor title="異步 Web 爬蟲示例" compare={true}>
+```javascript !! js
+// JavaScript 異步爬蟲
+const axios = require('axios');
+const cheerio = require('cheerio');
+
+class AsyncWebCrawler {
+    constructor() {
+        this.visited = new Set();
+        this.results = [];
+    }
+    
+    async crawlPage(url) {
+        if (this.visited.has(url)) {
+            return;
+        }
+        
+        this.visited.add(url);
+        console.log(`爬取頁面: ${url}`);
+        
+        try {
+            const response = await axios.get(url);
+            const $ = cheerio.load(response.data);
+            
+            // 提取標題
+            const title = $('title').text();
+            const links = $('a').map((i, el) => $(el).attr('href')).get();
+            
+            this.results.push({
+                url,
+                title,
+                links: links.slice(0, 5) // 限制鏈接數量
+            });
+            
+            console.log(`頁面標題: ${title}`);
+            
+        } catch (error) {
+            console.error(`爬取失敗: ${url}`, error.message);
+        }
+    }
+    
+    async crawlMultiplePages(urls) {
+        const promises = urls.map(url => this.crawlPage(url));
+        await Promise.all(promises);
+        
+        return this.results;
+    }
+}
+
+// 使用爬蟲
+async function main() {
+    const crawler = new AsyncWebCrawler();
+    const urls = [
+        'https://example.com',
+        'https://httpbin.org/get',
+        'https://jsonplaceholder.typicode.com/posts/1'
+    ];
+    
+    const results = await crawler.crawlMultiplePages(urls);
+    console.log('爬取結果:', results);
+}
+
+// main();
+```
+
+```python !! py
+import asyncio
+import aiohttp
+from bs4 import BeautifulSoup
+from typing import List, Dict, Set
+import time
+
+class AsyncWebCrawler:
+    """異步 Web 爬蟲"""
+    
+    def __init__(self):
+        self.visited: Set[str] = set()
+        self.results: List[Dict] = []
+    
+    async def crawl_page(self, session: aiohttp.ClientSession, url: str):
+        """爬取單個頁面"""
+        if url in self.visited:
+            return
+        
+        self.visited.add(url)
+        print(f"爬取頁面: {url}")
+        
+        try:
+            async with session.get(url) as response:
+                if response.status == 200:
+                    html = await response.text()
+                    soup = BeautifulSoup(html, 'html.parser')
+                    
+                    # 提取標題
+                    title = soup.title.string if soup.title else "無標題"
+                    links = [a.get('href') for a in soup.find_all('a', href=True)]
+                    
+                    self.results.append({
+                        'url': url,
+                        'title': title,
+                        'links': links[:5]  # 限制鏈接數量
+                    })
+                    
+                    print(f"頁面標題: {title}")
+                else:
+                    print(f"HTTP 錯誤: {response.status}")
+                    
+        except Exception as error:
+            print(f"爬取失敗: {url} - {error}")
+    
+    async def crawl_multiple_pages(self, urls: List[str]):
+        """併發爬取多個頁面"""
+        async with aiohttp.ClientSession() as session:
+            tasks = [
+                self.crawl_page(session, url) 
+                for url in urls
+            ]
+            await asyncio.gather(*tasks)
+        
+        return self.results
+
+# 使用爬蟲
+async def main():
+    crawler = AsyncWebCrawler()
+    urls = [
+        'https://httpbin.org/get',
+        'https://jsonplaceholder.typicode.com/posts/1',
+        'https://api.github.com/users/octocat'
+    ]
+    
+    start_time = time.time()
+    results = await crawler.crawl_multiple_pages(urls)
+    end_time = time.time()
+    
+    print(f"爬取完成，耗時: {end_time - start_time:.2f} 秒")
+    print("爬取結果:", results)
+
+# 運行爬蟲
+# 在 Pyodide 環境中，直接調用異步函數
+asyncio.create_task(main())
+```
+</PythonEditor>
+
+### 6.2 異步任務隊列
+
+<PythonEditor title="異步任務隊列示例" compare={true}>
+```javascript !! js
+// JavaScript 異步任務隊列
+class AsyncTaskQueue {
+    constructor(concurrency = 3) {
+        this.concurrency = concurrency;
+        this.running = 0;
+        this.queue = [];
+    }
+    
+    async add(task) {
+        return new Promise((resolve, reject) => {
+            this.queue.push({
+                task,
+                resolve,
+                reject
+            });
+            this.process();
+        });
+    }
+    
+    async process() {
+        if (this.running >= this.concurrency || this.queue.length === 0) {
+            return;
+        }
+        
+        this.running++;
+        const { task, resolve, reject } = this.queue.shift();
+        
+        try {
+            const result = await task();
+            resolve(result);
+        } catch (error) {
+            reject(error);
+        } finally {
+            this.running--;
+            this.process();
+        }
+    }
+    
+    async waitForAll() {
+        while (this.queue.length > 0 || this.running > 0) {
+            await new Promise(resolve => setTimeout(resolve, 100));
+        }
+    }
+}
+
+// 使用任務隊列
+async function processTask(id) {
+    console.log(`開始處理任務 ${id}`);
+    await new Promise(resolve => setTimeout(resolve, 1000 + Math.random() * 2000));
+    console.log(`完成處理任務 ${id}`);
+    return `任務 ${id} 的結果`;
+}
+
+async function main() {
+    const queue = new AsyncTaskQueue(2);
+    
+    // 添加任務
+    const promises = [];
+    for (let i = 1; i <= 5; i++) {
+        promises.push(queue.add(() => processTask(i)));
+    }
+    
+    // 等待所有任務完成
+    await queue.waitForAll();
+    const results = await Promise.all(promises);
+    
+    console.log('所有任務完成:', results);
+}
+
+// main();
+```
+
+```python !! py
+import asyncio
+import random
+from typing import List, Callable, Any
+from dataclasses import dataclass
+
+@dataclass
+class Task:
+    """任務類"""
+    func: Callable
+    args: tuple = ()
+    kwargs: dict = None
+    future: asyncio.Future = None
+    
+    def __post_init__(self):
+        if self.kwargs is None:
+            self.kwargs = {}
+        if self.future is None:
+            self.future = asyncio.Future()
+
+class AsyncTaskQueue:
+    """異步任務隊列"""
+    
+    def __init__(self, concurrency: int = 3):
+        self.concurrency = concurrency
+        self.running = 0
+        self.queue: List[Task] = []
+        self.semaphore = asyncio.Semaphore(concurrency)
+    
+    async def add(self, func: Callable, *args, **kwargs) -> asyncio.Future:
+        """添加任務到隊列"""
+        task = Task(func, args, kwargs)
+        self.queue.append(task)
+        asyncio.create_task(self._process_queue())
+        return task.future
+    
+    async def _process_queue(self):
+        """處理隊列中的任務"""
+        if not self.queue or self.running >= self.concurrency:
+            return
+        
+        self.running += 1
+        task = self.queue.pop(0)
+        
+        try:
+            async with self.semaphore:
+                result = await task.func(*task.args, **task.kwargs)
+                task.future.set_result(result)
+        except Exception as error:
+            task.future.set_exception(error)
+        finally:
+            self.running -= 1
+            if self.queue:
+                asyncio.create_task(self._process_queue())
+    
+    async def wait_for_all(self):
+        """等待所有任務完成"""
+        while self.queue or self.running > 0:
+            await asyncio.sleep(0.1)
+
+# 使用任務隊列
+async def process_task(task_id: int) -> str:
+    """處理任務"""
+    print(f"開始處理任務 {task_id}")
+    await asyncio.sleep(1 + random.random() * 2)
+    print(f"完成處理任務 {task_id}")
+    return f"任務 {task_id} 的結果"
+
+async def main():
+    queue = AsyncTaskQueue(2)
+    
+    # 添加任務
+    futures = []
+    for i in range(1, 6):
+        future = await queue.add(process_task, i)
+        futures.append(future)
+    
+    # 等待所有任務完成
+    await queue.wait_for_all()
+    results = await asyncio.gather(*futures)
+    
+    print("所有任務完成:", results)
+
+asyncio.create_task(main())
+```
+</PythonEditor>
+
+## 7. 練習題
+
+### 練習 1：異步數據處理
+
+<PythonEditor title="練習題 1：異步數據處理" compare={true}>
+```javascript !! js
+// 異步數據處理練習
+async function processData(data) {
+    // 模擬數據處理
+    await new Promise(resolve => setTimeout(resolve, 100));
+    return data.map(item => item * 2);
+}
+
+async function filterData(data) {
+    // 模擬數據過濾
+    await new Promise(resolve => setTimeout(resolve, 50));
+    return data.filter(item => item > 10);
+}
+
+async function aggregateData(data) {
+    // 模擬數據聚合
+    await new Promise(resolve => setTimeout(resolve, 75));
+    return data.reduce((sum, item) => sum + item, 0);
+}
+
+async function processDataPipeline() {
+    const rawData = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    
+    console.log("原始數據:", rawData);
+    
+    // 順序處理
+    const processed = await processData(rawData);
+    console.log("處理後數據:", processed);
+    
+    const filtered = await filterData(processed);
+    console.log("過濾後數據:", filtered);
+    
+    const result = await aggregateData(filtered);
+    console.log("最終結果:", result);
+    
+    return result;
+}
+
+// 併發處理版本
+async function processDataConcurrently() {
+    const rawData = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    
+    console.log("原始數據:", rawData);
+    
+    // 併發處理
+    const [processed, filtered, aggregated] = await Promise.all([
+        processData(rawData),
+        filterData(rawData),
+        aggregateData(rawData)
+    ]);
+    
+    console.log("併發處理結果:", { processed, filtered, aggregated });
+    return { processed, filtered, aggregated };
+}
+
+// 運行練習
+processDataPipeline();
+processDataConcurrently();
+```
+
+```python !! py
+import asyncio
+from typing import List
+
+# 異步數據處理練習
+async def process_data(data: List[int]) -> List[int]:
+    """處理數據"""
+    await asyncio.sleep(0.1)  # 模擬處理時間
+    return [item * 2 for item in data]
+
+async def filter_data(data: List[int]) -> List[int]:
+    """過濾數據"""
+    await asyncio.sleep(0.05)  # 模擬過濾時間
+    return [item for item in data if item > 10]
+
+async def aggregate_data(data: List[int]) -> int:
+    """聚合數據"""
+    await asyncio.sleep(0.075)  # 模擬聚合時間
+    return sum(data)
+
+async def process_data_pipeline():
+    """數據處理管道（順序處理）"""
+    raw_data = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+    
+    print("原始數據:", raw_data)
+    
+    # 順序處理
+    processed = await process_data(raw_data)
+    print("處理後數據:", processed)
+    
+    filtered = await filter_data(processed)
+    print("過濾後數據:", filtered)
+    
+    result = await aggregate_data(filtered)
+    print("最終結果:", result)
+    
+    return result
+
+async def process_data_concurrently():
+    """併發數據處理"""
+    raw_data = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+    
+    print("原始數據:", raw_data)
+    
+    # 併發處理
+    processed, filtered, aggregated = await asyncio.gather(
+        process_data(raw_data),
+        filter_data(raw_data),
+        aggregate_data(raw_data)
+    )
+    
+    print("併發處理結果:", {
+        "processed": processed,
+        "filtered": filtered,
+        "aggregated": aggregated
+    })
+    
+    return {
+        "processed": processed,
+        "filtered": filtered,
+        "aggregated": aggregated
+    }
+
+# 運行練習
+async def main():
+    print("=== 順序處理 ===")
+    await process_data_pipeline()
+    
+    print("\n=== 併發處理 ===")
+    await process_data_concurrently()
+
+asyncio.create_task(main())
+```
+</PythonEditor>
+
+### 練習 2：異步 API 客戶端
+
+<PythonEditor title="練習題 2：異步 API 客戶端" compare={true}>
+```javascript !! js
+// 異步 API 客戶端練習
+class AsyncAPIClient {
+    constructor(baseURL) {
+        this.baseURL = baseURL;
+    }
+    
+    async get(endpoint) {
+        const response = await fetch(`${this.baseURL}${endpoint}`);
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        return response.json();
+    }
+    
+    async post(endpoint, data) {
+        const response = await fetch(`${this.baseURL}${endpoint}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(data)
+        });
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        return response.json();
+    }
+    
+    async batchGet(endpoints) {
+        const promises = endpoints.map(endpoint => this.get(endpoint));
+        return Promise.all(promises);
+    }
+}
+
+// 使用 API 客戶端
+async function testAPIClient() {
+    const client = new AsyncAPIClient('https://jsonplaceholder.typicode.com');
+    
+    try {
+        // 單個請求
+        const user = await client.get('/users/1');
+        console.log('用戶信息:', user);
+        
+        // 批量請求
+        const [posts, comments, albums] = await client.batchGet([
+            '/posts/1',
+            '/comments/1',
+            '/albums/1'
+        ]);
+        
+        console.log('批量請求結果:', { posts, comments, albums });
+        
+        // POST 請求
+        const newPost = await client.post('/posts', {
+            title: '測試文章',
+            body: '這是測試內容',
+            userId: 1
+        });
+        
+        console.log('新文章:', newPost);
+        
+    } catch (error) {
+        console.error('API 請求失敗:', error.message);
+    }
+}
+
+// testAPIClient();
+```
+
+```python !! py
+import aiohttp
+import asyncio
+from typing import List, Dict, Any
+
+class AsyncAPIClient:
+    """異步 API 客戶端"""
+    
+    def __init__(self, base_url: str):
+        self.base_url = base_url
+    
+    async def get(self, endpoint: str) -> Dict[str, Any]:
+        """GET 請求"""
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{self.base_url}{endpoint}") as response:
+                if response.status != 200:
+                    raise aiohttp.ClientError(
+                        f"HTTP {response.status}: {response.reason}"
+                    )
+                return await response.json()
+    
+    async def post(self, endpoint: str, data: Dict[str, Any]) -> Dict[str, Any]:
+        """POST 請求"""
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{self.base_url}{endpoint}",
+                json=data
+            ) as response:
+                if response.status != 201:
+                    raise aiohttp.ClientError(
+                        f"HTTP {response.status}: {response.reason}"
+                    )
+                return await response.json()
+    
+    async def batch_get(self, endpoints: List[str]) -> List[Dict[str, Any]]:
+        """批量 GET 請求"""
+        async with aiohttp.ClientSession() as session:
+            tasks = [
+                self._get_with_session(session, endpoint)
+                for endpoint in endpoints
+            ]
+            return await asyncio.gather(*tasks)
+    
+    async def _get_with_session(self, session: aiohttp.ClientSession, endpoint: str):
+        """使用現有會話的 GET 請求"""
+        async with session.get(f"{self.base_url}{endpoint}") as response:
+            if response.status != 200:
+                raise aiohttp.ClientError(
+                    f"HTTP {response.status}: {response.reason}"
+                )
+            return await response.json()
+
+# 使用 API 客戶端
+async def test_api_client():
+    """測試 API 客戶端"""
+    client = AsyncAPIClient('https://jsonplaceholder.typicode.com')
+    
+    try:
+        # 單個請求
+        user = await client.get('/users/1')
+        print('用戶信息:', user)
+        
+        # 批量請求
+        posts, comments, albums = await client.batch_get([
+            '/posts/1',
+            '/comments/1',
+            '/albums/1'
+        ])
+        
+        print('批量請求結果:', {
+            'posts': posts,
+            'comments': comments,
+            'albums': albums
+        })
+        
+        # POST 請求
+        new_post = await client.post('/posts', {
+            'title': '測試文章',
+            'body': '這是測試內容',
+            'userId': 1
+        })
+        
+        print('新文章:', new_post)
+        
+    except Exception as error:
+        print('API 請求失敗:', error)
+
+    # 運行測試
+    # 在 Pyodide 環境中，直接調用異步函數
+asyncio.create_task(main())
+```
+</PythonEditor>
+
+## 8. 總結與擴展學習路徑
+Python 的異步編程能力，雖然起步稍晚，但如今已經非常成熟，適用於 I/O 密集型場景、Web 後端、爬蟲、實時數據處理等領域。通過本教程，你已經完成了從基礎語法到實際項目的全面掌握。
+
+### 學習回顧
+理解了 Python 中 async/await 的使用方式及其與 JavaScript 的異同
+
+熟悉了事件循環、併發執行、異步生成器、上下文管理器等高級特性
+
+結合 FastAPI 與 asyncpg 實現了完整的異步 Web 服務與數據庫交互
+
+編寫了爬蟲、任務隊列、API 客戶端等實用異步項目示例
+
+練習了真實場景下的數據處理流程
+
+### 推薦擴展
+以下是下一步深入異步編程的學習建議：
+
+#### 📚 框架與庫
+FastAPI：深入使用依賴注入、後臺任務、中間件等功能
+
+aiohttp：構建異步 HTTP 客戶端和服務端
+
+Starlette：FastAPI 的底層異步框架，可實現更低層級的異步 Web 服務
+
+Trio / Curio：另類異步庫，提供結構化併發的編程範式
+
+#### 🛠️ 工具與調試
+asyncio.TaskGroup (Python 3.11+)：更安全的併發執行模型
+
+aiomonitor / aiodebug：調試異步事件循環
+
+pytest-asyncio：編寫異步測試用例
+
+#### 💡 實踐項目建議
+實現一個 異步微服務架構，通過消息隊列連接多個異步服務
+
+構建一個 基於 WebSocket 的實時聊天室
+
+編寫一個 異步數據聚合器，整合多個 API 的異步響應
+
+🧠 思考題：相比傳統多線程，多進程編程，異步編程有哪些優勢和限制？你會在哪些實際項目中優先選擇異步方案？
+
+🎉 到這裡，你已經完成了 Python 異步編程的全景入門。如果你是來自 JavaScript 的背景，相信現在你對 Python 的異步世界已經不再陌生。繼續深入探索，異步將成為你開發效率的重要武器！

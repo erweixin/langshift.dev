@@ -16,7 +16,7 @@ import { LeetCodeProblem } from "@/components/leetcode/LeetCodeProblem"
 <details>
 <summary><strong>最优解</strong>（DFS/BFS 泛洪：看到 1 就把整座岛“淹掉”并计数）</summary>
 
-<UniversalEditor title=" " compare={true}>
+<UniversalEditor title="参考解法（JavaScript / Go）" compare={true}>
 ```javascript !! js
 function numIslands(grid) {
   const m = grid.length
@@ -90,6 +90,42 @@ func main() {
 ```
 </UniversalEditor>
 
+<details>
+<summary><strong>Rust 参考</strong>（点击展开）</summary>
+
+```rust
+fn num_islands(mut grid: Vec<Vec<u8>>) -> i32 {
+    let (m, n) = (grid.len(), grid[0].len());
+    fn dfs(grid: &mut Vec<Vec<u8>>, i: usize, j: usize, m: usize, n: usize) {
+        if grid[i][j] != b'1' { return; }
+        grid[i][j] = b'0';
+        if i + 1 < m { dfs(grid, i + 1, j, m, n); }
+        if i > 0     { dfs(grid, i - 1, j, m, n); }
+        if j + 1 < n { dfs(grid, i, j + 1, m, n); }
+        if j > 0     { dfs(grid, i, j - 1, m, n); }
+    }
+    let mut ans = 0;
+    for i in 0..m {
+        for j in 0..n {
+            if grid[i][j] == b'1' { ans += 1; dfs(&mut grid, i, j, m, n); }
+        }
+    }
+    ans
+}
+
+fn g(s: &[&str]) -> Vec<Vec<u8>> { s.iter().map(|r| r.bytes().collect()).collect() }
+
+fn main() {
+    println!("{}", num_islands(g(&["11110","11010","11000","00000"]))); // 1
+    println!("{}", num_islands(g(&["11000","11000","00100","00011"]))); // 3
+    println!("{}", num_islands(g(&["0"]))); // 0
+    println!("{}", num_islands(g(&["1"]))); // 1
+    println!("{}", num_islands(g(&["101","010","101"]))); // 5
+}
+```
+
+</details>
+
 </details>
 
 <details>
@@ -129,7 +165,7 @@ if cell is target:
 <details>
 <summary><strong>最优解</strong>（多源 BFS：所有烂橘子同时扩散）</summary>
 
-<UniversalEditor title=" " compare={true}>
+<UniversalEditor title="参考解法（JavaScript / Go）" compare={true}>
 ```javascript !! js
 function orangesRotting(grid) {
   const m = grid.length
@@ -231,6 +267,50 @@ func main() {
 ```
 </UniversalEditor>
 
+<details>
+<summary><strong>Rust 参考</strong>（点击展开）</summary>
+
+```rust
+use std::collections::VecDeque;
+
+fn oranges_rotting(mut grid: Vec<Vec<i32>>) -> i32 {
+    let (m, n) = (grid.len(), grid[0].len());
+    let mut q = VecDeque::new();
+    let mut fresh = 0;
+    for i in 0..m { for j in 0..n {
+        if grid[i][j] == 2 { q.push_back((i, j)); }
+        else if grid[i][j] == 1 { fresh += 1; }
+    }}
+    if fresh == 0 { return 0; }
+    let dirs: [(i32,i32); 4] = [(1,0),(-1,0),(0,1),(0,-1)];
+    let mut minutes = -1;
+    while !q.is_empty() {
+        minutes += 1;
+        for _ in 0..q.len() {
+            let (i, j) = q.pop_front().unwrap();
+            for (di, dj) in dirs {
+                let ni = i as i32 + di; let nj = j as i32 + dj;
+                if ni < 0 || ni >= m as i32 || nj < 0 || nj >= n as i32 { continue; }
+                let (ni, nj) = (ni as usize, nj as usize);
+                if grid[ni][nj] != 1 { continue; }
+                grid[ni][nj] = 2; fresh -= 1; q.push_back((ni, nj));
+            }
+        }
+    }
+    if fresh != 0 { -1 } else { minutes }
+}
+
+fn main() {
+    println!("{}", oranges_rotting(vec![vec![2,1,1],vec![1,1,0],vec![0,1,1]])); // 4
+    println!("{}", oranges_rotting(vec![vec![2,1,1],vec![0,1,1],vec![1,0,1]])); // -1
+    println!("{}", oranges_rotting(vec![vec![0,2]]));                           // 0
+    println!("{}", oranges_rotting(vec![vec![1]]));                             // -1
+    println!("{}", oranges_rotting(vec![vec![2,2],vec![1,1],vec![0,1]]));       // 2
+}
+```
+
+</details>
+
 </details>
 
 <details>
@@ -271,7 +351,7 @@ while queue:
 <details>
 <summary><strong>最优解</strong>（拓扑排序：看是否能处理完所有点）</summary>
 
-<UniversalEditor title=" " compare={true}>
+<UniversalEditor title="参考解法（JavaScript / Go）" compare={true}>
 ```javascript !! js
 function canFinish(numCourses, prerequisites) {
   const g = Array.from({ length: numCourses }, () => [])
@@ -351,6 +431,43 @@ func main() {
 ```
 </UniversalEditor>
 
+<details>
+<summary><strong>Rust 参考</strong>（点击展开）</summary>
+
+```rust
+use std::collections::VecDeque;
+
+fn can_finish(num_courses: usize, prerequisites: &[[usize; 2]]) -> bool {
+    let mut g = vec![vec![]; num_courses];
+    let mut indeg = vec![0usize; num_courses];
+    for e in prerequisites {
+        let (a, b) = (e[0], e[1]); // b → a
+        g[b].push(a);
+        indeg[a] += 1;
+    }
+    let mut q: VecDeque<usize> = (0..num_courses).filter(|&i| indeg[i] == 0).collect();
+    let mut taken = 0;
+    while let Some(x) = q.pop_front() {
+        taken += 1;
+        for &y in &g[x] {
+            indeg[y] -= 1;
+            if indeg[y] == 0 { q.push_back(y); }
+        }
+    }
+    taken == num_courses
+}
+
+fn main() {
+    println!("{}", can_finish(2, &[[1,0]]));               // true
+    println!("{}", can_finish(2, &[[1,0],[0,1]]));         // false
+    println!("{}", can_finish(1, &[]));                    // true
+    println!("{}", can_finish(3, &[[1,0],[2,1]]));         // true
+    println!("{}", can_finish(3, &[[1,0],[2,1],[0,2]]));   // false
+}
+```
+
+</details>
+
 </details>
 
 <details>
@@ -389,7 +506,7 @@ return processedCount === n
 <details>
 <summary><strong>最优解</strong>（Trie 节点 = children 映射 + isEnd 标记）</summary>
 
-<UniversalEditor title=" " compare={true}>
+<UniversalEditor title="参考解法（JavaScript / Go）" compare={true}>
 ```javascript !! js
 class Trie {
   constructor() {
@@ -508,6 +625,55 @@ func main() {
 }
 ```
 </UniversalEditor>
+
+<details>
+<summary><strong>Rust 参考</strong>（点击展开）</summary>
+
+```rust
+use std::collections::HashMap;
+
+#[derive(Default)]
+struct Trie {
+    children: HashMap<u8, Trie>,
+    end: bool,
+}
+
+impl Trie {
+    fn new() -> Self { Self::default() }
+    fn insert(&mut self, word: &str) {
+        let mut node = self;
+        for b in word.bytes() { node = node.children.entry(b).or_default(); }
+        node.end = true;
+    }
+    fn search(&self, word: &str) -> bool {
+        let mut node = self;
+        for b in word.bytes() { node = node.children.get(&b)?; }
+        node.end
+    }
+    fn starts_with(&self, prefix: &str) -> bool {
+        let mut node = self;
+        for b in prefix.bytes() { node = node.children.get(&b)?; }
+        true
+    }
+}
+
+fn main() {
+    let mut t = Trie::new();
+    t.insert("apple");
+    println!("{}", t.search("apple"));     // true
+    println!("{}", t.search("app"));       // false
+    println!("{}", t.starts_with("app"));  // true
+    t.insert("app");
+    println!("{}", t.search("app"));       // true
+    let mut t2 = Trie::new();
+    t2.insert("a");
+    println!("{}", t2.search("a"));        // true
+    println!("{}", t2.search("ab"));       // false
+    println!("{}", t2.starts_with("a"));   // true
+}
+```
+
+</details>
 
 </details>
 

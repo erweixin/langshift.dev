@@ -59,6 +59,12 @@ let age: i32 = 25;
 
 **IMPORTANT: UniversalEditor is the DEFAULT and PREFERRED component for all code examples in learning modules.**
 
+#### Exception: `<PythonEditor>` for Python runtimes (js2py / py2js)
+
+For **`content/docs/js2py/`** and **`content/docs/py2js/`** only, use **`<PythonEditor compare={true}>`** for side‑by‑side **JavaScript + Python** examples that must run **Python in the browser via Pyodide** (same pattern as the existing js2py module rules). Do **not** replace these with `UniversalEditor` unless `UniversalEditor` gains equivalent Pyodide execution for those paths.
+
+For **all other** language pairs, keep using **`UniversalEditor`**.
+
 ### Other Code Components (Use Only When Appropriate):
 
 #### `<Code>` Component
