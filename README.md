@@ -19,6 +19,12 @@ LangShift.dev 是一个专门为开发者设计的编程语言转换学习平台
 
 > 💡 **智能辅助学习**: 本项目运用 AI 技术生成丰富的学习内容，并经过审核优化，为你提供高效的学习体验。建议结合官方文档一起学习，获得最佳效果！如有改进建议，欢迎通过 [GitHub Issues](https://github.com/erweixin/langshift.dev/issues) 分享。
 
+## 🤖 LangShift Agent 方向
+
+LangShift.dev 正在规划升级为一个技术栈扩展学习 Agent：基于现有 MDX 内容、`UniversalEditor` 对比交互、在线运行和个性化 memory，帮助开发者从已掌握的技术出发，循序渐进扩展新的语言、框架和工程能力。
+
+项目级技术方案见：[LangShift Agent 技术方案](./docs/langshift-agent-technical-plan.md)。
+
 ## 🎯 学习目标
 
 - 通过语言对比快速掌握新编程语言

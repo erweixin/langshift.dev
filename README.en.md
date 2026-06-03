@@ -19,6 +19,12 @@ Our core philosophy is: **Understanding unknown languages through known language
 
 > 💡 **AI-Enhanced Learning**: This project leverages AI technology to create rich learning content, reviewed and optimized to provide you with an efficient learning experience. Combine with official documentation for the best results! We welcome your feedback and suggestions via [GitHub Issues](https://github.com/erweixin/langshift.dev/issues).
 
+## 🤖 LangShift Agent Direction
+
+LangShift.dev is being planned as a tech stack expansion learning agent. It will build on the existing MDX content, `UniversalEditor` side-by-side interaction, online code execution, and personalized memory to help developers expand from the technologies they already know into new languages, frameworks, and engineering domains.
+
+See the project-level technical plan: [LangShift Agent Technical Plan](./docs/langshift-agent-technical-plan.md).
+
 ## 🎯 Learning Objectives
 
 - Master new programming languages quickly through language comparison
