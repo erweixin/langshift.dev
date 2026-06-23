@@ -49,4 +49,6 @@ that a real cloud deployment needs.
 
 - `backend/` is a Go project.
 - `frontend/` is a Vite and React npm project.
+- `docs/architecture.md` describes the cloud Agent architecture and production
+  semantics.
 - The root package coordinates project-level scripts.
