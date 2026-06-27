@@ -27,6 +27,8 @@
 - Timer / Sweeper：deadline、未知结果对账、quota 回收、租约/旧尝试清理、snapshot、runtime cleanup。（见 [operations.md](./operations.md)）
 - Realtime after-commit 发布、`last_seen_seq` 补拉和无竞态重连。（见 [realtime.md](./realtime.md)）
 - Run 内上下文预算、压缩和 `context_manifest`。（见 [execution-model.md](./execution-model.md)）
+- 平台工具 Descriptor 注册、input/output schema 校验、工具集快照和 `tool_schema_versions` 进入 manifest。（见 [tool-system.md](./tool-system.md)）
+- Memory 三层模型（Working / Conversation / Long-term）、写入流经事件、向量检索召回、`memory_document_ids` 进入 manifest。（见 [memory.md](./memory.md)）
 
 ## 阶段二：生产加固
 
@@ -40,6 +42,8 @@
 - 低基数指标、trace、audit、SLO 和故障注入矩阵。（见 [operations.md](./operations.md)）
 - 数据保留与删除：销毁密钥式删除、投影失效、删除审计事件。（见 [multi-tenancy-and-security.md](./multi-tenancy-and-security.md)）
 - Admin 写路径全部经 Repair Command API。（见 [multi-tenancy-and-security.md](./multi-tenancy-and-security.md)）
+- 租户自定义工具注册审批流程、版本共存与弃用策略、市场工具安装与升级。（见 [tool-system.md](./tool-system.md)）
+- Memory 淘汰策略、容量配额、嵌入模型升级与新旧索引并存、数据删除联动 Memory 清除。（见 [memory.md](./memory.md)）
 
 ## 阶段三：规模化演进
 
