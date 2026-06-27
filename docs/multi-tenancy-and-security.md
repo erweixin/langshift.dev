@@ -1,36 +1,100 @@
 # 多租户与安全
 
-> 本文档是 [architecture.md](./architecture.md) 的子文档，定义租户隔离、权限模型、数据保留与删除策略。
+> 本文档是 [architecture.md](./architecture.md) 的子文档，定义租户隔离、权限模型、数据保留、删除与人工修复入口。
 
-## 多租户
+## 问题、决策与风险
 
-租户隔离是核心设计属性，**不能只依赖代码里的 `WHERE tenant_id = ?`**，采用三层保护：
+**问题**：Agent 平台同时处理多个租户的对话、workspace、artifact、memory、runtime 和 secret。LLM 输出与检索文本都不可信，可能诱导系统越权执行工具。
 
-1. 应用层查询显式限定 tenant。
-2. PostgreSQL Row-Level Security 作为第二道防线。
-3. 应用连接角色不是表 owner、不持有 `BYPASSRLS`；必要时用 `FORCE ROW LEVEL SECURITY` 让 owner 也受限。
+**决策**：租户边界不能只靠一层代码判断。需要应用层显式 tenant 条件、PostgreSQL RLS、受限 DB role、可信策略上下文、artifact/workspace/memory ACL 和 Repair Command API 一起保护。
 
-此外：Gateway 删除客户端提交的内部身份 header，向下游传签名短期可信上下文；每个 append 再校验 `tenant_id` 与 aggregate ownership；artifact/workspace/memory retrieval 同样执行 ACL；idempotency key 以 tenant + operation scope 隔离；跨租户管理操作使用完全独立的 admin role。
+**为什么不只依赖业务代码里的 `WHERE tenant_id = ?`**：异步 Worker、后台 Sweeper、管理员修复、投影重建和临时脚本都会访问数据。只靠调用方自觉过滤，很容易在某条路径漏掉 tenant 条件。
 
-租户级限制覆盖请求速率、队列深度、runtime session、token budget、存储与 artifact 大小。
+**忽略后果**：跨租户数据泄漏、LLM prompt injection 越权执行工具、管理员直接改库破坏不变量、删除请求无法证明已处理。
+
+| 应该 | 不应该 |
+| --- | --- |
+| 每层都校验租户归属 | 只在 API 层校验一次 |
+| 权限只来自可信策略上下文 | 相信 LLM 或检索文本声称“用户已授权” |
+| 删除敏感载荷并失效投影 | 只从主表删除一部分数据 |
+| 通过 Repair Command API 修复 | 让 Admin 直接写 EventDB |
+
+## 多租户隔离
+
+租户隔离采用三层数据库保护：
+
+1. 应用层查询显式限定 `tenant_id`。
+2. PostgreSQL Row-Level Security（RLS，数据库行级隔离）作为第二道防线。
+3. 应用连接角色不是表 owner，不持有 `BYPASSRLS`；必要时使用 `FORCE ROW LEVEL SECURITY`，让表 owner 也受 RLS 限制。
+
+此外：
+
+- Gateway 删除客户端提交的内部身份 header。
+- 下游服务只接收签名的短期可信上下文。
+- 每次 append 再校验 `tenant_id` 与目标对象归属。
+- artifact、workspace、memory retrieval 都执行 ACL。
+- idempotency key 按 tenant + operation scope 隔离。
+- 跨租户管理操作使用独立 admin role，并且只进入 Repair Command API。
+- 租户级限制覆盖请求速率、队列深度、runtime session、token budget、存储和 artifact 大小。
+
+## 权限模型
+
+权限检查至少发生两次：
+
+1. API 边界：用户是否能创建消息、run、审批、取消或查看 conversation。
+2. Worker 执行前：工具是否能在当前 tenant、workspace、run、policy 版本和审批状态下执行。
+
+检索内容、用户输入和 LLM 输出都是不可信输入。Permission Service 不能因为 prompt 里出现“用户已经授权”就放行。危险操作必须进入 `waiting_approval`，审批结果作为事件记录。
+
+Tool 权限必须绑定到这些上下文，不能只看“用户能不能用这个工具”：
+
+- tenant
+- user / service actor
+- conversation / run
+- workspace revision
+- tool name 和工具能力类型
+- secret scope
+- network egress policy
+- approval id（如果需要）
+
+## Secret 与敏感数据
+
+- secrets 存放在应用配置之外。
+- sandbox 优先通过 broker（受控代发服务）发送敏感请求，也就是由受控服务拿 secret 去访问外部系统。
+- 必须注入 secret 时，只注入短期、最小权限、可撤销 token。
+- 日志、metrics、trace、audit 不记录 token、credential、原始 secret 或敏感 payload。
+- prompt、tool result 和 artifact 需要按敏感等级决定是否加密、脱敏或禁止进入 memory。
 
 ## 数据保留与删除
 
-事件溯源系统天然与"删除"冲突：事件不可变，但租户注销、GDPR / 被遗忘权、保留期到期都要求数据可消除。需提前定义，否则生产期必然撞上：
+事件溯源系统和“删除”天然有张力：事件希望长期保留，删除请求又要求敏感数据不可恢复。设计采用以下规则：
 
-- **保留策略**：事件、审计、artifact、日志各有独立 `retention` 与冷归档路径；`D_retention` 容量模型应反映归档而非无限增长。
-- **删除手段**：对必须物理移除的 PII 采用 **crypto-shredding**——敏感载荷以每租户 / 每主体密钥加密存储，删除密钥即让密文不可还原，既满足删除诉求又保住事件序列与因果结构不破。
-- **删除也是事件**：删除经 Repair Command API 触发（`SubjectErasureRequested`），留下"已删除"的审计事实，而不是直接 `DELETE` 绕过状态机与审计。
-- **投影同步失效**：memory / 快照 / 检索索引作为可重建投影，在源数据删除后必须随之失效并重建。
+- 事件、审计、artifact、日志各自有 retention 和冷归档策略。
+- 对必须删除的 PII，敏感载荷使用每租户或每主体密钥加密；删除密钥后密文不可还原，这就是 crypto-shredding（销毁密钥式删除）。
+- 删除本身也是事件，例如 `SubjectErasureRequested` / `SubjectErasureCompleted`。
+- memory、snapshot、检索索引、缓存、artifact 派生物都必须随源数据删除而失效或重建。
+- 删除流程经 Repair Command API 或专门的 Erasure API 进入 EventService，不能直接 `DELETE` 绕过审计。
 
-## 安全与权限
+示例：用户请求被遗忘。系统追加删除请求事件，冻结相关投影更新，删除主体密钥，失效 memory chunk、snapshot 和 search index，最后追加完成事件。事件序列仍可证明“曾处理过删除”，但敏感载荷不可还原。
 
-- 默认拒绝。tenant/user 上下文来自认证结果，不信任客户端直接传入的 id。
-- 在 API 边界检查权限，在 worker 执行敏感操作前再次检查；tool 权限限定在当前 tenant、workspace 和 run。
-- **检索内容与 LLM 输出都是不可信输入**：Permission Service 不能因检索文本或 LLM "声称用户已授权"就放行工具操作，工具权限只来自独立的可信 policy context；危险操作走 human-in-the-loop（`waiting_approval`）。
-- secrets 存放在应用配置之外、需要时临时获取；对运行不可信代码的 sandbox 优先用 **broker 代发请求**而非把原始凭证注入 sandbox；不记录 token/credential/原始 secret/敏感 payload。
-- 对权限变更、管理员操作、runtime 执行、租户配置、取消、重试和修复记录审计事件。
+## Admin 与 Repair Command API
 
-### Admin 必须经 Repair Command API，不直接写 EventDB
+Admin 直连数据库写会绕过状态机、fence、租户策略、审计、幂等和终态约束。修复路径必须是：
 
-Admin 直连数据库写会绕过状态机、fencing、tenant policy、审计、idempotency 与终态约束。修复路径应为：`Admin UI → Repair Command API（权限 + dual approval）→ EventService → 追加管理事件 + outbox`。例如不要直接 `run.status='running'`，而应追加 `RunRecoveryRequested` / `ReplacementRunCreated` / `DlqCommandRedriveRequested` / `RuntimeTerminationRequested`。终态 run 永不被直接覆盖，修复创建新的 attempt 或 replacement run 并引用旧 run。只读检查可走只读副本或受限查询 API。
+```text
+Admin UI
+-> Repair Command API (权限检查 + 双人审批)
+-> EventService
+-> 管理事件 + outbox command
+```
+
+允许的修复动作示例：
+
+- `RunRecoveryRequested`
+- `ReplacementRunCreated`
+- `DlqCommandRedriveRequested`
+- `RuntimeTerminationRequested`
+- `ToolOutcomeManuallyResolved`
+- `SubjectErasureRequested`
+
+终态 run 永不直接覆盖。修复只能创建新的执行尝试、替代 run 或管理事件，并引用原 run。只读检查可走只读副本或受限查询 API。

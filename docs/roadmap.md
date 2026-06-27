@@ -1,42 +1,54 @@
-# 实施路线图
+# 技术演进路线图
 
-> 本文档是 [architecture.md](./architecture.md) 的子文档，定义架构落地的分阶段计划。
+> 本文档是 [architecture.md](./architecture.md) 的子文档，定义架构能力的建议交付顺序。它描述技术依赖顺序，不描述当前项目实施状态。
 
-本节定义上述设计的落地顺序，分三个阶段，每个阶段都交付一个语义自洽、可独立验证的系统。
+## 问题、决策与风险
 
-## 阶段一：正确性闭环（首版即必须具备）
+**问题**：Cloud Agent 平台可以先轻量，但状态机、幂等、权限和恢复语义不能后补。越晚补，越多历史数据和异步路径会变成兼容负担。
 
-这一阶段全部是 schema + 纪律，几乎不引入额外基础设施，但乐观并发与状态机无法事后补，因此在写第一行业务逻辑之前就定义到位。
+**决策**：演进分三阶段：先建立正确性闭环，再补生产安全和运维强度，最后按真实瓶颈替换基础设施。
 
-- Run、ToolCall、Command 三个正式状态机及其不变量。（→ [state-machines.md](./state-machines.md)）
-- 两级乐观并发：Run 状态转换以 `expected_run_version` CAS，ToolCall 状态转换以 `expected_tool_call_version` CAS，均配合原子 fence 校验；`seq` 由服务端分配。（→ [concurrency-and-durability.md](./concurrency-and-durability.md)）
-- outbox 发布状态与 job 执行状态分离。（→ [concurrency-and-durability.md](./concurrency-and-durability.md)）
-- inbox、idempotency response store 与 tool effect ledger 落表（去重与 reconciliation 可先定 schema、按需逐步实现）。（→ [execution-model.md](./execution-model.md)）
-- 实时发布 after-commit 与无竞态重连协议。（→ [realtime.md](./realtime.md)）
-- Admin 写路径全部经 Repair Command API，移除对 EventDB/DLQ 的直接写。（→ [multi-tenancy-and-security.md](./multi-tenancy-and-security.md)）
-- cancel、deadline、`max_steps`/`max_cost`、outcome-unknown 与 reconciliation 的判定路径。（→ [state-machines.md](./state-machines.md)）
-- **Timer / Sweeper 后台巡检**：deadline / 挂起超时、outcome_unknown 复核、quota 回收、lease/orphan GC、snapshot 触发——这是上述转换能否闭环的执行体，不能留到后期。（→ [operations.md](./operations.md)）
-- 取消向在飞执行体 / sandbox 的传播（协作式中止 + `RuntimeTerminationRequested`）。（→ [state-machines.md](./state-machines.md)）
-- 并行 join 的归属与 `any`/`quorum` 残余工具处理（去中心化竞争 + 唯一续跑约束）。（→ [execution-model.md](./execution-model.md)）
-- Run 内上下文预算与压缩策略（决策进入 `context_manifest`）。（→ [execution-model.md](./execution-model.md)）
+**为什么不先做规模化基础设施**：如果“命令发出 -> Worker 尝试执行 -> 外部效果发生 -> 结果写回 -> Run 状态推进”这条链没有闭环，换更强的 MQ、runtime 或多区域部署也无法避免重复执行和状态分叉。
+
+**忽略后果**：系统会在小流量下可用，但一遇到 Worker 崩溃、重复投递、并行工具、取消竞态或权限撤销，就出现难以修复的数据状态。
+
+## 阶段一：正确性闭环
+
+目标：用最少基础设施交付一个语义自洽、可故障测试的系统。
+
+- Run、ToolCall、Command 三个状态机及转换表。（见 [state-machines.md](./state-machines.md)）
+- EventService append 合约：谁能写、检查什么版本、一个事务里写入哪些内容、失败如何返回。（见 [concurrency-and-durability.md](./concurrency-and-durability.md)）
+- 两级 CAS：Run 用 `run_version`，ToolCall 用 `tool_call_version`；`seq` 只做提交顺序。（见 [concurrency-and-durability.md](./concurrency-and-durability.md)）
+- outbox、inbox、job_attempt、run/tool_call 当前状态投影分离：发布、消费、执行尝试、业务状态不要混在一张表里。（见 [concurrency-and-durability.md](./concurrency-and-durability.md)）
+- `store_epoch` 恢复代次，防止按时间点恢复后旧 command 污染事实源。（见 [concurrency-and-durability.md](./concurrency-and-durability.md)）
+- Effect ledger 和工具能力分类，禁止盲目重试 `outcome_unknown`。（见 [execution-model.md](./execution-model.md)）
+- 并行 ToolCall join：`FOR UPDATE` 串行化检查，Run CAS 成功后才写 `ResumeAgentRun`。（见 [execution-model.md](./execution-model.md)）
+- cancel、deadline、`max_steps`、`max_cost`、approval timeout 和 runtime termination 路径。（见 [state-machines.md](./state-machines.md)）
+- Timer / Sweeper：deadline、未知结果对账、quota 回收、租约/旧尝试清理、snapshot、runtime cleanup。（见 [operations.md](./operations.md)）
+- Realtime after-commit 发布、`last_seen_seq` 补拉和无竞态重连。（见 [realtime.md](./realtime.md)）
+- Run 内上下文预算、压缩和 `context_manifest`。（见 [execution-model.md](./execution-model.md)）
 
 ## 阶段二：生产加固
 
-在正确性闭环稳定后，补齐多租户、配额、隔离与可观测的生产强度。
+目标：让系统在多租户、安全、运维和合规方面具备生产强度。
 
-- 事件 schema version、causation/correlation 与 context manifest。（→ [concurrency-and-durability.md](./concurrency-and-durability.md)）
-- quota reservation 与按稀缺资源公平的调度算法。（→ [execution-model.md](./execution-model.md)）
-- workspace revision 与单写者/copy-on-write 语义。（→ [runtime-and-sandbox.md](./runtime-and-sandbox.md)）
-- PostgreSQL RLS、独立 DB role 与管理权限分离。（→ [multi-tenancy-and-security.md](./multi-tenancy-and-security.md)）
-- 端到端 SLO、低基数 metrics 与完整故障注入矩阵。（→ [operations.md](./operations.md)）
-- 数据保留与删除（crypto-shredding、`SubjectErasureRequested`、投影失效重建）。（→ [multi-tenancy-and-security.md](./multi-tenancy-and-security.md)）
+- PostgreSQL RLS、受限 DB role、租户归属二次校验。（见 [multi-tenancy-and-security.md](./multi-tenancy-and-security.md)）
+- 权限只来自可信策略上下文；危险工具必须等待人工审批。（见 [multi-tenancy-and-security.md](./multi-tenancy-and-security.md)）
+- Secret Broker、网络出口策略、镜像来源记录、artifact 扫描。（见 [runtime-and-sandbox.md](./runtime-and-sandbox.md)）
+- Workspace 单写者、copy-on-write branch、显式合并/冲突语义。（见 [runtime-and-sandbox.md](./runtime-and-sandbox.md)）
+- Realtime 连接治理：缓冲上限、慢连接、登录态到期、权限撤销、多标签页和租户连接配额。（见 [realtime.md](./realtime.md)）
+- 低基数指标、trace、audit、SLO 和故障注入矩阵。（见 [operations.md](./operations.md)）
+- 数据保留与删除：销毁密钥式删除、投影失效、删除审计事件。（见 [multi-tenancy-and-security.md](./multi-tenancy-and-security.md)）
+- Admin 写路径全部经 Repair Command API。（见 [multi-tenancy-and-security.md](./multi-tenancy-and-security.md)）
 
 ## 阶段三：规模化演进
 
-仅在真实瓶颈出现、且前两阶段的语义契约已固化后才推进，避免过早引入分布式复杂度。
+目标：在前两阶段语义稳定后，根据实际瓶颈替换基础设施。
 
-- 按真实瓶颈引入独立 Scheduler 或 durable broker（先固定语义契约，再替换实现）。（→ [capacity-and-scaling.md](./capacity-and-scaling.md)）
-- 按租户信任等级升级到 microVM / 隔离节点。（→ [runtime-and-sandbox.md](./runtime-and-sandbox.md)）
-- 在确认单区域单写模型站稳后，再讨论跨区域 active-active。
+- 按负载向量压测并声明容量：连接、事件写入、活跃 run、并发 LLM、runtime、token、artifact、热点 conversation。（见 [capacity-and-scaling.md](./capacity-and-scaling.md)）
+- 引入独立 Scheduler 或可持久化的消息队列服务，前提是新实现满足既有队列语义契约。（见 [capacity-and-scaling.md](./capacity-and-scaling.md)）
+- 按信任等级升级 runtime 到 K8s、microVM 或隔离节点。（见 [runtime-and-sandbox.md](./runtime-and-sandbox.md)）
+- 事件表分区、分片或替换存储，但保持 append 合约和状态重建语义。
+- 单区域单写模型稳定后，再讨论跨区域 active-active。
 
-> 阶段一是整套架构成立的前提：当 `Command → 持久发布 → Attempt → 外部副作用 → 结果事件 → Run 状态转换 → 下一个 Command` 这条链上的状态、版本、幂等、未知结果与修复路径被精确定义，PostgreSQL + Redis + Docker 的 Lite 实现就足够可靠；反之即使换成昂贵的托管基础设施，仍会出现重复执行、错误续跑、越权修复和不可解释的状态分叉。
+阶段一是整套架构成立的前提。只要状态、版本、幂等、未知结果和修复路径被精确定义，PostgreSQL + Redis + Docker 的 Lite 实现就可以可靠运行；如果这些语义缺失，更昂贵的托管基础设施也无法避免重复执行、错误续跑、越权修复和不可解释的状态分叉。

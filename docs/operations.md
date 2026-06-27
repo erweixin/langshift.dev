@@ -1,48 +1,114 @@
 # 运维：Sweeper、可观测性与故障测试
 
-> 本文档是 [architecture.md](./architecture.md) 的子文档，定义后台巡检、监控体系与故障验证矩阵。
+> 本文档是 [architecture.md](./architecture.md) 的子文档，定义后台巡检、监控体系和不变量测试。
 
-## Timer / Sweeper 与后台巡检
+## 问题、决策与风险
 
-系统的主链路是事件 / 命令驱动（反应式），但若干不变量**只能靠周期性主动扫描维持**——它们没有"下一条命令"自然触发。因此 Lite 首版就需要一个 **Timer / Sweeper** 后台进程（实现上是一张带 `due_at` 索引的到期表 + `SELECT ... FOR UPDATE SKIP LOCKED` 扫描，或复用 job 队列的延迟投递），统一驱动：
+**问题**：事件/命令链路主要靠“有新事件才触发下一步”。但有些状态不会自然再收到命令，例如审批超时、`outcome_unknown` 复核、泄漏的配额预留和过期租约。
 
-| 巡检项 | 触发条件 | 动作（均经 Event Service 条件写） |
+**决策**：Lite v1 就需要 Timer / Sweeper。它不是特权写库脚本，而是一个普通 actor，通过 EventService 和同样的 CAS/幂等规则推进到期转换。
+
+**为什么不等下一次用户请求顺便处理**：很多 conversation 长时间没有新请求。等待用户触发会让未知副作用、过期 run、配额泄漏和 runtime session 无界堆积。
+
+**忽略后果**：run 永远卡在 waiting 状态；配额被泄漏 reservation 占满；未知副作用无人处理；snapshot 不生成导致 replay 随会话长度线性变慢。
+
+| 应该 | 不应该 |
+| --- | --- |
+| Sweeper 通过 EventService 条件写 | Sweeper 直接 update 业务表 |
+| 按 due table 或 delayed job 扫描 | 靠用户下一次请求顺便修复 |
+| 指标使用低基数 label | 把 run_id/conversation_id 放进 metrics label |
+| 故障测试围绕不变量 | 只做正常路径压测 |
+
+## Timer / Sweeper
+
+Sweeper 可以理解成“后台闹钟 + 清理工”。它定期找已经到期但没人处理的事项，再通过 EventService 推进合法状态。实现上可以是一张带 `due_at` 索引的到期表 + `SELECT ... FOR UPDATE SKIP LOCKED`，也可以复用 job 队列的延迟投递。
+
+| 巡检项 | 触发条件 | 动作（均经 EventService 条件写） |
 | --- | --- | --- |
-| run deadline / 挂起超时 | `waiting_tool` / `waiting_approval` 超过 `due_at` 且无 worker 在跑 | 追加 `expired`（`run_version` CAS） |
-| approval 超时 | `waiting_approval` 超过审批时限 | 按策略 `expired` 或升级提醒 |
-| `outcome_unknown` 复核 | tool_call 进入 `outcome_unknown` 后到 `due_at` | 调用 reconcile，落 `succeeded` / `failed`，无法判定则升级人工 |
-| quota reservation 回收 | `reservation_id` 超 TTL 未 settle/release | 释放预留，防止配额泄漏 |
-| lease / orphan GC | lease 过期、attempt 成为 orphaned | 标记回收、释放 run 所有权，有副作用者转 reconcile |
-| retry backoff | `available_at` 到期的重试 | 重新入队 |
-| snapshot 触发 | 距上一快照事件数 ≥ N 或时间 ≥ T | 触发快照写入 |
+| run deadline / 挂起超时 | `waiting_tool` / `waiting_approval` 超过 `due_at` 且无有效 Worker | 追加 `RunExpired`（检查 `run_version`） |
+| approval 超时 | `waiting_approval` 超过审批时限 | 按策略过期或升级提醒 |
+| `outcome_unknown` 复核 | ToolCall 进入 unknown 后到 `due_at` | 调用对账逻辑，落成功/失败，仍未知则升级人工 |
+| quota reservation 回收 | `reservation_id` 超 TTL 未 settle/release | 释放预留，记录审计 |
+| 租约 / 旧尝试回收 | lease 过期、attempt 失去 owner | 标记为旧尝试，释放所有权，有副作用者转对账 |
+| retry backoff | `available_at` 到期 | 重新入队或写 DLQ |
+| snapshot 触发 | 距上一快照事件数 >= N 或时间 >= T | 条件写 snapshot |
+| runtime cleanup | session idle/TTL/kill deadline 到期 | 发 `RuntimeTerminationRequested` 或强制清理 |
 
-**关键纪律**：Sweeper **不绕过状态机**——它和普通 worker 一样，只能通过 Event Service 以对应聚合版本（`expected_run_version` / `expected_tool_call_version`）或去重键（`effect_key` / `command_id`）做条件写，失败即放弃本轮、下轮重试。它驱动的是"到期的合法转换"，不是特权写路径，与 Repair Command API 的人工修复路径互补：Sweeper 自动、有界、无需审批；Repair 人工、可改终态、需 dual approval。`outcome_unknown` 的自动复核也由此有了归属——在引入 Sweeper 之前，这些非终态会无人认领地堆积。
+Sweeper 与 Repair API 互补：Sweeper 自动、有界、无需审批，只处理合法到期转换；Repair API 人工、可处理终态和裁定未知结果，需权限和双人审批。
 
 ## 可观测性
 
-调试异步链路需要足够可见性，但**不要把高基数 ID 放进 metrics label**（`conversation_id`/`run_id`/`user_id` 适合日志字段、trace attribute、audit、exemplar，不适合指标标签）。
+Metrics 只使用低基数维度。低基数的意思是“取值种类有限”，例如服务名、区域、状态；不要把每个 run id 都当成指标标签。
 
-指标只用低基数维度：`service`、`region`、`queue_class`、`job_type`、`provider`、`model_family`、`tool_category`、`status`、`error_code`、`tenant_tier`。覆盖：API 延迟/错误率/限流；事件追加延迟与写入量；outbox lag 与发布失败；队列深度/任务年龄/attempts/retries/DLQ；worker 成功率/失败率/lease timeout/job duration；LLM 延迟/超时/token/fallback/provider 错误；runtime cold start/活跃 session/资源/清理失败；Timer/Sweeper 到期积压与处理延迟（outcome_unknown 待复核数、超时未触发的挂起 run、未回收的 reservation）。
+- `service`
+- `region`
+- `queue_class`
+- `job_type`
+- `provider`
+- `model_family`
+- `tool_category`
+- `status`
+- `error_code`
+- `tenant_tier`
 
-定义端到端 **SLO**：API accept latency、queue wait、time to first token、run completion latency、interactive run success rate、realtime gap recovery time、runtime cold-start latency、tool outcome-unknown rate、tenant throttle accuracy。日志与 trace 携带 `tenant_id`、`user_id`、`conversation_id`、`run_id`、job id 与 `request_id`。
+`conversation_id`、`run_id`、`user_id` 适合放在日志、trace、审计或 exemplar 里，不适合作为 metrics label。
 
-Admin/Ops Plane 应支持（经 Repair Command API）：查看 conversation events 与 run state、取消 run、重试失败 job、修复后 redrive DLQ、调整租户配额、查看并清理卡住的 runtime session。
+覆盖范围：
+
+- API 延迟、错误率、限流。
+- 事件追加延迟、写入量、CAS 冲突率。
+- outbox lag、发布失败、重复发布。
+- 队列深度、任务年龄、attempts、retries、DLQ。
+- Worker 成功率、失败率、lease timeout、job duration。
+- LLM 延迟、超时、token、fallback、provider 错误、成本。
+- Runtime cold start、活跃 session、资源用量、清理失败。
+- Sweeper 到期积压、处理延迟、对账积压、未回收 reservation。
+- 实时缺口恢复时间、慢连接断开、登录刷新失败。
+
+端到端 SLO（用户能感受到的服务目标）：
+
+- API accept latency：API 接受请求的延迟。
+- queue wait：任务排队等待时间。
+- time to first token：从发起到看到第一个 token 的时间。
+- run completion latency：run 完成总耗时。
+- interactive run success rate：交互式 run 成功率。
+- realtime gap recovery time：实时断线后补齐缺口的时间。
+- runtime cold-start latency：runtime 冷启动耗时。
+- tool outcome-unknown rate：工具结果未知的比例。
+- tenant throttle accuracy：租户限流是否准确。
+
+## 运维控制台
+
+运维控制台应支持：
+
+- 查看 conversation events 与 run state。
+- 查看 command、attempt、outbox、inbox、effect ledger。
+- 取消 run。
+- 重试失败 job，或把 DLQ 中的死信任务重新投递。
+- 手工裁定 `outcome_unknown`。
+- 调整租户配额。
+- 查看并清理 runtime session。
+- 触发主体数据删除。
+
+所有写操作经 Repair Command API；只读可走只读副本或受限查询 API。
 
 ## 故障测试与不变量
 
-故障测试应围绕**不变量**，而非只做压力测试：
-
 | 故障点 | 期望行为 |
 | --- | --- |
-| DB commit 成功但 API 响应丢失 | 相同 idempotency key 返回原 run |
-| broker publish 成功、publisher 标记前崩溃 | 重复 command 被 inbox 去重 |
-| 工具副作用成功、worker 完成事件前崩溃 | reconcile 或下游幂等，不盲目重做 |
-| lease 过期、旧 worker 恢复 | fence 不匹配，不能推进 run |
-| Redis 通知丢失 | 客户端按 cursor 补拉 |
-| cancel（Run 级）与 ToolCall completed 同时提交 | ToolCall 完成可成功（tool_call_version CAS），但 join 推进 Run 被拒（run status 已 cancelled） |
-| DLQ redrive 时外部效果未知 | 禁止直接重试，先查 effect ledger |
-| 部署新事件 schema | 新旧 worker 均可安全读取（upcasting） |
-| snapshot 损坏 | 从事件自动重建 |
-| DB 恢复到旧时间点 | broker 中更晚的 command 不得反向污染事实源 |
+| API commit 成功但响应丢失 | 相同 idempotency key 返回原 run |
+| Publisher 发出 command 后、标记 published 前崩溃 | command 重复投递，consumer inbox 去重 |
+| 两个 ToolWorker 同时完成 | 两个 ToolCall 事实都保留，只有一个 Run continuation |
+| 工具副作用成功、Worker 写结果前崩溃 | 对账或幂等键防止盲目重做 |
+| lease 过期、旧 Worker 恢复 | fence 不匹配，不能推进 Run |
+| Run cancel 与 ToolCall completed 同时提交 | ToolCall 事实可保留，但 Run 不恢复执行 |
+| Redis / realtime 通知丢失 | 客户端用 `last_seen_seq` 补拉 |
+| 客户端消费太慢 | Gateway 断开连接，客户端重连补拉 |
+| auth 到期或权限撤销 | 停止发送，重新鉴权和 ACL 检查 |
+| DLQ redrive 时外部效果未知 | 先查 effect ledger，不直接重试 |
+| 部署新事件 schema | 新旧 Worker 均可安全读取或 upcast |
+| snapshot 损坏 | 自动丢弃 snapshot，从事件重建 |
+| 按时间点恢复后存在旧 command | `store_epoch` 拒绝旧代次 command |
+| 租户/主体删除 | 加密载荷不可还原，memory/snapshot/search/artifact 派生物失效 |
 
-最后一行的缓解机制需具体化：为 EventStore 维护单调的 **`store_epoch`（generation）**，PITR 恢复后递增 epoch；命令在 outbox 中携带其 `store_epoch`，消费端拒绝 epoch 低于当前 store 的命令（视同 stale）。这样"恢复点之后、却来自旧 epoch 的在途命令"被 fence 掉，而不会反向写入已回滚的事实源。
+`store_epoch` 的持久化合约定义在 [concurrency-and-durability.md](./concurrency-and-durability.md)。运维侧需要告警：旧 epoch command 被拒绝、按时间点恢复后 epoch 未递增、publisher 发布非当前 epoch outbox row。
