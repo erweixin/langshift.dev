@@ -29,6 +29,7 @@
 - Run 内上下文预算、压缩和 `context_manifest`。（见 [execution-model.md](./execution-model.md)）
 - 平台工具 Descriptor 注册、input/output schema 校验、工具集快照和 `tool_schema_versions` 进入 manifest。（见 [tool-system.md](./tool-system.md)）
 - Memory 三层模型（Working / Conversation / Long-term）、写入流经事件、向量检索召回、`memory_document_ids` 进入 manifest。（见 [memory.md](./memory.md)）
+- LLM Gateway 统一调用接口、Provider Adapter、`llm_attempt_id` 与成本记录、逻辑模型引用与基本路由。（见 [llm-provider.md](./llm-provider.md)）
 
 ## 阶段二：生产加固
 
@@ -44,6 +45,7 @@
 - Admin 写路径全部经 Repair Command API。（见 [multi-tenancy-and-security.md](./multi-tenancy-and-security.md)）
 - 租户自定义工具注册审批流程、版本共存与弃用策略、市场工具安装与升级。（见 [tool-system.md](./tool-system.md)）
 - Memory 淘汰策略、容量配额、嵌入模型升级与新旧索引并存、数据删除联动 Memory 清除。（见 [memory.md](./memory.md)）
+- 多 Provider 降级与熔断、租户级模型策略、模型版本固定与灰度升级、费率管理与成本归属。（见 [llm-provider.md](./llm-provider.md)）
 
 ## 阶段三：规模化演进
 

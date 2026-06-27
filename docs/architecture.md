@@ -12,12 +12,13 @@ Lites 是一个 Lite-first 的 Cloud Agent 平台设计：首版可以用 Postgr
 | [execution-model.md](./execution-model.md) | 4 | 队列调度、Worker 短事务、副作用能力、effect ledger、LLM 调用、并行 join |
 | [tool-system.md](./tool-system.md) | 5 | 工具声明、注册、发现、版本管理、Schema 校验与生命周期 |
 | [memory.md](./memory.md) | 6 | 记忆层次、存储、写入时机、向量检索、召回、淘汰与租户隔离 |
-| [realtime.md](./realtime.md) | 7 | 实时通道、无竞态重连、慢消费者、权限变化、LLM token 流 |
-| [runtime-and-sandbox.md](./runtime-and-sandbox.md) | 8 | runtime 威胁模型、隔离等级、secret broker（受控代发服务）、workspace 单写者 |
-| [multi-tenancy-and-security.md](./multi-tenancy-and-security.md) | 9 | 租户隔离、权限模型、数据保留、删除与 Repair Command API |
-| [operations.md](./operations.md) | 10 | Sweeper、可观测性、故障注入与不变量测试 |
-| [capacity-and-scaling.md](./capacity-and-scaling.md) | 11 | 部署替换路径、负载向量、规模化就绪标准 |
-| [roadmap.md](./roadmap.md) | 12 | 技术演进顺序 |
+| [llm-provider.md](./llm-provider.md) | 7 | LLM 统一接口、Provider 适配、模型路由、降级熔断与成本追踪 |
+| [realtime.md](./realtime.md) | 8 | 实时通道、无竞态重连、慢消费者、权限变化、LLM token 流 |
+| [runtime-and-sandbox.md](./runtime-and-sandbox.md) | 9 | runtime 威胁模型、隔离等级、secret broker（受控代发服务）、workspace 单写者 |
+| [multi-tenancy-and-security.md](./multi-tenancy-and-security.md) | 10 | 租户隔离、权限模型、数据保留、删除与 Repair Command API |
+| [operations.md](./operations.md) | 11 | Sweeper、可观测性、故障注入与不变量测试 |
+| [capacity-and-scaling.md](./capacity-and-scaling.md) | 12 | 部署替换路径、负载向量、规模化就绪标准 |
+| [roadmap.md](./roadmap.md) | 13 | 技术演进顺序 |
 
 ## 问题、决策与风险
 
