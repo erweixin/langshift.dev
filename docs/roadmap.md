@@ -37,6 +37,7 @@
 
 - PostgreSQL RLS、受限 DB role、租户归属二次校验。（见 [multi-tenancy-and-security.md](./multi-tenancy-and-security.md)）
 - 权限只来自可信策略上下文；危险工具必须等待人工审批。（见 [multi-tenancy-and-security.md](./multi-tenancy-and-security.md)）
+- Agent Safety 与 Guardrails：上下文信任标签、prompt injection 防护、工具调用准入、输出检查、人工审批材料和红队场景。（见 [agent-safety-and-guardrails.md](./agent-safety-and-guardrails.md)）
 - Secret Broker、网络出口策略、镜像来源记录、artifact 扫描。（见 [runtime-and-sandbox.md](./runtime-and-sandbox.md)）
 - Workspace 单写者、copy-on-write branch、显式合并/冲突语义。（见 [runtime-and-sandbox.md](./runtime-and-sandbox.md)）
 - Realtime 连接治理：缓冲上限、慢连接、登录态到期、权限撤销、多标签页和租户连接配额。（见 [realtime.md](./realtime.md)）
