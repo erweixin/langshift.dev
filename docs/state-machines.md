@@ -1,6 +1,6 @@
 # 核心状态机与不变量
 
-> 本文档是 [architecture.md](./architecture.md) 的子文档，定义 Run、ToolCall 和 Command 的合法转换。
+> 本文档是 [architecture.md](./architecture.md) 的子文档，定义 Run、ToolCall 和 Command 的合法转换。多 Agent 编排中的 `waiting_child` 也是 Run 状态机的一部分，具体编排模式见 [orchestration-patterns.md](./orchestration-patterns.md)。
 
 ## 问题、决策与风险
 
@@ -29,7 +29,7 @@
 
 ## Run 状态机
 
-Run 表示一次 Agent 执行。它可以等待工具、等待审批、被取消、过期、失败或成功。
+Run 表示一次 Agent 执行。它可以等待工具、等待子 Run、等待审批、被取消、过期、失败或成功。
 
 ```mermaid
 stateDiagram-v2
@@ -37,8 +37,10 @@ stateDiagram-v2
   accepted --> queued: dispatch command created
   queued --> executing: worker lease acquired
   executing --> waiting_tool: ToolCallRequested
+  executing --> waiting_child: ChildRunSpawned
   executing --> waiting_approval: ApprovalRequested
   waiting_tool --> executing: ResumeAgentRun
+  waiting_child --> executing: ResumeParentRun
   waiting_approval --> executing: approved
   waiting_approval --> cancelled: rejected
   executing --> succeeded: AssistantMessageFinalized
@@ -47,11 +49,13 @@ stateDiagram-v2
   queued --> expired: deadline
   executing --> expired: max_steps / max_cost / deadline
   waiting_tool --> expired: deadline
+  waiting_child --> expired: deadline
   waiting_approval --> expired: approval timeout
   accepted --> cancelled: cancel accepted
   queued --> cancelled: cancel accepted
   executing --> cancelled: cancellation settled
   waiting_tool --> cancelled: cancellation settled
+  waiting_child --> cancelled: cancellation settled
   waiting_approval --> cancelled: cancel accepted
   succeeded --> [*]
   failed --> [*]
@@ -67,8 +71,10 @@ stateDiagram-v2
 | `accepted` | EventService 登记调度 | run 已受理，调度命令和事件在同一事务内 | `run_version` | `queued`、`RunQueued` | 无，或使用已登记的命令 | 版本已变化则说明别的写入先赢 |
 | `queued` | AgentWorker 领取 | 该消费者没处理过命令；拿到租约和 fence | `run_version`、fence | `executing`、`RunStarted`、`attempt_id` | 无 | 重复命令被 inbox 忽略；旧 fence 变成旧尝试 |
 | `executing` | AgentWorker 请求工具 | 工具计划有效；权限 schema 已知；并行组未打开 | `run_version`、fence | `waiting_tool`、`ToolCallRequested` | 每个工具一条 `ExecuteToolCall` | 版本过期则丢弃这次 LLM 尝试，不推进 run |
+| `executing` | AgentWorker 发起子 Run | `spawn_agent_run` 通过 schema、权限、guardrail、深度和预算检查；child group 尚未打开 | `run_version`、fence | `waiting_child`、`ChildRunSpawned`、child group、预算划拨 | 每个子 Run 一条 `StartAgentRun` | 版本过期则丢弃这次 spawn 计划；不得只让父 Run 等待而不创建子 Run |
 | `executing` | AgentWorker 请求审批 | 策略判断操作危险，需要人审批 | `run_version`、fence | `waiting_approval`、`ApprovalRequested` | `NotifyApproval` | 版本过期则丢弃这次尝试 |
 | `waiting_tool` | ToolWorker 完成并赢得汇合 | 并行组条件满足；已锁住 `parallel_group`；run 仍在等待工具 | `run_version` | `executing`、`ToolGroupJoined` / `RunResumed` | `ResumeAgentRun` | 如果 run 已取消/过期，只记录跳过，不发续跑命令 |
+| `waiting_child` | Child Run 完成并赢得汇合 | child group 条件满足；已锁住 `child_group`；run 仍在等待子 Run | `run_version` | `executing`、`ChildGroupJoined` / `RunResumed`、必要时回收预算 | `ResumeParentRun`，提前满足 `any` / `quorum` 时取消剩余子 Run | 如果 run 已取消/过期，只记录迟到事实，不发续跑命令 |
 | `waiting_approval` | Approval API 批准 | 审批人有权限；审批未过期 | `run_version` | `executing`、`ApprovalGranted` | `ResumeAgentRun` | 如果已过期/取消，拒绝这次审批 |
 | `waiting_approval` | Approval API 拒绝 | 审批人有权限；run 仍在等待审批 | `run_version` | `cancelled`、`ApprovalRejected` / `RunCancelled` | 需要时发 `RuntimeTerminationRequested` | 如果已终态，返回当前终态 |
 | `executing` | AgentWorker 输出最终回复 | 最终回复已生成；预算未越界 | `run_version`、fence | `succeeded`、`AssistantMessageFinalized`、`RunSucceeded` | 只发实时通知 | 版本过期则把输出视为旧尝试结果 |
@@ -83,9 +89,9 @@ stateDiagram-v2
 取消分两步：
 
 1. Cancel API 用 `run_version` CAS 设置 `cancel_requested`，并发出必要的中断命令。
-2. 正在运行的 AgentWorker / ToolWorker 通过 heartbeat 或下一次短事务看到该标志，协作式中止，并请求 RuntimeManager 终止 sandbox。所有执行体停止或被标记为旧尝试后，Run 进入 `cancelled`。
+2. 正在运行的 AgentWorker / ToolWorker 通过 heartbeat 或下一次短事务看到该标志，协作式中止，并请求 RuntimeManager 终止 sandbox。若 Run 正在等待子 Run，取消会递归传播到所有非终态子 Run。所有执行体停止或被标记为旧尝试后，Run 进入 `cancelled`。
 
-这一区分很重要：`cancel_requested` 表示“不要再开始新的工作，并尽快停下”；`cancelled` 表示“系统已经收敛到最终取消状态”。如果工具副作用已经发生，ToolCall 事实仍应记录，但 join 推进 Run 时必须因 Run 不再处于 `waiting_tool` 而失败。
+这一区分很重要：`cancel_requested` 表示“不要再开始新的工作，并尽快停下”；`cancelled` 表示“系统已经收敛到最终取消状态”。如果工具副作用已经发生，ToolCall 事实仍应记录；如果子 Run 已经完成，它的结果也可以记录。但 join 推进父 Run 时必须因 Run 不再处于 `waiting_tool` 或 `waiting_child` 而失败。
 
 ## ToolCall 状态机
 
