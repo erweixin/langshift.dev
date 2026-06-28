@@ -6,21 +6,24 @@ Lites 是一个 Lite-first 的 Cloud Agent 平台设计：首版可以用 Postgr
 
 | 文档 | 建议阅读顺序 | 内容 |
 | --- | ---: | --- |
+| [README.md](./README.md) | 0 | 新读者入口、阅读路径、核心取舍与社区参考基线 |
 | **本文（architecture.md）** | 1 | 全局心智模型、核心循环、术语、逻辑架构与 Lite v1 部署形态 |
-| [state-machines.md](./state-machines.md) | 2 | Run / ToolCall / Command 的状态转换表、取消语义、不变量 |
-| [concurrency-and-durability.md](./concurrency-and-durability.md) | 3 | EventStore、append 合约、两级 CAS、`seq`、outbox/inbox、`store_epoch`、snapshot |
-| [execution-model.md](./execution-model.md) | 4 | 队列调度、Worker 短事务、副作用能力、effect ledger、LLM 调用、并行 join |
-| [agent-safety-and-guardrails.md](./agent-safety-and-guardrails.md) | 5 | Agent 安全边界、prompt injection 防护、工具准入、审批、输出检查与红队场景 |
-| [tool-system.md](./tool-system.md) | 6 | 工具声明、注册、发现、版本管理、Schema 校验与生命周期 |
-| [memory.md](./memory.md) | 7 | 记忆层次、存储、写入时机、向量检索、召回、淘汰与租户隔离 |
-| [llm-provider.md](./llm-provider.md) | 8 | LLM 统一接口、Provider 适配、模型路由、降级熔断与成本追踪 |
-| [orchestration-patterns.md](./orchestration-patterns.md) | 9 | 多 Agent 编排、Child Run、委派/监督/流水线/分治、阶段检查点与人机协作 |
-| [realtime.md](./realtime.md) | 10 | 实时通道、无竞态重连、慢消费者、权限变化、LLM token 流 |
-| [runtime-and-sandbox.md](./runtime-and-sandbox.md) | 11 | runtime 威胁模型、隔离等级、secret broker（受控代发服务）、workspace 单写者 |
-| [multi-tenancy-and-security.md](./multi-tenancy-and-security.md) | 12 | 租户隔离、权限模型、数据保留、删除与 Repair Command API |
-| [operations.md](./operations.md) | 13 | Sweeper、可观测性、故障注入与不变量测试 |
-| [capacity-and-scaling.md](./capacity-and-scaling.md) | 14 | 部署替换路径、负载向量、规模化就绪标准 |
-| [roadmap.md](./roadmap.md) | 15 | 技术演进顺序 |
+| [end-to-end-flow.md](./end-to-end-flow.md) | 2 | 端到端组件职责、数据流、任务执行序列、失败路径与部署视角 |
+| [mvp-scope.md](./mvp-scope.md) | 3 | Lite v1 范围、明确不做的内容、Definition of Done 与演进触发条件 |
+| [state-machines.md](./state-machines.md) | 4 | Run / ToolCall / Command 的状态转换表、取消语义、不变量 |
+| [concurrency-and-durability.md](./concurrency-and-durability.md) | 5 | EventStore、append 合约、两级 CAS、`seq`、outbox/inbox、`store_epoch`、snapshot |
+| [execution-model.md](./execution-model.md) | 6 | 队列调度、Worker 短事务、副作用能力、effect ledger、LLM 调用、并行 join |
+| [agent-safety-and-guardrails.md](./agent-safety-and-guardrails.md) | 7 | Agent 安全边界、prompt injection 防护、工具准入、审批、输出检查与红队场景 |
+| [tool-system.md](./tool-system.md) | 8 | 工具声明、注册、发现、版本管理、Schema 校验与生命周期 |
+| [memory.md](./memory.md) | 9 | 记忆层次、存储、写入时机、向量检索、召回、淘汰与租户隔离 |
+| [llm-provider.md](./llm-provider.md) | 10 | LLM 统一接口、Provider 适配、模型路由、降级熔断与成本追踪 |
+| [orchestration-patterns.md](./orchestration-patterns.md) | 11 | 多 Agent 编排、Child Run、委派/监督/流水线/分治、阶段检查点与人机协作 |
+| [realtime.md](./realtime.md) | 12 | 实时通道、无竞态重连、慢消费者、权限变化、LLM token 流 |
+| [runtime-and-sandbox.md](./runtime-and-sandbox.md) | 13 | runtime 威胁模型、隔离等级、secret broker（受控代发服务）、workspace 单写者 |
+| [multi-tenancy-and-security.md](./multi-tenancy-and-security.md) | 14 | 租户隔离、权限模型、数据保留、删除与 Repair Command API |
+| [operations.md](./operations.md) | 15 | Sweeper、可观测性、故障注入与不变量测试 |
+| [capacity-and-scaling.md](./capacity-and-scaling.md) | 16 | 部署替换路径、负载向量、规模化就绪标准 |
+| [roadmap.md](./roadmap.md) | 17 | 技术演进顺序 |
 
 ## 问题、决策与风险
 
