@@ -1,6 +1,8 @@
 # Personal Growth OS 产品设计
 
 > 本文档沉淀 Lites Cloud Agent 在产品层面的方向：以职业跃迁为核心入口，但不局限于转行；底层能力是帮助用户把已有知识、经验和认知方式迁移、重组、扩展成目标能力。
+>
+> UI/UE、用户状态草图、Today 主动作、Evidence、Lite Challenge 和学习验证闭环见 [product-ux-blueprint.md](./product-ux-blueprint.md)。
 
 ## 一句话定位
 
@@ -404,11 +406,14 @@ MVP 必须包含：
 - 用户输入当前背景和目标。
 - Agent 生成当前能力画像。
 - Agent 生成目标能力画像。
-- Agent 生成知识迁移图谱。
-- Agent 生成 4 到 12 周行动计划。
-- 用户提交每日或每周进展。
-- Agent 更新缺口、下一步、复习卡片和项目建议。
-- Evidence 区沉淀用户产出。
+- Agent 生成第一条知识迁移路径和 7 天试运行目标。
+- Today 给出一个明确主动作，而不是完整待办列表。
+- 用户可以在任务太难、没时间或断更后轻量调整节奏。
+- 用户通过 Lite Challenge 验证关键能力节点。
+- 用户提交每日或每周 Evidence。
+- Agent Review Evidence，并把反馈转成下一步任务。
+- Agent 更新缺口、能力画像、复习卡片和项目建议。
+- Evidence 区沉淀用户产出，并支持作品集、简历和面试表达。
 
 MVP 可以暂不做：
 
