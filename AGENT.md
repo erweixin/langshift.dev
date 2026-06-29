@@ -9,6 +9,11 @@ that a real cloud deployment needs.
 
 ## Product Direction
 
+- Product-facing direction: build an AI-native Personal Growth OS for career
+  transition, role upgrade, complex skill expansion, and project-based growth.
+- The core product method is knowledge transfer: start from a user's existing
+  background, map transferable assets, identify gaps, and drive growth through
+  knowledge, action, reflection, and evidence.
 - Build a cloud Agent system with clear request, task, run, and result flows.
 - Prefer simple implementations, but avoid demo-only shortcuts in core flows.
 - Keep production concerns visible from the beginning: message queue, access

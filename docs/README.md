@@ -2,6 +2,8 @@
 
 这组文档描述 Lites Cloud Agent 的端到端架构。目标不是追求“大厂全家桶”，而是先把一个能落地、能恢复、能审计、能逐步扩展的 v1 讲清楚。
 
+产品层面，Lites 面向 AI 时代的个人成长与职业跃迁：以职业转型为核心入口，但不局限于转行；底层方法论是帮助用户把已有知识和经验迁移、重组、扩展成目标能力。产品设计见 [product-growth-os.md](./product-growth-os.md)。
+
 Cloud Agent 和普通 Web 服务最大的区别是：一次用户请求会跨越 API、队列、模型、工具、sandbox、审批、实时通知和后台恢复。任何一步都可能超时、重复、崩溃或被取消。所以文档的主线是：
 
 ```text
@@ -19,6 +21,7 @@ Cloud Agent 和普通 Web 服务最大的区别是：一次用户请求会跨越
 
 | 顺序 | 文档 | 先解决的问题 |
 | ---: | --- | --- |
+| 0 | [product-growth-os.md](./product-growth-os.md) | 产品面向谁、解决什么成长问题、Mission 和知识迁移方法论是什么 |
 | 1 | [architecture.md](./architecture.md) | 为什么要用 EventStore、状态机和 Worker 循环，而不是一次 HTTP 请求跑到底 |
 | 2 | [end-to-end-flow.md](./end-to-end-flow.md) | 一个任务从用户提交到完成，中间经过哪些组件、数据怎么流动、失败怎么恢复 |
 | 3 | [mvp-scope.md](./mvp-scope.md) | Lite v1 到底做什么、明确不做什么、什么时候再演进 |
@@ -43,6 +46,7 @@ Cloud Agent 和普通 Web 服务最大的区别是：一次用户请求会跨越
 
 | 问题 | 入口 | 读完应该知道什么 |
 | --- | --- | --- |
+| 产品是什么 | [product-growth-os.md](./product-growth-os.md) | 为什么以职业跃迁为入口，如何用知识迁移、行动和反馈构建 Personal Growth OS |
 | 为什么要这样设计 | [architecture.md](./architecture.md) | Agent 任务为什么需要可恢复工作流、事件事实源、状态机和短事务 Worker |
 | 系统是什么 | [end-to-end-flow.md](./end-to-end-flow.md) | 每个组件的职责边界，以及业务数据、命令、artifact、memory、secret 和 telemetry 怎么流动 |
 | 怎么运行 | [execution-model.md](./execution-model.md) | API 如何受理，Worker 如何执行，LLM 和工具如何交接 |
@@ -84,4 +88,3 @@ Cloud Agent 不是“模型加几个工具”。它更像一个带 LLM 决策能
 - Tool 和 Runtime 负责接触外部世界，所以必须有权限、幂等、隔离和审计。
 - Realtime 只负责让用户更快看到变化，不是可靠存储。
 - Sweeper 和 Repair API 负责让异常状态收敛，而不是让运维直接改库。
-
