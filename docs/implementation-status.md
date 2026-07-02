@@ -1,16 +1,18 @@
 # 实施看板（v0）
 
-> 这篇是 doc-to-code 差距的可见化：已拍板的决策、准备清单状态、M0/M1/M2 的可勾选任务。每次合并有实质进展的 PR 时更新本文件。范围之外的想法记到本文件末尾的"不做清单"，防止 scope creep。
+> 这篇是 doc-to-code 差距的可见化：已拍板的决策、准备清单状态、M0/M1/M2 的可勾选任务。每次合并有实质进展的 PR 时更新本文件。范围之外的想法记到本文件末尾的"不做清单"，防止 scope creep。全程阶段计划（阶段 0–7，含各阶段实施细则与验收标准）见 [implementation-plan.md](./implementation-plan.md)：M0 ≈ 阶段 0–1，M1 ≈ 阶段 2–4，M2 ≈ 阶段 5。
 
 ## 已拍板决策
 
 | 决策 | 结论 | 理由 / 备注 |
 | --- | --- | --- |
 | 数据库 | **直接 PostgreSQL，不做 SQLite 过渡**（用户拍板，推翻此前 SQLite 决策） | goose + pgx；自部署形态 = 单二进制 + docker-compose 附带一个 Postgres 容器 |
-| Migration 工具 | goose（SQL 迁移，SQLite / Postgres 双支持） | 迁移文件即 schema 文档 |
+| Migration 工具 | goose（SQL 迁移，Postgres 方言） | 迁移文件即 schema 文档 |
 | CI | GitHub Actions：build + test 两步 | 动工第一天配好 |
 | 开源时点 | M1 跑通后再 public | 开源是分发手段，空仓库消耗第一印象 |
 | 登录 | 邮箱验证码（无密码）+ 邀请码控内测；自部署版默认单用户免登录 | 引入发信服务依赖（见准备清单）；比 OAuth 少一个回调依赖 |
+| 账户删除 | v0 硬删除（append-only 的唯一特权例外，按 user_id 物理删除全部数据）；v1 演进为 per-user 加密 + 销毁密钥 | 规则见 event-catalog；共享的 content_cache 因隐私 lint 保证不含用户内容，删除时不清 |
+| Run CAS | Run 级乐观锁 M0 起启用（worker 与 sweeper 天然并发）；ToolCall 级随 v1 工具域 | 推翻此前"v0 只写不校验"的取舍 |
 | 后端选型 | 标准库 `net/http`（1.22+ ServeMux）· PostgreSQL（`jackc/pgx`）· 手写 SQL repository（无 ORM）· 官方 `anthropic-sdk-go`（vercel-ai 因仅支持 TS 运行时而否决，保留 Go）· `log/slog` · `oklog/ulid` · `yaml.v3` | 单二进制、少依赖 |
 | 前端选型 | TypeScript（骨架从 .jsx 切换）· TanStack Query + 自写 SSE hook（`last_seen_seq` 补拉）· react-router · streamdown（流式 Markdown 渲染、内置代码高亮，替代 react-markdown + Shiki）· CodeMirror 6 · **自建设计系统**（不复用原型视觉，见准备清单） | 类型从 `schemas/` 生成（json-schema-to-typescript），契约贯通前后端 |
 | 模型分档 | 见 `config/llm.example.yaml`，代码只认档位 | 单价参数化，调价改配置 |
@@ -36,13 +38,13 @@
 
 一条真实链路端到端：提交 → Review run → 事件 → 投影 → SSE 推给前端。
 
-- [ ] events 表 + envelope（对齐 event-catalog）+ 投影重建命令
-- [ ] jobs 表：入队 / 领取 / ack / 重试 / command_id 去重
-- [ ] Run 状态机（5 态精简版 + 转换表 + 超时 sweeper goroutine）
-- [ ] LLM client：分档配置加载、每调用落账（surface / tok / cost）、structured outputs
+- [ ] events 表 + event_cursors（seq 游标）+ envelope（对齐 event-catalog）+ 投影重建命令
+- [ ] jobs 表：入队 / 领取 / ack / 重试 / command_id 去重 / lease_token fence（旧 worker 提交被拒）
+- [ ] Run 状态机（6 态 + 转换表 + `run_version` 乐观锁 + 超时 sweeper goroutine）
+- [ ] LLM client：分档配置加载、pre-call pending 记账 → 返回补全 → 崩溃收敛 unknown、structured outputs
 - [ ] Review run 真实跑通（读 EvidenceSubmitted → 写 ReviewCompleted）
 - [ ] SSE：投影变化推送 + 断线重连补拉
-- [ ] 验证：`kill -9` 后重启，进行中 run 恢复或干净失败，不重复计费调用
+- [ ] 验证：`kill -9` 后重启，进行中 run 恢复或干净失败；ledger 无重复落账、无静默丢账（unknown 行被收敛）
 
 ## M1 · loop 闭环（目标：M0 后 3~4 周）
 

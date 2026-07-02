@@ -12,6 +12,7 @@
 
 - 事件名用 PascalCase 的"名词 + 完成动作"：`TaskGenerated`、`EvidenceSubmitted`（与平台文档的 `RunAccepted` 风格一致）。
 - 事件一旦提交不修改、不删除；payload 结构要变，就升 `schema_version`，投影逻辑同时兼容新旧版本。
+- **唯一例外：账户删除**。作为特权流程按 `user_id` 物理删除整条事件流与全部表行（v0 采用硬删除；v1 演进为 per-user 加密 + 销毁密钥）。删除动作本身留一条**不含用户内容**的系统审计（`erasure_audit` 表，阶段 5 建；邮箱仅存哈希）；删除 job 自身与该审计表不在删除范围。这是"全库按 user 检索无残留"DoD 与 append-only 语义的闭环方式。
 - 每条事件由一个 command / 请求产生，`command_id` 去重保证 at-least-once 投递下不重复落账。
 
 ## Envelope
@@ -45,7 +46,7 @@
 | --- | --- | --- |
 | `RunAccepted` | `run_type`（diagnosis / task_gen / lesson_gen / review / reentry）, `input_ref` | runs |
 | `RunQueued` / `RunStarted` | — / `attempt_id` | runs |
-| `RunSucceeded` / `RunFailed` / `RunExpired` | `error?`, `llm_usage?`（tok_in / tok_out / cost / surface）；`RunExpired` 由 sweeper 依 `due_at` 产生 | runs + llm_ledger |
+| `RunSucceeded` / `RunFailed` / `RunExpired` | `error?`, `ledger_attempt_keys?`（**引用** LLM 账本行，不内嵌用量）；`RunExpired` 由 sweeper 依 `due_at` 产生 | runs。`llm_ledger` 由 LLM client 在调用路径直接写入（独立事实账本，pre-call pending → 补全 / unknown），**不由事件驱动** |
 
 ### 目标与路线
 
@@ -60,7 +61,7 @@
 | --- | --- | --- | --- |
 | `TaskGenerated` | 任务生成 run | task_id, title, judge, minutes, stage, seed_ref（来自哪次 Review） | tasks |
 | `TaskDowngraded` | 用户点「太难了 / 没时间」 | task_id, reason, new_task | tasks, profile（难度信号） |
-| `LessonPublished` | 内容管线 run | task_id, content_key, cache_hit, artifact_ref | content_cache |
+| `LessonPublished` | 内容管线 run | task_id, content_key, cache_hit, artifact_ref | tasks / 各投影中的内容引用；**artifact 本体在 `content_cache`（事实源，replay 不清），事件只携带指针** |
 
 ### 练习与提交
 
@@ -75,29 +76,31 @@
 | --- | --- | --- | --- |
 | `ReviewCompleted` | Review run | payload 契约见 `schemas/review-completed.schema.json`（did[], fix, next, cap_delta, misconception?, memo, next_task_seed；evidence_id 调用方注入） | profile（能力/误解/记忆）, evidence（→已 Review）, 明日任务种子 |
 | `UserEditedProfile` | 用户编辑画像 / 删除记忆 | field, op, old, new | profile（用户改动权威最高）+ 派生物失效标记 |
-| `ProfileSummaryRefreshed` | 摘要刷新（小模型） | profile_version, summaries{surface → text_ref} | prompt 前缀缓存；供 context_manifest 追溯 |
+| `ProfileSummaryRefreshed` | 摘要刷新（小模型） | profile_version, summaries{surface → **text**}（摘要短文本直接入 payload，profile.summaries 投影可重建，无需另设 artifact 表） | profile.summaries；供 context_manifest 追溯 |
 
 ### 对话与偏好（交互面，事后记账）
 
 | type | 产生者 | payload 要点 | 更新投影 |
 | --- | --- | --- | --- |
-| `RewriteApplied` | 选中重写 | task_id, paragraph_anchor, kind（simple / analogy）, delta_ref | user_content_delta |
+| `RewriteApplied` | 选中重写 | task_id, paragraph_anchor, kind（simple / analogy）, text（重写全文入 payload，保证 delta 投影可重建） | user_content_delta |
 | `PreferenceRecorded` | 重写 / 对话中的偏好信号 | kind, value, stage: candidate \| confirmed | profile（≥2 次同类才 confirmed） |
 | `ChatTurnLogged` | Drawer 对话结束后 | conversation_id, role, text, quote?, surface_ctx | conversations |
-| `CraftGenerated` | 作品化 | evidence_id, kind（resume / portfolio / interview / article）, artifact_ref | crafts, evidence（→可展示） |
+| `CraftGenerated` | 作品化 | evidence_id, kind（resume / portfolio / interview / article）, content（作品全文入 payload——体量小，保证 crafts 投影可重建） | crafts, evidence（→可展示） |
 
 ### 节律与数据主权
 
 | type | 产生者 | payload 要点 | 更新投影 |
 | --- | --- | --- | --- |
-| `DayCompleted` | 完成循环 | date, task_id | rhythm（streak，含宽容规则） |
-| `ReentryTaskIssued` | 断更回归 run | gap_days, task | tasks, rhythm |
+| `DayCompleted` | 完成循环（`POST /api/tasks/:id/complete`） | date, task_id | **tasks（当日 task → done）**+ profile 的 rhythm 段（streak，含宽容规则；节律不设独立表，嵌在 profile 内） |
+| `ReentryTaskIssued` | 断更回归 run | gap_days, task | tasks, profile 的 rhythm 段 |
 | `DataExported` | 用户导出 | format, scope | 审计 |
-| `AccountDeletionRequested` | 用户删除 | — | 触发数据与派生物清除流程 |
+| `AccountDeletionRequested` | 用户删除 | — | 触发硬删除特权流程（见上方"唯一例外"规则）：投影/delta/摘要 → 事实类行 → events → users，最后留无内容审计 |
 
 ## 投影清单
 
-`runs`、`llm_ledger`、`missions`、`tasks`、`content_cache`、`user_content_delta`、`exercise_runs`、`evidence`、`profile`、`conversations`、`crafts`、`rhythm`。全部可由事件流重建；投影更新以 `event_id` 幂等（重放不二次生效）。
+**投影**（可由事件流重建，更新以 `event_id` 幂等、重放不二次生效）：`runs`、`missions`、`tasks`、`user_content_delta`、`exercise_runs`、`evidence`、`profile`（含 rhythm 段与分面摘要）、`conversations`、`crafts`。
+
+**事实类表**（不是投影，`lites replay` 不清除）：`events` 本身、`llm_ledger`（花费事实，含 pending/unknown 状态）、`content_cache` 的 artifact 本体（`LessonPublished` 只携带指针，对齐平台"EventStore 不保存文件本体"原则）。
 
 ## Do / Don't
 
@@ -106,4 +109,4 @@
 | 新事件先改本文件再写代码 | 代码里随手发明事件名 |
 | payload 变更升 schema_version | 原地改旧事件结构 |
 | 用户改动标 source，权威最高 | 系统悄悄覆盖用户编辑 |
-| LLM 用量跟着 Run 事件落账 | 单独一套计量与事件对不上 |
+| LLM client 负责 pre-call ledger；Run 事件只引用 `ledger_attempt_keys` | 把 ledger 做回事件投影，或把用量内嵌进 Run 事件 |

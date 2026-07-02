@@ -77,7 +77,7 @@
 
 ## 监控与归因
 
-每次 LLM 调用都要落账，v0 起就做（见 [v0-product-slice.md](./v0-product-slice.md)）：`surface / model / tok_in / tok_out / cache_read / cost / user_id / run_id`。看板先只看四条低基数曲线：
+每次 LLM 调用都要落账，v0 起就做（见 [v0-product-slice.md](./v0-product-slice.md)）：`surface / model / status / tok_in / tok_out / cache_read / cost / attempt_key / request_hash / user_id / run_id`（完整字段与状态语义见 implementation-plan 阶段 1；花费只计 `ok + unknown`）。看板先只看四条低基数曲线：
 
 1. cost per DAU（按日）
 2. 内容缓存命中率

@@ -37,6 +37,7 @@ Cloud Agent 和普通 Web 服务最大的区别是：一次用户请求会跨越
 
 实施相关（v0 动工前后看这组）：
 
+- 实施计划（阶段 0–7：工程初始化 → 完整 Cloud Agent，含各阶段验收标准）： [implementation-plan.md](./implementation-plan.md)
 - 实施看板（决策 / 里程碑 / 风险）： [implementation-status.md](./implementation-status.md)
 - Event Catalog（v0 数据契约）： [event-catalog.md](./event-catalog.md)
 - 14 天路线草案（内容输入 / golden set）： [curriculum-14d.md](./curriculum-14d.md)

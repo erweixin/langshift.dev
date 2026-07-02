@@ -21,7 +21,7 @@
 
 ```text
 TaskSpec ──▶ LessonPlan ──▶ Draft ──▶ 校验 ──▶ ContentArtifact（定稿，内容寻址）
-（路线+画像段）  （结构化骨架）  （强模型）  （机器+抽样人审）        │
+（路线+水平段）  （结构化骨架）  （强模型）  （机器+抽样人审）        │
                                                         ▼
                                               个性化层（每用户 delta，小模型）
 ```
@@ -43,6 +43,7 @@ TaskSpec ──▶ LessonPlan ──▶ Draft ──▶ 校验 ──▶ Content
 3. **判断点覆盖**：至少一条测试标记为判断点，且与 TaskSpec 的判断点文本对应。
 4. **结构 lint**：节数、字数区间、练习位置、目录锚点、禁用词。
 5. **安全检查**：练习代码不含网络 / 文件系统调用，和运行时白名单形成双保险。
+6. **隐私 lint**：基座是跨用户共享的事实源（删除账户时不清），artifact 全文**禁止出现任何用户可识别内容**——user_id、邮箱、画像原文、个人目标表述。命中即打回；个性化一律走 delta 层。
 
 校验失败带着失败原因重新生成（原因进 prompt）；连续 N 次失败进入人审队列而不是硬着头皮下发。
 
@@ -83,7 +84,7 @@ cache_key = hash(task_template_id, target_stack, level_band, content_version, pr
 
 ## Lite v0 实现建议
 
-- 缓存表就是 PostgreSQL 一张 `content_cache`（key → artifact JSON），先不需要对象存储。
+- 缓存表就是 PostgreSQL 一张 `content_cache`（key → artifact JSON），先不需要对象存储。它是**事实源**（artifact 本体只存这里，`LessonPublished` 事件只带指针），投影重放（`lites replay`）不清它。
 - 人审队列先等于一个状态字段 + 创始人自己看，不做后台系统。
 - v0 只有一条主路线（前端 → Cloud Agent），level_band 先只分 1 档。流程照样走，缓存自然高命中；等有第二条路线再细分。
 

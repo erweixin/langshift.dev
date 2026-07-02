@@ -22,7 +22,7 @@
 - [ ] 至少 1 次「选中重写」且偏好在后续课程中生效；至少 3 次 Drawer 对话且带上下文。
 - [ ] 至少 1 份 Evidence 完成作品化（简历 bullet）。
 - [ ] 用户导出全部数据（JSON），删除账户后数据与派生物真实消失。
-- [ ] 进程崩溃 / 重启后，进行中的 run 恢复或干净失败，不重复计费调用。
+- [ ] 进程崩溃 / 重启后，进行中的 run 恢复或干净失败；LLM 花费账本诚实——无重复落账、无静默丢账，结局未知的调用被显式标记（provider 无幂等键，不承诺绝不重复调用）。
 
 ## v0 架构
 
@@ -31,7 +31,8 @@
 ├── PostgreSQL（托管与自部署统一；自部署以 docker-compose 附带）
 │   ├── events（append-only，单表）
 │   ├── jobs（at-least-once + 去重，SKIP LOCKED / 单进程队列）
-│   └── 投影：missions / tasks / profile / evidence / content_cache
+│   ├── 事实类：llm_ledger / content_cache（artifact 本体，replay 不清）
+│   └── 投影：missions / tasks / profile / evidence …（可由 events 重建）
 ├── LLM：Anthropic API ×1（强/中/小三档模型别名，见 unit-economics.md）
 ├── 练习运行时：浏览器 JS（Web Worker），无服务端沙箱
 └── 前端：React SPA（现有 frontend/ 骨架）+ SSE
@@ -44,10 +45,10 @@
 | 平台 v1 项 | v0 处置 | 理由 |
 | --- | --- | --- |
 | EventStore 事实源 | **保留**（单表 append-only + 投影可重建） | 以后再补会最痛 |
-| Run 状态机 | **保留**（5 态精简版 + 转换表） | 产品第一课就在教这个，自己也要用起来 |
-| 提交幂等（idempotency key） | **保留**（用户提交 / LLM 调用记账） | 防止重复提交、重复扣 LLM 成本 |
+| Run 状态机 | **保留**（6 态精简版：accepted / queued / executing + 3 终态，状态名对齐 state-machines.md） | 产品第一课就在教这个，自己也要用起来 |
+| 提交幂等（idempotency key） | **保留**（写端点统一 `Idempotency-Key` 约定） | 防止重复提交；LLM 花费由 ledger 的 pre-call 规则独立诚实记账（无重复落账） |
 | inbox 去重 | **简化**：jobs 表带唯一 command_id | 单进程下够用，语义不变 |
-| 双级 CAS（run/tool_call version） | **简化**：单 worker 按 conversation 串行，保留版本字段不做并发校验 | 现在没有并行 worker，先不引入复杂竞态处理，但字段留好 |
+| 双级 CAS（run/tool_call version） | **Run 级保留（M0 起校验）**：状态转换走 `run_version` 乐观锁——worker 与 sweeper 天然并发；ToolCall 级随 v1 工具域引入 | Run 级 CAS 只是一个带 WHERE 的 UPDATE，成本极低，不值得推迟 |
 | outbox | **推迟**：同库同事务，发布即查询 | 没有跨系统投递 |
 | Guardrails / 审批流 | **推迟**：v0 无危险工具（Review 只读输入，无外部副作用） | 威胁面不存在 |
 | Secret broker / 沙箱纵深 | **推迟**：无服务端代码执行 | 见 exercise-runtime.md 的 v1 触发条件 |
@@ -87,4 +88,4 @@ v0 的单二进制**就是自部署版**（AGPL 承诺的兑现），这不是�
 | 任何真实外部副作用工具接入 | guardrails + effect ledger + 审批 |
 | 数据不可承受丢失 | 备份恢复演练 + `store_epoch` |
 
-v0 的核心标准：**慢一点可以，界面糙一点也可以；但事件语义不能欠债，LLM 调用不能重复计费，用户数据必须随时可导出、可删除。**
+v0 的核心标准：**慢一点可以，界面糙一点也可以；但事件语义不能欠债，LLM 账本不能重复落账、结局未知的调用必须显式标记，用户数据必须随时可导出、可删除。**
