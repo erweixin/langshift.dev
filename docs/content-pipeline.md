@@ -83,7 +83,7 @@ cache_key = hash(task_template_id, target_stack, level_band, content_version, pr
 
 ## Lite v0 实现建议
 
-- 缓存表就是 PostgreSQL/SQLite 一张 `content_cache`（key → artifact JSON），先不需要对象存储。
+- 缓存表就是 PostgreSQL 一张 `content_cache`（key → artifact JSON），先不需要对象存储。
 - 人审队列先等于一个状态字段 + 创始人自己看，不做后台系统。
 - v0 只有一条主路线（前端 → Cloud Agent），level_band 先只分 1 档。流程照样走，缓存自然高命中；等有第二条路线再细分。
 

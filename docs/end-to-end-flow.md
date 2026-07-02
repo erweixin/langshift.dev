@@ -109,7 +109,7 @@ sequenceDiagram
   Q->>A: deliver ResumeAgentRun
   A->>L: continue with tool result
   L-->>A: final answer
-  A->>ES: tx: RunCompleted + final message
+  A->>ES: tx: RunSucceeded + final message
   ES-->>RT: run completed
   RT-->>C: final answer
 ```
@@ -183,7 +183,7 @@ flowchart TD
 4. **行动**：模型提出工具调用；平台做 schema、权限、预算、guardrail 和审批检查。
 5. **执行**：ToolWorker 在 Runtime/Sandbox 中执行工具，写 artifact 或 workspace。
 6. **汇合**：工具结果回到 EventService；并行工具满足 join policy 后只生成一次 `ResumeAgentRun`。
-7. **完成**：AgentWorker 继续思考，写最终回复和 `RunCompleted`。
+7. **完成**：AgentWorker 继续思考，写最终回复和 `RunSucceeded`。
 8. **通知**：Realtime Gateway 推送事件；客户端按 `seq` 展示状态，断线则补拉。
 
 ## 失败路径

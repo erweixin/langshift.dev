@@ -35,6 +35,13 @@ Cloud Agent 和普通 Web 服务最大的区别是：一次用户请求会跨越
 | 8 | [operations.md](./operations.md) | 系统怎么被观测、怎么扫尾、怎么做故障测试 |
 | 9 | [capacity-and-scaling.md](./capacity-and-scaling.md) 与 [roadmap.md](./roadmap.md) | 怎么部署、怎么压测、什么时候替换基础设施 |
 
+实施相关（v0 动工前后看这组）：
+
+- 实施看板（决策 / 里程碑 / 风险）： [implementation-status.md](./implementation-status.md)
+- Event Catalog（v0 数据契约）： [event-catalog.md](./event-catalog.md)
+- 14 天路线草案（内容输入 / golden set）： [curriculum-14d.md](./curriculum-14d.md)
+- JSON Schema 契约： [`schemas/`](../schemas/)，模型分档配置： [`config/llm.example.yaml`](../config/llm.example.yaml)
+
 其他专题文档按需要阅读：
 
 - 内容生成管线（怎么低成本、稳定地产出课程和练习）： [content-pipeline.md](./content-pipeline.md)

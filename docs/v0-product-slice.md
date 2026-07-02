@@ -28,7 +28,7 @@
 
 ```text
 单二进制 Go 服务（API + worker goroutines + SSE）
-├── PostgreSQL（托管版）/ SQLite（自部署版）
+├── PostgreSQL（托管与自部署统一；自部署以 docker-compose 附带）
 │   ├── events（append-only，单表）
 │   ├── jobs（at-least-once + 去重，SKIP LOCKED / 单进程队列）
 │   └── 投影：missions / tasks / profile / evidence / content_cache
@@ -63,7 +63,7 @@ v0 的单二进制**就是自部署版**（AGPL 承诺的兑现），这不是�
 
 | | 自部署版（开源） | 托管版（商业） |
 | --- | --- | --- |
-| 运行 | 单二进制 + SQLite + 自带 API key（BYO key） | 多用户 + PostgreSQL + 平台 key |
+| 运行 | 单二进制 + PostgreSQL（docker-compose 一键起）+ 自带 API key（BYO key） | 多用户 + 平台 key + 托管 Postgres |
 | 功能 | 完整 daily loop、画像、课程、练习 | 同左 + 跨设备记忆同步、服务端语言沙箱（v1）、作品化高级模板、免配置 |
 | 成本 | 用户自付 token | 订阅覆盖，见 [unit-economics.md](./unit-economics.md) |
 
