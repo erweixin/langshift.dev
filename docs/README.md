@@ -23,9 +23,11 @@ Cloud Agent 和普通 Web 服务最大的区别是：一次用户请求会跨越
 | ---: | --- | --- |
 | 0 | [product-growth-os.md](./product-growth-os.md) | 产品面向谁、解决什么成长问题、Mission 和知识迁移方法论是什么 |
 | 0.5 | [product-ux-blueprint.md](./product-ux-blueprint.md) | 用户状态、UI/UE 草图、Today 主动作、Evidence、Lite Challenge 和学习验证闭环怎么设计 |
+| 0.7 | [product-to-platform.md](./product-to-platform.md) | 把产品语言翻译成工程语言：Mission、Task、Review 分别落到哪些 run / event / tool |
 | 1 | [architecture.md](./architecture.md) | 为什么要用 EventStore、状态机和 Worker 循环，而不是一次 HTTP 请求跑到底 |
 | 2 | [end-to-end-flow.md](./end-to-end-flow.md) | 一个任务从用户提交到完成，中间经过哪些组件、数据怎么流动、失败怎么恢复 |
-| 3 | [mvp-scope.md](./mvp-scope.md) | Lite v1 到底做什么、明确不做什么、什么时候再演进 |
+| 2.5 | [v0-product-slice.md](./v0-product-slice.md) | 第一个真正要交付的版本：让一个真实用户连续跑通 14 天，而不是先把平台做满 |
+| 3 | [mvp-scope.md](./mvp-scope.md) | 平台 v1 的完整边界：v0 被验证后，再补哪些平台能力 |
 | 4 | [state-machines.md](./state-machines.md) | Run、ToolCall、Command 各自有哪些合法状态 |
 | 5 | [concurrency-and-durability.md](./concurrency-and-durability.md) | 如何用事务、CAS、outbox/inbox 和 effect ledger 抵抗重复投递和崩溃 |
 | 6 | [execution-model.md](./execution-model.md) | Worker 如何领取任务、调用 LLM/工具、处理副作用和并行 join |
@@ -35,6 +37,10 @@ Cloud Agent 和普通 Web 服务最大的区别是：一次用户请求会跨越
 
 其他专题文档按需要阅读：
 
+- 内容生成管线（怎么低成本、稳定地产出课程和练习）： [content-pipeline.md](./content-pipeline.md)
+- 学习者画像（系统到底“记住了你什么”，以及用户如何纠正）： [learner-profile.md](./learner-profile.md)
+- 练习运行时（课程里的代码练习怎么安全、快速地跑起来）： [exercise-runtime.md](./exercise-runtime.md)
+- 单位经济（一个活跃用户每天大概花多少钱，订阅价能不能覆盖）： [unit-economics.md](./unit-economics.md)
 - 工具： [tool-system.md](./tool-system.md)
 - 模型接入： [llm-provider.md](./llm-provider.md)
 - Memory / RAG： [memory.md](./memory.md)
