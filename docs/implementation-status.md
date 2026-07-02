@@ -24,7 +24,7 @@
 - [x] 可行性评估（spike 以分析代替，结论见风险登记）
 - [x] 14 天任务序列草案 → [curriculum-14d.md](./curriculum-14d.md)（待创始人修订冻结，含 3 个待确认问题）
 - [x] Event catalog → [event-catalog.md](./event-catalog.md)
-- [x] ContentArtifact / ExerciseResult / ReviewCompleted schema → `schemas/`
+- [x] ContentArtifact / ExerciseResult / ReviewOutput / ReviewCompleted schema → `schemas/`
 - [x] 模型分档配置 → `config/llm.example.yaml`
 - [x] 原型声明为交互 source of truth → [product-ux-blueprint.md](./product-ux-blueprint.md) 顶部
 - [ ] 选发信服务（Resend / SES / 任意 SMTP，内测量级免费档即可）+ 发信域名（创始人操作，M1 前；本地开发用控制台打印验证码绕过）
@@ -38,8 +38,8 @@
 
 一条真实链路端到端：提交 → Review run → 事件 → 投影 → SSE 推给前端。
 
-- [ ] events 表 + event_cursors（seq 游标）+ envelope（对齐 event-catalog）+ 投影重建命令
-- [ ] jobs 表：入队 / 领取 / ack / 重试 / command_id 去重 / lease_token fence（旧 worker 提交被拒）
+- [ ] events 表 + event_cursors（seq 游标）+ idempotency_keys（作用域化请求重放）+ envelope（对齐 event-catalog）+ 投影重建命令
+- [ ] jobs 表：入队 / 领取 / ack / 重试 / command_id 去重 / subject_user_id 删除定位 / JobFence(job_id, lease_token) / 成功路径 append+done 同事务
 - [ ] Run 状态机（6 态 + 转换表 + `run_version` 乐观锁 + 超时 sweeper goroutine）
 - [ ] LLM client：分档配置加载、pre-call pending 记账 → 返回补全 → 崩溃收敛 unknown、structured outputs
 - [ ] Review run 真实跑通（读 EvidenceSubmitted → 写 ReviewCompleted）
@@ -54,7 +54,7 @@
 - [ ] 2 每日任务生成（消费 next_task_seed）
 - [ ] 3 内容管线：LessonPlan → Draft → 校验（参考解真跑测试）→ 定稿 → content_cache
 - [ ] 4 选中重写（直连流式 + delta 持久化 + PreferenceRecorded）
-- [ ] 5 Drawer 对话（直连流式 + 画像摘要前缀 + 事后记账）
+- [ ] 5 Drawer 对话（stub 先行 + 直连流式 + 画像摘要前缀 + 最终事件兜底）
 - [ ] 6 练习运行时 v0：Web Worker + 看门狗 + ExerciseResult 落账
 - [ ] 7 提交页自动带入 + Review 等待态 UI
 - [ ] 8 作品化（resume bullet 一种形态即可）
@@ -78,7 +78,7 @@
 | --- | --- | --- | --- |
 | R1 | 课程生成一次通过率不足 | 预期首过率 70–85%。主要失败模式：① 测试与起始代码不构成"必挂"关系；② 参考解与测试对边界情况理解不一致；③ 输出结构不合规；④ 判断点测试与文本漂移 | ③ 用 structured outputs 基本消除；①②④ 靠管线的"校验失败原因回灌重生成"，预期一轮重试后 >95%；剩余进人审。管线设计不需要改，但 M1 首周要用真实 3 课实测校准这些数字 |
 | R2 | token 估算偏差导致成本结论失真 | 6k/5k（课程）与 4k/1.5k（Review）为同量级估计，实测可能在 ±50% 区间；毛利结论对此不敏感（80% 毛利容得下 2 倍偏差） | M0 起每调用落账，M1 首周用真实数据重算 unit-economics 表 |
-| R3 | Review 输出结构不稳 | 用 structured outputs 约束后基本不是风险 | 已落地：`schemas/review-completed.schema.json`（生成侧 structured output 与 ReviewCompleted payload 同源，`evidence_id` 由调用方注入） |
+| R3 | Review 输出结构不稳 | 用 structured outputs 约束后基本不是风险 | 已落地：`schemas/review-output.schema.json`（模型输出）+ `schemas/review-completed.schema.json`（事件 payload，`evidence_id` 由调用方注入） |
 | R4 | 14 天内容质量不均 | 管线自动校验管"能跑"，管不了"讲得好" | golden set 人审 + D1 人工兜底 + 重写率信号定位坏小节 |
 | R5 | 留存不成立（最大风险，非技术） | 无法预判，只能实验 | M2 就是为它设计的；漏斗口径先定好 |
 

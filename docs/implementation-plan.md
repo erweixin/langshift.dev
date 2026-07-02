@@ -8,7 +8,7 @@
 
 | 阶段 | 名称 | 里程碑 | 预估 | 核心设计工作 |
 | --- | --- | --- | --- | --- |
-| 0 | 工程初始化 | — | 2–3 天 | 工程规范、事件/队列两张核心表 |
+| 0 | 工程初始化 | — | 2–3 天 | 工程规范、事件 / 幂等 / 队列表 |
 | 1 | 执行内核 | M0 | 2 周 | 执行域数据库设计、内部接口设计、Review prompt v1 |
 | 2 | 账户与登录 | — | 3–5 天 | 账户域数据库设计、Auth API 设计 |
 | 3 | Daily loop 服务端 | M1 前半 | 3 周 | **业务域全量数据库设计、REST API 全量设计、全部业务 Prompt 设计** |
@@ -21,7 +21,7 @@
 
 | 阶段 | migration | 新增/变更的表 |
 | --- | --- | --- |
-| 0 | 0001 | `events`、`event_cursors`（seq 游标）、`jobs` |
+| 0 | 0001 | `events`、`event_cursors`（seq 游标）、`idempotency_keys`（作用域化幂等映射）、`jobs` |
 | 1 | 0002 | `runs`、`llm_ledger`、`evidence`（最小版） |
 | 2 | 0003 | `users`、`login_codes`、`sessions`、`invites` |
 | 3 | 0004+ | `missions`、`tasks`、`content_cache`（artifact 本体，**事实源**）、`user_content_delta`、`exercise_runs`、`profile`（含 rhythm 段）、`conversations`、`crafts`；`evidence` 扩展 |
@@ -33,7 +33,7 @@
 
 | Prompt | 调用面 / 档位 | 设计于 | 备注 |
 | --- | --- | --- | --- |
-| review | Review / 强 | 阶段 1（v1）→ 阶段 3 迭代 | 输出锁 `schemas/review-completed.schema.json` |
+| review | Review / 强 | 阶段 1（v1）→ 阶段 3 迭代 | 模型输出锁 `schemas/review-output.schema.json`；事件 payload 锁 `schemas/review-completed.schema.json` |
 | diagnosis | 冷启动诊断 / 强 | 阶段 3 | 产出 Mission + Roadmap 结构化输出 |
 | lesson_plan / lesson_draft | 内容管线 / 中、强 | 阶段 3 | draft 输出锁 ContentArtifact 简化投影 |
 | rewrite / chat | 交互面 / 小 | 阶段 3 | 流式 |
@@ -52,11 +52,11 @@
 ### 设计工作
 
 - 工程规范：目录结构、错误处理约定（typed error + 分类）、日志字段约定（`run_id`/`user_id`/`surface` 必带）、配置格式。
-- **数据库设计（migration 0001，两张核心表）**：
+- **数据库设计（migration 0001，四张基础表）**：
   - `events`：`event_id`(ULID, PK)、`seq`(bigint，per-user 连续)、`type`、`schema_version`、`user_id`、`mission_id?`、`task_id?`、`run_id?`、`command_id?`、`causation_id?`、`correlation_id?`、`created_at`、`payload`(jsonb)。约束：`UNIQUE(user_id, seq)`；`seq` 由事务内锁 `event_cursors` 行分配。
   - `event_cursors`：`user_id`(PK)、`current_seq`。**seq 分配不依赖阶段 2 的 users 表**——游标行按需创建（首次 append 时 upsert），单用户模式用固定 user_id。
-
-  - `jobs`：`job_id`、`command_id`(UNIQUE，去重)、`kind`、`payload`(jsonb)、`status`(queued/leased/done/failed/dead)、`attempts`、`lease_until`、`lease_token`（**fence**：每次领取重新生成；Ack / Fail / Heartbeat 必须携带且匹配，租约过期后旧 worker 的提交一律被拒——对齐 [state-machines.md](./state-machines.md) 的 fence 要求）、`leased_by`、`heartbeat_at`、`due_at`、`last_error`、`created_at`。
+  - `idempotency_keys`：`user_id`、`scope`（endpoint 标识）、`key`（客户端 Idempotency-Key）、`command_id`（映射到的服务端 ULID）、`request_hash`、`response_status`、`response_body`(jsonb)、`created_at`、`updated_at`；`UNIQUE(user_id, scope, key)`、`UNIQUE(command_id)`。**客户端 key 不直接当 command_id 用**——不同用户 / 不同端点的同名 key 互不冲突；API 成功但响应丢失时直接回放 `response_status/body`。
+  - `jobs`：`job_id`、`command_id`(UNIQUE，服务端 ULID，去重)、`kind`、`subject_user_id?`（任务关联的用户；删除 job 完成前可临时指向目标用户，最终必须 scrub 为 NULL）、`payload`(jsonb)、`status`(queued/leased/done/failed/dead/cancelled)、`attempts`、`lease_until`、`lease_token`（**fence**：每次领取重新生成）、`leased_by`、`heartbeat_at`、`due_at`、`last_error`、`created_at`。Ack / Fail / Heartbeat / Append 必须携带 `JobFence{job_id, lease_token}` 且匹配，租约过期后旧 worker 的提交一律被拒——对齐 [state-machines.md](./state-machines.md) 的 fence 要求；worker 成功路径必须由 `EventService.Append` 在同一事务内追加事件并把当前 job 标记为 `done`，禁止"append 成功后再单独 ack"；账户删除按 `subject_user_id` 定位并清理所有状态的 payload。
 
 ### 开发任务
 
@@ -71,7 +71,7 @@
 ### 验收标准
 
 - [ ] 新机器 `git clone && make dev` 十分钟内起来。
-- [ ] `make migrate` 建出 `events` / `event_cursors` / `jobs`；CI 在 PR 上全绿。
+- [ ] `make migrate` 建出 `events` / `event_cursors` / `idempotency_keys` / `jobs`；CI 在 PR 上全绿。
 - [ ] 改 `schemas/*.json` → `make typegen` → 前端类型同步且 `tsc` 通过。
 
 ---
@@ -84,14 +84,14 @@
 
 - **数据库设计（migration 0002）**：
   - `runs`（投影）：`run_id`、`user_id`、`run_type`(diagnosis/task_gen/lesson_gen/review/reentry)、`status`、`run_version`(int，**M0 起即做乐观锁校验**——worker 与 sweeper 天然并发，Run 级 CAS 只是一个带 WHERE 的 UPDATE)、`input_ref`、`error?`、`due_at`、时间戳。ToolCall 级 CAS 推迟到阶段 7 工具域引入时。
-  - `llm_ledger`：`id`、`user_id`、`run_id?`、`surface`、`model`、`status`(pending / ok / failed_no_charge / provider_error / unknown / cancelled)、`tok_in`、`tok_out`、`cache_read`、`cost_usd`、`attempt_key`(UNIQUE)、**审计字段**（对齐 [execution-model.md](./execution-model.md) 的"输入清单、provider request id、结果可解释"要求）：`request_hash`（输入指纹）、`prompt_version`、`context_manifest`(jsonb，**直接内嵌**：prompt_version、profile_version、content_key、引用的事件 / artifact id——v0 不另设 manifest 表，这就是"解释调用为什么发生"的落地)、`provider_request_id?`、`error_code?`、`started_at`、`finished_at?`。账本不仅要能算钱，还要能解释一次调用为什么发生。**LLM 调用是花钱的外部副作用，记账遵循 pre-call 规则**：调用前先落 `pending` 行（独立事务），返回后补 usage 置 `ok`；崩溃恢复时发现 `pending` 行 → 置 `unknown`（保守视为已花费），重试用新 `attempt_key`。provider 无幂等键，无法保证绝不重复调用——保证的是**账本诚实：无重复落账、无静默丢账**。ledger 是 LLM client 在调用路径直接写入的**独立事实账本**（不是事件投影，不由事件驱动）；Run 事件 payload 只携带 `ledger_attempt_keys` 引用。状态语义：`failed_no_charge`＝请求未发出（本地校验 / 预算拦截，零成本）；`provider_error`＝收到明确错误响应（默认零成本，按响应修正）；`unknown`＝已发出但无明确结局（保守计入成本）；`cancelled`＝发出前主动取消。**成本面板与告警只把 `ok + unknown` 计入花费**，工程失败不混入。
+  - `llm_ledger`：`id`、`user_id`、`run_id?`、`surface`、`model`、`status`(pending / ok / failed_no_charge / provider_error / unknown / cancelled)、`tok_in`、`tok_out`、`max_tok_out`（pre-call 估算上限）、`cache_read`、`cost_usd`（实际或保守估算）、`estimated_cost_usd`、`cost_basis`(actual / estimated / zero)、`attempt_key`(UNIQUE)、**审计字段**（对齐 [execution-model.md](./execution-model.md) 的"输入清单、provider request id、结果可解释"要求）：`request_hash`（输入指纹）、`prompt_version`、`context_manifest`(jsonb，**直接内嵌**：prompt_version、profile_version、content_key、引用的事件 / artifact id——v0 不另设 manifest 表，这就是"解释调用为什么发生"的落地)、`provider_request_id?`、`error_code?`、`started_at`、`finished_at?`。账本不仅要能算钱，还要能解释一次调用为什么发生。**LLM 调用是花钱的外部副作用，记账遵循 pre-call 规则**：调用前先落 `pending` 行（独立事务，写入 `tok_in/max_tok_out/estimated_cost_usd/cost_basis=estimated`），返回后补 usage 置 `ok` 并改 `cost_basis=actual`；崩溃恢复时发现 `pending` 行 → 置 `unknown`，沿用 `estimated_cost_usd` 作为保守成本，重试用新 `attempt_key`。provider 无幂等键，无法保证绝不重复调用——保证的是**账本诚实：无重复落账、无静默丢账**。ledger 是 LLM client 在调用路径直接写入的**独立事实账本**（不是事件投影，不由事件驱动）；Run 事件 payload 只携带 `ledger_attempt_keys` 引用。状态语义：`failed_no_charge`＝请求未发出（本地校验 / 预算拦截，零成本，`cost_basis=zero`）；`provider_error`＝收到明确错误响应（默认零成本，按响应修正）；`unknown`＝已发出但无明确结局（保守计入估算成本）；`cancelled`＝发出前主动取消。**成本面板与告警只把 `ok + unknown` 计入花费**，工程失败不混入。
   - `evidence`（最小版）：`evidence_id`、`user_id`、`task_id?`、`status`(draft/reviewing/reviewed)、`payload`(jsonb)。
 - **内部接口设计**（签名冻结再实现）：
-  - `EventService.Append(ctx, AppendRequest) (AppendResult, error)`，其中 `AppendRequest{ Actor（user / worker / system）, IdempotencyKey + RequestHash（重复 key 返回首次结果，key 同 body 异 → 409）, Aggregate{ RunID, ExpectedVersion }（Run CAS，可选）, FenceToken（worker 提交必带，对 jobs.lease_token 校验）, Events []EventDraft, Commands []CommandDraft }`——幂等、CAS、fence 三个不变量**全部在 Append 边界内一次性执行**，不散落在 handler / worker 里。单事务：校验 → 分配 seq → 插事件 → 更新投影 → 登记 job。
-  - `JobQueue.Claim(ctx, kinds) (job, leaseToken, error)`；`Heartbeat / Ack / Fail / Reschedule` 均要求携带 `leaseToken`，不匹配即拒绝；`Worker` 接口 = `Handle(ctx, job) ([]EventDraft, error)`，产出经 `EventService.Append`（带 fence）提交。
+  - `EventService.Append(ctx, AppendRequest) (AppendResult, error)`，其中 `AppendRequest{ Actor（user / worker / system）, CommandID?（system 写入必带；API / worker 禁止传）, Idempotency?{Scope, Key, RequestHash}（API 写入必带；重复 key 返回 `idempotency_keys.response_*`，key 同 body 异 → 409）, Aggregate?{RunID, ExpectedVersion}（Run CAS，可选）, JobFence?{JobID, LeaseToken}（worker 成功提交必带，对 jobs 行校验）, Events []EventDraft, Commands []CommandDraft{Kind, SubjectUserID, Payload} }`——幂等、CAS、fence 三个不变量**全部在 Append 边界内一次性执行**，不散落在 handler / worker 里。`command_id` 解析规则：API 写入来自 `idempotency_keys.command_id`；worker 写入来自当前 `job.command_id`；系统写入来自显式传入的 `CommandID`。单事务：校验幂等 / CAS / fence → 分配 seq → 插事件 → 更新投影 → 登记子 job（为每个 `CommandDraft` 生成新的服务端 `command_id`）→ 若带 `JobFence` 则把当前 job 标记为 `done` → 仅 API 幂等写入保存 idempotency response。
+  - `JobQueue.Claim(ctx, kinds) (job, JobFence, error)`；`Heartbeat / Fail / Reschedule` 均要求携带 `JobFence{job_id, lease_token}`，不匹配即拒绝；成功 ack 通常由 `EventService.Append` 随事件提交原子完成，独立 `Ack` 只保留给确实不产出事件的 no-op / cancel job；`Worker` 接口 = `Handle(ctx, job, fence) ([]EventDraft, error)`，产出经 `EventService.Append`（带 fence）提交。
   - `LLMClient.Complete(ctx, surface, req) (resp, usage, error)`——内部完成分档路由、structured outputs、ledger 落账。
-- **API 设计（本阶段最小集）**：`POST /api/evidence`、`GET /api/events?after_seq=`、`GET /api/stream`（SSE）。**写端点统一幂等约定（全程适用）**：所有写 event/job 的 POST/PATCH 必须携带 `Idempotency-Key` header（落 envelope 的 `command_id`）；重复 key 返回首次响应，key 相同而 body 不同返回 409。
-- **Prompt 设计**：review v1（系统提示 + 用户产出模板 + structured output 锁 schema）。
+- **API 设计（本阶段最小集）**：`POST /api/evidence`、`GET /api/events?after_seq=`、`GET /api/stream`（SSE）。**写端点统一幂等约定（全程适用）**：所有写 event/job 的 POST/PATCH 必须携带 `Idempotency-Key` header，**作用域为 (user_id, endpoint)**——经 `idempotency_keys` 表映射到服务端生成的 `command_id`（ULID，全局唯一）；重复 key 返回首次响应，key 相同而 body 不同（`request_hash` 不符）返回 409。
+- **Prompt 设计**：review v1（系统提示 + 用户产出模板 + structured output 锁 `schemas/review-output.schema.json`；写 `ReviewCompleted` 前注入 `evidence_id` 并按 `schemas/review-completed.schema.json` 校验事件 payload）。
 
 ### 开发任务
 
@@ -101,12 +101,12 @@
 4. LLM client + ledger（pre-call pending 行 → 返回补全 → 崩溃收敛 unknown）+ `attempt_key` 幂等。
 5. Review worker：`EvidenceSubmitted` → 组装上下文（固定模板）→ 强档调用 → `ReviewCompleted`。
 6. SSE hub：按 user 分发。重连遵循 [realtime.md](./realtime.md) 的**无竞态协议**：先订阅并缓冲 → 读当前 high-water seq（H）→ 补拉 `(last_seen, H]` → 应用缓冲（按 seq 去重）→ 接 live 流。禁止"先补拉后订阅"（补拉完成到订阅生效的间隙会丢事件）。
-7. `lites replay`：清空**投影**→ 从 events 重建。事实类表不属于投影、replay 不清：`events`、`llm_ledger`（花费事实）、`content_cache` 的 artifact 本体（阶段 3 引入）。
+7. `lites replay`：清空**投影**→ 从 events 重建。事实类 / 操作类表不属于投影、replay 不清：`events`、`idempotency_keys`（请求重放响应）、`jobs`（队列历史）、`llm_ledger`（花费事实）、`content_cache` 的 artifact 本体（阶段 3 引入）。
 
 ### 测试任务
 
-- 崩溃注入三点位（append 后 / claim 后 / LLM 返回后 kill -9），重启后断言：run 收敛；ledger 无重复落账、无静默丢账（LLM 返回后崩溃 → 存在被置为 `unknown` 的 pending 行，重试为新 attempt）。
-- 同一 command 投递两次，投影只变一次。
+- 崩溃注入三点位（append 后 / claim 后 / LLM 返回后 kill -9），重启后断言：run 收敛；Append 成功的 job 已原子 `done`，不会再次执行；ledger 无重复落账、无静默丢账（LLM 返回后崩溃 → 存在被置为 `unknown` 的 pending 行，重试为新 attempt）。
+- 同一 API `Idempotency-Key` 重放返回首次响应；同一 worker job command 因 lease/崩溃重试时不会二次推进投影。
 - SSE 断连重连不丢不重。
 - replay 结果与在线投影逐行 diff。
 - Run CAS 竞态：worker 完成与 sweeper 过期同时提交同一 run，仅一方生效、终态不被覆盖。
@@ -155,10 +155,10 @@
 - **数据库设计（migration 0004+，业务域全量）**：
   - `missions`：`mission_id`、`user_id`、`name`、`current`、`target`、`roadmap`(jsonb)、`adv/gaps/bridge`(jsonb)、`status`。
   - `tasks`：`task_id`、`user_id`、`mission_id`、`task_template_id?`、`title`、`judge`、`minutes`、`stage`、`status`(pending/active/done/downgraded)、`seed_ref?`、`date`。
-  - `content_cache`：`content_key`(PK)、`artifact`(jsonb，含 reference_solution，仅服务端)、`artifact_hash`、**cache key 全维度显式落列**（灰度 / 回滚 / 审计都要按它们查询）：`task_template_id`、`target_stack`、`level_band`、`content_version`、`prompt_version`；`review_status`(auto_ok / needs_review / human_ok / rejected——人审队列即 `needs_review` 行的列表)、`validation_attempts`、`created_at`。**事实源而非投影**：artifact 本体只存在于此，`LessonPublished.artifact_ref` 指向它（对齐平台"EventStore 不保存文件本体"原则）；`lites replay` 不清此表，只重建各投影里对它的引用。
+  - `content_cache`：`content_key`(PK)、`artifact`(jsonb，含 reference_solution，仅服务端)、`artifact_hash`、**cache key 全维度显式落列**（灰度 / 回滚 / 审计都要按它们查询）：`task_template_id`、`target_stack`、`level_band`、`content_version`、`prompt_version`；`review_status`(auto_ok / needs_review / human_ok / rejected——人审队列即 `needs_review` 行的列表)、`validation_attempts`、`created_at`。**事实源而非投影**：artifact 本体只存在于此，`LessonPublished.content_key` 指向它（对齐平台"EventStore 不保存文件本体"原则）；`lites replay` 不清此表，只重建各投影里对它的引用。
   - `user_content_delta`：`user_id`、`task_id`、`paragraph_anchor`、`kind`、`text`、`created_at`。
   - `exercise_runs`：`id`、`user_id`、`task_id`、`code_hash`、`result`(jsonb，锁 exercise-result schema)、`judge_hit`、`created_at`。
-  - `evidence` 扩展：`code_ref`、`exercise_run_ref`、`reflection`、`uncertainty`、`review_style`、状态加 `showcase`。
+  - `evidence` 扩展：`code`（用户代码全文，来自 `EvidenceSubmitted` payload——事件即代码快照的事实源）、`code_hash`、`exercise_run_ref`、`reflection`、`uncertainty`、`review_style`、状态加 `showcase`。
   - `profile`：`user_id`(PK)、`version`、`capabilities`(jsonb)、`misconceptions`(jsonb)、`preferences`(jsonb)、`rhythm`(jsonb)、`summaries`(jsonb，分面摘要)。结构锁 [learner-profile.md](./learner-profile.md) schema。
   - `conversations`：`conversation_id`、`user_id`、`turns`(jsonb 数组)。
   - `crafts`：`craft_id`、`evidence_id`、`kind`、`content`、`created_at`。
@@ -170,9 +170,9 @@
   | `POST /api/missions/:id/adjust` | 确认屏纠正 | 直写 event |
   | `GET /api/today` | 今日视图（任务+完成态） | 投影读 |
   | `POST /api/tasks/:id/downgrade` | 太难了/没时间 | 直写 event |
-| `POST /api/tasks/:id/complete` | 完成今日循环：写 `DayCompleted`（task→done + rhythm）并预创建明日任务生成 run | 直写 event + run |
+  | `POST /api/tasks/:id/complete` | 完成今日循环：写 `DayCompleted`（task→done + rhythm）并预创建明日任务生成 run | 直写 event + run |
   | `GET /api/tasks/:id/lesson` | **只读**：课程内容或生成状态（已剥离参考解），无任何副作用 | 事实读 |
-| `POST /api/tasks/:id/lesson-runs` | 手动触发 / 重试生成。常规路径不走这里：任务生成完成时服务端**自动预创建** lesson run | run |
+  | `POST /api/tasks/:id/lesson-runs` | 手动触发 / 重试生成。常规路径不走这里：任务生成完成时服务端**自动预创建** lesson run | run |
   | `POST /api/tasks/:id/rewrite` | 选中重写 | 直连流式 |
   | `POST /api/chat` | Drawer 对话 | 直连流式 |
   | `POST /api/exercise-runs` | 练习结果上报 | 直写 event |
@@ -240,7 +240,7 @@
 
 ### 设计工作
 
-- 数据主权流程设计：导出内容清单（事件流 + 投影 + 人读 Markdown）。**删除策略（已拍板）：v0 硬删除**——按 `user_id` 物理删除 events 与全部表行，这是 append-only 语义的唯一特权例外（规则见 [event-catalog.md](./event-catalog.md)）；执行顺序：投影 / delta / 摘要 → 事实类行（ledger、evidence 引用物）→ `sessions` / `login_codes` / `invites` 关联行、该用户未执行 jobs 的 payload → events → users。**执行边界**：删除 job 本身以系统身份运行、payload 不含用户内容；`erasure_audit` 是系统级证据表——两者都不在删除范围内，避免"删用户数据把删除任务和审计证据也删没"。最后写入审计（**标识一律哈希化**：邮箱、user_id 都不存明文，否则"全库按 user 检索无残留"的 DoD 会被审计行自己打破）。v1 演进为 per-user 加密 + 销毁密钥。
+- 数据主权流程设计：导出内容清单（事件流 + 投影 + 人读 Markdown）。**删除策略（已拍板）：v0 硬删除**——按 `user_id` 物理删除 events 与全部表行，这是 append-only 语义的唯一特权例外（规则见 [event-catalog.md](./event-catalog.md)）；执行顺序：先冻结该用户写入入口并取消 / 跳过该用户所有非 erasure job → 投影 / delta / 摘要 → 事实类行（ledger、evidence 代码快照、idempotency response）→ `sessions` / `login_codes` / `invites` 关联行 → `jobs` 中 `subject_user_id` 命中的所有 payload（queued/leased/done/failed/dead/cancelled 全状态）→ `event_cursors` → events → users。**执行边界**：删除 job 本身以系统身份运行；执行期间可临时持有目标 `user_id` 用于重启恢复，但完成事务必须把该 job 的 `subject_user_id`、payload、last_error 中的目标标识全部 scrub，只保留无内容的 job 终态；`erasure_audit` 是系统级证据表——两者都不在删除范围内，避免"删用户数据把删除任务和审计证据也删没"。最后写入审计（**标识一律哈希化**：邮箱、user_id 都不存明文，否则"全库按 user 检索无残留"的 DoD 会被审计行自己打破）。v1 演进为 per-user 加密 + 销毁密钥。
 - 成本面板设计：四条曲线（cost/DAU、缓存命中率、面占比、Top 用户）的 SQL 视图 + 简单 admin 页；降级阶梯的触发与 UI 告知文案。
 - 部署设计：目标环境（看板待拍板）、部署脚本、`pg_dump` 备份 cron、密钥管理。
 

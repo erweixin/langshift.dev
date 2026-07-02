@@ -12,8 +12,8 @@
 
 - 事件名用 PascalCase 的"名词 + 完成动作"：`TaskGenerated`、`EvidenceSubmitted`（与平台文档的 `RunAccepted` 风格一致）。
 - 事件一旦提交不修改、不删除；payload 结构要变，就升 `schema_version`，投影逻辑同时兼容新旧版本。
-- **唯一例外：账户删除**。作为特权流程按 `user_id` 物理删除整条事件流与全部表行（v0 采用硬删除；v1 演进为 per-user 加密 + 销毁密钥）。删除动作本身留一条**不含用户内容**的系统审计（`erasure_audit` 表，阶段 5 建；邮箱仅存哈希）；删除 job 自身与该审计表不在删除范围。这是"全库按 user 检索无残留"DoD 与 append-only 语义的闭环方式。
-- 每条事件由一个 command / 请求产生，`command_id` 去重保证 at-least-once 投递下不重复落账。
+- **唯一例外：账户删除**。作为特权流程按 `user_id` 物理删除整条事件流与全部表行（v0 采用硬删除；v1 演进为 per-user 加密 + 销毁密钥）。删除动作本身留一条**不含用户内容**的系统审计（`erasure_audit` 表，阶段 5 建；邮箱 / user_id 仅存哈希）；删除 job 自身与该审计表不在删除范围。这是"全库按 user 检索无残留"DoD 与 append-only 语义的闭环方式。
+- 每条事件由一个 command / 请求产生，`command_id` 用于追溯与去重：API 写入经 `idempotency_keys` 复用同一服务端 `command_id`，worker 写入经 `JobFence` 校验并在同事务内 append + 标记 job done，避免 at-least-once 投递下重复落账。
 
 ## Envelope
 
@@ -25,7 +25,7 @@
 | `schema_version` | int | payload 结构版本，从 1 开始 |
 | `user_id` | string | 所属用户（v0 的隔离边界与顺序边界） |
 | `mission_id` / `task_id` / `run_id` | string? | 关联键，按需填 |
-| `command_id` | string? | 产生本事件的 command（inbox 去重与追溯）；由用户请求直接产生的事件填该请求的 idempotency key |
+| `command_id` | string? | 产生本事件的 command（命令去重与追溯）。**一律是服务端生成的 ULID**——客户端 `Idempotency-Key` 经 `idempotency_keys` 映射表（作用域 user_id + endpoint）换取 command_id，不直接入库，避免跨用户 / 跨操作的同名 key 冲突 |
 | `causation_id` / `correlation_id` | string? | 由哪条 event / command 引起；属于哪条因果链 |
 | `created_at` | timestamp | 提交时间 |
 | `payload` | JSON | 类型专属数据 |
@@ -44,7 +44,7 @@
 
 | type | payload 要点 | 更新投影 |
 | --- | --- | --- |
-| `RunAccepted` | `run_type`（diagnosis / task_gen / lesson_gen / review / reentry）, `input_ref` | runs |
+| `RunAccepted` | `run_type`（diagnosis / task_gen / lesson_gen / review / reentry）, `input_ref`（已有事实引用：event_id / evidence_id / content_key 等，不存大块输入） | runs |
 | `RunQueued` / `RunStarted` | — / `attempt_id` | runs |
 | `RunSucceeded` / `RunFailed` / `RunExpired` | `error?`, `ledger_attempt_keys?`（**引用** LLM 账本行，不内嵌用量）；`RunExpired` 由 sweeper 依 `due_at` 产生 | runs。`llm_ledger` 由 LLM client 在调用路径直接写入（独立事实账本，pre-call pending → 补全 / unknown），**不由事件驱动** |
 
@@ -59,26 +59,26 @@
 
 | type | 产生者 | payload 要点 | 更新投影 |
 | --- | --- | --- | --- |
-| `TaskGenerated` | 任务生成 run | task_id, title, judge, minutes, stage, seed_ref（来自哪次 Review） | tasks |
+| `TaskGenerated` | 任务生成 run | task_id, title, judge, minutes, stage, **date**（任务归属日，按用户时区；预生成明日任务、补任务时不能从 created_at 推断）, seed_ref（来自哪次 Review） | tasks |
 | `TaskDowngraded` | 用户点「太难了 / 没时间」 | task_id, reason, new_task | tasks, profile（难度信号） |
-| `LessonPublished` | 内容管线 run | task_id, content_key, cache_hit, artifact_ref | tasks / 各投影中的内容引用；**artifact 本体在 `content_cache`（事实源，replay 不清），事件只携带指针** |
+| `LessonPublished` | 内容管线 run | task_id, content_key, cache_hit | tasks / 各投影中的内容引用；**artifact 本体在 `content_cache`（事实源，replay 不清），事件只携带 content_key 指针** |
 
 ### 练习与提交
 
 | type | 产生者 | payload 要点 | 更新投影 |
 | --- | --- | --- | --- |
 | `ExerciseRunRecorded` | 练习运行时（无 LLM） | task_id, code_hash, status, cases[], judge_hit, duration_ms | exercise_runs |
-| `EvidenceSubmitted` | 用户提交 | evidence_id, task_id, code_ref, exercise_run_ref, reflection, uncertainty, review_style | evidence（状态：草稿→待 Review） |
+| `EvidenceSubmitted` | 用户提交 | evidence_id, task_id, **code**（用户代码全文入 payload；练习代码体量小，事件即事实源，Review 组上下文、导出、删除都从这里走；v1 引入 repo 级产出时再设 artifact 表）, code_hash, exercise_run_ref, reflection, uncertainty, review_style | evidence（状态：草稿→待 Review） |
 
 ### Review 与画像
 
 | type | 产生者 | payload 要点 | 更新投影 |
 | --- | --- | --- | --- |
-| `ReviewCompleted` | Review run | payload 契约见 `schemas/review-completed.schema.json`（did[], fix, next, cap_delta, misconception?, memo, next_task_seed；evidence_id 调用方注入） | profile（能力/误解/记忆）, evidence（→已 Review）, 明日任务种子 |
+| `ReviewCompleted` | Review run | 模型输出契约见 `schemas/review-output.schema.json`；事件 payload 契约见 `schemas/review-completed.schema.json`（模型输出 + 调用方注入 evidence_id） | profile（能力/误解/记忆）, evidence（→已 Review）, 明日任务种子 |
 | `UserEditedProfile` | 用户编辑画像 / 删除记忆 | field, op, old, new | profile（用户改动权威最高）+ 派生物失效标记 |
 | `ProfileSummaryRefreshed` | 摘要刷新（小模型） | profile_version, summaries{surface → **text**}（摘要短文本直接入 payload，profile.summaries 投影可重建，无需另设 artifact 表） | profile.summaries；供 context_manifest 追溯 |
 
-### 对话与偏好（交互面，事后记账）
+### 对话与偏好（交互面，stub 先行 + 最终事件兜底）
 
 | type | 产生者 | payload 要点 | 更新投影 |
 | --- | --- | --- | --- |
@@ -92,7 +92,7 @@
 | type | 产生者 | payload 要点 | 更新投影 |
 | --- | --- | --- | --- |
 | `DayCompleted` | 完成循环（`POST /api/tasks/:id/complete`） | date, task_id | **tasks（当日 task → done）**+ profile 的 rhythm 段（streak，含宽容规则；节律不设独立表，嵌在 profile 内） |
-| `ReentryTaskIssued` | 断更回归 run | gap_days, task | tasks, profile 的 rhythm 段 |
+| `ReentryTaskIssued` | 断更回归 run | gap_days, task, date（任务归属日） | tasks, profile 的 rhythm 段 |
 | `DataExported` | 用户导出 | format, scope | 审计 |
 | `AccountDeletionRequested` | 用户删除 | — | 触发硬删除特权流程（见上方"唯一例外"规则）：投影/delta/摘要 → 事实类行 → events → users，最后留无内容审计 |
 
@@ -100,7 +100,7 @@
 
 **投影**（可由事件流重建，更新以 `event_id` 幂等、重放不二次生效）：`runs`、`missions`、`tasks`、`user_content_delta`、`exercise_runs`、`evidence`、`profile`（含 rhythm 段与分面摘要）、`conversations`、`crafts`。
 
-**事实类表**（不是投影，`lites replay` 不清除）：`events` 本身、`llm_ledger`（花费事实，含 pending/unknown 状态）、`content_cache` 的 artifact 本体（`LessonPublished` 只携带指针，对齐平台"EventStore 不保存文件本体"原则）。
+**事实类 / 操作类表**（不是投影，`lites replay` 不清除）：`events` 本身、`idempotency_keys`（请求重放响应）、`jobs`（执行队列历史）、`llm_ledger`（花费事实，含 pending/unknown 状态）、`content_cache` 的 artifact 本体（`LessonPublished` 只携带 `content_key` 指针，对齐平台"EventStore 不保存文件本体"原则）。
 
 ## Do / Don't
 

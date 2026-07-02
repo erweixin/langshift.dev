@@ -14,7 +14,7 @@
 
 **问题**：产品层说的是用户能看懂的东西：目标、今日任务、课程、作品、Review、Coach、画像。平台层说的是工程要处理的东西：run、event、command、tool、artifact、memory。两边各自都对，但如果中间没有翻译，就会卡在很具体的问题上：生成今日任务算不算一个 run？Review 结论怎么写回画像？Coach 要秒回，怎么还保留事件记录？
 
-**决策**：只要产品状态真的变了，就写成 event，保持“事实都能追溯”。LLM 参与的动作分两类：用户正在等回复的，先直连流式返回，结束后补记 event；后台任务和 Review 这种可以等的，先记账，再让 worker 执行，也就是标准 run 循环。
+**决策**：只要产品状态真的变了，就写成 event，保持“事实都能追溯”。LLM 参与的动作分两类：用户正在等回复的，走 stub 先行 + 直连流式 + 最终事件兜底；后台任务和 Review 这种可以等的，先记账，再让 worker 执行，也就是标准 run 循环。
 
 **忽略后果**：平台会越做越“通用”，但产品真正急需的内容生成、画像、练习运行时没人负责；或者业务代码为了快，直接改数据库，最后同一件事在事件、投影、页面上各有一个版本。
 
@@ -27,9 +27,9 @@
 | Task（今日任务） | `TaskGenerated` event + 投影 | `task_id` 用来串起提交、Review 和学习状态 |
 | Lesson（课程） | ContentArtifact，内容寻址 | 大部分内容跨用户复用；个人化只叠加在用户自己的 delta 上 |
 | 练习运行 | 不经 LLM，走 exercise runtime | 用户点“运行测试”时只跑代码和测试，结果记成 `ExerciseRunRecorded` |
-| Evidence（产出） | artifact + `EvidenceSubmitted` event | 从草稿到已 Review，再到可展示作品 |
+| Evidence（产出） | v0 由 `EvidenceSubmitted` event 保存代码快照；v1 再扩 artifact | 从草稿到已 Review，再到可展示作品 |
 | Review | 一个标准 run（强模型 + 只读输入） | 读提交内容和测试结果，写出 `ReviewCompleted` |
-| Coach 对话 | conversation + 直连流式调用 + 事后 event | 为了秒回，不排进 run 队列；但对话事实仍要补记 |
+| Coach 对话 | conversation + stub 先行 + 直连流式调用 + 最终 event | 为了秒回，不排进 run 队列；但对话事实从请求开始就有锚点 |
 | 学习者画像 | 结构化投影，见 [learner-profile.md](./learner-profile.md) | 系统“记住了你什么”，只能由 event 推出来 |
 | 「Coach 记住了你」 | 画像更新 event 的用户可见回显 | 完成态记忆卡展示的就是这些新增事实 |
 | 作品化产出 | artifact（craft 变体），关联源 Evidence | 把学习产出改写成简历 bullet、面试讲述等形式 |
@@ -88,7 +88,7 @@
 
 | 应该 | 不应该 |
 | --- | --- |
-| 交互面直连流式、事后记账 | 让 Drawer 回复排 run 队列 |
+| 交互面 stub 先行、直连流式、最终事件兜底 | 让 Drawer 回复排 run 队列 |
 | 状态变化一律落 event | 交互面图省事直接改投影 |
 | 按动作选模型档（见 unit-economics） | 所有面统一用强模型 |
 | 画像摘要预生成、进缓存前缀 | 每次请求把完整画像塞进 prompt |

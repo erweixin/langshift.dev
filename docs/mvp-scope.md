@@ -109,7 +109,7 @@ v1 不是“能跑一个 demo”。下面条件满足后，才算具备可交付
 - Happy path：用户能创建 run，看到实时状态，Agent 能调用 LLM 和至少一个工具，最终完成。
 - Idempotency：API 成功后响应丢失，重试不会创建第二个 run。
 - Worker crash：AgentWorker 或 ToolWorker 在关键点崩溃后，系统不会重复推进终态。
-- Duplicate command：同一 command 投递两次，inbox 和版本检查生效。
+- Duplicate command：同一 API idempotency key / worker job command 重放时，幂等映射、job fence 和版本检查生效，不会创建第二个 run 或二次推进终态。
 - Tool unknown：外部副作用结果未知时进入对账或人工裁定，不盲目重试。
 - Cancel race：用户取消和工具完成同时发生时，Run 不会被错误唤醒。
 - Realtime reconnect：客户端断线后能用 `last_seen_seq` 补齐事件。

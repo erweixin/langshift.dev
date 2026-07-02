@@ -30,8 +30,8 @@
 单二进制 Go 服务（API + worker goroutines + SSE）
 ├── PostgreSQL（托管与自部署统一；自部署以 docker-compose 附带）
 │   ├── events（append-only，单表）
-│   ├── jobs（at-least-once + 去重，SKIP LOCKED / 单进程队列）
-│   ├── 事实类：llm_ledger / content_cache（artifact 本体，replay 不清）
+│   ├── jobs（at-least-once + fence + 原子 append/done，SKIP LOCKED / 单进程队列）
+│   ├── 操作事实：idempotency_keys / llm_ledger / content_cache（artifact 本体，replay 不清）
 │   └── 投影：missions / tasks / profile / evidence …（可由 events 重建）
 ├── LLM：Anthropic API ×1（强/中/小三档模型别名，见 unit-economics.md）
 ├── 练习运行时：浏览器 JS（Web Worker），无服务端沙箱
@@ -46,8 +46,8 @@
 | --- | --- | --- |
 | EventStore 事实源 | **保留**（单表 append-only + 投影可重建） | 以后再补会最痛 |
 | Run 状态机 | **保留**（6 态精简版：accepted / queued / executing + 3 终态，状态名对齐 state-machines.md） | 产品第一课就在教这个，自己也要用起来 |
-| 提交幂等（idempotency key） | **保留**（写端点统一 `Idempotency-Key` 约定） | 防止重复提交；LLM 花费由 ledger 的 pre-call 规则独立诚实记账（无重复落账） |
-| inbox 去重 | **简化**：jobs 表带唯一 command_id | 单进程下够用，语义不变 |
+| 提交幂等（idempotency key） | **保留**（写端点统一 `Idempotency-Key` 约定，按 user + endpoint scope 映射到服务端 command_id） | 防止重复提交；LLM 花费由 ledger 的 pre-call 规则独立诚实记账（无重复落账） |
+| inbox 去重 | **简化**：jobs 表带唯一服务端 command_id；worker 成功路径 append 事件与 job done 同事务 | 单进程下够用，语义不变 |
 | 双级 CAS（run/tool_call version） | **Run 级保留（M0 起校验）**：状态转换走 `run_version` 乐观锁——worker 与 sweeper 天然并发；ToolCall 级随 v1 工具域引入 | Run 级 CAS 只是一个带 WHERE 的 UPDATE，成本极低，不值得推迟 |
 | outbox | **推迟**：同库同事务，发布即查询 | 没有跨系统投递 |
 | Guardrails / 审批流 | **推迟**：v0 无危险工具（Review 只读输入，无外部副作用） | 威胁面不存在 |
