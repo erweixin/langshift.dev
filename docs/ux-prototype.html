@@ -416,6 +416,25 @@
   .track-next b{color:var(--ink)}
   .track-actions{display:flex;gap:8px;flex-wrap:wrap}
   .wip{background:var(--warm-soft);border:1px solid #F5D9C4;border-radius:12px;padding:13px 15px;font-size:12.5px;color:#8a4e26;margin-top:8px;line-height:1.5}
+  /* ---------- 今日完成态：daily loop 的收束 ---------- */
+  .done-hero{background:linear-gradient(180deg,#F3FBF8,#fff);border:1px solid #CDEBE2;border-radius:var(--radius);
+    box-shadow:var(--shadow);padding:32px 28px;text-align:center}
+  .done-check{width:52px;height:52px;border-radius:99px;background:var(--ok);color:#fff;font-size:24px;
+    display:grid;place-items:center;margin:0 auto 14px;box-shadow:0 8px 24px rgba(42,161,137,.35)}
+  .done-title{font-size:23px;font-weight:800;letter-spacing:-.02em}
+  .done-sub{color:var(--ink-2);font-size:13.5px;margin-top:6px}
+  .done-stats{display:flex;justify-content:center;gap:26px;margin-top:20px;font-size:12.5px;color:var(--ink-2)}
+  .done-stats b{color:var(--ink);font-size:15.5px;display:block;margin-bottom:2px}
+  .mem-card{margin-top:16px;background:var(--brand-soft-2);border:1px solid #E7E5FC;border-radius:var(--radius);padding:18px 20px}
+  .mem-card .who{font-size:12px;font-weight:700;color:var(--brand-ink);margin-bottom:9px}
+  .mem-item{display:flex;gap:9px;font-size:13.5px;padding:4px 0;color:#3f3a5c;align-items:flex-start;line-height:1.6}
+  .mem-item .d{color:var(--brand);flex:none}
+  .mem-note{font-size:11.5px;color:var(--ink-3);margin-top:10px;line-height:1.55}
+  .tmr{margin-top:16px;background:var(--surface);border:1px dashed var(--line-2);border-radius:var(--radius);padding:16px 20px;opacity:.85}
+  .tmr .lbl2{font-size:11px;font-weight:700;color:var(--ink-3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px}
+  .done-actions{display:flex;gap:10px;justify-content:center;margin-top:20px;flex-wrap:wrap}
+  .left-foot{margin-top:14px;padding:11px 8px 0;border-top:1px solid var(--line);font-size:10.5px;color:var(--ink-3);line-height:1.7}
+
   /* ---------- Coach Drawer：实时上下文对话 ---------- */
   .drawer{position:fixed;top:0;right:0;bottom:0;width:372px;max-width:92vw;background:var(--surface);
     border-left:1px solid var(--line);box-shadow:var(--shadow-lg);transform:translateX(105%);
@@ -574,6 +593,7 @@
       <div class="left-goals-head"><span class="eyebrow">你的目标</span><button class="mini-link" onclick="nav('missions')">管理 →</button></div>
       <div id="missionList"></div>
       <button class="add-goal" onclick="startAddGoal()">+ 新目标</button>
+      <div class="left-foot">你的数据永远是你的<br>可导出 · 可自部署 · AGPL 开源</div>
     </div>
   </aside>
 
@@ -698,12 +718,12 @@ function enterApp(){
 /* ---------------- 中栏路由 ---------------- */
 const CI=()=>document.getElementById('centerInner');
 function setNavActive(v){document.querySelectorAll('.nav-item').forEach(n=>n.classList.toggle('active',n.dataset.view===v));}
-function nav(v){document.getElementById('app').classList.toggle('focus',['firstgoal','task','submit'].includes(v));setNavActive(v);render(v);CI().classList.remove('fade');void CI().offsetWidth;CI().classList.add('fade');}
+function nav(v){document.getElementById('app').classList.toggle('focus',['firstgoal','task','submit'].includes(v));setNavActive(v==='done'?'today':v);render(v);CI().classList.remove('fade');void CI().offsetWidth;CI().classList.add('fade');}
 
 function render(v){
   const R={today:viewToday,week:viewWeek,task:viewTask,submit:viewSubmit,review:viewReview,
            tooHard:viewTooHard,evidence:viewEvidence,map:viewMap,coach:viewCoach,missions:viewMissions,
-           firstgoal:viewFirstGoal,craft:viewCraft};
+           firstgoal:viewFirstGoal,craft:viewCraft,done:viewDone};
   CI().innerHTML=(R[v]||viewToday)();
 }
 
@@ -724,7 +744,8 @@ const MISSIONS=[
      capDelta:{n:'崩溃恢复 / durable exec',from:28,to:46,label:'看过 → 能解释'},
      fix:'你把 <b>failed</b> 也当成了终态。但真实 runtime 里 failed 常需要能<b>重试回 running</b>——这正是 durable execution 的关键，你的模型现在会挡住合法的重试。',
      next:'加一条 failed→running 的“重试”转移，并想清楚：重试时怎么保证<b>不重复执行已完成的 step</b>？这会把你带到明天的崩溃恢复。',
-     nextTask:{title:'加一条 failed→running 重试转移，并保证 step 不重复执行',min:40}}},
+     nextTask:{title:'加一条 failed→running 重试转移，并保证 step 不重复执行',min:40},
+     memo:'你把 failed 当成了终态——这个直觉，明天用「重试」场景来验证它'}},
   {id:'pm',name:'深入 ProseMirror',sub:'Skill Expansion',color:'#E8894B',role:'副',progress:15,day:'Day 2 / 10',stage:'阶段 1 · 建立心智模型',
    next:'从 document JSON 反推一次用户编辑动作',min:25,judge:'能理解 document、selection、transaction 的边界',
    why:'你会 React，但 EditorState 不是普通 state。先从 JSON 反推编辑动作，建立“文档不是 DOM”的直觉。',
@@ -740,7 +761,8 @@ const MISSIONS=[
      capDelta:{n:'文档模型',from:35,to:52,label:'看过 → 能解释'},
      fix:'你把 <b>selection</b> 当成了 document 的一部分。其实 selection 是 EditorState 上的独立字段，transaction 会分别更新它们——这是很多 PM bug 的根源。',
      next:'画出 EditorState 的字段图：doc / selection / plugins 各是什么，一次 transaction 会改动哪些。',
-     nextTask:{title:'写一个最小 schema + 初始化 EditorState，跑通一次 transaction',min:30}}},
+     nextTask:{title:'写一个最小 schema + 初始化 EditorState，跑通一次 transaction',min:30},
+     memo:'selection ≠ document 的边界你已经分清了——下一步看 transaction 怎么同时更新两者'}},
 ];
 let FOCUS='agent';
 const fm=()=>MISSIONS.find(m=>m.id===FOCUS);
@@ -759,9 +781,21 @@ function setFocus(id){FOCUS=id;const m=fm();TASK={title:m.next,min:m.min};render
 /* ---- Today：后台并行，前台单点（由 Coach 跨目标择一） ---- */
 function viewToday(){
   const m=fm(),others=MISSIONS.filter(x=>x.id!==FOCUS);
-  const week=[{d:'周一',c:'#5A4FF3',s:'done'},{d:'周二',c:'#E8894B',s:'done'},{d:'周三',c:m.color,s:'today'},{d:'周四',c:'#E8894B',s:''},{d:'周五',c:'#5A4FF3',s:''}];
-  return `
-  <div class="day-head"><h1>今天 · 7 月 1 日</h1><span class="chip chip-line">${m.stage}</span></div>
+  const week=[{d:'周一',c:'#5A4FF3',s:'done'},{d:'周二',c:'#E8894B',s:'done'},{d:'周三',c:m.color,s:DONE_TODAY?'done':'today'},{d:'周四',c:'#E8894B',s:''},{d:'周五',c:'#5A4FF3',s:''}];
+  const hero=DONE_TODAY?`
+  <div class="hero">
+    <div class="hero-top">
+      <div class="hero-eyebrow"><span class="chip chip-ok">✓ 今天已闭环</span><span class="chip mtag" style="--mc:${m.color}">● ${m.name}</span></div>
+      <div class="hero-task" style="font-size:20px">今天的一步走完了，不用再加码</div>
+      <div class="hero-meta"><span>明天已备好：<b>${TASK.title}</b> · 约 ${TASK.min} 分钟</span></div>
+    </div>
+    <div class="hero-actions">
+      <button class="btn btn-primary" onclick="nav('done')">回顾今天 →</button>
+      <button class="btn btn-ghost btn-sm" onclick="nav('craft')">把产出变成作品</button>
+      <span class="spacer"></span>
+      <button class="btn btn-ghost btn-sm" onclick="nav('missions')">切换目标</button>
+    </div>
+  </div>`:`
   <div class="hero">
     <div class="hero-top">
       <div class="hero-eyebrow"><span class="chip">今天最重要的一步</span><span class="chip mtag" style="--mc:${m.color}">● ${m.name}</span></div>
@@ -776,7 +810,10 @@ function viewToday(){
       <span class="spacer"></span>
       <button class="btn btn-ghost btn-sm" onclick="nav('missions')">切换目标</button>
     </div>
-  </div>
+  </div>`;
+  return `
+  <div class="day-head"><h1>今天 · 7 月 1 日</h1><span class="chip chip-line">${m.stage}</span></div>
+  ${hero}
   <div class="week">
     <h3>本周节奏 · 跨目标</h3>
     <div class="week-strip">
@@ -1063,7 +1100,10 @@ function viewReview(){const m=fm(),r=m.review,d=r.capDelta;applyCapDelta(m);
 }
 
 /* review 后：能力画像 +、周节奏 +、evidence +、mission 进度 + */
-let looped=false;
+let looped=false,DONE_TODAY=false;
+/* Coach 的长期记忆日志：review 结论、讲解偏好等都会沉淀到这里（护城河的可见化） */
+const MEMLOG=['「为什么不能直接改 state」你已经能自己讲清——已计入能力画像'];
+function remember(x){if(x&&!MEMLOG.includes(x))MEMLOG.push(x);}
 function applyCapDelta(m){const d=m.review.capDelta;if(!d)return;const c=(m.caps||[]).find(x=>x.n===d.n);if(c)c.pct=Math.max(c.pct,d.to);}
 function capDots(p){const n=p/100*3;return[0,1,2].map(i=>`<i class="cdot ${n>=i+1?'full':n>=i+.4?'half':''}"></i>`).join('');}
 function completeLoop(){
@@ -1071,8 +1111,37 @@ function completeLoop(){
   if(!looped){document.getElementById('evCount').textContent='4';looped=true;}
   m.progress=Math.min(100,m.progress+8);renderMissionList();
   TASK={title:m.review.nextTask.title,min:m.review.nextTask.min};
-  toast('明天任务已生成 · 能力画像已更新 · Evidence 已归档');
-  nav('today');
+  remember(m.review.memo);
+  DONE_TODAY=true;
+  nav('done');
+}
+
+/* ---- 今日完成态：收束、记忆可见、作品化入口 ---- */
+function viewDone(){const m=fm(),d=m.review.capDelta;return `
+  <div class="done-hero">
+    <div class="done-check">✓</div>
+    <div class="done-title">今天闭环了</div>
+    <div class="done-sub">${m.name} · ${m.day} · 一步，但是真的</div>
+    <div class="done-stats">
+      <span><b>3 天</b>连续推进</span>
+      <span><b>+1</b>Evidence 归档</span>
+      <span><b>${d?d.label:'↑'}</b>${d?d.n:'能力画像'}</span>
+    </div>
+  </div>
+  <div class="mem-card">
+    <div class="who">✦ 今天我记住了你</div>
+    ${MEMLOG.slice(-3).map(x=>`<div class="mem-item"><span class="d">●</span><span>${x}</span></div>`).join('')}
+    <div class="mem-note">这些会进入你的长期画像——明天的任务、讲解的方式，都从这里长出来。数据永远是你的，随时可导出。</div>
+  </div>
+  <div class="tmr">
+    <div class="lbl2">明天 · 已备好</div>
+    <b>${TASK.title}</b><span class="muted" style="font-size:12.5px"> · 约 ${TASK.min} 分钟</span>
+    <div class="muted" style="font-size:12.5px;margin-top:5px">从你今天的卡点长出来的。明早见。</div>
+  </div>
+  <div class="done-actions">
+    <button class="btn btn-primary" onclick="nav('craft')">把今天的产出变成作品 →</button>
+    <button class="btn btn-ghost" onclick="nav('today')">今天到此为止</button>
+  </div>`;
 }
 
 /* ---- 其余次要视图 ---- */
@@ -1151,7 +1220,7 @@ function makeMission(cur,tgt){
     roadmap:[{n:'建立心智模型',d:'先看懂全局和核心概念',s:'cur'},{n:'跑通最小实践',d:'做一个能跑的最小版本',s:''},{n:'掌握关键机制',d:'补上关键缺口',s:''},{n:'完成真实项目',d:'产出可展示的 Evidence',s:''}],
     steps:[{t:'写下你对「'+tgt+'」最想搞懂的 3 个问题',s:'cur'},{t:'为每个问题找一个最小验证方式',s:''},{t:'挑第一个开始',s:''}],
     coach:'先别追求系统。今天只把"你最想搞懂什么"说清楚，我据此排后面的路线。',
-    review:{did:['明确了最想解决的核心问题'],capDelta:{n:'核心概念',from:0,to:15,label:'未接触 → 有概念'},fix:'问题还偏大，建议再拆小一层，聚焦到能一步验证的程度。',next:'挑一个问题，做一个 20 分钟能完成的最小验证。',nextTask:{title:'做第一个最小验证',min:20}}};
+    review:{did:['明确了最想解决的核心问题'],capDelta:{n:'核心概念',from:0,to:15,label:'未接触 → 有概念'},fix:'问题还偏大，建议再拆小一层，聚焦到能一步验证的程度。',next:'挑一个问题，做一个 20 分钟能完成的最小验证。',nextTask:{title:'做第一个最小验证',min:20},memo:'你最想搞懂的问题已经聚焦——后面的路线会围绕它展开'}};
 }
 
 /* ---- 确认屏：迁移本质总结 + 优势/缺口/桥 + 完整路线，让用户信服 ---- */
@@ -1330,6 +1399,7 @@ function rewriteSel(kind){
   SELP.innerHTML=REWRITE[kind]+`<span class="rw-tag">✦ 已按你的反馈重写<button onclick="restoreRw(this)">还原</button></span>`;
   SELP.classList.add('rewritten');
   hideSelTool();getSelection().removeAllRanges();
+  remember(kind==='simple'?'讲解偏好：更浅、更生活化的类比——之后的课默认按这个深度':'类比偏好：用你的前端 / Redux 经验做锚点——之后优先这么讲');
   toast(kind==='simple'?'已讲浅一点——之后的内容也会按这个深度生成':'已换成你熟悉的类比');
 }
 function restoreRw(b){const p=b.closest('p');p.innerHTML=p.dataset.orig;p.classList.remove('rewritten');}
