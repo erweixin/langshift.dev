@@ -175,7 +175,7 @@
   | `POST /api/tasks/:id/downgrade` | 太难了/没时间 | 直写 event |
   | `POST /api/tasks/:id/complete` | 完成今日循环：写 `DayCompleted`（task→done + rhythm）并预创建明日任务生成 run | 直写 event + run |
   | `GET /api/tasks/:id/lesson` | **只读**：课程内容或生成状态（已剥离参考解），无任何副作用 | 事实读 |
-  | `POST /api/tasks/:id/lesson-runs` | 手动触发 / 重试生成。常规路径不走这里：任务生成完成时服务端**自动预创建** lesson run | run |
+  | `POST /api/content-generation-runs` | 调试 / 手动触发内容生成 run。tasks 投影落地后再加 task-scoped 快捷入口；常规路径由任务生成完成时服务端自动预创建 | run |
   | `POST /api/tasks/:id/rewrite` | 选中重写 | 直连流式 |
   | `POST /api/chat` | Drawer 对话 | 直连流式 |
   | `POST /api/exercise-runs` | 练习结果上报 | 直写 event |

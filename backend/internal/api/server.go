@@ -4,19 +4,33 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
+	"strings"
 	"time"
+
+	"lites/backend/internal/content"
+	"lites/backend/internal/event"
 )
 
 type ServerConfig struct {
-	Addr string
+	Addr              string
+	SingleUser        bool
+	ContentGeneration contentGenerationStarter
 }
 
 type Server struct {
-	addr string
-	mux  *http.ServeMux
+	addr              string
+	mux               *http.ServeMux
+	singleUser        bool
+	contentGeneration contentGenerationStarter
+}
+
+type contentGenerationStarter interface {
+	Start(ctx context.Context, request content.StartRequest) (content.StartResult, error)
 }
 
 func NewServer(config ServerConfig) *Server {
@@ -26,8 +40,10 @@ func NewServer(config ServerConfig) *Server {
 	}
 
 	server := &Server{
-		addr: addr,
-		mux:  http.NewServeMux(),
+		addr:              addr,
+		mux:               http.NewServeMux(),
+		singleUser:        config.SingleUser,
+		contentGeneration: config.ContentGeneration,
 	}
 	server.routes()
 	return server
@@ -65,6 +81,7 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 
 func (s *Server) routes() {
 	s.mux.HandleFunc("GET /health", s.health)
+	s.mux.HandleFunc("POST /api/content-generation-runs", s.createContentGenerationRun)
 }
 
 func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
@@ -78,6 +95,72 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(payload)
+}
+
+func writeError(w http.ResponseWriter, status int, message string) {
+	writeJSON(w, status, map[string]string{"error": message})
+}
+
+func (s *Server) createContentGenerationRun(w http.ResponseWriter, r *http.Request) {
+	if s.contentGeneration == nil {
+		writeError(w, http.StatusServiceUnavailable, "content generation is not configured")
+		return
+	}
+
+	userID, ok := s.userID(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "missing X-User-ID")
+		return
+	}
+	idempotencyKey := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+	if idempotencyKey == "" {
+		writeError(w, http.StatusBadRequest, "missing Idempotency-Key")
+		return
+	}
+
+	var input content.GenerationInput
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&input); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid json body: %v", err))
+		return
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		writeError(w, http.StatusBadRequest, "invalid json body")
+		return
+	}
+
+	result, err := s.contentGeneration.Start(r.Context(), content.StartRequest{
+		UserID:         userID,
+		IdempotencyKey: idempotencyKey,
+		Input:          input,
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, content.ErrInvalidRequest):
+			writeError(w, http.StatusBadRequest, err.Error())
+		case errors.Is(err, event.ErrIdempotencyConflict):
+			writeError(w, http.StatusConflict, err.Error())
+		default:
+			slog.Error("create content generation run failed", "error", err)
+			writeError(w, http.StatusInternalServerError, "create content generation run failed")
+		}
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, result)
+}
+
+func (s *Server) userID(r *http.Request) (string, bool) {
+	userID := strings.TrimSpace(r.Header.Get("X-User-ID"))
+	if userID != "" {
+		return userID, true
+	}
+	if s.singleUser {
+		return "local-user", true
+	}
+	return "", false
 }
 
 func requestLogger(next http.Handler) http.Handler {
