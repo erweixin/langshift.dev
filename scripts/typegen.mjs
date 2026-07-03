@@ -5,7 +5,7 @@ import { compileFromFile } from "json-schema-to-typescript";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const schemasDir = path.join(root, "schemas");
-const outDir = path.join(root, "frontend", "src", "contracts");
+const outDir = path.join(root, "frontend", "web", "src", "contracts");
 
 const schemaFiles = (await readdir(schemasDir))
   .filter((file) => file.endsWith(".schema.json"))

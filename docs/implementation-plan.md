@@ -22,12 +22,12 @@
 | 阶段 | migration | 新增/变更的表 |
 | --- | --- | --- |
 | 0 | 0001 | `events`、`event_cursors`（seq 游标）、`idempotency_keys`（作用域化幂等映射）、`jobs` |
-| 1 | 0002 | `runs`、`llm_ledger`、`evidence`（最小版） |
+| 1 | 0002 | `event_cursors.next_seq` 命名修正（含语义修正：DEFAULT 1、存量值 +1）、`events.conversation_id`、`runs`、`llm_ledger`、`conversations`、`run_messages`、`run_message_chunks`、`tool_calls`、`evidence`（最小版）；预留可空列：`events.tenant_id`、`llm_ledger.tenant_id`、`run_message_chunks.tenant_id`（阶段 6 免回填追加型热表）、`jobs.store_epoch`（阶段 4 免回填） |
 | 2 | 0003 | `users`、`login_codes`、`sessions`、`invites` |
-| 3 | 0004+ | `missions`、`tasks`、`content_cache`（artifact 本体，**事实源**）、`user_content_delta`、`exercise_runs`、`profile`（含 rhythm 段）、`conversations`、`crafts`；`evidence` 扩展 |
+| 3 | 0004+ | `missions`、`tasks`、`content_cache`（artifact 本体，**事实源**）、`user_content_delta`、`exercise_runs`、`profile`（含 rhythm 段）、`crafts`；`evidence` 扩展 |
 | 5 | 000N | 预算配置、`erasure_audit`（系统级删除审计：无用户内容、不随删除清除）；删除任务复用 jobs |
 | 6 | 000N | 全表加 `tenant_id` + RLS policy、`outbox`、`repair_audit` |
-| 7 | 000N | `tool_descriptors`、`tool_calls`、`approvals`、`sandbox_sessions`、`provider_registry` |
+| 7 | 000N | `tool_descriptors`、`tool_calls` 扩展（0002 已建最小版）、`approvals`、`sandbox_sessions`、`provider_registry`、`effects`（通用副作用账本，`effect_key` 去重；工具副作用是首个消费者，LLM 副作用已由 `llm_ledger` 承担） |
 
 ### Prompt 演进地图
 
@@ -54,7 +54,7 @@
 - 工程规范：目录结构、错误处理约定（typed error + 分类）、日志字段约定（`run_id`/`user_id`/`surface` 必带）、配置格式。
 - **数据库设计（migration 0001，四张基础表）**：
   - `events`：`event_id`(ULID, PK)、`seq`(bigint，per-user 连续)、`type`、`schema_version`、`user_id`、`mission_id?`、`task_id?`、`run_id?`、`command_id?`、`causation_id?`、`correlation_id?`、`created_at`、`payload`(jsonb)。约束：`UNIQUE(user_id, seq)`；`seq` 由事务内锁 `event_cursors` 行分配。
-  - `event_cursors`：`user_id`(PK)、`current_seq`。**seq 分配不依赖阶段 2 的 users 表**——游标行按需创建（首次 append 时 upsert），单用户模式用固定 user_id。
+  - `event_cursors`：`user_id`(PK)、`next_seq`。**seq 分配不依赖阶段 2 的 users 表**——游标行按需创建（首次 append 时 upsert），单用户模式用固定 user_id；写事件前事务内锁住该行，为用户级事件流分配下一个 `seq`。
   - `idempotency_keys`：`user_id`、`scope`（endpoint 标识）、`key`（客户端 Idempotency-Key）、`command_id`（映射到的服务端 ULID）、`request_hash`、`response_status`、`response_body`(jsonb)、`created_at`、`updated_at`；`UNIQUE(user_id, scope, key)`、`UNIQUE(command_id)`。**客户端 key 不直接当 command_id 用**——不同用户 / 不同端点的同名 key 互不冲突；API 成功但响应丢失时直接回放 `response_status/body`。
   - `jobs`：`job_id`、`command_id`(UNIQUE，服务端 ULID，去重)、`kind`、`subject_user_id?`（任务关联的用户；删除 job 完成前可临时指向目标用户，最终必须 scrub 为 NULL）、`payload`(jsonb)、`status`(queued/leased/done/failed/dead/cancelled)、`attempts`、`lease_until`、`lease_token`（**fence**：每次领取重新生成）、`leased_by`、`heartbeat_at`、`due_at`、`last_error`、`created_at`。Ack / Fail / Heartbeat / Append 必须携带 `JobFence{job_id, lease_token}` 且匹配，租约过期后旧 worker 的提交一律被拒——对齐 [state-machines.md](./state-machines.md) 的 fence 要求；worker 成功路径必须由 `EventService.Append` 在同一事务内追加事件并把当前 job 标记为 `done`，禁止"append 成功后再单独 ack"；账户删除按 `subject_user_id` 定位并清理所有状态的 payload。
 
@@ -83,9 +83,12 @@
 ### 设计工作
 
 - **数据库设计（migration 0002）**：
-  - `runs`（投影）：`run_id`、`user_id`、`run_type`(diagnosis/task_gen/lesson_gen/review/reentry)、`status`、`run_version`(int，**M0 起即做乐观锁校验**——worker 与 sweeper 天然并发，Run 级 CAS 只是一个带 WHERE 的 UPDATE)、`input_ref`、`error?`、`due_at`、时间戳。ToolCall 级 CAS 推迟到阶段 7 工具域引入时。
-  - `llm_ledger`：`id`、`user_id`、`run_id?`、`surface`、`model`、`status`(pending / ok / failed_no_charge / provider_error / unknown / cancelled)、`tok_in`、`tok_out`、`max_tok_out`（pre-call 估算上限）、`cache_read`、`cost_usd`（实际或保守估算）、`estimated_cost_usd`、`cost_basis`(actual / estimated / zero)、`attempt_key`(UNIQUE)、**审计字段**（对齐 [execution-model.md](./execution-model.md) 的"输入清单、provider request id、结果可解释"要求）：`request_hash`（输入指纹）、`prompt_version`、`context_manifest`(jsonb，**直接内嵌**：prompt_version、profile_version、content_key、引用的事件 / artifact id——v0 不另设 manifest 表，这就是"解释调用为什么发生"的落地)、`provider_request_id?`、`error_code?`、`started_at`、`finished_at?`。账本不仅要能算钱，还要能解释一次调用为什么发生。**LLM 调用是花钱的外部副作用，记账遵循 pre-call 规则**：调用前先落 `pending` 行（独立事务，写入 `tok_in/max_tok_out/estimated_cost_usd/cost_basis=estimated`），返回后补 usage 置 `ok` 并改 `cost_basis=actual`；崩溃恢复时发现 `pending` 行 → 置 `unknown`，沿用 `estimated_cost_usd` 作为保守成本，重试用新 `attempt_key`。provider 无幂等键，无法保证绝不重复调用——保证的是**账本诚实：无重复落账、无静默丢账**。ledger 是 LLM client 在调用路径直接写入的**独立事实账本**（不是事件投影，不由事件驱动）；Run 事件 payload 只携带 `ledger_attempt_keys` 引用。状态语义：`failed_no_charge`＝请求未发出（本地校验 / 预算拦截，零成本，`cost_basis=zero`）；`provider_error`＝收到明确错误响应（默认零成本，按响应修正）；`unknown`＝已发出但无明确结局（保守计入估算成本）；`cancelled`＝发出前主动取消。**成本面板与告警只把 `ok + unknown` 计入花费**，工程失败不混入。
+  - `runs`（投影）：`run_id`、`user_id`、`conversation_id?`、`run_type`(chat_turn/diagnosis/task_gen/lesson_gen/review/reentry)、`status`(accepted/queued/executing/waiting_tool/waiting_approval/succeeded/failed/expired/cancelled)、`run_version`(int，**M0 起即做乐观锁校验**——worker 与 sweeper 天然并发，Run 级 CAS 只是一个带 WHERE 的 UPDATE)、`input_ref`、`error?`、`due_at`、时间戳。
+  - `llm_ledger`：`id`、`user_id`、`run_id?`、`surface`、`model`、`status`(pending / ok / failed_no_charge / provider_error / unknown / cancelled)、`tok_in`、`tok_out`、`max_tok_out`（pre-call 估算上限）、`cache_read`、`cost_usd`（实际或保守估算）、`estimated_cost_usd`、`cost_basis`(actual / estimated / zero)、`attempt_key`(UNIQUE)、**审计字段**（对齐 [execution-model.md](./execution-model.md) 的"输入清单、provider request id、结果可解释"要求）：`request_hash`（输入指纹）、`prompt_version`、`context_manifest`(jsonb，**直接内嵌**：prompt_version、profile_version、content_key、引用的事件 / artifact id——v0 不另设 manifest 表，这就是"解释调用为什么发生"的落地)、`provider_request_id?`、`error_code?`、`started_at`、`finished_at?`。账本不仅要能算钱，还要能解释一次调用为什么发生。**LLM 调用是花钱的外部副作用，记账遵循 pre-call 规则**：调用前先落 `pending` 行（独立事务，写入 `tok_in/max_tok_out/estimated_cost_usd/cost_basis=estimated`），返回后补 usage 置 `ok` 并改 `cost_basis=actual`；崩溃恢复时发现 `pending` 行 → 置 `unknown`，沿用 `estimated_cost_usd` 作为保守成本，重试用新 `attempt_key`。provider 无幂等键，无法保证绝不重复调用——保证的是**账本诚实：无重复落账、无静默丢账**。ledger 是 LLM client 在调用路径直接写入的**独立事实账本**（不是事件投影，不由事件驱动）；Run 事件 payload 只携带 `attempt_keys` 引用。状态语义：`failed_no_charge`＝请求未发出（本地校验 / 预算拦截，零成本，`cost_basis=zero`）；`provider_error`＝收到明确错误响应（默认零成本，按响应修正）；`unknown`＝已发出但无明确结局（保守计入估算成本）；`cancelled`＝发出前主动取消。**成本面板与告警只把 `ok + unknown` 计入花费**，工程失败不混入。
   - `evidence`（最小版）：`evidence_id`、`user_id`、`task_id?`、`status`(draft/reviewing/reviewed)、`payload`(jsonb)。
+  - `conversations`（投影）：`conversation_id`、`user_id`、`title?`、`status`、`active_run_id?`、`last_run_id?`、`last_message_id?`、`last_message_at?`、`metadata`、时间戳。用于对话列表、换设备恢复、从 conversation 找 active run。
+  - `run_messages` / `run_message_chunks`：最终可展示消息与 per-run SSE 可恢复流日志。`run_message_chunks.seq` 是 run-scoped，和 `events.seq` 不是一个游标。
+  - `tool_calls`（投影）：`tool_call_id`、`run_id`、`conversation_id?`、`tool_name`、`status`、`tool_call_version`、`risk`、`requires_approval`、`args`、`result?`、`error?`、事件引用与时间戳。危险工具进入 `waiting_approval`。
 - **内部接口设计**（签名冻结再实现）：
   - `EventService.Append(ctx, AppendRequest) (AppendResult, error)`，其中 `AppendRequest{ Actor（user / worker / system）, CommandID?（system 写入必带；API / worker 禁止传）, Idempotency?{Scope, Key, RequestHash}（API 写入必带；重复 key 返回 `idempotency_keys.response_*`，key 同 body 异 → 409）, Aggregate?{RunID, ExpectedVersion}（Run CAS，可选）, JobFence?{JobID, LeaseToken}（worker 成功提交必带，对 jobs 行校验）, Events []EventDraft, Commands []CommandDraft{Kind, SubjectUserID, Payload} }`——幂等、CAS、fence 三个不变量**全部在 Append 边界内一次性执行**，不散落在 handler / worker 里。`command_id` 解析规则：API 写入来自 `idempotency_keys.command_id`；worker 写入来自当前 `job.command_id`；系统写入来自显式传入的 `CommandID`。单事务：校验幂等 / CAS / fence → 分配 seq → 插事件 → 更新投影 → 登记子 job（为每个 `CommandDraft` 生成新的服务端 `command_id`）→ 若带 `JobFence` 则把当前 job 标记为 `done` → 仅 API 幂等写入保存 idempotency response。
   - `JobQueue.Claim(ctx, kinds) (job, JobFence, error)`；`Heartbeat / Fail / Reschedule` 均要求携带 `JobFence{job_id, lease_token}`，不匹配即拒绝；成功 ack 通常由 `EventService.Append` 随事件提交原子完成，独立 `Ack` 只保留给确实不产出事件的 no-op / cancel job；`Worker` 接口 = `Handle(ctx, job, fence) ([]EventDraft, error)`，产出经 `EventService.Append`（带 fence）提交。

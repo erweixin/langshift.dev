@@ -23,10 +23,11 @@
 
 - 实时通知是“尽力发送”：能实时到达最好，丢了也不作为数据丢失。
 - EventStore 是事实源。
-- 每条可补拉事件都有 conversation-scoped `seq`。
-- 客户端记录每个 conversation 的 `last_seen_seq`。
+- EventStore 可补拉事件使用 user-scoped `seq`，conversation 只是过滤维度。
+- LLM token / message delta 的可靠恢复使用 `run_message_chunks` 的 run-scoped `seq`。
+- 客户端记录 EventStore 的 `last_seen_seq`，并对每个 active run 记录 `after_seq`。
 - RealtimeGateway 可以发送重复事件，客户端必须按 `seq` 去重。
-- Gateway 检测到 `seq` gap 时，主动回源 EventStore 补拉。
+- Gateway 检测到 `seq` gap 时，主动回源 EventStore 补拉。gap 检测只在用户级未过滤流上进行：按 conversation 过滤后的流天然存在 `seq` 空洞（同一用户其他会话、后台 run 也消耗 seq），不作为 gap 依据。
 
 ## 无竞态重连协议
 
@@ -40,8 +41,8 @@ sequenceDiagram
   participant Bus as Realtime Bus
   participant DB as EventStore
 
-  C->>RG: reconnect(conversation_id, last_seen_seq)
-  RG->>Bus: subscribe(conversation) and start buffering
+  C->>RG: reconnect(user, last_seen_seq, conversation filters?)
+  RG->>Bus: subscribe(user) and start buffering
   RG->>DB: read high-water mark H
   DB-->>RG: H
   RG->>DB: backfill (last_seen_seq, H]
@@ -64,19 +65,18 @@ sequenceDiagram
 | 登录态到期 | 短期 token 到期前发送 `reauth_required`；未刷新则断开 |
 | 权限撤销 | Gateway 收到权限版本变化后停止发送相关 conversation，并要求重新鉴权；敏感事件补拉也要重新 ACL 检查 |
 | 多标签页 | 每个连接独立维护游标；服务端可按 user/tenant 限制连接数；客户端可自行选一个主标签页减少连接 |
-| 重复到达 | 客户端和 Gateway 都按 `(conversation_id, seq)` 去重 |
+| 重复到达 | 客户端和 Gateway 都按 user-scoped `seq` 去重 |
 | 租户配额 | 限制 tenant/user 的连接数、订阅 conversation 数、推送速率、补拉 QPS |
 
 RealtimeGateway 不保存业务状态。它可以保存短期连接状态、订阅列表、缓冲队列和最近发送的 cursor，但这些都可丢弃。
 
 ## LLM token 流
 
-不要把每个 LLM token 写入 EventStore。`assistant.delta` 走实时临时流，可选粗粒度 checkpoint。最终只持久化：
+不要把每个 LLM token 写入 EventStore。`assistant.delta` 走 per-run SSE，并写入 `run_message_chunks` 作为可恢复流日志；最终聚合文本写入 `run_messages`。最终事件只记录：
 
-- `AssistantMessageFinalized`
-- 最终文本或 artifact 引用
-- token/cost 统计
-- `llm_attempt_id`
-- `context_manifest` 引用
+- `AssistantMessageFinalized` / `ChatTurnLogged`
+- `message_id` 或 artifact 引用
+- `attempt_key`（关联 `llm_ledger` 行）
+- `context_manifest` 引用（在 `llm_ledger`）
 
-如果 token 流中断，客户端重连后从 EventStore 只能拿到已持久化 checkpoint 和最终消息。未持久化的临时 token 可以丢弃。
+如果 token 流中断，客户端用 `GET /api/runs/{run_id}/stream?after_seq=...` 从 `run_message_chunks` 补拉。EventStore 不承担 token 级 replay。

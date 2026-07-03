@@ -8,7 +8,7 @@
 
 **决策**：PostgreSQL 是 Lite 架构的持久化核心。EventStore 保存编排事实、聚合状态、outbox、inbox、attempt、effect ledger、审计、snapshot 引用和恢复代次。所有状态推进都走同一个“记账入口”：先检查权限和版本，再把事件、状态和下一步命令一起写入事务。
 
-**为什么不简单用 `seq` 或全局锁**：`seq` 是 conversation 内提交顺序，不代表某个 Run 或 ToolCall 的当前状态；全局锁会把无关 run、无关 tool call 和用户新消息全部阻塞。
+**为什么不简单用 `seq` 或全局锁**：`seq` 是 user 内提交顺序，不代表某个 Run 或 ToolCall 的当前状态；全局锁会把无关 run、无关 tool call 和用户新消息全部阻塞。
 
 **忽略后果**：并行 ToolCall 会在 `run_version` 上产生假冲突；用户新消息会和工具完成互相阻塞；按时间点恢复数据库后，旧消息队列里的消息可能污染已回滚的事实源。
 
@@ -164,20 +164,22 @@ append_tool_call_result(
 
 Publisher 可能在消息队列确认后、标记 `published` 前崩溃。因此重复发布是正常情况，消费者必须先写 inbox 再执行 command。消费者执行完成后，不通过 outbox 标记业务成功，而是通过 Run/ToolCall append 写入结果事件。
 
+**Lite v0 不设独立 inbox 表**：`jobs` 既是队列也是唯一消费入口，命令去重由 `jobs` 上的 `UNIQUE (command_id)` 承担（等价于 consumer 恒为 jobs 的 inbox）。阶段 6 引入独立 outbox / MQ 或出现第二类消费者后，`jobs` 不再是唯一入口，必须补建独立 inbox 表，否则去重语义会静默丢失。
+
 ## `seq` 的分配
 
-`seq` 是 conversation-scoped 的提交游标：
+v0 中 `seq` 是 user-scoped 的提交游标，conversation 只是事件过滤维度：
 
-1. 锁定 conversation 元数据行。
-2. 读取并递增 `current_seq`。
+1. 锁定 `event_cursors(user_id)` 行。
+2. 读取并递增 `next_seq`。
 3. 在同一事务中插入事件。
 
-不要使用 `SELECT MAX(seq)+1`，也不要给每个 conversation 创建 PostgreSQL sequence。conversation 行锁会串行化同一会话内 append；不同 Run 和 ToolCall 的并发安全由各自聚合版本负责。
+不要使用 `SELECT MAX(seq)+1`，也不要给每个 conversation 创建 PostgreSQL sequence。用户级 cursor 行锁会串行化同一用户内 append；不同 Run 和 ToolCall 的并发安全由各自聚合版本负责。
 
 ## 关键唯一约束
 
 ```text
-UNIQUE (tenant_id, conversation_id, seq)
+UNIQUE (tenant_id, user_id, seq)
 UNIQUE (tenant_id, event_id)
 UNIQUE (tenant_id, idempotency_scope, idempotency_key)
 UNIQUE (tenant_id, consumer_name, command_id)         -- inbox / 命令去重

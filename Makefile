@@ -40,17 +40,17 @@ migrate: $(MIGRATE_DEPS)
 	cd backend && DATABASE_URL="$(DATABASE_URL)" LITES_MIGRATIONS_DIR="migrations" go run ./cmd/lites migrate
 
 typegen:
-	$(PNPM) typegen
+	CI=true $(PNPM) typegen
 
 test: typegen
 	cd backend && go test ./...
-	$(PNPM) --filter @lites/frontend typecheck
-	$(PNPM) --filter @lites/frontend build
+	CI=true $(PNPM) --filter @lites/frontend typecheck
+	CI=true $(PNPM) --filter @lites/frontend build
 
 lint:
 	cd backend && test -z "$$(gofmt -l $$(find . -name '*.go' -not -path './bin/*'))"
 	cd backend && go vet ./...
-	$(PNPM) --filter @lites/frontend typecheck
+	CI=true $(PNPM) --filter @lites/frontend typecheck
 
 build: build-backend build-frontend
 
@@ -58,7 +58,7 @@ build-backend:
 	cd backend && go build -o bin/lites-backend ./cmd/lites
 
 build-frontend:
-	$(PNPM) --filter @lites/frontend build
+	CI=true $(PNPM) --filter @lites/frontend build
 
 clean:
-	rm -rf backend/bin frontend/dist
+	rm -rf backend/bin frontend/web/dist

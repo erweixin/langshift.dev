@@ -16,7 +16,7 @@
 | --- | --- |
 | 通过统一接口调用，AgentWorker 不感知 Provider 差异 | 在业务代码里直接 `import openai` |
 | 模型路由和降级由 Gateway 集中管理 | 每个 AgentWorker 自行判断用哪个 Provider |
-| 每次调用记录 `llm_attempt_id`、Provider、模型版本和成本 | 只记录"调用成功"，不记录是哪个 Provider 响应的 |
+| 每次调用记录 `attempt_key`、Provider、模型版本和成本 | 只记录"调用成功"，不记录是哪个 Provider 响应的 |
 | Provider 限流和业务重试分层处理 | 把 429 当成普通错误走同一个 retry 队列 |
 
 ## LLM Gateway 在架构中的位置
@@ -48,7 +48,7 @@ AgentWorker 通过一个与 Provider 无关的接口发起 LLM 调用。接口�
 ```text
 llm_request
   # ── 调用身份 ──
-  - llm_attempt_id                     # 本次调用的唯一标识（由 AgentWorker 生成）
+  - attempt_key                     # 本次调用的唯一标识（由 AgentWorker 生成）
   - run_id                             # 所属 run
   - tenant_id                          # 租户隔离
 
@@ -80,7 +80,7 @@ llm_request
 ```text
 llm_response
   # ── 调用结果 ──
-  - llm_attempt_id
+  - attempt_key
   - status: completed | failed | timeout | rate_limited | cancelled
   - finish_reason: stop | tool_use | max_tokens | content_filter
 
@@ -122,7 +122,7 @@ llm_response
 
 - `actual_model_id` → `context_manifest.model_id`
 - `parameters` → `context_manifest.model_parameters`
-- `llm_attempt_id` → 关联到具体的调用记录
+- `attempt_key` → 关联到具体的调用记录
 
 这样事后可以精确回答："这次 run 用的是哪个模型的哪个版本、通过哪个 Provider 调用的。"
 
@@ -415,7 +415,7 @@ LLM 调用是平台最大的可变成本。成本追踪贯穿调用全过程：
 2. 按 Provider 当前费率计算实际成本
 3. settle 预留：释放 estimated - actual 的差额
 4. 成本写入 llm_attempt 记录：
-   - llm_attempt_id
+   - attempt_key
    - actual_provider
    - actual_model_id
    - input_tokens / output_tokens
@@ -425,14 +425,14 @@ LLM 调用是平台最大的可变成本。成本追踪贯穿调用全过程：
 
 ### 成本归属
 
-成本沿 `tenant_id → conversation_id → run_id → llm_attempt_id` 链路归属：
+成本沿 `tenant_id → conversation_id → run_id → attempt_key` 链路归属：
 
 ```text
 成本聚合层次：
   tenant_id          → 租户月度账单
   conversation_id    → 单个会话的累计成本
   run_id             → 单次 run 的成本（可能包含多次 LLM 调用）
-  llm_attempt_id     → 单次调用的精确成本
+  attempt_key     → 单次调用的精确成本
 ```
 
 ### 费率管理
@@ -540,7 +540,7 @@ LLM 调用的 metrics 使用低基数维度（与 [operations.md](./operations.m
   tenant_tier      → "free"、"pro"、"enterprise"
 
 不做指标维度（高基数）：
-  run_id、conversation_id、llm_attempt_id → 放在 trace/log 中
+  run_id、conversation_id、attempt_key → 放在 trace/log 中
 ```
 
 关键指标：

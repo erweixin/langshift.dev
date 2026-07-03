@@ -29,7 +29,7 @@
 - Run 内上下文预算、压缩和 `context_manifest`。（见 [execution-model.md](./execution-model.md)）
 - 平台工具 Descriptor 注册、input/output schema 校验、工具集快照和 `tool_schema_versions` 进入 manifest。（见 [tool-system.md](./tool-system.md)）
 - Memory 三层模型（Working / Conversation / Long-term）、写入流经事件、向量检索召回、`memory_document_ids` 进入 manifest。（见 [memory.md](./memory.md)）
-- LLM Gateway 统一调用接口、Provider Adapter、`llm_attempt_id` 与成本记录、逻辑模型引用与基本路由。（见 [llm-provider.md](./llm-provider.md)）
+- LLM Gateway 统一调用接口、Provider Adapter、`attempt_key` 与成本记录、逻辑模型引用与基本路由。（见 [llm-provider.md](./llm-provider.md)）
 
 ## 阶段二：生产加固
 

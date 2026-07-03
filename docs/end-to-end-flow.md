@@ -157,7 +157,7 @@ flowchart TD
 
   Events -.->|correlation_id / causation_id| Telemetry
   Commands -.->|attempt_id| Telemetry
-  LLM -.->|llm_attempt_id / token / cost| Telemetry
+  LLM -.->|attempt_key / token / cost| Telemetry
   Runtime -.->|session_id / resource usage| Telemetry
 ```
 

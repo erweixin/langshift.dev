@@ -80,7 +80,7 @@ Lites 是一个 Lite-first 的 Cloud Agent 平台设计：首版可以用 Postgr
 | CAS | Compare-And-Set，只有版本仍是预期值才允许写入 | 防止基于旧状态提交新决策 |
 | `run_version` | Run 聚合的 CAS 版本 | 只在 Run 状态转换时递增 |
 | `tool_call_version` | ToolCall 聚合的 CAS 版本 | 只在 ToolCall 状态转换时递增 |
-| `seq` | conversation 内的提交顺序号 | 只做排序和补拉游标，不做 CAS |
+| `seq` | user 内的提交顺序号（v0 决策：user-scoped，conversation 只是过滤维度） | 只做排序和补拉游标，不做 CAS；若单用户多会话并行追加成为瓶颈，可下沉为 conversation-scoped，代价是客户端要维护多游标 |
 | fence | lease 产生的防过期写令牌 | 旧 Worker 即使醒来也不能覆盖新状态 |
 | `effect_key` | 外部副作用的稳定幂等键 | 下游支持幂等时用于避免重复副作用 |
 | `outcome_unknown` | 外部调用结果未知，例如超时后不知道资源是否已创建 | 禁止盲目重试，必须先对账或人工裁定 |
@@ -99,7 +99,7 @@ Lites 是一个 Lite-first 的 Cloud Agent 平台设计：首版可以用 Postgr
 ## 非目标
 
 - **不承诺通用 exactly-once**：传输层按“至少一次投递”设计；对支持幂等键的外部写操作提供“多次投递但只产生一次有效副作用”的效果；无法幂等的操作必须走对账。
-- **不做跨会话事务**：强一致边界止于单个 `conversation_id` 的 append 顺序。
+- **不做跨用户事务**：强一致边界止于单个 `user_id` 的 append 顺序（v0 中 `seq` 为 user-scoped，conversation 只是过滤维度）。
 - **不做跨区域 active-active**：Lite 与生产前期采用单区域单写模型。
 - **不自动消解所有未知结果**：`outcome_unknown` 可能需要人工裁定；系统只保证不盲目重做。
 - **不把实时通道当可靠存储**：可靠性由 EventStore + `last_seen_seq` 补拉提供。
@@ -186,16 +186,16 @@ Outbox、Scheduler、MQ 是逻辑角色，不要求首版引入独立 MQ。只�
 ## 核心标识
 
 - `tenant_id`：客户边界。
-- `user_id`：已认证用户。
-- `conversation_id`：事件提交顺序边界。
+- `user_id`：已认证用户；事件提交顺序边界（user-scoped `seq`）。
+- `conversation_id`：会话归属与事件过滤维度。
 - `run_id`：一次 Agent 执行或续跑。
 - `run_version`：Run 聚合的 CAS 令牌。
 - `tool_call_id` / `tool_call_version`：ToolCall 聚合及其 CAS 令牌。
-- `event_id` / `seq`：事件唯一标识与 conversation 内提交顺序。
+- `event_id` / `seq`：事件唯一标识与 user 内提交顺序。
 - `command_id`：命令稳定 id，用于 inbox 去重。
-- `attempt_id` / `llm_attempt_id`：Worker 尝试与模型调用尝试。
+- `attempt_id` / `attempt_key`：Worker 尝试与模型调用尝试（`attempt_key` 即 `llm_ledger.attempt_key`，每次模型调用尝试唯一）。
 - `effect_key`：外部副作用幂等键。
-- `correlation_id` / `causation_id` / `parent_event_id`：因果链路。
+- `correlation_id` / `causation_id`：因果链路。
 - `request_id`：API 请求 trace id。
 - `idempotency_key`：请求重放保护 key，必须带 tenant 与 operation scope。
 - `reservation_id`：配额预留 id。

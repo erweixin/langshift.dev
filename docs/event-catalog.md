@@ -20,11 +20,11 @@
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
 | `event_id` | ULID | 主键，天然按时间有序 |
-| `seq` | bigint | **用户内提交顺序号**（v0 的顺序边界收敛到 user，对应平台契约里 conversation-scoped 的 `seq`）。SSE 补拉与客户端去重的游标：客户端记 `last_seen_seq`，按 `seq` 去重，语义对齐 [realtime.md](./realtime.md) |
+| `seq` | bigint | **用户内提交顺序号**（v0 的顺序边界收敛到 user）。后台投影按 `(user_id, seq)` replay；conversation 只作为过滤维度，不参与取号 |
 | `type` | string | 事件类型（下表） |
 | `schema_version` | int | payload 结构版本，从 1 开始 |
 | `user_id` | string | 所属用户（v0 的隔离边界与顺序边界） |
-| `mission_id` / `task_id` / `run_id` | string? | 关联键，按需填 |
+| `mission_id` / `task_id` / `conversation_id` / `run_id` | string? | 关联键，按需填。`conversation_id` 用于对话时间线过滤和恢复入口，不改变 `seq` 的用户级顺序语义 |
 | `command_id` | string? | 产生本事件的 command（命令去重与追溯）。**一律是服务端生成的 ULID**——客户端 `Idempotency-Key` 经 `idempotency_keys` 映射表（作用域 user_id + endpoint）换取 command_id，不直接入库，避免跨用户 / 跨操作的同名 key 冲突 |
 | `causation_id` / `correlation_id` | string? | 由哪条 event / command 引起；属于哪条因果链 |
 | `created_at` | timestamp | 提交时间 |
@@ -33,20 +33,22 @@
 **显式推迟的字段**（对齐 [concurrency-and-durability.md](./concurrency-and-durability.md) 的持久化契约，v0 不落列、migration 注释预留）：
 
 - `tenant_id`：v0 以 `user_id` 为边界，多租户是 v1 升级项（见 [v0-product-slice.md](./v0-product-slice.md) 升级信号）。
-- `conversation_id`：v0 把顺序边界收敛到 user；Coach 对话另有 `conversations` 投影，不承担事件排序职责。
 - `store_epoch`：随 v1 的备份恢复演练一起引入；v0 内测数据可承受重建。
 
 ## 事件清单（v0 全集）
 
 ### 平台层（run 生命周期，所有 run 类型共用）
 
-命名以 [state-machines.md](./state-machines.md) 的转换表为准（终态：`succeeded` / `failed` / `expired` / `cancelled`，普通流程不能再推进）。v0 不使用审批与取消相关事件。历史文档中的 `RunCompleted`（end-to-end-flow 旧称）与 `RunTimedOut` 均已收敛，以本表为准。
+命名以 [state-machines.md](./state-machines.md) 的转换表为准（终态：`succeeded` / `failed` / `expired` / `cancelled`，普通流程不能再推进）。历史文档中的 `RunCompleted`（end-to-end-flow 旧称）与 `RunTimedOut` 均已收敛，以本表为准。
 
 | type | payload 要点 | 更新投影 |
 | --- | --- | --- |
-| `RunAccepted` | `run_type`（diagnosis / task_gen / lesson_gen / review / reentry）, `input_ref`（已有事实引用：event_id / evidence_id / content_key 等，不存大块输入） | runs |
+| `RunAccepted` | `run_type`（chat_turn / diagnosis / task_gen / lesson_gen / review / reentry）, `input_ref`（已有事实引用：event_id / evidence_id / content_key 等，不存大块输入） | runs |
 | `RunQueued` / `RunStarted` | — / `attempt_id` | runs |
-| `RunSucceeded` / `RunFailed` / `RunExpired` | `error?`, `ledger_attempt_keys?`（**引用** LLM 账本行，不内嵌用量）；`RunExpired` 由 sweeper 依 `due_at` 产生 | runs。`llm_ledger` 由 LLM client 在调用路径直接写入（独立事实账本，pre-call pending → 补全 / unknown），**不由事件驱动** |
+| `RunSucceeded` / `RunFailed` / `RunExpired` | `error?`, `attempt_keys?`（**引用** LLM 账本行，不内嵌用量）；`RunExpired` 由 sweeper 依 `due_at` 产生 | runs。`llm_ledger` 由 LLM client 在调用路径直接写入（独立事实账本，pre-call pending → 补全 / unknown），**不由事件驱动** |
+| `ToolCallRequested` / `ToolCallStarted` | tool_call_id, tool_name, args/ref, risk, requires_approval | tool_calls, runs（必要时进入 `waiting_tool` / `waiting_approval`） |
+| `ToolCallSucceeded` / `ToolCallFailed` / `ToolCallOutcomeUnknown` | tool_call_id, result?/result_ref?, error? | tool_calls；满足 join 时推进 runs |
+| `ApprovalRequested` / `ApprovalGranted` / `ApprovalRejected` | tool_call_id?, reason?, decision? | tool_calls, runs |
 
 ### 目标与路线
 
@@ -84,7 +86,7 @@
 | --- | --- | --- | --- |
 | `RewriteApplied` | 选中重写 | task_id, paragraph_anchor, kind（simple / analogy）, text（重写全文入 payload，保证 delta 投影可重建） | user_content_delta |
 | `PreferenceRecorded` | 重写 / 对话中的偏好信号 | kind, value, stage: candidate \| confirmed | profile（≥2 次同类才 confirmed） |
-| `ChatTurnLogged` | Drawer 对话结束后 | conversation_id, role, text, quote?, surface_ctx | conversations |
+| `ChatTurnLogged` | Drawer 对话结束后 | conversation_id, role, text/message_ref, quote?, surface_ctx | conversations / run_messages |
 | `CraftGenerated` | 作品化 | evidence_id, kind（resume / portfolio / interview / article）, content（作品全文入 payload——体量小，保证 crafts 投影可重建） | crafts, evidence（→可展示） |
 
 ### 节律与数据主权
@@ -98,7 +100,7 @@
 
 ## 投影清单
 
-**投影**（可由事件流重建，更新以 `event_id` 幂等、重放不二次生效）：`runs`、`missions`、`tasks`、`user_content_delta`、`exercise_runs`、`evidence`、`profile`（含 rhythm 段与分面摘要）、`conversations`、`crafts`。
+**投影**（可由事件流重建，更新以 `event_id` 幂等、重放不二次生效）：`runs`、`tool_calls`、`missions`、`tasks`、`user_content_delta`、`exercise_runs`、`evidence`、`profile`（含 rhythm 段与分面摘要）、`conversations`、`run_messages`、`crafts`。
 
 **事实类 / 操作类表**（不是投影，`lites replay` 不清除）：`events` 本身、`idempotency_keys`（请求重放响应）、`jobs`（执行队列历史）、`llm_ledger`（花费事实，含 pending/unknown 状态）、`content_cache` 的 artifact 本体（`LessonPublished` 只携带 `content_key` 指针，对齐平台"EventStore 不保存文件本体"原则）。
 
@@ -109,4 +111,4 @@
 | 新事件先改本文件再写代码 | 代码里随手发明事件名 |
 | payload 变更升 schema_version | 原地改旧事件结构 |
 | 用户改动标 source，权威最高 | 系统悄悄覆盖用户编辑 |
-| LLM client 负责 pre-call ledger；Run 事件只引用 `ledger_attempt_keys` | 把 ledger 做回事件投影，或把用量内嵌进 Run 事件 |
+| LLM client 负责 pre-call ledger；Run 事件只引用 `attempt_keys` | 把 ledger 做回事件投影，或把用量内嵌进 Run 事件 |

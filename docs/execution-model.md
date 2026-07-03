@@ -90,7 +90,7 @@ AgentWorker 职责：
 - 领取 `StartAgentRun` / `ResumeAgentRun`。
 - 从 snapshot + 增量 events 恢复状态。
 - 基于 events、memory、workspace、policy 构建上下文，并产出 `context_manifest`（模型输入清单）。
-- 通过 LLM Gateway 调用模型，记录 `llm_attempt_id`、模型配置、provider request id、token 和成本。
+- 通过 LLM Gateway 调用模型，记录 `attempt_key`、模型配置、provider request id、token 和成本。
 - 通过 Event Service 写入消息、工具请求、失败、等待审批或终态。
 
 ToolWorker 职责：
@@ -146,7 +146,7 @@ tool_effects
 
 ## LLM 调用与预算
 
-LLM 调用也不是幂等的。同一个 prompt 重试可能得到不同输出；流式中断后重调可能重复计费；fallback 到另一个模型可能改变语义。每次调用都保存独立 `llm_attempt_id`、输入清单、模型配置、provider request id、结果 hash、token 和成本。
+LLM 调用也不是幂等的。同一个 prompt 重试可能得到不同输出；流式中断后重调可能重复计费；fallback 到另一个模型可能改变语义。每次调用都保存独立 `attempt_key`、输入清单、模型配置、provider request id、结果 hash、token 和成本。
 
 工具配额和 LLM 预算进入同一租户成本视图：
 
