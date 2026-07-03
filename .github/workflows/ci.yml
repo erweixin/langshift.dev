@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: lites
+          POSTGRES_PASSWORD: lites
+          POSTGRES_DB: lites
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lites -d lites"
+          --health-interval 3s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgres://lites:lites@localhost:5432/lites?sslmode=disable
+      LITES_HTTP_ADDR: :8080
+      LITES_LLM_CONFIG: ../config/llm.example.yaml
+      LITES_MIGRATIONS_DIR: migrations
+      SKIP_DOCKER: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: Check formatting
+        run: cd backend && test -z "$(gofmt -l $(find . -name '*.go' -not -path './bin/*'))"
+      - name: Vet
+        run: cd backend && go vet ./...
+      - name: Test
+        run: cd backend && go test ./...
+      - name: Migrate
+        run: make migrate
+      - name: Build
+        run: make build-backend
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Generate contracts
+        run: pnpm typegen
+      - name: Check generated contracts are fresh
+        run: git diff --exit-code -- frontend/src/contracts
+      - name: Typecheck
+        run: pnpm --filter @lites/frontend typecheck
+      - name: Build
+        run: pnpm --filter @lites/frontend build
