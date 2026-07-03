@@ -64,7 +64,7 @@ func (s *Service) appendEvents(ctx context.Context, tx pgx.Tx, request AppendReq
 		}
 
 		if err := s.dispatcher.Apply(ctx, tx, event); err != nil {
-			return nil, fmt.Errorf("%w: %v", ErrProjectionDispatch, err)
+			return nil, fmt.Errorf("%w: %w", ErrProjectionDispatch, err)
 		}
 		events = append(events, event)
 	}
