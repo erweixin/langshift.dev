@@ -17,6 +17,7 @@ import (
 type Provider struct {
 	baseURL   string
 	apiKeyEnv string
+	apiKey    string
 	client    *http.Client
 }
 
@@ -26,15 +27,22 @@ func NewProvider(config config.LLMProviderConfig, client *http.Client) *Provider
 	}
 	return &Provider{
 		baseURL:   strings.TrimRight(config.BaseURL, "/"),
-		apiKeyEnv: config.APIKeyEnv,
+		apiKeyEnv: strings.TrimSpace(config.APIKeyEnv),
+		apiKey:    strings.TrimSpace(config.APIKey),
 		client:    client,
 	}
 }
 
 func (p *Provider) Complete(ctx context.Context, req llm.Request) (llm.Response, error) {
-	apiKey := os.Getenv(p.apiKeyEnv)
+	apiKey := p.apiKey
+	if apiKey == "" && p.apiKeyEnv != "" {
+		apiKey = os.Getenv(p.apiKeyEnv)
+	}
 	if apiKey == "" {
-		return llm.Response{}, fmt.Errorf("deepseek api key env %s is not set", p.apiKeyEnv)
+		if p.apiKeyEnv != "" {
+			return llm.Response{}, fmt.Errorf("deepseek api key env %s is not set", p.apiKeyEnv)
+		}
+		return llm.Response{}, fmt.Errorf("deepseek api key is not configured")
 	}
 	if p.baseURL == "" {
 		return llm.Response{}, fmt.Errorf("deepseek base_url is required")

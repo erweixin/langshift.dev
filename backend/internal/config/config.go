@@ -27,7 +27,7 @@ func Load() (Config, error) {
 	config := Config{
 		DatabaseURL:   envOrDefault("DATABASE_URL", defaultDatabaseURL),
 		HTTPAddr:      envOrDefault("LITES_HTTP_ADDR", defaultHTTPAddr),
-		LLMConfigPath: envOrDefault("LITES_LLM_CONFIG", defaultLLMConfigPath),
+		LLMConfigPath: envOrDefault("LITES_LLM_CONFIG", detectLLMConfigPath()),
 		MigrationsDir: envOrDefault("LITES_MIGRATIONS_DIR", defaultMigrationsDir),
 		SingleUser:    os.Getenv("LITES_SINGLE_USER") == "1",
 	}
@@ -44,6 +44,7 @@ type LLMConfig struct {
 type LLMProviderConfig struct {
 	BaseURL   string `yaml:"base_url"`
 	APIKeyEnv string `yaml:"api_key_env"`
+	APIKey    string `yaml:"api_key"`
 }
 
 type LLMTierConfig struct {
@@ -98,8 +99,8 @@ func (c LLMConfig) Validate() error {
 		if provider.BaseURL == "" {
 			return fmt.Errorf("llm provider %q requires base_url", name)
 		}
-		if provider.APIKeyEnv == "" {
-			return fmt.Errorf("llm provider %q requires api_key_env", name)
+		if provider.APIKeyEnv == "" && provider.APIKey == "" {
+			return fmt.Errorf("llm provider %q requires api_key_env or api_key", name)
 		}
 	}
 
@@ -130,4 +131,20 @@ func envOrDefault(name string, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+func detectLLMConfigPath() string {
+	for _, candidate := range []string{
+		".llm.yaml",
+		"../.llm.yaml",
+		"config/llm.yaml",
+		"../config/llm.yaml",
+		"config/llm.example.yaml",
+		"../config/llm.example.yaml",
+	} {
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+	}
+	return defaultLLMConfigPath
 }

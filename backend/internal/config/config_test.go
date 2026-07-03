@@ -1,6 +1,8 @@
 package config_test
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"lites/backend/internal/config"
@@ -27,5 +29,31 @@ func TestLoadLLMConfigDeepSeekDefaults(t *testing.T) {
 	}
 	if cfg.Surfaces["review"] != "strong" {
 		t.Fatalf("review surface tier = %q", cfg.Surfaces["review"])
+	}
+}
+
+func TestLoadLLMConfigAllowsDirectAPIKey(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "llm.yaml")
+	if err := os.WriteFile(path, []byte(`
+providers:
+  deepseek:
+    base_url: https://api.deepseek.com
+    api_key: test-key
+tiers:
+  small:
+    provider: deepseek
+    model: deepseek-v4-flash
+surfaces:
+  chat: small
+`), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := config.LoadLLMConfig(path)
+	if err != nil {
+		t.Fatalf("load llm config: %v", err)
+	}
+	if cfg.Providers["deepseek"].APIKey != "test-key" {
+		t.Fatalf("api key was not loaded")
 	}
 }

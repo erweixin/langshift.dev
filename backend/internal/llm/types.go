@@ -19,21 +19,26 @@ type Message struct {
 }
 
 type Thinking struct {
-	Type            string
-	ReasoningEffort string
+	Type            string `json:"type"`
+	ReasoningEffort string `json:"reasoning_effort"`
 }
 
 type Request struct {
-	Surface     string
-	Tier        string
-	Provider    string
-	Model       string
-	Messages    []Message
-	JSONMode    bool
-	SchemaName  string
-	MaxTokens   int
-	Temperature *float64
-	Thinking    Thinking
+	UserID          string
+	RunID           string
+	Surface         string
+	Tier            string
+	Provider        string
+	Model           string
+	AttemptKey      string
+	PromptVersion   string
+	ContextManifest json.RawMessage
+	Messages        []Message
+	JSONMode        bool
+	SchemaName      string
+	MaxTokens       int
+	Temperature     *float64
+	Thinking        Thinking
 }
 
 type Usage struct {
@@ -43,6 +48,7 @@ type Usage struct {
 }
 
 type Response struct {
+	LedgerID          string
 	Content           string
 	Usage             Usage
 	ProviderRequestID string

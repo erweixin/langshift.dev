@@ -55,9 +55,22 @@ func (r *Router) Route(surface string) (Route, error) {
 }
 
 func (r *Router) Complete(ctx context.Context, req Request) (Response, error) {
-	route, err := r.Route(req.Surface)
+	req, err := r.Prepare(req)
 	if err != nil {
 		return Response{}, err
+	}
+
+	provider := r.providers[req.Provider]
+	if provider == nil {
+		return Response{}, fmt.Errorf("provider %q is not registered", req.Provider)
+	}
+	return provider.Complete(ctx, req)
+}
+
+func (r *Router) Prepare(req Request) (Request, error) {
+	route, err := r.Route(req.Surface)
+	if err != nil {
+		return Request{}, err
 	}
 
 	tier := r.config.Tiers[route.Tier]
@@ -77,9 +90,47 @@ func (r *Router) Complete(ctx context.Context, req Request) (Response, error) {
 		req.JSONMode = true
 	}
 
-	provider := r.providers[route.Provider]
-	if provider == nil {
-		return Response{}, fmt.Errorf("provider %q is not registered", route.Provider)
+	if r.providers[route.Provider] == nil {
+		return Request{}, fmt.Errorf("provider %q is not registered", route.Provider)
 	}
-	return provider.Complete(ctx, req)
+	return req, nil
+}
+
+func (r *Router) EstimateCostUSD(req Request, usage Usage) float64 {
+	tierName := req.Tier
+	if tierName == "" {
+		route, err := r.Route(req.Surface)
+		if err != nil {
+			return 0
+		}
+		tierName = route.Tier
+	}
+
+	tier, ok := r.config.Tiers[tierName]
+	if !ok {
+		return 0
+	}
+
+	inputTokens := maxInt(usage.InputTokens, 0)
+	outputTokens := maxInt(usage.OutputTokens, 0)
+	cacheReadTokens := minInt(maxInt(usage.CacheReadTokens, 0), inputTokens)
+	regularInputTokens := inputTokens - cacheReadTokens
+
+	return (float64(regularInputTokens)*tier.PriceInPerMTok +
+		float64(cacheReadTokens)*tier.CacheHitPerMTok +
+		float64(outputTokens)*tier.PriceOutPerMTok) / 1_000_000
+}
+
+func minInt(left int, right int) int {
+	if left < right {
+		return left
+	}
+	return right
+}
+
+func maxInt(left int, right int) int {
+	if left > right {
+		return left
+	}
+	return right
 }
