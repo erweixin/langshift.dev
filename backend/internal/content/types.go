@@ -24,14 +24,15 @@ const (
 )
 
 var (
-	ErrInvalidRequest  = errors.New("invalid content generation request")
-	ErrInvalidArtifact = errors.New("invalid content artifact")
-	ErrNotFound        = errors.New("content not found")
-	errMissingEvents   = errors.New("missing event service")
-	errMissingQueue    = errors.New("missing job queue")
-	errMissingLLM      = errors.New("missing llm client")
-	errMissingIDs      = errors.New("missing id generator")
-	errMissingStore    = errors.New("missing content artifact store")
+	ErrInvalidRequest   = errors.New("invalid content generation request")
+	ErrInvalidArtifact  = errors.New("invalid content artifact")
+	ErrValidationFailed = errors.New("content validation failed")
+	ErrNotFound         = errors.New("content not found")
+	errMissingEvents    = errors.New("missing event service")
+	errMissingQueue     = errors.New("missing job queue")
+	errMissingLLM       = errors.New("missing llm client")
+	errMissingIDs       = errors.New("missing id generator")
+	errMissingStore     = errors.New("missing content artifact store")
 )
 
 type GenerationInput struct {
@@ -82,6 +83,37 @@ type ArtifactRecord struct {
 	ValidationAttempts int
 	CreatedAt          time.Time
 	UpdatedAt          time.Time
+}
+
+type ValidationRequest struct {
+	Input    GenerationInput
+	Artifact contracts.ContentArtifact
+}
+
+type ValidationResult struct {
+	Attempts int               `json:"attempts"`
+	Issues   []ValidationIssue `json:"issues,omitempty"`
+}
+
+func (r ValidationResult) Passed() bool {
+	return len(r.Issues) == 0
+}
+
+type ValidationIssue struct {
+	Code    string `json:"code"`
+	Field   string `json:"field,omitempty"`
+	Message string `json:"message"`
+}
+
+type ExerciseRuntimeRequest struct {
+	Artifact contracts.ContentArtifact
+}
+
+type ExerciseRuntimeResult struct {
+	Skipped         bool              `json:"skipped,omitempty"`
+	ReferencePassed bool              `json:"reference_passed,omitempty"`
+	StarterFailed   bool              `json:"starter_failed,omitempty"`
+	Issues          []ValidationIssue `json:"issues,omitempty"`
 }
 
 type acceptedPayload struct {

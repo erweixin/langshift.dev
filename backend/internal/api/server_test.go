@@ -107,6 +107,8 @@ func TestGetContentGenerationRun(t *testing.T) {
 func TestGetContentArtifactRedactsReferenceSolution(t *testing.T) {
 	reader := &fakeContentReader{
 		artifact: content.ArtifactRecord{
+			ReviewStatus:       content.ReviewStatusAutoOK,
+			ValidationAttempts: 1,
 			Artifact: contracts.ContentArtifact{
 				SchemaVersion:  1,
 				ContentKey:     "content_abc",
@@ -167,6 +169,9 @@ func TestGetContentArtifactRedactsReferenceSolution(t *testing.T) {
 	}
 	if _, ok := exercise["reference_solution"]; ok {
 		t.Fatalf("reference_solution leaked: %s", recorder.Body.String())
+	}
+	if response["review_status"] != content.ReviewStatusAutoOK || response["validation_attempts"] != float64(1) {
+		t.Fatalf("validation metadata = %v/%v", response["review_status"], response["validation_attempts"])
 	}
 }
 

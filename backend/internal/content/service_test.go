@@ -208,6 +208,45 @@ func TestWorkerProcessOneFailsRunWhenLLMReturnsError(t *testing.T) {
 	assertJob(t, ctx, pool, "run_1", "done")
 }
 
+func TestWorkerProcessOneFailsRunWhenValidationFails(t *testing.T) {
+	ctx := context.Background()
+	pool := newTestPool(t, ctx)
+	events := event.NewService(pool, event.Options{Dispatcher: run.NewReducer()})
+	service := content.NewService(events, content.ServiceOptions{
+		IDGenerator: &sequenceIDs{values: []string{"run_1"}},
+	})
+	if _, err := service.Start(ctx, content.StartRequest{
+		UserID:         "user_1",
+		IdempotencyKey: "key-1",
+		Input:          testInput(),
+	}); err != nil {
+		t.Fatalf("start content generation: %v", err)
+	}
+
+	worker := content.NewWorker(
+		job.NewQueue(pool, job.Options{}),
+		events,
+		&fakeLLM{response: llm.Response{
+			LedgerID: "ledger_1",
+			Content:  artifactWithoutJudgeJSON(),
+		}},
+		content.NewStore(pool),
+		content.WorkerOptions{IDGenerator: &sequenceIDs{values: []string{"attempt_1"}}},
+	)
+
+	processed, err := worker.ProcessOne(ctx)
+	if err != nil {
+		t.Fatalf("process one: %v", err)
+	}
+	if !processed {
+		t.Fatal("processed = false, want true")
+	}
+	assertRun(t, ctx, pool, "run_1", "lesson_gen", "failed", 1)
+	assertJob(t, ctx, pool, "run_1", "done")
+	assertArtifactCount(t, ctx, pool, 0)
+	assertRunFailedValidation(t, ctx, pool, "run_1")
+}
+
 type fakeLLM struct {
 	request  llm.Request
 	response llm.Response
@@ -259,6 +298,38 @@ func validArtifactJSON() string {
 					"call": "explainBoundary()",
 					"expect": "API acceptance queues work; workers execute it.",
 					"judge": true,
+					"label": "explains the boundary"
+				}
+			]
+		}
+	}`
+}
+
+func artifactWithoutJudgeJSON() string {
+	return `{
+		"lesson": {
+			"title": "API boundaries",
+			"minutes": 30,
+			"judge": "Explain API acceptance versus worker execution.",
+			"sections": [
+				{
+					"id": "section_1",
+					"title": "The boundary",
+					"body_md": "API acceptance records intent and queues work. Workers execute that work later."
+				}
+			]
+		},
+		"exercise": {
+			"language": "javascript",
+			"starter_code": "function explainBoundary() { return ''; }",
+			"reference_solution": "function explainBoundary() { return 'API acceptance queues work; workers execute it.'; }",
+			"harness_version": 1,
+			"tests": [
+				{
+					"id": "case_1",
+					"call": "explainBoundary()",
+					"expect": "API acceptance queues work; workers execute it.",
+					"judge": false,
 					"label": "explains the boundary"
 				}
 			]
@@ -357,14 +428,18 @@ func assertContentArtifact(t *testing.T, ctx context.Context, pool *pgxpool.Pool
 	var artifactHash string
 	var taskTemplateID string
 	var title string
+	var reviewStatus string
+	var validationAttempts int
 	if err := pool.QueryRow(ctx, `
 		SELECT
 			artifact_hash,
 			task_template_id,
-			artifact->'lesson'->>'title'
+			artifact->'lesson'->>'title',
+			review_status,
+			validation_attempts
 		FROM content_artifacts
 		WHERE content_key = $1
-	`, contentKey).Scan(&artifactHash, &taskTemplateID, &title); err != nil {
+	`, contentKey).Scan(&artifactHash, &taskTemplateID, &title, &reviewStatus, &validationAttempts); err != nil {
 		t.Fatalf("read content artifact %s: %v", contentKey, err)
 	}
 	if artifactHash == "" {
@@ -372,6 +447,40 @@ func assertContentArtifact(t *testing.T, ctx context.Context, pool *pgxpool.Pool
 	}
 	if taskTemplateID != "fe2agent-d01" || title != "API boundaries" {
 		t.Fatalf("artifact = %s/%s, want fe2agent-d01/API boundaries", taskTemplateID, title)
+	}
+	if reviewStatus != content.ReviewStatusAutoOK || validationAttempts != 1 {
+		t.Fatalf("artifact review = %s/%d, want auto_ok/1", reviewStatus, validationAttempts)
+	}
+}
+
+func assertArtifactCount(t *testing.T, ctx context.Context, pool *pgxpool.Pool, want int) {
+	t.Helper()
+
+	var count int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM content_artifacts`).Scan(&count); err != nil {
+		t.Fatalf("count content artifacts: %v", err)
+	}
+	if count != want {
+		t.Fatalf("artifact count = %d, want %d", count, want)
+	}
+}
+
+func assertRunFailedValidation(t *testing.T, ctx context.Context, pool *pgxpool.Pool, runID string) {
+	t.Helper()
+
+	var errorCode string
+	var issueCode string
+	if err := pool.QueryRow(ctx, `
+		SELECT payload->'error'->>'code', payload->'validation'->'issues'->0->>'code'
+		FROM events
+		WHERE run_id = $1 AND type = $2
+		ORDER BY seq DESC
+		LIMIT 1
+	`, runID, run.EventRunFailed).Scan(&errorCode, &issueCode); err != nil {
+		t.Fatalf("read RunFailed validation payload: %v", err)
+	}
+	if errorCode != "content_validation_failed" || issueCode != "missing_judge_test" {
+		t.Fatalf("RunFailed validation = %s/%s, want content_validation_failed/missing_judge_test", errorCode, issueCode)
 	}
 }
 

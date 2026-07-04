@@ -33,6 +33,7 @@ type Worker struct {
 	events    *event.Service
 	llm       LLM
 	artifacts ArtifactWriter
+	validator ArtifactValidator
 	ids       event.IDGenerator
 	workerID  string
 	idleSleep time.Duration
@@ -40,6 +41,7 @@ type Worker struct {
 
 type WorkerOptions struct {
 	IDGenerator event.IDGenerator
+	Validator   ArtifactValidator
 	WorkerID    string
 	IdleSleep   time.Duration
 }
@@ -48,6 +50,10 @@ func NewWorker(queue Queue, events *event.Service, llmClient LLM, artifacts Arti
 	ids := options.IDGenerator
 	if ids == nil {
 		ids = event.NewULIDGenerator(nil)
+	}
+	validator := options.Validator
+	if validator == nil {
+		validator = NewStaticValidator(StaticValidatorOptions{})
 	}
 	workerID := strings.TrimSpace(options.WorkerID)
 	if workerID == "" {
@@ -62,6 +68,7 @@ func NewWorker(queue Queue, events *event.Service, llmClient LLM, artifacts Arti
 		events:    events,
 		llm:       llmClient,
 		artifacts: artifacts,
+		validator: validator,
 		ids:       ids,
 		workerID:  workerID,
 		idleSleep: idleSleep,
@@ -176,24 +183,53 @@ func (w *Worker) appendResult(ctx context.Context, userID string, fence event.Jo
 				},
 			})))
 		} else {
-			saved, err := w.artifacts.SaveArtifact(ctx, SaveArtifactRequest{
-				Artifact:         artifact,
-				LLMLedgerID:      response.LedgerID,
-				SourceRunID:      runID,
-				SourceAttemptKey: attemptKey,
-				ReviewStatus:     ReviewStatusAutoOK,
+			validation, err := w.validator.Validate(ctx, ValidationRequest{
+				Input:    payload.Input,
+				Artifact: artifact,
 			})
 			if err != nil {
 				return err
 			}
-			events = append(events, runEvent(run.EventRunSucceeded, runID, mustJSON(map[string]any{
-				"run_id":         runID,
-				"attempt_keys":   []string{attemptKey},
-				"llm_ledger_id":  response.LedgerID,
-				"content_key":    saved.Artifact.ContentKey,
-				"artifact_hash":  saved.ArtifactHash,
-				"content_length": len(response.Content),
-			})))
+			if !validation.Passed() {
+				events = append(events, runEvent(run.EventRunFailed, runID, mustJSON(map[string]any{
+					"run_id":        runID,
+					"attempt_keys":  []string{attemptKey},
+					"llm_ledger_id": response.LedgerID,
+					"validation":    validation,
+					"error": map[string]string{
+						"code":    "content_validation_failed",
+						"message": truncateMessage(summarizeValidationIssues(validation.Issues)),
+					},
+				})))
+			} else {
+				if validation.Attempts <= 0 {
+					validation.Attempts = 1
+				}
+				if artifact.Meta != nil {
+					artifact.Meta.ValidationAttempts = validation.Attempts
+				}
+				saved, err := w.artifacts.SaveArtifact(ctx, SaveArtifactRequest{
+					Artifact:           artifact,
+					LLMLedgerID:        response.LedgerID,
+					SourceRunID:        runID,
+					SourceAttemptKey:   attemptKey,
+					ReviewStatus:       ReviewStatusAutoOK,
+					ValidationAttempts: validation.Attempts,
+				})
+				if err != nil {
+					return err
+				}
+				events = append(events, runEvent(run.EventRunSucceeded, runID, mustJSON(map[string]any{
+					"run_id":              runID,
+					"attempt_keys":        []string{attemptKey},
+					"llm_ledger_id":       response.LedgerID,
+					"content_key":         saved.Artifact.ContentKey,
+					"artifact_hash":       saved.ArtifactHash,
+					"review_status":       saved.ReviewStatus,
+					"validation_attempts": saved.ValidationAttempts,
+					"content_length":      len(response.Content),
+				})))
+			}
 		}
 	}
 
@@ -244,6 +280,9 @@ func (w *Worker) validate() error {
 	}
 	if w.artifacts == nil {
 		return errMissingStore
+	}
+	if w.validator == nil {
+		return fmt.Errorf("%w: validator is required", ErrInvalidRequest)
 	}
 	if w.ids == nil {
 		return errMissingIDs
@@ -360,4 +399,19 @@ func truncateMessage(message string) string {
 		return message
 	}
 	return message[:maxBytes]
+}
+
+func summarizeValidationIssues(issues []ValidationIssue) string {
+	if len(issues) == 0 {
+		return ErrValidationFailed.Error()
+	}
+	first := issues[0]
+	message := first.Message
+	if first.Field != "" {
+		message = first.Field + ": " + message
+	}
+	if len(issues) == 1 {
+		return message
+	}
+	return fmt.Sprintf("%s; %d more validation issue(s)", message, len(issues)-1)
 }

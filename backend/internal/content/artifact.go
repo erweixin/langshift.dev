@@ -118,8 +118,8 @@ func validateArtifact(artifact contracts.ContentArtifact) error {
 	return nil
 }
 
-func PublicArtifact(artifact contracts.ContentArtifact) (map[string]any, error) {
-	encoded, err := json.Marshal(artifact)
+func PublicArtifact(record ArtifactRecord) (map[string]any, error) {
+	encoded, err := json.Marshal(record.Artifact)
 	if err != nil {
 		return nil, fmt.Errorf("marshal public content artifact: %w", err)
 	}
@@ -131,6 +131,8 @@ func PublicArtifact(artifact contracts.ContentArtifact) (map[string]any, error) 
 	if ok {
 		delete(exercise, "reference_solution")
 	}
+	public["review_status"] = record.ReviewStatus
+	public["validation_attempts"] = record.ValidationAttempts
 	return public, nil
 }
 
