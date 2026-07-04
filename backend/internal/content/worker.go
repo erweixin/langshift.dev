@@ -24,10 +24,15 @@ type LLM interface {
 	Complete(ctx context.Context, req llm.Request) (llm.Response, error)
 }
 
+type ArtifactWriter interface {
+	SaveArtifact(ctx context.Context, request SaveArtifactRequest) (ArtifactRecord, error)
+}
+
 type Worker struct {
 	queue     Queue
 	events    *event.Service
 	llm       LLM
+	artifacts ArtifactWriter
 	ids       event.IDGenerator
 	workerID  string
 	idleSleep time.Duration
@@ -39,7 +44,7 @@ type WorkerOptions struct {
 	IdleSleep   time.Duration
 }
 
-func NewWorker(queue Queue, events *event.Service, llmClient LLM, options WorkerOptions) *Worker {
+func NewWorker(queue Queue, events *event.Service, llmClient LLM, artifacts ArtifactWriter, options WorkerOptions) *Worker {
 	ids := options.IDGenerator
 	if ids == nil {
 		ids = event.NewULIDGenerator(nil)
@@ -56,6 +61,7 @@ func NewWorker(queue Queue, events *event.Service, llmClient LLM, options Worker
 		queue:     queue,
 		events:    events,
 		llm:       llmClient,
+		artifacts: artifacts,
 		ids:       ids,
 		workerID:  workerID,
 		idleSleep: idleSleep,
@@ -123,7 +129,7 @@ func (w *Worker) ProcessOne(ctx context.Context) (bool, error) {
 		SchemaName:      "content_artifact",
 	})
 
-	appendErr := w.appendResult(ctx, claimed.SubjectUserID, fence, payload.RunID, attemptKey, response, llmErr)
+	appendErr := w.appendResult(ctx, claimed.SubjectUserID, fence, payload, attemptKey, response, llmErr)
 	if appendErr != nil {
 		if errors.Is(appendErr, event.ErrRunVersionConflict) || errors.Is(appendErr, run.ErrInvalidTransition) {
 			if ackErr := w.ackStaleJob(ctx, claimed.SubjectUserID, fence); ackErr != nil {
@@ -139,7 +145,8 @@ func (w *Worker) ProcessOne(ctx context.Context) (bool, error) {
 	return true, nil
 }
 
-func (w *Worker) appendResult(ctx context.Context, userID string, fence event.JobFence, runID string, attemptKey string, response llm.Response, llmErr error) error {
+func (w *Worker) appendResult(ctx context.Context, userID string, fence event.JobFence, payload jobPayload, attemptKey string, response llm.Response, llmErr error) error {
+	runID := payload.RunID
 	events := []event.EventDraft{
 		runEvent(run.EventRunQueued, runID, json.RawMessage(`{}`)),
 		runEvent(run.EventRunStarted, runID, mustJSON(map[string]any{
@@ -157,12 +164,37 @@ func (w *Worker) appendResult(ctx context.Context, userID string, fence event.Jo
 			},
 		})))
 	} else {
-		events = append(events, runEvent(run.EventRunSucceeded, runID, mustJSON(map[string]any{
-			"run_id":         runID,
-			"attempt_keys":   []string{attemptKey},
-			"llm_ledger_id":  response.LedgerID,
-			"content_length": len(response.Content),
-		})))
+		artifact, err := buildGeneratedArtifact(payload.Input, response, time.Now().UTC())
+		if err != nil {
+			events = append(events, runEvent(run.EventRunFailed, runID, mustJSON(map[string]any{
+				"run_id":        runID,
+				"attempt_keys":  []string{attemptKey},
+				"llm_ledger_id": response.LedgerID,
+				"error": map[string]string{
+					"code":    "invalid_content_artifact",
+					"message": truncateMessage(err.Error()),
+				},
+			})))
+		} else {
+			saved, err := w.artifacts.SaveArtifact(ctx, SaveArtifactRequest{
+				Artifact:         artifact,
+				LLMLedgerID:      response.LedgerID,
+				SourceRunID:      runID,
+				SourceAttemptKey: attemptKey,
+				ReviewStatus:     ReviewStatusAutoOK,
+			})
+			if err != nil {
+				return err
+			}
+			events = append(events, runEvent(run.EventRunSucceeded, runID, mustJSON(map[string]any{
+				"run_id":         runID,
+				"attempt_keys":   []string{attemptKey},
+				"llm_ledger_id":  response.LedgerID,
+				"content_key":    saved.Artifact.ContentKey,
+				"artifact_hash":  saved.ArtifactHash,
+				"content_length": len(response.Content),
+			})))
+		}
 	}
 
 	_, err := w.events.Append(ctx, event.AppendRequest{
@@ -210,6 +242,9 @@ func (w *Worker) validate() error {
 	if w.llm == nil {
 		return errMissingLLM
 	}
+	if w.artifacts == nil {
+		return errMissingStore
+	}
 	if w.ids == nil {
 		return errMissingIDs
 	}
@@ -252,7 +287,7 @@ func contextManifest(payload jobPayload) json.RawMessage {
 }
 
 func generationMessages(input GenerationInput) []llm.Message {
-	body := fmt.Sprintf(`Generate a ContentArtifact JSON object for this learning task.
+	body := fmt.Sprintf(`Generate one ContentArtifact JSON object for this learning task.
 
 Task:
 - task_id: %s
@@ -263,7 +298,30 @@ Task:
 - judge: %s
 - minutes: %d
 
-Return only valid JSON. Include lesson sections, an exercise, starter_code, reference_solution, and tests.`,
+Return only valid JSON matching this exact shape:
+{
+  "lesson": {
+    "title": "string",
+    "minutes": number,
+    "judge": "string",
+    "why": "string",
+    "sections": [
+      {"id": "section_1", "title": "string", "body_md": "markdown"}
+    ],
+    "coach_note": "string"
+  },
+  "exercise": {
+    "language": "javascript",
+    "starter_code": "string",
+    "reference_solution": "string",
+    "harness_version": 1,
+    "tests": [
+      {"id": "case_1", "call": "string", "expect": "any JSON value", "judge": true, "label": "string"}
+    ]
+  }
+}
+
+Do not include user-specific personal data. Do not include markdown fences. The server will fill content_key, schema_version, task_template_id, target_stack, level_band, content_version, prompt_version, and meta.`,
 		input.TaskID,
 		input.TaskTemplateID,
 		input.TargetStack,

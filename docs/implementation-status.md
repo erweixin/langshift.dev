@@ -11,7 +11,7 @@
 | CI | GitHub Actions：build + test 两步 | 动工第一天配好 |
 | 开源时点 | M1 跑通后再 public | 开源是分发手段，空仓库消耗第一印象 |
 | 登录 | 邮箱验证码（无密码）+ 邀请码控内测；自部署版默认单用户免登录 | 引入发信服务依赖（见准备清单）；比 OAuth 少一个回调依赖 |
-| 账户删除 | v0 硬删除（append-only 的唯一特权例外，按 user_id 物理删除全部数据）；v1 演进为 per-user 加密 + 销毁密钥 | 规则见 event-catalog；共享的 content_cache 因隐私 lint 保证不含用户内容，删除时不清 |
+| 账户删除 | v0 硬删除（append-only 的唯一特权例外，按 user_id 物理删除全部数据）；v1 演进为 per-user 加密 + 销毁密钥 | 规则见 event-catalog；共享的 content_artifacts 因隐私 lint 保证不含用户内容，删除时不清 |
 | Run CAS | Run 级乐观锁 M0 起启用（worker 与 sweeper 天然并发）；ToolCall 级随 v1 工具域 | 推翻此前"v0 只写不校验"的取舍 |
 | 后端选型 | 标准库 `net/http`（1.22+ ServeMux）· PostgreSQL（`jackc/pgx`）· 手写 SQL repository（无 ORM）· 官方 `anthropic-sdk-go`（vercel-ai 因仅支持 TS 运行时而否决，保留 Go）· `log/slog` · `oklog/ulid` · `yaml.v3` | 单二进制、少依赖 |
 | 前端选型 | TypeScript（骨架从 .jsx 切换）· TanStack Query + 自写 SSE hook（`last_seen_seq` 补拉）· react-router · streamdown（流式 Markdown 渲染、内置代码高亮，替代 react-markdown + Shiki）· CodeMirror 6 · **自建设计系统**（不复用原型视觉，见准备清单） | 类型从 `schemas/` 生成（json-schema-to-typescript），契约贯通前后端 |
@@ -52,7 +52,7 @@
 
 - [ ] 1 冷启动诊断 + 路线生成（含确认屏数据）
 - [ ] 2 每日任务生成（消费 next_task_seed）
-- [ ] 3 内容管线：LessonPlan → Draft → 校验（参考解真跑测试）→ 定稿 → content_cache
+- [ ] 3 内容管线：LessonPlan → Draft → 校验（参考解真跑测试）→ 定稿 → content_artifacts
 - [ ] 4 选中重写（直连流式 + delta 持久化 + PreferenceRecorded）
 - [ ] 5 Drawer 对话（stub 先行 + 直连流式 + 画像摘要前缀 + 最终事件兜底）
 - [ ] 6 练习运行时 v0：Web Worker + 看门狗 + ExerciseResult 落账

@@ -88,7 +88,8 @@ func (s *Service) Append(ctx context.Context, request AppendRequest) (AppendResu
 	}
 
 	var runVersion *int
-	if request.Aggregate != nil {
+	deferredRunCAS := shouldDeferRunCAS(request)
+	if request.Aggregate != nil && !deferredRunCAS {
 		newVersion, err := advanceRunVersion(ctx, tx, request.UserID, *request.Aggregate)
 		if err != nil {
 			return AppendResult{}, err
@@ -96,9 +97,26 @@ func (s *Service) Append(ctx context.Context, request AppendRequest) (AppendResu
 		runVersion = &newVersion
 	}
 
-	events, err := s.appendEvents(ctx, tx, request, commandID)
+	events, err := s.appendEvents(ctx, tx, request, commandID, func(stored StoredEvent) error {
+		if !deferredRunCAS {
+			return nil
+		}
+		if stored.Type != runAcceptedEventType || stored.RunID != request.Aggregate.RunID {
+			return nil
+		}
+		newVersion, err := advanceRunVersion(ctx, tx, request.UserID, *request.Aggregate)
+		if err != nil {
+			return err
+		}
+		runVersion = &newVersion
+		deferredRunCAS = false
+		return nil
+	})
 	if err != nil {
 		return AppendResult{}, err
+	}
+	if deferredRunCAS {
+		return AppendResult{}, fmt.Errorf("%w: aggregate bootstrap event is required", ErrInvalidRequest)
 	}
 
 	commands, err := s.enqueueCommands(ctx, tx, request)

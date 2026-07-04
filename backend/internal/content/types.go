@@ -3,6 +3,9 @@ package content
 import (
 	"encoding/json"
 	"errors"
+	"time"
+
+	"lites/backend/internal/contracts"
 )
 
 const (
@@ -10,18 +13,25 @@ const (
 	LLMSurfaceGeneration     = "lesson_generation"
 	PromptVersionGeneration  = "content-generation-v0"
 	RunTypeGeneration        = "lesson_gen"
+	ReviewStatusAutoOK       = "auto_ok"
 
-	defaultRunTimeoutSeconds = 15 * 60
-	defaultWorkerID          = "content-generation-worker"
-	defaultIdleSleepMillis   = 1000
+	contentArtifactSchemaVersion = 1
+	contentArtifactVersion       = 1
+	contentArtifactPromptVersion = 1
+	defaultRunTimeoutSeconds     = 15 * 60
+	defaultWorkerID              = "content-generation-worker"
+	defaultIdleSleepMillis       = 1000
 )
 
 var (
-	ErrInvalidRequest = errors.New("invalid content generation request")
-	errMissingEvents  = errors.New("missing event service")
-	errMissingQueue   = errors.New("missing job queue")
-	errMissingLLM     = errors.New("missing llm client")
-	errMissingIDs     = errors.New("missing id generator")
+	ErrInvalidRequest  = errors.New("invalid content generation request")
+	ErrInvalidArtifact = errors.New("invalid content artifact")
+	ErrNotFound        = errors.New("content not found")
+	errMissingEvents   = errors.New("missing event service")
+	errMissingQueue    = errors.New("missing job queue")
+	errMissingLLM      = errors.New("missing llm client")
+	errMissingIDs      = errors.New("missing id generator")
+	errMissingStore    = errors.New("missing content artifact store")
 )
 
 type GenerationInput struct {
@@ -42,9 +52,36 @@ type StartRequest struct {
 }
 
 type StartResult struct {
-	Replayed bool   `json:"-"`
-	RunID    string `json:"run_id"`
-	Status   string `json:"status"`
+	Replayed   bool   `json:"-"`
+	RunID      string `json:"run_id"`
+	Status     string `json:"status"`
+	ContentKey string `json:"content_key,omitempty"`
+	CacheHit   bool   `json:"cache_hit,omitempty"`
+}
+
+type RunResult struct {
+	RunID      string          `json:"run_id"`
+	Status     string          `json:"status"`
+	ContentKey string          `json:"content_key,omitempty"`
+	Error      json.RawMessage `json:"error,omitempty"`
+}
+
+type SaveArtifactRequest struct {
+	Artifact           contracts.ContentArtifact
+	LLMLedgerID        string
+	SourceRunID        string
+	SourceAttemptKey   string
+	ReviewStatus       string
+	ValidationAttempts int
+}
+
+type ArtifactRecord struct {
+	Artifact           contracts.ContentArtifact
+	ArtifactHash       string
+	ReviewStatus       string
+	ValidationAttempts int
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
 }
 
 type acceptedPayload struct {

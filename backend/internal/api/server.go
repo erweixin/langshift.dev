@@ -20,6 +20,7 @@ type ServerConfig struct {
 	Addr              string
 	SingleUser        bool
 	ContentGeneration contentGenerationStarter
+	ContentReader     contentReader
 }
 
 type Server struct {
@@ -27,10 +28,16 @@ type Server struct {
 	mux               *http.ServeMux
 	singleUser        bool
 	contentGeneration contentGenerationStarter
+	contentReader     contentReader
 }
 
 type contentGenerationStarter interface {
 	Start(ctx context.Context, request content.StartRequest) (content.StartResult, error)
+}
+
+type contentReader interface {
+	GetRun(ctx context.Context, userID string, runID string) (content.RunResult, error)
+	GetArtifact(ctx context.Context, contentKey string) (content.ArtifactRecord, error)
 }
 
 func NewServer(config ServerConfig) *Server {
@@ -44,6 +51,7 @@ func NewServer(config ServerConfig) *Server {
 		mux:               http.NewServeMux(),
 		singleUser:        config.SingleUser,
 		contentGeneration: config.ContentGeneration,
+		contentReader:     config.ContentReader,
 	}
 	server.routes()
 	return server
@@ -82,6 +90,8 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 func (s *Server) routes() {
 	s.mux.HandleFunc("GET /health", s.health)
 	s.mux.HandleFunc("POST /api/content-generation-runs", s.createContentGenerationRun)
+	s.mux.HandleFunc("GET /api/content-generation-runs/{run_id}", s.getContentGenerationRun)
+	s.mux.HandleFunc("GET /api/content-artifacts/{content_key}", s.getContentArtifact)
 }
 
 func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
@@ -150,6 +160,78 @@ func (s *Server) createContentGenerationRun(w http.ResponseWriter, r *http.Reque
 	}
 
 	writeJSON(w, http.StatusAccepted, result)
+}
+
+func (s *Server) getContentGenerationRun(w http.ResponseWriter, r *http.Request) {
+	if s.contentReader == nil {
+		writeError(w, http.StatusServiceUnavailable, "content reader is not configured")
+		return
+	}
+
+	userID, ok := s.userID(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "missing X-User-ID")
+		return
+	}
+	runID := strings.TrimSpace(r.PathValue("run_id"))
+	if runID == "" {
+		writeError(w, http.StatusBadRequest, "missing run_id")
+		return
+	}
+
+	result, err := s.contentReader.GetRun(r.Context(), userID, runID)
+	if err != nil {
+		switch {
+		case errors.Is(err, content.ErrNotFound):
+			writeError(w, http.StatusNotFound, "content generation run not found")
+		case errors.Is(err, content.ErrInvalidRequest):
+			writeError(w, http.StatusBadRequest, err.Error())
+		default:
+			slog.Error("get content generation run failed", "error", err)
+			writeError(w, http.StatusInternalServerError, "get content generation run failed")
+		}
+		return
+	}
+
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) getContentArtifact(w http.ResponseWriter, r *http.Request) {
+	if s.contentReader == nil {
+		writeError(w, http.StatusServiceUnavailable, "content reader is not configured")
+		return
+	}
+
+	if _, ok := s.userID(r); !ok {
+		writeError(w, http.StatusUnauthorized, "missing X-User-ID")
+		return
+	}
+	contentKey := strings.TrimSpace(r.PathValue("content_key"))
+	if contentKey == "" {
+		writeError(w, http.StatusBadRequest, "missing content_key")
+		return
+	}
+
+	record, err := s.contentReader.GetArtifact(r.Context(), contentKey)
+	if err != nil {
+		switch {
+		case errors.Is(err, content.ErrNotFound):
+			writeError(w, http.StatusNotFound, "content artifact not found")
+		case errors.Is(err, content.ErrInvalidRequest):
+			writeError(w, http.StatusBadRequest, err.Error())
+		default:
+			slog.Error("get content artifact failed", "error", err)
+			writeError(w, http.StatusInternalServerError, "get content artifact failed")
+		}
+		return
+	}
+	public, err := content.PublicArtifact(record.Artifact)
+	if err != nil {
+		slog.Error("redact content artifact failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "get content artifact failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, public)
 }
 
 func (s *Server) userID(r *http.Request) (string, bool) {

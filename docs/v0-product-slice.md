@@ -31,7 +31,7 @@
 ├── PostgreSQL（托管与自部署统一；自部署以 docker-compose 附带）
 │   ├── events（append-only，单表）
 │   ├── jobs（at-least-once + fence + 原子 append/done，SKIP LOCKED / 单进程队列）
-│   ├── 操作事实：idempotency_keys / llm_ledger / content_cache（artifact 本体，replay 不清）
+│   ├── 操作事实：idempotency_keys / llm_ledger / content_artifacts（artifact 本体，replay 不清）
 │   └── 投影：missions / tasks / profile / evidence …（可由 events 重建）
 ├── LLM：Anthropic API ×1（强/中/小三档模型别名，见 unit-economics.md）
 ├── 练习运行时：浏览器 JS（Web Worker），无服务端沙箱

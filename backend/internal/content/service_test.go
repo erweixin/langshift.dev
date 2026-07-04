@@ -78,7 +78,7 @@ func TestWorkerProcessOneCompletesRunAndJob(t *testing.T) {
 	fake := &fakeLLM{
 		response: llm.Response{
 			LedgerID: "ledger_1",
-			Content:  `{"schema_version":1}`,
+			Content:  validArtifactJSON(),
 			Usage:    llm.Usage{InputTokens: 10, OutputTokens: 5},
 		},
 	}
@@ -86,6 +86,7 @@ func TestWorkerProcessOneCompletesRunAndJob(t *testing.T) {
 		job.NewQueue(pool, job.Options{}),
 		events,
 		fake,
+		content.NewStore(pool),
 		content.WorkerOptions{IDGenerator: &sequenceIDs{values: []string{"attempt_1"}}},
 	)
 
@@ -108,7 +109,64 @@ func TestWorkerProcessOneCompletesRunAndJob(t *testing.T) {
 
 	assertRun(t, ctx, pool, "run_1", "lesson_gen", "succeeded", 1)
 	assertJob(t, ctx, pool, "run_1", "done")
+	contentKey := assertRunSucceededContentKey(t, ctx, pool, "run_1")
+	assertContentArtifact(t, ctx, pool, contentKey)
 	assertRunEvents(t, ctx, pool, "run_1", []string{
+		run.EventRunAccepted,
+		run.EventRunQueued,
+		run.EventRunStarted,
+		run.EventRunSucceeded,
+	})
+}
+
+func TestServiceStartCacheHitCompletesRunWithoutJob(t *testing.T) {
+	ctx := context.Background()
+	pool := newTestPool(t, ctx)
+	events := event.NewService(pool, event.Options{Dispatcher: run.NewReducer()})
+	store := content.NewStore(pool)
+	service := content.NewService(events, content.ServiceOptions{
+		IDGenerator: &sequenceIDs{values: []string{"run_1", "run_2"}},
+		Artifacts:   store,
+	})
+	if _, err := service.Start(ctx, content.StartRequest{
+		UserID:         "user_1",
+		IdempotencyKey: "key-1",
+		Input:          testInput(),
+	}); err != nil {
+		t.Fatalf("start first content generation: %v", err)
+	}
+
+	worker := content.NewWorker(
+		job.NewQueue(pool, job.Options{}),
+		events,
+		&fakeLLM{response: llm.Response{
+			LedgerID: "ledger_1",
+			Content:  validArtifactJSON(),
+		}},
+		store,
+		content.WorkerOptions{IDGenerator: &sequenceIDs{values: []string{"attempt_1"}}},
+	)
+	if processed, err := worker.ProcessOne(ctx); err != nil || !processed {
+		t.Fatalf("process first generation = %t/%v, want processed", processed, err)
+	}
+	contentKey := assertRunSucceededContentKey(t, ctx, pool, "run_1")
+
+	result, err := service.Start(ctx, content.StartRequest{
+		UserID:         "user_1",
+		IdempotencyKey: "key-2",
+		Input:          testInput(),
+	})
+	if err != nil {
+		t.Fatalf("start cached content generation: %v", err)
+	}
+	if result.RunID != "run_2" || result.Status != "succeeded" || result.ContentKey != contentKey || !result.CacheHit {
+		t.Fatalf("cache hit result = %+v, want succeeded run_2 %s", result, contentKey)
+	}
+
+	assertRun(t, ctx, pool, "run_2", "lesson_gen", "succeeded", 1)
+	assertJobCount(t, ctx, pool, "run_2", 0)
+	assertRunSucceededCacheHit(t, ctx, pool, "run_2", contentKey)
+	assertRunEvents(t, ctx, pool, "run_2", []string{
 		run.EventRunAccepted,
 		run.EventRunQueued,
 		run.EventRunStarted,
@@ -135,6 +193,7 @@ func TestWorkerProcessOneFailsRunWhenLLMReturnsError(t *testing.T) {
 		job.NewQueue(pool, job.Options{}),
 		events,
 		&fakeLLM{err: fmt.Errorf("provider failed")},
+		content.NewStore(pool),
 		content.WorkerOptions{IDGenerator: &sequenceIDs{values: []string{"attempt_1"}}},
 	)
 
@@ -173,6 +232,38 @@ func testInput() content.GenerationInput {
 		Minutes:        30,
 		Context:        json.RawMessage(`{"source":"test"}`),
 	}
+}
+
+func validArtifactJSON() string {
+	return `{
+		"lesson": {
+			"title": "API boundaries",
+			"minutes": 30,
+			"judge": "Explain API acceptance versus worker execution.",
+			"sections": [
+				{
+					"id": "section_1",
+					"title": "The boundary",
+					"body_md": "API acceptance records intent and queues work. Workers execute that work later."
+				}
+			]
+		},
+		"exercise": {
+			"language": "javascript",
+			"starter_code": "function explainBoundary() { return ''; }",
+			"reference_solution": "function explainBoundary() { return 'API acceptance queues work; workers execute it.'; }",
+			"harness_version": 1,
+			"tests": [
+				{
+					"id": "case_1",
+					"call": "explainBoundary()",
+					"expect": "API acceptance queues work; workers execute it.",
+					"judge": true,
+					"label": "explains the boundary"
+				}
+			]
+		}
+	}`
 }
 
 type sequenceIDs struct {
@@ -238,6 +329,68 @@ func assertJobCount(t *testing.T, ctx context.Context, pool *pgxpool.Pool, runID
 	}
 	if count != want {
 		t.Fatalf("job count = %d, want %d", count, want)
+	}
+}
+
+func assertRunSucceededContentKey(t *testing.T, ctx context.Context, pool *pgxpool.Pool, runID string) string {
+	t.Helper()
+
+	var contentKey string
+	if err := pool.QueryRow(ctx, `
+		SELECT payload->>'content_key'
+		FROM events
+		WHERE run_id = $1 AND type = $2
+		ORDER BY seq DESC
+		LIMIT 1
+	`, runID, run.EventRunSucceeded).Scan(&contentKey); err != nil {
+		t.Fatalf("read RunSucceeded content_key: %v", err)
+	}
+	if contentKey == "" {
+		t.Fatal("RunSucceeded content_key is empty")
+	}
+	return contentKey
+}
+
+func assertContentArtifact(t *testing.T, ctx context.Context, pool *pgxpool.Pool, contentKey string) {
+	t.Helper()
+
+	var artifactHash string
+	var taskTemplateID string
+	var title string
+	if err := pool.QueryRow(ctx, `
+		SELECT
+			artifact_hash,
+			task_template_id,
+			artifact->'lesson'->>'title'
+		FROM content_artifacts
+		WHERE content_key = $1
+	`, contentKey).Scan(&artifactHash, &taskTemplateID, &title); err != nil {
+		t.Fatalf("read content artifact %s: %v", contentKey, err)
+	}
+	if artifactHash == "" {
+		t.Fatal("artifact_hash is empty")
+	}
+	if taskTemplateID != "fe2agent-d01" || title != "API boundaries" {
+		t.Fatalf("artifact = %s/%s, want fe2agent-d01/API boundaries", taskTemplateID, title)
+	}
+}
+
+func assertRunSucceededCacheHit(t *testing.T, ctx context.Context, pool *pgxpool.Pool, runID string, wantContentKey string) {
+	t.Helper()
+
+	var contentKey string
+	var cacheHit bool
+	if err := pool.QueryRow(ctx, `
+		SELECT payload->>'content_key', COALESCE((payload->>'cache_hit')::boolean, false)
+		FROM events
+		WHERE run_id = $1 AND type = $2
+		ORDER BY seq DESC
+		LIMIT 1
+	`, runID, run.EventRunSucceeded).Scan(&contentKey, &cacheHit); err != nil {
+		t.Fatalf("read RunSucceeded cache hit payload: %v", err)
+	}
+	if contentKey != wantContentKey || !cacheHit {
+		t.Fatalf("RunSucceeded cache payload = %s/%t, want %s/true", contentKey, cacheHit, wantContentKey)
 	}
 }
 

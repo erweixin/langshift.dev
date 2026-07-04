@@ -3,6 +3,7 @@ package content
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -12,13 +13,19 @@ import (
 
 type Service struct {
 	events     *event.Service
+	artifacts  ArtifactReader
 	ids        event.IDGenerator
 	now        func() time.Time
 	runTimeout time.Duration
 }
 
+type ArtifactReader interface {
+	GetArtifact(ctx context.Context, contentKey string) (ArtifactRecord, error)
+}
+
 type ServiceOptions struct {
 	IDGenerator event.IDGenerator
+	Artifacts   ArtifactReader
 	Now         func() time.Time
 	RunTimeout  time.Duration
 }
@@ -38,6 +45,7 @@ func NewService(events *event.Service, options ServiceOptions) *Service {
 	}
 	return &Service{
 		events:     events,
+		artifacts:  options.Artifacts,
 		ids:        ids,
 		now:        now,
 		runTimeout: runTimeout,
@@ -60,6 +68,15 @@ func (s *Service) Start(ctx context.Context, request StartRequest) (StartResult,
 	}
 	if strings.TrimSpace(request.IdempotencyKey) == "" {
 		return StartResult{}, fmt.Errorf("%w: idempotency key is required", ErrInvalidRequest)
+	}
+	if s.artifacts != nil {
+		cached, err := s.artifacts.GetArtifact(ctx, contentKey(input))
+		if err == nil {
+			return s.startFromCache(ctx, request, input, cached)
+		}
+		if !errors.Is(err, ErrNotFound) {
+			return StartResult{}, err
+		}
 	}
 
 	runID, err := s.ids.NewID()
@@ -138,6 +155,101 @@ func (s *Service) Start(ctx context.Context, request StartRequest) (StartResult,
 	if response.Status == "" {
 		response.Status = "queued"
 	}
+	response.Replayed = result.Replayed
+	return response, nil
+}
+
+func (s *Service) startFromCache(ctx context.Context, request StartRequest, input GenerationInput, cached ArtifactRecord) (StartResult, error) {
+	runID, err := s.ids.NewID()
+	if err != nil {
+		return StartResult{}, fmt.Errorf("generate cached content generation run id: %w", err)
+	}
+
+	inputRef, err := json.Marshal(input)
+	if err != nil {
+		return StartResult{}, fmt.Errorf("marshal cached content generation input_ref: %w", err)
+	}
+	runPayload, err := json.Marshal(acceptedPayload{
+		RunID:    runID,
+		RunType:  RunTypeGeneration,
+		InputRef: inputRef,
+	})
+	if err != nil {
+		return StartResult{}, fmt.Errorf("marshal cached RunAccepted payload: %w", err)
+	}
+	responseBody, err := json.Marshal(StartResult{
+		RunID:      runID,
+		Status:     "succeeded",
+		ContentKey: cached.Artifact.ContentKey,
+		CacheHit:   true,
+	})
+	if err != nil {
+		return StartResult{}, fmt.Errorf("marshal cached content generation response: %w", err)
+	}
+	hash, err := requestHash(input)
+	if err != nil {
+		return StartResult{}, err
+	}
+
+	result, err := s.events.Append(ctx, event.AppendRequest{
+		Actor:  event.Actor{Kind: event.ActorUser},
+		UserID: request.UserID,
+		Idempotency: &event.Idempotency{
+			Scope:       "POST /api/content-generation-runs",
+			Key:         request.IdempotencyKey,
+			RequestHash: hash,
+		},
+		IdempotencyResponse: &event.IdempotencyResponse{
+			Status: 202,
+			Body:   responseBody,
+		},
+		Aggregate: &event.RunAggregate{
+			RunID:           runID,
+			ExpectedVersion: 0,
+		},
+		Events: []event.EventDraft{
+			{
+				Type:          "RunAccepted",
+				SchemaVersion: 1,
+				RunID:         runID,
+				Payload:       runPayload,
+			},
+			runEvent("RunQueued", runID, mustJSON(map[string]any{
+				"run_id":    runID,
+				"cache_hit": true,
+			})),
+			runEvent("RunStarted", runID, mustJSON(map[string]any{
+				"run_id":    runID,
+				"cache_hit": true,
+			})),
+			runEvent("RunSucceeded", runID, mustJSON(map[string]any{
+				"run_id":        runID,
+				"content_key":   cached.Artifact.ContentKey,
+				"artifact_hash": cached.ArtifactHash,
+				"cache_hit":     true,
+			})),
+		},
+	})
+	if err != nil {
+		return StartResult{}, err
+	}
+
+	var response StartResult
+	if result.IdempotencyResponse != nil && len(result.IdempotencyResponse.Body) > 0 {
+		if err := json.Unmarshal(result.IdempotencyResponse.Body, &response); err != nil {
+			return StartResult{}, fmt.Errorf("parse cached content generation idempotency response: %w", err)
+		}
+	}
+	if response.RunID == "" {
+		response.RunID = runID
+	}
+	if response.Status == "" {
+		response.Status = "succeeded"
+	}
+	if response.ContentKey == "" {
+		response.ContentKey = cached.Artifact.ContentKey
+	}
+	response.CacheHit = response.CacheHit || !result.Replayed
 	response.Replayed = result.Replayed
 	return response, nil
 }

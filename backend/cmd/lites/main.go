@@ -79,14 +79,16 @@ func serve(ctx context.Context, appConfig config.Config) error {
 	})
 	queue := job.NewQueue(pool, job.Options{})
 	llmClient := llm.NewClient(pool, router, llm.ClientOptions{})
-	contentService := content.NewService(events, content.ServiceOptions{})
-	contentWorker := content.NewWorker(queue, events, llmClient, content.WorkerOptions{})
+	contentStore := content.NewStore(pool)
+	contentService := content.NewService(events, content.ServiceOptions{Artifacts: contentStore})
+	contentWorker := content.NewWorker(queue, events, llmClient, contentStore, content.WorkerOptions{})
 	go contentWorker.Run(ctx)
 
 	server := api.NewServer(api.ServerConfig{
 		Addr:              appConfig.HTTPAddr,
 		SingleUser:        appConfig.SingleUser,
 		ContentGeneration: contentService,
+		ContentReader:     contentStore,
 	})
 	return server.ListenAndServe(ctx)
 }

@@ -7,7 +7,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-func (s *Service) appendEvents(ctx context.Context, tx pgx.Tx, request AppendRequest, commandID string) ([]StoredEvent, error) {
+func (s *Service) appendEvents(ctx context.Context, tx pgx.Tx, request AppendRequest, commandID string, afterApply func(StoredEvent) error) ([]StoredEvent, error) {
 	if len(request.Events) == 0 {
 		return nil, nil
 	}
@@ -65,6 +65,11 @@ func (s *Service) appendEvents(ctx context.Context, tx pgx.Tx, request AppendReq
 
 		if err := s.dispatcher.Apply(ctx, tx, event); err != nil {
 			return nil, fmt.Errorf("%w: %w", ErrProjectionDispatch, err)
+		}
+		if afterApply != nil {
+			if err := afterApply(event); err != nil {
+				return nil, err
+			}
 		}
 		events = append(events, event)
 	}

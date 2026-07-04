@@ -63,7 +63,7 @@
 | --- | --- | --- | --- |
 | `TaskGenerated` | 任务生成 run | task_id, title, judge, minutes, stage, **date**（任务归属日，按用户时区；预生成明日任务、补任务时不能从 created_at 推断）, seed_ref（来自哪次 Review） | tasks |
 | `TaskDowngraded` | 用户点「太难了 / 没时间」 | task_id, reason, new_task | tasks, profile（难度信号） |
-| `LessonPublished` | 内容管线 run | task_id, content_key, cache_hit | tasks / 各投影中的内容引用；**artifact 本体在 `content_cache`（事实源，replay 不清），事件只携带 content_key 指针** |
+| `LessonPublished` | 内容管线 run | task_id, content_key, cache_hit | tasks / 各投影中的内容引用；**artifact 本体在 `content_artifacts`（事实源，replay 不清），事件只携带 content_key 指针** |
 
 ### 练习与提交
 
@@ -102,7 +102,7 @@
 
 **投影**（可由事件流重建，更新以 `event_id` 幂等、重放不二次生效）：`runs`、`tool_calls`、`missions`、`tasks`、`user_content_delta`、`exercise_runs`、`evidence`、`profile`（含 rhythm 段与分面摘要）、`conversations`、`run_messages`、`crafts`。
 
-**事实类 / 操作类表**（不是投影，`lites replay` 不清除）：`events` 本身、`idempotency_keys`（请求重放响应）、`jobs`（执行队列历史）、`llm_ledger`（花费事实，含 pending/unknown 状态）、`content_cache` 的 artifact 本体（`LessonPublished` 只携带 `content_key` 指针，对齐平台"EventStore 不保存文件本体"原则）。
+**事实类 / 操作类表**（不是投影，`lites replay` 不清除）：`events` 本身、`idempotency_keys`（请求重放响应）、`jobs`（执行队列历史）、`llm_ledger`（花费事实，含 pending/unknown 状态）、`content_artifacts` 的 artifact 本体（`LessonPublished` 只携带 `content_key` 指针，对齐平台"EventStore 不保存文件本体"原则）。
 
 ## Do / Don't
 

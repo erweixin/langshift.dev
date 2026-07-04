@@ -23,8 +23,9 @@
 | --- | --- | --- |
 | 0 | 0001 | `events`、`event_cursors`（seq 游标）、`idempotency_keys`（作用域化幂等映射）、`jobs` |
 | 1 | 0002 | `event_cursors.next_seq` 命名修正（含语义修正：DEFAULT 1、存量值 +1）、`events.conversation_id`、`runs`、`llm_ledger`、`conversations`、`run_messages`、`run_message_chunks`、`tool_calls`、`evidence`（最小版）；预留可空列：`events.tenant_id`、`llm_ledger.tenant_id`、`run_message_chunks.tenant_id`（阶段 6 免回填追加型热表）、`jobs.store_epoch`（阶段 4 免回填） |
-| 2 | 0003 | `users`、`login_codes`、`sessions`、`invites` |
-| 3 | 0004+ | `missions`、`tasks`、`content_cache`（artifact 本体，**事实源**）、`user_content_delta`、`exercise_runs`、`profile`（含 rhythm 段）、`crafts`；`evidence` 扩展 |
+| 1 | 0003 | `content_artifacts`（artifact 本体，**事实源**；事件只存 `content_key` 引用） |
+| 2 | 0004 | `users`、`login_codes`、`sessions`、`invites` |
+| 3 | 0005+ | `missions`、`tasks`、`user_content_delta`、`exercise_runs`、`profile`（含 rhythm 段）、`crafts`；`evidence` 扩展 |
 | 5 | 000N | 预算配置、`erasure_audit`（系统级删除审计：无用户内容、不随删除清除）；删除任务复用 jobs |
 | 6 | 000N | 全表加 `tenant_id` + RLS policy、`outbox`、`repair_audit` |
 | 7 | 000N | `tool_descriptors`、`tool_calls` 扩展（0002 已建最小版）、`approvals`、`sandbox_sessions`、`provider_registry`、`effects`（通用副作用账本，`effect_key` 去重；工具副作用是首个消费者，LLM 副作用已由 `llm_ledger` 承担） |
@@ -104,7 +105,7 @@
 4. LLM client + ledger（pre-call pending 行 → 返回补全 → 崩溃收敛 unknown）+ `attempt_key` 幂等。
 5. Review worker：`EvidenceSubmitted` → 组装上下文（固定模板）→ 强档调用 → `ReviewCompleted`。
 6. SSE hub：按 user 分发。重连遵循 [realtime.md](./realtime.md) 的**无竞态协议**：先订阅并缓冲 → 读当前 high-water seq（H）→ 补拉 `(last_seen, H]` → 应用缓冲（按 seq 去重）→ 接 live 流。禁止"先补拉后订阅"（补拉完成到订阅生效的间隙会丢事件）。
-7. `lites replay`：清空**投影**→ 从 events 重建。事实类 / 操作类表不属于投影、replay 不清：`events`、`idempotency_keys`（请求重放响应）、`jobs`（队列历史）、`llm_ledger`（花费事实）、`content_cache` 的 artifact 本体（阶段 3 引入）。
+7. `lites replay`：清空**投影**→ 从 events 重建。事实类 / 操作类表不属于投影、replay 不清：`events`、`idempotency_keys`（请求重放响应）、`jobs`（队列历史）、`llm_ledger`（花费事实）、`content_artifacts` 的 artifact 本体。
 
 ### 测试任务
 
@@ -155,10 +156,10 @@
 
 ### 设计工作
 
-- **数据库设计（migration 0004+，业务域全量）**：
+- **数据库设计（migration 0005+，业务域全量；沿用 0003 的 `content_artifacts`）**：
   - `missions`：`mission_id`、`user_id`、`name`、`current`、`target`、`roadmap`(jsonb)、`adv/gaps/bridge`(jsonb)、`status`。
   - `tasks`：`task_id`、`user_id`、`mission_id`、`task_template_id?`、`title`、`judge`、`minutes`、`stage`、`status`(pending/active/done/downgraded)、`seed_ref?`、`date`。
-  - `content_cache`：`content_key`(PK)、`artifact`(jsonb，含 reference_solution，仅服务端)、`artifact_hash`、**cache key 全维度显式落列**（灰度 / 回滚 / 审计都要按它们查询）：`task_template_id`、`target_stack`、`level_band`、`content_version`、`prompt_version`；`review_status`(auto_ok / needs_review / human_ok / rejected——人审队列即 `needs_review` 行的列表)、`validation_attempts`、`created_at`。**事实源而非投影**：artifact 本体只存在于此，`LessonPublished.content_key` 指向它（对齐平台"EventStore 不保存文件本体"原则）；`lites replay` 不清此表，只重建各投影里对它的引用。
+  - `content_artifacts`（已在 0003 引入）：`content_key`(PK)、`artifact`(jsonb，含 reference_solution，仅服务端)、`artifact_hash`、**cache key 全维度显式落列**（灰度 / 回滚 / 审计都要按它们查询）：`task_template_id`、`target_stack`、`level_band`、`content_version`、`prompt_version`；`review_status`(auto_ok / needs_review / human_ok / rejected——人审队列即 `needs_review` 行的列表)、`validation_attempts`、`created_at`。**事实源而非投影**：artifact 本体只存在于此，`LessonPublished.content_key` 指向它（对齐平台"EventStore 不保存文件本体"原则）；`lites replay` 不清此表，只重建各投影里对它的引用。
   - `user_content_delta`：`user_id`、`task_id`、`paragraph_anchor`、`kind`、`text`、`created_at`。
   - `exercise_runs`：`id`、`user_id`、`task_id`、`code_hash`、`result`(jsonb，锁 exercise-result schema)、`judge_hit`、`created_at`。
   - `evidence` 扩展：`code`（用户代码全文，来自 `EvidenceSubmitted` payload——事件即代码快照的事实源）、`code_hash`、`exercise_run_ref`、`reflection`、`uncertainty`、`review_style`、状态加 `showcase`。
@@ -191,7 +192,7 @@
 
 1. 全部投影 reducer（消费 event 更新上述表；`ReviewCompleted` 的能力至多 +1、`UserEditedProfile` 优先级最高、幂等重放）。
 2. 10 个动作的 handler / worker（对照 API 表逐个实现；交互面动作遵循 product-to-platform 的"stub 先行"三步协议）。
-3. 内容管线五模块 + 失败原因回灌重试（≤2 次）+ 人审状态位；D1 人工课稿 seed 进 content_cache。
+3. 内容管线五模块 + 失败原因回灌重试（≤2 次）+ 人审状态位；D1 人工课稿 seed 进 content_artifacts。
 4. 分面摘要刷新 worker（画像变更触发）。
 5. curriculum-14d 的 TaskSpec 数据落库（seed 脚本）。
 

@@ -4,9 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 )
+
+const runAcceptedEventType = "RunAccepted"
 
 func advanceRunVersion(ctx context.Context, tx pgx.Tx, userID string, aggregate RunAggregate) (int, error) {
 	var version int
@@ -25,4 +28,13 @@ func advanceRunVersion(ctx context.Context, tx pgx.Tx, userID string, aggregate 
 		return 0, fmt.Errorf("advance run version: %w", err)
 	}
 	return version, nil
+}
+
+func shouldDeferRunCAS(request AppendRequest) bool {
+	if request.Aggregate == nil || request.Aggregate.ExpectedVersion != 0 || len(request.Events) == 0 {
+		return false
+	}
+	first := request.Events[0]
+	return first.Type == runAcceptedEventType &&
+		strings.TrimSpace(first.RunID) == strings.TrimSpace(request.Aggregate.RunID)
 }
