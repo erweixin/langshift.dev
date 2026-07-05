@@ -361,7 +361,7 @@ func assertRun(t *testing.T, ctx context.Context, pool *pgxpool.Pool, runID stri
 	var gotVersion int
 	if err := pool.QueryRow(ctx, `
 		SELECT run_type, status, run_version
-		FROM runs
+		FROM agent_runs
 		WHERE run_id = $1
 	`, runID).Scan(&gotType, &gotStatus, &gotVersion); err != nil {
 		t.Fatalf("read run %s: %v", runID, err)
@@ -377,7 +377,7 @@ func assertJob(t *testing.T, ctx context.Context, pool *pgxpool.Pool, runID stri
 	var gotStatus string
 	if err := pool.QueryRow(ctx, `
 		SELECT status
-		FROM jobs
+		FROM agent_jobs
 		WHERE payload->>'run_id' = $1
 	`, runID).Scan(&gotStatus); err != nil {
 		t.Fatalf("read job for run %s: %v", runID, err)
@@ -393,7 +393,7 @@ func assertJobCount(t *testing.T, ctx context.Context, pool *pgxpool.Pool, runID
 	var count int
 	if err := pool.QueryRow(ctx, `
 		SELECT count(*)
-		FROM jobs
+		FROM agent_jobs
 		WHERE payload->>'run_id' = $1
 	`, runID).Scan(&count); err != nil {
 		t.Fatalf("count jobs for run %s: %v", runID, err)
@@ -409,7 +409,7 @@ func assertRunSucceededContentKey(t *testing.T, ctx context.Context, pool *pgxpo
 	var contentKey string
 	if err := pool.QueryRow(ctx, `
 		SELECT payload->>'content_key'
-		FROM events
+		FROM agent_events
 		WHERE run_id = $1 AND type = $2
 		ORDER BY seq DESC
 		LIMIT 1
@@ -472,7 +472,7 @@ func assertRunFailedValidation(t *testing.T, ctx context.Context, pool *pgxpool.
 	var issueCode string
 	if err := pool.QueryRow(ctx, `
 		SELECT payload->'error'->>'code', payload->'validation'->'issues'->0->>'code'
-		FROM events
+		FROM agent_events
 		WHERE run_id = $1 AND type = $2
 		ORDER BY seq DESC
 		LIMIT 1
@@ -491,7 +491,7 @@ func assertRunSucceededCacheHit(t *testing.T, ctx context.Context, pool *pgxpool
 	var cacheHit bool
 	if err := pool.QueryRow(ctx, `
 		SELECT payload->>'content_key', COALESCE((payload->>'cache_hit')::boolean, false)
-		FROM events
+		FROM agent_events
 		WHERE run_id = $1 AND type = $2
 		ORDER BY seq DESC
 		LIMIT 1
@@ -508,7 +508,7 @@ func assertRunEvents(t *testing.T, ctx context.Context, pool *pgxpool.Pool, runI
 
 	rows, err := pool.Query(ctx, `
 		SELECT type
-		FROM events
+		FROM agent_events
 		WHERE run_id = $1
 		ORDER BY seq
 	`, runID)

@@ -45,7 +45,7 @@ func (s *Service) appendEvents(ctx context.Context, tx pgx.Tx, request AppendReq
 		}
 
 		if err := tx.QueryRow(ctx, `
-			INSERT INTO events (
+			INSERT INTO agent_events (
 				event_id, seq, type, schema_version, user_id, mission_id,
 				task_id, run_id, conversation_id, command_id, causation_id,
 				correlation_id, payload
@@ -75,7 +75,7 @@ func (s *Service) appendEvents(ctx context.Context, tx pgx.Tx, request AppendReq
 	}
 
 	if _, err := tx.Exec(ctx, `
-		UPDATE event_cursors
+		UPDATE agent_event_cursors
 		SET next_seq = $2, updated_at = now()
 		WHERE user_id = $1
 	`, request.UserID, nextSeq+int64(len(request.Events))); err != nil {

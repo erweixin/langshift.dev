@@ -31,7 +31,7 @@ func (s *Service) enqueueCommands(ctx context.Context, tx pgx.Tx, request Append
 		var dueAt time.Time
 		if draft.DueAt != nil {
 			err = tx.QueryRow(ctx, `
-				INSERT INTO jobs (
+				INSERT INTO agent_jobs (
 					job_id, command_id, kind, subject_user_id, payload, due_at
 				)
 				VALUES ($1, $2, $3, nullif($4, ''), $5::jsonb, $6)
@@ -39,7 +39,7 @@ func (s *Service) enqueueCommands(ctx context.Context, tx pgx.Tx, request Append
 			`, jobID, commandID, draft.Kind, subjectUserID, string(payload), *draft.DueAt).Scan(&dueAt)
 		} else {
 			err = tx.QueryRow(ctx, `
-				INSERT INTO jobs (
+				INSERT INTO agent_jobs (
 					job_id, command_id, kind, subject_user_id, payload
 				)
 				VALUES ($1, $2, $3, nullif($4, ''), $5::jsonb)

@@ -304,7 +304,7 @@ func insertJob(t *testing.T, ctx context.Context, pool *pgxpool.Pool, jobID stri
 	t.Helper()
 
 	_, err := pool.Exec(ctx, `
-		INSERT INTO jobs (job_id, command_id, kind, subject_user_id, payload)
+		INSERT INTO agent_jobs (job_id, command_id, kind, subject_user_id, payload)
 		VALUES ($1, $2, $3, nullif($4, ''), $5::jsonb)
 	`, jobID, commandID, kind, subjectUserID, string(payload))
 	if err != nil {
@@ -316,7 +316,7 @@ func insertLeasedJob(t *testing.T, ctx context.Context, pool *pgxpool.Pool, jobI
 	t.Helper()
 
 	_, err := pool.Exec(ctx, `
-		INSERT INTO jobs (
+		INSERT INTO agent_jobs (
 			job_id, command_id, kind, status, attempts, lease_until,
 			lease_token, leased_by, heartbeat_at
 		)
@@ -337,7 +337,7 @@ func readJob(t *testing.T, ctx context.Context, pool *pgxpool.Pool, jobID string
 			payload, status, attempts, lease_until, COALESCE(lease_token, ''),
 			COALESCE(leased_by, ''), heartbeat_at, due_at,
 			COALESCE(last_error, ''), created_at, updated_at
-		FROM jobs
+		FROM agent_jobs
 		WHERE job_id = $1
 	`, jobID).Scan(
 		&stored.JobID,

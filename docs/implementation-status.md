@@ -38,8 +38,8 @@
 
 一条真实链路端到端：提交 → Review run → 事件 → 投影 → SSE 推给前端。
 
-- [ ] events 表 + event_cursors（seq 游标）+ idempotency_keys（作用域化请求重放）+ envelope（对齐 event-catalog）+ 投影重建命令
-- [ ] jobs 表：入队 / 领取 / ack / 重试 / command_id 去重 / subject_user_id 删除定位 / JobFence(job_id, lease_token) / 成功路径 append+done 同事务
+- [ ] agent_events 表 + agent_event_cursors（seq 游标）+ agent_idempotency_keys（作用域化请求重放）+ envelope（对齐 event-catalog）+ 投影重建命令
+- [ ] agent_jobs 表：入队 / 领取 / ack / 重试 / command_id 去重 / subject_user_id 删除定位 / JobFence(job_id, lease_token) / 成功路径 append+done 同事务
 - [ ] Run 状态机（6 态 + 转换表 + `run_version` 乐观锁 + 超时 sweeper goroutine）
 - [ ] LLM client：分档配置加载、pre-call pending 记账 → 返回补全 → 崩溃收敛 unknown、structured outputs
 - [ ] Review run 真实跑通（读 EvidenceSubmitted → 写 ReviewCompleted）

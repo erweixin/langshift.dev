@@ -17,10 +17,11 @@ Agent 任务和普通后台任务的区别是：它通常会调用 LLM 或工具
 
 内核负责：
 
-- `runs`：执行实例的状态、版本和错误投影。
-- `jobs`：异步执行队列、lease、fence、attempt、fail/dead。
-- `events` / `EventService.Append`：事件追加、per-user seq、幂等、Run CAS、JobFence ack。
-- `llm_ledger`：LLM 调用前置记账和 `pending/ok/provider_error/unknown` 语义。
+- `agent_runs`：执行实例的状态、版本和错误投影。
+- `agent_jobs`：异步执行队列、lease、fence、attempt、fail/dead。
+- `agent_events` / `EventService.Append`：事件追加、per-user seq、幂等、Run CAS、JobFence ack。
+- `agent_idempotency_keys`：API 写入口的请求重放响应和服务端 `command_id` 映射。
+- `agent_llm_ledger`：LLM 调用前置记账和 `pending/ok/provider_error/unknown` 语义。
 - worker runtime：claim job -> allocate attempt -> build LLM request -> call LLM -> append terminal events -> ack/fail job。
 
 内核不负责：
@@ -146,17 +147,17 @@ sequenceDiagram
 
 注意：LLM 错误不等于 worker 基础设施错误。前者通常应该收敛成 run 失败事件；后者应该让 job 可重试。
 
-## 数据库命名方向
+## 数据库命名
 
-当前表仍沿用阶段性命名：`runs/events/jobs/idempotency_keys/llm_ledger`。如果现在允许重新设计，建议在后续 migration 中按边界重命名：
+当前 migration 已按执行内核边界收敛到 `agent_*` 前缀：
 
 ```text
 agent_runs
 agent_events
+agent_event_cursors
 agent_jobs
-agent_commands
 agent_idempotency_keys
-llm_ledger
+agent_llm_ledger
 
 learning_missions
 learning_tasks
@@ -166,7 +167,7 @@ review_results
 user_profiles
 ```
 
-关键原则：业务里的 task 是学习任务；内核里的 job 是执行队列任务。二者不能混用。
+关键原则：业务里的 task 是学习任务；内核里的 job 是执行队列任务。二者不能混用。代码包名仍保留 `event` / `job` / `run` / `llm` 这些领域名，`agent_*` 只表达数据库物理表属于执行内核。
 
 ## 复用方式
 
@@ -194,8 +195,7 @@ user_profiles
 
 ## 后续抽离顺序
 
-1. 把当前 `runs/events/jobs/idempotency_keys` 命名迁移到 `agent_*` 前缀。
-2. 把 run event payload 的通用字段收敛成 helper，减少 handler 手写 payload 的重复。
-3. 为 handler 增加非 LLM 执行模式，支持纯工具或无需模型的 agent job。
-4. 将 worker 指标标准化：claimed、completed、failed、stale_acked、append_failed、llm_error。
-5. 实现 `review_generation` handler，继续验证内核覆盖不同业务输出。
+1. 把 run event payload 的通用字段收敛成 helper，减少 handler 手写 payload 的重复。
+2. 为 handler 增加非 LLM 执行模式，支持纯工具或无需模型的 agent job。
+3. 将 worker 指标标准化：claimed、completed、failed、stale_acked、append_failed、llm_error。
+4. 实现 `review_generation` handler，继续验证内核覆盖不同业务输出。

@@ -14,7 +14,7 @@ const runAcceptedEventType = "RunAccepted"
 func advanceRunVersion(ctx context.Context, tx pgx.Tx, userID string, aggregate RunAggregate) (int, error) {
 	var version int
 	if err := tx.QueryRow(ctx, `
-		UPDATE runs
+		UPDATE agent_runs
 		SET run_version = run_version + 1,
 			updated_at = now()
 		WHERE run_id = $1

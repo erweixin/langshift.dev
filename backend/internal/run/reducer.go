@@ -60,7 +60,7 @@ func applyRunAccepted(ctx context.Context, tx pgx.Tx, stored event.StoredEvent) 
 	}
 
 	tag, err := tx.Exec(ctx, `
-		INSERT INTO runs (
+		INSERT INTO agent_runs (
 			run_id, user_id, conversation_id, run_type, status,
 			run_version, input_ref, due_at
 		)
@@ -112,7 +112,7 @@ func applyRunTransition(ctx context.Context, tx pgx.Tx, stored event.StoredEvent
 	}
 
 	tag, err := tx.Exec(ctx, `
-		UPDATE runs
+		UPDATE agent_runs
 		SET status = $3,
 			started_at = CASE
 				WHEN $3 = 'executing' THEN COALESCE(started_at, now())
@@ -191,7 +191,7 @@ func readRunState(ctx context.Context, tx pgx.Tx, userID string, runID string) (
 	var version int
 	if err := tx.QueryRow(ctx, `
 		SELECT status, run_version
-		FROM runs
+		FROM agent_runs
 		WHERE run_id = $1 AND user_id = $2
 	`, runID, userID).Scan(&status, &version); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, sql.ErrNoRows) {

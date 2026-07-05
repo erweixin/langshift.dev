@@ -145,7 +145,7 @@ func (s *Store) GetRun(ctx context.Context, userID string, runID string) (RunRes
 			r.status,
 			COALESCE((
 				SELECT e.payload->>'content_key'
-				FROM events e
+				FROM agent_events e
 				WHERE e.user_id = r.user_id
 					AND e.run_id = r.run_id
 					AND e.type = 'RunSucceeded'
@@ -153,7 +153,7 @@ func (s *Store) GetRun(ctx context.Context, userID string, runID string) (RunRes
 				LIMIT 1
 			), '') AS content_key,
 			COALESCE(r.error, 'null'::jsonb)
-		FROM runs r
+		FROM agent_runs r
 		WHERE r.user_id = $1 AND r.run_id = $2
 	`, userID, runID).Scan(
 		&result.RunID,

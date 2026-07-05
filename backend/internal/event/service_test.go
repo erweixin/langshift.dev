@@ -184,7 +184,7 @@ func TestAppendEnqueuesCommandsAndWorkerFenceMarksJobDone(t *testing.T) {
 	var leaseToken *string
 	if err := pool.QueryRow(ctx, `
 		SELECT status, lease_token
-		FROM jobs
+		FROM agent_jobs
 		WHERE job_id = $1
 	`, job.JobID).Scan(&status, &leaseToken); err != nil {
 		t.Fatalf("read job: %v", err)
@@ -196,7 +196,7 @@ func TestAppendEnqueuesCommandsAndWorkerFenceMarksJobDone(t *testing.T) {
 	var eventCommandID string
 	if err := pool.QueryRow(ctx, `
 		SELECT command_id
-		FROM events
+		FROM agent_events
 		WHERE type = 'ReviewCompleted'
 	`).Scan(&eventCommandID); err != nil {
 		t.Fatalf("read review event command id: %v", err)
@@ -268,7 +268,7 @@ func TestAppendRunCAS(t *testing.T) {
 	service, pool := newTestService(t, ctx)
 
 	if _, err := pool.Exec(ctx, `
-		INSERT INTO runs (run_id, user_id, run_type, status, run_version)
+		INSERT INTO agent_runs (run_id, user_id, run_type, status, run_version)
 		VALUES ('run_1', 'user_a', 'review', 'accepted', 0)
 	`); err != nil {
 		t.Fatalf("insert run: %v", err)
@@ -389,7 +389,7 @@ func assertEventCount(t *testing.T, ctx context.Context, pool *pgxpool.Pool, use
 	var count int
 	if err := pool.QueryRow(ctx, `
 		SELECT count(*)
-		FROM events
+		FROM agent_events
 		WHERE user_id = $1
 	`, userID).Scan(&count); err != nil {
 		t.Fatalf("count events for %s: %v", userID, err)
@@ -403,7 +403,7 @@ func leaseJob(t *testing.T, ctx context.Context, pool *pgxpool.Pool, jobID strin
 	t.Helper()
 
 	tag, err := pool.Exec(ctx, `
-		UPDATE jobs
+		UPDATE agent_jobs
 		SET status = 'leased',
 			lease_token = $2,
 			lease_until = $3,

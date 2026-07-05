@@ -1,44 +1,44 @@
 -- +goose Up
-ALTER TABLE event_cursors
+ALTER TABLE agent_event_cursors
   RENAME COLUMN current_seq TO next_seq;
 
 -- 0001 stored the last allocated seq (default 0). Under next-to-allocate
 -- semantics existing values shift by +1 and the floor becomes 1, matching
--- events_seq_positive CHECK (seq > 0).
-UPDATE event_cursors SET next_seq = next_seq + 1;
+-- agent_events_seq_positive CHECK (seq > 0).
+UPDATE agent_event_cursors SET next_seq = next_seq + 1;
 
-ALTER TABLE event_cursors
+ALTER TABLE agent_event_cursors
   ALTER COLUMN next_seq SET DEFAULT 1;
 
-ALTER TABLE event_cursors
-  DROP CONSTRAINT event_cursors_current_seq_nonnegative;
+ALTER TABLE agent_event_cursors
+  DROP CONSTRAINT agent_event_cursors_current_seq_nonnegative;
 
-ALTER TABLE event_cursors
-  ADD CONSTRAINT event_cursors_next_seq_positive CHECK (next_seq > 0);
+ALTER TABLE agent_event_cursors
+  ADD CONSTRAINT agent_event_cursors_next_seq_positive CHECK (next_seq > 0);
 
-COMMENT ON COLUMN event_cursors.next_seq IS 'Next user-scoped event seq to allocate. Writers lock this row with SELECT ... FOR UPDATE before appending events.';
+COMMENT ON COLUMN agent_event_cursors.next_seq IS 'Next user-scoped event seq to allocate. Writers lock this row with SELECT ... FOR UPDATE before appending event rows.';
 
-ALTER TABLE events
+ALTER TABLE agent_events
   ADD COLUMN conversation_id text;
 
-COMMENT ON COLUMN events.conversation_id IS 'Optional conversation projection key. Event seq remains user-scoped; conversation_id is only a filter dimension.';
+COMMENT ON COLUMN agent_events.conversation_id IS 'Optional conversation projection key. Event seq remains user-scoped; conversation_id is only a filter dimension.';
 
-ALTER TABLE events
+ALTER TABLE agent_events
   ADD COLUMN tenant_id text;
 
-COMMENT ON COLUMN events.tenant_id IS 'Reserved for stage-6 multi-tenancy. Nullable until RLS lands; reserved now to avoid backfilling the append-only hot table.';
+COMMENT ON COLUMN agent_events.tenant_id IS 'Reserved for stage-6 multi-tenancy. Nullable until RLS lands; reserved now to avoid backfilling the append-only hot table.';
 
-ALTER TABLE jobs
+ALTER TABLE agent_jobs
   ADD COLUMN store_epoch bigint;
 
-COMMENT ON COLUMN jobs.store_epoch IS 'Reserved for stage-4 PITR recovery generation. Consumers will reject commands whose epoch is below the current store epoch.';
+COMMENT ON COLUMN agent_jobs.store_epoch IS 'Reserved for stage-4 PITR recovery generation. Consumers will reject commands whose epoch is below the current store epoch.';
 
-CREATE INDEX events_conversation_seq_idx ON events (user_id, conversation_id, seq)
+CREATE INDEX agent_events_conversation_seq_idx ON agent_events (user_id, conversation_id, seq)
   WHERE conversation_id IS NOT NULL;
-CREATE INDEX events_conversation_created_at_idx ON events (user_id, conversation_id, created_at)
+CREATE INDEX agent_events_conversation_created_at_idx ON agent_events (user_id, conversation_id, created_at)
   WHERE conversation_id IS NOT NULL;
 
-CREATE TABLE runs (
+CREATE TABLE agent_runs (
   run_id text PRIMARY KEY,
   user_id text NOT NULL,
   conversation_id text,
@@ -52,11 +52,11 @@ CREATE TABLE runs (
   finished_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT runs_run_version_nonnegative CHECK (run_version >= 0),
-  CONSTRAINT runs_type_valid CHECK (
+  CONSTRAINT agent_runs_run_version_nonnegative CHECK (run_version >= 0),
+  CONSTRAINT agent_runs_type_valid CHECK (
     run_type IN ('chat_turn', 'diagnosis', 'task_gen', 'lesson_gen', 'outline_gen', 'review', 'reentry')
   ),
-  CONSTRAINT runs_status_valid CHECK (
+  CONSTRAINT agent_runs_status_valid CHECK (
     status IN (
       'accepted',
       'queued',
@@ -69,29 +69,29 @@ CREATE TABLE runs (
       'cancelled'
     )
   ),
-  CONSTRAINT runs_finished_after_created CHECK (
+  CONSTRAINT agent_runs_finished_after_created CHECK (
     finished_at IS NULL OR finished_at >= created_at
   ),
-  CONSTRAINT runs_started_after_created CHECK (
+  CONSTRAINT agent_runs_started_after_created CHECK (
     started_at IS NULL OR started_at >= created_at
   )
 );
 
-COMMENT ON TABLE runs IS 'Rebuildable run projection. Mutations must use run_version CAS; llm_ledger references run_id softly because ledger is not replay-cleared.';
-COMMENT ON COLUMN runs.conversation_id IS 'Optional conversation that owns this run. Background runs may leave this NULL.';
-COMMENT ON COLUMN runs.run_version IS 'Optimistic lock for Run state transitions. Every legal transition increments this value.';
-COMMENT ON COLUMN runs.input_ref IS 'Small references to existing facts, such as event_id, evidence_id, message_id, or content_key. Do not store large prompts here.';
-COMMENT ON COLUMN runs.error IS 'Structured terminal error for failed or expired runs.';
-COMMENT ON CONSTRAINT runs_status_valid ON runs IS 'Run state machine states. Terminal states are succeeded, failed, expired, and cancelled.';
+COMMENT ON TABLE agent_runs IS 'Rebuildable run projection. Mutations must use run_version CAS; agent_llm_ledger references run_id softly because ledger is not replay-cleared.';
+COMMENT ON COLUMN agent_runs.conversation_id IS 'Optional conversation that owns this run. Background runs may leave this NULL.';
+COMMENT ON COLUMN agent_runs.run_version IS 'Optimistic lock for Run state transitions. Every legal transition increments this value.';
+COMMENT ON COLUMN agent_runs.input_ref IS 'Small references to existing facts, such as event_id, evidence_id, message_id, or content_key. Do not store large prompts here.';
+COMMENT ON COLUMN agent_runs.error IS 'Structured terminal error for failed or expired runs.';
+COMMENT ON CONSTRAINT agent_runs_status_valid ON agent_runs IS 'Run state machine states. Terminal states are succeeded, failed, expired, and cancelled.';
 
-CREATE INDEX runs_user_created_at_idx ON runs (user_id, created_at DESC);
-CREATE INDEX runs_user_status_due_at_idx ON runs (user_id, status, due_at);
-CREATE INDEX runs_user_conversation_created_at_idx ON runs (user_id, conversation_id, created_at DESC)
+CREATE INDEX agent_runs_user_created_at_idx ON agent_runs (user_id, created_at DESC);
+CREATE INDEX agent_runs_user_status_due_at_idx ON agent_runs (user_id, status, due_at);
+CREATE INDEX agent_runs_user_conversation_created_at_idx ON agent_runs (user_id, conversation_id, created_at DESC)
   WHERE conversation_id IS NOT NULL;
-CREATE INDEX runs_type_status_idx ON runs (run_type, status);
-CREATE INDEX runs_active_due_at_idx ON runs (due_at)
+CREATE INDEX agent_runs_type_status_idx ON agent_runs (run_type, status);
+CREATE INDEX agent_runs_active_due_at_idx ON agent_runs (due_at)
   WHERE status IN ('accepted', 'queued', 'executing') AND due_at IS NOT NULL;
-CREATE INDEX runs_waiting_due_at_idx ON runs (due_at)
+CREATE INDEX agent_runs_waiting_due_at_idx ON agent_runs (due_at)
   WHERE status IN ('waiting_tool', 'waiting_approval') AND due_at IS NOT NULL;
 
 CREATE TABLE conversations (
@@ -123,7 +123,7 @@ CREATE INDEX conversations_user_last_message_at_idx ON conversations (user_id, l
 CREATE INDEX conversations_active_run_id_idx ON conversations (active_run_id)
   WHERE active_run_id IS NOT NULL;
 
-CREATE TABLE llm_ledger (
+CREATE TABLE agent_llm_ledger (
   id text PRIMARY KEY,
   tenant_id text,
   user_id text NOT NULL,
@@ -150,39 +150,39 @@ CREATE TABLE llm_ledger (
   started_at timestamptz NOT NULL DEFAULT now(),
   finished_at timestamptz,
   updated_at timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT llm_ledger_attempt_key_unique UNIQUE (attempt_key),
-  CONSTRAINT llm_ledger_status_valid CHECK (
+  CONSTRAINT agent_llm_ledger_attempt_key_unique UNIQUE (attempt_key),
+  CONSTRAINT agent_llm_ledger_status_valid CHECK (
     status IN ('pending', 'ok', 'failed_no_charge', 'provider_error', 'unknown', 'cancelled')
   ),
-  CONSTRAINT llm_ledger_cost_basis_valid CHECK (
+  CONSTRAINT agent_llm_ledger_cost_basis_valid CHECK (
     cost_basis IN ('actual', 'estimated', 'zero')
   ),
-  CONSTRAINT llm_ledger_tokens_nonnegative CHECK (
+  CONSTRAINT agent_llm_ledger_tokens_nonnegative CHECK (
     tok_in >= 0 AND tok_out >= 0 AND max_tok_out >= 0 AND cache_read >= 0
   ),
-  CONSTRAINT llm_ledger_costs_nonnegative CHECK (
+  CONSTRAINT agent_llm_ledger_costs_nonnegative CHECK (
     cost_usd >= 0 AND estimated_cost_usd >= 0
   ),
-  CONSTRAINT llm_ledger_finished_after_started CHECK (
+  CONSTRAINT agent_llm_ledger_finished_after_started CHECK (
     finished_at IS NULL OR finished_at >= started_at
   ),
-  CONSTRAINT llm_ledger_pending_unfinished CHECK (
+  CONSTRAINT agent_llm_ledger_pending_unfinished CHECK (
     status <> 'pending' OR finished_at IS NULL
   )
 );
 
-COMMENT ON TABLE llm_ledger IS 'Fact ledger for every LLM attempt. Written before provider calls and settled after response, failure, or unknown outcome.';
-COMMENT ON COLUMN llm_ledger.attempt_key IS 'Stable unique key for one provider attempt. Retries use a new attempt_key.';
-COMMENT ON COLUMN llm_ledger.request_hash IS 'Fingerprint of the provider input, used to explain and de-duplicate ledger writes.';
-COMMENT ON COLUMN llm_ledger.context_manifest IS 'Inline manifest of prompt version, input facts, summaries, content keys, and other context used to explain why the call happened.';
-COMMENT ON COLUMN llm_ledger.cost_basis IS 'actual for settled usage, estimated for unknown/pending provider outcomes, zero for calls that never crossed the provider boundary.';
-COMMENT ON COLUMN llm_ledger.tenant_id IS 'Reserved for stage-6 multi-tenancy. Nullable until RLS lands; reserved now to avoid backfilling the fact ledger.';
+COMMENT ON TABLE agent_llm_ledger IS 'Fact ledger for every LLM attempt. Written before provider calls and settled after response, failure, or unknown outcome.';
+COMMENT ON COLUMN agent_llm_ledger.attempt_key IS 'Stable unique key for one provider attempt. Retries use a new attempt_key.';
+COMMENT ON COLUMN agent_llm_ledger.request_hash IS 'Fingerprint of the provider input, used to explain and de-duplicate ledger writes.';
+COMMENT ON COLUMN agent_llm_ledger.context_manifest IS 'Inline manifest of prompt version, input facts, summaries, content keys, and other context used to explain why the call happened.';
+COMMENT ON COLUMN agent_llm_ledger.cost_basis IS 'actual for settled usage, estimated for unknown/pending provider outcomes, zero for calls that never crossed the provider boundary.';
+COMMENT ON COLUMN agent_llm_ledger.tenant_id IS 'Reserved for stage-6 multi-tenancy. Nullable until RLS lands; reserved now to avoid backfilling the fact ledger.';
 
-CREATE INDEX llm_ledger_user_started_at_idx ON llm_ledger (user_id, started_at DESC);
-CREATE INDEX llm_ledger_run_id_idx ON llm_ledger (run_id) WHERE run_id IS NOT NULL;
-CREATE INDEX llm_ledger_status_started_at_idx ON llm_ledger (status, started_at);
-CREATE INDEX llm_ledger_provider_model_started_at_idx ON llm_ledger (provider, model, started_at DESC);
-CREATE INDEX llm_ledger_billable_idx ON llm_ledger (user_id, started_at DESC)
+CREATE INDEX agent_llm_ledger_user_started_at_idx ON agent_llm_ledger (user_id, started_at DESC);
+CREATE INDEX agent_llm_ledger_run_id_idx ON agent_llm_ledger (run_id) WHERE run_id IS NOT NULL;
+CREATE INDEX agent_llm_ledger_status_started_at_idx ON agent_llm_ledger (status, started_at);
+CREATE INDEX agent_llm_ledger_provider_model_started_at_idx ON agent_llm_ledger (provider, model, started_at DESC);
+CREATE INDEX agent_llm_ledger_billable_idx ON agent_llm_ledger (user_id, started_at DESC)
   WHERE status IN ('ok', 'unknown');
 
 CREATE TABLE run_messages (
@@ -351,32 +351,32 @@ DROP TABLE IF EXISTS evidence;
 DROP TABLE IF EXISTS tool_calls;
 DROP TABLE IF EXISTS run_message_chunks;
 DROP TABLE IF EXISTS run_messages;
-DROP TABLE IF EXISTS llm_ledger;
+DROP TABLE IF EXISTS agent_llm_ledger;
 DROP TABLE IF EXISTS conversations;
-DROP TABLE IF EXISTS runs;
+DROP TABLE IF EXISTS agent_runs;
 
-DROP INDEX IF EXISTS events_conversation_created_at_idx;
-DROP INDEX IF EXISTS events_conversation_seq_idx;
+DROP INDEX IF EXISTS agent_events_conversation_created_at_idx;
+DROP INDEX IF EXISTS agent_events_conversation_seq_idx;
 
-ALTER TABLE events
+ALTER TABLE agent_events
   DROP COLUMN IF EXISTS conversation_id;
 
-ALTER TABLE events
+ALTER TABLE agent_events
   DROP COLUMN IF EXISTS tenant_id;
 
-ALTER TABLE jobs
+ALTER TABLE agent_jobs
   DROP COLUMN IF EXISTS store_epoch;
 
-ALTER TABLE event_cursors
-  DROP CONSTRAINT event_cursors_next_seq_positive;
+ALTER TABLE agent_event_cursors
+  DROP CONSTRAINT agent_event_cursors_next_seq_positive;
 
-ALTER TABLE event_cursors
+ALTER TABLE agent_event_cursors
   ALTER COLUMN next_seq SET DEFAULT 0;
 
-UPDATE event_cursors SET next_seq = next_seq - 1;
+UPDATE agent_event_cursors SET next_seq = next_seq - 1;
 
-ALTER TABLE event_cursors
+ALTER TABLE agent_event_cursors
   RENAME COLUMN next_seq TO current_seq;
 
-ALTER TABLE event_cursors
-  ADD CONSTRAINT event_cursors_current_seq_nonnegative CHECK (current_seq >= 0);
+ALTER TABLE agent_event_cursors
+  ADD CONSTRAINT agent_event_cursors_current_seq_nonnegative CHECK (current_seq >= 0);

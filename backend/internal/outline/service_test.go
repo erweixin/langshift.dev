@@ -202,7 +202,7 @@ func assertRun(t *testing.T, ctx context.Context, pool *pgxpool.Pool, runID stri
 	var gotVersion int
 	if err := pool.QueryRow(ctx, `
 		SELECT run_type, status, run_version
-		FROM runs
+		FROM agent_runs
 		WHERE run_id = $1
 	`, runID).Scan(&gotType, &gotStatus, &gotVersion); err != nil {
 		t.Fatalf("read run %s: %v", runID, err)
@@ -218,7 +218,7 @@ func assertJob(t *testing.T, ctx context.Context, pool *pgxpool.Pool, runID stri
 	var gotStatus string
 	if err := pool.QueryRow(ctx, `
 		SELECT status
-		FROM jobs
+		FROM agent_jobs
 		WHERE payload->>'run_id' = $1
 	`, runID).Scan(&gotStatus); err != nil {
 		t.Fatalf("read job for run %s: %v", runID, err)
@@ -234,7 +234,7 @@ func assertJobCount(t *testing.T, ctx context.Context, pool *pgxpool.Pool, runID
 	var count int
 	if err := pool.QueryRow(ctx, `
 		SELECT count(*)
-		FROM jobs
+		FROM agent_jobs
 		WHERE payload->>'run_id' = $1
 	`, runID).Scan(&count); err != nil {
 		t.Fatalf("count jobs for run %s: %v", runID, err)
@@ -250,7 +250,7 @@ func assertRunSucceededOutlineID(t *testing.T, ctx context.Context, pool *pgxpoo
 	var outlineID string
 	if err := pool.QueryRow(ctx, `
 		SELECT payload->>'outline_id'
-		FROM events
+		FROM agent_events
 		WHERE run_id = $1 AND type = $2
 		ORDER BY seq DESC
 		LIMIT 1

@@ -16,7 +16,7 @@ func (s *Service) reserveIdempotency(ctx context.Context, tx pgx.Tx, request App
 	}
 
 	tag, err := tx.Exec(ctx, `
-		INSERT INTO idempotency_keys (
+		INSERT INTO agent_idempotency_keys (
 			user_id, scope, key, command_id, request_hash
 		)
 		VALUES ($1, $2, $3, $4, $5)
@@ -35,7 +35,7 @@ func (s *Service) reserveIdempotency(ctx context.Context, tx pgx.Tx, request App
 	var body sql.NullString
 	if err := tx.QueryRow(ctx, `
 		SELECT command_id, request_hash, response_status, response_body::text
-		FROM idempotency_keys
+		FROM agent_idempotency_keys
 		WHERE user_id = $1 AND scope = $2 AND key = $3
 		FOR UPDATE
 	`, request.UserID, request.Idempotency.Scope, request.Idempotency.Key).Scan(
@@ -62,7 +62,7 @@ func (s *Service) reserveIdempotency(ctx context.Context, tx pgx.Tx, request App
 
 func storeIdempotencyResponse(ctx context.Context, tx pgx.Tx, request AppendRequest, response *IdempotencyResponse) error {
 	tag, err := tx.Exec(ctx, `
-		UPDATE idempotency_keys
+		UPDATE agent_idempotency_keys
 		SET response_status = $4,
 			response_body = $5::jsonb,
 			updated_at = now()

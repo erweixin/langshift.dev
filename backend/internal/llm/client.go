@@ -26,7 +26,7 @@ const (
 	costBasisZero      = "zero"
 
 	postgresUniqueViolation     = "23505"
-	ledgerAttemptKeyUniqueIndex = "llm_ledger_attempt_key_unique"
+	ledgerAttemptKeyUniqueIndex = "agent_llm_ledger_attempt_key_unique"
 )
 
 type Completer interface {
@@ -120,7 +120,7 @@ func (c *Client) SettleUnknownPending(ctx context.Context, olderThan time.Durati
 	}
 
 	tag, err := c.pool.Exec(ctx, `
-		UPDATE llm_ledger
+		UPDATE agent_llm_ledger
 		SET status = $1,
 			cost_usd = estimated_cost_usd,
 			cost_basis = $2,
@@ -162,7 +162,7 @@ func (c *Client) prepareRequest(req Request) (Request, error) {
 
 func (c *Client) insertPending(ctx context.Context, ledgerID string, req Request, hash string, estimatedInputTokens int, estimatedCost float64) error {
 	_, err := c.pool.Exec(ctx, `
-		INSERT INTO llm_ledger (
+		INSERT INTO agent_llm_ledger (
 			id,
 			user_id,
 			run_id,
@@ -211,7 +211,7 @@ func (c *Client) settleOK(ctx context.Context, ledgerID string, req Request, est
 	defer cancel()
 
 	tag, err := c.pool.Exec(settleCtx, `
-		UPDATE llm_ledger
+		UPDATE agent_llm_ledger
 		SET status = $2,
 			tok_in = $3,
 			tok_out = $4,
@@ -240,7 +240,7 @@ func (c *Client) settleProviderError(ctx context.Context, ledgerID string, cause
 	defer cancel()
 
 	tag, err := c.pool.Exec(settleCtx, `
-		UPDATE llm_ledger
+		UPDATE agent_llm_ledger
 		SET status = $2,
 			cost_usd = $3::numeric,
 			cost_basis = $4,

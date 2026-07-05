@@ -61,7 +61,7 @@ func (s *Sweeper) ExpireDue(ctx context.Context) (int, error) {
 
 	rows, err := s.pool.Query(ctx, `
 		SELECT run_id, user_id, run_version
-		FROM runs
+		FROM agent_runs
 		WHERE due_at <= now()
 			AND status IN (
 				'accepted',

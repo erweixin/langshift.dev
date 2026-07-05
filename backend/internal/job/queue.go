@@ -62,7 +62,7 @@ func (q *Queue) Claim(ctx context.Context, kinds []string, workerID string) (Job
 
 	var claimed Job
 	if err := q.pool.QueryRow(ctx, `
-		UPDATE jobs
+		UPDATE agent_jobs
 		SET status = 'leased',
 			attempts = attempts + 1,
 			lease_until = now() + ($4::bigint * interval '1 millisecond'),
@@ -73,7 +73,7 @@ func (q *Queue) Claim(ctx context.Context, kinds []string, workerID string) (Job
 			updated_at = now()
 		WHERE job_id = (
 			SELECT job_id
-			FROM jobs
+			FROM agent_jobs
 			WHERE kind = ANY($3::text[])
 				AND due_at <= now()
 				AND attempts < $5
@@ -129,7 +129,7 @@ func (q *Queue) Heartbeat(ctx context.Context, fence event.JobFence) error {
 	}
 
 	tag, err := q.pool.Exec(ctx, `
-		UPDATE jobs
+		UPDATE agent_jobs
 		SET lease_until = now() + ($3::bigint * interval '1 millisecond'),
 			heartbeat_at = now(),
 			updated_at = now()
@@ -156,7 +156,7 @@ func (q *Queue) Fail(ctx context.Context, fence event.JobFence, cause error) err
 	}
 
 	tag, err := q.pool.Exec(ctx, `
-		UPDATE jobs
+		UPDATE agent_jobs
 		SET status = CASE WHEN attempts >= $3 THEN 'dead' ELSE 'failed' END,
 			lease_until = NULL,
 			lease_token = NULL,
@@ -191,7 +191,7 @@ func (q *Queue) Reschedule(ctx context.Context, fence event.JobFence, dueAt time
 	}
 
 	tag, err := q.pool.Exec(ctx, `
-		UPDATE jobs
+		UPDATE agent_jobs
 		SET status = 'queued',
 			lease_until = NULL,
 			lease_token = NULL,

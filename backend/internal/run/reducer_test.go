@@ -276,7 +276,7 @@ func assertRunState(t *testing.T, ctx context.Context, pool *pgxpool.Pool, runID
 	var version int
 	if err := pool.QueryRow(ctx, `
 		SELECT status, run_version
-		FROM runs
+		FROM agent_runs
 		WHERE run_id = $1
 	`, runID).Scan(&status, &version); err != nil {
 		t.Fatalf("read run state: %v", err)
@@ -292,7 +292,7 @@ func assertEventCount(t *testing.T, ctx context.Context, pool *pgxpool.Pool, use
 	var count int
 	if err := pool.QueryRow(ctx, `
 		SELECT count(*)
-		FROM events
+		FROM agent_events
 		WHERE user_id = $1
 	`, userID).Scan(&count); err != nil {
 		t.Fatalf("count events: %v", err)

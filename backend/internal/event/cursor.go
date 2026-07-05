@@ -9,7 +9,7 @@ import (
 
 func lockNextSeq(ctx context.Context, tx pgx.Tx, userID string) (int64, error) {
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO event_cursors (user_id, next_seq)
+		INSERT INTO agent_event_cursors (user_id, next_seq)
 		VALUES ($1, 1)
 		ON CONFLICT (user_id) DO NOTHING
 	`, userID); err != nil {
@@ -19,7 +19,7 @@ func lockNextSeq(ctx context.Context, tx pgx.Tx, userID string) (int64, error) {
 	var nextSeq int64
 	if err := tx.QueryRow(ctx, `
 		SELECT next_seq
-		FROM event_cursors
+		FROM agent_event_cursors
 		WHERE user_id = $1
 		FOR UPDATE
 	`, userID).Scan(&nextSeq); err != nil {

@@ -17,7 +17,7 @@ func validateJobFence(ctx context.Context, tx pgx.Tx, fence JobFence) (string, e
 	var leaseUntil sql.NullTime
 	if err := tx.QueryRow(ctx, `
 		SELECT command_id, status, lease_token, lease_until
-		FROM jobs
+		FROM agent_jobs
 		WHERE job_id = $1
 		FOR UPDATE
 	`, fence.JobID).Scan(&commandID, &status, &leaseToken, &leaseUntil); err != nil {
@@ -34,7 +34,7 @@ func validateJobFence(ctx context.Context, tx pgx.Tx, fence JobFence) (string, e
 
 func markJobDone(ctx context.Context, tx pgx.Tx, fence JobFence) error {
 	tag, err := tx.Exec(ctx, `
-		UPDATE jobs
+		UPDATE agent_jobs
 		SET status = 'done',
 			lease_until = NULL,
 			lease_token = NULL,

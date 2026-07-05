@@ -13,7 +13,7 @@
 - 事件名用 PascalCase 的"名词 + 完成动作"：`TaskGenerated`、`EvidenceSubmitted`（与平台文档的 `RunAccepted` 风格一致）。
 - 事件一旦提交不修改、不删除；payload 结构要变，就升 `schema_version`，投影逻辑同时兼容新旧版本。
 - **唯一例外：账户删除**。作为特权流程按 `user_id` 物理删除整条事件流与全部表行（v0 采用硬删除；v1 演进为 per-user 加密 + 销毁密钥）。删除动作本身留一条**不含用户内容**的系统审计（`erasure_audit` 表，阶段 5 建；邮箱 / user_id 仅存哈希）；删除 job 自身与该审计表不在删除范围。这是"全库按 user 检索无残留"DoD 与 append-only 语义的闭环方式。
-- 每条事件由一个 command / 请求产生，`command_id` 用于追溯与去重：API 写入经 `idempotency_keys` 复用同一服务端 `command_id`，worker 写入经 `JobFence` 校验并在同事务内 append + 标记 job done，避免 at-least-once 投递下重复落账。
+- 每条事件由一个 command / 请求产生，`command_id` 用于追溯与去重：API 写入经 `agent_idempotency_keys` 复用同一服务端 `command_id`，worker 写入经 `JobFence` 校验并在同事务内 append + 标记 job done，避免 at-least-once 投递下重复落账。
 
 ## Envelope
 
@@ -25,7 +25,7 @@
 | `schema_version` | int | payload 结构版本，从 1 开始 |
 | `user_id` | string | 所属用户（v0 的隔离边界与顺序边界） |
 | `mission_id` / `task_id` / `conversation_id` / `run_id` | string? | 关联键，按需填。`conversation_id` 用于对话时间线过滤和恢复入口，不改变 `seq` 的用户级顺序语义 |
-| `command_id` | string? | 产生本事件的 command（命令去重与追溯）。**一律是服务端生成的 ULID**——客户端 `Idempotency-Key` 经 `idempotency_keys` 映射表（作用域 user_id + endpoint）换取 command_id，不直接入库，避免跨用户 / 跨操作的同名 key 冲突 |
+| `command_id` | string? | 产生本事件的 command（命令去重与追溯）。**一律是服务端生成的 ULID**——客户端 `Idempotency-Key` 经 `agent_idempotency_keys` 映射表（作用域 user_id + endpoint）换取 command_id，不直接入库，避免跨用户 / 跨操作的同名 key 冲突 |
 | `causation_id` / `correlation_id` | string? | 由哪条 event / command 引起；属于哪条因果链 |
 | `created_at` | timestamp | 提交时间 |
 | `payload` | JSON | 类型专属数据 |
@@ -43,12 +43,12 @@
 
 | type | payload 要点 | 更新投影 |
 | --- | --- | --- |
-| `RunAccepted` | `run_type`（chat_turn / diagnosis / task_gen / lesson_gen / review / reentry）, `input_ref`（已有事实引用：event_id / evidence_id / content_key 等，不存大块输入） | runs |
-| `RunQueued` / `RunStarted` | — / `attempt_id` | runs |
-| `RunSucceeded` / `RunFailed` / `RunExpired` | `error?`, `attempt_keys?`（**引用** LLM 账本行，不内嵌用量）；`RunExpired` 由 sweeper 依 `due_at` 产生 | runs。`llm_ledger` 由 LLM client 在调用路径直接写入（独立事实账本，pre-call pending → 补全 / unknown），**不由事件驱动** |
-| `ToolCallRequested` / `ToolCallStarted` | tool_call_id, tool_name, args/ref, risk, requires_approval | tool_calls, runs（必要时进入 `waiting_tool` / `waiting_approval`） |
-| `ToolCallSucceeded` / `ToolCallFailed` / `ToolCallOutcomeUnknown` | tool_call_id, result?/result_ref?, error? | tool_calls；满足 join 时推进 runs |
-| `ApprovalRequested` / `ApprovalGranted` / `ApprovalRejected` | tool_call_id?, reason?, decision? | tool_calls, runs |
+| `RunAccepted` | `run_type`（chat_turn / diagnosis / task_gen / lesson_gen / review / reentry）, `input_ref`（已有事实引用：event_id / evidence_id / content_key 等，不存大块输入） | agent_runs |
+| `RunQueued` / `RunStarted` | — / `attempt_id` | agent_runs |
+| `RunSucceeded` / `RunFailed` / `RunExpired` | `error?`, `attempt_keys?`（**引用** LLM 账本行，不内嵌用量）；`RunExpired` 由 sweeper 依 `due_at` 产生 | agent_runs。`agent_llm_ledger` 由 LLM client 在调用路径直接写入（独立事实账本，pre-call pending → 补全 / unknown），**不由事件驱动** |
+| `ToolCallRequested` / `ToolCallStarted` | tool_call_id, tool_name, args/ref, risk, requires_approval | tool_calls, agent_runs（必要时进入 `waiting_tool` / `waiting_approval`） |
+| `ToolCallSucceeded` / `ToolCallFailed` / `ToolCallOutcomeUnknown` | tool_call_id, result?/result_ref?, error? | tool_calls；满足 join 时推进 agent_runs |
+| `ApprovalRequested` / `ApprovalGranted` / `ApprovalRejected` | tool_call_id?, reason?, decision? | tool_calls, agent_runs |
 
 ### 目标与路线
 
@@ -96,13 +96,13 @@
 | `DayCompleted` | 完成循环（`POST /api/tasks/:id/complete`） | date, task_id | **tasks（当日 task → done）**+ profile 的 rhythm 段（streak，含宽容规则；节律不设独立表，嵌在 profile 内） |
 | `ReentryTaskIssued` | 断更回归 run | gap_days, task, date（任务归属日） | tasks, profile 的 rhythm 段 |
 | `DataExported` | 用户导出 | format, scope | 审计 |
-| `AccountDeletionRequested` | 用户删除 | — | 触发硬删除特权流程（见上方"唯一例外"规则）：投影/delta/摘要 → 事实类行 → events → users，最后留无内容审计 |
+| `AccountDeletionRequested` | 用户删除 | — | 触发硬删除特权流程（见上方"唯一例外"规则）：投影/delta/摘要 → 事实类行 → agent_events → users，最后留无内容审计 |
 
 ## 投影清单
 
-**投影**（可由事件流重建，更新以 `event_id` 幂等、重放不二次生效）：`runs`、`tool_calls`、`missions`、`tasks`、`user_content_delta`、`exercise_runs`、`evidence`、`profile`（含 rhythm 段与分面摘要）、`conversations`、`run_messages`、`crafts`。
+**投影**（可由事件流重建，更新以 `event_id` 幂等、重放不二次生效）：`agent_runs`、`tool_calls`、`missions`、`tasks`、`user_content_delta`、`exercise_runs`、`evidence`、`profile`（含 rhythm 段与分面摘要）、`conversations`、`run_messages`、`crafts`。
 
-**事实类 / 操作类表**（不是投影，`lites replay` 不清除）：`events` 本身、`idempotency_keys`（请求重放响应）、`jobs`（执行队列历史）、`llm_ledger`（花费事实，含 pending/unknown 状态）、`content_artifacts` 的 artifact 本体（`LessonPublished` 只携带 `content_key` 指针，对齐平台"EventStore 不保存文件本体"原则）。
+**事实类 / 操作类表**（不是投影，`lites replay` 不清除）：`agent_events` 本身、`agent_idempotency_keys`（请求重放响应）、`agent_jobs`（执行队列历史）、`agent_llm_ledger`（花费事实，含 pending/unknown 状态）、`content_artifacts` 的 artifact 本体（`LessonPublished` 只携带 `content_key` 指针，对齐平台"EventStore 不保存文件本体"原则）。
 
 ## Do / Don't
 

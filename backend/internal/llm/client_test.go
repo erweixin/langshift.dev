@@ -141,7 +141,7 @@ func TestClientCompleteSettlesProviderError(t *testing.T) {
 	if err := pool.QueryRow(ctx, `
 		SELECT status, cost_usd::text, cost_basis, COALESCE(error_code, ''),
 			COALESCE(error_message, ''), finished_at IS NOT NULL
-		FROM llm_ledger
+		FROM agent_llm_ledger
 		WHERE id = $1
 	`, "ledger_error").Scan(&status, &costUSD, &costBasis, &errorCode, &errorMessage, &finished); err != nil {
 		t.Fatalf("read ledger: %v", err)
@@ -179,7 +179,7 @@ func TestClientSettleUnknownPending(t *testing.T) {
 	var oldFinished bool
 	if err := pool.QueryRow(ctx, `
 		SELECT status, cost_usd::text, cost_basis, finished_at IS NOT NULL
-		FROM llm_ledger
+		FROM agent_llm_ledger
 		WHERE id = $1
 	`, "old_pending").Scan(&oldStatus, &oldCost, &oldBasis, &oldFinished); err != nil {
 		t.Fatalf("read old pending: %v", err)
@@ -192,7 +192,7 @@ func TestClientSettleUnknownPending(t *testing.T) {
 	var recentFinished bool
 	if err := pool.QueryRow(ctx, `
 		SELECT status, finished_at IS NOT NULL
-		FROM llm_ledger
+		FROM agent_llm_ledger
 		WHERE id = $1
 	`, "recent_pending").Scan(&recentStatus, &recentFinished); err != nil {
 		t.Fatalf("read recent pending: %v", err)
@@ -320,7 +320,7 @@ func readLedgerRow(t *testing.T, ctx context.Context, pool *pgxpool.Pool, id str
 			COALESCE(provider_request_id, ''),
 			COALESCE(result_hash, ''),
 			finished_at IS NOT NULL
-		FROM llm_ledger
+		FROM agent_llm_ledger
 		WHERE id = $1
 	`, id).Scan(
 		&row.UserID,
@@ -352,7 +352,7 @@ func insertPendingLedger(t *testing.T, ctx context.Context, pool *pgxpool.Pool, 
 	t.Helper()
 
 	if _, err := pool.Exec(ctx, `
-		INSERT INTO llm_ledger (
+		INSERT INTO agent_llm_ledger (
 			id,
 			user_id,
 			surface,
