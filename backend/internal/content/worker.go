@@ -3,40 +3,26 @@ package content
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"log/slog"
 	"strings"
 	"time"
 
+	"lites/backend/internal/agentcore"
 	"lites/backend/internal/event"
 	"lites/backend/internal/job"
 	"lites/backend/internal/llm"
 	"lites/backend/internal/run"
 )
 
-type Queue interface {
-	Claim(ctx context.Context, kinds []string, workerID string) (job.Job, event.JobFence, error)
-	Fail(ctx context.Context, fence event.JobFence, cause error) error
-}
-
-type LLM interface {
-	Complete(ctx context.Context, req llm.Request) (llm.Response, error)
-}
+type Queue = agentcore.Queue
+type LLM = agentcore.LLM
 
 type ArtifactWriter interface {
 	SaveArtifact(ctx context.Context, request SaveArtifactRequest) (ArtifactRecord, error)
 }
 
 type Worker struct {
-	queue     Queue
-	events    *event.Service
-	llm       LLM
-	artifacts ArtifactWriter
-	validator ArtifactValidator
-	ids       event.IDGenerator
-	workerID  string
-	idleSleep time.Duration
+	core *agentcore.Worker
 }
 
 type WorkerOptions struct {
@@ -47,10 +33,6 @@ type WorkerOptions struct {
 }
 
 func NewWorker(queue Queue, events *event.Service, llmClient LLM, artifacts ArtifactWriter, options WorkerOptions) *Worker {
-	ids := options.IDGenerator
-	if ids == nil {
-		ids = event.NewULIDGenerator(nil)
-	}
 	validator := options.Validator
 	if validator == nil {
 		validator = NewStaticValidator(StaticValidatorOptions{})
@@ -63,138 +45,117 @@ func NewWorker(queue Queue, events *event.Service, llmClient LLM, artifacts Arti
 	if idleSleep <= 0 {
 		idleSleep = time.Duration(defaultIdleSleepMillis) * time.Millisecond
 	}
-	return &Worker{
-		queue:     queue,
-		events:    events,
-		llm:       llmClient,
+	handler := contentGenerationHandler{
 		artifacts: artifacts,
 		validator: validator,
-		ids:       ids,
-		workerID:  workerID,
-		idleSleep: idleSleep,
+	}
+	return &Worker{
+		core: agentcore.NewWorker(queue, events, llmClient, handler, agentcore.WorkerOptions{
+			IDGenerator: options.IDGenerator,
+			WorkerID:    workerID,
+			IdleSleep:   idleSleep,
+		}),
 	}
 }
 
 func (w *Worker) Run(ctx context.Context) {
-	for {
-		processed, err := w.ProcessOne(ctx)
-		if err != nil {
-			slog.Error("content generation worker iteration failed", "error", err)
-		}
-		if ctx.Err() != nil {
-			return
-		}
-		if processed {
-			continue
-		}
-
-		timer := time.NewTimer(w.idleSleep)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return
-		case <-timer.C:
-		}
+	if w == nil || w.core == nil {
+		return
 	}
+	w.core.Run(ctx)
 }
 
 func (w *Worker) ProcessOne(ctx context.Context) (bool, error) {
-	if err := w.validate(); err != nil {
-		return false, err
+	if w == nil || w.core == nil {
+		return false, errMissingQueue
 	}
+	return w.core.ProcessOne(ctx)
+}
 
-	claimed, fence, err := w.queue.Claim(ctx, []string{JobKindContentGeneration}, w.workerID)
+type contentGenerationHandler struct {
+	artifacts ArtifactWriter
+	validator ArtifactValidator
+}
+
+func (h contentGenerationHandler) JobKinds() []string {
+	return []string{JobKindContentGeneration}
+}
+
+func (h contentGenerationHandler) BuildLLMRequest(_ context.Context, task agentcore.JobContext) (llm.Request, error) {
+	payload, err := parseJobPayload(task.Job)
 	if err != nil {
-		if errors.Is(err, job.ErrNoJobAvailable) {
-			return false, nil
-		}
-		return false, err
+		return llm.Request{}, err
 	}
-
-	payload, err := parseJobPayload(claimed)
-	if err != nil {
-		return true, w.failClaimedJob(ctx, fence, err)
+	if strings.TrimSpace(task.Job.SubjectUserID) == "" {
+		return llm.Request{}, fmt.Errorf("%w: subject_user_id is required", ErrInvalidRequest)
 	}
-	if strings.TrimSpace(claimed.SubjectUserID) == "" {
-		return true, w.failClaimedJob(ctx, fence, fmt.Errorf("%w: subject_user_id is required", ErrInvalidRequest))
-	}
-
-	attemptKey, err := w.ids.NewID()
-	if err != nil {
-		return true, w.failClaimedJob(ctx, fence, fmt.Errorf("generate content generation attempt key: %w", err))
-	}
-
-	response, llmErr := w.llm.Complete(ctx, llm.Request{
-		UserID:          claimed.SubjectUserID,
+	return llm.Request{
+		UserID:          task.Job.SubjectUserID,
 		RunID:           payload.RunID,
 		Surface:         LLMSurfaceGeneration,
-		AttemptKey:      attemptKey,
+		AttemptKey:      task.AttemptKey,
 		PromptVersion:   PromptVersionGeneration,
 		ContextManifest: contextManifest(payload),
 		Messages:        generationMessages(payload.Input),
 		JSONMode:        true,
 		SchemaName:      "content_artifact",
-	})
-
-	appendErr := w.appendResult(ctx, claimed.SubjectUserID, fence, payload, attemptKey, response, llmErr)
-	if appendErr != nil {
-		if errors.Is(appendErr, event.ErrRunVersionConflict) || errors.Is(appendErr, run.ErrInvalidTransition) {
-			if ackErr := w.ackStaleJob(ctx, claimed.SubjectUserID, fence); ackErr != nil {
-				return true, fmt.Errorf("ack stale content generation job: %w", ackErr)
-			}
-			return true, nil
-		}
-		if failErr := w.queue.Fail(ctx, fence, appendErr); failErr != nil {
-			return true, fmt.Errorf("fail content generation job after append error: %w", failErr)
-		}
-		return true, appendErr
-	}
-	return true, nil
+	}, nil
 }
 
-func (w *Worker) appendResult(ctx context.Context, userID string, fence event.JobFence, payload jobPayload, attemptKey string, response llm.Response, llmErr error) error {
+func (h contentGenerationHandler) BuildAppendRequest(ctx context.Context, completion agentcore.Completion) (agentcore.CompletionAppend, error) {
+	if h.artifacts == nil {
+		return agentcore.CompletionAppend{}, errMissingStore
+	}
+	if h.validator == nil {
+		return agentcore.CompletionAppend{}, fmt.Errorf("%w: validator is required", ErrInvalidRequest)
+	}
+
+	payload, err := parseJobPayload(completion.Job)
+	if err != nil {
+		return agentcore.CompletionAppend{}, err
+	}
 	runID := payload.RunID
 	events := []event.EventDraft{
 		runEvent(run.EventRunQueued, runID, json.RawMessage(`{}`)),
 		runEvent(run.EventRunStarted, runID, mustJSON(map[string]any{
 			"run_id":     runID,
-			"attempt_id": attemptKey,
+			"attempt_id": completion.AttemptKey,
 		})),
 	}
-	if llmErr != nil {
+	if completion.Err != nil {
 		events = append(events, runEvent(run.EventRunFailed, runID, mustJSON(map[string]any{
 			"run_id":       runID,
-			"attempt_keys": []string{attemptKey},
+			"attempt_keys": []string{completion.AttemptKey},
 			"error": map[string]string{
 				"code":    "llm_error",
-				"message": truncateMessage(llmErr.Error()),
+				"message": truncateMessage(completion.Err.Error()),
 			},
 		})))
 	} else {
-		artifact, err := buildGeneratedArtifact(payload.Input, response, time.Now().UTC())
+		artifact, err := buildGeneratedArtifact(payload.Input, completion.Response, time.Now().UTC())
 		if err != nil {
 			events = append(events, runEvent(run.EventRunFailed, runID, mustJSON(map[string]any{
 				"run_id":        runID,
-				"attempt_keys":  []string{attemptKey},
-				"llm_ledger_id": response.LedgerID,
+				"attempt_keys":  []string{completion.AttemptKey},
+				"llm_ledger_id": completion.Response.LedgerID,
 				"error": map[string]string{
 					"code":    "invalid_content_artifact",
 					"message": truncateMessage(err.Error()),
 				},
 			})))
 		} else {
-			validation, err := w.validator.Validate(ctx, ValidationRequest{
+			validation, err := h.validator.Validate(ctx, ValidationRequest{
 				Input:    payload.Input,
 				Artifact: artifact,
 			})
 			if err != nil {
-				return err
+				return agentcore.CompletionAppend{}, err
 			}
 			if !validation.Passed() {
 				events = append(events, runEvent(run.EventRunFailed, runID, mustJSON(map[string]any{
 					"run_id":        runID,
-					"attempt_keys":  []string{attemptKey},
-					"llm_ledger_id": response.LedgerID,
+					"attempt_keys":  []string{completion.AttemptKey},
+					"llm_ledger_id": completion.Response.LedgerID,
 					"validation":    validation,
 					"error": map[string]string{
 						"code":    "content_validation_failed",
@@ -208,89 +169,37 @@ func (w *Worker) appendResult(ctx context.Context, userID string, fence event.Jo
 				if artifact.Meta != nil {
 					artifact.Meta.ValidationAttempts = validation.Attempts
 				}
-				saved, err := w.artifacts.SaveArtifact(ctx, SaveArtifactRequest{
+				saved, err := h.artifacts.SaveArtifact(ctx, SaveArtifactRequest{
 					Artifact:           artifact,
-					LLMLedgerID:        response.LedgerID,
+					LLMLedgerID:        completion.Response.LedgerID,
 					SourceRunID:        runID,
-					SourceAttemptKey:   attemptKey,
+					SourceAttemptKey:   completion.AttemptKey,
 					ReviewStatus:       ReviewStatusAutoOK,
 					ValidationAttempts: validation.Attempts,
 				})
 				if err != nil {
-					return err
+					return agentcore.CompletionAppend{}, err
 				}
 				events = append(events, runEvent(run.EventRunSucceeded, runID, mustJSON(map[string]any{
 					"run_id":              runID,
-					"attempt_keys":        []string{attemptKey},
-					"llm_ledger_id":       response.LedgerID,
+					"attempt_keys":        []string{completion.AttemptKey},
+					"llm_ledger_id":       completion.Response.LedgerID,
 					"content_key":         saved.Artifact.ContentKey,
 					"artifact_hash":       saved.ArtifactHash,
 					"review_status":       saved.ReviewStatus,
 					"validation_attempts": saved.ValidationAttempts,
-					"content_length":      len(response.Content),
+					"content_length":      len(completion.Response.Content),
 				})))
 			}
 		}
 	}
 
-	_, err := w.events.Append(ctx, event.AppendRequest{
-		Actor:  event.Actor{Kind: event.ActorWorker, ID: w.workerID},
-		UserID: userID,
-		JobFence: &event.JobFence{
-			JobID:      fence.JobID,
-			LeaseToken: fence.LeaseToken,
-		},
-		Aggregate: &event.RunAggregate{
-			RunID:           runID,
-			ExpectedVersion: 0,
-		},
-		Events: events,
-	})
-	return err
-}
-
-func (w *Worker) ackStaleJob(ctx context.Context, userID string, fence event.JobFence) error {
-	_, err := w.events.Append(ctx, event.AppendRequest{
-		Actor:  event.Actor{Kind: event.ActorWorker, ID: w.workerID},
-		UserID: userID,
-		JobFence: &event.JobFence{
-			JobID:      fence.JobID,
-			LeaseToken: fence.LeaseToken,
-		},
-	})
-	return err
-}
-
-func (w *Worker) failClaimedJob(ctx context.Context, fence event.JobFence, cause error) error {
-	if err := w.queue.Fail(ctx, fence, cause); err != nil {
-		return fmt.Errorf("fail invalid content generation job: %w", err)
-	}
-	return cause
-}
-
-func (w *Worker) validate() error {
-	if w == nil || w.queue == nil {
-		return errMissingQueue
-	}
-	if w.events == nil {
-		return errMissingEvents
-	}
-	if w.llm == nil {
-		return errMissingLLM
-	}
-	if w.artifacts == nil {
-		return errMissingStore
-	}
-	if w.validator == nil {
-		return fmt.Errorf("%w: validator is required", ErrInvalidRequest)
-	}
-	if w.ids == nil {
-		return errMissingIDs
-	}
-	if strings.TrimSpace(w.workerID) == "" {
-		return fmt.Errorf("%w: worker_id is required", ErrInvalidRequest)
-	}
-	return nil
+	return agentcore.CompletionAppend{
+		UserID:             completion.Request.UserID,
+		RunID:              runID,
+		ExpectedRunVersion: agentcore.ExpectedRunVersion(0),
+		Events:             events,
+	}, nil
 }
 
 func parseJobPayload(claimed job.Job) (jobPayload, error) {

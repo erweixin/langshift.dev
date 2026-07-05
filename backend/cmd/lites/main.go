@@ -16,6 +16,7 @@ import (
 	"lites/backend/internal/job"
 	"lites/backend/internal/llm"
 	"lites/backend/internal/llm/deepseek"
+	"lites/backend/internal/outline"
 	runpkg "lites/backend/internal/run"
 )
 
@@ -83,12 +84,18 @@ func serve(ctx context.Context, appConfig config.Config) error {
 	contentService := content.NewService(events, content.ServiceOptions{Artifacts: contentStore})
 	contentWorker := content.NewWorker(queue, events, llmClient, contentStore, content.WorkerOptions{})
 	go contentWorker.Run(ctx)
+	outlineStore := outline.NewStore(pool)
+	outlineService := outline.NewService(events, outline.ServiceOptions{})
+	outlineWorker := outline.NewWorker(queue, events, llmClient, outlineStore, outline.WorkerOptions{})
+	go outlineWorker.Run(ctx)
 
 	server := api.NewServer(api.ServerConfig{
 		Addr:              appConfig.HTTPAddr,
 		SingleUser:        appConfig.SingleUser,
 		ContentGeneration: contentService,
 		ContentReader:     contentStore,
+		OutlineGeneration: outlineService,
+		OutlineReader:     outlineStore,
 	})
 	return server.ListenAndServe(ctx)
 }

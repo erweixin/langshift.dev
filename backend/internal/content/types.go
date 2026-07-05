@@ -30,7 +30,6 @@ var (
 	ErrNotFound         = errors.New("content not found")
 	errMissingEvents    = errors.New("missing event service")
 	errMissingQueue     = errors.New("missing job queue")
-	errMissingLLM       = errors.New("missing llm client")
 	errMissingIDs       = errors.New("missing id generator")
 	errMissingStore     = errors.New("missing content artifact store")
 )

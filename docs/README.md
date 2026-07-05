@@ -27,6 +27,7 @@ Cloud Agent 和普通 Web 服务最大的区别是：一次用户请求会跨越
 | 1 | [architecture.md](./architecture.md) | 为什么要用 EventStore、状态机和 Worker 循环，而不是一次 HTTP 请求跑到底 |
 | 2 | [end-to-end-flow.md](./end-to-end-flow.md) | 一个任务从用户提交到完成，中间经过哪些组件、数据怎么流动、失败怎么恢复 |
 | 2.5 | [v0-product-slice.md](./v0-product-slice.md) | 第一个真正要交付的版本：让一个真实用户连续跑通 14 天，而不是先把平台做满 |
+| 2.7 | [agent-execution-kernel.md](./agent-execution-kernel.md) | 哪些执行语义属于可复用 Cloud Agent 内核，哪些必须留在学习业务层 |
 | 3 | [mvp-scope.md](./mvp-scope.md) | 平台 v1 的完整边界：v0 被验证后，再补哪些平台能力 |
 | 4 | [state-machines.md](./state-machines.md) | Run、ToolCall、Command 各自有哪些合法状态 |
 | 5 | [concurrency-and-durability.md](./concurrency-and-durability.md) | 如何用事务、CAS、outbox/inbox 和 effect ledger 抵抗重复投递和崩溃 |

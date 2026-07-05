@@ -14,6 +14,7 @@ import (
 
 	"lites/backend/internal/content"
 	"lites/backend/internal/event"
+	"lites/backend/internal/outline"
 )
 
 type ServerConfig struct {
@@ -21,6 +22,8 @@ type ServerConfig struct {
 	SingleUser        bool
 	ContentGeneration contentGenerationStarter
 	ContentReader     contentReader
+	OutlineGeneration outlineGenerationStarter
+	OutlineReader     outlineReader
 }
 
 type Server struct {
@@ -29,6 +32,8 @@ type Server struct {
 	singleUser        bool
 	contentGeneration contentGenerationStarter
 	contentReader     contentReader
+	outlineGeneration outlineGenerationStarter
+	outlineReader     outlineReader
 }
 
 type contentGenerationStarter interface {
@@ -38,6 +43,15 @@ type contentGenerationStarter interface {
 type contentReader interface {
 	GetRun(ctx context.Context, userID string, runID string) (content.RunResult, error)
 	GetArtifact(ctx context.Context, contentKey string) (content.ArtifactRecord, error)
+}
+
+type outlineGenerationStarter interface {
+	Start(ctx context.Context, request outline.StartRequest) (outline.StartResult, error)
+}
+
+type outlineReader interface {
+	GetRun(ctx context.Context, userID string, runID string) (outline.RunResult, error)
+	GetOutline(ctx context.Context, userID string, outlineID string) (outline.OutlineRecord, error)
 }
 
 func NewServer(config ServerConfig) *Server {
@@ -52,6 +66,8 @@ func NewServer(config ServerConfig) *Server {
 		singleUser:        config.SingleUser,
 		contentGeneration: config.ContentGeneration,
 		contentReader:     config.ContentReader,
+		outlineGeneration: config.OutlineGeneration,
+		outlineReader:     config.OutlineReader,
 	}
 	server.routes()
 	return server
@@ -92,6 +108,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/content-generation-runs", s.createContentGenerationRun)
 	s.mux.HandleFunc("GET /api/content-generation-runs/{run_id}", s.getContentGenerationRun)
 	s.mux.HandleFunc("GET /api/content-artifacts/{content_key}", s.getContentArtifact)
+	s.mux.HandleFunc("POST /api/outline-generation-runs", s.createOutlineGenerationRun)
+	s.mux.HandleFunc("GET /api/outline-generation-runs/{run_id}", s.getOutlineGenerationRun)
+	s.mux.HandleFunc("GET /api/learning-outlines/{outline_id}", s.getLearningOutline)
 }
 
 func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
@@ -226,6 +245,124 @@ func (s *Server) getContentArtifact(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, content.PublicArtifact(record))
+}
+
+func (s *Server) createOutlineGenerationRun(w http.ResponseWriter, r *http.Request) {
+	if s.outlineGeneration == nil {
+		writeError(w, http.StatusServiceUnavailable, "outline generation is not configured")
+		return
+	}
+
+	userID, ok := s.userID(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "missing X-User-ID")
+		return
+	}
+	idempotencyKey := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+	if idempotencyKey == "" {
+		writeError(w, http.StatusBadRequest, "missing Idempotency-Key")
+		return
+	}
+
+	var input outline.GenerationInput
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&input); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid json body: %v", err))
+		return
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		writeError(w, http.StatusBadRequest, "invalid json body")
+		return
+	}
+
+	result, err := s.outlineGeneration.Start(r.Context(), outline.StartRequest{
+		UserID:         userID,
+		IdempotencyKey: idempotencyKey,
+		Input:          input,
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, outline.ErrInvalidRequest):
+			writeError(w, http.StatusBadRequest, err.Error())
+		case errors.Is(err, event.ErrIdempotencyConflict):
+			writeError(w, http.StatusConflict, err.Error())
+		default:
+			slog.Error("create outline generation run failed", "error", err)
+			writeError(w, http.StatusInternalServerError, "create outline generation run failed")
+		}
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, result)
+}
+
+func (s *Server) getOutlineGenerationRun(w http.ResponseWriter, r *http.Request) {
+	if s.outlineReader == nil {
+		writeError(w, http.StatusServiceUnavailable, "outline reader is not configured")
+		return
+	}
+
+	userID, ok := s.userID(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "missing X-User-ID")
+		return
+	}
+	runID := strings.TrimSpace(r.PathValue("run_id"))
+	if runID == "" {
+		writeError(w, http.StatusBadRequest, "missing run_id")
+		return
+	}
+
+	result, err := s.outlineReader.GetRun(r.Context(), userID, runID)
+	if err != nil {
+		switch {
+		case errors.Is(err, outline.ErrNotFound):
+			writeError(w, http.StatusNotFound, "outline generation run not found")
+		case errors.Is(err, outline.ErrInvalidRequest):
+			writeError(w, http.StatusBadRequest, err.Error())
+		default:
+			slog.Error("get outline generation run failed", "error", err)
+			writeError(w, http.StatusInternalServerError, "get outline generation run failed")
+		}
+		return
+	}
+
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) getLearningOutline(w http.ResponseWriter, r *http.Request) {
+	if s.outlineReader == nil {
+		writeError(w, http.StatusServiceUnavailable, "outline reader is not configured")
+		return
+	}
+
+	userID, ok := s.userID(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "missing X-User-ID")
+		return
+	}
+	outlineID := strings.TrimSpace(r.PathValue("outline_id"))
+	if outlineID == "" {
+		writeError(w, http.StatusBadRequest, "missing outline_id")
+		return
+	}
+
+	record, err := s.outlineReader.GetOutline(r.Context(), userID, outlineID)
+	if err != nil {
+		switch {
+		case errors.Is(err, outline.ErrNotFound):
+			writeError(w, http.StatusNotFound, "learning outline not found")
+		case errors.Is(err, outline.ErrInvalidRequest):
+			writeError(w, http.StatusBadRequest, err.Error())
+		default:
+			slog.Error("get learning outline failed", "error", err)
+			writeError(w, http.StatusInternalServerError, "get learning outline failed")
+		}
+		return
+	}
+	writeJSON(w, http.StatusOK, outline.PublicOutline(record))
 }
 
 func (s *Server) userID(r *http.Request) (string, bool) {

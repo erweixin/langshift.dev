@@ -54,7 +54,7 @@ CREATE TABLE runs (
   updated_at timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT runs_run_version_nonnegative CHECK (run_version >= 0),
   CONSTRAINT runs_type_valid CHECK (
-    run_type IN ('chat_turn', 'diagnosis', 'task_gen', 'lesson_gen', 'review', 'reentry')
+    run_type IN ('chat_turn', 'diagnosis', 'task_gen', 'lesson_gen', 'outline_gen', 'review', 'reentry')
   ),
   CONSTRAINT runs_status_valid CHECK (
     status IN (
