@@ -2,7 +2,6 @@ package run
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -96,15 +95,9 @@ func (s *Sweeper) ExpireDue(ctx context.Context) (int, error) {
 		if err != nil {
 			return expired, fmt.Errorf("generate sweeper command id: %w", err)
 		}
-		payload, err := json.Marshal(map[string]any{
-			"run_id": item.RunID,
-			"error": map[string]string{
-				"code":    "deadline_exceeded",
-				"message": "run exceeded due_at",
-			},
-		})
+		runExpired, err := ExpiredEvent(item.RunID, "deadline_exceeded", "run exceeded due_at", nil)
 		if err != nil {
-			return expired, fmt.Errorf("marshal RunExpired payload: %w", err)
+			return expired, err
 		}
 
 		_, err = s.events.Append(ctx, event.AppendRequest{
@@ -115,12 +108,7 @@ func (s *Sweeper) ExpireDue(ctx context.Context) (int, error) {
 				RunID:           item.RunID,
 				ExpectedVersion: item.RunVersion,
 			},
-			Events: []event.EventDraft{{
-				Type:          EventRunExpired,
-				SchemaVersion: 1,
-				RunID:         item.RunID,
-				Payload:       payload,
-			}},
+			Events: []event.EventDraft{runExpired},
 		})
 		if err != nil {
 			if errors.Is(err, event.ErrRunVersionConflict) || errors.Is(err, ErrInvalidTransition) {

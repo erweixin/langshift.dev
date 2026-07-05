@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"lites/backend/internal/event"
+	"lites/backend/internal/run"
 )
 
 type Service struct {
@@ -72,14 +73,14 @@ func (s *Service) Start(ctx context.Context, request StartRequest) (StartResult,
 		return StartResult{}, fmt.Errorf("marshal outline generation input_ref: %w", err)
 	}
 	dueAt := s.now().Add(s.runTimeout).UTC()
-	runPayload, err := json.Marshal(acceptedPayload{
+	runAccepted, err := run.AcceptedEvent(run.AcceptedEventRequest{
 		RunID:    runID,
 		RunType:  RunTypeOutline,
 		InputRef: inputRef,
-		DueAt:    dueAt.Format(time.RFC3339Nano),
+		DueAt:    &dueAt,
 	})
 	if err != nil {
-		return StartResult{}, fmt.Errorf("marshal outline RunAccepted payload: %w", err)
+		return StartResult{}, err
 	}
 	commandPayload, err := json.Marshal(jobPayload{RunID: runID, Input: input})
 	if err != nil {
@@ -106,12 +107,7 @@ func (s *Service) Start(ctx context.Context, request StartRequest) (StartResult,
 			Status: 202,
 			Body:   responseBody,
 		},
-		Events: []event.EventDraft{{
-			Type:          "RunAccepted",
-			SchemaVersion: 1,
-			RunID:         runID,
-			Payload:       runPayload,
-		}},
+		Events: []event.EventDraft{runAccepted},
 		Commands: []event.CommandDraft{{
 			Kind:          JobKindOutlineGeneration,
 			SubjectUserID: request.UserID,

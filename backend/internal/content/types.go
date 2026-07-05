@@ -115,13 +115,6 @@ type ExerciseRuntimeResult struct {
 	Issues          []ValidationIssue `json:"issues,omitempty"`
 }
 
-type acceptedPayload struct {
-	RunID    string          `json:"run_id"`
-	RunType  string          `json:"run_type"`
-	InputRef json.RawMessage `json:"input_ref"`
-	DueAt    string          `json:"due_at,omitempty"`
-}
-
 type jobPayload struct {
 	RunID string          `json:"run_id"`
 	Input GenerationInput `json:"input"`

@@ -52,6 +52,7 @@ backend/internal/job
 
 backend/internal/run
   Reducer                 # Run 状态机投影
+  Event helpers           # RunAccepted / RunQueued / RunStarted / RunSucceeded / RunFailed / RunExpired payload 构造
 
 backend/internal/llm
   Client / ledger         # LLM 调用与账本
@@ -195,7 +196,6 @@ user_profiles
 
 ## 后续抽离顺序
 
-1. 把 run event payload 的通用字段收敛成 helper，减少 handler 手写 payload 的重复。
-2. 为 handler 增加非 LLM 执行模式，支持纯工具或无需模型的 agent job。
-3. 将 worker 指标标准化：claimed、completed、failed、stale_acked、append_failed、llm_error。
-4. 实现 `review_generation` handler，继续验证内核覆盖不同业务输出。
+1. 为 handler 增加非 LLM 执行模式，支持纯工具或无需模型的 agent job。
+2. 将 worker 指标标准化：claimed、completed、failed、stale_acked、append_failed、llm_error。
+3. 实现 `review_generation` handler，继续验证内核覆盖不同业务输出。

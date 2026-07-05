@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"lites/backend/internal/event"
+	"lites/backend/internal/run"
 )
 
 type Service struct {
@@ -89,14 +90,14 @@ func (s *Service) Start(ctx context.Context, request StartRequest) (StartResult,
 		return StartResult{}, fmt.Errorf("marshal content generation input_ref: %w", err)
 	}
 	dueAt := s.now().Add(s.runTimeout).UTC()
-	runPayload, err := json.Marshal(acceptedPayload{
+	runAccepted, err := run.AcceptedEvent(run.AcceptedEventRequest{
 		RunID:    runID,
 		RunType:  RunTypeGeneration,
 		InputRef: inputRef,
-		DueAt:    dueAt.Format(time.RFC3339Nano),
+		DueAt:    &dueAt,
 	})
 	if err != nil {
-		return StartResult{}, fmt.Errorf("marshal RunAccepted payload: %w", err)
+		return StartResult{}, err
 	}
 
 	commandPayload, err := json.Marshal(jobPayload{RunID: runID, Input: input})
@@ -127,12 +128,7 @@ func (s *Service) Start(ctx context.Context, request StartRequest) (StartResult,
 			Status: 202,
 			Body:   responseBody,
 		},
-		Events: []event.EventDraft{{
-			Type:          "RunAccepted",
-			SchemaVersion: 1,
-			RunID:         runID,
-			Payload:       runPayload,
-		}},
+		Events: []event.EventDraft{runAccepted},
 		Commands: []event.CommandDraft{{
 			Kind:          JobKindContentGeneration,
 			SubjectUserID: request.UserID,
@@ -169,13 +165,29 @@ func (s *Service) startFromCache(ctx context.Context, request StartRequest, inpu
 	if err != nil {
 		return StartResult{}, fmt.Errorf("marshal cached content generation input_ref: %w", err)
 	}
-	runPayload, err := json.Marshal(acceptedPayload{
+	runAccepted, err := run.AcceptedEvent(run.AcceptedEventRequest{
 		RunID:    runID,
 		RunType:  RunTypeGeneration,
 		InputRef: inputRef,
 	})
 	if err != nil {
-		return StartResult{}, fmt.Errorf("marshal cached RunAccepted payload: %w", err)
+		return StartResult{}, err
+	}
+	runQueued, err := run.QueuedEvent(runID, run.Fields{"cache_hit": true})
+	if err != nil {
+		return StartResult{}, err
+	}
+	runStarted, err := run.StartedEvent(runID, "", run.Fields{"cache_hit": true})
+	if err != nil {
+		return StartResult{}, err
+	}
+	runSucceeded, err := run.SucceededEvent(runID, nil, run.Fields{
+		"content_key":   cached.Artifact.ContentKey,
+		"artifact_hash": cached.ArtifactHash,
+		"cache_hit":     true,
+	})
+	if err != nil {
+		return StartResult{}, err
 	}
 	responseBody, err := json.Marshal(StartResult{
 		RunID:      runID,
@@ -208,26 +220,10 @@ func (s *Service) startFromCache(ctx context.Context, request StartRequest, inpu
 			ExpectedVersion: 0,
 		},
 		Events: []event.EventDraft{
-			{
-				Type:          "RunAccepted",
-				SchemaVersion: 1,
-				RunID:         runID,
-				Payload:       runPayload,
-			},
-			runEvent("RunQueued", runID, mustJSON(map[string]any{
-				"run_id":    runID,
-				"cache_hit": true,
-			})),
-			runEvent("RunStarted", runID, mustJSON(map[string]any{
-				"run_id":    runID,
-				"cache_hit": true,
-			})),
-			runEvent("RunSucceeded", runID, mustJSON(map[string]any{
-				"run_id":        runID,
-				"content_key":   cached.Artifact.ContentKey,
-				"artifact_hash": cached.ArtifactHash,
-				"cache_hit":     true,
-			})),
+			runAccepted,
+			runQueued,
+			runStarted,
+			runSucceeded,
 		},
 	})
 	if err != nil {

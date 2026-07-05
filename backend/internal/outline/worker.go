@@ -103,34 +103,31 @@ func (h outlineGenerationHandler) BuildAppendRequest(ctx context.Context, comple
 	}
 
 	runID := payload.RunID
-	events := []event.EventDraft{
-		runEvent(run.EventRunQueued, runID, json.RawMessage(`{}`)),
-		runEvent(run.EventRunStarted, runID, mustJSON(map[string]any{
-			"run_id":     runID,
-			"attempt_id": completion.AttemptKey,
-		})),
+	runQueued, err := run.QueuedEvent(runID, nil)
+	if err != nil {
+		return agentcore.CompletionAppend{}, err
 	}
+	runStarted, err := run.StartedEvent(runID, completion.AttemptKey, nil)
+	if err != nil {
+		return agentcore.CompletionAppend{}, err
+	}
+	events := []event.EventDraft{runQueued, runStarted}
 	if completion.Err != nil {
-		events = append(events, runEvent(run.EventRunFailed, runID, mustJSON(map[string]any{
-			"run_id":       runID,
-			"attempt_keys": []string{completion.AttemptKey},
-			"error": map[string]string{
-				"code":    "llm_error",
-				"message": truncateMessage(completion.Err.Error()),
-			},
-		})))
+		runFailed, err := run.FailedEvent(runID, []string{completion.AttemptKey}, "llm_error", truncateMessage(completion.Err.Error()), nil)
+		if err != nil {
+			return agentcore.CompletionAppend{}, err
+		}
+		events = append(events, runFailed)
 	} else {
 		generated, err := buildGeneratedOutline(payload.Input, runID, completion.Response, time.Now().UTC())
 		if err != nil {
-			events = append(events, runEvent(run.EventRunFailed, runID, mustJSON(map[string]any{
-				"run_id":        runID,
-				"attempt_keys":  []string{completion.AttemptKey},
+			runFailed, err := run.FailedEvent(runID, []string{completion.AttemptKey}, "invalid_learning_outline", truncateMessage(err.Error()), run.Fields{
 				"llm_ledger_id": completion.Response.LedgerID,
-				"error": map[string]string{
-					"code":    "invalid_learning_outline",
-					"message": truncateMessage(err.Error()),
-				},
-			})))
+			})
+			if err != nil {
+				return agentcore.CompletionAppend{}, err
+			}
+			events = append(events, runFailed)
 		} else {
 			saved, err := h.outlines.SaveOutline(ctx, SaveOutlineRequest{
 				UserID:           completion.Request.UserID,
@@ -143,13 +140,15 @@ func (h outlineGenerationHandler) BuildAppendRequest(ctx context.Context, comple
 			if err != nil {
 				return agentcore.CompletionAppend{}, err
 			}
-			events = append(events, runEvent(run.EventRunSucceeded, runID, mustJSON(map[string]any{
-				"run_id":        runID,
-				"attempt_keys":  []string{completion.AttemptKey},
+			runSucceeded, err := run.SucceededEvent(runID, []string{completion.AttemptKey}, run.Fields{
 				"llm_ledger_id": completion.Response.LedgerID,
 				"outline_id":    saved.Outline.OutlineID,
 				"task_count":    len(saved.Outline.Tasks),
-			})))
+			})
+			if err != nil {
+				return agentcore.CompletionAppend{}, err
+			}
+			events = append(events, runSucceeded)
 		}
 	}
 
@@ -175,15 +174,6 @@ func parseJobPayload(claimed job.Job) (jobPayload, error) {
 	}
 	payload.Input = input
 	return payload, nil
-}
-
-func runEvent(eventType string, runID string, payload json.RawMessage) event.EventDraft {
-	return event.EventDraft{
-		Type:          eventType,
-		SchemaVersion: 1,
-		RunID:         runID,
-		Payload:       payload,
-	}
 }
 
 func contextManifest(payload jobPayload) json.RawMessage {

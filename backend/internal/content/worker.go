@@ -115,34 +115,31 @@ func (h contentGenerationHandler) BuildAppendRequest(ctx context.Context, comple
 		return agentcore.CompletionAppend{}, err
 	}
 	runID := payload.RunID
-	events := []event.EventDraft{
-		runEvent(run.EventRunQueued, runID, json.RawMessage(`{}`)),
-		runEvent(run.EventRunStarted, runID, mustJSON(map[string]any{
-			"run_id":     runID,
-			"attempt_id": completion.AttemptKey,
-		})),
+	runQueued, err := run.QueuedEvent(runID, nil)
+	if err != nil {
+		return agentcore.CompletionAppend{}, err
 	}
+	runStarted, err := run.StartedEvent(runID, completion.AttemptKey, nil)
+	if err != nil {
+		return agentcore.CompletionAppend{}, err
+	}
+	events := []event.EventDraft{runQueued, runStarted}
 	if completion.Err != nil {
-		events = append(events, runEvent(run.EventRunFailed, runID, mustJSON(map[string]any{
-			"run_id":       runID,
-			"attempt_keys": []string{completion.AttemptKey},
-			"error": map[string]string{
-				"code":    "llm_error",
-				"message": truncateMessage(completion.Err.Error()),
-			},
-		})))
+		runFailed, err := run.FailedEvent(runID, []string{completion.AttemptKey}, "llm_error", truncateMessage(completion.Err.Error()), nil)
+		if err != nil {
+			return agentcore.CompletionAppend{}, err
+		}
+		events = append(events, runFailed)
 	} else {
 		artifact, err := buildGeneratedArtifact(payload.Input, completion.Response, time.Now().UTC())
 		if err != nil {
-			events = append(events, runEvent(run.EventRunFailed, runID, mustJSON(map[string]any{
-				"run_id":        runID,
-				"attempt_keys":  []string{completion.AttemptKey},
+			runFailed, err := run.FailedEvent(runID, []string{completion.AttemptKey}, "invalid_content_artifact", truncateMessage(err.Error()), run.Fields{
 				"llm_ledger_id": completion.Response.LedgerID,
-				"error": map[string]string{
-					"code":    "invalid_content_artifact",
-					"message": truncateMessage(err.Error()),
-				},
-			})))
+			})
+			if err != nil {
+				return agentcore.CompletionAppend{}, err
+			}
+			events = append(events, runFailed)
 		} else {
 			validation, err := h.validator.Validate(ctx, ValidationRequest{
 				Input:    payload.Input,
@@ -152,16 +149,14 @@ func (h contentGenerationHandler) BuildAppendRequest(ctx context.Context, comple
 				return agentcore.CompletionAppend{}, err
 			}
 			if !validation.Passed() {
-				events = append(events, runEvent(run.EventRunFailed, runID, mustJSON(map[string]any{
-					"run_id":        runID,
-					"attempt_keys":  []string{completion.AttemptKey},
+				runFailed, err := run.FailedEvent(runID, []string{completion.AttemptKey}, "content_validation_failed", truncateMessage(summarizeValidationIssues(validation.Issues)), run.Fields{
 					"llm_ledger_id": completion.Response.LedgerID,
 					"validation":    validation,
-					"error": map[string]string{
-						"code":    "content_validation_failed",
-						"message": truncateMessage(summarizeValidationIssues(validation.Issues)),
-					},
-				})))
+				})
+				if err != nil {
+					return agentcore.CompletionAppend{}, err
+				}
+				events = append(events, runFailed)
 			} else {
 				if validation.Attempts <= 0 {
 					validation.Attempts = 1
@@ -180,16 +175,18 @@ func (h contentGenerationHandler) BuildAppendRequest(ctx context.Context, comple
 				if err != nil {
 					return agentcore.CompletionAppend{}, err
 				}
-				events = append(events, runEvent(run.EventRunSucceeded, runID, mustJSON(map[string]any{
-					"run_id":              runID,
-					"attempt_keys":        []string{completion.AttemptKey},
+				runSucceeded, err := run.SucceededEvent(runID, []string{completion.AttemptKey}, run.Fields{
 					"llm_ledger_id":       completion.Response.LedgerID,
 					"content_key":         saved.Artifact.ContentKey,
 					"artifact_hash":       saved.ArtifactHash,
 					"review_status":       saved.ReviewStatus,
 					"validation_attempts": saved.ValidationAttempts,
 					"content_length":      len(completion.Response.Content),
-				})))
+				})
+				if err != nil {
+					return agentcore.CompletionAppend{}, err
+				}
+				events = append(events, runSucceeded)
 			}
 		}
 	}
@@ -216,15 +213,6 @@ func parseJobPayload(claimed job.Job) (jobPayload, error) {
 	}
 	payload.Input = input
 	return payload, nil
-}
-
-func runEvent(eventType string, runID string, payload json.RawMessage) event.EventDraft {
-	return event.EventDraft{
-		Type:          eventType,
-		SchemaVersion: 1,
-		RunID:         runID,
-		Payload:       payload,
-	}
 }
 
 func contextManifest(payload jobPayload) json.RawMessage {
