@@ -7,10 +7,11 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { Link, Route, Routes } from "react-router";
+import type { ContentGenerationInput, ContentGenerationRun, PublicContentArtifact } from "./contracts";
 
 const queryClient = new QueryClient();
 
-const taskSeed: GenerationInput = {
+const taskSeed: ContentGenerationInput = {
   task_template_id: "fe2agent-d01",
   target_stack: "frontend_to_agent",
   level_band: "default",
@@ -288,7 +289,7 @@ async function getHealth() {
   return requestJSON<{ status: string; service: string }>("/health");
 }
 
-async function createContentGenerationRun(input: GenerationInput) {
+async function createContentGenerationRun(input: ContentGenerationInput) {
   return requestJSON<ContentGenerationRun>("/api/content-generation-runs", {
     method: "POST",
     headers: {
@@ -329,72 +330,3 @@ function newIdempotencyKey() {
   }
   return `content-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
-
-type GenerationInput = {
-  task_id?: string;
-  task_template_id: string;
-  target_stack: string;
-  level_band: string;
-  title: string;
-  judge: string;
-  minutes: number;
-  context?: Record<string, unknown>;
-};
-
-type ContentGenerationRun = {
-  run_id: string;
-  status: "accepted" | "queued" | "executing" | "succeeded" | "failed" | string;
-  content_key?: string;
-  cache_hit?: boolean;
-  error?: {
-    code?: string;
-    message?: string;
-  };
-};
-
-type PublicContentArtifact = {
-  schema_version: number;
-  content_key: string;
-  task_template_id: string;
-  target_stack: string;
-  level_band: string;
-  content_version: number;
-  prompt_version: number;
-  review_status?: string;
-  validation_attempts?: number;
-  lesson: {
-    title: string;
-    minutes: number;
-    judge: string;
-    why?: string;
-    sections: Array<{
-      id: string;
-      title: string;
-      body_md: string;
-      runnable?: {
-        kind: "demo" | "exercise" | string;
-        demo_code?: string;
-      };
-    }>;
-    coach_note?: string;
-  };
-  exercise: {
-    language: string;
-    starter_code: string;
-    harness_version: number;
-    tests: Array<{
-      id: string;
-      call: string;
-      expect: unknown;
-      judge: boolean;
-      label: string;
-    }>;
-  };
-  meta?: {
-    created_at?: string;
-    model?: string;
-    tok_in?: number;
-    tok_out?: number;
-    validation_attempts?: number;
-  };
-};

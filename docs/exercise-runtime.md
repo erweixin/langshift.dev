@@ -22,7 +22,7 @@ ContentArtifact 里的练习部分：
 
 ```json
 {
-  "language": "js",
+  "language": "javascript",
   "starter_code": "...",
   "reference_solution": "...",       // 只用于管线校验，永不下发
   "harness_version": 1,

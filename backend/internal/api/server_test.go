@@ -159,19 +159,18 @@ func TestGetContentArtifactRedactsReferenceSolution(t *testing.T) {
 	if reader.contentKey != "content_abc" {
 		t.Fatalf("content key = %q", reader.contentKey)
 	}
-	var response map[string]any
+	var response contracts.PublicContentArtifact
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	exercise, ok := response["exercise"].(map[string]any)
-	if !ok {
-		t.Fatalf("missing exercise in response: %#v", response)
-	}
-	if _, ok := exercise["reference_solution"]; ok {
+	if strings.Contains(recorder.Body.String(), "reference_solution") {
 		t.Fatalf("reference_solution leaked: %s", recorder.Body.String())
 	}
-	if response["review_status"] != content.ReviewStatusAutoOK || response["validation_attempts"] != float64(1) {
-		t.Fatalf("validation metadata = %v/%v", response["review_status"], response["validation_attempts"])
+	if response.ReviewStatus != content.ReviewStatusAutoOK || response.ValidationAttempts != 1 {
+		t.Fatalf("validation metadata = %s/%d", response.ReviewStatus, response.ValidationAttempts)
+	}
+	if response.Exercise.StarterCode != "function f() {}" || response.Exercise.HarnessVersion != 1 {
+		t.Fatalf("public exercise = %+v", response.Exercise)
 	}
 }
 

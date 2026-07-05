@@ -15,6 +15,21 @@ type ContentArtifact struct {
 	Meta           *ContentArtifactMeta `json:"meta,omitempty"`
 }
 
+type PublicContentArtifact struct {
+	SchemaVersion      int                  `json:"schema_version"`
+	ContentKey         string               `json:"content_key"`
+	TaskTemplateID     string               `json:"task_template_id"`
+	TargetStack        string               `json:"target_stack"`
+	LevelBand          string               `json:"level_band"`
+	ContentVersion     int                  `json:"content_version"`
+	PromptVersion      int                  `json:"prompt_version"`
+	ReviewStatus       string               `json:"review_status"`
+	ValidationAttempts int                  `json:"validation_attempts"`
+	Lesson             Lesson               `json:"lesson"`
+	Exercise           PublicExercise       `json:"exercise"`
+	Meta               *ContentArtifactMeta `json:"meta,omitempty"`
+}
+
 type Lesson struct {
 	Title     string          `json:"title"`
 	Minutes   int             `json:"minutes"`
@@ -42,6 +57,13 @@ type Exercise struct {
 	ReferenceSolution string         `json:"reference_solution"`
 	HarnessVersion    int            `json:"harness_version"`
 	Tests             []ExerciseTest `json:"tests"`
+}
+
+type PublicExercise struct {
+	Language       string         `json:"language"`
+	StarterCode    string         `json:"starter_code"`
+	HarnessVersion int            `json:"harness_version"`
+	Tests          []ExerciseTest `json:"tests"`
 }
 
 type ExerciseTest struct {

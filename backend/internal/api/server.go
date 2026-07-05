@@ -225,13 +225,7 @@ func (s *Server) getContentArtifact(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	public, err := content.PublicArtifact(record)
-	if err != nil {
-		slog.Error("redact content artifact failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "get content artifact failed")
-		return
-	}
-	writeJSON(w, http.StatusOK, public)
+	writeJSON(w, http.StatusOK, content.PublicArtifact(record))
 }
 
 func (s *Server) userID(r *http.Request) (string, bool) {

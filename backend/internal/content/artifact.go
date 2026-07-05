@@ -118,22 +118,27 @@ func validateArtifact(artifact contracts.ContentArtifact) error {
 	return nil
 }
 
-func PublicArtifact(record ArtifactRecord) (map[string]any, error) {
-	encoded, err := json.Marshal(record.Artifact)
-	if err != nil {
-		return nil, fmt.Errorf("marshal public content artifact: %w", err)
+func PublicArtifact(record ArtifactRecord) contracts.PublicContentArtifact {
+	artifact := record.Artifact
+	return contracts.PublicContentArtifact{
+		SchemaVersion:      artifact.SchemaVersion,
+		ContentKey:         artifact.ContentKey,
+		TaskTemplateID:     artifact.TaskTemplateID,
+		TargetStack:        artifact.TargetStack,
+		LevelBand:          artifact.LevelBand,
+		ContentVersion:     artifact.ContentVersion,
+		PromptVersion:      artifact.PromptVersion,
+		ReviewStatus:       record.ReviewStatus,
+		ValidationAttempts: record.ValidationAttempts,
+		Lesson:             artifact.Lesson,
+		Exercise: contracts.PublicExercise{
+			Language:       artifact.Exercise.Language,
+			StarterCode:    artifact.Exercise.StarterCode,
+			HarnessVersion: artifact.Exercise.HarnessVersion,
+			Tests:          artifact.Exercise.Tests,
+		},
+		Meta: artifact.Meta,
 	}
-	var public map[string]any
-	if err := json.Unmarshal(encoded, &public); err != nil {
-		return nil, fmt.Errorf("unmarshal public content artifact: %w", err)
-	}
-	exercise, ok := public["exercise"].(map[string]any)
-	if ok {
-		delete(exercise, "reference_solution")
-	}
-	public["review_status"] = record.ReviewStatus
-	public["validation_attempts"] = record.ValidationAttempts
-	return public, nil
 }
 
 func applyArtifactCompatibility(raw []byte, input GenerationInput, artifact *contracts.ContentArtifact) {

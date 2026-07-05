@@ -444,7 +444,10 @@ export interface ContentArtifact {
     coach_note?: string;
   };
   exercise: {
-    language: "js" | "go" | "python";
+    /**
+     * v0 browser runtime supports JavaScript/TypeScript aliases; Go/Python move to the server sandbox phase.
+     */
+    language: "javascript" | "typescript" | "js" | "ts";
     starter_code: string;
     /**
      * 校验闭环必需物（定稿前必须真跑通全部测试），存储必填；仅服务端使用，下发投影中剥离
