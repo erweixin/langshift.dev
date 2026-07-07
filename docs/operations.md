@@ -99,6 +99,8 @@ Metrics 只使用低基数维度。低基数的意思是“取值种类有限”
 | API commit 成功但响应丢失 | 相同 idempotency key 返回原 run |
 | Publisher 发出 command 后、标记 published 前崩溃 | command 重复投递，consumer inbox 去重 |
 | 两个 ToolWorker 同时完成 | 两个 ToolCall 事实都保留，只有一个 Run continuation |
+| ToolWorker 用旧 run_version 尝试 join | Join 在事务内重读当前 Run version；不得留下永久 `skipped` continuation |
+| join 与 cancel 同时提交 | 不因 `event_cursors` 与 Run 反向锁序死锁；若 PostgreSQL 返回 `40P01`，短事务用新状态重试 |
 | 工具副作用成功、Worker 写结果前崩溃 | 对账或幂等键防止盲目重做 |
 | lease 过期、旧 Worker 恢复 | fence 不匹配，不能推进 Run |
 | Run cancel 与 ToolCall completed 同时提交 | ToolCall 事实可保留，但 Run 不恢复执行 |

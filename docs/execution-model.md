@@ -129,7 +129,8 @@ LLM / 业务错误和基础设施错误的处理方向相反：前者应收敛�
 | 位置 | 例子 | 处理 |
 | --- | --- | --- |
 | payload / 请求构建失败 | job payload 无法解析、缺关键字段 | fail 当前 job，按策略重试或进入死信 |
-| LLM 返回错误 | provider error、预算拒绝 | 追加 `RunFailed` 业务事件，run 收敛到失败 |
+| LLM Gateway 返回终局错误 | fallback 耗尽后的 provider error、不可修正请求、内容过滤 | 追加 `RunFailed` 业务事件，run 收敛到失败 |
+| LLM Gateway 返回等待类错误 | `rate_limited`、可等待的 provider 容量不足 | 按 `Retry-After` 或策略延迟重试；超过 run deadline / 预算后才收敛为终态 |
 | 业务输出无效 | 结构化输出不合法、validator 不通过 | 追加 `RunFailed` 业务事件 |
 | 业务落库失败 | artifact 存储失败 | fail 当前 job，稍后重试 |
 | Run CAS 冲突 | 另一个执行体已推进 run | fence-only ack，不再改 run |
@@ -237,15 +238,18 @@ join 由完成 ToolCall 的 ToolWorker 在同一事务内判定，不额外引�
 
 1. ToolWorker 先用 `tool_call_version` CAS 写入自己的 ToolCall 结果。
 2. 锁定 `parallel_group` 行：`SELECT ... FOR UPDATE`。
-3. 在锁保护下读取 group 内所有 ToolCall 的当前状态并判断 join。
-4. 如果满足，创建 `continuation` 的 `preparing` 记录作为唯一占位，意思是“我准备续跑，但还没真正发出命令”。
-5. 用 `run_version` CAS 将 Run 从 `waiting_tool` 推进到 `executing`。
-6. 只有 Run CAS 成功，才把 continuation 标记为 `committed` 并写入 `ResumeAgentRun` outbox。
-7. 如果 Run CAS 失败，把 continuation 标记为 `skipped`，不写 outbox，避免错误续跑。
+3. 在锁保护下读取 group 内所有 ToolCall 的当前已提交状态并判断 join。
+4. 如果满足，锁定当前 Run 行，在同一事务中读取 `current_run_version`、`status` 和 `cancel_requested_at`。
+5. 只有 Run 仍是 `waiting_tool` 且未取消，才创建 `continuation` 的 `preparing` 记录。
+6. 用刚刚读取的 `current_run_version` CAS 将 Run 从 `waiting_tool` 推进到 `executing`。
+7. 只有 Run CAS 成功，才把 continuation 标记为 `committed` 并写入 `ResumeAgentRun` outbox。
+8. 如果 Run 已取消、过期或不再等待工具，不创建 continuation；只记录 ToolCall 结果事实。CAS 在锁内仍失败时视为可重试的数据库竞争，不得留下唯一键占位阻止后续 join。
 
 ```sql
 -- ToolWorker 完成事务（伪 SQL）
 BEGIN;
+  -- EventService 写事务使用 READ COMMITTED。
+
   UPDATE tool_calls
   SET    status = $terminal_status,
          tool_call_version = tool_call_version + 1,
@@ -257,8 +261,6 @@ BEGIN;
   AND    $worker_fence >= current_fence_token;
   -- 0 rows: 版本或 fence 过期，attempt 变为旧尝试
 
-  INSERT INTO events (...) VALUES (...);
-
   SELECT * FROM parallel_groups
   WHERE  tenant_id = $tenant_id
   AND    run_id = $run_id
@@ -268,41 +270,55 @@ BEGIN;
   -- 在锁内计算 join_satisfied 与 group_outcome。
 
   IF join_satisfied THEN
-    INSERT INTO continuations (
-      tenant_id, run_id, group_id, continuation_kind, status
-    )
-    VALUES ($tenant_id, $run_id, $group_id, 'resume', 'preparing')
-    ON CONFLICT DO NOTHING
-    RETURNING continuation_id INTO $continuation_id;
+    SELECT run_version, status, cancel_requested_at
+    INTO   $current_run_version, $run_status, $cancel_requested_at
+    FROM   runs
+    WHERE  tenant_id = $tenant_id
+    AND    run_id = $run_id
+    FOR UPDATE;
 
-    IF $continuation_id IS NOT NULL THEN
-      UPDATE runs
-      SET    status = 'executing',
-             run_version = run_version + 1
-      WHERE  tenant_id = $tenant_id
-      AND    run_id = $run_id
-      AND    status = 'waiting_tool'
-      AND    cancel_requested_at IS NULL
-      AND    run_version = $expected_run_version
-      RETURNING run_id INTO $advanced_run_id;
+    IF $run_status = 'waiting_tool' AND $cancel_requested_at IS NULL THEN
+      INSERT INTO continuations (
+        tenant_id, run_id, group_id, continuation_kind, status
+      )
+      VALUES ($tenant_id, $run_id, $group_id, 'resume', 'preparing')
+      ON CONFLICT DO NOTHING
+      RETURNING continuation_id INTO $continuation_id;
 
-      IF $advanced_run_id IS NOT NULL THEN
-        UPDATE continuations
-        SET status = 'committed'
-        WHERE continuation_id = $continuation_id;
+      IF $continuation_id IS NOT NULL THEN
+        UPDATE runs
+        SET    status = 'executing',
+               run_version = run_version + 1
+        WHERE  tenant_id = $tenant_id
+        AND    run_id = $run_id
+        AND    status = 'waiting_tool'
+        AND    cancel_requested_at IS NULL
+        AND    run_version = $current_run_version
+        RETURNING run_id INTO $advanced_run_id;
 
-        INSERT INTO outbox (...) VALUES (...); -- ResumeAgentRun
-      ELSE
-        UPDATE continuations
-        SET status = 'skipped', reason = 'run_cas_failed_or_cancelled'
-        WHERE continuation_id = $continuation_id;
+        IF $advanced_run_id IS NOT NULL THEN
+          UPDATE continuations
+          SET status = 'committed'
+          WHERE continuation_id = $continuation_id;
+
+          $emit_resume_agent_run = true;
+        ELSE
+          RAISE retryable_concurrency_error;
+        END IF;
       END IF;
     END IF;
+  END IF;
+
+  -- 所有业务状态行和协调行处理完后，再锁 event_cursors 分配 seq。
+  INSERT INTO events (...) VALUES (...);
+
+  IF $emit_resume_agent_run THEN
+    INSERT INTO outbox (...) VALUES (...); -- ResumeAgentRun
   END IF;
 COMMIT;
 ```
 
-`FOR UPDATE` 防止两个 Worker 都只看到自己的完成结果而放弃 join。`UNIQUE (tenant_id, run_id, parallel_group_id, continuation_kind)` 是第二道防线，防止异常路径产生重复续跑。
+`FOR UPDATE` 防止两个 Worker 都只看到自己的完成结果而放弃 join。`current_run_version` 必须在锁定 `parallel_group` 之后、同一事务内从 `runs` 读取，不能使用 ToolWorker 领取任务时看到的旧版本。`UNIQUE (tenant_id, run_id, parallel_group_id, continuation_kind)` 是第二道防线，防止异常路径产生重复续跑；它不能被 stale run version 造成的 `skipped` 行永久占住。
 
 ## 示例：两个 ToolWorker 同时完成
 

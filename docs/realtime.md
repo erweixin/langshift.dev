@@ -29,6 +29,17 @@
 - RealtimeGateway 可以发送重复事件，客户端必须按 `seq` 去重。
 - Gateway 检测到 `seq` gap 时，主动回源 EventStore 补拉。gap 检测只在用户级未过滤流上进行：按 conversation 过滤后的流天然存在 `seq` 空洞（同一用户其他会话、后台 run 也消耗 seq），不作为 gap 依据。
 
+## 多观察者与审批订阅
+
+user-scoped `seq` 是“某个认证用户可见通知流”的游标，不是 Run 的全局游标。一个 Run 被多人观察时，不能让审批人使用发起人的 `seq`。
+
+Baseline 规则：
+
+- 每个观察者维护自己的 `last_seen_seq`，只对自己有权限看到的事件或通知去重。
+- 需要把某个 Run 推给审批人、reviewer 或 team member 时，系统为该观察者生成可见通知，通知进入观察者自己的 user-scoped `seq`。
+- 审批人打开详情页后，后端按 `run_id` / `conversation_id` 做 ACL 检查并补拉 canonical events；排序使用事件的 `event_id` / `created_at` / 因果字段，不能依赖发起人的 `seq`。
+- 若未来要提供多人共享的严格实时游标，应新增 conversation-scoped 或 run-scoped stream；不要把 user-scoped `seq` 偷换成跨用户顺序。
+
 ## 无竞态重连协议
 
 消除“补拉与订阅之间的空窗”：网关先订阅并临时缓冲新消息，再读取当前最大序号 `H`。`H` 就是一条分界线：`H` 之前的从数据库补，`H` 之后的从实时缓冲继续发。
@@ -76,7 +87,7 @@ RealtimeGateway 不保存业务状态。它可以保存短期连接状态、订�
 
 - `AssistantMessageFinalized` / `ChatTurnLogged`
 - `message_id` 或 artifact 引用
-- `attempt_key`（关联 `llm_ledger` 行）
-- `context_manifest` 引用（在 `llm_ledger`）
+- `attempt_key`（关联 `llm_attempts` 行）
+- `context_manifest` 引用（在 `llm_attempts`）
 
 如果 token 流中断，客户端用 `GET /api/runs/{run_id}/stream?after_seq=...` 从 `run_message_chunks` 补拉短期缺口。超出保留窗口后只能回到最终 assistant message 或 artifact；EventStore 不承担 token 级 replay。

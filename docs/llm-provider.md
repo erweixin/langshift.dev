@@ -122,9 +122,9 @@ llm_response
 
 - 逻辑模型引用解析后的目标模型或候选模型。
 - 本次调用使用的模型参数、工具 schema 版本、policy 版本和上下文来源。
-- `attempt_key` 作为引用，关联到具体的 `llm_ledger` / `llm_attempt` 记录。
+- `attempt_key` 作为引用，关联到具体的 `llm_attempts` 记录。
 
-调用完成后的 Provider、实际模型、usage、cost、fallback、错误和响应摘要写入 `llm_ledger` / `llm_attempt`，不反向改写 `context_manifest`。这样事后既能回答"模型当时看到了什么"，也能回答"实际由哪个 Provider 和模型完成调用"。
+调用完成后的 Provider、实际模型、usage、cost、fallback、错误和响应摘要写入 `llm_attempts`，不反向改写 `context_manifest`。这样事后既能回答"模型当时看到了什么"，也能回答"实际由哪个 Provider 和模型完成调用"。
 
 ## Provider Registry
 
@@ -287,6 +287,13 @@ Provider 返回的错误种类繁多，Adapter 将它们映射到统一分类，
 | `timeout` | 响应超时 | 连接超时、读超时 | 尝试其他 Provider，注意不能确认 Provider 是否已消费 token |
 | `invalid_request` | 请求格式错误 | 400 + validation error | 不重试，返回给 AgentWorker 修正 |
 
+Gateway 与 Run 状态机的边界：
+
+- `rate_limited` 和可等待的容量不足优先在 Gateway / Scheduler 层等待或换 Provider，不直接写 `RunFailed`。
+- `provider_error`、`model_unavailable` 和 `timeout` 先按 fallback chain 尝试候选；候选耗尽后才把终局错误返回 AgentWorker。
+- `budget_exceeded` 表示本次调用在准入阶段被拒绝。AgentWorker 按 Run 的预算策略收敛：达到 `max_cost` 时写 `RunExpired`，不是 provider 失败。
+- `invalid_request`、不可恢复的 `content_filtered` 或 fallback 耗尽后的终局错误，才由 AgentWorker 追加 `RunFailed`。
+
 ### 新增 Provider
 
 新增一个 Provider 需要：
@@ -334,7 +341,7 @@ model_fallback（示例）
 
 - **同模型跨 Provider**：自动触发，对 AgentWorker 透明。降级事实记录在 `llm_response.route_decision` 中。
 - **跨模型降级**：需要租户策略允许。有些场景不能降级（例如需要特定模型能力），此时返回 `model_unavailable` 让 AgentWorker 决定。
-- **降级不是无限重试**：每次 `llm_attempt` 最多尝试 `max_fallback_attempts` 个候选（默认 3），全部失败则返回错误。
+- **降级不是无限重试**：每次 `llm_attempts` 记录最多尝试 `max_fallback_attempts` 个候选（默认 3），全部失败则返回错误。
 - **降级记录**：`llm_response` 中标记 `fallback_attempted = true` 和 `fallback_from`，进入 EventStore 和 metrics。
 
 ### Provider 健康检测
@@ -414,7 +421,7 @@ LLM 调用是平台最大的可变成本。成本追踪贯穿调用全过程：
 1. 从 Provider 响应中提取实际 token 用量
 2. 按 Provider 当前费率计算实际成本
 3. settle 预留：释放 estimated - actual 的差额
-4. 成本写入 llm_attempt 记录：
+4. 成本写入 `llm_attempts` 记录：
    - attempt_key
    - actual_provider
    - actual_model_id
@@ -449,7 +456,7 @@ pricing_entry
   - effective_until                    # null 表示当前生效
 ```
 
-成本计算总是使用 `llm_attempt` 发生时刻对应的费率版本，不回溯修改历史成本。
+成本计算总是使用 `llm_attempts` 发生时刻对应的费率版本，不回溯修改历史成本。
 
 ## 流式输出
 
@@ -568,7 +575,7 @@ LLM 调用的 metrics 使用低基数维度（与 [operations.md](./operations.m
 | Provider Adapter | 每个 Provider 一个实现 | 插件化 adapter |
 | Rate Limiter | 进程内滑动窗口 | 分布式速率限制（Redis） |
 | Health Check | 基于调用结果的滑动窗口 | 独立健康检查 + 告警 |
-| Cost Tracker | EventStore 中的 llm_attempt 记录 | 独立计费服务 |
+| Cost Tracker | EventStore 中的 `llm_attempts` 记录 | 独立计费服务 |
 | 费率管理 | 配置文件 | 费率管理 API + Provider 费率自动同步 |
 
 Lite v1 优先支持 1-2 个 Provider（例如 Anthropic + OpenAI），验证 Adapter 接口和路由逻辑。Provider 数量增长后，再考虑插件化和独立部署。

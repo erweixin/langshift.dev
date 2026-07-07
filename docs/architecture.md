@@ -22,7 +22,6 @@ Lites 是一个 Lite-first 的 Cloud Agent 平台设计：首版可以用 Postgr
 | [multi-tenancy-and-security.md](./multi-tenancy-and-security.md) | 13 | 租户隔离、权限模型、数据保留、删除与 Repair Command API |
 | [operations.md](./operations.md) | 14 | Sweeper、可观测性、故障注入与不变量测试 |
 | [capacity-and-scaling.md](./capacity-and-scaling.md) | 15 | 部署替换路径、负载向量、规模化就绪标准 |
-| [roadmap.md](./roadmap.md) | 16 | 技术演进顺序 |
 
 ## 问题、决策与风险
 
@@ -179,7 +178,7 @@ Outbox、Scheduler、MQ 是逻辑角色，不要求首版引入独立 MQ。只�
 - `tool_call_id` / `tool_call_version`：ToolCall 聚合及其 CAS 令牌。
 - `event_id` / `seq`：事件唯一标识与 user 内提交顺序。
 - `command_id`：命令稳定 id，用于 inbox 去重。
-- `attempt_id` / `attempt_key`：Worker 尝试与模型调用尝试（`attempt_key` 即 `llm_ledger.attempt_key`，每次模型调用尝试唯一）。
+- `attempt_id` / `attempt_key`：Worker 尝试与模型调用尝试（`attempt_key` 即 `llm_attempts.attempt_key`，每次模型调用尝试唯一）。
 - `effect_key`：外部副作用幂等键。
 - `correlation_id` / `causation_id`：因果链路。
 - `request_id`：API 请求 trace id。
@@ -189,6 +188,21 @@ Outbox、Scheduler、MQ 是逻辑角色，不要求首版引入独立 MQ。只�
 - `store_epoch`：EventStore 恢复代次。
 
 `seq` 只代表提交顺序，不代表因果顺序，也不是并发控制令牌。因果由 `causation_id` / `parent_event_id` 表达；并发控制由 `run_version` 和 `tool_call_version` 承担。
+
+## 会话级并发语义
+
+Baseline 中，一个 conversation 同一时间只有一个前台 active Run。active Run 指 `accepted`、`queued`、`executing`、`waiting_tool`、`waiting_child` 或 `waiting_approval` 中尚未终态的根 Run；该 Run 发起的 child Run 不计入新的用户轮次。
+
+用户在 active Run 存在时再次发送消息，API 必须显式选择一种模式，不能隐式注入正在执行的 Run：
+
+| 模式 | 行为 | 适用场景 |
+| --- | --- | --- |
+| `enqueue`（默认） | 记录用户消息和 `RunPending` / `UserTurnQueued`，等当前根 Run 终态后再创建下一 Run | 普通聊天与连续任务 |
+| `interrupt` | 对当前根 Run 发起 cancel，并在取消收敛后基于新消息创建 replacement Run | 用户明确改主意或要求停止当前任务 |
+| `feedback` | 只允许当前 Run 处于 `waiting_approval` / checkpoint 时使用，把用户输入作为审批反馈恢复 Run | 阶段检查点、协作编辑、人类接管 |
+| `parallel_background` | 只允许产品明确标记的后台 Run；不得写同一 workspace，且实时展示上必须区分 | 后台索引、长耗时只读分析 |
+
+因此“新消息到达”不是 Run 状态机里的隐藏转换。它要么排队成下一轮，要么通过 Cancel API 明确中断，要么作为 approval feedback 进入已有等待点。
 
 ## 请求流程
 

@@ -92,6 +92,7 @@ min(
 - Realtime fanout 会受连接数、消息大小、慢连接和补拉 QPS 影响。fanout 就是一条事件要推给多少连接。
 - Runtime cold start 和活跃 session 数通常与 API QPS 无关，需要独立建模。
 - Artifact 大文件读写可能绕过数据库成为主瓶颈。
+- `outcome_unknown` 会阻塞 `all` join，直到对账收敛为成功、失败或人工裁定。交互式工具应把 `reconcile_after` 设得足够短，并在容量规划里单独观察 unknown backlog 和 join wait time。
 
 ## 规模化就绪检查清单
 

@@ -25,7 +25,6 @@ implementation.
 | 12 | [multi-tenancy-and-security.md](./multi-tenancy-and-security.md) | Tenant isolation, permissions, data retention, deletion, and repair commands |
 | 13 | [operations.md](./operations.md) | Sweeper behavior, observability, fault injection, and invariant tests |
 | 14 | [capacity-and-scaling.md](./capacity-and-scaling.md) | Load vectors, scaling paths, and readiness standards |
-| 15 | [roadmap.md](./roadmap.md) | Technical evolution order |
 
 ## UX Prototype
 

@@ -56,10 +56,50 @@ append_request
 2. 读取当前 `store_epoch`，拒绝低于当前 epoch 的 command。
 3. 校验写入者权限、租户归属、状态转换和幂等信息。
 4. 对目标聚合做条件更新：Run 用 `run_version`，ToolCall 用 `tool_call_version`，command/inbox/effect 用唯一键。
-5. 锁定 `event_cursors(user_id)` 行，按事件数量原子分配连续 `seq`。
-6. 插入事件，事件携带 `store_epoch`、`seq`、因果字段和 schema version。
-7. 插入 outbox rows、realtime notification rows、audit rows、idempotency response。
-8. 提交事务。事务提交后 publisher 才能发布实时通知或 command。
+5. 如转换需要 join、审批 policy 或父子 Run 协调，先锁定这些协调行并读取当前聚合版本。
+6. 锁定 `event_cursors(user_id)` 行，按事件数量原子分配连续 `seq`。
+7. 插入事件，事件携带 `store_epoch`、`seq`、因果字段和 schema version。
+8. 插入 outbox rows、realtime notification rows、audit rows、idempotency response。
+9. 提交事务。事务提交后 publisher 才能发布实时通知或 command。
+
+### 事务隔离与锁顺序纪律
+
+EventService 写事务使用 PostgreSQL `READ COMMITTED`。Join、审批和 child group 检查依赖“拿到协调行锁后重新读取其他成员的最新已提交状态”；不要在这些写路径上使用 `REPEATABLE READ` 快照。
+
+所有写事务遵守下面的锁顺序：
+
+1. 幂等、inbox、effect ledger 等去重键。
+2. 当前命令直接推进的业务聚合行，例如 `runs` 或 `tool_calls`。
+3. 协调行，例如 `parallel_groups`、`approval_groups`、`child_groups`、`continuations`。
+4. 需要被协调推进的父聚合行，例如 join 满足后锁父 `runs` 行。
+5. `event_cursors(user_id)`。
+6. `events`、`outbox`、`jobs`、notification、audit 和 idempotency response 写入。
+
+`event_cursors` 必须在所有业务状态行和协调行之后锁定。任何流程都不能先分配 `seq` 再回头更新 Run 或 ToolCall；否则 join 与 cancel、approval 与 timeout 这类路径会形成反向锁序。
+
+如果 PostgreSQL 返回 deadlock detected (`40P01`) 或 serialization failure (`40001`)，EventService 可以重试整个短事务，并且重试必须重新读取当前状态和版本。Worker 不得因此重放外部 I/O；外部效果已经发生时，只重试“提交结果到 EventStore”的短事务，仍受 fence、effect ledger 和版本检查保护。
+
+## 数据模型总览
+
+表结构可以随实现细化，但语义边界应保持如下划分：
+
+| 表 / 投影 | 语义归属 | 关键规则 |
+| --- | --- | --- |
+| `events` | 不可变事实日志 | 带 `tenant_id`、`user_id`、`seq`、`store_epoch`、因果字段和 schema version |
+| `runs` | Run 当前状态投影 | 只由 Run 状态转换更新；`run_version` 是 CAS 令牌 |
+| `tool_calls` | ToolCall 当前状态投影 | 只由 ToolCall 状态转换更新；`tool_call_version` 是 CAS 令牌 |
+| `parallel_groups` / `child_groups` | join 协调行 | join 检查必须 `SELECT ... FOR UPDATE` 后读取成员状态 |
+| `continuations` | 恢复命令唯一占位 | `committed` 才能对应 outbox；不得用旧版本造成永久 `skipped` 占位 |
+| `outbox` | 待发布 command | 至少一次发布；不代表业务执行成功 |
+| `inbox` | command 消费去重 | `UNIQUE (tenant_id, consumer_name, command_id)` |
+| `jobs` / `job_attempts` | Lite 队列与执行尝试 | attempt 记录执行过程；业务状态仍在 Run / ToolCall |
+| `tool_effects` | 外部副作用 ledger | 用 `effect_key`、请求摘要和 provider id 支撑幂等与对账 |
+| `event_cursors` | user-scoped `seq` 分配 | 只做提交顺序和补拉游标，不做业务 CAS |
+| `run_messages` | 最终消息投影 | 保存最终 assistant/user message 或 artifact 引用 |
+| `run_message_chunks` | token / delta 短期流日志 | run-scoped cursor，有 TTL；不是 EventStore 事实源 |
+| `llm_attempts` | LLM 调用 ledger | `attempt_key`、Provider、模型、usage、cost、fallback 和错误 |
+| `memory_documents` | Memory 可重建投影 | 写入来源必须有 `MemoryUpserted` / `MemoryDeleted` 事件 |
+| `snapshots` | replay 优化 | 可丢弃重建；不能成为唯一事实源 |
 
 通用错误结果：
 

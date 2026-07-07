@@ -56,9 +56,15 @@ child_run_fields（在 Run 基础上新增）
 
 ### 发起子 Run 的流程
 
-父 Agent 通过一个平台内置工具 `spawn_agent_run` 来发起子 Run。这个工具和普通工具一样经过 schema 校验、权限检查和 guardrail 评估，区别在于它的 handler 不在 sandbox 里跑代码，也不先排队给 ToolWorker 再创建子 Run。它的执行效果是一条 EventService 状态转换：记录这次 spawn 工具调用，并在同一事务里创建子 Run。
+父 Agent 通过一个平台内置工具 `spawn_agent_run` 来发起子 Run。这个工具和普通工具一样经过 schema 校验、权限检查和 guardrail 评估，区别在于它的 handler 不在 sandbox 里跑代码，也不先排队给 ToolWorker 再创建子 Run。它是 **inline platform tool**：EventService 在同一事务里创建一条已成功的 ToolCall 记录，并创建子 Run。
 
-关键规则：父 Run 进入 `waiting_child`、创建 `child_group`、创建 Child Run、分配预算、写入 `StartAgentRun` outbox，必须由 EventService 在同一个数据库事务中提交。不能先让父 Run 等待，再异步去创建子 Run；否则中间崩溃会留下一个永远等不到结果的父 Run。
+关键规则：父 Run 进入 `waiting_child`、创建 `child_group`、创建 `spawn_tool_call_id` 对应的 ToolCall（直接 `succeeded`）、创建 Child Run、分配预算、写入 `StartAgentRun` outbox，必须由 EventService 在同一个数据库事务中提交。不能先让父 Run 等待，再异步去创建子 Run；否则中间崩溃会留下一个永远等不到结果的父 Run。
+
+`spawn_agent_run` 的 ToolCall 生命周期使用 [state-machines.md](./state-machines.md) 中的 `InlinePlatformToolCommitted` 转换：
+
+- 不产生 `ExecuteToolCall` command，也不经过 ToolWorker claim。
+- `tool_call_version` 初始化为 1，`status = succeeded`，`result_event_id` 指向 `ChildRunSpawned` / `ToolCallSucceeded` 事件。
+- 如果父 Run 的 `run_version` CAS 失败，整笔事务失败；不能留下 child Run 或预算划拨。
 
 ```text
 spawn_agent_run 工具的 input_schema
@@ -84,7 +90,7 @@ sequenceDiagram
   participant C as 子 AgentWorker
 
   P->>ES: append SpawnAgentRun + run_version CAS
-  Note over ES: 同一事务内：父 Run → waiting_child<br/>创建 child_group<br/>创建 Child Run<br/>扣减父预算<br/>写 StartAgentRun outbox
+  Note over ES: 同一事务内：父 Run → waiting_child<br/>spawn ToolCall → succeeded<br/>创建 child_group 和 Child Run<br/>扣减父预算<br/>写 StartAgentRun outbox
   ES->>Q: StartAgentRun(子)
   Q->>C: 子 AgentWorker 领取
 
@@ -110,7 +116,7 @@ stateDiagram-v2
   executing --> waiting_child: SpawnAgentRun（一个或多个子 Run）
   waiting_child --> executing: 子 Run 全部完成或满足 join 条件
   waiting_tool --> executing: ResumeAgentRun
-  waiting_approval --> executing: approved
+  waiting_approval --> executing: approved / feedback / revise
   executing --> succeeded
   executing --> failed
   state "cancelled / expired" as terminal
@@ -423,7 +429,7 @@ workspace_merge
 
 ## 复杂 Human-in-the-Loop 模式
 
-现有的 `waiting_approval` 支持单次"是/否"审批。在编排场景中，人机协作的需求更复杂。
+`waiting_approval` 是“Run 暂停等待可信人类输入”的状态，不只表示危险工具的 yes/no。不同 approval kind 支持不同决策集合：普通危险工具审批只支持 approve / reject；阶段检查点可以支持 approve / approve_with_feedback / revise / abort。
 
 ### 阶段检查点（Stage Checkpoint）
 
@@ -451,6 +457,15 @@ checkpoint_request
 - 审批人可以选择"继续但带反馈"——不是简单的 yes/no，而是把意见传给下一阶段。
 - 审批人可以选择"回退重做"——当前阶段重新执行，带上新的要求。
 - 审批界面不只展示"要不要执行这个工具"，而是展示阶段性成果和下一步计划。
+
+决策映射：
+
+| 决策 | Run 转换 | 语义 |
+| --- | --- | --- |
+| `approve` | `waiting_approval -> executing` | 继续下一阶段 |
+| `approve_with_feedback` | `waiting_approval -> executing` | 继续下一阶段，feedback 进入下一次 LLM 上下文 |
+| `revise` | `waiting_approval -> executing` | 回到当前阶段重做，revision 要求进入上下文；不表示拒绝整个 Run |
+| `abort` | `waiting_approval -> cancelled` | 终止整个编排 |
 
 ### 协作编辑（Collaborative Editing）
 
@@ -545,7 +560,7 @@ Agent Profile 的来源和 Tool 类似（见 [tool-system.md](./tool-system.md)�
 
 | 事件 | 时机 | 关键字段 |
 | --- | --- | --- |
-| `ChildRunSpawned` | 父 Run 创建子 Run | `parent_run_id`, `child_run_id`, `agent_profile`, `budget` |
+| `ChildRunSpawned` | 父 Run 创建子 Run | `parent_run_id`, `child_run_id`, `spawn_tool_call_id`, `agent_profile`, `budget` |
 | `ChildRunCompleted` | 子 Run 进入终态 | `child_run_id`, `terminal_status`, `result_summary` |
 | `ChildGroupJoined` | 子 Run 组满足 join 条件 | `group_id`, `join_policy`, `completed_children[]` |
 | `BudgetTransferred` | 预算从父到子或回收 | `from_run_id`, `to_run_id`, `amount`, `direction` |
@@ -652,7 +667,7 @@ context_manifest.orchestration
 | Agent 无限递归 spawn 子 Run | `max_depth` 限制阻止，超出后 spawn 工具调用被拒绝 |
 | 子 Run 的 result_summary 包含注入指令 | 父 Run 的 guardrail 将其标为 `external_untrusted`，不提升为授权来源 |
 | 检查点审批超时 | Sweeper 按策略处理：自动通过（低风险）、自动拒绝（高风险）或升级 |
-| 预算用尽但子 Run 正在执行 LLM 调用 | LLM Gateway 拒绝新调用；当前调用完成后子 Run 进入 failed |
+| 预算用尽但子 Run 正在执行 LLM 调用 | LLM Gateway 拒绝新调用；当前调用完成后，下一次预算检查让子 Run 按 `max_cost` 进入 `expired` |
 
 ---
 
@@ -664,7 +679,7 @@ context_manifest.orchestration
 | `waiting_child` | Run 状态机新增一个状态，join 逻辑复用 `parallel_group` | 独立编排引擎 |
 | Agent Profile | 配置表 + system prompt 模板，随代码部署 | Profile Registry + 版本管理服务 |
 | Workspace 合并 | 仅支持串行写和只读模式；Copy-on-Write 留后续 | 基于 git 的分支合并 |
-| 阶段检查点 | 复用 `waiting_approval` + 扩展审批选项 | 独立检查点服务 |
+| 阶段检查点 | 复用 `waiting_approval`，但用 approval kind 限定 approve / feedback / revise / abort | 独立检查点服务 |
 | 协作编辑 | 用户通过 API 提交修改 + feedback 恢复 Run | 实时协同编辑集成 |
 | 编排可视化 | 只提供 API 查询编排树 | 图形化编排设计器 |
 | 递归保护 | `max_depth` + 并发子 Run 上限 | 动态资源调度 |
