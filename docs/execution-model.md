@@ -103,6 +103,38 @@ ToolWorker 职责：
 - 通过 effect ledger 和 `tool_call_version` CAS 写入成功、失败或 `outcome_unknown`。
 - 在同一事务中执行 join 检查；满足时尝试推进 Run。
 
+## 执行内核与业务边界
+
+不同业务 Agent 复用的是“可靠执行能力”，不是同一份 prompt、validator 或输出表。run 生命周期、job lease、fence、attempt、幂等和事件追加属于执行内核；业务逻辑只通过 handler 插入两个点：
+
+```text
+handler 合约
+- job_kinds[]        # 声明消费哪些 job kind
+- 构建执行请求        # 解析业务 payload，产出 LLM 请求或工具执行计划；只读，不写库
+- 解释执行结果        # 把成功 / 失败转成业务事件，给出目标 run 与期望版本
+```
+
+内核在提交时补上 actor、fence 和 Run CAS 信息。业务 handler 不接触 fence，也不自己确认 job 完成；这两件事留在内核里，业务 Agent 才不会各自复制一遍最容易出错的生命周期代码。术语上注意区分：业务领域的 task 是领域任务，内核的 job 是执行队列任务，二者不混用。
+
+### 结果提交与消费确认的原子性
+
+Worker 成功时，写结果事件和登记“这条 command 已处理”必须在同一个数据库事务中提交——Lite v1 中即同事务 ack job 行；引入外部 MQ 后即同事务写 inbox，MQ ack 在事务提交后进行。拆开会产生两类事故：先确认后写事件，崩溃后已花钱的执行结果永久丢失；先写事件后确认，崩溃后 command 重投、同一结果被重复解释。
+
+Run CAS 冲突（例如 Sweeper 或另一次 attempt 已推进 run）时，Worker 不重放业务写入，而是做 fence-only ack：只确认当前 job 结束，不改变 run 状态，本次 attempt 记为旧尝试。
+
+### 错误分类
+
+LLM / 业务错误和基础设施错误的处理方向相反：前者应收敛成 run 的失败事件，后者应让 job 保持可重试。
+
+| 位置 | 例子 | 处理 |
+| --- | --- | --- |
+| payload / 请求构建失败 | job payload 无法解析、缺关键字段 | fail 当前 job，按策略重试或进入死信 |
+| LLM 返回错误 | provider error、预算拒绝 | 追加 `RunFailed` 业务事件，run 收敛到失败 |
+| 业务输出无效 | 结构化输出不合法、validator 不通过 | 追加 `RunFailed` 业务事件 |
+| 业务落库失败 | artifact 存储失败 | fail 当前 job，稍后重试 |
+| Run CAS 冲突 | 另一个执行体已推进 run | fence-only ack，不再改 run |
+| append 基础设施失败 | DB 错误、fence 无效 | fail 当前 job |
+
 ## 副作用能力接口
 
 每个工具必须先说明“失败后能不能安全重试”。这比只暴露一个 handler 更重要，因为不同工具的失败后果完全不同：读文件可以重试，创建外部资源就不能盲目重试。

@@ -35,13 +35,13 @@ flowchart LR
   Sweep["Sweeper / Repair API<br/>超时 / 对账 / 人工裁定"]
 
   User --> API --> ES --> DB
-  ES --> Queue
+  ES -->|"outbox after-commit 发布"| Queue
   Queue --> Agent
   Agent -->|"事件 + outbox"| ES
   Queue --> Tool
   Tool --> Runtime --> Tool
   Tool -->|"结果事件"| ES
-  ES --> RT --> User
+  ES -->|"after-commit 通知"| RT --> User
   Sweep --> ES
 ```
 
@@ -241,16 +241,7 @@ flowchart LR
 
 ## 部署视角
 
-Lite v1 建议用四类进程开始：
-
-| 进程 | 包含内容 | 为什么这样放 |
-| --- | --- | --- |
-| Control Plane | Gateway、Conversation API、EventService、Scheduler、Sweeper、Repair API | 共享事务和状态机，减少跨服务一致性问题 |
-| Realtime Gateway | SSE/WebSocket、cursor 补拉、连接治理 | 连接生命周期和 API/Worker 不同，便于独立扩缩 |
-| Agent Worker Pool | Agent step、Context Builder、LLM Gateway 调用 | 受模型延迟和 provider 配额影响，需要独立池 |
-| Tool / Runtime Plane | ToolWorker、RuntimeManager、Sandbox | 接触文件、网络和 secret，必须是独立安全域 |
-
-基础设施从 PostgreSQL、Redis Pub/Sub、S3/MinIO、Secrets provider 和 OpenTelemetry collector 起步。替换基础设施前，先确认现有语义契约已经被测试覆盖。
+Lite v1 的四类进程划分（Control Plane、Realtime Gateway、Agent Worker Pool、Tool / Runtime Plane）、基础设施起步组合和替换路径以 [capacity-and-scaling.md](./capacity-and-scaling.md) 为准；逻辑职责与部署形态的对应见 [architecture.md](./architecture.md)。替换基础设施前，先确认现有语义契约已经被测试覆盖。
 
 ## 给开发者的实现规则
 

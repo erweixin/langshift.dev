@@ -23,10 +23,12 @@
 
 架构边界不等于网络服务边界。首版建议控制在四类应用进程：
 
-1. **Control Plane（模块化单体）**：Gateway、Conversation API、EventService、状态机、Permission、Quota、Scheduler、Timer / Sweeper、Repair API。
-2. **Realtime Gateway**：SSE/WebSocket、鉴权、缓冲、cursor 补拉。
-3. **Agent Worker Pool**：Agent step、Context Builder、LLM Gateway。
-4. **Tool / Runtime Plane**：ToolWorker 与 RuntimeManager，独立进程和独立安全域。
+| 进程 | 包含内容 | 为什么这样放 |
+| --- | --- | --- |
+| Control Plane（模块化单体） | Gateway、Conversation API、EventService、状态机、Permission、Quota、Scheduler、Timer / Sweeper、Repair API | 共享事务和状态机，减少跨服务一致性问题 |
+| Realtime Gateway | SSE/WebSocket、鉴权、缓冲、cursor 补拉、连接治理 | 连接生命周期和 API/Worker 不同，便于独立扩缩 |
+| Agent Worker Pool | Agent step、Context Builder、LLM Gateway | 受模型延迟和 provider 配额影响，需要独立池 |
+| Tool / Runtime Plane | ToolWorker、RuntimeManager、Sandbox | 接触文件、网络和 secret，必须是独立安全域 |
 
 基础设施保持 PostgreSQL + Redis Pub/Sub + S3/MinIO + Secrets provider + OpenTelemetry collector。PostgreSQL job queue 足以表达 Lite v1 的队列语义，并能保持“事件、投影、命令”在同一个事务里写入。
 
@@ -34,6 +36,8 @@
 
 | 关注点 | Lite v1 | 生产替换 |
 | --- | --- | --- |
+| Control Plane | 模块化单体 | 按瓶颈拆独立服务 |
+| Agent Worker Pool | 单一 worker pool | 按模型/provider/优先级拆池 |
 | EventStore | PostgreSQL | 分区 PostgreSQL 或分片事件存储 |
 | Outbox | PostgreSQL 表 | PostgreSQL outbox + 独立 publisher fleet |
 | Queue | PostgreSQL jobs (`SKIP LOCKED`) | Redis Streams、Kafka 或 NATS JetStream，按语义契约替换 |

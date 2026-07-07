@@ -11,19 +11,18 @@ Lites 是一个 Lite-first 的 Cloud Agent 平台设计：首版可以用 Postgr
 | [end-to-end-flow.md](./end-to-end-flow.md) | 2 | 端到端组件职责、数据流、任务执行序列、失败路径与部署视角 |
 | [state-machines.md](./state-machines.md) | 3 | Run / ToolCall / Command 的状态转换表、取消语义、不变量 |
 | [concurrency-and-durability.md](./concurrency-and-durability.md) | 4 | EventStore、append 合约、两级 CAS、`seq`、outbox/inbox、`store_epoch`、snapshot |
-| [execution-model.md](./execution-model.md) | 5 | 队列调度、Worker 短事务、副作用能力、effect ledger、LLM 调用、并行 join |
-| [agent-execution-kernel.md](./agent-execution-kernel.md) | 6 | 可靠 run/job/worker 内核边界、handler 合约、LLM attempt 与 fence 语义 |
-| [agent-safety-and-guardrails.md](./agent-safety-and-guardrails.md) | 7 | Agent 安全边界、prompt injection 防护、工具准入、审批、输出检查与红队场景 |
-| [tool-system.md](./tool-system.md) | 8 | 工具声明、注册、发现、版本管理、Schema 校验与生命周期 |
-| [memory.md](./memory.md) | 9 | 记忆层次、存储、写入时机、向量检索、召回、淘汰与租户隔离 |
-| [llm-provider.md](./llm-provider.md) | 10 | LLM 统一接口、Provider 适配、模型路由、降级熔断与成本追踪 |
-| [orchestration-patterns.md](./orchestration-patterns.md) | 11 | 多 Agent 编排、Child Run、委派/监督/流水线/分治、阶段检查点与人机协作 |
-| [realtime.md](./realtime.md) | 12 | 实时通道、无竞态重连、慢消费者、权限变化、LLM token 流 |
-| [runtime-and-sandbox.md](./runtime-and-sandbox.md) | 13 | runtime 威胁模型、隔离等级、secret broker（受控代发服务）、workspace 单写者 |
-| [multi-tenancy-and-security.md](./multi-tenancy-and-security.md) | 14 | 租户隔离、权限模型、数据保留、删除与 Repair Command API |
-| [operations.md](./operations.md) | 15 | Sweeper、可观测性、故障注入与不变量测试 |
-| [capacity-and-scaling.md](./capacity-and-scaling.md) | 16 | 部署替换路径、负载向量、规模化就绪标准 |
-| [roadmap.md](./roadmap.md) | 17 | 技术演进顺序 |
+| [execution-model.md](./execution-model.md) | 5 | 队列调度、Worker 短事务、执行内核与 handler 边界、副作用能力、effect ledger、LLM 调用、并行 join |
+| [agent-safety-and-guardrails.md](./agent-safety-and-guardrails.md) | 6 | Agent 安全边界、prompt injection 防护、工具准入、审批、输出检查与红队场景 |
+| [tool-system.md](./tool-system.md) | 7 | 工具声明、注册、发现、版本管理、Schema 校验与生命周期 |
+| [memory.md](./memory.md) | 8 | 记忆层次、存储、写入时机、向量检索、召回、淘汰与租户隔离 |
+| [llm-provider.md](./llm-provider.md) | 9 | LLM 统一接口、Provider 适配、模型路由、降级熔断与成本追踪 |
+| [orchestration-patterns.md](./orchestration-patterns.md) | 10 | 多 Agent 编排、Child Run、委派/监督/流水线/分治、阶段检查点与人机协作 |
+| [realtime.md](./realtime.md) | 11 | 实时通道、无竞态重连、慢消费者、权限变化、LLM token 流 |
+| [runtime-and-sandbox.md](./runtime-and-sandbox.md) | 12 | runtime 威胁模型、隔离等级、secret broker（受控代发服务）、workspace 单写者 |
+| [multi-tenancy-and-security.md](./multi-tenancy-and-security.md) | 13 | 租户隔离、权限模型、数据保留、删除与 Repair Command API |
+| [operations.md](./operations.md) | 14 | Sweeper、可观测性、故障注入与不变量测试 |
+| [capacity-and-scaling.md](./capacity-and-scaling.md) | 15 | 部署替换路径、负载向量、规模化就绪标准 |
+| [roadmap.md](./roadmap.md) | 16 | 技术演进顺序 |
 
 ## 问题、决策与风险
 
@@ -153,35 +152,22 @@ flowchart TD
 
 ## Lite v1 部署形态
 
-| 逻辑职责 | Lite v1 建议形态 | 可替换方向 |
-| --- | --- | --- |
-| Gateway、Conversation、Event Service、Permission、Quota、Scheduler、Sweeper、Repair API | 一个 Control Plane 模块化单体 | 按瓶颈拆独立服务 |
-| Command Queue | PostgreSQL jobs + `SKIP LOCKED` | Redis Streams、Kafka、NATS JetStream |
-| Outbox Publisher | Control Plane 内后台循环或小型 publisher 进程 | 独立 publisher fleet |
-| Realtime | SSE/WebSocket Gateway + Redis Pub/Sub | 托管 Pub/Sub 或 NATS |
-| AgentWorker | 独立 worker pool | 按模型/provider/优先级拆池 |
-| ToolWorker + RuntimeManager | 独立安全域 | K8s、microVM、隔离节点 |
-| Workspace / Artifact | 本地卷、MinIO 或 S3-compatible store | 隔离持久卷或对象存储 workspace |
-| Memory | PostgreSQL 表或轻量索引 | 向量数据库或托管 RAG |
+| 逻辑职责 | Lite v1 建议形态 |
+| --- | --- |
+| Gateway、Conversation、Event Service、Permission、Quota、Scheduler、Sweeper、Repair API | 一个 Control Plane 模块化单体 |
+| Command Queue | PostgreSQL jobs + `SKIP LOCKED` |
+| Outbox Publisher | Control Plane 内后台循环或小型 publisher 进程 |
+| Realtime | SSE/WebSocket Gateway + Redis Pub/Sub |
+| AgentWorker | 独立 worker pool |
+| ToolWorker + RuntimeManager | 独立安全域 |
+| Workspace / Artifact | 本地卷、MinIO 或 S3-compatible store |
+| Memory | PostgreSQL 表或轻量索引 |
 
-Outbox、Scheduler、MQ 是逻辑角色，不要求首版引入独立 MQ。只要保留 enqueue、lease/claim、ack、retry、timeout、dead-letter、去重和 backpressure 语义，PostgreSQL jobs 可以作为 Lite v1 的队列实现。
+Outbox、Scheduler、MQ 是逻辑角色，不要求首版引入独立 MQ。只要保留 enqueue、lease/claim、ack、retry、timeout、dead-letter、去重和 backpressure 语义，PostgreSQL jobs 可以作为 Lite v1 的队列实现。进程划分和各组件的生产替换路径以 [capacity-and-scaling.md](./capacity-and-scaling.md) 为准。
 
 ## 负载向量
 
-不要用一个“万级”标签概括所有规模。需要分别描述：
-
-- `C_conn`：同时存在的 SSE/WebSocket 连接。
-- `R_api`：API 请求数/秒。
-- `R_event`：持久事件写入数/秒。
-- `N_run`：活跃 Agent run。
-- `N_llm`：并发模型调用。
-- `N_runtime`：活跃 sandbox/runtime session。
-- `T_token`：每秒生成或处理的 token。
-- `B_artifact`：artifact 与 workspace 的读写带宽。
-- `D_retention`：每日事件、日志、artifact 增量。
-- `S_hot`：单一热点 tenant、user 或 conversation 的负载。
-
-“1 万在线连接”和“1 万同时运行的 sandbox”是两种完全不同的系统压力，必须分别容量规划和压测。
+不要用一个“万级”标签概括所有规模。“1 万在线连接”和“1 万同时运行的 sandbox”是两种完全不同的系统压力，必须分别容量规划和压测。完整的负载向量定义（连接数、事件写入、活跃 run、并发模型调用、runtime session、token 吞吐、热点 tenant/user/conversation 等）以 [capacity-and-scaling.md](./capacity-and-scaling.md) 为准。
 
 ## 核心标识
 

@@ -14,19 +14,18 @@ implementation.
 | 1 | [end-to-end-flow.md](./end-to-end-flow.md) | Component responsibilities, data flow, execution sequence, and failure paths |
 | 2 | [state-machines.md](./state-machines.md) | Run, ToolCall, and Command state transitions and invariants |
 | 3 | [concurrency-and-durability.md](./concurrency-and-durability.md) | EventStore, append contract, CAS, outbox/inbox, and recovery semantics |
-| 4 | [execution-model.md](./execution-model.md) | Queue scheduling, worker transactions, effects, LLM calls, and joins |
-| 5 | [agent-execution-kernel.md](./agent-execution-kernel.md) | Reliable run/job/worker kernel boundaries and handler contract |
-| 6 | [agent-safety-and-guardrails.md](./agent-safety-and-guardrails.md) | Agent safety, tool approval, prompt-injection defense, and output checks |
-| 7 | [tool-system.md](./tool-system.md) | Tool descriptors, registration, discovery, versioning, and lifecycle |
+| 4 | [execution-model.md](./execution-model.md) | Queue scheduling, worker transactions, kernel/handler boundary, effects, LLM calls, and joins |
+| 5 | [agent-safety-and-guardrails.md](./agent-safety-and-guardrails.md) | Agent safety, tool approval, prompt-injection defense, and output checks |
+| 6 | [tool-system.md](./tool-system.md) | Tool descriptors, registration, discovery, versioning, and lifecycle |
+| 7 | [memory.md](./memory.md) | Memory tiers, storage, retrieval, pruning, and tenant isolation |
 | 8 | [llm-provider.md](./llm-provider.md) | Provider interface, routing, fallback, circuit breaking, and cost tracking |
-| 9 | [memory.md](./memory.md) | Memory tiers, storage, retrieval, pruning, and tenant isolation |
-| 10 | [orchestration-patterns.md](./orchestration-patterns.md) | Multi-agent delegation, supervision, pipelines, and checkpoints |
-| 11 | [realtime.md](./realtime.md) | Realtime delivery, reconnection, slow consumers, and token streaming |
-| 12 | [runtime-and-sandbox.md](./runtime-and-sandbox.md) | Runtime threat model, isolation tiers, secret broker, and workspace ownership |
-| 13 | [multi-tenancy-and-security.md](./multi-tenancy-and-security.md) | Tenant isolation, permissions, data retention, deletion, and repair commands |
-| 14 | [operations.md](./operations.md) | Sweeper behavior, observability, fault injection, and invariant tests |
-| 15 | [capacity-and-scaling.md](./capacity-and-scaling.md) | Load vectors, scaling paths, and readiness standards |
-| 16 | [roadmap.md](./roadmap.md) | Technical evolution order |
+| 9 | [orchestration-patterns.md](./orchestration-patterns.md) | Multi-agent delegation, supervision, pipelines, and checkpoints |
+| 10 | [realtime.md](./realtime.md) | Realtime delivery, reconnection, slow consumers, and token streaming |
+| 11 | [runtime-and-sandbox.md](./runtime-and-sandbox.md) | Runtime threat model, isolation tiers, secret broker, and workspace ownership |
+| 12 | [multi-tenancy-and-security.md](./multi-tenancy-and-security.md) | Tenant isolation, permissions, data retention, deletion, and repair commands |
+| 13 | [operations.md](./operations.md) | Sweeper behavior, observability, fault injection, and invariant tests |
+| 14 | [capacity-and-scaling.md](./capacity-and-scaling.md) | Load vectors, scaling paths, and readiness standards |
+| 15 | [roadmap.md](./roadmap.md) | Technical evolution order |
 
 ## UX Prototype
 
