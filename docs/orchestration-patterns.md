@@ -1,6 +1,6 @@
 # Agent 编排模式
 
-> 本文档是 [architecture.md](./architecture.md) 的子文档，定义多 Agent 协作、层级编排、工作流和复杂人机协作的模式与机制。单 Run 生命周期见 [state-machines.md](./state-machines.md)；Worker 执行与并行 join 见 [execution-model.md](./execution-model.md)。
+> 本文档解释多个 Agent 怎么协作。核心做法不是引入另一套工作流系统，而是在现有 Run 之上增加 Child Run：父 Run 派出子 Run，等待结果，再继续推进。单 Run 生命周期见 [state-machines.md](./state-machines.md)，Worker 执行与并行 join 见 [execution-model.md](./execution-model.md)。
 
 ## 问题、决策与风险
 
@@ -8,7 +8,7 @@
 
 **决策**：在现有 Run 原语之上引入 **Child Run**（子 Run）作为多 Agent 编排的基本单元。父 Run 可以发起子 Run，子 Run 独立执行、独立有状态机和 CAS 版本，完成后结果回传父 Run。所有编排模式——委派、监督、DAG 工作流、人机协作——都建立在 Run 之间的父子关系上，复用现有的 EventStore、状态机、CAS 和调度机制。
 
-本文把 `waiting_child` 视为核心 Run 状态机的正式扩展，状态口径以 [state-machines.md](./state-machines.md) 为准。Lite v1 不要求一次实现所有模式，先跑通“父 Run 创建子 Run、等待子 Run、恢复父 Run”这条链路即可。
+本文把 `waiting_child` 视为核心 Run 状态机的正式扩展，状态口径以 [state-machines.md](./state-machines.md) 为准。Child Run、child group join、取消传播、预算划拨、权限不升级和结果审查都是生产基线语义。
 
 **为什么不引入独立的"工作流引擎"**：独立引擎意味着一套新的状态管理、新的持久化、新的并发控制和新的恢复语义。Lites 已经有 EventStore、CAS、outbox/inbox、Sweeper 和 Repair API。编排应该是这些原语的组合，不是一套平行系统。
 
@@ -24,7 +24,7 @@
 
 ## 先用白话说
 
-可以把父 Run 理解成一个项目经理，Child Run 是它派出去的小任务。
+可以把父 Run 理解成一个项目经理，Child Run 是它派出去的小任务。父 Run 不需要把所有事都塞进自己的上下文窗口，而是把明确的小任务交给更合适的子 Agent。
 
 - 父 Run 负责拆任务、分预算、限制权限、等待结果。
 - 子 Run 负责独立完成某个明确的小任务，比如“审查这段代码”或“分析这个模块”。
@@ -671,20 +671,20 @@ context_manifest.orchestration
 
 ---
 
-## Lite v1 实现建议
+## 生产基线
 
-| 能力 | Lite v1 做法 | 可替换方向 |
-| --- | --- | --- |
-| Child Run | 复用现有 Run 创建流程 + `parent_run_id` 字段 | 专用编排调度器 |
-| `waiting_child` | Run 状态机新增一个状态，join 逻辑复用 `parallel_group` | 独立编排引擎 |
-| Agent Profile | 配置表 + system prompt 模板，随代码部署 | Profile Registry + 版本管理服务 |
-| Workspace 合并 | 仅支持串行写和只读模式；Copy-on-Write 留后续 | 基于 git 的分支合并 |
-| 阶段检查点 | 复用 `waiting_approval`，但用 approval kind 限定 approve / feedback / revise / abort | 独立检查点服务 |
-| 协作编辑 | 用户通过 API 提交修改 + feedback 恢复 Run | 实时协同编辑集成 |
-| 编排可视化 | 只提供 API 查询编排树 | 图形化编排设计器 |
-| 递归保护 | `max_depth` + 并发子 Run 上限 | 动态资源调度 |
+| 能力 | 基线要求 |
+| --- | --- |
+| Child Run | 复用 Run 创建流程，记录 `parent_run_id`、`root_run_id`、`depth`、`spawn_tool_call_id` 和预算 |
+| `waiting_child` | Run 状态机正式状态；join 逻辑复用 `parallel_group` / `child_group` 语义 |
+| Agent Profile | Profile Registry 版本化 system prompt、tool policy、model、workspace 权限、预算和审批策略 |
+| Workspace 合并 | 支持串行写、分区写、只读和 copy-on-write；并行写冲突必须显式 merge / approval |
+| 阶段检查点 | 复用 `waiting_approval`，用 approval kind 限定 approve / feedback / revise / abort |
+| 协作编辑 | 人类修改通过 API / workspace lease 进入事件链，feedback 恢复 Run 时记录 revision 和 diff |
+| 编排可视化 | 提供 orchestration tree 查询，展示父子 Run、状态、预算、权限和等待点 |
+| 递归保护 | `max_depth`、并发子 Run 上限、预算递减、相似任务检测和租户资源闸门 |
 
-Lite v1 的核心是把 Child Run 和 `waiting_child` 跑通。不需要一开始就支持所有编排模式——委派和流水线是最常用的，先做这两个。监督和分治并行的 join 机制已经有 `parallel_group` 可以复用。层级式编排是前几种模式的组合，不需要额外机制。
+编排模式可以按产品场景启用，但不能为某种模式另建一套状态机或持久化系统。委派、监督、分治、流水线和 human-in-the-loop 都必须复用 Run、Child Run、EventStore、CAS、outbox/inbox、预算和 guardrail 原语。
 
 ---
 
@@ -699,7 +699,7 @@ Lite v1 的核心是把 Child Run 和 `waiting_child` 跑通。不需要一开�
 - [concurrency-and-durability.md](./concurrency-and-durability.md)：定义 CAS 和 EventStore 合约；本文的所有编排状态都走相同合约。
 - [operations.md](./operations.md)：定义 Sweeper；本文补充编排相关的巡检任务。
 
-## Do / Don't
+## 应该 / 避免
 
 | 应该 | 不应该 |
 | --- | --- |
@@ -710,4 +710,4 @@ Lite v1 的核心是把 Child Run 和 `waiting_child` 跑通。不需要一开�
 | 预算从父到子划拨，用完回收 | 每个子 Run 独立计费，总成本无人管 |
 | 阶段检查点展示完整产出和下一步计划 | 检查点只弹"继续吗？" |
 | 编排状态存 EventStore | 编排状态存另一个独立系统 |
-| Lite v1 先跑通委派和流水线 | 第一版就实现所有编排模式 |
+| 用同一组 Run / Child Run 原语承载不同编排模式 | 为每种模式另建一套状态机或持久化系统 |

@@ -1,6 +1,6 @@
 # Runtime 与 Sandbox
 
-> 本文档是 [architecture.md](./architecture.md) 的子文档，定义代码执行环境、workspace 修改和 sandbox 安全边界。
+> 本文档解释代码和工具在哪里执行、怎么隔离、怎么安全改 workspace，以及 secret 为什么不能随便进入 sandbox。
 
 ## 问题、决策与风险
 
@@ -18,6 +18,15 @@
 | 通过 broker（受控代发服务）发送敏感请求 | 把长期原始 secret 注入 sandbox |
 | 每次工具输出 workspace revision 和 diff hash | 只记录“工具成功” |
 | 单写者修改 workspace | 让多个工具同时写同一 revision |
+
+## 先用白话说
+
+Runtime session 可以丢，workspace revision 和 artifact 不能丢。也就是说：
+
+- sandbox 只是临时执行环境，不是事实源。
+- 工具真正留下来的结果，是文件变更、artifact 引用、hash、diff 和事件。
+- 不可信代码默认不能访问网络和 secret。
+- 同一个 workspace 同时只能有一个写入者，避免并发覆盖。
 
 ## 威胁模型与边界
 

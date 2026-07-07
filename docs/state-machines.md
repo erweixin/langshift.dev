@@ -1,6 +1,6 @@
 # 核心状态机与不变量
 
-> 本文档是 [architecture.md](./architecture.md) 的子文档，定义 Run、ToolCall 和 Command 的合法转换。多 Agent 编排中的 `waiting_child` 也是 Run 状态机的一部分，具体编排模式见 [orchestration-patterns.md](./orchestration-patterns.md)。
+> 本文档定义 Run、ToolCall 和 Command 能怎么变。可以把它当成“状态交通规则”：哪些路能走，走之前要检查什么，走完要写哪些事件。多 Agent 编排里的 `waiting_child` 也是 Run 状态机的一部分，具体模式见 [orchestration-patterns.md](./orchestration-patterns.md)。
 
 ## 问题、决策与风险
 
@@ -26,6 +26,18 @@
 | 把取消传播给正在运行的执行体 | 只把 DB 状态改成 cancelled |
 | 把迟到结果记录为事实或旧尝试 | 用迟到结果恢复已取消 run |
 | 通过 Repair Command API 修复终态 | 直接改终态 run state |
+
+## 怎么读转换表
+
+每张转换表都按同一套问题展开：
+
+- **当前状态**：对象现在在哪里。
+- **触发方**：是谁想推动它往前走。
+- **允许条件**：什么时候可以走这一步。
+- **检查什么**：用哪个版本、fence 或唯一键防并发写错。
+- **写入什么**：状态变化后必须留下哪些事件和投影。
+- **发出什么命令**：是否需要异步唤醒 Worker。
+- **如果失败**：版本过期、重复投递或权限不够时怎么收敛。
 
 ## Run 状态机
 
@@ -84,7 +96,7 @@ stateDiagram-v2
 | 任一非终态 | Cancel API | 调用者有权限；run 还不是终态 | `run_version` | 设置 `cancel_requested`；没有执行体在跑时可直接 `cancelled` | `RuntimeTerminationRequested` / 取消工具命令 | 如果已终态，直接返回当前状态 |
 | 任一非终态 | Timer / Sweeper | 到了 `due_at`；没有合法 Worker 还能继续推进 | `run_version` | `expired`、`RunExpired` | 需要时终止 runtime | 版本过期说明 Worker 或取消先赢 |
 
-**Run 不变量**：每个 `run_version` 最多产生一个可执行的下一步。`succeeded`、`failed`、`cancelled`、`expired` 是终态，普通流程不能再推进。
+**Run 不变量**：每个 `run_version` 最多产生一个可执行的下一步。`succeeded`、`failed`、`cancelled`、`expired` 是终态，普通流程不能再推进。需要修复时创建新事件或 replacement run，不直接篡改终态。
 
 ## 取消语义
 

@@ -1,6 +1,6 @@
 # 端到端架构与任务执行流程
 
-> 本文档是 [architecture.md](./architecture.md) 的补充入口，用一条完整任务解释组件职责、数据流、执行步骤和典型失败路径。详细状态转换见 [state-machines.md](./state-machines.md)，持久化合约见 [concurrency-and-durability.md](./concurrency-and-durability.md)，Worker 细节见 [execution-model.md](./execution-model.md)。
+> 本文档用一条完整任务说明系统怎么跑起来。想先看全局模型，请读 [architecture.md](./architecture.md)；想查状态怎么转，读 [state-machines.md](./state-machines.md)；想查数据库写入规则，读 [concurrency-and-durability.md](./concurrency-and-durability.md)；想查 Worker 怎么执行，读 [execution-model.md](./execution-model.md)。
 
 ## 为什么需要端到端视角
 
@@ -15,11 +15,11 @@ Cloud Agent 任务通常不是一次同步调用。一个“帮我修复这个 B
 - 推送实时 token 和状态。
 - 在 Worker 崩溃、用户取消或工具超时后恢复。
 
-如果只看单个组件，很容易把系统误解成“API 收请求，Worker 跑完后写结果”。这个模型无法解释重复投递、取消竞态、外部副作用未知、实时断线补拉和人工修复。端到端设计的关键是：所有组件都通过 EventStore 交接事实和下一步命令。
+如果只看单个组件，很容易把系统误解成“API 收请求，Worker 跑完后写结果”。这个说法太粗，会漏掉重复投递、取消竞态、外部副作用未知、实时断线补拉和人工修复。端到端设计的关键是：所有组件都通过 EventStore 交接事实和下一步命令。
 
-## 一句话架构
+## 一句话说明
 
-Lites Cloud Agent 是一个以 EventStore 为事实源的异步 Agent 执行平台。API 负责受理，EventService 负责状态推进，Worker 负责执行一步，Runtime 负责隔离副作用，Realtime 负责通知，Sweeper 和 Repair API 负责异常收敛。
+Lites Cloud Agent 是一个以 EventStore 为事实源的异步 Agent 执行平台。简单说：API 只负责受理，EventService 负责记账和推进状态，Worker 每次只执行一步，Runtime 隔离文件和外部副作用，Realtime 只负责通知，Sweeper 和 Repair API 负责把异常情况收敛回来。
 
 ```mermaid
 flowchart LR
@@ -45,7 +45,7 @@ flowchart LR
   Sweep --> ES
 ```
 
-这张图里的箭头不是网络拓扑，而是职责方向。Lite v1 可以把 API、EventService、Scheduler 和 Sweeper 放在一个 Control Plane 进程里，只要代码边界和写入规则清楚。
+这张图里的箭头不是网络拓扑，而是职责方向。部署可以合并进程，但 API、EventService、Scheduler、Sweeper 和 Runtime 的责任边界、安全边界与写入规则必须保持清楚。
 
 ## 组件职责
 
@@ -190,7 +190,7 @@ flowchart TD
 
 ## 失败路径
 
-失败路径不是异常补丁，而是架构的一部分。下面这些场景在 v1 就要定义清楚。
+失败路径不是异常补丁，而是架构的一部分。下面这些场景在生产基线就要定义清楚。
 
 | 场景 | 系统行为 | 依赖的机制 |
 | --- | --- | --- |
@@ -241,9 +241,9 @@ flowchart LR
 
 ## 部署视角
 
-Lite v1 的四类进程划分（Control Plane、Realtime Gateway、Agent Worker Pool、Tool / Runtime Plane）、基础设施起步组合和替换路径以 [capacity-and-scaling.md](./capacity-and-scaling.md) 为准；逻辑职责与部署形态的对应见 [architecture.md](./architecture.md)。替换基础设施前，先确认现有语义契约已经被测试覆盖。
+生产部署基线、各平面的扩缩方式和容量验收标准以 [capacity-and-scaling.md](./capacity-and-scaling.md) 为准；逻辑职责与部署形态的对应见 [architecture.md](./architecture.md)。任何基础设施变更前，都要确认现有语义契约已经被测试覆盖。
 
-## 给开发者的实现规则
+## 落地规则
 
 - API handler 不跑长任务，只写事件和 command。
 - 所有状态推进走 EventService，不直接 update 投影表。

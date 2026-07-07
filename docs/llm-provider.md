@@ -1,6 +1,6 @@
 # LLM Provider 抽象：模型接入、路由、降级与成本
 
-> 本文档是 [architecture.md](./architecture.md) 的子文档，定义 LLM 调用的统一接口、多 Provider 管理、模型路由、降级策略和成本追踪。LLM 调用在 Worker 中的执行位置见 [execution-model.md](./execution-model.md)；token 流式推送见 [realtime.md](./realtime.md)。
+> 本文档解释模型怎么接入平台：AgentWorker 不直接绑死某个 Provider，而是通过 LLM Gateway 统一调用、路由、降级、限流和记录成本。LLM 调用在 Worker 中的位置见 [execution-model.md](./execution-model.md)，token 流式推送见 [realtime.md](./realtime.md)。
 
 ## 问题、决策与风险
 
@@ -19,9 +19,20 @@
 | 每次调用记录 `attempt_key`、Provider、模型版本和成本 | 只记录"调用成功"，不记录是哪个 Provider 响应的 |
 | Provider 限流和业务重试分层处理 | 把 429 当成普通错误走同一个 retry 队列 |
 
+## 先用白话说
+
+LLM Gateway 像一个“模型调度台”：
+
+- AgentWorker 说清楚自己需要什么能力，例如强推理、快速回复、代码生成或 embedding。
+- Gateway 根据租户策略、模型能力、Provider 健康度、速率限制和预算，选择具体 Provider 和模型。
+- Provider 出问题时，Gateway 按规则尝试同模型换 Provider，或在允许时换到替代模型。
+- 每次调用都写下 `attempt_key`、实际 Provider、实际模型、token、成本和 fallback 事实。
+
+这样业务代码不用到处写 Provider SDK，也能在模型升级、限流、宕机和涨价时集中处理。
+
 ## LLM Gateway 在架构中的位置
 
-LLM Gateway 是 AgentWorker 内部的调用层，不是独立的网络服务。Lite v1 中它是一个模块；当 Provider 数量或并发量增长后，可以拆成独立 proxy。
+LLM Gateway 是 AgentWorker 与 Provider 之间的生产基线逻辑层。它可以与 AgentWorker 同进程部署，也可以作为独立 proxy 服务，但接口、路由、限流、成本、审计和 fallback 语义必须独立定义。
 
 ```text
 AgentWorker
@@ -565,22 +576,23 @@ LLM 调用的 metrics 使用低基数维度（与 [operations.md](./operations.m
 | `llm_concurrent_requests` | 当前并发调用数（gauge，按 provider） |
 | `llm_budget_exceeded_total` | 预算不足拒绝次数（counter） |
 
-## Lite v1 实现建议
+## 生产基线
 
-| 组件 | Lite v1 建议 | 可替换方向 |
-| --- | --- | --- |
-| LLM Gateway | AgentWorker 内模块 | 独立 LLM Proxy 服务 |
-| Provider Registry | 配置文件 + 数据库表 | 管理 API + 动态配置 |
-| Model Router | 配置驱动的简单路由 | 基于实时指标的自适应路由 |
-| Provider Adapter | 每个 Provider 一个实现 | 插件化 adapter |
-| Rate Limiter | 进程内滑动窗口 | 分布式速率限制（Redis） |
-| Health Check | 基于调用结果的滑动窗口 | 独立健康检查 + 告警 |
-| Cost Tracker | EventStore 中的 `llm_attempts` 记录 | 独立计费服务 |
-| 费率管理 | 配置文件 | 费率管理 API + Provider 费率自动同步 |
+| 组件 | 基线要求 |
+| --- | --- |
+| LLM Gateway | 统一接口、Provider adapter、stream 适配、错误分类、成本记录和审计 |
+| Provider Registry | 版本化 Provider / model / pricing 配置；支持状态、region、能力、合规和 sunset |
+| Model Router | 基于租户策略、能力约束、数据驻留、预算、健康度和速率余量选择模型 |
+| Provider Adapter | 每个 Provider 一个协议适配层；统一 request/response/tool/stream/error/usage 格式 |
+| Rate Limiter | Provider 级、tenant 级和系统级并发/请求/token 闸门 |
+| Health Check | 基于实际调用的滑动窗口、熔断、half-open 探测和告警 |
+| Cost Tracker | `llm_attempts` 记录 attempt、provider、model、usage、pricing_version、fallback 和成本 |
+| 费率管理 | 费率带 `effective_from` / `effective_until`，历史成本不回溯改写 |
+| 合规路由 | 请求携带数据分类、区域、保留和训练使用约束；fallback 不能越过租户合规边界 |
 
-Lite v1 优先支持 1-2 个 Provider（例如 Anthropic + OpenAI），验证 Adapter 接口和路由逻辑。Provider 数量增长后，再考虑插件化和独立部署。
+Provider 数量可以逐步增加，但每个新增 Provider 必须通过 adapter、路由、限流、成本、审计、数据处理和故障演练验收后才能进入生产候选。
 
-## Do / Don't
+## 应该 / 避免
 
 | 应该 | 不应该 |
 | --- | --- |

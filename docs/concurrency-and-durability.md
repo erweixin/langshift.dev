@@ -1,12 +1,12 @@
 # EventStore、乐观并发与持久化
 
-> 本文档是 [architecture.md](./architecture.md) 的子文档，定义持久化模型、append 合约、并发控制和恢复边界。
+> 本文档定义“怎么把事实安全写进数据库”。重点不是表名，而是写入顺序、版本检查、重复投递去重，以及数据库恢复后的保护边界。
 
 ## 问题、决策与风险
 
 **问题**：多个 API 请求、Worker、Sweeper 和 Repair API 会同时追加事实。如果只靠唯一键或 `seq`，只能防重复编号，不能防止两个旧决策同时推进同一个 Run。
 
-**决策**：PostgreSQL 是 Lite 架构的持久化核心。EventStore 保存编排事实、聚合状态、outbox、inbox、attempt、effect ledger、审计、snapshot 引用和恢复代次。所有状态推进都走同一个“记账入口”：先检查权限和版本，再把事件、状态和下一步命令一起写入事务。
+**决策**：具备强事务、条件写和租户隔离能力的数据库是 EventStore 持久化核心，PostgreSQL 是默认实现选择。EventStore 保存编排事实、聚合状态、outbox、inbox、attempt、effect ledger、审计、snapshot 引用和恢复代次。所有状态推进都走同一个“记账入口”：先检查权限和版本，再把事件、状态和下一步命令一起写入事务。
 
 **为什么不简单用 `seq` 或全局锁**：`seq` 是 user 内提交顺序，不代表某个 Run 或 ToolCall 的当前状态；全局锁会把无关 run、无关 tool call 和用户新消息全部阻塞。
 
@@ -19,6 +19,18 @@
 | 对重复 command 用 inbox 去重 | 假设 publisher 不会重复发布 |
 | 按时间点恢复数据库后递增 `store_epoch` | 接受旧 epoch 的 command |
 
+## 先用白话说
+
+EventStore 像一本不能随便涂改的账本。每次系统要推进状态，都不是“改一下 status”这么简单，而是要同时完成几件事：
+
+1. 检查写入者有没有权限、是不是拿着最新版本。
+2. 写下已经发生的事实，也就是 event。
+3. 更新当前状态投影，方便快速查询。
+4. 如果还要继续异步执行，把下一步 command 写进 outbox。
+5. 把实时通知、审计和幂等响应一起落库。
+
+这些动作必须在同一个数据库事务里完成。事务提交后，外部发布器才能把 command 或通知发出去。
+
 ## 持久化边界
 
 EventStore 是 **Agent 编排状态、决策过程和引用关系** 的事实源。它不单独保存完整世界：
@@ -30,7 +42,7 @@ EventStore 是 **Agent 编排状态、决策过程和引用关系** 的事实源
 
 ## Append 合约总览
 
-这里的 `append` 可以理解为“追加一笔系统账”。无论请求来自 API、Worker、Sweeper 还是 Repair API，都要把下面这些信息带齐，EventService 才能判断这笔账能不能写。
+这里的 `append` 可以理解为“追加一笔系统账”。无论请求来自 API、Worker、Sweeper 还是 Repair API，都要把下面这些信息带齐，EventService 才能判断这笔账能不能写、写完后要不要继续发命令。
 
 所有 append API 都共享同一个请求外壳：
 
@@ -64,7 +76,7 @@ append_request
 
 ### 事务隔离与锁顺序纪律
 
-EventService 写事务使用 PostgreSQL `READ COMMITTED`。Join、审批和 child group 检查依赖“拿到协调行锁后重新读取其他成员的最新已提交状态”；不要在这些写路径上使用 `REPEATABLE READ` 快照。
+EventService 写事务使用 PostgreSQL `READ COMMITTED`。原因很简单：join、审批和 child group 都需要在拿到协调行锁后，再看一眼其他成员的最新已提交状态。不要在这些写路径上使用 `REPEATABLE READ` 快照，否则容易拿着旧画面做新决定。
 
 所有写事务遵守下面的锁顺序：
 
@@ -92,7 +104,7 @@ EventService 写事务使用 PostgreSQL `READ COMMITTED`。Join、审批和 chil
 | `continuations` | 恢复命令唯一占位 | `committed` 才能对应 outbox；不得用旧版本造成永久 `skipped` 占位 |
 | `outbox` | 待发布 command | 至少一次发布；不代表业务执行成功 |
 | `inbox` | command 消费去重 | `UNIQUE (tenant_id, consumer_name, command_id)` |
-| `jobs` / `job_attempts` | Lite 队列与执行尝试 | attempt 记录执行过程；业务状态仍在 Run / ToolCall |
+| `jobs` / `job_attempts` | 队列与执行尝试 | attempt 记录执行过程；业务状态仍在 Run / ToolCall |
 | `tool_effects` | 外部副作用 ledger | 用 `effect_key`、请求摘要和 provider id 支撑幂等与对账 |
 | `event_cursors` | user-scoped `seq` 分配 | 只做提交顺序和补拉游标，不做业务 CAS |
 | `run_messages` | 最终消息投影 | 保存最终 assistant/user message 或 artifact 引用 |
@@ -232,7 +244,7 @@ UNIQUE (tenant_id, tool_call_id)                      -- ToolCall 聚合主键
 
 ## `store_epoch` 与恢复
 
-PITR 是按时间点恢复数据库。恢复后，数据库可能回到消息队列已经看不到的旧时间点。旧消息队列中仍可能有“恢复点之后发布过”的 command。为了避免这些 command 反向污染事实源，EventStore 维护单调 `store_epoch`。
+PITR 是按时间点恢复数据库。恢复后，数据库可能回到一个更早的时间点，但外部消息队列里还留着“恢复点之后发布过”的 command。为了防止这些旧 command 回来污染新的事实源，EventStore 维护单调递增的 `store_epoch`。
 
 规则：
 
@@ -247,7 +259,7 @@ PITR 是按时间点恢复数据库。恢复后，数据库可能回到消息队
 
 ## Context Manifest
 
-`context_manifest` 是“当时喂给模型的上下文清单”。它不一定保存全文，但必须保存足够引用，让事后能回答：模型当时看到了哪些对话、文件、记忆、工具 schema 和策略版本。
+`context_manifest` 是“当时喂给模型的上下文清单”。它不一定保存全文，但必须保存足够引用，让事后能回答：模型当时看到了哪些对话、文件、记忆、工具 schema、策略版本和模型配置。
 
 每次 LLM 调用记录不可变 `context_manifest`：
 

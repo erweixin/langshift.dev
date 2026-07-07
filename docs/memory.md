@@ -1,6 +1,6 @@
 # Memory 架构：记忆、检索与上下文召回
 
-> 本文档是 [architecture.md](./architecture.md) 的子文档，定义 Agent 的记忆模型、存储、检索、写入时机和租户隔离。上下文压缩和 `context_manifest` 见 [execution-model.md](./execution-model.md)。
+> 本文档解释 Agent 的“记忆”怎么产生、怎么存、怎么召回、怎么删除。上下文压缩和 `context_manifest` 见 [execution-model.md](./execution-model.md)。
 
 ## 问题、决策与风险
 
@@ -20,6 +20,17 @@
 | 每次召回记录在 `context_manifest` | 用了哪些记忆不留痕迹 |
 | 按 tenant 和 scope 隔离 Memory | 共享一个全局向量空间 |
 | Memory 有明确的写入、更新和淘汰策略 | 只写不删，无限增长 |
+
+## 先用白话说
+
+Memory 不是聊天记录原文，也不是另一套事实源。它更像是从事件里提炼出来的“便签”：
+
+- 用户说过的偏好。
+- 项目里稳定的事实。
+- 之前 run 做过的重要决策。
+- 后续任务经常需要用到的上下文。
+
+这些便签可以放进向量索引里方便检索，但真正能证明它们来源的，是 EventStore 里的 `MemoryUpserted` 和 `MemoryDeleted` 事件。索引坏了可以重建，事件不能丢。
 
 ## Memory 的层次
 
@@ -369,19 +380,20 @@ embedding_model_config
 - 写入 `MemoryDeleted` 事件（reason: `erasure`）。
 - 清理完成后，即使从事件重建索引，已删除的内容也不可恢复（密钥已销毁）。
 
-## Lite v1 实现建议
+## 生产基线
 
-| 组件 | Lite v1 建议 | 可替换方向 |
-| --- | --- | --- |
-| Memory 事件存储 | EventStore（PostgreSQL） | 不变，这是事实源 |
-| 向量索引 | PostgreSQL pgvector 扩展 | 独立向量数据库（Pinecone、Qdrant、Weaviate） |
-| 全文检索 | PostgreSQL tsvector / GIN | Elasticsearch、Meilisearch |
-| 嵌入计算 | 调用外部 embedding API | 本地模型或批量预计算 |
-| 检索服务 | AgentWorker 内联调用 | 独立 Retrieval Service |
+| 组件 | 基线要求 |
+| --- | --- |
+| Memory 事件存储 | Memory 写入和删除必须流经 EventStore；事件是可审计事实源 |
+| 向量索引 | tenant-scoped 向量索引；外部向量库也必须在查询层强制 tenant/scope filter |
+| 全文检索 | 支持关键词 + metadata filter，与向量召回共同接受 ACL 约束 |
+| 嵌入计算 | 记录 `embedding_model_id` 和重建幂等键；模型升级支持双索引过渡 |
+| 检索服务 | 独立 Retrieval Service 或等价逻辑边界；召回结果必须进入 `context_manifest` |
+| 删除与加密 | 可能包含 PII/用户内容的 payload 使用加密内容引用或可销毁密钥；erasure 后不可通过 replay 恢复明文 |
 
-pgvector 在文档量较小时（单租户数万条以内）性能足够。当单租户 Memory 量级增长到百万级，或需要更复杂的混合检索（向量 + 关键词 + 过滤）时，可以替换为独立向量数据库。替换时只需重建索引投影，不影响 EventStore 中的事件。
+Memory 索引是可重建投影，不是事实源。无论使用 pgvector、独立向量数据库还是托管 RAG，替换或扩展时只允许重建索引投影，不能绕过 EventStore、ACL、召回留痕和删除语义。
 
-## Do / Don't
+## 应该 / 避免
 
 | 应该 | 不应该 |
 | --- | --- |

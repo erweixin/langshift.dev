@@ -1,10 +1,10 @@
 # 实时投递
 
-> 本文档是 [architecture.md](./architecture.md) 的子文档，定义实时通道的投递语义、重连协议和连接治理。
+> 本文档解释实时通道怎么用：它负责让用户尽快看到状态和 token，但不负责保存事实。事实仍然在 EventStore。
 
 ## 问题、决策与风险
 
-**问题**：客户端需要实时看到 token、状态和工具结果，但 WebSocket/SSE 连接会断，Redis Pub/Sub 会丢消息，浏览器可能多标签页同时打开。
+**问题**：客户端需要实时看到 token、状态和工具结果，但 WebSocket/SSE 连接会断，pub/sub bus 可能丢消息，浏览器可能多标签页同时打开。
 
 **决策**：实时通道只做加速通知，不做事实源。客户端以 `last_seen_seq` 为游标，断线后从 EventStore 补拉。实时通知和调度 command 一样，必须在事件事务提交后发布。
 
@@ -18,6 +18,14 @@
 | 对重复 `seq` 去重 | 把重复到达当新事件 |
 | 对消费太慢的连接断开，并要求重连补拉 | 无限扩大连接缓冲 |
 | 只持久化最终 assistant message | 把每个 token delta 写进 EventStore |
+
+## 先用白话说
+
+Realtime 是“通知铃”，不是“账本”。铃声可能没听到、可能响两次、也可能因为网络断开没响完。客户端真正要相信的是 EventStore：
+
+- 状态事件用 `last_seen_seq` 从 EventStore 补拉。
+- token 流可以用短期的 `run_message_chunks` 补一小段。
+- 最终回答以持久化的 assistant message 或 artifact 为准。
 
 ## 投递语义
 

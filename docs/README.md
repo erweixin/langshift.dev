@@ -1,48 +1,41 @@
-# Lites Architecture Notes
+# Lites 架构文档
 
-This directory keeps the architecture kernel for Lites plus one standalone UX
-prototype. Frontend code, backend code, generated schemas, local scripts, and
-product-specific implementation notes were removed so the project can restart
-from the cloud-agent architecture instead of carrying a premature
-implementation.
+这个目录只保留 Lites Cloud Agent 的架构内核，以及一个独立的 UX 原型。前端代码、后端代码、生成出来的 schema、本地脚本和具体产品实现记录已经移除，目的是让项目从一套更清楚的 Cloud Agent 架构重新开始。
 
-## Reading Path
+读这组文档时可以先抓住三件事：
 
-| Order | Document | Purpose |
+- Agent 任务不是一次 HTTP 请求，而是一串可恢复的“事件 + 命令”。
+- EventStore、durable queue/stream、runtime、memory、realtime 和 observability 都按生产基线设计；组件可以演进，但语义不能变。
+- LLM 只提出计划，真正的权限、工具执行、安全审批和状态推进都由平台负责。
+
+## 阅读顺序
+
+建议先读 [architecture.md](./architecture.md)。它是总入口，下面每篇文档都只展开其中一个局部。
+
+| 顺序 | 文档 | 这篇主要回答什么 |
 | ---: | --- | --- |
-| 0 | [architecture.md](./architecture.md) | Global model, core loop, terms, logical architecture, and Lite v1 shape |
-| 1 | [end-to-end-flow.md](./end-to-end-flow.md) | Component responsibilities, data flow, execution sequence, and failure paths |
-| 2 | [state-machines.md](./state-machines.md) | Run, ToolCall, and Command state transitions and invariants |
-| 3 | [concurrency-and-durability.md](./concurrency-and-durability.md) | EventStore, append contract, CAS, outbox/inbox, and recovery semantics |
-| 4 | [execution-model.md](./execution-model.md) | Queue scheduling, worker transactions, kernel/handler boundary, effects, LLM calls, and joins |
-| 5 | [agent-safety-and-guardrails.md](./agent-safety-and-guardrails.md) | Agent safety, tool approval, prompt-injection defense, and output checks |
-| 6 | [tool-system.md](./tool-system.md) | Tool descriptors, registration, discovery, versioning, and lifecycle |
-| 7 | [memory.md](./memory.md) | Memory tiers, storage, retrieval, pruning, and tenant isolation |
-| 8 | [llm-provider.md](./llm-provider.md) | Provider interface, routing, fallback, circuit breaking, and cost tracking |
-| 9 | [orchestration-patterns.md](./orchestration-patterns.md) | Multi-agent delegation, supervision, pipelines, and checkpoints |
-| 10 | [realtime.md](./realtime.md) | Realtime delivery, reconnection, slow consumers, and token streaming |
-| 11 | [runtime-and-sandbox.md](./runtime-and-sandbox.md) | Runtime threat model, isolation tiers, secret broker, and workspace ownership |
-| 12 | [multi-tenancy-and-security.md](./multi-tenancy-and-security.md) | Tenant isolation, permissions, data retention, deletion, and repair commands |
-| 13 | [operations.md](./operations.md) | Sweeper behavior, observability, fault injection, and invariant tests |
-| 14 | [capacity-and-scaling.md](./capacity-and-scaling.md) | Load vectors, scaling paths, and readiness standards |
+| 0 | [architecture.md](./architecture.md) | 整体模型、核心循环、术语、逻辑架构和生产部署基线 |
+| 1 | [end-to-end-flow.md](./end-to-end-flow.md) | 一个任务从用户请求到最终完成，中间经过哪些组件 |
+| 2 | [state-machines.md](./state-machines.md) | Run、ToolCall、Command 能怎么变，哪些状态不能乱改 |
+| 3 | [concurrency-and-durability.md](./concurrency-and-durability.md) | 事件怎么写入、版本怎么检查、崩溃后怎么恢复 |
+| 4 | [execution-model.md](./execution-model.md) | Worker 怎么领取任务、执行慢操作、提交结果和处理并行工具 |
+| 5 | [agent-safety-and-guardrails.md](./agent-safety-and-guardrails.md) | Agent 安全边界、工具准入、审批和输出检查 |
+| 6 | [tool-system.md](./tool-system.md) | 工具怎么声明、注册、发现、升级和下线 |
+| 7 | [memory.md](./memory.md) | Agent 记忆怎么写入、检索、清理和隔离 |
+| 8 | [llm-provider.md](./llm-provider.md) | 多个模型 Provider 怎么接入、路由、降级和计费 |
+| 9 | [orchestration-patterns.md](./orchestration-patterns.md) | 多 Agent、子任务、流水线、监督和人机协作怎么组织 |
+| 10 | [realtime.md](./realtime.md) | 实时推送、断线重连、慢连接和 token 流怎么处理 |
+| 11 | [runtime-and-sandbox.md](./runtime-and-sandbox.md) | 代码执行环境、sandbox、secret 和 workspace 写入边界 |
+| 12 | [multi-tenancy-and-security.md](./multi-tenancy-and-security.md) | 租户隔离、权限、删除、数据保留和人工修复入口 |
+| 13 | [operations.md](./operations.md) | Sweeper、监控、故障演练和不变量测试 |
+| 14 | [capacity-and-scaling.md](./capacity-and-scaling.md) | 容量怎么描述，生产部署如何扩缩和验收 |
 
-## UX Prototype
+## UX 原型
 
-[ux-prototype.html](./ux-prototype.html) is retained as a standalone product
-exploration artifact. It can be opened directly in a browser and used to reason
-about the user journey, but it is not frontend source code and should not drive
-architecture decisions unless those decisions are reflected back into the docs
-above.
+[ux-prototype.html](./ux-prototype.html) 是一个独立的产品探索原型，可以直接用浏览器打开，用来讨论用户旅程。它不是前端源码，也不应该单独决定架构；如果原型里出现新的架构要求，需要回写到上面的 Markdown 文档里。
 
-## Removed Intentionally
+## 已有内容为什么被移除
 
-The removed documents were either product-specific, implementation-status
-specific, or tied to the deleted frontend/backend slice:
+被移除的旧文档主要属于具体产品或旧实现切片，例如内容体系、课程、学习者画像、练习 runtime、增长、实现计划、实现状态、前端产品蓝图、生成 schema 和本地开发脚本。
 
-- content, curriculum, learner profile, exercise runtime, and growth docs
-- implementation plan/status docs
-- frontend-oriented product blueprint docs
-- generated schema notes and local development scripts
-
-If those topics become active again, recreate them from the architecture kernel
-instead of restoring the old implementation slice wholesale.
+如果这些主题以后重新进入范围，应从这套架构内核重新推导，而不是把旧实现整块恢复回来。

@@ -1,6 +1,6 @@
 # 执行模型：Worker、调度、副作用与并行 Join
 
-> 本文档是 [architecture.md](./architecture.md) 的子文档，定义 command 如何被调度、Worker 如何执行、外部副作用如何收敛，以及并行 tool call 如何安全 join。
+> 本文档解释 Worker 怎么安全地做慢操作：任务怎么排队、Worker 怎么领取、外部副作用怎么处理、多个并行工具怎么汇合。
 
 ## 问题、决策与风险
 
@@ -19,11 +19,21 @@
 | 对 `outcome_unknown` 先对账 | 直接重放可能已经发生的写操作 |
 | join 检查锁定 `parallel_group` 行 | 只靠完成顺序猜测是否续跑 |
 
+## 先用白话说
+
+Worker 的工作方式可以理解成“两次短记账，中间做慢活”：
+
+1. 第一次短事务：领取 command，写下“我开始试一次”，拿到租约和 fence。
+2. 中间慢操作：调用 LLM、运行工具、访问第三方系统或写 workspace。
+3. 第二次短事务：带着结果回来提交。只有版本和 fence 仍然匹配，结果才能推进状态。
+
+这样做的好处是，数据库不会被一次长 LLM 调用或长时间测试命令锁住；取消、超时、审批和并行工具完成仍然能插进来。
+
 ## 队列与调度
 
-Lite v1 可以不引入独立 MQ。可以先把待执行任务写在 PostgreSQL 表里，多个 Worker 用 `SELECT ... FOR UPDATE SKIP LOCKED` 抢任务。这个 SQL 不适合普通业务查询，但很适合“谁抢到谁执行”的队列表。Redis 可以只负责实时通知。
+生产基线使用持久化队列或流系统承载 command 投递。EventStore 仍在事务内写 outbox，Outbox Publisher 在提交后发布到队列；队列只负责投递和执行权管理，不成为业务事实源。
 
-无论底层以后换成 PostgreSQL jobs、Redis Streams、Kafka 还是 NATS JetStream，都必须保留同一组行为：
+无论底层使用 Redis Streams、Kafka、NATS JetStream、托管队列还是等价系统，都必须保留同一组行为：
 
 - 入队：把 command 放进可执行队列。
 - 领取：Worker 拿到一段时间的执行权。
@@ -105,7 +115,7 @@ ToolWorker 职责：
 
 ## 执行内核与业务边界
 
-不同业务 Agent 复用的是“可靠执行能力”，不是同一份 prompt、validator 或输出表。run 生命周期、job lease、fence、attempt、幂等和事件追加属于执行内核；业务逻辑只通过 handler 插入两个点：
+不同业务 Agent 复用的是“可靠执行能力”，不是同一份 prompt、validator 或输出表。run 生命周期、job lease、fence、attempt、幂等和事件追加属于执行内核；业务逻辑只需要通过 handler 插入两个点：
 
 ```text
 handler 合约
@@ -118,7 +128,7 @@ handler 合约
 
 ### 结果提交与消费确认的原子性
 
-Worker 成功时，写结果事件和登记“这条 command 已处理”必须在同一个数据库事务中提交——Lite v1 中即同事务 ack job 行；引入外部 MQ 后即同事务写 inbox，MQ ack 在事务提交后进行。拆开会产生两类事故：先确认后写事件，崩溃后已花钱的执行结果永久丢失；先写事件后确认，崩溃后 command 重投、同一结果被重复解释。
+Worker 成功时，写结果事件和登记“这条 command 已处理”必须在同一个数据库事务中提交：先通过 EventService 写业务事件和 inbox/attempt 结果，事务提交后再 ack 外部队列消息。拆开会产生两类事故：先确认后写事件，崩溃后已花钱的执行结果永久丢失；先写事件后确认，崩溃后 command 重投、同一结果被重复解释。
 
 Run CAS 冲突（例如 Sweeper 或另一次 attempt 已推进 run）时，Worker 不重放业务写入，而是做 fence-only ack：只确认当前 job 结束，不改变 run 状态，本次 attempt 记为旧尝试。
 
@@ -138,7 +148,7 @@ LLM / 业务错误和基础设施错误的处理方向相反：前者应收敛�
 
 ## 副作用能力接口
 
-每个工具必须先说明“失败后能不能安全重试”。这比只暴露一个 handler 更重要，因为不同工具的失败后果完全不同：读文件可以重试，创建外部资源就不能盲目重试。
+每个工具必须先说明“失败后能不能安全重试”。这比只暴露一个 handler 更重要，因为不同工具的失败后果完全不同：读文件失败可以重试，创建外部资源失败就不能盲目重试。
 
 ```text
 tool_capability
@@ -201,7 +211,7 @@ LLM 调用也不是幂等的。同一个 prompt 重试可能得到不同输出�
 
 ## 并行 ToolCall 与 Join
 
-这里的 join 指“多个并行工具的结果怎么汇合成 Run 的下一步”。并行工具需要显式模型，不能靠“谁最后完成”来猜。
+这里的 join 指“多个并行工具的结果怎么汇合成 Run 的下一步”。并行工具需要显式规则，不能靠“谁最后完成”来猜。
 
 ```text
 parallel_group

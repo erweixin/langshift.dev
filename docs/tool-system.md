@@ -1,6 +1,6 @@
 # Tool System：定义、注册、版本与生命周期
 
-> 本文档是 [architecture.md](./architecture.md) 的子文档，定义工具如何被描述、注册、发现、版本管理和安全审批。工具的运行时隔离见 [runtime-and-sandbox.md](./runtime-and-sandbox.md)；副作用能力分级见 [execution-model.md](./execution-model.md)。
+> 本文档解释工具怎么被平台认识和管理：工具要先声明自己能做什么、怎么调用、会产生什么副作用、需要什么权限，然后才能被 Agent 使用。运行时隔离见 [runtime-and-sandbox.md](./runtime-and-sandbox.md)，副作用分级见 [execution-model.md](./execution-model.md)。
 
 ## 问题、决策与风险
 
@@ -19,9 +19,19 @@
 | 租户自定义工具经过审批和沙箱验证 | 上传即生效，不检查 schema 和能力声明 |
 | 工具 schema 进入 `context_manifest` | 模型调用工具时不记录用的是哪个版本 |
 
+## 先用白话说
+
+工具不是“一段函数”。在 Agent 平台里，一个工具至少包含三部分：
+
+- **Descriptor**：说明工具是谁、参数长什么样、会不会写外部系统、需要哪些权限。
+- **Handler**：真正执行的代码。
+- **Runtime**：代码在哪里跑、能访问哪些文件、网络和 secret。
+
+平台先看 Descriptor 决定能不能执行，再把 Handler 放进合适的 Runtime。LLM 只能选择工具和生成参数，不能绕过这些声明。
+
 ## 工具是什么
 
-在 Lites 中，工具是 Agent 能力的原子单元。Agent 通过 LLM 决定"接下来用哪个工具"，但工具的定义、权限、执行和结果处理都由平台管控。
+在 Lites 中，工具是 Agent 能力的最小单元。Agent 通过 LLM 决定“接下来想用哪个工具”，但工具的定义、权限、执行和结果处理都由平台管控。
 
 可以把工具理解为三层：
 
@@ -285,7 +295,7 @@ tool_dependencies
 
 依赖不构成调用链——Agent 决定调用顺序，平台只在 ToolWorker 分配 runtime 时检查依赖是否满足。如果 runtime 不支持声明的 capability，ToolCall 直接失败，不尝试执行。
 
-## Do / Don't
+## 应该 / 避免
 
 | 应该 | 不应该 |
 | --- | --- |

@@ -1,6 +1,6 @@
 # 多租户与安全
 
-> 本文档是 [architecture.md](./architecture.md) 的子文档，定义租户隔离、权限模型、数据保留、删除与人工修复入口。
+> 本文档解释多租户系统的安全底线：每层都要知道当前 tenant 是谁，权限只能来自可信上下文，人工修复也必须走可审计入口。
 
 ## 问题、决策与风险
 
@@ -18,6 +18,15 @@
 | 权限只来自可信策略上下文 | 相信 LLM 或检索文本声称“用户已授权” |
 | 删除敏感载荷并失效投影 | 只从主表删除一部分数据 |
 | 通过 Repair Command API 修复 | 让 Admin 直接写 EventDB |
+
+## 先用白话说
+
+多租户隔离不能只靠“程序员记得加 `WHERE tenant_id = ?`”。API、Worker、Sweeper、Repair、投影重建和临时运维脚本都会碰数据，所以需要多层保护：
+
+- 应用层显式带 `tenant_id`。
+- 数据库 RLS 再挡一层。
+- artifact、workspace、memory、secret 各自做 ACL。
+- 管理员修复也通过 Repair Command API 留事件和审计。
 
 ## 多租户隔离
 

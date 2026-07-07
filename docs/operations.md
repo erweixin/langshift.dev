@@ -1,12 +1,12 @@
 # 运维：Sweeper、可观测性与故障测试
 
-> 本文档是 [architecture.md](./architecture.md) 的子文档，定义后台巡检、监控体系和不变量测试。
+> 本文档解释系统怎么自己“收尾”：哪些过期状态要扫，哪些指标要看，哪些故障必须提前演练。
 
 ## 问题、决策与风险
 
 **问题**：事件/命令链路主要靠“有新事件才触发下一步”。但有些状态不会自然再收到命令，例如审批超时、`outcome_unknown` 复核、泄漏的配额预留和过期租约。
 
-**决策**：Lite v1 就需要 Timer / Sweeper。它不是特权写库脚本，而是一个普通 actor，通过 EventService 和同样的 CAS/幂等规则推进到期转换。
+**决策**：Timer / Sweeper 是生产基线能力。它不是特权写库脚本，而是一个普通 actor，通过 EventService 和同样的 CAS/幂等规则推进到期转换。
 
 **为什么不等下一次用户请求顺便处理**：很多 conversation 长时间没有新请求。等待用户触发会让未知副作用、过期 run、配额泄漏和 runtime session 无界堆积。
 
@@ -19,9 +19,13 @@
 | 指标使用低基数 label | 把 run_id/conversation_id 放进 metrics label |
 | 故障测试围绕不变量 | 只做正常路径压测 |
 
+## 先用白话说
+
+Sweeper 是后台闹钟，不是管理员脚本。它定期找“已经到时间但没人推进”的事情，然后像普通 actor 一样通过 EventService 写事件。它不能绕过状态机直接改库。
+
 ## Timer / Sweeper
 
-Sweeper 可以理解成“后台闹钟 + 清理工”。它定期找已经到期但没人处理的事项，再通过 EventService 推进合法状态。实现上可以是一张带 `due_at` 索引的到期表 + `SELECT ... FOR UPDATE SKIP LOCKED`，也可以复用 job 队列的延迟投递。
+Sweeper 可以理解成“后台闹钟 + 清理工”。它定期找已经到期但没人处理的事项，再通过 EventService 推进合法状态。实现上可以是一张带 `due_at` 索引的到期表、独立 timer service，或复用 durable queue 的延迟投递；无论哪种实现，都必须有 lease/claim、去重、backoff 和审计。
 
 | 巡检项 | 触发条件 | 动作（均经 EventService 条件写） |
 | --- | --- | --- |

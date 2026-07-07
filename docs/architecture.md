@@ -1,27 +1,35 @@
 # Lites Cloud Agent 架构设计
 
-Lites 是一个 Lite-first 的 Cloud Agent 平台设计：首版可以用 PostgreSQL、Redis、对象存储和本地 runtime 跑起来，但核心语义必须能平滑迁移到更强的生产基础设施。本文只讨论技术方案，不绑定当前项目的实现状态。
+Lites 是一个 production-first 的 Cloud Agent 平台设计。它从第一天就把“任务怎么恢复、状态怎么推进、权限怎么检查、外部副作用怎么处理、运行时怎么隔离、事故怎么收敛”作为生产基线，而不是先做一层弱化版再迁移。
+
+本文是总入口，只讲架构方案，不绑定当前项目已经实现到哪一步。
 
 ## 文档入口
 
 | 文档 | 建议阅读顺序 | 内容 |
-| --- | ---: | --- |
-| [README.md](./README.md) | 0 | 新读者入口、阅读路径、保留范围与 UX 原型定位 |
-| **本文（architecture.md）** | 1 | 全局心智模型、核心循环、术语、逻辑架构与 Lite v1 部署形态 |
-| [end-to-end-flow.md](./end-to-end-flow.md) | 2 | 端到端组件职责、数据流、任务执行序列、失败路径与部署视角 |
-| [state-machines.md](./state-machines.md) | 3 | Run / ToolCall / Command 的状态转换表、取消语义、不变量 |
-| [concurrency-and-durability.md](./concurrency-and-durability.md) | 4 | EventStore、append 合约、两级 CAS、`seq`、outbox/inbox、`store_epoch`、snapshot |
-| [execution-model.md](./execution-model.md) | 5 | 队列调度、Worker 短事务、执行内核与 handler 边界、副作用能力、effect ledger、LLM 调用、并行 join |
-| [agent-safety-and-guardrails.md](./agent-safety-and-guardrails.md) | 6 | Agent 安全边界、prompt injection 防护、工具准入、审批、输出检查与红队场景 |
-| [tool-system.md](./tool-system.md) | 7 | 工具声明、注册、发现、版本管理、Schema 校验与生命周期 |
-| [memory.md](./memory.md) | 8 | 记忆层次、存储、写入时机、向量检索、召回、淘汰与租户隔离 |
-| [llm-provider.md](./llm-provider.md) | 9 | LLM 统一接口、Provider 适配、模型路由、降级熔断与成本追踪 |
-| [orchestration-patterns.md](./orchestration-patterns.md) | 10 | 多 Agent 编排、Child Run、委派/监督/流水线/分治、阶段检查点与人机协作 |
-| [realtime.md](./realtime.md) | 11 | 实时通道、无竞态重连、慢消费者、权限变化、LLM token 流 |
-| [runtime-and-sandbox.md](./runtime-and-sandbox.md) | 12 | runtime 威胁模型、隔离等级、secret broker（受控代发服务）、workspace 单写者 |
-| [multi-tenancy-and-security.md](./multi-tenancy-and-security.md) | 13 | 租户隔离、权限模型、数据保留、删除与 Repair Command API |
-| [operations.md](./operations.md) | 14 | Sweeper、可观测性、故障注入与不变量测试 |
-| [capacity-and-scaling.md](./capacity-and-scaling.md) | 15 | 部署替换路径、负载向量、规模化就绪标准 |
+| --- | --- | --- |
+| **本文（architecture.md）** | 0 | 全局心智模型、核心循环、术语、逻辑架构与生产部署基线 |
+| [end-to-end-flow.md](./end-to-end-flow.md) | 1 | 端到端组件职责、数据流、任务执行序列、失败路径与部署视角 |
+| [state-machines.md](./state-machines.md) | 2 | Run / ToolCall / Command 的状态转换表、取消语义、不变量 |
+| [concurrency-and-durability.md](./concurrency-and-durability.md) | 3 | EventStore、append 合约、两级 CAS、`seq`、outbox/inbox、`store_epoch`、snapshot |
+| [execution-model.md](./execution-model.md) | 4 | 队列调度、Worker 短事务、执行内核与 handler 边界、副作用能力、effect ledger、LLM 调用、并行 join |
+| [agent-safety-and-guardrails.md](./agent-safety-and-guardrails.md) | 5 | Agent 安全边界、prompt injection 防护、工具准入、审批、输出检查与红队场景 |
+| [tool-system.md](./tool-system.md) | 6 | 工具声明、注册、发现、版本管理、Schema 校验与生命周期 |
+| [memory.md](./memory.md) | 7 | 记忆层次、存储、写入时机、向量检索、召回、淘汰与租户隔离 |
+| [llm-provider.md](./llm-provider.md) | 8 | LLM 统一接口、Provider 适配、模型路由、降级熔断与成本追踪 |
+| [orchestration-patterns.md](./orchestration-patterns.md) | 9 | 多 Agent 编排、Child Run、委派/监督/流水线/分治、阶段检查点与人机协作 |
+| [realtime.md](./realtime.md) | 10 | 实时通道、无竞态重连、慢消费者、权限变化、LLM token 流 |
+| [runtime-and-sandbox.md](./runtime-and-sandbox.md) | 11 | runtime 威胁模型、隔离等级、secret broker（受控代发服务）、workspace 单写者 |
+| [multi-tenancy-and-security.md](./multi-tenancy-and-security.md) | 12 | 租户隔离、权限模型、数据保留、删除与 Repair Command API |
+| [operations.md](./operations.md) | 13 | Sweeper、可观测性、故障注入与不变量测试 |
+| [capacity-and-scaling.md](./capacity-and-scaling.md) | 14 | 部署替换路径、负载向量、规模化就绪标准 |
+| [README.md](./README.md) | 可选 | 目录说明、UX 原型定位，以及旧文档为什么被移除 |
+
+## 先记住三句话
+
+- **先记账，再执行**：系统先把事实和下一步命令写进数据库，再让 Worker 去做慢操作。
+- **Worker 只是执行者，不是事实源**：Worker 可以崩溃、超时、重复收到任务，所以它只能通过 EventStore 提交结果。
+- **外部副作用不能靠猜**：工具可能已经创建资源、写文件或花钱。结果未知时要对账或人工裁定，不能直接重试。
 
 ## 问题、决策与风险
 
@@ -29,7 +37,7 @@ Lites 是一个 Lite-first 的 Cloud Agent 平台设计：首版可以用 Postgr
 
 **决策**：把系统设计成以 PostgreSQL 为持久化核心的可恢复工作流和 Agent 执行平台。EventStore 记录编排事实和决策过程；命令通过 outbox 发布；Worker 只做短事务占位和短事务提交，中间的长时间 I/O 依靠 CAS、fence 和幂等合约保护。
 
-**为什么不简单做成 API → MQ → Worker → 回写数据库**：这条链路看起来直观，但在重复投递、Worker 崩溃、取消竞态、并行工具完成、外部副作用未知时没有统一事实源，容易出现重复执行、错误续跑或终态被改写。
+**为什么不简单做成 API → MQ → Worker → 回写数据库**：这条链路看起来直观，但一旦遇到重复投递、Worker 崩溃、取消竞态、并行工具完成、外部副作用未知，就没有一个统一的地方能回答“系统现在到底知道什么”。结果很容易变成重复执行、错误续跑，或者已经结束的状态又被改掉。
 
 **忽略后果**：最常见的事故不是“任务失败”，而是“任务看似成功但状态分叉”：同一 run 被续跑两次、已经取消的 run 被工具结果唤醒、未知副作用被盲目重做、实时断线后客户端漏事件。
 
@@ -87,9 +95,9 @@ Lites 是一个 Lite-first 的 Cloud Agent 平台设计：首版可以用 Postgr
 
 ## 设计目标
 
-- Lite-first：首版优先模块化单体和少量进程，避免过早拆成一堆微服务。
+- Production-first：文档中的默认形态就是生产安全基线，不再区分弱化版和最终版。
 - 生产语义先行：事件顺序、重试、幂等、多租户、权限、持久化、运行时隔离和审计从一开始就定义清楚。
-- 基础设施可替换：PostgreSQL job queue、Redis Pub/Sub、本地 Docker 都是可替换实现，业务语义不依赖某个消息队列服务的特殊能力。
+- 基础设施语义解耦：EventStore、durable queue/stream、pub/sub、对象存储、向量检索和 sandbox runtime 都必须满足文档里的语义契约；业务语义不依赖某个基础设施的偶然特性。
 - 请求处理器不执行长任务，只提交事实和命令。
 - EventStore 是编排状态与决策过程的事实源；实时通道只是通知。
 - 用正式状态机和 CAS 保证“一次 run 只能沿合法路径前进”。
@@ -98,13 +106,13 @@ Lites 是一个 Lite-first 的 Cloud Agent 平台设计：首版可以用 Postgr
 
 - **不承诺通用 exactly-once**：传输层按“至少一次投递”设计；对支持幂等键的外部写操作提供“多次投递但只产生一次有效副作用”的效果；无法幂等的操作必须走对账。
 - **不做跨用户事务**：强一致边界止于单个 `user_id` 的 append 顺序（baseline 中 `seq` 为 user-scoped，conversation 只是过滤维度）。
-- **不做跨区域 active-active**：Lite 与生产前期采用单区域单写模型。
+- **不做跨区域 active-active**：默认采用单区域单写模型；跨区域容灾通过备份、恢复演练和 `store_epoch` 收敛。
 - **不自动消解所有未知结果**：`outcome_unknown` 可能需要人工裁定；系统只保证不盲目重做。
 - **不把实时通道当可靠存储**：可靠性由 EventStore + `last_seen_seq` 补拉提供。
 
 ## 逻辑架构
 
-下图描述的是职责边界，不等于首版必须拆出来的网络服务数量。
+下图描述的是职责边界，不等于必须一比一拆成网络服务。部署可以合并进程，但不能合并安全边界、事务边界和责任边界。
 
 ```mermaid
 flowchart TD
@@ -149,20 +157,23 @@ flowchart TD
   Runtime --> Observability
 ```
 
-## Lite v1 部署形态
+## 生产部署基线
 
-| 逻辑职责 | Lite v1 建议形态 |
+| 逻辑职责 | 生产基线 |
 | --- | --- |
-| Gateway、Conversation、Event Service、Permission、Quota、Scheduler、Sweeper、Repair API | 一个 Control Plane 模块化单体 |
-| Command Queue | PostgreSQL jobs + `SKIP LOCKED` |
-| Outbox Publisher | Control Plane 内后台循环或小型 publisher 进程 |
-| Realtime | SSE/WebSocket Gateway + Redis Pub/Sub |
-| AgentWorker | 独立 worker pool |
-| ToolWorker + RuntimeManager | 独立安全域 |
-| Workspace / Artifact | 本地卷、MinIO 或 S3-compatible store |
-| Memory | PostgreSQL 表或轻量索引 |
+| Gateway、Conversation API | 独立对外服务层；负责认证、租户解析、限流、请求校验和可信上下文签发 |
+| Event Service、状态机、Permission、Quota、Repair API | Control Plane 内部服务；所有状态推进、审批、修复和审计都经这个入口 |
+| Command Queue / Stream | 持久化队列或流系统；支持至少一次投递、延迟投递、lease/claim、ack、retry、dead-letter、去重和 backpressure |
+| Outbox Publisher | 独立 publisher fleet；只发布已提交 outbox row，并携带 `store_epoch` |
+| Scheduler | 独立调度层；按租户公平、优先级、资源类别、provider/runtime 闸门做准入 |
+| Realtime | SSE/WebSocket Gateway fleet + pub/sub bus；可靠性依靠 EventStore cursor backfill |
+| AgentWorker | 独立 worker pool；可按模型、优先级、租户 tier 和交互/后台任务拆池 |
+| ToolWorker + RuntimeManager | 独立安全域；ToolWorker 只持短期能力，RuntimeManager 负责隔离、网络和 workspace lease |
+| Runtime / Sandbox | 根据信任等级使用隔离节点、microVM 或等价强边界；不可信代码默认无网络、无 secret |
+| Workspace / Artifact | 版本化 workspace service + S3-compatible artifact store；所有变更记录 revision、diff hash 和 artifact refs |
+| Memory / Retrieval | tenant-scoped retrieval service；向量索引是可重建投影，召回必须写入 `context_manifest` |
 
-Outbox、Scheduler、MQ 是逻辑角色，不要求首版引入独立 MQ。只要保留 enqueue、lease/claim、ack、retry、timeout、dead-letter、去重和 backpressure 语义，PostgreSQL jobs 可以作为 Lite v1 的队列实现。进程划分和各组件的生产替换路径以 [capacity-and-scaling.md](./capacity-and-scaling.md) 为准。
+Outbox、Scheduler、Queue 是逻辑角色，但生产基线必须提供同等的可靠性与隔离语义。EventStore 仍通过事务内 outbox 记录“下一步要做什么”；外部队列只负责投递，不成为业务事实源。
 
 ## 负载向量
 
@@ -214,7 +225,7 @@ Baseline 中，一个 conversation 同一时间只有一个前台 active Run。a
 6. Scheduler/Queue 按租户公平、优先级、重试时间和资源类别投递 command。
 7. AgentWorker 或 ToolWorker 消费 command，通过 Event Service 写入完成、失败、取消、未知结果或后续 command。
 
-## Do / Don't
+## 应该 / 避免
 
 | 应该 | 不应该 |
 | --- | --- |
