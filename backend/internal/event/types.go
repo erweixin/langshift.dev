@@ -75,6 +75,8 @@ type CommandDraft struct {
 	DueAt         *time.Time
 }
 
+type TxEffect func(ctx context.Context, tx pgx.Tx) error
+
 type AppendRequest struct {
 	Actor               Actor
 	UserID              string
@@ -85,6 +87,7 @@ type AppendRequest struct {
 	JobFence            *JobFence
 	Events              []EventDraft
 	Commands            []CommandDraft
+	Effects             []TxEffect
 }
 
 type AppendResult struct {

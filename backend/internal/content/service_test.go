@@ -4,30 +4,25 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/url"
-	"os"
-	"path/filepath"
-	"runtime"
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"lites/backend/internal/content"
-	"lites/backend/internal/db"
 	"lites/backend/internal/event"
 	"lites/backend/internal/job"
 	"lites/backend/internal/llm"
 	"lites/backend/internal/run"
+	"lites/backend/internal/testsupport"
 )
 
 func TestServiceStartCreatesRunAndContentGenerationJob(t *testing.T) {
 	ctx := context.Background()
-	pool := newTestPool(t, ctx)
+	pool := testsupport.NewMigratedPool(t, ctx, "test_content")
 	events := event.NewService(pool, event.Options{Dispatcher: run.NewReducer()})
 	service := content.NewService(events, content.ServiceOptions{
-		IDGenerator: &sequenceIDs{values: []string{"run_1"}},
+		IDGenerator: testsupport.NewSequenceIDs("run_1"),
 		Now:         func() time.Time { return time.Date(2026, 7, 4, 1, 2, 3, 0, time.UTC) },
 	})
 
@@ -62,10 +57,10 @@ func TestServiceStartCreatesRunAndContentGenerationJob(t *testing.T) {
 
 func TestWorkerProcessOneCompletesRunAndJob(t *testing.T) {
 	ctx := context.Background()
-	pool := newTestPool(t, ctx)
+	pool := testsupport.NewMigratedPool(t, ctx, "test_content")
 	events := event.NewService(pool, event.Options{Dispatcher: run.NewReducer()})
 	service := content.NewService(events, content.ServiceOptions{
-		IDGenerator: &sequenceIDs{values: []string{"run_1"}},
+		IDGenerator: testsupport.NewSequenceIDs("run_1"),
 	})
 	if _, err := service.Start(ctx, content.StartRequest{
 		UserID:         "user_1",
@@ -87,7 +82,7 @@ func TestWorkerProcessOneCompletesRunAndJob(t *testing.T) {
 		events,
 		fake,
 		content.NewStore(pool),
-		content.WorkerOptions{IDGenerator: &sequenceIDs{values: []string{"attempt_1"}}},
+		content.WorkerOptions{IDGenerator: testsupport.NewSequenceIDs("attempt_1")},
 	)
 
 	processed, err := worker.ProcessOne(ctx)
@@ -121,11 +116,11 @@ func TestWorkerProcessOneCompletesRunAndJob(t *testing.T) {
 
 func TestServiceStartCacheHitCompletesRunWithoutJob(t *testing.T) {
 	ctx := context.Background()
-	pool := newTestPool(t, ctx)
+	pool := testsupport.NewMigratedPool(t, ctx, "test_content")
 	events := event.NewService(pool, event.Options{Dispatcher: run.NewReducer()})
 	store := content.NewStore(pool)
 	service := content.NewService(events, content.ServiceOptions{
-		IDGenerator: &sequenceIDs{values: []string{"run_1", "run_2"}},
+		IDGenerator: testsupport.NewSequenceIDs("run_1", "run_2"),
 		Artifacts:   store,
 	})
 	if _, err := service.Start(ctx, content.StartRequest{
@@ -144,7 +139,7 @@ func TestServiceStartCacheHitCompletesRunWithoutJob(t *testing.T) {
 			Content:  validArtifactJSON(),
 		}},
 		store,
-		content.WorkerOptions{IDGenerator: &sequenceIDs{values: []string{"attempt_1"}}},
+		content.WorkerOptions{IDGenerator: testsupport.NewSequenceIDs("attempt_1")},
 	)
 	if processed, err := worker.ProcessOne(ctx); err != nil || !processed {
 		t.Fatalf("process first generation = %t/%v, want processed", processed, err)
@@ -176,10 +171,10 @@ func TestServiceStartCacheHitCompletesRunWithoutJob(t *testing.T) {
 
 func TestWorkerProcessOneFailsRunWhenLLMReturnsError(t *testing.T) {
 	ctx := context.Background()
-	pool := newTestPool(t, ctx)
+	pool := testsupport.NewMigratedPool(t, ctx, "test_content")
 	events := event.NewService(pool, event.Options{Dispatcher: run.NewReducer()})
 	service := content.NewService(events, content.ServiceOptions{
-		IDGenerator: &sequenceIDs{values: []string{"run_1"}},
+		IDGenerator: testsupport.NewSequenceIDs("run_1"),
 	})
 	if _, err := service.Start(ctx, content.StartRequest{
 		UserID:         "user_1",
@@ -194,7 +189,7 @@ func TestWorkerProcessOneFailsRunWhenLLMReturnsError(t *testing.T) {
 		events,
 		&fakeLLM{err: fmt.Errorf("provider failed")},
 		content.NewStore(pool),
-		content.WorkerOptions{IDGenerator: &sequenceIDs{values: []string{"attempt_1"}}},
+		content.WorkerOptions{IDGenerator: testsupport.NewSequenceIDs("attempt_1")},
 	)
 
 	processed, err := worker.ProcessOne(ctx)
@@ -210,10 +205,10 @@ func TestWorkerProcessOneFailsRunWhenLLMReturnsError(t *testing.T) {
 
 func TestWorkerProcessOneFailsRunWhenValidationFails(t *testing.T) {
 	ctx := context.Background()
-	pool := newTestPool(t, ctx)
+	pool := testsupport.NewMigratedPool(t, ctx, "test_content")
 	events := event.NewService(pool, event.Options{Dispatcher: run.NewReducer()})
 	service := content.NewService(events, content.ServiceOptions{
-		IDGenerator: &sequenceIDs{values: []string{"run_1"}},
+		IDGenerator: testsupport.NewSequenceIDs("run_1"),
 	})
 	if _, err := service.Start(ctx, content.StartRequest{
 		UserID:         "user_1",
@@ -231,7 +226,7 @@ func TestWorkerProcessOneFailsRunWhenValidationFails(t *testing.T) {
 			Content:  artifactWithoutJudgeJSON(),
 		}},
 		content.NewStore(pool),
-		content.WorkerOptions{IDGenerator: &sequenceIDs{values: []string{"attempt_1"}}},
+		content.WorkerOptions{IDGenerator: testsupport.NewSequenceIDs("attempt_1")},
 	)
 
 	processed, err := worker.ProcessOne(ctx)
@@ -335,22 +330,6 @@ func artifactWithoutJudgeJSON() string {
 			]
 		}
 	}`
-}
-
-type sequenceIDs struct {
-	values []string
-	next   int
-}
-
-func (g *sequenceIDs) NewID() (string, error) {
-	if g.next >= len(g.values) {
-		id := fmt.Sprintf("generated_%d", g.next)
-		g.next++
-		return id, nil
-	}
-	id := g.values[g.next]
-	g.next++
-	return id, nil
 }
 
 func assertRun(t *testing.T, ctx context.Context, pool *pgxpool.Pool, runID string, runType string, status string, version int) {
@@ -536,70 +515,4 @@ func assertRunEvents(t *testing.T, ctx context.Context, pool *pgxpool.Pool, runI
 			t.Fatalf("events = %#v, want %#v", got, want)
 		}
 	}
-}
-
-func newTestPool(t *testing.T, ctx context.Context) *pgxpool.Pool {
-	t.Helper()
-
-	rawURL := os.Getenv("LITES_TEST_DATABASE_URL")
-	if rawURL == "" {
-		t.Skip("set LITES_TEST_DATABASE_URL to run content integration tests")
-	}
-
-	admin, err := pgxpool.New(ctx, rawURL)
-	if err != nil {
-		t.Fatalf("connect admin database: %v", err)
-	}
-
-	schema := fmt.Sprintf("test_content_%d", time.Now().UnixNano())
-	quotedSchema := pgx.Identifier{schema}.Sanitize()
-	if _, err := admin.Exec(ctx, "CREATE SCHEMA "+quotedSchema); err != nil {
-		admin.Close()
-		t.Fatalf("create test schema: %v", err)
-	}
-
-	testURL := withSearchPath(t, rawURL, schema)
-	if err := db.RunMigrations(testURL, migrationsDir(t)); err != nil {
-		_, _ = admin.Exec(ctx, "DROP SCHEMA "+quotedSchema+" CASCADE")
-		admin.Close()
-		t.Fatalf("run migrations: %v", err)
-	}
-
-	pool, err := db.NewPool(ctx, testURL)
-	if err != nil {
-		_, _ = admin.Exec(ctx, "DROP SCHEMA "+quotedSchema+" CASCADE")
-		admin.Close()
-		t.Fatalf("connect test database: %v", err)
-	}
-
-	t.Cleanup(func() {
-		pool.Close()
-		_, _ = admin.Exec(context.Background(), "DROP SCHEMA "+quotedSchema+" CASCADE")
-		admin.Close()
-	})
-
-	return pool
-}
-
-func withSearchPath(t *testing.T, rawURL string, schema string) string {
-	t.Helper()
-
-	parsed, err := url.Parse(rawURL)
-	if err != nil {
-		t.Fatalf("parse database url: %v", err)
-	}
-	query := parsed.Query()
-	query.Set("search_path", schema)
-	parsed.RawQuery = query.Encode()
-	return parsed.String()
-}
-
-func migrationsDir(t *testing.T) string {
-	t.Helper()
-
-	_, filename, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("resolve caller path")
-	}
-	return filepath.Join(filepath.Dir(filename), "..", "..", "migrations")
 }

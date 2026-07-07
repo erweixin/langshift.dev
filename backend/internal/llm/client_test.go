@@ -4,24 +4,18 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
-	"net/url"
-	"os"
-	"path/filepath"
-	"runtime"
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"lites/backend/internal/db"
 	"lites/backend/internal/llm"
+	"lites/backend/internal/testsupport"
 )
 
 func TestClientCompleteWritesPendingAndSettlesOK(t *testing.T) {
 	ctx := context.Background()
-	pool := newTestPool(t, ctx)
+	pool := testsupport.NewMigratedPool(t, ctx, "test_llm")
 	completer := &fakeCompleter{
 		response: llm.Response{
 			Content:           `{"lesson":"ok"}`,
@@ -32,7 +26,7 @@ func TestClientCompleteWritesPendingAndSettlesOK(t *testing.T) {
 		},
 	}
 	client := llm.NewClient(pool, completer, llm.ClientOptions{
-		IDGenerator: &sequenceIDs{values: []string{"ledger_ok"}},
+		IDGenerator: testsupport.NewSequenceIDs("ledger_ok"),
 	})
 
 	response, err := client.Complete(ctx, llm.Request{
@@ -108,11 +102,11 @@ func TestClientCompleteWritesPendingAndSettlesOK(t *testing.T) {
 
 func TestClientCompleteSettlesProviderError(t *testing.T) {
 	ctx := context.Background()
-	pool := newTestPool(t, ctx)
+	pool := testsupport.NewMigratedPool(t, ctx, "test_llm")
 	providerErr := errors.New("provider unavailable")
 	completer := &fakeCompleter{err: providerErr}
 	client := llm.NewClient(pool, completer, llm.ClientOptions{
-		IDGenerator: &sequenceIDs{values: []string{"ledger_error"}},
+		IDGenerator: testsupport.NewSequenceIDs("ledger_error"),
 	})
 
 	_, err := client.Complete(ctx, llm.Request{
@@ -159,7 +153,7 @@ func TestClientCompleteSettlesProviderError(t *testing.T) {
 
 func TestClientSettleUnknownPending(t *testing.T) {
 	ctx := context.Background()
-	pool := newTestPool(t, ctx)
+	pool := testsupport.NewMigratedPool(t, ctx, "test_llm")
 	client := llm.NewClient(pool, &fakeCompleter{}, llm.ClientOptions{})
 
 	insertPendingLedger(t, ctx, pool, "old_pending", "old_attempt", "0.42000000", "2 hours")
@@ -204,7 +198,7 @@ func TestClientSettleUnknownPending(t *testing.T) {
 
 func TestClientDuplicateAttemptKeyDoesNotCallProviderAgain(t *testing.T) {
 	ctx := context.Background()
-	pool := newTestPool(t, ctx)
+	pool := testsupport.NewMigratedPool(t, ctx, "test_llm")
 	completer := &fakeCompleter{
 		response: llm.Response{
 			Content: "ok",
@@ -212,7 +206,7 @@ func TestClientDuplicateAttemptKeyDoesNotCallProviderAgain(t *testing.T) {
 		},
 	}
 	client := llm.NewClient(pool, completer, llm.ClientOptions{
-		IDGenerator: &sequenceIDs{values: []string{"ledger_first", "ledger_second"}},
+		IDGenerator: testsupport.NewSequenceIDs("ledger_first", "ledger_second"),
 	})
 
 	request := llm.Request{
@@ -255,22 +249,6 @@ func (c *fakeCompleter) Complete(_ context.Context, req llm.Request) (llm.Respon
 
 func (c *fakeCompleter) EstimateCostUSD(_ llm.Request, usage llm.Usage) float64 {
 	return float64(usage.InputTokens+usage.OutputTokens) / 100
-}
-
-type sequenceIDs struct {
-	values []string
-	next   int
-}
-
-func (g *sequenceIDs) NewID() (string, error) {
-	if g.next >= len(g.values) {
-		id := fmt.Sprintf("generated_%d", g.next)
-		g.next++
-		return id, nil
-	}
-	id := g.values[g.next]
-	g.next++
-	return id, nil
 }
 
 type ledgerRow struct {
@@ -378,70 +356,4 @@ func insertPendingLedger(t *testing.T, ctx context.Context, pool *pgxpool.Pool, 
 	`, id, attemptKey, estimatedCost, age); err != nil {
 		t.Fatalf("insert pending ledger %s: %v", id, err)
 	}
-}
-
-func newTestPool(t *testing.T, ctx context.Context) *pgxpool.Pool {
-	t.Helper()
-
-	rawURL := os.Getenv("LITES_TEST_DATABASE_URL")
-	if rawURL == "" {
-		t.Skip("set LITES_TEST_DATABASE_URL to run llm integration tests")
-	}
-
-	admin, err := pgxpool.New(ctx, rawURL)
-	if err != nil {
-		t.Fatalf("connect admin database: %v", err)
-	}
-
-	schema := fmt.Sprintf("test_llm_%d", time.Now().UnixNano())
-	quotedSchema := pgx.Identifier{schema}.Sanitize()
-	if _, err := admin.Exec(ctx, "CREATE SCHEMA "+quotedSchema); err != nil {
-		admin.Close()
-		t.Fatalf("create test schema: %v", err)
-	}
-
-	testURL := withSearchPath(t, rawURL, schema)
-	if err := db.RunMigrations(testURL, migrationsDir(t)); err != nil {
-		_, _ = admin.Exec(ctx, "DROP SCHEMA "+quotedSchema+" CASCADE")
-		admin.Close()
-		t.Fatalf("run migrations: %v", err)
-	}
-
-	pool, err := db.NewPool(ctx, testURL)
-	if err != nil {
-		_, _ = admin.Exec(ctx, "DROP SCHEMA "+quotedSchema+" CASCADE")
-		admin.Close()
-		t.Fatalf("connect test database: %v", err)
-	}
-
-	t.Cleanup(func() {
-		pool.Close()
-		_, _ = admin.Exec(context.Background(), "DROP SCHEMA "+quotedSchema+" CASCADE")
-		admin.Close()
-	})
-
-	return pool
-}
-
-func withSearchPath(t *testing.T, rawURL string, schema string) string {
-	t.Helper()
-
-	parsed, err := url.Parse(rawURL)
-	if err != nil {
-		t.Fatalf("parse database url: %v", err)
-	}
-	query := parsed.Query()
-	query.Set("search_path", schema)
-	parsed.RawQuery = query.Encode()
-	return parsed.String()
-}
-
-func migrationsDir(t *testing.T) string {
-	t.Helper()
-
-	_, filename, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("resolve caller path")
-	}
-	return filepath.Join(filepath.Dir(filename), "..", "..", "migrations")
 }

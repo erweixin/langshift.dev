@@ -124,6 +124,10 @@ func (s *Service) Append(ctx context.Context, request AppendRequest) (AppendResu
 		return AppendResult{}, err
 	}
 
+	if err := applyEffects(ctx, tx, request.Effects); err != nil {
+		return AppendResult{}, err
+	}
+
 	if request.JobFence != nil {
 		if err := markJobDone(ctx, tx, *request.JobFence); err != nil {
 			return AppendResult{}, err

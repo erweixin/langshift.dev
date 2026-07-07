@@ -13,6 +13,7 @@ import (
 const (
 	defaultWorkerID        = "agentcore-worker"
 	defaultIdleSleepMillis = 1000
+	defaultHeartbeatMillis = 30000
 )
 
 var (
@@ -26,6 +27,7 @@ var (
 
 type Queue interface {
 	Claim(ctx context.Context, kinds []string, workerID string) (job.Job, event.JobFence, error)
+	Heartbeat(ctx context.Context, fence event.JobFence) error
 	Fail(ctx context.Context, fence event.JobFence, cause error) error
 }
 
@@ -61,12 +63,14 @@ type CompletionAppend struct {
 	RunID              string
 	ExpectedRunVersion *int
 	Events             []event.EventDraft
+	Effects            []event.TxEffect
 }
 
 type WorkerOptions struct {
-	IDGenerator event.IDGenerator
-	WorkerID    string
-	IdleSleep   time.Duration
+	IDGenerator       event.IDGenerator
+	WorkerID          string
+	IdleSleep         time.Duration
+	HeartbeatInterval time.Duration
 }
 
 func ExpectedRunVersion(version int) *int {

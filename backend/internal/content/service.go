@@ -100,9 +100,9 @@ func (s *Service) Start(ctx context.Context, request StartRequest) (StartResult,
 		return StartResult{}, err
 	}
 
-	commandPayload, err := json.Marshal(jobPayload{RunID: runID, Input: input})
+	commandPayload, err := MarshalGenerationJobPayload(runID, input)
 	if err != nil {
-		return StartResult{}, fmt.Errorf("marshal content generation job payload: %w", err)
+		return StartResult{}, err
 	}
 	responseBody, err := json.Marshal(StartResult{
 		RunID:  runID,
@@ -116,15 +116,14 @@ func (s *Service) Start(ctx context.Context, request StartRequest) (StartResult,
 		return StartResult{}, err
 	}
 
-	result, err := s.events.Append(ctx, event.AppendRequest{
-		Actor:  event.Actor{Kind: event.ActorUser},
+	result, err := s.events.Append(ctx, event.NewUserCommandAppend(event.UserCommandAppendRequest{
 		UserID: request.UserID,
-		Idempotency: &event.Idempotency{
+		Idempotency: event.Idempotency{
 			Scope:       "POST /api/content-generation-runs",
 			Key:         request.IdempotencyKey,
 			RequestHash: hash,
 		},
-		IdempotencyResponse: &event.IdempotencyResponse{
+		IdempotencyResponse: event.IdempotencyResponse{
 			Status: 202,
 			Body:   responseBody,
 		},
@@ -134,7 +133,7 @@ func (s *Service) Start(ctx context.Context, request StartRequest) (StartResult,
 			SubjectUserID: request.UserID,
 			Payload:       commandPayload,
 		}},
-	})
+	}))
 	if err != nil {
 		return StartResult{}, err
 	}
@@ -203,15 +202,14 @@ func (s *Service) startFromCache(ctx context.Context, request StartRequest, inpu
 		return StartResult{}, err
 	}
 
-	result, err := s.events.Append(ctx, event.AppendRequest{
-		Actor:  event.Actor{Kind: event.ActorUser},
+	result, err := s.events.Append(ctx, event.NewUserCommandAppend(event.UserCommandAppendRequest{
 		UserID: request.UserID,
-		Idempotency: &event.Idempotency{
+		Idempotency: event.Idempotency{
 			Scope:       "POST /api/content-generation-runs",
 			Key:         request.IdempotencyKey,
 			RequestHash: hash,
 		},
-		IdempotencyResponse: &event.IdempotencyResponse{
+		IdempotencyResponse: event.IdempotencyResponse{
 			Status: 202,
 			Body:   responseBody,
 		},
@@ -225,7 +223,7 @@ func (s *Service) startFromCache(ctx context.Context, request StartRequest, inpu
 			runStarted,
 			runSucceeded,
 		},
-	})
+	}))
 	if err != nil {
 		return StartResult{}, err
 	}

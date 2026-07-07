@@ -21,6 +21,7 @@ type Worker struct {
 	ids       event.IDGenerator
 	workerID  string
 	idleSleep time.Duration
+	heartbeat time.Duration
 }
 
 func NewWorker(queue Queue, events EventAppender, llmClient LLM, handler Handler, options WorkerOptions) *Worker {
@@ -36,6 +37,10 @@ func NewWorker(queue Queue, events EventAppender, llmClient LLM, handler Handler
 	if idleSleep <= 0 {
 		idleSleep = time.Duration(defaultIdleSleepMillis) * time.Millisecond
 	}
+	heartbeat := options.HeartbeatInterval
+	if heartbeat <= 0 {
+		heartbeat = time.Duration(defaultHeartbeatMillis) * time.Millisecond
+	}
 	return &Worker{
 		queue:     queue,
 		events:    events,
@@ -44,6 +49,7 @@ func NewWorker(queue Queue, events EventAppender, llmClient LLM, handler Handler
 		ids:       ids,
 		workerID:  workerID,
 		idleSleep: idleSleep,
+		heartbeat: heartbeat,
 	}
 }
 
@@ -88,7 +94,10 @@ func (w *Worker) ProcessOne(ctx context.Context) (bool, error) {
 		return true, w.failClaimedJob(ctx, fence, fmt.Errorf("generate agent attempt key: %w", err))
 	}
 
-	request, err := w.handler.BuildLLMRequest(ctx, JobContext{
+	processingCtx, stopHeartbeat := w.withHeartbeat(ctx, fence)
+	defer stopHeartbeat()
+
+	request, err := w.handler.BuildLLMRequest(processingCtx, JobContext{
 		Job:        claimed,
 		AttemptKey: attemptKey,
 	})
@@ -102,8 +111,8 @@ func (w *Worker) ProcessOne(ctx context.Context) (bool, error) {
 		return true, w.failClaimedJob(ctx, fence, fmt.Errorf("%w: llm request run_id is required", ErrInvalidRequest))
 	}
 
-	response, llmErr := w.llm.Complete(ctx, request)
-	appendRequest, err := w.handler.BuildAppendRequest(ctx, Completion{
+	response, llmErr := w.llm.Complete(processingCtx, request)
+	appendRequest, err := w.handler.BuildAppendRequest(processingCtx, Completion{
 		Job:        claimed,
 		AttemptKey: attemptKey,
 		Request:    request,
@@ -129,22 +138,49 @@ func (w *Worker) ProcessOne(ctx context.Context) (bool, error) {
 	return true, nil
 }
 
+func (w *Worker) withHeartbeat(ctx context.Context, fence event.JobFence) (context.Context, func()) {
+	processingCtx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+		timer := time.NewTimer(w.heartbeat)
+		defer timer.Stop()
+		for {
+			select {
+			case <-processingCtx.Done():
+				return
+			case <-timer.C:
+				if err := w.queue.Heartbeat(processingCtx, fence); err != nil {
+					slog.Warn("agent core worker heartbeat failed", "worker_id", w.workerID, "job_id", fence.JobID, "error", err)
+					cancel()
+					return
+				}
+				timer.Reset(w.heartbeat)
+			}
+		}
+	}()
+
+	return processingCtx, func() {
+		cancel()
+		<-done
+	}
+}
+
 func (w *Worker) appendCompletion(ctx context.Context, fence event.JobFence, completion CompletionAppend) error {
 	if strings.TrimSpace(completion.UserID) == "" {
 		return fmt.Errorf("%w: append user_id is required", ErrInvalidRequest)
 	}
-	request := event.AppendRequest{
-		Actor: event.Actor{
-			Kind: event.ActorWorker,
-			ID:   w.workerID,
-		},
-		UserID: completion.UserID,
-		JobFence: &event.JobFence{
+	request := event.NewWorkerCompletionAppend(event.WorkerCompletionAppendRequest{
+		WorkerID: w.workerID,
+		UserID:   completion.UserID,
+		JobFence: event.JobFence{
 			JobID:      fence.JobID,
 			LeaseToken: fence.LeaseToken,
 		},
-		Events: completion.Events,
-	}
+		Events:  completion.Events,
+		Effects: completion.Effects,
+	})
 	if completion.ExpectedRunVersion != nil {
 		if strings.TrimSpace(completion.RunID) == "" {
 			return fmt.Errorf("%w: append run_id is required when run CAS is requested", ErrInvalidRequest)
@@ -163,17 +199,14 @@ func (w *Worker) ackStaleJob(ctx context.Context, userID string, fence event.Job
 	if strings.TrimSpace(userID) == "" {
 		return fmt.Errorf("%w: stale ack user_id is required", ErrInvalidRequest)
 	}
-	_, err := w.events.Append(ctx, event.AppendRequest{
-		Actor: event.Actor{
-			Kind: event.ActorWorker,
-			ID:   w.workerID,
-		},
-		UserID: userID,
-		JobFence: &event.JobFence{
+	_, err := w.events.Append(ctx, event.NewWorkerAckAppend(event.WorkerAckAppendRequest{
+		WorkerID: w.workerID,
+		UserID:   userID,
+		JobFence: event.JobFence{
 			JobID:      fence.JobID,
 			LeaseToken: fence.LeaseToken,
 		},
-	})
+	}))
 	return err
 }
 
@@ -202,6 +235,9 @@ func (w *Worker) validate() error {
 	}
 	if strings.TrimSpace(w.workerID) == "" {
 		return fmt.Errorf("%w: worker_id is required", ErrInvalidRequest)
+	}
+	if w.heartbeat <= 0 {
+		return fmt.Errorf("%w: heartbeat interval must be positive", ErrInvalidRequest)
 	}
 	if len(w.handler.JobKinds()) == 0 {
 		return fmt.Errorf("%w: handler must claim at least one job kind", ErrInvalidRequest)

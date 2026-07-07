@@ -100,23 +100,45 @@ func (s *Sweeper) ExpireDue(ctx context.Context) (int, error) {
 			return expired, err
 		}
 
-		_, err = s.events.Append(ctx, event.AppendRequest{
-			Actor:     event.Actor{Kind: event.ActorSystem},
+		_, err = s.events.Append(ctx, event.NewSystemRunAppend(event.SystemRunAppendRequest{
 			UserID:    item.UserID,
 			CommandID: commandID,
-			Aggregate: &event.RunAggregate{
+			Aggregate: event.RunAggregate{
 				RunID:           item.RunID,
 				ExpectedVersion: item.RunVersion,
 			},
 			Events: []event.EventDraft{runExpired},
-		})
+		}))
 		if err != nil {
 			if errors.Is(err, event.ErrRunVersionConflict) || errors.Is(err, ErrInvalidTransition) {
 				continue
 			}
 			return expired, err
 		}
+		if err := cancelRunJobs(ctx, s.pool, item.UserID, item.RunID); err != nil {
+			return expired, err
+		}
 		expired++
 	}
 	return expired, nil
+}
+
+func cancelRunJobs(ctx context.Context, pool *pgxpool.Pool, userID string, runID string) error {
+	_, err := pool.Exec(ctx, `
+		UPDATE agent_jobs
+		SET status = 'cancelled',
+			lease_until = NULL,
+			lease_token = NULL,
+			leased_by = NULL,
+			heartbeat_at = NULL,
+			last_error = 'run expired',
+			updated_at = now()
+		WHERE subject_user_id = $1
+			AND payload->>'run_id' = $2
+			AND status IN ('queued', 'leased', 'failed')
+	`, userID, runID)
+	if err != nil {
+		return fmt.Errorf("cancel expired run jobs: %w", err)
+	}
+	return nil
 }

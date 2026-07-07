@@ -4,11 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
-	"net/url"
-	"os"
-	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -16,8 +11,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"lites/backend/internal/db"
 	"lites/backend/internal/event"
+	"lites/backend/internal/testsupport"
 )
 
 func TestAppendAllocatesUserScopedSeq(t *testing.T) {
@@ -206,6 +201,62 @@ func TestAppendEnqueuesCommandsAndWorkerFenceMarksJobDone(t *testing.T) {
 	}
 }
 
+func TestAppendEffectFailureRollsBackEventsAndJobAck(t *testing.T) {
+	ctx := context.Background()
+	service, pool := newTestService(t, ctx)
+
+	created, err := service.Append(ctx, event.AppendRequest{
+		Actor:     event.Actor{Kind: event.ActorSystem},
+		UserID:    "user_a",
+		CommandID: "system-command",
+		Commands: []event.CommandDraft{{
+			Kind:    "review",
+			Payload: json.RawMessage(`{"evidence_id":"ev_1"}`),
+		}},
+	})
+	if err != nil {
+		t.Fatalf("append command: %v", err)
+	}
+	job := created.Commands[0]
+	leaseJob(t, ctx, pool, job.JobID, "lease-1", time.Now().Add(5*time.Minute))
+
+	_, err = service.Append(ctx, event.AppendRequest{
+		Actor:  event.Actor{Kind: event.ActorWorker},
+		UserID: "user_a",
+		JobFence: &event.JobFence{
+			JobID:      job.JobID,
+			LeaseToken: "lease-1",
+		},
+		Events: []event.EventDraft{{
+			Type:          "ReviewCompleted",
+			SchemaVersion: 1,
+			Payload:       json.RawMessage(`{"evidence_id":"ev_1","summary":"ok"}`),
+		}},
+		Effects: []event.TxEffect{
+			func(context.Context, pgx.Tx) error {
+				return errors.New("effect failed")
+			},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "effect failed") {
+		t.Fatalf("append error = %v, want effect failure", err)
+	}
+	assertEventCount(t, ctx, pool, "user_a", 0)
+
+	var status string
+	var leaseToken string
+	if err := pool.QueryRow(ctx, `
+		SELECT status, COALESCE(lease_token, '')
+		FROM agent_jobs
+		WHERE job_id = $1
+	`, job.JobID).Scan(&status, &leaseToken); err != nil {
+		t.Fatalf("read job: %v", err)
+	}
+	if status != "leased" || leaseToken != "lease-1" {
+		t.Fatalf("job after failed effect = %s/%s, want leased/lease-1", status, leaseToken)
+	}
+}
+
 func TestAppendRejectsWrongOrExpiredJobFence(t *testing.T) {
 	ctx := context.Background()
 	service, pool := newTestService(t, ctx)
@@ -320,67 +371,8 @@ func TestAppendRunCAS(t *testing.T) {
 func newTestService(t *testing.T, ctx context.Context) (*event.Service, *pgxpool.Pool) {
 	t.Helper()
 
-	rawURL := os.Getenv("LITES_TEST_DATABASE_URL")
-	if rawURL == "" {
-		t.Skip("set LITES_TEST_DATABASE_URL to run event integration tests")
-	}
-
-	admin, err := pgxpool.New(ctx, rawURL)
-	if err != nil {
-		t.Fatalf("connect admin database: %v", err)
-	}
-
-	schema := fmt.Sprintf("test_event_%d", time.Now().UnixNano())
-	quotedSchema := pgx.Identifier{schema}.Sanitize()
-	if _, err := admin.Exec(ctx, "CREATE SCHEMA "+quotedSchema); err != nil {
-		admin.Close()
-		t.Fatalf("create test schema: %v", err)
-	}
-
-	testURL := withSearchPath(t, rawURL, schema)
-	if err := db.RunMigrations(testURL, migrationsDir(t)); err != nil {
-		_, _ = admin.Exec(ctx, "DROP SCHEMA "+quotedSchema+" CASCADE")
-		admin.Close()
-		t.Fatalf("run migrations: %v", err)
-	}
-
-	pool, err := db.NewPool(ctx, testURL)
-	if err != nil {
-		_, _ = admin.Exec(ctx, "DROP SCHEMA "+quotedSchema+" CASCADE")
-		admin.Close()
-		t.Fatalf("connect test database: %v", err)
-	}
-
-	t.Cleanup(func() {
-		pool.Close()
-		_, _ = admin.Exec(context.Background(), "DROP SCHEMA "+quotedSchema+" CASCADE")
-		admin.Close()
-	})
-
+	pool := testsupport.NewMigratedPool(t, ctx, "test_event")
 	return event.NewService(pool, event.Options{}), pool
-}
-
-func withSearchPath(t *testing.T, rawURL string, schema string) string {
-	t.Helper()
-
-	parsed, err := url.Parse(rawURL)
-	if err != nil {
-		t.Fatalf("parse database url: %v", err)
-	}
-	query := parsed.Query()
-	query.Set("search_path", schema)
-	parsed.RawQuery = query.Encode()
-	return parsed.String()
-}
-
-func migrationsDir(t *testing.T) string {
-	t.Helper()
-
-	_, filename, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("resolve caller path")
-	}
-	return filepath.Join(filepath.Dir(filename), "..", "..", "migrations")
 }
 
 func assertEventCount(t *testing.T, ctx context.Context, pool *pgxpool.Pool, userID string, want int) {
@@ -418,12 +410,5 @@ func leaseJob(t *testing.T, ctx context.Context, pool *pgxpool.Pool, jobID strin
 	}
 	if tag.RowsAffected() != 1 {
 		t.Fatalf("lease job rows = %d, want 1", tag.RowsAffected())
-	}
-}
-
-func TestWithSearchPathKeepsExistingQueryParams(t *testing.T) {
-	got := withSearchPath(t, "postgres://user:pass@example.test/db?sslmode=disable", "schema_a")
-	if !strings.Contains(got, "sslmode=disable") || !strings.Contains(got, "search_path=schema_a") {
-		t.Fatalf("search_path url = %s", got)
 	}
 }

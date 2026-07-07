@@ -4,27 +4,20 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
-	"net/url"
-	"os"
-	"path/filepath"
-	"runtime"
-	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"lites/backend/internal/db"
 	"lites/backend/internal/event"
 	"lites/backend/internal/job"
+	"lites/backend/internal/testsupport"
 )
 
 func TestClaimLeasesOneJobOnce(t *testing.T) {
 	ctx := context.Background()
-	pool := newTestPool(t, ctx)
+	pool := testsupport.NewMigratedPool(t, ctx, "test_job")
 	queue := job.NewQueue(pool, job.Options{
 		LeaseDuration: time.Minute,
 		MaxAttempts:   3,
@@ -75,7 +68,7 @@ func TestClaimLeasesOneJobOnce(t *testing.T) {
 
 func TestFenceOperationsRejectWrongTokenAndDeadLetter(t *testing.T) {
 	ctx := context.Background()
-	pool := newTestPool(t, ctx)
+	pool := testsupport.NewMigratedPool(t, ctx, "test_job")
 	queue := job.NewQueue(pool, job.Options{
 		LeaseDuration: time.Minute,
 		MaxAttempts:   2,
@@ -122,7 +115,7 @@ func TestFenceOperationsRejectWrongTokenAndDeadLetter(t *testing.T) {
 
 func TestExpiredLeaseCanBeReclaimed(t *testing.T) {
 	ctx := context.Background()
-	pool := newTestPool(t, ctx)
+	pool := testsupport.NewMigratedPool(t, ctx, "test_job")
 	queue := job.NewQueue(pool, job.Options{
 		LeaseDuration: time.Minute,
 		MaxAttempts:   3,
@@ -144,9 +137,26 @@ func TestExpiredLeaseCanBeReclaimed(t *testing.T) {
 	}
 }
 
+func TestClaimSkipsTerminalOrOverdueRunJobs(t *testing.T) {
+	ctx := context.Background()
+	pool := testsupport.NewMigratedPool(t, ctx, "test_job")
+	queue := job.NewQueue(pool, job.Options{
+		LeaseDuration: time.Minute,
+		MaxAttempts:   3,
+	})
+	insertRun(t, ctx, pool, "terminal_run", "user_a", "expired", time.Now().Add(-time.Minute))
+	insertRun(t, ctx, pool, "overdue_run", "user_a", "accepted", time.Now().Add(-time.Minute))
+	insertJob(t, ctx, pool, "job_terminal", "command_terminal", "review", "user_a", json.RawMessage(`{"run_id":"terminal_run"}`))
+	insertJob(t, ctx, pool, "job_overdue", "command_overdue", "review", "user_a", json.RawMessage(`{"run_id":"overdue_run"}`))
+
+	if _, _, err := queue.Claim(ctx, []string{"review"}, "worker_a"); !errors.Is(err, job.ErrNoJobAvailable) {
+		t.Fatalf("claim terminal/overdue run jobs error = %v, want %v", err, job.ErrNoJobAvailable)
+	}
+}
+
 func TestRescheduleDelaysJob(t *testing.T) {
 	ctx := context.Background()
-	pool := newTestPool(t, ctx)
+	pool := testsupport.NewMigratedPool(t, ctx, "test_job")
 	queue := job.NewQueue(pool, job.Options{
 		LeaseDuration: time.Minute,
 		MaxAttempts:   3,
@@ -177,7 +187,7 @@ func TestRescheduleDelaysJob(t *testing.T) {
 
 func TestClaimedFenceWorksWithEventAppend(t *testing.T) {
 	ctx := context.Background()
-	pool := newTestPool(t, ctx)
+	pool := testsupport.NewMigratedPool(t, ctx, "test_job")
 	queue := job.NewQueue(pool, job.Options{
 		LeaseDuration: time.Minute,
 		MaxAttempts:   3,
@@ -234,72 +244,6 @@ func TestClaimedFenceWorksWithEventAppend(t *testing.T) {
 	}
 }
 
-func newTestPool(t *testing.T, ctx context.Context) *pgxpool.Pool {
-	t.Helper()
-
-	rawURL := os.Getenv("LITES_TEST_DATABASE_URL")
-	if rawURL == "" {
-		t.Skip("set LITES_TEST_DATABASE_URL to run job integration tests")
-	}
-
-	admin, err := pgxpool.New(ctx, rawURL)
-	if err != nil {
-		t.Fatalf("connect admin database: %v", err)
-	}
-
-	schema := fmt.Sprintf("test_job_%d", time.Now().UnixNano())
-	quotedSchema := pgx.Identifier{schema}.Sanitize()
-	if _, err := admin.Exec(ctx, "CREATE SCHEMA "+quotedSchema); err != nil {
-		admin.Close()
-		t.Fatalf("create test schema: %v", err)
-	}
-
-	testURL := withSearchPath(t, rawURL, schema)
-	if err := db.RunMigrations(testURL, migrationsDir(t)); err != nil {
-		_, _ = admin.Exec(ctx, "DROP SCHEMA "+quotedSchema+" CASCADE")
-		admin.Close()
-		t.Fatalf("run migrations: %v", err)
-	}
-
-	pool, err := db.NewPool(ctx, testURL)
-	if err != nil {
-		_, _ = admin.Exec(ctx, "DROP SCHEMA "+quotedSchema+" CASCADE")
-		admin.Close()
-		t.Fatalf("connect test database: %v", err)
-	}
-
-	t.Cleanup(func() {
-		pool.Close()
-		_, _ = admin.Exec(context.Background(), "DROP SCHEMA "+quotedSchema+" CASCADE")
-		admin.Close()
-	})
-
-	return pool
-}
-
-func withSearchPath(t *testing.T, rawURL string, schema string) string {
-	t.Helper()
-
-	parsed, err := url.Parse(rawURL)
-	if err != nil {
-		t.Fatalf("parse database url: %v", err)
-	}
-	query := parsed.Query()
-	query.Set("search_path", schema)
-	parsed.RawQuery = query.Encode()
-	return parsed.String()
-}
-
-func migrationsDir(t *testing.T) string {
-	t.Helper()
-
-	_, filename, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("resolve caller path")
-	}
-	return filepath.Join(filepath.Dir(filename), "..", "..", "migrations")
-}
-
 func insertJob(t *testing.T, ctx context.Context, pool *pgxpool.Pool, jobID string, commandID string, kind string, subjectUserID string, payload json.RawMessage) {
 	t.Helper()
 
@@ -324,6 +268,18 @@ func insertLeasedJob(t *testing.T, ctx context.Context, pool *pgxpool.Pool, jobI
 	`, jobID, commandID, kind, attempts, leaseUntil, leaseToken)
 	if err != nil {
 		t.Fatalf("insert leased job: %v", err)
+	}
+}
+
+func insertRun(t *testing.T, ctx context.Context, pool *pgxpool.Pool, runID string, userID string, status string, dueAt time.Time) {
+	t.Helper()
+
+	_, err := pool.Exec(ctx, `
+		INSERT INTO agent_runs (run_id, user_id, run_type, status, due_at)
+		VALUES ($1, $2, 'review', $3, $4)
+	`, runID, userID, status, dueAt)
+	if err != nil {
+		t.Fatalf("insert run: %v", err)
 	}
 }
 
@@ -359,11 +315,4 @@ func readJob(t *testing.T, ctx context.Context, pool *pgxpool.Pool, jobID string
 		t.Fatalf("read job %s: %v", jobID, err)
 	}
 	return stored
-}
-
-func TestWithSearchPathKeepsExistingQueryParams(t *testing.T) {
-	got := withSearchPath(t, "postgres://user:pass@example.test/db?sslmode=disable", "schema_a")
-	if !strings.Contains(got, "sslmode=disable") || !strings.Contains(got, "search_path=schema_a") {
-		t.Fatalf("search_path url = %s", got)
-	}
 }

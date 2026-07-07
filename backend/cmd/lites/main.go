@@ -8,16 +8,9 @@ import (
 	"os/signal"
 	"syscall"
 
-	"lites/backend/internal/api"
+	"lites/backend/internal/app"
 	"lites/backend/internal/config"
-	"lites/backend/internal/content"
 	"lites/backend/internal/db"
-	"lites/backend/internal/event"
-	"lites/backend/internal/job"
-	"lites/backend/internal/llm"
-	"lites/backend/internal/llm/deepseek"
-	"lites/backend/internal/outline"
-	runpkg "lites/backend/internal/run"
 )
 
 func main() {
@@ -48,7 +41,7 @@ func run(ctx context.Context, args []string) error {
 
 	switch command {
 	case "serve":
-		return serve(ctx, appConfig)
+		return app.Serve(ctx, appConfig)
 	case "migrate":
 		return db.RunMigrations(appConfig.DatabaseURL, appConfig.MigrationsDir)
 	case "help", "-h", "--help":
@@ -57,58 +50,4 @@ func run(ctx context.Context, args []string) error {
 	default:
 		return fmt.Errorf("unknown command %q", command)
 	}
-}
-
-func serve(ctx context.Context, appConfig config.Config) error {
-	pool, err := db.NewPool(ctx, appConfig.DatabaseURL)
-	if err != nil {
-		return err
-	}
-	defer pool.Close()
-
-	llmConfig, err := config.LoadLLMConfig(appConfig.LLMConfigPath)
-	if err != nil {
-		return err
-	}
-	router, err := newLLMRouter(llmConfig)
-	if err != nil {
-		return err
-	}
-
-	events := event.NewService(pool, event.Options{
-		Dispatcher: runpkg.NewReducer(),
-	})
-	queue := job.NewQueue(pool, job.Options{})
-	llmClient := llm.NewClient(pool, router, llm.ClientOptions{})
-	contentStore := content.NewStore(pool)
-	contentService := content.NewService(events, content.ServiceOptions{Artifacts: contentStore})
-	contentWorker := content.NewWorker(queue, events, llmClient, contentStore, content.WorkerOptions{})
-	go contentWorker.Run(ctx)
-	outlineStore := outline.NewStore(pool)
-	outlineService := outline.NewService(events, outline.ServiceOptions{})
-	outlineWorker := outline.NewWorker(queue, events, llmClient, outlineStore, outline.WorkerOptions{})
-	go outlineWorker.Run(ctx)
-
-	server := api.NewServer(api.ServerConfig{
-		Addr:              appConfig.HTTPAddr,
-		SingleUser:        appConfig.SingleUser,
-		ContentGeneration: contentService,
-		ContentReader:     contentStore,
-		OutlineGeneration: outlineService,
-		OutlineReader:     outlineStore,
-	})
-	return server.ListenAndServe(ctx)
-}
-
-func newLLMRouter(llmConfig config.LLMConfig) (*llm.Router, error) {
-	providers := make(map[string]llm.Provider, len(llmConfig.Providers))
-	for name, providerConfig := range llmConfig.Providers {
-		switch name {
-		case "deepseek":
-			providers[name] = deepseek.NewProvider(providerConfig, nil)
-		default:
-			return nil, fmt.Errorf("unsupported llm provider %q", name)
-		}
-	}
-	return llm.NewRouter(llmConfig, providers)
 }

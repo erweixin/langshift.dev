@@ -2,31 +2,25 @@ package outline_test
 
 import (
 	"context"
-	"fmt"
-	"net/url"
-	"os"
-	"path/filepath"
-	"runtime"
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"lites/backend/internal/db"
 	"lites/backend/internal/event"
 	"lites/backend/internal/job"
 	"lites/backend/internal/llm"
 	"lites/backend/internal/outline"
 	"lites/backend/internal/run"
+	"lites/backend/internal/testsupport"
 )
 
 func TestServiceStartCreatesRunAndOutlineGenerationJob(t *testing.T) {
 	ctx := context.Background()
-	pool := newTestPool(t, ctx)
+	pool := testsupport.NewMigratedPool(t, ctx, "test_outline")
 	events := event.NewService(pool, event.Options{Dispatcher: run.NewReducer()})
 	service := outline.NewService(events, outline.ServiceOptions{
-		IDGenerator: &sequenceIDs{values: []string{"run_1"}},
+		IDGenerator: testsupport.NewSequenceIDs("run_1"),
 		Now:         func() time.Time { return time.Date(2026, 7, 6, 1, 2, 3, 0, time.UTC) },
 	})
 
@@ -61,10 +55,10 @@ func TestServiceStartCreatesRunAndOutlineGenerationJob(t *testing.T) {
 
 func TestWorkerProcessOneCompletesRunJobOutlineAndTasks(t *testing.T) {
 	ctx := context.Background()
-	pool := newTestPool(t, ctx)
+	pool := testsupport.NewMigratedPool(t, ctx, "test_outline")
 	events := event.NewService(pool, event.Options{Dispatcher: run.NewReducer()})
 	service := outline.NewService(events, outline.ServiceOptions{
-		IDGenerator: &sequenceIDs{values: []string{"run_1"}},
+		IDGenerator: testsupport.NewSequenceIDs("run_1"),
 	})
 	if _, err := service.Start(ctx, outline.StartRequest{
 		UserID:         "user_1",
@@ -87,7 +81,7 @@ func TestWorkerProcessOneCompletesRunJobOutlineAndTasks(t *testing.T) {
 		events,
 		fake,
 		store,
-		outline.WorkerOptions{IDGenerator: &sequenceIDs{values: []string{"attempt_1"}}},
+		outline.WorkerOptions{IDGenerator: testsupport.NewSequenceIDs("attempt_1")},
 	)
 
 	processed, err := worker.ProcessOne(ctx)
@@ -176,22 +170,6 @@ func validOutlineJSON() string {
 			}
 		]
 	}`
-}
-
-type sequenceIDs struct {
-	values []string
-	next   int
-}
-
-func (g *sequenceIDs) NewID() (string, error) {
-	if g.next >= len(g.values) {
-		id := fmt.Sprintf("generated_%d", g.next)
-		g.next++
-		return id, nil
-	}
-	id := g.values[g.next]
-	g.next++
-	return id, nil
 }
 
 func assertRun(t *testing.T, ctx context.Context, pool *pgxpool.Pool, runID string, runType string, status string, version int) {
@@ -294,70 +272,4 @@ func assertLearningTasks(t *testing.T, ctx context.Context, pool *pgxpool.Pool, 
 	if count != want {
 		t.Fatalf("learning task count = %d, want %d", count, want)
 	}
-}
-
-func newTestPool(t *testing.T, ctx context.Context) *pgxpool.Pool {
-	t.Helper()
-
-	rawURL := os.Getenv("LITES_TEST_DATABASE_URL")
-	if rawURL == "" {
-		t.Skip("set LITES_TEST_DATABASE_URL to run outline integration tests")
-	}
-
-	admin, err := pgxpool.New(ctx, rawURL)
-	if err != nil {
-		t.Fatalf("connect admin database: %v", err)
-	}
-
-	schema := fmt.Sprintf("test_outline_%d", time.Now().UnixNano())
-	quotedSchema := pgx.Identifier{schema}.Sanitize()
-	if _, err := admin.Exec(ctx, "CREATE SCHEMA "+quotedSchema); err != nil {
-		admin.Close()
-		t.Fatalf("create test schema: %v", err)
-	}
-
-	testURL := withSearchPath(t, rawURL, schema)
-	if err := db.RunMigrations(testURL, migrationsDir(t)); err != nil {
-		_, _ = admin.Exec(ctx, "DROP SCHEMA "+quotedSchema+" CASCADE")
-		admin.Close()
-		t.Fatalf("run migrations: %v", err)
-	}
-
-	pool, err := db.NewPool(ctx, testURL)
-	if err != nil {
-		_, _ = admin.Exec(ctx, "DROP SCHEMA "+quotedSchema+" CASCADE")
-		admin.Close()
-		t.Fatalf("connect test database: %v", err)
-	}
-
-	t.Cleanup(func() {
-		pool.Close()
-		_, _ = admin.Exec(context.Background(), "DROP SCHEMA "+quotedSchema+" CASCADE")
-		admin.Close()
-	})
-
-	return pool
-}
-
-func withSearchPath(t *testing.T, rawURL string, schema string) string {
-	t.Helper()
-
-	parsed, err := url.Parse(rawURL)
-	if err != nil {
-		t.Fatalf("parse database url: %v", err)
-	}
-	query := parsed.Query()
-	query.Set("search_path", schema)
-	parsed.RawQuery = query.Encode()
-	return parsed.String()
-}
-
-func migrationsDir(t *testing.T) string {
-	t.Helper()
-
-	_, filename, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("resolve caller path")
-	}
-	return filepath.Join(filepath.Dir(filename), "..", "..", "migrations")
 }

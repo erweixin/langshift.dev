@@ -3,37 +3,28 @@ package api
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
-	"os"
-	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
-	"time"
-
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"lites/backend/internal/content"
 	"lites/backend/internal/contracts"
-	"lites/backend/internal/db"
 	"lites/backend/internal/event"
 	"lites/backend/internal/job"
 	"lites/backend/internal/llm"
 	"lites/backend/internal/run"
+	"lites/backend/internal/testsupport"
 )
 
 func TestContentGenerationAPISmoke(t *testing.T) {
 	ctx := context.Background()
-	pool := newAPIIntegrationPool(t, ctx)
+	pool := testsupport.NewMigratedPool(t, ctx, "test_api")
 	events := event.NewService(pool, event.Options{Dispatcher: run.NewReducer()})
 	store := content.NewStore(pool)
 	service := content.NewService(events, content.ServiceOptions{
 		Artifacts:   store,
-		IDGenerator: &apiSequenceIDs{values: []string{"run_smoke"}},
+		IDGenerator: testsupport.NewSequenceIDs("run_smoke"),
 	})
 	workerLLM := &smokeLLM{
 		response: llm.Response{
@@ -47,7 +38,7 @@ func TestContentGenerationAPISmoke(t *testing.T) {
 		events,
 		workerLLM,
 		store,
-		content.WorkerOptions{IDGenerator: &apiSequenceIDs{values: []string{"attempt_smoke"}}},
+		content.WorkerOptions{IDGenerator: testsupport.NewSequenceIDs("attempt_smoke")},
 	)
 	server := NewServer(ServerConfig{
 		SingleUser:        true,
@@ -142,22 +133,6 @@ func (f *smokeLLM) Complete(_ context.Context, request llm.Request) (llm.Respons
 	return f.response, nil
 }
 
-type apiSequenceIDs struct {
-	values []string
-	next   int
-}
-
-func (g *apiSequenceIDs) NewID() (string, error) {
-	if g.next >= len(g.values) {
-		id := fmt.Sprintf("generated_%d", g.next)
-		g.next++
-		return id, nil
-	}
-	id := g.values[g.next]
-	g.next++
-	return id, nil
-}
-
 func smokeArtifactJSON() string {
 	return `{
 		"lesson": {
@@ -213,70 +188,4 @@ func smokeArtifactJSON() string {
 			]
 		}
 	}`
-}
-
-func newAPIIntegrationPool(t *testing.T, ctx context.Context) *pgxpool.Pool {
-	t.Helper()
-
-	rawURL := os.Getenv("LITES_TEST_DATABASE_URL")
-	if rawURL == "" {
-		t.Skip("set LITES_TEST_DATABASE_URL to run api integration tests")
-	}
-
-	admin, err := pgxpool.New(ctx, rawURL)
-	if err != nil {
-		t.Fatalf("connect admin database: %v", err)
-	}
-
-	schema := fmt.Sprintf("test_api_%d", time.Now().UnixNano())
-	quotedSchema := pgx.Identifier{schema}.Sanitize()
-	if _, err := admin.Exec(ctx, "CREATE SCHEMA "+quotedSchema); err != nil {
-		admin.Close()
-		t.Fatalf("create test schema: %v", err)
-	}
-
-	testURL := withAPISearchPath(t, rawURL, schema)
-	if err := db.RunMigrations(testURL, apiMigrationsDir(t)); err != nil {
-		_, _ = admin.Exec(ctx, "DROP SCHEMA "+quotedSchema+" CASCADE")
-		admin.Close()
-		t.Fatalf("run migrations: %v", err)
-	}
-
-	pool, err := db.NewPool(ctx, testURL)
-	if err != nil {
-		_, _ = admin.Exec(ctx, "DROP SCHEMA "+quotedSchema+" CASCADE")
-		admin.Close()
-		t.Fatalf("connect test database: %v", err)
-	}
-
-	t.Cleanup(func() {
-		pool.Close()
-		_, _ = admin.Exec(context.Background(), "DROP SCHEMA "+quotedSchema+" CASCADE")
-		admin.Close()
-	})
-
-	return pool
-}
-
-func withAPISearchPath(t *testing.T, rawURL string, schema string) string {
-	t.Helper()
-
-	parsed, err := url.Parse(rawURL)
-	if err != nil {
-		t.Fatalf("parse database url: %v", err)
-	}
-	query := parsed.Query()
-	query.Set("search_path", schema)
-	parsed.RawQuery = query.Encode()
-	return parsed.String()
-}
-
-func apiMigrationsDir(t *testing.T) string {
-	t.Helper()
-
-	_, filename, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("resolve caller path")
-	}
-	return filepath.Join(filepath.Dir(filename), "..", "..", "migrations")
 }

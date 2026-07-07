@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"lites/backend/internal/agentcore"
+	"lites/backend/internal/contracts"
 	"lites/backend/internal/event"
-	"lites/backend/internal/job"
 	"lites/backend/internal/llm"
 	"lites/backend/internal/run"
 )
@@ -19,6 +19,7 @@ type LLM = agentcore.LLM
 
 type ArtifactWriter interface {
 	SaveArtifact(ctx context.Context, request SaveArtifactRequest) (ArtifactRecord, error)
+	SaveArtifactEffect(request SaveArtifactRequest) (event.TxEffect, ArtifactRecord, error)
 }
 
 type Worker struct {
@@ -82,7 +83,7 @@ func (h contentGenerationHandler) JobKinds() []string {
 }
 
 func (h contentGenerationHandler) BuildLLMRequest(_ context.Context, task agentcore.JobContext) (llm.Request, error) {
-	payload, err := parseJobPayload(task.Job)
+	payload, err := DecodeGenerationJobPayload(task.Job)
 	if err != nil {
 		return llm.Request{}, err
 	}
@@ -103,119 +104,121 @@ func (h contentGenerationHandler) BuildLLMRequest(_ context.Context, task agentc
 }
 
 func (h contentGenerationHandler) BuildAppendRequest(ctx context.Context, completion agentcore.Completion) (agentcore.CompletionAppend, error) {
-	if h.artifacts == nil {
-		return agentcore.CompletionAppend{}, errMissingStore
-	}
-	if h.validator == nil {
-		return agentcore.CompletionAppend{}, fmt.Errorf("%w: validator is required", ErrInvalidRequest)
+	if err := h.validateCompletionBuilder(); err != nil {
+		return agentcore.CompletionAppend{}, err
 	}
 
-	payload, err := parseJobPayload(completion.Job)
+	payload, err := DecodeGenerationJobPayload(completion.Job)
 	if err != nil {
 		return agentcore.CompletionAppend{}, err
 	}
 	runID := payload.RunID
-	runQueued, err := run.QueuedEvent(runID, nil)
+	events, err := startedRunEvents(runID, completion.AttemptKey)
 	if err != nil {
 		return agentcore.CompletionAppend{}, err
-	}
-	runStarted, err := run.StartedEvent(runID, completion.AttemptKey, nil)
-	if err != nil {
-		return agentcore.CompletionAppend{}, err
-	}
-	events := []event.EventDraft{runQueued, runStarted}
-	if completion.Err != nil {
-		runFailed, err := run.FailedEvent(runID, []string{completion.AttemptKey}, "llm_error", truncateMessage(completion.Err.Error()), nil)
-		if err != nil {
-			return agentcore.CompletionAppend{}, err
-		}
-		events = append(events, runFailed)
-	} else {
-		artifact, err := buildGeneratedArtifact(payload.Input, completion.Response, time.Now().UTC())
-		if err != nil {
-			runFailed, err := run.FailedEvent(runID, []string{completion.AttemptKey}, "invalid_content_artifact", truncateMessage(err.Error()), run.Fields{
-				"llm_ledger_id": completion.Response.LedgerID,
-			})
-			if err != nil {
-				return agentcore.CompletionAppend{}, err
-			}
-			events = append(events, runFailed)
-		} else {
-			validation, err := h.validator.Validate(ctx, ValidationRequest{
-				Input:    payload.Input,
-				Artifact: artifact,
-			})
-			if err != nil {
-				return agentcore.CompletionAppend{}, err
-			}
-			if !validation.Passed() {
-				runFailed, err := run.FailedEvent(runID, []string{completion.AttemptKey}, "content_validation_failed", truncateMessage(summarizeValidationIssues(validation.Issues)), run.Fields{
-					"llm_ledger_id": completion.Response.LedgerID,
-					"validation":    validation,
-				})
-				if err != nil {
-					return agentcore.CompletionAppend{}, err
-				}
-				events = append(events, runFailed)
-			} else {
-				if validation.Attempts <= 0 {
-					validation.Attempts = 1
-				}
-				if artifact.Meta != nil {
-					artifact.Meta.ValidationAttempts = validation.Attempts
-				}
-				saved, err := h.artifacts.SaveArtifact(ctx, SaveArtifactRequest{
-					Artifact:           artifact,
-					LLMLedgerID:        completion.Response.LedgerID,
-					SourceRunID:        runID,
-					SourceAttemptKey:   completion.AttemptKey,
-					ReviewStatus:       ReviewStatusAutoOK,
-					ValidationAttempts: validation.Attempts,
-				})
-				if err != nil {
-					return agentcore.CompletionAppend{}, err
-				}
-				runSucceeded, err := run.SucceededEvent(runID, []string{completion.AttemptKey}, run.Fields{
-					"llm_ledger_id":       completion.Response.LedgerID,
-					"content_key":         saved.Artifact.ContentKey,
-					"artifact_hash":       saved.ArtifactHash,
-					"review_status":       saved.ReviewStatus,
-					"validation_attempts": saved.ValidationAttempts,
-					"content_length":      len(completion.Response.Content),
-				})
-				if err != nil {
-					return agentcore.CompletionAppend{}, err
-				}
-				events = append(events, runSucceeded)
-			}
-		}
 	}
 
+	if completion.Err != nil {
+		return failedCompletionAppend(completion, runID, events, "llm_error", completion.Err.Error(), nil)
+	}
+
+	artifact, err := buildGeneratedArtifact(payload.Input, completion.Response, time.Now().UTC())
+	if err != nil {
+		return failedCompletionAppend(completion, runID, events, "invalid_content_artifact", err.Error(), run.Fields{
+			"llm_ledger_id": completion.Response.LedgerID,
+		})
+	}
+
+	validation, err := h.validator.Validate(ctx, ValidationRequest{
+		Input:    payload.Input,
+		Artifact: artifact,
+	})
+	if err != nil {
+		return agentcore.CompletionAppend{}, err
+	}
+	if !validation.Passed() {
+		return failedCompletionAppend(completion, runID, events, "content_validation_failed", summarizeValidationIssues(validation.Issues), run.Fields{
+			"llm_ledger_id": completion.Response.LedgerID,
+			"validation":    validation,
+		})
+	}
+
+	return h.succeededCompletionAppend(completion, payload, artifact, validation, events)
+}
+
+func (h contentGenerationHandler) validateCompletionBuilder() error {
+	if h.artifacts == nil {
+		return errMissingStore
+	}
+	if h.validator == nil {
+		return fmt.Errorf("%w: validator is required", ErrInvalidRequest)
+	}
+	return nil
+}
+
+func startedRunEvents(runID string, attemptKey string) ([]event.EventDraft, error) {
+	runQueued, err := run.QueuedEvent(runID, nil)
+	if err != nil {
+		return nil, err
+	}
+	runStarted, err := run.StartedEvent(runID, attemptKey, nil)
+	if err != nil {
+		return nil, err
+	}
+	return []event.EventDraft{runQueued, runStarted}, nil
+}
+
+func failedCompletionAppend(completion agentcore.Completion, runID string, events []event.EventDraft, code string, message string, fields run.Fields) (agentcore.CompletionAppend, error) {
+	runFailed, err := run.FailedEvent(runID, []string{completion.AttemptKey}, code, truncateMessage(message), fields)
+	if err != nil {
+		return agentcore.CompletionAppend{}, err
+	}
+	return newCompletionAppend(completion, runID, append(events, runFailed), nil), nil
+}
+
+func (h contentGenerationHandler) succeededCompletionAppend(completion agentcore.Completion, payload GenerationJobPayload, artifact contracts.ContentArtifact, validation ValidationResult, events []event.EventDraft) (agentcore.CompletionAppend, error) {
+	if validation.Attempts <= 0 {
+		validation.Attempts = 1
+	}
+	if artifact.Meta != nil {
+		artifact.Meta.ValidationAttempts = validation.Attempts
+	}
+	saveEffect, saved, err := h.artifacts.SaveArtifactEffect(SaveArtifactRequest{
+		Artifact:           artifact,
+		LLMLedgerID:        completion.Response.LedgerID,
+		SourceRunID:        payload.RunID,
+		SourceAttemptKey:   completion.AttemptKey,
+		ReviewStatus:       ReviewStatusAutoOK,
+		ValidationAttempts: validation.Attempts,
+	})
+	if err != nil {
+		return agentcore.CompletionAppend{}, err
+	}
+	runSucceeded, err := run.SucceededEvent(payload.RunID, []string{completion.AttemptKey}, run.Fields{
+		"llm_ledger_id":       completion.Response.LedgerID,
+		"content_key":         saved.Artifact.ContentKey,
+		"artifact_hash":       saved.ArtifactHash,
+		"review_status":       saved.ReviewStatus,
+		"validation_attempts": saved.ValidationAttempts,
+		"content_length":      len(completion.Response.Content),
+	})
+	if err != nil {
+		return agentcore.CompletionAppend{}, err
+	}
+	return newCompletionAppend(completion, payload.RunID, append(events, runSucceeded), []event.TxEffect{saveEffect}), nil
+}
+
+func newCompletionAppend(completion agentcore.Completion, runID string, events []event.EventDraft, effects []event.TxEffect) agentcore.CompletionAppend {
 	return agentcore.CompletionAppend{
 		UserID:             completion.Request.UserID,
 		RunID:              runID,
 		ExpectedRunVersion: agentcore.ExpectedRunVersion(0),
 		Events:             events,
-	}, nil
+		Effects:            effects,
+	}
 }
 
-func parseJobPayload(claimed job.Job) (jobPayload, error) {
-	var payload jobPayload
-	if err := json.Unmarshal(claimed.Payload, &payload); err != nil {
-		return jobPayload{}, fmt.Errorf("%w: parse job payload: %v", ErrInvalidRequest, err)
-	}
-	if strings.TrimSpace(payload.RunID) == "" {
-		return jobPayload{}, fmt.Errorf("%w: run_id is required", ErrInvalidRequest)
-	}
-	input, err := normalizeInput(payload.Input)
-	if err != nil {
-		return jobPayload{}, err
-	}
-	payload.Input = input
-	return payload, nil
-}
-
-func contextManifest(payload jobPayload) json.RawMessage {
+func contextManifest(payload GenerationJobPayload) json.RawMessage {
 	return mustJSON(map[string]any{
 		"run_id": runIDOrUnknown(payload.RunID),
 		"input":  payload.Input,

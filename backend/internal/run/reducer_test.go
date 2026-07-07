@@ -5,25 +5,19 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/url"
-	"os"
-	"path/filepath"
-	"runtime"
-	"strings"
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"lites/backend/internal/db"
 	"lites/backend/internal/event"
 	"lites/backend/internal/run"
+	"lites/backend/internal/testsupport"
 )
 
 func TestReducerAppliesRunLifecycleWithCAS(t *testing.T) {
 	ctx := context.Background()
-	pool := newTestPool(t, ctx)
+	pool := testsupport.NewMigratedPool(t, ctx, "test_run")
 	service := event.NewService(pool, event.Options{
 		Dispatcher: run.NewReducer(),
 	})
@@ -56,7 +50,7 @@ func TestReducerAppliesRunLifecycleWithCAS(t *testing.T) {
 
 func TestReducerRejectsTerminalRegression(t *testing.T) {
 	ctx := context.Background()
-	pool := newTestPool(t, ctx)
+	pool := testsupport.NewMigratedPool(t, ctx, "test_run")
 	service := event.NewService(pool, event.Options{
 		Dispatcher: run.NewReducer(),
 	})
@@ -90,7 +84,7 @@ func TestReducerRejectsTerminalRegression(t *testing.T) {
 
 func TestReducerRequiresRunCASForTransitions(t *testing.T) {
 	ctx := context.Background()
-	pool := newTestPool(t, ctx)
+	pool := testsupport.NewMigratedPool(t, ctx, "test_run")
 	service := event.NewService(pool, event.Options{
 		Dispatcher: run.NewReducer(),
 	})
@@ -117,7 +111,7 @@ func TestReducerRequiresRunCASForTransitions(t *testing.T) {
 
 func TestReducerRejectsStaleRunVersion(t *testing.T) {
 	ctx := context.Background()
-	pool := newTestPool(t, ctx)
+	pool := testsupport.NewMigratedPool(t, ctx, "test_run")
 	service := event.NewService(pool, event.Options{
 		Dispatcher: run.NewReducer(),
 	})
@@ -149,7 +143,7 @@ func TestReducerRejectsStaleRunVersion(t *testing.T) {
 
 func TestSweeperExpiresDueRuns(t *testing.T) {
 	ctx := context.Background()
-	pool := newTestPool(t, ctx)
+	pool := testsupport.NewMigratedPool(t, ctx, "test_run")
 	service := event.NewService(pool, event.Options{
 		Dispatcher: run.NewReducer(),
 	})
@@ -167,49 +161,6 @@ func TestSweeperExpiresDueRuns(t *testing.T) {
 	}
 	assertRunState(t, ctx, pool, "due_run", run.StatusExpired, 1)
 	assertRunState(t, ctx, pool, "future_run", run.StatusAccepted, 0)
-}
-
-func newTestPool(t *testing.T, ctx context.Context) *pgxpool.Pool {
-	t.Helper()
-
-	rawURL := os.Getenv("LITES_TEST_DATABASE_URL")
-	if rawURL == "" {
-		t.Skip("set LITES_TEST_DATABASE_URL to run run integration tests")
-	}
-
-	admin, err := pgxpool.New(ctx, rawURL)
-	if err != nil {
-		t.Fatalf("connect admin database: %v", err)
-	}
-
-	schema := fmt.Sprintf("test_run_%d", time.Now().UnixNano())
-	quotedSchema := pgx.Identifier{schema}.Sanitize()
-	if _, err := admin.Exec(ctx, "CREATE SCHEMA "+quotedSchema); err != nil {
-		admin.Close()
-		t.Fatalf("create test schema: %v", err)
-	}
-
-	testURL := withSearchPath(t, rawURL, schema)
-	if err := db.RunMigrations(testURL, migrationsDir(t)); err != nil {
-		_, _ = admin.Exec(ctx, "DROP SCHEMA "+quotedSchema+" CASCADE")
-		admin.Close()
-		t.Fatalf("run migrations: %v", err)
-	}
-
-	pool, err := db.NewPool(ctx, testURL)
-	if err != nil {
-		_, _ = admin.Exec(ctx, "DROP SCHEMA "+quotedSchema+" CASCADE")
-		admin.Close()
-		t.Fatalf("connect test database: %v", err)
-	}
-
-	t.Cleanup(func() {
-		pool.Close()
-		_, _ = admin.Exec(context.Background(), "DROP SCHEMA "+quotedSchema+" CASCADE")
-		admin.Close()
-	})
-
-	return pool
 }
 
 func appendRunAccepted(t *testing.T, ctx context.Context, service *event.Service, runID string, userID string, dueAt time.Time) event.AppendResult {
@@ -299,35 +250,5 @@ func assertEventCount(t *testing.T, ctx context.Context, pool *pgxpool.Pool, use
 	}
 	if count != want {
 		t.Fatalf("event count = %d, want %d", count, want)
-	}
-}
-
-func withSearchPath(t *testing.T, rawURL string, schema string) string {
-	t.Helper()
-
-	parsed, err := url.Parse(rawURL)
-	if err != nil {
-		t.Fatalf("parse database url: %v", err)
-	}
-	query := parsed.Query()
-	query.Set("search_path", schema)
-	parsed.RawQuery = query.Encode()
-	return parsed.String()
-}
-
-func migrationsDir(t *testing.T) string {
-	t.Helper()
-
-	_, filename, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("resolve caller path")
-	}
-	return filepath.Join(filepath.Dir(filename), "..", "..", "migrations")
-}
-
-func TestWithSearchPathKeepsExistingQueryParams(t *testing.T) {
-	got := withSearchPath(t, "postgres://user:pass@example.test/db?sslmode=disable", "schema_a")
-	if !strings.Contains(got, "sslmode=disable") || !strings.Contains(got, "search_path=schema_a") {
-		t.Fatalf("search_path url = %s", got)
 	}
 }

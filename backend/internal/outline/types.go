@@ -80,8 +80,3 @@ type OutlineRecord struct {
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
 }
-
-type jobPayload struct {
-	RunID string          `json:"run_id"`
-	Input GenerationInput `json:"input"`
-}

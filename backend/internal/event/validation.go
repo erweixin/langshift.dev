@@ -9,8 +9,8 @@ func validateAppendRequest(request AppendRequest) error {
 	if strings.TrimSpace(request.UserID) == "" {
 		return fmt.Errorf("%w: user_id is required", ErrInvalidRequest)
 	}
-	if len(request.Events) == 0 && len(request.Commands) == 0 && request.JobFence == nil {
-		return fmt.Errorf("%w: at least one event, command, or job fence is required", ErrInvalidRequest)
+	if len(request.Events) == 0 && len(request.Commands) == 0 && len(request.Effects) == 0 && request.JobFence == nil {
+		return fmt.Errorf("%w: at least one event, command, effect, or job fence is required", ErrInvalidRequest)
 	}
 
 	switch request.Actor.Kind {
@@ -74,6 +74,11 @@ func validateAppendRequest(request AppendRequest) error {
 	for _, command := range request.Commands {
 		if strings.TrimSpace(command.Kind) == "" {
 			return fmt.Errorf("%w: command kind is required", ErrInvalidRequest)
+		}
+	}
+	for _, effect := range request.Effects {
+		if effect == nil {
+			return fmt.Errorf("%w: effect is required", ErrInvalidRequest)
 		}
 	}
 	return nil

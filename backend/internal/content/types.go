@@ -114,8 +114,3 @@ type ExerciseRuntimeResult struct {
 	StarterFailed   bool              `json:"starter_failed,omitempty"`
 	Issues          []ValidationIssue `json:"issues,omitempty"`
 }
-
-type jobPayload struct {
-	RunID string          `json:"run_id"`
-	Input GenerationInput `json:"input"`
-}

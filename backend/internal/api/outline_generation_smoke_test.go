@@ -14,15 +14,16 @@ import (
 	"lites/backend/internal/llm"
 	"lites/backend/internal/outline"
 	"lites/backend/internal/run"
+	"lites/backend/internal/testsupport"
 )
 
 func TestOutlineGenerationAPISmoke(t *testing.T) {
 	ctx := context.Background()
-	pool := newAPIIntegrationPool(t, ctx)
+	pool := testsupport.NewMigratedPool(t, ctx, "test_api")
 	events := event.NewService(pool, event.Options{Dispatcher: run.NewReducer()})
 	store := outline.NewStore(pool)
 	service := outline.NewService(events, outline.ServiceOptions{
-		IDGenerator: &apiSequenceIDs{values: []string{"run_outline_smoke"}},
+		IDGenerator: testsupport.NewSequenceIDs("run_outline_smoke"),
 	})
 	workerLLM := &smokeLLM{
 		response: llm.Response{
@@ -36,7 +37,7 @@ func TestOutlineGenerationAPISmoke(t *testing.T) {
 		events,
 		workerLLM,
 		store,
-		outline.WorkerOptions{IDGenerator: &apiSequenceIDs{values: []string{"attempt_outline_smoke"}}},
+		outline.WorkerOptions{IDGenerator: testsupport.NewSequenceIDs("attempt_outline_smoke")},
 	)
 	server := NewServer(ServerConfig{
 		SingleUser:        true,

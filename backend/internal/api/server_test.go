@@ -29,6 +29,7 @@ func TestCreateContentGenerationRun(t *testing.T) {
 		"judge": "Explain API acceptance versus worker execution."
 	}`))
 	request.Header.Set("Idempotency-Key", "key-1")
+	request.Header.Set("X-User-ID", "attacker")
 	recorder := httptest.NewRecorder()
 
 	server.mux.ServeHTTP(recorder, request)

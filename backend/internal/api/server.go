@@ -138,7 +138,7 @@ func (s *Server) createContentGenerationRun(w http.ResponseWriter, r *http.Reque
 
 	userID, ok := s.userID(r)
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "missing X-User-ID")
+		writeError(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
 	idempotencyKey := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
@@ -189,7 +189,7 @@ func (s *Server) getContentGenerationRun(w http.ResponseWriter, r *http.Request)
 
 	userID, ok := s.userID(r)
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "missing X-User-ID")
+		writeError(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
 	runID := strings.TrimSpace(r.PathValue("run_id"))
@@ -222,7 +222,7 @@ func (s *Server) getContentArtifact(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if _, ok := s.userID(r); !ok {
-		writeError(w, http.StatusUnauthorized, "missing X-User-ID")
+		writeError(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
 	contentKey := strings.TrimSpace(r.PathValue("content_key"))
@@ -255,7 +255,7 @@ func (s *Server) createOutlineGenerationRun(w http.ResponseWriter, r *http.Reque
 
 	userID, ok := s.userID(r)
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "missing X-User-ID")
+		writeError(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
 	idempotencyKey := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
@@ -306,7 +306,7 @@ func (s *Server) getOutlineGenerationRun(w http.ResponseWriter, r *http.Request)
 
 	userID, ok := s.userID(r)
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "missing X-User-ID")
+		writeError(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
 	runID := strings.TrimSpace(r.PathValue("run_id"))
@@ -340,7 +340,7 @@ func (s *Server) getLearningOutline(w http.ResponseWriter, r *http.Request) {
 
 	userID, ok := s.userID(r)
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "missing X-User-ID")
+		writeError(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
 	outlineID := strings.TrimSpace(r.PathValue("outline_id"))
@@ -366,10 +366,6 @@ func (s *Server) getLearningOutline(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) userID(r *http.Request) (string, bool) {
-	userID := strings.TrimSpace(r.Header.Get("X-User-ID"))
-	if userID != "" {
-		return userID, true
-	}
 	if s.singleUser {
 		return "local-user", true
 	}
@@ -389,7 +385,7 @@ func requestLogger(next http.Handler) http.Handler {
 			"duration_ms", time.Since(start).Milliseconds(),
 			"remote_addr", remoteAddr(r),
 			"run_id", r.Header.Get("X-Run-ID"),
-			"user_id", r.Header.Get("X-User-ID"),
+			"claimed_user_id", r.Header.Get("X-User-ID"),
 			"surface", r.Header.Get("X-Lites-Surface"),
 		)
 	})

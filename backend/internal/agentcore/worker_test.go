@@ -11,6 +11,7 @@ import (
 	"lites/backend/internal/job"
 	"lites/backend/internal/llm"
 	"lites/backend/internal/run"
+	"lites/backend/internal/testsupport"
 )
 
 func TestWorkerProcessOneReturnsFalseWhenNoJobAvailable(t *testing.T) {
@@ -20,7 +21,7 @@ func TestWorkerProcessOneReturnsFalseWhenNoJobAvailable(t *testing.T) {
 	client := &fakeLLM{}
 	handler := &fakeHandler{}
 	worker := NewWorker(queue, events, client, handler, WorkerOptions{
-		IDGenerator: &sequenceIDs{values: []string{"attempt_1"}},
+		IDGenerator: testsupport.NewSequenceIDs("attempt_1"),
 		WorkerID:    "worker_1",
 	})
 
@@ -41,7 +42,7 @@ func TestWorkerProcessOneFailsClaimedJobWhenHandlerRejectsPayload(t *testing.T) 
 	cause := errors.New("bad payload")
 	queue := &fakeQueue{claimed: testJob()}
 	worker := NewWorker(queue, &fakeEvents{}, &fakeLLM{}, &fakeHandler{requestErr: cause}, WorkerOptions{
-		IDGenerator: &sequenceIDs{values: []string{"attempt_1"}},
+		IDGenerator: testsupport.NewSequenceIDs("attempt_1"),
 		WorkerID:    "worker_1",
 	})
 
@@ -81,7 +82,7 @@ func TestWorkerProcessOneAppendsCompletionWithFenceAndRunCAS(t *testing.T) {
 		},
 	}
 	worker := NewWorker(queue, events, client, handler, WorkerOptions{
-		IDGenerator: &sequenceIDs{values: []string{"attempt_1"}},
+		IDGenerator: testsupport.NewSequenceIDs("attempt_1"),
 		WorkerID:    "worker_1",
 	})
 
@@ -134,7 +135,7 @@ func TestWorkerProcessOneAcknowledgesStaleRunWithoutFailingJob(t *testing.T) {
 		},
 	}
 	worker := NewWorker(queue, events, &fakeLLM{}, handler, WorkerOptions{
-		IDGenerator: &sequenceIDs{values: []string{"attempt_1"}},
+		IDGenerator: testsupport.NewSequenceIDs("attempt_1"),
 		WorkerID:    "worker_1",
 	})
 
@@ -179,7 +180,7 @@ func TestWorkerProcessOneFailsJobWhenAppendFails(t *testing.T) {
 		},
 	}
 	worker := NewWorker(queue, events, &fakeLLM{}, handler, WorkerOptions{
-		IDGenerator: &sequenceIDs{values: []string{"attempt_1"}},
+		IDGenerator: testsupport.NewSequenceIDs("attempt_1"),
 		WorkerID:    "worker_1",
 	})
 
@@ -212,6 +213,10 @@ func (q *fakeQueue) Claim(context.Context, []string, string) (job.Job, event.Job
 		claimed = testJob()
 	}
 	return claimed, event.JobFence{JobID: "job_1", LeaseToken: "lease_1"}, nil
+}
+
+func (q *fakeQueue) Heartbeat(context.Context, event.JobFence) error {
+	return nil
 }
 
 func (q *fakeQueue) Fail(_ context.Context, fence event.JobFence, cause error) error {
@@ -291,20 +296,6 @@ func (h *fakeHandler) BuildAppendRequest(context.Context, Completion) (Completio
 		return CompletionAppend{}, h.appendErr
 	}
 	return h.append, nil
-}
-
-type sequenceIDs struct {
-	values []string
-	next   int
-}
-
-func (g *sequenceIDs) NewID() (string, error) {
-	if g.next >= len(g.values) {
-		return "generated", nil
-	}
-	id := g.values[g.next]
-	g.next++
-	return id, nil
 }
 
 func testJob() job.Job {

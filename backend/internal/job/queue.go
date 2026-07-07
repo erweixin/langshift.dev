@@ -77,6 +77,19 @@ func (q *Queue) Claim(ctx context.Context, kinds []string, workerID string) (Job
 			WHERE kind = ANY($3::text[])
 				AND due_at <= now()
 				AND attempts < $5
+				AND NOT EXISTS (
+					SELECT 1
+					FROM agent_runs r
+					WHERE r.run_id = agent_jobs.payload->>'run_id'
+						AND (
+							agent_jobs.subject_user_id IS NULL
+							OR r.user_id = agent_jobs.subject_user_id
+						)
+						AND (
+							r.status IN ('succeeded', 'failed', 'expired', 'cancelled')
+							OR (r.due_at IS NOT NULL AND r.due_at <= now())
+						)
+				)
 				AND (
 					status = 'queued'
 					OR status = 'failed'
