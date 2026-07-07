@@ -54,7 +54,7 @@ llm_request
 
   # ── 模型选择 ──
   - model_ref                          # 逻辑模型引用，例如 "reasoning-high"、"fast-chat"
-                                       # 也可以是具体 model_id，例如 "claude-sonnet-4-6"
+                                       # 也可以是具体 model_id，例如 "provider-reasoning-vYYYYMMDD"
   - model_constraints                  # 可选的硬性约束
     - min_context_window               # 最小上下文窗口
     - required_capabilities[]          # 例如 ["tool_use", "vision"]
@@ -118,13 +118,13 @@ llm_response
 
 ### 与 `context_manifest` 的关系
 
-每次 LLM 调用完成后，`llm_response` 中的关键字段会进入 `context_manifest`：
+`context_manifest` 在 LLM 调用前生成，记录这次调用准备喂给模型的输入清单和解析后的调用配置：
 
-- `actual_model_id` → `context_manifest.model_id`
-- `parameters` → `context_manifest.model_parameters`
-- `attempt_key` → 关联到具体的调用记录
+- 逻辑模型引用解析后的目标模型或候选模型。
+- 本次调用使用的模型参数、工具 schema 版本、policy 版本和上下文来源。
+- `attempt_key` 作为引用，关联到具体的 `llm_ledger` / `llm_attempt` 记录。
 
-这样事后可以精确回答："这次 run 用的是哪个模型的哪个版本、通过哪个 Provider 调用的。"
+调用完成后的 Provider、实际模型、usage、cost、fallback、错误和响应摘要写入 `llm_ledger` / `llm_attempt`，不反向改写 `context_manifest`。这样事后既能回答"模型当时看到了什么"，也能回答"实际由哪个 Provider 和模型完成调用"。
 
 ## Provider Registry
 
@@ -163,8 +163,8 @@ provider_config
 
 ```text
 model_config
-  - model_id                           # 例如 "claude-sonnet-4-6"、"gpt-4o-2024-08-06"
-  - model_family                       # 低基数分类：claude-4、gpt-4o、llama-3（用于 metrics label）
+  - model_id                           # 例如 "provider-reasoning-vYYYYMMDD"、"provider-fast-vYYYYMMDD"
+  - model_family                       # 低基数分类：reasoning、fast-chat、embedding（用于 metrics label）
   - context_window                     # 上下文窗口大小
   - capabilities[]                     # tool_use, vision, streaming, json_mode, reasoning
   - default_parameters                 # 该模型的默认 temperature、top_p 等
@@ -175,7 +175,7 @@ model_config
 
 ### 模型别名（Logical Model Ref）
 
-AgentWorker 不直接指定 `claude-sonnet-4-6`，而是使用逻辑引用。逻辑引用描述的是"我需要什么能力"，由 Model Router 解析成具体模型：
+AgentWorker 不直接指定某个具体模型版本，而是使用逻辑引用。逻辑引用描述的是"我需要什么能力"，由 Model Router 解析成具体模型：
 
 ```text
 logical_model_refs（示例）
@@ -305,14 +305,14 @@ Provider 可能限流、宕机或响应变慢。Gateway 提供两层降级：
 
 ### 第一层：同模型跨 Provider
 
-同一模型由多个 Provider 提供（例如 Claude 通过 Anthropic 直连和 AWS Bedrock 都可以访问）。主 Provider 不可用时，自动切换到备选 Provider。
+同一模型可以由多个 Provider 或多条接入通道提供。主 Provider 不可用时，自动切换到备选 Provider。
 
 ```text
 fallback_chain（示例）
-  model: claude-sonnet-4-6
+  model: provider-reasoning-vYYYYMMDD
   providers:
-    1. anthropic-direct      (primary)
-    2. bedrock-us-east-1     (fallback)
+    1. provider-direct-region-a      (primary)
+    2. provider-hosted-region-b      (fallback)
 ```
 
 ### 第二层：降级到替代模型
@@ -322,12 +322,12 @@ fallback_chain（示例）
 ```text
 model_fallback（示例）
   "reasoning-high":
-    1. claude-sonnet-4-6          (primary)
-    2. gpt-4o-2024-08-06          (model fallback)
+    1. provider-reasoning-vYYYYMMDD          (primary)
+    2. provider-reasoning-alt-vYYYYMMDD      (model fallback)
 
   "fast-chat":
-    1. claude-haiku-4-5           (primary)
-    2. gpt-4o-mini                (model fallback)
+    1. provider-fast-vYYYYMMDD               (primary)
+    2. provider-fast-alt-vYYYYMMDD           (model fallback)
 ```
 
 ### 降级规则
@@ -486,12 +486,12 @@ LLM 模型不是静态的——Provider 会发布新版本、弃用旧版本。�
 
 ### 版本固定（Model Pinning）
 
-生产环境不应该使用 Provider 的 "latest" 别名（例如 `gpt-4o` 可能随时指向不同的快照版本）。平台应该固定到具体版本：
+生产环境不应该使用 Provider 的 "latest" 别名（例如 `provider-reasoning-latest` 可能随时指向不同的快照版本）。平台应该固定到具体版本：
 
 ```text
 model_pin
   逻辑引用: "reasoning-high"
-  固定到: "claude-sonnet-4-6"          # 具体版本，不是 "claude-sonnet-latest"
+  固定到: "provider-reasoning-vYYYYMMDD"          # 具体版本，不是 "provider-reasoning-latest"
 ```
 
 好处：模型行为可预测、可复现；升级是显式操作，不是 Provider 暗中切换。
@@ -533,7 +533,7 @@ LLM 调用的 metrics 使用低基数维度（与 [operations.md](./operations.m
 ```text
 指标维度（低基数）：
   provider         → "anthropic-direct"、"azure-openai-eastus"
-  model_family     → "claude-4"、"gpt-4o"
+  model_family     → "reasoning"、"fast-chat"
   status           → "completed"、"failed"、"timeout"、"rate_limited"
   error_class      → "rate_limited"、"provider_error"、"content_filtered"
   route_type       → "primary"、"fallback"

@@ -52,7 +52,7 @@
 
 目标：在前两阶段语义稳定后，根据实际瓶颈替换基础设施。
 
-- 按负载向量压测并声明容量：连接、事件写入、活跃 run、并发 LLM、runtime、token、artifact、热点 conversation。（见 [capacity-and-scaling.md](./capacity-and-scaling.md)）
+- 按负载向量压测并声明容量：连接、事件写入、活跃 run、并发 LLM、runtime、token、artifact、热点 tenant/user/conversation。（见 [capacity-and-scaling.md](./capacity-and-scaling.md)）
 - 引入独立 Scheduler 或可持久化的消息队列服务，前提是新实现满足既有队列语义契约。（见 [capacity-and-scaling.md](./capacity-and-scaling.md)）
 - 按信任等级升级 runtime 到 K8s、microVM 或隔离节点。（见 [runtime-and-sandbox.md](./runtime-and-sandbox.md)）
 - 事件表分区、分片或替换存储，但保持 append 合约和状态重建语义。

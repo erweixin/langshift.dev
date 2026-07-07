@@ -742,10 +742,10 @@ const MISSIONS=[
    coach:'别急着做持久化。今天只回答：一个 run 允许从哪些状态走到哪些状态？把非法转移列出来，比写代码更能暴露你对生命周期的理解。',
    review:{did:['把 run 建成了显式状态机，5 个状态清晰','正确拒绝了 completed→running（终态不可回退）'],
      capDelta:{n:'崩溃恢复 / durable exec',from:28,to:46,label:'看过 → 能解释'},
-     fix:'你把 <b>failed</b> 也当成了终态。但真实 runtime 里 failed 常需要能<b>重试回 running</b>——这正是 durable execution 的关键，你的模型现在会挡住合法的重试。',
-     next:'加一条 failed→running 的“重试”转移，并想清楚：重试时怎么保证<b>不重复执行已完成的 step</b>？这会把你带到明天的崩溃恢复。',
-     nextTask:{title:'加一条 failed→running 重试转移，并保证 step 不重复执行',min:40},
-     memo:'你把 failed 当成了终态——这个直觉，明天用「重试」场景来验证它'}},
+     fix:'你把 <b>failed</b> 设成终态是对的；需要补上的不是把旧 run 改回 running，而是“重试”应创建<b>新的 attempt 或替代 run</b>。否则旧终态会被改写，副作用也可能被重复执行。',
+     next:'补一条重试规则：failed 的 run 不原地回到 running；用户点重试时创建 replacement run，并用 effect ledger / attempt fence 保证<b>不重复执行已完成的 step</b>。',
+     nextTask:{title:'为 failed 终态设计 replacement run 重试规则',min:40},
+     memo:'failed 是终态；重试要创建新的执行尝试，并证明不会重复副作用'}},
   {id:'pm',name:'深入 ProseMirror',sub:'Skill Expansion',color:'#E8894B',role:'副',progress:15,day:'Day 2 / 10',stage:'阶段 1 · 建立心智模型',
    next:'从 document JSON 反推一次用户编辑动作',min:25,judge:'能理解 document、selection、transaction 的边界',
    why:'你会 React，但 EditorState 不是普通 state。先从 JSON 反推编辑动作，建立“文档不是 DOM”的直觉。',
@@ -990,7 +990,7 @@ function lessonAgent(m,st){return `
   <h2 id="sec2"><span class="no">02</span>哪些转移必须被拒绝</h2>
   <p>想一个真实场景：一个 run 已经 <code>completed</code>，它的副作用——扣费、发邮件、写数据库——都已经发生。如果此刻系统允许它回到 <code>running</code>，这些副作用就可能被<b>再执行一次</b>。用户被扣两次钱，不是 bug 那么简单，是你的状态机没有立场。</p>
   <p>所以后端状态机的核心不是「有哪些状态」，而是「<b>拒绝哪些转移</b>」：终态不可回退、没跑过的任务不能直接暂停。每一条被拒绝的转移，背后都是一个被守住的业务约束。</p>
-  <p>至于 <code>failed</code> 算不算终态——先按你的直觉来，今天的 Review 会专门和你聊它。</p>
+  <p>至于 <code>failed</code> 终态之后如何重试——先按你的直觉写，今天的 Review 会专门和你聊它。</p>
   <div class="coach-note"><div class="who">✦ Coach</div><p>“${m.coach}”</p></div>
 
   <h2 id="sec3"><span class="no">03</span>动手：写出 transition 校验</h2>
@@ -1164,7 +1164,7 @@ function viewEvidence(){return `
   <div class="day-head"><h1>成长证据 · Evidence</h1><span class="chip chip-line">可用于作品集 · 简历 · 面试</span></div>
   <div class="ev-item"><div class="ev-ico">◈</div><div class="ev-meta"><div class="t">run 状态转移图 + 校验函数</div><div class="s">Lite Challenge #1 · 已 Review · 可展示</div></div><button class="btn btn-soft btn-sm" onclick="nav('craft')">作品化</button></div>
   <div class="ev-item"><div class="ev-ico">✎</div><div class="ev-meta"><div class="t">复盘：为什么 state 必须活过崩溃</div><div class="s">技术文章草稿 · 草稿</div></div><button class="btn btn-ghost btn-sm">继续打磨</button></div>
-  <div class="ev-item"><div class="ev-ico">⌗</div><div class="ev-meta"><div class="t">backend/ 首个 commit：run lifecycle</div><div class="s">GitHub · 已提交</div></div><button class="btn btn-ghost btn-sm">查看</button></div>`;
+  <div class="ev-item"><div class="ev-ico">⌗</div><div class="ev-meta"><div class="t">首个实现切片：run lifecycle</div><div class="s">GitHub · 已提交</div></div><button class="btn btn-ghost btn-sm">查看</button></div>`;
 }
 function viewMap(){const m=fm();return `
   <div class="day-head"><h1>能力地图</h1><span class="chip mtag" style="--mc:${m.color}">● ${m.name}</span></div>
@@ -1367,7 +1367,7 @@ function coachReply(t,quote,mono){
   if(/为什么重要|为什么是这一步/.test(t))return '因为后端状态绑着真实副作用：允许一次非法转移，就等于允许副作用重放（重复扣费、重复发信）。今天这几十分钟是在给你的 runtime 立规矩——后面的持久化、崩溃恢复都建在这上面。'+nudge;
   if(/卡住|不懂|做不下去|太难/.test(t))return '没事，卡住说明碰到真东西了。说说卡在哪个具体的点？更快的方式是回到文章里<b>选中</b>看不懂的那几行直接问我，带上下文我答得更准。'+nudge;
   if(/检查|理解|对吗/.test(t))return '好，说来听听。一个检验标准：不看文章，向我解释「为什么 completed → running 必须被拒绝」。你说，我听完给反馈。'+nudge;
-  if(/追问|review/i.test(t))return '关于刚才的 Review：你的模型把 failed 当成了终态。想一个真实场景——任务失败后用户点「重试」，状态该怎么走？这一步想清楚，明天的崩溃恢复就顺了。'+nudge;
+  if(/追问|review/i.test(t))return '关于刚才的 Review：failed 作为终态是对的。真正要想清楚的是：用户点「重试」时，为什么要创建新的 attempt 或 replacement run，而不是把旧 run 原地改回 running？这一步想清楚，明天的崩溃恢复就顺了。'+nudge;
   return '收到。结合你现在做的「'+TASK.title+'」，我建议先把它缩成一个 10 分钟能验证的小问题，再来找我对答案。（原型占位回复——正式版这里是真实对话）'+nudge;
 }
 

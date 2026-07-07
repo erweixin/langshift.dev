@@ -16,7 +16,7 @@
 
 - Event 表示已经发生的事实，Command 表示希望某个消费者执行的下一步动作。
 - Run 状态转换检查 `run_version`；ToolCall 状态转换检查 `tool_call_version`；Command 发布检查 `command_id` 去重。
-- `seq` 只做会话内提交顺序，不做并发控制。
+- `seq` 只做 user 内提交顺序，不做并发控制；conversation 只是过滤维度。
 - 终态 run 不被普通流程改写；修复必须创建替代 run 或新的执行尝试。
 - `cancel_requested` 是中断标志，不是终态；`cancelled` 才是最终状态。
 

@@ -363,7 +363,7 @@ embedding_model_config
 当用户请求数据删除（GDPR "被遗忘权"等）时，Memory 必须配合清除：
 
 - `SubjectErasureRequested` 事件触发 Memory 清理。
-- 删除该用户所有 scope 内的 memory document。
+- 删除或失效所有以该用户为数据主体的 memory document，包括 project/team scope 中包含该用户原始内容或由其派生出的记忆；不包含该主体数据的共享知识不应被整段误删。
 - 从向量索引中移除对应 embedding。
 - 如果使用 crypto-shredding（见 [multi-tenancy-and-security.md](./multi-tenancy-and-security.md)），销毁 memory content 的加密密钥。
 - 写入 `MemoryDeleted` 事件（reason: `erasure`）。

@@ -4,7 +4,7 @@
 
 ## 问题、决策与风险
 
-**问题**：一句“支持万级”没有工程含义。在线连接数、活跃 run、并发 sandbox、事件写入、token 吞吐和热点 conversation 是完全不同的瓶颈。
+**问题**：一句“支持万级”没有工程含义。在线连接数、活跃 run、并发 sandbox、事件写入、token 吞吐和热点 tenant/user/conversation 是完全不同的瓶颈。
 
 **决策**：先用负载向量描述目标，再用压测和故障演练验证。Lite v1 以 PostgreSQL 为中心；只有真实瓶颈出现，并且队列、状态机、幂等这些语义已经稳定后，才替换基础设施。
 
@@ -17,7 +17,7 @@
 | 按负载向量声明容量 | 用一个“万级”标签概括所有能力 |
 | 先固定队列语义契约再换消息队列 | 把消息队列当透明替换件 |
 | 把 heartbeat、snapshot、replay 算进容量 | 只测 API happy path |
-| 识别热点 tenant/conversation | 只看全局平均 QPS |
+| 识别热点 tenant/user/conversation | 只看全局平均 QPS |
 
 ## Lite v1 部署形态
 
@@ -82,7 +82,7 @@ min(
 
 ## 已知瓶颈
 
-- `seq` 分配会锁定 `event_cursors(user_id)` 行，同一用户内追加事件天然串行。热点 conversation 仍会推高该用户的事件写入压力，但瓶颈边界是 user cursor；解决手段是减少事件数量、避免 token delta 落库、拆分高频交互或在确认需要后调整 `seq` 作用域。
+- `seq` 分配会锁定 `event_cursors(user_id)` 行，同一用户内追加事件天然串行。热点 user 或其下单个 conversation 的高频写入会推高该 cursor 的压力；解决手段是减少事件数量、避免 token delta 落库、拆分高频交互或在确认需要后调整 `seq` 作用域。
 - 万量级活跃 run 的 heartbeat 会形成额外写压力。heartbeat 是 Worker 定期告诉系统“我还活着”的信号，需要计入 DB 写预算，或在合适阶段迁移到 Redis/lease store。
 - Snapshot 不及时会导致 replay 变慢。replay 是从历史事件恢复状态；事件越长，恢复越慢。
 - Realtime fanout 会受连接数、消息大小、慢连接和补拉 QPS 影响。fanout 就是一条事件要推给多少连接。

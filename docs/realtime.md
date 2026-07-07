@@ -24,7 +24,7 @@
 - 实时通知是“尽力发送”：能实时到达最好，丢了也不作为数据丢失。
 - EventStore 是事实源。
 - EventStore 可补拉事件使用 user-scoped `seq`，conversation 只是过滤维度。
-- LLM token / message delta 的可靠恢复使用 `run_message_chunks` 的 run-scoped `seq`。
+- LLM token / message delta 的短期恢复使用 `run_message_chunks` 的 run-scoped `seq`；它是有界流日志，不是 EventStore 事实源。
 - 客户端记录 EventStore 的 `last_seen_seq`，并对每个 active run 记录 `after_seq`。
 - RealtimeGateway 可以发送重复事件，客户端必须按 `seq` 去重。
 - Gateway 检测到 `seq` gap 时，主动回源 EventStore 补拉。gap 检测只在用户级未过滤流上进行：按 conversation 过滤后的流天然存在 `seq` 空洞（同一用户其他会话、后台 run 也消耗 seq），不作为 gap 依据。
@@ -72,11 +72,11 @@ RealtimeGateway 不保存业务状态。它可以保存短期连接状态、订�
 
 ## LLM token 流
 
-不要把每个 LLM token 写入 EventStore。`assistant.delta` 走 per-run SSE，并写入 `run_message_chunks` 作为可恢复流日志；最终聚合文本写入 `run_messages`。最终事件只记录：
+不要把每个 LLM token 写入 EventStore。`assistant.delta` 走 per-run SSE，并可写入 `run_message_chunks` 作为有界/TTL 的可恢复流日志；最终聚合文本写入 `run_messages`。最终事件只记录：
 
 - `AssistantMessageFinalized` / `ChatTurnLogged`
 - `message_id` 或 artifact 引用
 - `attempt_key`（关联 `llm_ledger` 行）
 - `context_manifest` 引用（在 `llm_ledger`）
 
-如果 token 流中断，客户端用 `GET /api/runs/{run_id}/stream?after_seq=...` 从 `run_message_chunks` 补拉。EventStore 不承担 token 级 replay。
+如果 token 流中断，客户端用 `GET /api/runs/{run_id}/stream?after_seq=...` 从 `run_message_chunks` 补拉短期缺口。超出保留窗口后只能回到最终 assistant message 或 artifact；EventStore 不承担 token 级 replay。

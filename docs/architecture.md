@@ -6,7 +6,7 @@ Lites 是一个 Lite-first 的 Cloud Agent 平台设计：首版可以用 Postgr
 
 | 文档 | 建议阅读顺序 | 内容 |
 | --- | ---: | --- |
-| [README.md](./README.md) | 0 | 新读者入口、阅读路径、核心取舍与社区参考基线 |
+| [README.md](./README.md) | 0 | 新读者入口、阅读路径、保留范围与 UX 原型定位 |
 | **本文（architecture.md）** | 1 | 全局心智模型、核心循环、术语、逻辑架构与 Lite v1 部署形态 |
 | [end-to-end-flow.md](./end-to-end-flow.md) | 2 | 端到端组件职责、数据流、任务执行序列、失败路径与部署视角 |
 | [state-machines.md](./state-machines.md) | 3 | Run / ToolCall / Command 的状态转换表、取消语义、不变量 |
@@ -179,7 +179,7 @@ Outbox、Scheduler、MQ 是逻辑角色，不要求首版引入独立 MQ。只�
 - `T_token`：每秒生成或处理的 token。
 - `B_artifact`：artifact 与 workspace 的读写带宽。
 - `D_retention`：每日事件、日志、artifact 增量。
-- `S_hot`：单一热点 tenant 或 conversation 的负载。
+- `S_hot`：单一热点 tenant、user 或 conversation 的负载。
 
 “1 万在线连接”和“1 万同时运行的 sandbox”是两种完全不同的系统压力，必须分别容量规划和压测。
 

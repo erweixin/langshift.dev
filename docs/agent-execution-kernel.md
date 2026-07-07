@@ -66,6 +66,8 @@ business handlers
 
 ## Handler 合约
 
+下面的接口是 LLM 型 handler 的合约。非 LLM job 或纯工具 job 仍复用内核的 job、attempt、append 和 fence 生命周期，但可以把 `BuildLLMRequest` 替换为自己的执行/计划步骤。
+
 业务 handler 只需要实现三件事：
 
 ```go

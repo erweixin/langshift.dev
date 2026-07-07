@@ -215,7 +215,7 @@ draft → pending_review → active → deprecated → retired
 | `deprecated` | 仍可使用但不推荐，通常有后继版本 | 旧 run 可用，新 run 不选择 |
 | `retired` | 彻底下线 | 不可使用 |
 
-状态变更本身作为管理事件记录（`ToolVersionActivated`、`ToolVersionDeprecated` 等），不直接修改数据库行。
+状态变更本身先作为管理事件记录（`ToolVersionActivated`、`ToolVersionDeprecated` 等），再由同一事务或受控投影更新工具注册表状态。禁止绕过管理事件直接手改数据库行。
 
 ## Schema 校验流程
 

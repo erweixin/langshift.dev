@@ -36,9 +36,11 @@ flowchart LR
 
   User --> API --> ES --> DB
   ES --> Queue
-  Queue --> Agent --> ES
-  Agent --> Tool
-  Queue --> Tool --> Runtime --> Tool --> ES
+  Queue --> Agent
+  Agent -->|"事件 + outbox"| ES
+  Queue --> Tool
+  Tool --> Runtime --> Tool
+  Tool -->|"结果事件"| ES
   ES --> RT --> User
   Sweep --> ES
 ```
@@ -86,7 +88,7 @@ sequenceDiagram
 
   C->>API: POST /runs(user input, idempotency_key)
   API->>ES: accept_run()
-  ES->>DB: tx: MessageAppended + RunAccepted + StartAgentRun outbox
+  ES->>DB: tx: MessageAppended + RunAccepted + RunQueued + StartAgentRun outbox
   ES-->>API: run_id
   API-->>C: 202 Accepted
   ES-->>RT: after-commit event notification
@@ -170,7 +172,7 @@ flowchart TD
 | Workspace 文件 | Workspace / Artifact Store | 文件本体不放事件表；事件只存引用、hash 和摘要 |
 | Secret | Secret Broker / secrets provider | 尽量不进入 sandbox；必须有租户、工具和用途约束 |
 | 工具结果 | ToolCall event + artifact refs | 外部副作用按能力分类；未知结果不能盲目重试 |
-| 实时 token | Realtime 通道，可选落摘要 | token delta 不作为事实源；断线后靠 event 补拉 |
+| 实时 token | Realtime 通道 + 可选 `run_message_chunks` 短期流日志 | token delta 不作为 EventStore 事实；状态事件靠 EventStore 补拉，token 流靠 run-scoped cursor 补拉 |
 | 观测数据 | logs / metrics / traces / audit | metrics 低基数；trace 和 audit 保留 run/attempt 关联 |
 
 ## 成功路径
