@@ -17,7 +17,7 @@
 | 工具先声明能力，平台再决定调度 | 工具在 handler 里自行判断权限和重试 |
 | Schema 版本化，不兼容变更走新版本 | 直接改 schema 并期望旧 run 不受影响 |
 | 租户自定义工具经过审批和沙箱验证 | 上传即生效，不检查 schema 和能力声明 |
-| 工具 schema 进入 `context_manifest` | 模型调用工具时不记录用的是哪个版本 |
+| 工具集 snapshot 和 descriptor hash 进入 `context_manifest` | 模型调用工具时不记录用的是哪份不可变声明 |
 
 ## 先用白话说
 
@@ -103,7 +103,7 @@ tool_descriptor
 
 1. **LLM**：AgentWorker 把 `input_schema` 转成模型的 function calling 格式。模型返回的参数必须通过 schema 校验，校验失败不进入 ToolWorker，而是让模型重新生成。
 2. **ToolWorker**：执行前再次校验输入，防止绕过 AgentWorker 直接提交的请求。执行后校验输出，格式不符则记录 `ToolCallFailed`。
-3. **`context_manifest`**：每次 LLM 调用记录当时使用的 `tool_schema_versions`，事后可以回答"模型看到的工具定义是哪个版本"。
+3. **`context_manifest`**：每次 LLM 调用记录当时使用的 `tool_set_snapshot_id` 和 `tool_descriptor_hashes`，事后可以回答"模型看到的工具定义是哪一份不可变声明"。
 
 ## 工具来源与注册
 
@@ -129,11 +129,14 @@ tool_descriptor
 1. 租户通过 Tool Management API 提交 Descriptor + Handler
 2. 平台校验 input/output schema 格式
 3. 平台校验 effect_class 与声明的一致性（例如声明 read_only 但请求了 secret scope）
-4. 平台在隔离环境中执行 dry-run 验证（可选）
-5. 工具进入 pending_review 状态
-6. 管理员审批或自动策略通过后，状态变为 active
-7. 工具对该租户的 AgentWorker 可见
+4. 平台校验包签名、镜像 digest、SBOM/provenance 和依赖漏洞扫描结果
+5. 平台在隔离环境中执行 dry-run 验证，包括 schema、runtime capability、egress、secret scope、文件系统和 sandbox escape 测试
+6. 工具进入 pending_review 状态
+7. 管理员审批或自动策略通过后，状态变为 active
+8. 工具对该租户的 AgentWorker 可见
 ```
+
+dry-run 不是“试试看能不能跑”的可选步骤，而是 active 前的门禁。通俗地说：租户可以上传工具，但平台不相信这个工具，直到它证明自己声明的权限、依赖、网络出口和副作用边界都和 Descriptor 一致。
 
 ### 市场工具（Marketplace Tools）
 
@@ -142,12 +145,15 @@ tool_descriptor
 ```text
 注册流程：
 1. 开发者提交工具到市场审核
-2. 平台安全团队审查 Descriptor、Handler 和镜像
-3. 审核通过后发布到市场
-4. 租户从市场选择并安装
-5. 安装时绑定租户的 secret scope 和 permission policy
-6. 工具版本更新由市场推送，租户可选择自动或手动升级
+2. 平台安全团队审查 Descriptor、Handler、镜像、签名、SBOM/provenance、依赖漏洞和许可证风险
+3. 平台在隔离环境中做 dry-run、恶意行为扫描、sandbox escape 测试和 egress/secret 验证
+4. 审核通过后发布到市场，并记录审核 snapshot、artifact digest 和 attestation
+5. 租户从市场选择并安装
+6. 安装时绑定租户的 secret scope 和 permission policy
+7. 工具版本更新由市场推送，租户可选择自动或手动升级；高风险权限变化必须重新审批
 ```
+
+市场工具的审核记录是运行时准入的一部分。ToolWorker 分配 runtime 前要能校验“当前要执行的 artifact digest”确实对应已审核版本；签名、SBOM、扫描结果或 attestation 缺失时 fail closed。
 
 ## 工具可见性与发现
 
@@ -157,16 +163,16 @@ AgentWorker 在构建 LLM context 时，需要决定"这次调用给模型看哪
 
 ```text
 tool_visibility_resolution
-  输入：tenant_id, user_id, conversation_id, run_id, policy_version
+  输入：tenant_id, user_id, conversation_id, run_id, policy_snapshot_id, policy_hash
   过程：
     1. 加载该 tenant 的 active 工具集（平台 + 自定义 + 已安装市场工具）
     2. 过滤掉 deprecated 且无 successor 的工具
     3. 按 tenant policy 排除禁用工具
     4. 按 user 权限排除无权使用的工具
     5. 按 conversation context 排除不相关的工具（可选，由策略控制）
-    6. 输出：该次 run 的可用工具列表 + 对应 schema 版本
-  缓存：结果可缓存，cache key = (tenant_id, policy_version, tool_set_hash)
-  记录：最终工具列表的 schema 版本进入 context_manifest.tool_schema_versions
+    6. 输出：该次 run 的可用工具列表 + 对应 descriptor hashes
+  缓存：结果可缓存，cache key = (tenant_id, policy_snapshot_id, policy_hash, tool_set_hash)
+  记录：最终工具列表的 snapshot id 和 descriptor hashes 进入 context_manifest
 ```
 
 ### 工具集快照
@@ -174,11 +180,12 @@ tool_visibility_resolution
 为了保证同一个 run 内工具定义不变，AgentWorker 在 run 开始时锁定一份工具集快照：
 
 - Run 创建时记录 `tool_set_snapshot_id`，指向当时的工具列表和版本。
+- 快照内容包括每个工具的 `tool_name`、`tool_version`、descriptor hash、input/output schema hash、`effect_class`、runtime、permission summary、secret scopes 和 egress policy 摘要。
 - 同一 run 内的所有 LLM 调用和 ToolCall 都使用这份快照。
 - 如果 run 执行期间工具被更新或删除，当前 run 不受影响。
 - 新 run 使用最新工具集。
 
-这和 `context_manifest` 中的 `tool_schema_versions` 配合：快照保证 run 内一致性，manifest 保证事后可审计。
+工具集快照一旦被 Run 引用就不可变、不可硬删除。Descriptor 可以在注册表中发布新版本，但旧 descriptor 的 bytes 或 canonical digest 必须可回溯校验。这和 `context_manifest` 中的 `tool_set_snapshot_id` / `tool_descriptor_hashes` 配合：快照保证 run 内一致性，manifest 保证事后可审计和可证明未被篡改。
 
 ## 版本管理
 
@@ -262,13 +269,13 @@ ToolWorker：再次用 input_schema 校验（防止绕过 AgentWorker 的直接�
 
 | 数据 | 存在哪里 | 由谁管理 |
 | --- | --- | --- |
-| Tool Descriptor（声明） | 工具注册表（PostgreSQL 管理表） | Tool Management API |
-| 工具集快照 | 快照引用表 | AgentWorker 在 run 创建时生成 |
+| Tool Descriptor（声明） | append-only 工具注册表历史表 + descriptor digest | Tool Management API |
+| 工具集快照 | 不可变快照表（含 descriptor hashes） | AgentWorker 在 run 创建时生成 |
 | ToolCall 状态和结果 | EventStore（events + tool_calls 投影） | EventService |
 | 副作用记录 | Effect Ledger | ToolWorker 通过 EventService 写入 |
-| Schema 版本引用 | `context_manifest.tool_schema_versions` | AgentWorker |
+| Schema / Descriptor 快照引用 | `context_manifest.tool_set_snapshot_id` + `tool_descriptor_hashes` | AgentWorker |
 
-工具注册表和 EventStore 通过 `tool_name + tool_version` 关联。EventStore 不保存 Tool Descriptor 的完整副本，只保存版本引用；如果需要回溯"当时的工具定义是什么"，通过版本号从注册表的历史版本中查询。
+工具注册表和 EventStore 通过 `tool_set_snapshot_id`、`tool_name + tool_version` 和 descriptor hash 关联。EventStore 不必保存 Tool Descriptor 的完整副本，但必须保存不可变快照引用和 digest；如果需要回溯"当时的工具定义是什么"，通过 snapshot 从注册表历史版本取回 canonical descriptor，并用 digest 校验。任何被历史 Run 引用的 descriptor 和快照只能标记 retired / hidden，不能硬删除。
 
 ## 租户自定义工具的安全约束
 
@@ -303,5 +310,5 @@ tool_dependencies
 | Schema 不兼容变更走 major 版本 | 直接修改 schema 并期望所有 run 自动适配 |
 | 工具集快照保证 run 内一致性 | 在 run 执行中途切换工具版本 |
 | 两次 schema 校验（AgentWorker + ToolWorker） | 只在 AgentWorker 校验一次 |
-| 自定义工具经过审批和沙箱验证 | 上传即 active |
+| 自定义工具经过签名、SBOM、扫描、dry-run、审批和沙箱验证 | 上传即 active |
 | 弃用工具时提供 successor 和共存期 | 直接删除正在被引用的工具版本 |

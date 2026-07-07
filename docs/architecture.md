@@ -31,6 +31,12 @@ Lites 是一个 production-first 的 Cloud Agent 平台设计。它从第一天�
 - **Worker 只是执行者，不是事实源**：Worker 可以崩溃、超时、重复收到任务，所以它只能通过 EventStore 提交结果。
 - **外部副作用不能靠猜**：工具可能已经创建资源、写文件或花钱。结果未知时要对账或人工裁定，不能直接重试。
 
+再补三条生产硬规则：
+
+- **事件像收据，不像仓库**：EventStore 记录“发生过什么”和必要索引；用户输入、模型输出、工具结果、审批 diff、子 Run 摘要等正文统一放进加密 payload，并在事件里只保存 `payload_ref`、`payload_hmac`、敏感标签和保留策略。
+- **工具上线前先过供应链门禁**：自定义工具和市场工具都必须有签名、SBOM/provenance、漏洞扫描、隔离 dry-run、egress/secret 检查和审批记录，不能上传即 active。
+- **AI 行为变更要走 release gate**：模型、prompt、tool descriptor、agent profile、policy 变更都要先过固定 eval、红队样本、风险负责人签核和回滚方案，不能只靠“灰度后观察一下”。
+
 ## 问题、决策与风险
 
 **问题**：Agent 任务不是一次普通 HTTP 请求。它会排队、调用模型、调用工具、修改 workspace、等待审批、断线重连、被取消、失败重试，还可能在外部副作用发生后崩溃。

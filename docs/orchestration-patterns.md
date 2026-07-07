@@ -440,15 +440,19 @@ checkpoint_request
 - checkpoint_id
 - run_id                          # 当前 Run（通常是编排父 Run）
 - stage_name                      # "设计方案已完成"
-- stage_result_summary            # 阶段产出的摘要
-- workspace_diff?                 # 如果有 workspace 修改
+- stage_result_summary            # 阶段产出的脱敏展示摘要
+- stage_result_payload_ref?       # 完整阶段结果；可能含敏感内容时必须使用
+- workspace_diff_summary?         # 如果有 workspace 修改，给审批人看的脱敏摘要
+- workspace_diff_ref?             # 完整 diff / patch / artifact 引用
 - artifacts[]                     # 阶段产出的制品
 - next_stage_preview              # 下一阶段要做什么
+- checkpoint_kind                 # safety_approval | product_review | progress_notice
 - options                         # 审批选项
     - approve                     # 继续下一阶段
     - approve_with_feedback       # 继续，但带上修改意见
     - revise                      # 回到当前阶段，带上修改要求
     - abort                       # 终止整个编排
+- timeout_policy                  # reject | cancel | escalate | continue_if_non_security
 - expires_at
 ```
 
@@ -457,6 +461,8 @@ checkpoint_request
 - 审批人可以选择"继续但带反馈"——不是简单的 yes/no，而是把意见传给下一阶段。
 - 审批人可以选择"回退重做"——当前阶段重新执行，带上新的要求。
 - 审批界面不只展示"要不要执行这个工具"，而是展示阶段性成果和下一步计划。
+- 检查点材料遵守 payload envelope：摘要可以给 UI 展示，完整阶段结果和 diff 用 `payload_ref` / artifact ref；打开原文时重新做 ACL、DLP 和 guardrail 检查。
+- `checkpoint_kind = safety_approval` 或涉及工具副作用、secret、外部请求、workspace 写入时，timeout policy 只能是 `reject`、`cancel` 或 `escalate`，不能自动继续。
 
 决策映射：
 
@@ -513,15 +519,19 @@ multi_approval_policy
 escalation_request
 - run_id
 - reason: confidence_low | repeated_failure | safety_concern | out_of_scope
-- context_summary                 # Agent 到目前为止做了什么
+- context_summary                 # Agent 到目前为止做了什么；脱敏展示摘要
+- context_payload_ref?            # 完整上下文引用，可能含用户内容、工具输出或模型正文
 - workspace_state                 # 当前 workspace 状态
 - suggested_next_steps?           # Agent 的建议（可选）
 ```
 
 人工接管后，Run 进入一种特殊的 `waiting_approval` 状态。人类操作者可以：
-- 直接在 workspace 上完成剩余工作，然后标记 Run 完成。
-- 给出指导意见，让 Agent 用新的上下文继续。
+
+- 申请 workspace 写 lease，提交人工修改；系统产出 `base_workspace_revision`、`result_workspace_revision`、`file_change_manifest`、`git_diff_hash` 和 artifact refs，并通过 EventService 写入 `HumanWorkspaceChangeApplied` / `WorkspaceRevisionCommitted` 后，才能标记 Run 完成。
+- 给出指导意见，让 Agent 用新的上下文继续；feedback 必须经过 schema / DLP / trust label 检查，并以 `ApprovalGrantedWithFeedback` 恢复 Run。
 - 取消 Run。
+
+人工接管不能绕过 Runtime / Workspace 的单写者语义，也不能由管理员或客户端直接改库标记成功。若人工修改需要外部副作用、secret 或网络出口，仍按普通工具审批、effect ledger 和审计规则处理。
 
 ---
 
@@ -548,7 +558,7 @@ Agent Profile 的来源和 Tool 类似（见 [tool-system.md](./tool-system.md)�
 
 - **平台内置**：`planner`、`executor`、`reviewer`、`general_assistant`。
 - **租户自定义**：租户通过管理 API 创建，绑定自定义 system prompt 和工具策略。
-- **版本管理**：Profile 变更通过版本管理，Run 创建时锁定 profile version。
+- **版本管理**：Profile 变更通过 append-only snapshot 管理，Run 创建时锁定 `profile_snapshot_id` 和 `profile_hash`。历史 Run 不能只引用可变的当前 profile 记录；被引用的 system prompt、tool policy、model、workspace 权限、预算和审批策略必须可回溯校验。
 
 ---
 
@@ -561,12 +571,12 @@ Agent Profile 的来源和 Tool 类似（见 [tool-system.md](./tool-system.md)�
 | 事件 | 时机 | 关键字段 |
 | --- | --- | --- |
 | `ChildRunSpawned` | 父 Run 创建子 Run | `parent_run_id`, `child_run_id`, `spawn_tool_call_id`, `agent_profile`, `budget` |
-| `ChildRunCompleted` | 子 Run 进入终态 | `child_run_id`, `terminal_status`, `result_summary` |
+| `ChildRunCompleted` | 子 Run 进入终态 | `child_run_id`, `terminal_status`, `result_summary`, `result_payload_ref?`, `payload_hmac` |
 | `ChildGroupJoined` | 子 Run 组满足 join 条件 | `group_id`, `join_policy`, `completed_children[]` |
 | `BudgetTransferred` | 预算从父到子或回收 | `from_run_id`, `to_run_id`, `amount`, `direction` |
 | `CheckpointRequested` | 阶段检查点等待人工 | `checkpoint_id`, `stage_name`, `options` |
 | `CheckpointResolved` | 人工完成检查点 | `checkpoint_id`, `decision`, `feedback?` |
-| `EscalationRequested` | Agent 请求人工接管 | `run_id`, `reason`, `context_summary` |
+| `EscalationRequested` | Agent 请求人工接管 | `run_id`, `reason`, `context_summary`, `context_payload_ref?` |
 
 ### 查询编排树
 
@@ -592,7 +602,7 @@ context_manifest.orchestration
 - parent_run_id?
 - root_run_id
 - depth
-- agent_profile_id + profile_version
+- agent_profile_snapshot_id + agent_profile_hash
 - inherited_context_refs[]            # 从父 Run 传入的上下文引用
 - sibling_results[]                   # 兄弟 Run 的结果引用（并行场景）
 ```
@@ -626,6 +636,8 @@ context_manifest.orchestration
 
 子 Run 的 `result_summary` 是不可信数据（和 tool output 一样），因为子 Run 的 LLM 可能被注入。父 Agent 收到子 Run 结果后，平台对 `result_summary` 应用与 tool output 相同的 guardrail 规则：标为 `external_untrusted`、不能提升为授权来源、不能直接触发高风险操作。
 
+完整子 Run 输出默认通过 `result_payload_ref` 保存，事件里只放脱敏摘要、hash、敏感标签和引用。父 Agent 需要读取完整输出时，先通过 ACL、DLP、trust label 和输出 guardrail；读取后仍只能把它当作外部不可信上下文，而不是当作系统指令或审批依据。
+
 ---
 
 ## 运维与可观测性
@@ -649,7 +661,7 @@ context_manifest.orchestration
 | 巡检 | 触发条件 | 动作 |
 | --- | --- | --- |
 | 孤儿子 Run | 子 Run 活跃但父 Run 已终态 | 取消子 Run |
-| 检查点超时 | `CheckpointRequested` 超过 `expires_at` | 按策略自动通过、拒绝或升级 |
+| 检查点超时 | `CheckpointRequested` 超过 `expires_at` | 安全/高风险审批默认拒绝、取消或升级；只有明确标记为非安全 checkpoint 的低风险产品确认流，才允许按策略继续 |
 | 预算泄漏 | 子 Run 终态但预算未回收 | 回收到父 Run |
 | 深度异常 | 编排树深度接近 `max_depth` | 告警 |
 
@@ -666,7 +678,7 @@ context_manifest.orchestration
 | 并行子 Run 的 workspace 合并冲突 | 父 Run 恢复后发现冲突，进入审批或 spawn merge Agent |
 | Agent 无限递归 spawn 子 Run | `max_depth` 限制阻止，超出后 spawn 工具调用被拒绝 |
 | 子 Run 的 result_summary 包含注入指令 | 父 Run 的 guardrail 将其标为 `external_untrusted`，不提升为授权来源 |
-| 检查点审批超时 | Sweeper 按策略处理：自动通过（低风险）、自动拒绝（高风险）或升级 |
+| 检查点审批超时 | Sweeper 按 fail-closed 处理安全/高风险审批：拒绝、取消或升级；低风险且非安全 checkpoint 才能按显式策略继续 |
 | 预算用尽但子 Run 正在执行 LLM 调用 | LLM Gateway 拒绝新调用；当前调用完成后，下一次预算检查让子 Run 按 `max_cost` 进入 `expired` |
 
 ---
@@ -677,7 +689,7 @@ context_manifest.orchestration
 | --- | --- |
 | Child Run | 复用 Run 创建流程，记录 `parent_run_id`、`root_run_id`、`depth`、`spawn_tool_call_id` 和预算 |
 | `waiting_child` | Run 状态机正式状态；join 逻辑复用 `parallel_group` / `child_group` 语义 |
-| Agent Profile | Profile Registry 版本化 system prompt、tool policy、model、workspace 权限、预算和审批策略 |
+| Agent Profile | Profile Registry 以不可变 snapshot 版本化 system prompt、tool policy、model、workspace 权限、预算和审批策略；Run 锁定 snapshot id 和 hash |
 | Workspace 合并 | 支持串行写、分区写、只读和 copy-on-write；并行写冲突必须显式 merge / approval |
 | 阶段检查点 | 复用 `waiting_approval`，用 approval kind 限定 approve / feedback / revise / abort |
 | 协作编辑 | 人类修改通过 API / workspace lease 进入事件链，feedback 恢复 Run 时记录 revision 和 diff |

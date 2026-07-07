@@ -51,7 +51,7 @@
 权限检查至少发生两次：
 
 1. API 边界：用户是否能创建消息、run、审批、取消或查看 conversation。
-2. Worker 执行前：工具是否能在当前 tenant、workspace、run、policy 版本和审批状态下执行。
+2. Worker 执行前：工具是否能在当前 tenant、workspace、run、policy snapshot 和审批状态下执行。
 
 检索内容、用户输入和 LLM 输出都是不可信输入。Permission Service 不能因为 prompt 里出现“用户已经授权”就放行。危险操作必须进入 `waiting_approval`，审批结果作为事件记录。
 
@@ -73,6 +73,7 @@ Tool 权限必须绑定到这些上下文，不能只看“用户能不能用这
 - 必须注入 secret 时，只注入短期、最小权限、可撤销 token。
 - 日志、metrics、trace、audit 不记录 token、credential、原始 secret 或敏感 payload。
 - prompt、tool result 和 artifact 需要按敏感等级决定是否加密、脱敏或禁止进入 memory。
+- 用户输入、模型输出、工具结果、审批材料、Realtime chunk、子 Run 摘要和 memory 正文统一使用 payload envelope：正文放加密 payload，事件和审计只保存 `payload_ref`、`payload_hmac`、敏感标签、保留策略和脱敏摘要。
 
 ## 数据保留与删除
 

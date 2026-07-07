@@ -128,9 +128,11 @@ handler 合约
 
 ### 结果提交与消费确认的原子性
 
-Worker 成功时，写结果事件和登记“这条 command 已处理”必须在同一个数据库事务中提交：先通过 EventService 写业务事件和 inbox/attempt 结果，事务提交后再 ack 外部队列消息。拆开会产生两类事故：先确认后写事件，崩溃后已花钱的执行结果永久丢失；先写事件后确认，崩溃后 command 重投、同一结果被重复解释。
+Worker 成功时，写结果事件和把 inbox 从 `running` 标记为 `completed` 必须在同一个数据库事务中提交：先通过 EventService 写业务事件和 inbox/attempt 结果，事务提交后再 ack 外部队列消息。拆开会产生两类事故：先确认后写事件，崩溃后已花钱的执行结果永久丢失；先写事件后确认，崩溃后 command 重投、同一结果被重复解释。
 
-Run CAS 冲突（例如 Sweeper 或另一次 attempt 已推进 run）时，Worker 不重放业务写入，而是做 fence-only ack：只确认当前 job 结束，不改变 run 状态，本次 attempt 记为旧尝试。
+Inbox 的首次写入只是 claim，不是完成标记。Worker 在 claim 后、执行前或执行中崩溃时，后续重复投递必须能在 lease 过期后重新领取；只有 `completed` 状态的 inbox row 才能让消费者 ack 并忽略。
+
+Run CAS 冲突（例如 Sweeper 或另一次 attempt 已推进 run）时，Worker 不重放业务写入，而是做 fence-only ack：只确认当前 job 结束，不改变 run 状态，本次 attempt 记为旧尝试，并把本次 inbox claim 收敛到 `completed` 或 `abandoned`，避免旧 attempt 继续占用 lease。
 
 ### 错误分类
 
@@ -171,6 +173,8 @@ tool_capability
 | `compensatable_write` 可补偿写 | 谨慎重试 | 操作意图、实际效果、补偿方案 | 先确认，再补偿或人工处理 |
 | `irreversible_write` 不可逆写 | 不自动重试 | 审批、操作意图、审计记录 | 人工确认或 Repair API |
 
+`read_only` 不需要 effect ledger，因为它不应该产生外部副作用；但它仍然要记录 request summary、attempt、输出校验和审计。只要工具会创建资源、扣费、外发请求、写 workspace 或改变第三方状态，就不能伪装成 `read_only`，必须声明写类 effect 并使用 effect ledger。
+
 `fence` 只能阻止过期 Worker 写数据库，不能撤销已经发生的外部副作用。因此工具一旦越过“副作用边界”（例如已经向第三方发出创建请求），结果丢失时就不能盲目重放，只能先对账。
 
 Effect ledger 至少包含：
@@ -179,6 +183,10 @@ Effect ledger 至少包含：
 tool_effects
 - tenant_id
 - tool_call_id
+- run_id
+- provider_id
+- tool_name
+- effect_scope              # 外部副作用去重域，例如 provider account / workspace / remote resource namespace
 - effect_key
 - request_hash
 - provider_request_id
@@ -186,6 +194,8 @@ tool_effects
 - state: prepared | executing | confirmed | failed | outcome_unknown
 - result_event_id
 ```
+
+去重边界不能只绑定 `tool_call_id`。同一 `(tenant_id, effect_scope, provider_id, tool_name, effect_key)` 在 replacement run、Repair redrive、DLQ 重投或新 ToolCall 中都必须命中同一条 ledger。若 `request_hash` 与已存在记录不同，说明同一个幂等键被用于不同意图，必须拒绝或进入人工裁定。
 
 ## LLM 调用与预算
 

@@ -78,6 +78,14 @@ llm_request
   - parameters                         # temperature、max_tokens、top_p 等
   - stream: bool                       # 是否流式输出
 
+  # ── 合规与数据处理 ──
+  - data_classification                # public | internal | confidential | restricted | regulated
+  - residency_region                   # 数据驻留要求，例如 us、eu、cn、tenant_home
+  - retention_policy                   # zero_retention | standard | tenant_custom
+  - training_usage_allowed: bool       # Provider 是否可将请求用于训练或改进服务
+  - allowed_provider_contracts[]       # 允许的数据处理合同 / DPA / BAA / enterprise profile
+  - requires_zero_retention: bool      # 是否强制零保留或等价企业模式
+
   # ── 预算 ──
   - max_input_tokens                   # 输入 token 上限（超过则拒绝发送）
   - max_output_tokens                  # 输出 token 上限
@@ -132,7 +140,7 @@ llm_response
 `context_manifest` 在 LLM 调用前生成，记录这次调用准备喂给模型的输入清单和解析后的调用配置：
 
 - 逻辑模型引用解析后的目标模型或候选模型。
-- 本次调用使用的模型参数、工具 schema 版本、policy 版本和上下文来源。
+- 本次调用使用的模型参数、工具集快照、policy 快照、router 快照和上下文来源。
 - `attempt_key` 作为引用，关联到具体的 `llm_attempts` 记录。
 
 调用完成后的 Provider、实际模型、usage、cost、fallback、错误和响应摘要写入 `llm_attempts`，不反向改写 `context_manifest`。这样事后既能回答"模型当时看到了什么"，也能回答"实际由哪个 Provider 和模型完成调用"。
@@ -151,6 +159,10 @@ provider_config
   - auth_method                        # api_key | oauth | iam_role
   - credential_ref                     # 指向 Secrets Manager 中的凭证
   - region                             # 部署区域（用于延迟和合规）
+  - contract_profile_id                # 数据处理合同 / 企业协议配置
+  - data_residency_regions[]           # Provider 可承诺的数据处理区域
+  - retention_modes[]                  # 支持的保留模式，例如 zero_retention / standard
+  - training_usage                     # never | opt_in | provider_default
 
   # ── 能力 ──
   - supported_models[]                 # 该 Provider 提供的模型列表
@@ -222,6 +234,8 @@ Model Router 负责把 `llm_request` 路由到具体的 Provider + Model。路�
    - 支持目标模型
    - 满足 model_constraints（上下文窗口、能力、排除列表）
    - 未被租户策略禁用
+   - 满足 data_classification、residency_region、retention_policy、
+     training_usage_allowed 和 allowed_provider_contracts
    │
   ▼
 3. 排序与选择
@@ -257,6 +271,12 @@ tenant_model_policy
   - tenant_id
   - allowed_model_refs[]               # 该租户可用的逻辑引用
   - allowed_providers[]                # 该租户可用的 Provider（合规限制）
+  - allowed_regions[]                  # 该租户允许的数据处理区域
+  - data_classification_rules          # 不同数据分类允许的模型、Provider、stream 和保留策略
+  - retention_policy                   # 默认保留策略 / 零保留要求
+  - training_usage_allowed: bool       # 租户级训练使用开关
+  - provider_contract_allowlist[]      # 允许使用的 Provider 合同或企业 profile
+  - fallback_policy                    # 同模型 / 跨模型 fallback 的合规边界和最大尝试
   - preferred_provider                 # 首选 Provider
   - model_ref_overrides                # 覆盖默认的逻辑引用映射
     例如：{ "reasoning-high": "my-self-hosted-llama-70b" }
@@ -350,8 +370,9 @@ model_fallback（示例）
 
 ### 降级规则
 
-- **同模型跨 Provider**：自动触发，对 AgentWorker 透明。降级事实记录在 `llm_response.route_decision` 中。
-- **跨模型降级**：需要租户策略允许。有些场景不能降级（例如需要特定模型能力），此时返回 `model_unavailable` 让 AgentWorker 决定。
+- **同模型跨 Provider**：只在同一合规 envelope 内自动触发，对 AgentWorker 透明。每个候选 Provider 都必须重新校验数据分类、驻留区域、保留模式、训练使用和合同 profile；不满足时跳过，而不是静默越界。
+- **跨模型降级**：需要租户策略允许，且替代模型必须满足同一合规 envelope。有些场景不能降级（例如需要特定模型能力或特定合规承诺），此时返回 `model_unavailable` 或 `rate_limited` 让 AgentWorker 决定。
+- **没有合规候选就失败**：如果所有 fallback 候选都因 residency、retention、training usage 或合同不满足而被排除，Gateway 必须返回终局错误，不能为了可用性放宽租户合规边界。
 - **降级不是无限重试**：每次 `llm_attempts` 记录最多尝试 `max_fallback_attempts` 个候选（默认 3），全部失败则返回错误。
 - **降级记录**：`llm_response` 中标记 `fallback_attempted = true` 和 `fallback_from`，进入 EventStore 和 metrics。
 
@@ -471,7 +492,7 @@ pricing_entry
 
 ## 流式输出
 
-大多数场景下 Agent 使用流式输出，让用户更快看到响应。流式在 Gateway 中的处理：
+很多交互场景会使用流式输出，让用户更快看到响应。流式不是默认无条件开启：LLM Gateway 必须根据 run 风险、secret scope、tenant policy、DLP 结果和输出目的地决定 `stream_mode`。
 
 ```text
 AgentWorker                 LLM Gateway                Provider
@@ -481,7 +502,7 @@ AgentWorker                 LLM Gateway                Provider
     │                           │                         │
     │                           │◀── SSE: token delta ──  │
     │◀── 统一 token delta ──    │                         │
-    │     （实时推送给客户端）    │                         │
+    │     （通过 pre-emit 检查后推送）│                      │
     │                           │◀── SSE: token delta ──  │
     │◀── 统一 token delta ──    │                         │
     │          ...              │          ...            │
@@ -494,9 +515,11 @@ AgentWorker                 LLM Gateway                Provider
 Gateway 在流式过程中的职责：
 
 - **协议转换**：不同 Provider 的 SSE 格式不同（Anthropic 用 `content_block_delta`，OpenAI 用 `choices[0].delta`），Adapter 统一成平台内部的 token delta 格式。
+- **流式准入**：在发送请求前决定 `disabled | buffered_until_checked | chunk_checked`。高风险 run、含 secret scope 的上下文、跨租户管理操作、DLP 命中或策略要求人工检查时，不允许 token 直出。
+- **pre-emit 检查**：对准备发给 Realtime 的 chunk 做 secret、PII、危险链接、未授权 artifact 引用和 policy 检查；未通过则停止流式、阻断后续 chunk，并把 run 转入重写、审批或失败路径。
 - **token 计数**：部分 Provider 在流式过程中不返回 token 用量，只在结束时给出。Gateway 在收到完整响应后才记录用量和成本。
 - **超时检测**：如果 `stream_idle_timeout` 内没有新 token，视为超时。
-- **不持久化 token delta**：token delta 通过 Realtime Gateway 推给客户端（见 [realtime.md](./realtime.md)），但不逐 token 写入 EventStore。只有最终的完整消息和 token 用量才持久化。
+- **不把 token delta 当事实源**：允许通过 Realtime Gateway 推给客户端（见 [realtime.md](./realtime.md)），也可写入有界 `run_message_chunks`，但不逐 token 写入 EventStore。只有最终的完整消息和 token 用量才持久化。
 
 ## 模型版本管理
 
@@ -519,21 +542,30 @@ model_pin
 ```text
 1. 新模型版本可用
    - 在 Provider Registry 中注册新 model_config
-   - status: active
+   - status: candidate
 
-2. 灰度测试
+2. Release gate
+   - 跑固定离线 eval：任务成功率、工具调用准确率、格式遵循、拒答质量、幻觉率、DLP/secret 泄露、成本和延迟
+   - 跑红队样本：prompt injection、越权工具调用、恶意网页、敏感输出、长上下文污染
+   - 记录 eval_suite_id、基线模型、通过阈值、风险负责人、回滚计划和批准事件
+   - 通过后 status: active；不通过则保持 candidate，不进入生产路由
+
+3. 灰度测试
    - 对部分租户（或内部测试租户）更新 model_ref 映射
    - 观察质量指标（成功率、用户反馈、工具调用准确率）
    - 对比新旧模型的成本
+   - 命中回滚阈值时恢复旧 model_ref，并保留灰度事件和失败样本
 
-3. 全量切换
+4. 全量切换
    - 更新全局 model_ref 映射
    - 旧模型标记 deprecated
 
-4. 退役
+5. 退役
    - Provider 公布 sunset_date 后，确认无活跃 run 使用旧模型
    - 标记 sunset，从路由候选中移除
 ```
+
+同样的 release gate 也适用于 prompt template、tool descriptor、agent profile、guardrail policy 和 model routing policy。只要会改变 Agent 的行为，就不能直接改当前配置；必须发布新的 snapshot，让历史 Run 仍能回放当时的决策环境。
 
 ### 模型弃用告警
 

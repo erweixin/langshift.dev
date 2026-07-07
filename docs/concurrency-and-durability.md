@@ -38,7 +38,7 @@ EventStore 是 **Agent 编排状态、决策过程和引用关系** 的事实源
 - workspace 和 artifact 是内容事实源。
 - memory 向量索引是可重建投影，前提是 memory 写入也流经事件，如 `MemoryUpserted` / `MemoryDeleted`。
 - runtime session 可丢弃，不保存业务事实。
-- prompt、policy、tool schema、模型配置、workspace revision 等必须以版本或引用进入 `context_manifest`。
+- prompt、policy、tool descriptor、模型配置、workspace revision 等必须以不可变 snapshot、引用或 digest 进入 `context_manifest`。
 
 ## Append 合约总览
 
@@ -103,15 +103,39 @@ EventService 写事务使用 PostgreSQL `READ COMMITTED`。原因很简单：joi
 | `parallel_groups` / `child_groups` | join 协调行 | join 检查必须 `SELECT ... FOR UPDATE` 后读取成员状态 |
 | `continuations` | 恢复命令唯一占位 | `committed` 才能对应 outbox；不得用旧版本造成永久 `skipped` 占位 |
 | `outbox` | 待发布 command | 至少一次发布；不代表业务执行成功 |
-| `inbox` | command 消费去重 | `UNIQUE (tenant_id, consumer_name, command_id)` |
+| `inbox` | command 消费 claim / completion ledger | `UNIQUE (tenant_id, consumer_name, command_id)`；区分 `running` 与 `completed`，插入不等于已处理 |
 | `jobs` / `job_attempts` | 队列与执行尝试 | attempt 记录执行过程；业务状态仍在 Run / ToolCall |
 | `tool_effects` | 外部副作用 ledger | 用 `effect_key`、请求摘要和 provider id 支撑幂等与对账 |
 | `event_cursors` | user-scoped `seq` 分配 | 只做提交顺序和补拉游标，不做业务 CAS |
-| `run_messages` | 最终消息投影 | 保存最终 assistant/user message 或 artifact 引用 |
-| `run_message_chunks` | token / delta 短期流日志 | run-scoped cursor，有 TTL；不是 EventStore 事实源 |
+| `run_messages` | 最终消息投影 | 保存消息 envelope 或 artifact 引用；敏感正文用 `payload_ref` |
+| `run_message_chunks` | token / delta 短期流日志 | run-scoped cursor，有 TTL；chunk 也走 payload envelope，不是 EventStore 事实源 |
 | `llm_attempts` | LLM 调用 ledger | `attempt_key`、Provider、模型、usage、cost、fallback 和错误 |
 | `memory_documents` | Memory 可重建投影 | 写入来源必须有 `MemoryUpserted` / `MemoryDeleted` 事件 |
 | `snapshots` | replay 优化 | 可丢弃重建；不能成为唯一事实源 |
+
+## 敏感载荷 Envelope
+
+EventStore 要回答“系统知道这件事发生过吗”，不应该变成保存所有正文的仓库。凡是可能包含用户隐私、模型正文、工具输出、审批 diff、外部网页内容、子 Run 结果、Realtime chunk、memory 内容或 artifact 摘要的字段，都统一使用 payload envelope。
+
+通俗地说：事件里放收据，正文包裹放到加密存储。收据能证明包裹是哪一个、有没有被篡改、谁能看、多久删除；但普通 replay 不需要把包裹拆开。
+
+```text
+payload_envelope
+- payload_ref?              # 指向加密 payload / artifact / object storage
+- payload_hmac              # 用稳定密钥计算，用来去重、审计和证明未被篡改
+- payload_summary?          # 给 UI 展示的脱敏摘要；不能包含 secret 或未授权 PII
+- sensitivity_labels[]      # public | internal | pii | secret | customer_data | tool_output 等
+- retention_class           # ephemeral | run_lifetime | audit_limited | legal_hold
+- source_trust              # user | model | tool | child_agent | human_approver | platform
+- payload_schema_version
+```
+
+硬规则：
+
+- 不确定是否敏感时，按敏感处理，存 `payload_ref`，不要把正文直接写进事件、audit、trace 或 snapshot。
+- `payload_summary` 只是展示摘要，不是授权来源；父 Agent、审批界面或 Repair API 需要原文时，必须重新做 ACL、DLP、retention 和 guardrail 检查。
+- 明文只允许用于小型、低风险、已经 `OutputChecked(decision=allow|redact)` 且 policy 允许持久化的展示字段；即使如此也要带 `payload_hmac` 和敏感标签。
+- 删除主体数据时，payload 使用租户/主体密钥 crypto-shredding；message、chunk、memory、snapshot、search index 和 cache 等派生物都必须失效或重建。
 
 通用错误结果：
 
@@ -122,7 +146,7 @@ EventService 写事务使用 PostgreSQL `READ COMMITTED`。原因很简单：joi
 | `invalid_transition` | 状态机不允许该转换 | 不重试，除非 Repair API 明确处理 |
 | `stale_version` | 对象版本已经被别人推进 | 重新读取状态，再决定是否放弃 |
 | `stale_fence` | Worker 的租约已经过期或被别人替代 | 标记为旧尝试，不推进状态 |
-| `duplicate_command` | 这条 command 已被该消费者处理 | ack 并忽略 |
+| `duplicate_command` | 这条 command 已被该消费者完成处理 | ack 并忽略；若只是旧 claim 未完成，必须按 lease / retry 规则重新领取或等待 |
 | `duplicate_effect` | 同一个 `effect_key` 的外部效果已确认 | 返回已确认结果，或进入对账 |
 | `wrong_store_epoch` | command 来自数据库恢复前的旧代次 | 拒绝执行并记录审计 |
 
@@ -189,7 +213,7 @@ append_tool_call_result(
 - ToolCall 属于该 tenant、conversation 和 run。
 - 当前 `tool_call_version == expected_tool_call_version`。
 - `fence_token` 有效。
-- 如果存在外部副作用，`effect_key` 和请求摘要必须写入 effect ledger。
+- 如果存在外部副作用，`effect_scope`、`provider_id`、`tool_name`、`effect_key` 和 `request_hash` 必须写入 effect ledger。
 - `outcome_unknown` 不能直接转为 retry；必须通过对账或 Repair API 收敛。
 
 写入内容：
@@ -202,21 +226,45 @@ append_tool_call_result(
 失败行为：
 
 - `stale_version` 或 `stale_fence`：结果不推进 ToolCall；attempt 记录为旧尝试。
-- effect 已确认：返回已确认结果，不重复外部副作用。
+- effect 已确认且 `request_hash` 一致：返回已确认结果，不重复外部副作用。
+- effect key 已存在但 `request_hash` 不一致：拒绝写入并升级人工裁定，避免一个幂等键表示两种外部意图。
 - effect 结果未知：进入 `outcome_unknown`，由 Sweeper 在 `due_at` 后对账。
 
 ## Command / inbox 合约
 
-命令发布和命令消费分开建模。
+命令发布和命令消费分开建模。Inbox 不是“插入即完成”的去重表，而是消费者对某条 command 的 claim 与 completion ledger。
 
 - outbox 只负责发布：`pending -> publishing -> published`。
-- inbox 只负责消费去重：`UNIQUE (tenant_id, consumer_name, command_id)`。
+- inbox 负责消费 claim 与完成去重：`UNIQUE (tenant_id, consumer_name, command_id)`，并保存 `state`、`lease_token`、`lease_expires_at`、`attempt_id`、`command_payload_hash`、`completed_at`。
 - job attempt 只负责记录一次执行尝试：`claimed -> running -> succeeded / failed / timed_out`。
 - Run / ToolCall 负责业务状态。
 
-Publisher 可能在消息队列确认后、标记 `published` 前崩溃。因此重复发布是正常情况，消费者必须先写 inbox 再执行 command。消费者执行完成后，不通过 outbox 标记业务成功，而是通过 Run/ToolCall append 写入结果事件。
+Publisher 可能在消息队列确认后、标记 `published` 前崩溃。因此重复发布是正常情况，消费者必须先 claim inbox 再执行 command，但 claim 只能表示“某个 attempt 正在处理”，不能表示“command 已经处理完”。
 
-**早期实现切片可以不设独立 inbox 表**：`jobs` 既是队列也是唯一消费入口时，命令去重可由 `jobs` 上的 `UNIQUE (command_id)` 承担（等价于 consumer 恒为 jobs 的 inbox）。一旦引入独立 outbox / MQ，或出现第二类消费者，`jobs` 就不再是唯一入口，必须补建独立 inbox 表，否则去重语义会静默丢失。
+```text
+command_inbox
+- tenant_id
+- consumer_name
+- command_id
+- command_payload_hash
+- state: running | completed | abandoned
+- lease_token
+- lease_expires_at
+- attempt_id
+- completed_at?
+```
+
+领取规则：
+
+- 首次投递：插入 `running` row，创建 `job_attempt`，拿到 `lease_token` 后才能执行外部 I/O。
+- 重复投递且 row 为 `completed`：ack 并忽略。
+- 重复投递且 row 为 `running` 且 lease 未过期：不执行第二份外部 I/O，按队列语义 ack / nack / 延迟重投。
+- 重复投递且 row 为 `running` 但 lease 已过期：用条件更新抢占新 lease，旧 attempt 之后提交会因 stale fence 被拒绝。
+- command payload hash 与已存在 inbox row 不一致：拒绝并审计，避免一个 `command_id` 表示两种意图。
+
+消费者执行完成后，不通过 outbox 标记业务成功，而是在同一数据库事务中通过 Run/ToolCall append 写入结果事件，并把对应 inbox row 从 `running` 改为 `completed`。事务提交后再 ack 外部队列消息。若 Worker 在 claim 后、完成前崩溃，后续重投会在 lease 过期后重新领取，不会因为 inbox row 已存在而永久丢任务。
+
+如果 `jobs` 同时是队列和唯一消费入口，它必须承载与 inbox 等价的 claim / completion 状态机，并用 `UNIQUE (command_id)` 保证同一消费域内唯一。一旦引入独立 outbox / MQ，或出现第二类消费者，`jobs` 就不再是唯一入口，必须使用独立 inbox 表或等价 ledger，否则去重和重领语义会静默丢失。
 
 ## `seq` 的分配
 
@@ -235,7 +283,7 @@ UNIQUE (tenant_id, user_id, seq)
 UNIQUE (tenant_id, event_id)
 UNIQUE (tenant_id, idempotency_scope, idempotency_key)
 UNIQUE (tenant_id, consumer_name, command_id)         -- inbox / 命令去重
-UNIQUE (tenant_id, tool_call_id, effect_key)          -- 外部副作用去重
+UNIQUE (tenant_id, effect_scope, provider_id, tool_name, effect_key) -- 外部副作用去重，跨 ToolCall / replacement run / redrive 生效
 UNIQUE (tenant_id, run_id, parallel_group_id, continuation_kind)
 UNIQUE (tenant_id, tool_call_id)                      -- ToolCall 聚合主键
 ```
@@ -259,7 +307,7 @@ PITR 是按时间点恢复数据库。恢复后，数据库可能回到一个更
 
 ## Context Manifest
 
-`context_manifest` 是“当时喂给模型的上下文清单”。它不一定保存全文，但必须保存足够引用，让事后能回答：模型当时看到了哪些对话、文件、记忆、工具 schema、策略版本和模型配置。
+`context_manifest` 是“当时喂给模型的上下文清单”。它不一定保存全文，但必须保存足够引用，让事后能回答：模型当时看到了哪些对话、文件、记忆、工具 descriptor snapshot/hash、策略快照和模型配置快照。
 
 每次 LLM 调用记录不可变 `context_manifest`：
 
@@ -268,12 +316,16 @@ PITR 是按时间点恢复数据库。恢复后，数据库可能回到一个更
 - `workspace_revision` / `commit_hash`
 - `memory_document_ids` + versions
 - `retrieval_chunk_ids`
-- `prompt_template_version`
-- `policy_version`
-- `tool_schema_versions`
-- `model_id` + parameters
+- `prompt_template_snapshot_id` + `prompt_template_hash`
+- `policy_snapshot_id` + `policy_hash`
+- `tool_set_snapshot_id` + `tool_descriptor_hashes`
+- `model_router_snapshot_id` + `provider_policy_hash`
+- `model_id` + parameters + `model_config_hash`
+- `agent_profile_snapshot_id` + `agent_profile_hash`
 - `context_builder_version`
 - `compaction_strategy_version`
+
+所有可被管理面修改的配置都必须通过 append-only snapshot 进入 manifest，而不是只保存可变表的当前 version。回放、审计或重试时如果 snapshot 缺失、hash 不匹配或已被硬删除，系统必须 fail closed，不能用“当前最新配置”补齐历史上下文。
 
 Replay 是从历史事件重建状态。它不重新调用 LLM、不重新执行工具。新 Worker 使用已记录的外部结果事件，从当前状态继续下一步。
 
@@ -285,7 +337,7 @@ Snapshot 是状态快照，用来减少从头 replay 的成本。它是优化，
 - `projection_version`
 - `event_schema_version`
 - `context_builder_version`
-- `payload` 或 `payload_ref`
+- `payload_ref`；只有小型、非敏感、可重建投影才允许内联 `payload`
 - `checksum`
 
 checksum 不匹配、projection 不兼容、upcaster 不支持、`through_seq` 越界或 workspace revision 不存在时，系统自动丢弃 snapshot 并从事件重建。这里的 projection 是从事件推导出的当前状态，upcaster 是把旧事件格式升级到新格式的转换器。

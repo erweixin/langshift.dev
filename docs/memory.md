@@ -101,10 +101,11 @@ memory_document
   - version                            # 文档版本，每次更新递增
 
   # ── 内容 ──
-  - content                            # 记忆的原文内容
-  - content_hash                       # 内容 hash，用于去重
+  - content_ref                        # 指向加密 payload；projection 不保存用户内容明文
+  - content_hmac                       # tenant/subject scoped HMAC，用于去重；避免可枚举明文 hash
   - content_type                       # text | structured | code_snippet
-  - summary                            # 可选的短摘要，用于 Agent 快速浏览
+  - summary_ref?                       # 可选，指向加密或已脱敏摘要；不能保存未授权 PII/secret 明文
+  - sensitivity_labels[]               # pii | secret | private_code | regulated | public 等
 
   # ── 来源 ──
   - source_kind                        # agent_extracted | user_stated | system_derived
@@ -182,8 +183,9 @@ MemoryUpserted 事件
   - tenant_id
   - memory_id
   - memory_scope + scope_id
-  - content（或 content_ref，大内容用引用）
-  - content_hash
+  - content_ref                        # 指向加密 payload；事件不直接保存用户内容明文
+  - content_hmac                       # tenant/subject scoped HMAC；不存裸 hash
+  - encryption_subject_id / key_ref     # 用于 erasure 时销毁或失效
   - source_kind + source_run_id + source_event_id
   - embedding_model_id
   - version
@@ -193,9 +195,10 @@ MemoryDeleted 事件
   - tenant_id
   - memory_id
   - reason: user_request | expiration | superseded | erasure
+  - erased_subject_ids?                # erasure 时标记已销毁的主体密钥或 payload 引用
 ```
 
-向量索引和全文索引是这些事件的**异步投影**。投影更新可以延迟，但不会影响 EventStore 的一致性。投影损坏时，从事件重放即可重建。
+向量索引和全文索引是这些事件的**异步投影**。投影更新可以延迟，但不会影响 EventStore 的一致性。投影损坏时，从事件重放即可重建。若 memory 可能包含用户内容、PII、凭证、私有代码或受保留策略约束的数据，明文只能保存在加密 payload 中，不能直接进入不可变事件或可重放 projection；EventStore 和 `memory_documents` 只保存 HMAC/digest、引用、来源、分类标签和密钥元数据。摘要、embedding、关键词索引同样按敏感派生物处理，必须能随主体删除而失效或重建。
 
 ## 检索：Memory 怎么被召回
 
@@ -221,7 +224,7 @@ AgentWorker 构建上下文
   ▼
 3. 相关度打分与重排
    - 向量相似度 × scope 权重 × 新鲜度衰减 × confidence 权重
-   - 去除与当前 Working Memory 重复的内容（content_hash 比对）
+   - 去除与当前 Working Memory 重复的内容（content_hmac / digest 比对）
    - 超过 token 预算时截断
    │
   ▼
@@ -268,12 +271,12 @@ Memory 不是 append-only 的——同一知识点可能被多次提到，或者
 
 ### 内容去重
 
-写入前用 `content_hash` 检查是否已存在相同内容：
+写入前用 tenant / subject scoped `content_hmac` 检查是否已存在相同内容。不要使用裸 SHA 之类可离线枚举的 hash 存敏感短文本：
 
 ```text
 写入 Memory 时：
-  1. 计算 content_hash
-  2. 查询同 scope 内是否存在相同 hash 的 active memory
+  1. 计算 content_hmac
+  2. 查询同 scope 内是否存在相同 HMAC 的 active memory
   3. 如果存在且内容相同 → 跳过写入，只更新 last_accessed_at
   4. 如果存在但有补充信息 → 创建新版本，旧版本标记 superseded_by
   5. 如果不存在 → 创建新 memory document
@@ -376,9 +379,9 @@ embedding_model_config
 - `SubjectErasureRequested` 事件触发 Memory 清理。
 - 删除或失效所有以该用户为数据主体的 memory document，包括 project/team scope 中包含该用户原始内容或由其派生出的记忆；不包含该主体数据的共享知识不应被整段误删。
 - 从向量索引中移除对应 embedding。
-- 如果使用 crypto-shredding（见 [multi-tenancy-and-security.md](./multi-tenancy-and-security.md)），销毁 memory content 的加密密钥。
+- 销毁或失效 memory content 的主体密钥 / payload key（crypto-shredding，见 [multi-tenancy-and-security.md](./multi-tenancy-and-security.md)）。
 - 写入 `MemoryDeleted` 事件（reason: `erasure`）。
-- 清理完成后，即使从事件重建索引，已删除的内容也不可恢复（密钥已销毁）。
+- 清理完成后，即使从事件重建索引，已删除的内容也不可恢复：事件只剩不可逆 hash、引用和审计元数据，明文 payload 因密钥销毁不可解密。
 
 ## 生产基线
 
@@ -389,7 +392,7 @@ embedding_model_config
 | 全文检索 | 支持关键词 + metadata filter，与向量召回共同接受 ACL 约束 |
 | 嵌入计算 | 记录 `embedding_model_id` 和重建幂等键；模型升级支持双索引过渡 |
 | 检索服务 | 独立 Retrieval Service 或等价逻辑边界；召回结果必须进入 `context_manifest` |
-| 删除与加密 | 可能包含 PII/用户内容的 payload 使用加密内容引用或可销毁密钥；erasure 后不可通过 replay 恢复明文 |
+| 删除与加密 | 可能包含 PII/用户内容的 payload、summary、embedding 和全文索引派生物必须使用加密内容引用、可销毁密钥或可失效投影；erasure 后不可通过 replay 恢复明文 |
 
 Memory 索引是可重建投影，不是事实源。无论使用 pgvector、独立向量数据库还是托管 RAG，替换或扩展时只允许重建索引投影，不能绕过 EventStore、ACL、召回留痕和删除语义。
 

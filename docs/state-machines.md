@@ -55,7 +55,7 @@ stateDiagram-v2
   waiting_child --> executing: ResumeParentRun
   waiting_approval --> executing: approved / feedback / revise
   waiting_approval --> cancelled: abort / rejected
-  executing --> succeeded: AssistantMessageFinalized
+  executing --> succeeded: OutputChecked + AssistantMessageFinalized
   executing --> failed: unrecoverable error
   accepted --> expired: deadline
   queued --> expired: deadline
@@ -81,7 +81,7 @@ stateDiagram-v2
 | --- | --- | --- | --- | --- | --- | --- |
 | 无 | API 创建 run | 已认证；租户拥有会话；幂等 key 没用过或命中同一请求 | 幂等唯一键 | `accepted`、`RunAccepted`、幂等响应 | `StartAgentRun` | 相同 key 返回原 run；key 相同但请求体不同则拒绝 |
 | `accepted` | EventService 登记调度 | run 已受理，调度命令和事件在同一事务内 | `run_version` | `queued`、`RunQueued` | 无，或使用已登记的命令 | 版本已变化则说明别的写入先赢 |
-| `queued` | AgentWorker 领取 | 该消费者没处理过命令；拿到租约和 fence | `run_version`、fence | `executing`、`RunStarted`、`attempt_id` | 无 | 重复命令被 inbox 忽略；旧 fence 变成旧尝试 |
+| `queued` | AgentWorker 领取 | inbox claim 成功：没有 `completed` 记录，也没有未过期的 `running` lease；拿到租约和 fence | `run_version`、fence | `executing`、`RunStarted`、`attempt_id` | 无 | `completed` 重复命令被忽略；未过期 claim 等待或延迟重投；旧 fence 变成旧尝试 |
 | `executing` | AgentWorker 请求工具 | 工具计划有效；权限 schema 已知；并行组未打开 | `run_version`、fence | `waiting_tool`、`ToolCallRequested` | 每个工具一条 `ExecuteToolCall` | 版本过期则丢弃这次 LLM 尝试，不推进 run |
 | `executing` | AgentWorker 发起子 Run | `spawn_agent_run` 通过 schema、权限、guardrail、深度和预算检查；child group 尚未打开 | `run_version`、fence | `waiting_child`、`ToolCallSucceeded`、`ChildRunSpawned`、child group、预算划拨 | 每个子 Run 一条 `StartAgentRun` | 版本过期则丢弃这次 spawn 计划；不得只让父 Run 等待而不创建子 Run |
 | `executing` | AgentWorker 请求审批 | 策略判断操作危险，需要人审批 | `run_version`、fence | `waiting_approval`、`ApprovalRequested` | `NotifyApproval` | 版本过期则丢弃这次尝试 |
@@ -91,7 +91,7 @@ stateDiagram-v2
 | `waiting_approval` | Approval API 带反馈批准 | 审批人有权限；审批未过期；feedback 通过 schema / DLP 检查 | `run_version` | `executing`、`ApprovalGrantedWithFeedback` | `ResumeAgentRun`，feedback 进入下一步上下文 | 如果已过期/取消，拒绝这次审批 |
 | `waiting_approval` | Approval API 要求 revise | 审批人有权限；审批未过期；当前 approval kind 支持 revise | `run_version` | `executing`、`ApprovalRevisionRequested` | `ResumeAgentRun`，revision 要求进入当前阶段上下文 | 如果是普通危险工具审批，不允许 revise，只能拒绝或取消 |
 | `waiting_approval` | Approval API 拒绝 / abort | 审批人有权限；run 仍在等待审批 | `run_version` | `cancelled`、`ApprovalRejected` / `RunCancelled` | 需要时发 `RuntimeTerminationRequested` | 如果已终态，返回当前终态 |
-| `executing` | AgentWorker 输出最终回复 | 最终回复已生成；预算未越界 | `run_version`、fence | `succeeded`、`AssistantMessageFinalized`、`RunSucceeded` | 只发实时通知 | 版本过期则把输出视为旧尝试结果 |
+| `executing` | AgentWorker 输出最终回复 | 最终回复已生成；预算未越界；`OutputChecked` 对最终消息和渲染目的地返回 `allow` 或 `redact` | `run_version`、fence、`output_check_id` | `succeeded`、`OutputChecked`、`AssistantMessageFinalized`、`RunSucceeded` | 只发实时通知 | 版本过期则把输出视为旧尝试结果；输出检查失败则重写、隔离或转 `failed` / `waiting_approval` |
 | 任一非终态 | AgentWorker 或策略失败 | 错误不可恢复，或重试次数已耗尽 | `run_version`、fence | `failed`、`RunFailed` | 无 | 版本过期说明别的转换先赢 |
 | 任一非终态 | Cancel API | 调用者有权限；run 还不是终态 | `run_version` | 设置 `cancel_requested`；没有执行体在跑时可直接 `cancelled` | `RuntimeTerminationRequested` / 取消工具命令 | 如果已终态，直接返回当前状态 |
 | 任一非终态 | Timer / Sweeper | 到了 `due_at`；没有合法 Worker 还能继续推进 | `run_version` | `expired`、`RunExpired` | 需要时终止 runtime | 版本过期说明 Worker 或取消先赢 |
@@ -135,17 +135,17 @@ stateDiagram-v2
 | --- | --- | --- | --- | --- | --- | --- |
 | 无 | AgentWorker | Run 正在执行；工具 schema 有效；权限类型已知 | 父 Run 的 `run_version` | `requested`、`ToolCallRequested`，必要时记录副作用意图 | `ExecuteToolCall` | 父 Run CAS 失败则丢弃工具请求 |
 | 无 | EventService 内联平台工具 | Run 正在执行；平台工具 schema / 权限 / guardrail 通过；所有效果都在同一 EventStore 事务内完成 | 父 Run 的 `run_version` | `succeeded`、`ToolCallSucceeded`、平台效果事件；`tool_call_version = 1` | 平台效果需要的 outbox，例如 `StartAgentRun` | 父 Run CAS 失败则整笔事务失败，不创建半截平台效果 |
-| `requested` | ToolWorker 领取 | inbox 接受命令；配额已预留；拿到 fence | `tool_call_version`、fence | `executing`、`ToolCallStarted`、`JobAttemptStarted` | 无 | 重复命令被忽略；配额失败则写失败或重试命令 |
+| `requested` | ToolWorker 领取 | inbox claim 成功；配额已预留；拿到 fence | `tool_call_version`、fence | `executing`、`ToolCallStarted`、`JobAttemptStarted` | 无 | `completed` 重复命令被忽略；未过期 claim 等待或延迟重投；配额失败则写失败或重试命令 |
 | `requested` | 取消传播 | 父 Run 已 `cancel_requested`；工具还没开始 | `tool_call_version` | `cancelled`、`ToolCallCancelled` | 无 | 如果已执行，走 runtime 终止路径 |
-| `executing` | ToolWorker 成功 | 外部效果已确认；effect ledger 为 `confirmed` | `tool_call_version`、fence | `succeeded`、`ToolCallSucceeded`、结果事件 | 汇合胜出时可能发 `ResumeAgentRun` | 版本过期则只记录旧尝试，不恢复 Run |
+| `executing` | ToolWorker 成功 | `read_only` 工具已完成输出校验和 attempt 记录；外部副作用工具已确认效果且 effect ledger 为 `confirmed` | `tool_call_version`、fence | `succeeded`、`ToolCallSucceeded`、结果事件 | 汇合胜出时可能发 `ResumeAgentRun` | 版本过期则只记录旧尝试，不恢复 Run |
 | `executing` | ToolWorker 确定失败 | 失败原因明确，可以安全记录 | `tool_call_version`、fence | `failed`、`ToolCallFailed`、错误信息 | 汇合完成时可能发 `ResumeAgentRun` | 版本过期则只记录旧尝试 |
 | `executing` | 超时或响应丢失 | 无法证明外部效果是否发生 | `tool_call_version`、fence | `outcome_unknown`、`ToolCallOutcomeUnknown` | 到 `due_at` 后发 `ReconcileToolEffect` | 禁止盲目重试 |
 | `executing` | 外部效果发生前被终止 | 工具还没越过副作用边界 | `tool_call_version`、fence | `cancelled`、`ToolCallCancelled` | 无 | 如果可能已越过边界，转 `outcome_unknown` |
-| `outcome_unknown` | Sweeper / 对账器 | 对账发现外部资源或 provider 确认 | `tool_call_version`、effect key | `succeeded`、`ToolCallSucceeded`、ledger `confirmed` | 可能触发汇合/续跑 | 仍未知则重新安排或升级人工 |
-| `outcome_unknown` | Sweeper / 对账器 | 对账证明外部效果没发生 | `tool_call_version`、effect key | `failed`、`ToolCallFailed`、ledger `failed` | 可能触发汇合/续跑 | 仍未知则重新安排或升级人工 |
+| `outcome_unknown` | Sweeper / 对账器 | 对账发现外部资源或 provider 确认 | `tool_call_version`、`effect_scope`、`effect_key` | `succeeded`、`ToolCallSucceeded`、ledger `confirmed` | 可能触发汇合/续跑 | 仍未知则重新安排或升级人工 |
+| `outcome_unknown` | Sweeper / 对账器 | 对账证明外部效果没发生 | `tool_call_version`、`effect_scope`、`effect_key` | `failed`、`ToolCallFailed`、ledger `failed` | 可能触发汇合/续跑 | 仍未知则重新安排或升级人工 |
 | `outcome_unknown` | Repair API | 自动对账用尽；双人审批通过 | `tool_call_version` | `cancelled`、`ToolCallManuallyResolved` | 可能触发汇合/续跑 | 审批无效则拒绝 |
 
-**ToolCall 不变量**：同一 `effect_key` 最多产生一次有效外部副作用。外部工具的 `succeeded` 必须有 effect ledger 的 `confirmed` 记录和结果事件。内联平台工具没有外部 effect ledger，但必须把平台效果和 ToolCall 成功写在同一个 EventStore 事务中。ToolCall 完成不递增 `run_version`；只有 join 或平台工具引发的 Run 转换才递增 `run_version`。
+**ToolCall 不变量**：同一 `(tenant_id, effect_scope, provider_id, tool_name, effect_key)` 最多产生一次有效外部副作用，不能因为 replacement run、Repair redrive 或新的 `tool_call_id` 而重复创建资源、扣费或外发请求。同一 effect key 如果携带不同 `request_hash`，必须拒绝或进入人工裁定，不能复用旧结果。外部副作用工具的 `succeeded` 必须有 effect ledger 的 `confirmed` 记录和结果事件；`read_only` 工具没有外部 effect ledger，但必须有 request summary、attempt、输出校验和审计记录。内联平台工具没有外部 effect ledger，但必须把平台效果和 ToolCall 成功写在同一个 EventStore 事务中。ToolCall 完成不递增 `run_version`；只有 join 或平台工具引发的 Run 转换才递增 `run_version`。
 
 ## Command 状态机
 

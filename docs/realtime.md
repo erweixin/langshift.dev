@@ -91,10 +91,12 @@ RealtimeGateway 不保存业务状态。它可以保存短期连接状态、订�
 
 ## LLM token 流
 
-不要把每个 LLM token 写入 EventStore。`assistant.delta` 走 per-run SSE，并可写入 `run_message_chunks` 作为有界/TTL 的可恢复流日志；最终聚合文本写入 `run_messages`。最终事件只记录：
+不要把每个 LLM token 写入 EventStore。`assistant.delta` 可以走 per-run SSE，并可写入 `run_message_chunks` 作为有界/TTL 的可恢复流日志；最终聚合文本写入 `run_messages`。但 token delta 进入 SSE 之前必须满足输出 guardrail 的流式策略：低风险 run 先按 chunk 做 pre-emit 扫描，高风险 run 禁用流式或等待完整输出检查通过后再发布。
+
+`run_message_chunks` 不是敏感信息旁路。chunk 写入前也要形成 payload envelope：允许短期明文展示的 chunk 必须已经对该观察者通过 ACL 和 pre-emit 扫描；其余 chunk 只能保存 `payload_ref` / `payload_hmac` / 敏感标签 / TTL。最终消息进入 `run_messages` 时同样使用 [concurrency-and-durability.md](./concurrency-and-durability.md) 定义的 payload envelope。
 
 - `AssistantMessageFinalized` / `ChatTurnLogged`
-- `message_id` 或 artifact 引用
+- `message_id`、`payload_ref` 或 artifact 引用
 - `attempt_key`（关联 `llm_attempts` 行）
 - `context_manifest` 引用（在 `llm_attempts`）
 

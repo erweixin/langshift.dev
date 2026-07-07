@@ -111,7 +111,7 @@ sequenceDiagram
   Q->>A: deliver ResumeAgentRun
   A->>L: continue with tool result
   L-->>A: final answer
-  A->>ES: tx: RunSucceeded + final message
+  A->>ES: tx: OutputChecked + RunSucceeded + final message
   ES-->>RT: run completed
   RT-->>C: final answer
 ```
@@ -168,11 +168,11 @@ flowchart TD
 | 事件事实 | EventStore | append-only；普通业务流程不改历史事件 |
 | 当前状态 | runs/tool_calls/commands 投影 | 可重建；更新必须由 EventService 事务驱动 |
 | 命令 | outbox/job/inbox | 至少一次投递；消费者必须去重 |
-| LLM 上下文 | `context_manifest` | 记录哪些 message、memory、artifact、tool schema 进入了上下文 |
+| LLM 上下文 | `context_manifest` | 记录哪些 message、memory、artifact、tool descriptor snapshot/hash 进入了上下文 |
 | Workspace 文件 | Workspace / Artifact Store | 文件本体不放事件表；事件只存引用、hash 和摘要 |
 | Secret | Secret Broker / secrets provider | 尽量不进入 sandbox；必须有租户、工具和用途约束 |
 | 工具结果 | ToolCall event + artifact refs | 外部副作用按能力分类；未知结果不能盲目重试 |
-| 实时 token | Realtime 通道 + 可选 `run_message_chunks` 短期流日志 | token delta 不作为 EventStore 事实；状态事件靠 EventStore 补拉，token 流靠 run-scoped cursor 补拉 |
+| 实时 token | Realtime 通道 + 可选 `run_message_chunks` 短期流日志 | token delta 不作为 EventStore 事实；状态事件靠 EventStore 补拉，token 流靠 run-scoped cursor 补拉；chunk 也遵守 payload envelope |
 | 观测数据 | logs / metrics / traces / audit | metrics 低基数；trace 和 audit 保留 run/attempt 关联 |
 
 ## 成功路径
@@ -185,7 +185,7 @@ flowchart TD
 4. **行动**：模型提出工具调用；平台做 schema、权限、预算、guardrail 和审批检查。
 5. **执行**：ToolWorker 在 Runtime/Sandbox 中执行工具，写 artifact 或 workspace。
 6. **汇合**：工具结果回到 EventService；并行工具满足 join policy 后只生成一次 `ResumeAgentRun`。
-7. **完成**：AgentWorker 继续思考，写最终回复和 `RunSucceeded`。
+7. **完成**：AgentWorker 继续思考，最终回复通过 `OutputChecked` 后，以消息 payload envelope 或 artifact 引用写最终回复，再写 `RunSucceeded`。
 8. **通知**：Realtime Gateway 推送事件；客户端按 `seq` 展示状态，断线则补拉。
 
 ## 失败路径
