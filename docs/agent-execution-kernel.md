@@ -1,6 +1,6 @@
 # Agent Execution Kernel
 
-本文定义当前代码库中“Cloud Agent 执行内核”的边界。它服务于大纲生成、课程正文生成、Review、任务生成等业务 Agent，但不包含这些业务自己的字段、prompt 或落库规则。
+本文定义 Cloud Agent 执行内核的边界。它服务于不同业务 Agent，但不包含业务自己的字段、prompt、validator 或落库规则。
 
 ## 目标
 
@@ -26,45 +26,43 @@ Agent 任务和普通后台任务的区别是：它通常会调用 LLM 或工具
 
 内核不负责：
 
-- 学习大纲字段。
-- 课程正文结构。
-- Review 输出结构。
-- 用户画像语义。
+- 业务输入字段。
+- 业务输出结构。
+- 业务画像或领域语义。
 - prompt 文案。
 - 业务 validator。
-- `content_artifacts`、未来 `learning_outlines`、`learning_tasks` 等业务事实表。
+- 业务事实表。
 
-换句话说，大纲、正文、Review 复用的是“可靠执行能力”，不是同一张输出表，也不是同一份 prompt。
+换句话说，不同业务 Agent 复用的是“可靠执行能力”，不是同一张输出表，也不是同一份 prompt。
 
-## 当前代码结构
+## 实现边界
+
+未来实现可以按模块化单体起步，但执行内核至少需要收敛出这些边界：
 
 ```text
-backend/internal/agentcore
+agentcore
   Worker                  # 通用执行骨架
   Handler                 # 业务插件点
   Queue / EventAppender   # 内核依赖的最小接口
 
-backend/internal/event
-  Service.Append          # 原子 append、幂等、Run CAS、JobFence ack
+event
+  Append                  # 原子 append、幂等、Run CAS、JobFence ack
 
-backend/internal/job
-  Queue                   # PostgreSQL lease queue
+job
+  Queue                   # lease queue
 
-backend/internal/run
+run
   Reducer                 # Run 状态机投影
   Event helpers           # RunAccepted / RunQueued / RunStarted / RunSucceeded / RunFailed / RunExpired payload 构造
 
-backend/internal/llm
+llm
   Client / ledger         # LLM 调用与账本
 
-backend/internal/content
-  contentGenerationHandler # 课程正文生成业务 handler
-
-backend/internal/outline
-  outlineGenerationHandler # 学习大纲生成业务 handler
+business handlers
+  xxxGenerationHandler    # 业务 handler，只处理业务输入、prompt、validator 和业务事实
 ```
 
-`content_generation` 和 `outline_generation` 现在都运行在 `agentcore.Worker` 上。后续 `review_generation` 也应该实现 handler，而不是复制 worker 生命周期代码。
+业务 Agent 应该实现 handler，而不是复制 worker 生命周期代码。
 
 ## Handler 合约
 
@@ -150,7 +148,7 @@ sequenceDiagram
 
 ## 数据库命名
 
-当前 migration 已按执行内核边界收敛到 `agent_*` 前缀：
+建议执行内核使用 `agent_*` 前缀：
 
 ```text
 agent_runs
@@ -159,16 +157,9 @@ agent_event_cursors
 agent_jobs
 agent_idempotency_keys
 agent_llm_ledger
-
-learning_missions
-learning_tasks
-learning_outlines
-content_artifacts
-review_results
-user_profiles
 ```
 
-关键原则：业务里的 task 是学习任务；内核里的 job 是执行队列任务。二者不能混用。代码包名仍保留 `event` / `job` / `run` / `llm` 这些领域名，`agent_*` 只表达数据库物理表属于执行内核。
+业务事实表不使用 `agent_*` 前缀，避免把领域对象和执行队列对象混在一起。关键原则：业务里的 task 是领域任务；内核里的 job 是执行队列任务。二者不能混用。代码包名仍保留 `event` / `job` / `run` / `llm` 这些领域名，`agent_*` 只表达数据库物理表属于执行内核。
 
 ## 复用方式
 
@@ -176,26 +167,24 @@ user_profiles
 
 | Handler | 输入 | 输出 | 业务落库 |
 | --- | --- | --- | --- |
-| `outline_generation` | 用户信息 + 用户要求 | LearningOutline + TaskSpecs | `learning_outlines` / `learning_tasks` |
-| `content_generation` | TaskSpec | ContentArtifact | `content_artifacts` |
-| `review_generation` | Evidence + Task + ExerciseResult | ReviewResult + profile delta | `review_results` / profile projection |
+| `planning_agent` | 用户目标 + 约束 | Plan + next actions | 业务 plan / task 表 |
+| `artifact_agent` | TaskSpec + context | Artifact | 业务 artifact 表 |
+| `review_agent` | Evidence + result | Review + profile delta | 业务 review / profile 投影 |
 
-它们共用同一个 `agentcore.Worker`，但各自拥有 schema、prompt、validator 和业务事实表。
+它们共用同一个执行内核，但各自拥有 schema、prompt、validator 和业务事实表。
 
-## 当前验证
+## 验证建议
 
-当前代码里有三层测试：
+执行内核需要至少覆盖三层测试：
 
-- `backend/internal/agentcore/worker_test.go`：不依赖数据库的单元测试，覆盖 claim、fail、append、stale ack 和 append 失败语义。
-- `backend/internal/content/service_test.go`：内容生成 worker 的集成测试，覆盖 run/job/artifact/event 的数据库链路。
-- `backend/internal/outline/service_test.go`：大纲生成 worker 的集成测试，覆盖第二个业务 handler 的 run/job/outline/tasks 数据库链路。
-- `backend/internal/api/content_generation_smoke_test.go`：API 端到端 smoke，覆盖 `POST /api/content-generation-runs -> worker.ProcessOne -> GET run -> GET artifact`。
-- `backend/internal/api/outline_generation_smoke_test.go`：API 端到端 smoke，覆盖 `POST /api/outline-generation-runs -> worker.ProcessOne -> GET run -> GET outline`。
+- Worker 单元测试：覆盖 claim、fail、append、stale ack 和 append 失败语义。
+- 业务 handler 集成测试：覆盖 run/job/business fact/event 的数据库链路。
+- API 端到端 smoke：覆盖 create run -> worker process -> get run -> get artifact/output。
 
-这些测试证明当前 `content_generation` 与 `outline_generation` 已经运行在同一内核骨架上。目标不是证明所有未来业务都完成，而是证明大纲和正文两类业务已经不再拥有通用 worker 生命周期代码。
+目标不是证明所有业务都完成，而是证明不同业务不会拥有重复的 worker 生命周期代码。
 
-## 后续抽离顺序
+## 演进顺序
 
 1. 为 handler 增加非 LLM 执行模式，支持纯工具或无需模型的 agent job。
 2. 将 worker 指标标准化：claimed、completed、failed、stale_acked、append_failed、llm_error。
-3. 实现 `review_generation` handler，继续验证内核覆盖不同业务输出。
+3. 用第二个业务 handler 验证内核覆盖不同业务输出。

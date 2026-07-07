@@ -1,59 +1,19 @@
 # Agent Guidelines
 
-Lites is a lite version of a production-grade cloud Agent platform.
+Lites is currently an architecture-first Cloud Agent exploration.
 
-The implementation should stay small and dependency-conscious, but the core
-workflow must follow production best practices. A feature may use a simplified
-local implementation, but it should preserve the same boundaries and semantics
-that a real cloud deployment needs.
+The repository intentionally keeps the implementation surface small. Treat
+`docs/architecture.md` as the source of direction for future work, and avoid
+adding frontend or backend code until the next implementation slice is chosen.
 
-## Product Direction
+## Working Rules
 
-- Product-facing direction: build an AI-native Personal Growth OS for career
-  transition, role upgrade, complex skill expansion, and project-based growth.
-- The core product method is knowledge transfer: start from a user's existing
-  background, map transferable assets, identify gaps, and drive growth through
-  knowledge, action, reflection, and evidence.
-- Build a cloud Agent system with clear request, task, run, and result flows.
-- Prefer simple implementations, but avoid demo-only shortcuts in core flows.
-- Keep production concerns visible from the beginning: message queue, access
-  control, durable state, tenant isolation, auditability, and operational
-  observability.
-- Design lite components so they can later be replaced by managed services
-  without rewriting business logic.
-
-## Dependency Policy
-
-- Prefer standard library and small local implementations by default.
-- Add third-party packages only when they meaningfully improve correctness,
-  security, maintainability, or production readiness.
-- Keep infrastructure choices behind simple interfaces so lite implementations
-  can later be replaced by managed services.
-
-## Architecture Rules
-
-- Keep clear boundaries between API, auth, queue, worker, persistence, and audit
-  concerns.
-- Do not run long-lived Agent tasks directly inside request handlers; persist and
-  enqueue work instead.
-- Model core production practices explicitly when needed: task lifecycle,
-  retries, permissions, persistence, tenant isolation, and audit logs.
-- Prefer small interfaces and simple implementations that can evolve without
-  becoming a framework.
-
-## Implementation Style
-
-- Favor simple, readable code over broad abstractions.
-- Keep implementations scoped to the current need.
-- Use small local helpers when they make the code clearer.
-- For backend code, prefer Go standard library packages first.
-- For frontend code, prefer the simplest viable browser and npm setup before
-  adopting larger frameworks or tooling.
-
-## Project Shape
-
-- `backend/` is a Go project.
-- `frontend/` is a Vite and React npm project.
-- `docs/architecture.md` describes the cloud Agent architecture and production
-  semantics.
-- The root package coordinates project-level scripts.
+- Preserve the Lite-first Cloud Agent semantics described in
+  `docs/architecture.md`.
+- Treat `docs/ux-prototype.html` as a standalone product exploration artifact,
+  not as frontend source code.
+- Keep future implementation slices small and reversible.
+- Do not reintroduce broad scaffolding until there is a clear product or
+  architecture reason.
+- Prefer explicit boundaries for API, event store, command queue, workers,
+  durable effects, repair, and observability when implementation resumes.

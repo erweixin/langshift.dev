@@ -9,10 +9,10 @@ Lites 是一个 Lite-first 的 Cloud Agent 平台设计：首版可以用 Postgr
 | [README.md](./README.md) | 0 | 新读者入口、阅读路径、核心取舍与社区参考基线 |
 | **本文（architecture.md）** | 1 | 全局心智模型、核心循环、术语、逻辑架构与 Lite v1 部署形态 |
 | [end-to-end-flow.md](./end-to-end-flow.md) | 2 | 端到端组件职责、数据流、任务执行序列、失败路径与部署视角 |
-| [mvp-scope.md](./mvp-scope.md) | 3 | Lite v1 范围、明确不做的内容、Definition of Done 与演进触发条件 |
-| [state-machines.md](./state-machines.md) | 4 | Run / ToolCall / Command 的状态转换表、取消语义、不变量 |
-| [concurrency-and-durability.md](./concurrency-and-durability.md) | 5 | EventStore、append 合约、两级 CAS、`seq`、outbox/inbox、`store_epoch`、snapshot |
-| [execution-model.md](./execution-model.md) | 6 | 队列调度、Worker 短事务、副作用能力、effect ledger、LLM 调用、并行 join |
+| [state-machines.md](./state-machines.md) | 3 | Run / ToolCall / Command 的状态转换表、取消语义、不变量 |
+| [concurrency-and-durability.md](./concurrency-and-durability.md) | 4 | EventStore、append 合约、两级 CAS、`seq`、outbox/inbox、`store_epoch`、snapshot |
+| [execution-model.md](./execution-model.md) | 5 | 队列调度、Worker 短事务、副作用能力、effect ledger、LLM 调用、并行 join |
+| [agent-execution-kernel.md](./agent-execution-kernel.md) | 6 | 可靠 run/job/worker 内核边界、handler 合约、LLM attempt 与 fence 语义 |
 | [agent-safety-and-guardrails.md](./agent-safety-and-guardrails.md) | 7 | Agent 安全边界、prompt injection 防护、工具准入、审批、输出检查与红队场景 |
 | [tool-system.md](./tool-system.md) | 8 | 工具声明、注册、发现、版本管理、Schema 校验与生命周期 |
 | [memory.md](./memory.md) | 9 | 记忆层次、存储、写入时机、向量检索、召回、淘汰与租户隔离 |
@@ -80,7 +80,7 @@ Lites 是一个 Lite-first 的 Cloud Agent 平台设计：首版可以用 Postgr
 | CAS | Compare-And-Set，只有版本仍是预期值才允许写入 | 防止基于旧状态提交新决策 |
 | `run_version` | Run 聚合的 CAS 版本 | 只在 Run 状态转换时递增 |
 | `tool_call_version` | ToolCall 聚合的 CAS 版本 | 只在 ToolCall 状态转换时递增 |
-| `seq` | user 内的提交顺序号（v0 决策：user-scoped，conversation 只是过滤维度） | 只做排序和补拉游标，不做 CAS；若单用户多会话并行追加成为瓶颈，可下沉为 conversation-scoped，代价是客户端要维护多游标 |
+| `seq` | user 内的提交顺序号（baseline 决策：user-scoped，conversation 只是过滤维度） | 只做排序和补拉游标，不做 CAS；若单用户多会话并行追加成为瓶颈，可下沉为 conversation-scoped，代价是客户端要维护多游标 |
 | fence | lease 产生的防过期写令牌 | 旧 Worker 即使醒来也不能覆盖新状态 |
 | `effect_key` | 外部副作用的稳定幂等键 | 下游支持幂等时用于避免重复副作用 |
 | `outcome_unknown` | 外部调用结果未知，例如超时后不知道资源是否已创建 | 禁止盲目重试，必须先对账或人工裁定 |
@@ -99,7 +99,7 @@ Lites 是一个 Lite-first 的 Cloud Agent 平台设计：首版可以用 Postgr
 ## 非目标
 
 - **不承诺通用 exactly-once**：传输层按“至少一次投递”设计；对支持幂等键的外部写操作提供“多次投递但只产生一次有效副作用”的效果；无法幂等的操作必须走对账。
-- **不做跨用户事务**：强一致边界止于单个 `user_id` 的 append 顺序（v0 中 `seq` 为 user-scoped，conversation 只是过滤维度）。
+- **不做跨用户事务**：强一致边界止于单个 `user_id` 的 append 顺序（baseline 中 `seq` 为 user-scoped，conversation 只是过滤维度）。
 - **不做跨区域 active-active**：Lite 与生产前期采用单区域单写模型。
 - **不自动消解所有未知结果**：`outcome_unknown` 可能需要人工裁定；系统只保证不盲目重做。
 - **不把实时通道当可靠存储**：可靠性由 EventStore + `last_seen_seq` 补拉提供。

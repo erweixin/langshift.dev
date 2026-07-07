@@ -56,7 +56,7 @@ append_request
 2. 读取当前 `store_epoch`，拒绝低于当前 epoch 的 command。
 3. 校验写入者权限、租户归属、状态转换和幂等信息。
 4. 对目标聚合做条件更新：Run 用 `run_version`，ToolCall 用 `tool_call_version`，command/inbox/effect 用唯一键。
-5. 锁定 conversation 元数据行，按事件数量原子分配连续 `seq`。
+5. 锁定 `event_cursors(user_id)` 行，按事件数量原子分配连续 `seq`。
 6. 插入事件，事件携带 `store_epoch`、`seq`、因果字段和 schema version。
 7. 插入 outbox rows、realtime notification rows、audit rows、idempotency response。
 8. 提交事务。事务提交后 publisher 才能发布实时通知或 command。
@@ -164,11 +164,11 @@ append_tool_call_result(
 
 Publisher 可能在消息队列确认后、标记 `published` 前崩溃。因此重复发布是正常情况，消费者必须先写 inbox 再执行 command。消费者执行完成后，不通过 outbox 标记业务成功，而是通过 Run/ToolCall append 写入结果事件。
 
-**Lite v0 不设独立 inbox 表**：`jobs` 既是队列也是唯一消费入口，命令去重由 `jobs` 上的 `UNIQUE (command_id)` 承担（等价于 consumer 恒为 jobs 的 inbox）。阶段 6 引入独立 outbox / MQ 或出现第二类消费者后，`jobs` 不再是唯一入口，必须补建独立 inbox 表，否则去重语义会静默丢失。
+**早期实现切片可以不设独立 inbox 表**：`jobs` 既是队列也是唯一消费入口时，命令去重可由 `jobs` 上的 `UNIQUE (command_id)` 承担（等价于 consumer 恒为 jobs 的 inbox）。一旦引入独立 outbox / MQ，或出现第二类消费者，`jobs` 就不再是唯一入口，必须补建独立 inbox 表，否则去重语义会静默丢失。
 
 ## `seq` 的分配
 
-v0 中 `seq` 是 user-scoped 的提交游标，conversation 只是事件过滤维度：
+baseline 中 `seq` 是 user-scoped 的提交游标，conversation 只是事件过滤维度：
 
 1. 锁定 `event_cursors(user_id)` 行。
 2. 读取并递增 `next_seq`。

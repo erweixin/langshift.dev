@@ -10,7 +10,7 @@
 
 **为什么不先上 Kafka/NATS/microVM 全家桶**：复杂基础设施不能自动修复状态机、幂等、未知副作用和权限边界。语义不清时，替换消息队列只会放大问题。
 
-**忽略后果**：系统可能能撑 1 万 WebSocket，却撑不住 500 个 runtime；或者平均吞吐达标，但单个热点 conversation 被 `seq` 行锁钉死。
+**忽略后果**：系统可能能撑 1 万 WebSocket，却撑不住 500 个 runtime；或者平均吞吐达标，但单个热点 user 的 `seq` cursor 行成为写入瓶颈。
 
 | 应该 | 不应该 |
 | --- | --- |
@@ -62,7 +62,7 @@
 | `T_token` | 每秒生成或处理的 token |
 | `B_artifact` | artifact/workspace 读写带宽 |
 | `D_retention` | 每日事件、日志、artifact 增量 |
-| `S_hot` | 单一热点 tenant 或 conversation 的负载 |
+| `S_hot` | 单一热点 tenant、user 或 conversation 的负载 |
 | `R_heartbeat` | Worker 租约心跳的写入或检查频率 |
 | `R_replay` | 从事件和 snapshot 恢复状态的读取压力 |
 
@@ -82,7 +82,7 @@ min(
 
 ## 已知瓶颈
 
-- `seq` 分配会锁定 conversation 元数据行，同一 conversation 内追加事件天然串行。热点 conversation 无法靠增加 Worker 解决，只能减少事件数量、避免 token delta 落库、拆分会话或调整产品交互。
+- `seq` 分配会锁定 `event_cursors(user_id)` 行，同一用户内追加事件天然串行。热点 conversation 仍会推高该用户的事件写入压力，但瓶颈边界是 user cursor；解决手段是减少事件数量、避免 token delta 落库、拆分高频交互或在确认需要后调整 `seq` 作用域。
 - 万量级活跃 run 的 heartbeat 会形成额外写压力。heartbeat 是 Worker 定期告诉系统“我还活着”的信号，需要计入 DB 写预算，或在合适阶段迁移到 Redis/lease store。
 - Snapshot 不及时会导致 replay 变慢。replay 是从历史事件恢复状态；事件越长，恢复越慢。
 - Realtime fanout 会受连接数、消息大小、慢连接和补拉 QPS 影响。fanout 就是一条事件要推给多少连接。
