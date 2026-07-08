@@ -2,6 +2,8 @@
 
 > 定位：主线文档。本文档定义 Run、ToolCall 和 Command 能怎么变。可以把它当成“状态交通规则”：哪些路能走，走之前要检查什么，走完要写哪些事件。多 Agent 编排里的 `waiting_child` 也是 Run 状态机的一部分，具体模式见 [orchestration-patterns.md](./orchestration-patterns.md)。
 
+> 命名权威：本文档是核心 Run / ToolCall / Command 生命周期事件与命令的命名基准（如 `RunAccepted`、`ToolCallRequested`、`ResumeAgentRun`、`ResumeParentRun`、`ChildRunSpawned`、`ReconcileToolEffect`、`RuntimeTerminationRequested`、`ToolCallManuallyResolved`）。领域事件由各自专题文档拥有：`Memory*` 见 [memory.md](./memory.md)，`Guardrail*` / `SecuritySignal*` 见 [agent-safety-and-guardrails.md](./agent-safety-and-guardrails.md)，`Checkpoint*` / `Escalation*` / `BudgetTransferred` 见 [orchestration-patterns.md](./orchestration-patterns.md)。其他文档引用这些名字即可，不要另立新名；核心名的新增或改名先在这里落地，再被别处引用。
+
 ## 问题、决策与风险
 
 **问题**：一次 Agent 执行会跨过 API、队列、Worker、模型、工具和后台巡检。只看一列 `status` 不够：两个 Worker 可能都拿着旧状态，同时写出彼此冲突的新结果。
@@ -79,7 +81,7 @@ stateDiagram-v2
 
 | 当前状态 | 触发方 | 允许条件 | 检查什么 | 写入什么 | 发出什么命令 | 如果失败 |
 | --- | --- | --- | --- | --- | --- | --- |
-| 无 | API 创建 run | 已认证；租户拥有会话；幂等 key 没用过或命中同一请求 | 幂等唯一键 | `accepted`、`RunAccepted`、幂等响应 | `StartAgentRun` | 相同 key 返回原 run；key 相同但请求体不同则拒绝 |
+| 无 | API 创建 run | 已认证；租户拥有会话；幂等 key 没用过或命中同一请求 | 幂等唯一键 | 用户消息 `MessageAppended`、`accepted`、`RunAccepted`、幂等响应 | `StartAgentRun` | 相同 key 返回原 run；key 相同但请求体不同则拒绝 |
 | `accepted` | EventService 登记调度 | run 已受理，调度命令和事件在同一事务内 | `run_version` | `queued`、`RunQueued` | 无，或使用已登记的命令 | 版本已变化则说明别的写入先赢 |
 | `queued` | AgentWorker 领取 | inbox claim 成功：没有 `completed` 记录，也没有未过期的 `running` lease；拿到租约和 fence | `run_version`、fence | `executing`、`RunStarted`、`attempt_id` | 无 | `completed` 重复命令被忽略；未过期 claim 等待或延迟重投；旧 fence 变成旧尝试 |
 | `executing` | AgentWorker 请求工具 | 工具计划有效；权限 schema 已知；并行组未打开 | `run_version`、fence | `waiting_tool`、`ToolCallRequested` | 每个工具一条 `ExecuteToolCall` | 版本过期则丢弃这次 LLM 尝试，不推进 run |

@@ -308,7 +308,7 @@ Secret 防护不能依赖模型“不要泄露”。规则应尽量让模型根�
 - 必须注入 sandbox 时，只注入短期、最小权限、可撤销 token，并限制网络出口。
 - 对外部请求做 destination allowlist、method 限制、payload DLP 和审计。
 - 对模型输出和工具输出做 secret pattern、token entropy、known secret hash 检查。
-- 一旦发现 secret 泄露，触发 `SecretExposureSuspected`，进入撤销、轮换和审计流程。
+- 一旦发现 secret 泄露，记录 `SecuritySignalDetected(signal_kind: secret_exposure)`，进入撤销、轮换和审计流程。
 
 ## 事件与审计
 

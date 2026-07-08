@@ -123,7 +123,7 @@ Metrics 只使用低基数维度。低基数的意思是“取值种类有限”
 | 工具副作用成功、Worker 写结果前崩溃 | 对账或幂等键防止盲目重做 |
 | lease 过期、旧 Worker 恢复 | fence 不匹配，不能推进 Run |
 | Run cancel 与 ToolCall completed 同时提交 | ToolCall 事实可保留，但 Run 不恢复执行 |
-| Redis / realtime 通知丢失 | 客户端用 `last_seen_seq` 补拉 |
+| 实时通知丢失（pub/sub bus 抖动、重启或消息被丢弃） | 客户端用 `last_seen_seq` 补拉 |
 | 客户端消费太慢 | Gateway 断开连接，客户端重连补拉 |
 | auth 到期或权限撤销 | 停止发送，重新鉴权和 ACL 检查 |
 | DLQ redrive 时外部效果未知 | 先查 effect ledger，不直接重试 |

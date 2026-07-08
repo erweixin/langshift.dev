@@ -89,7 +89,7 @@ sequenceDiagram
   participant Q as Command Queue
   participant C as 子 AgentWorker
 
-  P->>ES: append SpawnAgentRun + run_version CAS
+  P->>ES: append spawn_agent_run（inline tool）+ run_version CAS
   Note over ES: 同一事务内：父 Run → waiting_child<br/>spawn ToolCall → succeeded<br/>创建 child_group 和 Child Run<br/>扣减父预算<br/>写 StartAgentRun outbox
   ES->>Q: StartAgentRun(子)
   Q->>C: 子 AgentWorker 领取
@@ -113,7 +113,7 @@ stateDiagram-v2
   queued --> executing
   executing --> waiting_tool: ToolCallRequested
   executing --> waiting_approval: ApprovalRequested
-  executing --> waiting_child: SpawnAgentRun（一个或多个子 Run）
+  executing --> waiting_child: spawn_agent_run / ChildRunSpawned（一个或多个子 Run）
   waiting_child --> executing: 子 Run 全部完成或满足 join 条件
   waiting_tool --> executing: ResumeAgentRun
   waiting_approval --> executing: approved / feedback / revise

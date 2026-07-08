@@ -155,6 +155,14 @@ dry-run 不是“试试看能不能跑”的可选步骤，而是 active 前的�
 
 市场工具的审核记录是运行时准入的一部分。ToolWorker 分配 runtime 前要能校验“当前要执行的 artifact digest”确实对应已审核版本；签名、SBOM、扫描结果或 attestation 缺失时 fail closed。
 
+### 外部协议工具（例如 MCP）
+
+MCP（Model Context Protocol）这类开放协议提供了另一种工具接入通道：平台通过协议客户端发现外部 server 暴露的工具和 schema。协议只解决“怎么发现和调用”，不改变本文的治理模型：
+
+- 每个外部工具接入时仍必须落成一份 Tool Descriptor——schema 从协议声明导入，effect_class、权限、secret scope、egress 和审批策略由平台或租户管理员补充声明，缺失时按最保守等级处理。
+- 按接入方归类进 tenant_custom 或 marketplace 的注册和审核流程；外部 server 地址进入 egress allowlist 管理。
+- 外部 server 的输出和普通 tool output 一样是不可信数据（见 [agent-safety-and-guardrails.md](./agent-safety-and-guardrails.md)）；server 返回的工具列表变化视同 descriptor 变更，走版本管理，不能在 run 中途静默替换。
+
 ## 工具可见性与发现
 
 AgentWorker 在构建 LLM context 时，需要决定"这次调用给模型看哪些工具"。不是把所有注册工具都塞进 prompt——工具太多会降低模型选择准确性，也浪费 token。

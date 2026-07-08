@@ -230,7 +230,7 @@ Baseline 中，一个 conversation 同一时间只有一个前台 active Run。a
 
 | 模式 | 行为 | 适用场景 |
 | --- | --- | --- |
-| `enqueue`（默认） | 记录用户消息和 `RunPending` / `UserTurnQueued`，等当前根 Run 终态后再创建下一 Run | 普通聊天与连续任务 |
+| `enqueue`（默认） | 记录用户消息和 `UserTurnQueued`，等当前根 Run 终态后再创建下一 Run | 普通聊天与连续任务 |
 | `interrupt` | 对当前根 Run 发起 cancel，并在取消收敛后基于新消息创建 replacement Run | 用户明确改主意或要求停止当前任务 |
 | `feedback` | 只允许当前 Run 处于 `waiting_approval` / checkpoint 时使用，把用户输入作为审批反馈恢复 Run | 阶段检查点、协作编辑、人类接管 |
 | `parallel_background` | 只允许产品明确标记的后台 Run；不得写同一 workspace，且实时展示上必须区分 | 后台索引、长耗时只读分析 |

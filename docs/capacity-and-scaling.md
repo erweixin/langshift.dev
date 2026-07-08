@@ -95,7 +95,7 @@ min(
 ## 需要提前知道的瓶颈
 
 - `seq` 分配会锁定 `event_cursors(user_id)` 行，同一用户内追加事件天然串行。热点 user 或其下单个 conversation 的高频写入会推高该 cursor 的压力；解决手段是减少事件数量、避免 token delta 落库、拆分高频交互或在确认需要后调整 `seq` 作用域。
-- 万量级活跃 run 的 heartbeat 会形成额外写压力。heartbeat 是 Worker 定期告诉系统“我还活着”的信号，需要计入 DB 写预算，或在合适阶段迁移到 Redis/lease store。
+- 万量级活跃 run 的 heartbeat 会形成额外写压力。heartbeat 是 Worker 定期告诉系统“我还活着”的信号，需要计入 DB 写预算，或在合适阶段迁移到独立 lease store（例如 Redis）。
 - Snapshot 不及时会导致 replay 变慢。replay 是从历史事件恢复状态；事件越长，恢复越慢。
 - Realtime fanout 会受连接数、消息大小、慢连接和补拉 QPS 影响。fanout 就是一条事件要推给多少连接。
 - Runtime cold start 和活跃 session 数通常与 API QPS 无关，需要独立建模。

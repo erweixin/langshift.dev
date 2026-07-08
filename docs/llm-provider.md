@@ -471,7 +471,7 @@ LLM 调用是平台最大的可变成本。成本追踪贯穿调用全过程：
   tenant_id          → 租户月度账单
   conversation_id    → 单个会话的累计成本
   run_id             → 单次 run 的成本（可能包含多次 LLM 调用）
-  attempt_key     → 单次调用的精确成本
+  attempt_key        → 单次调用的精确成本
 ```
 
 ### 费率管理

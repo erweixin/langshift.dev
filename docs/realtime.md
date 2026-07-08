@@ -95,7 +95,7 @@ RealtimeGateway 不保存业务状态。它可以保存短期连接状态、订�
 
 `run_message_chunks` 不是敏感信息旁路。chunk 写入前也要形成 payload envelope：允许短期明文展示的 chunk 必须已经对该观察者通过 ACL 和 pre-emit 扫描；其余 chunk 只能保存 `payload_ref` / `payload_hmac` / 敏感标签 / TTL。最终消息进入 `run_messages` 时同样使用 [concurrency-and-durability.md](./concurrency-and-durability.md) 定义的 payload envelope。
 
-- `AssistantMessageFinalized` / `ChatTurnLogged`
+- `AssistantMessageFinalized`
 - `message_id`、`payload_ref` 或 artifact 引用
 - `attempt_key`（关联 `llm_attempts` 行）
 - `context_manifest` 引用（在 `llm_attempts`）

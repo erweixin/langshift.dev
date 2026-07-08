@@ -284,7 +284,7 @@ BEGIN;
   SELECT * FROM parallel_groups
   WHERE  tenant_id = $tenant_id
   AND    run_id = $run_id
-  AND    group_id = $group_id
+  AND    parallel_group_id = $group_id
   FOR UPDATE;
 
   -- 在锁内计算 join_satisfied 与 group_outcome。
@@ -299,7 +299,7 @@ BEGIN;
 
     IF $run_status = 'waiting_tool' AND $cancel_requested_at IS NULL THEN
       INSERT INTO continuations (
-        tenant_id, run_id, group_id, continuation_kind, status
+        tenant_id, run_id, parallel_group_id, continuation_kind, status
       )
       VALUES ($tenant_id, $run_id, $group_id, 'resume', 'preparing')
       ON CONFLICT DO NOTHING

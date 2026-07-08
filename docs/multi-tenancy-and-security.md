@@ -104,7 +104,7 @@ Admin UI
 - `ReplacementRunCreated`
 - `DlqCommandRedriveRequested`
 - `RuntimeTerminationRequested`
-- `ToolOutcomeManuallyResolved`
+- `ToolCallManuallyResolved`
 - `SubjectErasureRequested`
 
 终态 run 永不直接覆盖。修复只能创建新的执行尝试、替代 run 或管理事件，并引用原 run。只读检查可走只读副本或受限查询 API。
