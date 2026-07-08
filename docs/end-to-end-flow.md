@@ -1,6 +1,6 @@
 # 端到端架构与任务执行流程
 
-> 本文档用一条完整任务说明系统怎么跑起来。想先看全局模型，请读 [architecture.md](./architecture.md)；想查状态怎么转，读 [state-machines.md](./state-machines.md)；想查数据库写入规则，读 [concurrency-and-durability.md](./concurrency-and-durability.md)；想查 Worker 怎么执行，读 [execution-model.md](./execution-model.md)。
+> 定位：主线文档。本文档用一条完整任务说明系统怎么跑起来。想先看全局模型，请读 [architecture.md](./architecture.md)；想查状态怎么转，读 [state-machines.md](./state-machines.md)；想查数据库写入规则，读 [concurrency-and-durability.md](./concurrency-and-durability.md)；想查 Worker 怎么执行，读 [execution-model.md](./execution-model.md)。
 
 ## 为什么需要端到端视角
 

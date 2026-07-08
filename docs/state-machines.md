@@ -1,6 +1,6 @@
 # 核心状态机与不变量
 
-> 本文档定义 Run、ToolCall 和 Command 能怎么变。可以把它当成“状态交通规则”：哪些路能走，走之前要检查什么，走完要写哪些事件。多 Agent 编排里的 `waiting_child` 也是 Run 状态机的一部分，具体模式见 [orchestration-patterns.md](./orchestration-patterns.md)。
+> 定位：主线文档。本文档定义 Run、ToolCall 和 Command 能怎么变。可以把它当成“状态交通规则”：哪些路能走，走之前要检查什么，走完要写哪些事件。多 Agent 编排里的 `waiting_child` 也是 Run 状态机的一部分，具体模式见 [orchestration-patterns.md](./orchestration-patterns.md)。
 
 ## 问题、决策与风险
 

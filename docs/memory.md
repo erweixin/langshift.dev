@@ -1,6 +1,6 @@
 # Memory 架构：记忆、检索与上下文召回
 
-> 本文档解释 Agent 的“记忆”怎么产生、怎么存、怎么召回、怎么删除。上下文压缩和 `context_manifest` 见 [execution-model.md](./execution-model.md)。
+> 定位：能力专题。本文档解释 Agent 的“记忆”怎么产生、怎么存、怎么召回、怎么删除。上下文压缩和 `context_manifest` 见 [execution-model.md](./execution-model.md)。
 
 ## 问题、决策与风险
 

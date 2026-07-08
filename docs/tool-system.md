@@ -1,6 +1,6 @@
 # Tool System：定义、注册、版本与生命周期
 
-> 本文档解释工具怎么被平台认识和管理：工具要先声明自己能做什么、怎么调用、会产生什么副作用、需要什么权限，然后才能被 Agent 使用。运行时隔离见 [runtime-and-sandbox.md](./runtime-and-sandbox.md)，副作用分级见 [execution-model.md](./execution-model.md)。
+> 定位：能力专题。本文档解释工具怎么被平台认识和管理：工具要先声明自己能做什么、怎么调用、会产生什么副作用、需要什么权限，然后才能被 Agent 使用。运行时隔离见 [runtime-and-sandbox.md](./runtime-and-sandbox.md)，副作用分级见 [execution-model.md](./execution-model.md)。
 
 ## 问题、决策与风险
 

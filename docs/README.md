@@ -2,11 +2,25 @@
 
 这个目录只保留 Lites Cloud Agent 的架构内核，以及一个独立的 UX 原型。前端代码、后端代码、生成出来的 schema、本地脚本和具体产品实现记录已经移除，目的是让项目从一套更清楚的 Cloud Agent 架构重新开始。
 
-读这组文档时可以先抓住三件事：
+读这组文档时可以先抓住四件事：
 
 - Agent 任务不是一次 HTTP 请求，而是一串可恢复的“事件 + 命令”。
-- EventStore、durable queue/stream、runtime、memory、realtime 和 observability 都按生产基线设计；组件可以演进，但语义不能变。
+- EventStore、durable queue/stream、runtime、memory、realtime、evaluation 和 observability 都按生产基线设计；组件可以演进，但语义不能变。
 - LLM 只提出计划，真正的权限、工具执行、安全审批和状态推进都由平台负责。
+- 多 Agent、长期记忆、流式输出和自动工具执行都不是默认魔法，而是建立在状态机、权限、隔离和可观测之上的可选能力。
+
+## 怎么读
+
+不同读者不需要从头读到尾：
+
+| 你想做什么 | 建议读法 |
+| --- | --- |
+| 快速理解整套设计 | [architecture.md](./architecture.md) → [end-to-end-flow.md](./end-to-end-flow.md) |
+| 实现执行内核 | [state-machines.md](./state-machines.md) → [concurrency-and-durability.md](./concurrency-and-durability.md) → [execution-model.md](./execution-model.md) |
+| 做安全或合规评审 | [agent-safety-and-guardrails.md](./agent-safety-and-guardrails.md) → [runtime-and-sandbox.md](./runtime-and-sandbox.md) → [multi-tenancy-and-security.md](./multi-tenancy-and-security.md) |
+| 接入工具、模型或记忆 | [tool-system.md](./tool-system.md)、[llm-provider.md](./llm-provider.md)、[memory.md](./memory.md) 按需读 |
+| 设计多 Agent 或人机协作 | 先确认单 Run 语义，再读 [orchestration-patterns.md](./orchestration-patterns.md) |
+| 准备上线和扩容 | [operations.md](./operations.md) → [capacity-and-scaling.md](./capacity-and-scaling.md) |
 
 ## 阅读顺序
 

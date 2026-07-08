@@ -1,6 +1,6 @@
 # Agent 编排模式
 
-> 本文档解释多个 Agent 怎么协作。核心做法不是引入另一套工作流系统，而是在现有 Run 之上增加 Child Run：父 Run 派出子 Run，等待结果，再继续推进。单 Run 生命周期见 [state-machines.md](./state-machines.md)，Worker 执行与并行 join 见 [execution-model.md](./execution-model.md)。
+> 定位：进阶能力专题。本文档解释多个 Agent 怎么协作。核心做法不是引入另一套工作流系统，而是在现有 Run 之上增加 Child Run：父 Run 派出子 Run，等待结果，再继续推进。单 Run 生命周期见 [state-machines.md](./state-machines.md)，Worker 执行与并行 join 见 [execution-model.md](./execution-model.md)。
 
 ## 问题、决策与风险
 

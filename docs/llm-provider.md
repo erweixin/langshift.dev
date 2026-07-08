@@ -1,6 +1,6 @@
 # LLM Provider 抽象：模型接入、路由、降级与成本
 
-> 本文档解释模型怎么接入平台：AgentWorker 不直接绑死某个 Provider，而是通过 LLM Gateway 统一调用、路由、降级、限流和记录成本。LLM 调用在 Worker 中的位置见 [execution-model.md](./execution-model.md)，token 流式推送见 [realtime.md](./realtime.md)。
+> 定位：能力专题。本文档解释模型怎么接入平台：AgentWorker 不直接绑死某个 Provider，而是通过 LLM Gateway 统一调用、路由、降级、限流和记录成本。LLM 调用在 Worker 中的位置见 [execution-model.md](./execution-model.md)，token 流式推送见 [realtime.md](./realtime.md)。
 
 ## 问题、决策与风险
 

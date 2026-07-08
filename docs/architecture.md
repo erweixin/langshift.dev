@@ -1,41 +1,57 @@
 # Lites Cloud Agent 架构设计
 
-Lites 是一个 production-first 的 Cloud Agent 平台设计。它从第一天就把“任务怎么恢复、状态怎么推进、权限怎么检查、外部副作用怎么处理、运行时怎么隔离、事故怎么收敛”作为生产基线，而不是先做一层弱化版再迁移。
+Lites 是一个 production-first 的 Cloud Agent 平台设计。它不把 Agent 当成一次“API 调模型”的同步请求，而是把它当成一段会排队、会暂停、会调用工具、会写 workspace、会等待审批、也会失败恢复的长期任务。
 
-本文是总入口，只讲架构方案，不绑定当前项目已经实现到哪一步。
+本文是总入口，只讲架构方案，不绑定当前项目已经实现到哪一步。第一次阅读时，先看“核心心智模型”和“设计支柱”；真正实现时，再顺着专题文档查状态机、持久化、安全、运行时和容量细节。
 
-## 文档入口
+## 怎么读这组文档
 
-| 文档 | 建议阅读顺序 | 内容 |
+这组文档分四层。越靠上越应该先读，越靠下越适合在设计或实现对应模块时查。
+
+| 层级 | 文档 | 读它是为了回答 |
 | --- | --- | --- |
-| **本文（architecture.md）** | 0 | 全局心智模型、核心循环、术语、逻辑架构与生产部署基线 |
-| [end-to-end-flow.md](./end-to-end-flow.md) | 1 | 端到端组件职责、数据流、任务执行序列、失败路径与部署视角 |
-| [state-machines.md](./state-machines.md) | 2 | Run / ToolCall / Command 的状态转换表、取消语义、不变量 |
-| [concurrency-and-durability.md](./concurrency-and-durability.md) | 3 | EventStore、append 合约、两级 CAS、`seq`、outbox/inbox、`store_epoch`、snapshot |
-| [execution-model.md](./execution-model.md) | 4 | 队列调度、Worker 短事务、执行内核与 handler 边界、副作用能力、effect ledger、LLM 调用、并行 join |
-| [agent-safety-and-guardrails.md](./agent-safety-and-guardrails.md) | 5 | Agent 安全边界、prompt injection 防护、工具准入、审批、输出检查与红队场景 |
-| [tool-system.md](./tool-system.md) | 6 | 工具声明、注册、发现、版本管理、Schema 校验与生命周期 |
-| [memory.md](./memory.md) | 7 | 记忆层次、存储、写入时机、向量检索、召回、淘汰与租户隔离 |
-| [llm-provider.md](./llm-provider.md) | 8 | LLM 统一接口、Provider 适配、模型路由、降级熔断与成本追踪 |
-| [orchestration-patterns.md](./orchestration-patterns.md) | 9 | 多 Agent 编排、Child Run、委派/监督/流水线/分治、阶段检查点与人机协作 |
-| [realtime.md](./realtime.md) | 10 | 实时通道、无竞态重连、慢消费者、权限变化、LLM token 流 |
-| [runtime-and-sandbox.md](./runtime-and-sandbox.md) | 11 | runtime 威胁模型、隔离等级、secret broker（受控代发服务）、workspace 单写者 |
-| [multi-tenancy-and-security.md](./multi-tenancy-and-security.md) | 12 | 租户隔离、权限模型、数据保留、删除与 Repair Command API |
-| [operations.md](./operations.md) | 13 | Sweeper、可观测性、故障注入与不变量测试 |
-| [capacity-and-scaling.md](./capacity-and-scaling.md) | 14 | 部署替换路径、负载向量、规模化就绪标准 |
-| [README.md](./README.md) | 可选 | 目录说明、UX 原型定位，以及旧文档为什么被移除 |
+| 入口 | **本文**、[README.md](./README.md) | 这套架构的地图是什么，哪些文档先读，哪些是深入专题 |
+| 主线 | [end-to-end-flow.md](./end-to-end-flow.md)、[state-machines.md](./state-machines.md)、[concurrency-and-durability.md](./concurrency-and-durability.md)、[execution-model.md](./execution-model.md) | 一次 Run 如何从受理、执行、等待、恢复到结束 |
+| 能力专题 | [agent-safety-and-guardrails.md](./agent-safety-and-guardrails.md)、[tool-system.md](./tool-system.md)、[memory.md](./memory.md)、[llm-provider.md](./llm-provider.md)、[orchestration-patterns.md](./orchestration-patterns.md)、[realtime.md](./realtime.md) | 安全、工具、记忆、模型、多 Agent 和实时体验怎么设计 |
+| 生产边界 | [runtime-and-sandbox.md](./runtime-and-sandbox.md)、[multi-tenancy-and-security.md](./multi-tenancy-and-security.md)、[operations.md](./operations.md)、[capacity-and-scaling.md](./capacity-and-scaling.md) | 代码在哪里跑、租户怎么隔离、事故怎么收敛、容量怎么验收 |
 
-## 先记住三句话
+建议阅读路径：
 
-- **先记账，再执行**：系统先把事实和下一步命令写进数据库，再让 Worker 去做慢操作。
-- **Worker 只是执行者，不是事实源**：Worker 可以崩溃、超时、重复收到任务，所以它只能通过 EventStore 提交结果。
-- **外部副作用不能靠猜**：工具可能已经创建资源、写文件或花钱。结果未知时要对账或人工裁定，不能直接重试。
+1. **想建立全局心智模型**：本文 → [end-to-end-flow.md](./end-to-end-flow.md)。
+2. **想实现执行内核**：[state-machines.md](./state-machines.md) → [concurrency-and-durability.md](./concurrency-and-durability.md) → [execution-model.md](./execution-model.md)。
+3. **想评审生产风险**：[agent-safety-and-guardrails.md](./agent-safety-and-guardrails.md) → [runtime-and-sandbox.md](./runtime-and-sandbox.md) → [multi-tenancy-and-security.md](./multi-tenancy-and-security.md) → [operations.md](./operations.md)。
+4. **想扩展能力**：[tool-system.md](./tool-system.md)、[memory.md](./memory.md)、[llm-provider.md](./llm-provider.md)、[orchestration-patterns.md](./orchestration-patterns.md)、[realtime.md](./realtime.md) 按需阅读。
 
-再补三条生产硬规则：
+## 先记住六件事
 
-- **事件像收据，不像仓库**：EventStore 记录“发生过什么”和必要索引；用户输入、模型输出、工具结果、审批 diff、子 Run 摘要等正文统一放进加密 payload，并在事件里只保存 `payload_ref`、`payload_hmac`、敏感标签和保留策略。
-- **工具上线前先过供应链门禁**：自定义工具和市场工具都必须有签名、SBOM/provenance、漏洞扫描、隔离 dry-run、egress/secret 检查和审批记录，不能上传即 active。
-- **AI 行为变更要走 release gate**：模型、prompt、tool descriptor、agent profile、policy 变更都要先过固定 eval、红队样本、风险负责人签核和回滚方案，不能只靠“灰度后观察一下”。
+1. **先记账，再执行**：系统先把事实和下一步命令写进数据库，再让 Worker 去做慢操作。
+2. **Worker 只是执行者，不是事实源**：Worker 可以崩溃、超时、重复收到任务，所以它只能通过 EventStore 提交结果。
+3. **外部副作用不能靠猜**：工具可能已经创建资源、写文件或花钱。结果未知时要对账或人工裁定，不能直接重试。
+4. **模型只提议，平台来授权**：LLM 可以建议工具调用，但工具、secret、网络、审批和 workspace 权限都由平台策略决定。
+5. **正文和事实分开存**：EventStore 像收据，不像仓库；用户输入、模型输出、工具结果和审批 diff 等正文统一走加密 payload envelope。
+6. **AI 行为变更要可评测、可回滚**：模型、prompt、tool descriptor、agent profile、policy 变更都要过 eval、红队样本、签核和回滚方案。
+
+## 设计支柱
+
+现阶段生产级 Cloud Agent 的共同方向不是“堆更多 Agent”，而是把自治能力放在可恢复、可审计、可限制的工程框架里。Lites 的架构用以下支柱表达这件事：
+
+| 支柱 | 设计取舍 | 主要文档 |
+| --- | --- | --- |
+| 可恢复执行 | API 不跑长任务；每一步用 EventStore + outbox/inbox 交接；Worker 用短事务 claim 和短事务提交 | [end-to-end-flow.md](./end-to-end-flow.md)、[execution-model.md](./execution-model.md) |
+| 显式状态机 | Run、ToolCall、Command 都有合法转换；终态不被普通流程改写；取消、超时、审批和 join 都是正式状态 | [state-machines.md](./state-machines.md) |
+| 持久化并发控制 | `run_version` / `tool_call_version` 做 CAS；`seq` 只做补拉游标；`store_epoch` 处理数据库恢复后的旧命令 | [concurrency-and-durability.md](./concurrency-and-durability.md) |
+| 工具和副作用治理 | 工具先声明 schema、权限、effect_class、secret scope 和 runtime；副作用用 effect ledger、幂等键和对账收敛 | [tool-system.md](./tool-system.md)、[execution-model.md](./execution-model.md) |
+| 平台级安全边界 | 不可信上下文带来源标签；工具调用双重校验；高风险动作审批；secret broker、egress allowlist 和 sandbox 不是 prompt 的附属品 | [agent-safety-and-guardrails.md](./agent-safety-and-guardrails.md)、[runtime-and-sandbox.md](./runtime-and-sandbox.md) |
+| 生产可观测与发布门禁 | trace、audit、低基数 metrics、Sweeper、Repair API、故障注入、AI release gate 和容量向量一起定义上线标准 | [operations.md](./operations.md)、[capacity-and-scaling.md](./capacity-and-scaling.md) |
+
+## 外部基线
+
+本文档结构参考了当前几类公开实践，但不依赖某个供应商运行时：
+
+- [Anthropic: Building effective agents](https://www.anthropic.com/engineering/building-effective-agents)：优先使用简单、可组合模式；只有在简单方案不足时再引入多步 Agent；工具接口要像人机界面一样认真设计。
+- [OpenAI Agents SDK Guardrails](https://openai.github.io/openai-agents-python/guardrails/) 与 [Tracing](https://openai.github.io/openai-agents-python/tracing/)：把输入、输出、工具调用和执行轨迹都纳入 Agent 生命周期。
+- [Amazon Bedrock AgentCore](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/what-is-bedrock-agentcore.html)：生产平台逐步收敛到 runtime、memory、gateway、identity、observability、evaluations、policy、registry 等模块化能力。
+- [OWASP Top 10 for LLM Applications 2025](https://genai.owasp.org/llm-top-10/)：prompt injection、supply chain、excessive agency、improper output handling、vector/embedding weakness 和 unbounded consumption 都必须进入架构层，而不是只靠提示词。
 
 ## 问题、决策与风险
 

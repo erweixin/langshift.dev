@@ -1,6 +1,6 @@
 # Runtime 与 Sandbox
 
-> 本文档解释代码和工具在哪里执行、怎么隔离、怎么安全改 workspace，以及 secret 为什么不能随便进入 sandbox。
+> 定位：生产边界文档。本文档解释代码和工具在哪里执行、怎么隔离、怎么安全改 workspace，以及 secret 为什么不能随便进入 sandbox。
 
 ## 问题、决策与风险
 
