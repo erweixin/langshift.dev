@@ -133,18 +133,23 @@ Memory 不是凭空出现的，每一条写入都有明确来源。写入路径�
 
 ### 1. Agent 提取（Agent Extracted）
 
-AgentWorker 在 run 执行过程中，识别出值得记住的信息，主动写入 Memory。
+模型在 run 执行过程中识别出值得记住的信息，通过平台内置工具 `memory_write` 主动写入。模型影响未来 run 的行为也算"外部效果"，因此记忆写入和其他工具调用一样走"模型提议、平台授权"，不走 Worker 内部的直接服务调用。
 
 ```text
 run 执行过程中：
   AgentWorker 调用 LLM
-  → LLM 判断"用户刚说的偏好值得记住"
-  → AgentWorker 调用 MemoryService.upsert()
-  → MemoryService 在 EventStore 中写入 MemoryUpserted 事件
+  → LLM 判断"用户刚说的偏好值得记住"，发起 memory_write 工具调用
+  → schema 校验 + memory 写入 guardrail（高影响内容转用户确认或拒绝）
+  → EventService 以 inline platform tool 在同一事务提交：
+      ToolCallSucceeded + MemoryUpserted
   → 异步更新向量索引和全文索引
 ```
 
-Agent 提取是最常见的写入方式。它依赖 LLM 的判断力，因此带有 `confidence` 字段。低置信度的记忆可以在后续被确认、修正或淘汰。
+`memory_write` 是 inline platform tool（生命周期见 [state-machines.md](./state-machines.md) 的 `InlinePlatformToolCommitted`）：它的效果就是追加事件，不经 ToolWorker 和 sandbox。做成工具的收益是复用现成治理——schema 校验、guardrail 准入（memory poisoning 防线挂在这里）、Profile 白名单可整体关闭该能力、每次写入自带 `ToolCallRequested → Succeeded` 审计链。
+
+两条补充边界：run 结束时的关键决策提炼由 AgentWorker 内部流程（专门一次提炼调用 + MemoryService）完成，不属于模型的对话内决策，不走工具；平台**不向模型暴露删除工具**——淘汰归 Sweeper、erasure 归用户 API，被注入的模型不应有能力抹掉对自己不利的记忆。
+
+Agent 提取依赖 LLM 的判断力，因此带有 `confidence` 字段。低置信度的记忆可以在后续被确认、修正或淘汰。
 
 触发提取的典型信号：
 - 用户明确说"记住这个"或"以后都这样做"
@@ -202,7 +207,9 @@ MemoryDeleted 事件
 
 ## 检索：Memory 怎么被召回
 
-AgentWorker 在构建 LLM context 时，通过 Memory Retrieval 召回相关记忆。召回不是"把所有记忆塞进 prompt"，而是有选择地检索：
+召回默认是**被动**的：Context Builder 在每次 LLM 调用前自动检索相关记忆放进 prompt 的资料区，不依赖模型主动发起——模型无法知道"自己不知道什么"，检索质量也不应依赖模型自觉。可选地，平台可暴露 `read_only` 的 `memory_search` 工具供 Agent 主动定向检索（被动召回按语义相似度取材，对"语义不相似但逻辑上需要"的记忆存在盲区）；主动检索受与被动召回完全相同的 tenant/scope 过滤和 `context_manifest` 留痕约束。
+
+召回不是"把所有记忆塞进 prompt"，而是有选择地检索：
 
 ### 检索流程
 

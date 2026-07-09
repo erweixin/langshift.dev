@@ -560,6 +560,8 @@ Agent Profile 的来源和 Tool 类似（见 [tool-system.md](./tool-system.md)�
 - **租户自定义**：租户通过管理 API 创建，绑定自定义 system prompt 和工具策略。
 - **版本管理**：Profile 变更通过 append-only snapshot 管理，Run 创建时锁定 `profile_snapshot_id` 和 `profile_hash`。历史 Run 不能只引用可变的当前 profile 记录；被引用的 system prompt、tool policy、model、workspace 权限、预算和审批策略必须可回溯校验。
 
+Profile 对 prompt 的贡献有明确边界：`system_prompt_template` 只进入 system 层，位于平台安全指令之下、工具描述之上。**Profile 不能注入 user / assistant 角色的消息**——发给模型的消息序列只能由 EventStore 的真实事件构建。凭空注入的消息会伪造来源标签（这段话到底是谁说的？）、破坏 `context_manifest` 回放一致性，"伪造对话历史让模型以为用户同意过某事"也是注入攻击的常见形状。需要 few-shot 示例时，写进模板中明确标注的示例区块，或使用 Tool Descriptor 的 `input_examples[]`。
+
 ---
 
 ## 编排与 EventStore 的关系
