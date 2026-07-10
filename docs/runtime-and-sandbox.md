@@ -97,6 +97,8 @@ Workspace 采用单写者语义：
 - merge 必须显式，不能自动覆盖。
 - 冲突文件进入 `merge_required`，由 Agent、用户或 Repair API 决定。
 
+Workspace Service 不相信 Worker 自报的 fence。EventService / RuntimeManager 在 claim 成功后签发短期 workspace capability，绑定 `tenant_id`、`workspace_id`、`tool_call_id`、`attempt_id`、精确 fence、base revision、读写范围和过期时间；prepare/publish 时 Workspace Service 都要验证该 capability 和当前 write lease。
+
 每次工具执行都要产出：
 
 ```text
@@ -110,6 +112,29 @@ workspace_change
 ```
 
 Run 的 `context_manifest` 引用 workspace revision。Replay 是“重放历史状态”，不是重新执行文件修改；它只读取已记录 revision 和 artifact。
+
+## Workspace 跨存储提交协议
+
+Workspace Service 和 EventStore 不共享数据库事务。Workspace 写工具必须使用可对账 saga；`effect_key`、`request_hash`、`base_workspace_revision` 和目标 workspace 共同标识同一次意图。协议依次生成不可见的 `prepared_revision`、在 EventStore 持久化 `commit_authorized`、发布 revision，并以 `confirmed` 记录结果。
+
+标准流程：
+
+1. ToolWorker 先通过 EventService 建立或命中 effect ledger，并取得与当前 ToolCall attempt 精确绑定的 workspace write lease。若策略要求审批真实 diff，这一步由受限的 `PrepareToolPreview` attempt 执行；它无权发布 head。
+2. Runtime 把变更写成不可变的 `prepared_revision`。Workspace Service 以 `(tenant_id, workspace_id, effect_key)` 去重；同 key、同 request hash 返回原 revision，同 key、不同 request hash 直接拒绝。preview 路径把 revision/diff hash 写入 approval scope，普通低风险路径则在正式 ToolWorker attempt 中准备。
+3. prepared revision 对普通读者不可见，也不能成为 workspace head；它包含 base revision、内容 hash、diff hash、artifact refs 和创建 attempt。
+4. 在 revision 变成可见 head **之前**，ToolWorker 先通过 EventService 提交 durable commit decision：需要审批时验证 approval 精确覆盖 prepared revision/diff hash；随后在同一数据库事务中写 `WorkspaceRevisionCommitAuthorized`、effect ledger `commit_authorized`，把 ToolCall 推到 `commit_requested` 并登记唯一 `CommitWorkspaceRevision` command。此时 revision 仍不可见，Run 也不能恢复。
+5. CommitWorker claim command 后进入 `committing`，拿到绑定 authorization event、revision、attempt/fence 和期限的短期 capability，再请求 Workspace Service 用 CAS 发布 revision。Workspace Service 只有验证 durable authorization、当前 head 仍等于 `base_workspace_revision`、workspace lease 和 capability 都匹配时，才能把 revision 变成可见 head。重复发布同一 revision 必须返回同一结果。
+6. 发布成功后，CommitWorker 通过 EventService 在同一事务中把 effect ledger 标为 `confirmed`，写 `WorkspaceRevisionCommitted`、`ToolCallSucceeded` 和必要的 join/command。Run 只有看到已确认事件后才能引用该 revision 继续执行。
+7. 如果 durable authorization 已写但发布尚未开始，`CommitWorkspaceRevision` 可以从 outbox 重建并安全重试；如果发布请求超时或 Worker 在发布后、写确认事件前崩溃，ToolCall 进入 `outcome_unknown`，对账器按 `effect_key` / authorization id 查询 Workspace Service。查到已发布 revision 就补写 confirmed 事件，证明未发布则按同一 authorization 重试或确定失败，仍无法判断则继续人工处理，禁止生成另一份 revision。
+
+清理规则：
+
+- prepared 但未授权的 revision 在 TTL 后由 GC 检查 EventStore effect ledger；没有合法引用且不在对账中的才可删除。已经存在 `WorkspaceRevisionCommitAuthorized` 的 revision 不能作为孤儿删除，只能完成发布、明确失败或进入 Repair。
+- 已发布 revision 是内容事实，不能因为 Worker attempt 过期而删除；迟到 Worker 只能被拒绝写事件，不能回滚别人已确认的 head。
+- workspace head 发生变化导致 CAS 失败时，结果是 `merge_required` 或确定失败，不允许静默覆盖。
+- Artifact 使用内容寻址、checksum 和不可变对象；先上传后写事件产生的孤儿对象按引用扫描回收，事件只能引用 checksum 已验证且 ACL 正确的对象。
+
+协议保证相同 effect key 可安全重试、每个可见 revision 都有在先的 EventStore durable authorization、已发布结果可对账，且 Run 只在最终 `confirmed` 后继续；不提供跨数据库 exactly-once 语义。
 
 ## Sandbox Session 生命周期
 

@@ -31,7 +31,7 @@
 | --- | --- | --- |
 | Public API Plane | Gateway、Conversation API、Approval API、Cancel API | 对外认证、租户解析、限流和请求校验；不执行长任务 |
 | Control Plane | EventService、状态机、Permission、Quota、Repair API | 所有状态推进都经 EventService；Repair 走审批和审计 |
-| Scheduler / Queue Plane | Scheduler、durable queue/stream、outbox publisher fleet、DLQ | 支持至少一次投递、延迟投递、lease/claim、ack、retry、dead-letter、去重、`store_epoch` 和 backpressure |
+| Scheduler / Queue Plane | Scheduler、durable queue/stream、outbox publisher fleet、DLQ | 支持至少一次投递、延迟投递、lease/claim、ack、retry、dead-letter、去重、`store_epoch` 精确匹配和 backpressure |
 | Realtime Plane | SSE/WebSocket Gateway fleet、pub/sub bus、cursor backfill | 独立扩缩；慢消费者治理；断线后回源 EventStore 补拉 |
 | Agent Worker Plane | AgentWorker、Context Builder、LLM Gateway | 按交互/后台、模型、优先级、租户 tier 拆池；受 provider 配额和预算闸门约束 |
 | Tool / Runtime Plane | ToolWorker、RuntimeManager、Sandbox、Secret Broker client | 独立安全域；不可信代码使用 microVM、隔离节点或等价强边界；默认无网络和 secret |
@@ -100,7 +100,7 @@ min(
 - Realtime fanout 会受连接数、消息大小、慢连接和补拉 QPS 影响。fanout 就是一条事件要推给多少连接。
 - Runtime cold start 和活跃 session 数通常与 API QPS 无关，需要独立建模。
 - Artifact 大文件读写可能绕过数据库成为主瓶颈。
-- `outcome_unknown` 会阻塞 `all` join，直到对账收敛为成功、失败或人工裁定。交互式工具应把 `reconcile_after` 设得足够短，并在容量规划里单独观察 unknown backlog 和 join wait time。
+- `outcome_unknown` 会阻塞 `all` join，直到对账收敛为成功、失败，或人工显式接受为 `resolved_unknown`。交互式工具应把 `reconcile_after` 设得足够短，并在容量规划里单独观察 unknown backlog、accepted-unknown 数量和 join wait time。
 
 ## 规模化就绪检查清单
 
@@ -120,6 +120,6 @@ min(
 - Slow consumer、auth 到期、权限撤销不会把 realtime 当事实源。
 - Admin repair 经 Repair Command API，不破坏不变量。
 - 核心表备份、恢复演练、schema migration、event upcasting 正常。
-- 按时间点恢复后，`store_epoch` 能拒绝旧 command。
+- 按时间点恢复时，独立恢复控制面先轮换 `store_epoch`；消费者能拒绝所有不精确匹配当前 epoch 的 command。
 - Timer / Sweeper 对超时、unknown、quota 回收和 runtime GC 有界生效。
 - 数据保留/删除能失效 memory、snapshot、search index 和 artifact 派生物。

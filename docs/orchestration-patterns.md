@@ -98,8 +98,8 @@ sequenceDiagram
   C->>ES: 子 Run 进入终态 + result_summary
   Note over ES: 同一事务内检查 child_group join<br/>满足时用父 run_version 创建 ResumeParentRun
 
-  ES->>Q: ResumeParentRun
-  Q->>P: 父 AgentWorker 恢复，读取子 Run 结果
+  ES->>Q: 父 Run → queued + ResumeParentRun
+  Q->>P: 父 AgentWorker claim 新 attempt/fence，父 Run → executing
 ```
 
 ### Run 状态机扩展
@@ -114,9 +114,10 @@ stateDiagram-v2
   executing --> waiting_tool: ToolCallRequested
   executing --> waiting_approval: ApprovalRequested
   executing --> waiting_child: spawn_agent_run / ChildRunSpawned（一个或多个子 Run）
-  waiting_child --> executing: 子 Run 全部完成或满足 join 条件
-  waiting_tool --> executing: ResumeAgentRun
-  waiting_approval --> executing: approved / feedback / revise
+  waiting_child --> queued: 子 Run 全部完成或满足 join 条件
+  waiting_tool --> queued: 工具组满足 join 条件
+  waiting_approval --> waiting_tool: 精确工具调用获批
+  waiting_approval --> queued: 阶段 approved / feedback / revise
   executing --> succeeded
   executing --> failed
   state "cancelled / expired" as terminal
@@ -147,7 +148,7 @@ child_group（复用 parallel_group 结构）
 - continuation_kind: resume
 ```
 
-join 判定规则与 ToolCall 一致：子 Run 进入终态时，在同一事务中锁定 `child_group` 行，检查是否满足继续条件或失败收敛条件，满足则用 `run_version` CAS 将父 Run 从 `waiting_child` 推进到 `executing`。父 Run 恢复后再由 Agent 判断是继续、重试、降级还是报错。
+join 判定规则与 ToolCall 一致：子 Run 进入终态时，在同一事务中锁定 `child_group` 行，检查是否满足继续条件或失败收敛条件，满足则用 `run_version` CAS 将父 Run 从 `waiting_child` 推进到 `queued`，绑定唯一 `ResumeParentRun` command。父 AgentWorker claim 新 attempt/fence/lease、把父 Run 推进到 `executing` 后，再判断是继续、重试、降级还是报错。
 
 | 规则 | 什么时候可以继续 | 继续后剩余子 Run 怎么办 |
 | --- | --- | --- |
@@ -429,7 +430,7 @@ workspace_merge
 
 ## 复杂 Human-in-the-Loop 模式
 
-`waiting_approval` 是“Run 暂停等待可信人类输入”的状态，不只表示危险工具的 yes/no。不同 approval kind 支持不同决策集合：普通危险工具审批只支持 approve / reject；阶段检查点可以支持 approve / approve_with_feedback / revise / abort。
+`waiting_approval` 是“Run 暂停等待可信人类输入”的状态，但两类审批的恢复动作不同：危险工具审批绑定不可变 proposed ToolCall，只支持 approve / reject；普通 Worker 工具批准后进入 `waiting_tool` 并发 `ExecuteToolCall`，inline platform tool 则在审批事务内提交精确效果后把 Run 放入 `queued`。阶段检查点可以支持 approve / approve_with_feedback / revise / abort，这些继续类决定把 Run 放入 `queued` 并发 `ResumeAgentRun`。
 
 ### 阶段检查点（Stage Checkpoint）
 
@@ -468,9 +469,9 @@ checkpoint_request
 
 | 决策 | Run 转换 | 语义 |
 | --- | --- | --- |
-| `approve` | `waiting_approval -> executing` | 继续下一阶段 |
-| `approve_with_feedback` | `waiting_approval -> executing` | 继续下一阶段，feedback 进入下一次 LLM 上下文 |
-| `revise` | `waiting_approval -> executing` | 回到当前阶段重做，revision 要求进入上下文；不表示拒绝整个 Run |
+| `approve` | `waiting_approval -> queued -> executing` | 先创建唯一 Resume command，AgentWorker claim 新 attempt 后继续下一阶段 |
+| `approve_with_feedback` | `waiting_approval -> queued -> executing` | feedback 进入下一次 LLM 上下文，仍需经过 Resume claim |
+| `revise` | `waiting_approval -> queued -> executing` | 回到当前阶段重做，revision 要求进入上下文；不表示拒绝整个 Run |
 | `abort` | `waiting_approval -> cancelled` | 终止整个编排 |
 
 ### 协作编辑（Collaborative Editing）
@@ -509,7 +510,7 @@ multi_approval_policy
 - escalation_after                # 超时后升级到谁
 ```
 
-多角色审批复用现有的 `ApprovalRequested` / `ApprovalGranted` 事件，但审批完成条件从"一个人批准"变成"满足 policy 中定义的所有角色都批准"。判定逻辑类似 child_group join：每个审批事件写入后检查是否满足 policy，满足则推进 Run。
+多角色审批复用现有的 `ApprovalRequested` / `ApprovalGranted` 事件，但审批完成条件从"一个人批准"变成"满足 policy 中定义的所有角色都批准"。判定逻辑类似 child_group join：每个审批事件写入后检查是否满足 policy；最终满足时仍按 approval kind 分流——工具审批执行精确 proposed ToolCall，阶段检查点才把 Run 放入 `queued` 并发 Resume command。
 
 ### 人工接管（Human Takeover）
 

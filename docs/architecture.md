@@ -26,7 +26,7 @@ Lites 是一个 production-first 的 Cloud Agent 平台设计。它不把 Agent 
 
 1. **先记账，再执行**：系统先把事实和下一步命令写进数据库，再让 Worker 去做慢操作。
 2. **Worker 只是执行者，不是事实源**：Worker 可以崩溃、超时、重复收到任务，所以它只能通过 EventStore 提交结果。
-3. **外部副作用不能靠猜**：工具可能已经创建资源、写文件或花钱。结果未知时要对账或人工裁定，不能直接重试。
+3. **外部副作用不能靠猜**：工具可能已经创建资源、写文件或花钱。结果未知时要对账或人工接受残余不确定性，不能直接重试，也不能把“未知”伪装成“已取消”。
 4. **模型只提议，平台来授权**：LLM 可以建议工具调用，但工具、secret、网络、审批和 workspace 权限都由平台策略决定。
 5. **正文和事实分开存**：EventStore 像收据，不像仓库；用户输入、模型输出、工具结果和审批 diff 等正文统一走加密 payload envelope。
 6. **AI 行为变更要可评测、可回滚**：模型、prompt、tool descriptor、agent profile、policy 变更都要过 eval、红队样本、签核和回滚方案。
@@ -84,11 +84,11 @@ Lites 是一个 production-first 的 Cloud Agent 平台设计。它不把 Agent 
 
 1. 用户提交请求后，API 只做很短的一件事：记录 `RunAccepted`，再登记一条 `StartAgentRun`。然后立即返回 `run_id`，告诉客户端“任务已受理”。
 2. AgentWorker 看到 `StartAgentRun` 后开始工作：读取对话、workspace、memory 和策略，组装上下文，然后调用 LLM。
-3. 如果 LLM 判断需要改文件，AgentWorker 不直接改文件，而是记录 `ToolCallRequested`，再登记 `ExecuteToolCall`，把执行工具这件事交给 ToolWorker。
-4. ToolWorker 领取工具任务后，先检查权限、配额和 secret 访问，再在 sandbox 里真正执行文件修改。
+3. 如果 LLM 判断需要改文件，AgentWorker 不直接改文件。低风险动作可以记录 `ToolCallRequested` 并登记 `ExecuteToolCall`；需要审批真实 diff 时，先登记 `PrepareToolPreview`，在隔离环境生成不可见 revision，再把精确 ToolCall、diff hash、策略和 base revision 交给人审批。
+4. 审批通过后平台直接执行已批准的 proposal，不让模型重新生成参数。ToolWorker 重新检查权限、配额、approval scope 和 secret；Workspace 写入必须先在 EventStore 留下 `WorkspaceRevisionCommitAuthorized`，再由独立 commit attempt 发布已批准 revision，不能先改可见 head 再补记账。
 5. 工具执行完，ToolWorker 把结果记录成 `ToolCallSucceeded` 或失败/未知结果。这里用 `tool_call_version` 防止同一个工具调用被重复提交。
-6. 如果这一轮需要多个工具并行执行，最后完成且满足 join 条件的 ToolWorker 会尝试恢复 Run。它用 `run_version` 创建 `ResumeAgentRun`，保证同一轮只续跑一次。
-7. AgentWorker 再次领取 `ResumeAgentRun` 继续思考。这个循环会一直重复，直到 Run 输出最终回复，或进入失败、取消、过期等终态。
+6. 如果这一轮需要多个工具并行执行，最后完成且满足 join 条件的 ToolWorker 会用 `run_version` 把 Run 推进到 `queued`，绑定唯一 `ResumeAgentRun`，保证同一轮只排队续跑一次。
+7. AgentWorker 再次领取 `ResumeAgentRun`，原子创建新的 attempt、fence 和 lease，把 Run 从 `queued` 推进到 `executing` 后继续思考。这个循环会一直重复，直到 Run 输出最终回复，或进入失败、取消、过期等终态。
 
 这条链路的重点是：API、AgentWorker、ToolWorker 都只通过 EventStore 交接状态。这样即使请求重试、Worker 崩溃、消息重复投递或客户端断线，系统也能从已提交的 event 继续恢复，而不是依赖某个进程的内存状态。
 
@@ -109,11 +109,11 @@ Lites 是一个 production-first 的 Cloud Agent 平台设计。它不把 Agent 
 | `run_version` | Run 聚合的 CAS 版本 | 只在 Run 状态转换时递增 |
 | `tool_call_version` | ToolCall 聚合的 CAS 版本 | 只在 ToolCall 状态转换时递增 |
 | `seq` | user 内的提交顺序号（baseline 决策：user-scoped，conversation 只是过滤维度） | 只做排序和补拉游标，不做 CAS；若单用户多会话并行追加成为瓶颈，可下沉为 conversation-scoped，代价是客户端要维护多游标 |
-| fence | lease 产生的防过期写令牌 | 旧 Worker 即使醒来也不能覆盖新状态 |
+| fence | 每次 claim 由 EventService 签发并安装到 Run / ToolCall 的防过期写序号 | 提交时必须同时精确匹配当前 command、attempt、fence 和未过期 lease；不能只判断数值更大 |
 | `effect_key` | 外部副作用的稳定幂等键 | 下游支持幂等时用于避免重复副作用 |
-| `outcome_unknown` | 外部调用结果未知，例如超时后不知道资源是否已创建 | 禁止盲目重试，必须先对账或人工裁定 |
+| `outcome_unknown` | 外部调用结果未知，例如超时后不知道资源是否已创建 | 禁止盲目重试；人工仍无法查明时进入 `resolved_unknown` 并保留残余风险，不得伪装成取消 |
 | Reconciliation | 对账确认外部副作用到底是否发生 | 用于把未知结果收敛到成功、失败或人工处理 |
-| `store_epoch` | EventStore 恢复代次 | 数据库从备份恢复后，用它拒绝旧代次 command |
+| `store_epoch` | EventStore 恢复代次身份 | 权威值保存在数据库恢复故障域之外；command 必须与当前 epoch 精确相等，PITR 时先轮换再恢复服务 |
 
 ## 设计目标
 
@@ -129,7 +129,7 @@ Lites 是一个 production-first 的 Cloud Agent 平台设计。它不把 Agent 
 - **不承诺通用 exactly-once**：传输层按“至少一次投递”设计；对支持幂等键的外部写操作提供“多次投递但只产生一次有效副作用”的效果；无法幂等的操作必须走对账。
 - **不做跨用户事务**：强一致边界止于单个 `user_id` 的 append 顺序（baseline 中 `seq` 为 user-scoped，conversation 只是过滤维度）。
 - **不做跨区域 active-active**：默认采用单区域单写模型；跨区域容灾通过备份、恢复演练和 `store_epoch` 收敛。
-- **不自动消解所有未知结果**：`outcome_unknown` 可能需要人工裁定；系统只保证不盲目重做。
+- **不自动消解所有未知结果**：`outcome_unknown` 可能最终只能由人工接受为 `resolved_unknown`；系统只保证不盲目重做，并持续保留“不知道是否发生”的事实。
 - **不把实时通道当可靠存储**：可靠性由 EventStore + `last_seen_seq` 补拉提供。
 
 ## 逻辑架构
@@ -218,7 +218,7 @@ Outbox、Scheduler、Queue 是逻辑角色，但生产基线必须提供同等�
 - `idempotency_key`：请求重放保护 key，必须带 tenant 与 operation scope。
 - `reservation_id`：配额预留 id。
 - `due_at`：deadline、approval timeout、retry backoff、对账复核等定时唤醒时间。
-- `store_epoch`：EventStore 恢复代次。
+- `store_epoch`：EventStore 恢复代次身份；权威值位于数据库恢复故障域之外，异步消息只接受精确匹配。
 
 `seq` 只代表提交顺序，不代表因果顺序，也不是并发控制令牌。因果由 `causation_id` / `parent_event_id` 表达；并发控制由 `run_version` 和 `tool_call_version` 承担。
 
@@ -245,7 +245,7 @@ Baseline 中，一个 conversation 同一时间只有一个前台 active Run。a
 4. Event Service 在同一数据库事务中追加事件、更新对应聚合状态、分配 `seq`、写入 outbox 和 idempotency response。
 5. 事务提交后，Outbox Publisher 发布 realtime 通知和 command。
 6. Scheduler/Queue 按租户公平、优先级、重试时间和资源类别投递 command。
-7. AgentWorker 或 ToolWorker 消费 command，通过 Event Service 写入完成、失败、取消、未知结果或后续 command。
+7. Worker 先通过 Event Service claim command，创建当前 attempt/fence/lease 后才执行；AgentWorker 或 ToolWorker 再通过 Event Service 写入完成、失败、取消、未知结果或后续 command。
 
 ## 应该 / 避免
 

@@ -25,7 +25,7 @@ Worker 的工作方式可以理解成“两次短记账，中间做慢活”：
 
 1. 第一次短事务：领取 command，写下“我开始试一次”，拿到租约和 fence。
 2. 中间慢操作：调用 LLM、运行工具、访问第三方系统或写 workspace。
-3. 第二次短事务：带着结果回来提交。只有版本和 fence 仍然匹配，结果才能推进状态。
+3. 第二次短事务：带着结果回来提交。只有版本、当前 attempt、精确 fence 和未过期 lease 同时匹配，结果才能推进状态。
 
 这样做的好处是，数据库不会被一次长 LLM 调用或长时间测试命令锁住；取消、超时、审批和并行工具完成仍然能插进来。
 
@@ -86,7 +86,7 @@ sequenceDiagram
 
   rect rgb(238,244,255)
   note over W,DB: 短事务 2：条件提交
-  W->>DB: append result WHERE version=expected AND fence>=current
+  W->>DB: append result WHERE version=expected AND attempt=current AND fence=current AND lease valid
   alt 匹配
     DB-->>W: 提交成功，聚合 version++
   else 版本或 fence 过期
@@ -103,6 +103,12 @@ AgentWorker 职责：
 - 通过 LLM Gateway 调用模型，记录 `attempt_key`、模型配置、provider request id、token 和成本。
 - 通过 Event Service 写入消息、工具请求、失败、等待审批或终态。
 
+### Start / Resume 的统一领取协议
+
+`StartAgentRun`、`ResumeAgentRun` 和 `ResumeParentRun` 使用同一套 claim。产生这些 command 的事务只把 Run 推进到 `queued` 并保存唯一 `pending_command_id`，不能提前标成 `executing`。AgentWorker 领取匹配的 command 后，EventService 才在同一个短事务中完成 inbox claim、创建 attempt、安装 fence/lease，并把 Run 从 `queued` 推进到 `executing`。
+
+首次 Start 写 `RunStarted`；工具、审批或子 Run 之后的 Resume 写 `RunResumed`。重复 command 若 inbox 已 `completed` 则直接忽略；lease 未过期时不得启动第二份 LLM I/O；lease 过期后抢占会创建新 attempt 和更大的 fence，旧 Worker 的 `attempt_id` 或 fence 不再匹配。
+
 ToolWorker 职责：
 
 - 领取 `ExecuteToolCall`。
@@ -112,6 +118,8 @@ ToolWorker 职责：
 - 在 RuntimeManager 管理的 sandbox session 中执行。
 - 通过 effect ledger 和 `tool_call_version` CAS 写入成功、失败或 `outcome_unknown`。
 - 在同一事务中执行 join 检查；满足时尝试推进 Run。
+
+Workspace 写工具额外使用 `CommitWorkspaceRevision` command。CommitWorker 是逻辑角色，可以和 ToolWorker 同池，但必须使用新的 command/attempt/fence：它只消费已经有 `WorkspaceRevisionCommitAuthorized` 的 prepared revision，负责 CAS 发布和确认，不能重新生成内容。这样 EventStore 的 durable commit decision 永远先于外部可见 head。
 
 ## 执行内核与业务边界
 
@@ -130,9 +138,11 @@ handler 合约
 
 Worker 成功时，写结果事件和把 inbox 从 `running` 标记为 `completed` 必须在同一个数据库事务中提交：先通过 EventService 写业务事件和 inbox/attempt 结果，事务提交后再 ack 外部队列消息。拆开会产生两类事故：先确认后写事件，崩溃后已花钱的执行结果永久丢失；先写事件后确认，崩溃后 command 重投、同一结果被重复解释。
 
+如果这次提交让 Worker 当前步骤结束——例如 AgentWorker 进入 `waiting_tool` / `waiting_approval` / `waiting_child` / 终态，或 ToolWorker / PreviewWorker / CommitWorker 提交结果——同一事务还必须在 command/attempt/fence 精确匹配的条件下完成 `job_attempt`、清除聚合上的 `active_command_id`、`active_attempt_id` 和 lease owner/expiry。`current_fence_token` 不回退也不清零，下次 claim 在它之上递增。否则 Run 虽已等待，旧 lease 仍会阻塞合法 Resume。
+
 Inbox 的首次写入只是 claim，不是完成标记。Worker 在 claim 后、执行前或执行中崩溃时，后续重复投递必须能在 lease 过期后重新领取；只有 `completed` 状态的 inbox row 才能让消费者 ack 并忽略。
 
-Run CAS 冲突（例如 Sweeper 或另一次 attempt 已推进 run）时，Worker 不重放业务写入，而是做 fence-only ack：只确认当前 job 结束，不改变 run 状态，本次 attempt 记为旧尝试，并把本次 inbox claim 收敛到 `completed` 或 `abandoned`，避免旧 attempt 继续占用 lease。
+Run CAS 冲突（例如 Sweeper 或另一次 attempt 已推进 run）时，Worker 不重放业务写入，而是做 attempt-scoped ack：只有当前 inbox claim 仍属于该 attempt 时，才把它收敛到 `completed` 或 `abandoned`；不改变 Run 状态，本次 attempt 记为旧尝试。旧 attempt 不能确认新 owner 的 claim。
 
 ### 错误分类
 
@@ -145,7 +155,7 @@ LLM / 业务错误和基础设施错误的处理方向相反：前者应收敛�
 | LLM Gateway 返回等待类错误 | `rate_limited`、可等待的 provider 容量不足 | 按 `Retry-After` 或策略延迟重试；超过 run deadline / 预算后才收敛为终态 |
 | 业务输出无效 | 结构化输出不合法、validator 不通过 | 追加 `RunFailed` 业务事件 |
 | 业务落库失败 | artifact 存储失败 | fail 当前 job，稍后重试 |
-| Run CAS 冲突 | 另一个执行体已推进 run | fence-only ack，不再改 run |
+| Run CAS 冲突 | 另一个执行体已推进 run | attempt-scoped ack，不再改 run |
 | append 基础设施失败 | DB 错误、fence 无效 | fail 当前 job |
 
 ## 副作用能力接口
@@ -191,11 +201,13 @@ tool_effects
 - request_hash
 - provider_request_id
 - external_resource_id
-- state: prepared | executing | confirmed | failed | outcome_unknown
+- state: prepared | executing | commit_authorized | confirmed | failed | outcome_unknown | accepted_unknown
 - result_event_id
 ```
 
 去重边界不能只绑定 `tool_call_id`。同一 `(tenant_id, effect_scope, provider_id, tool_name, effect_key)` 在 replacement run、Repair redrive、DLQ 重投或新 ToolCall 中都必须命中同一条 ledger。若 `request_hash` 与已存在记录不同，说明同一个幂等键被用于不同意图，必须拒绝或进入人工裁定。
+
+`accepted_unknown` 是永久的防重放占位，不是“可以重新试一次”的失败。它表示系统和人工都无法证明效果是否发生，只是决定结束自动对账并接受残余风险。任何 replacement run、DLQ redrive 或新 ToolCall 命中它时都必须停止自动执行，除非新的 Repair 流程先根据外部证据把它收敛为可证明的结果。
 
 ## LLM 调用与预算
 
@@ -228,11 +240,12 @@ parallel_group
 - run_id
 - step_id
 - parallel_group_id
+- group_kind: execution | approval_preview
 - join_policy: all | any | quorum
 - quorum_count
 - required_tool_call_ids
 - optional_tool_call_ids
-- continuation_kind: resume
+- continuation_kind: resume | request_approval
 ```
 
 ### Join policy 语义
@@ -248,9 +261,12 @@ Join 判断的是“Run 是否可以离开 `waiting_tool`，继续让 Agent 思�
 补充规则：
 
 - `outcome_unknown` 不是终态，不能用于满足 join；它必须先对账。
+- `resolved_unknown` 是人工接受残余风险后的终态：在 `all` 中算“已结束但未知”，在 `any` / `quorum` 中不算成功。它必须以显式未知结果进入下一步上下文，不能被解释为取消、失败已证实或副作用未发生。
 - optional ToolCall 不计入门槛。若在续跑命令创建前完成，结果会进入 Agent 下一步上下文；若在续跑后才完成，只记录迟到事实，不再次唤醒 Run。
 - Run 已 `cancel_requested` 时，不再创建新的 continuation；在飞工具按取消语义处理。
 - Run 已是 `cancelled`、`expired`、`failed`、`succeeded` 时，ToolCall 事实可以记录，但 join 推进 Run 必须失败。
+
+`approval_preview` group 只用于生成真实 diff/artifact 等审批材料，默认使用 `all`。它的 preview command 必须无外部可见副作用；每个 preview 完成时将对应 ToolCall 推进到 `awaiting_approval` 并结束当前 attempt。group 满足后不恢复 LLM，而是在同一锁序事务中把 Run 从 `waiting_tool` 转为 `waiting_approval`，写批次级 `ApprovalRequested` 并发 `NotifyApproval`。下面的 Resume 提交流程专指 `group_kind = execution`；preview group 复用相同锁和唯一占位纪律，但 continuation 是 `request_approval`。
 
 ### Join 提交流程
 
@@ -261,7 +277,7 @@ join 由完成 ToolCall 的 ToolWorker 在同一事务内判定，不额外引�
 3. 在锁保护下读取 group 内所有 ToolCall 的当前已提交状态并判断 join。
 4. 如果满足，锁定当前 Run 行，在同一事务中读取 `current_run_version`、`status` 和 `cancel_requested_at`。
 5. 只有 Run 仍是 `waiting_tool` 且未取消，才创建 `continuation` 的 `preparing` 记录。
-6. 用刚刚读取的 `current_run_version` CAS 将 Run 从 `waiting_tool` 推进到 `executing`。
+6. 生成稳定 `command_id`，用刚刚读取的 `current_run_version` CAS 将 Run 从 `waiting_tool` 推进到 `queued`，并保存 `pending_command_id`。
 7. 只有 Run CAS 成功，才把 continuation 标记为 `committed` 并写入 `ResumeAgentRun` outbox。
 8. 如果 Run 已取消、过期或不再等待工具，不创建 continuation；只记录 ToolCall 结果事实。CAS 在锁内仍失败时视为可重试的数据库竞争，不得留下唯一键占位阻止后续 join。
 
@@ -273,13 +289,21 @@ BEGIN;
   UPDATE tool_calls
   SET    status = $terminal_status,
          tool_call_version = tool_call_version + 1,
-         result_event_id = $result_event_id
+         result_event_id = $result_event_id,
+         active_command_id = NULL,
+         active_attempt_id = NULL,
+         lease_owner = NULL,
+         lease_token = NULL,
+         lease_expires_at = NULL
   WHERE  tenant_id = $tenant_id
   AND    tool_call_id = $tc_id
-  AND    status IN ('executing', 'outcome_unknown')
+  AND    status = $expected_active_status -- Execute 用 executing；Workspace commit 用 committing；对账走独立 append
   AND    tool_call_version = $expected_tc_version
-  AND    $worker_fence >= current_fence_token;
-  -- 0 rows: 版本或 fence 过期，attempt 变为旧尝试
+  AND    active_command_id = $command_id
+  AND    active_attempt_id = $attempt_id
+  AND    current_fence_token = $worker_fence
+  AND    lease_expires_at > now();
+  -- 0 rows: 版本、attempt、精确 fence 或 lease 已失效，attempt 变为旧尝试
 
   SELECT * FROM parallel_groups
   WHERE  tenant_id = $tenant_id
@@ -307,8 +331,9 @@ BEGIN;
 
       IF $continuation_id IS NOT NULL THEN
         UPDATE runs
-        SET    status = 'executing',
-               run_version = run_version + 1
+        SET    status = 'queued',
+               run_version = run_version + 1,
+               pending_command_id = $resume_command_id
         WHERE  tenant_id = $tenant_id
         AND    run_id = $run_id
         AND    status = 'waiting_tool'
@@ -333,7 +358,7 @@ BEGIN;
   INSERT INTO events (...) VALUES (...);
 
   IF $emit_resume_agent_run THEN
-    INSERT INTO outbox (...) VALUES (...); -- ResumeAgentRun
+    INSERT INTO outbox (command_id, ...) VALUES ($resume_command_id, ...); -- ResumeAgentRun
   END IF;
 COMMIT;
 ```
@@ -346,6 +371,7 @@ COMMIT;
 2. T1 和 T2 并行执行外部工具，不持有 group 锁。
 3. T1 先提交自己的 ToolCall 成功，锁住 group，看到完成数 1/2，不续跑。
 4. T2 后提交，锁住 group，能看到 T1 已提交，完成数 2/2。
-5. T2 创建 continuation，占位成功后推进 Run。
+5. T2 创建 continuation，占位成功后把 Run 推进到 `queued`，并绑定唯一 Resume command。
 6. Run CAS 成功才写 `ResumeAgentRun`。
-7. 结果是两个 ToolCall 事实都保留，Run 只续跑一次。
+7. AgentWorker claim 该 command，创建新 attempt/fence 后再把 Run 推进到 `executing`。
+8. 结果是两个 ToolCall 事实都保留，Run 只续跑一次，且每次续跑都有独立租约。

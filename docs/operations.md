@@ -30,13 +30,14 @@ Sweeper 可以理解成“后台闹钟 + 清理工”。它定期找已经到期
 | 巡检项 | 触发条件 | 动作（均经 EventService 条件写） |
 | --- | --- | --- |
 | run deadline / 挂起超时 | `waiting_tool` / `waiting_approval` 超过 `due_at` 且无有效 Worker | 追加 `RunExpired`（检查 `run_version`） |
-| approval 超时 | `waiting_approval` 超过审批时限 | 按策略过期或升级提醒 |
-| `outcome_unknown` 复核 | ToolCall 进入 unknown 后到 `due_at` | 调用对账逻辑，落成功/失败，仍未知则升级人工 |
+| approval 超时 | `waiting_approval` 超过审批时限 | 按策略过期或升级提醒；工具审批过期时同时取消仍为 `awaiting_approval` 的 proposed ToolCall |
+| `outcome_unknown` 复核 | ToolCall 进入 unknown 后到 `due_at` | 调用对账逻辑，落成功/失败；仍未知则升级人工，最终只能显式接受为 `resolved_unknown`，不能标成 cancelled |
 | quota reservation 回收 | `reservation_id` 超 TTL 未 settle/release | 释放预留，记录审计 |
 | 租约 / 旧尝试回收 | lease 过期、attempt 失去 owner | 标记为旧尝试，释放所有权，有副作用者转对账 |
 | retry backoff | `available_at` 到期 | 重新入队或写 DLQ |
 | snapshot 触发 | 距上一快照事件数 >= N 或时间 >= T | 条件写 snapshot |
 | runtime cleanup | session idle/TTL/kill deadline 到期 | 发 `RuntimeTerminationRequested` 或强制清理 |
+| workspace prepared revision GC | prepared revision 超 TTL 且未成为可见 head | 查 EventStore effect ledger；无引用且不在对账中的才回收 |
 
 Sweeper 与 Repair API 互补：Sweeper 自动、有界、无需审批，只处理合法到期转换；Repair API 人工、可处理终态和裁定未知结果，需权限和双人审批。
 
@@ -104,7 +105,7 @@ Metrics 只使用低基数维度。低基数的意思是“取值种类有限”
 - 查看 command、attempt、outbox、inbox、effect ledger。
 - 取消 run。
 - 重试失败 job，或把 DLQ 中的死信任务重新投递。
-- 手工裁定 `outcome_unknown`。
+- 手工处理 `outcome_unknown`；无法查明时只能记录 `resolved_unknown / accepted_unknown` 和残余风险。
 - 调整租户配额。
 - 查看并清理 runtime session。
 - 触发主体数据删除。
@@ -121,7 +122,12 @@ Metrics 只使用低基数维度。低基数的意思是“取值种类有限”
 | ToolWorker 用旧 run_version 尝试 join | Join 在事务内重读当前 Run version；不得留下永久 `skipped` continuation |
 | join 与 cancel 同时提交 | 不因 `event_cursors` 与 Run 反向锁序死锁；若 PostgreSQL 返回 `40P01`，短事务用新状态重试 |
 | 工具副作用成功、Worker 写结果前崩溃 | 对账或幂等键防止盲目重做 |
-| lease 过期、旧 Worker 恢复 | fence 不匹配，不能推进 Run |
+| Resume command 已创建但 Worker 尚未领取 | Run 保持 `queued`；claim 时才创建 attempt/fence/lease 并进入 `executing` |
+| lease 过期、旧 Worker 恢复 | attempt、精确 fence 或 lease 任一不匹配都不能推进 Run；更大的未签发 fence 也必须拒绝 |
+| 危险工具批准后参数或 workspace revision 变化 | 原 approval scope 失效，不发 ExecuteToolCall，要求重新审批 |
+| Workspace prepared revision 创建后、commit authorization 前崩溃 | revision 保持不可见；无合法引用且不在对账中的对象由 GC 回收 |
+| `WorkspaceRevisionCommitAuthorized` 已提交、发布前崩溃 | 从 outbox 重投同一 `CommitWorkspaceRevision`，按 authorization/effect key 幂等发布 |
+| Workspace revision 发布后、结果事件提交前崩溃 | 按 effect key 查询并补写 `WorkspaceRevisionCommitted`；不创建第二份 revision |
 | Run cancel 与 ToolCall completed 同时提交 | ToolCall 事实可保留，但 Run 不恢复执行 |
 | 实时通知丢失（pub/sub bus 抖动、重启或消息被丢弃） | 客户端用 `last_seen_seq` 补拉 |
 | 客户端消费太慢 | Gateway 断开连接，客户端重连补拉 |
@@ -129,7 +135,7 @@ Metrics 只使用低基数维度。低基数的意思是“取值种类有限”
 | DLQ redrive 时外部效果未知 | 先查 effect ledger，不直接重试 |
 | 部署新事件 schema | 新旧 Worker 均可安全读取或 upcast |
 | snapshot 损坏 | 自动丢弃 snapshot，从事件重建 |
-| 按时间点恢复后存在旧 command | `store_epoch` 拒绝旧代次 command |
+| 按时间点恢复后存在旧 command | 独立恢复控制面先轮换 epoch；任何不精确匹配当前 epoch 的 command 都被拒绝 |
 | 租户/主体删除 | 加密载荷不可还原，memory/snapshot/search/artifact 派生物失效 |
 
-`store_epoch` 的持久化合约定义在 [concurrency-and-durability.md](./concurrency-and-durability.md)。运维侧需要告警：旧 epoch command 被拒绝、按时间点恢复后 epoch 未递增、publisher 发布非当前 epoch outbox row。
+`store_epoch` 的持久化合约定义在 [concurrency-and-durability.md](./concurrency-and-durability.md)。运维侧需要告警：非当前 epoch command 被拒绝、恢复时外部 epoch 未轮换、EventStore 尚未安装新 epoch 就启动消费者、publisher 发布非当前 epoch outbox row。PITR runbook 必须按“停入口与消费者 → 外部控制面 CAS 轮换 epoch → 恢复并安装 epoch → 重建合法 command → 灰度开放消费者 → 开放入口”的顺序演练。

@@ -252,12 +252,27 @@ LLM 返回 tool_use
   ▼
 AgentWorker：用 input_schema 校验参数
   │
-  ├─ 校验通过 → 写入 ToolCallRequested 事件，发出 ExecuteToolCall 命令
+  ├─ 校验通过且无需审批 → 写入 ToolCallRequested，发出 ExecuteToolCall
+  ├─ 校验通过但需要审批 → 不要求真实 preview：写入不可变 ToolCallProposed（awaiting_approval）
+  │                       保存 normalized input/hash、descriptor/policy snapshot、workspace base revision
+  │                       只发 NotifyApproval，不发 ExecuteToolCall
+  │
+  ├─ 需要审批且必须展示真实 diff/preview
+  │      → ToolCall preview_requested + PrepareToolPreview
+  │      → 只生成不可见 prepared revision/artifact，完成后转 awaiting_approval 并通知审批
   │
   └─ 校验失败 → 不创建 ToolCall
        ├─ 可修复（缺少必填字段、类型错误）→ 把错误信息反馈给模型，让模型重新生成
        │    重试有次数上限（例如 3 次），超过则记录 RunFailed
        └─ 不可修复（工具不存在、版本已 retired）→ 记录错误事件，模型重新规划
+
+Approval API（仅危险工具路径）
+  │
+  ├─ scope hash、参数、snapshot、revision 全部匹配
+  │      → 普通工具：ToolCall awaiting_approval → requested，发 ExecuteToolCall
+  │      → inline platform tool：审批事务内提交精确平台效果和 ToolCallSucceeded，再发 ResumeAgentRun
+  │      → 两者都不重新调用 LLM 生成参数
+  └─ 任一变化 → 原审批失效，创建新 proposal / approval
 
 ToolWorker 领取 ExecuteToolCall
   │

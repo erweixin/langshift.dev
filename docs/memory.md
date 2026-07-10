@@ -145,7 +145,7 @@ run 执行过程中：
   → 异步更新向量索引和全文索引
 ```
 
-`memory_write` 是 inline platform tool（生命周期见 [state-machines.md](./state-machines.md) 的 `InlinePlatformToolCommitted`）：它的效果就是追加事件，不经 ToolWorker 和 sandbox。做成工具的收益是复用现成治理——schema 校验、guardrail 准入（memory poisoning 防线挂在这里）、Profile 白名单可整体关闭该能力、每次写入自带 `ToolCallRequested → Succeeded` 审计链。
+`memory_write` 是 inline platform tool（生命周期见 [state-machines.md](./state-machines.md) 的 `InlinePlatformToolCommitted`）：它的效果就是追加事件，不经 ToolWorker 和 sandbox。做成工具的收益是复用现成治理——schema 校验、guardrail 准入（memory poisoning 防线挂在这里）、Profile 白名单可整体关闭该能力。低风险写入形成 `ToolCallRequested → Succeeded` 审计链；需要用户确认的高影响记忆先形成不可变 `ToolCallProposed / awaiting_approval`，批准后 EventService 在同一事务提交精确 Memory 效果和 ToolCall 成功，再排队恢复 Run，不让模型重新生成内容。
 
 两条补充边界：run 结束时的关键决策提炼由 AgentWorker 内部流程（专门一次提炼调用 + MemoryService）完成，不属于模型的对话内决策，不走工具；平台**不向模型暴露删除工具**——淘汰归 Sweeper、erasure 归用户 API，被注入的模型不应有能力抹掉对自己不利的记忆。
 

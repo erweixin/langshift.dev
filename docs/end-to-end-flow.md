@@ -82,6 +82,7 @@ sequenceDiagram
   participant Q as Scheduler / Queue
   participant A as AgentWorker
   participant L as LLM Gateway
+  participant H as Human / Approval API
   participant T as ToolWorker
   participant R as Runtime / Sandbox
   participant RT as Realtime
@@ -95,20 +96,29 @@ sequenceDiagram
   RT-->>C: run accepted
 
   Q->>A: deliver StartAgentRun
-  A->>ES: mark attempt started with fence
+  A->>ES: claim: queued → executing + attempt/fence/lease
   A->>L: create response(context_manifest)
   L-->>A: model says call tools
-  A->>ES: tx: ToolCallRequested + ExecuteToolCall outbox + Run waiting_tool
-  ES-->>RT: tool call requested
+  A->>ES: tx: ToolCall preview_requested + PrepareToolPreview + Run waiting_tool
+  Q->>T: deliver PrepareToolPreview
+  T->>R: generate non-visible prepared revision / real diff
+  T->>ES: tx: immutable ToolCallProposed + preview hash + Run waiting_approval
+  ES-->>H: NotifyApproval(exact proposal hash)
+  H->>ES: approve exact ToolCall
+  ES->>ES: tx: ToolCall requested + Run waiting_tool + ExecuteToolCall outbox
+  ES-->>RT: approved tool call requested
 
   Q->>T: deliver ExecuteToolCall
   T->>ES: claim tool call with tool_call_version + fence
-  T->>R: execute file edit / test command
-  R-->>T: result + artifact refs
-  T->>ES: tx: ToolCallSucceeded + maybe ResumeAgentRun outbox
+  T->>ES: tx: WorkspaceRevisionCommitAuthorized + ToolCall commit_requested + CommitWorkspaceRevision
+  Q->>T: deliver CommitWorkspaceRevision + new attempt/fence
+  T->>R: CAS publish only the authorized prepared revision
+  R-->>T: committed revision + artifact refs
+  T->>ES: tx: WorkspaceRevisionCommitted + ToolCallSucceeded + Run queued + ResumeAgentRun
   ES-->>RT: tool result
 
   Q->>A: deliver ResumeAgentRun
+  A->>ES: claim: queued → executing + new attempt/fence/lease
   A->>L: continue with tool result
   L-->>A: final answer
   A->>ES: tx: OutputChecked + RunSucceeded + final message
@@ -119,7 +129,7 @@ sequenceDiagram
 这个序列里最重要的不是“谁调用谁”，而是每个长时间动作前后都有持久化边界：
 
 - API 只负责受理，提交事件后就能返回。
-- Worker 领取 command 后只拥有一个有期限的 attempt 和 fence。
+- Worker 领取 command 后只拥有一个有期限的 attempt、精确 fence 和 lease；每次 Start / Resume 都重新 claim。
 - LLM 调用、工具执行、runtime session 都可能失败或超时，但结果必须回到 EventService。
 - 后续 command 由状态机产生，不由 Worker 私自续跑。
 
@@ -182,9 +192,9 @@ flowchart TD
 1. **受理**：API 鉴权、限流、校验 idempotency key；EventService 记录 `RunAccepted` 和 `StartAgentRun`。
 2. **排队**：Scheduler 按租户、优先级和资源类别投递 command。
 3. **思考**：AgentWorker 构建 `context_manifest`，通过 LLM Gateway 调模型。
-4. **行动**：模型提出工具调用；平台做 schema、权限、预算、guardrail 和审批检查。
-5. **执行**：ToolWorker 在 Runtime/Sandbox 中执行工具，写 artifact 或 workspace。
-6. **汇合**：工具结果回到 EventService；并行工具满足 join policy 后只生成一次 `ResumeAgentRun`。
+4. **行动**：模型提出工具调用；平台做 schema、权限、预算和 guardrail。低风险工具直接请求执行；高风险工具先保存不可变 proposed ToolCall，审批准确绑定参数、版本、策略和 workspace revision。
+5. **执行**：审批通过后直接发 `ExecuteToolCall`，不让模型重新生成。ToolWorker 在 Runtime/Sandbox 中执行；Workspace 写入使用 prepared revision、CAS 发布和 effect-key 对账协议。
+6. **汇合**：工具结果回到 EventService；并行工具满足 join policy 后只生成一次 `ResumeAgentRun`，Run 先进入 `queued`，AgentWorker claim 新 attempt 后才进入 `executing`。
 7. **完成**：AgentWorker 继续思考，最终回复通过 `OutputChecked` 后，以消息 payload envelope 或 artifact 引用写最终回复，再写 `RunSucceeded`。
 8. **通知**：Realtime Gateway 推送事件；客户端按 `seq` 展示状态，断线则补拉。
 
@@ -197,13 +207,15 @@ flowchart TD
 | API 提交成功但响应丢失 | 客户端用相同 idempotency key 重试，得到同一个 `run_id` | idempotency response |
 | Outbox 发布后进程崩溃 | command 可能重复投递，但 inbox 去重 | outbox/inbox |
 | AgentWorker 调 LLM 超时 | attempt 失败或重试；不会直接改 run 终态 | attempt + fence + retry policy |
-| Worker lease 过期后又醒来 | 旧 Worker 的 fence 不匹配，不能提交新状态 | lease fence |
+| Worker lease 过期后又醒来 | 旧 Worker 的 attempt、精确 fence 或 lease 不匹配，不能提交新状态 | attempt + lease + fence |
+| 危险工具审批后 command payload、snapshot 或 revision 变化 | 不重新调用模型；只执行已批准的 immutable proposed ToolCall，任何 scope 变化都拒绝并要求重新审批 | approval scope hash + ToolCall CAS |
 | 工具已产生外部副作用但写库前崩溃 | 进入对账或用 `effect_key` 查询下游；不能盲目重试 | effect ledger + reconciliation |
+| Workspace revision 已发布但 Worker 写事件前崩溃 | 对账器按 `effect_key` 查到同一 revision 后补写确认事件，不创建第二份 revision | prepared revision + CAS publish + reconciliation |
 | 用户取消 run 时工具刚完成 | ToolCall 事实可以记录，但 run 不再恢复执行 | Run CAS + cancel state |
 | 并行两个 ToolWorker 同时完成 | 两个工具结果都保留，只有一个成功写入 `ResumeAgentRun` | join row lock + run_version |
 | Realtime 消息丢失 | 客户端重连时用 `last_seen_seq` 补拉 | EventStore cursor |
 | Guardrail 服务超时 | 默认拒绝、降级只读或等待审批 | fail closed policy |
-| 数据库按时间点恢复后旧 command 仍在外部队列 | 旧 `store_epoch` command 被拒绝 | store_epoch |
+| 数据库按时间点恢复后旧 command 仍在外部队列 | 在独立恢复控制面轮换 epoch；与当前 epoch 不精确相等的 command 被拒绝 | external epoch anchor + exact match |
 | 运维需要修复终态 | 走 Repair Command API，留下审计事件 | repair command + approval |
 
 ## 安全边界

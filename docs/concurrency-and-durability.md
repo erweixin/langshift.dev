@@ -17,7 +17,7 @@
 | 用 `run_version` 和 `tool_call_version` 做 CAS | 用 `seq` 当并发令牌 |
 | 在一个事务中写事件、聚合状态、outbox、idempotency response | 先发消息再写事件 |
 | 对重复 command 用 inbox 去重 | 假设 publisher 不会重复发布 |
-| 按时间点恢复数据库后递增 `store_epoch` | 接受旧 epoch 的 command |
+| 按时间点恢复数据库时在独立恢复控制面轮换 `store_epoch` | 从已回滚数据库里的旧 epoch 简单 `+1` |
 
 ## 先用白话说
 
@@ -54,7 +54,7 @@ append_request
 - aggregate_kind                         # 写 Run、ToolCall、Command 还是 Repair
 - aggregate_id                           # 具体对象 id
 - expected_version or dedupe key         # 版本检查或去重键
-- fence_token                            # Worker 持有租约时必须带
+- command_id + attempt_id + fence_token  # Worker 持有租约时必须带，且必须匹配当前 active command/attempt
 - idempotency_scope + idempotency_key    # 客户端可重试请求必须带
 - causation_id / correlation_id          # 这次写入由什么触发
 - events[]                               # 已发生的事实
@@ -65,7 +65,7 @@ append_request
 通用事务顺序：
 
 1. 打开事务，并设置 tenant/RLS 上下文。
-2. 读取当前 `store_epoch`，拒绝低于当前 epoch 的 command。
+2. 读取当前 `store_epoch`，拒绝与当前 epoch 不完全相等的 command；epoch 是恢复代次身份，不做大小猜测。
 3. 校验写入者权限、租户归属、状态转换和幂等信息。
 4. 对目标聚合做条件更新：Run 用 `run_version`，ToolCall 用 `tool_call_version`，command/inbox/effect 用唯一键。
 5. 如转换需要 join、审批 policy 或父子 Run 协调，先锁定这些协调行并读取当前聚合版本。
@@ -98,8 +98,8 @@ EventService 写事务使用 PostgreSQL `READ COMMITTED`。原因很简单：joi
 | 表 / 投影 | 语义归属 | 关键规则 |
 | --- | --- | --- |
 | `events` | 不可变事实日志 | 带 `tenant_id`、`user_id`、`seq`、`store_epoch`、因果字段和 schema version |
-| `runs` | Run 当前状态投影 | 只由 Run 状态转换更新；`run_version` 是 CAS 令牌 |
-| `tool_calls` | ToolCall 当前状态投影 | 只由 ToolCall 状态转换更新；`tool_call_version` 是 CAS 令牌 |
+| `runs` | Run 当前状态投影 | 只由 Run 状态转换更新；`run_version` 是 CAS 令牌；排队时绑定 `pending_command_id`，执行中保存 `active_command_id`、`active_attempt_id`、`current_fence_token`、`lease_expires_at` |
+| `tool_calls` | ToolCall 当前状态投影 | 只由 ToolCall 状态转换更新；`tool_call_version` 是 CAS 令牌；排队时绑定 `pending_command_id`，执行中保存 `active_command_id`、attempt / fence / lease |
 | `parallel_groups` / `child_groups` | join 协调行 | join 检查必须 `SELECT ... FOR UPDATE` 后读取成员状态 |
 | `continuations` | 恢复命令唯一占位 | `committed` 才能对应 outbox；不得用旧版本造成永久 `skipped` 占位 |
 | `outbox` | 待发布 command | 至少一次发布；不代表业务执行成功 |
@@ -148,7 +148,8 @@ payload_envelope
 | `stale_fence` | Worker 的租约已经过期或被别人替代 | 标记为旧尝试，不推进状态 |
 | `duplicate_command` | 这条 command 已被该消费者完成处理 | ack 并忽略；若只是旧 claim 未完成，必须按 lease / retry 规则重新领取或等待 |
 | `duplicate_effect` | 同一个 `effect_key` 的外部效果已确认 | 返回已确认结果，或进入对账 |
-| `wrong_store_epoch` | command 来自数据库恢复前的旧代次 | 拒绝执行并记录审计 |
+| `duplicate_effect_unknown` | 同一个 `effect_key` 已被人工收敛为 `accepted_unknown` | 禁止再次执行；返回残余风险记录，只能由新的人工修复流程处理 |
+| `wrong_store_epoch` | command 的恢复代次与当前事实源代次不相等 | 拒绝执行并记录审计；不能按数值大小推断新旧 |
 
 ## Run 级 append
 
@@ -160,6 +161,8 @@ append_run_transition(
   conversation_id,
   run_id,
   expected_run_version,
+  command_id?,
+  attempt_id?,
   fence_token?,
   transition,
   events[],
@@ -173,7 +176,7 @@ append_run_transition(
 - `tenant_id` 拥有该 `conversation_id` 和 `run_id`。
 - 当前 Run 状态允许该 `transition`。
 - 当前 `run_version == expected_run_version`。
-- 如果请求来自 Worker，`fence_token` 必须不低于当前 run lease fence。
+- 如果请求来自 Worker，`command_id` / `attempt_id` 必须分别等于当前 active command / attempt，`fence_token` 必须精确等于 `current_fence_token`，lease 尚未过期，且 inbox claim 仍属于同一 attempt。
 - 终态 Run 只能由 Repair Command API 创建 replacement run，不能直接改写。
 
 写入内容：
@@ -200,7 +203,9 @@ append_tool_call_result(
   run_id,
   tool_call_id,
   expected_tool_call_version,
-  fence_token,
+  command_id?,
+  attempt_id?,
+  fence_token?,
   effect_key?,
   result_kind,
   events[],
@@ -212,14 +217,14 @@ append_tool_call_result(
 
 - ToolCall 属于该 tenant、conversation 和 run。
 - 当前 `tool_call_version == expected_tool_call_version`。
-- `fence_token` 有效。
+- 如果结果来自 ToolWorker，`command_id` / `attempt_id` 分别等于 ToolCall 当前 active command / attempt，`fence_token` 精确等于当前 fence，lease 尚未过期，且 inbox claim 仍属于同一 attempt。Sweeper/Reconciler/Repair 通过各自已 claim 的 command、actor 权限和 `tool_call_version` 推进，不冒充原 ToolWorker fence。
 - 如果存在外部副作用，`effect_scope`、`provider_id`、`tool_name`、`effect_key` 和 `request_hash` 必须写入 effect ledger。
 - `outcome_unknown` 不能直接转为 retry；必须通过对账或 Repair API 收敛。
 
 写入内容：
 
 - ToolCall projection（当前状态投影）：`status`、`tool_call_version + 1`、`result_event_id`。
-- effect ledger：`prepared` / `executing` / `confirmed` / `failed` / `outcome_unknown`。
+- effect ledger：`prepared` / `executing` / `commit_authorized` / `confirmed` / `failed` / `outcome_unknown` / `accepted_unknown`。
 - 结果事件：`ToolCallSucceeded`、`ToolCallFailed`、`ToolCallOutcomeUnknown` 等。
 - 可选 join 检查：在同一事务中锁定 `parallel_group` 行，满足条件时尝试 Run 级推进。
 
@@ -227,6 +232,7 @@ append_tool_call_result(
 
 - `stale_version` 或 `stale_fence`：结果不推进 ToolCall；attempt 记录为旧尝试。
 - effect 已确认且 `request_hash` 一致：返回已确认结果，不重复外部副作用。
+- effect 已是 `accepted_unknown`：不得把它当失败重试或生成新 ToolCall；返回人工处理记录并保持外部去重占位。
 - effect key 已存在但 `request_hash` 不一致：拒绝写入并升级人工裁定，避免一个幂等键表示两种外部意图。
 - effect 结果未知：进入 `outcome_unknown`，由 Sweeper 在 `due_at` 后对账。
 
@@ -249,6 +255,7 @@ command_inbox
 - command_payload_hash
 - state: running | completed | abandoned
 - lease_token
+- fence_token
 - lease_expires_at
 - attempt_id
 - completed_at?
@@ -256,7 +263,7 @@ command_inbox
 
 领取规则：
 
-- 首次投递：插入 `running` row，创建 `job_attempt`，拿到 `lease_token` 后才能执行外部 I/O。
+- 首次投递：插入 `running` row，创建 `job_attempt`，原子安装新的 `attempt_id`、单调递增的 `fence_token` 和 `lease_token` 后才能执行外部 I/O。
 - 重复投递且 row 为 `completed`：ack 并忽略。
 - 重复投递且 row 为 `running` 且 lease 未过期：不执行第二份外部 I/O，按队列语义 ack / nack / 延迟重投。
 - 重复投递且 row 为 `running` 但 lease 已过期：用条件更新抢占新 lease，旧 attempt 之后提交会因 stale fence 被拒绝。
@@ -265,6 +272,35 @@ command_inbox
 消费者执行完成后，不通过 outbox 标记业务成功，而是在同一数据库事务中通过 Run/ToolCall append 写入结果事件，并把对应 inbox row 从 `running` 改为 `completed`。事务提交后再 ack 外部队列消息。若 Worker 在 claim 后、完成前崩溃，后续重投会在 lease 过期后重新领取，不会因为 inbox row 已存在而永久丢任务。
 
 如果 `jobs` 同时是队列和唯一消费入口，它必须承载与 inbox 等价的 claim / completion 状态机，并用 `UNIQUE (command_id)` 保证同一消费域内唯一。一旦引入独立 outbox / MQ，或出现第二类消费者，`jobs` 就不再是唯一入口，必须使用独立 inbox 表或等价 ledger，否则去重和重领语义会静默丢失。
+
+## Attempt、Lease 与 Fence 合约
+
+lease 表示当前执行权是否仍然有效，fence 标识当前生效的执行权代次。Worker 结果提交和 heartbeat 必须同时精确匹配 `command_id`、`attempt_id`、fence 和 lease；单独比较单调递增的 fence 不能证明执行权有效。
+
+领取 Start / Resume / Tool command 时，EventService 在同一个短事务里：
+
+1. claim 对应 inbox row；
+2. 校验 Run / ToolCall 的 `pending_command_id` 与本 command 精确匹配，再创建新的 `job_attempt`；
+3. 把 `pending_command_id` 移为 `active_command_id`，并在对应 Run 或 ToolCall 上安装 `active_attempt_id`；
+4. 对该聚合原子递增并保存 `current_fence_token`；
+5. 保存 `lease_owner`、`lease_token` 和 `lease_expires_at`；
+6. 对 Agent Run，把 `queued -> executing`，首次写 `RunStarted`，恢复写 `RunResumed`。
+
+heartbeat 只能在 `attempt_id`、`lease_token` 和 fence 都精确匹配时延长 `lease_expires_at`，不能替换 active attempt。lease 过期后的抢占必须创建新 attempt 并递增 fence；旧 Worker 即使稍后恢复，也无法重新续租或提交。
+
+当前步骤结束时，业务结果、inbox completion、`job_attempt` completion 和 active lease 释放必须在同一 EventStore 事务完成，并要求 command/attempt/fence 精确匹配。释放会清空 `active_command_id`、`active_attempt_id`、lease owner/token/expiry，但保留 `current_fence_token` 作为单调计数器；下次 Start / Resume / Retry claim 在此基础上递增。取消或 Sweeper 只有在确认旧执行体已停止，或先用新 fence 使其失效后，才能释放/替换 lease。
+
+Worker 结果提交的条件必须等价于：
+
+```sql
+WHERE aggregate_version = :expected_version
+  AND active_command_id = :command_id
+  AND active_attempt_id = :attempt_id
+  AND current_fence_token = :fence_token
+  AND lease_expires_at > now()
+```
+
+禁止使用 `worker_fence >= current_fence_token`。大于当前值不代表它由系统签发，也不能证明它属于当前 command 和 attempt。`lease_token` 是不可猜的持有凭证，`fence_token` 是每个 Run / ToolCall claim 域内的单调序号；二者都不能由客户端或业务 handler 自行提供。
 
 ## `seq` 的分配
 
@@ -292,18 +328,29 @@ UNIQUE (tenant_id, tool_call_id)                      -- ToolCall 聚合主键
 
 ## `store_epoch` 与恢复
 
-PITR 是按时间点恢复数据库。恢复后，数据库可能回到一个更早的时间点，但外部消息队列里还留着“恢复点之后发布过”的 command。为了防止这些旧 command 回来污染新的事实源，EventStore 维护单调递增的 `store_epoch`。
+PITR 是按时间点恢复数据库。恢复后，数据库可能回到一个更早的时间点，但外部消息队列里还留着“恢复点之后发布过”的 command。为了防止这些旧 command 回来污染新的事实源，每次事实源恢复代次都使用唯一的 `store_epoch`。
 
-规则：
+epoch 的权威值不能只存在于会被同一次 PITR 回滚的 EventStore 中。恢复控制面必须在独立故障域保存当前 epoch，例如独立控制存储中的 CAS record，或带条件写的恢复 manifest。记录至少包含单调 `generation_number`、随机不可复用的 `generation_id`、创建时间和恢复操作审计；command 携带完整 epoch 身份，消费者按精确相等判断。
+
+正常规则：
 
 - 每个事件、outbox command、job attempt 和 inbox 记录都携带 `store_epoch`。
 - 正常运行时 epoch 不变。
-- 按时间点恢复（PITR）、主库替换或确认事实源回退后，必须递增 epoch。
-- 消费者在执行 command 前读取当前 epoch；command epoch 低于当前 epoch 时拒绝执行并审计。
-- Publisher 只发布当前 epoch 的 outbox row。
-- Repair API 可以根据审计决定是否在新 epoch 重新创建 replacement command。
+- Publisher 只发布与当前外部权威 epoch 精确匹配的 outbox row。
+- 消费者执行前同时读取外部权威 epoch 和本地已安装 epoch；command 只要与当前 epoch 不相等就拒绝并审计。
+- 外部恢复控制面不可读、签名/版本校验失败或本地安装值不一致时，Publisher 和新 claim 必须 fail closed；正在执行的 Worker 只能提交到仍匹配的当前代次，不能自行猜测 epoch。
+- Repair API 可以根据审计决定是否在当前 epoch 创建 replacement command。
 
-`store_epoch` 不是业务版本，也不参与 Run/ToolCall CAS。它只回答一个问题：这条异步 command 是否来自当前事实源代次。
+PITR、主库替换或事实源回退必须执行封闭恢复流程：
+
+1. 停止新请求、Publisher、Scheduler 和 Worker claim；
+2. 在独立恢复控制面用 CAS 轮换到全新的 epoch，不能从恢复后的数据库值简单 `+1`；
+3. 恢复数据库，并在任何异步消费者启动前把新 epoch 安装到 EventStore；
+4. 隔离或清理外部队列中的旧消息；即使清理不完全，epoch 精确匹配也会拒绝它们；
+5. 从当前 EventStore 状态重建仍合法的 command，使用新的 `command_id`、causation 和新 epoch；
+6. 先灰度开放消费者，再开放写入口，并记录恢复完成审计。
+
+`store_epoch` 不是业务版本，也不参与 Run/ToolCall CAS。它只回答一个问题：这条异步 command 是否来自当前事实源代次。不要用 `<` / `>` 比较来替代身份相等校验。
 
 ## Context Manifest
 
