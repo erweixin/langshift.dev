@@ -8,7 +8,7 @@
 
 **决策**：具备强事务、条件写和租户隔离能力的数据库是 EventStore 持久化核心，PostgreSQL 是默认实现选择。EventStore 保存编排事实、聚合状态、outbox、inbox、attempt、effect ledger、审计、snapshot 引用和恢复代次。所有状态推进都走同一个“记账入口”：先检查权限和版本，再把事件、状态和下一步命令一起写入事务。
 
-**为什么不简单用 `seq` 或全局锁**：`seq` 是 user 内提交顺序，不代表某个 Run 或 ToolCall 的当前状态；全局锁会把无关 run、无关 tool call 和用户新消息全部阻塞。
+**为什么不简单用 `seq` 或全局锁**：`seq` 是 tenant-user 内提交顺序，不代表某个 Run 或 ToolCall 的当前状态；全局锁会把无关 run、无关 tool call 和用户新消息全部阻塞。
 
 **忽略后果**：并行 ToolCall 会在 `run_version` 上产生假冲突；用户新消息会和工具完成互相阻塞；按时间点恢复数据库后，旧消息队列里的消息可能污染已回滚的事实源。
 
@@ -54,7 +54,8 @@ append_request
 - aggregate_kind                         # 写 Run、ToolCall、Command 还是 Repair
 - aggregate_id                           # 具体对象 id
 - expected_version or dedupe key         # 版本检查或去重键
-- command_id + attempt_id + fence_token  # Worker 持有租约时必须带，且必须匹配当前 active command/attempt
+- command_id + attempt_id + fence_token + lease_token
+                                         # Worker 持有租约时必须带，且必须精确匹配当前执行权
 - idempotency_scope + idempotency_key    # 客户端可重试请求必须带
 - causation_id / correlation_id          # 这次写入由什么触发
 - events[]                               # 已发生的事实
@@ -69,7 +70,7 @@ append_request
 3. 校验写入者权限、租户归属、状态转换和幂等信息。
 4. 对目标聚合做条件更新：Run 用 `run_version`，ToolCall 用 `tool_call_version`，command/inbox/effect 用唯一键。
 5. 如转换需要 join、审批 policy 或父子 Run 协调，先锁定这些协调行并读取当前聚合版本。
-6. 锁定 `event_cursors(user_id)` 行，按事件数量原子分配连续 `seq`。
+6. 锁定 `event_cursors(tenant_id, user_id)` 行，按事件数量原子分配连续 `seq`。
 7. 插入事件，事件携带 `store_epoch`、`seq`、因果字段和 schema version。
 8. 插入 outbox rows、realtime notification rows、audit rows、idempotency response。
 9. 提交事务。事务提交后 publisher 才能发布实时通知或 command。
@@ -84,7 +85,7 @@ EventService 写事务使用 PostgreSQL `READ COMMITTED`。原因很简单：joi
 2. 当前命令直接推进的业务聚合行，例如 `runs` 或 `tool_calls`。
 3. 协调行，例如 `parallel_groups`、`approval_groups`、`child_groups`、`continuations`。
 4. 需要被协调推进的父聚合行，例如 join 满足后锁父 `runs` 行。
-5. `event_cursors(user_id)`。
+5. `event_cursors(tenant_id, user_id)`。
 6. `events`、`outbox`、`jobs`、notification、audit 和 idempotency response 写入。
 
 `event_cursors` 必须在所有业务状态行和协调行之后锁定。任何流程都不能先分配 `seq` 再回头更新 Run 或 ToolCall；否则 join 与 cancel、approval 与 timeout 这类路径会形成反向锁序。
@@ -98,20 +99,23 @@ EventService 写事务使用 PostgreSQL `READ COMMITTED`。原因很简单：joi
 | 表 / 投影 | 语义归属 | 关键规则 |
 | --- | --- | --- |
 | `events` | 不可变事实日志 | 带 `tenant_id`、`user_id`、`seq`、`store_epoch`、因果字段和 schema version |
-| `runs` | Run 当前状态投影 | 只由 Run 状态转换更新；`run_version` 是 CAS 令牌；排队时绑定 `pending_command_id`，执行中保存 `active_command_id`、`active_attempt_id`、`current_fence_token`、`lease_expires_at` |
-| `tool_calls` | ToolCall 当前状态投影 | 只由 ToolCall 状态转换更新；`tool_call_version` 是 CAS 令牌；排队时绑定 `pending_command_id`，执行中保存 `active_command_id`、attempt / fence / lease |
+| `runs` | Run 当前状态投影 | 只由 Run 状态转换更新；`run_version` 是 CAS 令牌；排队时绑定 `pending_command_id`，执行中保存 `active_command_id`、`active_attempt_id`、`current_fence_token`、`lease_token`、`lease_expires_at` |
+| `tool_calls` | ToolCall 当前状态投影 | 只由 ToolCall 状态转换更新；`tool_call_version` 是 CAS 令牌；排队时绑定 `pending_command_id`，执行中保存 active command / attempt / fence / lease token / lease expiry |
 | `parallel_groups` / `child_groups` | join 协调行 | join 检查必须 `SELECT ... FOR UPDATE` 后读取成员状态 |
+| `run_cancellations` | 取消屏障 | 保存 cancel generation；只有 active attempt、ToolCall、runtime、Child Run 全部收敛后才能 settled |
 | `continuations` | 恢复命令唯一占位 | `committed` 才能对应 outbox；不得用旧版本造成永久 `skipped` 占位 |
 | `outbox` | 待发布 command | 至少一次发布；不代表业务执行成功 |
 | `inbox` | command 消费 claim / completion ledger | `UNIQUE (tenant_id, consumer_name, command_id)`；区分 `running` 与 `completed`，插入不等于已处理 |
 | `jobs` / `job_attempts` | 队列与执行尝试 | attempt 记录执行过程；业务状态仍在 Run / ToolCall |
 | `tool_effects` | 外部副作用 ledger | 用 `effect_key`、请求摘要和 provider id 支撑幂等与对账 |
-| `event_cursors` | user-scoped `seq` 分配 | 只做提交顺序和补拉游标，不做业务 CAS |
+| `event_cursors` | tenant-user-scoped `seq` 分配 | 只做提交顺序和补拉游标，不做业务 CAS；主键为 `(tenant_id, user_id)` |
 | `run_messages` | 最终消息投影 | 保存消息 envelope 或 artifact 引用；敏感正文用 `payload_ref` |
 | `run_message_chunks` | token / delta 短期流日志 | run-scoped cursor，有 TTL；chunk 也走 payload envelope，不是 EventStore 事实源 |
-| `llm_attempts` | LLM 调用 ledger | `attempt_key`、Provider、模型、usage、cost、fallback 和错误 |
+| `llm_attempts` | 一次逻辑 LLM 调用 ledger | `attempt_key`、上下文、路由快照、最终选择和聚合成本；不把多次 Provider 请求压成一次 |
+| `llm_provider_attempts` | 一次真实 Provider 请求 ledger | 每次请求独立 `provider_attempt_id`，记录 Provider、模型、request id、流式代次、usage/cost、结果未知和 fallback 关系 |
 | `memory_documents` | Memory 可重建投影 | 写入来源必须有 `MemoryUpserted` / `MemoryDeleted` 事件 |
 | `snapshots` | replay 优化 | 可丢弃重建；不能成为唯一事实源 |
+| `projection_registry` / `projection_checkpoints` | 投影版本与重建控制 | shard lease、checkpoint、checksum 通过后才 CAS 切换 active version |
 
 ## 敏感载荷 Envelope
 
@@ -164,6 +168,7 @@ append_run_transition(
   command_id?,
   attempt_id?,
   fence_token?,
+  lease_token?,
   transition,
   events[],
   commands[],
@@ -176,7 +181,7 @@ append_run_transition(
 - `tenant_id` 拥有该 `conversation_id` 和 `run_id`。
 - 当前 Run 状态允许该 `transition`。
 - 当前 `run_version == expected_run_version`。
-- 如果请求来自 Worker，`command_id` / `attempt_id` 必须分别等于当前 active command / attempt，`fence_token` 必须精确等于 `current_fence_token`，lease 尚未过期，且 inbox claim 仍属于同一 attempt。
+- 如果请求来自 Worker，`command_id` / `attempt_id` 必须分别等于当前 active command / attempt，`fence_token`、`lease_token` 必须分别精确等于当前 fence 和 lease token，lease 尚未过期，且 inbox claim 仍属于同一 attempt。
 - 终态 Run 只能由 Repair Command API 创建 replacement run，不能直接改写。
 
 写入内容：
@@ -206,6 +211,7 @@ append_tool_call_result(
   command_id?,
   attempt_id?,
   fence_token?,
+  lease_token?,
   effect_key?,
   result_kind,
   events[],
@@ -217,7 +223,7 @@ append_tool_call_result(
 
 - ToolCall 属于该 tenant、conversation 和 run。
 - 当前 `tool_call_version == expected_tool_call_version`。
-- 如果结果来自 ToolWorker，`command_id` / `attempt_id` 分别等于 ToolCall 当前 active command / attempt，`fence_token` 精确等于当前 fence，lease 尚未过期，且 inbox claim 仍属于同一 attempt。Sweeper/Reconciler/Repair 通过各自已 claim 的 command、actor 权限和 `tool_call_version` 推进，不冒充原 ToolWorker fence。
+- 如果结果来自 ToolWorker，`command_id` / `attempt_id` 分别等于 ToolCall 当前 active command / attempt，`fence_token`、`lease_token` 分别精确等于当前 fence 和 lease token，lease 尚未过期，且 inbox claim 仍属于同一 attempt。Sweeper/Reconciler/Repair 通过各自已 claim 的 command、actor 权限和 `tool_call_version` 推进，不冒充原 ToolWorker 的执行权。
 - 如果存在外部副作用，`effect_scope`、`provider_id`、`tool_name`、`effect_key` 和 `request_hash` 必须写入 effect ledger。
 - `outcome_unknown` 不能直接转为 retry；必须通过对账或 Repair API 收敛。
 
@@ -240,7 +246,7 @@ append_tool_call_result(
 
 命令发布和命令消费分开建模。Inbox 不是“插入即完成”的去重表，而是消费者对某条 command 的 claim 与 completion ledger。
 
-- outbox 只负责发布：`pending -> publishing -> published`。
+- outbox 只负责发布：正常路径是 `pending -> publishing -> published`；CommandReconciler 证明业务仍等待且队列需恢复时，可把同一 immutable command 从 `published` 条件化重置为 `pending`。
 - inbox 负责消费 claim 与完成去重：`UNIQUE (tenant_id, consumer_name, command_id)`，并保存 `state`、`lease_token`、`lease_expires_at`、`attempt_id`、`command_payload_hash`、`completed_at`。
 - job attempt 只负责记录一次执行尝试：`claimed -> running -> succeeded / failed / timed_out`。
 - Run / ToolCall 负责业务状态。
@@ -273,6 +279,21 @@ command_inbox
 
 如果 `jobs` 同时是队列和唯一消费入口，它必须承载与 inbox 等价的 claim / completion 状态机，并用 `UNIQUE (command_id)` 保证同一消费域内唯一。一旦引入独立 outbox / MQ，或出现第二类消费者，`jobs` 就不再是唯一入口，必须使用独立 inbox 表或等价 ledger，否则去重和重领语义会静默丢失。
 
+### Command 对账与队列重建
+
+外部队列可以整体丢失，`outbox.published` 只证明消息曾被队列确认，不证明它仍在队列里。CommandReconciler 以聚合投影和 inbox 为准恢复投递，不根据 outbox 状态猜测业务是否完成。
+
+权威规则：
+
+- Run 处于 `queued`，或 ToolCall 处于 `preview_requested` / `requested` / `commit_requested`，且保存了 `pending_command_id`，表示该 command 仍然必须被消费。
+- inbox 为 `completed` 表示 command 已完成，不再投递；inbox 为 `running` 且 lease 有效表示已有 owner，不重复执行；inbox 不存在、为 `abandoned` 或 lease 已过期，且 outbox 的 `delivery_due_at` 已超过队列投递/claim SLO，或运维已声明 queue generation 丢失，才允许恢复投递。
+- 聚合的 `pending_command_id` 与 outbox 的 immutable payload hash、`store_epoch` 必须一致。正常队列丢失时，Reconciler 把同一 outbox row 从 `published` 条件化重置为 `pending`，重发同一个 `command_id`；消费者仍由 inbox 去重。
+- 聚合已不再等待该 command 时，不重投；迟到消息由 claim 的状态、pending id 和 epoch 检查拒绝。
+- 如果聚合仍等待 command，但当前 epoch 中找不到对应 outbox row，这是 EventStore 不变量破坏。普通 Reconciler 必须 fail closed；Repair API 在审计和审批后用 CAS 安装新的 `pending_command_id`，创建带新 causation 的 replacement command。
+- PITR 或事实源代次变化不复用旧 command；恢复流程按 `store_epoch` 规则创建新 id。正常 MQ 数据丢失不轮换 epoch，也不更换 command id。
+
+Reconciler 本身使用 lease、批量上限和稳定扫描游标，按指数 backoff 更新 `delivery_due_at`，所有重投写包含 reason、redelivery count 和 queue generation 的 `CommandRedeliveryRequested` 审计事件。这样即使 outbox 已标记 `published`，系统仍能回答“业务是否还在等这条命令”，并安全恢复队列，而不会把正常排队误判成丢失。
+
 ## Attempt、Lease 与 Fence 合约
 
 lease 表示当前执行权是否仍然有效，fence 标识当前生效的执行权代次。Worker 结果提交和 heartbeat 必须同时精确匹配 `command_id`、`attempt_id`、fence 和 lease；单独比较单调递增的 fence 不能证明执行权有效。
@@ -288,7 +309,7 @@ lease 表示当前执行权是否仍然有效，fence 标识当前生效的执�
 
 heartbeat 只能在 `attempt_id`、`lease_token` 和 fence 都精确匹配时延长 `lease_expires_at`，不能替换 active attempt。lease 过期后的抢占必须创建新 attempt 并递增 fence；旧 Worker 即使稍后恢复，也无法重新续租或提交。
 
-当前步骤结束时，业务结果、inbox completion、`job_attempt` completion 和 active lease 释放必须在同一 EventStore 事务完成，并要求 command/attempt/fence 精确匹配。释放会清空 `active_command_id`、`active_attempt_id`、lease owner/token/expiry，但保留 `current_fence_token` 作为单调计数器；下次 Start / Resume / Retry claim 在此基础上递增。取消或 Sweeper 只有在确认旧执行体已停止，或先用新 fence 使其失效后，才能释放/替换 lease。
+当前步骤结束时，业务结果、inbox completion、`job_attempt` completion 和 active lease 释放必须在同一 EventStore 事务完成，并要求 command、attempt、fence、lease token 精确匹配。释放会清空 `active_command_id`、`active_attempt_id`、lease owner/token/expiry，但保留 `current_fence_token` 作为单调计数器；下次 Start / Resume / Retry claim 在此基础上递增。取消或 Sweeper 只有在确认旧执行体已停止，或先用新 fence 使其失效后，才能释放/替换 lease。
 
 Worker 结果提交的条件必须等价于：
 
@@ -297,6 +318,7 @@ WHERE aggregate_version = :expected_version
   AND active_command_id = :command_id
   AND active_attempt_id = :attempt_id
   AND current_fence_token = :fence_token
+  AND lease_token = :lease_token
   AND lease_expires_at > now()
 ```
 
@@ -304,13 +326,13 @@ WHERE aggregate_version = :expected_version
 
 ## `seq` 的分配
 
-baseline 中 `seq` 是 user-scoped 的提交游标，conversation 只是事件过滤维度：
+baseline 中 `seq` 是 tenant-user-scoped 的提交游标，conversation 只是事件过滤维度：
 
-1. 锁定 `event_cursors(user_id)` 行。
+1. 锁定 `event_cursors(tenant_id, user_id)` 行。
 2. 读取并递增 `next_seq`。
 3. 在同一事务中插入事件。
 
-不要使用 `SELECT MAX(seq)+1`，也不要给每个 conversation 创建 PostgreSQL sequence。用户级 cursor 行锁会串行化同一用户内 append；不同 Run 和 ToolCall 的并发安全由各自聚合版本负责。
+不要使用 `SELECT MAX(seq)+1`，也不要给每个 conversation 创建 PostgreSQL sequence。同一租户内的用户 cursor 行锁会串行化该用户的 append；用户切换租户时维护独立游标。不同 Run 和 ToolCall 的并发安全由各自聚合版本负责。
 
 ## 关键唯一约束
 
@@ -322,6 +344,9 @@ UNIQUE (tenant_id, consumer_name, command_id)         -- inbox / 命令去重
 UNIQUE (tenant_id, effect_scope, provider_id, tool_name, effect_key) -- 外部副作用去重，跨 ToolCall / replacement run / redrive 生效
 UNIQUE (tenant_id, run_id, parallel_group_id, continuation_kind)
 UNIQUE (tenant_id, tool_call_id)                      -- ToolCall 聚合主键
+UNIQUE (tenant_id, run_id, root_cancellation_id)      -- cancellation barrier 传播幂等
+UNIQUE (tenant_id, provider_attempt_id)                -- 每次真实 LLM Provider 请求
+UNIQUE (tenant_id, attempt_key, ordinal)               -- 同一逻辑 LLM 调用的物理尝试顺序
 ```
 
 如果使用分片或分区，唯一约束必须保留 tenant 与聚合边界，不能把唯一性降级成单节点假设。
@@ -351,6 +376,43 @@ PITR、主库替换或事实源回退必须执行封闭恢复流程：
 6. 先灰度开放消费者，再开放写入口，并记录恢复完成审计。
 
 `store_epoch` 不是业务版本，也不参与 Run/ToolCall CAS。它只回答一个问题：这条异步 command 是否来自当前事实源代次。不要用 `<` / `>` 比较来替代身份相等校验。
+
+## Event Schema 与 Projection 演进
+
+EventStore 是长期事实源，因此事件格式和投影升级必须有可执行合约，不能依赖“新代码大概还能读旧 JSON”。每条事件使用统一 envelope：
+
+```text
+event_envelope
+- tenant_id
+- user_id
+- event_id
+- event_type
+- event_schema_version
+- aggregate_kind + aggregate_id + aggregate_version
+- store_epoch
+- seq
+- occurred_at + committed_at
+- actor + causation_id + correlation_id
+- payload_envelope
+```
+
+事件演进规则：
+
+- 已提交事件永不原地改写。`event_schema_version` 是单调整数，任何 payload shape 或语义变化都发布新版本；新增可选字段可声明为 backward-compatible，删除字段、改变含义或收紧解释必须声明为 breaking，不能复用旧版本号或 digest。
+- Schema Registry 保存每个 `event_type + version` 的 canonical schema、digest、兼容性声明和 owner。EventService 只接受 Registry 中处于 active 的写版本。
+- Upcaster 是纯函数，只把旧 payload 转成当前内存表示：不得访问网络、当前配置或时钟，不得修改原事件。每条 version chain 都有固定 fixture、hash 和确定性测试。
+- 发布顺序固定为“reader 先兼容新旧版本 → writer 再写新版本 → projection 完成重建和校验 → 旧 reader 才下线”。禁止 writer 先行。
+- 无法解析、schema digest 不匹配或 upcaster 失败的 poison event 不得被跳过。受影响 aggregate 和 projection 分区进入 `rebuild_blocked`，记录精确 event id 并交 Repair API；其他分区继续服务。
+
+Projection 重建使用独立版本和双投影切换：
+
+1. Rebuilder 领取 `(projection_name, target_version, shard)` lease，从稳定 checkpoint 按 `seq/event_id` 重放。
+2. 重建期间旧 projection 继续只读服务，新事件同时由兼容 consumer 追平到 high-water mark。
+3. 对行数、聚合终态、checksum 和关键不变量做校验；任何 poison event 都阻止该 shard 切换。
+4. 通过后以单次控制面 CAS 把 active projection version 指向新版本；失败时继续使用旧版本，不暴露半重建结果。
+5. 切换和回滚只改变 projection 指针，不改历史事件；checkpoint、校验报告和操作者进入审计。
+
+Schema migration、upcaster fixture、双版本 reader、projection rebuild 和 poison-event 演练都是发布门禁，不是上线后的补救措施。
 
 ## Context Manifest
 

@@ -82,10 +82,11 @@ Tool 权限必须绑定到这些上下文，不能只看“用户能不能用这
 - 事件、审计、artifact、日志各自有 retention 和冷归档策略。
 - 对必须删除的 PII，敏感载荷使用每租户或每主体密钥加密；删除密钥后密文不可还原，这就是 crypto-shredding（销毁密钥式删除）。
 - 删除本身也是事件，例如 `SubjectErasureRequested` / `SubjectErasureCompleted`。
-- memory、snapshot、检索索引、缓存、artifact 派生物都必须随源数据删除而失效或重建。
+- 任何会混合或派生主体数据的记录都保存 tenant-scoped 伪名 `data_subject_ids`、多来源引用和 derivation lineage；memory、snapshot、检索索引、缓存、artifact 派生物都沿 lineage 随源数据删除而失效、重算或整条删除。
+- `SubjectErasureCompleted` 只有在 payload、workspace/artifact、memory、向量/全文索引、cache 和 snapshot 都返回带 checksum 的 deletion receipt 后才能提交；缺失或失败的存储保持可重试并告警。
 - 删除流程经 Repair Command API 或专门的 Erasure API 进入 EventService，不能直接 `DELETE` 绕过审计。
 
-示例：用户请求被遗忘。系统追加删除请求事件，冻结相关投影更新，删除主体密钥，失效 memory chunk、snapshot 和 search index，最后追加完成事件。事件序列仍可证明“曾处理过删除”，但敏感载荷不可还原。
+示例：用户请求被遗忘。系统追加删除请求事件，冻结相关投影更新，按主体和派生 lineage 找到直接/间接内容，删除主体密钥，失效 memory chunk、snapshot、artifact 派生物和 search index。所有存储回执齐全后才追加完成事件。事件序列仍可证明“曾处理过删除”，但只保留伪名审计元数据，敏感载荷不可还原，projection replay 也不能重新索引 tombstone 指向的旧内容。
 
 ## Admin 与 Repair Command API
 

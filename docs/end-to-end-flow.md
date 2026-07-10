@@ -96,7 +96,7 @@ sequenceDiagram
   RT-->>C: run accepted
 
   Q->>A: deliver StartAgentRun
-  A->>ES: claim: queued → executing + attempt/fence/lease
+  A->>ES: claim: queued → executing + attempt/fence/lease token
   A->>L: create response(context_manifest)
   L-->>A: model says call tools
   A->>ES: tx: ToolCall preview_requested + PrepareToolPreview + Run waiting_tool
@@ -111,14 +111,14 @@ sequenceDiagram
   Q->>T: deliver ExecuteToolCall
   T->>ES: claim tool call with tool_call_version + fence
   T->>ES: tx: WorkspaceRevisionCommitAuthorized + ToolCall commit_requested + CommitWorkspaceRevision
-  Q->>T: deliver CommitWorkspaceRevision + new attempt/fence
+  Q->>T: deliver CommitWorkspaceRevision + new attempt/fence/lease token
   T->>R: CAS publish only the authorized prepared revision
   R-->>T: committed revision + artifact refs
   T->>ES: tx: WorkspaceRevisionCommitted + ToolCallSucceeded + Run queued + ResumeAgentRun
   ES-->>RT: tool result
 
   Q->>A: deliver ResumeAgentRun
-  A->>ES: claim: queued → executing + new attempt/fence/lease
+  A->>ES: claim: queued → executing + new attempt/fence/lease token
   A->>L: continue with tool result
   L-->>A: final answer
   A->>ES: tx: OutputChecked + RunSucceeded + final message
@@ -129,7 +129,7 @@ sequenceDiagram
 这个序列里最重要的不是“谁调用谁”，而是每个长时间动作前后都有持久化边界：
 
 - API 只负责受理，提交事件后就能返回。
-- Worker 领取 command 后只拥有一个有期限的 attempt、精确 fence 和 lease；每次 Start / Resume 都重新 claim。
+- Worker 领取 command 后只拥有一个有期限的 attempt、精确 fence 和不可猜 lease token；每次 Start / Resume 都重新 claim。
 - LLM 调用、工具执行、runtime session 都可能失败或超时，但结果必须回到 EventService。
 - 后续 command 由状态机产生，不由 Worker 私自续跑。
 
@@ -207,7 +207,7 @@ flowchart TD
 | API 提交成功但响应丢失 | 客户端用相同 idempotency key 重试，得到同一个 `run_id` | idempotency response |
 | Outbox 发布后进程崩溃 | command 可能重复投递，但 inbox 去重 | outbox/inbox |
 | AgentWorker 调 LLM 超时 | attempt 失败或重试；不会直接改 run 终态 | attempt + fence + retry policy |
-| Worker lease 过期后又醒来 | 旧 Worker 的 attempt、精确 fence 或 lease 不匹配，不能提交新状态 | attempt + lease + fence |
+| Worker lease 过期后又醒来 | 旧 Worker 的 command、attempt、精确 fence、lease token 或期限不匹配，不能提交新状态 | attempt + lease token + fence |
 | 危险工具审批后 command payload、snapshot 或 revision 变化 | 不重新调用模型；只执行已批准的 immutable proposed ToolCall，任何 scope 变化都拒绝并要求重新审批 | approval scope hash + ToolCall CAS |
 | 工具已产生外部副作用但写库前崩溃 | 进入对账或用 `effect_key` 查询下游；不能盲目重试 | effect ledger + reconciliation |
 | Workspace revision 已发布但 Worker 写事件前崩溃 | 对账器按 `effect_key` 查到同一 revision 后补写确认事件，不创建第二份 revision | prepared revision + CAS publish + reconciliation |

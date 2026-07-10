@@ -190,10 +190,24 @@ tool_visibility_resolution
 - Run 创建时记录 `tool_set_snapshot_id`，指向当时的工具列表和版本。
 - 快照内容包括每个工具的 `tool_name`、`tool_version`、descriptor hash、input/output schema hash、`effect_class`、runtime、permission summary、secret scopes 和 egress policy 摘要。
 - 同一 run 内的所有 LLM 调用和 ToolCall 都使用这份快照。
-- 如果 run 执行期间工具被更新或删除，当前 run 不受影响。
+- 如果 run 执行期间工具发布兼容更新，当前 run 不切换 descriptor，仍使用原快照；但执行时始终叠加最新的 deny-only execution policy。
 - 新 run 使用最新工具集。
 
 工具集快照一旦被 Run 引用就不可变、不可硬删除。Descriptor 可以在注册表中发布新版本，但旧 descriptor 的 bytes 或 canonical digest 必须可回溯校验。这和 `context_manifest` 中的 `tool_set_snapshot_id` / `tool_descriptor_hashes` 配合：快照保证 run 内一致性，manifest 保证事后可审计和可证明未被篡改。
+
+可复现性和紧急止血是两个维度。平台维护独立的 execution policy overlay：
+
+```text
+tool_execution_overlay
+- tenant_id?                         # 为空表示全平台
+- tool_name + tool_version?          # 可精确到受影响版本
+- artifact_digest?
+- decision: allow | deny
+- reason: vulnerability | credential_exposure | regulatory | tenant_policy
+- policy_version + approved_by + effective_at
+```
+
+Overlay 只能减少权限，不能在不改变 snapshot 的情况下放宽能力。AgentWorker 构建工具集和 ToolWorker 每次 claim 后都重新读取当前 overlay，并把 policy version/hash 写入 `ToolCallStarted` 或拒绝事件；命中 deny 时不执行 handler，写 `ToolExecutionRevoked`，让 Run 重规划、等待人工或失败。历史 snapshot 和 descriptor bytes 继续保留用于审计，但不代表仍获准执行。紧急撤销不等待活跃 Run 清空，并触发相关 runtime termination；已经越过副作用边界的 ToolCall 按 effect ledger 对账。
 
 ## 版本管理
 
@@ -241,6 +255,8 @@ draft → pending_review → active → deprecated → retired
 | `retired` | 彻底下线 | 不可使用 |
 
 状态变更本身先作为管理事件记录（`ToolVersionActivated`、`ToolVersionDeprecated` 等），再由同一事务或受控投影更新工具注册表状态。禁止绕过管理事件直接手改数据库行。
+
+`retired` 是正常生命周期状态，只能在没有活跃 Run 引用后设置；安全漏洞等紧急场景使用 deny overlay 立即停止执行。两者都会阻止新调用，但 overlay 不删除历史 descriptor，也不等待生命周期清理。
 
 ## Schema 校验流程
 
@@ -294,6 +310,7 @@ ToolWorker：再次用 input_schema 校验（防止绕过 AgentWorker 的直接�
 | --- | --- | --- |
 | Tool Descriptor（声明） | append-only 工具注册表历史表 + descriptor digest | Tool Management API |
 | 工具集快照 | 不可变快照表（含 descriptor hashes） | AgentWorker 在 run 创建时生成 |
+| Execution policy overlay | 版本化 deny-only 控制表 + 管理事件 | Security / Tool Management API；AgentWorker 和 ToolWorker 执行时重读 |
 | ToolCall 状态和结果 | EventStore（events + tool_calls 投影） | EventService |
 | 副作用记录 | Effect Ledger | ToolWorker 通过 EventService 写入 |
 | Schema / Descriptor 快照引用 | `context_manifest.tool_set_snapshot_id` + `tool_descriptor_hashes` | AgentWorker |

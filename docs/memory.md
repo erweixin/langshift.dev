@@ -109,8 +109,10 @@ memory_document
 
   # ── 来源 ──
   - source_kind                        # agent_extracted | user_stated | system_derived
-  - source_run_id                      # 产生这条记忆的 run
-  - source_event_id                    # 关联的事件
+  - source_refs[]                      # 所有来源 event/run/payload 引用，不把多来源压成一个 id
+  - data_subject_ids[]                 # tenant-scoped 伪名主体引用；用于 erasure 精确传播，不保存可直接识别信息
+  - derived_from_memory_ids[]          # 从哪些 Memory 派生或合并而来
+  - derivation_kind                    # direct | summarized | merged | inferred
   - confidence                         # Agent 提取时的置信度（0-1）
 
   # ── 检索 ──
@@ -147,7 +149,7 @@ run 执行过程中：
 
 `memory_write` 是 inline platform tool（生命周期见 [state-machines.md](./state-machines.md) 的 `InlinePlatformToolCommitted`）：它的效果就是追加事件，不经 ToolWorker 和 sandbox。做成工具的收益是复用现成治理——schema 校验、guardrail 准入（memory poisoning 防线挂在这里）、Profile 白名单可整体关闭该能力。低风险写入形成 `ToolCallRequested → Succeeded` 审计链；需要用户确认的高影响记忆先形成不可变 `ToolCallProposed / awaiting_approval`，批准后 EventService 在同一事务提交精确 Memory 效果和 ToolCall 成功，再排队恢复 Run，不让模型重新生成内容。
 
-两条补充边界：run 结束时的关键决策提炼由 AgentWorker 内部流程（专门一次提炼调用 + MemoryService）完成，不属于模型的对话内决策，不走工具；平台**不向模型暴露删除工具**——淘汰归 Sweeper、erasure 归用户 API，被注入的模型不应有能力抹掉对自己不利的记忆。
+两条补充边界：run 结束时可以由 AgentWorker 发起专门一次提炼调用，但模型只能产出 `MemoryProposal`，不能直接调用 MemoryService 写入。Proposal 必须经过与 `memory_write` 完全相同的 schema、来源、主体标注、poisoning guardrail、去重、权限和高影响内容确认，再由 EventService 创建并完成同一条 inline platform ToolCall，原子提交 `ToolCallRequested + ToolCallSucceeded + MemoryUpserted`；Profile 关闭 Memory 写入时，结束提炼也必须关闭。平台**不向模型暴露删除工具**——淘汰归 Sweeper、erasure 归用户 API，被注入的模型不应有能力抹掉对自己不利的记忆。
 
 Agent 提取依赖 LLM 的判断力，因此带有 `confidence` 字段。低置信度的记忆可以在后续被确认、修正或淘汰。
 
@@ -191,7 +193,9 @@ MemoryUpserted 事件
   - content_ref                        # 指向加密 payload；事件不直接保存用户内容明文
   - content_hmac                       # tenant/subject scoped HMAC；不存裸 hash
   - encryption_subject_id / key_ref     # 用于 erasure 时销毁或失效
-  - source_kind + source_run_id + source_event_id
+  - source_kind + source_refs[]
+  - data_subject_ids[]
+  - derived_from_memory_ids[] + derivation_kind
   - embedding_model_id
   - version
   - supersedes_memory_id              # 如果是更新，指向被取代的记忆
@@ -203,7 +207,7 @@ MemoryDeleted 事件
   - erased_subject_ids?                # erasure 时标记已销毁的主体密钥或 payload 引用
 ```
 
-向量索引和全文索引是这些事件的**异步投影**。投影更新可以延迟，但不会影响 EventStore 的一致性。投影损坏时，从事件重放即可重建。若 memory 可能包含用户内容、PII、凭证、私有代码或受保留策略约束的数据，明文只能保存在加密 payload 中，不能直接进入不可变事件或可重放 projection；EventStore 和 `memory_documents` 只保存 HMAC/digest、引用、来源、分类标签和密钥元数据。摘要、embedding、关键词索引同样按敏感派生物处理，必须能随主体删除而失效或重建。
+向量索引和全文索引是这些事件的**异步投影**。投影更新可以延迟，但不会影响 EventStore 的一致性。投影损坏时，从事件重放即可重建。若 memory 可能包含用户内容、PII、凭证、私有代码或受保留策略约束的数据，明文只能保存在加密 payload 中，不能直接进入不可变事件或可重放 projection；EventStore 和 `memory_documents` 只保存 HMAC/digest、引用、来源、数据主体、派生关系、分类标签和密钥元数据。摘要、embedding、关键词索引同样按敏感派生物处理，必须能沿 `data_subject_ids` 和 derivation lineage 随主体删除而失效或重建。
 
 ## 检索：Memory 怎么被召回
 
@@ -384,11 +388,13 @@ embedding_model_config
 当用户请求数据删除（GDPR "被遗忘权"等）时，Memory 必须配合清除：
 
 - `SubjectErasureRequested` 事件触发 Memory 清理。
-- 删除或失效所有以该用户为数据主体的 memory document，包括 project/team scope 中包含该用户原始内容或由其派生出的记忆；不包含该主体数据的共享知识不应被整段误删。
+- ErasureWorker 先用 `data_subject_ids` 找到直接包含该主体的 document，再沿 `derived_from_memory_ids` 反向遍历所有摘要、合并和推断结果；扫描使用持久化 cursor 和幂等 erasure job，不能只依赖单个 `source_run_id`。
+- 只包含该主体的数据直接删除或 crypto-shred；同时包含多个主体或共享知识的 document 必须从仍可读取的非目标来源重新派生新版本，旧版本先隔离、再销毁。无法证明已去除目标主体时按整条删除，不能为了保留共享知识继续暴露主体数据。
 - 从向量索引中移除对应 embedding。
 - 销毁或失效 memory content 的主体密钥 / payload key（crypto-shredding，见 [multi-tenancy-and-security.md](./multi-tenancy-and-security.md)）。
 - 写入 `MemoryDeleted` 事件（reason: `erasure`）。
-- 清理完成后，即使从事件重建索引，已删除的内容也不可恢复：事件只剩不可逆 hash、引用和审计元数据，明文 payload 因密钥销毁不可解密。
+- 向量索引、全文索引、cache、snapshot 和对象存储分别返回带 checksum 的 deletion receipt；只有所有必需存储都确认删除/失效，才能写 `SubjectErasureCompleted`。失败项保持可重试并在合规期限前告警。
+- 清理完成后，即使从事件重建索引，已删除的内容也不可恢复：事件只剩不可逆 HMAC、失效引用、主体/派生审计元数据，明文 payload 因密钥销毁不可解密；projection rebuilder 必须读取 erasure tombstone，禁止重新索引旧引用。
 
 ## 生产基线
 
@@ -399,7 +405,7 @@ embedding_model_config
 | 全文检索 | 支持关键词 + metadata filter，与向量召回共同接受 ACL 约束 |
 | 嵌入计算 | 记录 `embedding_model_id` 和重建幂等键；模型升级支持双索引过渡 |
 | 检索服务 | 独立 Retrieval Service 或等价逻辑边界；召回结果必须进入 `context_manifest` |
-| 删除与加密 | 可能包含 PII/用户内容的 payload、summary、embedding 和全文索引派生物必须使用加密内容引用、可销毁密钥或可失效投影；erasure 后不可通过 replay 恢复明文 |
+| 删除与加密 | document 必须记录 `data_subject_ids`、多来源和派生 lineage；payload、summary、embedding 和全文索引派生物使用可销毁密钥或可失效投影；完成事件要求各存储 deletion receipt，erasure 后不可通过 replay 恢复明文 |
 
 Memory 索引是可重建投影，不是事实源。无论使用 pgvector、独立向量数据库还是托管 RAG，替换或扩展时只允许重建索引投影，不能绕过 EventStore、ACL、召回留痕和删除语义。
 

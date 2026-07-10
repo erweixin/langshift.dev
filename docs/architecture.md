@@ -101,15 +101,16 @@ Lites 是一个 production-first 的 Cloud Agent 平台设计。它不把 Agent 
 | Event | 已经发生的事实，例如 `ToolCallSucceeded` | 一旦提交，不被普通流程修改 |
 | Command | 希望某个消费者去做的意图，例如 `ResumeAgentRun` | 至少一次投递，消费者必须去重 |
 | Worker | 后台执行者，负责调用模型或工具 | 不保存长期状态，结果要写回 EventStore |
-| Attempt | Worker 对一条 command 的一次执行尝试 | 可以失败、超时、变成无人认领的旧尝试 |
+| Attempt | Worker 对一条 command 的一次执行尝试 | 可以失败、超时、变成无人认领的旧尝试；与 LLM Provider 的物理请求 attempt 分开 |
 | EventStore | 保存“发生过什么、状态怎么变”的数据库部分 | 不保存 workspace 文件本体 |
 | Outbox | 事务内登记“要发出去的 command”的表 | 事务提交后再发布，避免发出回滚事件 |
 | Inbox | 消费者登记“这条 command 我处理过”的表 | 用来抵抗重复投递 |
 | CAS | Compare-And-Set，只有版本仍是预期值才允许写入 | 防止基于旧状态提交新决策 |
 | `run_version` | Run 聚合的 CAS 版本 | 只在 Run 状态转换时递增 |
 | `tool_call_version` | ToolCall 聚合的 CAS 版本 | 只在 ToolCall 状态转换时递增 |
-| `seq` | user 内的提交顺序号（baseline 决策：user-scoped，conversation 只是过滤维度） | 只做排序和补拉游标，不做 CAS；若单用户多会话并行追加成为瓶颈，可下沉为 conversation-scoped，代价是客户端要维护多游标 |
+| `seq` | tenant-user 内的提交顺序号（baseline 决策：tenant-user-scoped，conversation 只是过滤维度） | 只做排序和补拉游标，不做 CAS；cursor 主键为 `(tenant_id, user_id)`；若单用户多会话并行追加成为瓶颈，可下沉为 conversation-scoped，代价是客户端要维护多游标 |
 | fence | 每次 claim 由 EventService 签发并安装到 Run / ToolCall 的防过期写序号 | 提交时必须同时精确匹配当前 command、attempt、fence 和未过期 lease；不能只判断数值更大 |
+| lease token | EventService 为当前 attempt 签发的不可猜持有凭证 | heartbeat 和结果提交都必须精确匹配 token、fence、command、attempt 与期限；客户端和业务 handler 不能自行生成 |
 | `effect_key` | 外部副作用的稳定幂等键 | 下游支持幂等时用于避免重复副作用 |
 | `outcome_unknown` | 外部调用结果未知，例如超时后不知道资源是否已创建 | 禁止盲目重试；人工仍无法查明时进入 `resolved_unknown` 并保留残余风险，不得伪装成取消 |
 | Reconciliation | 对账确认外部副作用到底是否发生 | 用于把未知结果收敛到成功、失败或人工处理 |
@@ -127,7 +128,7 @@ Lites 是一个 production-first 的 Cloud Agent 平台设计。它不把 Agent 
 ## 非目标
 
 - **不承诺通用 exactly-once**：传输层按“至少一次投递”设计；对支持幂等键的外部写操作提供“多次投递但只产生一次有效副作用”的效果；无法幂等的操作必须走对账。
-- **不做跨用户事务**：强一致边界止于单个 `user_id` 的 append 顺序（baseline 中 `seq` 为 user-scoped，conversation 只是过滤维度）。
+- **不做跨用户事务**：强一致边界止于单个 `(tenant_id, user_id)` 的 append 顺序（baseline 中 `seq` 为 tenant-user-scoped，conversation 只是过滤维度）。
 - **不做跨区域 active-active**：默认采用单区域单写模型；跨区域容灾通过备份、恢复演练和 `store_epoch` 收敛。
 - **不自动消解所有未知结果**：`outcome_unknown` 可能最终只能由人工接受为 `resolved_unknown`；系统只保证不盲目重做，并持续保留“不知道是否发生”的事实。
 - **不把实时通道当可靠存储**：可靠性由 EventStore + `last_seen_seq` 补拉提供。
@@ -204,14 +205,15 @@ Outbox、Scheduler、Queue 是逻辑角色，但生产基线必须提供同等�
 ## 核心标识
 
 - `tenant_id`：客户边界。
-- `user_id`：已认证用户；事件提交顺序边界（user-scoped `seq`）。
+- `user_id`：已认证用户；与 `tenant_id` 一起构成事件提交顺序边界（tenant-user-scoped `seq`）。
 - `conversation_id`：会话归属与事件过滤维度。
 - `run_id`：一次 Agent 执行或续跑。
 - `run_version`：Run 聚合的 CAS 令牌。
 - `tool_call_id` / `tool_call_version`：ToolCall 聚合及其 CAS 令牌。
-- `event_id` / `seq`：事件唯一标识与 user 内提交顺序。
+- `event_id` / `seq`：事件唯一标识与 tenant-user 内提交顺序。
 - `command_id`：命令稳定 id，用于 inbox 去重。
-- `attempt_id` / `attempt_key`：Worker 尝试与模型调用尝试（`attempt_key` 即 `llm_attempts.attempt_key`，每次模型调用尝试唯一）。
+- `attempt_id`：Worker 对一条 command 的执行尝试。
+- `attempt_key` / `provider_attempt_id`：一次逻辑 LLM 调用及其中每一次真实 Provider 请求；fallback 会创建新的 `provider_attempt_id`，不能覆盖前一次请求的成本和结果。
 - `effect_key`：外部副作用幂等键。
 - `correlation_id` / `causation_id`：因果链路。
 - `request_id`：API 请求 trace id。
@@ -245,7 +247,7 @@ Baseline 中，一个 conversation 同一时间只有一个前台 active Run。a
 4. Event Service 在同一数据库事务中追加事件、更新对应聚合状态、分配 `seq`、写入 outbox 和 idempotency response。
 5. 事务提交后，Outbox Publisher 发布 realtime 通知和 command。
 6. Scheduler/Queue 按租户公平、优先级、重试时间和资源类别投递 command。
-7. Worker 先通过 Event Service claim command，创建当前 attempt/fence/lease 后才执行；AgentWorker 或 ToolWorker 再通过 Event Service 写入完成、失败、取消、未知结果或后续 command。
+7. Worker 先通过 Event Service claim command，创建当前 attempt/fence/lease token 后才执行；结果提交必须带回同一 token，并通过 Event Service 写入完成、失败、取消、未知结果或后续 command。
 
 ## 应该 / 避免
 

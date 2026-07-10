@@ -233,6 +233,7 @@ tool_call_guardrail_result
 ToolWorker 领取 `ExecuteToolCall` 后必须重复关键检查，因为 command 可能来自重试、Repair API 或旧 Worker 路径：
 
 - 重新加载 tool descriptor、tenant policy、approval 事件和 workspace revision。
+- 重新加载 deny-only tool execution overlay；即使 descriptor snapshot 仍可回放，命中紧急撤销也必须停止执行。
 - 再次 schema 校验和权限检查。
 - 检查 quota reservation、effect ledger、fence 和 tool_call_version。
 - 通过 Secret Broker 获取临时能力，不相信 AgentWorker 传来的 secret。

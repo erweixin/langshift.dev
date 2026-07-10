@@ -92,10 +92,31 @@ min(
 )
 ```
 
+### 参考生产验收组合
+
+Lites 的首个生产基线必须在同一场压测中同时承受下面的持续负载，而不是分别测出各自峰值再相加。该组合持续 30 分钟，随后承受 2 倍入口/事件突发 5 分钟；全程满足 [operations.md](./operations.md) 的 SLO，不丢事件、不重复外部副作用、不出现跨租户访问，突发结束后 outbox、queue、Sweeper backlog 在 15 分钟内回到稳态。
+
+| 向量 | 基线值 |
+| --- | ---: |
+| `C_conn` | 10,000 个并发连接 |
+| `R_api` | 500 请求/秒 |
+| `R_event` | 2,000 持久事件/秒 |
+| `N_run` | 10,000 个活跃 Run |
+| `N_llm` | 200 个并发 Provider 请求 |
+| `N_runtime` | 500 个活跃 sandbox session |
+| `T_token` | 100,000 token/秒（输入 + 输出） |
+| `B_artifact` | 500 MiB/秒聚合读写 |
+| `D_retention` | 1 TiB/日新增事件、payload、artifact 与观测数据的生命周期处理能力 |
+| `S_hot` | 单租户可占 20% 总容量；单 tenant-user 可持续 100 次 event append/秒而不影响其他租户 SLO |
+| `R_heartbeat` | 1,000 次 lease heartbeat/秒 |
+| `R_replay` | 100 个 Run/秒并发恢复或 projection shard 重放等价压力 |
+
+这是一组最低验收值，不是容量承诺上限。生产环境按租户合同和实际峰值生成版本化 `capacity_profile`，记录硬件、分片数、Provider quota、runtime image、数据大小、压测代码版本和结果 hash；目标高于此表时必须用新的完整组合重新验收，不能只线性外推。
+
 ## 需要提前知道的瓶颈
 
-- `seq` 分配会锁定 `event_cursors(user_id)` 行，同一用户内追加事件天然串行。热点 user 或其下单个 conversation 的高频写入会推高该 cursor 的压力；解决手段是减少事件数量、避免 token delta 落库、拆分高频交互或在确认需要后调整 `seq` 作用域。
-- 万量级活跃 run 的 heartbeat 会形成额外写压力。heartbeat 是 Worker 定期告诉系统“我还活着”的信号，需要计入 DB 写预算，或在合适阶段迁移到独立 lease store（例如 Redis）。
+- `seq` 分配会锁定 `event_cursors(tenant_id, user_id)` 行，同一租户内同一用户的追加事件天然串行。热点 user 或其下单个 conversation 的高频写入会推高该 cursor 的压力；解决手段是减少事件数量、避免 token delta 落库、拆分高频交互或在确认需要后调整 `seq` 作用域。
+- 万量级活跃 run 的 heartbeat 会形成额外写压力。生产基线仍以 EventStore 中的 attempt/fence/lease token/expiry 为权威，结果提交必须在同一事务读取它们；不能把 heartbeat 单独迁到 Redis 后仍用过期的数据库 lease 判断提交。优化手段是按预计任务时长设置租约、限制最小 heartbeat 间隔、批量更新独立 lease 分区表和减少空闲 session，而不是引入两个互相矛盾的租约事实源。
 - Snapshot 不及时会导致 replay 变慢。replay 是从历史事件恢复状态；事件越长，恢复越慢。
 - Realtime fanout 会受连接数、消息大小、慢连接和补拉 QPS 影响。fanout 就是一条事件要推给多少连接。
 - Runtime cold start 和活跃 session 数通常与 API QPS 无关，需要独立建模。
@@ -106,8 +127,8 @@ min(
 
 在声明某个负载向量达标前，需要验证：
 
-- 明确目标组合，例如 `C_conn=10000`、`N_runtime=500`、`R_event=2000/s`，而不是笼统“万级”。
-- 事件追加吞吐和 p95/p99 延迟达标。
+- 使用版本化 `capacity_profile`，至少达到上述参考生产组合，而不是笼统“万级”。
+- 事件追加吞吐和 p95/p99 延迟满足量化 SLO。
 - Worker 或队列故障期间，outbox lag 保持有界。
 - 重复投递下 inbox 去重生效。
 - 并行 ToolCall join 只产生一个 Run continuation。
@@ -119,7 +140,7 @@ min(
 - Realtime reconnect 基于 `last_seen_seq` 补回缺失事件。
 - Slow consumer、auth 到期、权限撤销不会把 realtime 当事实源。
 - Admin repair 经 Repair Command API，不破坏不变量。
-- 核心表备份、恢复演练、schema migration、event upcasting 正常。
+- 核心表备份、量化 RPO/RTO 恢复演练、schema migration、event upcasting、双 projection 切换和 poison-event 隔离正常。
 - 按时间点恢复时，独立恢复控制面先轮换 `store_epoch`；消费者能拒绝所有不精确匹配当前 epoch 的 command。
 - Timer / Sweeper 对超时、unknown、quota 回收和 runtime GC 有界生效。
 - 数据保留/删除能失效 memory、snapshot、search index 和 artifact 派生物。

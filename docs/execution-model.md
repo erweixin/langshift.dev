@@ -23,9 +23,9 @@
 
 Worker 的工作方式可以理解成“两次短记账，中间做慢活”：
 
-1. 第一次短事务：领取 command，写下“我开始试一次”，拿到租约和 fence。
+1. 第一次短事务：领取 command，写下“我开始试一次”，拿到 attempt、fence 和不可猜的 lease token。
 2. 中间慢操作：调用 LLM、运行工具、访问第三方系统或写 workspace。
-3. 第二次短事务：带着结果回来提交。只有版本、当前 attempt、精确 fence 和未过期 lease 同时匹配，结果才能推进状态。
+3. 第二次短事务：带着结果回来提交。只有版本、当前 attempt、精确 fence、lease token 和未过期 lease 同时匹配，结果才能推进状态。
 
 这样做的好处是，数据库不会被一次长 LLM 调用或长时间测试命令锁住；取消、超时、审批和并行工具完成仍然能插进来。
 
@@ -45,7 +45,7 @@ Worker 的工作方式可以理解成“两次短记账，中间做慢活”：
 - 去重：同一 command 重复投递也只处理一次。
 - 取消：run 被取消时停止后续执行。
 - 反压：队列、LLM、runtime 压力过高时限制新请求。
-- 重建：消息队列服务丢失后，仍能从 EventStore 找回还需要执行的 command。
+- 重建：消息队列服务丢失后，按聚合 `pending_command_id`、inbox 和 outbox 对账，重投仍需要执行的同一 command；具体合约见 [concurrency-and-durability.md](./concurrency-and-durability.md)。
 
 传输层按“至少一次投递”设计。对支持幂等键的下游写操作，系统提供“多次投递但只产生一次有效副作用”的效果；对无法幂等的操作，必须进入对账或人工裁定。
 
@@ -76,7 +76,7 @@ sequenceDiagram
   rect rgb(238,244,255)
   note over W,DB: 短事务 1：领取与占位
   W->>DB: inbox dedupe + lease + 校验 version + 写 *Started(fence)
-  DB-->>W: ok (attempt_id, fence)
+  DB-->>W: ok (attempt_id, fence, lease_token)
   end
 
   W-)H: heartbeat，读取 cancel_requested
@@ -86,7 +86,7 @@ sequenceDiagram
 
   rect rgb(238,244,255)
   note over W,DB: 短事务 2：条件提交
-  W->>DB: append result WHERE version=expected AND attempt=current AND fence=current AND lease valid
+  W->>DB: append result WHERE version/attempt/fence/lease_token 精确匹配 AND lease valid
   alt 匹配
     DB-->>W: 提交成功，聚合 version++
   else 版本或 fence 过期
@@ -100,12 +100,12 @@ AgentWorker 职责：
 - 领取 `StartAgentRun` / `ResumeAgentRun`。
 - 从 snapshot + 增量 events 恢复状态。
 - 基于 events、memory、workspace、policy 构建上下文，并产出 `context_manifest`（模型输入清单）。
-- 通过 LLM Gateway 调用模型，记录 `attempt_key`、模型配置、provider request id、token 和成本。
+- 通过 LLM Gateway 调用模型；逻辑调用记录 `attempt_key`，每次真实外部请求记录独立 `provider_attempt_id`、Provider request id、token/成本和未知结果。
 - 通过 Event Service 写入消息、工具请求、失败、等待审批或终态。
 
 ### Start / Resume 的统一领取协议
 
-`StartAgentRun`、`ResumeAgentRun` 和 `ResumeParentRun` 使用同一套 claim。产生这些 command 的事务只把 Run 推进到 `queued` 并保存唯一 `pending_command_id`，不能提前标成 `executing`。AgentWorker 领取匹配的 command 后，EventService 才在同一个短事务中完成 inbox claim、创建 attempt、安装 fence/lease，并把 Run 从 `queued` 推进到 `executing`。
+`StartAgentRun`、`ResumeAgentRun` 和 `ResumeParentRun` 使用同一套 claim。产生这些 command 的事务只把 Run 推进到 `queued` 并保存唯一 `pending_command_id`，不能提前标成 `executing`。AgentWorker 领取匹配的 command 后，EventService 先确认 Run 未请求取消，再在同一个短事务中完成 inbox claim、创建 attempt、安装 fence/lease token，并把 Run 从 `queued` 推进到 `executing`。
 
 首次 Start 写 `RunStarted`；工具、审批或子 Run 之后的 Resume 写 `RunResumed`。重复 command 若 inbox 已 `completed` 则直接忽略；lease 未过期时不得启动第二份 LLM I/O；lease 过期后抢占会创建新 attempt 和更大的 fence，旧 Worker 的 `attempt_id` 或 fence 不再匹配。
 
@@ -138,7 +138,7 @@ handler 合约
 
 Worker 成功时，写结果事件和把 inbox 从 `running` 标记为 `completed` 必须在同一个数据库事务中提交：先通过 EventService 写业务事件和 inbox/attempt 结果，事务提交后再 ack 外部队列消息。拆开会产生两类事故：先确认后写事件，崩溃后已花钱的执行结果永久丢失；先写事件后确认，崩溃后 command 重投、同一结果被重复解释。
 
-如果这次提交让 Worker 当前步骤结束——例如 AgentWorker 进入 `waiting_tool` / `waiting_approval` / `waiting_child` / 终态，或 ToolWorker / PreviewWorker / CommitWorker 提交结果——同一事务还必须在 command/attempt/fence 精确匹配的条件下完成 `job_attempt`、清除聚合上的 `active_command_id`、`active_attempt_id` 和 lease owner/expiry。`current_fence_token` 不回退也不清零，下次 claim 在它之上递增。否则 Run 虽已等待，旧 lease 仍会阻塞合法 Resume。
+如果这次提交让 Worker 当前步骤结束——例如 AgentWorker 进入 `waiting_tool` / `waiting_approval` / `waiting_child` / 终态，或 ToolWorker / PreviewWorker / CommitWorker 提交结果——同一事务还必须在 command、attempt、fence、lease token 精确匹配的条件下完成 `job_attempt`、清除聚合上的 `active_command_id`、`active_attempt_id` 和 lease owner/token/expiry。`current_fence_token` 不回退也不清零，下次 claim 在它之上递增。否则 Run 虽已等待，旧 lease 仍会阻塞合法 Resume。
 
 Inbox 的首次写入只是 claim，不是完成标记。Worker 在 claim 后、执行前或执行中崩溃时，后续重复投递必须能在 lease 过期后重新领取；只有 `completed` 状态的 inbox row 才能让消费者 ack 并忽略。
 
@@ -211,7 +211,9 @@ tool_effects
 
 ## LLM 调用与预算
 
-LLM 调用也不是幂等的。同一个 prompt 重试可能得到不同输出；流式中断后重调可能重复计费；fallback 到另一个模型可能改变语义。每次调用都保存独立 `attempt_key`、输入清单、模型配置、provider request id、结果 hash、token 和成本。
+LLM 调用也不是幂等的。同一个 prompt 重试可能得到不同输出；流式中断后重调可能重复计费；fallback 到另一个模型可能改变语义。每次逻辑调用保存独立 `attempt_key` 和输入清单；Gateway 对每一次真实外部请求再创建独立 `provider_attempt_id`，逐次记录 Provider、模型、request id、结果 hash、token、成本和结果是否未知。多个 fallback 不能压成一条“最终成功”记录。
+
+透明 fallback 只允许发生在尚未向客户端发送任何可见 chunk、尚未提交 ToolCall proposal、且前一次 Provider attempt 已停止或被标为结果未知时。一旦有输出对外可见，当前 stream generation 只能正常完成或显式失败；后续模型调用必须使用新的 `attempt_key` / stream generation，并通过 reset/replacement 事件替换展示，禁止把两个模型的 token 串接成一条回复。完整物理 attempt 与计费对账合约见 [llm-provider.md](./llm-provider.md)。
 
 工具配额和 LLM 预算进入同一租户成本视图：
 
@@ -286,6 +288,19 @@ join 由完成 ToolCall 的 ToolWorker 在同一事务内判定，不额外引�
 BEGIN;
   -- EventService 写事务使用 READ COMMITTED。
 
+  -- 先按全局锁顺序锁住本 attempt 的 inbox claim，证明提交者持有当前 lease。
+  SELECT state, attempt_id, fence_token, lease_token, lease_expires_at
+  FROM command_inbox
+  WHERE tenant_id = $tenant_id
+  AND consumer_name = $consumer_name
+  AND command_id = $command_id
+  AND state = 'running'
+  AND attempt_id = $attempt_id
+  AND fence_token = $worker_fence
+  AND lease_token = $worker_lease_token
+  AND lease_expires_at > now()
+  FOR UPDATE;
+
   UPDATE tool_calls
   SET    status = $terminal_status,
          tool_call_version = tool_call_version + 1,
@@ -302,8 +317,29 @@ BEGIN;
   AND    active_command_id = $command_id
   AND    active_attempt_id = $attempt_id
   AND    current_fence_token = $worker_fence
+  AND    lease_token = $worker_lease_token
   AND    lease_expires_at > now();
-  -- 0 rows: 版本、attempt、精确 fence 或 lease 已失效，attempt 变为旧尝试
+  GET DIAGNOSTICS $updated_rows = ROW_COUNT;
+
+  IF $updated_rows <> 1 THEN
+    -- 版本、attempt、精确 fence、lease token 或期限已失效；不得继续写结果或参与 join。
+    RAISE stale_attempt;
+  END IF;
+
+  UPDATE command_inbox
+  SET state = 'completed', completed_at = now()
+  WHERE tenant_id = $tenant_id
+  AND consumer_name = $consumer_name
+  AND command_id = $command_id
+  AND state = 'running'
+  AND attempt_id = $attempt_id
+  AND fence_token = $worker_fence
+  AND lease_token = $worker_lease_token;
+
+  UPDATE job_attempts
+  SET state = $attempt_terminal_state, completed_at = now()
+  WHERE tenant_id = $tenant_id
+  AND attempt_id = $attempt_id;
 
   SELECT * FROM parallel_groups
   WHERE  tenant_id = $tenant_id
@@ -363,7 +399,7 @@ BEGIN;
 COMMIT;
 ```
 
-`FOR UPDATE` 防止两个 Worker 都只看到自己的完成结果而放弃 join。`current_run_version` 必须在锁定 `parallel_group` 之后、同一事务内从 `runs` 读取，不能使用 ToolWorker 领取任务时看到的旧版本。`UNIQUE (tenant_id, run_id, parallel_group_id, continuation_kind)` 是第二道防线，防止异常路径产生重复续跑；它不能被 stale run version 造成的 `skipped` 行永久占住。
+事务必须先证明并锁住当前 inbox claim；ToolCall CAS 影响行数不是 1 时立即进入 stale-attempt 分支，不能插入结果事件、完成别人的 inbox 或参与 join。`FOR UPDATE` 防止两个合法完成者都只看到自己的结果而放弃 join。`current_run_version` 必须在锁定 `parallel_group` 之后、同一事务内从 `runs` 读取，不能使用 ToolWorker 领取任务时看到的旧版本。`UNIQUE (tenant_id, run_id, parallel_group_id, continuation_kind)` 是第二道防线，防止异常路径产生重复续跑；它不能被 stale run version 造成的 `skipped` 行永久占住。
 
 ## 示例：两个 ToolWorker 同时完成
 

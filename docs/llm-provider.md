@@ -16,7 +16,7 @@
 | --- | --- |
 | 通过统一接口调用，AgentWorker 不感知 Provider 差异 | 在业务代码里直接 `import openai` |
 | 模型路由和降级由 Gateway 集中管理 | 每个 AgentWorker 自行判断用哪个 Provider |
-| 每次调用记录 `attempt_key`、Provider、模型版本和成本 | 只记录"调用成功"，不记录是哪个 Provider 响应的 |
+| 逻辑调用记录 `attempt_key`，每次真实请求记录 `provider_attempt_id`、模型版本和成本 | 只记录最终“调用成功”，覆盖前面的 fallback/timeout |
 | Provider 限流和业务重试分层处理 | 把 429 当成普通错误走同一个 retry 队列 |
 
 ## 先用白话说
@@ -26,7 +26,7 @@ LLM Gateway 像一个“模型调度台”：
 - AgentWorker 说清楚自己需要什么能力，例如强推理、快速回复、代码生成或 embedding。
 - Gateway 根据租户策略、模型能力、Provider 健康度、速率限制和预算，选择具体 Provider 和模型。
 - Provider 出问题时，Gateway 按规则尝试同模型换 Provider，或在允许时换到替代模型。
-- 每次调用都写下 `attempt_key`、实际 Provider、实际模型、token、成本和 fallback 事实。
+- 每次逻辑调用写下 `attempt_key`，每个真实外部请求再写独立 `provider_attempt_id`、Provider、模型、token、成本和 fallback 因果。
 
 这样业务代码不用到处写 Provider SDK，也能在模型升级、限流、宕机和涨价时集中处理。
 
@@ -59,7 +59,7 @@ AgentWorker 通过一个与 Provider 无关的接口发起 LLM 调用。接口�
 ```text
 llm_request
   # ── 调用身份 ──
-  - attempt_key                     # 本次调用的唯一标识（由 AgentWorker 生成）
+  - attempt_key                        # 一次逻辑 LLM 调用的唯一标识（由 AgentWorker 生成）
   - run_id                             # 所属 run
   - tenant_id                          # 租户隔离
 
@@ -109,12 +109,13 @@ llm_response
   - refusal                            # 模型拒绝原因（如果有）
 
   # ── 实际调用信息 ──
-  - actual_provider                    # 实际使用的 Provider
-  - actual_model_id                    # 实际使用的模型 ID（包含版本）
-  - provider_request_id                # Provider 返回的请求 ID（用于对账）
+  - selected_provider_attempt_id       # 产生最终逻辑结果的真实 Provider attempt
+  - actual_provider                    # selected attempt 使用的 Provider
+  - actual_model_id                    # selected attempt 使用的模型 ID（包含版本）
+  - provider_request_id                # selected attempt 的 Provider request id
 
   # ── 用量 ──
-  - usage
+  - usage                               # 本逻辑调用全部物理 attempt 的聚合用量/成本
     - input_tokens
     - output_tokens
     - total_tokens
@@ -133,7 +134,46 @@ llm_response
     - provider_selection_reason        # 为什么选了这个 Provider
     - fallback_attempted: bool         # 是否触发了降级
     - fallback_from                    # 从哪个 Provider 降级过来的
+  - provider_attempt_ids[]             # 本次逻辑调用实际发出的全部外部请求，按顺序排列
 ```
+
+### 逻辑调用与真实 Provider Attempt
+
+一次 `llm_request` 是逻辑调用，一次网络请求才是可计费、可能超时的真实 Provider attempt。二者必须分开记账：
+
+```text
+llm_attempts
+- attempt_key                         # 逻辑调用 id
+- tenant_id + run_id
+- context_manifest_id
+- router_snapshot_id
+- stream_generation
+- status: running | completed | failed | partial_visible
+- selected_provider_attempt_id?
+- aggregate_usage + aggregate_cost    # 所有真实 attempt 的合计，不只算最终成功者
+
+llm_provider_attempts
+- provider_attempt_id
+- attempt_key                         # 归属逻辑调用
+- ordinal                             # 第几次真实请求
+- provider_id + model_id
+- provider_request_id?
+- fallback_from_provider_attempt_id?
+- request_hash + request_started_at + response_finished_at?
+- status: running | completed | failed | timeout | cancelled | outcome_unknown
+- visible_output_started_at?
+- usage_status: confirmed | estimated | unknown
+- input_tokens + output_tokens + cost + pricing_version
+- error_class + response_hash?
+```
+
+硬规则：
+
+- Gateway 在发出网络请求前先持久化 `llm_provider_attempts` 占位；每次换 Provider 或模型都创建新 `provider_attempt_id`，不能覆盖上一条。
+- Provider timeout 或断连后无法确认 token/费用时，物理 attempt 进入 `outcome_unknown`，由成本对账任务使用 provider request id、账单导出或合同口径收敛；未知成本进入租户预算的保守预留，不能按零费用处理。
+- 逻辑调用的 usage/cost 是所有物理 attempt 的合计；`selected_provider_attempt_id` 只说明哪个结果被采用，不代表之前的请求没有成本。
+- 任何 ToolCall、最终消息和 stream chunk 都引用 `attempt_key + stream_generation`；需要时还能追到具体 `provider_attempt_id`。
+- Provider attempt 的结果与 EventStore 提交失败时只重试记账，不重新发送模型请求；是否重发必须由新的物理 attempt 明确表达。
 
 ### 与 `context_manifest` 的关系
 
@@ -143,7 +183,7 @@ llm_response
 - 本次调用使用的模型参数、工具集快照、policy 快照、router 快照和上下文来源。
 - `attempt_key` 作为引用，关联到具体的 `llm_attempts` 记录。
 
-调用完成后的 Provider、实际模型、usage、cost、fallback、错误和响应摘要写入 `llm_attempts`，不反向改写 `context_manifest`。这样事后既能回答"模型当时看到了什么"，也能回答"实际由哪个 Provider 和模型完成调用"。
+调用完成后的逻辑结果写入 `llm_attempts`，每次真实 Provider 请求的 usage、cost、fallback、错误和响应摘要写入 `llm_provider_attempts`，都不反向改写 `context_manifest`。这样事后既能回答“模型当时看到了什么”，也能回答“实际请求过哪些 Provider、采用了哪个结果、每次花了多少钱”。
 
 ## Provider Registry
 
@@ -191,7 +231,7 @@ model_config
   - context_window                     # 上下文窗口大小
   - capabilities[]                     # tool_use, vision, streaming, json_mode, reasoning
   - default_parameters                 # 该模型的默认 temperature、top_p 等
-  - status: active | deprecated | sunset
+  - status: candidate | active | deprecated | sunset
   - sunset_date                        # 模型下线日期（Provider 公布的）
   - successor_model_id                 # 下线后推荐的替代模型
 ```
@@ -315,7 +355,7 @@ Provider 返回的错误种类繁多，Adapter 将它们映射到统一分类，
 | `model_unavailable` | 模型不可用 | 404、503 | 尝试其他 Provider 或降级模型 |
 | `auth_failed` | 认证失败 | 401、403 | 告警，不重试，标记 Provider degraded |
 | `provider_error` | Provider 内部错误 | 500、502 | 重试一次，仍失败则尝试其他 Provider |
-| `timeout` | 响应超时 | 连接超时、读超时 | 尝试其他 Provider，注意不能确认 Provider 是否已消费 token |
+| `timeout` | 响应超时 | 连接超时、读超时 | 当前物理 attempt 记为 `outcome_unknown`；仅在没有可见输出时才允许新建 fallback attempt |
 | `invalid_request` | 请求格式错误 | 400 + validation error | 不重试，返回给 AgentWorker 修正 |
 
 Gateway 与 Run 状态机的边界：
@@ -374,7 +414,9 @@ model_fallback（示例）
 - **跨模型降级**：需要租户策略允许，且替代模型必须满足同一合规 envelope。有些场景不能降级（例如需要特定模型能力或特定合规承诺），此时返回 `model_unavailable` 或 `rate_limited` 让 AgentWorker 决定。
 - **没有合规候选就失败**：如果所有 fallback 候选都因 residency、retention、training usage 或合同不满足而被排除，Gateway 必须返回终局错误，不能为了可用性放宽租户合规边界。
 - **降级不是无限重试**：每次 `llm_attempts` 记录最多尝试 `max_fallback_attempts` 个候选（默认 3），全部失败则返回错误。
-- **降级记录**：`llm_response` 中标记 `fallback_attempted = true` 和 `fallback_from`，进入 EventStore 和 metrics。
+- **每次降级都是新物理 attempt**：先落 `llm_provider_attempts` 占位，再发下一次请求；所有 request id、usage、cost 和未知结果都保留。
+- **可见输出后禁止透明降级**：任一 token chunk 已对客户端可见、ToolCall proposal 已提交或外部消费者已收到结果时，本逻辑调用不得再拼接 fallback 输出。Gateway 终止当前 generation，记录 `partial_visible`；AgentWorker 若继续，必须创建新的 `attempt_key` 和 stream generation。
+- **降级记录**：`llm_response` 中标记 `fallback_attempted = true`，列出全部 `provider_attempt_ids[]` 和 fallback 因果链，进入 EventStore 和 metrics。
 
 ### Provider 健康检测
 
@@ -440,11 +482,11 @@ LLM 调用是平台最大的可变成本。成本追踪贯穿调用全过程：
 ### 调用前：预算准入
 
 ```text
-1. AgentWorker 传入 cost_budget_remaining
-2. Gateway 按目标模型费率估算本次调用成本：
+1. AgentWorker 传入 `cost_budget_remaining` 作为提示；权威余额由 Quota/EventService 按 `tenant_id + run_id` 条件读取，不能相信 Worker 自报数字
+2. Gateway 在创建每一个 `provider_attempt_id` 前，按该候选模型费率估算本次真实请求成本：
    estimated_cost = (input_tokens × input_price) + (max_output_tokens × output_price)
-3. 如果 estimated_cost > cost_budget_remaining → 拒绝调用
-4. 否则预留预算（reserve），关联到 reservation_id
+3. 如果 estimated_cost > 权威剩余预算 → 不发网络请求；fallback chain 到此终止并返回 budget_exceeded
+4. 否则为该 `provider_attempt_id` 原子预留预算，关联独立 `reservation_id`；fallback 的下一次真实请求必须再次预留
 ```
 
 ### 调用后：成本结算
@@ -452,11 +494,11 @@ LLM 调用是平台最大的可变成本。成本追踪贯穿调用全过程：
 ```text
 1. 从 Provider 响应中提取实际 token 用量
 2. 按 Provider 当前费率计算实际成本
-3. settle 预留：释放 estimated - actual 的差额
-4. 成本写入 `llm_attempts` 记录：
-   - attempt_key
-   - actual_provider
-   - actual_model_id
+3. 每个 `provider_attempt_id` 分别 settle；usage 暂时未知的 attempt 保留保守预留，交成本对账任务收敛
+4. 每次真实请求的成本写入 `llm_provider_attempts`；`llm_attempts` 聚合全部物理 attempt：
+   - attempt_key + provider_attempt_id
+   - actual_provider + actual_model_id + provider_request_id
+   - usage_status
    - input_tokens / output_tokens
    - input_cost / output_cost / total_cost
    - pricing_version（使用的费率版本）
@@ -464,14 +506,15 @@ LLM 调用是平台最大的可变成本。成本追踪贯穿调用全过程：
 
 ### 成本归属
 
-成本沿 `tenant_id → conversation_id → run_id → attempt_key` 链路归属：
+成本沿 `tenant_id → conversation_id → run_id → attempt_key → provider_attempt_id` 链路归属：
 
 ```text
 成本聚合层次：
   tenant_id          → 租户月度账单
   conversation_id    → 单个会话的累计成本
   run_id             → 单次 run 的成本（可能包含多次 LLM 调用）
-  attempt_key        → 单次调用的精确成本
+  attempt_key        → 一次逻辑调用的总成本
+  provider_attempt_id → 一次真实 Provider 请求的精确或待对账成本
 ```
 
 ### 费率管理
@@ -488,7 +531,7 @@ pricing_entry
   - effective_until                    # null 表示当前生效
 ```
 
-成本计算总是使用 `llm_attempts` 发生时刻对应的费率版本，不回溯修改历史成本。
+成本计算总是使用每条 `llm_provider_attempts` 发出时刻对应的费率版本，不回溯修改历史成本。Provider 账单到达后只把 `usage_status=unknown/estimated` 收敛为 confirmed，并保留调整事件，不覆盖原始估算事实。
 
 ## 流式输出
 
@@ -517,6 +560,7 @@ Gateway 在流式过程中的职责：
 - **协议转换**：不同 Provider 的 SSE 格式不同（Anthropic 用 `content_block_delta`，OpenAI 用 `choices[0].delta`），Adapter 统一成平台内部的 token delta 格式。
 - **流式准入**：在发送请求前决定 `disabled | buffered_until_checked | chunk_checked`。高风险 run、含 secret scope 的上下文、跨租户管理操作、DLP 命中或策略要求人工检查时，不允许 token 直出。
 - **pre-emit 检查**：对准备发给 Realtime 的 chunk 做 secret、PII、危险链接、未授权 artifact 引用和 policy 检查；未通过则停止流式、阻断后续 chunk，并把 run 转入重写、审批或失败路径。
+- **generation 隔离**：每个 chunk 携带 `attempt_key + stream_generation + chunk_seq`。第一个 chunk 发出时把 selected provider attempt 标为 `visible_output_started`；从这一刻起禁止透明 fallback。若 AgentWorker 用新模型重新生成，Realtime 先发 replacement/reset 事件，再发送新的 generation，客户端不得拼接旧 generation。
 - **token 计数**：部分 Provider 在流式过程中不返回 token 用量，只在结束时给出。Gateway 在收到完整响应后才记录用量和成本。
 - **超时检测**：如果 `stream_idle_timeout` 内没有新 token，视为超时。
 - **不把 token delta 当事实源**：允许通过 Realtime Gateway 推给客户端（见 [realtime.md](./realtime.md)），也可写入有界 `run_message_chunks`，但不逐 token 写入 EventStore。只有最终的完整消息和 token 用量才持久化。
@@ -618,7 +662,7 @@ LLM 调用的 metrics 使用低基数维度（与 [operations.md](./operations.m
 | Provider Adapter | 每个 Provider 一个协议适配层；统一 request/response/tool/stream/error/usage 格式 |
 | Rate Limiter | Provider 级、tenant 级和系统级并发/请求/token 闸门 |
 | Health Check | 基于实际调用的滑动窗口、熔断、half-open 探测和告警 |
-| Cost Tracker | `llm_attempts` 记录 attempt、provider、model、usage、pricing_version、fallback 和成本 |
+| Cost Tracker | `llm_attempts` 记录逻辑调用；`llm_provider_attempts` 逐次记录 provider、model、request id、usage status、pricing version、fallback 和成本，未知费用保守预留并对账 |
 | 费率管理 | 费率带 `effective_from` / `effective_until`，历史成本不回溯改写 |
 | 合规路由 | 请求携带数据分类、区域、保留和训练使用约束；fallback 不能越过租户合规边界 |
 

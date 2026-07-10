@@ -34,8 +34,12 @@ Sweeper 可以理解成“后台闹钟 + 清理工”。它定期找已经到期
 | `outcome_unknown` 复核 | ToolCall 进入 unknown 后到 `due_at` | 调用对账逻辑，落成功/失败；仍未知则升级人工，最终只能显式接受为 `resolved_unknown`，不能标成 cancelled |
 | quota reservation 回收 | `reservation_id` 超 TTL 未 settle/release | 释放预留，记录审计 |
 | 租约 / 旧尝试回收 | lease 过期、attempt 失去 owner | 标记为旧尝试，释放所有权，有副作用者转对账 |
+| cancellation barrier | Run 已请求取消但 barrier 未 settled | 终止或 fence 掉残余执行权，推进逐层传播；仅在 active attempt、ToolCall、runtime、Child Run 全部收敛后写 `RunCancelled` |
 | retry backoff | `available_at` 到期 | 重新入队或写 DLQ |
+| command 对账 | 聚合仍有 `pending_command_id`，但 inbox 无 completed/有效 owner | 校验 outbox payload/epoch 后重投同一 command；outbox 缺失或冲突进入 Repair |
+| LLM 成本对账 | Provider attempt 为 `outcome_unknown` / usage unknown | 用 provider request id 或账单数据收敛 usage/cost，结算保守预算预留 |
 | snapshot 触发 | 距上一快照事件数 >= N 或时间 >= T | 条件写 snapshot |
+| projection rebuild | 新 projection version 正在重建 | 按 shard checkpoint 追平、校验 checksum；poison event 阻止对应 shard 切换 |
 | runtime cleanup | session idle/TTL/kill deadline 到期 | 发 `RuntimeTerminationRequested` 或强制清理 |
 | workspace prepared revision GC | prepared revision 超 TTL 且未成为可见 head | 查 EventStore effect ledger；无引用且不在对账中的才回收 |
 
@@ -85,17 +89,35 @@ Metrics 只使用低基数维度。低基数的意思是“取值种类有限”
 - Sweeper 到期积压、处理延迟、对账积压、未回收 reservation。
 - 实时缺口恢复时间、慢连接断开、登录刷新失败。
 
-端到端 SLO（用户能感受到的服务目标）：
+生产基线 SLO 按自然月计算，并在 [capacity-and-scaling.md](./capacity-and-scaling.md) 的参考负载组合下验收：
 
-- API accept latency：API 接受请求的延迟。
-- queue wait：任务排队等待时间。
-- time to first token：从发起到看到第一个 token 的时间。
-- run completion latency：run 完成总耗时。
-- interactive run success rate：交互式 run 成功率。
-- realtime gap recovery time：实时断线后补齐缺口的时间。
-- runtime cold-start latency：runtime 冷启动耗时。
-- tool outcome-unknown rate：工具结果未知的比例。
-- tenant throttle accuracy：租户限流是否准确。
+| SLI | 生产目标 | 统计口径 |
+| --- | --- | --- |
+| API accept availability / latency | `99.95%`；p95 `<= 250ms`，p99 `<= 1s` | 已鉴权、未被合法限流的 create/cancel/approve 请求 |
+| EventService append | `99.99%`；p99 `<= 200ms` | 不含调用方状态冲突；包含 event + projection + outbox 事务 |
+| interactive queue wait | p95 `<= 2s`，p99 `<= 10s` | command 可执行到 Worker claim；不含审批等待 |
+| time to first safe token | p95 `<= 5s`，p99 `<= 15s` | 从 RunAccepted 到第一个通过 pre-emit 检查的 token；禁用流式的高风险 Run 单独统计 |
+| run deadline adherence | `>= 99%` 在声明 deadline 前进入等待态或终态 | 排除用户主动暂停；不能用无限 deadline 改善指标 |
+| interactive run platform success | `>= 99.5%` | 排除用户取消、内容策略拒绝和业务工具确定失败；平台/状态机/队列错误计入 |
+| realtime gap recovery | p95 `<= 2s`，p99 `<= 10s` | 重连鉴权完成到补齐 high-water mark |
+| runtime cold start | p95 `<= 5s`，p99 `<= 15s` | 标准 untrusted runtime image；GPU/专用镜像单列 |
+| tool outcome-unknown | 日比例 `< 0.1%`；其中 `99%` 在 15 分钟内自动收敛 | 按有副作用 ToolCall 计；`accepted_unknown` 永远单列 |
+| tenant isolation / throttle | 越权放行 `0`；合法请求误限流 `< 0.1%` | 安全越权不使用误差预算，出现即事故 |
+
+每个 SLO 都有月度 error budget 和 5 分钟、1 小时、6 小时多窗口 burn-rate 告警。预算耗尽时停止非必要 AI 配置变更和扩量，优先恢复可靠性；不能通过排除失败样本、延长 deadline 或关闭审计改善数字。
+
+## 可用性与灾难恢复目标
+
+系统是单区域单写，但区域内跨可用区部署。最终生产目标：
+
+| 故障 | RPO | RTO | 恢复方式 |
+| --- | ---: | ---: | --- |
+| 单实例 / 单可用区故障 | `0` | `<= 5 分钟` | PostgreSQL 同步副本、无状态服务跨区、队列和对象存储区域级冗余 |
+| 整个主区域不可恢复 | `<= 5 分钟` | `<= 60 分钟` | 异地连续归档 + 对象版本复制；封闭恢复并轮换 `store_epoch` |
+| 外部队列数据丢失 | EventStore RPO | `<= 15 分钟` | CommandReconciler 从 pending projection、inbox、outbox 重投同一 command |
+| projection / 向量索引损坏 | EventStore RPO | `<= 4 小时` | 按 version/shard 从事件重建，旧 projection 在校验通过前继续服务 |
+
+EventStore、payload/object、workspace revision、tool/profile/policy snapshot 和外部 epoch anchor 必须属于同一份恢复清单；只恢复数据库但丢失被事件引用的内容不算恢复成功。备份每日做自动可读性验证，每月恢复到隔离环境并校验 checksum，每季度演练完整区域恢复；演练结果记录实际 RPO/RTO、缺失引用和 command 对账报告。
 
 ## 运维控制台
 
@@ -123,19 +145,25 @@ Metrics 只使用低基数维度。低基数的意思是“取值种类有限”
 | join 与 cancel 同时提交 | 不因 `event_cursors` 与 Run 反向锁序死锁；若 PostgreSQL 返回 `40P01`，短事务用新状态重试 |
 | 工具副作用成功、Worker 写结果前崩溃 | 对账或幂等键防止盲目重做 |
 | Resume command 已创建但 Worker 尚未领取 | Run 保持 `queued`；claim 时才创建 attempt/fence/lease 并进入 `executing` |
-| lease 过期、旧 Worker 恢复 | attempt、精确 fence 或 lease 任一不匹配都不能推进 Run；更大的未签发 fence 也必须拒绝 |
+| lease 过期、旧 Worker 恢复 | command、attempt、精确 fence、lease token 或期限任一不匹配都不能推进 Run；更大的未签发 fence 也必须拒绝 |
+| 外部队列丢失但 outbox 已 published | CommandReconciler 依据 pending id 和 inbox 重投同一 command；已完成或已有有效 owner 的 command 不重复执行 |
+| LLM 第一个 Provider 超时后 fallback 成功 | 两个物理 provider attempt 都保留 request id、usage status 和成本；未知费用保守预留并对账 |
+| LLM 已发送 token 后 Provider 断流 | 当前 generation 显式失败；禁止透明拼接 fallback，重新生成必须发送 replacement/reset 和新 generation |
 | 危险工具批准后参数或 workspace revision 变化 | 原 approval scope 失效，不发 ExecuteToolCall，要求重新审批 |
 | Workspace prepared revision 创建后、commit authorization 前崩溃 | revision 保持不可见；无合法引用且不在对账中的对象由 GC 回收 |
 | `WorkspaceRevisionCommitAuthorized` 已提交、发布前崩溃 | 从 outbox 重投同一 `CommitWorkspaceRevision`，按 authorization/effect key 幂等发布 |
 | Workspace revision 发布后、结果事件提交前崩溃 | 按 effect key 查询并补写 `WorkspaceRevisionCommitted`；不创建第二份 revision |
 | Run cancel 与 ToolCall completed 同时提交 | ToolCall 事实可保留，但 Run 不恢复执行 |
+| 取消跨越大量 Child Run | 逐层、分批 command 传播；只有 cancellation barrier 证明 attempt、ToolCall、runtime、Child Run 全部收敛后才写 RunCancelled |
 | 实时通知丢失（pub/sub bus 抖动、重启或消息被丢弃） | 客户端用 `last_seen_seq` 补拉 |
 | 客户端消费太慢 | Gateway 断开连接，客户端重连补拉 |
 | auth 到期或权限撤销 | 停止发送，重新鉴权和 ACL 检查 |
 | DLQ redrive 时外部效果未知 | 先查 effect ledger，不直接重试 |
 | 部署新事件 schema | 新旧 Worker 均可安全读取或 upcast |
+| projection 遇到 poison event | 受影响 aggregate/shard 进入 rebuild_blocked，禁止跳过事件或切换新 projection；其他 shard 继续服务 |
 | snapshot 损坏 | 自动丢弃 snapshot，从事件重建 |
 | 按时间点恢复后存在旧 command | 独立恢复控制面先轮换 epoch；任何不精确匹配当前 epoch 的 command 都被拒绝 |
 | 租户/主体删除 | 加密载荷不可还原，memory/snapshot/search/artifact 派生物失效 |
+| 共享 Memory 同时含多个主体 | 根据 subject/derivation lineage 重派生非目标内容或整条删除；所有存储回执齐全后才完成 erasure |
 
 `store_epoch` 的持久化合约定义在 [concurrency-and-durability.md](./concurrency-and-durability.md)。运维侧需要告警：非当前 epoch command 被拒绝、恢复时外部 epoch 未轮换、EventStore 尚未安装新 epoch 就启动消费者、publisher 发布非当前 epoch outbox row。PITR runbook 必须按“停入口与消费者 → 外部控制面 CAS 轮换 epoch → 恢复并安装 epoch → 重建合法 command → 灰度开放消费者 → 开放入口”的顺序演练。

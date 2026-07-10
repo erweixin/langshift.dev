@@ -2,7 +2,7 @@
 
 > 定位：主线文档。本文档定义 Run、ToolCall 和 Command 能怎么变。可以把它当成“状态交通规则”：哪些路能走，走之前要检查什么，走完要写哪些事件。多 Agent 编排里的 `waiting_child` 也是 Run 状态机的一部分，具体模式见 [orchestration-patterns.md](./orchestration-patterns.md)。
 
-> 命名权威：本文档是核心 Run / ToolCall / Command 生命周期事件与命令的命名基准（如 `RunAccepted`、`RunResumeQueued`、`ToolCallProposed`、`ToolCallRequested`、`ResumeAgentRun`、`ResumeParentRun`、`ChildRunSpawned`、`ReconcileToolEffect`、`RuntimeTerminationRequested`、`ToolCallManuallyResolved`）。领域事件由各自专题文档拥有：`Memory*` 见 [memory.md](./memory.md)，`Guardrail*` / `SecuritySignal*` 见 [agent-safety-and-guardrails.md](./agent-safety-and-guardrails.md)，`Checkpoint*` / `Escalation*` / `BudgetTransferred` 见 [orchestration-patterns.md](./orchestration-patterns.md)。其他文档引用这些名字即可，不要另立新名；核心名的新增或改名先在这里落地，再被别处引用。
+> 命名权威：本文档是核心 Run / ToolCall / Command 生命周期事件与命令的命名基准（如 `RunAccepted`、`RunResumeQueued`、`ToolCallProposed`、`ToolCallRequested`、`ResumeAgentRun`、`ResumeParentRun`、`ChildRunSpawned`、`PropagateRunCancellation`、`CommandRedeliveryRequested`、`ReconcileToolEffect`、`RuntimeTerminationRequested`、`ToolCallManuallyResolved`）。领域事件由各自专题文档拥有：`Memory*` 见 [memory.md](./memory.md)，`Guardrail*` / `SecuritySignal*` 见 [agent-safety-and-guardrails.md](./agent-safety-and-guardrails.md)，`Checkpoint*` / `Escalation*` / `BudgetTransferred` 见 [orchestration-patterns.md](./orchestration-patterns.md)。其他文档引用这些名字即可，不要另立新名；核心名的新增或改名先在这里落地，再被别处引用。
 
 ## 问题、决策与风险
 
@@ -18,11 +18,11 @@
 
 - Event 表示已经发生的事实，Command 表示希望某个消费者执行的下一步动作。
 - Run 状态转换检查 `run_version`；ToolCall 状态转换检查 `tool_call_version`；Command 发布检查 `command_id` 去重。
-- `seq` 只做 user 内提交顺序，不做并发控制；conversation 只是过滤维度。
+- `seq` 只做 tenant-user 内提交顺序，不做并发控制；conversation 只是过滤维度。
 - 终态 run 不被普通流程改写；修复必须创建替代 run 或新的执行尝试。
 - `cancel_requested` 是中断标志，不是终态；`cancelled` 才是最终状态。
 - `queued` 表示已经有一条 Start / Resume command，但还没有 AgentWorker 持有有效执行租约；首次启动和每次恢复都必须经过 `queued -> executing` 的统一 claim。
-- Worker 提交必须同时匹配当前 `command_id`、`attempt_id`、精确相等的 fence 和未过期 lease；不能只比较 fence 数字大小。
+- Worker 提交必须同时匹配当前 `command_id`、`attempt_id`、精确相等的 fence、不可猜的 lease token 和未过期 lease；不能只比较 fence 数字大小。
 
 | 应该 | 不应该 |
 | --- | --- |
@@ -87,13 +87,13 @@ stateDiagram-v2
 | --- | --- | --- | --- | --- | --- | --- |
 | 无 | API 创建 run | 已认证；租户拥有会话；幂等 key 没用过或命中同一请求 | 幂等唯一键 | 用户消息 `MessageAppended`、`accepted`、`RunAccepted`、幂等响应 | 无；继续同一受理事务登记调度 | 相同 key 返回原 run；key 相同但请求体不同则拒绝 |
 | `accepted` | EventService 登记调度 | run 已受理；该转换与 accept 在同一数据库事务、对外提交前完成 | `run_version` | `queued`、`RunQueued`，保存新 `StartAgentRun` 的 `pending_command_id` | `StartAgentRun` | 任一步失败整笔受理事务回滚，不暴露只有 accepted 而无 command 的 Run |
-| `queued` | AgentWorker 领取 Start / Resume command | inbox claim 成功；Run 的 `pending_command_id` 等于当前 command；原 active lease 不存在或已过期；EventService 原子创建新 attempt、递增并安装 fence | `run_version`、`command_id` | `executing`，把 pending command 移为 `active_command_id`；首次写 `RunStarted`，恢复写 `RunResumed`，并写 `JobAttemptStarted` | 无 | `completed` command 被忽略；未过期 claim 等待；抢占后旧 attempt 的提交因 attempt/fence 不匹配被拒绝 |
-| `executing` | AgentWorker 请求工具 | 工具计划有效；权限 schema 已知；并行组未打开 | `run_version`、active command/attempt、精确 fence、未过期 lease | `waiting_tool`、`ToolCallRequested`；每个 ToolCall 保存唯一 `pending_command_id` | 每个工具一条 `ExecuteToolCall` | 执行权或版本过期则丢弃这次 LLM 尝试，不推进 run |
-| `executing` | AgentWorker 发起子 Run | `spawn_agent_run` 通过 schema、权限、guardrail、深度和预算检查；child group 尚未打开 | `run_version`、active command/attempt、精确 fence、未过期 lease | `waiting_child`、`ToolCallSucceeded`、`ChildRunSpawned`、child group、预算划拨 | 每个子 Run 一条 `StartAgentRun` | 执行权或版本过期则丢弃这次 spawn 计划；不得只让父 Run 等待而不创建子 Run |
-| `executing` | AgentWorker 请求危险工具审批 | ToolCall 候选已通过 schema 和规范化；策略要求审批 | `run_version`、active command/attempt、精确 fence、未过期 lease | 创建不可变 `awaiting_approval` ToolCall，保存规范化参数 hash、descriptor/policy snapshot、workspace base revision；Run 写 `waiting_approval`、`ToolCallProposed`、`ApprovalRequested` | `NotifyApproval`，不发 `ExecuteToolCall` | 执行权或版本过期则整笔事务失败，不留下无主 proposed ToolCall |
-| `executing` | AgentWorker 请求需要真实 diff/preview 的工具审批 | 候选已规范化；预览过程本身被限制为无网络、无 secret、不可发布 workspace head | `run_version`、active command/attempt、精确 fence、未过期 lease | 创建 `preview_requested` ToolCall 并保存 preview `pending_command_id`；Run 写 `waiting_tool`、`ToolCallPreviewRequested` | `PrepareToolPreview` | 执行权或版本过期则整笔失败；preview command 不得越过真实副作用边界 |
+| `queued` | AgentWorker 领取 Start / Resume command | inbox claim 成功；Run 的 `pending_command_id` 等于当前 command；Run 未请求取消；原 active lease 不存在或已过期；EventService 原子创建新 attempt、递增 fence 并签发 lease token | `run_version`、`command_id` | `executing`，把 pending command 移为 `active_command_id`；首次写 `RunStarted`，恢复写 `RunResumed`，并写 `JobAttemptStarted` | 无 | `completed` command 被忽略；取消中的 Run 拒绝新 claim；未过期 claim 等待；抢占后旧 attempt 的提交因 attempt/fence/lease token 不匹配被拒绝 |
+| `executing` | AgentWorker 请求工具 | 工具计划有效；权限 schema 已知；并行组未打开 | `run_version`、active command/attempt、精确 fence/lease token、未过期 lease | `waiting_tool`、`ToolCallRequested`；每个 ToolCall 保存唯一 `pending_command_id` | 每个工具一条 `ExecuteToolCall` | 执行权或版本过期则丢弃这次 LLM 尝试，不推进 run |
+| `executing` | AgentWorker 发起子 Run | `spawn_agent_run` 通过 schema、权限、guardrail、深度和预算检查；child group 尚未打开 | `run_version`、active command/attempt、精确 fence/lease token、未过期 lease | `waiting_child`、`ToolCallSucceeded`、`ChildRunSpawned`、child group、预算划拨 | 每个子 Run 一条 `StartAgentRun` | 执行权或版本过期则丢弃这次 spawn 计划；不得只让父 Run 等待而不创建子 Run |
+| `executing` | AgentWorker 请求危险工具审批 | ToolCall 候选已通过 schema 和规范化；策略要求审批 | `run_version`、active command/attempt、精确 fence/lease token、未过期 lease | 创建不可变 `awaiting_approval` ToolCall，保存规范化参数 hash、descriptor/policy snapshot、workspace base revision；Run 写 `waiting_approval`、`ToolCallProposed`、`ApprovalRequested` | `NotifyApproval`，不发 `ExecuteToolCall` | 执行权或版本过期则整笔事务失败，不留下无主 proposed ToolCall |
+| `executing` | AgentWorker 请求需要真实 diff/preview 的工具审批 | 候选已规范化；预览过程本身被限制为无网络、无 secret、不可发布 workspace head | `run_version`、active command/attempt、精确 fence/lease token、未过期 lease | 创建 `preview_requested` ToolCall 并保存 preview `pending_command_id`；Run 写 `waiting_tool`、`ToolCallPreviewRequested` | `PrepareToolPreview` | 执行权或版本过期则整笔失败；preview command 不得越过真实副作用边界 |
 | `waiting_tool` | ToolWorker 完成审批预览组 | 所有 required preview ToolCall 已进入 `awaiting_approval`；prepared revision/artifact 仍不可见；审批材料 hash 已生成 | `run_version`、每个 `tool_call_version`、preview group lock | Run `waiting_approval`；写批次级 `ApprovalRequested` | `NotifyApproval`；不发 Resume 或 Execute | 预览失败按策略失败或重新规划；不得把未审批 revision 发布为 head |
-| `executing` | AgentWorker 请求阶段检查点 | checkpoint 材料和选项有效；不代表某个待执行工具 | `run_version`、active command/attempt、精确 fence、未过期 lease | `waiting_approval`、`CheckpointRequested` / `ApprovalRequested`，`approval_kind = stage_checkpoint` | `NotifyApproval` | 执行权或版本过期则丢弃这次 checkpoint 请求 |
+| `executing` | AgentWorker 请求阶段检查点 | checkpoint 材料和选项有效；不代表某个待执行工具 | `run_version`、active command/attempt、精确 fence/lease token、未过期 lease | `waiting_approval`、`CheckpointRequested` / `ApprovalRequested`，`approval_kind = stage_checkpoint` | `NotifyApproval` | 执行权或版本过期则丢弃这次 checkpoint 请求 |
 | `waiting_tool` | ToolWorker 完成并赢得汇合 | 并行组条件满足；已锁住 `parallel_group`；run 仍在等待工具 | `run_version` | `queued`、`ToolGroupJoined`、`RunResumeQueued`，保存 `pending_command_id` | `ResumeAgentRun` | 如果 run 已取消/过期，只记录跳过，不发续跑命令 |
 | `waiting_child` | Child Run 完成并赢得汇合 | child group 条件满足；已锁住 `child_group`；run 仍在等待子 Run | `run_version` | `queued`、`ChildGroupJoined`、`RunResumeQueued`、必要时回收预算，保存 `pending_command_id` | `ResumeParentRun`，提前满足 `any` / `quorum` 时取消剩余子 Run | 如果 run 已取消/过期，只记录迟到事实，不发续跑命令 |
 | `waiting_approval` | Approval API 批准危险 Worker 工具 | `approval_kind = tool_execution`；proposal 的 `execution_mode = worker_runtime`；审批人有权限；审批未过期；proposed ToolCall、参数 hash、tool/policy snapshot、workspace base revision 都仍匹配 | `run_version`、每个 `tool_call_version`、approval scope hash | proposed ToolCall `awaiting_approval -> requested` 并保存各自 `pending_command_id`；Run `waiting_tool`；写 `ApprovalGranted`、`ToolCallRequested` 和 parallel group | 每个已批准 ToolCall 一条 `ExecuteToolCall`；不发 `ResumeAgentRun` | 任一参数、版本、revision 或 scope 变化则整笔拒绝并要求重新审批 |
@@ -102,21 +102,40 @@ stateDiagram-v2
 | `waiting_approval` | Approval API 带反馈批准阶段检查点 | `approval_kind = stage_checkpoint`；feedback 通过 schema / DLP 检查 | `run_version` | `queued`、`ApprovalGrantedWithFeedback`、`RunResumeQueued`，保存 `pending_command_id` | `ResumeAgentRun`，feedback 进入下一步上下文 | 危险工具审批不允许 feedback；状态或版本变化则拒绝 |
 | `waiting_approval` | Approval API 要求 revise 阶段检查点 | `approval_kind = stage_checkpoint` 且支持 revise | `run_version` | `queued`、`ApprovalRevisionRequested`、`RunResumeQueued`，保存 `pending_command_id` | `ResumeAgentRun`，revision 要求进入当前阶段上下文 | 危险工具审批不允许 revise，只能批准或拒绝 |
 | `waiting_approval` | Approval API 拒绝 / abort | 审批人有权限；run 仍在等待审批 | `run_version`；工具审批还检查 proposed `tool_call_version` | `cancelled`、`ApprovalRejected` / `RunCancelled`；工具审批同时把所有 `awaiting_approval` ToolCall 标为 `cancelled` | 需要时发 `RuntimeTerminationRequested` | 如果已终态，返回当前终态 |
-| `executing` | AgentWorker 输出最终回复 | 最终回复已生成；预算未越界；`OutputChecked` 对最终消息和渲染目的地返回 `allow` 或 `redact` | `run_version`、active command/attempt、精确 fence、未过期 lease、`output_check_id` | `succeeded`、`OutputChecked`、`AssistantMessageFinalized`、`RunSucceeded` | 只发实时通知 | 执行权或版本过期则把输出视为旧尝试结果；输出检查失败则重写、隔离或转 `failed` / `waiting_approval` |
-| 任一非终态 | AgentWorker 或策略失败 | 错误不可恢复，或重试次数已耗尽 | `run_version`；AgentWorker 提交还检查 active command/attempt、精确 fence 和未过期 lease | `failed`、`RunFailed` | 无 | 执行权或版本过期说明别的转换先赢 |
-| 任一非终态 | Cancel API | 调用者有权限；run 还不是终态 | `run_version` | 设置 `cancel_requested`；没有执行体在跑时可直接 `cancelled` | `RuntimeTerminationRequested` / 取消工具命令 | 如果已终态，直接返回当前状态 |
+| `executing` | AgentWorker 输出最终回复 | 最终回复已生成；预算未越界；`OutputChecked` 对最终消息和渲染目的地返回 `allow` 或 `redact` | `run_version`、active command/attempt、精确 fence/lease token、未过期 lease、`output_check_id` | `succeeded`、`OutputChecked`、`AssistantMessageFinalized`、`RunSucceeded` | 只发实时通知 | 执行权或版本过期则把输出视为旧尝试结果；输出检查失败则重写、隔离或转 `failed` / `waiting_approval` |
+| 任一非终态 | AgentWorker 或策略失败 | 错误不可恢复，或重试次数已耗尽 | `run_version`；AgentWorker 提交还检查 active command/attempt、精确 fence/lease token 和未过期 lease | `failed`、`RunFailed` | 无 | 执行权或版本过期说明别的转换先赢 |
+| 任一非终态 | Cancel API | 调用者有权限；run 还不是终态 | `run_version`、cancel idempotency key | 设置 `cancel_requested_at`、递增 `cancel_generation`、创建 cancellation barrier、使当前 Run fence 失效；barrier 已为空时同事务进入 `cancelled` | `RuntimeTerminationRequested`、工具终止命令、需要时 `PropagateRunCancellation` | 重复请求返回同一 generation；如果已终态，直接返回当前状态 |
 | 任一非终态 | Timer / Sweeper | 到了 `due_at`；没有合法 Worker 还能继续推进 | `run_version` | `expired`、`RunExpired` | 需要时终止 runtime | 版本过期说明 Worker 或取消先赢 |
 
 **Run 不变量**：每个 `run_version` 最多产生一个可执行的下一步。任何 Start / Resume 都先把 Run 放入 `queued` 并绑定唯一 `pending_command_id`，只有成功 claim 这条 command 的 AgentWorker 才能把它推进到 `executing`。AgentWorker 把 Run 从 `executing` 推到等待态或终态时，必须在同一事务完成当前 inbox/attempt 并释放 active lease，但保留单调 fence 计数器。`succeeded`、`failed`、`cancelled`、`expired` 是终态，普通流程不能再推进。需要修复时创建新事件或 replacement run，不直接篡改终态。
 
 ## 取消语义
 
-取消分两步：
+取消使用持久化 cancellation barrier，不能靠进程内计数猜测“是不是都停了”。
 
-1. Cancel API 用 `run_version` CAS 设置 `cancel_requested`，并发出必要的中断命令。
-2. 正在运行的 AgentWorker / ToolWorker 通过 heartbeat 或下一次短事务看到该标志，协作式中止，并请求 RuntimeManager 终止 sandbox。若 Run 正在等待子 Run，取消会递归传播到所有非终态子 Run。所有执行体停止或被标记为旧尝试后，Run 进入 `cancelled`。
+```text
+run_cancellation
+- tenant_id
+- run_id
+- cancellation_id
+- root_cancellation_id
+- parent_cancellation_id?
+- cancel_generation
+- state: requested | terminating | settled
+- requested_by + requested_at + reason
+- propagation_command_id?
+- settled_at?
+```
 
-这一区分很重要：`cancel_requested` 表示“不要再开始新的工作，并尽快停下”；`cancelled` 表示“系统已经收敛到最终取消状态”。如果工具副作用已经发生，ToolCall 事实仍应记录；如果子 Run 已经完成，它的结果也可以记录。但 join 推进父 Run 时必须因 Run 不再处于 `waiting_tool` 或 `waiting_child` 而失败。
+流程：
+
+1. Cancel API 用 `run_version` CAS 设置 `cancel_requested_at`，递增 `cancel_generation`，创建带稳定 `cancellation_id/root_cancellation_id` 的 barrier，并使 Run 当前 fence 失效。这个事务同时登记当前 Agent attempt、在飞 ToolCall/runtime 的终止命令，以及需要时的 `PropagateRunCancellation`；重复取消返回同一 cancellation id 和 generation。
+2. 任何新的 Start / Resume / Execute claim 都必须检查 Run 及祖先没有 `cancel_requested_at`。正在运行的 Worker 通过 heartbeat 或下一次短事务看到取消后协作式中止；RuntimeManager 终止 sandbox 并写 termination acknowledgement。
+3. ToolCall 在副作用边界前停止时进入 `cancelled`；已经或可能越过边界时进入 `succeeded`、`failed` 或 `outcome_unknown`，不能用取消抹掉事实。子 Run 通过有界、逐层的 command 传播取消，不在一个数据库事务里递归锁整棵树。
+4. CancellationReconciler 锁定 barrier 和 Run，重新读取 EventStore 中的 active attempt、非终态 ToolCall、未确认终止的 runtime 和非终态直属 Child Run。只有这些集合全部为空，且没有 `outcome_unknown` 尚待裁定时，才能用 `run_version` CAS 写 `RunCancelled`，把 barrier 标为 `settled`。
+5. barrier 未满足时 Run 保持 `cancel_requested`；到期巡检继续终止、使旧 fence 失效或对账，不得提前伪装成 `cancelled`。任何完成/终止事件都会幂等触发一次 barrier 复核，避免只能靠轮询收敛。
+
+这一区分很重要：`cancel_requested` 表示“不要再开始新的工作，并尽快停下”；`cancelled` 表示“EventStore 已证明所有执行权和子任务都已收敛”。ToolCall 和 Child Run 的迟到事实仍可记录，但 join 在看到取消 generation 后不得恢复父 Run。
 
 ## ToolCall 状态机
 
@@ -160,6 +179,8 @@ stateDiagram-v2
 
 ### ToolCall 转换表
 
+下表为可读性简写“精确 fence、未过期 lease”时，始终同时要求不可猜的 `lease_token` 精确匹配；claim 安装 lease 时也必须原子签发并保存该 token。完整条件以 [concurrency-and-durability.md](./concurrency-and-durability.md) 的 append 合约为准。
+
 | 当前状态 | 触发方 | 允许条件 | 检查什么 | 写入什么 | 发出什么命令 | 如果失败 |
 | --- | --- | --- | --- | --- | --- | --- |
 | 无 | AgentWorker | Run 正在执行；工具 schema 有效；权限类型已知 | 父 Run 的 `run_version`、active command/attempt、精确 fence、未过期 lease | `requested`、`ToolCallRequested`、`pending_command_id`，必要时记录副作用意图 | `ExecuteToolCall` | 父 Run 执行权或版本过期则丢弃工具请求 |
@@ -201,7 +222,7 @@ stateDiagram-v2
   pending --> publishing: publisher lease
   publishing --> published: 消息队列确认
   publishing --> pending: publish failed / lease expired
-  published --> [*]
+  published --> pending: CommandReconciler 证明业务仍在等待且队列需恢复
 ```
 
 ### Command 转换表
@@ -212,5 +233,6 @@ stateDiagram-v2
 | `pending` | OutboxPublisher | 已到 `available_at`；拿到发布租约 | publisher lease token | `publishing`；发布次数 +1 | 尝试发布到消息队列 | 租约冲突说明另一个 publisher 在处理 |
 | `publishing` | OutboxPublisher | 消息队列已确认；outbox epoch 与独立恢复控制面的当前 epoch 精确相等 | publisher lease token、`store_epoch` identity | `published`、`published_at` | 消息已经发出 | 如果标记失败，之后会重发；消费者用 inbox 去重 |
 | `publishing` | OutboxPublisher / Sweeper | 发布失败或发布租约过期 | publisher lease token 或超时 | 回到 `pending`，设置下次 `available_at` | 稍后重试 | 毒性命令按策略进入 DLQ/Repair |
+| `published` | CommandReconciler | 聚合仍以同一 `pending_command_id` 等待；inbox 未完成且无有效 owner；`delivery_due_at` 已超过 claim SLO 或 queue generation 已声明丢失；outbox payload hash 与当前 epoch 一致 | 聚合状态、pending id、inbox state、delivery due、`store_epoch` | 同一 row 条件化回到 `pending`，按 backoff 更新 due，写 `CommandRedeliveryRequested` 审计 | 重发同一 `command_id` | 聚合不再等待则不重发；outbox 缺失或 hash 冲突则 fail closed 并进入 Repair |
 
-**Command 不变量**：outbox 只保证“发布 command”；Worker 执行结果由 `job_attempt`、Run、ToolCall 和事件记录。Publisher 崩溃会产生重复投递，消费者必须用 inbox 的 `UNIQUE (tenant_id, consumer_name, command_id)` 去重。
+**Command 不变量**：outbox 只保证“发布 command”；`published` 不是业务完成证明。Worker 执行结果由 `job_attempt`、Run、ToolCall 和事件记录。Publisher 崩溃、队列恢复或 Reconciler 重投都会产生重复投递，消费者必须用 inbox 的 `UNIQUE (tenant_id, consumer_name, command_id)` 去重。正常队列恢复重用同一 command id；只有 epoch 变化或经 Repair 修复不变量时才创建 replacement command。

@@ -58,7 +58,7 @@ child_run_fields（在 Run 基础上新增）
 
 父 Agent 通过一个平台内置工具 `spawn_agent_run` 来发起子 Run。这个工具和普通工具一样经过 schema 校验、权限检查和 guardrail 评估，区别在于它的 handler 不在 sandbox 里跑代码，也不先排队给 ToolWorker 再创建子 Run。它是 **inline platform tool**：EventService 在同一事务里创建一条已成功的 ToolCall 记录，并创建子 Run。
 
-关键规则：父 Run 进入 `waiting_child`、创建 `child_group`、创建 `spawn_tool_call_id` 对应的 ToolCall（直接 `succeeded`）、创建 Child Run、分配预算、写入 `StartAgentRun` outbox，必须由 EventService 在同一个数据库事务中提交。不能先让父 Run 等待，再异步去创建子 Run；否则中间崩溃会留下一个永远等不到结果的父 Run。
+关键规则：父 Run 进入 `waiting_child`、锁定根 Run orchestration quota、预留 descendant/concurrency slot、创建 `child_group`、创建 `spawn_tool_call_id` 对应的 ToolCall（直接 `succeeded`）、创建 Child Run、分配预算、写入 `StartAgentRun` outbox，必须由 EventService 在同一个数据库事务中提交。不能先让父 Run 等待，再异步去创建子 Run；否则中间崩溃会留下一个永远等不到结果的父 Run。
 
 `spawn_agent_run` 的 ToolCall 生命周期使用 [state-machines.md](./state-machines.md) 中的 `InlinePlatformToolCommitted` 转换：
 
@@ -90,7 +90,7 @@ sequenceDiagram
   participant C as 子 AgentWorker
 
   P->>ES: append spawn_agent_run（inline tool）+ run_version CAS
-  Note over ES: 同一事务内：父 Run → waiting_child<br/>spawn ToolCall → succeeded<br/>创建 child_group 和 Child Run<br/>扣减父预算<br/>写 StartAgentRun outbox
+  Note over ES: 同一事务内：父 Run → waiting_child<br/>预留根 quota + spawn ToolCall → succeeded<br/>创建 child_group 和 Child Run<br/>扣减父预算<br/>写 StartAgentRun outbox
   ES->>Q: StartAgentRun(子)
   Q->>C: 子 AgentWorker 领取
 
@@ -162,13 +162,14 @@ join 判定规则与 ToolCall 一致：子 Run 进入终态时，在同一事务
 
 ### 取消传播
 
-取消必须从根向叶递归传播：
+取消从根向叶传播，但不能在一个数据库事务里递归锁整棵树：
 
-1. 对父 Run 发起取消，设置 `cancel_requested`。
-2. EventService 查找该 Run 的所有非终态子 Run，对每个子 Run 也设置 `cancel_requested` 并发出中断命令。
-3. 子 Run 如果也有子 Run，继续递归。
-4. 每个子 Run 的 AgentWorker / ToolWorker 通过 heartbeat 看到 `cancel_requested` 后协作式中止。
-5. 所有子 Run 收敛到终态后，父 Run 的 child_group join 要么因 `cancel_requested` 跳过续跑，要么因子 Run 终态满足 join 后续跑时发现父 Run 已取消。
+1. 父 Run 的取消事务设置 `cancel_requested_at`、创建 cancellation barrier，并登记唯一 `PropagateRunCancellation(parent_run_id, root_cancellation_id, cancel_generation)` command。
+2. Propagator 每次只锁一个父 Run 和一批直属非终态 Child Run，对每个 child 用 `(run_id, root_cancellation_id)` 去重并 CAS 创建本地 barrier，保存 parent cancellation ref，再为仍有后代的 child 登记下一层 command；批次使用稳定 cursor，可重复投递。
+3. 每个 Child Run 的 AgentWorker / ToolWorker 通过 heartbeat 看到取消后协作式中止；已经越过副作用边界的 ToolCall 继续对账。
+4. Child Run 收敛后触发父 Run barrier 复核。只有直属子 Run、ToolCall、runtime 和 active attempt 都已收敛，父 Run才能进入 `cancelled`；child group join 看到取消 generation 后只记迟到事实，不发 Resume。
+
+这使取消事务的锁数量有固定上限，编排树再大也不会形成一次无界级联事务。完整 barrier 不变量以 [state-machines.md](./state-machines.md) 为准。
 
 超时传播规则相同：父 Run 的 `due_at` 是整棵编排树的最终期限。子 Run 的 `due_at` 取 `min(自身期限, 父 Run 剩余时间)`。
 
@@ -191,7 +192,7 @@ budget_allocation
 
 ### 深度限制
 
-编排树有最大深度限制（建议默认 `max_depth = 5`），防止 Agent 无限递归发起子任务。`spawn_agent_run` 工具在 guardrail 检查时验证 `depth + 1 <= max_depth`，超出则拒绝。
+编排树同时限制深度、单父并发数和整棵树节点数。生产默认 `max_depth = 5`、`max_concurrent_children = 10`、`max_total_descendants = 1000`；`spawn_agent_run` 在同一事务中锁根 Run 的 orchestration quota row，原子预留 descendant slot 和预算，任一上限超出都拒绝。子 Run 终态释放并发 slot，但历史 descendant 计数不回退，避免通过串行 spawn 绕过总节点上限。
 
 ---
 
@@ -414,17 +415,18 @@ flowchart TD
 
 ### Workspace 合并
 
-Copy-on-Write 模式下，父 Run 恢复后需要合并多个分支：
+Copy-on-Write 模式下，父 Run 恢复后通过平台 `workspace_merge` 工具合并多个分支。Merge 也是会改变可见 workspace head 的写操作，不能由父 Agent、merge Agent 或 Workspace Service 绕过 ToolCall 和 effect ledger 直接发布：
 
 ```text
 workspace_merge
-- 自动合并：无冲突的文件修改直接合并
-- 冲突检测：同一文件被多个子 Run 修改时标记冲突
-- 冲突处理：
-    - 由父 Agent 用 LLM 尝试解决
-    - 或交给人工审批
-    - 或 spawn 一个专门的 merge Agent
+- 输入：base revision、待合并 branch revisions、规范化 merge policy
+- 生成：不可见 prepared merge revision、file manifest、diff hash、conflict report
+- 无冲突：按 effect key 和 base head CAS，走 WorkspaceRevisionCommitAuthorized → CommitWorkspaceRevision → confirmed
+- 有冲突：prepared revision 保持不可见；父 Agent、人工或专门 merge Agent 只能生成新的精确 proposal
+- 需要审批：approval scope 绑定 branch 集合、base revision、prepared revision 和 diff hash；批准后只发布该 revision
 ```
+
+`workspace_merge` 复用 [runtime-and-sandbox.md](./runtime-and-sandbox.md) 的完整跨存储提交协议：先准备不可见 revision，再在 EventStore 留 durable authorization，最后由 CommitWorker 发布并确认。任何超时、崩溃和响应未知都用同一 effect key 对账；禁止重新生成另一份 merge revision 后静默重试。
 
 ---
 
@@ -631,6 +633,7 @@ context_manifest.orchestration
 ### 递归保护
 
 - `max_depth` 限制编排树深度。
+- `max_total_descendants` 限制整棵树累计 Child Run 数，根 Run quota row 原子计数。
 - 每层子 Run 的预算递减，防止组合爆炸。
 - 同一父 Run 的并发子 Run 数量有上限（建议默认 `max_concurrent_children = 10`）。
 - Agent 不能 spawn 一个和自己完全相同的子 Run（检测 task description + profile 的相似度），防止无意义递归。
@@ -697,7 +700,7 @@ context_manifest.orchestration
 | 阶段检查点 | 复用 `waiting_approval`，用 approval kind 限定 approve / feedback / revise / abort |
 | 协作编辑 | 人类修改通过 API / workspace lease 进入事件链，feedback 恢复 Run 时记录 revision 和 diff |
 | 编排可视化 | 提供 orchestration tree 查询，展示父子 Run、状态、预算、权限和等待点 |
-| 递归保护 | `max_depth`、并发子 Run 上限、预算递减、相似任务检测和租户资源闸门 |
+| 递归保护 | `max_depth`、`max_concurrent_children`、`max_total_descendants`、预算递减、相似任务检测和租户资源闸门；根 quota row 原子预留 |
 
 编排模式可以按产品场景启用，但不能为某种模式另建一套状态机或持久化系统。委派、监督、分治、流水线和 human-in-the-loop 都必须复用 Run、Child Run、EventStore、CAS、outbox/inbox、预算和 guardrail 原语。
 

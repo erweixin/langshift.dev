@@ -31,22 +31,22 @@ Realtime 是“通知铃”，不是“账本”。铃声可能没听到、可�
 
 - 实时通知是“尽力发送”：能实时到达最好，丢了也不作为数据丢失。
 - EventStore 是事实源。
-- EventStore 可补拉事件使用 user-scoped `seq`，conversation 只是过滤维度。
-- LLM token / message delta 的短期恢复使用 `run_message_chunks` 的 run-scoped `seq`；它是有界流日志，不是 EventStore 事实源。
+- EventStore 可补拉事件使用 tenant-user-scoped `seq`，conversation 只是过滤维度。
+- LLM token / message delta 的短期恢复使用 `run_message_chunks` 的 run-scoped `seq`；每条 chunk 还携带 `attempt_key + stream_generation + chunk_seq`，它是有界流日志，不是 EventStore 事实源。
 - 客户端记录 EventStore 的 `last_seen_seq`，并对每个 active run 记录 `after_seq`。
 - RealtimeGateway 可以发送重复事件，客户端必须按 `seq` 去重。
 - Gateway 检测到 `seq` gap 时，主动回源 EventStore 补拉。gap 检测只在用户级未过滤流上进行：按 conversation 过滤后的流天然存在 `seq` 空洞（同一用户其他会话、后台 run 也消耗 seq），不作为 gap 依据。
 
 ## 多观察者与审批订阅
 
-user-scoped `seq` 是“某个认证用户可见通知流”的游标，不是 Run 的全局游标。一个 Run 被多人观察时，不能让审批人使用发起人的 `seq`。
+tenant-user-scoped `seq` 是“某个租户中，认证用户可见通知流”的游标，不是 Run 的全局游标。一个 Run 被多人观察时，不能让审批人使用发起人的 `seq`；同一用户切换租户时也必须使用各自独立的游标。
 
 Baseline 规则：
 
 - 每个观察者维护自己的 `last_seen_seq`，只对自己有权限看到的事件或通知去重。
-- 需要把某个 Run 推给审批人、reviewer 或 team member 时，系统为该观察者生成可见通知，通知进入观察者自己的 user-scoped `seq`。
+- 需要把某个 Run 推给审批人、reviewer 或 team member 时，系统为该观察者生成可见通知，通知进入观察者在当前租户中的 tenant-user-scoped `seq`。
 - 审批人打开详情页后，后端按 `run_id` / `conversation_id` 做 ACL 检查并补拉 canonical events；排序使用事件的 `event_id` / `created_at` / 因果字段，不能依赖发起人的 `seq`。
-- 若未来要提供多人共享的严格实时游标，应新增 conversation-scoped 或 run-scoped stream；不要把 user-scoped `seq` 偷换成跨用户顺序。
+- 若未来要提供多人共享的严格实时游标，应新增 conversation-scoped 或 run-scoped stream；不要把 tenant-user-scoped `seq` 偷换成跨用户顺序。
 
 ## 无竞态重连协议
 
@@ -84,7 +84,7 @@ sequenceDiagram
 | 登录态到期 | 短期 token 到期前发送 `reauth_required`；未刷新则断开 |
 | 权限撤销 | Gateway 收到权限版本变化后停止发送相关 conversation，并要求重新鉴权；敏感事件补拉也要重新 ACL 检查 |
 | 多标签页 | 每个连接独立维护游标；服务端可按 user/tenant 限制连接数；客户端可自行选一个主标签页减少连接 |
-| 重复到达 | 客户端和 Gateway 都按 user-scoped `seq` 去重 |
+| 重复到达 | 客户端和 Gateway 都按 `(tenant_id, user_id, seq)` 去重 |
 | 租户配额 | 限制 tenant/user 的连接数、订阅 conversation 数、推送速率、补拉 QPS |
 
 RealtimeGateway 不保存业务状态。它可以保存短期连接状态、订阅列表、缓冲队列和最近发送的 cursor，但这些都可丢弃。
@@ -92,6 +92,8 @@ RealtimeGateway 不保存业务状态。它可以保存短期连接状态、订�
 ## LLM token 流
 
 不要把每个 LLM token 写入 EventStore。`assistant.delta` 可以走 per-run SSE，并可写入 `run_message_chunks` 作为有界/TTL 的可恢复流日志；最终聚合文本写入 `run_messages`。但 token delta 进入 SSE 之前必须满足输出 guardrail 的流式策略：低风险 run 先按 chunk 做 pre-emit 扫描，高风险 run 禁用流式或等待完整输出检查通过后再发布。
+
+同一条可见回复只消费一个 stream generation。某个 generation 已发送首个 chunk 后，不允许把 fallback 模型的 token 接在后面；重新生成时 Gateway 先发送 `assistant.generation_replaced(old_generation, new_generation)`，客户端清除或标记旧的未完成文本，再从新 generation 的 `chunk_seq=1` 开始。最终 `AssistantMessageFinalized` 必须引用唯一获选的 `attempt_key + stream_generation`，旧 generation 只保留短期诊断和成本审计，不进入最终消息。
 
 `run_message_chunks` 不是敏感信息旁路。chunk 写入前也要形成 payload envelope：允许短期明文展示的 chunk 必须已经对该观察者通过 ACL 和 pre-emit 扫描；其余 chunk 只能保存 `payload_ref` / `payload_hmac` / 敏感标签 / TTL。最终消息进入 `run_messages` 时同样使用 [concurrency-and-durability.md](./concurrency-and-durability.md) 定义的 payload envelope。
 
