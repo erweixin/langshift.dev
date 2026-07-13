@@ -1,13 +1,14 @@
 # Lites 架构文档
 
-这个目录只保留 Lites Cloud Agent 的架构内核，以及一个独立的 UX 原型。前端代码、后端代码、生成出来的 schema、本地脚本和具体产品实现记录已经移除，目的是让项目从一套更清楚的 Cloud Agent 架构重新开始。
+这个目录保留 Lites Cloud Agent 的架构内核、一个独立的 UX 原型，以及从产品理念、原型和架构重新推导出的完整 GA 实施计划。前端代码、后端代码、生成出来的 schema、本地脚本和旧实现记录已经移除，目的是让项目从一套更清楚的 Cloud Agent 架构重新开始。
 
-读这组文档时可以先抓住四件事：
+读这组文档时可以先抓住五件事：
 
 - Agent 任务不是一次 HTTP 请求，而是一串可恢复的“事件 + 命令”。
 - EventStore、durable queue/stream、runtime、memory、realtime、evaluation 和 observability 都按生产基线设计；组件可以演进，但语义不能变。
 - LLM 只提出计划，真正的权限、工具执行、安全审批和状态推进都由平台负责。
 - 多 Agent、长期记忆、流式输出和自动工具执行都不是默认魔法，而是建立在状态机、权限、隔离和可观测之上的可选能力。
+- [product-implementation-plan.md](./product-implementation-plan.md) 定义完整产品范围和 GA 验收边界，但不表示仓库已经实现到对应状态，也不划分中间 MVP。
 
 ## 怎么读
 
@@ -21,6 +22,7 @@
 | 接入工具、模型或记忆 | [tool-system.md](./tool-system.md)、[llm-provider.md](./llm-provider.md)、[memory.md](./memory.md) 按需读 |
 | 设计多 Agent 或人机协作 | 先确认单 Run 语义，再读 [orchestration-patterns.md](./orchestration-patterns.md) |
 | 准备上线和扩容 | [operations.md](./operations.md) → [capacity-and-scaling.md](./capacity-and-scaling.md) |
+| 了解完整产品与实施边界 | 根目录 [README.md](../README.md) → [architecture.md](./architecture.md) → [ux-prototype.html](./ux-prototype.html) → [product-implementation-plan.md](./product-implementation-plan.md) |
 
 ## 阅读顺序
 
@@ -47,6 +49,12 @@
 ## UX 原型
 
 [ux-prototype.html](./ux-prototype.html) 是一个独立的产品探索原型，可以直接用浏览器打开，用来讨论用户旅程。它不是前端源码，也不应该单独决定架构；如果原型里出现新的架构要求，需要回写到上面的 Markdown 文档里。
+
+## 产品实施计划
+
+[product-implementation-plan.md](./product-implementation-plan.md) 在产品理念、UX 原型和生产架构之上定义 Lites 的完整 GA 产品范围，包括账号体系、成长闭环、企业与合同能力、Agent 内核、数据与 API、实施顺序和发布门禁。
+
+这份计划是目标状态和实施边界，不是当前实现状态，也不把工作拆成可对外发布的 MVP。真正实现某个模块时，仍须遵守对应架构专题中的状态机、持久化、安全和运维语义。
 
 ## 已有内容为什么被移除
 

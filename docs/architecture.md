@@ -205,7 +205,7 @@ Outbox、Scheduler、Queue 是逻辑角色，但生产基线必须提供同等�
 ## 核心标识
 
 - `tenant_id`：客户边界。
-- `user_id`：已认证用户；与 `tenant_id` 一起构成事件提交顺序边界（tenant-user-scoped `seq`）。
+- `user_id`：已认证主体；通常是正式用户。匿名 Route Preview 是唯一例外：Identity Service 可以为签名匿名会话分配不可猜、不可复用且没有 credential/membership 的内部 `ephemeral_user_id`，占用同一个 `user_id` 顺序槽。无论哪种主体，它都与 `tenant_id` 一起构成事件提交顺序边界（tenant-user-scoped `seq`）；匿名主体不得共享正式用户或其他匿名主体的 id。
 - `conversation_id`：会话归属与事件过滤维度。
 - `run_id`：一次 Agent 执行或续跑。
 - `run_version`：Run 聚合的 CAS 令牌。
