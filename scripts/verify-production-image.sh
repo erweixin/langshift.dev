@@ -18,6 +18,7 @@ version=$(docker image inspect --format '{{index .Config.Labels "org.opencontain
 revision=$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$image")
 license=$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.licenses"}}' "$image")
 size=$(docker image inspect --format '{{.Size}}' "$image")
+image_id=$(docker image inspect --format '{{.Id}}' "$image")
 
 [[ "$user" == "65532:65532" ]]
 [[ "$entrypoint" == '["/lites"]' ]]
@@ -54,6 +55,7 @@ cat >"$report_dir/$service.json" <<EOF
   "schema_version": "1.0.0",
   "service": "$service",
   "image": "$image",
+  "image_id": "$image_id",
   "runtime_user": "$user",
   "entrypoint": $entrypoint,
   "shell_present": false,
