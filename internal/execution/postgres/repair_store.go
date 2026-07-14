@@ -20,14 +20,14 @@ var (
 )
 
 type ProposeToolEffectRepairCommand struct {
-	RepairID, TenantID, InitiatorUserID, ToolCallID   string
-	ExpectedToolVersion, ExpectedEffectVersion        uint64
-	EffectKey, Resolution, ProposalHash, EvidenceHash string
-	ResidualRiskRef                                   string
-	ExpiresAt                                         time.Time
-	Actor                                             json.RawMessage
-	CorrelationID                                     string
-	ProposedEvent                                     PayloadPointer
+	RepairID, TenantID, InitiatorUserID, InitiatorSessionID, ToolCallID string
+	ExpectedToolVersion, ExpectedEffectVersion                          uint64
+	EffectKey, Resolution, ProposalHash, EvidenceHash                   string
+	ResidualRiskRef                                                     string
+	ExpiresAt                                                           time.Time
+	Actor                                                               json.RawMessage
+	CorrelationID                                                       string
+	ProposedEvent                                                       PayloadPointer
 }
 
 type ProposedRepair struct {
@@ -79,8 +79,9 @@ func (store RunStore) ProposeToolEffectRepair(ctx context.Context, command Propo
 	if _, err = tx.Exec(ctx, `SELECT set_config('lites.tenant_id',$1,true)`, command.TenantID); err != nil {
 		return ProposedRepair{}, err
 	}
-	var authorized bool
-	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM identity.memberships WHERE tenant_id=$1 AND user_id=$2 AND status='active' AND role IN ('owner','admin'))`, command.TenantID, command.InitiatorUserID).Scan(&authorized); err != nil || !authorized {
+	var initiatorReauthenticated time.Time
+	var initiatorRole string
+	if err = tx.QueryRow(ctx, `SELECT s.reauthenticated_at,m.role FROM identity.sessions s JOIN identity.memberships m ON m.tenant_id=s.active_tenant_id AND m.user_id=s.user_id WHERE s.id=$1 AND s.user_id=$2 AND s.active_tenant_id=$3 AND s.revoked_at IS NULL AND s.expires_at>$4 AND s.reauthenticated_at IS NOT NULL AND m.status='active'`, command.InitiatorSessionID, command.InitiatorUserID, command.TenantID, now).Scan(&initiatorReauthenticated, &initiatorRole); err != nil || (initiatorRole != "owner" && initiatorRole != "admin") || initiatorReauthenticated.After(now) || now.Sub(initiatorReauthenticated) > repairReauthenticationMaxAge {
 		return ProposedRepair{}, ErrRepairAuthorization
 	}
 	if replay, found, replayErr := loadRepairProposalReplay(ctx, tx, command, eventID); replayErr != nil {
@@ -152,8 +153,10 @@ func (store RunStore) DecideToolEffectRepair(ctx context.Context, command Decide
 		return RepairDecision{}, err
 	}
 	now := store.claimNow()
-	command.ReauthenticatedAt = command.ReauthenticatedAt.UTC().Truncate(time.Microsecond)
-	if command.ReauthenticatedAt.After(now) || now.Sub(command.ReauthenticatedAt) > repairReauthenticationMaxAge {
+	if !command.ReauthenticatedAt.IsZero() {
+		command.ReauthenticatedAt = command.ReauthenticatedAt.UTC().Truncate(time.Microsecond)
+	}
+	if !command.ReauthenticatedAt.IsZero() && (command.ReauthenticatedAt.After(now) || now.Sub(command.ReauthenticatedAt) > repairReauthenticationMaxAge) {
 		return RepairDecision{}, ErrRepairAuthorization
 	}
 	decisionEventID, decisionOutboxID, decisionPublishID, err := repairDecisionEventIDs(store.IDKey, command.ApprovalID)
@@ -175,9 +178,10 @@ func (store RunStore) DecideToolEffectRepair(ctx context.Context, command Decide
 	var sessionReauthenticated time.Time
 	var role string
 	err = tx.QueryRow(ctx, `SELECT s.reauthenticated_at,m.role FROM identity.sessions s JOIN identity.memberships m ON m.tenant_id=s.active_tenant_id AND m.user_id=s.user_id WHERE s.id=$1 AND s.user_id=$2 AND s.active_tenant_id=$3 AND s.revoked_at IS NULL AND s.expires_at>$4 AND s.reauthenticated_at IS NOT NULL AND m.status='active'`, command.SessionID, command.ApproverUserID, command.TenantID, now).Scan(&sessionReauthenticated, &role)
-	if err != nil || !sessionReauthenticated.Equal(command.ReauthenticatedAt) || (role != "owner" && role != "admin") {
+	if err != nil || sessionReauthenticated.After(now) || now.Sub(sessionReauthenticated) > repairReauthenticationMaxAge || (!command.ReauthenticatedAt.IsZero() && !sessionReauthenticated.Equal(command.ReauthenticatedAt)) || (role != "owner" && role != "admin") {
 		return RepairDecision{}, ErrRepairAuthorization
 	}
+	command.ReauthenticatedAt = sessionReauthenticated
 	var status, proposalHash, initiatorID, targetID, effectKey, targetUserID string
 	var repairVersion, targetVersion, effectVersion uint64
 	var expiresAt time.Time
@@ -265,6 +269,9 @@ func (store RunStore) DecideToolEffectRepair(ctx context.Context, command Decide
 	}
 	result := RepairDecision{RepairID: command.RepairID, ApprovalID: command.ApprovalID, Status: "proposed", Version: repairVersion, ApprovalCount: approvalCount}
 	if approvalCount == 2 {
+		if !validPointer(command.RepairApprovedEvent) {
+			return RepairDecision{}, ErrInvalidCommand
+		}
 		if tag, updateErr := tx.Exec(ctx, `UPDATE agent.repair_commands SET version=version+1,status='approved',approved_at=$1,updated_at=$1 WHERE id=$2 AND tenant_id=$3 AND version=$4 AND status='proposed' AND expires_at>$1`, now, command.RepairID, command.TenantID, repairVersion); updateErr != nil || tag.RowsAffected() != 1 {
 			return RepairDecision{}, ErrRepairConflict
 		}
@@ -284,12 +291,12 @@ func (store RunStore) DecideToolEffectRepair(ctx context.Context, command Decide
 func validRepairProposal(command ProposeToolEffectRepairCommand) bool {
 	resolutionValid := command.Resolution == "confirmed_occurred" || command.Resolution == "confirmed_not_occurred" || command.Resolution == "accepted_unknown"
 	riskValid := command.Resolution == "accepted_unknown" && command.ResidualRiskRef != "" || command.Resolution != "accepted_unknown" && command.ResidualRiskRef == ""
-	return command.RepairID != "" && command.TenantID != "" && command.InitiatorUserID != "" && command.ToolCallID != "" && command.ExpectedToolVersion > 0 && command.ExpectedEffectVersion > 0 && command.EffectKey != "" && resolutionValid && riskValid && command.ProposalHash != "" && command.EvidenceHash != "" && !command.ExpiresAt.IsZero() && validJSONObject(command.Actor) && command.CorrelationID != "" && validPointer(command.ProposedEvent)
+	return command.RepairID != "" && command.TenantID != "" && command.InitiatorUserID != "" && command.InitiatorSessionID != "" && command.ToolCallID != "" && command.ExpectedToolVersion > 0 && command.ExpectedEffectVersion > 0 && command.EffectKey != "" && resolutionValid && riskValid && command.ProposalHash != "" && command.EvidenceHash != "" && !command.ExpiresAt.IsZero() && validJSONObject(command.Actor) && command.CorrelationID != "" && validPointer(command.ProposedEvent)
 }
 
 func validRepairDecision(command DecideRepairCommand) bool {
-	approvedPointerValid := command.Decision == "reject" || validPointer(command.RepairApprovedEvent)
-	return command.RepairID != "" && command.TenantID != "" && command.ApproverUserID != "" && command.SessionID != "" && command.ApprovalID != "" && (command.Decision == "approve" || command.Decision == "reject") && command.ProposalHash != "" && command.ExpectedRepairVersion > 0 && command.ExpectedToolVersion > 0 && command.ExpectedEffectVersion > 0 && command.PermissionSnapshot != "" && !command.ReauthenticatedAt.IsZero() && validJSONObject(command.Actor) && command.CorrelationID != "" && validPointer(command.DecisionEvent) && approvedPointerValid
+	approvedPointerValid := command.RepairApprovedEvent == (PayloadPointer{}) || validPointer(command.RepairApprovedEvent)
+	return command.RepairID != "" && command.TenantID != "" && command.ApproverUserID != "" && command.SessionID != "" && command.ApprovalID != "" && (command.Decision == "approve" || command.Decision == "reject") && command.ProposalHash != "" && command.ExpectedRepairVersion > 0 && command.ExpectedToolVersion > 0 && command.ExpectedEffectVersion > 0 && command.PermissionSnapshot != "" && validJSONObject(command.Actor) && command.CorrelationID != "" && validPointer(command.DecisionEvent) && approvedPointerValid
 }
 
 func repairProposalEventIDs(key []byte, repairID string) (string, string, string, error) {

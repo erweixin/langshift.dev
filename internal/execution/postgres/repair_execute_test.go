@@ -41,7 +41,7 @@ func TestRepairOutcomeAndIdentifiers(t *testing.T) {
 
 func TestRepairCommandValidation(t *testing.T) {
 	now := time.Now().UTC()
-	base := ProposeToolEffectRepairCommand{RepairID: "repair", TenantID: "tenant", InitiatorUserID: "initiator", ToolCallID: "tool", ExpectedToolVersion: 3, ExpectedEffectVersion: 4, EffectKey: "effect", Resolution: "accepted_unknown", ProposalHash: "proposal", EvidenceHash: "evidence", ResidualRiskRef: "encrypted://risk", ExpiresAt: now.Add(time.Hour), Actor: json.RawMessage(`{"kind":"user"}`), CorrelationID: "correlation", ProposedEvent: PayloadPointer{Ref: "encrypted://proposed", Hash: "proposed"}}
+	base := ProposeToolEffectRepairCommand{RepairID: "repair", TenantID: "tenant", InitiatorUserID: "initiator", InitiatorSessionID: "session", ToolCallID: "tool", ExpectedToolVersion: 3, ExpectedEffectVersion: 4, EffectKey: "effect", Resolution: "accepted_unknown", ProposalHash: "proposal", EvidenceHash: "evidence", ResidualRiskRef: "encrypted://risk", ExpiresAt: now.Add(time.Hour), Actor: json.RawMessage(`{"kind":"user"}`), CorrelationID: "correlation", ProposedEvent: PayloadPointer{Ref: "encrypted://proposed", Hash: "proposed"}}
 	if !validRepairProposal(base) {
 		t.Fatal("valid accepted-unknown proposal rejected")
 	}
@@ -59,7 +59,10 @@ func TestRepairCommandValidation(t *testing.T) {
 		t.Fatal("valid rejection without approved payload rejected")
 	}
 	decision.Decision = "approve"
-	if validRepairDecision(decision) {
-		t.Fatal("approval without RepairCommandApproved payload accepted")
+	if !validRepairDecision(decision) {
+		t.Fatal("first approval without RepairCommandApproved payload rejected")
 	}
+	// The second-approval path validates RepairApprovedEvent after it has
+	// counted durable approvals; requiring it here would force callers to
+	// manufacture an unused payload for the first approval.
 }

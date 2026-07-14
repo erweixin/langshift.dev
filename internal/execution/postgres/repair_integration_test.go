@@ -19,12 +19,12 @@ import (
 )
 
 type unknownRepairFixture struct {
-	store                                                    RunStore
-	tenantID, targetUserID, initiatorID                      string
-	approverOneID, approverTwoID, sessionOneID, sessionTwoID string
-	runID, toolCallID, effectID, effectKey, correlationID    string
-	toolVersion, effectVersion                               uint64
-	now                                                      time.Time
+	store                                                                        RunStore
+	tenantID, targetUserID, initiatorID                                          string
+	approverOneID, approverTwoID, initiatorSessionID, sessionOneID, sessionTwoID string
+	runID, toolCallID, effectID, effectKey, correlationID                        string
+	toolVersion, effectVersion                                                   uint64
+	now                                                                          time.Time
 }
 
 func TestToolEffectRepairExecutesEveryResolutionExactlyOnce(t *testing.T) {
@@ -47,7 +47,7 @@ func TestToolEffectRepairExecutesEveryResolutionExactlyOnce(t *testing.T) {
 			repairID := fixtureID(test.prefix, 30)
 			proposalHash := "proposal-" + test.prefix
 			evidenceHash := "evidence-" + test.prefix
-			proposal := ProposeToolEffectRepairCommand{RepairID: repairID, TenantID: fixture.tenantID, InitiatorUserID: fixture.initiatorID, ToolCallID: fixture.toolCallID, ExpectedToolVersion: fixture.toolVersion, ExpectedEffectVersion: fixture.effectVersion, EffectKey: fixture.effectKey, Resolution: test.resolution, ProposalHash: proposalHash, EvidenceHash: evidenceHash, ResidualRiskRef: test.residualRisk, ExpiresAt: fixture.now.Add(30 * time.Minute), Actor: json.RawMessage(`{"kind":"user","role":"admin"}`), CorrelationID: fixture.correlationID, ProposedEvent: repairPointer(test.prefix, "proposed")}
+			proposal := ProposeToolEffectRepairCommand{RepairID: repairID, TenantID: fixture.tenantID, InitiatorUserID: fixture.initiatorID, InitiatorSessionID: fixture.initiatorSessionID, ToolCallID: fixture.toolCallID, ExpectedToolVersion: fixture.toolVersion, ExpectedEffectVersion: fixture.effectVersion, EffectKey: fixture.effectKey, Resolution: test.resolution, ProposalHash: proposalHash, EvidenceHash: evidenceHash, ResidualRiskRef: test.residualRisk, ExpiresAt: fixture.now.Add(30 * time.Minute), Actor: json.RawMessage(`{"kind":"user","role":"admin"}`), CorrelationID: fixture.correlationID, ProposedEvent: repairPointer(test.prefix, "proposed")}
 			proposed, err := fixture.store.ProposeToolEffectRepair(ctx, proposal)
 			if err != nil || proposed.Status != "proposed" || proposed.Version != 1 || proposed.Replayed {
 				t.Fatalf("proposed=%#v err=%v", proposed, err)
@@ -134,7 +134,7 @@ func TestToolEffectRepairRejectionIsTerminalAndAudited(t *testing.T) {
 	defer pool.Close()
 	fixture := prepareUnknownRepairFixture(t, ctx, admin, pool, "dd")
 	repairID := fixtureID("dd", 30)
-	proposal := ProposeToolEffectRepairCommand{RepairID: repairID, TenantID: fixture.tenantID, InitiatorUserID: fixture.initiatorID, ToolCallID: fixture.toolCallID, ExpectedToolVersion: fixture.toolVersion, ExpectedEffectVersion: fixture.effectVersion, EffectKey: fixture.effectKey, Resolution: "confirmed_occurred", ProposalHash: "proposal-dd", EvidenceHash: "evidence-dd", ExpiresAt: fixture.now.Add(30 * time.Minute), Actor: json.RawMessage(`{"kind":"user","role":"admin"}`), CorrelationID: fixture.correlationID, ProposedEvent: repairPointer("dd", "proposed")}
+	proposal := ProposeToolEffectRepairCommand{RepairID: repairID, TenantID: fixture.tenantID, InitiatorUserID: fixture.initiatorID, InitiatorSessionID: fixture.initiatorSessionID, ToolCallID: fixture.toolCallID, ExpectedToolVersion: fixture.toolVersion, ExpectedEffectVersion: fixture.effectVersion, EffectKey: fixture.effectKey, Resolution: "confirmed_occurred", ProposalHash: "proposal-dd", EvidenceHash: "evidence-dd", ExpiresAt: fixture.now.Add(30 * time.Minute), Actor: json.RawMessage(`{"kind":"user","role":"admin"}`), CorrelationID: fixture.correlationID, ProposedEvent: repairPointer("dd", "proposed")}
 	if _, err := fixture.store.ProposeToolEffectRepair(ctx, proposal); err != nil {
 		t.Fatal(err)
 	}
@@ -172,6 +172,7 @@ func prepareUnknownRepairFixture(t *testing.T, ctx context.Context, admin, pool 
 	approverOneID, approverTwoID := fixtureID(prefix, 3), fixtureID(prefix, 4)
 	tenantID := fixtureID(prefix, 5)
 	sessionOneID, sessionTwoID := fixtureID(prefix, 6), fixtureID(prefix, 7)
+	initiatorSessionID := fixtureID(prefix, 15)
 	runID, conversationID := fixtureID(prefix, 8), fixtureID(prefix, 9)
 	correlationID, storeEpoch := fixtureID(prefix, 10), fixtureID(prefix, 11)
 	now := time.Date(2026, time.July, 15, 3, int(prefix[1]-'a'), 0, 0, time.UTC)
@@ -202,7 +203,7 @@ func prepareUnknownRepairFixture(t *testing.T, ctx context.Context, admin, pool 
 	sessions := []struct {
 		id, userID string
 		marker     byte
-	}{{sessionOneID, approverOneID, prefix[1]}, {sessionTwoID, approverTwoID, prefix[1] + 16}}
+	}{{initiatorSessionID, initiatorID, prefix[1] + 32}, {sessionOneID, approverOneID, prefix[1]}, {sessionTwoID, approverTwoID, prefix[1] + 16}}
 	for _, session := range sessions {
 		if _, err := admin.Exec(ctx, `INSERT INTO identity.sessions(id,user_id,active_tenant_id,token_hash,csrf_secret_hash,ip_hash,user_agent_hash,last_seen_at,expires_at,reauthenticated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$8)`, session.id, session.userID, tenantID, bytes.Repeat([]byte{session.marker}, 32), bytes.Repeat([]byte{session.marker + 1}, 32), bytes.Repeat([]byte{session.marker + 2}, 32), bytes.Repeat([]byte{session.marker + 3}, 32), now, now.Add(time.Hour)); err != nil {
 			t.Fatal(err)
@@ -235,7 +236,7 @@ func prepareUnknownRepairFixture(t *testing.T, ctx context.Context, admin, pool 
 	if err = admin.QueryRow(ctx, `SELECT id::text,effect_key,version FROM agent.tool_effects WHERE tenant_id=$1 AND tool_call_id=$2 AND status='outcome_unknown'`, tenantID, tool.ToolCallID).Scan(&effectID, &effectKey, &effectVersion); err != nil {
 		t.Fatal(err)
 	}
-	return unknownRepairFixture{store: store, tenantID: tenantID, targetUserID: targetUserID, initiatorID: initiatorID, approverOneID: approverOneID, approverTwoID: approverTwoID, sessionOneID: sessionOneID, sessionTwoID: sessionTwoID, runID: runID, toolCallID: tool.ToolCallID, effectID: effectID, effectKey: effectKey, correlationID: correlationID, toolVersion: completed.ToolCallVersion, effectVersion: effectVersion, now: now}
+	return unknownRepairFixture{store: store, tenantID: tenantID, targetUserID: targetUserID, initiatorID: initiatorID, approverOneID: approverOneID, approverTwoID: approverTwoID, initiatorSessionID: initiatorSessionID, sessionOneID: sessionOneID, sessionTwoID: sessionTwoID, runID: runID, toolCallID: tool.ToolCallID, effectID: effectID, effectKey: effectKey, correlationID: correlationID, toolVersion: completed.ToolCallVersion, effectVersion: effectVersion, now: now}
 }
 
 func repairDecisionCommand(fixture unknownRepairFixture, repairID, approverID, sessionID, approvalID, proposalHash, decision, suffix string) DecideRepairCommand {
