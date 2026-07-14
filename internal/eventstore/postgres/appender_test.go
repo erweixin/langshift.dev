@@ -21,4 +21,16 @@ func TestAppenderRejectsIncompleteOrNonObjectEvents(t *testing.T) {
 	if validInput(input) {
 		t.Fatal("duplicate outbox id accepted")
 	}
+	input.Commands = []OutboxCommand{{ID: "o", CommandID: "c", CommandType: "publish", TargetAggregateKind: "tool_call", PayloadRef: "encrypted://command", PayloadHash: "hash"}}
+	if validInput(input) {
+		t.Fatal("partial target aggregate accepted")
+	}
+	input.Commands[0].TargetAggregateID = "tool"
+	if !validInput(input) {
+		t.Fatal("explicit target aggregate rejected")
+	}
+	kind, id := commandTarget(input.Event, input.Commands[0])
+	if kind != "tool_call" || id != "tool" {
+		t.Fatalf("target=%s/%s", kind, id)
+	}
 }

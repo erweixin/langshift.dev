@@ -20,7 +20,7 @@ func TestReconciliationClaimValidationAndIdentifiers(t *testing.T) {
 	if validClaimReconciliation(invalid) {
 		t.Fatal("tool execution accepted as reconciliation")
 	}
-	claim := ReconciliationClaim{ToolCallID: "tool", RunID: "run", GroupID: "group", EffectID: "effect", TenantID: "tenant", UserID: "user", StoreEpoch: "epoch", ToolCallVersion: 3, EffectVersion: 3, EffectClass: "reconcilable_write", EffectScope: "scope", EffectKey: "key", ProviderID: "provider", ProviderRequestID: "provider-request", CommandID: "command", ConsumerName: "reconciliation-worker", RequestHash: "hash", JobID: "job", InboxID: "inbox", AttemptID: "attempt", Fence: 1, LeaseToken: "token", LeaseExpiresAt: time.Now().Add(time.Minute)}
+	claim := ReconciliationClaim{ToolCallID: "tool", RunID: "run", GroupID: "group", EffectID: "effect", TenantID: "tenant", UserID: "user", StoreEpoch: "epoch", ToolCallVersion: 3, EffectVersion: 3, EffectClass: "reconcilable_write", EffectScope: "scope", EffectKey: "key", ProviderID: "provider", ProviderRequestID: "provider-request", CommandID: "command", ConsumerName: "reconciliation-worker", RequestHash: "hash", JobID: "job", InboxID: "inbox", AttemptID: "attempt", Fence: 1, LeaseToken: "token", LeaseExpiresAt: time.Now().Add(time.Minute), ReconciliationDueAt: time.Now()}
 	if !validReconciliationClaim(claim) {
 		t.Fatal("valid reconciliation claim rejected")
 	}
@@ -50,5 +50,17 @@ func TestReconciliationClaimValidationAndIdentifiers(t *testing.T) {
 	completeSecond, err := store.reconciliationCompletionIdentifiers("attempt", statemachine.ToolCallSucceeded)
 	if err != nil || completeFirst != completeSecond || completeFirst.event == completeFirst.outbox || completeFirst.event == completeFirst.publish || completeFirst.outbox == completeFirst.publish {
 		t.Fatalf("unstable completion identifiers first=%#v second=%#v err=%v", completeFirst, completeSecond, err)
+	}
+	deferCommand := DeferReconciliationCommand{Claim: claim, ExpectedEffectVersion: claim.EffectVersion, ResultHash: "still-unknown", NextDueAt: time.Now().Add(time.Hour), Actor: json.RawMessage(`{"kind":"service"}`), CorrelationID: "correlation", AttemptCompletedEvent: PayloadPointer{Ref: "encrypted://attempt-completed", Hash: "attempt-completed"}, NextReconcileCommand: PayloadPointer{Ref: "encrypted://reconcile-next", Hash: "reconcile-next"}, QueueClass: "background", ResourceClass: "tool-reconciliation", Priority: 40, CostUnits: 1, MaxAttempts: 5}
+	if !validDeferReconciliation(deferCommand) {
+		t.Fatal("valid reconciliation deferral rejected")
+	}
+	retryFirst, err := store.reconciliationRetryIdentifiers("effect", 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	retrySecond, err := store.reconciliationRetryIdentifiers("effect", 4)
+	if err != nil || retryFirst != retrySecond || retryFirst.outbox == retryFirst.command || retryFirst.outbox == retryFirst.job || retryFirst.command == retryFirst.job {
+		t.Fatalf("unstable retry identifiers first=%#v second=%#v err=%v", retryFirst, retrySecond, err)
 	}
 }

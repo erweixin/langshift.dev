@@ -39,11 +39,13 @@ type Event struct {
 }
 
 type OutboxCommand struct {
-	ID          string
-	CommandID   string
-	CommandType string
-	PayloadRef  string
-	PayloadHash string
+	ID                  string
+	CommandID           string
+	CommandType         string
+	TargetAggregateKind string
+	TargetAggregateID   string
+	PayloadRef          string
+	PayloadHash         string
 }
 
 type Input struct {
@@ -107,7 +109,8 @@ func (appender Appender) Append(ctx context.Context, tx pgx.Tx, input Input) (Re
 		return result, nil
 	}
 	for _, command := range input.Commands {
-		tag, err = tx.Exec(ctx, `INSERT INTO agent.outbox (id,tenant_id,command_id,command_type,aggregate_kind,aggregate_id,store_epoch,payload_ref,payload_hash,status,available_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending',$10) ON CONFLICT DO NOTHING`, command.ID, input.Event.TenantID, command.CommandID, command.CommandType, input.Event.AggregateKind, input.Event.AggregateID, input.Event.StoreEpoch, command.PayloadRef, command.PayloadHash, now)
+		targetKind, targetID := commandTarget(input.Event, command)
+		tag, err = tx.Exec(ctx, `INSERT INTO agent.outbox (id,tenant_id,command_id,command_type,aggregate_kind,aggregate_id,store_epoch,payload_ref,payload_hash,status,available_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending',$10) ON CONFLICT DO NOTHING`, command.ID, input.Event.TenantID, command.CommandID, command.CommandType, targetKind, targetID, input.Event.StoreEpoch, command.PayloadRef, command.PayloadHash, now)
 		if err != nil {
 			return Result{}, appender.rollback(ctx, tx, err)
 		}
@@ -134,7 +137,8 @@ func loadCommandReplay(ctx context.Context, tx pgx.Tx, event Event, expected Out
 	if err != nil {
 		return false, err
 	}
-	return actual.ID == expected.ID && tenantID == event.TenantID && actual.CommandType == expected.CommandType && aggregateKind == event.AggregateKind && aggregateID == event.AggregateID && storeEpoch == event.StoreEpoch && actual.PayloadRef == expected.PayloadRef && actual.PayloadHash == expected.PayloadHash, nil
+	expectedKind, expectedID := commandTarget(event, expected)
+	return actual.ID == expected.ID && tenantID == event.TenantID && actual.CommandType == expected.CommandType && aggregateKind == expectedKind && aggregateID == expectedID && storeEpoch == event.StoreEpoch && actual.PayloadRef == expected.PayloadRef && actual.PayloadHash == expected.PayloadHash, nil
 }
 
 func (appender Appender) rollback(ctx context.Context, tx pgx.Tx, cause error) error {
@@ -188,7 +192,8 @@ func validInput(input Input) bool {
 	seenIDs := make(map[string]struct{}, len(input.Commands))
 	seenCommands := make(map[string]struct{}, len(input.Commands))
 	for _, command := range input.Commands {
-		if command.ID == "" || command.CommandID == "" || command.CommandType == "" || command.PayloadRef == "" || command.PayloadHash == "" {
+		targetValid := command.TargetAggregateKind == "" && command.TargetAggregateID == "" || command.TargetAggregateKind != "" && command.TargetAggregateID != ""
+		if command.ID == "" || command.CommandID == "" || command.CommandType == "" || !targetValid || command.PayloadRef == "" || command.PayloadHash == "" {
 			return false
 		}
 		if _, exists := seenIDs[command.ID]; exists {
@@ -205,4 +210,11 @@ func validInput(input Input) bool {
 	}
 	var actor map[string]any
 	return json.Unmarshal(event.Actor, &actor) == nil && actor != nil
+}
+
+func commandTarget(event Event, command OutboxCommand) (string, string) {
+	if command.TargetAggregateKind != "" {
+		return command.TargetAggregateKind, command.TargetAggregateID
+	}
+	return event.AggregateKind, event.AggregateID
 }

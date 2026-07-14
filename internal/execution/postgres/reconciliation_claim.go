@@ -33,6 +33,7 @@ type ReconciliationClaim struct {
 	Fence                                                              uint64
 	LeaseToken                                                         string
 	LeaseExpiresAt                                                     time.Time
+	ReconciliationDueAt                                                time.Time
 	Completed                                                          bool
 }
 
@@ -147,15 +148,14 @@ func (store RunStore) ClaimReconciliation(ctx context.Context, command ClaimReco
 func (store RunStore) lockReconciliationTarget(ctx context.Context, tx pgx.Tx, tenantID, toolCallID string, now time.Time) (ReconciliationClaim, error) {
 	var claim ReconciliationClaim
 	var effectStatus string
-	var reconciliationDueAt time.Time
-	err := tx.QueryRow(ctx, `SELECT id::text,run_id::text,effect_class,effect_scope,effect_key,provider_id,provider_request_id,version,status,reconciliation_due_at FROM agent.tool_effects WHERE tenant_id=$1 AND tool_call_id=$2 FOR UPDATE`, tenantID, toolCallID).Scan(&claim.EffectID, &claim.RunID, &claim.EffectClass, &claim.EffectScope, &claim.EffectKey, &claim.ProviderID, &claim.ProviderRequestID, &claim.EffectVersion, &effectStatus, &reconciliationDueAt)
+	err := tx.QueryRow(ctx, `SELECT id::text,run_id::text,effect_class,effect_scope,effect_key,provider_id,provider_request_id,version,status,reconciliation_due_at FROM agent.tool_effects WHERE tenant_id=$1 AND tool_call_id=$2 FOR UPDATE`, tenantID, toolCallID).Scan(&claim.EffectID, &claim.RunID, &claim.EffectClass, &claim.EffectScope, &claim.EffectKey, &claim.ProviderID, &claim.ProviderRequestID, &claim.EffectVersion, &effectStatus, &claim.ReconciliationDueAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ReconciliationClaim{}, ErrReconciliationNotClaimable
 	}
 	if err != nil {
 		return ReconciliationClaim{}, err
 	}
-	if effectStatus != "outcome_unknown" || reconciliationDueAt.After(now) {
+	if effectStatus != "outcome_unknown" || claim.ReconciliationDueAt.After(now) {
 		return ReconciliationClaim{}, ErrReconciliationNotClaimable
 	}
 	var toolStatus, toolEffectClass, groupKind string
@@ -194,5 +194,5 @@ func validClaimReconciliation(command ClaimReconciliationCommand) bool {
 }
 
 func validReconciliationClaim(claim ReconciliationClaim) bool {
-	return claim.ToolCallID != "" && claim.RunID != "" && claim.GroupID != "" && claim.EffectID != "" && claim.TenantID != "" && claim.UserID != "" && claim.StoreEpoch != "" && claim.ToolCallVersion > 0 && claim.EffectVersion > 0 && isWriteEffectClass(claim.EffectClass) && claim.EffectScope != "" && claim.EffectKey != "" && claim.ProviderID != "" && claim.ProviderRequestID != "" && claim.CommandID != "" && claim.ConsumerName != "" && claim.RequestHash != "" && claim.JobID != "" && claim.InboxID != "" && claim.AttemptID != "" && claim.Fence > 0 && claim.LeaseToken != "" && !claim.LeaseExpiresAt.IsZero() && !claim.Completed
+	return claim.ToolCallID != "" && claim.RunID != "" && claim.GroupID != "" && claim.EffectID != "" && claim.TenantID != "" && claim.UserID != "" && claim.StoreEpoch != "" && claim.ToolCallVersion > 0 && claim.EffectVersion > 0 && isWriteEffectClass(claim.EffectClass) && claim.EffectScope != "" && claim.EffectKey != "" && claim.ProviderID != "" && claim.ProviderRequestID != "" && claim.CommandID != "" && claim.ConsumerName != "" && claim.RequestHash != "" && claim.JobID != "" && claim.InboxID != "" && claim.AttemptID != "" && claim.Fence > 0 && claim.LeaseToken != "" && !claim.LeaseExpiresAt.IsZero() && !claim.ReconciliationDueAt.IsZero() && !claim.Completed
 }
