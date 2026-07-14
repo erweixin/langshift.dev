@@ -13,7 +13,10 @@ import (
 	"github.com/langshift/lites/internal/platform/ids"
 )
 
-var ErrToolNotClaimable = errors.New("tool call is not claimable by this command")
+var (
+	ErrToolNotClaimable              = errors.New("tool call is not claimable by this command")
+	ErrToolEffectNeedsReconciliation = errors.New("tool effect cannot be replayed and requires reconciliation")
+)
 
 type ClaimToolCommand struct {
 	Command             eventpostgres.DeliveredCommand
@@ -29,6 +32,7 @@ type ClaimToolCommand struct {
 type ToolClaim struct {
 	ToolCallID, RunID, GroupID, TenantID, UserID, StoreEpoch string
 	ToolCallVersion                                          uint64
+	EffectID, EffectClass, ProviderRequestID                 string
 	CommandID, ConsumerName, RequestHash, JobID, InboxID     string
 	AttemptID                                                string
 	Fence                                                    uint64
@@ -130,13 +134,20 @@ func (store RunStore) ClaimTool(ctx context.Context, command ClaimToolCommand) (
 		return ToolClaim{}, ErrToolNotClaimable
 	}
 
-	var userID, runID, groupID, status, pendingCommand string
+	var effectID, ledgerEffectClass, effectStatus string
+	var effectVersion uint64
+	effectErr := tx.QueryRow(ctx, `SELECT id::text,effect_class,status,version FROM agent.tool_effects WHERE tenant_id=$1 AND tool_call_id=$2 FOR UPDATE`, command.Command.TenantID, command.Command.AggregateID).Scan(&effectID, &ledgerEffectClass, &effectStatus, &effectVersion)
+	hasEffect := effectErr == nil
+	if effectErr != nil && !errors.Is(effectErr, pgx.ErrNoRows) {
+		return ToolClaim{}, effectErr
+	}
+	var userID, runID, groupID, status, pendingCommand, toolEffectClass string
 	var toolVersion, lockedFence uint64
-	err = tx.QueryRow(ctx, `SELECT t.user_id::text,t.run_id::text,m.group_id::text,t.status,t.pending_command_id::text,t.tool_call_version,t.current_fence FROM agent.tool_calls t JOIN agent.parallel_group_members m ON m.tenant_id=t.tenant_id AND m.tool_call_id=t.id WHERE t.id=$1 AND t.tenant_id=$2 FOR UPDATE OF t`, command.Command.AggregateID, command.Command.TenantID).Scan(&userID, &runID, &groupID, &status, &pendingCommand, &toolVersion, &lockedFence)
+	err = tx.QueryRow(ctx, `SELECT t.user_id::text,t.run_id::text,m.group_id::text,t.status,t.pending_command_id::text,t.tool_call_version,t.current_fence,t.effect_class FROM agent.tool_calls t JOIN agent.parallel_group_members m ON m.tenant_id=t.tenant_id AND m.tool_call_id=t.id WHERE t.id=$1 AND t.tenant_id=$2 FOR UPDATE OF t`, command.Command.AggregateID, command.Command.TenantID).Scan(&userID, &runID, &groupID, &status, &pendingCommand, &toolVersion, &lockedFence, &toolEffectClass)
 	if err != nil {
 		return ToolClaim{}, ErrToolNotClaimable
 	}
-	if status != string(statemachine.ToolCallRequested) || pendingCommand != command.Command.CommandID || lockedFence+1 != candidateFence {
+	if status != string(statemachine.ToolCallRequested) || pendingCommand != command.Command.CommandID || lockedFence+1 != candidateFence || hasEffect != (toolEffectClass != "read_only") || hasEffect && (effectStatus != "prepared" || ledgerEffectClass != toolEffectClass) {
 		return ToolClaim{}, ErrToolNotClaimable
 	}
 	var cancelRequested *time.Time
@@ -148,6 +159,13 @@ func (store RunStore) ClaimTool(ctx context.Context, command ClaimToolCommand) (
 	tag, err = tx.Exec(ctx, `UPDATE agent.tool_calls SET status='executing',tool_call_version=$1,pending_command_id=NULL,active_command_id=$2,active_attempt_id=$3,current_fence=$4,lease_token_hash=$5,lease_expires_at=$6,updated_at=$7 WHERE id=$8 AND tenant_id=$9 AND status='requested' AND tool_call_version=$10 AND pending_command_id=$2 AND current_fence=$11`, nextVersion, command.Command.CommandID, attemptID, candidateFence, credential.Digest[:], expiresAt, now, command.Command.AggregateID, command.Command.TenantID, toolVersion, lockedFence)
 	if err != nil || tag.RowsAffected() != 1 {
 		return ToolClaim{}, ErrToolNotClaimable
+	}
+	providerRequestID := ""
+	if hasEffect {
+		providerRequestID = effectID
+		if tag, updateErr := tx.Exec(ctx, `UPDATE agent.tool_effects SET version=$1,status='executing',provider_request_id=$2,execution_attempt_id=$3,execution_fence=$4,updated_at=$5 WHERE id=$6 AND tenant_id=$7 AND version=$8 AND status='prepared' AND effect_class=$9`, effectVersion+1, providerRequestID, attemptID, candidateFence, now, effectID, command.Command.TenantID, effectVersion, toolEffectClass); updateErr != nil || tag.RowsAffected() != 1 {
+			return ToolClaim{}, ErrToolNotClaimable
+		}
 	}
 	var jobID string
 	err = tx.QueryRow(ctx, `UPDATE agent.jobs SET status='running',dispatch_lease_hash=NULL,dispatch_lease_expires_at=NULL,updated_at=$1 WHERE tenant_id=$2 AND command_id=$3 AND status='pending' AND available_at<=$1 AND (due_at IS NULL OR due_at>$1) RETURNING id::text`, now, command.Command.TenantID, command.Command.CommandID).Scan(&jobID)
@@ -176,7 +194,7 @@ func (store RunStore) ClaimTool(ctx context.Context, command ClaimToolCommand) (
 	if err = tx.Commit(ctx); err != nil {
 		return ToolClaim{}, err
 	}
-	return ToolClaim{ToolCallID: command.Command.AggregateID, RunID: runID, GroupID: groupID, TenantID: command.Command.TenantID, UserID: userID, StoreEpoch: command.Command.StoreEpoch, ToolCallVersion: nextVersion, CommandID: command.Command.CommandID, ConsumerName: command.ConsumerName, RequestHash: command.Command.PayloadHash, JobID: jobID, InboxID: inboxID, AttemptID: attemptID, Fence: candidateFence, LeaseToken: credential.Raw, LeaseExpiresAt: expiresAt}, nil
+	return ToolClaim{ToolCallID: command.Command.AggregateID, RunID: runID, GroupID: groupID, TenantID: command.Command.TenantID, UserID: userID, StoreEpoch: command.Command.StoreEpoch, ToolCallVersion: nextVersion, EffectID: effectID, EffectClass: toolEffectClass, ProviderRequestID: providerRequestID, CommandID: command.Command.CommandID, ConsumerName: command.ConsumerName, RequestHash: command.Command.PayloadHash, JobID: jobID, InboxID: inboxID, AttemptID: attemptID, Fence: candidateFence, LeaseToken: credential.Raw, LeaseExpiresAt: expiresAt}, nil
 }
 
 type toolClaimEventIDs struct{ toolEvent, toolOutbox, toolPublish, attemptEvent, attemptOutbox, attemptPublish string }
@@ -200,5 +218,6 @@ func validClaimTool(command ClaimToolCommand) bool {
 }
 
 func validToolClaim(claim ToolClaim) bool {
-	return claim.ToolCallID != "" && claim.RunID != "" && claim.GroupID != "" && claim.TenantID != "" && claim.UserID != "" && claim.StoreEpoch != "" && claim.ToolCallVersion > 0 && claim.CommandID != "" && claim.ConsumerName != "" && claim.RequestHash != "" && claim.JobID != "" && claim.InboxID != "" && claim.AttemptID != "" && claim.Fence > 0 && claim.LeaseToken != "" && !claim.LeaseExpiresAt.IsZero() && !claim.Completed
+	effectValid := claim.EffectClass == "read_only" && claim.EffectID == "" && claim.ProviderRequestID == "" || claim.EffectClass != "" && claim.EffectClass != "read_only" && claim.EffectID != "" && claim.ProviderRequestID != ""
+	return claim.ToolCallID != "" && claim.RunID != "" && claim.GroupID != "" && claim.TenantID != "" && claim.UserID != "" && claim.StoreEpoch != "" && claim.ToolCallVersion > 0 && effectValid && claim.CommandID != "" && claim.ConsumerName != "" && claim.RequestHash != "" && claim.JobID != "" && claim.InboxID != "" && claim.AttemptID != "" && claim.Fence > 0 && claim.LeaseToken != "" && !claim.LeaseExpiresAt.IsZero() && !claim.Completed
 }

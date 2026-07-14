@@ -28,7 +28,7 @@ func TestToolClaimValidationAndIdentifiers(t *testing.T) {
 	if validClaimTool(invalid) {
 		t.Fatal("run command accepted as tool claim")
 	}
-	claim := ToolClaim{ToolCallID: "tool", RunID: "run", GroupID: "group", TenantID: "tenant", UserID: "user", StoreEpoch: "epoch", ToolCallVersion: 2, CommandID: "command", ConsumerName: "tool-worker", RequestHash: "hash", JobID: "job", InboxID: "inbox", AttemptID: "attempt", Fence: 1, LeaseToken: "token", LeaseExpiresAt: time.Now().Add(time.Minute)}
+	claim := ToolClaim{ToolCallID: "tool", RunID: "run", GroupID: "group", TenantID: "tenant", UserID: "user", StoreEpoch: "epoch", ToolCallVersion: 2, EffectClass: "read_only", CommandID: "command", ConsumerName: "tool-worker", RequestHash: "hash", JobID: "job", InboxID: "inbox", AttemptID: "attempt", Fence: 1, LeaseToken: "token", LeaseExpiresAt: time.Now().Add(time.Minute)}
 	if !validToolClaim(claim) {
 		t.Fatal("valid durable tool claim rejected")
 	}

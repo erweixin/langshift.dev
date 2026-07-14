@@ -43,14 +43,17 @@ func TestToolClaimHeartbeatAndExpiredReclaimAreFenced(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	requested, err := store.RequestTools(ctx, RequestToolsCommand{Claim: runClaim, ExpectedRunVersion: runClaim.RunVersion, StepID: "tool-claim-step", JoinPolicy: "all", QuorumCount: 1, PlanResultHash: "tool-plan", Actor: json.RawMessage(`{"kind":"service"}`), CorrelationID: correlationID, AttemptCompletedEvent: PayloadPointer{Ref: "encrypted://tool-claim/run-attempt-completed", Hash: "run-attempt-completed"}, ToolRequests: []ToolRequest{{ToolName: "web_search", DescriptorSnapshotID: "web_search@sha256:v1", NormalizedInputRef: "encrypted://tool-claim/input", RequestHash: "tool-request", EffectClass: "read_only", Required: true, QueueClass: "interactive", ResourceClass: "tool-network", Priority: 60, CostUnits: 2, MaxAttempts: 5, RequestedEvent: PayloadPointer{Ref: "encrypted://tool-claim/requested", Hash: "requested"}, ExecuteCommand: PayloadPointer{Ref: "encrypted://tool-claim/execute", Hash: "execute"}}}})
+	requested, err := store.RequestTools(ctx, RequestToolsCommand{Claim: runClaim, ExpectedRunVersion: runClaim.RunVersion, StepID: "tool-claim-step", JoinPolicy: "all", QuorumCount: 2, PlanResultHash: "tool-plan", Actor: json.RawMessage(`{"kind":"service"}`), CorrelationID: correlationID, AttemptCompletedEvent: PayloadPointer{Ref: "encrypted://tool-claim/run-attempt-completed", Hash: "run-attempt-completed"}, ToolRequests: []ToolRequest{
+		{ToolName: "github_create_issue", DescriptorSnapshotID: "github_create_issue@sha256:v1", NormalizedInputRef: "encrypted://tool-claim/input", RequestHash: "tool-request", EffectClass: "idempotent_write", EffectKey: "issue:claim-test", EffectScope: "tenant:github:claim-test", ProviderID: "github", Required: true, QueueClass: "interactive", ResourceClass: "tool-network", Priority: 60, CostUnits: 2, MaxAttempts: 5, RequestedEvent: PayloadPointer{Ref: "encrypted://tool-claim/requested", Hash: "requested"}, ExecuteCommand: PayloadPointer{Ref: "encrypted://tool-claim/execute", Hash: "execute"}},
+		{ToolName: "stripe_create_refund", DescriptorSnapshotID: "stripe_create_refund@sha256:v1", NormalizedInputRef: "encrypted://tool-claim/reconcile-input", RequestHash: "reconcile-tool-request", EffectClass: "reconcilable_write", EffectKey: "refund:claim-test", EffectScope: "tenant:stripe:claim-test", ProviderID: "stripe", Required: true, QueueClass: "interactive", ResourceClass: "tool-network", Priority: 60, CostUnits: 2, MaxAttempts: 5, RequestedEvent: PayloadPointer{Ref: "encrypted://tool-claim/reconcile-requested", Hash: "reconcile-requested"}, ExecuteCommand: PayloadPointer{Ref: "encrypted://tool-claim/reconcile-execute", Hash: "reconcile-execute"}},
+	}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	tool := requested.ToolCalls[0]
 	claimCommand := ClaimToolCommand{Command: eventpostgres.DeliveredCommand{TenantID: tenantID, StoreEpoch: storeEpoch, CommandID: tool.CommandID, CommandType: "ExecuteToolCall", AggregateKind: "tool_call", AggregateID: tool.ToolCallID, PayloadRef: "encrypted://tool-claim/execute", PayloadHash: "execute"}, ConsumerName: "tool-worker", WorkerID: "tool-worker-one", Actor: json.RawMessage(`{"kind":"service"}`), CorrelationID: correlationID, ToolStartedEvent: PayloadPointer{Ref: "encrypted://tool-claim/started", Hash: "started"}, AttemptStartedEvent: PayloadPointer{Ref: "encrypted://tool-claim/attempt-started", Hash: "attempt-started"}, AttemptExpiredEvent: PayloadPointer{Ref: "encrypted://tool-claim/attempt-expired", Hash: "attempt-expired"}}
 	first := competeForToolClaim(t, ctx, store, claimCommand, 32)
-	if first.Fence != 1 || first.ToolCallVersion != 2 || first.GroupID != requested.GroupID {
+	if first.Fence != 1 || first.ToolCallVersion != 2 || first.GroupID != requested.GroupID || first.EffectClass != "idempotent_write" || first.EffectID == "" || first.ProviderRequestID != first.EffectID {
 		t.Fatalf("unexpected first claim: %#v", first)
 	}
 	current = current.Add(30 * time.Second)
@@ -60,24 +63,44 @@ func TestToolClaimHeartbeatAndExpiredReclaimAreFenced(t *testing.T) {
 	}
 	current = heartbeated.LeaseExpiresAt
 	reclaimed := competeForToolClaim(t, ctx, store, claimCommand, 32)
-	if reclaimed.Fence != 2 || reclaimed.AttemptID == first.AttemptID || reclaimed.ToolCallVersion != 2 {
+	if reclaimed.Fence != 2 || reclaimed.AttemptID == first.AttemptID || reclaimed.ToolCallVersion != 2 || reclaimed.EffectID != first.EffectID || reclaimed.ProviderRequestID != first.ProviderRequestID {
 		t.Fatalf("unexpected reclaimed claim: %#v", reclaimed)
 	}
 	if _, err = store.HeartbeatTool(ctx, heartbeated); !errors.Is(err, ErrExecutionRightConflict) {
 		t.Fatalf("stale heartbeat error=%v", err)
 	}
-	var toolStatus, inboxStatus, oldAttemptStatus, newAttemptStatus, jobStatus string
-	var toolVersion, fence, toolEvents, oldAttemptEvents, newAttemptEvents, outbox int
+	var toolStatus, inboxStatus, oldAttemptStatus, newAttemptStatus, jobStatus, effectStatus, effectAttempt, providerRequest string
+	var toolVersion, fence, effectVersion, effectFence, toolEvents, oldAttemptEvents, newAttemptEvents, outbox int
 	var activeAttempt string
-	err = admin.QueryRow(ctx, `SELECT t.status,t.tool_call_version,t.current_fence,t.active_attempt_id::text,i.status,oa.status,na.status,j.status,(SELECT count(*) FROM agent.events WHERE aggregate_kind='tool_call' AND aggregate_id=$2),(SELECT count(*) FROM agent.events WHERE aggregate_kind='job_attempt' AND aggregate_id=$3),(SELECT count(*) FROM agent.events WHERE aggregate_kind='job_attempt' AND aggregate_id=$4),(SELECT count(*) FROM agent.outbox WHERE tenant_id=$1) FROM agent.tool_calls t JOIN agent.inbox i ON i.id=$5 JOIN agent.job_attempts oa ON oa.id=$3 JOIN agent.job_attempts na ON na.id=$4 JOIN agent.jobs j ON j.id=$6 WHERE t.id=$2`, tenantID, tool.ToolCallID, first.AttemptID, reclaimed.AttemptID, reclaimed.InboxID, reclaimed.JobID).Scan(&toolStatus, &toolVersion, &fence, &activeAttempt, &inboxStatus, &oldAttemptStatus, &newAttemptStatus, &jobStatus, &toolEvents, &oldAttemptEvents, &newAttemptEvents, &outbox)
+	err = admin.QueryRow(ctx, `SELECT t.status,t.tool_call_version,t.current_fence,t.active_attempt_id::text,i.status,oa.status,na.status,j.status,e.status,e.version,e.execution_attempt_id::text,e.execution_fence,e.provider_request_id,(SELECT count(*) FROM agent.events WHERE aggregate_kind='tool_call' AND aggregate_id=$2),(SELECT count(*) FROM agent.events WHERE aggregate_kind='job_attempt' AND aggregate_id=$3),(SELECT count(*) FROM agent.events WHERE aggregate_kind='job_attempt' AND aggregate_id=$4),(SELECT count(*) FROM agent.outbox WHERE tenant_id=$1) FROM agent.tool_calls t JOIN agent.tool_effects e ON e.tool_call_id=t.id JOIN agent.inbox i ON i.id=$5 JOIN agent.job_attempts oa ON oa.id=$3 JOIN agent.job_attempts na ON na.id=$4 JOIN agent.jobs j ON j.id=$6 WHERE t.id=$2`, tenantID, tool.ToolCallID, first.AttemptID, reclaimed.AttemptID, reclaimed.InboxID, reclaimed.JobID).Scan(&toolStatus, &toolVersion, &fence, &activeAttempt, &inboxStatus, &oldAttemptStatus, &newAttemptStatus, &jobStatus, &effectStatus, &effectVersion, &effectAttempt, &effectFence, &providerRequest, &toolEvents, &oldAttemptEvents, &newAttemptEvents, &outbox)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if toolStatus != "executing" || toolVersion != 2 || fence != 2 || activeAttempt != reclaimed.AttemptID || inboxStatus != "running" || oldAttemptStatus != "expired" || newAttemptStatus != "running" || jobStatus != "running" {
-		t.Fatalf("tool=%s/v%d/f%d active=%s inbox=%s attempts=%s/%s job=%s", toolStatus, toolVersion, fence, activeAttempt, inboxStatus, oldAttemptStatus, newAttemptStatus, jobStatus)
+	if toolStatus != "executing" || toolVersion != 2 || fence != 2 || activeAttempt != reclaimed.AttemptID || inboxStatus != "running" || oldAttemptStatus != "expired" || newAttemptStatus != "running" || jobStatus != "running" || effectStatus != "executing" || effectVersion != 3 || effectAttempt != reclaimed.AttemptID || effectFence != 2 || providerRequest != first.ProviderRequestID {
+		t.Fatalf("tool=%s/v%d/f%d active=%s inbox=%s attempts=%s/%s job=%s effect=%s/v%d/%s/f%d/provider=%s", toolStatus, toolVersion, fence, activeAttempt, inboxStatus, oldAttemptStatus, newAttemptStatus, jobStatus, effectStatus, effectVersion, effectAttempt, effectFence, providerRequest)
 	}
-	if toolEvents != 2 || oldAttemptEvents != 2 || newAttemptEvents != 1 || outbox != 12 {
+	if toolEvents != 2 || oldAttemptEvents != 2 || newAttemptEvents != 1 || outbox != 14 {
 		t.Fatalf("events tool=%d attempts=%d/%d outbox=%d", toolEvents, oldAttemptEvents, newAttemptEvents, outbox)
+	}
+
+	reconcileTool := requested.ToolCalls[1]
+	reconcileCommand := ClaimToolCommand{Command: eventpostgres.DeliveredCommand{TenantID: tenantID, StoreEpoch: storeEpoch, CommandID: reconcileTool.CommandID, CommandType: "ExecuteToolCall", AggregateKind: "tool_call", AggregateID: reconcileTool.ToolCallID, PayloadRef: "encrypted://tool-claim/reconcile-execute", PayloadHash: "reconcile-execute"}, ConsumerName: "tool-worker", WorkerID: "tool-worker-two", Actor: json.RawMessage(`{"kind":"service"}`), CorrelationID: correlationID, ToolStartedEvent: PayloadPointer{Ref: "encrypted://tool-claim/reconcile-started", Hash: "reconcile-started"}, AttemptStartedEvent: PayloadPointer{Ref: "encrypted://tool-claim/reconcile-attempt-started", Hash: "reconcile-attempt-started"}, AttemptExpiredEvent: PayloadPointer{Ref: "encrypted://tool-claim/reconcile-attempt-expired", Hash: "reconcile-attempt-expired"}}
+	reconcileClaim, err := store.ClaimTool(ctx, reconcileCommand)
+	if err != nil || reconcileClaim.EffectClass != "reconcilable_write" || reconcileClaim.ProviderRequestID != reconcileClaim.EffectID {
+		t.Fatalf("reconcile claim=%#v err=%v", reconcileClaim, err)
+	}
+	current = reconcileClaim.LeaseExpiresAt
+	if _, err = store.ClaimTool(ctx, reconcileCommand); !errors.Is(err, ErrToolEffectNeedsReconciliation) {
+		t.Fatalf("expired reconcilable claim error=%v", err)
+	}
+	var reconcileToolStatus, reconcileInboxStatus, reconcileAttemptStatus, reconcileEffectStatus, reconcileEffectAttempt, reconcileProviderRequest string
+	var reconcileFence, reconcileEffectVersion, reconcileEffectFence, reconcileAttempts, reconcileAttemptEvents int
+	err = admin.QueryRow(ctx, `SELECT t.status,t.current_fence,i.status,a.status,e.status,e.version,e.execution_attempt_id::text,e.execution_fence,e.provider_request_id,(SELECT count(*) FROM agent.job_attempts WHERE tenant_id=$1 AND command_id=$3),(SELECT count(*) FROM agent.events WHERE aggregate_kind='job_attempt' AND aggregate_id=$4) FROM agent.tool_calls t JOIN agent.tool_effects e ON e.tool_call_id=t.id JOIN agent.inbox i ON i.tenant_id=t.tenant_id AND i.consumer_name='tool-worker' AND i.command_id=$3 JOIN agent.job_attempts a ON a.id=$4 WHERE t.tenant_id=$1 AND t.id=$2`, tenantID, reconcileTool.ToolCallID, reconcileTool.CommandID, reconcileClaim.AttemptID).Scan(&reconcileToolStatus, &reconcileFence, &reconcileInboxStatus, &reconcileAttemptStatus, &reconcileEffectStatus, &reconcileEffectVersion, &reconcileEffectAttempt, &reconcileEffectFence, &reconcileProviderRequest, &reconcileAttempts, &reconcileAttemptEvents)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reconcileToolStatus != "executing" || reconcileFence != 1 || reconcileInboxStatus != "running" || reconcileAttemptStatus != "running" || reconcileEffectStatus != "executing" || reconcileEffectVersion != 2 || reconcileEffectAttempt != reconcileClaim.AttemptID || reconcileEffectFence != 1 || reconcileProviderRequest != reconcileClaim.ProviderRequestID || reconcileAttempts != 1 || reconcileAttemptEvents != 1 {
+		t.Fatalf("reconcilable tool=%s/f%d inbox=%s attempt=%s effect=%s/v%d/%s/f%d/provider=%s attempts=%d events=%d", reconcileToolStatus, reconcileFence, reconcileInboxStatus, reconcileAttemptStatus, reconcileEffectStatus, reconcileEffectVersion, reconcileEffectAttempt, reconcileEffectFence, reconcileProviderRequest, reconcileAttempts, reconcileAttemptEvents)
 	}
 }
 
