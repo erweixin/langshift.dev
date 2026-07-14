@@ -45,7 +45,7 @@ func TestRequestToolsAtomicallyYieldsRunWithCompleteGroup(t *testing.T) {
 	}
 	request := RequestToolsCommand{Claim: claim, ExpectedRunVersion: claim.RunVersion, StepID: "research-sources", JoinPolicy: "all", QuorumCount: 2, PlanResultHash: "tool-plan-result", Actor: json.RawMessage(`{"kind":"service","id":"agent-run-worker"}`), CorrelationID: correlationID, AttemptCompletedEvent: PayloadPointer{Ref: "encrypted://tools/attempt-completed", Hash: "attempt-completed"}, ToolRequests: []ToolRequest{
 		{ToolName: "web_search", DescriptorSnapshotID: "web_search@sha256:v1", NormalizedInputRef: "encrypted://tools/input/search", RequestHash: "search-request", EffectClass: "read_only", Required: true, QueueClass: "interactive", ResourceClass: "tool-network", Priority: 60, CostUnits: 2, MaxAttempts: 4, RequestedEvent: PayloadPointer{Ref: "encrypted://tools/event/search", Hash: "search-event"}, ExecuteCommand: PayloadPointer{Ref: "encrypted://tools/command/search", Hash: "search-command"}},
-		{ToolName: "workspace_read", DescriptorSnapshotID: "workspace_read@sha256:v1", NormalizedInputRef: "encrypted://tools/input/workspace", RequestHash: "workspace-request", EffectClass: "read_only", Required: true, QueueClass: "interactive", ResourceClass: "tool-sandbox", Priority: 55, CostUnits: 1, MaxAttempts: 3, RequestedEvent: PayloadPointer{Ref: "encrypted://tools/event/workspace", Hash: "workspace-event"}, ExecuteCommand: PayloadPointer{Ref: "encrypted://tools/command/workspace", Hash: "workspace-command"}},
+		{ToolName: "github_create_issue", DescriptorSnapshotID: "github_create_issue@sha256:v1", NormalizedInputRef: "encrypted://tools/input/issue", RequestHash: "issue-request", EffectClass: "idempotent_write", EffectKey: "issue:project:42", EffectScope: "tenant:github-installation:7", ProviderID: "github", Required: true, QueueClass: "interactive", ResourceClass: "tool-network", Priority: 55, CostUnits: 1, MaxAttempts: 3, RequestedEvent: PayloadPointer{Ref: "encrypted://tools/event/issue", Hash: "issue-event"}, ExecuteCommand: PayloadPointer{Ref: "encrypted://tools/command/issue", Hash: "issue-command"}},
 	}}
 	const contenders = 32
 	var wait sync.WaitGroup
@@ -82,7 +82,7 @@ func TestRequestToolsAtomicallyYieldsRunWithCompleteGroup(t *testing.T) {
 		t.Fatalf("winner=%#v successes=%d stale=%d", winner, successes, stale)
 	}
 	var runStatus, inboxStatus, attemptStatus, startJobStatus, joinPolicy, groupKind, continuationKind string
-	var runVersion, requiredCount, quorumCount, groups, members, toolCalls, pendingToolJobs, runEvents, toolEvents, attemptEvents, outbox int
+	var runVersion, requiredCount, quorumCount, groups, members, toolCalls, toolEffects, pendingToolJobs, runEvents, toolEvents, attemptEvents, outbox int
 	var activeCleared bool
 	err = admin.QueryRow(ctx, `
 		SELECT r.status,r.run_version,r.active_command_id IS NULL AND r.active_attempt_id IS NULL AND r.lease_token_hash IS NULL AND r.lease_expires_at IS NULL,
@@ -90,19 +90,20 @@ func TestRequestToolsAtomicallyYieldsRunWithCompleteGroup(t *testing.T) {
 		       (SELECT count(*) FROM agent.parallel_groups WHERE tenant_id=$1 AND run_id=$2),
 		       (SELECT count(*) FROM agent.parallel_group_members WHERE tenant_id=$1 AND group_id=$3),
 		       (SELECT count(*) FROM agent.tool_calls WHERE tenant_id=$1 AND run_id=$2 AND status='requested'),
+		       (SELECT count(*) FROM agent.tool_effects WHERE tenant_id=$1 AND run_id=$2 AND status='prepared' AND effect_class='idempotent_write'),
 		       (SELECT count(*) FROM agent.jobs WHERE tenant_id=$1 AND status='pending' AND command_id IN (SELECT pending_command_id FROM agent.tool_calls WHERE run_id=$2)),
 		       (SELECT count(*) FROM agent.events WHERE aggregate_kind='run' AND aggregate_id=$2),
 		       (SELECT count(*) FROM agent.events WHERE aggregate_kind='tool_call' AND aggregate_id IN (SELECT tool_call_id FROM agent.parallel_group_members WHERE group_id=$3)),
 		       (SELECT count(*) FROM agent.events WHERE aggregate_kind='job_attempt' AND aggregate_id=$4),
 		       (SELECT count(*) FROM agent.outbox WHERE tenant_id=$1)
-		FROM agent.runs r JOIN agent.inbox i ON i.id=$5 JOIN agent.job_attempts a ON a.id=$4 JOIN agent.jobs j ON j.id=$6 JOIN agent.parallel_groups g ON g.id=$3 WHERE r.id=$2`, tenantID, runID, winner.GroupID, claim.AttemptID, claim.InboxID, claim.JobID).Scan(&runStatus, &runVersion, &activeCleared, &inboxStatus, &attemptStatus, &startJobStatus, &joinPolicy, &requiredCount, &quorumCount, &groupKind, &continuationKind, &groups, &members, &toolCalls, &pendingToolJobs, &runEvents, &toolEvents, &attemptEvents, &outbox)
+		FROM agent.runs r JOIN agent.inbox i ON i.id=$5 JOIN agent.job_attempts a ON a.id=$4 JOIN agent.jobs j ON j.id=$6 JOIN agent.parallel_groups g ON g.id=$3 WHERE r.id=$2`, tenantID, runID, winner.GroupID, claim.AttemptID, claim.InboxID, claim.JobID).Scan(&runStatus, &runVersion, &activeCleared, &inboxStatus, &attemptStatus, &startJobStatus, &joinPolicy, &requiredCount, &quorumCount, &groupKind, &continuationKind, &groups, &members, &toolCalls, &toolEffects, &pendingToolJobs, &runEvents, &toolEvents, &attemptEvents, &outbox)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if runStatus != "waiting_tool" || runVersion != 4 || !activeCleared || inboxStatus != "completed" || attemptStatus != "succeeded" || startJobStatus != "succeeded" || joinPolicy != "all" || requiredCount != 2 || quorumCount != 2 || groupKind != "execution" || continuationKind != "resume" {
 		t.Fatalf("run=%s/v%d cleared=%v inbox=%s attempt=%s job=%s group=%s/%d/%d/%s/%s", runStatus, runVersion, activeCleared, inboxStatus, attemptStatus, startJobStatus, joinPolicy, requiredCount, quorumCount, groupKind, continuationKind)
 	}
-	if groups != 1 || members != 2 || toolCalls != 2 || pendingToolJobs != 2 || runEvents != 3 || toolEvents != 2 || attemptEvents != 2 || outbox != 10 {
-		t.Fatalf("groups=%d members=%d tools=%d jobs=%d run_events=%d tool_events=%d attempt_events=%d outbox=%d", groups, members, toolCalls, pendingToolJobs, runEvents, toolEvents, attemptEvents, outbox)
+	if groups != 1 || members != 2 || toolCalls != 2 || toolEffects != 1 || pendingToolJobs != 2 || runEvents != 3 || toolEvents != 2 || attemptEvents != 2 || outbox != 10 {
+		t.Fatalf("groups=%d members=%d tools=%d effects=%d jobs=%d run_events=%d tool_events=%d attempt_events=%d outbox=%d", groups, members, toolCalls, toolEffects, pendingToolJobs, runEvents, toolEvents, attemptEvents, outbox)
 	}
 }

@@ -21,6 +21,8 @@ type ToolRequest struct {
 	RequestHash          string
 	EffectClass          string
 	EffectKey            string
+	EffectScope          string
+	ProviderID           string
 	Required             bool
 	QueueClass           string
 	ResourceClass        string
@@ -57,7 +59,7 @@ type ToolsRequested struct {
 }
 
 type toolRequestIDs struct {
-	toolCall, command, job, event, publishOutbox, publishCommand, executeOutbox string
+	toolCall, effect, command, job, event, publishOutbox, publishCommand, executeOutbox string
 }
 
 // RequestTools commits an entire AgentWorker tool plan. There is no state in
@@ -127,6 +129,11 @@ func (store RunStore) RequestTools(ctx context.Context, command RequestToolsComm
 		if _, err = tx.Exec(ctx, `INSERT INTO agent.tool_calls(id,tenant_id,user_id,run_id,status,tool_call_version,tool_name,descriptor_snapshot_id,normalized_input_ref,request_hash,effect_class,effect_key,pending_command_id,created_at,updated_at) VALUES($1,$2,$3,$4,'requested',1,$5,$6,$7,$8,$9,$10,$11,$12,$12)`, idsForRequest.toolCall, claim.TenantID, userID, claim.RunID, request.ToolName, request.DescriptorSnapshotID, request.NormalizedInputRef, request.RequestHash, request.EffectClass, effectKey, idsForRequest.command, now); err != nil {
 			return ToolsRequested{}, err
 		}
+		if request.EffectClass != "read_only" {
+			if _, err = tx.Exec(ctx, `INSERT INTO agent.tool_effects(id,tenant_id,effect_scope,provider_id,tool_name,effect_key,request_hash,status,tool_call_id,run_id,effect_class,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,'prepared',$8,$9,$10,$11,$11)`, idsForRequest.effect, claim.TenantID, request.EffectScope, request.ProviderID, request.ToolName, request.EffectKey, request.RequestHash, idsForRequest.toolCall, claim.RunID, request.EffectClass, now); err != nil {
+				return ToolsRequested{}, err
+			}
+		}
 		if _, err = tx.Exec(ctx, `INSERT INTO agent.parallel_group_members(tenant_id,group_id,tool_call_id,required,created_at) VALUES($1,$2,$3,$4,$5)`, claim.TenantID, groupID, idsForRequest.toolCall, request.Required, now); err != nil {
 			return ToolsRequested{}, err
 		}
@@ -172,7 +179,7 @@ func validRequestTools(command RequestToolsCommand) bool {
 	}
 	seenHashes := map[string]bool{}
 	for _, request := range command.ToolRequests {
-		if request.ToolName == "" || request.DescriptorSnapshotID == "" || request.NormalizedInputRef == "" || request.RequestHash == "" || !validEffect(request.EffectClass, request.EffectKey) || request.QueueClass != "interactive" && request.QueueClass != "background" || request.ResourceClass == "" || request.Priority < 0 || request.Priority > 1000 || request.CostUnits < 1 || request.CostUnits > 1_000_000_000_000 || request.MaxAttempts < 1 || request.MaxAttempts > 100 || !validPointer(request.RequestedEvent) || !validPointer(request.ExecuteCommand) {
+		if request.ToolName == "" || request.DescriptorSnapshotID == "" || request.NormalizedInputRef == "" || request.RequestHash == "" || !validEffect(request.EffectClass, request.EffectKey, request.EffectScope, request.ProviderID) || request.QueueClass != "interactive" && request.QueueClass != "background" || request.ResourceClass == "" || request.Priority < 0 || request.Priority > 1000 || request.CostUnits < 1 || request.CostUnits > 1_000_000_000_000 || request.MaxAttempts < 1 || request.MaxAttempts > 100 || !validPointer(request.RequestedEvent) || !validPointer(request.ExecuteCommand) {
 			return false
 		}
 		if seenHashes[request.RequestHash] {
@@ -183,9 +190,9 @@ func validRequestTools(command RequestToolsCommand) bool {
 	return true
 }
 
-func validEffect(class, key string) bool {
+func validEffect(class, key, scope, provider string) bool {
 	known := class == "read_only" || class == "idempotent_write" || class == "reconcilable_write" || class == "compensatable_write" || class == "irreversible_write"
-	return known && (class == "read_only" && key == "" || class != "read_only" && key != "")
+	return known && (class == "read_only" && key == "" && scope == "" && provider == "" || class != "read_only" && key != "" && scope != "" && provider != "")
 }
 
 func requiredToolCount(requests []ToolRequest) int {
@@ -207,7 +214,7 @@ func (store RunStore) toolRequestIdentifiers(runID string, runVersion uint64, re
 	result := make([]toolRequestIDs, len(requests))
 	for index, request := range requests {
 		requestScope := fmt.Sprintf("%s\x00%d\x00%s", scope, index, request.RequestHash)
-		domains := []string{"tool-call", "execute-tool-command", "execute-tool-job", "tool-call-requested-event", "tool-call-requested-publish-outbox", "tool-call-requested-publish-command", "execute-tool-outbox"}
+		domains := []string{"tool-call", "tool-effect", "execute-tool-command", "execute-tool-job", "tool-call-requested-event", "tool-call-requested-publish-outbox", "tool-call-requested-publish-command", "execute-tool-outbox"}
 		values := make([]string, len(domains))
 		for domainIndex, domain := range domains {
 			values[domainIndex], err = ids.DeterministicUUID(store.IDKey, domain, requestScope)
@@ -215,7 +222,7 @@ func (store RunStore) toolRequestIdentifiers(runID string, runVersion uint64, re
 				return nil, "", err
 			}
 		}
-		result[index] = toolRequestIDs{values[0], values[1], values[2], values[3], values[4], values[5], values[6]}
+		result[index] = toolRequestIDs{values[0], values[1], values[2], values[3], values[4], values[5], values[6], values[7]}
 	}
 	return result, groupID, nil
 }

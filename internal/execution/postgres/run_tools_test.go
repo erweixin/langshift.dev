@@ -20,7 +20,13 @@ func TestToolPlanValidationAndIdentifiers(t *testing.T) {
 		"write no key": func(command *RequestToolsCommand) {
 			command.ToolRequests[0].EffectClass = "idempotent_write"
 		},
-		"read with key": func(command *RequestToolsCommand) { command.ToolRequests[0].EffectKey = "unexpected" },
+		"write no scope": func(command *RequestToolsCommand) {
+			command.ToolRequests[0].EffectClass = "idempotent_write"
+			command.ToolRequests[0].EffectKey = "effect"
+			command.ToolRequests[0].ProviderID = "provider"
+		},
+		"read with key":      func(command *RequestToolsCommand) { command.ToolRequests[0].EffectKey = "unexpected" },
+		"read with provider": func(command *RequestToolsCommand) { command.ToolRequests[0].ProviderID = "unexpected" },
 		"unknown queue": func(command *RequestToolsCommand) {
 			command.ToolRequests[0].QueueClass = "urgent"
 		},
@@ -50,7 +56,7 @@ func TestToolPlanValidationAndIdentifiers(t *testing.T) {
 		t.Fatalf("unstable identifiers first=%#v/%s second=%#v/%s error=%v", first, firstGroup, second, secondGroup, err)
 	}
 	seen := map[string]bool{firstGroup: true}
-	for _, value := range []string{first[0].toolCall, first[0].command, first[0].job, first[0].event, first[0].publishOutbox, first[0].publishCommand, first[0].executeOutbox} {
+	for _, value := range []string{first[0].toolCall, first[0].effect, first[0].command, first[0].job, first[0].event, first[0].publishOutbox, first[0].publishCommand, first[0].executeOutbox} {
 		if seen[value] {
 			t.Fatalf("identifier domain collision: %s", value)
 		}
