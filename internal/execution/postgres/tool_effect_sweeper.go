@@ -43,6 +43,8 @@ type SweptToolEffect struct {
 	ReconciliationDueAt                                                     time.Time
 }
 
+type toolEffectSweepHook func(context.Context, pgx.Tx, string, []byte, time.Time) error
+
 func (store RunStore) ListExpiredEffectTenantIDs(ctx context.Context, storeEpoch, after string, limit, shardIndex, shardCount int) ([]string, error) {
 	if !store.validClaim() || storeEpoch == "" || limit < 1 || limit > maximumExpiredEffectTenantPage || shardCount < 1 || shardIndex < 0 || shardIndex >= shardCount {
 		return nil, ErrConfiguration
@@ -123,6 +125,10 @@ func (store RunStore) ListExpiredEffectCandidates(ctx context.Context, tenantID,
 // records uncertainty. It never invokes the provider and never replays the
 // original command; the only follow-up is a provider-side reconciliation.
 func (store RunStore) SweepExpiredToolEffect(ctx context.Context, command SweepExpiredToolEffectCommand) (SweptToolEffect, error) {
+	return store.sweepExpiredToolEffect(ctx, command, nil)
+}
+
+func (store RunStore) sweepExpiredToolEffect(ctx context.Context, command SweepExpiredToolEffectCommand, hook toolEffectSweepHook) (SweptToolEffect, error) {
 	candidate := command.Candidate
 	if !store.validClaim() || !validSweepExpiredToolEffect(command) {
 		return SweptToolEffect{}, ErrInvalidCommand
@@ -224,6 +230,11 @@ func (store RunStore) SweepExpiredToolEffect(ctx context.Context, command SweepE
 	toolEvent := eventpostgres.Input{Event: eventpostgres.Event{ID: toolEventID, TenantID: candidate.TenantID, UserID: candidate.UserID, EventType: "ToolCallOutcomeUnknown", SchemaVersion: 1, AggregateKind: "tool_call", AggregateID: candidate.ToolCallID, AggregateVersion: nextToolVersion, StoreEpoch: candidate.StoreEpoch, OccurredAt: now, Actor: command.Actor, CausationID: &causationID, CorrelationID: command.CorrelationID, PayloadRef: command.OutcomeUnknownEvent.Ref, PayloadHash: command.OutcomeUnknownEvent.Hash}, Commands: []eventpostgres.OutboxCommand{{ID: toolOutboxID, CommandID: toolPublishID, CommandType: "events.publish", PayloadRef: command.OutcomeUnknownEvent.Ref, PayloadHash: command.OutcomeUnknownEvent.Hash}, {ID: reconcile.outbox, CommandID: reconcile.command, CommandType: "ReconcileToolEffect", PayloadRef: command.Reconciliation.ReconcileCommand.Ref, PayloadHash: command.Reconciliation.ReconcileCommand.Hash}}}
 	if _, err = store.Appender.Append(ctx, tx, toolEvent); err != nil {
 		return SweptToolEffect{}, err
+	}
+	if hook != nil {
+		if err = hook(ctx, tx, toolEventID, inboxDigest, now); err != nil {
+			return SweptToolEffect{}, err
+		}
 	}
 	if tag, updateErr := tx.Exec(ctx, `UPDATE agent.outbox SET available_at=$1 WHERE id=$2 AND tenant_id=$3 AND command_id=$4 AND status='pending'`, command.Reconciliation.ReconciliationDueAt, reconcile.outbox, candidate.TenantID, reconcile.command); updateErr != nil || tag.RowsAffected() != 1 {
 		return SweptToolEffect{}, ErrExecutionRightConflict

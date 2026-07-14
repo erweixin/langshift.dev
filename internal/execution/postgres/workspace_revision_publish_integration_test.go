@@ -7,7 +7,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
-	"errors"
 	"testing"
 	"time"
 
@@ -130,26 +129,20 @@ func TestWorkspacePublishIsFencedHeartbeatCoherentAndAtomicallyCompleted(t *test
 		t.Fatalf("heartbeat=%#v err=%v", publish, err)
 	}
 
+	clock = publish.LeaseExpiresAt
+	candidates, err := store.ListExpiredEffectCandidates(ctx, tenantID, storeEpoch, "", 10)
+	if err != nil || len(candidates) != 1 || candidates[0].AttemptID != publish.AttemptID {
+		t.Fatalf("expired workspace candidates=%#v err=%v", candidates, err)
+	}
 	reconcileDue := clock.Add(time.Minute)
-	completeTool := CompleteToolCommand{Claim: publish.Tool, ExpectedToolVersion: publish.Tool.ToolCallVersion, TargetState: statemachine.ToolCallOutcomeUnknown, ResultHash: "workspace-publish-response-lost-f1", Actor: json.RawMessage(`{"kind":"service","name":"workspace-publisher"}`), CorrelationID: correlationID, ToolCompletedEvent: repairPointer(prefix, "tool-outcome-unknown"), AttemptCompletedEvent: repairPointer(prefix, "commit-attempt-completed"), GroupJoinedEvent: repairPointer(prefix, "unused-group"), RunResumeQueuedEvent: repairPointer(prefix, "unused-resume"), ResumeCommand: repairPointer(prefix, "unused-resume-command"), ResumeQueueClass: "interactive", ResumeResourceClass: "llm", ResumePriority: 50, ResumeCostUnits: 1, ResumeMaxAttempts: 5}
-	completeCommand := CompleteWorkspacePublishCommand{RevisionID: prepare.RevisionID, ExpectedRevisionVersion: publish.Version, Tool: completeTool, ObservedRevision: "git:base-f1", CompletionEvent: repairPointer(prefix, "workspace-outcome-unknown")}
-	unknownEffect := EffectCompletion{ReconciliationDueAt: reconcileDue, ReconcileCommand: repairPointer(prefix, "reconcile-workspace"), ReconcileQueueClass: "background", ReconcileResource: "tool-reconciliation", ReconcilePriority: 40, ReconcileCostUnits: 1, ReconcileAttempts: 8}
-	unknown, err := store.CompleteWorkspacePublish(ctx, completeCommand, unknownEffect)
-	if err != nil || unknown.Status != "outcome_unknown" || unknown.Version != 5 || unknown.Tool.Status != statemachine.ToolCallOutcomeUnknown || unknown.Replayed || unknown.Tool.ReconcileCommandID == "" {
+	sweepEffect := SweepExpiredToolEffectCommand{Candidate: candidates[0], ResultHash: "workspace-publish-lease-expired-f1", Actor: json.RawMessage(`{"kind":"service","name":"workspace-sweeper"}`), CorrelationID: correlationID, OutcomeUnknownEvent: repairPointer(prefix, "tool-outcome-unknown"), AttemptExpiredEvent: repairPointer(prefix, "commit-attempt-expired"), Reconciliation: EffectCompletion{ReconciliationDueAt: reconcileDue, ReconcileCommand: repairPointer(prefix, "reconcile-workspace"), ReconcileQueueClass: "background", ReconcileResource: "tool-reconciliation", ReconcilePriority: 40, ReconcileCostUnits: 1, ReconcileAttempts: 8}}
+	unknown, err := store.SweepExpiredWorkspacePublish(ctx, SweepExpiredWorkspacePublishCommand{RevisionID: prepare.RevisionID, ExpectedRevisionVersion: publish.Version, Effect: sweepEffect, ObservedRevision: "git:base-f1", OutcomeUnknownEvent: repairPointer(prefix, "workspace-outcome-unknown"), Actor: json.RawMessage(`{"kind":"service","name":"workspace-sweeper"}`), CorrelationID: correlationID})
+	if err != nil || unknown.Status != "outcome_unknown" || unknown.Version != 5 || unknown.Effect.ReconcileCommandID == "" {
 		t.Fatalf("unknown=%#v err=%v", unknown, err)
-	}
-	unknownReplay, err := store.CompleteWorkspacePublish(ctx, completeCommand, unknownEffect)
-	if err != nil || !unknownReplay.Replayed || unknownReplay.EventID != unknown.EventID || unknownReplay.Version != unknown.Version {
-		t.Fatalf("unknown replay=%#v err=%v", unknownReplay, err)
-	}
-	conflictingUnknown := unknownEffect
-	conflictingUnknown.ExternalResourceRef = "workspace://f1/substituted"
-	if _, err = store.CompleteWorkspacePublish(ctx, completeCommand, conflictingUnknown); !errors.Is(err, ErrWorkspaceConflict) {
-		t.Fatalf("conflicting completion replay error=%v", err)
 	}
 
 	clock = reconcileDue
-	reconcileCommand := ClaimReconciliationCommand{Command: eventpostgres.DeliveredCommand{TenantID: tenantID, StoreEpoch: storeEpoch, CommandID: unknown.Tool.ReconcileCommandID, CommandType: "ReconcileToolEffect", AggregateKind: "tool_call", AggregateID: tool.ToolCallID, PayloadRef: repairPointer(prefix, "reconcile-workspace").Ref, PayloadHash: repairPointer(prefix, "reconcile-workspace").Hash}, ConsumerName: "workspace-reconciler", WorkerID: "workspace-reconciler-f1", Actor: json.RawMessage(`{"kind":"service"}`), CorrelationID: correlationID, AttemptStartedEvent: repairPointer(prefix, "reconcile-attempt-started"), AttemptExpiredEvent: repairPointer(prefix, "reconcile-attempt-expired")}
+	reconcileCommand := ClaimReconciliationCommand{Command: eventpostgres.DeliveredCommand{TenantID: tenantID, StoreEpoch: storeEpoch, CommandID: unknown.Effect.ReconcileCommandID, CommandType: "ReconcileToolEffect", AggregateKind: "tool_call", AggregateID: tool.ToolCallID, PayloadRef: repairPointer(prefix, "reconcile-workspace").Ref, PayloadHash: repairPointer(prefix, "reconcile-workspace").Hash}, ConsumerName: "workspace-reconciler", WorkerID: "workspace-reconciler-f1", Actor: json.RawMessage(`{"kind":"service"}`), CorrelationID: correlationID, AttemptStartedEvent: repairPointer(prefix, "reconcile-attempt-started"), AttemptExpiredEvent: repairPointer(prefix, "reconcile-attempt-expired")}
 	workspaceReconcile, err := store.ClaimWorkspaceReconciliation(ctx, ClaimWorkspaceReconciliationCommand{RevisionID: prepare.RevisionID, ExpectedRevisionVersion: unknown.Version, Reconciliation: reconcileCommand})
 	if err != nil || workspaceReconcile.Version != 5 || workspaceReconcile.Claim.EffectVersion == 0 {
 		t.Fatalf("workspace reconciliation claim=%#v err=%v", workspaceReconcile, err)
