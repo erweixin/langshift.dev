@@ -2056,6 +2056,28 @@ $$;
 
 REVOKE ALL ON FUNCTION "identity".lock_active_tenant(uuid) FROM PUBLIC;
 
+CREATE OR REPLACE FUNCTION "agent".list_ready_outbox_tenants(p_store_epoch uuid, p_after uuid, p_limit integer, p_shard_index integer, p_shard_count integer)
+RETURNS TABLE(tenant_id text)
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, agent SET row_security = off AS $$
+BEGIN
+  IF p_store_epoch IS NULL OR p_limit IS NULL OR p_limit < 1 OR p_limit > 5000 OR p_shard_count IS NULL OR p_shard_count < 1 OR p_shard_index IS NULL OR p_shard_index < 0 OR p_shard_index >= p_shard_count THEN
+    RAISE EXCEPTION 'invalid outbox tenant scan arguments' USING ERRCODE = '22023';
+  END IF;
+  RETURN QUERY
+    SELECT o.tenant_id::text
+    FROM agent.outbox o
+    WHERE o.store_epoch=p_store_epoch
+      AND (p_after IS NULL OR o.tenant_id>p_after)
+      AND ((o.status='pending' AND o.available_at<=CURRENT_TIMESTAMP) OR (o.status='publishing' AND o.publisher_lease_expires_at<=CURRENT_TIMESTAMP))
+      AND ((hashtextextended(o.tenant_id::text,0) & 9223372036854775807) % p_shard_count)=p_shard_index
+    GROUP BY o.tenant_id
+    ORDER BY o.tenant_id
+    LIMIT p_limit;
+END
+$$;
+
+REVOKE ALL ON FUNCTION "agent".list_ready_outbox_tenants(uuid,uuid,integer,integer,integer) FROM PUBLIC;
+
 ALTER TABLE "identity"."password_credentials" ADD CONSTRAINT "password_credentials_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "identity"."users" ("id") ON DELETE CASCADE;
 
 ALTER TABLE "identity"."email_verifications" ADD CONSTRAINT "email_verifications_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "identity"."users" ("id") ON DELETE CASCADE;

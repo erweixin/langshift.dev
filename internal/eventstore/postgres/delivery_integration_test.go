@@ -25,16 +25,34 @@ func TestOutboxAndInboxLeasesFenceStaleDelivery(t *testing.T) {
 	const outboxID = "50000000-0000-0000-0000-000000009901"
 	const commandID = "60000000-0000-0000-0000-000000009901"
 	const aggregateID = "70000000-0000-0000-0000-000000009901"
-	now := time.Unix(1_800_009_900, 0).UTC()
+	availableAt := time.Now().UTC().Add(-time.Minute)
+	now := availableAt.Add(2 * time.Minute)
 	if _, err := admin.Exec(ctx, `INSERT INTO identity.tenants (id,kind,name,status,region) VALUES ($1,'enterprise','Delivery Tenant','active','US')`, tenantID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := admin.Exec(ctx, `INSERT INTO agent.outbox (id,tenant_id,command_id,command_type,aggregate_kind,aggregate_id,store_epoch,payload_ref,payload_hash,status,available_at) VALUES ($1,$2,$3,'identity.invitation_import.process','invitation_import',$4,$5,'blob://command','payload-hash','pending',$6)`, outboxID, tenantID, commandID, aggregateID, epoch, now); err != nil {
+	if _, err := admin.Exec(ctx, `INSERT INTO agent.outbox (id,tenant_id,command_id,command_type,aggregate_kind,aggregate_id,store_epoch,payload_ref,payload_hash,status,available_at) VALUES ($1,$2,$3,'identity.invitation_import.process','invitation_import',$4,$5,'blob://command','payload-hash','pending',$6)`, outboxID, tenantID, commandID, aggregateID, epoch, availableAt); err != nil {
 		t.Fatal(err)
 	}
 	authority := epochAuthorityStub{epoch: epoch}
 	tokens := opaque.Manager{Purpose: "delivery-lease", Pepper: bytes.Repeat([]byte{0x71}, 32)}
 	outbox := OutboxStore{Pool: pool, Epochs: authority, Tokens: tokens, LeaseTTL: time.Minute, RetryBase: time.Second, RetryLimit: time.Minute, Now: func() time.Time { return now }}
+	tenantIDs, err := outbox.ListReadyTenantIDs(ctx, epoch, "", 5000, 0, 1)
+	if err != nil || !containsTenantID(tenantIDs, tenantID) {
+		t.Fatalf("tenant catalog ids=%v error=%v", tenantIDs, err)
+	}
+	shardOccurrences := 0
+	for shard := 0; shard < 2; shard++ {
+		shardIDs, shardErr := outbox.ListReadyTenantIDs(ctx, epoch, "", 5000, shard, 2)
+		if shardErr != nil {
+			t.Fatal(shardErr)
+		}
+		if containsTenantID(shardIDs, tenantID) {
+			shardOccurrences++
+		}
+	}
+	if shardOccurrences != 1 {
+		t.Fatalf("tenant appeared in %d publisher shards", shardOccurrences)
+	}
 	if _, err := outbox.ClaimBatch(ctx, tenantID, "40000000-0000-0000-0000-000000009999", 1); !errors.Is(err, ErrStaleStoreEpoch) {
 		t.Fatalf("stale epoch claim=%v", err)
 	}
@@ -101,6 +119,15 @@ func TestOutboxAndInboxLeasesFenceStaleDelivery(t *testing.T) {
 	if err = admin.QueryRow(ctx, `SELECT status,fence FROM agent.inbox WHERE tenant_id=$1 AND consumer_name='identity-import-worker' AND command_id=$2`, tenantID, commandID).Scan(&inboxStatus, &fence); err != nil || inboxStatus != "completed" || fence != 2 {
 		t.Fatalf("inbox status=%s fence=%d error=%v", inboxStatus, fence, err)
 	}
+}
+
+func containsTenantID(values []string, expected string) bool {
+	for _, value := range values {
+		if value == expected {
+			return true
+		}
+	}
+	return false
 }
 
 func deliveryPool(t *testing.T, ctx context.Context, name string) *pgxpool.Pool {

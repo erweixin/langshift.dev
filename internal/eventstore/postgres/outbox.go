@@ -12,6 +12,7 @@ import (
 )
 
 const maximumOutboxBatch = 500
+const maximumTenantPage = 5000
 
 type PublishedCommand struct {
 	OutboxID, TenantID, CommandID, CommandType, AggregateKind, AggregateID string
@@ -46,6 +47,29 @@ type OutboxStore struct {
 
 type PublishBatchResult struct {
 	Claimed, Published, Deferred int
+}
+
+// ListReadyTenantIDs calls a minimal SECURITY DEFINER capability that reveals
+// only tenant IDs with publishable work in the current epoch. Payload rows are
+// still read and mutated under transaction-local tenant RLS in ClaimBatch.
+func (store OutboxStore) ListReadyTenantIDs(ctx context.Context, storeEpoch, after string, limit, shardIndex, shardCount int) ([]string, error) {
+	if store.Pool == nil || storeEpoch == "" || limit < 1 || limit > maximumTenantPage || shardCount < 1 || shardIndex < 0 || shardIndex >= shardCount {
+		return nil, ErrDeliveryConfiguration
+	}
+	rows, err := store.Pool.Query(ctx, `SELECT tenant_id FROM agent.list_ready_outbox_tenants($1::uuid,NULLIF($2,'')::uuid,$3,$4,$5)`, storeEpoch, after, limit, shardIndex, shardCount)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	ids := make([]string, 0, limit)
+	for rows.Next() {
+		var id string
+		if err = rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
 }
 
 func (store OutboxStore) ClaimBatch(ctx context.Context, tenantID, storeEpoch string, limit int) ([]OutboxClaim, error) {
