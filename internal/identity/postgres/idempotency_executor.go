@@ -27,6 +27,44 @@ type IdempotencyInput struct {
 
 type IdempotentMutation func(context.Context, pgx.Tx) (idempotency.Response, error)
 
+// LoadCompleted returns an exact committed replay without creating a new
+// record. It is used after a mutation invalidates its own authentication
+// credential (for example logout), while the already verified gateway context
+// is still processing concurrent copies of the same request.
+func (executor IdempotencyExecutor) LoadCompleted(ctx context.Context, input IdempotencyInput) (idempotency.Response, bool, error) {
+	if executor.Pool == nil || input.Scope.TenantID == "" || input.Scope.UserID == "" || input.Scope.OperationID == "" || input.RequestHash == "" {
+		return idempotency.Response{}, false, idempotency.ErrInvalidKey
+	}
+	keyDigest, err := idempotency.KeyDigest(input.RawKey, executor.KeyPepper)
+	if err != nil {
+		return idempotency.Response{}, false, err
+	}
+	tx, err := executor.Pool.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return idempotency.Response{}, false, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err = tx.Exec(ctx, `SELECT set_config('lites.tenant_id',$1,true)`, input.Scope.TenantID); err != nil {
+		return idempotency.Response{}, false, err
+	}
+	var storedRequestHash string
+	var response idempotency.Response
+	err = tx.QueryRow(ctx, `SELECT request_hash,response_status,response_content_type,response_payload_ref,response_hash,COALESCE(resource_version,0) FROM agent.idempotency_responses WHERE tenant_id=$1 AND user_id=$2 AND operation_id=$3 AND idempotency_key_hash=$4 AND status='completed'`, input.Scope.TenantID, input.Scope.UserID, input.Scope.OperationID, keyDigest[:]).Scan(&storedRequestHash, &response.Status, &response.ContentType, &response.PayloadRef, &response.Hash, &response.ResourceVersion)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return idempotency.Response{}, false, nil
+	}
+	if err != nil {
+		return idempotency.Response{}, false, err
+	}
+	if storedRequestHash != input.RequestHash {
+		return idempotency.Response{}, false, idempotency.ErrKeyConflict
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return idempotency.Response{}, false, err
+	}
+	return response, true, nil
+}
+
 func (executor IdempotencyExecutor) Execute(ctx context.Context, input IdempotencyInput, mutation IdempotentMutation) (idempotency.Response, bool, error) {
 	if executor.Pool == nil || mutation == nil || input.RecordID == "" || input.Scope.TenantID == "" || input.Scope.UserID == "" || input.Scope.OperationID == "" || input.RequestHash == "" || input.RequestID == "" || executor.TTL <= 0 {
 		return idempotency.Response{}, false, idempotency.ErrInvalidKey

@@ -94,6 +94,7 @@ func TestAuthRegistrationVerificationAndLoginAreDurableIdempotentAndSecretSafe(t
 		IdempotencyKeyPepper:    bytes.Repeat([]byte{0x35}, 32),
 		RequestDigestPepper:     bytes.Repeat([]byte{0x36}, 32),
 		IdentityKey:             bytes.Repeat([]byte{0x37}, 32),
+		CursorKey:               bytes.Repeat([]byte{0x38}, 32),
 		PublicTenantID:          authPublicTenantID,
 		StoreEpoch:              authStoreEpoch,
 		Region:                  "US",

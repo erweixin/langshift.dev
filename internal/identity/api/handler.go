@@ -33,6 +33,9 @@ var (
 	ErrIdempotencyConflict   = errors.New("identity idempotency conflict")
 	ErrRateLimited           = errors.New("identity request rate limited")
 	ErrDependencyUnavailable = errors.New("identity dependency unavailable")
+	ErrResourceNotFound      = errors.New("identity resource not found")
+	ErrVersionConflict       = errors.New("identity version conflict")
+	ErrValidation            = errors.New("identity request validation failed")
 )
 
 type RequestMetadata struct {
@@ -86,31 +89,55 @@ type Service interface {
 }
 
 type Handler struct {
-	Service Service
-	Now     func() time.Time
+	Service  Service
+	Sessions SessionService
+	Now      func() time.Time
 }
 
 func (handler Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	switch request.URL.Path {
 	case "/v1/auth/register":
 		if request.Method != http.MethodPost {
-			handler.methodNotAllowed(writer, request)
+			handler.methodNotAllowed(writer, request, http.MethodPost)
 			return
 		}
 		handler.register(writer, request)
 	case "/v1/auth/verify-email":
 		if request.Method != http.MethodPost {
-			handler.methodNotAllowed(writer, request)
+			handler.methodNotAllowed(writer, request, http.MethodPost)
 			return
 		}
 		handler.verifyEmail(writer, request)
 	case "/v1/auth/login":
 		if request.Method != http.MethodPost {
-			handler.methodNotAllowed(writer, request)
+			handler.methodNotAllowed(writer, request, http.MethodPost)
 			return
 		}
 		handler.login(writer, request)
+	case "/v1/auth/logout":
+		if request.Method != http.MethodPost {
+			handler.methodNotAllowed(writer, request, http.MethodPost)
+			return
+		}
+		handler.logout(writer, request)
+	case "/v1/auth/sessions":
+		switch request.Method {
+		case http.MethodGet:
+			handler.listSessions(writer, request)
+		case http.MethodDelete:
+			handler.revokeOtherSessions(writer, request)
+		default:
+			handler.methodNotAllowed(writer, request, http.MethodGet, http.MethodDelete)
+		}
 	default:
+		if strings.HasPrefix(request.URL.Path, "/v1/auth/sessions/") {
+			if request.Method != http.MethodDelete {
+				handler.methodNotAllowed(writer, request, http.MethodDelete)
+				return
+			}
+			handler.revokeSession(writer, request)
+			return
+		}
 		handler.writeProblem(writer, request, http.StatusNotFound, "resource_not_found", "Resource not found", false)
 	}
 }
@@ -244,7 +271,8 @@ func (handler Handler) publicMetadata(writer http.ResponseWriter, request *http.
 		handler.internalError(writer, request)
 		return RequestMetadata{}, false
 	}
-	if idempotency.ValidateRawKey(request.Header.Get(transport.IdempotencyHeader)) != nil {
+	idempotencyValues := request.Header.Values(transport.IdempotencyHeader)
+	if len(idempotencyValues) != 1 || idempotency.ValidateRawKey(idempotencyValues[0]) != nil {
 		handler.validationFailed(writer, request)
 		return RequestMetadata{}, false
 	}
@@ -254,7 +282,7 @@ func (handler Handler) publicMetadata(writer http.ResponseWriter, request *http.
 		handler.internalError(writer, request)
 		return RequestMetadata{}, false
 	}
-	return RequestMetadata{RequestID: claims.RequestID, IdempotencyKey: request.Header.Get(transport.IdempotencyHeader), ClientIPHash: ipHash, UserAgentHash: userAgentHash}, true
+	return RequestMetadata{RequestID: claims.RequestID, IdempotencyKey: idempotencyValues[0], ClientIPHash: ipHash, UserAgentHash: userAgentHash}, true
 }
 
 func (handler Handler) decode(writer http.ResponseWriter, request *http.Request, target any) bool {
@@ -294,6 +322,12 @@ func (handler Handler) serviceError(writer http.ResponseWriter, request *http.Re
 		handler.writeProblem(writer, request, http.StatusConflict, "state_conflict", "State conflict", true)
 	case errors.Is(err, ErrIdempotencyConflict):
 		handler.writeProblem(writer, request, http.StatusConflict, "idempotency_conflict", "Idempotency conflict", false)
+	case errors.Is(err, ErrVersionConflict):
+		handler.writeProblem(writer, request, http.StatusConflict, "version_conflict", "Version conflict", false)
+	case errors.Is(err, ErrResourceNotFound):
+		handler.writeProblem(writer, request, http.StatusNotFound, "resource_not_found", "Resource not found", false)
+	case errors.Is(err, ErrValidation):
+		handler.validationFailed(writer, request)
 	case errors.Is(err, ErrRateLimited):
 		handler.writeProblem(writer, request, http.StatusTooManyRequests, "rate_limited", "Rate limited", true)
 	case errors.Is(err, ErrDependencyUnavailable):
@@ -303,8 +337,8 @@ func (handler Handler) serviceError(writer http.ResponseWriter, request *http.Re
 	}
 }
 
-func (handler Handler) methodNotAllowed(writer http.ResponseWriter, request *http.Request) {
-	writer.Header().Set("Allow", http.MethodPost)
+func (handler Handler) methodNotAllowed(writer http.ResponseWriter, request *http.Request, allowed ...string) {
+	writer.Header().Set("Allow", strings.Join(allowed, ", "))
 	handler.writeProblem(writer, request, http.StatusMethodNotAllowed, "method_not_allowed", "Method not allowed", false)
 }
 

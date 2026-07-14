@@ -35,6 +35,7 @@ type AuthService struct {
 	IdempotencyKeyPepper    []byte
 	RequestDigestPepper     []byte
 	IdentityKey             []byte
+	CursorKey               []byte
 	PublicTenantID          string
 	StoreEpoch              string
 	Region                  string
@@ -532,7 +533,7 @@ func (service AuthService) now() time.Time {
 }
 
 func (service AuthService) validate() error {
-	if service.Pool == nil || service.Payloads == nil || service.PublicTenantID == "" || service.StoreEpoch == "" || service.Region == "" || service.VerificationTTL <= 0 || service.SessionTTL <= 0 || service.IdempotencyTTL <= 0 || len(service.IdentityKey) < 32 || len(service.SessionPepper) < 32 || len(service.CSRFPepper) < 32 || len(service.IdempotencyKeyPepper) < 32 || len(service.RequestDigestPepper) < 32 || bytes.Equal(service.SessionPepper, service.CSRFPepper) || len(service.DummyPasswordHash) == 0 {
+	if service.Pool == nil || service.Payloads == nil || service.PublicTenantID == "" || service.StoreEpoch == "" || service.Region == "" || service.VerificationTTL <= 0 || service.SessionTTL <= 0 || service.IdempotencyTTL <= 0 || len(service.IdentityKey) < 32 || len(service.CursorKey) < 32 || len(service.SessionPepper) < 32 || len(service.CSRFPepper) < 32 || len(service.IdempotencyKeyPepper) < 32 || len(service.RequestDigestPepper) < 32 || bytes.Equal(service.SessionPepper, service.CSRFPepper) || len(service.DummyPasswordHash) == 0 {
 		return errors.New("identity auth service configuration is invalid")
 	}
 	return nil
@@ -548,6 +549,12 @@ func mapLookupError(err error) error {
 func mapIdentityError(err error) error {
 	if errors.Is(err, api.ErrInvalidCredentials) {
 		return api.ErrInvalidCredentials
+	}
+	if errors.Is(err, api.ErrVersionConflict) {
+		return api.ErrVersionConflict
+	}
+	if errors.Is(err, api.ErrResourceNotFound) {
+		return api.ErrResourceNotFound
 	}
 	if errors.Is(err, idempotency.ErrKeyConflict) {
 		return api.ErrIdempotencyConflict

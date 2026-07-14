@@ -30,4 +30,4 @@ container_port="$(docker port "${container_name}" 5432/tcp | head -n 1 | sed 's/
 
 LITES_TEST_ADMIN_DATABASE_URL="postgres://postgres:foundation_admin@127.0.0.1:${container_port}/lites_foundation?sslmode=disable" \
 LITES_TEST_IDENTITY_DATABASE_URL="postgres://lites_identity_service:foundation_service@127.0.0.1:${container_port}/lites_foundation?sslmode=disable" \
-GOCACHE=/tmp/lites-go-build GOMODCACHE=/tmp/lites-go-mod go test -count=1 -tags=integration ./internal/identity/postgres ./internal/eventstore/postgres
+GOCACHE=/tmp/lites-go-build GOMODCACHE=/tmp/lites-go-mod go test -count=1 -timeout=60s -tags=integration ./internal/identity/postgres ./internal/eventstore/postgres
