@@ -35,7 +35,7 @@ for cycle in $(seq 1 "${cycles}"); do
   port="$(docker port "${current_container}" 5432/tcp | head -n 1 | sed 's/.*://')"
   database_url="postgres://postgres:migration_admin@127.0.0.1:${port}/lites?sslmode=disable"
   ALLOW_INSECURE_DEVELOPMENT=true DATABASE_URL="${database_url}" "${work}/lites-migrate" -direction up >/dev/null
-  docker cp deploy/migrations/900009_verify_current.sql "${current_container}:/tmp/verify.sql" >/dev/null
+  docker cp deploy/migrations/900010_verify_current.sql "${current_container}:/tmp/verify.sql" >/dev/null
   verify_output="$(docker exec "${current_container}" psql -v ON_ERROR_STOP=1 -U postgres -d lites -Atf /tmp/verify.sql)"
   [[ "${verify_output}" == *'"status" : "passed"'* ]] || { printf '%s\n' "${verify_output}"; exit 1; }
   docker exec "${current_container}" psql -v ON_ERROR_STOP=1 -U postgres -d lites -Atc \
@@ -49,12 +49,12 @@ for cycle in $(seq 1 "${cycles}"); do
   ALLOW_INSECURE_DEVELOPMENT=true DATABASE_URL="${database_url}" "${work}/lites-migrate" -direction up >/dev/null
   data_after_up="$(docker exec "${current_container}" psql -v ON_ERROR_STOP=1 -U postgres -d lites -Atc "${data_query}")"
   [[ "${data_after_up}" == "${data_before}" ]] || exit 1
-  if ALLOW_INSECURE_DEVELOPMENT=true DATABASE_URL="${database_url}" "${work}/lites-migrate" -direction down -steps 9 >/dev/null 2>&1; then
+  if ALLOW_INSECURE_DEVELOPMENT=true DATABASE_URL="${database_url}" "${work}/lites-migrate" -direction down -steps 10 >/dev/null 2>&1; then
     echo "irreversible baseline rollback unexpectedly succeeded" >&2
     exit 1
   fi
   status_output="$(ALLOW_INSECURE_DEVELOPMENT=true DATABASE_URL="${database_url}" "${work}/lites-migrate" -direction status)"
-  [[ "${status_output}" == *'"current_version":9'* ]] || { printf '%s\n' "${status_output}"; exit 1; }
+  [[ "${status_output}" == *'"current_version":10'* ]] || { printf '%s\n' "${status_output}"; exit 1; }
   postgres_version="$(docker exec "${current_container}" psql -U postgres -d lites -Atc "SHOW server_version")"
   docker rm -f "${current_container}" >/dev/null
   current_container=""

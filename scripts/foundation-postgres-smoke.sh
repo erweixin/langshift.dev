@@ -48,7 +48,8 @@ for migration in \
   deploy/migrations/000006_scheduler_dispatch_protocol.up.sql \
   deploy/migrations/000007_parallel_group_contract.up.sql \
   deploy/migrations/000008_tool_execution_contract.up.sql \
-  deploy/migrations/000009_tool_effect_ledger.up.sql; do
+  deploy/migrations/000009_tool_effect_ledger.up.sql \
+  deploy/migrations/000010_effect_reconciliation_contract.up.sql; do
   target="/tmp/$(basename "${migration}")"
   docker cp "${migration}" "${container_name}:${target}" >/dev/null
   docker exec "${container_name}" psql -v ON_ERROR_STOP=1 -U postgres -d lites_foundation -f "${target}" >/dev/null
