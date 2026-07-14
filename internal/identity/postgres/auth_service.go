@@ -32,6 +32,7 @@ type AuthService struct {
 	DummyPasswordParameters password.Parameters
 	VerificationTokens      opaque.Manager
 	PasswordResetTokens     opaque.Manager
+	EmailChangeTokens       opaque.Manager
 	SessionPepper           []byte
 	CSRFPepper              []byte
 	IdempotencyKeyPepper    []byte
@@ -43,6 +44,7 @@ type AuthService struct {
 	Region                  string
 	VerificationTTL         time.Duration
 	PasswordResetTTL        time.Duration
+	EmailChangeTTL          time.Duration
 	SessionTTL              time.Duration
 	IdempotencyTTL          time.Duration
 	Payloads                payload.Store
@@ -562,7 +564,7 @@ func (service AuthService) now() time.Time {
 }
 
 func (service AuthService) validate() error {
-	if service.Pool == nil || service.Payloads == nil || !service.PasswordPolicy.Configured() || service.PublicTenantID == "" || service.StoreEpoch == "" || service.Region == "" || service.VerificationTTL <= 0 || service.PasswordResetTTL <= 0 || service.SessionTTL <= 0 || service.IdempotencyTTL <= 0 || len(service.IdentityKey) < 32 || len(service.CursorKey) < 32 || len(service.SessionPepper) < 32 || len(service.CSRFPepper) < 32 || len(service.IdempotencyKeyPepper) < 32 || len(service.RequestDigestPepper) < 32 || service.PasswordResetTokens.Purpose == "" || len(service.PasswordResetTokens.Pepper) < 32 || bytes.Equal(service.SessionPepper, service.CSRFPepper) || len(service.DummyPasswordHash) == 0 {
+	if service.Pool == nil || service.Payloads == nil || !service.PasswordPolicy.Configured() || service.PublicTenantID == "" || service.StoreEpoch == "" || service.Region == "" || service.VerificationTTL <= 0 || service.PasswordResetTTL <= 0 || service.EmailChangeTTL <= 0 || service.SessionTTL <= 0 || service.IdempotencyTTL <= 0 || len(service.IdentityKey) < 32 || len(service.CursorKey) < 32 || len(service.SessionPepper) < 32 || len(service.CSRFPepper) < 32 || len(service.IdempotencyKeyPepper) < 32 || len(service.RequestDigestPepper) < 32 || service.PasswordResetTokens.Purpose == "" || len(service.PasswordResetTokens.Pepper) < 32 || service.EmailChangeTokens.Purpose == "" || len(service.EmailChangeTokens.Pepper) < 32 || bytes.Equal(service.SessionPepper, service.CSRFPepper) || len(service.DummyPasswordHash) == 0 {
 		return errors.New("identity auth service configuration is invalid")
 	}
 	return nil

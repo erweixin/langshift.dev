@@ -93,6 +93,7 @@ type Handler struct {
 	Service   Service
 	Sessions  SessionService
 	Passwords PasswordService
+	Emails    EmailService
 	Now       func() time.Time
 }
 
@@ -134,6 +135,18 @@ func (handler Handler) ServeHTTP(writer http.ResponseWriter, request *http.Reque
 			return
 		}
 		handler.passwordChange(writer, request)
+	case "/v1/auth/email/change":
+		if request.Method != http.MethodPost {
+			handler.methodNotAllowed(writer, request, http.MethodPost)
+			return
+		}
+		handler.emailChange(writer, request)
+	case "/v1/auth/email/confirm-change":
+		if request.Method != http.MethodPost {
+			handler.methodNotAllowed(writer, request, http.MethodPost)
+			return
+		}
+		handler.emailConfirmChange(writer, request)
 	case "/v1/auth/logout":
 		if request.Method != http.MethodPost {
 			handler.methodNotAllowed(writer, request, http.MethodPost)
