@@ -11,6 +11,7 @@ on:
       - "scripts/foundation-postgres-smoke.sh"
       - "scripts/stage2-migration-smoke.sh"
       - "scripts/write-stage2-migration-report.mjs"
+      - "scripts/verify-actions-pinned.mjs"
       - "deploy/**"
       - "config/**"
       - ".github/workflows/foundation-gate.yml"
@@ -26,13 +27,17 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version: "1.25.12"
           cache: true
       - name: Refuse formatting drift
         run: test -z "$(gofmt -l cmd internal services 2>/dev/null || true)"
+      - name: Enforce immutable GitHub Action references
+        run: node scripts/verify-actions-pinned.mjs
       - name: Vet production packages
         run: go vet ./...
       - name: Run race-enabled foundation tests
@@ -47,7 +52,7 @@ jobs:
         run: ./scripts/stage2-migration-smoke.sh
       - name: Upload Stage 2 foundation evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: stage-2-foundation-evidence
           path: gate-reports/stage-2/

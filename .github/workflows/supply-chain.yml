@@ -1,0 +1,239 @@
+name: Supply Chain
+
+on:
+  pull_request:
+    paths:
+      - "go.mod"
+      - "go.sum"
+      - "cmd/**"
+      - "internal/**"
+      - "contracts/database/**"
+      - "deploy/**"
+      - "Dockerfile"
+      - ".dockerignore"
+      - "scripts/verify-production-image.sh"
+      - "scripts/verify-actions-pinned.mjs"
+      - ".github/workflows/**"
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  GO_VERSION: "1.25.12"
+  GOVULNCHECK_VERSION: "v1.1.4"
+  CYCLONEDX_GOMOD_VERSION: "v1.10.0"
+  TRIVY_VERSION: "v0.72.0"
+  COSIGN_VERSION: "v3.1.1"
+  ACTIONLINT_VERSION: "v1.7.12"
+  BUILDX_VERSION: "v0.35.0"
+  BUILDKIT_IMAGE: "moby/buildkit:v0.31.1@sha256:6b59b7df63a8cb9902736f9ddf7fcff8261613d3e7449b8ea8b7537fc399c03a"
+
+jobs:
+  source-security:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - name: Enforce immutable GitHub Action references
+        run: node scripts/verify-actions-pinned.mjs
+      - name: Verify authenticated Go module contents
+        run: go mod verify
+      - name: Install pinned Go security and SBOM tools
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}
+          go install github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@${CYCLONEDX_GOMOD_VERSION}
+          go install github.com/rhysd/actionlint/cmd/actionlint@${ACTIONLINT_VERSION}
+      - name: Validate GitHub Actions semantics
+        run: actionlint -color
+      - name: Generate govulncheck evidence
+        run: |
+          mkdir -p gate-reports/stage-2/supply-chain
+          govulncheck -json ./... > gate-reports/stage-2/supply-chain/govulncheck.json
+          govulncheck ./...
+      - name: Generate CycloneDX module and application SBOMs
+        env:
+          GOOS: linux
+          GOARCH: amd64
+          CGO_ENABLED: "0"
+        run: |
+          out=gate-reports/stage-2/supply-chain
+          cyclonedx-gomod mod -licenses -std -json -output "$out/module.cdx.json" .
+          for service in identity-service identity-import-worker outbox-publisher lites-migrate; do
+            cyclonedx-gomod app -licenses -std -json -output "$out/$service.cdx.json" -main "cmd/$service" .
+          done
+      - name: Scan source, dependencies, IaC, and secrets
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: ${{ env.TRIVY_VERSION }}
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,misconfig,secret
+          severity: HIGH,CRITICAL
+          ignore-unfixed: false
+          exit-code: 1
+          format: json
+          output: gate-reports/stage-2/supply-chain/trivy-filesystem.json
+      - name: Upload source security evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: supply-chain-source-evidence
+          path: gate-reports/stage-2/supply-chain/
+          if-no-files-found: error
+          retention-days: 90
+
+  container-security:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - identity-service
+          - identity-import-worker
+          - outbox-publisher
+          - lites-migrate
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+        with:
+          version: ${{ env.BUILDX_VERSION }}
+          driver-opts: image=${{ env.BUILDKIT_IMAGE }}
+      - name: Build local validation image
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          load: true
+          push: false
+          platforms: linux/amd64
+          tags: lites/${{ matrix.service }}:${{ github.sha }}
+          build-args: |
+            SERVICE=${{ matrix.service }}
+            VERSION=sha-${{ github.sha }}
+            REVISION=${{ github.sha }}
+            SOURCE_URL=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=gha,scope=${{ matrix.service }}-amd64
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}-amd64
+      - name: Verify scratch, non-root, shell-free runtime
+        run: ./scripts/verify-production-image.sh "lites/${{ matrix.service }}:${{ github.sha }}" "${{ matrix.service }}"
+      - name: Scan production image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: ${{ env.TRIVY_VERSION }}
+          image-ref: lites/${{ matrix.service }}:${{ github.sha }}
+          scanners: vuln,misconfig,secret
+          severity: HIGH,CRITICAL
+          ignore-unfixed: false
+          exit-code: 1
+          format: json
+          output: gate-reports/stage-2/images/${{ matrix.service }}-trivy.json
+      - name: Upload image security evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: supply-chain-image-${{ matrix.service }}
+          path: gate-reports/stage-2/images/
+          if-no-files-found: error
+          retention-days: 90
+
+  publish-signed-images:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [source-security, container-security]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - identity-service
+          - identity-import-worker
+          - outbox-publisher
+          - lites-migrate
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+        with:
+          version: ${{ env.BUILDX_VERSION }}
+          driver-opts: image=${{ env.BUILDKIT_IMAGE }}
+      - name: Normalize immutable image name
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}-${{ matrix.service }}" >> "$GITHUB_ENV"
+      - name: Authenticate to GHCR
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push multi-platform image with SBOM and provenance
+        id: build
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          push: true
+          pull: true
+          platforms: linux/amd64,linux/arm64
+          tags: |
+            ${{ env.IMAGE }}:sha-${{ github.sha }}
+            ${{ env.IMAGE }}:main
+          build-args: |
+            SERVICE=${{ matrix.service }}
+            VERSION=sha-${{ github.sha }}
+            REVISION=${{ github.sha }}
+            SOURCE_URL=${{ github.server_url }}/${{ github.repository }}
+          provenance: mode=max
+          sbom: true
+          cache-from: type=gha,scope=${{ matrix.service }}-multiarch
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}-multiarch
+      - name: Install pinned Cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: ${{ env.COSIGN_VERSION }}
+      - name: Keyless sign immutable image digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: cosign sign --yes "$IMAGE@$DIGEST"
+      - name: Verify signature is bound to this main workflow
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: >-
+          cosign verify
+          --certificate-identity "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/.github/workflows/supply-chain.yml@refs/heads/main"
+          --certificate-oidc-issuer "https://token.actions.githubusercontent.com"
+          "$IMAGE@$DIGEST"
+      - name: Record immutable release coordinates
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          mkdir -p gate-reports/stage-2/releases
+          jq -n \
+            --arg service "${{ matrix.service }}" \
+            --arg image "$IMAGE" \
+            --arg digest "$DIGEST" \
+            --arg commit "$GITHUB_SHA" \
+            --arg workflow_ref "$GITHUB_WORKFLOW_REF" \
+            '{schema_version:"1.0.0",service:$service,image:$image,digest:$digest,source_commit:$commit,workflow_ref:$workflow_ref,sbom_attested:true,provenance_mode:"max",cosign_keyless_signature_verified:true}' \
+            > "gate-reports/stage-2/releases/${{ matrix.service }}.json"
+      - name: Upload signed release evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: signed-release-${{ matrix.service }}
+          path: gate-reports/stage-2/releases/${{ matrix.service }}.json
+          if-no-files-found: error
+          retention-days: 365
