@@ -10,16 +10,21 @@ on:
       - "services/**"
       - "scripts/foundation-postgres-smoke.sh"
       - "scripts/stage2-infrastructure-smoke.sh"
+      - "scripts/stage2-identity-gate.sh"
       - "scripts/stage2-helm-gate.sh"
       - "scripts/stage2-migration-smoke.sh"
       - "scripts/stage2-nats-gate.sh"
+      - "scripts/stage2-permission-gate.sh"
+      - "scripts/stage2-secret-gate.sh"
       - "scripts/stage2-tofu-gate.sh"
       - "scripts/validate-stage2-foundation-compose.mjs"
       - "scripts/validate-stage2-helm-render.mjs"
       - "scripts/validate-stage2-nats-render.mjs"
       - "scripts/validate-stage2-tofu-contract.mjs"
       - "scripts/write-stage2-infrastructure-report.mjs"
+      - "scripts/write-stage2-identity-report.mjs"
       - "scripts/write-stage2-migration-report.mjs"
+      - "scripts/write-stage2-secret-report.mjs"
       - "scripts/verify-actions-pinned.mjs"
       - "deploy/**"
       - "config/**"
@@ -55,6 +60,18 @@ jobs:
         run: go test -race -tags=integration -count=1 ./internal/observability
       - name: Verify PostgreSQL tenant context and session resolution
         run: ./scripts/foundation-postgres-smoke.sh
+      - name: Verify Stage 2 identity journeys and boundary attacks
+        env:
+          IDENTITY_REPORT_SOURCE_COMMIT: ${{ github.sha }}
+        run: ./scripts/stage2-identity-gate.sh
+      - name: Verify complete tenant permission matrix
+        env:
+          PERMISSION_REPORT_SOURCE_COMMIT: ${{ github.sha }}
+        run: ./scripts/stage2-permission-gate.sh
+      - name: Verify database, object, log and trace secret boundaries
+        env:
+          SECRET_REPORT_SOURCE_COMMIT: ${{ github.sha }}
+        run: ./scripts/stage2-secret-gate.sh
       - name: Verify three clean installs, rollback, and re-upgrade cycles
         env:
           MIGRATION_REPORT_SOURCE_COMMIT: ${{ github.sha }}
