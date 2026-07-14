@@ -61,8 +61,14 @@ type Verifier struct {
 	Issuer     string
 	Audience   string
 	Keys       map[string]ed25519.PublicKey
+	KeyWindows map[string]KeyWindow
 	MaximumTTL time.Duration
 	ClockSkew  time.Duration
+}
+
+type KeyWindow struct {
+	NotBefore time.Time
+	NotAfter  time.Time
 }
 
 func Sign(claims Claims, keyID string, key ed25519.PrivateKey, maximumTTL time.Duration) (string, error) {
@@ -108,6 +114,13 @@ func (v Verifier) Verify(token string, now time.Time) (Claims, error) {
 	}
 	if claims.Issuer != v.Issuer || claims.Audience != v.Audience {
 		return Claims{}, ErrInvalidClaims
+	}
+	if v.KeyWindows != nil {
+		window, found := v.KeyWindows[h.KeyID]
+		issuedAt := time.Unix(claims.IssuedAt, 0)
+		if !found || window.NotBefore.IsZero() || window.NotAfter.IsZero() || !window.NotAfter.After(window.NotBefore) || issuedAt.Before(window.NotBefore) || !issuedAt.Before(window.NotAfter) {
+			return Claims{}, ErrInvalidClaims
+		}
 	}
 	nowUnix := now.Unix()
 	skew := int64(v.ClockSkew / time.Second)

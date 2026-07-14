@@ -90,6 +90,9 @@ func (handler Handler) invitationCreate(writer http.ResponseWriter, request *htt
 		handler.validationFailed(writer, request)
 		return
 	}
+	if !handler.allowRequest(writer, request, "identity-invitation-mail-actor", mailActorLimit, []byte(metadata.TenantID), []byte(metadata.UserID)) || !handler.allowRequest(writer, request, "identity-invitation-mail-target", mailTargetLimit, []byte(metadata.TenantID), []byte(normalized)) {
+		return
+	}
 	metadata.ClientRequestID = body.RequestID
 	result, err := handler.Invitations.CreateInvitation(request.Context(), InvitationCreateCommand{metadata, normalized, body.Role, body.ExpiresInDays})
 	if err != nil {

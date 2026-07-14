@@ -11,6 +11,7 @@ import (
 	"io"
 	"mime"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -20,6 +21,7 @@ import (
 	"github.com/langshift/lites/internal/identity/password"
 	"github.com/langshift/lites/internal/identity/session"
 	"github.com/langshift/lites/internal/platform/problem"
+	platformratelimit "github.com/langshift/lites/internal/platform/ratelimit"
 	"github.com/langshift/lites/internal/security/transport"
 	"github.com/langshift/lites/internal/security/trustedcontext"
 	"github.com/langshift/lites/internal/serviceauth"
@@ -90,6 +92,10 @@ type Service interface {
 	Login(context.Context, LoginCommand) (LoginResult, error)
 }
 
+type RequestLimiter interface {
+	Allow(context.Context, platformratelimit.Request) (platformratelimit.Decision, error)
+}
+
 type Handler struct {
 	Service     Service
 	Sessions    SessionService
@@ -98,8 +104,24 @@ type Handler struct {
 	Accounts    AccountService
 	Invitations InvitationService
 	Memberships MembershipService
-	Now         func() time.Time
+	RateLimiter RequestLimiter
+	// RateLimitPepper is purpose-separated from database, token, and password
+	// peppers. It ensures Valkey keys never contain public or authenticated PII.
+	RateLimitPepper []byte
+	Now             func() time.Time
 }
+
+var (
+	registerIPLimit       = platformratelimit.Limit{Capacity: 20, Window: time.Hour}
+	registerSubjectLimit  = platformratelimit.Limit{Capacity: 5, Window: time.Hour}
+	loginIPLimit          = platformratelimit.Limit{Capacity: 60, Window: 15 * time.Minute}
+	loginSubjectLimit     = platformratelimit.Limit{Capacity: 10, Window: 15 * time.Minute}
+	passwordMailIPLimit   = platformratelimit.Limit{Capacity: 10, Window: time.Hour}
+	passwordMailUserLimit = platformratelimit.Limit{Capacity: 3, Window: time.Hour}
+	tokenAttemptLimit     = platformratelimit.Limit{Capacity: 5, Window: time.Hour}
+	mailActorLimit        = platformratelimit.Limit{Capacity: 100, Window: time.Hour}
+	mailTargetLimit       = platformratelimit.Limit{Capacity: 5, Window: 24 * time.Hour}
+)
 
 func (handler Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	switch request.URL.Path {
@@ -264,6 +286,9 @@ func (handler Handler) register(writer http.ResponseWriter, request *http.Reques
 	if !ok {
 		return
 	}
+	if !handler.allowRequest(writer, request, "identity-register-ip", registerIPLimit, metadata.ClientIPHash) {
+		return
+	}
 	var body struct {
 		RequestID string `json:"request_id"`
 		Email     string `json:"email"`
@@ -277,6 +302,9 @@ func (handler Handler) register(writer http.ResponseWriter, request *http.Reques
 	normalizedEmail, err := identityemail.Normalize(body.Email)
 	if err != nil || password.ValidateForRegistration(body.Password) != nil || !validClientRequestID(body.RequestID) || (body.Locale != "en" && body.Locale != "zh-CN") {
 		handler.validationFailed(writer, request)
+		return
+	}
+	if !handler.allowRequest(writer, request, "identity-register-subject", registerSubjectLimit, metadata.ClientIPHash, []byte(normalizedEmail)) {
 		return
 	}
 	metadata.ClientRequestID = body.RequestID
@@ -317,6 +345,9 @@ func (handler Handler) verifyEmail(writer http.ResponseWriter, request *http.Req
 		handler.validationFailed(writer, request)
 		return
 	}
+	if !handler.allowRequest(writer, request, "identity-verify-email-token", tokenAttemptLimit, metadata.ClientIPHash, []byte(body.Token)) {
+		return
+	}
 	metadata.ClientRequestID = body.RequestID
 	result, err := handler.Service.VerifyEmail(request.Context(), VerifyEmailCommand{RequestMetadata: metadata, Token: body.Token})
 	if err != nil {
@@ -343,6 +374,9 @@ func (handler Handler) login(writer http.ResponseWriter, request *http.Request) 
 	if !ok {
 		return
 	}
+	if !handler.allowRequest(writer, request, "identity-login-ip", loginIPLimit, metadata.ClientIPHash) {
+		return
+	}
 	var body struct {
 		RequestID string `json:"request_id"`
 		Email     string `json:"email"`
@@ -355,6 +389,9 @@ func (handler Handler) login(writer http.ResponseWriter, request *http.Request) 
 	normalizedEmail, err := identityemail.Normalize(body.Email)
 	if err != nil || password.ValidateForAuthentication(body.Password) != nil || !validClientRequestID(body.RequestID) {
 		handler.validationFailed(writer, request)
+		return
+	}
+	if !handler.allowRequest(writer, request, "identity-login-subject", loginSubjectLimit, metadata.ClientIPHash, []byte(normalizedEmail)) {
 		return
 	}
 	metadata.ClientRequestID = body.RequestID
@@ -384,6 +421,32 @@ func (handler Handler) login(writer http.ResponseWriter, request *http.Request) 
 		SessionID string    `json:"session_id"`
 		ExpiresAt time.Time `json:"expires_at"`
 	}{UserID: result.UserID, SessionID: result.SessionID, ExpiresAt: result.ExpiresAt.UTC()})
+}
+
+func (handler Handler) allowRequest(writer http.ResponseWriter, request *http.Request, action string, limit platformratelimit.Limit, subjectParts ...[]byte) bool {
+	if handler.RateLimiter == nil {
+		return true
+	}
+	digest, err := platformratelimit.SubjectDigest(handler.RateLimitPepper, action, subjectParts...)
+	if err != nil {
+		handler.internalError(writer, request)
+		return false
+	}
+	decision, err := handler.RateLimiter.Allow(request.Context(), platformratelimit.Request{Action: action, SubjectDigest: digest, Cost: 1, Limit: limit})
+	if err != nil {
+		handler.writeProblem(writer, request, http.StatusServiceUnavailable, "dependency_unavailable", "Dependency unavailable", true)
+		return false
+	}
+	if !decision.Allowed {
+		retrySeconds := int64((decision.RetryAfter + time.Second - 1) / time.Second)
+		if retrySeconds < 1 {
+			retrySeconds = 1
+		}
+		writer.Header().Set("Retry-After", strconv.FormatInt(retrySeconds, 10))
+		handler.writeProblem(writer, request, http.StatusTooManyRequests, "rate_limited", "Rate limited", true)
+		return false
+	}
+	return true
 }
 
 func (handler Handler) publicMetadata(writer http.ResponseWriter, request *http.Request) (RequestMetadata, bool) {

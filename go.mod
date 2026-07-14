@@ -13,6 +13,7 @@ require (
 	github.com/hashicorp/vault/api v1.23.0
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/nats-io/nats.go v1.52.0
+	github.com/valkey-io/valkey-go v1.0.76
 	golang.org/x/crypto v0.54.0
 	golang.org/x/text v0.40.0
 )

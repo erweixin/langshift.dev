@@ -72,6 +72,9 @@ func (handler Handler) emailChange(writer http.ResponseWriter, request *http.Req
 		handler.validationFailed(writer, request)
 		return
 	}
+	if !handler.allowRequest(writer, request, "identity-email-change-actor", mailActorLimit, []byte(metadata.UserID)) || !handler.allowRequest(writer, request, "identity-email-change-target", mailTargetLimit, metadata.ClientIPHash, []byte(normalizedEmail)) {
+		return
+	}
 	metadata.ClientRequestID = body.RequestID
 	result, err := handler.Emails.ChangeEmail(request.Context(), EmailChangeCommand{AuthenticatedRequestMetadata: metadata, NewNormalizedEmail: normalizedEmail, CurrentPassword: body.CurrentPassword, ExpectedUserVersion: expectedVersion})
 	if err != nil {

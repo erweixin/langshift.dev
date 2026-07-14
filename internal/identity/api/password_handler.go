@@ -64,6 +64,9 @@ func (handler Handler) passwordForgot(writer http.ResponseWriter, request *http.
 	if !ok {
 		return
 	}
+	if !handler.allowRequest(writer, request, "identity-password-forgot-ip", passwordMailIPLimit, metadata.ClientIPHash) {
+		return
+	}
 	var body struct {
 		RequestID string `json:"request_id"`
 		Email     string `json:"email"`
@@ -74,6 +77,9 @@ func (handler Handler) passwordForgot(writer http.ResponseWriter, request *http.
 	normalizedEmail, err := identityemail.Normalize(body.Email)
 	if err != nil || !validClientRequestID(body.RequestID) {
 		handler.validationFailed(writer, request)
+		return
+	}
+	if !handler.allowRequest(writer, request, "identity-password-forgot-subject", passwordMailUserLimit, metadata.ClientIPHash, []byte(normalizedEmail)) {
 		return
 	}
 	metadata.ClientRequestID = body.RequestID
@@ -112,6 +118,9 @@ func (handler Handler) passwordReset(writer http.ResponseWriter, request *http.R
 	defer func() { body.Token, body.NewPassword = "", "" }()
 	if !validClientRequestID(body.RequestID) || len(body.Token) < 32 || len(body.Token) > 512 || strings.ContainsFunc(body.Token, unicode.IsSpace) || password.ValidateForRegistration(body.NewPassword) != nil {
 		handler.validationFailed(writer, request)
+		return
+	}
+	if !handler.allowRequest(writer, request, "identity-password-reset-token", tokenAttemptLimit, metadata.ClientIPHash, []byte(body.Token)) {
 		return
 	}
 	metadata.ClientRequestID = body.RequestID
