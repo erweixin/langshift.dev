@@ -4,17 +4,18 @@ import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
 const root=resolve(import.meta.dirname,"..");
+const gitOptions={cwd:root,maxBuffer:64*1024*1024};
 const sha256=value=>createHash("sha256").update(typeof value==="string"||Buffer.isBuffer(value)?value:JSON.stringify(value)).digest("hex");
 const load=async path=>JSON.parse(await readFile(resolve(root,path),"utf8"));
 const argumentIndex=process.argv.indexOf("--source-commit");
 const sourceCommit=argumentIndex>=0?process.argv[argumentIndex+1]:process.env.SOURCE_COMMIT;
 if(!/^[a-f0-9]{40}$/.test(sourceCommit??""))throw new Error("Provide the 40-character frozen contract commit with --source-commit or SOURCE_COMMIT");
-execFileSync("git",["cat-file","-e",`${sourceCommit}^{commit}`],{cwd:root});
+execFileSync("git",["cat-file","-e",`${sourceCommit}^{commit}`],gitOptions);
 const snapshot=await load("gate-reports/stage-1/contract-snapshot.json");
-const committedSnapshot=JSON.parse(execFileSync("git",["show",`${sourceCommit}:gate-reports/stage-1/contract-snapshot.json`],{cwd:root,encoding:"utf8"}));
+const committedSnapshot=JSON.parse(execFileSync("git",["show",`${sourceCommit}:gate-reports/stage-1/contract-snapshot.json`],{...gitOptions,encoding:"utf8"}));
 if(committedSnapshot.snapshotId!==snapshot.snapshotId||committedSnapshot.contentRootSha256!==snapshot.contentRootSha256)throw new Error("The selected commit does not contain the current contract snapshot");
 for(const file of snapshot.files){
-  const committedBody=execFileSync("git",["show",`${sourceCommit}:${file.path}`],{cwd:root});
+  const committedBody=execFileSync("git",["show",`${sourceCommit}:${file.path}`],gitOptions);
   if(sha256(committedBody)!==file.sha256)throw new Error(`Committed contract hash mismatch: ${file.path}`);
 }
 const schemaLint=await load("gate-reports/stage-1/schema-lint.json");

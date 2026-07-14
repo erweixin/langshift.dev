@@ -4,6 +4,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
 const root=resolve(import.meta.dirname,"..");
+const gitOptions={cwd:root,maxBuffer:64*1024*1024};
 const roles=["product","frontend","backend","security","qa"];
 const sha256=value=>createHash("sha256").update(typeof value==="string"||Buffer.isBuffer(value)?value:JSON.stringify(value)).digest("hex");
 const canonicalize=value=>{
@@ -56,10 +57,10 @@ if(!packet||!keyring){
 }
 if(packet.snapshotId!==snapshot.snapshotId||packet.contentRootSha256!==snapshot.contentRootSha256)failures.push("review packet does not match current contract snapshot");
 try{
-  execFileSync("git",["cat-file","-e",`${packet.sourceCommit}^{commit}`],{cwd:root});
-  const committedSnapshot=JSON.parse(execFileSync("git",["show",`${packet.sourceCommit}:gate-reports/stage-1/contract-snapshot.json`],{cwd:root,encoding:"utf8"}));
+  execFileSync("git",["cat-file","-e",`${packet.sourceCommit}^{commit}`],gitOptions);
+  const committedSnapshot=JSON.parse(execFileSync("git",["show",`${packet.sourceCommit}:gate-reports/stage-1/contract-snapshot.json`],{...gitOptions,encoding:"utf8"}));
   if(committedSnapshot.snapshotId!==packet.snapshotId||committedSnapshot.contentRootSha256!==packet.contentRootSha256)failures.push("source commit snapshot does not match review packet");
-  for(const file of snapshot.files){const committedBody=execFileSync("git",["show",`${packet.sourceCommit}:${file.path}`],{cwd:root});if(sha256(committedBody)!==file.sha256){failures.push(`source commit contract hash mismatch: ${file.path}`);break;}}
+  for(const file of snapshot.files){const committedBody=execFileSync("git",["show",`${packet.sourceCommit}:${file.path}`],gitOptions);if(sha256(committedBody)!==file.sha256){failures.push(`source commit contract hash mismatch: ${file.path}`);break;}}
 }catch{failures.push("review packet source commit cannot reproduce the frozen contract tree");}
 const results=[];
 const approverIds=new Set();
