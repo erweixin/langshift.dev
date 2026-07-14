@@ -47,3 +47,22 @@ func TestMatchesSHA256RequiresCanonicalFullDigest(t *testing.T) {
 		t.Fatal("content hash binding failed")
 	}
 }
+
+func TestParseMembershipCSVNormalizesAndRejectsUnsafeRows(t *testing.T) {
+	contents := []byte("email,role\nOWNER@example.com,owner\nmember@example.com,reviewer\nmember@example.com,admin\ninvalid,member\nother@example.com,unknown\nshort@example.com\n")
+	rows, rejected, err := parseMembershipCSV(contents)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 || rejected != 4 || rows[0].Email != "owner@example.com" || rows[0].Role != "owner" || rows[1].Email != "member@example.com" || rows[1].Role != "reviewer" {
+		t.Fatalf("rows=%#v rejected=%d", rows, rejected)
+	}
+}
+
+func TestParseMembershipCSVRequiresExactHeader(t *testing.T) {
+	for _, value := range []string{"email\na@example.com\n", "role,email\nmember,a@example.com\n", "email,role,extra\na@example.com,member,x\n"} {
+		if _, _, err := parseMembershipCSV([]byte(value)); !errors.Is(err, ErrImportInvalid) {
+			t.Fatalf("value=%q err=%v", value, err)
+		}
+	}
+}

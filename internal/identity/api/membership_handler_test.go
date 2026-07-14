@@ -74,12 +74,12 @@ func TestMembershipDeactivateBindsActionReasonAndIfMatch(t *testing.T) {
 
 func TestMembershipImportRequiresBoundObjectAndMode(t *testing.T) {
 	stub := membershipServiceStub{importCSV: func(_ context.Context, command MembershipImportCommand) (MembershipMutationResult, error) {
-		if command.ObjectRef != "s3://imports/members.csv" || command.ContentHash != "sha256:abcdef" || command.ImportKey != "membership-import-0001" || command.Mode != "deactivate_missing" {
+		if command.ObjectRef != "s3://imports/members.csv" || command.ContentHash != "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" || command.ImportKey != "membership-import-0001" || command.Mode != "deactivate_missing" {
 			t.Fatalf("command=%#v", command)
 		}
 		return MembershipMutationResult{ID: "import-1", Version: 1, Status: "queued", UpdatedAt: apiTestNow}, nil
 	}}
-	body := `{"request_id":"member-import-request","object_ref":"s3://imports/members.csv","content_hash":"sha256:abcdef","import_key":"membership-import-0001","mode":"deactivate_missing"}`
+	body := `{"request_id":"member-import-request","object_ref":"s3://imports/members.csv","content_hash":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","import_key":"membership-import-0001","mode":"deactivate_missing"}`
 	recorder := serveAuthenticatedHandler(t, Handler{Memberships: stub}, http.MethodPost, "/v1/membership-imports", "membership-import-key-1", "", body)
 	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), `"status":"queued"`) {
 		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())

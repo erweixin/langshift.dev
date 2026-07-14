@@ -71,12 +71,12 @@ func TestInvitationCreateNormalizesEmailAndValidatesRole(t *testing.T) {
 
 func TestInvitationImportRequiresBoundObjectMetadata(t *testing.T) {
 	stub := invitationServiceStub{importCSV: func(_ context.Context, c InvitationImportCommand) (InvitationMutationResult, error) {
-		if c.ObjectRef != "s3://imports/batch.csv" || c.ContentHash != "sha256:abcdef" || c.ImportKey != "import-key-000001" || c.DefaultRole != "member" {
+		if c.ObjectRef != "s3://imports/batch.csv" || c.ContentHash != "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" || c.ImportKey != "import-key-000001" || c.DefaultRole != "member" {
 			t.Fatalf("command=%#v", c)
 		}
 		return InvitationMutationResult{"import-1", 1, "queued", apiTestNow}, nil
 	}}
-	body := `{"request_id":"import-request-001","object_ref":"s3://imports/batch.csv","content_hash":"sha256:abcdef","import_key":"import-key-000001","default_role":"member"}`
+	body := `{"request_id":"import-request-001","object_ref":"s3://imports/batch.csv","content_hash":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","import_key":"import-key-000001","default_role":"member"}`
 	recorder := serveAuthenticatedHandler(t, Handler{Invitations: stub}, http.MethodPost, "/v1/invitation-imports", "import-idempotency-key-1", "", body)
 	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), `"status":"queued"`) {
 		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())

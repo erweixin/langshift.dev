@@ -6,6 +6,8 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"testing"
@@ -45,6 +47,8 @@ func TestMembershipLifecycleIsTenantScopedAuditedCASAndSessionSafe(t *testing.T)
 	const ownerEnterpriseMembership = "30000000-0000-0000-0000-000000002204"
 	const memberEnterpriseMembership = "30000000-0000-0000-0000-000000002205"
 	const leaverEnterpriseMembership = "30000000-0000-0000-0000-000000002206"
+	const missingUser = "10000000-0000-0000-0000-000000002204"
+	const missingEnterpriseMembership = "30000000-0000-0000-0000-000000002207"
 	const ownerEmail = "membership-owner@example.com"
 	const memberEmail = "membership-member@example.com"
 	const leaverEmail = "membership-leaver@example.com"
@@ -159,7 +163,17 @@ func TestMembershipLifecycleIsTenantScopedAuditedCASAndSessionSafe(t *testing.T)
 	if _, err = service.DeactivateMembership(ctx, ownerLeave); !errors.Is(err, api.ErrStateConflict) {
 		t.Fatalf("last owner leave=%v", err)
 	}
-	importCommand := api.MembershipImportCommand{AuthenticatedRequestMetadata: ownerMetadata("membership-import", "membership-import-key-01"), ObjectRef: "s3://imports/members.csv", ContentHash: "sha256:0123456789abcdef", ImportKey: "membership-import-batch-01", Mode: "deactivate_missing"}
+	if _, err = admin.Exec(ctx, `INSERT INTO identity.users (id,normalized_email,email_verified_at,locale,status) VALUES ($1,'membership-missing@example.com',$2,'en','active')`, missingUser, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = admin.Exec(ctx, `INSERT INTO identity.memberships (id,tenant_id,user_id,role,status,joined_at) VALUES ($1,$2,$3,'member','active',$4)`, missingEnterpriseMembership, enterprise, missingUser, now); err != nil {
+		t.Fatal(err)
+	}
+	importCSV := []byte("email,role\nmembership-owner@example.com,owner\nmembership-member@example.com,reviewer\n")
+	importDigest := sha256.Sum256(importCSV)
+	importRef := "s3://imports/members.csv"
+	service.ImportSources = invitationImportSource{objects: map[string][]byte{importRef: importCSV}}
+	importCommand := api.MembershipImportCommand{AuthenticatedRequestMetadata: ownerMetadata("membership-import", "membership-import-key-01"), ObjectRef: importRef, ContentHash: "sha256:" + hex.EncodeToString(importDigest[:]), ImportKey: "membership-import-batch-01", Mode: "deactivate_missing"}
 	imports := concurrentCalls(t, 12, func() (api.MembershipMutationResult, error) { return service.ImportMemberships(ctx, importCommand) })
 	for _, result := range imports {
 		if result != imports[0] || result.Version != 1 || result.Status != "queued" {
@@ -173,17 +187,28 @@ func TestMembershipLifecycleIsTenantScopedAuditedCASAndSessionSafe(t *testing.T)
 	if _, err = service.ImportMemberships(ctx, duplicateImport); !errors.Is(err, api.ErrStateConflict) {
 		t.Fatalf("duplicate import=%v", err)
 	}
-	var suspended, leftCount, deactivatedEvents, sessionEvents, importsCount, importEvents, listAudits int
+	processed := concurrentCalls(t, 12, func() (ImportProcessResult, error) {
+		return service.ProcessMembershipImport(ctx, enterprise, imports[0].ID)
+	})
+	for _, result := range processed {
+		if result != processed[0] || result.Status != "completed" || result.Version != 2 || result.AcceptedRows != 2 || result.RejectedRows != 0 || result.DeactivatedRows != 1 {
+			t.Fatalf("processed membership import=%#v", result)
+		}
+	}
+	var reactivated, missingSuspended, leftCount, deactivatedEvents, reactivatedEvents, sessionEvents, importsCount, importEvents, importCompletedEvents, listAudits int
 	checks := []struct {
 		query string
 		out   *int
 	}{
-		{`SELECT count(*) FROM identity.memberships WHERE id='30000000-0000-0000-0000-000000002205' AND status='suspended' AND version=2`, &suspended},
+		{`SELECT count(*) FROM identity.memberships WHERE id='30000000-0000-0000-0000-000000002205' AND status='active' AND role='reviewer' AND version=3`, &reactivated},
+		{`SELECT count(*) FROM identity.memberships WHERE id='30000000-0000-0000-0000-000000002207' AND status='suspended' AND version=2`, &missingSuspended},
 		{`SELECT count(*) FROM identity.memberships WHERE id='30000000-0000-0000-0000-000000002206' AND status='left' AND version=2`, &leftCount},
 		{`SELECT count(*) FROM agent.events WHERE tenant_id='20000000-0000-0000-0000-000000002205' AND event_type='MembershipDeactivated'`, &deactivatedEvents},
+		{`SELECT count(*) FROM agent.events WHERE tenant_id='20000000-0000-0000-0000-000000002205' AND event_type='MembershipReactivated'`, &reactivatedEvents},
 		{`SELECT count(*) FROM agent.events WHERE tenant_id='20000000-0000-0000-0000-000000002205' AND event_type='SessionRevoked'`, &sessionEvents},
 		{`SELECT count(*) FROM identity.membership_imports WHERE tenant_id='20000000-0000-0000-0000-000000002205'`, &importsCount},
 		{`SELECT count(*) FROM agent.events WHERE tenant_id='20000000-0000-0000-0000-000000002205' AND event_type='MembershipImportQueued'`, &importEvents},
+		{`SELECT count(*) FROM agent.events WHERE tenant_id='20000000-0000-0000-0000-000000002205' AND event_type='MembershipImportCompleted'`, &importCompletedEvents},
 		{`SELECT count(*) FROM identity.security_events WHERE tenant_id='20000000-0000-0000-0000-000000002205' AND event_type='memberships_listed'`, &listAudits},
 	}
 	for _, check := range checks {
@@ -191,8 +216,8 @@ func TestMembershipLifecycleIsTenantScopedAuditedCASAndSessionSafe(t *testing.T)
 			t.Fatal(err)
 		}
 	}
-	if suspended != 1 || leftCount != 1 || deactivatedEvents != 2 || sessionEvents != 3 || importsCount != 1 || importEvents != 1 || listAudits != 2 {
-		t.Fatalf("suspended=%d left=%d deactivated-events=%d session-events=%d imports=%d import-events=%d list-audits=%d", suspended, leftCount, deactivatedEvents, sessionEvents, importsCount, importEvents, listAudits)
+	if reactivated != 1 || missingSuspended != 1 || leftCount != 1 || deactivatedEvents != 3 || reactivatedEvents != 1 || sessionEvents != 3 || importsCount != 1 || importEvents != 1 || importCompletedEvents != 1 || listAudits != 2 {
+		t.Fatalf("reactivated=%d missing-suspended=%d left=%d deactivated-events=%d reactivated-events=%d session-events=%d imports=%d queued=%d completed=%d list-audits=%d", reactivated, missingSuspended, leftCount, deactivatedEvents, reactivatedEvents, sessionEvents, importsCount, importEvents, importCompletedEvents, listAudits)
 	}
 	for _, stored := range blobs.values {
 		for _, secret := range []string{"employment relationship ended", "voluntary departure"} {

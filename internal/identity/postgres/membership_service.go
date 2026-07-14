@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -507,7 +508,15 @@ func validMembershipReason(value string) bool {
 }
 
 func validBoundImportMetadata(objectRef, contentHash, importKey string) bool {
-	return validBoundString(objectRef, 1, 2000) && validBoundString(contentHash, 1, 200) && validBoundString(importKey, 16, 200)
+	return validBoundString(objectRef, 1, 2000) && validSHA256ContentHash(contentHash) && validBoundString(importKey, 16, 200)
+}
+
+func validSHA256ContentHash(value string) bool {
+	if len(value) != len("sha256:")+64 || !strings.HasPrefix(value, "sha256:") {
+		return false
+	}
+	decoded, err := hex.DecodeString(strings.TrimPrefix(value, "sha256:"))
+	return err == nil && "sha256:"+hex.EncodeToString(decoded) == value
 }
 
 func validBoundString(value string, min, max int) bool {

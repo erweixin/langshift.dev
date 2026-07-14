@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/hex"
 	"net/http"
 	"strconv"
 	"strings"
@@ -117,7 +118,7 @@ func (handler Handler) invitationImport(writer http.ResponseWriter, request *htt
 	if !handler.decode(writer, request, &body) {
 		return
 	}
-	if !validClientRequestID(body.RequestID) || !validOpaqueField(body.ObjectRef, 1, 2000) || !validOpaqueField(body.ContentHash, 1, 200) || !validOpaqueField(body.ImportKey, 16, 200) || !validInvitationRole(body.DefaultRole) {
+	if !validClientRequestID(body.RequestID) || !validOpaqueField(body.ObjectRef, 1, 2000) || !validSHA256ContentHash(body.ContentHash) || !validOpaqueField(body.ImportKey, 16, 200) || !validInvitationRole(body.DefaultRole) {
 		handler.validationFailed(writer, request)
 		return
 	}
@@ -249,6 +250,13 @@ func (handler Handler) invitationRevoke(writer http.ResponseWriter, request *htt
 
 func validOpaqueField(value string, min, max int) bool {
 	return len(value) >= min && len(value) <= max && utf8.ValidString(value) && !strings.ContainsFunc(value, unicode.IsControl)
+}
+func validSHA256ContentHash(value string) bool {
+	if len(value) != len("sha256:")+64 || !strings.HasPrefix(value, "sha256:") {
+		return false
+	}
+	decoded, err := hex.DecodeString(strings.TrimPrefix(value, "sha256:"))
+	return err == nil && "sha256:"+hex.EncodeToString(decoded) == value
 }
 func validOpaqueToken(value string, min, max int) bool {
 	return len(value) >= min && len(value) <= max && utf8.ValidString(value) && !strings.ContainsFunc(value, unicode.IsSpace)

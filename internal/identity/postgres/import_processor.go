@@ -37,10 +37,11 @@ type ImportSource interface {
 }
 
 type ImportProcessResult struct {
-	Status       string
-	Version      uint64
-	AcceptedRows int
-	RejectedRows int
+	Status          string
+	Version         uint64
+	AcceptedRows    int
+	RejectedRows    int
+	DeactivatedRows int
 }
 
 type invitationImportRecord struct {

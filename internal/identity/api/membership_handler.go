@@ -159,7 +159,7 @@ func (handler Handler) membershipImport(writer http.ResponseWriter, request *htt
 	if !handler.decode(writer, request, &body) {
 		return
 	}
-	if !validClientRequestID(body.RequestID) || !validOpaqueField(body.ObjectRef, 1, 2000) || !validOpaqueField(body.ContentHash, 1, 200) || !validOpaqueField(body.ImportKey, 16, 200) || (body.Mode != "upsert" && body.Mode != "deactivate_missing") {
+	if !validClientRequestID(body.RequestID) || !validOpaqueField(body.ObjectRef, 1, 2000) || !validSHA256ContentHash(body.ContentHash) || !validOpaqueField(body.ImportKey, 16, 200) || (body.Mode != "upsert" && body.Mode != "deactivate_missing") {
 		handler.validationFailed(writer, request)
 		return
 	}
