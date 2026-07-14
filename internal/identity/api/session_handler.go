@@ -77,6 +77,10 @@ type SessionService interface {
 }
 
 func (handler Handler) logout(writer http.ResponseWriter, request *http.Request) {
+	if handler.Sessions == nil {
+		handler.internalError(writer, request)
+		return
+	}
 	metadata, ok := handler.authenticatedMetadata(writer, request, true)
 	if !ok {
 		return
@@ -111,6 +115,10 @@ func (handler Handler) logout(writer http.ResponseWriter, request *http.Request)
 }
 
 func (handler Handler) listSessions(writer http.ResponseWriter, request *http.Request) {
+	if handler.Sessions == nil {
+		handler.internalError(writer, request)
+		return
+	}
 	metadata, ok := handler.authenticatedMetadata(writer, request, false)
 	if !ok {
 		return
@@ -153,6 +161,10 @@ type sessionResource struct {
 }
 
 func (handler Handler) revokeSession(writer http.ResponseWriter, request *http.Request) {
+	if handler.Sessions == nil {
+		handler.internalError(writer, request)
+		return
+	}
 	metadata, ok := handler.authenticatedMetadata(writer, request, true)
 	if !ok {
 		return
@@ -190,6 +202,10 @@ func (handler Handler) revokeSession(writer http.ResponseWriter, request *http.R
 }
 
 func (handler Handler) revokeOtherSessions(writer http.ResponseWriter, request *http.Request) {
+	if handler.Sessions == nil {
+		handler.internalError(writer, request)
+		return
+	}
 	metadata, ok := handler.authenticatedMetadata(writer, request, true)
 	if !ok {
 		return
@@ -221,7 +237,7 @@ func (handler Handler) revokeOtherSessions(writer http.ResponseWriter, request *
 
 func (handler Handler) authenticatedMetadata(writer http.ResponseWriter, request *http.Request, requireIdempotency bool) (AuthenticatedRequestMetadata, bool) {
 	claims, ok := serviceauth.ClaimsFromContext(request.Context())
-	if !ok || claims.PrincipalKind != trustedcontext.AuthenticatedUser || claims.SubjectID == "" || claims.TenantID == "" || claims.SessionID == "" || (requireIdempotency && !claims.CSRFVerified) || handler.Sessions == nil {
+	if !ok || claims.PrincipalKind != trustedcontext.AuthenticatedUser || claims.SubjectID == "" || claims.TenantID == "" || claims.SessionID == "" || (requireIdempotency && !claims.CSRFVerified) {
 		handler.writeProblem(writer, request, http.StatusUnauthorized, "authentication_required", "Authentication required", false)
 		return AuthenticatedRequestMetadata{}, false
 	}

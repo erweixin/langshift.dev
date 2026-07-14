@@ -27,9 +27,11 @@ import (
 type AuthService struct {
 	Pool                    *pgxpool.Pool
 	Passwords               password.Hasher
+	PasswordPolicy          password.Policy
 	DummyPasswordHash       []byte
 	DummyPasswordParameters password.Parameters
 	VerificationTokens      opaque.Manager
+	PasswordResetTokens     opaque.Manager
 	SessionPepper           []byte
 	CSRFPepper              []byte
 	IdempotencyKeyPepper    []byte
@@ -40,6 +42,7 @@ type AuthService struct {
 	StoreEpoch              string
 	Region                  string
 	VerificationTTL         time.Duration
+	PasswordResetTTL        time.Duration
 	SessionTTL              time.Duration
 	IdempotencyTTL          time.Duration
 	Payloads                payload.Store
@@ -75,23 +78,36 @@ func (service AuthService) Register(ctx context.Context, command api.RegisterCom
 	if err != nil {
 		return api.RegisterResult{}, api.ErrIdempotencyConflict
 	}
+	descriptor := payload.Descriptor{TenantID: service.PublicTenantID, ObjectID: recordID, Class: "identity-idempotency", ContentType: "application/json"}
+	idempotencyInput := IdempotencyInput{RecordID: recordID, Scope: idempotency.Scope{TenantID: service.PublicTenantID, UserID: publicPrincipal, OperationID: "auth.register"}, RawKey: command.IdempotencyKey, RequestHash: requestHash, RequestID: command.RequestID}
+	if response, found, replayErr := service.idempotencyExecutor().LoadCompleted(ctx, idempotencyInput); replayErr != nil {
+		return api.RegisterResult{}, mapIdentityError(replayErr)
+	} else if found {
+		return service.readRegisterResponse(ctx, descriptor, response)
+	}
+	if err = service.validateNewPassword(ctx, command.Password); err != nil {
+		return api.RegisterResult{}, err
+	}
 	prepared, err := service.prepareRegistration(ctx, command, recordID, now)
 	if err != nil {
 		return api.RegisterResult{}, err
 	}
 	executor := service.idempotencyExecutor()
-	response, _, err := executor.Execute(ctx, IdempotencyInput{RecordID: recordID, Scope: idempotency.Scope{TenantID: service.PublicTenantID, UserID: publicPrincipal, OperationID: "auth.register"}, RawKey: command.IdempotencyKey, RequestHash: requestHash, RequestID: command.RequestID}, func(ctx context.Context, tx pgx.Tx) (idempotency.Response, error) {
+	response, _, err := executor.Execute(ctx, idempotencyInput, func(ctx context.Context, tx pgx.Tx) (idempotency.Response, error) {
 		return service.commitRegistration(ctx, tx, command, prepared, now)
 	})
 	if err != nil {
 		return api.RegisterResult{}, mapIdentityError(err)
 	}
-	descriptor := payload.Descriptor{TenantID: service.PublicTenantID, ObjectID: recordID, Class: "identity-idempotency", ContentType: "application/json"}
+	return service.readRegisterResponse(ctx, descriptor, response)
+}
+
+func (service AuthService) readRegisterResponse(ctx context.Context, descriptor payload.Descriptor, response idempotency.Response) (api.RegisterResult, error) {
 	var stored struct {
 		UserID    string    `json:"user_id"`
 		ExpiresAt time.Time `json:"email_verification_expires_at"`
 	}
-	if err = service.readResponse(ctx, descriptor, response, &stored); err != nil {
+	if err := service.readResponse(ctx, descriptor, response, &stored); err != nil {
 		return api.RegisterResult{}, api.ErrDependencyUnavailable
 	}
 	return api.RegisterResult{UserID: stored.UserID, EmailVerificationExpiresAt: stored.ExpiresAt}, nil
@@ -413,10 +429,15 @@ func (service AuthService) prepareLogin(ctx context.Context, lookup loginLookup,
 }
 
 func (service AuthService) commitLogin(ctx context.Context, tx pgx.Tx, command api.LoginCommand, expected loginLookup, prepared loginPrepared, now time.Time) (idempotency.Response, error) {
+	var lockedUserID string
+	if err := tx.QueryRow(ctx, `SELECT id::text FROM identity.users WHERE id=$1 AND status='active' AND email_verified_at IS NOT NULL FOR UPDATE`, expected.UserID).Scan(&lockedUserID); errors.Is(err, pgx.ErrNoRows) {
+		return idempotency.Response{}, api.ErrInvalidCredentials
+	} else if err != nil {
+		return idempotency.Response{}, err
+	}
 	var credentialVersion uint64
 	var storedHash []byte
-	var membershipID string
-	err := tx.QueryRow(ctx, `SELECT pc.version,pc.password_hash,m.id::text FROM identity.users u JOIN identity.password_credentials pc ON pc.user_id=u.id JOIN identity.memberships m ON m.tenant_id=$1 AND m.user_id=u.id AND m.status='active' WHERE u.id=$2 AND u.status='active' AND u.email_verified_at IS NOT NULL FOR UPDATE OF u,pc,m`, expected.TenantID, expected.UserID).Scan(&credentialVersion, &storedHash, &membershipID)
+	err := tx.QueryRow(ctx, `SELECT version,password_hash FROM identity.password_credentials WHERE user_id=$1 FOR UPDATE`, expected.UserID).Scan(&credentialVersion, &storedHash)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return idempotency.Response{}, api.ErrInvalidCredentials
 	}
@@ -425,6 +446,14 @@ func (service AuthService) commitLogin(ctx context.Context, tx pgx.Tx, command a
 	}
 	if credentialVersion != expected.CredentialVersion || !hmac.Equal(storedHash, expected.PasswordHash) {
 		return idempotency.Response{}, api.ErrInvalidCredentials
+	}
+	var membershipID string
+	err = tx.QueryRow(ctx, `SELECT id::text FROM identity.memberships WHERE tenant_id=$1 AND user_id=$2 AND status='active' FOR UPDATE`, expected.TenantID, expected.UserID).Scan(&membershipID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return idempotency.Response{}, api.ErrInvalidCredentials
+	}
+	if err != nil {
+		return idempotency.Response{}, err
 	}
 	if _, err = tx.Exec(ctx, `INSERT INTO identity.sessions (id,user_id,active_tenant_id,token_hash,csrf_secret_hash,ip_hash,user_agent_hash,last_seen_at,expires_at,reauthenticated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$8)`, prepared.SessionID, expected.UserID, expected.TenantID, prepared.SessionCredential.Digest[:], prepared.CSRFCredential.Digest[:], command.ClientIPHash, command.UserAgentHash, now, prepared.ExpiresAt); err != nil {
 		return idempotency.Response{}, err
@@ -533,10 +562,22 @@ func (service AuthService) now() time.Time {
 }
 
 func (service AuthService) validate() error {
-	if service.Pool == nil || service.Payloads == nil || service.PublicTenantID == "" || service.StoreEpoch == "" || service.Region == "" || service.VerificationTTL <= 0 || service.SessionTTL <= 0 || service.IdempotencyTTL <= 0 || len(service.IdentityKey) < 32 || len(service.CursorKey) < 32 || len(service.SessionPepper) < 32 || len(service.CSRFPepper) < 32 || len(service.IdempotencyKeyPepper) < 32 || len(service.RequestDigestPepper) < 32 || bytes.Equal(service.SessionPepper, service.CSRFPepper) || len(service.DummyPasswordHash) == 0 {
+	if service.Pool == nil || service.Payloads == nil || !service.PasswordPolicy.Configured() || service.PublicTenantID == "" || service.StoreEpoch == "" || service.Region == "" || service.VerificationTTL <= 0 || service.PasswordResetTTL <= 0 || service.SessionTTL <= 0 || service.IdempotencyTTL <= 0 || len(service.IdentityKey) < 32 || len(service.CursorKey) < 32 || len(service.SessionPepper) < 32 || len(service.CSRFPepper) < 32 || len(service.IdempotencyKeyPepper) < 32 || len(service.RequestDigestPepper) < 32 || service.PasswordResetTokens.Purpose == "" || len(service.PasswordResetTokens.Pepper) < 32 || bytes.Equal(service.SessionPepper, service.CSRFPepper) || len(service.DummyPasswordHash) == 0 {
 		return errors.New("identity auth service configuration is invalid")
 	}
 	return nil
+}
+
+func (service AuthService) validateNewPassword(ctx context.Context, value string) error {
+	err := service.PasswordPolicy.ValidateNew(ctx, value)
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, password.ErrInvalidPassword), errors.Is(err, password.ErrCompromisedPassword):
+		return api.ErrValidation
+	default:
+		return api.ErrDependencyUnavailable
+	}
 }
 
 func mapLookupError(err error) error {

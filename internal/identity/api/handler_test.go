@@ -195,6 +195,10 @@ func TestHandlerFailsClosedWithoutTrustedPublicContextAndDoesNotLeakServiceError
 }
 
 func servePublic(t *testing.T, service Service, method, path, contentType, idempotencyKey, body string) *httptest.ResponseRecorder {
+	return servePublicHandler(t, Handler{Service: service, Now: func() time.Time { return apiTestNow }}, method, path, contentType, idempotencyKey, body)
+}
+
+func servePublicHandler(t *testing.T, handler Handler, method, path, contentType, idempotencyKey, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -217,6 +221,6 @@ func servePublic(t *testing.T, service Service, method, path, contentType, idemp
 	request.TLS = &tls.ConnectionState{VerifiedChains: [][]*x509.Certificate{{{}}}}
 	recorder := httptest.NewRecorder()
 	middleware := serviceauth.Middleware{Verifier: trustedcontext.Verifier{Issuer: "gateway", Audience: "identity", Keys: map[string]ed25519.PublicKey{"key": publicKey}, MaximumTTL: 5 * time.Minute}, Now: func() time.Time { return apiTestNow }, RequireVerifiedClientCertificate: true}
-	middleware.Wrap(Handler{Service: service, Now: func() time.Time { return apiTestNow }}).ServeHTTP(recorder, request)
+	middleware.Wrap(handler).ServeHTTP(recorder, request)
 	return recorder
 }

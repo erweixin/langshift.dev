@@ -86,9 +86,11 @@ func TestAuthRegistrationVerificationAndLoginAreDurableIdempotentAndSecretSafe(t
 	service := AuthService{
 		Pool:                    pool,
 		Passwords:               hasher,
+		PasswordPolicy:          password.Policy{Checker: password.NewDigestSet([]string{"known compromised password value"})},
 		DummyPasswordHash:       dummyHash,
 		DummyPasswordParameters: dummyParameters,
 		VerificationTokens:      opaque.Manager{Purpose: "email-verification", Pepper: bytes.Repeat([]byte{0x32}, 32)},
+		PasswordResetTokens:     opaque.Manager{Purpose: "password-reset", Pepper: bytes.Repeat([]byte{0x39}, 32)},
 		SessionPepper:           bytes.Repeat([]byte{0x33}, 32),
 		CSRFPepper:              bytes.Repeat([]byte{0x34}, 32),
 		IdempotencyKeyPepper:    bytes.Repeat([]byte{0x35}, 32),
@@ -99,6 +101,7 @@ func TestAuthRegistrationVerificationAndLoginAreDurableIdempotentAndSecretSafe(t
 		StoreEpoch:              authStoreEpoch,
 		Region:                  "US",
 		VerificationTTL:         24 * time.Hour,
+		PasswordResetTTL:        30 * time.Minute,
 		SessionTTL:              30 * 24 * time.Hour,
 		IdempotencyTTL:          24 * time.Hour,
 		Payloads:                payloadStore,
@@ -106,6 +109,14 @@ func TestAuthRegistrationVerificationAndLoginAreDurableIdempotentAndSecretSafe(t
 		Now:                     func() time.Time { return now },
 	}
 	metadata := api.RequestMetadata{RequestID: "server-register-001", ClientRequestID: "client-register-001", IdempotencyKey: "register-idempotency-0001", ClientIPHash: bytes.Repeat([]byte{0x41}, 32), UserAgentHash: bytes.Repeat([]byte{0x42}, 32)}
+	compromisedRegistration := api.RegisterCommand{RequestMetadata: api.RequestMetadata{RequestID: "server-register-blocked", ClientRequestID: "client-register-blocked", IdempotencyKey: "register-blocked-key-0001", ClientIPHash: metadata.ClientIPHash, UserAgentHash: metadata.UserAgentHash}, NormalizedEmail: "blocked-password@example.com", Password: "KNOWN COMPROMISED PASSWORD VALUE", Locale: "en"}
+	if _, err = service.Register(ctx, compromisedRegistration); !errors.Is(err, api.ErrValidation) {
+		t.Fatalf("compromised registration error=%v", err)
+	}
+	var blockedUsers int
+	if err = admin.QueryRow(ctx, `SELECT count(*) FROM identity.users WHERE normalized_email=$1`, compromisedRegistration.NormalizedEmail).Scan(&blockedUsers); err != nil || blockedUsers != 0 {
+		t.Fatalf("blocked users=%d error=%v", blockedUsers, err)
+	}
 	register := api.RegisterCommand{RequestMetadata: metadata, NormalizedEmail: "production@example.com", Password: "correct horse battery staple", Locale: "en"}
 	registrationResults := concurrentCalls(t, 12, func() (api.RegisterResult, error) { return service.Register(ctx, register) })
 	userID := registrationResults[0].UserID
@@ -113,6 +124,11 @@ func TestAuthRegistrationVerificationAndLoginAreDurableIdempotentAndSecretSafe(t
 		if result.UserID != userID || result.EmailVerificationExpiresAt != now.Add(24*time.Hour) {
 			t.Fatalf("registration result=%#v", result)
 		}
+	}
+	service.PasswordPolicy = password.Policy{Checker: password.NewDigestSet([]string{register.Password})}
+	replayedRegistration, err := service.Register(ctx, register)
+	if err != nil || replayedRegistration != registrationResults[0] {
+		t.Fatalf("registration replay=%#v error=%v", replayedRegistration, err)
 	}
 	conflicting := register
 	conflicting.Password = "different secure password value"

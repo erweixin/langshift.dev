@@ -154,7 +154,8 @@ func (service AuthService) RevokeSession(ctx context.Context, command api.Revoke
 				return idempotency.Response{}, api.ErrVersionConflict
 			}
 		}
-		if err := service.commitSessionRevocations(ctx, tx, command.AuthenticatedRequestMetadata, []sessionRevocationPrepared{prepared}, command.ReasonCode, now); err != nil {
+		actor, _ := json.Marshal(map[string]string{"kind": "user", "id": command.UserID})
+		if err := service.commitSessionRevocations(ctx, tx, command.AuthenticatedRequestMetadata, []sessionRevocationPrepared{prepared}, command.ReasonCode, now, &command.UserID, actor); err != nil {
 			return idempotency.Response{}, err
 		}
 		return idempotency.Response{Status: 200, ContentType: "application/json", PayloadRef: responseManifest.Ref, Hash: responseManifest.Hash, ResourceVersion: prepared.NextVersion}, nil
@@ -283,7 +284,8 @@ func (service AuthService) revokeSessionBatch(ctx context.Context, metadata api.
 		if !currentUnchanged || !sameSessionSnapshot(prepared, actual) {
 			return idempotency.Response{}, api.ErrStateConflict
 		}
-		if err := service.commitSessionRevocations(ctx, tx, metadata, prepared, reason, now); err != nil {
+		actor, _ := json.Marshal(map[string]string{"kind": "user", "id": metadata.UserID})
+		if err := service.commitSessionRevocations(ctx, tx, metadata, prepared, reason, now, &metadata.UserID, actor); err != nil {
 			return idempotency.Response{}, err
 		}
 		return idempotency.Response{Status: 200, ContentType: "application/json", PayloadRef: manifest.Ref, Hash: manifest.Hash, ResourceVersion: result.Current.Version}, nil
@@ -354,16 +356,18 @@ func (service AuthService) prepareSessionRevocation(ctx context.Context, row ses
 	return prepared, nil
 }
 
-func (service AuthService) commitSessionRevocations(ctx context.Context, tx pgx.Tx, metadata api.AuthenticatedRequestMetadata, prepared []sessionRevocationPrepared, reason string, now time.Time) error {
+func (service AuthService) commitSessionRevocations(ctx context.Context, tx pgx.Tx, metadata api.AuthenticatedRequestMetadata, prepared []sessionRevocationPrepared, reason string, now time.Time, actorUserID *string, actor json.RawMessage) error {
+	if _, err := tx.Exec(ctx, `SELECT set_config('lites.tenant_id',$1,true)`, metadata.TenantID); err != nil {
+		return err
+	}
 	securityEventID, err := service.newID()
 	if err != nil {
 		return err
 	}
 	details, _ := json.Marshal(map[string]any{"reason_code": reason, "session_count": len(prepared)})
-	if _, err = tx.Exec(ctx, `INSERT INTO identity.security_events (id,tenant_id,subject_user_id,actor_user_id,event_type,request_id,ip_hash,user_agent_hash,details,occurred_at) VALUES ($1,$2,$3,$3,'sessions_revoked',$4,$5,$6,$7,$8)`, securityEventID, metadata.TenantID, metadata.UserID, metadata.RequestID, metadata.ClientIPHash, metadata.UserAgentHash, details, now); err != nil {
+	if _, err = tx.Exec(ctx, `INSERT INTO identity.security_events (id,tenant_id,subject_user_id,actor_user_id,event_type,request_id,ip_hash,user_agent_hash,details,occurred_at) VALUES ($1,$2,$3,$4,'sessions_revoked',$5,$6,$7,$8,$9)`, securityEventID, metadata.TenantID, metadata.UserID, actorUserID, metadata.RequestID, metadata.ClientIPHash, metadata.UserAgentHash, details, now); err != nil {
 		return err
 	}
-	actor, _ := json.Marshal(map[string]string{"kind": "user", "id": metadata.UserID})
 	for _, value := range prepared {
 		tag, updateErr := tx.Exec(ctx, `UPDATE identity.sessions SET revoked_at=$1,version=version+1,updated_at=$1 WHERE id=$2 AND user_id=$3 AND version=$4 AND revoked_at IS NULL`, now, value.Session.ID, metadata.UserID, value.Session.Version)
 		if updateErr != nil {

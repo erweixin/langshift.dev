@@ -28,14 +28,15 @@ import (
 const maximumBodyBytes int64 = 64 * 1024
 
 var (
-	ErrInvalidCredentials    = errors.New("identity credential is invalid")
-	ErrStateConflict         = errors.New("identity state conflict")
-	ErrIdempotencyConflict   = errors.New("identity idempotency conflict")
-	ErrRateLimited           = errors.New("identity request rate limited")
-	ErrDependencyUnavailable = errors.New("identity dependency unavailable")
-	ErrResourceNotFound      = errors.New("identity resource not found")
-	ErrVersionConflict       = errors.New("identity version conflict")
-	ErrValidation            = errors.New("identity request validation failed")
+	ErrInvalidCredentials       = errors.New("identity credential is invalid")
+	ErrStateConflict            = errors.New("identity state conflict")
+	ErrIdempotencyConflict      = errors.New("identity idempotency conflict")
+	ErrRateLimited              = errors.New("identity request rate limited")
+	ErrDependencyUnavailable    = errors.New("identity dependency unavailable")
+	ErrResourceNotFound         = errors.New("identity resource not found")
+	ErrVersionConflict          = errors.New("identity version conflict")
+	ErrValidation               = errors.New("identity request validation failed")
+	ErrReauthenticationRequired = errors.New("identity reauthentication required")
 )
 
 type RequestMetadata struct {
@@ -89,9 +90,10 @@ type Service interface {
 }
 
 type Handler struct {
-	Service  Service
-	Sessions SessionService
-	Now      func() time.Time
+	Service   Service
+	Sessions  SessionService
+	Passwords PasswordService
+	Now       func() time.Time
 }
 
 func (handler Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
@@ -114,6 +116,24 @@ func (handler Handler) ServeHTTP(writer http.ResponseWriter, request *http.Reque
 			return
 		}
 		handler.login(writer, request)
+	case "/v1/auth/password/forgot":
+		if request.Method != http.MethodPost {
+			handler.methodNotAllowed(writer, request, http.MethodPost)
+			return
+		}
+		handler.passwordForgot(writer, request)
+	case "/v1/auth/password/reset":
+		if request.Method != http.MethodPost {
+			handler.methodNotAllowed(writer, request, http.MethodPost)
+			return
+		}
+		handler.passwordReset(writer, request)
+	case "/v1/auth/password/change":
+		if request.Method != http.MethodPost {
+			handler.methodNotAllowed(writer, request, http.MethodPost)
+			return
+		}
+		handler.passwordChange(writer, request)
 	case "/v1/auth/logout":
 		if request.Method != http.MethodPost {
 			handler.methodNotAllowed(writer, request, http.MethodPost)
@@ -143,6 +163,10 @@ func (handler Handler) ServeHTTP(writer http.ResponseWriter, request *http.Reque
 }
 
 func (handler Handler) register(writer http.ResponseWriter, request *http.Request) {
+	if handler.Service == nil {
+		handler.internalError(writer, request)
+		return
+	}
 	metadata, ok := handler.publicMetadata(writer, request)
 	if !ok {
 		return
@@ -180,6 +204,10 @@ func (handler Handler) register(writer http.ResponseWriter, request *http.Reques
 }
 
 func (handler Handler) verifyEmail(writer http.ResponseWriter, request *http.Request) {
+	if handler.Service == nil {
+		handler.internalError(writer, request)
+		return
+	}
 	metadata, ok := handler.publicMetadata(writer, request)
 	if !ok {
 		return
@@ -214,6 +242,10 @@ func (handler Handler) verifyEmail(writer http.ResponseWriter, request *http.Req
 }
 
 func (handler Handler) login(writer http.ResponseWriter, request *http.Request) {
+	if handler.Service == nil {
+		handler.internalError(writer, request)
+		return
+	}
 	metadata, ok := handler.publicMetadata(writer, request)
 	if !ok {
 		return
@@ -265,10 +297,6 @@ func (handler Handler) publicMetadata(writer http.ResponseWriter, request *http.
 	claims, ok := serviceauth.ClaimsFromContext(request.Context())
 	if !ok || claims.PrincipalKind != trustedcontext.PublicRequest || !claims.CSRFVerified {
 		handler.writeProblem(writer, request, http.StatusUnauthorized, "authentication_required", "Authentication required", false)
-		return RequestMetadata{}, false
-	}
-	if handler.Service == nil {
-		handler.internalError(writer, request)
 		return RequestMetadata{}, false
 	}
 	idempotencyValues := request.Header.Values(transport.IdempotencyHeader)
@@ -328,6 +356,8 @@ func (handler Handler) serviceError(writer http.ResponseWriter, request *http.Re
 		handler.writeProblem(writer, request, http.StatusNotFound, "resource_not_found", "Resource not found", false)
 	case errors.Is(err, ErrValidation):
 		handler.validationFailed(writer, request)
+	case errors.Is(err, ErrReauthenticationRequired):
+		handler.writeProblem(writer, request, http.StatusUnauthorized, "reauthentication_required", "Reauthentication required", false)
 	case errors.Is(err, ErrRateLimited):
 		handler.writeProblem(writer, request, http.StatusTooManyRequests, "rate_limited", "Rate limited", true)
 	case errors.Is(err, ErrDependencyUnavailable):

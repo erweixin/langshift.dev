@@ -132,6 +132,10 @@ func TestRevokeOthersRejectsClientSessionSubstitution(t *testing.T) {
 }
 
 func serveAuthenticated(t *testing.T, sessions SessionService, method, target, idempotencyKey, ifMatch, body string) *httptest.ResponseRecorder {
+	return serveAuthenticatedHandler(t, Handler{Sessions: sessions, Now: func() time.Time { return apiTestNow }}, method, target, idempotencyKey, ifMatch, body)
+}
+
+func serveAuthenticatedHandler(t *testing.T, handler Handler, method, target, idempotencyKey, ifMatch, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -157,6 +161,6 @@ func serveAuthenticated(t *testing.T, sessions SessionService, method, target, i
 	request.TLS = &tls.ConnectionState{VerifiedChains: [][]*x509.Certificate{{{}}}}
 	recorder := httptest.NewRecorder()
 	middleware := serviceauth.Middleware{Verifier: trustedcontext.Verifier{Issuer: "gateway", Audience: "identity", Keys: map[string]ed25519.PublicKey{"key": publicKey}, MaximumTTL: 5 * time.Minute}, Now: func() time.Time { return apiTestNow }, RequireVerifiedClientCertificate: true}
-	middleware.Wrap(Handler{Sessions: sessions, Now: func() time.Time { return apiTestNow }}).ServeHTTP(recorder, request)
+	middleware.Wrap(handler).ServeHTTP(recorder, request)
 	return recorder
 }
