@@ -1991,6 +1991,48 @@
     },
     {
       "schema": "agent",
+      "name": "idempotency_responses",
+      "columns": [
+        "id uuid PRIMARY KEY",
+        "tenant_id uuid NOT NULL",
+        "user_id uuid NOT NULL",
+        "version bigint NOT NULL DEFAULT 1 CHECK (version > 0)",
+        "created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP",
+        "updated_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP",
+        "operation_id text NOT NULL",
+        "idempotency_key_hash bytea NOT NULL",
+        "request_hash text NOT NULL",
+        "request_id text NOT NULL",
+        "status text NOT NULL CHECK (status IN ('in_progress','completed','failed'))",
+        "response_status integer CHECK (response_status BETWEEN 100 AND 599)",
+        "response_content_type text",
+        "response_payload_ref text",
+        "response_hash text",
+        "resource_version bigint",
+        "expires_at timestamptz NOT NULL",
+        "completed_at timestamptz"
+      ],
+      "tenantScoped": true,
+      "userScoped": true,
+      "dataClass": "restricted",
+      "appendOnly": false,
+      "uniques": [
+        [
+          "tenant_id",
+          "user_id",
+          "operation_id",
+          "idempotency_key_hash"
+        ]
+      ],
+      "foreignKeys": [],
+      "checks": [
+        "(status = 'in_progress' AND completed_at IS NULL) OR (status IN ('completed','failed') AND completed_at IS NOT NULL)"
+      ],
+      "qualifiedName": "agent.idempotency_responses",
+      "rls": "tenant_context_required"
+    },
+    {
+      "schema": "agent",
       "name": "event_cursors",
       "columns": [
         "tenant_id uuid NOT NULL",
@@ -3251,6 +3293,7 @@
     "product.mission_focuses(tenant_id,user_id)",
     "product.reminder_deliveries(tenant_id,user_id,schedule_id,occurrence_at)",
     "agent.events(tenant_id,user_id,seq)",
+    "agent.idempotency_responses(tenant_id,user_id,operation_id,idempotency_key_hash)",
     "agent.outbox(command_id)",
     "agent.inbox(tenant_id,consumer_name,command_id)",
     "agent.tool_effects(tenant_id,effect_scope,provider_id,tool_name,effect_key)",

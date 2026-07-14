@@ -15,8 +15,8 @@ const verification=await readFile(resolve(root,"contracts/database/900000_verify
 const report={
   reportVersion:"1.0.0",stage:1,kind:"database-contract-smoke",status:"passed",executedAt:new Date().toISOString(),
   source:{headCommit:currentCommit,worktreeState:worktree?"modified":"clean",releaseEligible:false,ddlSha256:sha256(ddl),verificationSha256:sha256(verification),containerImage:process.env.DATABASE_IMAGE_DIGEST,postgresVersion:process.env.POSTGRES_VERSION},
-  results:{freshInstall:"passed",tableCount:Number(process.env.TABLE_COUNT),forcedRlsCount:Number(process.env.FORCED_RLS_COUNT),appendOnlyTriggerCount:Number(process.env.APPEND_ONLY_TRIGGER_COUNT),crossTenantVisibleRows:0,appendOnlyMutationsSucceeded:0,criticalConstraintsVerified:11},
-  criticalConstraints:["anonymous claim_key uniqueness","session active tenant binding","session CAS version","session active tenant foreign key","Mission Focus tenant-user primary key","Route claim_set_hash","Route base_route_version","reminder delivery dedupe","effect ledger uniqueness","distinct repair approver vote","credit conservation check"],
+  results:{freshInstall:"passed",tableCount:Number(process.env.TABLE_COUNT),forcedRlsCount:Number(process.env.FORCED_RLS_COUNT),appendOnlyTriggerCount:Number(process.env.APPEND_ONLY_TRIGGER_COUNT),crossTenantVisibleRows:0,appendOnlyMutationsSucceeded:0,criticalConstraintsVerified:12},
+  criticalConstraints:["anonymous claim_key uniqueness","session active tenant binding","session CAS version","session active tenant foreign key","idempotency response scope uniqueness","Mission Focus tenant-user primary key","Route claim_set_hash","Route base_route_version","reminder delivery dedupe","effect ledger uniqueness","distinct repair approver vote","credit conservation check"],
   promotionRule:"Repeat on the immutable contract snapshot commit before stage approval."
 };
 const path=resolve(root,"gate-reports/stage-1/database-smoke.json");

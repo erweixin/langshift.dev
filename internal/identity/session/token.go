@@ -26,12 +26,13 @@ var ErrTenantUnavailable = errors.New("target tenant membership is not active")
 var ErrVersionConflict = errors.New("session version conflict")
 
 type Principal struct {
-	UserID       string
-	TenantID     string
-	MembershipID string
-	SessionID    string
-	Roles        []string
-	ExpiresAt    time.Time
+	UserID         string
+	TenantID       string
+	MembershipID   string
+	SessionID      string
+	Roles          []string
+	CSRFSecretHash []byte
+	ExpiresAt      time.Time
 }
 
 type Resolver interface {

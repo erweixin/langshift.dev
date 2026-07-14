@@ -25,16 +25,20 @@ var (
 )
 
 type Claims struct {
-	Issuer       string   `json:"iss"`
-	Audience     string   `json:"aud"`
-	SubjectID    string   `json:"sub"`
-	TenantID     string   `json:"tenant_id"`
-	MembershipID string   `json:"membership_id"`
-	SessionID    string   `json:"session_id"`
-	Roles        []string `json:"roles"`
-	IssuedAt     int64    `json:"iat"`
-	ExpiresAt    int64    `json:"exp"`
-	Nonce        string   `json:"nonce"`
+	Issuer        string   `json:"iss"`
+	Audience      string   `json:"aud"`
+	SubjectID     string   `json:"sub"`
+	TenantID      string   `json:"tenant_id"`
+	MembershipID  string   `json:"membership_id"`
+	SessionID     string   `json:"session_id"`
+	Roles         []string `json:"roles"`
+	RequestID     string   `json:"request_id"`
+	RequestMethod string   `json:"request_method"`
+	RequestTarget string   `json:"request_target"`
+	CSRFVerified  bool     `json:"csrf_verified"`
+	IssuedAt      int64    `json:"iat"`
+	ExpiresAt     int64    `json:"exp"`
+	Nonce         string   `json:"nonce"`
 }
 
 type header struct {
@@ -106,8 +110,19 @@ func (v Verifier) Verify(token string, now time.Time) (Claims, error) {
 	return claims, nil
 }
 
+func (v Verifier) VerifyRequest(token string, now time.Time, requestID, method, target string, requireCSRF bool) (Claims, error) {
+	claims, err := v.Verify(token, now)
+	if err != nil {
+		return Claims{}, err
+	}
+	if claims.RequestID != requestID || claims.RequestMethod != method || claims.RequestTarget != target || (requireCSRF && !claims.CSRFVerified) {
+		return Claims{}, ErrInvalidClaims
+	}
+	return claims, nil
+}
+
 func validClaims(claims Claims, maximumTTL time.Duration) bool {
-	if claims.Issuer == "" || claims.Audience == "" || claims.SubjectID == "" || claims.TenantID == "" || claims.MembershipID == "" || claims.SessionID == "" || claims.Nonce == "" || len(claims.Roles) == 0 {
+	if claims.Issuer == "" || claims.Audience == "" || claims.SubjectID == "" || claims.TenantID == "" || claims.MembershipID == "" || claims.SessionID == "" || claims.RequestID == "" || claims.RequestMethod == "" || claims.RequestTarget == "" || claims.Nonce == "" || len(claims.Roles) == 0 {
 		return false
 	}
 	if claims.IssuedAt <= 0 || claims.ExpiresAt <= claims.IssuedAt || maximumTTL <= 0 || time.Duration(claims.ExpiresAt-claims.IssuedAt)*time.Second > maximumTTL {

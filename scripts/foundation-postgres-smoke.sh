@@ -24,7 +24,7 @@ done
 [[ "$(docker inspect --format '{{.State.Health.Status}}' "${container_name}")" == "healthy" ]] || { docker logs "${container_name}"; exit 1; }
 
 docker exec "${container_name}" psql -v ON_ERROR_STOP=1 -U postgres -d lites_foundation -c \
-  "CREATE ROLE lites_identity_service LOGIN PASSWORD 'foundation_service' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS; GRANT CONNECT ON DATABASE lites_foundation TO lites_identity_service; GRANT USAGE ON SCHEMA identity TO lites_identity_service; GRANT SELECT ON identity.users, identity.memberships TO lites_identity_service; GRANT SELECT, UPDATE ON identity.sessions TO lites_identity_service; GRANT INSERT ON identity.security_events TO lites_identity_service;" >/dev/null
+  "CREATE ROLE lites_identity_service LOGIN PASSWORD 'foundation_service' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS; GRANT CONNECT ON DATABASE lites_foundation TO lites_identity_service; GRANT USAGE ON SCHEMA identity, agent TO lites_identity_service; GRANT SELECT ON identity.users, identity.memberships TO lites_identity_service; GRANT SELECT, UPDATE ON identity.sessions TO lites_identity_service; GRANT INSERT ON identity.security_events TO lites_identity_service; GRANT SELECT, INSERT, UPDATE ON agent.idempotency_responses TO lites_identity_service;" >/dev/null
 
 container_port="$(docker port "${container_name}" 5432/tcp | head -n 1 | sed 's/.*://')"
 

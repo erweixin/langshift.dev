@@ -37,7 +37,7 @@ func (resolver SessionResolver) Resolve(ctx context.Context, rawToken string) (s
 	defer func() { _ = tx.Rollback(ctx) }()
 	var principal session.Principal
 	err = tx.QueryRow(ctx, `
-		SELECT s.id::text, s.user_id::text, s.active_tenant_id::text, s.expires_at
+		SELECT s.id::text, s.user_id::text, s.active_tenant_id::text, s.expires_at, s.csrf_secret_hash
 		FROM identity.sessions AS s
 		JOIN identity.users AS u ON u.id = s.user_id
 		WHERE s.token_hash = $1
@@ -45,12 +45,15 @@ func (resolver SessionResolver) Resolve(ctx context.Context, rawToken string) (s
 		  AND s.expires_at > $2
 		  AND u.status = 'active'
 		  AND u.email_verified_at IS NOT NULL`, digest[:], now).
-		Scan(&principal.SessionID, &principal.UserID, &principal.TenantID, &principal.ExpiresAt)
+		Scan(&principal.SessionID, &principal.UserID, &principal.TenantID, &principal.ExpiresAt, &principal.CSRFSecretHash)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return session.Principal{}, session.ErrUnauthenticated
 		}
 		return session.Principal{}, err
+	}
+	if len(principal.CSRFSecretHash) != 32 {
+		return session.Principal{}, session.ErrUnauthenticated
 	}
 	if _, err = tx.Exec(ctx, `SELECT set_config('lites.tenant_id', $1, true)`, principal.TenantID); err != nil {
 		return session.Principal{}, err

@@ -1168,6 +1168,35 @@ CREATE POLICY "events_tenant_isolation" ON "agent"."events" USING (tenant_id = N
 
 CREATE TRIGGER "events_append_only" BEFORE UPDATE OR DELETE ON "agent"."events" FOR EACH ROW EXECUTE FUNCTION "agent".reject_append_only_mutation();
 
+CREATE TABLE IF NOT EXISTS "agent"."idempotency_responses" (
+  id uuid PRIMARY KEY,
+  tenant_id uuid NOT NULL,
+  user_id uuid NOT NULL,
+  version bigint NOT NULL DEFAULT 1 CHECK (version > 0),
+  created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  operation_id text NOT NULL,
+  idempotency_key_hash bytea NOT NULL,
+  request_hash text NOT NULL,
+  request_id text NOT NULL,
+  status text NOT NULL CHECK (status IN ('in_progress','completed','failed')),
+  response_status integer CHECK (response_status BETWEEN 100 AND 599),
+  response_content_type text,
+  response_payload_ref text,
+  response_hash text,
+  resource_version bigint,
+  expires_at timestamptz NOT NULL,
+  completed_at timestamptz,
+  UNIQUE ("tenant_id", "user_id", "operation_id", "idempotency_key_hash"),
+  CHECK ((status = 'in_progress' AND completed_at IS NULL) OR (status IN ('completed','failed') AND completed_at IS NOT NULL))
+);
+
+ALTER TABLE "agent"."idempotency_responses" ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE "agent"."idempotency_responses" FORCE ROW LEVEL SECURITY;
+
+CREATE POLICY "idempotency_responses_tenant_isolation" ON "agent"."idempotency_responses" USING (tenant_id = NULLIF(current_setting('lites.tenant_id', true), '')::uuid) WITH CHECK (tenant_id = NULLIF(current_setting('lites.tenant_id', true), '')::uuid);
+
 CREATE TABLE IF NOT EXISTS "agent"."event_cursors" (
   tenant_id uuid NOT NULL,
   user_id uuid NOT NULL,
@@ -2134,6 +2163,8 @@ ALTER TABLE "product"."memory_policies" ADD CONSTRAINT "memory_policies_tenant_i
 ALTER TABLE "product"."data_export_requests" ADD CONSTRAINT "data_export_requests_tenant_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "identity"."tenants" ("id") ON DELETE CASCADE;
 
 ALTER TABLE "agent"."events" ADD CONSTRAINT "events_tenant_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "identity"."tenants" ("id") ON DELETE CASCADE;
+
+ALTER TABLE "agent"."idempotency_responses" ADD CONSTRAINT "idempotency_responses_tenant_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "identity"."tenants" ("id") ON DELETE CASCADE;
 
 ALTER TABLE "agent"."event_cursors" ADD CONSTRAINT "event_cursors_tenant_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "identity"."tenants" ("id") ON DELETE CASCADE;
 

@@ -43,8 +43,8 @@ if [[ "${logs}" != *'"status" : "passed"'* ]]; then
 fi
 
 actual_tables="$(docker exec "${container_name}" psql -U postgres -d lites_contract -Atc "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE c.relkind='r' AND n.nspname IN ('identity','product','agent','contracts')")"
-if [[ "${actual_tables}" != "89" ]]; then
-  printf 'Expected 89 contract tables, found %s\n' "${actual_tables}"
+if [[ "${actual_tables}" != "90" ]]; then
+  printf 'Expected 90 contract tables, found %s\n' "${actual_tables}"
   exit 1
 fi
 

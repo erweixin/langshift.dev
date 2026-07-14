@@ -15,7 +15,7 @@ func TestTrustedContextRoundTripAndBoundaries(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Unix(1_800_000_000, 0)
-	claims := Claims{Issuer: "lites-gateway", Audience: "identity-service", SubjectID: "user-1", TenantID: "tenant-1", MembershipID: "membership-1", SessionID: "session-1", Roles: []string{"member"}, IssuedAt: now.Unix(), ExpiresAt: now.Add(2 * time.Minute).Unix(), Nonce: "nonce-1"}
+	claims := Claims{Issuer: "lites-gateway", Audience: "identity-service", SubjectID: "user-1", TenantID: "tenant-1", MembershipID: "membership-1", SessionID: "session-1", Roles: []string{"member"}, RequestID: "request-1", RequestMethod: "PATCH", RequestTarget: "/v1/account?view=full", CSRFVerified: true, IssuedAt: now.Unix(), ExpiresAt: now.Add(2 * time.Minute).Unix(), Nonce: "nonce-1"}
 	token, err := Sign(claims, "gateway-2026-07", privateKey, 5*time.Minute)
 	if err != nil {
 		t.Fatal(err)
@@ -27,6 +27,12 @@ func TestTrustedContextRoundTripAndBoundaries(t *testing.T) {
 	}
 	if got.SubjectID != claims.SubjectID || got.TenantID != claims.TenantID {
 		t.Fatalf("unexpected claims: %#v", got)
+	}
+	if _, err := verifier.VerifyRequest(token, now, "request-1", "PATCH", "/v1/account?view=full", true); err != nil {
+		t.Fatalf("request binding: %v", err)
+	}
+	if _, err := verifier.VerifyRequest(token, now, "request-1", "GET", "/v1/account?view=full", false); !errors.Is(err, ErrInvalidClaims) {
+		t.Fatalf("method replay error=%v", err)
 	}
 
 	parts := strings.Split(token, ".")
@@ -45,7 +51,7 @@ func TestTrustedContextRoundTripAndBoundaries(t *testing.T) {
 
 func TestTrustedContextRejectsExcessiveTTLAndDuplicateRoles(t *testing.T) {
 	_, privateKey, _ := ed25519.GenerateKey(rand.Reader)
-	base := Claims{Issuer: "gateway", Audience: "identity", SubjectID: "u", TenantID: "t", MembershipID: "m", SessionID: "s", Roles: []string{"member"}, IssuedAt: 100, ExpiresAt: 1000, Nonce: "n"}
+	base := Claims{Issuer: "gateway", Audience: "identity", SubjectID: "u", TenantID: "t", MembershipID: "m", SessionID: "s", Roles: []string{"member"}, RequestID: "r", RequestMethod: "GET", RequestTarget: "/", IssuedAt: 100, ExpiresAt: 1000, Nonce: "n"}
 	if _, err := Sign(base, "key", privateKey, 5*time.Minute); !errors.Is(err, ErrInvalidClaims) {
 		t.Fatalf("ttl error=%v", err)
 	}
