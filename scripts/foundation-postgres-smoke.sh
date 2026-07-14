@@ -42,7 +42,8 @@ docker exec "${container_name}" psql -U postgres -d lites_foundation -Atc 'SELEC
 
 for migration in \
   deploy/migrations/000002_schema_contract_metadata.up.sql \
-  deploy/migrations/000003_execution_kernel_constraints.up.sql; do
+  deploy/migrations/000003_execution_kernel_constraints.up.sql \
+  deploy/migrations/000004_execution_ownership_constraints.up.sql; do
   target="/tmp/$(basename "${migration}")"
   docker cp "${migration}" "${container_name}:${target}" >/dev/null
   docker exec "${container_name}" psql -v ON_ERROR_STOP=1 -U postgres -d lites_foundation -f "${target}" >/dev/null
