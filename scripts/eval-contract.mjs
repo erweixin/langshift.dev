@@ -60,7 +60,7 @@ export const buildProductEval=(transition,scenario,locale,index)=>{
     input:{
       mission:{id:missionId,sourceRole:localized(transition.source,locale),targetRole:localized(transition.target,locale),focusVersion:scenario.id==="multiple_missions"?7:1},
       userMessage:localized(scenario.message,locale),weeklyMinutes:scenario.weeklyMinutes,
-      claims:[{id:claimId,capability:transfer[0],status:scenario.claimState==="disputed"?"disputed":"active",verificationLevel:scenario.claimState,revision:scenario.claimState==="disputed"?2:1,evidenceIds:[evidenceId]}],
+      claims:[{id:claimId,capability:transfer[0],status:scenario.claimState==="disputed"?"disputed":"active",verificationLevel:scenario.claimState==="disputed"?"user_confirmed":scenario.claimState,revision:scenario.claimState==="disputed"?2:1,evidenceIds:[evidenceId]}],
       evidence:[{id:evidenceId,status:scenario.evidenceState==="conflicting"?"disputed":"recorded",statement:localized(transition.evidence,locale),contentHash:`sha256:${transition.id}:${scenario.id}`}],
       targetRequirements:[...transfer,...gaps],currentRouteVersion:scenario.claimState==="disputed"?3:1,claimSetHash:`claims:${transition.id}:${scenario.id}`,
       privacy:{tenantId:"tenant-eval-a",shareGrant:scenario.id==="private_enterprise_context"?{resourceRevision:"artifact-r2",scope:["read"]}:null}

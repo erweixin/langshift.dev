@@ -1,0 +1,186 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.lites.dev/reviews/gate-report.schema.json",
+  "title": "Lites Stage Gate Report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "reportVersion",
+    "stage",
+    "kind",
+    "status",
+    "generatedAt",
+    "acceptanceTarget",
+    "environment",
+    "versions",
+    "results",
+    "failures",
+    "repairCommits",
+    "sourceCommit",
+    "evidenceCommit",
+    "snapshot",
+    "approvals",
+    "blockers",
+    "reportHash"
+  ],
+  "properties": {
+    "reportVersion": { "const": "1.0.0" },
+    "stage": { "type": "integer", "minimum": 1, "maximum": 6 },
+    "kind": { "const": "stage-gate" },
+    "status": { "enum": ["in_progress", "failed", "passed"] },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "acceptanceTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "scope", "releaseEligible"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "scope": { "type": "string", "minLength": 1 },
+        "releaseEligible": { "type": "boolean" }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["runner", "nodeVersion", "databaseImageDigest", "applicationImageDigest", "ciRunId"],
+      "properties": {
+        "runner": { "type": "string", "minLength": 1 },
+        "nodeVersion": { "type": "string", "pattern": "^v[0-9]+\\." },
+        "databaseImageDigest": { "type": "string", "pattern": "^[a-z0-9._/-]+@sha256:[a-f0-9]{64}$" },
+        "applicationImageDigest": { "type": ["string", "null"], "pattern": "^[a-z0-9._/-]+@sha256:[a-f0-9]{64}$" },
+        "ciRunId": { "type": ["string", "null"] }
+      }
+    },
+    "versions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["databaseSchema", "configurationSnapshot", "testData"],
+      "properties": {
+        "databaseSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["version", "ddlSha256", "verificationSha256"],
+          "properties": {
+            "version": { "type": "string", "minLength": 1 },
+            "ddlSha256": { "$ref": "#/$defs/sha256" },
+            "verificationSha256": { "$ref": "#/$defs/sha256" }
+          }
+        },
+        "configurationSnapshot": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["snapshotId", "contentRootSha256"],
+          "properties": {
+            "snapshotId": { "type": "string", "pattern": "^contract-[a-f0-9]{20}$" },
+            "contentRootSha256": { "$ref": "#/$defs/sha256" }
+          }
+        },
+        "testData": {
+          "type": "array",
+          "minItems": 7,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "version", "sha256", "sampleCount"],
+            "properties": {
+              "name": { "type": "string", "minLength": 1 },
+              "version": { "type": "string", "minLength": 1 },
+              "sha256": { "$ref": "#/$defs/sha256" },
+              "sampleCount": { "type": "integer", "minimum": 1 }
+            }
+          }
+        }
+      }
+    },
+    "results": {
+      "type": "array",
+      "minItems": 5,
+      "items": { "$ref": "#/$defs/result" }
+    },
+    "failures": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "severity", "summary", "evidence"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "severity": { "enum": ["P0", "P1", "P2", "P3"] },
+          "summary": { "type": "string", "minLength": 1 },
+          "evidence": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "repairCommits": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["issueId", "commit", "evidence"],
+        "properties": {
+          "issueId": { "type": "string", "minLength": 1 },
+          "commit": { "type": ["string", "null"], "pattern": "^[a-f0-9]{40}$" },
+          "evidence": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "sourceCommit": { "type": ["string", "null"], "pattern": "^[a-f0-9]{40}$" },
+    "evidenceCommit": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+    "snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["snapshotId", "contentRootSha256", "reviewPacketHash"],
+      "properties": {
+        "snapshotId": { "type": "string", "pattern": "^contract-[a-f0-9]{20}$" },
+        "contentRootSha256": { "$ref": "#/$defs/sha256" },
+        "reviewPacketHash": { "anyOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }] }
+      }
+    },
+    "approvals": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["role", "approverId", "keyId", "reviewEvidenceHash", "decidedAt", "status"],
+        "properties": {
+          "role": { "enum": ["product", "frontend", "backend", "security", "qa"] },
+          "approverId": { "type": "string", "minLength": 1 },
+          "keyId": { "type": "string", "minLength": 1 },
+          "reviewEvidenceHash": { "$ref": "#/$defs/sha256" },
+          "decidedAt": { "type": "string", "format": "date-time" },
+          "status": { "const": "verified" }
+        }
+      }
+    },
+    "blockers": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "reportHash": { "$ref": "#/$defs/sha256" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "const": "passed" } } },
+      "then": {
+        "properties": {
+          "sourceCommit": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+          "approvals": { "minItems": 5, "maxItems": 5 },
+          "blockers": { "maxItems": 0 },
+          "failures": { "maxItems": 0 }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "status", "evidencePath", "evidenceSha256", "summary"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "status": { "enum": ["passed", "failed", "pending"] },
+        "evidencePath": { "type": "string", "minLength": 1 },
+        "evidenceSha256": { "$ref": "#/$defs/sha256" },
+        "summary": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

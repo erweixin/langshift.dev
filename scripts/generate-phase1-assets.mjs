@@ -3,6 +3,8 @@ import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { databaseDefinitions } from "./database-contract.mjs";
 import { buildProductEval, buildProfileEval, scenarioCatalog, transitionCatalog } from "./eval-contract.mjs";
+import { buildProfileRubricRegistry, profileSchemaRegistry } from "./profile-contract.mjs";
+import { capabilityDefinitions } from "./capability-contract.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const generatedAt = "2026-07-13T00:00:00.000Z";
@@ -116,13 +118,14 @@ const operations = [
   ["post","/v1/admin/repair-commands/{id}/approval-decisions","admin.repairs.decide","session+csrf+reauth","repair_approver","version","admin"]
 ];
 
+const errorCatalog=JSON.parse(await readFile(resolve(root,"contracts/catalog/error-codes.json"),"utf8"));
 const problem = {
   type: "object",
   additionalProperties: false,
   required: ["type", "title", "status", "code", "request_id"],
   properties: {
     type: { type: "string", format: "uri" }, title: { type: "string" }, status: { type: "integer" },
-    detail: { type: "string" }, code: { type: "string" }, request_id: { type: "string" },
+    detail: { type: "string" }, code: { enum:errorCatalog.errors.map(error=>error.code) }, request_id: { type: "string" },
     retryable: { type: "boolean" }, current_version: { type: "integer" }
   }
 };
@@ -271,6 +274,16 @@ for (const [method, path, operationId, authn, authz, concurrency, audit] of oper
   else if(operationId.endsWith(".list")) parameters.push({$ref:"#/components/parameters/Cursor"});
   const successStatus=asyncOperationIds.has(operationId)?"202":"200";
   const successContent=operationId==="realtime.connect"?{"text/event-stream":{schema:{type:"string",description:"SSE stream; clients reconnect with last_seen_seq and backfill through events.list."}}}:{"application/json":{schema:{$ref:`#/components/schemas/${responseSchemaName}`}}};
+  const operationErrorCodes=["validation_failed","authentication_required","permission_denied","state_conflict","idempotency_conflict","rate_limited"];
+  if(authn.includes("reauth")) operationErrorCodes.push("reauthentication_required");
+  if(concurrency==="version") operationErrorCodes.push("version_conflict","precondition_required");
+  if(path.includes("{")) operationErrorCodes.push("resource_not_found");
+  if(write) operationErrorCodes.push("payload_too_large","unsupported_media_type");
+  if(asyncOperationIds.has(operationId)) operationErrorCodes.push("quota_exhausted","dependency_unavailable");
+  if(operationId==="missions.focus") operationErrorCodes.push("focus_replacement_required");
+  if(operationId.startsWith("routes.")) operationErrorCodes.push("route_result_stale");
+  if(operationId==="onboarding.claim") operationErrorCodes.push("claim_manual_review");
+  if(operationId.includes("approvals")||operationId.includes(".decide")) operationErrorCodes.push("approval_scope_changed");
   const op = {
     operationId,
     summary: operationId.replaceAll(".", " "),
@@ -279,6 +292,7 @@ for (const [method, path, operationId, authn, authz, concurrency, audit] of oper
     "x-idempotency": write ? "required; scoped to tenant, principal and operation; request hash mismatch returns idempotency_conflict" : "not_applicable",
     "x-concurrency": concurrency === "version" ? "If-Match required; mismatch returns version_conflict" : concurrency === "request" ? "request-deduplicated; unique domain constraints apply" : "read_snapshot",
     "x-audit": audit,
+    "x-error-codes":[...new Set(operationErrorCodes)],
     parameters,
     responses: {
       [successStatus]: {
@@ -292,6 +306,11 @@ for (const [method, path, operationId, authn, authz, concurrency, audit] of oper
       "429": { description: "Rate or quota limit", content: { "application/problem+json": { schema: { $ref: "#/components/schemas/Problem" } } } }
     }
   };
+  const problemResponse=(description)=>({description,content:{"application/problem+json":{schema:{$ref:"#/components/schemas/Problem"}}}});
+  if(path.includes("{")) op.responses["404"]=problemResponse("Resource not found in the authorized tenant scope");
+  if(write){op.responses["413"]=problemResponse("Payload too large");op.responses["415"]=problemResponse("Unsupported media type");}
+  if(concurrency==="version") op.responses["428"]=problemResponse("If-Match precondition required");
+  if(asyncOperationIds.has(operationId)) op.responses["503"]=problemResponse("Required model, tool or runtime dependency unavailable");
   if (write) op.requestBody = { required: true, content: { "application/json": { schema: { $ref: `#/components/schemas/${requestSchemaName}` } } } };
   if (authn === "service_identity") op.security = [{ serviceMtls: [] }];
   else if (authn !== "public" && authn !== "anonymous_or_session") op.security = [{ sessionCookie: [] }];
@@ -539,6 +558,13 @@ const trace = requirements.map(([id,domain,statement]) => ({
   gate:[Number(id.startsWith("AGENT") || id.startsWith("WORK") || id.startsWith("MEM")) ? 3 : id.startsWith("ENT") || id.startsWith("BILL") ? 5 : id.startsWith("GROWTH") ? 4 : id.startsWith("OPS") ? 6 : 2]
 }));
 await writeJson("contracts/traceability/requirements.json", { contractVersion:"1.0.0", requirements:trace });
+const traceByRequirement=new Map(trace.map(item=>[item.requirementId,item]));
+const capabilityInventory=capabilityDefinitions.map(definition=>{
+  const requirement=traceByRequirement.get(definition.requirementId);
+  if(!requirement) throw new Error(`Capability ${definition.capabilityId} references unknown requirement ${definition.requirementId}`);
+  return {...definition,ui:requirement.ui,api:requirement.api,contracts:requirement.contract,data:requirement.data,authorization:requirement.authorization,testIds:requirement.automatedTestIds,gates:requirement.gate};
+});
+await writeJson("contracts/traceability/capability-inventory.json",{contractVersion:"1.0.0",coverageRule:"Every capability from implementation-plan sections two, three and four must resolve directly to UI, API, contract, data, authorization, tests and gates.",capabilities:capabilityInventory});
 
 const s=(name,ui,api,eventOrState,data)=>({name,ui,api:Array.isArray(api)?api:[api],eventOrState:Array.isArray(eventOrState)?eventOrState:[eventOrState],data:Array.isArray(data)?data:[data]});
 const journeys=[
@@ -750,6 +776,8 @@ for (const locale of ["en","zh-CN"]) for (const transition of transitionCatalog)
 await writeJson("product-evals/bilingual-transition-evals.json", { datasetVersion:"1.0.0", generatedAt, samples:e2eSamples, hash:sha256(e2eSamples) });
 
 const profiles = JSON.parse(await readFile(resolve(root,"contracts/catalog/profile-contracts.json"),"utf8")).profiles;
+await writeJson("contracts/profiles/registry.json",profileSchemaRegistry);
+await writeJson("contracts/profiles/rubrics.json",buildProfileRubricRegistry(profiles));
 for (const profile of profiles) {
   const samples=[];
   for (const locale of ["en","zh-CN"]) for (let i=1;i<=100;i++) samples.push(buildProfileEval(profile,transitionCatalog[(i-1)%transitionCatalog.length],scenarioCatalog[((i-1)+Math.floor((i-1)/transitionCatalog.length))%scenarioCatalog.length],locale,i));

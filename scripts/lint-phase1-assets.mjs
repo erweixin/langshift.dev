@@ -91,8 +91,18 @@ check("DATABASE-SMOKE-EVIDENCE",databaseSmoke.status==="passed"&&databaseSmoke.s
 
 const errors=await load("contracts/catalog/error-codes.json");
 check("ERROR-CODES",unique(errors.errors.map(error=>error.code))&&errors.errors.every(error=>Number.isInteger(error.status)&&typeof error.retryable==="boolean"),`${errors.errors.length} unique typed errors`);
+const errorByCode=new Map(errors.errors.map(error=>[error.code,error]));
+check("ERROR-OPENAPI-ENUM",JSON.stringify(openapi.components.schemas.Problem.properties.code.enum)===JSON.stringify(errors.errors.map(error=>error.code)),"Problem.code enum is generated from the canonical error catalog");
+check("ERROR-OPERATION-BINDING",operations.every(({op})=>op["x-error-codes"]?.length&&op["x-error-codes"].every(code=>errorByCode.has(code)&&op.responses[String(errorByCode.get(code).status)])),"every operation error code resolves to the catalog and a matching HTTP response");
+check("ERROR-VERSION-PRECONDITION",operations.filter(({op})=>op["x-concurrency"].startsWith("If-Match")).every(({op})=>op["x-error-codes"].includes("version_conflict")&&op["x-error-codes"].includes("precondition_required")&&op.responses["428"]),"versioned writes declare both missing and stale precondition outcomes");
 const retention=await load("contracts/catalog/retention-policy.json");
 check("RETENTION",retention.rules.length>=10&&retention.rules.every(rule=>rule.record&&rule.class&&rule.retention&&rule.deletion),`${retention.rules.length} classified retention rules`);
+const dataClassification=await load("contracts/catalog/data-classification.json");
+check("DATA-CLASSIFICATION-LEVELS",JSON.stringify(dataClassification.classes.map(item=>item.id))===JSON.stringify(["public","internal","confidential","restricted","secret"]),"five ordered data classes are defined");
+check("DATA-CLASSIFICATION-SECRETS",["password","raw_auth_token","byok_plaintext"].every(id=>{const record=dataClassification.records.find(item=>item.id===id);return record?.class==="secret"&&record.prohibited.includes("log")&&record.prohibited.includes("prompt")&&record.prohibited.includes("artifact")}),"passwords, raw tokens and BYOK plaintext are prohibited from logs, prompts and artifacts");
+check("DATA-CLASSIFICATION-PRIVATE",["private_body","memory_document","workspace_and_artifact"].every(id=>dataClassification.records.some(record=>record.id===id&&record.class==="restricted"&&record.deletion)),"private bodies, Memory, Workspace and Artifacts have restricted storage and deletion rules");
+check("DATA-PAYLOAD-ENVELOPE",["payload_ref","ciphertext_hash","key_ref","key_version","classification","content_type","plaintext_length","created_at"].every(field=>dataClassification.payloadEnvelope.required.includes(field))&&dataClassification.payloadEnvelope.associatedData.includes("tenant_id")&&dataClassification.payloadEnvelope.associatedData.includes("user_id"),"payload envelope binds classification, key version, integrity and tenant-user associated data");
+check("DATA-DEFAULT-RESTRICTED",dataClassification.defaultRule.includes("restricted"),"unknown data fails closed as restricted");
 const privacy=await load("contracts/catalog/privacy-contract.json");
 check("PRIVACY-K",privacy.enterpriseAggregation.minimumCellSize>=5&&privacy.enterpriseAggregation.minimumComplementSize>=5,"cell and complement k are at least five");
 check("PRIVACY-TWO-PERSON",privacy.twoPersonRule.approvalsRequired===2&&!privacy.twoPersonRule.initiatorMayApprove&&privacy.twoPersonRule.distinctActivePrincipals,"two distinct active non-initiator approvals required");
@@ -111,6 +121,12 @@ const traceDatabaseTables=new Set(database.tables.map(table=>table.qualifiedName
 check("TRACE-UI-ROUTES",requirements.requirements.every(item=>item.ui.every(route=>route.startsWith("/"))),"every requirement references concrete UI routes");
 check("TRACE-API-REFERENCES",requirements.requirements.every(item=>item.api.every(operationId=>traceOperationIds.has(operationId))),"every requirement API reference resolves to OpenAPI");
 check("TRACE-DATA-REFERENCES",requirements.requirements.every(item=>item.data.every(table=>traceDatabaseTables.has(table))),"every requirement data reference resolves to a database table");
+const capabilityInventory=await load("contracts/traceability/capability-inventory.json");
+const requirementIds=new Set(requirements.requirements.map(item=>item.requirementId));
+check("CAPABILITY-INVENTORY-UNIQUE",unique(capabilityInventory.capabilities.map(item=>item.capabilityId)),`${capabilityInventory.capabilities.length} capability ids are unique`);
+check("CAPABILITY-INVENTORY-REQUIREMENTS",capabilityInventory.capabilities.every(item=>requirementIds.has(item.requirementId))&&requirements.requirements.every(requirement=>capabilityInventory.capabilities.some(item=>item.requirementId===requirement.requirementId)),"every capability resolves to a requirement and every requirement is decomposed into capabilities");
+check("CAPABILITY-INVENTORY-SECTIONS",["product-capabilities","commercial-model","technical-implementation"].every(section=>capabilityInventory.capabilities.some(item=>item.sourceSection===section)),"implementation-plan product, commercial and technical sections are represented");
+check("CAPABILITY-INVENTORY-TRACE",capabilityInventory.capabilities.every(item=>item.ui.length&&item.api.every(operationId=>traceOperationIds.has(operationId))&&item.contracts.length&&item.data.every(table=>traceDatabaseTables.has(table))&&item.authorization&&item.testIds.length&&item.gates.length),"every individual capability maps to real UI, API, contract, data, authorization, tests and gates");
 const journeys=await load("contracts/traceability/main-journeys.json");
 check("JOURNEY-FIVE",journeys.journeys.length===5,"five required main journeys are frozen");
 check("JOURNEY-TRACE",journeys.journeys.every(j=>j.steps.every(s=>s.ui&&s.api?.length&&s.eventOrState?.length&&s.data?.length&&s.testId)),"every journey step maps UI through test");
@@ -136,6 +152,13 @@ const productSemanticGroups=Object.groupBy(productEvals.samples,sample=>sample.s
 check("EVAL-PRODUCT-EXECUTABLE",productEvals.samples.every(sample=>sample.input?.mission&&sample.input?.claims?.length&&sample.input?.evidence?.length&&sample.expected?.transferBridge&&sample.expected?.firstTask&&!sample.inputFixture),"every product eval contains actual mission, claim, evidence, transfer, gap and task expectations");
 check("EVAL-PRODUCT-BILINGUAL-PAIRS",Object.values(productSemanticGroups).every(samples=>samples.length===2&&new Set(samples.map(sample=>sample.locale)).size===2),`${Object.keys(productSemanticGroups).length} semantic scenarios have exact English and Chinese pairs`);
 const profileContracts=await load("contracts/catalog/profile-contracts.json");
+const profileSchemas=await load("contracts/profiles/registry.json");
+const profileRubrics=await load("contracts/profiles/rubrics.json");
+check("PROFILE-SCHEMA-REFERENCES",profileContracts.profiles.every(profile=>profileSchemas.schemas[profile.inputSchema]?.$id===profile.inputSchema&&profileSchemas.schemas[profile.outputSchema]?.$id===profile.outputSchema),"every Profile input and output schema reference resolves");
+check("PROFILE-SCHEMAS-CLOSED",Object.values(profileSchemas.schemas).every(schema=>schema.additionalProperties===false&&schema.required?.length&&schema.properties),`${Object.keys(profileSchemas.schemas).length} Profile schemas are closed and require explicit fields`);
+check("PROFILE-RUBRIC-DIMENSIONS",profileContracts.profiles.every(profile=>{const rubric=profileRubrics.profiles[profile.id];return rubric&&JSON.stringify(rubric.dimensions.map(dimension=>dimension.id))===JSON.stringify(profile.rubric)&&rubric.deterministicChecks.length}),"each Profile rubric defines exactly its frozen dimensions and deterministic checks");
+check("PROFILE-RUBRIC-ANCHORS",Object.values(profileRubrics.profiles).every(rubric=>rubric.dimensions.every(dimension=>["1","2","3","4","5"].every(score=>dimension.anchors[score]))),"every rubric dimension has shared five-point scoring anchors");
+check("PROFILE-RUBRIC-GATES",profileRubrics.scoring.meanPerDimensionMinimum===4&&profileRubrics.scoring.acceptableRateMinimum===0.85&&profileRubrics.scoring.minimumGroupRate===0.80&&profileRubrics.scoring.maxLocaleGapPoints===5&&profileRubrics.scoring.reviewerAgreementMinimum===0.85&&profileRubrics.scoring.reviewersRequired===2,"rubric thresholds match the fixed implementation gate");
 const profileRequiredInputKeys={route_planner:["targetRequirements","claimSetHash","baseRouteVersion","ontologySnapshotId","contentSnapshotId"],daily_planner:["acceptedRoute","focus","weeklyMinutes","recentEvidenceIds"],coach:["selectedText","conversationThroughSeq","preference","allowedContextIds","requestedAction"],evaluator:["submission","deterministicTests","rubric"],artifact_builder:["project","workspaceRevision","artifactRevisions","evidenceManifest"]};
 const profileRequiredExpectedKeys={route_planner:["claimSetHash","citations","staleIfHashChanges"],daily_planner:["missionId","focusVersion","causalReferences","oneTask"],coach:["mustUseOnlyContextIds","mustNotInventContext","mustNotExecuteRestrictedAction"],evaluator:["deterministicDecision","mayUpgradeCapability","evidenceRequired"],artifact_builder:["completionAllowed","manifestRequired","externalWriteAllowed","exactWorkspaceRevision"]};
 for(const profile of profileContracts.profiles){
@@ -149,6 +172,16 @@ for(const profile of profileContracts.profiles){
 
 const protocol=await load("pilot-protocols/design-partner-v1.json");
 check("PILOT-PROTOCOL",protocol.durationDays>=28&&protocol.minimumConsentedParticipants>=60&&protocol.metrics.length===5&&protocol.zeroTolerance.length>=4,"duration, cohort, metrics, consent and zero-tolerance rules are frozen");
+check("PILOT-RECRUITMENT-STRATA",protocol.recruitmentStrata.length>=6&&protocol.recruitmentStrata.every(stratum=>stratum.minimum.en>=5&&stratum.minimum["zh-CN"]>=5)&&protocol.eligibility.include.length&&protocol.eligibility.exclude.length,"six bilingual transition strata and eligibility rules are frozen before recruitment");
+const pilotConsent=await load("pilot-protocols/consent-v1.json");
+const consentFields=["title","purpose","procedures","data","risks","benefits","voluntary","withdrawal","contact"];
+check("PILOT-CONSENT-BILINGUAL",["en","zh-CN"].every(locale=>consentFields.every(field=>pilotConsent.locales[locale]?.[field]))&&pilotConsent.requiredAffirmations.length>=5,"English and Chinese consent disclose purpose, procedure, data, risk, benefit, voluntariness, withdrawal and contact");
+check("PILOT-CONSENT-MINIMIZATION",["conversation_body","reflection_body","password","raw_token","byok_secret","employer_private_body"].every(field=>pilotConsent.record.prohibited.includes(field)),"pilot consent record prohibits private bodies and secrets");
+const cohortManifestSchema=await load("pilot-protocols/cohort-manifest.schema.json");
+check("PILOT-COHORT-SCHEMA",cohortManifestSchema.additionalProperties===false&&cohortManifestSchema.properties.participantCount.minimum===60&&cohortManifestSchema.properties.localeCounts.properties.en.minimum===30&&cohortManifestSchema.properties.localeCounts.properties["zh-CN"].minimum===30&&cohortManifestSchema.properties.stratumCounts.minItems>=6,"cohort evidence enforces total, locale and stratum minimums");
+const pilotReportTemplate=await load("pilot-protocols/report-template-v1.json");
+check("PILOT-REPORT-METRICS",JSON.stringify(pilotReportTemplate.metricRows.map(metric=>metric.id))===JSON.stringify(protocol.metrics.map(metric=>metric.id))&&pilotReportTemplate.metricRows.every(metric=>protocol.metrics.find(item=>item.id===metric.id)?.threshold===metric.threshold),"report template preserves frozen metric ids, denominators and thresholds");
+check("PILOT-REPORT-HONESTY",pilotReportTemplate.status==="template_not_evidence"&&pilotReportTemplate.metricRows.every(metric=>metric.result===null&&metric.passed===null)&&pilotReportTemplate.zeroToleranceRows.every(row=>row.count===null&&row.required===0),"pilot template cannot be mistaken for passing evidence");
 const impact=await load("behavior-manifests/impact-matrix.json");
 check("BEHAVIOR-IMPACT",new Set(impact.rules.map(rule=>rule.kind)).size===12&&impact.rules.every(rule=>rule.invalidates.length),"all behavior component kinds have invalidation rules");
 const contractSnapshot=await load("gate-reports/stage-1/contract-snapshot.json");
@@ -159,9 +192,23 @@ check("CONTRACT-SNAPSHOT-ROOT",sha256(snapshotFilesCurrent)===contractSnapshot.c
 const reviewIssues=await load("gate-reports/stage-1/review-issues.json");
 check("CONTRACT-REVIEW-ISSUES",reviewIssues.openP0.length===0&&reviewIssues.openP1.length===0&&reviewIssues.openOther.length===0,"known contract review issues are resolved with evidence; accountable approvals remain separate");
 const gateStatus=await load("gate-reports/stage-1/gate-status.json");
-check("CONTRACT-GATE-HONESTY",gateStatus.status==="in_progress"&&gateStatus.readiness==="technical_contract_ready_for_accountable_review"&&Object.values(contractSnapshot.approvals).every(approval=>approval===null),"stage remains in progress and no accountable approval is inferred or fabricated");
+check("CONTRACT-GATE-HONESTY",["in_progress","failed","passed"].includes(gateStatus.status)&&Object.values(contractSnapshot.approvals).every(approval=>approval===null),"snapshot never embeds inferred approvals; gate status can advance only through separately verified signed records");
 const approvalRecordSchema=await load("contracts/reviews/approval-record.schema.json");
-check("CONTRACT-APPROVAL-SCHEMA",approvalRecordSchema.additionalProperties===false&&["snapshotId","contentRootSha256","reviewRole","approverId","activeRole","reviewEvidenceHash","decision","decidedAt","signature"].every(field=>approvalRecordSchema.required.includes(field))&&approvalRecordSchema.properties.reviewRole.enum.length===5,"approval records bind the exact snapshot, five accountable roles, evidence, identity, time and signature");
+check("CONTRACT-APPROVAL-SCHEMA",approvalRecordSchema.additionalProperties===false&&["snapshotId","contentRootSha256","sourceCommit","reviewPacketHash","reviewRole","approverId","activeRole","reviewEvidenceHash","decision","decidedAt","signature"].every(field=>approvalRecordSchema.required.includes(field))&&approvalRecordSchema.properties.reviewRole.enum.length===5&&approvalRecordSchema.properties.signature.properties.kind.enum.includes("ed25519"),"approval records bind source commit, snapshot, review packet, five accountable roles, evidence, identity, time and an Ed25519 signature");
+const reviewChecklist=await load("contracts/reviews/stage-1-review-checklist.json");
+check("CONTRACT-APPROVAL-CHECKLIST",JSON.stringify(reviewChecklist.approvalRecordRequired)===JSON.stringify(approvalRecordSchema.required)&&Object.keys(reviewChecklist.roles).length===5,"the accountable review checklist names all five roles and the exact signed approval fields");
+const approverKeyringSchema=await load("contracts/reviews/approver-keyring.schema.json");
+check("CONTRACT-APPROVER-KEYRING",approverKeyringSchema.additionalProperties===false&&approverKeyringSchema.properties.keys.minItems>=5&&["keyId","approverId","reviewRoles","publicKeyPem","status","registeredAt"].every(field=>approverKeyringSchema.properties.keys.items.required.includes(field)),"approver keyring binds active public keys to identities and review roles");
+const gateReportSchema=await load("contracts/reviews/gate-report.schema.json");
+check("CONTRACT-GATE-REPORT-SCHEMA",gateReportSchema.additionalProperties===false&&["acceptanceTarget","environment","versions","results","failures","repairCommits","sourceCommit","evidenceCommit","snapshot","approvals","blockers","reportHash"].every(field=>gateReportSchema.required.includes(field))&&gateReportSchema.properties.results.minItems>=5&&gateReportSchema.allOf.some(rule=>rule.then?.properties?.approvals?.minItems===5&&rule.then?.properties?.blockers?.maxItems===0),"stage gate report requires target, environment, immutable versions, results, failures, repairs, commits, snapshot, five approvals, blockers and report hash");
+const gateReport=await load("gate-reports/stage-1/gate-report.json");
+const gateReportUnsigned=Object.fromEntries(Object.entries(gateReport).filter(([key])=>key!=="reportHash"));
+check("CONTRACT-GATE-REPORT-HASH",gateReport.reportHash===sha256(gateReportUnsigned),`gate report ${gateReport.reportHash} is content-addressed`);
+check("CONTRACT-GATE-REPORT-EVIDENCE",gateReport.results.length>=5&&(await Promise.all(gateReport.results.map(async item=>item.evidenceSha256===sha256(await readFile(resolve(root,item.evidencePath)))))).every(Boolean),"every gate result is bound to the current evidence file");
+check("CONTRACT-GATE-REPORT-VERSIONS",gateReport.versions.configurationSnapshot.snapshotId===contractSnapshot.snapshotId&&gateReport.versions.configurationSnapshot.contentRootSha256===contractSnapshot.contentRootSha256&&gateReport.versions.databaseSchema.ddlSha256===databaseSmoke.source.ddlSha256&&gateReport.versions.testData.length===7&&gateReport.versions.testData.reduce((total,item)=>total+item.sampleCount,0)===2100,"gate report binds the contract root, database schema and all 2,100 fixed evaluation samples");
+const gateReportNotPassed=["in_progress","failed"].includes(gateReport.status)&&(gateReport.sourceCommit===null||/^[a-f0-9]{40}$/.test(gateReport.sourceCommit))&&gateReport.approvals.length===0&&gateReport.blockers.length>=1&&gateStatus.status===gateReport.status&&gateStatus.readiness==="technical_contract_ready_for_accountable_review";
+const gateReportPassed=gateReport.status==="passed"&&/^[a-f0-9]{40}$/.test(gateReport.sourceCommit??"")&&gateReport.approvals.length===5&&new Set(gateReport.approvals.map(item=>item.role)).size===5&&gateReport.blockers.length===0&&gateStatus.status==="passed"&&gateStatus.readiness==="approved_for_stage_2";
+check("CONTRACT-GATE-REPORT-HONESTY",(gateReportNotPassed||gateReportPassed)&&!gateReport.acceptanceTarget.releaseEligible,"pre-review evidence cannot claim approval, and a passed Stage 1 report requires five unique verified roles while remaining non-GA");
 
 const rootsToScan=["contracts","security-tests","product-evals","profile-evals","pilot-protocols","behavior-manifests"];
 const files=[];
@@ -169,6 +216,10 @@ const walk=async path=>{ for(const entry of await readdir(resolve(root,path))){ 
 for(const path of rootsToScan) await walk(path);
 const forbidden=[];
 for(const path of files){ const body=await readFile(resolve(root,path),"utf8"); if(/\b(?:TBD|TODO)\b/.test(body)) forbidden.push(path); }
+for(const path of ["README.md","docs/architecture.md","docs/product-implementation-plan.md","docs/ux-prototype.html"]){
+  const lines=(await readFile(resolve(root,path),"utf8")).split("\n");
+  if(lines.some(line=>/\b(?:TBD|TODO)\b/.test(line)&&!line.includes("文档中不得存在影响实现"))) forbidden.push(path);
+}
 check("NO-UNRESOLVED-MARKERS",forbidden.length===0,forbidden.length?forbidden.join(", "):`${files.length} assets scanned`);
 
 const failures=results.filter(result=>result.status==="failed");

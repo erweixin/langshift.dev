@@ -48,4 +48,16 @@ if [[ "${actual_tables}" != "89" ]]; then
   exit 1
 fi
 
-printf 'database-contract-smoke passed: postgres=16 tables=89 forced_rls=82 append_only=21 cross_tenant_visible=0\n'
+actual_forced_rls="$(docker exec "${container_name}" psql -U postgres -d lites_contract -Atc "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE c.relkind='r' AND n.nspname IN ('identity','product','agent','contracts') AND c.relrowsecurity AND c.relforcerowsecurity")"
+actual_append_only="$(docker exec "${container_name}" psql -U postgres -d lites_contract -Atc "SELECT count(*) FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE NOT t.tgisinternal AND t.tgname LIKE '%_append_only' AND n.nspname IN ('identity','product','agent','contracts')")"
+postgres_version="$(docker exec "${container_name}" psql -U postgres -d lites_contract -Atc 'SHOW server_version')"
+database_image_digest="$(docker image inspect postgres:16-alpine --format '{{index .RepoDigests 0}}')"
+
+POSTGRES_VERSION="${postgres_version}" \
+DATABASE_IMAGE_DIGEST="${database_image_digest}" \
+TABLE_COUNT="${actual_tables}" \
+FORCED_RLS_COUNT="${actual_forced_rls}" \
+APPEND_ONLY_TRIGGER_COUNT="${actual_append_only}" \
+node scripts/write-database-smoke-report.mjs
+
+printf 'database-contract-smoke passed: postgres=%s tables=%s forced_rls=%s append_only=%s cross_tenant_visible=0\n' "${postgres_version}" "${actual_tables}" "${actual_forced_rls}" "${actual_append_only}"

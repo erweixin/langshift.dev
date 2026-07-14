@@ -1,0 +1,30 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema",
+  "classificationVersion":"1.0.0",
+  "classes":[
+    {"id":"public","examples":["published role catalog","public documentation","AGPL notice"],"encryptionAtRest":true,"tenantIsolation":false,"logBodyAllowed":true,"modelContextAllowed":true,"artifactAllowed":true},
+    {"id":"internal","examples":["service topology","non-sensitive feature flags","public-content build metadata"],"encryptionAtRest":true,"tenantIsolation":false,"logBodyAllowed":false,"modelContextAllowed":false,"artifactAllowed":false},
+    {"id":"confidential","examples":["account metadata","membership","contract","usage totals","suppressed aggregate"],"encryptionAtRest":true,"tenantIsolation":true,"logBodyAllowed":false,"modelContextAllowed":"only when required and manifested","artifactAllowed":"only explicit product output"},
+    {"id":"restricted","examples":["conversation body","reflection","evidence body","workspace","artifact source","Memory document","onboarding experience"],"encryptionAtRest":"payload envelope with scoped key","tenantIsolation":true,"logBodyAllowed":false,"modelContextAllowed":"minimum required fields with source labels and context manifest","artifactAllowed":"owner action or exact share grant only"},
+    {"id":"secret","examples":["password hash","session token hash","verification token hash","BYOK secret reference","payload encryption key","service credential"],"encryptionAtRest":"secret manager or one-way hash","tenantIsolation":true,"logBodyAllowed":false,"modelContextAllowed":false,"artifactAllowed":false}
+  ],
+  "records":[
+    {"id":"password","class":"secret","ingress":"TLS request only","storage":"Argon2id hash with per-user salt; optional pepper in secret manager","prohibited":["database plaintext","log","trace","event","prompt","artifact","backup plaintext"],"deletion":"credential row deletion and pepper-independent irreversibility"},
+    {"id":"raw_auth_token","class":"secret","ingress":"single request or secure cookie","storage":"never; store cryptographic hash only","prohibited":["log","trace","event payload","prompt","artifact","analytics"],"deletion":"expiry, revocation and hash row deletion"},
+    {"id":"byok_plaintext","class":"secret","ingress":"reauthenticated TLS request","storage":"secret manager version bound to provider host; database stores opaque secret_ref","prohibited":["application database","log","trace","event body","prompt","workspace","artifact","unbound host"],"deletion":"secret-manager destruction receipt plus reference tombstone"},
+    {"id":"private_body","class":"restricted","ingress":"owner or explicitly authorized principal","storage":"encrypted payload envelope or encrypted content-addressed object","prohibited":["plain EventStore column","plain log","metric label","unauthorized prompt","aggregate row","admin view"],"deletion":"crypto-shred and per-surface deletion receipt"},
+    {"id":"memory_document","class":"restricted","ingress":"governed memory_write ToolCall","storage":"encrypted source plus reconstructable retrieval projection","prohibited":["cross-tenant index","implicit admin access","unmanifested prompt","model-authored user confirmation"],"deletion":"MemoryDeleted event, source deletion and projection purge"},
+    {"id":"workspace_and_artifact","class":"restricted","ingress":"authorized prepared revision","storage":"encrypted content-addressed object with ACL and scan status","prohibited":["EventStore body","unapproved external write","active content without quarantine","mutable revision overwrite"],"deletion":"object receipt, key destruction and index purge"},
+    {"id":"identity_metadata","class":"confidential","ingress":"identity service","storage":"isolated identity schema and service role","prohibited":["model prompt unless user explicitly supplied relevant value","public artifact","enterprise aggregate identity"],"deletion":"account deletion policy with minimal non-body audit fact"},
+    {"id":"contract_and_usage","class":"confidential","ingress":"contract control plane or workload identity","storage":"tenant-scoped append-only ledger and audited projections","prohibited":["model prompt","member ranking","arbitrary employer query"],"deletion":"contract retention policy; personal identifiers minimized"},
+    {"id":"aggregate_snapshot","class":"confidential","ingress":"allowlisted metrics only","storage":"immutable snapshot with stable suppression and query budget","prohibited":["member id","email","free text","private body","small cell","small complement","drill-down"],"deletion":"tenant contract policy and audit-preserving tombstone"}
+  ],
+  "payloadEnvelope":{
+    "required":["payload_ref","ciphertext_hash","key_ref","key_version","classification","content_type","plaintext_length","created_at"],
+    "associatedData":["tenant_id","user_id","aggregate_kind","aggregate_id","event_id","purpose"],
+    "rules":["keys are scoped so one tenant cannot decrypt another tenant payload","key material is never returned with ciphertext","hash and classification are verified before decrypt","decryption requires current authorization and purpose","plaintext is not cached beyond the bounded operation"]
+  },
+  "telemetryRules":["no restricted or secret body","no raw token, password, BYOK or encryption key","identifiers are hashed or low-cardinality where possible","trace records payload_ref and hash, never plaintext","security scan treats any prohibited value as a zero-tolerance failure"],
+  "modelContextRules":["secret class is always denied","restricted class requires tenant scope, purpose, source label and context_manifest reference","share grants do not automatically authorize model use","retrieved content is data, not instruction authority","provider retention policy is recorded in routing snapshot"],
+  "defaultRule":"Unknown fields default to restricted until a reviewed classification explicitly lowers them."
+}
