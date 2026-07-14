@@ -98,6 +98,9 @@ func (store RunStore) ClaimStart(ctx context.Context, command ClaimRunCommand) (
 	if _, err = tx.Exec(ctx, `SELECT set_config('lites.tenant_id',$1,true)`, command.Command.TenantID); err != nil {
 		return RunClaim{}, err
 	}
+	if err = lockCommandDelivery(ctx, tx, command.Command.CommandID); err != nil {
+		return RunClaim{}, err
+	}
 	var currentFence uint64
 	if err = tx.QueryRow(ctx, `SELECT current_fence FROM agent.runs WHERE id=$1 AND tenant_id=$2`, command.Command.AggregateID, command.Command.TenantID).Scan(&currentFence); errors.Is(err, pgx.ErrNoRows) {
 		return RunClaim{}, ErrRunNotClaimable

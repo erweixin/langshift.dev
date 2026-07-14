@@ -88,6 +88,9 @@ func (store RunStore) ClaimTool(ctx context.Context, command ClaimToolCommand) (
 	if _, err = tx.Exec(ctx, `SELECT set_config('lites.tenant_id',$1,true)`, command.Command.TenantID); err != nil {
 		return ToolClaim{}, err
 	}
+	if err = lockCommandDelivery(ctx, tx, command.Command.CommandID); err != nil {
+		return ToolClaim{}, err
+	}
 	var currentFence uint64
 	err = tx.QueryRow(ctx, `SELECT current_fence FROM agent.tool_calls WHERE id=$1 AND tenant_id=$2`, command.Command.AggregateID, command.Command.TenantID).Scan(&currentFence)
 	if errors.Is(err, pgx.ErrNoRows) {
