@@ -365,6 +365,7 @@ const eventTypes = [
 ];
 const stage3V11EventTypes=["AnonymousClaimManualReviewResolved","RepairCommandExpired"];
 const stage3V12EventTypes=["ApprovalExpired"];
+const stage3V13EventTypes=["WorkspaceRevisionCommitOutcomeUnknown"];
 const eventSchemas = {};
 const stringField={type:"string",minLength:1};
 const nullableString={type:["string","null"]};
@@ -403,6 +404,7 @@ const criticalEventFields={
   ToolCallManuallyResolved:{tool_call_id:stringField,tool_call_version:positiveVersion,effect_key:stringField,resolution:{enum:["confirmed_occurred","confirmed_not_occurred","accepted_unknown"]},repair_command_id:stringField,residual_risk_ref:nullableString},
   WorkspaceRevisionCommitAuthorized:{tool_call_id:stringField,workspace_id:stringField,base_revision:stringField,prepared_revision:stringField,prepared_hash:stringField,authorization_id:stringField,effect_key:stringField,commit_command_id:stringField},
   WorkspaceRevisionCommitted:{tool_call_id:stringField,workspace_id:stringField,authorization_id:stringField,effect_key:stringField,published_revision:stringField,published_hash:stringField},
+  WorkspaceRevisionCommitOutcomeUnknown:{tool_call_id:stringField,workspace_id:stringField,authorization_id:stringField,effect_key:stringField,base_revision:stringField,prepared_revision:stringField,prepared_hash:stringField,publish_attempt_id:stringField,fence:positiveVersion,reconciliation_due_at:{type:"string",format:"date-time"},observed_revision:nullableString},
   ApprovalRequested:{approval_id:stringField,approval_kind:stringField,proposal_hash:stringField,target_version:positiveVersion,permission_snapshot:stringField,expires_at:{type:"string",format:"date-time"}},
   ApprovalGranted:{approval_id:stringField,approver_user_id:stringField,proposal_hash:stringField,target_version:positiveVersion,permission_snapshot:stringField,reauthenticated_at:{type:"string",format:"date-time"}},
   ApprovalExpired:{approval_id:stringField,approval_kind:stringField,proposal_hash:stringField,target_version:positiveVersion,permission_snapshot:stringField,expired_at:{type:"string",format:"date-time"}},
@@ -480,6 +482,14 @@ await writeJson("contracts/events/amendments/v1.2.0/registry.json",{
 await writeJson("contracts/events/amendments/v1.2.0/upcaster-fixtures.json",{
   fixtureVersion:"1.2.0",baseFixtureVersion:"1.1.0",purityRule:"Upcasters are deterministic pure functions with no network, clock or current-config access.",
   fixtures:makeUpcasterFixtures(stage3V12EventTypes,stage3V12EventSchemas,eventTypes.length+stage3V11EventTypes.length)
+});
+const stage3V13EventSchemas=Object.fromEntries(stage3V13EventTypes.map(eventType=>[eventType,eventSchema(eventType)]));
+await writeJson("contracts/events/amendments/v1.3.0/registry.json",{
+  amendmentVersion:"1.3.0",baseContractVersion:"1.2.0",compatibility:"additive",schemas:stage3V13EventSchemas
+});
+await writeJson("contracts/events/amendments/v1.3.0/upcaster-fixtures.json",{
+  fixtureVersion:"1.3.0",baseFixtureVersion:"1.2.0",purityRule:"Upcasters are deterministic pure functions with no network, clock or current-config access.",
+  fixtures:makeUpcasterFixtures(stage3V13EventTypes,stage3V13EventSchemas,eventTypes.length+stage3V11EventTypes.length+stage3V12EventTypes.length)
 });
 
 const databaseTables=databaseDefinitions.map(table=>({...table,qualifiedName:`${table.schema}.${table.name}`,rls:table.tenantScoped?"tenant_context_required":table.schema==="identity"?"identity_service_role_only":"service_role_only"}));
@@ -918,4 +928,17 @@ await writeJson("gate-reports/stage-3/contract-amendment-v1.2.json",{
   activationRule:"Backend, security and QA approval must bind this amendment root after schema lint, migration verification and fault-injection evidence."
 });
 
-console.log(`Generated ${operations.length} API operations, ${eventTypes.length} base event schemas, ${stage3V11EventTypes.length+stage3V12EventTypes.length} Stage 3 event schemas, ${requirements.length} requirements, ${securitySamples.length} security samples, ${e2eSamples.length} bilingual product eval samples and ${profiles.length * 200} profile eval samples.`);
+const v13AmendedPaths=["contracts/events/amendments/v1.3.0/registry.json","contracts/events/amendments/v1.3.0/upcaster-fixtures.json"];
+const v13AmendedFiles=[];
+for(const path of v13AmendedPaths){v13AmendedFiles.push({path,sha256:sha256(await readFile(resolve(root,path)))});}
+const v13AmendmentRoot=sha256({baseAmendmentId:`contract-amendment-${v12AmendmentRoot.slice(0,20)}`,files:v13AmendedFiles});
+await writeJson("gate-reports/stage-3/contract-amendment-v1.3.json",{
+  amendmentVersion:"1.3.0",amendmentId:`contract-amendment-${v13AmendmentRoot.slice(0,20)}`,status:"draft",generatedAt,
+  baseSnapshotId:stage1Snapshot.snapshotId,baseContentRootSha256:stage1Snapshot.contentRootSha256,
+  baseAmendmentId:`contract-amendment-${v12AmendmentRoot.slice(0,20)}`,baseAmendmentContentRootSha256:v12AmendmentRoot,
+  contentRootSha256:v13AmendmentRoot,files:v13AmendedFiles,
+  reason:"Add the durable outcome-unknown fact required by the Stage 3 Workspace CAS publish protocol.",
+  activationRule:"Backend, security and QA approval must bind this amendment root after schema lint, migration verification and fault-injection evidence."
+});
+
+console.log(`Generated ${operations.length} API operations, ${eventTypes.length} base event schemas, ${stage3V11EventTypes.length+stage3V12EventTypes.length+stage3V13EventTypes.length} Stage 3 event schemas, ${requirements.length} requirements, ${securitySamples.length} security samples, ${e2eSamples.length} bilingual product eval samples and ${profiles.length * 200} profile eval samples.`);

@@ -17,6 +17,9 @@ const amendment=await load("gate-reports/stage-3/contract-amendment-v1.1.json");
 const v12Registry=await load("contracts/events/amendments/v1.2.0/registry.json");
 const v12Fixtures=await load("contracts/events/amendments/v1.2.0/upcaster-fixtures.json");
 const v12Amendment=await load("gate-reports/stage-3/contract-amendment-v1.2.json");
+const v13Registry=await load("contracts/events/amendments/v1.3.0/registry.json");
+const v13Fixtures=await load("contracts/events/amendments/v1.3.0/upcaster-fixtures.json");
+const v13Amendment=await load("gate-reports/stage-3/contract-amendment-v1.3.json");
 const snapshot=await load("gate-reports/stage-1/contract-snapshot.json");
 const eventNames=Object.keys(registry.schemas);
 const baseNames=new Set(Object.keys(baseRegistry.schemas));
@@ -48,6 +51,18 @@ for(const path of ["contracts/events/amendments/v1.2.0/registry.json","contracts
 const v12RootHash=sha256({baseAmendmentId:amendment.amendmentId,files:v12Files});
 check("AMENDMENT-V1.2-CONTENT-ROOT",JSON.stringify(v12Amendment.files)===JSON.stringify(v12Files)&&v12Amendment.contentRootSha256===v12RootHash&&v12Amendment.amendmentId===`contract-amendment-${v12RootHash.slice(0,20)}`,"v1.2 report binds the exact extension files");
 check("AMENDMENT-V1.2-BASE",v12Amendment.baseSnapshotId===snapshot.snapshotId&&v12Amendment.baseContentRootSha256===snapshot.contentRootSha256&&v12Amendment.baseAmendmentId===amendment.amendmentId&&v12Amendment.baseAmendmentContentRootSha256===amendment.contentRootSha256,"v1.2 is anchored to both the frozen Stage 1 snapshot and v1.1 amendment");
+
+const v13EventNames=Object.keys(v13Registry.schemas);
+check("AMENDMENT-V1.3-VERSION",v13Registry.amendmentVersion==="1.3.0"&&v13Registry.baseContractVersion===v12Registry.amendmentVersion&&v13Registry.compatibility==="additive","v1.3 additively extends the v1.2 Stage 3 amendment");
+check("AMENDMENT-V1.3-EVENTS",JSON.stringify(v13EventNames)===JSON.stringify(["WorkspaceRevisionCommitOutcomeUnknown"])&&v13EventNames.every(name=>!baseNames.has(name)&&!eventNames.includes(name)&&!v12EventNames.includes(name)),"Workspace outcome-unknown is additive and does not replace a frozen event");
+const workspaceUnknown=v13Registry.schemas.WorkspaceRevisionCommitOutcomeUnknown.properties.payload.required;
+check("WORKSPACE-UNKNOWN-EVIDENCE",["tool_call_id","workspace_id","authorization_id","effect_key","base_revision","prepared_revision","prepared_hash","publish_attempt_id","fence","reconciliation_due_at","observed_revision"].every(field=>workspaceUnknown.includes(field)),"workspace uncertainty binds the immutable revision, authorization, fenced attempt and reconciliation deadline");
+check("AMENDMENT-V1.3-FIXTURES",v13Fixtures.baseFixtureVersion===v12Fixtures.fixtureVersion&&v13Fixtures.fixtures.length===1&&v13Fixtures.fixtures.every(fixture=>fixture.inputHash===sha256(fixture.input)&&fixture.expectedHash===sha256(fixture.expected)&&JSON.stringify(fixture.input)===JSON.stringify(fixture.expected)),"v1.3 event has a deterministic canonical fixture");
+const v13Files=[];
+for(const path of ["contracts/events/amendments/v1.3.0/registry.json","contracts/events/amendments/v1.3.0/upcaster-fixtures.json"]) v13Files.push({path,sha256:sha256(await read(path))});
+const v13RootHash=sha256({baseAmendmentId:v12Amendment.amendmentId,files:v13Files});
+check("AMENDMENT-V1.3-CONTENT-ROOT",JSON.stringify(v13Amendment.files)===JSON.stringify(v13Files)&&v13Amendment.contentRootSha256===v13RootHash&&v13Amendment.amendmentId===`contract-amendment-${v13RootHash.slice(0,20)}`,"v1.3 report binds the exact extension files");
+check("AMENDMENT-V1.3-BASE",v13Amendment.baseSnapshotId===snapshot.snapshotId&&v13Amendment.baseContentRootSha256===snapshot.contentRootSha256&&v13Amendment.baseAmendmentId===v12Amendment.amendmentId&&v13Amendment.baseAmendmentContentRootSha256===v12Amendment.contentRootSha256,"v1.3 is anchored to both the frozen Stage 1 snapshot and v1.2 amendment");
 
 const failures=checks.filter(item=>item.status==="failed");
 const reportBase={reportVersion:"1.0.0",stage:3,kind:"contract-amendment-lint",status:failures.length?"failed":"passed",summary:{checks:checks.length,passed:checks.length-failures.length,failed:failures.length},results:checks};
