@@ -1,0 +1,36 @@
+name: Foundation Gate
+
+on:
+  pull_request:
+    paths:
+      - "go.mod"
+      - "go.sum"
+      - "cmd/**"
+      - "internal/**"
+      - "services/**"
+      - "deploy/**"
+      - "config/**"
+      - ".github/workflows/foundation-gate.yml"
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  go-security-core:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.5"
+          cache: true
+      - name: Refuse formatting drift
+        run: test -z "$(gofmt -l cmd internal services 2>/dev/null || true)"
+      - name: Vet production packages
+        run: go vet ./...
+      - name: Run race-enabled foundation tests
+        run: go test -race -count=1 ./...

@@ -28,6 +28,9 @@ BEGIN
   IF actual <> 21 THEN RAISE EXCEPTION 'expected 21 append-only triggers, found %', actual; END IF;
 
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='identity.onboarding_claims'::regclass AND contype='u' AND pg_get_constraintdef(oid) LIKE '%claim_key%') THEN RAISE EXCEPTION 'claim_key uniqueness missing'; END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='identity' AND table_name='sessions' AND column_name='active_tenant_id' AND is_nullable='NO') THEN RAISE EXCEPTION 'session active tenant binding missing'; END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='identity' AND table_name='sessions' AND column_name='version') THEN RAISE EXCEPTION 'session CAS version missing'; END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='identity.sessions'::regclass AND contype='f' AND pg_get_constraintdef(oid) LIKE '%active_tenant_id%identity.tenants%') THEN RAISE EXCEPTION 'session active tenant foreign key missing'; END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='product.mission_focuses'::regclass AND contype='p' AND pg_get_constraintdef(oid) LIKE '%tenant_id%user_id%') THEN RAISE EXCEPTION 'Mission Focus primary key missing'; END IF;
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='product' AND table_name='route_revisions' AND column_name='claim_set_hash') THEN RAISE EXCEPTION 'Route claim_set_hash CAS input missing'; END IF;
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='product' AND table_name='route_revisions' AND column_name='base_route_version') THEN RAISE EXCEPTION 'Route base_route_version CAS input missing'; END IF;
@@ -90,5 +93,5 @@ SELECT json_build_object(
   'append_only_trigger_count',21,
   'cross_tenant_visible_rows',0,
   'append_only_mutations_succeeded',0,
-  'critical_constraints_verified',8
+  'critical_constraints_verified',11
 ) AS contract_verification;

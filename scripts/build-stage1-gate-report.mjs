@@ -31,9 +31,10 @@ const datasets=[
   ...profileEvals.map((value,index)=>dataset(`profile-${profileIds[index]}`,`profile-evals/${profileIds[index]}/bilingual-slice.json`,value))
 ];
 const result=async(id,status,evidencePath,summary)=>({id,status,evidencePath,evidenceSha256:await fileHash(evidencePath),summary});
+const packetValid=Boolean(packet&&packet.snapshotId===snapshot.snapshotId&&packet.contentRootSha256===snapshot.contentRootSha256&&/^[a-f0-9]{40}$/.test(packet.sourceCommit??""));
 const approvalRoles=new Set(approvalVerification?.results?.map(item=>item.role)??[]);
 const approvalValid=Boolean(
-  packet&&approvalVerification?.status==="passed"&&approvalVerification.snapshotId===snapshot.snapshotId&&
+  packetValid&&approvalVerification?.status==="passed"&&approvalVerification.snapshotId===snapshot.snapshotId&&
   approvalVerification.contentRootSha256===snapshot.contentRootSha256&&approvalVerification.sourceCommit===packet.sourceCommit&&
   approvalVerification.verifiedApproverCount===5&&approvalVerification.results?.length===5&&
   ["product","frontend","backend","security","qa"].every(role=>approvalRoles.has(role))
@@ -52,9 +53,9 @@ const failures=[
   ...reviewIssues.openP1.map(item=>({id:item.id,severity:"P1",summary:item.summary??item.title,evidence:"gate-reports/stage-1/review-issues.json"}))
 ];
 const approvals=approvalValid?approvalVerification.results:[];
-const passed=Boolean(packet&&approvalValid&&approvals.length===5&&results.every(item=>item.status==="passed")&&failures.length===0);
+const passed=Boolean(packetValid&&approvalValid&&approvals.length===5&&results.every(item=>item.status==="passed")&&failures.length===0);
 const blockers=passed?[]:[
-  ...(!packet?["immutable source commit and review packet for the exact content root"]:[]),
+  ...(!packetValid?["immutable source commit and review packet for the exact content root"]:[]),
   ...(!approvalValid?["product, frontend, backend, security and QA approvals bound to the review packet"]:[]),
   ...(failures.length?["all failed technical or P0/P1 review results must be resolved"]:[])
 ];
@@ -64,9 +65,9 @@ const reportBase={
   environment:{runner:process.env.GITHUB_ACTIONS==="true"?"github-actions":"local",nodeVersion:process.version,databaseImageDigest:databaseSmoke.source.containerImage,applicationImageDigest:null,ciRunId:process.env.GITHUB_RUN_ID??null},
   versions:{databaseSchema:{version:"000001_contract_baseline",ddlSha256:databaseSmoke.source.ddlSha256,verificationSha256:databaseSmoke.source.verificationSha256},configurationSnapshot:{snapshotId:snapshot.snapshotId,contentRootSha256:snapshot.contentRootSha256},testData:datasets.map(({path,...item})=>item)},
   results,failures,
-  repairCommits:reviewIssues.resolvedOther.map(item=>({issueId:item.id,commit:item.fixCommit??packet?.sourceCommit??null,evidence:item.evidence})),
-  sourceCommit:packet?.sourceCommit??null,evidenceCommit:process.env.GITHUB_SHA?.match(/^[a-f0-9]{40}$/)?.[0]??currentCommit,
-  snapshot:{snapshotId:snapshot.snapshotId,contentRootSha256:snapshot.contentRootSha256,reviewPacketHash:packet?.packetHash??null},
+  repairCommits:reviewIssues.resolvedOther.map(item=>({issueId:item.id,commit:item.fixCommit??(packetValid?packet.sourceCommit:null),evidence:item.evidence})),
+  sourceCommit:packetValid?packet.sourceCommit:null,evidenceCommit:process.env.GITHUB_SHA?.match(/^[a-f0-9]{40}$/)?.[0]??currentCommit,
+  snapshot:{snapshotId:snapshot.snapshotId,contentRootSha256:snapshot.contentRootSha256,reviewPacketHash:packetValid?packet.packetHash:null},
   approvals,blockers
 };
 const report={...reportBase,reportHash:sha256(reportBase)};

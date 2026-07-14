@@ -65,7 +65,11 @@ CREATE TABLE IF NOT EXISTS "identity"."password_reset_requests" (
 
 CREATE TABLE IF NOT EXISTS "identity"."sessions" (
   id uuid PRIMARY KEY,
+  version bigint NOT NULL DEFAULT 1 CHECK (version > 0),
+  created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
   user_id uuid NOT NULL,
+  active_tenant_id uuid NOT NULL,
   token_hash bytea NOT NULL,
   csrf_secret_hash bytea NOT NULL,
   device_label text,
@@ -75,7 +79,6 @@ CREATE TABLE IF NOT EXISTS "identity"."sessions" (
   expires_at timestamptz NOT NULL,
   revoked_at timestamptz,
   reauthenticated_at timestamptz,
-  created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
   UNIQUE ("token_hash")
 );
 
@@ -1953,6 +1956,8 @@ ALTER TABLE "identity"."email_verifications" ADD CONSTRAINT "email_verifications
 ALTER TABLE "identity"."password_reset_requests" ADD CONSTRAINT "password_reset_requests_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "identity"."users" ("id") ON DELETE CASCADE;
 
 ALTER TABLE "identity"."sessions" ADD CONSTRAINT "sessions_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "identity"."users" ("id") ON DELETE CASCADE;
+
+ALTER TABLE "identity"."sessions" ADD CONSTRAINT "sessions_active_tenant_id_fk" FOREIGN KEY ("active_tenant_id") REFERENCES "identity"."tenants" ("id") ON DELETE RESTRICT;
 
 ALTER TABLE "identity"."tenants" ADD CONSTRAINT "tenants_owner_user_id_fk" FOREIGN KEY ("owner_user_id") REFERENCES "identity"."users" ("id") ON DELETE RESTRICT;
 
