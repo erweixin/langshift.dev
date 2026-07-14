@@ -37,9 +37,15 @@ type ReconciliationClaim struct {
 	Completed                                                          bool
 }
 
+type reconciliationClaimHook func(context.Context, pgx.Tx, ReconciliationClaim, time.Time) error
+
 // ClaimReconciliation installs an execution right for a provider-side lookup.
 // It never reinstalls a ToolCall execution lease or changes effect ownership.
 func (store RunStore) ClaimReconciliation(ctx context.Context, command ClaimReconciliationCommand) (ReconciliationClaim, error) {
+	return store.claimReconciliation(ctx, command, nil)
+}
+
+func (store RunStore) claimReconciliation(ctx context.Context, command ClaimReconciliationCommand, hook reconciliationClaimHook) (ReconciliationClaim, error) {
 	if !store.validClaim() {
 		return ReconciliationClaim{}, ErrConfiguration
 	}
@@ -109,6 +115,11 @@ func (store RunStore) ClaimReconciliation(ctx context.Context, command ClaimReco
 			if reclaimErr != nil {
 				return ReconciliationClaim{}, reclaimErr
 			}
+			if hook != nil {
+				if hookErr := hook(ctx, tx, claim, now); hookErr != nil {
+					return ReconciliationClaim{}, hookErr
+				}
+			}
 			if err = tx.Commit(ctx); err != nil {
 				return ReconciliationClaim{}, err
 			}
@@ -123,6 +134,11 @@ func (store RunStore) ClaimReconciliation(ctx context.Context, command ClaimReco
 	}
 	claim.StoreEpoch, claim.CommandID, claim.ConsumerName, claim.RequestHash = command.Command.StoreEpoch, command.Command.CommandID, command.ConsumerName, command.Command.PayloadHash
 	claim.InboxID, claim.AttemptID, claim.Fence, claim.LeaseToken, claim.LeaseExpiresAt = inboxID, attemptID, 1, credential.Raw, expiresAt
+	if hook != nil {
+		if err = hook(ctx, tx, claim, now); err != nil {
+			return ReconciliationClaim{}, err
+		}
+	}
 	err = tx.QueryRow(ctx, `UPDATE agent.jobs SET status='running',dispatch_lease_hash=NULL,dispatch_lease_expires_at=NULL,updated_at=$1 WHERE tenant_id=$2 AND command_id=$3 AND status='pending' AND available_at<=$1 AND (due_at IS NULL OR due_at>$1) RETURNING id::text`, now, command.Command.TenantID, command.Command.CommandID).Scan(&claim.JobID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ReconciliationClaim{}, ErrReconciliationNotClaimable

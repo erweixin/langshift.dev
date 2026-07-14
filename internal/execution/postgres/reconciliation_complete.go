@@ -32,9 +32,15 @@ type CompleteReconciliationCommand struct {
 	ResumeMaxAttempts     int
 }
 
+type reconciliationCompletionHook func(context.Context, pgx.Tx, string, time.Time) error
+
 // CompleteReconciliation replaces unknown evidence exactly once and commits
 // the effect, ToolCall, attempt, group join and continuation atomically.
 func (store RunStore) CompleteReconciliation(ctx context.Context, command CompleteReconciliationCommand) (CompletedTool, error) {
+	return store.completeReconciliation(ctx, command, nil)
+}
+
+func (store RunStore) completeReconciliation(ctx context.Context, command CompleteReconciliationCommand, hook reconciliationCompletionHook) (CompletedTool, error) {
 	claim := command.Claim
 	if !store.validClaim() || !validReconciliationClaim(claim) {
 		return CompletedTool{}, ErrConfiguration
@@ -114,6 +120,11 @@ func (store RunStore) CompleteReconciliation(ctx context.Context, command Comple
 	toolEvent := eventpostgres.Input{Event: eventpostgres.Event{ID: toolEventIDs.event, TenantID: claim.TenantID, UserID: userID, EventType: toolCompletionEventType(command.TargetState), SchemaVersion: 1, AggregateKind: "tool_call", AggregateID: claim.ToolCallID, AggregateVersion: nextToolVersion, StoreEpoch: store.StoreEpoch, OccurredAt: now, Actor: command.Actor, CausationID: &causationID, CorrelationID: command.CorrelationID, PayloadRef: command.ToolCompletedEvent.Ref, PayloadHash: command.ToolCompletedEvent.Hash}, Commands: []eventpostgres.OutboxCommand{{ID: toolEventIDs.outbox, CommandID: toolEventIDs.publish, CommandType: "events.publish", PayloadRef: command.ToolCompletedEvent.Ref, PayloadHash: command.ToolCompletedEvent.Hash}}}
 	if _, err = store.Appender.Append(ctx, tx, toolEvent); err != nil {
 		return CompletedTool{}, err
+	}
+	if hook != nil {
+		if err = hook(ctx, tx, toolEventIDs.event, now); err != nil {
+			return CompletedTool{}, err
+		}
 	}
 	attemptCausationID := toolEventIDs.event
 	attemptEvent := eventpostgres.Input{Event: eventpostgres.Event{ID: attemptEventIDs.attemptEvent, TenantID: claim.TenantID, UserID: userID, EventType: "JobAttemptCompleted", SchemaVersion: 1, AggregateKind: "job_attempt", AggregateID: claim.AttemptID, AggregateVersion: attemptVersion + 1, StoreEpoch: store.StoreEpoch, OccurredAt: now, Actor: command.Actor, CausationID: &attemptCausationID, CorrelationID: command.CorrelationID, PayloadRef: command.AttemptCompletedEvent.Ref, PayloadHash: command.AttemptCompletedEvent.Hash}, Commands: []eventpostgres.OutboxCommand{{ID: attemptEventIDs.attemptOutbox, CommandID: attemptEventIDs.attemptPublish, CommandType: "events.publish", PayloadRef: command.AttemptCompletedEvent.Ref, PayloadHash: command.AttemptCompletedEvent.Hash}}}

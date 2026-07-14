@@ -34,11 +34,17 @@ type DeferredReconciliation struct {
 	DueAt                                          time.Time
 }
 
+type reconciliationDeferralHook func(context.Context, pgx.Tx, string, time.Time) error
+
 type reconciliationRetryIDs struct{ outbox, command, job string }
 
 // DeferReconciliation records a completed-but-inconclusive provider lookup and
 // schedules a fresh command without changing ToolCall state or result evidence.
 func (store RunStore) DeferReconciliation(ctx context.Context, command DeferReconciliationCommand) (DeferredReconciliation, error) {
+	return store.deferReconciliation(ctx, command, nil)
+}
+
+func (store RunStore) deferReconciliation(ctx context.Context, command DeferReconciliationCommand, hook reconciliationDeferralHook) (DeferredReconciliation, error) {
 	claim := command.Claim
 	if !store.validClaim() || !validReconciliationClaim(claim) {
 		return DeferredReconciliation{}, ErrConfiguration
@@ -111,6 +117,11 @@ func (store RunStore) DeferReconciliation(ctx context.Context, command DeferReco
 	attemptEvent := eventpostgres.Input{Event: eventpostgres.Event{ID: attemptEventIDs.attemptEvent, TenantID: claim.TenantID, UserID: claim.UserID, EventType: "JobAttemptCompleted", SchemaVersion: 1, AggregateKind: "job_attempt", AggregateID: claim.AttemptID, AggregateVersion: attemptVersion + 1, StoreEpoch: store.StoreEpoch, OccurredAt: now, Actor: command.Actor, CausationID: &causationID, CorrelationID: command.CorrelationID, PayloadRef: command.AttemptCompletedEvent.Ref, PayloadHash: command.AttemptCompletedEvent.Hash}, Commands: []eventpostgres.OutboxCommand{{ID: attemptEventIDs.attemptOutbox, CommandID: attemptEventIDs.attemptPublish, CommandType: "events.publish", PayloadRef: command.AttemptCompletedEvent.Ref, PayloadHash: command.AttemptCompletedEvent.Hash}, {ID: retryIDs.outbox, CommandID: retryIDs.command, CommandType: "ReconcileToolEffect", TargetAggregateKind: "tool_call", TargetAggregateID: claim.ToolCallID, PayloadRef: command.NextReconcileCommand.Ref, PayloadHash: command.NextReconcileCommand.Hash}}}
 	if _, err = store.Appender.Append(ctx, tx, attemptEvent); err != nil {
 		return DeferredReconciliation{}, err
+	}
+	if hook != nil {
+		if err = hook(ctx, tx, attemptEventIDs.attemptEvent, now); err != nil {
+			return DeferredReconciliation{}, err
+		}
 	}
 	if tag, updateErr := tx.Exec(ctx, `UPDATE agent.outbox SET available_at=$1 WHERE id=$2 AND tenant_id=$3 AND command_id=$4 AND aggregate_kind='tool_call' AND aggregate_id=$5 AND status='pending'`, command.NextDueAt, retryIDs.outbox, claim.TenantID, retryIDs.command, claim.ToolCallID); updateErr != nil || tag.RowsAffected() != 1 {
 		return DeferredReconciliation{}, ErrExecutionRightConflict

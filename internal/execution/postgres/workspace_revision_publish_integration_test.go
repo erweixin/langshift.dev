@@ -130,27 +130,56 @@ func TestWorkspacePublishIsFencedHeartbeatCoherentAndAtomicallyCompleted(t *test
 		t.Fatalf("heartbeat=%#v err=%v", publish, err)
 	}
 
-	completeTool := CompleteToolCommand{Claim: publish.Tool, ExpectedToolVersion: publish.Tool.ToolCallVersion, TargetState: statemachine.ToolCallSucceeded, ResultHash: "workspace-published-f1", Actor: json.RawMessage(`{"kind":"service","name":"workspace-publisher"}`), CorrelationID: correlationID, ToolCompletedEvent: repairPointer(prefix, "tool-succeeded"), AttemptCompletedEvent: repairPointer(prefix, "commit-attempt-completed"), GroupJoinedEvent: repairPointer(prefix, "group-joined"), RunResumeQueuedEvent: repairPointer(prefix, "run-resume-queued"), ResumeCommand: repairPointer(prefix, "resume-command"), ResumeQueueClass: "interactive", ResumeResourceClass: "llm", ResumePriority: 50, ResumeCostUnits: 1, ResumeMaxAttempts: 5}
-	completeCommand := CompleteWorkspacePublishCommand{RevisionID: prepare.RevisionID, ExpectedRevisionVersion: publish.Version, Tool: completeTool, PublishedRevision: "git:published-f1", PublishedHash: "sha256:published-f1", ObservedRevision: "git:published-f1", CompletionEvent: repairPointer(prefix, "workspace-committed")}
-	completed, err := store.CompleteWorkspacePublish(ctx, completeCommand, EffectCompletion{ExternalResourceRef: "workspace://f1/git:published-f1"})
-	if err != nil || completed.Status != "confirmed" || completed.Version != 5 || completed.Tool.Status != statemachine.ToolCallSucceeded || completed.Replayed {
-		t.Fatalf("completed=%#v err=%v", completed, err)
+	reconcileDue := clock.Add(time.Minute)
+	completeTool := CompleteToolCommand{Claim: publish.Tool, ExpectedToolVersion: publish.Tool.ToolCallVersion, TargetState: statemachine.ToolCallOutcomeUnknown, ResultHash: "workspace-publish-response-lost-f1", Actor: json.RawMessage(`{"kind":"service","name":"workspace-publisher"}`), CorrelationID: correlationID, ToolCompletedEvent: repairPointer(prefix, "tool-outcome-unknown"), AttemptCompletedEvent: repairPointer(prefix, "commit-attempt-completed"), GroupJoinedEvent: repairPointer(prefix, "unused-group"), RunResumeQueuedEvent: repairPointer(prefix, "unused-resume"), ResumeCommand: repairPointer(prefix, "unused-resume-command"), ResumeQueueClass: "interactive", ResumeResourceClass: "llm", ResumePriority: 50, ResumeCostUnits: 1, ResumeMaxAttempts: 5}
+	completeCommand := CompleteWorkspacePublishCommand{RevisionID: prepare.RevisionID, ExpectedRevisionVersion: publish.Version, Tool: completeTool, ObservedRevision: "git:base-f1", CompletionEvent: repairPointer(prefix, "workspace-outcome-unknown")}
+	unknownEffect := EffectCompletion{ReconciliationDueAt: reconcileDue, ReconcileCommand: repairPointer(prefix, "reconcile-workspace"), ReconcileQueueClass: "background", ReconcileResource: "tool-reconciliation", ReconcilePriority: 40, ReconcileCostUnits: 1, ReconcileAttempts: 8}
+	unknown, err := store.CompleteWorkspacePublish(ctx, completeCommand, unknownEffect)
+	if err != nil || unknown.Status != "outcome_unknown" || unknown.Version != 5 || unknown.Tool.Status != statemachine.ToolCallOutcomeUnknown || unknown.Replayed || unknown.Tool.ReconcileCommandID == "" {
+		t.Fatalf("unknown=%#v err=%v", unknown, err)
 	}
-	completedReplay, err := store.CompleteWorkspacePublish(ctx, completeCommand, EffectCompletion{ExternalResourceRef: "workspace://f1/git:published-f1"})
-	if err != nil || !completedReplay.Replayed || completedReplay.EventID != completed.EventID || completedReplay.Version != completed.Version {
-		t.Fatalf("completion replay=%#v err=%v", completedReplay, err)
+	unknownReplay, err := store.CompleteWorkspacePublish(ctx, completeCommand, unknownEffect)
+	if err != nil || !unknownReplay.Replayed || unknownReplay.EventID != unknown.EventID || unknownReplay.Version != unknown.Version {
+		t.Fatalf("unknown replay=%#v err=%v", unknownReplay, err)
 	}
-	if _, err = store.CompleteWorkspacePublish(ctx, completeCommand, EffectCompletion{ExternalResourceRef: "workspace://f1/substituted"}); !errors.Is(err, ErrWorkspaceConflict) {
+	conflictingUnknown := unknownEffect
+	conflictingUnknown.ExternalResourceRef = "workspace://f1/substituted"
+	if _, err = store.CompleteWorkspacePublish(ctx, completeCommand, conflictingUnknown); !errors.Is(err, ErrWorkspaceConflict) {
 		t.Fatalf("conflicting completion replay error=%v", err)
 	}
 
+	clock = reconcileDue
+	reconcileCommand := ClaimReconciliationCommand{Command: eventpostgres.DeliveredCommand{TenantID: tenantID, StoreEpoch: storeEpoch, CommandID: unknown.Tool.ReconcileCommandID, CommandType: "ReconcileToolEffect", AggregateKind: "tool_call", AggregateID: tool.ToolCallID, PayloadRef: repairPointer(prefix, "reconcile-workspace").Ref, PayloadHash: repairPointer(prefix, "reconcile-workspace").Hash}, ConsumerName: "workspace-reconciler", WorkerID: "workspace-reconciler-f1", Actor: json.RawMessage(`{"kind":"service"}`), CorrelationID: correlationID, AttemptStartedEvent: repairPointer(prefix, "reconcile-attempt-started"), AttemptExpiredEvent: repairPointer(prefix, "reconcile-attempt-expired")}
+	workspaceReconcile, err := store.ClaimWorkspaceReconciliation(ctx, ClaimWorkspaceReconciliationCommand{RevisionID: prepare.RevisionID, ExpectedRevisionVersion: unknown.Version, Reconciliation: reconcileCommand})
+	if err != nil || workspaceReconcile.Version != 5 || workspaceReconcile.Claim.EffectVersion == 0 {
+		t.Fatalf("workspace reconciliation claim=%#v err=%v", workspaceReconcile, err)
+	}
+	nextDue := clock.Add(time.Minute)
+	deferCommand := DeferReconciliationCommand{Claim: workspaceReconcile.Claim, ExpectedEffectVersion: workspaceReconcile.Claim.EffectVersion, ResultHash: "workspace-still-unknown-f1", NextDueAt: nextDue, Actor: json.RawMessage(`{"kind":"service"}`), CorrelationID: correlationID, AttemptCompletedEvent: repairPointer(prefix, "reconcile-inconclusive"), NextReconcileCommand: repairPointer(prefix, "reconcile-workspace-next"), QueueClass: "background", ResourceClass: "tool-reconciliation", Priority: 40, CostUnits: 1, MaxAttempts: 8}
+	deferred, err := store.DeferWorkspaceReconciliation(ctx, DeferWorkspaceReconciliationCommand{Workspace: workspaceReconcile, Reconciliation: deferCommand, ObservedRevision: "git:other-head-f1", DeferredEvent: repairPointer(prefix, "workspace-still-unknown"), Actor: json.RawMessage(`{"kind":"service"}`), CorrelationID: correlationID})
+	if err != nil || deferred.Status != "outcome_unknown" || deferred.Version != 6 || deferred.Reconciliation.NextCommandID == "" || !deferred.DueAt.Equal(nextDue) {
+		t.Fatalf("workspace reconciliation deferred=%#v err=%v", deferred, err)
+	}
+
+	clock = nextDue
+	retryCommand := ClaimReconciliationCommand{Command: eventpostgres.DeliveredCommand{TenantID: tenantID, StoreEpoch: storeEpoch, CommandID: deferred.Reconciliation.NextCommandID, CommandType: "ReconcileToolEffect", AggregateKind: "tool_call", AggregateID: tool.ToolCallID, PayloadRef: repairPointer(prefix, "reconcile-workspace-next").Ref, PayloadHash: repairPointer(prefix, "reconcile-workspace-next").Hash}, ConsumerName: "workspace-reconciler", WorkerID: "workspace-reconciler-f1-retry", Actor: json.RawMessage(`{"kind":"service"}`), CorrelationID: correlationID, AttemptStartedEvent: repairPointer(prefix, "reconcile-retry-started"), AttemptExpiredEvent: repairPointer(prefix, "reconcile-retry-expired")}
+	retry, err := store.ClaimWorkspaceReconciliation(ctx, ClaimWorkspaceReconciliationCommand{RevisionID: prepare.RevisionID, ExpectedRevisionVersion: deferred.Version, Reconciliation: retryCommand})
+	if err != nil || retry.Version != 6 || retry.Claim.EffectVersion != deferred.Reconciliation.EffectVersion {
+		t.Fatalf("workspace reconciliation retry=%#v err=%v", retry, err)
+	}
+	resolve := CompleteReconciliationCommand{Claim: retry.Claim, ExpectedToolVersion: retry.Claim.ToolCallVersion, ExpectedEffectVersion: retry.Claim.EffectVersion, TargetState: statemachine.ToolCallSucceeded, ResultHash: "workspace-confirmed-f1", ExternalResourceRef: "workspace://f1/git:published-f1", Actor: json.RawMessage(`{"kind":"service"}`), CorrelationID: correlationID, ToolCompletedEvent: repairPointer(prefix, "tool-succeeded"), AttemptCompletedEvent: repairPointer(prefix, "reconcile-attempt-completed"), GroupJoinedEvent: repairPointer(prefix, "group-joined"), RunResumeQueuedEvent: repairPointer(prefix, "run-resume-queued"), ResumeCommand: repairPointer(prefix, "resume-command"), ResumeQueueClass: "interactive", ResumeResourceClass: "llm", ResumePriority: 50, ResumeCostUnits: 1, ResumeMaxAttempts: 5}
+	resolved, err := store.CompleteWorkspaceReconciliation(ctx, CompleteWorkspaceReconciliationCommand{Workspace: retry, Reconciliation: resolve, PublishedRevision: "git:published-f1", PublishedHash: "sha256:published-f1", ObservedRevision: "git:published-f1", CompletionEvent: repairPointer(prefix, "workspace-committed")})
+	if err != nil || resolved.Status != "confirmed" || resolved.Version != 7 || resolved.Tool.Status != statemachine.ToolCallSucceeded {
+		t.Fatalf("workspace reconciliation resolved=%#v err=%v", resolved, err)
+	}
+
 	var revisionStatus, toolStatus, effectStatus, jobStatus string
-	var revisionVersion, toolVersion, revisionEvents, publishEvents int
-	err = admin.QueryRow(ctx, `SELECT w.status,w.version,t.status,t.tool_call_version,e.status,j.status,(SELECT count(*) FROM agent.events WHERE tenant_id=w.tenant_id AND aggregate_kind='workspace_revision' AND aggregate_id=w.id),(SELECT count(*) FROM agent.outbox WHERE tenant_id=w.tenant_id AND aggregate_kind='workspace_revision' AND aggregate_id=w.id AND command_type='events.publish') FROM agent.workspace_revision_commits w JOIN agent.tool_calls t ON t.tenant_id=w.tenant_id AND t.id=w.tool_call_id JOIN agent.tool_effects e ON e.tenant_id=t.tenant_id AND e.tool_call_id=t.id JOIN agent.jobs j ON j.tenant_id=t.tenant_id AND j.command_id=w.commit_command_id WHERE w.tenant_id=$1 AND w.id=$2`, tenantID, prepare.RevisionID).Scan(&revisionStatus, &revisionVersion, &toolStatus, &toolVersion, &effectStatus, &jobStatus, &revisionEvents, &publishEvents)
+	var revisionVersion, toolVersion, revisionEvents, publishEvents, reconciliationAttempts int
+	err = admin.QueryRow(ctx, `SELECT w.status,w.version,t.status,t.tool_call_version,e.status,j.status,w.reconciliation_attempts,(SELECT count(*) FROM agent.events WHERE tenant_id=w.tenant_id AND aggregate_kind='workspace_revision' AND aggregate_id=w.id),(SELECT count(*) FROM agent.outbox WHERE tenant_id=w.tenant_id AND aggregate_kind='workspace_revision' AND aggregate_id=w.id AND command_type='events.publish') FROM agent.workspace_revision_commits w JOIN agent.tool_calls t ON t.tenant_id=w.tenant_id AND t.id=w.tool_call_id JOIN agent.tool_effects e ON e.tenant_id=t.tenant_id AND e.tool_call_id=t.id JOIN agent.jobs j ON j.tenant_id=t.tenant_id AND j.command_id=w.commit_command_id WHERE w.tenant_id=$1 AND w.id=$2`, tenantID, prepare.RevisionID).Scan(&revisionStatus, &revisionVersion, &toolStatus, &toolVersion, &effectStatus, &jobStatus, &reconciliationAttempts, &revisionEvents, &publishEvents)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if revisionStatus != "confirmed" || revisionVersion != 5 || toolStatus != "succeeded" || toolVersion != int(publish.Tool.ToolCallVersion+1) || effectStatus != "confirmed" || jobStatus != "succeeded" || revisionEvents != 4 || publishEvents != 4 {
-		t.Fatalf("revision=%s/v%d tool=%s/v%d effect=%s job=%s events=%d/%d", revisionStatus, revisionVersion, toolStatus, toolVersion, effectStatus, jobStatus, revisionEvents, publishEvents)
+	if revisionStatus != "confirmed" || revisionVersion != 7 || toolStatus != "succeeded" || toolVersion != int(publish.Tool.ToolCallVersion+2) || effectStatus != "confirmed" || jobStatus != "succeeded" || reconciliationAttempts != 2 || revisionEvents != 6 || publishEvents != 6 {
+		t.Fatalf("revision=%s/v%d tool=%s/v%d effect=%s job=%s reconciliations=%d events=%d/%d", revisionStatus, revisionVersion, toolStatus, toolVersion, effectStatus, jobStatus, reconciliationAttempts, revisionEvents, publishEvents)
 	}
 }
