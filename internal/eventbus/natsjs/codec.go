@@ -29,6 +29,7 @@ var commandSubjects = map[string]string{
 	"identity.email.password_reset":      "lites.commands.identity.email.password-reset",
 	"identity.email.security":            "lites.commands.identity.email.security",
 	"identity.email.verify":              "lites.commands.identity.email.verify",
+	"identity.anonymous_claim.reconcile": "lites.commands.identity.anonymous-claim.reconcile",
 	"identity.invitation_import.process": "lites.commands.identity.invitation-import.process",
 	"identity.membership_import.process": "lites.commands.identity.membership-import.process",
 }

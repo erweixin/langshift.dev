@@ -19,6 +19,7 @@ func setWorkerProductionEnvironment(t *testing.T) {
 		"VAULT_ADDR": "https://vault.internal:8200", "VAULT_TOKEN_FILE": "/run/secrets/vault-token",
 		"S3_REGION": "us-east-1", "S3_PAYLOAD_BUCKET": "lites-payloads", "S3_IMPORT_BUCKET": "lites-imports",
 		"IDENTITY_INBOX_LEASE_PEPPER_FILE": "/run/secrets/inbox-pepper", "IDENTITY_INVITATION_TOKEN_PEPPER_FILE": "/run/secrets/invitation-pepper",
+		"CLAIM_IDENTITY_KEY_FILE": "/run/secrets/claim-identity-key", "IDENTITY_PUBLIC_TENANT_ID": "20000000-0000-4000-8000-000000000001",
 		"ALLOW_INSECURE_DEVELOPMENT": "false",
 		"LITES_ENVIRONMENT":          "production", "LITES_VERSION": "test", "LITES_REGION": "US",
 		"OTLP_GRPC_ENDPOINT": "otel.internal:4317", "OTLP_BEARER_TOKEN_FILE": "/run/secrets/otel-token",

@@ -37,6 +37,7 @@ var (
 type API interface {
 	PutObject(context.Context, *s3.PutObjectInput, ...func(*s3.Options)) (*s3.PutObjectOutput, error)
 	GetObject(context.Context, *s3.GetObjectInput, ...func(*s3.Options)) (*s3.GetObjectOutput, error)
+	DeleteObject(context.Context, *s3.DeleteObjectInput, ...func(*s3.Options)) (*s3.DeleteObjectOutput, error)
 	HeadBucket(context.Context, *s3.HeadBucketInput, ...func(*s3.Options)) (*s3.HeadBucketOutput, error)
 }
 
@@ -143,6 +144,27 @@ func (store Store) Get(ctx context.Context, ref string) ([]byte, error) {
 		return nil, ErrIntegrity
 	}
 	return contents, nil
+}
+
+// Delete removes an object only after parsing it back through this store's
+// bucket and prefix boundary. S3 deletion is idempotent, which lets erasure
+// workers safely retry an unknown result without widening their authority.
+func (store Store) Delete(ctx context.Context, ref string) error {
+	if err := store.validate(); err != nil {
+		return err
+	}
+	key, err := store.parseReference(ref)
+	if err != nil {
+		return err
+	}
+	output, err := store.Client.DeleteObject(ctx, &s3.DeleteObjectInput{Bucket: aws.String(store.Bucket), Key: aws.String(key)})
+	if err != nil {
+		return err
+	}
+	if output == nil {
+		return ErrIntegrity
+	}
+	return nil
 }
 
 func (store Store) validate() error {

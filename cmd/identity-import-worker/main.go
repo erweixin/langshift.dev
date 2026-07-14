@@ -15,6 +15,7 @@ import (
 	"github.com/langshift/lites/internal/eventbus/natsjs"
 	"github.com/langshift/lites/internal/eventstore/epoch"
 	eventpostgres "github.com/langshift/lites/internal/eventstore/postgres"
+	"github.com/langshift/lites/internal/identity/anonymousclaim"
 	identitypostgres "github.com/langshift/lites/internal/identity/postgres"
 	"github.com/langshift/lites/internal/objectstore/s3store"
 	"github.com/langshift/lites/internal/observability"
@@ -50,6 +51,10 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 	invitationPepper, err := readBase64Secret(configuration.invitationPepperFile)
 	if err != nil {
 		return errors.New("load invitation token pepper")
+	}
+	claimIdentityKey, err := readBase64Secret(configuration.claimIdentityKeyFile)
+	if err != nil {
+		return errors.New("load claim identity key")
 	}
 	epochToken := ""
 	if configuration.epochTokenFile != "" {
@@ -104,8 +109,9 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 	payloadStore := payload.EnvelopeStore{Keys: vaultkeys.Provider{KV: vaultReader, Prefix: configuration.vaultKeyPrefix}, Blobs: payloadBlobs}
 	invitationSubject, _ := natsjs.SubjectFor("identity.invitation_import.process")
 	membershipSubject, _ := natsjs.SubjectFor("identity.membership_import.process")
+	claimSubject, _ := natsjs.SubjectFor(identitypostgres.AnonymousClaimReconcileCommand)
 	provisionCtx, provisionCancel := context.WithTimeout(ctx, 15*time.Second)
-	source, err := (natsjs.DurableConsumer{Stream: configuration.streamName, Name: configuration.consumerName, FilterSubjects: []string{invitationSubject, membershipSubject}, Replicas: configuration.streamReplicas, AckWait: 2 * time.Minute, Backoff: []time.Duration{30 * time.Second, time.Minute, 2 * time.Minute, 5 * time.Minute, 15 * time.Minute}, MaxDeliver: 20, MaxAckPending: configuration.concurrency * 2, MaxRequestBatch: configuration.concurrency, MaxRequestMaxBytes: configuration.concurrency * (64 << 10)}).Provision(provisionCtx, js)
+	source, err := (natsjs.DurableConsumer{Stream: configuration.streamName, Name: configuration.consumerName, FilterSubjects: []string{invitationSubject, membershipSubject, claimSubject}, Replicas: configuration.streamReplicas, AckWait: 2 * time.Minute, Backoff: []time.Duration{30 * time.Second, time.Minute, 2 * time.Minute, 5 * time.Minute, 15 * time.Minute}, MaxDeliver: 20, MaxAckPending: configuration.concurrency * 2, MaxRequestBatch: configuration.concurrency, MaxRequestMaxBytes: configuration.concurrency * (64 << 10)}).Provision(provisionCtx, js)
 	provisionCancel()
 	if err != nil {
 		return errors.New("provision identity import consumer")
@@ -118,7 +124,14 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 	inbox := eventpostgres.InboxStore{Pool: pool, Epochs: authority, Tokens: opaque.Manager{Purpose: "identity-import-inbox-lease", Pepper: inboxPepper}, LeaseTTL: 15 * time.Minute}
 	service := identitypostgres.AuthService{Pool: pool, ImportSources: importSources, InvitationTokens: opaque.Manager{Purpose: "invitation", Pepper: invitationPepper}, StoreEpoch: storeEpoch, Payloads: payloadStore, Appender: eventpostgres.Appender{}}
 	dispatcher := identitypostgres.IdentityImportDispatcher{Service: service, Inbox: inbox, ConsumerName: configuration.consumerName}
+	claimStore := identitypostgres.AnonymousClaimStore{Pool: pool, SystemTenantID: configuration.publicTenantID, IdentityKey: claimIdentityKey, Payloads: payloadStore, Appender: eventpostgres.Appender{}, StoreEpoch: storeEpoch}
+	claimService := anonymousclaim.Service{Store: claimStore, Destination: identitypostgres.AnonymousClaimDestination{Pool: pool, SystemTenantID: configuration.publicTenantID, IdentityKey: claimIdentityKey, Payloads: payloadStore, Appender: eventpostgres.Appender{}, StoreEpoch: storeEpoch}, Eraser: identitypostgres.AnonymousClaimEraser{Pool: pool, SystemTenantID: configuration.publicTenantID, IdentityKey: claimIdentityKey, Objects: payloadBlobs}}
+	claimDispatcher := identitypostgres.AnonymousClaimDispatcher{Reconciler: claimService, Payloads: payloadStore, Inbox: inbox, StoreEpoch: storeEpoch, ConsumerName: configuration.consumerName}
 	consumer := natsjs.Consumer{Source: source, Handle: func(ctx context.Context, command eventpostgres.DeliveredCommand) error {
+		if command.CommandType == identitypostgres.AnonymousClaimReconcileCommand {
+			_, dispatchErr := claimDispatcher.Dispatch(ctx, command)
+			return dispatchErr
+		}
 		_, dispatchErr := dispatcher.Dispatch(ctx, command)
 		return dispatchErr
 	}, OnError: func(deliveryContext context.Context, err error) {

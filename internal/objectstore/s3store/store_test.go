@@ -45,6 +45,13 @@ func (client *memoryS3) GetObject(_ context.Context, input *s3.GetObjectInput, _
 	return &s3.GetObjectOutput{Body: io.NopCloser(bytes.NewReader(body)), ContentLength: aws.Int64(int64(len(body))), Metadata: client.meta[key]}, nil
 }
 
+func (client *memoryS3) DeleteObject(_ context.Context, input *s3.DeleteObjectInput, _ ...func(*s3.Options)) (*s3.DeleteObjectOutput, error) {
+	key := aws.ToString(input.Key)
+	delete(client.objects, key)
+	delete(client.meta, key)
+	return &s3.DeleteObjectOutput{}, nil
+}
+
 func testStore(client *memoryS3) Store {
 	return Store{Client: client, Bucket: "lites-payloads", Prefix: "restricted", MaxBytes: 1024, ServerSideEncryption: types.ServerSideEncryptionAes256, RequireDigestMetadata: true}
 }
@@ -84,6 +91,29 @@ func TestGetRejectsReferenceEscapeOversizeAndIntegrityMismatch(t *testing.T) {
 	store.MaxBytes = 4
 	if _, err = store.Get(context.Background(), ref); !errors.Is(err, ErrTooLarge) {
 		t.Fatalf("expected size rejection, got %v", err)
+	}
+}
+
+func TestDeleteIsIdempotentAndConfinedToStorePrefix(t *testing.T) {
+	client := &memoryS3{objects: map[string][]byte{}, meta: map[string]map[string]string{}}
+	store := testStore(client)
+	ref, err := store.Put(context.Background(), "tenant/onboarding/id/hash", []byte("ciphertext"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = store.Delete(context.Background(), ref); err != nil {
+		t.Fatal(err)
+	}
+	if err = store.Delete(context.Background(), ref); err != nil {
+		t.Fatalf("idempotent delete: %v", err)
+	}
+	if _, found := client.objects["restricted/tenant/onboarding/id/hash"]; found {
+		t.Fatal("object survived deletion")
+	}
+	for _, invalid := range []string{"s3://other/restricted/tenant/object", "s3://lites-payloads/other/object", "file:///tmp/secret"} {
+		if err = store.Delete(context.Background(), invalid); !errors.Is(err, ErrReference) {
+			t.Fatalf("ref=%q err=%v", invalid, err)
+		}
 	}
 }
 

@@ -9,12 +9,15 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
+
+var workerUUIDPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 
 type config struct {
 	databaseURL, databaseURLFile, healthAddress                                                        string
@@ -24,7 +27,7 @@ type config struct {
 	vaultAddress, vaultNamespace, vaultMount, vaultTokenFile, vaultCAFile, vaultCertFile, vaultKeyFile string
 	vaultTLSServerName, vaultKeyPrefix                                                                 string
 	s3Region, s3Endpoint, payloadBucket, payloadPrefix, importBucket, importPrefix, s3KMSKeyID         string
-	inboxPepperFile, invitationPepperFile                                                              string
+	inboxPepperFile, invitationPepperFile, claimIdentityKeyFile, publicTenantID                        string
 	environment, serviceVersion, region                                                                string
 	otlpEndpoint, otlpCAFile, otlpCertFile, otlpKeyFile, otlpTLSName, otlpBearerTokenFile              string
 	s3Encryption                                                                                       types.ServerSideEncryption
@@ -72,10 +75,10 @@ func loadConfig() (config, error) {
 		natsURLs: splitNonempty(os.Getenv("NATS_URLS")), natsCredentialsFile: os.Getenv("NATS_CREDENTIALS_FILE"), natsCAFile: os.Getenv("NATS_ROOT_CA_FILE"), natsCertFile: os.Getenv("NATS_CLIENT_CERT_FILE"), natsKeyFile: os.Getenv("NATS_CLIENT_KEY_FILE"), streamName: envString("NATS_COMMAND_STREAM", "LITES_COMMANDS"), consumerName: envString("NATS_IDENTITY_IMPORT_CONSUMER", "IDENTITY_IMPORT_WORKER"),
 		vaultAddress: os.Getenv("VAULT_ADDR"), vaultNamespace: os.Getenv("VAULT_NAMESPACE"), vaultMount: envString("VAULT_PAYLOAD_KEY_MOUNT", "secret"), vaultTokenFile: os.Getenv("VAULT_TOKEN_FILE"), vaultCAFile: os.Getenv("VAULT_CACERT"), vaultCertFile: os.Getenv("VAULT_CLIENT_CERT_FILE"), vaultKeyFile: os.Getenv("VAULT_CLIENT_KEY_FILE"), vaultTLSServerName: os.Getenv("VAULT_TLS_SERVER_NAME"), vaultKeyPrefix: envString("VAULT_PAYLOAD_KEY_PREFIX", "lites/payload-keys"),
 		s3Region: os.Getenv("S3_REGION"), s3Endpoint: os.Getenv("S3_ENDPOINT"), s3PathStyle: s3PathStyle, payloadBucket: os.Getenv("S3_PAYLOAD_BUCKET"), payloadPrefix: envString("S3_PAYLOAD_PREFIX", "restricted"), importBucket: os.Getenv("S3_IMPORT_BUCKET"), importPrefix: envString("S3_IMPORT_PREFIX", "identity-imports"), s3Encryption: encryption, s3KMSKeyID: os.Getenv("S3_KMS_KEY_ID"),
-		inboxPepperFile: os.Getenv("IDENTITY_INBOX_LEASE_PEPPER_FILE"), invitationPepperFile: os.Getenv("IDENTITY_INVITATION_TOKEN_PEPPER_FILE"), allowInsecureDevelopment: allowInsecure, streamReplicas: replicas, concurrency: concurrency,
+		inboxPepperFile: os.Getenv("IDENTITY_INBOX_LEASE_PEPPER_FILE"), invitationPepperFile: os.Getenv("IDENTITY_INVITATION_TOKEN_PEPPER_FILE"), claimIdentityKeyFile: os.Getenv("CLAIM_IDENTITY_KEY_FILE"), publicTenantID: os.Getenv("IDENTITY_PUBLIC_TENANT_ID"), allowInsecureDevelopment: allowInsecure, streamReplicas: replicas, concurrency: concurrency,
 		environment: os.Getenv("LITES_ENVIRONMENT"), serviceVersion: os.Getenv("LITES_VERSION"), region: os.Getenv("LITES_REGION"), otlpEndpoint: os.Getenv("OTLP_GRPC_ENDPOINT"), otlpCAFile: os.Getenv("OTLP_ROOT_CA_FILE"), otlpCertFile: os.Getenv("OTLP_CLIENT_CERT_FILE"), otlpKeyFile: os.Getenv("OTLP_CLIENT_KEY_FILE"), otlpTLSName: os.Getenv("OTLP_TLS_SERVER_NAME"), otlpBearerTokenFile: os.Getenv("OTLP_BEARER_TOKEN_FILE"), traceSampleRatio: traceSampleRatio,
 	}
-	if value.databaseURL == "" || value.epochURL == "" || len(value.natsURLs) == 0 || value.vaultAddress == "" || value.s3Region == "" || value.payloadBucket == "" || value.importBucket == "" || value.inboxPepperFile == "" || value.invitationPepperFile == "" || value.environment == "" || value.serviceVersion == "" || value.region == "" || value.traceSampleRatio < 0 || value.traceSampleRatio > 1 || value.streamReplicas < 1 || value.concurrency < 1 || value.concurrency > 128 || (value.epochCertFile == "") != (value.epochKeyFile == "") || (value.natsCertFile == "") != (value.natsKeyFile == "") || (value.vaultCertFile == "") != (value.vaultKeyFile == "") || (value.otlpCertFile == "") != (value.otlpKeyFile == "") {
+	if value.databaseURL == "" || value.epochURL == "" || len(value.natsURLs) == 0 || value.vaultAddress == "" || value.s3Region == "" || value.payloadBucket == "" || value.importBucket == "" || value.inboxPepperFile == "" || value.invitationPepperFile == "" || value.claimIdentityKeyFile == "" || !workerUUIDPattern.MatchString(value.publicTenantID) || value.environment == "" || value.serviceVersion == "" || value.region == "" || value.traceSampleRatio < 0 || value.traceSampleRatio > 1 || value.streamReplicas < 1 || value.concurrency < 1 || value.concurrency > 128 || (value.epochCertFile == "") != (value.epochKeyFile == "") || (value.natsCertFile == "") != (value.natsKeyFile == "") || (value.vaultCertFile == "") != (value.vaultKeyFile == "") || (value.otlpCertFile == "") != (value.otlpKeyFile == "") {
 		return config{}, errors.New("required worker configuration is missing or invalid")
 	}
 	if value.s3Encryption == types.ServerSideEncryptionAwsKms && value.s3KMSKeyID == "" {

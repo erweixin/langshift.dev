@@ -51,6 +51,10 @@ type DeletionReceipt struct {
 type Saga struct {
 	ID                       string
 	AnonymousSubjectID       string
+	EphemeralUserID          string
+	OnboardingSessionID      string
+	SourceRouteRevisionID    string
+	ClaimSetHash             string
 	Status                   Status
 	Version                  uint64
 	ClaimKey                 string

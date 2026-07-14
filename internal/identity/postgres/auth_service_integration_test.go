@@ -60,6 +60,13 @@ func (store *authMemoryBlobs) Get(_ context.Context, ref string) ([]byte, error)
 	return append([]byte(nil), value...), nil
 }
 
+func (store *authMemoryBlobs) Delete(_ context.Context, ref string) error {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	delete(store.values, ref)
+	return nil
+}
+
 func TestAuthRegistrationVerificationAndLoginAreDurableIdempotentAndSecretSafe(t *testing.T) {
 	ctx := context.Background()
 	admin, err := pgxpool.New(ctx, requiredEnv(t, "LITES_TEST_ADMIN_DATABASE_URL"))
