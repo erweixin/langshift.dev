@@ -79,7 +79,7 @@ func TestSessionLifecycleIsPaginatedOwnedCASIdempotentAndEvented(t *testing.T) {
 		PasswordResetTokens: opaque.Manager{Purpose: "password-reset", Pepper: bytes.Repeat([]byte{0x5a}, 32)},
 		EmailChangeTokens:   opaque.Manager{Purpose: "email-change", Pepper: bytes.Repeat([]byte{0x5b}, 32)},
 		SessionPepper:       bytes.Repeat([]byte{0x53}, 32), CSRFPepper: bytes.Repeat([]byte{0x54}, 32), IdempotencyKeyPepper: bytes.Repeat([]byte{0x55}, 32), RequestDigestPepper: bytes.Repeat([]byte{0x56}, 32), IdentityKey: bytes.Repeat([]byte{0x57}, 32), CursorKey: bytes.Repeat([]byte{0x58}, 32),
-		PublicTenantID: publicTenantID, StoreEpoch: "40000000-0000-0000-0000-000000000701", Region: "US", VerificationTTL: 24 * time.Hour, PasswordResetTTL: 30 * time.Minute, EmailChangeTTL: 24 * time.Hour, ReauthenticationTTL: 15 * time.Minute, SessionTTL: 30 * 24 * time.Hour, IdempotencyTTL: 24 * time.Hour,
+		PublicTenantID: publicTenantID, StoreEpoch: "40000000-0000-0000-0000-000000000701", Region: "US", VerificationTTL: 24 * time.Hour, PasswordResetTTL: 30 * time.Minute, EmailChangeTTL: 24 * time.Hour, ReauthenticationTTL: 15 * time.Minute, ErasureGracePeriod: 7 * 24 * time.Hour, SessionTTL: 30 * 24 * time.Hour, IdempotencyTTL: 24 * time.Hour,
 		Payloads: payload.EnvelopeStore{Keys: authKeyProvider{key: payload.Key{ID: "session-vault-key-v1", Material: bytes.Repeat([]byte{0x59}, 32)}}, Blobs: blobs}, Random: rand.Reader, Now: func() time.Time { return now },
 	}
 	login := func(email, passwordValue, key string) api.LoginResult {

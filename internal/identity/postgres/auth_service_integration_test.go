@@ -105,6 +105,7 @@ func TestAuthRegistrationVerificationAndLoginAreDurableIdempotentAndSecretSafe(t
 		PasswordResetTTL:        30 * time.Minute,
 		EmailChangeTTL:          24 * time.Hour,
 		ReauthenticationTTL:     15 * time.Minute,
+		ErasureGracePeriod:      7 * 24 * time.Hour,
 		SessionTTL:              30 * 24 * time.Hour,
 		IdempotencyTTL:          24 * time.Hour,
 		Payloads:                payloadStore,
@@ -216,7 +217,7 @@ func TestAuthRegistrationVerificationAndLoginAreDurableIdempotentAndSecretSafe(t
 	if err = admin.QueryRow(ctx, `SELECT count(*) FROM agent.outbox WHERE tenant_id=$1`, tenantID).Scan(&outbox); err != nil {
 		t.Fatal(err)
 	}
-	if err = admin.QueryRow(ctx, `SELECT count(*) FROM agent.idempotency_responses WHERE operation_id IN ('auth.register','auth.verify_email','auth.login')`).Scan(&idempotencyRows); err != nil {
+	if err = admin.QueryRow(ctx, `SELECT count(*) FROM agent.idempotency_responses WHERE request_id IN ('server-register-001','server-verify-001','server-login-001')`).Scan(&idempotencyRows); err != nil {
 		t.Fatal(err)
 	}
 	if err = admin.QueryRow(ctx, `SELECT count(*) FROM identity.security_events WHERE event_type='login_failed' AND tenant_id=$1`, authPublicTenantID).Scan(&loginFailures); err != nil {

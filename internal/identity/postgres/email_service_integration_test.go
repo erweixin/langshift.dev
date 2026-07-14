@@ -85,7 +85,7 @@ func TestEmailChangeIsVersionedConfirmedRotatingAndSecretSafe(t *testing.T) {
 		Pool: pool, Passwords: hasher, PasswordPolicy: password.Policy{Checker: password.NewDigestSet([]string{"known compromised password value"})}, DummyPasswordHash: dummyHash, DummyPasswordParameters: dummyParameters,
 		VerificationTokens: opaque.Manager{Purpose: "email-verification", Pepper: bytes.Repeat([]byte{0xa3}, 32)}, PasswordResetTokens: opaque.Manager{Purpose: "password-reset", Pepper: bytes.Repeat([]byte{0xa4}, 32)}, EmailChangeTokens: opaque.Manager{Purpose: "email-change", Pepper: bytes.Repeat([]byte{0xa5}, 32)},
 		SessionPepper: bytes.Repeat([]byte{0xa6}, 32), CSRFPepper: bytes.Repeat([]byte{0xa7}, 32), IdempotencyKeyPepper: bytes.Repeat([]byte{0xa8}, 32), RequestDigestPepper: bytes.Repeat([]byte{0xa9}, 32), IdentityKey: bytes.Repeat([]byte{0xaa}, 32), CursorKey: bytes.Repeat([]byte{0xab}, 32),
-		PublicTenantID: publicTenantID, StoreEpoch: storeEpoch, Region: "US", VerificationTTL: 24 * time.Hour, PasswordResetTTL: 30 * time.Minute, EmailChangeTTL: 24 * time.Hour, ReauthenticationTTL: 15 * time.Minute, SessionTTL: 30 * 24 * time.Hour, IdempotencyTTL: 24 * time.Hour,
+		PublicTenantID: publicTenantID, StoreEpoch: storeEpoch, Region: "US", VerificationTTL: 24 * time.Hour, PasswordResetTTL: 30 * time.Minute, EmailChangeTTL: 24 * time.Hour, ReauthenticationTTL: 15 * time.Minute, ErasureGracePeriod: 7 * 24 * time.Hour, SessionTTL: 30 * 24 * time.Hour, IdempotencyTTL: 24 * time.Hour,
 		Payloads: payloadStore, Random: rand.Reader, Now: func() time.Time { return now },
 	}
 	requestMetadata := func(requestID, key string) api.RequestMetadata {
