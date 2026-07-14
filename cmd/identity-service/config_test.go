@@ -32,7 +32,7 @@ func TestLoadSecretBundleRequiresUniquePurposeKeys(t *testing.T) {
 }
 
 func TestProductionConfigRequiresTLSAndFileCredentials(t *testing.T) {
-	configuration := config{databaseURL: "postgres://db", trustedKeyringFile: "keys.json", epochURL: "https://epoch", secretBundleFile: "bundle.json", publicTenantID: "20000000-0000-4000-8000-000000000001", region: "US", passwordRangeAllowedHosts: []string{"api.pwnedpasswords.com"}, valkeyAddresses: []string{"cache:6379"}, vaultAddress: "https://vault", s3Region: "us-east-1", payloadBucket: "payloads", importBucket: "imports", databaseMaxConnections: 32, s3Encryption: "AES256"}
+	configuration := config{databaseURL: "postgres://db", trustedKeyringFile: "keys.json", epochURL: "https://epoch", secretBundleFile: "bundle.json", publicTenantID: "20000000-0000-4000-8000-000000000001", region: "US", environment: "production", serviceVersion: "test", passwordRangeAllowedHosts: []string{"api.pwnedpasswords.com"}, valkeyAddresses: []string{"cache:6379"}, vaultAddress: "https://vault", s3Region: "us-east-1", payloadBucket: "payloads", importBucket: "imports", databaseMaxConnections: 32, traceSampleRatio: 0.1, s3Encryption: "AES256"}
 	if err := configuration.validate(); err == nil {
 		t.Fatal("production configuration without mTLS and file credentials accepted")
 	}

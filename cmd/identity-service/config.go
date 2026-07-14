@@ -23,7 +23,9 @@ type config struct {
 	trustedKeyringFile, trustedIssuer, trustedAudience                                             string
 	epochURL, epochTokenFile, epochCAFile, epochCertFile, epochKeyFile                             string
 	secretBundleFile, publicTenantID, region, passwordRangeURL                                     string
+	environment, serviceVersion                                                                    string
 	passwordRangeAllowedHosts                                                                      []string
+	otlpEndpoint, otlpCAFile, otlpCertFile, otlpKeyFile, otlpTLSName, otlpBearerTokenFile          string
 	valkeyAddresses                                                                                []string
 	valkeyUsername, valkeyPasswordFile, valkeyCAFile, valkeyCertFile, valkeyKeyFile, valkeyTLSName string
 	vaultAddress, vaultNamespace, vaultMount, vaultTokenFile, vaultCAFile, vaultCertFile           string
@@ -32,6 +34,7 @@ type config struct {
 	s3Encryption                                                                                   types.ServerSideEncryption
 	s3PathStyle, allowInsecureDevelopment                                                          bool
 	databaseMaxConnections                                                                         int
+	traceSampleRatio                                                                               float64
 }
 
 type secretBundle struct {
@@ -79,6 +82,10 @@ func loadConfig() (config, error) {
 	if err != nil {
 		return config{}, err
 	}
+	traceSampleRatio, err := optionalFloat("TRACE_SAMPLE_RATIO", 0.1)
+	if err != nil {
+		return config{}, err
+	}
 	databaseURLFile := os.Getenv("DATABASE_URL_FILE")
 	databaseURL := os.Getenv("DATABASE_URL")
 	if databaseURLFile != "" {
@@ -96,6 +103,7 @@ func loadConfig() (config, error) {
 		trustedKeyringFile: os.Getenv("TRUSTED_CONTEXT_KEYRING_FILE"), trustedIssuer: envString("TRUSTED_CONTEXT_ISSUER", "lites-gateway"), trustedAudience: envString("TRUSTED_CONTEXT_AUDIENCE", "identity-service"),
 		epochURL: os.Getenv("STORE_EPOCH_URL"), epochTokenFile: os.Getenv("STORE_EPOCH_TOKEN_FILE"), epochCAFile: os.Getenv("STORE_EPOCH_ROOT_CA_FILE"), epochCertFile: os.Getenv("STORE_EPOCH_CLIENT_CERT_FILE"), epochKeyFile: os.Getenv("STORE_EPOCH_CLIENT_KEY_FILE"),
 		secretBundleFile: os.Getenv("IDENTITY_SECRET_BUNDLE_FILE"), publicTenantID: os.Getenv("IDENTITY_PUBLIC_TENANT_ID"), region: os.Getenv("LITES_REGION"), passwordRangeURL: envString("PASSWORD_RANGE_URL", "https://api.pwnedpasswords.com/range"), passwordRangeAllowedHosts: splitNonempty(envString("PASSWORD_RANGE_ALLOWED_HOSTS", "api.pwnedpasswords.com")),
+		environment: os.Getenv("LITES_ENVIRONMENT"), serviceVersion: os.Getenv("LITES_VERSION"), otlpEndpoint: os.Getenv("OTLP_GRPC_ENDPOINT"), otlpCAFile: os.Getenv("OTLP_ROOT_CA_FILE"), otlpCertFile: os.Getenv("OTLP_CLIENT_CERT_FILE"), otlpKeyFile: os.Getenv("OTLP_CLIENT_KEY_FILE"), otlpTLSName: os.Getenv("OTLP_TLS_SERVER_NAME"), otlpBearerTokenFile: os.Getenv("OTLP_BEARER_TOKEN_FILE"), traceSampleRatio: traceSampleRatio,
 		valkeyAddresses: splitNonempty(os.Getenv("VALKEY_ADDRESSES")), valkeyUsername: os.Getenv("VALKEY_USERNAME"), valkeyPasswordFile: os.Getenv("VALKEY_PASSWORD_FILE"), valkeyCAFile: os.Getenv("VALKEY_ROOT_CA_FILE"), valkeyCertFile: os.Getenv("VALKEY_CLIENT_CERT_FILE"), valkeyKeyFile: os.Getenv("VALKEY_CLIENT_KEY_FILE"), valkeyTLSName: os.Getenv("VALKEY_TLS_SERVER_NAME"),
 		vaultAddress: os.Getenv("VAULT_ADDR"), vaultNamespace: os.Getenv("VAULT_NAMESPACE"), vaultMount: envString("VAULT_PAYLOAD_KEY_MOUNT", "secret"), vaultTokenFile: os.Getenv("VAULT_TOKEN_FILE"), vaultCAFile: os.Getenv("VAULT_CACERT"), vaultCertFile: os.Getenv("VAULT_CLIENT_CERT_FILE"), vaultKeyFile: os.Getenv("VAULT_CLIENT_KEY_FILE"), vaultTLSServerName: os.Getenv("VAULT_TLS_SERVER_NAME"), vaultKeyPrefix: envString("VAULT_PAYLOAD_KEY_PREFIX", "lites/payload-keys"),
 		s3Region: os.Getenv("S3_REGION"), s3Endpoint: os.Getenv("S3_ENDPOINT"), s3PathStyle: pathStyle, payloadBucket: os.Getenv("S3_PAYLOAD_BUCKET"), payloadPrefix: envString("S3_PAYLOAD_PREFIX", "restricted"), importBucket: os.Getenv("S3_IMPORT_BUCKET"), importPrefix: envString("S3_IMPORT_PREFIX", "identity-imports"), s3Encryption: types.ServerSideEncryption(envString("S3_SERVER_SIDE_ENCRYPTION", string(types.ServerSideEncryptionAes256))), s3KMSKeyID: os.Getenv("S3_KMS_KEY_ID"), allowInsecureDevelopment: allowInsecure,
@@ -104,7 +112,7 @@ func loadConfig() (config, error) {
 }
 
 func (configuration config) validate() error {
-	if configuration.databaseURL == "" || configuration.trustedKeyringFile == "" || configuration.epochURL == "" || configuration.secretBundleFile == "" || !uuidPattern.MatchString(configuration.publicTenantID) || configuration.region == "" || len(configuration.passwordRangeAllowedHosts) == 0 || len(configuration.valkeyAddresses) == 0 || configuration.vaultAddress == "" || configuration.s3Region == "" || configuration.payloadBucket == "" || configuration.importBucket == "" || configuration.databaseMaxConnections < 8 || configuration.databaseMaxConnections > 256 || (configuration.serverCertificateFile == "") != (configuration.serverKeyFile == "") || (configuration.serverCertificateFile != "" && configuration.serverClientCAFile == "") || (configuration.epochCertFile == "") != (configuration.epochKeyFile == "") || (configuration.valkeyCertFile == "") != (configuration.valkeyKeyFile == "") || (configuration.vaultCertFile == "") != (configuration.vaultKeyFile == "") {
+	if configuration.databaseURL == "" || configuration.trustedKeyringFile == "" || configuration.epochURL == "" || configuration.secretBundleFile == "" || !uuidPattern.MatchString(configuration.publicTenantID) || configuration.region == "" || configuration.environment == "" || configuration.serviceVersion == "" || len(configuration.passwordRangeAllowedHosts) == 0 || len(configuration.valkeyAddresses) == 0 || configuration.vaultAddress == "" || configuration.s3Region == "" || configuration.payloadBucket == "" || configuration.importBucket == "" || configuration.databaseMaxConnections < 8 || configuration.databaseMaxConnections > 256 || configuration.traceSampleRatio < 0 || configuration.traceSampleRatio > 1 || (configuration.serverCertificateFile == "") != (configuration.serverKeyFile == "") || (configuration.serverCertificateFile != "" && configuration.serverClientCAFile == "") || (configuration.epochCertFile == "") != (configuration.epochKeyFile == "") || (configuration.valkeyCertFile == "") != (configuration.valkeyKeyFile == "") || (configuration.vaultCertFile == "") != (configuration.vaultKeyFile == "") || (configuration.otlpCertFile == "") != (configuration.otlpKeyFile == "") {
 		return errors.New("required identity service configuration is missing or invalid")
 	}
 	if configuration.s3Encryption == types.ServerSideEncryptionAwsKms && configuration.s3KMSKeyID == "" {
@@ -113,7 +121,7 @@ func (configuration config) validate() error {
 	if configuration.s3Encryption != types.ServerSideEncryptionAwsKms && configuration.s3Encryption != types.ServerSideEncryptionAes256 {
 		return errors.New("S3_SERVER_SIDE_ENCRYPTION must be AES256 or aws:kms")
 	}
-	if !configuration.allowInsecureDevelopment && (configuration.databaseURLFile == "" || configuration.serverCertificateFile == "" || configuration.serverClientCAFile == "" || (configuration.epochTokenFile == "" && configuration.epochCertFile == "") || (configuration.valkeyPasswordFile == "" && configuration.valkeyCertFile == "") || (configuration.vaultTokenFile == "" && configuration.vaultCertFile == "")) {
+	if !configuration.allowInsecureDevelopment && (configuration.databaseURLFile == "" || configuration.serverCertificateFile == "" || configuration.serverClientCAFile == "" || (configuration.epochTokenFile == "" && configuration.epochCertFile == "") || (configuration.valkeyPasswordFile == "" && configuration.valkeyCertFile == "") || (configuration.vaultTokenFile == "" && configuration.vaultCertFile == "") || configuration.otlpEndpoint == "" || (configuration.otlpBearerTokenFile == "" && configuration.otlpCertFile == "")) {
 		return errors.New("production requires file-backed credentials and authenticated TLS dependencies")
 	}
 	return nil
@@ -199,6 +207,18 @@ func optionalInt(name string, fallback int) (int, error) {
 	parsed, err := strconv.Atoi(value)
 	if err != nil {
 		return 0, fmt.Errorf("%s must be an integer", name)
+	}
+	return parsed, nil
+}
+
+func optionalFloat(name string, fallback float64) (float64, error) {
+	value, found := os.LookupEnv(name)
+	if !found {
+		return fallback, nil
+	}
+	parsed, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		return 0, fmt.Errorf("%s must be a number", name)
 	}
 	return parsed, nil
 }

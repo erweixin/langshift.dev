@@ -21,6 +21,11 @@ func setProductionEnvironment(t *testing.T) {
 	t.Setenv("STORE_EPOCH_TOKEN_FILE", "/run/secrets/epoch-token")
 	t.Setenv("OUTBOX_LEASE_PEPPER_FILE", "/run/secrets/outbox-pepper")
 	t.Setenv("ALLOW_INSECURE_DEVELOPMENT", "false")
+	t.Setenv("LITES_ENVIRONMENT", "production")
+	t.Setenv("LITES_VERSION", "test")
+	t.Setenv("LITES_REGION", "US")
+	t.Setenv("OTLP_GRPC_ENDPOINT", "otel.internal:4317")
+	t.Setenv("OTLP_BEARER_TOKEN_FILE", "/run/secrets/otel-token")
 }
 
 func TestLoadConfigEnforcesProductionReplicationAndStrictTypes(t *testing.T) {
@@ -47,6 +52,8 @@ func TestLoadConfigAllowsExplicitInsecureDevelopmentOnly(t *testing.T) {
 	t.Setenv("STORE_EPOCH_URL", "http://127.0.0.1:8090/v1/store-epoch")
 	t.Setenv("STORE_EPOCH_TOKEN_FILE", "")
 	t.Setenv("NATS_STREAM_REPLICAS", "1")
+	t.Setenv("OTLP_GRPC_ENDPOINT", "")
+	t.Setenv("OTLP_BEARER_TOKEN_FILE", "")
 	if _, err := loadConfig(); err != nil {
 		t.Fatal(err)
 	}

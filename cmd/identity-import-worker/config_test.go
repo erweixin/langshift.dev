@@ -20,6 +20,8 @@ func setWorkerProductionEnvironment(t *testing.T) {
 		"S3_REGION": "us-east-1", "S3_PAYLOAD_BUCKET": "lites-payloads", "S3_IMPORT_BUCKET": "lites-imports",
 		"IDENTITY_INBOX_LEASE_PEPPER_FILE": "/run/secrets/inbox-pepper", "IDENTITY_INVITATION_TOKEN_PEPPER_FILE": "/run/secrets/invitation-pepper",
 		"ALLOW_INSECURE_DEVELOPMENT": "false",
+		"LITES_ENVIRONMENT":          "production", "LITES_VERSION": "test", "LITES_REGION": "US",
+		"OTLP_GRPC_ENDPOINT": "otel.internal:4317", "OTLP_BEARER_TOKEN_FILE": "/run/secrets/otel-token",
 	}
 	for name, value := range values {
 		t.Setenv(name, value)
@@ -56,6 +58,8 @@ func TestLoadConfigAllowsExplicitLoopbackDevelopment(t *testing.T) {
 	t.Setenv("VAULT_TOKEN_FILE", "")
 	t.Setenv("S3_ENDPOINT", "http://127.0.0.1:9000")
 	t.Setenv("NATS_STREAM_REPLICAS", "1")
+	t.Setenv("OTLP_GRPC_ENDPOINT", "")
+	t.Setenv("OTLP_BEARER_TOKEN_FILE", "")
 	if _, err := loadConfig(); err != nil {
 		t.Fatal(err)
 	}

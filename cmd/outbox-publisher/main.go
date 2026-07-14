@@ -21,6 +21,7 @@ import (
 	"github.com/langshift/lites/internal/eventbus/natsjs"
 	"github.com/langshift/lites/internal/eventstore/epoch"
 	eventpostgres "github.com/langshift/lites/internal/eventstore/postgres"
+	"github.com/langshift/lites/internal/observability"
 	"github.com/langshift/lites/internal/security/opaque"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -31,10 +32,13 @@ type config struct {
 	natsURLs                                                                                                            []string
 	natsName, natsCredentialsFile, natsRootCAFile, natsCertFile, natsKeyFile, streamName                                string
 	pepperFile                                                                                                          string
+	environment, serviceVersion, region                                                                                 string
+	otlpEndpoint, otlpCAFile, otlpCertFile, otlpKeyFile, otlpTLSName, otlpBearerTokenFile                               string
 	allowInsecureDevelopment                                                                                            bool
 	streamReplicas, shardIndex, shardCount, tenantPageSize, batchSize                                                   int
 	streamMaxBytes                                                                                                      int64
 	streamMaxAge, duplicateWindow, pollInterval, leaseTTL, retryBase, retryLimit                                        time.Duration
+	traceSampleRatio                                                                                                    float64
 }
 
 func main() {
@@ -97,14 +101,25 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 	}
 	store := eventpostgres.OutboxStore{Pool: pool, Epochs: authority, Tokens: opaque.Manager{Purpose: "outbox-publisher-lease", Pepper: pepper}, LeaseTTL: configuration.leaseTTL, RetryBase: configuration.retryBase, RetryLimit: configuration.retryLimit}
 	broker := natsjs.Broker{Publisher: js, Stream: configuration.streamName, RetryWait: 250 * time.Millisecond, RetryAttempts: 3}
+	telemetry, err := observability.New(ctx, observability.Config{ServiceName: "outbox-publisher", ServiceVersion: configuration.serviceVersion, Environment: configuration.environment, Region: configuration.region, OTLPEndpoint: configuration.otlpEndpoint, OTLPRootCAFile: configuration.otlpCAFile, OTLPClientCertificateFile: configuration.otlpCertFile, OTLPClientKeyFile: configuration.otlpKeyFile, OTLPTLSServerName: configuration.otlpTLSName, OTLPBearerTokenFile: configuration.otlpBearerTokenFile, TraceSampleRatio: configuration.traceSampleRatio, AllowInsecureDevelopment: configuration.allowInsecureDevelopment})
+	if err != nil {
+		return errors.New("configure observability")
+	}
+	meter := telemetry.Meter("github.com/langshift/lites/cmd/outbox-publisher")
+	publishedCounter, _ := meter.Int64Counter("outbox.commands.published")
+	deferredCounter, _ := meter.Int64Counter("outbox.commands.deferred")
+	errorCounter, _ := meter.Int64Counter("outbox.cycles.failed")
 	runner := natsjs.OutboxRunner{Store: store, Broker: broker, PollInterval: configuration.pollInterval, TenantPageSize: configuration.tenantPageSize, BatchSize: configuration.batchSize, ShardIndex: configuration.shardIndex, ShardCount: configuration.shardCount, Observe: func(observation natsjs.PublishObservation) {
 		if observation.Err != nil {
-			logger.Error("outbox publish cycle", "tenant_id", observation.TenantID, "error", observation.Err)
+			errorCounter.Add(ctx, 1)
+			logger.Error("outbox publish cycle", "error", observation.Err)
 		} else if observation.Result.Claimed > 0 {
-			logger.Info("outbox publish batch", "tenant_id", observation.TenantID, "claimed", observation.Result.Claimed, "published", observation.Result.Published, "deferred", observation.Result.Deferred)
+			publishedCounter.Add(ctx, int64(observation.Result.Published))
+			deferredCounter.Add(ctx, int64(observation.Result.Deferred))
+			logger.Info("outbox publish batch", "claimed", observation.Result.Claimed, "published", observation.Result.Published, "deferred", observation.Result.Deferred)
 		}
 	}}
-	health := healthServer(configuration.healthAddress, pool, connection, js, authority)
+	health := healthServer(configuration.healthAddress, pool, connection, js, authority, telemetry.MetricsHandler())
 	errorsChannel := make(chan error, 2)
 	go func() {
 		logger.Info("health server listening", "address", configuration.healthAddress)
@@ -126,11 +141,15 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 	if err = connection.Drain(); err != nil && runErr == nil {
 		runErr = err
 	}
+	if telemetryErr := telemetry.Shutdown(shutdownCtx); telemetryErr != nil && runErr == nil {
+		runErr = telemetryErr
+	}
 	return runErr
 }
 
-func healthServer(address string, pool *pgxpool.Pool, connection *nats.Conn, js jetstream.JetStream, authority eventpostgres.EpochAuthority) *http.Server {
+func healthServer(address string, pool *pgxpool.Pool, connection *nats.Conn, js jetstream.JetStream, authority eventpostgres.EpochAuthority, metrics http.Handler) *http.Server {
 	mux := http.NewServeMux()
+	mux.Handle("GET /metrics", metrics)
 	mux.HandleFunc("GET /live", func(writer http.ResponseWriter, _ *http.Request) {
 		writer.Header().Set("Cache-Control", "no-store")
 		writer.WriteHeader(http.StatusNoContent)
@@ -172,11 +191,12 @@ func loadConfig() (config, error) {
 		databaseURL: databaseURL, databaseURLFile: databaseURLFile, healthAddress: envString("HEALTH_ADDRESS", "127.0.0.1:8081"), epochURL: os.Getenv("STORE_EPOCH_URL"), epochTokenFile: os.Getenv("STORE_EPOCH_TOKEN_FILE"), epochRootCAFile: os.Getenv("STORE_EPOCH_ROOT_CA_FILE"), epochCertFile: os.Getenv("STORE_EPOCH_CLIENT_CERT_FILE"), epochKeyFile: os.Getenv("STORE_EPOCH_CLIENT_KEY_FILE"),
 		natsURLs: splitNonempty(os.Getenv("NATS_URLS")), natsName: envString("NATS_CLIENT_NAME", "lites-outbox-publisher"), natsCredentialsFile: os.Getenv("NATS_CREDENTIALS_FILE"), natsRootCAFile: os.Getenv("NATS_ROOT_CA_FILE"), natsCertFile: os.Getenv("NATS_CLIENT_CERT_FILE"), natsKeyFile: os.Getenv("NATS_CLIENT_KEY_FILE"), streamName: envString("NATS_COMMAND_STREAM", "LITES_COMMANDS"), pepperFile: os.Getenv("OUTBOX_LEASE_PEPPER_FILE"),
 		allowInsecureDevelopment: envBool("ALLOW_INSECURE_DEVELOPMENT", false), streamReplicas: envInt("NATS_STREAM_REPLICAS", 3), shardIndex: envInt("PUBLISHER_SHARD_INDEX", 0), shardCount: envInt("PUBLISHER_SHARD_COUNT", 1), tenantPageSize: envInt("PUBLISHER_TENANT_PAGE_SIZE", 500), batchSize: envInt("PUBLISHER_BATCH_SIZE", 100), streamMaxBytes: envInt64("NATS_STREAM_MAX_BYTES", 100<<30), streamMaxAge: envDuration("NATS_STREAM_MAX_AGE", 7*24*time.Hour), duplicateWindow: envDuration("NATS_DUPLICATE_WINDOW", 10*time.Minute), pollInterval: envDuration("PUBLISHER_POLL_INTERVAL", 500*time.Millisecond), leaseTTL: envDuration("PUBLISHER_LEASE_TTL", 30*time.Second), retryBase: envDuration("PUBLISHER_RETRY_BASE", time.Second), retryLimit: envDuration("PUBLISHER_RETRY_LIMIT", 5*time.Minute),
+		environment: os.Getenv("LITES_ENVIRONMENT"), serviceVersion: os.Getenv("LITES_VERSION"), region: os.Getenv("LITES_REGION"), otlpEndpoint: os.Getenv("OTLP_GRPC_ENDPOINT"), otlpCAFile: os.Getenv("OTLP_ROOT_CA_FILE"), otlpCertFile: os.Getenv("OTLP_CLIENT_CERT_FILE"), otlpKeyFile: os.Getenv("OTLP_CLIENT_KEY_FILE"), otlpTLSName: os.Getenv("OTLP_TLS_SERVER_NAME"), otlpBearerTokenFile: os.Getenv("OTLP_BEARER_TOKEN_FILE"), traceSampleRatio: envFloat("TRACE_SAMPLE_RATIO", 0.1),
 	}
-	if value.databaseURL == "" || len(value.natsURLs) == 0 || value.epochURL == "" || value.pepperFile == "" || value.streamReplicas < 1 || value.shardCount < 1 || value.shardIndex < 0 || value.shardIndex >= value.shardCount || value.tenantPageSize < 1 || value.tenantPageSize > 5000 || value.batchSize < 1 || value.batchSize > 500 || value.streamMaxBytes <= 0 || value.streamMaxAge <= 0 || value.duplicateWindow <= 0 || value.pollInterval <= 0 || value.leaseTTL <= 0 || value.retryBase <= 0 || value.retryLimit < value.retryBase || (value.epochCertFile == "") != (value.epochKeyFile == "") || (value.natsCertFile == "") != (value.natsKeyFile == "") {
+	if value.databaseURL == "" || len(value.natsURLs) == 0 || value.epochURL == "" || value.pepperFile == "" || value.environment == "" || value.serviceVersion == "" || value.region == "" || value.traceSampleRatio < 0 || value.traceSampleRatio > 1 || value.streamReplicas < 1 || value.shardCount < 1 || value.shardIndex < 0 || value.shardIndex >= value.shardCount || value.tenantPageSize < 1 || value.tenantPageSize > 5000 || value.batchSize < 1 || value.batchSize > 500 || value.streamMaxBytes <= 0 || value.streamMaxAge <= 0 || value.duplicateWindow <= 0 || value.pollInterval <= 0 || value.leaseTTL <= 0 || value.retryBase <= 0 || value.retryLimit < value.retryBase || (value.epochCertFile == "") != (value.epochKeyFile == "") || (value.natsCertFile == "") != (value.natsKeyFile == "") || (value.otlpCertFile == "") != (value.otlpKeyFile == "") {
 		return config{}, errors.New("required runtime configuration is missing or invalid")
 	}
-	if !value.allowInsecureDevelopment && (value.databaseURLFile == "" || value.streamReplicas < 3 || (value.epochTokenFile == "" && value.epochCertFile == "")) {
+	if !value.allowInsecureDevelopment && (value.databaseURLFile == "" || value.streamReplicas < 3 || (value.epochTokenFile == "" && value.epochCertFile == "") || value.otlpEndpoint == "" || (value.otlpBearerTokenFile == "" && value.otlpCertFile == "")) {
 		return config{}, errors.New("production requires file-backed database credentials, a three-replica stream, and authenticated epoch authority")
 	}
 	return value, nil
@@ -199,6 +219,11 @@ func validateTypedEnvironment() error {
 	if value, exists := os.LookupEnv("ALLOW_INSECURE_DEVELOPMENT"); exists {
 		if _, err := strconv.ParseBool(value); err != nil {
 			return errors.New("ALLOW_INSECURE_DEVELOPMENT must be a boolean")
+		}
+	}
+	if value, exists := os.LookupEnv("TRACE_SAMPLE_RATIO"); exists {
+		if _, err := strconv.ParseFloat(value, 64); err != nil {
+			return errors.New("TRACE_SAMPLE_RATIO must be a number")
 		}
 	}
 	durationNames := []string{"NATS_STREAM_MAX_AGE", "NATS_DUPLICATE_WINDOW", "PUBLISHER_POLL_INTERVAL", "PUBLISHER_LEASE_TTL", "PUBLISHER_RETRY_BASE", "PUBLISHER_RETRY_LIMIT"}
@@ -297,6 +322,13 @@ func envBool(name string, fallback bool) bool {
 }
 func envDuration(name string, fallback time.Duration) time.Duration {
 	value, err := time.ParseDuration(os.Getenv(name))
+	if err == nil {
+		return value
+	}
+	return fallback
+}
+func envFloat(name string, fallback float64) float64 {
+	value, err := strconv.ParseFloat(os.Getenv(name), 64)
 	if err == nil {
 		return value
 	}

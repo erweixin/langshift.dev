@@ -25,9 +25,12 @@ type config struct {
 	vaultTLSServerName, vaultKeyPrefix                                                                 string
 	s3Region, s3Endpoint, payloadBucket, payloadPrefix, importBucket, importPrefix, s3KMSKeyID         string
 	inboxPepperFile, invitationPepperFile                                                              string
+	environment, serviceVersion, region                                                                string
+	otlpEndpoint, otlpCAFile, otlpCertFile, otlpKeyFile, otlpTLSName, otlpBearerTokenFile              string
 	s3Encryption                                                                                       types.ServerSideEncryption
 	allowInsecureDevelopment, s3PathStyle                                                              bool
 	streamReplicas, concurrency                                                                        int
+	traceSampleRatio                                                                                   float64
 }
 
 func loadConfig() (config, error) {
@@ -44,6 +47,10 @@ func loadConfig() (config, error) {
 		return config{}, err
 	}
 	s3PathStyle, err := optionalBool("S3_PATH_STYLE", false)
+	if err != nil {
+		return config{}, err
+	}
+	traceSampleRatio, err := optionalFloat("TRACE_SAMPLE_RATIO", 0.1)
 	if err != nil {
 		return config{}, err
 	}
@@ -66,8 +73,9 @@ func loadConfig() (config, error) {
 		vaultAddress: os.Getenv("VAULT_ADDR"), vaultNamespace: os.Getenv("VAULT_NAMESPACE"), vaultMount: envString("VAULT_PAYLOAD_KEY_MOUNT", "secret"), vaultTokenFile: os.Getenv("VAULT_TOKEN_FILE"), vaultCAFile: os.Getenv("VAULT_CACERT"), vaultCertFile: os.Getenv("VAULT_CLIENT_CERT_FILE"), vaultKeyFile: os.Getenv("VAULT_CLIENT_KEY_FILE"), vaultTLSServerName: os.Getenv("VAULT_TLS_SERVER_NAME"), vaultKeyPrefix: envString("VAULT_PAYLOAD_KEY_PREFIX", "lites/payload-keys"),
 		s3Region: os.Getenv("S3_REGION"), s3Endpoint: os.Getenv("S3_ENDPOINT"), s3PathStyle: s3PathStyle, payloadBucket: os.Getenv("S3_PAYLOAD_BUCKET"), payloadPrefix: envString("S3_PAYLOAD_PREFIX", "restricted"), importBucket: os.Getenv("S3_IMPORT_BUCKET"), importPrefix: envString("S3_IMPORT_PREFIX", "identity-imports"), s3Encryption: encryption, s3KMSKeyID: os.Getenv("S3_KMS_KEY_ID"),
 		inboxPepperFile: os.Getenv("IDENTITY_INBOX_LEASE_PEPPER_FILE"), invitationPepperFile: os.Getenv("IDENTITY_INVITATION_TOKEN_PEPPER_FILE"), allowInsecureDevelopment: allowInsecure, streamReplicas: replicas, concurrency: concurrency,
+		environment: os.Getenv("LITES_ENVIRONMENT"), serviceVersion: os.Getenv("LITES_VERSION"), region: os.Getenv("LITES_REGION"), otlpEndpoint: os.Getenv("OTLP_GRPC_ENDPOINT"), otlpCAFile: os.Getenv("OTLP_ROOT_CA_FILE"), otlpCertFile: os.Getenv("OTLP_CLIENT_CERT_FILE"), otlpKeyFile: os.Getenv("OTLP_CLIENT_KEY_FILE"), otlpTLSName: os.Getenv("OTLP_TLS_SERVER_NAME"), otlpBearerTokenFile: os.Getenv("OTLP_BEARER_TOKEN_FILE"), traceSampleRatio: traceSampleRatio,
 	}
-	if value.databaseURL == "" || value.epochURL == "" || len(value.natsURLs) == 0 || value.vaultAddress == "" || value.s3Region == "" || value.payloadBucket == "" || value.importBucket == "" || value.inboxPepperFile == "" || value.invitationPepperFile == "" || value.streamReplicas < 1 || value.concurrency < 1 || value.concurrency > 128 || (value.epochCertFile == "") != (value.epochKeyFile == "") || (value.natsCertFile == "") != (value.natsKeyFile == "") || (value.vaultCertFile == "") != (value.vaultKeyFile == "") {
+	if value.databaseURL == "" || value.epochURL == "" || len(value.natsURLs) == 0 || value.vaultAddress == "" || value.s3Region == "" || value.payloadBucket == "" || value.importBucket == "" || value.inboxPepperFile == "" || value.invitationPepperFile == "" || value.environment == "" || value.serviceVersion == "" || value.region == "" || value.traceSampleRatio < 0 || value.traceSampleRatio > 1 || value.streamReplicas < 1 || value.concurrency < 1 || value.concurrency > 128 || (value.epochCertFile == "") != (value.epochKeyFile == "") || (value.natsCertFile == "") != (value.natsKeyFile == "") || (value.vaultCertFile == "") != (value.vaultKeyFile == "") || (value.otlpCertFile == "") != (value.otlpKeyFile == "") {
 		return config{}, errors.New("required worker configuration is missing or invalid")
 	}
 	if value.s3Encryption == types.ServerSideEncryptionAwsKms && value.s3KMSKeyID == "" {
@@ -76,7 +84,7 @@ func loadConfig() (config, error) {
 	if value.s3Encryption != types.ServerSideEncryptionAwsKms && value.s3Encryption != types.ServerSideEncryptionAes256 {
 		return config{}, errors.New("S3_SERVER_SIDE_ENCRYPTION must be AES256 or aws:kms")
 	}
-	if !value.allowInsecureDevelopment && (value.databaseURLFile == "" || value.streamReplicas < 3 || (value.natsCredentialsFile == "" && value.natsCertFile == "") || (value.epochTokenFile == "" && value.epochCertFile == "") || (value.vaultTokenFile == "" && value.vaultCertFile == "")) {
+	if !value.allowInsecureDevelopment && (value.databaseURLFile == "" || value.streamReplicas < 3 || (value.natsCredentialsFile == "" && value.natsCertFile == "") || (value.epochTokenFile == "" && value.epochCertFile == "") || (value.vaultTokenFile == "" && value.vaultCertFile == "") || value.otlpEndpoint == "" || (value.otlpBearerTokenFile == "" && value.otlpCertFile == "")) {
 		return config{}, errors.New("production requires file-backed database credentials, three replicas, and authenticated NATS/epoch/Vault clients")
 	}
 	return value, nil
@@ -161,6 +169,17 @@ func optionalInt(name string, fallback int) (int, error) {
 	parsed, err := strconv.Atoi(value)
 	if err != nil {
 		return 0, fmt.Errorf("%s must be an integer", name)
+	}
+	return parsed, nil
+}
+func optionalFloat(name string, fallback float64) (float64, error) {
+	value, found := os.LookupEnv(name)
+	if !found {
+		return fallback, nil
+	}
+	parsed, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		return 0, fmt.Errorf("%s must be a number", name)
 	}
 	return parsed, nil
 }

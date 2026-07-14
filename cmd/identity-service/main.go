@@ -22,6 +22,7 @@ import (
 	"github.com/langshift/lites/internal/identity/password"
 	identitypostgres "github.com/langshift/lites/internal/identity/postgres"
 	"github.com/langshift/lites/internal/objectstore/s3store"
+	"github.com/langshift/lites/internal/observability"
 	"github.com/langshift/lites/internal/payload"
 	"github.com/langshift/lites/internal/payload/vaultkeys"
 	platformratelimit "github.com/langshift/lites/internal/platform/ratelimit"
@@ -125,15 +126,19 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 		PublicTenantID: configuration.publicTenantID, StoreEpoch: storeEpoch, Region: configuration.region, VerificationTTL: 24 * time.Hour, PasswordResetTTL: 30 * time.Minute, EmailChangeTTL: 24 * time.Hour, ReauthenticationTTL: 5 * time.Minute, ErasureGracePeriod: 30 * 24 * time.Hour, SessionTTL: 30 * 24 * time.Hour, IdempotencyTTL: 24 * time.Hour,
 		Payloads: payloadStore, Appender: eventpostgres.Appender{}, Random: rand.Reader,
 	}
+	telemetry, err := observability.New(ctx, observability.Config{ServiceName: "identity-service", ServiceVersion: configuration.serviceVersion, Environment: configuration.environment, Region: configuration.region, OTLPEndpoint: configuration.otlpEndpoint, OTLPRootCAFile: configuration.otlpCAFile, OTLPClientCertificateFile: configuration.otlpCertFile, OTLPClientKeyFile: configuration.otlpKeyFile, OTLPTLSServerName: configuration.otlpTLSName, OTLPBearerTokenFile: configuration.otlpBearerTokenFile, TraceSampleRatio: configuration.traceSampleRatio, AllowInsecureDevelopment: configuration.allowInsecureDevelopment})
+	if err != nil {
+		return errors.New("configure observability")
+	}
 	handler := identityapi.Handler{Service: service, Sessions: service, Passwords: service, Emails: service, Accounts: service, Invitations: service, Memberships: service, RateLimiter: platformratelimit.Limiter{Client: valkeyClient, Namespace: "lites"}, RateLimitPepper: secrets.RateLimitPepper}
 	verifier := trustedcontext.Verifier{Issuer: configuration.trustedIssuer, Audience: configuration.trustedAudience, Keys: keys, KeyWindows: windows, MaximumTTL: 5 * time.Minute, ClockSkew: 5 * time.Second}
-	application := serviceauth.Middleware{Verifier: verifier, RequireVerifiedClientCertificate: !configuration.allowInsecureDevelopment}.Wrap(handler)
+	application := telemetry.WrapHTTP(serviceauth.Middleware{Verifier: verifier, RequireVerifiedClientCertificate: !configuration.allowInsecureDevelopment}.Wrap(handler))
 	tlsConfig, err := newServerTLSConfig(configuration)
 	if err != nil {
 		return err
 	}
 	server := &http.Server{Addr: configuration.listenAddress, Handler: application, TLSConfig: tlsConfig, ReadHeaderTimeout: 3 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 32 << 10}
-	health := identityHealth(configuration.healthAddress, pool, authority, storeEpoch, payloadBlobs, importSources, vaultReader, valkeyClient)
+	health := identityHealth(configuration.healthAddress, pool, authority, storeEpoch, payloadBlobs, importSources, vaultReader, valkeyClient, telemetry.MetricsHandler())
 	errChannel := make(chan error, 3)
 	go func() {
 		if serveErr := health.ListenAndServe(); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
@@ -170,6 +175,9 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 	defer shutdownCancel()
 	_ = server.Shutdown(shutdownCtx)
 	_ = health.Shutdown(shutdownCtx)
+	if shutdownErr := telemetry.Shutdown(shutdownCtx); shutdownErr != nil && runErr == nil {
+		runErr = shutdownErr
+	}
 	return runErr
 }
 
@@ -242,8 +250,9 @@ func monitorStoreEpoch(ctx context.Context, authority eventpostgres.EpochAuthori
 	}
 }
 
-func identityHealth(address string, pool *pgxpool.Pool, authority eventpostgres.EpochAuthority, expectedEpoch string, payloads, imports s3store.Store, vault *vaultkeys.ClientReader, cache valkey.Client) *http.Server {
+func identityHealth(address string, pool *pgxpool.Pool, authority eventpostgres.EpochAuthority, expectedEpoch string, payloads, imports s3store.Store, vault *vaultkeys.ClientReader, cache valkey.Client, metrics http.Handler) *http.Server {
 	mux := http.NewServeMux()
+	mux.Handle("GET /metrics", metrics)
 	mux.HandleFunc("GET /live", func(writer http.ResponseWriter, _ *http.Request) {
 		writer.Header().Set("Cache-Control", "no-store")
 		writer.WriteHeader(http.StatusNoContent)

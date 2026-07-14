@@ -17,6 +17,7 @@ import (
 	eventpostgres "github.com/langshift/lites/internal/eventstore/postgres"
 	identitypostgres "github.com/langshift/lites/internal/identity/postgres"
 	"github.com/langshift/lites/internal/objectstore/s3store"
+	"github.com/langshift/lites/internal/observability"
 	"github.com/langshift/lites/internal/payload"
 	"github.com/langshift/lites/internal/payload/vaultkeys"
 	"github.com/langshift/lites/internal/security/opaque"
@@ -109,14 +110,22 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 	if err != nil {
 		return errors.New("provision identity import consumer")
 	}
+	telemetry, err := observability.New(ctx, observability.Config{ServiceName: "identity-import-worker", ServiceVersion: configuration.serviceVersion, Environment: configuration.environment, Region: configuration.region, OTLPEndpoint: configuration.otlpEndpoint, OTLPRootCAFile: configuration.otlpCAFile, OTLPClientCertificateFile: configuration.otlpCertFile, OTLPClientKeyFile: configuration.otlpKeyFile, OTLPTLSServerName: configuration.otlpTLSName, OTLPBearerTokenFile: configuration.otlpBearerTokenFile, TraceSampleRatio: configuration.traceSampleRatio, AllowInsecureDevelopment: configuration.allowInsecureDevelopment})
+	if err != nil {
+		return errors.New("configure observability")
+	}
+	deliveryErrors, _ := telemetry.Meter("github.com/langshift/lites/cmd/identity-import-worker").Int64Counter("identity.import.delivery.errors")
 	inbox := eventpostgres.InboxStore{Pool: pool, Epochs: authority, Tokens: opaque.Manager{Purpose: "identity-import-inbox-lease", Pepper: inboxPepper}, LeaseTTL: 15 * time.Minute}
 	service := identitypostgres.AuthService{Pool: pool, ImportSources: importSources, InvitationTokens: opaque.Manager{Purpose: "invitation", Pepper: invitationPepper}, StoreEpoch: storeEpoch, Payloads: payloadStore, Appender: eventpostgres.Appender{}}
 	dispatcher := identitypostgres.IdentityImportDispatcher{Service: service, Inbox: inbox, ConsumerName: configuration.consumerName}
 	consumer := natsjs.Consumer{Source: source, Handle: func(ctx context.Context, command eventpostgres.DeliveredCommand) error {
 		_, dispatchErr := dispatcher.Dispatch(ctx, command)
 		return dispatchErr
-	}, OnError: func(_ context.Context, err error) { logger.Error("identity import delivery", "error", err) }, Concurrency: configuration.concurrency, PullExpires: 30 * time.Second, HeartbeatInterval: 20 * time.Second, BusyDelay: 15 * time.Second, RetryDelay: 30 * time.Second, AckTimeout: 15 * time.Minute}
-	health := workerHealth(configuration.healthAddress, pool, connection, js, authority, storeEpoch, payloadBlobs, importSources, vaultReader)
+	}, OnError: func(deliveryContext context.Context, err error) {
+		deliveryErrors.Add(deliveryContext, 1)
+		logger.Error("identity import delivery", "error", err)
+	}, Concurrency: configuration.concurrency, PullExpires: 30 * time.Second, HeartbeatInterval: 20 * time.Second, BusyDelay: 15 * time.Second, RetryDelay: 30 * time.Second, AckTimeout: 15 * time.Minute}
+	health := workerHealth(configuration.healthAddress, pool, connection, js, authority, storeEpoch, payloadBlobs, importSources, vaultReader, telemetry.MetricsHandler())
 	errChannel := make(chan error, 3)
 	go func() {
 		if serveErr := health.ListenAndServe(); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
@@ -137,6 +146,9 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 	_ = health.Shutdown(shutdownCtx)
 	if err = connection.Drain(); err != nil && runErr == nil {
 		runErr = err
+	}
+	if telemetryErr := telemetry.Shutdown(shutdownCtx); telemetryErr != nil && runErr == nil {
+		runErr = telemetryErr
 	}
 	return runErr
 }
@@ -166,8 +178,9 @@ func monitorStoreEpoch(ctx context.Context, authority eventpostgres.EpochAuthori
 	}
 }
 
-func workerHealth(address string, pool *pgxpool.Pool, connection *nats.Conn, js jetstream.JetStream, authority eventpostgres.EpochAuthority, expectedEpoch string, payloads, imports s3store.Store, vault *vaultkeys.ClientReader) *http.Server {
+func workerHealth(address string, pool *pgxpool.Pool, connection *nats.Conn, js jetstream.JetStream, authority eventpostgres.EpochAuthority, expectedEpoch string, payloads, imports s3store.Store, vault *vaultkeys.ClientReader, metrics http.Handler) *http.Server {
 	mux := http.NewServeMux()
+	mux.Handle("GET /metrics", metrics)
 	mux.HandleFunc("GET /live", func(writer http.ResponseWriter, _ *http.Request) {
 		writer.Header().Set("Cache-Control", "no-store")
 		writer.WriteHeader(http.StatusNoContent)
