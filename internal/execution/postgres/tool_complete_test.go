@@ -55,6 +55,7 @@ func TestParallelJoinPoliciesAndContinuationIdentifiers(t *testing.T) {
 
 func TestEffectCompletionValues(t *testing.T) {
 	now := time.Date(2026, time.July, 15, 2, 0, 0, 0, time.UTC)
+	store := RunStore{IDKey: bytes.Repeat([]byte{0xa7}, 32)}
 	status, confirmedAt, dueAt, resource, valid := effectCompletionValues(statemachine.ToolCallSucceeded, EffectCompletion{ExternalResourceRef: "provider://resource/1"}, now)
 	if !valid || status != "confirmed" || confirmedAt == nil || *confirmedAt != now || dueAt != nil || resource != "provider://resource/1" {
 		t.Fatalf("confirmed=%s/%v/%v/%s/%v", status, confirmedAt, dueAt, resource, valid)
@@ -76,5 +77,20 @@ func TestEffectCompletionValues(t *testing.T) {
 	}
 	if isWriteEffectClass("read_only") || isWriteEffectClass("invented") {
 		t.Fatal("non-write effect class accepted")
+	}
+	unknown := EffectCompletion{ReconciliationDueAt: now.Add(time.Minute), ReconcileCommand: PayloadPointer{Ref: "encrypted://reconcile", Hash: "reconcile"}, ReconcileQueueClass: "background", ReconcileResource: "tool-reconciliation", ReconcilePriority: 50, ReconcileCostUnits: 1, ReconcileAttempts: 5}
+	if !validEffectCompletion(statemachine.ToolCallOutcomeUnknown, unknown) || validEffectCompletion(statemachine.ToolCallSucceeded, unknown) {
+		t.Fatal("reconciliation command configuration boundary drifted")
+	}
+	if !validEffectCompletion(statemachine.ToolCallSucceeded, EffectCompletion{}) {
+		t.Fatal("confirmed effect rejected empty reconciliation configuration")
+	}
+	reconcileFirst, err := store.reconciliationIdentifiers("effect", 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reconcileSecond, err := store.reconciliationIdentifiers("effect", 3)
+	if err != nil || reconcileFirst != reconcileSecond || reconcileFirst.outbox == reconcileFirst.command || reconcileFirst.command == reconcileFirst.job || reconcileFirst.outbox == reconcileFirst.job {
+		t.Fatalf("unstable reconciliation identifiers first=%#v second=%#v err=%v", reconcileFirst, reconcileSecond, err)
 	}
 }

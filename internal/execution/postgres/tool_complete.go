@@ -35,6 +35,12 @@ type CompleteToolCommand struct {
 type EffectCompletion struct {
 	ExternalResourceRef string
 	ReconciliationDueAt time.Time
+	ReconcileCommand    PayloadPointer
+	ReconcileQueueClass string
+	ReconcileResource   string
+	ReconcilePriority   int
+	ReconcileCostUnits  int64
+	ReconcileAttempts   int
 }
 
 type CompletedTool struct {
@@ -44,6 +50,7 @@ type CompletedTool struct {
 	CompletedAt                 time.Time
 	ContinuationID              string
 	ResumeCommandID             string
+	ReconcileCommandID          string
 	Resumed                     bool
 }
 
@@ -51,6 +58,8 @@ type continuationIDs struct {
 	continuation, command, job, groupEvent, groupOutbox, groupPublish string
 	runEvent, runOutbox, runPublish, resumeOutbox                     string
 }
+
+type reconciliationIDs struct{ outbox, command, job string }
 
 // CompleteReadOnlyTool commits a deterministic read result and performs the
 // protected parallel-group join in the same transaction. Effectful tools use
@@ -65,7 +74,7 @@ func (store RunStore) CompleteReadOnlyTool(ctx context.Context, command Complete
 // CompleteEffectTool atomically records the durable effect outcome, ToolCall
 // result, worker attempt, protected group join and any winning continuation.
 func (store RunStore) CompleteEffectTool(ctx context.Context, command CompleteToolCommand, effect EffectCompletion) (CompletedTool, error) {
-	if !isWriteEffectClass(command.Claim.EffectClass) {
+	if !isWriteEffectClass(command.Claim.EffectClass) || !validEffectCompletion(command.TargetState, effect) {
 		return CompletedTool{}, ErrInvalidCommand
 	}
 	return store.completeTool(ctx, command, &effect)
@@ -104,6 +113,13 @@ func (store RunStore) completeTool(ctx context.Context, command CompleteToolComm
 	toolPublish, err := ids.DeterministicUUID(store.IDKey, "tool-call-completed-publish-command", toolEventID)
 	if err != nil {
 		return CompletedTool{}, err
+	}
+	var reconcile reconciliationIDs
+	if command.TargetState == statemachine.ToolCallOutcomeUnknown {
+		reconcile, err = store.reconciliationIdentifiers(claim.EffectID, command.ExpectedToolVersion+1)
+		if err != nil {
+			return CompletedTool{}, err
+		}
 	}
 	now := store.claimNow()
 	tx, err := store.Pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
@@ -183,7 +199,7 @@ func (store RunStore) completeTool(ctx context.Context, command CompleteToolComm
 		return CompletedTool{}, err
 	}
 	joinSatisfied := parallelJoinSatisfied(joinPolicy, requiredCount, quorumCount, terminalCount, successCount)
-	result := CompletedTool{ToolCallID: claim.ToolCallID, GroupID: claim.GroupID, RunID: claim.RunID, ToolCallVersion: nextToolVersion, Status: command.TargetState, CompletedAt: now}
+	result := CompletedTool{ToolCallID: claim.ToolCallID, GroupID: claim.GroupID, RunID: claim.RunID, ToolCallVersion: nextToolVersion, Status: command.TargetState, CompletedAt: now, ReconcileCommandID: reconcile.command}
 	var groupEvent *eventpostgres.Input
 	var runEvent *eventpostgres.Input
 	if joinSatisfied && !joined {
@@ -233,9 +249,21 @@ func (store RunStore) completeTool(ctx context.Context, command CompleteToolComm
 	}
 
 	causationID := claim.CommandID
-	toolEvent := eventpostgres.Input{Event: eventpostgres.Event{ID: toolEventID, TenantID: claim.TenantID, UserID: userID, EventType: toolCompletionEventType(command.TargetState), SchemaVersion: 1, AggregateKind: "tool_call", AggregateID: claim.ToolCallID, AggregateVersion: nextToolVersion, StoreEpoch: store.StoreEpoch, OccurredAt: now, Actor: command.Actor, CausationID: &causationID, CorrelationID: command.CorrelationID, PayloadRef: command.ToolCompletedEvent.Ref, PayloadHash: command.ToolCompletedEvent.Hash}, Commands: []eventpostgres.OutboxCommand{{ID: toolOutbox, CommandID: toolPublish, CommandType: "events.publish", PayloadRef: command.ToolCompletedEvent.Ref, PayloadHash: command.ToolCompletedEvent.Hash}}}
+	toolCommands := []eventpostgres.OutboxCommand{{ID: toolOutbox, CommandID: toolPublish, CommandType: "events.publish", PayloadRef: command.ToolCompletedEvent.Ref, PayloadHash: command.ToolCompletedEvent.Hash}}
+	if effect != nil && command.TargetState == statemachine.ToolCallOutcomeUnknown {
+		toolCommands = append(toolCommands, eventpostgres.OutboxCommand{ID: reconcile.outbox, CommandID: reconcile.command, CommandType: "ReconcileToolEffect", PayloadRef: effect.ReconcileCommand.Ref, PayloadHash: effect.ReconcileCommand.Hash})
+	}
+	toolEvent := eventpostgres.Input{Event: eventpostgres.Event{ID: toolEventID, TenantID: claim.TenantID, UserID: userID, EventType: toolCompletionEventType(command.TargetState), SchemaVersion: 1, AggregateKind: "tool_call", AggregateID: claim.ToolCallID, AggregateVersion: nextToolVersion, StoreEpoch: store.StoreEpoch, OccurredAt: now, Actor: command.Actor, CausationID: &causationID, CorrelationID: command.CorrelationID, PayloadRef: command.ToolCompletedEvent.Ref, PayloadHash: command.ToolCompletedEvent.Hash}, Commands: toolCommands}
 	if _, err = store.Appender.Append(ctx, tx, toolEvent); err != nil {
 		return CompletedTool{}, err
+	}
+	if effect != nil && command.TargetState == statemachine.ToolCallOutcomeUnknown {
+		if tag, updateErr := tx.Exec(ctx, `UPDATE agent.outbox SET available_at=$1 WHERE id=$2 AND tenant_id=$3 AND command_id=$4 AND status='pending'`, effect.ReconciliationDueAt, reconcile.outbox, claim.TenantID, reconcile.command); updateErr != nil || tag.RowsAffected() != 1 {
+			return CompletedTool{}, ErrExecutionRightConflict
+		}
+		if _, err = tx.Exec(ctx, `INSERT INTO agent.jobs(id,tenant_id,command_id,queue_class,resource_class,priority,cost_units,max_attempts,status,available_at,enqueued_at,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'pending',$9,$10,$10,$10)`, reconcile.job, claim.TenantID, reconcile.command, effect.ReconcileQueueClass, effect.ReconcileResource, effect.ReconcilePriority, effect.ReconcileCostUnits, effect.ReconcileAttempts, effect.ReconciliationDueAt, now); err != nil {
+			return CompletedTool{}, err
+		}
 	}
 	attemptCausationID := toolEventID
 	attemptEvent := eventpostgres.Input{Event: eventpostgres.Event{ID: completionIDs.attemptEvent, TenantID: claim.TenantID, UserID: userID, EventType: "JobAttemptCompleted", SchemaVersion: 1, AggregateKind: "job_attempt", AggregateID: claim.AttemptID, AggregateVersion: attemptVersion + 1, StoreEpoch: store.StoreEpoch, OccurredAt: now, Actor: command.Actor, CausationID: &attemptCausationID, CorrelationID: command.CorrelationID, PayloadRef: command.AttemptCompletedEvent.Ref, PayloadHash: command.AttemptCompletedEvent.Hash}, Commands: []eventpostgres.OutboxCommand{{ID: completionIDs.attemptOutbox, CommandID: completionIDs.attemptPublish, CommandType: "events.publish", PayloadRef: command.AttemptCompletedEvent.Ref, PayloadHash: command.AttemptCompletedEvent.Hash}}}
@@ -265,6 +293,14 @@ func validCompleteTool(command CompleteToolCommand) bool {
 
 func isWriteEffectClass(class string) bool {
 	return class == "idempotent_write" || class == "reconcilable_write" || class == "compensatable_write" || class == "irreversible_write"
+}
+
+func validEffectCompletion(state statemachine.ToolCallState, effect EffectCompletion) bool {
+	reconcileConfigured := validPointer(effect.ReconcileCommand) && (effect.ReconcileQueueClass == "interactive" || effect.ReconcileQueueClass == "background") && effect.ReconcileResource != "" && effect.ReconcilePriority >= 0 && effect.ReconcilePriority <= 1000 && effect.ReconcileCostUnits > 0 && effect.ReconcileCostUnits <= 1_000_000_000_000 && effect.ReconcileAttempts > 0 && effect.ReconcileAttempts <= 100
+	if state == statemachine.ToolCallOutcomeUnknown {
+		return !effect.ReconciliationDueAt.IsZero() && reconcileConfigured
+	}
+	return effect.ReconciliationDueAt.IsZero() && effect.ReconcileCommand == (PayloadPointer{}) && effect.ReconcileQueueClass == "" && effect.ReconcileResource == "" && effect.ReconcilePriority == 0 && effect.ReconcileCostUnits == 0 && effect.ReconcileAttempts == 0
 }
 
 func effectCompletionValues(state statemachine.ToolCallState, effect EffectCompletion, now time.Time) (string, *time.Time, *time.Time, string, bool) {
@@ -317,4 +353,18 @@ func (store RunStore) continuationIdentifiers(groupID string) (continuationIDs, 
 		values[index] = value
 	}
 	return continuationIDs{values[0], values[1], values[2], values[3], values[4], values[5], values[6], values[7], values[8], values[9]}, nil
+}
+
+func (store RunStore) reconciliationIdentifiers(effectID string, toolVersion uint64) (reconciliationIDs, error) {
+	scope := fmt.Sprintf("%s\x00%d", effectID, toolVersion)
+	domains := []string{"reconcile-tool-effect-outbox", "reconcile-tool-effect-command", "reconcile-tool-effect-job"}
+	values := make([]string, len(domains))
+	for index, domain := range domains {
+		value, err := ids.DeterministicUUID(store.IDKey, domain, scope)
+		if err != nil {
+			return reconciliationIDs{}, err
+		}
+		values[index] = value
+	}
+	return reconciliationIDs{values[0], values[1], values[2]}, nil
 }
