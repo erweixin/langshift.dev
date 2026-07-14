@@ -35,7 +35,7 @@ const report = {
   database: {
     engine: "PostgreSQL",
     version: postgresVersion,
-    latestVersion: 2,
+    latestVersion: 3,
     tableCount: 92,
     forcedRLSCount: 85,
     appendOnlyTriggerCount: 21,
