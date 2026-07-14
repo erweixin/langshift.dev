@@ -9,7 +9,10 @@ on:
       - "internal/**"
       - "services/**"
       - "scripts/foundation-postgres-smoke.sh"
+      - "scripts/stage2-infrastructure-smoke.sh"
       - "scripts/stage2-migration-smoke.sh"
+      - "scripts/validate-stage2-foundation-compose.mjs"
+      - "scripts/write-stage2-infrastructure-report.mjs"
       - "scripts/write-stage2-migration-report.mjs"
       - "scripts/verify-actions-pinned.mjs"
       - "deploy/**"
@@ -56,5 +59,27 @@ jobs:
         with:
           name: stage-2-foundation-evidence
           path: gate-reports/stage-2/
+          if-no-files-found: error
+          retention-days: 30
+
+  infrastructure-smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Enforce immutable GitHub Action references
+        run: node scripts/verify-actions-pinned.mjs
+      - name: Verify isolated infrastructure and telemetry paths
+        env:
+          INFRASTRUCTURE_REPORT_SOURCE_COMMIT: ${{ github.sha }}
+        run: ./scripts/stage2-infrastructure-smoke.sh
+      - name: Upload Stage 2 infrastructure evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: stage-2-infrastructure-evidence
+          path: gate-reports/stage-2/infrastructure-smoke-report.json
           if-no-files-found: error
           retention-days: 30

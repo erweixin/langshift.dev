@@ -1,0 +1,247 @@
+name: lites-foundation
+
+# This topology is the hermetic single-tenant foundation and CI smoke target.
+# It exposes no host ports and pins every third-party image by readable version
+# plus OCI index digest. Multi-AZ production deployment is owned by Helm and
+# OpenTofu; this file must not be promoted as an HA topology.
+
+services:
+  postgres:
+    image: postgres:16-alpine@sha256:79c06d285ed9186efbbc45c73413b3c3510c3c94ffede2f25d1e523f74d07f28
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: lites
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ../../contracts/database:/docker-entrypoint-initdb.d:ro
+    networks: [foundation]
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U postgres -d lites"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+
+  nats:
+    image: nats:2.12.12-alpine@sha256:2ca98656a279b2d88cfdf2b8c3f0d5d7f3941ae9dc2ab12ebaa92d83e0f4ccdb
+    restart: unless-stopped
+    command:
+      - --jetstream
+      - --store_dir=/data
+      - --http_port=8222
+      - "--user=${NATS_USER:?NATS_USER is required}"
+      - "--pass=${NATS_PASSWORD:?NATS_PASSWORD is required}"
+    volumes:
+      - nats_data:/data
+    networks: [foundation]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1:8222/healthz]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  valkey:
+    image: valkey/valkey:9.1.0-alpine@sha256:a35428eba9043cc0b79dbe54100f0c92784f2de00ad09b01182bfb1c5c83d1bd
+    user: "999:1000"
+    restart: unless-stopped
+    command: [valkey-server, --appendonly, "yes", --requirepass, "${VALKEY_PASSWORD:?VALKEY_PASSWORD is required}"]
+    environment:
+      VALKEY_PASSWORD: ${VALKEY_PASSWORD:?VALKEY_PASSWORD is required}
+    volumes:
+      - valkey_data:/data
+    networks: [foundation]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      test: [CMD-SHELL, "VALKEYCLI_AUTH=$$VALKEY_PASSWORD valkey-cli ping | grep -qx PONG"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  minio:
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+    restart: unless-stopped
+    command: [server, /data, --console-address, ":9001"]
+    environment:
+      MINIO_ROOT_USER_FILE: /run/secrets/minio_root_user
+      MINIO_ROOT_PASSWORD_FILE: /run/secrets/minio_root_password
+    secrets:
+      - minio_root_user
+      - minio_root_password
+    volumes:
+      - minio_data:/data
+    networks: [foundation]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      test: [CMD, curl, --fail, --silent, http://127.0.0.1:9000/minio/health/ready]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 3s
+
+  vault:
+    image: hashicorp/vault:1.21.4@sha256:4e33b126a59c0c333b76fb4e894722462659a6bec7c48c9ee8cea56fccfd2569
+    restart: unless-stopped
+    entrypoint: [vault]
+    command: [server, -dev, -dev-listen-address=0.0.0.0:8200, "-dev-root-token-id=${VAULT_DEV_ROOT_TOKEN:?VAULT_DEV_ROOT_TOKEN is required}"]
+    environment:
+      HOME: /tmp
+      VAULT_ADDR: http://127.0.0.1:8200
+      VAULT_DEV_ROOT_TOKEN: ${VAULT_DEV_ROOT_TOKEN:?VAULT_DEV_ROOT_TOKEN is required}
+      VAULT_DISABLE_MLOCK: "true"
+    networks: [foundation]
+    user: "100:1000"
+    read_only: true
+    tmpfs: [/tmp, /vault/file, /vault/logs]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      test: [CMD, vault, status]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  tempo:
+    image: grafana/tempo:2.8.2@sha256:0ef775495967cd5d7a6b2e146b6ea695d624803c8db8349fb8ce4164f719f9b7
+    restart: unless-stopped
+    command: [-config.file=/etc/tempo/tempo.yaml]
+    volumes:
+      - ../observability/tempo.yaml:/etc/tempo/tempo.yaml:ro
+      - tempo_data:/var/tempo
+    networks: [foundation]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+
+  loki:
+    image: grafana/loki:3.5.5@sha256:31628519045e7f28692a7ae73b4a3fd293dccb425585ed5d16ceea3b5c9592e6
+    restart: unless-stopped
+    command: [-config.file=/etc/loki/loki.yaml]
+    volumes:
+      - ../observability/loki.yaml:/etc/loki/loki.yaml:ro
+      - loki_data:/loki
+    networks: [foundation]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.135.0@sha256:89107a3a8f4636a396927edf7025bb9614b8da2d92f4cc3f43109e8d115736e2
+    restart: unless-stopped
+    command: [--config=/etc/otelcol/config.yaml]
+    depends_on:
+      tempo: {condition: service_started}
+      loki: {condition: service_started}
+    volumes:
+      - ../observability/otel-collector.yaml:/etc/otelcol/config.yaml:ro
+    networks: [foundation]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+
+  prometheus:
+    image: prom/prometheus:v3.6.0@sha256:76947e7ef22f8a698fc638f706685909be425dbe09bd7a2cd7aca849f79b5f64
+    restart: unless-stopped
+    command: [--config.file=/etc/prometheus/prometheus.yaml, --storage.tsdb.path=/prometheus, --web.enable-lifecycle]
+    volumes:
+      - ../observability/prometheus.yaml:/etc/prometheus/prometheus.yaml:ro
+      - prometheus_data:/prometheus
+    networks: [foundation]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+
+  grafana:
+    image: grafana/grafana:12.3.0@sha256:70d9599b186ce287be0d2c5ba9a78acb2e86c1a68c9c41449454d0fc3eeb84e8
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana_admin_password
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_CHECK_FOR_UPDATES: "false"
+      GF_PLUGINS_PREINSTALL: ""
+      GF_SERVER_ENABLE_GZIP: "true"
+    secrets:
+      - grafana_admin_password
+    depends_on:
+      prometheus: {condition: service_started}
+      tempo: {condition: service_started}
+      loki: {condition: service_started}
+    volumes:
+      - ../observability/grafana-datasources.yaml:/etc/grafana/provisioning/datasources/lites.yaml:ro
+      - grafana_data:/var/lib/grafana
+    networks: [foundation]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+
+  probe:
+    image: curlimages/curl:8.16.0@sha256:463eaf6072688fe96ac64fa623fe73e1dbe25d8ad6c34404a669ad3ce1f104b6
+    profiles: [tools]
+    networks: [foundation]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+
+  nats-box:
+    image: natsio/nats-box:0.19.2@sha256:8031d190c7ee24081f3f27cc939fb647a1eeb29ebb5c60fef9b5b6c7a846d6a2
+    profiles: [tools]
+    networks: [foundation]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+
+  minio-client:
+    image: minio/mc:RELEASE.2025-05-21T01-59-54Z-cpuv1@sha256:41a3204156cfbf8d7b5ecbe08265a731acacb143eed7e401f431121df63dc630
+    profiles: [tools]
+    environment:
+      MC_CONFIG_DIR: /tmp/.mc
+    networks: [foundation]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+
+secrets:
+  postgres_password:
+    file: ${POSTGRES_PASSWORD_FILE:?POSTGRES_PASSWORD_FILE is required}
+  minio_root_user:
+    file: ${MINIO_ROOT_USER_FILE:?MINIO_ROOT_USER_FILE is required}
+  minio_root_password:
+    file: ${MINIO_ROOT_PASSWORD_FILE:?MINIO_ROOT_PASSWORD_FILE is required}
+  grafana_admin_password:
+    file: ${GRAFANA_ADMIN_PASSWORD_FILE:?GRAFANA_ADMIN_PASSWORD_FILE is required}
+
+volumes:
+  postgres_data: {}
+  nats_data: {}
+  valkey_data: {}
+  minio_data: {}
+  tempo_data: {}
+  loki_data: {}
+  prometheus_data: {}
+  grafana_data: {}
+
+networks:
+  foundation:
+    internal: true
+    attachable: false
