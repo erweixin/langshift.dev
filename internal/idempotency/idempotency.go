@@ -5,6 +5,7 @@ package idempotency
 import (
 	"crypto/hmac"
 	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 )
 
@@ -49,6 +50,18 @@ func ValidateRawKey(raw string) error {
 }
 
 func RequestHash(canonical []byte) string { sum := sha256.Sum256(canonical); return stringHex(sum[:]) }
+
+// RequestDigest is used when canonical input contains secret material such as
+// a password. A keyed digest preserves replay comparison without creating an
+// offline password oracle in the database.
+func RequestDigest(canonical, pepper []byte) (string, error) {
+	if len(canonical) == 0 || len(pepper) < 32 {
+		return "", ErrInvalidKey
+	}
+	mac := hmac.New(sha256.New, pepper)
+	_, _ = mac.Write(canonical)
+	return hex.EncodeToString(mac.Sum(nil)), nil
+}
 
 func stringHex(value []byte) string {
 	const alphabet = "0123456789abcdef"

@@ -44,3 +44,15 @@ func TestRequestHashIsCanonicalInputHash(t *testing.T) {
 		t.Fatal("request hashes collided")
 	}
 }
+
+func TestSecretRequestDigestIsKeyed(t *testing.T) {
+	input := []byte(`{"password":"correct horse battery staple"}`)
+	left, err := RequestDigest(input, bytes.Repeat([]byte{0x41}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	right, _ := RequestDigest(input, bytes.Repeat([]byte{0x42}, 32))
+	if left == right || left == RequestHash(input) {
+		t.Fatal("secret request digest is not keyed")
+	}
+}

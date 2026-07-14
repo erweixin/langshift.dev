@@ -47,8 +47,8 @@ type OutboxCommand struct {
 }
 
 type Input struct {
-	Event   Event
-	Command OutboxCommand
+	Event    Event
+	Commands []OutboxCommand
 }
 
 type Result struct {
@@ -62,6 +62,9 @@ func (appender Appender) Append(ctx context.Context, tx pgx.Tx, input Input) (Re
 	if tx == nil || !validInput(input) {
 		return Result{}, ErrInvalidAppend
 	}
+	// PostgreSQL timestamptz stores microseconds. Canonicalizing before both
+	// insert and replay comparison keeps an otherwise exact replay stable.
+	input.Event.OccurredAt = input.Event.OccurredAt.UTC().Truncate(time.Microsecond)
 	now := time.Now().UTC()
 	if appender.Now != nil {
 		now = appender.Now().UTC()
@@ -92,24 +95,28 @@ func (appender Appender) Append(ctx context.Context, tx pgx.Tx, input Input) (Re
 		if !replayed {
 			return Result{}, ErrVersionConflict
 		}
-		commandReplayed, commandErr := loadCommandReplay(ctx, tx, input.Event, input.Command)
-		if commandErr != nil {
-			return Result{}, commandErr
-		}
-		if !commandReplayed {
-			return Result{}, ErrCommandConflict
+		for _, command := range input.Commands {
+			commandReplayed, commandErr := loadCommandReplay(ctx, tx, input.Event, command)
+			if commandErr != nil {
+				return Result{}, commandErr
+			}
+			if !commandReplayed {
+				return Result{}, ErrCommandConflict
+			}
 		}
 		return result, nil
 	}
-	tag, err = tx.Exec(ctx, `INSERT INTO agent.outbox (id,tenant_id,command_id,command_type,aggregate_kind,aggregate_id,store_epoch,payload_ref,payload_hash,status,available_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending',$10) ON CONFLICT DO NOTHING`, input.Command.ID, input.Event.TenantID, input.Command.CommandID, input.Command.CommandType, input.Event.AggregateKind, input.Event.AggregateID, input.Event.StoreEpoch, input.Command.PayloadRef, input.Command.PayloadHash, now)
-	if err != nil {
-		return Result{}, appender.rollback(ctx, tx, err)
-	}
-	if tag.RowsAffected() != 1 {
-		if err = appender.rollbackToSavepoint(ctx, tx); err != nil {
-			return Result{}, err
+	for _, command := range input.Commands {
+		tag, err = tx.Exec(ctx, `INSERT INTO agent.outbox (id,tenant_id,command_id,command_type,aggregate_kind,aggregate_id,store_epoch,payload_ref,payload_hash,status,available_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending',$10) ON CONFLICT DO NOTHING`, command.ID, input.Event.TenantID, command.CommandID, command.CommandType, input.Event.AggregateKind, input.Event.AggregateID, input.Event.StoreEpoch, command.PayloadRef, command.PayloadHash, now)
+		if err != nil {
+			return Result{}, appender.rollback(ctx, tx, err)
 		}
-		return Result{}, ErrCommandConflict
+		if tag.RowsAffected() != 1 {
+			if err = appender.rollbackToSavepoint(ctx, tx); err != nil {
+				return Result{}, err
+			}
+			return Result{}, ErrCommandConflict
+		}
 	}
 	if _, err = tx.Exec(ctx, `RELEASE SAVEPOINT lites_event_append`); err != nil {
 		return Result{}, err
@@ -148,22 +155,50 @@ func (Appender) rollbackToSavepoint(ctx context.Context, tx pgx.Tx) error {
 func loadReplay(ctx context.Context, tx pgx.Tx, expected Event) (Result, bool, error) {
 	var actual Event
 	var sequence uint64
-	err := tx.QueryRow(ctx, `SELECT tenant_id::text,user_id::text,seq,event_type,event_schema_version,aggregate_kind,aggregate_id::text,aggregate_version,store_epoch::text,correlation_id::text,payload_ref,payload_hash FROM agent.events WHERE id=$1`, expected.ID).Scan(&actual.TenantID, &actual.UserID, &sequence, &actual.EventType, &actual.SchemaVersion, &actual.AggregateKind, &actual.AggregateID, &actual.AggregateVersion, &actual.StoreEpoch, &actual.CorrelationID, &actual.PayloadRef, &actual.PayloadHash)
+	err := tx.QueryRow(ctx, `SELECT tenant_id::text,user_id::text,seq,event_type,event_schema_version,aggregate_kind,aggregate_id::text,aggregate_version,store_epoch::text,occurred_at,actor,causation_id::text,correlation_id::text,payload_ref,payload_hash FROM agent.events WHERE id=$1`, expected.ID).Scan(&actual.TenantID, &actual.UserID, &sequence, &actual.EventType, &actual.SchemaVersion, &actual.AggregateKind, &actual.AggregateID, &actual.AggregateVersion, &actual.StoreEpoch, &actual.OccurredAt, &actual.Actor, &actual.CausationID, &actual.CorrelationID, &actual.PayloadRef, &actual.PayloadHash)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Result{}, false, nil
 	}
 	if err != nil {
 		return Result{}, false, err
 	}
-	replayed := actual.TenantID == expected.TenantID && actual.UserID == expected.UserID && actual.EventType == expected.EventType && actual.SchemaVersion == expected.SchemaVersion && actual.AggregateKind == expected.AggregateKind && actual.AggregateID == expected.AggregateID && actual.AggregateVersion == expected.AggregateVersion && actual.StoreEpoch == expected.StoreEpoch && actual.CorrelationID == expected.CorrelationID && actual.PayloadRef == expected.PayloadRef && actual.PayloadHash == expected.PayloadHash
+	replayed := actual.TenantID == expected.TenantID && actual.UserID == expected.UserID && actual.EventType == expected.EventType && actual.SchemaVersion == expected.SchemaVersion && actual.AggregateKind == expected.AggregateKind && actual.AggregateID == expected.AggregateID && actual.AggregateVersion == expected.AggregateVersion && actual.StoreEpoch == expected.StoreEpoch && actual.OccurredAt.Equal(expected.OccurredAt) && equivalentJSON(actual.Actor, expected.Actor) && equalOptionalString(actual.CausationID, expected.CausationID) && actual.CorrelationID == expected.CorrelationID && actual.PayloadRef == expected.PayloadRef && actual.PayloadHash == expected.PayloadHash
 	return Result{Sequence: sequence, Replayed: replayed}, replayed, nil
+}
+
+func equivalentJSON(left, right json.RawMessage) bool {
+	var leftValue, rightValue any
+	if json.Unmarshal(left, &leftValue) != nil || json.Unmarshal(right, &rightValue) != nil {
+		return false
+	}
+	leftCanonical, leftErr := json.Marshal(leftValue)
+	rightCanonical, rightErr := json.Marshal(rightValue)
+	return leftErr == nil && rightErr == nil && bytes.Equal(leftCanonical, rightCanonical)
+}
+
+func equalOptionalString(left, right *string) bool {
+	return left == nil && right == nil || left != nil && right != nil && *left == *right
 }
 
 func validInput(input Input) bool {
 	event := input.Event
-	command := input.Command
-	if event.ID == "" || event.TenantID == "" || event.UserID == "" || event.EventType == "" || event.SchemaVersion < 1 || event.AggregateKind == "" || event.AggregateID == "" || event.AggregateVersion < 1 || event.StoreEpoch == "" || event.OccurredAt.IsZero() || event.CorrelationID == "" || event.PayloadRef == "" || event.PayloadHash == "" || command.ID == "" || command.CommandID == "" || command.CommandType == "" || command.PayloadRef == "" || command.PayloadHash == "" {
+	if event.ID == "" || event.TenantID == "" || event.UserID == "" || event.EventType == "" || event.SchemaVersion < 1 || event.AggregateKind == "" || event.AggregateID == "" || event.AggregateVersion < 1 || event.StoreEpoch == "" || event.OccurredAt.IsZero() || event.CorrelationID == "" || event.PayloadRef == "" || event.PayloadHash == "" || len(input.Commands) == 0 {
 		return false
+	}
+	seenIDs := make(map[string]struct{}, len(input.Commands))
+	seenCommands := make(map[string]struct{}, len(input.Commands))
+	for _, command := range input.Commands {
+		if command.ID == "" || command.CommandID == "" || command.CommandType == "" || command.PayloadRef == "" || command.PayloadHash == "" {
+			return false
+		}
+		if _, exists := seenIDs[command.ID]; exists {
+			return false
+		}
+		if _, exists := seenCommands[command.CommandID]; exists {
+			return false
+		}
+		seenIDs[command.ID] = struct{}{}
+		seenCommands[command.CommandID] = struct{}{}
 	}
 	if !json.Valid(event.Actor) || bytes.Equal(bytes.TrimSpace(event.Actor), []byte("null")) {
 		return false

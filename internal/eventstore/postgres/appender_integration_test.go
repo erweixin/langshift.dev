@@ -36,7 +36,7 @@ func TestAppendCommitsEventCursorAndOutboxExactlyOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	appender := Appender{Now: func() time.Time { return now }}
-	base := Input{Event: Event{ID: "60000000-0000-0000-0000-000000000501", TenantID: tenantID, UserID: userID, EventType: "EmailVerificationRequested", SchemaVersion: 1, AggregateKind: "user", AggregateID: aggregateID, AggregateVersion: 1, StoreEpoch: storeEpoch, OccurredAt: now, Actor: json.RawMessage(`{"kind":"system","id":"identity-service"}`), CorrelationID: correlationID, PayloadRef: "encrypted://events/501", PayloadHash: "event-hash-501"}, Command: OutboxCommand{ID: "70000000-0000-0000-0000-000000000501", CommandID: "80000000-0000-0000-0000-000000000501", CommandType: "identity.email.verify", PayloadRef: "encrypted://commands/501", PayloadHash: "command-hash-501"}}
+	base := Input{Event: Event{ID: "60000000-0000-0000-0000-000000000501", TenantID: tenantID, UserID: userID, EventType: "EmailVerificationRequested", SchemaVersion: 1, AggregateKind: "user", AggregateID: aggregateID, AggregateVersion: 1, StoreEpoch: storeEpoch, OccurredAt: now, Actor: json.RawMessage(`{"kind":"system","id":"identity-service"}`), CorrelationID: correlationID, PayloadRef: "encrypted://events/501", PayloadHash: "event-hash-501"}, Commands: []OutboxCommand{{ID: "70000000-0000-0000-0000-000000000501", CommandID: "80000000-0000-0000-0000-000000000501", CommandType: "events.publish", PayloadRef: "encrypted://events/501", PayloadHash: "event-hash-501"}, {ID: "71000000-0000-0000-0000-000000000501", CommandID: "81000000-0000-0000-0000-000000000501", CommandType: "identity.email.verify", PayloadRef: "encrypted://commands/501", PayloadHash: "command-hash-501"}}}
 	result, err := appendAndCommit(ctx, service, appender, base)
 	if err != nil || result.Sequence != 1 || result.Replayed {
 		t.Fatalf("result=%#v err=%v", result, err)
@@ -46,9 +46,15 @@ func TestAppendCommitsEventCursorAndOutboxExactlyOnce(t *testing.T) {
 		t.Fatalf("replay=%#v err=%v", replay, err)
 	}
 	tamperedReplay := base
-	tamperedReplay.Command.PayloadHash = "different-command-hash"
+	tamperedReplay.Commands = append([]OutboxCommand(nil), base.Commands...)
+	tamperedReplay.Commands[0].PayloadHash = "different-command-hash"
 	if _, err = appendAndCommit(ctx, service, appender, tamperedReplay); !errors.Is(err, ErrCommandConflict) {
 		t.Fatalf("tampered replay error=%v", err)
+	}
+	tamperedEvent := base
+	tamperedEvent.Event.Actor = json.RawMessage(`{"kind":"system","id":"different-service"}`)
+	if _, err = appendAndCommit(ctx, service, appender, tamperedEvent); !errors.Is(err, ErrVersionConflict) {
+		t.Fatalf("tampered event replay error=%v", err)
 	}
 
 	second := versionedInput(base, 2, 502)
@@ -99,7 +105,7 @@ func TestAppendCommitsEventCursorAndOutboxExactlyOnce(t *testing.T) {
 	if err = admin.QueryRow(ctx, `SELECT last_seq FROM agent.event_cursors WHERE tenant_id=$1 AND user_id=$2`, tenantID, userID).Scan(&lastSequence); err != nil {
 		t.Fatal(err)
 	}
-	if events != 3 || outbox != 3 || lastSequence != 3 {
+	if events != 3 || outbox != 6 || lastSequence != 3 {
 		t.Fatalf("events=%d outbox=%d last-seq=%d", events, outbox, lastSequence)
 	}
 }
@@ -126,10 +132,15 @@ func versionedInput(base Input, version uint64, suffix int) Input {
 	value.Event.AggregateVersion = version
 	value.Event.PayloadRef = fmt.Sprintf("encrypted://events/%d", suffix)
 	value.Event.PayloadHash = fmt.Sprintf("event-hash-%d", suffix)
-	value.Command.ID = fmt.Sprintf("70000000-0000-0000-0000-%012d", suffix)
-	value.Command.CommandID = fmt.Sprintf("80000000-0000-0000-0000-%012d", suffix)
-	value.Command.PayloadRef = fmt.Sprintf("encrypted://commands/%d", suffix)
-	value.Command.PayloadHash = fmt.Sprintf("command-hash-%d", suffix)
+	value.Commands = append([]OutboxCommand(nil), base.Commands...)
+	value.Commands[0].ID = fmt.Sprintf("70000000-0000-0000-0000-%012d", suffix)
+	value.Commands[0].CommandID = fmt.Sprintf("80000000-0000-0000-0000-%012d", suffix)
+	value.Commands[0].PayloadRef = fmt.Sprintf("encrypted://commands/%d", suffix)
+	value.Commands[0].PayloadHash = fmt.Sprintf("command-hash-%d", suffix)
+	value.Commands[1].ID = fmt.Sprintf("71000000-0000-0000-0000-%012d", suffix)
+	value.Commands[1].CommandID = fmt.Sprintf("81000000-0000-0000-0000-%012d", suffix)
+	value.Commands[1].PayloadRef = fmt.Sprintf("encrypted://mail/%d", suffix)
+	value.Commands[1].PayloadHash = fmt.Sprintf("mail-hash-%d", suffix)
 	return value
 }
 
