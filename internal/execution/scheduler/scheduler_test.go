@@ -106,7 +106,8 @@ func TestTokenBucketRefillAndRetryAge(t *testing.T) {
 	olderRetry.RetryCount = 7
 	newer := testJobs(now.Add(-time.Minute), "tenant-a", "new", 1, 1, QueueInteractive, 50)[0]
 	olderRetry.AvailableAt, newer.AvailableAt = now.Add(-time.Second), now.Add(-time.Second)
-	olderRetry.DueAt, newer.DueAt = now.Add(time.Hour), now.Add(time.Hour)
+	dueAt := now.Add(time.Hour)
+	olderRetry.DueAt, newer.DueAt = &dueAt, &dueAt
 	plan, err := Select(now, config, State{}, Active{}, []Job{newer, olderRetry})
 	if err != nil || len(plan.Decisions) != 1 || plan.Decisions[0].JobID != olderRetry.ID {
 		t.Fatalf("retry age was reset: %#v error=%v", plan.Decisions, err)
@@ -187,7 +188,8 @@ func testConfig(capacity int) Config {
 func testJobs(now time.Time, tenant, prefix string, count int, cost int64, class QueueClass, priority int) []Job {
 	jobs := make([]Job, 0, count)
 	for index := 0; index < count; index++ {
-		jobs = append(jobs, Job{ID: fmt.Sprintf("%s-%04d", prefix, index), TenantID: tenant, ResourceClass: "llm", QueueClass: class, Priority: priority, CostUnits: cost, EnqueuedAt: now.Add(time.Duration(index) * time.Millisecond), AvailableAt: now.Add(-time.Second), DueAt: now.Add(time.Hour)})
+		dueAt := now.Add(time.Hour)
+		jobs = append(jobs, Job{ID: fmt.Sprintf("%s-%04d", prefix, index), TenantID: tenant, ResourceClass: "llm", QueueClass: class, Priority: priority, CostUnits: cost, EnqueuedAt: now.Add(time.Duration(index) * time.Millisecond), AvailableAt: now.Add(-time.Second), DueAt: &dueAt})
 	}
 	return jobs
 }

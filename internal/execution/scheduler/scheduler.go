@@ -34,7 +34,7 @@ type Job struct {
 	Priority                    int
 	CostUnits                   int64
 	EnqueuedAt, AvailableAt     time.Time
-	DueAt                       time.Time
+	DueAt                       *time.Time
 	RetryCount                  int
 }
 
@@ -118,7 +118,7 @@ func Select(now time.Time, config Config, state State, active Active, jobs []Job
 		if _, known := config.Resources[job.ResourceClass]; !known || job.CostUnits > tenantPolicy(config, job.TenantID).BurstUnits {
 			return Plan{}, ErrInvalidJob
 		}
-		if job.AvailableAt.After(now) || !job.DueAt.After(now) {
+		if job.AvailableAt.After(now) || job.DueAt != nil && !job.DueAt.After(now) {
 			continue
 		}
 		if grouped[job.ResourceClass] == nil {
@@ -370,7 +370,7 @@ func validTenantPolicy(policy TenantPolicy) bool {
 }
 
 func validJob(job Job) bool {
-	return job.ID != "" && job.TenantID != "" && job.ResourceClass != "" && (job.QueueClass == QueueInteractive || job.QueueClass == QueueBackground) && job.Priority >= 0 && job.CostUnits > 0 && job.CostUnits <= maximumUnits && !job.EnqueuedAt.IsZero() && !job.AvailableAt.IsZero() && !job.DueAt.IsZero() && job.RetryCount >= 0
+	return job.ID != "" && job.TenantID != "" && job.ResourceClass != "" && (job.QueueClass == QueueInteractive || job.QueueClass == QueueBackground) && job.Priority >= 0 && job.CostUnits > 0 && job.CostUnits <= maximumUnits && !job.EnqueuedAt.IsZero() && !job.AvailableAt.IsZero() && (job.DueAt == nil || !job.DueAt.IsZero()) && job.RetryCount >= 0
 }
 
 func validState(config Config, state State) bool {
