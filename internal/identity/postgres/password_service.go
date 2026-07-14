@@ -19,10 +19,10 @@ import (
 )
 
 type passwordAccount struct {
-	UserID, TenantID, CredentialID, Email, Status string
-	UserVersion, CredentialVersion                uint64
-	PasswordHash                                  []byte
-	PasswordParameters                            password.Parameters
+	UserID, TenantID, CredentialID, Email, Locale, Status string
+	UserVersion, CredentialVersion                        uint64
+	PasswordHash                                          []byte
+	PasswordParameters                                    password.Parameters
 }
 
 type passwordResetLookup struct {
@@ -144,7 +144,7 @@ func (service AuthService) prepareForgotPassword(ctx context.Context, account pa
 	if err != nil {
 		return forgotPasswordPrepared{}, api.ErrDependencyUnavailable
 	}
-	prepared.MailCommand, err = service.putJSON(ctx, payload.Descriptor{TenantID: account.TenantID, ObjectID: prepared.MailCommandID, Class: "mail-command", ContentType: "application/json"}, map[string]any{"template": "password-reset-v1", "recipient": account.Email, "token": token.Raw, "expires_at": prepared.ExpiresAt})
+	prepared.MailCommand, err = service.putJSON(ctx, payload.Descriptor{TenantID: account.TenantID, ObjectID: prepared.MailCommandID, Class: "mail-command", ContentType: "application/json"}, map[string]any{"template": "password-reset-v1", "locale": account.Locale, "recipient": account.Email, "token": token.Raw, "expires_at": prepared.ExpiresAt})
 	if err != nil {
 		return forgotPasswordPrepared{}, api.ErrDependencyUnavailable
 	}
@@ -490,7 +490,7 @@ func (service AuthService) preparePasswordChange(ctx context.Context, lookup pas
 	if err != nil {
 		return passwordChangePrepared{}, api.ErrDependencyUnavailable
 	}
-	prepared.MailCommand, err = service.putJSON(ctx, payload.Descriptor{TenantID: lookup.TenantID, ObjectID: prepared.MailCommandID, Class: "mail-command", ContentType: "application/json"}, map[string]any{"template": "password-changed-security-v1", "recipient": lookup.Email, "changed_at": now, "reason": "authenticated_change"})
+	prepared.MailCommand, err = service.putJSON(ctx, payload.Descriptor{TenantID: lookup.TenantID, ObjectID: prepared.MailCommandID, Class: "mail-command", ContentType: "application/json"}, map[string]any{"template": "password-changed-security-v1", "locale": lookup.Locale, "recipient": lookup.Email, "changed_at": now, "reason": "authenticated_change"})
 	if err != nil {
 		return passwordChangePrepared{}, api.ErrDependencyUnavailable
 	}
@@ -504,7 +504,7 @@ func (service AuthService) preparePasswordChange(ctx context.Context, lookup pas
 func (service AuthService) lookupPasswordChange(ctx context.Context, userID, sessionID string) (passwordChangeLookup, error) {
 	var value passwordChangeLookup
 	var parameters []byte
-	err := service.Pool.QueryRow(ctx, `WITH personal AS (SELECT owner_user_id,(array_agg(id ORDER BY created_at,id))[1]::text AS tenant_id,count(*) AS tenant_count FROM identity.tenants WHERE kind='personal' GROUP BY owner_user_id) SELECT u.id::text,p.tenant_id,pc.id::text,u.normalized_email,u.status,u.version,pc.version,pc.password_hash,pc.parameters,s.id::text,s.active_tenant_id::text,s.version,s.created_at,s.updated_at,s.last_seen_at,s.expires_at,s.revoked_at,s.device_label FROM identity.users u JOIN identity.password_credentials pc ON pc.user_id=u.id JOIN personal p ON p.owner_user_id=u.id AND p.tenant_count=1 JOIN identity.sessions s ON s.user_id=u.id WHERE u.id=$1 AND s.id=$2`, userID, sessionID).Scan(&value.UserID, &value.TenantID, &value.CredentialID, &value.Email, &value.Status, &value.UserVersion, &value.CredentialVersion, &value.PasswordHash, &parameters, &value.Session.ID, &value.Session.ActiveTenantID, &value.Session.Version, &value.Session.CreatedAt, &value.Session.UpdatedAt, &value.Session.LastSeenAt, &value.Session.ExpiresAt, &value.Session.RevokedAt, &value.Session.DeviceLabel)
+	err := service.Pool.QueryRow(ctx, `WITH personal AS (SELECT owner_user_id,(array_agg(id ORDER BY created_at,id))[1]::text AS tenant_id,count(*) AS tenant_count FROM identity.tenants WHERE kind='personal' GROUP BY owner_user_id) SELECT u.id::text,p.tenant_id,pc.id::text,u.normalized_email,u.locale,u.status,u.version,pc.version,pc.password_hash,pc.parameters,s.id::text,s.active_tenant_id::text,s.version,s.created_at,s.updated_at,s.last_seen_at,s.expires_at,s.revoked_at,s.device_label FROM identity.users u JOIN identity.password_credentials pc ON pc.user_id=u.id JOIN personal p ON p.owner_user_id=u.id AND p.tenant_count=1 JOIN identity.sessions s ON s.user_id=u.id WHERE u.id=$1 AND s.id=$2`, userID, sessionID).Scan(&value.UserID, &value.TenantID, &value.CredentialID, &value.Email, &value.Locale, &value.Status, &value.UserVersion, &value.CredentialVersion, &value.PasswordHash, &parameters, &value.Session.ID, &value.Session.ActiveTenantID, &value.Session.Version, &value.Session.CreatedAt, &value.Session.UpdatedAt, &value.Session.LastSeenAt, &value.Session.ExpiresAt, &value.Session.RevokedAt, &value.Session.DeviceLabel)
 	if err != nil {
 		return passwordChangeLookup{}, err
 	}
@@ -554,7 +554,7 @@ func (service AuthService) preparePasswordResetCompletion(ctx context.Context, l
 	if err != nil {
 		return passwordResetCompletionPrepared{}, api.ErrDependencyUnavailable
 	}
-	prepared.MailCommand, err = service.putJSON(ctx, payload.Descriptor{TenantID: lookup.TenantID, ObjectID: prepared.MailCommandID, Class: "mail-command", ContentType: "application/json"}, map[string]any{"template": "password-changed-security-v1", "recipient": lookup.Email, "changed_at": now, "reason": "password_reset"})
+	prepared.MailCommand, err = service.putJSON(ctx, payload.Descriptor{TenantID: lookup.TenantID, ObjectID: prepared.MailCommandID, Class: "mail-command", ContentType: "application/json"}, map[string]any{"template": "password-changed-security-v1", "locale": lookup.Locale, "recipient": lookup.Email, "changed_at": now, "reason": "password_reset"})
 	if err != nil {
 		return passwordResetCompletionPrepared{}, api.ErrDependencyUnavailable
 	}
@@ -569,7 +569,7 @@ func (service AuthService) lookupPasswordAccount(ctx context.Context, normalized
 	var value passwordAccount
 	var parameters []byte
 	var verifiedAt *time.Time
-	err := service.Pool.QueryRow(ctx, `WITH personal AS (SELECT owner_user_id,(array_agg(id ORDER BY created_at,id))[1]::text AS tenant_id,count(*) AS tenant_count FROM identity.tenants WHERE kind='personal' GROUP BY owner_user_id) SELECT u.id::text,p.tenant_id,pc.id::text,u.normalized_email,u.status,u.version,pc.version,pc.password_hash,pc.parameters,u.email_verified_at FROM identity.users u JOIN identity.password_credentials pc ON pc.user_id=u.id JOIN personal p ON p.owner_user_id=u.id AND p.tenant_count=1 WHERE u.normalized_email=$1`, normalizedEmail).Scan(&value.UserID, &value.TenantID, &value.CredentialID, &value.Email, &value.Status, &value.UserVersion, &value.CredentialVersion, &value.PasswordHash, &parameters, &verifiedAt)
+	err := service.Pool.QueryRow(ctx, `WITH personal AS (SELECT owner_user_id,(array_agg(id ORDER BY created_at,id))[1]::text AS tenant_id,count(*) AS tenant_count FROM identity.tenants WHERE kind='personal' GROUP BY owner_user_id) SELECT u.id::text,p.tenant_id,pc.id::text,u.normalized_email,u.locale,u.status,u.version,pc.version,pc.password_hash,pc.parameters,u.email_verified_at FROM identity.users u JOIN identity.password_credentials pc ON pc.user_id=u.id JOIN personal p ON p.owner_user_id=u.id AND p.tenant_count=1 WHERE u.normalized_email=$1`, normalizedEmail).Scan(&value.UserID, &value.TenantID, &value.CredentialID, &value.Email, &value.Locale, &value.Status, &value.UserVersion, &value.CredentialVersion, &value.PasswordHash, &parameters, &verifiedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return passwordAccount{}, false, nil
 	}
@@ -588,7 +588,7 @@ func (service AuthService) lookupPasswordAccount(ctx context.Context, normalized
 func (service AuthService) lookupPasswordReset(ctx context.Context, digest []byte) (passwordResetLookup, error) {
 	var value passwordResetLookup
 	var parameters []byte
-	err := service.Pool.QueryRow(ctx, `WITH personal AS (SELECT owner_user_id,(array_agg(id ORDER BY created_at,id))[1]::text AS tenant_id,count(*) AS tenant_count FROM identity.tenants WHERE kind='personal' GROUP BY owner_user_id) SELECT pr.id::text,u.id::text,p.tenant_id,pc.id::text,u.normalized_email,u.status,u.version,pc.version,pc.password_hash,pc.parameters,pr.expires_at,pr.used_at,pr.revoked_at FROM identity.password_reset_requests pr JOIN identity.users u ON u.id=pr.user_id JOIN identity.password_credentials pc ON pc.user_id=u.id JOIN personal p ON p.owner_user_id=u.id AND p.tenant_count=1 WHERE pr.token_hash=$1`, digest).Scan(&value.ResetID, &value.UserID, &value.TenantID, &value.CredentialID, &value.Email, &value.Status, &value.UserVersion, &value.CredentialVersion, &value.PasswordHash, &parameters, &value.ExpiresAt, &value.UsedAt, &value.RevokedAt)
+	err := service.Pool.QueryRow(ctx, `WITH personal AS (SELECT owner_user_id,(array_agg(id ORDER BY created_at,id))[1]::text AS tenant_id,count(*) AS tenant_count FROM identity.tenants WHERE kind='personal' GROUP BY owner_user_id) SELECT pr.id::text,u.id::text,p.tenant_id,pc.id::text,u.normalized_email,u.locale,u.status,u.version,pc.version,pc.password_hash,pc.parameters,pr.expires_at,pr.used_at,pr.revoked_at FROM identity.password_reset_requests pr JOIN identity.users u ON u.id=pr.user_id JOIN identity.password_credentials pc ON pc.user_id=u.id JOIN personal p ON p.owner_user_id=u.id AND p.tenant_count=1 WHERE pr.token_hash=$1`, digest).Scan(&value.ResetID, &value.UserID, &value.TenantID, &value.CredentialID, &value.Email, &value.Locale, &value.Status, &value.UserVersion, &value.CredentialVersion, &value.PasswordHash, &parameters, &value.ExpiresAt, &value.UsedAt, &value.RevokedAt)
 	if err != nil {
 		return passwordResetLookup{}, err
 	}

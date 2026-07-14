@@ -156,11 +156,11 @@ func (service AuthService) prepareEmailChangeRequest(ctx context.Context, lookup
 	if err != nil {
 		return emailChangeRequestPrepared{}, api.ErrDependencyUnavailable
 	}
-	prepared.VerifyMailCommand, err = service.putJSON(ctx, payload.Descriptor{TenantID: lookup.TenantID, ObjectID: prepared.VerifyMailCommandID, Class: "mail-command", ContentType: "application/json"}, map[string]any{"template": "confirm-email-change-v1", "recipient": command.NewNormalizedEmail, "token": token.Raw, "expires_at": prepared.ExpiresAt})
+	prepared.VerifyMailCommand, err = service.putJSON(ctx, payload.Descriptor{TenantID: lookup.TenantID, ObjectID: prepared.VerifyMailCommandID, Class: "mail-command", ContentType: "application/json"}, map[string]any{"template": "confirm-email-change-v1", "locale": lookup.Locale, "recipient": command.NewNormalizedEmail, "token": token.Raw, "expires_at": prepared.ExpiresAt})
 	if err != nil {
 		return emailChangeRequestPrepared{}, api.ErrDependencyUnavailable
 	}
-	prepared.SecurityMailCommand, err = service.putJSON(ctx, payload.Descriptor{TenantID: lookup.TenantID, ObjectID: prepared.SecurityMailCommandID, Class: "mail-command", ContentType: "application/json"}, map[string]any{"template": "email-change-requested-security-v1", "recipient": lookup.Email, "requested_at": now})
+	prepared.SecurityMailCommand, err = service.putJSON(ctx, payload.Descriptor{TenantID: lookup.TenantID, ObjectID: prepared.SecurityMailCommandID, Class: "mail-command", ContentType: "application/json"}, map[string]any{"template": "email-change-requested-security-v1", "locale": lookup.Locale, "recipient": lookup.Email, "requested_at": now})
 	if err != nil {
 		return emailChangeRequestPrepared{}, api.ErrDependencyUnavailable
 	}
@@ -172,11 +172,11 @@ func (service AuthService) prepareEmailChangeRequest(ctx context.Context, lookup
 }
 
 type emailConfirmationLookup struct {
-	VerificationID, UserID, TenantID, OldEmail, NewEmail, Status string
-	UserVersion                                                  uint64
-	ExpiresAt                                                    time.Time
-	UsedAt, RevokedAt                                            *time.Time
-	Session                                                      sessionRow
+	VerificationID, UserID, TenantID, OldEmail, NewEmail, Locale, Status string
+	UserVersion                                                          uint64
+	ExpiresAt                                                            time.Time
+	UsedAt, RevokedAt                                                    *time.Time
+	Session                                                              sessionRow
 }
 
 type emailConfirmationPrepared struct {
@@ -348,11 +348,11 @@ func (service AuthService) prepareEmailConfirmation(ctx context.Context, lookup 
 	if err != nil {
 		return emailConfirmationPrepared{}, api.ErrDependencyUnavailable
 	}
-	prepared.OldMailCommand, err = service.putJSON(ctx, payload.Descriptor{TenantID: lookup.TenantID, ObjectID: prepared.OldMailCommandID, Class: "mail-command", ContentType: "application/json"}, map[string]any{"template": "email-changed-old-address-security-v1", "recipient": lookup.OldEmail, "changed_at": now})
+	prepared.OldMailCommand, err = service.putJSON(ctx, payload.Descriptor{TenantID: lookup.TenantID, ObjectID: prepared.OldMailCommandID, Class: "mail-command", ContentType: "application/json"}, map[string]any{"template": "email-changed-old-address-security-v1", "locale": lookup.Locale, "recipient": lookup.OldEmail, "changed_at": now})
 	if err != nil {
 		return emailConfirmationPrepared{}, api.ErrDependencyUnavailable
 	}
-	prepared.NewMailCommand, err = service.putJSON(ctx, payload.Descriptor{TenantID: lookup.TenantID, ObjectID: prepared.NewMailCommandID, Class: "mail-command", ContentType: "application/json"}, map[string]any{"template": "email-changed-new-address-security-v1", "recipient": lookup.NewEmail, "changed_at": now})
+	prepared.NewMailCommand, err = service.putJSON(ctx, payload.Descriptor{TenantID: lookup.TenantID, ObjectID: prepared.NewMailCommandID, Class: "mail-command", ContentType: "application/json"}, map[string]any{"template": "email-changed-new-address-security-v1", "locale": lookup.Locale, "recipient": lookup.NewEmail, "changed_at": now})
 	if err != nil {
 		return emailConfirmationPrepared{}, api.ErrDependencyUnavailable
 	}
@@ -365,7 +365,7 @@ func (service AuthService) prepareEmailConfirmation(ctx context.Context, lookup 
 
 func (service AuthService) lookupEmailConfirmation(ctx context.Context, userID, sessionID string, digest []byte) (emailConfirmationLookup, error) {
 	var value emailConfirmationLookup
-	err := service.Pool.QueryRow(ctx, `WITH personal AS (SELECT owner_user_id,(array_agg(id ORDER BY created_at,id))[1]::text AS tenant_id,count(*) AS tenant_count FROM identity.tenants WHERE kind='personal' GROUP BY owner_user_id) SELECT ev.id::text,u.id::text,p.tenant_id,u.normalized_email,ev.email,u.status,u.version,ev.expires_at,ev.used_at,ev.revoked_at,s.id::text,s.active_tenant_id::text,s.version,s.created_at,s.updated_at,s.last_seen_at,s.expires_at,s.revoked_at,s.device_label FROM identity.email_verifications ev JOIN identity.users u ON u.id=ev.user_id JOIN personal p ON p.owner_user_id=u.id AND p.tenant_count=1 JOIN identity.sessions s ON s.user_id=u.id WHERE ev.token_hash=$1 AND u.id=$2 AND s.id=$3`, digest, userID, sessionID).Scan(&value.VerificationID, &value.UserID, &value.TenantID, &value.OldEmail, &value.NewEmail, &value.Status, &value.UserVersion, &value.ExpiresAt, &value.UsedAt, &value.RevokedAt, &value.Session.ID, &value.Session.ActiveTenantID, &value.Session.Version, &value.Session.CreatedAt, &value.Session.UpdatedAt, &value.Session.LastSeenAt, &value.Session.ExpiresAt, &value.Session.RevokedAt, &value.Session.DeviceLabel)
+	err := service.Pool.QueryRow(ctx, `WITH personal AS (SELECT owner_user_id,(array_agg(id ORDER BY created_at,id))[1]::text AS tenant_id,count(*) AS tenant_count FROM identity.tenants WHERE kind='personal' GROUP BY owner_user_id) SELECT ev.id::text,u.id::text,p.tenant_id,u.normalized_email,ev.email,u.locale,u.status,u.version,ev.expires_at,ev.used_at,ev.revoked_at,s.id::text,s.active_tenant_id::text,s.version,s.created_at,s.updated_at,s.last_seen_at,s.expires_at,s.revoked_at,s.device_label FROM identity.email_verifications ev JOIN identity.users u ON u.id=ev.user_id JOIN personal p ON p.owner_user_id=u.id AND p.tenant_count=1 JOIN identity.sessions s ON s.user_id=u.id WHERE ev.token_hash=$1 AND u.id=$2 AND s.id=$3`, digest, userID, sessionID).Scan(&value.VerificationID, &value.UserID, &value.TenantID, &value.OldEmail, &value.NewEmail, &value.Locale, &value.Status, &value.UserVersion, &value.ExpiresAt, &value.UsedAt, &value.RevokedAt, &value.Session.ID, &value.Session.ActiveTenantID, &value.Session.Version, &value.Session.CreatedAt, &value.Session.UpdatedAt, &value.Session.LastSeenAt, &value.Session.ExpiresAt, &value.Session.RevokedAt, &value.Session.DeviceLabel)
 	if err != nil {
 		return emailConfirmationLookup{}, err
 	}

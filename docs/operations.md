@@ -62,11 +62,11 @@ Sweeper 与 Repair API 互补：Sweeper 自动、有界、无需审批，只处�
 
 ## 软件供应链与生产镜像
 
-四个 Go 进程共用一份参数化生产 `Dockerfile`，但每个镜像只包含对应静态二进制、CA 根证书、时区数据库、许可证和校验过的迁移源文件。最终层以 `scratch` 为根文件系统，固定数值 UID/GID `65532:65532`，不包含 shell、包管理器或动态链接器；入口只能是 `/lites`。构建阶段的 Go 官方镜像同时固定可读 tag 与 OCI index digest，避免 tag 被重写后静默改变构建输入。
+五个 Go 进程共用一份参数化生产 `Dockerfile`，但每个镜像只包含对应静态二进制、CA 根证书、时区数据库、许可证和校验过的迁移源文件。`identity-mail-worker` 与 claim/import worker 使用独立 durable consumer、健康检查和扩缩容边界，SMTP 故障不能阻断匿名 claim。最终层以 `scratch` 为根文件系统，固定数值 UID/GID `65532:65532`，不包含 shell、包管理器或动态链接器；入口只能是 `/lites`。构建阶段的 Go 官方镜像同时固定可读 tag 与 OCI index digest，避免 tag 被重写后静默改变构建输入。
 
 供应链流水线分成两个权限域：
 
-- PR 和主分支都执行 `go mod verify`、`govulncheck`、Trivy 文件系统扫描、CycloneDX 模块/逐服务 SBOM、四个镜像构建、shell-free/non-root 检查和镜像 HIGH/CRITICAL 漏洞门禁。
+- PR 和主分支都执行 `go mod verify`、`govulncheck`、Trivy 文件系统扫描、CycloneDX 模块/逐服务 SBOM、五个镜像构建、shell-free/non-root 检查和镜像 HIGH/CRITICAL 漏洞门禁。
 - 只有 `refs/heads/main` 且所有前置门禁通过后，发布 job 才获得 `packages: write` 和 `id-token: write`。它发布 `linux/amd64` 与 `linux/arm64` OCI index，生成 BuildKit `mode=max` provenance 和镜像 SBOM，再对不可变 digest 做 Cosign keyless 签名，并把证书身份严格验证为当前仓库的 `supply-chain.yml@refs/heads/main`。
 
 所有第三方 GitHub Action 必须固定 40 位 commit SHA；版本注释只用于人工升级提示。仓库内的静态检查会拒绝 tag、branch 和短 SHA。Dockerfile frontend、Buildx、BuildKit builder、扫描器和签名工具本身也固定版本或 OCI digest，升级时必须核对上游安全公告、替换 SHA、重新生成证据，不能使用 `latest`。
