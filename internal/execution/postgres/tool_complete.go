@@ -68,7 +68,7 @@ func (store RunStore) CompleteReadOnlyTool(ctx context.Context, command Complete
 	if command.Claim.EffectClass != "read_only" || command.TargetState == statemachine.ToolCallOutcomeUnknown {
 		return CompletedTool{}, ErrInvalidCommand
 	}
-	return store.completeTool(ctx, command, nil)
+	return store.completeTool(ctx, command, nil, nil)
 }
 
 // CompleteEffectTool atomically records the durable effect outcome, ToolCall
@@ -77,10 +77,12 @@ func (store RunStore) CompleteEffectTool(ctx context.Context, command CompleteTo
 	if !isWriteEffectClass(command.Claim.EffectClass) || !validEffectCompletion(command.TargetState, effect) {
 		return CompletedTool{}, ErrInvalidCommand
 	}
-	return store.completeTool(ctx, command, &effect)
+	return store.completeTool(ctx, command, &effect, nil)
 }
 
-func (store RunStore) completeTool(ctx context.Context, command CompleteToolCommand, effect *EffectCompletion) (CompletedTool, error) {
+type toolCompletionHook func(context.Context, pgx.Tx, string, time.Time) error
+
+func (store RunStore) completeTool(ctx context.Context, command CompleteToolCommand, effect *EffectCompletion, hook toolCompletionHook) (CompletedTool, error) {
 	claim := command.Claim
 	if !store.validClaim() || !validToolClaim(claim) {
 		return CompletedTool{}, ErrConfiguration
@@ -200,6 +202,11 @@ func (store RunStore) completeTool(ctx context.Context, command CompleteToolComm
 	toolEvent := eventpostgres.Input{Event: eventpostgres.Event{ID: toolEventID, TenantID: claim.TenantID, UserID: userID, EventType: toolCompletionEventType(command.TargetState), SchemaVersion: 1, AggregateKind: "tool_call", AggregateID: claim.ToolCallID, AggregateVersion: nextToolVersion, StoreEpoch: store.StoreEpoch, OccurredAt: now, Actor: command.Actor, CausationID: &causationID, CorrelationID: command.CorrelationID, PayloadRef: command.ToolCompletedEvent.Ref, PayloadHash: command.ToolCompletedEvent.Hash}, Commands: toolCommands}
 	if _, err = store.Appender.Append(ctx, tx, toolEvent); err != nil {
 		return CompletedTool{}, err
+	}
+	if hook != nil {
+		if err = hook(ctx, tx, toolEventID, now); err != nil {
+			return CompletedTool{}, err
+		}
 	}
 	if effect != nil && command.TargetState == statemachine.ToolCallOutcomeUnknown {
 		if tag, updateErr := tx.Exec(ctx, `UPDATE agent.outbox SET available_at=$1 WHERE id=$2 AND tenant_id=$3 AND command_id=$4 AND status='pending'`, effect.ReconciliationDueAt, reconcile.outbox, claim.TenantID, reconcile.command); updateErr != nil || tag.RowsAffected() != 1 {

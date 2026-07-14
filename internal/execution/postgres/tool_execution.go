@@ -9,6 +9,12 @@ import (
 
 // HeartbeatTool renews the exact inbox, ToolCall, and Attempt execution right.
 func (store RunStore) HeartbeatTool(ctx context.Context, claim ToolClaim) (ToolClaim, error) {
+	return store.heartbeatTool(ctx, claim, nil)
+}
+
+type toolHeartbeatHook func(context.Context, pgx.Tx, ToolClaim, []byte, time.Time, time.Time) error
+
+func (store RunStore) heartbeatTool(ctx context.Context, claim ToolClaim, hook toolHeartbeatHook) (ToolClaim, error) {
 	if !store.validClaim() || !validToolClaim(claim) {
 		return ToolClaim{}, ErrConfiguration
 	}
@@ -53,6 +59,11 @@ func (store RunStore) HeartbeatTool(ctx context.Context, claim ToolClaim) (ToolC
 	}
 	if tag, updateErr := tx.Exec(ctx, `UPDATE agent.job_attempts SET version=$1,lease_expires_at=$2,updated_at=$3 WHERE id=$4 AND tenant_id=$5 AND status='running' AND version=$6 AND command_id=$7 AND fence=$8 AND lease_token_hash=$9 AND lease_expires_at=$10`, attemptVersion+1, expiresAt, now, claim.AttemptID, claim.TenantID, attemptVersion, claim.CommandID, claim.Fence, digest[:], claim.LeaseExpiresAt); updateErr != nil || tag.RowsAffected() != 1 {
 		return ToolClaim{}, ErrExecutionRightConflict
+	}
+	if hook != nil {
+		if err = hook(ctx, tx, claim, digest[:], now, expiresAt); err != nil {
+			return ToolClaim{}, err
+		}
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return ToolClaim{}, err
