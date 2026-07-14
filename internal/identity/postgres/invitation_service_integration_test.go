@@ -6,6 +6,8 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -72,7 +74,10 @@ func TestInvitationLifecycleIsTenantAdminScopedCapabilityBoundAndIdempotent(t *t
 	dummyHash, dummyParams, _ := hasher.Hash("invitation dummy password")
 	blobs := &authMemoryBlobs{values: map[string][]byte{}}
 	store := payload.EnvelopeStore{Keys: authKeyProvider{key: payload.Key{ID: "invite-vault-v1", Material: bytes.Repeat([]byte{0xe2}, 32)}}, Blobs: blobs}
-	service := AuthService{Pool: pool, Passwords: hasher, PasswordPolicy: password.Policy{Checker: password.NewDigestSet([]string{"known compromised password value"})}, DummyPasswordHash: dummyHash, DummyPasswordParameters: dummyParams, VerificationTokens: opaque.Manager{Purpose: "email-verification", Pepper: bytes.Repeat([]byte{0xe3}, 32)}, PasswordResetTokens: opaque.Manager{Purpose: "password-reset", Pepper: bytes.Repeat([]byte{0xe4}, 32)}, EmailChangeTokens: opaque.Manager{Purpose: "email-change", Pepper: bytes.Repeat([]byte{0xe5}, 32)}, InvitationTokens: opaque.Manager{Purpose: "invitation", Pepper: bytes.Repeat([]byte{0xe6}, 32)}, SessionPepper: bytes.Repeat([]byte{0xe7}, 32), CSRFPepper: bytes.Repeat([]byte{0xe8}, 32), IdempotencyKeyPepper: bytes.Repeat([]byte{0xe9}, 32), RequestDigestPepper: bytes.Repeat([]byte{0xea}, 32), IdentityKey: bytes.Repeat([]byte{0xeb}, 32), CursorKey: bytes.Repeat([]byte{0xec}, 32), PublicTenantID: publicTenant, StoreEpoch: "40000000-0000-0000-0000-000000001101", Region: "US", VerificationTTL: 24 * time.Hour, PasswordResetTTL: 30 * time.Minute, EmailChangeTTL: 24 * time.Hour, ReauthenticationTTL: 15 * time.Minute, ErasureGracePeriod: 7 * 24 * time.Hour, SessionTTL: 30 * 24 * time.Hour, IdempotencyTTL: 24 * time.Hour, Payloads: store, Random: rand.Reader, Now: func() time.Time { return now }}
+	importCSV := []byte("email,role\nbulk-one@example.com,member\nbad-email,member\ninvitee@example.com,member\nbulk-two@example.com,reviewer\nbulk-one@example.com,admin\n")
+	importDigest := sha256.Sum256(importCSV)
+	importRef := "s3://imports/invitations.csv"
+	service := AuthService{Pool: pool, ImportSources: invitationImportSource{objects: map[string][]byte{importRef: importCSV}}, Passwords: hasher, PasswordPolicy: password.Policy{Checker: password.NewDigestSet([]string{"known compromised password value"})}, DummyPasswordHash: dummyHash, DummyPasswordParameters: dummyParams, VerificationTokens: opaque.Manager{Purpose: "email-verification", Pepper: bytes.Repeat([]byte{0xe3}, 32)}, PasswordResetTokens: opaque.Manager{Purpose: "password-reset", Pepper: bytes.Repeat([]byte{0xe4}, 32)}, EmailChangeTokens: opaque.Manager{Purpose: "email-change", Pepper: bytes.Repeat([]byte{0xe5}, 32)}, InvitationTokens: opaque.Manager{Purpose: "invitation", Pepper: bytes.Repeat([]byte{0xe6}, 32)}, SessionPepper: bytes.Repeat([]byte{0xe7}, 32), CSRFPepper: bytes.Repeat([]byte{0xe8}, 32), IdempotencyKeyPepper: bytes.Repeat([]byte{0xe9}, 32), RequestDigestPepper: bytes.Repeat([]byte{0xea}, 32), IdentityKey: bytes.Repeat([]byte{0xeb}, 32), CursorKey: bytes.Repeat([]byte{0xec}, 32), PublicTenantID: publicTenant, StoreEpoch: "40000000-0000-0000-0000-000000001101", Region: "US", VerificationTTL: 24 * time.Hour, PasswordResetTTL: 30 * time.Minute, EmailChangeTTL: 24 * time.Hour, ReauthenticationTTL: 15 * time.Minute, ErasureGracePeriod: 7 * 24 * time.Hour, SessionTTL: 30 * 24 * time.Hour, IdempotencyTTL: 24 * time.Hour, Payloads: store, Random: rand.Reader, Now: func() time.Time { return now }}
 	requestMetadata := func(id, key string) api.RequestMetadata {
 		return api.RequestMetadata{RequestID: "server-" + id, ClientRequestID: id, IdempotencyKey: key, ClientIPHash: bytes.Repeat([]byte{0xf1}, 32), UserAgentHash: bytes.Repeat([]byte{0xf2}, 32)}
 	}
@@ -237,7 +242,7 @@ func TestInvitationLifecycleIsTenantAdminScopedCapabilityBoundAndIdempotent(t *t
 	if _, err = admin.Exec(ctx, `UPDATE identity.sessions SET reauthenticated_at=$1 WHERE id=$2`, now.Add(-16*time.Minute), adminLogin.SessionID); err != nil {
 		t.Fatal(err)
 	}
-	importCommand := api.InvitationImportCommand{AuthenticatedRequestMetadata: adminAuth("invite-import-001", "invite-import-key-0001"), ObjectRef: "s3://imports/invitations.csv", ContentHash: "sha256:0123456789abcdef", ImportKey: "enterprise-import-0001", DefaultRole: "member"}
+	importCommand := api.InvitationImportCommand{AuthenticatedRequestMetadata: adminAuth("invite-import-001", "invite-import-key-0001"), ObjectRef: importRef, ContentHash: "sha256:" + hex.EncodeToString(importDigest[:]), ImportKey: "enterprise-import-0001", DefaultRole: "member"}
 	if _, err = service.ImportInvitations(ctx, importCommand); !errors.Is(err, api.ErrReauthenticationRequired) {
 		t.Fatalf("stale import=%v", err)
 	}
@@ -256,6 +261,14 @@ func TestInvitationLifecycleIsTenantAdminScopedCapabilityBoundAndIdempotent(t *t
 	duplicateImport.ClientRequestID = "import-duplicate"
 	if _, err = service.ImportInvitations(ctx, duplicateImport); !errors.Is(err, api.ErrStateConflict) {
 		t.Fatalf("duplicate import=%v", err)
+	}
+	processed := concurrentCalls(t, 12, func() (ImportProcessResult, error) {
+		return service.ProcessInvitationImport(ctx, enterprise, imports[0].ID)
+	})
+	for _, result := range processed {
+		if result != processed[0] || result.Status != "completed" || result.Version != 2 || result.AcceptedRows != 2 || result.RejectedRows != 3 {
+			t.Fatalf("processed import=%#v", result)
+		}
 	}
 	secondCreate := create
 	secondCreate.NormalizedEmail = "expiring@example.com"
@@ -276,18 +289,18 @@ func TestInvitationLifecycleIsTenantAdminScopedCapabilityBoundAndIdempotent(t *t
 		t.Fatalf("expired=%v", err)
 	}
 	service.Now = func() time.Time { return now }
-	var invitations, memberships, createdEvents, acceptedEvents, rejectedEvents, revokedEvents, membershipEvents, importsCount, importEvents int
+	var invitations, memberships, createdEvents, acceptedEvents, rejectedEvents, revokedEvents, membershipEvents, importsCount, importEvents, importCompletedEvents int
 	checks := []struct {
 		q   string
 		out *int
-	}{{`SELECT count(*) FROM identity.invitations WHERE tenant_id='20000000-0000-0000-0000-000000001104'`, &invitations}, {`SELECT count(*) FROM identity.memberships WHERE tenant_id='20000000-0000-0000-0000-000000001104' AND user_id='10000000-0000-0000-0000-000000001102'`, &memberships}, {`SELECT count(*) FROM agent.events WHERE tenant_id='20000000-0000-0000-0000-000000001104' AND event_type='InvitationCreated'`, &createdEvents}, {`SELECT count(*) FROM agent.events WHERE tenant_id='20000000-0000-0000-0000-000000001104' AND event_type='InvitationAccepted'`, &acceptedEvents}, {`SELECT count(*) FROM agent.events WHERE tenant_id='20000000-0000-0000-0000-000000001104' AND event_type='InvitationRejected'`, &rejectedEvents}, {`SELECT count(*) FROM agent.events WHERE tenant_id='20000000-0000-0000-0000-000000001104' AND event_type='InvitationRevoked'`, &revokedEvents}, {`SELECT count(*) FROM agent.events WHERE tenant_id='20000000-0000-0000-0000-000000001104' AND event_type='MembershipCreated'`, &membershipEvents}, {`SELECT count(*) FROM identity.invitation_imports WHERE tenant_id='20000000-0000-0000-0000-000000001104'`, &importsCount}, {`SELECT count(*) FROM agent.events WHERE tenant_id='20000000-0000-0000-0000-000000001104' AND event_type='InvitationImportQueued'`, &importEvents}}
+	}{{`SELECT count(*) FROM identity.invitations WHERE tenant_id='20000000-0000-0000-0000-000000001104'`, &invitations}, {`SELECT count(*) FROM identity.memberships WHERE tenant_id='20000000-0000-0000-0000-000000001104' AND user_id='10000000-0000-0000-0000-000000001102'`, &memberships}, {`SELECT count(*) FROM agent.events WHERE tenant_id='20000000-0000-0000-0000-000000001104' AND event_type='InvitationCreated'`, &createdEvents}, {`SELECT count(*) FROM agent.events WHERE tenant_id='20000000-0000-0000-0000-000000001104' AND event_type='InvitationAccepted'`, &acceptedEvents}, {`SELECT count(*) FROM agent.events WHERE tenant_id='20000000-0000-0000-0000-000000001104' AND event_type='InvitationRejected'`, &rejectedEvents}, {`SELECT count(*) FROM agent.events WHERE tenant_id='20000000-0000-0000-0000-000000001104' AND event_type='InvitationRevoked'`, &revokedEvents}, {`SELECT count(*) FROM agent.events WHERE tenant_id='20000000-0000-0000-0000-000000001104' AND event_type='MembershipCreated'`, &membershipEvents}, {`SELECT count(*) FROM identity.invitation_imports WHERE tenant_id='20000000-0000-0000-0000-000000001104'`, &importsCount}, {`SELECT count(*) FROM agent.events WHERE tenant_id='20000000-0000-0000-0000-000000001104' AND event_type='InvitationImportQueued'`, &importEvents}, {`SELECT count(*) FROM agent.events WHERE tenant_id='20000000-0000-0000-0000-000000001104' AND event_type='InvitationImportCompleted'`, &importCompletedEvents}}
 	for _, check := range checks {
 		if err = admin.QueryRow(ctx, check.q).Scan(check.out); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if invitations != 4 || memberships != 1 || createdEvents != 4 || acceptedEvents != 1 || rejectedEvents != 1 || revokedEvents != 1 || membershipEvents != 1 || importsCount != 1 || importEvents != 1 {
-		t.Fatalf("invitations=%d memberships=%d created=%d accepted=%d rejected=%d revoked=%d membership-events=%d imports=%d import-events=%d", invitations, memberships, createdEvents, acceptedEvents, rejectedEvents, revokedEvents, membershipEvents, importsCount, importEvents)
+	if invitations != 6 || memberships != 1 || createdEvents != 6 || acceptedEvents != 1 || rejectedEvents != 1 || revokedEvents != 1 || membershipEvents != 1 || importsCount != 1 || importEvents != 1 || importCompletedEvents != 1 {
+		t.Fatalf("invitations=%d memberships=%d created=%d accepted=%d rejected=%d revoked=%d membership-events=%d imports=%d queued=%d completed=%d", invitations, memberships, createdEvents, acceptedEvents, rejectedEvents, revokedEvents, membershipEvents, importsCount, importEvents, importCompletedEvents)
 	}
 	for _, stored := range blobs.values {
 		for _, secret := range []string{token, raceToken, rejectToken, secondToken, inviteeEmail, "recipient was invited in error"} {
@@ -301,6 +314,16 @@ func TestInvitationLifecycleIsTenantAdminScopedCapabilityBoundAndIdempotent(t *t
 	if err = admin.QueryRow(ctx, `SELECT token_hash FROM identity.invitations WHERE id=$1`, created[0].ID).Scan(&storedDigest); err != nil || !bytes.Equal(storedDigest, digest[:]) {
 		t.Fatalf("token digest mismatch error=%v", err)
 	}
+}
+
+type invitationImportSource struct{ objects map[string][]byte }
+
+func (source invitationImportSource) Get(_ context.Context, ref string) ([]byte, error) {
+	value, ok := source.objects[ref]
+	if !ok {
+		return nil, errors.New("import object not found")
+	}
+	return append([]byte(nil), value...), nil
 }
 
 func latestInvitationToken(t *testing.T, ctx context.Context, admin *pgxpool.Pool, store payload.Store, tenantID, invitationID string) string {

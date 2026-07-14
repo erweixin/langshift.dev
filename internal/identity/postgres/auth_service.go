@@ -26,6 +26,7 @@ import (
 
 type AuthService struct {
 	Pool                    *pgxpool.Pool
+	ImportSources           ImportSource
 	Passwords               password.Hasher
 	PasswordPolicy          password.Policy
 	DummyPasswordHash       []byte
