@@ -74,7 +74,7 @@ func TestPasswordRecoveryAndChangeAreUniformSingleUseRotatingAndSecretSafe(t *te
 		VerificationTokens: opaque.Manager{Purpose: "email-verification", Pepper: bytes.Repeat([]byte{0x83}, 32)}, PasswordResetTokens: opaque.Manager{Purpose: "password-reset", Pepper: bytes.Repeat([]byte{0x84}, 32)},
 		EmailChangeTokens: opaque.Manager{Purpose: "email-change", Pepper: bytes.Repeat([]byte{0x8b}, 32)},
 		SessionPepper:     bytes.Repeat([]byte{0x85}, 32), CSRFPepper: bytes.Repeat([]byte{0x86}, 32), IdempotencyKeyPepper: bytes.Repeat([]byte{0x87}, 32), RequestDigestPepper: bytes.Repeat([]byte{0x88}, 32), IdentityKey: bytes.Repeat([]byte{0x89}, 32), CursorKey: bytes.Repeat([]byte{0x8a}, 32),
-		PublicTenantID: publicTenantID, StoreEpoch: "40000000-0000-0000-0000-000000000801", Region: "US", VerificationTTL: 24 * time.Hour, PasswordResetTTL: 30 * time.Minute, EmailChangeTTL: 24 * time.Hour, SessionTTL: 30 * 24 * time.Hour, IdempotencyTTL: 24 * time.Hour,
+		PublicTenantID: publicTenantID, StoreEpoch: "40000000-0000-0000-0000-000000000801", Region: "US", VerificationTTL: 24 * time.Hour, PasswordResetTTL: 30 * time.Minute, EmailChangeTTL: 24 * time.Hour, ReauthenticationTTL: 15 * time.Minute, SessionTTL: 30 * 24 * time.Hour, IdempotencyTTL: 24 * time.Hour,
 		Payloads: payloadStore, Random: rand.Reader, Now: func() time.Time { return now },
 	}
 	metadata := func(requestID, key string) api.RequestMetadata {

@@ -104,6 +104,7 @@ func TestAuthRegistrationVerificationAndLoginAreDurableIdempotentAndSecretSafe(t
 		VerificationTTL:         24 * time.Hour,
 		PasswordResetTTL:        30 * time.Minute,
 		EmailChangeTTL:          24 * time.Hour,
+		ReauthenticationTTL:     15 * time.Minute,
 		SessionTTL:              30 * 24 * time.Hour,
 		IdempotencyTTL:          24 * time.Hour,
 		Payloads:                payloadStore,

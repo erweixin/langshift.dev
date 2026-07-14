@@ -398,6 +398,37 @@ func (service AuthService) preauthorizeSession(ctx context.Context, metadata api
 	return nil
 }
 
+func (service AuthService) preauthorizeRecentSession(ctx context.Context, metadata api.AuthenticatedRequestMetadata) error {
+	tx, err := service.Pool.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return api.ErrDependencyUnavailable
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	now := service.now()
+	if err = service.authorizeSession(ctx, tx, metadata, now, false); err != nil {
+		return err
+	}
+	if err = service.requireRecentReauthentication(ctx, tx, metadata, now); err != nil {
+		return err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return api.ErrDependencyUnavailable
+	}
+	return nil
+}
+
+func (service AuthService) requireRecentReauthentication(ctx context.Context, tx pgx.Tx, metadata api.AuthenticatedRequestMetadata, now time.Time) error {
+	var sessionID string
+	err := tx.QueryRow(ctx, `SELECT id::text FROM identity.sessions WHERE id=$1 AND user_id=$2 AND active_tenant_id=$3 AND reauthenticated_at IS NOT NULL AND reauthenticated_at>=$4`, metadata.SessionID, metadata.UserID, metadata.TenantID, now.Add(-service.ReauthenticationTTL)).Scan(&sessionID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return api.ErrReauthenticationRequired
+	}
+	if err != nil {
+		return api.ErrDependencyUnavailable
+	}
+	return nil
+}
+
 func (service AuthService) authorizeSession(ctx context.Context, tx pgx.Tx, metadata api.AuthenticatedRequestMetadata, now time.Time, lock bool) error {
 	if _, err := tx.Exec(ctx, `SELECT set_config('lites.tenant_id',$1,true)`, metadata.TenantID); err != nil {
 		return api.ErrDependencyUnavailable

@@ -94,6 +94,7 @@ type Handler struct {
 	Sessions  SessionService
 	Passwords PasswordService
 	Emails    EmailService
+	Accounts  AccountService
 	Now       func() time.Time
 }
 
@@ -153,6 +154,18 @@ func (handler Handler) ServeHTTP(writer http.ResponseWriter, request *http.Reque
 			return
 		}
 		handler.logout(writer, request)
+	case "/v1/account/export-requests":
+		if request.Method != http.MethodPost {
+			handler.methodNotAllowed(writer, request, http.MethodPost)
+			return
+		}
+		handler.accountExportCreate(writer, request)
+	case "/v1/account/erasure-requests":
+		if request.Method != http.MethodPost {
+			handler.methodNotAllowed(writer, request, http.MethodPost)
+			return
+		}
+		handler.accountErasureCreate(writer, request)
 	case "/v1/auth/sessions":
 		switch request.Method {
 		case http.MethodGet:
@@ -163,6 +176,14 @@ func (handler Handler) ServeHTTP(writer http.ResponseWriter, request *http.Reque
 			handler.methodNotAllowed(writer, request, http.MethodGet, http.MethodDelete)
 		}
 	default:
+		if strings.HasPrefix(request.URL.Path, "/v1/account/erasure-requests/") {
+			if request.Method != http.MethodDelete {
+				handler.methodNotAllowed(writer, request, http.MethodDelete)
+				return
+			}
+			handler.accountErasureCancel(writer, request)
+			return
+		}
 		if strings.HasPrefix(request.URL.Path, "/v1/auth/sessions/") {
 			if request.Method != http.MethodDelete {
 				handler.methodNotAllowed(writer, request, http.MethodDelete)
