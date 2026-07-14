@@ -95,6 +95,7 @@ func TestProcessMapsBusyTransientAndConflict(t *testing.T) {
 	}{
 		{name: "busy", err: eventpostgres.ErrDeliveryBusy, nakDelay: 20 * time.Millisecond},
 		{name: "transient", err: errors.New("dependency unavailable"), nakDelay: 40 * time.Millisecond},
+		{name: "worker epoch snapshot stale", err: eventpostgres.ErrWorkerStoreEpochStale, nakDelay: 40 * time.Millisecond},
 		{name: "stale epoch", err: eventpostgres.ErrStaleStoreEpoch, terminal: true},
 		{name: "payload conflict", err: eventpostgres.ErrDeliveryConflict, terminal: true},
 	}

@@ -10,6 +10,7 @@ var (
 	ErrDeliveryConflict      = errors.New("event delivery lease or payload conflict")
 	ErrDeliveryBusy          = errors.New("event delivery is already leased")
 	ErrStaleStoreEpoch       = errors.New("event delivery store epoch is stale")
+	ErrWorkerStoreEpochStale = errors.New("worker store epoch snapshot is stale")
 )
 
 // EpochAuthority lives outside the PostgreSQL PITR failure domain. Delivery

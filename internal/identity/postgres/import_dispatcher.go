@@ -38,6 +38,9 @@ func (dispatcher IdentityImportDispatcher) Dispatch(ctx context.Context, command
 	if err != nil || dispatcher.Service.Payloads == nil || !validImportAggregate(command) {
 		return ImportDispatchResult{}, ErrImportInvalid
 	}
+	if dispatcher.Service.StoreEpoch == "" || dispatcher.Service.StoreEpoch != command.StoreEpoch {
+		return ImportDispatchResult{}, eventpostgres.ErrWorkerStoreEpochStale
+	}
 	consumer := dispatcher.ConsumerName
 	if consumer == "" {
 		consumer = defaultIdentityImportConsumer

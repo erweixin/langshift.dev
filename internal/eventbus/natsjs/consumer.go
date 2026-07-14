@@ -38,7 +38,9 @@ func (consumer Consumer) Run(ctx context.Context) error {
 		handlers.Add(1)
 		defer func() { <-semaphore; handlers.Done() }()
 		consumer.process(ctx, message)
-	}, jetstream.PullExpiry(consumer.PullExpires), jetstream.PullMaxMessages(consumer.Concurrency))
+	}, jetstream.PullExpiry(consumer.PullExpires), jetstream.PullMaxMessages(consumer.Concurrency), jetstream.ConsumeErrHandler(func(_ jetstream.ConsumeContext, consumeErr error) {
+		consumer.report(ctx, consumeErr)
+	}))
 	if err != nil {
 		return err
 	}
