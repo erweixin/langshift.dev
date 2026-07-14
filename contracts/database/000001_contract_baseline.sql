@@ -1157,7 +1157,8 @@ CREATE TABLE IF NOT EXISTS "agent"."events" (
   correlation_id uuid NOT NULL,
   payload_ref text NOT NULL,
   payload_hash text NOT NULL,
-  UNIQUE ("tenant_id", "user_id", "seq")
+  UNIQUE ("tenant_id", "user_id", "seq"),
+  UNIQUE ("tenant_id", "aggregate_kind", "aggregate_id", "aggregate_version")
 );
 
 ALTER TABLE "agent"."events" ENABLE ROW LEVEL SECURITY;
