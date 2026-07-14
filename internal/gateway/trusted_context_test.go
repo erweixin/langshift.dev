@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/langshift/lites/internal/identity/anonymoussession"
 	"github.com/langshift/lites/internal/identity/session"
 	"github.com/langshift/lites/internal/platform/problem"
 	"github.com/langshift/lites/internal/security/trustedcontext"
@@ -20,6 +21,15 @@ import (
 type resolverStub struct {
 	principal session.Principal
 	err       error
+}
+
+type anonymousResolverStub struct {
+	principal anonymoussession.Principal
+	err       error
+}
+
+func (resolver anonymousResolverStub) Resolve(context.Context, string) (anonymoussession.Principal, error) {
+	return resolver.principal, resolver.err
 }
 
 func (resolver resolverStub) Resolve(context.Context, string) (session.Principal, error) {
@@ -245,6 +255,12 @@ func TestIdentityRoutePolicyFailsClosedForUnknownRoute(t *testing.T) {
 		want AuthenticationPolicy
 	}{
 		{path: "/v1/auth/register", want: PublicAuthentication},
+		{path: "/v1/onboarding-sessions", want: PublicOrAnonymousOrSession},
+		{path: "/v1/onboarding-sessions/session-1", want: AnonymousOrSession},
+		{path: "/v1/onboarding-sessions/session-1/route-preview", want: AnonymousOrSession},
+		{path: "/v1/onboarding-sessions/session-1/claim", want: AuthenticationRequired},
+		{path: "/v1/onboarding-sessions/session-1/claim/extra", want: AuthenticationRequired},
+		{path: "/v1/onboarding-sessions/session-1/unknown", want: AuthenticationRequired},
 		{path: "/v1/auth/login/extra", want: AuthenticationRequired},
 		{path: "/v1/account", want: AuthenticationRequired},
 	} {
@@ -252,5 +268,55 @@ func TestIdentityRoutePolicyFailsClosedForUnknownRoute(t *testing.T) {
 		if got := IdentityRoutePolicy(request); got != test.want {
 			t.Fatalf("path=%s policy=%d want=%d", test.path, got, test.want)
 		}
+	}
+}
+
+func TestAnonymousRouteIssuesIsolatedTrustedContextAndRequiresBoundCSRF(t *testing.T) {
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Unix(1_800_000_000, 0).UTC()
+	handle := "LITES-A1.key.opaque.exp.signature"
+	csrfKey := bytes.Repeat([]byte{0x62}, 32)
+	csrf, err := anonymoussession.CSRF(handle, csrfKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	principal := anonymoussession.Principal{AnonymousSubjectID: "anonymous-subject", UserID: "ephemeral-user", TenantID: "anonymous-system", ExpiresAt: now.Add(time.Hour)}
+	boundary := TrustBoundary{AnonymousResolver: anonymousResolverStub{principal: principal}, AnonymousCSRFKey: csrfKey, SigningKey: privateKey, SigningKeyID: "key", Issuer: "gateway", Audience: "identity", TTL: time.Minute, FingerprintPepper: bytes.Repeat([]byte{0x51}, 32), RoutePolicy: IdentityRoutePolicy, Random: bytes.NewReader(bytes.Repeat([]byte{0x41}, 64)), Now: func() time.Time { return now }}
+	verifier := trustedcontext.Verifier{Issuer: "gateway", Audience: "identity", Keys: map[string]ed25519.PublicKey{"key": publicKey}, MaximumTTL: 5 * time.Minute}
+	request := httptest.NewRequest(http.MethodPatch, "https://api.lites.dev/v1/onboarding-sessions/session-1", nil)
+	request.AddCookie(&http.Cookie{Name: anonymoussession.CookieName, Value: handle})
+	request.AddCookie(&http.Cookie{Name: "preference", Value: "allowed"})
+	request.Header.Set(CSRFHeader, csrf)
+	recorder := httptest.NewRecorder()
+	boundary.Wrap(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		claims, verifyErr := verifier.VerifyRequest(request.Header.Get(TrustedContextHeader), now, request.Header.Get(RequestIDHeader), http.MethodPatch, "/v1/onboarding-sessions/session-1", true)
+		if verifyErr != nil {
+			t.Fatal(verifyErr)
+		}
+		if claims.PrincipalKind != trustedcontext.AnonymousUser || claims.SubjectID != "ephemeral-user" || claims.TenantID != "anonymous-system" || claims.AnonymousSubjectID != "anonymous-subject" || len(claims.Roles) != 1 || claims.Roles[0] != "anonymous_preview" || claims.MembershipID != "" || claims.SessionID != "" {
+			t.Fatalf("claims=%#v", claims)
+		}
+		if _, cookieErr := request.Cookie(anonymoussession.CookieName); cookieErr == nil || request.Header.Get(CSRFHeader) != "" {
+			t.Fatal("anonymous browser credential reached upstream")
+		}
+		if preference, cookieErr := request.Cookie("preference"); cookieErr != nil || preference.Value != "allowed" {
+			t.Fatal("non-sensitive cookie was removed")
+		}
+		writer.WriteHeader(http.StatusNoContent)
+	})).ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodPatch, "https://api.lites.dev/v1/onboarding-sessions/session-1", nil)
+	request.AddCookie(&http.Cookie{Name: anonymoussession.CookieName, Value: handle})
+	request.Header.Set(CSRFHeader, "attacker")
+	recorder = httptest.NewRecorder()
+	boundary.Wrap(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Fatal("invalid csrf reached upstream") })).ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("invalid csrf status=%d", recorder.Code)
 	}
 }

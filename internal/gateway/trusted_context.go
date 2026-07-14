@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/langshift/lites/internal/identity/anonymoussession"
 	"github.com/langshift/lites/internal/identity/session"
 	"github.com/langshift/lites/internal/platform/problem"
 	"github.com/langshift/lites/internal/security/transport"
@@ -34,12 +35,14 @@ var untrustedNetworkHeaders = []string{
 
 type TrustBoundary struct {
 	Resolver          session.Resolver
+	AnonymousResolver anonymoussession.Resolver
 	SigningKey        ed25519.PrivateKey
 	SigningKeyID      string
 	Issuer            string
 	Audience          string
 	TTL               time.Duration
 	CSRFPepper        []byte
+	AnonymousCSRFKey  []byte
 	FingerprintPepper []byte
 	PublicOrigins     []string
 	RoutePolicy       func(*http.Request) AuthenticationPolicy
@@ -52,6 +55,8 @@ type AuthenticationPolicy uint8
 const (
 	AuthenticationRequired AuthenticationPolicy = iota
 	PublicAuthentication
+	AnonymousOrSession
+	PublicOrAnonymousOrSession
 )
 
 func (boundary TrustBoundary) Wrap(next http.Handler) http.Handler {
@@ -81,23 +86,23 @@ func (boundary TrustBoundary) Wrap(next http.Handler) http.Handler {
 			policy = boundary.RoutePolicy(request)
 		}
 		principal := session.Principal{}
-		principalKind := trustedcontext.AuthenticatedUser
+		anonymousPrincipal := anonymoussession.Principal{}
+		principalKind := trustedcontext.PublicRequest
 		csrfVerified := !transport.RequiresCSRF(request.Method)
 		if policy == PublicAuthentication {
-			principalKind = trustedcontext.PublicRequest
 			if transport.RequiresCSRF(request.Method) && !boundary.validPublicOrigin(request) {
 				request.Header.Del(CSRFHeader)
 				boundary.permissionDenied(writer, request)
 				return
 			}
 			csrfVerified = true
-		} else {
-			cookie, err := request.Cookie(session.CookieName)
-			if err != nil || boundary.Resolver == nil {
+		} else if sessionCookie, sessionCookieErr := request.Cookie(session.CookieName); sessionCookieErr == nil {
+			principalKind = trustedcontext.AuthenticatedUser
+			if boundary.Resolver == nil {
 				boundary.unauthorized(writer, request)
 				return
 			}
-			principal, err = boundary.Resolver.Resolve(request.Context(), cookie.Value)
+			principal, err = boundary.Resolver.Resolve(request.Context(), sessionCookie.Value)
 			if err != nil || principal.UserID == "" || principal.TenantID == "" || principal.MembershipID == "" || principal.SessionID == "" || len(principal.Roles) == 0 {
 				boundary.unauthorized(writer, request)
 				return
@@ -112,6 +117,41 @@ func (boundary TrustBoundary) Wrap(next http.Handler) http.Handler {
 				}
 				csrfVerified = true
 			}
+		} else if policy == AnonymousOrSession || policy == PublicOrAnonymousOrSession {
+			anonymousCookie, anonymousCookieErr := request.Cookie(anonymoussession.CookieName)
+			if anonymousCookieErr == nil {
+				principalKind = trustedcontext.AnonymousUser
+				if boundary.AnonymousResolver == nil {
+					boundary.unauthorized(writer, request)
+					return
+				}
+				anonymousPrincipal, err = boundary.AnonymousResolver.Resolve(request.Context(), anonymousCookie.Value)
+				if err != nil || anonymousPrincipal.AnonymousSubjectID == "" || anonymousPrincipal.UserID == "" || anonymousPrincipal.TenantID == "" || anonymousPrincipal.ExpiresAt.IsZero() {
+					boundary.unauthorized(writer, request)
+					return
+				}
+				if transport.RequiresCSRF(request.Method) {
+					if !anonymoussession.VerifyCSRF(anonymousCookie.Value, request.Header.Get(CSRFHeader), boundary.AnonymousCSRFKey) {
+						request.Header.Del(CSRFHeader)
+						boundary.permissionDenied(writer, request)
+						return
+					}
+					csrfVerified = true
+				}
+			} else if policy == PublicOrAnonymousOrSession {
+				if transport.RequiresCSRF(request.Method) && !boundary.validPublicOrigin(request) {
+					request.Header.Del(CSRFHeader)
+					boundary.permissionDenied(writer, request)
+					return
+				}
+				csrfVerified = true
+			} else {
+				boundary.unauthorized(writer, request)
+				return
+			}
+		} else {
+			boundary.unauthorized(writer, request)
+			return
 		}
 		stripSensitiveCookies(request)
 		request.Header.Del("User-Agent")
@@ -127,6 +167,9 @@ func (boundary TrustBoundary) Wrap(next http.Handler) http.Handler {
 		if principalKind == trustedcontext.AuthenticatedUser && principal.ExpiresAt.Before(expiresAt) {
 			expiresAt = principal.ExpiresAt
 		}
+		if principalKind == trustedcontext.AnonymousUser && anonymousPrincipal.ExpiresAt.Before(expiresAt) {
+			expiresAt = anonymousPrincipal.ExpiresAt
+		}
 		if !expiresAt.After(now) {
 			boundary.unauthorized(writer, request)
 			return
@@ -137,6 +180,12 @@ func (boundary TrustBoundary) Wrap(next http.Handler) http.Handler {
 			return
 		}
 		claims := trustedcontext.Claims{PrincipalKind: principalKind, Issuer: boundary.Issuer, Audience: boundary.Audience, SubjectID: principal.UserID, TenantID: principal.TenantID, MembershipID: principal.MembershipID, SessionID: principal.SessionID, Roles: principal.Roles, RequestID: requestID, RequestMethod: request.Method, RequestTarget: request.URL.RequestURI(), ClientIPHash: clientIPHash, UserAgentHash: userAgentHash, CSRFVerified: csrfVerified, IssuedAt: now.Unix(), ExpiresAt: expiresAt.Unix(), Nonce: base64.RawURLEncoding.EncodeToString(nonceBytes)}
+		if principalKind == trustedcontext.AnonymousUser {
+			claims.SubjectID = anonymousPrincipal.UserID
+			claims.TenantID = anonymousPrincipal.TenantID
+			claims.AnonymousSubjectID = anonymousPrincipal.AnonymousSubjectID
+			claims.Roles = []string{"anonymous_preview"}
+		}
 		token, err := trustedcontext.Sign(claims, boundary.SigningKeyID, boundary.SigningKey, 5*time.Minute)
 		if err != nil {
 			boundary.internalError(writer, request)
@@ -151,7 +200,7 @@ func stripSensitiveCookies(request *http.Request) {
 	cookies := request.Cookies()
 	request.Header.Del("Cookie")
 	for _, cookie := range cookies {
-		if cookie.Name == session.CookieName || cookie.Name == session.CSRFCookieName {
+		if cookie.Name == session.CookieName || cookie.Name == session.CSRFCookieName || cookie.Name == anonymoussession.CookieName {
 			continue
 		}
 		request.AddCookie(cookie)

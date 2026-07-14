@@ -1,6 +1,9 @@
 package gateway
 
-import "net/http"
+import (
+	"net/http"
+	"strings"
+)
 
 var publicIdentityPaths = map[string]struct{}{
 	"/v1/auth/register":            {},
@@ -16,6 +19,23 @@ var publicIdentityPaths = map[string]struct{}{
 func IdentityRoutePolicy(request *http.Request) AuthenticationPolicy {
 	if _, ok := publicIdentityPaths[request.URL.Path]; ok {
 		return PublicAuthentication
+	}
+	if request.URL.Path == "/v1/onboarding-sessions" && request.Method == http.MethodPost {
+		return PublicOrAnonymousOrSession
+	}
+	if remainder, found := strings.CutPrefix(request.URL.Path, "/v1/onboarding-sessions/"); found {
+		segments := strings.Split(remainder, "/")
+		if len(segments) == 1 && segments[0] != "" {
+			return AnonymousOrSession
+		}
+		if len(segments) == 2 && segments[0] != "" {
+			switch segments[1] {
+			case "route-preview":
+				return AnonymousOrSession
+			case "claim":
+				return AuthenticationRequired
+			}
+		}
 	}
 	return AuthenticationRequired
 }

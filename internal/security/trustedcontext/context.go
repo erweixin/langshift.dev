@@ -20,6 +20,7 @@ type PrincipalKind string
 
 const (
 	AuthenticatedUser PrincipalKind = "authenticated_user"
+	AnonymousUser     PrincipalKind = "anonymous_user"
 	PublicRequest     PrincipalKind = "public_request"
 )
 
@@ -32,23 +33,24 @@ var (
 )
 
 type Claims struct {
-	PrincipalKind PrincipalKind `json:"principal_kind"`
-	Issuer        string        `json:"iss"`
-	Audience      string        `json:"aud"`
-	SubjectID     string        `json:"sub"`
-	TenantID      string        `json:"tenant_id"`
-	MembershipID  string        `json:"membership_id"`
-	SessionID     string        `json:"session_id"`
-	Roles         []string      `json:"roles"`
-	RequestID     string        `json:"request_id"`
-	RequestMethod string        `json:"request_method"`
-	RequestTarget string        `json:"request_target"`
-	ClientIPHash  string        `json:"client_ip_hash"`
-	UserAgentHash string        `json:"user_agent_hash"`
-	CSRFVerified  bool          `json:"csrf_verified"`
-	IssuedAt      int64         `json:"iat"`
-	ExpiresAt     int64         `json:"exp"`
-	Nonce         string        `json:"nonce"`
+	PrincipalKind      PrincipalKind `json:"principal_kind"`
+	Issuer             string        `json:"iss"`
+	Audience           string        `json:"aud"`
+	SubjectID          string        `json:"sub"`
+	TenantID           string        `json:"tenant_id"`
+	MembershipID       string        `json:"membership_id"`
+	SessionID          string        `json:"session_id"`
+	AnonymousSubjectID string        `json:"anonymous_subject_id"`
+	Roles              []string      `json:"roles"`
+	RequestID          string        `json:"request_id"`
+	RequestMethod      string        `json:"request_method"`
+	RequestTarget      string        `json:"request_target"`
+	ClientIPHash       string        `json:"client_ip_hash"`
+	UserAgentHash      string        `json:"user_agent_hash"`
+	CSRFVerified       bool          `json:"csrf_verified"`
+	IssuedAt           int64         `json:"iat"`
+	ExpiresAt          int64         `json:"exp"`
+	Nonce              string        `json:"nonce"`
 }
 
 type header struct {
@@ -150,11 +152,15 @@ func validClaims(claims Claims, maximumTTL time.Duration) bool {
 	}
 	switch claims.PrincipalKind {
 	case AuthenticatedUser:
-		if claims.SubjectID == "" || claims.TenantID == "" || claims.MembershipID == "" || claims.SessionID == "" || len(claims.Roles) == 0 {
+		if claims.SubjectID == "" || claims.TenantID == "" || claims.MembershipID == "" || claims.SessionID == "" || claims.AnonymousSubjectID != "" || len(claims.Roles) == 0 {
+			return false
+		}
+	case AnonymousUser:
+		if claims.SubjectID == "" || claims.TenantID == "" || claims.AnonymousSubjectID == "" || claims.MembershipID != "" || claims.SessionID != "" || len(claims.Roles) != 1 || claims.Roles[0] != "anonymous_preview" {
 			return false
 		}
 	case PublicRequest:
-		if claims.SubjectID != "" || claims.TenantID != "" || claims.MembershipID != "" || claims.SessionID != "" || len(claims.Roles) != 0 {
+		if claims.SubjectID != "" || claims.TenantID != "" || claims.MembershipID != "" || claims.SessionID != "" || claims.AnonymousSubjectID != "" || len(claims.Roles) != 0 {
 			return false
 		}
 	default:

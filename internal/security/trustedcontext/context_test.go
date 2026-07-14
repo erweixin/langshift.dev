@@ -81,3 +81,21 @@ func TestPublicContextCannotSmuggleIdentity(t *testing.T) {
 		t.Fatalf("public identity smuggling error=%v", err)
 	}
 }
+
+func TestAnonymousContextRequiresIsolatedEphemeralPrincipal(t *testing.T) {
+	publicKey, privateKey, _ := ed25519.GenerateKey(rand.Reader)
+	now := time.Unix(1_800_000_000, 0)
+	claims := Claims{PrincipalKind: AnonymousUser, Issuer: "gateway", Audience: "identity", SubjectID: "ephemeral-user", TenantID: "anonymous-system", AnonymousSubjectID: "anonymous-subject", Roles: []string{"anonymous_preview"}, RequestID: "request", RequestMethod: "PATCH", RequestTarget: "/v1/onboarding-sessions/route", ClientIPHash: "YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWE", UserAgentHash: "YmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmI", CSRFVerified: true, IssuedAt: now.Unix(), ExpiresAt: now.Add(time.Minute).Unix(), Nonce: "nonce"}
+	token, err := Sign(claims, "key", privateKey, 5*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	verified, err := (Verifier{Issuer: "gateway", Audience: "identity", Keys: map[string]ed25519.PublicKey{"key": publicKey}, MaximumTTL: 5 * time.Minute}).Verify(token, now)
+	if err != nil || verified.PrincipalKind != AnonymousUser || verified.SubjectID != "ephemeral-user" || verified.AnonymousSubjectID != "anonymous-subject" {
+		t.Fatalf("claims=%#v error=%v", verified, err)
+	}
+	claims.MembershipID = "smuggled-membership"
+	if _, err = Sign(claims, "key", privateKey, 5*time.Minute); !errors.Is(err, ErrInvalidClaims) {
+		t.Fatalf("membership smuggling error=%v", err)
+	}
+}
