@@ -28,6 +28,7 @@ type ClaimRunCommand struct {
 	CorrelationID       string
 	RunEvent            PayloadPointer
 	AttemptStartedEvent PayloadPointer
+	AttemptExpiredEvent PayloadPointer
 }
 
 type RunClaim struct {
@@ -109,10 +110,11 @@ func (store RunStore) ClaimStart(ctx context.Context, command ClaimRunCommand) (
 		return RunClaim{}, err
 	}
 	if tag.RowsAffected() == 0 {
-		var actualEpoch, status, actualAttempt, requestHash string
+		var actualInboxID, actualEpoch, status, actualAttempt, requestHash string
 		var actualFence uint64
 		var actualExpiry time.Time
-		err = tx.QueryRow(ctx, `SELECT store_epoch::text,status,owner_attempt_id::text,fence,lease_expires_at,request_hash FROM agent.inbox WHERE tenant_id=$1 AND consumer_name=$2 AND command_id=$3 FOR UPDATE`, command.Command.TenantID, command.ConsumerName, command.Command.CommandID).Scan(&actualEpoch, &status, &actualAttempt, &actualFence, &actualExpiry, &requestHash)
+		var actualDigest []byte
+		err = tx.QueryRow(ctx, `SELECT id::text,store_epoch::text,status,owner_attempt_id::text,fence,lease_token_hash,lease_expires_at,request_hash FROM agent.inbox WHERE tenant_id=$1 AND consumer_name=$2 AND command_id=$3 FOR UPDATE`, command.Command.TenantID, command.ConsumerName, command.Command.CommandID).Scan(&actualInboxID, &actualEpoch, &status, &actualAttempt, &actualFence, &actualDigest, &actualExpiry, &requestHash)
 		if err != nil {
 			return RunClaim{}, err
 		}
@@ -120,10 +122,25 @@ func (store RunStore) ClaimStart(ctx context.Context, command ClaimRunCommand) (
 			return RunClaim{}, ErrClaimConflict
 		}
 		if status == "completed" {
-			return RunClaim{RunID: command.Command.AggregateID, TenantID: command.Command.TenantID, StoreEpoch: command.Command.StoreEpoch, CommandID: command.Command.CommandID, ConsumerName: command.ConsumerName, RequestHash: command.Command.PayloadHash, AttemptID: actualAttempt, Fence: actualFence, LeaseExpiresAt: actualExpiry, Completed: true}, ErrClaimCompleted
+			return RunClaim{RunID: command.Command.AggregateID, TenantID: command.Command.TenantID, StoreEpoch: command.Command.StoreEpoch, CommandID: command.Command.CommandID, ConsumerName: command.ConsumerName, RequestHash: command.Command.PayloadHash, InboxID: actualInboxID, AttemptID: actualAttempt, Fence: actualFence, LeaseExpiresAt: actualExpiry, Completed: true}, ErrClaimCompleted
 		}
 		if status == "running" && actualExpiry.After(now) {
-			return RunClaim{RunID: command.Command.AggregateID, TenantID: command.Command.TenantID, StoreEpoch: command.Command.StoreEpoch, CommandID: command.Command.CommandID, ConsumerName: command.ConsumerName, RequestHash: command.Command.PayloadHash, AttemptID: actualAttempt, Fence: actualFence, LeaseExpiresAt: actualExpiry}, ErrClaimBusy
+			return RunClaim{RunID: command.Command.AggregateID, TenantID: command.Command.TenantID, StoreEpoch: command.Command.StoreEpoch, CommandID: command.Command.CommandID, ConsumerName: command.ConsumerName, RequestHash: command.Command.PayloadHash, InboxID: actualInboxID, AttemptID: actualAttempt, Fence: actualFence, LeaseExpiresAt: actualExpiry}, ErrClaimBusy
+		}
+		if status == "running" && !actualExpiry.After(now) {
+			result, reclaimErr := store.reclaimExpiredRun(ctx, tx, command, expiredRunClaim{
+				inboxID: actualInboxID, oldAttemptID: actualAttempt, oldFence: actualFence,
+				oldDigest: actualDigest, oldExpiry: actualExpiry, newAttemptID: attemptID,
+				newFence: candidateFence, newDigest: credential.Digest[:], newToken: credential.Raw,
+				newExpiry: expiresAt, now: now,
+			})
+			if reclaimErr != nil {
+				return RunClaim{}, reclaimErr
+			}
+			if err = tx.Commit(ctx); err != nil {
+				return RunClaim{}, err
+			}
+			return result, nil
 		}
 		return RunClaim{}, ErrRunNotClaimable
 	}
@@ -196,7 +213,7 @@ func (store RunStore) validClaim() bool {
 
 func validClaimRun(command ClaimRunCommand) bool {
 	delivered := command.Command
-	return delivered.TenantID != "" && delivered.StoreEpoch != "" && delivered.CommandID != "" && validRunCommandType(delivered.CommandType) && delivered.AggregateKind == "run" && delivered.AggregateID != "" && delivered.PayloadRef != "" && delivered.PayloadHash != "" && command.ConsumerName != "" && command.WorkerID != "" && validJSONObject(command.Actor) && command.CorrelationID != "" && validPointer(command.RunEvent) && validPointer(command.AttemptStartedEvent)
+	return delivered.TenantID != "" && delivered.StoreEpoch != "" && delivered.CommandID != "" && validRunCommandType(delivered.CommandType) && delivered.AggregateKind == "run" && delivered.AggregateID != "" && delivered.PayloadRef != "" && delivered.PayloadHash != "" && command.ConsumerName != "" && command.WorkerID != "" && validJSONObject(command.Actor) && command.CorrelationID != "" && validPointer(command.RunEvent) && validPointer(command.AttemptStartedEvent) && validPointer(command.AttemptExpiredEvent)
 }
 
 func validRunCommandType(commandType string) bool {

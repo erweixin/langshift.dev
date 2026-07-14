@@ -141,6 +141,7 @@ func TestAcceptRunIsAtomicReplaySafeAndTenantIsolated(t *testing.T) {
 		Actor:               json.RawMessage(`{"kind":"service","id":"agent-run-worker"}`),
 		RunEvent:            PayloadPointer{Ref: "encrypted://events/run-started", Hash: "run-started-hash"},
 		AttemptStartedEvent: PayloadPointer{Ref: "encrypted://events/attempt-started", Hash: "attempt-started-hash"},
+		AttemptExpiredEvent: PayloadPointer{Ref: "encrypted://events/attempt-expired", Hash: "attempt-expired-hash"},
 	}
 	stale := claimCommand
 	stale.Command.StoreEpoch = "2e000000-0000-4000-8000-000000000099"
@@ -311,6 +312,114 @@ func TestAcceptRunIsAtomicReplaySafeAndTenantIsolated(t *testing.T) {
 	}
 	if runEvents != 4 || attemptEvents != 2 || totalOutbox != 7 {
 		t.Fatalf("terminal run events=%d attempt events=%d outbox=%d", runEvents, attemptEvents, totalOutbox)
+	}
+}
+
+func TestExpiredRunClaimIsFencedAndRecoverable(t *testing.T) {
+	ctx := context.Background()
+	admin := executionPool(t, ctx, "LITES_TEST_ADMIN_DATABASE_URL")
+	defer admin.Close()
+	pool := executionPool(t, ctx, "LITES_TEST_AGENT_DATABASE_URL")
+	defer pool.Close()
+	const tenantID = "3e000000-0000-4000-8000-000000000001"
+	const userID = "3e000000-0000-4000-8000-000000000002"
+	const runID = "3e000000-0000-4000-8000-000000000003"
+	const conversationID = "3e000000-0000-4000-8000-000000000004"
+	const correlationID = "3e000000-0000-4000-8000-000000000005"
+	const storeEpoch = "3e000000-0000-4000-8000-000000000006"
+	now := time.Date(2026, time.July, 14, 17, 0, 0, 0, time.UTC)
+	if _, err := admin.Exec(ctx, `INSERT INTO identity.users(id,normalized_email,locale,status) VALUES($1,'reclaim-owner@example.invalid','en','active')`, userID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := admin.Exec(ctx, `INSERT INTO identity.tenants(id,kind,name,status,region,owner_user_id) VALUES($1,'personal','Reclaim Owner','active','US',$2)`, tenantID, userID); err != nil {
+		t.Fatal(err)
+	}
+	manager := opaque.Manager{Purpose: "agent-run-lease", Pepper: bytes.Repeat([]byte{0x72}, 32)}
+	store := RunStore{
+		Pool: pool, Appender: eventpostgres.Appender{Now: func() time.Time { return now }},
+		IDKey: bytes.Repeat([]byte{0x69}, 32), StoreEpoch: storeEpoch, Now: func() time.Time { return now },
+		Epochs: executionEpochStub{epoch: storeEpoch}, Tokens: manager, LeaseTTL: 90 * time.Second,
+	}
+	accepted, err := store.Accept(ctx, AcceptRunCommand{
+		RunID: runID, TenantID: tenantID, UserID: userID, ConversationID: conversationID, CorrelationID: correlationID,
+		DueAt: now.Add(time.Hour), ProfileSnapshotID: "route_planner@sha256:reclaim",
+		BudgetSnapshot: json.RawMessage(`{"max_steps":32}`), Actor: json.RawMessage(`{"kind":"user","id":"3e000000-0000-4000-8000-000000000002"}`),
+		AcceptedEvent: PayloadPointer{Ref: "encrypted://reclaim/accepted", Hash: "accepted"}, QueuedEvent: PayloadPointer{Ref: "encrypted://reclaim/queued", Hash: "queued"}, StartCommand: PayloadPointer{Ref: "encrypted://reclaim/start", Hash: "start"},
+		QueueClass: "interactive", Priority: 100,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimCommand := ClaimRunCommand{
+		Command:      eventpostgres.DeliveredCommand{TenantID: tenantID, StoreEpoch: storeEpoch, CommandID: accepted.StartCommandID, CommandType: "StartAgentRun", AggregateKind: "run", AggregateID: runID, PayloadRef: "encrypted://reclaim/start", PayloadHash: "start"},
+		ConsumerName: "agent-run-worker", WorkerID: "worker-before-crash", CorrelationID: correlationID,
+		Actor:    json.RawMessage(`{"kind":"service","id":"agent-run-worker"}`),
+		RunEvent: PayloadPointer{Ref: "encrypted://reclaim/run-started", Hash: "run-started"}, AttemptStartedEvent: PayloadPointer{Ref: "encrypted://reclaim/attempt-started", Hash: "attempt-started"}, AttemptExpiredEvent: PayloadPointer{Ref: "encrypted://reclaim/attempt-expired", Hash: "attempt-expired"},
+	}
+	oldClaim, err := store.ClaimStart(ctx, claimCommand)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now = oldClaim.LeaseExpiresAt.Add(time.Microsecond)
+	claimCommand.WorkerID = "worker-after-crash"
+	const contenders = 32
+	var wait sync.WaitGroup
+	results := make(chan RunClaim, contenders)
+	errorsFound := make(chan error, contenders)
+	for range contenders {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			result, claimErr := store.ClaimStart(ctx, claimCommand)
+			if claimErr != nil {
+				errorsFound <- claimErr
+				return
+			}
+			results <- result
+		}()
+	}
+	wait.Wait()
+	close(results)
+	close(errorsFound)
+	var recovered RunClaim
+	var successes, busy int
+	for result := range results {
+		recovered = result
+		successes++
+	}
+	for claimErr := range errorsFound {
+		if !errors.Is(claimErr, ErrClaimBusy) {
+			t.Fatalf("unexpected reclaim error: %v", claimErr)
+		}
+		busy++
+	}
+	if successes != 1 || busy != contenders-1 || recovered.Fence != oldClaim.Fence+1 || recovered.AttemptID == oldClaim.AttemptID || recovered.RunVersion != oldClaim.RunVersion {
+		t.Fatalf("recovered=%#v successes=%d busy=%d old=%#v", recovered, successes, busy, oldClaim)
+	}
+	if _, err = store.HeartbeatRun(ctx, oldClaim); !errors.Is(err, ErrExecutionRightConflict) {
+		t.Fatalf("old heartbeat after reclaim: %v", err)
+	}
+	if _, err = store.CompleteRunTerminal(ctx, CompleteRunCommand{Claim: oldClaim, ExpectedRunVersion: oldClaim.RunVersion, TargetState: "failed", ResultHash: "late-result", Actor: claimCommand.Actor, CorrelationID: correlationID, RunEvent: PayloadPointer{Ref: "encrypted://late/run-failed", Hash: "late-failed"}, AttemptCompletedEvent: PayloadPointer{Ref: "encrypted://late/attempt", Hash: "late-attempt"}}); !errors.Is(err, ErrExecutionRightConflict) {
+		t.Fatalf("old completion after reclaim: %v", err)
+	}
+	var runFence, attempts, runEvents, attemptEvents, outbox int
+	var activeAttempt, oldStatus, newStatus, inboxAttempt string
+	err = admin.QueryRow(ctx, `
+		SELECT r.current_fence,r.active_attempt_id::text,old.status,new.status,i.owner_attempt_id::text,
+		       (SELECT count(*) FROM agent.job_attempts WHERE tenant_id=$1 AND job_id=$4),
+		       (SELECT count(*) FROM agent.events WHERE aggregate_kind='run' AND aggregate_id=$2),
+		       (SELECT count(*) FROM agent.events WHERE aggregate_kind='job_attempt' AND aggregate_id IN ($3,$5)),
+		       (SELECT count(*) FROM agent.outbox WHERE aggregate_id IN ($2,$3,$5))
+		FROM agent.runs r
+		JOIN agent.job_attempts old ON old.id=$3
+		JOIN agent.job_attempts new ON new.id=$5
+		JOIN agent.inbox i ON i.id=$6
+		WHERE r.id=$2`, tenantID, runID, oldClaim.AttemptID, oldClaim.JobID, recovered.AttemptID, recovered.InboxID).Scan(&runFence, &activeAttempt, &oldStatus, &newStatus, &inboxAttempt, &attempts, &runEvents, &attemptEvents, &outbox)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runFence != 2 || activeAttempt != recovered.AttemptID || inboxAttempt != recovered.AttemptID || oldStatus != "expired" || newStatus != "running" || attempts != 2 || runEvents != 3 || attemptEvents != 3 || outbox != 7 {
+		t.Fatalf("fence=%d active=%s inbox=%s old=%s new=%s attempts=%d run_events=%d attempt_events=%d outbox=%d", runFence, activeAttempt, inboxAttempt, oldStatus, newStatus, attempts, runEvents, attemptEvents, outbox)
 	}
 }
 

@@ -68,16 +68,18 @@ func TestClaimInputFailsClosedAndIdentifiersAreStable(t *testing.T) {
 		Actor:               json.RawMessage(`{"kind":"service"}`),
 		RunEvent:            PayloadPointer{Ref: "encrypted://run-started", Hash: "run-started"},
 		AttemptStartedEvent: PayloadPointer{Ref: "encrypted://attempt-started", Hash: "attempt-started"},
+		AttemptExpiredEvent: PayloadPointer{Ref: "encrypted://attempt-expired", Hash: "attempt-expired"},
 	}
 	if _, err := (RunStore{}).ClaimStart(t.Context(), valid); !errors.Is(err, ErrConfiguration) {
 		t.Fatalf("invalid store: %v", err)
 	}
 	for name, mutate := range map[string]func(*ClaimRunCommand){
-		"wrong command type": func(command *ClaimRunCommand) { command.Command.CommandType = "RunAgent" },
-		"wrong aggregate":    func(command *ClaimRunCommand) { command.Command.AggregateKind = "tool_call" },
-		"missing worker":     func(command *ClaimRunCommand) { command.WorkerID = "" },
-		"scalar actor":       func(command *ClaimRunCommand) { command.Actor = json.RawMessage(`1`) },
-		"missing event hash": func(command *ClaimRunCommand) { command.RunEvent.Hash = "" },
+		"wrong command type":  func(command *ClaimRunCommand) { command.Command.CommandType = "RunAgent" },
+		"wrong aggregate":     func(command *ClaimRunCommand) { command.Command.AggregateKind = "tool_call" },
+		"missing worker":      func(command *ClaimRunCommand) { command.WorkerID = "" },
+		"scalar actor":        func(command *ClaimRunCommand) { command.Actor = json.RawMessage(`1`) },
+		"missing event hash":  func(command *ClaimRunCommand) { command.RunEvent.Hash = "" },
+		"missing expiry hash": func(command *ClaimRunCommand) { command.AttemptExpiredEvent.Hash = "" },
 	} {
 		t.Run(name, func(t *testing.T) {
 			candidate := valid
