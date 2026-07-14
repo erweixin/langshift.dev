@@ -1,0 +1,143 @@
+# Rendering-only values. The zero digests do not resolve to deployable images.
+global:
+  region: US
+  cell: us-test-1
+  version: test
+  otlpGrpcEndpoint: otel-collector.observability.svc.cluster.local:4317
+  otlpTlsServerName: otel-collector.observability.svc.cluster.local
+  priorityClassName: lites-critical
+  externalSecretStore: {kind: ClusterSecretStore, name: lites-test-secrets}
+
+workloads:
+  api-gateway:
+    image: {digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"}
+    externalSecretRemoteKey: /lites/us-test-1/api-gateway
+    env:
+      DATABASE_URL_FILE: /run/secrets/database-url
+      LISTEN_ADDRESS: ":8443"
+      HEALTH_ADDRESS: ":8080"
+      SERVER_TLS_CERT_FILE: /run/secrets/server-tls.crt
+      SERVER_TLS_KEY_FILE: /run/secrets/server-tls.key
+      IDENTITY_UPSTREAM_URL: https://lites-identity-service:8443
+      IDENTITY_UPSTREAM_ROOT_CA_FILE: /run/secrets/identity-ca.crt
+      IDENTITY_UPSTREAM_CLIENT_CERT_FILE: /run/secrets/identity-client.crt
+      IDENTITY_UPSTREAM_CLIENT_KEY_FILE: /run/secrets/identity-client.key
+      IDENTITY_UPSTREAM_TLS_SERVER_NAME: lites-identity-service
+      GATEWAY_SECRET_BUNDLE_FILE: /run/secrets/gateway-bundle.json
+      TRUSTED_CONTEXT_KEYRING_FILE: /run/secrets/trusted-context-keyring.json
+      PUBLIC_ORIGINS: https://app.example.invalid
+      OTLP_ROOT_CA_FILE: /run/secrets/otel-ca.crt
+      OTLP_BEARER_TOKEN_FILE: /run/secrets/otel-token
+    externalEgress: [{cidr: 10.10.0.0/24, ports: [5432]}]
+  identity-service:
+    image: {digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"}
+    externalSecretRemoteKey: /lites/us-test-1/identity-service
+    env: &identityEnv
+      DATABASE_URL_FILE: /run/secrets/database-url
+      LISTEN_ADDRESS: ":8443"
+      HEALTH_ADDRESS: ":8081"
+      SERVER_TLS_CERT_FILE: /run/secrets/server-tls.crt
+      SERVER_TLS_KEY_FILE: /run/secrets/server-tls.key
+      SERVER_CLIENT_CA_FILE: /run/secrets/client-ca.crt
+      TRUSTED_CONTEXT_KEYRING_FILE: /run/secrets/trusted-context-keyring.json
+      STORE_EPOCH_URL: https://lites-store-epoch-authority:8443/v1/store-epoch
+      STORE_EPOCH_TOKEN_FILE: /run/secrets/store-epoch-token
+      STORE_EPOCH_ROOT_CA_FILE: /run/secrets/store-epoch-ca.crt
+      IDENTITY_SECRET_BUNDLE_FILE: /run/secrets/identity-bundle.json
+      IDENTITY_PUBLIC_TENANT_ID: 20000000-0000-4000-8000-000000000001
+      ANONYMOUS_HANDLE_KEY_ID: anonymous-test
+      PASSWORD_RANGE_ALLOWED_HOSTS: api.pwnedpasswords.com
+      VALKEY_ADDRESSES: valkey.example.invalid:6379
+      VALKEY_PASSWORD_FILE: /run/secrets/valkey-password
+      VALKEY_ROOT_CA_FILE: /run/secrets/valkey-ca.crt
+      VAULT_ADDR: https://vault.example.invalid
+      VAULT_TOKEN_FILE: /run/secrets/vault-token
+      VAULT_CACERT: /run/secrets/vault-ca.crt
+      S3_REGION: us-test-1
+      S3_PAYLOAD_BUCKET: lites-test-payloads
+      S3_IMPORT_BUCKET: lites-test-imports
+      S3_SERVER_SIDE_ENCRYPTION: aws:kms
+      S3_KMS_KEY_ID: test-key
+      AWS_SHARED_CREDENTIALS_FILE: /run/secrets/aws-credentials
+      OTLP_ROOT_CA_FILE: /run/secrets/otel-ca.crt
+      OTLP_BEARER_TOKEN_FILE: /run/secrets/otel-token
+    externalEgress: [{cidr: 10.10.0.0/24, ports: [443, 5432, 6379]}]
+  identity-import-worker:
+    image: {digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"}
+    externalSecretRemoteKey: /lites/us-test-1/identity-import-worker
+    env: &workerEnv
+      DATABASE_URL_FILE: /run/secrets/database-url
+      HEALTH_ADDRESS: ":8082"
+      STORE_EPOCH_URL: https://lites-store-epoch-authority:8443/v1/store-epoch
+      STORE_EPOCH_TOKEN_FILE: /run/secrets/store-epoch-token
+      STORE_EPOCH_ROOT_CA_FILE: /run/secrets/store-epoch-ca.crt
+      NATS_URLS: tls://nats.example.invalid:4222
+      NATS_CREDENTIALS_FILE: /run/secrets/nats.creds
+      NATS_ROOT_CA_FILE: /run/secrets/nats-ca.crt
+      NATS_STREAM_REPLICAS: "3"
+      VAULT_ADDR: https://vault.example.invalid
+      VAULT_TOKEN_FILE: /run/secrets/vault-token
+      VAULT_CACERT: /run/secrets/vault-ca.crt
+      S3_REGION: us-test-1
+      S3_PAYLOAD_BUCKET: lites-test-payloads
+      S3_IMPORT_BUCKET: lites-test-imports
+      S3_SERVER_SIDE_ENCRYPTION: aws:kms
+      S3_KMS_KEY_ID: test-key
+      AWS_SHARED_CREDENTIALS_FILE: /run/secrets/aws-credentials
+      IDENTITY_INBOX_LEASE_PEPPER_FILE: /run/secrets/inbox-pepper
+      IDENTITY_INVITATION_TOKEN_PEPPER_FILE: /run/secrets/invitation-pepper
+      CLAIM_IDENTITY_KEY_FILE: /run/secrets/claim-identity-key
+      IDENTITY_PUBLIC_TENANT_ID: 20000000-0000-4000-8000-000000000001
+      OTLP_ROOT_CA_FILE: /run/secrets/otel-ca.crt
+      OTLP_BEARER_TOKEN_FILE: /run/secrets/otel-token
+    externalEgress: [{cidr: 10.10.0.0/24, ports: [443, 4222, 5432]}]
+  identity-mail-worker:
+    image: {digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"}
+    externalSecretRemoteKey: /lites/us-test-1/identity-mail-worker
+    env:
+      <<: *workerEnv
+      HEALTH_ADDRESS: ":8083"
+      PUBLIC_APP_URL: https://app.example.invalid
+      SMTP_ADDRESS: smtp.example.invalid:465
+      SMTP_SERVER_NAME: smtp.example.invalid
+      SMTP_FROM_ADDRESS: no-reply@example.invalid
+      SMTP_USERNAME: lites-test
+      SMTP_PASSWORD_FILE: /run/secrets/smtp-password
+      SMTP_ROOT_CA_FILE: /run/secrets/smtp-ca.crt
+    externalEgress: [{cidr: 10.10.0.0/24, ports: [443, 465, 4222, 5432]}]
+  outbox-publisher:
+    image: {digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"}
+    externalSecretRemoteKey: /lites/us-test-1/outbox-publisher
+    env:
+      DATABASE_URL_FILE: /run/secrets/database-url
+      HEALTH_ADDRESS: ":8081"
+      STORE_EPOCH_URL: https://lites-store-epoch-authority:8443/v1/store-epoch
+      STORE_EPOCH_TOKEN_FILE: /run/secrets/store-epoch-token
+      STORE_EPOCH_ROOT_CA_FILE: /run/secrets/store-epoch-ca.crt
+      NATS_URLS: tls://nats.example.invalid:4222
+      NATS_CREDENTIALS_FILE: /run/secrets/nats.creds
+      NATS_ROOT_CA_FILE: /run/secrets/nats-ca.crt
+      NATS_STREAM_REPLICAS: "3"
+      OUTBOX_LEASE_PEPPER_FILE: /run/secrets/outbox-pepper
+      OTLP_ROOT_CA_FILE: /run/secrets/otel-ca.crt
+      OTLP_BEARER_TOKEN_FILE: /run/secrets/otel-token
+    externalEgress: [{cidr: 10.10.0.0/24, ports: [4222, 5432]}]
+  store-epoch-authority:
+    image: {digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"}
+    externalSecretRemoteKey: /lites/us-test-1/store-epoch-authority
+    env:
+      LISTEN_ADDRESS: ":8443"
+      HEALTH_ADDRESS: 127.0.0.1:8084
+      STORE_EPOCH_FILE: /run/secrets/store-epoch
+      STORE_EPOCH_BEARER_TOKEN_FILE: /run/secrets/store-epoch-token
+      SERVER_TLS_CERT_FILE: /run/secrets/server-tls.crt
+      SERVER_TLS_KEY_FILE: /run/secrets/server-tls.key
+      SERVER_CLIENT_CA_FILE: /run/secrets/client-ca.crt
+      OTLP_ROOT_CA_FILE: /run/secrets/otel-ca.crt
+      OTLP_BEARER_TOKEN_FILE: /run/secrets/otel-token
+    externalEgress: []
+
+migration:
+  image: {digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"}
+  existingSecret: lites-migration
+  externalEgress: [{cidr: 10.10.0.0/24, ports: [5432]}]

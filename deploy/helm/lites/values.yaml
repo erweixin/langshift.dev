@@ -1,0 +1,116 @@
+fullnameOverride: lites
+
+global:
+  environment: production
+  region: ""
+  cell: ""
+  version: ""
+  imageRegistry: ghcr.io/langshift/lites
+  imagePullPolicy: IfNotPresent
+  priorityClassName: ""
+  traceSampleRatio: "0.10"
+  otlpGrpcEndpoint: ""
+  otlpTlsServerName: ""
+  edgeNamespace: edge-system
+  monitoringNamespace: observability
+  dnsNamespace: kube-system
+  dnsPodLabels:
+    k8s-app: kube-dns
+  externalSecretStore:
+    kind: ClusterSecretStore
+    name: ""
+  externalSecretRefreshInterval: 1h
+
+workloads:
+  api-gateway:
+    enabled: true
+    replicas: 3
+    image: {repository: api-gateway, digest: ""}
+    externalSecretRemoteKey: ""
+    service: {enabled: true, port: 8443}
+    health: {type: http, port: 8080}
+    autoscaling: {enabled: true, minReplicas: 3, maxReplicas: 12, cpuUtilization: 60, memoryUtilization: 70}
+    resources:
+      requests: {cpu: 250m, memory: 256Mi}
+      limits: {cpu: "2", memory: 1Gi}
+    requiredEnv: [DATABASE_URL_FILE, SERVER_TLS_CERT_FILE, SERVER_TLS_KEY_FILE, IDENTITY_UPSTREAM_URL, IDENTITY_UPSTREAM_ROOT_CA_FILE, IDENTITY_UPSTREAM_CLIENT_CERT_FILE, IDENTITY_UPSTREAM_CLIENT_KEY_FILE, IDENTITY_UPSTREAM_TLS_SERVER_NAME, GATEWAY_SECRET_BUNDLE_FILE, TRUSTED_CONTEXT_KEYRING_FILE, PUBLIC_ORIGINS, OTLP_ROOT_CA_FILE, OTLP_BEARER_TOKEN_FILE]
+    env: {}
+    externalEgress: []
+  identity-service:
+    enabled: true
+    replicas: 3
+    image: {repository: identity-service, digest: ""}
+    externalSecretRemoteKey: ""
+    service: {enabled: true, port: 8443}
+    health: {type: http, port: 8081}
+    autoscaling: {enabled: true, minReplicas: 3, maxReplicas: 18, cpuUtilization: 60, memoryUtilization: 70}
+    resources:
+      requests: {cpu: 500m, memory: 512Mi}
+      limits: {cpu: "3", memory: 2Gi}
+    requiredEnv: [DATABASE_URL_FILE, SERVER_TLS_CERT_FILE, SERVER_TLS_KEY_FILE, SERVER_CLIENT_CA_FILE, TRUSTED_CONTEXT_KEYRING_FILE, STORE_EPOCH_URL, STORE_EPOCH_TOKEN_FILE, STORE_EPOCH_ROOT_CA_FILE, IDENTITY_SECRET_BUNDLE_FILE, IDENTITY_PUBLIC_TENANT_ID, ANONYMOUS_HANDLE_KEY_ID, VALKEY_ADDRESSES, VALKEY_PASSWORD_FILE, VALKEY_ROOT_CA_FILE, VAULT_ADDR, VAULT_TOKEN_FILE, VAULT_CACERT, S3_REGION, S3_PAYLOAD_BUCKET, S3_IMPORT_BUCKET, AWS_SHARED_CREDENTIALS_FILE, OTLP_ROOT_CA_FILE, OTLP_BEARER_TOKEN_FILE]
+    env: {}
+    externalEgress: []
+  identity-import-worker:
+    enabled: true
+    replicas: 3
+    image: {repository: identity-import-worker, digest: ""}
+    externalSecretRemoteKey: ""
+    service: {enabled: false, port: 0}
+    health: {type: http, port: 8082}
+    autoscaling: {enabled: true, minReplicas: 3, maxReplicas: 24, cpuUtilization: 65, memoryUtilization: 75}
+    resources:
+      requests: {cpu: 500m, memory: 512Mi}
+      limits: {cpu: "4", memory: 2Gi}
+    requiredEnv: [DATABASE_URL_FILE, STORE_EPOCH_URL, STORE_EPOCH_TOKEN_FILE, STORE_EPOCH_ROOT_CA_FILE, NATS_URLS, NATS_CREDENTIALS_FILE, NATS_ROOT_CA_FILE, VAULT_ADDR, VAULT_TOKEN_FILE, VAULT_CACERT, S3_REGION, S3_PAYLOAD_BUCKET, S3_IMPORT_BUCKET, AWS_SHARED_CREDENTIALS_FILE, IDENTITY_INBOX_LEASE_PEPPER_FILE, IDENTITY_INVITATION_TOKEN_PEPPER_FILE, CLAIM_IDENTITY_KEY_FILE, IDENTITY_PUBLIC_TENANT_ID, OTLP_ROOT_CA_FILE, OTLP_BEARER_TOKEN_FILE]
+    env: {}
+    externalEgress: []
+  identity-mail-worker:
+    enabled: true
+    replicas: 3
+    image: {repository: identity-mail-worker, digest: ""}
+    externalSecretRemoteKey: ""
+    service: {enabled: false, port: 0}
+    health: {type: http, port: 8083}
+    autoscaling: {enabled: true, minReplicas: 3, maxReplicas: 18, cpuUtilization: 60, memoryUtilization: 70}
+    resources:
+      requests: {cpu: 300m, memory: 384Mi}
+      limits: {cpu: "2", memory: 1536Mi}
+    requiredEnv: [DATABASE_URL_FILE, STORE_EPOCH_URL, STORE_EPOCH_TOKEN_FILE, STORE_EPOCH_ROOT_CA_FILE, NATS_URLS, NATS_CREDENTIALS_FILE, NATS_ROOT_CA_FILE, VAULT_ADDR, VAULT_TOKEN_FILE, VAULT_CACERT, S3_REGION, S3_PAYLOAD_BUCKET, AWS_SHARED_CREDENTIALS_FILE, IDENTITY_INBOX_LEASE_PEPPER_FILE, PUBLIC_APP_URL, SMTP_ADDRESS, SMTP_SERVER_NAME, SMTP_FROM_ADDRESS, SMTP_USERNAME, SMTP_PASSWORD_FILE, SMTP_ROOT_CA_FILE, OTLP_ROOT_CA_FILE, OTLP_BEARER_TOKEN_FILE]
+    env: {}
+    externalEgress: []
+  outbox-publisher:
+    enabled: true
+    replicas: 3
+    image: {repository: outbox-publisher, digest: ""}
+    externalSecretRemoteKey: ""
+    service: {enabled: false, port: 0}
+    health: {type: http, port: 8081}
+    autoscaling: {enabled: true, minReplicas: 3, maxReplicas: 12, cpuUtilization: 60, memoryUtilization: 70}
+    resources:
+      requests: {cpu: 300m, memory: 256Mi}
+      limits: {cpu: "2", memory: 1Gi}
+    requiredEnv: [DATABASE_URL_FILE, STORE_EPOCH_URL, STORE_EPOCH_TOKEN_FILE, STORE_EPOCH_ROOT_CA_FILE, NATS_URLS, NATS_CREDENTIALS_FILE, NATS_ROOT_CA_FILE, OUTBOX_LEASE_PEPPER_FILE, OTLP_ROOT_CA_FILE, OTLP_BEARER_TOKEN_FILE]
+    env: {}
+    externalEgress: []
+  store-epoch-authority:
+    enabled: true
+    replicas: 3
+    image: {repository: store-epoch-authority, digest: ""}
+    externalSecretRemoteKey: ""
+    service: {enabled: true, port: 8443}
+    health: {type: tcp, port: 8443}
+    autoscaling: {enabled: false, minReplicas: 3, maxReplicas: 3, cpuUtilization: 60, memoryUtilization: 70}
+    resources:
+      requests: {cpu: 100m, memory: 128Mi}
+      limits: {cpu: "1", memory: 512Mi}
+    requiredEnv: [STORE_EPOCH_FILE, STORE_EPOCH_BEARER_TOKEN_FILE, SERVER_TLS_CERT_FILE, SERVER_TLS_KEY_FILE, SERVER_CLIENT_CA_FILE, OTLP_ROOT_CA_FILE, OTLP_BEARER_TOKEN_FILE]
+    env: {}
+    externalEgress: []
+
+migration:
+  enabled: true
+  image: {repository: lites-migrate, digest: ""}
+  existingSecret: ""
+  databaseUrlKey: database-url
+  activeDeadlineSeconds: 900
+  externalEgress: []

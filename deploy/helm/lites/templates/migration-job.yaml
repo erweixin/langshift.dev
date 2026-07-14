@@ -1,0 +1,62 @@
+{{- if .Values.migration.enabled }}
+{{- $digest := required "migration.image.digest is required" .Values.migration.image.digest }}
+{{- if not (regexMatch "^sha256:[0-9a-f]{64}$" $digest) }}{{ fail "migration.image.digest must be sha256" }}{{- end }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "lites.fullname" . }}-migrate
+  labels:
+    {{- include "lites.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migration
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-5"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: {{ .Values.migration.activeDeadlineSeconds }}
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        {{- include "lites.selectorLabels" (dict "root" . "name" "migration") | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: migrate
+          image: {{ printf "%s/%s@%s" .Values.global.imageRegistry .Values.migration.image.repository $digest | quote }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          args: [--direction, up, --root, /app, --manifest, deploy/migrations/manifest.json]
+          env:
+            - {name: ALLOW_INSECURE_DEVELOPMENT, value: "false"}
+            - name: DATABASE_URL_FILE
+              value: /run/secrets/database-url
+          volumeMounts:
+            - {name: migration-secret, mountPath: /run/secrets, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            privileged: false
+            capabilities: {drop: [ALL]}
+          resources:
+            requests: {cpu: 250m, memory: 256Mi}
+            limits: {cpu: "2", memory: 1Gi}
+      volumes:
+        - name: migration-secret
+          secret:
+            secretName: {{ required "migration.existingSecret is required and must be provisioned before Helm hooks" .Values.migration.existingSecret }}
+            items:
+              - {key: {{ .Values.migration.databaseUrlKey }}, path: database-url}
+            defaultMode: 0440
+        - name: tmp
+          emptyDir: {medium: Memory, sizeLimit: 32Mi}
+{{- end }}

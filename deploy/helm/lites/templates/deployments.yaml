@@ -1,0 +1,126 @@
+{{- range $name, $workload := .Values.workloads }}
+{{- if $workload.enabled }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "lites.workloadName" (dict "root" $ "name" $name) }}
+  labels:
+    {{- include "lites.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $name }}
+spec:
+  replicas: {{ $workload.replicas }}
+  revisionHistoryLimit: 10
+  minReadySeconds: 10
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxUnavailable: 0, maxSurge: 1}
+  selector:
+    matchLabels:
+      {{- include "lites.selectorLabels" (dict "root" $ "name" $name) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "lites.selectorLabels" (dict "root" $ "name" $name) | nindent 8 }}
+        lites.dev/cell: {{ $.Values.global.cell | quote }}
+      annotations:
+        checksum/config: {{ toJson $workload.env | sha256sum }}
+        secret.reloader.stakater.com/reload: {{ include "lites.workloadName" (dict "root" $ "name" $name) | quote }}
+    spec:
+      serviceAccountName: {{ include "lites.workloadName" (dict "root" $ "name" $name) }}
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: 60
+      priorityClassName: {{ required "global.priorityClassName is required" $.Values.global.priorityClassName | quote }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile: {type: RuntimeDefault}
+      nodeSelector:
+        kubernetes.io/os: linux
+      topologySpreadConstraints:
+        - maxSkew: 1
+          minDomains: 3
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              {{- include "lites.selectorLabels" (dict "root" $ "name" $name) | nindent 14 }}
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              {{- include "lites.selectorLabels" (dict "root" $ "name" $name) | nindent 14 }}
+      containers:
+        - name: {{ $name }}
+          image: {{ include "lites.image" (dict "root" $ "name" $name "workload" $workload) | quote }}
+          imagePullPolicy: {{ $.Values.global.imagePullPolicy }}
+          env:
+            {{- range $key, $value := $workload.env }}
+            {{- if regexMatch "(SECRET|TOKEN|PASSWORD|PEPPER|PRIVATE|CREDENTIAL|CACERT|_KEY)" $key }}
+            {{- if and (not (has $key (list "PASSWORD_RANGE_ALLOWED_HOSTS" "ANONYMOUS_HANDLE_KEY_ID" "S3_KMS_KEY_ID"))) (not (regexMatch "^/run/secrets/[A-Za-z0-9._-]+$" $value)) }}
+            {{- fail (printf "workloads.%s.env.%s must reference a file below /run/secrets" $name $key) }}
+            {{- end }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+            {{- end }}
+          envFrom:
+            - configMapRef: {name: {{ include "lites.workloadName" (dict "root" $ "name" $name) }}}
+          volumeMounts:
+            - {name: secrets, mountPath: /run/secrets, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            privileged: false
+            capabilities: {drop: [ALL]}
+          resources:
+            {{- toYaml $workload.resources | nindent 12 }}
+          {{- if eq $workload.health.type "http" }}
+          ports:
+            - {name: health, containerPort: {{ $workload.health.port }}, protocol: TCP}
+            {{- if $workload.service.enabled }}
+            - {name: service, containerPort: {{ $workload.service.port }}, protocol: TCP}
+            {{- end }}
+          startupProbe:
+            httpGet: {path: /live, port: health, scheme: HTTP}
+            failureThreshold: 30
+            periodSeconds: 2
+          livenessProbe:
+            httpGet: {path: /live, port: health, scheme: HTTP}
+            failureThreshold: 3
+            periodSeconds: 10
+          readinessProbe:
+            httpGet: {path: /ready, port: health, scheme: HTTP}
+            failureThreshold: 3
+            periodSeconds: 5
+          {{- else }}
+          ports:
+            - {name: service, containerPort: {{ $workload.service.port }}, protocol: TCP}
+          startupProbe:
+            tcpSocket: {port: service}
+            failureThreshold: 30
+            periodSeconds: 2
+          livenessProbe:
+            tcpSocket: {port: service}
+            failureThreshold: 3
+            periodSeconds: 10
+          readinessProbe:
+            tcpSocket: {port: service}
+            failureThreshold: 3
+            periodSeconds: 5
+          {{- end }}
+      volumes:
+        - name: secrets
+          secret:
+            secretName: {{ include "lites.workloadName" (dict "root" $ "name" $name) }}
+            defaultMode: 0440
+        - name: tmp
+          emptyDir: {medium: Memory, sizeLimit: 64Mi}
+{{- end }}
+{{- end }}

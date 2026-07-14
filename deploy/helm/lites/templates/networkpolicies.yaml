@@ -1,0 +1,154 @@
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "lites.fullname" . }}-default-deny
+  labels:
+    {{- include "lites.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "lites.fullname" . }}-dns-egress
+  labels:
+    {{- include "lites.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.global.dnsNamespace }}
+          podSelector:
+            matchLabels:
+              {{- toYaml .Values.global.dnsPodLabels | nindent 14 }}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+{{- range $name, $workload := .Values.workloads }}
+{{- if $workload.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "lites.workloadName" (dict "root" $ "name" $name) }}
+  labels:
+    {{- include "lites.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $name }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "lites.selectorLabels" (dict "root" $ "name" $name) | nindent 6 }}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    {{- if eq $workload.health.type "http" }}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $.Values.global.monitoringNamespace }}
+      ports:
+        - {protocol: TCP, port: {{ $workload.health.port }}}
+    {{- end }}
+    {{- if eq $name "api-gateway" }}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $.Values.global.edgeNamespace }}
+      ports:
+        - {protocol: TCP, port: {{ $workload.service.port }}}
+    {{- else if eq $name "identity-service" }}
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "lites.selectorLabels" (dict "root" $ "name" "api-gateway") | nindent 14 }}
+      ports:
+        - {protocol: TCP, port: {{ $workload.service.port }}}
+    {{- else if eq $name "store-epoch-authority" }}
+    - from:
+        {{- range $client := list "identity-service" "identity-import-worker" "identity-mail-worker" "outbox-publisher" }}
+        - podSelector:
+            matchLabels:
+              {{- include "lites.selectorLabels" (dict "root" $ "name" $client) | nindent 14 }}
+        {{- end }}
+      ports:
+        - {protocol: TCP, port: {{ $workload.service.port }}}
+    {{- end }}
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $.Values.global.monitoringNamespace }}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: opentelemetry-collector
+      ports:
+        - {protocol: TCP, port: 4317}
+    {{- if eq $name "api-gateway" }}
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "lites.selectorLabels" (dict "root" $ "name" "identity-service") | nindent 14 }}
+      ports:
+        - {protocol: TCP, port: 8443}
+    {{- else if or (eq $name "identity-service") (eq $name "identity-import-worker") (eq $name "identity-mail-worker") (eq $name "outbox-publisher") }}
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "lites.selectorLabels" (dict "root" $ "name" "store-epoch-authority") | nindent 14 }}
+      ports:
+        - {protocol: TCP, port: 8443}
+    {{- end }}
+    {{- range $rule := $workload.externalEgress }}
+    - to:
+        - ipBlock:
+            cidr: {{ $rule.cidr }}
+      ports:
+        {{- range $port := $rule.ports }}
+        - {protocol: TCP, port: {{ $port }}}
+        {{- end }}
+    {{- end }}
+{{- end }}
+{{- end }}
+{{- if .Values.migration.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "lites.fullname" . }}-migration
+  labels:
+    {{- include "lites.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migration
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "lites.selectorLabels" (dict "root" . "name" "migration") | nindent 6 }}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.global.dnsNamespace }}
+          podSelector:
+            matchLabels:
+              {{- toYaml .Values.global.dnsPodLabels | nindent 14 }}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    {{- range $rule := .Values.migration.externalEgress }}
+    - to:
+        - ipBlock:
+            cidr: {{ $rule.cidr }}
+      ports:
+        {{- range $port := $rule.ports }}
+        - {protocol: TCP, port: {{ $port }}}
+        {{- end }}
+    {{- end }}
+{{- end }}

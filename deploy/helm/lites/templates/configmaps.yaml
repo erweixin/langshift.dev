@@ -1,0 +1,28 @@
+{{- range $name, $workload := .Values.workloads }}
+{{- if $workload.enabled }}
+{{- range $requiredName := $workload.requiredEnv }}
+{{- if not (get $workload.env $requiredName) }}{{ fail (printf "workloads.%s.env.%s is required" $name $requiredName) }}{{- end }}
+{{- end }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "lites.workloadName" (dict "root" $ "name" $name) }}
+  labels:
+    {{- include "lites.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $name }}
+data:
+  ALLOW_INSECURE_DEVELOPMENT: "false"
+  LITES_ENVIRONMENT: {{ $.Values.global.environment | quote }}
+  LITES_VERSION: {{ required "global.version is required" $.Values.global.version | quote }}
+  LITES_REGION: {{ required "global.region is required" $.Values.global.region | quote }}
+  OTLP_GRPC_ENDPOINT: {{ required "global.otlpGrpcEndpoint is required" $.Values.global.otlpGrpcEndpoint | quote }}
+  OTLP_TLS_SERVER_NAME: {{ required "global.otlpTlsServerName is required" $.Values.global.otlpTlsServerName | quote }}
+  TRACE_SAMPLE_RATIO: {{ $.Values.global.traceSampleRatio | quote }}
+  {{- range $key, $value := $workload.env }}
+  {{- if not (regexMatch "(SECRET|TOKEN|PASSWORD|PEPPER|PRIVATE|CREDENTIAL|CACERT|_KEY)" $key) }}
+  {{ $key }}: {{ $value | quote }}
+  {{- end }}
+  {{- end }}
+{{- end }}
+{{- end }}
