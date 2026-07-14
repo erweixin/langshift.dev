@@ -37,10 +37,24 @@ type InvitationAcceptCommand struct {
 	ExpectedVersion     uint64
 }
 
+type InvitationRejectCommand struct {
+	AuthenticatedRequestMetadata
+	InvitationID, Token string
+	ExpectedVersion     uint64
+}
+
+type InvitationRevokeCommand struct {
+	AuthenticatedRequestMetadata
+	InvitationID, Reason string
+	ExpectedVersion      uint64
+}
+
 type InvitationService interface {
 	CreateInvitation(context.Context, InvitationCreateCommand) (InvitationMutationResult, error)
 	ImportInvitations(context.Context, InvitationImportCommand) (InvitationMutationResult, error)
 	AcceptInvitation(context.Context, InvitationAcceptCommand) (InvitationMutationResult, error)
+	RejectInvitation(context.Context, InvitationRejectCommand) (InvitationMutationResult, error)
+	RevokeInvitation(context.Context, InvitationRevokeCommand) (InvitationMutationResult, error)
 }
 
 func validInvitationRole(value string) bool {
@@ -148,6 +162,84 @@ func (handler Handler) invitationAccept(writer http.ResponseWriter, request *htt
 	}
 	metadata.ClientRequestID = body.RequestID
 	result, err := handler.Invitations.AcceptInvitation(request.Context(), InvitationAcceptCommand{metadata, segment, body.Token, expected})
+	if err != nil {
+		handler.serviceError(writer, request, err)
+		return
+	}
+	handler.writeInvitationMutation(writer, request, result)
+}
+
+func (handler Handler) invitationReject(writer http.ResponseWriter, request *http.Request) {
+	if handler.Invitations == nil {
+		handler.internalError(writer, request)
+		return
+	}
+	metadata, ok := handler.authenticatedMetadata(writer, request, true)
+	if !ok {
+		return
+	}
+	segment := strings.TrimSuffix(strings.TrimPrefix(request.URL.Path, "/v1/invitations/"), "/reject")
+	if segment == "" || strings.Contains(segment, "/") || len(segment) > 200 {
+		handler.writeProblem(writer, request, http.StatusNotFound, "resource_not_found", "Resource not found", false)
+		return
+	}
+	expected, ok := handler.ifMatch(writer, request)
+	if !ok {
+		return
+	}
+	var body struct {
+		RequestID string `json:"request_id"`
+		Token     string `json:"token"`
+		Decision  string `json:"decision"`
+	}
+	if !handler.decode(writer, request, &body) {
+		return
+	}
+	if !validClientRequestID(body.RequestID) || body.Decision != "reject" || !validOpaqueToken(body.Token, 32, 512) {
+		handler.validationFailed(writer, request)
+		return
+	}
+	metadata.ClientRequestID = body.RequestID
+	result, err := handler.Invitations.RejectInvitation(request.Context(), InvitationRejectCommand{metadata, segment, body.Token, expected})
+	if err != nil {
+		handler.serviceError(writer, request, err)
+		return
+	}
+	handler.writeInvitationMutation(writer, request, result)
+}
+
+func (handler Handler) invitationRevoke(writer http.ResponseWriter, request *http.Request) {
+	if handler.Invitations == nil {
+		handler.internalError(writer, request)
+		return
+	}
+	metadata, ok := handler.authenticatedMetadata(writer, request, true)
+	if !ok {
+		return
+	}
+	segment := strings.TrimPrefix(request.URL.Path, "/v1/invitations/")
+	if segment == "" || strings.Contains(segment, "/") || len(segment) > 200 {
+		handler.writeProblem(writer, request, http.StatusNotFound, "resource_not_found", "Resource not found", false)
+		return
+	}
+	expected, ok := handler.ifMatch(writer, request)
+	if !ok {
+		return
+	}
+	var body struct {
+		RequestID                 string `json:"request_id"`
+		Reason                    string `json:"reason"`
+		ExpectedInvitationVersion uint64 `json:"expected_invitation_version"`
+	}
+	if !handler.decode(writer, request, &body) {
+		return
+	}
+	if !validClientRequestID(body.RequestID) || !validReason(body.Reason) || body.ExpectedInvitationVersion != expected {
+		handler.validationFailed(writer, request)
+		return
+	}
+	metadata.ClientRequestID = body.RequestID
+	result, err := handler.Invitations.RevokeInvitation(request.Context(), InvitationRevokeCommand{metadata, segment, body.Reason, expected})
 	if err != nil {
 		handler.serviceError(writer, request, err)
 		return

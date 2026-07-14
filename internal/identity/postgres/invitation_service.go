@@ -400,6 +400,248 @@ func (service AuthService) prepareInvitationAcceptance(ctx context.Context, c ap
 	return p, nil
 }
 
+type invitationTerminalPrepared struct {
+	SecurityEventID, EventID, OutboxID, CommandID string
+	EventPayload, ReasonPayload, Response         payload.Manifest
+}
+
+func (service AuthService) RejectInvitation(ctx context.Context, command api.InvitationRejectCommand) (api.InvitationMutationResult, error) {
+	if err := service.validateSessionMutation(command.AuthenticatedRequestMetadata); err != nil {
+		return api.InvitationMutationResult{}, err
+	}
+	if command.InvitationID == "" || command.Token == "" || command.ExpectedVersion == 0 {
+		return api.InvitationMutationResult{}, api.ErrValidation
+	}
+	if err := service.preauthorizeSession(ctx, command.AuthenticatedRequestMetadata); err != nil {
+		return api.InvitationMutationResult{}, err
+	}
+	digest, err := service.InvitationTokens.Digest(command.Token)
+	if err != nil {
+		return api.InvitationMutationResult{}, api.ErrInvalidCredentials
+	}
+	lookup, err := service.lookupInvitationCapability(ctx, command.InvitationID, digest[:])
+	if err != nil {
+		return api.InvitationMutationResult{}, mapLookupError(err)
+	}
+	recordID, requestHash, err := service.authenticatedIdempotency("invitations.reject", command.UserID, command.IdempotencyKey, struct {
+		InvitationID, TokenDigest string
+		ExpectedVersion           uint64
+	}{command.InvitationID, hex.EncodeToString(digest[:]), command.ExpectedVersion})
+	if err != nil {
+		return api.InvitationMutationResult{}, api.ErrIdempotencyConflict
+	}
+	descriptor := payload.Descriptor{TenantID: lookup.TenantID, ObjectID: recordID, Class: "identity-idempotency", ContentType: "application/json"}
+	input := IdempotencyInput{RecordID: recordID, Scope: idempotency.Scope{TenantID: lookup.TenantID, UserID: command.UserID, OperationID: "invitations.reject"}, RawKey: command.IdempotencyKey, RequestHash: requestHash, RequestID: command.RequestID}
+	if result, found, replayErr := service.loadInvitationReplay(ctx, input, descriptor); replayErr != nil || found {
+		return result, replayErr
+	}
+	now := service.now()
+	if lookup.Version != command.ExpectedVersion {
+		return service.invitationReplayOr(ctx, input, descriptor, api.ErrVersionConflict)
+	}
+	if lookup.AcceptedAt != nil || lookup.RejectedAt != nil || lookup.RevokedAt != nil || !lookup.ExpiresAt.After(now) {
+		return service.invitationReplayOr(ctx, input, descriptor, api.ErrStateConflict)
+	}
+	prepared, err := service.prepareInvitationTerminal(ctx, lookup.TenantID, lookup.InvitationID, recordID, "InvitationRejected", "rejected", lookup.Version+1, "", now)
+	if err != nil {
+		return api.InvitationMutationResult{}, err
+	}
+	response, _, err := service.idempotencyExecutor().Execute(ctx, input, func(ctx context.Context, tx pgx.Tx) (idempotency.Response, error) {
+		var currentEmail, userStatus string
+		if lockErr := tx.QueryRow(ctx, `SELECT normalized_email,status FROM identity.users WHERE id=$1 FOR UPDATE`, command.UserID).Scan(&currentEmail, &userStatus); lockErr != nil {
+			return idempotency.Response{}, lockErr
+		}
+		if authErr := service.authorizeSession(ctx, tx, command.AuthenticatedRequestMetadata, now, true); authErr != nil {
+			return idempotency.Response{}, authErr
+		}
+		if _, setErr := tx.Exec(ctx, `SELECT set_config('lites.tenant_id',$1,true)`, lookup.TenantID); setErr != nil {
+			return idempotency.Response{}, setErr
+		}
+		var version uint64
+		var email string
+		var expires time.Time
+		var accepted, rejected, revoked *time.Time
+		lockErr := tx.QueryRow(ctx, `SELECT version,normalized_email,expires_at,accepted_at,rejected_at,revoked_at FROM identity.invitations WHERE id=$1 AND token_hash=$2 FOR UPDATE`, lookup.InvitationID, digest[:]).Scan(&version, &email, &expires, &accepted, &rejected, &revoked)
+		if errors.Is(lockErr, pgx.ErrNoRows) || userStatus != "active" || currentEmail != email {
+			return idempotency.Response{}, api.ErrInvalidCredentials
+		}
+		if lockErr != nil {
+			return idempotency.Response{}, lockErr
+		}
+		if version != command.ExpectedVersion {
+			return idempotency.Response{}, api.ErrVersionConflict
+		}
+		if accepted != nil || rejected != nil || revoked != nil || !expires.After(now) {
+			return idempotency.Response{}, api.ErrStateConflict
+		}
+		var nextVersion uint64
+		if updateErr := tx.QueryRow(ctx, `UPDATE identity.invitations SET rejected_at=$1,version=version+1,updated_at=$1 WHERE id=$2 AND version=$3 RETURNING version`, now, lookup.InvitationID, command.ExpectedVersion).Scan(&nextVersion); updateErr != nil {
+			return idempotency.Response{}, api.ErrVersionConflict
+		}
+		if _, auditErr := tx.Exec(ctx, `INSERT INTO identity.security_events (id,tenant_id,subject_user_id,actor_user_id,event_type,request_id,ip_hash,user_agent_hash,details,occurred_at) VALUES ($1,$2,$3,$3,'invitation_rejected',$4,$5,$6,$7,$8)`, prepared.SecurityEventID, lookup.TenantID, command.UserID, command.RequestID, command.ClientIPHash, command.UserAgentHash, json.RawMessage(`{"capability_bound":true}`), now); auditErr != nil {
+			return idempotency.Response{}, auditErr
+		}
+		actor, _ := json.Marshal(map[string]string{"kind": "user", "id": command.UserID})
+		if _, appendErr := service.Appender.Append(ctx, tx, eventpostgres.Input{Event: eventpostgres.Event{ID: prepared.EventID, TenantID: lookup.TenantID, UserID: command.UserID, EventType: "InvitationRejected", SchemaVersion: 1, AggregateKind: "invitation", AggregateID: lookup.InvitationID, AggregateVersion: nextVersion, StoreEpoch: service.StoreEpoch, OccurredAt: now, Actor: actor, CorrelationID: prepared.SecurityEventID, PayloadRef: prepared.EventPayload.Ref, PayloadHash: prepared.EventPayload.Hash}, Commands: []eventpostgres.OutboxCommand{{ID: prepared.OutboxID, CommandID: prepared.CommandID, CommandType: "events.publish", PayloadRef: prepared.EventPayload.Ref, PayloadHash: prepared.EventPayload.Hash}}}); appendErr != nil {
+			return idempotency.Response{}, appendErr
+		}
+		return idempotency.Response{Status: 200, ContentType: "application/json", PayloadRef: prepared.Response.Ref, Hash: prepared.Response.Hash, ResourceVersion: nextVersion}, nil
+	})
+	if err != nil {
+		return service.invitationReplayOr(ctx, input, descriptor, mapIdentityError(err))
+	}
+	return service.readInvitationMutation(ctx, descriptor, response)
+}
+
+func (service AuthService) RevokeInvitation(ctx context.Context, command api.InvitationRevokeCommand) (api.InvitationMutationResult, error) {
+	if err := service.validateSessionMutation(command.AuthenticatedRequestMetadata); err != nil {
+		return api.InvitationMutationResult{}, err
+	}
+	if command.InvitationID == "" || command.ExpectedVersion == 0 || !validMembershipReason(command.Reason) {
+		return api.InvitationMutationResult{}, api.ErrValidation
+	}
+	recordID, requestHash, err := service.authenticatedIdempotency("invitations.revoke", command.UserID, command.IdempotencyKey, struct {
+		InvitationID, Reason string
+		ExpectedVersion      uint64
+	}{command.InvitationID, command.Reason, command.ExpectedVersion})
+	if err != nil {
+		return api.InvitationMutationResult{}, api.ErrIdempotencyConflict
+	}
+	descriptor := payload.Descriptor{TenantID: command.TenantID, ObjectID: recordID, Class: "identity-idempotency", ContentType: "application/json"}
+	input := IdempotencyInput{RecordID: recordID, Scope: idempotency.Scope{TenantID: command.TenantID, UserID: command.UserID, OperationID: "invitations.revoke"}, RawKey: command.IdempotencyKey, RequestHash: requestHash, RequestID: command.RequestID}
+	if result, found, replayErr := service.loadInvitationReplay(ctx, input, descriptor); replayErr != nil || found {
+		return result, replayErr
+	}
+	if err = service.preauthorizeTenantAdmin(ctx, command.AuthenticatedRequestMetadata, true); err != nil {
+		return service.invitationReplayOr(ctx, input, descriptor, err)
+	}
+	row, err := service.lookupTenantInvitation(ctx, command.TenantID, command.InvitationID)
+	if err != nil {
+		return service.invitationReplayOr(ctx, input, descriptor, err)
+	}
+	if row.Version != command.ExpectedVersion {
+		return service.invitationReplayOr(ctx, input, descriptor, api.ErrVersionConflict)
+	}
+	if row.AcceptedAt != nil || row.RejectedAt != nil || row.RevokedAt != nil {
+		return service.invitationReplayOr(ctx, input, descriptor, api.ErrStateConflict)
+	}
+	now := service.now()
+	prepared, err := service.prepareInvitationTerminal(ctx, command.TenantID, command.InvitationID, recordID, "InvitationRevoked", "revoked", row.Version+1, command.Reason, now)
+	if err != nil {
+		return api.InvitationMutationResult{}, err
+	}
+	response, _, err := service.idempotencyExecutor().Execute(ctx, input, func(ctx context.Context, tx pgx.Tx) (idempotency.Response, error) {
+		if _, lockErr := tx.Exec(ctx, `SELECT id FROM identity.users WHERE id=$1 FOR UPDATE`, command.UserID); lockErr != nil {
+			return idempotency.Response{}, lockErr
+		}
+		if authErr := service.authorizeSession(ctx, tx, command.AuthenticatedRequestMetadata, now, true); authErr != nil {
+			return idempotency.Response{}, authErr
+		}
+		if authErr := service.requireRecentReauthentication(ctx, tx, command.AuthenticatedRequestMetadata, now); authErr != nil {
+			return idempotency.Response{}, authErr
+		}
+		if roleErr := service.requireTenantAdmin(ctx, tx, command.AuthenticatedRequestMetadata); roleErr != nil {
+			return idempotency.Response{}, roleErr
+		}
+		var tenantActive bool
+		if lockErr := tx.QueryRow(ctx, `SELECT identity.lock_active_tenant($1)`, command.TenantID).Scan(&tenantActive); lockErr != nil {
+			return idempotency.Response{}, lockErr
+		}
+		if !tenantActive {
+			return idempotency.Response{}, api.ErrStateConflict
+		}
+		current, lockErr := queryTenantInvitation(ctx, tx, command.TenantID, command.InvitationID, true)
+		if lockErr != nil {
+			return idempotency.Response{}, lockErr
+		}
+		if current.Version != command.ExpectedVersion {
+			return idempotency.Response{}, api.ErrVersionConflict
+		}
+		if current.AcceptedAt != nil || current.RejectedAt != nil || current.RevokedAt != nil {
+			return idempotency.Response{}, api.ErrStateConflict
+		}
+		var nextVersion uint64
+		if updateErr := tx.QueryRow(ctx, `UPDATE identity.invitations SET revoked_at=$1,version=version+1,updated_at=$1 WHERE id=$2 AND tenant_id=$3 AND version=$4 RETURNING version`, now, command.InvitationID, command.TenantID, command.ExpectedVersion).Scan(&nextVersion); updateErr != nil {
+			return idempotency.Response{}, api.ErrVersionConflict
+		}
+		details, _ := json.Marshal(map[string]any{"reason_ref": prepared.ReasonPayload.Ref, "reason_hash": prepared.ReasonPayload.Hash})
+		if _, auditErr := tx.Exec(ctx, `INSERT INTO identity.security_events (id,tenant_id,actor_user_id,event_type,request_id,ip_hash,user_agent_hash,details,occurred_at) VALUES ($1,$2,$3,'invitation_revoked',$4,$5,$6,$7,$8)`, prepared.SecurityEventID, command.TenantID, command.UserID, command.RequestID, command.ClientIPHash, command.UserAgentHash, details, now); auditErr != nil {
+			return idempotency.Response{}, auditErr
+		}
+		actor, _ := json.Marshal(map[string]string{"kind": "user", "id": command.UserID})
+		if _, appendErr := service.Appender.Append(ctx, tx, eventpostgres.Input{Event: eventpostgres.Event{ID: prepared.EventID, TenantID: command.TenantID, UserID: command.UserID, EventType: "InvitationRevoked", SchemaVersion: 1, AggregateKind: "invitation", AggregateID: command.InvitationID, AggregateVersion: nextVersion, StoreEpoch: service.StoreEpoch, OccurredAt: now, Actor: actor, CorrelationID: prepared.SecurityEventID, PayloadRef: prepared.EventPayload.Ref, PayloadHash: prepared.EventPayload.Hash}, Commands: []eventpostgres.OutboxCommand{{ID: prepared.OutboxID, CommandID: prepared.CommandID, CommandType: "events.publish", PayloadRef: prepared.EventPayload.Ref, PayloadHash: prepared.EventPayload.Hash}}}); appendErr != nil {
+			return idempotency.Response{}, appendErr
+		}
+		return idempotency.Response{Status: 200, ContentType: "application/json", PayloadRef: prepared.Response.Ref, Hash: prepared.Response.Hash, ResourceVersion: nextVersion}, nil
+	})
+	if err != nil {
+		return service.invitationReplayOr(ctx, input, descriptor, mapIdentityError(err))
+	}
+	return service.readInvitationMutation(ctx, descriptor, response)
+}
+
+func (service AuthService) prepareInvitationTerminal(ctx context.Context, tenantID, invitationID, recordID, eventType, status string, version uint64, reason string, now time.Time) (invitationTerminalPrepared, error) {
+	var prepared invitationTerminalPrepared
+	for _, target := range []*string{&prepared.SecurityEventID, &prepared.EventID, &prepared.OutboxID, &prepared.CommandID} {
+		id, err := service.newID()
+		if err != nil {
+			return invitationTerminalPrepared{}, api.ErrDependencyUnavailable
+		}
+		*target = id
+	}
+	var err error
+	payloadBody := map[string]any{"subject_id": invitationID, "subject_version": version, "event_type": eventType, "new_state": status}
+	if reason != "" {
+		prepared.ReasonPayload, err = service.putJSON(ctx, payload.Descriptor{TenantID: tenantID, ObjectID: prepared.SecurityEventID, Class: "security-reason", ContentType: "application/json"}, map[string]string{"reason": reason})
+		payloadBody["reason_hash"] = prepared.ReasonPayload.Hash
+	}
+	if err == nil {
+		prepared.EventPayload, err = service.putJSON(ctx, payload.Descriptor{TenantID: tenantID, ObjectID: prepared.EventID, Class: "event-payload", ContentType: "application/json"}, payloadBody)
+	}
+	if err == nil {
+		prepared.Response, err = service.putJSON(ctx, payload.Descriptor{TenantID: tenantID, ObjectID: recordID, Class: "identity-idempotency", ContentType: "application/json"}, storedInvitationMutation{invitationID, version, status, now})
+	}
+	if err != nil {
+		return invitationTerminalPrepared{}, api.ErrDependencyUnavailable
+	}
+	return prepared, nil
+}
+
+func (service AuthService) lookupTenantInvitation(ctx context.Context, tenantID, invitationID string) (invitationAcceptanceLookup, error) {
+	tx, err := service.Pool.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return invitationAcceptanceLookup{}, api.ErrDependencyUnavailable
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err = tx.Exec(ctx, `SELECT set_config('lites.tenant_id',$1,true)`, tenantID); err != nil {
+		return invitationAcceptanceLookup{}, api.ErrDependencyUnavailable
+	}
+	row, err := queryTenantInvitation(ctx, tx, tenantID, invitationID, false)
+	if err != nil {
+		return invitationAcceptanceLookup{}, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return invitationAcceptanceLookup{}, api.ErrDependencyUnavailable
+	}
+	return row, nil
+}
+
+func queryTenantInvitation(ctx context.Context, tx pgx.Tx, tenantID, invitationID string, lock bool) (invitationAcceptanceLookup, error) {
+	query := `SELECT id::text,tenant_id::text,normalized_email,role,version,expires_at,accepted_at,rejected_at,revoked_at FROM identity.invitations WHERE id=$1 AND tenant_id=$2`
+	if lock {
+		query += ` FOR UPDATE`
+	}
+	var row invitationAcceptanceLookup
+	err := tx.QueryRow(ctx, query, invitationID, tenantID).Scan(&row.InvitationID, &row.TenantID, &row.Email, &row.Role, &row.Version, &row.ExpiresAt, &row.AcceptedAt, &row.RejectedAt, &row.RevokedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return invitationAcceptanceLookup{}, api.ErrResourceNotFound
+	}
+	if err != nil {
+		return invitationAcceptanceLookup{}, api.ErrDependencyUnavailable
+	}
+	return row, nil
+}
+
 func (service AuthService) preauthorizeTenantAdmin(ctx context.Context, m api.AuthenticatedRequestMetadata, recent bool) error {
 	tx, err := service.Pool.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
 	if err != nil {

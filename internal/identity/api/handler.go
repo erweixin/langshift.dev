@@ -203,6 +203,14 @@ func (handler Handler) ServeHTTP(writer http.ResponseWriter, request *http.Reque
 			handler.methodNotAllowed(writer, request, http.MethodGet, http.MethodDelete)
 		}
 	default:
+		if strings.HasPrefix(request.URL.Path, "/v1/invitations/") && strings.HasSuffix(request.URL.Path, "/reject") {
+			if request.Method != http.MethodPost {
+				handler.methodNotAllowed(writer, request, http.MethodPost)
+				return
+			}
+			handler.invitationReject(writer, request)
+			return
+		}
 		if strings.HasPrefix(request.URL.Path, "/v1/memberships/") {
 			if request.Method != http.MethodDelete {
 				handler.methodNotAllowed(writer, request, http.MethodDelete)
@@ -217,6 +225,14 @@ func (handler Handler) ServeHTTP(writer http.ResponseWriter, request *http.Reque
 				return
 			}
 			handler.invitationAccept(writer, request)
+			return
+		}
+		if strings.HasPrefix(request.URL.Path, "/v1/invitations/") {
+			if request.Method != http.MethodDelete {
+				handler.methodNotAllowed(writer, request, http.MethodDelete)
+				return
+			}
+			handler.invitationRevoke(writer, request)
 			return
 		}
 		if strings.HasPrefix(request.URL.Path, "/v1/account/erasure-requests/") {

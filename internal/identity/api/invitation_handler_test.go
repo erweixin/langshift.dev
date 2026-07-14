@@ -12,6 +12,8 @@ type invitationServiceStub struct {
 	create    func(context.Context, InvitationCreateCommand) (InvitationMutationResult, error)
 	importCSV func(context.Context, InvitationImportCommand) (InvitationMutationResult, error)
 	accept    func(context.Context, InvitationAcceptCommand) (InvitationMutationResult, error)
+	reject    func(context.Context, InvitationRejectCommand) (InvitationMutationResult, error)
+	revoke    func(context.Context, InvitationRevokeCommand) (InvitationMutationResult, error)
 }
 
 func (s invitationServiceStub) CreateInvitation(ctx context.Context, c InvitationCreateCommand) (InvitationMutationResult, error) {
@@ -31,6 +33,18 @@ func (s invitationServiceStub) AcceptInvitation(ctx context.Context, c Invitatio
 		return InvitationMutationResult{}, errors.New("unexpected accept")
 	}
 	return s.accept(ctx, c)
+}
+func (s invitationServiceStub) RejectInvitation(ctx context.Context, c InvitationRejectCommand) (InvitationMutationResult, error) {
+	if s.reject == nil {
+		return InvitationMutationResult{}, errors.New("unexpected reject")
+	}
+	return s.reject(ctx, c)
+}
+func (s invitationServiceStub) RevokeInvitation(ctx context.Context, c InvitationRevokeCommand) (InvitationMutationResult, error) {
+	if s.revoke == nil {
+		return InvitationMutationResult{}, errors.New("unexpected revoke")
+	}
+	return s.revoke(ctx, c)
 }
 
 func TestInvitationCreateNormalizesEmailAndValidatesRole(t *testing.T) {
@@ -89,5 +103,34 @@ func TestInvitationAcceptRequiresTokenDecisionAndIfMatch(t *testing.T) {
 	recorder = serveAuthenticatedHandler(t, Handler{Invitations: stub}, http.MethodPost, "/v1/invitations/invite-123/accept", "accept-key-000002", `"1"`, body)
 	if recorder.Code != http.StatusBadRequest || called {
 		t.Fatalf("decision status=%d called=%v", recorder.Code, called)
+	}
+}
+
+func TestInvitationRejectRequiresCapabilityTokenAndIfMatch(t *testing.T) {
+	token := strings.Repeat("r", 43)
+	stub := invitationServiceStub{reject: func(_ context.Context, command InvitationRejectCommand) (InvitationMutationResult, error) {
+		if command.InvitationID != "invite-reject" || command.Token != token || command.ExpectedVersion != 2 {
+			t.Fatalf("command=%#v", command)
+		}
+		return InvitationMutationResult{command.InvitationID, 3, "rejected", apiTestNow}, nil
+	}}
+	body := `{"request_id":"reject-request-001","token":"` + token + `","decision":"reject"}`
+	recorder := serveAuthenticatedHandler(t, Handler{Invitations: stub}, http.MethodPost, "/v1/invitations/invite-reject/reject", "reject-key-0000001", `"2"`, body)
+	if recorder.Code != http.StatusOK || recorder.Header().Get("ETag") != `"3"` || !strings.Contains(recorder.Body.String(), `"status":"rejected"`) {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestInvitationRevokeBindsReasonAndVersion(t *testing.T) {
+	stub := invitationServiceStub{revoke: func(_ context.Context, command InvitationRevokeCommand) (InvitationMutationResult, error) {
+		if command.InvitationID != "invite-revoke" || command.Reason != "invited in error" || command.ExpectedVersion != 1 {
+			t.Fatalf("command=%#v", command)
+		}
+		return InvitationMutationResult{command.InvitationID, 2, "revoked", apiTestNow}, nil
+	}}
+	body := `{"request_id":"revoke-request-001","reason":"invited in error","expected_invitation_version":1}`
+	recorder := serveAuthenticatedHandler(t, Handler{Invitations: stub}, http.MethodDelete, "/v1/invitations/invite-revoke", "revoke-key-0000001", `"1"`, body)
+	if recorder.Code != http.StatusOK || recorder.Header().Get("ETag") != `"2"` || !strings.Contains(recorder.Body.String(), `"status":"revoked"`) {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 }

@@ -137,12 +137,15 @@ func TestInvitationLifecycleIsTenantAdminScopedCapabilityBoundAndIdempotent(t *t
 		conflicts++
 	}
 	successes := 0
-	for range raceSuccesses {
+	var raceInvitation api.InvitationMutationResult
+	for result := range raceSuccesses {
+		raceInvitation = result
 		successes++
 	}
 	if successes != 1 || conflicts != 11 {
 		t.Fatalf("distinct-key invitation successes=%d conflicts=%d", successes, conflicts)
 	}
+	raceToken := latestInvitationToken(t, ctx, admin, store, enterprise, raceInvitation.ID)
 	wrongToken := api.InvitationAcceptCommand{AuthenticatedRequestMetadata: inviteeAuth("invite-wrong-token", "invite-wrong-token-key"), InvitationID: created[0].ID, Token: token + "x", ExpectedVersion: 1}
 	if _, err = service.AcceptInvitation(ctx, wrongToken); !errors.Is(err, api.ErrInvalidCredentials) {
 		t.Fatalf("wrong token=%v", err)
@@ -171,6 +174,65 @@ func TestInvitationLifecycleIsTenantAdminScopedCapabilityBoundAndIdempotent(t *t
 	reviewerMetadata := api.AuthenticatedRequestMetadata{RequestMetadata: requestMetadata("reviewer-invite", "reviewer-invite-key-1"), UserID: inviteeUser, TenantID: enterprise, MembershipID: inviteeEnterpriseMembership, SessionID: inviteeLogin.SessionID}
 	if _, err = service.CreateInvitation(ctx, api.InvitationCreateCommand{AuthenticatedRequestMetadata: reviewerMetadata, NormalizedEmail: "another@example.com", Role: "member", ExpiresInDays: 7}); !errors.Is(err, api.ErrPermissionDenied) {
 		t.Fatalf("reviewer invite=%v", err)
+	}
+	rejectCreate := create
+	rejectCreate.NormalizedEmail = "reject@example.com"
+	rejectCreate.IdempotencyKey = "invite-create-reject-key"
+	rejectCreate.RequestID = "server-invite-create-reject"
+	rejectCreate.ClientRequestID = "invite-create-reject"
+	rejectInvitation, err := service.CreateInvitation(ctx, rejectCreate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rejectToken := latestInvitationToken(t, ctx, admin, store, enterprise, rejectInvitation.ID)
+	if _, err = admin.Exec(ctx, `UPDATE identity.users SET normalized_email='reject@example.com' WHERE id=$1`, inviteeUser); err != nil {
+		t.Fatal(err)
+	}
+	rejectMetadata := reviewerMetadata
+	rejectMetadata.RequestMetadata = requestMetadata("invite-reject", "invite-reject-key-0001")
+	rejectCommand := api.InvitationRejectCommand{AuthenticatedRequestMetadata: rejectMetadata, InvitationID: rejectInvitation.ID, Token: rejectToken, ExpectedVersion: 1}
+	rejected := concurrentCalls(t, 12, func() (api.InvitationMutationResult, error) { return service.RejectInvitation(ctx, rejectCommand) })
+	for _, result := range rejected {
+		if result != rejected[0] || result.Version != 2 || result.Status != "rejected" {
+			t.Fatalf("reject=%#v", result)
+		}
+	}
+	if _, err = admin.Exec(ctx, `UPDATE identity.users SET normalized_email=$1 WHERE id=$2`, inviteeEmail, inviteeUser); err != nil {
+		t.Fatal(err)
+	}
+	usedReject := rejectCommand
+	usedReject.IdempotencyKey = "invite-reject-key-0002"
+	usedReject.RequestID = "server-invite-reject-used"
+	usedReject.ClientRequestID = "invite-reject-used"
+	if _, err = service.RejectInvitation(ctx, usedReject); !errors.Is(err, api.ErrVersionConflict) {
+		t.Fatalf("used reject token=%v", err)
+	}
+	reviewerRevokeMetadata := reviewerMetadata
+	reviewerRevokeMetadata.RequestMetadata = requestMetadata("reviewer-revoke", "reviewer-revoke-key-01")
+	if _, err = service.RevokeInvitation(ctx, api.InvitationRevokeCommand{AuthenticatedRequestMetadata: reviewerRevokeMetadata, InvitationID: raceInvitation.ID, Reason: "unauthorized revoke", ExpectedVersion: 1}); !errors.Is(err, api.ErrPermissionDenied) {
+		t.Fatalf("reviewer revoke=%v", err)
+	}
+	if _, err = admin.Exec(ctx, `UPDATE identity.sessions SET reauthenticated_at=$1 WHERE id=$2`, now.Add(-16*time.Minute), adminLogin.SessionID); err != nil {
+		t.Fatal(err)
+	}
+	revokeCommand := api.InvitationRevokeCommand{AuthenticatedRequestMetadata: adminAuth("invite-revoke", "invite-revoke-key-0001"), InvitationID: raceInvitation.ID, Reason: "recipient was invited in error", ExpectedVersion: 1}
+	if _, err = service.RevokeInvitation(ctx, revokeCommand); !errors.Is(err, api.ErrReauthenticationRequired) {
+		t.Fatalf("stale revoke=%v", err)
+	}
+	if _, err = admin.Exec(ctx, `UPDATE identity.sessions SET reauthenticated_at=$1 WHERE id=$2`, now, adminLogin.SessionID); err != nil {
+		t.Fatal(err)
+	}
+	revoked := concurrentCalls(t, 12, func() (api.InvitationMutationResult, error) { return service.RevokeInvitation(ctx, revokeCommand) })
+	for _, result := range revoked {
+		if result != revoked[0] || result.Version != 2 || result.Status != "revoked" {
+			t.Fatalf("revoke=%#v", result)
+		}
+	}
+	revokedAcceptMetadata := reviewerMetadata
+	revokedAcceptMetadata.RequestMetadata = requestMetadata("invite-revoked-accept", "invite-revoked-accept-key")
+	revokedAccept := api.InvitationAcceptCommand{AuthenticatedRequestMetadata: revokedAcceptMetadata, InvitationID: raceInvitation.ID, Token: raceToken, ExpectedVersion: 2}
+	if _, err = service.AcceptInvitation(ctx, revokedAccept); !errors.Is(err, api.ErrStateConflict) {
+		t.Fatalf("revoked token accept=%v", err)
 	}
 	if _, err = admin.Exec(ctx, `UPDATE identity.sessions SET reauthenticated_at=$1 WHERE id=$2`, now.Add(-16*time.Minute), adminLogin.SessionID); err != nil {
 		t.Fatal(err)
@@ -214,21 +276,21 @@ func TestInvitationLifecycleIsTenantAdminScopedCapabilityBoundAndIdempotent(t *t
 		t.Fatalf("expired=%v", err)
 	}
 	service.Now = func() time.Time { return now }
-	var invitations, memberships, createdEvents, acceptedEvents, membershipEvents, importsCount, importEvents int
+	var invitations, memberships, createdEvents, acceptedEvents, rejectedEvents, revokedEvents, membershipEvents, importsCount, importEvents int
 	checks := []struct {
 		q   string
 		out *int
-	}{{`SELECT count(*) FROM identity.invitations WHERE tenant_id='20000000-0000-0000-0000-000000001104'`, &invitations}, {`SELECT count(*) FROM identity.memberships WHERE tenant_id='20000000-0000-0000-0000-000000001104' AND user_id='10000000-0000-0000-0000-000000001102'`, &memberships}, {`SELECT count(*) FROM agent.events WHERE tenant_id='20000000-0000-0000-0000-000000001104' AND event_type='InvitationCreated'`, &createdEvents}, {`SELECT count(*) FROM agent.events WHERE tenant_id='20000000-0000-0000-0000-000000001104' AND event_type='InvitationAccepted'`, &acceptedEvents}, {`SELECT count(*) FROM agent.events WHERE tenant_id='20000000-0000-0000-0000-000000001104' AND event_type='MembershipCreated'`, &membershipEvents}, {`SELECT count(*) FROM identity.invitation_imports WHERE tenant_id='20000000-0000-0000-0000-000000001104'`, &importsCount}, {`SELECT count(*) FROM agent.events WHERE tenant_id='20000000-0000-0000-0000-000000001104' AND event_type='InvitationImportQueued'`, &importEvents}}
+	}{{`SELECT count(*) FROM identity.invitations WHERE tenant_id='20000000-0000-0000-0000-000000001104'`, &invitations}, {`SELECT count(*) FROM identity.memberships WHERE tenant_id='20000000-0000-0000-0000-000000001104' AND user_id='10000000-0000-0000-0000-000000001102'`, &memberships}, {`SELECT count(*) FROM agent.events WHERE tenant_id='20000000-0000-0000-0000-000000001104' AND event_type='InvitationCreated'`, &createdEvents}, {`SELECT count(*) FROM agent.events WHERE tenant_id='20000000-0000-0000-0000-000000001104' AND event_type='InvitationAccepted'`, &acceptedEvents}, {`SELECT count(*) FROM agent.events WHERE tenant_id='20000000-0000-0000-0000-000000001104' AND event_type='InvitationRejected'`, &rejectedEvents}, {`SELECT count(*) FROM agent.events WHERE tenant_id='20000000-0000-0000-0000-000000001104' AND event_type='InvitationRevoked'`, &revokedEvents}, {`SELECT count(*) FROM agent.events WHERE tenant_id='20000000-0000-0000-0000-000000001104' AND event_type='MembershipCreated'`, &membershipEvents}, {`SELECT count(*) FROM identity.invitation_imports WHERE tenant_id='20000000-0000-0000-0000-000000001104'`, &importsCount}, {`SELECT count(*) FROM agent.events WHERE tenant_id='20000000-0000-0000-0000-000000001104' AND event_type='InvitationImportQueued'`, &importEvents}}
 	for _, check := range checks {
 		if err = admin.QueryRow(ctx, check.q).Scan(check.out); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if invitations != 3 || memberships != 1 || createdEvents != 3 || acceptedEvents != 1 || membershipEvents != 1 || importsCount != 1 || importEvents != 1 {
-		t.Fatalf("invitations=%d memberships=%d created=%d accepted=%d membership-events=%d imports=%d import-events=%d", invitations, memberships, createdEvents, acceptedEvents, membershipEvents, importsCount, importEvents)
+	if invitations != 4 || memberships != 1 || createdEvents != 4 || acceptedEvents != 1 || rejectedEvents != 1 || revokedEvents != 1 || membershipEvents != 1 || importsCount != 1 || importEvents != 1 {
+		t.Fatalf("invitations=%d memberships=%d created=%d accepted=%d rejected=%d revoked=%d membership-events=%d imports=%d import-events=%d", invitations, memberships, createdEvents, acceptedEvents, rejectedEvents, revokedEvents, membershipEvents, importsCount, importEvents)
 	}
 	for _, stored := range blobs.values {
-		for _, secret := range []string{token, secondToken, inviteeEmail} {
+		for _, secret := range []string{token, raceToken, rejectToken, secondToken, inviteeEmail, "recipient was invited in error"} {
 			if bytes.Contains(stored, []byte(secret)) {
 				t.Fatalf("plaintext invite secret reached object storage: %q", secret)
 			}
