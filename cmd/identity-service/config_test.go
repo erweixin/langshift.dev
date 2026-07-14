@@ -10,11 +10,11 @@ import (
 )
 
 func TestLoadSecretBundleRequiresUniquePurposeKeys(t *testing.T) {
-	values := make([]string, 12)
+	values := make([]string, 15)
 	for index := range values {
 		values[index] = base64.StdEncoding.EncodeToString([]byte(strings.Repeat(string(rune('a'+index)), 32)))
 	}
-	encoded := fmt.Sprintf(`{"version":"1.0.0","password_pepper":%q,"verification_token_pepper":%q,"password_reset_pepper":%q,"email_change_pepper":%q,"invitation_pepper":%q,"session_pepper":%q,"csrf_pepper":%q,"idempotency_pepper":%q,"request_digest_pepper":%q,"identity_key":%q,"cursor_key":%q,"rate_limit_pepper":%q}`, values[0], values[1], values[2], values[3], values[4], values[5], values[6], values[7], values[8], values[9], values[10], values[11])
+	encoded := fmt.Sprintf(`{"version":"1.0.0","password_pepper":%q,"verification_token_pepper":%q,"password_reset_pepper":%q,"email_change_pepper":%q,"invitation_pepper":%q,"session_pepper":%q,"csrf_pepper":%q,"idempotency_pepper":%q,"request_digest_pepper":%q,"identity_key":%q,"cursor_key":%q,"rate_limit_pepper":%q,"anonymous_handle_signing_key":%q,"anonymous_handle_digest_pepper":%q,"anonymous_csrf_key":%q}`, values[0], values[1], values[2], values[3], values[4], values[5], values[6], values[7], values[8], values[9], values[10], values[11], values[12], values[13], values[14])
 	path := filepath.Join(t.TempDir(), "bundle.json")
 	if err := os.WriteFile(path, []byte(encoded), 0o600); err != nil {
 		t.Fatal(err)
@@ -32,7 +32,7 @@ func TestLoadSecretBundleRequiresUniquePurposeKeys(t *testing.T) {
 }
 
 func TestProductionConfigRequiresTLSAndFileCredentials(t *testing.T) {
-	configuration := config{databaseURL: "postgres://db", trustedKeyringFile: "keys.json", epochURL: "https://epoch", secretBundleFile: "bundle.json", publicTenantID: "20000000-0000-4000-8000-000000000001", region: "US", environment: "production", serviceVersion: "test", passwordRangeAllowedHosts: []string{"api.pwnedpasswords.com"}, valkeyAddresses: []string{"cache:6379"}, vaultAddress: "https://vault", s3Region: "us-east-1", payloadBucket: "payloads", importBucket: "imports", databaseMaxConnections: 32, traceSampleRatio: 0.1, s3Encryption: "AES256"}
+	configuration := config{databaseURL: "postgres://db", trustedKeyringFile: "keys.json", epochURL: "https://epoch", secretBundleFile: "bundle.json", publicTenantID: "20000000-0000-4000-8000-000000000001", anonymousHandleKeyID: "anonymous-2026-07", region: "US", environment: "production", serviceVersion: "test", passwordRangeAllowedHosts: []string{"api.pwnedpasswords.com"}, valkeyAddresses: []string{"cache:6379"}, vaultAddress: "https://vault", s3Region: "us-east-1", payloadBucket: "payloads", importBucket: "imports", databaseMaxConnections: 32, traceSampleRatio: 0.1, s3Encryption: "AES256"}
 	if err := configuration.validate(); err == nil {
 		t.Fatal("production configuration without mTLS and file credentials accepted")
 	}

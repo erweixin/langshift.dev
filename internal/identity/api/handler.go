@@ -104,11 +104,13 @@ type Handler struct {
 	Accounts    AccountService
 	Invitations InvitationService
 	Memberships MembershipService
+	Onboarding  OnboardingService
 	RateLimiter RequestLimiter
 	// RateLimitPepper is purpose-separated from database, token, and password
 	// peppers. It ensures Valkey keys never contain public or authenticated PII.
-	RateLimitPepper []byte
-	Now             func() time.Time
+	RateLimitPepper  []byte
+	AnonymousCSRFKey []byte
+	Now              func() time.Time
 }
 
 var (
@@ -121,6 +123,8 @@ var (
 	tokenAttemptLimit     = platformratelimit.Limit{Capacity: 5, Window: time.Hour}
 	mailActorLimit        = platformratelimit.Limit{Capacity: 100, Window: time.Hour}
 	mailTargetLimit       = platformratelimit.Limit{Capacity: 5, Window: 24 * time.Hour}
+	onboardingIPLimit     = platformratelimit.Limit{Capacity: 60, Window: time.Hour}
+	onboardingActorLimit  = platformratelimit.Limit{Capacity: 120, Window: time.Hour}
 )
 
 func (handler Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
@@ -215,6 +219,12 @@ func (handler Handler) ServeHTTP(writer http.ResponseWriter, request *http.Reque
 			return
 		}
 		handler.membershipImport(writer, request)
+	case "/v1/onboarding-sessions":
+		if request.Method != http.MethodPost {
+			handler.methodNotAllowed(writer, request, http.MethodPost)
+			return
+		}
+		handler.onboardingCreate(writer, request)
 	case "/v1/auth/sessions":
 		switch request.Method {
 		case http.MethodGet:

@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/langshift/lites/internal/eventstore/epoch"
 	eventpostgres "github.com/langshift/lites/internal/eventstore/postgres"
+	"github.com/langshift/lites/internal/identity/anonymoussession"
 	identityapi "github.com/langshift/lites/internal/identity/api"
 	"github.com/langshift/lites/internal/identity/password"
 	identitypostgres "github.com/langshift/lites/internal/identity/postgres"
@@ -126,11 +127,21 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 		PublicTenantID: configuration.publicTenantID, StoreEpoch: storeEpoch, Region: configuration.region, VerificationTTL: 24 * time.Hour, PasswordResetTTL: 30 * time.Minute, EmailChangeTTL: 24 * time.Hour, ReauthenticationTTL: 5 * time.Minute, ErasureGracePeriod: 30 * 24 * time.Hour, SessionTTL: 30 * 24 * time.Hour, IdempotencyTTL: 24 * time.Hour,
 		Payloads: payloadStore, Appender: eventpostgres.Appender{}, Random: rand.Reader,
 	}
+	anonymousBootstrap := identitypostgres.AnonymousSessionService{
+		Pool: pool, SystemTenantID: configuration.publicTenantID,
+		Signer:   anonymoussession.Signer{KeyID: configuration.anonymousHandleKeyID, Key: secrets.AnonymousHandleKey, DigestPepper: secrets.AnonymousHandlePepper, Random: rand.Reader},
+		Payloads: payloadStore, Appender: eventpostgres.Appender{}, StoreEpoch: storeEpoch, TTL: anonymoussession.MaximumTTL, Random: rand.Reader,
+	}
+	onboarding := identitypostgres.OnboardingService{
+		Pool: pool, Anonymous: anonymousBootstrap, Payloads: payloadStore, Appender: eventpostgres.Appender{}, StoreEpoch: storeEpoch,
+		IdentityKey: secrets.IdentityKey, IdempotencyKeyPepper: secrets.IdempotencyPepper, RequestDigestPepper: secrets.RequestDigestPepper,
+		IdempotencyTTL: 24 * time.Hour, OnboardingTTL: anonymoussession.MaximumTTL, Random: rand.Reader,
+	}
 	telemetry, err := observability.New(ctx, observability.Config{ServiceName: "identity-service", ServiceVersion: configuration.serviceVersion, Environment: configuration.environment, Region: configuration.region, OTLPEndpoint: configuration.otlpEndpoint, OTLPRootCAFile: configuration.otlpCAFile, OTLPClientCertificateFile: configuration.otlpCertFile, OTLPClientKeyFile: configuration.otlpKeyFile, OTLPTLSServerName: configuration.otlpTLSName, OTLPBearerTokenFile: configuration.otlpBearerTokenFile, TraceSampleRatio: configuration.traceSampleRatio, AllowInsecureDevelopment: configuration.allowInsecureDevelopment})
 	if err != nil {
 		return errors.New("configure observability")
 	}
-	handler := identityapi.Handler{Service: service, Sessions: service, Passwords: service, Emails: service, Accounts: service, Invitations: service, Memberships: service, RateLimiter: platformratelimit.Limiter{Client: valkeyClient, Namespace: "lites"}, RateLimitPepper: secrets.RateLimitPepper}
+	handler := identityapi.Handler{Service: service, Sessions: service, Passwords: service, Emails: service, Accounts: service, Invitations: service, Memberships: service, Onboarding: onboarding, AnonymousCSRFKey: secrets.AnonymousCSRFKey, RateLimiter: platformratelimit.Limiter{Client: valkeyClient, Namespace: "lites"}, RateLimitPepper: secrets.RateLimitPepper}
 	verifier := trustedcontext.Verifier{Issuer: configuration.trustedIssuer, Audience: configuration.trustedAudience, Keys: keys, KeyWindows: windows, MaximumTTL: 5 * time.Minute, ClockSkew: 5 * time.Second}
 	application := telemetry.WrapHTTP(serviceauth.Middleware{Verifier: verifier, RequireVerifiedClientCertificate: !configuration.allowInsecureDevelopment}.Wrap(handler))
 	tlsConfig, err := newServerTLSConfig(configuration)

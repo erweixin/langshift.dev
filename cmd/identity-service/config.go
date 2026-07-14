@@ -15,14 +15,17 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
 
-var uuidPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
+var (
+	uuidPattern  = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
+	keyIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
+)
 
 type config struct {
 	databaseURL, databaseURLFile, listenAddress, healthAddress                                     string
 	serverCertificateFile, serverKeyFile, serverClientCAFile                                       string
 	trustedKeyringFile, trustedIssuer, trustedAudience                                             string
 	epochURL, epochTokenFile, epochCAFile, epochCertFile, epochKeyFile                             string
-	secretBundleFile, publicTenantID, region, passwordRangeURL                                     string
+	secretBundleFile, publicTenantID, anonymousHandleKeyID, region, passwordRangeURL               string
 	environment, serviceVersion                                                                    string
 	passwordRangeAllowedHosts                                                                      []string
 	otlpEndpoint, otlpCAFile, otlpCertFile, otlpKeyFile, otlpTLSName, otlpBearerTokenFile          string
@@ -51,6 +54,9 @@ type secretBundle struct {
 	IdentityKey             []byte `json:"-"`
 	CursorKey               []byte `json:"-"`
 	RateLimitPepper         []byte `json:"-"`
+	AnonymousHandleKey      []byte `json:"-"`
+	AnonymousHandlePepper   []byte `json:"-"`
+	AnonymousCSRFKey        []byte `json:"-"`
 }
 
 type encodedSecretBundle struct {
@@ -67,6 +73,9 @@ type encodedSecretBundle struct {
 	IdentityKey             string `json:"identity_key"`
 	CursorKey               string `json:"cursor_key"`
 	RateLimitPepper         string `json:"rate_limit_pepper"`
+	AnonymousHandleKey      string `json:"anonymous_handle_signing_key"`
+	AnonymousHandlePepper   string `json:"anonymous_handle_digest_pepper"`
+	AnonymousCSRFKey        string `json:"anonymous_csrf_key"`
 }
 
 func loadConfig() (config, error) {
@@ -102,7 +111,7 @@ func loadConfig() (config, error) {
 		serverCertificateFile: os.Getenv("SERVER_TLS_CERT_FILE"), serverKeyFile: os.Getenv("SERVER_TLS_KEY_FILE"), serverClientCAFile: os.Getenv("SERVER_CLIENT_CA_FILE"),
 		trustedKeyringFile: os.Getenv("TRUSTED_CONTEXT_KEYRING_FILE"), trustedIssuer: envString("TRUSTED_CONTEXT_ISSUER", "lites-gateway"), trustedAudience: envString("TRUSTED_CONTEXT_AUDIENCE", "identity-service"),
 		epochURL: os.Getenv("STORE_EPOCH_URL"), epochTokenFile: os.Getenv("STORE_EPOCH_TOKEN_FILE"), epochCAFile: os.Getenv("STORE_EPOCH_ROOT_CA_FILE"), epochCertFile: os.Getenv("STORE_EPOCH_CLIENT_CERT_FILE"), epochKeyFile: os.Getenv("STORE_EPOCH_CLIENT_KEY_FILE"),
-		secretBundleFile: os.Getenv("IDENTITY_SECRET_BUNDLE_FILE"), publicTenantID: os.Getenv("IDENTITY_PUBLIC_TENANT_ID"), region: os.Getenv("LITES_REGION"), passwordRangeURL: envString("PASSWORD_RANGE_URL", "https://api.pwnedpasswords.com/range"), passwordRangeAllowedHosts: splitNonempty(envString("PASSWORD_RANGE_ALLOWED_HOSTS", "api.pwnedpasswords.com")),
+		secretBundleFile: os.Getenv("IDENTITY_SECRET_BUNDLE_FILE"), publicTenantID: os.Getenv("IDENTITY_PUBLIC_TENANT_ID"), anonymousHandleKeyID: os.Getenv("ANONYMOUS_HANDLE_KEY_ID"), region: os.Getenv("LITES_REGION"), passwordRangeURL: envString("PASSWORD_RANGE_URL", "https://api.pwnedpasswords.com/range"), passwordRangeAllowedHosts: splitNonempty(envString("PASSWORD_RANGE_ALLOWED_HOSTS", "api.pwnedpasswords.com")),
 		environment: os.Getenv("LITES_ENVIRONMENT"), serviceVersion: os.Getenv("LITES_VERSION"), otlpEndpoint: os.Getenv("OTLP_GRPC_ENDPOINT"), otlpCAFile: os.Getenv("OTLP_ROOT_CA_FILE"), otlpCertFile: os.Getenv("OTLP_CLIENT_CERT_FILE"), otlpKeyFile: os.Getenv("OTLP_CLIENT_KEY_FILE"), otlpTLSName: os.Getenv("OTLP_TLS_SERVER_NAME"), otlpBearerTokenFile: os.Getenv("OTLP_BEARER_TOKEN_FILE"), traceSampleRatio: traceSampleRatio,
 		valkeyAddresses: splitNonempty(os.Getenv("VALKEY_ADDRESSES")), valkeyUsername: os.Getenv("VALKEY_USERNAME"), valkeyPasswordFile: os.Getenv("VALKEY_PASSWORD_FILE"), valkeyCAFile: os.Getenv("VALKEY_ROOT_CA_FILE"), valkeyCertFile: os.Getenv("VALKEY_CLIENT_CERT_FILE"), valkeyKeyFile: os.Getenv("VALKEY_CLIENT_KEY_FILE"), valkeyTLSName: os.Getenv("VALKEY_TLS_SERVER_NAME"),
 		vaultAddress: os.Getenv("VAULT_ADDR"), vaultNamespace: os.Getenv("VAULT_NAMESPACE"), vaultMount: envString("VAULT_PAYLOAD_KEY_MOUNT", "secret"), vaultTokenFile: os.Getenv("VAULT_TOKEN_FILE"), vaultCAFile: os.Getenv("VAULT_CACERT"), vaultCertFile: os.Getenv("VAULT_CLIENT_CERT_FILE"), vaultKeyFile: os.Getenv("VAULT_CLIENT_KEY_FILE"), vaultTLSServerName: os.Getenv("VAULT_TLS_SERVER_NAME"), vaultKeyPrefix: envString("VAULT_PAYLOAD_KEY_PREFIX", "lites/payload-keys"),
@@ -112,7 +121,7 @@ func loadConfig() (config, error) {
 }
 
 func (configuration config) validate() error {
-	if configuration.databaseURL == "" || configuration.trustedKeyringFile == "" || configuration.epochURL == "" || configuration.secretBundleFile == "" || !uuidPattern.MatchString(configuration.publicTenantID) || configuration.region == "" || configuration.environment == "" || configuration.serviceVersion == "" || len(configuration.passwordRangeAllowedHosts) == 0 || len(configuration.valkeyAddresses) == 0 || configuration.vaultAddress == "" || configuration.s3Region == "" || configuration.payloadBucket == "" || configuration.importBucket == "" || configuration.databaseMaxConnections < 8 || configuration.databaseMaxConnections > 256 || configuration.traceSampleRatio < 0 || configuration.traceSampleRatio > 1 || (configuration.serverCertificateFile == "") != (configuration.serverKeyFile == "") || (configuration.serverCertificateFile != "" && configuration.serverClientCAFile == "") || (configuration.epochCertFile == "") != (configuration.epochKeyFile == "") || (configuration.valkeyCertFile == "") != (configuration.valkeyKeyFile == "") || (configuration.vaultCertFile == "") != (configuration.vaultKeyFile == "") || (configuration.otlpCertFile == "") != (configuration.otlpKeyFile == "") {
+	if configuration.databaseURL == "" || configuration.trustedKeyringFile == "" || configuration.epochURL == "" || configuration.secretBundleFile == "" || !uuidPattern.MatchString(configuration.publicTenantID) || !keyIDPattern.MatchString(configuration.anonymousHandleKeyID) || configuration.region == "" || configuration.environment == "" || configuration.serviceVersion == "" || len(configuration.passwordRangeAllowedHosts) == 0 || len(configuration.valkeyAddresses) == 0 || configuration.vaultAddress == "" || configuration.s3Region == "" || configuration.payloadBucket == "" || configuration.importBucket == "" || configuration.databaseMaxConnections < 8 || configuration.databaseMaxConnections > 256 || configuration.traceSampleRatio < 0 || configuration.traceSampleRatio > 1 || (configuration.serverCertificateFile == "") != (configuration.serverKeyFile == "") || (configuration.serverCertificateFile != "" && configuration.serverClientCAFile == "") || (configuration.epochCertFile == "") != (configuration.epochKeyFile == "") || (configuration.valkeyCertFile == "") != (configuration.valkeyKeyFile == "") || (configuration.vaultCertFile == "") != (configuration.vaultKeyFile == "") || (configuration.otlpCertFile == "") != (configuration.otlpKeyFile == "") {
 		return errors.New("required identity service configuration is missing or invalid")
 	}
 	if configuration.s3Encryption == types.ServerSideEncryptionAwsKms && configuration.s3KMSKeyID == "" {
@@ -146,7 +155,7 @@ func loadSecretBundle(path string) (secretBundle, error) {
 	if err = decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) || source.Version != "1.0.0" {
 		return secretBundle{}, errors.New("identity secret bundle is invalid")
 	}
-	values := []string{source.PasswordPepper, source.VerificationTokenPepper, source.PasswordResetPepper, source.EmailChangePepper, source.InvitationPepper, source.SessionPepper, source.CSRFPepper, source.IdempotencyPepper, source.RequestDigestPepper, source.IdentityKey, source.CursorKey, source.RateLimitPepper}
+	values := []string{source.PasswordPepper, source.VerificationTokenPepper, source.PasswordResetPepper, source.EmailChangePepper, source.InvitationPepper, source.SessionPepper, source.CSRFPepper, source.IdempotencyPepper, source.RequestDigestPepper, source.IdentityKey, source.CursorKey, source.RateLimitPepper, source.AnonymousHandleKey, source.AnonymousHandlePepper, source.AnonymousCSRFKey}
 	decoded := make([][]byte, len(values))
 	seen := make(map[string]struct{}, len(values))
 	for index, value := range values {
@@ -160,7 +169,7 @@ func loadSecretBundle(path string) (secretBundle, error) {
 		}
 		seen[fingerprint] = struct{}{}
 	}
-	return secretBundle{Version: source.Version, PasswordPepper: decoded[0], VerificationTokenPepper: decoded[1], PasswordResetPepper: decoded[2], EmailChangePepper: decoded[3], InvitationPepper: decoded[4], SessionPepper: decoded[5], CSRFPepper: decoded[6], IdempotencyPepper: decoded[7], RequestDigestPepper: decoded[8], IdentityKey: decoded[9], CursorKey: decoded[10], RateLimitPepper: decoded[11]}, nil
+	return secretBundle{Version: source.Version, PasswordPepper: decoded[0], VerificationTokenPepper: decoded[1], PasswordResetPepper: decoded[2], EmailChangePepper: decoded[3], InvitationPepper: decoded[4], SessionPepper: decoded[5], CSRFPepper: decoded[6], IdempotencyPepper: decoded[7], RequestDigestPepper: decoded[8], IdentityKey: decoded[9], CursorKey: decoded[10], RateLimitPepper: decoded[11], AnonymousHandleKey: decoded[12], AnonymousHandlePepper: decoded[13], AnonymousCSRFKey: decoded[14]}, nil
 }
 
 func readSecret(path string, limit int64) (string, error) {
