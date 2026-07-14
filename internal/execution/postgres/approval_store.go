@@ -42,6 +42,7 @@ type DecideApprovalCommand struct {
 	ApprovalID, TenantID, DecisionID, ActorUserID, SessionID string
 	Decision, ProposalHash, PermissionSnapshot, Mode         string
 	ExpectedApprovalVersion, TargetVersion                   uint64
+	ReauthenticatedAt                                        time.Time
 	Actor                                                    json.RawMessage
 	CorrelationID                                            string
 	DecisionEvent                                            PayloadPointer
@@ -166,9 +167,10 @@ func (store RunStore) DecideApproval(ctx context.Context, command DecideApproval
 	}
 	var priorID, priorSession, priorDecision, priorMode, priorProposal, priorPermission, priorEvent string
 	var priorTargetVersion uint64
-	err = tx.QueryRow(ctx, `SELECT id::text,session_id::text,decision,decision_mode,proposal_hash,target_version,permission_snapshot,decision_event_id::text FROM agent.approval_decisions WHERE tenant_id=$1 AND approval_id=$2 AND actor_user_id=$3`, command.TenantID, command.ApprovalID, command.ActorUserID).Scan(&priorID, &priorSession, &priorDecision, &priorMode, &priorProposal, &priorTargetVersion, &priorPermission, &priorEvent)
+	var priorReauthenticatedAt time.Time
+	err = tx.QueryRow(ctx, `SELECT id::text,session_id::text,decision,decision_mode,proposal_hash,target_version,permission_snapshot,reauthenticated_at,decision_event_id::text FROM agent.approval_decisions WHERE tenant_id=$1 AND approval_id=$2 AND actor_user_id=$3`, command.TenantID, command.ApprovalID, command.ActorUserID).Scan(&priorID, &priorSession, &priorDecision, &priorMode, &priorProposal, &priorTargetVersion, &priorPermission, &priorReauthenticatedAt, &priorEvent)
 	if err == nil {
-		if priorID != command.DecisionID || priorSession != command.SessionID || priorDecision != command.Decision || priorMode != command.Mode || priorProposal != command.ProposalHash || priorTargetVersion != command.TargetVersion || priorPermission != command.PermissionSnapshot || priorEvent != idsForEvent.event || version != command.ExpectedApprovalVersion+1 || status != nextStatus {
+		if priorID != command.DecisionID || priorSession != command.SessionID || priorDecision != command.Decision || priorMode != command.Mode || priorProposal != command.ProposalHash || priorTargetVersion != command.TargetVersion || priorPermission != command.PermissionSnapshot || !priorReauthenticatedAt.Equal(command.ReauthenticatedAt) || priorEvent != idsForEvent.event || version != command.ExpectedApprovalVersion+1 || status != nextStatus {
 			return DecidedApproval{}, ErrApprovalConflict
 		}
 		var exists bool
@@ -214,6 +216,9 @@ func (store RunStore) DecideApproval(ctx context.Context, command DecideApproval
 			return DecidedApproval{}, ErrApprovalAuthorization
 		}
 		return DecidedApproval{}, err
+	}
+	if !reauthenticatedAt.Equal(command.ReauthenticatedAt) {
+		return DecidedApproval{}, ErrApprovalAuthorization
 	}
 	if reauthenticatedAt.After(now) || now.Sub(reauthenticatedAt) > approvalReauthenticationMaxAge || (command.Mode == "user" && command.ActorUserID != targetUserID) || (command.Mode == "admin" && actorRole != "owner" && actorRole != "admin") {
 		return DecidedApproval{}, ErrApprovalAuthorization
@@ -333,5 +338,5 @@ func validApprovalRequest(c RequestApprovalCommand) bool {
 func validApprovalDecision(c DecideApprovalCommand) bool {
 	decision := c.Decision == "approve" || c.Decision == "reject" || c.Decision == "revise"
 	mode := c.Mode == "user" || c.Mode == "admin" && c.Decision != "revise"
-	return c.ApprovalID != "" && c.TenantID != "" && c.DecisionID != "" && c.ActorUserID != "" && c.SessionID != "" && decision && mode && c.ProposalHash != "" && c.PermissionSnapshot != "" && c.ExpectedApprovalVersion > 0 && c.TargetVersion > 0 && validJSONObject(c.Actor) && c.CorrelationID != "" && validPointer(c.DecisionEvent)
+	return c.ApprovalID != "" && c.TenantID != "" && c.DecisionID != "" && c.ActorUserID != "" && c.SessionID != "" && decision && mode && c.ProposalHash != "" && c.PermissionSnapshot != "" && c.ExpectedApprovalVersion > 0 && c.TargetVersion > 0 && !c.ReauthenticatedAt.IsZero() && validJSONObject(c.Actor) && c.CorrelationID != "" && validPointer(c.DecisionEvent)
 }

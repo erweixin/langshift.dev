@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	executionapi "github.com/langshift/lites/internal/execution/api"
 	"github.com/langshift/lites/internal/payload"
 )
 
@@ -73,7 +74,7 @@ func TestApprovalRequestAndDecisionAreDurableExactReplays(t *testing.T) {
 		ApprovalID: request.ApprovalID, TenantID: fixture.tenantID, DecisionID: fixtureID("e1", 41),
 		ActorUserID: fixture.approverOneID, SessionID: fixture.sessionOneID, Decision: "approve", Mode: "admin",
 		ProposalHash: request.ProposalHash, PermissionSnapshot: fixture.permissionSnapshot,
-		ExpectedApprovalVersion: 1, TargetVersion: fixture.toolVersion,
+		ExpectedApprovalVersion: 1, TargetVersion: fixture.toolVersion, ReauthenticatedAt: fixture.now,
 		Actor: json.RawMessage(`{"kind":"user","role":"owner"}`), CorrelationID: fixture.correlationID,
 		DecisionEvent: repairPointer("e1", "approval-granted"),
 	}
@@ -126,7 +127,7 @@ func TestApprovalDecisionRejectsStalePermissionAndReauthentication(t *testing.T)
 	if _, err := fixture.store.RequestApproval(ctx, request); err != nil {
 		t.Fatal(err)
 	}
-	decision := DecideApprovalCommand{ApprovalID: request.ApprovalID, TenantID: fixture.tenantID, DecisionID: fixtureID("e2", 41), ActorUserID: fixture.approverOneID, SessionID: fixture.sessionOneID, Decision: "approve", Mode: "admin", ProposalHash: request.ProposalHash, PermissionSnapshot: fixture.permissionSnapshot, ExpectedApprovalVersion: 1, TargetVersion: fixture.toolVersion, Actor: json.RawMessage(`{"kind":"user","role":"owner"}`), CorrelationID: fixture.correlationID, DecisionEvent: repairPointer("e2", "approval-granted")}
+	decision := DecideApprovalCommand{ApprovalID: request.ApprovalID, TenantID: fixture.tenantID, DecisionID: fixtureID("e2", 41), ActorUserID: fixture.approverOneID, SessionID: fixture.sessionOneID, Decision: "approve", Mode: "admin", ProposalHash: request.ProposalHash, PermissionSnapshot: fixture.permissionSnapshot, ExpectedApprovalVersion: 1, TargetVersion: fixture.toolVersion, ReauthenticatedAt: fixture.now, Actor: json.RawMessage(`{"kind":"user","role":"owner"}`), CorrelationID: fixture.correlationID, DecisionEvent: repairPointer("e2", "approval-granted")}
 	if _, err := admin.Exec(ctx, `UPDATE identity.sessions SET reauthenticated_at=$2 WHERE id=$1`, fixture.sessionOneID, fixture.now.Add(-approvalReauthenticationMaxAge-time.Second)); err != nil {
 		t.Fatal(err)
 	}
@@ -214,6 +215,75 @@ func TestApprovalExpiryIsEpochFencedAndExactlyOnce(t *testing.T) {
 	}
 	if status != "expired" || version != 2 || !expiredAt.Equal(expiredNow) || eventType != "ApprovalExpired" || eventCount != 1 || outboxCount != 2 {
 		t.Fatalf("expired approval=%s/v%d at=%s event=%s counts=%d/%d", status, version, expiredAt, eventType, eventCount, outboxCount)
+	}
+}
+
+func TestApprovalControlServiceCommitsEncryptedIdempotentDecision(t *testing.T) {
+	ctx := context.Background()
+	admin := executionPool(t, ctx, "LITES_TEST_ADMIN_DATABASE_URL")
+	defer admin.Close()
+	pool := executionPool(t, ctx, "LITES_TEST_AGENT_DATABASE_URL")
+	defer pool.Close()
+	fixture := prepareApprovalFixture(t, ctx, admin, pool, "e4")
+	request := RequestApprovalCommand{ApprovalID: fixtureID("e4", 40), TenantID: fixture.tenantID, RunID: fixture.runID, ToolCallID: fixture.toolCallID, ApprovalKind: "tool_execution", ProposalHash: "approval-proposal-e4", PermissionSnapshot: fixture.permissionSnapshot, TargetVersion: fixture.toolVersion, RequestedBy: fixture.targetUserID, ExpiresAt: fixture.now.Add(20 * time.Minute), Actor: json.RawMessage(`{"kind":"service"}`), CorrelationID: fixture.correlationID, RequestedEvent: repairPointer("e4", "approval-requested")}
+	if _, err := fixture.store.RequestApproval(ctx, request); err != nil {
+		t.Fatal(err)
+	}
+	blobs := &repairServiceBlobs{values: map[string][]byte{}}
+	payloads := payload.EnvelopeStore{Keys: repairServiceKeyProvider{key: payload.Key{ID: "approval-service-v1", Material: bytes.Repeat([]byte{0x74}, 32)}}, Blobs: blobs}
+	service := ApprovalControlService{Pool: pool, Store: fixture.store, Payloads: payloads, IDKey: fixture.store.IDKey, IdempotencyKeyPepper: bytes.Repeat([]byte{0x75}, 32), RequestDigestPepper: bytes.Repeat([]byte{0x76}, 32), IdempotencyTTL: 24 * time.Hour, Now: func() time.Time { return fixture.now }}
+	command := executionapi.DecideApprovalCommand{RequestID: fixture.correlationID, ClientRequestID: "client-approval-e4", IdempotencyKey: "approval-idempotency-e4-0001", TenantID: fixture.tenantID, UserID: fixture.approverOneID, SessionID: fixture.sessionOneID, ApprovalID: request.ApprovalID, Decision: "approve", ProposalHash: request.ProposalHash, Mode: "admin", ExpectedApprovalVersion: 1, TargetVersion: fixture.toolVersion, PermissionSnapshot: fixture.permissionSnapshot}
+	const contenders = 12
+	results := make(chan executionapi.ApprovalResult, contenders)
+	errs := make(chan error, contenders)
+	for range contenders {
+		go func() {
+			result, err := service.DecideApproval(ctx, command)
+			if err != nil {
+				errs <- err
+				return
+			}
+			results <- result
+		}()
+	}
+	for range contenders {
+		select {
+		case err := <-errs:
+			t.Fatal(err)
+		case result := <-results:
+			if result.ID != request.ApprovalID || result.Status != "granted" || result.Version != 2 || !result.UpdatedAt.Equal(fixture.now) {
+				t.Fatalf("decision result=%#v", result)
+			}
+		}
+	}
+	if _, err := admin.Exec(ctx, `UPDATE identity.sessions SET revoked_at=$2,updated_at=$2 WHERE id=$1`, fixture.sessionOneID, fixture.now.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	replay, err := service.DecideApproval(ctx, command)
+	if err != nil || replay.Status != "granted" || replay.Version != 2 {
+		t.Fatalf("cached replay after session revocation=%#v err=%v", replay, err)
+	}
+	conflict := command
+	conflict.Decision = "reject"
+	if _, err = service.DecideApproval(ctx, conflict); !errors.Is(err, executionapi.ErrIdempotencyConflict) {
+		t.Fatalf("idempotency conflict error=%v", err)
+	}
+	var decisions, decisionEvents, idempotencyRows int
+	var eventID, payloadRef, payloadHash string
+	err = admin.QueryRow(ctx, `SELECT (SELECT count(*) FROM agent.approval_decisions WHERE tenant_id=$1 AND approval_id=$2),(SELECT count(*) FROM agent.events WHERE tenant_id=$1 AND aggregate_kind='approval' AND aggregate_id=$2 AND event_type='ApprovalGranted'),(SELECT count(*) FROM agent.idempotency_responses WHERE tenant_id=$1 AND operation_id='admin.approvals.decide' AND status='completed'),e.id::text,e.payload_ref,e.payload_hash FROM agent.events e WHERE e.tenant_id=$1 AND e.aggregate_kind='approval' AND e.aggregate_id=$2 AND e.event_type='ApprovalGranted'`, fixture.tenantID, request.ApprovalID).Scan(&decisions, &decisionEvents, &idempotencyRows, &eventID, &payloadRef, &payloadHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decisions != 1 || decisionEvents != 1 || idempotencyRows != 1 {
+		t.Fatalf("durable counts decisions=%d events=%d idempotency=%d", decisions, decisionEvents, idempotencyRows)
+	}
+	encoded, err := payloads.Get(ctx, payload.Descriptor{TenantID: fixture.tenantID, ObjectID: eventID, Class: approvalEventClass, ContentType: "application/json"}, payload.Manifest{Ref: payloadRef, Hash: payloadHash})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var evidence map[string]any
+	if err = json.Unmarshal(encoded, &evidence); err != nil || evidence["approval_id"] != request.ApprovalID || evidence["permission_snapshot"] != fixture.permissionSnapshot || evidence["reauthenticated_at"] == nil {
+		t.Fatalf("approval evidence=%v err=%v", evidence, err)
 	}
 }
 

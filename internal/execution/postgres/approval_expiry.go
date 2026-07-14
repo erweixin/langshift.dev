@@ -15,11 +15,14 @@ import (
 const approvalEventClass = "event-payload"
 
 type ApprovalControlService struct {
-	Pool     *pgxpool.Pool
-	Store    RunStore
-	Payloads payload.Store
-	IDKey    []byte
-	Now      func() time.Time
+	Pool                 *pgxpool.Pool
+	Store                RunStore
+	Payloads             payload.Store
+	IDKey                []byte
+	IdempotencyKeyPepper []byte
+	RequestDigestPepper  []byte
+	IdempotencyTTL       time.Duration
+	Now                  func() time.Time
 }
 
 type ExpiredApproval struct {
