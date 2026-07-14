@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	executionapi "github.com/langshift/lites/internal/execution/api"
 	"github.com/langshift/lites/internal/payload"
 )
@@ -64,15 +65,7 @@ func TestRepairControlServiceIsDurableIdempotentAndAutoExecutesDualApproval(t *t
 	pool := executionPool(t, ctx, "LITES_TEST_AGENT_DATABASE_URL")
 	defer pool.Close()
 	fixture := prepareUnknownRepairFixture(t, ctx, admin, pool, "de")
-	blobs := &repairServiceBlobs{values: map[string][]byte{}}
-	payloads := payload.EnvelopeStore{Keys: repairServiceKeyProvider{key: payload.Key{ID: "repair-service-v1", Material: bytes.Repeat([]byte{0xe1}, 32)}}, Blobs: blobs}
-	service := RepairControlService{
-		Pool: pool, Store: fixture.store, Payloads: payloads, IDKey: fixture.store.IDKey,
-		IdempotencyKeyPepper: bytes.Repeat([]byte{0xe2}, 32), IdempotencyTTL: 24 * time.Hour,
-		RequestDigestPepper: bytes.Repeat([]byte{0xe3}, 32),
-		ProposalTTL:         30 * time.Minute, Now: func() time.Time { return fixture.now },
-		ResumeQueueClass: "interactive", ResumeResourceClass: "llm", ResumePriority: 50, ResumeCostUnits: 2, ResumeMaxAttempts: 5,
-	}
+	service, payloads := repairControlServiceForFixture(pool, fixture, 0xe1)
 	proposalCommand := executionapi.ProposeRepairCommand{
 		RequestID: fixture.correlationID, ClientRequestID: "repair-client-propose-de", IdempotencyKey: "repair-propose-key-de-0001",
 		TenantID: fixture.tenantID, UserID: fixture.initiatorID, SessionID: fixture.initiatorSessionID,
@@ -211,4 +204,86 @@ func TestRepairControlServiceIsDurableIdempotentAndAutoExecutesDualApproval(t *t
 	if err = json.Unmarshal(encoded, &approvedPayload); err != nil || len(approvedPayload.ApprovalEventIDs) != 2 || approvedPayload.ApprovalEventIDs[0] == approvedPayload.ApprovalEventIDs[1] {
 		t.Fatalf("approved payload=%s err=%v", encoded, err)
 	}
+}
+
+func TestRepairRecoveryDiscoversAndExecutesApprovedRepairExactlyOnce(t *testing.T) {
+	ctx := context.Background()
+	admin := executionPool(t, ctx, "LITES_TEST_ADMIN_DATABASE_URL")
+	defer admin.Close()
+	pool := executionPool(t, ctx, "LITES_TEST_AGENT_DATABASE_URL")
+	defer pool.Close()
+	fixture := prepareUnknownRepairFixture(t, ctx, admin, pool, "df")
+	service, _ := repairControlServiceForFixture(pool, fixture, 0xf1)
+	repairID := fixtureID("df", 30)
+	proposalHash, evidenceHash := "proposal-df", "evidence-df"
+	proposal := ProposeToolEffectRepairCommand{RepairID: repairID, TenantID: fixture.tenantID, InitiatorUserID: fixture.initiatorID, InitiatorSessionID: fixture.initiatorSessionID, ToolCallID: fixture.toolCallID, ExpectedToolVersion: fixture.toolVersion, ExpectedEffectVersion: fixture.effectVersion, EffectKey: fixture.effectKey, Resolution: "accepted_unknown", ProposalHash: proposalHash, EvidenceHash: evidenceHash, ResidualRiskRef: "encrypted://risk/df", ExpiresAt: fixture.now.Add(30 * time.Minute), Actor: json.RawMessage(`{"kind":"user"}`), CorrelationID: fixture.correlationID, ProposedEvent: repairPointer("df", "proposed")}
+	if _, err := fixture.store.ProposeToolEffectRepair(ctx, proposal); err != nil {
+		t.Fatal(err)
+	}
+	first := repairDecisionCommand(fixture, repairID, fixture.approverOneID, fixture.sessionOneID, fixtureID("df", 31), proposalHash, "approve", "df-one")
+	first.RepairApprovedEvent = PayloadPointer{}
+	if result, err := fixture.store.DecideToolEffectRepair(ctx, first); err != nil || result.Status != "proposed" {
+		t.Fatalf("first=%#v err=%v", result, err)
+	}
+	second := repairDecisionCommand(fixture, repairID, fixture.approverTwoID, fixture.sessionTwoID, fixtureID("df", 32), proposalHash, "approve", "df-two")
+	if result, err := fixture.store.DecideToolEffectRepair(ctx, second); err != nil || result.Status != "approved" || !result.Ready {
+		t.Fatalf("second=%#v err=%v", result, err)
+	}
+	tenants, err := service.ListRecoverableRepairTenantIDs(ctx, fixture.store.StoreEpoch, "", 100, 0, 1)
+	if err != nil || len(tenants) != 1 || tenants[0] != fixture.tenantID {
+		t.Fatalf("tenants=%v err=%v", tenants, err)
+	}
+	repairs, err := service.ListRecoverableRepairIDs(ctx, fixture.tenantID, fixture.store.StoreEpoch, "", 100)
+	if err != nil || len(repairs) != 1 || repairs[0] != repairID {
+		t.Fatalf("repairs=%v err=%v", repairs, err)
+	}
+	const contenders = 16
+	results := make(chan RepairedTool, contenders)
+	errorsFound := make(chan error, contenders)
+	var recoveries sync.WaitGroup
+	for range contenders {
+		recoveries.Add(1)
+		go func() {
+			defer recoveries.Done()
+			result, recoveryErr := service.RecoverApprovedRepair(ctx, fixture.tenantID, repairID, fixture.store.StoreEpoch)
+			if recoveryErr != nil {
+				errorsFound <- recoveryErr
+				return
+			}
+			results <- result
+		}()
+	}
+	recoveries.Wait()
+	close(results)
+	close(errorsFound)
+	for recoveryErr := range errorsFound {
+		t.Fatalf("recovery error=%v", recoveryErr)
+	}
+	fresh, replayed := 0, 0
+	for result := range results {
+		if result.Replayed {
+			replayed++
+		} else {
+			fresh++
+		}
+	}
+	if fresh != 1 || replayed != contenders-1 {
+		t.Fatalf("fresh=%d replayed=%d", fresh, replayed)
+	}
+	repairs, err = service.ListRecoverableRepairIDs(ctx, fixture.tenantID, fixture.store.StoreEpoch, "", 100)
+	if err != nil || len(repairs) != 0 {
+		t.Fatalf("post-recovery repairs=%v err=%v", repairs, err)
+	}
+}
+
+func repairControlServiceForFixture(pool *pgxpool.Pool, fixture unknownRepairFixture, marker byte) (RepairControlService, payload.EnvelopeStore) {
+	blobs := &repairServiceBlobs{values: map[string][]byte{}}
+	payloads := payload.EnvelopeStore{Keys: repairServiceKeyProvider{key: payload.Key{ID: "repair-service-v1", Material: bytes.Repeat([]byte{marker}, 32)}}, Blobs: blobs}
+	service := RepairControlService{
+		Pool: pool, Store: fixture.store, Payloads: payloads, IDKey: fixture.store.IDKey,
+		IdempotencyKeyPepper: bytes.Repeat([]byte{marker + 1}, 32), RequestDigestPepper: bytes.Repeat([]byte{marker + 2}, 32),
+		IdempotencyTTL: 24 * time.Hour, ProposalTTL: 30 * time.Minute, Now: func() time.Time { return fixture.now },
+		ResumeQueueClass: "interactive", ResumeResourceClass: "llm", ResumePriority: 50, ResumeCostUnits: 2, ResumeMaxAttempts: 5,
+	}
+	return service, payloads
 }
