@@ -287,6 +287,92 @@ func TestApprovalControlServiceCommitsEncryptedIdempotentDecision(t *testing.T) 
 	}
 }
 
+func TestApprovalScopeDriftInvalidatesPendingAndGrantedExactlyOnce(t *testing.T) {
+	for _, test := range []struct {
+		name, prefix string
+		grant        bool
+		wantVersion  uint64
+	}{
+		{"pending", "e5", false, 2},
+		{"granted before consumption", "e6", true, 3},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := context.Background()
+			admin := executionPool(t, ctx, "LITES_TEST_ADMIN_DATABASE_URL")
+			defer admin.Close()
+			pool := executionPool(t, ctx, "LITES_TEST_AGENT_DATABASE_URL")
+			defer pool.Close()
+			fixture := prepareApprovalFixture(t, ctx, admin, pool, test.prefix)
+			request := RequestApprovalCommand{ApprovalID: fixtureID(test.prefix, 40), TenantID: fixture.tenantID, RunID: fixture.runID, ToolCallID: fixture.toolCallID, ApprovalKind: "tool_execution", ProposalHash: "approval-proposal-" + test.prefix, PermissionSnapshot: fixture.permissionSnapshot, TargetVersion: fixture.toolVersion, RequestedBy: fixture.targetUserID, ExpiresAt: fixture.now.Add(20 * time.Minute), Actor: json.RawMessage(`{"kind":"service"}`), CorrelationID: fixture.correlationID, RequestedEvent: repairPointer(test.prefix, "approval-requested")}
+			if _, err := fixture.store.RequestApproval(ctx, request); err != nil {
+				t.Fatal(err)
+			}
+			if test.grant {
+				decision := DecideApprovalCommand{ApprovalID: request.ApprovalID, TenantID: fixture.tenantID, DecisionID: fixtureID(test.prefix, 41), ActorUserID: fixture.approverOneID, SessionID: fixture.sessionOneID, Decision: "approve", Mode: "admin", ProposalHash: request.ProposalHash, PermissionSnapshot: fixture.permissionSnapshot, ExpectedApprovalVersion: 1, TargetVersion: fixture.toolVersion, ReauthenticatedAt: fixture.now, Actor: json.RawMessage(`{"kind":"user","role":"owner"}`), CorrelationID: fixture.correlationID, DecisionEvent: repairPointer(test.prefix, "approval-granted")}
+				if _, err := fixture.store.DecideApproval(ctx, decision); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := admin.Exec(ctx, `UPDATE identity.memberships SET version=version+1,updated_at=$3 WHERE tenant_id=$1 AND user_id=$2`, fixture.tenantID, fixture.targetUserID, fixture.now.Add(time.Second)); err != nil {
+				t.Fatal(err)
+			}
+			blobs := &repairServiceBlobs{values: map[string][]byte{}}
+			payloads := payload.EnvelopeStore{Keys: repairServiceKeyProvider{key: payload.Key{ID: "approval-invalidation-v1", Material: bytes.Repeat([]byte{test.prefix[1]}, 32)}}, Blobs: blobs}
+			service := ApprovalControlService{Pool: pool, Store: fixture.store, Payloads: payloads, IDKey: fixture.store.IDKey, Now: func() time.Time { return fixture.now.Add(2 * time.Second) }}
+			if !test.grant {
+				tenants, err := service.ListStaleApprovalTenantIDs(ctx, fixture.store.StoreEpoch, "", 100, 0, 1)
+				if err != nil || len(tenants) != 1 || tenants[0] != fixture.tenantID {
+					t.Fatalf("stale tenants=%v err=%v", tenants, err)
+				}
+				approvals, err := service.ListStaleApprovalIDs(ctx, fixture.tenantID, fixture.store.StoreEpoch, "", 100)
+				if err != nil || len(approvals) != 1 || approvals[0] != request.ApprovalID {
+					t.Fatalf("stale approvals=%v err=%v", approvals, err)
+				}
+			}
+			first, err := service.InvalidateApprovalScope(ctx, fixture.tenantID, request.ApprovalID, fixture.store.StoreEpoch, fixture.correlationID)
+			if err != nil || first.Status != "invalidated" || first.Version != test.wantVersion || first.Replayed {
+				t.Fatalf("first invalidation=%#v err=%v", first, err)
+			}
+			const replays = 12
+			results := make(chan InvalidatedApproval, replays)
+			errs := make(chan error, replays)
+			for range replays {
+				go func() {
+					result, replayErr := service.InvalidateApprovalScope(ctx, fixture.tenantID, request.ApprovalID, fixture.store.StoreEpoch, fixture.correlationID)
+					if replayErr != nil {
+						errs <- replayErr
+						return
+					}
+					results <- result
+				}()
+			}
+			for range replays {
+				select {
+				case replayErr := <-errs:
+					t.Fatal(replayErr)
+				case result := <-results:
+					if !result.Replayed || result.EventID != first.EventID || result.Version != first.Version || !result.InvalidatedAt.Equal(first.InvalidatedAt) {
+						t.Fatalf("invalidation replay=%#v first=%#v", result, first)
+					}
+				}
+			}
+			var eventCount int
+			var payloadRef, payloadHash string
+			if err = admin.QueryRow(ctx, `SELECT count(*),max(payload_ref),max(payload_hash) FROM agent.events WHERE tenant_id=$1 AND aggregate_kind='approval' AND aggregate_id=$2 AND event_type='ApprovalInvalidated'`, fixture.tenantID, request.ApprovalID).Scan(&eventCount, &payloadRef, &payloadHash); err != nil || eventCount != 1 {
+				t.Fatalf("invalidation event count=%d err=%v", eventCount, err)
+			}
+			encoded, err := payloads.Get(ctx, payload.Descriptor{TenantID: fixture.tenantID, ObjectID: first.EventID, Class: approvalEventClass, ContentType: "application/json"}, payload.Manifest{Ref: payloadRef, Hash: payloadHash})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var evidence map[string]any
+			if err = json.Unmarshal(encoded, &evidence); err != nil || evidence["reason_code"] != "permission_snapshot_changed" || evidence["new_state"] != "invalidated" {
+				t.Fatalf("invalidation evidence=%v err=%v", evidence, err)
+			}
+		})
+	}
+}
+
 type approvalFixture struct {
 	unknownRepairFixture
 	permissionSnapshot string
