@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"time"
@@ -9,7 +10,9 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	eventpostgres "github.com/langshift/lites/internal/eventstore/postgres"
 	"github.com/langshift/lites/internal/identity/anonymoussession"
+	"github.com/langshift/lites/internal/payload"
 	"github.com/langshift/lites/internal/platform/ids"
 )
 
@@ -19,6 +22,9 @@ type AnonymousSessionService struct {
 	Pool           *pgxpool.Pool
 	SystemTenantID string
 	Signer         anonymoussession.Signer
+	Payloads       payload.Store
+	Appender       eventpostgres.Appender
+	StoreEpoch     string
 	TTL            time.Duration
 	Random         io.Reader
 	Now            func() time.Time
@@ -30,7 +36,7 @@ type AnonymousBootstrap struct {
 }
 
 func (service AnonymousSessionService) Create(ctx context.Context) (AnonymousBootstrap, error) {
-	if service.Pool == nil || service.SystemTenantID == "" || service.Random == nil || service.TTL <= 0 || service.TTL > anonymoussession.MaximumTTL {
+	if service.Pool == nil || service.SystemTenantID == "" || service.Random == nil || service.Payloads == nil || service.StoreEpoch == "" || service.TTL <= 0 || service.TTL > anonymoussession.MaximumTTL {
 		return AnonymousBootstrap{}, anonymoussession.ErrInvalidHandle
 	}
 	now := time.Now().UTC()
@@ -50,6 +56,26 @@ func (service AnonymousSessionService) Create(ctx context.Context) (AnonymousBoo
 		if err != nil {
 			return AnonymousBootstrap{}, err
 		}
+		eventID, err := ids.NewUUIDFrom(service.Random)
+		if err != nil {
+			return AnonymousBootstrap{}, err
+		}
+		outboxID, err := ids.NewUUIDFrom(service.Random)
+		if err != nil {
+			return AnonymousBootstrap{}, err
+		}
+		commandID, err := ids.NewUUIDFrom(service.Random)
+		if err != nil {
+			return AnonymousBootstrap{}, err
+		}
+		encodedPayload, err := json.Marshal(map[string]any{"subject_id": subjectID, "subject_version": 1})
+		if err != nil {
+			return AnonymousBootstrap{}, err
+		}
+		eventPayload, err := service.Payloads.Put(ctx, payload.Descriptor{TenantID: service.SystemTenantID, ObjectID: eventID, Class: "event-payload", ContentType: "application/json"}, encodedPayload)
+		if err != nil {
+			return AnonymousBootstrap{}, err
+		}
 		tx, err := service.Pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 		if err != nil {
 			return AnonymousBootstrap{}, err
@@ -63,6 +89,9 @@ func (service AnonymousSessionService) Create(ctx context.Context) (AnonymousBoo
 		}
 		if err == nil {
 			_, err = tx.Exec(ctx, `INSERT INTO identity.anonymous_subjects(id,anonymous_subject_hash,ephemeral_user_id,system_tenant_id,expires_at) VALUES($1,$2,$3,$4,$5)`, subjectID, credential.Digest[:], ephemeralUserID, service.SystemTenantID, credential.ExpiresAt)
+		}
+		if err == nil {
+			_, err = service.Appender.Append(ctx, tx, eventpostgres.Input{Event: eventpostgres.Event{ID: eventID, TenantID: service.SystemTenantID, UserID: ephemeralUserID, EventType: "AnonymousSubjectCreated", SchemaVersion: 1, AggregateKind: "anonymous_subject", AggregateID: subjectID, AggregateVersion: 1, StoreEpoch: service.StoreEpoch, OccurredAt: now, Actor: json.RawMessage(`{"kind":"system","id":"identity-service"}`), CorrelationID: eventID, PayloadRef: eventPayload.Ref, PayloadHash: eventPayload.Hash}, Commands: []eventpostgres.OutboxCommand{{ID: outboxID, CommandID: commandID, CommandType: "events.publish", PayloadRef: eventPayload.Ref, PayloadHash: eventPayload.Hash}}})
 		}
 		if err == nil {
 			err = tx.Commit(ctx)
