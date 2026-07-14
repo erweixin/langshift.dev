@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	eventpostgres "github.com/langshift/lites/internal/eventstore/postgres"
 	"github.com/langshift/lites/internal/identity/api"
 	"github.com/langshift/lites/internal/identity/password"
 	"github.com/langshift/lites/internal/payload"
@@ -187,15 +188,35 @@ func TestMembershipLifecycleIsTenantScopedAuditedCASAndSessionSafe(t *testing.T)
 	if _, err = service.ImportMemberships(ctx, duplicateImport); !errors.Is(err, api.ErrStateConflict) {
 		t.Fatalf("duplicate import=%v", err)
 	}
-	processed := concurrentCalls(t, 12, func() (ImportProcessResult, error) {
-		return service.ProcessMembershipImport(ctx, enterprise, imports[0].ID)
-	})
+	workCommand := deliveredImportCommand(t, ctx, admin, enterprise, imports[0].ID, "identity.membership_import.process")
+	dispatcher := IdentityImportDispatcher{Service: service, Inbox: eventpostgres.InboxStore{Pool: pool, Epochs: identityEpochAuthority{epoch: service.StoreEpoch}, Tokens: opaque.Manager{Purpose: "membership-import-inbox", Pepper: bytes.Repeat([]byte{0xdd}, 32)}, LeaseTTL: 5 * time.Minute, Now: service.Now}}
+	processed := make([]ImportDispatchResult, 0, 12)
+	for range 12 {
+		result, dispatchErr := dispatcher.Dispatch(ctx, workCommand)
+		if dispatchErr != nil {
+			t.Fatal(dispatchErr)
+		}
+		processed = append(processed, result)
+	}
+	claimed, replayed := 0, 0
 	for _, result := range processed {
-		if result != processed[0] || result.Status != "completed" || result.Version != 2 || result.AcceptedRows != 2 || result.RejectedRows != 0 || result.DeactivatedRows != 1 {
+		if !result.Completed || result.TerminalFailure {
 			t.Fatalf("processed membership import=%#v", result)
 		}
+		if result.Claimed {
+			claimed++
+			if result.Import.Status != "completed" || result.Import.Version != 2 || result.Import.AcceptedRows != 2 || result.Import.RejectedRows != 0 || result.Import.DeactivatedRows != 1 {
+				t.Fatalf("claimed membership import=%#v", result)
+			}
+		}
+		if result.Replayed {
+			replayed++
+		}
 	}
-	var reactivated, missingSuspended, leftCount, deactivatedEvents, reactivatedEvents, sessionEvents, importsCount, importEvents, importCompletedEvents, listAudits int
+	if claimed != 1 || replayed != 11 {
+		t.Fatalf("membership dispatcher claimed=%d replayed=%d", claimed, replayed)
+	}
+	var reactivated, missingSuspended, leftCount, deactivatedEvents, reactivatedEvents, sessionEvents, importsCount, importEvents, importCompletedEvents, inboxCompleted, listAudits int
 	checks := []struct {
 		query string
 		out   *int
@@ -209,6 +230,7 @@ func TestMembershipLifecycleIsTenantScopedAuditedCASAndSessionSafe(t *testing.T)
 		{`SELECT count(*) FROM identity.membership_imports WHERE tenant_id='20000000-0000-0000-0000-000000002205'`, &importsCount},
 		{`SELECT count(*) FROM agent.events WHERE tenant_id='20000000-0000-0000-0000-000000002205' AND event_type='MembershipImportQueued'`, &importEvents},
 		{`SELECT count(*) FROM agent.events WHERE tenant_id='20000000-0000-0000-0000-000000002205' AND event_type='MembershipImportCompleted'`, &importCompletedEvents},
+		{`SELECT count(*) FROM agent.inbox WHERE tenant_id='20000000-0000-0000-0000-000000002205' AND consumer_name='identity-import-worker' AND status='completed'`, &inboxCompleted},
 		{`SELECT count(*) FROM identity.security_events WHERE tenant_id='20000000-0000-0000-0000-000000002205' AND event_type='memberships_listed'`, &listAudits},
 	}
 	for _, check := range checks {
@@ -216,8 +238,8 @@ func TestMembershipLifecycleIsTenantScopedAuditedCASAndSessionSafe(t *testing.T)
 			t.Fatal(err)
 		}
 	}
-	if reactivated != 1 || missingSuspended != 1 || leftCount != 1 || deactivatedEvents != 3 || reactivatedEvents != 1 || sessionEvents != 3 || importsCount != 1 || importEvents != 1 || importCompletedEvents != 1 || listAudits != 2 {
-		t.Fatalf("reactivated=%d missing-suspended=%d left=%d deactivated-events=%d reactivated-events=%d session-events=%d imports=%d queued=%d completed=%d list-audits=%d", reactivated, missingSuspended, leftCount, deactivatedEvents, reactivatedEvents, sessionEvents, importsCount, importEvents, importCompletedEvents, listAudits)
+	if reactivated != 1 || missingSuspended != 1 || leftCount != 1 || deactivatedEvents != 3 || reactivatedEvents != 1 || sessionEvents != 3 || importsCount != 1 || importEvents != 1 || importCompletedEvents != 1 || inboxCompleted != 1 || listAudits != 2 {
+		t.Fatalf("reactivated=%d missing-suspended=%d left=%d deactivated-events=%d reactivated-events=%d session-events=%d imports=%d queued=%d completed=%d inbox=%d list-audits=%d", reactivated, missingSuspended, leftCount, deactivatedEvents, reactivatedEvents, sessionEvents, importsCount, importEvents, importCompletedEvents, inboxCompleted, listAudits)
 	}
 	for _, stored := range blobs.values {
 		for _, secret := range []string{"employment relationship ended", "voluntary departure"} {

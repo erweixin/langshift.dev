@@ -58,11 +58,27 @@ type plannedMembershipImport struct {
 }
 
 func (service AuthService) ProcessMembershipImport(ctx context.Context, tenantID, importID string) (ImportProcessResult, error) {
+	return service.processMembershipImport(ctx, tenantID, importID, nil)
+}
+
+func (service AuthService) ProcessMembershipImportDelivery(ctx context.Context, store eventpostgres.InboxStore, claim eventpostgres.InboxClaim, importID string) (ImportProcessResult, error) {
+	if claim.Command.CommandType != "identity.membership_import.process" || claim.Command.AggregateKind != "membership_import" || claim.Command.TenantID == "" || importID == "" || importID != claim.Command.AggregateID {
+		return ImportProcessResult{}, ErrImportInvalid
+	}
+	return service.processMembershipImport(ctx, claim.Command.TenantID, importID, &importInboxCompletion{Store: store, Claim: claim})
+}
+
+func (service AuthService) processMembershipImport(ctx context.Context, tenantID, importID string, inbox *importInboxCompletion) (ImportProcessResult, error) {
 	if service.Pool == nil || service.ImportSources == nil || service.Payloads == nil || tenantID == "" || importID == "" || service.StoreEpoch == "" {
 		return ImportProcessResult{}, apiDependencyUnavailable()
 	}
 	record, terminal, err := service.claimMembershipImport(ctx, tenantID, importID)
 	if err != nil || terminal {
+		if terminal && inbox != nil && (err == nil || errors.Is(err, ErrImportFailed)) {
+			if completeErr := inbox.Store.Complete(ctx, inbox.Claim); completeErr != nil {
+				return ImportProcessResult{}, completeErr
+			}
+		}
 		return membershipImportResult(record), err
 	}
 	contents, err := service.ImportSources.Get(ctx, record.ObjectRef)
@@ -90,7 +106,14 @@ func (service AuthService) ProcessMembershipImport(ctx context.Context, tenantID
 	if err != nil {
 		return ImportProcessResult{}, err
 	}
-	return service.commitMembershipImport(ctx, record, snapshot, plan, completion)
+	if inbox != nil {
+		refreshed, heartbeatErr := inbox.Store.Heartbeat(ctx, inbox.Claim)
+		if heartbeatErr != nil {
+			return ImportProcessResult{}, heartbeatErr
+		}
+		inbox.Claim = refreshed
+	}
+	return service.commitMembershipImport(ctx, record, snapshot, plan, completion, inbox)
 }
 
 func (service AuthService) claimMembershipImport(ctx context.Context, tenantID, importID string) (membershipImportRecord, bool, error) {
@@ -313,7 +336,7 @@ func (service AuthService) prepareMembershipImportAction(ctx context.Context, re
 	return action, nil
 }
 
-func (service AuthService) commitMembershipImport(ctx context.Context, record membershipImportRecord, snapshot membershipImportSnapshot, plan plannedMembershipImport, completion importCompletionPrepared) (ImportProcessResult, error) {
+func (service AuthService) commitMembershipImport(ctx context.Context, record membershipImportRecord, snapshot membershipImportSnapshot, plan plannedMembershipImport, completion importCompletionPrepared, inbox *importInboxCompletion) (ImportProcessResult, error) {
 	tx, err := service.Pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
 		return ImportProcessResult{}, apiDependencyUnavailable()
@@ -322,6 +345,12 @@ func (service AuthService) commitMembershipImport(ctx context.Context, record me
 	if _, err = tx.Exec(ctx, `SELECT set_config('lites.tenant_id',$1,true)`, record.TenantID); err != nil {
 		return ImportProcessResult{}, apiDependencyUnavailable()
 	}
+	now := service.now()
+	if inbox != nil {
+		if err = inbox.Store.LockClaimTx(ctx, tx, inbox.Claim, now); err != nil {
+			return ImportProcessResult{}, err
+		}
+	}
 	var status string
 	var version uint64
 	var accepted, rejected, deactivated int
@@ -329,6 +358,11 @@ func (service AuthService) commitMembershipImport(ctx context.Context, record me
 		return ImportProcessResult{}, apiDependencyUnavailable()
 	}
 	if status == "completed" {
+		if inbox != nil {
+			if err = inbox.Store.CompleteTx(ctx, tx, inbox.Claim, service.now()); err != nil {
+				return ImportProcessResult{}, err
+			}
+		}
 		if err = tx.Commit(ctx); err != nil {
 			return ImportProcessResult{}, apiDependencyUnavailable()
 		}
@@ -346,7 +380,6 @@ func (service AuthService) commitMembershipImport(ctx context.Context, record me
 		return ImportProcessResult{}, api.ErrStateConflict
 	}
 	actor, _ := json.Marshal(map[string]string{"kind": "user", "id": record.InitiatedBy})
-	now := service.now()
 	for _, action := range plan.Actions {
 		if err = service.applyMembershipImportAction(ctx, tx, record, action, actor, now); err != nil {
 			return ImportProcessResult{}, err
@@ -362,6 +395,11 @@ func (service AuthService) commitMembershipImport(ctx context.Context, record me
 	}
 	if _, err = service.Appender.Append(ctx, tx, eventpostgres.Input{Event: eventpostgres.Event{ID: completion.EventID, TenantID: record.TenantID, UserID: record.InitiatedBy, EventType: "MembershipImportCompleted", SchemaVersion: 1, AggregateKind: "membership_import", AggregateID: record.ID, AggregateVersion: nextVersion, StoreEpoch: service.StoreEpoch, OccurredAt: now, Actor: actor, CorrelationID: completion.SecurityEventID, PayloadRef: completion.EventPayload.Ref, PayloadHash: completion.EventPayload.Hash}, Commands: []eventpostgres.OutboxCommand{{ID: completion.OutboxID, CommandID: completion.CommandID, CommandType: "events.publish", PayloadRef: completion.EventPayload.Ref, PayloadHash: completion.EventPayload.Hash}}}); err != nil {
 		return ImportProcessResult{}, err
+	}
+	if inbox != nil {
+		if err = inbox.Store.CompleteTx(ctx, tx, inbox.Claim, now); err != nil {
+			return ImportProcessResult{}, err
+		}
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return ImportProcessResult{}, apiDependencyUnavailable()

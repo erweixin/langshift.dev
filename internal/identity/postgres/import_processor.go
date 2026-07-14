@@ -71,11 +71,32 @@ type importCompletionPrepared struct {
 // from the authenticated, encrypted work command; all other fields are loaded
 // from PostgreSQL and treated as authoritative.
 func (service AuthService) ProcessInvitationImport(ctx context.Context, tenantID, importID string) (ImportProcessResult, error) {
+	return service.processInvitationImport(ctx, tenantID, importID, nil)
+}
+
+type importInboxCompletion struct {
+	Store eventpostgres.InboxStore
+	Claim eventpostgres.InboxClaim
+}
+
+func (service AuthService) ProcessInvitationImportDelivery(ctx context.Context, store eventpostgres.InboxStore, claim eventpostgres.InboxClaim, importID string) (ImportProcessResult, error) {
+	if claim.Command.CommandType != "identity.invitation_import.process" || claim.Command.AggregateKind != "invitation_import" || claim.Command.TenantID == "" || importID == "" || importID != claim.Command.AggregateID {
+		return ImportProcessResult{}, ErrImportInvalid
+	}
+	return service.processInvitationImport(ctx, claim.Command.TenantID, importID, &importInboxCompletion{Store: store, Claim: claim})
+}
+
+func (service AuthService) processInvitationImport(ctx context.Context, tenantID, importID string, inbox *importInboxCompletion) (ImportProcessResult, error) {
 	if service.Pool == nil || service.ImportSources == nil || service.Payloads == nil || tenantID == "" || importID == "" || service.StoreEpoch == "" || service.InvitationTokens.Purpose == "" || len(service.InvitationTokens.Pepper) < 32 {
 		return ImportProcessResult{}, apiDependencyUnavailable()
 	}
 	record, terminal, err := service.claimInvitationImport(ctx, tenantID, importID)
 	if err != nil || terminal {
+		if terminal && inbox != nil && (err == nil || errors.Is(err, ErrImportFailed)) {
+			if completeErr := inbox.Store.Complete(ctx, inbox.Claim); completeErr != nil {
+				return ImportProcessResult{}, completeErr
+			}
+		}
 		return importResult(record), err
 	}
 	contents, err := service.ImportSources.Get(ctx, record.ObjectRef)
@@ -104,7 +125,14 @@ func (service AuthService) ProcessInvitationImport(ctx context.Context, tenantID
 	if err != nil {
 		return ImportProcessResult{}, err
 	}
-	return service.commitInvitationImport(ctx, record, prepared, rejected, completion, now)
+	if inbox != nil {
+		refreshed, heartbeatErr := inbox.Store.Heartbeat(ctx, inbox.Claim)
+		if heartbeatErr != nil {
+			return ImportProcessResult{}, heartbeatErr
+		}
+		inbox.Claim = refreshed
+	}
+	return service.commitInvitationImport(ctx, record, prepared, rejected, completion, now, inbox)
 }
 
 func (service AuthService) claimInvitationImport(ctx context.Context, tenantID, importID string) (invitationImportRecord, bool, error) {
@@ -158,7 +186,7 @@ func importResult(record invitationImportRecord) ImportProcessResult {
 	return ImportProcessResult{Status: record.Status, Version: record.Version, AcceptedRows: record.AcceptedRows, RejectedRows: record.RejectedRows}
 }
 
-func (service AuthService) commitInvitationImport(ctx context.Context, record invitationImportRecord, candidates []importedInvitation, initiallyRejected int, completion importCompletionPrepared, now time.Time) (ImportProcessResult, error) {
+func (service AuthService) commitInvitationImport(ctx context.Context, record invitationImportRecord, candidates []importedInvitation, initiallyRejected int, completion importCompletionPrepared, now time.Time, inbox *importInboxCompletion) (ImportProcessResult, error) {
 	// The import row is the aggregate lock. Read committed avoids surfacing
 	// serialization failures to duplicate workers while still allowing exactly
 	// one worker to transition processing -> completed.
@@ -170,6 +198,11 @@ func (service AuthService) commitInvitationImport(ctx context.Context, record in
 	if _, err = tx.Exec(ctx, `SELECT set_config('lites.tenant_id',$1,true)`, record.TenantID); err != nil {
 		return ImportProcessResult{}, apiDependencyUnavailable()
 	}
+	if inbox != nil {
+		if err = inbox.Store.LockClaimTx(ctx, tx, inbox.Claim, now); err != nil {
+			return ImportProcessResult{}, err
+		}
+	}
 	var status string
 	var currentVersion uint64
 	var accepted, rejected int
@@ -177,6 +210,11 @@ func (service AuthService) commitInvitationImport(ctx context.Context, record in
 		return ImportProcessResult{}, apiDependencyUnavailable()
 	}
 	if status == "completed" {
+		if inbox != nil {
+			if err = inbox.Store.CompleteTx(ctx, tx, inbox.Claim, now); err != nil {
+				return ImportProcessResult{}, err
+			}
+		}
 		if err = tx.Commit(ctx); err != nil {
 			return ImportProcessResult{}, apiDependencyUnavailable()
 		}
@@ -227,6 +265,11 @@ func (service AuthService) commitInvitationImport(ctx context.Context, record in
 	}
 	if _, err = service.Appender.Append(ctx, tx, eventpostgres.Input{Event: eventpostgres.Event{ID: completion.EventID, TenantID: record.TenantID, UserID: record.InitiatedBy, EventType: "InvitationImportCompleted", SchemaVersion: 1, AggregateKind: "invitation_import", AggregateID: record.ID, AggregateVersion: nextVersion, StoreEpoch: service.StoreEpoch, OccurredAt: now, Actor: actor, CorrelationID: completion.SecurityEventID, PayloadRef: completion.EventPayload.Ref, PayloadHash: completion.EventPayload.Hash}, Commands: []eventpostgres.OutboxCommand{{ID: completion.OutboxID, CommandID: completion.CommandID, CommandType: "events.publish", PayloadRef: completion.EventPayload.Ref, PayloadHash: completion.EventPayload.Hash}}}); err != nil {
 		return ImportProcessResult{}, err
+	}
+	if inbox != nil {
+		if err = inbox.Store.CompleteTx(ctx, tx, inbox.Claim, now); err != nil {
+			return ImportProcessResult{}, err
+		}
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return ImportProcessResult{}, apiDependencyUnavailable()

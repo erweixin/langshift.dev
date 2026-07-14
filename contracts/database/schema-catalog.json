@@ -2384,11 +2384,11 @@
         "store_epoch uuid NOT NULL",
         "payload_ref text NOT NULL",
         "payload_hash text NOT NULL",
-        "status text NOT NULL",
+        "status text NOT NULL CHECK (status IN ('pending','publishing','published'))",
         "available_at timestamptz NOT NULL",
         "publisher_lease_hash bytea",
         "publisher_lease_expires_at timestamptz",
-        "publish_attempts integer NOT NULL DEFAULT 0",
+        "publish_attempts integer NOT NULL DEFAULT 0 CHECK (publish_attempts >= 0)",
         "published_at timestamptz",
         "created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP"
       ],
@@ -2402,7 +2402,9 @@
         ]
       ],
       "foreignKeys": [],
-      "checks": [],
+      "checks": [
+        "(status = 'pending' AND publisher_lease_hash IS NULL AND publisher_lease_expires_at IS NULL AND published_at IS NULL) OR (status = 'publishing' AND publisher_lease_hash IS NOT NULL AND publisher_lease_expires_at IS NOT NULL AND published_at IS NULL) OR (status = 'published' AND publisher_lease_hash IS NULL AND publisher_lease_expires_at IS NULL AND published_at IS NOT NULL)"
+      ],
       "qualifiedName": "agent.outbox",
       "rls": "tenant_context_required"
     },
@@ -2412,14 +2414,18 @@
       "columns": [
         "id uuid PRIMARY KEY",
         "tenant_id uuid NOT NULL",
+        "store_epoch uuid NOT NULL",
         "consumer_name text NOT NULL",
         "command_id uuid NOT NULL",
-        "status text NOT NULL",
-        "owner_attempt_id uuid",
-        "lease_expires_at timestamptz",
+        "status text NOT NULL CHECK (status IN ('running','completed','abandoned'))",
+        "owner_attempt_id uuid NOT NULL",
+        "fence bigint NOT NULL CHECK (fence > 0)",
+        "lease_token_hash bytea NOT NULL",
+        "lease_expires_at timestamptz NOT NULL",
         "request_hash text NOT NULL",
         "completed_at timestamptz",
-        "created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP"
+        "created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP",
+        "updated_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP"
       ],
       "tenantScoped": true,
       "userScoped": false,
@@ -2433,7 +2439,9 @@
         ]
       ],
       "foreignKeys": [],
-      "checks": [],
+      "checks": [
+        "(status = 'completed' AND completed_at IS NOT NULL) OR (status IN ('running','abandoned') AND completed_at IS NULL)"
+      ],
       "qualifiedName": "agent.inbox",
       "rls": "tenant_context_required"
     },

@@ -1412,14 +1412,15 @@ CREATE TABLE IF NOT EXISTS "agent"."outbox" (
   store_epoch uuid NOT NULL,
   payload_ref text NOT NULL,
   payload_hash text NOT NULL,
-  status text NOT NULL,
+  status text NOT NULL CHECK (status IN ('pending','publishing','published')),
   available_at timestamptz NOT NULL,
   publisher_lease_hash bytea,
   publisher_lease_expires_at timestamptz,
-  publish_attempts integer NOT NULL DEFAULT 0,
+  publish_attempts integer NOT NULL DEFAULT 0 CHECK (publish_attempts >= 0),
   published_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE ("command_id")
+  UNIQUE ("command_id"),
+  CHECK ((status = 'pending' AND publisher_lease_hash IS NULL AND publisher_lease_expires_at IS NULL AND published_at IS NULL) OR (status = 'publishing' AND publisher_lease_hash IS NOT NULL AND publisher_lease_expires_at IS NOT NULL AND published_at IS NULL) OR (status = 'published' AND publisher_lease_hash IS NULL AND publisher_lease_expires_at IS NULL AND published_at IS NOT NULL))
 );
 
 ALTER TABLE "agent"."outbox" ENABLE ROW LEVEL SECURITY;
@@ -1431,15 +1432,20 @@ CREATE POLICY "outbox_tenant_isolation" ON "agent"."outbox" USING (tenant_id = N
 CREATE TABLE IF NOT EXISTS "agent"."inbox" (
   id uuid PRIMARY KEY,
   tenant_id uuid NOT NULL,
+  store_epoch uuid NOT NULL,
   consumer_name text NOT NULL,
   command_id uuid NOT NULL,
-  status text NOT NULL,
-  owner_attempt_id uuid,
-  lease_expires_at timestamptz,
+  status text NOT NULL CHECK (status IN ('running','completed','abandoned')),
+  owner_attempt_id uuid NOT NULL,
+  fence bigint NOT NULL CHECK (fence > 0),
+  lease_token_hash bytea NOT NULL,
+  lease_expires_at timestamptz NOT NULL,
   request_hash text NOT NULL,
   completed_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE ("tenant_id", "consumer_name", "command_id")
+  updated_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE ("tenant_id", "consumer_name", "command_id"),
+  CHECK ((status = 'completed' AND completed_at IS NOT NULL) OR (status IN ('running','abandoned') AND completed_at IS NULL))
 );
 
 ALTER TABLE "agent"."inbox" ENABLE ROW LEVEL SECURITY;

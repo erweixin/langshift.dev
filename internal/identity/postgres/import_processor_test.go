@@ -66,3 +66,26 @@ func TestParseMembershipCSVRequiresExactHeader(t *testing.T) {
 		}
 	}
 }
+
+func TestDecodeImportWorkCommandIsStrictAndTypeBound(t *testing.T) {
+	hash := "sha256:" + strings.Repeat("a", 64)
+	invitation := `{"import_id":"10000000-0000-0000-0000-000000000001","object_ref":"s3://imports/invitations.csv","content_hash":"` + hash + `","import_key":"invitation-import-0001","default_role":"member"}`
+	decoded, err := decodeImportWorkCommand([]byte(invitation), "identity.invitation_import.process")
+	if err != nil || decoded.DefaultRole != "member" || decoded.Mode != "" {
+		t.Fatalf("invitation=%#v error=%v", decoded, err)
+	}
+	membership := `{"import_id":"10000000-0000-0000-0000-000000000002","object_ref":"s3://imports/members.csv","content_hash":"` + hash + `","import_key":"membership-import-0001","mode":"deactivate_missing"}`
+	decoded, err = decodeImportWorkCommand([]byte(membership), "identity.membership_import.process")
+	if err != nil || decoded.Mode != "deactivate_missing" || decoded.DefaultRole != "" {
+		t.Fatalf("membership=%#v error=%v", decoded, err)
+	}
+	for _, invalid := range []string{
+		strings.Replace(invitation, `"default_role":"member"`, `"default_role":"member","unknown":true`, 1),
+		strings.Replace(invitation, `"default_role":"member"`, `"mode":"upsert"`, 1),
+		invitation + `{}`,
+	} {
+		if _, err = decodeImportWorkCommand([]byte(invalid), "identity.invitation_import.process"); !errors.Is(err, ErrImportInvalid) {
+			t.Fatalf("invalid=%s error=%v", invalid, err)
+		}
+	}
+}

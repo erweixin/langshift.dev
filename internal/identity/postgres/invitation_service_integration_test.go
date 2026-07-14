@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	eventpostgres "github.com/langshift/lites/internal/eventstore/postgres"
 	"github.com/langshift/lites/internal/identity/api"
 	"github.com/langshift/lites/internal/identity/password"
 	"github.com/langshift/lites/internal/payload"
@@ -262,13 +263,33 @@ func TestInvitationLifecycleIsTenantAdminScopedCapabilityBoundAndIdempotent(t *t
 	if _, err = service.ImportInvitations(ctx, duplicateImport); !errors.Is(err, api.ErrStateConflict) {
 		t.Fatalf("duplicate import=%v", err)
 	}
-	processed := concurrentCalls(t, 12, func() (ImportProcessResult, error) {
-		return service.ProcessInvitationImport(ctx, enterprise, imports[0].ID)
-	})
+	workCommand := deliveredImportCommand(t, ctx, admin, enterprise, imports[0].ID, "identity.invitation_import.process")
+	dispatcher := IdentityImportDispatcher{Service: service, Inbox: eventpostgres.InboxStore{Pool: pool, Epochs: identityEpochAuthority{epoch: service.StoreEpoch}, Tokens: opaque.Manager{Purpose: "identity-import-inbox", Pepper: bytes.Repeat([]byte{0xed}, 32)}, LeaseTTL: 5 * time.Minute, Now: service.Now}}
+	processed := make([]ImportDispatchResult, 0, 12)
+	for range 12 {
+		result, dispatchErr := dispatcher.Dispatch(ctx, workCommand)
+		if dispatchErr != nil {
+			t.Fatal(dispatchErr)
+		}
+		processed = append(processed, result)
+	}
+	claimed, replayed := 0, 0
 	for _, result := range processed {
-		if result != processed[0] || result.Status != "completed" || result.Version != 2 || result.AcceptedRows != 2 || result.RejectedRows != 3 {
+		if !result.Completed || result.TerminalFailure {
 			t.Fatalf("processed import=%#v", result)
 		}
+		if result.Claimed {
+			claimed++
+			if result.Import.Status != "completed" || result.Import.Version != 2 || result.Import.AcceptedRows != 2 || result.Import.RejectedRows != 3 {
+				t.Fatalf("claimed import=%#v", result)
+			}
+		}
+		if result.Replayed {
+			replayed++
+		}
+	}
+	if claimed != 1 || replayed != 11 {
+		t.Fatalf("dispatcher claimed=%d replayed=%d", claimed, replayed)
 	}
 	secondCreate := create
 	secondCreate.NormalizedEmail = "expiring@example.com"
@@ -289,18 +310,18 @@ func TestInvitationLifecycleIsTenantAdminScopedCapabilityBoundAndIdempotent(t *t
 		t.Fatalf("expired=%v", err)
 	}
 	service.Now = func() time.Time { return now }
-	var invitations, memberships, createdEvents, acceptedEvents, rejectedEvents, revokedEvents, membershipEvents, importsCount, importEvents, importCompletedEvents int
+	var invitations, memberships, createdEvents, acceptedEvents, rejectedEvents, revokedEvents, membershipEvents, importsCount, importEvents, importCompletedEvents, inboxCompleted int
 	checks := []struct {
 		q   string
 		out *int
-	}{{`SELECT count(*) FROM identity.invitations WHERE tenant_id='20000000-0000-0000-0000-000000001104'`, &invitations}, {`SELECT count(*) FROM identity.memberships WHERE tenant_id='20000000-0000-0000-0000-000000001104' AND user_id='10000000-0000-0000-0000-000000001102'`, &memberships}, {`SELECT count(*) FROM agent.events WHERE tenant_id='20000000-0000-0000-0000-000000001104' AND event_type='InvitationCreated'`, &createdEvents}, {`SELECT count(*) FROM agent.events WHERE tenant_id='20000000-0000-0000-0000-000000001104' AND event_type='InvitationAccepted'`, &acceptedEvents}, {`SELECT count(*) FROM agent.events WHERE tenant_id='20000000-0000-0000-0000-000000001104' AND event_type='InvitationRejected'`, &rejectedEvents}, {`SELECT count(*) FROM agent.events WHERE tenant_id='20000000-0000-0000-0000-000000001104' AND event_type='InvitationRevoked'`, &revokedEvents}, {`SELECT count(*) FROM agent.events WHERE tenant_id='20000000-0000-0000-0000-000000001104' AND event_type='MembershipCreated'`, &membershipEvents}, {`SELECT count(*) FROM identity.invitation_imports WHERE tenant_id='20000000-0000-0000-0000-000000001104'`, &importsCount}, {`SELECT count(*) FROM agent.events WHERE tenant_id='20000000-0000-0000-0000-000000001104' AND event_type='InvitationImportQueued'`, &importEvents}, {`SELECT count(*) FROM agent.events WHERE tenant_id='20000000-0000-0000-0000-000000001104' AND event_type='InvitationImportCompleted'`, &importCompletedEvents}}
+	}{{`SELECT count(*) FROM identity.invitations WHERE tenant_id='20000000-0000-0000-0000-000000001104'`, &invitations}, {`SELECT count(*) FROM identity.memberships WHERE tenant_id='20000000-0000-0000-0000-000000001104' AND user_id='10000000-0000-0000-0000-000000001102'`, &memberships}, {`SELECT count(*) FROM agent.events WHERE tenant_id='20000000-0000-0000-0000-000000001104' AND event_type='InvitationCreated'`, &createdEvents}, {`SELECT count(*) FROM agent.events WHERE tenant_id='20000000-0000-0000-0000-000000001104' AND event_type='InvitationAccepted'`, &acceptedEvents}, {`SELECT count(*) FROM agent.events WHERE tenant_id='20000000-0000-0000-0000-000000001104' AND event_type='InvitationRejected'`, &rejectedEvents}, {`SELECT count(*) FROM agent.events WHERE tenant_id='20000000-0000-0000-0000-000000001104' AND event_type='InvitationRevoked'`, &revokedEvents}, {`SELECT count(*) FROM agent.events WHERE tenant_id='20000000-0000-0000-0000-000000001104' AND event_type='MembershipCreated'`, &membershipEvents}, {`SELECT count(*) FROM identity.invitation_imports WHERE tenant_id='20000000-0000-0000-0000-000000001104'`, &importsCount}, {`SELECT count(*) FROM agent.events WHERE tenant_id='20000000-0000-0000-0000-000000001104' AND event_type='InvitationImportQueued'`, &importEvents}, {`SELECT count(*) FROM agent.events WHERE tenant_id='20000000-0000-0000-0000-000000001104' AND event_type='InvitationImportCompleted'`, &importCompletedEvents}, {`SELECT count(*) FROM agent.inbox WHERE tenant_id='20000000-0000-0000-0000-000000001104' AND consumer_name='identity-import-worker' AND status='completed'`, &inboxCompleted}}
 	for _, check := range checks {
 		if err = admin.QueryRow(ctx, check.q).Scan(check.out); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if invitations != 6 || memberships != 1 || createdEvents != 6 || acceptedEvents != 1 || rejectedEvents != 1 || revokedEvents != 1 || membershipEvents != 1 || importsCount != 1 || importEvents != 1 || importCompletedEvents != 1 {
-		t.Fatalf("invitations=%d memberships=%d created=%d accepted=%d rejected=%d revoked=%d membership-events=%d imports=%d queued=%d completed=%d", invitations, memberships, createdEvents, acceptedEvents, rejectedEvents, revokedEvents, membershipEvents, importsCount, importEvents, importCompletedEvents)
+	if invitations != 6 || memberships != 1 || createdEvents != 6 || acceptedEvents != 1 || rejectedEvents != 1 || revokedEvents != 1 || membershipEvents != 1 || importsCount != 1 || importEvents != 1 || importCompletedEvents != 1 || inboxCompleted != 1 {
+		t.Fatalf("invitations=%d memberships=%d created=%d accepted=%d rejected=%d revoked=%d membership-events=%d imports=%d queued=%d completed=%d inbox=%d", invitations, memberships, createdEvents, acceptedEvents, rejectedEvents, revokedEvents, membershipEvents, importsCount, importEvents, importCompletedEvents, inboxCompleted)
 	}
 	for _, stored := range blobs.values {
 		for _, secret := range []string{token, raceToken, rejectToken, secondToken, inviteeEmail, "recipient was invited in error"} {
@@ -324,6 +345,21 @@ func (source invitationImportSource) Get(_ context.Context, ref string) ([]byte,
 		return nil, errors.New("import object not found")
 	}
 	return append([]byte(nil), value...), nil
+}
+
+type identityEpochAuthority struct{ epoch string }
+
+func (authority identityEpochAuthority) CurrentStoreEpoch(context.Context) (string, error) {
+	return authority.epoch, nil
+}
+
+func deliveredImportCommand(t *testing.T, ctx context.Context, admin *pgxpool.Pool, tenantID, aggregateID, commandType string) eventpostgres.DeliveredCommand {
+	t.Helper()
+	command := eventpostgres.DeliveredCommand{TenantID: tenantID, CommandType: commandType}
+	if err := admin.QueryRow(ctx, `SELECT command_id::text,store_epoch::text,aggregate_kind,aggregate_id::text,payload_ref,payload_hash FROM agent.outbox WHERE tenant_id=$1 AND aggregate_id=$2 AND command_type=$3`, tenantID, aggregateID, commandType).Scan(&command.CommandID, &command.StoreEpoch, &command.AggregateKind, &command.AggregateID, &command.PayloadRef, &command.PayloadHash); err != nil {
+		t.Fatal(err)
+	}
+	return command
 }
 
 func latestInvitationToken(t *testing.T, ctx context.Context, admin *pgxpool.Pool, store payload.Store, tenantID, invitationID string) string {

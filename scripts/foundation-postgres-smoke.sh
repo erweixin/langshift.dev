@@ -2,6 +2,10 @@
 set -euo pipefail
 
 container_name="lites-foundation-pg-${RANDOM}-${RANDOM}"
+go_cache="${GOCACHE:-/tmp/lites-go-build}"
+go_mod_cache="${GOMODCACHE:-/tmp/lites-go-mod}"
+go_tmp="${GOTMPDIR:-/tmp/lites-go-tmp}"
+mkdir -p "${go_cache}" "${go_mod_cache}" "${go_tmp}"
 cleanup() { docker rm -f "${container_name}" >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 
@@ -37,10 +41,10 @@ done
 docker exec "${container_name}" psql -U postgres -d lites_foundation -Atc 'SELECT 1' >/dev/null
 
 docker exec "${container_name}" psql -v ON_ERROR_STOP=1 -U postgres -d lites_foundation -c \
-  "CREATE ROLE lites_identity_service LOGIN PASSWORD 'foundation_service' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS; GRANT CONNECT ON DATABASE lites_foundation TO lites_identity_service; GRANT USAGE ON SCHEMA identity, product, agent TO lites_identity_service; GRANT SELECT, INSERT, UPDATE ON identity.users, identity.password_credentials, identity.email_verifications, identity.password_reset_requests, identity.sessions, identity.memberships, identity.membership_imports, identity.account_erasure_requests, identity.invitations, identity.invitation_imports TO lites_identity_service; GRANT SELECT, INSERT ON identity.tenants TO lites_identity_service; GRANT INSERT ON identity.security_events TO lites_identity_service; GRANT EXECUTE ON FUNCTION identity.lookup_invitation_for_acceptance(text,bytea), identity.lock_active_tenant(uuid) TO lites_identity_service; GRANT SELECT, INSERT, UPDATE ON product.data_export_requests TO lites_identity_service; GRANT SELECT, INSERT, UPDATE ON agent.idempotency_responses, agent.event_cursors TO lites_identity_service; GRANT SELECT, INSERT ON agent.events, agent.outbox TO lites_identity_service;" >/dev/null
+  "CREATE ROLE lites_identity_service LOGIN PASSWORD 'foundation_service' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS; GRANT CONNECT ON DATABASE lites_foundation TO lites_identity_service; GRANT USAGE ON SCHEMA identity, product, agent TO lites_identity_service; GRANT SELECT, INSERT, UPDATE ON identity.users, identity.password_credentials, identity.email_verifications, identity.password_reset_requests, identity.sessions, identity.memberships, identity.membership_imports, identity.account_erasure_requests, identity.invitations, identity.invitation_imports TO lites_identity_service; GRANT SELECT, INSERT ON identity.tenants TO lites_identity_service; GRANT INSERT ON identity.security_events TO lites_identity_service; GRANT EXECUTE ON FUNCTION identity.lookup_invitation_for_acceptance(text,bytea), identity.lock_active_tenant(uuid) TO lites_identity_service; GRANT SELECT, INSERT, UPDATE ON product.data_export_requests TO lites_identity_service; GRANT SELECT, INSERT, UPDATE ON agent.idempotency_responses, agent.event_cursors, agent.outbox, agent.inbox TO lites_identity_service; GRANT SELECT, INSERT ON agent.events TO lites_identity_service;" >/dev/null
 
 container_port="$(docker port "${container_name}" 5432/tcp | head -n 1 | sed 's/.*://')"
 
 LITES_TEST_ADMIN_DATABASE_URL="postgres://postgres:foundation_admin@127.0.0.1:${container_port}/lites_foundation?sslmode=disable" \
 LITES_TEST_IDENTITY_DATABASE_URL="postgres://lites_identity_service:foundation_service@127.0.0.1:${container_port}/lites_foundation?sslmode=disable" \
-GOCACHE=/tmp/lites-go-build GOMODCACHE=/tmp/lites-go-mod go test -count=1 -timeout=60s -tags=integration ./internal/identity/postgres ./internal/eventstore/postgres
+GOCACHE="${go_cache}" GOMODCACHE="${go_mod_cache}" GOTMPDIR="${go_tmp}" go test -count=1 -timeout=60s -tags=integration ./internal/identity/postgres ./internal/eventstore/postgres

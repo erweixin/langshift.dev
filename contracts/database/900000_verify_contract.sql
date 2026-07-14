@@ -33,6 +33,11 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='identity.sessions'::regclass AND contype='f' AND pg_get_constraintdef(oid) LIKE '%active_tenant_id%identity.tenants%') THEN RAISE EXCEPTION 'session active tenant foreign key missing'; END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='identity.membership_imports'::regclass AND contype='u' AND pg_get_constraintdef(oid) LIKE '%tenant_id%import_key%') THEN RAISE EXCEPTION 'membership import key uniqueness missing'; END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='identity.invitation_imports'::regclass AND contype='u' AND pg_get_constraintdef(oid) LIKE '%tenant_id%import_key%') THEN RAISE EXCEPTION 'invitation import key uniqueness missing'; END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='agent.inbox'::regclass AND attname='store_epoch' AND attnotnull) THEN RAISE EXCEPTION 'inbox store epoch missing'; END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='agent.inbox'::regclass AND attname='lease_token_hash' AND attnotnull) THEN RAISE EXCEPTION 'inbox lease token digest missing'; END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='agent.inbox'::regclass AND attname='fence' AND attnotnull) THEN RAISE EXCEPTION 'inbox fence missing'; END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='agent.outbox'::regclass AND contype='c' AND pg_get_constraintdef(oid) LIKE '%publishing%published%') THEN RAISE EXCEPTION 'outbox state machine constraint missing'; END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='agent.inbox'::regclass AND contype='c' AND pg_get_constraintdef(oid) LIKE '%completed%abandoned%') THEN RAISE EXCEPTION 'inbox state machine constraint missing'; END IF;
   IF to_regprocedure('identity.lookup_invitation_for_acceptance(text,bytea)') IS NULL THEN RAISE EXCEPTION 'invitation capability lookup missing'; END IF;
   IF EXISTS (SELECT 1 FROM information_schema.routine_privileges WHERE routine_schema='identity' AND routine_name='lookup_invitation_for_acceptance' AND grantee='PUBLIC' AND privilege_type='EXECUTE') THEN RAISE EXCEPTION 'invitation capability lookup is public'; END IF;
   IF to_regprocedure('identity.lock_active_tenant(uuid)') IS NULL THEN RAISE EXCEPTION 'active tenant lock capability missing'; END IF;
