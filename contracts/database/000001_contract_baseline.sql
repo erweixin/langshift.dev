@@ -114,6 +114,31 @@ ALTER TABLE "identity"."memberships" FORCE ROW LEVEL SECURITY;
 
 CREATE POLICY "memberships_tenant_isolation" ON "identity"."memberships" USING (tenant_id = NULLIF(current_setting('lites.tenant_id', true), '')::uuid) WITH CHECK (tenant_id = NULLIF(current_setting('lites.tenant_id', true), '')::uuid);
 
+CREATE TABLE IF NOT EXISTS "identity"."membership_imports" (
+  id uuid PRIMARY KEY,
+  tenant_id uuid NOT NULL,
+  version bigint NOT NULL DEFAULT 1 CHECK (version > 0),
+  created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  initiated_by uuid NOT NULL,
+  status text NOT NULL CHECK (status IN ('queued','processing','completed','failed')),
+  object_ref text NOT NULL,
+  content_hash text NOT NULL,
+  import_key text NOT NULL,
+  mode text NOT NULL CHECK (mode IN ('upsert','deactivate_missing')),
+  accepted_rows integer NOT NULL DEFAULT 0 CHECK (accepted_rows >= 0),
+  rejected_rows integer NOT NULL DEFAULT 0 CHECK (rejected_rows >= 0),
+  deactivated_rows integer NOT NULL DEFAULT 0 CHECK (deactivated_rows >= 0),
+  completed_at timestamptz,
+  UNIQUE ("tenant_id", "import_key")
+);
+
+ALTER TABLE "identity"."membership_imports" ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE "identity"."membership_imports" FORCE ROW LEVEL SECURITY;
+
+CREATE POLICY "membership_imports_tenant_isolation" ON "identity"."membership_imports" USING (tenant_id = NULLIF(current_setting('lites.tenant_id', true), '')::uuid) WITH CHECK (tenant_id = NULLIF(current_setting('lites.tenant_id', true), '')::uuid);
+
 CREATE TABLE IF NOT EXISTS "identity"."invitations" (
   id uuid PRIMARY KEY,
   tenant_id uuid NOT NULL,
@@ -2040,6 +2065,10 @@ ALTER TABLE "identity"."tenants" ADD CONSTRAINT "tenants_owner_user_id_fk" FOREI
 ALTER TABLE "identity"."memberships" ADD CONSTRAINT "memberships_tenant_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "identity"."tenants" ("id") ON DELETE CASCADE;
 
 ALTER TABLE "identity"."memberships" ADD CONSTRAINT "memberships_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "identity"."users" ("id") ON DELETE CASCADE;
+
+ALTER TABLE "identity"."membership_imports" ADD CONSTRAINT "membership_imports_tenant_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "identity"."tenants" ("id") ON DELETE CASCADE;
+
+ALTER TABLE "identity"."membership_imports" ADD CONSTRAINT "membership_imports_initiated_by_fk" FOREIGN KEY ("initiated_by") REFERENCES "identity"."users" ("id") ON DELETE RESTRICT;
 
 ALTER TABLE "identity"."invitations" ADD CONSTRAINT "invitations_tenant_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "identity"."tenants" ("id") ON DELETE CASCADE;
 

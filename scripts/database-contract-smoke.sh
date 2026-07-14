@@ -36,15 +36,24 @@ if [[ "${status}" != "healthy" ]]; then
   exit 1
 fi
 
+for _ in $(seq 1 60); do
+  logs="$(docker logs "${container_name}" 2>&1)"
+  [[ "${logs}" == *"PostgreSQL init process complete; ready for start up."* ]] && break
+  sleep 1
+done
 logs="$(docker logs "${container_name}" 2>&1)"
+if [[ "${logs}" != *"PostgreSQL init process complete; ready for start up."* ]]; then
+  printf '%s\n' "${logs}"
+  exit 1
+fi
 if [[ "${logs}" != *'"status" : "passed"'* ]]; then
   printf '%s\n' "${logs}"
   exit 1
 fi
 
 actual_tables="$(docker exec "${container_name}" psql -U postgres -d lites_contract -Atc "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE c.relkind='r' AND n.nspname IN ('identity','product','agent','contracts')")"
-if [[ "${actual_tables}" != "91" ]]; then
-  printf 'Expected 91 contract tables, found %s\n' "${actual_tables}"
+if [[ "${actual_tables}" != "92" ]]; then
+  printf 'Expected 92 contract tables, found %s\n' "${actual_tables}"
   exit 1
 fi
 

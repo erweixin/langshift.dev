@@ -97,6 +97,7 @@ type Handler struct {
 	Emails      EmailService
 	Accounts    AccountService
 	Invitations InvitationService
+	Memberships MembershipService
 	Now         func() time.Time
 }
 
@@ -180,6 +181,18 @@ func (handler Handler) ServeHTTP(writer http.ResponseWriter, request *http.Reque
 			return
 		}
 		handler.invitationImport(writer, request)
+	case "/v1/memberships":
+		if request.Method != http.MethodGet {
+			handler.methodNotAllowed(writer, request, http.MethodGet)
+			return
+		}
+		handler.membershipList(writer, request)
+	case "/v1/membership-imports":
+		if request.Method != http.MethodPost {
+			handler.methodNotAllowed(writer, request, http.MethodPost)
+			return
+		}
+		handler.membershipImport(writer, request)
 	case "/v1/auth/sessions":
 		switch request.Method {
 		case http.MethodGet:
@@ -190,6 +203,14 @@ func (handler Handler) ServeHTTP(writer http.ResponseWriter, request *http.Reque
 			handler.methodNotAllowed(writer, request, http.MethodGet, http.MethodDelete)
 		}
 	default:
+		if strings.HasPrefix(request.URL.Path, "/v1/memberships/") {
+			if request.Method != http.MethodDelete {
+				handler.methodNotAllowed(writer, request, http.MethodDelete)
+				return
+			}
+			handler.membershipDeactivate(writer, request)
+			return
+		}
 		if strings.HasPrefix(request.URL.Path, "/v1/invitations/") && strings.HasSuffix(request.URL.Path, "/accept") {
 			if request.Method != http.MethodPost {
 				handler.methodNotAllowed(writer, request, http.MethodPost)

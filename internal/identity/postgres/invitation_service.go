@@ -163,7 +163,7 @@ func (service AuthService) ImportInvitations(ctx context.Context, command api.In
 	if err := service.validateSessionMutation(command.AuthenticatedRequestMetadata); err != nil {
 		return api.InvitationMutationResult{}, err
 	}
-	if command.ObjectRef == "" || command.ContentHash == "" || len(command.ImportKey) < 16 || !validInvitationRole(command.DefaultRole) {
+	if !validBoundImportMetadata(command.ObjectRef, command.ContentHash, command.ImportKey) || !validInvitationRole(command.DefaultRole) {
 		return api.InvitationMutationResult{}, api.ErrValidation
 	}
 	recordID, requestHash, err := service.authenticatedIdempotency("invitations.import_csv", command.UserID, command.IdempotencyKey, struct{ ObjectRef, ContentHash, ImportKey, DefaultRole string }{command.ObjectRef, command.ContentHash, command.ImportKey, command.DefaultRole})

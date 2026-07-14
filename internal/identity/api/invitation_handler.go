@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	identityemail "github.com/langshift/lites/internal/identity/email"
 )
@@ -155,10 +156,10 @@ func (handler Handler) invitationAccept(writer http.ResponseWriter, request *htt
 }
 
 func validOpaqueField(value string, min, max int) bool {
-	return len(value) >= min && len(value) <= max && !strings.ContainsFunc(value, unicode.IsControl)
+	return len(value) >= min && len(value) <= max && utf8.ValidString(value) && !strings.ContainsFunc(value, unicode.IsControl)
 }
 func validOpaqueToken(value string, min, max int) bool {
-	return len(value) >= min && len(value) <= max && !strings.ContainsFunc(value, unicode.IsSpace)
+	return len(value) >= min && len(value) <= max && utf8.ValidString(value) && !strings.ContainsFunc(value, unicode.IsSpace)
 }
 
 func (handler Handler) writeInvitationMutation(writer http.ResponseWriter, request *http.Request, result InvitationMutationResult) {

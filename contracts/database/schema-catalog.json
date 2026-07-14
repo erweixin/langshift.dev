@@ -259,6 +259,54 @@
     },
     {
       "schema": "identity",
+      "name": "membership_imports",
+      "columns": [
+        "id uuid PRIMARY KEY",
+        "tenant_id uuid NOT NULL",
+        "version bigint NOT NULL DEFAULT 1 CHECK (version > 0)",
+        "created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP",
+        "updated_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP",
+        "initiated_by uuid NOT NULL",
+        "status text NOT NULL CHECK (status IN ('queued','processing','completed','failed'))",
+        "object_ref text NOT NULL",
+        "content_hash text NOT NULL",
+        "import_key text NOT NULL",
+        "mode text NOT NULL CHECK (mode IN ('upsert','deactivate_missing'))",
+        "accepted_rows integer NOT NULL DEFAULT 0 CHECK (accepted_rows >= 0)",
+        "rejected_rows integer NOT NULL DEFAULT 0 CHECK (rejected_rows >= 0)",
+        "deactivated_rows integer NOT NULL DEFAULT 0 CHECK (deactivated_rows >= 0)",
+        "completed_at timestamptz"
+      ],
+      "tenantScoped": true,
+      "userScoped": false,
+      "dataClass": "restricted",
+      "appendOnly": false,
+      "uniques": [
+        [
+          "tenant_id",
+          "import_key"
+        ]
+      ],
+      "foreignKeys": [
+        [
+          "tenant_id",
+          "identity.tenants",
+          "id",
+          "CASCADE"
+        ],
+        [
+          "initiated_by",
+          "identity.users",
+          "id",
+          "RESTRICT"
+        ]
+      ],
+      "checks": [],
+      "qualifiedName": "identity.membership_imports",
+      "rls": "tenant_context_required"
+    },
+    {
+      "schema": "identity",
       "name": "invitations",
       "columns": [
         "id uuid PRIMARY KEY",
@@ -3342,6 +3390,7 @@
   "requiredUniqueConstraints": [
     "identity.users(normalized_email)",
     "identity.sessions(token_hash)",
+    "identity.membership_imports(tenant_id,import_key)",
     "identity.invitation_imports(tenant_id,import_key)",
     "product.mission_imports(claim_key)",
     "product.mission_focuses(tenant_id,user_id)",

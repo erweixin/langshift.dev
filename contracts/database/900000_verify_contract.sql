@@ -10,14 +10,14 @@ BEGIN
   FROM pg_class c
   JOIN pg_namespace n ON n.oid = c.relnamespace
   WHERE c.relkind = 'r' AND n.nspname IN ('identity','product','agent','contracts');
-  IF actual <> 91 THEN RAISE EXCEPTION 'expected 91 contract tables, found %', actual; END IF;
+  IF actual <> 92 THEN RAISE EXCEPTION 'expected 92 contract tables, found %', actual; END IF;
 
   SELECT count(*) INTO actual
   FROM pg_class c
   JOIN pg_namespace n ON n.oid = c.relnamespace
   WHERE c.relkind = 'r' AND n.nspname IN ('identity','product','agent','contracts')
     AND c.relrowsecurity AND c.relforcerowsecurity;
-  IF actual <> 84 THEN RAISE EXCEPTION 'expected 84 forced-RLS tables, found %', actual; END IF;
+  IF actual <> 85 THEN RAISE EXCEPTION 'expected 85 forced-RLS tables, found %', actual; END IF;
 
   SELECT count(*) INTO actual
   FROM pg_trigger t
@@ -31,6 +31,7 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='identity' AND table_name='sessions' AND column_name='active_tenant_id' AND is_nullable='NO') THEN RAISE EXCEPTION 'session active tenant binding missing'; END IF;
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='identity' AND table_name='sessions' AND column_name='version') THEN RAISE EXCEPTION 'session CAS version missing'; END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='identity.sessions'::regclass AND contype='f' AND pg_get_constraintdef(oid) LIKE '%active_tenant_id%identity.tenants%') THEN RAISE EXCEPTION 'session active tenant foreign key missing'; END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='identity.membership_imports'::regclass AND contype='u' AND pg_get_constraintdef(oid) LIKE '%tenant_id%import_key%') THEN RAISE EXCEPTION 'membership import key uniqueness missing'; END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='identity.invitation_imports'::regclass AND contype='u' AND pg_get_constraintdef(oid) LIKE '%tenant_id%import_key%') THEN RAISE EXCEPTION 'invitation import key uniqueness missing'; END IF;
   IF to_regprocedure('identity.lookup_invitation_for_acceptance(text,bytea)') IS NULL THEN RAISE EXCEPTION 'invitation capability lookup missing'; END IF;
   IF EXISTS (SELECT 1 FROM information_schema.routine_privileges WHERE routine_schema='identity' AND routine_name='lookup_invitation_for_acceptance' AND grantee='PUBLIC' AND privilege_type='EXECUTE') THEN RAISE EXCEPTION 'invitation capability lookup is public'; END IF;
@@ -95,10 +96,10 @@ ROLLBACK;
 SELECT json_build_object(
   'status','passed',
   'postgres_version',current_setting('server_version'),
-  'table_count',90,
-  'forced_rls_count',83,
+  'table_count',92,
+  'forced_rls_count',85,
   'append_only_trigger_count',21,
   'cross_tenant_visible_rows',0,
   'append_only_mutations_succeeded',0,
-  'critical_constraints_verified',12
+  'critical_constraints_verified',19
 ) AS contract_verification;

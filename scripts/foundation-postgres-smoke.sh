@@ -23,8 +23,21 @@ for _ in $(seq 1 40); do
 done
 [[ "$(docker inspect --format '{{.State.Health.Status}}' "${container_name}")" == "healthy" ]] || { docker logs "${container_name}"; exit 1; }
 
+for _ in $(seq 1 60); do
+  logs="$(docker logs "${container_name}" 2>&1)"
+  [[ "${logs}" == *"PostgreSQL init process complete; ready for start up."* ]] && break
+  sleep 1
+done
+logs="$(docker logs "${container_name}" 2>&1)"
+[[ "${logs}" == *"PostgreSQL init process complete; ready for start up."* ]] || { printf '%s\n' "${logs}"; exit 1; }
+for _ in $(seq 1 30); do
+  docker exec "${container_name}" psql -U postgres -d lites_foundation -Atc 'SELECT 1' >/dev/null 2>&1 && break
+  sleep 1
+done
+docker exec "${container_name}" psql -U postgres -d lites_foundation -Atc 'SELECT 1' >/dev/null
+
 docker exec "${container_name}" psql -v ON_ERROR_STOP=1 -U postgres -d lites_foundation -c \
-  "CREATE ROLE lites_identity_service LOGIN PASSWORD 'foundation_service' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS; GRANT CONNECT ON DATABASE lites_foundation TO lites_identity_service; GRANT USAGE ON SCHEMA identity, product, agent TO lites_identity_service; GRANT SELECT, INSERT, UPDATE ON identity.users, identity.password_credentials, identity.email_verifications, identity.password_reset_requests, identity.sessions, identity.memberships, identity.account_erasure_requests, identity.invitations, identity.invitation_imports TO lites_identity_service; GRANT SELECT, INSERT ON identity.tenants TO lites_identity_service; GRANT INSERT ON identity.security_events TO lites_identity_service; GRANT EXECUTE ON FUNCTION identity.lookup_invitation_for_acceptance(text,bytea), identity.lock_active_tenant(uuid) TO lites_identity_service; GRANT SELECT, INSERT, UPDATE ON product.data_export_requests TO lites_identity_service; GRANT SELECT, INSERT, UPDATE ON agent.idempotency_responses, agent.event_cursors TO lites_identity_service; GRANT SELECT, INSERT ON agent.events, agent.outbox TO lites_identity_service;" >/dev/null
+  "CREATE ROLE lites_identity_service LOGIN PASSWORD 'foundation_service' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS; GRANT CONNECT ON DATABASE lites_foundation TO lites_identity_service; GRANT USAGE ON SCHEMA identity, product, agent TO lites_identity_service; GRANT SELECT, INSERT, UPDATE ON identity.users, identity.password_credentials, identity.email_verifications, identity.password_reset_requests, identity.sessions, identity.memberships, identity.membership_imports, identity.account_erasure_requests, identity.invitations, identity.invitation_imports TO lites_identity_service; GRANT SELECT, INSERT ON identity.tenants TO lites_identity_service; GRANT INSERT ON identity.security_events TO lites_identity_service; GRANT EXECUTE ON FUNCTION identity.lookup_invitation_for_acceptance(text,bytea), identity.lock_active_tenant(uuid) TO lites_identity_service; GRANT SELECT, INSERT, UPDATE ON product.data_export_requests TO lites_identity_service; GRANT SELECT, INSERT, UPDATE ON agent.idempotency_responses, agent.event_cursors TO lites_identity_service; GRANT SELECT, INSERT ON agent.events, agent.outbox TO lites_identity_service;" >/dev/null
 
 container_port="$(docker port "${container_name}" 5432/tcp | head -n 1 | sed 's/.*://')"
 
