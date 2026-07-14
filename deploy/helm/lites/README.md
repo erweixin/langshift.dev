@@ -1,9 +1,9 @@
 # Lites production chart
 
-This chart deploys the Stage 2 application control plane. PostgreSQL, NATS,
-Valkey, S3, Vault, the OpenTelemetry backend, ingress, DNS and the external
-secret store are cell infrastructure and are provisioned separately by
-OpenTofu.
+This chart deploys the Stage 2 application control plane. PostgreSQL, Valkey,
+S3, Vault, the OpenTelemetry backend, ingress, DNS and the external secret
+store are cell infrastructure. NATS is deployed by the separately locked
+`../nats-cell` release on top of the OpenTofu cell.
 
 The chart intentionally cannot render from `values.yaml` alone. A release must
 supply a region, cell, release version, priority class, OTLP identity, external
@@ -18,8 +18,8 @@ migration Job runs as a `pre-install,pre-upgrade` hook. No secret value belongs
 in Helm values.
 
 The namespace is default-deny for ingress and egress. DNS, OTLP, the three
-internal mTLS routes and explicit external dependency CIDRs are the only
-allowances. NetworkPolicy cannot express FQDN allowlists; the cell CNI or egress
+internal mTLS routes, selector-scoped NATS access and explicit external
+dependency CIDRs are the only allowances. NetworkPolicy cannot express FQDN allowlists; the cell CNI or egress
 gateway must additionally enforce the approved hostname/SNI policy for public
 services such as the password range and SMTP endpoints.
 

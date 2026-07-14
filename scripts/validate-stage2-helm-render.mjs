@@ -76,6 +76,10 @@ const defaultDeny = byKind("NetworkPolicy").find((document) => document.name ===
 assert(Boolean(defaultDeny) && /podSelector:\s+\{\}/.test(defaultDeny.body) && /policyTypes:\s+\[Ingress, Egress\]/.test(defaultDeny.body), "missing default deny ingress and egress");
 const dns = byKind("NetworkPolicy").find((document) => document.name === "lites-dns-egress");
 assert(Boolean(dns) && /protocol:\s+UDP, port:\s+53/.test(dns.body) && /protocol:\s+TCP, port:\s+53/.test(dns.body), "missing restricted DNS egress");
+for (const component of ["identity-import-worker", "identity-mail-worker", "outbox-publisher"]) {
+  const policy = byKind("NetworkPolicy").find((document) => document.name === `lites-${component}`);
+  assert(Boolean(policy) && /kubernetes\.io\/metadata\.name:\s+data-system[\s\S]*?app\.kubernetes\.io\/instance:\s+lites-nats[\s\S]*?port:\s+4222/.test(policy.body), `${component} lacks selector-scoped NATS egress`);
+}
 
 for (const pdb of byKind("PodDisruptionBudget")) assert(/minAvailable:\s+2/.test(pdb.body), `${pdb.name} does not preserve two replicas`);
 for (const hpa of byKind("HorizontalPodAutoscaler")) {

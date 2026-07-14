@@ -1,0 +1,97 @@
+fullnameOverride: lites-nats
+natsBox:
+  enabled: false
+config:
+  cluster:
+    enabled: true
+    replicas: 3
+    tls:
+      enabled: true
+      secretName: lites-nats-tls
+      merge:
+        ca_file: /etc/nats-certs/cluster/ca.crt
+        min_version: "1.3"
+        verify: true
+  jetstream:
+    enabled: true
+    fileStore:
+      pvc:
+        enabled: true
+        size: 200Gi
+        storageClassName: lites-nats-gp3-encrypted
+      maxSize: 160Gi
+    memoryStore:
+      enabled: false
+  nats:
+    tls:
+      enabled: true
+      secretName: lites-nats-tls
+      merge:
+        ca_file: /etc/nats-certs/nats/ca.crt
+        min_version: "1.3"
+        verify: true
+        verify_and_map: true
+  monitor:
+    enabled: true
+  merge:
+    authorization:
+      users:
+        - user: lites-outbox-publisher
+          permissions:
+            publish: [lites.commands.>, $JS.API.INFO, $JS.API.STREAM.CREATE.LITES_COMMANDS, $JS.API.STREAM.UPDATE.LITES_COMMANDS, $JS.API.STREAM.INFO.LITES_COMMANDS]
+            subscribe: [_INBOX.>]
+        - user: lites-identity-import-worker
+          permissions:
+            publish: [$JS.API.INFO, $JS.API.STREAM.INFO.LITES_COMMANDS, $JS.API.CONSUMER.CREATE.LITES_COMMANDS.IDENTITY_IMPORT_WORKER.>, $JS.API.CONSUMER.DURABLE.CREATE.LITES_COMMANDS.IDENTITY_IMPORT_WORKER, $JS.API.CONSUMER.INFO.LITES_COMMANDS.IDENTITY_IMPORT_WORKER, $JS.API.CONSUMER.MSG.NEXT.LITES_COMMANDS.IDENTITY_IMPORT_WORKER, $JS.ACK.LITES_COMMANDS.IDENTITY_IMPORT_WORKER.>]
+            subscribe: [_INBOX.>]
+        - user: lites-identity-mail-worker
+          permissions:
+            publish: [$JS.API.INFO, $JS.API.STREAM.INFO.LITES_COMMANDS, $JS.API.CONSUMER.CREATE.LITES_COMMANDS.IDENTITY_MAIL_WORKER.>, $JS.API.CONSUMER.DURABLE.CREATE.LITES_COMMANDS.IDENTITY_MAIL_WORKER, $JS.API.CONSUMER.INFO.LITES_COMMANDS.IDENTITY_MAIL_WORKER, $JS.API.CONSUMER.MSG.NEXT.LITES_COMMANDS.IDENTITY_MAIL_WORKER, $JS.ACK.LITES_COMMANDS.IDENTITY_MAIL_WORKER.>]
+            subscribe: [_INBOX.>]
+    max_payload: 8MB
+    write_deadline: 10s
+container:
+  image:
+    fullImageName: nats@sha256:1b5a0a665cbe50a4ea28e8a82cf809b26cee5027d1fcaf8682fadf8f385fdf29
+  env:
+    GOMEMLIMIT: 7GiB
+  resources:
+    requests: {cpu: "2", memory: 8Gi}
+    limits: {cpu: "2", memory: 8Gi}
+  merge:
+    securityContext: &containerSecurity
+      allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: true
+      capabilities: {drop: [ALL]}
+reloader:
+  enabled: false
+promExporter:
+  enabled: false
+service:
+  ports:
+    monitor:
+      enabled: true
+podTemplate:
+  configChecksumAnnotation: true
+  topologySpreadConstraints:
+    topology.kubernetes.io/zone:
+      maxSkew: 1
+      minDomains: 3
+      whenUnsatisfiable: DoNotSchedule
+    kubernetes.io/hostname:
+      maxSkew: 1
+      whenUnsatisfiable: DoNotSchedule
+  merge:
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile: {type: RuntimeDefault}
+podDisruptionBudget:
+  enabled: true
+  merge:
+    spec:
+      maxUnavailable: 1

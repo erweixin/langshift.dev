@@ -1,0 +1,108 @@
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: {{ required "storage.className is required" .Values.storage.className }}
+  labels:
+    app.kubernetes.io/part-of: lites-cloud-agent
+    lites.dev/cell: {{ required "cell is required" .Values.cell | quote }}
+    lites.dev/region: {{ required "region is required" .Values.region | quote }}
+provisioner: ebs.csi.aws.com
+allowVolumeExpansion: true
+reclaimPolicy: Retain
+volumeBindingMode: WaitForFirstConsumer
+parameters:
+  type: gp3
+  encrypted: "true"
+  kmsKeyId: {{ required "storage.kmsKeyId is required" .Values.storage.kmsKeyId | quote }}
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: lites-nats-tls
+  namespace: {{ .Values.namespaces.data }}
+  labels:
+    app.kubernetes.io/part-of: lites-cloud-agent
+    lites.dev/cell: {{ required "cell is required" .Values.cell | quote }}
+    lites.dev/region: {{ required "region is required" .Values.region | quote }}
+spec:
+  refreshInterval: {{ .Values.externalSecret.refreshInterval }}
+  secretStoreRef:
+    kind: {{ .Values.externalSecret.store.kind }}
+    name: {{ required "externalSecret.store.name is required" .Values.externalSecret.store.name }}
+  target:
+    name: lites-nats-tls
+    creationPolicy: Owner
+    deletionPolicy: Retain
+  dataFrom:
+    - extract:
+        key: {{ required "externalSecret.remoteKey is required" .Values.externalSecret.remoteKey }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: lites-nats-default-deny
+  namespace: {{ .Values.namespaces.data }}
+  labels:
+    app.kubernetes.io/part-of: lites-cloud-agent
+    lites.dev/cell: {{ required "cell is required" .Values.cell | quote }}
+    lites.dev/region: {{ required "region is required" .Values.region | quote }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: nats
+      app.kubernetes.io/instance: lites-nats
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: lites-nats-allowed-routes
+  namespace: {{ .Values.namespaces.data }}
+  labels:
+    app.kubernetes.io/part-of: lites-cloud-agent
+    lites.dev/cell: {{ required "cell is required" .Values.cell | quote }}
+    lites.dev/region: {{ required "region is required" .Values.region | quote }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: nats
+      app.kubernetes.io/instance: lites-nats
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.namespaces.application }}
+      ports:
+        - {protocol: TCP, port: 4222}
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: nats
+              app.kubernetes.io/instance: lites-nats
+      ports:
+        - {protocol: TCP, port: 6222}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.namespaces.monitoring }}
+      ports:
+        - {protocol: TCP, port: 8222}
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: nats
+              app.kubernetes.io/instance: lites-nats
+      ports:
+        - {protocol: TCP, port: 6222}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.namespaces.dns }}
+          podSelector:
+            matchLabels:
+              {{- toYaml .Values.dnsPodLabels | nindent 14 }}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
