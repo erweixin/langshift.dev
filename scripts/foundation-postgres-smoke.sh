@@ -40,16 +40,28 @@ for _ in $(seq 1 30); do
 done
 docker exec "${container_name}" psql -U postgres -d lites_foundation -Atc 'SELECT 1' >/dev/null
 
+for migration in \
+  deploy/migrations/000002_schema_contract_metadata.up.sql \
+  deploy/migrations/000003_execution_kernel_constraints.up.sql; do
+  target="/tmp/$(basename "${migration}")"
+  docker cp "${migration}" "${container_name}:${target}" >/dev/null
+  docker exec "${container_name}" psql -v ON_ERROR_STOP=1 -U postgres -d lites_foundation -f "${target}" >/dev/null
+done
+
 docker exec "${container_name}" psql -v ON_ERROR_STOP=1 -U postgres -d lites_foundation -c \
   "CREATE ROLE lites_identity_service LOGIN PASSWORD 'foundation_service' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS; GRANT CONNECT ON DATABASE lites_foundation TO lites_identity_service; GRANT USAGE ON SCHEMA identity, product, agent TO lites_identity_service; GRANT SELECT, INSERT, UPDATE ON identity.users, identity.password_credentials, identity.email_verifications, identity.password_reset_requests, identity.sessions, identity.memberships, identity.membership_imports, identity.account_erasure_requests, identity.invitations, identity.invitation_imports, identity.anonymous_subjects, identity.onboarding_sessions, identity.onboarding_claims TO lites_identity_service; GRANT SELECT, INSERT ON identity.anonymous_erasure_receipts TO lites_identity_service; GRANT SELECT, INSERT ON identity.tenants TO lites_identity_service; GRANT INSERT ON identity.security_events TO lites_identity_service; GRANT EXECUTE ON FUNCTION identity.lookup_invitation_for_acceptance(text,bytea), identity.lock_active_tenant(uuid), agent.list_ready_outbox_tenants(uuid,uuid,integer,integer,integer) TO lites_identity_service; GRANT SELECT ON product.role_profiles TO lites_identity_service; GRANT SELECT, INSERT, UPDATE, DELETE ON product.missions, product.route_revisions TO lites_identity_service; GRANT SELECT, INSERT ON product.mission_imports TO lites_identity_service; GRANT SELECT, INSERT, UPDATE ON product.data_export_requests TO lites_identity_service; GRANT SELECT, INSERT, UPDATE ON agent.idempotency_responses, agent.event_cursors, agent.outbox, agent.inbox TO lites_identity_service; GRANT SELECT, INSERT ON agent.events TO lites_identity_service;" >/dev/null
+
+docker exec "${container_name}" psql -v ON_ERROR_STOP=1 -U postgres -d lites_foundation -c \
+  "CREATE ROLE lites_agent_service LOGIN PASSWORD 'foundation_agent_service' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS; GRANT CONNECT ON DATABASE lites_foundation TO lites_agent_service; GRANT USAGE ON SCHEMA agent TO lites_agent_service; GRANT SELECT, INSERT, UPDATE ON agent.runs, agent.jobs, agent.job_attempts, agent.inbox, agent.event_cursors, agent.outbox TO lites_agent_service; GRANT SELECT, INSERT ON agent.events TO lites_agent_service;" >/dev/null
 
 container_port="$(docker port "${container_name}" 5432/tcp | head -n 1 | sed 's/.*://')"
 
 export LITES_TEST_ADMIN_DATABASE_URL="postgres://postgres:foundation_admin@127.0.0.1:${container_port}/lites_foundation?sslmode=disable"
 export LITES_TEST_IDENTITY_DATABASE_URL="postgres://lites_identity_service:foundation_service@127.0.0.1:${container_port}/lites_foundation?sslmode=disable"
+export LITES_TEST_AGENT_DATABASE_URL="postgres://lites_agent_service:foundation_agent_service@127.0.0.1:${container_port}/lites_foundation?sslmode=disable"
 export GOCACHE="${go_cache}" GOMODCACHE="${go_mod_cache}" GOTMPDIR="${go_tmp}"
 if [[ -n "${LITES_FOUNDATION_TEST_JSON:-}" ]]; then
-  go test -json -count=1 -timeout=60s -tags=integration ./internal/identity/postgres ./internal/identity/mail ./internal/eventstore/postgres | tee "${LITES_FOUNDATION_TEST_JSON}"
+  go test -json -count=1 -timeout=60s -tags=integration ./internal/identity/postgres ./internal/identity/mail ./internal/eventstore/postgres ./internal/execution/postgres | tee "${LITES_FOUNDATION_TEST_JSON}"
 else
-  go test -count=1 -timeout=60s -tags=integration ./internal/identity/postgres ./internal/identity/mail ./internal/eventstore/postgres
+  go test -count=1 -timeout=60s -tags=integration ./internal/identity/postgres ./internal/identity/mail ./internal/eventstore/postgres ./internal/execution/postgres
 fi
