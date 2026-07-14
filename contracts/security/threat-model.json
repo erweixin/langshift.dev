@@ -1,0 +1,48 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema",
+  "modelVersion":"1.0.0",
+  "method":["STRIDE","OWASP LLM Top 10 2025","privacy differencing analysis"],
+  "assets":["identity credentials","session authority","tenant-private bodies","BYOK secrets","EventStore facts","workspace revisions","external effects","usage ledger","approval authority","aggregate privacy"],
+  "trustBoundaries":[
+    {"id":"TB-01","from":"browser","to":"gateway","controls":["session cookie","CSRF","rate limit","strip internal identity headers"]},
+    {"id":"TB-02","from":"gateway","to":"control plane","controls":["signed short-lived tenant context","service identity","audience binding"]},
+    {"id":"TB-03","from":"outbox","to":"queue and workers","controls":["store_epoch","inbox dedupe","claim fence and lease token"]},
+    {"id":"TB-04","from":"tool worker","to":"runtime","controls":["short-lived capability","network policy","workspace lease"]},
+    {"id":"TB-05","from":"provider gateway","to":"external model provider","controls":["host-bound secret","DNS and redirect revalidation","egress allowlist"]},
+    {"id":"TB-06","from":"tenant-private data","to":"enterprise analytics","controls":["fixed metric catalog","stable suppression","query budget","no member drill-down"]},
+    {"id":"TB-07","from":"anonymous subject","to":"durable personal tenant","controls":["claim_key","CAS reserve","destination commit proof","deletion receipts"]}
+  ],
+  "threats":[
+    {"id":"TH-001","severity":"critical","category":"cross_tenant_access","scenario":"Client forges tenant or principal context.","controls":["gateway strips internal headers","signed tenant context","forced PostgreSQL RLS","object ACL"],"tests":["SEC-CROSS-TENANT-ACCESS-*","DATABASE-RLS"],"residualRisk":"none accepted"},
+    {"id":"TH-002","severity":"critical","category":"secret_exfiltration","scenario":"Prompt, tool or log path extracts password, token or BYOK.","controls":["secret broker","host binding","DLP output check","log field allowlist","encrypted payload envelope"],"tests":["SEC-SECRET-EXFILTRATION-*","SECRET-SCAN"],"residualRisk":"none accepted"},
+    {"id":"TH-003","severity":"critical","category":"approval_bypass","scenario":"Arguments, revision, policy or actor changes after approval.","controls":["approval scope hash","proposal immutability","target-version binding","permission snapshot","five-minute reauthentication"],"tests":["SEC-APPROVAL-BYPASS-*","APPROVAL-MODEL"],"residualRisk":"none accepted"},
+    {"id":"TH-004","severity":"critical","category":"unauthorized_tool","scenario":"Model calls undeclared or over-scoped tool.","controls":["descriptor schema","permission check at proposal and execution","capability token","effect-class policy"],"tests":["SEC-UNAUTHORIZED-TOOL-*","TOOL-PERMISSION-MATRIX"],"residualRisk":"none accepted"},
+    {"id":"TH-005","severity":"critical","category":"network_egress","scenario":"Custom Provider endpoint reaches loopback, private, link-local or metadata service.","controls":["canonical URL parsing","DNS/IP validation on each connect","redirect revalidation","bound-host BYOK"],"tests":["SEC-NETWORK-EGRESS-*","PROVIDER-EGRESS"],"residualRisk":"none accepted"},
+    {"id":"TH-006","severity":"critical","category":"path_escape","scenario":"Runtime input escapes workspace through traversal, absolute path, archive or symlink.","controls":["descriptor-relative paths","openat-style resolution","archive normalization","symlink rejection","microVM mount boundary"],"tests":["SEC-PATH-ESCAPE-*","RUNTIME-PATH"],"residualRisk":"none accepted"},
+    {"id":"TH-007","severity":"high","category":"prompt_injection","scenario":"Untrusted user, retrieval or tool text claims instruction authority.","controls":["source labels","instruction/data separation","tool authorization outside model","output check"],"tests":["SEC-PROMPT-INJECTION-*"],"residualRisk":"model may produce low-quality text, but cannot gain authority"},
+    {"id":"TH-008","severity":"high","category":"malicious_retrieval","scenario":"Indexed content injects policy or cross-tenant references.","controls":["tenant-scoped retrieval","source trust labels","content scanning","manifest citations"],"tests":["SEC-MALICIOUS-RETRIEVAL-*"],"residualRisk":"irrelevant retrieval remains a quality risk"},
+    {"id":"TH-009","severity":"high","category":"memory_poisoning","scenario":"Model persists speculation, secret or untrusted instruction as durable Memory.","controls":["memory_write ToolCall only","source event required","policy and schema validation","append-only revision"],"tests":["SEC-MEMORY-POISONING-*"],"residualRisk":"user-confirmed false information can remain until corrected"},
+    {"id":"TH-010","severity":"high","category":"dangerous_artifact","scenario":"Exported artifact contains script, formula, external entity, executable or traversal.","controls":["content-type render isolation","malware and active-content scan","quarantine","external write approval"],"tests":["SEC-DANGEROUS-ARTIFACT-*"],"residualRisk":"novel payload may require scanner updates"},
+    {"id":"TH-011","severity":"critical","category":"duplicate_effect","scenario":"At-least-once delivery produces a repeated external side effect.","controls":["stable effect_key","effect request hash","inbox","outcome_unknown reconciliation"],"tests":["TOOL-EFFECT-MODEL","FAULT-DUPLICATE-DELIVERY"],"residualRisk":"non-idempotent provider outcome may remain accepted_unknown but is never retried blindly"},
+    {"id":"TH-012","severity":"critical","category":"stale_worker","scenario":"Expired Worker commits after replacement attempt.","controls":["version","command id","attempt id","exact fence","unpredictable lease token","lease expiry"],"tests":["FAULT-LEASE-EXPIRY","FAULT-WORKER-CRASH"],"residualRisk":"none accepted"},
+    {"id":"TH-013","severity":"critical","category":"anonymous_claim_race","scenario":"Claim and expiry race duplicates Mission or erases recovery evidence.","controls":["claim CAS","unique claim_key import","destination commit event","per-surface receipts","reserved cannot expire"],"tests":["CLAIM-CONCURRENCY-10000","CLAIM-FAULT-BOUNDARIES"],"residualRisk":"corruption moves to manual_review and requires Repair"},
+    {"id":"TH-014","severity":"critical","category":"ledger_corruption","scenario":"Concurrent reserve or settle causes negative balance or duplicate charge.","controls":["reservation operation key","credit conservation check","append-only ledger","transactional settle/release"],"tests":["LEDGER-MODEL-100000","LEDGER-RECONCILIATION"],"residualRisk":"none accepted"},
+    {"id":"TH-015","severity":"high","category":"deletion_gap","scenario":"Deleted subject reappears from index, cache, artifact or restored backup.","controls":["receipt manifest","crypto-shred","restore tombstone replay","cross-surface sweeper"],"tests":["ACCOUNT-DELETE-100","PITR-REDELETE"],"residualRisk":"immutable backup remains encrypted until retention expiry"}
+  ],
+  "enterpriseAggregationThreats":[
+    {"id":"PRIV-001","attack":"small result cell","control":"stable suppression when result cell k < 5","test":"AGG-SMALL-CELL"},
+    {"id":"PRIV-002","attack":"small adjacent complement","control":"suppress when complement k < 5","test":"AGG-COMPLEMENT"},
+    {"id":"PRIV-003","attack":"differencing repeated filters","control":"allowlist dimensions and stable snapshot answers","test":"AGG-DIFFERENCE"},
+    {"id":"PRIV-004","attack":"adaptive sequence based on previous result","control":"tenant snapshot query budget of 100","test":"AGG-ADAPTIVE-100X100"},
+    {"id":"PRIV-005","attack":"snapshot churn to change suppression","control":"immutable snapshot key and frozen source watermark","test":"AGG-SNAPSHOT-STABILITY"},
+    {"id":"PRIV-006","attack":"member drill-down or free-text dimension","control":"fixed metric and dimension catalog; request rejection","test":"AGG-FORBIDDEN-DIMENSION"},
+    {"id":"PRIV-007","attack":"cross-tenant aggregate id","control":"tenant-scoped snapshot and forced RLS","test":"AGG-CROSS-TENANT"}
+  ],
+  "twoPersonThreats":[
+    {"id":"2PR-001","attack":"initiator self-approves","control":"initiator id is excluded from decision subjects","test":"TWO-PERSON-SELF"},
+    {"id":"2PR-002","attack":"same principal votes twice or through two sessions","control":"unique target and approver principal","test":"TWO-PERSON-DUPLICATE"},
+    {"id":"2PR-003","attack":"approval reused after proposal or target change","control":"proposal hash and target version binding","test":"TWO-PERSON-MUTATION"},
+    {"id":"2PR-004","attack":"approver role revoked before execution","control":"active account and permission rechecked at execution","test":"TWO-PERSON-ROLE-REVOKE"},
+    {"id":"2PR-005","attack":"stale reauthentication reused","control":"reauthentication age at most 300 seconds","test":"TWO-PERSON-REAUTH-EXPIRY"}
+  ]
+}

@@ -1,0 +1,46 @@
+name: Contract Gate
+
+on:
+  pull_request:
+    paths:
+      - "contracts/**"
+      - "security-tests/**"
+      - "product-evals/**"
+      - "profile-evals/**"
+      - "pilot-protocols/**"
+      - "behavior-manifests/**"
+      - "gate-reports/stage-1/**"
+      - "scripts/**"
+      - "package.json"
+      - ".github/workflows/contract-gate.yml"
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  stage-1-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Generate and lint frozen contracts
+        run: npm test
+      - name: Refuse generated drift
+        run: git diff --exit-code
+      - name: Execute PostgreSQL contract and isolation assertions
+        run: npm run contracts:db-smoke
+      - name: Upload gate evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage-1-contract-evidence
+          path: gate-reports/stage-1/
+          if-no-files-found: error
+          retention-days: 30
