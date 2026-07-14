@@ -9,6 +9,8 @@ on:
       - "internal/**"
       - "services/**"
       - "scripts/foundation-postgres-smoke.sh"
+      - "scripts/stage2-migration-smoke.sh"
+      - "scripts/write-stage2-migration-report.mjs"
       - "deploy/**"
       - "config/**"
       - ".github/workflows/foundation-gate.yml"
@@ -37,3 +39,15 @@ jobs:
         run: go test -race -count=1 ./...
       - name: Verify PostgreSQL tenant context and session resolution
         run: ./scripts/foundation-postgres-smoke.sh
+      - name: Verify three clean installs, rollback, and re-upgrade cycles
+        env:
+          MIGRATION_REPORT_SOURCE_COMMIT: ${{ github.sha }}
+        run: ./scripts/stage2-migration-smoke.sh
+      - name: Upload Stage 2 foundation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage-2-foundation-evidence
+          path: gate-reports/stage-2/
+          if-no-files-found: error
+          retention-days: 30
