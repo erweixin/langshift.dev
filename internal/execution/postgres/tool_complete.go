@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -31,6 +32,11 @@ type CompleteToolCommand struct {
 	ResumeMaxAttempts     int
 }
 
+type EffectCompletion struct {
+	ExternalResourceRef string
+	ReconciliationDueAt time.Time
+}
+
 type CompletedTool struct {
 	ToolCallID, GroupID, RunID  string
 	ToolCallVersion, RunVersion uint64
@@ -50,6 +56,22 @@ type continuationIDs struct {
 // protected parallel-group join in the same transaction. Effectful tools use
 // the effect-ledger completion path and cannot pass this boundary.
 func (store RunStore) CompleteReadOnlyTool(ctx context.Context, command CompleteToolCommand) (CompletedTool, error) {
+	if command.Claim.EffectClass != "read_only" || command.TargetState == statemachine.ToolCallOutcomeUnknown {
+		return CompletedTool{}, ErrInvalidCommand
+	}
+	return store.completeTool(ctx, command, nil)
+}
+
+// CompleteEffectTool atomically records the durable effect outcome, ToolCall
+// result, worker attempt, protected group join and any winning continuation.
+func (store RunStore) CompleteEffectTool(ctx context.Context, command CompleteToolCommand, effect EffectCompletion) (CompletedTool, error) {
+	if !isWriteEffectClass(command.Claim.EffectClass) {
+		return CompletedTool{}, ErrInvalidCommand
+	}
+	return store.completeTool(ctx, command, &effect)
+}
+
+func (store RunStore) completeTool(ctx context.Context, command CompleteToolCommand, effect *EffectCompletion) (CompletedTool, error) {
 	claim := command.Claim
 	if !store.validClaim() || !validToolClaim(claim) {
 		return CompletedTool{}, ErrConfiguration
@@ -95,9 +117,24 @@ func (store RunStore) CompleteReadOnlyTool(ctx context.Context, command Complete
 	if err = lockToolInbox(ctx, tx, claim, digest[:], now); err != nil {
 		return CompletedTool{}, err
 	}
+	var effectVersion uint64
+	if effect == nil {
+		var unexpectedEffectID string
+		effectErr := tx.QueryRow(ctx, `SELECT id::text FROM agent.tool_effects WHERE tenant_id=$1 AND tool_call_id=$2 FOR UPDATE`, claim.TenantID, claim.ToolCallID).Scan(&unexpectedEffectID)
+		if effectErr == nil || !errors.Is(effectErr, pgx.ErrNoRows) {
+			return CompletedTool{}, ErrExecutionRightConflict
+		}
+	} else {
+		var effectStatus, effectClass, effectAttemptID, providerRequestID string
+		var effectFence uint64
+		err = tx.QueryRow(ctx, `SELECT version,status,effect_class,execution_attempt_id::text,execution_fence,provider_request_id FROM agent.tool_effects WHERE id=$1 AND tenant_id=$2 AND tool_call_id=$3 AND run_id=$4 FOR UPDATE`, claim.EffectID, claim.TenantID, claim.ToolCallID, claim.RunID).Scan(&effectVersion, &effectStatus, &effectClass, &effectAttemptID, &effectFence, &providerRequestID)
+		if err != nil || effectStatus != "executing" || effectClass != claim.EffectClass || effectAttemptID != claim.AttemptID || effectFence != claim.Fence || providerRequestID != claim.ProviderRequestID {
+			return CompletedTool{}, ErrExecutionRightConflict
+		}
+	}
 	var userID, runID, effectClass string
 	err = tx.QueryRow(ctx, `SELECT user_id::text,run_id::text,effect_class FROM agent.tool_calls WHERE id=$1 AND tenant_id=$2 AND user_id=$3 AND run_id=$4 AND status='executing' AND tool_call_version=$5 AND active_command_id=$6 AND active_attempt_id=$7 AND current_fence=$8 AND lease_token_hash=$9 AND lease_expires_at=$10 AND lease_expires_at>$11 FOR UPDATE`, claim.ToolCallID, claim.TenantID, claim.UserID, claim.RunID, command.ExpectedToolVersion, claim.CommandID, claim.AttemptID, claim.Fence, digest[:], claim.LeaseExpiresAt, now).Scan(&userID, &runID, &effectClass)
-	if err != nil || effectClass != "read_only" || runID != claim.RunID {
+	if err != nil || effectClass != claim.EffectClass || runID != claim.RunID || (effect == nil && effectClass != "read_only") || (effect != nil && !isWriteEffectClass(effectClass)) {
 		return CompletedTool{}, ErrExecutionRightConflict
 	}
 	var attemptVersion uint64
@@ -106,6 +143,15 @@ func (store RunStore) CompleteReadOnlyTool(ctx context.Context, command Complete
 		return CompletedTool{}, ErrExecutionRightConflict
 	}
 	nextToolVersion := command.ExpectedToolVersion + 1
+	if effect != nil {
+		effectStatus, confirmedAt, reconciliationDueAt, externalResourceRef, valid := effectCompletionValues(command.TargetState, *effect, now)
+		if !valid {
+			return CompletedTool{}, ErrInvalidCommand
+		}
+		if tag, updateErr := tx.Exec(ctx, `UPDATE agent.tool_effects SET version=$1,status=$2,external_resource_ref=COALESCE(NULLIF($3,''),external_resource_ref),reconciliation_due_at=$4,confirmed_at=$5,result_event_id=$6,updated_at=$7 WHERE id=$8 AND tenant_id=$9 AND version=$10 AND status='executing' AND effect_class=$11 AND execution_attempt_id=$12 AND execution_fence=$13 AND provider_request_id=$14`, effectVersion+1, effectStatus, externalResourceRef, reconciliationDueAt, confirmedAt, toolEventID, now, claim.EffectID, claim.TenantID, effectVersion, claim.EffectClass, claim.AttemptID, claim.Fence, claim.ProviderRequestID); updateErr != nil || tag.RowsAffected() != 1 {
+			return CompletedTool{}, ErrExecutionRightConflict
+		}
+	}
 	if tag, updateErr := tx.Exec(ctx, `UPDATE agent.tool_calls SET status=$1,tool_call_version=$2,result_event_id=$3,active_command_id=NULL,active_attempt_id=NULL,lease_token_hash=NULL,lease_expires_at=NULL,updated_at=$4 WHERE id=$5 AND tenant_id=$6 AND status='executing' AND tool_call_version=$7 AND active_command_id=$8 AND active_attempt_id=$9 AND current_fence=$10 AND lease_token_hash=$11 AND lease_expires_at=$12 AND lease_expires_at>$4`, command.TargetState, nextToolVersion, toolEventID, now, claim.ToolCallID, claim.TenantID, command.ExpectedToolVersion, claim.CommandID, claim.AttemptID, claim.Fence, digest[:], claim.LeaseExpiresAt); updateErr != nil || tag.RowsAffected() != 1 {
 		return CompletedTool{}, ErrExecutionRightConflict
 	}
@@ -213,7 +259,25 @@ func (store RunStore) CompleteReadOnlyTool(ctx context.Context, command Complete
 }
 
 func validCompleteTool(command CompleteToolCommand) bool {
-	return command.ExpectedToolVersion == command.Claim.ToolCallVersion && (command.TargetState == statemachine.ToolCallSucceeded || command.TargetState == statemachine.ToolCallFailed) && command.ResultHash != "" && validJSONObject(command.Actor) && command.CorrelationID != "" && validPointer(command.ToolCompletedEvent) && validPointer(command.AttemptCompletedEvent) && validPointer(command.GroupJoinedEvent) && validPointer(command.RunResumeQueuedEvent) && validPointer(command.ResumeCommand) && (command.ResumeQueueClass == "interactive" || command.ResumeQueueClass == "background") && command.ResumeResourceClass != "" && command.ResumePriority >= 0 && command.ResumePriority <= 1000 && command.ResumeCostUnits > 0 && command.ResumeCostUnits <= 1_000_000_000_000 && command.ResumeMaxAttempts > 0 && command.ResumeMaxAttempts <= 100
+	knownOutcome := command.TargetState == statemachine.ToolCallSucceeded || command.TargetState == statemachine.ToolCallFailed || command.TargetState == statemachine.ToolCallOutcomeUnknown
+	return command.ExpectedToolVersion == command.Claim.ToolCallVersion && knownOutcome && command.ResultHash != "" && validJSONObject(command.Actor) && command.CorrelationID != "" && validPointer(command.ToolCompletedEvent) && validPointer(command.AttemptCompletedEvent) && validPointer(command.GroupJoinedEvent) && validPointer(command.RunResumeQueuedEvent) && validPointer(command.ResumeCommand) && (command.ResumeQueueClass == "interactive" || command.ResumeQueueClass == "background") && command.ResumeResourceClass != "" && command.ResumePriority >= 0 && command.ResumePriority <= 1000 && command.ResumeCostUnits > 0 && command.ResumeCostUnits <= 1_000_000_000_000 && command.ResumeMaxAttempts > 0 && command.ResumeMaxAttempts <= 100
+}
+
+func isWriteEffectClass(class string) bool {
+	return class == "idempotent_write" || class == "reconcilable_write" || class == "compensatable_write" || class == "irreversible_write"
+}
+
+func effectCompletionValues(state statemachine.ToolCallState, effect EffectCompletion, now time.Time) (string, *time.Time, *time.Time, string, bool) {
+	switch state {
+	case statemachine.ToolCallSucceeded:
+		return "confirmed", &now, nil, effect.ExternalResourceRef, effect.ReconciliationDueAt.IsZero()
+	case statemachine.ToolCallFailed:
+		return "failed", nil, nil, "", effect.ReconciliationDueAt.IsZero() && effect.ExternalResourceRef == ""
+	case statemachine.ToolCallOutcomeUnknown:
+		return "outcome_unknown", nil, &effect.ReconciliationDueAt, effect.ExternalResourceRef, effect.ReconciliationDueAt.After(now)
+	default:
+		return "", nil, nil, "", false
+	}
 }
 
 func parallelJoinSatisfied(policy string, required, quorum, terminal, succeeded int) bool {
@@ -235,6 +299,9 @@ func parallelJoinSatisfied(policy string, required, quorum, terminal, succeeded 
 func toolCompletionEventType(state statemachine.ToolCallState) string {
 	if state == statemachine.ToolCallSucceeded {
 		return "ToolCallSucceeded"
+	}
+	if state == statemachine.ToolCallOutcomeUnknown {
+		return "ToolCallOutcomeUnknown"
 	}
 	return "ToolCallFailed"
 }

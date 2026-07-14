@@ -3,6 +3,7 @@ package postgres
 import (
 	"bytes"
 	"testing"
+	"time"
 
 	"github.com/langshift/lites/internal/execution/statemachine"
 )
@@ -47,7 +48,33 @@ func TestParallelJoinPoliciesAndContinuationIdentifiers(t *testing.T) {
 		}
 		seen[value] = true
 	}
-	if toolCompletionEventType(statemachine.ToolCallSucceeded) != "ToolCallSucceeded" || toolCompletionEventType(statemachine.ToolCallFailed) != "ToolCallFailed" {
+	if toolCompletionEventType(statemachine.ToolCallSucceeded) != "ToolCallSucceeded" || toolCompletionEventType(statemachine.ToolCallFailed) != "ToolCallFailed" || toolCompletionEventType(statemachine.ToolCallOutcomeUnknown) != "ToolCallOutcomeUnknown" {
 		t.Fatal("terminal event mapping drifted")
+	}
+}
+
+func TestEffectCompletionValues(t *testing.T) {
+	now := time.Date(2026, time.July, 15, 2, 0, 0, 0, time.UTC)
+	status, confirmedAt, dueAt, resource, valid := effectCompletionValues(statemachine.ToolCallSucceeded, EffectCompletion{ExternalResourceRef: "provider://resource/1"}, now)
+	if !valid || status != "confirmed" || confirmedAt == nil || *confirmedAt != now || dueAt != nil || resource != "provider://resource/1" {
+		t.Fatalf("confirmed=%s/%v/%v/%s/%v", status, confirmedAt, dueAt, resource, valid)
+	}
+	status, confirmedAt, dueAt, _, valid = effectCompletionValues(statemachine.ToolCallOutcomeUnknown, EffectCompletion{ReconciliationDueAt: now.Add(time.Minute)}, now)
+	if !valid || status != "outcome_unknown" || confirmedAt != nil || dueAt == nil || *dueAt != now.Add(time.Minute) {
+		t.Fatalf("unknown=%s/%v/%v/%v", status, confirmedAt, dueAt, valid)
+	}
+	if _, _, _, _, valid = effectCompletionValues(statemachine.ToolCallOutcomeUnknown, EffectCompletion{ReconciliationDueAt: now}, now); valid {
+		t.Fatal("non-future reconciliation deadline accepted")
+	}
+	if _, _, _, _, valid = effectCompletionValues(statemachine.ToolCallFailed, EffectCompletion{ExternalResourceRef: "provider://unexpected"}, now); valid {
+		t.Fatal("definitive failure accepted an external resource")
+	}
+	for _, class := range []string{"idempotent_write", "reconcilable_write", "compensatable_write", "irreversible_write"} {
+		if !isWriteEffectClass(class) {
+			t.Fatalf("write effect class rejected: %s", class)
+		}
+	}
+	if isWriteEffectClass("read_only") || isWriteEffectClass("invented") {
+		t.Fatal("non-write effect class accepted")
 	}
 }
