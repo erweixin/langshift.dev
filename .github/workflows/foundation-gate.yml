@@ -10,6 +10,7 @@ on:
       - "services/**"
       - "scripts/foundation-postgres-smoke.sh"
       - "scripts/stage2-infrastructure-smoke.sh"
+      - "scripts/stage2-acceptance-gate.sh"
       - "scripts/stage2-identity-gate.sh"
       - "scripts/stage2-helm-gate.sh"
       - "scripts/stage2-migration-smoke.sh"
@@ -22,6 +23,7 @@ on:
       - "scripts/validate-stage2-nats-render.mjs"
       - "scripts/validate-stage2-tofu-contract.mjs"
       - "scripts/write-stage2-infrastructure-report.mjs"
+      - "scripts/write-stage2-acceptance-report.mjs"
       - "scripts/write-stage2-identity-report.mjs"
       - "scripts/write-stage2-migration-report.mjs"
       - "scripts/write-stage2-secret-report.mjs"
@@ -72,6 +74,8 @@ jobs:
         env:
           SECRET_REPORT_SOURCE_COMMIT: ${{ github.sha }}
         run: ./scripts/stage2-secret-gate.sh
+      - name: Verify anonymous claim concurrency and fault reconciliation
+        run: ./scripts/stage2-claim-gate.sh "${{ github.sha }}"
       - name: Verify three clean installs, rollback, and re-upgrade cycles
         env:
           MIGRATION_REPORT_SOURCE_COMMIT: ${{ github.sha }}
@@ -81,7 +85,13 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: stage-2-foundation-evidence
-          path: gate-reports/stage-2/
+          path: |
+            gate-reports/stage-2/identity-e2e-report.json
+            gate-reports/stage-2/claim-concurrency-report.json
+            gate-reports/stage-2/claim-saga-fault-report.json
+            gate-reports/stage-2/permission-matrix-report.json
+            gate-reports/stage-2/secret-scan-report.json
+            gate-reports/stage-2/migration-report.json
           if-no-files-found: error
           retention-days: 30
 
@@ -132,3 +142,30 @@ jobs:
         run: node scripts/verify-actions-pinned.mjs
       - name: Verify official-cloud OpenTofu contract
         run: ./scripts/stage2-tofu-gate.sh
+
+  stage-2-acceptance:
+    needs: [go-security-core, infrastructure-smoke, production-deployment-contract, infrastructure-as-code-contract]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Download Stage 2 evidence from isolated jobs
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: stage-2-*-evidence
+          path: /tmp/stage-2-evidence
+          merge-multiple: true
+      - name: Verify the unified Stage 2 acceptance contract
+        env:
+          STAGE2_REPORT_SOURCE_COMMIT: ${{ github.sha }}
+          STAGE2_REPORTS_DIRECTORY: /tmp/stage-2-evidence
+        run: ./scripts/stage2-acceptance-gate.sh
+      - name: Upload unified Stage 2 acceptance evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: stage-2-acceptance-evidence
+          path: gate-reports/stage-2/stage2-acceptance-report.json
+          if-no-files-found: error
+          retention-days: 90
