@@ -12,6 +12,7 @@ import (
 	"time"
 
 	eventpostgres "github.com/langshift/lites/internal/eventstore/postgres"
+	"github.com/langshift/lites/internal/execution/statemachine"
 	"github.com/langshift/lites/internal/security/opaque"
 )
 
@@ -101,6 +102,69 @@ func TestToolClaimHeartbeatAndExpiredReclaimAreFenced(t *testing.T) {
 	}
 	if reconcileToolStatus != "executing" || reconcileFence != 1 || reconcileInboxStatus != "running" || reconcileAttemptStatus != "running" || reconcileEffectStatus != "executing" || reconcileEffectVersion != 2 || reconcileEffectAttempt != reconcileClaim.AttemptID || reconcileEffectFence != 1 || reconcileProviderRequest != reconcileClaim.ProviderRequestID || reconcileAttempts != 1 || reconcileAttemptEvents != 1 {
 		t.Fatalf("reconcilable tool=%s/f%d inbox=%s attempt=%s effect=%s/v%d/%s/f%d/provider=%s attempts=%d events=%d", reconcileToolStatus, reconcileFence, reconcileInboxStatus, reconcileAttemptStatus, reconcileEffectStatus, reconcileEffectVersion, reconcileEffectAttempt, reconcileEffectFence, reconcileProviderRequest, reconcileAttempts, reconcileAttemptEvents)
+	}
+
+	tenantIDs, err := store.ListExpiredEffectTenantIDs(ctx, storeEpoch, "", 10, 0, 1)
+	if err != nil || len(tenantIDs) != 1 || tenantIDs[0] != tenantID {
+		t.Fatalf("expired effect tenants=%v error=%v", tenantIDs, err)
+	}
+	candidates, err := store.ListExpiredEffectCandidates(ctx, tenantID, storeEpoch, "", 10)
+	if err != nil || len(candidates) != 1 || candidates[0].ToolCallID != reconcileTool.ToolCallID || candidates[0].EffectID != reconcileClaim.EffectID || candidates[0].AttemptID != reconcileClaim.AttemptID {
+		t.Fatalf("expired effect candidates=%#v error=%v", candidates, err)
+	}
+	reconcileDue := current.Add(time.Minute)
+	sweepCommand := SweepExpiredToolEffectCommand{Candidate: candidates[0], ResultHash: "worker-lease-expired-outcome-unknown", Actor: json.RawMessage(`{"kind":"service","name":"tool-effect-sweeper"}`), CorrelationID: correlationID, OutcomeUnknownEvent: PayloadPointer{Ref: "encrypted://tool-claim/swept-unknown", Hash: "swept-unknown"}, AttemptExpiredEvent: PayloadPointer{Ref: "encrypted://tool-claim/swept-attempt-expired", Hash: "swept-attempt-expired"}, Reconciliation: EffectCompletion{ReconciliationDueAt: reconcileDue, ReconcileCommand: PayloadPointer{Ref: "encrypted://tool-claim/swept-reconcile", Hash: "swept-reconcile"}, ReconcileQueueClass: "background", ReconcileResource: "tool-reconciliation", ReconcilePriority: 40, ReconcileCostUnits: 1, ReconcileAttempts: 8}}
+	sweepWinners := make(chan SweptToolEffect, 32)
+	sweepErrors := make(chan error, 32)
+	var sweepWait sync.WaitGroup
+	for range 32 {
+		sweepWait.Add(1)
+		go func() {
+			defer sweepWait.Done()
+			result, sweepErr := store.SweepExpiredToolEffect(ctx, sweepCommand)
+			if sweepErr != nil {
+				sweepErrors <- sweepErr
+				return
+			}
+			sweepWinners <- result
+		}()
+	}
+	sweepWait.Wait()
+	close(sweepWinners)
+	close(sweepErrors)
+	var swept SweptToolEffect
+	sweepSuccesses, sweepStale := 0, 0
+	for result := range sweepWinners {
+		swept = result
+		sweepSuccesses++
+	}
+	for sweepErr := range sweepErrors {
+		if !errors.Is(sweepErr, ErrToolEffectNotSweepable) {
+			t.Fatalf("unexpected sweep error=%v", sweepErr)
+		}
+		sweepStale++
+	}
+	if sweepSuccesses != 1 || sweepStale != 31 || swept.ToolVersion != reconcileClaim.ToolCallVersion+1 || swept.EffectVersion != candidates[0].EffectVersion+1 || swept.ReconcileCommandID == "" {
+		t.Fatalf("swept=%#v successes=%d stale=%d", swept, sweepSuccesses, sweepStale)
+	}
+	lateCompletion := CompleteToolCommand{Claim: reconcileClaim, ExpectedToolVersion: reconcileClaim.ToolCallVersion, TargetState: statemachine.ToolCallOutcomeUnknown, ResultHash: "late-worker-unknown", Actor: json.RawMessage(`{"kind":"service"}`), CorrelationID: correlationID, ToolCompletedEvent: PayloadPointer{Ref: "encrypted://tool-claim/late-unknown", Hash: "late-unknown"}, AttemptCompletedEvent: PayloadPointer{Ref: "encrypted://tool-claim/late-attempt", Hash: "late-attempt"}, GroupJoinedEvent: PayloadPointer{Ref: "encrypted://tool-claim/late-group", Hash: "late-group"}, RunResumeQueuedEvent: PayloadPointer{Ref: "encrypted://tool-claim/late-run", Hash: "late-run"}, ResumeCommand: PayloadPointer{Ref: "encrypted://tool-claim/late-resume", Hash: "late-resume"}, ResumeQueueClass: "interactive", ResumeResourceClass: "llm", ResumePriority: 50, ResumeCostUnits: 1, ResumeMaxAttempts: 5}
+	if _, err = store.CompleteEffectTool(ctx, lateCompletion, sweepCommand.Reconciliation); !errors.Is(err, ErrExecutionRightConflict) {
+		t.Fatalf("late worker completion error=%v", err)
+	}
+	var sweptToolStatus, sweptEffectStatus, sweptInboxStatus, sweptAttemptStatus, sweptJobStatus string
+	var sweptToolVersion, sweptEffectVersion, unknownEvents, reconcileJobs int
+	var cleared bool
+	err = admin.QueryRow(ctx, `SELECT t.status,t.tool_call_version,t.active_command_id IS NULL AND t.active_attempt_id IS NULL AND t.lease_token_hash IS NULL AND t.lease_expires_at IS NULL,e.status,e.version,i.status,a.status,j.status,(SELECT count(*) FROM agent.events WHERE tenant_id=$1 AND aggregate_kind='tool_call' AND aggregate_id=$2 AND event_type='ToolCallOutcomeUnknown'),(SELECT count(*) FROM agent.jobs WHERE tenant_id=$1 AND command_id=$3 AND status='pending') FROM agent.tool_calls t JOIN agent.tool_effects e ON e.tool_call_id=t.id JOIN agent.inbox i ON i.id=$4 JOIN agent.job_attempts a ON a.id=$5 JOIN agent.jobs j ON j.id=$6 WHERE t.id=$2`, tenantID, reconcileTool.ToolCallID, swept.ReconcileCommandID, reconcileClaim.InboxID, reconcileClaim.AttemptID, reconcileClaim.JobID).Scan(&sweptToolStatus, &sweptToolVersion, &cleared, &sweptEffectStatus, &sweptEffectVersion, &sweptInboxStatus, &sweptAttemptStatus, &sweptJobStatus, &unknownEvents, &reconcileJobs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sweptToolStatus != "outcome_unknown" || sweptToolVersion != int(swept.ToolVersion) || !cleared || sweptEffectStatus != "outcome_unknown" || sweptEffectVersion != int(swept.EffectVersion) || sweptInboxStatus != "completed" || sweptAttemptStatus != "expired" || sweptJobStatus != "succeeded" || unknownEvents != 1 || reconcileJobs != 1 {
+		t.Fatalf("swept tool=%s/v%d cleared=%v effect=%s/v%d inbox=%s attempt=%s job=%s events=%d reconcile_jobs=%d", sweptToolStatus, sweptToolVersion, cleared, sweptEffectStatus, sweptEffectVersion, sweptInboxStatus, sweptAttemptStatus, sweptJobStatus, unknownEvents, reconcileJobs)
+	}
+	current = reconcileDue
+	reconciliationClaim, err := store.ClaimReconciliation(ctx, ClaimReconciliationCommand{Command: eventpostgres.DeliveredCommand{TenantID: tenantID, StoreEpoch: storeEpoch, CommandID: swept.ReconcileCommandID, CommandType: "ReconcileToolEffect", AggregateKind: "tool_call", AggregateID: reconcileTool.ToolCallID, PayloadRef: "encrypted://tool-claim/swept-reconcile", PayloadHash: "swept-reconcile"}, ConsumerName: "reconciliation-worker", WorkerID: "reconciliation-after-sweep", Actor: json.RawMessage(`{"kind":"service"}`), CorrelationID: correlationID, AttemptStartedEvent: PayloadPointer{Ref: "encrypted://tool-claim/swept-reconcile-started", Hash: "swept-reconcile-started"}, AttemptExpiredEvent: PayloadPointer{Ref: "encrypted://tool-claim/swept-reconcile-expired", Hash: "swept-reconcile-expired"}})
+	if err != nil || reconciliationClaim.EffectID != swept.EffectID || reconciliationClaim.ProviderRequestID != reconcileClaim.ProviderRequestID || reconciliationClaim.Fence != 1 {
+		t.Fatalf("reconciliation after sweep=%#v error=%v", reconciliationClaim, err)
 	}
 }
 
