@@ -151,6 +151,10 @@ func ClearCookie() *http.Cookie {
 	return &http.Cookie{Name: CookieName, Path: "/", Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode, MaxAge: -1, Expires: time.Unix(1, 0).UTC()}
 }
 
+func ClearCSRFCookie() *http.Cookie {
+	return &http.Cookie{Name: CSRFCookieName, Path: "/", Secure: true, HttpOnly: false, SameSite: http.SameSiteLaxMode, MaxAge: -1, Expires: time.Unix(1, 0).UTC()}
+}
+
 func CSRFCookie(rawHandle string, key []byte, expiresAt time.Time) (*http.Cookie, error) {
 	value, err := CSRF(rawHandle, key)
 	if err != nil || expiresAt.IsZero() {

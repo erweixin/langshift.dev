@@ -33,7 +33,7 @@ func IdentityRoutePolicy(request *http.Request) AuthenticationPolicy {
 			case "route-preview":
 				return AnonymousOrSession
 			case "claim":
-				return AuthenticationRequired
+				return AuthenticatedWithAnonymous
 			}
 		}
 	}

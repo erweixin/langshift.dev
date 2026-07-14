@@ -152,7 +152,7 @@ func validClaims(claims Claims, maximumTTL time.Duration) bool {
 	}
 	switch claims.PrincipalKind {
 	case AuthenticatedUser:
-		if claims.SubjectID == "" || claims.TenantID == "" || claims.MembershipID == "" || claims.SessionID == "" || claims.AnonymousSubjectID != "" || len(claims.Roles) == 0 {
+		if claims.SubjectID == "" || claims.TenantID == "" || claims.MembershipID == "" || claims.SessionID == "" || len(claims.Roles) == 0 {
 			return false
 		}
 	case AnonymousUser:

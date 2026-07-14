@@ -57,6 +57,7 @@ const (
 	PublicAuthentication
 	AnonymousOrSession
 	PublicOrAnonymousOrSession
+	AuthenticatedWithAnonymous
 )
 
 func (boundary TrustBoundary) Wrap(next http.Handler) http.Handler {
@@ -117,6 +118,18 @@ func (boundary TrustBoundary) Wrap(next http.Handler) http.Handler {
 				}
 				csrfVerified = true
 			}
+			if policy == AuthenticatedWithAnonymous {
+				anonymousCookie, anonymousCookieErr := request.Cookie(anonymoussession.CookieName)
+				if anonymousCookieErr != nil || boundary.AnonymousResolver == nil {
+					boundary.unauthorized(writer, request)
+					return
+				}
+				anonymousPrincipal, err = boundary.AnonymousResolver.Resolve(request.Context(), anonymousCookie.Value)
+				if err != nil || anonymousPrincipal.AnonymousSubjectID == "" || anonymousPrincipal.UserID == "" || anonymousPrincipal.TenantID == "" || anonymousPrincipal.ExpiresAt.IsZero() {
+					boundary.unauthorized(writer, request)
+					return
+				}
+			}
 		} else if policy == AnonymousOrSession || policy == PublicOrAnonymousOrSession {
 			anonymousCookie, anonymousCookieErr := request.Cookie(anonymoussession.CookieName)
 			if anonymousCookieErr == nil {
@@ -167,6 +180,9 @@ func (boundary TrustBoundary) Wrap(next http.Handler) http.Handler {
 		if principalKind == trustedcontext.AuthenticatedUser && principal.ExpiresAt.Before(expiresAt) {
 			expiresAt = principal.ExpiresAt
 		}
+		if policy == AuthenticatedWithAnonymous && anonymousPrincipal.ExpiresAt.Before(expiresAt) {
+			expiresAt = anonymousPrincipal.ExpiresAt
+		}
 		if principalKind == trustedcontext.AnonymousUser && anonymousPrincipal.ExpiresAt.Before(expiresAt) {
 			expiresAt = anonymousPrincipal.ExpiresAt
 		}
@@ -180,6 +196,9 @@ func (boundary TrustBoundary) Wrap(next http.Handler) http.Handler {
 			return
 		}
 		claims := trustedcontext.Claims{PrincipalKind: principalKind, Issuer: boundary.Issuer, Audience: boundary.Audience, SubjectID: principal.UserID, TenantID: principal.TenantID, MembershipID: principal.MembershipID, SessionID: principal.SessionID, Roles: principal.Roles, RequestID: requestID, RequestMethod: request.Method, RequestTarget: request.URL.RequestURI(), ClientIPHash: clientIPHash, UserAgentHash: userAgentHash, CSRFVerified: csrfVerified, IssuedAt: now.Unix(), ExpiresAt: expiresAt.Unix(), Nonce: base64.RawURLEncoding.EncodeToString(nonceBytes)}
+		if policy == AuthenticatedWithAnonymous {
+			claims.AnonymousSubjectID = anonymousPrincipal.AnonymousSubjectID
+		}
 		if principalKind == trustedcontext.AnonymousUser {
 			claims.SubjectID = anonymousPrincipal.UserID
 			claims.TenantID = anonymousPrincipal.TenantID
@@ -200,7 +219,7 @@ func stripSensitiveCookies(request *http.Request) {
 	cookies := request.Cookies()
 	request.Header.Del("Cookie")
 	for _, cookie := range cookies {
-		if cookie.Name == session.CookieName || cookie.Name == session.CSRFCookieName || cookie.Name == anonymoussession.CookieName {
+		if cookie.Name == session.CookieName || cookie.Name == session.CSRFCookieName || cookie.Name == anonymoussession.CookieName || cookie.Name == anonymoussession.CSRFCookieName {
 			continue
 		}
 		request.AddCookie(cookie)

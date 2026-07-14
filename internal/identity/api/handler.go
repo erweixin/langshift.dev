@@ -40,6 +40,7 @@ var (
 	ErrVersionConflict          = errors.New("identity version conflict")
 	ErrValidation               = errors.New("identity request validation failed")
 	ErrReauthenticationRequired = errors.New("identity reauthentication required")
+	ErrClaimManualReview        = errors.New("anonymous claim requires manual review")
 )
 
 type RequestMetadata struct {
@@ -105,6 +106,7 @@ type Handler struct {
 	Invitations InvitationService
 	Memberships MembershipService
 	Onboarding  OnboardingService
+	Claims      OnboardingClaimService
 	RateLimiter RequestLimiter
 	// RateLimitPepper is purpose-separated from database, token, and password
 	// peppers. It ensures Valkey keys never contain public or authenticated PII.
@@ -235,6 +237,14 @@ func (handler Handler) ServeHTTP(writer http.ResponseWriter, request *http.Reque
 			handler.methodNotAllowed(writer, request, http.MethodGet, http.MethodDelete)
 		}
 	default:
+		if strings.HasPrefix(request.URL.Path, "/v1/onboarding-sessions/") && strings.HasSuffix(request.URL.Path, "/claim") {
+			if request.Method != http.MethodPost {
+				handler.methodNotAllowed(writer, request, http.MethodPost)
+				return
+			}
+			handler.onboardingClaim(writer, request)
+			return
+		}
 		if strings.HasPrefix(request.URL.Path, "/v1/invitations/") && strings.HasSuffix(request.URL.Path, "/reject") {
 			if request.Method != http.MethodPost {
 				handler.methodNotAllowed(writer, request, http.MethodPost)
@@ -530,6 +540,8 @@ func (handler Handler) serviceError(writer http.ResponseWriter, request *http.Re
 		handler.writeProblem(writer, request, http.StatusTooManyRequests, "rate_limited", "Rate limited", true)
 	case errors.Is(err, ErrDependencyUnavailable):
 		handler.writeProblem(writer, request, http.StatusServiceUnavailable, "dependency_unavailable", "Dependency unavailable", true)
+	case errors.Is(err, ErrClaimManualReview):
+		handler.writeProblem(writer, request, http.StatusConflict, "claim_manual_review", "Claim requires manual review", false)
 	default:
 		handler.internalError(writer, request)
 	}

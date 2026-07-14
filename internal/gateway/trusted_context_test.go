@@ -258,7 +258,7 @@ func TestIdentityRoutePolicyFailsClosedForUnknownRoute(t *testing.T) {
 		{path: "/v1/onboarding-sessions", want: PublicOrAnonymousOrSession},
 		{path: "/v1/onboarding-sessions/session-1", want: AnonymousOrSession},
 		{path: "/v1/onboarding-sessions/session-1/route-preview", want: AnonymousOrSession},
-		{path: "/v1/onboarding-sessions/session-1/claim", want: AuthenticationRequired},
+		{path: "/v1/onboarding-sessions/session-1/claim", want: AuthenticatedWithAnonymous},
 		{path: "/v1/onboarding-sessions/session-1/claim/extra", want: AuthenticationRequired},
 		{path: "/v1/onboarding-sessions/session-1/unknown", want: AuthenticationRequired},
 		{path: "/v1/auth/login/extra", want: AuthenticationRequired},
@@ -318,5 +318,53 @@ func TestAnonymousRouteIssuesIsolatedTrustedContextAndRequiresBoundCSRF(t *testi
 	boundary.Wrap(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Fatal("invalid csrf reached upstream") })).ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusForbidden {
 		t.Fatalf("invalid csrf status=%d", recorder.Code)
+	}
+}
+
+func TestClaimRouteBindsVerifiedSessionToResolvedAnonymousSubject(t *testing.T) {
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Unix(1_800_000_000, 0).UTC()
+	csrfPepper := bytes.Repeat([]byte{0x65}, 32)
+	csrf, err := session.NewFrom(bytes.NewReader(bytes.Repeat([]byte{0x66}, 32)), csrfPepper)
+	if err != nil {
+		t.Fatal(err)
+	}
+	formal := session.Principal{UserID: "formal-user", TenantID: "personal-tenant", MembershipID: "membership", SessionID: "session", Roles: []string{"owner"}, CSRFSecretHash: csrf.Digest[:], ExpiresAt: now.Add(time.Hour)}
+	anonymous := anonymoussession.Principal{AnonymousSubjectID: "anonymous-subject", UserID: "ephemeral-user", TenantID: "anonymous-system", ExpiresAt: now.Add(90 * time.Second)}
+	boundary := TrustBoundary{Resolver: resolverStub{principal: formal}, AnonymousResolver: anonymousResolverStub{principal: anonymous}, SigningKey: privateKey, SigningKeyID: "key", Issuer: "gateway", Audience: "identity", TTL: 2 * time.Minute, CSRFPepper: csrfPepper, FingerprintPepper: bytes.Repeat([]byte{0x67}, 32), RoutePolicy: IdentityRoutePolicy, Random: bytes.NewReader(bytes.Repeat([]byte{0x68}, 64)), Now: func() time.Time { return now }}
+	verifier := trustedcontext.Verifier{Issuer: "gateway", Audience: "identity", Keys: map[string]ed25519.PublicKey{"key": publicKey}, MaximumTTL: time.Hour}
+	request := httptest.NewRequest(http.MethodPost, "https://api.lites.dev/v1/onboarding-sessions/onboarding-1/claim", nil)
+	request.AddCookie(&http.Cookie{Name: session.CookieName, Value: "formal-handle"})
+	request.AddCookie(&http.Cookie{Name: anonymoussession.CookieName, Value: "anonymous-handle"})
+	request.AddCookie(&http.Cookie{Name: anonymoussession.CSRFCookieName, Value: "anonymous-csrf"})
+	request.Header.Set(CSRFHeader, csrf.Raw)
+	recorder := httptest.NewRecorder()
+	boundary.Wrap(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		claims, verifyErr := verifier.VerifyRequest(request.Header.Get(TrustedContextHeader), now, request.Header.Get(RequestIDHeader), http.MethodPost, "/v1/onboarding-sessions/onboarding-1/claim", true)
+		if verifyErr != nil {
+			t.Fatal(verifyErr)
+		}
+		if claims.PrincipalKind != trustedcontext.AuthenticatedUser || claims.SubjectID != formal.UserID || claims.TenantID != formal.TenantID || claims.AnonymousSubjectID != anonymous.AnonymousSubjectID || claims.ExpiresAt != anonymous.ExpiresAt.Unix() {
+			t.Fatalf("claims=%#v", claims)
+		}
+		if request.Header.Get("Cookie") != "" || request.Header.Get(CSRFHeader) != "" {
+			t.Fatal("claim credentials reached upstream")
+		}
+		writer.WriteHeader(http.StatusNoContent)
+	})).ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodPost, "https://api.lites.dev/v1/onboarding-sessions/onboarding-1/claim", nil)
+	request.AddCookie(&http.Cookie{Name: session.CookieName, Value: "formal-handle"})
+	request.Header.Set(CSRFHeader, csrf.Raw)
+	recorder = httptest.NewRecorder()
+	boundary.Wrap(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Fatal("claim without anonymous handle reached upstream") })).ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("missing anonymous handle status=%d", recorder.Code)
 	}
 }

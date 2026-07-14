@@ -15,7 +15,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	eventpostgres "github.com/langshift/lites/internal/eventstore/postgres"
 	"github.com/langshift/lites/internal/identity/anonymousclaim"
+	"github.com/langshift/lites/internal/identity/api"
 	"github.com/langshift/lites/internal/payload"
+	"github.com/langshift/lites/internal/platform/ids"
 	"github.com/langshift/lites/internal/security/opaque"
 )
 
@@ -41,7 +43,6 @@ func TestAnonymousClaimStoreConvergesWithRLSAndProtectsReservationFromExpiry(t *
 	const ephemeralUser = "72000000-0000-4000-8000-000000000001"
 	const sessionID = "73000000-0000-4000-8000-000000000001"
 	const claimID = "74000000-0000-4000-8000-000000000001"
-	const missionID = "75000000-0000-4000-8000-000000000001"
 	const sourceMissionID = "75000000-0000-4000-8000-000000000010"
 	const sourceRouteID = "78000000-0000-4000-8000-000000000001"
 	const roleProfileID = "7a000000-0000-4000-8000-000000000001"
@@ -85,6 +86,10 @@ func TestAnonymousClaimStoreConvergesWithRLSAndProtectsReservationFromExpiry(t *
 		}
 	}
 	identityKey := bytes.Repeat([]byte{0x7b}, 32)
+	missionID, err := ids.DeterministicUUID(identityKey, "anonymous-claim-target-mission", "claim-key-1\x00"+targetTenant+"\x00"+targetUser)
+	if err != nil {
+		t.Fatal(err)
+	}
 	store := AnonymousClaimStore{Pool: pool, SystemTenantID: systemTenant, IdentityKey: identityKey, Payloads: payloadStore, Appender: eventpostgres.Appender{Now: func() time.Time { return now }}, StoreEpoch: storeEpoch, Now: func() time.Time { return now }}
 	reservation := anonymousclaim.Reservation{ClaimID: claimID, ClaimKey: "claim-key-1", TargetTenantID: targetTenant, TargetUserID: targetUser, MissionID: missionID}
 	claimService := anonymousclaim.Service{Store: store, Now: func() time.Time { return now }}
@@ -99,24 +104,20 @@ func TestAnonymousClaimStoreConvergesWithRLSAndProtectsReservationFromExpiry(t *
 	if err = admin.QueryRow(ctx, `SELECT status,reserved_at FROM identity.onboarding_claims WHERE id=$1`, expiredClaimID).Scan(&expiredStatus, &expiredReservedAt); err != nil || expiredStatus != "expired" || expiredReservedAt != nil {
 		t.Fatalf("expired status=%s reserved_at=%v error=%v", expiredStatus, expiredReservedAt, err)
 	}
-	const contenders = 64
-	results := make(chan error, contenders)
-	var wait sync.WaitGroup
-	for range contenders {
-		wait.Add(1)
-		go func() {
-			defer wait.Done()
-			_, reserveErr := claimService.Reserve(ctx, reservation)
-			results <- reserveErr
-		}()
-	}
-	wait.Wait()
-	close(results)
-	for reserveErr := range results {
-		if reserveErr != nil {
-			t.Fatalf("reserve: %v", reserveErr)
+	requestService := OnboardingClaimService{Pool: pool, Store: store, SystemTenantID: systemTenant, Payloads: payloadStore, IdentityKey: identityKey, IdempotencyKeyPepper: bytes.Repeat([]byte{0x74}, 32), RequestDigestPepper: bytes.Repeat([]byte{0x75}, 32), IdempotencyTTL: 24 * time.Hour, Now: func() time.Time { return now }}
+	claimCommand := api.OnboardingClaimCommand{AuthenticatedRequestMetadata: api.AuthenticatedRequestMetadata{RequestMetadata: api.RequestMetadata{RequestID: "server-claim-request", ClientRequestID: "client-claim-request", IdempotencyKey: "claim-request-idempotency-0001", ClientIPHash: bytes.Repeat([]byte{0x76}, 32), UserAgentHash: bytes.Repeat([]byte{0x77}, 32)}, UserID: targetUser, TenantID: targetTenant, MembershipID: targetMembership, SessionID: "79000000-0000-4000-8000-000000000004"}, OnboardingSessionID: sessionID, AnonymousSubjectID: subjectID, ExpectedClaimVersion: 1}
+	claimResults := concurrentCalls(t, 64, func() (api.OnboardingClaimResult, error) { return requestService.ClaimOnboarding(ctx, claimCommand) })
+	for _, result := range claimResults {
+		if result.ID != claimID || result.Version != 2 || result.Status != string(anonymousclaim.Reserved) {
+			t.Fatalf("claim result=%#v", result)
 		}
 	}
+	conflictingCommand := claimCommand
+	conflictingCommand.ExpectedClaimVersion = 2
+	if _, err = requestService.ClaimOnboarding(ctx, conflictingCommand); !errors.Is(err, api.ErrIdempotencyConflict) {
+		t.Fatalf("claim idempotency conflict=%v", err)
+	}
+	var wait sync.WaitGroup
 	var reservedAt *time.Time
 	if err = admin.QueryRow(ctx, `SELECT reserved_at FROM identity.anonymous_subjects WHERE id=$1`, subjectID).Scan(&reservedAt); err != nil || reservedAt == nil {
 		t.Fatalf("subject reservation=%v error=%v", reservedAt, err)
