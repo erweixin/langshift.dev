@@ -13,9 +13,9 @@ import (
 )
 
 var (
-	ErrClaimBusy       = errors.New("run command already has a live execution right")
-	ErrClaimCompleted  = errors.New("run command was already completed")
-	ErrClaimConflict   = errors.New("run command claim conflicts with durable state")
+	ErrClaimBusy       = errors.New("command already has a live execution right")
+	ErrClaimCompleted  = errors.New("command was already completed")
+	ErrClaimConflict   = errors.New("command claim conflicts with durable state")
 	ErrRunNotClaimable = errors.New("run is not claimable by this command")
 	ErrStaleEpoch      = errors.New("run command belongs to a stale store epoch")
 )
