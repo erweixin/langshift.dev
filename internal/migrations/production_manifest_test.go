@@ -13,11 +13,11 @@ func TestProductionManifestIsSequentialAndContentAddressed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(manifest.Migrations) != 17 {
-		t.Fatalf("production migration count=%d, want 17", len(manifest.Migrations))
+	if len(manifest.Migrations) != 18 {
+		t.Fatalf("production migration count=%d, want 18", len(manifest.Migrations))
 	}
 	latest := manifest.Migrations[len(manifest.Migrations)-1]
-	if latest.Version != 17 || latest.Name != "repair_evidence_expiry" || !latest.Reversible {
+	if latest.Version != 18 || latest.Name != "approval_control_plane" || !latest.Reversible {
 		t.Fatalf("unexpected latest production migration: %#v", latest)
 	}
 }

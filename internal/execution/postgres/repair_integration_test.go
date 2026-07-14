@@ -5,6 +5,7 @@ package postgres
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -200,12 +201,13 @@ func prepareUnknownRepairFixture(t *testing.T, ctx context.Context, admin, pool 
 			t.Fatal(err)
 		}
 	}
-	sessions := []struct {
-		id, userID string
-		marker     byte
-	}{{initiatorSessionID, initiatorID, prefix[1] + 32}, {sessionOneID, approverOneID, prefix[1]}, {sessionTwoID, approverTwoID, prefix[1] + 16}}
+	sessions := []struct{ id, userID string }{{initiatorSessionID, initiatorID}, {sessionOneID, approverOneID}, {sessionTwoID, approverTwoID}}
 	for _, session := range sessions {
-		if _, err := admin.Exec(ctx, `INSERT INTO identity.sessions(id,user_id,active_tenant_id,token_hash,csrf_secret_hash,ip_hash,user_agent_hash,last_seen_at,expires_at,reauthenticated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$8)`, session.id, session.userID, tenantID, bytes.Repeat([]byte{session.marker}, 32), bytes.Repeat([]byte{session.marker + 1}, 32), bytes.Repeat([]byte{session.marker + 2}, 32), bytes.Repeat([]byte{session.marker + 3}, 32), now, now.Add(time.Hour)); err != nil {
+		tokenHash := sha256.Sum256([]byte("token:" + session.id))
+		csrfHash := sha256.Sum256([]byte("csrf:" + session.id))
+		ipHash := sha256.Sum256([]byte("ip:" + session.id))
+		userAgentHash := sha256.Sum256([]byte("user-agent:" + session.id))
+		if _, err := admin.Exec(ctx, `INSERT INTO identity.sessions(id,user_id,active_tenant_id,token_hash,csrf_secret_hash,ip_hash,user_agent_hash,last_seen_at,expires_at,reauthenticated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$8)`, session.id, session.userID, tenantID, tokenHash[:], csrfHash[:], ipHash[:], userAgentHash[:], now, now.Add(time.Hour)); err != nil {
 			t.Fatal(err)
 		}
 	}

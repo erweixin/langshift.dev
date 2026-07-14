@@ -363,7 +363,8 @@ const eventTypes = [
   "MessageAppended","RunAccepted","RunQueued","RunStarted","RunResumed","RunResumeQueued","RunSucceeded","RunFailed","RunCancelled","RunExpired","ToolCallRequested","ToolCallPreviewRequested","ToolCallPreviewStarted","ToolCallProposed","ToolCallStarted","ToolCallSucceeded","ToolCallFailed","ToolCallCancelled","ToolCallOutcomeUnknown","ToolCallManuallyResolved","WorkspaceRevisionPrepared","WorkspaceRevisionCommitAuthorized","WorkspaceRevisionCommitStarted","WorkspaceRevisionCommitted","WorkspaceRevisionCommitRevoked","ApprovalRequested","ApprovalGranted","ApprovalRejected","ApprovalInvalidated","JobAttemptStarted","JobAttemptCompleted","CommandRedeliveryRequested","MemoryUpserted","MemoryDeleted","ProviderAttemptRecorded",
   "ProgramCreated","CohortCreated","EnrollmentChanged","RolePackPublished","ContractProposed","ContractApproved","ContractActivated","EntitlementChanged","UsageReserved","UsageSettled","UsageReleased","UsageAdjusted","AggregateSnapshotCreated","AggregateQueryConsumed","AggregateCellSuppressed","RepairCommandProposed","RepairCommandApproved","RepairCommandExecuted","MembershipReactivated","MembershipRoleChanged","ToolGroupJoined"
 ];
-const stage3EventTypes=["AnonymousClaimManualReviewResolved","RepairCommandExpired"];
+const stage3V11EventTypes=["AnonymousClaimManualReviewResolved","RepairCommandExpired"];
+const stage3V12EventTypes=["ApprovalExpired"];
 const eventSchemas = {};
 const stringField={type:"string",minLength:1};
 const nullableString={type:["string","null"]};
@@ -404,6 +405,7 @@ const criticalEventFields={
   WorkspaceRevisionCommitted:{tool_call_id:stringField,workspace_id:stringField,authorization_id:stringField,effect_key:stringField,published_revision:stringField,published_hash:stringField},
   ApprovalRequested:{approval_id:stringField,approval_kind:stringField,proposal_hash:stringField,target_version:positiveVersion,permission_snapshot:stringField,expires_at:{type:"string",format:"date-time"}},
   ApprovalGranted:{approval_id:stringField,approver_user_id:stringField,proposal_hash:stringField,target_version:positiveVersion,permission_snapshot:stringField,reauthenticated_at:{type:"string",format:"date-time"}},
+  ApprovalExpired:{approval_id:stringField,approval_kind:stringField,proposal_hash:stringField,target_version:positiveVersion,permission_snapshot:stringField,expired_at:{type:"string",format:"date-time"}},
   JobAttemptStarted:{job_id:stringField,attempt_id:stringField,command_id:stringField,fence:positiveVersion,lease_token_hash:stringField,lease_expires_at:{type:"string",format:"date-time"},worker_id:stringField},
   CommandRedeliveryRequested:{job_id:stringField,command_id:stringField,reason_code:{enum:["claim_slo_elapsed","queue_generation_lost"]},redelivery_count:positiveVersion,queue_generation:positiveVersion,delivery_due_at:{type:"string",format:"date-time"}},
   ProviderAttemptRecorded:{llm_attempt_id:stringField,provider_attempt_id:stringField,provider_id:stringField,model_id:stringField,model_version:nullableString,input_tokens:nonNegative,output_tokens:nonNegative,cost_microunits:nonNegative,context_manifest_hash:stringField,status:stringField},
@@ -438,7 +440,7 @@ const eventSchema=(eventType)=>({
       event_id:{type:"string"}, tenant_id:{type:"string"}, user_id:{type:"string"}, aggregate_id:{type:"string"}, aggregate_version:{type:"integer",minimum:1},
       occurred_at:{type:"string",format:"date-time"}, causation_id:{type:"string"}, correlation_id:{type:"string"}, payload:eventPayloadSchema(eventType)
     },
-    "x-event-type": eventType, "x-event-schema-version": 1, "x-compatibility": "initial", "x-owner": eventType.startsWith("Run") || eventType.startsWith("Tool") || eventType.startsWith("Workspace") || eventType==="RepairCommandExpired" ? "agent-platform" : "product-platform"
+    "x-event-type": eventType, "x-event-schema-version": 1, "x-compatibility": "initial", "x-owner": eventType.startsWith("Run") || eventType.startsWith("Tool") || eventType.startsWith("Workspace") || eventType==="RepairCommandExpired" || eventType==="ApprovalExpired" ? "agent-platform" : "product-platform"
 });
 for (const eventType of eventTypes) eventSchemas[eventType]=eventSchema(eventType);
 await writeJson("contracts/events/registry.json", { contractVersion:"1.0.0", envelopeRequired:["tenant_id","user_id","event_id","event_type","event_schema_version","aggregate_kind","aggregate_id","aggregate_version","store_epoch","seq","occurred_at","committed_at","actor","causation_id","correlation_id","payload_envelope"], schemas:eventSchemas });
@@ -463,13 +465,21 @@ const makeUpcasterFixtures=(types,schemas,indexOffset=0)=>types.map((eventType,i
 const upcasterFixtures=makeUpcasterFixtures(eventTypes,eventSchemas);
 await writeJson("contracts/events/upcaster-fixtures.json",{fixtureVersion:"1.0.0",purityRule:"Upcasters are deterministic pure functions with no network, clock or current-config access.",fixtures:upcasterFixtures});
 
-const stage3EventSchemas=Object.fromEntries(stage3EventTypes.map(eventType=>[eventType,eventSchema(eventType)]));
+const stage3EventSchemas=Object.fromEntries(stage3V11EventTypes.map(eventType=>[eventType,eventSchema(eventType)]));
 await writeJson("contracts/events/amendments/v1.1.0/registry.json",{
   amendmentVersion:"1.1.0",baseContractVersion:"1.0.0",compatibility:"additive",schemas:stage3EventSchemas
 });
 await writeJson("contracts/events/amendments/v1.1.0/upcaster-fixtures.json",{
   fixtureVersion:"1.1.0",baseFixtureVersion:"1.0.0",purityRule:"Upcasters are deterministic pure functions with no network, clock or current-config access.",
-  fixtures:makeUpcasterFixtures(stage3EventTypes,stage3EventSchemas,eventTypes.length)
+  fixtures:makeUpcasterFixtures(stage3V11EventTypes,stage3EventSchemas,eventTypes.length)
+});
+const stage3V12EventSchemas=Object.fromEntries(stage3V12EventTypes.map(eventType=>[eventType,eventSchema(eventType)]));
+await writeJson("contracts/events/amendments/v1.2.0/registry.json",{
+  amendmentVersion:"1.2.0",baseContractVersion:"1.1.0",compatibility:"additive",schemas:stage3V12EventSchemas
+});
+await writeJson("contracts/events/amendments/v1.2.0/upcaster-fixtures.json",{
+  fixtureVersion:"1.2.0",baseFixtureVersion:"1.1.0",purityRule:"Upcasters are deterministic pure functions with no network, clock or current-config access.",
+  fixtures:makeUpcasterFixtures(stage3V12EventTypes,stage3V12EventSchemas,eventTypes.length+stage3V11EventTypes.length)
 });
 
 const databaseTables=databaseDefinitions.map(table=>({...table,qualifiedName:`${table.schema}.${table.name}`,rls:table.tenantScoped?"tenant_context_required":table.schema==="identity"?"identity_service_role_only":"service_role_only"}));
@@ -895,4 +905,17 @@ await writeJson("gate-reports/stage-3/contract-amendment-v1.1.json",{
   activationRule:"Backend, security and QA approval must bind this amendment root after schema lint, migration verification and fault-injection evidence."
 });
 
-console.log(`Generated ${operations.length} API operations, ${eventTypes.length} base event schemas, ${stage3EventTypes.length} Stage 3 event schemas, ${requirements.length} requirements, ${securitySamples.length} security samples, ${e2eSamples.length} bilingual product eval samples and ${profiles.length * 200} profile eval samples.`);
+const v12AmendedPaths=["contracts/events/amendments/v1.2.0/registry.json","contracts/events/amendments/v1.2.0/upcaster-fixtures.json"];
+const v12AmendedFiles=[];
+for(const path of v12AmendedPaths){v12AmendedFiles.push({path,sha256:sha256(await readFile(resolve(root,path)))});}
+const v12AmendmentRoot=sha256({baseAmendmentId:`contract-amendment-${amendmentRoot.slice(0,20)}`,files:v12AmendedFiles});
+await writeJson("gate-reports/stage-3/contract-amendment-v1.2.json",{
+  amendmentVersion:"1.2.0",amendmentId:`contract-amendment-${v12AmendmentRoot.slice(0,20)}`,status:"draft",generatedAt,
+  baseSnapshotId:stage1Snapshot.snapshotId,baseContentRootSha256:stage1Snapshot.contentRootSha256,
+  baseAmendmentId:`contract-amendment-${amendmentRoot.slice(0,20)}`,baseAmendmentContentRootSha256:amendmentRoot,
+  contentRootSha256:v12AmendmentRoot,files:v12AmendedFiles,
+  reason:"Add the audited Approval expiry event required by the Stage 3 approval sweeper.",
+  activationRule:"Backend, security and QA approval must bind this amendment root after schema lint, migration verification and fault-injection evidence."
+});
+
+console.log(`Generated ${operations.length} API operations, ${eventTypes.length} base event schemas, ${stage3V11EventTypes.length+stage3V12EventTypes.length} Stage 3 event schemas, ${requirements.length} requirements, ${securitySamples.length} security samples, ${e2eSamples.length} bilingual product eval samples and ${profiles.length * 200} profile eval samples.`);

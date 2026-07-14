@@ -14,6 +14,9 @@ const baseFixtures=await load("contracts/events/upcaster-fixtures.json");
 const registry=await load("contracts/events/amendments/v1.1.0/registry.json");
 const fixtures=await load("contracts/events/amendments/v1.1.0/upcaster-fixtures.json");
 const amendment=await load("gate-reports/stage-3/contract-amendment-v1.1.json");
+const v12Registry=await load("contracts/events/amendments/v1.2.0/registry.json");
+const v12Fixtures=await load("contracts/events/amendments/v1.2.0/upcaster-fixtures.json");
+const v12Amendment=await load("gate-reports/stage-3/contract-amendment-v1.2.json");
 const snapshot=await load("gate-reports/stage-1/contract-snapshot.json");
 const eventNames=Object.keys(registry.schemas);
 const baseNames=new Set(Object.keys(baseRegistry.schemas));
@@ -32,6 +35,19 @@ for(const path of ["contracts/events/amendments/v1.1.0/registry.json","contracts
 const rootHash=sha256({baseSnapshotId:snapshot.snapshotId,files});
 check("AMENDMENT-CONTENT-ROOT",JSON.stringify(amendment.files)===JSON.stringify(files)&&amendment.contentRootSha256===rootHash&&amendment.amendmentId===`contract-amendment-${rootHash.slice(0,20)}`,"amendment report binds the exact extension files");
 check("AMENDMENT-BASE",amendment.baseSnapshotId===snapshot.snapshotId&&amendment.baseContentRootSha256===snapshot.contentRootSha256,"amendment is anchored to the frozen Stage 1 snapshot");
+
+const v12EventNames=Object.keys(v12Registry.schemas);
+check("AMENDMENT-V1.2-VERSION",v12Registry.amendmentVersion==="1.2.0"&&v12Registry.baseContractVersion===registry.amendmentVersion&&v12Registry.compatibility==="additive","v1.2 additively extends the v1.1 Stage 3 amendment");
+check("AMENDMENT-V1.2-EVENTS",JSON.stringify(v12EventNames)===JSON.stringify(["ApprovalExpired"])&&v12EventNames.every(name=>!baseNames.has(name)&&!eventNames.includes(name)),"ApprovalExpired is additive and does not replace a frozen event");
+check("AMENDMENT-V1.2-SCHEMAS",Object.values(v12Registry.schemas).every(schema=>schema.additionalProperties===false&&schema["x-event-schema-version"]===1&&schema.properties.payload.additionalProperties===false&&schema.properties.payload.required.every(field=>field in schema.properties.payload.properties)),"v1.2 event envelope and payload are closed and versioned");
+const approvalExpired=v12Registry.schemas.ApprovalExpired.properties.payload.required;
+check("APPROVAL-EXPIRY-EVIDENCE",["approval_id","approval_kind","proposal_hash","target_version","permission_snapshot","expired_at"].every(field=>approvalExpired.includes(field)),"approval expiry binds its immutable authorization scope and expiry time");
+check("AMENDMENT-V1.2-FIXTURES",v12Fixtures.baseFixtureVersion===fixtures.fixtureVersion&&v12Fixtures.fixtures.length===v12EventNames.length&&v12Fixtures.fixtures.every(fixture=>fixture.fromVersion===1&&fixture.toVersion===1&&fixture.inputHash===sha256(fixture.input)&&fixture.expectedHash===sha256(fixture.expected)&&JSON.stringify(fixture.input)===JSON.stringify(fixture.expected)&&v12EventNames.includes(fixture.eventType)),"each v1.2 event has a deterministic canonical fixture");
+const v12Files=[];
+for(const path of ["contracts/events/amendments/v1.2.0/registry.json","contracts/events/amendments/v1.2.0/upcaster-fixtures.json"]) v12Files.push({path,sha256:sha256(await read(path))});
+const v12RootHash=sha256({baseAmendmentId:amendment.amendmentId,files:v12Files});
+check("AMENDMENT-V1.2-CONTENT-ROOT",JSON.stringify(v12Amendment.files)===JSON.stringify(v12Files)&&v12Amendment.contentRootSha256===v12RootHash&&v12Amendment.amendmentId===`contract-amendment-${v12RootHash.slice(0,20)}`,"v1.2 report binds the exact extension files");
+check("AMENDMENT-V1.2-BASE",v12Amendment.baseSnapshotId===snapshot.snapshotId&&v12Amendment.baseContentRootSha256===snapshot.contentRootSha256&&v12Amendment.baseAmendmentId===amendment.amendmentId&&v12Amendment.baseAmendmentContentRootSha256===amendment.contentRootSha256,"v1.2 is anchored to both the frozen Stage 1 snapshot and v1.1 amendment");
 
 const failures=checks.filter(item=>item.status==="failed");
 const reportBase={reportVersion:"1.0.0",stage:3,kind:"contract-amendment-lint",status:failures.length?"failed":"passed",summary:{checks:checks.length,passed:checks.length-failures.length,failed:failures.length},results:checks};
