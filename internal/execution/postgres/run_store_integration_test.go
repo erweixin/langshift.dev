@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	eventpostgres "github.com/langshift/lites/internal/eventstore/postgres"
+	"github.com/langshift/lites/internal/security/opaque"
 )
 
 func TestAcceptRunIsAtomicReplaySafeAndTenantIsolated(t *testing.T) {
@@ -122,6 +123,113 @@ func TestAcceptRunIsAtomicReplaySafeAndTenantIsolated(t *testing.T) {
 	if err = tx.QueryRow(ctx, `SELECT count(*) FROM agent.runs WHERE id=$1`, runID).Scan(&visible); err != nil || visible != 0 {
 		t.Fatalf("cross-tenant visible=%d error=%v", visible, err)
 	}
+	if err = tx.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	manager := opaque.Manager{Purpose: "agent-run-lease", Pepper: bytes.Repeat([]byte{0x71}, 32)}
+	store.Epochs = executionEpochStub{epoch: storeEpoch}
+	store.Tokens = manager
+	store.LeaseTTL = 90 * time.Second
+	claimCommand := ClaimRunCommand{
+		Command: eventpostgres.DeliveredCommand{
+			TenantID: tenantID, StoreEpoch: storeEpoch, CommandID: first.StartCommandID,
+			CommandType: "StartAgentRun", AggregateKind: "run", AggregateID: runID,
+			PayloadRef: command.StartCommand.Ref, PayloadHash: command.StartCommand.Hash,
+		},
+		ConsumerName: "agent-run-worker", WorkerID: "worker-us-1-a", CorrelationID: correlationID,
+		Actor:               json.RawMessage(`{"kind":"service","id":"agent-run-worker"}`),
+		RunStartedEvent:     PayloadPointer{Ref: "encrypted://events/run-started", Hash: "run-started-hash"},
+		AttemptStartedEvent: PayloadPointer{Ref: "encrypted://events/attempt-started", Hash: "attempt-started-hash"},
+	}
+	stale := claimCommand
+	stale.Command.StoreEpoch = "2e000000-0000-4000-8000-000000000099"
+	if _, err := store.ClaimStart(ctx, stale); !errors.Is(err, ErrStaleEpoch) {
+		t.Fatalf("stale epoch claim: %v", err)
+	}
+
+	var claimWait sync.WaitGroup
+	claimResults := make(chan RunClaim, workers)
+	claimErrors := make(chan error, workers)
+	for range workers {
+		claimWait.Add(1)
+		go func() {
+			defer claimWait.Done()
+			result, claimErr := store.ClaimStart(ctx, claimCommand)
+			if claimErr != nil {
+				claimErrors <- claimErr
+				return
+			}
+			claimResults <- result
+		}()
+	}
+	claimWait.Wait()
+	close(claimResults)
+	close(claimErrors)
+	var winner RunClaim
+	var successfulClaims, busyClaims int
+	for result := range claimResults {
+		winner = result
+		successfulClaims++
+	}
+	for claimErr := range claimErrors {
+		if !errors.Is(claimErr, ErrClaimBusy) {
+			t.Fatalf("unexpected claim error: %v", claimErr)
+		}
+		busyClaims++
+	}
+	if successfulClaims != 1 || busyClaims != workers-1 {
+		t.Fatalf("successful claims=%d busy claims=%d", successfulClaims, busyClaims)
+	}
+	if winner.RunVersion != 3 || winner.Fence != 1 || winner.LeaseToken == "" || !winner.LeaseExpiresAt.Equal(now.Add(store.LeaseTTL)) {
+		t.Fatalf("invalid winning claim: %#v", winner)
+	}
+	digest, err := manager.Digest(winner.LeaseToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var runStatus, activeCommand, activeAttempt, jobStatus, inboxStatus, attemptStatus string
+	var runVersion, fence, runEvents, attemptEvents, totalOutbox, inboxRows, attemptRows int
+	var runDigest, inboxDigest, attemptDigest []byte
+	err = admin.QueryRow(ctx, `
+		SELECT
+		  r.status,r.run_version,r.active_command_id::text,r.active_attempt_id::text,r.current_fence,r.lease_token_hash,
+		  j.status,i.status,i.lease_token_hash,a.status,a.lease_token_hash,
+		  (SELECT count(*) FROM agent.events WHERE aggregate_kind='run' AND aggregate_id=$1),
+		  (SELECT count(*) FROM agent.events WHERE aggregate_kind='job_attempt' AND aggregate_id=$3),
+		  (SELECT count(*) FROM agent.outbox WHERE aggregate_id IN ($1,$3)),
+		  (SELECT count(*) FROM agent.inbox WHERE tenant_id=$4 AND consumer_name=$5 AND command_id=$2),
+		  (SELECT count(*) FROM agent.job_attempts WHERE tenant_id=$4 AND job_id=$6)
+		FROM agent.runs r
+		JOIN agent.jobs j ON j.id=$6
+		JOIN agent.inbox i ON i.id=$7
+		JOIN agent.job_attempts a ON a.id=$3
+		WHERE r.id=$1`, runID, first.StartCommandID, winner.AttemptID, tenantID, claimCommand.ConsumerName, first.StartJobID, winner.InboxID).Scan(
+		&runStatus, &runVersion, &activeCommand, &activeAttempt, &fence, &runDigest,
+		&jobStatus, &inboxStatus, &inboxDigest, &attemptStatus, &attemptDigest,
+		&runEvents, &attemptEvents, &totalOutbox, &inboxRows, &attemptRows,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runStatus != "executing" || runVersion != 3 || activeCommand != first.StartCommandID || activeAttempt != winner.AttemptID || fence != 1 || jobStatus != "running" || inboxStatus != "running" || attemptStatus != "running" {
+		t.Fatalf("run=%s/v%d command=%s attempt=%s fence=%d job=%s inbox=%s job_attempt=%s", runStatus, runVersion, activeCommand, activeAttempt, fence, jobStatus, inboxStatus, attemptStatus)
+	}
+	if !bytes.Equal(runDigest, digest[:]) || !bytes.Equal(inboxDigest, digest[:]) || !bytes.Equal(attemptDigest, digest[:]) {
+		t.Fatal("execution-right digest did not converge across run, inbox, and attempt")
+	}
+	if runEvents != 3 || attemptEvents != 1 || totalOutbox != 5 || inboxRows != 1 || attemptRows != 1 {
+		t.Fatalf("run events=%d attempt events=%d outbox=%d inbox=%d attempts=%d", runEvents, attemptEvents, totalOutbox, inboxRows, attemptRows)
+	}
+}
+
+type executionEpochStub struct {
+	epoch string
+	err   error
+}
+
+func (stub executionEpochStub) CurrentStoreEpoch(context.Context) (string, error) {
+	return stub.epoch, stub.err
 }
 
 func executionPool(t *testing.T, ctx context.Context, environment string) *pgxpool.Pool {

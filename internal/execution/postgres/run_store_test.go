@@ -6,6 +6,8 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	eventpostgres "github.com/langshift/lites/internal/eventstore/postgres"
 )
 
 func TestAcceptFailsClosedBeforeDatabaseAccess(t *testing.T) {
@@ -49,6 +51,58 @@ func TestRunIdentifiersAreStableAndDomainSeparated(t *testing.T) {
 	for _, value := range []string{first.acceptedEvent, first.acceptedPublishOutbox, first.acceptedPublishCommand, first.queuedEvent, first.queuedPublishOutbox, first.queuedPublishCommand, first.startOutbox, first.startCommand, first.startJob} {
 		if seen[value] {
 			t.Fatalf("identifier domain collision: %s", value)
+		}
+		seen[value] = true
+	}
+}
+
+func TestClaimInputFailsClosedAndIdentifiersAreStable(t *testing.T) {
+	valid := ClaimRunCommand{
+		Command: eventpostgres.DeliveredCommand{
+			TenantID: "tenant", StoreEpoch: "epoch", CommandID: "command",
+			CommandType: "StartAgentRun", AggregateKind: "run", AggregateID: "run",
+			PayloadRef: "encrypted://command", PayloadHash: "command-hash",
+		},
+		ConsumerName: "agent-run-worker", WorkerID: "worker-1", CorrelationID: "correlation",
+		Actor:               json.RawMessage(`{"kind":"service"}`),
+		RunStartedEvent:     PayloadPointer{Ref: "encrypted://run-started", Hash: "run-started"},
+		AttemptStartedEvent: PayloadPointer{Ref: "encrypted://attempt-started", Hash: "attempt-started"},
+	}
+	if _, err := (RunStore{}).ClaimStart(t.Context(), valid); !errors.Is(err, ErrConfiguration) {
+		t.Fatalf("invalid store: %v", err)
+	}
+	for name, mutate := range map[string]func(*ClaimRunCommand){
+		"wrong command type": func(command *ClaimRunCommand) { command.Command.CommandType = "RunAgent" },
+		"wrong aggregate":    func(command *ClaimRunCommand) { command.Command.AggregateKind = "tool_call" },
+		"missing worker":     func(command *ClaimRunCommand) { command.WorkerID = "" },
+		"scalar actor":       func(command *ClaimRunCommand) { command.Actor = json.RawMessage(`1`) },
+		"missing event hash": func(command *ClaimRunCommand) { command.RunStartedEvent.Hash = "" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			candidate := valid
+			mutate(&candidate)
+			if validClaimRun(candidate) {
+				t.Fatal("invalid claim accepted")
+			}
+		})
+	}
+
+	store := RunStore{IDKey: bytes.Repeat([]byte{0x42}, 32)}
+	first, err := store.claimEventIdentifiers("10000000-0000-4000-8000-000000000009")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := store.claimEventIdentifiers("10000000-0000-4000-8000-000000000009")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first != second {
+		t.Fatalf("claim identifiers differ: %#v %#v", first, second)
+	}
+	seen := map[string]bool{}
+	for _, value := range []string{first.runEvent, first.runOutbox, first.runPublish, first.attemptEvent, first.attemptOutbox, first.attemptPublish} {
+		if seen[value] {
+			t.Fatalf("claim identifier domain collision: %s", value)
 		}
 		seen[value] = true
 	}

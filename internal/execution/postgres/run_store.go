@@ -7,12 +7,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	eventpostgres "github.com/langshift/lites/internal/eventstore/postgres"
 	"github.com/langshift/lites/internal/platform/ids"
+	"github.com/langshift/lites/internal/security/opaque"
 )
 
 var (
@@ -60,6 +62,10 @@ type RunStore struct {
 	IDKey      []byte
 	StoreEpoch string
 	Now        func() time.Time
+	Epochs     eventpostgres.EpochAuthority
+	Tokens     opaque.Manager
+	LeaseTTL   time.Duration
+	Random     io.Reader
 }
 
 // Accept queues a Run in one transaction. The accepted state is an immutable
