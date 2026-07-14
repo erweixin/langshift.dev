@@ -29,6 +29,7 @@ const maximumBodyBytes int64 = 64 * 1024
 
 var (
 	ErrInvalidCredentials       = errors.New("identity credential is invalid")
+	ErrPermissionDenied         = errors.New("identity permission denied")
 	ErrStateConflict            = errors.New("identity state conflict")
 	ErrIdempotencyConflict      = errors.New("identity idempotency conflict")
 	ErrRateLimited              = errors.New("identity request rate limited")
@@ -90,12 +91,13 @@ type Service interface {
 }
 
 type Handler struct {
-	Service   Service
-	Sessions  SessionService
-	Passwords PasswordService
-	Emails    EmailService
-	Accounts  AccountService
-	Now       func() time.Time
+	Service     Service
+	Sessions    SessionService
+	Passwords   PasswordService
+	Emails      EmailService
+	Accounts    AccountService
+	Invitations InvitationService
+	Now         func() time.Time
 }
 
 func (handler Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
@@ -166,6 +168,18 @@ func (handler Handler) ServeHTTP(writer http.ResponseWriter, request *http.Reque
 			return
 		}
 		handler.accountErasureCreate(writer, request)
+	case "/v1/invitations":
+		if request.Method != http.MethodPost {
+			handler.methodNotAllowed(writer, request, http.MethodPost)
+			return
+		}
+		handler.invitationCreate(writer, request)
+	case "/v1/invitation-imports":
+		if request.Method != http.MethodPost {
+			handler.methodNotAllowed(writer, request, http.MethodPost)
+			return
+		}
+		handler.invitationImport(writer, request)
 	case "/v1/auth/sessions":
 		switch request.Method {
 		case http.MethodGet:
@@ -176,6 +190,14 @@ func (handler Handler) ServeHTTP(writer http.ResponseWriter, request *http.Reque
 			handler.methodNotAllowed(writer, request, http.MethodGet, http.MethodDelete)
 		}
 	default:
+		if strings.HasPrefix(request.URL.Path, "/v1/invitations/") && strings.HasSuffix(request.URL.Path, "/accept") {
+			if request.Method != http.MethodPost {
+				handler.methodNotAllowed(writer, request, http.MethodPost)
+				return
+			}
+			handler.invitationAccept(writer, request)
+			return
+		}
 		if strings.HasPrefix(request.URL.Path, "/v1/account/erasure-requests/") {
 			if request.Method != http.MethodDelete {
 				handler.methodNotAllowed(writer, request, http.MethodDelete)
@@ -380,6 +402,8 @@ func (handler Handler) serviceError(writer http.ResponseWriter, request *http.Re
 	switch {
 	case errors.Is(err, ErrInvalidCredentials):
 		handler.writeProblem(writer, request, http.StatusUnauthorized, "authentication_required", "Authentication required", false)
+	case errors.Is(err, ErrPermissionDenied):
+		handler.writeProblem(writer, request, http.StatusForbidden, "permission_denied", "Permission denied", false)
 	case errors.Is(err, ErrStateConflict):
 		handler.writeProblem(writer, request, http.StatusConflict, "state_conflict", "State conflict", true)
 	case errors.Is(err, ErrIdempotencyConflict):

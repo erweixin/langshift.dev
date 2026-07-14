@@ -139,6 +139,30 @@ ALTER TABLE "identity"."invitations" FORCE ROW LEVEL SECURITY;
 
 CREATE POLICY "invitations_tenant_isolation" ON "identity"."invitations" USING (tenant_id = NULLIF(current_setting('lites.tenant_id', true), '')::uuid) WITH CHECK (tenant_id = NULLIF(current_setting('lites.tenant_id', true), '')::uuid);
 
+CREATE TABLE IF NOT EXISTS "identity"."invitation_imports" (
+  id uuid PRIMARY KEY,
+  tenant_id uuid NOT NULL,
+  version bigint NOT NULL DEFAULT 1 CHECK (version > 0),
+  created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  initiated_by uuid NOT NULL,
+  status text NOT NULL CHECK (status IN ('queued','processing','completed','failed')),
+  object_ref text NOT NULL,
+  content_hash text NOT NULL,
+  import_key text NOT NULL,
+  default_role text NOT NULL CHECK (default_role IN ('admin','contract_admin','program_manager','reviewer','member')),
+  accepted_rows integer NOT NULL DEFAULT 0 CHECK (accepted_rows >= 0),
+  rejected_rows integer NOT NULL DEFAULT 0 CHECK (rejected_rows >= 0),
+  completed_at timestamptz,
+  UNIQUE ("tenant_id", "import_key")
+);
+
+ALTER TABLE "identity"."invitation_imports" ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE "identity"."invitation_imports" FORCE ROW LEVEL SECURITY;
+
+CREATE POLICY "invitation_imports_tenant_isolation" ON "identity"."invitation_imports" USING (tenant_id = NULLIF(current_setting('lites.tenant_id', true), '')::uuid) WITH CHECK (tenant_id = NULLIF(current_setting('lites.tenant_id', true), '')::uuid);
+
 CREATE TABLE IF NOT EXISTS "identity"."security_events" (
   id uuid PRIMARY KEY,
   tenant_id uuid NOT NULL,
@@ -1979,6 +2003,28 @@ CREATE POLICY "contract_audit_events_tenant_isolation" ON "contracts"."contract_
 
 CREATE TRIGGER "contract_audit_events_append_only" BEFORE UPDATE OR DELETE ON "contracts"."contract_audit_events" FOR EACH ROW EXECUTE FUNCTION "agent".reject_append_only_mutation();
 
+CREATE OR REPLACE FUNCTION "identity".lookup_invitation_for_acceptance(p_invitation_id text, p_token_hash bytea)
+RETURNS TABLE(invitation_id text, tenant_id text, normalized_email text, role text, version bigint, expires_at timestamptz, accepted_at timestamptz, rejected_at timestamptz, revoked_at timestamptz)
+LANGUAGE sql SECURITY DEFINER SET search_path = pg_catalog, identity AS $$
+  SELECT i.id::text,i.tenant_id::text,i.normalized_email,i.role,i.version,i.expires_at,i.accepted_at,i.rejected_at,i.revoked_at
+  FROM identity.invitations i
+  WHERE i.id::text=p_invitation_id AND octet_length(p_token_hash)=32 AND i.token_hash=p_token_hash
+$$;
+
+REVOKE ALL ON FUNCTION "identity".lookup_invitation_for_acceptance(text,bytea) FROM PUBLIC;
+
+CREATE OR REPLACE FUNCTION "identity".lock_active_tenant(p_tenant_id uuid)
+RETURNS boolean
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, identity AS $$
+DECLARE locked_tenant_id uuid;
+BEGIN
+  SELECT id INTO locked_tenant_id FROM identity.tenants WHERE id=p_tenant_id AND status='active' FOR SHARE;
+  RETURN locked_tenant_id IS NOT NULL;
+END
+$$;
+
+REVOKE ALL ON FUNCTION "identity".lock_active_tenant(uuid) FROM PUBLIC;
+
 ALTER TABLE "identity"."password_credentials" ADD CONSTRAINT "password_credentials_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "identity"."users" ("id") ON DELETE CASCADE;
 
 ALTER TABLE "identity"."email_verifications" ADD CONSTRAINT "email_verifications_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "identity"."users" ("id") ON DELETE CASCADE;
@@ -1998,6 +2044,10 @@ ALTER TABLE "identity"."memberships" ADD CONSTRAINT "memberships_user_id_fk" FOR
 ALTER TABLE "identity"."invitations" ADD CONSTRAINT "invitations_tenant_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "identity"."tenants" ("id") ON DELETE CASCADE;
 
 ALTER TABLE "identity"."invitations" ADD CONSTRAINT "invitations_invited_by_fk" FOREIGN KEY ("invited_by") REFERENCES "identity"."users" ("id") ON DELETE RESTRICT;
+
+ALTER TABLE "identity"."invitation_imports" ADD CONSTRAINT "invitation_imports_tenant_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "identity"."tenants" ("id") ON DELETE CASCADE;
+
+ALTER TABLE "identity"."invitation_imports" ADD CONSTRAINT "invitation_imports_initiated_by_fk" FOREIGN KEY ("initiated_by") REFERENCES "identity"."users" ("id") ON DELETE RESTRICT;
 
 ALTER TABLE "identity"."security_events" ADD CONSTRAINT "security_events_tenant_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "identity"."tenants" ("id") ON DELETE CASCADE;
 

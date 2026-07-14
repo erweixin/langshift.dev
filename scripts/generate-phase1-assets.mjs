@@ -353,7 +353,7 @@ await writeJson("contracts/state-machines/state-machines.json", stateMachines);
 const eventTypes = [
   "AnonymousSubjectCreated","OnboardingSessionUpdated","RoutePreviewRequested","RoutePreviewGenerated","AnonymousClaimReserved","AnonymousClaimDestinationCommitted","AnonymousClaimErasureStarted","AnonymousErasureReceiptRecorded","AnonymousClaimCompleted","AnonymousClaimExpired","AnonymousClaimManualReviewRequired",
   "UserRegistered","EmailVerificationRequested","EmailVerified","SessionCreated","SessionRevoked","SessionActiveTenantChanged","PasswordChanged","PasswordResetRequested","PasswordResetCompleted","EmailChangeRequested","EmailChanged","AccountExportRequested","AccountErasureRequested","AccountErasureCancelled",
-  "TenantCreated","MembershipCreated","MembershipDeactivated","InvitationCreated","InvitationAccepted","InvitationRejected",
+  "TenantCreated","MembershipCreated","MembershipDeactivated","InvitationCreated","InvitationAccepted","InvitationRejected","InvitationImportQueued","InvitationImportCompleted",
   "MissionCreated","MissionStatusChanged","MissionFocusChanged","RouteGenerationRequested","RouteProposed","RouteAccepted","RouteMarkedStale","CapabilityClaimRevised","CapabilityEvidenceRecorded","DailyTaskScheduled","DailyTaskSubmitted","SubmissionRecorded","ReviewCompleted",
   "ProjectCreated","ProjectStatusChanged","MilestoneCreated","MilestoneStatusChanged","ProjectWorkspaceBound","ProjectTestRunRecorded","ProjectReflectionRecorded","ArtifactCreated","ArtifactRevisionCreated","PortfolioExportRequested","PortfolioExportCompleted","ShareGrantCreated","ShareGrantRevoked","PreferenceChanged","ReminderScheduled","ReminderDeliveryClaimed","ReminderDelivered","ReminderCancelled","ByokCredentialConfigured","ByokCredentialDeleted","MemoryPolicyChanged",
   "MessageAppended","RunAccepted","RunQueued","RunStarted","RunResumed","RunResumeQueued","RunSucceeded","RunFailed","RunCancelled","RunExpired","ToolCallRequested","ToolCallPreviewRequested","ToolCallPreviewStarted","ToolCallProposed","ToolCallStarted","ToolCallSucceeded","ToolCallFailed","ToolCallCancelled","ToolCallOutcomeUnknown","ToolCallManuallyResolved","WorkspaceRevisionPrepared","WorkspaceRevisionCommitAuthorized","WorkspaceRevisionCommitStarted","WorkspaceRevisionCommitted","WorkspaceRevisionCommitRevoked","ApprovalRequested","ApprovalGranted","ApprovalRejected","ApprovalInvalidated","JobAttemptStarted","JobAttemptCompleted","CommandRedeliveryRequested","MemoryUpserted","MemoryDeleted","ProviderAttemptRecorded",
@@ -459,7 +459,7 @@ await writeJson("contracts/database/schema-catalog.json", {
   contractVersion:"1.0.0", database:"PostgreSQL", isolation:"READ COMMITTED", schemas:databaseSchemas, tables:databaseTables,
   lockOrder:["dedupe_and_effect_keys","direct_business_aggregate","coordination_rows","parent_aggregate","event_cursor","append_rows"],
   requiredUniqueConstraints:[
-    "identity.users(normalized_email)","identity.sessions(token_hash)","product.mission_imports(claim_key)",
+    "identity.users(normalized_email)","identity.sessions(token_hash)","identity.invitation_imports(tenant_id,import_key)","product.mission_imports(claim_key)",
     "product.mission_focuses(tenant_id,user_id)","product.reminder_deliveries(tenant_id,user_id,schedule_id,occurrence_at)",
     "agent.events(tenant_id,user_id,seq)","agent.idempotency_responses(tenant_id,user_id,operation_id,idempotency_key_hash)","agent.outbox(command_id)","agent.inbox(tenant_id,consumer_name,command_id)",
     "agent.tool_effects(tenant_id,effect_scope,provider_id,tool_name,effect_key)","contracts.usage_ledger(tenant_id,ledger_entry_id)"
@@ -483,6 +483,24 @@ for(const table of databaseTables){
   }
   if(table.appendOnly) ddl.push(`CREATE TRIGGER ${q(`${table.name}_append_only`)} BEFORE UPDATE OR DELETE ON ${q(table.schema)}.${q(table.name)} FOR EACH ROW EXECUTE FUNCTION \"agent\".reject_append_only_mutation();`);
 }
+ddl.push(`CREATE OR REPLACE FUNCTION "identity".lookup_invitation_for_acceptance(p_invitation_id text, p_token_hash bytea)
+RETURNS TABLE(invitation_id text, tenant_id text, normalized_email text, role text, version bigint, expires_at timestamptz, accepted_at timestamptz, rejected_at timestamptz, revoked_at timestamptz)
+LANGUAGE sql SECURITY DEFINER SET search_path = pg_catalog, identity AS $$
+  SELECT i.id::text,i.tenant_id::text,i.normalized_email,i.role,i.version,i.expires_at,i.accepted_at,i.rejected_at,i.revoked_at
+  FROM identity.invitations i
+  WHERE i.id::text=p_invitation_id AND octet_length(p_token_hash)=32 AND i.token_hash=p_token_hash
+$$;`);
+ddl.push(`REVOKE ALL ON FUNCTION "identity".lookup_invitation_for_acceptance(text,bytea) FROM PUBLIC;`);
+ddl.push(`CREATE OR REPLACE FUNCTION "identity".lock_active_tenant(p_tenant_id uuid)
+RETURNS boolean
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, identity AS $$
+DECLARE locked_tenant_id uuid;
+BEGIN
+  SELECT id INTO locked_tenant_id FROM identity.tenants WHERE id=p_tenant_id AND status='active' FOR SHARE;
+  RETURN locked_tenant_id IS NOT NULL;
+END
+$$;`);
+ddl.push(`REVOKE ALL ON FUNCTION "identity".lock_active_tenant(uuid) FROM PUBLIC;`);
 for(const table of databaseTables){
   const foreignKeys=[...table.foreignKeys];
   if(table.tenantScoped&&!foreignKeys.some(([column])=>column==="tenant_id")) foreignKeys.push(["tenant_id","identity.tenants","id","CASCADE"]);

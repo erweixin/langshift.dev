@@ -310,6 +310,53 @@
     },
     {
       "schema": "identity",
+      "name": "invitation_imports",
+      "columns": [
+        "id uuid PRIMARY KEY",
+        "tenant_id uuid NOT NULL",
+        "version bigint NOT NULL DEFAULT 1 CHECK (version > 0)",
+        "created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP",
+        "updated_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP",
+        "initiated_by uuid NOT NULL",
+        "status text NOT NULL CHECK (status IN ('queued','processing','completed','failed'))",
+        "object_ref text NOT NULL",
+        "content_hash text NOT NULL",
+        "import_key text NOT NULL",
+        "default_role text NOT NULL CHECK (default_role IN ('admin','contract_admin','program_manager','reviewer','member'))",
+        "accepted_rows integer NOT NULL DEFAULT 0 CHECK (accepted_rows >= 0)",
+        "rejected_rows integer NOT NULL DEFAULT 0 CHECK (rejected_rows >= 0)",
+        "completed_at timestamptz"
+      ],
+      "tenantScoped": true,
+      "userScoped": false,
+      "dataClass": "restricted",
+      "appendOnly": false,
+      "uniques": [
+        [
+          "tenant_id",
+          "import_key"
+        ]
+      ],
+      "foreignKeys": [
+        [
+          "tenant_id",
+          "identity.tenants",
+          "id",
+          "CASCADE"
+        ],
+        [
+          "initiated_by",
+          "identity.users",
+          "id",
+          "RESTRICT"
+        ]
+      ],
+      "checks": [],
+      "qualifiedName": "identity.invitation_imports",
+      "rls": "tenant_context_required"
+    },
+    {
+      "schema": "identity",
       "name": "security_events",
       "columns": [
         "id uuid PRIMARY KEY",
@@ -3295,6 +3342,7 @@
   "requiredUniqueConstraints": [
     "identity.users(normalized_email)",
     "identity.sessions(token_hash)",
+    "identity.invitation_imports(tenant_id,import_key)",
     "product.mission_imports(claim_key)",
     "product.mission_focuses(tenant_id,user_id)",
     "product.reminder_deliveries(tenant_id,user_id,schedule_id,occurrence_at)",

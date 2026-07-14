@@ -92,6 +92,7 @@ func TestAuthRegistrationVerificationAndLoginAreDurableIdempotentAndSecretSafe(t
 		VerificationTokens:      opaque.Manager{Purpose: "email-verification", Pepper: bytes.Repeat([]byte{0x32}, 32)},
 		PasswordResetTokens:     opaque.Manager{Purpose: "password-reset", Pepper: bytes.Repeat([]byte{0x39}, 32)},
 		EmailChangeTokens:       opaque.Manager{Purpose: "email-change", Pepper: bytes.Repeat([]byte{0x3a}, 32)},
+		InvitationTokens:        opaque.Manager{Purpose: "invitation", Pepper: bytes.Repeat([]byte{0x3b}, 32)},
 		SessionPepper:           bytes.Repeat([]byte{0x33}, 32),
 		CSRFPepper:              bytes.Repeat([]byte{0x34}, 32),
 		IdempotencyKeyPepper:    bytes.Repeat([]byte{0x35}, 32),

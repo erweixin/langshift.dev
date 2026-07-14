@@ -10,14 +10,14 @@ BEGIN
   FROM pg_class c
   JOIN pg_namespace n ON n.oid = c.relnamespace
   WHERE c.relkind = 'r' AND n.nspname IN ('identity','product','agent','contracts');
-  IF actual <> 90 THEN RAISE EXCEPTION 'expected 90 contract tables, found %', actual; END IF;
+  IF actual <> 91 THEN RAISE EXCEPTION 'expected 91 contract tables, found %', actual; END IF;
 
   SELECT count(*) INTO actual
   FROM pg_class c
   JOIN pg_namespace n ON n.oid = c.relnamespace
   WHERE c.relkind = 'r' AND n.nspname IN ('identity','product','agent','contracts')
     AND c.relrowsecurity AND c.relforcerowsecurity;
-  IF actual <> 83 THEN RAISE EXCEPTION 'expected 83 forced-RLS tables, found %', actual; END IF;
+  IF actual <> 84 THEN RAISE EXCEPTION 'expected 84 forced-RLS tables, found %', actual; END IF;
 
   SELECT count(*) INTO actual
   FROM pg_trigger t
@@ -31,6 +31,11 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='identity' AND table_name='sessions' AND column_name='active_tenant_id' AND is_nullable='NO') THEN RAISE EXCEPTION 'session active tenant binding missing'; END IF;
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='identity' AND table_name='sessions' AND column_name='version') THEN RAISE EXCEPTION 'session CAS version missing'; END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='identity.sessions'::regclass AND contype='f' AND pg_get_constraintdef(oid) LIKE '%active_tenant_id%identity.tenants%') THEN RAISE EXCEPTION 'session active tenant foreign key missing'; END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='identity.invitation_imports'::regclass AND contype='u' AND pg_get_constraintdef(oid) LIKE '%tenant_id%import_key%') THEN RAISE EXCEPTION 'invitation import key uniqueness missing'; END IF;
+  IF to_regprocedure('identity.lookup_invitation_for_acceptance(text,bytea)') IS NULL THEN RAISE EXCEPTION 'invitation capability lookup missing'; END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.routine_privileges WHERE routine_schema='identity' AND routine_name='lookup_invitation_for_acceptance' AND grantee='PUBLIC' AND privilege_type='EXECUTE') THEN RAISE EXCEPTION 'invitation capability lookup is public'; END IF;
+  IF to_regprocedure('identity.lock_active_tenant(uuid)') IS NULL THEN RAISE EXCEPTION 'active tenant lock capability missing'; END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.routine_privileges WHERE routine_schema='identity' AND routine_name='lock_active_tenant' AND grantee='PUBLIC' AND privilege_type='EXECUTE') THEN RAISE EXCEPTION 'active tenant lock capability is public'; END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='agent.idempotency_responses'::regclass AND contype='u' AND pg_get_constraintdef(oid) LIKE '%tenant_id%user_id%operation_id%idempotency_key_hash%') THEN RAISE EXCEPTION 'idempotency response scope uniqueness missing'; END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='agent.events'::regclass AND contype='u' AND pg_get_constraintdef(oid) LIKE '%tenant_id%aggregate_kind%aggregate_id%aggregate_version%') THEN RAISE EXCEPTION 'event aggregate version uniqueness missing'; END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='product.mission_focuses'::regclass AND contype='p' AND pg_get_constraintdef(oid) LIKE '%tenant_id%user_id%') THEN RAISE EXCEPTION 'Mission Focus primary key missing'; END IF;
