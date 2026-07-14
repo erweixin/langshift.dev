@@ -153,9 +153,10 @@ func (store RunStore) ClaimTool(ctx context.Context, command ClaimToolCommand) (
 	if status != string(statemachine.ToolCallRequested) || pendingCommand != command.Command.CommandID || lockedFence+1 != candidateFence || hasEffect != (toolEffectClass != "read_only") || hasEffect && (effectStatus != "prepared" || ledgerEffectClass != toolEffectClass) {
 		return ToolClaim{}, ErrToolNotClaimable
 	}
+	var runStatus string
 	var cancelRequested *time.Time
 	var dueAt time.Time
-	if err = tx.QueryRow(ctx, `SELECT cancel_requested_at,due_at FROM agent.runs WHERE id=$1 AND tenant_id=$2 FOR UPDATE`, runID, command.Command.TenantID).Scan(&cancelRequested, &dueAt); err != nil || cancelRequested != nil || !dueAt.After(now) {
+	if err = tx.QueryRow(ctx, `SELECT status,cancel_requested_at,due_at FROM agent.runs WHERE id=$1 AND tenant_id=$2 FOR UPDATE`, runID, command.Command.TenantID).Scan(&runStatus, &cancelRequested, &dueAt); err != nil || runStatus != string(statemachine.RunWaitingTool) || cancelRequested != nil || !dueAt.After(now) {
 		return ToolClaim{}, ErrToolNotClaimable
 	}
 	nextVersion := toolVersion + 1

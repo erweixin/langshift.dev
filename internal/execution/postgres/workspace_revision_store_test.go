@@ -29,9 +29,11 @@ func TestWorkspaceRevisionCommandValidation(t *testing.T) {
 		ProposalHash: "proposal", PermissionSnapshot: "permission", ExpectedRevisionVersion: 1,
 		ExpectedApprovalVersion: 2, ExpectedToolVersion: 4, QueueClass: "interactive", ResourceClass: "workspace-publisher",
 		Priority: 80, CostUnits: 2, MaxAttempts: 5, Actor: json.RawMessage(`{"kind":"service"}`), CorrelationID: "correlation",
-		AuthorizedEvent:    PayloadPointer{Ref: "encrypted://authorized", Hash: "authorized"},
-		ToolRequestedEvent: PayloadPointer{Ref: "encrypted://requested", Hash: "requested"},
-		ExecuteCommand:     PayloadPointer{Ref: "encrypted://execute", Hash: "execute"},
+		AuthorizedEvent:      PayloadPointer{Ref: "encrypted://authorized", Hash: "authorized"},
+		ToolRequestedEvent:   PayloadPointer{Ref: "encrypted://requested", Hash: "requested"},
+		ExecuteCommand:       PayloadPointer{Ref: "encrypted://execute", Hash: "execute"},
+		GroupAuthorizedEvent: PayloadPointer{Ref: "encrypted://group-authorized", Hash: "group-authorized"},
+		RunWaitingToolEvent:  PayloadPointer{Ref: "encrypted://run-waiting-tool", Hash: "run-waiting-tool"},
 	}
 	if !validAuthorizeWorkspaceRevision(authorize) {
 		t.Fatal("valid authorization command rejected")
@@ -39,6 +41,40 @@ func TestWorkspaceRevisionCommandValidation(t *testing.T) {
 	authorize.PermissionSnapshot = ""
 	if validAuthorizeWorkspaceRevision(authorize) {
 		t.Fatal("authorization without permission binding accepted")
+	}
+}
+
+func TestWorkspacePreparationCompletionValidationAndIdentifiers(t *testing.T) {
+	claim := PreviewClaim{ToolCallID: "tool", RunID: "run", GroupID: "group", TenantID: "tenant", UserID: "user", StoreEpoch: "epoch", ToolCallVersion: 2, EffectID: "effect", EffectClass: "reconcilable_write", EffectKey: "workspace:project", CommandID: "command", ConsumerName: "preview", RequestHash: "request", JobID: "job", InboxID: "inbox", AttemptID: "attempt", Fence: 1, LeaseToken: "token", LeaseExpiresAt: time.Now().Add(time.Minute)}
+	command := CompleteWorkspacePreparationCommand{
+		Claim: claim, ExpectedToolVersion: claim.ToolCallVersion, RevisionID: "revision", WorkspaceID: "workspace",
+		BaseRevision: "base", PreparedRevision: "prepared", PreparedHash: "prepared-hash", ProposalHash: "proposal",
+		ApprovalID: "approval", ApprovalExpiresAt: time.Now().Add(time.Hour), ResultHash: "result",
+		Actor: json.RawMessage(`{"kind":"service"}`), CorrelationID: "correlation",
+		PreparedEvent: PayloadPointer{Ref: "encrypted://prepared", Hash: "prepared"}, ToolProposedEvent: PayloadPointer{Ref: "encrypted://proposed", Hash: "proposed"},
+		ApprovalRequested: PayloadPointer{Ref: "encrypted://approval", Hash: "approval"}, RunWaitingApproval: PayloadPointer{Ref: "encrypted://run", Hash: "run"},
+		AttemptCompleted: PayloadPointer{Ref: "encrypted://attempt", Hash: "attempt"}, NotifyApproval: PayloadPointer{Ref: "encrypted://notify", Hash: "notify"},
+		NotifyQueueClass: "interactive", NotifyResourceClass: "notification", NotifyPriority: 50, NotifyCostUnits: 1, NotifyMaxAttempts: 5,
+	}
+	if !validCompleteWorkspacePreparation(command) {
+		t.Fatal("valid workspace preview completion rejected")
+	}
+	invalid := command
+	invalid.NotifyApproval = PayloadPointer{}
+	if validCompleteWorkspacePreparation(invalid) {
+		t.Fatal("workspace preview completion without durable notification accepted")
+	}
+	store := RunStore{IDKey: bytes.Repeat([]byte{0x79}, 32)}
+	first, err := store.workspacePreparationCompletionIdentifiers(command.RevisionID, claim.GroupID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replay, err := store.workspacePreparationCompletionIdentifiers(command.RevisionID, claim.GroupID)
+	if err != nil || replay != first {
+		t.Fatalf("workspace preparation completion identifiers are unstable: %#v %#v err=%v", first, replay, err)
+	}
+	if first.toolEvent == first.runEvent || first.notifyCommand == first.notifyJob || first.notifyOutbox == first.runOutbox {
+		t.Fatalf("workspace preparation identifier domains collided: %#v", first)
 	}
 }
 
@@ -95,7 +131,7 @@ func TestWorkspaceRevisionIdentifiersAreStableAndDomainSeparated(t *testing.T) {
 		t.Fatal(err)
 	}
 	seen := map[string]bool{preparedOne.event: true, preparedOne.outbox: true, preparedOne.publish: true}
-	for _, value := range []string{authorizedOne.authorizationEvent, authorizedOne.authorizationPublishOutbox, authorizedOne.authorizationPublish, authorizedOne.executeOutbox, authorizedOne.executeCommand, authorizedOne.job, authorizedOne.toolEvent, authorizedOne.toolPublishOutbox, authorizedOne.toolPublish} {
+	for _, value := range []string{authorizedOne.authorizationEvent, authorizedOne.authorizationPublishOutbox, authorizedOne.authorizationPublish, authorizedOne.executeOutbox, authorizedOne.executeCommand, authorizedOne.job, authorizedOne.toolEvent, authorizedOne.toolPublishOutbox, authorizedOne.toolPublish, authorizedOne.groupEvent, authorizedOne.groupPublishOutbox, authorizedOne.groupPublish, authorizedOne.runEvent, authorizedOne.runPublishOutbox, authorizedOne.runPublish} {
 		if seen[value] {
 			t.Fatalf("identifier domains collided at %s", value)
 		}

@@ -46,12 +46,13 @@ type AuthorizeWorkspaceRevisionCommand struct {
 	Actor                                               json.RawMessage
 	CorrelationID                                       string
 	AuthorizedEvent, ToolRequestedEvent, ExecuteCommand PayloadPointer
+	GroupAuthorizedEvent, RunWaitingToolEvent           PayloadPointer
 }
 
 type AuthorizedWorkspaceRevision struct {
 	RevisionID, Status, AuthorizationEventID string
 	CommitCommandID, JobID                   string
-	Version, ToolVersion                     uint64
+	Version, ToolVersion, RunVersion         uint64
 	UpdatedAt                                time.Time
 	Replayed                                 bool
 }
@@ -193,12 +194,14 @@ func (store RunStore) AuthorizeWorkspaceRevision(ctx context.Context, command Au
 	if err = statemachine.ToolCalls.ValidateTransition(statemachine.ToolCallAwaitingApproval, statemachine.ToolCallRequested); err != nil {
 		return AuthorizedWorkspaceRevision{}, ErrInvalidCommand
 	}
+	var runStatus string
+	var runVersion uint64
 	var dueAt time.Time
 	var cancelRequested *time.Time
-	if err = tx.QueryRow(ctx, `SELECT due_at,cancel_requested_at FROM agent.runs WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, command.TenantID, runID).Scan(&dueAt, &cancelRequested); err != nil {
+	if err = tx.QueryRow(ctx, `SELECT status,run_version,due_at,cancel_requested_at FROM agent.runs WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, command.TenantID, runID).Scan(&runStatus, &runVersion, &dueAt, &cancelRequested); err != nil {
 		return AuthorizedWorkspaceRevision{}, err
 	}
-	if cancelRequested != nil || !dueAt.After(now) {
+	if (runStatus != string(statemachine.RunWaitingApproval) && runStatus != string(statemachine.RunWaitingTool)) || cancelRequested != nil || !dueAt.After(now) {
 		return AuthorizedWorkspaceRevision{}, ErrWorkspaceNotActionable
 	}
 	tag, err := tx.Exec(ctx, `UPDATE agent.workspace_revision_commits SET version=version+1,status='authorized',approval_id=$1,approval_version=$2,approval_event_id=$3,authorization_event_id=$4,commit_command_id=$5,authorized_at=$6,updated_at=$6 WHERE tenant_id=$7 AND id=$8 AND version=$9 AND status='prepared'`, command.ApprovalID, approvalVersion, command.ApprovalEventID, identifiers.authorizationEvent, identifiers.executeCommand, now, command.TenantID, command.RevisionID, workspaceVersion)
@@ -219,6 +222,35 @@ func (store RunStore) AuthorizeWorkspaceRevision(ctx context.Context, command Au
 	if _, err = tx.Exec(ctx, `INSERT INTO agent.jobs(id,tenant_id,command_id,queue_class,resource_class,priority,cost_units,max_attempts,status,available_at,due_at,enqueued_at,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'pending',$9,$10,$9,$9,$9)`, identifiers.job, command.TenantID, identifiers.executeCommand, command.QueueClass, command.ResourceClass, command.Priority, command.CostUnits, command.MaxAttempts, now, dueAt); err != nil {
 		return AuthorizedWorkspaceRevision{}, err
 	}
+	var groupID, groupKind, continuationKind string
+	var groupVersion uint64
+	var groupJoined bool
+	err = tx.QueryRow(ctx, `SELECT g.id::text,g.version,g.group_kind,g.continuation_kind,g.joined FROM agent.parallel_group_members m JOIN agent.parallel_groups g ON g.tenant_id=m.tenant_id AND g.id=m.group_id WHERE m.tenant_id=$1 AND m.tool_call_id=$2 FOR UPDATE OF g`, command.TenantID, toolCallID).Scan(&groupID, &groupVersion, &groupKind, &continuationKind, &groupJoined)
+	if err != nil || groupJoined || groupKind != "execution" && groupKind != "approval_preview" {
+		return AuthorizedWorkspaceRevision{}, ErrWorkspaceAuthorization
+	}
+	groupActivated := false
+	if groupKind == "approval_preview" {
+		var requiredCount, requestedCount int
+		if err = tx.QueryRow(ctx, `SELECT count(*) FILTER (WHERE m.required),count(*) FILTER (WHERE m.required AND t.status='requested') FROM agent.parallel_group_members m JOIN agent.tool_calls t ON t.tenant_id=m.tenant_id AND t.id=m.tool_call_id WHERE m.tenant_id=$1 AND m.group_id=$2`, command.TenantID, groupID).Scan(&requiredCount, &requestedCount); err != nil {
+			return AuthorizedWorkspaceRevision{}, err
+		}
+		if requiredCount == requestedCount {
+			if continuationKind != "request_approval" || runStatus != string(statemachine.RunWaitingApproval) {
+				return AuthorizedWorkspaceRevision{}, ErrWorkspaceAuthorization
+			}
+			if tag, updateErr := tx.Exec(ctx, `UPDATE agent.parallel_groups SET version=version+1,group_kind='execution',continuation_kind='resume',updated_at=$1 WHERE tenant_id=$2 AND id=$3 AND version=$4 AND group_kind='approval_preview' AND continuation_kind='request_approval' AND joined=false`, now, command.TenantID, groupID, groupVersion); updateErr != nil || tag.RowsAffected() != 1 {
+				return AuthorizedWorkspaceRevision{}, ErrWorkspaceConflict
+			}
+			nextRunVersion := runVersion + 1
+			if tag, updateErr := tx.Exec(ctx, `UPDATE agent.runs SET status='waiting_tool',run_version=$1,updated_at=$2 WHERE tenant_id=$3 AND id=$4 AND status='waiting_approval' AND run_version=$5 AND cancel_requested_at IS NULL AND due_at>$2`, nextRunVersion, now, command.TenantID, runID, runVersion); updateErr != nil || tag.RowsAffected() != 1 {
+				return AuthorizedWorkspaceRevision{}, ErrWorkspaceConflict
+			}
+			runVersion, groupActivated = nextRunVersion, true
+		}
+	} else if continuationKind != "resume" || runStatus != string(statemachine.RunWaitingTool) {
+		return AuthorizedWorkspaceRevision{}, ErrWorkspaceAuthorization
+	}
 	authorized := eventpostgres.Input{Event: eventpostgres.Event{ID: identifiers.authorizationEvent, TenantID: command.TenantID, UserID: userID, EventType: "WorkspaceRevisionCommitAuthorized", SchemaVersion: 1, AggregateKind: "workspace_revision", AggregateID: command.RevisionID, AggregateVersion: workspaceVersion + 1, StoreEpoch: store.StoreEpoch, OccurredAt: now, Actor: command.Actor, CorrelationID: command.CorrelationID, PayloadRef: command.AuthorizedEvent.Ref, PayloadHash: command.AuthorizedEvent.Hash}, Commands: []eventpostgres.OutboxCommand{{ID: identifiers.executeOutbox, CommandID: identifiers.executeCommand, CommandType: "ExecuteToolCall", TargetAggregateKind: "tool_call", TargetAggregateID: toolCallID, PayloadRef: command.ExecuteCommand.Ref, PayloadHash: command.ExecuteCommand.Hash}, {ID: identifiers.authorizationPublishOutbox, CommandID: identifiers.authorizationPublish, CommandType: "events.publish", PayloadRef: command.AuthorizedEvent.Ref, PayloadHash: command.AuthorizedEvent.Hash}}}
 	if _, err = store.Appender.Append(ctx, tx, authorized); err != nil {
 		return AuthorizedWorkspaceRevision{}, err
@@ -228,10 +260,22 @@ func (store RunStore) AuthorizeWorkspaceRevision(ctx context.Context, command Au
 	if _, err = store.Appender.Append(ctx, tx, toolRequested); err != nil {
 		return AuthorizedWorkspaceRevision{}, err
 	}
+	if groupActivated {
+		groupCausation := identifiers.toolEvent
+		groupEvent := eventpostgres.Input{Event: eventpostgres.Event{ID: identifiers.groupEvent, TenantID: command.TenantID, UserID: userID, EventType: "ApprovalPreviewGroupAuthorized", SchemaVersion: 1, AggregateKind: "parallel_group", AggregateID: groupID, AggregateVersion: groupVersion + 1, StoreEpoch: store.StoreEpoch, OccurredAt: now, Actor: command.Actor, CausationID: &groupCausation, CorrelationID: command.CorrelationID, PayloadRef: command.GroupAuthorizedEvent.Ref, PayloadHash: command.GroupAuthorizedEvent.Hash}, Commands: []eventpostgres.OutboxCommand{{ID: identifiers.groupPublishOutbox, CommandID: identifiers.groupPublish, CommandType: "events.publish", PayloadRef: command.GroupAuthorizedEvent.Ref, PayloadHash: command.GroupAuthorizedEvent.Hash}}}
+		if _, err = store.Appender.Append(ctx, tx, groupEvent); err != nil {
+			return AuthorizedWorkspaceRevision{}, err
+		}
+		runCausation := identifiers.groupEvent
+		runEvent := eventpostgres.Input{Event: eventpostgres.Event{ID: identifiers.runEvent, TenantID: command.TenantID, UserID: userID, EventType: "RunWaitingTool", SchemaVersion: 1, AggregateKind: "run", AggregateID: runID, AggregateVersion: runVersion, StoreEpoch: store.StoreEpoch, OccurredAt: now, Actor: command.Actor, CausationID: &runCausation, CorrelationID: command.CorrelationID, PayloadRef: command.RunWaitingToolEvent.Ref, PayloadHash: command.RunWaitingToolEvent.Hash}, Commands: []eventpostgres.OutboxCommand{{ID: identifiers.runPublishOutbox, CommandID: identifiers.runPublish, CommandType: "events.publish", PayloadRef: command.RunWaitingToolEvent.Ref, PayloadHash: command.RunWaitingToolEvent.Hash}}}
+		if _, err = store.Appender.Append(ctx, tx, runEvent); err != nil {
+			return AuthorizedWorkspaceRevision{}, err
+		}
+	}
 	if err = tx.Commit(ctx); err != nil {
 		return AuthorizedWorkspaceRevision{}, err
 	}
-	return AuthorizedWorkspaceRevision{RevisionID: command.RevisionID, Status: "authorized", AuthorizationEventID: identifiers.authorizationEvent, CommitCommandID: identifiers.executeCommand, JobID: identifiers.job, Version: workspaceVersion + 1, ToolVersion: nextToolVersion, UpdatedAt: now}, nil
+	return AuthorizedWorkspaceRevision{RevisionID: command.RevisionID, Status: "authorized", AuthorizationEventID: identifiers.authorizationEvent, CommitCommandID: identifiers.executeCommand, JobID: identifiers.job, Version: workspaceVersion + 1, ToolVersion: nextToolVersion, RunVersion: runVersion, UpdatedAt: now}, nil
 }
 
 type workspacePreparedIDs struct{ event, outbox, publish string }
@@ -240,6 +284,8 @@ type workspaceAuthorizationIDs struct {
 	authorizationEvent, authorizationPublishOutbox, authorizationPublish string
 	executeOutbox, executeCommand, job                                   string
 	toolEvent, toolPublishOutbox, toolPublish                            string
+	groupEvent, groupPublishOutbox, groupPublish                         string
+	runEvent, runPublishOutbox, runPublish                               string
 }
 
 func (store RunStore) workspacePreparedIDs(revisionID string) (workspacePreparedIDs, error) {
@@ -255,7 +301,7 @@ func (store RunStore) workspacePreparedIDs(revisionID string) (workspacePrepared
 }
 
 func (store RunStore) workspaceAuthorizationIDs(revisionID string) (workspaceAuthorizationIDs, error) {
-	domains := []string{"workspace-authorized:event", "workspace-authorized:publish-outbox", "workspace-authorized:publish", "workspace-authorized:execute-outbox", "workspace-authorized:execute", "workspace-authorized:job", "workspace-authorized:tool-event", "workspace-authorized:tool-publish-outbox", "workspace-authorized:tool-publish"}
+	domains := []string{"workspace-authorized:event", "workspace-authorized:publish-outbox", "workspace-authorized:publish", "workspace-authorized:execute-outbox", "workspace-authorized:execute", "workspace-authorized:job", "workspace-authorized:tool-event", "workspace-authorized:tool-publish-outbox", "workspace-authorized:tool-publish", "workspace-authorized:group-event", "workspace-authorized:group-publish-outbox", "workspace-authorized:group-publish", "workspace-authorized:run-event", "workspace-authorized:run-publish-outbox", "workspace-authorized:run-publish"}
 	values := make([]string, len(domains))
 	for index, domain := range domains {
 		value, err := ids.DeterministicUUID(store.IDKey, domain, revisionID)
@@ -264,7 +310,7 @@ func (store RunStore) workspaceAuthorizationIDs(revisionID string) (workspaceAut
 		}
 		values[index] = value
 	}
-	return workspaceAuthorizationIDs{values[0], values[1], values[2], values[3], values[4], values[5], values[6], values[7], values[8]}, nil
+	return workspaceAuthorizationIDs{values[0], values[1], values[2], values[3], values[4], values[5], values[6], values[7], values[8], values[9], values[10], values[11], values[12], values[13], values[14]}, nil
 }
 
 func (store RunStore) loadPreparedWorkspaceReplay(ctx context.Context, tx pgx.Tx, command PrepareWorkspaceRevisionCommand, eventID string) (PreparedWorkspaceRevision, bool, error) {
@@ -330,5 +376,5 @@ func validPrepareWorkspaceRevision(command PrepareWorkspaceRevisionCommand) bool
 
 func validAuthorizeWorkspaceRevision(command AuthorizeWorkspaceRevisionCommand) bool {
 	queue := command.QueueClass == "interactive" || command.QueueClass == "background"
-	return command.RevisionID != "" && command.TenantID != "" && command.ApprovalID != "" && command.ApprovalEventID != "" && command.ProposalHash != "" && command.PermissionSnapshot != "" && command.ExpectedRevisionVersion > 0 && command.ExpectedApprovalVersion > 0 && command.ExpectedToolVersion > 0 && queue && command.ResourceClass != "" && command.Priority >= 0 && command.Priority <= 1000 && command.CostUnits > 0 && command.MaxAttempts > 0 && validJSONObject(command.Actor) && command.CorrelationID != "" && validPointer(command.AuthorizedEvent) && validPointer(command.ToolRequestedEvent) && validPointer(command.ExecuteCommand)
+	return command.RevisionID != "" && command.TenantID != "" && command.ApprovalID != "" && command.ApprovalEventID != "" && command.ProposalHash != "" && command.PermissionSnapshot != "" && command.ExpectedRevisionVersion > 0 && command.ExpectedApprovalVersion > 0 && command.ExpectedToolVersion > 0 && queue && command.ResourceClass != "" && command.Priority >= 0 && command.Priority <= 1000 && command.CostUnits > 0 && command.MaxAttempts > 0 && validJSONObject(command.Actor) && command.CorrelationID != "" && validPointer(command.AuthorizedEvent) && validPointer(command.ToolRequestedEvent) && validPointer(command.ExecuteCommand) && validPointer(command.GroupAuthorizedEvent) && validPointer(command.RunWaitingToolEvent)
 }

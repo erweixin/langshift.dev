@@ -14,6 +14,36 @@ func TestToolPlanValidationAndIdentifiers(t *testing.T) {
 	if !validRequestTools(valid) {
 		t.Fatal("valid tool plan rejected")
 	}
+	previewRequest := request
+	previewRequest.RequiresPreview = true
+	previewRequest.EffectClass = "reconcilable_write"
+	previewRequest.EffectKey = "workspace:preview"
+	previewRequest.EffectScope = "tenant:workspace:preview"
+	previewRequest.ProviderID = "workspace"
+	previewRequest.ExecuteCommand = PayloadPointer{}
+	previewRequest.PreviewCommand = PayloadPointer{Ref: "encrypted://preview", Hash: "preview"}
+	preview := valid
+	preview.ToolRequests = []ToolRequest{previewRequest}
+	if !validRequestTools(preview) {
+		t.Fatal("valid preview plan rejected")
+	}
+	mixed := preview
+	mixed.ToolRequests = []ToolRequest{previewRequest, request}
+	mixed.QuorumCount = 2
+	if validRequestTools(mixed) {
+		t.Fatal("mixed execution and approval-preview group accepted")
+	}
+	previewAny := preview
+	previewAny.JoinPolicy = "any"
+	if validRequestTools(previewAny) {
+		t.Fatal("approval-preview group with non-all join accepted")
+	}
+	invalidPreview := preview
+	invalidPreview.ToolRequests = append([]ToolRequest(nil), preview.ToolRequests...)
+	invalidPreview.ToolRequests[0].ExecuteCommand = request.ExecuteCommand
+	if validRequestTools(invalidPreview) {
+		t.Fatal("preview plan with execute command accepted")
+	}
 	for name, mutate := range map[string]func(*RequestToolsCommand){
 		"no required": func(command *RequestToolsCommand) { command.ToolRequests[0].Required = false },
 		"bad quorum":  func(command *RequestToolsCommand) { command.QuorumCount = 2 },
@@ -54,6 +84,10 @@ func TestToolPlanValidationAndIdentifiers(t *testing.T) {
 	second, secondGroup, err := store.toolRequestIdentifiers(claim.RunID, claim.RunVersion, valid.ToolRequests)
 	if err != nil || firstGroup != secondGroup || first[0] != second[0] {
 		t.Fatalf("unstable identifiers first=%#v/%s second=%#v/%s error=%v", first, firstGroup, second, secondGroup, err)
+	}
+	previewIDs, previewGroup, err := store.toolRequestIdentifiers(claim.RunID, claim.RunVersion, preview.ToolRequests)
+	if err != nil || previewIDs[0] == first[0] || previewGroup == firstGroup {
+		t.Fatalf("preview identifiers are not mode separated: %#v/%s %#v/%s error=%v", previewIDs, previewGroup, first, firstGroup, err)
 	}
 	seen := map[string]bool{firstGroup: true}
 	for _, value := range []string{first[0].toolCall, first[0].effect, first[0].command, first[0].job, first[0].event, first[0].publishOutbox, first[0].publishCommand, first[0].executeOutbox} {

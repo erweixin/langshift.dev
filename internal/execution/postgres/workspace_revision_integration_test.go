@@ -79,7 +79,8 @@ func TestWorkspaceRevisionPreparationAndAuthorizationAreContentBound(t *testing.
 		QueueClass: "interactive", ResourceClass: "workspace-publisher", Priority: 80, CostUnits: 2, MaxAttempts: 5,
 		Actor: json.RawMessage(`{"kind":"service","name":"workspace-control-plane"}`), CorrelationID: fixture.correlationID,
 		AuthorizedEvent: repairPointer("e7", "workspace-authorized"), ToolRequestedEvent: repairPointer("e7", "commit-requested"),
-		ExecuteCommand: repairPointer("e7", "commit-command"),
+		ExecuteCommand: repairPointer("e7", "commit-command"), GroupAuthorizedEvent: repairPointer("e7", "group-authorized"),
+		RunWaitingToolEvent: repairPointer("e7", "run-waiting-tool"),
 	}
 	invalid := authorize
 	invalid.PermissionSnapshot = "membership:substituted:v99:role:owner"

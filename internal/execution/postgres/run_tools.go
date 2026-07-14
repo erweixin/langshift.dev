@@ -29,8 +29,10 @@ type ToolRequest struct {
 	Priority             int
 	CostUnits            int64
 	MaxAttempts          int
+	RequiresPreview      bool
 	RequestedEvent       PayloadPointer
 	ExecuteCommand       PayloadPointer
+	PreviewCommand       PayloadPointer
 }
 
 type RequestToolsCommand struct {
@@ -115,18 +117,26 @@ func (store RunStore) RequestTools(ctx context.Context, command RequestToolsComm
 		return ToolsRequested{}, ErrExecutionRightConflict
 	}
 	requiredCount := requiredToolCount(command.ToolRequests)
-	if _, err = tx.Exec(ctx, `INSERT INTO agent.parallel_groups(id,tenant_id,run_id,join_policy,required_count,group_kind,step_id,quorum_count,continuation_kind,created_at,updated_at) VALUES($1,$2,$3,$4,$5,'execution',$6,$7,'resume',$8,$8)`, groupID, claim.TenantID, claim.RunID, command.JoinPolicy, requiredCount, command.StepID, command.QuorumCount, now); err != nil {
+	groupKind, continuationKind := "execution", "resume"
+	if command.ToolRequests[0].RequiresPreview {
+		groupKind, continuationKind = "approval_preview", "request_approval"
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO agent.parallel_groups(id,tenant_id,run_id,join_policy,required_count,group_kind,step_id,quorum_count,continuation_kind,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10)`, groupID, claim.TenantID, claim.RunID, command.JoinPolicy, requiredCount, groupKind, command.StepID, command.QuorumCount, continuationKind, now); err != nil {
 		return ToolsRequested{}, err
 	}
 	result := ToolsRequested{RunID: claim.RunID, GroupID: groupID, RunVersion: nextRunVersion, ToolCalls: make([]RequestedToolCall, 0, len(command.ToolRequests)), CompletedAt: now}
 	causationID := claim.CommandID
 	for index, request := range command.ToolRequests {
 		idsForRequest := identifiers[index]
+		toolStatus, eventType, commandType, commandPayload := "requested", "ToolCallRequested", "ExecuteToolCall", request.ExecuteCommand
+		if request.RequiresPreview {
+			toolStatus, eventType, commandType, commandPayload = "preview_requested", "ToolCallPreviewRequested", "PrepareToolPreview", request.PreviewCommand
+		}
 		var effectKey any
 		if request.EffectKey != "" {
 			effectKey = request.EffectKey
 		}
-		if _, err = tx.Exec(ctx, `INSERT INTO agent.tool_calls(id,tenant_id,user_id,run_id,status,tool_call_version,tool_name,descriptor_snapshot_id,normalized_input_ref,request_hash,effect_class,effect_key,pending_command_id,created_at,updated_at) VALUES($1,$2,$3,$4,'requested',1,$5,$6,$7,$8,$9,$10,$11,$12,$12)`, idsForRequest.toolCall, claim.TenantID, userID, claim.RunID, request.ToolName, request.DescriptorSnapshotID, request.NormalizedInputRef, request.RequestHash, request.EffectClass, effectKey, idsForRequest.command, now); err != nil {
+		if _, err = tx.Exec(ctx, `INSERT INTO agent.tool_calls(id,tenant_id,user_id,run_id,status,tool_call_version,tool_name,descriptor_snapshot_id,normalized_input_ref,request_hash,effect_class,effect_key,pending_command_id,created_at,updated_at) VALUES($1,$2,$3,$4,$5,1,$6,$7,$8,$9,$10,$11,$12,$13,$13)`, idsForRequest.toolCall, claim.TenantID, userID, claim.RunID, toolStatus, request.ToolName, request.DescriptorSnapshotID, request.NormalizedInputRef, request.RequestHash, request.EffectClass, effectKey, idsForRequest.command, now); err != nil {
 			return ToolsRequested{}, err
 		}
 		if request.EffectClass != "read_only" {
@@ -140,7 +150,7 @@ func (store RunStore) RequestTools(ctx context.Context, command RequestToolsComm
 		if _, err = tx.Exec(ctx, `INSERT INTO agent.jobs(id,tenant_id,command_id,queue_class,resource_class,priority,cost_units,max_attempts,status,available_at,due_at,enqueued_at,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'pending',$9,$10,$9,$9,$9)`, idsForRequest.job, claim.TenantID, idsForRequest.command, request.QueueClass, request.ResourceClass, request.Priority, request.CostUnits, request.MaxAttempts, now, dueAt); err != nil {
 			return ToolsRequested{}, err
 		}
-		event := eventpostgres.Input{Event: eventpostgres.Event{ID: idsForRequest.event, TenantID: claim.TenantID, UserID: userID, EventType: "ToolCallRequested", SchemaVersion: 1, AggregateKind: "tool_call", AggregateID: idsForRequest.toolCall, AggregateVersion: 1, StoreEpoch: store.StoreEpoch, OccurredAt: now, Actor: command.Actor, CausationID: &causationID, CorrelationID: command.CorrelationID, PayloadRef: request.RequestedEvent.Ref, PayloadHash: request.RequestedEvent.Hash}, Commands: []eventpostgres.OutboxCommand{{ID: idsForRequest.publishOutbox, CommandID: idsForRequest.publishCommand, CommandType: "events.publish", PayloadRef: request.RequestedEvent.Ref, PayloadHash: request.RequestedEvent.Hash}, {ID: idsForRequest.executeOutbox, CommandID: idsForRequest.command, CommandType: "ExecuteToolCall", PayloadRef: request.ExecuteCommand.Ref, PayloadHash: request.ExecuteCommand.Hash}}}
+		event := eventpostgres.Input{Event: eventpostgres.Event{ID: idsForRequest.event, TenantID: claim.TenantID, UserID: userID, EventType: eventType, SchemaVersion: 1, AggregateKind: "tool_call", AggregateID: idsForRequest.toolCall, AggregateVersion: 1, StoreEpoch: store.StoreEpoch, OccurredAt: now, Actor: command.Actor, CausationID: &causationID, CorrelationID: command.CorrelationID, PayloadRef: request.RequestedEvent.Ref, PayloadHash: request.RequestedEvent.Hash}, Commands: []eventpostgres.OutboxCommand{{ID: idsForRequest.publishOutbox, CommandID: idsForRequest.publishCommand, CommandType: "events.publish", PayloadRef: request.RequestedEvent.Ref, PayloadHash: request.RequestedEvent.Hash}, {ID: idsForRequest.executeOutbox, CommandID: idsForRequest.command, CommandType: commandType, PayloadRef: commandPayload.Ref, PayloadHash: commandPayload.Hash}}}
 		if _, err = store.Appender.Append(ctx, tx, event); err != nil {
 			return ToolsRequested{}, err
 		}
@@ -178,8 +188,19 @@ func validRequestTools(command RequestToolsCommand) bool {
 		return false
 	}
 	seenHashes := map[string]bool{}
+	previewMode := command.ToolRequests[0].RequiresPreview
+	if previewMode && command.JoinPolicy != "all" {
+		return false
+	}
 	for _, request := range command.ToolRequests {
-		if request.ToolName == "" || request.DescriptorSnapshotID == "" || request.NormalizedInputRef == "" || request.RequestHash == "" || !validEffect(request.EffectClass, request.EffectKey, request.EffectScope, request.ProviderID) || request.QueueClass != "interactive" && request.QueueClass != "background" || request.ResourceClass == "" || request.Priority < 0 || request.Priority > 1000 || request.CostUnits < 1 || request.CostUnits > 1_000_000_000_000 || request.MaxAttempts < 1 || request.MaxAttempts > 100 || !validPointer(request.RequestedEvent) || !validPointer(request.ExecuteCommand) {
+		if request.RequiresPreview != previewMode {
+			return false
+		}
+		if request.RequiresPreview && request.EffectClass == "read_only" {
+			return false
+		}
+		commandValid := !request.RequiresPreview && validPointer(request.ExecuteCommand) && request.PreviewCommand == (PayloadPointer{}) || request.RequiresPreview && validPointer(request.PreviewCommand) && request.ExecuteCommand == (PayloadPointer{})
+		if request.ToolName == "" || request.DescriptorSnapshotID == "" || request.NormalizedInputRef == "" || request.RequestHash == "" || !validEffect(request.EffectClass, request.EffectKey, request.EffectScope, request.ProviderID) || request.QueueClass != "interactive" && request.QueueClass != "background" || request.ResourceClass == "" || request.Priority < 0 || request.Priority > 1000 || request.CostUnits < 1 || request.CostUnits > 1_000_000_000_000 || request.MaxAttempts < 1 || request.MaxAttempts > 100 || !validPointer(request.RequestedEvent) || !commandValid {
 			return false
 		}
 		if seenHashes[request.RequestHash] {
@@ -207,7 +228,11 @@ func requiredToolCount(requests []ToolRequest) int {
 
 func (store RunStore) toolRequestIdentifiers(runID string, runVersion uint64, requests []ToolRequest) ([]toolRequestIDs, string, error) {
 	scope := fmt.Sprintf("%s\x00%d", runID, runVersion)
-	groupID, err := ids.DeterministicUUID(store.IDKey, "parallel-tool-group", scope)
+	groupDomain := "parallel-tool-group"
+	if requests[0].RequiresPreview {
+		groupDomain = "parallel-approval-preview-group"
+	}
+	groupID, err := ids.DeterministicUUID(store.IDKey, groupDomain, scope)
 	if err != nil {
 		return nil, "", err
 	}
@@ -215,6 +240,9 @@ func (store RunStore) toolRequestIdentifiers(runID string, runVersion uint64, re
 	for index, request := range requests {
 		requestScope := fmt.Sprintf("%s\x00%d\x00%s", scope, index, request.RequestHash)
 		domains := []string{"tool-call", "tool-effect", "execute-tool-command", "execute-tool-job", "tool-call-requested-event", "tool-call-requested-publish-outbox", "tool-call-requested-publish-command", "execute-tool-outbox"}
+		if request.RequiresPreview {
+			domains = []string{"preview-tool-call", "preview-tool-effect", "prepare-tool-preview-command", "prepare-tool-preview-job", "tool-call-preview-requested-event", "tool-call-preview-requested-publish-outbox", "tool-call-preview-requested-publish-command", "prepare-tool-preview-outbox"}
+		}
 		values := make([]string, len(domains))
 		for domainIndex, domain := range domains {
 			values[domainIndex], err = ids.DeterministicUUID(store.IDKey, domain, requestScope)
