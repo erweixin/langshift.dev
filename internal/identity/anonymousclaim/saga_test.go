@@ -1,8 +1,10 @@
 package anonymousclaim
 
 import (
+	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 )
 
 func TestClaimHappyPathRequiresEveryDeletionReceipt(t *testing.T) {
@@ -24,7 +26,7 @@ func TestClaimHappyPathRequiresEveryDeletionReceipt(t *testing.T) {
 		t.Fatalf("missing receipts error=%v", err)
 	}
 	for _, receipt := range requiredReceipts {
-		saga, err = Advance(saga, Input{ExpectedVersion: saga.Version, Command: RecordDeletionReceipt, DeletionReceipt: receipt})
+		saga, err = Advance(saga, Input{ExpectedVersion: saga.Version, Command: RecordDeletionReceipt, DeletionReceipt: testReceipt(receipt)})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -35,6 +37,28 @@ func TestClaimHappyPathRequiresEveryDeletionReceipt(t *testing.T) {
 	}
 	if saga.Status != Claimed || saga.MissionID != "mission-1" {
 		t.Fatalf("unexpected final saga: %#v", saga)
+	}
+}
+
+func testReceipt(surface string) DeletionReceipt {
+	return DeletionReceipt{ID: "receipt-" + surface, Surface: surface, Hash: "hash-" + surface, ErasedAt: time.Unix(1_800_000_000, 0).UTC(), Details: json.RawMessage(`{"verified":true}`)}
+}
+
+func TestDeletionReceiptReplayMustMatchOriginalCredential(t *testing.T) {
+	saga := Saga{Status: Erasing, Version: 4}
+	receipt := testReceipt("body_payload")
+	saga, err := Advance(saga, Input{ExpectedVersion: 4, Command: RecordDeletionReceipt, DeletionReceipt: receipt})
+	if err != nil {
+		t.Fatal(err)
+	}
+	replayed, err := Advance(saga, Input{ExpectedVersion: saga.Version, Command: RecordDeletionReceipt, DeletionReceipt: receipt})
+	if err != nil || len(replayed.DeletionReceipts) != 1 || replayed.Version != saga.Version {
+		t.Fatalf("replay=%#v error=%v", replayed, err)
+	}
+	tampered := receipt
+	tampered.Hash = "different"
+	if _, err = Advance(replayed, Input{ExpectedVersion: replayed.Version, Command: RecordDeletionReceipt, DeletionReceipt: tampered}); !errors.Is(err, ErrInvariant) {
+		t.Fatalf("tampered replay error=%v", err)
 	}
 }
 
@@ -56,5 +80,18 @@ func TestTerminalStatesRejectAllOrdinaryCommands(t *testing.T) {
 		if _, err := Advance(Saga{Status: status, Version: 9}, Input{ExpectedVersion: 9, Command: Reserve, ClaimKey: "k", TargetTenantID: "t", TargetUserID: "u", MissionID: "m"}); !errors.Is(err, ErrInvalidTransition) {
 			t.Fatalf("status=%s error=%v", status, err)
 		}
+	}
+}
+
+func TestValidateSuccessorRejectsCallerCraftedMutation(t *testing.T) {
+	current := Saga{ID: "claim", AnonymousSubjectID: "subject", Status: Reserved, Version: 2, ClaimKey: "key", TargetTenantID: "tenant", TargetUserID: "user", MissionID: "mission"}
+	valid, err := Advance(current, Input{ExpectedVersion: 2, Command: CommitDestination, MissionID: "mission", DestinationCommitEventID: "event"})
+	if err != nil || ValidateSuccessor(current, valid) != nil {
+		t.Fatalf("valid successor error=%v", err)
+	}
+	forged := valid
+	forged.TargetUserID = "attacker"
+	if err = ValidateSuccessor(current, forged); !errors.Is(err, ErrInvariant) {
+		t.Fatalf("forged successor error=%v", err)
 	}
 }

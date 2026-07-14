@@ -3,9 +3,12 @@
 package anonymousclaim
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"slices"
+	"time"
 )
 
 type Status string
@@ -37,8 +40,17 @@ var (
 
 var requiredReceipts = []string{"body_payload", "preview_projection", "principal_mapping"}
 
+type DeletionReceipt struct {
+	ID       string
+	Surface  string
+	Hash     string
+	ErasedAt time.Time
+	Details  json.RawMessage
+}
+
 type Saga struct {
 	ID                       string
+	AnonymousSubjectID       string
 	Status                   Status
 	Version                  uint64
 	ClaimKey                 string
@@ -46,7 +58,7 @@ type Saga struct {
 	TargetUserID             string
 	MissionID                string
 	DestinationCommitEventID string
-	DeletionReceipts         []string
+	DeletionReceipts         []DeletionReceipt
 }
 
 type Input struct {
@@ -57,7 +69,54 @@ type Input struct {
 	TargetUserID             string
 	MissionID                string
 	DestinationCommitEventID string
-	DeletionReceipt          string
+	DeletionReceipt          DeletionReceipt
+}
+
+func RequiredDeletionSurfaces() []string { return slices.Clone(requiredReceipts) }
+
+func HasDeletionReceipt(saga Saga, surface string) bool {
+	return slices.ContainsFunc(saga.DeletionReceipts, func(receipt DeletionReceipt) bool { return receipt.Surface == surface })
+}
+
+// ValidateSuccessor prevents storage adapters from accepting a caller-crafted
+// state mutation that did not pass through the state machine.
+func ValidateSuccessor(current, successor Saga) error {
+	if successor.ID != current.ID || successor.AnonymousSubjectID != current.AnonymousSubjectID || successor.Version != current.Version+1 {
+		return ErrInvariant
+	}
+	input := Input{ExpectedVersion: current.Version}
+	switch {
+	case current.Status == Available && successor.Status == Reserved:
+		input.Command, input.ClaimKey, input.TargetTenantID, input.TargetUserID, input.MissionID = Reserve, successor.ClaimKey, successor.TargetTenantID, successor.TargetUserID, successor.MissionID
+	case current.Status == Reserved && successor.Status == DestinationCommitted:
+		input.Command, input.MissionID, input.DestinationCommitEventID = CommitDestination, successor.MissionID, successor.DestinationCommitEventID
+	case current.Status == DestinationCommitted && successor.Status == Erasing:
+		input.Command = BeginErasing
+	case current.Status == Erasing && successor.Status == Erasing:
+		input.Command = RecordDeletionReceipt
+		for _, receipt := range successor.DeletionReceipts {
+			if !HasDeletionReceipt(current, receipt.Surface) {
+				input.DeletionReceipt = receipt
+				break
+			}
+		}
+	case current.Status == Erasing && successor.Status == Claimed:
+		input.Command = Complete
+	case current.Status == Available && successor.Status == Expired:
+		input.Command = Expire
+	case successor.Status == ManualReview:
+		input.Command = Escalate
+	default:
+		return ErrInvalidTransition
+	}
+	expected, err := Advance(current, input)
+	if err != nil {
+		return err
+	}
+	if !reflect.DeepEqual(expected, successor) {
+		return ErrInvariant
+	}
+	return nil
 }
 
 func Advance(current Saga, input Input) (Saga, error) {
@@ -70,7 +129,7 @@ func Advance(current Saga, input Input) (Saga, error) {
 		if current.Status != Available {
 			return Saga{}, ErrInvalidTransition
 		}
-		if input.ClaimKey == "" || input.TargetTenantID == "" || input.TargetUserID == "" || input.MissionID == "" {
+		if input.ClaimKey == "" || (current.ClaimKey != "" && current.ClaimKey != input.ClaimKey) || input.TargetTenantID == "" || input.TargetUserID == "" || input.MissionID == "" {
 			return Saga{}, ErrInvariant
 		}
 		next.Status = Reserved
@@ -96,18 +155,24 @@ func Advance(current Saga, input Input) (Saga, error) {
 		if current.Status != Erasing {
 			return Saga{}, ErrInvalidTransition
 		}
-		if !slices.Contains(requiredReceipts, input.DeletionReceipt) {
+		receipt := input.DeletionReceipt
+		if !slices.Contains(requiredReceipts, receipt.Surface) || receipt.ID == "" || receipt.Hash == "" || receipt.ErasedAt.IsZero() || !validDetails(receipt.Details) {
 			return Saga{}, ErrInvariant
 		}
-		if !slices.Contains(next.DeletionReceipts, input.DeletionReceipt) {
-			next.DeletionReceipts = append(slices.Clone(next.DeletionReceipts), input.DeletionReceipt)
+		if existingIndex := slices.IndexFunc(next.DeletionReceipts, func(existing DeletionReceipt) bool { return existing.Surface == receipt.Surface }); existingIndex >= 0 {
+			if next.DeletionReceipts[existingIndex].ID != receipt.ID || next.DeletionReceipts[existingIndex].Hash != receipt.Hash || !next.DeletionReceipts[existingIndex].ErasedAt.Equal(receipt.ErasedAt) || string(next.DeletionReceipts[existingIndex].Details) != string(receipt.Details) {
+				return Saga{}, ErrInvariant
+			}
+			return current, nil
+		} else {
+			next.DeletionReceipts = append(slices.Clone(next.DeletionReceipts), receipt)
 		}
 	case Complete:
 		if current.Status != Erasing {
 			return Saga{}, ErrInvalidTransition
 		}
 		for _, receipt := range requiredReceipts {
-			if !slices.Contains(current.DeletionReceipts, receipt) {
+			if !HasDeletionReceipt(current, receipt) {
 				return Saga{}, fmt.Errorf("%w: missing %s", ErrInvariant, receipt)
 			}
 		}
@@ -127,4 +192,12 @@ func Advance(current Saga, input Input) (Saga, error) {
 	}
 	next.Version++
 	return next, nil
+}
+
+func validDetails(details json.RawMessage) bool {
+	if len(details) == 0 || !json.Valid(details) {
+		return false
+	}
+	var object map[string]json.RawMessage
+	return json.Unmarshal(details, &object) == nil && object != nil
 }
