@@ -26,7 +26,7 @@ type ClaimRunCommand struct {
 	WorkerID            string
 	Actor               json.RawMessage
 	CorrelationID       string
-	RunStartedEvent     PayloadPointer
+	RunEvent            PayloadPointer
 	AttemptStartedEvent PayloadPointer
 }
 
@@ -34,8 +34,11 @@ type RunClaim struct {
 	RunID          string
 	TenantID       string
 	UserID         string
+	StoreEpoch     string
 	RunVersion     uint64
 	CommandID      string
+	ConsumerName   string
+	RequestHash    string
 	JobID          string
 	InboxID        string
 	AttemptID      string
@@ -117,10 +120,10 @@ func (store RunStore) ClaimStart(ctx context.Context, command ClaimRunCommand) (
 			return RunClaim{}, ErrClaimConflict
 		}
 		if status == "completed" {
-			return RunClaim{RunID: command.Command.AggregateID, TenantID: command.Command.TenantID, CommandID: command.Command.CommandID, AttemptID: actualAttempt, Fence: actualFence, LeaseExpiresAt: actualExpiry, Completed: true}, ErrClaimCompleted
+			return RunClaim{RunID: command.Command.AggregateID, TenantID: command.Command.TenantID, StoreEpoch: command.Command.StoreEpoch, CommandID: command.Command.CommandID, ConsumerName: command.ConsumerName, RequestHash: command.Command.PayloadHash, AttemptID: actualAttempt, Fence: actualFence, LeaseExpiresAt: actualExpiry, Completed: true}, ErrClaimCompleted
 		}
 		if status == "running" && actualExpiry.After(now) {
-			return RunClaim{RunID: command.Command.AggregateID, TenantID: command.Command.TenantID, CommandID: command.Command.CommandID, AttemptID: actualAttempt, Fence: actualFence, LeaseExpiresAt: actualExpiry}, ErrClaimBusy
+			return RunClaim{RunID: command.Command.AggregateID, TenantID: command.Command.TenantID, StoreEpoch: command.Command.StoreEpoch, CommandID: command.Command.CommandID, ConsumerName: command.ConsumerName, RequestHash: command.Command.PayloadHash, AttemptID: actualAttempt, Fence: actualFence, LeaseExpiresAt: actualExpiry}, ErrClaimBusy
 		}
 		return RunClaim{}, ErrRunNotClaimable
 	}
@@ -157,7 +160,7 @@ func (store RunStore) ClaimStart(ctx context.Context, command ClaimRunCommand) (
 	if err != nil {
 		return RunClaim{}, err
 	}
-	started := eventpostgres.Input{Event: eventpostgres.Event{ID: eventIDs.runEvent, TenantID: command.Command.TenantID, UserID: userID, EventType: "RunStarted", SchemaVersion: 1, AggregateKind: "run", AggregateID: command.Command.AggregateID, AggregateVersion: nextVersion, StoreEpoch: store.StoreEpoch, OccurredAt: now, Actor: command.Actor, CorrelationID: command.CorrelationID, PayloadRef: command.RunStartedEvent.Ref, PayloadHash: command.RunStartedEvent.Hash}, Commands: []eventpostgres.OutboxCommand{{ID: eventIDs.runOutbox, CommandID: eventIDs.runPublish, CommandType: "events.publish", PayloadRef: command.RunStartedEvent.Ref, PayloadHash: command.RunStartedEvent.Hash}}}
+	started := eventpostgres.Input{Event: eventpostgres.Event{ID: eventIDs.runEvent, TenantID: command.Command.TenantID, UserID: userID, EventType: claimRunEventType(command.Command.CommandType), SchemaVersion: 1, AggregateKind: "run", AggregateID: command.Command.AggregateID, AggregateVersion: nextVersion, StoreEpoch: store.StoreEpoch, OccurredAt: now, Actor: command.Actor, CorrelationID: command.CorrelationID, PayloadRef: command.RunEvent.Ref, PayloadHash: command.RunEvent.Hash}, Commands: []eventpostgres.OutboxCommand{{ID: eventIDs.runOutbox, CommandID: eventIDs.runPublish, CommandType: "events.publish", PayloadRef: command.RunEvent.Ref, PayloadHash: command.RunEvent.Hash}}}
 	if _, err = store.Appender.Append(ctx, tx, started); err != nil {
 		return RunClaim{}, err
 	}
@@ -169,7 +172,7 @@ func (store RunStore) ClaimStart(ctx context.Context, command ClaimRunCommand) (
 	if err = tx.Commit(ctx); err != nil {
 		return RunClaim{}, err
 	}
-	return RunClaim{RunID: command.Command.AggregateID, TenantID: command.Command.TenantID, UserID: userID, RunVersion: nextVersion, CommandID: command.Command.CommandID, JobID: jobID, InboxID: inboxID, AttemptID: attemptID, Fence: candidateFence, LeaseToken: credential.Raw, LeaseExpiresAt: expiresAt}, nil
+	return RunClaim{RunID: command.Command.AggregateID, TenantID: command.Command.TenantID, UserID: userID, StoreEpoch: command.Command.StoreEpoch, RunVersion: nextVersion, CommandID: command.Command.CommandID, ConsumerName: command.ConsumerName, RequestHash: command.Command.PayloadHash, JobID: jobID, InboxID: inboxID, AttemptID: attemptID, Fence: candidateFence, LeaseToken: credential.Raw, LeaseExpiresAt: expiresAt}, nil
 }
 
 type claimEventIDs struct{ runEvent, runOutbox, runPublish, attemptEvent, attemptOutbox, attemptPublish string }
@@ -193,5 +196,16 @@ func (store RunStore) validClaim() bool {
 
 func validClaimRun(command ClaimRunCommand) bool {
 	delivered := command.Command
-	return delivered.TenantID != "" && delivered.StoreEpoch != "" && delivered.CommandID != "" && delivered.CommandType == "StartAgentRun" && delivered.AggregateKind == "run" && delivered.AggregateID != "" && delivered.PayloadRef != "" && delivered.PayloadHash != "" && command.ConsumerName != "" && command.WorkerID != "" && validJSONObject(command.Actor) && command.CorrelationID != "" && validPointer(command.RunStartedEvent) && validPointer(command.AttemptStartedEvent)
+	return delivered.TenantID != "" && delivered.StoreEpoch != "" && delivered.CommandID != "" && validRunCommandType(delivered.CommandType) && delivered.AggregateKind == "run" && delivered.AggregateID != "" && delivered.PayloadRef != "" && delivered.PayloadHash != "" && command.ConsumerName != "" && command.WorkerID != "" && validJSONObject(command.Actor) && command.CorrelationID != "" && validPointer(command.RunEvent) && validPointer(command.AttemptStartedEvent)
+}
+
+func validRunCommandType(commandType string) bool {
+	return commandType == "StartAgentRun" || commandType == "ResumeAgentRun" || commandType == "ResumeParentRun"
+}
+
+func claimRunEventType(commandType string) string {
+	if commandType == "StartAgentRun" {
+		return "RunStarted"
+	}
+	return "RunResumed"
 }

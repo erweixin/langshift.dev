@@ -139,7 +139,7 @@ func TestAcceptRunIsAtomicReplaySafeAndTenantIsolated(t *testing.T) {
 		},
 		ConsumerName: "agent-run-worker", WorkerID: "worker-us-1-a", CorrelationID: correlationID,
 		Actor:               json.RawMessage(`{"kind":"service","id":"agent-run-worker"}`),
-		RunStartedEvent:     PayloadPointer{Ref: "encrypted://events/run-started", Hash: "run-started-hash"},
+		RunEvent:            PayloadPointer{Ref: "encrypted://events/run-started", Hash: "run-started-hash"},
 		AttemptStartedEvent: PayloadPointer{Ref: "encrypted://events/attempt-started", Hash: "attempt-started-hash"},
 	}
 	stale := claimCommand
@@ -220,6 +220,97 @@ func TestAcceptRunIsAtomicReplaySafeAndTenantIsolated(t *testing.T) {
 	}
 	if runEvents != 3 || attemptEvents != 1 || totalOutbox != 5 || inboxRows != 1 || attemptRows != 1 {
 		t.Fatalf("run events=%d attempt events=%d outbox=%d inbox=%d attempts=%d", runEvents, attemptEvents, totalOutbox, inboxRows, attemptRows)
+	}
+
+	originalClaim := winner
+	now = now.Add(30 * time.Second)
+	winner, err = store.HeartbeatRun(ctx, winner)
+	if err != nil {
+		t.Fatalf("heartbeat: %v", err)
+	}
+	if !winner.LeaseExpiresAt.Equal(now.Add(store.LeaseTTL)) {
+		t.Fatalf("heartbeat expiry=%s", winner.LeaseExpiresAt)
+	}
+	var runExpiry, inboxExpiry, attemptExpiry time.Time
+	var attemptVersion int
+	if err = admin.QueryRow(ctx, `SELECT r.lease_expires_at,i.lease_expires_at,a.lease_expires_at,a.version FROM agent.runs r JOIN agent.inbox i ON i.id=$2 JOIN agent.job_attempts a ON a.id=$3 WHERE r.id=$1`, runID, winner.InboxID, winner.AttemptID).Scan(&runExpiry, &inboxExpiry, &attemptExpiry, &attemptVersion); err != nil {
+		t.Fatal(err)
+	}
+	if !runExpiry.Equal(winner.LeaseExpiresAt) || !inboxExpiry.Equal(winner.LeaseExpiresAt) || !attemptExpiry.Equal(winner.LeaseExpiresAt) || attemptVersion != 2 {
+		t.Fatalf("heartbeat did not converge: run=%s inbox=%s attempt=%s version=%d", runExpiry, inboxExpiry, attemptExpiry, attemptVersion)
+	}
+	if _, err = store.HeartbeatRun(ctx, originalClaim); !errors.Is(err, ErrExecutionRightConflict) {
+		t.Fatalf("stale heartbeat: %v", err)
+	}
+	wrongToken := winner
+	wrongToken.LeaseToken = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+	if _, err = store.HeartbeatRun(ctx, wrongToken); !errors.Is(err, ErrExecutionRightConflict) {
+		t.Fatalf("wrong-token heartbeat: %v", err)
+	}
+
+	now = now.Add(30 * time.Second)
+	complete := CompleteRunCommand{
+		Claim: winner, ExpectedRunVersion: winner.RunVersion, TargetState: "succeeded", ResultHash: "result-sha256",
+		Actor: json.RawMessage(`{"kind":"service","id":"agent-run-worker"}`), CorrelationID: correlationID,
+		RunEvent: PayloadPointer{Ref: "encrypted://events/run-succeeded", Hash: "run-succeeded-hash"}, AttemptCompletedEvent: PayloadPointer{Ref: "encrypted://events/attempt-completed", Hash: "attempt-completed-hash"},
+	}
+	var completeWait sync.WaitGroup
+	completeResults := make(chan CompletedRun, workers)
+	completeErrors := make(chan error, workers)
+	for range workers {
+		completeWait.Add(1)
+		go func() {
+			defer completeWait.Done()
+			result, completeErr := store.CompleteRunTerminal(ctx, complete)
+			if completeErr != nil {
+				completeErrors <- completeErr
+				return
+			}
+			completeResults <- result
+		}()
+	}
+	completeWait.Wait()
+	close(completeResults)
+	close(completeErrors)
+	var completed CompletedRun
+	var successfulCompletions, staleCompletions int
+	for result := range completeResults {
+		completed = result
+		successfulCompletions++
+	}
+	for completeErr := range completeErrors {
+		if !errors.Is(completeErr, ErrExecutionRightConflict) {
+			t.Fatalf("unexpected completion error: %v", completeErr)
+		}
+		staleCompletions++
+	}
+	if successfulCompletions != 1 || staleCompletions != workers-1 || completed.RunVersion != 4 || completed.Status != "succeeded" || completed.AttemptStatus != "succeeded" {
+		t.Fatalf("completion=%#v successful=%d stale=%d", completed, successfulCompletions, staleCompletions)
+	}
+	var activeCleared bool
+	var jobVersion, finalAttemptVersion int
+	err = admin.QueryRow(ctx, `
+		SELECT r.status,r.run_version,
+		       r.active_command_id IS NULL AND r.active_attempt_id IS NULL AND r.lease_token_hash IS NULL AND r.lease_expires_at IS NULL,
+		       j.status,j.version,i.status,a.status,a.version,
+		       (SELECT count(*) FROM agent.events WHERE aggregate_kind='run' AND aggregate_id=$1),
+		       (SELECT count(*) FROM agent.events WHERE aggregate_kind='job_attempt' AND aggregate_id=$3),
+		       (SELECT count(*) FROM agent.outbox WHERE aggregate_id IN ($1,$3))
+		FROM agent.runs r
+		JOIN agent.jobs j ON j.id=$2
+		JOIN agent.inbox i ON i.id=$4
+		JOIN agent.job_attempts a ON a.id=$3
+		WHERE r.id=$1`, runID, winner.JobID, winner.AttemptID, winner.InboxID).Scan(
+		&runStatus, &runVersion, &activeCleared, &jobStatus, &jobVersion, &inboxStatus, &attemptStatus, &finalAttemptVersion, &runEvents, &attemptEvents, &totalOutbox,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runStatus != "succeeded" || runVersion != 4 || !activeCleared || jobStatus != "succeeded" || jobVersion != 2 || inboxStatus != "completed" || attemptStatus != "succeeded" || finalAttemptVersion != 3 {
+		t.Fatalf("terminal run=%s/v%d cleared=%v job=%s/v%d inbox=%s attempt=%s/v%d", runStatus, runVersion, activeCleared, jobStatus, jobVersion, inboxStatus, attemptStatus, finalAttemptVersion)
+	}
+	if runEvents != 4 || attemptEvents != 2 || totalOutbox != 7 {
+		t.Fatalf("terminal run events=%d attempt events=%d outbox=%d", runEvents, attemptEvents, totalOutbox)
 	}
 }
 

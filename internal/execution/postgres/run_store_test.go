@@ -8,6 +8,7 @@ import (
 	"time"
 
 	eventpostgres "github.com/langshift/lites/internal/eventstore/postgres"
+	"github.com/langshift/lites/internal/execution/statemachine"
 )
 
 func TestAcceptFailsClosedBeforeDatabaseAccess(t *testing.T) {
@@ -65,7 +66,7 @@ func TestClaimInputFailsClosedAndIdentifiersAreStable(t *testing.T) {
 		},
 		ConsumerName: "agent-run-worker", WorkerID: "worker-1", CorrelationID: "correlation",
 		Actor:               json.RawMessage(`{"kind":"service"}`),
-		RunStartedEvent:     PayloadPointer{Ref: "encrypted://run-started", Hash: "run-started"},
+		RunEvent:            PayloadPointer{Ref: "encrypted://run-started", Hash: "run-started"},
 		AttemptStartedEvent: PayloadPointer{Ref: "encrypted://attempt-started", Hash: "attempt-started"},
 	}
 	if _, err := (RunStore{}).ClaimStart(t.Context(), valid); !errors.Is(err, ErrConfiguration) {
@@ -76,7 +77,7 @@ func TestClaimInputFailsClosedAndIdentifiersAreStable(t *testing.T) {
 		"wrong aggregate":    func(command *ClaimRunCommand) { command.Command.AggregateKind = "tool_call" },
 		"missing worker":     func(command *ClaimRunCommand) { command.WorkerID = "" },
 		"scalar actor":       func(command *ClaimRunCommand) { command.Actor = json.RawMessage(`1`) },
-		"missing event hash": func(command *ClaimRunCommand) { command.RunStartedEvent.Hash = "" },
+		"missing event hash": func(command *ClaimRunCommand) { command.RunEvent.Hash = "" },
 	} {
 		t.Run(name, func(t *testing.T) {
 			candidate := valid
@@ -85,6 +86,15 @@ func TestClaimInputFailsClosedAndIdentifiersAreStable(t *testing.T) {
 				t.Fatal("invalid claim accepted")
 			}
 		})
+	}
+	for commandType, eventType := range map[string]string{
+		"StartAgentRun": "RunStarted", "ResumeAgentRun": "RunResumed", "ResumeParentRun": "RunResumed",
+	} {
+		candidate := valid
+		candidate.Command.CommandType = commandType
+		if !validClaimRun(candidate) || claimRunEventType(commandType) != eventType {
+			t.Fatalf("command type %s did not map to %s", commandType, eventType)
+		}
 	}
 
 	store := RunStore{IDKey: bytes.Repeat([]byte{0x42}, 32)}
@@ -105,5 +115,24 @@ func TestClaimInputFailsClosedAndIdentifiersAreStable(t *testing.T) {
 			t.Fatalf("claim identifier domain collision: %s", value)
 		}
 		seen[value] = true
+	}
+}
+
+func TestTerminalRunMappingsAreExhaustive(t *testing.T) {
+	for _, test := range []struct {
+		state        string
+		event        string
+		attemptState string
+		jobState     string
+	}{
+		{state: "succeeded", event: "RunSucceeded", attemptState: "succeeded", jobState: "succeeded"},
+		{state: "failed", event: "RunFailed", attemptState: "failed", jobState: "failed"},
+		{state: "cancelled", event: "RunCancelled", attemptState: "abandoned", jobState: "cancelled"},
+		{state: "expired", event: "RunExpired", attemptState: "expired", jobState: "expired"},
+	} {
+		attemptState, jobState := terminalExecutionStates(statemachine.RunState(test.state))
+		if terminalRunEventType(statemachine.RunState(test.state)) != test.event || string(attemptState) != test.attemptState || jobState != test.jobState {
+			t.Fatalf("invalid terminal mapping for %s", test.state)
+		}
 	}
 }
