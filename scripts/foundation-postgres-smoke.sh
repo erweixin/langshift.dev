@@ -54,7 +54,8 @@ for migration in \
   deploy/migrations/000012_command_redelivery_protocol.up.sql \
   deploy/migrations/000013_expired_effect_sweeper.up.sql \
   deploy/migrations/000014_repair_resolution_contract.up.sql \
-  deploy/migrations/000015_repair_recovery_scan.up.sql; do
+  deploy/migrations/000015_repair_recovery_scan.up.sql \
+  deploy/migrations/000016_generalized_repair_targets.up.sql; do
   target="/tmp/$(basename "${migration}")"
   docker cp "${migration}" "${container_name}:${target}" >/dev/null
   docker exec "${container_name}" psql -v ON_ERROR_STOP=1 -U postgres -d lites_foundation -f "${target}" >/dev/null

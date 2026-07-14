@@ -1,0 +1,41 @@
+import { createHash } from "node:crypto";
+import { readFile, writeFile } from "node:fs/promises";
+import { resolve } from "node:path";
+
+const root=resolve(import.meta.dirname,"..");
+const sha256=value=>createHash("sha256").update(typeof value==="string"||Buffer.isBuffer(value)?value:JSON.stringify(value)).digest("hex");
+const read=path=>readFile(resolve(root,path));
+const load=async path=>JSON.parse(await read(path));
+const checks=[];
+const check=(id,passed,details)=>checks.push({id,status:passed?"passed":"failed",details});
+
+const baseRegistry=await load("contracts/events/registry.json");
+const baseFixtures=await load("contracts/events/upcaster-fixtures.json");
+const registry=await load("contracts/events/amendments/v1.1.0/registry.json");
+const fixtures=await load("contracts/events/amendments/v1.1.0/upcaster-fixtures.json");
+const amendment=await load("gate-reports/stage-3/contract-amendment-v1.1.json");
+const snapshot=await load("gate-reports/stage-1/contract-snapshot.json");
+const eventNames=Object.keys(registry.schemas);
+const baseNames=new Set(Object.keys(baseRegistry.schemas));
+
+check("AMENDMENT-VERSION",registry.amendmentVersion==="1.1.0"&&registry.baseContractVersion===baseRegistry.contractVersion&&registry.compatibility==="additive","additive event amendment extends the frozen 1.0.0 registry");
+check("AMENDMENT-EVENTS",JSON.stringify(eventNames)===JSON.stringify(["AnonymousClaimManualReviewResolved","RepairCommandExpired"])&&eventNames.every(name=>!baseNames.has(name)),"two new event types do not replace a frozen event");
+check("AMENDMENT-SCHEMAS",Object.values(registry.schemas).every(schema=>schema.additionalProperties===false&&schema["x-event-schema-version"]===1&&schema.properties.payload.additionalProperties===false&&schema.properties.payload.required.every(field=>field in schema.properties.payload.properties)),"new event envelopes and payloads are closed and versioned");
+const resolved=registry.schemas.AnonymousClaimManualReviewResolved.properties.payload.required;
+check("CLAIM-REPAIR-EVIDENCE",["claim_id","claim_key","repair_command_id","previous_claim_version","restored_status","destination_commit_event_id","evidence_hash"].every(field=>resolved.includes(field)),"manual claim repair event binds scope, prior version, restored state and evidence");
+const expired=registry.schemas.RepairCommandExpired.properties.payload.required;
+check("REPAIR-EXPIRY-EVIDENCE",["repair_command_id","target_kind","target_id","target_version","expired_at"].every(field=>expired.includes(field)),"repair expiry event binds target scope and expiry time");
+check("AMENDMENT-FIXTURES",fixtures.baseFixtureVersion===baseFixtures.fixtureVersion&&fixtures.fixtures.length===eventNames.length&&fixtures.fixtures.every(fixture=>fixture.fromVersion===1&&fixture.toVersion===1&&fixture.inputHash===sha256(fixture.input)&&fixture.expectedHash===sha256(fixture.expected)&&JSON.stringify(fixture.input)===JSON.stringify(fixture.expected)&&eventNames.includes(fixture.eventType)),"each new event has a deterministic canonical fixture");
+
+const files=[];
+for(const path of ["contracts/events/amendments/v1.1.0/registry.json","contracts/events/amendments/v1.1.0/upcaster-fixtures.json"]) files.push({path,sha256:sha256(await read(path))});
+const rootHash=sha256({baseSnapshotId:snapshot.snapshotId,files});
+check("AMENDMENT-CONTENT-ROOT",JSON.stringify(amendment.files)===JSON.stringify(files)&&amendment.contentRootSha256===rootHash&&amendment.amendmentId===`contract-amendment-${rootHash.slice(0,20)}`,"amendment report binds the exact extension files");
+check("AMENDMENT-BASE",amendment.baseSnapshotId===snapshot.snapshotId&&amendment.baseContentRootSha256===snapshot.contentRootSha256,"amendment is anchored to the frozen Stage 1 snapshot");
+
+const failures=checks.filter(item=>item.status==="failed");
+const reportBase={reportVersion:"1.0.0",stage:3,kind:"contract-amendment-lint",status:failures.length?"failed":"passed",summary:{checks:checks.length,passed:checks.length-failures.length,failed:failures.length},results:checks};
+const report={...reportBase,reportHash:sha256(reportBase)};
+await writeFile(resolve(root,"gate-reports/stage-3/contract-amendment-lint.json"),`${JSON.stringify(report,null,2)}\n`);
+console.log(`${report.status}: ${report.summary.passed}/${report.summary.checks} Stage 3 amendment checks passed; report ${report.reportHash}`);
+if(failures.length) process.exitCode=1;

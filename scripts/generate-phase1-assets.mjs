@@ -363,6 +363,7 @@ const eventTypes = [
   "MessageAppended","RunAccepted","RunQueued","RunStarted","RunResumed","RunResumeQueued","RunSucceeded","RunFailed","RunCancelled","RunExpired","ToolCallRequested","ToolCallPreviewRequested","ToolCallPreviewStarted","ToolCallProposed","ToolCallStarted","ToolCallSucceeded","ToolCallFailed","ToolCallCancelled","ToolCallOutcomeUnknown","ToolCallManuallyResolved","WorkspaceRevisionPrepared","WorkspaceRevisionCommitAuthorized","WorkspaceRevisionCommitStarted","WorkspaceRevisionCommitted","WorkspaceRevisionCommitRevoked","ApprovalRequested","ApprovalGranted","ApprovalRejected","ApprovalInvalidated","JobAttemptStarted","JobAttemptCompleted","CommandRedeliveryRequested","MemoryUpserted","MemoryDeleted","ProviderAttemptRecorded",
   "ProgramCreated","CohortCreated","EnrollmentChanged","RolePackPublished","ContractProposed","ContractApproved","ContractActivated","EntitlementChanged","UsageReserved","UsageSettled","UsageReleased","UsageAdjusted","AggregateSnapshotCreated","AggregateQueryConsumed","AggregateCellSuppressed","RepairCommandProposed","RepairCommandApproved","RepairCommandExecuted","MembershipReactivated","MembershipRoleChanged","ToolGroupJoined"
 ];
+const stage3EventTypes=["AnonymousClaimManualReviewResolved","RepairCommandExpired"];
 const eventSchemas = {};
 const stringField={type:"string",minLength:1};
 const nullableString={type:["string","null"]};
@@ -374,6 +375,7 @@ const criticalEventFields={
   AnonymousClaimErasureStarted:{claim_id:stringField,claim_key:stringField,required_surfaces:{type:"array",minItems:1,items:stringField}},
   AnonymousErasureReceiptRecorded:{claim_id:stringField,surface:stringField,receipt_hash:stringField,erased_at:{type:"string",format:"date-time"}},
   AnonymousClaimCompleted:{claim_id:stringField,claim_key:stringField,mission_id:stringField,receipt_manifest_hash:stringField,claimed_at:{type:"string",format:"date-time"}},
+  AnonymousClaimManualReviewResolved:{claim_id:stringField,claim_key:stringField,repair_command_id:stringField,previous_claim_version:positiveVersion,restored_status:{enum:["reserved","destination_committed","erasing"]},destination_commit_event_id:nullableString,evidence_hash:stringField},
   MissionFocusChanged:{user_id:stringField,previous_mission_id:nullableString,mission_id:nullableString,previous_focus_version:nonNegative,focus_version:positiveVersion,reason_code:stringField},
   RouteGenerationRequested:{mission_id:stringField,route_revision_id:stringField,base_route_version:nonNegative,claim_set_hash:stringField,input_manifest_hash:stringField,profile_snapshot_id:stringField},
   RouteProposed:{mission_id:stringField,route_revision_id:stringField,route_version:positiveVersion,base_route_version:nonNegative,claim_set_hash:stringField,input_manifest_hash:stringField,profile_snapshot_id:stringField,ontology_snapshot_id:stringField,content_snapshot_id:stringField},
@@ -410,7 +412,8 @@ const criticalEventFields={
   UsageReleased:{reservation_id:stringField,bucket_id:stringField,operation_key:stringField,released_units:nonNegative,ledger_entry_id:stringField,reason_code:stringField},
   ContractApproved:{contract_id:stringField,proposal_hash:stringField,target_version:positiveVersion,approval_event_ids:{type:"array",minItems:2,items:stringField}},
   RepairCommandApproved:{repair_command_id:stringField,proposal_hash:stringField,target_kind:stringField,target_id:stringField,target_version:positiveVersion,approval_event_ids:{type:"array",minItems:2,items:stringField}},
-  RepairCommandExecuted:{repair_command_id:stringField,proposal_hash:stringField,target_kind:stringField,target_id:stringField,previous_target_version:positiveVersion,result_event_ids:{type:"array",minItems:1,items:stringField}}
+  RepairCommandExecuted:{repair_command_id:stringField,proposal_hash:stringField,target_kind:stringField,target_id:stringField,previous_target_version:positiveVersion,result_event_ids:{type:"array",minItems:1,items:stringField}},
+  RepairCommandExpired:{repair_command_id:stringField,target_kind:stringField,target_id:stringField,target_version:positiveVersion,expired_at:{type:"string",format:"date-time"}}
 };
 const eventPayloadSchema=(eventType)=>{
   const properties={subject_id:{type:"string",minLength:1},subject_version:{type:"integer",minimum:1}};
@@ -426,8 +429,7 @@ const eventPayloadSchema=(eventType)=>{
   Object.assign(properties,criticalEventFields[eventType]??{});
   return {type:"object",additionalProperties:false,required:Object.keys(properties),properties};
 };
-for (const eventType of eventTypes) {
-  eventSchemas[eventType] = {
+const eventSchema=(eventType)=>({
     $schema: "https://json-schema.org/draft/2020-12/schema",
     $id: `https://lites.dev/events/${eventType}/1.json`,
     title: `${eventType} v1`, type: "object", additionalProperties: false,
@@ -436,28 +438,39 @@ for (const eventType of eventTypes) {
       event_id:{type:"string"}, tenant_id:{type:"string"}, user_id:{type:"string"}, aggregate_id:{type:"string"}, aggregate_version:{type:"integer",minimum:1},
       occurred_at:{type:"string",format:"date-time"}, causation_id:{type:"string"}, correlation_id:{type:"string"}, payload:eventPayloadSchema(eventType)
     },
-    "x-event-type": eventType, "x-event-schema-version": 1, "x-compatibility": "initial", "x-owner": eventType.startsWith("Run") || eventType.startsWith("Tool") || eventType.startsWith("Workspace") ? "agent-platform" : "product-platform"
-  };
-}
+    "x-event-type": eventType, "x-event-schema-version": 1, "x-compatibility": "initial", "x-owner": eventType.startsWith("Run") || eventType.startsWith("Tool") || eventType.startsWith("Workspace") || eventType==="RepairCommandExpired" ? "agent-platform" : "product-platform"
+});
+for (const eventType of eventTypes) eventSchemas[eventType]=eventSchema(eventType);
 await writeJson("contracts/events/registry.json", { contractVersion:"1.0.0", envelopeRequired:["tenant_id","user_id","event_id","event_type","event_schema_version","aggregate_kind","aggregate_id","aggregate_version","store_epoch","seq","occurred_at","committed_at","actor","causation_id","correlation_id","payload_envelope"], schemas:eventSchemas });
-const upcasterFixtures=eventTypes.map((eventType,index)=>{
-  const schema=eventSchemas[eventType].properties.payload;
+const makeUpcasterFixtures=(types,schemas,indexOffset=0)=>types.map((eventType,index)=>{
+  const fixtureIndex=index+indexOffset;
+  const schema=schemas[eventType].properties.payload;
   const payload={};
   for(const [name,field] of Object.entries(schema.properties)){
     if(field.const!==undefined) payload[name]=field.const;
     else if(field.enum) payload[name]=field.enum[0];
     else if(field.type==="integer") payload[name]=field.minimum??1;
     else if(field.type==="number") payload[name]=0;
-    else if(field.type==="array") payload[name]=Array.from({length:field.minItems??0},(_,itemIndex)=>`${name}:${index+1}:${itemIndex+1}`);
+    else if(field.type==="array") payload[name]=Array.from({length:field.minItems??0},(_,itemIndex)=>`${name}:${fixtureIndex+1}:${itemIndex+1}`);
     else if(field.type==="boolean") payload[name]=false;
     else if(Array.isArray(field.type)&&field.type.includes("null")) payload[name]=null;
     else if(field.format==="date-time") payload[name]="2026-07-13T00:00:00.000Z";
     else if(field.format==="date") payload[name]="2026-07-13";
-    else payload[name]=name.endsWith("_hash")?sha256(`${eventType}:${name}`):`${name}:${index+1}`;
+    else payload[name]=name.endsWith("_hash")?sha256(`${eventType}:${name}`):`${name}:${fixtureIndex+1}`;
   }
   return {fixtureId:`${eventType}-v1-canonical`,eventType,fromVersion:1,toVersion:1,input:payload,expected:payload,inputHash:sha256(payload),expectedHash:sha256(payload)};
 });
+const upcasterFixtures=makeUpcasterFixtures(eventTypes,eventSchemas);
 await writeJson("contracts/events/upcaster-fixtures.json",{fixtureVersion:"1.0.0",purityRule:"Upcasters are deterministic pure functions with no network, clock or current-config access.",fixtures:upcasterFixtures});
+
+const stage3EventSchemas=Object.fromEntries(stage3EventTypes.map(eventType=>[eventType,eventSchema(eventType)]));
+await writeJson("contracts/events/amendments/v1.1.0/registry.json",{
+  amendmentVersion:"1.1.0",baseContractVersion:"1.0.0",compatibility:"additive",schemas:stage3EventSchemas
+});
+await writeJson("contracts/events/amendments/v1.1.0/upcaster-fixtures.json",{
+  fixtureVersion:"1.1.0",baseFixtureVersion:"1.0.0",purityRule:"Upcasters are deterministic pure functions with no network, clock or current-config access.",
+  fixtures:makeUpcasterFixtures(stage3EventTypes,stage3EventSchemas,eventTypes.length)
+});
 
 const databaseTables=databaseDefinitions.map(table=>({...table,qualifiedName:`${table.schema}.${table.name}`,rls:table.tenantScoped?"tenant_context_required":table.schema==="identity"?"identity_service_role_only":"service_role_only"}));
 const databaseSchemas=[...new Set(databaseTables.map(table=>table.schema))];
@@ -858,12 +871,28 @@ snapshotPaths.sort();
 const snapshotFiles=[];
 for(const path of snapshotPaths){const body=await readFile(resolve(root,path));snapshotFiles.push({path,sha256:sha256(body)});}
 const contractContentRoot=sha256(snapshotFiles);
-await writeJson("gate-reports/stage-1/contract-snapshot.json",{
-  snapshotVersion:"1.0.0",snapshotId:`contract-${contractContentRoot.slice(0,20)}`,status:"draft",generatedAt,
-  contentRootSha256:contractContentRoot,files:snapshotFiles,
-  approvalBinding:"Every approval must bind snapshotId, contentRootSha256, approver identity, role, review evidence and approval time.",
-  approvals:{product:null,frontend:null,backend:null,security:null,qa:null},
-  activationRule:"All five approvals must bind this exact content root after schema lint, database smoke and review issue closure. Any scoped file change creates a different snapshot and invalidates approvals."
+const stage1SnapshotPath=resolve(root,"gate-reports/stage-1/contract-snapshot.json");
+let stage1Snapshot;
+try { stage1Snapshot=JSON.parse(await readFile(stage1SnapshotPath,"utf8")); } catch {
+  stage1Snapshot={
+    snapshotVersion:"1.0.0",snapshotId:`contract-${contractContentRoot.slice(0,20)}`,status:"draft",generatedAt,
+    contentRootSha256:contractContentRoot,files:snapshotFiles,
+    approvalBinding:"Every approval must bind snapshotId, contentRootSha256, approver identity, role, review evidence and approval time.",
+    approvals:{product:null,frontend:null,backend:null,security:null,qa:null},
+    activationRule:"All five approvals must bind this exact content root after schema lint, database smoke and review issue closure. Any scoped file change creates a different snapshot and invalidates approvals."
+  };
+  await writeJson("gate-reports/stage-1/contract-snapshot.json",stage1Snapshot);
+}
+const amendedPaths=["contracts/events/amendments/v1.1.0/registry.json","contracts/events/amendments/v1.1.0/upcaster-fixtures.json"];
+const amendedFiles=[];
+for(const path of amendedPaths){amendedFiles.push({path,sha256:sha256(await readFile(resolve(root,path)))});}
+const amendmentRoot=sha256({baseSnapshotId:stage1Snapshot.snapshotId,files:amendedFiles});
+await writeJson("gate-reports/stage-3/contract-amendment-v1.1.json",{
+  amendmentVersion:"1.1.0",amendmentId:`contract-amendment-${amendmentRoot.slice(0,20)}`,status:"draft",generatedAt,
+  baseSnapshotId:stage1Snapshot.snapshotId,baseContentRootSha256:stage1Snapshot.contentRootSha256,
+  contentRootSha256:amendmentRoot,files:amendedFiles,
+  reason:"Add audited AnonymousClaim manual-review resolution and Repair Command expiry events required by Stage 3.",
+  activationRule:"Backend, security and QA approval must bind this amendment root after schema lint, migration verification and fault-injection evidence."
 });
 
-console.log(`Generated ${operations.length} API operations, ${eventTypes.length} event schemas, ${requirements.length} requirements, ${securitySamples.length} security samples, ${e2eSamples.length} bilingual product eval samples and ${profiles.length * 200} profile eval samples.`);
+console.log(`Generated ${operations.length} API operations, ${eventTypes.length} base event schemas, ${stage3EventTypes.length} Stage 3 event schemas, ${requirements.length} requirements, ${securitySamples.length} security samples, ${e2eSamples.length} bilingual product eval samples and ${profiles.length * 200} profile eval samples.`);
