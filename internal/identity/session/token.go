@@ -3,6 +3,7 @@
 package session
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
@@ -20,6 +21,22 @@ const (
 )
 
 var ErrInvalidToken = errors.New("session token is invalid")
+var ErrUnauthenticated = errors.New("session is not authenticated")
+var ErrTenantUnavailable = errors.New("target tenant membership is not active")
+var ErrVersionConflict = errors.New("session version conflict")
+
+type Principal struct {
+	UserID       string
+	TenantID     string
+	MembershipID string
+	SessionID    string
+	Roles        []string
+	ExpiresAt    time.Time
+}
+
+type Resolver interface {
+	Resolve(context.Context, string) (Principal, error)
+}
 
 type Credential struct {
 	Raw    string

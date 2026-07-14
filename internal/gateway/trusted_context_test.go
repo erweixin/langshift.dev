@@ -17,11 +17,11 @@ import (
 )
 
 type resolverStub struct {
-	principal Principal
+	principal session.Principal
 	err       error
 }
 
-func (resolver resolverStub) Resolve(context.Context, string) (Principal, error) {
+func (resolver resolverStub) Resolve(context.Context, string) (session.Principal, error) {
 	return resolver.principal, resolver.err
 }
 
@@ -31,7 +31,7 @@ func TestGatewayStripsForgedIdentityAndIssuesServerContext(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Unix(1_800_000_000, 0)
-	principal := Principal{UserID: "user-real", TenantID: "tenant-real", MembershipID: "membership-real", SessionID: "session-real", Roles: []string{"member"}, ExpiresAt: now.Add(time.Hour)}
+	principal := session.Principal{UserID: "user-real", TenantID: "tenant-real", MembershipID: "membership-real", SessionID: "session-real", Roles: []string{"member"}, ExpiresAt: now.Add(time.Hour)}
 	boundary := TrustBoundary{Resolver: resolverStub{principal: principal}, SigningKey: privateKey, SigningKeyID: "gateway-key", Issuer: "lites-gateway", Audience: "identity-service", TTL: 2 * time.Minute, Now: func() time.Time { return now }}
 	verifier := trustedcontext.Verifier{Issuer: "lites-gateway", Audience: "identity-service", Keys: map[string]ed25519.PublicKey{"gateway-key": publicKey}, MaximumTTL: 5 * time.Minute, ClockSkew: time.Second}
 	upstream := http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -73,8 +73,8 @@ func TestGatewayRejectsMissingRevokedAndExpiredSessions(t *testing.T) {
 		resolver resolverStub
 	}{
 		{name: "missing cookie", resolver: resolverStub{}},
-		{name: "revoked", cookie: true, resolver: resolverStub{err: ErrUnauthenticated}},
-		{name: "expired", cookie: true, resolver: resolverStub{principal: Principal{UserID: "u", TenantID: "t", MembershipID: "m", SessionID: "s", Roles: []string{"member"}, ExpiresAt: now.Add(-time.Second)}}},
+		{name: "revoked", cookie: true, resolver: resolverStub{err: session.ErrUnauthenticated}},
+		{name: "expired", cookie: true, resolver: resolverStub{principal: session.Principal{UserID: "u", TenantID: "t", MembershipID: "m", SessionID: "s", Roles: []string{"member"}, ExpiresAt: now.Add(-time.Second)}}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

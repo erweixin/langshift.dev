@@ -2,11 +2,9 @@
 package gateway
 
 import (
-	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/base64"
-	"errors"
 	"net/http"
 	"time"
 
@@ -17,27 +15,12 @@ import (
 
 const TrustedContextHeader = "X-Lites-Trusted-Context"
 
-var ErrUnauthenticated = errors.New("session is not authenticated")
-
 var untrustedIdentityHeaders = []string{
 	TrustedContextHeader, "X-Lites-User-ID", "X-Lites-Tenant-ID", "X-Lites-Membership-ID", "X-Lites-Roles", "X-Lites-Session-ID",
 }
 
-type Principal struct {
-	UserID       string
-	TenantID     string
-	MembershipID string
-	SessionID    string
-	Roles        []string
-	ExpiresAt    time.Time
-}
-
-type SessionResolver interface {
-	Resolve(context.Context, string) (Principal, error)
-}
-
 type TrustBoundary struct {
-	Resolver     SessionResolver
+	Resolver     session.Resolver
 	SigningKey   ed25519.PrivateKey
 	SigningKeyID string
 	Issuer       string
