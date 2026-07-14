@@ -58,6 +58,8 @@ type Saga struct {
 	TargetUserID             string
 	MissionID                string
 	DestinationCommitEventID string
+	ReservedAt               time.Time
+	ExpiresAt                time.Time
 	DeletionReceipts         []DeletionReceipt
 }
 
@@ -70,6 +72,7 @@ type Input struct {
 	MissionID                string
 	DestinationCommitEventID string
 	DeletionReceipt          DeletionReceipt
+	OccurredAt               time.Time
 }
 
 func RequiredDeletionSurfaces() []string { return slices.Clone(requiredReceipts) }
@@ -88,6 +91,7 @@ func ValidateSuccessor(current, successor Saga) error {
 	switch {
 	case current.Status == Available && successor.Status == Reserved:
 		input.Command, input.ClaimKey, input.TargetTenantID, input.TargetUserID, input.MissionID = Reserve, successor.ClaimKey, successor.TargetTenantID, successor.TargetUserID, successor.MissionID
+		input.OccurredAt = successor.ReservedAt
 	case current.Status == Reserved && successor.Status == DestinationCommitted:
 		input.Command, input.MissionID, input.DestinationCommitEventID = CommitDestination, successor.MissionID, successor.DestinationCommitEventID
 	case current.Status == DestinationCommitted && successor.Status == Erasing:
@@ -103,7 +107,7 @@ func ValidateSuccessor(current, successor Saga) error {
 	case current.Status == Erasing && successor.Status == Claimed:
 		input.Command = Complete
 	case current.Status == Available && successor.Status == Expired:
-		input.Command = Expire
+		input.Command, input.OccurredAt = Expire, current.ExpiresAt
 	case successor.Status == ManualReview:
 		input.Command = Escalate
 	default:
@@ -129,14 +133,18 @@ func Advance(current Saga, input Input) (Saga, error) {
 		if current.Status != Available {
 			return Saga{}, ErrInvalidTransition
 		}
-		if input.ClaimKey == "" || (current.ClaimKey != "" && current.ClaimKey != input.ClaimKey) || input.TargetTenantID == "" || input.TargetUserID == "" || input.MissionID == "" {
+		if input.ClaimKey == "" || (current.ClaimKey != "" && current.ClaimKey != input.ClaimKey) || input.TargetTenantID == "" || input.TargetUserID == "" || input.MissionID == "" || input.OccurredAt.IsZero() {
 			return Saga{}, ErrInvariant
+		}
+		if !current.ExpiresAt.IsZero() && !input.OccurredAt.Before(current.ExpiresAt) {
+			return Saga{}, ErrInvalidTransition
 		}
 		next.Status = Reserved
 		next.ClaimKey = input.ClaimKey
 		next.TargetTenantID = input.TargetTenantID
 		next.TargetUserID = input.TargetUserID
 		next.MissionID = input.MissionID
+		next.ReservedAt = input.OccurredAt.UTC()
 	case CommitDestination:
 		if current.Status != Reserved {
 			return Saga{}, ErrInvalidTransition
@@ -179,6 +187,9 @@ func Advance(current Saga, input Input) (Saga, error) {
 		next.Status = Claimed
 	case Expire:
 		if current.Status != Available {
+			return Saga{}, ErrInvalidTransition
+		}
+		if current.ExpiresAt.IsZero() || input.OccurredAt.IsZero() || input.OccurredAt.Before(current.ExpiresAt) {
 			return Saga{}, ErrInvalidTransition
 		}
 		next.Status = Expired

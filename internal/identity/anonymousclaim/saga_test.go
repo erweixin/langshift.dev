@@ -10,7 +10,7 @@ import (
 func TestClaimHappyPathRequiresEveryDeletionReceipt(t *testing.T) {
 	saga := Saga{ID: "claim-1", Status: Available, Version: 1}
 	var err error
-	saga, err = Advance(saga, Input{ExpectedVersion: 1, Command: Reserve, ClaimKey: "key-1", TargetTenantID: "tenant-1", TargetUserID: "user-1", MissionID: "mission-1"})
+	saga, err = Advance(saga, Input{ExpectedVersion: 1, Command: Reserve, ClaimKey: "key-1", TargetTenantID: "tenant-1", TargetUserID: "user-1", MissionID: "mission-1", OccurredAt: time.Unix(1_800_000_000, 0).UTC()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +63,7 @@ func TestDeletionReceiptReplayMustMatchOriginalCredential(t *testing.T) {
 }
 
 func TestReservedClaimCannotExpireOrChangeMission(t *testing.T) {
-	saga, _ := Advance(Saga{Status: Available, Version: 1}, Input{ExpectedVersion: 1, Command: Reserve, ClaimKey: "k", TargetTenantID: "t", TargetUserID: "u", MissionID: "m"})
+	saga, _ := Advance(Saga{Status: Available, Version: 1}, Input{ExpectedVersion: 1, Command: Reserve, ClaimKey: "k", TargetTenantID: "t", TargetUserID: "u", MissionID: "m", OccurredAt: time.Unix(1_800_000_000, 0).UTC()})
 	if _, err := Advance(saga, Input{ExpectedVersion: 2, Command: Expire}); !errors.Is(err, ErrInvalidTransition) {
 		t.Fatalf("reserved expiry error=%v", err)
 	}
@@ -72,6 +72,28 @@ func TestReservedClaimCannotExpireOrChangeMission(t *testing.T) {
 	}
 	if _, err := Advance(saga, Input{ExpectedVersion: 1, Command: CommitDestination, MissionID: "m", DestinationCommitEventID: "e"}); !errors.Is(err, ErrVersionConflict) {
 		t.Fatalf("CAS error=%v", err)
+	}
+}
+
+func TestExpiryRequiresDeadlineAndCannotRacePastReservation(t *testing.T) {
+	expiresAt := time.Unix(1_800_000_000, 0).UTC()
+	available := Saga{ID: "claim", Status: Available, Version: 1, ExpiresAt: expiresAt}
+	if _, err := Advance(available, Input{ExpectedVersion: 1, Command: Reserve, ClaimKey: "k", TargetTenantID: "t", TargetUserID: "u", MissionID: "m", OccurredAt: expiresAt}); !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("reservation at expiry error=%v", err)
+	}
+	if _, err := Advance(available, Input{ExpectedVersion: 1, Command: Expire, OccurredAt: expiresAt.Add(-time.Nanosecond)}); !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("early expiry error=%v", err)
+	}
+	reserved, err := Advance(available, Input{ExpectedVersion: 1, Command: Reserve, ClaimKey: "k", TargetTenantID: "t", TargetUserID: "u", MissionID: "m", OccurredAt: expiresAt.Add(-time.Nanosecond)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = Advance(reserved, Input{ExpectedVersion: reserved.Version, Command: Expire, OccurredAt: expiresAt}); !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("reserved expiry error=%v", err)
+	}
+	expired, err := Advance(available, Input{ExpectedVersion: 1, Command: Expire, OccurredAt: expiresAt})
+	if err != nil || expired.Status != Expired {
+		t.Fatalf("expired=%#v error=%v", expired, err)
 	}
 }
 

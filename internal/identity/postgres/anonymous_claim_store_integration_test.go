@@ -92,13 +92,16 @@ func TestAnonymousClaimStoreConvergesWithRLSAndProtectsReservationFromExpiry(t *
 	}
 	store := AnonymousClaimStore{Pool: pool, SystemTenantID: systemTenant, Now: func() time.Time { return now }}
 	reservation := anonymousclaim.Reservation{ClaimID: claimID, ClaimKey: "claim-key-1", TargetTenantID: "79000000-0000-4000-8000-000000000001", TargetUserID: "79000000-0000-4000-8000-000000000002", MissionID: missionID}
-	claimService := anonymousclaim.Service{Store: store}
-	if _, err = claimService.Reserve(ctx, anonymousclaim.Reservation{ClaimID: expiredClaimID, ClaimKey: "claim-key-expired", TargetTenantID: reservation.TargetTenantID, TargetUserID: reservation.TargetUserID, MissionID: "75000000-0000-4000-8000-000000000002"}); !errors.Is(err, anonymousclaim.ErrVersionConflict) {
+	claimService := anonymousclaim.Service{Store: store, Now: func() time.Time { return now }}
+	if _, err = claimService.Reserve(ctx, anonymousclaim.Reservation{ClaimID: expiredClaimID, ClaimKey: "claim-key-expired", TargetTenantID: reservation.TargetTenantID, TargetUserID: reservation.TargetUserID, MissionID: "75000000-0000-4000-8000-000000000002"}); !errors.Is(err, anonymousclaim.ErrInvalidTransition) {
 		t.Fatalf("expired reservation error=%v", err)
+	}
+	if expired, expireErr := claimService.ExpireAvailable(ctx, expiredClaimID); expireErr != nil || expired.Status != anonymousclaim.Expired {
+		t.Fatalf("expired cleanup=%#v error=%v", expired, expireErr)
 	}
 	var expiredStatus string
 	var expiredReservedAt *time.Time
-	if err = admin.QueryRow(ctx, `SELECT status,reserved_at FROM identity.onboarding_claims WHERE id=$1`, expiredClaimID).Scan(&expiredStatus, &expiredReservedAt); err != nil || expiredStatus != "available" || expiredReservedAt != nil {
+	if err = admin.QueryRow(ctx, `SELECT status,reserved_at FROM identity.onboarding_claims WHERE id=$1`, expiredClaimID).Scan(&expiredStatus, &expiredReservedAt); err != nil || expiredStatus != "expired" || expiredReservedAt != nil {
 		t.Fatalf("expired status=%s reserved_at=%v error=%v", expiredStatus, expiredReservedAt, err)
 	}
 	const contenders = 64

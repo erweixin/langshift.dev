@@ -28,9 +28,13 @@ func (store AnonymousClaimStore) Load(ctx context.Context, claimID string) (anon
 		return anonymousclaim.Saga{}, err
 	}
 	var saga anonymousclaim.Saga
-	err = tx.QueryRow(ctx, `SELECT id::text,anonymous_subject_id::text,status,version,claim_key,COALESCE(target_tenant_id::text,''),COALESCE(target_user_id::text,''),COALESCE(target_mission_id::text,''),COALESCE(destination_commit_event_id::text,'') FROM identity.onboarding_claims WHERE id=$1 AND tenant_id=$2`, claimID, store.SystemTenantID).Scan(&saga.ID, &saga.AnonymousSubjectID, &saga.Status, &saga.Version, &saga.ClaimKey, &saga.TargetTenantID, &saga.TargetUserID, &saga.MissionID, &saga.DestinationCommitEventID)
+	var reservedAt *time.Time
+	err = tx.QueryRow(ctx, `SELECT id::text,anonymous_subject_id::text,status,version,claim_key,COALESCE(target_tenant_id::text,''),COALESCE(target_user_id::text,''),COALESCE(target_mission_id::text,''),COALESCE(destination_commit_event_id::text,''),reserved_at,expires_at FROM identity.onboarding_claims WHERE id=$1 AND tenant_id=$2`, claimID, store.SystemTenantID).Scan(&saga.ID, &saga.AnonymousSubjectID, &saga.Status, &saga.Version, &saga.ClaimKey, &saga.TargetTenantID, &saga.TargetUserID, &saga.MissionID, &saga.DestinationCommitEventID, &reservedAt, &saga.ExpiresAt)
 	if err != nil {
 		return anonymousclaim.Saga{}, err
+	}
+	if reservedAt != nil {
+		saga.ReservedAt = reservedAt.UTC()
 	}
 	rows, err := tx.Query(ctx, `SELECT id::text,surface,receipt_hash,erased_at,details FROM identity.anonymous_erasure_receipts WHERE claim_id=$1 AND tenant_id=$2 ORDER BY surface`, claimID, store.SystemTenantID)
 	if err != nil {
@@ -73,7 +77,7 @@ func (store AnonymousClaimStore) CompareAndSwap(ctx context.Context, previous, n
 		return err
 	}
 	if previous.Status == anonymousclaim.Available && next.Status == anonymousclaim.Reserved {
-		tag, reserveErr := tx.Exec(ctx, `UPDATE identity.anonymous_subjects SET reserved_at=COALESCE(reserved_at,$1),version=version+1,updated_at=$1 WHERE id=$2 AND system_tenant_id=$3 AND deleted_at IS NULL AND expires_at>$1`, now, previous.AnonymousSubjectID, store.SystemTenantID)
+		tag, reserveErr := tx.Exec(ctx, `UPDATE identity.anonymous_subjects SET reserved_at=COALESCE(reserved_at,$1),version=version+1,updated_at=$2 WHERE id=$3 AND system_tenant_id=$4 AND deleted_at IS NULL AND expires_at>$1`, next.ReservedAt, now, previous.AnonymousSubjectID, store.SystemTenantID)
 		if reserveErr != nil {
 			return reserveErr
 		}
@@ -81,7 +85,7 @@ func (store AnonymousClaimStore) CompareAndSwap(ctx context.Context, previous, n
 			return anonymousclaim.ErrVersionConflict
 		}
 	}
-	tag, err := tx.Exec(ctx, `UPDATE identity.onboarding_claims SET version=$1,status=$2,claim_key=$3,target_tenant_id=NULLIF($4,'')::uuid,target_user_id=NULLIF($5,'')::uuid,target_mission_id=NULLIF($6,'')::uuid,destination_commit_event_id=NULLIF($7,'')::uuid,reserved_at=CASE WHEN $2='reserved' THEN COALESCE(reserved_at,$8) ELSE reserved_at END,destination_committed_at=CASE WHEN $2='destination_committed' THEN COALESCE(destination_committed_at,$8) ELSE destination_committed_at END,erasing_at=CASE WHEN $2='erasing' THEN COALESCE(erasing_at,$8) ELSE erasing_at END,claimed_at=CASE WHEN $2='claimed' THEN COALESCE(claimed_at,$8) ELSE claimed_at END,updated_at=$8 WHERE id=$9 AND tenant_id=$10 AND version=$11 AND status=$12 AND claim_key=$13`, next.Version, next.Status, next.ClaimKey, next.TargetTenantID, next.TargetUserID, next.MissionID, next.DestinationCommitEventID, now, previous.ID, store.SystemTenantID, previous.Version, previous.Status, previous.ClaimKey)
+	tag, err := tx.Exec(ctx, `UPDATE identity.onboarding_claims SET version=$1,status=$2,claim_key=$3,target_tenant_id=NULLIF($4,'')::uuid,target_user_id=NULLIF($5,'')::uuid,target_mission_id=NULLIF($6,'')::uuid,destination_commit_event_id=NULLIF($7,'')::uuid,reserved_at=CASE WHEN $2='reserved' THEN COALESCE(reserved_at,$14) ELSE reserved_at END,destination_committed_at=CASE WHEN $2='destination_committed' THEN COALESCE(destination_committed_at,$8) ELSE destination_committed_at END,erasing_at=CASE WHEN $2='erasing' THEN COALESCE(erasing_at,$8) ELSE erasing_at END,claimed_at=CASE WHEN $2='claimed' THEN COALESCE(claimed_at,$8) ELSE claimed_at END,updated_at=$8 WHERE id=$9 AND tenant_id=$10 AND version=$11 AND status=$12 AND claim_key=$13 AND ($2<>'expired' OR expires_at<=$8)`, next.Version, next.Status, next.ClaimKey, next.TargetTenantID, next.TargetUserID, next.MissionID, next.DestinationCommitEventID, now, previous.ID, store.SystemTenantID, previous.Version, previous.Status, previous.ClaimKey, next.ReservedAt)
 	if err != nil {
 		return err
 	}

@@ -3,6 +3,7 @@ package anonymousclaim
 import (
 	"context"
 	"errors"
+	"time"
 )
 
 var ErrClaimTaken = errors.New("anonymous route is already reserved by another claim")
@@ -30,6 +31,48 @@ type Service struct {
 	Store       Store
 	Destination DestinationWriter
 	Eraser      Eraser
+	Now         func() time.Time
+}
+
+// Claim is the replay-safe application entrypoint for binding an anonymous
+// route and reconciling all durable saga steps to a terminal state.
+func (service Service) Claim(ctx context.Context, reservation Reservation) (Saga, error) {
+	reserved, err := service.Reserve(ctx, reservation)
+	if err != nil {
+		return Saga{}, err
+	}
+	if reserved.Status == Expired || reserved.Status == ManualReview {
+		return reserved, nil
+	}
+	return service.Reconcile(ctx, reservation.ClaimID)
+}
+
+// ExpireAvailable is safe to redeliver. Once reservation wins the claim CAS,
+// expiry cleanup observes a non-available state and becomes a no-op.
+func (service Service) ExpireAvailable(ctx context.Context, claimID string) (Saga, error) {
+	if service.Store == nil || claimID == "" {
+		return Saga{}, ErrInvariant
+	}
+	for attempts := 0; attempts < 8; attempts++ {
+		current, err := service.Store.Load(ctx, claimID)
+		if err != nil {
+			return Saga{}, err
+		}
+		if current.Status != Available || service.now().Before(current.ExpiresAt) {
+			return current, nil
+		}
+		next, err := Advance(current, Input{ExpectedVersion: current.Version, Command: Expire, OccurredAt: service.now()})
+		if err != nil {
+			return Saga{}, err
+		}
+		if err = service.Store.CompareAndSwap(ctx, current, next); err == nil {
+			return next, nil
+		}
+		if !errors.Is(err, ErrVersionConflict) {
+			return Saga{}, err
+		}
+	}
+	return Saga{}, ErrVersionConflict
 }
 
 type Reservation struct {
@@ -117,7 +160,7 @@ func (service Service) Reserve(ctx context.Context, reservation Reservation) (Sa
 			}
 			return Saga{}, ErrClaimTaken
 		}
-		next, err := Advance(current, Input{ExpectedVersion: current.Version, Command: Reserve, ClaimKey: reservation.ClaimKey, TargetTenantID: reservation.TargetTenantID, TargetUserID: reservation.TargetUserID, MissionID: reservation.MissionID})
+		next, err := Advance(current, Input{ExpectedVersion: current.Version, Command: Reserve, ClaimKey: reservation.ClaimKey, TargetTenantID: reservation.TargetTenantID, TargetUserID: reservation.TargetUserID, MissionID: reservation.MissionID, OccurredAt: service.now()})
 		if err != nil {
 			return Saga{}, err
 		}
@@ -129,4 +172,11 @@ func (service Service) Reserve(ctx context.Context, reservation Reservation) (Sa
 		}
 	}
 	return Saga{}, ErrVersionConflict
+}
+
+func (service Service) now() time.Time {
+	if service.Now != nil {
+		return service.Now().UTC()
+	}
+	return time.Now().UTC()
 }
