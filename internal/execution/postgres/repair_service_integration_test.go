@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	eventpostgres "github.com/langshift/lites/internal/eventstore/postgres"
 	executionapi "github.com/langshift/lites/internal/execution/api"
 	"github.com/langshift/lites/internal/payload"
 )
@@ -273,6 +274,64 @@ func TestRepairRecoveryDiscoversAndExecutesApprovedRepairExactlyOnce(t *testing.
 	repairs, err = service.ListRecoverableRepairIDs(ctx, fixture.tenantID, fixture.store.StoreEpoch, "", 100)
 	if err != nil || len(repairs) != 0 {
 		t.Fatalf("post-recovery repairs=%v err=%v", repairs, err)
+	}
+}
+
+func TestRepairExpirySweepIsEpochFencedAuditedAndReplaySafe(t *testing.T) {
+	ctx := context.Background()
+	admin := executionPool(t, ctx, "LITES_TEST_ADMIN_DATABASE_URL")
+	defer admin.Close()
+	pool := executionPool(t, ctx, "LITES_TEST_AGENT_DATABASE_URL")
+	defer pool.Close()
+	fixture := prepareUnknownRepairFixture(t, ctx, admin, pool, "e0")
+	service, _ := repairControlServiceForFixture(pool, fixture, 0xf4)
+	repairID := fixtureID("e0", 30)
+	proposal := ProposeToolEffectRepairCommand{RepairID: repairID, TenantID: fixture.tenantID, InitiatorUserID: fixture.initiatorID, InitiatorSessionID: fixture.initiatorSessionID, ToolCallID: fixture.toolCallID, ExpectedToolVersion: fixture.toolVersion, ExpectedEffectVersion: fixture.effectVersion, EffectKey: fixture.effectKey, Resolution: "confirmed_not_occurred", ProposalHash: "proposal-e0", EvidenceHash: "evidence-e0", EvidencePayloadRef: "encrypted://evidence/e0", ExpiresAt: fixture.now.Add(time.Minute), Actor: json.RawMessage(`{"kind":"user"}`), CorrelationID: fixture.correlationID, ProposedEvent: repairPointer("e0", "proposed")}
+	if _, err := fixture.store.ProposeToolEffectRepair(ctx, proposal); err != nil {
+		t.Fatal(err)
+	}
+	future := fixture.now.Add(2 * time.Minute)
+	service.Now = func() time.Time { return future }
+	service.Store.Now = func() time.Time { return future }
+	service.Store.Appender = eventpostgres.Appender{Now: func() time.Time { return future }}
+	tenants, err := service.ListExpiredRepairTenantIDs(ctx, fixture.store.StoreEpoch, "", 100, 0, 1)
+	if err != nil || len(tenants) != 1 || tenants[0] != fixture.tenantID {
+		t.Fatalf("expired tenants=%v err=%v", tenants, err)
+	}
+	repairs, err := service.ListExpiredRepairIDs(ctx, fixture.tenantID, fixture.store.StoreEpoch, "", 100)
+	if err != nil || len(repairs) != 1 || repairs[0] != repairID {
+		t.Fatalf("expired repairs=%v err=%v", repairs, err)
+	}
+	first, err := service.ExpireRepair(ctx, fixture.tenantID, repairID, fixture.store.StoreEpoch, fixture.correlationID)
+	if err != nil || first.Status != "expired" || first.Version != 2 || first.Replayed {
+		t.Fatalf("first expiry=%#v err=%v", first, err)
+	}
+	const replays = 12
+	results := make(chan ExpiredRepair, replays)
+	errorsFound := make(chan error, replays)
+	for range replays {
+		go func() {
+			result, replayErr := service.ExpireRepair(ctx, fixture.tenantID, repairID, fixture.store.StoreEpoch, fixture.correlationID)
+			if replayErr != nil {
+				errorsFound <- replayErr
+				return
+			}
+			results <- result
+		}()
+	}
+	for range replays {
+		select {
+		case replayErr := <-errorsFound:
+			t.Fatal(replayErr)
+		case result := <-results:
+			if !result.Replayed || result.EventID != first.EventID || result.Version != first.Version {
+				t.Fatalf("expiry replay=%#v first=%#v", result, first)
+			}
+		}
+	}
+	var eventCount int
+	if err = admin.QueryRow(ctx, `SELECT count(*) FROM agent.events WHERE tenant_id=$1 AND aggregate_id=$2 AND event_type='RepairCommandExpired'`, fixture.tenantID, repairID).Scan(&eventCount); err != nil || eventCount != 1 {
+		t.Fatalf("expiry events=%d err=%v", eventCount, err)
 	}
 }
 

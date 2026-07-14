@@ -23,6 +23,7 @@ type ProposeToolEffectRepairCommand struct {
 	RepairID, TenantID, InitiatorUserID, InitiatorSessionID, ToolCallID string
 	ExpectedToolVersion, ExpectedEffectVersion                          uint64
 	EffectKey, Resolution, ProposalHash, EvidenceHash                   string
+	EvidencePayloadRef                                                  string
 	ResidualRiskRef                                                     string
 	ExpiresAt                                                           time.Time
 	Actor                                                               json.RawMessage
@@ -98,7 +99,7 @@ func (store RunStore) ProposeToolEffectRepair(ctx context.Context, command Propo
 	if err != nil || toolStatus != "outcome_unknown" || effectStatus != "outcome_unknown" || toolVersion != command.ExpectedToolVersion || effectVersion != command.ExpectedEffectVersion || effectKey != command.EffectKey {
 		return ProposedRepair{}, ErrRepairNotActionable
 	}
-	tag, err := tx.Exec(ctx, `INSERT INTO agent.repair_commands(id,tenant_id,source_tenant_id,tool_call_id,repair_kind,target_kind,target_id,target_version,effect_version,effect_key,resolution,proposal_hash,evidence_hash,residual_risk_ref,initiator_user_id,status,expires_at,created_at,updated_at) VALUES($1,$2,$2,$3,'tool_effect_resolution','tool_call',$3,$4,$5,$6,$7,$8,$9,NULLIF($10,''),$11,'proposed',$12,$13,$13) ON CONFLICT DO NOTHING`, command.RepairID, command.TenantID, command.ToolCallID, command.ExpectedToolVersion, command.ExpectedEffectVersion, command.EffectKey, command.Resolution, command.ProposalHash, command.EvidenceHash, command.ResidualRiskRef, command.InitiatorUserID, command.ExpiresAt, now)
+	tag, err := tx.Exec(ctx, `INSERT INTO agent.repair_commands(id,tenant_id,source_tenant_id,tool_call_id,repair_kind,target_kind,target_id,target_version,effect_version,effect_key,resolution,proposal_hash,evidence_hash,evidence_payload_ref,residual_risk_ref,initiator_user_id,status,expires_at,created_at,updated_at) VALUES($1,$2,$2,$3,'tool_effect_resolution','tool_call',$3,$4,$5,$6,$7,$8,$9,NULLIF($10,''),NULLIF($11,''),$12,'proposed',$13,$14,$14) ON CONFLICT DO NOTHING`, command.RepairID, command.TenantID, command.ToolCallID, command.ExpectedToolVersion, command.ExpectedEffectVersion, command.EffectKey, command.Resolution, command.ProposalHash, command.EvidenceHash, command.EvidencePayloadRef, command.ResidualRiskRef, command.InitiatorUserID, command.ExpiresAt, now)
 	if err != nil {
 		return ProposedRepair{}, err
 	}
@@ -124,10 +125,10 @@ func (store RunStore) ProposeToolEffectRepair(ctx context.Context, command Propo
 
 func loadRepairProposalReplay(ctx context.Context, tx pgx.Tx, command ProposeToolEffectRepairCommand, eventID string) (ProposedRepair, bool, error) {
 	var actual ProposedRepair
-	var targetID, initiatorID, effectKey, evidenceHash, residualRisk string
+	var targetID, initiatorID, effectKey, evidenceHash, evidencePayloadRef, residualRisk string
 	var targetVersion, effectVersion uint64
 	var expiresAt time.Time
-	err := tx.QueryRow(ctx, `SELECT id::text,status,version,resolution,proposal_hash,target_id::text,target_version,effect_version,effect_key,evidence_hash,COALESCE(residual_risk_ref,''),initiator_user_id::text,expires_at FROM agent.repair_commands WHERE tenant_id=$1 AND (id=$2 OR proposal_hash=$3) FOR UPDATE`, command.TenantID, command.RepairID, command.ProposalHash).Scan(&actual.RepairID, &actual.Status, &actual.Version, &actual.Resolution, &actual.ProposalHash, &targetID, &targetVersion, &effectVersion, &effectKey, &evidenceHash, &residualRisk, &initiatorID, &expiresAt)
+	err := tx.QueryRow(ctx, `SELECT id::text,status,version,resolution,proposal_hash,target_id::text,target_version,effect_version,effect_key,evidence_hash,COALESCE(evidence_payload_ref,''),COALESCE(residual_risk_ref,''),initiator_user_id::text,expires_at FROM agent.repair_commands WHERE tenant_id=$1 AND (id=$2 OR proposal_hash=$3) FOR UPDATE`, command.TenantID, command.RepairID, command.ProposalHash).Scan(&actual.RepairID, &actual.Status, &actual.Version, &actual.Resolution, &actual.ProposalHash, &targetID, &targetVersion, &effectVersion, &effectKey, &evidenceHash, &evidencePayloadRef, &residualRisk, &initiatorID, &expiresAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ProposedRepair{}, false, nil
 	}

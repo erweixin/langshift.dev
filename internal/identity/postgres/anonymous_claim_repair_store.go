@@ -85,15 +85,15 @@ func (service AnonymousClaimRepairControlService) proposeAnonymousClaimRepair(ct
 	if _, err = tx.Exec(ctx, `SELECT set_config('lites.tenant_id',$1,true)`, command.TargetTenantID); err != nil {
 		return proposedAnonymousClaimRepair{}, err
 	}
-	tag, err := tx.Exec(ctx, `INSERT INTO agent.repair_commands(id,tenant_id,source_tenant_id,anonymous_claim_id,repair_kind,target_kind,target_id,target_version,effect_version,effect_key,resolution,proposal_hash,evidence_hash,residual_risk_ref,initiator_user_id,status,expires_at,created_at,updated_at) VALUES($1,$2,$3,$4,'anonymous_claim_reconciliation','anonymous_claim',$4,$5,$5,$6,$7,$8,$9,NULL,$10,'proposed',$11,$12,$12) ON CONFLICT DO NOTHING`, command.RepairID, command.TargetTenantID, command.SourceTenantID, command.ClaimID, command.ClaimVersion, command.ClaimKey, command.Resolution, command.ProposalHash, command.EvidenceHash, command.InitiatorUserID, command.ExpiresAt, now)
+	tag, err := tx.Exec(ctx, `INSERT INTO agent.repair_commands(id,tenant_id,source_tenant_id,anonymous_claim_id,repair_kind,target_kind,target_id,target_version,effect_version,effect_key,resolution,proposal_hash,evidence_hash,evidence_payload_ref,residual_risk_ref,initiator_user_id,status,expires_at,created_at,updated_at) VALUES($1,$2,$3,$4,'anonymous_claim_reconciliation','anonymous_claim',$4,$5,$5,$6,$7,$8,$9,$10,NULL,$11,'proposed',$12,$13,$13) ON CONFLICT DO NOTHING`, command.RepairID, command.TargetTenantID, command.SourceTenantID, command.ClaimID, command.ClaimVersion, command.ClaimKey, command.Resolution, command.ProposalHash, command.EvidenceHash, command.EvidenceRef, command.InitiatorUserID, command.ExpiresAt, now)
 	if err != nil {
 		return proposedAnonymousClaimRepair{}, err
 	}
 	if tag.RowsAffected() == 0 {
 		var actual proposedAnonymousClaimRepair
-		var sourceTenantID, claimID, claimKey, resolution, proposalHash, evidenceHash, initiatorID string
+		var sourceTenantID, claimID, claimKey, resolution, proposalHash, evidenceHash, evidenceRef, initiatorID string
 		var claimVersion uint64
-		err = tx.QueryRow(ctx, `SELECT id::text,status,version,updated_at,source_tenant_id::text,anonymous_claim_id::text,effect_key,resolution,proposal_hash,evidence_hash,initiator_user_id::text,target_version FROM agent.repair_commands WHERE tenant_id=$1 AND (id=$2 OR proposal_hash=$3) FOR UPDATE`, command.TargetTenantID, command.RepairID, command.ProposalHash).Scan(&actual.ID, &actual.Status, &actual.Version, &actual.UpdatedAt, &sourceTenantID, &claimID, &claimKey, &resolution, &proposalHash, &evidenceHash, &initiatorID, &claimVersion)
+		err = tx.QueryRow(ctx, `SELECT id::text,status,version,updated_at,source_tenant_id::text,anonymous_claim_id::text,effect_key,resolution,proposal_hash,evidence_hash,evidence_payload_ref,initiator_user_id::text,target_version FROM agent.repair_commands WHERE tenant_id=$1 AND (id=$2 OR proposal_hash=$3) FOR UPDATE`, command.TargetTenantID, command.RepairID, command.ProposalHash).Scan(&actual.ID, &actual.Status, &actual.Version, &actual.UpdatedAt, &sourceTenantID, &claimID, &claimKey, &resolution, &proposalHash, &evidenceHash, &evidenceRef, &initiatorID, &claimVersion)
 		if err != nil || actual.ID != command.RepairID || sourceTenantID != command.SourceTenantID || claimID != command.ClaimID || claimKey != command.ClaimKey || resolution != command.Resolution || proposalHash != command.ProposalHash || evidenceHash != command.EvidenceHash || initiatorID != command.InitiatorUserID || claimVersion != command.ClaimVersion {
 			return proposedAnonymousClaimRepair{}, errClaimRepairConflict
 		}

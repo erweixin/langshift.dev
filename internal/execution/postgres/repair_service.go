@@ -139,7 +139,7 @@ func (service RepairControlService) ProposeRepair(ctx context.Context, command a
 		RepairID: repairID, TenantID: command.TenantID, InitiatorUserID: command.UserID, InitiatorSessionID: command.SessionID,
 		ToolCallID: target.ToolCallID, ExpectedToolVersion: target.ToolVersion, ExpectedEffectVersion: target.EffectVersion,
 		EffectKey: target.EffectKey, Resolution: command.Resolution, ProposalHash: proposalHash, EvidenceHash: command.EvidenceHash,
-		ResidualRiskRef: residualRiskRef, ExpiresAt: now.Add(service.proposalTTL()), Actor: repairActor(command.UserID, command.SessionID),
+		EvidencePayloadRef: reason.Ref, ResidualRiskRef: residualRiskRef, ExpiresAt: now.Add(service.proposalTTL()), Actor: repairActor(command.UserID, command.SessionID),
 		CorrelationID: command.RequestID, ProposedEvent: proposedPayload,
 	})
 	if errors.Is(err, ErrRepairConflict) {

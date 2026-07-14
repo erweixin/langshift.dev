@@ -55,10 +55,10 @@ type AnonymousClaimRepairControlService struct {
 }
 
 type claimRepairSnapshot struct {
-	ID, Status, Resolution, ProposalHash, EvidenceHash string
-	SourceTenantID, ClaimID, ClaimKey, InitiatorID     string
-	Version, ClaimVersion                              uint64
-	UpdatedAt, ExpiresAt                               time.Time
+	ID, Status, Resolution, ProposalHash, EvidenceHash          string
+	SourceTenantID, ClaimID, ClaimKey, InitiatorID, EvidenceRef string
+	Version, ClaimVersion                                       uint64
+	UpdatedAt, ExpiresAt                                        time.Time
 }
 
 type claimRepairIdempotency struct {

@@ -55,7 +55,7 @@ func (service AnonymousClaimRepairControlService) executeAnonymousClaimRepair(ct
 		return claimRepairSnapshot{}, err
 	}
 	resolvedPayload, err := service.putClaimRepairJSON(ctx, service.SystemTenantID, resolvedIDs.event, claimRepairEventClass, map[string]any{
-		"subject_id": saga.ID, "subject_version": next.Version, "payload_ref": "sha256:" + snapshot.EvidenceHash, "claim_set_hash": saga.ClaimSetHash,
+		"subject_id": saga.ID, "subject_version": next.Version, "payload_ref": snapshot.EvidenceRef, "claim_set_hash": saga.ClaimSetHash,
 		"claim_id": saga.ID, "claim_key": saga.ClaimKey, "repair_command_id": repairID, "previous_claim_version": saga.Version,
 		"restored_status": resolution.TargetStatus, "destination_commit_event_id": nullableClaimRepairValue(resolution.DestinationCommitEventID), "evidence_hash": resolution.EvidenceHash,
 	})
@@ -104,7 +104,7 @@ func (service AnonymousClaimRepairControlService) executeAnonymousClaimRepairTra
 		return claimRepairSnapshot{}, err
 	}
 	var actual claimRepairSnapshot
-	err = tx.QueryRow(ctx, `SELECT id::text,status,version,resolution,proposal_hash,evidence_hash,source_tenant_id::text,anonymous_claim_id::text,effect_key,initiator_user_id::text,target_version,updated_at,expires_at FROM agent.repair_commands WHERE tenant_id=$1 AND id=$2 AND repair_kind='anonymous_claim_reconciliation' FOR UPDATE`, command.TargetTenantID, command.Snapshot.ID).Scan(&actual.ID, &actual.Status, &actual.Version, &actual.Resolution, &actual.ProposalHash, &actual.EvidenceHash, &actual.SourceTenantID, &actual.ClaimID, &actual.ClaimKey, &actual.InitiatorID, &actual.ClaimVersion, &actual.UpdatedAt, &actual.ExpiresAt)
+	err = tx.QueryRow(ctx, `SELECT id::text,status,version,resolution,proposal_hash,evidence_hash,evidence_payload_ref,source_tenant_id::text,anonymous_claim_id::text,effect_key,initiator_user_id::text,target_version,updated_at,expires_at FROM agent.repair_commands WHERE tenant_id=$1 AND id=$2 AND repair_kind='anonymous_claim_reconciliation' FOR UPDATE`, command.TargetTenantID, command.Snapshot.ID).Scan(&actual.ID, &actual.Status, &actual.Version, &actual.Resolution, &actual.ProposalHash, &actual.EvidenceHash, &actual.EvidenceRef, &actual.SourceTenantID, &actual.ClaimID, &actual.ClaimKey, &actual.InitiatorID, &actual.ClaimVersion, &actual.UpdatedAt, &actual.ExpiresAt)
 	if err != nil {
 		return claimRepairSnapshot{}, err
 	}
@@ -118,7 +118,7 @@ func (service AnonymousClaimRepairControlService) executeAnonymousClaimRepairTra
 		}
 		return actual, nil
 	}
-	if actual.Status != "approved" || actual.Version != command.Snapshot.Version || actual.ProposalHash != command.Snapshot.ProposalHash || actual.EvidenceHash != command.Snapshot.EvidenceHash || actual.SourceTenantID != service.SystemTenantID || actual.ClaimID != command.Saga.ID || actual.ClaimKey != command.Saga.ClaimKey || actual.ClaimVersion != command.Saga.Version || actual.Resolution != command.Snapshot.Resolution || !actual.ExpiresAt.After(now) {
+	if actual.Status != "approved" || actual.Version != command.Snapshot.Version || actual.ProposalHash != command.Snapshot.ProposalHash || actual.EvidenceHash != command.Snapshot.EvidenceHash || actual.EvidenceRef != command.Snapshot.EvidenceRef || actual.SourceTenantID != service.SystemTenantID || actual.ClaimID != command.Saga.ID || actual.ClaimKey != command.Saga.ClaimKey || actual.ClaimVersion != command.Saga.Version || actual.Resolution != command.Snapshot.Resolution || !actual.ExpiresAt.After(now) {
 		return claimRepairSnapshot{}, errClaimRepairNotActionable
 	}
 	var approvals uint64

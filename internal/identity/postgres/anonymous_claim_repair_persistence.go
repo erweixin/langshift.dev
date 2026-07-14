@@ -211,7 +211,7 @@ func (service AnonymousClaimRepairControlService) loadClaimRepairSnapshot(ctx co
 		return claimRepairSnapshot{}, err
 	}
 	var snapshot claimRepairSnapshot
-	err = tx.QueryRow(ctx, `SELECT id::text,status,version,resolution,proposal_hash,evidence_hash,source_tenant_id::text,anonymous_claim_id::text,effect_key,initiator_user_id::text,target_version,updated_at,expires_at FROM agent.repair_commands WHERE tenant_id=$1 AND id=$2 AND repair_kind='anonymous_claim_reconciliation'`, tenantID, repairID).Scan(&snapshot.ID, &snapshot.Status, &snapshot.Version, &snapshot.Resolution, &snapshot.ProposalHash, &snapshot.EvidenceHash, &snapshot.SourceTenantID, &snapshot.ClaimID, &snapshot.ClaimKey, &snapshot.InitiatorID, &snapshot.ClaimVersion, &snapshot.UpdatedAt, &snapshot.ExpiresAt)
+	err = tx.QueryRow(ctx, `SELECT id::text,status,version,resolution,proposal_hash,evidence_hash,evidence_payload_ref,source_tenant_id::text,anonymous_claim_id::text,effect_key,initiator_user_id::text,target_version,updated_at,expires_at FROM agent.repair_commands WHERE tenant_id=$1 AND id=$2 AND repair_kind='anonymous_claim_reconciliation'`, tenantID, repairID).Scan(&snapshot.ID, &snapshot.Status, &snapshot.Version, &snapshot.Resolution, &snapshot.ProposalHash, &snapshot.EvidenceHash, &snapshot.EvidenceRef, &snapshot.SourceTenantID, &snapshot.ClaimID, &snapshot.ClaimKey, &snapshot.InitiatorID, &snapshot.ClaimVersion, &snapshot.UpdatedAt, &snapshot.ExpiresAt)
 	if err != nil {
 		return claimRepairSnapshot{}, err
 	}
