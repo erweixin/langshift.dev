@@ -3,6 +3,7 @@ package session
 import (
 	"bytes"
 	"encoding/hex"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -30,6 +31,13 @@ func TestSessionTokenPersistsOnlyKeyedDigest(t *testing.T) {
 	}
 	if !cookie.Secure || !cookie.HttpOnly || cookie.Path != "/" || cookie.Domain != "" {
 		t.Fatalf("unsafe cookie: %#v", cookie)
+	}
+	csrfCookie, err := CSRFCookie(credential.Raw, time.Now().Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !csrfCookie.Secure || csrfCookie.HttpOnly || csrfCookie.SameSite != http.SameSiteLaxMode || csrfCookie.Name != CSRFCookieName {
+		t.Fatalf("unsafe csrf cookie: %#v", csrfCookie)
 	}
 }
 

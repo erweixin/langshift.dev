@@ -16,8 +16,9 @@ import (
 )
 
 const (
-	CookieName = "__Host-lites_session"
-	tokenBytes = 32
+	CookieName     = "__Host-lites_session"
+	CSRFCookieName = "__Host-lites_csrf"
+	tokenBytes     = 32
 )
 
 var ErrInvalidToken = errors.New("session token is invalid")
@@ -90,4 +91,18 @@ func Cookie(raw string, expiresAt time.Time) (*http.Cookie, error) {
 
 func ClearCookie() *http.Cookie {
 	return &http.Cookie{Name: CookieName, Path: "/", Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode, MaxAge: -1, Expires: time.Unix(1, 0).UTC()}
+}
+
+// CSRFCookie exposes only the independently generated CSRF value so browser
+// code can echo it in X-CSRF-Token. It is never the session bearer credential.
+func CSRFCookie(raw string, expiresAt time.Time) (*http.Cookie, error) {
+	decoded, err := base64.RawURLEncoding.DecodeString(raw)
+	if err != nil || len(decoded) != tokenBytes {
+		return nil, ErrInvalidToken
+	}
+	return &http.Cookie{Name: CSRFCookieName, Value: raw, Path: "/", Secure: true, HttpOnly: false, SameSite: http.SameSiteLaxMode, Expires: expiresAt.UTC()}, nil
+}
+
+func ClearCSRFCookie() *http.Cookie {
+	return &http.Cookie{Name: CSRFCookieName, Path: "/", Secure: true, HttpOnly: false, SameSite: http.SameSiteLaxMode, MaxAge: -1, Expires: time.Unix(1, 0).UTC()}
 }
