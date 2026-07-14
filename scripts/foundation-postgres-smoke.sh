@@ -59,7 +59,8 @@ for migration in \
   deploy/migrations/000017_repair_evidence_expiry.up.sql \
   deploy/migrations/000018_approval_control_plane.up.sql \
   deploy/migrations/000019_approval_scope_drift.up.sql \
-  deploy/migrations/000020_workspace_revision_protocol.up.sql; do
+  deploy/migrations/000020_workspace_revision_protocol.up.sql \
+  deploy/migrations/000021_workspace_prepared_proposal.up.sql; do
   target="/tmp/$(basename "${migration}")"
   docker cp "${migration}" "${container_name}:${target}" >/dev/null
   docker exec "${container_name}" psql -v ON_ERROR_STOP=1 -U postgres -d lites_foundation -f "${target}" >/dev/null
