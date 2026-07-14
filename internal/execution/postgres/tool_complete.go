@@ -185,68 +185,12 @@ func (store RunStore) completeTool(ctx context.Context, command CompleteToolComm
 		return CompletedTool{}, ErrExecutionRightConflict
 	}
 
-	var joinPolicy, groupKind, continuationKind string
-	var requiredCount, quorumCount int
-	var groupVersion uint64
-	var joined bool
-	err = tx.QueryRow(ctx, `SELECT version,join_policy,required_count,quorum_count,group_kind,continuation_kind,joined FROM agent.parallel_groups WHERE id=$1 AND tenant_id=$2 AND run_id=$3 FOR UPDATE`, claim.GroupID, claim.TenantID, claim.RunID).Scan(&groupVersion, &joinPolicy, &requiredCount, &quorumCount, &groupKind, &continuationKind, &joined)
-	if err != nil || groupKind != "execution" || continuationKind != "resume" {
-		return CompletedTool{}, ErrExecutionRightConflict
-	}
-	var terminalCount, successCount int
-	err = tx.QueryRow(ctx, `SELECT count(*) FILTER (WHERE m.required AND t.status IN ('succeeded','failed','cancelled','resolved_unknown')),count(*) FILTER (WHERE m.required AND t.status='succeeded') FROM agent.parallel_group_members m JOIN agent.tool_calls t ON t.tenant_id=m.tenant_id AND t.id=m.tool_call_id WHERE m.tenant_id=$1 AND m.group_id=$2`, claim.TenantID, claim.GroupID).Scan(&terminalCount, &successCount)
+	result := CompletedTool{ToolCallID: claim.ToolCallID, GroupID: claim.GroupID, RunID: claim.RunID, ToolCallVersion: nextToolVersion, Status: command.TargetState, CompletedAt: now, ReconcileCommandID: reconcile.command}
+	join, err := store.joinCompletedTool(ctx, tx, toolJoinInput{TenantID: claim.TenantID, UserID: userID, RunID: claim.RunID, GroupID: claim.GroupID, ToolEventID: toolEventID, Actor: command.Actor, CorrelationID: command.CorrelationID, GroupJoinedEvent: command.GroupJoinedEvent, RunResumeQueuedEvent: command.RunResumeQueuedEvent, ResumeCommand: command.ResumeCommand, ResumeQueueClass: command.ResumeQueueClass, ResumeResourceClass: command.ResumeResourceClass, ResumePriority: command.ResumePriority, ResumeCostUnits: command.ResumeCostUnits, ResumeMaxAttempts: command.ResumeMaxAttempts, Now: now})
 	if err != nil {
 		return CompletedTool{}, err
 	}
-	joinSatisfied := parallelJoinSatisfied(joinPolicy, requiredCount, quorumCount, terminalCount, successCount)
-	result := CompletedTool{ToolCallID: claim.ToolCallID, GroupID: claim.GroupID, RunID: claim.RunID, ToolCallVersion: nextToolVersion, Status: command.TargetState, CompletedAt: now, ReconcileCommandID: reconcile.command}
-	var groupEvent *eventpostgres.Input
-	var runEvent *eventpostgres.Input
-	if joinSatisfied && !joined {
-		var runVersion uint64
-		var runStatus string
-		var cancelRequested *time.Time
-		var dueAt time.Time
-		err = tx.QueryRow(ctx, `SELECT run_version,status,cancel_requested_at,due_at FROM agent.runs WHERE id=$1 AND tenant_id=$2 FOR UPDATE`, claim.RunID, claim.TenantID).Scan(&runVersion, &runStatus, &cancelRequested, &dueAt)
-		if err != nil {
-			return CompletedTool{}, err
-		}
-		if runStatus == string(statemachine.RunWaitingTool) && cancelRequested == nil && dueAt.After(now) {
-			continuation, idErr := store.continuationIdentifiers(claim.GroupID)
-			if idErr != nil {
-				return CompletedTool{}, idErr
-			}
-			tag, insertErr := tx.Exec(ctx, `INSERT INTO agent.continuations(id,tenant_id,run_id,run_version,group_kind,group_id,command_id,status,continuation_kind,created_at,updated_at) VALUES($1,$2,$3,$4,'parallel',$5,$6,'preparing','resume',$7,$7) ON CONFLICT DO NOTHING`, continuation.continuation, claim.TenantID, claim.RunID, runVersion, claim.GroupID, continuation.command, now)
-			if insertErr != nil {
-				return CompletedTool{}, insertErr
-			}
-			if tag.RowsAffected() != 1 {
-				return CompletedTool{}, ErrExecutionRightConflict
-			}
-			{
-				nextRunVersion := runVersion + 1
-				if tag, updateErr := tx.Exec(ctx, `UPDATE agent.runs SET status='queued',run_version=$1,pending_command_id=$2,updated_at=$3 WHERE id=$4 AND tenant_id=$5 AND status='waiting_tool' AND run_version=$6 AND cancel_requested_at IS NULL AND due_at>$3`, nextRunVersion, continuation.command, now, claim.RunID, claim.TenantID, runVersion); updateErr != nil || tag.RowsAffected() != 1 {
-					return CompletedTool{}, ErrExecutionRightConflict
-				}
-				if tag, updateErr := tx.Exec(ctx, `UPDATE agent.continuations SET version=version+1,status='committed',updated_at=$1 WHERE id=$2 AND tenant_id=$3 AND status='preparing'`, now, continuation.continuation, claim.TenantID); updateErr != nil || tag.RowsAffected() != 1 {
-					return CompletedTool{}, ErrExecutionRightConflict
-				}
-				if tag, updateErr := tx.Exec(ctx, `UPDATE agent.parallel_groups SET version=version+1,joined=true,continuation_id=$1,updated_at=$2 WHERE id=$3 AND tenant_id=$4 AND version=$5 AND joined=false AND continuation_id IS NULL`, continuation.continuation, now, claim.GroupID, claim.TenantID, groupVersion); updateErr != nil || tag.RowsAffected() != 1 {
-					return CompletedTool{}, ErrExecutionRightConflict
-				}
-				if _, err = tx.Exec(ctx, `INSERT INTO agent.jobs(id,tenant_id,command_id,queue_class,resource_class,priority,cost_units,max_attempts,status,available_at,due_at,enqueued_at,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'pending',$9,$10,$9,$9,$9)`, continuation.job, claim.TenantID, continuation.command, command.ResumeQueueClass, command.ResumeResourceClass, command.ResumePriority, command.ResumeCostUnits, command.ResumeMaxAttempts, now, dueAt); err != nil {
-					return CompletedTool{}, err
-				}
-				causationID := toolEventID
-				group := eventpostgres.Input{Event: eventpostgres.Event{ID: continuation.groupEvent, TenantID: claim.TenantID, UserID: userID, EventType: "ToolGroupJoined", SchemaVersion: 1, AggregateKind: "parallel_group", AggregateID: claim.GroupID, AggregateVersion: groupVersion + 1, StoreEpoch: store.StoreEpoch, OccurredAt: now, Actor: command.Actor, CausationID: &causationID, CorrelationID: command.CorrelationID, PayloadRef: command.GroupJoinedEvent.Ref, PayloadHash: command.GroupJoinedEvent.Hash}, Commands: []eventpostgres.OutboxCommand{{ID: continuation.groupOutbox, CommandID: continuation.groupPublish, CommandType: "events.publish", PayloadRef: command.GroupJoinedEvent.Ref, PayloadHash: command.GroupJoinedEvent.Hash}}}
-				groupEvent = &group
-				groupCausationID := continuation.groupEvent
-				resume := eventpostgres.Input{Event: eventpostgres.Event{ID: continuation.runEvent, TenantID: claim.TenantID, UserID: userID, EventType: "RunResumeQueued", SchemaVersion: 1, AggregateKind: "run", AggregateID: claim.RunID, AggregateVersion: nextRunVersion, StoreEpoch: store.StoreEpoch, OccurredAt: now, Actor: command.Actor, CausationID: &groupCausationID, CorrelationID: command.CorrelationID, PayloadRef: command.RunResumeQueuedEvent.Ref, PayloadHash: command.RunResumeQueuedEvent.Hash}, Commands: []eventpostgres.OutboxCommand{{ID: continuation.runOutbox, CommandID: continuation.runPublish, CommandType: "events.publish", PayloadRef: command.RunResumeQueuedEvent.Ref, PayloadHash: command.RunResumeQueuedEvent.Hash}, {ID: continuation.resumeOutbox, CommandID: continuation.command, CommandType: "ResumeAgentRun", PayloadRef: command.ResumeCommand.Ref, PayloadHash: command.ResumeCommand.Hash}}}
-				runEvent = &resume
-				result.RunVersion, result.ContinuationID, result.ResumeCommandID, result.Resumed = nextRunVersion, continuation.continuation, continuation.command, true
-			}
-		}
-	}
+	result.RunVersion, result.ContinuationID, result.ResumeCommandID, result.Resumed = join.RunVersion, join.ContinuationID, join.ResumeCommandID, join.Resumed
 
 	causationID := claim.CommandID
 	toolCommands := []eventpostgres.OutboxCommand{{ID: toolOutbox, CommandID: toolPublish, CommandType: "events.publish", PayloadRef: command.ToolCompletedEvent.Ref, PayloadHash: command.ToolCompletedEvent.Hash}}
@@ -270,13 +214,13 @@ func (store RunStore) completeTool(ctx context.Context, command CompleteToolComm
 	if _, err = store.Appender.Append(ctx, tx, attemptEvent); err != nil {
 		return CompletedTool{}, err
 	}
-	if groupEvent != nil {
-		if _, err = store.Appender.Append(ctx, tx, *groupEvent); err != nil {
+	if join.GroupEvent != nil {
+		if _, err = store.Appender.Append(ctx, tx, *join.GroupEvent); err != nil {
 			return CompletedTool{}, err
 		}
 	}
-	if runEvent != nil {
-		if _, err = store.Appender.Append(ctx, tx, *runEvent); err != nil {
+	if join.RunEvent != nil {
+		if _, err = store.Appender.Append(ctx, tx, *join.RunEvent); err != nil {
 			return CompletedTool{}, err
 		}
 	}
