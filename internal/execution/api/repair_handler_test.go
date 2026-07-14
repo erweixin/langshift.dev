@@ -109,6 +109,21 @@ func TestRepairHandlerMapsServiceConflicts(t *testing.T) {
 	}
 }
 
+func TestRepairServiceMuxRoutesClaimProposalsAndDecisions(t *testing.T) {
+	claim := &repairServiceStub{result: RepairResult{ID: "claim-repair", Version: 1, Status: "proposed", UpdatedAt: repairAPINow}}
+	tool := &repairServiceStub{result: RepairResult{ID: "tool-repair", Version: 1, Status: "proposed", UpdatedAt: repairAPINow}}
+	mux := RepairServiceMux{ToolEffect: tool, AnonymousClaim: claim}
+	result, err := mux.ProposeRepair(context.Background(), ProposeRepairCommand{Resolution: "reconcile_destination_committed"})
+	if err != nil || result.ID != "claim-repair" || claim.proposeCommand.Resolution != "reconcile_destination_committed" || tool.proposeCommand.Resolution != "" {
+		t.Fatalf("claim proposal result=%#v error=%v claim=%#v tool=%#v", result, err, claim.proposeCommand, tool.proposeCommand)
+	}
+	claim.err = ErrResourceNotFound
+	result, err = mux.DecideRepair(context.Background(), DecideRepairCommand{RepairID: "tool-repair"})
+	if err != nil || result.ID != "tool-repair" || tool.decideCommand.RepairID != "tool-repair" {
+		t.Fatalf("tool decision result=%#v error=%v tool=%#v", result, err, tool.decideCommand)
+	}
+}
+
 func serveRepairRequest(t *testing.T, handler http.Handler, method, target, body string, roles []string, ifMatch string) *httptest.ResponseRecorder {
 	t.Helper()
 	privateKey := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{0x41}, ed25519.SeedSize))

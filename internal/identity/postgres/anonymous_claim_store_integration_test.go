@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	eventpostgres "github.com/langshift/lites/internal/eventstore/postgres"
+	executionapi "github.com/langshift/lites/internal/execution/api"
 	"github.com/langshift/lites/internal/identity/anonymousclaim"
 	"github.com/langshift/lites/internal/identity/api"
 	"github.com/langshift/lites/internal/payload"
@@ -39,6 +40,13 @@ func TestAnonymousClaimStoreConvergesWithRLSAndProtectsReservationFromExpiry(t *
 	const targetTenant = "79000000-0000-4000-8000-000000000001"
 	const targetUser = "79000000-0000-4000-8000-000000000002"
 	const targetMembership = "79000000-0000-4000-8000-000000000003"
+	const initiatorSession = "79000000-0000-4000-8000-000000000004"
+	const approverOne = "79000000-0000-4000-8000-000000000005"
+	const approverOneMembership = "79000000-0000-4000-8000-000000000006"
+	const approverOneSession = "79000000-0000-4000-8000-000000000007"
+	const approverTwo = "79000000-0000-4000-8000-000000000008"
+	const approverTwoMembership = "79000000-0000-4000-8000-000000000009"
+	const approverTwoSession = "79000000-0000-4000-8000-00000000000a"
 	const subjectID = "71000000-0000-4000-8000-000000000001"
 	const ephemeralUser = "72000000-0000-4000-8000-000000000001"
 	const sessionID = "73000000-0000-4000-8000-000000000001"
@@ -68,9 +76,12 @@ func TestAnonymousClaimStoreConvergesWithRLSAndProtectsReservationFromExpiry(t *
 		args  []any
 	}{
 		{`INSERT INTO identity.users(id,normalized_email,email_verified_at,locale,status) VALUES($1,'claim-owner@example.invalid',$2,'en','active')`, []any{targetUser, now}},
+		{`INSERT INTO identity.users(id,normalized_email,email_verified_at,locale,status) VALUES($1,'claim-approver-one@example.invalid',$3,'en','active'),($2,'claim-approver-two@example.invalid',$3,'en','active')`, []any{approverOne, approverTwo, now}},
 		{`INSERT INTO identity.tenants(id,kind,name,status,region) VALUES($1,'anonymous_system','Anonymous','active','US'),($2,'anonymous_system','Other','active','US')`, []any{systemTenant, otherTenant}},
 		{`INSERT INTO identity.tenants(id,kind,name,status,region,owner_user_id) VALUES($1,'personal','Claim Target','active','US',$2)`, []any{targetTenant, targetUser}},
 		{`INSERT INTO identity.memberships(id,tenant_id,user_id,role,status,joined_at) VALUES($1,$2,$3,'owner','active',$4)`, []any{targetMembership, targetTenant, targetUser, now}},
+		{`INSERT INTO identity.memberships(id,tenant_id,user_id,role,status,joined_at) VALUES($1,$3,$4,'admin','active',$6),($2,$3,$5,'admin','active',$6)`, []any{approverOneMembership, approverTwoMembership, targetTenant, approverOne, approverTwo, now}},
+		{`INSERT INTO identity.sessions(id,user_id,active_tenant_id,token_hash,csrf_secret_hash,ip_hash,user_agent_hash,last_seen_at,expires_at,reauthenticated_at) VALUES($1,$2,$3,decode(repeat('11',32),'hex'),decode(repeat('12',32),'hex'),decode(repeat('13',32),'hex'),decode(repeat('14',32),'hex'),$7,$8,$7),($4,$5,$3,decode(repeat('21',32),'hex'),decode(repeat('22',32),'hex'),decode(repeat('23',32),'hex'),decode(repeat('24',32),'hex'),$7,$8,$7),($6,$9,$3,decode(repeat('31',32),'hex'),decode(repeat('32',32),'hex'),decode(repeat('33',32),'hex'),decode(repeat('34',32),'hex'),$7,$8,$7)`, []any{initiatorSession, targetUser, targetTenant, approverOneSession, approverOne, approverTwoSession, now, now.Add(time.Hour), approverTwo}},
 		{`INSERT INTO identity.anonymous_subjects(id,anonymous_subject_hash,ephemeral_user_id,system_tenant_id,expires_at) VALUES($1,decode(repeat('ab',32),'hex'),$2,$3,$4)`, []any{subjectID, ephemeralUser, systemTenant, now.Add(time.Hour)}},
 		{`INSERT INTO product.role_profiles(id,tenant_id,slug,revision,status,spec,locale,source_manifest) VALUES($1,$2,'ai-product-lead',1,'active','{}','en','{}')`, []any{roleProfileID, systemTenant}},
 		{`INSERT INTO product.missions(id,tenant_id,user_id,status,target_role_profile_id,route_version,claim_set_hash) VALUES($1,$2,$3,'draft',$4,1,'claim-set-hash-1')`, []any{sourceMissionID, systemTenant, ephemeralUser, roleProfileID}},
@@ -142,12 +153,50 @@ func TestAnonymousClaimStoreConvergesWithRLSAndProtectsReservationFromExpiry(t *
 	if err != nil || inspected.TargetStatus != string(anonymousclaim.DestinationCommitted) || inspected.DestinationCommitEventID != destinationEventID || inspected.ClaimVersion != manualReview.Version+1 || inspected.EvidenceHash == "" {
 		t.Fatalf("inspected=%#v error=%v", inspected, err)
 	}
-	reconciled, err := anonymousclaim.Advance(manualReview, anonymousclaim.Input{ExpectedVersion: manualReview.Version, Command: anonymousclaim.Reconcile, ReconciledStatus: anonymousclaim.Status(inspected.TargetStatus), DestinationCommitEventID: inspected.DestinationCommitEventID})
-	if err != nil {
+	authority := identityEpochAuthority{epoch: storeEpoch}
+	repairService := AnonymousClaimRepairControlService{
+		Pool: pool, ClaimStore: store, Inspector: AnonymousClaimRepairInspector{Pool: pool, IdentityKey: identityKey}, Payloads: payloadStore,
+		Appender: eventpostgres.Appender{Now: func() time.Time { return now }}, Epochs: authority, SystemTenantID: systemTenant, StoreEpoch: storeEpoch,
+		IDKey: bytes.Repeat([]byte{0x6a}, 32), IdempotencyKeyPepper: bytes.Repeat([]byte{0x6b}, 32), RequestDigestPepper: bytes.Repeat([]byte{0x6c}, 32),
+		IdempotencyTTL: 24 * time.Hour, ProposalTTL: 30 * time.Minute, Now: func() time.Time { return now },
+	}
+	proposalCommand := executionapi.ProposeRepairCommand{RequestID: "7d000000-0000-4000-8000-000000000001", ClientRequestID: "client-claim-repair", IdempotencyKey: "claim-repair-proposal-key-0001", TenantID: targetTenant, UserID: targetUser, SessionID: initiatorSession, TargetID: claimID, TargetVersion: manualReview.Version, Resolution: "reconcile_destination_committed", EvidenceHash: inspected.EvidenceHash, Reason: "destination commit succeeded after the source worker lost its acknowledgement"}
+	proposals := concurrentCalls(t, 12, func() (executionapi.RepairResult, error) { return repairService.ProposeRepair(ctx, proposalCommand) })
+	for _, proposal := range proposals {
+		if proposal.ID == "" || proposal.Version != 1 || proposal.Status != "proposed" {
+			t.Fatalf("claim repair proposal=%#v", proposal)
+		}
+	}
+	repairID := proposals[0].ID
+	var proposalHash string
+	if err = admin.QueryRow(ctx, `SELECT proposal_hash FROM agent.repair_commands WHERE tenant_id=$1 AND id=$2`, targetTenant, repairID).Scan(&proposalHash); err != nil {
 		t.Fatal(err)
 	}
-	if err = store.CompareAndSwap(ctx, manualReview, reconciled); err != nil {
-		t.Fatal(err)
+	decisions := []executionapi.DecideRepairCommand{
+		{RequestID: "7d000000-0000-4000-8000-000000000002", ClientRequestID: "client-claim-approval-one", IdempotencyKey: "claim-repair-approval-key-0001", TenantID: targetTenant, UserID: approverOne, SessionID: approverOneSession, RepairID: repairID, Decision: "approve", ProposalHash: proposalHash, ExpectedRepairVersion: 1, TargetVersion: manualReview.Version, PermissionSnapshot: "owner-or-admin@membership-v1"},
+		{RequestID: "7d000000-0000-4000-8000-000000000003", ClientRequestID: "client-claim-approval-two", IdempotencyKey: "claim-repair-approval-key-0002", TenantID: targetTenant, UserID: approverTwo, SessionID: approverTwoSession, RepairID: repairID, Decision: "approve", ProposalHash: proposalHash, ExpectedRepairVersion: 1, TargetVersion: manualReview.Version, PermissionSnapshot: "owner-or-admin@membership-v1"},
+	}
+	decisionErrors := make(chan error, len(decisions))
+	for _, decision := range decisions {
+		decision := decision
+		go func() {
+			_, decisionErr := repairService.DecideRepair(ctx, decision)
+			decisionErrors <- decisionErr
+		}()
+	}
+	for range decisions {
+		if decisionErr := <-decisionErrors; decisionErr != nil {
+			t.Fatalf("claim repair decision: %v", decisionErr)
+		}
+	}
+	var repairStatus string
+	var repairVersion uint64
+	if err = admin.QueryRow(ctx, `SELECT status,version FROM agent.repair_commands WHERE tenant_id=$1 AND id=$2`, targetTenant, repairID).Scan(&repairStatus, &repairVersion); err != nil || repairStatus != "executed" || repairVersion != 3 {
+		t.Fatalf("claim repair status=%s version=%d error=%v", repairStatus, repairVersion, err)
+	}
+	reconciled, err := store.Load(ctx, claimID)
+	if err != nil || reconciled.Status != anonymousclaim.DestinationCommitted || reconciled.Version != manualReview.Version+1 {
+		t.Fatalf("reconciled claim=%#v error=%v", reconciled, err)
 	}
 	eraser := AnonymousClaimEraser{Pool: pool, SystemTenantID: systemTenant, IdentityKey: identityKey, Objects: blobs, Now: func() time.Time { return now }}
 	claimService.Destination = destination
@@ -173,10 +222,9 @@ func TestAnonymousClaimStoreConvergesWithRLSAndProtectsReservationFromExpiry(t *
 	if err != nil || final.Status != anonymousclaim.Claimed || len(final.DeletionReceipts) != 3 {
 		t.Fatalf("final=%#v error=%v", final, err)
 	}
-	authority := identityEpochAuthority{epoch: storeEpoch}
 	outboxStore := eventpostgres.OutboxStore{Pool: pool, Epochs: authority, Tokens: opaque.Manager{Purpose: "claim-outbox-lease", Pepper: bytes.Repeat([]byte{0x7e}, 32)}, LeaseTTL: time.Minute, RetryBase: time.Second, RetryLimit: time.Minute, Now: func() time.Time { return now }}
 	outboxClaims, err := outboxStore.ClaimBatch(ctx, systemTenant, storeEpoch, 10)
-	if err != nil || len(outboxClaims) != 2 {
+	if err != nil || len(outboxClaims) != 4 {
 		t.Fatalf("outbox claims=%d error=%v", len(outboxClaims), err)
 	}
 	var reconcileCommand eventpostgres.DeliveredCommand
@@ -221,7 +269,7 @@ func TestAnonymousClaimStoreConvergesWithRLSAndProtectsReservationFromExpiry(t *
 	if targetMissions != 1 || targetRoutes != 1 || missionImports != 1 || destinationEvents != 1 || destinationOutbox != 1 {
 		t.Fatalf("target_missions=%d target_routes=%d imports=%d events=%d outbox=%d", targetMissions, targetRoutes, missionImports, destinationEvents, destinationOutbox)
 	}
-	if sourcePublishedOutbox != 2 || completedInbox != 1 {
+	if sourcePublishedOutbox != 4 || completedInbox != 1 {
 		t.Fatalf("source_published_outbox=%d completed_inbox=%d", sourcePublishedOutbox, completedInbox)
 	}
 	if _, err = (AnonymousClaimStore{Pool: pool, SystemTenantID: otherTenant}).Load(ctx, claimID); !errors.Is(err, pgx.ErrNoRows) {

@@ -61,6 +61,39 @@ type RepairService interface {
 	DecideRepair(context.Context, DecideRepairCommand) (RepairResult, error)
 }
 
+// RepairServiceMux keeps the public Repair API stable while domain owners
+// retain their own evidence inspection and atomic execution boundaries.
+type RepairServiceMux struct {
+	ToolEffect     RepairService
+	AnonymousClaim RepairService
+}
+
+func (mux RepairServiceMux) ProposeRepair(ctx context.Context, command ProposeRepairCommand) (RepairResult, error) {
+	if isAnonymousClaimResolution(command.Resolution) {
+		if mux.AnonymousClaim == nil {
+			return RepairResult{}, ErrDependencyUnavailable
+		}
+		return mux.AnonymousClaim.ProposeRepair(ctx, command)
+	}
+	if mux.ToolEffect == nil {
+		return RepairResult{}, ErrDependencyUnavailable
+	}
+	return mux.ToolEffect.ProposeRepair(ctx, command)
+}
+
+func (mux RepairServiceMux) DecideRepair(ctx context.Context, command DecideRepairCommand) (RepairResult, error) {
+	if mux.AnonymousClaim != nil {
+		result, err := mux.AnonymousClaim.DecideRepair(ctx, command)
+		if !errors.Is(err, ErrResourceNotFound) {
+			return result, err
+		}
+	}
+	if mux.ToolEffect == nil {
+		return RepairResult{}, ErrDependencyUnavailable
+	}
+	return mux.ToolEffect.DecideRepair(ctx, command)
+}
+
 type RepairHandler struct {
 	Service RepairService
 }
@@ -281,8 +314,14 @@ func repairDecisionPath(path string) (string, bool) {
 }
 
 func validResolution(value string) bool {
-	return value == "confirmed_occurred" || value == "confirmed_not_occurred" || value == "accepted_unknown"
+	return value == "confirmed_occurred" || value == "confirmed_not_occurred" || value == "accepted_unknown" || isAnonymousClaimResolution(value)
 }
+
+func isAnonymousClaimResolution(value string) bool {
+	return value == "reconcile_reserved" || value == "reconcile_destination_committed" || value == "reconcile_erasing"
+}
+
+var _ RepairService = RepairServiceMux{}
 
 func validClientRequestID(value string) bool {
 	return len(value) >= 8 && len(value) <= 256 && !strings.ContainsAny(value, "\r\n\x00")
