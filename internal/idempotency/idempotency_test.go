@@ -28,6 +28,17 @@ func TestKeyDigestIsScopedSecretMaterial(t *testing.T) {
 	}
 }
 
+func TestRawKeyRejectsWhitespaceControlsAndNonASCII(t *testing.T) {
+	for _, raw := range []string{"too-short", "valid-key-but space", "valid-key-but\nline", "幂等键-1234567890123456"} {
+		if err := ValidateRawKey(raw); !errors.Is(err, ErrInvalidKey) {
+			t.Fatalf("raw=%q error=%v", raw, err)
+		}
+	}
+	if err := ValidateRawKey("valid-idempotency-key-123"); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestRequestHashIsCanonicalInputHash(t *testing.T) {
 	if RequestHash([]byte(`{"a":1}`)) == RequestHash([]byte(`{"a":2}`)) {
 		t.Fatal("request hashes collided")

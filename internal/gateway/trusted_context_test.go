@@ -33,10 +33,10 @@ func TestGatewayStripsForgedIdentityAndIssuesServerContext(t *testing.T) {
 	}
 	now := time.Unix(1_800_000_000, 0)
 	principal := session.Principal{UserID: "user-real", TenantID: "tenant-real", MembershipID: "membership-real", SessionID: "session-real", Roles: []string{"member"}, ExpiresAt: now.Add(time.Hour)}
-	boundary := TrustBoundary{Resolver: resolverStub{principal: principal}, SigningKey: privateKey, SigningKeyID: "gateway-key", Issuer: "lites-gateway", Audience: "identity-service", TTL: 2 * time.Minute, Now: func() time.Time { return now }}
+	boundary := TrustBoundary{Resolver: resolverStub{principal: principal}, SigningKey: privateKey, SigningKeyID: "gateway-key", Issuer: "lites-gateway", Audience: "identity-service", TTL: 2 * time.Minute, FingerprintPepper: bytes.Repeat([]byte{0x51}, 32), Now: func() time.Time { return now }}
 	verifier := trustedcontext.Verifier{Issuer: "lites-gateway", Audience: "identity-service", Keys: map[string]ed25519.PublicKey{"gateway-key": publicKey}, MaximumTTL: 5 * time.Minute, ClockSkew: time.Second}
 	upstream := http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		for _, name := range []string{"X-Lites-User-ID", "X-Lites-Tenant-ID", "X-Lites-Roles"} {
+		for _, name := range []string{"Authorization", "X-Lites-User-ID", "X-Lites-Tenant-ID", "X-Lites-Roles"} {
 			if request.Header.Get(name) != "" {
 				t.Errorf("forged header survived: %s", name)
 			}
@@ -56,6 +56,9 @@ func TestGatewayStripsForgedIdentityAndIssuesServerContext(t *testing.T) {
 		if request.Header.Get(RequestIDHeader) == "attacker-request" {
 			t.Error("client request id survived trust boundary")
 		}
+		if _, err := request.Cookie(session.CookieName); err == nil {
+			t.Error("session bearer cookie survived trust boundary")
+		}
 		writer.WriteHeader(http.StatusNoContent)
 	})
 	request := httptest.NewRequest(http.MethodGet, "https://api.lites.dev/v1/account", nil)
@@ -64,6 +67,9 @@ func TestGatewayStripsForgedIdentityAndIssuesServerContext(t *testing.T) {
 	request.Header.Set("X-Lites-User-ID", "attacker")
 	request.Header.Set("X-Lites-Tenant-ID", "victim")
 	request.Header.Set("X-Lites-Roles", "owner")
+	request.Header.Set("Authorization", "Bearer attacker-token")
+	request.Header.Set("X-Forwarded-For", "203.0.113.99")
+	request.Header.Set("User-Agent", "sensitive-device-label")
 	request.Header.Set(RequestIDHeader, "attacker-request")
 	recorder := httptest.NewRecorder()
 	boundary.Wrap(upstream).ServeHTTP(recorder, request)
@@ -86,7 +92,7 @@ func TestGatewayRejectsMissingRevokedAndExpiredSessions(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			boundary := TrustBoundary{Resolver: test.resolver, SigningKey: privateKey, SigningKeyID: "key", Issuer: "gateway", Audience: "identity", TTL: time.Minute, Now: func() time.Time { return now }}
+			boundary := TrustBoundary{Resolver: test.resolver, SigningKey: privateKey, SigningKeyID: "key", Issuer: "gateway", Audience: "identity", TTL: time.Minute, FingerprintPepper: bytes.Repeat([]byte{0x51}, 32), Now: func() time.Time { return now }}
 			request := httptest.NewRequest(http.MethodGet, "https://api.lites.dev/v1/account", nil)
 			if test.cookie {
 				request.AddCookie(&http.Cookie{Name: session.CookieName, Value: "opaque"})
@@ -123,7 +129,7 @@ func TestGatewayRequiresCSRFAndBindsUnsafeRequest(t *testing.T) {
 	now := time.Unix(1_800_000_000, 0)
 	principal := session.Principal{UserID: "u", TenantID: "t", MembershipID: "m", SessionID: "s", Roles: []string{"member"}, CSRFSecretHash: csrf.Digest[:], ExpiresAt: now.Add(time.Hour)}
 	newBoundary := func() TrustBoundary {
-		return TrustBoundary{Resolver: resolverStub{principal: principal}, SigningKey: privateKey, SigningKeyID: "key", Issuer: "gateway", Audience: "identity", TTL: time.Minute, CSRFPepper: pepper, Random: bytes.NewReader(bytes.Repeat([]byte{0x31}, 64)), Now: func() time.Time { return now }}
+		return TrustBoundary{Resolver: resolverStub{principal: principal}, SigningKey: privateKey, SigningKeyID: "key", Issuer: "gateway", Audience: "identity", TTL: time.Minute, CSRFPepper: pepper, FingerprintPepper: bytes.Repeat([]byte{0x51}, 32), Random: bytes.NewReader(bytes.Repeat([]byte{0x31}, 64)), Now: func() time.Time { return now }}
 	}
 	verifier := trustedcontext.Verifier{Issuer: "gateway", Audience: "identity", Keys: map[string]ed25519.PublicKey{"key": publicKey}, MaximumTTL: 5 * time.Minute, ClockSkew: time.Second}
 	request := httptest.NewRequest(http.MethodPatch, "https://api.lites.dev/v1/account?view=full", nil)
@@ -169,12 +175,82 @@ func TestGatewayRequiresCSRFAndBindsUnsafeRequest(t *testing.T) {
 
 func TestResolverErrorDoesNotLeak(t *testing.T) {
 	_, privateKey, _ := ed25519.GenerateKey(rand.Reader)
-	boundary := TrustBoundary{Resolver: resolverStub{err: errors.New("database details")}, SigningKey: privateKey, SigningKeyID: "key", Issuer: "gateway", Audience: "identity", TTL: time.Minute}
+	boundary := TrustBoundary{Resolver: resolverStub{err: errors.New("database details")}, SigningKey: privateKey, SigningKeyID: "key", Issuer: "gateway", Audience: "identity", TTL: time.Minute, FingerprintPepper: bytes.Repeat([]byte{0x51}, 32)}
 	request := httptest.NewRequest(http.MethodGet, "/", nil)
 	request.AddCookie(&http.Cookie{Name: session.CookieName, Value: "opaque"})
 	recorder := httptest.NewRecorder()
 	boundary.Wrap(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})).ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusUnauthorized || recorder.Body.String() == "database details" {
 		t.Fatalf("unsafe response: %s", recorder.Body.String())
+	}
+}
+
+func TestPublicIdentityRouteRequiresAllowedBrowserOriginAndCarriesNoIdentity(t *testing.T) {
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Unix(1_800_000_000, 0)
+	newBoundary := func() TrustBoundary {
+		return TrustBoundary{SigningKey: privateKey, SigningKeyID: "key", Issuer: "gateway", Audience: "identity", TTL: time.Minute, FingerprintPepper: bytes.Repeat([]byte{0x51}, 32), PublicOrigins: []string{"https://app.lites.dev"}, RoutePolicy: IdentityRoutePolicy, Random: bytes.NewReader(bytes.Repeat([]byte{0x41}, 64)), Now: func() time.Time { return now }}
+	}
+	verifier := trustedcontext.Verifier{Issuer: "gateway", Audience: "identity", Keys: map[string]ed25519.PublicKey{"key": publicKey}, MaximumTTL: 5 * time.Minute}
+	request := httptest.NewRequest(http.MethodPost, "https://api.lites.dev/v1/auth/login", nil)
+	request.Header.Set("Origin", "https://app.lites.dev")
+	request.Header.Set("Sec-Fetch-Site", "same-site")
+	request.Header.Set("X-Lites-User-ID", "attacker")
+	request.Header.Set(CSRFHeader, "attacker-csrf")
+	request.AddCookie(&http.Cookie{Name: session.CookieName, Value: "attacker-session"})
+	recorder := httptest.NewRecorder()
+	newBoundary().Wrap(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		claims, err := verifier.VerifyRequest(request.Header.Get(TrustedContextHeader), now, request.Header.Get(RequestIDHeader), http.MethodPost, "/v1/auth/login", true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if claims.PrincipalKind != trustedcontext.PublicRequest || claims.SubjectID != "" || claims.TenantID != "" || len(claims.Roles) != 0 {
+			t.Fatalf("public claims contain identity: %#v", claims)
+		}
+		if request.Header.Get(CSRFHeader) != "" || request.Header.Get("X-Lites-User-ID") != "" {
+			t.Fatal("untrusted public headers reached service")
+		}
+		if request.Header.Get("Cookie") != "" || request.Header.Get("User-Agent") != "" || request.Header.Get("Authorization") != "" {
+			t.Fatal("raw browser credentials or fingerprint reached service")
+		}
+		writer.WriteHeader(http.StatusNoContent)
+	})).ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	for _, candidate := range []struct{ origin, fetchSite string }{
+		{},
+		{origin: "https://evil.example"},
+		{origin: "https://app.lites.dev", fetchSite: "cross-site"},
+		{origin: "http://app.lites.dev", fetchSite: "same-site"},
+	} {
+		request = httptest.NewRequest(http.MethodPost, "https://api.lites.dev/v1/auth/register", nil)
+		request.Header.Set("Origin", candidate.origin)
+		request.Header.Set("Sec-Fetch-Site", candidate.fetchSite)
+		recorder = httptest.NewRecorder()
+		newBoundary().Wrap(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Fatal("invalid origin reached service") })).ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusForbidden {
+			t.Fatalf("origin=%q fetch-site=%q status=%d", candidate.origin, candidate.fetchSite, recorder.Code)
+		}
+	}
+}
+
+func TestIdentityRoutePolicyFailsClosedForUnknownRoute(t *testing.T) {
+	for _, test := range []struct {
+		path string
+		want AuthenticationPolicy
+	}{
+		{path: "/v1/auth/register", want: PublicAuthentication},
+		{path: "/v1/auth/login/extra", want: AuthenticationRequired},
+		{path: "/v1/account", want: AuthenticationRequired},
+	} {
+		request := httptest.NewRequest(http.MethodPost, "https://api.lites.dev"+test.path, nil)
+		if got := IdentityRoutePolicy(request); got != test.want {
+			t.Fatalf("path=%s policy=%d want=%d", test.path, got, test.want)
+		}
 	}
 }

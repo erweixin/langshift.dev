@@ -26,7 +26,7 @@ type Response struct {
 
 func KeyDigest(raw string, pepper []byte) ([sha256.Size]byte, error) {
 	var empty [sha256.Size]byte
-	if len(raw) < 16 || len(raw) > 200 || len(pepper) < 32 {
+	if err := ValidateRawKey(raw); err != nil || len(pepper) < 32 {
 		return empty, ErrInvalidKey
 	}
 	mac := hmac.New(sha256.New, pepper)
@@ -34,6 +34,18 @@ func KeyDigest(raw string, pepper []byte) ([sha256.Size]byte, error) {
 	var digest [sha256.Size]byte
 	copy(digest[:], mac.Sum(nil))
 	return digest, nil
+}
+
+func ValidateRawKey(raw string) error {
+	if len(raw) < 16 || len(raw) > 200 {
+		return ErrInvalidKey
+	}
+	for _, value := range raw {
+		if value < 0x21 || value > 0x7e {
+			return ErrInvalidKey
+		}
+	}
+	return nil
 }
 
 func RequestHash(canonical []byte) string { sum := sha256.Sum256(canonical); return stringHex(sum[:]) }

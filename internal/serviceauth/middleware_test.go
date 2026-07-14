@@ -23,7 +23,7 @@ func TestMiddlewareRequiresMTLSAndRequestBoundContext(t *testing.T) {
 	verifier := trustedcontext.Verifier{Issuer: "gateway", Audience: "identity", Keys: map[string]ed25519.PublicKey{"key": publicKey}, MaximumTTL: 5 * time.Minute, ClockSkew: time.Second}
 	middleware := Middleware{Verifier: verifier, Now: func() time.Time { return now }, RequireVerifiedClientCertificate: true}
 	newToken := func(method, target string, csrf bool) string {
-		token, err := trustedcontext.Sign(trustedcontext.Claims{Issuer: "gateway", Audience: "identity", SubjectID: "u", TenantID: "t", MembershipID: "m", SessionID: "s", Roles: []string{"member"}, RequestID: "request-1", RequestMethod: method, RequestTarget: target, CSRFVerified: csrf, IssuedAt: now.Unix(), ExpiresAt: now.Add(time.Minute).Unix(), Nonce: "nonce"}, "key", privateKey, 5*time.Minute)
+		token, err := trustedcontext.Sign(trustedcontext.Claims{PrincipalKind: trustedcontext.AuthenticatedUser, Issuer: "gateway", Audience: "identity", SubjectID: "u", TenantID: "t", MembershipID: "m", SessionID: "s", Roles: []string{"member"}, RequestID: "request-1", RequestMethod: method, RequestTarget: target, ClientIPHash: "YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWE", UserAgentHash: "YmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmI", CSRFVerified: csrf, IssuedAt: now.Unix(), ExpiresAt: now.Add(time.Minute).Unix(), Nonce: "nonce"}, "key", privateKey, 5*time.Minute)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -77,5 +77,31 @@ func TestMiddlewareRequiresMTLSAndRequestBoundContext(t *testing.T) {
 				t.Fatal("rejected bearer context was not removed")
 			}
 		})
+	}
+}
+
+func TestMiddlewareAcceptsOriginVerifiedPublicContextWithoutInventingPrincipal(t *testing.T) {
+	publicKey, privateKey, _ := ed25519.GenerateKey(rand.Reader)
+	now := time.Unix(1_800_000_000, 0)
+	claims := trustedcontext.Claims{PrincipalKind: trustedcontext.PublicRequest, Issuer: "gateway", Audience: "identity", RequestID: "public-request", RequestMethod: http.MethodPost, RequestTarget: "/v1/auth/login", ClientIPHash: "YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWE", UserAgentHash: "YmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmI", CSRFVerified: true, IssuedAt: now.Unix(), ExpiresAt: now.Add(time.Minute).Unix(), Nonce: "public-nonce"}
+	token, err := trustedcontext.Sign(claims, "key", privateKey, 5*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	middleware := Middleware{Verifier: trustedcontext.Verifier{Issuer: "gateway", Audience: "identity", Keys: map[string]ed25519.PublicKey{"key": publicKey}, MaximumTTL: 5 * time.Minute}, Now: func() time.Time { return now }, RequireVerifiedClientCertificate: true}
+	request := httptest.NewRequest(http.MethodPost, "https://identity.internal/v1/auth/login", nil)
+	request.Header.Set(transport.RequestIDHeader, claims.RequestID)
+	request.Header.Set(transport.TrustedContextHeader, token)
+	request.TLS = &tls.ConnectionState{VerifiedChains: [][]*x509.Certificate{{{}}}}
+	recorder := httptest.NewRecorder()
+	middleware.Wrap(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		got, ok := ClaimsFromContext(request.Context())
+		if !ok || got.PrincipalKind != trustedcontext.PublicRequest || got.SubjectID != "" || got.TenantID != "" {
+			t.Fatalf("claims=%#v ok=%v", got, ok)
+		}
+		writer.WriteHeader(http.StatusNoContent)
+	})).ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 }

@@ -15,7 +15,7 @@ func TestTrustedContextRoundTripAndBoundaries(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Unix(1_800_000_000, 0)
-	claims := Claims{Issuer: "lites-gateway", Audience: "identity-service", SubjectID: "user-1", TenantID: "tenant-1", MembershipID: "membership-1", SessionID: "session-1", Roles: []string{"member"}, RequestID: "request-1", RequestMethod: "PATCH", RequestTarget: "/v1/account?view=full", CSRFVerified: true, IssuedAt: now.Unix(), ExpiresAt: now.Add(2 * time.Minute).Unix(), Nonce: "nonce-1"}
+	claims := Claims{PrincipalKind: AuthenticatedUser, Issuer: "lites-gateway", Audience: "identity-service", SubjectID: "user-1", TenantID: "tenant-1", MembershipID: "membership-1", SessionID: "session-1", Roles: []string{"member"}, RequestID: "request-1", RequestMethod: "PATCH", RequestTarget: "/v1/account?view=full", ClientIPHash: "YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWE", UserAgentHash: "YmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmI", CSRFVerified: true, IssuedAt: now.Unix(), ExpiresAt: now.Add(2 * time.Minute).Unix(), Nonce: "nonce-1"}
 	token, err := Sign(claims, "gateway-2026-07", privateKey, 5*time.Minute)
 	if err != nil {
 		t.Fatal(err)
@@ -51,7 +51,7 @@ func TestTrustedContextRoundTripAndBoundaries(t *testing.T) {
 
 func TestTrustedContextRejectsExcessiveTTLAndDuplicateRoles(t *testing.T) {
 	_, privateKey, _ := ed25519.GenerateKey(rand.Reader)
-	base := Claims{Issuer: "gateway", Audience: "identity", SubjectID: "u", TenantID: "t", MembershipID: "m", SessionID: "s", Roles: []string{"member"}, RequestID: "r", RequestMethod: "GET", RequestTarget: "/", IssuedAt: 100, ExpiresAt: 1000, Nonce: "n"}
+	base := Claims{PrincipalKind: AuthenticatedUser, Issuer: "gateway", Audience: "identity", SubjectID: "u", TenantID: "t", MembershipID: "m", SessionID: "s", Roles: []string{"member"}, RequestID: "r", RequestMethod: "GET", RequestTarget: "/", ClientIPHash: "YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWE", UserAgentHash: "YmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmI", IssuedAt: 100, ExpiresAt: 1000, Nonce: "n"}
 	if _, err := Sign(base, "key", privateKey, 5*time.Minute); !errors.Is(err, ErrInvalidClaims) {
 		t.Fatalf("ttl error=%v", err)
 	}
@@ -59,5 +59,25 @@ func TestTrustedContextRejectsExcessiveTTLAndDuplicateRoles(t *testing.T) {
 	base.Roles = []string{"member", "member"}
 	if _, err := Sign(base, "key", privateKey, 5*time.Minute); !errors.Is(err, ErrInvalidClaims) {
 		t.Fatalf("roles error=%v", err)
+	}
+}
+
+func TestPublicContextCannotSmuggleIdentity(t *testing.T) {
+	publicKey, privateKey, _ := ed25519.GenerateKey(rand.Reader)
+	now := time.Unix(1_800_000_000, 0)
+	base := Claims{PrincipalKind: PublicRequest, Issuer: "gateway", Audience: "identity", RequestID: "request-public", RequestMethod: "POST", RequestTarget: "/v1/auth/login", ClientIPHash: "YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWE", UserAgentHash: "YmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmI", CSRFVerified: true, IssuedAt: now.Unix(), ExpiresAt: now.Add(time.Minute).Unix(), Nonce: "nonce-public"}
+	token, err := Sign(base, "key", privateKey, 5*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	verifier := Verifier{Issuer: "gateway", Audience: "identity", Keys: map[string]ed25519.PublicKey{"key": publicKey}, MaximumTTL: 5 * time.Minute}
+	claims, err := verifier.VerifyRequest(token, now, base.RequestID, base.RequestMethod, base.RequestTarget, true)
+	if err != nil || claims.PrincipalKind != PublicRequest {
+		t.Fatalf("claims=%#v err=%v", claims, err)
+	}
+	base.SubjectID = "attacker"
+	base.Roles = []string{"owner"}
+	if _, err = Sign(base, "key", privateKey, 5*time.Minute); !errors.Is(err, ErrInvalidClaims) {
+		t.Fatalf("public identity smuggling error=%v", err)
 	}
 }

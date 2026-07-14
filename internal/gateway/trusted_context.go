@@ -5,9 +5,13 @@ import (
 	"crypto/ed25519"
 	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
+	"errors"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/langshift/lites/internal/identity/session"
@@ -21,20 +25,34 @@ const CSRFHeader = transport.CSRFHeader
 const RequestIDHeader = transport.RequestIDHeader
 
 var untrustedIdentityHeaders = []string{
-	TrustedContextHeader, "X-Lites-User-ID", "X-Lites-Tenant-ID", "X-Lites-Membership-ID", "X-Lites-Roles", "X-Lites-Session-ID",
+	TrustedContextHeader, "Authorization", "Proxy-Authorization", "X-Lites-User-ID", "X-Lites-Tenant-ID", "X-Lites-Membership-ID", "X-Lites-Roles", "X-Lites-Session-ID",
+}
+
+var untrustedNetworkHeaders = []string{
+	"Forwarded", "X-Forwarded-For", "X-Real-IP", "True-Client-IP", "CF-Connecting-IP",
 }
 
 type TrustBoundary struct {
-	Resolver     session.Resolver
-	SigningKey   ed25519.PrivateKey
-	SigningKeyID string
-	Issuer       string
-	Audience     string
-	TTL          time.Duration
-	CSRFPepper   []byte
-	Random       io.Reader
-	Now          func() time.Time
+	Resolver          session.Resolver
+	SigningKey        ed25519.PrivateKey
+	SigningKeyID      string
+	Issuer            string
+	Audience          string
+	TTL               time.Duration
+	CSRFPepper        []byte
+	FingerprintPepper []byte
+	PublicOrigins     []string
+	RoutePolicy       func(*http.Request) AuthenticationPolicy
+	Random            io.Reader
+	Now               func() time.Time
 }
+
+type AuthenticationPolicy uint8
+
+const (
+	AuthenticationRequired AuthenticationPolicy = iota
+	PublicAuthentication
+)
 
 func (boundary TrustBoundary) Wrap(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -53,26 +71,52 @@ func (boundary TrustBoundary) Wrap(next http.Handler) http.Handler {
 		for _, name := range untrustedIdentityHeaders {
 			request.Header.Del(name)
 		}
-		cookie, err := request.Cookie(session.CookieName)
-		if err != nil || boundary.Resolver == nil {
-			boundary.unauthorized(writer, request)
+		clientIPHash, userAgentHash, err := boundary.requestFingerprints(request)
+		if err != nil {
+			boundary.internalError(writer, request)
 			return
 		}
-		principal, err := boundary.Resolver.Resolve(request.Context(), cookie.Value)
-		if err != nil || principal.UserID == "" || principal.TenantID == "" || principal.MembershipID == "" || principal.SessionID == "" || len(principal.Roles) == 0 {
-			boundary.unauthorized(writer, request)
-			return
+		policy := AuthenticationRequired
+		if boundary.RoutePolicy != nil {
+			policy = boundary.RoutePolicy(request)
 		}
-		csrfVerified := false
-		if transport.RequiresCSRF(request.Method) {
-			rawCSRF := request.Header.Get(CSRFHeader)
-			digest, digestErr := session.Digest(rawCSRF, boundary.CSRFPepper)
-			if digestErr != nil || len(principal.CSRFSecretHash) != len(digest) || !hmac.Equal(principal.CSRFSecretHash, digest[:]) {
+		principal := session.Principal{}
+		principalKind := trustedcontext.AuthenticatedUser
+		csrfVerified := !transport.RequiresCSRF(request.Method)
+		if policy == PublicAuthentication {
+			principalKind = trustedcontext.PublicRequest
+			if transport.RequiresCSRF(request.Method) && !boundary.validPublicOrigin(request) {
 				request.Header.Del(CSRFHeader)
-				problem.Write(writer, problem.Value{Type: "https://errors.lites.dev/permission_denied", Title: "Permission denied", Status: http.StatusForbidden, Code: "permission_denied", RequestID: requestID, Retryable: false})
+				boundary.permissionDenied(writer, request)
 				return
 			}
 			csrfVerified = true
+		} else {
+			cookie, err := request.Cookie(session.CookieName)
+			if err != nil || boundary.Resolver == nil {
+				boundary.unauthorized(writer, request)
+				return
+			}
+			principal, err = boundary.Resolver.Resolve(request.Context(), cookie.Value)
+			if err != nil || principal.UserID == "" || principal.TenantID == "" || principal.MembershipID == "" || principal.SessionID == "" || len(principal.Roles) == 0 {
+				boundary.unauthorized(writer, request)
+				return
+			}
+			if transport.RequiresCSRF(request.Method) {
+				rawCSRF := request.Header.Get(CSRFHeader)
+				digest, digestErr := session.Digest(rawCSRF, boundary.CSRFPepper)
+				if digestErr != nil || len(principal.CSRFSecretHash) != len(digest) || !hmac.Equal(principal.CSRFSecretHash, digest[:]) {
+					request.Header.Del(CSRFHeader)
+					boundary.permissionDenied(writer, request)
+					return
+				}
+				csrfVerified = true
+			}
+		}
+		stripSensitiveCookies(request)
+		request.Header.Del("User-Agent")
+		for _, name := range untrustedNetworkHeaders {
+			request.Header.Del(name)
 		}
 		request.Header.Del(CSRFHeader)
 		now := time.Now().UTC()
@@ -80,7 +124,7 @@ func (boundary TrustBoundary) Wrap(next http.Handler) http.Handler {
 			now = boundary.Now().UTC()
 		}
 		expiresAt := now.Add(boundary.TTL)
-		if principal.ExpiresAt.Before(expiresAt) {
+		if principalKind == trustedcontext.AuthenticatedUser && principal.ExpiresAt.Before(expiresAt) {
 			expiresAt = principal.ExpiresAt
 		}
 		if !expiresAt.After(now) {
@@ -88,11 +132,11 @@ func (boundary TrustBoundary) Wrap(next http.Handler) http.Handler {
 			return
 		}
 		nonceBytes := make([]byte, 16)
-		if _, err = io.ReadFull(randomSource, nonceBytes); err != nil {
+		if _, err := io.ReadFull(randomSource, nonceBytes); err != nil {
 			boundary.internalError(writer, request)
 			return
 		}
-		claims := trustedcontext.Claims{Issuer: boundary.Issuer, Audience: boundary.Audience, SubjectID: principal.UserID, TenantID: principal.TenantID, MembershipID: principal.MembershipID, SessionID: principal.SessionID, Roles: principal.Roles, RequestID: requestID, RequestMethod: request.Method, RequestTarget: request.URL.RequestURI(), CSRFVerified: csrfVerified, IssuedAt: now.Unix(), ExpiresAt: expiresAt.Unix(), Nonce: base64.RawURLEncoding.EncodeToString(nonceBytes)}
+		claims := trustedcontext.Claims{PrincipalKind: principalKind, Issuer: boundary.Issuer, Audience: boundary.Audience, SubjectID: principal.UserID, TenantID: principal.TenantID, MembershipID: principal.MembershipID, SessionID: principal.SessionID, Roles: principal.Roles, RequestID: requestID, RequestMethod: request.Method, RequestTarget: request.URL.RequestURI(), ClientIPHash: clientIPHash, UserAgentHash: userAgentHash, CSRFVerified: csrfVerified, IssuedAt: now.Unix(), ExpiresAt: expiresAt.Unix(), Nonce: base64.RawURLEncoding.EncodeToString(nonceBytes)}
 		token, err := trustedcontext.Sign(claims, boundary.SigningKeyID, boundary.SigningKey, 5*time.Minute)
 		if err != nil {
 			boundary.internalError(writer, request)
@@ -103,8 +147,62 @@ func (boundary TrustBoundary) Wrap(next http.Handler) http.Handler {
 	})
 }
 
+func stripSensitiveCookies(request *http.Request) {
+	cookies := request.Cookies()
+	request.Header.Del("Cookie")
+	for _, cookie := range cookies {
+		if cookie.Name == session.CookieName || cookie.Name == session.CSRFCookieName {
+			continue
+		}
+		request.AddCookie(cookie)
+	}
+}
+
+func (boundary TrustBoundary) requestFingerprints(request *http.Request) (string, string, error) {
+	if len(boundary.FingerprintPepper) < 32 {
+		return "", "", errors.New("fingerprint pepper must contain at least 32 bytes")
+	}
+	host, _, err := net.SplitHostPort(request.RemoteAddr)
+	if err != nil {
+		host = request.RemoteAddr
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return "", "", errors.New("client address is invalid")
+	}
+	return keyedFingerprint(ip.String(), boundary.FingerprintPepper), keyedFingerprint(request.UserAgent(), boundary.FingerprintPepper), nil
+}
+
+func keyedFingerprint(value string, pepper []byte) string {
+	mac := hmac.New(sha256.New, pepper)
+	_, _ = mac.Write([]byte(value))
+	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+}
+
+func (boundary TrustBoundary) validPublicOrigin(request *http.Request) bool {
+	origin := request.Header.Get("Origin")
+	parsed, err := url.Parse(origin)
+	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil || parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return false
+	}
+	if fetchSite := request.Header.Get("Sec-Fetch-Site"); fetchSite != "" && fetchSite != "same-origin" && fetchSite != "same-site" {
+		return false
+	}
+	canonical := parsed.Scheme + "://" + parsed.Host
+	for _, allowed := range boundary.PublicOrigins {
+		if canonical == allowed {
+			return true
+		}
+	}
+	return false
+}
+
 func (boundary TrustBoundary) unauthorized(writer http.ResponseWriter, request *http.Request) {
 	problem.Write(writer, problem.Value{Type: "https://errors.lites.dev/authentication_required", Title: "Authentication required", Status: http.StatusUnauthorized, Code: "authentication_required", RequestID: request.Header.Get(RequestIDHeader), Retryable: false})
+}
+
+func (boundary TrustBoundary) permissionDenied(writer http.ResponseWriter, request *http.Request) {
+	problem.Write(writer, problem.Value{Type: "https://errors.lites.dev/permission_denied", Title: "Permission denied", Status: http.StatusForbidden, Code: "permission_denied", RequestID: request.Header.Get(RequestIDHeader), Retryable: false})
 }
 
 func (boundary TrustBoundary) internalError(writer http.ResponseWriter, request *http.Request) {

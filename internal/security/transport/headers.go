@@ -7,6 +7,7 @@ const (
 	TrustedContextHeader = "X-Lites-Trusted-Context"
 	CSRFHeader           = "X-CSRF-Token"
 	RequestIDHeader      = "X-Request-ID"
+	IdempotencyHeader    = "Idempotency-Key"
 )
 
 func RequiresCSRF(method string) bool {

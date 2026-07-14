@@ -16,6 +16,13 @@ import (
 
 const Version = "LITES-TC1"
 
+type PrincipalKind string
+
+const (
+	AuthenticatedUser PrincipalKind = "authenticated_user"
+	PublicRequest     PrincipalKind = "public_request"
+)
+
 var (
 	ErrMalformed        = errors.New("trusted context is malformed")
 	ErrInvalidSignature = errors.New("trusted context signature is invalid")
@@ -25,20 +32,23 @@ var (
 )
 
 type Claims struct {
-	Issuer        string   `json:"iss"`
-	Audience      string   `json:"aud"`
-	SubjectID     string   `json:"sub"`
-	TenantID      string   `json:"tenant_id"`
-	MembershipID  string   `json:"membership_id"`
-	SessionID     string   `json:"session_id"`
-	Roles         []string `json:"roles"`
-	RequestID     string   `json:"request_id"`
-	RequestMethod string   `json:"request_method"`
-	RequestTarget string   `json:"request_target"`
-	CSRFVerified  bool     `json:"csrf_verified"`
-	IssuedAt      int64    `json:"iat"`
-	ExpiresAt     int64    `json:"exp"`
-	Nonce         string   `json:"nonce"`
+	PrincipalKind PrincipalKind `json:"principal_kind"`
+	Issuer        string        `json:"iss"`
+	Audience      string        `json:"aud"`
+	SubjectID     string        `json:"sub"`
+	TenantID      string        `json:"tenant_id"`
+	MembershipID  string        `json:"membership_id"`
+	SessionID     string        `json:"session_id"`
+	Roles         []string      `json:"roles"`
+	RequestID     string        `json:"request_id"`
+	RequestMethod string        `json:"request_method"`
+	RequestTarget string        `json:"request_target"`
+	ClientIPHash  string        `json:"client_ip_hash"`
+	UserAgentHash string        `json:"user_agent_hash"`
+	CSRFVerified  bool          `json:"csrf_verified"`
+	IssuedAt      int64         `json:"iat"`
+	ExpiresAt     int64         `json:"exp"`
+	Nonce         string        `json:"nonce"`
 }
 
 type header struct {
@@ -122,7 +132,19 @@ func (v Verifier) VerifyRequest(token string, now time.Time, requestID, method, 
 }
 
 func validClaims(claims Claims, maximumTTL time.Duration) bool {
-	if claims.Issuer == "" || claims.Audience == "" || claims.SubjectID == "" || claims.TenantID == "" || claims.MembershipID == "" || claims.SessionID == "" || claims.RequestID == "" || claims.RequestMethod == "" || claims.RequestTarget == "" || claims.Nonce == "" || len(claims.Roles) == 0 {
+	if claims.Issuer == "" || claims.Audience == "" || claims.RequestID == "" || claims.RequestMethod == "" || claims.RequestTarget == "" || !validFingerprint(claims.ClientIPHash) || !validFingerprint(claims.UserAgentHash) || claims.Nonce == "" {
+		return false
+	}
+	switch claims.PrincipalKind {
+	case AuthenticatedUser:
+		if claims.SubjectID == "" || claims.TenantID == "" || claims.MembershipID == "" || claims.SessionID == "" || len(claims.Roles) == 0 {
+			return false
+		}
+	case PublicRequest:
+		if claims.SubjectID != "" || claims.TenantID != "" || claims.MembershipID != "" || claims.SessionID != "" || len(claims.Roles) != 0 {
+			return false
+		}
+	default:
 		return false
 	}
 	if claims.IssuedAt <= 0 || claims.ExpiresAt <= claims.IssuedAt || maximumTTL <= 0 || time.Duration(claims.ExpiresAt-claims.IssuedAt)*time.Second > maximumTTL {
@@ -139,6 +161,11 @@ func validClaims(claims Claims, maximumTTL time.Duration) bool {
 		seen[role] = struct{}{}
 	}
 	return true
+}
+
+func validFingerprint(value string) bool {
+	decoded, err := base64.RawURLEncoding.DecodeString(value)
+	return err == nil && len(decoded) == 32
 }
 
 func decodeStrict(value string, target any) error {
