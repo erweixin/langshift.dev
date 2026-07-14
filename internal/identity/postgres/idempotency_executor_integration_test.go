@@ -30,13 +30,14 @@ func TestIdempotencyExecutorCommitsOneEffectAndReplaysNinetyNineResponses(t *tes
 	defer servicePool.Close()
 	const userID = "10000000-0000-0000-0000-000000000301"
 	const tenantID = "20000000-0000-0000-0000-000000000301"
+	const otherTenantID = "20000000-0000-0000-0000-000000000302"
 	const eventID = "50000000-0000-0000-0000-000000000301"
 	const recordID = "60000000-0000-0000-0000-000000000301"
 	now := time.Unix(1_800_000_200, 0).UTC()
 	if _, err = admin.Exec(ctx, `INSERT INTO identity.users (id,normalized_email,email_verified_at,locale,status) VALUES ($1,'idempotency@lites.invalid',$2,'en','active')`, userID, now); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = admin.Exec(ctx, `INSERT INTO identity.tenants (id,kind,name,status,region,owner_user_id) VALUES ($1,'personal','Idempotency','active','US',$2)`, tenantID, userID); err != nil {
+	if _, err = admin.Exec(ctx, `INSERT INTO identity.tenants (id,kind,name,status,region,owner_user_id) VALUES ($1,'personal','Idempotency','active','US',$2),($3,'anonymous_system','Public','active','US',NULL)`, tenantID, userID, otherTenantID); err != nil {
 		t.Fatal(err)
 	}
 	executor := IdempotencyExecutor{Pool: servicePool, KeyPepper: bytes.Repeat([]byte{0x61}, 32), TTL: 24 * time.Hour, Now: func() time.Time { return now }}
@@ -106,5 +107,20 @@ func TestIdempotencyExecutorCommitsOneEffectAndReplaysNinetyNineResponses(t *tes
 	}
 	if rows != 1 || events != 1 || bytes.Contains(storedDigest, []byte(input.RawKey)) {
 		t.Fatalf("rows=%d events=%d raw-key-leaked=%v", rows, events, bytes.Contains(storedDigest, []byte(input.RawKey)))
+	}
+
+	switching := input
+	switching.RecordID = "60000000-0000-0000-0000-000000000303"
+	switching.RawKey = "idempotency-key-tenant-switch"
+	switching.RequestID = "request-idempotency-tenant-switch"
+	if _, _, err = executor.Execute(ctx, switching, func(ctx context.Context, tx pgx.Tx) (idempotency.Response, error) {
+		_, err := tx.Exec(ctx, `SELECT set_config('lites.tenant_id',$1,true)`, otherTenantID)
+		return expected, err
+	}); err != nil {
+		t.Fatalf("tenant-switching mutation: %v", err)
+	}
+	var switchingStatus string
+	if err = admin.QueryRow(ctx, `SELECT status FROM agent.idempotency_responses WHERE id=$1 AND tenant_id=$2`, switching.RecordID, tenantID).Scan(&switchingStatus); err != nil || switchingStatus != "completed" {
+		t.Fatalf("switching status=%q err=%v", switchingStatus, err)
 	}
 }

@@ -74,6 +74,12 @@ func (executor IdempotencyExecutor) Execute(ctx context.Context, input Idempoten
 	if err != nil {
 		return idempotency.Response{}, false, err
 	}
+	// A business mutation may temporarily enter another tenant context (for
+	// example account registration creates a personal tenant). Restore the
+	// idempotency scope before completing its RLS-protected response record.
+	if _, err = tx.Exec(ctx, `SELECT set_config('lites.tenant_id',$1,true)`, input.Scope.TenantID); err != nil {
+		return idempotency.Response{}, false, err
+	}
 	if response.Status < 100 || response.Status > 599 || response.ContentType == "" || response.PayloadRef == "" || response.Hash == "" {
 		return idempotency.Response{}, false, errors.New("idempotent mutation returned an invalid response manifest")
 	}
