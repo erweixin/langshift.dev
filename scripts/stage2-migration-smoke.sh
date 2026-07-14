@@ -35,25 +35,26 @@ for cycle in $(seq 1 "${cycles}"); do
   port="$(docker port "${current_container}" 5432/tcp | head -n 1 | sed 's/.*://')"
   database_url="postgres://postgres:migration_admin@127.0.0.1:${port}/lites?sslmode=disable"
   ALLOW_INSECURE_DEVELOPMENT=true DATABASE_URL="${database_url}" "${work}/lites-migrate" -direction up >/dev/null
-  docker cp deploy/migrations/900007_verify_current.sql "${current_container}:/tmp/verify.sql" >/dev/null
+  docker cp deploy/migrations/900008_verify_current.sql "${current_container}:/tmp/verify.sql" >/dev/null
   verify_output="$(docker exec "${current_container}" psql -v ON_ERROR_STOP=1 -U postgres -d lites -Atf /tmp/verify.sql)"
   [[ "${verify_output}" == *'"status" : "passed"'* ]] || { printf '%s\n' "${verify_output}"; exit 1; }
   docker exec "${current_container}" psql -v ON_ERROR_STOP=1 -U postgres -d lites -Atc \
-    "INSERT INTO identity.users(id,normalized_email,locale,status) VALUES('10000000-0000-4000-8000-000000000001','migration-probe@example.invalid','en','active'); INSERT INTO identity.tenants(id,kind,name,status,region,owner_user_id) VALUES('20000000-0000-4000-8000-000000000001','personal','Migration Probe','active','US','10000000-0000-4000-8000-000000000001');" >/dev/null
-  data_before="$(docker exec "${current_container}" psql -v ON_ERROR_STOP=1 -U postgres -d lites -Atc "SELECT id::text||':'||normalized_email FROM identity.users UNION ALL SELECT id::text||':'||name FROM identity.tenants ORDER BY 1")"
+    "INSERT INTO identity.users(id,normalized_email,locale,status) VALUES('10000000-0000-4000-8000-000000000001','migration-probe@example.invalid','en','active'); INSERT INTO identity.tenants(id,kind,name,status,region,owner_user_id) VALUES('20000000-0000-4000-8000-000000000001','personal','Migration Probe','active','US','10000000-0000-4000-8000-000000000001'); INSERT INTO agent.runs(id,tenant_id,user_id,conversation_id,status,run_version,due_at,profile_snapshot_id,budget_snapshot) VALUES('30000000-0000-4000-8000-000000000001','20000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000001','30000000-0000-4000-8000-000000000002','accepted',1,CURRENT_TIMESTAMP+interval '1 hour','migration-probe@v8','{}'); INSERT INTO agent.events(id,tenant_id,user_id,seq,event_type,event_schema_version,aggregate_kind,aggregate_id,aggregate_version,store_epoch,occurred_at,committed_at,actor,correlation_id,payload_ref,payload_hash) VALUES('40000000-0000-4000-8000-000000000001','20000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000001',1,'ToolCallSucceeded',1,'tool_call','50000000-0000-4000-8000-000000000001',1,'60000000-0000-4000-8000-000000000001',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,'{\"kind\":\"system\"}','70000000-0000-4000-8000-000000000001','encrypted://migration/event','migration-event'); INSERT INTO agent.tool_calls(id,tenant_id,user_id,run_id,status,tool_call_version,tool_name,descriptor_snapshot_id,normalized_input_ref,request_hash,effect_class,result_event_id) VALUES('50000000-0000-4000-8000-000000000001','20000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000001','30000000-0000-4000-8000-000000000001','succeeded',1,'migration_probe','migration_probe@v1','encrypted://migration/input','migration-request','read_only','40000000-0000-4000-8000-000000000001'); INSERT INTO agent.outbox(id,tenant_id,command_id,command_type,aggregate_kind,aggregate_id,store_epoch,payload_ref,payload_hash,status,available_at) VALUES('80000000-0000-4000-8000-000000000001','20000000-0000-4000-8000-000000000001','80000000-0000-4000-8000-000000000002','ResumeAgentRun','run','30000000-0000-4000-8000-000000000001','60000000-0000-4000-8000-000000000001','encrypted://migration/resume','migration-resume','pending',CURRENT_TIMESTAMP); INSERT INTO agent.continuations(id,tenant_id,run_id,run_version,group_kind,group_id,command_id,status,continuation_kind) VALUES('90000000-0000-4000-8000-000000000001','20000000-0000-4000-8000-000000000001','30000000-0000-4000-8000-000000000001',1,'parallel','90000000-0000-4000-8000-000000000002','80000000-0000-4000-8000-000000000002','committed','resume');" >/dev/null
+  data_query="SELECT id::text||':'||normalized_email FROM identity.users UNION ALL SELECT id::text||':'||name FROM identity.tenants UNION ALL SELECT id::text||':'||COALESCE(result_event_id::text,'') FROM agent.tool_calls UNION ALL SELECT id::text||':'||COALESCE(continuation_kind,'') FROM agent.continuations ORDER BY 1"
+  data_before="$(docker exec "${current_container}" psql -v ON_ERROR_STOP=1 -U postgres -d lites -Atc "${data_query}")"
   if [[ -z "${expected_data}" ]]; then expected_data="${data_before}"; else [[ "${data_before}" == "${expected_data}" ]] || exit 1; fi
   ALLOW_INSECURE_DEVELOPMENT=true DATABASE_URL="${database_url}" "${work}/lites-migrate" -direction down -steps 1 >/dev/null
-  data_after_down="$(docker exec "${current_container}" psql -v ON_ERROR_STOP=1 -U postgres -d lites -Atc "SELECT id::text||':'||normalized_email FROM identity.users UNION ALL SELECT id::text||':'||name FROM identity.tenants ORDER BY 1")"
+  data_after_down="$(docker exec "${current_container}" psql -v ON_ERROR_STOP=1 -U postgres -d lites -Atc "${data_query}")"
   [[ "${data_after_down}" == "${data_before}" ]] || exit 1
   ALLOW_INSECURE_DEVELOPMENT=true DATABASE_URL="${database_url}" "${work}/lites-migrate" -direction up >/dev/null
-  data_after_up="$(docker exec "${current_container}" psql -v ON_ERROR_STOP=1 -U postgres -d lites -Atc "SELECT id::text||':'||normalized_email FROM identity.users UNION ALL SELECT id::text||':'||name FROM identity.tenants ORDER BY 1")"
+  data_after_up="$(docker exec "${current_container}" psql -v ON_ERROR_STOP=1 -U postgres -d lites -Atc "${data_query}")"
   [[ "${data_after_up}" == "${data_before}" ]] || exit 1
-  if ALLOW_INSECURE_DEVELOPMENT=true DATABASE_URL="${database_url}" "${work}/lites-migrate" -direction down -steps 7 >/dev/null 2>&1; then
+  if ALLOW_INSECURE_DEVELOPMENT=true DATABASE_URL="${database_url}" "${work}/lites-migrate" -direction down -steps 8 >/dev/null 2>&1; then
     echo "irreversible baseline rollback unexpectedly succeeded" >&2
     exit 1
   fi
   status_output="$(ALLOW_INSECURE_DEVELOPMENT=true DATABASE_URL="${database_url}" "${work}/lites-migrate" -direction status)"
-  [[ "${status_output}" == *'"current_version":7'* ]] || { printf '%s\n' "${status_output}"; exit 1; }
+  [[ "${status_output}" == *'"current_version":8'* ]] || { printf '%s\n' "${status_output}"; exit 1; }
   postgres_version="$(docker exec "${current_container}" psql -U postgres -d lites -Atc "SHOW server_version")"
   docker rm -f "${current_container}" >/dev/null
   current_container=""
