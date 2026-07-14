@@ -117,3 +117,31 @@ func TestValidateSuccessorRejectsCallerCraftedMutation(t *testing.T) {
 		t.Fatalf("forged successor error=%v", err)
 	}
 }
+
+func TestManualReviewCanOnlyReconcileToDurablySupportedStage(t *testing.T) {
+	base := Saga{ID: "claim", AnonymousSubjectID: "subject", Status: ManualReview, Version: 3, ClaimKey: "key", TargetTenantID: "tenant", TargetUserID: "user", MissionID: "mission"}
+	reserved, err := Advance(base, Input{ExpectedVersion: 3, Command: Reconcile, ReconciledStatus: Reserved})
+	if err != nil || reserved.Status != Reserved || reserved.Version != 4 || ValidateSuccessor(base, reserved) != nil {
+		t.Fatalf("reserved=%#v err=%v", reserved, err)
+	}
+	committed, err := Advance(base, Input{ExpectedVersion: 3, Command: Reconcile, ReconciledStatus: DestinationCommitted, DestinationCommitEventID: "event"})
+	if err != nil || committed.Status != DestinationCommitted || committed.DestinationCommitEventID != "event" || ValidateSuccessor(base, committed) != nil {
+		t.Fatalf("committed=%#v err=%v", committed, err)
+	}
+	erasingBase := base
+	erasingBase.DestinationCommitEventID = "event"
+	erasingBase.DeletionReceipts = []DeletionReceipt{testReceipt("body_payload")}
+	erasing, err := Advance(erasingBase, Input{ExpectedVersion: 3, Command: Reconcile, ReconciledStatus: Erasing, DestinationCommitEventID: "event"})
+	if err != nil || erasing.Status != Erasing || len(erasing.DeletionReceipts) != 1 || ValidateSuccessor(erasingBase, erasing) != nil {
+		t.Fatalf("erasing=%#v err=%v", erasing, err)
+	}
+	if _, err = Advance(erasingBase, Input{ExpectedVersion: 3, Command: Reconcile, ReconciledStatus: Reserved}); !errors.Is(err, ErrInvariant) {
+		t.Fatalf("erasing evidence rolled back to reserved: %v", err)
+	}
+	if _, err = Advance(base, Input{ExpectedVersion: 3, Command: Reconcile, ReconciledStatus: DestinationCommitted}); !errors.Is(err, ErrInvariant) {
+		t.Fatalf("destination without event accepted: %v", err)
+	}
+	if _, err = Advance(base, Input{ExpectedVersion: 3, Command: Reconcile, ReconciledStatus: Claimed}); !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("direct claimed repair accepted: %v", err)
+	}
+}

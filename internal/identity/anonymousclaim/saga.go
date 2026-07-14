@@ -30,6 +30,7 @@ const (
 	Complete              Command = "complete"
 	Expire                Command = "expire"
 	Escalate              Command = "escalate"
+	Reconcile             Command = "reconcile"
 )
 
 var (
@@ -76,6 +77,7 @@ type Input struct {
 	MissionID                string
 	DestinationCommitEventID string
 	DeletionReceipt          DeletionReceipt
+	ReconciledStatus         Status
 	OccurredAt               time.Time
 }
 
@@ -114,6 +116,8 @@ func ValidateSuccessor(current, successor Saga) error {
 		input.Command, input.OccurredAt = Expire, current.ExpiresAt
 	case successor.Status == ManualReview:
 		input.Command = Escalate
+	case current.Status == ManualReview && (successor.Status == Reserved || successor.Status == DestinationCommitted || successor.Status == Erasing):
+		input.Command, input.ReconciledStatus, input.DestinationCommitEventID = Reconcile, successor.Status, successor.DestinationCommitEventID
 	default:
 		return ErrInvalidTransition
 	}
@@ -202,6 +206,29 @@ func Advance(current Saga, input Input) (Saga, error) {
 			return Saga{}, ErrInvalidTransition
 		}
 		next.Status = ManualReview
+	case Reconcile:
+		if current.Status != ManualReview || current.ClaimKey == "" || current.TargetTenantID == "" || current.TargetUserID == "" || current.MissionID == "" {
+			return Saga{}, ErrInvalidTransition
+		}
+		switch input.ReconciledStatus {
+		case Reserved:
+			if current.DestinationCommitEventID != "" || input.DestinationCommitEventID != "" || len(current.DeletionReceipts) != 0 {
+				return Saga{}, ErrInvariant
+			}
+		case DestinationCommitted:
+			if input.DestinationCommitEventID == "" || len(current.DeletionReceipts) != 0 || (current.DestinationCommitEventID != "" && current.DestinationCommitEventID != input.DestinationCommitEventID) {
+				return Saga{}, ErrInvariant
+			}
+			next.DestinationCommitEventID = input.DestinationCommitEventID
+		case Erasing:
+			if input.DestinationCommitEventID == "" || (current.DestinationCommitEventID != "" && current.DestinationCommitEventID != input.DestinationCommitEventID) {
+				return Saga{}, ErrInvariant
+			}
+			next.DestinationCommitEventID = input.DestinationCommitEventID
+		default:
+			return Saga{}, ErrInvalidTransition
+		}
+		next.Status = input.ReconciledStatus
 	default:
 		return Saga{}, ErrInvalidTransition
 	}

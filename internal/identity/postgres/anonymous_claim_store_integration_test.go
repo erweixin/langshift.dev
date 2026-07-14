@@ -123,6 +123,32 @@ func TestAnonymousClaimStoreConvergesWithRLSAndProtectsReservationFromExpiry(t *
 		t.Fatalf("subject reservation=%v error=%v", reservedAt, err)
 	}
 	destination := AnonymousClaimDestination{Pool: pool, SystemTenantID: systemTenant, IdentityKey: identityKey, Payloads: payloadStore, Appender: eventpostgres.Appender{Now: func() time.Time { return now }}, StoreEpoch: storeEpoch, Now: func() time.Time { return now }}
+	reservedSaga, err := store.Load(ctx, claimID)
+	if err != nil || reservedSaga.Status != anonymousclaim.Reserved {
+		t.Fatalf("reserved saga=%#v error=%v", reservedSaga, err)
+	}
+	destinationEventID, err := destination.CommitDestination(ctx, reservedSaga)
+	if err != nil || destinationEventID == "" {
+		t.Fatalf("destination commit event=%s error=%v", destinationEventID, err)
+	}
+	manualReview, err := anonymousclaim.Advance(reservedSaga, anonymousclaim.Input{ExpectedVersion: reservedSaga.Version, Command: anonymousclaim.Escalate})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = store.CompareAndSwap(ctx, reservedSaga, manualReview); err != nil {
+		t.Fatal(err)
+	}
+	inspected, err := (AnonymousClaimRepairInspector{Pool: pool, IdentityKey: identityKey}).InspectManualReview(ctx, manualReview)
+	if err != nil || inspected.TargetStatus != string(anonymousclaim.DestinationCommitted) || inspected.DestinationCommitEventID != destinationEventID || inspected.ClaimVersion != manualReview.Version+1 || inspected.EvidenceHash == "" {
+		t.Fatalf("inspected=%#v error=%v", inspected, err)
+	}
+	reconciled, err := anonymousclaim.Advance(manualReview, anonymousclaim.Input{ExpectedVersion: manualReview.Version, Command: anonymousclaim.Reconcile, ReconciledStatus: anonymousclaim.Status(inspected.TargetStatus), DestinationCommitEventID: inspected.DestinationCommitEventID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = store.CompareAndSwap(ctx, manualReview, reconciled); err != nil {
+		t.Fatal(err)
+	}
 	eraser := AnonymousClaimEraser{Pool: pool, SystemTenantID: systemTenant, IdentityKey: identityKey, Objects: blobs, Now: func() time.Time { return now }}
 	claimService.Destination = destination
 	claimService.Eraser = eraser
