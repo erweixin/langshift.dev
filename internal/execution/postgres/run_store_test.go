@@ -13,7 +13,7 @@ import (
 
 func TestAcceptFailsClosedBeforeDatabaseAccess(t *testing.T) {
 	now := time.Now().UTC()
-	valid := AcceptRunCommand{RunID: "run", TenantID: "tenant", UserID: "user", ConversationID: "conversation", CorrelationID: "correlation", DueAt: now.Add(time.Hour), ProfileSnapshotID: "profile-v1", BudgetSnapshot: json.RawMessage(`{"max_cost":100}`), Actor: json.RawMessage(`{"kind":"user"}`), AcceptedEvent: PayloadPointer{Ref: "encrypted://accepted", Hash: "accepted"}, QueuedEvent: PayloadPointer{Ref: "encrypted://queued", Hash: "queued"}, StartCommand: PayloadPointer{Ref: "encrypted://start", Hash: "start"}, QueueClass: "interactive", Priority: 10}
+	valid := AcceptRunCommand{RunID: "run", TenantID: "tenant", UserID: "user", ConversationID: "conversation", CorrelationID: "correlation", DueAt: now.Add(time.Hour), ProfileSnapshotID: "profile-v1", BudgetSnapshot: json.RawMessage(`{"max_cost":100}`), Actor: json.RawMessage(`{"kind":"user"}`), AcceptedEvent: PayloadPointer{Ref: "encrypted://accepted", Hash: "accepted"}, QueuedEvent: PayloadPointer{Ref: "encrypted://queued", Hash: "queued"}, StartCommand: PayloadPointer{Ref: "encrypted://start", Hash: "start"}, QueueClass: "interactive", ResourceClass: "llm", Priority: 10, CostUnits: 16, MaxAttempts: 5}
 	if _, err := (RunStore{}).Accept(t.Context(), valid); !errors.Is(err, ErrConfiguration) {
 		t.Fatalf("invalid store: %v", err)
 	}
@@ -23,6 +23,10 @@ func TestAcceptFailsClosedBeforeDatabaseAccess(t *testing.T) {
 		"array actor":       func(command *AcceptRunCommand) { command.Actor = json.RawMessage(`[]`) },
 		"missing hash":      func(command *AcceptRunCommand) { command.StartCommand.Hash = "" },
 		"negative priority": func(command *AcceptRunCommand) { command.Priority = -1 },
+		"unknown queue":     func(command *AcceptRunCommand) { command.QueueClass = "urgent" },
+		"missing resource":  func(command *AcceptRunCommand) { command.ResourceClass = "" },
+		"zero cost":         func(command *AcceptRunCommand) { command.CostUnits = 0 },
+		"zero attempts":     func(command *AcceptRunCommand) { command.MaxAttempts = 0 },
 	} {
 		t.Run(name, func(t *testing.T) {
 			candidate := valid

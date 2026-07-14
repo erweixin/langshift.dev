@@ -48,12 +48,12 @@ for cycle in $(seq 1 "${cycles}"); do
   ALLOW_INSECURE_DEVELOPMENT=true DATABASE_URL="${database_url}" "${work}/lites-migrate" -direction up >/dev/null
   data_after_up="$(docker exec "${current_container}" psql -v ON_ERROR_STOP=1 -U postgres -d lites -Atc "SELECT id::text||':'||normalized_email FROM identity.users UNION ALL SELECT id::text||':'||name FROM identity.tenants ORDER BY 1")"
   [[ "${data_after_up}" == "${data_before}" ]] || exit 1
-  if ALLOW_INSECURE_DEVELOPMENT=true DATABASE_URL="${database_url}" "${work}/lites-migrate" -direction down -steps 4 >/dev/null 2>&1; then
+  if ALLOW_INSECURE_DEVELOPMENT=true DATABASE_URL="${database_url}" "${work}/lites-migrate" -direction down -steps 5 >/dev/null 2>&1; then
     echo "irreversible baseline rollback unexpectedly succeeded" >&2
     exit 1
   fi
   status_output="$(ALLOW_INSECURE_DEVELOPMENT=true DATABASE_URL="${database_url}" "${work}/lites-migrate" -direction status)"
-  [[ "${status_output}" == *'"current_version":4'* ]] || { printf '%s\n' "${status_output}"; exit 1; }
+  [[ "${status_output}" == *'"current_version":5'* ]] || { printf '%s\n' "${status_output}"; exit 1; }
   postgres_version="$(docker exec "${current_container}" psql -U postgres -d lites -Atc "SHOW server_version")"
   docker rm -f "${current_container}" >/dev/null
   current_container=""

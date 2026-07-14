@@ -45,7 +45,7 @@ func TestAcceptRunIsAtomicReplaySafeAndTenantIsolated(t *testing.T) {
 		DueAt: now.Add(time.Hour), ProfileSnapshotID: "route_planner@sha256:profile-v1",
 		BudgetSnapshot: json.RawMessage(`{"max_steps":32,"max_cost_microunits":100000}`), Actor: json.RawMessage(`{"kind":"user","id":"2e000000-0000-4000-8000-000000000003"}`),
 		AcceptedEvent: PayloadPointer{Ref: "encrypted://events/run-accepted", Hash: "accepted-hash"}, QueuedEvent: PayloadPointer{Ref: "encrypted://events/run-queued", Hash: "queued-hash"}, StartCommand: PayloadPointer{Ref: "encrypted://commands/run-start", Hash: "start-hash"},
-		QueueClass: "interactive", Priority: 100,
+		QueueClass: "interactive", ResourceClass: "llm", Priority: 100, CostUnits: 32, MaxAttempts: 5,
 	}
 	const workers = 32
 	var wait sync.WaitGroup
@@ -345,7 +345,7 @@ func TestExpiredRunClaimIsFencedAndRecoverable(t *testing.T) {
 		DueAt: now.Add(time.Hour), ProfileSnapshotID: "route_planner@sha256:reclaim",
 		BudgetSnapshot: json.RawMessage(`{"max_steps":32}`), Actor: json.RawMessage(`{"kind":"user","id":"3e000000-0000-4000-8000-000000000002"}`),
 		AcceptedEvent: PayloadPointer{Ref: "encrypted://reclaim/accepted", Hash: "accepted"}, QueuedEvent: PayloadPointer{Ref: "encrypted://reclaim/queued", Hash: "queued"}, StartCommand: PayloadPointer{Ref: "encrypted://reclaim/start", Hash: "start"},
-		QueueClass: "interactive", Priority: 100,
+		QueueClass: "interactive", ResourceClass: "llm", Priority: 100, CostUnits: 32, MaxAttempts: 5,
 	})
 	if err != nil {
 		t.Fatal(err)

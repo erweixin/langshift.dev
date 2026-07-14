@@ -42,7 +42,10 @@ type AcceptRunCommand struct {
 	QueuedEvent       PayloadPointer
 	StartCommand      PayloadPointer
 	QueueClass        string
+	ResourceClass     string
 	Priority          int
+	CostUnits         int64
+	MaxAttempts       int
 }
 
 type AcceptedRun struct {
@@ -115,13 +118,13 @@ func (store RunStore) Accept(ctx context.Context, command AcceptRunCommand) (Acc
 		}
 	}
 
-	tag, err = tx.Exec(ctx, `INSERT INTO agent.jobs (id,tenant_id,command_id,queue_class,priority,status,available_at,due_at,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,'pending',$6,$7,$6,$6) ON CONFLICT DO NOTHING`, identifiers.startJob, command.TenantID, identifiers.startCommand, command.QueueClass, command.Priority, durableTime, command.DueAt)
+	tag, err = tx.Exec(ctx, `INSERT INTO agent.jobs (id,tenant_id,command_id,queue_class,resource_class,priority,cost_units,max_attempts,status,available_at,due_at,enqueued_at,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'pending',$9,$10,$9,$9,$9) ON CONFLICT DO NOTHING`, identifiers.startJob, command.TenantID, identifiers.startCommand, command.QueueClass, command.ResourceClass, command.Priority, command.CostUnits, command.MaxAttempts, durableTime, command.DueAt)
 	if err != nil {
 		return AcceptedRun{}, err
 	}
 	if tag.RowsAffected() == 0 {
 		var exact bool
-		err = tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM agent.jobs WHERE id=$1 AND tenant_id=$2 AND command_id=$3 AND queue_class=$4 AND priority=$5 AND status='pending' AND available_at=$6 AND due_at=$7)`, identifiers.startJob, command.TenantID, identifiers.startCommand, command.QueueClass, command.Priority, durableTime, command.DueAt).Scan(&exact)
+		err = tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM agent.jobs WHERE id=$1 AND tenant_id=$2 AND command_id=$3 AND queue_class=$4 AND resource_class=$5 AND priority=$6 AND cost_units=$7 AND max_attempts=$8 AND retry_count=0 AND status='pending' AND available_at=$9 AND due_at=$10 AND enqueued_at=$9)`, identifiers.startJob, command.TenantID, identifiers.startCommand, command.QueueClass, command.ResourceClass, command.Priority, command.CostUnits, command.MaxAttempts, durableTime, command.DueAt).Scan(&exact)
 		if err != nil {
 			return AcceptedRun{}, err
 		}
@@ -179,7 +182,7 @@ func (store RunStore) valid() bool {
 }
 
 func validAcceptRun(command AcceptRunCommand) bool {
-	return command.RunID != "" && command.TenantID != "" && command.UserID != "" && command.ConversationID != "" && command.CorrelationID != "" && !command.DueAt.IsZero() && command.ProfileSnapshotID != "" && validJSONObject(command.BudgetSnapshot) && validJSONObject(command.Actor) && validPointer(command.AcceptedEvent) && validPointer(command.QueuedEvent) && validPointer(command.StartCommand) && command.QueueClass != "" && command.Priority >= 0
+	return command.RunID != "" && command.TenantID != "" && command.UserID != "" && command.ConversationID != "" && command.CorrelationID != "" && !command.DueAt.IsZero() && command.ProfileSnapshotID != "" && validJSONObject(command.BudgetSnapshot) && validJSONObject(command.Actor) && validPointer(command.AcceptedEvent) && validPointer(command.QueuedEvent) && validPointer(command.StartCommand) && (command.QueueClass == "interactive" || command.QueueClass == "background") && command.ResourceClass != "" && command.Priority >= 0 && command.Priority <= 1000 && command.CostUnits > 0 && command.CostUnits <= 1_000_000_000_000 && command.MaxAttempts > 0 && command.MaxAttempts <= 100
 }
 
 func validPointer(pointer PayloadPointer) bool { return pointer.Ref != "" && pointer.Hash != "" }
