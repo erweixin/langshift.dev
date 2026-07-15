@@ -31,6 +31,9 @@ const v16Fixtures=await load("contracts/events/amendments/v1.6.0/upcaster-fixtur
 const v16Amendment=await load("gate-reports/stage-3/contract-amendment-v1.6.json");
 const v17Realtime=await load("contracts/openapi/amendments/v1.7.0/realtime.json");
 const v17Amendment=await load("gate-reports/stage-3/contract-amendment-v1.7.json");
+const v18Registry=await load("contracts/events/amendments/v1.8.0/registry.json");
+const v18Fixtures=await load("contracts/events/amendments/v1.8.0/upcaster-fixtures.json");
+const v18Amendment=await load("gate-reports/stage-3/contract-amendment-v1.8.json");
 const snapshot=await load("gate-reports/stage-1/contract-snapshot.json");
 const eventNames=Object.keys(registry.schemas);
 const baseNames=new Set(Object.keys(baseRegistry.schemas));
@@ -167,6 +170,30 @@ for(const path of ["contracts/openapi/amendments/v1.7.0/realtime.json"]) v17File
 const v17RootHash=sha256({baseAmendmentId:v16Amendment.amendmentId,files:v17Files});
 check("AMENDMENT-V1.7-CONTENT-ROOT",JSON.stringify(v17Amendment.files)===JSON.stringify(v17Files)&&v17Amendment.contentRootSha256===v17RootHash&&v17Amendment.amendmentId===`contract-amendment-${v17RootHash.slice(0,20)}`,"v1.7 report binds the exact Realtime OpenAPI extension");
 check("AMENDMENT-V1.7-BASE",v17Amendment.baseSnapshotId===snapshot.snapshotId&&v17Amendment.baseContentRootSha256===snapshot.contentRootSha256&&v17Amendment.baseAmendmentId===v16Amendment.amendmentId&&v17Amendment.baseAmendmentContentRootSha256===v16Amendment.contentRootSha256,"v1.7 is anchored to both the frozen Stage 1 snapshot and v1.6 amendment");
+
+const v18EventNames=Object.keys(v18Registry.schemas);
+const priorEventNames=new Set([...baseNames,...eventNames,...v12EventNames,...v13EventNames,...v14EventNames,...v15EventNames,...v16EventNames]);
+check("AMENDMENT-V1.8-VERSION",v18Registry.amendmentVersion==="1.8.0"&&v18Registry.baseContractVersion===v17Realtime.amendmentVersion&&v18Registry.compatibility==="additive","v1.8 additively extends the v1.7 Stage 3 contract chain");
+check("AMENDMENT-V1.8-EVENTS",JSON.stringify(v18EventNames)===JSON.stringify(["BehaviorSnapshotCreated","BehaviorEvaluationRecorded","BehaviorSnapshotPromoted","BehaviorSnapshotRolledBack"])&&v18EventNames.every(name=>!priorEventNames.has(name)),"behavior snapshot, evaluation, promotion and rollback facts add without replacing a frozen event");
+check("AMENDMENT-V1.8-SCHEMAS",Object.values(v18Registry.schemas).every(schema=>schema.additionalProperties===false&&schema["x-event-schema-version"]===1&&schema.properties.payload.additionalProperties===false&&schema.properties.payload.required.every(field=>field in schema.properties.payload.properties)),"v1.8 event envelopes and payloads are closed and versioned");
+const snapshotCreated=v18Registry.schemas.BehaviorSnapshotCreated.properties.payload.required;
+const evaluationRecorded=v18Registry.schemas.BehaviorEvaluationRecorded.properties.payload.required;
+const behaviorPromoted=v18Registry.schemas.BehaviorSnapshotPromoted.properties.payload.required;
+const behaviorRolledBack=v18Registry.schemas.BehaviorSnapshotRolledBack.properties.payload.required;
+check("BEHAVIOR-SNAPSHOT-BINDING",["snapshot_id","profile_name","manifest_hash","source_commit","created_at"].every(field=>snapshotCreated.includes(field)),"behavior snapshot creation binds the canonical manifest hash, profile and source revision");
+check("BEHAVIOR-EVALUATION-BINDING",["report_id","profile_name","candidate_snapshot_id","baseline_snapshot_id","report_hash","passed","evaluated_at"].every(field=>evaluationRecorded.includes(field)),"evaluation evidence binds candidate, baseline, profile, immutable report and gate outcome");
+check("BEHAVIOR-PROMOTION-BINDING",["channel_id","profile_name","environment","sequence","candidate_snapshot_id","previous_snapshot_id","manifest_hash","evaluation_report_id","evaluation_report_hash","promotion_hash","rollout_policy","auto_rollback_policy","approvals","activated_at"].every(field=>behaviorPromoted.includes(field)),"promotion binds ordered channel state, eval evidence, rollout controls and two approvals");
+check("BEHAVIOR-ROLLBACK-BINDING",["channel_id","profile_name","environment","sequence","from_snapshot_id","to_snapshot_id","rollback_hash","trigger","observed_value","threshold","incident_evidence_hash","automation_key_id","automation_signature","triggered_at","activated_at"].every(field=>behaviorRolledBack.includes(field)),"automatic rollback binds ordered channel history, breached threshold, incident evidence and automation signature");
+const rolloutSchema=v18Registry.schemas.BehaviorSnapshotPromoted.properties.payload.properties.rollout_policy;
+const rollbackPolicySchema=v18Registry.schemas.BehaviorSnapshotPromoted.properties.payload.properties.auto_rollback_policy;
+const approvalsSchema=v18Registry.schemas.BehaviorSnapshotPromoted.properties.payload.properties.approvals.items;
+check("BEHAVIOR-NESTED-SCHEMAS",rolloutSchema.additionalProperties===false&&rollbackPolicySchema.additionalProperties===false&&approvalsSchema.additionalProperties===false&&JSON.stringify(approvalsSchema.required)===JSON.stringify(["role","approver_id","key_id","signed_at","expires_at","signature"]),"rollout, auto-rollback and approval evidence reject undeclared fields");
+check("AMENDMENT-V1.8-FIXTURES",v18Fixtures.baseFixtureVersion===v16Fixtures.fixtureVersion&&v18Fixtures.fixtures.length===v18EventNames.length&&v18Fixtures.fixtures.every(fixture=>fixture.fromVersion===1&&fixture.toVersion===1&&fixture.inputHash===sha256(fixture.input)&&fixture.expectedHash===sha256(fixture.expected)&&JSON.stringify(fixture.input)===JSON.stringify(fixture.expected)&&v18EventNames.includes(fixture.eventType)),"each v1.8 behavior fact has a deterministic canonical fixture");
+const v18Files=[];
+for(const path of ["contracts/events/amendments/v1.8.0/registry.json","contracts/events/amendments/v1.8.0/upcaster-fixtures.json"]) v18Files.push({path,sha256:sha256(await read(path))});
+const v18RootHash=sha256({baseAmendmentId:v17Amendment.amendmentId,files:v18Files});
+check("AMENDMENT-V1.8-CONTENT-ROOT",JSON.stringify(v18Amendment.files)===JSON.stringify(v18Files)&&v18Amendment.contentRootSha256===v18RootHash&&v18Amendment.amendmentId===`contract-amendment-${v18RootHash.slice(0,20)}`,"v1.8 report binds the exact behavior event extension files");
+check("AMENDMENT-V1.8-BASE",v18Amendment.baseSnapshotId===snapshot.snapshotId&&v18Amendment.baseContentRootSha256===snapshot.contentRootSha256&&v18Amendment.baseAmendmentId===v17Amendment.amendmentId&&v18Amendment.baseAmendmentContentRootSha256===v17Amendment.contentRootSha256,"v1.8 is anchored to both the frozen Stage 1 snapshot and v1.7 amendment");
 
 const failures=checks.filter(item=>item.status==="failed");
 const reportBase={reportVersion:"1.0.0",stage:3,kind:"contract-amendment-lint",status:failures.length?"failed":"passed",summary:{checks:checks.length,passed:checks.length-failures.length,failed:failures.length},results:checks};

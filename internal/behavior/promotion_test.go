@@ -4,6 +4,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/base64"
+	"strings"
 	"testing"
 	"time"
 )
@@ -31,8 +32,8 @@ func TestPromotionRequiresPassingGateAndTwoIndependentSignedOwners(t *testing.T)
 			t.Fatal(err)
 		}
 		approval := Approval{Role: identity.role, ApproverID: identity.approver, KeyID: identity.key, SignedAt: now.Add(-30 * time.Second), ExpiresAt: now.Add(time.Hour)}
-		_, promotionHash, _ := request.authorizationPayload()
-		payload, _ := approval.signingPayload(promotionHash)
+		_, promotionHash, _ := request.SigningPayload()
+		payload, _ := approval.SigningPayload(promotionHash)
 		approval.Signature = base64.RawURLEncoding.EncodeToString(ed25519.Sign(privateKey, payload))
 		request.Approvals = append(request.Approvals, approval)
 		keys[identity.key] = publicKey
@@ -58,9 +59,9 @@ func TestPromotionRejectsRoleRelabelReplayAndPostSignatureMutation(t *testing.T)
 		AutoRollback: AutoRollbackPolicy{MaximumErrorRate: 0.01, MaximumLatencyRatio: 1.2, MaximumCostRatio: 1.2, MinimumQualityRatio: 0.98, ZeroToleranceEnabled: true}, RequestedAt: now.Add(-time.Minute),
 	}
 	publicKey, privateKey, _ := ed25519.GenerateKey(rand.Reader)
-	_, promotionHash, _ := request.authorizationPayload()
+	_, promotionHash, _ := request.SigningPayload()
 	approval := Approval{Role: "risk_owner", ApproverID: "same-person", KeyID: "shared", SignedAt: now.Add(-time.Second), ExpiresAt: now.Add(time.Hour)}
-	payload, _ := approval.signingPayload(promotionHash)
+	payload, _ := approval.SigningPayload(promotionHash)
 	approval.Signature = base64.RawURLEncoding.EncodeToString(ed25519.Sign(privateKey, payload))
 	request.Approvals = []Approval{approval, approval}
 	request.Approvals[1].Role = "release_owner"
@@ -71,5 +72,26 @@ func TestPromotionRejectsRoleRelabelReplayAndPostSignatureMutation(t *testing.T)
 	request.Rollout.Percentages = []int{100, 10}
 	if _, err := VerifyPromotion(manifest, report, request, nil, now); err == nil {
 		t.Fatal("invalid rollout ordering accepted")
+	}
+}
+
+func TestAutomaticRollbackRequiresObservedThresholdBreachAndSignedEvidence(t *testing.T) {
+	now := time.Date(2026, 7, 15, 21, 10, 0, 0, time.UTC)
+	publicKey, privateKey, _ := ed25519.GenerateKey(rand.Reader)
+	request := RollbackRequest{
+		SchemaVersion: 1, TenantID: "tenant", Environment: "production", Profile: Coach, Sequence: 8,
+		FromSnapshotID: "behavior-" + strings.Repeat("d", 64), ToSnapshotID: "behavior-" + strings.Repeat("c", 64),
+		Trigger: "zero_tolerance", ObservedValue: 1, Threshold: 0, IncidentEvidenceHash: strings.Repeat("e", 64),
+		AutomationKeyID: "rollback-key", OccurredAt: now.Add(-time.Second),
+	}
+	payload, expectedHash, _ := request.SigningPayload()
+	request.Signature = base64.RawURLEncoding.EncodeToString(ed25519.Sign(privateKey, payload))
+	hash, err := VerifyRollback(request, map[string]ed25519.PublicKey{"rollback-key": publicKey}, now)
+	if err != nil || hash != expectedHash {
+		t.Fatalf("VerifyRollback()=%q err=%v", hash, err)
+	}
+	request.ObservedValue = 0
+	if _, err = VerifyRollback(request, map[string]ed25519.PublicKey{"rollback-key": publicKey}, now); err == nil {
+		t.Fatal("rollback without a threshold breach was accepted")
 	}
 }

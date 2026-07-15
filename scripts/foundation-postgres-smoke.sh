@@ -75,7 +75,8 @@ for migration in \
   deploy/migrations/000033_runtime_epoch_authorization.up.sql \
   deploy/migrations/000034_runtime_boot_receipt.up.sql \
   deploy/migrations/000035_runtime_host_recovery_authority.up.sql \
-  deploy/migrations/000036_runtime_host_restart_recovery.up.sql; do
+  deploy/migrations/000036_runtime_host_restart_recovery.up.sql \
+  deploy/migrations/000037_behavior_snapshot_promotion.up.sql; do
   target="/tmp/$(basename "${migration}")"
   docker cp "${migration}" "${container_name}:${target}" >/dev/null
   docker exec "${container_name}" psql -v ON_ERROR_STOP=1 -U postgres -d lites_foundation -f "${target}" >/dev/null
@@ -105,6 +106,9 @@ docker exec "${container_name}" psql -v ON_ERROR_STOP=1 -U postgres -d lites_fou
 docker exec "${container_name}" psql -v ON_ERROR_STOP=1 -U postgres -d lites_foundation -c \
   "CREATE ROLE lites_runtime_sweeper_service LOGIN PASSWORD 'foundation_runtime_sweeper_service' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS; GRANT CONNECT ON DATABASE lites_foundation TO lites_runtime_sweeper_service; GRANT USAGE ON SCHEMA agent TO lites_runtime_sweeper_service; GRANT SELECT ON agent.events TO lites_runtime_sweeper_service; GRANT SELECT,INSERT,UPDATE ON agent.runtime_sessions,agent.runtime_allocations,agent.event_cursors,agent.outbox TO lites_runtime_sweeper_service; GRANT INSERT ON agent.events TO lites_runtime_sweeper_service; GRANT EXECUTE ON FUNCTION agent.list_runtime_recovery_tenants(uuid,uuid,integer,integer,integer,timestamptz),agent.runtime_lock_due_session(uuid,uuid,uuid,bigint,timestamptz) TO lites_runtime_sweeper_service;" >/dev/null
 
+docker exec "${container_name}" psql -v ON_ERROR_STOP=1 -U postgres -d lites_foundation -c \
+  "CREATE ROLE lites_behavior_service LOGIN PASSWORD 'foundation_behavior_service' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS; GRANT CONNECT ON DATABASE lites_foundation TO lites_behavior_service; GRANT USAGE ON SCHEMA agent TO lites_behavior_service; GRANT SELECT,INSERT ON agent.behavior_snapshots,agent.behavior_evaluation_reports,agent.behavior_channel_deployments,agent.events TO lites_behavior_service; GRANT SELECT,INSERT,UPDATE ON agent.event_cursors,agent.outbox TO lites_behavior_service;" >/dev/null
+
 container_port="$(docker port "${container_name}" 5432/tcp | head -n 1 | sed 's/.*://')"
 
 export LITES_TEST_ADMIN_DATABASE_URL="postgres://postgres:foundation_admin@127.0.0.1:${container_port}/lites_foundation?sslmode=disable"
@@ -115,9 +119,10 @@ export LITES_TEST_SCHEDULER_DATABASE_URL="postgres://lites_scheduler_service:fou
 export LITES_TEST_REALTIME_DATABASE_URL="postgres://lites_realtime_service:foundation_realtime_service@127.0.0.1:${container_port}/lites_foundation?sslmode=disable"
 export LITES_TEST_RUNTIME_DATABASE_URL="postgres://lites_runtime_service:foundation_runtime_service@127.0.0.1:${container_port}/lites_foundation?sslmode=disable"
 export LITES_TEST_RUNTIME_SWEEPER_DATABASE_URL="postgres://lites_runtime_sweeper_service:foundation_runtime_sweeper_service@127.0.0.1:${container_port}/lites_foundation?sslmode=disable"
+export LITES_TEST_BEHAVIOR_DATABASE_URL="postgres://lites_behavior_service:foundation_behavior_service@127.0.0.1:${container_port}/lites_foundation?sslmode=disable"
 export GOCACHE="${go_cache}" GOMODCACHE="${go_mod_cache}" GOTMPDIR="${go_tmp}"
 if [[ -n "${LITES_FOUNDATION_TEST_JSON:-}" ]]; then
-  go test -p=1 -json -count=1 -timeout=60s -tags=integration ./internal/identity/postgres ./internal/identity/mail ./internal/eventstore/postgres ./internal/execution/postgres ./internal/product/postgres ./internal/billing/postgres ./internal/llmgateway/postgres ./internal/memory/postgres ./internal/realtime/postgres ./internal/runtime ./internal/runtime/postgres ./internal/runtime/sweeper | tee "${LITES_FOUNDATION_TEST_JSON}"
+  go test -p=1 -json -count=1 -timeout=60s -tags=integration ./internal/identity/postgres ./internal/identity/mail ./internal/eventstore/postgres ./internal/execution/postgres ./internal/product/postgres ./internal/billing/postgres ./internal/behavior/postgres ./internal/llmgateway/postgres ./internal/memory/postgres ./internal/realtime/postgres ./internal/runtime ./internal/runtime/postgres ./internal/runtime/sweeper | tee "${LITES_FOUNDATION_TEST_JSON}"
 else
-  go test -p=1 -count=1 -timeout=60s -tags=integration ./internal/identity/postgres ./internal/identity/mail ./internal/eventstore/postgres ./internal/execution/postgres ./internal/product/postgres ./internal/billing/postgres ./internal/llmgateway/postgres ./internal/memory/postgres ./internal/realtime/postgres ./internal/runtime ./internal/runtime/postgres ./internal/runtime/sweeper
+  go test -p=1 -count=1 -timeout=60s -tags=integration ./internal/identity/postgres ./internal/identity/mail ./internal/eventstore/postgres ./internal/execution/postgres ./internal/product/postgres ./internal/billing/postgres ./internal/behavior/postgres ./internal/llmgateway/postgres ./internal/memory/postgres ./internal/realtime/postgres ./internal/runtime ./internal/runtime/postgres ./internal/runtime/sweeper
 fi
