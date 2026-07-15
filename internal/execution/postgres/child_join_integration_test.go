@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -13,6 +14,7 @@ import (
 
 	eventpostgres "github.com/langshift/lites/internal/eventstore/postgres"
 	"github.com/langshift/lites/internal/execution/statemachine"
+	"github.com/langshift/lites/internal/payload"
 	"github.com/langshift/lites/internal/security/opaque"
 )
 
@@ -79,7 +81,7 @@ func TestChildGroupJoinPoliciesResumeParentExactlyOnce(t *testing.T) {
 
 			complete := func(index int) (CompletedRun, error) {
 				suffix := fmtIndex(index)
-				completion := ChildRunCompletion{ResultSummary: PayloadPointer{Ref: "encrypted://child-join/" + test.name + "/summary-" + suffix, Hash: strings.Repeat(fmtIndex(index+1), 64)}, CompletedEvent: pointer("child-completed-" + suffix), GroupJoinedEvent: pointer("group-joined"), RunResumeQueuedEvent: pointer("parent-resume-queued"), ResumeCommand: pointer("resume-parent"), ResumeQueueClass: "interactive", ResumeResourceClass: "llm", ResumePriority: 70, ResumeCostUnits: 1, ResumeMaxAttempts: 5}
+				completion := ChildRunCompletion{ResultSummary: PayloadPointer{Ref: "encrypted://child-join/" + test.name + "/summary-" + suffix, Hash: strings.Repeat(fmtIndex(index+1), 64)}, CompletedEvent: pointer("child-completed-" + suffix), GroupJoinedEvent: pointer("group-joined"), RunResumeQueuedEvent: pointer("parent-resume-queued"), ResumeCommand: pointer("resume-parent"), CancelRemainingCommand: PayloadPointer{Ref: "encrypted://child-join/" + test.name + "/cancel-remaining", Hash: strings.Repeat("c", 64)}, ResumeQueueClass: "interactive", ResumeResourceClass: "llm", ResumePriority: 70, ResumeCostUnits: 1, ResumeMaxAttempts: 5}
 				return store.CompleteRunTerminal(ctx, CompleteRunCommand{Claim: claims[index], ExpectedRunVersion: claims[index].RunVersion, TargetState: test.states[index], ResultHash: "result-" + test.name + "-" + suffix, Actor: json.RawMessage(`{"kind":"service"}`), CorrelationID: correlationID, AttemptCompletedEvent: pointer("child-attempt-completed-" + suffix), Child: &completion})
 			}
 
@@ -120,21 +122,70 @@ func TestChildGroupJoinPoliciesResumeParentExactlyOnce(t *testing.T) {
 			for _, index := range test.initial {
 				initialSet[index] = true
 			}
-			for index := range test.children {
-				if initialSet[index] {
-					continue
+			expectedCleanup := 0
+			if test.policy == "all" {
+				for index := range test.children {
+					if initialSet[index] {
+						continue
+					}
+					late, lateErr := complete(index)
+					if lateErr != nil {
+						t.Fatal(lateErr)
+					}
+					if late.ParentResumed || late.ParentRunVersion != 0 || late.ResumeCommandID != "" {
+						t.Fatalf("late child resumed parent: %#v", late)
+					}
 				}
-				late, lateErr := complete(index)
-				if lateErr != nil {
-					t.Fatal(lateErr)
+			} else {
+				expectedCleanup = 1
+				recoveryNow := now
+				recoveryStore := store
+				recoveryStore.Now = func() time.Time { return recoveryNow }
+				blobs := &repairServiceBlobs{values: map[string][]byte{}}
+				payloadsStore := payload.EnvelopeStore{Keys: repairServiceKeyProvider{key: payload.Key{ID: "child-group-cancellation-v1", Material: bytes.Repeat([]byte{0x61}, 32)}}, Blobs: blobs}
+				reconciler := RunCancellationReconcilerService{Store: recoveryStore, Payloads: payloadsStore, IDKey: store.IDKey}
+				dueTenants, tenantErr := reconciler.ListDueTenantIDs(ctx, storeEpoch, "", 10, 0, 1)
+				if tenantErr != nil || len(dueTenants) != 1 || dueTenants[0] != tenantID {
+					t.Fatalf("remainder cancellation tenants=%v error=%v", dueTenants, tenantErr)
 				}
-				if late.ParentResumed || late.ParentRunVersion != 0 || late.ResumeCommandID != "" {
-					t.Fatalf("late child resumed parent: %#v", late)
+				workIDs, listErr := reconciler.ListDueChildGroupCancellationIDs(ctx, tenantID, storeEpoch, "", 10)
+				if listErr != nil || len(workIDs) != 1 {
+					t.Fatalf("remainder work ids=%v error=%v", workIDs, listErr)
+				}
+				cancelled, cancelErr := reconciler.ReconcileDueChildGroupCancellation(ctx, tenantID, workIDs[0], storeEpoch)
+				if cancelErr != nil || !cancelled.Complete || cancelled.RequestedChildren != len(test.children)-len(test.initial) {
+					t.Fatalf("remainder cancellation=%#v error=%v", cancelled, cancelErr)
+				}
+				replayed, replayErr := reconciler.ReconcileDueChildGroupCancellation(ctx, tenantID, workIDs[0], storeEpoch)
+				if replayErr != nil || !replayed.Complete || !replayed.Replayed || replayed.Version != cancelled.Version {
+					t.Fatalf("remainder cancellation replay=%#v error=%v", replayed, replayErr)
+				}
+				for index := range test.children {
+					if initialSet[index] {
+						continue
+					}
+					if late, lateErr := complete(index); !errors.Is(lateErr, ErrExecutionRightConflict) || late.RunID != "" {
+						t.Fatalf("unneeded child committed late result: result=%#v error=%v", late, lateErr)
+					}
+				}
+				recoveryNow = recoveryNow.Add(cancellationReconciliationDelay)
+				for index, childID := range test.children {
+					if initialSet[index] {
+						continue
+					}
+					cancellationID, identifierErr := store.childGroupRemainderRunCancellationID(spawned.GroupID, childID)
+					if identifierErr != nil {
+						t.Fatal(identifierErr)
+					}
+					reconciled, reconcileErr := reconciler.ReconcileDueCancellation(ctx, tenantID, cancellationID, storeEpoch)
+					if reconcileErr != nil || !reconciled.Settled {
+						t.Fatalf("reconcile unneeded child %s=%#v error=%v", childID, reconciled, reconcileErr)
+					}
 				}
 			}
 
 			var parentStatus, pendingCommand, continuationID, joinedEventID string
-			var durableParentVersion, groupVersion, continuations, resumeOutbox, resumeJobs, childEvents, legacyChildEvents, groupEvents, parentResumeEvents, concurrent, allocated, total, summaries int
+			var durableParentVersion, groupVersion, continuations, resumeOutbox, resumeJobs, childEvents, legacyChildEvents, groupEvents, parentResumeEvents, concurrent, allocated, total, summaries, cleanupRows, cleanupOutbox int
 			err = admin.QueryRow(ctx, `SELECT p.status,p.run_version,p.pending_command_id::text,g.version,g.continuation_id::text,g.joined_event_id::text,
 				(SELECT count(*) FROM agent.continuations WHERE tenant_id=$1 AND group_kind='child' AND group_id=$3 AND continuation_kind='resume_parent' AND status='committed'),
 				(SELECT count(*) FROM agent.outbox WHERE tenant_id=$1 AND command_type='ResumeParentRun' AND command_id=p.pending_command_id),
@@ -145,12 +196,14 @@ func TestChildGroupJoinPoliciesResumeParentExactlyOnce(t *testing.T) {
 				(SELECT count(*) FROM agent.events WHERE tenant_id=$1 AND aggregate_kind='run' AND aggregate_id=$2 AND event_type='RunResumeQueued'),
 				q.concurrent_children,q.allocated_budget_microunits,q.total_descendants,
 				(SELECT count(*) FROM agent.runs WHERE tenant_id=$1 AND id=ANY($4::uuid[]) AND result_summary_ref IS NOT NULL AND result_summary_hash IS NOT NULL)
-				FROM agent.runs p JOIN agent.child_groups g ON g.tenant_id=p.tenant_id AND g.id=$3 JOIN agent.orchestration_quotas q ON q.tenant_id=p.tenant_id AND q.root_run_id=p.id WHERE p.tenant_id=$1 AND p.id=$2 AND g.joined=true`, tenantID, test.parentID, spawned.GroupID, test.children).Scan(&parentStatus, &durableParentVersion, &pendingCommand, &groupVersion, &continuationID, &joinedEventID, &continuations, &resumeOutbox, &resumeJobs, &childEvents, &legacyChildEvents, &groupEvents, &parentResumeEvents, &concurrent, &allocated, &total, &summaries)
+				,(SELECT count(*) FROM agent.child_group_cancellations WHERE tenant_id=$1 AND group_id=$3)
+				,(SELECT count(*) FROM agent.outbox WHERE tenant_id=$1 AND command_type='CancelRemainingChildRuns' AND aggregate_id=$2)
+				FROM agent.runs p JOIN agent.child_groups g ON g.tenant_id=p.tenant_id AND g.id=$3 JOIN agent.orchestration_quotas q ON q.tenant_id=p.tenant_id AND q.root_run_id=p.id WHERE p.tenant_id=$1 AND p.id=$2 AND g.joined=true`, tenantID, test.parentID, spawned.GroupID, test.children).Scan(&parentStatus, &durableParentVersion, &pendingCommand, &groupVersion, &continuationID, &joinedEventID, &continuations, &resumeOutbox, &resumeJobs, &childEvents, &legacyChildEvents, &groupEvents, &parentResumeEvents, &concurrent, &allocated, &total, &summaries, &cleanupRows, &cleanupOutbox)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if parentStatus != "queued" || durableParentVersion != int(parentVersion) || pendingCommand == "" || groupVersion != 2 || continuationID == "" || joinedEventID == "" || continuations != 1 || resumeOutbox != 1 || resumeJobs != 1 || childEvents != len(test.children) || legacyChildEvents != 0 || groupEvents != 1 || parentResumeEvents != 1 || concurrent != 0 || allocated != 0 || total != len(test.children) || summaries != len(test.children) {
-				t.Fatalf("parent=%s/v%d pending=%s group=v%d/%s/%s continuation=%d resume=%d/%d child_events=%d legacy=%d group_events=%d parent_events=%d quota=%d/%d/%d summaries=%d", parentStatus, durableParentVersion, pendingCommand, groupVersion, continuationID, joinedEventID, continuations, resumeOutbox, resumeJobs, childEvents, legacyChildEvents, groupEvents, parentResumeEvents, concurrent, allocated, total, summaries)
+			if parentStatus != "queued" || durableParentVersion != int(parentVersion) || pendingCommand == "" || groupVersion != 2 || continuationID == "" || joinedEventID == "" || continuations != 1 || resumeOutbox != 1 || resumeJobs != 1 || childEvents != len(test.children) || legacyChildEvents != 0 || groupEvents != 1 || parentResumeEvents != 1 || concurrent != 0 || allocated != 0 || total != len(test.children) || summaries != len(test.children) || cleanupRows != expectedCleanup || cleanupOutbox != expectedCleanup {
+				t.Fatalf("parent=%s/v%d pending=%s group=v%d/%s/%s continuation=%d resume=%d/%d child_events=%d legacy=%d group_events=%d parent_events=%d quota=%d/%d/%d summaries=%d cleanup=%d/%d", parentStatus, durableParentVersion, pendingCommand, groupVersion, continuationID, joinedEventID, continuations, resumeOutbox, resumeJobs, childEvents, legacyChildEvents, groupEvents, parentResumeEvents, concurrent, allocated, total, summaries, cleanupRows, cleanupOutbox)
 			}
 		})
 	}

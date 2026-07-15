@@ -16,6 +16,7 @@ type ChildRunCompletion struct {
 	ResultSummary                         PayloadPointer
 	CompletedEvent, GroupJoinedEvent      PayloadPointer
 	RunResumeQueuedEvent, ResumeCommand   PayloadPointer
+	CancelRemainingCommand                PayloadPointer
 	ResumeQueueClass, ResumeResourceClass string
 	ResumePriority, ResumeMaxAttempts     int
 	ResumeCostUnits                       int64
@@ -32,11 +33,14 @@ type childJoinInput struct {
 }
 
 type childJoinResult struct {
-	ParentRunVersion                uint64
-	ContinuationID, ResumeCommandID string
-	Resumed                         bool
-	GroupEvent, ParentEvent         *eventpostgres.Input
+	ParentRunVersion                                        uint64
+	ContinuationID, ResumeCommandID                         string
+	RemainderCancellationID, RemainderCancellationCommandID string
+	Resumed                                                 bool
+	GroupEvent, ParentEvent                                 *eventpostgres.Input
 }
+
+type childRemainderCancellationIDs struct{ work, outbox, command, job string }
 
 // joinCompletedChild releases the child's orchestration reservation and, when
 // the locked group policy has converged, creates exactly one durable parent
@@ -56,13 +60,17 @@ func (store RunStore) joinCompletedChild(ctx context.Context, tx pgx.Tx, input c
 	if err != nil || continuationKind != "resume_parent" {
 		return childJoinResult{}, ErrRunConflict
 	}
-	var terminalCount, successCount int
-	err = tx.QueryRow(ctx, `SELECT count(*) FILTER (WHERE m.required AND r.status IN ('succeeded','failed','cancelled','expired')),count(*) FILTER (WHERE m.required AND r.status='succeeded') FROM agent.child_group_members m JOIN agent.runs r ON r.tenant_id=m.tenant_id AND r.id=m.child_run_id WHERE m.tenant_id=$1 AND m.group_id=$2`, input.TenantID, input.GroupID).Scan(&terminalCount, &successCount)
+	var terminalCount, successCount, liveCount int
+	err = tx.QueryRow(ctx, `SELECT count(*) FILTER (WHERE m.required AND r.status IN ('succeeded','failed','cancelled','expired')),count(*) FILTER (WHERE m.required AND r.status='succeeded'),count(*) FILTER (WHERE r.status NOT IN ('succeeded','failed','cancelled','expired')) FROM agent.child_group_members m JOIN agent.runs r ON r.tenant_id=m.tenant_id AND r.id=m.child_run_id WHERE m.tenant_id=$1 AND m.group_id=$2`, input.TenantID, input.GroupID).Scan(&terminalCount, &successCount, &liveCount)
 	if err != nil {
 		return childJoinResult{}, err
 	}
 	if joined || !parallelJoinSatisfied(joinPolicy, requiredCount, quorumCount, terminalCount, successCount) {
 		return childJoinResult{}, nil
+	}
+	needsRemainderCancellation := liveCount > 0 && (joinPolicy == "any" || joinPolicy == "quorum")
+	if needsRemainderCancellation && !validSHA256Pointer(input.Completion.CancelRemainingCommand) {
+		return childJoinResult{}, ErrInvalidCommand
 	}
 
 	var parentVersion uint64
@@ -100,16 +108,32 @@ func (store RunStore) joinCompletedChild(ctx context.Context, tx pgx.Tx, input c
 	if _, err = tx.Exec(ctx, `INSERT INTO agent.jobs(id,tenant_id,command_id,queue_class,resource_class,priority,cost_units,max_attempts,status,available_at,due_at,enqueued_at,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'pending',$9,$10,$9,$9,$9)`, continuation.job, input.TenantID, continuation.command, input.Completion.ResumeQueueClass, input.Completion.ResumeResourceClass, input.Completion.ResumePriority, input.Completion.ResumeCostUnits, input.Completion.ResumeMaxAttempts, input.Now, dueAt); err != nil {
 		return childJoinResult{}, err
 	}
+	var remainder childRemainderCancellationIDs
+	if needsRemainderCancellation {
+		remainder, err = store.childRemainderCancellationIdentifiers(input.GroupID)
+		if err != nil {
+			return childJoinResult{}, err
+		}
+		if _, err = tx.Exec(ctx, `INSERT INTO agent.child_group_cancellations(tenant_id,id,group_id,parent_run_id,root_run_id,store_epoch,status,version,command_id,payload_ref,payload_hash,available_at,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,'pending',1,$7,$8,$9,$10,$10,$10)`, input.TenantID, remainder.work, input.GroupID, input.ParentRunID, input.RootRunID, store.StoreEpoch, remainder.command, input.Completion.CancelRemainingCommand.Ref, input.Completion.CancelRemainingCommand.Hash, input.Now); err != nil {
+			return childJoinResult{}, err
+		}
+		if _, err = tx.Exec(ctx, `INSERT INTO agent.jobs(id,tenant_id,command_id,queue_class,resource_class,priority,cost_units,max_attempts,status,available_at,due_at,enqueued_at,created_at,updated_at) VALUES($1,$2,$3,'background','child-group-cancellation',95,1,100,'pending',$4,$5,$4,$4,$4)`, remainder.job, input.TenantID, remainder.command, input.Now, dueAt); err != nil {
+			return childJoinResult{}, err
+		}
+	}
 
 	childCausationID := input.ChildEventID
 	groupEvent := eventpostgres.Input{Event: eventpostgres.Event{ID: continuation.groupEvent, TenantID: input.TenantID, UserID: input.UserID, EventType: "ChildGroupJoined", SchemaVersion: 1, AggregateKind: "child_group", AggregateID: input.GroupID, AggregateVersion: groupVersion + 1, StoreEpoch: store.StoreEpoch, OccurredAt: input.Now, Actor: input.Actor, CausationID: &childCausationID, CorrelationID: input.CorrelationID, PayloadRef: input.Completion.GroupJoinedEvent.Ref, PayloadHash: input.Completion.GroupJoinedEvent.Hash}, Commands: []eventpostgres.OutboxCommand{{ID: continuation.groupOutbox, CommandID: continuation.groupPublish, CommandType: "events.publish", PayloadRef: input.Completion.GroupJoinedEvent.Ref, PayloadHash: input.Completion.GroupJoinedEvent.Hash}}}
 	groupCausationID := continuation.groupEvent
 	parentEvent := eventpostgres.Input{Event: eventpostgres.Event{ID: continuation.runEvent, TenantID: input.TenantID, UserID: input.UserID, EventType: "RunResumeQueued", SchemaVersion: 1, AggregateKind: "run", AggregateID: input.ParentRunID, AggregateVersion: nextParentVersion, StoreEpoch: store.StoreEpoch, OccurredAt: input.Now, Actor: input.Actor, CausationID: &groupCausationID, CorrelationID: input.CorrelationID, PayloadRef: input.Completion.RunResumeQueuedEvent.Ref, PayloadHash: input.Completion.RunResumeQueuedEvent.Hash}, Commands: []eventpostgres.OutboxCommand{{ID: continuation.runOutbox, CommandID: continuation.runPublish, CommandType: "events.publish", PayloadRef: input.Completion.RunResumeQueuedEvent.Ref, PayloadHash: input.Completion.RunResumeQueuedEvent.Hash}, {ID: continuation.resumeOutbox, CommandID: continuation.command, CommandType: "ResumeParentRun", PayloadRef: input.Completion.ResumeCommand.Ref, PayloadHash: input.Completion.ResumeCommand.Hash}}}
-	return childJoinResult{ParentRunVersion: nextParentVersion, ContinuationID: continuation.continuation, ResumeCommandID: continuation.command, Resumed: true, GroupEvent: &groupEvent, ParentEvent: &parentEvent}, nil
+	if needsRemainderCancellation {
+		parentEvent.Commands = append(parentEvent.Commands, eventpostgres.OutboxCommand{ID: remainder.outbox, CommandID: remainder.command, CommandType: "CancelRemainingChildRuns", PayloadRef: input.Completion.CancelRemainingCommand.Ref, PayloadHash: input.Completion.CancelRemainingCommand.Hash})
+	}
+	return childJoinResult{ParentRunVersion: nextParentVersion, ContinuationID: continuation.continuation, ResumeCommandID: continuation.command, RemainderCancellationID: remainder.work, RemainderCancellationCommandID: remainder.command, Resumed: true, GroupEvent: &groupEvent, ParentEvent: &parentEvent}, nil
 }
 
 func validChildRunCompletion(completion ChildRunCompletion) bool {
-	return validSHA256Pointer(completion.ResultSummary) && validPointer(completion.CompletedEvent) && validPointer(completion.GroupJoinedEvent) && validPointer(completion.RunResumeQueuedEvent) && validPointer(completion.ResumeCommand) && (completion.ResumeQueueClass == "interactive" || completion.ResumeQueueClass == "background") && completion.ResumeResourceClass != "" && completion.ResumePriority >= 0 && completion.ResumePriority <= 1000 && completion.ResumeCostUnits > 0 && completion.ResumeCostUnits <= 1_000_000_000_000 && completion.ResumeMaxAttempts > 0 && completion.ResumeMaxAttempts <= 100
+	return validSHA256Pointer(completion.ResultSummary) && validPointer(completion.CompletedEvent) && validPointer(completion.GroupJoinedEvent) && validPointer(completion.RunResumeQueuedEvent) && validPointer(completion.ResumeCommand) && validSHA256Pointer(completion.CancelRemainingCommand) && (completion.ResumeQueueClass == "interactive" || completion.ResumeQueueClass == "background") && completion.ResumeResourceClass != "" && completion.ResumePriority >= 0 && completion.ResumePriority <= 1000 && completion.ResumeCostUnits > 0 && completion.ResumeCostUnits <= 1_000_000_000_000 && completion.ResumeMaxAttempts > 0 && completion.ResumeMaxAttempts <= 100
 }
 
 func (store RunStore) childContinuationIdentifiers(groupID string) (continuationIDs, error) {
@@ -123,4 +147,16 @@ func (store RunStore) childContinuationIdentifiers(groupID string) (continuation
 		values[index] = value
 	}
 	return continuationIDs{values[0], values[1], values[2], values[3], values[4], values[5], values[6], values[7], values[8], values[9]}, nil
+}
+
+func (store RunStore) childRemainderCancellationIdentifiers(groupID string) (childRemainderCancellationIDs, error) {
+	values := make([]string, 4)
+	for index, domain := range []string{"child-group-remainder-cancellation", "child-group-remainder-cancellation-outbox", "child-group-remainder-cancellation-command", "child-group-remainder-cancellation-job"} {
+		value, err := ids.DeterministicUUID(store.IDKey, domain, groupID)
+		if err != nil {
+			return childRemainderCancellationIDs{}, err
+		}
+		values[index] = value
+	}
+	return childRemainderCancellationIDs{values[0], values[1], values[2], values[3]}, nil
 }

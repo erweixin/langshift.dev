@@ -11,6 +11,7 @@ import (
 type reconcilerStub struct {
 	tenants       map[int][]string
 	cancellations map[string][]string
+	childGroups   map[string][]string
 	fail          map[string]error
 	visited       []string
 }
@@ -30,6 +31,19 @@ func (stub *reconcilerStub) ReconcileDueCancellation(_ context.Context, tenant, 
 		return executionpostgres.ReconciledRunCancellation{}, err
 	}
 	return executionpostgres.ReconciledRunCancellation{CancellationID: cancellation, Settled: cancellation != "deferred"}, nil
+}
+
+func (stub *reconcilerStub) ListDueChildGroupCancellationIDs(_ context.Context, tenant, _ string, after string, limit int) ([]string, error) {
+	return pageAfter(stub.childGroups[tenant], after, limit), nil
+}
+
+func (stub *reconcilerStub) ReconcileDueChildGroupCancellation(_ context.Context, tenant, cancellation, _ string) (executionpostgres.CancelledChildGroupRemainder, error) {
+	key := tenant + "/group/" + cancellation
+	stub.visited = append(stub.visited, key)
+	if err := stub.fail[key]; err != nil {
+		return executionpostgres.CancelledChildGroupRemainder{}, err
+	}
+	return executionpostgres.CancelledChildGroupRemainder{CancellationID: cancellation, Complete: cancellation != "group-deferred"}, nil
 }
 
 type lockerStub struct {
@@ -60,7 +74,8 @@ func TestCoordinatorPaginatesIsolatesFailuresAndAccountsContention(t *testing.T)
 			"tenant-b": {"cancel-3"},
 			"tenant-c": {"cancel-4"},
 		},
-		fail: map[string]error{"tenant-a/cancel-2": failure},
+		childGroups: map[string][]string{"tenant-a": {"group-1", "group-deferred"}},
+		fail:        map[string]error{"tenant-a/cancel-2": failure},
 	}
 	coordinator := Coordinator{
 		Reconciler: reconciler, Locker: lockerStub{shardContended: map[int]bool{1: true}, tenantContended: map[string]bool{"tenant-b": true}},
@@ -70,10 +85,10 @@ func TestCoordinatorPaginatesIsolatesFailuresAndAccountsContention(t *testing.T)
 	if !errors.Is(err, failure) {
 		t.Fatalf("RunOnce() error=%v", err)
 	}
-	if result.Shards != 1 || result.ShardContended != 1 || result.Tenants != 1 || result.TenantContended != 1 || result.Cancellations != 3 || result.Settled != 1 || result.Deferred != 1 || result.Failed != 1 {
+	if result.Shards != 1 || result.ShardContended != 1 || result.Tenants != 1 || result.TenantContended != 1 || result.Cancellations != 3 || result.ChildGroupCancellations != 2 || result.Settled != 2 || result.Deferred != 2 || result.Failed != 1 {
 		t.Fatalf("RunOnce() result=%#v", result)
 	}
-	want := []string{"tenant-a/cancel-1", "tenant-a/cancel-2", "tenant-a/deferred"}
+	want := []string{"tenant-a/cancel-1", "tenant-a/cancel-2", "tenant-a/deferred", "tenant-a/group/group-1", "tenant-a/group/group-deferred"}
 	if len(reconciler.visited) != len(want) {
 		t.Fatalf("visited=%v want=%v", reconciler.visited, want)
 	}

@@ -84,14 +84,15 @@ type CompleteRunCommand struct {
 }
 
 type CompletedRun struct {
-	RunID                                    string
-	RunVersion, ParentRunVersion             uint64
-	Status                                   statemachine.RunState
-	AttemptStatus                            statemachine.AttemptState
-	CompletedAt                              time.Time
-	RunEventID, AttemptEventID, ChildGroupID string
-	ContinuationID, ResumeCommandID          string
-	ParentResumed                            bool
+	RunID                                                   string
+	RunVersion, ParentRunVersion                            uint64
+	Status                                                  statemachine.RunState
+	AttemptStatus                                           statemachine.AttemptState
+	CompletedAt                                             time.Time
+	RunEventID, AttemptEventID, ChildGroupID                string
+	ContinuationID, ResumeCommandID                         string
+	RemainderCancellationID, RemainderCancellationCommandID string
+	ParentResumed                                           bool
 }
 
 // CompleteRunTerminal is the commit point for a terminal AgentWorker result.
@@ -212,7 +213,7 @@ func (store RunStore) CompleteRunTerminalInTx(ctx context.Context, tx pgx.Tx, co
 			return CompletedRun{}, err
 		}
 	}
-	return CompletedRun{RunID: claim.RunID, RunVersion: nextRunVersion, ParentRunVersion: join.ParentRunVersion, Status: command.TargetState, AttemptStatus: attemptState, CompletedAt: now, RunEventID: eventIDs.runEvent, AttemptEventID: eventIDs.attemptEvent, ChildGroupID: childGroupID.String, ContinuationID: join.ContinuationID, ResumeCommandID: join.ResumeCommandID, ParentResumed: join.Resumed}, nil
+	return CompletedRun{RunID: claim.RunID, RunVersion: nextRunVersion, ParentRunVersion: join.ParentRunVersion, Status: command.TargetState, AttemptStatus: attemptState, CompletedAt: now, RunEventID: eventIDs.runEvent, AttemptEventID: eventIDs.attemptEvent, ChildGroupID: childGroupID.String, ContinuationID: join.ContinuationID, ResumeCommandID: join.ResumeCommandID, RemainderCancellationID: join.RemainderCancellationID, RemainderCancellationCommandID: join.RemainderCancellationCommandID, ParentResumed: join.Resumed}, nil
 }
 
 func lockRunInbox(ctx context.Context, tx pgx.Tx, claim RunClaim, digest []byte, now time.Time) error {

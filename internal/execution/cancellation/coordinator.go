@@ -16,6 +16,8 @@ type Reconciler interface {
 	ListDueTenantIDs(context.Context, string, string, int, int, int) ([]string, error)
 	ListDueCancellationIDs(context.Context, string, string, string, int) ([]string, error)
 	ReconcileDueCancellation(context.Context, string, string, string) (executionpostgres.ReconciledRunCancellation, error)
+	ListDueChildGroupCancellationIDs(context.Context, string, string, string, int) ([]string, error)
+	ReconcileDueChildGroupCancellation(context.Context, string, string, string) (executionpostgres.CancelledChildGroupRemainder, error)
 }
 
 type Locker interface {
@@ -36,6 +38,7 @@ type Result struct {
 	Shards, ShardContended    int
 	Tenants, TenantContended  int
 	Cancellations             int
+	ChildGroupCancellations   int
 	Settled, Deferred, Failed int
 }
 
@@ -115,6 +118,31 @@ func (coordinator Coordinator) runTenant(ctx context.Context, tenantID string, r
 			}
 		}
 		if len(cancellations) < coordinator.CancellationPage {
+			break
+		}
+	}
+	var groupCursor string
+	for {
+		groups, err := coordinator.Reconciler.ListDueChildGroupCancellationIDs(ctx, tenantID, coordinator.StoreEpoch, groupCursor, coordinator.CancellationPage)
+		if err != nil {
+			return errors.Join(failures, err)
+		}
+		for _, cancellationID := range groups {
+			groupCursor = cancellationID
+			result.ChildGroupCancellations++
+			reconciled, reconcileErr := coordinator.Reconciler.ReconcileDueChildGroupCancellation(ctx, tenantID, cancellationID, coordinator.StoreEpoch)
+			if reconcileErr != nil {
+				result.Failed++
+				failures = errors.Join(failures, reconcileErr)
+				continue
+			}
+			if reconciled.Complete {
+				result.Settled++
+			} else {
+				result.Deferred++
+			}
+		}
+		if len(groups) < coordinator.CancellationPage {
 			return failures
 		}
 	}

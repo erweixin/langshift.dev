@@ -153,6 +153,7 @@ func run(ctx context.Context, configuration config, logger *slog.Logger) error {
 	settledCounter, _ := meter.Int64Counter("run_cancellation.reconciler.settled")
 	deferredCounter, _ := meter.Int64Counter("run_cancellation.reconciler.deferred")
 	failureCounter, _ := meter.Int64Counter("run_cancellation.reconciler.failed")
+	childGroupCounter, _ := meter.Int64Counter("run_cancellation.reconciler.child_groups")
 	contentionCounter, _ := meter.Int64Counter("run_cancellation.reconciler.lock_contention")
 	ready := &atomic.Bool{}
 	ready.Store(true)
@@ -173,11 +174,12 @@ func run(ctx context.Context, configuration config, logger *slog.Logger) error {
 		settledCounter.Add(ctx, int64(result.Settled))
 		deferredCounter.Add(ctx, int64(result.Deferred))
 		failureCounter.Add(ctx, int64(result.Failed))
+		childGroupCounter.Add(ctx, int64(result.ChildGroupCancellations))
 		contentionCounter.Add(ctx, int64(result.ShardContended+result.TenantContended))
 		if cycleErr != nil {
-			logger.Error("run cancellation reconciliation cycle degraded", "error", cycleErr, "cancellations", result.Cancellations, "failed", result.Failed)
-		} else if result.Cancellations > 0 {
-			logger.Info("run cancellations reconciled", "cancellations", result.Cancellations, "settled", result.Settled, "deferred", result.Deferred)
+			logger.Error("run cancellation reconciliation cycle degraded", "error", cycleErr, "cancellations", result.Cancellations, "child_group_cancellations", result.ChildGroupCancellations, "failed", result.Failed)
+		} else if result.Cancellations > 0 || result.ChildGroupCancellations > 0 {
+			logger.Info("run cancellations reconciled", "cancellations", result.Cancellations, "child_group_cancellations", result.ChildGroupCancellations, "settled", result.Settled, "deferred", result.Deferred)
 		}
 		timer := time.NewTimer(configuration.interval)
 		select {

@@ -269,7 +269,15 @@ func (service RunCancellationReconcilerService) materializeChildCompletion(ctx c
 		return ChildRunCompletion{}, err
 	}
 	settlement := PayloadPointer{Ref: snapshot.settlementRef, Hash: snapshot.settlementHash}
-	return ChildRunCompletion{ResultSummary: settlement, CompletedEvent: settlement, GroupJoinedEvent: groupEvent, RunResumeQueuedEvent: queuedEvent, ResumeCommand: resumeCommand, ResumeQueueClass: "background", ResumeResourceClass: "llm", ResumePriority: 70, ResumeCostUnits: 1, ResumeMaxAttempts: 5}, nil
+	remainder, err := service.Store.childRemainderCancellationIdentifiers(snapshot.childGroupID.String)
+	if err != nil {
+		return ChildRunCompletion{}, err
+	}
+	cancelRemaining, err := service.putJSON(ctx, tenantID, remainder.command, map[string]any{"command_type": "CancelRemainingChildRuns", "run_id": snapshot.parentRunID.String, "child_group_id": snapshot.childGroupID.String})
+	if err != nil {
+		return ChildRunCompletion{}, err
+	}
+	return ChildRunCompletion{ResultSummary: settlement, CompletedEvent: settlement, GroupJoinedEvent: groupEvent, RunResumeQueuedEvent: queuedEvent, ResumeCommand: resumeCommand, CancelRemainingCommand: cancelRemaining, ResumeQueueClass: "background", ResumeResourceClass: "llm", ResumePriority: 70, ResumeCostUnits: 1, ResumeMaxAttempts: 5}, nil
 }
 
 func (service RunCancellationReconcilerService) putJSON(ctx context.Context, tenantID, objectID string, value any) (PayloadPointer, error) {
