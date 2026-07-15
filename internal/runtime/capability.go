@@ -3,6 +3,7 @@ package runtime
 import (
 	"bytes"
 	"crypto/ed25519"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -155,6 +156,15 @@ func validHexHash(value string) bool {
 func validLeaseHash(value string) bool {
 	decoded, err := base64.RawURLEncoding.DecodeString(value)
 	return err == nil && len(decoded) == 32
+}
+
+func CapabilityNonceDigest(nonce string) ([sha256.Size]byte, error) {
+	var digest [sha256.Size]byte
+	decoded, err := base64.RawURLEncoding.DecodeString(nonce)
+	if err != nil || len(decoded) < 16 || len(decoded) > 32 {
+		return digest, ErrInvalidCapability
+	}
+	return sha256.Sum256(decoded), nil
 }
 
 func capabilityEncode(value []byte) string { return base64.RawURLEncoding.EncodeToString(value) }

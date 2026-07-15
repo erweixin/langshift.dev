@@ -41,6 +41,10 @@ func TestRuntimeCapabilityBindsEntireExecutionRightAndRotatingKeyWindow(t *testi
 	if err != nil || verified.Fence != 17 || verified.PolicyHash != claims.PolicyHash || verified.LeaseTokenHash != claims.LeaseTokenHash || verified.RequestHash != claims.RequestHash || verified.WorkspaceID != claims.WorkspaceID {
 		t.Fatalf("Verify() = %#v, %v", verified, err)
 	}
+	nonceDigest, err := CapabilityNonceDigest(claims.Nonce)
+	if err != nil || nonceDigest == [32]byte{} {
+		t.Fatalf("CapabilityNonceDigest() = %x, %v", nonceDigest, err)
+	}
 
 	tampered := strings.Split(token, ".")
 	tampered[1] = capabilityEncode([]byte(`{"purpose":"runtime_session"}`))
