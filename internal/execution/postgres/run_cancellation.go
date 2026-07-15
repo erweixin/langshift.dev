@@ -214,7 +214,7 @@ func countCancellationBlockers(ctx context.Context, tx pgx.Tx, tenantID, runID s
 		(SELECT count(*) FROM agent.tool_calls WHERE tenant_id=$1 AND run_id=$2 AND status NOT IN ('succeeded','failed','cancelled','resolved_unknown')),
 		(SELECT count(*) FROM agent.llm_attempts WHERE tenant_id=$1 AND run_id=$2 AND status='running'),
 		(SELECT count(*) FROM agent.runtime_sessions WHERE tenant_id=$1 AND run_id=$2 AND status NOT IN ('terminated','failed')),
-		(SELECT count(*) FROM agent.child_groups WHERE tenant_id=$1 AND parent_run_id=$2 AND joined=false)`, tenantID, runID).Scan(&tools, &llm, &runtimes, &children)
+		(SELECT count(*) FROM agent.runs WHERE tenant_id=$1 AND parent_run_id=$2 AND status NOT IN ('succeeded','failed','cancelled','expired'))`, tenantID, runID).Scan(&tools, &llm, &runtimes, &children)
 	return tools + llm + runtimes + children, err
 }
 
