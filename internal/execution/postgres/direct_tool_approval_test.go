@@ -50,6 +50,32 @@ func TestDirectToolProposalValidationFailsClosed(t *testing.T) {
 	}
 }
 
+func TestDirectApprovalResolutionValidationRequiresBoundEvidence(t *testing.T) {
+	authorize := AuthorizeDirectToolCommand{
+		TenantID: "tenant", ApprovalID: "approval", ApprovalEventID: "grant-event",
+		ProposalHash: strings.Repeat("a", 64), PermissionSnapshot: "membership:m1:v1:role:member",
+		ExpectedApprovalVersion: 2, ExpectedToolVersion: 1, Actor: json.RawMessage(`{"kind":"service"}`), CorrelationID: "correlation",
+		ToolRequestedEvent: directPointer("requested"), GroupAuthorizedEvent: directPointer("group"), RunWaitingToolEvent: directPointer("run"),
+	}
+	if !validAuthorizeDirectTool(authorize) {
+		t.Fatal("valid direct authorization rejected")
+	}
+	invalidAuthorize := authorize
+	invalidAuthorize.ProposalHash = "caller-controlled"
+	if validAuthorizeDirectTool(invalidAuthorize) {
+		t.Fatal("authorization accepted an unbound proposal")
+	}
+	reject := RejectDirectApprovalGroupCommand{TenantID: "tenant", ApprovalID: "approval", ApprovalEventID: "reject-event", ExpectedApprovalVersion: 2, Actor: json.RawMessage(`{"kind":"user"}`), CorrelationID: "correlation", ToolCancelledEvent: directPointer("cancel-tools"), RunCancelledEvent: directPointer("cancel-run")}
+	if !validRejectDirectApprovalGroup(reject) {
+		t.Fatal("valid direct rejection rejected")
+	}
+	invalidReject := reject
+	invalidReject.ApprovalEventID = ""
+	if validRejectDirectApprovalGroup(invalidReject) {
+		t.Fatal("rejection accepted missing approval evidence")
+	}
+}
+
 func validDirectApprovalRequest() DirectApprovalToolRequest {
 	return DirectApprovalToolRequest{
 		ToolName: "github_create_issue", DescriptorSnapshotID: "github_create_issue@1",

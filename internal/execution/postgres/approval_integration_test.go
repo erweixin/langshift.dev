@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	executionapi "github.com/langshift/lites/internal/execution/api"
 	"github.com/langshift/lites/internal/payload"
+	"github.com/langshift/lites/internal/platform/ids"
 )
 
 func TestApprovalRequestAndDecisionAreDurableExactReplays(t *testing.T) {
@@ -284,6 +285,67 @@ func TestApprovalControlServiceCommitsEncryptedIdempotentDecision(t *testing.T) 
 	var evidence map[string]any
 	if err = json.Unmarshal(encoded, &evidence); err != nil || evidence["approval_id"] != request.ApprovalID || evidence["permission_snapshot"] != fixture.permissionSnapshot || evidence["reauthenticated_at"] == nil {
 		t.Fatalf("approval evidence=%v err=%v", evidence, err)
+	}
+}
+
+func TestApprovalControlServiceRecoversCommittedDecisionBeforeIdempotencyResponse(t *testing.T) {
+	ctx := context.Background()
+	admin := executionPool(t, ctx, "LITES_TEST_ADMIN_DATABASE_URL")
+	defer admin.Close()
+	pool := executionPool(t, ctx, "LITES_TEST_AGENT_DATABASE_URL")
+	defer pool.Close()
+	fixture := prepareApprovalFixture(t, ctx, admin, pool, "ea")
+	request := RequestApprovalCommand{ApprovalID: fixtureID("ea", 40), TenantID: fixture.tenantID, RunID: fixture.runID, ToolCallID: fixture.toolCallID, ApprovalKind: "tool_execution", ProposalHash: "approval-proposal-ea", PermissionSnapshot: fixture.permissionSnapshot, TargetVersion: fixture.toolVersion, RequestedBy: fixture.targetUserID, ExpiresAt: fixture.now.Add(20 * time.Minute), Actor: json.RawMessage(`{"kind":"service"}`), CorrelationID: fixture.correlationID, RequestedEvent: repairPointer("ea", "approval-requested")}
+	if _, err := fixture.store.RequestApproval(ctx, request); err != nil {
+		t.Fatal(err)
+	}
+	blobs := &repairServiceBlobs{values: map[string][]byte{}}
+	payloads := payload.EnvelopeStore{Keys: repairServiceKeyProvider{key: payload.Key{ID: "approval-recovery-v1", Material: bytes.Repeat([]byte{0x7a}, 32)}}, Blobs: blobs}
+	service := ApprovalControlService{Pool: pool, Store: fixture.store, Payloads: payloads, IDKey: fixture.store.IDKey, IdempotencyKeyPepper: bytes.Repeat([]byte{0x7b}, 32), RequestDigestPepper: bytes.Repeat([]byte{0x7c}, 32), IdempotencyTTL: 24 * time.Hour, Now: func() time.Time { return fixture.now }}
+	command := executionapi.DecideApprovalCommand{RequestID: fixture.correlationID, ClientRequestID: "client-approval-ea", IdempotencyKey: "approval-idempotency-ea-0001", TenantID: fixture.tenantID, UserID: fixture.approverOneID, SessionID: fixture.sessionOneID, ApprovalID: request.ApprovalID, Decision: "approve", ProposalHash: request.ProposalHash, Mode: "admin", ExpectedApprovalVersion: 1, TargetVersion: fixture.toolVersion, PermissionSnapshot: fixture.permissionSnapshot}
+	canonical, _ := json.Marshal(struct {
+		ClientRequestID, ApprovalID, Decision, ProposalHash, Mode, PermissionSnapshot string
+		ExpectedApprovalVersion, TargetVersion                                        uint64
+	}{command.ClientRequestID, command.ApprovalID, command.Decision, command.ProposalHash, command.Mode, command.PermissionSnapshot, command.ExpectedApprovalVersion, command.TargetVersion})
+	adapter := service.idempotencyAdapter()
+	input, _, err := adapter.idempotencyInput(command.TenantID, command.UserID, adminApprovalDecisionOperation, command.IdempotencyKey, command.RequestID, canonical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if completed, beginErr := adapter.beginRepairIdempotency(ctx, input); beginErr != nil || completed {
+		t.Fatalf("begin completed=%v error=%v", completed, beginErr)
+	}
+	decisionID, err := ids.DeterministicUUID(service.IDKey, "approval-decision", input.RecordID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := service.loadApprovalDecisionSnapshot(ctx, command, decisionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	eventIDs, err := fixture.store.approvalEventIDs("decision", decisionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pointer, err := service.putApprovalJSON(ctx, command.TenantID, eventIDs.event, approvalDecisionPayload(command, snapshot))
+	if err != nil {
+		t.Fatal(err)
+	}
+	actor, _ := json.Marshal(map[string]string{"kind": "user", "user_id": command.UserID, "session_id": command.SessionID, "authorization_mode": command.Mode})
+	if _, err = fixture.store.DecideApproval(ctx, DecideApprovalCommand{ApprovalID: command.ApprovalID, TenantID: command.TenantID, DecisionID: decisionID, ActorUserID: command.UserID, SessionID: command.SessionID, Decision: command.Decision, Mode: command.Mode, ProposalHash: snapshot.proposalHash, PermissionSnapshot: snapshot.permissionSnapshot, ExpectedApprovalVersion: command.ExpectedApprovalVersion, TargetVersion: snapshot.targetVersion, ReauthenticatedAt: snapshot.reauthenticatedAt, Actor: actor, CorrelationID: command.RequestID, DecisionEvent: pointer}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = admin.Exec(ctx, `UPDATE identity.sessions SET revoked_at=$2,updated_at=$2 WHERE id=$1`, fixture.sessionOneID, fixture.now.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	service.Now = func() time.Time { return fixture.now.Add(10 * time.Minute) }
+	recovered, err := service.DecideApproval(ctx, command)
+	if err != nil || recovered.ID != request.ApprovalID || recovered.Status != "granted" || recovered.Version != 2 {
+		t.Fatalf("recovered=%#v error=%v", recovered, err)
+	}
+	var completedRows int
+	if err = admin.QueryRow(ctx, `SELECT count(*) FROM agent.idempotency_responses WHERE tenant_id=$1 AND id=$2 AND status='completed'`, fixture.tenantID, input.RecordID).Scan(&completedRows); err != nil || completedRows != 1 {
+		t.Fatalf("completed rows=%d error=%v", completedRows, err)
 	}
 }
 
