@@ -44,6 +44,7 @@ type CommandPayload struct {
 	SchemaVersion        int              `json:"schema_version"`
 	ToolCallID           string           `json:"tool_call_id"`
 	RunID                string           `json:"run_id"`
+	UserID               string           `json:"user_id"`
 	CorrelationID        string           `json:"correlation_id"`
 	ToolName             string           `json:"tool_name"`
 	DescriptorSnapshotID string           `json:"descriptor_snapshot_id"`
@@ -55,6 +56,7 @@ type CommandPayload struct {
 	EffectKey            string           `json:"effect_key,omitempty"`
 	EffectScope          string           `json:"effect_scope,omitempty"`
 	ProviderID           string           `json:"provider_id,omitempty"`
+	PermissionSnapshot   string           `json:"permission_snapshot"`
 }
 
 type ProposedExecution struct {
@@ -161,7 +163,8 @@ func (handler Handler) Handle(ctx context.Context, delivered eventpostgres.Deliv
 	}
 	claim, err := handler.Tools.ClaimTool(ctx, executionpostgres.ClaimToolCommand{
 		Command: delivered, ConsumerName: handler.ConsumerName, WorkerID: handler.WorkerID,
-		ExpectedBinding: &binding, Actor: handler.Actor, CorrelationID: command.CorrelationID,
+		ExpectedBinding: &binding, ExpectedPermissionSnapshot: command.PermissionSnapshot,
+		Actor: handler.Actor, CorrelationID: command.CorrelationID,
 		ToolStartedEvent: pointers.tool, AttemptStartedEvent: pointers.attempt,
 		AttemptExpiredEvent: pointers.expired,
 	})
@@ -384,7 +387,7 @@ func validCommand(command CommandPayload, delivered eventpostgres.DeliveredComma
 		EffectClass: command.EffectClass, EffectKey: command.EffectKey,
 		EffectScope: command.EffectScope, ProviderID: command.ProviderID,
 	}
-	return command.SchemaVersion == commandSchemaVersion && command.ToolCallID == delivered.AggregateID && command.RunID != "" && command.CorrelationID != "" && command.DescriptorHash != "" && command.Input.Ref != "" && command.Input.Hash != "" && command.NormalizedInputHash != "" && validBinding(binding)
+	return command.SchemaVersion == commandSchemaVersion && command.ToolCallID == delivered.AggregateID && command.RunID != "" && command.UserID != "" && command.PermissionSnapshot != "" && command.CorrelationID != "" && command.DescriptorHash != "" && command.Input.Ref != "" && command.Input.Hash != "" && command.NormalizedInputHash != "" && validBinding(binding)
 }
 
 func validBinding(binding executionpostgres.ToolBinding) bool {

@@ -258,7 +258,7 @@ func putExecution(t *testing.T, store payload.Store, effectClass string) (eventp
 	if err != nil {
 		t.Fatal(err)
 	}
-	command := CommandPayload{SchemaVersion: 1, ToolCallID: delivered.AggregateID, RunID: "run-1", CorrelationID: "correlation-1", ToolName: "provider_status", DescriptorSnapshotID: "provider_status@v1", DescriptorHash: "descriptor-hash", Input: inputManifest, NormalizedInputHash: plaintextHash(input), RequestHash: "request-hash", EffectClass: effectClass}
+	command := CommandPayload{SchemaVersion: 1, ToolCallID: delivered.AggregateID, RunID: "run-1", UserID: "user-1", PermissionSnapshot: "membership:m1:v1:role:member", CorrelationID: "correlation-1", ToolName: "provider_status", DescriptorSnapshotID: "provider_status@v1", DescriptorHash: "descriptor-hash", Input: inputManifest, NormalizedInputHash: plaintextHash(input), RequestHash: "request-hash", EffectClass: effectClass}
 	if effectClass != "read_only" {
 		command.EffectKey, command.EffectScope, command.ProviderID = "effect-key", "tenant:provider", "provider"
 	}

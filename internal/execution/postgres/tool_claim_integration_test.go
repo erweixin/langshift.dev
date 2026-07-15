@@ -28,11 +28,15 @@ func TestToolClaimHeartbeatAndExpiredReclaimAreFenced(t *testing.T) {
 	const conversationID = "5f000000-0000-4000-8000-000000000004"
 	const correlationID = "5f000000-0000-4000-8000-000000000005"
 	const storeEpoch = "5f000000-0000-4000-8000-000000000006"
+	const membershipID = "5f000000-0000-4000-8000-000000000007"
 	current := time.Date(2026, time.July, 14, 22, 0, 0, 0, time.UTC)
 	if _, err := admin.Exec(ctx, `INSERT INTO identity.users(id,normalized_email,locale,status) VALUES($1,'tool-claim-owner@example.invalid','en','active')`, userID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := admin.Exec(ctx, `INSERT INTO identity.tenants(id,kind,name,status,region,owner_user_id) VALUES($1,'personal','Tool Claim Owner','active','US',$2)`, tenantID, userID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := admin.Exec(ctx, `INSERT INTO identity.memberships(id,tenant_id,user_id,role,status,joined_at) VALUES($1,$2,$3,'member','active',$4)`, membershipID, tenantID, userID, current); err != nil {
 		t.Fatal(err)
 	}
 	seedExecutionBehavior(t, ctx, admin, tenantID, userID, "route_planner", current)
@@ -61,6 +65,11 @@ func TestToolClaimHeartbeatAndExpiredReclaimAreFenced(t *testing.T) {
 	}
 	expectedBinding := ToolBinding{ToolName: "github_create_issue", DescriptorSnapshotID: "github_create_issue@sha256:v1", NormalizedInputRef: "encrypted://tool-claim/input", RequestHash: "tool-request", EffectClass: "idempotent_write", EffectKey: "issue:claim-test", EffectScope: "tenant:github:claim-test", ProviderID: "github"}
 	claimCommand.ExpectedBinding = &expectedBinding
+	claimCommand.ExpectedPermissionSnapshot = "membership:substituted:v99:role:owner"
+	if _, err = store.ClaimTool(ctx, claimCommand); !errors.Is(err, ErrToolNotClaimable) {
+		t.Fatalf("substituted permission snapshot acquired execution right: %v", err)
+	}
+	claimCommand.ExpectedPermissionSnapshot = "membership:" + membershipID + ":v1:role:member"
 	first := competeForToolClaim(t, ctx, store, claimCommand, 32)
 	if first.Fence != 1 || first.ToolCallVersion != 2 || first.GroupID != requested.GroupID || first.EffectClass != "idempotent_write" || first.EffectID == "" || first.ProviderRequestID != first.EffectID || first.Binding != expectedBinding {
 		t.Fatalf("unexpected first claim: %#v", first)
@@ -173,6 +182,13 @@ func TestToolClaimHeartbeatAndExpiredReclaimAreFenced(t *testing.T) {
 	reconciliationClaim, err := store.ClaimReconciliation(ctx, ClaimReconciliationCommand{Command: eventpostgres.DeliveredCommand{TenantID: tenantID, StoreEpoch: storeEpoch, CommandID: swept.ReconcileCommandID, CommandType: "ReconcileToolEffect", AggregateKind: "tool_call", AggregateID: reconcileTool.ToolCallID, PayloadRef: "encrypted://tool-claim/swept-reconcile", PayloadHash: "swept-reconcile"}, ConsumerName: "reconciliation-worker", WorkerID: "reconciliation-after-sweep", Actor: json.RawMessage(`{"kind":"service"}`), CorrelationID: correlationID, AttemptStartedEvent: PayloadPointer{Ref: "encrypted://tool-claim/swept-reconcile-started", Hash: "swept-reconcile-started"}, AttemptExpiredEvent: PayloadPointer{Ref: "encrypted://tool-claim/swept-reconcile-expired", Hash: "swept-reconcile-expired"}})
 	if err != nil || reconciliationClaim.EffectID != swept.EffectID || reconciliationClaim.ProviderRequestID != reconcileClaim.ProviderRequestID || reconciliationClaim.Fence != 1 {
 		t.Fatalf("reconciliation after sweep=%#v error=%v", reconciliationClaim, err)
+	}
+	if _, err = admin.Exec(ctx, `UPDATE identity.memberships SET version=2,status='left',deactivated_at=$1,updated_at=$1 WHERE tenant_id=$2 AND id=$3`, current, tenantID, membershipID); err != nil {
+		t.Fatal(err)
+	}
+	current = reclaimed.LeaseExpiresAt
+	if _, err = store.ClaimTool(ctx, claimCommand); !errors.Is(err, ErrToolNotClaimable) {
+		t.Fatalf("revoked membership reclaimed tool execution right: %v", err)
 	}
 }
 

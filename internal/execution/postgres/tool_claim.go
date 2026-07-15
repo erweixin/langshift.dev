@@ -19,15 +19,16 @@ var (
 )
 
 type ClaimToolCommand struct {
-	Command             eventpostgres.DeliveredCommand
-	ConsumerName        string
-	WorkerID            string
-	ExpectedBinding     *ToolBinding
-	Actor               json.RawMessage
-	CorrelationID       string
-	ToolStartedEvent    PayloadPointer
-	AttemptStartedEvent PayloadPointer
-	AttemptExpiredEvent PayloadPointer
+	Command                    eventpostgres.DeliveredCommand
+	ConsumerName               string
+	WorkerID                   string
+	ExpectedBinding            *ToolBinding
+	ExpectedPermissionSnapshot string
+	Actor                      json.RawMessage
+	CorrelationID              string
+	ToolStartedEvent           PayloadPointer
+	AttemptStartedEvent        PayloadPointer
+	AttemptExpiredEvent        PayloadPointer
 }
 
 // ToolBinding is the immutable execution surface selected by AgentWorker.
@@ -161,7 +162,11 @@ func (store RunStore) ClaimTool(ctx context.Context, command ClaimToolCommand) (
 		return ToolClaim{}, ErrToolNotClaimable
 	}
 	binding := ToolBinding{ToolName: toolName, DescriptorSnapshotID: descriptorSnapshotID, NormalizedInputRef: normalizedInputRef, RequestHash: toolRequestHash, EffectClass: toolEffectClass, EffectKey: toolEffectKey, EffectScope: effectScope, ProviderID: providerID}
-	if status != string(statemachine.ToolCallRequested) || pendingCommand != command.Command.CommandID || lockedFence+1 != candidateFence || hasEffect != (toolEffectClass != "read_only") || hasEffect && (effectStatus != "prepared" || ledgerEffectClass != toolEffectClass || ledgerEffectKey != toolEffectKey) || command.ExpectedBinding != nil && *command.ExpectedBinding != binding {
+	permissionMatches, permissionErr := currentPermissionMatches(ctx, tx, command.Command.TenantID, userID, command.ExpectedPermissionSnapshot)
+	if permissionErr != nil {
+		return ToolClaim{}, permissionErr
+	}
+	if status != string(statemachine.ToolCallRequested) || pendingCommand != command.Command.CommandID || lockedFence+1 != candidateFence || !permissionMatches || hasEffect != (toolEffectClass != "read_only") || hasEffect && (effectStatus != "prepared" || ledgerEffectClass != toolEffectClass || ledgerEffectKey != toolEffectKey) || command.ExpectedBinding != nil && *command.ExpectedBinding != binding {
 		return ToolClaim{}, ErrToolNotClaimable
 	}
 	var runStatus string
@@ -210,6 +215,18 @@ func (store RunStore) ClaimTool(ctx context.Context, command ClaimToolCommand) (
 		return ToolClaim{}, err
 	}
 	return ToolClaim{ToolCallID: command.Command.AggregateID, RunID: runID, GroupID: groupID, TenantID: command.Command.TenantID, UserID: userID, StoreEpoch: command.Command.StoreEpoch, ToolCallVersion: nextVersion, EffectID: effectID, EffectClass: toolEffectClass, ProviderRequestID: providerRequestID, CommandID: command.Command.CommandID, ConsumerName: command.ConsumerName, RequestHash: command.Command.PayloadHash, JobID: jobID, InboxID: inboxID, AttemptID: attemptID, Fence: candidateFence, LeaseToken: credential.Raw, LeaseExpiresAt: expiresAt, Binding: binding}, nil
+}
+
+func currentPermissionMatches(ctx context.Context, tx pgx.Tx, tenantID, userID, expected string) (bool, error) {
+	if expected == "" {
+		return true, nil
+	}
+	var current string
+	err := tx.QueryRow(ctx, `SELECT format('membership:%s:v%s:role:%s',id,version,role) FROM identity.memberships WHERE tenant_id=$1 AND user_id=$2 AND status='active'`, tenantID, userID).Scan(&current)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	return current == expected, err
 }
 
 type toolClaimEventIDs struct{ toolEvent, toolOutbox, toolPublish, attemptEvent, attemptOutbox, attemptPublish string }

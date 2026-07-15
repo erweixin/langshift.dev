@@ -36,6 +36,13 @@ func (store RunStore) reclaimExpiredTool(ctx context.Context, tx pgx.Tx, command
 		return ToolClaim{}, ErrToolNotClaimable
 	}
 	binding := ToolBinding{ToolName: toolName, DescriptorSnapshotID: descriptorSnapshotID, NormalizedInputRef: normalizedInputRef, RequestHash: toolRequestHash, EffectClass: toolEffectClass, EffectKey: toolEffectKey, EffectScope: effectScope, ProviderID: providerID}
+	permissionMatches, permissionErr := currentPermissionMatches(ctx, tx, command.Command.TenantID, userID, command.ExpectedPermissionSnapshot)
+	if permissionErr != nil {
+		return ToolClaim{}, permissionErr
+	}
+	if !permissionMatches {
+		return ToolClaim{}, ErrToolNotClaimable
+	}
 	if hasEffect != (toolEffectClass != "read_only") || hasEffect && (effectClass != toolEffectClass || effectStatus != "executing" || providerRequestID == "" || ledgerEffectKey != toolEffectKey) || command.ExpectedBinding != nil && *command.ExpectedBinding != binding {
 		return ToolClaim{}, ErrClaimConflict
 	}

@@ -279,6 +279,7 @@ func decodeChildInput(encoded json.RawMessage) (childPlanInput, error) {
 func (builder ProductionResultPlanBuilder) putToolCommand(ctx context.Context, tenantID, toolCallID, commandID, class string, execution Execution, call ValidatedToolCall, input payload.Manifest, inputHash string) (executionpostgres.PayloadPointer, error) {
 	return builder.putJSON(ctx, payload.Descriptor{TenantID: tenantID, ObjectID: commandID, Class: class, ContentType: "application/json"}, toolworker.CommandPayload{
 		SchemaVersion: 1, ToolCallID: toolCallID, RunID: execution.Claim.RunID,
+		UserID: execution.Claim.UserID, PermissionSnapshot: call.Tool.PermissionSnapshot,
 		CorrelationID: execution.Payload.CorrelationID, ToolName: call.Tool.Name,
 		DescriptorSnapshotID: call.Tool.DescriptorSnapshotID, DescriptorHash: call.Tool.DescriptorHash,
 		Input: input, NormalizedInputHash: inputHash, RequestHash: call.RequestHash,
