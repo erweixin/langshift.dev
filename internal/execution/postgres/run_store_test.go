@@ -19,14 +19,15 @@ func TestAcceptFailsClosedBeforeDatabaseAccess(t *testing.T) {
 	}
 	store := RunStore{IDKey: bytes.Repeat([]byte{1}, 32), StoreEpoch: "epoch"}
 	for name, mutate := range map[string]func(*AcceptRunCommand){
-		"scalar budget":     func(command *AcceptRunCommand) { command.BudgetSnapshot = json.RawMessage(`1`) },
-		"array actor":       func(command *AcceptRunCommand) { command.Actor = json.RawMessage(`[]`) },
-		"missing hash":      func(command *AcceptRunCommand) { command.StartCommand.Hash = "" },
-		"negative priority": func(command *AcceptRunCommand) { command.Priority = -1 },
-		"unknown queue":     func(command *AcceptRunCommand) { command.QueueClass = "urgent" },
-		"missing resource":  func(command *AcceptRunCommand) { command.ResourceClass = "" },
-		"zero cost":         func(command *AcceptRunCommand) { command.CostUnits = 0 },
-		"zero attempts":     func(command *AcceptRunCommand) { command.MaxAttempts = 0 },
+		"scalar budget":          func(command *AcceptRunCommand) { command.BudgetSnapshot = json.RawMessage(`1`) },
+		"array actor":            func(command *AcceptRunCommand) { command.Actor = json.RawMessage(`[]`) },
+		"missing hash":           func(command *AcceptRunCommand) { command.StartCommand.Hash = "" },
+		"negative priority":      func(command *AcceptRunCommand) { command.Priority = -1 },
+		"unknown queue":          func(command *AcceptRunCommand) { command.QueueClass = "urgent" },
+		"missing resource":       func(command *AcceptRunCommand) { command.ResourceClass = "" },
+		"zero cost":              func(command *AcceptRunCommand) { command.CostUnits = 0 },
+		"zero attempts":          func(command *AcceptRunCommand) { command.MaxAttempts = 0 },
+		"partial child identity": func(command *AcceptRunCommand) { command.ParentRunID = "parent" },
 	} {
 		t.Run(name, func(t *testing.T) {
 			candidate := valid
@@ -36,6 +37,17 @@ func TestAcceptFailsClosedBeforeDatabaseAccess(t *testing.T) {
 			}
 			_ = store
 		})
+	}
+	child := valid
+	child.ParentRunID, child.RootRunID = "parent", "root"
+	child.SpawnToolCallID, child.ChildGroupID = "spawn", "group"
+	child.Depth, child.InheritedBudgetMicrounits = 1, 1000
+	if !validAcceptRun(child) {
+		t.Fatal("complete child Run identity rejected")
+	}
+	child.Depth = 6
+	if validAcceptRun(child) {
+		t.Fatal("child Run beyond maximum depth accepted")
 	}
 }
 

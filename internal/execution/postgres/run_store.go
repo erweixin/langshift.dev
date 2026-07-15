@@ -30,24 +30,30 @@ type PayloadPointer struct {
 }
 
 type AcceptRunCommand struct {
-	RunID               string
-	TenantID            string
-	UserID              string
-	ConversationID      string
-	CorrelationID       string
-	DueAt               time.Time
-	BehaviorProfile     behavior.Profile
-	BehaviorEnvironment string
-	BudgetSnapshot      json.RawMessage
-	Actor               json.RawMessage
-	AcceptedEvent       PayloadPointer
-	QueuedEvent         PayloadPointer
-	StartCommand        PayloadPointer
-	QueueClass          string
-	ResourceClass       string
-	Priority            int
-	CostUnits           int64
-	MaxAttempts         int
+	RunID                     string
+	TenantID                  string
+	UserID                    string
+	ConversationID            string
+	CorrelationID             string
+	DueAt                     time.Time
+	BehaviorProfile           behavior.Profile
+	BehaviorEnvironment       string
+	BudgetSnapshot            json.RawMessage
+	Actor                     json.RawMessage
+	AcceptedEvent             PayloadPointer
+	QueuedEvent               PayloadPointer
+	StartCommand              PayloadPointer
+	QueueClass                string
+	ResourceClass             string
+	Priority                  int
+	CostUnits                 int64
+	MaxAttempts               int
+	ParentRunID               string
+	RootRunID                 string
+	SpawnToolCallID           string
+	ChildGroupID              string
+	Depth                     int
+	InheritedBudgetMicrounits int64
 }
 
 type AcceptedRun struct {
@@ -138,14 +144,14 @@ func (store RunStore) AcceptInTx(ctx context.Context, tx pgx.Tx, command AcceptR
 	if err != nil {
 		return AcceptedRun{}, err
 	}
-	tag, err := tx.Exec(ctx, `INSERT INTO agent.runs (id,tenant_id,user_id,conversation_id,status,run_version,pending_command_id,due_at,profile_snapshot_id,behavior_profile,behavior_environment,behavior_channel_id,behavior_channel_sequence,budget_snapshot,created_at,updated_at) VALUES ($1,$2,$3,$4,'queued',2,$5,$6,$7,$8,$9,$10,$11,$12,$13,$13) ON CONFLICT DO NOTHING`, command.RunID, command.TenantID, command.UserID, command.ConversationID, identifiers.startCommand, command.DueAt, binding.SnapshotID, binding.Profile, binding.Environment, binding.ChannelID, binding.Sequence, command.BudgetSnapshot, now)
+	tag, err := tx.Exec(ctx, `INSERT INTO agent.runs (id,tenant_id,user_id,conversation_id,status,run_version,pending_command_id,due_at,profile_snapshot_id,behavior_profile,behavior_environment,behavior_channel_id,behavior_channel_sequence,budget_snapshot,parent_run_id,root_run_id,spawn_tool_call_id,child_group_id,depth,inherited_budget_microunits,created_at,updated_at) VALUES ($1,$2,$3,$4,'queued',2,$5,$6,$7,$8,$9,$10,$11,$12,NULLIF($13,'')::uuid,COALESCE(NULLIF($14,'')::uuid,$1::uuid),NULLIF($15,'')::uuid,NULLIF($16,'')::uuid,$17,$18,$19,$19) ON CONFLICT DO NOTHING`, command.RunID, command.TenantID, command.UserID, command.ConversationID, identifiers.startCommand, command.DueAt, binding.SnapshotID, binding.Profile, binding.Environment, binding.ChannelID, binding.Sequence, command.BudgetSnapshot, command.ParentRunID, command.RootRunID, command.SpawnToolCallID, command.ChildGroupID, command.Depth, command.InheritedBudgetMicrounits, now)
 	if err != nil {
 		return AcceptedRun{}, err
 	}
 	replayed := tag.RowsAffected() == 0
 	durableTime := now
 	if replayed {
-		err = tx.QueryRow(ctx, `SELECT created_at FROM agent.runs WHERE id=$1 AND tenant_id=$2 AND user_id=$3 AND conversation_id=$4 AND status='queued' AND run_version=2 AND pending_command_id=$5 AND active_command_id IS NULL AND active_attempt_id IS NULL AND current_fence=0 AND lease_token_hash IS NULL AND lease_expires_at IS NULL AND cancel_requested_at IS NULL AND due_at=$6 AND profile_snapshot_id=$7 AND behavior_profile=$8 AND behavior_environment=$9 AND behavior_channel_id=$10 AND behavior_channel_sequence=$11 AND budget_snapshot=$12::jsonb`, command.RunID, command.TenantID, command.UserID, command.ConversationID, identifiers.startCommand, command.DueAt, binding.SnapshotID, binding.Profile, binding.Environment, binding.ChannelID, binding.Sequence, command.BudgetSnapshot).Scan(&durableTime)
+		err = tx.QueryRow(ctx, `SELECT created_at FROM agent.runs WHERE id=$1 AND tenant_id=$2 AND user_id=$3 AND conversation_id=$4 AND status='queued' AND run_version=2 AND pending_command_id=$5 AND active_command_id IS NULL AND active_attempt_id IS NULL AND current_fence=0 AND lease_token_hash IS NULL AND lease_expires_at IS NULL AND cancel_requested_at IS NULL AND due_at=$6 AND profile_snapshot_id=$7 AND behavior_profile=$8 AND behavior_environment=$9 AND behavior_channel_id=$10 AND behavior_channel_sequence=$11 AND budget_snapshot=$12::jsonb AND parent_run_id IS NOT DISTINCT FROM NULLIF($13,'')::uuid AND root_run_id=COALESCE(NULLIF($14,'')::uuid,$1::uuid) AND spawn_tool_call_id IS NOT DISTINCT FROM NULLIF($15,'')::uuid AND child_group_id IS NOT DISTINCT FROM NULLIF($16,'')::uuid AND depth=$17 AND inherited_budget_microunits=$18`, command.RunID, command.TenantID, command.UserID, command.ConversationID, identifiers.startCommand, command.DueAt, binding.SnapshotID, binding.Profile, binding.Environment, binding.ChannelID, binding.Sequence, command.BudgetSnapshot, command.ParentRunID, command.RootRunID, command.SpawnToolCallID, command.ChildGroupID, command.Depth, command.InheritedBudgetMicrounits).Scan(&durableTime)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return AcceptedRun{}, ErrRunConflict
 		}
@@ -234,7 +240,9 @@ func (store RunStore) valid() bool {
 func (store RunStore) validCore() bool { return len(store.IDKey) >= 32 && store.StoreEpoch != "" }
 
 func validAcceptRun(command AcceptRunCommand) bool {
-	return command.RunID != "" && command.TenantID != "" && command.UserID != "" && command.ConversationID != "" && command.CorrelationID != "" && !command.DueAt.IsZero() && command.BehaviorProfile.Valid() && (command.BehaviorEnvironment == "staging" || command.BehaviorEnvironment == "production") && validJSONObject(command.BudgetSnapshot) && validJSONObject(command.Actor) && validPointer(command.AcceptedEvent) && validPointer(command.QueuedEvent) && validPointer(command.StartCommand) && (command.QueueClass == "interactive" || command.QueueClass == "background") && command.ResourceClass != "" && command.Priority >= 0 && command.Priority <= 1000 && command.CostUnits > 0 && command.CostUnits <= 1_000_000_000_000 && command.MaxAttempts > 0 && command.MaxAttempts <= 100
+	orchestrationRoot := command.ParentRunID == "" && command.RootRunID == "" && command.SpawnToolCallID == "" && command.ChildGroupID == "" && command.Depth == 0 && command.InheritedBudgetMicrounits == 0
+	orchestrationChild := command.ParentRunID != "" && command.RootRunID != "" && command.SpawnToolCallID != "" && command.ChildGroupID != "" && command.Depth >= 1 && command.Depth <= 5 && command.InheritedBudgetMicrounits > 0
+	return command.RunID != "" && command.TenantID != "" && command.UserID != "" && command.ConversationID != "" && command.CorrelationID != "" && !command.DueAt.IsZero() && command.BehaviorProfile.Valid() && (command.BehaviorEnvironment == "staging" || command.BehaviorEnvironment == "production") && validJSONObject(command.BudgetSnapshot) && validJSONObject(command.Actor) && validPointer(command.AcceptedEvent) && validPointer(command.QueuedEvent) && validPointer(command.StartCommand) && (command.QueueClass == "interactive" || command.QueueClass == "background") && command.ResourceClass != "" && command.Priority >= 0 && command.Priority <= 1000 && command.CostUnits > 0 && command.CostUnits <= 1_000_000_000_000 && command.MaxAttempts > 0 && command.MaxAttempts <= 100 && (orchestrationRoot || orchestrationChild)
 }
 
 func validPointer(pointer PayloadPointer) bool { return pointer.Ref != "" && pointer.Hash != "" }

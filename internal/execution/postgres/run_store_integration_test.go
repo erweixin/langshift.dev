@@ -100,6 +100,11 @@ func TestAcceptRunIsAtomicReplaySafeAndTenantIsolated(t *testing.T) {
 	if runs != 1 || events != 2 || outbox != 3 || jobs != 1 || status != "queued" || version != 2 || pendingCommand != first.StartCommandID || storedSnapshot != binding.SnapshotID || storedProfile != string(binding.Profile) || storedEnvironment != binding.Environment || storedChannel != binding.ChannelID || storedSequence != binding.Sequence || acceptedSchemaVersion != 2 {
 		t.Fatalf("invalid durable Run binding: runs=%d events=%d outbox=%d jobs=%d status=%s version=%d pending=%s snapshot=%s profile=%s environment=%s channel=%s sequence=%d schema=%d", runs, events, outbox, jobs, status, version, pendingCommand, storedSnapshot, storedProfile, storedEnvironment, storedChannel, storedSequence, acceptedSchemaVersion)
 	}
+	var rootRunID string
+	var depth int
+	if err := admin.QueryRow(ctx, `SELECT root_run_id::text,depth FROM agent.runs WHERE tenant_id=$1 AND id=$2`, tenantID, runID).Scan(&rootRunID, &depth); err != nil || rootRunID != runID || depth != 0 {
+		t.Fatalf("root orchestration identity=%s depth=%d error=%v", rootRunID, depth, err)
+	}
 	now = now.Add(5 * time.Minute)
 	store.Behavior = failingBehaviorResolver{}
 	delayedReplay, err := store.Accept(ctx, command)
