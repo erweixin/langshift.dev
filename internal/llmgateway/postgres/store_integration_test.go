@@ -287,18 +287,19 @@ func TestProviderDispatchIsAtMostOnceAndFallbackIsFullyAccounted(t *testing.T) {
 		t.Fatal(err)
 	}
 	var fencedProviderStatus, fencedReservationStatus, fencedLLMStatus, lateLLMStatus string
-	var abandonedEvents, finalizedEvents int
+	var abandonedEvents, finalizedEvents, lateFinalizedV2Events int
 	if err = admin.QueryRow(ctx, `SELECT
 		(SELECT status FROM agent.llm_provider_attempts WHERE tenant_id=$1 AND id=$2),
 		(SELECT status FROM contracts.usage_reservations WHERE tenant_id=$1 AND id=$3),
 		(SELECT status FROM agent.llm_attempts WHERE tenant_id=$1 AND id=$4),
 		(SELECT status FROM agent.llm_attempts WHERE tenant_id=$1 AND id=$5),
 		(SELECT count(*) FROM agent.events WHERE tenant_id=$1 AND aggregate_id=$2 AND event_type='ProviderAttemptAbandoned'),
-		(SELECT count(*) FROM agent.events WHERE tenant_id=$1 AND aggregate_id=$4 AND event_type='LLMAttemptFinalized')`, tenantID, fencedAttempt, fencedReserve, fencedLLM, lateLLM).Scan(&fencedProviderStatus, &fencedReservationStatus, &fencedLLMStatus, &lateLLMStatus, &abandonedEvents, &finalizedEvents); err != nil {
+		(SELECT count(*) FROM agent.events WHERE tenant_id=$1 AND aggregate_id=$4 AND event_type='LLMAttemptFinalized' AND event_schema_version=2),
+		(SELECT count(*) FROM agent.events WHERE tenant_id=$1 AND aggregate_id=$5 AND event_type='LLMAttemptFinalized' AND event_schema_version=2)`, tenantID, fencedAttempt, fencedReserve, fencedLLM, lateLLM).Scan(&fencedProviderStatus, &fencedReservationStatus, &fencedLLMStatus, &lateLLMStatus, &abandonedEvents, &finalizedEvents, &lateFinalizedV2Events); err != nil {
 		t.Fatal(err)
 	}
-	if fencedProviderStatus != "abandoned" || fencedReservationStatus != "released" || fencedLLMStatus != "cancelled" || lateLLMStatus != "running" || abandonedEvents != 1 || finalizedEvents != 1 {
-		t.Fatalf("provider=%s reservation=%s fenced_llm=%s late_llm=%s abandoned_events=%d finalized_events=%d", fencedProviderStatus, fencedReservationStatus, fencedLLMStatus, lateLLMStatus, abandonedEvents, finalizedEvents)
+	if fencedProviderStatus != "abandoned" || fencedReservationStatus != "released" || fencedLLMStatus != "cancelled" || lateLLMStatus != "cancelled" || abandonedEvents != 1 || finalizedEvents != 1 || lateFinalizedV2Events != 1 {
+		t.Fatalf("provider=%s reservation=%s fenced_llm=%s late_llm=%s abandoned_events=%d finalized_v2_events=%d late_finalized_v2_events=%d", fencedProviderStatus, fencedReservationStatus, fencedLLMStatus, lateLLMStatus, abandonedEvents, finalizedEvents, lateFinalizedV2Events)
 	}
 }
 

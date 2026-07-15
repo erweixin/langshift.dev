@@ -106,14 +106,16 @@ func (store Store) FinalizeLLMAttempt(ctx context.Context, command FinalizeLLMAt
 		return FinalizedLLMAttempt{}, err
 	}
 	rows.Close()
-	if len(result.ProviderAttemptIDs) == 0 || command.Status == "completed" && selectedStatus != "completed" || command.Status == "partial_visible" && (selectedStatus == "" || selectedStatus == "abandoned" || !selectedVisible) {
+	if (len(result.ProviderAttemptIDs) == 0 && command.Status != "failed" && command.Status != "cancelled") ||
+		(command.Status == "completed" && selectedStatus != "completed") ||
+		(command.Status == "partial_visible" && (selectedStatus == "" || selectedStatus == "abandoned" || !selectedVisible)) {
 		return FinalizedLLMAttempt{}, ErrNotFinalizable
 	}
 	tag, err := tx.Exec(ctx, `UPDATE agent.llm_attempts SET version=2,status=$1,selected_provider_attempt_id=NULLIF($2,'')::uuid,result_hash=NULLIF($3,''),failure_code=NULLIF($4,''),total_input_tokens=$5,total_output_tokens=$6,total_cost_microunits=$7,finalized_event_id=$8,finalized_at=$9,updated_at=$9 WHERE tenant_id=$10 AND id=$11 AND status='running' AND version=1`, command.Status, command.SelectedProviderAttemptID, command.ResultHash, command.FailureCode, result.TotalInputTokens, result.TotalOutputTokens, result.TotalCostMicrounits, identifiers.Event, now, command.TenantID, command.AttemptID)
 	if err != nil || tag.RowsAffected() != 1 {
 		return FinalizedLLMAttempt{}, ErrAttemptConflict
 	}
-	event := publishEvent(identifiers, eventpostgres.Event{TenantID: command.TenantID, UserID: userID, EventType: "LLMAttemptFinalized", SchemaVersion: 1, AggregateKind: "llm_attempt", AggregateID: command.AttemptID, AggregateVersion: 2, StoreEpoch: store.StoreEpoch, OccurredAt: now, Actor: command.Actor, CorrelationID: command.CorrelationID}, command.FinalizedEvent)
+	event := publishEvent(identifiers, eventpostgres.Event{TenantID: command.TenantID, UserID: userID, EventType: "LLMAttemptFinalized", SchemaVersion: 2, AggregateKind: "llm_attempt", AggregateID: command.AttemptID, AggregateVersion: 2, StoreEpoch: store.StoreEpoch, OccurredAt: now, Actor: command.Actor, CorrelationID: command.CorrelationID}, command.FinalizedEvent)
 	if _, err = store.Appender.Append(ctx, tx, event); err != nil {
 		return FinalizedLLMAttempt{}, err
 	}

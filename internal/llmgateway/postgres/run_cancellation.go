@@ -174,11 +174,12 @@ func (service RunCancellationService) loadFinalizable(ctx context.Context, tenan
 		return nil, err
 	}
 	rows, err := tx.Query(ctx, `SELECT l.id::text,l.run_id::text,l.attempt_key,l.stream_generation,l.context_manifest_hash,
-		array_agg(p.id::text ORDER BY p.ordinal),sum(p.input_tokens),sum(p.output_tokens),sum(p.cost_microunits)
+		COALESCE(array_agg(p.id::text ORDER BY p.ordinal) FILTER (WHERE p.id IS NOT NULL),ARRAY[]::text[]),
+		COALESCE(sum(p.input_tokens),0),COALESCE(sum(p.output_tokens),0),COALESCE(sum(p.cost_microunits),0)
 		FROM agent.llm_attempts l
 		JOIN agent.runs r ON r.tenant_id=l.tenant_id AND r.id=l.run_id
 		JOIN agent.run_cancellations c ON c.tenant_id=r.tenant_id AND c.id=r.active_cancellation_id
-		JOIN agent.llm_provider_attempts p ON p.tenant_id=l.tenant_id AND p.llm_attempt_id=l.id
+		LEFT JOIN agent.llm_provider_attempts p ON p.tenant_id=l.tenant_id AND p.llm_attempt_id=l.id
 		WHERE l.tenant_id=$1 AND l.run_id=$2 AND c.id=$3 AND c.store_epoch=$4
 		  AND c.status='terminating' AND r.cancel_requested_at IS NOT NULL AND l.status='running'
 		GROUP BY l.id,l.run_id,l.attempt_key,l.stream_generation,l.context_manifest_hash

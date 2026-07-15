@@ -1,0 +1,79 @@
+{
+  "amendmentVersion": "1.12.0",
+  "baseContractVersion": "1.11.0",
+  "compatibility": "versioned-additive",
+  "schemas": {
+    "LLMAttemptFinalizedV2": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "https://lites.dev/events/LLMAttemptFinalized/2.json",
+      "title": "LLMAttemptFinalized v2",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["event_id", "tenant_id", "user_id", "aggregate_id", "aggregate_version", "occurred_at", "payload"],
+      "properties": {
+        "event_id": {"type": "string"},
+        "tenant_id": {"type": "string"},
+        "user_id": {"type": "string"},
+        "aggregate_id": {"type": "string"},
+        "aggregate_version": {"type": "integer", "minimum": 1},
+        "occurred_at": {"type": "string", "format": "date-time"},
+        "causation_id": {"type": "string"},
+        "correlation_id": {"type": "string"},
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["subject_id", "subject_version", "run_id", "attempt_key", "stream_generation", "context_manifest_hash", "status", "selected_provider_attempt_id", "provider_attempt_ids", "total_input_tokens", "total_output_tokens", "total_cost_microunits", "result_hash", "failure_code", "finalized_at"],
+          "properties": {
+            "subject_id": {"type": "string", "minLength": 1},
+            "subject_version": {"type": "integer", "minimum": 1},
+            "run_id": {"type": "string", "minLength": 1},
+            "attempt_key": {"type": "string", "minLength": 1},
+            "stream_generation": {"type": "integer", "minimum": 1},
+            "context_manifest_hash": {"type": "string", "minLength": 1},
+            "status": {"enum": ["completed", "failed", "partial_visible", "cancelled"]},
+            "selected_provider_attempt_id": {"type": ["string", "null"]},
+            "provider_attempt_ids": {"type": "array", "minItems": 0, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+            "total_input_tokens": {"type": "integer", "minimum": 0},
+            "total_output_tokens": {"type": "integer", "minimum": 0},
+            "total_cost_microunits": {"type": "integer", "minimum": 0},
+            "result_hash": {"type": ["string", "null"]},
+            "failure_code": {"type": ["string", "null"]},
+            "finalized_at": {"type": "string", "format": "date-time"}
+          },
+          "allOf": [
+            {
+              "if": {"properties": {"status": {"const": "completed"}}},
+              "then": {"properties": {
+                "selected_provider_attempt_id": {"type": "string", "minLength": 1},
+                "provider_attempt_ids": {"minItems": 1},
+                "result_hash": {"type": "string", "minLength": 1},
+                "failure_code": {"type": "null"}
+              }}
+            },
+            {
+              "if": {"properties": {"status": {"const": "partial_visible"}}},
+              "then": {"properties": {
+                "selected_provider_attempt_id": {"type": "string", "minLength": 1},
+                "provider_attempt_ids": {"minItems": 1},
+                "result_hash": {"type": "string", "minLength": 1},
+                "failure_code": {"type": "string", "minLength": 1}
+              }}
+            },
+            {
+              "if": {"properties": {"status": {"enum": ["failed", "cancelled"]}}},
+              "then": {"properties": {
+                "selected_provider_attempt_id": {"type": "null"},
+                "result_hash": {"type": "null"},
+                "failure_code": {"type": "string", "minLength": 1}
+              }}
+            }
+          ]
+        }
+      },
+      "x-event-type": "LLMAttemptFinalized",
+      "x-event-schema-version": 2,
+      "x-compatibility": "relaxed-provider-attempt-cardinality",
+      "x-owner": "agent-platform"
+    }
+  }
+}

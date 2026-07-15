@@ -40,6 +40,8 @@ const v19Amendment=await load("gate-reports/stage-3/contract-amendment-v1.9.json
 const v110Amendment=await load("gate-reports/stage-3/contract-amendment-v1.10.json");
 const v111Registry=await load("contracts/events/amendments/v1.11.0/registry.json");
 const v111Fixtures=await load("contracts/events/amendments/v1.11.0/upcaster-fixtures.json");
+const v112Registry=await load("contracts/events/amendments/v1.12.0/registry.json");
+const v112Fixtures=await load("contracts/events/amendments/v1.12.0/upcaster-fixtures.json");
 const snapshot=await load("gate-reports/stage-1/contract-snapshot.json");
 const eventNames=Object.keys(registry.schemas);
 const baseNames=new Set(Object.keys(baseRegistry.schemas));
@@ -235,10 +237,32 @@ const v111Amendment={
 };
 check("AMENDMENT-V1.11-CONTENT-ROOT",v111Amendment.baseAmendmentId===v110Amendment.amendmentId&&v111Amendment.baseAmendmentContentRootSha256===v110Amendment.contentRootSha256&&v111Amendment.contentRootSha256===v111RootHash,"v1.11 content root is anchored to the exact v1.10 behavior control-plane amendment");
 
+const v112EventNames=Object.keys(v112Registry.schemas);
+check("AMENDMENT-V1.12-VERSION",v112Registry.amendmentVersion==="1.12.0"&&v112Registry.baseContractVersion===v111Registry.amendmentVersion&&v112Registry.compatibility==="versioned-additive","v1.12 version-additively extends the v1.11 cancellation contract chain");
+check("AMENDMENT-V1.12-EVENTS",JSON.stringify(v112EventNames)===JSON.stringify(["LLMAttemptFinalizedV2"])&&v112Registry.schemas.LLMAttemptFinalizedV2["x-event-type"]==="LLMAttemptFinalized"&&v112Registry.schemas.LLMAttemptFinalizedV2["x-event-schema-version"]===2,"frozen LLMAttemptFinalized gains an explicit additive v2 schema");
+const llmFinalizedV2=v112Registry.schemas.LLMAttemptFinalizedV2;
+const llmFinalizedPayload=llmFinalizedV2.properties.payload;
+check("LLM-FINALIZED-V2-CLOSED",llmFinalizedV2.additionalProperties===false&&llmFinalizedPayload.additionalProperties===false&&llmFinalizedPayload.required.every(field=>field in llmFinalizedPayload.properties),"LLMAttemptFinalized v2 envelope and payload reject undeclared fields");
+check("LLM-FINALIZED-V2-ZERO-PROVIDER",llmFinalizedPayload.properties.provider_attempt_ids.minItems===0&&llmFinalizedPayload.properties.provider_attempt_ids.uniqueItems===true&&JSON.stringify(llmFinalizedPayload.properties.status.enum)===JSON.stringify(["completed","failed","partial_visible","cancelled"])&&llmFinalizedPayload.allOf?.[0]?.then?.properties?.provider_attempt_ids?.minItems===1&&llmFinalizedPayload.allOf?.[1]?.then?.properties?.provider_attempt_ids?.minItems===1&&JSON.stringify(llmFinalizedPayload.allOf?.[2]?.if?.properties?.status?.enum)===JSON.stringify(["failed","cancelled"]),"only failed or cancelled pre-dispatch attempts may record an empty provider set; successful and partial attempts still require a physical provider");
+check("AMENDMENT-V1.12-FIXTURES",v112Fixtures.baseFixtureVersion===v111Fixtures.fixtureVersion&&v112Fixtures.fixtures.length===2&&v112Fixtures.fixtures.every(fixture=>fixture.eventType==="LLMAttemptFinalized"&&fixture.inputHash===sha256(fixture.input)&&fixture.expectedHash===sha256(fixture.expected)&&JSON.stringify(fixture.input)===JSON.stringify(fixture.expected))&&v112Fixtures.fixtures[0].fromVersion===1&&v112Fixtures.fixtures[0].toVersion===2&&v112Fixtures.fixtures[1].fromVersion===2&&v112Fixtures.fixtures[1].toVersion===2&&v112Fixtures.fixtures[1].input.status==="cancelled"&&v112Fixtures.fixtures[1].input.provider_attempt_ids.length===0,"LLMAttemptFinalized v1 upcasts purely and v2 has a deterministic zero-provider cancellation fixture");
+const v112Files=[];
+for(const path of ["contracts/events/amendments/v1.12.0/registry.json","contracts/events/amendments/v1.12.0/upcaster-fixtures.json"]) v112Files.push({path,sha256:sha256(await read(path))});
+const v112RootHash=sha256({baseAmendmentId:v111Amendment.amendmentId,files:v112Files});
+const v112Amendment={
+  amendmentVersion:"1.12.0",amendmentId:`contract-amendment-${v112RootHash.slice(0,20)}`,status:"draft",generatedAt:"2026-07-15T00:00:00.000Z",
+  baseSnapshotId:snapshot.snapshotId,baseContentRootSha256:snapshot.contentRootSha256,
+  baseAmendmentId:v111Amendment.amendmentId,baseAmendmentContentRootSha256:v111Amendment.contentRootSha256,
+  contentRootSha256:v112RootHash,files:v112Files,
+  reason:"Represent cancellation after logical LLM creation but before any provider attempt without fabricating a physical dispatch record.",
+  activationRule:"Backend, security, SRE and QA approval must bind this root after exact replay, zero-provider cancellation, reservation recovery and fault-injection gates pass."
+};
+check("AMENDMENT-V1.12-CONTENT-ROOT",v112Amendment.baseAmendmentId===v111Amendment.amendmentId&&v112Amendment.baseAmendmentContentRootSha256===v111Amendment.contentRootSha256&&v112Amendment.contentRootSha256===v112RootHash,"v1.12 content root is anchored to the exact v1.11 cancellation amendment");
+
 const failures=checks.filter(item=>item.status==="failed");
 const reportBase={reportVersion:"1.0.0",stage:3,kind:"contract-amendment-lint",status:failures.length?"failed":"passed",summary:{checks:checks.length,passed:checks.length-failures.length,failed:failures.length},results:checks};
 const report={...reportBase,reportHash:sha256(reportBase)};
 await writeFile(resolve(root,"gate-reports/stage-3/contract-amendment-v1.11.json"),`${JSON.stringify(v111Amendment,null,2)}\n`);
+await writeFile(resolve(root,"gate-reports/stage-3/contract-amendment-v1.12.json"),`${JSON.stringify(v112Amendment,null,2)}\n`);
 await writeFile(resolve(root,"gate-reports/stage-3/contract-amendment-lint.json"),`${JSON.stringify(report,null,2)}\n`);
 console.log(`${report.status}: ${report.summary.passed}/${report.summary.checks} Stage 3 amendment checks passed; report ${report.reportHash}`);
 if(failures.length) process.exitCode=1;
