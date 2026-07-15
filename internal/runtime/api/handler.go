@@ -15,11 +15,13 @@ import (
 
 	"github.com/langshift/lites/internal/runtime/controller"
 	"github.com/langshift/lites/internal/runtime/firecracker"
+	"github.com/langshift/lites/internal/runtime/guest"
 	runtimepostgres "github.com/langshift/lites/internal/runtime/postgres"
 )
 
 type Controller interface {
 	Provision(context.Context, controller.ProvisionRequest) (controller.Provisioned, error)
+	Execute(context.Context, controller.ExecuteRequest) (controller.Executed, error)
 	Terminate(context.Context, string, string) (runtimepostgres.LifecycleResult, error)
 }
 
@@ -29,6 +31,7 @@ type Handler struct {
 	RequireVerifiedClientCertificate bool
 	AllowedClientSPIFFEID            string
 	RequestTimeout                   time.Duration
+	MaximumExecutionDuration         time.Duration
 }
 
 type provisionRequest struct {
@@ -50,6 +53,15 @@ type terminateRequest struct {
 	Reason    string `json:"reason"`
 }
 
+type executeRequest struct {
+	TenantID        string               `json:"tenant_id"`
+	SessionID       string               `json:"session_id"`
+	CapabilityToken string               `json:"capability_token"`
+	ProvisionLease  string               `json:"provision_lease"`
+	RequestID       string               `json:"request_id"`
+	Command         guest.ExecuteRequest `json:"command"`
+}
+
 func (handler Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	writer.Header().Set("Cache-Control", "no-store")
 	if handler.Controller == nil || handler.HostID == "" || handler.RequestTimeout <= 0 || handler.RequestTimeout > time.Minute || handler.RequireVerifiedClientCertificate && handler.AllowedClientSPIFFEID == "" {
@@ -60,12 +72,20 @@ func (handler Handler) ServeHTTP(writer http.ResponseWriter, request *http.Reque
 		http.Error(writer, "client certificate required", http.StatusUnauthorized)
 		return
 	}
-	ctx, cancel := context.WithTimeout(request.Context(), handler.RequestTimeout)
-	defer cancel()
 	switch {
 	case request.Method == http.MethodPost && request.URL.Path == "/internal/v1/runtime/provisions":
+		ctx, cancel := context.WithTimeout(request.Context(), handler.RequestTimeout)
+		defer cancel()
 		handler.provision(ctx, writer, request)
+	case request.Method == http.MethodPost && request.URL.Path == "/internal/v1/runtime/executions":
+		if handler.MaximumExecutionDuration <= 0 || handler.MaximumExecutionDuration > time.Hour {
+			http.Error(writer, "service unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		handler.execute(request.Context(), writer, request)
 	case request.Method == http.MethodPost && request.URL.Path == "/internal/v1/runtime/terminations":
+		ctx, cancel := context.WithTimeout(request.Context(), handler.RequestTimeout)
+		defer cancel()
 		handler.terminate(ctx, writer, request)
 	default:
 		http.NotFound(writer, request)
@@ -86,7 +106,7 @@ func verifiedSPIFFEClient(request *http.Request, expected string) bool {
 
 func (handler Handler) provision(ctx context.Context, writer http.ResponseWriter, request *http.Request) {
 	var input provisionRequest
-	if !decodeStrict(request, &input) || input.HostID != handler.HostID {
+	if !decodeStrict(request, &input, 128<<10) || input.HostID != handler.HostID {
 		http.Error(writer, "invalid provision request", http.StatusBadRequest)
 		return
 	}
@@ -101,9 +121,31 @@ func (handler Handler) provision(ctx context.Context, writer http.ResponseWriter
 	writeJSON(writer, http.StatusCreated, result)
 }
 
+func (handler Handler) execute(ctx context.Context, writer http.ResponseWriter, request *http.Request) {
+	var input executeRequest
+	if !decodeStrict(request, &input, 2<<20) || input.TenantID == "" || input.SessionID == "" || input.CapabilityToken == "" || input.ProvisionLease == "" || input.RequestID == "" || input.Command.Validate() != nil {
+		http.Error(writer, "invalid execution request", http.StatusBadRequest)
+		return
+	}
+	deadline := time.UnixMilli(input.Command.DeadlineUnixMillis)
+	if !deadline.After(time.Now()) || deadline.After(time.Now().Add(handler.MaximumExecutionDuration)) {
+		http.Error(writer, "invalid execution deadline", http.StatusBadRequest)
+		return
+	}
+	result, err := handler.Controller.Execute(ctx, controller.ExecuteRequest{
+		TenantID: input.TenantID, SessionID: input.SessionID, CapabilityToken: input.CapabilityToken,
+		ProvisionLease: input.ProvisionLease, RequestID: input.RequestID, Command: input.Command,
+	})
+	if err != nil {
+		writeControllerError(writer, err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, result)
+}
+
 func (handler Handler) terminate(ctx context.Context, writer http.ResponseWriter, request *http.Request) {
 	var input terminateRequest
-	if !decodeStrict(request, &input) || input.SessionID == "" || input.Reason == "" {
+	if !decodeStrict(request, &input, 128<<10) || input.SessionID == "" || input.Reason == "" {
 		http.Error(writer, "invalid termination request", http.StatusBadRequest)
 		return
 	}
@@ -115,12 +157,12 @@ func (handler Handler) terminate(ctx context.Context, writer http.ResponseWriter
 	writeJSON(writer, http.StatusOK, result)
 }
 
-func decodeStrict(request *http.Request, target any) bool {
+func decodeStrict(request *http.Request, target any, maximum int64) bool {
 	if request.Body == nil || !strings.HasPrefix(strings.ToLower(request.Header.Get("Content-Type")), "application/json") {
 		return false
 	}
-	contents, err := io.ReadAll(io.LimitReader(request.Body, (128<<10)+1))
-	if err != nil || len(contents) == 0 || len(contents) > 128<<10 {
+	contents, err := io.ReadAll(io.LimitReader(request.Body, maximum+1))
+	if err != nil || len(contents) == 0 || int64(len(contents)) > maximum {
 		return false
 	}
 	decoder := json.NewDecoder(bytes.NewReader(contents))

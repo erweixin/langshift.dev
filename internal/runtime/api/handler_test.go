@@ -13,14 +13,22 @@ import (
 	"time"
 
 	"github.com/langshift/lites/internal/runtime/controller"
+	"github.com/langshift/lites/internal/runtime/guest"
 	runtimepostgres "github.com/langshift/lites/internal/runtime/postgres"
 )
 
-type controllerStub struct{ provisioned controller.ProvisionRequest }
+type controllerStub struct {
+	provisioned controller.ProvisionRequest
+	executed    controller.ExecuteRequest
+}
 
 func (stub *controllerStub) Provision(_ context.Context, request controller.ProvisionRequest) (controller.Provisioned, error) {
 	stub.provisioned = request
 	return controller.Provisioned{Provision: runtimepostgres.ProvisionResult{SessionID: "session-1"}, Ready: runtimepostgres.LifecycleResult{Status: "ready", Version: 3}}, nil
+}
+func (stub *controllerStub) Execute(_ context.Context, request controller.ExecuteRequest) (controller.Executed, error) {
+	stub.executed = request
+	return controller.Executed{Execution: runtimepostgres.RuntimeExecution{SessionID: request.SessionID, RequestID: request.RequestID, Status: "completed"}}, nil
 }
 func (stub *controllerStub) Terminate(_ context.Context, session, _ string) (runtimepostgres.LifecycleResult, error) {
 	return runtimepostgres.LifecycleResult{SessionID: session, Status: "terminated"}, nil
@@ -78,5 +86,44 @@ func TestHandlerRejectsCertificateFromSameCAWithDifferentWorkloadIdentity(t *tes
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusUnauthorized {
 		t.Fatalf("cross-workload certificate status=%d", response.Code)
+	}
+}
+
+func TestHandlerExecutesOnlyBoundMTLSRequestWithBoundedDeadline(t *testing.T) {
+	const clientID = "spiffe://lites.internal/tool-worker"
+	identity, err := url.Parse(clientID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stub := &controllerStub{}
+	handler := Handler{Controller: stub, HostID: "host-1", RequireVerifiedClientCertificate: true, AllowedClientSPIFFEID: clientID, RequestTimeout: time.Second, MaximumExecutionDuration: time.Hour}
+	input := executeRequest{
+		TenantID: "tenant-1", SessionID: "session-1", CapabilityToken: "signed-capability", ProvisionLease: "opaque-lease", RequestID: "runtime-request-0001",
+		Command: guest.ExecuteRequest{Argv: []string{"/usr/bin/tool"}, WorkingDirectory: "/workspace", DeadlineUnixMillis: time.Now().Add(time.Minute).UnixMilli(), MaximumOutputBytes: 1 << 20},
+	}
+	body, err := json.Marshal(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/internal/v1/runtime/executions", strings.NewReader(string(body)))
+	request.Header.Set("Content-Type", "application/json")
+	request.TLS = &tls.ConnectionState{VerifiedChains: [][]*x509.Certificate{{{URIs: []*url.URL{identity}}}}}
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || stub.executed.RequestID != input.RequestID || stub.executed.CapabilityToken == "" {
+		t.Fatalf("execution status=%d request=%#v body=%s", response.Code, stub.executed, response.Body.String())
+	}
+	input.Command.DeadlineUnixMillis = time.Now().Add(2 * time.Hour).UnixMilli()
+	body, err = json.Marshal(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request = httptest.NewRequest(http.MethodPost, "/internal/v1/runtime/executions", strings.NewReader(string(body)))
+	request.Header.Set("Content-Type", "application/json")
+	request.TLS = &tls.ConnectionState{VerifiedChains: [][]*x509.Certificate{{{URIs: []*url.URL{identity}}}}}
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("unbounded execution deadline status=%d", response.Code)
 	}
 }

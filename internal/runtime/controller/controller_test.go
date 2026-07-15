@@ -35,6 +35,32 @@ func (store *storeStub) MarkReady(_ context.Context, command runtimepostgres.Rea
 	store.lastReady = command
 	return runtimepostgres.LifecycleResult{SessionID: command.SessionID, Status: "ready", Version: 3, EventID: "ready-event"}, nil
 }
+func (store *storeStub) BeginExecution(_ context.Context, command runtimepostgres.BeginExecutionCommand) (runtimepostgres.RuntimeExecution, error) {
+	return runtimepostgres.RuntimeExecution{
+		ID: "81000000-0000-4000-8000-000000000001", TenantID: command.TenantID, SessionID: command.SessionID,
+		RequestID: command.RequestID, RequestHash: command.RequestHash, Status: "running", Version: 1,
+		StartedSessionVersion: command.ExpectedVersion + 1, StartedEventID: "execution-started-event",
+		Lifecycle: runtimepostgres.LifecycleResult{SessionID: command.SessionID, Status: "running", Version: command.ExpectedVersion + 1},
+	}, nil
+}
+func (store *storeStub) CompleteExecution(_ context.Context, command runtimepostgres.FinishExecutionCommand) (runtimepostgres.RuntimeExecution, error) {
+	return runtimepostgres.RuntimeExecution{
+		ID: "81000000-0000-4000-8000-000000000001", TenantID: command.TenantID, SessionID: command.SessionID,
+		RequestID: command.RequestID, RequestHash: command.RequestHash, Status: "completed", Version: 2,
+		StartedSessionVersion: command.ExpectedVersion, FinishedSessionVersion: command.ExpectedVersion + 1,
+		Outcome: command.Payload, OutcomeHash: command.OutcomeHash, OutcomeManifest: command.OutcomeManifest,
+		Lifecycle: runtimepostgres.LifecycleResult{SessionID: command.SessionID, Status: "idle", Version: command.ExpectedVersion + 1},
+	}, nil
+}
+func (store *storeStub) MarkExecutionOutcomeUnknown(_ context.Context, command runtimepostgres.FinishExecutionCommand) (runtimepostgres.RuntimeExecution, error) {
+	return runtimepostgres.RuntimeExecution{
+		ID: "81000000-0000-4000-8000-000000000001", TenantID: command.TenantID, SessionID: command.SessionID,
+		RequestID: command.RequestID, RequestHash: command.RequestHash, Status: "outcome_unknown", Version: 2,
+		StartedSessionVersion: command.ExpectedVersion, FinishedSessionVersion: command.ExpectedVersion + 1,
+		Outcome: command.Payload, OutcomeHash: command.OutcomeHash, OutcomeManifest: command.OutcomeManifest, FailureCode: command.FailureCode,
+		Lifecycle: runtimepostgres.LifecycleResult{SessionID: command.SessionID, Status: "termination_requested", Version: command.ExpectedVersion + 1},
+	}, nil
+}
 func (store *storeStub) RequestTermination(_ context.Context, command runtimepostgres.TerminationCommand) (runtimepostgres.LifecycleResult, error) {
 	store.mu.Lock()
 	defer store.mu.Unlock()

@@ -147,7 +147,7 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 	runner := firecracker.Runner{Jailer: jailer, StartupTimeout: 10 * time.Second, PollInterval: 10 * time.Millisecond, APITimeout: 2 * time.Second, StopGrace: 5 * time.Second}
 	stager := firecracker.Stager{Jailer: jailer, Kernel: firecracker.Asset{Path: configuration.kernelPath, Digest: configuration.kernelDigest}, RootFS: firecracker.Asset{Path: configuration.rootfsPath, Digest: configuration.rootfsDigest}, Scratch: firecracker.Asset{Path: configuration.scratchPath, Digest: configuration.scratchDigest}, HostOwnerUID: 0, SourceOwnerUID: 0, MaximumKernelBytes: configuration.maximumKernelBytes, MaximumRootFSBytes: configuration.maximumRootFSBytes, MaximumScratchBytes: configuration.maximumScratchBytes}
 	controllerErrors := make(chan error, 1)
-	runtimeController := &controller.Controller{Store: store, Recovery: store, Payloads: payloadStore, Stager: stager, Runner: runner, Ownership: ownership, OnError: func(value error) {
+	runtimeController := &controller.Controller{Store: store, Recovery: store, Payloads: payloadStore, Stager: stager, Runner: runner, Ownership: ownership, MaximumExecutionDuration: time.Hour, OnError: func(value error) {
 		select {
 		case controllerErrors <- value:
 		default:
@@ -179,7 +179,7 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 	if err != nil {
 		return err
 	}
-	controlServer := &http.Server{Addr: configuration.listenAddress, Handler: telemetry.WrapHTTP(runtimeapi.Handler{Controller: runtimeController, HostID: configuration.hostID, RequireVerifiedClientCertificate: !configuration.allowInsecureDevelopment, AllowedClientSPIFFEID: configuration.serverAllowedClientSPIFFEID, RequestTimeout: 30 * time.Second}), TLSConfig: serverTLS, ReadHeaderTimeout: 3 * time.Second, ReadTimeout: 35 * time.Second, WriteTimeout: 35 * time.Second, IdleTimeout: time.Minute, MaxHeaderBytes: 32 << 10}
+	controlServer := &http.Server{Addr: configuration.listenAddress, Handler: telemetry.WrapHTTP(runtimeapi.Handler{Controller: runtimeController, HostID: configuration.hostID, RequireVerifiedClientCertificate: !configuration.allowInsecureDevelopment, AllowedClientSPIFFEID: configuration.serverAllowedClientSPIFFEID, RequestTimeout: 30 * time.Second, MaximumExecutionDuration: time.Hour}), TLSConfig: serverTLS, ReadHeaderTimeout: 3 * time.Second, ReadTimeout: 35 * time.Second, WriteTimeout: 65 * time.Minute, IdleTimeout: time.Minute, MaxHeaderBytes: 32 << 10}
 	healthServer := runtimeHealth(configuration.healthAddress, ready, pool, authority, storeEpoch, payloadBlobs, vaultReader, telemetry.MetricsHandler())
 	errorsChannel := make(chan error, 5)
 	go serve(controlServer, serverTLS != nil, errorsChannel)
