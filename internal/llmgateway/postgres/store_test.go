@@ -11,6 +11,7 @@ func TestContextManifestIsCanonicalAndCandidateSetIsExact(t *testing.T) {
 	manifest := ContextManifest{
 		SchemaVersion:   1,
 		Run:             SnapshotBinding{ID: "run", Version: 3, Hash: "run-hash"},
+		Prompt:          SnapshotBinding{ID: "prompt", Version: 1, Hash: "prompt-hash"},
 		Messages:        []SnapshotBinding{{ID: "message", Version: 1, Hash: "message-hash"}},
 		Router:          SnapshotBinding{ID: "router", Version: 2, Hash: "router-hash"},
 		Budget:          SnapshotBinding{ID: "budget", Version: 1, Hash: "budget-hash"},

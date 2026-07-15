@@ -85,6 +85,7 @@ func TestProviderDispatchIsAtMostOnceAndFallbackIsFullyAccounted(t *testing.T) {
 	manifest := ContextManifest{
 		SchemaVersion: 1,
 		Run:           SnapshotBinding{ID: runID, Version: 3, Hash: "run-hash-c6"},
+		Prompt:        SnapshotBinding{ID: "prompt:c6", Version: 1, Hash: strings.Repeat("a", 64)},
 		Messages:      []SnapshotBinding{{ID: "messages:c6", Version: 1, Hash: "messages-hash-c6"}},
 		Tools:         []SnapshotBinding{{ID: "tools:c6", Version: 4, Hash: "tools-hash-c6"}},
 		Memory:        []SnapshotBinding{{ID: "memory:c6", Version: 2, Hash: "memory-hash-c6"}},

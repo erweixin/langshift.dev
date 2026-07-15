@@ -161,7 +161,7 @@ func validTurnPlanFixture() TurnPlan {
 		{ProviderID: "openai", ModelID: "model-1", ModelVersion: "2026-07-01", BoundHost: "api.openai.com", PricingVersion: "pricing-1"},
 		{ProviderID: "anthropic", ModelID: "model-2", ModelVersion: "2026-06-15", BoundHost: "api.anthropic.com", PricingVersion: "pricing-2"},
 	}
-	manifest := llmpostgres.ContextManifest{SchemaVersion: 1, Run: llmpostgres.SnapshotBinding{ID: "run-1", Version: 3, Hash: "run-hash"}, Router: llmpostgres.SnapshotBinding{ID: "router-1", Version: 1, Hash: "router-hash"}, Budget: llmpostgres.SnapshotBinding{ID: "budget-1", Version: 1, Hash: "budget-hash"}, Policy: llmpostgres.SnapshotBinding{ID: "policy-1", Version: 1, Hash: "policy-hash"}, CandidateModels: models}
+	manifest := llmpostgres.ContextManifest{SchemaVersion: 1, Run: llmpostgres.SnapshotBinding{ID: "run-1", Version: 3, Hash: "run-hash"}, Prompt: llmpostgres.SnapshotBinding{ID: "prompt-1", Version: 1, Hash: "prompt-hash"}, Router: llmpostgres.SnapshotBinding{ID: "router-1", Version: 1, Hash: "router-hash"}, Budget: llmpostgres.SnapshotBinding{ID: "budget-1", Version: 1, Hash: "budget-hash"}, Policy: llmpostgres.SnapshotBinding{ID: "policy-1", Version: 1, Hash: "policy-hash"}, CandidateModels: models}
 	return TurnPlan{
 		LLMAttemptID: "llm-1", AttemptKey: "turn:1", StreamGeneration: 1, Manifest: manifest,
 		Request:              provider.Request{Messages: []provider.Message{{Role: "user", Content: []provider.ContentBlock{{Type: "text", Text: "hello"}}}}, MaxOutputTokens: 100},
@@ -174,5 +174,5 @@ func validTurnPlanFixture() TurnPlan {
 }
 
 func executionFixture() Execution {
-	return Execution{Command: deliveredCommand(), Payload: CommandPayload{SchemaVersion: 1, RunID: "run-1", CorrelationID: "correlation-1"}, Claim: validClaim()}
+	return Execution{Command: deliveredCommand(), Payload: CommandPayload{SchemaVersion: 1, RunID: "run-1", CorrelationID: "correlation-1"}, Claim: validClaim(), TurnIndex: 1}
 }

@@ -35,7 +35,7 @@ for cycle in $(seq 1 "${cycles}"); do
   port="$(docker port "${current_container}" 5432/tcp | head -n 1 | sed 's/.*://')"
   database_url="postgres://postgres:migration_admin@127.0.0.1:${port}/lites?sslmode=disable"
   ALLOW_INSECURE_DEVELOPMENT=true DATABASE_URL="${database_url}" "${work}/lites-migrate" -direction up >/dev/null
-  docker cp deploy/migrations/900046_verify_current.sql "${current_container}:/tmp/verify.sql" >/dev/null
+  docker cp deploy/migrations/900048_verify_current.sql "${current_container}:/tmp/verify.sql" >/dev/null
   verify_output="$(docker exec "${current_container}" psql -v ON_ERROR_STOP=1 -U postgres -d lites -Atf /tmp/verify.sql)"
   [[ "${verify_output}" == *'"status" : "passed"'* ]] || { printf '%s\n' "${verify_output}"; exit 1; }
   docker exec "${current_container}" psql -v ON_ERROR_STOP=1 -U postgres -d lites -Atc \
@@ -49,18 +49,18 @@ for cycle in $(seq 1 "${cycles}"); do
   ALLOW_INSECURE_DEVELOPMENT=true DATABASE_URL="${database_url}" "${work}/lites-migrate" -direction up >/dev/null
   data_after_up="$(docker exec "${current_container}" psql -v ON_ERROR_STOP=1 -U postgres -d lites -Atc "${data_query}")"
   [[ "${data_after_up}" == "${data_before}" ]] || exit 1
-  if ALLOW_INSECURE_DEVELOPMENT=true DATABASE_URL="${database_url}" "${work}/lites-migrate" -direction down -steps 46 >/dev/null 2>&1; then
+  if ALLOW_INSECURE_DEVELOPMENT=true DATABASE_URL="${database_url}" "${work}/lites-migrate" -direction down -steps 48 >/dev/null 2>&1; then
     echo "irreversible baseline rollback unexpectedly succeeded" >&2
     exit 1
   fi
   status_output="$(ALLOW_INSECURE_DEVELOPMENT=true DATABASE_URL="${database_url}" "${work}/lites-migrate" -direction status)"
-  [[ "${status_output}" == *'"current_version":46'* ]] || { printf '%s\n' "${status_output}"; exit 1; }
+  [[ "${status_output}" == *'"current_version":48'* ]] || { printf '%s\n' "${status_output}"; exit 1; }
   postgres_version="$(docker exec "${current_container}" psql -U postgres -d lites -Atc "SHOW server_version")"
   docker rm -f "${current_container}" >/dev/null
   current_container=""
 done
 
-data_checksum="$(printf '%s' "${expected_data}" | sha256sum | awk '{print $1}')"
+data_checksum="$(printf '%s' "${expected_data}" | shasum -a 256 | awk '{print $1}')"
 if [[ -n "${MIGRATION_REPORT_SOURCE_COMMIT:-}" ]]; then
   node scripts/write-stage2-migration-report.mjs --source-commit "${MIGRATION_REPORT_SOURCE_COMMIT}" --cycles "${cycles}" --data-checksum "${data_checksum}" --postgres-version "${postgres_version}"
 else

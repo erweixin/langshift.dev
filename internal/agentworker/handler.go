@@ -46,6 +46,9 @@ type Execution struct {
 	Command eventpostgres.DeliveredCommand
 	Payload CommandPayload
 	Claim   executionpostgres.RunClaim
+	// TurnIndex is scoped to one Run execution claim. The first model turn is
+	// one; validation or repair turns increment it without reusing an attempt.
+	TurnIndex uint64
 }
 
 type Runner interface {
@@ -101,7 +104,7 @@ func (handler Handler) Handle(ctx context.Context, delivered eventpostgres.Deliv
 	if err != nil {
 		return mapClaimError(err)
 	}
-	outcome, liveClaim, err := handler.executeWithHeartbeat(ctx, Execution{Command: delivered, Payload: command, Claim: claim})
+	outcome, liveClaim, err := handler.executeWithHeartbeat(ctx, Execution{Command: delivered, Payload: command, Claim: claim, TurnIndex: 1})
 	if err != nil {
 		return err
 	}

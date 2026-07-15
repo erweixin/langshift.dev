@@ -68,6 +68,7 @@ type ModelCandidate struct {
 type ContextManifest struct {
 	SchemaVersion   int               `json:"schema_version"`
 	Run             SnapshotBinding   `json:"run"`
+	Prompt          SnapshotBinding   `json:"prompt"`
 	Messages        []SnapshotBinding `json:"messages"`
 	Tools           []SnapshotBinding `json:"tools"`
 	Memory          []SnapshotBinding `json:"memory"`
@@ -149,7 +150,7 @@ func canonicalManifest(manifest ContextManifest) ([]byte, string, error) {
 }
 
 func validManifest(manifest ContextManifest) bool {
-	if manifest.SchemaVersion != 1 && manifest.SchemaVersion != 2 || manifest.SchemaVersion == 1 && manifest.Retrieval != nil || manifest.SchemaVersion == 2 && (manifest.Retrieval == nil || manifest.Retrieval.ManifestID == "") || !validSnapshot(manifest.Run) || !validSnapshot(manifest.Router) || !validSnapshot(manifest.Budget) || !validSnapshot(manifest.Policy) || len(manifest.Messages) > 10000 || len(manifest.Tools) > 1000 || len(manifest.Memory) > 10000 || len(manifest.CandidateModels) < 1 || len(manifest.CandidateModels) > 100 {
+	if manifest.SchemaVersion != 1 && manifest.SchemaVersion != 2 || manifest.SchemaVersion == 1 && manifest.Retrieval != nil || manifest.SchemaVersion == 2 && (manifest.Retrieval == nil || manifest.Retrieval.ManifestID == "") || !validSnapshot(manifest.Run) || !validSnapshot(manifest.Prompt) || !validSnapshot(manifest.Router) || !validSnapshot(manifest.Budget) || !validSnapshot(manifest.Policy) || len(manifest.Messages) > 10000 || len(manifest.Tools) > 1000 || len(manifest.Memory) > 10000 || len(manifest.CandidateModels) < 1 || len(manifest.CandidateModels) > 100 {
 		return false
 	}
 	for _, list := range [][]SnapshotBinding{manifest.Messages, manifest.Tools, manifest.Memory} {

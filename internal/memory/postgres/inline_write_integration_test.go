@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -134,6 +135,7 @@ func TestMemoryWriteCommitsAsInlinePlatformTool(t *testing.T) {
 	llmStore := llmpostgres.Store{Pool: pool, Appender: appender, Epochs: memoryEpochStub{epoch: storeEpoch}, StoreEpoch: storeEpoch, IDKey: bytes.Repeat([]byte{0x68}, 32), TokenPepper: bytes.Repeat([]byte{0x69}, 32), Billing: billing, Retrieval: retrievalHandler, Now: func() time.Time { return now }}
 	contextManifest := llmpostgres.ContextManifest{
 		SchemaVersion: 2, Run: llmpostgres.SnapshotBinding{ID: runID, Version: resumeClaim.RunVersion, Hash: "run-v6"},
+		Prompt:          llmpostgres.SnapshotBinding{ID: "prompt:memory", Version: 1, Hash: strings.Repeat("a", 64)},
 		Messages:        []llmpostgres.SnapshotBinding{{ID: "message:memory", Version: 1, Hash: "message-hash"}},
 		Memory:          []llmpostgres.SnapshotBinding{{ID: memoryID, Version: 1, Hash: hex.EncodeToString(write.ContentHMAC[:])}},
 		Retrieval:       &llmpostgres.RetrievalBinding{ManifestID: retrievalID},
