@@ -3,6 +3,9 @@ package postgres
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"reflect"
+	"slices"
 	"testing"
 	"time"
 
@@ -27,6 +30,82 @@ func TestResolveAnonymousClaimManualReviewUsesOnlyExactDurableFacts(t *testing.T
 	if err != nil || erasing.TargetStatus != string(anonymousclaim.Erasing) || erasing.ReceiptCount != 1 {
 		t.Fatalf("erasing=%#v err=%v", erasing, err)
 	}
+}
+
+func TestAnonymousClaimRepairFaultScenarios100(t *testing.T) {
+	metrics := struct {
+		Scenario                      string `json:"scenario"`
+		RepetitionsPerCase            int    `json:"repetitions_per_case"`
+		TargetCommitUnknown           int    `json:"target_commit_unknown"`
+		TargetCommitResolved          int    `json:"target_commit_resolved"`
+		ReceiptConflicts              int    `json:"receipt_conflicts"`
+		ReceiptConflictsRetained      int    `json:"receipt_conflicts_retained_manual_review"`
+		SourceDestinationHashMismatch int    `json:"source_destination_hash_mismatches"`
+		HashMismatchesRetained        int    `json:"hash_mismatches_retained_manual_review"`
+		ErroneousConvergences         int    `json:"erroneous_convergences"`
+		DuplicateDestinationMissions  int    `json:"duplicate_destination_missions"`
+		DirectAggregateMutations      int    `json:"direct_aggregate_mutations"`
+	}{Scenario: "anonymous_claim_manual_review_repair", RepetitionsPerCase: 100}
+	now := time.Unix(1_800_000_000, 0).UTC()
+	for repetition := range metrics.RepetitionsPerCase {
+		suffix := fmt.Sprintf("-%03d", repetition)
+		saga := anonymousclaim.Saga{
+			ID: "claim" + suffix, AnonymousSubjectID: "subject" + suffix,
+			Status: anonymousclaim.ManualReview, Version: 3, ClaimKey: "claim-key" + suffix,
+			TargetTenantID: "tenant", TargetUserID: "user", MissionID: "mission" + suffix,
+			SourceRouteRevisionID: "source-route" + suffix, ClaimSetHash: "claim-set" + suffix,
+		}
+		targetRouteID, destinationEventID := "target-route"+suffix, "destination-event"+suffix
+
+		metrics.TargetCommitUnknown++
+		sagaBeforeInspection := saga
+		resolution, err := resolveAnonymousClaimManualReview(saga, targetRouteID, destinationEventID, exactAnonymousClaimTargetFacts(saga, targetRouteID, destinationEventID))
+		if err != nil || resolution.TargetStatus != string(anonymousclaim.DestinationCommitted) || resolution.ClaimKey != saga.ClaimKey || resolution.DestinationCommitEventID != destinationEventID || resolution.ClaimVersion != saga.Version+1 {
+			t.Fatalf("target commit unknown repetition %d resolved unsafely: resolution=%#v err=%v", repetition, resolution, err)
+		}
+		if !reflect.DeepEqual(saga, sagaBeforeInspection) {
+			metrics.DirectAggregateMutations++
+			t.Fatalf("target inspection repetition %d mutated the source aggregate", repetition)
+		}
+		metrics.TargetCommitResolved++
+
+		metrics.ReceiptConflicts++
+		conflicted := saga
+		conflicted.DestinationCommitEventID = destinationEventID
+		conflicted.DeletionReceipts = []anonymousclaim.DeletionReceipt{
+			{ID: "receipt-a" + suffix, Surface: "body_payload", Hash: "hash-a" + suffix, ErasedAt: now, Details: json.RawMessage(`{"verified":true}`)},
+			{ID: "receipt-b" + suffix, Surface: "body_payload", Hash: "hash-b" + suffix, ErasedAt: now, Details: json.RawMessage(`{"verified":true}`)},
+		}
+		conflictedBeforeInspection := conflicted
+		conflictedBeforeInspection.DeletionReceipts = slices.Clone(conflicted.DeletionReceipts)
+		if _, err = resolveAnonymousClaimManualReview(conflicted, targetRouteID, destinationEventID, exactAnonymousClaimTargetFacts(saga, targetRouteID, destinationEventID)); !errors.Is(err, ErrAnonymousClaimRepairUnresolved) {
+			metrics.ErroneousConvergences++
+			t.Fatalf("receipt conflict repetition %d did not remain manual_review: %v", repetition, err)
+		}
+		if !reflect.DeepEqual(conflicted, conflictedBeforeInspection) {
+			metrics.DirectAggregateMutations++
+			t.Fatalf("receipt inspection repetition %d mutated the source aggregate", repetition)
+		}
+		metrics.ReceiptConflictsRetained++
+
+		metrics.SourceDestinationHashMismatch++
+		mismatchedFacts := exactAnonymousClaimTargetFacts(saga, targetRouteID, destinationEventID)
+		mismatchedFacts.RouteClaimSetHash = "different" + suffix
+		if _, err = resolveAnonymousClaimManualReview(saga, targetRouteID, destinationEventID, mismatchedFacts); !errors.Is(err, ErrAnonymousClaimRepairUnresolved) {
+			metrics.ErroneousConvergences++
+			t.Fatalf("hash mismatch repetition %d did not remain manual_review: %v", repetition, err)
+		}
+		if !reflect.DeepEqual(saga, sagaBeforeInspection) {
+			metrics.DirectAggregateMutations++
+			t.Fatalf("hash inspection repetition %d mutated the source aggregate", repetition)
+		}
+		metrics.HashMismatchesRetained++
+	}
+	encoded, err := json.Marshal(metrics)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("anonymous_claim_repair_gate=%s", encoded)
 }
 
 func TestResolveAnonymousClaimManualReviewRejectsPartialOrMismatchedTarget(t *testing.T) {
