@@ -82,7 +82,8 @@ for migration in \
   deploy/migrations/000040_run_cancellation_barrier.up.sql \
   deploy/migrations/000041_run_cancellation_recovery_discovery.up.sql \
   deploy/migrations/000042_runtime_run_cancellation_authority.up.sql \
-  deploy/migrations/000043_child_run_orchestration_contract.up.sql; do
+  deploy/migrations/000043_child_run_orchestration_contract.up.sql \
+  deploy/migrations/000044_run_cancellation_propagation.up.sql; do
   target="/tmp/$(basename "${migration}")"
   docker cp "${migration}" "${container_name}:${target}" >/dev/null
   docker exec "${container_name}" psql -v ON_ERROR_STOP=1 -U postgres -d lites_foundation -f "${target}" >/dev/null

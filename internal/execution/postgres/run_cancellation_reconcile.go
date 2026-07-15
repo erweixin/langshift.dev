@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"time"
@@ -18,6 +19,7 @@ type ReconcileRunCancellationCommand struct {
 	Actor                                json.RawMessage
 	CorrelationID                        string
 	ToolCancelledEvents                  map[string]PayloadPointer
+	Child                                *ChildRunCompletion
 }
 
 type ReconciledRunCancellation struct {
@@ -35,10 +37,9 @@ type cancellationTool struct {
 
 type cancellationToolIDs struct{ event, outbox, publish string }
 
-// ReconcileCancellation cancels only ToolCalls that have a queued command but
-// have not acquired an execution right. Executing effects, LLM requests,
-// runtimes, and child Runs remain authoritative blockers until their own
-// fenced protocols terminate.
+// ReconcileCancellation cancels queued ToolCalls and, after every authoritative
+// dependency and descendant has converged, atomically settles the Run, its
+// active execution right, and (for child Runs) the orchestration join.
 func (store RunStore) ReconcileCancellation(ctx context.Context, command ReconcileRunCancellationCommand) (ReconciledRunCancellation, error) {
 	if !store.validClaim() || !validReconcileRunCancellation(command) {
 		return ReconciledRunCancellation{}, ErrInvalidCommand
@@ -56,28 +57,70 @@ func (store RunStore) ReconcileCancellation(ctx context.Context, command Reconci
 		return ReconciledRunCancellation{}, err
 	}
 
-	var runID, status, requestEventID, settlementRef, settlementHash string
-	var cancellationVersion uint64
-	err = tx.QueryRow(ctx, `SELECT run_id::text,status,version,request_event_id::text,settlement_payload_ref,settlement_payload_hash FROM agent.run_cancellations WHERE id=$1 AND tenant_id=$2 AND store_epoch=$3 FOR UPDATE`, command.CancellationID, command.TenantID, command.StoreEpoch).Scan(&runID, &status, &cancellationVersion, &requestEventID, &settlementRef, &settlementHash)
+	// Observe before locking so the transaction can follow the Worker lock
+	// order: active inbox, Run, then cancellation barrier.
+	var observedRunID, observedStatus string
+	var observedVersion uint64
+	err = tx.QueryRow(ctx, `SELECT run_id::text,status,version FROM agent.run_cancellations WHERE id=$1 AND tenant_id=$2 AND store_epoch=$3`, command.CancellationID, command.TenantID, command.StoreEpoch).Scan(&observedRunID, &observedStatus, &observedVersion)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ReconciledRunCancellation{}, ErrRunConflict
 	}
 	if err != nil {
 		return ReconciledRunCancellation{}, err
 	}
-	if status == "settled" {
+	if observedStatus == "settled" {
 		var runVersion uint64
 		var settlementEventID string
-		if err = tx.QueryRow(ctx, `SELECT r.run_version,c.settlement_event_id::text FROM agent.runs r JOIN agent.run_cancellations c ON c.tenant_id=r.tenant_id AND c.id=$1 WHERE r.tenant_id=$2 AND r.id=$3`, command.CancellationID, command.TenantID, runID).Scan(&runVersion, &settlementEventID); err != nil {
+		if err = tx.QueryRow(ctx, `SELECT r.run_version,c.settlement_event_id::text FROM agent.runs r JOIN agent.run_cancellations c ON c.tenant_id=r.tenant_id AND c.id=$1 WHERE r.tenant_id=$2 AND r.id=$3 AND c.status='settled'`, command.CancellationID, command.TenantID, observedRunID).Scan(&runVersion, &settlementEventID); err != nil {
 			return ReconciledRunCancellation{}, err
 		}
 		if err = tx.Commit(ctx); err != nil {
 			return ReconciledRunCancellation{}, err
 		}
-		return ReconciledRunCancellation{CancellationID: command.CancellationID, RunID: runID, Status: status, CancellationVersion: cancellationVersion, RunVersion: runVersion, SettlementEventID: settlementEventID, Settled: true}, nil
+		return ReconciledRunCancellation{CancellationID: command.CancellationID, RunID: observedRunID, Status: observedStatus, CancellationVersion: observedVersion, RunVersion: runVersion, SettlementEventID: settlementEventID, Settled: true}, nil
 	}
-	if status != "terminating" || cancellationVersion != command.ExpectedCancellationVersion {
+	if observedStatus != "terminating" || observedVersion != command.ExpectedCancellationVersion {
 		return ReconciledRunCancellation{}, ErrRunConflict
+	}
+
+	var observedCommand, observedAttempt sql.NullString
+	if err = tx.QueryRow(ctx, `SELECT active_command_id::text,active_attempt_id::text FROM agent.runs WHERE tenant_id=$1 AND id=$2`, command.TenantID, observedRunID).Scan(&observedCommand, &observedAttempt); err != nil || observedCommand.Valid != observedAttempt.Valid {
+		return ReconciledRunCancellation{}, ErrRunConflict
+	}
+	if observedCommand.Valid {
+		var inboxID string
+		if err = tx.QueryRow(ctx, `SELECT id::text FROM agent.inbox WHERE tenant_id=$1 AND command_id=$2 AND owner_attempt_id=$3 AND status='running' FOR UPDATE`, command.TenantID, observedCommand.String, observedAttempt.String).Scan(&inboxID); err != nil {
+			return ReconciledRunCancellation{}, ErrRunConflict
+		}
+	}
+
+	var runStatus, runUserID, rootRunID string
+	var runVersion uint64
+	var activeCancellation string
+	var pendingCommand, activeCommand, activeAttempt, parentRunID, childGroupID sql.NullString
+	var inheritedBudget int64
+	err = tx.QueryRow(ctx, `SELECT status,run_version,active_cancellation_id::text,user_id::text,pending_command_id::text,active_command_id::text,active_attempt_id::text,parent_run_id::text,root_run_id::text,child_group_id::text,inherited_budget_microunits FROM agent.runs WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, command.TenantID, observedRunID).Scan(&runStatus, &runVersion, &activeCancellation, &runUserID, &pendingCommand, &activeCommand, &activeAttempt, &parentRunID, &rootRunID, &childGroupID, &inheritedBudget)
+	if err != nil || activeCancellation != command.CancellationID || statemachine.Runs.IsTerminal(statemachine.RunState(runStatus)) || activeCommand.Valid != observedCommand.Valid || activeAttempt.Valid != observedAttempt.Valid || activeCommand.Valid && (activeCommand.String != observedCommand.String || activeAttempt.String != observedAttempt.String) {
+		return ReconciledRunCancellation{}, ErrRunConflict
+	}
+	if err = statemachine.Runs.ValidateTransition(statemachine.RunState(runStatus), statemachine.RunCancelled); err != nil {
+		return ReconciledRunCancellation{}, ErrRunConflict
+	}
+
+	var runID, status, requestEventID, settlementRef, settlementHash, attemptRef, attemptHash string
+	var cancellationVersion uint64
+	var propagationComplete bool
+	err = tx.QueryRow(ctx, `SELECT run_id::text,status,version,request_event_id::text,settlement_payload_ref,settlement_payload_hash,COALESCE(attempt_cancelled_payload_ref,settlement_payload_ref),COALESCE(attempt_cancelled_payload_hash,settlement_payload_hash),propagation_complete FROM agent.run_cancellations WHERE id=$1 AND tenant_id=$2 AND store_epoch=$3 FOR UPDATE`, command.CancellationID, command.TenantID, command.StoreEpoch).Scan(&runID, &status, &cancellationVersion, &requestEventID, &settlementRef, &settlementHash, &attemptRef, &attemptHash, &propagationComplete)
+	if err != nil || runID != observedRunID || status != "terminating" || cancellationVersion != command.ExpectedCancellationVersion {
+		return ReconciledRunCancellation{}, ErrRunConflict
+	}
+	isChild := parentRunID.Valid
+	if isChild {
+		if command.Child == nil || !validChildRunCompletion(*command.Child) || !childGroupID.Valid || rootRunID == "" || inheritedBudget < 1 || command.Child.CompletedEvent.Ref != settlementRef || command.Child.CompletedEvent.Hash != settlementHash {
+			return ReconciledRunCancellation{}, ErrInvalidCommand
+		}
+	} else if command.Child != nil || childGroupID.Valid || rootRunID != runID || inheritedBudget != 0 {
+		return ReconciledRunCancellation{}, ErrInvalidCommand
 	}
 
 	rows, err := tx.Query(ctx, `SELECT id::text,user_id::text,status,tool_call_version,pending_command_id::text,effect_class FROM agent.tool_calls WHERE tenant_id=$1 AND run_id=$2 AND status IN ('requested','preview_requested','commit_requested') ORDER BY id FOR UPDATE`, command.TenantID, runID)
@@ -98,17 +141,6 @@ func (store RunStore) ReconcileCancellation(ctx context.Context, command Reconci
 		return ReconciledRunCancellation{}, err
 	}
 	rows.Close()
-
-	var runStatus, runUserID string
-	var runVersion uint64
-	var activeCancellation string
-	err = tx.QueryRow(ctx, `SELECT status,run_version,active_cancellation_id::text,user_id::text FROM agent.runs WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, command.TenantID, runID).Scan(&runStatus, &runVersion, &activeCancellation, &runUserID)
-	if err != nil || activeCancellation != command.CancellationID || statemachine.Runs.IsTerminal(statemachine.RunState(runStatus)) {
-		return ReconciledRunCancellation{}, ErrRunConflict
-	}
-	if err = statemachine.Runs.ValidateTransition(statemachine.RunState(runStatus), statemachine.RunCancelled); err != nil {
-		return ReconciledRunCancellation{}, ErrRunConflict
-	}
 
 	for _, tool := range tools {
 		pointer, ok := command.ToolCancelledEvents[tool.id]
@@ -142,6 +174,9 @@ func (store RunStore) ReconcileCancellation(ctx context.Context, command Reconci
 	if err != nil {
 		return ReconciledRunCancellation{}, err
 	}
+	if !propagationComplete {
+		remaining++
+	}
 	result := ReconciledRunCancellation{CancellationID: command.CancellationID, RunID: runID, Status: "terminating", CancellationVersion: cancellationVersion, RunVersion: runVersion, CancelledToolCalls: len(tools), RemainingBlockers: remaining}
 	if remaining > 0 {
 		nextAttempt := now.Add(cancellationReconciliationDelay).UTC().Truncate(time.Microsecond)
@@ -160,16 +195,54 @@ func (store RunStore) ReconcileCancellation(ctx context.Context, command Reconci
 	if err != nil {
 		return ReconciledRunCancellation{}, err
 	}
+	attemptEvent, err := store.settleRunExecutionRight(ctx, tx, cancellationAttemptSettlement{TenantID: command.TenantID, UserID: runUserID, StoreEpoch: command.StoreEpoch, CorrelationID: command.CorrelationID, Actor: command.Actor, Payload: PayloadPointer{Ref: attemptRef, Hash: attemptHash}}, activeCommand, activeAttempt, identifiers.settlementEvent, now)
+	if err != nil {
+		return ReconciledRunCancellation{}, err
+	}
+	if pendingCommand.Valid {
+		if _, err = tx.Exec(ctx, `UPDATE agent.jobs SET version=version+1,status='cancelled',updated_at=$1 WHERE tenant_id=$2 AND command_id=$3 AND status='pending'`, now, command.TenantID, pendingCommand.String); err != nil {
+			return ReconciledRunCancellation{}, err
+		}
+	}
 	nextRunVersion := runVersion + 1
-	if tag, updateErr := tx.Exec(ctx, `UPDATE agent.runs SET status='cancelled',run_version=$1,pending_command_id=NULL,active_command_id=NULL,active_attempt_id=NULL,lease_token_hash=NULL,lease_expires_at=NULL,updated_at=$2 WHERE tenant_id=$3 AND id=$4 AND run_version=$5 AND active_cancellation_id=$6 AND cancel_requested_at IS NOT NULL`, nextRunVersion, now, command.TenantID, runID, runVersion, command.CancellationID); updateErr != nil || tag.RowsAffected() != 1 {
+	var resultSummaryRef, resultSummaryHash any
+	if isChild {
+		resultSummaryRef, resultSummaryHash = command.Child.ResultSummary.Ref, command.Child.ResultSummary.Hash
+	}
+	if tag, updateErr := tx.Exec(ctx, `UPDATE agent.runs SET status='cancelled',run_version=$1,pending_command_id=NULL,active_command_id=NULL,active_attempt_id=NULL,lease_token_hash=NULL,lease_expires_at=NULL,result_summary_ref=$2,result_summary_hash=$3,updated_at=$4 WHERE tenant_id=$5 AND id=$6 AND run_version=$7 AND active_cancellation_id=$8 AND cancel_requested_at IS NOT NULL`, nextRunVersion, resultSummaryRef, resultSummaryHash, now, command.TenantID, runID, runVersion, command.CancellationID); updateErr != nil || tag.RowsAffected() != 1 {
 		return ReconciledRunCancellation{}, ErrRunConflict
 	}
+
+	var join childJoinResult
+	eventType, terminalPointer := "RunCancelled", PayloadPointer{Ref: settlementRef, Hash: settlementHash}
+	if isChild {
+		eventType, terminalPointer = "ChildRunCompleted", command.Child.CompletedEvent
+		join, err = store.joinCompletedChild(ctx, tx, childJoinInput{TenantID: command.TenantID, UserID: runUserID, ChildRunID: runID, ParentRunID: parentRunID.String, RootRunID: rootRunID, GroupID: childGroupID.String, ChildEventID: identifiers.settlementEvent, InheritedBudgetMicrounits: inheritedBudget, Actor: command.Actor, CorrelationID: command.CorrelationID, Completion: *command.Child, Now: now})
+		if err != nil {
+			return ReconciledRunCancellation{}, err
+		}
+	}
 	causationID := requestEventID
-	terminal := eventpostgres.Input{Event: eventpostgres.Event{ID: identifiers.settlementEvent, TenantID: command.TenantID, UserID: runUserID, EventType: "RunCancelled", SchemaVersion: 1, AggregateKind: "run", AggregateID: runID, AggregateVersion: nextRunVersion, StoreEpoch: command.StoreEpoch, OccurredAt: now, Actor: command.Actor, CausationID: &causationID, CorrelationID: command.CorrelationID, PayloadRef: settlementRef, PayloadHash: settlementHash}, Commands: []eventpostgres.OutboxCommand{{ID: identifiers.settlementOutbox, CommandID: identifiers.settlementPublish, CommandType: "events.publish", PayloadRef: settlementRef, PayloadHash: settlementHash}}}
+	terminal := eventpostgres.Input{Event: eventpostgres.Event{ID: identifiers.settlementEvent, TenantID: command.TenantID, UserID: runUserID, EventType: eventType, SchemaVersion: 1, AggregateKind: "run", AggregateID: runID, AggregateVersion: nextRunVersion, StoreEpoch: command.StoreEpoch, OccurredAt: now, Actor: command.Actor, CausationID: &causationID, CorrelationID: command.CorrelationID, PayloadRef: terminalPointer.Ref, PayloadHash: terminalPointer.Hash}, Commands: []eventpostgres.OutboxCommand{{ID: identifiers.settlementOutbox, CommandID: identifiers.settlementPublish, CommandType: "events.publish", PayloadRef: terminalPointer.Ref, PayloadHash: terminalPointer.Hash}}}
 	if _, err = store.Appender.Append(ctx, tx, terminal); err != nil {
 		return ReconciledRunCancellation{}, err
 	}
-	if tag, updateErr := tx.Exec(ctx, `UPDATE agent.run_cancellations SET version=version+1,status='settled',settled_at=$1,settlement_event_id=$2,updated_at=$1 WHERE tenant_id=$3 AND id=$4 AND version=$5 AND status='terminating'`, now, identifiers.settlementEvent, command.TenantID, command.CancellationID, cancellationVersion); updateErr != nil || tag.RowsAffected() != 1 {
+	if attemptEvent != nil {
+		if _, err = store.Appender.Append(ctx, tx, *attemptEvent); err != nil {
+			return ReconciledRunCancellation{}, err
+		}
+	}
+	if join.GroupEvent != nil {
+		if _, err = store.Appender.Append(ctx, tx, *join.GroupEvent); err != nil {
+			return ReconciledRunCancellation{}, err
+		}
+	}
+	if join.ParentEvent != nil {
+		if _, err = store.Appender.Append(ctx, tx, *join.ParentEvent); err != nil {
+			return ReconciledRunCancellation{}, err
+		}
+	}
+	if tag, updateErr := tx.Exec(ctx, `UPDATE agent.run_cancellations SET version=version+1,status='settled',settled_at=$1,settlement_event_id=$2,updated_at=$1 WHERE tenant_id=$3 AND id=$4 AND version=$5 AND status='terminating' AND propagation_complete=true`, now, identifiers.settlementEvent, command.TenantID, command.CancellationID, cancellationVersion); updateErr != nil || tag.RowsAffected() != 1 {
 		return ReconciledRunCancellation{}, ErrRunConflict
 	}
 	if tag, updateErr := tx.Exec(ctx, `UPDATE agent.jobs SET version=version+1,status='cancelled',updated_at=$1 WHERE tenant_id=$2 AND command_id=$3 AND status='pending'`, now, command.TenantID, identifiers.reconcileCommand); updateErr != nil || tag.RowsAffected() != 1 {
@@ -199,5 +272,5 @@ func (store RunStore) cancellationToolIdentifiers(cancellationID, toolCallID str
 }
 
 func validReconcileRunCancellation(command ReconcileRunCancellationCommand) bool {
-	return command.CancellationID != "" && command.TenantID != "" && command.StoreEpoch != "" && command.ExpectedCancellationVersion > 0 && validJSONObject(command.Actor) && command.CorrelationID != "" && command.ToolCancelledEvents != nil
+	return command.CancellationID != "" && command.TenantID != "" && command.StoreEpoch != "" && command.ExpectedCancellationVersion > 0 && validJSONObject(command.Actor) && command.CorrelationID != "" && command.ToolCancelledEvents != nil && (command.Child == nil || validChildRunCompletion(*command.Child))
 }

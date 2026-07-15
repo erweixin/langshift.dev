@@ -25,6 +25,7 @@ type RequestRunCancellationCommand struct {
 	RequestEvent, SettlementEvent           PayloadPointer
 	AttemptCancelledEvent                   PayloadPointer
 	ReconcileCommand                        PayloadPointer
+	PropagateCommand                        PayloadPointer
 }
 
 type RunCancellationResult struct {
@@ -46,6 +47,14 @@ type cancellationIDs struct {
 	requestEvent, requestOutbox, requestPublish          string
 	settlementEvent, settlementOutbox, settlementPublish string
 	reconcileOutbox, reconcileCommand, reconcileJob      string
+}
+
+type cancellationPropagationIDs struct{ outbox, command, job string }
+
+type cancellationAttemptSettlement struct {
+	TenantID, UserID, StoreEpoch, CorrelationID string
+	Actor                                       json.RawMessage
+	Payload                                     PayloadPointer
 }
 
 // RequestCancellation records the durable cancellation generation before it
@@ -134,11 +143,20 @@ func (store RunStore) RequestCancellation(ctx context.Context, command RequestRu
 		return RunCancellationResult{}, err
 	}
 	settled := blockers == 0
+	var directChildren int
+	if err = tx.QueryRow(ctx, `SELECT count(*) FROM agent.runs WHERE tenant_id=$1 AND parent_run_id=$2 AND status NOT IN ('succeeded','failed','cancelled','expired')`, command.TenantID, command.RunID).Scan(&directChildren); err != nil {
+		return RunCancellationResult{}, err
+	}
+	needsPropagation := directChildren > 0
+	propagation, err := store.cancellationPropagationIdentifiers(command.CancellationID)
+	if err != nil {
+		return RunCancellationResult{}, err
+	}
 	cancellationStatus := "terminating"
 	if settled {
 		cancellationStatus = "settled"
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO agent.run_cancellations(id,tenant_id,run_id,root_cancellation_id,parent_cancellation_id,cancel_generation,status,requested_by,requested_at,reason,store_epoch,request_hash,request_event_id,request_payload_ref,request_payload_hash,settlement_payload_ref,settlement_payload_hash,reconciliation_due_at,created_at,updated_at) VALUES($1,$2,$3,$1,NULL,$4,'requested',$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$6,$6)`, command.CancellationID, command.TenantID, command.RunID, nextGeneration, command.UserID, now, command.Reason, store.StoreEpoch, command.RequestHash, identifiers.requestEvent, command.RequestEvent.Ref, command.RequestEvent.Hash, command.SettlementEvent.Ref, command.SettlementEvent.Hash, reconcileAt)
+	_, err = tx.Exec(ctx, `INSERT INTO agent.run_cancellations(id,tenant_id,run_id,root_cancellation_id,parent_cancellation_id,cancel_generation,status,requested_by,requested_at,reason,store_epoch,request_hash,request_event_id,request_payload_ref,request_payload_hash,settlement_payload_ref,settlement_payload_hash,attempt_cancelled_payload_ref,attempt_cancelled_payload_hash,reconciliation_due_at,propagation_complete,propagation_command_id,propagation_payload_ref,propagation_payload_hash,created_at,updated_at) VALUES($1,$2,$3,$1,NULL,$4,'requested',$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,NULLIF($19,'')::uuid,NULLIF($20,''),NULLIF($21,''),$6,$6)`, command.CancellationID, command.TenantID, command.RunID, nextGeneration, command.UserID, now, command.Reason, store.StoreEpoch, command.RequestHash, identifiers.requestEvent, command.RequestEvent.Ref, command.RequestEvent.Hash, command.SettlementEvent.Ref, command.SettlementEvent.Hash, command.AttemptCancelledEvent.Ref, command.AttemptCancelledEvent.Hash, reconcileAt, !needsPropagation, propagationValue(needsPropagation, propagation.command), propagationValue(needsPropagation, command.PropagateCommand.Ref), propagationValue(needsPropagation, command.PropagateCommand.Hash))
 	if err != nil {
 		return RunCancellationResult{}, err
 	}
@@ -147,6 +165,12 @@ func (store RunStore) RequestCancellation(ctx context.Context, command RequestRu
 	if !settled {
 		requestCommands = append(requestCommands, eventpostgres.OutboxCommand{ID: identifiers.reconcileOutbox, CommandID: identifiers.reconcileCommand, CommandType: "ReconcileRunCancellation", PayloadRef: command.ReconcileCommand.Ref, PayloadHash: command.ReconcileCommand.Hash})
 		if _, err = tx.Exec(ctx, `INSERT INTO agent.jobs(id,tenant_id,command_id,queue_class,resource_class,priority,cost_units,max_attempts,status,available_at,due_at,enqueued_at,created_at,updated_at) VALUES($1,$2,$3,'background','run-cancellation',90,1,100,'pending',$4,$5,$4,$6,$6)`, identifiers.reconcileJob, command.TenantID, identifiers.reconcileCommand, reconcileAt, reconcileAt.Add(24*time.Hour), now); err != nil {
+			return RunCancellationResult{}, err
+		}
+	}
+	if needsPropagation {
+		requestCommands = append(requestCommands, eventpostgres.OutboxCommand{ID: propagation.outbox, CommandID: propagation.command, CommandType: "PropagateRunCancellation", PayloadRef: command.PropagateCommand.Ref, PayloadHash: command.PropagateCommand.Hash})
+		if _, err = tx.Exec(ctx, `INSERT INTO agent.jobs(id,tenant_id,command_id,queue_class,resource_class,priority,cost_units,max_attempts,status,available_at,due_at,enqueued_at,created_at,updated_at) VALUES($1,$2,$3,'background','run-cancellation-propagation',95,1,100,'pending',$4,$5,$4,$4,$4)`, propagation.job, command.TenantID, propagation.command, now, now.Add(24*time.Hour)); err != nil {
 			return RunCancellationResult{}, err
 		}
 	}
@@ -162,7 +186,7 @@ func (store RunStore) RequestCancellation(ctx context.Context, command RequestRu
 	nextRunVersion := runVersion
 	if settled {
 		nextRunVersion++
-		attemptEvent, settleErr := store.settleRunExecutionRight(ctx, tx, command, activeCommand, activeAttempt, identifiers.requestEvent, now)
+		attemptEvent, settleErr := store.settleRunExecutionRight(ctx, tx, cancellationAttemptSettlement{TenantID: command.TenantID, UserID: command.UserID, StoreEpoch: store.StoreEpoch, CorrelationID: command.CorrelationID, Actor: command.Actor, Payload: command.AttemptCancelledEvent}, activeCommand, activeAttempt, identifiers.requestEvent, now)
 		if settleErr != nil {
 			return RunCancellationResult{}, settleErr
 		}
@@ -218,7 +242,7 @@ func countCancellationBlockers(ctx context.Context, tx pgx.Tx, tenantID, runID s
 	return tools + llm + runtimes + children, err
 }
 
-func (store RunStore) settleRunExecutionRight(ctx context.Context, tx pgx.Tx, command RequestRunCancellationCommand, activeCommand, activeAttempt sql.NullString, causationID string, now time.Time) (*eventpostgres.Input, error) {
+func (store RunStore) settleRunExecutionRight(ctx context.Context, tx pgx.Tx, settlement cancellationAttemptSettlement, activeCommand, activeAttempt sql.NullString, causationID string, now time.Time) (*eventpostgres.Input, error) {
 	if !activeCommand.Valid && !activeAttempt.Valid {
 		return nil, nil
 	}
@@ -227,23 +251,23 @@ func (store RunStore) settleRunExecutionRight(ctx context.Context, tx pgx.Tx, co
 	}
 	var attemptVersion uint64
 	var jobID, inboxID string
-	if err := tx.QueryRow(ctx, `SELECT a.version,j.id::text,i.id::text FROM agent.job_attempts a JOIN agent.jobs j ON j.tenant_id=a.tenant_id AND j.id=a.job_id AND j.command_id=a.command_id JOIN agent.inbox i ON i.tenant_id=a.tenant_id AND i.command_id=a.command_id AND i.owner_attempt_id=a.id WHERE a.tenant_id=$1 AND a.id=$2 AND a.command_id=$3 AND a.status='running' AND j.status='running' AND i.status='running' FOR UPDATE OF a,j,i`, command.TenantID, activeAttempt.String, activeCommand.String).Scan(&attemptVersion, &jobID, &inboxID); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT a.version,j.id::text,i.id::text FROM agent.job_attempts a JOIN agent.jobs j ON j.tenant_id=a.tenant_id AND j.id=a.job_id AND j.command_id=a.command_id JOIN agent.inbox i ON i.tenant_id=a.tenant_id AND i.command_id=a.command_id AND i.owner_attempt_id=a.id WHERE a.tenant_id=$1 AND a.id=$2 AND a.command_id=$3 AND a.status='running' AND j.status='running' AND i.status='running' FOR UPDATE OF a,j,i`, settlement.TenantID, activeAttempt.String, activeCommand.String).Scan(&attemptVersion, &jobID, &inboxID); err != nil {
 		return nil, ErrRunConflict
 	}
-	if tag, err := tx.Exec(ctx, `UPDATE agent.job_attempts SET version=$1,status='abandoned',finished_at=$2,result_hash='run_cancelled',updated_at=$2 WHERE id=$3 AND tenant_id=$4 AND version=$5 AND status='running'`, attemptVersion+1, now, activeAttempt.String, command.TenantID, attemptVersion); err != nil || tag.RowsAffected() != 1 {
+	if tag, err := tx.Exec(ctx, `UPDATE agent.job_attempts SET version=$1,status='abandoned',finished_at=$2,result_hash='run_cancelled',updated_at=$2 WHERE id=$3 AND tenant_id=$4 AND version=$5 AND status='running'`, attemptVersion+1, now, activeAttempt.String, settlement.TenantID, attemptVersion); err != nil || tag.RowsAffected() != 1 {
 		return nil, ErrRunConflict
 	}
-	if tag, err := tx.Exec(ctx, `UPDATE agent.inbox SET status='completed',completed_at=$1,updated_at=$1 WHERE id=$2 AND tenant_id=$3 AND status='running'`, now, inboxID, command.TenantID); err != nil || tag.RowsAffected() != 1 {
+	if tag, err := tx.Exec(ctx, `UPDATE agent.inbox SET status='completed',completed_at=$1,updated_at=$1 WHERE id=$2 AND tenant_id=$3 AND status='running'`, now, inboxID, settlement.TenantID); err != nil || tag.RowsAffected() != 1 {
 		return nil, ErrRunConflict
 	}
-	if tag, err := tx.Exec(ctx, `UPDATE agent.jobs SET version=version+1,status='cancelled',updated_at=$1 WHERE id=$2 AND tenant_id=$3 AND status='running'`, now, jobID, command.TenantID); err != nil || tag.RowsAffected() != 1 {
+	if tag, err := tx.Exec(ctx, `UPDATE agent.jobs SET version=version+1,status='cancelled',updated_at=$1 WHERE id=$2 AND tenant_id=$3 AND status='running'`, now, jobID, settlement.TenantID); err != nil || tag.RowsAffected() != 1 {
 		return nil, ErrRunConflict
 	}
 	eventIDs, err := store.completionEventIdentifiers(activeAttempt.String, statemachine.RunCancelled)
 	if err != nil {
 		return nil, err
 	}
-	attemptEvent := eventpostgres.Input{Event: eventpostgres.Event{ID: eventIDs.attemptEvent, TenantID: command.TenantID, UserID: command.UserID, EventType: "JobAttemptCompleted", SchemaVersion: 1, AggregateKind: "job_attempt", AggregateID: activeAttempt.String, AggregateVersion: attemptVersion + 1, StoreEpoch: store.StoreEpoch, OccurredAt: now, Actor: command.Actor, CausationID: &causationID, CorrelationID: command.CorrelationID, PayloadRef: command.AttemptCancelledEvent.Ref, PayloadHash: command.AttemptCancelledEvent.Hash}, Commands: []eventpostgres.OutboxCommand{{ID: eventIDs.attemptOutbox, CommandID: eventIDs.attemptPublish, CommandType: "events.publish", PayloadRef: command.AttemptCancelledEvent.Ref, PayloadHash: command.AttemptCancelledEvent.Hash}}}
+	attemptEvent := eventpostgres.Input{Event: eventpostgres.Event{ID: eventIDs.attemptEvent, TenantID: settlement.TenantID, UserID: settlement.UserID, EventType: "JobAttemptCompleted", SchemaVersion: 1, AggregateKind: "job_attempt", AggregateID: activeAttempt.String, AggregateVersion: attemptVersion + 1, StoreEpoch: settlement.StoreEpoch, OccurredAt: now, Actor: settlement.Actor, CausationID: &causationID, CorrelationID: settlement.CorrelationID, PayloadRef: settlement.Payload.Ref, PayloadHash: settlement.Payload.Hash}, Commands: []eventpostgres.OutboxCommand{{ID: eventIDs.attemptOutbox, CommandID: eventIDs.attemptPublish, CommandType: "events.publish", PayloadRef: settlement.Payload.Ref, PayloadHash: settlement.Payload.Hash}}}
 	return &attemptEvent, nil
 }
 
@@ -282,8 +306,27 @@ func (store RunStore) cancellationIdentifiers(cancellationID string) (cancellati
 	return cancellationIDs{values[0], values[1], values[2], values[3], values[4], values[5], values[6], values[7], values[8]}, nil
 }
 
+func (store RunStore) cancellationPropagationIdentifiers(cancellationID string) (cancellationPropagationIDs, error) {
+	values := make([]string, 3)
+	for index, domain := range []string{"run-cancellation-propagate-outbox", "run-cancellation-propagate-command", "run-cancellation-propagate-job"} {
+		value, err := ids.DeterministicUUID(store.IDKey, domain, cancellationID)
+		if err != nil {
+			return cancellationPropagationIDs{}, err
+		}
+		values[index] = value
+	}
+	return cancellationPropagationIDs{values[0], values[1], values[2]}, nil
+}
+
+func propagationValue(enabled bool, value string) string {
+	if enabled {
+		return value
+	}
+	return ""
+}
+
 func validRequestRunCancellation(command RequestRunCancellationCommand) bool {
-	return command.CancellationID != "" && command.TenantID != "" && command.UserID != "" && command.RunID != "" && command.ExpectedRunVersion > 0 && len(command.Reason) > 0 && len(command.Reason) <= 1000 && validSHA256Hex(command.RequestHash) && command.CorrelationID != "" && validJSONObject(command.Actor) && validSHA256Pointer(command.RequestEvent) && validSHA256Pointer(command.SettlementEvent) && validSHA256Pointer(command.AttemptCancelledEvent) && validSHA256Pointer(command.ReconcileCommand)
+	return command.CancellationID != "" && command.TenantID != "" && command.UserID != "" && command.RunID != "" && command.ExpectedRunVersion > 0 && len(command.Reason) > 0 && len(command.Reason) <= 1000 && validSHA256Hex(command.RequestHash) && command.CorrelationID != "" && validJSONObject(command.Actor) && validSHA256Pointer(command.RequestEvent) && validSHA256Pointer(command.SettlementEvent) && validSHA256Pointer(command.AttemptCancelledEvent) && validSHA256Pointer(command.ReconcileCommand) && validSHA256Pointer(command.PropagateCommand)
 }
 
 func validSHA256Pointer(pointer PayloadPointer) bool {

@@ -12,7 +12,7 @@ func TestRequestRunCancellationValidationAndIdentifiers(t *testing.T) {
 		CancellationID: "cancel", TenantID: "tenant", UserID: "user", RunID: "run", ExpectedRunVersion: 3,
 		Reason: "user_requested", RequestHash: strings.Repeat("a", 64), CorrelationID: "correlation", Actor: json.RawMessage(`{"kind":"user"}`),
 		RequestEvent: PayloadPointer{Ref: "encrypted://request", Hash: strings.Repeat("1", 64)}, SettlementEvent: PayloadPointer{Ref: "encrypted://settlement", Hash: strings.Repeat("2", 64)},
-		AttemptCancelledEvent: PayloadPointer{Ref: "encrypted://attempt", Hash: strings.Repeat("3", 64)}, ReconcileCommand: PayloadPointer{Ref: "encrypted://reconcile", Hash: strings.Repeat("4", 64)},
+		AttemptCancelledEvent: PayloadPointer{Ref: "encrypted://attempt", Hash: strings.Repeat("3", 64)}, ReconcileCommand: PayloadPointer{Ref: "encrypted://reconcile", Hash: strings.Repeat("4", 64)}, PropagateCommand: PayloadPointer{Ref: "encrypted://propagate", Hash: strings.Repeat("5", 64)},
 	}
 	if !validRequestRunCancellation(valid) {
 		t.Fatal("valid cancellation command rejected")
@@ -40,6 +40,10 @@ func TestRequestRunCancellationValidationAndIdentifiers(t *testing.T) {
 	if first != second || first.requestEvent == first.settlementEvent || first.reconcileCommand == first.reconcileJob {
 		t.Fatalf("identifiers are not deterministic and domain-separated: first=%#v second=%#v", first, second)
 	}
+	propagation, err := store.cancellationPropagationIdentifiers(valid.CancellationID)
+	if err != nil || propagation.command == first.reconcileCommand || propagation.outbox == propagation.job {
+		t.Fatalf("propagation identifiers are not domain-separated: %#v error=%v", propagation, err)
+	}
 }
 
 func TestReconcileRunCancellationValidationAndToolIdentifiers(t *testing.T) {
@@ -63,5 +67,39 @@ func TestReconcileRunCancellationValidationAndToolIdentifiers(t *testing.T) {
 	}
 	if first != second || first.event == first.outbox || first.outbox == first.publish {
 		t.Fatalf("tool cancellation identifiers are not stable and separated: %#v %#v", first, second)
+	}
+}
+
+func TestPropagateRunCancellationValidationAndIdentifiers(t *testing.T) {
+	pointer := func(digit string) PayloadPointer {
+		return PayloadPointer{Ref: "encrypted://" + digit, Hash: strings.Repeat(digit, 64)}
+	}
+	payloads := PropagatedRunCancellationPayloads{RequestEvent: pointer("1"), SettlementEvent: pointer("2"), AttemptCancelledEvent: pointer("3"), ReconcileCommand: pointer("4"), PropagateCommand: pointer("5")}
+	valid := PropagateRunCancellationCommand{CancellationID: "cancel", TenantID: "tenant", StoreEpoch: "epoch", ExpectedCancellationVersion: 2, BatchSize: 10, Actor: json.RawMessage(`{"kind":"service"}`), CorrelationID: "correlation", Children: map[string]PropagatedRunCancellationPayloads{"child": payloads}}
+	if !validPropagateRunCancellation(valid) || !validPropagatedRunCancellationPayloads(payloads) {
+		t.Fatal("valid propagation command rejected")
+	}
+	invalid := valid
+	invalid.BatchSize = maximumCancellationPropagationBatch + 1
+	if validPropagateRunCancellation(invalid) {
+		t.Fatal("unbounded propagation batch accepted")
+	}
+	invalidPayload := payloads
+	invalidPayload.PropagateCommand.Hash = "not-a-hash"
+	if validPropagatedRunCancellationPayloads(invalidPayload) {
+		t.Fatal("invalid child propagation payload accepted")
+	}
+	store := RunStore{IDKey: bytes.Repeat([]byte{0x33}, 32)}
+	first, err := store.propagatedCancellationID("root", "child")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := store.propagatedCancellationID("root", "child")
+	if err != nil || first != second {
+		t.Fatalf("propagated cancellation ID is unstable: %s %s %v", first, second, err)
+	}
+	other, err := store.propagatedCancellationID("root", "other-child")
+	if err != nil || other == first {
+		t.Fatalf("propagated cancellation IDs collide: %s %s %v", first, other, err)
 	}
 }
