@@ -255,26 +255,48 @@ func TestBeginProvisionAtomicallyBindsCapabilityEventSessionAndCapacity(t *testi
 		t.Fatalf("resumed MarkRunning() = %#v, %v", resumed, err)
 	}
 	clock = now.Add(6 * time.Second)
-	terminationCommand := TerminationCommand{LifecycleCommand: LifecycleCommand{
-		TenantID: tenantID, SessionID: sessionID, ProvisionAttemptID: result.ProvisionAttemptID, ProvisionFence: 1, ExpectedVersion: 6,
-		LeaseToken: provisionLease, ObservedAt: clock, Payload: PayloadPointer{Ref: "encrypted://runtime-store/termination", Hash: "runtime-store-termination"}, Actor: json.RawMessage(`{"kind":"system"}`), CorrelationID: command.CorrelationID,
-	}, Reason: "completed"}
-	termination, err := store.RequestTermination(ctx, terminationCommand)
+	recoveryIdentity := RecoveryIdentity{TenantID: tenantID, SessionID: sessionID, AllocationID: result.AllocationID, ProvisionAttemptID: result.ProvisionAttemptID, HostID: hostID, MachineID: result.MachineID, GuestCID: result.GuestCID}
+	owned, err := store.InspectOwnedMachine(ctx, recoveryIdentity, controlHash)
+	if err != nil || owned.SessionStatus != "running" || owned.SessionVersion != 6 || owned.AllocationStatus != "active" {
+		t.Fatalf("InspectOwnedMachine() = %#v, %v", owned, err)
+	}
+	if _, err = store.InspectOwnedMachine(ctx, recoveryIdentity, bytes.Repeat([]byte{0xff}, 32)); err == nil {
+		t.Fatal("wrong host control digest inspected owned machine")
+	}
+	inventory, err := store.ListHostMachines(ctx, hostID, controlHash, "", 100)
+	if err != nil || len(inventory) != 1 || inventory[0].SessionID != sessionID {
+		t.Fatalf("ListHostMachines() = %#v, %v", inventory, err)
+	}
+	recoveryCommand := RecoveryTerminationCommand{LifecycleCommand: LifecycleCommand{
+		TenantID: tenantID, SessionID: sessionID, ExpectedVersion: 6,
+		ObservedAt: clock, Payload: PayloadPointer{Ref: "encrypted://runtime-store/termination", Hash: "runtime-store-termination"}, Actor: json.RawMessage(`{"kind":"system"}`), CorrelationID: command.CorrelationID,
+	}, Authority: RecoveryDeadline, Identity: recoveryIdentity, Reason: "execution_deadline"}
+	if _, err = store.RequestRecoveryTermination(ctx, recoveryCommand); err == nil {
+		t.Fatal("non-due runtime session was reclaimed by deadline sweeper")
+	}
+	recoveryCommand.Authority = RecoveryOwned
+	recoveryCommand.HostControlHash = controlHash
+	recoveryCommand.Reason = "runtime_host_restart"
+	termination, err := store.RequestRecoveryTermination(ctx, recoveryCommand)
 	if err != nil || termination.Status != "termination_requested" || termination.Version != 7 {
-		t.Fatalf("RequestTermination() = %#v, %v", termination, err)
+		t.Fatalf("RequestRecoveryTermination() = %#v, %v", termination, err)
+	}
+	terminationReplay, err := store.RequestRecoveryTermination(ctx, recoveryCommand)
+	if err != nil || !terminationReplay.Replayed || terminationReplay.EventID != termination.EventID {
+		t.Fatalf("replayed RequestRecoveryTermination() = %#v, %v", terminationReplay, err)
 	}
 	clock = now.Add(7 * time.Second)
-	terminatedCommand := TerminatedCommand{LifecycleCommand: LifecycleCommand{
-		TenantID: tenantID, SessionID: sessionID, ProvisionAttemptID: result.ProvisionAttemptID, ProvisionFence: 1, ExpectedVersion: 7,
-		LeaseToken: provisionLease, ObservedAt: clock, Payload: PayloadPointer{Ref: "encrypted://runtime-store/terminated", Hash: "runtime-store-terminated"}, Actor: json.RawMessage(`{"kind":"system"}`), CorrelationID: command.CorrelationID,
-	}, CleanupReceiptHash: strings.Repeat("e", 64), UsageManifest: json.RawMessage(`{"schema_version":1,"vcpu_millis":10}`)}
-	terminated, err := store.CompleteTermination(ctx, terminatedCommand)
+	terminatedCommand := RecoveryTerminatedCommand{LifecycleCommand: LifecycleCommand{
+		TenantID: tenantID, SessionID: sessionID, ExpectedVersion: 7,
+		ObservedAt: clock, Payload: PayloadPointer{Ref: "encrypted://runtime-store/terminated", Hash: "runtime-store-terminated"}, Actor: json.RawMessage(`{"kind":"system"}`), CorrelationID: command.CorrelationID,
+	}, Identity: recoveryIdentity, HostControlHash: controlHash, CleanupReceiptHash: strings.Repeat("e", 64), UsageManifest: json.RawMessage(`{"schema_version":1,"vcpu_millis":10}`)}
+	terminated, err := store.CompleteRecoveryTermination(ctx, terminatedCommand)
 	if err != nil || terminated.Status != "terminated" || terminated.Version != 8 {
-		t.Fatalf("CompleteTermination() = %#v, %v", terminated, err)
+		t.Fatalf("CompleteRecoveryTermination() = %#v, %v", terminated, err)
 	}
-	terminatedReplay, err := store.CompleteTermination(ctx, terminatedCommand)
+	terminatedReplay, err := store.CompleteRecoveryTermination(ctx, terminatedCommand)
 	if err != nil || !terminatedReplay.Replayed || terminatedReplay.EventID != terminated.EventID {
-		t.Fatalf("replayed CompleteTermination() = %#v, %v", terminatedReplay, err)
+		t.Fatalf("replayed CompleteRecoveryTermination() = %#v, %v", terminatedReplay, err)
 	}
 	if err = admin.QueryRow(ctx, `SELECT allocated_sessions FROM agent.runtime_hosts WHERE host_id=$1`, hostID).Scan(&allocatedSessions); err != nil || allocatedSessions != 0 {
 		t.Fatalf("terminal capacity sessions=%d: %v", allocatedSessions, err)
