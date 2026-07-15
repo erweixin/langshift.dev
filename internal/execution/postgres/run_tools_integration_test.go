@@ -44,7 +44,7 @@ func TestRequestToolsAtomicallyYieldsRunWithCompleteGroup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := RequestToolsCommand{Claim: claim, ExpectedRunVersion: claim.RunVersion, StepID: "research-sources", JoinPolicy: "all", QuorumCount: 2, PlanResultHash: "tool-plan-result", Actor: json.RawMessage(`{"kind":"service","id":"agent-run-worker"}`), CorrelationID: correlationID, AttemptCompletedEvent: PayloadPointer{Ref: "encrypted://tools/attempt-completed", Hash: "attempt-completed"}, ToolRequests: []ToolRequest{
+	request := RequestToolsCommand{Claim: claim, ExpectedRunVersion: claim.RunVersion, StepID: "research-sources", JoinPolicy: "all", QuorumCount: 2, PlanResultHash: "tool-plan-result", Actor: json.RawMessage(`{"kind":"service","id":"agent-run-worker"}`), CorrelationID: correlationID, AttemptCompletedEvent: PayloadPointer{Ref: "encrypted://tools/attempt-completed", Hash: "attempt-completed"}, AssistantMessage: &RunMessageInput{MessageID: "5e000000-0000-4000-8000-000000000007", Message: PayloadPointer{Ref: "encrypted://tools/assistant", Hash: "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"}, ContentHash: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", FinalizedEvent: PayloadPointer{Ref: "encrypted://tools/message-finalized", Hash: "message-finalized"}}, ToolRequests: []ToolRequest{
 		{ToolName: "web_search", DescriptorSnapshotID: "web_search@sha256:v1", NormalizedInputRef: "encrypted://tools/input/search", RequestHash: "search-request", EffectClass: "read_only", Required: true, QueueClass: "interactive", ResourceClass: "tool-network", Priority: 60, CostUnits: 2, MaxAttempts: 4, RequestedEvent: PayloadPointer{Ref: "encrypted://tools/event/search", Hash: "search-event"}, ExecuteCommand: PayloadPointer{Ref: "encrypted://tools/command/search", Hash: "search-command"}},
 		{ToolName: "github_create_issue", DescriptorSnapshotID: "github_create_issue@sha256:v1", NormalizedInputRef: "encrypted://tools/input/issue", RequestHash: "issue-request", EffectClass: "idempotent_write", EffectKey: "issue:project:42", EffectScope: "tenant:github-installation:7", ProviderID: "github", Required: true, QueueClass: "interactive", ResourceClass: "tool-network", Priority: 55, CostUnits: 1, MaxAttempts: 3, RequestedEvent: PayloadPointer{Ref: "encrypted://tools/event/issue", Hash: "issue-event"}, ExecuteCommand: PayloadPointer{Ref: "encrypted://tools/command/issue", Hash: "issue-command"}},
 	}}
@@ -83,7 +83,7 @@ func TestRequestToolsAtomicallyYieldsRunWithCompleteGroup(t *testing.T) {
 		t.Fatalf("winner=%#v successes=%d stale=%d", winner, successes, stale)
 	}
 	var runStatus, inboxStatus, attemptStatus, startJobStatus, joinPolicy, groupKind, continuationKind string
-	var runVersion, requiredCount, quorumCount, groups, members, toolCalls, toolEffects, pendingToolJobs, runEvents, toolEvents, attemptEvents, outbox int
+	var runVersion, requiredCount, quorumCount, groups, members, toolCalls, toolEffects, pendingToolJobs, runEvents, toolEvents, attemptEvents, outbox, messages, messageEvents int
 	var activeCleared bool
 	err = admin.QueryRow(ctx, `
 		SELECT r.status,r.run_version,r.active_command_id IS NULL AND r.active_attempt_id IS NULL AND r.lease_token_hash IS NULL AND r.lease_expires_at IS NULL,
@@ -96,15 +96,17 @@ func TestRequestToolsAtomicallyYieldsRunWithCompleteGroup(t *testing.T) {
 		       (SELECT count(*) FROM agent.events WHERE aggregate_kind='run' AND aggregate_id=$2),
 		       (SELECT count(*) FROM agent.events WHERE aggregate_kind='tool_call' AND aggregate_id IN (SELECT tool_call_id FROM agent.parallel_group_members WHERE group_id=$3)),
 		       (SELECT count(*) FROM agent.events WHERE aggregate_kind='job_attempt' AND aggregate_id=$4),
-		       (SELECT count(*) FROM agent.outbox WHERE tenant_id=$1)
-		FROM agent.runs r JOIN agent.inbox i ON i.id=$5 JOIN agent.job_attempts a ON a.id=$4 JOIN agent.jobs j ON j.id=$6 JOIN agent.parallel_groups g ON g.id=$3 WHERE r.id=$2`, tenantID, runID, winner.GroupID, claim.AttemptID, claim.InboxID, claim.JobID).Scan(&runStatus, &runVersion, &activeCleared, &inboxStatus, &attemptStatus, &startJobStatus, &joinPolicy, &requiredCount, &quorumCount, &groupKind, &continuationKind, &groups, &members, &toolCalls, &toolEffects, &pendingToolJobs, &runEvents, &toolEvents, &attemptEvents, &outbox)
+		       (SELECT count(*) FROM agent.outbox WHERE tenant_id=$1),
+		       (SELECT count(*) FROM agent.run_messages WHERE tenant_id=$1 AND run_id=$2 AND id=$7 AND role='assistant' AND message_index=0),
+		       (SELECT count(*) FROM agent.events WHERE tenant_id=$1 AND aggregate_kind='run_message' AND aggregate_id=$7 AND event_type='RunMessageFinalized')
+		FROM agent.runs r JOIN agent.inbox i ON i.id=$5 JOIN agent.job_attempts a ON a.id=$4 JOIN agent.jobs j ON j.id=$6 JOIN agent.parallel_groups g ON g.id=$3 WHERE r.id=$2`, tenantID, runID, winner.GroupID, claim.AttemptID, claim.InboxID, claim.JobID, request.AssistantMessage.MessageID).Scan(&runStatus, &runVersion, &activeCleared, &inboxStatus, &attemptStatus, &startJobStatus, &joinPolicy, &requiredCount, &quorumCount, &groupKind, &continuationKind, &groups, &members, &toolCalls, &toolEffects, &pendingToolJobs, &runEvents, &toolEvents, &attemptEvents, &outbox, &messages, &messageEvents)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if runStatus != "waiting_tool" || runVersion != 4 || !activeCleared || inboxStatus != "completed" || attemptStatus != "succeeded" || startJobStatus != "succeeded" || joinPolicy != "all" || requiredCount != 2 || quorumCount != 2 || groupKind != "execution" || continuationKind != "resume" {
 		t.Fatalf("run=%s/v%d cleared=%v inbox=%s attempt=%s job=%s group=%s/%d/%d/%s/%s", runStatus, runVersion, activeCleared, inboxStatus, attemptStatus, startJobStatus, joinPolicy, requiredCount, quorumCount, groupKind, continuationKind)
 	}
-	if groups != 1 || members != 2 || toolCalls != 2 || toolEffects != 1 || pendingToolJobs != 2 || runEvents != 3 || toolEvents != 2 || attemptEvents != 2 || outbox != 10 {
-		t.Fatalf("groups=%d members=%d tools=%d effects=%d jobs=%d run_events=%d tool_events=%d attempt_events=%d outbox=%d", groups, members, toolCalls, toolEffects, pendingToolJobs, runEvents, toolEvents, attemptEvents, outbox)
+	if groups != 1 || members != 2 || toolCalls != 2 || toolEffects != 1 || pendingToolJobs != 2 || runEvents != 3 || toolEvents != 2 || attemptEvents != 2 || outbox != 11 || messages != 1 || messageEvents != 1 {
+		t.Fatalf("groups=%d members=%d tools=%d effects=%d jobs=%d run_events=%d tool_events=%d attempt_events=%d outbox=%d messages=%d message_events=%d", groups, members, toolCalls, toolEffects, pendingToolJobs, runEvents, toolEvents, attemptEvents, outbox, messages, messageEvents)
 	}
 }

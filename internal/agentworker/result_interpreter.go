@@ -123,19 +123,23 @@ func (interpreter ResultInterpreter) Interpret(ctx context.Context, execution Ex
 		validated = append(validated, ValidatedToolCall{ProviderCallID: call.ID, Tool: resolved, Input: append(json.RawMessage(nil), normalized...), RequestHash: requestHash})
 		message.Content = append(message.Content, provider.ContentBlock{Type: "tool_use", ToolUseID: call.ID, ToolName: call.Name, ToolInput: append(json.RawMessage(nil), normalized...)})
 	}
+	messageID, err := ids.DeterministicUUID(interpreter.IDKey, "agent-result-message", execution.Claim.AttemptID+"\x00"+result.ResponseHash)
+	if err != nil {
+		return Outcome{}, ErrResultConfiguration
+	}
 	switch kind {
 	case ToolExecutionWorker:
 		plan, planErr := interpreter.Plans.BuildTools(ctx, execution, turn, message, validated)
 		if planErr != nil || !validInterpretedToolPlan(plan, validated, result.ResponseHash) {
 			return Outcome{}, errors.Join(ErrResultPlan, planErr)
 		}
-		return Outcome{State: statemachine.RunWaitingTool, Tools: &plan}, nil
+		return Outcome{State: statemachine.RunWaitingTool, MessageID: messageID, Message: &message, Tools: &plan}, nil
 	case ToolExecutionChild:
 		plan, planErr := interpreter.Plans.BuildChildren(ctx, execution, turn, message, validated)
 		if planErr != nil || !validInterpretedChildPlan(plan, validated, result.ResponseHash) {
 			return Outcome{}, errors.Join(ErrResultPlan, planErr)
 		}
-		return Outcome{State: statemachine.RunWaitingChild, Children: &plan}, nil
+		return Outcome{State: statemachine.RunWaitingChild, MessageID: messageID, Message: &message, Children: &plan}, nil
 	default:
 		return Outcome{}, ErrResultIntegrity
 	}

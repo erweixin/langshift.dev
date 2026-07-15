@@ -71,6 +71,7 @@ type RequestToolsCommand struct {
 	ResumePriority        int
 	ResumeCostUnits       int64
 	ResumeMaxAttempts     int
+	AssistantMessage      *RunMessageInput
 }
 
 type RequestedToolCall struct {
@@ -154,6 +155,11 @@ func (store RunStore) RequestTools(ctx context.Context, command RequestToolsComm
 	nextRunVersion := command.ExpectedRunVersion + 1
 	if tag, updateErr := tx.Exec(ctx, `UPDATE agent.runs SET status='waiting_tool',run_version=$1,active_command_id=NULL,active_attempt_id=NULL,lease_token_hash=NULL,lease_expires_at=NULL,updated_at=$2 WHERE id=$3 AND tenant_id=$4 AND status='executing' AND run_version=$5 AND active_command_id=$6 AND active_attempt_id=$7 AND current_fence=$8 AND lease_token_hash=$9 AND lease_expires_at=$10 AND lease_expires_at>$2 AND cancel_requested_at IS NULL`, nextRunVersion, now, claim.RunID, claim.TenantID, command.ExpectedRunVersion, claim.CommandID, claim.AttemptID, claim.Fence, digest[:], claim.LeaseExpiresAt); updateErr != nil || tag.RowsAffected() != 1 {
 		return ToolsRequested{}, ErrExecutionRightConflict
+	}
+	if command.AssistantMessage != nil {
+		if _, _, err = store.appendRunMessageInTx(ctx, tx, claim, *command.AssistantMessage, now, claim.CommandID, command.Actor, command.CorrelationID); err != nil {
+			return ToolsRequested{}, err
+		}
 	}
 	requiredCount := requiredToolCount(command.ToolRequests)
 	groupKind, continuationKind := "execution", "resume"
@@ -273,7 +279,7 @@ func (store RunStore) RequestTools(ctx context.Context, command RequestToolsComm
 }
 
 func validRequestTools(command RequestToolsCommand) bool {
-	if command.ExpectedRunVersion != command.Claim.RunVersion || command.StepID == "" || len(command.StepID) > 256 || len(command.ToolRequests) < 1 || len(command.ToolRequests) > maximumParallelToolCalls || command.PlanResultHash == "" || !validJSONObject(command.Actor) || command.CorrelationID == "" || !validPointer(command.AttemptCompletedEvent) {
+	if command.ExpectedRunVersion != command.Claim.RunVersion || command.StepID == "" || len(command.StepID) > 256 || len(command.ToolRequests) < 1 || len(command.ToolRequests) > maximumParallelToolCalls || command.PlanResultHash == "" || !validJSONObject(command.Actor) || command.CorrelationID == "" || !validPointer(command.AttemptCompletedEvent) || command.AssistantMessage != nil && !validRunMessageInput(*command.AssistantMessage) {
 		return false
 	}
 	required := requiredToolCount(command.ToolRequests)

@@ -42,6 +42,7 @@ type SpawnChildRunsCommand struct {
 	CorrelationID         string
 	AttemptCompletedEvent PayloadPointer
 	ParentWaitingEvent    PayloadPointer
+	AssistantMessage      *RunMessageInput
 }
 
 type SpawnedChildRun struct {
@@ -159,6 +160,11 @@ func (store RunStore) SpawnChildRuns(ctx context.Context, command SpawnChildRuns
 	if tag, updateErr := tx.Exec(ctx, `UPDATE agent.runs SET status='waiting_child',run_version=$1,active_command_id=NULL,active_attempt_id=NULL,lease_token_hash=NULL,lease_expires_at=NULL,updated_at=$2 WHERE id=$3 AND tenant_id=$4 AND status='executing' AND run_version=$5 AND active_command_id=$6 AND active_attempt_id=$7 AND current_fence=$8 AND lease_token_hash=$9 AND lease_expires_at=$10 AND lease_expires_at>$2 AND cancel_requested_at IS NULL`, nextRunVersion, now, claim.RunID, claim.TenantID, command.ExpectedRunVersion, claim.CommandID, claim.AttemptID, claim.Fence, digest[:], claim.LeaseExpiresAt); updateErr != nil || tag.RowsAffected() != 1 {
 		return ChildRunsSpawned{}, ErrExecutionRightConflict
 	}
+	if command.AssistantMessage != nil {
+		if _, _, err = store.appendRunMessageInTx(ctx, tx, claim, *command.AssistantMessage, now, claim.CommandID, command.Actor, command.CorrelationID); err != nil {
+			return ChildRunsSpawned{}, err
+		}
+	}
 	required := requiredChildCount(command.Children)
 	if _, err = tx.Exec(ctx, `INSERT INTO agent.child_groups(id,tenant_id,parent_run_id,join_policy,required_count,step_id,quorum_count,continuation_kind,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,'resume_parent',$8,$8)`, groupID, claim.TenantID, claim.RunID, command.JoinPolicy, required, command.StepID, command.QuorumCount, now); err != nil {
 		return ChildRunsSpawned{}, err
@@ -221,7 +227,7 @@ func (store RunStore) completeSpawnAttempt(ctx context.Context, tx pgx.Tx, comma
 }
 
 func validSpawnChildRuns(command SpawnChildRunsCommand) bool {
-	if command.ExpectedRunVersion != command.Claim.RunVersion || command.StepID == "" || len(command.StepID) > 256 || len(command.Children) < 1 || len(command.Children) > maximumChildRuns || command.PlanResultHash == "" || !validJSONObject(command.Actor) || command.CorrelationID == "" || !validPointer(command.AttemptCompletedEvent) || !validPointer(command.ParentWaitingEvent) {
+	if command.ExpectedRunVersion != command.Claim.RunVersion || command.StepID == "" || len(command.StepID) > 256 || len(command.Children) < 1 || len(command.Children) > maximumChildRuns || command.PlanResultHash == "" || !validJSONObject(command.Actor) || command.CorrelationID == "" || !validPointer(command.AttemptCompletedEvent) || !validPointer(command.ParentWaitingEvent) || command.AssistantMessage != nil && !validRunMessageInput(*command.AssistantMessage) {
 		return false
 	}
 	required := requiredChildCount(command.Children)

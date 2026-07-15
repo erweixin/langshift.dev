@@ -183,14 +183,17 @@ func TestHandlerCommitsStepPlanWithLatestHeartbeatClaim(t *testing.T) {
 		case <-ctx.Done():
 			return Outcome{}, ctx.Err()
 		}
-		return Outcome{State: statemachine.RunWaitingTool, Tools: &executionpostgres.RequestToolsCommand{PlanResultHash: "provider-result"}}, nil
+		outcome := successfulOutcome("")
+		outcome.State, outcome.ResultHash, outcome.RunEvent, outcome.AttemptEvent = statemachine.RunWaitingTool, "", nil, nil
+		outcome.Tools = &executionpostgres.RequestToolsCommand{PlanResultHash: "provider-result"}
+		return outcome, nil
 	}))
 	if err := handler.Handle(t.Context(), delivered); err != nil {
 		t.Fatal(err)
 	}
 	runs.mu.Lock()
 	defer runs.mu.Unlock()
-	if runs.heartbeats < 1 || !runs.tools.Claim.LeaseExpiresAt.After(claim.LeaseExpiresAt) || runs.tools.ExpectedRunVersion != claim.RunVersion || string(runs.tools.Actor) != string(handler.Actor) || runs.tools.CorrelationID != "correlation-1" {
+	if runs.heartbeats < 1 || !runs.tools.Claim.LeaseExpiresAt.After(claim.LeaseExpiresAt) || runs.tools.ExpectedRunVersion != claim.RunVersion || string(runs.tools.Actor) != string(handler.Actor) || runs.tools.CorrelationID != "correlation-1" || runs.tools.AssistantMessage == nil || runs.tools.AssistantMessage.MessageID == "" || len(runs.tools.AssistantMessage.ContentHash) != 64 {
 		t.Fatalf("step plan was not rebound to the live claim: heartbeats=%d plan=%#v", runs.heartbeats, runs.tools)
 	}
 	if runs.complete.Claim.RunID != "" {

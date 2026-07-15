@@ -135,23 +135,33 @@ func (handler Handler) commit(ctx context.Context, claim executionpostgres.RunCl
 		return ErrOutcome
 	}
 	if outcome.Tools != nil {
-		if outcome.State != statemachine.RunWaitingTool || outcome.ResultHash != "" || outcome.RunEvent != nil || outcome.AttemptEvent != nil || outcome.Child != nil || outcome.Message != nil || outcome.MessageID != "" {
+		if outcome.State != statemachine.RunWaitingTool || outcome.ResultHash != "" || outcome.RunEvent != nil || outcome.AttemptEvent != nil || outcome.Child != nil || outcome.Message == nil || outcome.MessageID == "" {
 			return ErrOutcome
+		}
+		message, err := handler.runMessageInput(ctx, claim, outcome.MessageID, outcome.Message)
+		if err != nil {
+			return err
 		}
 		planned := *outcome.Tools
 		planned.Claim, planned.ExpectedRunVersion = claim, claim.RunVersion
 		planned.Actor, planned.CorrelationID = handler.Actor, command.CorrelationID
-		_, err := handler.Runs.RequestTools(ctx, planned)
+		planned.AssistantMessage = &message
+		_, err = handler.Runs.RequestTools(ctx, planned)
 		return err
 	}
 	if outcome.Children != nil {
-		if outcome.State != statemachine.RunWaitingChild || outcome.ResultHash != "" || outcome.RunEvent != nil || outcome.AttemptEvent != nil || outcome.Child != nil || outcome.Message != nil || outcome.MessageID != "" {
+		if outcome.State != statemachine.RunWaitingChild || outcome.ResultHash != "" || outcome.RunEvent != nil || outcome.AttemptEvent != nil || outcome.Child != nil || outcome.Message == nil || outcome.MessageID == "" {
 			return ErrOutcome
+		}
+		message, err := handler.runMessageInput(ctx, claim, outcome.MessageID, outcome.Message)
+		if err != nil {
+			return err
 		}
 		planned := *outcome.Children
 		planned.Claim, planned.ExpectedRunVersion = claim, claim.RunVersion
 		planned.Actor, planned.CorrelationID = handler.Actor, command.CorrelationID
-		_, err := handler.Runs.SpawnChildRuns(ctx, planned)
+		planned.AssistantMessage = &message
+		_, err = handler.Runs.SpawnChildRuns(ctx, planned)
 		return err
 	}
 	completion, err := handler.completion(ctx, claim, command, outcome)
@@ -165,21 +175,29 @@ func (handler Handler) commit(ctx context.Context, claim executionpostgres.RunCl
 		_, err = handler.Runs.CompleteRunTerminal(ctx, completion)
 		return err
 	}
-	message, contentHash, err := handler.putMessage(ctx, claim, outcome.MessageID, outcome.Message)
-	if err != nil {
-		return err
-	}
-	finalized, err := handler.putEvent(ctx, claim.TenantID, outcome.MessageID+":finalized", map[string]any{
-		"message_id": outcome.MessageID, "run_id": claim.RunID, "content_hash": contentHash,
-	}, "run_message_finalized")
+	message, err := handler.runMessageInput(ctx, claim, outcome.MessageID, outcome.Message)
 	if err != nil {
 		return err
 	}
 	_, err = handler.Runs.CompleteRunWithMessage(ctx, executionpostgres.CompleteRunMessageCommand{
-		Completion: completion, MessageID: outcome.MessageID, Message: message,
-		ContentHash: contentHash, FinalizedEvent: finalized,
+		Completion: completion, MessageID: message.MessageID, Message: message.Message,
+		ContentHash: message.ContentHash, FinalizedEvent: message.FinalizedEvent,
 	})
 	return err
+}
+
+func (handler Handler) runMessageInput(ctx context.Context, claim executionpostgres.RunClaim, messageID string, document *MessageDocument) (executionpostgres.RunMessageInput, error) {
+	message, contentHash, err := handler.putMessage(ctx, claim, messageID, document)
+	if err != nil {
+		return executionpostgres.RunMessageInput{}, err
+	}
+	finalized, err := handler.putEvent(ctx, claim.TenantID, messageID+":finalized", map[string]any{
+		"message_id": messageID, "run_id": claim.RunID, "content_hash": contentHash,
+	}, "run_message_finalized")
+	if err != nil {
+		return executionpostgres.RunMessageInput{}, err
+	}
+	return executionpostgres.RunMessageInput{MessageID: messageID, Message: message, ContentHash: contentHash, FinalizedEvent: finalized}, nil
 }
 
 func (handler Handler) executeWithHeartbeat(ctx context.Context, execution Execution) (Outcome, executionpostgres.RunClaim, error) {

@@ -46,7 +46,7 @@ func TestSpawnChildRunsIsAtomicQuotaBoundAndSingleWinner(t *testing.T) {
 	child := func(id, suffix string, required bool, budget int64) ChildRunRequest {
 		return ChildRunRequest{RunID: id, RequestHash: "request-" + suffix, DescriptorSnapshotID: "spawn_agent_run@sha256:contract", NormalizedInputRef: "encrypted://child-spawn/input-" + suffix, BehaviorProfile: "route_planner", BehaviorEnvironment: "production", BudgetSnapshot: json.RawMessage(`{"max_steps":16,"max_cost_microunits":3000}`), BudgetMicrounits: budget, DueAt: now.Add(time.Hour), Required: required, QueueClass: "interactive", ResourceClass: "llm", Priority: 60, CostUnits: 1, MaxAttempts: 5, ToolSucceededEvent: pointer("tool-" + suffix), AcceptedEvent: pointer("accepted-" + suffix), QueuedEvent: pointer("queued-" + suffix), StartCommand: pointer("start-" + suffix)}
 	}
-	command := SpawnChildRunsCommand{Claim: claim, ExpectedRunVersion: claim.RunVersion, StepID: "parallel-delegation", JoinPolicy: "all", QuorumCount: 1, Children: []ChildRunRequest{child("43100000-0000-4000-8000-000000000011", "a", true, 2000), child("43100000-0000-4000-8000-000000000012", "b", false, 1000)}, PlanResultHash: "spawn-plan", Actor: json.RawMessage(`{"kind":"service"}`), CorrelationID: correlationID, AttemptCompletedEvent: pointer("attempt-completed"), ParentWaitingEvent: pointer("parent-waiting")}
+	command := SpawnChildRunsCommand{Claim: claim, ExpectedRunVersion: claim.RunVersion, StepID: "parallel-delegation", JoinPolicy: "all", QuorumCount: 1, Children: []ChildRunRequest{child("43100000-0000-4000-8000-000000000011", "a", true, 2000), child("43100000-0000-4000-8000-000000000012", "b", false, 1000)}, PlanResultHash: "spawn-plan", Actor: json.RawMessage(`{"kind":"service"}`), CorrelationID: correlationID, AttemptCompletedEvent: pointer("attempt-completed"), ParentWaitingEvent: pointer("parent-waiting"), AssistantMessage: &RunMessageInput{MessageID: "43100000-0000-4000-8000-000000000007", Message: PayloadPointer{Ref: "encrypted://child-spawn/assistant", Hash: "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"}, ContentHash: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", FinalizedEvent: pointer("message-finalized")}}
 
 	const contenders = 12
 	results := make(chan ChildRunsSpawned, contenders)
@@ -83,24 +83,26 @@ func TestSpawnChildRunsIsAtomicQuotaBoundAndSingleWinner(t *testing.T) {
 	}
 
 	var parentStatus, attemptStatus, inboxStatus, jobStatus string
-	var parentVersion, children, tools, members, total, concurrent, allocated, parentEvents, startCommands int
+	var parentVersion, children, tools, members, total, concurrent, allocated, parentEvents, startCommands, messages, messageEvents int
 	err = admin.QueryRow(ctx, `SELECT r.status,r.run_version,a.status,i.status,j.status,
 		(SELECT count(*) FROM agent.runs WHERE tenant_id=$1 AND parent_run_id=$2 AND root_run_id=$2 AND depth=1),
 		(SELECT count(*) FROM agent.tool_calls WHERE tenant_id=$1 AND run_id=$2 AND tool_name='spawn_agent_run' AND status='succeeded' AND execution_mode='inline_platform'),
 		(SELECT count(*) FROM agent.child_group_members WHERE tenant_id=$1 AND group_id=$4),
 		q.total_descendants,q.concurrent_children,q.allocated_budget_microunits,
 		(SELECT count(*) FROM agent.events WHERE tenant_id=$1 AND aggregate_kind='run' AND aggregate_id=$2 AND aggregate_version=$5 AND event_type='ChildRunSpawned'),
-		(SELECT count(*) FROM agent.outbox WHERE tenant_id=$1 AND command_type='StartAgentRun' AND aggregate_id IN ('43100000-0000-4000-8000-000000000011','43100000-0000-4000-8000-000000000012'))
+		(SELECT count(*) FROM agent.outbox WHERE tenant_id=$1 AND command_type='StartAgentRun' AND aggregate_id IN ('43100000-0000-4000-8000-000000000011','43100000-0000-4000-8000-000000000012')),
+		(SELECT count(*) FROM agent.run_messages WHERE tenant_id=$1 AND run_id=$2 AND id=$6 AND role='assistant' AND message_index=0),
+		(SELECT count(*) FROM agent.events WHERE tenant_id=$1 AND aggregate_kind='run_message' AND aggregate_id=$6 AND event_type='RunMessageFinalized')
 		FROM agent.runs r JOIN agent.job_attempts a ON a.tenant_id=r.tenant_id AND a.id=$3
 		JOIN agent.inbox i ON i.tenant_id=a.tenant_id AND i.owner_attempt_id=a.id
 		JOIN agent.jobs j ON j.tenant_id=a.tenant_id AND j.id=a.job_id
 		JOIN agent.orchestration_quotas q ON q.tenant_id=r.tenant_id AND q.root_run_id=r.id
-		WHERE r.tenant_id=$1 AND r.id=$2`, tenantID, parentID, claim.AttemptID, result.GroupID, result.ParentRunVersion).Scan(&parentStatus, &parentVersion, &attemptStatus, &inboxStatus, &jobStatus, &children, &tools, &members, &total, &concurrent, &allocated, &parentEvents, &startCommands)
+		WHERE r.tenant_id=$1 AND r.id=$2`, tenantID, parentID, claim.AttemptID, result.GroupID, result.ParentRunVersion, command.AssistantMessage.MessageID).Scan(&parentStatus, &parentVersion, &attemptStatus, &inboxStatus, &jobStatus, &children, &tools, &members, &total, &concurrent, &allocated, &parentEvents, &startCommands, &messages, &messageEvents)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if parentStatus != "waiting_child" || parentVersion != int(result.ParentRunVersion) || attemptStatus != "succeeded" || inboxStatus != "completed" || jobStatus != "succeeded" || children != 2 || tools != 2 || members != 2 || total != 2 || concurrent != 2 || allocated != 3000 || parentEvents != 1 || startCommands != 2 {
-		t.Fatalf("parent=%s/v%d attempt=%s inbox=%s job=%s children=%d tools=%d members=%d quota=%d/%d/%d event=%d starts=%d", parentStatus, parentVersion, attemptStatus, inboxStatus, jobStatus, children, tools, members, total, concurrent, allocated, parentEvents, startCommands)
+	if parentStatus != "waiting_child" || parentVersion != int(result.ParentRunVersion) || attemptStatus != "succeeded" || inboxStatus != "completed" || jobStatus != "succeeded" || children != 2 || tools != 2 || members != 2 || total != 2 || concurrent != 2 || allocated != 3000 || parentEvents != 1 || startCommands != 2 || messages != 1 || messageEvents != 1 {
+		t.Fatalf("parent=%s/v%d attempt=%s inbox=%s job=%s children=%d tools=%d members=%d quota=%d/%d/%d event=%d starts=%d messages=%d message_events=%d", parentStatus, parentVersion, attemptStatus, inboxStatus, jobStatus, children, tools, members, total, concurrent, allocated, parentEvents, startCommands, messages, messageEvents)
 	}
 
 	const rejectedParent = "43100000-0000-4000-8000-000000000021"
