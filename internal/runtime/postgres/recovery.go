@@ -5,9 +5,11 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 type RecoveryAuthority string
@@ -61,7 +63,7 @@ func (store Store) InspectOwnedMachine(ctx context.Context, identity RecoveryIde
 	defer func() { _ = tx.Rollback(ctx) }()
 	state, err := store.lockOwnedMachine(ctx, tx, identity, hostControlHash)
 	if err != nil {
-		return RecoveryState{}, err
+		return RecoveryState{}, mapRecoveryAuthorityError(err)
 	}
 	return state, tx.Commit(ctx)
 }
@@ -268,12 +270,14 @@ func (store Store) withRecoveryLifecycle(ctx context.Context, command LifecycleC
 
 func (store Store) lockOwnedMachine(ctx context.Context, tx pgx.Tx, identity RecoveryIdentity, hostControlHash []byte) (RecoveryState, error) {
 	row := tx.QueryRow(ctx, `SELECT * FROM agent.runtime_lock_owned_machine($1,$2,$3,$4,$5,$6,$7,$8,$9)`, store.StoreEpoch, identity.HostID, hostControlHash, identity.TenantID, identity.SessionID, identity.AllocationID, identity.ProvisionAttemptID, identity.MachineID, identity.GuestCID)
-	return scanRecoveryState(row)
+	state, err := scanRecoveryState(row)
+	return state, mapRecoveryAuthorityError(err)
 }
 
 func (store Store) lockDueSession(ctx context.Context, tx pgx.Tx, identity RecoveryIdentity, expectedVersion uint64, at time.Time) (RecoveryState, error) {
 	row := tx.QueryRow(ctx, `SELECT * FROM agent.runtime_lock_due_session($1,$2,$3,$4,$5)`, store.StoreEpoch, identity.TenantID, identity.SessionID, expectedVersion, at)
-	return scanRecoveryState(row)
+	state, err := scanRecoveryState(row)
+	return state, mapRecoveryAuthorityError(err)
 }
 
 type recoveryScanner interface{ Scan(...any) error }
@@ -297,6 +301,17 @@ func validRecoveryIdentity(identity RecoveryIdentity) bool {
 
 func sameRecoveryIdentity(left, right RecoveryIdentity) bool {
 	return left == right
+}
+
+func mapRecoveryAuthorityError(err error) error {
+	if err == nil {
+		return nil
+	}
+	var databaseError *pgconn.PgError
+	if errors.As(err, &databaseError) && databaseError.Code == "40001" && (strings.Contains(databaseError.Message, "owned runtime machine does not match") || strings.Contains(databaseError.Message, "not due for recovery")) {
+		return errors.Join(ErrSessionConflict, err)
+	}
+	return err
 }
 
 func (state RecoveryState) Due(at time.Time) bool {

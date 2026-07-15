@@ -119,6 +119,78 @@ func (store *ownershipStub) Verify(record firecracker.OwnershipRecord) error {
 	}
 	return nil
 }
+func (store *ownershipStub) Scan() ([]firecracker.OwnershipRecord, error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	result := make([]firecracker.OwnershipRecord, 0, len(store.records))
+	for _, record := range store.records {
+		result = append(result, record)
+	}
+	return result, nil
+}
+func (store *ownershipStub) Cleanup(record firecracker.OwnershipRecord) error {
+	if err := store.Verify(record); err != nil {
+		return err
+	}
+	store.mu.Lock()
+	delete(store.records, record.MachineID)
+	store.mu.Unlock()
+	return nil
+}
+
+type recoveryStoreStub struct {
+	mu                   sync.Mutex
+	states               map[string]runtimepostgres.RecoveryState
+	requested, completed int
+}
+
+func (store *recoveryStoreStub) InspectOwnedMachine(_ context.Context, identity runtimepostgres.RecoveryIdentity, _ []byte) (runtimepostgres.RecoveryState, error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	state, ok := store.states[identity.SessionID]
+	if !ok || state.RecoveryIdentity != identity {
+		return runtimepostgres.RecoveryState{}, runtimepostgres.ErrSessionConflict
+	}
+	return state, nil
+}
+func (store *recoveryStoreStub) ListHostMachines(_ context.Context, hostID string, _ []byte, after string, limit int) ([]runtimepostgres.RecoveryState, error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	result := make([]runtimepostgres.RecoveryState, 0, len(store.states))
+	for _, state := range store.states {
+		if state.HostID == hostID && state.SessionID > after && state.SessionStatus != "terminated" && state.SessionStatus != "failed" {
+			result = append(result, state)
+		}
+	}
+	if len(result) > limit {
+		result = result[:limit]
+	}
+	return result, nil
+}
+func (store *recoveryStoreStub) RequestRecoveryTermination(_ context.Context, command runtimepostgres.RecoveryTerminationCommand) (runtimepostgres.LifecycleResult, error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	store.requested++
+	state := store.states[command.SessionID]
+	state.SessionVersion = command.ExpectedVersion + 1
+	state.SessionStatus = "termination_requested"
+	state.AllocationVersion++
+	state.AllocationStatus = "releasing"
+	store.states[command.SessionID] = state
+	return runtimepostgres.LifecycleResult{SessionID: command.SessionID, Status: "termination_requested", Version: state.SessionVersion}, nil
+}
+func (store *recoveryStoreStub) CompleteRecoveryTermination(_ context.Context, command runtimepostgres.RecoveryTerminatedCommand) (runtimepostgres.LifecycleResult, error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	store.completed++
+	state := store.states[command.SessionID]
+	state.SessionVersion = command.ExpectedVersion + 1
+	state.SessionStatus = "terminated"
+	state.AllocationVersion++
+	state.AllocationStatus = "released"
+	store.states[command.SessionID] = state
+	return runtimepostgres.LifecycleResult{SessionID: command.SessionID, Status: "terminated", Version: state.SessionVersion}, nil
+}
 
 func TestControllerFailsClosedBeforeAttestationWhenOwnershipCannotBePersisted(t *testing.T) {
 	store := &storeStub{}
@@ -163,6 +235,66 @@ func TestControllerKeepsCapacityReleasingWhenOwnershipEvidenceIsInvalid(t *testi
 	result, err := controller.Terminate(context.Background(), provisioned.Provision.SessionID, "completed")
 	if !errors.Is(err, firecracker.ErrOwnershipIntegrity) || result.Status != "termination_requested" || store.requested != 1 || store.completed != 0 {
 		t.Fatalf("Terminate()=%#v err=%v calls=%d/%d", result, err, store.requested, store.completed)
+	}
+}
+
+func TestControllerRecoversReadyMachineAndTerminatesInterruptedProvision(t *testing.T) {
+	now := time.Date(2026, 7, 15, 16, 25, 0, 0, time.UTC)
+	readyRecord := recoveryRecord("80000000-0000-4000-8000-000000000001", "80000000-0000-4000-8000-000000000002", "runtime-machine-1", 1234)
+	provisioningRecord := recoveryRecord("80000000-0000-4000-8000-000000000011", "80000000-0000-4000-8000-000000000012", "runtime-machine-2", 2234)
+	orphanRecord := recoveryRecord("80000000-0000-4000-8000-000000000021", "80000000-0000-4000-8000-000000000022", "runtime-machine-3", 3234)
+	owners := newOwnershipStub()
+	owners.records[readyRecord.MachineID] = readyRecord
+	owners.records[provisioningRecord.MachineID] = provisioningRecord
+	owners.records[orphanRecord.MachineID] = orphanRecord
+	recovery := &recoveryStoreStub{states: map[string]runtimepostgres.RecoveryState{
+		readyRecord.SessionID: {
+			RecoveryIdentity: runtimepostgres.RecoveryIdentity{TenantID: readyRecord.TenantID, SessionID: readyRecord.SessionID, AllocationID: readyRecord.AllocationID, ProvisionAttemptID: readyRecord.ProvisionAttemptID, HostID: readyRecord.HostID, MachineID: readyRecord.MachineID, GuestCID: readyRecord.GuestCID},
+			SessionVersion:   3, AllocationVersion: 2, ProvisionFence: 1, SessionStatus: "ready", AllocationStatus: "active",
+		},
+		provisioningRecord.SessionID: {
+			RecoveryIdentity: runtimepostgres.RecoveryIdentity{TenantID: provisioningRecord.TenantID, SessionID: provisioningRecord.SessionID, AllocationID: provisioningRecord.AllocationID, ProvisionAttemptID: provisioningRecord.ProvisionAttemptID, HostID: provisioningRecord.HostID, MachineID: provisioningRecord.MachineID, GuestCID: provisioningRecord.GuestCID},
+			SessionVersion:   2, AllocationVersion: 1, ProvisionFence: 1, SessionStatus: "provisioning", AllocationStatus: "provisioning",
+		},
+	}}
+	readyProcess := &machineStub{done: make(chan struct{})}
+	controller := &Controller{Store: &storeStub{}, Recovery: recovery, Payloads: payloadStub{}, Ownership: owners, Now: func() time.Time { return now }}
+	controller.processAlive = func(identity firecracker.ProcessIdentity, _ []string) (bool, error) { return identity.PID == 1234, nil }
+	controller.adopt = func(identity firecracker.ProcessIdentity, _ []string, _ time.Duration) (machineProcess, error) {
+		if identity.PID != 1234 {
+			t.Fatalf("unexpected PID adopted: %d", identity.PID)
+		}
+		return readyProcess, nil
+	}
+	result, err := controller.Recover(context.Background(), RecoverRequest{HostID: "runtime-host-1", HostControlHash: bytes.Repeat([]byte{0x51}, 32), AllowedExecutables: []string{"/usr/bin/firecracker", "/usr/bin/jailer"}, StopGrace: time.Second})
+	if err != nil || result.Adopted != 1 || result.Terminated != 1 || result.Cleaned != 1 || recovery.requested != 1 || recovery.completed != 1 {
+		t.Fatalf("Recover()=%#v err=%v calls=%d/%d", result, err, recovery.requested, recovery.completed)
+	}
+	if _, exists := owners.records[provisioningRecord.MachineID]; exists {
+		t.Fatal("interrupted provisioning ownership survived cleanup")
+	}
+	now = now.Add(time.Second)
+	recovery.mu.Lock()
+	deadlineState := recovery.states[readyRecord.SessionID]
+	deadlineState.SessionVersion++
+	deadlineState.AllocationVersion++
+	deadlineState.SessionStatus = "termination_requested"
+	deadlineState.AllocationStatus = "releasing"
+	recovery.states[readyRecord.SessionID] = deadlineState
+	recovery.mu.Unlock()
+	completed, err := controller.ReconcileTerminations(context.Background(), ReconcileRequest{HostID: "runtime-host-1", HostControlHash: bytes.Repeat([]byte{0x51}, 32)})
+	if err != nil || completed != 1 || !readyProcess.stopped || recovery.requested != 1 || recovery.completed != 2 {
+		t.Fatalf("ReconcileTerminations()=%d err=%v stopped=%v calls=%d/%d", completed, err, readyProcess.stopped, recovery.requested, recovery.completed)
+	}
+}
+
+func recoveryRecord(sessionID, allocationID, machineID string, pid int) firecracker.OwnershipRecord {
+	return firecracker.OwnershipRecord{
+		SchemaVersion: 1, HostID: "runtime-host-1", TenantID: "20000000-0000-4000-8000-000000000001",
+		SessionID: sessionID, AllocationID: allocationID, ProvisionAttemptID: "60000000-0000-4000-8000-000000000001",
+		MachineID: machineID, GuestCID: 42, Root: "/jail/" + machineID + "/root",
+		Process:   firecracker.ProcessIdentity{PID: pid, StartTicks: uint64(pid), BootID: "00000000-0000-4000-8000-000000000001", Executable: "/usr/bin/firecracker"},
+		CreatedAt: time.Date(2026, 7, 15, 16, 0, 0, 0, time.UTC),
 	}
 }
 

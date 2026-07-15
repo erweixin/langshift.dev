@@ -35,6 +35,13 @@ type RuntimeStore interface {
 	CompleteTermination(context.Context, runtimepostgres.TerminatedCommand) (runtimepostgres.LifecycleResult, error)
 }
 
+type RecoveryRuntimeStore interface {
+	InspectOwnedMachine(context.Context, runtimepostgres.RecoveryIdentity, []byte) (runtimepostgres.RecoveryState, error)
+	ListHostMachines(context.Context, string, []byte, string, int) ([]runtimepostgres.RecoveryState, error)
+	RequestRecoveryTermination(context.Context, runtimepostgres.RecoveryTerminationCommand) (runtimepostgres.LifecycleResult, error)
+	CompleteRecoveryTermination(context.Context, runtimepostgres.RecoveryTerminatedCommand) (runtimepostgres.LifecycleResult, error)
+}
+
 type machineProcess interface {
 	Stop(context.Context) error
 	Done() <-chan struct{}
@@ -45,6 +52,8 @@ type machineProcess interface {
 type ownershipStore interface {
 	Create(firecracker.OwnershipRecord) error
 	Verify(firecracker.OwnershipRecord) error
+	Scan() ([]firecracker.OwnershipRecord, error)
+	Cleanup(firecracker.OwnershipRecord) error
 }
 
 type stagedMachine struct {
@@ -55,18 +64,21 @@ type stagedMachine struct {
 }
 
 type activeMachine struct {
-	process machineProcess
-	staged  stagedMachine
-	request ProvisionRequest
-	result  runtimepostgres.ProvisionResult
-	version uint64
-	owner   firecracker.OwnershipRecord
-	mu      sync.Mutex
-	closing bool
+	process         machineProcess
+	staged          stagedMachine
+	request         ProvisionRequest
+	result          runtimepostgres.ProvisionResult
+	version         uint64
+	owner           firecracker.OwnershipRecord
+	recovered       bool
+	hostControlHash []byte
+	mu              sync.Mutex
+	closing         bool
 }
 
 type Controller struct {
 	Store     RuntimeStore
+	Recovery  RecoveryRuntimeStore
 	Payloads  payload.Store
 	Stager    firecracker.Stager
 	Runner    firecracker.Runner
@@ -75,9 +87,11 @@ type Controller struct {
 	Now       func() time.Time
 	OnError   func(error)
 
-	stage func(context.Context, firecracker.StageRequest) (stagedMachine, error)
-	start func(context.Context, firecracker.Spec) (machineProcess, error)
-	probe func(context.Context, string, string, string) (guest.Attestation, error)
+	stage        func(context.Context, firecracker.StageRequest) (stagedMachine, error)
+	start        func(context.Context, firecracker.Spec) (machineProcess, error)
+	probe        func(context.Context, string, string, string) (guest.Attestation, error)
+	processAlive func(firecracker.ProcessIdentity, []string) (bool, error)
+	adopt        func(firecracker.ProcessIdentity, []string, time.Duration) (machineProcess, error)
 
 	mu     sync.Mutex
 	active map[string]*activeMachine
@@ -91,6 +105,22 @@ type ProvisionRequest struct {
 type Provisioned struct {
 	Provision runtimepostgres.ProvisionResult
 	Ready     runtimepostgres.LifecycleResult
+}
+
+type RecoverRequest struct {
+	HostID             string
+	HostControlHash    []byte
+	AllowedExecutables []string
+	StopGrace          time.Duration
+}
+
+type RecoverResult struct {
+	Adopted, Terminated, Cleaned int
+}
+
+type ReconcileRequest struct {
+	HostID          string
+	HostControlHash []byte
 }
 
 type bootReceipt struct {
@@ -226,11 +256,23 @@ func (controller *Controller) Terminate(ctx context.Context, sessionID, reason s
 		controller.remember(sessionID, active)
 		return runtimepostgres.LifecycleResult{}, err
 	}
-	requested, err := controller.Store.RequestTermination(ctx, runtimepostgres.TerminationCommand{LifecycleCommand: runtimepostgres.LifecycleCommand{
-		TenantID: active.request.Command.TenantID, SessionID: sessionID, ProvisionAttemptID: active.result.ProvisionAttemptID,
-		ProvisionFence: 1, ExpectedVersion: active.version, LeaseToken: active.request.Command.ProvisionLease, ObservedAt: at,
-		Payload: pointer, Actor: active.request.Command.Actor, CorrelationID: active.request.Command.CorrelationID,
-	}, Reason: reason})
+	var requested runtimepostgres.LifecycleResult
+	if active.recovered {
+		if controller.Recovery == nil {
+			err = ErrConfiguration
+		} else {
+			requested, err = controller.Recovery.RequestRecoveryTermination(ctx, runtimepostgres.RecoveryTerminationCommand{LifecycleCommand: runtimepostgres.LifecycleCommand{
+				TenantID: active.request.Command.TenantID, SessionID: sessionID, ExpectedVersion: active.version, ObservedAt: at,
+				Payload: pointer, Actor: active.request.Command.Actor, CorrelationID: active.request.Command.CorrelationID,
+			}, Authority: runtimepostgres.RecoveryOwned, Identity: recoveryIdentity(active.owner), HostControlHash: active.hostControlHash, Reason: reason})
+		}
+	} else {
+		requested, err = controller.Store.RequestTermination(ctx, runtimepostgres.TerminationCommand{LifecycleCommand: runtimepostgres.LifecycleCommand{
+			TenantID: active.request.Command.TenantID, SessionID: sessionID, ProvisionAttemptID: active.result.ProvisionAttemptID,
+			ProvisionFence: 1, ExpectedVersion: active.version, LeaseToken: active.request.Command.ProvisionLease, ObservedAt: at,
+			Payload: pointer, Actor: active.request.Command.Actor, CorrelationID: active.request.Command.CorrelationID,
+		}, Reason: reason})
+	}
 	if err != nil {
 		active.mu.Lock()
 		active.closing = false
@@ -241,6 +283,9 @@ func (controller *Controller) Terminate(ctx context.Context, sessionID, reason s
 	stopErr := active.process.Stop(ctx)
 	if stopErr != nil && !errors.Is(stopErr, firecracker.ErrVMMExited) {
 		return requested, stopErr
+	}
+	if errors.Is(stopErr, firecracker.ErrVMMExited) {
+		stopErr = nil
 	}
 	ownerErr := controller.Ownership.Verify(active.owner)
 	if ownerErr != nil {
@@ -256,12 +301,255 @@ func (controller *Controller) Terminate(ctx context.Context, sessionID, reason s
 	if receiptErr != nil {
 		return runtimepostgres.LifecycleResult{}, errors.Join(stopErr, receiptErr)
 	}
-	terminated, completeErr := controller.Store.CompleteTermination(ctx, runtimepostgres.TerminatedCommand{LifecycleCommand: runtimepostgres.LifecycleCommand{
-		TenantID: active.request.Command.TenantID, SessionID: sessionID, ProvisionAttemptID: active.result.ProvisionAttemptID,
-		ProvisionFence: 1, ExpectedVersion: requested.Version, LeaseToken: active.request.Command.ProvisionLease, ObservedAt: completedAt,
-		Payload: completePointer, Actor: active.request.Command.Actor, CorrelationID: active.request.Command.CorrelationID,
-	}, CleanupReceiptHash: cleanupHash, UsageManifest: json.RawMessage(`{"schema_version":1,"vcpu_millis":0}`)})
+	var terminated runtimepostgres.LifecycleResult
+	var completeErr error
+	if active.recovered {
+		terminated, completeErr = controller.Recovery.CompleteRecoveryTermination(ctx, runtimepostgres.RecoveryTerminatedCommand{LifecycleCommand: runtimepostgres.LifecycleCommand{
+			TenantID: active.request.Command.TenantID, SessionID: sessionID, ExpectedVersion: requested.Version, ObservedAt: completedAt,
+			Payload: completePointer, Actor: active.request.Command.Actor, CorrelationID: active.request.Command.CorrelationID,
+		}, Identity: recoveryIdentity(active.owner), HostControlHash: active.hostControlHash, CleanupReceiptHash: cleanupHash, UsageManifest: json.RawMessage(`{"schema_version":1,"vcpu_millis":0}`)})
+	} else {
+		terminated, completeErr = controller.Store.CompleteTermination(ctx, runtimepostgres.TerminatedCommand{LifecycleCommand: runtimepostgres.LifecycleCommand{
+			TenantID: active.request.Command.TenantID, SessionID: sessionID, ProvisionAttemptID: active.result.ProvisionAttemptID,
+			ProvisionFence: 1, ExpectedVersion: requested.Version, LeaseToken: active.request.Command.ProvisionLease, ObservedAt: completedAt,
+			Payload: completePointer, Actor: active.request.Command.Actor, CorrelationID: active.request.Command.CorrelationID,
+		}, CleanupReceiptHash: cleanupHash, UsageManifest: json.RawMessage(`{"schema_version":1,"vcpu_millis":0}`)})
+	}
 	return terminated, errors.Join(stopErr, completeErr)
+}
+
+func (controller *Controller) Recover(ctx context.Context, request RecoverRequest) (RecoverResult, error) {
+	if controller == nil || controller.Store == nil || controller.Recovery == nil || controller.Payloads == nil || controller.Ownership == nil || request.HostID == "" || len(request.HostControlHash) != 32 || len(request.AllowedExecutables) == 0 || request.StopGrace <= 0 || request.StopGrace > 30*time.Second {
+		return RecoverResult{}, ErrConfiguration
+	}
+	records, err := controller.Ownership.Scan()
+	if err != nil {
+		return RecoverResult{}, err
+	}
+	recordIndex := make(map[string]firecracker.OwnershipRecord, len(records))
+	for _, record := range records {
+		recordIndex[record.SessionID] = record
+	}
+	var after string
+	for {
+		inventory, inventoryErr := controller.Recovery.ListHostMachines(ctx, request.HostID, request.HostControlHash, after, 5000)
+		if inventoryErr != nil {
+			return RecoverResult{}, inventoryErr
+		}
+		for _, state := range inventory {
+			record, exists := recordIndex[state.SessionID]
+			if !exists || recoveryIdentity(record) != state.RecoveryIdentity {
+				return RecoverResult{}, firecracker.ErrOwnershipIntegrity
+			}
+		}
+		if len(inventory) < 5000 {
+			break
+		}
+		after = inventory[len(inventory)-1].SessionID
+	}
+	result := RecoverResult{}
+	for _, record := range records {
+		if record.HostID != request.HostID {
+			return result, firecracker.ErrOwnershipIntegrity
+		}
+		state, inspectErr := controller.Recovery.InspectOwnedMachine(ctx, recoveryIdentity(record), request.HostControlHash)
+		if inspectErr != nil {
+			if !errors.Is(inspectErr, runtimepostgres.ErrSessionConflict) {
+				return result, inspectErr
+			}
+			if disposeErr := controller.disposeOrphan(ctx, record, request.AllowedExecutables, request.StopGrace); disposeErr != nil {
+				return result, disposeErr
+			}
+			result.Cleaned++
+			continue
+		}
+		alive := controller.processAlive
+		if alive == nil {
+			alive = firecracker.ProcessAlive
+		}
+		isAlive, aliveErr := alive(record.Process, request.AllowedExecutables)
+		if aliveErr != nil {
+			return result, aliveErr
+		}
+		var process machineProcess = deadMachine{identity: record.Process}
+		if isAlive {
+			adopt := controller.adopt
+			if adopt == nil {
+				adopt = func(identity firecracker.ProcessIdentity, executables []string, grace time.Duration) (machineProcess, error) {
+					return firecracker.Adopt(identity, executables, grace)
+				}
+			}
+			process, err = adopt(record.Process, request.AllowedExecutables, request.StopGrace)
+			if err != nil {
+				return result, err
+			}
+		}
+		switch state.SessionStatus {
+		case "ready", "running", "idle":
+			active := controller.recoveredMachine(record, state, process, request.HostControlHash)
+			if isAlive {
+				if !controller.remember(record.SessionID, active) {
+					return result, ErrNotOwned
+				}
+				controller.watch(record.SessionID, active)
+				result.Adopted++
+				continue
+			}
+			if !controller.remember(record.SessionID, active) {
+				return result, ErrNotOwned
+			}
+			if _, err = controller.Terminate(ctx, record.SessionID, "vmm_missing_after_restart"); err != nil {
+				return result, err
+			}
+			result.Terminated++
+		case "provisioning":
+			active := controller.recoveredMachine(record, state, process, request.HostControlHash)
+			if !controller.remember(record.SessionID, active) {
+				return result, ErrNotOwned
+			}
+			if _, err = controller.Terminate(ctx, record.SessionID, "provision_interrupted_by_restart"); err != nil {
+				return result, err
+			}
+			result.Terminated++
+		case "termination_requested":
+			if err = controller.finishRecoveredTermination(ctx, record, state, process, request.HostControlHash); err != nil {
+				return result, err
+			}
+			result.Terminated++
+		case "terminated", "failed":
+			if isAlive {
+				if stopErr := process.Stop(ctx); stopErr != nil && !errors.Is(stopErr, firecracker.ErrVMMExited) {
+					return result, stopErr
+				}
+			}
+			if err = controller.Ownership.Cleanup(record); err != nil {
+				return result, err
+			}
+			result.Cleaned++
+		default:
+			return result, ErrConfiguration
+		}
+	}
+	return result, nil
+}
+
+func (controller *Controller) disposeOrphan(ctx context.Context, record firecracker.OwnershipRecord, allowedExecutables []string, stopGrace time.Duration) error {
+	alive := controller.processAlive
+	if alive == nil {
+		alive = firecracker.ProcessAlive
+	}
+	isAlive, err := alive(record.Process, allowedExecutables)
+	if err != nil {
+		return err
+	}
+	if isAlive {
+		adopt := controller.adopt
+		if adopt == nil {
+			adopt = func(identity firecracker.ProcessIdentity, executables []string, grace time.Duration) (machineProcess, error) {
+				return firecracker.Adopt(identity, executables, grace)
+			}
+		}
+		process, adoptErr := adopt(record.Process, allowedExecutables, stopGrace)
+		if adoptErr != nil {
+			return adoptErr
+		}
+		if stopErr := process.Stop(ctx); stopErr != nil && !errors.Is(stopErr, firecracker.ErrVMMExited) {
+			return stopErr
+		}
+	}
+	return controller.Ownership.Cleanup(record)
+}
+
+func (controller *Controller) ReconcileTerminations(ctx context.Context, request ReconcileRequest) (int, error) {
+	if controller == nil || controller.Recovery == nil || controller.Ownership == nil || request.HostID == "" || len(request.HostControlHash) != 32 {
+		return 0, ErrConfiguration
+	}
+	completed := 0
+	var after string
+	for {
+		inventory, err := controller.Recovery.ListHostMachines(ctx, request.HostID, request.HostControlHash, after, 5000)
+		if err != nil {
+			return completed, err
+		}
+		for _, state := range inventory {
+			if state.SessionStatus != "termination_requested" {
+				continue
+			}
+			active := controller.take(state.SessionID)
+			if active == nil {
+				continue
+			}
+			active.mu.Lock()
+			active.closing = true
+			active.mu.Unlock()
+			if recoveryIdentity(active.owner) != state.RecoveryIdentity {
+				return completed, firecracker.ErrOwnershipIntegrity
+			}
+			if err = controller.finishRecoveredTermination(ctx, active.owner, state, active.process, request.HostControlHash); err != nil {
+				if controller.Ownership.Verify(active.owner) == nil {
+					active.mu.Lock()
+					active.closing = false
+					active.mu.Unlock()
+					controller.remember(state.SessionID, active)
+				}
+				return completed, err
+			}
+			completed++
+		}
+		if len(inventory) < 5000 {
+			break
+		}
+		after = inventory[len(inventory)-1].SessionID
+	}
+	return completed, nil
+}
+
+func (controller *Controller) recoveredMachine(record firecracker.OwnershipRecord, state runtimepostgres.RecoveryState, process machineProcess, hostControlHash []byte) *activeMachine {
+	actor := json.RawMessage(`{"kind":"system","component":"runtime-host-agent"}`)
+	return &activeMachine{
+		process: process,
+		staged:  stagedMachine{root: record.Root, cleanup: func() error { return controller.Ownership.Cleanup(record) }},
+		request: ProvisionRequest{Command: runtimepostgres.ProvisionCommand{TenantID: record.TenantID, HostID: record.HostID, MachineID: record.MachineID, GuestCID: record.GuestCID, Actor: actor, CorrelationID: record.SessionID}},
+		result:  runtimepostgres.ProvisionResult{TenantID: record.TenantID, SessionID: record.SessionID, AllocationID: record.AllocationID, ProvisionAttemptID: record.ProvisionAttemptID, MachineID: record.MachineID, GuestCID: record.GuestCID, Version: state.SessionVersion},
+		version: state.SessionVersion, owner: record, recovered: true, hostControlHash: append([]byte(nil), hostControlHash...),
+	}
+}
+
+func (controller *Controller) finishRecoveredTermination(ctx context.Context, record firecracker.OwnershipRecord, state runtimepostgres.RecoveryState, process machineProcess, hostControlHash []byte) error {
+	stopErr := process.Stop(ctx)
+	if stopErr != nil && !errors.Is(stopErr, firecracker.ErrVMMExited) {
+		return stopErr
+	}
+	if err := controller.Ownership.Cleanup(record); err != nil {
+		return err
+	}
+	at := controller.now()
+	pointer, cleanupHash, err := controller.putReceipt(ctx, record.SessionID+":recovered-terminated", record.TenantID, controlReceipt{SchemaVersion: 1, SessionID: record.SessionID, Reason: "recovered_termination", OccurredAt: at})
+	if err != nil {
+		return err
+	}
+	_, err = controller.Recovery.CompleteRecoveryTermination(ctx, runtimepostgres.RecoveryTerminatedCommand{LifecycleCommand: runtimepostgres.LifecycleCommand{
+		TenantID: record.TenantID, SessionID: record.SessionID, ExpectedVersion: state.SessionVersion, ObservedAt: at,
+		Payload: pointer, Actor: json.RawMessage(`{"kind":"system","component":"runtime-host-agent"}`), CorrelationID: record.SessionID,
+	}, Identity: recoveryIdentity(record), HostControlHash: hostControlHash, CleanupReceiptHash: cleanupHash, UsageManifest: json.RawMessage(`{"schema_version":1,"vcpu_millis":0}`)})
+	return err
+}
+
+func recoveryIdentity(record firecracker.OwnershipRecord) runtimepostgres.RecoveryIdentity {
+	return runtimepostgres.RecoveryIdentity{TenantID: record.TenantID, SessionID: record.SessionID, AllocationID: record.AllocationID, ProvisionAttemptID: record.ProvisionAttemptID, HostID: record.HostID, MachineID: record.MachineID, GuestCID: record.GuestCID}
+}
+
+type deadMachine struct{ identity firecracker.ProcessIdentity }
+
+func (machine deadMachine) Stop(context.Context) error { return firecracker.ErrVMMExited }
+func (machine deadMachine) Done() <-chan struct{} {
+	done := make(chan struct{})
+	close(done)
+	return done
+}
+func (machine deadMachine) ExitError() error { return firecracker.ErrVMMExited }
+func (machine deadMachine) Identity() (firecracker.ProcessIdentity, error) {
+	return machine.identity, nil
 }
 
 func (controller *Controller) abortProvision(ctx context.Context, request ProvisionRequest, provision runtimepostgres.ProvisionResult, process machineProcess, staged stagedMachine, owner *firecracker.OwnershipRecord, reason string) error {

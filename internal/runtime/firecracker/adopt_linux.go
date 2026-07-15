@@ -44,6 +44,26 @@ func Adopt(identity ProcessIdentity, allowedExecutables []string, stopGrace time
 	return &Machine{process: process, exit: exit, identity: identity, stopGrace: stopGrace}, nil
 }
 
+// ProcessAlive distinguishes a vanished/recycled PID from a live exact VMM.
+// A same-kernel process with an unexpected executable is treated as integrity
+// failure rather than as safely absent.
+func ProcessAlive(identity ProcessIdentity, allowedExecutables []string) (bool, error) {
+	if identity.Validate() != nil || !allowedExecutable(identity.Executable, allowedExecutables) {
+		return false, ErrProcessIdentity
+	}
+	current, err := readProcessIdentity(identity.PID)
+	if err != nil {
+		return false, nil
+	}
+	if !sameKernelProcess(identity, current) {
+		return false, nil
+	}
+	if !allowedExecutable(current.Executable, allowedExecutables) {
+		return false, ErrProcessIdentity
+	}
+	return true, nil
+}
+
 func sameKernelProcess(expected, current ProcessIdentity) bool {
 	return expected.PID == current.PID && expected.StartTicks == current.StartTicks && expected.BootID == current.BootID
 }

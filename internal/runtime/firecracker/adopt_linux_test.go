@@ -25,12 +25,18 @@ func TestAdoptUsesExactKernelIdentityAndPidfdSignals(t *testing.T) {
 	}
 	wrong := identity
 	wrong.StartTicks++
+	if alive, aliveErr := ProcessAlive(wrong, []string{identity.Executable}); aliveErr != nil || alive {
+		t.Fatalf("recycled process status = %v, %v", alive, aliveErr)
+	}
 	if _, err = Adopt(wrong, []string{identity.Executable}, time.Second); !errors.Is(err, ErrProcessIdentity) {
 		t.Fatalf("recycled identity accepted: %v", err)
 	}
 	machine, err := Adopt(identity, []string{identity.Executable}, time.Second)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if alive, aliveErr := ProcessAlive(identity, []string{identity.Executable}); aliveErr != nil || !alive {
+		t.Fatalf("live process status = %v, %v", alive, aliveErr)
 	}
 	if err = machine.Stop(context.Background()); err != nil {
 		t.Fatal(err)

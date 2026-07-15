@@ -216,6 +216,17 @@ func (store OwnershipStore) Verify(record OwnershipRecord) error {
 	return nil
 }
 
+func (store OwnershipStore) Cleanup(record OwnershipRecord) error {
+	if err := store.Verify(record); err != nil {
+		return err
+	}
+	directory := filepath.Dir(record.Root)
+	if err := os.RemoveAll(directory); err != nil {
+		return err
+	}
+	return syncDirectory(filepath.Dir(directory))
+}
+
 func (store OwnershipStore) validate() error {
 	if store.HostID == "" || len(store.HostID) > 128 || len(store.Key) < 32 || store.Jailer.ChrootBaseDir == "" || store.Jailer.FirecrackerPath == "" {
 		return ErrOwnershipConfiguration
