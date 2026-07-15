@@ -97,6 +97,7 @@ type Outcome struct {
 	Result              json.RawMessage
 	ExternalResourceRef string
 	EffectDisposition   EffectDisposition
+	ReconcileAfter      time.Duration
 }
 
 type EffectDisposition string
@@ -289,7 +290,11 @@ func (handler Handler) commit(ctx context.Context, command CommandPayload, decis
 	}
 	effect := executionpostgres.EffectCompletion{ExternalResourceRef: outcome.ExternalResourceRef}
 	if outcome.State == statemachine.ToolCallOutcomeUnknown {
-		dueAt := handler.now().Add(handler.ReconcileDelay).UTC()
+		reconcileAfter := outcome.ReconcileAfter
+		if reconcileAfter <= 0 {
+			reconcileAfter = handler.ReconcileDelay
+		}
+		dueAt := handler.now().Add(reconcileAfter).UTC()
 		terminalVersion := claim.ToolCallVersion + 1
 		reconcileCommandID, idErr := executionpostgres.ReconcileToolEffectCommandID(handler.IDKey, claim.EffectID, terminalVersion)
 		if idErr != nil {
@@ -394,7 +399,7 @@ func validPolicyDecision(decision PolicyDecision) bool {
 }
 
 func validOutcome(effectClass string, outcome Outcome, maximum int) bool {
-	if len(outcome.Result) == 0 || len(outcome.Result) > maximum || !json.Valid(outcome.Result) {
+	if len(outcome.Result) == 0 || len(outcome.Result) > maximum || !json.Valid(outcome.Result) || outcome.ReconcileAfter < 0 || outcome.ReconcileAfter > 24*time.Hour {
 		return false
 	}
 	if effectClass == "read_only" {
@@ -426,7 +431,7 @@ func (handler Handler) putEvent(ctx context.Context, tenantID, objectID string, 
 
 func (handler Handler) validate() error {
 	var actor map[string]any
-	if handler.Payloads == nil || handler.Tools == nil || handler.Policy == nil || handler.Executor == nil || handler.ConsumerName == "" || handler.WorkerID == "" || handler.HeartbeatInterval <= 0 || len(handler.IDKey) < 32 || json.Unmarshal(handler.Actor, &actor) != nil || actor == nil || handler.maximumCommand() < 1 || handler.maximumInput() < 1 || handler.maximumResult() < 1 || !validSchedule(handler.Resume) || !validSchedule(handler.Reconcile) || handler.ReconcileDelay <= 0 {
+	if handler.Payloads == nil || handler.Tools == nil || handler.Policy == nil || handler.Executor == nil || handler.ConsumerName == "" || handler.WorkerID == "" || handler.HeartbeatInterval <= 0 || len(handler.IDKey) < 32 || json.Unmarshal(handler.Actor, &actor) != nil || actor == nil || handler.maximumCommand() < 1 || handler.maximumInput() < 1 || handler.maximumResult() < 1 || !validSchedule(handler.Resume) || !validSchedule(handler.Reconcile) || handler.ReconcileDelay <= 0 || handler.ReconcileDelay > 24*time.Hour {
 		return ErrConfiguration
 	}
 	return nil
