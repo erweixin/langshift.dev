@@ -34,8 +34,16 @@ type Store struct {
 	Epochs     EpochAuthority
 	StoreEpoch string
 	PublicKeys map[string]ed25519.PublicKey
-	Now        func() time.Time
+	// PublicKeyWindows is required by production control planes and checked on
+	// every signed mutation. Nil is retained for deterministic domain tests.
+	PublicKeyWindows map[string]KeyWindow
+	// PublicKeyPurposes prevents a valid release-owner key from being reused as
+	// a risk-owner or rollback-automation credential.
+	PublicKeyPurposes map[string]string
+	Now               func() time.Time
 }
+
+type KeyWindow struct{ NotBefore, NotAfter time.Time }
 
 type PayloadPointer struct{ Ref, Hash string }
 
@@ -174,14 +182,14 @@ func (store Store) Promote(ctx context.Context, command PromoteCommand) (Result,
 	if !store.valid() || !validCommon(command.ID, command.EventID, command.OutboxID, command.PublishCommandID, command.TenantID, command.UserID, command.CorrelationID, command.Actor, command.EventPayload) || command.ChannelID == "" || command.EvaluationID == "" || command.Request.TenantID != command.TenantID {
 		return Result{}, ErrCommand
 	}
-	decision, err := behavior.VerifyPromotion(command.Manifest, command.Report, command.Request, store.PublicKeys, store.now())
+	decision, err := store.ValidatePromotion(command.Manifest, command.Report, command.Request)
 	if err != nil {
 		return Result{}, errors.Join(err, ErrCommand)
 	}
+	now := store.now()
 	approvals, _ := json.Marshal(command.Request.Approvals)
 	rollout, _ := json.Marshal(command.Request.Rollout)
 	autoRollback, _ := json.Marshal(command.Request.AutoRollback)
-	now := store.now()
 	return store.transact(ctx, command.TenantID, func(tx pgx.Tx) (Result, error) {
 		tag, execErr := tx.Exec(ctx, `INSERT INTO agent.behavior_channel_deployments(id,tenant_id,channel_id,profile_name,environment,sequence,action,snapshot_id,previous_snapshot_id,evaluation_report_id,evaluation_report_hash,promotion_hash,rollout_policy,auto_rollback_policy,approvals,activation_event_id,activated_by,activated_at) VALUES($1,$2,$3,$4,$5,$6,'promote',$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) ON CONFLICT DO NOTHING`, command.ID, command.TenantID, command.ChannelID, command.Request.Profile, command.Request.Environment, command.Request.Sequence, command.Request.CandidateSnapshotID, command.Request.PreviousSnapshotID, command.EvaluationID, command.Request.EvaluationReportHash, decision.PromotionHash, rollout, autoRollback, approvals, command.EventID, command.UserID, now)
 		if execErr != nil {
@@ -206,7 +214,7 @@ func (store Store) Rollback(ctx context.Context, command RollbackCommand) (Resul
 	if !store.valid() || !validCommon(command.ID, command.EventID, command.OutboxID, command.PublishCommandID, command.TenantID, command.UserID, command.CorrelationID, command.Actor, command.EventPayload) || command.ChannelID == "" || command.Request.TenantID != command.TenantID {
 		return Result{}, ErrCommand
 	}
-	rollbackHash, err := behavior.VerifyRollback(command.Request, store.PublicKeys, store.now())
+	rollbackHash, err := store.ValidateRollback(command.Request)
 	if err != nil {
 		return Result{}, errors.Join(err, ErrCommand)
 	}
@@ -252,6 +260,56 @@ func (store Store) transact(ctx context.Context, tenantID string, operation func
 
 func (store Store) valid() bool {
 	return store.Pool != nil && store.Epochs != nil && store.StoreEpoch != ""
+}
+
+func (store Store) activePublicKeys(now time.Time) map[string]ed25519.PublicKey {
+	if store.PublicKeyWindows == nil {
+		return store.PublicKeys
+	}
+	active := make(map[string]ed25519.PublicKey, len(store.PublicKeys))
+	for keyID, key := range store.PublicKeys {
+		window, ok := store.PublicKeyWindows[keyID]
+		if ok && !window.NotBefore.IsZero() && window.NotAfter.After(window.NotBefore) && !now.Before(window.NotBefore) && now.Before(window.NotAfter) {
+			active[keyID] = key
+		}
+	}
+	return active
+}
+
+// ValidatePromotion runs every cryptographic, evaluation, validity-window and
+// key-purpose check without mutating state. Application services use it before
+// reserving an idempotency record; Promote repeats it at the commit boundary.
+func (store Store) ValidatePromotion(manifest behavior.Manifest, report behavior.EvaluationReport, request behavior.PromotionRequest) (behavior.PromotionDecision, error) {
+	now := store.now()
+	if !store.validPromotionKeyPurposes(request) {
+		return behavior.PromotionDecision{}, behavior.ErrAuthorization
+	}
+	return behavior.VerifyPromotion(manifest, report, request, store.activePublicKeys(now), now)
+}
+
+// ValidateRollback is the non-mutating counterpart of Rollback.
+func (store Store) ValidateRollback(request behavior.RollbackRequest) (string, error) {
+	now := store.now()
+	if !store.validRollbackKeyPurpose(request) {
+		return "", behavior.ErrAuthorization
+	}
+	return behavior.VerifyRollback(request, store.activePublicKeys(now), now)
+}
+
+func (store Store) validPromotionKeyPurposes(request behavior.PromotionRequest) bool {
+	if store.PublicKeyPurposes == nil {
+		return true
+	}
+	for _, approval := range request.Approvals {
+		if store.PublicKeyPurposes[approval.KeyID] != approval.Role {
+			return false
+		}
+	}
+	return len(request.Approvals) == 2
+}
+
+func (store Store) validRollbackKeyPurpose(request behavior.RollbackRequest) bool {
+	return store.PublicKeyPurposes == nil || store.PublicKeyPurposes[request.AutomationKeyID] == "rollback_automation"
 }
 
 func (store Store) requireEpoch(ctx context.Context) error {

@@ -77,7 +77,8 @@ for migration in \
   deploy/migrations/000035_runtime_host_recovery_authority.up.sql \
   deploy/migrations/000036_runtime_host_restart_recovery.up.sql \
   deploy/migrations/000037_behavior_snapshot_promotion.up.sql \
-  deploy/migrations/000038_run_behavior_binding.up.sql; do
+  deploy/migrations/000038_run_behavior_binding.up.sql \
+  deploy/migrations/000039_idempotency_prepared_event_payload.up.sql; do
   target="/tmp/$(basename "${migration}")"
   docker cp "${migration}" "${container_name}:${target}" >/dev/null
   docker exec "${container_name}" psql -v ON_ERROR_STOP=1 -U postgres -d lites_foundation -f "${target}" >/dev/null
@@ -114,7 +115,7 @@ docker exec "${container_name}" psql -v ON_ERROR_STOP=1 -U postgres -d lites_fou
   "CREATE ROLE lites_runtime_sweeper_service LOGIN PASSWORD 'foundation_runtime_sweeper_service' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS; GRANT CONNECT ON DATABASE lites_foundation TO lites_runtime_sweeper_service; GRANT USAGE ON SCHEMA agent TO lites_runtime_sweeper_service; GRANT SELECT ON agent.events TO lites_runtime_sweeper_service; GRANT SELECT,INSERT,UPDATE ON agent.runtime_sessions,agent.runtime_allocations,agent.event_cursors,agent.outbox TO lites_runtime_sweeper_service; GRANT INSERT ON agent.events TO lites_runtime_sweeper_service; GRANT EXECUTE ON FUNCTION agent.list_runtime_recovery_tenants(uuid,uuid,integer,integer,integer,timestamptz),agent.runtime_lock_due_session(uuid,uuid,uuid,bigint,timestamptz) TO lites_runtime_sweeper_service;" >/dev/null
 
 docker exec "${container_name}" psql -v ON_ERROR_STOP=1 -U postgres -d lites_foundation -c \
-  "CREATE ROLE lites_behavior_service LOGIN PASSWORD 'foundation_behavior_service' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS; GRANT CONNECT ON DATABASE lites_foundation TO lites_behavior_service; GRANT USAGE ON SCHEMA agent TO lites_behavior_service; GRANT SELECT,INSERT ON agent.behavior_snapshots,agent.behavior_evaluation_reports,agent.behavior_channel_deployments,agent.events TO lites_behavior_service; GRANT SELECT,INSERT,UPDATE ON agent.event_cursors,agent.outbox TO lites_behavior_service;" >/dev/null
+  "CREATE ROLE lites_behavior_service LOGIN PASSWORD 'foundation_behavior_service' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS; GRANT CONNECT ON DATABASE lites_foundation TO lites_behavior_service; GRANT USAGE ON SCHEMA agent,identity TO lites_behavior_service; GRANT SELECT,INSERT ON agent.behavior_snapshots,agent.behavior_evaluation_reports,agent.behavior_channel_deployments,agent.events TO lites_behavior_service; GRANT SELECT,INSERT,UPDATE ON agent.event_cursors,agent.outbox,agent.idempotency_responses TO lites_behavior_service; GRANT SELECT ON identity.sessions,identity.memberships TO lites_behavior_service;" >/dev/null
 
 container_port="$(docker port "${container_name}" 5432/tcp | head -n 1 | sed 's/.*://')"
 
