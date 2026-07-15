@@ -13,6 +13,7 @@ import (
 	eventpostgres "github.com/langshift/lites/internal/eventstore/postgres"
 	executionpostgres "github.com/langshift/lites/internal/execution/postgres"
 	"github.com/langshift/lites/internal/execution/statemachine"
+	"github.com/langshift/lites/internal/llmgateway/provider"
 	"github.com/langshift/lites/internal/payload"
 )
 
@@ -56,6 +57,9 @@ type runStoreStub struct {
 	heartbeats    int
 	claimCommand  executionpostgres.ClaimRunCommand
 	complete      executionpostgres.CompleteRunCommand
+	message       executionpostgres.CompleteRunMessageCommand
+	tools         executionpostgres.RequestToolsCommand
+	children      executionpostgres.SpawnChildRunsCommand
 	completionErr error
 }
 
@@ -84,6 +88,28 @@ func (store *runStoreStub) CompleteRunTerminal(_ context.Context, command execut
 	return executionpostgres.CompletedRun{}, store.completionErr
 }
 
+func (store *runStoreStub) CompleteRunWithMessage(_ context.Context, command executionpostgres.CompleteRunMessageCommand) (executionpostgres.CompletedRunMessage, error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	store.message = command
+	store.complete = command.Completion
+	return executionpostgres.CompletedRunMessage{}, store.completionErr
+}
+
+func (store *runStoreStub) RequestTools(_ context.Context, command executionpostgres.RequestToolsCommand) (executionpostgres.ToolsRequested, error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	store.tools = command
+	return executionpostgres.ToolsRequested{}, store.completionErr
+}
+
+func (store *runStoreStub) SpawnChildRuns(_ context.Context, command executionpostgres.SpawnChildRunsCommand) (executionpostgres.ChildRunsSpawned, error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	store.children = command
+	return executionpostgres.ChildRunsSpawned{}, store.completionErr
+}
+
 type runnerFunc func(context.Context, Execution) (Outcome, error)
 
 func (function runnerFunc) Execute(ctx context.Context, execution Execution) (Outcome, error) {
@@ -105,7 +131,7 @@ func TestHandlerClaimsHeartbeatsAndCompletesRootRun(t *testing.T) {
 		case <-ctx.Done():
 			return Outcome{}, ctx.Err()
 		}
-		return Outcome{State: statemachine.RunSucceeded, ResultHash: "result-hash", RunEvent: map[string]any{"answer_ref": "artifact://answer"}, AttemptEvent: map[string]any{"provider_attempts": 1}}, nil
+		return successfulOutcome("result-hash"), nil
 	}))
 	if err := handler.Handle(t.Context(), delivered); err != nil {
 		t.Fatal(err)
@@ -142,6 +168,33 @@ func TestHandlerCancelsRunnerWhenHeartbeatIsLost(t *testing.T) {
 	case <-cancelled:
 	case <-time.After(time.Second):
 		t.Fatal("runner did not observe lease-loss cancellation")
+	}
+}
+
+func TestHandlerCommitsStepPlanWithLatestHeartbeatClaim(t *testing.T) {
+	payloads := &memoryPayloads{}
+	delivered := deliveredCommand()
+	putCommand(t, payloads, &delivered, CommandPayload{SchemaVersion: 1, RunID: delivered.AggregateID, CorrelationID: "correlation-1"})
+	claim := validClaim()
+	runs := &runStoreStub{claim: claim}
+	handler := validHandler(payloads, runs, runnerFunc(func(ctx context.Context, _ Execution) (Outcome, error) {
+		select {
+		case <-time.After(18 * time.Millisecond):
+		case <-ctx.Done():
+			return Outcome{}, ctx.Err()
+		}
+		return Outcome{State: statemachine.RunWaitingTool, Tools: &executionpostgres.RequestToolsCommand{PlanResultHash: "provider-result"}}, nil
+	}))
+	if err := handler.Handle(t.Context(), delivered); err != nil {
+		t.Fatal(err)
+	}
+	runs.mu.Lock()
+	defer runs.mu.Unlock()
+	if runs.heartbeats < 1 || !runs.tools.Claim.LeaseExpiresAt.After(claim.LeaseExpiresAt) || runs.tools.ExpectedRunVersion != claim.RunVersion || string(runs.tools.Actor) != string(handler.Actor) || runs.tools.CorrelationID != "correlation-1" {
+		t.Fatalf("step plan was not rebound to the live claim: heartbeats=%d plan=%#v", runs.heartbeats, runs.tools)
+	}
+	if runs.complete.Claim.RunID != "" {
+		t.Fatal("waiting step was incorrectly committed as a terminal run")
 	}
 }
 
@@ -205,13 +258,24 @@ func TestHandlerBuildsCompleteChildJoinEvidence(t *testing.T) {
 		ResumeQueueClass: "interactive", ResumeResourceClass: "llm", ResumePriority: 50, ResumeCostUnits: 4, ResumeMaxAttempts: 5,
 	}
 	handler := validHandler(payloads, runs, runnerFunc(func(context.Context, Execution) (Outcome, error) {
-		return Outcome{State: statemachine.RunSucceeded, ResultHash: "child-result", AttemptEvent: map[string]any{"done": true}, Child: child}, nil
+		outcome := successfulOutcome("child-result")
+		outcome.RunEvent, outcome.Child = nil, child
+		return outcome, nil
 	}))
 	if err := handler.Handle(t.Context(), delivered); err != nil {
 		t.Fatal(err)
 	}
 	if runs.complete.Child == nil || len(runs.complete.Child.ResultSummary.Hash) != 64 || len(runs.complete.Child.CancelRemainingCommand.Hash) != 64 || runs.complete.RunEvent != (executionpostgres.PayloadPointer{}) {
 		t.Fatalf("child completion=%#v", runs.complete)
+	}
+}
+
+func successfulOutcome(resultHash string) Outcome {
+	return Outcome{
+		State: statemachine.RunSucceeded, ResultHash: resultHash,
+		RunEvent: map[string]any{"answer_ref": "artifact://answer"}, AttemptEvent: map[string]any{"provider_attempts": 1},
+		MessageID: "00000000-0000-4000-8000-000000000111",
+		Message:   &MessageDocument{SchemaVersion: 1, Role: "assistant", Content: []provider.ContentBlock{{Type: "text", Text: "done"}}},
 	}
 }
 

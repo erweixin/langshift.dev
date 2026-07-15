@@ -6,6 +6,8 @@ package agentworker
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -31,6 +33,9 @@ type RunStore interface {
 	ClaimStart(context.Context, executionpostgres.ClaimRunCommand) (executionpostgres.RunClaim, error)
 	HeartbeatRun(context.Context, executionpostgres.RunClaim) (executionpostgres.RunClaim, error)
 	CompleteRunTerminal(context.Context, executionpostgres.CompleteRunCommand) (executionpostgres.CompletedRun, error)
+	CompleteRunWithMessage(context.Context, executionpostgres.CompleteRunMessageCommand) (executionpostgres.CompletedRunMessage, error)
+	RequestTools(context.Context, executionpostgres.RequestToolsCommand) (executionpostgres.ToolsRequested, error)
+	SpawnChildRuns(context.Context, executionpostgres.SpawnChildRunsCommand) (executionpostgres.ChildRunsSpawned, error)
 }
 
 // CommandPayload is deliberately small. Mutable context never rides through
@@ -61,6 +66,10 @@ type Outcome struct {
 	RunEvent     any
 	AttemptEvent any
 	Child        *ChildOutcome
+	MessageID    string
+	Message      *MessageDocument
+	Tools        *executionpostgres.RequestToolsCommand
+	Children     *executionpostgres.SpawnChildRunsCommand
 }
 
 type ChildOutcome struct {
@@ -108,11 +117,68 @@ func (handler Handler) Handle(ctx context.Context, delivered eventpostgres.Deliv
 	if err != nil {
 		return err
 	}
-	completion, err := handler.completion(ctx, liveClaim, command, outcome)
+	return handler.commit(ctx, liveClaim, command, outcome)
+}
+
+func (handler Handler) commit(ctx context.Context, claim executionpostgres.RunClaim, command CommandPayload, outcome Outcome) error {
+	actions := 0
+	if statemachine.Runs.IsTerminal(outcome.State) {
+		actions++
+	}
+	if outcome.Tools != nil {
+		actions++
+	}
+	if outcome.Children != nil {
+		actions++
+	}
+	if actions != 1 {
+		return ErrOutcome
+	}
+	if outcome.Tools != nil {
+		if outcome.State != statemachine.RunWaitingTool || outcome.ResultHash != "" || outcome.RunEvent != nil || outcome.AttemptEvent != nil || outcome.Child != nil || outcome.Message != nil || outcome.MessageID != "" {
+			return ErrOutcome
+		}
+		planned := *outcome.Tools
+		planned.Claim, planned.ExpectedRunVersion = claim, claim.RunVersion
+		planned.Actor, planned.CorrelationID = handler.Actor, command.CorrelationID
+		_, err := handler.Runs.RequestTools(ctx, planned)
+		return err
+	}
+	if outcome.Children != nil {
+		if outcome.State != statemachine.RunWaitingChild || outcome.ResultHash != "" || outcome.RunEvent != nil || outcome.AttemptEvent != nil || outcome.Child != nil || outcome.Message != nil || outcome.MessageID != "" {
+			return ErrOutcome
+		}
+		planned := *outcome.Children
+		planned.Claim, planned.ExpectedRunVersion = claim, claim.RunVersion
+		planned.Actor, planned.CorrelationID = handler.Actor, command.CorrelationID
+		_, err := handler.Runs.SpawnChildRuns(ctx, planned)
+		return err
+	}
+	completion, err := handler.completion(ctx, claim, command, outcome)
 	if err != nil {
 		return err
 	}
-	_, err = handler.Runs.CompleteRunTerminal(ctx, completion)
+	if outcome.State != statemachine.RunSucceeded {
+		if outcome.Message != nil || outcome.MessageID != "" {
+			return ErrOutcome
+		}
+		_, err = handler.Runs.CompleteRunTerminal(ctx, completion)
+		return err
+	}
+	message, contentHash, err := handler.putMessage(ctx, claim, outcome.MessageID, outcome.Message)
+	if err != nil {
+		return err
+	}
+	finalized, err := handler.putEvent(ctx, claim.TenantID, outcome.MessageID+":finalized", map[string]any{
+		"message_id": outcome.MessageID, "run_id": claim.RunID, "content_hash": contentHash,
+	}, "run_message_finalized")
+	if err != nil {
+		return err
+	}
+	_, err = handler.Runs.CompleteRunWithMessage(ctx, executionpostgres.CompleteRunMessageCommand{
+		Completion: completion, MessageID: outcome.MessageID, Message: message,
+		ContentHash: contentHash, FinalizedEvent: finalized,
+	})
 	return err
 }
 
@@ -172,7 +238,7 @@ func (handler Handler) claimEvidence(ctx context.Context, command eventpostgres.
 }
 
 func (handler Handler) completion(ctx context.Context, claim executionpostgres.RunClaim, command CommandPayload, outcome Outcome) (executionpostgres.CompleteRunCommand, error) {
-	if !statemachine.Runs.IsTerminal(outcome.State) || outcome.ResultHash == "" || outcome.RunEvent == nil && outcome.Child == nil || outcome.AttemptEvent == nil {
+	if !statemachine.Runs.IsTerminal(outcome.State) || outcome.ResultHash == "" || outcome.RunEvent == nil && outcome.Child == nil || outcome.AttemptEvent == nil || outcome.Tools != nil || outcome.Children != nil || outcome.State == statemachine.RunSucceeded && (outcome.MessageID == "" || outcome.Message == nil) {
 		return executionpostgres.CompleteRunCommand{}, ErrOutcome
 	}
 	attempt, err := handler.putEvent(ctx, claim.TenantID, claim.AttemptID+":attempt-completed", outcome.AttemptEvent, "job_attempt_completed")
@@ -194,6 +260,25 @@ func (handler Handler) completion(ctx context.Context, claim executionpostgres.R
 	}
 	result.Child = &child
 	return result, nil
+}
+
+func (handler Handler) putMessage(ctx context.Context, claim executionpostgres.RunClaim, messageID string, document *MessageDocument) (executionpostgres.PayloadPointer, string, error) {
+	if messageID == "" || document == nil || document.SchemaVersion != 1 || document.Role != "assistant" || len(document.Content) == 0 || len(document.Content) > 1024 {
+		return executionpostgres.PayloadPointer{}, "", ErrOutcome
+	}
+	for _, block := range document.Content {
+		if block.Type == "" {
+			return executionpostgres.PayloadPointer{}, "", ErrOutcome
+		}
+	}
+	encoded, err := json.Marshal(document)
+	if err != nil {
+		return executionpostgres.PayloadPointer{}, "", err
+	}
+	digest := sha256.Sum256(encoded)
+	contentHash := hex.EncodeToString(digest[:])
+	manifest, err := handler.Payloads.Put(ctx, payload.Descriptor{TenantID: claim.TenantID, ObjectID: messageID, Class: "run-message", ContentType: "application/json"}, encoded)
+	return executionpostgres.PayloadPointer{Ref: manifest.Ref, Hash: manifest.Hash}, contentHash, err
 }
 
 func (handler Handler) childCompletion(ctx context.Context, claim executionpostgres.RunClaim, child ChildOutcome) (executionpostgres.ChildRunCompletion, error) {

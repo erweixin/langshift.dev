@@ -267,14 +267,20 @@ func TestAcceptRunIsAtomicReplaySafeAndTenantIsolated(t *testing.T) {
 		Actor: json.RawMessage(`{"kind":"service","id":"agent-run-worker"}`), CorrelationID: correlationID,
 		RunEvent: PayloadPointer{Ref: "encrypted://events/run-succeeded", Hash: "run-succeeded-hash"}, AttemptCompletedEvent: PayloadPointer{Ref: "encrypted://events/attempt-completed", Hash: "attempt-completed-hash"},
 	}
+	messageCompletion := CompleteRunMessageCommand{
+		Completion: complete, MessageID: "2e000000-0000-4000-8000-000000000008",
+		Message:        PayloadPointer{Ref: "encrypted://messages/assistant", Hash: "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"},
+		ContentHash:    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		FinalizedEvent: PayloadPointer{Ref: "encrypted://events/message-finalized", Hash: "message-finalized-hash"},
+	}
 	var completeWait sync.WaitGroup
-	completeResults := make(chan CompletedRun, workers)
+	completeResults := make(chan CompletedRunMessage, workers)
 	completeErrors := make(chan error, workers)
 	for range workers {
 		completeWait.Add(1)
 		go func() {
 			defer completeWait.Done()
-			result, completeErr := store.CompleteRunTerminal(ctx, complete)
+			result, completeErr := store.CompleteRunWithMessage(ctx, messageCompletion)
 			if completeErr != nil {
 				completeErrors <- completeErr
 				return
@@ -285,7 +291,7 @@ func TestAcceptRunIsAtomicReplaySafeAndTenantIsolated(t *testing.T) {
 	completeWait.Wait()
 	close(completeResults)
 	close(completeErrors)
-	var completed CompletedRun
+	var completed CompletedRunMessage
 	var successfulCompletions, staleCompletions int
 	for result := range completeResults {
 		completed = result
@@ -297,24 +303,26 @@ func TestAcceptRunIsAtomicReplaySafeAndTenantIsolated(t *testing.T) {
 		}
 		staleCompletions++
 	}
-	if successfulCompletions != 1 || staleCompletions != workers-1 || completed.RunVersion != 4 || completed.Status != "succeeded" || completed.AttemptStatus != "succeeded" {
+	if successfulCompletions != 1 || staleCompletions != workers-1 || completed.RunVersion != 4 || completed.Status != "succeeded" || completed.AttemptStatus != "succeeded" || completed.MessageID != messageCompletion.MessageID || completed.MessageIndex != 0 || completed.FinalizedEvent == "" {
 		t.Fatalf("completion=%#v successful=%d stale=%d", completed, successfulCompletions, staleCompletions)
 	}
 	var activeCleared bool
-	var jobVersion, finalAttemptVersion int
+	var jobVersion, finalAttemptVersion, messageRows, messageEvents int
 	err = admin.QueryRow(ctx, `
 		SELECT r.status,r.run_version,
 		       r.active_command_id IS NULL AND r.active_attempt_id IS NULL AND r.lease_token_hash IS NULL AND r.lease_expires_at IS NULL,
 		       j.status,j.version,i.status,a.status,a.version,
 		       (SELECT count(*) FROM agent.events WHERE aggregate_kind='run' AND aggregate_id=$1),
 		       (SELECT count(*) FROM agent.events WHERE aggregate_kind='job_attempt' AND aggregate_id=$3),
-		       (SELECT count(*) FROM agent.outbox WHERE aggregate_id IN ($1,$3))
+		       (SELECT count(*) FROM agent.outbox WHERE aggregate_id IN ($1,$3)),
+		       (SELECT count(*) FROM agent.run_messages WHERE tenant_id=$5 AND run_id=$1 AND id=$6 AND role='assistant' AND message_index=0 AND payload_ref=$7 AND payload_hash=$8 AND content_hash=$9 AND source_kind='agent_output' AND trust_label='derived'),
+		       (SELECT count(*) FROM agent.events WHERE tenant_id=$5 AND aggregate_kind='run_message' AND aggregate_id=$6 AND event_type='RunMessageFinalized')
 		FROM agent.runs r
 		JOIN agent.jobs j ON j.id=$2
 		JOIN agent.inbox i ON i.id=$4
 		JOIN agent.job_attempts a ON a.id=$3
-		WHERE r.id=$1`, runID, winner.JobID, winner.AttemptID, winner.InboxID).Scan(
-		&runStatus, &runVersion, &activeCleared, &jobStatus, &jobVersion, &inboxStatus, &attemptStatus, &finalAttemptVersion, &runEvents, &attemptEvents, &totalOutbox,
+		WHERE r.id=$1`, runID, winner.JobID, winner.AttemptID, winner.InboxID, tenantID, messageCompletion.MessageID, messageCompletion.Message.Ref, messageCompletion.Message.Hash, messageCompletion.ContentHash).Scan(
+		&runStatus, &runVersion, &activeCleared, &jobStatus, &jobVersion, &inboxStatus, &attemptStatus, &finalAttemptVersion, &runEvents, &attemptEvents, &totalOutbox, &messageRows, &messageEvents,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -322,8 +330,8 @@ func TestAcceptRunIsAtomicReplaySafeAndTenantIsolated(t *testing.T) {
 	if runStatus != "succeeded" || runVersion != 4 || !activeCleared || jobStatus != "succeeded" || jobVersion != 2 || inboxStatus != "completed" || attemptStatus != "succeeded" || finalAttemptVersion != 3 {
 		t.Fatalf("terminal run=%s/v%d cleared=%v job=%s/v%d inbox=%s attempt=%s/v%d", runStatus, runVersion, activeCleared, jobStatus, jobVersion, inboxStatus, attemptStatus, finalAttemptVersion)
 	}
-	if runEvents != 4 || attemptEvents != 2 || totalOutbox != 7 {
-		t.Fatalf("terminal run events=%d attempt events=%d outbox=%d", runEvents, attemptEvents, totalOutbox)
+	if runEvents != 4 || attemptEvents != 2 || totalOutbox != 7 || messageRows != 1 || messageEvents != 1 {
+		t.Fatalf("terminal run events=%d attempt events=%d outbox=%d messages=%d message_events=%d", runEvents, attemptEvents, totalOutbox, messageRows, messageEvents)
 	}
 }
 
