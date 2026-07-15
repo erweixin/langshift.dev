@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httputil"
+	"net/url"
 	"os"
 	"os/signal"
 	"syscall"
@@ -74,26 +75,19 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 	if err != nil {
 		return err
 	}
-	proxy := &httputil.ReverseProxy{
-		Transport: upstreamClient.Transport,
-		Rewrite: func(request *httputil.ProxyRequest) {
-			request.SetURL(upstream)
-			request.Out.Host = upstream.Host
-			for _, name := range []string{"Forwarded", "X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto", "X-Real-IP"} {
-				request.Out.Header.Del(name)
-			}
-		},
-		ErrorHandler: func(writer http.ResponseWriter, request *http.Request, proxyErr error) {
-			logger.Error("identity upstream request", "error", proxyErr, "request_id", request.Header.Get(transport.RequestIDHeader))
-			problem.Write(writer, problem.Value{Type: "https://errors.lites.dev/dependency_unavailable", Title: "Dependency unavailable", Status: http.StatusServiceUnavailable, Code: "dependency_unavailable", RequestID: request.Header.Get(transport.RequestIDHeader), Retryable: true})
-		},
-		ModifyResponse: func(response *http.Response) error {
-			for _, name := range []string{"Server", "Strict-Transport-Security", "X-Content-Type-Options", "Referrer-Policy", "Permissions-Policy"} {
-				response.Header.Del(name)
-			}
-			return nil
-		},
+	realtimeClient, realtimeUpstream, err := configuration.realtimeUpstreamClient()
+	if err != nil {
+		return err
 	}
+	identityProxy := newUpstreamProxy(upstreamClient, upstream, "identity", 0, logger)
+	realtimeProxy := newUpstreamProxy(realtimeClient, realtimeUpstream, "realtime", -1, logger)
+	upstreamRouter := http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if isRealtimeRoute(request.URL.Path) {
+			realtimeProxy.ServeHTTP(writer, request)
+			return
+		}
+		identityProxy.ServeHTTP(writer, request)
+	})
 	boundary := gateway.TrustBoundary{
 		Resolver:          identitypostgres.SessionResolver{Pool: pool, Pepper: secrets.SessionPepper},
 		AnonymousResolver: identitypostgres.AnonymousSessionResolver{Pool: pool, Verifier: anonymoussession.Verifier{Keys: map[string][]byte{secrets.AnonymousHandleKeyID: secrets.AnonymousHandleKey}, DigestPepper: secrets.AnonymousHandlePepper}},
@@ -101,6 +95,12 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 		SigningKeyID:      secrets.SigningKeyID,
 		Issuer:            configuration.trustedIssuer,
 		Audience:          configuration.trustedAudience,
+		AudienceForRequest: func(request *http.Request) string {
+			if isRealtimeRoute(request.URL.Path) {
+				return configuration.realtimeTrustedAudience
+			}
+			return configuration.trustedAudience
+		},
 		TTL:               configuration.trustedContextTTL,
 		CSRFPepper:        secrets.CSRFPepper,
 		AnonymousCSRFKey:  secrets.AnonymousCSRFKey,
@@ -112,19 +112,28 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 	if err != nil {
 		return errors.New("configure observability")
 	}
-	boundaryHandler := boundary.Wrap(proxy)
+	boundaryHandler := boundary.Wrap(upstreamRouter)
 	application := gateway.CORS{Origins: configuration.publicOrigins}.Wrap(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		request.Body = http.MaxBytesReader(writer, request.Body, 8<<20)
 		boundaryHandler.ServeHTTP(writer, request)
 	}))
 	application = telemetry.WrapHTTP(application)
+	timedApplication := application
+	application = http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if !isRealtimeRoute(request.URL.Path) {
+			controller := http.NewResponseController(writer)
+			_ = controller.SetWriteDeadline(time.Now().Add(40 * time.Second))
+			defer func() { _ = controller.SetWriteDeadline(time.Time{}) }()
+		}
+		timedApplication.ServeHTTP(writer, request)
+	})
 	application = gateway.TrustedProxy{Networks: proxyNetworks}.Wrap(application)
 	application = gateway.SecurityHeaders(application)
 	tlsConfig, err := serverTLS(configuration)
 	if err != nil {
 		return err
 	}
-	server := &http.Server{Addr: configuration.listenAddress, Handler: application, TLSConfig: tlsConfig, ReadHeaderTimeout: 3 * time.Second, ReadTimeout: 20 * time.Second, WriteTimeout: 40 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 32 << 10}
+	server := &http.Server{Addr: configuration.listenAddress, Handler: application, TLSConfig: tlsConfig, ReadHeaderTimeout: 3 * time.Second, ReadTimeout: 20 * time.Second, WriteTimeout: 0, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 32 << 10}
 	health := gatewayHealth(configuration.healthAddress, pool, secrets.SigningNotAfter, configuration.trustedContextTTL, telemetry.MetricsHandler())
 	errChannel := make(chan error, 3)
 	go func() {
@@ -151,7 +160,7 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 	go func() {
 		errChannel <- monitorSigningWindow(ctx, secrets.SigningNotAfter, configuration.trustedContextTTL)
 	}()
-	logger.Info("api gateway ready", "address", configuration.listenAddress, "upstream", upstream.Host, "signing_key_id", secrets.SigningKeyID)
+	logger.Info("api gateway ready", "address", configuration.listenAddress, "identity_upstream", upstream.Host, "realtime_upstream", realtimeUpstream.Host, "signing_key_id", secrets.SigningKeyID)
 	var runErr error
 	select {
 	case <-parent.Done():
@@ -163,10 +172,37 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 	_ = server.Shutdown(shutdownCtx)
 	_ = health.Shutdown(shutdownCtx)
 	upstreamClient.CloseIdleConnections()
+	realtimeClient.CloseIdleConnections()
 	if telemetryErr := telemetry.Shutdown(shutdownCtx); telemetryErr != nil && runErr == nil {
 		runErr = telemetryErr
 	}
 	return runErr
+}
+
+func isRealtimeRoute(path string) bool { return path == "/v1/events" || path == "/v1/realtime" }
+
+func newUpstreamProxy(client *http.Client, upstream *url.URL, name string, flushInterval time.Duration, logger *slog.Logger) *httputil.ReverseProxy {
+	return &httputil.ReverseProxy{
+		Transport:     client.Transport,
+		FlushInterval: flushInterval,
+		Rewrite: func(request *httputil.ProxyRequest) {
+			request.SetURL(upstream)
+			request.Out.Host = upstream.Host
+			for _, header := range []string{"Forwarded", "X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto", "X-Real-IP"} {
+				request.Out.Header.Del(header)
+			}
+		},
+		ErrorHandler: func(writer http.ResponseWriter, request *http.Request, proxyErr error) {
+			logger.Error(name+" upstream request", "error", proxyErr, "request_id", request.Header.Get(transport.RequestIDHeader))
+			problem.Write(writer, problem.Value{Type: "https://errors.lites.dev/dependency_unavailable", Title: "Dependency unavailable", Status: http.StatusServiceUnavailable, Code: "dependency_unavailable", RequestID: request.Header.Get(transport.RequestIDHeader), Retryable: true})
+		},
+		ModifyResponse: func(response *http.Response) error {
+			for _, header := range []string{"Server", "Strict-Transport-Security", "X-Content-Type-Options", "Referrer-Policy", "Permissions-Policy"} {
+				response.Header.Del(header)
+			}
+			return nil
+		},
+	}
 }
 
 func gatewayHealth(address string, pool *pgxpool.Pool, keyNotAfter time.Time, ttl time.Duration, metrics http.Handler) *http.Server {

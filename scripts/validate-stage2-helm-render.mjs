@@ -28,20 +28,20 @@ const failures = [];
 const assert = (condition, message) => { if (!condition) failures.push(message); };
 const byKind = (kind) => documents.filter((document) => document.kind === kind);
 const expectedCounts = {
-  ConfigMap: 6,
-  Deployment: 6,
-  ExternalSecret: 6,
-  HorizontalPodAutoscaler: 5,
+  ConfigMap: 7,
+  Deployment: 7,
+  ExternalSecret: 7,
+  HorizontalPodAutoscaler: 6,
   Job: 1,
-  NetworkPolicy: 9,
-  PodDisruptionBudget: 6,
-  Service: 3,
-  ServiceAccount: 6,
+  NetworkPolicy: 10,
+  PodDisruptionBudget: 7,
+  Service: 4,
+  ServiceAccount: 7,
 };
 for (const [kind, count] of Object.entries(expectedCounts)) assert(byKind(kind).length === count, `${kind} count ${byKind(kind).length}, expected ${count}`);
-assert(documents.length === 48, `resource count ${documents.length}, expected 48`);
+assert(documents.length === 56, `resource count ${documents.length}, expected 56`);
 
-const components = ["api-gateway", "identity-service", "identity-import-worker", "identity-mail-worker", "outbox-publisher", "store-epoch-authority"];
+const components = ["api-gateway", "identity-service", "realtime-gateway", "identity-import-worker", "identity-mail-worker", "outbox-publisher", "store-epoch-authority"];
 for (const component of components) {
   const deployment = byKind("Deployment").find((document) => document.name === `lites-${component}`);
   assert(Boolean(deployment), `missing Deployment for ${component}`);
@@ -76,7 +76,7 @@ const defaultDeny = byKind("NetworkPolicy").find((document) => document.name ===
 assert(Boolean(defaultDeny) && /podSelector:\s+\{\}/.test(defaultDeny.body) && /policyTypes:\s+\[Ingress, Egress\]/.test(defaultDeny.body), "missing default deny ingress and egress");
 const dns = byKind("NetworkPolicy").find((document) => document.name === "lites-dns-egress");
 assert(Boolean(dns) && /protocol:\s+UDP, port:\s+53/.test(dns.body) && /protocol:\s+TCP, port:\s+53/.test(dns.body), "missing restricted DNS egress");
-for (const component of ["identity-import-worker", "identity-mail-worker", "outbox-publisher"]) {
+for (const component of ["realtime-gateway", "identity-import-worker", "identity-mail-worker", "outbox-publisher"]) {
   const policy = byKind("NetworkPolicy").find((document) => document.name === `lites-${component}`);
   assert(Boolean(policy) && /kubernetes\.io\/metadata\.name:\s+data-system[\s\S]*?app\.kubernetes\.io\/instance:\s+lites-nats[\s\S]*?port:\s+4222/.test(policy.body), `${component} lacks selector-scoped NATS egress`);
 }
@@ -100,4 +100,4 @@ if (failures.length) {
   for (const failure of failures) console.error(failure);
   process.exit(1);
 }
-console.log(`stage-2 helm contract: resources=${documents.length} deployments=6 multi_az=6 external_secrets=6 default_deny=1 status=passed`);
+console.log(`stage-2 helm contract: resources=${documents.length} deployments=7 multi_az=7 external_secrets=7 default_deny=1 status=passed`);

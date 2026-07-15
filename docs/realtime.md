@@ -37,6 +37,23 @@ Realtime 是“通知铃”，不是“账本”。铃声可能没听到、可�
 - RealtimeGateway 可以发送重复事件，客户端必须按 `seq` 去重。
 - Gateway 检测到 `seq` gap 时，主动回源 EventStore 补拉。gap 检测只在用户级未过滤流上进行：按 conversation 过滤后的流天然存在 `seq` 空洞（同一用户其他会话、后台 run 也消耗 seq），不作为 gap 依据。
 
+## 生产实现边界
+
+当前生产实现由独立 `realtime-gateway` 承担，公开入口仍经过 API Gateway。API Gateway 对 `/v1/events` 和 `/v1/realtime` 使用专属上游与 `realtime-gateway` audience；Identity Service 的可信上下文不能在 Realtime 服务复用，反向亦然。两个 Hop 都使用 mTLS，Realtime 进程只使用 `lites_realtime_service` 数据库角色：该角色只有 `agent.events`、`agent.event_cursors` 的 `SELECT` 权限，并继续受强制 RLS 约束。
+
+浏览器可见事件只有事件 ID、tenant-user `seq`、事件类型/版本、aggregate 元数据、Store epoch 和因果时间元数据。`actor`、`payload_ref`、`payload_hash` 不进入响应；正文或业务对象必须通过各自带 ACL 的 canonical API 获取。有效契约见 `contracts/openapi/amendments/v1.7.0/realtime.json`。
+
+`GET /v1/events` 的分页规则：
+
+- 第一页传 `after_seq`，服务读取一次 `high_watermark=H`。
+- 若 `next_after_seq` 非空，下一页同时传 `after_seq=next_after_seq` 和 `through_seq=H`。
+- 所有续页只读取 `(after_seq,H]`；因此分页期间新提交的事件不会移动这次 backfill 的右边界。
+- `after_seq > 当前高水位`、`through_seq > 当前高水位`、`through_seq < after_seq` 或数据库返回非连续序列时 fail closed。
+
+`GET /v1/realtime` 的首次连接可传 `after_seq`，浏览器自动重连使用标准 `Last-Event-ID`。若两者同时存在必须相等。SSE 的事实帧使用 `id: <seq>`、`event: event`；控制帧为 `ready`、`heartbeat`、`reauth_required` 或终止错误。短期身份上下文到期会停止正在进行的 backfill，不允许在到期后继续发送事实。
+
+NATS 账户只允许订阅 `lites.commands.events.publish` 和完成账户 readiness 请求。command envelope 只用于提取 tenant wake-up；它不携带或决定用户游标。每个连接收到 wake 后都重新读取 EventStore，且固定周期也会主动 catch up，所以 bus 丢包、重复、乱序和重连都不会改变事实完整性。
+
 ## 多观察者与审批订阅
 
 tenant-user-scoped `seq` 是“某个租户中，认证用户可见通知流”的游标，不是 Run 的全局游标。一个 Run 被多人观察时，不能让审批人使用发起人的 `seq`；同一用户切换租户时也必须使用各自独立的游标。

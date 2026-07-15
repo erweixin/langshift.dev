@@ -29,6 +29,8 @@ const v15Amendment=await load("gate-reports/stage-3/contract-amendment-v1.5.json
 const v16Registry=await load("contracts/events/amendments/v1.6.0/registry.json");
 const v16Fixtures=await load("contracts/events/amendments/v1.6.0/upcaster-fixtures.json");
 const v16Amendment=await load("gate-reports/stage-3/contract-amendment-v1.6.json");
+const v17Realtime=await load("contracts/openapi/amendments/v1.7.0/realtime.json");
+const v17Amendment=await load("gate-reports/stage-3/contract-amendment-v1.7.json");
 const snapshot=await load("gate-reports/stage-1/contract-snapshot.json");
 const eventNames=Object.keys(registry.schemas);
 const baseNames=new Set(Object.keys(baseRegistry.schemas));
@@ -147,6 +149,24 @@ for(const path of ["contracts/events/amendments/v1.6.0/registry.json","contracts
 const v16RootHash=sha256({baseAmendmentId:v15Amendment.amendmentId,files:v16Files});
 check("AMENDMENT-V1.6-CONTENT-ROOT",JSON.stringify(v16Amendment.files)===JSON.stringify(v16Files)&&v16Amendment.contentRootSha256===v16RootHash&&v16Amendment.amendmentId===`contract-amendment-${v16RootHash.slice(0,20)}`,"v1.6 report binds the exact extension files");
 check("AMENDMENT-V1.6-BASE",v16Amendment.baseSnapshotId===snapshot.snapshotId&&v16Amendment.baseContentRootSha256===snapshot.contentRootSha256&&v16Amendment.baseAmendmentId===v15Amendment.amendmentId&&v16Amendment.baseAmendmentContentRootSha256===v15Amendment.contentRootSha256,"v1.6 is anchored to both the frozen Stage 1 snapshot and v1.5 amendment");
+
+check("AMENDMENT-V1.7-VERSION",v17Realtime.amendmentVersion==="1.7.0"&&v17Realtime.baseContractVersion===v16Registry.amendmentVersion&&v17Realtime.kind==="openapi-operation-extension"&&v17Realtime.compatibility==="versioned-server-additive","v1.7 extends the v1.6 contract chain with an explicit versioned API amendment");
+const eventList=v17Realtime.operations?.["events.list"];
+const realtimeConnect=v17Realtime.operations?.["realtime.connect"];
+check("REALTIME-EVENT-BACKFILL",eventList?.method==="GET"&&eventList.path==="/v1/events"&&["after_seq","through_seq"].every(name=>eventList.parameters?.some(parameter=>parameter.name===name&&parameter.schema?.minimum===0))&&eventList.response?.schema==="EventsListResponseV2"&&eventList.snapshotSemantics?.includes("high_watermark"),"events.list fixes every continuation page to the first authoritative EventStore high watermark");
+check("REALTIME-SSE-RECONNECT",realtimeConnect?.method==="GET"&&realtimeConnect.path==="/v1/realtime"&&["after_seq","Last-Event-ID"].every(name=>realtimeConnect.parameters?.some(parameter=>parameter.name===name))&&realtimeConnect.response?.contentType==="text/event-stream"&&realtimeConnect.response?.eventFrames?.event?.schema==="RealtimeEvent","realtime.connect supports initial and standard SSE reconnect cursors with strict event frames");
+const delivery=realtimeConnect?.deliverySemantics;
+check("REALTIME-DELIVERY-AUTHORITY",delivery?.authority==="PostgreSQL EventStore"&&delivery?.wakeSource?.includes("wake-up only")&&JSON.stringify(delivery?.connectOrder)===JSON.stringify(["subscribe_wake_source","read_high_watermark","backfill_contiguous_range","emit_ready","poll_and_wake_catch_up"])&&delivery?.gapPolicy==="fail_closed_and_reconnect"&&delivery?.wakeLossPolicy==="periodic_eventstore_catch_up","NATS can only accelerate wake-up; ordered recovery and gap handling remain EventStore-authoritative");
+const realtimeEvent=v17Realtime.schemas?.RealtimeEvent;
+const listResponse=v17Realtime.schemas?.EventsListResponseV2;
+const realtimeControl=v17Realtime.schemas?.RealtimeControl;
+check("REALTIME-METADATA-ONLY",realtimeEvent?.additionalProperties===false&&["id","seq","event_type","event_schema_version","aggregate_kind","aggregate_id","aggregate_version","store_epoch","occurred_at","committed_at","causation_id","correlation_id"].every(field=>realtimeEvent.required?.includes(field)&&realtimeEvent.properties?.[field])&&v17Realtime.forbiddenResponseFields?.every(field=>!realtimeEvent.properties?.[field])&&eventList.payloadPolicy?.includes("never returned"),"browser delivery contains only authorized event metadata and excludes actor and payload storage metadata");
+check("REALTIME-RESPONSE-SCHEMAS",listResponse?.additionalProperties===false&&["events","high_watermark","next_after_seq"].every(field=>listResponse.required?.includes(field))&&listResponse.properties?.events?.items?.$ref==="#/schemas/RealtimeEvent"&&realtimeControl?.additionalProperties===false&&["kind","cursor"].every(field=>realtimeControl.required?.includes(field)),"backfill and control response objects are closed, cursor-bearing schemas");
+const v17Files=[];
+for(const path of ["contracts/openapi/amendments/v1.7.0/realtime.json"]) v17Files.push({path,sha256:sha256(await read(path))});
+const v17RootHash=sha256({baseAmendmentId:v16Amendment.amendmentId,files:v17Files});
+check("AMENDMENT-V1.7-CONTENT-ROOT",JSON.stringify(v17Amendment.files)===JSON.stringify(v17Files)&&v17Amendment.contentRootSha256===v17RootHash&&v17Amendment.amendmentId===`contract-amendment-${v17RootHash.slice(0,20)}`,"v1.7 report binds the exact Realtime OpenAPI extension");
+check("AMENDMENT-V1.7-BASE",v17Amendment.baseSnapshotId===snapshot.snapshotId&&v17Amendment.baseContentRootSha256===snapshot.contentRootSha256&&v17Amendment.baseAmendmentId===v16Amendment.amendmentId&&v17Amendment.baseAmendmentContentRootSha256===v16Amendment.contentRootSha256,"v1.7 is anchored to both the frozen Stage 1 snapshot and v1.6 amendment");
 
 const failures=checks.filter(item=>item.status==="failed");
 const reportBase={reportVersion:"1.0.0",stage:3,kind:"contract-amendment-lint",status:failures.length?"failed":"passed",summary:{checks:checks.length,passed:checks.length-failures.length,failed:failures.length},results:checks};

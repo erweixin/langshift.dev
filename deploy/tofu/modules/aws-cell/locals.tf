@@ -8,6 +8,7 @@ locals {
   secret_components = toset([
     "api-gateway",
     "identity-service",
+    "realtime-gateway",
     "identity-import-worker",
     "identity-mail-worker",
     "outbox-publisher",

@@ -88,6 +88,36 @@ func TestGatewayStripsForgedIdentityAndIssuesServerContext(t *testing.T) {
 	}
 }
 
+func TestGatewayBindsTrustedContextAudienceToSelectedUpstream(t *testing.T) {
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Unix(1_800_000_000, 0)
+	principal := session.Principal{UserID: "user", TenantID: "tenant", MembershipID: "membership", SessionID: "session", Roles: []string{"member"}, ExpiresAt: now.Add(time.Hour)}
+	boundary := TrustBoundary{Resolver: resolverStub{principal: principal}, SigningKey: privateKey, SigningKeyID: "key", Issuer: "gateway", Audience: "identity-service", AudienceForRequest: func(request *http.Request) string {
+		if request.URL.Path == "/v1/realtime" || request.URL.Path == "/v1/events" {
+			return "realtime-gateway"
+		}
+		return "identity-service"
+	}, TTL: time.Minute, FingerprintPepper: bytes.Repeat([]byte{0x51}, 32), Now: func() time.Time { return now }}
+	for _, test := range []struct{ path, audience string }{{"/v1/account", "identity-service"}, {"/v1/realtime", "realtime-gateway"}, {"/v1/events", "realtime-gateway"}} {
+		request := httptest.NewRequest(http.MethodGet, "https://api.lites.dev"+test.path, nil)
+		request.AddCookie(&http.Cookie{Name: session.CookieName, Value: "opaque"})
+		recorder := httptest.NewRecorder()
+		boundary.Wrap(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+			verifier := trustedcontext.Verifier{Issuer: "gateway", Audience: test.audience, Keys: map[string]ed25519.PublicKey{"key": publicKey}, MaximumTTL: 5 * time.Minute}
+			if _, verifyErr := verifier.Verify(request.Header.Get(TrustedContextHeader), now); verifyErr != nil {
+				t.Errorf("path %s audience verification: %v", test.path, verifyErr)
+			}
+			writer.WriteHeader(http.StatusNoContent)
+		})).ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusNoContent {
+			t.Fatalf("path %s status = %d", test.path, recorder.Code)
+		}
+	}
+}
+
 func TestGatewayRejectsMissingRevokedAndExpiredSessions(t *testing.T) {
 	_, privateKey, _ := ed25519.GenerateKey(rand.Reader)
 	now := time.Unix(1_800_000_000, 0)

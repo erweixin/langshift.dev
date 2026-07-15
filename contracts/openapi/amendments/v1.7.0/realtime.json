@@ -1,0 +1,237 @@
+{
+  "amendmentVersion": "1.7.0",
+  "baseContractVersion": "1.6.0",
+  "kind": "openapi-operation-extension",
+  "compatibility": "versioned-server-additive",
+  "operations": {
+    "events.list": {
+      "method": "GET",
+      "path": "/v1/events",
+      "authentication": "session",
+      "authorization": "tenant_user_owner_scope",
+      "parameters": [
+        {
+          "name": "after_seq",
+          "in": "query",
+          "required": false,
+          "schema": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "description": "Last tenant-user EventStore sequence already processed. Defaults to zero."
+        },
+        {
+          "name": "through_seq",
+          "in": "query",
+          "required": false,
+          "schema": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "description": "High watermark returned by the first page. Required on continuation pages to preserve the original snapshot boundary."
+        }
+      ],
+      "response": {
+        "status": 200,
+        "contentType": "application/json",
+        "schema": "EventsListResponseV2"
+      },
+      "snapshotSemantics": "Read high_watermark once, then return only the contiguous interval (after_seq, high_watermark]. Pagination continues against the returned high watermark.",
+      "payloadPolicy": "Metadata only. actor, payload_ref and payload_hash are never returned. Canonical resources require their own authorized API."
+    },
+    "realtime.connect": {
+      "method": "GET",
+      "path": "/v1/realtime",
+      "authentication": "session",
+      "authorization": "tenant_user_owner_scope",
+      "parameters": [
+        {
+          "name": "after_seq",
+          "in": "query",
+          "required": false,
+          "schema": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "description": "Initial tenant-user EventStore cursor."
+        },
+        {
+          "name": "Last-Event-ID",
+          "in": "header",
+          "required": false,
+          "schema": {
+            "type": "string",
+            "pattern": "^[0-9]+$"
+          },
+          "description": "Standard SSE reconnect cursor. If after_seq is also present, both values must match."
+        }
+      ],
+      "response": {
+        "status": 200,
+        "contentType": "text/event-stream",
+        "eventFrames": {
+          "event": {
+            "id": "tenant-user seq",
+            "schema": "RealtimeEvent"
+          },
+          "control": {
+            "schema": "RealtimeControl"
+          },
+          "stream_error": {
+            "schema": "RealtimeControl"
+          }
+        }
+      },
+      "deliverySemantics": {
+        "authority": "PostgreSQL EventStore",
+        "wakeSource": "NATS events.publish tenant wake-up only",
+        "connectOrder": [
+          "subscribe_wake_source",
+          "read_high_watermark",
+          "backfill_contiguous_range",
+          "emit_ready",
+          "poll_and_wake_catch_up"
+        ],
+        "deduplicationKey": [
+          "tenant_id",
+          "user_id",
+          "seq"
+        ],
+        "gapPolicy": "fail_closed_and_reconnect",
+        "wakeLossPolicy": "periodic_eventstore_catch_up",
+        "slowConsumerPolicy": "bounded_send_deadline_then_disconnect",
+        "authorizationExpiryPolicy": "reauth_required_then_disconnect"
+      }
+    }
+  },
+  "schemas": {
+    "RealtimeEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "seq",
+        "event_type",
+        "event_schema_version",
+        "aggregate_kind",
+        "aggregate_id",
+        "aggregate_version",
+        "store_epoch",
+        "occurred_at",
+        "committed_at",
+        "causation_id",
+        "correlation_id"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "event_type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "event_schema_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "aggregate_kind": {
+          "type": "string",
+          "minLength": 1
+        },
+        "aggregate_id": {
+          "type": "string"
+        },
+        "aggregate_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "store_epoch": {
+          "type": "string"
+        },
+        "occurred_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "committed_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "causation_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "correlation_id": {
+          "type": "string"
+        }
+      }
+    },
+    "EventsListResponseV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "events",
+        "high_watermark",
+        "next_after_seq"
+      ],
+      "properties": {
+        "events": {
+          "type": "array",
+          "items": {
+            "$ref": "#/schemas/RealtimeEvent"
+          }
+        },
+        "high_watermark": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "next_after_seq": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        }
+      }
+    },
+    "RealtimeControl": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "cursor"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "ready",
+            "heartbeat",
+            "reauth_required",
+            "authentication_expired",
+            "cursor_ahead",
+            "event_stream_inconsistent",
+            "stream_unavailable"
+          ]
+        },
+        "cursor": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "retry_after_ms": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  },
+  "forbiddenResponseFields": [
+    "actor",
+    "payload_ref",
+    "payload_hash"
+  ]
+}

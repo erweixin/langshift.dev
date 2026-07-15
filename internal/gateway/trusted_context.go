@@ -34,20 +34,21 @@ var untrustedNetworkHeaders = []string{
 }
 
 type TrustBoundary struct {
-	Resolver          session.Resolver
-	AnonymousResolver anonymoussession.Resolver
-	SigningKey        ed25519.PrivateKey
-	SigningKeyID      string
-	Issuer            string
-	Audience          string
-	TTL               time.Duration
-	CSRFPepper        []byte
-	AnonymousCSRFKey  []byte
-	FingerprintPepper []byte
-	PublicOrigins     []string
-	RoutePolicy       func(*http.Request) AuthenticationPolicy
-	Random            io.Reader
-	Now               func() time.Time
+	Resolver           session.Resolver
+	AnonymousResolver  anonymoussession.Resolver
+	SigningKey         ed25519.PrivateKey
+	SigningKeyID       string
+	Issuer             string
+	Audience           string
+	AudienceForRequest func(*http.Request) string
+	TTL                time.Duration
+	CSRFPepper         []byte
+	AnonymousCSRFKey   []byte
+	FingerprintPepper  []byte
+	PublicOrigins      []string
+	RoutePolicy        func(*http.Request) AuthenticationPolicy
+	Random             io.Reader
+	Now                func() time.Time
 }
 
 type AuthenticationPolicy uint8
@@ -195,7 +196,11 @@ func (boundary TrustBoundary) Wrap(next http.Handler) http.Handler {
 			boundary.internalError(writer, request)
 			return
 		}
-		claims := trustedcontext.Claims{PrincipalKind: principalKind, Issuer: boundary.Issuer, Audience: boundary.Audience, SubjectID: principal.UserID, TenantID: principal.TenantID, MembershipID: principal.MembershipID, SessionID: principal.SessionID, Roles: principal.Roles, RequestID: requestID, RequestMethod: request.Method, RequestTarget: request.URL.RequestURI(), ClientIPHash: clientIPHash, UserAgentHash: userAgentHash, CSRFVerified: csrfVerified, IssuedAt: now.Unix(), ExpiresAt: expiresAt.Unix(), Nonce: base64.RawURLEncoding.EncodeToString(nonceBytes)}
+		audience := boundary.Audience
+		if boundary.AudienceForRequest != nil {
+			audience = boundary.AudienceForRequest(request)
+		}
+		claims := trustedcontext.Claims{PrincipalKind: principalKind, Issuer: boundary.Issuer, Audience: audience, SubjectID: principal.UserID, TenantID: principal.TenantID, MembershipID: principal.MembershipID, SessionID: principal.SessionID, Roles: principal.Roles, RequestID: requestID, RequestMethod: request.Method, RequestTarget: request.URL.RequestURI(), ClientIPHash: clientIPHash, UserAgentHash: userAgentHash, CSRFVerified: csrfVerified, IssuedAt: now.Unix(), ExpiresAt: expiresAt.Unix(), Nonce: base64.RawURLEncoding.EncodeToString(nonceBytes)}
 		if policy == AuthenticatedWithAnonymous {
 			claims.AnonymousSubjectID = anonymousPrincipal.AnonymousSubjectID
 		}

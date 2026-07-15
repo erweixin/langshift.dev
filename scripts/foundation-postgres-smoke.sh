@@ -88,6 +88,9 @@ docker exec "${container_name}" psql -v ON_ERROR_STOP=1 -U postgres -d lites_fou
 docker exec "${container_name}" psql -v ON_ERROR_STOP=1 -U postgres -d lites_foundation -c \
   "CREATE ROLE lites_scheduler_service LOGIN PASSWORD 'foundation_scheduler_service' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS; GRANT CONNECT ON DATABASE lites_foundation TO lites_scheduler_service; GRANT USAGE ON SCHEMA agent TO lites_scheduler_service; GRANT SELECT,UPDATE ON agent.jobs TO lites_scheduler_service; GRANT EXECUTE ON FUNCTION agent.scheduler_claim_resource(text,text,bytea,timestamptz,timestamptz), agent.scheduler_list_ready_jobs(text,text,bigint,bytea,uuid,timestamptz,integer), agent.scheduler_commit_dispatch(text,text,bigint,bytea,jsonb,jsonb,timestamptz,timestamptz), agent.scheduler_abort_resource(text,text,bigint,bytea,timestamptz) TO lites_scheduler_service;" >/dev/null
 
+docker exec "${container_name}" psql -v ON_ERROR_STOP=1 -U postgres -d lites_foundation -c \
+  "CREATE ROLE lites_realtime_service LOGIN PASSWORD 'foundation_realtime_service' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS; GRANT CONNECT ON DATABASE lites_foundation TO lites_realtime_service; GRANT USAGE ON SCHEMA agent TO lites_realtime_service; GRANT SELECT ON agent.events,agent.event_cursors TO lites_realtime_service;" >/dev/null
+
 container_port="$(docker port "${container_name}" 5432/tcp | head -n 1 | sed 's/.*://')"
 
 export LITES_TEST_ADMIN_DATABASE_URL="postgres://postgres:foundation_admin@127.0.0.1:${container_port}/lites_foundation?sslmode=disable"
@@ -95,9 +98,10 @@ export LITES_TEST_IDENTITY_DATABASE_URL="postgres://lites_identity_service:found
 export LITES_TEST_AGENT_DATABASE_URL="postgres://lites_agent_service:foundation_agent_service@127.0.0.1:${container_port}/lites_foundation?sslmode=disable"
 export LITES_TEST_PRODUCT_DATABASE_URL="postgres://lites_product_service:foundation_product_service@127.0.0.1:${container_port}/lites_foundation?sslmode=disable"
 export LITES_TEST_SCHEDULER_DATABASE_URL="postgres://lites_scheduler_service:foundation_scheduler_service@127.0.0.1:${container_port}/lites_foundation?sslmode=disable"
+export LITES_TEST_REALTIME_DATABASE_URL="postgres://lites_realtime_service:foundation_realtime_service@127.0.0.1:${container_port}/lites_foundation?sslmode=disable"
 export GOCACHE="${go_cache}" GOMODCACHE="${go_mod_cache}" GOTMPDIR="${go_tmp}"
 if [[ -n "${LITES_FOUNDATION_TEST_JSON:-}" ]]; then
-  go test -p=1 -json -count=1 -timeout=60s -tags=integration ./internal/identity/postgres ./internal/identity/mail ./internal/eventstore/postgres ./internal/execution/postgres ./internal/product/postgres ./internal/billing/postgres ./internal/llmgateway/postgres ./internal/memory/postgres | tee "${LITES_FOUNDATION_TEST_JSON}"
+  go test -p=1 -json -count=1 -timeout=60s -tags=integration ./internal/identity/postgres ./internal/identity/mail ./internal/eventstore/postgres ./internal/execution/postgres ./internal/product/postgres ./internal/billing/postgres ./internal/llmgateway/postgres ./internal/memory/postgres ./internal/realtime/postgres | tee "${LITES_FOUNDATION_TEST_JSON}"
 else
-  go test -p=1 -count=1 -timeout=60s -tags=integration ./internal/identity/postgres ./internal/identity/mail ./internal/eventstore/postgres ./internal/execution/postgres ./internal/product/postgres ./internal/billing/postgres ./internal/llmgateway/postgres ./internal/memory/postgres
+  go test -p=1 -count=1 -timeout=60s -tags=integration ./internal/identity/postgres ./internal/identity/mail ./internal/eventstore/postgres ./internal/execution/postgres ./internal/product/postgres ./internal/billing/postgres ./internal/llmgateway/postgres ./internal/memory/postgres ./internal/realtime/postgres
 fi

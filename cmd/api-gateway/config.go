@@ -30,7 +30,8 @@ type config struct {
 	databaseURL, databaseURLFile, listenAddress, healthAddress                            string
 	serverCertificateFile, serverKeyFile                                                  string
 	identityURL, identityCAFile, identityCertFile, identityKeyFile, identityTLSServerName string
-	secretBundleFile, trustedIssuer, trustedAudience                                      string
+	realtimeURL, realtimeCAFile, realtimeCertFile, realtimeKeyFile, realtimeTLSServerName string
+	secretBundleFile, trustedIssuer, trustedAudience, realtimeTrustedAudience             string
 	trustedKeyringFile                                                                    string
 	publicOrigins, trustedProxyCIDRs                                                      []string
 	environment, serviceVersion, region                                                   string
@@ -94,22 +95,24 @@ func loadConfig() (config, error) {
 	value := config{
 		databaseURL: databaseURL, databaseURLFile: databaseURLFile, databaseMaxConnections: maxConnections, listenAddress: envString("LISTEN_ADDRESS", ":8443"), healthAddress: envString("HEALTH_ADDRESS", "127.0.0.1:8080"), serverCertificateFile: os.Getenv("SERVER_TLS_CERT_FILE"), serverKeyFile: os.Getenv("SERVER_TLS_KEY_FILE"),
 		identityURL: os.Getenv("IDENTITY_UPSTREAM_URL"), identityCAFile: os.Getenv("IDENTITY_UPSTREAM_ROOT_CA_FILE"), identityCertFile: os.Getenv("IDENTITY_UPSTREAM_CLIENT_CERT_FILE"), identityKeyFile: os.Getenv("IDENTITY_UPSTREAM_CLIENT_KEY_FILE"), identityTLSServerName: os.Getenv("IDENTITY_UPSTREAM_TLS_SERVER_NAME"),
-		secretBundleFile: os.Getenv("GATEWAY_SECRET_BUNDLE_FILE"), trustedKeyringFile: os.Getenv("TRUSTED_CONTEXT_KEYRING_FILE"), trustedIssuer: envString("TRUSTED_CONTEXT_ISSUER", "lites-gateway"), trustedAudience: envString("TRUSTED_CONTEXT_AUDIENCE", "identity-service"), trustedContextTTL: contextTTL, publicOrigins: splitNonempty(os.Getenv("PUBLIC_ORIGINS")), trustedProxyCIDRs: splitNonempty(os.Getenv("TRUSTED_PROXY_CIDRS")), allowInsecureDevelopment: allowInsecure,
+		realtimeURL: os.Getenv("REALTIME_UPSTREAM_URL"), realtimeCAFile: os.Getenv("REALTIME_UPSTREAM_ROOT_CA_FILE"), realtimeCertFile: os.Getenv("REALTIME_UPSTREAM_CLIENT_CERT_FILE"), realtimeKeyFile: os.Getenv("REALTIME_UPSTREAM_CLIENT_KEY_FILE"), realtimeTLSServerName: os.Getenv("REALTIME_UPSTREAM_TLS_SERVER_NAME"),
+		secretBundleFile: os.Getenv("GATEWAY_SECRET_BUNDLE_FILE"), trustedKeyringFile: os.Getenv("TRUSTED_CONTEXT_KEYRING_FILE"), trustedIssuer: envString("TRUSTED_CONTEXT_ISSUER", "lites-gateway"), trustedAudience: envString("TRUSTED_CONTEXT_AUDIENCE", "identity-service"), realtimeTrustedAudience: envString("REALTIME_TRUSTED_CONTEXT_AUDIENCE", "realtime-gateway"), trustedContextTTL: contextTTL, publicOrigins: splitNonempty(os.Getenv("PUBLIC_ORIGINS")), trustedProxyCIDRs: splitNonempty(os.Getenv("TRUSTED_PROXY_CIDRS")), allowInsecureDevelopment: allowInsecure,
 		environment: os.Getenv("LITES_ENVIRONMENT"), serviceVersion: os.Getenv("LITES_VERSION"), region: os.Getenv("LITES_REGION"), otlpEndpoint: os.Getenv("OTLP_GRPC_ENDPOINT"), otlpCAFile: os.Getenv("OTLP_ROOT_CA_FILE"), otlpCertFile: os.Getenv("OTLP_CLIENT_CERT_FILE"), otlpKeyFile: os.Getenv("OTLP_CLIENT_KEY_FILE"), otlpTLSName: os.Getenv("OTLP_TLS_SERVER_NAME"), otlpBearerTokenFile: os.Getenv("OTLP_BEARER_TOKEN_FILE"), traceSampleRatio: traceRatio,
 	}
 	return value, value.validate()
 }
 
 func (value config) validate() error {
-	upstream, err := url.Parse(value.identityURL)
-	loopbackHTTP := err == nil && value.allowInsecureDevelopment && upstream.Scheme == "http" && isLoopback(upstream.Hostname())
-	if err != nil || upstream.Host == "" || upstream.User != nil || upstream.RawQuery != "" || upstream.Fragment != "" || (upstream.Path != "" && upstream.Path != "/") || (upstream.Scheme != "https" && !loopbackHTTP) {
+	if !validUpstreamURL(value.identityURL, value.allowInsecureDevelopment) {
 		return errors.New("IDENTITY_UPSTREAM_URL is invalid")
 	}
-	if value.databaseURL == "" || value.listenAddress == "" || value.healthAddress == "" || value.secretBundleFile == "" || value.trustedKeyringFile == "" || value.trustedIssuer == "" || value.trustedAudience == "" || value.trustedContextTTL <= 0 || value.trustedContextTTL > 5*time.Minute || len(value.publicOrigins) == 0 || value.environment == "" || value.serviceVersion == "" || value.region == "" || value.databaseMaxConnections < 8 || value.databaseMaxConnections > 512 || value.traceSampleRatio < 0 || value.traceSampleRatio > 1 || (value.serverCertificateFile == "") != (value.serverKeyFile == "") || (value.identityCertFile == "") != (value.identityKeyFile == "") || (value.otlpCertFile == "") != (value.otlpKeyFile == "") {
+	if !validUpstreamURL(value.realtimeURL, value.allowInsecureDevelopment) {
+		return errors.New("REALTIME_UPSTREAM_URL is invalid")
+	}
+	if value.databaseURL == "" || value.listenAddress == "" || value.healthAddress == "" || value.secretBundleFile == "" || value.trustedKeyringFile == "" || value.trustedIssuer == "" || value.trustedAudience == "" || value.realtimeTrustedAudience == "" || value.trustedAudience == value.realtimeTrustedAudience || value.trustedContextTTL <= 0 || value.trustedContextTTL > 5*time.Minute || len(value.publicOrigins) == 0 || value.environment == "" || value.serviceVersion == "" || value.region == "" || value.databaseMaxConnections < 8 || value.databaseMaxConnections > 512 || value.traceSampleRatio < 0 || value.traceSampleRatio > 1 || (value.serverCertificateFile == "") != (value.serverKeyFile == "") || (value.identityCertFile == "") != (value.identityKeyFile == "") || (value.realtimeCertFile == "") != (value.realtimeKeyFile == "") || (value.otlpCertFile == "") != (value.otlpKeyFile == "") {
 		return errors.New("required gateway configuration is missing or invalid")
 	}
-	if _, err = gateway.ParseTrustedProxyCIDRs(value.trustedProxyCIDRs); err != nil {
+	if _, err := gateway.ParseTrustedProxyCIDRs(value.trustedProxyCIDRs); err != nil {
 		return errors.New("TRUSTED_PROXY_CIDRS contains an invalid network")
 	}
 	seen := map[string]struct{}{}
@@ -123,7 +126,7 @@ func (value config) validate() error {
 		}
 		seen[origin] = struct{}{}
 	}
-	if !value.allowInsecureDevelopment && (value.databaseURLFile == "" || value.serverCertificateFile == "" || value.identityCAFile == "" || value.identityCertFile == "" || value.identityTLSServerName == "" || value.otlpEndpoint == "" || (value.otlpBearerTokenFile == "" && value.otlpCertFile == "")) {
+	if !value.allowInsecureDevelopment && (value.databaseURLFile == "" || value.serverCertificateFile == "" || value.identityCAFile == "" || value.identityCertFile == "" || value.identityTLSServerName == "" || value.realtimeCAFile == "" || value.realtimeCertFile == "" || value.realtimeTLSServerName == "" || value.otlpEndpoint == "" || (value.otlpBearerTokenFile == "" && value.otlpCertFile == "")) {
 		return errors.New("production requires file-backed database credentials, TLS, upstream mTLS, and authenticated telemetry")
 	}
 	return nil
@@ -184,26 +187,34 @@ func loadGatewaySecrets(path string, now time.Time, ttl time.Duration) (gatewayS
 }
 
 func (value config) upstreamClient() (*http.Client, *url.URL, error) {
-	endpoint, err := url.Parse(value.identityURL)
+	return configuredUpstreamClient(value.identityURL, value.identityCAFile, value.identityCertFile, value.identityKeyFile, value.identityTLSServerName, 35*time.Second)
+}
+
+func (value config) realtimeUpstreamClient() (*http.Client, *url.URL, error) {
+	return configuredUpstreamClient(value.realtimeURL, value.realtimeCAFile, value.realtimeCertFile, value.realtimeKeyFile, value.realtimeTLSServerName, 0)
+}
+
+func configuredUpstreamClient(rawURL, caFile, certFile, keyFile, tlsServerName string, timeout time.Duration) (*http.Client, *url.URL, error) {
+	endpoint, err := url.Parse(rawURL)
 	if err != nil {
-		return nil, nil, errors.New("identity upstream URL is invalid")
+		return nil, nil, errors.New("upstream URL is invalid")
 	}
-	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS13, ServerName: value.identityTLSServerName}
-	if value.identityCAFile != "" {
-		contents, readErr := os.ReadFile(value.identityCAFile)
+	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS13, ServerName: tlsServerName}
+	if caFile != "" {
+		contents, readErr := os.ReadFile(caFile)
 		if readErr != nil {
-			return nil, nil, errors.New("identity upstream CA is unavailable")
+			return nil, nil, errors.New("upstream CA is unavailable")
 		}
 		roots := x509.NewCertPool()
 		if !roots.AppendCertsFromPEM(contents) {
-			return nil, nil, errors.New("identity upstream CA is invalid")
+			return nil, nil, errors.New("upstream CA is invalid")
 		}
 		tlsConfig.RootCAs = roots
 	}
-	if value.identityCertFile != "" {
-		certificate, loadErr := tls.LoadX509KeyPair(value.identityCertFile, value.identityKeyFile)
+	if certFile != "" {
+		certificate, loadErr := tls.LoadX509KeyPair(certFile, keyFile)
 		if loadErr != nil {
-			return nil, nil, errors.New("identity upstream client certificate is invalid")
+			return nil, nil, errors.New("upstream client certificate is invalid")
 		}
 		tlsConfig.Certificates = []tls.Certificate{certificate}
 	}
@@ -212,8 +223,15 @@ func (value config) upstreamClient() (*http.Client, *url.URL, error) {
 	transport.MaxIdleConns = 256
 	transport.MaxIdleConnsPerHost = 128
 	transport.IdleConnTimeout = 60 * time.Second
+	transport.ResponseHeaderTimeout = 10 * time.Second
 	transport.ForceAttemptHTTP2 = true
-	return &http.Client{Transport: transport, Timeout: 35 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, endpoint, nil
+	return &http.Client{Transport: transport, Timeout: timeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, endpoint, nil
+}
+
+func validUpstreamURL(raw string, allowInsecure bool) bool {
+	upstream, err := url.Parse(raw)
+	loopbackHTTP := err == nil && allowInsecure && upstream.Scheme == "http" && isLoopback(upstream.Hostname())
+	return err == nil && upstream.Host != "" && upstream.User == nil && upstream.RawQuery == "" && upstream.Fragment == "" && (upstream.Path == "" || upstream.Path == "/") && (upstream.Scheme == "https" || loopbackHTTP)
 }
 
 func serverTLS(value config) (*tls.Config, error) {

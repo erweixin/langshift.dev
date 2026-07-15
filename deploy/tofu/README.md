@@ -36,3 +36,6 @@ application peppers or database role URLs. The audited bootstrap/rotation
 workflow writes those versioned bundles after least-privilege database roles,
 mTLS identities and the initial epoch CAS record have been created. Application
 deployment stays fail-closed until External Secrets can read complete bundles.
+The dedicated Realtime role is bootstrapped and rotated with
+[`runbooks/realtime-database-role.md`](../../runbooks/realtime-database-role.md);
+OpenTofu only creates its empty secret container.

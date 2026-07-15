@@ -53,7 +53,11 @@ for (const requirement of [
 assert(/cpu:\s+"?2"?[\s\S]*?memory:\s+8Gi/.test(statefulSet), "NATS production resource floor is missing");
 assert(/"jetstream":\s*\{[\s\S]*?"store_dir":\s*"\/data"/.test(configMap), "JetStream file store is not enabled");
 assert((configMap.match(/"min_version":\s*"1\.3"/g) ?? []).length === 2 && (configMap.match(/"verify":\s*true/g) ?? []).length >= 2 && /"verify_and_map":\s*true/.test(configMap), "NATS client and route mTLS 1.3 enforcement is incomplete");
-for (const identity of ["lites-outbox-publisher", "lites-identity-import-worker", "lites-identity-mail-worker"]) assert(configMap.includes(`"user": "${identity}"`), `NATS certificate identity ${identity} is missing`);
+for (const identity of ["lites-outbox-publisher", "lites-identity-import-worker", "lites-identity-mail-worker", "lites-realtime-gateway"]) assert(configMap.includes(`"user": "${identity}"`), `NATS certificate identity ${identity} is missing`);
+const realtimeStart=configMap.indexOf('"user": "lites-realtime-gateway"');
+const realtimePermissionsStart=realtimeStart<0?-1:configMap.lastIndexOf('"permissions":',realtimeStart);
+const realtimePermissions=realtimePermissionsStart<0?"":configMap.slice(realtimePermissionsStart,realtimeStart);
+assert(realtimePermissions.includes("$JS.API.INFO")&&realtimePermissions.includes("lites.commands.events.publish")&&!realtimePermissions.includes("lites.commands.>")&&!realtimePermissions.includes("$JS.API.STREAM."), "Realtime Gateway must have only account readiness request and events.publish wake subscription permissions");
 assert(!/"publish":\s*\[\s*">"/.test(configMap) && !/"subscribe":\s*\[\s*">"/.test(configMap), "NATS user has unrestricted subject permissions");
 assert(/maxUnavailable:\s+1/.test(pdb), "NATS PDB must preserve quorum during disruption");
 assert(/provisioner:\s+ebs\.csi\.aws\.com/.test(storageClass) && /encrypted:\s+"true"/.test(storageClass) && /kmsKeyId:\s+"arn:aws:kms:/.test(storageClass) && /reclaimPolicy:\s+Retain/.test(storageClass), "KMS-encrypted retained gp3 storage class is incomplete");
