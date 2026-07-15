@@ -23,6 +23,9 @@ const v13Amendment=await load("gate-reports/stage-3/contract-amendment-v1.3.json
 const v14Registry=await load("contracts/events/amendments/v1.4.0/registry.json");
 const v14Fixtures=await load("contracts/events/amendments/v1.4.0/upcaster-fixtures.json");
 const v14Amendment=await load("gate-reports/stage-3/contract-amendment-v1.4.json");
+const v15Registry=await load("contracts/events/amendments/v1.5.0/registry.json");
+const v15Fixtures=await load("contracts/events/amendments/v1.5.0/upcaster-fixtures.json");
+const v15Amendment=await load("gate-reports/stage-3/contract-amendment-v1.5.json");
 const snapshot=await load("gate-reports/stage-1/contract-snapshot.json");
 const eventNames=Object.keys(registry.schemas);
 const baseNames=new Set(Object.keys(baseRegistry.schemas));
@@ -89,6 +92,33 @@ for(const path of ["contracts/events/amendments/v1.4.0/registry.json","contracts
 const v14RootHash=sha256({baseAmendmentId:v13Amendment.amendmentId,files:v14Files});
 check("AMENDMENT-V1.4-CONTENT-ROOT",JSON.stringify(v14Amendment.files)===JSON.stringify(v14Files)&&v14Amendment.contentRootSha256===v14RootHash&&v14Amendment.amendmentId===`contract-amendment-${v14RootHash.slice(0,20)}`,"v1.4 report binds the exact extension files");
 check("AMENDMENT-V1.4-BASE",v14Amendment.baseSnapshotId===snapshot.snapshotId&&v14Amendment.baseContentRootSha256===snapshot.contentRootSha256&&v14Amendment.baseAmendmentId===v13Amendment.amendmentId&&v14Amendment.baseAmendmentContentRootSha256===v13Amendment.contentRootSha256,"v1.4 is anchored to both the frozen Stage 1 snapshot and v1.3 amendment");
+
+const v15EventNames=Object.keys(v15Registry.schemas);
+check("AMENDMENT-V1.5-VERSION",v15Registry.amendmentVersion==="1.5.0"&&v15Registry.baseContractVersion===v14Registry.amendmentVersion&&v15Registry.compatibility==="additive","v1.5 additively extends the v1.4 Stage 3 amendment");
+check("AMENDMENT-V1.5-EVENTS",JSON.stringify(v15EventNames)===JSON.stringify(["LLMAttemptStarted","ProviderAttemptPrepared","ProviderAttemptDispatchAuthorized","ProviderAttemptAbandoned","ProviderAttemptRecordedV2","ProviderAttemptReconciled","LLMAttemptFinalized"])&&v15EventNames.every(name=>!baseNames.has(name)&&!eventNames.includes(name)&&!v12EventNames.includes(name)&&!v13EventNames.includes(name)&&!v14EventNames.includes(name)),"LLM and physical Provider attempt lifecycle facts add without replacing frozen registry keys");
+check("AMENDMENT-V1.5-SCHEMAS",Object.values(v15Registry.schemas).every(schema=>schema.additionalProperties===false&&[1,2].includes(schema["x-event-schema-version"])&&schema.properties.payload.additionalProperties===false&&schema.properties.payload.required.every(field=>field in schema.properties.payload.properties)),"v1.5 event envelopes and payloads are closed and versioned");
+check("PROVIDER-RECORDED-V2-EVOLUTION",v15Registry.schemas.ProviderAttemptRecordedV2["x-event-type"]==="ProviderAttemptRecorded"&&v15Registry.schemas.ProviderAttemptRecordedV2["x-event-schema-version"]===2,"frozen ProviderAttemptRecorded gains an explicit additive v2 schema");
+const llmStarted=v15Registry.schemas.LLMAttemptStarted.properties.payload.required;
+const providerPrepared=v15Registry.schemas.ProviderAttemptPrepared.properties.payload.required;
+const providerDispatched=v15Registry.schemas.ProviderAttemptDispatchAuthorized.properties.payload.required;
+const providerAbandoned=v15Registry.schemas.ProviderAttemptAbandoned.properties.payload.required;
+const providerRecorded=v15Registry.schemas.ProviderAttemptRecordedV2.properties.payload.required;
+const providerReconciled=v15Registry.schemas.ProviderAttemptReconciled.properties.payload.required;
+const llmFinalized=v15Registry.schemas.LLMAttemptFinalized.properties.payload.required;
+check("LLM-START-CONTEXT-BINDING",["run_id","run_version","run_attempt_id","run_fence","attempt_key","stream_generation","context_manifest_hash","router_snapshot_id","started_at"].every(field=>llmStarted.includes(field)),"logical LLM start binds the fenced Run and immutable context/router snapshots");
+check("PROVIDER-PREPARE-BINDING",["llm_attempt_id","attempt_key","provider_attempt_id","ordinal","provider_id","model_id","model_version","request_hash","context_manifest_hash","pricing_version","fallback_from_id","byok_credential_id","byok_credential_version","bound_host","secret_version","prepare_token_expires_at"].every(field=>providerPrepared.includes(field)),"physical attempt preparation binds request, fallback, pricing and exact BYOK host/version before egress");
+check("PROVIDER-DISPATCH-BINDING",["llm_attempt_id","provider_attempt_id","ordinal","dispatch_fence","request_hash","dispatched_at","completion_deadline"].every(field=>providerDispatched.includes(field)),"one-shot dispatch authorization binds the exact request and completion deadline");
+check("PROVIDER-ABANDON-BINDING",["llm_attempt_id","provider_attempt_id","ordinal","request_hash","reason_code","prepare_token_expires_at","abandoned_at"].every(field=>providerAbandoned.includes(field)),"an undispatched attempt can expire without being confused with an unknown external result");
+check("PROVIDER-RESULT-BINDING",["ordinal","model_version","request_hash","response_hash","pricing_version","usage_status","provider_request_id","error_class","visible_output_started_at","reconciliation_due_at","byok","legacy_incomplete"].every(field=>providerRecorded.includes(field)),"Provider result v2 preserves physical result, visibility, usage and uncertainty evidence");
+check("PROVIDER-RECONCILIATION-BINDING",["provider_attempt_id","previous_attempt_version","provider_request_id","input_tokens","output_tokens","cost_microunits","usage_status","evidence_hash","reconciled_at"].every(field=>providerReconciled.includes(field)),"Provider reconciliation binds confirmed usage to prior unknown state and external evidence");
+check("LLM-FINALIZATION-BINDING",["run_id","attempt_key","stream_generation","context_manifest_hash","status","selected_provider_attempt_id","provider_attempt_ids","total_input_tokens","total_output_tokens","total_cost_microunits","result_hash","failure_code","finalized_at"].every(field=>llmFinalized.includes(field)),"logical finalization accounts for every physical attempt and selected result");
+const v15EventTypes=new Set(Object.values(v15Registry.schemas).map(schema=>schema["x-event-type"]));
+check("AMENDMENT-V1.5-FIXTURES",v15Fixtures.baseFixtureVersion===v14Fixtures.fixtureVersion&&v15Fixtures.fixtures.length===v15EventNames.length&&v15Fixtures.fixtures.every(fixture=>fixture.inputHash===sha256(fixture.input)&&fixture.expectedHash===sha256(fixture.expected)&&v15EventTypes.has(fixture.eventType)&&((fixture.fromVersion===1&&fixture.toVersion===1&&JSON.stringify(fixture.input)===JSON.stringify(fixture.expected))||(fixture.eventType==="ProviderAttemptRecorded"&&fixture.fromVersion===1&&fixture.toVersion===2&&fixture.expected.legacy_incomplete===true))),"each v1.5 lifecycle fact or Provider result evolution has a deterministic canonical fixture");
+const v15Files=[];
+for(const path of ["contracts/events/amendments/v1.5.0/registry.json","contracts/events/amendments/v1.5.0/upcaster-fixtures.json"]) v15Files.push({path,sha256:sha256(await read(path))});
+const v15RootHash=sha256({baseAmendmentId:v14Amendment.amendmentId,files:v15Files});
+check("AMENDMENT-V1.5-CONTENT-ROOT",JSON.stringify(v15Amendment.files)===JSON.stringify(v15Files)&&v15Amendment.contentRootSha256===v15RootHash&&v15Amendment.amendmentId===`contract-amendment-${v15RootHash.slice(0,20)}`,"v1.5 report binds the exact extension files");
+check("AMENDMENT-V1.5-BASE",v15Amendment.baseSnapshotId===snapshot.snapshotId&&v15Amendment.baseContentRootSha256===snapshot.contentRootSha256&&v15Amendment.baseAmendmentId===v14Amendment.amendmentId&&v15Amendment.baseAmendmentContentRootSha256===v14Amendment.contentRootSha256,"v1.5 is anchored to both the frozen Stage 1 snapshot and v1.4 amendment");
 
 const failures=checks.filter(item=>item.status==="failed");
 const reportBase={reportVersion:"1.0.0",stage:3,kind:"contract-amendment-lint",status:failures.length?"failed":"passed",summary:{checks:checks.length,passed:checks.length-failures.length,failed:failures.length},results:checks};
