@@ -91,3 +91,47 @@ func TestOwnershipStoreRejectsTamperingAndSymlinks(t *testing.T) {
 		t.Fatalf("symlink manifest accepted: %v", err)
 	}
 }
+
+func TestOwnershipCleanupArchivesEvidenceUntilDurableCompletion(t *testing.T) {
+	base := t.TempDir()
+	owner := uint32(os.Getuid())
+	config := validJailerConfig()
+	config.ChrootBaseDir = base
+	root, err := prepareJailRoot(config, "runtime-machine-3", owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := OwnershipStore{Jailer: config, HostID: "runtime-host-1", HostOwnerUID: owner, Key: bytes.Repeat([]byte{0x44}, 32), Random: bytes.NewReader(bytes.Repeat([]byte{0x26}, 16))}
+	record := OwnershipRecord{
+		SchemaVersion: 1, HostID: store.HostID, TenantID: "tenant", SessionID: "session", AllocationID: "allocation", ProvisionAttemptID: "attempt",
+		MachineID: "runtime-machine-3", GuestCID: 44, Root: root, Process: validProcessIdentity(), CreatedAt: time.Now().UTC(),
+	}
+	if err = store.Create(record); err != nil {
+		t.Fatal(err)
+	}
+	if err = store.Cleanup(record); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = os.Stat(filepath.Dir(root)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("machine directory survived cleanup: %v", err)
+	}
+	prepared, err := store.CleanupPrepared(record)
+	if err != nil || !prepared {
+		t.Fatalf("CleanupPrepared()=%v err=%v", prepared, err)
+	}
+	if current, readErr := store.Read(record.MachineID); readErr != nil || current.SessionID != record.SessionID {
+		t.Fatalf("archived Read()=%#v err=%v", current, readErr)
+	}
+	if records, scanErr := store.Scan(); scanErr != nil || len(records) != 1 || records[0].MachineID != record.MachineID {
+		t.Fatalf("archived Scan()=%#v err=%v", records, scanErr)
+	}
+	if err = store.Cleanup(record); err != nil {
+		t.Fatalf("idempotent Cleanup()=%v", err)
+	}
+	if err = store.Remove(record); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.Read(record.MachineID); !errors.Is(err, ErrOwnershipIntegrity) {
+		t.Fatalf("completed evidence survived: %v", err)
+	}
+}

@@ -16,7 +16,9 @@ func TestStagerVerifiesContentAndCreatesExclusiveJailedAssets(t *testing.T) {
 	scratch := writeAsset(t, directory, "scratch", strings.Repeat("s", 1024))
 	config := validJailerConfig()
 	config.ChrootBaseDir = filepath.Join(directory, "jailer")
-	config.UID, config.GID = uint32(os.Getuid()), uint32(os.Getgid())
+	if os.Getuid() != 0 {
+		config.UID, config.GID = uint32(os.Getuid()), uint32(os.Getgid())
+	}
 	if err := os.Mkdir(config.ChrootBaseDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +56,9 @@ func TestStagerRejectsDigestDriftAndSymlinkSources(t *testing.T) {
 	scratch := writeAsset(t, directory, "scratch", strings.Repeat("s", 1024))
 	config := validJailerConfig()
 	config.ChrootBaseDir = filepath.Join(directory, "jailer")
-	config.UID, config.GID = uint32(os.Getuid()), uint32(os.Getgid())
+	if os.Getuid() != 0 {
+		config.UID, config.GID = uint32(os.Getuid()), uint32(os.Getgid())
+	}
 	if err := os.Mkdir(config.ChrootBaseDir, 0o700); err != nil {
 		t.Fatal(err)
 	}

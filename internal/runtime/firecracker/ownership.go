@@ -22,7 +22,10 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-const ownershipFileName = "controller.ownership.json"
+const (
+	ownershipFileName        = "controller.ownership.json"
+	cleanupEvidenceDirectory = ".controller-cleanup"
+)
 
 var (
 	ErrOwnershipConfiguration = errors.New("Firecracker ownership store configuration is invalid")
@@ -131,9 +134,28 @@ func (store OwnershipStore) Read(machineID string) (OwnershipRecord, error) {
 	if err != nil {
 		return OwnershipRecord{}, err
 	}
-	path := filepath.Join(filepath.Dir(root), ownershipFileName)
-	info, err := os.Lstat(path)
-	if err != nil || !info.Mode().IsRegular() || info.Mode()&fs.ModeSymlink != 0 || info.Mode().Perm() != 0o400 || info.Size() < 1 || info.Size() > 32<<10 {
+	active := filepath.Join(filepath.Dir(root), ownershipFileName)
+	archived := store.cleanupPath(machineID)
+	activeInfo, activeErr := os.Lstat(active)
+	archivedInfo, archivedErr := os.Lstat(archived)
+	if (activeErr == nil && archivedErr == nil) || (activeErr != nil && !errors.Is(activeErr, fs.ErrNotExist)) || (archivedErr != nil && !errors.Is(archivedErr, fs.ErrNotExist)) {
+		return OwnershipRecord{}, ErrOwnershipIntegrity
+	}
+	path := active
+	if archivedErr == nil {
+		path = archived
+	} else if activeErr != nil {
+		return OwnershipRecord{}, ErrOwnershipIntegrity
+	}
+	info := activeInfo
+	if path == archived {
+		info = archivedInfo
+	}
+	return store.readPath(path, machineID, root, info)
+}
+
+func (store OwnershipStore) readPath(path, machineID, root string, info os.FileInfo) (OwnershipRecord, error) {
+	if info == nil || !info.Mode().IsRegular() || info.Mode()&fs.ModeSymlink != 0 || info.Mode().Perm() != 0o400 || info.Size() < 1 || info.Size() > 32<<10 {
 		return OwnershipRecord{}, ErrOwnershipIntegrity
 	}
 	stat, ok := info.Sys().(*syscall.Stat_t)
@@ -184,15 +206,53 @@ func (store OwnershipStore) Scan() ([]OwnershipRecord, error) {
 		return nil, err
 	}
 	records := make([]OwnershipRecord, 0, len(entries))
+	seen := make(map[string]struct{}, len(entries))
 	for _, entry := range entries {
-		if !entry.IsDir() || !validID(entry.Name()) {
+		if entry.Name() == cleanupEvidenceDirectory || !entry.IsDir() || !validID(entry.Name()) {
 			continue
 		}
-		record, readErr := store.Read(entry.Name())
+		path := filepath.Join(base, entry.Name(), ownershipFileName)
+		info, statErr := os.Lstat(path)
+		if errors.Is(statErr, fs.ErrNotExist) {
+			return nil, ErrOwnershipIntegrity
+		}
+		record, readErr := store.readPath(path, entry.Name(), filepath.Join(base, entry.Name(), "root"), info)
 		if readErr != nil {
 			return nil, readErr
 		}
+		seen[record.MachineID] = struct{}{}
 		records = append(records, record)
+	}
+	cleanupDirectory := filepath.Join(base, cleanupEvidenceDirectory)
+	cleanupEntries, cleanupErr := os.ReadDir(cleanupDirectory)
+	if cleanupErr != nil && !errors.Is(cleanupErr, fs.ErrNotExist) {
+		return nil, cleanupErr
+	}
+	if cleanupErr == nil {
+		if err := verifyTrustedDirectory(cleanupDirectory, store.HostOwnerUID); err != nil {
+			return nil, ErrOwnershipIntegrity
+		}
+		for _, entry := range cleanupEntries {
+			name := entry.Name()
+			machineID := name[:len(name)-len(filepath.Ext(name))]
+			if entry.IsDir() || filepath.Ext(name) != ".json" || !validID(machineID) {
+				return nil, ErrOwnershipIntegrity
+			}
+			if _, duplicate := seen[machineID]; duplicate {
+				return nil, ErrOwnershipIntegrity
+			}
+			path := filepath.Join(cleanupDirectory, name)
+			info, statErr := os.Lstat(path)
+			if statErr != nil {
+				return nil, ErrOwnershipIntegrity
+			}
+			record, readErr := store.readPath(path, machineID, filepath.Join(base, machineID, "root"), info)
+			if readErr != nil {
+				return nil, readErr
+			}
+			seen[machineID] = struct{}{}
+			records = append(records, record)
+		}
 	}
 	return records, nil
 }
@@ -201,11 +261,18 @@ func (store OwnershipStore) Remove(record OwnershipRecord) error {
 	if err := store.Verify(record); err != nil {
 		return ErrOwnershipIntegrity
 	}
-	directory := filepath.Dir(record.Root)
-	if err := os.Remove(filepath.Join(directory, ownershipFileName)); err != nil {
+	active := filepath.Join(filepath.Dir(record.Root), ownershipFileName)
+	archived := store.cleanupPath(record.MachineID)
+	path := active
+	parent := filepath.Dir(record.Root)
+	if _, err := os.Lstat(archived); err == nil {
+		path = archived
+		parent = filepath.Dir(archived)
+	}
+	if err := os.Remove(path); err != nil {
 		return err
 	}
-	return syncDirectory(directory)
+	return syncDirectory(parent)
 }
 
 func (store OwnershipStore) Verify(record OwnershipRecord) error {
@@ -221,10 +288,70 @@ func (store OwnershipStore) Cleanup(record OwnershipRecord) error {
 		return err
 	}
 	directory := filepath.Dir(record.Root)
+	archived := store.cleanupPath(record.MachineID)
+	if _, err := os.Lstat(archived); errors.Is(err, fs.ErrNotExist) {
+		cleanupDirectory, prepareErr := store.ensureCleanupDirectory()
+		if prepareErr != nil {
+			return prepareErr
+		}
+		active := filepath.Join(directory, ownershipFileName)
+		if err = os.Rename(active, archived); err != nil {
+			return err
+		}
+		if err = syncDirectory(cleanupDirectory); err != nil {
+			return err
+		}
+	} else if err != nil {
+		return err
+	}
 	if err := os.RemoveAll(directory); err != nil {
 		return err
 	}
 	return syncDirectory(filepath.Dir(directory))
+}
+
+func (store OwnershipStore) CleanupPrepared(record OwnershipRecord) (bool, error) {
+	info, err := os.Lstat(store.cleanupPath(record.MachineID))
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	current, err := store.readPath(store.cleanupPath(record.MachineID), record.MachineID, record.Root, info)
+	if err != nil || !reflect.DeepEqual(current, record) {
+		return false, ErrOwnershipIntegrity
+	}
+	return true, nil
+}
+
+func (store OwnershipStore) cleanupPath(machineID string) string {
+	base := filepath.Join(store.Jailer.ChrootBaseDir, filepath.Base(store.Jailer.FirecrackerPath))
+	return filepath.Join(base, cleanupEvidenceDirectory, machineID+".json")
+}
+
+func (store OwnershipStore) ensureCleanupDirectory() (string, error) {
+	base := filepath.Join(store.Jailer.ChrootBaseDir, filepath.Base(store.Jailer.FirecrackerPath))
+	if err := verifyTrustedDirectory(base, store.HostOwnerUID); err != nil {
+		return "", ErrOwnershipIntegrity
+	}
+	directory := filepath.Join(base, cleanupEvidenceDirectory)
+	if err := os.Mkdir(directory, 0o700); err != nil && !errors.Is(err, fs.ErrExist) {
+		return "", err
+	}
+	if err := os.Chown(directory, int(store.HostOwnerUID), -1); err != nil {
+		return "", err
+	}
+	if err := os.Chmod(directory, 0o700); err != nil {
+		return "", err
+	}
+	if err := verifyTrustedDirectory(directory, store.HostOwnerUID); err != nil {
+		return "", ErrOwnershipIntegrity
+	}
+	if err := syncDirectory(base); err != nil {
+		return "", err
+	}
+	return directory, nil
 }
 
 func (store OwnershipStore) validate() error {

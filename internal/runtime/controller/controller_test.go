@@ -89,11 +89,13 @@ func (machine *machineStub) Identity() (firecracker.ProcessIdentity, error) {
 type ownershipStub struct {
 	mu                   sync.Mutex
 	records              map[string]firecracker.OwnershipRecord
+	cleaned              map[string]bool
+	cleanups             int
 	createErr, verifyErr error
 }
 
 func newOwnershipStub() *ownershipStub {
-	return &ownershipStub{records: make(map[string]firecracker.OwnershipRecord)}
+	return &ownershipStub{records: make(map[string]firecracker.OwnershipRecord), cleaned: make(map[string]bool)}
 }
 func (store *ownershipStub) Create(record firecracker.OwnershipRecord) error {
 	store.mu.Lock()
@@ -133,7 +135,26 @@ func (store *ownershipStub) Cleanup(record firecracker.OwnershipRecord) error {
 		return err
 	}
 	store.mu.Lock()
+	store.cleaned[record.MachineID] = true
+	store.cleanups++
+	store.mu.Unlock()
+	return nil
+}
+func (store *ownershipStub) CleanupPrepared(record firecracker.OwnershipRecord) (bool, error) {
+	if err := store.Verify(record); err != nil {
+		return false, err
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	return store.cleaned[record.MachineID], nil
+}
+func (store *ownershipStub) Remove(record firecracker.OwnershipRecord) error {
+	if err := store.Verify(record); err != nil {
+		return err
+	}
+	store.mu.Lock()
 	delete(store.records, record.MachineID)
+	delete(store.cleaned, record.MachineID)
 	store.mu.Unlock()
 	return nil
 }
@@ -142,6 +163,7 @@ type recoveryStoreStub struct {
 	mu                   sync.Mutex
 	states               map[string]runtimepostgres.RecoveryState
 	requested, completed int
+	completeErrors       []error
 }
 
 func (store *recoveryStoreStub) InspectOwnedMachine(_ context.Context, identity runtimepostgres.RecoveryIdentity, _ []byte) (runtimepostgres.RecoveryState, error) {
@@ -183,6 +205,13 @@ func (store *recoveryStoreStub) CompleteRecoveryTermination(_ context.Context, c
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	store.completed++
+	if len(store.completeErrors) > 0 {
+		err := store.completeErrors[0]
+		store.completeErrors = store.completeErrors[1:]
+		if err != nil {
+			return runtimepostgres.LifecycleResult{}, err
+		}
+	}
 	state := store.states[command.SessionID]
 	state.SessionVersion = command.ExpectedVersion + 1
 	state.SessionStatus = "terminated"
@@ -190,6 +219,37 @@ func (store *recoveryStoreStub) CompleteRecoveryTermination(_ context.Context, c
 	state.AllocationStatus = "released"
 	store.states[command.SessionID] = state
 	return runtimepostgres.LifecycleResult{SessionID: command.SessionID, Status: "terminated", Version: state.SessionVersion}, nil
+}
+
+func TestControllerRetriesDurableCompletionFromArchivedCleanupEvidence(t *testing.T) {
+	record := recoveryRecord("80000000-0000-4000-8000-000000000031", "80000000-0000-4000-8000-000000000032", "runtime-machine-4", 4234)
+	identity := recoveryIdentity(record)
+	recovery := &recoveryStoreStub{
+		states: map[string]runtimepostgres.RecoveryState{record.SessionID: {
+			RecoveryIdentity: identity, SessionVersion: 4, AllocationVersion: 3, ProvisionFence: 1,
+			SessionStatus: "termination_requested", AllocationStatus: "releasing",
+		}},
+		completeErrors: []error{errors.New("database completion outcome unknown")},
+	}
+	owners := newOwnershipStub()
+	owners.records[record.MachineID] = record
+	owners.cleaned[record.MachineID] = true
+	controller := &Controller{Store: &storeStub{}, Recovery: recovery, Payloads: payloadStub{}, Ownership: owners, Now: func() time.Time {
+		return time.Date(2026, 7, 15, 17, 30, 0, 0, time.UTC)
+	}}
+	request := ReconcileRequest{HostID: record.HostID, HostControlHash: bytes.Repeat([]byte{0x55}, 32)}
+	if completed, err := controller.ReconcileTerminations(context.Background(), request); err == nil || completed != 0 {
+		t.Fatalf("first ReconcileTerminations()=%d err=%v", completed, err)
+	}
+	if _, exists := owners.records[record.MachineID]; !exists || !owners.cleaned[record.MachineID] {
+		t.Fatal("cleanup evidence was discarded after unknown database outcome")
+	}
+	if completed, err := controller.ReconcileTerminations(context.Background(), request); err != nil || completed != 1 {
+		t.Fatalf("retry ReconcileTerminations()=%d err=%v", completed, err)
+	}
+	if _, exists := owners.records[record.MachineID]; exists || recovery.states[record.SessionID].SessionStatus != "terminated" {
+		t.Fatal("cleanup evidence did not converge with durable termination")
+	}
 }
 
 func TestControllerFailsClosedBeforeAttestationWhenOwnershipCannotBePersisted(t *testing.T) {
@@ -301,18 +361,11 @@ func recoveryRecord(sessionID, allocationID, machineID string, pid int) firecrac
 func TestControllerAttestsPersistsReadyAndTerminatesOwnedMachine(t *testing.T) {
 	store := &storeStub{}
 	machine := &machineStub{done: make(chan struct{})}
-	cleaned := 0
 	now := time.Date(2026, 7, 15, 16, 0, 0, 0, time.UTC)
 	owners := newOwnershipStub()
 	controller := &Controller{Store: store, Payloads: payloadStub{}, Ownership: owners, Random: bytes.NewReader(bytes.Repeat([]byte{0x42}, 32)), Now: func() time.Time { return now }}
 	controller.stage = func(context.Context, firecracker.StageRequest) (stagedMachine, error) {
-		return stagedMachine{spec: firecracker.Spec{}, root: "/jail/runtime-machine-1/root", vsockPath: "/jail/run/guest.vsock", cleanup: func() error {
-			cleaned++
-			owners.mu.Lock()
-			delete(owners.records, "runtime-machine-1")
-			owners.mu.Unlock()
-			return nil
-		}}, nil
+		return stagedMachine{spec: firecracker.Spec{}, root: "/jail/runtime-machine-1/root", vsockPath: "/jail/run/guest.vsock", cleanup: func() error { return nil }}, nil
 	}
 	controller.start = func(context.Context, firecracker.Spec) (machineProcess, error) { return machine, nil }
 	controller.probe = func(_ context.Context, _ string, _ string, challenge string) (guest.Attestation, error) {
@@ -325,8 +378,8 @@ func TestControllerAttestsPersistsReadyAndTerminatesOwnedMachine(t *testing.T) {
 	}
 	now = now.Add(time.Second)
 	terminated, err := controller.Terminate(context.Background(), provisioned.Provision.SessionID, "completed")
-	if err != nil || terminated.Status != "terminated" || !machine.stopped || cleaned != 1 || store.requested != 1 || store.completed != 1 {
-		t.Fatalf("Terminate() = %#v, %v stopped=%v cleaned=%d calls=%d/%d", terminated, err, machine.stopped, cleaned, store.requested, store.completed)
+	if err != nil || terminated.Status != "terminated" || !machine.stopped || owners.cleanups != 1 || store.requested != 1 || store.completed != 1 {
+		t.Fatalf("Terminate() = %#v, %v stopped=%v cleaned=%d calls=%d/%d", terminated, err, machine.stopped, owners.cleanups, store.requested, store.completed)
 	}
 	if len(owners.records) != 0 {
 		t.Fatal("ownership record survived successful cleanup")
@@ -336,30 +389,30 @@ func TestControllerAttestsPersistsReadyAndTerminatesOwnedMachine(t *testing.T) {
 func TestControllerAttestationFailureStopsCleansAndReleasesCapacityState(t *testing.T) {
 	store := &storeStub{}
 	machine := &machineStub{done: make(chan struct{})}
-	cleaned := 0
 	now := time.Date(2026, 7, 15, 16, 30, 0, 0, time.UTC)
-	controller := &Controller{Store: store, Payloads: payloadStub{}, Ownership: newOwnershipStub(), Random: bytes.NewReader(bytes.Repeat([]byte{0x43}, 32)), Now: func() time.Time { return now }}
+	owners := newOwnershipStub()
+	controller := &Controller{Store: store, Payloads: payloadStub{}, Ownership: owners, Random: bytes.NewReader(bytes.Repeat([]byte{0x43}, 32)), Now: func() time.Time { return now }}
 	controller.stage = func(context.Context, firecracker.StageRequest) (stagedMachine, error) {
-		return stagedMachine{spec: firecracker.Spec{}, root: "/jail/runtime-machine-1/root", vsockPath: "/jail/run/guest.vsock", cleanup: func() error { cleaned++; return nil }}, nil
+		return stagedMachine{spec: firecracker.Spec{}, root: "/jail/runtime-machine-1/root", vsockPath: "/jail/run/guest.vsock", cleanup: func() error { return nil }}, nil
 	}
 	controller.start = func(context.Context, firecracker.Spec) (machineProcess, error) { return machine, nil }
 	probeFailure := errors.New("guest did not attest")
 	controller.probe = func(context.Context, string, string, string) (guest.Attestation, error) {
 		return guest.Attestation{}, probeFailure
 	}
-	if _, err := controller.Provision(context.Background(), validProvisionRequest(now)); !errors.Is(err, probeFailure) || !machine.stopped || cleaned != 1 || store.requested != 1 || store.completed != 1 || store.ready != 0 {
-		t.Fatalf("failed Provision() = %v stopped=%v cleaned=%d calls=%d/%d/%d", err, machine.stopped, cleaned, store.requested, store.completed, store.ready)
+	if _, err := controller.Provision(context.Background(), validProvisionRequest(now)); !errors.Is(err, probeFailure) || !machine.stopped || owners.cleanups != 1 || store.requested != 1 || store.completed != 1 || store.ready != 0 {
+		t.Fatalf("failed Provision() = %v stopped=%v cleaned=%d calls=%d/%d/%d", err, machine.stopped, owners.cleanups, store.requested, store.completed, store.ready)
 	}
 }
 
 func TestControllerUnexpectedExitConvergesToDurableTermination(t *testing.T) {
 	store := &storeStub{}
 	machine := &machineStub{done: make(chan struct{})}
-	cleaned := make(chan struct{}, 1)
 	now := time.Date(2026, 7, 15, 17, 0, 0, 0, time.UTC)
-	controller := &Controller{Store: store, Payloads: payloadStub{}, Ownership: newOwnershipStub(), Random: bytes.NewReader(bytes.Repeat([]byte{0x44}, 32)), Now: func() time.Time { return now }}
+	owners := newOwnershipStub()
+	controller := &Controller{Store: store, Payloads: payloadStub{}, Ownership: owners, Random: bytes.NewReader(bytes.Repeat([]byte{0x44}, 32)), Now: func() time.Time { return now }}
 	controller.stage = func(context.Context, firecracker.StageRequest) (stagedMachine, error) {
-		return stagedMachine{spec: firecracker.Spec{}, root: "/jail/runtime-machine-1/root", vsockPath: "/jail/run/guest.vsock", cleanup: func() error { cleaned <- struct{}{}; return nil }}, nil
+		return stagedMachine{spec: firecracker.Spec{}, root: "/jail/runtime-machine-1/root", vsockPath: "/jail/run/guest.vsock", cleanup: func() error { return nil }}, nil
 	}
 	controller.start = func(context.Context, firecracker.Spec) (machineProcess, error) { return machine, nil }
 	controller.probe = func(_ context.Context, _ string, _ string, challenge string) (guest.Attestation, error) {
@@ -370,18 +423,16 @@ func TestControllerUnexpectedExitConvergesToDurableTermination(t *testing.T) {
 		t.Fatal(err)
 	}
 	close(machine.done)
-	select {
-	case <-cleaned:
-	case <-time.After(time.Second):
-		t.Fatal("unexpected VMM exit was not cleaned")
-	}
 	deadline := time.Now().Add(time.Second)
 	var requested, completed int
 	for {
 		store.mu.Lock()
 		requested, completed = store.requested, store.completed
 		store.mu.Unlock()
-		if completed == 1 || time.Now().After(deadline) {
+		owners.mu.Lock()
+		cleanups := owners.cleanups
+		owners.mu.Unlock()
+		if completed == 1 && cleanups == 1 || time.Now().After(deadline) {
 			break
 		}
 		time.Sleep(time.Millisecond)
