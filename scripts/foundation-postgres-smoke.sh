@@ -67,7 +67,8 @@ for migration in \
   deploy/migrations/000025_portfolio_export_protocol.up.sql \
   deploy/migrations/000026_llm_provider_attempt_protocol.up.sql \
   deploy/migrations/000027_usage_accounting_protocol.up.sql \
-  deploy/migrations/000028_memory_retrieval_protocol.up.sql; do
+  deploy/migrations/000028_memory_retrieval_protocol.up.sql \
+  deploy/migrations/000029_runtime_session_protocol.up.sql; do
   target="/tmp/$(basename "${migration}")"
   docker cp "${migration}" "${container_name}:${target}" >/dev/null
   docker exec "${container_name}" psql -v ON_ERROR_STOP=1 -U postgres -d lites_foundation -f "${target}" >/dev/null
@@ -91,6 +92,9 @@ docker exec "${container_name}" psql -v ON_ERROR_STOP=1 -U postgres -d lites_fou
 docker exec "${container_name}" psql -v ON_ERROR_STOP=1 -U postgres -d lites_foundation -c \
   "CREATE ROLE lites_realtime_service LOGIN PASSWORD 'foundation_realtime_service' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS; GRANT CONNECT ON DATABASE lites_foundation TO lites_realtime_service; GRANT USAGE ON SCHEMA agent TO lites_realtime_service; GRANT SELECT ON agent.events,agent.event_cursors TO lites_realtime_service;" >/dev/null
 
+docker exec "${container_name}" psql -v ON_ERROR_STOP=1 -U postgres -d lites_foundation -c \
+  "CREATE ROLE lites_runtime_service LOGIN PASSWORD 'foundation_runtime_service' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS; GRANT CONNECT ON DATABASE lites_foundation TO lites_runtime_service; GRANT USAGE ON SCHEMA agent TO lites_runtime_service; GRANT SELECT ON agent.runs,agent.tool_calls,agent.events TO lites_runtime_service; GRANT SELECT,INSERT ON agent.runtime_policy_snapshots TO lites_runtime_service; GRANT SELECT,INSERT,UPDATE ON agent.runtime_sessions,agent.event_cursors,agent.outbox TO lites_runtime_service; GRANT INSERT ON agent.events TO lites_runtime_service; GRANT EXECUTE ON FUNCTION agent.list_runtime_recovery_tenants(uuid,uuid,integer,integer,integer,timestamptz) TO lites_runtime_service;" >/dev/null
+
 container_port="$(docker port "${container_name}" 5432/tcp | head -n 1 | sed 's/.*://')"
 
 export LITES_TEST_ADMIN_DATABASE_URL="postgres://postgres:foundation_admin@127.0.0.1:${container_port}/lites_foundation?sslmode=disable"
@@ -99,9 +103,10 @@ export LITES_TEST_AGENT_DATABASE_URL="postgres://lites_agent_service:foundation_
 export LITES_TEST_PRODUCT_DATABASE_URL="postgres://lites_product_service:foundation_product_service@127.0.0.1:${container_port}/lites_foundation?sslmode=disable"
 export LITES_TEST_SCHEDULER_DATABASE_URL="postgres://lites_scheduler_service:foundation_scheduler_service@127.0.0.1:${container_port}/lites_foundation?sslmode=disable"
 export LITES_TEST_REALTIME_DATABASE_URL="postgres://lites_realtime_service:foundation_realtime_service@127.0.0.1:${container_port}/lites_foundation?sslmode=disable"
+export LITES_TEST_RUNTIME_DATABASE_URL="postgres://lites_runtime_service:foundation_runtime_service@127.0.0.1:${container_port}/lites_foundation?sslmode=disable"
 export GOCACHE="${go_cache}" GOMODCACHE="${go_mod_cache}" GOTMPDIR="${go_tmp}"
 if [[ -n "${LITES_FOUNDATION_TEST_JSON:-}" ]]; then
-  go test -p=1 -json -count=1 -timeout=60s -tags=integration ./internal/identity/postgres ./internal/identity/mail ./internal/eventstore/postgres ./internal/execution/postgres ./internal/product/postgres ./internal/billing/postgres ./internal/llmgateway/postgres ./internal/memory/postgres ./internal/realtime/postgres | tee "${LITES_FOUNDATION_TEST_JSON}"
+  go test -p=1 -json -count=1 -timeout=60s -tags=integration ./internal/identity/postgres ./internal/identity/mail ./internal/eventstore/postgres ./internal/execution/postgres ./internal/product/postgres ./internal/billing/postgres ./internal/llmgateway/postgres ./internal/memory/postgres ./internal/realtime/postgres ./internal/runtime | tee "${LITES_FOUNDATION_TEST_JSON}"
 else
-  go test -p=1 -count=1 -timeout=60s -tags=integration ./internal/identity/postgres ./internal/identity/mail ./internal/eventstore/postgres ./internal/execution/postgres ./internal/product/postgres ./internal/billing/postgres ./internal/llmgateway/postgres ./internal/memory/postgres ./internal/realtime/postgres
+  go test -p=1 -count=1 -timeout=60s -tags=integration ./internal/identity/postgres ./internal/identity/mail ./internal/eventstore/postgres ./internal/execution/postgres ./internal/product/postgres ./internal/billing/postgres ./internal/llmgateway/postgres ./internal/memory/postgres ./internal/realtime/postgres ./internal/runtime
 fi
