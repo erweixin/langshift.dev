@@ -18,6 +18,7 @@ type StartLLMAttemptCommand struct {
 	Manifest                                         ContextManifest
 	Actor                                            json.RawMessage
 	StartedEvent                                     PayloadPointer
+	RetrievalInput                                   any
 }
 
 type LLMAttempt struct {
@@ -29,6 +30,13 @@ type LLMAttempt struct {
 
 func (store Store) StartLLMAttempt(ctx context.Context, command StartLLMAttemptCommand) (LLMAttempt, error) {
 	if !store.valid() || !validStart(command) {
+		return LLMAttempt{}, ErrInvalidCommand
+	}
+	if command.Manifest.Retrieval != nil {
+		if store.Retrieval == nil || command.RetrievalInput == nil || !store.Retrieval.Validate(command.RetrievalInput) {
+			return LLMAttempt{}, ErrInvalidCommand
+		}
+	} else if command.RetrievalInput != nil {
 		return LLMAttempt{}, ErrInvalidCommand
 	}
 	if err := store.requireEpoch(ctx); err != nil {
@@ -61,6 +69,12 @@ func (store Store) StartLLMAttempt(ctx context.Context, command StartLLMAttemptC
 		if actual.AttemptID != command.AttemptID || actualUser != command.UserID || actualRun != command.RunID || actualRunAttempt != command.RunAttemptID || actualRunFence != command.RunFence || actualKey != command.AttemptKey || actual.StreamGeneration != command.StreamGeneration || actual.ContextManifestHash != manifestHash || actualRouter != command.Manifest.Router.ID || eventID != identifiers.Event || json.Unmarshal(actualManifest, &decoded) != nil || !reflect.DeepEqual(decoded, command.Manifest) {
 			return LLMAttempt{}, ErrAttemptConflict
 		}
+		if command.Manifest.Retrieval != nil {
+			retrievalContext := RetrievalManifestContext{ManifestID: command.Manifest.Retrieval.ManifestID, AttemptID: command.AttemptID, TenantID: command.TenantID, UserID: command.UserID, RunID: command.RunID, StoreEpoch: store.StoreEpoch, ContextManifestHash: manifestHash, StartedEventID: identifiers.Event, Actor: command.Actor, CorrelationID: command.CorrelationID, Now: actual.StartedAt}
+			if err = store.Retrieval.Commit(ctx, tx, retrievalContext, command.RetrievalInput); err != nil {
+				return LLMAttempt{}, err
+			}
+		}
 		actual.Replayed = true
 		if err = tx.Commit(ctx); err != nil {
 			return LLMAttempt{}, err
@@ -83,6 +97,12 @@ func (store Store) StartLLMAttempt(ctx context.Context, command StartLLMAttemptC
 	event := publishEvent(identifiers, eventpostgres.Event{TenantID: command.TenantID, UserID: command.UserID, EventType: "LLMAttemptStarted", SchemaVersion: 1, AggregateKind: "llm_attempt", AggregateID: command.AttemptID, AggregateVersion: 1, StoreEpoch: store.StoreEpoch, OccurredAt: now, Actor: command.Actor, CorrelationID: command.CorrelationID}, command.StartedEvent)
 	if _, err = store.Appender.Append(ctx, tx, event); err != nil {
 		return LLMAttempt{}, err
+	}
+	if command.Manifest.Retrieval != nil {
+		retrievalContext := RetrievalManifestContext{ManifestID: command.Manifest.Retrieval.ManifestID, AttemptID: command.AttemptID, TenantID: command.TenantID, UserID: command.UserID, RunID: command.RunID, StoreEpoch: store.StoreEpoch, ContextManifestHash: manifestHash, StartedEventID: identifiers.Event, Actor: command.Actor, CorrelationID: command.CorrelationID, Now: now}
+		if err = store.Retrieval.Commit(ctx, tx, retrievalContext, command.RetrievalInput); err != nil {
+			return LLMAttempt{}, err
+		}
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return LLMAttempt{}, err

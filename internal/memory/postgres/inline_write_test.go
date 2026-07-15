@@ -9,9 +9,9 @@ import (
 
 func TestMemoryWriteValidationAndIdentifiers(t *testing.T) {
 	write := MemoryWrite{
-		MemoryID: "memory", ScopeKind: "user", ScopeID: "user", MemoryKind: "preference",
+		MemoryID: "memory", ScopeKind: "user", ScopeID: "user", MemoryKind: "preference", ContentHMAC: [32]byte{1},
 		ContentRef: "encrypted://memory", ContentType: "text", SensitivityLabels: []string{"private"},
-		SourceKind: "user_stated", Sources: []SourceReference{{Kind: "user_statement", Ref: "event:1", Version: 1}},
+		SourceKind: "user_stated", TrustLabel: "user_asserted", Sources: []SourceReference{{Kind: "user_statement", Ref: "event:1", Version: 1}},
 		DataSubjectIDs: []string{"user"}, DerivationKind: "direct", Confidence: 1,
 		EncryptionSubjectID: "user", KeyRef: "vault://memory/user", EmbeddingModelID: "embedding-model",
 		EmbeddingModelVersion: "2026-07-01", VectorDimensions: 1536, Tags: []string{"preference"},

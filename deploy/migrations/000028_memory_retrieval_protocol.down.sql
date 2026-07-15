@@ -8,6 +8,10 @@ BEGIN
 END
 $$;
 
+DROP TRIGGER IF EXISTS llm_retrieval_binding_guard ON agent.llm_attempts;
+DROP FUNCTION IF EXISTS agent.validate_llm_retrieval_binding();
+ALTER TABLE agent.llm_attempts DROP CONSTRAINT IF EXISTS llm_attempts_context_schema_contract;
+
 ALTER TABLE agent.tool_calls
   DROP CONSTRAINT IF EXISTS tool_calls_execution_mode_contract,
   DROP COLUMN IF EXISTS execution_mode;
@@ -18,6 +22,8 @@ DROP TRIGGER IF EXISTS memory_tombstone_commit_guard ON agent.memory_tombstones;
 DROP FUNCTION IF EXISTS agent.validate_memory_tombstone_commit();
 DROP TRIGGER IF EXISTS memory_revision_commit_guard ON agent.memory_document_revisions;
 DROP FUNCTION IF EXISTS agent.validate_memory_revision_commit();
+DROP TRIGGER IF EXISTS memory_index_projection_commit_guard ON agent.memory_index_projections;
+DROP FUNCTION IF EXISTS agent.validate_memory_index_projection_commit();
 DROP TRIGGER IF EXISTS memory_index_projections_lifecycle ON agent.memory_index_projections;
 DROP FUNCTION IF EXISTS agent.enforce_memory_index_projection_lifecycle();
 

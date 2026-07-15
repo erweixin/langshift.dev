@@ -42,6 +42,7 @@ type MemoryWrite struct {
 	ContentType, SummaryRef                  string
 	SensitivityLabels                        []string
 	SourceKind                               string
+	TrustLabel                               string
 	Sources                                  []SourceReference
 	DataSubjectIDs                           []string
 	DerivedFrom                              []RevisionReference
@@ -98,6 +99,10 @@ func (handler InlineWriteHandler) Commit(ctx context.Context, tx pgx.Tx, tool ex
 	if err != nil {
 		return ErrConfiguration
 	}
+	projectionID, err := handler.projectionID(write.MemoryID, memoryVersion, write.IndexGeneration)
+	if err != nil {
+		return ErrConfiguration
+	}
 	if write.ExpectedVersion == 0 {
 		if _, err = tx.Exec(ctx, `INSERT INTO agent.memory_documents(id,tenant_id,user_id,status,version,scope_kind,scope_id,current_revision,upserted_event_id,created_at,updated_at) VALUES($1,$2,$3,'active',1,$4,$5,1,$6,$7,$7)`, write.MemoryID, tool.TenantID, tool.UserID, write.ScopeKind, write.ScopeID, eventIDs.event, now); err != nil {
 			return ErrVersion
@@ -120,7 +125,7 @@ func (handler InlineWriteHandler) Commit(ctx context.Context, tx pgx.Tx, tool ex
 	if write.SummaryRef != "" {
 		summary = write.SummaryRef
 	}
-	if _, err = tx.Exec(ctx, `INSERT INTO agent.memory_document_revisions(tenant_id,memory_id,memory_version,user_id,scope_kind,scope_id,memory_kind,content_ref,content_hmac,content_type,summary_ref,sensitivity_labels,source_kind,derivation_kind,confidence,encryption_subject_id,key_ref,embedding_model_id,tags,tool_call_id,tool_call_version,policy_version,guardrail_snapshot_id,index_generation,expires_at,upserted_event_id,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27)`, tool.TenantID, write.MemoryID, memoryVersion, tool.UserID, write.ScopeKind, write.ScopeID, write.MemoryKind, write.ContentRef, write.ContentHMAC[:], write.ContentType, summary, labels, write.SourceKind, write.DerivationKind, write.Confidence, write.EncryptionSubjectID, write.KeyRef, write.EmbeddingModelID, tags, tool.ToolCallID, tool.ToolCallVersion, write.PolicyVersion, write.GuardrailSnapshotID, write.IndexGeneration, write.ExpiresAt, eventIDs.event, now); err != nil {
+	if _, err = tx.Exec(ctx, `INSERT INTO agent.memory_document_revisions(tenant_id,memory_id,memory_version,user_id,scope_kind,scope_id,memory_kind,content_ref,content_hmac,content_type,summary_ref,sensitivity_labels,source_kind,trust_label,derivation_kind,confidence,encryption_subject_id,key_ref,embedding_model_id,tags,tool_call_id,tool_call_version,policy_version,guardrail_snapshot_id,index_generation,expires_at,upserted_event_id,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28)`, tool.TenantID, write.MemoryID, memoryVersion, tool.UserID, write.ScopeKind, write.ScopeID, write.MemoryKind, write.ContentRef, write.ContentHMAC[:], write.ContentType, summary, labels, write.SourceKind, write.TrustLabel, write.DerivationKind, write.Confidence, write.EncryptionSubjectID, write.KeyRef, write.EmbeddingModelID, tags, tool.ToolCallID, tool.ToolCallVersion, write.PolicyVersion, write.GuardrailSnapshotID, write.IndexGeneration, write.ExpiresAt, eventIDs.event, now); err != nil {
 		return err
 	}
 	for index, source := range write.Sources {
@@ -142,7 +147,7 @@ func (handler InlineWriteHandler) Commit(ctx context.Context, tx pgx.Tx, tool ex
 			return err
 		}
 	}
-	if _, err = tx.Exec(ctx, `INSERT INTO agent.memory_index_projections(tenant_id,memory_id,memory_version,index_generation,embedding_model_id,embedding_model_version,vector_dimensions,status,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,'pending',$8,$8)`, tool.TenantID, write.MemoryID, memoryVersion, write.IndexGeneration, write.EmbeddingModelID, write.EmbeddingModelVersion, write.VectorDimensions, now); err != nil {
+	if _, err = tx.Exec(ctx, `INSERT INTO agent.memory_index_projections(id,tenant_id,memory_id,memory_version,index_generation,embedding_model_id,embedding_model_version,vector_dimensions,status,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'pending',$9,$9)`, projectionID, tool.TenantID, write.MemoryID, memoryVersion, write.IndexGeneration, write.EmbeddingModelID, write.EmbeddingModelVersion, write.VectorDimensions, now); err != nil {
 		return err
 	}
 	causationID := tool.ToolSucceededEventID
@@ -167,6 +172,10 @@ func (handler InlineWriteHandler) eventIDs(memoryID string, version uint64, tool
 		values[index] = value
 	}
 	return memoryEventIDs{event: values[0], outbox: values[1], publish: values[2]}, nil
+}
+
+func (handler InlineWriteHandler) projectionID(memoryID string, version, generation uint64) (string, error) {
+	return ids.DeterministicUUID(handler.IDKey, "memory-index-projection", fmt.Sprintf("%s\x00%d\x00%d", memoryID, version, generation))
 }
 
 func validateWritableScope(ctx context.Context, tx pgx.Tx, tool executionpostgres.InlinePlatformToolContext, write MemoryWrite) error {
@@ -196,10 +205,13 @@ func validateWritableScope(ctx context.Context, tx pgx.Tx, tool executionpostgre
 }
 
 func validWrite(write MemoryWrite) bool {
-	if write.MemoryID == "" || write.ScopeID == "" || write.ContentRef == "" || write.KeyRef == "" || write.EncryptionSubjectID == "" || write.EmbeddingModelID == "" || write.EmbeddingModelVersion == "" || write.VectorDimensions < 1 || write.PolicyVersion < 1 || write.IndexGeneration < 1 || write.GuardrailSnapshotID == "" || !validPointer(write.UpsertedEvent) || write.Confidence < 0 || write.Confidence > 1 || len(write.Sources) == 0 || len(write.DataSubjectIDs) == 0 {
+	if write.MemoryID == "" || write.ScopeID == "" || write.ContentRef == "" || !nonzeroDigest(write.ContentHMAC) || write.KeyRef == "" || write.EncryptionSubjectID == "" || write.EmbeddingModelID == "" || write.EmbeddingModelVersion == "" || write.VectorDimensions < 1 || write.PolicyVersion < 1 || write.IndexGeneration < 1 || write.GuardrailSnapshotID == "" || !validPointer(write.UpsertedEvent) || write.Confidence < 0 || write.Confidence > 1 || len(write.Sources) == 0 || len(write.DataSubjectIDs) == 0 {
 		return false
 	}
-	if !member(write.ScopeKind, "conversation", "user", "project", "team") || !member(write.MemoryKind, "preference", "goal", "capability_context", "learning_history") || !member(write.ContentType, "text", "structured", "code_snippet") || !member(write.SourceKind, "agent_extracted", "user_stated", "system_derived") || !member(write.DerivationKind, "direct", "summarized", "merged", "inferred") {
+	if !member(write.ScopeKind, "conversation", "user", "project", "team") || !member(write.MemoryKind, "preference", "goal", "capability_context", "learning_history") || !member(write.ContentType, "text", "structured", "code_snippet") || !member(write.SourceKind, "agent_extracted", "user_stated", "system_derived") || !member(write.TrustLabel, "user_asserted", "derived", "untrusted_external") || !member(write.DerivationKind, "direct", "summarized", "merged", "inferred") {
+		return false
+	}
+	if write.SourceKind == "user_stated" && write.TrustLabel != "user_asserted" || write.SourceKind != "user_stated" && write.TrustLabel == "user_asserted" {
 		return false
 	}
 	if !uniqueStrings(write.SensitivityLabels) || !uniqueStrings(write.Tags) || !uniqueStrings(write.DataSubjectIDs) {
@@ -252,4 +264,13 @@ func uniqueStrings(values []string) bool {
 		seen[value] = true
 	}
 	return true
+}
+
+func nonzeroDigest(value [32]byte) bool {
+	for _, item := range value {
+		if item != 0 {
+			return true
+		}
+	}
+	return false
 }

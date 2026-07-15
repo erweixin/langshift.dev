@@ -36,12 +36,20 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='memory_index_projections_lifecycle' AND NOT tgisinternal) THEN
     RAISE EXCEPTION 'memory index lifecycle is absent';
   END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='memory_index_projection_commit_guard' AND tgdeferrable AND tginitdeferred) THEN
+    RAISE EXCEPTION 'memory index completion fact guard is absent';
+  END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='retrieval_manifest_commit_guard' AND tgdeferrable AND tginitdeferred) THEN
     RAISE EXCEPTION 'retrieval manifest commit guard is absent';
   END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='llm_retrieval_binding_guard' AND tgdeferrable AND tginitdeferred)
+    OR NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='llm_attempts_context_schema_contract') THEN
+    RAISE EXCEPTION 'LLM context retrieval binding is absent';
+  END IF;
   SELECT pg_get_functiondef('agent.validate_retrieval_manifest_commit()'::regprocedure) INTO retrieval_guard;
   IF position('context_manifest' IN retrieval_guard)=0 OR position('RetrievalManifestCommitted' IN retrieval_guard)=0
-    OR position('memory_index_projections' IN retrieval_guard)=0 OR position('share_grants' IN retrieval_guard)=0 THEN
+    OR position('memory_index_projections' IN retrieval_guard)=0 OR position('share_grants' IN retrieval_guard)=0
+    OR position('jsonb_array_elements' IN retrieval_guard)=0 OR position('content_hmac' IN retrieval_guard)=0 THEN
     RAISE EXCEPTION 'retrieval manifest lacks exact context, projection or ACL binding';
   END IF;
   IF EXISTS (

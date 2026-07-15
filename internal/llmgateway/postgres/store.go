@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	billingpostgres "github.com/langshift/lites/internal/billing/postgres"
 	eventpostgres "github.com/langshift/lites/internal/eventstore/postgres"
@@ -44,6 +45,7 @@ type Store struct {
 	IDKey       []byte
 	TokenPepper []byte
 	Billing     billingpostgres.Store
+	Retrieval   RetrievalManifestCommitter
 	Now         func() time.Time
 }
 
@@ -69,10 +71,28 @@ type ContextManifest struct {
 	Messages        []SnapshotBinding `json:"messages"`
 	Tools           []SnapshotBinding `json:"tools"`
 	Memory          []SnapshotBinding `json:"memory"`
+	Retrieval       *RetrievalBinding `json:"retrieval,omitempty"`
 	Router          SnapshotBinding   `json:"router"`
 	Budget          SnapshotBinding   `json:"budget"`
 	Policy          SnapshotBinding   `json:"policy"`
 	CandidateModels []ModelCandidate  `json:"candidate_models"`
+}
+
+type RetrievalBinding struct {
+	ManifestID string `json:"manifest_id"`
+}
+
+type RetrievalManifestContext struct {
+	ManifestID, AttemptID, TenantID, UserID, RunID, StoreEpoch string
+	ContextManifestHash, StartedEventID                        string
+	Actor                                                      json.RawMessage
+	CorrelationID                                              string
+	Now                                                        time.Time
+}
+
+type RetrievalManifestCommitter interface {
+	Validate(any) bool
+	Commit(context.Context, pgx.Tx, RetrievalManifestContext, any) error
 }
 
 func (store Store) IssuePrepareToken() (string, error) {
@@ -129,7 +149,7 @@ func canonicalManifest(manifest ContextManifest) ([]byte, string, error) {
 }
 
 func validManifest(manifest ContextManifest) bool {
-	if manifest.SchemaVersion != 1 || !validSnapshot(manifest.Run) || !validSnapshot(manifest.Router) || !validSnapshot(manifest.Budget) || !validSnapshot(manifest.Policy) || len(manifest.Messages) > 10000 || len(manifest.Tools) > 1000 || len(manifest.Memory) > 10000 || len(manifest.CandidateModels) < 1 || len(manifest.CandidateModels) > 100 {
+	if manifest.SchemaVersion != 1 && manifest.SchemaVersion != 2 || manifest.SchemaVersion == 1 && manifest.Retrieval != nil || manifest.SchemaVersion == 2 && (manifest.Retrieval == nil || manifest.Retrieval.ManifestID == "") || !validSnapshot(manifest.Run) || !validSnapshot(manifest.Router) || !validSnapshot(manifest.Budget) || !validSnapshot(manifest.Policy) || len(manifest.Messages) > 10000 || len(manifest.Tools) > 1000 || len(manifest.Memory) > 10000 || len(manifest.CandidateModels) < 1 || len(manifest.CandidateModels) > 100 {
 		return false
 	}
 	for _, list := range [][]SnapshotBinding{manifest.Messages, manifest.Tools, manifest.Memory} {

@@ -109,6 +109,7 @@ memory_document
 
   # ── 来源 ──
   - source_kind                        # agent_extracted | user_stated | system_derived
+  - trust_label                        # user_asserted | derived | untrusted_external；写入后不可由检索层提权
   - source_refs[]                      # 所有来源 event/run/payload 引用，不把多来源压成一个 id
   - data_subject_ids[]                 # tenant-scoped 伪名主体引用；用于 erasure 精确传播，不保存可直接识别信息
   - derived_from_memory_ids[]          # 从哪些 Memory 派生或合并而来
@@ -209,6 +210,8 @@ MemoryDeleted 事件
 
 向量索引和全文索引是这些事件的**异步投影**。投影更新可以延迟，但不会影响 EventStore 的一致性。投影损坏时，从事件重放即可重建。若 memory 可能包含用户内容、PII、凭证、私有代码或受保留策略约束的数据，明文只能保存在加密 payload 中，不能直接进入不可变事件或可重放 projection；EventStore 和 `memory_documents` 只保存 HMAC/digest、引用、来源、数据主体、派生关系、分类标签和密钥元数据。摘要、embedding、关键词索引同样按敏感派生物处理，必须能沿 `data_subject_ids` 和 derivation lineage 随主体删除而失效或重建。
 
+索引投影使用稳定的 projection identity。`pending → indexed` 必须与 `MemoryIndexProjectionIndexed` 事件在同一事务提交，事件绑定 memory revision、index generation、embedding model/version、维度以及 vector/lexical 引用；不能只把数据库状态改成 `indexed`。
+
 ## 检索：Memory 怎么被召回
 
 召回默认是**被动**的：Context Builder 在每次 LLM 调用前自动检索相关记忆放进 prompt 的资料区，不依赖模型主动发起——模型无法知道"自己不知道什么"，检索质量也不应依赖模型自觉。可选地，平台可暴露 `read_only` 的 `memory_search` 工具供 Agent 主动定向检索（被动召回按语义相似度取材，对"语义不相似但逻辑上需要"的记忆存在盲区）；主动检索受与被动召回完全相同的 tenant/scope 过滤和 `context_manifest` 留痕约束。
@@ -252,6 +255,8 @@ AgentWorker 构建上下文
    - 被召回的 memory document 更新 last_accessed_at
    - 用于后续淘汰策略
 ```
+
+Context Builder 不直接把一组临时搜索结果交给 Provider。它先构造 schema v2 `context_manifest`，其中包含稳定的 `retrieval.manifest_id` 和每条 Memory 的精确 revision/HMAC；随后在启动 `LLMAttempt` 的同一事务提交 `RetrievalManifestCommitted`、有序 chunk、index generation、content 引用/HMAC、scope、不可变 trust label 与访问记录。任一 revision 已过期/删除、projection 尚未 indexed、scope/分享权限不满足，或 manifest 与 `context_manifest_hash` 不一致，整笔事务回滚，Provider 请求不得开始。
 
 ### 检索隔离
 

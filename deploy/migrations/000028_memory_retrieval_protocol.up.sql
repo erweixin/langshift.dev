@@ -13,6 +13,13 @@ ALTER TABLE agent.tool_calls
     AND (execution_mode<>'inline_platform' OR (tool_name='memory_write' AND effect_class='idempotent_write'))
   );
 
+ALTER TABLE agent.llm_attempts
+  ADD CONSTRAINT llm_attempts_context_schema_contract CHECK (
+    (context_manifest->>'schema_version'='1' AND NOT (context_manifest ? 'retrieval'))
+    OR (context_manifest->>'schema_version'='2' AND jsonb_typeof(context_manifest->'retrieval')='object'
+      AND NULLIF(context_manifest->'retrieval'->>'manifest_id','') IS NOT NULL)
+  );
+
 ALTER TABLE agent.memory_documents
   DROP CONSTRAINT IF EXISTS memory_documents_tenant_id_id_revision_key,
   DROP COLUMN memory_kind,
@@ -66,6 +73,7 @@ CREATE TABLE agent.memory_document_revisions (
   summary_ref text,
   sensitivity_labels jsonb NOT NULL,
   source_kind text NOT NULL,
+  trust_label text NOT NULL,
   derivation_kind text NOT NULL,
   confidence numeric(5,4) NOT NULL,
   encryption_subject_id uuid NOT NULL,
@@ -89,6 +97,9 @@ CREATE TABLE agent.memory_document_revisions (
     AND content_type IN ('text','structured','code_snippet')
     AND jsonb_typeof(sensitivity_labels)='array' AND jsonb_typeof(tags)='array'
     AND source_kind IN ('agent_extracted','user_stated','system_derived')
+    AND trust_label IN ('user_asserted','derived','untrusted_external')
+    AND ((source_kind='user_stated' AND trust_label='user_asserted')
+      OR (source_kind<>'user_stated' AND trust_label IN ('derived','untrusted_external')))
     AND derivation_kind IN ('direct','summarized','merged','inferred')
     AND confidence>=0 AND confidence<=1 AND NULLIF(key_ref,'') IS NOT NULL
     AND NULLIF(embedding_model_id,'') IS NOT NULL AND tool_call_version>0
@@ -176,6 +187,7 @@ CREATE TABLE agent.memory_tombstones (
 );
 
 CREATE TABLE agent.memory_index_projections (
+  id uuid PRIMARY KEY,
   tenant_id uuid NOT NULL,
   memory_id uuid NOT NULL,
   memory_version bigint NOT NULL,
@@ -191,7 +203,8 @@ CREATE TABLE agent.memory_index_projections (
   purge_receipt_ref text,
   created_at timestamptz NOT NULL,
   updated_at timestamptz NOT NULL,
-  PRIMARY KEY (tenant_id,memory_id,memory_version,index_generation),
+  CONSTRAINT memory_index_projections_tenant_id_id_unique UNIQUE (tenant_id,id),
+  CONSTRAINT memory_index_projections_revision_generation_unique UNIQUE (tenant_id,memory_id,memory_version,index_generation),
   CONSTRAINT memory_index_projection_scope_contract CHECK (
     index_generation>0 AND NULLIF(embedding_model_id,'') IS NOT NULL
     AND NULLIF(embedding_model_version,'') IS NOT NULL AND vector_dimensions>0
@@ -384,7 +397,21 @@ BEGIN
     SELECT 1 FROM agent.llm_attempts l JOIN agent.events e ON e.tenant_id=l.tenant_id AND e.id=NEW.committed_event_id
     WHERE l.tenant_id=NEW.tenant_id AND l.id=NEW.llm_attempt_id AND l.user_id=NEW.user_id
       AND l.context_manifest_hash=NEW.context_manifest_hash
+      AND l.context_manifest->>'schema_version'='2'
       AND l.context_manifest->'retrieval'->>'manifest_id'=NEW.id::text
+      AND jsonb_array_length(l.context_manifest->'memory')=(
+        SELECT count(DISTINCT (c.memory_id,c.memory_version)) FROM agent.retrieval_manifest_chunks c
+        WHERE c.tenant_id=NEW.tenant_id AND c.manifest_id=NEW.id
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM agent.retrieval_manifest_chunks c
+        JOIN agent.memory_document_revisions r ON r.tenant_id=c.tenant_id AND r.memory_id=c.memory_id AND r.memory_version=c.memory_version
+        WHERE c.tenant_id=NEW.tenant_id AND c.manifest_id=NEW.id AND NOT EXISTS (
+          SELECT 1 FROM jsonb_array_elements(l.context_manifest->'memory') item
+          WHERE item->>'id'=c.memory_id::text AND item->>'version'=c.memory_version::text
+            AND item->>'hash'=encode(r.content_hmac,'hex')
+        )
+      )
       AND e.aggregate_kind='retrieval_manifest' AND e.aggregate_id=NEW.id
       AND e.aggregate_version=1 AND e.event_type='RetrievalManifestCommitted' AND e.event_schema_version=1
   ) THEN RAISE EXCEPTION 'retrieval manifest is not bound to exact LLM context'; END IF;
@@ -417,6 +444,23 @@ CREATE CONSTRAINT TRIGGER retrieval_manifest_commit_guard
   AFTER INSERT ON agent.retrieval_manifests DEFERRABLE INITIALLY DEFERRED
   FOR EACH ROW EXECUTE FUNCTION agent.validate_retrieval_manifest_commit();
 
+CREATE FUNCTION agent.validate_llm_retrieval_binding() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+  IF NEW.context_manifest->>'schema_version'='2' AND NOT EXISTS (
+    SELECT 1 FROM agent.retrieval_manifests m
+    WHERE m.tenant_id=NEW.tenant_id AND m.id=(NEW.context_manifest->'retrieval'->>'manifest_id')::uuid
+      AND m.llm_attempt_id=NEW.id AND m.user_id=NEW.user_id
+      AND m.context_manifest_hash=NEW.context_manifest_hash
+  ) THEN RAISE EXCEPTION 'LLM context lacks its exact retrieval manifest'; END IF;
+  RETURN NULL;
+END
+$$;
+
+CREATE CONSTRAINT TRIGGER llm_retrieval_binding_guard
+  AFTER INSERT ON agent.llm_attempts DEFERRABLE INITIALLY DEFERRED
+  FOR EACH ROW EXECUTE FUNCTION agent.validate_llm_retrieval_binding();
+
 CREATE FUNCTION agent.enforce_memory_index_projection_lifecycle() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
@@ -436,6 +480,23 @@ $$;
 
 CREATE TRIGGER memory_index_projections_lifecycle BEFORE UPDATE OR DELETE ON agent.memory_index_projections
   FOR EACH ROW EXECUTE FUNCTION agent.enforce_memory_index_projection_lifecycle();
+
+CREATE FUNCTION agent.validate_memory_index_projection_commit() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+  IF OLD.status='pending' AND NEW.status='indexed' AND NOT EXISTS (
+    SELECT 1 FROM agent.events e
+    WHERE e.tenant_id=NEW.tenant_id AND e.id=NEW.indexed_event_id
+      AND e.aggregate_kind='memory_index_projection' AND e.aggregate_id=NEW.id
+      AND e.aggregate_version=1 AND e.event_type='MemoryIndexProjectionIndexed' AND e.event_schema_version=1
+  ) THEN RAISE EXCEPTION 'indexed memory projection lacks exact completion fact'; END IF;
+  RETURN NULL;
+END
+$$;
+
+CREATE CONSTRAINT TRIGGER memory_index_projection_commit_guard
+  AFTER UPDATE ON agent.memory_index_projections DEFERRABLE INITIALLY DEFERRED
+  FOR EACH ROW EXECUTE FUNCTION agent.validate_memory_index_projection_commit();
 
 CREATE INDEX memory_documents_scope_active_idx ON agent.memory_documents(tenant_id,user_id,scope_kind,scope_id,id)
   WHERE status='active';

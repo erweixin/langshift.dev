@@ -28,6 +28,17 @@ func TestContextManifestIsCanonicalAndCandidateSetIsExact(t *testing.T) {
 	if !containsCandidate(manifest, manifest.CandidateModels[0]) || containsCandidate(manifest, ModelCandidate{ProviderID: "openai", ModelID: "gpt", ModelVersion: "v2", BoundHost: "api.openai.com", PricingVersion: "price-v1"}) {
 		t.Fatal("candidate binding was not exact")
 	}
+	retrievalManifest := manifest
+	retrievalManifest.SchemaVersion = 2
+	retrievalManifest.Retrieval = &RetrievalBinding{ManifestID: "retrieval-manifest"}
+	if _, _, err = canonicalManifest(retrievalManifest); err != nil {
+		t.Fatalf("v2 retrieval-bound manifest rejected: %v", err)
+	}
+	missingRetrieval := manifest
+	missingRetrieval.SchemaVersion = 2
+	if _, _, err = canonicalManifest(missingRetrieval); err == nil {
+		t.Fatal("v2 manifest without retrieval binding accepted")
+	}
 	invalid := manifest
 	invalid.CandidateModels = append(invalid.CandidateModels, invalid.CandidateModels[0])
 	if _, _, err = canonicalManifest(invalid); err == nil {

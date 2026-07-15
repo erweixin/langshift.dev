@@ -16,7 +16,7 @@
         "occurred_at":{"type":"string","format":"date-time"},"causation_id":{"type":"string"},"correlation_id":{"type":"string"},
         "payload": {
           "type":"object","additionalProperties":false,
-          "required":["subject_id","subject_version","memory_scope","scope_id","memory_kind","content_ref","content_hmac","content_type","summary_ref","sensitivity_labels","source_kind","source_refs","data_subject_ids","derived_from_memory_revisions","derivation_kind","confidence","encryption_subject_id","key_ref","embedding_model_id","tags","tool_call_id","tool_call_version","policy_version","guardrail_snapshot_id","index_generation","expires_at","supersedes_memory_id","upserted_at","legacy_incomplete"],
+          "required":["subject_id","subject_version","memory_scope","scope_id","memory_kind","content_ref","content_hmac","content_type","summary_ref","sensitivity_labels","source_kind","trust_label","source_refs","data_subject_ids","derived_from_memory_revisions","derivation_kind","confidence","encryption_subject_id","key_ref","embedding_model_id","tags","tool_call_id","tool_call_version","policy_version","guardrail_snapshot_id","index_generation","expires_at","supersedes_memory_id","upserted_at","legacy_incomplete"],
           "properties": {
             "subject_id":{"type":"string","minLength":1},"subject_version":{"type":"integer","minimum":1},
             "memory_scope":{"type":["string","null"],"enum":["conversation","user","project","team",null]},
@@ -27,6 +27,7 @@
             "summary_ref":{"type":["string","null"]},
             "sensitivity_labels":{"type":"array","uniqueItems":true,"items":{"type":"string","minLength":1}},
             "source_kind":{"type":["string","null"],"enum":["agent_extracted","user_stated","system_derived",null]},
+            "trust_label":{"type":["string","null"],"enum":["user_asserted","derived","untrusted_external",null]},
             "source_refs":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["source_kind","source_ref","source_version"],"properties":{
               "source_kind":{"type":"string","enum":["event","run","payload","memory","user_statement","system_rule"]},
               "source_ref":{"type":"string","minLength":1},"source_version":{"type":["integer","null"],"minimum":1}
@@ -50,7 +51,7 @@
             "if":{"properties":{"legacy_incomplete":{"const":false}},"required":["legacy_incomplete"]},
             "then":{"properties":{
               "memory_scope":{"type":"string"},"scope_id":{"type":"string","minLength":1},"memory_kind":{"type":"string"},
-              "content_hmac":{"type":"string"},"content_type":{"type":"string"},"source_kind":{"type":"string"},
+              "content_hmac":{"type":"string"},"content_type":{"type":"string"},"source_kind":{"type":"string"},"trust_label":{"type":"string"},
               "source_refs":{"minItems":1},"data_subject_ids":{"minItems":1},"derivation_kind":{"type":"string"},
               "confidence":{"type":"number"},"encryption_subject_id":{"type":"string","minLength":1},"key_ref":{"type":"string","minLength":1},
               "embedding_model_id":{"type":"string","minLength":1},"tool_call_id":{"type":"string","minLength":1},
@@ -89,6 +90,28 @@
       },
       "x-event-type":"MemoryDeleted","x-event-schema-version":2,"x-compatibility":"additive-v2","x-owner":"agent-platform"
     },
+    "MemoryIndexProjectionIndexed": {
+      "$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://lites.dev/events/MemoryIndexProjectionIndexed/1.json",
+      "title":"MemoryIndexProjectionIndexed v1","type":"object","additionalProperties":false,
+      "required":["event_id","tenant_id","user_id","aggregate_id","aggregate_version","occurred_at","payload"],
+      "properties":{
+        "event_id":{"type":"string"},"tenant_id":{"type":"string"},"user_id":{"type":"string"},
+        "aggregate_id":{"type":"string"},"aggregate_version":{"const":1},
+        "occurred_at":{"type":"string","format":"date-time"},"causation_id":{"type":"string"},"correlation_id":{"type":"string"},
+        "payload":{"type":"object","additionalProperties":false,
+          "required":["subject_id","subject_version","memory_id","memory_version","index_generation","embedding_model_id","embedding_model_version","vector_dimensions","embedding_ref","lexical_ref","indexed_at"],
+          "properties":{
+            "subject_id":{"type":"string","minLength":1},"subject_version":{"const":1},
+            "memory_id":{"type":"string","minLength":1},"memory_version":{"type":"integer","minimum":1},
+            "index_generation":{"type":"integer","minimum":1},"embedding_model_id":{"type":"string","minLength":1},
+            "embedding_model_version":{"type":"string","minLength":1},"vector_dimensions":{"type":"integer","minimum":1},
+            "embedding_ref":{"type":"string","minLength":1},"lexical_ref":{"type":"string","minLength":1},
+            "indexed_at":{"type":"string","format":"date-time"}
+          }
+        }
+      },
+      "x-event-type":"MemoryIndexProjectionIndexed","x-event-schema-version":1,"x-compatibility":"initial","x-owner":"agent-platform"
+    },
     "RetrievalManifestCommitted": {
       "$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://lites.dev/events/RetrievalManifestCommitted/1.json",
       "title":"RetrievalManifestCommitted v1","type":"object","additionalProperties":false,
@@ -106,9 +129,13 @@
             "retrieval_model_version":{"type":"string","minLength":1},"policy_snapshot_id":{"type":"string","minLength":1},
             "guardrail_snapshot_id":{"type":"string","minLength":1},"index_generation":{"type":"integer","minimum":1},
             "token_budget":{"type":"integer","minimum":0},
-            "chunks":{"type":"array","uniqueItems":true,"items":{"type":"object","additionalProperties":false,"required":["memory_id","memory_version","chunk_id","score"],"properties":{
+            "chunks":{"type":"array","uniqueItems":true,"items":{"type":"object","additionalProperties":false,"required":["memory_id","memory_version","index_generation","chunk_id","content_ref","content_hmac","score","scope_kind","source_label","trust_label"],"properties":{
               "memory_id":{"type":"string","minLength":1},"memory_version":{"type":"integer","minimum":1},
-              "chunk_id":{"type":"string","minLength":1},"score":{"type":"number","minimum":0,"maximum":1}
+              "index_generation":{"type":"integer","minimum":1},"chunk_id":{"type":"string","minLength":1},
+              "content_ref":{"type":"string","minLength":1},"content_hmac":{"type":"string","pattern":"^[0-9a-f]{64}$"},
+              "score":{"type":"number","minimum":0,"maximum":1},
+              "scope_kind":{"type":"string","enum":["conversation","user","project","team"]},
+              "source_label":{"const":"retrieved_memory"},"trust_label":{"type":"string","enum":["user_asserted","derived","untrusted_external"]}
             }}},
             "committed_at":{"type":"string","format":"date-time"}
           }
