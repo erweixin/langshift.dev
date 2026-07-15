@@ -28,20 +28,20 @@ const failures = [];
 const assert = (condition, message) => { if (!condition) failures.push(message); };
 const byKind = (kind) => documents.filter((document) => document.kind === kind);
 const expectedCounts = {
-  ConfigMap: 9,
-  Deployment: 9,
-  ExternalSecret: 9,
+  ConfigMap: 10,
+  Deployment: 10,
+  ExternalSecret: 10,
   HorizontalPodAutoscaler: 7,
   Job: 1,
-  NetworkPolicy: 12,
-  PodDisruptionBudget: 9,
+  NetworkPolicy: 13,
+  PodDisruptionBudget: 10,
   Service: 5,
-  ServiceAccount: 9,
+  ServiceAccount: 10,
 };
 for (const [kind, count] of Object.entries(expectedCounts)) assert(byKind(kind).length === count, `${kind} count ${byKind(kind).length}, expected ${count}`);
-assert(documents.length === 70, `resource count ${documents.length}, expected 70`);
+assert(documents.length === 76, `resource count ${documents.length}, expected 76`);
 
-const components = ["api-gateway", "identity-service", "realtime-gateway", "behavior-control-plane", "identity-import-worker", "identity-mail-worker", "outbox-publisher", "runtime-sweeper", "store-epoch-authority"];
+const components = ["api-gateway", "identity-service", "realtime-gateway", "behavior-control-plane", "identity-import-worker", "identity-mail-worker", "outbox-publisher", "runtime-sweeper", "run-cancellation-reconciler", "store-epoch-authority"];
 for (const component of components) {
   const deployment = byKind("Deployment").find((document) => document.name === `lites-${component}`);
   assert(Boolean(deployment), `missing Deployment for ${component}`);
@@ -104,4 +104,4 @@ if (failures.length) {
   for (const failure of failures) console.error(failure);
   process.exit(1);
 }
-console.log(`stage-2 helm contract: resources=${documents.length} deployments=9 multi_az=9 external_secrets=9 default_deny=1 status=passed`);
+console.log(`stage-2 helm contract: resources=${documents.length} deployments=10 multi_az=10 external_secrets=10 default_deny=1 status=passed`);

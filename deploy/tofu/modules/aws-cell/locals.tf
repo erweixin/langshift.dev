@@ -13,6 +13,8 @@ locals {
     "identity-import-worker",
     "identity-mail-worker",
     "outbox-publisher",
+    "runtime-sweeper",
+    "run-cancellation-reconciler",
     "store-epoch-authority",
     "migration",
     "nats-server-tls",
