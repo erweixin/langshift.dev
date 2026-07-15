@@ -42,6 +42,8 @@ type sessionRow struct {
 	ProvisionFence                                                 uint64
 	ProvisionLeaseHash                                             []byte
 	ProvisionLeaseExpiresAt                                        sql.NullTime
+	ApprovalID                                                     sql.NullString
+	ApprovalVersion                                                sql.NullInt64
 }
 
 func (store Store) BeginProvision(ctx context.Context, command ProvisionCommand) (ProvisionResult, error) {
@@ -184,6 +186,7 @@ func loadSessionForProvision(ctx context.Context, tx pgx.Tx, claims runtimecontr
 	  s.command_id::text,s.execution_attempt_id::text,s.execution_fence,s.execution_lease_hash,
 	  s.execution_lease_expires_at,s.requested_at,s.execution_deadline,s.host_id,s.machine_id,s.guest_cid,
 	  s.provision_attempt_id::text,s.provision_fence,s.provision_lease_hash,s.provision_lease_expires_at,
+	  s.approval_id::text,s.approval_version,
 	  p.id::text,p.snapshot_key,p.policy_hash,p.trust_tier,p.isolation_kind,p.network_policy_hash,p.secret_scope_hash,
 	  p.workspace_mode,p.image_digest,p.kernel_digest,p.rootfs_digest,p.vcpu_count,p.memory_mib,p.disk_mib,p.pids_max,
 	  p.maximum_duration_seconds,p.idle_timeout_seconds,p.kill_grace_seconds,p.approval_required
@@ -197,6 +200,7 @@ func loadSessionForProvision(ctx context.Context, tx pgx.Tx, claims runtimecontr
 		&session.CommandID, &session.ExecutionAttemptID, &session.ExecutionFence, &session.ExecutionLeaseHash,
 		&session.ExecutionLeaseExpiresAt, &session.RequestedAt, &session.ExecutionDeadline, &session.HostID, &session.MachineID, &session.GuestCID,
 		&session.ProvisionAttemptID, &session.ProvisionFence, &session.ProvisionLeaseHash, &session.ProvisionLeaseExpiresAt,
+		&session.ApprovalID, &session.ApprovalVersion,
 		&policy.ID, &policy.SnapshotKey, &policy.PolicyHash, &policy.TrustTier, &policy.IsolationKind, &policy.NetworkPolicyHash, &policy.SecretScopeHash,
 		&policy.WorkspaceMode, &policy.ImageDigest, &policy.KernelDigest, &policy.RootFSDigest, &policy.VCPUCount, &policy.MemoryMiB, &policy.DiskMiB, &policy.PidsMax,
 		&maximumSeconds, &idleSeconds, &graceSeconds, &policy.ApprovalRequired)
@@ -223,6 +227,13 @@ func validateCapabilityBinding(claims runtimecontract.CapabilityClaims, session 
 	if session.BaseWorkspaceRevision.Valid {
 		baseRevision = session.BaseWorkspaceRevision.String
 	}
+	approvalID, approvalVersion := "", uint64(0)
+	if session.ApprovalID.Valid {
+		approvalID = session.ApprovalID.String
+	}
+	if session.ApprovalVersion.Valid && session.ApprovalVersion.Int64 > 0 {
+		approvalVersion = uint64(session.ApprovalVersion.Int64)
+	}
 	expiresAt := time.Unix(claims.ExpiresAt, 0).UTC()
 	issuedAt := time.Unix(claims.IssuedAt, 0).UTC()
 	if claims.TenantID != session.TenantID || claims.UserID != session.UserID || claims.RunID != session.RunID || claims.ToolCallID != session.ToolCallID ||
@@ -230,6 +241,7 @@ func validateCapabilityBinding(claims runtimecontract.CapabilityClaims, session 
 		claims.PolicySnapshotID != session.PolicySnapshotKey || claims.PolicyHash != session.PolicyHash ||
 		string(claims.WorkspaceMode) != session.WorkspaceMode || claims.WorkspaceID != workspaceID || claims.BaseWorkspaceRevision != baseRevision ||
 		claims.NetworkPolicyHash != session.NetworkPolicyHash || claims.SecretScopeHash != session.SecretScopeHash || claims.RequestHash != session.RequestHash ||
+		claims.ApprovalID != approvalID || claims.ApprovalVersion != approvalVersion ||
 		!bytes.Equal(leaseHash, session.ExecutionLeaseHash) || !bytes.Equal(nonceHash[:], session.CapabilityNonceHash) ||
 		expiresAt.After(session.ExecutionLeaseExpiresAt) || expiresAt.After(session.ExecutionDeadline) || issuedAt.Add(time.Second).Before(session.RequestedAt) ||
 		now.Before(issuedAt.Add(-30*time.Second)) || !now.Before(expiresAt) ||

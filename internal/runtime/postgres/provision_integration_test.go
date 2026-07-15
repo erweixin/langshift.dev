@@ -183,10 +183,20 @@ func TestBeginProvisionAtomicallyBindsCapabilityEventSessionAndCapacity(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = store.BeginProvision(ctx, command); !errors.Is(err, ErrApproval) {
+	if _, err = store.BeginProvision(ctx, command); !errors.Is(err, ErrCapabilityBinding) {
 		t.Fatalf("cross-epoch approval = %v", err)
 	}
 	command.CapabilityToken = capability
+	// A ToolWorker heartbeat may extend the same attempt/fence/token while the
+	// RuntimeSession keeps its original immutable lease snapshot. The extended
+	// authority remains valid; changing any identity field still fails below.
+	extendedLease := now.Add(6 * time.Minute)
+	if _, err = admin.Exec(ctx, `WITH tool_heartbeat AS (
+		UPDATE agent.tool_calls SET lease_expires_at=$1 WHERE tenant_id=$2 AND id=$3 RETURNING id
+	) UPDATE agent.job_attempts SET version=version+1,lease_expires_at=$1,updated_at=CURRENT_TIMESTAMP
+	  WHERE tenant_id=$2 AND id=$4 AND EXISTS(SELECT 1 FROM tool_heartbeat)`, extendedLease, tenantID, toolID, attemptID); err != nil {
+		t.Fatal(err)
+	}
 	result, err := store.BeginProvision(ctx, command)
 	if err != nil || result.Replayed || result.SessionID != sessionID || result.Version != 2 || result.Policy.RootFSDigest != digest {
 		t.Fatalf("BeginProvision() = %#v, %v", result, err)
