@@ -9,6 +9,7 @@ locals {
     "api-gateway",
     "identity-service",
     "realtime-gateway",
+    "behavior-control-plane",
     "identity-import-worker",
     "identity-mail-worker",
     "outbox-publisher",

@@ -1,0 +1,301 @@
+{
+  "amendmentVersion": "1.10.0",
+  "baseContractVersion": "1.9.0",
+  "kind": "openapi-operation-extension",
+  "compatibility": "versioned-server-additive",
+  "operations": {
+    "behavior.snapshots.create": {
+      "method": "POST",
+      "path": "/v1/admin/behavior/snapshots",
+      "authentication": "gateway_signed_session",
+      "authorization": ["owner", "admin"],
+      "csrf": "required",
+      "idempotency": "required_encrypted_durable_response",
+      "requestSchema": "BehaviorSnapshotCreateRequestV1",
+      "responseSchema": "BehaviorMutationResultV1",
+      "payloadPolicy": "Manifest and event payload are encrypted before immutable object storage; PostgreSQL stores only refs and hashes."
+    },
+    "behavior.evaluations.record": {
+      "method": "POST",
+      "path": "/v1/admin/behavior/evaluations",
+      "authentication": "gateway_signed_session",
+      "authorization": ["owner", "admin"],
+      "csrf": "required",
+      "idempotency": "required_encrypted_durable_response",
+      "requestSchema": "BehaviorEvaluationCreateRequestV1",
+      "responseSchema": "BehaviorMutationResultV1",
+      "payloadPolicy": "Evaluation evidence is immutable, content-addressed and event payloads are encrypted."
+    },
+    "behavior.promotions.create": {
+      "method": "POST",
+      "path": "/v1/admin/behavior/promotions",
+      "authentication": "gateway_signed_session",
+      "authorization": ["owner", "admin"],
+      "csrf": "required",
+      "reauthentication": "required_within_15_minutes",
+      "idempotency": "required_encrypted_durable_response",
+      "requestSchema": "BehaviorPromotionCreateRequestV1",
+      "responseSchema": "BehaviorMutationResultV1",
+      "concurrency": "Per-tenant profile/environment advisory lock and strictly monotonic channel sequence.",
+      "approvalPolicy": "Exactly one active purpose-bound risk_owner key and one distinct release_owner key/person.",
+      "payloadPolicy": "Promotion approvals and event payload are encrypted before immutable object storage; PostgreSQL retains only evidence hashes and refs."
+    },
+    "behavior.channels.current": {
+      "method": "GET",
+      "path": "/v1/admin/behavior/channels/{profile}/{environment}",
+      "authentication": "gateway_signed_session",
+      "authorization": ["owner", "admin"],
+      "parameters": [
+        {"name": "profile", "in": "path", "required": true, "schema": {"$ref": "#/schemas/BehaviorProfile"}},
+        {"name": "environment", "in": "path", "required": true, "schema": {"$ref": "#/schemas/BehaviorEnvironment"}}
+      ],
+      "responseSchema": "BehaviorChannelBindingV1",
+      "cachePolicy": "no-store"
+    },
+    "behavior.rollbacks.automatic": {
+      "method": "POST",
+      "path": "/internal/v1/behavior/rollbacks",
+      "authentication": "mutual_tls_exact_spiffe_identity",
+      "authorization": ["behavior_rollback_controller"],
+      "csrf": "not_applicable",
+      "idempotency": "required_encrypted_durable_response",
+      "requestSchema": "BehaviorRollbackCreateRequestV1",
+      "responseSchema": "BehaviorMutationResultV1",
+      "networkBoundary": "Dedicated listener not routed through browser or public gateway ingress.",
+      "signaturePolicy": "Active rollback_automation purpose-bound Ed25519 key; threshold breach and incident evidence are mandatory."
+    }
+  },
+  "schemas": {
+    "BehaviorProfile": {
+      "type": "string",
+      "enum": ["route_planner", "daily_planner", "coach", "evaluator", "artifact_builder"]
+    },
+    "BehaviorEnvironment": {
+      "type": "string",
+      "enum": ["staging", "production"]
+    },
+    "BehaviorDigest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "BehaviorSnapshotId": {
+      "type": "string",
+      "pattern": "^behavior-[0-9a-f]{64}$"
+    },
+    "BehaviorBindingV1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version", "hash"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1, "maxLength": 256},
+        "version": {"type": "string", "minLength": 1, "maxLength": 128},
+        "hash": {"$ref": "#/schemas/BehaviorDigest"}
+      }
+    },
+    "BehaviorManifestV1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "profile", "model", "prompt", "tools", "profile_definition", "guardrail_policy", "router_policy", "source_commit", "created_at"],
+      "properties": {
+        "schema_version": {"const": 1},
+        "profile": {"$ref": "#/schemas/BehaviorProfile"},
+        "model": {"$ref": "#/schemas/BehaviorBindingV1"},
+        "prompt": {"$ref": "#/schemas/BehaviorBindingV1"},
+        "tools": {"type": "array", "maxItems": 256, "items": {"$ref": "#/schemas/BehaviorBindingV1"}},
+        "profile_definition": {"$ref": "#/schemas/BehaviorBindingV1"},
+        "guardrail_policy": {"$ref": "#/schemas/BehaviorBindingV1"},
+        "router_policy": {"$ref": "#/schemas/BehaviorBindingV1"},
+        "source_commit": {"type": "string", "minLength": 1, "maxLength": 128},
+        "created_at": {"type": "string", "format": "date-time"}
+      }
+    },
+    "BehaviorDimensionResultV1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "average_score", "acceptable_rate"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "average_score": {"type": "number", "minimum": 0, "maximum": 5},
+        "acceptable_rate": {"type": "number", "minimum": 0, "maximum": 1}
+      }
+    },
+    "BehaviorSliceResultV1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["language", "dataset_hash", "sample_count", "dimensions", "minimum_group_acceptable", "deterministic_accuracy", "expert_agreement", "causal_reference_rate", "manifest_complete_rate"],
+      "properties": {
+        "language": {"type": "string", "enum": ["en", "zh-CN"]},
+        "dataset_hash": {"$ref": "#/schemas/BehaviorDigest"},
+        "sample_count": {"type": "integer", "minimum": 100},
+        "dimensions": {"type": "array", "minItems": 4, "maxItems": 4, "items": {"$ref": "#/schemas/BehaviorDimensionResultV1"}},
+        "minimum_group_acceptable": {"type": "number", "minimum": 0, "maximum": 1},
+        "deterministic_accuracy": {"type": "number", "minimum": 0, "maximum": 1},
+        "expert_agreement": {"type": "number", "minimum": 0, "maximum": 1},
+        "causal_reference_rate": {"type": "number", "minimum": 0, "maximum": 1},
+        "manifest_complete_rate": {"type": "number", "minimum": 0, "maximum": 1}
+      }
+    },
+    "BehaviorZeroToleranceV1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["safety_failures", "authorization_failures", "secret_or_pii_leaks", "unsupported_confirmed_claims", "hallucinated_context_refs", "direct_model_capability_writes", "unsafe_unapproved_writes"],
+      "properties": {
+        "safety_failures": {"type": "integer", "minimum": 0},
+        "authorization_failures": {"type": "integer", "minimum": 0},
+        "secret_or_pii_leaks": {"type": "integer", "minimum": 0},
+        "unsupported_confirmed_claims": {"type": "integer", "minimum": 0},
+        "hallucinated_context_refs": {"type": "integer", "minimum": 0},
+        "direct_model_capability_writes": {"type": "integer", "minimum": 0},
+        "unsafe_unapproved_writes": {"type": "integer", "minimum": 0}
+      }
+    },
+    "BehaviorEvaluationReportV1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "report_id", "candidate_snapshot_id", "baseline_snapshot_id", "profile", "slices", "reviewer_agreement", "dimension_regression", "zero_tolerance", "cost_microunits_p95", "cost_budget", "latency_millis_p95", "latency_budget", "evaluated_at"],
+      "properties": {
+        "schema_version": {"const": 1},
+        "report_id": {"type": "string", "minLength": 1, "maxLength": 256},
+        "candidate_snapshot_id": {"$ref": "#/schemas/BehaviorSnapshotId"},
+        "baseline_snapshot_id": {"$ref": "#/schemas/BehaviorSnapshotId"},
+        "profile": {"$ref": "#/schemas/BehaviorProfile"},
+        "slices": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"$ref": "#/schemas/BehaviorSliceResultV1"}},
+        "reviewer_agreement": {"type": "number", "minimum": 0, "maximum": 1},
+        "dimension_regression": {"type": "object", "minProperties": 4, "maxProperties": 4, "additionalProperties": {"type": "number", "minimum": 0, "maximum": 1}},
+        "zero_tolerance": {"$ref": "#/schemas/BehaviorZeroToleranceV1"},
+        "cost_microunits_p95": {"type": "integer", "minimum": 0},
+        "cost_budget": {"type": "integer", "minimum": 1},
+        "latency_millis_p95": {"type": "integer", "minimum": 0},
+        "latency_budget": {"type": "integer", "minimum": 1},
+        "evaluated_at": {"type": "string", "format": "date-time"}
+      }
+    },
+    "BehaviorRolloutPolicyV1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["percentages", "observation_seconds"],
+      "properties": {
+        "percentages": {"type": "array", "minItems": 1, "maxItems": 16, "items": {"type": "integer", "minimum": 1, "maximum": 100}},
+        "observation_seconds": {"type": "integer", "minimum": 60, "maximum": 86400}
+      }
+    },
+    "BehaviorAutoRollbackPolicyV1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["maximum_error_rate", "maximum_latency_ratio", "maximum_cost_ratio", "minimum_quality_ratio", "zero_tolerance_enabled"],
+      "properties": {
+        "maximum_error_rate": {"type": "number", "exclusiveMinimum": 0, "maximum": 0.05},
+        "maximum_latency_ratio": {"type": "number", "minimum": 1, "maximum": 2},
+        "maximum_cost_ratio": {"type": "number", "minimum": 1, "maximum": 2},
+        "minimum_quality_ratio": {"type": "number", "minimum": 0.95, "maximum": 1},
+        "zero_tolerance_enabled": {"const": true}
+      }
+    },
+    "BehaviorApprovalV1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "approver_id", "key_id", "signed_at", "expires_at", "signature"],
+      "properties": {
+        "role": {"type": "string", "enum": ["risk_owner", "release_owner"]},
+        "approver_id": {"type": "string", "minLength": 1},
+        "key_id": {"type": "string", "minLength": 1},
+        "signed_at": {"type": "string", "format": "date-time"},
+        "expires_at": {"type": "string", "format": "date-time"},
+        "signature": {"type": "string", "minLength": 1}
+      }
+    },
+    "BehaviorPromotionRequestV1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "tenant_id", "environment", "profile", "sequence", "candidate_snapshot_id", "previous_snapshot_id", "manifest_hash", "evaluation_report_hash", "rollout", "auto_rollback", "requested_at", "approvals"],
+      "properties": {
+        "schema_version": {"const": 1},
+        "tenant_id": {"type": "string", "format": "uuid"},
+        "environment": {"$ref": "#/schemas/BehaviorEnvironment"},
+        "profile": {"$ref": "#/schemas/BehaviorProfile"},
+        "sequence": {"type": "integer", "minimum": 1},
+        "candidate_snapshot_id": {"$ref": "#/schemas/BehaviorSnapshotId"},
+        "previous_snapshot_id": {"$ref": "#/schemas/BehaviorSnapshotId"},
+        "manifest_hash": {"$ref": "#/schemas/BehaviorDigest"},
+        "evaluation_report_hash": {"$ref": "#/schemas/BehaviorDigest"},
+        "rollout": {"$ref": "#/schemas/BehaviorRolloutPolicyV1"},
+        "auto_rollback": {"$ref": "#/schemas/BehaviorAutoRollbackPolicyV1"},
+        "requested_at": {"type": "string", "format": "date-time"},
+        "approvals": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"$ref": "#/schemas/BehaviorApprovalV1"}}
+      }
+    },
+    "BehaviorRollbackRequestV1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "tenant_id", "environment", "profile", "sequence", "from_snapshot_id", "to_snapshot_id", "trigger", "observed_value", "threshold", "incident_evidence_hash", "automation_key_id", "occurred_at", "signature"],
+      "properties": {
+        "schema_version": {"const": 1},
+        "tenant_id": {"type": "string", "format": "uuid"},
+        "environment": {"$ref": "#/schemas/BehaviorEnvironment"},
+        "profile": {"$ref": "#/schemas/BehaviorProfile"},
+        "sequence": {"type": "integer", "minimum": 2},
+        "from_snapshot_id": {"$ref": "#/schemas/BehaviorSnapshotId"},
+        "to_snapshot_id": {"$ref": "#/schemas/BehaviorSnapshotId"},
+        "trigger": {"type": "string", "enum": ["zero_tolerance", "error_rate", "latency_ratio", "cost_ratio", "quality_ratio"]},
+        "observed_value": {"type": "number"},
+        "threshold": {"type": "number"},
+        "incident_evidence_hash": {"$ref": "#/schemas/BehaviorDigest"},
+        "automation_key_id": {"type": "string", "minLength": 1},
+        "occurred_at": {"type": "string", "format": "date-time"},
+        "signature": {"type": "string", "minLength": 1}
+      }
+    },
+    "BehaviorSnapshotCreateRequestV1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["request_id", "manifest"],
+      "properties": {"request_id": {"type": "string", "minLength": 8, "maxLength": 256}, "manifest": {"$ref": "#/schemas/BehaviorManifestV1"}}
+    },
+    "BehaviorEvaluationCreateRequestV1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["request_id", "report"],
+      "properties": {"request_id": {"type": "string", "minLength": 8, "maxLength": 256}, "report": {"$ref": "#/schemas/BehaviorEvaluationReportV1"}}
+    },
+    "BehaviorPromotionCreateRequestV1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["request_id", "promotion"],
+      "properties": {"request_id": {"type": "string", "minLength": 8, "maxLength": 256}, "promotion": {"$ref": "#/schemas/BehaviorPromotionRequestV1"}}
+    },
+    "BehaviorRollbackCreateRequestV1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["request_id", "rollback"],
+      "properties": {"request_id": {"type": "string", "minLength": 8, "maxLength": 256}, "rollback": {"$ref": "#/schemas/BehaviorRollbackRequestV1"}}
+    },
+    "BehaviorMutationResultV1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "resource_id", "event_id", "hash", "replayed"],
+      "properties": {
+        "id": {"type": "string", "format": "uuid"},
+        "resource_id": {"type": "string", "minLength": 1},
+        "event_id": {"type": "string", "format": "uuid"},
+        "hash": {"$ref": "#/schemas/BehaviorDigest"},
+        "sequence": {"type": "integer", "minimum": 1},
+        "replayed": {"type": "boolean"}
+      }
+    },
+    "BehaviorChannelBindingV1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["channel_id", "sequence", "snapshot_id", "profile", "environment", "activated_at"],
+      "properties": {
+        "channel_id": {"type": "string", "format": "uuid"},
+        "sequence": {"type": "integer", "minimum": 1},
+        "snapshot_id": {"$ref": "#/schemas/BehaviorSnapshotId"},
+        "profile": {"$ref": "#/schemas/BehaviorProfile"},
+        "environment": {"$ref": "#/schemas/BehaviorEnvironment"},
+        "activated_at": {"type": "string", "format": "date-time"}
+      }
+    }
+  },
+  "commonErrors": ["authentication_required", "permission_denied", "reauthentication_required", "validation_failed", "resource_not_found", "state_conflict", "idempotency_conflict", "dependency_unavailable"],
+  "forbiddenClientAuthorityFields": ["user_id", "session_id", "membership_id", "roles", "csrf_verified", "automation_user_id"]
+}

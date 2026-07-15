@@ -51,6 +51,7 @@ func setGatewayProductionEnvironment(t *testing.T) {
 		"SERVER_TLS_CERT_FILE": "/run/tls/tls.crt", "SERVER_TLS_KEY_FILE": "/run/tls/tls.key",
 		"IDENTITY_UPSTREAM_URL": "https://identity.internal:8443", "IDENTITY_UPSTREAM_ROOT_CA_FILE": "/run/tls/ca.crt", "IDENTITY_UPSTREAM_CLIENT_CERT_FILE": "/run/tls/client.crt", "IDENTITY_UPSTREAM_CLIENT_KEY_FILE": "/run/tls/client.key", "IDENTITY_UPSTREAM_TLS_SERVER_NAME": "identity.internal",
 		"REALTIME_UPSTREAM_URL": "https://realtime.internal:8443", "REALTIME_UPSTREAM_ROOT_CA_FILE": "/run/tls/ca.crt", "REALTIME_UPSTREAM_CLIENT_CERT_FILE": "/run/tls/client.crt", "REALTIME_UPSTREAM_CLIENT_KEY_FILE": "/run/tls/client.key", "REALTIME_UPSTREAM_TLS_SERVER_NAME": "realtime.internal", "REALTIME_TRUSTED_CONTEXT_AUDIENCE": "realtime-gateway",
+		"BEHAVIOR_UPSTREAM_URL": "https://behavior.internal:8443", "BEHAVIOR_UPSTREAM_ROOT_CA_FILE": "/run/tls/ca.crt", "BEHAVIOR_UPSTREAM_CLIENT_CERT_FILE": "/run/tls/client.crt", "BEHAVIOR_UPSTREAM_CLIENT_KEY_FILE": "/run/tls/client.key", "BEHAVIOR_UPSTREAM_TLS_SERVER_NAME": "behavior.internal", "BEHAVIOR_TRUSTED_CONTEXT_AUDIENCE": "behavior-control-plane",
 		"GATEWAY_SECRET_BUNDLE_FILE": "/run/secrets/gateway.json", "TRUSTED_CONTEXT_KEYRING_FILE": "/run/config/gateway-keyring.json", "TRUSTED_PROXY_CIDRS": "10.0.0.0/8,192.168.0.0/16", "PUBLIC_ORIGINS": "https://app.lites.dev,https://admin.lites.dev",
 		"ALLOW_INSECURE_DEVELOPMENT": "false", "LITES_ENVIRONMENT": "production", "LITES_VERSION": "test", "LITES_REGION": "US",
 		"OTLP_GRPC_ENDPOINT": "otel.internal:4317", "OTLP_BEARER_TOKEN_FILE": "/run/secrets/otel-token",
@@ -93,6 +94,11 @@ func TestGatewayConfigAllowsExplicitLoopbackDevelopment(t *testing.T) {
 	t.Setenv("REALTIME_UPSTREAM_CLIENT_CERT_FILE", "")
 	t.Setenv("REALTIME_UPSTREAM_CLIENT_KEY_FILE", "")
 	t.Setenv("REALTIME_UPSTREAM_TLS_SERVER_NAME", "")
+	t.Setenv("BEHAVIOR_UPSTREAM_URL", "http://127.0.0.1:8446")
+	t.Setenv("BEHAVIOR_UPSTREAM_ROOT_CA_FILE", "")
+	t.Setenv("BEHAVIOR_UPSTREAM_CLIENT_CERT_FILE", "")
+	t.Setenv("BEHAVIOR_UPSTREAM_CLIENT_KEY_FILE", "")
+	t.Setenv("BEHAVIOR_UPSTREAM_TLS_SERVER_NAME", "")
 	t.Setenv("OTLP_GRPC_ENDPOINT", "")
 	t.Setenv("OTLP_BEARER_TOKEN_FILE", "")
 	configuration, err := loadConfig()
@@ -102,6 +108,10 @@ func TestGatewayConfigAllowsExplicitLoopbackDevelopment(t *testing.T) {
 	client, endpoint, err := configuration.realtimeUpstreamClient()
 	if err != nil || client.Timeout != 0 || endpoint.String() != "http://127.0.0.1:8445" {
 		t.Fatalf("realtime upstream client = %#v endpoint = %v error = %v", client, endpoint, err)
+	}
+	behaviorClient, behaviorEndpoint, err := configuration.behaviorUpstreamClient()
+	if err != nil || behaviorClient.Timeout != 35*time.Second || behaviorEndpoint.String() != "http://127.0.0.1:8446" {
+		t.Fatalf("behavior upstream client = %#v endpoint = %v error = %v", behaviorClient, behaviorEndpoint, err)
 	}
 }
 

@@ -60,16 +60,27 @@ spec:
               kubernetes.io/metadata.name: {{ $.Values.global.edgeNamespace }}
       ports:
         - {protocol: TCP, port: {{ $workload.service.port }}}
-    {{- else if or (eq $name "identity-service") (eq $name "realtime-gateway") }}
+    {{- else if or (eq $name "identity-service") (eq $name "realtime-gateway") (eq $name "behavior-control-plane") }}
     - from:
         - podSelector:
             matchLabels:
               {{- include "lites.selectorLabels" (dict "root" $ "name" "api-gateway") | nindent 14 }}
       ports:
         - {protocol: TCP, port: {{ $workload.service.port }}}
+    {{- if eq $name "behavior-control-plane" }}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $.Values.global.monitoringNamespace }}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: behavior-rollback-controller
+      ports:
+        - {protocol: TCP, port: 8444}
+    {{- end }}
     {{- else if eq $name "store-epoch-authority" }}
     - from:
-        {{- range $client := list "identity-service" "identity-import-worker" "identity-mail-worker" "outbox-publisher" "runtime-sweeper" }}
+        {{- range $client := list "identity-service" "behavior-control-plane" "identity-import-worker" "identity-mail-worker" "outbox-publisher" "runtime-sweeper" }}
         - podSelector:
             matchLabels:
               {{- include "lites.selectorLabels" (dict "root" $ "name" $client) | nindent 14 }}
@@ -100,7 +111,13 @@ spec:
               {{- include "lites.selectorLabels" (dict "root" $ "name" "realtime-gateway") | nindent 14 }}
       ports:
         - {protocol: TCP, port: 8443}
-    {{- else if or (eq $name "identity-service") (eq $name "identity-import-worker") (eq $name "identity-mail-worker") (eq $name "outbox-publisher") (eq $name "runtime-sweeper") }}
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "lites.selectorLabels" (dict "root" $ "name" "behavior-control-plane") | nindent 14 }}
+      ports:
+        - {protocol: TCP, port: 8443}
+    {{- else if or (eq $name "identity-service") (eq $name "behavior-control-plane") (eq $name "identity-import-worker") (eq $name "identity-mail-worker") (eq $name "outbox-publisher") (eq $name "runtime-sweeper") }}
     - to:
         - podSelector:
             matchLabels:

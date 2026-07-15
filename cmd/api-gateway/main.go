@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -79,11 +80,20 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 	if err != nil {
 		return err
 	}
+	behaviorClient, behaviorUpstream, err := configuration.behaviorUpstreamClient()
+	if err != nil {
+		return err
+	}
 	identityProxy := newUpstreamProxy(upstreamClient, upstream, "identity", 0, logger)
 	realtimeProxy := newUpstreamProxy(realtimeClient, realtimeUpstream, "realtime", -1, logger)
+	behaviorProxy := newUpstreamProxy(behaviorClient, behaviorUpstream, "behavior", 0, logger)
 	upstreamRouter := http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if isRealtimeRoute(request.URL.Path) {
 			realtimeProxy.ServeHTTP(writer, request)
+			return
+		}
+		if isBehaviorRoute(request.URL.Path) {
+			behaviorProxy.ServeHTTP(writer, request)
 			return
 		}
 		identityProxy.ServeHTTP(writer, request)
@@ -98,6 +108,9 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 		AudienceForRequest: func(request *http.Request) string {
 			if isRealtimeRoute(request.URL.Path) {
 				return configuration.realtimeTrustedAudience
+			}
+			if isBehaviorRoute(request.URL.Path) {
+				return configuration.behaviorTrustedAudience
 			}
 			return configuration.trustedAudience
 		},
@@ -160,7 +173,7 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 	go func() {
 		errChannel <- monitorSigningWindow(ctx, secrets.SigningNotAfter, configuration.trustedContextTTL)
 	}()
-	logger.Info("api gateway ready", "address", configuration.listenAddress, "identity_upstream", upstream.Host, "realtime_upstream", realtimeUpstream.Host, "signing_key_id", secrets.SigningKeyID)
+	logger.Info("api gateway ready", "address", configuration.listenAddress, "identity_upstream", upstream.Host, "realtime_upstream", realtimeUpstream.Host, "behavior_upstream", behaviorUpstream.Host, "signing_key_id", secrets.SigningKeyID)
 	var runErr error
 	select {
 	case <-parent.Done():
@@ -173,6 +186,7 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 	_ = health.Shutdown(shutdownCtx)
 	upstreamClient.CloseIdleConnections()
 	realtimeClient.CloseIdleConnections()
+	behaviorClient.CloseIdleConnections()
 	if telemetryErr := telemetry.Shutdown(shutdownCtx); telemetryErr != nil && runErr == nil {
 		runErr = telemetryErr
 	}
@@ -180,6 +194,24 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 }
 
 func isRealtimeRoute(path string) bool { return path == "/v1/events" || path == "/v1/realtime" }
+
+func isBehaviorRoute(path string) bool {
+	switch path {
+	case "/v1/admin/behavior/snapshots", "/v1/admin/behavior/evaluations", "/v1/admin/behavior/promotions":
+		return true
+	}
+	const prefix = "/v1/admin/behavior/channels/"
+	if !strings.HasPrefix(path, prefix) {
+		return false
+	}
+	parts := strings.Split(strings.TrimPrefix(path, prefix), "/")
+	if len(parts) != 2 {
+		return false
+	}
+	profile, environment := parts[0], parts[1]
+	validProfile := profile == "route_planner" || profile == "daily_planner" || profile == "coach" || profile == "evaluator" || profile == "artifact_builder"
+	return validProfile && (environment == "staging" || environment == "production")
+}
 
 func newUpstreamProxy(client *http.Client, upstream *url.URL, name string, flushInterval time.Duration, logger *slog.Logger) *httputil.ReverseProxy {
 	return &httputil.ReverseProxy{
