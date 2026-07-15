@@ -121,7 +121,7 @@ func TestRunCancellationBarrierIsEventBackedAndFencesWorkers(t *testing.T) {
 		seedCancellationIdentity(t, ctx, admin, tenantID, userID, "blocked-cancel@example.invalid", now)
 		accepted := acceptCancellationRun(t, ctx, store, runID, tenantID, userID, conversationID, correlationID, now, "blocked")
 		claim := claimCancellationRun(t, ctx, store, accepted, tenantID, runID, correlationID, storeEpoch, "blocked")
-		tools, err := store.RequestTools(ctx, RequestToolsCommand{Claim: claim, ExpectedRunVersion: claim.RunVersion, StepID: "cancel-blocker", JoinPolicy: "all", QuorumCount: 1, PlanResultHash: "cancel-blocker-plan", Actor: json.RawMessage(`{"kind":"service"}`), CorrelationID: correlationID, AttemptCompletedEvent: PayloadPointer{Ref: "encrypted://cancellation/blocked/attempt", Hash: "blocked-attempt"}, ToolRequests: []ToolRequest{{ToolName: "web_search", DescriptorSnapshotID: "web_search@sha256:cancellation", NormalizedInputRef: "encrypted://cancellation/blocked/input", RequestHash: "blocked-tool-request", EffectClass: "read_only", Required: true, QueueClass: "interactive", ResourceClass: "tool-network", Priority: 50, CostUnits: 1, MaxAttempts: 4, RequestedEvent: PayloadPointer{Ref: "encrypted://cancellation/blocked/requested", Hash: "blocked-requested"}, ExecuteCommand: PayloadPointer{Ref: "encrypted://cancellation/blocked/execute", Hash: "blocked-execute"}}}})
+		tools, err := store.RequestTools(ctx, RequestToolsCommand{Claim: claim, ExpectedRunVersion: claim.RunVersion, StepID: "cancel-blocker", JoinPolicy: "all", QuorumCount: 1, PlanResultHash: "cancel-blocker-plan", Actor: json.RawMessage(`{"kind":"service"}`), CorrelationID: correlationID, AttemptCompletedEvent: PayloadPointer{Ref: "encrypted://cancellation/blocked/attempt", Hash: "blocked-attempt"}, ToolRequests: []ToolRequest{{ToolName: "github_create_issue", DescriptorSnapshotID: "github_create_issue@sha256:cancellation", NormalizedInputRef: "encrypted://cancellation/blocked/input", RequestHash: "blocked-tool-request", EffectClass: "idempotent_write", EffectKey: "issue:cancellation", EffectScope: "tenant:github:cancellation", ProviderID: "github", Required: true, QueueClass: "interactive", ResourceClass: "tool-network", Priority: 50, CostUnits: 1, MaxAttempts: 4, RequestedEvent: PayloadPointer{Ref: "encrypted://cancellation/blocked/requested", Hash: "blocked-requested"}, ExecuteCommand: PayloadPointer{Ref: "encrypted://cancellation/blocked/execute", Hash: "blocked-execute"}}}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -143,6 +143,30 @@ func TestRunCancellationBarrierIsEventBackedAndFencesWorkers(t *testing.T) {
 		}
 		if runStatus != "waiting_tool" || cancelGeneration != 1 || cancellationStatus != "terminating" || cancellationVersion != 2 || toolStatus != "requested" || reconcileJobStatus != "pending" || requestedEvents != 1 || cancelledEvents != 0 {
 			t.Fatalf("run=%s generation=%d cancellation=%s/v%d tool=%s reconcile_job=%s request_events=%d cancelled_events=%d", runStatus, cancelGeneration, cancellationStatus, cancellationVersion, toolStatus, reconcileJobStatus, requestedEvents, cancelledEvents)
+		}
+		toolID := tools.ToolCalls[0].ToolCallID
+		reconcileCommand := ReconcileRunCancellationCommand{CancellationID: cancellationID, TenantID: tenantID, StoreEpoch: storeEpoch, ExpectedCancellationVersion: 2, Actor: json.RawMessage(`{"kind":"service","id":"run-cancellation-reconciler"}`), CorrelationID: correlationID, ToolCancelledEvents: map[string]PayloadPointer{toolID: {Ref: "encrypted://cancellation/blocked/tool-cancelled", Hash: strings.Repeat("5", 64)}}}
+		reconciled, err := store.ReconcileCancellation(ctx, reconcileCommand)
+		if err != nil || !reconciled.Settled || reconciled.CancelledToolCalls != 1 || reconciled.RemainingBlockers != 0 || reconciled.CancellationVersion != 3 || reconciled.RunVersion != tools.RunVersion+1 {
+			t.Fatalf("reconciled=%#v error=%v", reconciled, err)
+		}
+		replay, err := store.ReconcileCancellation(ctx, reconcileCommand)
+		if err != nil || !replay.Settled || replay.SettlementEventID != reconciled.SettlementEventID || replay.CancellationVersion != reconciled.CancellationVersion || replay.RunVersion != reconciled.RunVersion {
+			t.Fatalf("reconcile replay=%#v error=%v", replay, err)
+		}
+		var effectStatus string
+		if err = admin.QueryRow(ctx, `SELECT r.status,c.status,t.status,j.status,e.status,
+			(SELECT count(*) FROM agent.events WHERE tenant_id=$1 AND aggregate_kind='tool_call' AND aggregate_id=$3 AND event_type='ToolCallCancelled'),
+			(SELECT count(*) FROM agent.events WHERE tenant_id=$1 AND aggregate_kind='run' AND aggregate_id=$2 AND event_type='RunCancelled')
+			FROM agent.runs r JOIN agent.run_cancellations c ON c.tenant_id=r.tenant_id AND c.id=r.active_cancellation_id
+			JOIN agent.tool_calls t ON t.tenant_id=r.tenant_id AND t.id=$3
+			JOIN agent.tool_effects e ON e.tenant_id=t.tenant_id AND e.tool_call_id=t.id
+			JOIN agent.jobs j ON j.tenant_id=r.tenant_id AND j.command_id=$4
+			WHERE r.tenant_id=$1 AND r.id=$2`, tenantID, runID, toolID, result.ReconcileCommandID).Scan(&runStatus, &cancellationStatus, &toolStatus, &reconcileJobStatus, &effectStatus, &requestedEvents, &cancelledEvents); err != nil {
+			t.Fatal(err)
+		}
+		if runStatus != "cancelled" || cancellationStatus != "settled" || toolStatus != "cancelled" || reconcileJobStatus != "cancelled" || effectStatus != "failed" || requestedEvents != 1 || cancelledEvents != 1 {
+			t.Fatalf("settled run=%s cancellation=%s tool=%s effect=%s reconcile_job=%s tool_events=%d run_events=%d", runStatus, cancellationStatus, toolStatus, effectStatus, reconcileJobStatus, requestedEvents, cancelledEvents)
 		}
 	})
 }

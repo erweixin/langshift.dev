@@ -41,3 +41,27 @@ func TestRequestRunCancellationValidationAndIdentifiers(t *testing.T) {
 		t.Fatalf("identifiers are not deterministic and domain-separated: first=%#v second=%#v", first, second)
 	}
 }
+
+func TestReconcileRunCancellationValidationAndToolIdentifiers(t *testing.T) {
+	valid := ReconcileRunCancellationCommand{CancellationID: "cancel", TenantID: "tenant", StoreEpoch: "epoch", ExpectedCancellationVersion: 2, Actor: json.RawMessage(`{"kind":"service"}`), CorrelationID: "correlation", ToolCancelledEvents: map[string]PayloadPointer{}}
+	if !validReconcileRunCancellation(valid) {
+		t.Fatal("valid reconciliation command rejected")
+	}
+	invalid := valid
+	invalid.ToolCancelledEvents = nil
+	if validReconcileRunCancellation(invalid) {
+		t.Fatal("nil tool event manifest accepted")
+	}
+	store := RunStore{IDKey: bytes.Repeat([]byte{0x32}, 32)}
+	first, err := store.cancellationToolIdentifiers("cancel", "tool")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := store.cancellationToolIdentifiers("cancel", "tool")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first != second || first.event == first.outbox || first.outbox == first.publish {
+		t.Fatalf("tool cancellation identifiers are not stable and separated: %#v %#v", first, second)
+	}
+}
