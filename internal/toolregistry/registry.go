@@ -54,6 +54,21 @@ type Scheduling struct {
 	CostUnits     int64  `json:"cost_units"`
 }
 
+// RuntimePolicyBinding is the immutable sandbox authority selected during the
+// release build. A tenant may own a snapshot with the same key, but every
+// security-relevant field still has to match this descriptor before a guest
+// can be provisioned.
+type RuntimePolicyBinding struct {
+	SnapshotKey       string `json:"snapshot_key"`
+	IsolationKind     string `json:"isolation_kind"`
+	NetworkMode       string `json:"network_mode"`
+	NetworkPolicyHash string `json:"network_policy_hash"`
+	SecretMode        string `json:"secret_mode"`
+	SecretScopeHash   string `json:"secret_scope_hash"`
+	WorkspaceMode     string `json:"workspace_mode"`
+	MinimumPids       int    `json:"minimum_pids"`
+}
+
 type Descriptor struct {
 	SchemaVersion int    `json:"schema_version"`
 	Name          string `json:"tool_name"`
@@ -78,14 +93,15 @@ type Descriptor struct {
 	ApprovalHint        string   `json:"approval_hint,omitempty"`
 	SecretScopes        []string `json:"secret_scopes,omitempty"`
 
-	ExecutionKind       string         `json:"execution_kind"`
-	Handler             string         `json:"handler,omitempty"`
-	TrustTier           string         `json:"trust_tier"`
-	RuntimeImage        string         `json:"runtime_image,omitempty"`
-	Resources           ResourceLimits `json:"resource_limits"`
-	Scheduling          Scheduling     `json:"scheduling"`
-	NetworkEgressPolicy string         `json:"network_egress_policy"`
-	EgressAllowlist     []string       `json:"egress_allowlist,omitempty"`
+	ExecutionKind       string                `json:"execution_kind"`
+	Handler             string                `json:"handler,omitempty"`
+	TrustTier           string                `json:"trust_tier"`
+	RuntimeImage        string                `json:"runtime_image,omitempty"`
+	RuntimePolicy       *RuntimePolicyBinding `json:"runtime_policy,omitempty"`
+	Resources           ResourceLimits        `json:"resource_limits"`
+	Scheduling          Scheduling            `json:"scheduling"`
+	NetworkEgressPolicy string                `json:"network_egress_policy"`
+	EgressAllowlist     []string              `json:"egress_allowlist,omitempty"`
 
 	Source        string `json:"source"`
 	Deprecated    bool   `json:"deprecated"`
@@ -231,6 +247,10 @@ func canonicalDescriptor(value Descriptor) (Descriptor, time.Duration, error) {
 		return Descriptor{}, 0, ErrDescriptorInvalid
 	}
 	canonical := value
+	if value.RuntimePolicy != nil {
+		binding := *value.RuntimePolicy
+		canonical.RuntimePolicy = &binding
+	}
 	canonical.DisplayName, canonical.Description = strings.TrimSpace(value.DisplayName), strings.TrimSpace(value.Description)
 	canonical.ApprovalHint = strings.TrimSpace(value.ApprovalHint)
 	timeout, err := time.ParseDuration(value.Resources.Timeout)
@@ -326,9 +346,16 @@ func validRuntime(value Descriptor) bool {
 		return false
 	}
 	if value.ExecutionKind == ExecutionChild {
-		return value.Name == "spawn_agent_run" && value.EffectClass == "read_only" && value.Handler == "spawn_agent_run" && value.RuntimeImage == "" && len(value.SecretScopes) == 0 && value.NetworkEgressPolicy == "deny_all" && len(value.EgressAllowlist) == 0 && value.TrustTier == "trusted"
+		return value.Name == "spawn_agent_run" && value.EffectClass == "read_only" && value.Handler == "spawn_agent_run" && value.RuntimeImage == "" && value.RuntimePolicy == nil && len(value.SecretScopes) == 0 && value.NetworkEgressPolicy == "deny_all" && len(value.EgressAllowlist) == 0 && value.TrustTier == "trusted"
 	}
 	if value.ExecutionKind != ExecutionWorker || !idPattern.MatchString(value.Handler) || !imagePattern.MatchString(value.RuntimeImage) {
+		return false
+	}
+	if value.TrustTier == "trusted" {
+		if value.RuntimePolicy != nil {
+			return false
+		}
+	} else if !validRuntimePolicyBinding(value.RuntimePolicy) || !runtimePolicyMatchesDescriptorAuthority(value) {
 		return false
 	}
 	switch value.NetworkEgressPolicy {
@@ -339,6 +366,41 @@ func validRuntime(value Descriptor) bool {
 	default:
 		return false
 	}
+}
+
+func runtimePolicyMatchesDescriptorAuthority(value Descriptor) bool {
+	binding := value.RuntimePolicy
+	if binding == nil {
+		return false
+	}
+	networkMatches := value.NetworkEgressPolicy == "deny_all" && binding.NetworkMode == "none" ||
+		value.NetworkEgressPolicy == "allowlist" && binding.NetworkMode == "allowlist_proxy" ||
+		value.NetworkEgressPolicy == "tenant_policy" && (binding.NetworkMode == "broker_only" || binding.NetworkMode == "allowlist_proxy")
+	secretsMatch := len(value.SecretScopes) == 0 && binding.SecretMode == "none" || len(value.SecretScopes) > 0 && binding.SecretMode != "none"
+	if !networkMatches || !secretsMatch {
+		return false
+	}
+	switch value.TrustTier {
+	case "semi_trusted":
+		return binding.SecretMode != "short_lived_injected"
+	case "untrusted":
+		return binding.NetworkMode != "allowlist_proxy" && binding.SecretMode != "short_lived_injected"
+	case "privileged":
+		return value.ApprovalMode != ApprovalNone
+	default:
+		return false
+	}
+}
+
+func validRuntimePolicyBinding(value *RuntimePolicyBinding) bool {
+	if value == nil || !idPattern.MatchString(value.SnapshotKey) || value.IsolationKind != "firecracker" || value.WorkspaceMode != "none" || value.MinimumPids < 1 || value.MinimumPids > 4096 || !strings.HasPrefix(value.NetworkPolicyHash, "sha256:") || !strings.HasPrefix(value.SecretScopeHash, "sha256:") || !digestPattern.MatchString(strings.TrimPrefix(value.NetworkPolicyHash, "sha256:")) || !digestPattern.MatchString(strings.TrimPrefix(value.SecretScopeHash, "sha256:")) {
+		return false
+	}
+	if value.NetworkMode != "none" && value.NetworkMode != "broker_only" && value.NetworkMode != "allowlist_proxy" || value.SecretMode != "none" && value.SecretMode != "broker_only" && value.SecretMode != "short_lived_injected" {
+		return false
+	}
+	empty := "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+	return (value.NetworkMode == "none") == (value.NetworkPolicyHash == empty) && (value.SecretMode == "none") == (value.SecretScopeHash == empty) && !(value.SecretMode == "short_lived_injected" && value.NetworkMode == "none")
 }
 
 func validSource(value Descriptor) bool {
@@ -409,6 +471,10 @@ func validDNSName(host string) bool {
 
 func cloneSnapshot(snapshot Snapshot) Snapshot {
 	clone := snapshot
+	if snapshot.Descriptor.RuntimePolicy != nil {
+		binding := *snapshot.Descriptor.RuntimePolicy
+		clone.Descriptor.RuntimePolicy = &binding
+	}
 	clone.Descriptor.InputSchema = append(json.RawMessage(nil), snapshot.Descriptor.InputSchema...)
 	clone.Descriptor.OutputSchema = append(json.RawMessage(nil), snapshot.Descriptor.OutputSchema...)
 	clone.Descriptor.RequiredPermissions = append([]string(nil), snapshot.Descriptor.RequiredPermissions...)

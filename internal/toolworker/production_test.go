@@ -75,6 +75,7 @@ func productionDescriptor() toolregistry.Descriptor {
 		EffectClass:  "read_only", MaxAttempts: 3, ApprovalMode: toolregistry.ApprovalNone,
 		ExecutionKind: toolregistry.ExecutionWorker, Handler: "provider_lookup", TrustTier: "semi_trusted",
 		RuntimeImage:        "registry.example/tools/provider@sha256:" + strings.Repeat("a", 64),
+		RuntimePolicy:       &toolregistry.RuntimePolicyBinding{SnapshotKey: "runtime-policy:provider:v1", IsolationKind: "firecracker", NetworkMode: "none", NetworkPolicyHash: "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", SecretMode: "none", SecretScopeHash: "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", WorkspaceMode: "none", MinimumPids: 32},
 		Resources:           toolregistry.ResourceLimits{CPUMillis: 250, MemoryBytes: 128 << 20, DiskBytes: 64 << 20, Timeout: "30s", MaximumInput: 64 << 10, MaximumOutput: 1 << 20, MaximumLogBytes: 1 << 20},
 		Scheduling:          toolregistry.Scheduling{QueueClass: "interactive", ResourceClass: "tool-network", Priority: 50, CostUnits: 2},
 		NetworkEgressPolicy: "deny_all", Source: "platform", Changelog: "Initial production descriptor.",

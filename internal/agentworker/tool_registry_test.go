@@ -110,6 +110,7 @@ func agentToolRegistry(t *testing.T, approvalMode, effectClass string) (toolregi
 		EffectClass:  effectClass, MaxAttempts: 5, ApprovalMode: approvalMode,
 		ExecutionKind: toolregistry.ExecutionWorker, Handler: "provider_lookup", TrustTier: "semi_trusted",
 		RuntimeImage:        "registry.invalid/provider-lookup@sha256:" + strings.Repeat("a", 64),
+		RuntimePolicy:       &toolregistry.RuntimePolicyBinding{SnapshotKey: "runtime-policy:provider:v1", IsolationKind: "firecracker", NetworkMode: "allowlist_proxy", NetworkPolicyHash: "sha256:" + strings.Repeat("b", 64), SecretMode: "none", SecretScopeHash: "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", WorkspaceMode: "none", MinimumPids: 32},
 		Resources:           toolregistry.ResourceLimits{CPUMillis: 250, MemoryBytes: 128 << 20, DiskBytes: 256 << 20, Timeout: "30s", MaximumInput: 64 << 10, MaximumOutput: 1 << 20, MaximumLogBytes: 1 << 20},
 		Scheduling:          toolregistry.Scheduling{QueueClass: "interactive", ResourceClass: "tool-network", Priority: 50, CostUnits: 2},
 		NetworkEgressPolicy: "allowlist", EgressAllowlist: []string{"api.provider.invalid"}, Source: "platform",

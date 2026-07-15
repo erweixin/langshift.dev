@@ -75,6 +75,12 @@ func TestRegistryRejectsRemoteRefsOpenSchemasAndInvalidRuntime(t *testing.T) {
 			value.InputSchema = json.RawMessage(`{"type":"object","properties":{"query":{"type":"string"}}}`)
 		}},
 		{"tag only image", func(value *Descriptor) { value.RuntimeImage = "registry.invalid/tools/provider:latest" }},
+		{"missing runtime policy binding", func(value *Descriptor) { value.RuntimePolicy = nil }},
+		{"mutable workspace policy", func(value *Descriptor) { value.RuntimePolicy.WorkspaceMode = "read_write" }},
+		{"egress authority mismatch", func(value *Descriptor) {
+			value.RuntimePolicy.NetworkMode = "none"
+			value.RuntimePolicy.NetworkPolicyHash = "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+		}},
 		{"ip egress", func(value *Descriptor) { value.EgressAllowlist = []string{"127.0.0.1"} }},
 		{"effect mismatch", func(value *Descriptor) { value.EffectClass, value.RequiresEffectKey = "irreversible_write", false }},
 	}
@@ -101,11 +107,12 @@ func TestRegistryRejectsDuplicateSnapshotsAndReturnsDefensiveCopies(t *testing.T
 	snapshot := onlySnapshot(t, registry, descriptor)
 	snapshot.Descriptor.RequiredPermissions[0] = "mutated.permission"
 	snapshot.Descriptor.InputSchema[0] = '['
+	snapshot.Descriptor.RuntimePolicy.SnapshotKey = "runtime-policy:mutated:v1"
 	again, err := registry.Resolve(snapshot.SnapshotID, snapshot.Hash)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if again.Descriptor.RequiredPermissions[0] != "tools.read" || !strings.HasPrefix(string(again.Descriptor.InputSchema), "{") {
+	if again.Descriptor.RequiredPermissions[0] != "tools.read" || !strings.HasPrefix(string(again.Descriptor.InputSchema), "{") || again.Descriptor.RuntimePolicy.SnapshotKey != "runtime-policy:provider:v1" {
 		t.Fatal("caller mutated immutable registry state")
 	}
 }
@@ -133,9 +140,14 @@ func validDescriptor() Descriptor {
 		RequiredPermissions: []string{"tools.read"}, ApprovalMode: ApprovalNone,
 		ExecutionKind: ExecutionWorker, Handler: "provider_lookup", TrustTier: "semi_trusted",
 		RuntimeImage:        "registry.invalid/langshift/provider-lookup@sha256:" + strings.Repeat("a", 64),
+		RuntimePolicy:       testRuntimePolicy("allowlist_proxy", "sha256:"+strings.Repeat("b", 64)),
 		Resources:           ResourceLimits{CPUMillis: 250, MemoryBytes: 128 << 20, DiskBytes: 256 << 20, Timeout: "30s", MaximumInput: 64 << 10, MaximumOutput: 1 << 20, MaximumLogBytes: 1 << 20},
 		Scheduling:          Scheduling{QueueClass: "interactive", ResourceClass: "tool-network", Priority: 50, CostUnits: 2},
 		NetworkEgressPolicy: "allowlist", EgressAllowlist: []string{"api.provider.invalid"},
 		Source: "platform", Changelog: "Initial production descriptor.",
 	}
+}
+
+func testRuntimePolicy(networkMode, networkHash string) *RuntimePolicyBinding {
+	return &RuntimePolicyBinding{SnapshotKey: "runtime-policy:provider:v1", IsolationKind: "firecracker", NetworkMode: networkMode, NetworkPolicyHash: networkHash, SecretMode: "none", SecretScopeHash: "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", WorkspaceMode: "none", MinimumPids: 32}
 }

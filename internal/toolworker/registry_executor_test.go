@@ -157,6 +157,9 @@ func workerRegistryWithTrust(t *testing.T, effectClass, timeout, trustTier strin
 		Scheduling:          toolregistry.Scheduling{QueueClass: "interactive", ResourceClass: "tool-network", Priority: 50, CostUnits: 2},
 		NetworkEgressPolicy: "deny_all", Source: "platform", Changelog: "Initial production descriptor.",
 	}
+	if trustTier != "trusted" {
+		descriptor.RuntimePolicy = &toolregistry.RuntimePolicyBinding{SnapshotKey: "runtime-policy:provider:v1", IsolationKind: "firecracker", NetworkMode: "none", NetworkPolicyHash: "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", SecretMode: "none", SecretScopeHash: "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", WorkspaceMode: "none", MinimumPids: 32}
+	}
 	if effectClass != "read_only" {
 		descriptor.RequiresEffectKey = true
 		descriptor.SupportsReconcile = true
