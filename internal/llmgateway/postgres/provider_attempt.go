@@ -19,6 +19,7 @@ type BYOKBinding struct {
 
 type PrepareProviderAttemptCommand struct {
 	AttemptID, ProviderAttemptID, LLMAttemptID string
+	UsageReservationID                         string
 	TenantID, UserID, AttemptKey               string
 	Ordinal                                    int
 	Candidate                                  ModelCandidate
@@ -68,15 +69,15 @@ func (store Store) PrepareProviderAttempt(ctx context.Context, command PreparePr
 		return PreparedProviderAttempt{}, err
 	}
 	var replay PreparedProviderAttempt
-	var replayLLM, replayUser, replayProvider, replayModel, replayModelVersion, replayContext, replayPricing, replayHost, replayEvent string
+	var replayLLM, replayUser, replayReservation, replayProvider, replayModel, replayModelVersion, replayContext, replayPricing, replayHost, replayEvent string
 	var replayFallback, replayCredential, replaySecret *string
 	var replayCredentialVersion *uint64
 	var replayBYOK bool
 	var replayDigest []byte
-	err = tx.QueryRow(ctx, `SELECT id::text,provider_attempt_id,llm_attempt_id::text,user_id::text,ordinal,provider_id,model_id,model_version,request_hash,context_manifest_hash,pricing_version,fallback_from_id::text,byok,byok_credential_id::text,byok_credential_version,bound_host,secret_version,prepare_token_hash,prepare_token_expires_at,prepared_event_id::text,status,version FROM agent.llm_provider_attempts WHERE tenant_id=$1 AND (id=$2 OR provider_attempt_id=$3 OR (llm_attempt_id=$4 AND ordinal=$5)) FOR UPDATE`, command.TenantID, command.AttemptID, command.ProviderAttemptID, command.LLMAttemptID, command.Ordinal).Scan(&replay.AttemptID, &replay.ProviderAttemptID, &replayLLM, &replayUser, &replay.Ordinal, &replayProvider, &replayModel, &replayModelVersion, &replay.RequestHash, &replayContext, &replayPricing, &replayFallback, &replayBYOK, &replayCredential, &replayCredentialVersion, &replayHost, &replaySecret, &replayDigest, &replay.PrepareTokenExpiresAt, &replayEvent, &replay.Status, &replay.Version)
+	err = tx.QueryRow(ctx, `SELECT id::text,provider_attempt_id,llm_attempt_id::text,user_id::text,usage_reservation_id::text,ordinal,provider_id,model_id,model_version,request_hash,context_manifest_hash,pricing_version,fallback_from_id::text,byok,byok_credential_id::text,byok_credential_version,bound_host,secret_version,prepare_token_hash,prepare_token_expires_at,prepared_event_id::text,status,version FROM agent.llm_provider_attempts WHERE tenant_id=$1 AND (id=$2 OR provider_attempt_id=$3 OR (llm_attempt_id=$4 AND ordinal=$5)) FOR UPDATE`, command.TenantID, command.AttemptID, command.ProviderAttemptID, command.LLMAttemptID, command.Ordinal).Scan(&replay.AttemptID, &replay.ProviderAttemptID, &replayLLM, &replayUser, &replayReservation, &replay.Ordinal, &replayProvider, &replayModel, &replayModelVersion, &replay.RequestHash, &replayContext, &replayPricing, &replayFallback, &replayBYOK, &replayCredential, &replayCredentialVersion, &replayHost, &replaySecret, &replayDigest, &replay.PrepareTokenExpiresAt, &replayEvent, &replay.Status, &replay.Version)
 	if err == nil {
 		credentialID, credentialVersion, secretVersion := byokValues(command.BYOK)
-		if replay.AttemptID != command.AttemptID || replay.ProviderAttemptID != command.ProviderAttemptID || replayLLM != command.LLMAttemptID || replayUser != command.UserID || replay.Ordinal != command.Ordinal || replayProvider != command.Candidate.ProviderID || replayModel != command.Candidate.ModelID || replayModelVersion != command.Candidate.ModelVersion || replay.RequestHash != command.RequestHash || replayContext != command.ContextManifestHash || replayPricing != command.Candidate.PricingVersion || !equalOptional(replayFallback, command.FallbackFromID) || replayBYOK != (command.BYOK != nil) || !equalOptional(replayCredential, credentialID) || !equalOptionalUint(replayCredentialVersion, credentialVersion) || replayHost != command.Candidate.BoundHost || !equalOptional(replaySecret, secretVersion) || !bytes.Equal(replayDigest, digest[:]) || !replay.PrepareTokenExpiresAt.Equal(command.PrepareTokenExpiresAt) || replayEvent != identifiers.Event {
+		if replay.AttemptID != command.AttemptID || replay.ProviderAttemptID != command.ProviderAttemptID || replayLLM != command.LLMAttemptID || replayUser != command.UserID || replayReservation != command.UsageReservationID || replay.Ordinal != command.Ordinal || replayProvider != command.Candidate.ProviderID || replayModel != command.Candidate.ModelID || replayModelVersion != command.Candidate.ModelVersion || replay.RequestHash != command.RequestHash || replayContext != command.ContextManifestHash || replayPricing != command.Candidate.PricingVersion || !equalOptional(replayFallback, command.FallbackFromID) || replayBYOK != (command.BYOK != nil) || !equalOptional(replayCredential, credentialID) || !equalOptionalUint(replayCredentialVersion, credentialVersion) || replayHost != command.Candidate.BoundHost || !equalOptional(replaySecret, secretVersion) || !bytes.Equal(replayDigest, digest[:]) || !replay.PrepareTokenExpiresAt.Equal(command.PrepareTokenExpiresAt) || replayEvent != identifiers.Event {
 			return PreparedProviderAttempt{}, ErrProviderConflict
 		}
 		replay.Replayed = true
@@ -106,6 +107,13 @@ func (store Store) PrepareProviderAttempt(ctx context.Context, command PreparePr
 			return PreparedProviderAttempt{}, ErrProviderConflict
 		}
 	}
+	var reservationUser, subjectKind, subjectID, reservationStatus string
+	var subjectVersion uint64
+	var reservationExpires time.Time
+	err = tx.QueryRow(ctx, `SELECT user_id::text,subject_kind,subject_id::text,subject_version,status,expires_at FROM contracts.usage_reservations WHERE tenant_id=$1 AND id=$2 FOR SHARE`, command.TenantID, command.UsageReservationID).Scan(&reservationUser, &subjectKind, &subjectID, &subjectVersion, &reservationStatus, &reservationExpires)
+	if err != nil || reservationUser != command.UserID || subjectKind != "provider_attempt" || subjectID != command.AttemptID || subjectVersion != 1 || reservationStatus != "reserved" || !reservationExpires.After(now) {
+		return PreparedProviderAttempt{}, ErrProviderConflict
+	}
 	credentialID, credentialVersion, secretVersion := byokValues(command.BYOK)
 	if command.BYOK != nil {
 		var active bool
@@ -114,7 +122,7 @@ func (store Store) PrepareProviderAttempt(ctx context.Context, command PreparePr
 			return PreparedProviderAttempt{}, ErrProviderConflict
 		}
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO agent.llm_provider_attempts(id,tenant_id,user_id,llm_attempt_id,provider_attempt_id,provider_id,model_id,model_version,provider_request_id,fallback_from_id,status,input_tokens,output_tokens,cost_microunits,started_at,finished_at,ordinal,request_hash,context_manifest_hash,pricing_version,usage_status,byok,byok_credential_id,byok_credential_version,bound_host,secret_version,prepare_token_hash,prepare_token_expires_at,prepared_event_id,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,NULL,NULLIF($9,'')::uuid,'prepared',0,0,0,$10,NULL,$11,$12,$13,$14,'pending',$15,NULLIF($16,'')::uuid,$17,$18,NULLIF($19,''),$20,$21,$22,$10,$10)`, command.AttemptID, command.TenantID, command.UserID, command.LLMAttemptID, command.ProviderAttemptID, command.Candidate.ProviderID, command.Candidate.ModelID, command.Candidate.ModelVersion, command.FallbackFromID, now, command.Ordinal, command.RequestHash, command.ContextManifestHash, command.Candidate.PricingVersion, command.BYOK != nil, credentialID, credentialVersion, command.Candidate.BoundHost, secretVersion, digest[:], command.PrepareTokenExpiresAt, identifiers.Event)
+	_, err = tx.Exec(ctx, `INSERT INTO agent.llm_provider_attempts(id,tenant_id,user_id,llm_attempt_id,provider_attempt_id,provider_id,model_id,model_version,provider_request_id,fallback_from_id,status,input_tokens,output_tokens,cost_microunits,started_at,finished_at,ordinal,request_hash,context_manifest_hash,pricing_version,usage_status,byok,byok_credential_id,byok_credential_version,bound_host,secret_version,prepare_token_hash,prepare_token_expires_at,prepared_event_id,usage_reservation_id,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,NULL,NULLIF($9,'')::uuid,'prepared',0,0,0,$10,NULL,$11,$12,$13,$14,'pending',$15,NULLIF($16,'')::uuid,$17,$18,NULLIF($19,''),$20,$21,$22,$23,$10,$10)`, command.AttemptID, command.TenantID, command.UserID, command.LLMAttemptID, command.ProviderAttemptID, command.Candidate.ProviderID, command.Candidate.ModelID, command.Candidate.ModelVersion, command.FallbackFromID, now, command.Ordinal, command.RequestHash, command.ContextManifestHash, command.Candidate.PricingVersion, command.BYOK != nil, credentialID, credentialVersion, command.Candidate.BoundHost, secretVersion, digest[:], command.PrepareTokenExpiresAt, identifiers.Event, command.UsageReservationID)
 	if err != nil {
 		return PreparedProviderAttempt{}, ErrProviderConflict
 	}
@@ -219,7 +227,7 @@ func (store Store) AuthorizeDispatch(ctx context.Context, command AuthorizeDispa
 }
 
 func validPrepare(command PrepareProviderAttemptCommand) bool {
-	return command.AttemptID != "" && command.ProviderAttemptID != "" && command.LLMAttemptID != "" && command.TenantID != "" && command.UserID != "" && command.AttemptKey != "" && command.Ordinal > 0 && command.RequestHash != "" && command.ContextManifestHash != "" && command.PrepareToken != "" && command.CorrelationID != "" && validActor(command.Actor) && validPointer(command.PreparedEvent) && command.Candidate.ProviderID != "" && command.Candidate.ModelID != "" && command.Candidate.ModelVersion != "" && command.Candidate.BoundHost == canonicalHost(command.Candidate.BoundHost) && command.Candidate.PricingVersion != "" && (command.BYOK == nil || command.BYOK.CredentialID != "" && command.BYOK.Version > 0 && command.BYOK.SecretVersion != "")
+	return command.AttemptID != "" && command.ProviderAttemptID != "" && command.LLMAttemptID != "" && command.UsageReservationID != "" && command.TenantID != "" && command.UserID != "" && command.AttemptKey != "" && command.Ordinal > 0 && command.RequestHash != "" && command.ContextManifestHash != "" && command.PrepareToken != "" && command.CorrelationID != "" && validActor(command.Actor) && validPointer(command.PreparedEvent) && command.Candidate.ProviderID != "" && command.Candidate.ModelID != "" && command.Candidate.ModelVersion != "" && command.Candidate.BoundHost == canonicalHost(command.Candidate.BoundHost) && command.Candidate.PricingVersion != "" && (command.BYOK == nil || command.BYOK.CredentialID != "" && command.BYOK.Version > 0 && command.BYOK.SecretVersion != "")
 }
 
 func byokValues(binding *BYOKBinding) (string, *uint64, string) {

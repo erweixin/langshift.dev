@@ -7,7 +7,9 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	billingpostgres "github.com/langshift/lites/internal/billing/postgres"
 	eventpostgres "github.com/langshift/lites/internal/eventstore/postgres"
+	"github.com/langshift/lites/internal/platform/ids"
 )
 
 type RecordProviderResultCommand struct {
@@ -16,11 +18,13 @@ type RecordProviderResultCommand struct {
 	ProviderRequestID, ErrorClass        string
 	InputTokens, OutputTokens            uint64
 	CostMicrounits                       uint64
+	BillableUnits                        uint64
 	VisibleOutputStartedAt               *time.Time
 	ReconciliationDueAt                  *time.Time
 	CorrelationID                        string
 	Actor                                json.RawMessage
 	RecordedEvent                        PayloadPointer
+	SettledEvent                         PayloadPointer
 }
 
 type ProviderResult struct {
@@ -114,13 +118,26 @@ func (store Store) RecordProviderResult(ctx context.Context, command RecordProvi
 	var userID, status string
 	var version uint64
 	var storedDigest []byte
-	err = tx.QueryRow(ctx, `SELECT user_id::text,status,version,completion_token_hash FROM agent.llm_provider_attempts WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, command.TenantID, command.AttemptID).Scan(&userID, &status, &version, &storedDigest)
+	var cost providerCostBinding
+	err = tx.QueryRow(ctx, `SELECT user_id::text,status,version,completion_token_hash,provider_attempt_id,provider_id,model_id,model_version,pricing_version,request_hash,byok,usage_reservation_id::text FROM agent.llm_provider_attempts WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, command.TenantID, command.AttemptID).Scan(&userID, &status, &version, &storedDigest, &cost.ProviderAttemptID, &cost.ProviderID, &cost.ModelID, &cost.ModelVersion, &cost.PricingVersion, &cost.RequestHash, &cost.BYOK, &cost.ReservationID)
 	if err != nil || status != "dispatching" || version != 2 || !bytes.Equal(storedDigest, digest[:]) {
 		return ProviderResult{}, ErrDispatchToken
+	}
+	if cost.BYOK && command.CostMicrounits != 0 {
+		return ProviderResult{}, ErrInvalidCommand
 	}
 	tag, err := tx.Exec(ctx, `UPDATE agent.llm_provider_attempts SET version=3,status=$1,completion_token_hash=NULL,response_hash=NULLIF($2,''),usage_status=$3,provider_request_id=NULLIF($4,''),error_class=NULLIF($5,''),input_tokens=$6,output_tokens=$7,cost_microunits=$8,visible_output_started_at=$9,reconciliation_due_at=$10,finished_at=$11,recorded_event_id=$12,updated_at=$11 WHERE tenant_id=$13 AND id=$14 AND status='dispatching' AND version=2 AND completion_token_hash=$15`, command.Status, command.ResponseHash, command.UsageStatus, command.ProviderRequestID, command.ErrorClass, command.InputTokens, command.OutputTokens, command.CostMicrounits, visibleAt, reconciliationDue, now, identifiers.Event, command.TenantID, command.AttemptID, digest[:])
 	if err != nil || tag.RowsAffected() != 1 {
 		return ProviderResult{}, ErrProviderConflict
+	}
+	if command.Status != "outcome_unknown" {
+		if _, err = store.Billing.SettleInTx(ctx, tx, billingpostgres.SettleCommand{ReservationID: cost.ReservationID, TenantID: command.TenantID, ProviderAttemptID: command.AttemptID, ActualUnits: command.BillableUnits, CorrelationID: command.CorrelationID, CausationID: identifiers.Event, Actor: command.Actor, SettledEvent: billingpostgres.PayloadPointer{Ref: command.SettledEvent.Ref, Hash: command.SettledEvent.Hash}}); err != nil {
+			return ProviderResult{}, err
+		}
+		cost.ResponseHash, cost.UsageStatus = command.ResponseHash, command.UsageStatus
+		if err = store.recordProviderCost(ctx, tx, identifiers.Event, command.TenantID, userID, command.AttemptID, cost, command.InputTokens, command.OutputTokens, command.CostMicrounits, now); err != nil {
+			return ProviderResult{}, err
+		}
 	}
 	event := publishEvent(identifiers, eventpostgres.Event{TenantID: command.TenantID, UserID: userID, EventType: "ProviderAttemptRecorded", SchemaVersion: 2, AggregateKind: "provider_attempt", AggregateID: command.AttemptID, AggregateVersion: 3, StoreEpoch: store.StoreEpoch, OccurredAt: now, Actor: command.Actor, CorrelationID: command.CorrelationID}, command.RecordedEvent)
 	if _, err = store.Appender.Append(ctx, tx, event); err != nil {
@@ -136,10 +153,11 @@ type AbandonProviderAttemptCommand struct {
 	AttemptID, TenantID, ReasonCode, CorrelationID string
 	Actor                                          json.RawMessage
 	AbandonedEvent                                 PayloadPointer
+	ReleasedEvent                                  PayloadPointer
 }
 
 func (store Store) AbandonExpiredProviderAttempt(ctx context.Context, command AbandonProviderAttemptCommand) (ProviderResult, error) {
-	if !store.valid() || command.AttemptID == "" || command.TenantID == "" || command.ReasonCode == "" || command.CorrelationID == "" || !validActor(command.Actor) || !validPointer(command.AbandonedEvent) {
+	if !store.valid() || command.AttemptID == "" || command.TenantID == "" || command.ReasonCode == "" || command.CorrelationID == "" || !validActor(command.Actor) || !validPointer(command.AbandonedEvent) || !validPointer(command.ReleasedEvent) {
 		return ProviderResult{}, ErrInvalidCommand
 	}
 	if err := store.requireEpoch(ctx); err != nil {
@@ -158,15 +176,18 @@ func (store Store) AbandonExpiredProviderAttempt(ctx context.Context, command Ab
 	if _, err = tx.Exec(ctx, `SELECT set_config('lites.tenant_id',$1,true)`, command.TenantID); err != nil {
 		return ProviderResult{}, err
 	}
-	var userID string
+	var userID, reservationID string
 	var expiresAt time.Time
-	err = tx.QueryRow(ctx, `SELECT user_id::text,prepare_token_expires_at FROM agent.llm_provider_attempts WHERE tenant_id=$1 AND id=$2 AND status='prepared' AND version=1 FOR UPDATE`, command.TenantID, command.AttemptID).Scan(&userID, &expiresAt)
+	err = tx.QueryRow(ctx, `SELECT user_id::text,prepare_token_expires_at,usage_reservation_id::text FROM agent.llm_provider_attempts WHERE tenant_id=$1 AND id=$2 AND status='prepared' AND version=1 FOR UPDATE`, command.TenantID, command.AttemptID).Scan(&userID, &expiresAt, &reservationID)
 	if err != nil || expiresAt.After(now) {
 		return ProviderResult{}, ErrProviderConflict
 	}
 	tag, err := tx.Exec(ctx, `UPDATE agent.llm_provider_attempts SET version=2,status='abandoned',prepare_token_hash=NULL,usage_status='unavailable',error_class=$1,finished_at=$2,abandoned_event_id=$3,updated_at=$2 WHERE tenant_id=$4 AND id=$5 AND status='prepared' AND version=1 AND prepare_token_expires_at<=$2`, command.ReasonCode, now, identifiers.Event, command.TenantID, command.AttemptID)
 	if err != nil || tag.RowsAffected() != 1 {
 		return ProviderResult{}, ErrProviderConflict
+	}
+	if _, err = store.Billing.ReleaseInTx(ctx, tx, billingpostgres.ReleaseCommand{ReservationID: reservationID, TenantID: command.TenantID, ReasonCode: command.ReasonCode, CorrelationID: command.CorrelationID, CausationID: identifiers.Event, Actor: command.Actor, ReleasedEvent: billingpostgres.PayloadPointer{Ref: command.ReleasedEvent.Ref, Hash: command.ReleasedEvent.Hash}}); err != nil {
+		return ProviderResult{}, err
 	}
 	event := publishEvent(identifiers, eventpostgres.Event{TenantID: command.TenantID, UserID: userID, EventType: "ProviderAttemptAbandoned", SchemaVersion: 1, AggregateKind: "provider_attempt", AggregateID: command.AttemptID, AggregateVersion: 2, StoreEpoch: store.StoreEpoch, OccurredAt: now, Actor: command.Actor, CorrelationID: command.CorrelationID}, command.AbandonedEvent)
 	if _, err = store.Appender.Append(ctx, tx, event); err != nil {
@@ -182,13 +203,15 @@ type ReconcileProviderUsageCommand struct {
 	AttemptID, TenantID, ProviderRequestID, EvidenceHash string
 	InputTokens, OutputTokens                            uint64
 	CostMicrounits                                       uint64
+	BillableUnits                                        uint64
 	CorrelationID                                        string
 	Actor                                                json.RawMessage
 	ReconciledEvent                                      PayloadPointer
+	SettledEvent                                         PayloadPointer
 }
 
 func (store Store) ReconcileProviderUsage(ctx context.Context, command ReconcileProviderUsageCommand) (ProviderResult, error) {
-	if !store.valid() || command.AttemptID == "" || command.TenantID == "" || command.ProviderRequestID == "" || command.EvidenceHash == "" || command.CorrelationID == "" || !validActor(command.Actor) || !validPointer(command.ReconciledEvent) {
+	if !store.valid() || command.AttemptID == "" || command.TenantID == "" || command.ProviderRequestID == "" || command.EvidenceHash == "" || command.CorrelationID == "" || !validActor(command.Actor) || !validPointer(command.ReconciledEvent) || !validPointer(command.SettledEvent) {
 		return ProviderResult{}, ErrInvalidCommand
 	}
 	if err := store.requireEpoch(ctx); err != nil {
@@ -208,13 +231,24 @@ func (store Store) ReconcileProviderUsage(ctx context.Context, command Reconcile
 		return ProviderResult{}, err
 	}
 	var userID string
-	err = tx.QueryRow(ctx, `SELECT user_id::text FROM agent.llm_provider_attempts WHERE tenant_id=$1 AND id=$2 AND status='outcome_unknown' AND version=3 AND usage_status='unknown' FOR UPDATE`, command.TenantID, command.AttemptID).Scan(&userID)
+	var cost providerCostBinding
+	err = tx.QueryRow(ctx, `SELECT user_id::text,provider_attempt_id,provider_id,model_id,model_version,pricing_version,request_hash,byok,usage_reservation_id::text FROM agent.llm_provider_attempts WHERE tenant_id=$1 AND id=$2 AND status='outcome_unknown' AND version=3 AND usage_status='unknown' FOR UPDATE`, command.TenantID, command.AttemptID).Scan(&userID, &cost.ProviderAttemptID, &cost.ProviderID, &cost.ModelID, &cost.ModelVersion, &cost.PricingVersion, &cost.RequestHash, &cost.BYOK, &cost.ReservationID)
 	if err != nil {
 		return ProviderResult{}, ErrProviderConflict
+	}
+	if cost.BYOK && command.CostMicrounits != 0 {
+		return ProviderResult{}, ErrInvalidCommand
 	}
 	tag, err := tx.Exec(ctx, `UPDATE agent.llm_provider_attempts SET version=4,usage_status='confirmed',provider_request_id=$1,input_tokens=$2,output_tokens=$3,cost_microunits=$4,reconciled_at=$5,reconciliation_evidence_hash=$6,reconciled_event_id=$7,updated_at=$5 WHERE tenant_id=$8 AND id=$9 AND status='outcome_unknown' AND version=3 AND usage_status='unknown'`, command.ProviderRequestID, command.InputTokens, command.OutputTokens, command.CostMicrounits, now, command.EvidenceHash, identifiers.Event, command.TenantID, command.AttemptID)
 	if err != nil || tag.RowsAffected() != 1 {
 		return ProviderResult{}, ErrProviderConflict
+	}
+	if _, err = store.Billing.SettleInTx(ctx, tx, billingpostgres.SettleCommand{ReservationID: cost.ReservationID, TenantID: command.TenantID, ProviderAttemptID: command.AttemptID, ActualUnits: command.BillableUnits, CorrelationID: command.CorrelationID, CausationID: identifiers.Event, Actor: command.Actor, SettledEvent: billingpostgres.PayloadPointer{Ref: command.SettledEvent.Ref, Hash: command.SettledEvent.Hash}}); err != nil {
+		return ProviderResult{}, err
+	}
+	cost.UsageStatus = "confirmed"
+	if err = store.recordProviderCost(ctx, tx, identifiers.Event, command.TenantID, userID, command.AttemptID, cost, command.InputTokens, command.OutputTokens, command.CostMicrounits, now); err != nil {
+		return ProviderResult{}, err
 	}
 	event := publishEvent(identifiers, eventpostgres.Event{TenantID: command.TenantID, UserID: userID, EventType: "ProviderAttemptReconciled", SchemaVersion: 1, AggregateKind: "provider_attempt", AggregateID: command.AttemptID, AggregateVersion: 4, StoreEpoch: store.StoreEpoch, OccurredAt: now, Actor: command.Actor, CorrelationID: command.CorrelationID}, command.ReconciledEvent)
 	if _, err = store.Appender.Append(ctx, tx, event); err != nil {
@@ -232,14 +266,33 @@ func validResult(command RecordProviderResultCommand) bool {
 	}
 	switch command.Status {
 	case "completed":
-		return command.ResponseHash != "" && command.ErrorClass == "" && containsString([]string{"confirmed", "estimated", "unavailable"}, command.UsageStatus) && command.ReconciliationDueAt == nil
+		return command.ResponseHash != "" && command.ErrorClass == "" && containsString([]string{"confirmed", "estimated"}, command.UsageStatus) && command.ReconciliationDueAt == nil && validPointer(command.SettledEvent)
 	case "failed", "cancelled":
-		return command.ErrorClass != "" && containsString([]string{"confirmed", "estimated", "unavailable"}, command.UsageStatus) && command.ReconciliationDueAt == nil
+		return command.ErrorClass != "" && containsString([]string{"confirmed", "estimated"}, command.UsageStatus) && command.ReconciliationDueAt == nil && validPointer(command.SettledEvent)
 	case "outcome_unknown":
-		return command.ResponseHash == "" && command.ErrorClass != "" && command.UsageStatus == "unknown" && command.ReconciliationDueAt != nil
+		return command.ResponseHash == "" && command.ErrorClass != "" && command.UsageStatus == "unknown" && command.ReconciliationDueAt != nil && command.BillableUnits == 0 && !validPointer(command.SettledEvent)
 	default:
 		return false
 	}
+}
+
+type providerCostBinding struct {
+	ProviderAttemptID, ProviderID, ModelID, ModelVersion   string
+	PricingVersion, RequestHash, ResponseHash, UsageStatus string
+	ReservationID                                          string
+	BYOK                                                   bool
+}
+
+func (store Store) recordProviderCost(ctx context.Context, tx pgx.Tx, recordedEventID, tenantID, userID, attemptID string, binding providerCostBinding, inputTokens, outputTokens, costMicrounits uint64, now time.Time) error {
+	costID, err := ids.DeterministicUUID(store.IDKey, "provider-cost", attemptID)
+	if err != nil {
+		return ErrConfiguration
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO contracts.provider_costs(id,tenant_id,user_id,provider_attempt_id,provider_id,model_id,input_tokens,output_tokens,cost_microunits,byok,recorded_at,provider_attempt_row_id,model_version,pricing_version,request_hash,response_hash,usage_status,reservation_id,recorded_event_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,NULLIF($16,''),$17,$18,$19)`, costID, tenantID, userID, binding.ProviderAttemptID, binding.ProviderID, binding.ModelID, inputTokens, outputTokens, costMicrounits, binding.BYOK, now, attemptID, binding.ModelVersion, binding.PricingVersion, binding.RequestHash, binding.ResponseHash, binding.UsageStatus, binding.ReservationID, recordedEventID)
+	if err != nil {
+		return ErrProviderConflict
+	}
+	return nil
 }
 
 func containsString(values []string, expected string) bool {

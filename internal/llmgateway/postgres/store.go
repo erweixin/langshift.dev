@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	billingpostgres "github.com/langshift/lites/internal/billing/postgres"
 	eventpostgres "github.com/langshift/lites/internal/eventstore/postgres"
 	"github.com/langshift/lites/internal/platform/ids"
 	"github.com/langshift/lites/internal/security/opaque"
@@ -42,6 +43,7 @@ type Store struct {
 	StoreEpoch  string
 	IDKey       []byte
 	TokenPepper []byte
+	Billing     billingpostgres.Store
 	Now         func() time.Time
 }
 
@@ -84,7 +86,7 @@ func (store Store) IssueCompletionToken() (string, error) {
 }
 
 func (store Store) valid() bool {
-	return store.Pool != nil && store.Epochs != nil && store.StoreEpoch != "" && len(store.IDKey) >= 32 && len(store.TokenPepper) >= 32
+	return store.Pool != nil && store.Epochs != nil && store.StoreEpoch != "" && len(store.IDKey) >= 32 && len(store.TokenPepper) >= 32 && store.Billing.Compatible(store.Pool, store.StoreEpoch)
 }
 
 func (store Store) requireEpoch(ctx context.Context) error {

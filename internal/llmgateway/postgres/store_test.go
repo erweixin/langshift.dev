@@ -41,13 +41,14 @@ func TestContextManifestIsCanonicalAndCandidateSetIsExact(t *testing.T) {
 }
 
 func TestProviderResultContractsSeparateKnownAndUnknownOutcomes(t *testing.T) {
-	base := RecordProviderResultCommand{AttemptID: "attempt", TenantID: "tenant", CompletionToken: "token", CorrelationID: "correlation", Actor: json.RawMessage(`{"kind":"service"}`), RecordedEvent: PayloadPointer{Ref: "ref", Hash: "hash"}}
+	base := RecordProviderResultCommand{AttemptID: "attempt", TenantID: "tenant", CompletionToken: "token", CorrelationID: "correlation", Actor: json.RawMessage(`{"kind":"service"}`), RecordedEvent: PayloadPointer{Ref: "ref", Hash: "hash"}, SettledEvent: PayloadPointer{Ref: "settled-ref", Hash: "settled-hash"}}
 	completed := base
 	completed.Status, completed.ResponseHash, completed.UsageStatus = "completed", "response", "confirmed"
 	if !validResult(completed) {
 		t.Fatal("known completion rejected")
 	}
 	unknown := base
+	unknown.SettledEvent = PayloadPointer{}
 	due := time.Now().Add(time.Hour)
 	unknown.Status, unknown.UsageStatus, unknown.ErrorClass, unknown.ReconciliationDueAt = "outcome_unknown", "unknown", "deadline_exceeded", &due
 	if !validResult(unknown) {
