@@ -102,6 +102,24 @@ func (reader *ClientReader) Get(ctx context.Context, path string) (*api.KVSecret
 	return secret, nil
 }
 
+// GetVersion reads an exact KV v2 version. Callers which persist a secret
+// version must never fall back to the current value during rotation.
+func (reader *ClientReader) GetVersion(ctx context.Context, path string, version int) (*api.KVSecret, error) {
+	if reader == nil || reader.Client == nil || reader.Mount == "" || path == "" || version < 1 {
+		return nil, ErrKeyUnavailable
+	}
+	if reader.TokenFile != "" {
+		if err := reader.reloadToken(); err != nil {
+			return nil, err
+		}
+	}
+	secret, err := reader.Client.KVv2(reader.Mount).GetVersion(ctx, path, version)
+	if err != nil {
+		return nil, ErrKeyUnavailable
+	}
+	return secret, nil
+}
+
 func (reader *ClientReader) reloadToken() error {
 	file, err := os.Open(reader.TokenFile)
 	if err != nil {
