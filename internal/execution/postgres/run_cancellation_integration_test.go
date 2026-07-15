@@ -5,8 +5,10 @@ package postgres
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	eventpostgres "github.com/langshift/lites/internal/eventstore/postgres"
 	"github.com/langshift/lites/internal/execution/statemachine"
+	"github.com/langshift/lites/internal/payload"
 	"github.com/langshift/lites/internal/security/opaque"
 )
 
@@ -145,14 +148,47 @@ func TestRunCancellationBarrierIsEventBackedAndFencesWorkers(t *testing.T) {
 			t.Fatalf("run=%s generation=%d cancellation=%s/v%d tool=%s reconcile_job=%s request_events=%d cancelled_events=%d", runStatus, cancelGeneration, cancellationStatus, cancellationVersion, toolStatus, reconcileJobStatus, requestedEvents, cancelledEvents)
 		}
 		toolID := tools.ToolCalls[0].ToolCallID
-		reconcileCommand := ReconcileRunCancellationCommand{CancellationID: cancellationID, TenantID: tenantID, StoreEpoch: storeEpoch, ExpectedCancellationVersion: 2, Actor: json.RawMessage(`{"kind":"service","id":"run-cancellation-reconciler"}`), CorrelationID: correlationID, ToolCancelledEvents: map[string]PayloadPointer{toolID: {Ref: "encrypted://cancellation/blocked/tool-cancelled", Hash: strings.Repeat("5", 64)}}}
-		reconciled, err := store.ReconcileCancellation(ctx, reconcileCommand)
+		recoveryStore := store
+		recoveryStore.Now = func() time.Time { return now.Add(cancellationReconciliationDelay) }
+		blobs := &repairServiceBlobs{values: map[string][]byte{}}
+		payloads := payload.EnvelopeStore{Keys: repairServiceKeyProvider{key: payload.Key{ID: "run-cancellation-v1", Material: bytes.Repeat([]byte{0xc3}, 32)}}, Blobs: blobs}
+		reconciler := RunCancellationReconcilerService{Store: recoveryStore, Payloads: payloads, IDKey: store.IDKey}
+		tenants, err := reconciler.ListDueTenantIDs(ctx, storeEpoch, "", 100, 0, 1)
+		if err != nil || len(tenants) != 1 || tenants[0] != tenantID {
+			t.Fatalf("due cancellation tenants=%v error=%v", tenants, err)
+		}
+		if _, err = reconciler.ListDueTenantIDs(ctx, "ce000000-0000-4000-8000-000000000099", "", 100, 0, 1); !errors.Is(err, ErrStaleEpoch) {
+			t.Fatalf("stale discovery epoch error=%v", err)
+		}
+		cancellationIDs, err := reconciler.ListDueCancellationIDs(ctx, tenantID, storeEpoch, "", 100)
+		if err != nil || len(cancellationIDs) != 1 || cancellationIDs[0] != cancellationID {
+			t.Fatalf("due cancellation ids=%v error=%v", cancellationIDs, err)
+		}
+		reconciled, err := reconciler.ReconcileDueCancellation(ctx, tenantID, cancellationID, storeEpoch)
 		if err != nil || !reconciled.Settled || reconciled.CancelledToolCalls != 1 || reconciled.RemainingBlockers != 0 || reconciled.CancellationVersion != 3 || reconciled.RunVersion != tools.RunVersion+1 {
 			t.Fatalf("reconciled=%#v error=%v", reconciled, err)
 		}
-		replay, err := store.ReconcileCancellation(ctx, reconcileCommand)
+		replay, err := reconciler.ReconcileDueCancellation(ctx, tenantID, cancellationID, storeEpoch)
 		if err != nil || !replay.Settled || replay.SettlementEventID != reconciled.SettlementEventID || replay.CancellationVersion != reconciled.CancellationVersion || replay.RunVersion != reconciled.RunVersion {
 			t.Fatalf("reconcile replay=%#v error=%v", replay, err)
+		}
+		toolEventIDs, err := store.cancellationToolIdentifiers(cancellationID, toolID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var payloadRef, payloadHash string
+		if err = admin.QueryRow(ctx, `SELECT payload_ref,payload_hash FROM agent.events WHERE tenant_id=$1 AND id=$2`, tenantID, toolEventIDs.event).Scan(&payloadRef, &payloadHash); err != nil {
+			t.Fatal(err)
+		}
+		descriptor := payload.Descriptor{TenantID: tenantID, ObjectID: toolEventIDs.event, Class: cancellationRecoveryEventClass, ContentType: "application/json"}
+		aad, _ := json.Marshal(descriptor)
+		plaintext, err := payloads.Get(ctx, descriptor, payload.Manifest{Ref: payloadRef, Hash: payloadHash, KeyID: "run-cancellation-v1", AADHash: fmt.Sprintf("%x", sha256.Sum256(aad))})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var eventPayload map[string]any
+		if err = json.Unmarshal(plaintext, &eventPayload); err != nil || eventPayload["subject_id"] != toolID || eventPayload["previous_state"] != "requested" || eventPayload["new_state"] != "cancelled" || eventPayload["reason_code"] != "run_cancellation_requested" || eventPayload["command_id"] != tools.ToolCalls[0].CommandID {
+			t.Fatalf("invalid encrypted ToolCallCancelled payload=%s error=%v", plaintext, err)
 		}
 		var effectStatus string
 		if err = admin.QueryRow(ctx, `SELECT r.status,c.status,t.status,j.status,e.status,

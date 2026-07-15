@@ -79,7 +79,8 @@ for migration in \
   deploy/migrations/000037_behavior_snapshot_promotion.up.sql \
   deploy/migrations/000038_run_behavior_binding.up.sql \
   deploy/migrations/000039_idempotency_prepared_event_payload.up.sql \
-  deploy/migrations/000040_run_cancellation_barrier.up.sql; do
+  deploy/migrations/000040_run_cancellation_barrier.up.sql \
+  deploy/migrations/000041_run_cancellation_recovery_discovery.up.sql; do
   target="/tmp/$(basename "${migration}")"
   docker cp "${migration}" "${container_name}:${target}" >/dev/null
   docker exec "${container_name}" psql -v ON_ERROR_STOP=1 -U postgres -d lites_foundation -f "${target}" >/dev/null
