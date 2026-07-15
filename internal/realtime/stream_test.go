@@ -216,6 +216,50 @@ func TestStreamPollsAfterWakeSourceDisconnects(t *testing.T) {
 	}
 }
 
+func TestRealtimeWakeLossFaultInjection100(t *testing.T) {
+	store := &fakeStore{}
+	subscription := &fakeSubscription{notifications: make(chan struct{})}
+	sink := channelSink{events: make(chan realtimepostgres.Event, 128), controls: make(chan Control, 4)}
+	stream := productionTestStream(store, fakeWakes{subscription: subscription})
+	stream.CatchUpInterval = time.Millisecond
+	stream.WakeRetry = time.Hour
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- stream.Run(ctx, Session{TenantID: "tenant", UserID: "user", ExpiresAt: time.Now().Add(time.Hour)}, sink)
+	}()
+	ready := <-sink.controls
+	if ready.Kind != "ready" || ready.Cursor != 0 {
+		t.Fatalf("ready control=%#v", ready)
+	}
+	close(subscription.notifications)
+
+	const repetitions = 100
+	for sequence := uint64(1); sequence <= repetitions; sequence++ {
+		// No wake hint is available. The only recovery path is a cursor-bounded
+		// read from the authoritative EventStore on the periodic catch-up tick.
+		store.append(realtimepostgres.Event{Sequence: sequence})
+		select {
+		case event := <-sink.events:
+			if event.Sequence != sequence {
+				t.Fatalf("sequence %d delivered %d", sequence, event.Sequence)
+			}
+		case <-time.After(time.Second):
+			t.Fatalf("sequence %d was not recovered after lost wake", sequence)
+		}
+	}
+	select {
+	case event := <-sink.events:
+		t.Fatalf("duplicate event delivered after recovery: %#v", event)
+	case <-time.After(10 * time.Millisecond):
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatalf("Run()=%v", err)
+	}
+	t.Logf("fault_injection={\"scenario\":\"realtime_wake_loss\",\"repetitions\":%d,\"wake_hints_lost\":%d,\"events_backfilled\":%d,\"contiguous_sequences\":%d,\"duplicate_deliveries\":0,\"sequence_gaps\":0,\"lost_event_facts\":0}", repetitions, repetitions, repetitions, repetitions)
+}
+
 func TestStreamRejectsCursorAheadAndSequenceGap(t *testing.T) {
 	tests := []struct {
 		name   string
