@@ -27,6 +27,40 @@ func TestToolPlanValidationAndIdentifiers(t *testing.T) {
 	if !validRequestTools(preview) {
 		t.Fatal("valid preview plan rejected")
 	}
+	inlineRequest := request
+	inlineRequest.ToolName = "memory_write"
+	inlineRequest.EffectClass = "idempotent_write"
+	inlineRequest.EffectKey = "memory:preference:1"
+	inlineRequest.EffectScope = "tenant:user:1"
+	inlineRequest.ProviderID = "platform-memory"
+	inlineRequest.ExecutionMode = "inline_platform"
+	inlineRequest.InlineInput = struct{}{}
+	inlineRequest.SucceededEvent = PayloadPointer{Ref: "encrypted://inline-succeeded", Hash: "inline-succeeded"}
+	inlineRequest.ExecuteCommand = PayloadPointer{}
+	inlineRequest.QueueClass = ""
+	inlineRequest.ResourceClass = ""
+	inlineRequest.Priority = 0
+	inlineRequest.CostUnits = 0
+	inlineRequest.MaxAttempts = 0
+	inline := valid
+	inline.ToolRequests = []ToolRequest{inlineRequest}
+	inline.GroupJoinedEvent = PayloadPointer{Ref: "encrypted://inline-group", Hash: "inline-group"}
+	inline.RunResumeQueuedEvent = PayloadPointer{Ref: "encrypted://inline-resume-queued", Hash: "inline-resume-queued"}
+	inline.ResumeCommand = PayloadPointer{Ref: "encrypted://inline-resume", Hash: "inline-resume"}
+	inline.ResumeQueueClass = "interactive"
+	inline.ResumeResourceClass = "llm"
+	inline.ResumePriority = 50
+	inline.ResumeCostUnits = 1
+	inline.ResumeMaxAttempts = 5
+	if !validRequestTools(inline) {
+		t.Fatal("valid inline platform tool plan rejected")
+	}
+	invalidInline := inline
+	invalidInline.ToolRequests = append([]ToolRequest(nil), inline.ToolRequests...)
+	invalidInline.ToolRequests[0].ExecuteCommand = request.ExecuteCommand
+	if validRequestTools(invalidInline) {
+		t.Fatal("inline platform tool with worker command accepted")
+	}
 	mixed := preview
 	mixed.ToolRequests = []ToolRequest{previewRequest, request}
 	mixed.QuorumCount = 2
@@ -95,5 +129,9 @@ func TestToolPlanValidationAndIdentifiers(t *testing.T) {
 			t.Fatalf("identifier domain collision: %s", value)
 		}
 		seen[value] = true
+	}
+	completion, err := store.inlineToolCompletionIdentifiers(first[0].toolCall)
+	if err != nil || completion.event == "" || completion.event == first[0].event || completion.outbox == completion.publish {
+		t.Fatalf("invalid inline completion identifiers: %#v error=%v", completion, err)
 	}
 }

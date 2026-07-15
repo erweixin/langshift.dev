@@ -26,6 +26,9 @@ const v14Amendment=await load("gate-reports/stage-3/contract-amendment-v1.4.json
 const v15Registry=await load("contracts/events/amendments/v1.5.0/registry.json");
 const v15Fixtures=await load("contracts/events/amendments/v1.5.0/upcaster-fixtures.json");
 const v15Amendment=await load("gate-reports/stage-3/contract-amendment-v1.5.json");
+const v16Registry=await load("contracts/events/amendments/v1.6.0/registry.json");
+const v16Fixtures=await load("contracts/events/amendments/v1.6.0/upcaster-fixtures.json");
+const v16Amendment=await load("gate-reports/stage-3/contract-amendment-v1.6.json");
 const snapshot=await load("gate-reports/stage-1/contract-snapshot.json");
 const eventNames=Object.keys(registry.schemas);
 const baseNames=new Set(Object.keys(baseRegistry.schemas));
@@ -119,6 +122,29 @@ for(const path of ["contracts/events/amendments/v1.5.0/registry.json","contracts
 const v15RootHash=sha256({baseAmendmentId:v14Amendment.amendmentId,files:v15Files});
 check("AMENDMENT-V1.5-CONTENT-ROOT",JSON.stringify(v15Amendment.files)===JSON.stringify(v15Files)&&v15Amendment.contentRootSha256===v15RootHash&&v15Amendment.amendmentId===`contract-amendment-${v15RootHash.slice(0,20)}`,"v1.5 report binds the exact extension files");
 check("AMENDMENT-V1.5-BASE",v15Amendment.baseSnapshotId===snapshot.snapshotId&&v15Amendment.baseContentRootSha256===snapshot.contentRootSha256&&v15Amendment.baseAmendmentId===v14Amendment.amendmentId&&v15Amendment.baseAmendmentContentRootSha256===v14Amendment.contentRootSha256,"v1.5 is anchored to both the frozen Stage 1 snapshot and v1.4 amendment");
+
+const v16EventNames=Object.keys(v16Registry.schemas);
+check("AMENDMENT-V1.6-VERSION",v16Registry.amendmentVersion==="1.6.0"&&v16Registry.baseContractVersion===v15Registry.amendmentVersion&&v16Registry.compatibility==="additive","v1.6 additively extends the v1.5 Stage 3 amendment");
+check("AMENDMENT-V1.6-EVENTS",JSON.stringify(v16EventNames)===JSON.stringify(["MemoryUpsertedV2","MemoryDeletedV2","RetrievalManifestCommitted"])&&v16EventNames.every(name=>!baseNames.has(name)&&!eventNames.includes(name)&&!v12EventNames.includes(name)&&!v13EventNames.includes(name)&&!v14EventNames.includes(name)&&!v15EventNames.includes(name)),"Memory lifecycle evolutions and retrieval manifest facts add without replacing frozen registry keys");
+check("AMENDMENT-V1.6-SCHEMAS",Object.values(v16Registry.schemas).every(schema=>schema.additionalProperties===false&&[1,2].includes(schema["x-event-schema-version"])&&schema.properties.payload.additionalProperties===false&&schema.properties.payload.required.every(field=>field in schema.properties.payload.properties)),"v1.6 event envelopes and payloads are closed and versioned");
+check("MEMORY-V2-EVOLUTION",v16Registry.schemas.MemoryUpsertedV2["x-event-type"]==="MemoryUpserted"&&v16Registry.schemas.MemoryUpsertedV2["x-event-schema-version"]===2&&v16Registry.schemas.MemoryDeletedV2["x-event-type"]==="MemoryDeleted"&&v16Registry.schemas.MemoryDeletedV2["x-event-schema-version"]===2,"frozen Memory lifecycle event types gain explicit additive v2 schemas");
+const memoryUpserted=v16Registry.schemas.MemoryUpsertedV2.properties.payload.required;
+const memoryDeleted=v16Registry.schemas.MemoryDeletedV2.properties.payload.required;
+const retrievalCommitted=v16Registry.schemas.RetrievalManifestCommitted.properties.payload.required;
+check("MEMORY-UPSERT-REBUILD",["memory_scope","scope_id","memory_kind","content_ref","content_hmac","content_type","source_kind","source_refs","data_subject_ids","derived_from_memory_revisions","derivation_kind","encryption_subject_id","key_ref","embedding_model_id","tool_call_id","tool_call_version","policy_version","guardrail_snapshot_id","index_generation","legacy_incomplete"].every(field=>memoryUpserted.includes(field)),"Memory upsert v2 carries encrypted content, governed ToolCall and complete erasure/rebuild lineage");
+check("MEMORY-DELETE-PURGE",["previous_memory_version","reason","erased_subject_ids","purge_command_id","deleted_at","legacy_incomplete"].every(field=>memoryDeleted.includes(field)),"Memory delete v2 binds the prior revision, erasure subjects and durable purge command");
+check("RETRIEVAL-CONTEXT-BINDING",["llm_attempt_id","context_manifest_hash","query_hmac","retrieval_model_id","retrieval_model_version","policy_snapshot_id","guardrail_snapshot_id","index_generation","token_budget","chunks","committed_at"].every(field=>retrievalCommitted.includes(field)),"retrieval manifest binds exact active memory revisions and index/policy/model facts to an LLM context");
+const sourceItems=v16Registry.schemas.MemoryUpsertedV2.properties.payload.properties.source_refs.items;
+const derivationItems=v16Registry.schemas.MemoryUpsertedV2.properties.payload.properties.derived_from_memory_revisions.items;
+const chunkItems=v16Registry.schemas.RetrievalManifestCommitted.properties.payload.properties.chunks.items;
+check("MEMORY-NESTED-SCHEMAS",sourceItems.additionalProperties===false&&JSON.stringify(sourceItems.required)===JSON.stringify(["source_kind","source_ref","source_version"])&&derivationItems.additionalProperties===false&&JSON.stringify(derivationItems.required)===JSON.stringify(["memory_id","memory_version"])&&chunkItems.additionalProperties===false&&JSON.stringify(chunkItems.required)===JSON.stringify(["memory_id","memory_version","chunk_id","score"]),"source, derivation and retrieval chunk objects bind exact revisions and reject undeclared fields");
+const v16EventTypes=new Set(Object.values(v16Registry.schemas).map(schema=>schema["x-event-type"]));
+check("AMENDMENT-V1.6-FIXTURES",v16Fixtures.baseFixtureVersion===v15Fixtures.fixtureVersion&&v16Fixtures.fixtures.length===v16EventNames.length&&v16Fixtures.fixtures.every(fixture=>fixture.inputHash===sha256(fixture.input)&&fixture.expectedHash===sha256(fixture.expected)&&v16EventTypes.has(fixture.eventType)&&((fixture.fromVersion===1&&fixture.toVersion===1&&JSON.stringify(fixture.input)===JSON.stringify(fixture.expected))||(["MemoryUpserted","MemoryDeleted"].includes(fixture.eventType)&&fixture.fromVersion===1&&fixture.toVersion===2&&fixture.expected.legacy_incomplete===true))),"each v1.6 lifecycle evolution or retrieval fact has a deterministic canonical fixture");
+const v16Files=[];
+for(const path of ["contracts/events/amendments/v1.6.0/registry.json","contracts/events/amendments/v1.6.0/upcaster-fixtures.json"]) v16Files.push({path,sha256:sha256(await read(path))});
+const v16RootHash=sha256({baseAmendmentId:v15Amendment.amendmentId,files:v16Files});
+check("AMENDMENT-V1.6-CONTENT-ROOT",JSON.stringify(v16Amendment.files)===JSON.stringify(v16Files)&&v16Amendment.contentRootSha256===v16RootHash&&v16Amendment.amendmentId===`contract-amendment-${v16RootHash.slice(0,20)}`,"v1.6 report binds the exact extension files");
+check("AMENDMENT-V1.6-BASE",v16Amendment.baseSnapshotId===snapshot.snapshotId&&v16Amendment.baseContentRootSha256===snapshot.contentRootSha256&&v16Amendment.baseAmendmentId===v15Amendment.amendmentId&&v16Amendment.baseAmendmentContentRootSha256===v15Amendment.contentRootSha256,"v1.6 is anchored to both the frozen Stage 1 snapshot and v1.5 amendment");
 
 const failures=checks.filter(item=>item.status==="failed");
 const reportBase={reportVersion:"1.0.0",stage:3,kind:"contract-amendment-lint",status:failures.length?"failed":"passed",summary:{checks:checks.length,passed:checks.length-failures.length,failed:failures.length},results:checks};

@@ -60,15 +60,16 @@ type AcceptedRun struct {
 }
 
 type RunStore struct {
-	Pool       *pgxpool.Pool
-	Appender   eventpostgres.Appender
-	IDKey      []byte
-	StoreEpoch string
-	Now        func() time.Time
-	Epochs     eventpostgres.EpochAuthority
-	Tokens     opaque.Manager
-	LeaseTTL   time.Duration
-	Random     io.Reader
+	Pool        *pgxpool.Pool
+	Appender    eventpostgres.Appender
+	IDKey       []byte
+	StoreEpoch  string
+	Now         func() time.Time
+	Epochs      eventpostgres.EpochAuthority
+	Tokens      opaque.Manager
+	LeaseTTL    time.Duration
+	Random      io.Reader
+	InlineTools map[string]InlinePlatformToolHandler
 }
 
 // Accept queues a Run in one transaction. The accepted state is an immutable
