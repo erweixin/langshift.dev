@@ -254,6 +254,12 @@ func directToolProposalHash(request DirectApprovalToolRequest, permissionSnapsho
 	return hex.EncodeToString(digest[:]), nil
 }
 
+// DirectToolProposalHash is shared with AgentWorker so the encrypted proposal
+// is hashed once before the transaction and recomputed inside the kernel.
+func DirectToolProposalHash(request DirectApprovalToolRequest, permissionSnapshot string) (string, error) {
+	return directToolProposalHash(request, permissionSnapshot)
+}
+
 func (store RunStore) directApprovalIdentifiers(runID string, runVersion uint64, stepID string, requests []DirectApprovalToolRequest) (directApprovalGroupIDs, []directApprovalToolIDs, error) {
 	scope := fmt.Sprintf("%s\x00%d\x00%s", runID, runVersion, stepID)
 	derive := func(domain, seed string) (string, error) { return ids.DeterministicUUID(store.IDKey, domain, seed) }

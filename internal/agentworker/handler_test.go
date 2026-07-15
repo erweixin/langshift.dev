@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -35,9 +36,13 @@ func (store *memoryPayloads) Put(_ context.Context, descriptor payload.Descripto
 	return payload.Manifest{Ref: ref, Hash: hash}, nil
 }
 
-func (store *memoryPayloads) Get(_ context.Context, _ payload.Descriptor, manifest payload.Manifest) ([]byte, error) {
+func (store *memoryPayloads) Get(_ context.Context, descriptor payload.Descriptor, manifest payload.Manifest) ([]byte, error) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
+	prefix := descriptor.TenantID + "/" + descriptor.Class + "/" + descriptor.ObjectID + "/"
+	if !strings.HasPrefix(manifest.Ref, prefix) {
+		return nil, payload.ErrIntegrity
+	}
 	value, ok := store.objects[manifest.Ref]
 	if !ok {
 		return nil, errors.New("missing payload")

@@ -326,7 +326,7 @@ func validRuntime(value Descriptor) bool {
 		return false
 	}
 	if value.ExecutionKind == ExecutionChild {
-		return value.EffectClass == "read_only" && value.Handler == "spawn_agent_run" && value.RuntimeImage == "" && len(value.SecretScopes) == 0 && value.NetworkEgressPolicy == "deny_all" && len(value.EgressAllowlist) == 0 && value.TrustTier == "trusted"
+		return value.Name == "spawn_agent_run" && value.EffectClass == "read_only" && value.Handler == "spawn_agent_run" && value.RuntimeImage == "" && len(value.SecretScopes) == 0 && value.NetworkEgressPolicy == "deny_all" && len(value.EgressAllowlist) == 0 && value.TrustTier == "trusted"
 	}
 	if value.ExecutionKind != ExecutionWorker || !idPattern.MatchString(value.Handler) || !imagePattern.MatchString(value.RuntimeImage) {
 		return false
