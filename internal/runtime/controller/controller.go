@@ -64,6 +64,7 @@ type Controller struct {
 	Runner   firecracker.Runner
 	Random   io.Reader
 	Now      func() time.Time
+	OnError  func(error)
 
 	stage func(context.Context, firecracker.StageRequest) (stagedMachine, error)
 	start func(context.Context, firecracker.Spec) (machineProcess, error)
@@ -108,6 +109,9 @@ type controlReceipt struct {
 func (controller *Controller) Provision(ctx context.Context, request ProvisionRequest) (Provisioned, error) {
 	if controller == nil || controller.Store == nil || controller.Payloads == nil || request.Command.TenantID == "" {
 		return Provisioned{}, ErrConfiguration
+	}
+	if controller.containsCommandMachine(request.Command.MachineID) {
+		return Provisioned{}, ErrNotOwned
 	}
 	provision, err := controller.Store.BeginProvision(ctx, request.Command)
 	if err != nil {
@@ -167,13 +171,16 @@ func (controller *Controller) Provision(ctx context.Context, request ProvisionRe
 	}
 	active := &activeMachine{process: process, staged: staged, request: request, result: provision, version: 3}
 	if err != nil {
-		controller.remember(provision.SessionID, active)
+		if controller.remember(provision.SessionID, active) {
+			controller.watch(provision.SessionID, active)
+		}
 		return Provisioned{Provision: provision}, errors.Join(ErrOutcomeUnknown, err)
 	}
 	active.version = ready.Version
 	if !controller.remember(provision.SessionID, active) {
 		return Provisioned{}, errors.Join(ErrConfiguration, controller.abortProvision(ctx, request, provision, process, staged, "duplicate_machine_owner"))
 	}
+	controller.watch(provision.SessionID, active)
 	return Provisioned{Provision: provision, Ready: ready}, nil
 }
 
@@ -192,6 +199,10 @@ func (controller *Controller) Terminate(ctx context.Context, sessionID, reason s
 	at := controller.now()
 	pointer, _, err := controller.putReceipt(ctx, sessionID+":termination", active.request.Command.TenantID, controlReceipt{SchemaVersion: 1, SessionID: sessionID, Reason: reason, OccurredAt: at})
 	if err != nil {
+		active.mu.Lock()
+		active.closing = false
+		active.mu.Unlock()
+		controller.remember(sessionID, active)
 		return runtimepostgres.LifecycleResult{}, err
 	}
 	requested, err := controller.Store.RequestTermination(ctx, runtimepostgres.TerminationCommand{LifecycleCommand: runtimepostgres.LifecycleCommand{
@@ -200,6 +211,9 @@ func (controller *Controller) Terminate(ctx context.Context, sessionID, reason s
 		Payload: pointer, Actor: active.request.Command.Actor, CorrelationID: active.request.Command.CorrelationID,
 	}, Reason: reason})
 	if err != nil {
+		active.mu.Lock()
+		active.closing = false
+		active.mu.Unlock()
 		controller.remember(sessionID, active)
 		return runtimepostgres.LifecycleResult{}, err
 	}
@@ -317,4 +331,31 @@ func (controller *Controller) take(sessionID string) *activeMachine {
 	machine := controller.active[sessionID]
 	delete(controller.active, sessionID)
 	return machine
+}
+
+func (controller *Controller) containsCommandMachine(machineID string) bool {
+	controller.mu.Lock()
+	defer controller.mu.Unlock()
+	for _, machine := range controller.active {
+		if machine.request.Command.MachineID == machineID {
+			return true
+		}
+	}
+	return false
+}
+
+func (controller *Controller) watch(sessionID string, machine *activeMachine) {
+	go func() {
+		<-machine.process.Done()
+		machine.mu.Lock()
+		closing := machine.closing
+		machine.mu.Unlock()
+		if closing {
+			return
+		}
+		result, err := controller.Terminate(context.Background(), sessionID, "unexpected_vmm_exit")
+		if err != nil && result.Status != "terminated" && controller.OnError != nil {
+			controller.OnError(err)
+		}
+	}()
 }

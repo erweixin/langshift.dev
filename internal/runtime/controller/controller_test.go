@@ -72,7 +72,11 @@ type machineStub struct {
 func (machine *machineStub) Stop(context.Context) error {
 	if !machine.stopped {
 		machine.stopped = true
-		close(machine.done)
+		select {
+		case <-machine.done:
+		default:
+			close(machine.done)
+		}
 	}
 	return nil
 }
@@ -120,6 +124,40 @@ func TestControllerAttestationFailureStopsCleansAndReleasesCapacityState(t *test
 	}
 	if _, err := controller.Provision(context.Background(), validProvisionRequest(now)); !errors.Is(err, probeFailure) || !machine.stopped || cleaned != 1 || store.requested != 1 || store.completed != 1 || store.ready != 0 {
 		t.Fatalf("failed Provision() = %v stopped=%v cleaned=%d calls=%d/%d/%d", err, machine.stopped, cleaned, store.requested, store.completed, store.ready)
+	}
+}
+
+func TestControllerUnexpectedExitConvergesToDurableTermination(t *testing.T) {
+	store := &storeStub{}
+	machine := &machineStub{done: make(chan struct{})}
+	cleaned := make(chan struct{}, 1)
+	now := time.Date(2026, 7, 15, 17, 0, 0, 0, time.UTC)
+	controller := &Controller{Store: store, Payloads: payloadStub{}, Random: bytes.NewReader(bytes.Repeat([]byte{0x44}, 32)), Now: func() time.Time { return now }}
+	controller.stage = func(context.Context, firecracker.StageRequest) (stagedMachine, error) {
+		return stagedMachine{spec: firecracker.Spec{}, vsockPath: "/jail/run/guest.vsock", cleanup: func() error { cleaned <- struct{}{}; return nil }}, nil
+	}
+	controller.start = func(context.Context, firecracker.Spec) (machineProcess, error) { return machine, nil }
+	controller.probe = func(_ context.Context, _ string, _ string, challenge string) (guest.Attestation, error) {
+		return guest.Attestation{Challenge: challenge, GuestAgentBuild: "lites-runtime-guest-agent.v1", UserID: 1000, GroupID: 1000, BootUnixMillis: now.UnixMilli()}, nil
+	}
+	provisioned, err := controller.Provision(context.Background(), validProvisionRequest(now))
+	if err != nil {
+		t.Fatal(err)
+	}
+	close(machine.done)
+	select {
+	case <-cleaned:
+	case <-time.After(time.Second):
+		t.Fatal("unexpected VMM exit was not cleaned")
+	}
+	store.mu.Lock()
+	requested, completed := store.requested, store.completed
+	store.mu.Unlock()
+	if requested != 1 || completed != 1 {
+		t.Fatalf("unexpected exit calls=%d/%d", requested, completed)
+	}
+	if _, err = controller.Terminate(context.Background(), provisioned.Provision.SessionID, "again"); !errors.Is(err, ErrNotOwned) {
+		t.Fatalf("terminated machine remained owned: %v", err)
 	}
 }
 
