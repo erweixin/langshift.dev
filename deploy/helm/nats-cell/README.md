@@ -39,6 +39,6 @@ namespace must already exist and carry Kubernetes's standard namespace-name
 label. The TLS bundle must contain `tls.crt`, `tls.key`, and `ca.crt`; each
 application workload receives its own client certificate and key through its
 separate workload secret bundle. Client certificates must use the DNS SAN
-`lites-outbox-publisher`, `lites-identity-import-worker`, or
+`lites-outbox-publisher`, `lites-agent-scheduler`, `lites-identity-import-worker`, or
 `lites-identity-mail-worker`; `verify_and_map` maps that SAN to the corresponding
 least-privilege NATS user and its JetStream subject permissions.

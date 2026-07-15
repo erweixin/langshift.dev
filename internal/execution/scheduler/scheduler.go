@@ -39,26 +39,26 @@ type Job struct {
 }
 
 type TenantPolicy struct {
-	Weight               int64
-	ActiveConcurrencyCap int
-	BurstUnits           int64
-	RefillUnitsPerSecond int64
+	Weight               int64 `json:"weight"`
+	ActiveConcurrencyCap int   `json:"active_concurrency_cap"`
+	BurstUnits           int64 `json:"burst_units"`
+	RefillUnitsPerSecond int64 `json:"refill_units_per_second"`
 }
 
 type ResourcePolicy struct {
-	Capacity                  int
-	InteractiveReserved       int
-	BackgroundReserved        int
-	HighPriorityThreshold     int
-	HighPriorityMaxPercentage int
-	QuantumUnits              int64
+	Capacity                  int   `json:"capacity"`
+	InteractiveReserved       int   `json:"interactive_reserved"`
+	BackgroundReserved        int   `json:"background_reserved"`
+	HighPriorityThreshold     int   `json:"high_priority_threshold"`
+	HighPriorityMaxPercentage int   `json:"high_priority_max_percentage"`
+	QuantumUnits              int64 `json:"quantum_units"`
 }
 
 type Config struct {
-	Resources     map[string]ResourcePolicy
-	DefaultTenant TenantPolicy
-	Tenants       map[string]TenantPolicy
-	BatchLimit    int
+	Resources     map[string]ResourcePolicy `json:"resources"`
+	DefaultTenant TenantPolicy              `json:"default_tenant"`
+	Tenants       map[string]TenantPolicy   `json:"tenants"`
+	BatchLimit    int                       `json:"batch_limit"`
 }
 
 type Active struct {
@@ -363,6 +363,13 @@ func validConfig(config Config) bool {
 		}
 	}
 	return true
+}
+
+func ValidateConfig(config Config) error {
+	if !validConfig(config) {
+		return ErrInvalidConfiguration
+	}
+	return nil
 }
 
 func validTenantPolicy(policy TenantPolicy) bool {
