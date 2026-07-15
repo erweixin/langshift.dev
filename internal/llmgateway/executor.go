@@ -29,6 +29,7 @@ type EvidenceBuilder interface {
 }
 
 type ProviderEvidence struct {
+	TenantID      string
 	Authorization llmpostgres.DispatchAuthorization
 	Result        provider.Result
 	CallError     *provider.CallError
@@ -168,7 +169,7 @@ func (executor Executor) record(ctx context.Context, command ExecuteCommand, exe
 		return execution, errors.Join(ErrResultNotRecorded, err)
 	}
 	execution.Accounting = accounting
-	evidence := ProviderEvidence{Authorization: execution.Authorization, Result: result, CallError: callError, Accounting: accounting, Status: status, UsageStatus: usageStatus}
+	evidence := ProviderEvidence{TenantID: command.Dispatch.TenantID, Authorization: execution.Authorization, Result: result, CallError: callError, Accounting: accounting, Status: status, UsageStatus: usageStatus}
 	recordedPointer, settledPointer, err := executor.Evidence.BuildProviderResult(ctx, evidence)
 	if err != nil {
 		return execution, errors.Join(ErrResultNotRecorded, err)
