@@ -62,6 +62,14 @@ func TestRunnerWaitsForSecurePinnedAPIThenConfiguresAndStops(t *testing.T) {
 	if err = machine.Stop(context.Background()); err != nil || !process.signaled || process.killed {
 		t.Fatalf("Stop() = %v, signaled=%v killed=%v", err, process.signaled, process.killed)
 	}
+	select {
+	case <-machine.Done():
+	default:
+		t.Fatal("stopped VMM did not publish process exit")
+	}
+	if machine.ExitError() == nil {
+		t.Fatal("VMM exit result was not observable")
+	}
 	if err = machine.Stop(context.Background()); err != nil {
 		t.Fatalf("idempotent Stop() = %v", err)
 	}

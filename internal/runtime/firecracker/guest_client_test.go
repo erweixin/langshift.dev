@@ -29,6 +29,7 @@ func TestGuestClientBindsOrderedFramesAndResultToRequest(t *testing.T) {
 	clientConnection, serverConnection := net.Pipe()
 	server := guest.Server{
 		Executor:          guest.Executor{MaximumDuration: 10 * time.Second, WorkspaceRoot: t.TempDir()},
+		Attestation:       guest.Attestation{GuestAgentBuild: "lites-runtime-guest-agent.v1", UserID: 1000, GroupID: 1000, BootUnixMillis: time.Now().UnixMilli()},
 		MaximumConcurrent: 1, InitialRequestTimeout: time.Second, WriteTimeout: time.Second,
 	}
 	serverDone := make(chan error, 1)
@@ -42,6 +43,25 @@ func TestGuestClientBindsOrderedFramesAndResultToRequest(t *testing.T) {
 		t.Fatalf("Execute() = %#v, %v, frames=%#v", result, err, frames)
 	}
 	if err = <-serverDone; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestGuestClientProbesChallengeBoundAttestation(t *testing.T) {
+	clientConnection, serverConnection := net.Pipe()
+	server := guest.Server{
+		Executor:          guest.Executor{MaximumDuration: time.Second, WorkspaceRoot: t.TempDir()},
+		Attestation:       guest.Attestation{GuestAgentBuild: "lites-runtime-guest-agent.v1", UserID: 1000, GroupID: 1000, BootUnixMillis: time.Now().UnixMilli()},
+		MaximumConcurrent: 1, InitialRequestTimeout: time.Second, WriteTimeout: time.Second,
+	}
+	done := make(chan error, 1)
+	go func() { done <- server.ServeConnection(context.Background(), serverConnection) }()
+	challenge := "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+	attestation, err := (GuestClient{Connector: connectionConnector{clientConnection}, WriteTimeout: time.Second}).Probe(context.Background(), "request-probe-0001", challenge)
+	if err != nil || attestation.Challenge != challenge || attestation.UserID != 1000 || attestation.GuestAgentBuild != "lites-runtime-guest-agent.v1" {
+		t.Fatalf("Probe() = %#v, %v", attestation, err)
+	}
+	if err = <-done; err != nil {
 		t.Fatal(err)
 	}
 }

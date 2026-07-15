@@ -7,6 +7,7 @@ package guest
 import (
 	"bufio"
 	"bytes"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -33,6 +34,8 @@ type FrameKind string
 
 const (
 	FrameExecute FrameKind = "execute"
+	FrameProbe   FrameKind = "probe"
+	FrameAttest  FrameKind = "attestation"
 	FrameStdout  FrameKind = "stdout"
 	FrameStderr  FrameKind = "stderr"
 	FrameResult  FrameKind = "result"
@@ -50,6 +53,18 @@ type ExecuteRequest struct {
 	Stdin              []byte                `json:"stdin,omitempty"`
 	DeadlineUnixMillis int64                 `json:"deadline_unix_millis"`
 	MaximumOutputBytes int64                 `json:"maximum_output_bytes"`
+}
+
+type ProbeRequest struct {
+	Challenge string `json:"challenge"`
+}
+
+type Attestation struct {
+	Challenge       string `json:"challenge"`
+	GuestAgentBuild string `json:"guest_agent_build"`
+	UserID          uint32 `json:"uid"`
+	GroupID         uint32 `json:"gid"`
+	BootUnixMillis  int64  `json:"boot_unix_millis"`
 }
 
 type ExecutionResult struct {
@@ -71,6 +86,8 @@ type Frame struct {
 	RequestID string           `json:"request_id"`
 	Sequence  uint64           `json:"sequence"`
 	Execute   *ExecuteRequest  `json:"execute,omitempty"`
+	Probe     *ProbeRequest    `json:"probe,omitempty"`
+	Attest    *Attestation     `json:"attestation,omitempty"`
 	Chunk     []byte           `json:"chunk,omitempty"`
 	Result    *ExecutionResult `json:"result,omitempty"`
 }
@@ -148,15 +165,32 @@ func validFrame(frame Frame) bool {
 		return false
 	}
 	switch frame.Kind {
+	case FrameProbe:
+		return frame.Sequence == 0 && frame.Execute == nil && frame.Probe != nil && validChallenge(frame.Probe.Challenge) && frame.Attest == nil && len(frame.Chunk) == 0 && frame.Result == nil
+	case FrameAttest:
+		return frame.Sequence == 1 && frame.Execute == nil && frame.Probe == nil && frame.Attest != nil && validAttestation(*frame.Attest) && len(frame.Chunk) == 0 && frame.Result == nil
 	case FrameExecute:
-		return frame.Sequence == 0 && frame.Execute != nil && frame.Execute.Validate() == nil && len(frame.Chunk) == 0 && frame.Result == nil
+		return frame.Sequence == 0 && frame.Execute != nil && frame.Execute.Validate() == nil && frame.Probe == nil && frame.Attest == nil && len(frame.Chunk) == 0 && frame.Result == nil
 	case FrameStdout, FrameStderr:
-		return frame.Sequence > 0 && frame.Execute == nil && len(frame.Chunk) > 0 && len(frame.Chunk) <= MaximumChunk && frame.Result == nil
+		return frame.Sequence > 0 && frame.Execute == nil && frame.Probe == nil && frame.Attest == nil && len(frame.Chunk) > 0 && len(frame.Chunk) <= MaximumChunk && frame.Result == nil
 	case FrameResult:
-		return frame.Sequence > 0 && frame.Execute == nil && len(frame.Chunk) == 0 && frame.Result != nil && validResult(*frame.Result)
+		return frame.Sequence > 0 && frame.Execute == nil && frame.Probe == nil && frame.Attest == nil && len(frame.Chunk) == 0 && frame.Result != nil && validResult(*frame.Result)
 	default:
 		return false
 	}
+}
+
+func validChallenge(value string) bool {
+	decoded, err := base64.RawURLEncoding.DecodeString(value)
+	return err == nil && len(decoded) == 32
+}
+
+func validAttestation(value Attestation) bool {
+	return validChallenge(value.Challenge) && validAttestationTemplate(value)
+}
+
+func validAttestationTemplate(value Attestation) bool {
+	return value.GuestAgentBuild == "lites-runtime-guest-agent.v1" && value.UserID == 1000 && value.GroupID == 1000 && value.BootUnixMillis > 0
 }
 
 func validResult(result ExecutionResult) bool {

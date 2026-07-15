@@ -21,6 +21,7 @@ func TestServerExecutesExactlyOneStrictRequestOverConnection(t *testing.T) {
 	client, serverConnection := net.Pipe()
 	server := Server{
 		Executor:          Executor{MaximumDuration: 10 * time.Second, WorkspaceRoot: t.TempDir()},
+		Attestation:       Attestation{GuestAgentBuild: "lites-runtime-guest-agent.v1", UserID: 1000, GroupID: 1000, BootUnixMillis: time.Now().UnixMilli()},
 		MaximumConcurrent: 1, InitialRequestTimeout: time.Second, WriteTimeout: time.Second,
 	}
 	done := make(chan error, 1)

@@ -40,6 +40,7 @@ func run() error {
 	defer stop()
 	server := guest.Server{
 		Executor:          guest.Executor{MaximumDuration: time.Hour, WorkspaceRoot: "/workspace"},
+		Attestation:       guest.Attestation{GuestAgentBuild: "lites-runtime-guest-agent.v1", UserID: guestUserID, GroupID: guestGroupID, BootUnixMillis: time.Now().UnixMilli()},
 		MaximumConcurrent: 1, InitialRequestTimeout: 5 * time.Second, WriteTimeout: 5 * time.Second,
 	}
 	if err = server.Serve(ctx, listener); err != nil && !errors.Is(err, net.ErrClosed) {

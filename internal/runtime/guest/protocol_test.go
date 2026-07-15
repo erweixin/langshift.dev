@@ -46,6 +46,29 @@ func TestFrameCodecIsBoundedStrictAndRoundTrips(t *testing.T) {
 	}
 }
 
+func TestProbeAndAttestationRequireExactChallengeAndGuestIdentity(t *testing.T) {
+	challenge := "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+	probe := Frame{Protocol: ProtocolVersion, Kind: FrameProbe, RequestID: "request-probe-0001", Probe: &ProbeRequest{Challenge: challenge}}
+	attestation := Frame{Protocol: ProtocolVersion, Kind: FrameAttest, RequestID: "request-probe-0001", Sequence: 1, Attest: &Attestation{Challenge: challenge, GuestAgentBuild: "lites-runtime-guest-agent.v1", UserID: 1000, GroupID: 1000, BootUnixMillis: time.Now().UnixMilli()}}
+	for _, frame := range []Frame{probe, attestation} {
+		var encoded bytes.Buffer
+		if err := NewEncoder(&encoded).Encode(frame); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := NewDecoder(&encoded).Decode(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	probe.Probe.Challenge = "short"
+	if err := NewEncoder(&bytes.Buffer{}).Encode(probe); !errors.Is(err, ErrMalformedFrame) {
+		t.Fatalf("short probe challenge = %v", err)
+	}
+	attestation.Attest.UserID = 0
+	if err := NewEncoder(&bytes.Buffer{}).Encode(attestation); !errors.Is(err, ErrMalformedFrame) {
+		t.Fatalf("root attestation = %v", err)
+	}
+}
+
 func TestExecutionRequestRejectsShellAmbiguityWorkspaceEscapeAndDangerousEnvironment(t *testing.T) {
 	tests := []func(*ExecuteRequest){
 		func(value *ExecuteRequest) { value.Argv[0] = "tool" },

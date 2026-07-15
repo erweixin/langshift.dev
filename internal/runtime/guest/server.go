@@ -10,13 +10,14 @@ import (
 
 type Server struct {
 	Executor              Executor
+	Attestation           Attestation
 	MaximumConcurrent     int
 	InitialRequestTimeout time.Duration
 	WriteTimeout          time.Duration
 }
 
 func (server Server) Serve(ctx context.Context, listener net.Listener) error {
-	if listener == nil || server.MaximumConcurrent < 1 || server.MaximumConcurrent > 64 || server.InitialRequestTimeout <= 0 || server.InitialRequestTimeout > 30*time.Second || server.WriteTimeout <= 0 || server.WriteTimeout > 30*time.Second {
+	if listener == nil || server.MaximumConcurrent < 1 || server.MaximumConcurrent > 64 || server.InitialRequestTimeout <= 0 || server.InitialRequestTimeout > 30*time.Second || server.WriteTimeout <= 0 || server.WriteTimeout > 30*time.Second || !validAttestationTemplate(server.Attestation) {
 		return ErrExecutionPolicy
 	}
 	serveContext, cancel := context.WithCancel(ctx)
@@ -54,7 +55,7 @@ func (server Server) Serve(ctx context.Context, listener net.Listener) error {
 }
 
 func (server Server) ServeConnection(ctx context.Context, connection net.Conn) error {
-	if connection == nil || server.InitialRequestTimeout <= 0 || server.InitialRequestTimeout > 30*time.Second || server.WriteTimeout <= 0 || server.WriteTimeout > 30*time.Second {
+	if connection == nil || server.InitialRequestTimeout <= 0 || server.InitialRequestTimeout > 30*time.Second || server.WriteTimeout <= 0 || server.WriteTimeout > 30*time.Second || !validAttestationTemplate(server.Attestation) {
 		return ErrExecutionPolicy
 	}
 	defer connection.Close()
@@ -65,13 +66,21 @@ func (server Server) ServeConnection(ctx context.Context, connection net.Conn) e
 	if err != nil {
 		return err
 	}
-	if frame.Kind != FrameExecute || frame.Execute == nil {
-		return ErrMalformedFrame
-	}
 	if err = connection.SetReadDeadline(time.Time{}); err != nil {
 		return err
 	}
 	encoder := NewEncoder(connection)
+	if frame.Kind == FrameProbe && frame.Probe != nil {
+		attestation := server.Attestation
+		attestation.Challenge = frame.Probe.Challenge
+		if deadlineErr := connection.SetWriteDeadline(time.Now().Add(server.WriteTimeout)); deadlineErr != nil {
+			return deadlineErr
+		}
+		return encoder.Encode(Frame{Protocol: ProtocolVersion, Kind: FrameAttest, RequestID: frame.RequestID, Sequence: 1, Attest: &attestation})
+	}
+	if frame.Kind != FrameExecute || frame.Execute == nil {
+		return ErrMalformedFrame
+	}
 	_, err = server.Executor.Execute(ctx, frame.RequestID, *frame.Execute, func(output Frame) error {
 		if deadlineErr := connection.SetWriteDeadline(time.Now().Add(server.WriteTimeout)); deadlineErr != nil {
 			return deadlineErr

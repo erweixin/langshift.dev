@@ -44,6 +44,27 @@ type Machine struct {
 	stopErr   error
 }
 
+func (machine *Machine) Done() <-chan struct{} {
+	if machine == nil || machine.exit == nil {
+		closed := make(chan struct{})
+		close(closed)
+		return closed
+	}
+	return machine.exit.done
+}
+
+func (machine *Machine) ExitError() error {
+	if machine == nil || machine.exit == nil {
+		return ErrInvalidSpec
+	}
+	select {
+	case <-machine.exit.done:
+		return machine.exit.value()
+	default:
+		return nil
+	}
+}
+
 type processExit struct {
 	done chan struct{}
 	mu   sync.Mutex
@@ -183,7 +204,9 @@ func (process execProcess) Kill() error { return process.command.Process.Kill() 
 func (process execProcess) Wait() error { return process.command.Wait() }
 
 func defaultProcessFactory(ctx context.Context, config JailerConfig, machineID string) (managedProcess, error) {
-	command, err := config.Command(ctx, machineID)
+	// The caller context bounds startup only. A successfully started VMM is
+	// owned by RuntimeManager and must survive the delivery/request context.
+	command, err := config.Command(context.Background(), machineID)
 	if err != nil {
 		return nil, err
 	}

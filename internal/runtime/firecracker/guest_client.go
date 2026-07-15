@@ -21,6 +21,38 @@ type GuestClient struct {
 	WriteTimeout time.Duration
 }
 
+func (client GuestClient) Probe(ctx context.Context, requestID, challenge string) (guest.Attestation, error) {
+	if client.Connector == nil || client.WriteTimeout <= 0 || client.WriteTimeout > 30*time.Second {
+		return guest.Attestation{}, ErrInvalidSpec
+	}
+	connection, err := client.Connector.ConnectGuestAgent(ctx)
+	if err != nil {
+		return guest.Attestation{}, err
+	}
+	defer connection.Close()
+	deadline := time.Now().Add(client.WriteTimeout)
+	if contextDeadline, ok := ctx.Deadline(); ok && contextDeadline.Before(deadline) {
+		deadline = contextDeadline
+	}
+	if err = connection.SetDeadline(deadline); err != nil {
+		return guest.Attestation{}, fmt.Errorf("%w: probe deadline", ErrGuestProtocol)
+	}
+	probe := guest.ProbeRequest{Challenge: challenge}
+	if err = guest.NewEncoder(connection).Encode(guest.Frame{Protocol: guest.ProtocolVersion, Kind: guest.FrameProbe, RequestID: requestID, Probe: &probe}); err != nil {
+		return guest.Attestation{}, fmt.Errorf("%w: probe request", ErrGuestProtocol)
+	}
+	frame, err := guest.NewDecoder(connection).Decode()
+	if err != nil || frame.Kind != guest.FrameAttest || frame.RequestID != requestID || frame.Sequence != 1 || frame.Attest == nil || frame.Attest.Challenge != challenge {
+		return guest.Attestation{}, ErrGuestProtocol
+	}
+	bootedAt := time.UnixMilli(frame.Attest.BootUnixMillis)
+	now := time.Now()
+	if bootedAt.After(now.Add(5*time.Second)) || bootedAt.Before(now.Add(-5*time.Minute)) {
+		return guest.Attestation{}, ErrGuestProtocol
+	}
+	return *frame.Attest, nil
+}
+
 func (client GuestClient) Execute(ctx context.Context, requestID string, request guest.ExecuteRequest, sink guest.FrameSink) (guest.ExecutionResult, error) {
 	if client.Connector == nil || client.WriteTimeout <= 0 || client.WriteTimeout > 30*time.Second || request.Validate() != nil || sink == nil {
 		return guest.ExecutionResult{}, ErrInvalidSpec
