@@ -214,6 +214,32 @@ func TestProviderDispatchIsAtMostOnceAndFallbackIsFullyAccounted(t *testing.T) {
 	if dispatchEvents != 3 || providerRows != 4 || ledgerRows != 4 || providerCosts != 3 || reservedUnits != 0 || settledUnits != 120 {
 		t.Fatalf("dispatch events=%d provider rows=%d ledger=%d costs=%d reserved=%d settled=%d", dispatchEvents, providerRows, ledgerRows, providerCosts, reservedUnits, settledUnits)
 	}
+	var dispatchedRequests, completeProviderAttemptIDs, completeModelVersions, completeUsage, completeCosts, completeContextManifests int
+	if err = admin.QueryRow(ctx, `SELECT
+		count(*),
+		count(*) FILTER (WHERE NULLIF(p.provider_attempt_id,'') IS NOT NULL AND NULLIF(p.provider_request_id,'') IS NOT NULL),
+		count(*) FILTER (WHERE NULLIF(p.model_version,'') IS NOT NULL),
+		count(*) FILTER (WHERE p.usage_status IN ('confirmed','estimated') AND p.input_tokens>=0 AND p.output_tokens>=0),
+		count(*) FILTER (WHERE p.cost_microunits>=0 AND EXISTS(SELECT 1 FROM contracts.provider_costs c WHERE c.tenant_id=p.tenant_id AND c.provider_attempt_row_id=p.id AND c.provider_attempt_id=p.provider_attempt_id AND c.model_version=p.model_version AND c.input_tokens=p.input_tokens AND c.output_tokens=p.output_tokens AND c.cost_microunits=p.cost_microunits)),
+		count(*) FILTER (WHERE NULLIF(p.context_manifest_hash,'') IS NOT NULL AND p.context_manifest_hash=l.context_manifest_hash AND jsonb_typeof(l.context_manifest)='object' AND jsonb_array_length(l.context_manifest->'candidate_models')>0)
+		FROM agent.llm_provider_attempts p
+		JOIN agent.llm_attempts l ON l.tenant_id=p.tenant_id AND l.id=p.llm_attempt_id
+		WHERE p.tenant_id=$1 AND p.id IN ($2,$3,$4,$5) AND p.dispatch_event_id IS NOT NULL`, tenantID, first, second, unknownAttempt, abandonAttempt).Scan(&dispatchedRequests, &completeProviderAttemptIDs, &completeModelVersions, &completeUsage, &completeCosts, &completeContextManifests); err != nil {
+		t.Fatal(err)
+	}
+	if dispatchedRequests != 3 || completeProviderAttemptIDs != dispatchedRequests || completeModelVersions != dispatchedRequests || completeUsage != dispatchedRequests || completeCosts != dispatchedRequests || completeContextManifests != dispatchedRequests {
+		t.Fatalf("LLM manifest coverage dispatched=%d provider_attempt_id=%d model_version=%d usage=%d cost=%d context_manifest=%d", dispatchedRequests, completeProviderAttemptIDs, completeModelVersions, completeUsage, completeCosts, completeContextManifests)
+	}
+	manifestMetrics, err := json.Marshal(map[string]any{
+		"scenario": "llm_request_manifest_completeness", "real_provider_requests": dispatchedRequests,
+		"provider_attempt_id_complete": completeProviderAttemptIDs, "model_version_complete": completeModelVersions,
+		"usage_complete": completeUsage, "cost_complete": completeCosts, "context_manifest_complete": completeContextManifests,
+		"coverage_percent": 100, "missing_records": 0,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("llm_manifest_gate=%s", manifestMetrics)
 
 	// A logical attempt and even a prepared physical attempt retain immutable
 	// history after the Run terminates, but neither may cross the provider
