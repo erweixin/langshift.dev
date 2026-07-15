@@ -1,7 +1,6 @@
 package toolworker
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -28,10 +27,8 @@ func TestProductionRuntimeSharesContentPinnedRegistry(t *testing.T) {
 	tools := &toolStoreStub{}
 	runtime, err := NewProductionRuntime(ProductionConfig{
 		ArtifactPath: path, ArtifactFileHash: fileHash, Pool: &pgxpool.Pool{}, Payloads: payloads, Tools: tools,
-		Registrations: []HandlerRegistration{{Name: descriptor.Handler, Handler: toolHandlerFunc(func(context.Context, Invocation) (HandlerResult, error) {
-			return HandlerResult{Status: ResultSucceeded, Output: json.RawMessage(`{"ok":true}`)}, nil
-		})}},
-		ConsumerName: "tool-worker", WorkerID: "tool-worker-1", Actor: json.RawMessage(`{"kind":"service","name":"tool-worker"}`),
+		SandboxBroker: &sandboxBrokerStub{},
+		ConsumerName:  "tool-worker", WorkerID: "tool-worker-1", Actor: json.RawMessage(`{"kind":"service","name":"tool-worker"}`),
 		IDKey: []byte("0123456789abcdef0123456789abcdef"), HeartbeatInterval: time.Second,
 		Resume:                Schedule{QueueClass: "interactive", ResourceClass: "llm", Priority: 50, CostUnits: 4, MaxAttempts: 5},
 		Reconcile:             Schedule{QueueClass: "background", ResourceClass: "tool-reconciliation", Priority: 40, CostUnits: 1, MaxAttempts: 8},
@@ -40,9 +37,10 @@ func TestProductionRuntimeSharesContentPinnedRegistry(t *testing.T) {
 	if err != nil || runtime.Artifact.RegistryHash == "" || runtime.Handler.Executor == nil || runtime.Handler.Policy == nil {
 		t.Fatalf("runtime=%#v error=%v", runtime, err)
 	}
-	executor := runtime.Handler.Executor.(*RegistryExecutor)
+	executor := runtime.Handler.Executor.(DispatchExecutor)
+	sandbox := executor.Sandbox.(*SandboxExecutor)
 	policy := runtime.Handler.Policy.(PostgresPolicyEvaluator)
-	if executor.registry.Hash() != runtime.Artifact.RegistryHash || policy.Registry.Hash() != runtime.Artifact.RegistryHash || executor.registry != policy.Registry {
+	if sandbox.Registry.Hash() != runtime.Artifact.RegistryHash || policy.Registry.Hash() != runtime.Artifact.RegistryHash || sandbox.Registry != policy.Registry || executor.Registry != policy.Registry {
 		t.Fatal("executor and policy evaluator did not share one registry instance")
 	}
 }
@@ -63,8 +61,8 @@ func TestProductionRuntimeFailsClosedOnArtifactOrHandlerDrift(t *testing.T) {
 	}
 	configuration.ArtifactPath, configuration.ArtifactFileHash = path, fileHash
 	configuration.DefaultReconcileAfter = time.Minute
-	if _, err = NewProductionRuntime(configuration); !errors.Is(err, ErrProductionConfiguration) || !errors.Is(err, ErrExecutorConfiguration) {
-		t.Fatalf("missing handler coverage error=%v", err)
+	if _, err = NewProductionRuntime(configuration); !errors.Is(err, ErrProductionConfiguration) || !errors.Is(err, ErrSandboxConfiguration) {
+		t.Fatalf("missing sandbox coverage error=%v", err)
 	}
 }
 

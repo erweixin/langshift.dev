@@ -313,7 +313,7 @@ func validApproval(value Descriptor) bool {
 
 func validRuntime(value Descriptor) bool {
 	resources, schedule := value.Resources, value.Scheduling
-	if resources.CPUMillis < 10 || resources.CPUMillis > 128_000 || resources.MemoryBytes < 16<<20 || resources.MemoryBytes > 1<<40 || resources.DiskBytes < 0 || resources.DiskBytes > 10<<40 || resources.MaximumInput < 1 || resources.MaximumInput > 16<<20 || resources.MaximumOutput < 1 || resources.MaximumOutput > 64<<20 || resources.MaximumLogBytes < 1024 || resources.MaximumLogBytes > 1<<30 || schedule.QueueClass != "interactive" && schedule.QueueClass != "background" || schedule.ResourceClass == "" || schedule.Priority < 0 || schedule.Priority > 1000 || schedule.CostUnits < 1 || schedule.CostUnits > 1_000_000_000_000 {
+	if resources.CPUMillis < 10 || resources.CPUMillis > 128_000 || resources.MemoryBytes < 16<<20 || resources.MemoryBytes > 1<<40 || resources.DiskBytes < 0 || resources.DiskBytes > 10<<40 || resources.MaximumInput < 1 || resources.MaximumInput > 16<<20 || resources.MaximumOutput < 1024 || resources.MaximumOutput > 64<<20 || resources.MaximumLogBytes < 1024 || resources.MaximumLogBytes > 1<<30 || schedule.QueueClass != "interactive" && schedule.QueueClass != "background" || schedule.ResourceClass == "" || schedule.Priority < 0 || schedule.Priority > 1000 || schedule.CostUnits < 1 || schedule.CostUnits > 1_000_000_000_000 {
 		return false
 	}
 	timeout, err := time.ParseDuration(resources.Timeout)

@@ -44,9 +44,9 @@ type Invocation struct {
 }
 
 type Failure struct {
-	Code        string
-	SafeMessage string
-	Retryable   bool
+	Code        string `json:"code,omitempty"`
+	SafeMessage string `json:"safe_message,omitempty"`
+	Retryable   bool   `json:"retryable"`
 }
 
 // HandlerResult reports a known external outcome. A failed result asserts that
@@ -100,7 +100,7 @@ func NewRegistryExecutor(registry *toolregistry.Registry, registrations []Handle
 	}
 	required := map[string]struct{}{}
 	for _, snapshot := range registry.Snapshots() {
-		if snapshot.Descriptor.ExecutionKind == toolregistry.ExecutionWorker {
+		if snapshot.Descriptor.ExecutionKind == toolregistry.ExecutionWorker && snapshot.Descriptor.TrustTier == "trusted" {
 			required[snapshot.Descriptor.Handler] = struct{}{}
 		}
 	}
@@ -227,7 +227,7 @@ func (executor *RegistryExecutor) unknown(snapshot toolregistry.Snapshot, execut
 
 func matchesExecution(snapshot toolregistry.Snapshot, execution Execution) bool {
 	descriptor, command, claim := snapshot.Descriptor, execution.Payload, execution.Claim
-	return descriptor.ExecutionKind == toolregistry.ExecutionWorker && descriptor.Name == command.ToolName && descriptor.EffectClass == command.EffectClass &&
+	return descriptor.ExecutionKind == toolregistry.ExecutionWorker && descriptor.TrustTier == "trusted" && descriptor.Name == command.ToolName && descriptor.EffectClass == command.EffectClass &&
 		claim.ToolCallID == command.ToolCallID && claim.RunID == command.RunID && claim.EffectClass == command.EffectClass &&
 		claim.Binding.ToolName == command.ToolName && claim.Binding.DescriptorSnapshotID == command.DescriptorSnapshotID &&
 		claim.Binding.NormalizedInputRef == command.Input.Ref && claim.Binding.RequestHash == command.RequestHash && claim.Binding.EffectKey == command.EffectKey &&

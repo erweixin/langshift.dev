@@ -140,6 +140,10 @@ func workerRegistry(t *testing.T, effectClass string) (toolregistry.Registry, to
 }
 
 func workerRegistryWithTimeout(t *testing.T, effectClass, timeout string) (toolregistry.Registry, toolregistry.Snapshot) {
+	return workerRegistryWithTrust(t, effectClass, timeout, "trusted")
+}
+
+func workerRegistryWithTrust(t *testing.T, effectClass, timeout, trustTier string) (toolregistry.Registry, toolregistry.Snapshot) {
 	t.Helper()
 	descriptor := toolregistry.Descriptor{
 		SchemaVersion: 1, Name: "provider_lookup", Version: "1.0.0", DisplayName: "Provider lookup",
@@ -147,7 +151,7 @@ func workerRegistryWithTimeout(t *testing.T, effectClass, timeout string) (toolr
 		InputSchema:  json.RawMessage(`{"type":"object","properties":{"query":{"type":"string"}},"required":["query"],"additionalProperties":false}`),
 		OutputSchema: json.RawMessage(`{"type":"object","properties":{"ok":{"type":"boolean"}},"required":["ok"],"additionalProperties":false}`),
 		EffectClass:  effectClass, MaxAttempts: 3, ApprovalMode: toolregistry.ApprovalNone,
-		ExecutionKind: toolregistry.ExecutionWorker, Handler: "provider_lookup", TrustTier: "semi_trusted",
+		ExecutionKind: toolregistry.ExecutionWorker, Handler: "provider_lookup", TrustTier: trustTier,
 		RuntimeImage:        "registry.example/tools/provider@sha256:" + strings.Repeat("a", 64),
 		Resources:           toolregistry.ResourceLimits{CPUMillis: 250, MemoryBytes: 128 << 20, DiskBytes: 64 << 20, Timeout: timeout, MaximumInput: 64 << 10, MaximumOutput: 1 << 20, MaximumLogBytes: 1 << 20},
 		Scheduling:          toolregistry.Scheduling{QueueClass: "interactive", ResourceClass: "tool-network", Priority: 50, CostUnits: 2},

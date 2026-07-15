@@ -18,6 +18,8 @@ type ProductionConfig struct {
 	Payloads                       payload.Store
 	Tools                          ToolStore
 	Registrations                  []HandlerRegistration
+	SandboxBroker                  SandboxBroker
+	SandboxCleanupTimeout          time.Duration
 	ConsumerName, WorkerID         string
 	Actor                          json.RawMessage
 	IDKey                          []byte
@@ -47,10 +49,22 @@ func NewProductionRuntime(configuration ProductionConfig) (ProductionRuntime, er
 		return ProductionRuntime{}, errors.Join(ErrProductionConfiguration, err)
 	}
 	registry := artifact.Registry
-	executor, err := NewRegistryExecutor(&registry, configuration.Registrations, configuration.DefaultReconcileAfter)
+	trusted, err := NewRegistryExecutor(&registry, configuration.Registrations, configuration.DefaultReconcileAfter)
 	if err != nil {
 		return ProductionRuntime{}, errors.Join(ErrProductionConfiguration, err)
 	}
+	requiresSandbox := false
+	for _, snapshot := range registry.Snapshots() {
+		if snapshot.Descriptor.ExecutionKind == toolregistry.ExecutionWorker && snapshot.Descriptor.TrustTier != "trusted" {
+			requiresSandbox = true
+			break
+		}
+	}
+	if requiresSandbox && nilInterface(configuration.SandboxBroker) {
+		return ProductionRuntime{}, errors.Join(ErrProductionConfiguration, ErrSandboxConfiguration)
+	}
+	sandbox := &SandboxExecutor{Registry: &registry, Broker: configuration.SandboxBroker, DefaultReconcileAfter: configuration.DefaultReconcileAfter, CleanupTimeout: configuration.SandboxCleanupTimeout}
+	executor := DispatchExecutor{Registry: &registry, Trusted: trusted, Sandbox: sandbox}
 	handler := Handler{
 		Payloads: configuration.Payloads, Tools: configuration.Tools,
 		Policy:   PostgresPolicyEvaluator{Pool: configuration.Pool, Registry: &registry},

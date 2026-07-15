@@ -123,7 +123,7 @@ func (handler Handler) provision(ctx context.Context, writer http.ResponseWriter
 
 func (handler Handler) execute(ctx context.Context, writer http.ResponseWriter, request *http.Request) {
 	var input executeRequest
-	if !decodeStrict(request, &input, 2<<20) || input.TenantID == "" || input.SessionID == "" || input.CapabilityToken == "" || input.ProvisionLease == "" || input.RequestID == "" || input.Command.Validate() != nil {
+	if !decodeStrict(request, &input, 24<<20) || input.TenantID == "" || input.SessionID == "" || input.CapabilityToken == "" || input.ProvisionLease == "" || input.RequestID == "" || input.Command.Validate() != nil {
 		http.Error(writer, "invalid execution request", http.StatusBadRequest)
 		return
 	}

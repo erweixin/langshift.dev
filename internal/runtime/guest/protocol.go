@@ -19,8 +19,9 @@ import (
 
 const (
 	ProtocolVersion = "lites.runtime.guest.v1"
-	MaximumFrame    = 1 << 20
+	MaximumFrame    = 24 << 20
 	MaximumChunk    = 64 << 10
+	MaximumStdin    = 16 << 20
 )
 
 var (
@@ -140,7 +141,7 @@ func (decoder *Decoder) Decode() (Frame, error) {
 }
 
 func (request ExecuteRequest) Validate() error {
-	if len(request.Argv) < 1 || len(request.Argv) > 256 || !filepath.IsAbs(request.Argv[0]) || filepath.Clean(request.Argv[0]) != request.Argv[0] || request.Argv[0] == "/" || len(request.Environment) > 64 || len(request.Stdin) > MaximumFrame || request.DeadlineUnixMillis <= 0 || request.MaximumOutputBytes < 1024 || request.MaximumOutputBytes > 16<<20 || !workspacePath(request.WorkingDirectory) {
+	if len(request.Argv) < 1 || len(request.Argv) > 256 || !filepath.IsAbs(request.Argv[0]) || filepath.Clean(request.Argv[0]) != request.Argv[0] || request.Argv[0] == "/" || len(request.Environment) > 64 || len(request.Stdin) > MaximumStdin || request.DeadlineUnixMillis <= 0 || request.MaximumOutputBytes < 1024 || request.MaximumOutputBytes > 16<<20 || !workspacePath(request.WorkingDirectory) {
 		return ErrInvalidRequest
 	}
 	total := 0
