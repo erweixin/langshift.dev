@@ -22,9 +22,14 @@ type Store interface {
 	RequestRecoveryTermination(context.Context, runtimepostgres.RecoveryTerminationCommand) (runtimepostgres.LifecycleResult, error)
 }
 
+type TenantLocker interface {
+	WithTenantLock(context.Context, string, func(context.Context) error) (bool, error)
+}
+
 type Sweeper struct {
 	Store       Store
 	Payloads    payload.Store
+	Locker      TenantLocker
 	Now         func() time.Time
 	ShardIndex  int
 	ShardCount  int
@@ -32,7 +37,7 @@ type Sweeper struct {
 	SessionPage int
 }
 
-type Result struct{ Tenants, Requested int }
+type Result struct{ Tenants, Requested, Contended int }
 
 type deadlineReceipt struct {
 	SchemaVersion int       `json:"schema_version"`
@@ -43,7 +48,7 @@ type deadlineReceipt struct {
 }
 
 func (sweeper Sweeper) RunOnce(ctx context.Context) (Result, error) {
-	if sweeper.Store == nil || sweeper.Payloads == nil || sweeper.ShardCount < 1 || sweeper.ShardIndex < 0 || sweeper.ShardIndex >= sweeper.ShardCount || sweeper.TenantPage < 1 || sweeper.TenantPage > 5000 || sweeper.SessionPage < 1 || sweeper.SessionPage > 1000 {
+	if sweeper.Store == nil || sweeper.Payloads == nil || sweeper.Locker == nil || sweeper.ShardCount < 1 || sweeper.ShardIndex < 0 || sweeper.ShardIndex >= sweeper.ShardCount || sweeper.TenantPage < 1 || sweeper.TenantPage > 5000 || sweeper.SessionPage < 1 || sweeper.SessionPage > 1000 {
 		return Result{}, ErrConfiguration
 	}
 	at := time.Now().UTC().Truncate(time.Microsecond)
@@ -58,26 +63,35 @@ func (sweeper Sweeper) RunOnce(ctx context.Context) (Result, error) {
 			return result, err
 		}
 		for _, tenantID := range tenants {
-			result.Tenants++
-			var sessionCursor string
-			for {
-				states, listErr := sweeper.Store.ListDueSessions(ctx, tenantID, sessionCursor, sweeper.SessionPage, at)
-				if listErr != nil {
-					return result, listErr
-				}
-				for _, state := range states {
-					if !state.Due(at) || state.TenantID != tenantID {
-						return result, ErrConfiguration
+			locked, lockErr := sweeper.Locker.WithTenantLock(ctx, tenantID, func(lockCtx context.Context) error {
+				result.Tenants++
+				var sessionCursor string
+				for {
+					states, listErr := sweeper.Store.ListDueSessions(lockCtx, tenantID, sessionCursor, sweeper.SessionPage, at)
+					if listErr != nil {
+						return listErr
 					}
-					if requestErr := sweeper.request(ctx, state); requestErr != nil {
-						return result, requestErr
+					for _, state := range states {
+						if !state.Due(at) || state.TenantID != tenantID {
+							return ErrConfiguration
+						}
+						if requestErr := sweeper.request(lockCtx, state); requestErr != nil {
+							return requestErr
+						}
+						result.Requested++
+						sessionCursor = state.SessionID
 					}
-					result.Requested++
-					sessionCursor = state.SessionID
+					if len(states) < sweeper.SessionPage {
+						break
+					}
 				}
-				if len(states) < sweeper.SessionPage {
-					break
-				}
+				return nil
+			})
+			if lockErr != nil {
+				return result, lockErr
+			}
+			if !locked {
+				result.Contended++
 			}
 			tenantCursor = tenantID
 		}

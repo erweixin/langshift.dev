@@ -10,7 +10,7 @@ if (!/^[0-9a-f]{40}$/.test(sourceCommit)) {
 const root = path.resolve("gate-reports/stage-2");
 const supplyRoot = path.join(root, "supply-chain");
 const imageRoot = path.join(root, "images");
-const services = ["api-gateway", "identity-service", "realtime-gateway", "identity-import-worker", "identity-mail-worker", "outbox-publisher", "store-epoch-authority", "lites-migrate", "runtime-host-agent"];
+const services = ["api-gateway", "identity-service", "realtime-gateway", "identity-import-worker", "identity-mail-worker", "outbox-publisher", "store-epoch-authority", "lites-migrate", "runtime-host-agent", "runtime-sweeper"];
 
 const sha256 = (contents) => createHash("sha256").update(contents).digest("hex");
 const readJSON = async (file) => JSON.parse(await readFile(file, "utf8"));
