@@ -58,6 +58,7 @@ type lifecycleSession struct {
 	ProvisioningAt, ReadyAt, RunningAt, LastActivityAt            sql.NullTime
 	IdleDeadline, TerminationRequestedAt, KillDeadline            sql.NullTime
 	TerminationReason                                             sql.NullString
+	BootReceiptHash                                               sql.NullString
 	TerminatedAt                                                  sql.NullTime
 	CleanupReceiptHash                                            sql.NullString
 	UsageManifest                                                 []byte
@@ -73,7 +74,7 @@ type lifecycleAllocation struct {
 }
 
 func (store Store) MarkReady(ctx context.Context, command ReadyCommand) (LifecycleResult, error) {
-	if !validLifecycleCommand(command.LifecycleCommand) || command.ExpectedVersion != 2 || !runtimeReceiptPattern.MatchString(command.BootReceiptHash) || command.Payload.Hash != command.BootReceiptHash {
+	if !validLifecycleCommand(command.LifecycleCommand) || command.ExpectedVersion != 2 || !runtimeReceiptPattern.MatchString(command.BootReceiptHash) {
 		return LifecycleResult{}, ErrInvalidCommand
 	}
 	return store.withLifecycle(ctx, command.LifecycleCommand, "RuntimeSessionReady", "ready", func(tx pgx.Tx, session lifecycleSession, allocation *lifecycleAllocation, digest []byte, now time.Time, eventID string) (LifecycleResult, error) {
@@ -82,7 +83,7 @@ func (store Store) MarkReady(ctx context.Context, command ReadyCommand) (Lifecyc
 		if idleDeadline.After(session.ExecutionDeadline) {
 			idleDeadline = session.ExecutionDeadline
 		}
-		if session.Status == "ready" && session.Version == 3 && session.ReadyAt.Valid && session.ReadyAt.Time.Equal(occurredAt) && session.IdleDeadline.Valid && session.IdleDeadline.Time.Equal(idleDeadline) && allocation != nil && allocation.Status == "active" && allocation.SessionVersion == 3 && allocation.SessionEventID == eventID && validAllocationAuthority(session, allocation, command.LifecycleCommand, digest, occurredAt) {
+		if session.Status == "ready" && session.Version == 3 && session.ReadyAt.Valid && session.ReadyAt.Time.Equal(occurredAt) && session.IdleDeadline.Valid && session.IdleDeadline.Time.Equal(idleDeadline) && session.BootReceiptHash.Valid && session.BootReceiptHash.String == command.BootReceiptHash && allocation != nil && allocation.Status == "active" && allocation.SessionVersion == 3 && allocation.SessionEventID == eventID && validAllocationAuthority(session, allocation, command.LifecycleCommand, digest, occurredAt) {
 			if ok, err := store.lifecycleEventMatches(ctx, tx, session, eventID, 3, "RuntimeSessionReady", command.Payload); err != nil || !ok {
 				return LifecycleResult{}, replayError(err)
 			}
@@ -97,7 +98,7 @@ func (store Store) MarkReady(ctx context.Context, command ReadyCommand) (Lifecyc
 		if err := store.appendLifecycleEvent(ctx, tx, session, eventID, 3, "RuntimeSessionReady", occurredAt, command.Payload, command.Actor, command.CorrelationID); err != nil {
 			return LifecycleResult{}, err
 		}
-		if tag, err := tx.Exec(ctx, `UPDATE agent.runtime_sessions SET version=3,status='ready',provision_lease_hash=NULL,provision_lease_expires_at=NULL,ready_at=$1,idle_deadline=$2,last_event_id=$3,updated_at=$1 WHERE tenant_id=$4 AND id=$5 AND version=2 AND status='provisioning'`, occurredAt, idleDeadline, eventID, session.TenantID, session.ID); err != nil || tag.RowsAffected() != 1 {
+		if tag, err := tx.Exec(ctx, `UPDATE agent.runtime_sessions SET version=3,status='ready',provision_lease_hash=NULL,provision_lease_expires_at=NULL,ready_at=$1,idle_deadline=$2,boot_receipt_hash=$3,last_event_id=$4,updated_at=$1 WHERE tenant_id=$5 AND id=$6 AND version=2 AND status='provisioning'`, occurredAt, idleDeadline, command.BootReceiptHash, eventID, session.TenantID, session.ID); err != nil || tag.RowsAffected() != 1 {
 			return LifecycleResult{}, transitionError(err)
 		}
 		if tag, err := tx.Exec(ctx, `UPDATE agent.runtime_allocations SET version=version+1,status='active',session_version=3,session_event_id=$1,lease_expires_at=$2,updated_at=$3 WHERE tenant_id=$4 AND id=$5 AND version=$6 AND status='provisioning'`, eventID, session.ExecutionDeadline, occurredAt, session.TenantID, allocation.ID, allocation.Version); err != nil || tag.RowsAffected() != 1 {
@@ -301,7 +302,7 @@ func loadLifecycleSession(ctx context.Context, tx pgx.Tx, tenantID, sessionID, s
 	var idleSeconds, graceSeconds int
 	err := tx.QueryRow(ctx, `SELECT s.id::text,s.tenant_id::text,s.user_id::text,s.version,s.status,s.last_event_id::text,
 	  COALESCE(s.provision_attempt_id::text,''),s.provision_fence,s.host_id,s.provisioning_at,s.ready_at,s.running_at,
-	  s.last_activity_at,s.idle_deadline,s.termination_requested_at,s.kill_deadline,s.termination_reason,
+	  s.last_activity_at,s.idle_deadline,s.termination_requested_at,s.kill_deadline,s.termination_reason,s.boot_receipt_hash,
 	  s.terminated_at,s.cleanup_receipt_hash,s.usage_manifest,
 	  s.execution_deadline,s.updated_at,p.idle_timeout_seconds,p.kill_grace_seconds
 	FROM agent.runtime_sessions s JOIN agent.runtime_policy_snapshots p ON p.tenant_id=s.tenant_id AND p.id=s.policy_snapshot_id
@@ -309,7 +310,7 @@ func loadLifecycleSession(ctx context.Context, tx pgx.Tx, tenantID, sessionID, s
 	WHERE s.tenant_id=$1 AND s.id=$2 FOR UPDATE OF s`, tenantID, sessionID, storeEpoch).Scan(
 		&value.ID, &value.TenantID, &value.UserID, &value.Version, &value.Status, &value.LastEventID,
 		&value.ProvisionAttemptID, &value.ProvisionFence, &value.HostID, &value.ProvisioningAt, &value.ReadyAt, &value.RunningAt,
-		&value.LastActivityAt, &value.IdleDeadline, &value.TerminationRequestedAt, &value.KillDeadline, &value.TerminationReason,
+		&value.LastActivityAt, &value.IdleDeadline, &value.TerminationRequestedAt, &value.KillDeadline, &value.TerminationReason, &value.BootReceiptHash,
 		&value.TerminatedAt, &value.CleanupReceiptHash, &value.UsageManifest,
 		&value.ExecutionDeadline, &value.UpdatedAt, &idleSeconds, &graceSeconds)
 	if errors.Is(err, pgx.ErrNoRows) {

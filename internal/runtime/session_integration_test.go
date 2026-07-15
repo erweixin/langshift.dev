@@ -136,7 +136,7 @@ func TestRuntimeSessionProtocolBindsPolicyEventFenceAndTenant(t *testing.T) {
 	if _, err = tx.Exec(ctx, `INSERT INTO agent.events(id,tenant_id,user_id,seq,event_type,event_schema_version,aggregate_kind,aggregate_id,aggregate_version,store_epoch,occurred_at,committed_at,actor,causation_id,correlation_id,payload_ref,payload_hash) VALUES($1,$2,$3,4,'RuntimeSessionReady',1,'runtime_session',$4,3,$5,$6,$6,'{"kind":"system"}',$7,$8,'encrypted://runtime/ready','ready-event')`, readyEvent, tenantID, userID, sessionID, epoch, now.Add(2*time.Second), provisionEvent, correlation); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = tx.Exec(ctx, `UPDATE agent.runtime_sessions SET version=3,status='ready',provision_lease_hash=NULL,provision_lease_expires_at=NULL,ready_at=$1,idle_deadline=$2,last_event_id=$3,updated_at=$1 WHERE tenant_id=$4 AND id=$5 AND version=2`, now.Add(2*time.Second), now.Add(30*time.Second), readyEvent, tenantID, sessionID); err != nil {
+	if _, err = tx.Exec(ctx, `UPDATE agent.runtime_sessions SET version=3,status='ready',provision_lease_hash=NULL,provision_lease_expires_at=NULL,ready_at=$1,idle_deadline=$2,boot_receipt_hash=repeat('f',64),last_event_id=$3,updated_at=$1 WHERE tenant_id=$4 AND id=$5 AND version=2`, now.Add(2*time.Second), now.Add(30*time.Second), readyEvent, tenantID, sessionID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = tx.Exec(ctx, `UPDATE agent.runtime_allocations SET version=2,status='active',session_version=3,session_event_id=$1,updated_at=$2 WHERE tenant_id=$3 AND id=$4 AND version=1`, readyEvent, now.Add(2*time.Second), tenantID, allocationID); err != nil {
