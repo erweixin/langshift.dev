@@ -60,6 +60,11 @@ func TestJailerUsesCgroupV2NoSwapAndNewPIDNamespace(t *testing.T) {
 	if err != nil || root != wantRoot {
 		t.Fatalf("JailRoot() = %q, %v", root, err)
 	}
+	config.CgroupBaseDir = "/sys/fs/cgroup"
+	cgroup, err := config.CgroupPath("runtime-019f60b2")
+	if err != nil || cgroup != "/sys/fs/cgroup/lites/firecracker/runtime-019f60b2" {
+		t.Fatalf("CgroupPath() = %q, %v", cgroup, err)
+	}
 }
 
 func TestJailerRejectsUntrustedHostPathOwnershipModesAndSymlinks(t *testing.T) {

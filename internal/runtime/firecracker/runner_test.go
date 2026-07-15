@@ -39,8 +39,12 @@ func (process *fakeManagedProcess) Signal(os.Signal) error {
 }
 func (process *fakeManagedProcess) Kill() error {
 	process.mu.Lock()
-	defer process.mu.Unlock()
 	process.killed = true
+	process.mu.Unlock()
+	select {
+	case process.done <- errors.New("killed"):
+	default:
+	}
 	return nil
 }
 func (process *fakeManagedProcess) Wait() error { return <-process.done }
@@ -92,6 +96,28 @@ func TestRunnerFailsClosedAndKillsVMMWhenConfigurationFails(t *testing.T) {
 	}
 	if machine, err := runner.Start(context.Background(), validSpec()); machine != nil || !errors.Is(err, ErrAPI) || !process.signaled {
 		t.Fatalf("Start() = %#v, %v, signaled=%v", machine, err, process.signaled)
+	}
+}
+
+func TestRunnerObservesExactIdentityBeforeReadinessAndKillsOnJournalFailure(t *testing.T) {
+	process := newFakeManagedProcess()
+	journalFailure := errors.New("ownership journal fsync failed")
+	observed := false
+	runner := Runner{
+		Jailer: validJailerConfig(), StartupTimeout: time.Second, PollInterval: time.Millisecond, APITimeout: time.Second, StopGrace: time.Second,
+		processFactory:  func(context.Context, JailerConfig, string) (managedProcess, error) { return process, nil },
+		processIdentity: func(int) (ProcessIdentity, error) { return validProcessIdentity(), nil },
+		socketReady: func(string, uint32, uint32) (bool, error) {
+			t.Fatal("readiness probe ran before ownership identity was durable")
+			return false, nil
+		},
+	}
+	machine, err := runner.StartObserved(context.Background(), validSpec(), func(identity ProcessIdentity) error {
+		observed = identity == validProcessIdentity()
+		return journalFailure
+	})
+	if machine != nil || !errors.Is(err, journalFailure) || !observed || !process.killed {
+		t.Fatalf("StartObserved()=%#v err=%v observed=%v killed=%v", machine, err, observed, process.killed)
 	}
 }
 

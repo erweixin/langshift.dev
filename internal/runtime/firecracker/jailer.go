@@ -11,6 +11,7 @@ import (
 
 type JailerConfig struct {
 	JailerPath, FirecrackerPath, ChrootBaseDir string
+	CgroupBaseDir                              string
 	UID, GID                                   uint32
 	ParentCgroup                               string
 	CPUQuotaMicros, CPUPeriodMicros            int64
@@ -40,7 +41,7 @@ func (config JailerConfig) Command(ctx context.Context, machineID string) (*exec
 }
 
 func (config JailerConfig) Arguments(machineID string) ([]string, error) {
-	if !validID(machineID) || !trustedAbsolute(config.JailerPath) || !trustedAbsolute(config.FirecrackerPath) || !trustedAbsolute(config.ChrootBaseDir) || config.JailerPath == config.FirecrackerPath || config.UID == 0 || config.GID == 0 || !validCgroupName(config.ParentCgroup) || config.CPUQuotaMicros < 1_000 || config.CPUPeriodMicros < 1_000 || config.CPUQuotaMicros > config.CPUPeriodMicros*32 || config.MemoryMaxBytes < 128<<20 || config.MemoryMaxBytes > 64<<30 || config.PidsMax < 1 || config.PidsMax > 4096 || config.FileSizeMaxBytes < 1<<20 || config.FileSizeMaxBytes > 1<<40 || config.NoFileMax < 64 || config.NoFileMax > 65536 || config.NetworkNamespace != "" && !trustedAbsolute(config.NetworkNamespace) {
+	if !validID(machineID) || !trustedAbsolute(config.JailerPath) || !trustedAbsolute(config.FirecrackerPath) || !trustedAbsolute(config.ChrootBaseDir) || config.CgroupBaseDir != "" && !trustedAbsolute(config.CgroupBaseDir) || config.JailerPath == config.FirecrackerPath || config.UID == 0 || config.GID == 0 || !validCgroupName(config.ParentCgroup) || config.CPUQuotaMicros < 1_000 || config.CPUPeriodMicros < 1_000 || config.CPUQuotaMicros > config.CPUPeriodMicros*32 || config.MemoryMaxBytes < 128<<20 || config.MemoryMaxBytes > 64<<30 || config.PidsMax < 1 || config.PidsMax > 4096 || config.FileSizeMaxBytes < 1<<20 || config.FileSizeMaxBytes > 1<<40 || config.NoFileMax < 64 || config.NoFileMax > 65536 || config.NetworkNamespace != "" && !trustedAbsolute(config.NetworkNamespace) {
 		return nil, ErrInvalidSpec
 	}
 	args := []string{
@@ -64,6 +65,17 @@ func (config JailerConfig) Arguments(machineID string) ([]string, error) {
 	}
 	args = append(args, "--", "--api-sock", "/run/firecracker.socket", "--http-api-max-payload-size", "4096")
 	return args, nil
+}
+
+func (config JailerConfig) CgroupPath(machineID string) (string, error) {
+	if _, err := config.Arguments(machineID); err != nil {
+		return "", err
+	}
+	base := config.CgroupBaseDir
+	if base == "" {
+		base = "/sys/fs/cgroup"
+	}
+	return filepath.Join(base, filepath.FromSlash(config.ParentCgroup), machineID), nil
 }
 
 func (config JailerConfig) JailRoot(machineID string) (string, error) {

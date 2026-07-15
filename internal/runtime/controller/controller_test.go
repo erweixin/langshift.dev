@@ -91,6 +91,7 @@ type ownershipStub struct {
 	records              map[string]firecracker.OwnershipRecord
 	cleaned              map[string]bool
 	cleanups             int
+	claims, activations  int
 	createErr, verifyErr error
 }
 
@@ -108,6 +109,34 @@ func (store *ownershipStub) Create(record firecracker.OwnershipRecord) error {
 	}
 	store.records[record.MachineID] = record
 	return nil
+}
+func (store *ownershipStub) ClaimVacant(record firecracker.OwnershipRecord) error {
+	if err := store.Create(record); err != nil {
+		return err
+	}
+	store.mu.Lock()
+	store.claims++
+	store.mu.Unlock()
+	return nil
+}
+func (store *ownershipStub) Activate(record firecracker.OwnershipRecord, identity firecracker.ProcessIdentity) (firecracker.OwnershipRecord, error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	current, exists := store.records[record.MachineID]
+	if !exists || current.SessionID != record.SessionID {
+		return firecracker.OwnershipRecord{}, firecracker.ErrOwnershipIntegrity
+	}
+	record.Phase = firecracker.OwnershipPhaseActive
+	record.Process = identity
+	store.records[record.MachineID] = record
+	store.activations++
+	return record, nil
+}
+func (store *ownershipStub) ExpectedRoot(machineID string) (string, error) {
+	if machineID == "" {
+		return "", firecracker.ErrOwnershipIntegrity
+	}
+	return "/jail/" + machineID + "/root", nil
 }
 func (store *ownershipStub) Verify(record firecracker.OwnershipRecord) error {
 	store.mu.Lock()
@@ -252,7 +281,7 @@ func TestControllerRetriesDurableCompletionFromArchivedCleanupEvidence(t *testin
 	}
 }
 
-func TestControllerFailsClosedBeforeAttestationWhenOwnershipCannotBePersisted(t *testing.T) {
+func TestControllerFailsClosedBeforeHostMutationWhenOwnershipCannotBePersisted(t *testing.T) {
 	store := &storeStub{}
 	machine := &machineStub{done: make(chan struct{})}
 	now := time.Date(2026, 7, 15, 16, 15, 0, 0, time.UTC)
@@ -268,7 +297,7 @@ func TestControllerFailsClosedBeforeAttestationWhenOwnershipCannotBePersisted(t 
 		t.Fatal("guest must not be probed without durable host ownership")
 		return guest.Attestation{}, nil
 	}
-	if _, err := controller.Provision(context.Background(), validProvisionRequest(now)); !errors.Is(err, ownershipFailure) || !machine.stopped || store.ready != 0 || store.requested != 1 || store.completed != 1 {
+	if _, err := controller.Provision(context.Background(), validProvisionRequest(now)); !errors.Is(err, ownershipFailure) || machine.stopped || store.ready != 0 || store.requested != 1 || store.completed != 1 {
 		t.Fatalf("Provision() error=%v stopped=%v calls=%d/%d/%d", err, machine.stopped, store.ready, store.requested, store.completed)
 	}
 }
@@ -383,6 +412,91 @@ func TestControllerAttestsPersistsReadyAndTerminatesOwnedMachine(t *testing.T) {
 	}
 	if len(owners.records) != 0 {
 		t.Fatal("ownership record survived successful cleanup")
+	}
+}
+
+func TestControllerPersistsReservationBeforeStageAndActivatesBeforeProbe(t *testing.T) {
+	store := &storeStub{}
+	machine := &machineStub{done: make(chan struct{})}
+	now := time.Date(2026, 7, 15, 16, 10, 0, 0, time.UTC)
+	owners := newOwnershipStub()
+	controller := &Controller{Store: store, Payloads: payloadStub{}, Ownership: owners, Random: bytes.NewReader(bytes.Repeat([]byte{0x47}, 32)), Now: func() time.Time { return now }}
+	controller.stage = func(_ context.Context, request firecracker.StageRequest) (stagedMachine, error) {
+		owners.mu.Lock()
+		reserved, exists := owners.records[request.MachineID]
+		owners.mu.Unlock()
+		if !exists || reserved.Phase != firecracker.OwnershipPhaseReserved || reserved.Process != (firecracker.ProcessIdentity{}) {
+			t.Fatal("stage began without a durable reserved ownership record")
+		}
+		return stagedMachine{spec: firecracker.Spec{}, root: reserved.Root, vsockPath: "/jail/run/guest.vsock"}, nil
+	}
+	controller.start = func(context.Context, firecracker.Spec) (machineProcess, error) { return machine, nil }
+	controller.probe = func(_ context.Context, _ string, _ string, challenge string) (guest.Attestation, error) {
+		owners.mu.Lock()
+		active := owners.records["runtime-machine-1"]
+		owners.mu.Unlock()
+		if active.Phase != firecracker.OwnershipPhaseActive || active.Process.PID != 1234 {
+			t.Fatal("guest probe began before exact process ownership activation")
+		}
+		return guest.Attestation{Challenge: challenge, GuestAgentBuild: "lites-runtime-guest-agent.v1", UserID: 1000, GroupID: 1000, BootUnixMillis: now.UnixMilli()}, nil
+	}
+	if _, err := controller.Provision(context.Background(), validProvisionRequest(now)); err != nil || owners.activations != 1 {
+		t.Fatalf("Provision() err=%v activations=%d", err, owners.activations)
+	}
+}
+
+func TestControllerClaimsOnlyVacantInterruptedProvisionAndKillsItsCgroup(t *testing.T) {
+	now := time.Date(2026, 7, 15, 16, 12, 0, 0, time.UTC)
+	identity := runtimepostgres.RecoveryIdentity{
+		TenantID: "20000000-0000-4000-8000-000000000001", SessionID: "80000000-0000-4000-8000-000000000041",
+		AllocationID: "80000000-0000-4000-8000-000000000042", ProvisionAttemptID: "60000000-0000-4000-8000-000000000001",
+		HostID: "runtime-host-1", MachineID: "runtime-machine-5", GuestCID: 47,
+	}
+	recovery := &recoveryStoreStub{states: map[string]runtimepostgres.RecoveryState{identity.SessionID: {
+		RecoveryIdentity: identity, SessionVersion: 2, AllocationVersion: 1, ProvisionFence: 1,
+		SessionStatus: "provisioning", AllocationStatus: "provisioning",
+	}}}
+	owners := newOwnershipStub()
+	killed := 0
+	controller := &Controller{Store: &storeStub{}, Recovery: recovery, Payloads: payloadStub{}, Ownership: owners, Now: func() time.Time { return now }}
+	controller.killCgroup = func(_ context.Context, machineID string) error {
+		if machineID != identity.MachineID {
+			t.Fatalf("unexpected cgroup machine %q", machineID)
+		}
+		killed++
+		return nil
+	}
+	controller.processAlive = func(firecracker.ProcessIdentity, []string) (bool, error) {
+		t.Fatal("reserved ownership must not be interpreted as a process identity")
+		return false, nil
+	}
+	result, err := controller.Recover(context.Background(), RecoverRequest{
+		HostID: identity.HostID, HostControlHash: bytes.Repeat([]byte{0x58}, 32),
+		AllowedExecutables: []string{"/usr/bin/firecracker"}, StopGrace: time.Second,
+	})
+	if err != nil || result.Terminated != 1 || killed != 1 || owners.claims != 1 || recovery.states[identity.SessionID].SessionStatus != "terminated" {
+		t.Fatalf("Recover()=%#v err=%v killed=%d claims=%d state=%s", result, err, killed, owners.claims, recovery.states[identity.SessionID].SessionStatus)
+	}
+}
+
+func TestControllerRejectsMissingOwnershipForReadyMachine(t *testing.T) {
+	identity := runtimepostgres.RecoveryIdentity{
+		TenantID: "20000000-0000-4000-8000-000000000001", SessionID: "80000000-0000-4000-8000-000000000051",
+		AllocationID: "80000000-0000-4000-8000-000000000052", ProvisionAttemptID: "60000000-0000-4000-8000-000000000001",
+		HostID: "runtime-host-1", MachineID: "runtime-machine-6", GuestCID: 48,
+	}
+	recovery := &recoveryStoreStub{states: map[string]runtimepostgres.RecoveryState{identity.SessionID: {
+		RecoveryIdentity: identity, SessionVersion: 3, AllocationVersion: 2, ProvisionFence: 1,
+		SessionStatus: "ready", AllocationStatus: "active",
+	}}}
+	owners := newOwnershipStub()
+	controller := &Controller{Store: &storeStub{}, Recovery: recovery, Payloads: payloadStub{}, Ownership: owners}
+	_, err := controller.Recover(context.Background(), RecoverRequest{
+		HostID: identity.HostID, HostControlHash: bytes.Repeat([]byte{0x59}, 32),
+		AllowedExecutables: []string{"/usr/bin/firecracker"}, StopGrace: time.Second,
+	})
+	if !errors.Is(err, firecracker.ErrOwnershipIntegrity) || owners.claims != 0 {
+		t.Fatalf("Recover() err=%v claims=%d", err, owners.claims)
 	}
 }
 

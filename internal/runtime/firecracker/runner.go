@@ -95,6 +95,12 @@ func (exit *processExit) value() error {
 }
 
 func (runner Runner) Start(ctx context.Context, spec Spec) (*Machine, error) {
+	return runner.StartObserved(ctx, spec, nil)
+}
+
+// StartObserved persists the exact kernel process identity immediately after
+// spawn and before any API readiness or guest configuration is attempted.
+func (runner Runner) StartObserved(ctx context.Context, spec Spec, observe func(ProcessIdentity) error) (*Machine, error) {
 	if spec.Validate() != nil || runner.StartupTimeout <= 0 || runner.StartupTimeout > time.Minute || runner.PollInterval <= 0 || runner.PollInterval > time.Second || runner.APITimeout <= 0 || runner.APITimeout > 10*time.Second || runner.StopGrace <= 0 || runner.StopGrace > 30*time.Second {
 		return nil, ErrInvalidSpec
 	}
@@ -114,17 +120,21 @@ func (runner Runner) Start(ctx context.Context, spec Spec) (*Machine, error) {
 	if err = process.Start(); err != nil {
 		return nil, fmt.Errorf("%w: process start", ErrVMMStartup)
 	}
+	exit := &processExit{done: make(chan struct{})}
+	go func() { exit.complete(process.Wait()) }()
 	identityReader := runner.processIdentity
 	if identityReader == nil {
 		identityReader = readProcessIdentity
 	}
 	identity, err := identityReader(process.PID())
 	if err != nil || identity.Validate() != nil {
-		_ = process.Kill()
-		return nil, fmt.Errorf("%w: process identity", ErrVMMStartup)
+		return nil, errors.Join(fmt.Errorf("%w: process identity", ErrVMMStartup), terminateUnownedProcess(process, exit, runner.StopGrace))
 	}
-	exit := &processExit{done: make(chan struct{})}
-	go func() { exit.complete(process.Wait()) }()
+	if observe != nil {
+		if err = observe(identity); err != nil {
+			return nil, errors.Join(ErrVMMStartup, err, terminateUnownedProcess(process, exit, runner.StopGrace))
+		}
+	}
 	machine := &Machine{process: process, exit: exit, identity: identity, stopGrace: runner.StopGrace}
 	failed := true
 	defer func() {
@@ -176,6 +186,18 @@ func (runner Runner) Start(ctx context.Context, spec Spec) (*Machine, error) {
 	}
 	failed = false
 	return machine, nil
+}
+
+func terminateUnownedProcess(process managedProcess, exit *processExit, grace time.Duration) error {
+	killErr := process.Kill()
+	timer := time.NewTimer(grace)
+	defer timer.Stop()
+	select {
+	case <-exit.done:
+		return killErr
+	case <-timer.C:
+		return errors.Join(killErr, ErrVMMExited)
+	}
 }
 
 func (machine *Machine) Stop(ctx context.Context) error {

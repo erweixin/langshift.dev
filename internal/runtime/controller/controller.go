@@ -51,6 +51,9 @@ type machineProcess interface {
 
 type ownershipStore interface {
 	Create(firecracker.OwnershipRecord) error
+	ClaimVacant(firecracker.OwnershipRecord) error
+	Activate(firecracker.OwnershipRecord, firecracker.ProcessIdentity) (firecracker.OwnershipRecord, error)
+	ExpectedRoot(string) (string, error)
 	Verify(firecracker.OwnershipRecord) error
 	Scan() ([]firecracker.OwnershipRecord, error)
 	Cleanup(firecracker.OwnershipRecord) error
@@ -94,6 +97,7 @@ type Controller struct {
 	probe        func(context.Context, string, string, string) (guest.Attestation, error)
 	processAlive func(firecracker.ProcessIdentity, []string) (bool, error)
 	adopt        func(firecracker.ProcessIdentity, []string, time.Duration) (machineProcess, error)
+	killCgroup   func(context.Context, string) error
 
 	mu     sync.Mutex
 	active map[string]*activeMachine
@@ -158,8 +162,21 @@ func (controller *Controller) Provision(ctx context.Context, request ProvisionRe
 	if err != nil {
 		return Provisioned{}, err
 	}
-	if provision.TenantID != request.Command.TenantID {
+	if provision.TenantID != request.Command.TenantID || provision.MachineID != request.Command.MachineID || provision.GuestCID != request.Command.GuestCID {
 		return Provisioned{}, ErrConfiguration
+	}
+	root, err := controller.Ownership.ExpectedRoot(provision.MachineID)
+	if err != nil {
+		return Provisioned{}, errors.Join(err, controller.abortProvision(ctx, request, provision, nil, stagedMachine{}, nil, "ownership_root_failed"))
+	}
+	owner := firecracker.OwnershipRecord{
+		SchemaVersion: 2, Phase: firecracker.OwnershipPhaseReserved,
+		HostID: request.Command.HostID, TenantID: request.Command.TenantID,
+		SessionID: provision.SessionID, AllocationID: provision.AllocationID, ProvisionAttemptID: provision.ProvisionAttemptID,
+		MachineID: provision.MachineID, GuestCID: provision.GuestCID, Root: root, CreatedAt: controller.now(),
+	}
+	if err = controller.Ownership.Create(owner); err != nil {
+		return Provisioned{}, errors.Join(err, controller.abortProvision(ctx, request, provision, nil, stagedMachine{}, nil, "ownership_reservation_failed"))
 	}
 	stage := controller.stageMachine
 	staged, err := stage(ctx, firecracker.StageRequest{
@@ -169,24 +186,20 @@ func (controller *Controller) Provision(ctx context.Context, request ProvisionRe
 		ScratchRate: request.ScratchRate,
 	})
 	if err != nil {
-		return Provisioned{}, errors.Join(err, controller.abortProvision(ctx, request, provision, nil, stagedMachine{}, nil, "staging_failed"))
+		return Provisioned{}, errors.Join(err, controller.abortProvision(ctx, request, provision, nil, stagedMachine{}, &owner, "staging_failed"))
 	}
-	start := controller.startMachine
-	process, err := start(ctx, staged.spec)
+	if staged.root != owner.Root {
+		return Provisioned{}, errors.Join(firecracker.ErrOwnershipIntegrity, controller.abortProvision(ctx, request, provision, nil, staged, &owner, "staging_root_mismatch"))
+	}
+	process, err := controller.startMachineObserved(ctx, staged.spec, func(identity firecracker.ProcessIdentity) error {
+		activeOwner, activateErr := controller.Ownership.Activate(owner, identity)
+		if activateErr == nil {
+			owner = activeOwner
+		}
+		return activateErr
+	})
 	if err != nil {
-		return Provisioned{}, errors.Join(err, controller.abortProvision(ctx, request, provision, nil, staged, nil, "vmm_start_failed"))
-	}
-	identity, err := process.Identity()
-	if err != nil {
-		return Provisioned{}, errors.Join(err, controller.abortProvision(ctx, request, provision, process, staged, nil, "vmm_identity_failed"))
-	}
-	owner := firecracker.OwnershipRecord{
-		SchemaVersion: 1, HostID: request.Command.HostID, TenantID: request.Command.TenantID,
-		SessionID: provision.SessionID, AllocationID: provision.AllocationID, ProvisionAttemptID: provision.ProvisionAttemptID,
-		MachineID: provision.MachineID, GuestCID: provision.GuestCID, Root: staged.root, Process: identity, CreatedAt: controller.now(),
-	}
-	if err = controller.Ownership.Create(owner); err != nil {
-		return Provisioned{}, errors.Join(err, controller.abortProvision(ctx, request, provision, process, staged, nil, "ownership_record_failed"))
+		return Provisioned{}, errors.Join(err, controller.abortProvision(ctx, request, provision, process, staged, &owner, "vmm_start_or_ownership_activation_failed"))
 	}
 	challengeBytes := make([]byte, 32)
 	random := controller.Random
@@ -290,6 +303,11 @@ func (controller *Controller) Terminate(ctx context.Context, sessionID, reason s
 	if errors.Is(stopErr, firecracker.ErrVMMExited) {
 		stopErr = nil
 	}
+	if active.owner.Phase != firecracker.OwnershipPhaseReserved {
+		if cgroupErr := controller.cleanupMachineCgroup(ctx, active.owner.MachineID); cgroupErr != nil {
+			return requested, cgroupErr
+		}
+	}
 	ownerErr := controller.Ownership.Verify(active.owner)
 	if ownerErr != nil {
 		return requested, ownerErr
@@ -332,6 +350,9 @@ func (controller *Controller) Recover(ctx context.Context, request RecoverReques
 	}
 	recordIndex := make(map[string]firecracker.OwnershipRecord, len(records))
 	for _, record := range records {
+		if _, duplicate := recordIndex[record.SessionID]; duplicate {
+			return RecoverResult{}, firecracker.ErrOwnershipIntegrity
+		}
 		recordIndex[record.SessionID] = record
 	}
 	var after string
@@ -342,8 +363,28 @@ func (controller *Controller) Recover(ctx context.Context, request RecoverReques
 		}
 		for _, state := range inventory {
 			record, exists := recordIndex[state.SessionID]
-			if !exists || recoveryIdentity(record) != state.RecoveryIdentity {
+			if exists && recoveryIdentity(record) != state.RecoveryIdentity {
 				return RecoverResult{}, firecracker.ErrOwnershipIntegrity
+			}
+			if !exists {
+				if state.SessionStatus != "provisioning" && state.SessionStatus != "termination_requested" {
+					return RecoverResult{}, firecracker.ErrOwnershipIntegrity
+				}
+				root, rootErr := controller.Ownership.ExpectedRoot(state.MachineID)
+				if rootErr != nil {
+					return RecoverResult{}, rootErr
+				}
+				record = firecracker.OwnershipRecord{
+					SchemaVersion: 2, Phase: firecracker.OwnershipPhaseReserved,
+					HostID: state.HostID, TenantID: state.TenantID, SessionID: state.SessionID,
+					AllocationID: state.AllocationID, ProvisionAttemptID: state.ProvisionAttemptID,
+					MachineID: state.MachineID, GuestCID: state.GuestCID, Root: root, CreatedAt: controller.now(),
+				}
+				if claimErr := controller.Ownership.ClaimVacant(record); claimErr != nil {
+					return RecoverResult{}, claimErr
+				}
+				recordIndex[state.SessionID] = record
+				records = append(records, record)
 			}
 		}
 		if len(inventory) < 5000 {
@@ -367,25 +408,37 @@ func (controller *Controller) Recover(ctx context.Context, request RecoverReques
 			result.Cleaned++
 			continue
 		}
-		alive := controller.processAlive
-		if alive == nil {
-			alive = firecracker.ProcessAlive
-		}
-		isAlive, aliveErr := alive(record.Process, request.AllowedExecutables)
-		if aliveErr != nil {
-			return result, aliveErr
-		}
 		var process machineProcess = deadMachine{identity: record.Process}
-		if isAlive {
-			adopt := controller.adopt
-			if adopt == nil {
-				adopt = func(identity firecracker.ProcessIdentity, executables []string, grace time.Duration) (machineProcess, error) {
-					return firecracker.Adopt(identity, executables, grace)
-				}
+		isAlive := false
+		reserved := record.SchemaVersion == 2 && record.Phase == firecracker.OwnershipPhaseReserved
+		if reserved {
+			if state.SessionStatus == "ready" || state.SessionStatus == "running" || state.SessionStatus == "idle" {
+				return result, firecracker.ErrOwnershipIntegrity
 			}
-			process, err = adopt(record.Process, request.AllowedExecutables, request.StopGrace)
-			if err != nil {
-				return result, err
+			if killErr := controller.cleanupMachineCgroup(ctx, record.MachineID); killErr != nil {
+				return result, killErr
+			}
+		} else {
+			alive := controller.processAlive
+			if alive == nil {
+				alive = firecracker.ProcessAlive
+			}
+			var aliveErr error
+			isAlive, aliveErr = alive(record.Process, request.AllowedExecutables)
+			if aliveErr != nil {
+				return result, aliveErr
+			}
+			if isAlive {
+				adopt := controller.adopt
+				if adopt == nil {
+					adopt = func(identity firecracker.ProcessIdentity, executables []string, grace time.Duration) (machineProcess, error) {
+						return firecracker.Adopt(identity, executables, grace)
+					}
+				}
+				process, err = adopt(record.Process, request.AllowedExecutables, request.StopGrace)
+				if err != nil {
+					return result, err
+				}
 			}
 		}
 		switch state.SessionStatus {
@@ -434,6 +487,11 @@ func (controller *Controller) Recover(ctx context.Context, request RecoverReques
 					return result, stopErr
 				}
 			}
+			if !reserved {
+				if err = controller.cleanupMachineCgroup(ctx, record.MachineID); err != nil {
+					return result, err
+				}
+			}
 			if err = controller.Ownership.Cleanup(record); err != nil {
 				return result, err
 			}
@@ -449,6 +507,15 @@ func (controller *Controller) Recover(ctx context.Context, request RecoverReques
 }
 
 func (controller *Controller) disposeOrphan(ctx context.Context, record firecracker.OwnershipRecord, allowedExecutables []string, stopGrace time.Duration) error {
+	if record.SchemaVersion == 2 && record.Phase == firecracker.OwnershipPhaseReserved {
+		if err := controller.cleanupMachineCgroup(ctx, record.MachineID); err != nil {
+			return err
+		}
+		if err := controller.Ownership.Cleanup(record); err != nil {
+			return err
+		}
+		return controller.Ownership.Remove(record)
+	}
 	alive := controller.processAlive
 	if alive == nil {
 		alive = firecracker.ProcessAlive
@@ -471,6 +538,9 @@ func (controller *Controller) disposeOrphan(ctx context.Context, record firecrac
 		if stopErr := process.Stop(ctx); stopErr != nil && !errors.Is(stopErr, firecracker.ErrVMMExited) {
 			return stopErr
 		}
+	}
+	if err = controller.cleanupMachineCgroup(ctx, record.MachineID); err != nil {
+		return err
 	}
 	if err = controller.Ownership.Cleanup(record); err != nil {
 		return err
@@ -581,6 +651,11 @@ func (controller *Controller) finishRecoveredTermination(ctx context.Context, re
 	if stopErr != nil && !errors.Is(stopErr, firecracker.ErrVMMExited) {
 		return stopErr
 	}
+	if record.Phase != firecracker.OwnershipPhaseReserved {
+		if err := controller.cleanupMachineCgroup(ctx, record.MachineID); err != nil {
+			return err
+		}
+	}
 	at := controller.now()
 	pointer, cleanupHash, err := controller.putReceipt(ctx, record.SessionID+":recovered-terminated", record.TenantID, controlReceipt{SchemaVersion: 1, SessionID: record.SessionID, Reason: "recovered_termination", OccurredAt: at})
 	if err != nil {
@@ -636,6 +711,11 @@ func (controller *Controller) abortProvision(ctx context.Context, request Provis
 	}
 	stopped := process == nil || stopErr == nil || errors.Is(stopErr, firecracker.ErrVMMExited)
 	if owner != nil && stopped {
+		killErr := controller.cleanupMachineCgroup(ctx, owner.MachineID)
+		stopErr = errors.Join(stopErr, killErr)
+		stopped = killErr == nil
+	}
+	if owner != nil && stopped {
 		ownerErr = controller.Ownership.Verify(*owner)
 	}
 	completedAt := at.Add(time.Microsecond)
@@ -664,6 +744,16 @@ func (controller *Controller) abortProvision(ctx context.Context, request Provis
 	return errors.Join(stopErr, ownerErr, cleanupErr, completeErr)
 }
 
+func (controller *Controller) cleanupMachineCgroup(ctx context.Context, machineID string) error {
+	if controller.killCgroup != nil {
+		return controller.killCgroup(ctx, machineID)
+	}
+	if controller.Runner.Jailer.JailerPath == "" {
+		return nil
+	}
+	return firecracker.KillMachineCgroup(ctx, controller.Runner.Jailer, machineID, 10*time.Millisecond)
+}
+
 func (controller *Controller) stageMachine(ctx context.Context, request firecracker.StageRequest) (stagedMachine, error) {
 	if controller.stage != nil {
 		return controller.stage(ctx, request)
@@ -675,11 +765,24 @@ func (controller *Controller) stageMachine(ctx context.Context, request firecrac
 	return stagedMachine{spec: machine.Spec, root: machine.Root, vsockPath: filepath.Join(machine.Root, "run", "guest.vsock"), cleanup: machine.Cleanup}, nil
 }
 
-func (controller *Controller) startMachine(ctx context.Context, spec firecracker.Spec) (machineProcess, error) {
+func (controller *Controller) startMachineObserved(ctx context.Context, spec firecracker.Spec, observe func(firecracker.ProcessIdentity) error) (machineProcess, error) {
 	if controller.start != nil {
-		return controller.start(ctx, spec)
+		process, err := controller.start(ctx, spec)
+		if err != nil {
+			return process, err
+		}
+		identity, err := process.Identity()
+		if err != nil {
+			return process, err
+		}
+		if observe != nil {
+			if err = observe(identity); err != nil {
+				return process, err
+			}
+		}
+		return process, nil
 	}
-	return controller.Runner.Start(ctx, spec)
+	return controller.Runner.StartObserved(ctx, spec, observe)
 }
 
 func (controller *Controller) probeGuest(ctx context.Context, socketPath, requestID, challenge string) (guest.Attestation, error) {

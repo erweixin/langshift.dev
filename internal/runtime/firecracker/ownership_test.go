@@ -67,7 +67,7 @@ func TestOwnershipStoreRejectsTamperingAndSymlinks(t *testing.T) {
 	if err = store.Create(record); err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(filepath.Dir(root), ownershipFileName)
+	path := store.activePath(record.MachineID)
 	if err = os.Chmod(path, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -133,5 +133,127 @@ func TestOwnershipCleanupArchivesEvidenceUntilDurableCompletion(t *testing.T) {
 	}
 	if _, err = store.Read(record.MachineID); !errors.Is(err, ErrOwnershipIntegrity) {
 		t.Fatalf("completed evidence survived: %v", err)
+	}
+}
+
+func TestOwnershipReservationPrecedesJailAndActivatesExactProcess(t *testing.T) {
+	base := t.TempDir()
+	owner := uint32(os.Getuid())
+	config := validJailerConfig()
+	config.ChrootBaseDir = base
+	config.CgroupBaseDir = filepath.Join(base, "cgroup")
+	store := OwnershipStore{
+		Jailer: config, HostID: "runtime-host-1", HostOwnerUID: owner,
+		Key: bytes.Repeat([]byte{0x45}, 32), Random: bytes.NewReader(bytes.Repeat([]byte{0x27}, 32)),
+	}
+	root, err := store.ExpectedRoot("runtime-machine-4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reserved := OwnershipRecord{
+		SchemaVersion: 2, Phase: OwnershipPhaseReserved, HostID: store.HostID,
+		TenantID: "tenant", SessionID: "session", AllocationID: "allocation", ProvisionAttemptID: "attempt",
+		MachineID: "runtime-machine-4", GuestCID: 45, Root: root, CreatedAt: time.Now().UTC(),
+	}
+	if err = store.Create(reserved); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = os.Stat(filepath.Dir(root)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("host mutation preceded ownership reservation: %v", err)
+	}
+	active, err := store.Activate(reserved, validProcessIdentity())
+	if err != nil || active.Phase != OwnershipPhaseActive || active.Process != validProcessIdentity() {
+		t.Fatalf("Activate()=%#v err=%v", active, err)
+	}
+	if current, readErr := store.Read(reserved.MachineID); readErr != nil || current != active {
+		t.Fatalf("Read()=%#v err=%v", current, readErr)
+	}
+}
+
+func TestOwnershipClaimVacantRequiresNoJailAndNoCgroup(t *testing.T) {
+	base := t.TempDir()
+	owner := uint32(os.Getuid())
+	config := validJailerConfig()
+	config.ChrootBaseDir = base
+	config.CgroupBaseDir = filepath.Join(base, "cgroup")
+	store := OwnershipStore{Jailer: config, HostID: "runtime-host-1", HostOwnerUID: owner, Key: bytes.Repeat([]byte{0x46}, 32)}
+	newRecord := func(machineID string) OwnershipRecord {
+		root, err := store.ExpectedRoot(machineID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return OwnershipRecord{
+			SchemaVersion: 2, Phase: OwnershipPhaseReserved, HostID: store.HostID,
+			TenantID: "tenant", SessionID: "session-" + machineID, AllocationID: "allocation", ProvisionAttemptID: "attempt",
+			MachineID: machineID, GuestCID: 46, Root: root, CreatedAt: time.Now().UTC(),
+		}
+	}
+	jailRecord := newRecord("runtime-machine-5")
+	if err := os.MkdirAll(filepath.Dir(jailRecord.Root), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ClaimVacant(jailRecord); !errors.Is(err, ErrOwnershipIntegrity) {
+		t.Fatalf("ClaimVacant() accepted existing jail: %v", err)
+	}
+	cgroupRecord := newRecord("runtime-machine-6")
+	cgroup, err := config.CgroupPath(cgroupRecord.MachineID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.MkdirAll(cgroup, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err = store.ClaimVacant(cgroupRecord); !errors.Is(err, ErrOwnershipIntegrity) {
+		t.Fatalf("ClaimVacant() accepted existing cgroup: %v", err)
+	}
+	vacant := newRecord("runtime-machine-7")
+	if err = store.ClaimVacant(vacant); err != nil {
+		t.Fatalf("ClaimVacant() rejected vacant identity: %v", err)
+	}
+}
+
+func TestOwnershipScanRepairsInterruptedAtomicJournalWrites(t *testing.T) {
+	base := t.TempDir()
+	owner := uint32(os.Getuid())
+	config := validJailerConfig()
+	config.ChrootBaseDir = base
+	store := OwnershipStore{
+		Jailer: config, HostID: "runtime-host-1", HostOwnerUID: owner,
+		Key: bytes.Repeat([]byte{0x47}, 32), Random: bytes.NewReader(bytes.Repeat([]byte{0x28}, 16)),
+	}
+	root, err := store.ExpectedRoot("runtime-machine-8")
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := OwnershipRecord{
+		SchemaVersion: 2, Phase: OwnershipPhaseReserved, HostID: store.HostID,
+		TenantID: "tenant", SessionID: "session", AllocationID: "allocation", ProvisionAttemptID: "attempt",
+		MachineID: "runtime-machine-8", GuestCID: 49, Root: root, CreatedAt: time.Now().UTC(),
+	}
+	if err = store.Create(record); err != nil {
+		t.Fatal(err)
+	}
+	directory := store.evidencePath(ownershipEvidenceDirectory)
+	linkedTemporary := filepath.Join(directory, ".ownership-11111111111111111111111111111111.tmp")
+	if err = os.Link(store.activePath(record.MachineID), linkedTemporary); err != nil {
+		t.Fatal(err)
+	}
+	partialTemporary := filepath.Join(directory, ".ownership-22222222222222222222222222222222.tmp")
+	if err = os.WriteFile(partialTemporary, []byte(`{"record":`), 0o400); err != nil {
+		t.Fatal(err)
+	}
+	records, err := store.Scan()
+	if err != nil || len(records) != 1 || records[0] != record {
+		t.Fatalf("Scan()=%#v err=%v", records, err)
+	}
+	for _, path := range []string{linkedTemporary, partialTemporary} {
+		if _, statErr := os.Stat(path); !errors.Is(statErr, os.ErrNotExist) {
+			t.Fatalf("interrupted temporary file survived: %s (%v)", path, statErr)
+		}
+	}
+	if info, statErr := os.Stat(store.activePath(record.MachineID)); statErr != nil {
+		t.Fatal(statErr)
+	} else if stat := info.Sys().(*syscall.Stat_t); stat.Nlink != 1 {
+		t.Fatalf("journal hard-link count=%d", stat.Nlink)
 	}
 }
