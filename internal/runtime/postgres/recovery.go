@@ -188,6 +188,9 @@ func (store Store) RequestRecoveryTermination(ctx context.Context, command Recov
 		if err := store.appendLifecycleEvent(ctx, tx, session, eventID, nextVersion, "RuntimeTerminationRequested", occurredAt, command.Payload, command.Actor, command.CorrelationID); err != nil {
 			return LifecycleResult{}, err
 		}
+		if err := settleRunningExecutionUnknown(ctx, tx, session, eventID, nextVersion, occurredAt, command.Payload, command.Reason); err != nil {
+			return LifecycleResult{}, err
+		}
 		if tag, err := tx.Exec(ctx, `UPDATE agent.runtime_sessions SET version=$1,status='termination_requested',provision_lease_hash=NULL,provision_lease_expires_at=NULL,termination_requested_at=$2,kill_deadline=$3,termination_reason=$4,last_event_id=$5,updated_at=$2 WHERE tenant_id=$6 AND id=$7 AND version=$8 AND status=$9`, nextVersion, occurredAt, killDeadline, command.Reason, eventID, session.TenantID, session.ID, session.Version, session.Status); err != nil || tag.RowsAffected() != 1 {
 			return LifecycleResult{}, transitionError(err)
 		}

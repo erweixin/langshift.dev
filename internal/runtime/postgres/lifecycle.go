@@ -54,18 +54,18 @@ type LifecycleResult struct {
 }
 
 type lifecycleSession struct {
-	ID, TenantID, UserID, Status, LastEventID, ProvisionAttemptID string
-	Version, ProvisionFence                                       uint64
-	HostID                                                        sql.NullString
-	ProvisioningAt, ReadyAt, RunningAt, LastActivityAt            sql.NullTime
-	IdleDeadline, TerminationRequestedAt, KillDeadline            sql.NullTime
-	TerminationReason                                             sql.NullString
-	BootReceiptHash                                               sql.NullString
-	TerminatedAt                                                  sql.NullTime
-	CleanupReceiptHash                                            sql.NullString
-	UsageManifest                                                 []byte
-	ExecutionDeadline, UpdatedAt                                  time.Time
-	IdleTimeout, KillGrace                                        time.Duration
+	ID, TenantID, UserID, ToolCallID, Status, LastEventID, ProvisionAttemptID string
+	Version, ProvisionFence                                                   uint64
+	HostID                                                                    sql.NullString
+	ProvisioningAt, ReadyAt, RunningAt, LastActivityAt                        sql.NullTime
+	IdleDeadline, TerminationRequestedAt, KillDeadline                        sql.NullTime
+	TerminationReason                                                         sql.NullString
+	BootReceiptHash                                                           sql.NullString
+	TerminatedAt                                                              sql.NullTime
+	CleanupReceiptHash                                                        sql.NullString
+	UsageManifest                                                             []byte
+	ExecutionDeadline, UpdatedAt                                              time.Time
+	IdleTimeout, KillGrace                                                    time.Duration
 }
 
 type lifecycleAllocation struct {
@@ -202,6 +202,9 @@ func (store Store) RequestTermination(ctx context.Context, command TerminationCo
 		if err := store.appendLifecycleEvent(ctx, tx, session, eventID, nextVersion, "RuntimeTerminationRequested", occurredAt, command.Payload, command.Actor, command.CorrelationID); err != nil {
 			return LifecycleResult{}, err
 		}
+		if err := settleRunningExecutionUnknown(ctx, tx, session, eventID, nextVersion, occurredAt, command.Payload, command.Reason); err != nil {
+			return LifecycleResult{}, err
+		}
 		if tag, err := tx.Exec(ctx, `UPDATE agent.runtime_sessions SET version=$1,status='termination_requested',provision_lease_hash=NULL,provision_lease_expires_at=NULL,termination_requested_at=$2,kill_deadline=$3,termination_reason=$4,last_event_id=$5,updated_at=$2 WHERE tenant_id=$6 AND id=$7 AND version=$8 AND status=$9`, nextVersion, occurredAt, killDeadline, command.Reason, eventID, session.TenantID, session.ID, session.Version, session.Status); err != nil || tag.RowsAffected() != 1 {
 			return LifecycleResult{}, transitionError(err)
 		}
@@ -302,7 +305,7 @@ func (store Store) withLifecycle(ctx context.Context, command LifecycleCommand, 
 func loadLifecycleSession(ctx context.Context, tx pgx.Tx, tenantID, sessionID, storeEpoch string) (lifecycleSession, error) {
 	var value lifecycleSession
 	var idleSeconds, graceSeconds int
-	err := tx.QueryRow(ctx, `SELECT s.id::text,s.tenant_id::text,s.user_id::text,s.version,s.status,s.last_event_id::text,
+	err := tx.QueryRow(ctx, `SELECT s.id::text,s.tenant_id::text,s.user_id::text,s.tool_call_id::text,s.version,s.status,s.last_event_id::text,
 	  COALESCE(s.provision_attempt_id::text,''),s.provision_fence,s.host_id,s.provisioning_at,s.ready_at,s.running_at,
 	  s.last_activity_at,s.idle_deadline,s.termination_requested_at,s.kill_deadline,s.termination_reason,s.boot_receipt_hash,
 	  s.terminated_at,s.cleanup_receipt_hash,s.usage_manifest,
@@ -310,7 +313,7 @@ func loadLifecycleSession(ctx context.Context, tx pgx.Tx, tenantID, sessionID, s
 	FROM agent.runtime_sessions s JOIN agent.runtime_policy_snapshots p ON p.tenant_id=s.tenant_id AND p.id=s.policy_snapshot_id
 	JOIN agent.events le ON le.tenant_id=s.tenant_id AND le.id=s.last_event_id AND le.store_epoch=$3
 	WHERE s.tenant_id=$1 AND s.id=$2 FOR UPDATE OF s`, tenantID, sessionID, storeEpoch).Scan(
-		&value.ID, &value.TenantID, &value.UserID, &value.Version, &value.Status, &value.LastEventID,
+		&value.ID, &value.TenantID, &value.UserID, &value.ToolCallID, &value.Version, &value.Status, &value.LastEventID,
 		&value.ProvisionAttemptID, &value.ProvisionFence, &value.HostID, &value.ProvisioningAt, &value.ReadyAt, &value.RunningAt,
 		&value.LastActivityAt, &value.IdleDeadline, &value.TerminationRequestedAt, &value.KillDeadline, &value.TerminationReason, &value.BootReceiptHash,
 		&value.TerminatedAt, &value.CleanupReceiptHash, &value.UsageManifest,

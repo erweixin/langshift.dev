@@ -239,31 +239,45 @@ func TestBeginProvisionAtomicallyBindsCapabilityEventSessionAndCapacity(t *testi
 	clock = now.Add(3 * time.Second)
 	runningCommand := LifecycleCommand{
 		TenantID: tenantID, SessionID: sessionID, ProvisionAttemptID: result.ProvisionAttemptID, ProvisionFence: 1, ExpectedVersion: 3,
-		LeaseToken: wrongLease, ObservedAt: clock, Payload: PayloadPointer{Ref: "encrypted://runtime-store/running", Hash: "runtime-store-running"}, Actor: json.RawMessage(`{"kind":"system"}`), CorrelationID: command.CorrelationID,
+		LeaseToken: wrongLease, ObservedAt: clock, Payload: PayloadPointer{Ref: "encrypted://runtime-store/running", Hash: strings.Repeat("1", 64)}, Actor: json.RawMessage(`{"kind":"system"}`), CorrelationID: command.CorrelationID,
 	}
-	if _, err = store.MarkRunning(ctx, runningCommand); !errors.Is(err, ErrSessionConflict) {
+	beginExecution := BeginExecutionCommand{LifecycleCommand: runningCommand, RequestID: "runtime-execution-9201", RequestHash: strings.Repeat("2", 64)}
+	if _, err = store.BeginExecution(ctx, beginExecution); !errors.Is(err, ErrSessionConflict) {
 		t.Fatalf("wrong lifecycle lease = %v", err)
 	}
-	runningCommand.LeaseToken = provisionLease
-	running, err := store.MarkRunning(ctx, runningCommand)
-	if err != nil || running.Status != "running" || running.Version != 4 {
-		t.Fatalf("MarkRunning() = %#v, %v", running, err)
+	beginExecution.LeaseToken = provisionLease
+	running, err := store.BeginExecution(ctx, beginExecution)
+	if err != nil || running.Status != "running" || running.Version != 1 || running.Lifecycle.Version != 4 || running.Replayed {
+		t.Fatalf("BeginExecution() = %#v, %v", running, err)
+	}
+	runningReplay, err := store.BeginExecution(ctx, beginExecution)
+	if err != nil || !runningReplay.Replayed || runningReplay.ID != running.ID {
+		t.Fatalf("replayed BeginExecution() = %#v, %v", runningReplay, err)
 	}
 	clock = now.Add(4 * time.Second)
-	idleCommand := runningCommand
-	idleCommand.ExpectedVersion, idleCommand.ObservedAt = 4, clock
-	idleCommand.Payload = PayloadPointer{Ref: "encrypted://runtime-store/idle", Hash: "runtime-store-idle"}
-	idle, err := store.MarkIdle(ctx, idleCommand)
-	if err != nil || idle.Status != "idle" || idle.Version != 5 {
-		t.Fatalf("MarkIdle() = %#v, %v", idle, err)
+	exitCode := 0
+	outcomeManifest, err := json.Marshal(ExecutionOutcomeManifest{SchemaVersion: 1, RequestID: beginExecution.RequestID, Kind: "guest_result", ExitCode: &exitCode, StartedUnixMillis: clock.Add(-500 * time.Millisecond).UnixMilli(), FinishedUnixMillis: clock.UnixMilli()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	finishExecution := FinishExecutionCommand{LifecycleCommand: beginExecution.LifecycleCommand, RequestID: beginExecution.RequestID, RequestHash: beginExecution.RequestHash, OutcomeHash: strings.Repeat("3", 64), OutcomeManifest: outcomeManifest}
+	finishExecution.ExpectedVersion, finishExecution.ObservedAt = 4, clock
+	finishExecution.Payload = PayloadPointer{Ref: "encrypted://runtime-store/execution-result", Hash: strings.Repeat("4", 64)}
+	idle, err := store.CompleteExecution(ctx, finishExecution)
+	if err != nil || idle.Status != "completed" || idle.Version != 2 || idle.Lifecycle.Status != "idle" || idle.Lifecycle.Version != 5 {
+		t.Fatalf("CompleteExecution() = %#v, %v", idle, err)
+	}
+	idleReplay, err := store.CompleteExecution(ctx, finishExecution)
+	if err != nil || !idleReplay.Replayed || idleReplay.FinishedEventID != idle.FinishedEventID {
+		t.Fatalf("replayed CompleteExecution() = %#v, %v", idleReplay, err)
 	}
 	clock = now.Add(5 * time.Second)
-	resumeCommand := runningCommand
-	resumeCommand.ExpectedVersion, resumeCommand.ObservedAt = 5, clock
-	resumeCommand.Payload = PayloadPointer{Ref: "encrypted://runtime-store/resumed", Hash: "runtime-store-resumed"}
-	resumed, err := store.MarkRunning(ctx, resumeCommand)
-	if err != nil || resumed.Status != "running" || resumed.Version != 6 {
-		t.Fatalf("resumed MarkRunning() = %#v, %v", resumed, err)
+	interruptedCommand := BeginExecutionCommand{LifecycleCommand: beginExecution.LifecycleCommand, RequestID: "runtime-execution-9202", RequestHash: strings.Repeat("5", 64)}
+	interruptedCommand.ExpectedVersion, interruptedCommand.ObservedAt = 5, clock
+	interruptedCommand.Payload = PayloadPointer{Ref: "encrypted://runtime-store/interrupted", Hash: strings.Repeat("6", 64)}
+	interrupted, err := store.BeginExecution(ctx, interruptedCommand)
+	if err != nil || interrupted.Status != "running" || interrupted.Lifecycle.Version != 6 {
+		t.Fatalf("interrupted BeginExecution() = %#v, %v", interrupted, err)
 	}
 	clock = now.Add(6 * time.Second)
 	recoveryIdentity := RecoveryIdentity{TenantID: tenantID, SessionID: sessionID, AllocationID: result.AllocationID, ProvisionAttemptID: result.ProvisionAttemptID, HostID: hostID, MachineID: result.MachineID, GuestCID: result.GuestCID}
@@ -339,7 +353,8 @@ func TestBeginProvisionAtomicallyBindsCapabilityEventSessionAndCapacity(t *testi
 	if err != nil || !terminationReplay.Replayed || terminationReplay.Version != 7 {
 		t.Fatalf("replayed cancellation termination = %#v, %v", terminationReplay, err)
 	}
-	var sessionStatus, terminationReason string
+	var sessionStatus, terminationReason, executionStatus, executionFailure string
+	var interruptedManifest ExecutionOutcomeManifest
 	var terminationEvents int
 	if err = admin.QueryRow(ctx, `SELECT s.status,s.termination_reason,
 		(SELECT count(*) FROM agent.events WHERE tenant_id=$1 AND aggregate_id=$2 AND event_type='RuntimeTerminationRequested')
@@ -348,6 +363,12 @@ func TestBeginProvisionAtomicallyBindsCapabilityEventSessionAndCapacity(t *testi
 	}
 	if sessionStatus != "termination_requested" || terminationReason != "run_cancelled" || terminationEvents != 1 {
 		t.Fatalf("session=%s reason=%s termination_events=%d", sessionStatus, terminationReason, terminationEvents)
+	}
+	if err = admin.QueryRow(ctx, `SELECT status,failure_code,outcome_manifest FROM agent.runtime_executions WHERE tenant_id=$1 AND id=$2`, tenantID, interrupted.ID).Scan(&executionStatus, &executionFailure, &interruptedManifest); err != nil {
+		t.Fatal(err)
+	}
+	if executionStatus != "outcome_unknown" || executionFailure != "execution_interrupted" || interruptedManifest.RequestID != interruptedCommand.RequestID || interruptedManifest.TerminationReason != "run_cancelled" {
+		t.Fatalf("interrupted execution status=%s failure=%s manifest=%#v", executionStatus, executionFailure, interruptedManifest)
 	}
 	clock = now.Add(7 * time.Second)
 	terminatedCommand := RecoveryTerminatedCommand{LifecycleCommand: LifecycleCommand{
