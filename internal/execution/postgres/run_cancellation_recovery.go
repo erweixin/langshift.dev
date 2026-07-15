@@ -20,9 +20,14 @@ const (
 // for cancellation convergence. Cross-tenant discovery exposes tenant IDs
 // only; every cancellation and ToolCall snapshot is re-read under tenant RLS.
 type RunCancellationReconcilerService struct {
-	Store    RunStore
-	Payloads payload.Store
-	IDKey    []byte
+	Store        RunStore
+	Payloads     payload.Store
+	IDKey        []byte
+	Dependencies []RunCancellationDependencyConverger
+}
+
+type RunCancellationDependencyConverger interface {
+	ConvergeRunCancellation(context.Context, string, string, string, string) error
 }
 
 type cancellationRecoverySnapshot struct {
@@ -116,6 +121,16 @@ func (service RunCancellationReconcilerService) ReconcileDueCancellation(ctx con
 	snapshot, err := service.loadSnapshot(ctx, tenantID, cancellationID, storeEpoch)
 	if err != nil {
 		return ReconciledRunCancellation{}, err
+	}
+	if snapshot.status == "terminating" {
+		for _, dependency := range service.Dependencies {
+			if dependency == nil {
+				return ReconciledRunCancellation{}, ErrConfiguration
+			}
+			if err = dependency.ConvergeRunCancellation(ctx, tenantID, snapshot.runID, cancellationID, storeEpoch); err != nil {
+				return ReconciledRunCancellation{}, err
+			}
+		}
 	}
 	correlationID, err := ids.DeterministicUUID(service.IDKey, "run-cancellation-recovery-correlation", cancellationID)
 	if err != nil {

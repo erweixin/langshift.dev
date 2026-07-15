@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	billingpostgres "github.com/langshift/lites/internal/billing/postgres"
 	eventpostgres "github.com/langshift/lites/internal/eventstore/postgres"
+	"github.com/langshift/lites/internal/payload"
 )
 
 func TestProviderDispatchIsAtMostOnceAndFallbackIsFullyAccounted(t *testing.T) {
@@ -50,6 +52,11 @@ func TestProviderDispatchIsAtMostOnceAndFallbackIsFullyAccounted(t *testing.T) {
 		lateLLM        = "c6000000-0000-4000-8000-000000000027"
 		lateAttempt    = "c6000000-0000-4000-8000-000000000028"
 		lateReserve    = "c6000000-0000-4000-8000-000000000029"
+		cancellationID = "c6000000-0000-4000-8000-000000000030"
+		cancelEventID  = "c6000000-0000-4000-8000-000000000031"
+		cancelOutboxID = "c6000000-0000-4000-8000-000000000032"
+		cancelPublish  = "c6000000-0000-4000-8000-000000000033"
+		cancelledStart = "c6000000-0000-4000-8000-000000000034"
 	)
 	setup := []struct {
 		query string
@@ -231,7 +238,35 @@ func TestProviderDispatchIsAtMostOnceAndFallbackIsFullyAccounted(t *testing.T) {
 	if _, err = store.PrepareProviderAttempt(ctx, PrepareProviderAttemptCommand{AttemptID: fencedAttempt, ProviderAttemptID: "provider-attempt-c6-fenced", LLMAttemptID: fencedLLM, UsageReservationID: fencedReserve, TenantID: tenantID, UserID: userID, AttemptKey: "attempt-key-c6-fenced", Ordinal: 1, Candidate: manifest.CandidateModels[0], RequestHash: "request-c6-fenced", ContextManifestHash: fencedStarted.ContextManifestHash, PrepareToken: fencedPrepare, PrepareTokenExpiresAt: now.Add(time.Minute), CorrelationID: correlation, Actor: json.RawMessage(`{"kind":"service"}`), PreparedEvent: pointer("provider-prepared-fenced")}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = admin.Exec(ctx, `UPDATE agent.runs SET status='cancelled',run_version=run_version+1,active_command_id=NULL,active_attempt_id=NULL,lease_token_hash=NULL,lease_expires_at=NULL,updated_at=$1 WHERE tenant_id=$2 AND id=$3`, now, tenantID, runID); err != nil {
+	cancelTx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = cancelTx.Rollback(ctx) }()
+	if _, err = cancelTx.Exec(ctx, `SELECT set_config('lites.tenant_id',$1,true)`, tenantID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = appender.Append(ctx, cancelTx, eventpostgres.Input{Event: eventpostgres.Event{
+		ID: cancelEventID, TenantID: tenantID, UserID: userID, EventType: "RunCancellationRequested", SchemaVersion: 1,
+		AggregateKind: "run_cancellation", AggregateID: cancellationID, AggregateVersion: 1, StoreEpoch: epoch,
+		OccurredAt: now, Actor: json.RawMessage(`{"kind":"user"}`), CorrelationID: correlation,
+		PayloadRef: "encrypted://llm/cancellation/requested", PayloadHash: strings.Repeat("a", 64),
+	}, Commands: []eventpostgres.OutboxCommand{{ID: cancelOutboxID, CommandID: cancelPublish, CommandType: "events.publish", PayloadRef: "encrypted://llm/cancellation/requested", PayloadHash: strings.Repeat("a", 64)}}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = cancelTx.Exec(ctx, `INSERT INTO agent.run_cancellations(
+		id,tenant_id,run_id,root_cancellation_id,parent_cancellation_id,cancel_generation,status,requested_by,requested_at,reason,
+		store_epoch,request_hash,request_event_id,request_payload_ref,request_payload_hash,settlement_payload_ref,settlement_payload_hash,reconciliation_due_at
+	) VALUES($1,$2,$3,$1,NULL,1,'requested',$4,$5,'user_requested',$6,$7,$8,$9,$10,$11,$12,$5)`, cancellationID, tenantID, runID, userID, now, epoch, strings.Repeat("b", 64), cancelEventID, "encrypted://llm/cancellation/requested", strings.Repeat("a", 64), "encrypted://llm/cancellation/settled", strings.Repeat("c", 64)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = cancelTx.Exec(ctx, `UPDATE agent.run_cancellations SET status='terminating',version=2,updated_at=$1 WHERE tenant_id=$2 AND id=$3`, now, tenantID, cancellationID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = cancelTx.Exec(ctx, `UPDATE agent.runs SET cancel_requested_at=$1,cancel_generation=1,active_cancellation_id=$2,current_fence=current_fence+1,updated_at=$1 WHERE tenant_id=$3 AND id=$4`, now, cancellationID, tenantID, runID); err != nil {
+		t.Fatal(err)
+	}
+	if err = cancelTx.Commit(ctx); err != nil {
 		t.Fatal(err)
 	}
 	fencedCompletion, _ := store.IssueCompletionToken()
@@ -242,6 +277,64 @@ func TestProviderDispatchIsAtMostOnceAndFallbackIsFullyAccounted(t *testing.T) {
 	if _, err = store.PrepareProviderAttempt(ctx, PrepareProviderAttemptCommand{AttemptID: lateAttempt, ProviderAttemptID: "provider-attempt-c6-late", LLMAttemptID: lateLLM, UsageReservationID: lateReserve, TenantID: tenantID, UserID: userID, AttemptKey: "attempt-key-c6-late", Ordinal: 1, Candidate: manifest.CandidateModels[0], RequestHash: "request-c6-late", ContextManifestHash: lateStarted.ContextManifestHash, PrepareToken: latePrepare, PrepareTokenExpiresAt: now.Add(time.Minute), CorrelationID: correlation, Actor: json.RawMessage(`{"kind":"service"}`), PreparedEvent: pointer("provider-prepared-late")}); !errors.Is(err, ErrRunFence) {
 		t.Fatalf("late provider preparation error=%v", err)
 	}
+	if _, err = store.StartLLMAttempt(ctx, StartLLMAttemptCommand{AttemptID: cancelledStart, TenantID: tenantID, UserID: userID, RunID: runID, RunAttemptID: runAttempt, RunVersion: 3, RunFence: 2, StreamGeneration: 6, AttemptKey: "attempt-key-c6-cancelled", CorrelationID: correlation, Manifest: manifest, Actor: json.RawMessage(`{"kind":"service"}`), StartedEvent: pointer("llm-cancelled-start")}); !errors.Is(err, ErrRunFence) {
+		t.Fatalf("LLM start after cancellation error=%v", err)
+	}
+	blobs := &llmCancellationBlobs{values: map[string][]byte{}}
+	payloads := payload.EnvelopeStore{Keys: llmCancellationKeys{key: payload.Key{ID: "llm-cancellation-v1", Material: bytes.Repeat([]byte{0xca}, 32)}}, Blobs: blobs}
+	converger := RunCancellationService{Store: store, Payloads: payloads}
+	if err = converger.ConvergeRunCancellation(ctx, tenantID, runID, cancellationID, epoch); err != nil {
+		t.Fatal(err)
+	}
+	var fencedProviderStatus, fencedReservationStatus, fencedLLMStatus, lateLLMStatus string
+	var abandonedEvents, finalizedEvents int
+	if err = admin.QueryRow(ctx, `SELECT
+		(SELECT status FROM agent.llm_provider_attempts WHERE tenant_id=$1 AND id=$2),
+		(SELECT status FROM contracts.usage_reservations WHERE tenant_id=$1 AND id=$3),
+		(SELECT status FROM agent.llm_attempts WHERE tenant_id=$1 AND id=$4),
+		(SELECT status FROM agent.llm_attempts WHERE tenant_id=$1 AND id=$5),
+		(SELECT count(*) FROM agent.events WHERE tenant_id=$1 AND aggregate_id=$2 AND event_type='ProviderAttemptAbandoned'),
+		(SELECT count(*) FROM agent.events WHERE tenant_id=$1 AND aggregate_id=$4 AND event_type='LLMAttemptFinalized')`, tenantID, fencedAttempt, fencedReserve, fencedLLM, lateLLM).Scan(&fencedProviderStatus, &fencedReservationStatus, &fencedLLMStatus, &lateLLMStatus, &abandonedEvents, &finalizedEvents); err != nil {
+		t.Fatal(err)
+	}
+	if fencedProviderStatus != "abandoned" || fencedReservationStatus != "released" || fencedLLMStatus != "cancelled" || lateLLMStatus != "running" || abandonedEvents != 1 || finalizedEvents != 1 {
+		t.Fatalf("provider=%s reservation=%s fenced_llm=%s late_llm=%s abandoned_events=%d finalized_events=%d", fencedProviderStatus, fencedReservationStatus, fencedLLMStatus, lateLLMStatus, abandonedEvents, finalizedEvents)
+	}
+}
+
+type llmCancellationKeys struct{ key payload.Key }
+
+func (provider llmCancellationKeys) Current(context.Context, string) (payload.Key, error) {
+	return provider.key, nil
+}
+
+func (provider llmCancellationKeys) ByID(context.Context, string, string) (payload.Key, error) {
+	return provider.key, nil
+}
+
+type llmCancellationBlobs struct {
+	mu     sync.Mutex
+	values map[string][]byte
+}
+
+func (store *llmCancellationBlobs) Put(_ context.Context, key string, value []byte) (string, error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if existing, ok := store.values[key]; ok && !bytes.Equal(existing, value) {
+		return "", errors.New("immutable blob conflict")
+	}
+	store.values[key] = append([]byte(nil), value...)
+	return key, nil
+}
+
+func (store *llmCancellationBlobs) Get(_ context.Context, key string) ([]byte, error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	value, ok := store.values[key]
+	if !ok {
+		return nil, errors.New("blob missing")
+	}
+	return append([]byte(nil), value...), nil
 }
 
 func pointer(name string) PayloadPointer {

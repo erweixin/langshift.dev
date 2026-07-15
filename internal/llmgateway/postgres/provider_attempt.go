@@ -197,6 +197,19 @@ func (store Store) AuthorizeDispatch(ctx context.Context, command AuthorizeDispa
 		return DispatchAuthorization{}, err
 	}
 	var result DispatchAuthorization
+	var llmStatus, llmRunAttempt, runStatus, activeRunAttempt string
+	var llmRunFence, activeRunFence uint64
+	var runCancelRequested *time.Time
+	var runLeaseExpires time.Time
+	err = tx.QueryRow(ctx, `SELECT l.id::text,l.status,l.run_attempt_id::text,l.run_fence,
+		r.status,r.active_attempt_id::text,r.current_fence,r.cancel_requested_at,r.lease_expires_at
+		FROM agent.llm_attempts l JOIN agent.runs r ON r.tenant_id=l.tenant_id AND r.id=l.run_id
+		WHERE l.tenant_id=$1 AND l.id=(SELECT p.llm_attempt_id FROM agent.llm_provider_attempts p WHERE p.tenant_id=$1 AND p.id=$2)
+		FOR UPDATE OF l,r`, command.TenantID, command.AttemptID).
+		Scan(&result.LLMAttemptID, &llmStatus, &llmRunAttempt, &llmRunFence, &runStatus, &activeRunAttempt, &activeRunFence, &runCancelRequested, &runLeaseExpires)
+	if err != nil || llmStatus != "running" || runStatus != "executing" || activeRunAttempt != llmRunAttempt || activeRunFence != llmRunFence || runCancelRequested != nil || !runLeaseExpires.After(now) {
+		return DispatchAuthorization{}, ErrRunFence
+	}
 	var status, host, pricing string
 	var version uint64
 	var storedDigest []byte
@@ -204,8 +217,12 @@ func (store Store) AuthorizeDispatch(ctx context.Context, command AuthorizeDispa
 	var byok bool
 	var credentialID, secretVersion *string
 	var credentialVersion *uint64
-	err = tx.QueryRow(ctx, `SELECT llm_attempt_id::text,provider_attempt_id,ordinal,provider_id,model_id,model_version,bound_host,pricing_version,request_hash,status,version,prepare_token_hash,prepare_token_expires_at,byok,byok_credential_id::text,byok_credential_version,secret_version FROM agent.llm_provider_attempts WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, command.TenantID, command.AttemptID).Scan(&result.LLMAttemptID, &result.ProviderAttemptID, &result.Ordinal, &result.Candidate.ProviderID, &result.Candidate.ModelID, &result.Candidate.ModelVersion, &host, &pricing, &result.RequestHash, &status, &version, &storedDigest, &expiresAt, &byok, &credentialID, &credentialVersion, &secretVersion)
+	var lockedLLMAttempt string
+	err = tx.QueryRow(ctx, `SELECT llm_attempt_id::text,provider_attempt_id,ordinal,provider_id,model_id,model_version,bound_host,pricing_version,request_hash,status,version,prepare_token_hash,prepare_token_expires_at,byok,byok_credential_id::text,byok_credential_version,secret_version FROM agent.llm_provider_attempts WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, command.TenantID, command.AttemptID).Scan(&lockedLLMAttempt, &result.ProviderAttemptID, &result.Ordinal, &result.Candidate.ProviderID, &result.Candidate.ModelID, &result.Candidate.ModelVersion, &host, &pricing, &result.RequestHash, &status, &version, &storedDigest, &expiresAt, &byok, &credentialID, &credentialVersion, &secretVersion)
 	if err != nil {
+		return DispatchAuthorization{}, ErrProviderConflict
+	}
+	if lockedLLMAttempt != result.LLMAttemptID {
 		return DispatchAuthorization{}, ErrProviderConflict
 	}
 	if status != "prepared" || version != 1 {
@@ -213,17 +230,6 @@ func (store Store) AuthorizeDispatch(ctx context.Context, command AuthorizeDispa
 	}
 	if result.RequestHash != command.RequestHash || !bytes.Equal(storedDigest, prepareDigest[:]) || !expiresAt.After(now) {
 		return DispatchAuthorization{}, ErrDispatchToken
-	}
-	var llmStatus, llmRunAttempt, runStatus, activeRunAttempt string
-	var llmRunFence, activeRunFence uint64
-	var runCancelRequested *time.Time
-	var runLeaseExpires time.Time
-	err = tx.QueryRow(ctx, `SELECT l.status,l.run_attempt_id::text,l.run_fence,r.status,r.active_attempt_id::text,r.current_fence,r.cancel_requested_at,r.lease_expires_at
-		FROM agent.llm_attempts l JOIN agent.runs r ON r.tenant_id=l.tenant_id AND r.id=l.run_id
-		WHERE l.tenant_id=$1 AND l.id=$2 FOR UPDATE OF l,r`, command.TenantID, result.LLMAttemptID).
-		Scan(&llmStatus, &llmRunAttempt, &llmRunFence, &runStatus, &activeRunAttempt, &activeRunFence, &runCancelRequested, &runLeaseExpires)
-	if err != nil || llmStatus != "running" || runStatus != "executing" || activeRunAttempt != llmRunAttempt || activeRunFence != llmRunFence || runCancelRequested != nil || !runLeaseExpires.After(now) {
-		return DispatchAuthorization{}, ErrRunFence
 	}
 	result.AttemptID, result.Candidate.BoundHost, result.Candidate.PricingVersion = command.AttemptID, host, pricing
 	if byok {

@@ -152,7 +152,8 @@ func TestRunCancellationBarrierIsEventBackedAndFencesWorkers(t *testing.T) {
 		recoveryStore.Now = func() time.Time { return now.Add(cancellationReconciliationDelay) }
 		blobs := &repairServiceBlobs{values: map[string][]byte{}}
 		payloads := payload.EnvelopeStore{Keys: repairServiceKeyProvider{key: payload.Key{ID: "run-cancellation-v1", Material: bytes.Repeat([]byte{0xc3}, 32)}}, Blobs: blobs}
-		reconciler := RunCancellationReconcilerService{Store: recoveryStore, Payloads: payloads, IDKey: store.IDKey}
+		dependency := &cancellationDependencyProbe{}
+		reconciler := RunCancellationReconcilerService{Store: recoveryStore, Payloads: payloads, IDKey: store.IDKey, Dependencies: []RunCancellationDependencyConverger{dependency}}
 		tenants, err := reconciler.ListDueTenantIDs(ctx, storeEpoch, "", 100, 0, 1)
 		if err != nil || len(tenants) != 1 || tenants[0] != tenantID {
 			t.Fatalf("due cancellation tenants=%v error=%v", tenants, err)
@@ -168,9 +169,15 @@ func TestRunCancellationBarrierIsEventBackedAndFencesWorkers(t *testing.T) {
 		if err != nil || !reconciled.Settled || reconciled.CancelledToolCalls != 1 || reconciled.RemainingBlockers != 0 || reconciled.CancellationVersion != 3 || reconciled.RunVersion != tools.RunVersion+1 {
 			t.Fatalf("reconciled=%#v error=%v", reconciled, err)
 		}
+		if dependency.calls != 1 || dependency.tenantID != tenantID || dependency.runID != runID || dependency.cancellationID != cancellationID || dependency.storeEpoch != storeEpoch {
+			t.Fatalf("dependency convergence probe=%#v", dependency)
+		}
 		replay, err := reconciler.ReconcileDueCancellation(ctx, tenantID, cancellationID, storeEpoch)
 		if err != nil || !replay.Settled || replay.SettlementEventID != reconciled.SettlementEventID || replay.CancellationVersion != reconciled.CancellationVersion || replay.RunVersion != reconciled.RunVersion {
 			t.Fatalf("reconcile replay=%#v error=%v", replay, err)
+		}
+		if dependency.calls != 1 {
+			t.Fatalf("settled replay reran dependencies: calls=%d", dependency.calls)
 		}
 		toolEventIDs, err := store.cancellationToolIdentifiers(cancellationID, toolID)
 		if err != nil {
@@ -249,6 +256,17 @@ func TestRunCancellationBarrierIsEventBackedAndFencesWorkers(t *testing.T) {
 			t.Fatalf("run=%s cancellation=%s/v%d tool=%s effect=%s attempt=%s tool_events=%d run_events=%d", runStatus, cancellationStatus, cancellationVersion, toolStatus, effectStatus, attemptStatus, cancelledToolEvents, cancelledRunEvents)
 		}
 	})
+}
+
+type cancellationDependencyProbe struct {
+	calls                                       int
+	tenantID, runID, cancellationID, storeEpoch string
+}
+
+func (probe *cancellationDependencyProbe) ConvergeRunCancellation(_ context.Context, tenantID, runID, cancellationID, storeEpoch string) error {
+	probe.calls++
+	probe.tenantID, probe.runID, probe.cancellationID, probe.storeEpoch = tenantID, runID, cancellationID, storeEpoch
+	return nil
 }
 
 func seedCancellationIdentity(t *testing.T, ctx context.Context, admin *pgxpool.Pool, tenantID, userID, email string, now time.Time) {

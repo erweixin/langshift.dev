@@ -156,6 +156,78 @@ type AbandonProviderAttemptCommand struct {
 	ReleasedEvent                                  PayloadPointer
 }
 
+type CancelPreparedProviderAttemptCommand struct {
+	AttemptID, TenantID, CancellationID, CorrelationID string
+	Actor                                              json.RawMessage
+	AbandonedEvent                                     PayloadPointer
+	ReleasedEvent                                      PayloadPointer
+}
+
+// CancelPreparedProviderAttempt revokes an undispatched physical attempt only
+// after the parent Run has entered the durable cancellation barrier. A
+// dispatching attempt is never handled here because the provider may already
+// have received it; that path must retain outcome reconciliation authority.
+func (store Store) CancelPreparedProviderAttempt(ctx context.Context, command CancelPreparedProviderAttemptCommand) (ProviderResult, error) {
+	if !store.valid() || command.AttemptID == "" || command.TenantID == "" || command.CancellationID == "" || command.CorrelationID == "" || !validActor(command.Actor) || !validPointer(command.AbandonedEvent) || !validPointer(command.ReleasedEvent) {
+		return ProviderResult{}, ErrInvalidCommand
+	}
+	if err := store.requireEpoch(ctx); err != nil {
+		return ProviderResult{}, err
+	}
+	now := store.now()
+	identifiers, err := store.eventIDs("provider-attempt-abandoned", command.AttemptID, 2)
+	if err != nil {
+		return ProviderResult{}, ErrConfiguration
+	}
+	tx, err := store.Pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		return ProviderResult{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err = tx.Exec(ctx, `SELECT set_config('lites.tenant_id',$1,true)`, command.TenantID); err != nil {
+		return ProviderResult{}, err
+	}
+	var llmAttemptID, requestEventID string
+	err = tx.QueryRow(ctx, `SELECT l.id::text,c.request_event_id::text
+		FROM agent.llm_attempts l
+		JOIN agent.runs r ON r.tenant_id=l.tenant_id AND r.id=l.run_id
+		JOIN agent.run_cancellations c ON c.tenant_id=r.tenant_id AND c.id=r.active_cancellation_id
+		WHERE l.tenant_id=$1 AND l.id=(SELECT p.llm_attempt_id FROM agent.llm_provider_attempts p WHERE p.tenant_id=$1 AND p.id=$2)
+		  AND c.id=$3 AND c.store_epoch=$4 AND c.status='terminating'
+		  AND r.cancel_requested_at IS NOT NULL AND l.status='running'
+		FOR UPDATE OF l,r,c`, command.TenantID, command.AttemptID, command.CancellationID, store.StoreEpoch).
+		Scan(&llmAttemptID, &requestEventID)
+	if err != nil {
+		return ProviderResult{}, ErrProviderConflict
+	}
+	var userID, reservationID, lockedLLMAttempt string
+	err = tx.QueryRow(ctx, `SELECT user_id::text,usage_reservation_id::text,llm_attempt_id::text
+		FROM agent.llm_provider_attempts WHERE tenant_id=$1 AND id=$2 AND status='prepared' AND version=1 FOR UPDATE`, command.TenantID, command.AttemptID).
+		Scan(&userID, &reservationID, &lockedLLMAttempt)
+	if err != nil || lockedLLMAttempt != llmAttemptID {
+		return ProviderResult{}, ErrProviderConflict
+	}
+	tag, err := tx.Exec(ctx, `UPDATE agent.llm_provider_attempts
+		SET version=2,status='abandoned',prepare_token_hash=NULL,usage_status='unavailable',error_class='explicit_cancel',
+		  finished_at=$1,abandoned_event_id=$2,updated_at=$1
+		WHERE tenant_id=$3 AND id=$4 AND status='prepared' AND version=1`, now, identifiers.Event, command.TenantID, command.AttemptID)
+	if err != nil || tag.RowsAffected() != 1 {
+		return ProviderResult{}, ErrProviderConflict
+	}
+	if _, err = store.Billing.ReleaseInTx(ctx, tx, billingpostgres.ReleaseCommand{ReservationID: reservationID, TenantID: command.TenantID, ReasonCode: "explicit_cancel", CorrelationID: command.CorrelationID, CausationID: identifiers.Event, Actor: command.Actor, ReleasedEvent: billingpostgres.PayloadPointer{Ref: command.ReleasedEvent.Ref, Hash: command.ReleasedEvent.Hash}}); err != nil {
+		return ProviderResult{}, err
+	}
+	causationID := requestEventID
+	event := publishEvent(identifiers, eventpostgres.Event{TenantID: command.TenantID, UserID: userID, EventType: "ProviderAttemptAbandoned", SchemaVersion: 1, AggregateKind: "provider_attempt", AggregateID: command.AttemptID, AggregateVersion: 2, StoreEpoch: store.StoreEpoch, OccurredAt: now, Actor: command.Actor, CausationID: &causationID, CorrelationID: command.CorrelationID}, command.AbandonedEvent)
+	if _, err = store.Appender.Append(ctx, tx, event); err != nil {
+		return ProviderResult{}, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return ProviderResult{}, err
+	}
+	return ProviderResult{AttemptID: command.AttemptID, Status: "abandoned", UsageStatus: "unavailable", Version: 2, FinishedAt: now}, nil
+}
+
 func (store Store) AbandonExpiredProviderAttempt(ctx context.Context, command AbandonProviderAttemptCommand) (ProviderResult, error) {
 	if !store.valid() || command.AttemptID == "" || command.TenantID == "" || command.ReasonCode == "" || command.CorrelationID == "" || !validActor(command.Actor) || !validPointer(command.AbandonedEvent) || !validPointer(command.ReleasedEvent) {
 		return ProviderResult{}, ErrInvalidCommand

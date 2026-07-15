@@ -87,7 +87,7 @@ func (store Store) StartLLMAttempt(ctx context.Context, command StartLLMAttemptC
 	var runUser, activeAttempt string
 	var runVersion, runFence uint64
 	var leaseExpires time.Time
-	err = tx.QueryRow(ctx, `SELECT user_id::text,run_version,active_attempt_id::text,current_fence,lease_expires_at FROM agent.runs WHERE tenant_id=$1 AND id=$2 AND status='executing' FOR UPDATE`, command.TenantID, command.RunID).Scan(&runUser, &runVersion, &activeAttempt, &runFence, &leaseExpires)
+	err = tx.QueryRow(ctx, `SELECT user_id::text,run_version,active_attempt_id::text,current_fence,lease_expires_at FROM agent.runs WHERE tenant_id=$1 AND id=$2 AND status='executing' AND cancel_requested_at IS NULL FOR UPDATE`, command.TenantID, command.RunID).Scan(&runUser, &runVersion, &activeAttempt, &runFence, &leaseExpires)
 	if err != nil || runUser != command.UserID || runVersion != command.RunVersion || activeAttempt != command.RunAttemptID || runFence != command.RunFence || !leaseExpires.After(now) {
 		return LLMAttempt{}, ErrRunFence
 	}
