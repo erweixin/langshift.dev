@@ -71,7 +71,7 @@ func (store Store) BeginProvision(ctx context.Context, command ProvisionCommand)
 	if _, err = tx.Exec(ctx, `SELECT set_config('lites.tenant_id',$1,true)`, claims.TenantID); err != nil {
 		return ProvisionResult{}, err
 	}
-	session, policy, err := loadSessionForProvision(ctx, tx, claims)
+	session, policy, err := loadSessionForProvision(ctx, tx, claims, store.StoreEpoch)
 	if err != nil {
 		return ProvisionResult{}, err
 	}
@@ -165,7 +165,7 @@ func (store Store) BeginProvision(ctx context.Context, command ProvisionCommand)
 	return result, nil
 }
 
-func loadSessionForProvision(ctx context.Context, tx pgx.Tx, claims runtimecontract.CapabilityClaims) (sessionRow, RuntimePolicy, error) {
+func loadSessionForProvision(ctx context.Context, tx pgx.Tx, claims runtimecontract.CapabilityClaims, storeEpoch string) (sessionRow, RuntimePolicy, error) {
 	var session sessionRow
 	var policy RuntimePolicy
 	var maximumSeconds, idleSeconds, graceSeconds int
@@ -185,7 +185,8 @@ func loadSessionForProvision(ctx context.Context, tx pgx.Tx, claims runtimecontr
 	  p.maximum_duration_seconds,p.idle_timeout_seconds,p.kill_grace_seconds,p.approval_required
 	FROM agent.runtime_sessions s JOIN agent.runtime_policy_snapshots p
 	  ON p.tenant_id=s.tenant_id AND p.id=s.policy_snapshot_id
-	WHERE s.tenant_id=$1 AND s.capability_nonce_hash=$2 FOR UPDATE OF s`, claims.TenantID, nonceDigest[:]).Scan(
+	JOIN agent.events le ON le.tenant_id=s.tenant_id AND le.id=s.last_event_id AND le.store_epoch=$3
+	WHERE s.tenant_id=$1 AND s.capability_nonce_hash=$2 FOR UPDATE OF s`, claims.TenantID, nonceDigest[:], storeEpoch).Scan(
 		&session.ID, &session.TenantID, &session.UserID, &session.RunID, &session.ToolCallID, &session.Version, &session.Status,
 		&session.PolicySnapshotKey, &session.PolicyHash, &session.WorkspaceID, &session.BaseWorkspaceRevision, &session.WorkspaceMode,
 		&session.NetworkPolicyHash, &session.SecretScopeHash, &session.RequestHash, &session.CapabilityNonceHash,

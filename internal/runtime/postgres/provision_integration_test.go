@@ -124,11 +124,12 @@ func TestBeginProvisionAtomicallyBindsCapabilityEventSessionAndCapacity(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
+	clock := now.Add(time.Second)
 	store := Store{
-		Pool: service, Appender: eventpostgres.Appender{Now: func() time.Time { return now.Add(time.Second) }}, Epochs: fixedEpoch(epoch), StoreEpoch: epoch,
+		Pool: service, Appender: eventpostgres.Appender{Now: func() time.Time { return clock }}, Epochs: fixedEpoch(epoch), StoreEpoch: epoch,
 		IDKey: bytes.Repeat([]byte{0x65}, 32), TokenPepper: bytes.Repeat([]byte{0x66}, 32),
 		Verifier: runtimecontract.CapabilityVerifier{Issuer: "event-service", Audience: "runtime-manager", Keys: map[string]ed25519.PublicKey{"runtime-key-v1": publicKey}, MaximumTTL: 5 * time.Minute},
-		Now:      func() time.Time { return now.Add(time.Second) },
+		Now:      func() time.Time { return clock },
 	}
 	lockTx, err := service.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -167,15 +168,22 @@ func TestBeginProvisionAtomicallyBindsCapabilityEventSessionAndCapacity(t *testi
 		ProvisionLease: provisionLease, ProvisionLeaseExpiresAt: now.Add(time.Minute),
 		Payload: PayloadPointer{Ref: "encrypted://runtime-store/provision", Hash: "runtime-store-provision"}, Actor: json.RawMessage(`{"kind":"system"}`), CorrelationID: "a0000000-0000-0000-0000-000000009201",
 	}
+	const staleApprovalID = "a0000000-0000-0000-0000-000000009299"
+	if _, err = admin.Exec(ctx, `INSERT INTO agent.events(id,tenant_id,user_id,seq,event_type,event_schema_version,aggregate_kind,aggregate_id,aggregate_version,store_epoch,occurred_at,committed_at,actor,correlation_id,payload_ref,payload_hash) VALUES('b0000000-0000-0000-0000-000000009299',$1,$2,100,'ApprovalGranted',1,'approval',$3,2,'90000000-0000-0000-0000-000000009299',$4,$4,'{"kind":"system"}',$5,'encrypted://runtime-store/stale-approval','runtime-store-stale-approval')`, tenantID, userID, staleApprovalID, now, command.CorrelationID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = admin.Exec(ctx, `INSERT INTO agent.approvals(id,tenant_id,run_id,tool_call_id,version,approval_kind,proposal_hash,target_version,permission_snapshot,status,expires_at,requested_by,granted_at,created_at,updated_at) VALUES($1,$2,$3,$4,2,'tool_execution','runtime-stale-approval',1,'membership:stale:v1:role:owner','granted',$5,$6,$7,$7,$7)`, staleApprovalID, tenantID, runID, toolID, now.Add(time.Hour), userID, now); err != nil {
+		t.Fatal(err)
+	}
 	unauthorizedClaims := claims
-	unauthorizedClaims.ApprovalID = "a0000000-0000-0000-0000-000000009299"
+	unauthorizedClaims.ApprovalID = staleApprovalID
 	unauthorizedClaims.ApprovalVersion = 2
 	command.CapabilityToken, err = runtimecontract.SignCapability(unauthorizedClaims, "runtime-key-v1", privateKey, 5*time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err = store.BeginProvision(ctx, command); !errors.Is(err, ErrApproval) {
-		t.Fatalf("unbound approval = %v", err)
+		t.Fatalf("cross-epoch approval = %v", err)
 	}
 	command.CapabilityToken = capability
 	result, err := store.BeginProvision(ctx, command)
@@ -198,6 +206,140 @@ func TestBeginProvisionAtomicallyBindsCapabilityEventSessionAndCapacity(t *testi
 	}
 	if allocations != 1 || provisioningEvents != 1 || allocatedSessions != 1 {
 		t.Fatalf("replay duplicated facts allocations=%d events=%d capacity=%d", allocations, provisioningEvents, allocatedSessions)
+	}
+
+	clock = now.Add(2 * time.Second)
+	readyCommand := ReadyCommand{LifecycleCommand: LifecycleCommand{
+		TenantID: tenantID, SessionID: sessionID, ProvisionAttemptID: result.ProvisionAttemptID, ProvisionFence: 1, ExpectedVersion: 2,
+		LeaseToken: provisionLease, ObservedAt: clock, Payload: PayloadPointer{Ref: "encrypted://runtime-store/ready", Hash: strings.Repeat("d", 64)}, Actor: json.RawMessage(`{"kind":"system"}`), CorrelationID: command.CorrelationID,
+	}, BootReceiptHash: strings.Repeat("d", 64)}
+	ready, err := store.MarkReady(ctx, readyCommand)
+	if err != nil || ready.Status != "ready" || ready.Version != 3 || ready.Replayed {
+		t.Fatalf("MarkReady() = %#v, %v", ready, err)
+	}
+	readyReplay, err := store.MarkReady(ctx, readyCommand)
+	if err != nil || !readyReplay.Replayed || readyReplay.EventID != ready.EventID {
+		t.Fatalf("replayed MarkReady() = %#v, %v", readyReplay, err)
+	}
+	wrongLease, err := store.IssueProvisionLease()
+	if err != nil {
+		t.Fatal(err)
+	}
+	clock = now.Add(3 * time.Second)
+	runningCommand := LifecycleCommand{
+		TenantID: tenantID, SessionID: sessionID, ProvisionAttemptID: result.ProvisionAttemptID, ProvisionFence: 1, ExpectedVersion: 3,
+		LeaseToken: wrongLease, ObservedAt: clock, Payload: PayloadPointer{Ref: "encrypted://runtime-store/running", Hash: "runtime-store-running"}, Actor: json.RawMessage(`{"kind":"system"}`), CorrelationID: command.CorrelationID,
+	}
+	if _, err = store.MarkRunning(ctx, runningCommand); !errors.Is(err, ErrSessionConflict) {
+		t.Fatalf("wrong lifecycle lease = %v", err)
+	}
+	runningCommand.LeaseToken = provisionLease
+	running, err := store.MarkRunning(ctx, runningCommand)
+	if err != nil || running.Status != "running" || running.Version != 4 {
+		t.Fatalf("MarkRunning() = %#v, %v", running, err)
+	}
+	clock = now.Add(4 * time.Second)
+	idleCommand := runningCommand
+	idleCommand.ExpectedVersion, idleCommand.ObservedAt = 4, clock
+	idleCommand.Payload = PayloadPointer{Ref: "encrypted://runtime-store/idle", Hash: "runtime-store-idle"}
+	idle, err := store.MarkIdle(ctx, idleCommand)
+	if err != nil || idle.Status != "idle" || idle.Version != 5 {
+		t.Fatalf("MarkIdle() = %#v, %v", idle, err)
+	}
+	clock = now.Add(5 * time.Second)
+	resumeCommand := runningCommand
+	resumeCommand.ExpectedVersion, resumeCommand.ObservedAt = 5, clock
+	resumeCommand.Payload = PayloadPointer{Ref: "encrypted://runtime-store/resumed", Hash: "runtime-store-resumed"}
+	resumed, err := store.MarkRunning(ctx, resumeCommand)
+	if err != nil || resumed.Status != "running" || resumed.Version != 6 {
+		t.Fatalf("resumed MarkRunning() = %#v, %v", resumed, err)
+	}
+	clock = now.Add(6 * time.Second)
+	terminationCommand := TerminationCommand{LifecycleCommand: LifecycleCommand{
+		TenantID: tenantID, SessionID: sessionID, ProvisionAttemptID: result.ProvisionAttemptID, ProvisionFence: 1, ExpectedVersion: 6,
+		LeaseToken: provisionLease, ObservedAt: clock, Payload: PayloadPointer{Ref: "encrypted://runtime-store/termination", Hash: "runtime-store-termination"}, Actor: json.RawMessage(`{"kind":"system"}`), CorrelationID: command.CorrelationID,
+	}, Reason: "completed"}
+	termination, err := store.RequestTermination(ctx, terminationCommand)
+	if err != nil || termination.Status != "termination_requested" || termination.Version != 7 {
+		t.Fatalf("RequestTermination() = %#v, %v", termination, err)
+	}
+	clock = now.Add(7 * time.Second)
+	terminatedCommand := TerminatedCommand{LifecycleCommand: LifecycleCommand{
+		TenantID: tenantID, SessionID: sessionID, ProvisionAttemptID: result.ProvisionAttemptID, ProvisionFence: 1, ExpectedVersion: 7,
+		LeaseToken: provisionLease, ObservedAt: clock, Payload: PayloadPointer{Ref: "encrypted://runtime-store/terminated", Hash: "runtime-store-terminated"}, Actor: json.RawMessage(`{"kind":"system"}`), CorrelationID: command.CorrelationID,
+	}, CleanupReceiptHash: strings.Repeat("e", 64), UsageManifest: json.RawMessage(`{"schema_version":1,"vcpu_millis":10}`)}
+	terminated, err := store.CompleteTermination(ctx, terminatedCommand)
+	if err != nil || terminated.Status != "terminated" || terminated.Version != 8 {
+		t.Fatalf("CompleteTermination() = %#v, %v", terminated, err)
+	}
+	terminatedReplay, err := store.CompleteTermination(ctx, terminatedCommand)
+	if err != nil || !terminatedReplay.Replayed || terminatedReplay.EventID != terminated.EventID {
+		t.Fatalf("replayed CompleteTermination() = %#v, %v", terminatedReplay, err)
+	}
+	if err = admin.QueryRow(ctx, `SELECT allocated_sessions FROM agent.runtime_hosts WHERE host_id=$1`, hostID).Scan(&allocatedSessions); err != nil || allocatedSessions != 0 {
+		t.Fatalf("terminal capacity sessions=%d: %v", allocatedSessions, err)
+	}
+	const (
+		hostlessToolID    = "40000000-0000-0000-0000-000000009211"
+		hostlessCommandID = "50000000-0000-0000-0000-000000009211"
+		hostlessOutboxID  = "50000000-0000-0000-0000-000000009212"
+		hostlessJobID     = "50000000-0000-0000-0000-000000009213"
+		hostlessAttemptID = "60000000-0000-0000-0000-000000009211"
+		hostlessSessionID = "80000000-0000-0000-0000-000000009211"
+		hostlessEventID   = "b0000000-0000-0000-0000-000000009211"
+	)
+	clock = now.Add(8 * time.Second)
+	hostlessLease := bytes.Repeat([]byte{0x71}, 32)
+	hostlessNonce := bytes.Repeat([]byte{0x72}, 32)
+	hostlessRequest := strings.Repeat("f", 64)
+	for _, statement := range []struct {
+		query string
+		args  []any
+	}{
+		{`INSERT INTO agent.outbox(id,tenant_id,command_id,command_type,aggregate_kind,aggregate_id,store_epoch,payload_ref,payload_hash,status,available_at,published_at) VALUES($1,$2,$3,'ExecuteToolCall','tool_call',$4,$5,'encrypted://runtime-hostless/command','runtime-hostless-command','published',$6,$6)`, []any{hostlessOutboxID, tenantID, hostlessCommandID, hostlessToolID, epoch, clock}},
+		{`INSERT INTO agent.jobs(id,tenant_id,command_id,queue_class,resource_class,priority,cost_units,max_attempts,status,available_at,due_at,enqueued_at) VALUES($1,$2,$3,'interactive','runtime-untrusted',100,1,5,'running',$4,$5,$4)`, []any{hostlessJobID, tenantID, hostlessCommandID, clock, now.Add(time.Hour)}},
+		{`INSERT INTO agent.job_attempts(id,tenant_id,job_id,command_id,fence,lease_token_hash,lease_expires_at,worker_id,status,started_at) VALUES($1,$2,$3,$4,1,$5,$6,'runtime-worker-hostless','running',$7)`, []any{hostlessAttemptID, tenantID, hostlessJobID, hostlessCommandID, hostlessLease, now.Add(5 * time.Minute), clock}},
+		{`INSERT INTO agent.tool_calls(id,tenant_id,user_id,run_id,status,tool_call_version,tool_name,descriptor_snapshot_id,normalized_input_ref,request_hash,effect_class,effect_key,active_command_id,active_attempt_id,current_fence,lease_token_hash,lease_expires_at) VALUES($1,$2,$3,$4,'executing',1,'code_execute','code_execute@v1','encrypted://runtime-hostless/input',$5,'idempotent_write','runtime-hostless-effect',$6,$7,1,$8,$9)`, []any{hostlessToolID, tenantID, userID, runID, hostlessRequest, hostlessCommandID, hostlessAttemptID, hostlessLease, now.Add(5 * time.Minute)}},
+	} {
+		if _, err = admin.Exec(ctx, statement.query, statement.args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tx, err = admin.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO agent.events(id,tenant_id,user_id,seq,event_type,event_schema_version,aggregate_kind,aggregate_id,aggregate_version,store_epoch,occurred_at,committed_at,actor,correlation_id,payload_ref,payload_hash) VALUES($1,$2,$3,10,'RuntimeSessionRequested',1,'runtime_session',$4,1,$5,$6,$6,'{"kind":"system"}',$7,'encrypted://runtime-hostless/requested','runtime-hostless-requested')`, hostlessEventID, tenantID, userID, hostlessSessionID, epoch, clock, command.CorrelationID); err != nil {
+		t.Fatal(err)
+	}
+	if tag, updateErr := tx.Exec(ctx, `UPDATE agent.event_cursors SET last_seq=10 WHERE tenant_id=$1 AND user_id=$2 AND last_seq=9`, tenantID, userID); updateErr != nil || tag.RowsAffected() != 1 {
+		t.Fatalf("hostless cursor: %v", updateErr)
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO agent.runtime_sessions(id,tenant_id,user_id,run_id,tool_call_id,version,status,policy_snapshot_id,policy_snapshot_key,policy_hash,trust_tier,isolation_kind,workspace_mode,network_policy_hash,secret_scope_hash,request_hash,capability_nonce_hash,command_id,execution_attempt_id,execution_fence,execution_lease_hash,execution_lease_expires_at,requested_at,execution_deadline,created_event_id,last_event_id,created_at,updated_at) VALUES($1,$2,$3,$4,$5,1,'requested',$6,'runtime-policy:untrusted:v1',$7,'untrusted','firecracker','none',$8,$8,$9,$10,$11,$12,1,$13,$14,$15,$16,$17,$17,$15,$15)`, hostlessSessionID, tenantID, userID, runID, hostlessToolID, policyID, policyHash, empty, hostlessRequest, hostlessNonce, hostlessCommandID, hostlessAttemptID, hostlessLease, now.Add(5*time.Minute), clock, now.Add(10*time.Minute), hostlessEventID); err != nil {
+		t.Fatal(err)
+	}
+	if err = tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	clock = now.Add(9 * time.Second)
+	hostlessTermination := TerminationCommand{LifecycleCommand: LifecycleCommand{
+		TenantID: tenantID, SessionID: hostlessSessionID, ExpectedVersion: 1, ObservedAt: clock,
+		Payload: PayloadPointer{Ref: "encrypted://runtime-hostless/termination", Hash: "runtime-hostless-termination"}, Actor: json.RawMessage(`{"kind":"system"}`), CorrelationID: command.CorrelationID,
+	}, Reason: "cancelled_before_allocation"}
+	if result, requestErr := store.RequestTermination(ctx, hostlessTermination); requestErr != nil || result.Version != 2 {
+		t.Fatalf("hostless RequestTermination() = %#v, %v", result, requestErr)
+	}
+	clock = now.Add(10 * time.Second)
+	hostlessTerminated := TerminatedCommand{LifecycleCommand: LifecycleCommand{
+		TenantID: tenantID, SessionID: hostlessSessionID, ExpectedVersion: 2, ObservedAt: clock,
+		Payload: PayloadPointer{Ref: "encrypted://runtime-hostless/terminated", Hash: "runtime-hostless-terminated"}, Actor: json.RawMessage(`{"kind":"system"}`), CorrelationID: command.CorrelationID,
+	}, CleanupReceiptHash: strings.Repeat("a", 64), UsageManifest: json.RawMessage(`{"schema_version":1,"vcpu_millis":0}`)}
+	if result, completeErr := store.CompleteTermination(ctx, hostlessTerminated); completeErr != nil || result.Version != 3 {
+		t.Fatalf("hostless CompleteTermination() = %#v, %v", result, completeErr)
+	}
+	var hostlessAllocations int
+	if err = admin.QueryRow(ctx, `SELECT count(*) FROM agent.runtime_allocations WHERE tenant_id=$1 AND session_id=$2`, tenantID, hostlessSessionID).Scan(&hostlessAllocations); err != nil || hostlessAllocations != 0 {
+		t.Fatalf("hostless allocations=%d: %v", hostlessAllocations, err)
 	}
 
 	claims.Fence++

@@ -70,7 +70,9 @@ for migration in \
   deploy/migrations/000028_memory_retrieval_protocol.up.sql \
   deploy/migrations/000029_runtime_session_protocol.up.sql \
   deploy/migrations/000030_runtime_host_capacity_protocol.up.sql \
-  deploy/migrations/000031_runtime_execution_right_lock.up.sql; do
+  deploy/migrations/000031_runtime_execution_right_lock.up.sql \
+  deploy/migrations/000032_runtime_hostless_termination.up.sql \
+  deploy/migrations/000033_runtime_epoch_authorization.up.sql; do
   target="/tmp/$(basename "${migration}")"
   docker cp "${migration}" "${container_name}:${target}" >/dev/null
   docker exec "${container_name}" psql -v ON_ERROR_STOP=1 -U postgres -d lites_foundation -f "${target}" >/dev/null
