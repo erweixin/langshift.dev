@@ -35,7 +35,7 @@ func (resolver *resolverStub) ResolveAndNormalize(_ context.Context, _ Execution
 }
 
 type resultPlanStub struct {
-	tools, children int
+	tools, approvals, children int
 }
 
 func (planner *resultPlanStub) BuildTools(_ context.Context, _ Execution, turn TurnResult, _ MessageDocument, calls []ValidatedToolCall) (executionpostgres.RequestToolsCommand, error) {
@@ -52,6 +52,15 @@ func (planner *resultPlanStub) BuildChildren(_ context.Context, _ Execution, tur
 	plan := executionpostgres.SpawnChildRunsCommand{PlanResultHash: turn.Provider.ResponseHash}
 	for _, call := range calls {
 		plan.Children = append(plan.Children, executionpostgres.ChildRunRequest{DescriptorSnapshotID: call.Tool.DescriptorSnapshotID, RequestHash: call.RequestHash})
+	}
+	return plan, nil
+}
+
+func (planner *resultPlanStub) BuildApprovals(_ context.Context, _ Execution, turn TurnResult, _ MessageDocument, calls []ValidatedToolCall) (executionpostgres.ProposeDirectToolsCommand, error) {
+	planner.approvals++
+	plan := executionpostgres.ProposeDirectToolsCommand{PlanResultHash: turn.Provider.ResponseHash}
+	for _, call := range calls {
+		plan.ToolRequests = append(plan.ToolRequests, executionpostgres.DirectApprovalToolRequest{ToolName: call.Tool.Name, DescriptorSnapshotID: call.Tool.DescriptorSnapshotID, RequestHash: call.RequestHash})
 	}
 	return plan, nil
 }
@@ -87,6 +96,20 @@ func TestResultInterpreterBuildsApprovalPreviewToolPlan(t *testing.T) {
 	}
 }
 
+func TestResultInterpreterBuildsDirectApprovalPlan(t *testing.T) {
+	interpreter, execution := validResultInterpreter()
+	resolver := interpreter.Tools.(*resolverStub)
+	resolver.tools["deploy"] = ResolvedTool{Name: "deploy", DescriptorSnapshotID: "deploy@1", DescriptorHash: "hash-deploy", ExecutionKind: ToolExecutionWorker, ManualApprovalRequired: true}
+	turn := toolTurn([]provider.Tool{{Name: "deploy"}}, []llmpostgres.SnapshotBinding{{ID: "deploy@1", Version: 1, Hash: "hash-deploy"}}, []provider.ToolCall{{ID: "call-1", Name: "deploy", Input: json.RawMessage(`{"environment":"production"}`)}})
+	outcome, err := interpreter.Interpret(t.Context(), execution, turn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outcome.State != statemachine.RunWaitingApproval || outcome.Approvals == nil || len(outcome.Approvals.ToolRequests) != 1 || outcome.Tools != nil || outcome.Approvals.PlanResultHash != turn.Provider.ResponseHash {
+		t.Fatalf("outcome=%#v", outcome)
+	}
+}
+
 func TestResultInterpreterBuildsChildPlan(t *testing.T) {
 	interpreter, execution := validResultInterpreter()
 	resolver := interpreter.Tools.(*resolverStub)
@@ -116,8 +139,27 @@ func TestResultInterpreterRejectsMixedAtomicityDomains(t *testing.T) {
 		t.Fatalf("error=%v", err)
 	}
 	plans := interpreter.Plans.(*resultPlanStub)
-	if plans.tools != 0 || plans.children != 0 {
+	if plans.tools != 0 || plans.approvals != 0 || plans.children != 0 {
 		t.Fatal("mixed plan reached a commit planner")
+	}
+}
+
+func TestResultInterpreterRejectsMixedDirectApprovalAndExecution(t *testing.T) {
+	interpreter, execution := validResultInterpreter()
+	resolver := interpreter.Tools.(*resolverStub)
+	resolver.tools["search"] = ResolvedTool{Name: "search", DescriptorSnapshotID: "search@1", DescriptorHash: "hash-search", ExecutionKind: ToolExecutionWorker}
+	resolver.tools["deploy"] = ResolvedTool{Name: "deploy", DescriptorSnapshotID: "deploy@1", DescriptorHash: "hash-deploy", ExecutionKind: ToolExecutionWorker, ManualApprovalRequired: true}
+	turn := toolTurn(
+		[]provider.Tool{{Name: "search"}, {Name: "deploy"}},
+		[]llmpostgres.SnapshotBinding{{ID: "search@1", Version: 1, Hash: "hash-search"}, {ID: "deploy@1", Version: 1, Hash: "hash-deploy"}},
+		[]provider.ToolCall{{ID: "call-search", Name: "search", Input: json.RawMessage(`{"q":"x"}`)}, {ID: "call-deploy", Name: "deploy", Input: json.RawMessage(`{"environment":"production"}`)}},
+	)
+	if _, err := interpreter.Interpret(t.Context(), execution, turn); !errors.Is(err, ErrResultRepair) {
+		t.Fatalf("error=%v", err)
+	}
+	plans := interpreter.Plans.(*resultPlanStub)
+	if plans.tools != 0 || plans.approvals != 0 || plans.children != 0 {
+		t.Fatal("mixed approval and execution reached a commit planner")
 	}
 }
 

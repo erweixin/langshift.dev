@@ -59,6 +59,7 @@ type runStoreStub struct {
 	complete      executionpostgres.CompleteRunCommand
 	message       executionpostgres.CompleteRunMessageCommand
 	tools         executionpostgres.RequestToolsCommand
+	approvals     executionpostgres.ProposeDirectToolsCommand
 	children      executionpostgres.SpawnChildRunsCommand
 	completionErr error
 }
@@ -101,6 +102,13 @@ func (store *runStoreStub) RequestTools(_ context.Context, command executionpost
 	defer store.mu.Unlock()
 	store.tools = command
 	return executionpostgres.ToolsRequested{}, store.completionErr
+}
+
+func (store *runStoreStub) ProposeDirectTools(_ context.Context, command executionpostgres.ProposeDirectToolsCommand) (executionpostgres.DirectToolsProposed, error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	store.approvals = command
+	return executionpostgres.DirectToolsProposed{}, store.completionErr
 }
 
 func (store *runStoreStub) SpawnChildRuns(_ context.Context, command executionpostgres.SpawnChildRunsCommand) (executionpostgres.ChildRunsSpawned, error) {
@@ -198,6 +206,36 @@ func TestHandlerCommitsStepPlanWithLatestHeartbeatClaim(t *testing.T) {
 	}
 	if runs.complete.Claim.RunID != "" {
 		t.Fatal("waiting step was incorrectly committed as a terminal run")
+	}
+}
+
+func TestHandlerCommitsDirectApprovalWithLatestHeartbeatClaim(t *testing.T) {
+	payloads := &memoryPayloads{}
+	delivered := deliveredCommand()
+	putCommand(t, payloads, &delivered, CommandPayload{SchemaVersion: 1, RunID: delivered.AggregateID, CorrelationID: "correlation-1"})
+	claim := validClaim()
+	runs := &runStoreStub{claim: claim}
+	handler := validHandler(payloads, runs, runnerFunc(func(ctx context.Context, _ Execution) (Outcome, error) {
+		select {
+		case <-time.After(18 * time.Millisecond):
+		case <-ctx.Done():
+			return Outcome{}, ctx.Err()
+		}
+		outcome := successfulOutcome("")
+		outcome.State, outcome.ResultHash, outcome.RunEvent, outcome.AttemptEvent = statemachine.RunWaitingApproval, "", nil, nil
+		outcome.Approvals = &executionpostgres.ProposeDirectToolsCommand{PlanResultHash: "provider-result"}
+		return outcome, nil
+	}))
+	if err := handler.Handle(t.Context(), delivered); err != nil {
+		t.Fatal(err)
+	}
+	runs.mu.Lock()
+	defer runs.mu.Unlock()
+	if runs.heartbeats < 1 || !runs.approvals.Claim.LeaseExpiresAt.After(claim.LeaseExpiresAt) || runs.approvals.ExpectedRunVersion != claim.RunVersion || string(runs.approvals.Actor) != string(handler.Actor) || runs.approvals.CorrelationID != "correlation-1" || runs.approvals.AssistantMessage == nil || runs.approvals.AssistantMessage.MessageID == "" || len(runs.approvals.AssistantMessage.ContentHash) != 64 {
+		t.Fatalf("approval plan was not rebound to the live claim: heartbeats=%d plan=%#v", runs.heartbeats, runs.approvals)
+	}
+	if runs.complete.Claim.RunID != "" || runs.tools.Claim.RunID != "" {
+		t.Fatal("waiting approval was committed through the wrong transaction")
 	}
 }
 

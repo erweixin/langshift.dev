@@ -35,6 +35,7 @@ type RunStore interface {
 	CompleteRunTerminal(context.Context, executionpostgres.CompleteRunCommand) (executionpostgres.CompletedRun, error)
 	CompleteRunWithMessage(context.Context, executionpostgres.CompleteRunMessageCommand) (executionpostgres.CompletedRunMessage, error)
 	RequestTools(context.Context, executionpostgres.RequestToolsCommand) (executionpostgres.ToolsRequested, error)
+	ProposeDirectTools(context.Context, executionpostgres.ProposeDirectToolsCommand) (executionpostgres.DirectToolsProposed, error)
 	SpawnChildRuns(context.Context, executionpostgres.SpawnChildRunsCommand) (executionpostgres.ChildRunsSpawned, error)
 }
 
@@ -69,6 +70,7 @@ type Outcome struct {
 	MessageID    string
 	Message      *MessageDocument
 	Tools        *executionpostgres.RequestToolsCommand
+	Approvals    *executionpostgres.ProposeDirectToolsCommand
 	Children     *executionpostgres.SpawnChildRunsCommand
 }
 
@@ -128,6 +130,9 @@ func (handler Handler) commit(ctx context.Context, claim executionpostgres.RunCl
 	if outcome.Tools != nil {
 		actions++
 	}
+	if outcome.Approvals != nil {
+		actions++
+	}
 	if outcome.Children != nil {
 		actions++
 	}
@@ -147,6 +152,21 @@ func (handler Handler) commit(ctx context.Context, claim executionpostgres.RunCl
 		planned.Actor, planned.CorrelationID = handler.Actor, command.CorrelationID
 		planned.AssistantMessage = &message
 		_, err = handler.Runs.RequestTools(ctx, planned)
+		return err
+	}
+	if outcome.Approvals != nil {
+		if outcome.State != statemachine.RunWaitingApproval || outcome.ResultHash != "" || outcome.RunEvent != nil || outcome.AttemptEvent != nil || outcome.Child != nil || outcome.Message == nil || outcome.MessageID == "" {
+			return ErrOutcome
+		}
+		message, err := handler.runMessageInput(ctx, claim, outcome.MessageID, outcome.Message)
+		if err != nil {
+			return err
+		}
+		planned := *outcome.Approvals
+		planned.Claim, planned.ExpectedRunVersion = claim, claim.RunVersion
+		planned.Actor, planned.CorrelationID = handler.Actor, command.CorrelationID
+		planned.AssistantMessage = &message
+		_, err = handler.Runs.ProposeDirectTools(ctx, planned)
 		return err
 	}
 	if outcome.Children != nil {
@@ -256,7 +276,7 @@ func (handler Handler) claimEvidence(ctx context.Context, command eventpostgres.
 }
 
 func (handler Handler) completion(ctx context.Context, claim executionpostgres.RunClaim, command CommandPayload, outcome Outcome) (executionpostgres.CompleteRunCommand, error) {
-	if !statemachine.Runs.IsTerminal(outcome.State) || outcome.ResultHash == "" || outcome.RunEvent == nil && outcome.Child == nil || outcome.AttemptEvent == nil || outcome.Tools != nil || outcome.Children != nil || outcome.State == statemachine.RunSucceeded && (outcome.MessageID == "" || outcome.Message == nil) {
+	if !statemachine.Runs.IsTerminal(outcome.State) || outcome.ResultHash == "" || outcome.RunEvent == nil && outcome.Child == nil || outcome.AttemptEvent == nil || outcome.Tools != nil || outcome.Approvals != nil || outcome.Children != nil || outcome.State == statemachine.RunSucceeded && (outcome.MessageID == "" || outcome.Message == nil) {
 		return executionpostgres.CompleteRunCommand{}, ErrOutcome
 	}
 	attempt, err := handler.putEvent(ctx, claim.TenantID, claim.AttemptID+":attempt-completed", outcome.AttemptEvent, "job_attempt_completed")

@@ -53,6 +53,7 @@ type ToolResolver interface {
 // message so the plan can bind continuation context to the provider result.
 type ResultPlanBuilder interface {
 	BuildTools(context.Context, Execution, TurnResult, MessageDocument, []ValidatedToolCall) (executionpostgres.RequestToolsCommand, error)
+	BuildApprovals(context.Context, Execution, TurnResult, MessageDocument, []ValidatedToolCall) (executionpostgres.ProposeDirectToolsCommand, error)
 	BuildChildren(context.Context, Execution, TurnResult, MessageDocument, []ValidatedToolCall) (executionpostgres.SpawnChildRunsCommand, error)
 }
 
@@ -100,7 +101,7 @@ func (interpreter ResultInterpreter) Interpret(ctx context.Context, execution Ex
 		message.Content = append(message.Content, provider.ContentBlock{Type: "text", Text: result.Text})
 	}
 	seenCallIDs := map[string]bool{}
-	kind := ToolExecutionKind("")
+	path := ""
 	for _, call := range result.ToolCalls {
 		frozen, ok := bindings[call.Name]
 		if call.ID == "" || call.Name == "" || len(call.Input) == 0 || seenCallIDs[call.ID] || !ok {
@@ -114,9 +115,13 @@ func (interpreter ResultInterpreter) Interpret(ctx context.Context, execution Ex
 		if !validResolvedTool(resolved, binding, call.Name) || len(normalized) == 0 || requestHash == "" || !json.Valid(normalized) {
 			return Outcome{}, ErrResultIntegrity
 		}
-		if kind == "" {
-			kind = resolved.ExecutionKind
-		} else if kind != resolved.ExecutionKind {
+		callPath := interpretedToolPath(resolved)
+		if callPath == "" {
+			return Outcome{}, ErrResultIntegrity
+		}
+		if path == "" {
+			path = callPath
+		} else if path != callPath {
 			return Outcome{}, errors.Join(ErrResultRepair, fmt.Errorf("mixed tool execution kinds are not atomic"))
 		}
 		seenCallIDs[call.ID] = true
@@ -127,14 +132,20 @@ func (interpreter ResultInterpreter) Interpret(ctx context.Context, execution Ex
 	if err != nil {
 		return Outcome{}, ErrResultConfiguration
 	}
-	switch kind {
-	case ToolExecutionWorker:
+	switch path {
+	case "worker":
 		plan, planErr := interpreter.Plans.BuildTools(ctx, execution, turn, message, validated)
 		if planErr != nil || !validInterpretedToolPlan(plan, validated, result.ResponseHash) {
 			return Outcome{}, errors.Join(ErrResultPlan, planErr)
 		}
 		return Outcome{State: statemachine.RunWaitingTool, MessageID: messageID, Message: &message, Tools: &plan}, nil
-	case ToolExecutionChild:
+	case "approval_direct":
+		plan, planErr := interpreter.Plans.BuildApprovals(ctx, execution, turn, message, validated)
+		if planErr != nil || !validInterpretedApprovalPlan(plan, validated, result.ResponseHash) {
+			return Outcome{}, errors.Join(ErrResultPlan, planErr)
+		}
+		return Outcome{State: statemachine.RunWaitingApproval, MessageID: messageID, Message: &message, Approvals: &plan}, nil
+	case "child_run":
 		plan, planErr := interpreter.Plans.BuildChildren(ctx, execution, turn, message, validated)
 		if planErr != nil || !validInterpretedChildPlan(plan, validated, result.ResponseHash) {
 			return Outcome{}, errors.Join(ErrResultPlan, planErr)
@@ -205,7 +216,20 @@ func frozenToolBindings(plan TurnPlan) (map[string]struct {
 }
 
 func validResolvedTool(tool ResolvedTool, binding llmpostgres.SnapshotBinding, name string) bool {
-	return tool.Name == name && tool.DescriptorSnapshotID == binding.ID && tool.DescriptorHash == binding.Hash && (tool.ExecutionKind == ToolExecutionWorker || tool.ExecutionKind == ToolExecutionChild) && (!tool.RequiresPreview || tool.ManualApprovalRequired)
+	return tool.Name == name && tool.DescriptorSnapshotID == binding.ID && tool.DescriptorHash == binding.Hash && (tool.ExecutionKind == ToolExecutionWorker || tool.ExecutionKind == ToolExecutionChild) && (!tool.RequiresPreview || tool.ManualApprovalRequired) && (tool.ExecutionKind != ToolExecutionChild || !tool.ManualApprovalRequired && !tool.RequiresPreview)
+}
+
+func interpretedToolPath(tool ResolvedTool) string {
+	if tool.ExecutionKind == ToolExecutionChild {
+		return "child_run"
+	}
+	if tool.ExecutionKind != ToolExecutionWorker {
+		return ""
+	}
+	if tool.ManualApprovalRequired && !tool.RequiresPreview {
+		return "approval_direct"
+	}
+	return "worker"
 }
 
 func validInterpretedToolPlan(plan executionpostgres.RequestToolsCommand, calls []ValidatedToolCall, resultHash string) bool {
@@ -218,6 +242,19 @@ func validInterpretedToolPlan(plan executionpostgres.RequestToolsCommand, calls 
 			return false
 		}
 		if call.Tool.ManualApprovalRequired && !request.RequiresPreview {
+			return false
+		}
+	}
+	return true
+}
+
+func validInterpretedApprovalPlan(plan executionpostgres.ProposeDirectToolsCommand, calls []ValidatedToolCall, resultHash string) bool {
+	if plan.PlanResultHash != resultHash || len(plan.ToolRequests) != len(calls) {
+		return false
+	}
+	for index, request := range plan.ToolRequests {
+		call := calls[index]
+		if !call.Tool.ManualApprovalRequired || call.Tool.RequiresPreview || call.Tool.ExecutionKind != ToolExecutionWorker || request.ToolName != call.Tool.Name || request.DescriptorSnapshotID != call.Tool.DescriptorSnapshotID || request.RequestHash != call.RequestHash {
 			return false
 		}
 	}
