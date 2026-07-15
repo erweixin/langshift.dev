@@ -91,7 +91,8 @@ for migration in \
   deploy/migrations/000049_direct_tool_approval_protocol.up.sql \
   deploy/migrations/000050_tool_execution_overlay.up.sql \
   deploy/migrations/000051_runtime_session_request_binding.up.sql \
-  deploy/migrations/000052_runtime_execution_ledger.up.sql; do
+  deploy/migrations/000052_runtime_execution_ledger.up.sql \
+  deploy/migrations/000053_runtime_active_execution_authority.up.sql; do
   target="/tmp/$(basename "${migration}")"
   docker cp "${migration}" "${container_name}:${target}" >/dev/null
   docker exec "${container_name}" psql -v ON_ERROR_STOP=1 -U postgres -d lites_foundation -f "${target}" >/dev/null

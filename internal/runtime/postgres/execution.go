@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	runtimecontract "github.com/langshift/lites/internal/runtime"
 )
 
 var runtimeRequestIDPattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._:-]{7,127}$`)
@@ -20,8 +21,9 @@ var runtimeFailureCodePattern = regexp.MustCompile(`^[a-z][a-z0-9_.:-]{0,127}$`)
 
 type BeginExecutionCommand struct {
 	LifecycleCommand
-	RequestID   string
-	RequestHash string
+	CapabilityToken string
+	RequestID       string
+	RequestHash     string
 }
 
 type FinishExecutionCommand struct {
@@ -72,14 +74,27 @@ type RuntimeExecution struct {
 }
 
 func (store Store) BeginExecution(ctx context.Context, command BeginExecutionCommand) (RuntimeExecution, error) {
-	if !validLifecycleCommand(command.LifecycleCommand) || !runtimeRequestIDPattern.MatchString(command.RequestID) || !runtimeReceiptPattern.MatchString(command.RequestHash) {
+	if !store.valid() {
+		return RuntimeExecution{}, ErrConfiguration
+	}
+	if !validLifecycleCommand(command.LifecycleCommand) || command.CapabilityToken == "" || !runtimeRequestIDPattern.MatchString(command.RequestID) || !runtimeReceiptPattern.MatchString(command.RequestHash) {
 		return RuntimeExecution{}, ErrInvalidCommand
+	}
+	claims, err := store.Verifier.Verify(command.CapabilityToken, store.now())
+	if err != nil {
+		return RuntimeExecution{}, err
+	}
+	if claims.TenantID != command.TenantID {
+		return RuntimeExecution{}, ErrCapabilityBinding
 	}
 	executionID, err := store.deterministicID("runtime-execution:"+command.RequestID, command.SessionID, 1)
 	if err != nil {
 		return RuntimeExecution{}, ErrConfiguration
 	}
 	return store.withExecutionLifecycle(ctx, command.LifecycleCommand, "RuntimeSessionExecutionStarted", func(tx pgx.Tx, session lifecycleSession, allocation *lifecycleAllocation, digest []byte, now time.Time, eventID string) (RuntimeExecution, error) {
+		if err := authorizeExecutionCapability(ctx, tx, store, claims, session, now); err != nil {
+			return RuntimeExecution{}, err
+		}
 		existing, loadErr := loadRuntimeExecution(ctx, tx, command.TenantID, command.SessionID, command.RequestID)
 		if loadErr == nil {
 			if existing.ID != executionID || existing.RequestHash != command.RequestHash {
@@ -101,6 +116,19 @@ func (store Store) BeginExecution(ctx context.Context, command BeginExecutionCom
 		if !validObservedAt(occurredAt, session.UpdatedAt, now) || !session.ExecutionDeadline.After(occurredAt) {
 			return RuntimeExecution{}, ErrInvalidCommand
 		}
+		var executionRight string
+		if err := tx.QueryRow(ctx, `SELECT agent.runtime_lock_execution_right($1,$2,NULLIF($3,'')::uuid,NULLIF($4,0),$5)`, session.TenantID, session.ID, claims.ApprovalID, claims.ApprovalVersion, now).Scan(&executionRight); err != nil {
+			return RuntimeExecution{}, err
+		}
+		switch executionRight {
+		case "approval_invalid":
+			return RuntimeExecution{}, ErrApproval
+		case "execution_invalid":
+			return RuntimeExecution{}, ErrCapabilityBinding
+		case "valid":
+		default:
+			return RuntimeExecution{}, ErrConfiguration
+		}
 		if err := store.appendLifecycleEvent(ctx, tx, session, eventID, nextVersion, "RuntimeSessionExecutionStarted", occurredAt, command.Payload, command.Actor, command.CorrelationID); err != nil {
 			return RuntimeExecution{}, err
 		}
@@ -116,6 +144,17 @@ func (store Store) BeginExecution(ctx context.Context, command BeginExecutionCom
 		lifecycle := LifecycleResult{SessionID: session.ID, Status: "running", EventID: eventID, Version: nextVersion, OccurredAt: occurredAt, Deadline: session.ExecutionDeadline}
 		return RuntimeExecution{ID: executionID, TenantID: session.TenantID, UserID: session.UserID, SessionID: session.ID, ToolCallID: session.ToolCallID, RequestID: command.RequestID, RequestHash: command.RequestHash, Status: "running", Version: 1, StartedSessionVersion: nextVersion, StartedEventID: eventID, StartedAt: occurredAt, Lifecycle: lifecycle}, nil
 	})
+}
+
+func authorizeExecutionCapability(ctx context.Context, tx pgx.Tx, store Store, claims runtimecontract.CapabilityClaims, lifecycle lifecycleSession, now time.Time) error {
+	session, policy, err := loadSessionForProvision(ctx, tx, claims, store.StoreEpoch)
+	if err != nil {
+		return err
+	}
+	if session.ID != lifecycle.ID || session.TenantID != lifecycle.TenantID || session.UserID != lifecycle.UserID || session.ToolCallID != lifecycle.ToolCallID || session.Version != lifecycle.Version || session.Status != lifecycle.Status {
+		return ErrCapabilityBinding
+	}
+	return validateCapabilityBinding(claims, session, policy, now)
 }
 
 func (store Store) CompleteExecution(ctx context.Context, command FinishExecutionCommand) (RuntimeExecution, error) {

@@ -241,11 +241,30 @@ func TestBeginProvisionAtomicallyBindsCapabilityEventSessionAndCapacity(t *testi
 		TenantID: tenantID, SessionID: sessionID, ProvisionAttemptID: result.ProvisionAttemptID, ProvisionFence: 1, ExpectedVersion: 3,
 		LeaseToken: wrongLease, ObservedAt: clock, Payload: PayloadPointer{Ref: "encrypted://runtime-store/running", Hash: strings.Repeat("1", 64)}, Actor: json.RawMessage(`{"kind":"system"}`), CorrelationID: command.CorrelationID,
 	}
-	beginExecution := BeginExecutionCommand{LifecycleCommand: runningCommand, RequestID: "runtime-execution-9201", RequestHash: strings.Repeat("2", 64)}
+	beginExecution := BeginExecutionCommand{LifecycleCommand: runningCommand, CapabilityToken: capability, RequestID: "runtime-execution-9201", RequestHash: strings.Repeat("2", 64)}
 	if _, err = store.BeginExecution(ctx, beginExecution); !errors.Is(err, ErrSessionConflict) {
 		t.Fatalf("wrong lifecycle lease = %v", err)
 	}
 	beginExecution.LeaseToken = provisionLease
+	wrongExecutionClaims := claims
+	wrongExecutionClaims.RequestHash = strings.Repeat("f", 64)
+	beginExecution.CapabilityToken, err = runtimecontract.SignCapability(wrongExecutionClaims, "runtime-key-v1", privateKey, 5*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.BeginExecution(ctx, beginExecution); !errors.Is(err, ErrCapabilityBinding) {
+		t.Fatalf("substituted execution capability = %v", err)
+	}
+	beginExecution.CapabilityToken = capability
+	if _, err = admin.Exec(ctx, `UPDATE agent.tool_calls SET lease_expires_at=$1 WHERE tenant_id=$2 AND id=$3`, clock, tenantID, toolID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.BeginExecution(ctx, beginExecution); !errors.Is(err, ErrCapabilityBinding) {
+		t.Fatalf("expired current execution right = %v", err)
+	}
+	if _, err = admin.Exec(ctx, `UPDATE agent.tool_calls SET lease_expires_at=$1 WHERE tenant_id=$2 AND id=$3`, extendedLease, tenantID, toolID); err != nil {
+		t.Fatal(err)
+	}
 	running, err := store.BeginExecution(ctx, beginExecution)
 	if err != nil || running.Status != "running" || running.Version != 1 || running.Lifecycle.Version != 4 || running.Replayed {
 		t.Fatalf("BeginExecution() = %#v, %v", running, err)
@@ -272,7 +291,7 @@ func TestBeginProvisionAtomicallyBindsCapabilityEventSessionAndCapacity(t *testi
 		t.Fatalf("replayed CompleteExecution() = %#v, %v", idleReplay, err)
 	}
 	clock = now.Add(5 * time.Second)
-	interruptedCommand := BeginExecutionCommand{LifecycleCommand: beginExecution.LifecycleCommand, RequestID: "runtime-execution-9202", RequestHash: strings.Repeat("5", 64)}
+	interruptedCommand := BeginExecutionCommand{LifecycleCommand: beginExecution.LifecycleCommand, CapabilityToken: capability, RequestID: "runtime-execution-9202", RequestHash: strings.Repeat("5", 64)}
 	interruptedCommand.ExpectedVersion, interruptedCommand.ObservedAt = 5, clock
 	interruptedCommand.Payload = PayloadPointer{Ref: "encrypted://runtime-store/interrupted", Hash: strings.Repeat("6", 64)}
 	interrupted, err := store.BeginExecution(ctx, interruptedCommand)
