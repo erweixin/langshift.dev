@@ -57,12 +57,12 @@ type RuntimePolicy struct {
 }
 
 type ProvisionResult struct {
-	SessionID, AllocationID, ProvisionAttemptID string
-	MachineID                                   string
-	GuestCID                                    uint32
-	Version                                     uint64
-	Policy                                      RuntimePolicy
-	Replayed                                    bool
+	TenantID, SessionID, AllocationID, ProvisionAttemptID string
+	MachineID                                             string
+	GuestCID                                              uint32
+	Version                                               uint64
+	Policy                                                RuntimePolicy
+	Replayed                                              bool
 }
 
 func (store Store) IssueProvisionLease() (string, error) {

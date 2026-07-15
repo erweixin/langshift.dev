@@ -164,7 +164,7 @@ func TestBeginProvisionAtomicallyBindsCapabilityEventSessionAndCapacity(t *testi
 		t.Fatal(err)
 	}
 	command := ProvisionCommand{
-		CapabilityToken: capability, HostID: hostID, MachineID: "runtime-store-9201", GuestCID: 92,
+		TenantID: tenantID, CapabilityToken: capability, HostID: hostID, MachineID: "runtime-store-9201", GuestCID: 92,
 		ProvisionLease: provisionLease, ProvisionLeaseExpiresAt: now.Add(time.Minute),
 		Payload: PayloadPointer{Ref: "encrypted://runtime-store/provision", Hash: "runtime-store-provision"}, Actor: json.RawMessage(`{"kind":"system"}`), CorrelationID: "a0000000-0000-0000-0000-000000009201",
 	}

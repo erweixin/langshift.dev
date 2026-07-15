@@ -14,6 +14,7 @@ import (
 )
 
 type ProvisionCommand struct {
+	TenantID                string
 	CapabilityToken         string
 	HostID                  string
 	MachineID               string
@@ -44,7 +45,7 @@ type sessionRow struct {
 }
 
 func (store Store) BeginProvision(ctx context.Context, command ProvisionCommand) (ProvisionResult, error) {
-	if !store.valid() || command.HostID == "" || command.MachineID == "" || command.GuestCID < 3 || command.ProvisionLeaseExpiresAt.IsZero() || !validPayload(command.Payload) || !validActor(command.Actor) || command.CorrelationID == "" {
+	if !store.valid() || command.TenantID == "" || command.HostID == "" || command.MachineID == "" || command.GuestCID < 3 || command.ProvisionLeaseExpiresAt.IsZero() || !validPayload(command.Payload) || !validActor(command.Actor) || command.CorrelationID == "" {
 		return ProvisionResult{}, ErrInvalidCommand
 	}
 	if err := store.requireEpoch(ctx); err != nil {
@@ -54,6 +55,9 @@ func (store Store) BeginProvision(ctx context.Context, command ProvisionCommand)
 	claims, err := store.Verifier.Verify(command.CapabilityToken, now)
 	if err != nil {
 		return ProvisionResult{}, err
+	}
+	if claims.TenantID != command.TenantID {
+		return ProvisionResult{}, ErrCapabilityBinding
 	}
 	provisionDigest, err := store.provisionTokens().Digest(command.ProvisionLease)
 	if err != nil {
@@ -86,7 +90,7 @@ func (store Store) BeginProvision(ctx context.Context, command ProvisionCommand)
 	if err != nil {
 		return ProvisionResult{}, err
 	}
-	result := ProvisionResult{SessionID: session.ID, AllocationID: allocationID, ProvisionAttemptID: provisionAttemptID, MachineID: command.MachineID, GuestCID: command.GuestCID, Version: 2, Policy: policy}
+	result := ProvisionResult{TenantID: session.TenantID, SessionID: session.ID, AllocationID: allocationID, ProvisionAttemptID: provisionAttemptID, MachineID: command.MachineID, GuestCID: command.GuestCID, Version: 2, Policy: policy}
 	if session.Status != "requested" {
 		if exactProvisionReplay(session, command, provisionAttemptID, provisionDigest[:], leaseExpiresAt) {
 			result.Replayed = true
