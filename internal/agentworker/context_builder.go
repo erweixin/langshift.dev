@@ -29,7 +29,14 @@ type ContextSourceLoader interface {
 
 type BehaviorAssetLoader interface {
 	LoadPrompt(context.Context, string, behavior.Binding) (string, error)
-	LoadTool(context.Context, string, behavior.Binding) (provider.Tool, error)
+	LoadTool(context.Context, string, behavior.Binding) (ToolAsset, error)
+}
+
+// ToolAsset separates the provider-facing function schema from the full
+// immutable descriptor hash used for execution authorization.
+type ToolAsset struct {
+	Tool           provider.Tool
+	DescriptorHash string
 }
 
 type TokenEstimator interface {
@@ -104,11 +111,11 @@ func (builder ProductionContextBuilder) BuildTurn(ctx context.Context, execution
 	}
 	toolBindings := make([]llmpostgres.SnapshotBinding, 0, len(sources.Behavior.Tools))
 	for _, binding := range sources.Behavior.Tools {
-		tool, loadErr := builder.Assets.LoadTool(ctx, execution.Claim.TenantID, binding)
-		if loadErr != nil || !matchesToolBinding(tool, binding) {
+		asset, loadErr := builder.Assets.LoadTool(ctx, execution.Claim.TenantID, binding)
+		if loadErr != nil || !matchesToolBinding(asset, binding) {
 			return TurnPlan{}, ErrContextAsset
 		}
-		request.Tools = append(request.Tools, tool)
+		request.Tools = append(request.Tools, asset.Tool)
 		toolBindings = append(toolBindings, snapshotBinding(binding))
 	}
 	estimated, err := builder.Estimator.Estimate(ctx, request)
@@ -183,9 +190,8 @@ func convertMessage(source MessageSource) (provider.Message, error) {
 	return provider.Message{Role: role, Content: content}, nil
 }
 
-func matchesToolBinding(tool provider.Tool, binding behavior.Binding) bool {
-	encoded, err := json.Marshal(tool)
-	return err == nil && tool.Name != "" && sha256Bytes(encoded) == binding.Hash
+func matchesToolBinding(asset ToolAsset, binding behavior.Binding) bool {
+	return asset.Tool.Name == binding.ID && asset.DescriptorHash == binding.Hash
 }
 
 func snapshotBinding(binding behavior.Binding) llmpostgres.SnapshotBinding {

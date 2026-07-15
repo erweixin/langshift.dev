@@ -25,6 +25,18 @@ func (resolver *resolverStub) ResolveAndNormalize(_ context.Context, _ Execution
 	if !ok || advertised.Name != call.Name || tool.DescriptorSnapshotID != binding.ID {
 		return ResolvedTool{}, nil, "", errors.New("not resolved")
 	}
+	if tool.EffectClass == "" {
+		tool.EffectClass = "read_only"
+	}
+	if tool.QueueClass == "" {
+		tool.QueueClass, tool.ResourceClass, tool.Priority, tool.CostUnits, tool.MaxAttempts = "interactive", "tool-test", 50, 1, 5
+	}
+	if tool.PolicySnapshotID == "" {
+		tool.PolicySnapshotID, tool.PolicyHash, tool.PolicyVersion = "policy-test", "policy-test-hash", 1
+	}
+	if tool.PermissionSnapshot == "" {
+		tool.PermissionSnapshot = "membership:test:v1:role:member"
+	}
 	var value any
 	if json.Unmarshal(call.Input, &value) != nil {
 		return ResolvedTool{}, nil, "", errors.New("schema validation failed")

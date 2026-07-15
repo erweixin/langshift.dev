@@ -29,12 +29,12 @@ type assetLoaderStub struct {
 func (loader assetLoaderStub) LoadPrompt(context.Context, string, behavior.Binding) (string, error) {
 	return loader.prompt, nil
 }
-func (loader assetLoaderStub) LoadTool(_ context.Context, _ string, binding behavior.Binding) (provider.Tool, error) {
+func (loader assetLoaderStub) LoadTool(_ context.Context, _ string, binding behavior.Binding) (ToolAsset, error) {
 	tool, ok := loader.tools[binding.ID]
 	if !ok {
-		return provider.Tool{}, ErrContextAsset
+		return ToolAsset{}, ErrContextAsset
 	}
-	return tool, nil
+	return ToolAsset{Tool: tool, DescriptorHash: binding.Hash}, nil
 }
 
 type estimatorStub uint64

@@ -28,10 +28,17 @@ const (
 )
 
 type ResolvedTool struct {
-	Name, DescriptorSnapshotID, DescriptorHash string
-	ExecutionKind                              ToolExecutionKind
-	ManualApprovalRequired                     bool
-	RequiresPreview                            bool
+	Name, DescriptorSnapshotID, DescriptorHash      string
+	ExecutionKind                                   ToolExecutionKind
+	ManualApprovalRequired                          bool
+	RequiresPreview                                 bool
+	EffectClass, EffectKey, EffectScope, ProviderID string
+	QueueClass, ResourceClass                       string
+	Priority, MaxAttempts                           int
+	CostUnits                                       int64
+	PolicySnapshotID, PolicyHash                    string
+	PermissionSnapshot                              string
+	PolicyVersion                                   uint64
 }
 
 type ValidatedToolCall struct {
@@ -216,7 +223,10 @@ func frozenToolBindings(plan TurnPlan) (map[string]struct {
 }
 
 func validResolvedTool(tool ResolvedTool, binding llmpostgres.SnapshotBinding, name string) bool {
-	return tool.Name == name && tool.DescriptorSnapshotID == binding.ID && tool.DescriptorHash == binding.Hash && (tool.ExecutionKind == ToolExecutionWorker || tool.ExecutionKind == ToolExecutionChild) && (!tool.RequiresPreview || tool.ManualApprovalRequired) && (tool.ExecutionKind != ToolExecutionChild || !tool.ManualApprovalRequired && !tool.RequiresPreview)
+	base := tool.Name == name && tool.DescriptorSnapshotID == binding.ID && tool.DescriptorHash == binding.Hash && (tool.ExecutionKind == ToolExecutionWorker || tool.ExecutionKind == ToolExecutionChild) && (!tool.RequiresPreview || tool.ManualApprovalRequired) && tool.PolicySnapshotID != "" && tool.PolicyHash != "" && tool.PolicyVersion > 0 && tool.PermissionSnapshot != "" && (tool.QueueClass == "interactive" || tool.QueueClass == "background") && tool.ResourceClass != "" && tool.Priority >= 0 && tool.Priority <= 1000 && tool.CostUnits > 0 && tool.CostUnits <= 1_000_000_000_000 && tool.MaxAttempts > 0 && tool.MaxAttempts <= 100
+	read := tool.EffectClass == "read_only" && tool.EffectKey == "" && tool.EffectScope == "" && tool.ProviderID == ""
+	write := (tool.EffectClass == "idempotent_write" || tool.EffectClass == "reconcilable_write" || tool.EffectClass == "compensatable_write" || tool.EffectClass == "irreversible_write") && tool.EffectKey != "" && tool.EffectScope != "" && tool.ProviderID != ""
+	return base && (read || write) && (tool.ExecutionKind != ToolExecutionChild || read && !tool.ManualApprovalRequired && !tool.RequiresPreview)
 }
 
 func interpretedToolPath(tool ResolvedTool) string {
