@@ -73,6 +73,25 @@ func (store RunStore) RequestCancellation(ctx context.Context, command RequestRu
 		return RunCancellationResult{}, err
 	}
 
+	// Every Worker terminal/heartbeat path locks inbox before Run. Observe the
+	// current execution tuple and take that same first lock before locking Run,
+	// otherwise cancellation can deadlock with a Worker that already owns inbox.
+	var observedCommand, observedAttempt sql.NullString
+	if err = tx.QueryRow(ctx, `SELECT active_command_id::text,active_attempt_id::text FROM agent.runs WHERE id=$1 AND tenant_id=$2 AND user_id=$3`, command.RunID, command.TenantID, command.UserID).Scan(&observedCommand, &observedAttempt); errors.Is(err, pgx.ErrNoRows) {
+		return RunCancellationResult{}, ErrRunConflict
+	} else if err != nil {
+		return RunCancellationResult{}, err
+	}
+	if observedCommand.Valid != observedAttempt.Valid {
+		return RunCancellationResult{}, ErrRunConflict
+	}
+	if observedCommand.Valid {
+		var inboxID string
+		if err = tx.QueryRow(ctx, `SELECT id::text FROM agent.inbox WHERE tenant_id=$1 AND command_id=$2 AND owner_attempt_id=$3 AND status='running' FOR UPDATE`, command.TenantID, observedCommand.String, observedAttempt.String).Scan(&inboxID); err != nil {
+			return RunCancellationResult{}, ErrRunConflict
+		}
+	}
+
 	var runStatus string
 	var runVersion, cancelGeneration, currentFence uint64
 	var activeCancellation, pendingCommand, activeCommand, activeAttempt sql.NullString
@@ -82,6 +101,9 @@ func (store RunStore) RequestCancellation(ctx context.Context, command RequestRu
 	}
 	if err != nil {
 		return RunCancellationResult{}, err
+	}
+	if activeCommand.Valid != observedCommand.Valid || activeAttempt.Valid != observedAttempt.Valid || activeCommand.Valid && (activeCommand.String != observedCommand.String || activeAttempt.String != observedAttempt.String) {
+		return RunCancellationResult{}, ErrRunConflict
 	}
 	if activeCancellation.Valid {
 		result, exact, replayErr := loadCancellationReplay(ctx, tx, command, runStatus, runVersion, activeCancellation.String)
