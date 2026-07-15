@@ -108,29 +108,51 @@ func TestProviderDispatchIsAtMostOnceAndFallbackIsFullyAccounted(t *testing.T) {
 	if err != nil || preparedOne.Ordinal != 1 {
 		t.Fatalf("prepare one=%#v err=%v", preparedOne, err)
 	}
+	credentialTx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer credentialTx.Rollback(ctx)
+	if _, err = credentialTx.Exec(ctx, `SELECT set_config('lites.tenant_id',$1,true)`, tenantID); err != nil {
+		t.Fatal(err)
+	}
+	var exactSecretRef string
+	if err = credentialTx.QueryRow(ctx, `SELECT secret_ref FROM product.byok_credential_versions WHERE tenant_id=$1 AND credential_id=$2 AND version=1 AND provider_id='openai' AND bound_host='api.openai.com' AND secret_version='1' AND status='active'`, tenantID, credential).Scan(&exactSecretRef); err != nil || exactSecretRef != "vault://byok/c6/v1" {
+		t.Fatalf("agent role cannot resolve exact BYOK version: ref=%q err=%v", exactSecretRef, err)
+	}
+	if err = credentialTx.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
 	completionOne, _ := store.IssueCompletionToken()
 	dispatch := AuthorizeDispatchCommand{AttemptID: first, TenantID: tenantID, RequestHash: "request-c6-1", PrepareToken: prepareOne, CompletionToken: completionOne, CompletionDeadline: now.Add(2 * time.Minute), CorrelationID: correlation, Actor: json.RawMessage(`{"kind":"service"}`), DispatchEvent: pointer("provider-dispatched-1")}
 	const contenders = 16
 	var wait sync.WaitGroup
-	results := make(chan error, contenders)
+	type authorizationOutcome struct {
+		authorization DispatchAuthorization
+		err           error
+	}
+	results := make(chan authorizationOutcome, contenders)
 	for range contenders {
 		wait.Add(1)
 		go func() {
 			defer wait.Done()
-			_, authorizeErr := store.AuthorizeDispatch(ctx, dispatch)
-			results <- authorizeErr
+			authorization, authorizeErr := store.AuthorizeDispatch(ctx, dispatch)
+			results <- authorizationOutcome{authorization: authorization, err: authorizeErr}
 		}()
 	}
 	wait.Wait()
 	close(results)
 	winners, rejected := 0, 0
-	for authorizeErr := range results {
-		if authorizeErr == nil {
+	for outcome := range results {
+		if outcome.err == nil {
 			winners++
-		} else if errors.Is(authorizeErr, ErrAlreadyDispatched) {
+			if outcome.authorization.BYOK == nil || outcome.authorization.BYOK.CredentialID != credential || outcome.authorization.BYOK.Version != 1 || outcome.authorization.BYOK.SecretRef != "vault://byok/c6/v1" || outcome.authorization.BYOK.SecretVersion != "1" {
+				t.Fatalf("dispatch did not resolve exact credential: %#v", outcome.authorization.BYOK)
+			}
+		} else if errors.Is(outcome.err, ErrAlreadyDispatched) {
 			rejected++
 		} else {
-			t.Fatalf("unexpected dispatch error: %v", authorizeErr)
+			t.Fatalf("unexpected dispatch error: %v", outcome.err)
 		}
 	}
 	if winners != 1 || rejected != contenders-1 {

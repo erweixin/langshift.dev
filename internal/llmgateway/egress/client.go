@@ -19,6 +19,27 @@ var (
 	ErrResponseTooLarge  = errors.New("provider response exceeded its size limit")
 )
 
+// SendError tells the durable dispatch protocol whether a failed HTTP call may
+// already have reached the provider. The cause remains sanitized by the layer
+// which owns it.
+type SendError struct {
+	MayHaveSent bool
+	Class       string
+	Cause       error
+}
+
+func (sendError *SendError) Error() string { return "provider egress failed" }
+func (sendError *SendError) Unwrap() error { return sendError.Cause }
+func (sendError *SendError) RequestMayHaveBeenSent() bool {
+	return sendError != nil && sendError.MayHaveSent
+}
+func (sendError *SendError) ProviderFailureClass() string {
+	if sendError == nil {
+		return ""
+	}
+	return sendError.Class
+}
+
 type SecretSource interface {
 	Resolve(context.Context, string, string) ([]byte, error)
 }
@@ -132,7 +153,7 @@ func (transport boundCredentialTransport) RoundTrip(request *http.Request) (*htt
 	credential, err := transport.secrets.Resolve(request.Context(), transport.credential.SecretRef, transport.credential.SecretVersion)
 	if err != nil || len(credential) < 8 || len(credential) > 16<<10 {
 		clear(credential)
-		return nil, ErrInvalidCredential
+		return nil, &SendError{MayHaveSent: false, Class: "auth_failed", Cause: ErrInvalidCredential}
 	}
 	defer clear(credential)
 	clone := request.Clone(request.Context())
@@ -140,7 +161,7 @@ func (transport boundCredentialTransport) RoundTrip(request *http.Request) (*htt
 	clone.Header.Set(transport.credential.HeaderName, transport.credential.ValuePrefix+string(credential))
 	response, err := transport.next.RoundTrip(clone)
 	if err != nil {
-		return nil, err
+		return nil, &SendError{MayHaveSent: true, Cause: err}
 	}
 	if response != nil && response.Body != nil {
 		response.Body = &boundedBody{source: response.Body, remaining: transport.maximumBodyBytes}

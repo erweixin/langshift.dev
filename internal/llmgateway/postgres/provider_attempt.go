@@ -17,6 +17,16 @@ type BYOKBinding struct {
 	SecretVersion string
 }
 
+// AuthorizedCredential is resolved from immutable credential history inside
+// the same transaction that consumes the one-shot dispatch token. Callers can
+// select a credential version, but cannot supply or substitute its secret ref.
+type AuthorizedCredential struct {
+	CredentialID  string
+	Version       uint64
+	SecretRef     string
+	SecretVersion string
+}
+
 type PrepareProviderAttemptCommand struct {
 	AttemptID, ProviderAttemptID, LLMAttemptID string
 	UsageReservationID                         string
@@ -160,7 +170,7 @@ type DispatchAuthorization struct {
 	RequestHash                                string
 	Ordinal                                    int
 	DispatchFence                              uint64
-	BYOK                                       *BYOKBinding
+	BYOK                                       *AuthorizedCredential
 	CompletionDeadline                         time.Time
 }
 
@@ -233,7 +243,12 @@ func (store Store) AuthorizeDispatch(ctx context.Context, command AuthorizeDispa
 	}
 	result.AttemptID, result.Candidate.BoundHost, result.Candidate.PricingVersion = command.AttemptID, host, pricing
 	if byok {
-		result.BYOK = &BYOKBinding{CredentialID: deref(credentialID), Version: derefUint(credentialVersion), SecretVersion: deref(secretVersion)}
+		var secretRef string
+		err = tx.QueryRow(ctx, `SELECT secret_ref FROM product.byok_credential_versions WHERE tenant_id=$1 AND credential_id=$2 AND version=$3 AND provider_id=$4 AND bound_host=$5 AND secret_version=$6 AND status='active'`, command.TenantID, deref(credentialID), derefUint(credentialVersion), result.Candidate.ProviderID, host, deref(secretVersion)).Scan(&secretRef)
+		if err != nil || secretRef == "" {
+			return DispatchAuthorization{}, ErrProviderConflict
+		}
+		result.BYOK = &AuthorizedCredential{CredentialID: deref(credentialID), Version: derefUint(credentialVersion), SecretRef: secretRef, SecretVersion: deref(secretVersion)}
 	}
 	tag, err := tx.Exec(ctx, `UPDATE agent.llm_provider_attempts SET version=2,status='dispatching',dispatch_fence=1,prepare_token_hash=NULL,completion_token_hash=$1,completion_deadline=$2,dispatched_at=$3,dispatch_event_id=$4,updated_at=$3 WHERE tenant_id=$5 AND id=$6 AND status='prepared' AND version=1 AND prepare_token_hash=$7 AND prepare_token_expires_at>$3`, completionDigest[:], command.CompletionDeadline, now, identifiers.Event, command.TenantID, command.AttemptID, prepareDigest[:])
 	if err != nil || tag.RowsAffected() != 1 {
