@@ -88,7 +88,8 @@ for migration in \
   deploy/migrations/000046_scheduler_capacity_and_dispatch_fence.up.sql \
   deploy/migrations/000047_run_context_source_protocol.up.sql \
   deploy/migrations/000048_llm_context_prompt_binding.up.sql \
-  deploy/migrations/000049_direct_tool_approval_protocol.up.sql; do
+  deploy/migrations/000049_direct_tool_approval_protocol.up.sql \
+  deploy/migrations/000050_tool_execution_overlay.up.sql; do
   target="/tmp/$(basename "${migration}")"
   docker cp "${migration}" "${container_name}:${target}" >/dev/null
   docker exec "${container_name}" psql -v ON_ERROR_STOP=1 -U postgres -d lites_foundation -f "${target}" >/dev/null
@@ -105,6 +106,9 @@ docker exec "${container_name}" psql -v ON_ERROR_STOP=1 -U postgres -d lites_fou
 
 docker exec "${container_name}" psql -v ON_ERROR_STOP=1 -U postgres -d lites_foundation -c \
   "GRANT SELECT ON agent.behavior_snapshots,agent.behavior_channel_deployments TO lites_agent_service;" >/dev/null
+
+docker exec "${container_name}" psql -v ON_ERROR_STOP=1 -U postgres -d lites_foundation -c \
+  "GRANT SELECT ON agent.platform_tool_execution_overlays,agent.tenant_tool_execution_overlays TO lites_agent_service;" >/dev/null
 
 docker exec "${container_name}" psql -v ON_ERROR_STOP=1 -U postgres -d lites_foundation -c \
   "CREATE ROLE lites_product_service LOGIN PASSWORD 'foundation_product_service' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS; GRANT CONNECT ON DATABASE lites_foundation TO lites_product_service; GRANT USAGE ON SCHEMA product,agent TO lites_product_service; GRANT SELECT,UPDATE ON product.projects,product.evidence TO lites_product_service; GRANT SELECT ON product.project_workspace_bindings TO lites_product_service; GRANT SELECT,INSERT,UPDATE ON product.artifacts,product.portfolio_exports TO lites_product_service; GRANT SELECT,INSERT ON product.artifact_revisions,product.artifact_revision_evidence,product.portfolio_export_artifacts,product.portfolio_export_evidence TO lites_product_service; GRANT SELECT,INSERT,UPDATE ON agent.runs,agent.jobs,agent.job_attempts,agent.inbox,agent.event_cursors,agent.outbox TO lites_product_service; GRANT SELECT,INSERT ON agent.events TO lites_product_service; GRANT EXECUTE ON FUNCTION agent.list_recoverable_portfolio_tenants(uuid,uuid,integer,integer,integer,timestamptz,timestamptz), agent.list_expirable_portfolio_tenants(uuid,uuid,integer,integer,integer,timestamptz) TO lites_product_service;" >/dev/null
@@ -140,7 +144,7 @@ export LITES_TEST_RUNTIME_SWEEPER_DATABASE_URL="postgres://lites_runtime_sweeper
 export LITES_TEST_BEHAVIOR_DATABASE_URL="postgres://lites_behavior_service:foundation_behavior_service@127.0.0.1:${container_port}/lites_foundation?sslmode=disable"
 export GOCACHE="${go_cache}" GOMODCACHE="${go_mod_cache}" GOTMPDIR="${go_tmp}"
 if [[ -n "${LITES_FOUNDATION_TEST_JSON:-}" ]]; then
-  go test -p=1 -json -count=1 -timeout=60s -tags=integration ./internal/identity/postgres ./internal/identity/mail ./internal/eventstore/postgres ./internal/execution/postgres ./internal/product/postgres ./internal/billing/postgres ./internal/behavior/postgres ./internal/agentworker ./internal/llmgateway/postgres ./internal/memory/postgres ./internal/realtime/postgres ./internal/runtime ./internal/runtime/postgres ./internal/runtime/sweeper | tee "${LITES_FOUNDATION_TEST_JSON}"
+  go test -p=1 -json -count=1 -timeout=60s -tags=integration ./internal/identity/postgres ./internal/identity/mail ./internal/eventstore/postgres ./internal/execution/postgres ./internal/product/postgres ./internal/billing/postgres ./internal/behavior/postgres ./internal/agentworker ./internal/toolworker ./internal/llmgateway/postgres ./internal/memory/postgres ./internal/realtime/postgres ./internal/runtime ./internal/runtime/postgres ./internal/runtime/sweeper | tee "${LITES_FOUNDATION_TEST_JSON}"
 else
-  go test -p=1 -count=1 -timeout=60s -tags=integration ./internal/identity/postgres ./internal/identity/mail ./internal/eventstore/postgres ./internal/execution/postgres ./internal/product/postgres ./internal/billing/postgres ./internal/behavior/postgres ./internal/agentworker ./internal/llmgateway/postgres ./internal/memory/postgres ./internal/realtime/postgres ./internal/runtime ./internal/runtime/postgres ./internal/runtime/sweeper
+  go test -p=1 -count=1 -timeout=60s -tags=integration ./internal/identity/postgres ./internal/identity/mail ./internal/eventstore/postgres ./internal/execution/postgres ./internal/product/postgres ./internal/billing/postgres ./internal/behavior/postgres ./internal/agentworker ./internal/toolworker ./internal/llmgateway/postgres ./internal/memory/postgres ./internal/realtime/postgres ./internal/runtime ./internal/runtime/postgres ./internal/runtime/sweeper
 fi
