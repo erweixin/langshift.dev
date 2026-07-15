@@ -45,24 +45,43 @@ type Store struct {
 	Now         func() time.Time
 }
 
-type PayloadPointer struct{ Ref, Hash string }
+type PayloadPointer struct {
+	Ref  string `json:"ref"`
+	Hash string `json:"hash"`
+}
 
 type RuntimePolicy struct {
-	ID, SnapshotKey, PolicyHash, TrustTier, IsolationKind string
-	NetworkPolicyHash, SecretScopeHash, WorkspaceMode     string
-	ImageDigest, KernelDigest, RootFSDigest               string
-	VCPUCount, MemoryMiB, DiskMiB, PidsMax                int
-	MaximumDuration, IdleTimeout, KillGrace               time.Duration
-	ApprovalRequired                                      bool
+	ID                string        `json:"id"`
+	SnapshotKey       string        `json:"snapshot_key"`
+	PolicyHash        string        `json:"policy_hash"`
+	TrustTier         string        `json:"trust_tier"`
+	IsolationKind     string        `json:"isolation_kind"`
+	NetworkPolicyHash string        `json:"network_policy_hash"`
+	SecretScopeHash   string        `json:"secret_scope_hash"`
+	WorkspaceMode     string        `json:"workspace_mode"`
+	ImageDigest       string        `json:"image_digest"`
+	KernelDigest      string        `json:"kernel_digest"`
+	RootFSDigest      string        `json:"rootfs_digest"`
+	VCPUCount         int           `json:"vcpu_count"`
+	MemoryMiB         int           `json:"memory_mib"`
+	DiskMiB           int           `json:"disk_mib"`
+	PidsMax           int           `json:"pids_max"`
+	MaximumDuration   time.Duration `json:"maximum_duration"`
+	IdleTimeout       time.Duration `json:"idle_timeout"`
+	KillGrace         time.Duration `json:"kill_grace"`
+	ApprovalRequired  bool          `json:"approval_required"`
 }
 
 type ProvisionResult struct {
-	TenantID, SessionID, AllocationID, ProvisionAttemptID string
-	MachineID                                             string
-	GuestCID                                              uint32
-	Version                                               uint64
-	Policy                                                RuntimePolicy
-	Replayed                                              bool
+	TenantID           string        `json:"tenant_id"`
+	SessionID          string        `json:"session_id"`
+	AllocationID       string        `json:"allocation_id"`
+	ProvisionAttemptID string        `json:"provision_attempt_id"`
+	MachineID          string        `json:"machine_id"`
+	GuestCID           uint32        `json:"guest_cid"`
+	Version            uint64        `json:"version"`
+	Policy             RuntimePolicy `json:"policy"`
+	Replayed           bool          `json:"replayed"`
 }
 
 func (store Store) IssueProvisionLease() (string, error) {

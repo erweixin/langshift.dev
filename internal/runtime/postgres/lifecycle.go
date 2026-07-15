@@ -44,11 +44,13 @@ type TerminatedCommand struct {
 }
 
 type LifecycleResult struct {
-	SessionID, Status, EventID string
-	Version                    uint64
-	OccurredAt                 time.Time
-	Deadline                   time.Time
-	Replayed                   bool
+	SessionID  string    `json:"session_id"`
+	Status     string    `json:"status"`
+	EventID    string    `json:"event_id"`
+	Version    uint64    `json:"version"`
+	OccurredAt time.Time `json:"occurred_at"`
+	Deadline   time.Time `json:"deadline"`
+	Replayed   bool      `json:"replayed"`
 }
 
 type lifecycleSession struct {

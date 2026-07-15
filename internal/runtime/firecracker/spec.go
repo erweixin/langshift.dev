@@ -26,14 +26,14 @@ var (
 )
 
 type TokenBucket struct {
-	Size         int64
-	RefillMillis int64
-	Burst        int64
+	Size         int64 `json:"size"`
+	RefillMillis int64 `json:"refill_millis"`
+	Burst        int64 `json:"burst"`
 }
 
 type RateLimit struct {
-	Bandwidth  TokenBucket
-	Operations TokenBucket
+	Bandwidth  TokenBucket `json:"bandwidth"`
+	Operations TokenBucket `json:"operations"`
 }
 
 type Spec struct {

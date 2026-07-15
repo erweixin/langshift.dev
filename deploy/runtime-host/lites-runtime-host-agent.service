@@ -1,0 +1,61 @@
+[Unit]
+Description=Lites Firecracker Runtime Host Agent
+Documentation=https://github.com/langshift/lites
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/dev/kvm
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=root
+Group=root
+EnvironmentFile=/etc/lites/runtime-host-agent.env
+ExecStartPre=/usr/local/libexec/lites/runtime-host-preflight
+ExecStart=/usr/local/libexec/lites/runtime-host-agent
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=90
+TimeoutStopSec=60
+
+# Firecracker children move into jailer-owned delegated cgroups. Keeping
+# KillMode=process is what permits an agent process crash/restart to adopt the
+# exact surviving VMM through pidfd. A normal SIGTERM still drains every owned
+# session before the main process exits.
+KillMode=process
+SendSIGKILL=no
+Delegate=yes
+
+NoNewPrivileges=no
+PrivateTmp=yes
+PrivateDevices=no
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=no
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=no
+ProtectClock=yes
+ProtectHostname=yes
+# Restart recovery authenticates a surviving VMM with boot_id plus
+# /proc/<pid>/stat start ticks before opening a pidfd. Hiding foreign /proc
+# entries would make that fail closed on every agent restart.
+ProtectProc=default
+ProcSubset=all
+RestrictRealtime=yes
+RestrictSUIDSGID=no
+LockPersonality=yes
+MemoryDenyWriteExecute=no
+SystemCallArchitectures=native
+UMask=0077
+LimitNOFILE=65536
+LimitNPROC=8192
+TasksMax=infinity
+DevicePolicy=closed
+DeviceAllow=/dev/kvm rw
+ReadOnlyPaths=/usr/local/libexec/lites /etc/lites /var/lib/lites/runtime-assets
+ReadWritePaths=/var/lib/lites/firecracker /sys/fs/cgroup /run/netns
+
+[Install]
+WantedBy=multi-user.target
