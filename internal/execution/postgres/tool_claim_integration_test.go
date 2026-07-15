@@ -54,8 +54,15 @@ func TestToolClaimHeartbeatAndExpiredReclaimAreFenced(t *testing.T) {
 	}
 	tool := requested.ToolCalls[0]
 	claimCommand := ClaimToolCommand{Command: eventpostgres.DeliveredCommand{TenantID: tenantID, StoreEpoch: storeEpoch, CommandID: tool.CommandID, CommandType: "ExecuteToolCall", AggregateKind: "tool_call", AggregateID: tool.ToolCallID, PayloadRef: "encrypted://tool-claim/execute", PayloadHash: "execute"}, ConsumerName: "tool-worker", WorkerID: "tool-worker-one", Actor: json.RawMessage(`{"kind":"service"}`), CorrelationID: correlationID, ToolStartedEvent: PayloadPointer{Ref: "encrypted://tool-claim/started", Hash: "started"}, AttemptStartedEvent: PayloadPointer{Ref: "encrypted://tool-claim/attempt-started", Hash: "attempt-started"}, AttemptExpiredEvent: PayloadPointer{Ref: "encrypted://tool-claim/attempt-expired", Hash: "attempt-expired"}}
+	wrongBinding := ToolBinding{ToolName: "substituted_tool", DescriptorSnapshotID: "github_create_issue@sha256:v1", NormalizedInputRef: "encrypted://tool-claim/input", RequestHash: "tool-request", EffectClass: "idempotent_write", EffectKey: "issue:claim-test", EffectScope: "tenant:github:claim-test", ProviderID: "github"}
+	claimCommand.ExpectedBinding = &wrongBinding
+	if _, err = store.ClaimTool(ctx, claimCommand); !errors.Is(err, ErrToolNotClaimable) {
+		t.Fatalf("substituted command binding acquired execution right: %v", err)
+	}
+	expectedBinding := ToolBinding{ToolName: "github_create_issue", DescriptorSnapshotID: "github_create_issue@sha256:v1", NormalizedInputRef: "encrypted://tool-claim/input", RequestHash: "tool-request", EffectClass: "idempotent_write", EffectKey: "issue:claim-test", EffectScope: "tenant:github:claim-test", ProviderID: "github"}
+	claimCommand.ExpectedBinding = &expectedBinding
 	first := competeForToolClaim(t, ctx, store, claimCommand, 32)
-	if first.Fence != 1 || first.ToolCallVersion != 2 || first.GroupID != requested.GroupID || first.EffectClass != "idempotent_write" || first.EffectID == "" || first.ProviderRequestID != first.EffectID {
+	if first.Fence != 1 || first.ToolCallVersion != 2 || first.GroupID != requested.GroupID || first.EffectClass != "idempotent_write" || first.EffectID == "" || first.ProviderRequestID != first.EffectID || first.Binding != expectedBinding {
 		t.Fatalf("unexpected first claim: %#v", first)
 	}
 	current = current.Add(30 * time.Second)

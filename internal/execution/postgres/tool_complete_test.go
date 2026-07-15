@@ -41,6 +41,10 @@ func TestParallelJoinPoliciesAndContinuationIdentifiers(t *testing.T) {
 	if err != nil || first != second {
 		t.Fatalf("unstable ids first=%#v second=%#v err=%v", first, second, err)
 	}
+	resumeCommand, err := ResumeAgentCommandID(store.IDKey, "group")
+	if err != nil || resumeCommand != first.command {
+		t.Fatalf("public resume command id drifted: got=%s want=%s err=%v", resumeCommand, first.command, err)
+	}
 	seen := map[string]bool{}
 	for _, value := range []string{first.continuation, first.command, first.job, first.groupEvent, first.groupOutbox, first.groupPublish, first.runEvent, first.runOutbox, first.runPublish, first.resumeOutbox} {
 		if seen[value] {
@@ -92,5 +96,9 @@ func TestEffectCompletionValues(t *testing.T) {
 	reconcileSecond, err := store.reconciliationIdentifiers("effect", 3)
 	if err != nil || reconcileFirst != reconcileSecond || reconcileFirst.outbox == reconcileFirst.command || reconcileFirst.command == reconcileFirst.job || reconcileFirst.outbox == reconcileFirst.job {
 		t.Fatalf("unstable reconciliation identifiers first=%#v second=%#v err=%v", reconcileFirst, reconcileSecond, err)
+	}
+	reconcileCommand, err := ReconcileToolEffectCommandID(store.IDKey, "effect", 3)
+	if err != nil || reconcileCommand != reconcileFirst.command {
+		t.Fatalf("public reconcile command id drifted: got=%s want=%s err=%v", reconcileCommand, reconcileFirst.command, err)
 	}
 }

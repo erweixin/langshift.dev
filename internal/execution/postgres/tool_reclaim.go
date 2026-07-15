@@ -22,20 +22,21 @@ func (store RunStore) reclaimExpiredTool(ctx context.Context, tx pgx.Tx, command
 	if claim.newFence != claim.oldFence+1 || claim.oldExpiry.After(claim.now) || !claim.newExpiry.After(claim.now) {
 		return ToolClaim{}, ErrClaimConflict
 	}
-	var effectID, effectClass, effectStatus, providerRequestID string
+	var effectID, effectClass, effectStatus, providerRequestID, ledgerEffectKey, effectScope, providerID string
 	var effectVersion uint64
-	effectErr := tx.QueryRow(ctx, `SELECT id::text,effect_class,status,version,COALESCE(provider_request_id,'') FROM agent.tool_effects WHERE tenant_id=$1 AND tool_call_id=$2 FOR UPDATE`, command.Command.TenantID, command.Command.AggregateID).Scan(&effectID, &effectClass, &effectStatus, &effectVersion, &providerRequestID)
+	effectErr := tx.QueryRow(ctx, `SELECT id::text,effect_class,status,version,COALESCE(provider_request_id,''),effect_key,effect_scope,provider_id FROM agent.tool_effects WHERE tenant_id=$1 AND tool_call_id=$2 FOR UPDATE`, command.Command.TenantID, command.Command.AggregateID).Scan(&effectID, &effectClass, &effectStatus, &effectVersion, &providerRequestID, &ledgerEffectKey, &effectScope, &providerID)
 	hasEffect := effectErr == nil
 	if effectErr != nil && !errors.Is(effectErr, pgx.ErrNoRows) {
 		return ToolClaim{}, effectErr
 	}
-	var userID, runID, groupID, toolEffectClass string
+	var userID, runID, groupID, toolName, descriptorSnapshotID, normalizedInputRef, toolRequestHash, toolEffectClass, toolEffectKey string
 	var toolVersion, lockedFence uint64
-	err := tx.QueryRow(ctx, `SELECT t.user_id::text,t.run_id::text,m.group_id::text,t.tool_call_version,t.current_fence,t.effect_class FROM agent.tool_calls t JOIN agent.parallel_group_members m ON m.tenant_id=t.tenant_id AND m.tool_call_id=t.id WHERE t.id=$1 AND t.tenant_id=$2 AND t.status='executing' AND t.active_command_id=$3 AND t.active_attempt_id=$4 AND t.current_fence=$5 AND t.lease_token_hash=$6 AND t.lease_expires_at=$7 AND t.lease_expires_at<=$8 FOR UPDATE OF t`, command.Command.AggregateID, command.Command.TenantID, command.Command.CommandID, claim.oldAttemptID, claim.oldFence, claim.oldDigest, claim.oldExpiry, claim.now).Scan(&userID, &runID, &groupID, &toolVersion, &lockedFence, &toolEffectClass)
+	err := tx.QueryRow(ctx, `SELECT t.user_id::text,t.run_id::text,m.group_id::text,t.tool_call_version,t.current_fence,t.tool_name,t.descriptor_snapshot_id,t.normalized_input_ref,t.request_hash,t.effect_class,COALESCE(t.effect_key,'') FROM agent.tool_calls t JOIN agent.parallel_group_members m ON m.tenant_id=t.tenant_id AND m.tool_call_id=t.id WHERE t.id=$1 AND t.tenant_id=$2 AND t.status='executing' AND t.active_command_id=$3 AND t.active_attempt_id=$4 AND t.current_fence=$5 AND t.lease_token_hash=$6 AND t.lease_expires_at=$7 AND t.lease_expires_at<=$8 FOR UPDATE OF t`, command.Command.AggregateID, command.Command.TenantID, command.Command.CommandID, claim.oldAttemptID, claim.oldFence, claim.oldDigest, claim.oldExpiry, claim.now).Scan(&userID, &runID, &groupID, &toolVersion, &lockedFence, &toolName, &descriptorSnapshotID, &normalizedInputRef, &toolRequestHash, &toolEffectClass, &toolEffectKey)
 	if err != nil || lockedFence+1 != claim.newFence {
 		return ToolClaim{}, ErrToolNotClaimable
 	}
-	if hasEffect != (toolEffectClass != "read_only") || hasEffect && (effectClass != toolEffectClass || effectStatus != "executing" || providerRequestID == "") {
+	binding := ToolBinding{ToolName: toolName, DescriptorSnapshotID: descriptorSnapshotID, NormalizedInputRef: normalizedInputRef, RequestHash: toolRequestHash, EffectClass: toolEffectClass, EffectKey: toolEffectKey, EffectScope: effectScope, ProviderID: providerID}
+	if hasEffect != (toolEffectClass != "read_only") || hasEffect && (effectClass != toolEffectClass || effectStatus != "executing" || providerRequestID == "" || ledgerEffectKey != toolEffectKey) || command.ExpectedBinding != nil && *command.ExpectedBinding != binding {
 		return ToolClaim{}, ErrClaimConflict
 	}
 	if hasEffect && effectClass != "idempotent_write" {
@@ -94,5 +95,5 @@ func (store RunStore) reclaimExpiredTool(ctx context.Context, tx pgx.Tx, command
 	if _, err = store.Appender.Append(ctx, tx, started); err != nil {
 		return ToolClaim{}, err
 	}
-	return ToolClaim{ToolCallID: command.Command.AggregateID, RunID: runID, GroupID: groupID, TenantID: command.Command.TenantID, UserID: userID, StoreEpoch: command.Command.StoreEpoch, ToolCallVersion: toolVersion, EffectID: effectID, EffectClass: toolEffectClass, ProviderRequestID: providerRequestID, CommandID: command.Command.CommandID, ConsumerName: command.ConsumerName, RequestHash: command.Command.PayloadHash, JobID: jobID, InboxID: claim.inboxID, AttemptID: claim.newAttemptID, Fence: claim.newFence, LeaseToken: claim.newToken, LeaseExpiresAt: claim.newExpiry}, nil
+	return ToolClaim{ToolCallID: command.Command.AggregateID, RunID: runID, GroupID: groupID, TenantID: command.Command.TenantID, UserID: userID, StoreEpoch: command.Command.StoreEpoch, ToolCallVersion: toolVersion, EffectID: effectID, EffectClass: toolEffectClass, ProviderRequestID: providerRequestID, CommandID: command.Command.CommandID, ConsumerName: command.ConsumerName, RequestHash: command.Command.PayloadHash, JobID: jobID, InboxID: claim.inboxID, AttemptID: claim.newAttemptID, Fence: claim.newFence, LeaseToken: claim.newToken, LeaseExpiresAt: claim.newExpiry, Binding: binding}, nil
 }

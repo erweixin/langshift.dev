@@ -306,6 +306,19 @@ func (store RunStore) continuationIdentifiers(groupID string) (continuationIDs, 
 	return continuationIDs{values[0], values[1], values[2], values[3], values[4], values[5], values[6], values[7], values[8], values[9]}, nil
 }
 
+// ResumeAgentCommandID exposes the kernel's deterministic continuation command
+// identifier so producers can bind encrypted payload AAD to the exact command
+// the completion transaction will enqueue.
+func ResumeAgentCommandID(idKey []byte, groupID string) (string, error) {
+	return ids.DeterministicUUID(idKey, "resume-agent-command", fmt.Sprintf("%s\x00resume", groupID))
+}
+
+// ReconcileToolEffectCommandID exposes the deterministic reconciliation
+// command identifier for the terminal ToolCall version being committed.
+func ReconcileToolEffectCommandID(idKey []byte, effectID string, terminalToolVersion uint64) (string, error) {
+	return ids.DeterministicUUID(idKey, "reconcile-tool-effect-command", fmt.Sprintf("%s\x00%d", effectID, terminalToolVersion))
+}
+
 func (store RunStore) reconciliationIdentifiers(effectID string, toolVersion uint64) (reconciliationIDs, error) {
 	scope := fmt.Sprintf("%s\x00%d", effectID, toolVersion)
 	domains := []string{"reconcile-tool-effect-outbox", "reconcile-tool-effect-command", "reconcile-tool-effect-job"}

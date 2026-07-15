@@ -22,11 +22,20 @@ type ClaimToolCommand struct {
 	Command             eventpostgres.DeliveredCommand
 	ConsumerName        string
 	WorkerID            string
+	ExpectedBinding     *ToolBinding
 	Actor               json.RawMessage
 	CorrelationID       string
 	ToolStartedEvent    PayloadPointer
 	AttemptStartedEvent PayloadPointer
 	AttemptExpiredEvent PayloadPointer
+}
+
+// ToolBinding is the immutable execution surface selected by AgentWorker.
+// Production ToolWorkers pass it back during claim so command payload
+// substitution is rejected before an execution fence is installed.
+type ToolBinding struct {
+	ToolName, DescriptorSnapshotID, NormalizedInputRef, RequestHash string
+	EffectClass, EffectKey, EffectScope, ProviderID                 string
 }
 
 type ToolClaim struct {
@@ -39,6 +48,7 @@ type ToolClaim struct {
 	LeaseToken                                               string
 	LeaseExpiresAt                                           time.Time
 	Completed                                                bool
+	Binding                                                  ToolBinding
 }
 
 // ClaimTool installs one fenced execution right for ExecuteToolCall. Inbox
@@ -137,20 +147,21 @@ func (store RunStore) ClaimTool(ctx context.Context, command ClaimToolCommand) (
 		return ToolClaim{}, ErrToolNotClaimable
 	}
 
-	var effectID, ledgerEffectClass, effectStatus string
+	var effectID, ledgerEffectClass, effectStatus, ledgerEffectKey, effectScope, providerID string
 	var effectVersion uint64
-	effectErr := tx.QueryRow(ctx, `SELECT id::text,effect_class,status,version FROM agent.tool_effects WHERE tenant_id=$1 AND tool_call_id=$2 FOR UPDATE`, command.Command.TenantID, command.Command.AggregateID).Scan(&effectID, &ledgerEffectClass, &effectStatus, &effectVersion)
+	effectErr := tx.QueryRow(ctx, `SELECT id::text,effect_class,status,version,effect_key,effect_scope,provider_id FROM agent.tool_effects WHERE tenant_id=$1 AND tool_call_id=$2 FOR UPDATE`, command.Command.TenantID, command.Command.AggregateID).Scan(&effectID, &ledgerEffectClass, &effectStatus, &effectVersion, &ledgerEffectKey, &effectScope, &providerID)
 	hasEffect := effectErr == nil
 	if effectErr != nil && !errors.Is(effectErr, pgx.ErrNoRows) {
 		return ToolClaim{}, effectErr
 	}
-	var userID, runID, groupID, status, pendingCommand, toolEffectClass string
+	var userID, runID, groupID, status, pendingCommand, toolName, descriptorSnapshotID, normalizedInputRef, toolRequestHash, toolEffectClass, toolEffectKey string
 	var toolVersion, lockedFence uint64
-	err = tx.QueryRow(ctx, `SELECT t.user_id::text,t.run_id::text,m.group_id::text,t.status,t.pending_command_id::text,t.tool_call_version,t.current_fence,t.effect_class FROM agent.tool_calls t JOIN agent.parallel_group_members m ON m.tenant_id=t.tenant_id AND m.tool_call_id=t.id WHERE t.id=$1 AND t.tenant_id=$2 FOR UPDATE OF t`, command.Command.AggregateID, command.Command.TenantID).Scan(&userID, &runID, &groupID, &status, &pendingCommand, &toolVersion, &lockedFence, &toolEffectClass)
+	err = tx.QueryRow(ctx, `SELECT t.user_id::text,t.run_id::text,m.group_id::text,t.status,t.pending_command_id::text,t.tool_call_version,t.current_fence,t.tool_name,t.descriptor_snapshot_id,t.normalized_input_ref,t.request_hash,t.effect_class,COALESCE(t.effect_key,'') FROM agent.tool_calls t JOIN agent.parallel_group_members m ON m.tenant_id=t.tenant_id AND m.tool_call_id=t.id WHERE t.id=$1 AND t.tenant_id=$2 FOR UPDATE OF t`, command.Command.AggregateID, command.Command.TenantID).Scan(&userID, &runID, &groupID, &status, &pendingCommand, &toolVersion, &lockedFence, &toolName, &descriptorSnapshotID, &normalizedInputRef, &toolRequestHash, &toolEffectClass, &toolEffectKey)
 	if err != nil {
 		return ToolClaim{}, ErrToolNotClaimable
 	}
-	if status != string(statemachine.ToolCallRequested) || pendingCommand != command.Command.CommandID || lockedFence+1 != candidateFence || hasEffect != (toolEffectClass != "read_only") || hasEffect && (effectStatus != "prepared" || ledgerEffectClass != toolEffectClass) {
+	binding := ToolBinding{ToolName: toolName, DescriptorSnapshotID: descriptorSnapshotID, NormalizedInputRef: normalizedInputRef, RequestHash: toolRequestHash, EffectClass: toolEffectClass, EffectKey: toolEffectKey, EffectScope: effectScope, ProviderID: providerID}
+	if status != string(statemachine.ToolCallRequested) || pendingCommand != command.Command.CommandID || lockedFence+1 != candidateFence || hasEffect != (toolEffectClass != "read_only") || hasEffect && (effectStatus != "prepared" || ledgerEffectClass != toolEffectClass || ledgerEffectKey != toolEffectKey) || command.ExpectedBinding != nil && *command.ExpectedBinding != binding {
 		return ToolClaim{}, ErrToolNotClaimable
 	}
 	var runStatus string
@@ -198,7 +209,7 @@ func (store RunStore) ClaimTool(ctx context.Context, command ClaimToolCommand) (
 	if err = tx.Commit(ctx); err != nil {
 		return ToolClaim{}, err
 	}
-	return ToolClaim{ToolCallID: command.Command.AggregateID, RunID: runID, GroupID: groupID, TenantID: command.Command.TenantID, UserID: userID, StoreEpoch: command.Command.StoreEpoch, ToolCallVersion: nextVersion, EffectID: effectID, EffectClass: toolEffectClass, ProviderRequestID: providerRequestID, CommandID: command.Command.CommandID, ConsumerName: command.ConsumerName, RequestHash: command.Command.PayloadHash, JobID: jobID, InboxID: inboxID, AttemptID: attemptID, Fence: candidateFence, LeaseToken: credential.Raw, LeaseExpiresAt: expiresAt}, nil
+	return ToolClaim{ToolCallID: command.Command.AggregateID, RunID: runID, GroupID: groupID, TenantID: command.Command.TenantID, UserID: userID, StoreEpoch: command.Command.StoreEpoch, ToolCallVersion: nextVersion, EffectID: effectID, EffectClass: toolEffectClass, ProviderRequestID: providerRequestID, CommandID: command.Command.CommandID, ConsumerName: command.ConsumerName, RequestHash: command.Command.PayloadHash, JobID: jobID, InboxID: inboxID, AttemptID: attemptID, Fence: candidateFence, LeaseToken: credential.Raw, LeaseExpiresAt: expiresAt, Binding: binding}, nil
 }
 
 type toolClaimEventIDs struct{ toolEvent, toolOutbox, toolPublish, attemptEvent, attemptOutbox, attemptPublish string }
