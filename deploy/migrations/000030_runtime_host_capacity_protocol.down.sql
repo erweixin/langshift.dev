@@ -1,0 +1,14 @@
+DROP POLICY IF EXISTS runtime_allocations_tenant_isolation ON agent.runtime_allocations;
+DROP FUNCTION IF EXISTS agent.runtime_set_host_status(text,bigint,bytea,text,timestamptz,timestamptz);
+DROP FUNCTION IF EXISTS agent.runtime_heartbeat_host(text,bigint,bytea,timestamptz,timestamptz);
+DROP FUNCTION IF EXISTS agent.runtime_register_host(text,text,text,text,text,text,text,bytea,integer,integer,integer,integer,timestamptz,timestamptz);
+DROP TRIGGER IF EXISTS runtime_session_allocation_guard ON agent.runtime_sessions;
+DROP TRIGGER IF EXISTS runtime_allocation_session_guard ON agent.runtime_allocations;
+DROP FUNCTION IF EXISTS agent.validate_runtime_allocation_session();
+DROP TRIGGER IF EXISTS runtime_allocation_lifecycle ON agent.runtime_allocations;
+DROP FUNCTION IF EXISTS agent.enforce_runtime_allocation_lifecycle();
+DROP TRIGGER IF EXISTS runtime_host_lifecycle ON agent.runtime_hosts;
+DROP FUNCTION IF EXISTS agent.enforce_runtime_host_lifecycle();
+DROP TABLE IF EXISTS agent.runtime_allocations;
+ALTER TABLE agent.runtime_sessions DROP CONSTRAINT IF EXISTS runtime_sessions_allocation_binding_unique;
+DROP TABLE IF EXISTS agent.runtime_hosts;

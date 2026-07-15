@@ -68,7 +68,8 @@ for migration in \
   deploy/migrations/000026_llm_provider_attempt_protocol.up.sql \
   deploy/migrations/000027_usage_accounting_protocol.up.sql \
   deploy/migrations/000028_memory_retrieval_protocol.up.sql \
-  deploy/migrations/000029_runtime_session_protocol.up.sql; do
+  deploy/migrations/000029_runtime_session_protocol.up.sql \
+  deploy/migrations/000030_runtime_host_capacity_protocol.up.sql; do
   target="/tmp/$(basename "${migration}")"
   docker cp "${migration}" "${container_name}:${target}" >/dev/null
   docker exec "${container_name}" psql -v ON_ERROR_STOP=1 -U postgres -d lites_foundation -f "${target}" >/dev/null
@@ -93,7 +94,7 @@ docker exec "${container_name}" psql -v ON_ERROR_STOP=1 -U postgres -d lites_fou
   "CREATE ROLE lites_realtime_service LOGIN PASSWORD 'foundation_realtime_service' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS; GRANT CONNECT ON DATABASE lites_foundation TO lites_realtime_service; GRANT USAGE ON SCHEMA agent TO lites_realtime_service; GRANT SELECT ON agent.events,agent.event_cursors TO lites_realtime_service;" >/dev/null
 
 docker exec "${container_name}" psql -v ON_ERROR_STOP=1 -U postgres -d lites_foundation -c \
-  "CREATE ROLE lites_runtime_service LOGIN PASSWORD 'foundation_runtime_service' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS; GRANT CONNECT ON DATABASE lites_foundation TO lites_runtime_service; GRANT USAGE ON SCHEMA agent TO lites_runtime_service; GRANT SELECT ON agent.runs,agent.tool_calls,agent.events TO lites_runtime_service; GRANT SELECT,INSERT ON agent.runtime_policy_snapshots TO lites_runtime_service; GRANT SELECT,INSERT,UPDATE ON agent.runtime_sessions,agent.event_cursors,agent.outbox TO lites_runtime_service; GRANT INSERT ON agent.events TO lites_runtime_service; GRANT EXECUTE ON FUNCTION agent.list_runtime_recovery_tenants(uuid,uuid,integer,integer,integer,timestamptz) TO lites_runtime_service;" >/dev/null
+  "CREATE ROLE lites_runtime_service LOGIN PASSWORD 'foundation_runtime_service' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS; GRANT CONNECT ON DATABASE lites_foundation TO lites_runtime_service; GRANT USAGE ON SCHEMA agent TO lites_runtime_service; GRANT SELECT ON agent.runs,agent.tool_calls,agent.events TO lites_runtime_service; GRANT SELECT(host_id,version,pool_key,status,architecture,availability_zone,firecracker_version,kernel_catalog_hash,rootfs_catalog_hash,scratch_template_digest,capacity_vcpu,capacity_memory_mib,capacity_disk_mib,capacity_sessions,allocated_vcpu,allocated_memory_mib,allocated_disk_mib,allocated_sessions,heartbeat_at,heartbeat_deadline,created_at,updated_at) ON agent.runtime_hosts TO lites_runtime_service; GRANT SELECT,INSERT ON agent.runtime_policy_snapshots TO lites_runtime_service; GRANT SELECT,INSERT,UPDATE ON agent.runtime_sessions,agent.runtime_allocations,agent.event_cursors,agent.outbox TO lites_runtime_service; GRANT INSERT ON agent.events TO lites_runtime_service; GRANT EXECUTE ON FUNCTION agent.list_runtime_recovery_tenants(uuid,uuid,integer,integer,integer,timestamptz),agent.runtime_heartbeat_host(text,bigint,bytea,timestamptz,timestamptz),agent.runtime_set_host_status(text,bigint,bytea,text,timestamptz,timestamptz) TO lites_runtime_service;" >/dev/null
 
 container_port="$(docker port "${container_name}" 5432/tcp | head -n 1 | sed 's/.*://')"
 
