@@ -15,8 +15,9 @@ import (
 type RecoveryAuthority string
 
 const (
-	RecoveryOwned    RecoveryAuthority = "owned_machine"
-	RecoveryDeadline RecoveryAuthority = "deadline"
+	RecoveryOwned        RecoveryAuthority = "owned_machine"
+	RecoveryDeadline     RecoveryAuthority = "deadline"
+	RecoveryCancellation RecoveryAuthority = "run_cancellation"
 )
 
 type RecoveryIdentity struct {
@@ -38,6 +39,8 @@ type RecoveryTerminationCommand struct {
 	Authority       RecoveryAuthority
 	Identity        RecoveryIdentity
 	HostControlHash []byte
+	RunID           string
+	CancellationID  string
 	Reason          string
 }
 
@@ -164,10 +167,13 @@ func (store Store) ListDueSessions(ctx context.Context, tenantID, afterSession s
 
 func (store Store) RequestRecoveryTermination(ctx context.Context, command RecoveryTerminationCommand) (LifecycleResult, error) {
 	if !validLifecycleCommandWithoutLease(command.LifecycleCommand) || command.LeaseToken != "" || command.Reason == "" || len(command.Reason) > 128 || !validRecoveryIdentity(command.Identity) || command.Identity.TenantID != command.TenantID || command.Identity.SessionID != command.SessionID ||
-		(command.Authority == RecoveryOwned && len(command.HostControlHash) != 32) || (command.Authority == RecoveryDeadline && len(command.HostControlHash) != 0) || command.Authority != RecoveryOwned && command.Authority != RecoveryDeadline {
+		(command.Authority == RecoveryOwned && (len(command.HostControlHash) != 32 || command.RunID != "" || command.CancellationID != "")) ||
+		(command.Authority == RecoveryDeadline && (len(command.HostControlHash) != 0 || command.RunID != "" || command.CancellationID != "")) ||
+		(command.Authority == RecoveryCancellation && (len(command.HostControlHash) != 0 || command.RunID == "" || command.CancellationID == "")) ||
+		command.Authority != RecoveryOwned && command.Authority != RecoveryDeadline && command.Authority != RecoveryCancellation {
 		return LifecycleResult{}, ErrInvalidCommand
 	}
-	return store.withRecoveryLifecycle(ctx, command.LifecycleCommand, command.Authority, command.Identity, command.HostControlHash, "RuntimeTerminationRequested", func(tx pgx.Tx, session lifecycleSession, allocation *lifecycleAllocation, now time.Time, eventID string) (LifecycleResult, error) {
+	return store.withRecoveryLifecycle(ctx, command.LifecycleCommand, command.Authority, command.Identity, command.HostControlHash, command.RunID, command.CancellationID, "RuntimeTerminationRequested", func(tx pgx.Tx, session lifecycleSession, allocation *lifecycleAllocation, now time.Time, eventID string) (LifecycleResult, error) {
 		occurredAt, nextVersion := command.ObservedAt.UTC().Truncate(time.Microsecond), command.ExpectedVersion+1
 		killDeadline := occurredAt.Add(session.KillGrace)
 		if session.Status == "termination_requested" && session.Version == nextVersion && session.TerminationRequestedAt.Valid && session.TerminationRequestedAt.Time.Equal(occurredAt) && session.KillDeadline.Valid && session.KillDeadline.Time.Equal(killDeadline) && session.TerminationReason.Valid && session.TerminationReason.String == command.Reason && allocation != nil && allocation.Status == "releasing" && allocation.SessionVersion == nextVersion && allocation.SessionEventID == eventID {
@@ -196,7 +202,7 @@ func (store Store) CompleteRecoveryTermination(ctx context.Context, command Reco
 	if !validLifecycleCommandWithoutLease(command.LifecycleCommand) || command.LeaseToken != "" || !validRecoveryIdentity(command.Identity) || command.Identity.TenantID != command.TenantID || command.Identity.SessionID != command.SessionID || len(command.HostControlHash) != 32 || !runtimeReceiptPattern.MatchString(command.CleanupReceiptHash) || !validUsageManifest(command.UsageManifest) {
 		return LifecycleResult{}, ErrInvalidCommand
 	}
-	return store.withRecoveryLifecycle(ctx, command.LifecycleCommand, RecoveryOwned, command.Identity, command.HostControlHash, "RuntimeSessionTerminated", func(tx pgx.Tx, session lifecycleSession, allocation *lifecycleAllocation, now time.Time, eventID string) (LifecycleResult, error) {
+	return store.withRecoveryLifecycle(ctx, command.LifecycleCommand, RecoveryOwned, command.Identity, command.HostControlHash, "", "", "RuntimeSessionTerminated", func(tx pgx.Tx, session lifecycleSession, allocation *lifecycleAllocation, now time.Time, eventID string) (LifecycleResult, error) {
 		occurredAt, nextVersion := command.ObservedAt.UTC().Truncate(time.Microsecond), command.ExpectedVersion+1
 		if session.Status == "terminated" && session.Version == nextVersion && session.TerminatedAt.Valid && session.TerminatedAt.Time.Equal(occurredAt) && session.CleanupReceiptHash.Valid && session.CleanupReceiptHash.String == command.CleanupReceiptHash && jsonEqual(session.UsageManifest, command.UsageManifest) && allocationTerminalReplay(allocation, nextVersion, eventID) {
 			if ok, err := store.lifecycleEventMatches(ctx, tx, session, eventID, nextVersion, "RuntimeSessionTerminated", command.Payload); err != nil || !ok {
@@ -222,7 +228,7 @@ func (store Store) CompleteRecoveryTermination(ctx context.Context, command Reco
 
 type recoveryMutation func(pgx.Tx, lifecycleSession, *lifecycleAllocation, time.Time, string) (LifecycleResult, error)
 
-func (store Store) withRecoveryLifecycle(ctx context.Context, command LifecycleCommand, authority RecoveryAuthority, identity RecoveryIdentity, hostControlHash []byte, eventType string, mutation recoveryMutation) (LifecycleResult, error) {
+func (store Store) withRecoveryLifecycle(ctx context.Context, command LifecycleCommand, authority RecoveryAuthority, identity RecoveryIdentity, hostControlHash []byte, runID, cancellationID, eventType string, mutation recoveryMutation) (LifecycleResult, error) {
 	if !store.valid() {
 		return LifecycleResult{}, ErrConfiguration
 	}
@@ -240,8 +246,10 @@ func (store Store) withRecoveryLifecycle(ctx context.Context, command LifecycleC
 	var locked RecoveryState
 	if authority == RecoveryOwned {
 		locked, err = store.lockOwnedMachine(ctx, tx, identity, hostControlHash)
-	} else {
+	} else if authority == RecoveryDeadline {
 		locked, err = store.lockDueSession(ctx, tx, identity, command.ExpectedVersion, store.now())
+	} else {
+		locked, err = store.lockCancelledRunSession(ctx, tx, identity, runID, cancellationID, command.ExpectedVersion, store.now())
 	}
 	if err != nil || !sameRecoveryIdentity(locked.RecoveryIdentity, identity) {
 		return LifecycleResult{}, errors.Join(err, ErrSessionConflict)
@@ -280,6 +288,12 @@ func (store Store) lockDueSession(ctx context.Context, tx pgx.Tx, identity Recov
 	return state, mapRecoveryAuthorityError(err)
 }
 
+func (store Store) lockCancelledRunSession(ctx context.Context, tx pgx.Tx, identity RecoveryIdentity, runID, cancellationID string, expectedVersion uint64, at time.Time) (RecoveryState, error) {
+	row := tx.QueryRow(ctx, `SELECT * FROM agent.runtime_lock_cancelled_run_session($1,$2,$3,$4,$5,$6,$7)`, store.StoreEpoch, identity.TenantID, runID, cancellationID, identity.SessionID, expectedVersion, at)
+	state, err := scanRecoveryState(row)
+	return state, mapRecoveryAuthorityError(err)
+}
+
 type recoveryScanner interface{ Scan(...any) error }
 
 func scanRecoveryState(row recoveryScanner) (RecoveryState, error) {
@@ -308,7 +322,7 @@ func mapRecoveryAuthorityError(err error) error {
 		return nil
 	}
 	var databaseError *pgconn.PgError
-	if errors.As(err, &databaseError) && databaseError.Code == "40001" && (strings.Contains(databaseError.Message, "owned runtime machine does not match") || strings.Contains(databaseError.Message, "not due for recovery")) {
+	if errors.As(err, &databaseError) && databaseError.Code == "40001" && (strings.Contains(databaseError.Message, "owned runtime machine does not match") || strings.Contains(databaseError.Message, "not due for recovery") || strings.Contains(databaseError.Message, "not authorized by run cancellation")) {
 		return errors.Join(ErrSessionConflict, err)
 	}
 	return err

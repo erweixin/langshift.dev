@@ -1,7 +1,11 @@
 package postgres
 
 import (
+	"bytes"
+	"context"
 	"database/sql"
+	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 )
@@ -45,6 +49,33 @@ func TestRecoveryIdentityRequiresExactDurableAllocationTuple(t *testing.T) {
 	changed.GuestCID = 2
 	if validRecoveryIdentity(changed) {
 		t.Fatal("reserved guest CID accepted")
+	}
+}
+
+func TestRunCancellationRecoveryAuthorityRequiresExactScope(t *testing.T) {
+	at := time.Date(2026, 7, 15, 20, 1, 0, 0, time.UTC)
+	command := RecoveryTerminationCommand{LifecycleCommand: LifecycleCommand{
+		TenantID: "tenant", SessionID: "session", ExpectedVersion: 3, ObservedAt: at,
+		Payload: PayloadPointer{Ref: "encrypted://runtime/cancel", Hash: "hash"}, Actor: json.RawMessage(`{"kind":"service"}`), CorrelationID: "correlation",
+	}, Authority: RecoveryCancellation, Identity: RecoveryIdentity{
+		TenantID: "tenant", SessionID: "session", AllocationID: "allocation", ProvisionAttemptID: "attempt", HostID: "host", MachineID: "machine", GuestCID: 3,
+	}, RunID: "run", CancellationID: "cancellation", Reason: "run_cancelled"}
+	if _, err := (Store{}).RequestRecoveryTermination(context.Background(), command); !errors.Is(err, ErrConfiguration) {
+		t.Fatalf("valid cancellation authority failed before store validation: %v", err)
+	}
+	command.CancellationID = ""
+	if _, err := (Store{}).RequestRecoveryTermination(context.Background(), command); !errors.Is(err, ErrInvalidCommand) {
+		t.Fatalf("missing cancellation id error=%v", err)
+	}
+	command.CancellationID = "cancellation"
+	command.Authority = RecoveryDeadline
+	if _, err := (Store{}).RequestRecoveryTermination(context.Background(), command); !errors.Is(err, ErrInvalidCommand) {
+		t.Fatalf("deadline authority accepted cancellation scope: %v", err)
+	}
+	command.Authority, command.RunID, command.CancellationID = RecoveryOwned, "", ""
+	command.HostControlHash = bytes.Repeat([]byte{0x42}, 31)
+	if _, err := (Store{}).RequestRecoveryTermination(context.Background(), command); !errors.Is(err, ErrInvalidCommand) {
+		t.Fatalf("owned authority accepted short control hash: %v", err)
 	}
 }
 

@@ -20,6 +20,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	eventpostgres "github.com/langshift/lites/internal/eventstore/postgres"
+	"github.com/langshift/lites/internal/payload"
 	runtimecontract "github.com/langshift/lites/internal/runtime"
 )
 
@@ -274,20 +275,73 @@ func TestBeginProvisionAtomicallyBindsCapabilityEventSessionAndCapacity(t *testi
 	if _, err = store.RequestRecoveryTermination(ctx, recoveryCommand); err == nil {
 		t.Fatal("non-due runtime session was reclaimed by deadline sweeper")
 	}
-	recoveryCommand.Authority = RecoveryOwned
-	recoveryCommand.HostControlHash = controlHash
-	recoveryCommand.Reason = "runtime_host_restart"
-	termination, err := store.RequestRecoveryTermination(ctx, recoveryCommand)
-	if err != nil || termination.Status != "termination_requested" || termination.Version != 7 {
-		t.Fatalf("RequestRecoveryTermination() = %#v, %v", termination, err)
+	const (
+		cancellationID      = "ce920000-0000-4000-8000-000000000006"
+		cancellationEventID = "be920000-0000-4000-8000-000000000006"
+		cancellationOutbox  = "be920000-0000-4000-8000-000000000007"
+		cancellationPublish = "be920000-0000-4000-8000-000000000008"
+	)
+	cancelTx, err := admin.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		t.Fatal(err)
 	}
+	if _, err = (eventpostgres.Appender{Now: func() time.Time { return clock }}).Append(ctx, cancelTx, eventpostgres.Input{Event: eventpostgres.Event{
+		ID: cancellationEventID, TenantID: tenantID, UserID: userID, EventType: "RunCancellationRequested", SchemaVersion: 1,
+		AggregateKind: "run_cancellation", AggregateID: cancellationID, AggregateVersion: 1, StoreEpoch: epoch,
+		OccurredAt: clock, Actor: json.RawMessage(`{"kind":"user"}`), CorrelationID: command.CorrelationID,
+		PayloadRef: "encrypted://runtime-store/run-cancellation", PayloadHash: strings.Repeat("7", 64),
+	}, Commands: []eventpostgres.OutboxCommand{{ID: cancellationOutbox, CommandID: cancellationPublish, CommandType: "events.publish", PayloadRef: "encrypted://runtime-store/run-cancellation", PayloadHash: strings.Repeat("7", 64)}}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = cancelTx.Exec(ctx, `INSERT INTO agent.run_cancellations(
+		id,tenant_id,run_id,root_cancellation_id,parent_cancellation_id,cancel_generation,status,version,requested_by,requested_at,reason,
+		store_epoch,request_hash,request_event_id,request_payload_ref,request_payload_hash,settlement_payload_ref,settlement_payload_hash,reconciliation_due_at,created_at,updated_at
+	) VALUES($1,$2,$3,$1,NULL,1,'terminating',2,$4,$5,'user_requested',$6,$7,$8,$9,$10,$11,$12,$5,$5,$5)`, cancellationID, tenantID, runID, userID, clock, epoch, strings.Repeat("8", 64), cancellationEventID, "encrypted://runtime-store/run-cancellation", strings.Repeat("7", 64), "encrypted://runtime-store/run-cancelled", strings.Repeat("9", 64)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = cancelTx.Exec(ctx, `UPDATE agent.runs SET cancel_requested_at=$1,cancel_generation=1,active_cancellation_id=$2,current_fence=current_fence+1,updated_at=$1 WHERE tenant_id=$3 AND id=$4`, clock, cancellationID, tenantID, runID); err != nil {
+		t.Fatal(err)
+	}
+	if err = cancelTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	payloads := &runtimeCancellationPayloadStore{values: map[string][]byte{}, manifests: map[string]payload.Manifest{}}
+	converger := RunCancellationService{Store: store, Payloads: payloads}
+	if err = converger.ConvergeRunCancellation(ctx, tenantID, runID, cancellationID, epoch); err != nil {
+		t.Fatal(err)
+	}
+	if err = converger.ConvergeRunCancellation(ctx, tenantID, runID, cancellationID, epoch); err != nil {
+		t.Fatalf("runtime cancellation replay: %v", err)
+	}
+	eventID, err := store.deterministicID("runtime-lifecycle-event:RuntimeTerminationRequested", sessionID, 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, ok := payloads.manifests[eventID]
+	if !ok {
+		t.Fatal("runtime cancellation evidence was not persisted")
+	}
+	recoveryCommand = RecoveryTerminationCommand{LifecycleCommand: LifecycleCommand{
+		TenantID: tenantID, SessionID: sessionID, ExpectedVersion: 6, ObservedAt: clock,
+		Payload: PayloadPointer{Ref: manifest.Ref, Hash: manifest.Hash}, Actor: json.RawMessage(`{"kind":"system"}`), CorrelationID: command.CorrelationID,
+	}, Authority: RecoveryCancellation, Identity: recoveryIdentity, RunID: runID, CancellationID: cancellationID, Reason: "run_cancelled"}
 	terminationReplay, err := store.RequestRecoveryTermination(ctx, recoveryCommand)
-	if err != nil || !terminationReplay.Replayed || terminationReplay.EventID != termination.EventID {
-		t.Fatalf("replayed RequestRecoveryTermination() = %#v, %v", terminationReplay, err)
+	if err != nil || !terminationReplay.Replayed || terminationReplay.Version != 7 {
+		t.Fatalf("replayed cancellation termination = %#v, %v", terminationReplay, err)
+	}
+	var sessionStatus, terminationReason string
+	var terminationEvents int
+	if err = admin.QueryRow(ctx, `SELECT s.status,s.termination_reason,
+		(SELECT count(*) FROM agent.events WHERE tenant_id=$1 AND aggregate_id=$2 AND event_type='RuntimeTerminationRequested')
+		FROM agent.runtime_sessions s WHERE s.tenant_id=$1 AND s.id=$2`, tenantID, sessionID).Scan(&sessionStatus, &terminationReason, &terminationEvents); err != nil {
+		t.Fatal(err)
+	}
+	if sessionStatus != "termination_requested" || terminationReason != "run_cancelled" || terminationEvents != 1 {
+		t.Fatalf("session=%s reason=%s termination_events=%d", sessionStatus, terminationReason, terminationEvents)
 	}
 	clock = now.Add(7 * time.Second)
 	terminatedCommand := RecoveryTerminatedCommand{LifecycleCommand: LifecycleCommand{
-		TenantID: tenantID, SessionID: sessionID, ExpectedVersion: 7,
+		TenantID: tenantID, SessionID: sessionID, ExpectedVersion: terminationReplay.Version,
 		ObservedAt: clock, Payload: PayloadPointer{Ref: "encrypted://runtime-store/terminated", Hash: "runtime-store-terminated"}, Actor: json.RawMessage(`{"kind":"system"}`), CorrelationID: command.CorrelationID,
 	}, Identity: recoveryIdentity, HostControlHash: controlHash, CleanupReceiptHash: strings.Repeat("e", 64), UsageManifest: json.RawMessage(`{"schema_version":1,"vcpu_millis":10}`)}
 	terminated, err := store.CompleteRecoveryTermination(ctx, terminatedCommand)
@@ -302,13 +356,15 @@ func TestBeginProvisionAtomicallyBindsCapabilityEventSessionAndCapacity(t *testi
 		t.Fatalf("terminal capacity sessions=%d: %v", allocatedSessions, err)
 	}
 	const (
-		hostlessToolID    = "40000000-0000-0000-0000-000000009211"
-		hostlessCommandID = "50000000-0000-0000-0000-000000009211"
-		hostlessOutboxID  = "50000000-0000-0000-0000-000000009212"
-		hostlessJobID     = "50000000-0000-0000-0000-000000009213"
-		hostlessAttemptID = "60000000-0000-0000-0000-000000009211"
-		hostlessSessionID = "80000000-0000-0000-0000-000000009211"
-		hostlessEventID   = "b0000000-0000-0000-0000-000000009211"
+		hostlessToolID       = "40000000-0000-0000-0000-000000009211"
+		hostlessCommandID    = "50000000-0000-0000-0000-000000009211"
+		hostlessOutboxID     = "50000000-0000-0000-0000-000000009212"
+		hostlessJobID        = "50000000-0000-0000-0000-000000009213"
+		hostlessAttemptID    = "60000000-0000-0000-0000-000000009211"
+		hostlessSessionID    = "80000000-0000-0000-0000-000000009211"
+		hostlessEventID      = "b0000000-0000-0000-0000-000000009211"
+		hostlessEventOutbox  = "b0000000-0000-0000-0000-000000009212"
+		hostlessEventPublish = "b0000000-0000-0000-0000-000000009213"
 	)
 	clock = now.Add(8 * time.Second)
 	hostlessLease := bytes.Repeat([]byte{0x71}, 32)
@@ -331,11 +387,14 @@ func TestBeginProvisionAtomicallyBindsCapabilityEventSessionAndCapacity(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = tx.Exec(ctx, `INSERT INTO agent.events(id,tenant_id,user_id,seq,event_type,event_schema_version,aggregate_kind,aggregate_id,aggregate_version,store_epoch,occurred_at,committed_at,actor,correlation_id,payload_ref,payload_hash) VALUES($1,$2,$3,10,'RuntimeSessionRequested',1,'runtime_session',$4,1,$5,$6,$6,'{"kind":"system"}',$7,'encrypted://runtime-hostless/requested','runtime-hostless-requested')`, hostlessEventID, tenantID, userID, hostlessSessionID, epoch, clock, command.CorrelationID); err != nil {
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err = (eventpostgres.Appender{Now: func() time.Time { return clock }}).Append(ctx, tx, eventpostgres.Input{Event: eventpostgres.Event{
+		ID: hostlessEventID, TenantID: tenantID, UserID: userID, EventType: "RuntimeSessionRequested", SchemaVersion: 1,
+		AggregateKind: "runtime_session", AggregateID: hostlessSessionID, AggregateVersion: 1, StoreEpoch: epoch,
+		OccurredAt: clock, Actor: json.RawMessage(`{"kind":"system"}`), CorrelationID: command.CorrelationID,
+		PayloadRef: "encrypted://runtime-hostless/requested", PayloadHash: "runtime-hostless-requested",
+	}, Commands: []eventpostgres.OutboxCommand{{ID: hostlessEventOutbox, CommandID: hostlessEventPublish, CommandType: "events.publish", PayloadRef: "encrypted://runtime-hostless/requested", PayloadHash: "runtime-hostless-requested"}}}); err != nil {
 		t.Fatal(err)
-	}
-	if tag, updateErr := tx.Exec(ctx, `UPDATE agent.event_cursors SET last_seq=10 WHERE tenant_id=$1 AND user_id=$2 AND last_seq=9`, tenantID, userID); updateErr != nil || tag.RowsAffected() != 1 {
-		t.Fatalf("hostless cursor: %v", updateErr)
 	}
 	if _, err = tx.Exec(ctx, `INSERT INTO agent.runtime_sessions(id,tenant_id,user_id,run_id,tool_call_id,version,status,policy_snapshot_id,policy_snapshot_key,policy_hash,trust_tier,isolation_kind,workspace_mode,network_policy_hash,secret_scope_hash,request_hash,capability_nonce_hash,command_id,execution_attempt_id,execution_fence,execution_lease_hash,execution_lease_expires_at,requested_at,execution_deadline,created_event_id,last_event_id,created_at,updated_at) VALUES($1,$2,$3,$4,$5,1,'requested',$6,'runtime-policy:untrusted:v1',$7,'untrusted','firecracker','none',$8,$8,$9,$10,$11,$12,1,$13,$14,$15,$16,$17,$17,$15,$15)`, hostlessSessionID, tenantID, userID, runID, hostlessToolID, policyID, policyHash, empty, hostlessRequest, hostlessNonce, hostlessCommandID, hostlessAttemptID, hostlessLease, now.Add(5*time.Minute), clock, now.Add(10*time.Minute), hostlessEventID); err != nil {
 		t.Fatal(err)
@@ -344,12 +403,23 @@ func TestBeginProvisionAtomicallyBindsCapabilityEventSessionAndCapacity(t *testi
 		t.Fatal(err)
 	}
 	clock = now.Add(9 * time.Second)
+	if err = converger.ConvergeRunCancellation(ctx, tenantID, runID, cancellationID, epoch); err != nil {
+		t.Fatalf("hostless runtime cancellation: %v", err)
+	}
+	hostlessTerminationEventID, err := store.deterministicID("runtime-lifecycle-event:RuntimeTerminationRequested", hostlessSessionID, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hostlessManifest, ok := payloads.manifests[hostlessTerminationEventID]
+	if !ok {
+		t.Fatal("hostless runtime cancellation evidence was not persisted")
+	}
 	hostlessTermination := TerminationCommand{LifecycleCommand: LifecycleCommand{
 		TenantID: tenantID, SessionID: hostlessSessionID, ExpectedVersion: 1, ObservedAt: clock,
-		Payload: PayloadPointer{Ref: "encrypted://runtime-hostless/termination", Hash: "runtime-hostless-termination"}, Actor: json.RawMessage(`{"kind":"system"}`), CorrelationID: command.CorrelationID,
-	}, Reason: "cancelled_before_allocation"}
-	if result, requestErr := store.RequestTermination(ctx, hostlessTermination); requestErr != nil || result.Version != 2 {
-		t.Fatalf("hostless RequestTermination() = %#v, %v", result, requestErr)
+		Payload: PayloadPointer{Ref: hostlessManifest.Ref, Hash: hostlessManifest.Hash}, Actor: json.RawMessage(`{"kind":"system"}`), CorrelationID: command.CorrelationID,
+	}, Reason: "run_cancelled"}
+	if result, requestErr := store.RequestTermination(ctx, hostlessTermination); requestErr != nil || result.Version != 2 || !result.Replayed {
+		t.Fatalf("replayed hostless cancellation = %#v, %v", result, requestErr)
 	}
 	clock = now.Add(10 * time.Second)
 	hostlessTerminated := TerminatedCommand{LifecycleCommand: LifecycleCommand{
@@ -373,6 +443,27 @@ func TestBeginProvisionAtomicallyBindsCapabilityEventSessionAndCapacity(t *testi
 	if _, err = store.BeginProvision(ctx, command); !errors.Is(err, ErrCapabilityBinding) {
 		t.Fatalf("signed stale fence = %v", err)
 	}
+}
+
+type runtimeCancellationPayloadStore struct {
+	values    map[string][]byte
+	manifests map[string]payload.Manifest
+}
+
+func (store *runtimeCancellationPayloadStore) Put(_ context.Context, descriptor payload.Descriptor, value []byte) (payload.Manifest, error) {
+	digest := sha256.Sum256(value)
+	manifest := payload.Manifest{Ref: "memory://runtime-cancellation/" + descriptor.ObjectID, Hash: hex.EncodeToString(digest[:]), KeyID: "test", AADHash: strings.Repeat("a", 64)}
+	store.values[manifest.Ref] = append([]byte(nil), value...)
+	store.manifests[descriptor.ObjectID] = manifest
+	return manifest, nil
+}
+
+func (store *runtimeCancellationPayloadStore) Get(_ context.Context, _ payload.Descriptor, manifest payload.Manifest) ([]byte, error) {
+	value, ok := store.values[manifest.Ref]
+	if !ok {
+		return nil, payload.ErrIntegrity
+	}
+	return append([]byte(nil), value...), nil
 }
 
 func integrationPool(t *testing.T, ctx context.Context, name string) *pgxpool.Pool {
