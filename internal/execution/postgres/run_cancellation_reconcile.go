@@ -29,15 +29,16 @@ type ReconciledRunCancellation struct {
 }
 
 type cancellationTool struct {
-	id, userID, pendingCommand, effectClass string
-	version                                 uint64
+	id, userID, status, pendingCommand, effectClass string
+	version                                         uint64
 }
 
 type cancellationToolIDs struct{ event, outbox, publish string }
 
-// ReconcileCancellation cancels only ToolCalls that have not acquired an
-// execution right. Executing effects, LLM requests, runtimes, and child Runs
-// remain authoritative blockers until their own fenced protocols terminate.
+// ReconcileCancellation cancels only ToolCalls that have a queued command but
+// have not acquired an execution right. Executing effects, LLM requests,
+// runtimes, and child Runs remain authoritative blockers until their own
+// fenced protocols terminate.
 func (store RunStore) ReconcileCancellation(ctx context.Context, command ReconcileRunCancellationCommand) (ReconciledRunCancellation, error) {
 	if !store.validClaim() || !validReconcileRunCancellation(command) {
 		return ReconciledRunCancellation{}, ErrInvalidCommand
@@ -79,14 +80,14 @@ func (store RunStore) ReconcileCancellation(ctx context.Context, command Reconci
 		return ReconciledRunCancellation{}, ErrRunConflict
 	}
 
-	rows, err := tx.Query(ctx, `SELECT id::text,user_id::text,tool_call_version,pending_command_id::text,effect_class FROM agent.tool_calls WHERE tenant_id=$1 AND run_id=$2 AND status='requested' ORDER BY id FOR UPDATE`, command.TenantID, runID)
+	rows, err := tx.Query(ctx, `SELECT id::text,user_id::text,status,tool_call_version,pending_command_id::text,effect_class FROM agent.tool_calls WHERE tenant_id=$1 AND run_id=$2 AND status IN ('requested','preview_requested','commit_requested') ORDER BY id FOR UPDATE`, command.TenantID, runID)
 	if err != nil {
 		return ReconciledRunCancellation{}, err
 	}
 	tools := make([]cancellationTool, 0)
 	for rows.Next() {
 		var tool cancellationTool
-		if err = rows.Scan(&tool.id, &tool.userID, &tool.version, &tool.pendingCommand, &tool.effectClass); err != nil {
+		if err = rows.Scan(&tool.id, &tool.userID, &tool.status, &tool.version, &tool.pendingCommand, &tool.effectClass); err != nil {
 			rows.Close()
 			return ReconciledRunCancellation{}, err
 		}
@@ -119,11 +120,11 @@ func (store RunStore) ReconcileCancellation(ctx context.Context, command Reconci
 			return ReconciledRunCancellation{}, identifierErr
 		}
 		nextVersion := tool.version + 1
-		if tag, updateErr := tx.Exec(ctx, `UPDATE agent.tool_calls SET status='cancelled',tool_call_version=$1,pending_command_id=NULL,result_event_id=$2,updated_at=$3 WHERE tenant_id=$4 AND id=$5 AND status='requested' AND tool_call_version=$6 AND pending_command_id=$7`, nextVersion, eventIDs.event, now, command.TenantID, tool.id, tool.version, tool.pendingCommand); updateErr != nil || tag.RowsAffected() != 1 {
+		if tag, updateErr := tx.Exec(ctx, `UPDATE agent.tool_calls SET status='cancelled',tool_call_version=$1,pending_command_id=NULL,result_event_id=$2,updated_at=$3 WHERE tenant_id=$4 AND id=$5 AND status=$6 AND tool_call_version=$7 AND pending_command_id=$8`, nextVersion, eventIDs.event, now, command.TenantID, tool.id, tool.status, tool.version, tool.pendingCommand); updateErr != nil || tag.RowsAffected() != 1 {
 			return ReconciledRunCancellation{}, ErrRunConflict
 		}
 		if tool.effectClass != "read_only" {
-			if tag, updateErr := tx.Exec(ctx, `UPDATE agent.tool_effects SET version=version+1,status='failed',result_event_id=$1,updated_at=$2 WHERE tenant_id=$3 AND tool_call_id=$4 AND status='prepared'`, eventIDs.event, now, command.TenantID, tool.id); updateErr != nil || tag.RowsAffected() != 1 {
+			if tag, updateErr := tx.Exec(ctx, `UPDATE agent.tool_effects SET version=version+1,status='failed',result_event_id=$1,updated_at=$2 WHERE tenant_id=$3 AND tool_call_id=$4 AND status IN ('prepared','commit_authorized')`, eventIDs.event, now, command.TenantID, tool.id); updateErr != nil || tag.RowsAffected() != 1 {
 				return ReconciledRunCancellation{}, ErrRunConflict
 			}
 		}
