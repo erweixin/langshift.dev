@@ -55,6 +55,20 @@ func (evaluator PostgresPolicyEvaluator) Evaluate(ctx context.Context, execution
 	if err != nil || snapshot.Descriptor.Name != execution.Payload.ToolName || snapshot.Descriptor.EffectClass != execution.Payload.EffectClass {
 		return PolicyDecision{}, errors.Join(ErrPolicyBinding, err)
 	}
+	return evaluator.EvaluateSnapshot(ctx, execution.Command.TenantID, snapshot)
+}
+
+// EvaluateSnapshot exposes the same deny-only overlay decision to the
+// AgentWorker before it persists a ToolCall. ToolWorker calls it again on
+// delivery, so a later deny can only remove authority, never add it.
+func (evaluator PostgresPolicyEvaluator) EvaluateSnapshot(ctx context.Context, tenantID string, snapshot toolregistry.Snapshot) (PolicyDecision, error) {
+	if evaluator.Pool == nil || evaluator.Registry == nil || evaluator.Registry.Hash() == "" || tenantID == "" || snapshot.SnapshotID == "" || snapshot.Hash == "" {
+		return PolicyDecision{}, ErrPolicyConfiguration
+	}
+	bound, err := evaluator.Registry.Resolve(snapshot.SnapshotID, snapshot.Hash)
+	if err != nil || bound.Descriptor.Name != snapshot.Descriptor.Name || bound.Descriptor.EffectClass != snapshot.Descriptor.EffectClass {
+		return PolicyDecision{}, errors.Join(ErrPolicyBinding, err)
+	}
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	if evaluator.Now != nil {
 		now = evaluator.Now().UTC().Truncate(time.Microsecond)
@@ -64,21 +78,21 @@ func (evaluator PostgresPolicyEvaluator) Evaluate(ctx context.Context, execution
 		return PolicyDecision{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if _, err = tx.Exec(ctx, `SELECT set_config('lites.tenant_id',$1,true)`, execution.Command.TenantID); err != nil {
+	if _, err = tx.Exec(ctx, `SELECT set_config('lites.tenant_id',$1,true)`, tenantID); err != nil {
 		return PolicyDecision{}, err
 	}
-	platform, err := loadOverlay(ctx, tx, "platform", execution.Command.TenantID, snapshot, now)
+	platform, err := loadOverlay(ctx, tx, "platform", tenantID, bound, now)
 	if err != nil {
 		return PolicyDecision{}, err
 	}
-	tenant, err := loadOverlay(ctx, tx, "tenant", execution.Command.TenantID, snapshot, now)
+	tenant, err := loadOverlay(ctx, tx, "tenant", tenantID, bound, now)
 	if err != nil {
 		return PolicyDecision{}, err
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return PolicyDecision{}, err
 	}
-	return decideOverlay(execution.Command.TenantID, snapshot, platform, tenant)
+	return decideOverlay(tenantID, bound, platform, tenant)
 }
 
 func loadOverlay(ctx context.Context, tx pgx.Tx, scope, tenantID string, snapshot toolregistry.Snapshot, now time.Time) (overlayRecord, error) {

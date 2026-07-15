@@ -5,9 +5,19 @@ package agentworker
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/langshift/lites/internal/toolregistry"
+	"github.com/langshift/lites/internal/toolworker"
 )
+
+type overlayAdmissionStub struct{ decision toolworker.PolicyDecision }
+
+func (stub overlayAdmissionStub) EvaluateSnapshot(context.Context, string, toolregistry.Snapshot) (toolworker.PolicyDecision, error) {
+	return stub.decision, nil
+}
 
 func TestPostgresRouteResourcesSelectsFundedBucketAndExactBYOKVersion(t *testing.T) {
 	ctx := context.Background()
@@ -53,5 +63,45 @@ func TestPostgresRouteResourcesSelectsFundedBucketAndExactBYOKVersion(t *testing
 	}
 	if _, err = resolver.ResolveRouteResources(ctx, RouteResourceRequest{TenantID: tenantID, UserID: userID, ProviderID: "openai", BoundHost: "api.openai.com", CredentialMode: "managed", ReservedUnits: 100001, RequiredUntil: now.Add(30 * time.Minute)}); !errors.Is(err, ErrRouteResources) {
 		t.Fatalf("insufficient credit error=%v", err)
+	}
+}
+
+func TestPostgresToolAdmissionUsesCurrentReviewedMembership(t *testing.T) {
+	ctx := context.Background()
+	admin := contextPool(t, ctx, "LITES_TEST_ADMIN_DATABASE_URL")
+	defer admin.Close()
+	agent := contextPool(t, ctx, "LITES_TEST_AGENT_DATABASE_URL")
+	defer agent.Close()
+	const (
+		userID       = "d8000000-0000-4000-8000-000000000001"
+		tenantID     = "d8000000-0000-4000-8000-000000000002"
+		membershipID = "d8000000-0000-4000-8000-000000000003"
+	)
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	for _, statement := range []struct {
+		query string
+		args  []any
+	}{
+		{`INSERT INTO identity.users(id,normalized_email,locale,status) VALUES($1,'tool-admission@example.invalid','en','active')`, []any{userID}},
+		{`INSERT INTO identity.tenants(id,kind,name,status,region,owner_user_id) VALUES($1,'personal','Tool Admission Tenant','active','US',$2)`, []any{tenantID, userID}},
+		{`INSERT INTO identity.memberships(id,tenant_id,user_id,role,status,joined_at) VALUES($1,$2,$3,'member','active',$4)`, []any{membershipID, tenantID, userID, now}},
+	} {
+		if _, err := admin.Exec(ctx, statement.query, statement.args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, snapshot := agentToolRegistry(t, toolregistry.ApprovalNone, "read_only")
+	snapshot.Descriptor.RequiredPermissions = []string{"private_work.read"}
+	admission := PostgresToolAdmission{Pool: agent, Overlay: overlayAdmissionStub{decision: toolworker.PolicyDecision{Allowed: true, SnapshotID: "policy-1", SnapshotHash: strings.Repeat("a", 64), OverlayVersion: 7}}}
+	request := ToolAdmissionRequest{TenantID: tenantID, UserID: userID, RunID: "run-1", Snapshot: snapshot, NormalizedInputHash: strings.Repeat("b", 64), RequestHash: strings.Repeat("c", 64)}
+	decision, err := admission.Evaluate(ctx, request)
+	if err != nil || decision.PermissionSnapshot != "membership:"+membershipID+":v1:role:member" || decision.Decision != "allow" || decision.EffectKey != "" {
+		t.Fatalf("decision=%#v error=%v", decision, err)
+	}
+	if _, err = admin.Exec(ctx, `UPDATE identity.memberships SET version=2,status='left',deactivated_at=$1,updated_at=$1 WHERE tenant_id=$2 AND id=$3`, now.Add(time.Second), tenantID, membershipID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = admission.Evaluate(ctx, request); !errors.Is(err, ErrToolPermission) {
+		t.Fatalf("revoked permission error=%v", err)
 	}
 }
