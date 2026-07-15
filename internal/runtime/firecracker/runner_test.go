@@ -29,6 +29,7 @@ func (process *fakeManagedProcess) Start() error {
 	process.started = true
 	return nil
 }
+func (process *fakeManagedProcess) PID() int { return 1234 }
 func (process *fakeManagedProcess) Signal(os.Signal) error {
 	process.mu.Lock()
 	process.signaled = true
@@ -50,14 +51,18 @@ func TestRunnerWaitsForSecurePinnedAPIThenConfiguresAndStops(t *testing.T) {
 	configured := false
 	runner := Runner{
 		Jailer: validJailerConfig(), StartupTimeout: time.Second, PollInterval: time.Millisecond, APITimeout: time.Second, StopGrace: time.Second,
-		processFactory: func(context.Context, JailerConfig, string) (managedProcess, error) { return process, nil },
-		socketReady:    func(string, uint32, uint32) (bool, error) { probes++; return probes >= 2, nil },
-		apiReady:       func(context.Context, string, time.Duration) error { return nil },
-		configure:      func(context.Context, string, time.Duration, Spec) error { configured = true; return nil },
+		processFactory:  func(context.Context, JailerConfig, string) (managedProcess, error) { return process, nil },
+		processIdentity: func(int) (ProcessIdentity, error) { return validProcessIdentity(), nil },
+		socketReady:     func(string, uint32, uint32) (bool, error) { probes++; return probes >= 2, nil },
+		apiReady:        func(context.Context, string, time.Duration) error { return nil },
+		configure:       func(context.Context, string, time.Duration, Spec) error { configured = true; return nil },
 	}
 	machine, err := runner.Start(context.Background(), validSpec())
 	if err != nil || !configured || !process.started {
 		t.Fatalf("Start() = %#v, %v", machine, err)
+	}
+	if identity, identityErr := machine.Identity(); identityErr != nil || identity.PID != 1234 {
+		t.Fatalf("Identity() = %#v, %v", identity, identityErr)
 	}
 	if err = machine.Stop(context.Background()); err != nil || !process.signaled || process.killed {
 		t.Fatalf("Stop() = %v, signaled=%v killed=%v", err, process.signaled, process.killed)
@@ -79,14 +84,19 @@ func TestRunnerFailsClosedAndKillsVMMWhenConfigurationFails(t *testing.T) {
 	process := newFakeManagedProcess()
 	runner := Runner{
 		Jailer: validJailerConfig(), StartupTimeout: time.Second, PollInterval: time.Millisecond, APITimeout: time.Second, StopGrace: time.Second,
-		processFactory: func(context.Context, JailerConfig, string) (managedProcess, error) { return process, nil },
-		socketReady:    func(string, uint32, uint32) (bool, error) { return true, nil },
-		apiReady:       func(context.Context, string, time.Duration) error { return nil },
-		configure:      func(context.Context, string, time.Duration, Spec) error { return ErrAPI },
+		processFactory:  func(context.Context, JailerConfig, string) (managedProcess, error) { return process, nil },
+		processIdentity: func(int) (ProcessIdentity, error) { return validProcessIdentity(), nil },
+		socketReady:     func(string, uint32, uint32) (bool, error) { return true, nil },
+		apiReady:        func(context.Context, string, time.Duration) error { return nil },
+		configure:       func(context.Context, string, time.Duration, Spec) error { return ErrAPI },
 	}
 	if machine, err := runner.Start(context.Background(), validSpec()); machine != nil || !errors.Is(err, ErrAPI) || !process.signaled {
 		t.Fatalf("Start() = %#v, %v, signaled=%v", machine, err, process.signaled)
 	}
+}
+
+func validProcessIdentity() ProcessIdentity {
+	return ProcessIdentity{PID: 1234, StartTicks: 98765, BootID: "00000000-0000-4000-8000-000000000001", Executable: "/usr/bin/firecracker"}
 }
 
 func TestSecureSocketProbeRejectsPermissionsOwnerAndSymlink(t *testing.T) {

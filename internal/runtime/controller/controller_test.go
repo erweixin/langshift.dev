@@ -82,15 +82,105 @@ func (machine *machineStub) Stop(context.Context) error {
 }
 func (machine *machineStub) Done() <-chan struct{} { return machine.done }
 func (machine *machineStub) ExitError() error      { return nil }
+func (machine *machineStub) Identity() (firecracker.ProcessIdentity, error) {
+	return firecracker.ProcessIdentity{PID: 1234, StartTicks: 98765, BootID: "00000000-0000-4000-8000-000000000001", Executable: "/usr/bin/firecracker"}, nil
+}
+
+type ownershipStub struct {
+	mu                   sync.Mutex
+	records              map[string]firecracker.OwnershipRecord
+	createErr, verifyErr error
+}
+
+func newOwnershipStub() *ownershipStub {
+	return &ownershipStub{records: make(map[string]firecracker.OwnershipRecord)}
+}
+func (store *ownershipStub) Create(record firecracker.OwnershipRecord) error {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if store.createErr != nil {
+		return store.createErr
+	}
+	if _, exists := store.records[record.MachineID]; exists {
+		return firecracker.ErrOwnershipConflict
+	}
+	store.records[record.MachineID] = record
+	return nil
+}
+func (store *ownershipStub) Verify(record firecracker.OwnershipRecord) error {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if store.verifyErr != nil {
+		return store.verifyErr
+	}
+	current, exists := store.records[record.MachineID]
+	if !exists || current.SessionID != record.SessionID {
+		return firecracker.ErrOwnershipIntegrity
+	}
+	return nil
+}
+
+func TestControllerFailsClosedBeforeAttestationWhenOwnershipCannotBePersisted(t *testing.T) {
+	store := &storeStub{}
+	machine := &machineStub{done: make(chan struct{})}
+	now := time.Date(2026, 7, 15, 16, 15, 0, 0, time.UTC)
+	ownershipFailure := errors.New("ownership fsync failed")
+	owners := newOwnershipStub()
+	owners.createErr = ownershipFailure
+	controller := &Controller{Store: store, Payloads: payloadStub{}, Ownership: owners, Random: bytes.NewReader(bytes.Repeat([]byte{0x45}, 32)), Now: func() time.Time { return now }}
+	controller.stage = func(context.Context, firecracker.StageRequest) (stagedMachine, error) {
+		return stagedMachine{spec: firecracker.Spec{}, root: "/jail/runtime-machine-1/root", vsockPath: "/jail/run/guest.vsock", cleanup: func() error { return nil }}, nil
+	}
+	controller.start = func(context.Context, firecracker.Spec) (machineProcess, error) { return machine, nil }
+	controller.probe = func(context.Context, string, string, string) (guest.Attestation, error) {
+		t.Fatal("guest must not be probed without durable host ownership")
+		return guest.Attestation{}, nil
+	}
+	if _, err := controller.Provision(context.Background(), validProvisionRequest(now)); !errors.Is(err, ownershipFailure) || !machine.stopped || store.ready != 0 || store.requested != 1 || store.completed != 1 {
+		t.Fatalf("Provision() error=%v stopped=%v calls=%d/%d/%d", err, machine.stopped, store.ready, store.requested, store.completed)
+	}
+}
+
+func TestControllerKeepsCapacityReleasingWhenOwnershipEvidenceIsInvalid(t *testing.T) {
+	store := &storeStub{}
+	machine := &machineStub{done: make(chan struct{})}
+	now := time.Date(2026, 7, 15, 16, 20, 0, 0, time.UTC)
+	owners := newOwnershipStub()
+	controller := &Controller{Store: store, Payloads: payloadStub{}, Ownership: owners, Random: bytes.NewReader(bytes.Repeat([]byte{0x46}, 32)), Now: func() time.Time { return now }}
+	controller.stage = func(context.Context, firecracker.StageRequest) (stagedMachine, error) {
+		return stagedMachine{spec: firecracker.Spec{}, root: "/jail/runtime-machine-1/root", vsockPath: "/jail/run/guest.vsock", cleanup: func() error { t.Fatal("untrusted ownership directory was cleaned"); return nil }}, nil
+	}
+	controller.start = func(context.Context, firecracker.Spec) (machineProcess, error) { return machine, nil }
+	controller.probe = func(_ context.Context, _ string, _ string, challenge string) (guest.Attestation, error) {
+		return guest.Attestation{Challenge: challenge, GuestAgentBuild: "lites-runtime-guest-agent.v1", UserID: 1000, GroupID: 1000, BootUnixMillis: now.UnixMilli()}, nil
+	}
+	provisioned, err := controller.Provision(context.Background(), validProvisionRequest(now))
+	if err != nil {
+		t.Fatal(err)
+	}
+	owners.verifyErr = firecracker.ErrOwnershipIntegrity
+	now = now.Add(time.Second)
+	result, err := controller.Terminate(context.Background(), provisioned.Provision.SessionID, "completed")
+	if !errors.Is(err, firecracker.ErrOwnershipIntegrity) || result.Status != "termination_requested" || store.requested != 1 || store.completed != 0 {
+		t.Fatalf("Terminate()=%#v err=%v calls=%d/%d", result, err, store.requested, store.completed)
+	}
+}
 
 func TestControllerAttestsPersistsReadyAndTerminatesOwnedMachine(t *testing.T) {
 	store := &storeStub{}
 	machine := &machineStub{done: make(chan struct{})}
 	cleaned := 0
 	now := time.Date(2026, 7, 15, 16, 0, 0, 0, time.UTC)
-	controller := &Controller{Store: store, Payloads: payloadStub{}, Random: bytes.NewReader(bytes.Repeat([]byte{0x42}, 32)), Now: func() time.Time { return now }}
+	owners := newOwnershipStub()
+	controller := &Controller{Store: store, Payloads: payloadStub{}, Ownership: owners, Random: bytes.NewReader(bytes.Repeat([]byte{0x42}, 32)), Now: func() time.Time { return now }}
 	controller.stage = func(context.Context, firecracker.StageRequest) (stagedMachine, error) {
-		return stagedMachine{spec: firecracker.Spec{}, vsockPath: "/jail/run/guest.vsock", cleanup: func() error { cleaned++; return nil }}, nil
+		return stagedMachine{spec: firecracker.Spec{}, root: "/jail/runtime-machine-1/root", vsockPath: "/jail/run/guest.vsock", cleanup: func() error {
+			cleaned++
+			owners.mu.Lock()
+			delete(owners.records, "runtime-machine-1")
+			owners.mu.Unlock()
+			return nil
+		}}, nil
 	}
 	controller.start = func(context.Context, firecracker.Spec) (machineProcess, error) { return machine, nil }
 	controller.probe = func(_ context.Context, _ string, _ string, challenge string) (guest.Attestation, error) {
@@ -106,6 +196,9 @@ func TestControllerAttestsPersistsReadyAndTerminatesOwnedMachine(t *testing.T) {
 	if err != nil || terminated.Status != "terminated" || !machine.stopped || cleaned != 1 || store.requested != 1 || store.completed != 1 {
 		t.Fatalf("Terminate() = %#v, %v stopped=%v cleaned=%d calls=%d/%d", terminated, err, machine.stopped, cleaned, store.requested, store.completed)
 	}
+	if len(owners.records) != 0 {
+		t.Fatal("ownership record survived successful cleanup")
+	}
 }
 
 func TestControllerAttestationFailureStopsCleansAndReleasesCapacityState(t *testing.T) {
@@ -113,9 +206,9 @@ func TestControllerAttestationFailureStopsCleansAndReleasesCapacityState(t *test
 	machine := &machineStub{done: make(chan struct{})}
 	cleaned := 0
 	now := time.Date(2026, 7, 15, 16, 30, 0, 0, time.UTC)
-	controller := &Controller{Store: store, Payloads: payloadStub{}, Random: bytes.NewReader(bytes.Repeat([]byte{0x43}, 32)), Now: func() time.Time { return now }}
+	controller := &Controller{Store: store, Payloads: payloadStub{}, Ownership: newOwnershipStub(), Random: bytes.NewReader(bytes.Repeat([]byte{0x43}, 32)), Now: func() time.Time { return now }}
 	controller.stage = func(context.Context, firecracker.StageRequest) (stagedMachine, error) {
-		return stagedMachine{spec: firecracker.Spec{}, vsockPath: "/jail/run/guest.vsock", cleanup: func() error { cleaned++; return nil }}, nil
+		return stagedMachine{spec: firecracker.Spec{}, root: "/jail/runtime-machine-1/root", vsockPath: "/jail/run/guest.vsock", cleanup: func() error { cleaned++; return nil }}, nil
 	}
 	controller.start = func(context.Context, firecracker.Spec) (machineProcess, error) { return machine, nil }
 	probeFailure := errors.New("guest did not attest")
@@ -132,9 +225,9 @@ func TestControllerUnexpectedExitConvergesToDurableTermination(t *testing.T) {
 	machine := &machineStub{done: make(chan struct{})}
 	cleaned := make(chan struct{}, 1)
 	now := time.Date(2026, 7, 15, 17, 0, 0, 0, time.UTC)
-	controller := &Controller{Store: store, Payloads: payloadStub{}, Random: bytes.NewReader(bytes.Repeat([]byte{0x44}, 32)), Now: func() time.Time { return now }}
+	controller := &Controller{Store: store, Payloads: payloadStub{}, Ownership: newOwnershipStub(), Random: bytes.NewReader(bytes.Repeat([]byte{0x44}, 32)), Now: func() time.Time { return now }}
 	controller.stage = func(context.Context, firecracker.StageRequest) (stagedMachine, error) {
-		return stagedMachine{spec: firecracker.Spec{}, vsockPath: "/jail/run/guest.vsock", cleanup: func() error { cleaned <- struct{}{}; return nil }}, nil
+		return stagedMachine{spec: firecracker.Spec{}, root: "/jail/runtime-machine-1/root", vsockPath: "/jail/run/guest.vsock", cleanup: func() error { cleaned <- struct{}{}; return nil }}, nil
 	}
 	controller.start = func(context.Context, firecracker.Spec) (machineProcess, error) { return machine, nil }
 	controller.probe = func(_ context.Context, _ string, _ string, challenge string) (guest.Attestation, error) {
@@ -150,9 +243,17 @@ func TestControllerUnexpectedExitConvergesToDurableTermination(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("unexpected VMM exit was not cleaned")
 	}
-	store.mu.Lock()
-	requested, completed := store.requested, store.completed
-	store.mu.Unlock()
+	deadline := time.Now().Add(time.Second)
+	var requested, completed int
+	for {
+		store.mu.Lock()
+		requested, completed = store.requested, store.completed
+		store.mu.Unlock()
+		if completed == 1 || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
 	if requested != 1 || completed != 1 {
 		t.Fatalf("unexpected exit calls=%d/%d", requested, completed)
 	}

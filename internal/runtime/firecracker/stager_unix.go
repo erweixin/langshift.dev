@@ -126,7 +126,11 @@ func (machine StagedMachine) Cleanup() error {
 	if machine.Root == "" || !filepath.IsAbs(machine.Root) || filepath.Clean(machine.Root) != machine.Root || filepath.Base(machine.Root) != "root" || !validID(machine.Spec.MachineID) || filepath.Base(filepath.Dir(machine.Root)) != machine.Spec.MachineID {
 		return ErrInvalidSpec
 	}
-	return os.RemoveAll(filepath.Dir(machine.Root))
+	machineDirectory := filepath.Dir(machine.Root)
+	if err := os.RemoveAll(machineDirectory); err != nil {
+		return err
+	}
+	return syncDirectory(filepath.Dir(machineDirectory))
 }
 
 func prepareJailRoot(config JailerConfig, machineID string, ownerUID uint32) (string, error) {

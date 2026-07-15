@@ -39,10 +39,17 @@ type machineProcess interface {
 	Stop(context.Context) error
 	Done() <-chan struct{}
 	ExitError() error
+	Identity() (firecracker.ProcessIdentity, error)
+}
+
+type ownershipStore interface {
+	Create(firecracker.OwnershipRecord) error
+	Verify(firecracker.OwnershipRecord) error
 }
 
 type stagedMachine struct {
 	spec      firecracker.Spec
+	root      string
 	vsockPath string
 	cleanup   func() error
 }
@@ -53,18 +60,20 @@ type activeMachine struct {
 	request ProvisionRequest
 	result  runtimepostgres.ProvisionResult
 	version uint64
+	owner   firecracker.OwnershipRecord
 	mu      sync.Mutex
 	closing bool
 }
 
 type Controller struct {
-	Store    RuntimeStore
-	Payloads payload.Store
-	Stager   firecracker.Stager
-	Runner   firecracker.Runner
-	Random   io.Reader
-	Now      func() time.Time
-	OnError  func(error)
+	Store     RuntimeStore
+	Payloads  payload.Store
+	Stager    firecracker.Stager
+	Runner    firecracker.Runner
+	Ownership ownershipStore
+	Random    io.Reader
+	Now       func() time.Time
+	OnError   func(error)
 
 	stage func(context.Context, firecracker.StageRequest) (stagedMachine, error)
 	start func(context.Context, firecracker.Spec) (machineProcess, error)
@@ -107,7 +116,7 @@ type controlReceipt struct {
 }
 
 func (controller *Controller) Provision(ctx context.Context, request ProvisionRequest) (Provisioned, error) {
-	if controller == nil || controller.Store == nil || controller.Payloads == nil || request.Command.TenantID == "" {
+	if controller == nil || controller.Store == nil || controller.Payloads == nil || controller.Ownership == nil || request.Command.TenantID == "" {
 		return Provisioned{}, ErrConfiguration
 	}
 	if controller.containsCommandMachine(request.Command.MachineID) {
@@ -128,12 +137,24 @@ func (controller *Controller) Provision(ctx context.Context, request ProvisionRe
 		ScratchRate: request.ScratchRate,
 	})
 	if err != nil {
-		return Provisioned{}, errors.Join(err, controller.abortProvision(ctx, request, provision, nil, stagedMachine{}, "staging_failed"))
+		return Provisioned{}, errors.Join(err, controller.abortProvision(ctx, request, provision, nil, stagedMachine{}, nil, "staging_failed"))
 	}
 	start := controller.startMachine
 	process, err := start(ctx, staged.spec)
 	if err != nil {
-		return Provisioned{}, errors.Join(err, controller.abortProvision(ctx, request, provision, nil, staged, "vmm_start_failed"))
+		return Provisioned{}, errors.Join(err, controller.abortProvision(ctx, request, provision, nil, staged, nil, "vmm_start_failed"))
+	}
+	identity, err := process.Identity()
+	if err != nil {
+		return Provisioned{}, errors.Join(err, controller.abortProvision(ctx, request, provision, process, staged, nil, "vmm_identity_failed"))
+	}
+	owner := firecracker.OwnershipRecord{
+		SchemaVersion: 1, HostID: request.Command.HostID, TenantID: request.Command.TenantID,
+		SessionID: provision.SessionID, AllocationID: provision.AllocationID, ProvisionAttemptID: provision.ProvisionAttemptID,
+		MachineID: provision.MachineID, GuestCID: provision.GuestCID, Root: staged.root, Process: identity, CreatedAt: controller.now(),
+	}
+	if err = controller.Ownership.Create(owner); err != nil {
+		return Provisioned{}, errors.Join(err, controller.abortProvision(ctx, request, provision, process, staged, nil, "ownership_record_failed"))
 	}
 	challengeBytes := make([]byte, 32)
 	random := controller.Random
@@ -141,13 +162,13 @@ func (controller *Controller) Provision(ctx context.Context, request ProvisionRe
 		random = rand.Reader
 	}
 	if _, err = io.ReadFull(random, challengeBytes); err != nil {
-		return Provisioned{}, errors.Join(err, controller.abortProvision(ctx, request, provision, process, staged, "challenge_failed"))
+		return Provisioned{}, errors.Join(err, controller.abortProvision(ctx, request, provision, process, staged, &owner, "challenge_failed"))
 	}
 	challenge := base64.RawURLEncoding.EncodeToString(challengeBytes)
 	probe := controller.probeGuest
 	attestation, err := probe(ctx, staged.vsockPath, "probe:"+provision.SessionID, challenge)
 	if err != nil {
-		return Provisioned{}, errors.Join(err, controller.abortProvision(ctx, request, provision, process, staged, "guest_attestation_failed"))
+		return Provisioned{}, errors.Join(err, controller.abortProvision(ctx, request, provision, process, staged, &owner, "guest_attestation_failed"))
 	}
 	attestedAt := controller.now()
 	pointer, receiptHash, err := controller.putReceipt(ctx, provision.SessionID+":boot:3", request.Command.TenantID, bootReceipt{
@@ -157,7 +178,7 @@ func (controller *Controller) Provision(ctx context.Context, request ProvisionRe
 		Challenge: challenge, Attestation: attestation, AttestedAt: attestedAt,
 	})
 	if err != nil {
-		return Provisioned{}, errors.Join(err, controller.abortProvision(ctx, request, provision, process, staged, "boot_receipt_failed"))
+		return Provisioned{}, errors.Join(err, controller.abortProvision(ctx, request, provision, process, staged, &owner, "boot_receipt_failed"))
 	}
 	readyCommand := runtimepostgres.ReadyCommand{LifecycleCommand: runtimepostgres.LifecycleCommand{
 		TenantID: request.Command.TenantID, SessionID: provision.SessionID, ProvisionAttemptID: provision.ProvisionAttemptID,
@@ -169,7 +190,7 @@ func (controller *Controller) Provision(ctx context.Context, request ProvisionRe
 		// The same event pointer and receipt make an unknown commit retry exact.
 		ready, err = controller.Store.MarkReady(ctx, readyCommand)
 	}
-	active := &activeMachine{process: process, staged: staged, request: request, result: provision, version: 3}
+	active := &activeMachine{process: process, staged: staged, request: request, result: provision, version: 3, owner: owner}
 	if err != nil {
 		if controller.remember(provision.SessionID, active) {
 			controller.watch(provision.SessionID, active)
@@ -178,7 +199,7 @@ func (controller *Controller) Provision(ctx context.Context, request ProvisionRe
 	}
 	active.version = ready.Version
 	if !controller.remember(provision.SessionID, active) {
-		return Provisioned{}, errors.Join(ErrConfiguration, controller.abortProvision(ctx, request, provision, process, staged, "duplicate_machine_owner"))
+		return Provisioned{}, errors.Join(ErrConfiguration, controller.abortProvision(ctx, request, provision, process, staged, &owner, "duplicate_machine_owner"))
 	}
 	controller.watch(provision.SessionID, active)
 	return Provisioned{Provision: provision, Ready: ready}, nil
@@ -218,32 +239,36 @@ func (controller *Controller) Terminate(ctx context.Context, sessionID, reason s
 		return runtimepostgres.LifecycleResult{}, err
 	}
 	stopErr := active.process.Stop(ctx)
-	cleanupErr := active.staged.cleanup()
+	if stopErr != nil && !errors.Is(stopErr, firecracker.ErrVMMExited) {
+		return requested, stopErr
+	}
+	ownerErr := controller.Ownership.Verify(active.owner)
+	if ownerErr != nil {
+		return requested, ownerErr
+	}
+	var cleanupErr error
+	cleanupErr = active.staged.cleanup()
+	if cleanupErr != nil {
+		return requested, cleanupErr
+	}
 	completedAt := controller.now()
 	completePointer, cleanupHash, receiptErr := controller.putReceipt(ctx, sessionID+":terminated", active.request.Command.TenantID, controlReceipt{SchemaVersion: 1, SessionID: sessionID, Reason: reason, OccurredAt: completedAt})
 	if receiptErr != nil {
-		return runtimepostgres.LifecycleResult{}, errors.Join(stopErr, cleanupErr, receiptErr)
+		return runtimepostgres.LifecycleResult{}, errors.Join(stopErr, receiptErr)
 	}
 	terminated, completeErr := controller.Store.CompleteTermination(ctx, runtimepostgres.TerminatedCommand{LifecycleCommand: runtimepostgres.LifecycleCommand{
 		TenantID: active.request.Command.TenantID, SessionID: sessionID, ProvisionAttemptID: active.result.ProvisionAttemptID,
 		ProvisionFence: 1, ExpectedVersion: requested.Version, LeaseToken: active.request.Command.ProvisionLease, ObservedAt: completedAt,
 		Payload: completePointer, Actor: active.request.Command.Actor, CorrelationID: active.request.Command.CorrelationID,
 	}, CleanupReceiptHash: cleanupHash, UsageManifest: json.RawMessage(`{"schema_version":1,"vcpu_millis":0}`)})
-	return terminated, errors.Join(stopErr, cleanupErr, completeErr)
+	return terminated, errors.Join(stopErr, completeErr)
 }
 
-func (controller *Controller) abortProvision(ctx context.Context, request ProvisionRequest, provision runtimepostgres.ProvisionResult, process machineProcess, staged stagedMachine, reason string) error {
-	var stopErr, cleanupErr error
-	if process != nil {
-		stopErr = process.Stop(ctx)
-	}
-	if staged.cleanup != nil {
-		cleanupErr = staged.cleanup()
-	}
+func (controller *Controller) abortProvision(ctx context.Context, request ProvisionRequest, provision runtimepostgres.ProvisionResult, process machineProcess, staged stagedMachine, owner *firecracker.OwnershipRecord, reason string) error {
 	at := controller.now()
 	pointer, _, err := controller.putReceipt(ctx, provision.SessionID+":abort", request.Command.TenantID, controlReceipt{SchemaVersion: 1, SessionID: provision.SessionID, Reason: reason, OccurredAt: at})
 	if err != nil {
-		return errors.Join(stopErr, cleanupErr, err)
+		return err
 	}
 	requested, err := controller.Store.RequestTermination(ctx, runtimepostgres.TerminationCommand{LifecycleCommand: runtimepostgres.LifecycleCommand{
 		TenantID: request.Command.TenantID, SessionID: provision.SessionID, ProvisionAttemptID: provision.ProvisionAttemptID,
@@ -251,19 +276,33 @@ func (controller *Controller) abortProvision(ctx context.Context, request Provis
 		Payload: pointer, Actor: request.Command.Actor, CorrelationID: request.Command.CorrelationID,
 	}, Reason: reason})
 	if err != nil {
-		return errors.Join(stopErr, cleanupErr, err)
+		return err
+	}
+	var stopErr, ownerErr, cleanupErr error
+	if process != nil {
+		stopErr = process.Stop(ctx)
+	}
+	stopped := process == nil || stopErr == nil || errors.Is(stopErr, firecracker.ErrVMMExited)
+	if owner != nil && stopped {
+		ownerErr = controller.Ownership.Verify(*owner)
+	}
+	if staged.cleanup != nil && stopped && ownerErr == nil {
+		cleanupErr = staged.cleanup()
+	}
+	if !stopped || ownerErr != nil || cleanupErr != nil {
+		return errors.Join(stopErr, ownerErr, cleanupErr)
 	}
 	completedAt := at.Add(time.Microsecond)
 	completePointer, cleanupHash, receiptErr := controller.putReceipt(ctx, provision.SessionID+":aborted", request.Command.TenantID, controlReceipt{SchemaVersion: 1, SessionID: provision.SessionID, Reason: reason, OccurredAt: completedAt})
 	if receiptErr != nil {
-		return errors.Join(stopErr, cleanupErr, receiptErr)
+		return errors.Join(stopErr, ownerErr, cleanupErr, receiptErr)
 	}
 	_, completeErr := controller.Store.CompleteTermination(ctx, runtimepostgres.TerminatedCommand{LifecycleCommand: runtimepostgres.LifecycleCommand{
 		TenantID: request.Command.TenantID, SessionID: provision.SessionID, ProvisionAttemptID: provision.ProvisionAttemptID,
 		ProvisionFence: 1, ExpectedVersion: requested.Version, LeaseToken: request.Command.ProvisionLease, ObservedAt: completedAt,
 		Payload: completePointer, Actor: request.Command.Actor, CorrelationID: request.Command.CorrelationID,
 	}, CleanupReceiptHash: cleanupHash, UsageManifest: json.RawMessage(`{"schema_version":1,"vcpu_millis":0}`)})
-	return errors.Join(stopErr, cleanupErr, completeErr)
+	return errors.Join(stopErr, ownerErr, cleanupErr, completeErr)
 }
 
 func (controller *Controller) stageMachine(ctx context.Context, request firecracker.StageRequest) (stagedMachine, error) {
@@ -274,7 +313,7 @@ func (controller *Controller) stageMachine(ctx context.Context, request firecrac
 	if err != nil {
 		return stagedMachine{}, err
 	}
-	return stagedMachine{spec: machine.Spec, vsockPath: filepath.Join(machine.Root, "run", "guest.vsock"), cleanup: machine.Cleanup}, nil
+	return stagedMachine{spec: machine.Spec, root: machine.Root, vsockPath: filepath.Join(machine.Root, "run", "guest.vsock"), cleanup: machine.Cleanup}, nil
 }
 
 func (controller *Controller) startMachine(ctx context.Context, spec firecracker.Spec) (machineProcess, error) {

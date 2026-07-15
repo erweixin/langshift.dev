@@ -19,29 +19,39 @@ var (
 
 type managedProcess interface {
 	Start() error
+	PID() int
 	Signal(os.Signal) error
 	Kill() error
 	Wait() error
 }
 
 type Runner struct {
-	Jailer         JailerConfig
-	StartupTimeout time.Duration
-	PollInterval   time.Duration
-	APITimeout     time.Duration
-	StopGrace      time.Duration
-	processFactory func(context.Context, JailerConfig, string) (managedProcess, error)
-	socketReady    func(string, uint32, uint32) (bool, error)
-	apiReady       func(context.Context, string, time.Duration) error
-	configure      func(context.Context, string, time.Duration, Spec) error
+	Jailer          JailerConfig
+	StartupTimeout  time.Duration
+	PollInterval    time.Duration
+	APITimeout      time.Duration
+	StopGrace       time.Duration
+	processFactory  func(context.Context, JailerConfig, string) (managedProcess, error)
+	processIdentity func(int) (ProcessIdentity, error)
+	socketReady     func(string, uint32, uint32) (bool, error)
+	apiReady        func(context.Context, string, time.Duration) error
+	configure       func(context.Context, string, time.Duration, Spec) error
 }
 
 type Machine struct {
 	process   managedProcess
 	exit      *processExit
+	identity  ProcessIdentity
 	stopGrace time.Duration
 	stopOnce  sync.Once
 	stopErr   error
+}
+
+func (machine *Machine) Identity() (ProcessIdentity, error) {
+	if machine == nil || machine.identity.Validate() != nil {
+		return ProcessIdentity{}, ErrProcessIdentity
+	}
+	return machine.identity, nil
 }
 
 func (machine *Machine) Done() <-chan struct{} {
@@ -104,9 +114,18 @@ func (runner Runner) Start(ctx context.Context, spec Spec) (*Machine, error) {
 	if err = process.Start(); err != nil {
 		return nil, fmt.Errorf("%w: process start", ErrVMMStartup)
 	}
+	identityReader := runner.processIdentity
+	if identityReader == nil {
+		identityReader = readProcessIdentity
+	}
+	identity, err := identityReader(process.PID())
+	if err != nil || identity.Validate() != nil {
+		_ = process.Kill()
+		return nil, fmt.Errorf("%w: process identity", ErrVMMStartup)
+	}
 	exit := &processExit{done: make(chan struct{})}
 	go func() { exit.complete(process.Wait()) }()
-	machine := &Machine{process: process, exit: exit, stopGrace: runner.StopGrace}
+	machine := &Machine{process: process, exit: exit, identity: identity, stopGrace: runner.StopGrace}
 	failed := true
 	defer func() {
 		if failed {
@@ -197,6 +216,12 @@ func (machine *Machine) Stop(ctx context.Context) error {
 type execProcess struct{ command *exec.Cmd }
 
 func (process execProcess) Start() error { return process.command.Start() }
+func (process execProcess) PID() int {
+	if process.command == nil || process.command.Process == nil {
+		return 0
+	}
+	return process.command.Process.Pid
+}
 func (process execProcess) Signal(signal os.Signal) error {
 	return process.command.Process.Signal(signal)
 }
