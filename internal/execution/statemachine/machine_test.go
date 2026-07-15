@@ -1,19 +1,33 @@
 package statemachine
 
 import (
+	"encoding/json"
 	"errors"
 	"testing"
 )
 
 func TestAllLegalAndIllegalTransitionsAreExhaustivelyClassified(t *testing.T) {
+	metrics := struct {
+		Scenario                   string `json:"scenario"`
+		Machines                   int    `json:"machines"`
+		States                     int    `json:"states"`
+		LegalTransitions           int    `json:"legal_transitions"`
+		LegalTransitionsAccepted   int    `json:"legal_transitions_accepted"`
+		IllegalTransitions         int    `json:"illegal_transitions"`
+		IllegalTransitionsRejected int    `json:"illegal_transitions_rejected"`
+		ReachableStates            int    `json:"reachable_states"`
+	}{Scenario: "execution_state_machine_model"}
 	for name, snapshot := range AllSnapshots() {
 		name, snapshot := name, snapshot
+		metrics.Machines++
+		metrics.States += len(snapshot.States)
 		t.Run(name, func(t *testing.T) {
 			allowed := map[string]map[string]bool{}
 			for from, destinations := range snapshot.Transitions {
 				allowed[from] = map[string]bool{}
 				for _, to := range destinations {
 					allowed[from][to] = true
+					metrics.LegalTransitions++
 				}
 			}
 			for _, from := range snapshot.States {
@@ -22,13 +36,40 @@ func TestAllLegalAndIllegalTransitionsAreExhaustivelyClassified(t *testing.T) {
 					if allowed[from][to] && err != nil {
 						t.Fatalf("legal transition %s -> %s rejected: %v", from, to, err)
 					}
+					if allowed[from][to] {
+						metrics.LegalTransitionsAccepted++
+					}
 					if !allowed[from][to] && !errors.Is(err, ErrIllegalTransition) {
 						t.Fatalf("illegal transition %s -> %s was not rejected: %v", from, to, err)
 					}
+					if !allowed[from][to] {
+						metrics.IllegalTransitions++
+						metrics.IllegalTransitionsRejected++
+					}
 				}
 			}
+			reachable := map[string]bool{}
+			queue := append([]string(nil), snapshot.Initial...)
+			for len(queue) > 0 {
+				state := queue[0]
+				queue = queue[1:]
+				if reachable[state] {
+					continue
+				}
+				reachable[state] = true
+				queue = append(queue, snapshot.Transitions[state]...)
+			}
+			if len(reachable) != len(snapshot.States) {
+				t.Fatalf("not every state is reachable from an initial state: reachable=%v states=%v", reachable, snapshot.States)
+			}
+			metrics.ReachableStates += len(reachable)
 		})
 	}
+	encoded, err := json.Marshal(metrics)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("state_machine_model=%s", encoded)
 }
 
 func TestUnknownStatesAndInvalidInitialStatesAreRejected(t *testing.T) {
