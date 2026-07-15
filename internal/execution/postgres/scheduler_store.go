@@ -44,8 +44,8 @@ type SchedulerResourceClaim struct {
 
 type SchedulerCandidate struct {
 	scheduler.Job
-	DispatchVersion uint64
-	Command         eventpostgres.PublishedCommand
+	DispatchVersion, QueueGeneration uint64
+	Command                          eventpostgres.PublishedCommand
 }
 
 type DispatchClaim struct {
@@ -178,7 +178,7 @@ func (store SchedulerStore) listCandidates(ctx context.Context, claim SchedulerR
 	if err != nil {
 		return nil, ErrSchedulerConflict
 	}
-	rows, err := store.Pool.Query(ctx, `SELECT * FROM agent.scheduler_list_ready_jobs($1,$2,$3,$4,$5,$6,$7)`, claim.ResourceClass, claim.Owner, claim.Version, digest[:], claim.StoreEpoch, store.now(), limit)
+	rows, err := store.Pool.Query(ctx, `SELECT * FROM agent.scheduler_list_ready_jobs_v2($1,$2,$3,$4,$5,$6,$7)`, claim.ResourceClass, claim.Owner, claim.Version, digest[:], claim.StoreEpoch, store.now(), limit)
 	if err != nil {
 		return nil, err
 	}
@@ -187,15 +187,47 @@ func (store SchedulerStore) listCandidates(ctx context.Context, claim SchedulerR
 	for rows.Next() {
 		var candidate SchedulerCandidate
 		var queueClass string
-		if err = rows.Scan(&candidate.ID, &candidate.TenantID, &candidate.Command.CommandID, &queueClass, &candidate.Priority, &candidate.CostUnits, &candidate.EnqueuedAt, &candidate.AvailableAt, &candidate.DueAt, &candidate.RetryCount, &candidate.DispatchVersion, &candidate.Command.OutboxID, &candidate.Command.CommandType, &candidate.Command.AggregateKind, &candidate.Command.AggregateID, &candidate.Command.StoreEpoch, &candidate.Command.PayloadRef, &candidate.Command.PayloadHash); err != nil {
+		if err = rows.Scan(&candidate.ID, &candidate.TenantID, &candidate.Command.CommandID, &queueClass, &candidate.Priority, &candidate.CostUnits, &candidate.EnqueuedAt, &candidate.AvailableAt, &candidate.DueAt, &candidate.RetryCount, &candidate.DispatchVersion, &candidate.QueueGeneration, &candidate.Command.OutboxID, &candidate.Command.CommandType, &candidate.Command.AggregateKind, &candidate.Command.AggregateID, &candidate.Command.StoreEpoch, &candidate.Command.PayloadRef, &candidate.Command.PayloadHash); err != nil {
 			return nil, err
 		}
 		candidate.ResourceClass = claim.ResourceClass
 		candidate.QueueClass = scheduler.QueueClass(queueClass)
 		candidate.Command.TenantID = candidate.TenantID
+		candidate.Command.QueueGeneration = candidate.QueueGeneration
+		candidate.Command.DispatchVersion = candidate.DispatchVersion + 1
 		candidates = append(candidates, candidate)
 	}
 	return candidates, rows.Err()
+}
+
+// LoadActive reads the cross-tenant running-job projection through a narrow
+// SECURITY DEFINER capability. Counting expired-but-not-yet-reconciled jobs is
+// intentionally conservative: capacity is released only by durable recovery.
+func (store SchedulerStore) LoadActive(ctx context.Context, resourceClass string, highPriorityThreshold int) (scheduler.Active, error) {
+	active := scheduler.Active{ByResource: map[string]int{}, ByResourceQueue: map[scheduler.ResourceQueue]int{}, ByTenantResource: map[scheduler.TenantResource]int{}, HighPriorityByResource: map[string]int{}}
+	if !store.valid() || resourceClass == "" || highPriorityThreshold < 0 || highPriorityThreshold > 1000 {
+		return active, ErrConfiguration
+	}
+	rows, err := store.Pool.Query(ctx, `SELECT tenant_id,queue_class,high_priority,active_count FROM agent.scheduler_active_counts($1,$2)`, resourceClass, highPriorityThreshold)
+	if err != nil {
+		return active, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var tenant, queue string
+		var high bool
+		var count int
+		if err = rows.Scan(&tenant, &queue, &high, &count); err != nil || count < 1 {
+			return active, ErrSchedulerConflict
+		}
+		active.ByResource[resourceClass] += count
+		active.ByResourceQueue[scheduler.ResourceQueue{Resource: resourceClass, Queue: scheduler.QueueClass(queue)}] += count
+		active.ByTenantResource[scheduler.TenantResource{Tenant: tenant, Resource: resourceClass}] += count
+		if high {
+			active.HighPriorityByResource[resourceClass] += count
+		}
+	}
+	return active, rows.Err()
 }
 
 func (store SchedulerStore) MarkDispatched(ctx context.Context, claim DispatchClaim) error {

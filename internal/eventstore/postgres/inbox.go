@@ -14,6 +14,7 @@ import (
 
 type DeliveredCommand struct {
 	TenantID, StoreEpoch, CommandID, CommandType, AggregateKind, AggregateID, PayloadRef, PayloadHash string
+	QueueGeneration, DispatchVersion                                                                  uint64
 }
 
 type InboxClaim struct {

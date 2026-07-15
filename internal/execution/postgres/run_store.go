@@ -86,6 +86,10 @@ type RunStore struct {
 	Random      io.Reader
 	InlineTools map[string]InlinePlatformToolHandler
 	Behavior    BehaviorResolver
+	// RequireDispatchFence is mandatory for production execution workers. It
+	// remains opt-in so store-level tests and administrative repair paths can
+	// construct commands without a live scheduler.
+	RequireDispatchFence bool
 }
 
 // Accept queues a Run in one transaction. The accepted state is an immutable

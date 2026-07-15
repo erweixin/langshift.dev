@@ -79,7 +79,7 @@ func (store RunStore) ClaimToolPreview(ctx context.Context, command ClaimToolPre
 	if _, err = tx.Exec(ctx, `SELECT set_config('lites.tenant_id',$1,true)`, command.Command.TenantID); err != nil {
 		return PreviewClaim{}, err
 	}
-	if err = lockCommandDelivery(ctx, tx, command.Command.CommandID); err != nil {
+	if err = lockScheduledCommandDelivery(ctx, tx, command.Command, store.RequireDispatchFence); err != nil {
 		return PreviewClaim{}, err
 	}
 	var currentFence uint64

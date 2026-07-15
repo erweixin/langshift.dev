@@ -98,7 +98,7 @@ func (store RunStore) ClaimStart(ctx context.Context, command ClaimRunCommand) (
 	if _, err = tx.Exec(ctx, `SELECT set_config('lites.tenant_id',$1,true)`, command.Command.TenantID); err != nil {
 		return RunClaim{}, err
 	}
-	if err = lockCommandDelivery(ctx, tx, command.Command.CommandID); err != nil {
+	if err = lockScheduledCommandDelivery(ctx, tx, command.Command, store.RequireDispatchFence); err != nil {
 		return RunClaim{}, err
 	}
 	var currentFence uint64

@@ -83,7 +83,7 @@ func (store RunStore) claimReconciliation(ctx context.Context, command ClaimReco
 	if _, err = tx.Exec(ctx, `SELECT set_config('lites.tenant_id',$1,true)`, command.Command.TenantID); err != nil {
 		return ReconciliationClaim{}, err
 	}
-	if err = lockCommandDelivery(ctx, tx, command.Command.CommandID); err != nil {
+	if err = lockScheduledCommandDelivery(ctx, tx, command.Command, store.RequireDispatchFence); err != nil {
 		return ReconciliationClaim{}, err
 	}
 	tag, err := tx.Exec(ctx, `INSERT INTO agent.inbox(id,tenant_id,store_epoch,consumer_name,command_id,status,owner_attempt_id,fence,lease_token_hash,lease_expires_at,request_hash) VALUES($1,$2,$3,$4,$5,'running',$6,1,$7,$8,$9) ON CONFLICT DO NOTHING`, inboxID, command.Command.TenantID, command.Command.StoreEpoch, command.ConsumerName, command.Command.CommandID, attemptID, credential.Digest[:], expiresAt, command.Command.PayloadHash)

@@ -18,6 +18,10 @@ type PublishedCommand struct {
 	OutboxID, TenantID, CommandID, CommandType, AggregateKind, AggregateID string
 	StoreEpoch, PayloadRef, PayloadHash                                    string
 	PublishAttempts                                                        int
+	// QueueGeneration and DispatchVersion are zero while an outbox command
+	// is being durably staged. The scheduler binds both values before the
+	// command is admitted to an execution worker.
+	QueueGeneration, DispatchVersion uint64
 }
 
 type OutboxClaim struct {
@@ -27,7 +31,7 @@ type OutboxClaim struct {
 }
 
 func (command PublishedCommand) Delivered() DeliveredCommand {
-	return DeliveredCommand{TenantID: command.TenantID, StoreEpoch: command.StoreEpoch, CommandID: command.CommandID, CommandType: command.CommandType, AggregateKind: command.AggregateKind, AggregateID: command.AggregateID, PayloadRef: command.PayloadRef, PayloadHash: command.PayloadHash}
+	return DeliveredCommand{TenantID: command.TenantID, StoreEpoch: command.StoreEpoch, CommandID: command.CommandID, CommandType: command.CommandType, AggregateKind: command.AggregateKind, AggregateID: command.AggregateID, PayloadRef: command.PayloadRef, PayloadHash: command.PayloadHash, QueueGeneration: command.QueueGeneration, DispatchVersion: command.DispatchVersion}
 }
 
 type CommandBroker interface {

@@ -42,7 +42,7 @@ func TestCommandReconcilerRestoresLostPendingAndExpiredRunningDelivery(t *testin
 		t.Fatal(err)
 	}
 	seedExecutionBehavior(t, ctx, admin, tenantID, userID, "route_planner", now)
-	runStore := RunStore{Pool: agent, Appender: eventpostgres.Appender{Now: func() time.Time { return now }}, IDKey: bytes.Repeat([]byte{0x91}, 32), StoreEpoch: storeEpoch, Now: func() time.Time { return now }, Epochs: executionEpochStub{epoch: storeEpoch}, Tokens: opaque.Manager{Purpose: "redelivery-run", Pepper: bytes.Repeat([]byte{0x92}, 32)}, LeaseTTL: 2 * time.Minute, Behavior: integrationBehaviorResolver}
+	runStore := RunStore{Pool: agent, Appender: eventpostgres.Appender{Now: func() time.Time { return now }}, IDKey: bytes.Repeat([]byte{0x91}, 32), StoreEpoch: storeEpoch, Now: func() time.Time { return now }, Epochs: executionEpochStub{epoch: storeEpoch}, Tokens: opaque.Manager{Purpose: "redelivery-run", Pepper: bytes.Repeat([]byte{0x92}, 32)}, LeaseTTL: 2 * time.Minute, Behavior: integrationBehaviorResolver, RequireDispatchFence: true}
 	accepted, err := runStore.Accept(ctx, AcceptRunCommand{RunID: runID, TenantID: tenantID, UserID: userID, ConversationID: conversation, CorrelationID: correlation, DueAt: now.Add(time.Hour), BehaviorProfile: "route_planner", BehaviorEnvironment: "production", BudgetSnapshot: json.RawMessage(`{"max_steps":16}`), Actor: json.RawMessage(`{"kind":"user"}`), AcceptedEvent: PayloadPointer{Ref: "encrypted://redelivery/accepted", Hash: "accepted"}, QueuedEvent: PayloadPointer{Ref: "encrypted://redelivery/queued", Hash: "queued"}, StartCommand: PayloadPointer{Ref: "encrypted://redelivery/start", Hash: "start"}, QueueClass: "interactive", ResourceClass: "llm", Priority: 50, CostUnits: 1, MaxAttempts: 5})
 	if err != nil {
 		t.Fatal(err)
@@ -115,6 +115,7 @@ func TestCommandReconcilerRestoresLostPendingAndExpiredRunningDelivery(t *testin
 	if err != nil || len(dispatches) != 1 || dispatches[0].Candidate.Command.CommandID != accepted.StartCommandID {
 		t.Fatalf("pending redelivery dispatches=%#v error=%v", dispatches, err)
 	}
+	staleDelivery := dispatches[0].Candidate.Command.Delivered()
 	firstClaim, err := runStore.ClaimStart(ctx, ClaimRunCommand{Command: dispatches[0].Candidate.Command.Delivered(), ConsumerName: "agent-run-worker", WorkerID: "redelivery-worker-1", Actor: json.RawMessage(`{"kind":"service"}`), CorrelationID: correlation, RunEvent: PayloadPointer{Ref: "encrypted://redelivery/run-started", Hash: "run-started"}, AttemptStartedEvent: PayloadPointer{Ref: "encrypted://redelivery/attempt-started/1", Hash: "attempt-started-1"}, AttemptExpiredEvent: PayloadPointer{Ref: "encrypted://redelivery/attempt-expired/1", Hash: "attempt-expired-1"}})
 	if err != nil || firstClaim.Fence != 1 {
 		t.Fatalf("first worker claim=%#v error=%v", firstClaim, err)
@@ -135,6 +136,10 @@ func TestCommandReconcilerRestoresLostPendingAndExpiredRunningDelivery(t *testin
 	dispatches, err = schedulerStore.PlanResource(ctx, config, scheduler.Active{}, "llm", "redelivery-scheduler-2", storeEpoch, 10)
 	if err != nil || len(dispatches) != 1 || dispatches[0].Candidate.ID != accepted.StartJobID {
 		t.Fatalf("running redelivery dispatches=%#v error=%v", dispatches, err)
+	}
+	_, err = runStore.ClaimStart(ctx, ClaimRunCommand{Command: staleDelivery, ConsumerName: "agent-run-worker", WorkerID: "stale-redelivery-worker", Actor: json.RawMessage(`{"kind":"service"}`), CorrelationID: correlation, RunEvent: PayloadPointer{Ref: "encrypted://redelivery/stale-run", Hash: "stale-run"}, AttemptStartedEvent: PayloadPointer{Ref: "encrypted://redelivery/stale-attempt", Hash: "stale-attempt"}, AttemptExpiredEvent: PayloadPointer{Ref: "encrypted://redelivery/stale-expired", Hash: "stale-expired"}})
+	if !errors.Is(err, ErrClaimConflict) {
+		t.Fatalf("stale queue generation reached execution claim: %v", err)
 	}
 	secondClaim, err := runStore.ClaimStart(ctx, ClaimRunCommand{Command: dispatches[0].Candidate.Command.Delivered(), ConsumerName: "agent-run-worker", WorkerID: "redelivery-worker-2", Actor: json.RawMessage(`{"kind":"service"}`), CorrelationID: correlation, RunEvent: PayloadPointer{Ref: "encrypted://redelivery/run-started", Hash: "run-started"}, AttemptStartedEvent: PayloadPointer{Ref: "encrypted://redelivery/attempt-started/2", Hash: "attempt-started-2"}, AttemptExpiredEvent: PayloadPointer{Ref: "encrypted://redelivery/attempt-expired/2", Hash: "attempt-expired-2"}})
 	if err != nil || secondClaim.Fence != 2 || secondClaim.AttemptID == firstClaim.AttemptID || secondClaim.CommandID != firstClaim.CommandID {

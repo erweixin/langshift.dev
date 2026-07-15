@@ -29,7 +29,7 @@ func TestSchedulerDispatchLeasesAreGlobalDurableAndRecoverable(t *testing.T) {
 	defer schedulerPool.Close()
 	const storeEpoch = "4e000000-0000-4000-8000-000000000001"
 	now := time.Date(2026, time.July, 14, 20, 0, 0, 0, time.UTC)
-	runStore := RunStore{Pool: agent, Appender: eventpostgres.Appender{Now: func() time.Time { return now }}, IDKey: bytes.Repeat([]byte{0x81}, 32), StoreEpoch: storeEpoch, Now: func() time.Time { return now }, Epochs: executionEpochStub{epoch: storeEpoch}, Tokens: opaque.Manager{Purpose: "scheduled-run", Pepper: bytes.Repeat([]byte{0x82}, 32)}, LeaseTTL: 2 * time.Minute, Behavior: integrationBehaviorResolver}
+	runStore := RunStore{Pool: agent, Appender: eventpostgres.Appender{Now: func() time.Time { return now }}, IDKey: bytes.Repeat([]byte{0x81}, 32), StoreEpoch: storeEpoch, Now: func() time.Time { return now }, Epochs: executionEpochStub{epoch: storeEpoch}, Tokens: opaque.Manager{Purpose: "scheduled-run", Pepper: bytes.Repeat([]byte{0x82}, 32)}, LeaseTTL: 2 * time.Minute, Behavior: integrationBehaviorResolver, RequireDispatchFence: true}
 	fixtures := []schedulerFixture{
 		{"4e000000-0000-4000-8000-000000000010", "4e000000-0000-4000-8000-000000000011", "4e000000-0000-4000-8000-000000000012", "4e000000-0000-4000-8000-000000000013", "4e000000-0000-4000-8000-000000000014"},
 		{"4e000000-0000-4000-8000-000000000020", "4e000000-0000-4000-8000-000000000021", "4e000000-0000-4000-8000-000000000022", "4e000000-0000-4000-8000-000000000023", "4e000000-0000-4000-8000-000000000024"},
@@ -96,6 +96,10 @@ func TestSchedulerDispatchLeasesAreGlobalDurableAndRecoverable(t *testing.T) {
 	workerClaim, err := runStore.ClaimStart(ctx, ClaimRunCommand{Command: first.Candidate.Command.Delivered(), ConsumerName: "agent-run-worker", WorkerID: "worker-after-fast-delivery", Actor: json.RawMessage(`{"kind":"service"}`), CorrelationID: firstFixture.correlation, RunEvent: PayloadPointer{Ref: "encrypted://scheduler/run-started", Hash: "run-started"}, AttemptStartedEvent: PayloadPointer{Ref: "encrypted://scheduler/attempt-started", Hash: "attempt-started"}, AttemptExpiredEvent: PayloadPointer{Ref: "encrypted://scheduler/attempt-expired", Hash: "attempt-expired"}})
 	if err != nil || workerClaim.JobID != firstAccepted.StartJobID || firstCommand.StartCommand.Hash != first.Candidate.Command.PayloadHash {
 		t.Fatalf("worker claim=%#v error=%v", workerClaim, err)
+	}
+	active, err := store.LoadActive(ctx, "llm", config.Resources["llm"].HighPriorityThreshold)
+	if err != nil || active.ByResource["llm"] < 1 || active.ByResourceQueue[scheduler.ResourceQueue{Resource: "llm", Queue: scheduler.QueueInteractive}] != active.ByResource["llm"] || active.ByTenantResource[scheduler.TenantResource{Tenant: first.Candidate.TenantID, Resource: "llm"}] != 1 {
+		t.Fatalf("active projection=%#v error=%v", active, err)
 	}
 	if err = store.MarkDispatched(ctx, first); err != nil {
 		t.Fatalf("broker ACK after worker claim: %v", err)

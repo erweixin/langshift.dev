@@ -84,7 +84,8 @@ for migration in \
   deploy/migrations/000042_runtime_run_cancellation_authority.up.sql \
   deploy/migrations/000043_child_run_orchestration_contract.up.sql \
   deploy/migrations/000044_run_cancellation_propagation.up.sql \
-  deploy/migrations/000045_child_group_remainder_cancellation.up.sql; do
+  deploy/migrations/000045_child_group_remainder_cancellation.up.sql \
+  deploy/migrations/000046_scheduler_capacity_and_dispatch_fence.up.sql; do
   target="/tmp/$(basename "${migration}")"
   docker cp "${migration}" "${container_name}:${target}" >/dev/null
   docker exec "${container_name}" psql -v ON_ERROR_STOP=1 -U postgres -d lites_foundation -f "${target}" >/dev/null
@@ -109,7 +110,7 @@ docker exec "${container_name}" psql -v ON_ERROR_STOP=1 -U postgres -d lites_fou
   "GRANT SELECT ON agent.behavior_snapshots,agent.behavior_channel_deployments TO lites_product_service;" >/dev/null
 
 docker exec "${container_name}" psql -v ON_ERROR_STOP=1 -U postgres -d lites_foundation -c \
-  "CREATE ROLE lites_scheduler_service LOGIN PASSWORD 'foundation_scheduler_service' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS; GRANT CONNECT ON DATABASE lites_foundation TO lites_scheduler_service; GRANT USAGE ON SCHEMA agent TO lites_scheduler_service; GRANT SELECT,UPDATE ON agent.jobs TO lites_scheduler_service; GRANT EXECUTE ON FUNCTION agent.scheduler_claim_resource(text,text,bytea,timestamptz,timestamptz), agent.scheduler_list_ready_jobs(text,text,bigint,bytea,uuid,timestamptz,integer), agent.scheduler_commit_dispatch(text,text,bigint,bytea,jsonb,jsonb,timestamptz,timestamptz), agent.scheduler_abort_resource(text,text,bigint,bytea,timestamptz) TO lites_scheduler_service;" >/dev/null
+  "CREATE ROLE lites_scheduler_service LOGIN PASSWORD 'foundation_scheduler_service' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS; GRANT CONNECT ON DATABASE lites_foundation TO lites_scheduler_service; GRANT USAGE ON SCHEMA agent TO lites_scheduler_service; GRANT SELECT,UPDATE ON agent.jobs TO lites_scheduler_service; GRANT EXECUTE ON FUNCTION agent.scheduler_claim_resource(text,text,bytea,timestamptz,timestamptz), agent.scheduler_list_ready_jobs(text,text,bigint,bytea,uuid,timestamptz,integer), agent.scheduler_list_ready_jobs_v2(text,text,bigint,bytea,uuid,timestamptz,integer), agent.scheduler_active_counts(text,integer), agent.scheduler_commit_dispatch(text,text,bigint,bytea,jsonb,jsonb,timestamptz,timestamptz), agent.scheduler_abort_resource(text,text,bigint,bytea,timestamptz) TO lites_scheduler_service;" >/dev/null
 
 docker exec "${container_name}" psql -v ON_ERROR_STOP=1 -U postgres -d lites_foundation -c \
   "CREATE ROLE lites_realtime_service LOGIN PASSWORD 'foundation_realtime_service' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS; GRANT CONNECT ON DATABASE lites_foundation TO lites_realtime_service; GRANT USAGE ON SCHEMA agent TO lites_realtime_service; GRANT SELECT ON agent.events,agent.event_cursors TO lites_realtime_service;" >/dev/null

@@ -58,6 +58,15 @@ func (consumer DurableConsumer) Provision(ctx context.Context, js jetstream.JetS
 			}
 		}
 		if !known {
+			for commandType := range scheduledCommandSlugs {
+				allowed, _ := DispatchSubjectFor(commandType)
+				if subject == allowed {
+					known = true
+					break
+				}
+			}
+		}
+		if !known {
 			return nil, ErrConfiguration
 		}
 	}
@@ -85,8 +94,12 @@ func (topology Topology) Provision(ctx context.Context, js jetstream.JetStream) 
 }
 
 func allSubjects() []string {
-	subjects := make([]string, 0, len(commandSubjects))
+	subjects := make([]string, 0, len(commandSubjects)+len(scheduledCommandSlugs))
 	for _, subject := range commandSubjects {
+		subjects = append(subjects, subject)
+	}
+	for commandType := range scheduledCommandSlugs {
+		subject, _ := DispatchSubjectFor(commandType)
 		subjects = append(subjects, subject)
 	}
 	sort.Strings(subjects)

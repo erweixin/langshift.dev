@@ -83,3 +83,48 @@ func TestBrokerRequiresMatchingDurableAck(t *testing.T) {
 		t.Fatalf("expected ack stream rejection, got %v", err)
 	}
 }
+
+func TestDispatchEnvelopeBindsBothSchedulerFences(t *testing.T) {
+	command := testPublishedCommand()
+	command.CommandType = "StartAgentRun"
+	command.AggregateKind = "run"
+	command.QueueGeneration = 7
+	command.DispatchVersion = 11
+	body, subject, err := EncodeDispatch(command)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if subject != "lites.commands.dispatch.start-agent-run" {
+		t.Fatalf("unexpected dispatch subject %q", subject)
+	}
+	delivered, err := DecodeDispatch(body, subject)
+	if err != nil || delivered != command.Delivered() {
+		t.Fatalf("dispatch=%#v error=%v", delivered, err)
+	}
+	if _, err = Decode(body, subject); !errors.Is(err, ErrEnvelope) {
+		t.Fatalf("direct decoder accepted dispatch envelope: %v", err)
+	}
+	command.QueueGeneration = 0
+	if _, _, err = EncodeDispatch(command); !errors.Is(err, ErrEnvelope) {
+		t.Fatalf("zero queue generation accepted: %v", err)
+	}
+}
+
+func TestDispatchBrokerUsesWorkerVisibleSubject(t *testing.T) {
+	command := testPublishedCommand()
+	command.CommandType = "ExecuteToolCall"
+	command.AggregateKind = "tool_call"
+	command.QueueGeneration = 2
+	command.DispatchVersion = 3
+	publisher := &fakePublisher{ack: &jetstream.PubAck{Stream: "LITES_COMMANDS", Sequence: 9}}
+	broker := DispatchBroker{Publisher: publisher, Stream: "LITES_COMMANDS", RetryWait: time.Millisecond, RetryAttempts: 1}
+	if err := broker.Publish(context.Background(), command); err != nil {
+		t.Fatal(err)
+	}
+	if publisher.subject != "lites.commands.dispatch.execute-tool-call" {
+		t.Fatalf("unexpected subject %q", publisher.subject)
+	}
+	if _, err := DecodeDispatch(publisher.body, publisher.subject); err != nil {
+		t.Fatal(err)
+	}
+}

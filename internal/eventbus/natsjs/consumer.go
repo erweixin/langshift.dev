@@ -23,6 +23,9 @@ type Consumer struct {
 	BusyDelay         time.Duration
 	RetryDelay        time.Duration
 	AckTimeout        time.Duration
+	// Dispatch selects the scheduler-admitted envelope decoder. Execution
+	// workers must set it; direct infrastructure consumers leave it false.
+	Dispatch bool
 }
 
 // Run processes a durable pull consumer until ctx is cancelled. Drain waits
@@ -55,7 +58,13 @@ func (consumer Consumer) Run(ctx context.Context) error {
 }
 
 func (consumer Consumer) process(parent context.Context, message jetstream.Msg) {
-	command, err := Decode(message.Data(), message.Subject())
+	var command eventpostgres.DeliveredCommand
+	var err error
+	if consumer.Dispatch {
+		command, err = DecodeDispatch(message.Data(), message.Subject())
+	} else {
+		command, err = Decode(message.Data(), message.Subject())
+	}
 	if err != nil {
 		consumer.report(parent, err)
 		if termErr := message.TermWithReason("invalid_command_envelope"); termErr != nil {
