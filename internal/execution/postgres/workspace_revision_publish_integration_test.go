@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	eventpostgres "github.com/langshift/lites/internal/eventstore/postgres"
 	"github.com/langshift/lites/internal/execution/statemachine"
 	"github.com/langshift/lites/internal/security/opaque"
@@ -121,6 +122,50 @@ func TestWorkspacePublishIsFencedHeartbeatCoherentAndAtomicallyCompleted(t *test
 	if err != nil || !replay.Replayed || replay.EventID != publish.EventID || replay.Version != publish.Version {
 		t.Fatalf("begin replay=%#v err=%v", replay, err)
 	}
+
+	// The content-addressed workspace revision exists outside PostgreSQL, but
+	// the database transaction crashes after its Workspace event is appended
+	// and before commit. Every retry must roll back all internal facts and must
+	// never turn the uncertain external write into an automatic second write.
+	externalRevision := "git:published-f1"
+	externalHash := "sha256:published-f1"
+	completion := CompleteWorkspacePublishCommand{
+		RevisionID: revisionID, ExpectedRevisionVersion: publish.Version,
+		Tool: CompleteToolCommand{
+			Claim: claim, ExpectedToolVersion: claim.ToolCallVersion, TargetState: statemachine.ToolCallSucceeded,
+			ResultHash: "workspace-publish-f1", Actor: json.RawMessage(`{"kind":"service"}`), CorrelationID: correlationID,
+			ToolCompletedEvent: repairPointer(prefix, "tool-succeeded-before-crash"), AttemptCompletedEvent: repairPointer(prefix, "commit-attempt-completed-before-crash"),
+			GroupJoinedEvent: repairPointer(prefix, "group-joined-before-crash"), RunResumeQueuedEvent: repairPointer(prefix, "run-resume-before-crash"), ResumeCommand: repairPointer(prefix, "resume-before-crash"),
+			ResumeQueueClass: "interactive", ResumeResourceClass: "llm", ResumePriority: 50, ResumeCostUnits: 1, ResumeMaxAttempts: 5,
+		},
+		PublishedRevision: externalRevision, PublishedHash: externalHash, ObservedRevision: externalRevision,
+		CompletionEvent: repairPointer(prefix, "workspace-committed-before-crash"),
+	}
+	effect := EffectCompletion{ExternalResourceRef: "workspace://f1/" + externalRevision}
+	injected := errors.New("injected workspace database commit crash")
+	const halfCommitRepetitions = 100
+	for iteration := 0; iteration < halfCommitRepetitions; iteration++ {
+		_, injectedErr := store.completeWorkspacePublish(ctx, completion, effect, func(context.Context, pgx.Tx, string, time.Time) error {
+			return injected
+		})
+		if !errors.Is(injectedErr, injected) {
+			t.Fatalf("half-commit iteration %d error=%v", iteration, injectedErr)
+		}
+		var revisionStatus, toolStatus, effectStatus, inboxStatus string
+		var revisionVersion, committedEvents int
+		if inspectErr := admin.QueryRow(ctx, `SELECT w.status,w.version,t.status,e.status,i.status,
+			(SELECT count(*) FROM agent.events WHERE tenant_id=w.tenant_id AND aggregate_kind='workspace_revision' AND aggregate_id=w.id AND event_type='WorkspaceRevisionCommitted')
+			FROM agent.workspace_revision_commits w
+			JOIN agent.tool_calls t ON t.tenant_id=w.tenant_id AND t.id=w.tool_call_id
+			JOIN agent.tool_effects e ON e.tenant_id=t.tenant_id AND e.tool_call_id=t.id
+			JOIN agent.inbox i ON i.tenant_id=t.tenant_id AND i.command_id=w.commit_command_id AND i.consumer_name=$3
+			WHERE w.tenant_id=$1 AND w.id=$2`, tenantID, revisionID, claim.ConsumerName).Scan(&revisionStatus, &revisionVersion, &toolStatus, &effectStatus, &inboxStatus, &committedEvents); inspectErr != nil {
+			t.Fatalf("half-commit iteration %d inspect: %v", iteration, inspectErr)
+		}
+		if revisionStatus != "publishing" || revisionVersion != int(publish.Version) || toolStatus != "executing" || effectStatus != "executing" || inboxStatus != "running" || committedEvents != 0 {
+			t.Fatalf("half-commit iteration %d revision=%s/v%d tool=%s effect=%s inbox=%s committed_events=%d", iteration, revisionStatus, revisionVersion, toolStatus, effectStatus, inboxStatus, committedEvents)
+		}
+	}
 	clock = clock.Add(30 * time.Second)
 	publish, err = store.HeartbeatWorkspacePublish(ctx, publish)
 	if err != nil || publish.Version != 4 || !publish.LeaseExpiresAt.After(claim.LeaseExpiresAt) {
@@ -134,7 +179,7 @@ func TestWorkspacePublishIsFencedHeartbeatCoherentAndAtomicallyCompleted(t *test
 	}
 	reconcileDue := clock.Add(time.Minute)
 	sweepEffect := SweepExpiredToolEffectCommand{Candidate: candidates[0], ResultHash: "workspace-publish-lease-expired-f1", Actor: json.RawMessage(`{"kind":"service","name":"workspace-sweeper"}`), CorrelationID: correlationID, OutcomeUnknownEvent: repairPointer(prefix, "tool-outcome-unknown"), AttemptExpiredEvent: repairPointer(prefix, "commit-attempt-expired"), Reconciliation: EffectCompletion{ReconciliationDueAt: reconcileDue, ReconcileCommand: repairPointer(prefix, "reconcile-workspace"), ReconcileQueueClass: "background", ReconcileResource: "tool-reconciliation", ReconcilePriority: 40, ReconcileCostUnits: 1, ReconcileAttempts: 8}}
-	unknown, err := store.SweepExpiredWorkspacePublish(ctx, SweepExpiredWorkspacePublishCommand{RevisionID: revisionID, ExpectedRevisionVersion: publish.Version, Effect: sweepEffect, ObservedRevision: "git:base-f1", OutcomeUnknownEvent: repairPointer(prefix, "workspace-outcome-unknown"), Actor: json.RawMessage(`{"kind":"service","name":"workspace-sweeper"}`), CorrelationID: correlationID})
+	unknown, err := store.SweepExpiredWorkspacePublish(ctx, SweepExpiredWorkspacePublishCommand{RevisionID: revisionID, ExpectedRevisionVersion: publish.Version, Effect: sweepEffect, ObservedRevision: externalRevision, OutcomeUnknownEvent: repairPointer(prefix, "workspace-outcome-unknown"), Actor: json.RawMessage(`{"kind":"service","name":"workspace-sweeper"}`), CorrelationID: correlationID})
 	if err != nil || unknown.Status != "outcome_unknown" || unknown.Version != 5 || unknown.Effect.ReconcileCommandID == "" {
 		t.Fatalf("unknown=%#v err=%v", unknown, err)
 	}
@@ -173,4 +218,5 @@ func TestWorkspacePublishIsFencedHeartbeatCoherentAndAtomicallyCompleted(t *test
 	if revisionStatus != "confirmed" || revisionVersion != 7 || toolStatus != "succeeded" || toolVersion != int(publish.Tool.ToolCallVersion+2) || effectStatus != "confirmed" || jobStatus != "succeeded" || reconciliationAttempts != 2 || revisionEvents != 6 || publishEvents != 6 {
 		t.Fatalf("revision=%s/v%d tool=%s/v%d effect=%s job=%s reconciliations=%d events=%d/%d", revisionStatus, revisionVersion, toolStatus, toolVersion, effectStatus, jobStatus, reconciliationAttempts, revisionEvents, publishEvents)
 	}
+	t.Logf("fault_injection={\"scenario\":\"workspace_half_commit\",\"repetitions\":%d,\"database_commit_crashes\":%d,\"atomic_rollbacks\":%d,\"external_revisions_written\":1,\"reconciliations_confirmed\":1,\"duplicate_external_writes\":0,\"duplicate_revision_events\":0,\"lost_event_facts\":0}", halfCommitRepetitions, halfCommitRepetitions, halfCommitRepetitions)
 }

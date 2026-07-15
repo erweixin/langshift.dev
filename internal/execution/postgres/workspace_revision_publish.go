@@ -54,6 +54,8 @@ type CompletedWorkspacePublish struct {
 
 type workspacePublishEventIDs struct{ event, outbox, publish string }
 
+type workspacePublishCompletionHook func(context.Context, pgx.Tx, string, time.Time) error
+
 func (store RunStore) BeginWorkspacePublish(ctx context.Context, command BeginWorkspacePublishCommand) (WorkspacePublishClaim, error) {
 	claim := command.Claim
 	if !store.validClaim() {
@@ -171,6 +173,10 @@ func (store RunStore) HeartbeatWorkspacePublish(ctx context.Context, publish Wor
 }
 
 func (store RunStore) CompleteWorkspacePublish(ctx context.Context, command CompleteWorkspacePublishCommand, effect EffectCompletion) (CompletedWorkspacePublish, error) {
+	return store.completeWorkspacePublish(ctx, command, effect, nil)
+}
+
+func (store RunStore) completeWorkspacePublish(ctx context.Context, command CompleteWorkspacePublishCommand, effect EffectCompletion, afterWorkspaceEvent workspacePublishCompletionHook) (CompletedWorkspacePublish, error) {
 	if !store.validClaim() {
 		return CompletedWorkspacePublish{}, ErrConfiguration
 	}
@@ -219,6 +225,11 @@ func (store RunStore) CompleteWorkspacePublish(ctx context.Context, command Comp
 		event := eventpostgres.Input{Event: eventpostgres.Event{ID: eventIDs.event, TenantID: claim.TenantID, UserID: claim.UserID, EventType: eventType, SchemaVersion: 1, AggregateKind: "workspace_revision", AggregateID: command.RevisionID, AggregateVersion: nextVersion, StoreEpoch: store.StoreEpoch, OccurredAt: now, Actor: command.Tool.Actor, CausationID: &causationID, CorrelationID: command.Tool.CorrelationID, PayloadRef: command.CompletionEvent.Ref, PayloadHash: command.CompletionEvent.Hash}, Commands: []eventpostgres.OutboxCommand{{ID: eventIDs.outbox, CommandID: eventIDs.publish, CommandType: "events.publish", PayloadRef: command.CompletionEvent.Ref, PayloadHash: command.CompletionEvent.Hash}}}
 		if _, appendErr := store.Appender.Append(ctx, tx, event); appendErr != nil {
 			return appendErr
+		}
+		if afterWorkspaceEvent != nil {
+			if hookErr := afterWorkspaceEvent(ctx, tx, toolEventID, now); hookErr != nil {
+				return hookErr
+			}
 		}
 		completed = CompletedWorkspacePublish{RevisionID: command.RevisionID, Status: status, EventID: eventIDs.event, Version: nextVersion, PublishedRevision: command.PublishedRevision, PublishedHash: command.PublishedHash, ObservedRevision: command.ObservedRevision, CompletedAt: now}
 		return nil
