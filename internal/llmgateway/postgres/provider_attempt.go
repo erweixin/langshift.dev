@@ -90,10 +90,20 @@ func (store Store) PrepareProviderAttempt(ctx context.Context, command PreparePr
 		return PreparedProviderAttempt{}, err
 	}
 	var manifestJSON json.RawMessage
-	var llmUser, attemptKey, manifestHash, llmStatus string
-	err = tx.QueryRow(ctx, `SELECT user_id::text,attempt_key,context_manifest,context_manifest_hash,status FROM agent.llm_attempts WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, command.TenantID, command.LLMAttemptID).Scan(&llmUser, &attemptKey, &manifestJSON, &manifestHash, &llmStatus)
+	var llmUser, attemptKey, manifestHash, llmStatus, llmRunAttempt, runStatus, activeRunAttempt string
+	var llmRunFence, activeRunFence uint64
+	var runCancelRequested *time.Time
+	var runLeaseExpires time.Time
+	err = tx.QueryRow(ctx, `SELECT l.user_id::text,l.attempt_key,l.context_manifest,l.context_manifest_hash,l.status,l.run_attempt_id::text,l.run_fence,
+		r.status,r.active_attempt_id::text,r.current_fence,r.cancel_requested_at,r.lease_expires_at
+		FROM agent.llm_attempts l JOIN agent.runs r ON r.tenant_id=l.tenant_id AND r.id=l.run_id
+		WHERE l.tenant_id=$1 AND l.id=$2 FOR UPDATE OF l,r`, command.TenantID, command.LLMAttemptID).
+		Scan(&llmUser, &attemptKey, &manifestJSON, &manifestHash, &llmStatus, &llmRunAttempt, &llmRunFence, &runStatus, &activeRunAttempt, &activeRunFence, &runCancelRequested, &runLeaseExpires)
+	if err != nil || runStatus != "executing" || activeRunAttempt != llmRunAttempt || activeRunFence != llmRunFence || runCancelRequested != nil || !runLeaseExpires.After(now) {
+		return PreparedProviderAttempt{}, ErrRunFence
+	}
 	var manifest ContextManifest
-	if err != nil || llmUser != command.UserID || attemptKey != command.AttemptKey || manifestHash != command.ContextManifestHash || llmStatus != "running" || json.Unmarshal(manifestJSON, &manifest) != nil || !containsCandidate(manifest, command.Candidate) {
+	if llmUser != command.UserID || attemptKey != command.AttemptKey || manifestHash != command.ContextManifestHash || llmStatus != "running" || json.Unmarshal(manifestJSON, &manifest) != nil || !containsCandidate(manifest, command.Candidate) {
 		return PreparedProviderAttempt{}, ErrModelNotCandidate
 	}
 	if command.Ordinal == 1 && command.FallbackFromID != "" || command.Ordinal > 1 && command.FallbackFromID == "" {
@@ -203,6 +213,17 @@ func (store Store) AuthorizeDispatch(ctx context.Context, command AuthorizeDispa
 	}
 	if result.RequestHash != command.RequestHash || !bytes.Equal(storedDigest, prepareDigest[:]) || !expiresAt.After(now) {
 		return DispatchAuthorization{}, ErrDispatchToken
+	}
+	var llmStatus, llmRunAttempt, runStatus, activeRunAttempt string
+	var llmRunFence, activeRunFence uint64
+	var runCancelRequested *time.Time
+	var runLeaseExpires time.Time
+	err = tx.QueryRow(ctx, `SELECT l.status,l.run_attempt_id::text,l.run_fence,r.status,r.active_attempt_id::text,r.current_fence,r.cancel_requested_at,r.lease_expires_at
+		FROM agent.llm_attempts l JOIN agent.runs r ON r.tenant_id=l.tenant_id AND r.id=l.run_id
+		WHERE l.tenant_id=$1 AND l.id=$2 FOR UPDATE OF l,r`, command.TenantID, result.LLMAttemptID).
+		Scan(&llmStatus, &llmRunAttempt, &llmRunFence, &runStatus, &activeRunAttempt, &activeRunFence, &runCancelRequested, &runLeaseExpires)
+	if err != nil || llmStatus != "running" || runStatus != "executing" || activeRunAttempt != llmRunAttempt || activeRunFence != llmRunFence || runCancelRequested != nil || !runLeaseExpires.After(now) {
+		return DispatchAuthorization{}, ErrRunFence
 	}
 	result.AttemptID, result.Candidate.BoundHost, result.Candidate.PricingVersion = command.AttemptID, host, pricing
 	if byok {

@@ -44,6 +44,12 @@ func TestProviderDispatchIsAtMostOnceAndFallbackIsFullyAccounted(t *testing.T) {
 		abandonLLM     = "c6000000-0000-4000-8000-000000000021"
 		abandonAttempt = "c6000000-0000-4000-8000-000000000022"
 		abandonReserve = "c6000000-0000-4000-8000-000000000023"
+		fencedLLM      = "c6000000-0000-4000-8000-000000000024"
+		fencedAttempt  = "c6000000-0000-4000-8000-000000000025"
+		fencedReserve  = "c6000000-0000-4000-8000-000000000026"
+		lateLLM        = "c6000000-0000-4000-8000-000000000027"
+		lateAttempt    = "c6000000-0000-4000-8000-000000000028"
+		lateReserve    = "c6000000-0000-4000-8000-000000000029"
 	)
 	setup := []struct {
 		query string
@@ -200,6 +206,41 @@ func TestProviderDispatchIsAtMostOnceAndFallbackIsFullyAccounted(t *testing.T) {
 	}
 	if dispatchEvents != 3 || providerRows != 4 || ledgerRows != 4 || providerCosts != 3 || reservedUnits != 0 || settledUnits != 120 {
 		t.Fatalf("dispatch events=%d provider rows=%d ledger=%d costs=%d reserved=%d settled=%d", dispatchEvents, providerRows, ledgerRows, providerCosts, reservedUnits, settledUnits)
+	}
+
+	// A logical attempt and even a prepared physical attempt retain immutable
+	// history after the Run terminates, but neither may cross the provider
+	// dispatch boundary with the stale Run execution right.
+	fencedStarted, err := store.StartLLMAttempt(ctx, StartLLMAttemptCommand{AttemptID: fencedLLM, TenantID: tenantID, UserID: userID, RunID: runID, RunAttemptID: runAttempt, RunVersion: 3, RunFence: 1, StreamGeneration: 4, AttemptKey: "attempt-key-c6-fenced", CorrelationID: correlation, Manifest: manifest, Actor: json.RawMessage(`{"kind":"service"}`), StartedEvent: pointer("llm-fenced-started")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lateStarted, err := store.StartLLMAttempt(ctx, StartLLMAttemptCommand{AttemptID: lateLLM, TenantID: tenantID, UserID: userID, RunID: runID, RunAttemptID: runAttempt, RunVersion: 3, RunFence: 1, StreamGeneration: 5, AttemptKey: "attempt-key-c6-late", CorrelationID: correlation, Manifest: manifest, Actor: json.RawMessage(`{"kind":"service"}`), StartedEvent: pointer("llm-late-started")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, reservation := range []billingpostgres.ReserveCommand{
+		{ReservationID: fencedReserve, RequestID: "usage-request-c6-fenced", TenantID: tenantID, UserID: userID, BucketID: bucket, OperationKey: "provider-attempt-c6-fenced", SubjectKind: "provider_attempt", SubjectID: fencedAttempt, SubjectVersion: 1, ReservedUnits: 100, ExpiresAt: now.Add(10 * time.Minute), CorrelationID: correlation, Actor: json.RawMessage(`{"kind":"service"}`), ReservedEvent: billingpostgres.PayloadPointer{Ref: "encrypted://usage/reserved/fenced", Hash: "usage-reserved-fenced"}},
+		{ReservationID: lateReserve, RequestID: "usage-request-c6-late", TenantID: tenantID, UserID: userID, BucketID: bucket, OperationKey: "provider-attempt-c6-late", SubjectKind: "provider_attempt", SubjectID: lateAttempt, SubjectVersion: 1, ReservedUnits: 100, ExpiresAt: now.Add(10 * time.Minute), CorrelationID: correlation, Actor: json.RawMessage(`{"kind":"service"}`), ReservedEvent: billingpostgres.PayloadPointer{Ref: "encrypted://usage/reserved/late", Hash: "usage-reserved-late"}},
+	} {
+		if _, err = billing.Reserve(ctx, reservation); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fencedPrepare, _ := store.IssuePrepareToken()
+	if _, err = store.PrepareProviderAttempt(ctx, PrepareProviderAttemptCommand{AttemptID: fencedAttempt, ProviderAttemptID: "provider-attempt-c6-fenced", LLMAttemptID: fencedLLM, UsageReservationID: fencedReserve, TenantID: tenantID, UserID: userID, AttemptKey: "attempt-key-c6-fenced", Ordinal: 1, Candidate: manifest.CandidateModels[0], RequestHash: "request-c6-fenced", ContextManifestHash: fencedStarted.ContextManifestHash, PrepareToken: fencedPrepare, PrepareTokenExpiresAt: now.Add(time.Minute), CorrelationID: correlation, Actor: json.RawMessage(`{"kind":"service"}`), PreparedEvent: pointer("provider-prepared-fenced")}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = admin.Exec(ctx, `UPDATE agent.runs SET status='cancelled',run_version=run_version+1,active_command_id=NULL,active_attempt_id=NULL,lease_token_hash=NULL,lease_expires_at=NULL,updated_at=$1 WHERE tenant_id=$2 AND id=$3`, now, tenantID, runID); err != nil {
+		t.Fatal(err)
+	}
+	fencedCompletion, _ := store.IssueCompletionToken()
+	if _, err = store.AuthorizeDispatch(ctx, AuthorizeDispatchCommand{AttemptID: fencedAttempt, TenantID: tenantID, RequestHash: "request-c6-fenced", PrepareToken: fencedPrepare, CompletionToken: fencedCompletion, CompletionDeadline: now.Add(time.Minute), CorrelationID: correlation, Actor: json.RawMessage(`{"kind":"service"}`), DispatchEvent: pointer("provider-dispatched-fenced")}); !errors.Is(err, ErrRunFence) {
+		t.Fatalf("stale prepared attempt dispatch error=%v", err)
+	}
+	latePrepare, _ := store.IssuePrepareToken()
+	if _, err = store.PrepareProviderAttempt(ctx, PrepareProviderAttemptCommand{AttemptID: lateAttempt, ProviderAttemptID: "provider-attempt-c6-late", LLMAttemptID: lateLLM, UsageReservationID: lateReserve, TenantID: tenantID, UserID: userID, AttemptKey: "attempt-key-c6-late", Ordinal: 1, Candidate: manifest.CandidateModels[0], RequestHash: "request-c6-late", ContextManifestHash: lateStarted.ContextManifestHash, PrepareToken: latePrepare, PrepareTokenExpiresAt: now.Add(time.Minute), CorrelationID: correlation, Actor: json.RawMessage(`{"kind":"service"}`), PreparedEvent: pointer("provider-prepared-late")}); !errors.Is(err, ErrRunFence) {
+		t.Fatalf("late provider preparation error=%v", err)
 	}
 }
 
