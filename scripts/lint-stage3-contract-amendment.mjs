@@ -37,6 +37,9 @@ const v18Amendment=await load("gate-reports/stage-3/contract-amendment-v1.8.json
 const v19Registry=await load("contracts/events/amendments/v1.9.0/registry.json");
 const v19Fixtures=await load("contracts/events/amendments/v1.9.0/upcaster-fixtures.json");
 const v19Amendment=await load("gate-reports/stage-3/contract-amendment-v1.9.json");
+const v110Amendment=await load("gate-reports/stage-3/contract-amendment-v1.10.json");
+const v111Registry=await load("contracts/events/amendments/v1.11.0/registry.json");
+const v111Fixtures=await load("contracts/events/amendments/v1.11.0/upcaster-fixtures.json");
 const snapshot=await load("gate-reports/stage-1/contract-snapshot.json");
 const eventNames=Object.keys(registry.schemas);
 const baseNames=new Set(Object.keys(baseRegistry.schemas));
@@ -211,9 +214,31 @@ const v19RootHash=sha256({baseAmendmentId:v18Amendment.amendmentId,files:v19File
 check("AMENDMENT-V1.9-CONTENT-ROOT",JSON.stringify(v19Amendment.files)===JSON.stringify(v19Files)&&v19Amendment.contentRootSha256===v19RootHash&&v19Amendment.amendmentId===`contract-amendment-${v19RootHash.slice(0,20)}`,"v1.9 report binds the exact RunAccepted v2 extension files");
 check("AMENDMENT-V1.9-BASE",v19Amendment.baseSnapshotId===snapshot.snapshotId&&v19Amendment.baseContentRootSha256===snapshot.contentRootSha256&&v19Amendment.baseAmendmentId===v18Amendment.amendmentId&&v19Amendment.baseAmendmentContentRootSha256===v18Amendment.contentRootSha256,"v1.9 is anchored to both the frozen Stage 1 snapshot and v1.8 amendment");
 
+const v111EventNames=Object.keys(v111Registry.schemas);
+check("AMENDMENT-V1.11-VERSION",v111Registry.amendmentVersion==="1.11.0"&&v111Registry.baseContractVersion==="1.10.0"&&v111Registry.compatibility==="additive","v1.11 additively extends the v1.10 behavior control-plane contract chain");
+check("AMENDMENT-V1.11-EVENTS",JSON.stringify(v111EventNames)===JSON.stringify(["RunCancellationRequested"])&&!baseNames.has("RunCancellationRequested"),"RunCancellationRequested adds the durable barrier request fact without replacing a frozen event");
+const cancellationRequested=v111Registry.schemas.RunCancellationRequested;
+const cancellationPayload=cancellationRequested.properties.payload;
+check("RUN-CANCELLATION-CLOSED",cancellationRequested.additionalProperties===false&&cancellationRequested["x-event-schema-version"]===1&&cancellationPayload.additionalProperties===false&&cancellationPayload.required.every(field=>field in cancellationPayload.properties),"run cancellation request envelope and payload reject undeclared fields");
+check("RUN-CANCELLATION-BINDING",["run_id","run_version","cancellation_id","root_cancellation_id","parent_cancellation_id","cancel_generation","reason","requested_by","requested_at","reconciliation_due_at"].every(field=>cancellationPayload.required.includes(field)),"cancellation fact binds the exact Run version, propagation lineage, generation, actor, reason and reconciliation deadline");
+check("AMENDMENT-V1.11-FIXTURES",v111Fixtures.baseFixtureVersion===v19Fixtures.fixtureVersion&&v111Fixtures.fixtures.length===1&&v111Fixtures.fixtures.every(fixture=>fixture.eventType==="RunCancellationRequested"&&fixture.fromVersion===1&&fixture.toVersion===1&&fixture.inputHash===sha256(fixture.input)&&fixture.expectedHash===sha256(fixture.expected)&&JSON.stringify(fixture.input)===JSON.stringify(fixture.expected)),"RunCancellationRequested has a deterministic canonical fixture");
+const v111Files=[];
+for(const path of ["contracts/events/amendments/v1.11.0/registry.json","contracts/events/amendments/v1.11.0/upcaster-fixtures.json"]) v111Files.push({path,sha256:sha256(await read(path))});
+const v111RootHash=sha256({baseAmendmentId:v110Amendment.amendmentId,files:v111Files});
+const v111Amendment={
+  amendmentVersion:"1.11.0",amendmentId:`contract-amendment-${v111RootHash.slice(0,20)}`,status:"draft",generatedAt:"2026-07-15T00:00:00.000Z",
+  baseSnapshotId:snapshot.snapshotId,baseContentRootSha256:snapshot.contentRootSha256,
+  baseAmendmentId:v110Amendment.amendmentId,baseAmendmentContentRootSha256:v110Amendment.contentRootSha256,
+  contentRootSha256:v111RootHash,files:v111Files,
+  reason:"Add the event-backed, generation-fenced Run cancellation barrier request required before terminal RunCancelled settlement.",
+  activationRule:"Backend, security, SRE and QA approval must bind this root after migration, exact replay, cancellation race, barrier settlement and fault-injection gates pass."
+};
+check("AMENDMENT-V1.11-CONTENT-ROOT",v111Amendment.baseAmendmentId===v110Amendment.amendmentId&&v111Amendment.baseAmendmentContentRootSha256===v110Amendment.contentRootSha256&&v111Amendment.contentRootSha256===v111RootHash,"v1.11 content root is anchored to the exact v1.10 behavior control-plane amendment");
+
 const failures=checks.filter(item=>item.status==="failed");
 const reportBase={reportVersion:"1.0.0",stage:3,kind:"contract-amendment-lint",status:failures.length?"failed":"passed",summary:{checks:checks.length,passed:checks.length-failures.length,failed:failures.length},results:checks};
 const report={...reportBase,reportHash:sha256(reportBase)};
+await writeFile(resolve(root,"gate-reports/stage-3/contract-amendment-v1.11.json"),`${JSON.stringify(v111Amendment,null,2)}\n`);
 await writeFile(resolve(root,"gate-reports/stage-3/contract-amendment-lint.json"),`${JSON.stringify(report,null,2)}\n`);
 console.log(`${report.status}: ${report.summary.passed}/${report.summary.checks} Stage 3 amendment checks passed; report ${report.reportHash}`);
 if(failures.length) process.exitCode=1;
