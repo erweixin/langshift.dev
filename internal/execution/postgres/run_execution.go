@@ -102,6 +102,32 @@ func (store RunStore) CompleteRunTerminal(ctx context.Context, command CompleteR
 	if err := statemachine.Runs.ValidateTransition(statemachine.RunExecuting, command.TargetState); err != nil || !statemachine.Runs.IsTerminal(command.TargetState) {
 		return CompletedRun{}, ErrInvalidCommand
 	}
+	tx, err := store.Pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		return CompletedRun{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	completed, err := store.CompleteRunTerminalInTx(ctx, tx, command)
+	if err != nil {
+		return CompletedRun{}, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return CompletedRun{}, err
+	}
+	return completed, nil
+}
+
+// CompleteRunTerminalInTx releases a fenced Run execution right inside a
+// caller-owned transaction. Product result projections can use this boundary
+// to make their terminal fact indivisible from the Run and Job terminal facts.
+func (store RunStore) CompleteRunTerminalInTx(ctx context.Context, tx pgx.Tx, command CompleteRunCommand) (CompletedRun, error) {
+	claim := command.Claim
+	if tx == nil || !store.validClaimCore() || !validRunClaim(claim) || !validCompleteRun(command) {
+		return CompletedRun{}, ErrConfiguration
+	}
+	if err := statemachine.Runs.ValidateTransition(statemachine.RunExecuting, command.TargetState); err != nil || !statemachine.Runs.IsTerminal(command.TargetState) {
+		return CompletedRun{}, ErrInvalidCommand
+	}
 	if err := store.requireClaimEpoch(ctx, claim.StoreEpoch); err != nil {
 		return CompletedRun{}, err
 	}
@@ -110,11 +136,6 @@ func (store RunStore) CompleteRunTerminal(ctx context.Context, command CompleteR
 		return CompletedRun{}, ErrExecutionRightConflict
 	}
 	now := store.claimNow()
-	tx, err := store.Pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
-	if err != nil {
-		return CompletedRun{}, err
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
 	if _, err = tx.Exec(ctx, `SELECT set_config('lites.tenant_id',$1,true)`, claim.TenantID); err != nil {
 		return CompletedRun{}, err
 	}
@@ -157,9 +178,6 @@ func (store RunStore) CompleteRunTerminal(ctx context.Context, command CompleteR
 	attemptCausationID := eventIDs.runEvent
 	attemptEvent := eventpostgres.Input{Event: eventpostgres.Event{ID: eventIDs.attemptEvent, TenantID: claim.TenantID, UserID: userID, EventType: "JobAttemptCompleted", SchemaVersion: 1, AggregateKind: "job_attempt", AggregateID: claim.AttemptID, AggregateVersion: attemptVersion + 1, StoreEpoch: store.StoreEpoch, OccurredAt: now, Actor: command.Actor, CausationID: &attemptCausationID, CorrelationID: command.CorrelationID, PayloadRef: command.AttemptCompletedEvent.Ref, PayloadHash: command.AttemptCompletedEvent.Hash}, Commands: []eventpostgres.OutboxCommand{{ID: eventIDs.attemptOutbox, CommandID: eventIDs.attemptPublish, CommandType: "events.publish", PayloadRef: command.AttemptCompletedEvent.Ref, PayloadHash: command.AttemptCompletedEvent.Hash}}}
 	if _, err = store.Appender.Append(ctx, tx, attemptEvent); err != nil {
-		return CompletedRun{}, err
-	}
-	if err = tx.Commit(ctx); err != nil {
 		return CompletedRun{}, err
 	}
 	return CompletedRun{RunID: claim.RunID, RunVersion: nextRunVersion, Status: command.TargetState, AttemptStatus: attemptState, CompletedAt: now, RunEventID: eventIDs.runEvent, AttemptEventID: eventIDs.attemptEvent}, nil
@@ -208,6 +226,10 @@ func (store RunStore) requireClaimEpoch(ctx context.Context, expected string) er
 		return ErrStaleEpoch
 	}
 	return nil
+}
+
+func (store RunStore) validClaimCore() bool {
+	return store.validCore() && store.Epochs != nil && store.Tokens.Purpose != "" && len(store.Tokens.Pepper) >= 32
 }
 
 func (store RunStore) claimNow() time.Time {

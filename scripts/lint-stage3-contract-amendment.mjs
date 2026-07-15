@@ -20,6 +20,9 @@ const v12Amendment=await load("gate-reports/stage-3/contract-amendment-v1.2.json
 const v13Registry=await load("contracts/events/amendments/v1.3.0/registry.json");
 const v13Fixtures=await load("contracts/events/amendments/v1.3.0/upcaster-fixtures.json");
 const v13Amendment=await load("gate-reports/stage-3/contract-amendment-v1.3.json");
+const v14Registry=await load("contracts/events/amendments/v1.4.0/registry.json");
+const v14Fixtures=await load("contracts/events/amendments/v1.4.0/upcaster-fixtures.json");
+const v14Amendment=await load("gate-reports/stage-3/contract-amendment-v1.4.json");
 const snapshot=await load("gate-reports/stage-1/contract-snapshot.json");
 const eventNames=Object.keys(registry.schemas);
 const baseNames=new Set(Object.keys(baseRegistry.schemas));
@@ -63,6 +66,29 @@ for(const path of ["contracts/events/amendments/v1.3.0/registry.json","contracts
 const v13RootHash=sha256({baseAmendmentId:v12Amendment.amendmentId,files:v13Files});
 check("AMENDMENT-V1.3-CONTENT-ROOT",JSON.stringify(v13Amendment.files)===JSON.stringify(v13Files)&&v13Amendment.contentRootSha256===v13RootHash&&v13Amendment.amendmentId===`contract-amendment-${v13RootHash.slice(0,20)}`,"v1.3 report binds the exact extension files");
 check("AMENDMENT-V1.3-BASE",v13Amendment.baseSnapshotId===snapshot.snapshotId&&v13Amendment.baseContentRootSha256===snapshot.contentRootSha256&&v13Amendment.baseAmendmentId===v12Amendment.amendmentId&&v13Amendment.baseAmendmentContentRootSha256===v12Amendment.contentRootSha256,"v1.3 is anchored to both the frozen Stage 1 snapshot and v1.2 amendment");
+
+const v14EventNames=Object.keys(v14Registry.schemas);
+check("AMENDMENT-V1.4-VERSION",v14Registry.amendmentVersion==="1.4.0"&&v14Registry.baseContractVersion===v13Registry.amendmentVersion&&v14Registry.compatibility==="additive","v1.4 additively extends the v1.3 Stage 3 amendment");
+check("AMENDMENT-V1.4-EVENTS",JSON.stringify(v14EventNames)===JSON.stringify(["PortfolioExportRequestedV2","PortfolioExportCompletedV2","PortfolioExportBuildStarted","PortfolioExportFailed","PortfolioExportExpired"])&&v14EventNames.every(name=>!baseNames.has(name)&&!eventNames.includes(name)&&!v12EventNames.includes(name)&&!v13EventNames.includes(name)),"portfolio lifecycle facts and explicit v2 schema keys add without replacing frozen registry entries");
+check("AMENDMENT-V1.4-SCHEMAS",Object.values(v14Registry.schemas).every(schema=>schema.additionalProperties===false&&[1,2].includes(schema["x-event-schema-version"])&&schema.properties.payload.additionalProperties===false&&schema.properties.payload.required.every(field=>field in schema.properties.payload.properties)),"v1.4 event envelopes and payloads are closed and versioned");
+check("PORTFOLIO-V2-EVOLUTION",v14Registry.schemas.PortfolioExportRequestedV2["x-event-type"]==="PortfolioExportRequested"&&v14Registry.schemas.PortfolioExportRequestedV2["x-event-schema-version"]===2&&v14Registry.schemas.PortfolioExportCompletedV2["x-event-type"]==="PortfolioExportCompleted"&&v14Registry.schemas.PortfolioExportCompletedV2["x-event-schema-version"]===2,"frozen portfolio request/completion event types gain explicit additive v2 schemas");
+const portfolioRequestedV2=v14Registry.schemas.PortfolioExportRequestedV2.properties.payload.required;
+const portfolioCompletedV2=v14Registry.schemas.PortfolioExportCompletedV2.properties.payload.required;
+check("PORTFOLIO-REQUEST-REBUILD",["project_id","project_version","workspace_binding_id","workspace_binding_version","workspace_revision","workspace_manifest_hash","export_format","revision_manifest","revision_manifest_hash","run_id","start_command_id","legacy_incomplete"].every(field=>portfolioRequestedV2.includes(field)),"portfolio request v2 carries enough exact state to rebuild its projection");
+check("PORTFOLIO-COMPLETION-REBUILD",["run_id","run_version","object_version","content_hash","media_type","byte_size","scan_result_hash","revision_manifest_hash","completed_at","expires_at","legacy_incomplete"].every(field=>portfolioCompletedV2.includes(field)),"portfolio completion v2 carries enough exact state to rebuild its ready projection");
+const portfolioStarted=v14Registry.schemas.PortfolioExportBuildStarted.properties.payload.required;
+const portfolioFailed=v14Registry.schemas.PortfolioExportFailed.properties.payload.required;
+const portfolioExpired=v14Registry.schemas.PortfolioExportExpired.properties.payload.required;
+check("PORTFOLIO-START-EVIDENCE",["command_id","run_id","run_version","run_attempt_id","fence","started_at","revision_manifest_hash"].every(field=>portfolioStarted.includes(field)),"portfolio build start binds the exact fenced Run and immutable manifest");
+check("PORTFOLIO-FAILURE-EVIDENCE",["command_id","run_id","run_version","failure_code","failed_at","revision_manifest_hash"].every(field=>portfolioFailed.includes(field)),"portfolio failure binds the terminal Run, failure code and immutable manifest");
+check("PORTFOLIO-EXPIRY-EVIDENCE",["expires_at","expired_at","object_version","content_hash","revision_manifest_hash"].every(field=>portfolioExpired.includes(field)),"portfolio expiry preserves the exact retained object and manifest binding");
+const v14EventTypes=new Set(Object.values(v14Registry.schemas).map(schema=>schema["x-event-type"]));
+check("AMENDMENT-V1.4-FIXTURES",v14Fixtures.baseFixtureVersion===v13Fixtures.fixtureVersion&&v14Fixtures.fixtures.length===v14EventNames.length&&v14Fixtures.fixtures.every(fixture=>fixture.inputHash===sha256(fixture.input)&&fixture.expectedHash===sha256(fixture.expected)&&v14EventTypes.has(fixture.eventType)&&((fixture.fromVersion===1&&fixture.toVersion===1&&JSON.stringify(fixture.input)===JSON.stringify(fixture.expected))||(fixture.fromVersion===1&&fixture.toVersion===2&&fixture.expected.legacy_incomplete===true))),"each v1.4 event or schema evolution has a deterministic canonical fixture");
+const v14Files=[];
+for(const path of ["contracts/events/amendments/v1.4.0/registry.json","contracts/events/amendments/v1.4.0/upcaster-fixtures.json"]) v14Files.push({path,sha256:sha256(await read(path))});
+const v14RootHash=sha256({baseAmendmentId:v13Amendment.amendmentId,files:v14Files});
+check("AMENDMENT-V1.4-CONTENT-ROOT",JSON.stringify(v14Amendment.files)===JSON.stringify(v14Files)&&v14Amendment.contentRootSha256===v14RootHash&&v14Amendment.amendmentId===`contract-amendment-${v14RootHash.slice(0,20)}`,"v1.4 report binds the exact extension files");
+check("AMENDMENT-V1.4-BASE",v14Amendment.baseSnapshotId===snapshot.snapshotId&&v14Amendment.baseContentRootSha256===snapshot.contentRootSha256&&v14Amendment.baseAmendmentId===v13Amendment.amendmentId&&v14Amendment.baseAmendmentContentRootSha256===v13Amendment.contentRootSha256,"v1.4 is anchored to both the frozen Stage 1 snapshot and v1.3 amendment");
 
 const failures=checks.filter(item=>item.status==="failed");
 const reportBase={reportVersion:"1.0.0",stage:3,kind:"contract-amendment-lint",status:failures.length?"failed":"passed",summary:{checks:checks.length,passed:checks.length-failures.length,failed:failures.length},results:checks};

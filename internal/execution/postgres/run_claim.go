@@ -211,7 +211,7 @@ func (store RunStore) claimEventIdentifiers(attemptID string) (claimEventIDs, er
 }
 
 func (store RunStore) validClaim() bool {
-	return store.valid() && store.Epochs != nil && store.LeaseTTL > 0 && store.Tokens.Purpose != "" && len(store.Tokens.Pepper) >= 32
+	return store.Pool != nil && store.validClaimCore() && store.LeaseTTL > 0
 }
 
 func validClaimRun(command ClaimRunCommand) bool {

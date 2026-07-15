@@ -81,6 +81,32 @@ func (store RunStore) Accept(ctx context.Context, command AcceptRunCommand) (Acc
 	if !validAcceptRun(command) {
 		return AcceptedRun{}, ErrInvalidCommand
 	}
+	tx, err := store.Pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		return AcceptedRun{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	accepted, err := store.AcceptInTx(ctx, tx, command)
+	if err != nil {
+		return AcceptedRun{}, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return AcceptedRun{}, err
+	}
+	return accepted, nil
+}
+
+// AcceptInTx queues a Run inside a caller-owned transaction. It exists for
+// product operations which must publish their own durable aggregate and the
+// matching Run as one atomic unit. The caller remains responsible for commit
+// or rollback; this method never completes the transaction.
+func (store RunStore) AcceptInTx(ctx context.Context, tx pgx.Tx, command AcceptRunCommand) (AcceptedRun, error) {
+	if tx == nil || !store.validCore() {
+		return AcceptedRun{}, ErrConfiguration
+	}
+	if !validAcceptRun(command) {
+		return AcceptedRun{}, ErrInvalidCommand
+	}
 	identifiers, err := store.identifiers(command.RunID)
 	if err != nil {
 		return AcceptedRun{}, ErrConfiguration
@@ -94,11 +120,6 @@ func (store RunStore) Accept(ctx context.Context, command AcceptRunCommand) (Acc
 		return AcceptedRun{}, ErrInvalidCommand
 	}
 
-	tx, err := store.Pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
-	if err != nil {
-		return AcceptedRun{}, err
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
 	if _, err = tx.Exec(ctx, `SELECT set_config('lites.tenant_id',$1,true)`, command.TenantID); err != nil {
 		return AcceptedRun{}, err
 	}
@@ -151,9 +172,6 @@ func (store RunStore) Accept(ctx context.Context, command AcceptRunCommand) (Acc
 	if _, err = store.Appender.Append(ctx, tx, queued); err != nil {
 		return AcceptedRun{}, err
 	}
-	if err = tx.Commit(ctx); err != nil {
-		return AcceptedRun{}, err
-	}
 	return AcceptedRun{RunID: command.RunID, RunVersion: 2, Status: "queued", StartCommandID: identifiers.startCommand, StartJobID: identifiers.startJob, AcceptedEventID: identifiers.acceptedEvent, QueuedEventID: identifiers.queuedEvent, Replayed: replayed}, nil
 }
 
@@ -178,8 +196,10 @@ func (store RunStore) identifiers(runID string) (runIdentifiers, error) {
 }
 
 func (store RunStore) valid() bool {
-	return store.Pool != nil && len(store.IDKey) >= 32 && store.StoreEpoch != ""
+	return store.Pool != nil && store.validCore()
 }
+
+func (store RunStore) validCore() bool { return len(store.IDKey) >= 32 && store.StoreEpoch != "" }
 
 func validAcceptRun(command AcceptRunCommand) bool {
 	return command.RunID != "" && command.TenantID != "" && command.UserID != "" && command.ConversationID != "" && command.CorrelationID != "" && !command.DueAt.IsZero() && command.ProfileSnapshotID != "" && validJSONObject(command.BudgetSnapshot) && validJSONObject(command.Actor) && validPointer(command.AcceptedEvent) && validPointer(command.QueuedEvent) && validPointer(command.StartCommand) && (command.QueueClass == "interactive" || command.QueueClass == "background") && command.ResourceClass != "" && command.Priority >= 0 && command.Priority <= 1000 && command.CostUnits > 0 && command.CostUnits <= 1_000_000_000_000 && command.MaxAttempts > 0 && command.MaxAttempts <= 100
