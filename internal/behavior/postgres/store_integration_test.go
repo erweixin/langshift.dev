@@ -155,6 +155,10 @@ func TestBehaviorStorePersistsEvaluatesAndPromotesExactSnapshot(t *testing.T) {
 	if err = tx.QueryRow(ctx, `SELECT snapshot_id FROM agent.behavior_channel_deployments WHERE tenant_id=$1 AND channel_id=$2 ORDER BY sequence DESC LIMIT 1`, tenantID, channelID).Scan(&current); err != nil || current != candidateSnapshot {
 		t.Fatalf("current snapshot=%q err=%v", current, err)
 	}
+	binding, err := store.ResolveCurrent(ctx, tx, tenantID, behavior.RoutePlanner, "production")
+	if err != nil || binding.ChannelID != channelID || binding.Sequence != 3 || binding.SnapshotID != candidateSnapshot {
+		t.Fatalf("ResolveCurrent()=%#v err=%v", binding, err)
+	}
 	if err = tx.QueryRow(ctx, `SELECT rollback_hash,rollback_trigger,rollback_observed_value,rollback_threshold,automation_key_id,automation_signature FROM agent.behavior_channel_deployments WHERE tenant_id=$1 AND id=$2`, tenantID, rollback.ID).Scan(&persistedRollbackHash, &persistedTrigger, &persistedObserved, &persistedThreshold, &persistedAutomationKey, &persistedSignature); err != nil {
 		t.Fatal(err)
 	}

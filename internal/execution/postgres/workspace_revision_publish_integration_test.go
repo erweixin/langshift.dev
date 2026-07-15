@@ -43,10 +43,11 @@ func TestWorkspacePublishIsFencedHeartbeatCoherentAndAtomicallyCompleted(t *test
 	if _, err := admin.Exec(ctx, `INSERT INTO identity.sessions(id,user_id,active_tenant_id,token_hash,csrf_secret_hash,ip_hash,user_agent_hash,last_seen_at,expires_at,reauthenticated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$8)`, sessionID, userID, tenantID, tokenHash[:], csrfHash[:], ipHash[:], userAgentHash[:], now, now.Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
+	seedExecutionBehavior(t, ctx, admin, tenantID, userID, "artifact_builder", now)
 
 	clock := now
-	store := RunStore{Pool: pool, Appender: eventpostgres.Appender{Now: func() time.Time { return clock }}, IDKey: bytes.Repeat([]byte{0x15}, 32), StoreEpoch: storeEpoch, Now: func() time.Time { return clock }, Epochs: executionEpochStub{epoch: storeEpoch}, Tokens: opaque.Manager{Purpose: "workspace-publish", Pepper: bytes.Repeat([]byte{0x16}, 32)}, LeaseTTL: 2 * time.Minute}
-	accepted, err := store.Accept(ctx, AcceptRunCommand{RunID: runID, TenantID: tenantID, UserID: userID, ConversationID: conversationID, CorrelationID: correlationID, DueAt: now.Add(time.Hour), ProfileSnapshotID: "artifact_builder@sha256:f1", BudgetSnapshot: json.RawMessage(`{"max_steps":8}`), Actor: json.RawMessage(`{"kind":"user"}`), AcceptedEvent: repairPointer(prefix, "run-accepted"), QueuedEvent: repairPointer(prefix, "run-queued"), StartCommand: repairPointer(prefix, "start-run"), QueueClass: "interactive", ResourceClass: "llm", Priority: 50, CostUnits: 2, MaxAttempts: 5})
+	store := RunStore{Pool: pool, Appender: eventpostgres.Appender{Now: func() time.Time { return clock }}, IDKey: bytes.Repeat([]byte{0x15}, 32), StoreEpoch: storeEpoch, Now: func() time.Time { return clock }, Epochs: executionEpochStub{epoch: storeEpoch}, Tokens: opaque.Manager{Purpose: "workspace-publish", Pepper: bytes.Repeat([]byte{0x16}, 32)}, LeaseTTL: 2 * time.Minute, Behavior: integrationBehaviorResolver}
+	accepted, err := store.Accept(ctx, AcceptRunCommand{RunID: runID, TenantID: tenantID, UserID: userID, ConversationID: conversationID, CorrelationID: correlationID, DueAt: now.Add(time.Hour), BehaviorProfile: "artifact_builder", BehaviorEnvironment: "production", BudgetSnapshot: json.RawMessage(`{"max_steps":8}`), Actor: json.RawMessage(`{"kind":"user"}`), AcceptedEvent: repairPointer(prefix, "run-accepted"), QueuedEvent: repairPointer(prefix, "run-queued"), StartCommand: repairPointer(prefix, "start-run"), QueueClass: "interactive", ResourceClass: "llm", Priority: 50, CostUnits: 2, MaxAttempts: 5})
 	if err != nil {
 		t.Fatal(err)
 	}

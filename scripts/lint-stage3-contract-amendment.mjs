@@ -34,6 +34,9 @@ const v17Amendment=await load("gate-reports/stage-3/contract-amendment-v1.7.json
 const v18Registry=await load("contracts/events/amendments/v1.8.0/registry.json");
 const v18Fixtures=await load("contracts/events/amendments/v1.8.0/upcaster-fixtures.json");
 const v18Amendment=await load("gate-reports/stage-3/contract-amendment-v1.8.json");
+const v19Registry=await load("contracts/events/amendments/v1.9.0/registry.json");
+const v19Fixtures=await load("contracts/events/amendments/v1.9.0/upcaster-fixtures.json");
+const v19Amendment=await load("gate-reports/stage-3/contract-amendment-v1.9.json");
 const snapshot=await load("gate-reports/stage-1/contract-snapshot.json");
 const eventNames=Object.keys(registry.schemas);
 const baseNames=new Set(Object.keys(baseRegistry.schemas));
@@ -194,6 +197,19 @@ for(const path of ["contracts/events/amendments/v1.8.0/registry.json","contracts
 const v18RootHash=sha256({baseAmendmentId:v17Amendment.amendmentId,files:v18Files});
 check("AMENDMENT-V1.8-CONTENT-ROOT",JSON.stringify(v18Amendment.files)===JSON.stringify(v18Files)&&v18Amendment.contentRootSha256===v18RootHash&&v18Amendment.amendmentId===`contract-amendment-${v18RootHash.slice(0,20)}`,"v1.8 report binds the exact behavior event extension files");
 check("AMENDMENT-V1.8-BASE",v18Amendment.baseSnapshotId===snapshot.snapshotId&&v18Amendment.baseContentRootSha256===snapshot.contentRootSha256&&v18Amendment.baseAmendmentId===v17Amendment.amendmentId&&v18Amendment.baseAmendmentContentRootSha256===v17Amendment.contentRootSha256,"v1.8 is anchored to both the frozen Stage 1 snapshot and v1.7 amendment");
+
+const v19EventNames=Object.keys(v19Registry.schemas);
+check("AMENDMENT-V1.9-VERSION",v19Registry.amendmentVersion==="1.9.0"&&v19Registry.baseContractVersion===v18Registry.amendmentVersion&&v19Registry.compatibility==="additive","v1.9 additively extends the v1.8 Stage 3 contract chain");
+check("AMENDMENT-V1.9-EVENTS",JSON.stringify(v19EventNames)===JSON.stringify(["RunAcceptedV2"])&&v19Registry.schemas.RunAcceptedV2["x-event-type"]==="RunAccepted"&&v19Registry.schemas.RunAcceptedV2["x-event-schema-version"]===2,"frozen RunAccepted gains an explicit additive v2 schema");
+const runAcceptedV2=v19Registry.schemas.RunAcceptedV2.properties.payload;
+check("RUN-BEHAVIOR-BINDING",["profile_snapshot_id","behavior_profile","behavior_environment","behavior_channel_id","behavior_channel_sequence","legacy_behavior_binding"].every(field=>runAcceptedV2.required.includes(field)),"RunAccepted v2 binds the exact behavior deployment selected at acceptance");
+check("RUN-BEHAVIOR-CLOSED",v19Registry.schemas.RunAcceptedV2.additionalProperties===false&&runAcceptedV2.additionalProperties===false&&runAcceptedV2.allOf?.[0]?.then?.properties?.profile_snapshot_id?.pattern==="^behavior-[0-9a-f]{64}$"&&runAcceptedV2.allOf?.[0]?.else?.properties?.behavior_channel_id?.type==="null","new Run facts require a content-addressed deployment while legacy upcasts cannot fabricate one");
+check("AMENDMENT-V1.9-FIXTURES",v19Fixtures.baseFixtureVersion===v18Fixtures.fixtureVersion&&v19Fixtures.fixtures.length===1&&v19Fixtures.fixtures.every(fixture=>fixture.eventType==="RunAccepted"&&fixture.fromVersion===1&&fixture.toVersion===2&&fixture.inputHash===sha256(fixture.input)&&fixture.expectedHash===sha256(fixture.expected)&&fixture.expected.legacy_behavior_binding===true&&fixture.expected.behavior_profile===null&&fixture.expected.behavior_environment===null&&fixture.expected.behavior_channel_id===null&&fixture.expected.behavior_channel_sequence===null),"RunAccepted v1 upcasts deterministically with an explicit incomplete legacy binding");
+const v19Files=[];
+for(const path of ["contracts/events/amendments/v1.9.0/registry.json","contracts/events/amendments/v1.9.0/upcaster-fixtures.json"]) v19Files.push({path,sha256:sha256(await read(path))});
+const v19RootHash=sha256({baseAmendmentId:v18Amendment.amendmentId,files:v19Files});
+check("AMENDMENT-V1.9-CONTENT-ROOT",JSON.stringify(v19Amendment.files)===JSON.stringify(v19Files)&&v19Amendment.contentRootSha256===v19RootHash&&v19Amendment.amendmentId===`contract-amendment-${v19RootHash.slice(0,20)}`,"v1.9 report binds the exact RunAccepted v2 extension files");
+check("AMENDMENT-V1.9-BASE",v19Amendment.baseSnapshotId===snapshot.snapshotId&&v19Amendment.baseContentRootSha256===snapshot.contentRootSha256&&v19Amendment.baseAmendmentId===v18Amendment.amendmentId&&v19Amendment.baseAmendmentContentRootSha256===v18Amendment.contentRootSha256,"v1.9 is anchored to both the frozen Stage 1 snapshot and v1.8 amendment");
 
 const failures=checks.filter(item=>item.status==="failed");
 const reportBase={reportVersion:"1.0.0",stage:3,kind:"contract-amendment-lint",status:failures.length?"failed":"passed",summary:{checks:checks.length,passed:checks.length-failures.length,failed:failures.length},results:checks};

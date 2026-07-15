@@ -12,9 +12,11 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	behaviorpostgres "github.com/langshift/lites/internal/behavior/postgres"
 	billingpostgres "github.com/langshift/lites/internal/billing/postgres"
 	eventpostgres "github.com/langshift/lites/internal/eventstore/postgres"
 	executionpostgres "github.com/langshift/lites/internal/execution/postgres"
+	"github.com/langshift/lites/internal/integrationfixture"
 	llmpostgres "github.com/langshift/lites/internal/llmgateway/postgres"
 	"github.com/langshift/lites/internal/security/opaque"
 )
@@ -44,6 +46,9 @@ func TestMemoryWriteCommitsAsInlinePlatformTool(t *testing.T) {
 	if _, err := admin.Exec(ctx, `INSERT INTO product.memory_policies(tenant_id,user_id,version,enabled,retention_days,allowed_kinds,updated_at) VALUES($1,$2,3,true,365,'["preference"]',$3)`, tenantID, userID, now); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := integrationfixture.SeedBehaviorChannel(ctx, admin, tenantID, userID, "coach", "production", now); err != nil {
+		t.Fatal(err)
+	}
 	appender := eventpostgres.Appender{Now: func() time.Time { return now }}
 	memoryHandler := InlineWriteHandler{Appender: appender, IDKey: bytes.Repeat([]byte{0x62}, 32)}
 	store := executionpostgres.RunStore{
@@ -52,8 +57,9 @@ func TestMemoryWriteCommitsAsInlinePlatformTool(t *testing.T) {
 		Tokens:   opaque.Manager{Purpose: "inline-memory-run", Pepper: bytes.Repeat([]byte{0x63}, 32)},
 		LeaseTTL: 2 * time.Minute, Random: bytes.NewReader(bytes.Repeat([]byte{0x64}, 256)),
 		InlineTools: map[string]executionpostgres.InlinePlatformToolHandler{"memory_write": memoryHandler},
+		Behavior:    behaviorpostgres.Store{},
 	}
-	accepted, err := store.Accept(ctx, executionpostgres.AcceptRunCommand{RunID: runID, TenantID: tenantID, UserID: userID, ConversationID: conversationID, CorrelationID: correlationID, DueAt: now.Add(time.Hour), ProfileSnapshotID: "coach@sha256:inline-memory", BudgetSnapshot: json.RawMessage(`{"max_steps":16}`), Actor: json.RawMessage(`{"kind":"user"}`), AcceptedEvent: executionpostgres.PayloadPointer{Ref: "encrypted://memory/accepted", Hash: "accepted"}, QueuedEvent: executionpostgres.PayloadPointer{Ref: "encrypted://memory/queued", Hash: "queued"}, StartCommand: executionpostgres.PayloadPointer{Ref: "encrypted://memory/start", Hash: "start"}, QueueClass: "interactive", ResourceClass: "llm", Priority: 50, CostUnits: 4, MaxAttempts: 5})
+	accepted, err := store.Accept(ctx, executionpostgres.AcceptRunCommand{RunID: runID, TenantID: tenantID, UserID: userID, ConversationID: conversationID, CorrelationID: correlationID, DueAt: now.Add(time.Hour), BehaviorProfile: "coach", BehaviorEnvironment: "production", BudgetSnapshot: json.RawMessage(`{"max_steps":16}`), Actor: json.RawMessage(`{"kind":"user"}`), AcceptedEvent: executionpostgres.PayloadPointer{Ref: "encrypted://memory/accepted", Hash: "accepted"}, QueuedEvent: executionpostgres.PayloadPointer{Ref: "encrypted://memory/queued", Hash: "queued"}, StartCommand: executionpostgres.PayloadPointer{Ref: "encrypted://memory/start", Hash: "start"}, QueueClass: "interactive", ResourceClass: "llm", Priority: 50, CostUnits: 4, MaxAttempts: 5})
 	if err != nil {
 		t.Fatal(err)
 	}

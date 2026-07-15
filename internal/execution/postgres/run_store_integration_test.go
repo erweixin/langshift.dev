@@ -39,10 +39,12 @@ func TestAcceptRunIsAtomicReplaySafeAndTenantIsolated(t *testing.T) {
 	if _, err := admin.Exec(ctx, `INSERT INTO identity.tenants(id,kind,name,status,region,owner_user_id) VALUES($1,'personal','Agent Owner','active','US',$3),($2,'enterprise','Other Tenant','active','US',NULL)`, tenantID, otherTenantID, userID); err != nil {
 		t.Fatal(err)
 	}
-	store := RunStore{Pool: pool, Appender: eventpostgres.Appender{Now: func() time.Time { return now }}, IDKey: bytes.Repeat([]byte{0x68}, 32), StoreEpoch: storeEpoch, Now: func() time.Time { return now }}
+	binding := seedExecutionBehavior(t, ctx, admin, tenantID, userID, "route_planner", now)
+	seedExecutionBehavior(t, ctx, admin, otherTenantID, userID, "route_planner", now)
+	store := RunStore{Pool: pool, Appender: eventpostgres.Appender{Now: func() time.Time { return now }}, IDKey: bytes.Repeat([]byte{0x68}, 32), StoreEpoch: storeEpoch, Now: func() time.Time { return now }, Behavior: integrationBehaviorResolver}
 	command := AcceptRunCommand{
 		RunID: runID, TenantID: tenantID, UserID: userID, ConversationID: conversationID, CorrelationID: correlationID,
-		DueAt: now.Add(time.Hour), ProfileSnapshotID: "route_planner@sha256:profile-v1",
+		DueAt: now.Add(time.Hour), BehaviorProfile: "route_planner", BehaviorEnvironment: "production",
 		BudgetSnapshot: json.RawMessage(`{"max_steps":32,"max_cost_microunits":100000}`), Actor: json.RawMessage(`{"kind":"user","id":"2e000000-0000-4000-8000-000000000003"}`),
 		AcceptedEvent: PayloadPointer{Ref: "encrypted://events/run-accepted", Hash: "accepted-hash"}, QueuedEvent: PayloadPointer{Ref: "encrypted://events/run-queued", Hash: "queued-hash"}, StartCommand: PayloadPointer{Ref: "encrypted://commands/run-start", Hash: "start-hash"},
 		QueueClass: "interactive", ResourceClass: "llm", Priority: 100, CostUnits: 32, MaxAttempts: 5,
@@ -85,21 +87,26 @@ func TestAcceptRunIsAtomicReplaySafeAndTenantIsolated(t *testing.T) {
 			t.Fatalf("non-convergent result: %#v first=%#v", result, first)
 		}
 	}
+	if first.ProfileSnapshotID != binding.SnapshotID || first.BehaviorChannelID != binding.ChannelID || first.BehaviorChannelSequence != binding.Sequence {
+		t.Fatalf("Run behavior binding=%#v, want %#v", first, binding)
+	}
 	var runs, events, outbox, jobs int
-	var status string
-	var version int
-	var pendingCommand string
-	if err := admin.QueryRow(ctx, `SELECT (SELECT count(*) FROM agent.runs WHERE id=$1),(SELECT count(*) FROM agent.events WHERE aggregate_kind='run' AND aggregate_id=$1),(SELECT count(*) FROM agent.outbox WHERE aggregate_kind='run' AND aggregate_id=$1),(SELECT count(*) FROM agent.jobs WHERE command_id=$2),(SELECT status FROM agent.runs WHERE id=$1),(SELECT run_version FROM agent.runs WHERE id=$1),(SELECT pending_command_id::text FROM agent.runs WHERE id=$1)`, runID, first.StartCommandID).Scan(&runs, &events, &outbox, &jobs, &status, &version, &pendingCommand); err != nil {
+	var status, pendingCommand, storedSnapshot, storedProfile, storedEnvironment, storedChannel string
+	var version, acceptedSchemaVersion int
+	var storedSequence uint64
+	if err := admin.QueryRow(ctx, `SELECT (SELECT count(*) FROM agent.runs WHERE id=$1),(SELECT count(*) FROM agent.events WHERE aggregate_kind='run' AND aggregate_id=$1),(SELECT count(*) FROM agent.outbox WHERE aggregate_kind='run' AND aggregate_id=$1),(SELECT count(*) FROM agent.jobs WHERE command_id=$2),(SELECT status FROM agent.runs WHERE id=$1),(SELECT run_version FROM agent.runs WHERE id=$1),(SELECT pending_command_id::text FROM agent.runs WHERE id=$1),(SELECT profile_snapshot_id FROM agent.runs WHERE id=$1),(SELECT behavior_profile FROM agent.runs WHERE id=$1),(SELECT behavior_environment FROM agent.runs WHERE id=$1),(SELECT behavior_channel_id::text FROM agent.runs WHERE id=$1),(SELECT behavior_channel_sequence FROM agent.runs WHERE id=$1),(SELECT event_schema_version FROM agent.events WHERE aggregate_kind='run' AND aggregate_id=$1 AND event_type='RunAccepted')`, runID, first.StartCommandID).Scan(&runs, &events, &outbox, &jobs, &status, &version, &pendingCommand, &storedSnapshot, &storedProfile, &storedEnvironment, &storedChannel, &storedSequence, &acceptedSchemaVersion); err != nil {
 		t.Fatal(err)
 	}
-	if runs != 1 || events != 2 || outbox != 3 || jobs != 1 || status != "queued" || version != 2 || pendingCommand != first.StartCommandID {
-		t.Fatalf("runs=%d events=%d outbox=%d jobs=%d status=%s version=%d pending=%s", runs, events, outbox, jobs, status, version, pendingCommand)
+	if runs != 1 || events != 2 || outbox != 3 || jobs != 1 || status != "queued" || version != 2 || pendingCommand != first.StartCommandID || storedSnapshot != binding.SnapshotID || storedProfile != string(binding.Profile) || storedEnvironment != binding.Environment || storedChannel != binding.ChannelID || storedSequence != binding.Sequence || acceptedSchemaVersion != 2 {
+		t.Fatalf("invalid durable Run binding: runs=%d events=%d outbox=%d jobs=%d status=%s version=%d pending=%s snapshot=%s profile=%s environment=%s channel=%s sequence=%d schema=%d", runs, events, outbox, jobs, status, version, pendingCommand, storedSnapshot, storedProfile, storedEnvironment, storedChannel, storedSequence, acceptedSchemaVersion)
 	}
 	now = now.Add(5 * time.Minute)
+	store.Behavior = failingBehaviorResolver{}
 	delayedReplay, err := store.Accept(ctx, command)
 	if err != nil || !delayedReplay.Replayed || delayedReplay.StartCommandID != first.StartCommandID {
 		t.Fatalf("delayed replay=%#v error=%v", delayedReplay, err)
 	}
+	store.Behavior = integrationBehaviorResolver
 
 	conflict := command
 	conflict.StartCommand.Hash = "different-intent"
@@ -334,15 +341,16 @@ func TestExpiredRunClaimIsFencedAndRecoverable(t *testing.T) {
 	if _, err := admin.Exec(ctx, `INSERT INTO identity.tenants(id,kind,name,status,region,owner_user_id) VALUES($1,'personal','Reclaim Owner','active','US',$2)`, tenantID, userID); err != nil {
 		t.Fatal(err)
 	}
+	seedExecutionBehavior(t, ctx, admin, tenantID, userID, "route_planner", now)
 	manager := opaque.Manager{Purpose: "agent-run-lease", Pepper: bytes.Repeat([]byte{0x72}, 32)}
 	store := RunStore{
 		Pool: pool, Appender: eventpostgres.Appender{Now: func() time.Time { return now }},
 		IDKey: bytes.Repeat([]byte{0x69}, 32), StoreEpoch: storeEpoch, Now: func() time.Time { return now },
-		Epochs: executionEpochStub{epoch: storeEpoch}, Tokens: manager, LeaseTTL: 90 * time.Second,
+		Epochs: executionEpochStub{epoch: storeEpoch}, Tokens: manager, LeaseTTL: 90 * time.Second, Behavior: integrationBehaviorResolver,
 	}
 	accepted, err := store.Accept(ctx, AcceptRunCommand{
 		RunID: runID, TenantID: tenantID, UserID: userID, ConversationID: conversationID, CorrelationID: correlationID,
-		DueAt: now.Add(time.Hour), ProfileSnapshotID: "route_planner@sha256:reclaim",
+		DueAt: now.Add(time.Hour), BehaviorProfile: "route_planner", BehaviorEnvironment: "production",
 		BudgetSnapshot: json.RawMessage(`{"max_steps":32}`), Actor: json.RawMessage(`{"kind":"user","id":"3e000000-0000-4000-8000-000000000002"}`),
 		AcceptedEvent: PayloadPointer{Ref: "encrypted://reclaim/accepted", Hash: "accepted"}, QueuedEvent: PayloadPointer{Ref: "encrypted://reclaim/queued", Hash: "queued"}, StartCommand: PayloadPointer{Ref: "encrypted://reclaim/start", Hash: "start"},
 		QueueClass: "interactive", ResourceClass: "llm", Priority: 100, CostUnits: 32, MaxAttempts: 5,

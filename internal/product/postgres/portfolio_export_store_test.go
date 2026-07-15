@@ -62,7 +62,7 @@ func TestPortfolioExportInputFailsClosedBeforeDatabaseAccess(t *testing.T) {
 		"unbound artifact":       func(command *RequestPortfolioExportCommand) { command.Artifacts[0].RevisionID = "" },
 		"unbound evidence":       func(command *RequestPortfolioExportCommand) { command.Evidence[0].Version = 0 },
 		"foreground queue":       func(command *RequestPortfolioExportCommand) { command.Run.QueueClass = "interactive" },
-		"wrong agent profile":    func(command *RequestPortfolioExportCommand) { command.Run.ProfileSnapshotID = "coach@sha256:x" },
+		"wrong agent profile":    func(command *RequestPortfolioExportCommand) { command.Run.BehaviorProfile = "coach" },
 		"cross-tenant run":       func(command *RequestPortfolioExportCommand) { command.Run.TenantID = "other" },
 		"scalar actor":           func(command *RequestPortfolioExportCommand) { command.Actor = json.RawMessage(`1`) },
 	} {
@@ -96,7 +96,7 @@ func validPortfolioCommand(now time.Time) RequestPortfolioExportCommand {
 		Workspace: WorkspaceExportBinding{BindingID: "binding", Version: 3, Revision: "git:head", ManifestHash: "workspace-hash"},
 		Format:    "pdf", Artifacts: []PortfolioArtifactBinding{{RevisionID: "revision", ArtifactID: "artifact", Revision: 2, ContentHash: "artifact-hash", ObjectVersion: "object-v2", WorkspaceRevision: "git:head", MediaType: "text/markdown", ByteSize: 2048, ScanResultHash: "scan-hash", EvidenceManifestHash: "evidence-manifest-hash"}}, Evidence: []EvidenceBinding{{EvidenceID: "evidence", Version: 2, ContentHash: "evidence-hash"}},
 		Actor: json.RawMessage(`{"kind":"user"}`), RequestedEvent: PayloadPointer{Ref: "encrypted://portfolio/requested", Hash: "portfolio-requested"},
-		Run: executionpostgres.AcceptRunCommand{RunID: "run", TenantID: "tenant", UserID: "user", ConversationID: "conversation", CorrelationID: "correlation", DueAt: now.Add(time.Hour), ProfileSnapshotID: "artifact_builder@sha256:profile", BudgetSnapshot: json.RawMessage(`{"max_steps":16}`), Actor: json.RawMessage(`{"kind":"user"}`), AcceptedEvent: executionpostgres.PayloadPointer{Ref: "encrypted://run/accepted", Hash: "run-accepted"}, QueuedEvent: executionpostgres.PayloadPointer{Ref: "encrypted://run/queued", Hash: "run-queued"}, StartCommand: executionpostgres.PayloadPointer{Ref: "encrypted://run/start", Hash: "run-start"}, QueueClass: "background", ResourceClass: "llm", Priority: 50, CostUnits: 8, MaxAttempts: 5},
+		Run: executionpostgres.AcceptRunCommand{RunID: "run", TenantID: "tenant", UserID: "user", ConversationID: "conversation", CorrelationID: "correlation", DueAt: now.Add(time.Hour), BehaviorProfile: "artifact_builder", BehaviorEnvironment: "production", BudgetSnapshot: json.RawMessage(`{"max_steps":16}`), Actor: json.RawMessage(`{"kind":"user"}`), AcceptedEvent: executionpostgres.PayloadPointer{Ref: "encrypted://run/accepted", Hash: "run-accepted"}, QueuedEvent: executionpostgres.PayloadPointer{Ref: "encrypted://run/queued", Hash: "run-queued"}, StartCommand: executionpostgres.PayloadPointer{Ref: "encrypted://run/start", Hash: "run-start"}, QueueClass: "background", ResourceClass: "llm", Priority: 50, CostUnits: 8, MaxAttempts: 5},
 	}
 }
 

@@ -211,8 +211,9 @@ func prepareUnknownRepairFixture(t *testing.T, ctx context.Context, admin, pool 
 			t.Fatal(err)
 		}
 	}
-	store := RunStore{Pool: pool, Appender: eventpostgres.Appender{Now: func() time.Time { return now }}, IDKey: bytes.Repeat([]byte{prefix[1]}, 32), StoreEpoch: storeEpoch, Now: func() time.Time { return now }, Epochs: executionEpochStub{epoch: storeEpoch}, Tokens: opaque.Manager{Purpose: "repair-tool-claim", Pepper: bytes.Repeat([]byte{prefix[1] + 1}, 32)}, LeaseTTL: 2 * time.Minute}
-	accepted, err := store.Accept(ctx, AcceptRunCommand{RunID: runID, TenantID: tenantID, UserID: targetUserID, ConversationID: conversationID, CorrelationID: correlationID, DueAt: now.Add(time.Hour), ProfileSnapshotID: "repair@sha256:" + prefix, BudgetSnapshot: json.RawMessage(`{"max_steps":8}`), Actor: json.RawMessage(`{"kind":"user"}`), AcceptedEvent: repairPointer(prefix, "run-accepted"), QueuedEvent: repairPointer(prefix, "run-queued"), StartCommand: repairPointer(prefix, "start-command"), QueueClass: "interactive", ResourceClass: "llm", Priority: 50, CostUnits: 2, MaxAttempts: 5})
+	seedExecutionBehavior(t, ctx, admin, tenantID, targetUserID, "route_planner", now)
+	store := RunStore{Pool: pool, Appender: eventpostgres.Appender{Now: func() time.Time { return now }}, IDKey: bytes.Repeat([]byte{prefix[1]}, 32), StoreEpoch: storeEpoch, Now: func() time.Time { return now }, Epochs: executionEpochStub{epoch: storeEpoch}, Tokens: opaque.Manager{Purpose: "repair-tool-claim", Pepper: bytes.Repeat([]byte{prefix[1] + 1}, 32)}, LeaseTTL: 2 * time.Minute, Behavior: integrationBehaviorResolver}
+	accepted, err := store.Accept(ctx, AcceptRunCommand{RunID: runID, TenantID: tenantID, UserID: targetUserID, ConversationID: conversationID, CorrelationID: correlationID, DueAt: now.Add(time.Hour), BehaviorProfile: "route_planner", BehaviorEnvironment: "production", BudgetSnapshot: json.RawMessage(`{"max_steps":8}`), Actor: json.RawMessage(`{"kind":"user"}`), AcceptedEvent: repairPointer(prefix, "run-accepted"), QueuedEvent: repairPointer(prefix, "run-queued"), StartCommand: repairPointer(prefix, "start-command"), QueueClass: "interactive", ResourceClass: "llm", Priority: 50, CostUnits: 2, MaxAttempts: 5})
 	if err != nil {
 		t.Fatal(err)
 	}

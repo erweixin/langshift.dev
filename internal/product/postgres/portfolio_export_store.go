@@ -8,7 +8,6 @@ import (
 	"errors"
 	"reflect"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -33,6 +32,7 @@ type PortfolioExportStore struct {
 	StoreEpoch string
 	Epochs     EpochAuthority
 	RunTokens  opaque.Manager
+	Behavior   executionpostgres.BehaviorResolver
 	Now        func() time.Time
 }
 
@@ -197,7 +197,7 @@ func (store PortfolioExportStore) Request(ctx context.Context, command RequestPo
 		}
 	}
 
-	runStore := executionpostgres.RunStore{Appender: store.Appender, IDKey: store.IDKey, StoreEpoch: store.StoreEpoch, Now: store.Now}
+	runStore := executionpostgres.RunStore{Appender: store.Appender, IDKey: store.IDKey, StoreEpoch: store.StoreEpoch, Now: store.Now, Behavior: store.Behavior}
 	acceptedRun, err := runStore.AcceptInTx(ctx, tx, command.Run)
 	if err != nil {
 		return PortfolioExport{}, err
@@ -320,7 +320,7 @@ func validPortfolioExport(command RequestPortfolioExportCommand) bool {
 		}
 	}
 	run := command.Run
-	return run.RunID != "" && run.TenantID == command.TenantID && run.UserID == command.UserID && run.CorrelationID == command.CorrelationID && run.QueueClass == "background" && strings.HasPrefix(run.ProfileSnapshotID, "artifact_builder@")
+	return run.RunID != "" && run.TenantID == command.TenantID && run.UserID == command.UserID && run.CorrelationID == command.CorrelationID && run.QueueClass == "background" && run.BehaviorProfile == "artifact_builder" && run.BehaviorEnvironment == "production"
 }
 
 func (store PortfolioExportStore) portfolioEventIDs(exportID string) (portfolioEventIDs, error) {
@@ -336,7 +336,7 @@ func (store PortfolioExportStore) portfolioEventIDs(exportID string) (portfolioE
 }
 
 func (store PortfolioExportStore) valid() bool {
-	return store.Pool != nil && store.Epochs != nil && store.StoreEpoch != "" && len(store.IDKey) >= 32
+	return store.Pool != nil && store.Epochs != nil && store.StoreEpoch != "" && len(store.IDKey) >= 32 && store.Behavior != nil
 }
 
 func (store PortfolioExportStore) requireEpoch(ctx context.Context) error {

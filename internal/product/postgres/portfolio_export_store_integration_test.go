@@ -12,9 +12,11 @@ import (
 	"testing"
 	"time"
 
+	behaviorpostgres "github.com/langshift/lites/internal/behavior/postgres"
 	eventpostgres "github.com/langshift/lites/internal/eventstore/postgres"
 	executionpostgres "github.com/langshift/lites/internal/execution/postgres"
 	"github.com/langshift/lites/internal/execution/statemachine"
+	"github.com/langshift/lites/internal/integrationfixture"
 	"github.com/langshift/lites/internal/security/opaque"
 )
 
@@ -61,6 +63,9 @@ func TestPortfolioExportAtomicallyBindsManifestRunAndIdempotentReplay(t *testing
 			t.Fatal(err)
 		}
 	}
+	if _, err := integrationfixture.SeedBehaviorChannel(ctx, admin, tenantID, userID, "artifact_builder", "production", now); err != nil {
+		t.Fatal(err)
+	}
 	key := bytes.Repeat([]byte{0xb5}, 32)
 	appender := eventpostgres.Appender{Now: func() time.Time { return now }}
 	artifactStore := ArtifactStore{Pool: pool, Appender: appender, IDKey: key, StoreEpoch: epoch, Epochs: artifactEpochStub{epoch}, Now: func() time.Time { return now }}
@@ -75,10 +80,11 @@ func TestPortfolioExportAtomicallyBindsManifestRunAndIdempotentReplay(t *testing
 	if _, err = admin.Exec(ctx, `UPDATE product.projects SET version=2,status='completed',reflection_ref='encrypted://reflection',completed_at=$1,updated_at=$1 WHERE id=$2`, now, projectID); err != nil {
 		t.Fatal(err)
 	}
-	store := PortfolioExportStore{Pool: pool, Appender: appender, IDKey: key, StoreEpoch: epoch, Epochs: artifactEpochStub{epoch}, Now: func() time.Time { return now }}
+	behaviorResolver := behaviorpostgres.Store{}
+	store := PortfolioExportStore{Pool: pool, Appender: appender, IDKey: key, StoreEpoch: epoch, Epochs: artifactEpochStub{epoch}, Now: func() time.Time { return now }, Behavior: behaviorResolver}
 	runTokens := opaque.Manager{Purpose: "portfolio-builder-run", Pepper: bytes.Repeat([]byte{0xb6}, 32)}
 	store.RunTokens = runTokens
-	runStore := executionpostgres.RunStore{Pool: pool, Appender: appender, IDKey: key, StoreEpoch: epoch, Epochs: artifactEpochStub{epoch}, Tokens: runTokens, LeaseTTL: 2 * time.Minute, Now: func() time.Time { return now }}
+	runStore := executionpostgres.RunStore{Pool: pool, Appender: appender, IDKey: key, StoreEpoch: epoch, Epochs: artifactEpochStub{epoch}, Tokens: runTokens, LeaseTTL: 2 * time.Minute, Now: func() time.Time { return now }, Behavior: behaviorResolver}
 	makeCommand := func(exportID, requestID, runID string) RequestPortfolioExportCommand {
 		correlationID := exportID
 		return RequestPortfolioExportCommand{
@@ -86,7 +92,7 @@ func TestPortfolioExportAtomicallyBindsManifestRunAndIdempotentReplay(t *testing
 			Workspace: WorkspaceExportBinding{BindingID: bindingID, Version: 1, Revision: "git:head", ManifestHash: "workspace-manifest-b5"}, Format: "pdf",
 			Artifacts: []PortfolioArtifactBinding{{RevisionID: revisionID, ArtifactID: artifactID, Revision: 1, ContentHash: "artifact-content-b5", ObjectVersion: "object-version-b5", WorkspaceRevision: "git:head", MediaType: "text/markdown", ByteSize: 4096, ScanResultHash: "scan-passed-b5", EvidenceManifestHash: revision.EvidenceManifestHash}}, Evidence: []EvidenceBinding{{EvidenceID: evidenceID, Version: 1, ContentHash: "evidence-hash-b5"}},
 			Actor: json.RawMessage(`{"kind":"user"}`), RequestedEvent: PayloadPointer{Ref: "encrypted://portfolio/" + exportID, Hash: "portfolio-requested-" + exportID},
-			Run: executionpostgres.AcceptRunCommand{RunID: runID, TenantID: tenantID, UserID: userID, ConversationID: conversation, CorrelationID: correlationID, DueAt: now.Add(time.Hour), ProfileSnapshotID: "artifact_builder@sha256:b5", BudgetSnapshot: json.RawMessage(`{"max_steps":16,"max_cost_microunits":100000}`), Actor: json.RawMessage(`{"kind":"user"}`), AcceptedEvent: executionpostgres.PayloadPointer{Ref: "encrypted://run/accepted/" + runID, Hash: "run-accepted-" + runID}, QueuedEvent: executionpostgres.PayloadPointer{Ref: "encrypted://run/queued/" + runID, Hash: "run-queued-" + runID}, StartCommand: executionpostgres.PayloadPointer{Ref: "encrypted://run/start/" + runID, Hash: "run-start-" + runID}, QueueClass: "background", ResourceClass: "llm", Priority: 50, CostUnits: 8, MaxAttempts: 5},
+			Run: executionpostgres.AcceptRunCommand{RunID: runID, TenantID: tenantID, UserID: userID, ConversationID: conversation, CorrelationID: correlationID, DueAt: now.Add(time.Hour), BehaviorProfile: "artifact_builder", BehaviorEnvironment: "production", BudgetSnapshot: json.RawMessage(`{"max_steps":16,"max_cost_microunits":100000}`), Actor: json.RawMessage(`{"kind":"user"}`), AcceptedEvent: executionpostgres.PayloadPointer{Ref: "encrypted://run/accepted/" + runID, Hash: "run-accepted-" + runID}, QueuedEvent: executionpostgres.PayloadPointer{Ref: "encrypted://run/queued/" + runID, Hash: "run-queued-" + runID}, StartCommand: executionpostgres.PayloadPointer{Ref: "encrypted://run/start/" + runID, Hash: "run-start-" + runID}, QueueClass: "background", ResourceClass: "llm", Priority: 50, CostUnits: 8, MaxAttempts: 5},
 		}
 	}
 	command := makeCommand("b5000000-0000-4000-8000-000000000014", "portfolio-request-b5", "b5000000-0000-4000-8000-000000000015")

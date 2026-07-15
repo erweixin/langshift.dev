@@ -17,10 +17,11 @@ import (
 )
 
 var (
-	ErrConfiguration = errors.New("behavior store configuration is invalid")
-	ErrCommand       = errors.New("behavior store command is invalid")
-	ErrConflict      = errors.New("behavior store state conflicts with command")
-	ErrStaleEpoch    = errors.New("behavior store epoch is stale")
+	ErrConfiguration   = errors.New("behavior store configuration is invalid")
+	ErrCommand         = errors.New("behavior store command is invalid")
+	ErrConflict        = errors.New("behavior store state conflicts with command")
+	ErrStaleEpoch      = errors.New("behavior store epoch is stale")
+	ErrNoActiveChannel = errors.New("behavior channel has no active deployment")
 )
 
 type EpochAuthority interface {
@@ -73,6 +74,31 @@ type Result struct {
 	Hash        string
 	Sequence    uint64
 	Replayed    bool
+}
+
+// ResolveCurrent locks the tenant/profile/environment channel with the same
+// transaction-scoped advisory key used by promotion, then returns the exact
+// deployment a new Run must retain for its entire history.
+func (store Store) ResolveCurrent(ctx context.Context, tx pgx.Tx, tenantID string, profile behavior.Profile, environment string) (behavior.ChannelBinding, error) {
+	if tx == nil || tenantID == "" || !profile.Valid() || environment != "staging" && environment != "production" {
+		return behavior.ChannelBinding{}, ErrCommand
+	}
+	var tenantContext string
+	if err := tx.QueryRow(ctx, `SELECT current_setting('lites.tenant_id',true)`).Scan(&tenantContext); err != nil || tenantContext != tenantID {
+		return behavior.ChannelBinding{}, errors.Join(err, ErrCommand)
+	}
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1||':'||$2||':'||$3,0))`, tenantID, profile, environment); err != nil {
+		return behavior.ChannelBinding{}, err
+	}
+	result := behavior.ChannelBinding{Profile: profile, Environment: environment}
+	err := tx.QueryRow(ctx, `SELECT channel_id::text,sequence,snapshot_id,activated_at FROM agent.behavior_channel_deployments WHERE tenant_id=$1 AND profile_name=$2 AND environment=$3 ORDER BY sequence DESC LIMIT 1`, tenantID, profile, environment).Scan(&result.ChannelID, &result.Sequence, &result.SnapshotID, &result.ActivatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return behavior.ChannelBinding{}, ErrNoActiveChannel
+	}
+	if err != nil {
+		return behavior.ChannelBinding{}, err
+	}
+	return result, nil
 }
 
 func (store Store) CreateSnapshot(ctx context.Context, command CreateSnapshotCommand) (Result, error) {

@@ -29,6 +29,20 @@ const (
 	ArtifactBuilder Profile = "artifact_builder"
 )
 
+// Valid reports whether profile is one of the production Agent profiles.
+func (profile Profile) Valid() bool { return validProfile(profile) }
+
+// ChannelBinding is the immutable behavior deployment selected at a Run's
+// acceptance linearization point.
+type ChannelBinding struct {
+	ChannelID   string    `json:"channel_id"`
+	Sequence    uint64    `json:"sequence"`
+	SnapshotID  string    `json:"snapshot_id"`
+	Profile     Profile   `json:"profile"`
+	Environment string    `json:"environment"`
+	ActivatedAt time.Time `json:"activated_at"`
+}
+
 var digestPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 type Binding struct {

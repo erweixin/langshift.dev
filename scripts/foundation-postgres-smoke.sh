@@ -76,7 +76,8 @@ for migration in \
   deploy/migrations/000034_runtime_boot_receipt.up.sql \
   deploy/migrations/000035_runtime_host_recovery_authority.up.sql \
   deploy/migrations/000036_runtime_host_restart_recovery.up.sql \
-  deploy/migrations/000037_behavior_snapshot_promotion.up.sql; do
+  deploy/migrations/000037_behavior_snapshot_promotion.up.sql \
+  deploy/migrations/000038_run_behavior_binding.up.sql; do
   target="/tmp/$(basename "${migration}")"
   docker cp "${migration}" "${container_name}:${target}" >/dev/null
   docker exec "${container_name}" psql -v ON_ERROR_STOP=1 -U postgres -d lites_foundation -f "${target}" >/dev/null
@@ -92,7 +93,13 @@ docker exec "${container_name}" psql -v ON_ERROR_STOP=1 -U postgres -d lites_fou
   "GRANT SELECT ON product.memory_policies,product.projects,product.share_grants TO lites_agent_service; GRANT SELECT,INSERT,UPDATE ON agent.memory_documents,agent.memory_index_projections TO lites_agent_service; GRANT SELECT,INSERT ON agent.memory_document_revisions,agent.memory_revision_sources,agent.memory_revision_subjects,agent.memory_revision_derivations,agent.memory_tombstones,agent.retrieval_manifests,agent.retrieval_manifest_chunks,agent.memory_accesses TO lites_agent_service;" >/dev/null
 
 docker exec "${container_name}" psql -v ON_ERROR_STOP=1 -U postgres -d lites_foundation -c \
+  "GRANT SELECT ON agent.behavior_snapshots,agent.behavior_channel_deployments TO lites_agent_service;" >/dev/null
+
+docker exec "${container_name}" psql -v ON_ERROR_STOP=1 -U postgres -d lites_foundation -c \
   "CREATE ROLE lites_product_service LOGIN PASSWORD 'foundation_product_service' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS; GRANT CONNECT ON DATABASE lites_foundation TO lites_product_service; GRANT USAGE ON SCHEMA product,agent TO lites_product_service; GRANT SELECT,UPDATE ON product.projects,product.evidence TO lites_product_service; GRANT SELECT ON product.project_workspace_bindings TO lites_product_service; GRANT SELECT,INSERT,UPDATE ON product.artifacts,product.portfolio_exports TO lites_product_service; GRANT SELECT,INSERT ON product.artifact_revisions,product.artifact_revision_evidence,product.portfolio_export_artifacts,product.portfolio_export_evidence TO lites_product_service; GRANT SELECT,INSERT,UPDATE ON agent.runs,agent.jobs,agent.job_attempts,agent.inbox,agent.event_cursors,agent.outbox TO lites_product_service; GRANT SELECT,INSERT ON agent.events TO lites_product_service; GRANT EXECUTE ON FUNCTION agent.list_recoverable_portfolio_tenants(uuid,uuid,integer,integer,integer,timestamptz,timestamptz), agent.list_expirable_portfolio_tenants(uuid,uuid,integer,integer,integer,timestamptz) TO lites_product_service;" >/dev/null
+
+docker exec "${container_name}" psql -v ON_ERROR_STOP=1 -U postgres -d lites_foundation -c \
+  "GRANT SELECT ON agent.behavior_snapshots,agent.behavior_channel_deployments TO lites_product_service;" >/dev/null
 
 docker exec "${container_name}" psql -v ON_ERROR_STOP=1 -U postgres -d lites_foundation -c \
   "CREATE ROLE lites_scheduler_service LOGIN PASSWORD 'foundation_scheduler_service' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS; GRANT CONNECT ON DATABASE lites_foundation TO lites_scheduler_service; GRANT USAGE ON SCHEMA agent TO lites_scheduler_service; GRANT SELECT,UPDATE ON agent.jobs TO lites_scheduler_service; GRANT EXECUTE ON FUNCTION agent.scheduler_claim_resource(text,text,bytea,timestamptz,timestamptz), agent.scheduler_list_ready_jobs(text,text,bigint,bytea,uuid,timestamptz,integer), agent.scheduler_commit_dispatch(text,text,bigint,bytea,jsonb,jsonb,timestamptz,timestamptz), agent.scheduler_abort_resource(text,text,bigint,bytea,timestamptz) TO lites_scheduler_service;" >/dev/null

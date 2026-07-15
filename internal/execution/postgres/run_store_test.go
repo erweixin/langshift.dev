@@ -13,7 +13,7 @@ import (
 
 func TestAcceptFailsClosedBeforeDatabaseAccess(t *testing.T) {
 	now := time.Now().UTC()
-	valid := AcceptRunCommand{RunID: "run", TenantID: "tenant", UserID: "user", ConversationID: "conversation", CorrelationID: "correlation", DueAt: now.Add(time.Hour), ProfileSnapshotID: "profile-v1", BudgetSnapshot: json.RawMessage(`{"max_cost":100}`), Actor: json.RawMessage(`{"kind":"user"}`), AcceptedEvent: PayloadPointer{Ref: "encrypted://accepted", Hash: "accepted"}, QueuedEvent: PayloadPointer{Ref: "encrypted://queued", Hash: "queued"}, StartCommand: PayloadPointer{Ref: "encrypted://start", Hash: "start"}, QueueClass: "interactive", ResourceClass: "llm", Priority: 10, CostUnits: 16, MaxAttempts: 5}
+	valid := AcceptRunCommand{RunID: "run", TenantID: "tenant", UserID: "user", ConversationID: "conversation", CorrelationID: "correlation", DueAt: now.Add(time.Hour), BehaviorProfile: "route_planner", BehaviorEnvironment: "production", BudgetSnapshot: json.RawMessage(`{"max_cost":100}`), Actor: json.RawMessage(`{"kind":"user"}`), AcceptedEvent: PayloadPointer{Ref: "encrypted://accepted", Hash: "accepted"}, QueuedEvent: PayloadPointer{Ref: "encrypted://queued", Hash: "queued"}, StartCommand: PayloadPointer{Ref: "encrypted://start", Hash: "start"}, QueueClass: "interactive", ResourceClass: "llm", Priority: 10, CostUnits: 16, MaxAttempts: 5}
 	if _, err := (RunStore{}).Accept(t.Context(), valid); !errors.Is(err, ErrConfiguration) {
 		t.Fatalf("invalid store: %v", err)
 	}
