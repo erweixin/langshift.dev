@@ -7,5 +7,6 @@ raw="$(mktemp)"
 cleanup() { rm -f "${raw}"; }
 trap cleanup EXIT
 
-go test -json -count=1 ./internal/execution/statemachine | tee "${raw}"
+GOCACHE="${GOCACHE:-/tmp/lites-go-build}" GOMODCACHE="${GOMODCACHE:-/tmp/lites-go-mod}" \
+  go test -json -count=1 ./internal/execution/statemachine | tee "${raw}"
 node scripts/write-stage3-state-machine-report.mjs --input "${raw}" --source-commit "${source_commit}"
