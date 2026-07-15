@@ -42,6 +42,8 @@ const v111Registry=await load("contracts/events/amendments/v1.11.0/registry.json
 const v111Fixtures=await load("contracts/events/amendments/v1.11.0/upcaster-fixtures.json");
 const v112Registry=await load("contracts/events/amendments/v1.12.0/registry.json");
 const v112Fixtures=await load("contracts/events/amendments/v1.12.0/upcaster-fixtures.json");
+const v113Registry=await load("contracts/events/amendments/v1.13.0/registry.json");
+const v113Fixtures=await load("contracts/events/amendments/v1.13.0/upcaster-fixtures.json");
 const snapshot=await load("gate-reports/stage-1/contract-snapshot.json");
 const eventNames=Object.keys(registry.schemas);
 const baseNames=new Set(Object.keys(baseRegistry.schemas));
@@ -258,11 +260,39 @@ const v112Amendment={
 };
 check("AMENDMENT-V1.12-CONTENT-ROOT",v112Amendment.baseAmendmentId===v111Amendment.amendmentId&&v112Amendment.baseAmendmentContentRootSha256===v111Amendment.contentRootSha256&&v112Amendment.contentRootSha256===v112RootHash,"v1.12 content root is anchored to the exact v1.11 cancellation amendment");
 
+const v113EventNames=Object.keys(v113Registry.schemas);
+check("AMENDMENT-V1.13-VERSION",v113Registry.amendmentVersion==="1.13.0"&&v113Registry.baseContractVersion===v112Registry.amendmentVersion&&v113Registry.compatibility==="additive","v1.13 additively extends the v1.12 execution contract chain");
+check("AMENDMENT-V1.13-EVENTS",JSON.stringify(v113EventNames)===JSON.stringify(["ChildRunSpawned","ChildRunCompleted","ChildGroupJoined"])&&v113EventNames.every(name=>!baseNames.has(name)),"the three child orchestration facts are additive and do not replace frozen events");
+const childSpawned=v113Registry.schemas.ChildRunSpawned;
+const childCompleted=v113Registry.schemas.ChildRunCompleted;
+const childJoined=v113Registry.schemas.ChildGroupJoined;
+const childSpawnPayload=childSpawned.properties.payload;
+const childCompletePayload=childCompleted.properties.payload;
+const childJoinPayload=childJoined.properties.payload;
+check("CHILD-ORCHESTRATION-CLOSED",[childSpawned,childCompleted,childJoined].every(schema=>schema.additionalProperties===false&&schema["x-event-schema-version"]===1&&schema.properties.payload.additionalProperties===false&&schema.properties.payload.required.every(field=>field in schema.properties.payload.properties))&&childSpawnPayload.properties.children.items.additionalProperties===false&&childJoinPayload.properties.completed_children.items.additionalProperties===false,"child orchestration envelopes, payloads and member records reject undeclared fields");
+check("CHILD-SPAWN-BINDING",["parent_run_id","parent_run_version","root_run_id","child_group_id","step_id","join_policy","quorum_count","plan_result_hash","children"].every(field=>childSpawnPayload.required.includes(field))&&["child_run_id","spawn_tool_call_id","required","depth","profile_snapshot_id","budget_microunits","due_at"].every(field=>childSpawnPayload.properties.children.items.required.includes(field)),"spawn fact binds the parent version, exact group policy, immutable child identities, behavior deployment, deadline and budget allocation");
+check("CHILD-COMPLETION-BINDING",["child_run_id","child_run_version","parent_run_id","root_run_id","child_group_id","terminal_status","result_summary_ref","result_summary_hash","payload_hmac","completed_at"].every(field=>childCompletePayload.required.includes(field))&&JSON.stringify(childCompletePayload.properties.terminal_status.enum)===JSON.stringify(["succeeded","failed","cancelled","expired"]),"completion fact binds hierarchy, terminal status and authenticated content-addressed result summary");
+check("CHILD-JOIN-BINDING",["group_id","group_version","parent_run_id","parent_run_version","root_run_id","join_policy","quorum_count","join_reason","completed_children","cancelled_child_run_ids","continuation_id","resume_command_id","released_budget_microunits","joined_at"].every(field=>childJoinPayload.required.includes(field))&&childJoinPayload.properties.cancelled_child_run_ids.uniqueItems===true,"join fact binds the exact parent/group versions, winning evidence, cancellation set, released budget and unique continuation command");
+check("AMENDMENT-V1.13-FIXTURES",v113Fixtures.baseFixtureVersion===v112Fixtures.fixtureVersion&&v113Fixtures.fixtures.length===v113EventNames.length&&v113Fixtures.fixtures.every(fixture=>fixture.fromVersion===1&&fixture.toVersion===1&&fixture.inputHash===sha256(fixture.input)&&fixture.expectedHash===sha256(fixture.expected)&&JSON.stringify(fixture.input)===JSON.stringify(fixture.expected)&&v113EventNames.includes(fixture.eventType)),"each v1.13 child orchestration event has a deterministic canonical fixture");
+const v113Files=[];
+for(const path of ["contracts/events/amendments/v1.13.0/registry.json","contracts/events/amendments/v1.13.0/upcaster-fixtures.json"]) v113Files.push({path,sha256:sha256(await read(path))});
+const v113RootHash=sha256({baseAmendmentId:v112Amendment.amendmentId,files:v113Files});
+const v113Amendment={
+  amendmentVersion:"1.13.0",amendmentId:`contract-amendment-${v113RootHash.slice(0,20)}`,status:"draft",generatedAt:"2026-07-15T00:00:00.000Z",
+  baseSnapshotId:snapshot.snapshotId,baseContentRootSha256:snapshot.contentRootSha256,
+  baseAmendmentId:v112Amendment.amendmentId,baseAmendmentContentRootSha256:v112Amendment.contentRootSha256,
+  contentRootSha256:v113RootHash,files:v113Files,
+  reason:"Add the version-bound child spawn, terminal result and exactly-once child-group join facts required by production multi-agent orchestration.",
+  activationRule:"Backend, security, SRE and QA approval must bind this root after atomic spawn, all/any/quorum join, late-result, recursive cancellation and quota fault-injection gates pass."
+};
+check("AMENDMENT-V1.13-CONTENT-ROOT",v113Amendment.baseAmendmentId===v112Amendment.amendmentId&&v113Amendment.baseAmendmentContentRootSha256===v112Amendment.contentRootSha256&&v113Amendment.contentRootSha256===v113RootHash,"v1.13 content root is anchored to the exact v1.12 execution amendment");
+
 const failures=checks.filter(item=>item.status==="failed");
 const reportBase={reportVersion:"1.0.0",stage:3,kind:"contract-amendment-lint",status:failures.length?"failed":"passed",summary:{checks:checks.length,passed:checks.length-failures.length,failed:failures.length},results:checks};
 const report={...reportBase,reportHash:sha256(reportBase)};
 await writeFile(resolve(root,"gate-reports/stage-3/contract-amendment-v1.11.json"),`${JSON.stringify(v111Amendment,null,2)}\n`);
 await writeFile(resolve(root,"gate-reports/stage-3/contract-amendment-v1.12.json"),`${JSON.stringify(v112Amendment,null,2)}\n`);
+await writeFile(resolve(root,"gate-reports/stage-3/contract-amendment-v1.13.json"),`${JSON.stringify(v113Amendment,null,2)}\n`);
 await writeFile(resolve(root,"gate-reports/stage-3/contract-amendment-lint.json"),`${JSON.stringify(report,null,2)}\n`);
 console.log(`${report.status}: ${report.summary.passed}/${report.summary.checks} Stage 3 amendment checks passed; report ${report.reportHash}`);
 if(failures.length) process.exitCode=1;
