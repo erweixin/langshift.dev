@@ -140,7 +140,7 @@ func (store RunStore) SpawnChildRuns(ctx context.Context, command SpawnChildRuns
 		}
 	}
 	var parentAllocated int64
-	if err = tx.QueryRow(ctx, `SELECT COALESCE(sum(inherited_budget_microunits),0) FROM agent.runs WHERE tenant_id=$1 AND parent_run_id=$2`, claim.TenantID, claim.RunID).Scan(&parentAllocated); err != nil || requestedBudget > parentBudget-parentAllocated {
+	if err = tx.QueryRow(ctx, `SELECT COALESCE(sum(inherited_budget_microunits),0) FROM agent.runs WHERE tenant_id=$1 AND parent_run_id=$2 AND status NOT IN ('succeeded','failed','cancelled','expired')`, claim.TenantID, claim.RunID).Scan(&parentAllocated); err != nil || requestedBudget > parentBudget-parentAllocated {
 		return ChildRunsSpawned{}, ErrInvalidCommand
 	}
 	if _, err = tx.Exec(ctx, `INSERT INTO agent.orchestration_quotas(tenant_id,root_run_id) VALUES($1,$2) ON CONFLICT DO NOTHING`, claim.TenantID, rootRunID); err != nil {

@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"time"
@@ -79,16 +80,18 @@ type CompleteRunCommand struct {
 	CorrelationID         string
 	RunEvent              PayloadPointer
 	AttemptCompletedEvent PayloadPointer
+	Child                 *ChildRunCompletion
 }
 
 type CompletedRun struct {
-	RunID          string
-	RunVersion     uint64
-	Status         statemachine.RunState
-	AttemptStatus  statemachine.AttemptState
-	CompletedAt    time.Time
-	RunEventID     string
-	AttemptEventID string
+	RunID                                    string
+	RunVersion, ParentRunVersion             uint64
+	Status                                   statemachine.RunState
+	AttemptStatus                            statemachine.AttemptState
+	CompletedAt                              time.Time
+	RunEventID, AttemptEventID, ChildGroupID string
+	ContinuationID, ResumeCommandID          string
+	ParentResumed                            bool
 }
 
 // CompleteRunTerminal is the commit point for a terminal AgentWorker result.
@@ -142,10 +145,16 @@ func (store RunStore) CompleteRunTerminalInTx(ctx context.Context, tx pgx.Tx, co
 	if err = lockRunInbox(ctx, tx, claim, digest[:], now); err != nil {
 		return CompletedRun{}, err
 	}
-	var userID string
-	err = tx.QueryRow(ctx, `SELECT user_id::text FROM agent.runs WHERE id=$1 AND tenant_id=$2 AND user_id=$3 AND status='executing' AND run_version=$4 AND active_command_id=$5 AND active_attempt_id=$6 AND current_fence=$7 AND lease_token_hash=$8 AND lease_expires_at=$9 AND lease_expires_at>$10 FOR UPDATE`, claim.RunID, claim.TenantID, claim.UserID, command.ExpectedRunVersion, claim.CommandID, claim.AttemptID, claim.Fence, digest[:], claim.LeaseExpiresAt, now).Scan(&userID)
+	var userID, rootRunID string
+	var parentRunID, childGroupID sql.NullString
+	var inheritedBudget int64
+	err = tx.QueryRow(ctx, `SELECT user_id::text,parent_run_id::text,root_run_id::text,child_group_id::text,inherited_budget_microunits FROM agent.runs WHERE id=$1 AND tenant_id=$2 AND user_id=$3 AND status='executing' AND run_version=$4 AND active_command_id=$5 AND active_attempt_id=$6 AND current_fence=$7 AND lease_token_hash=$8 AND lease_expires_at=$9 AND lease_expires_at>$10 FOR UPDATE`, claim.RunID, claim.TenantID, claim.UserID, command.ExpectedRunVersion, claim.CommandID, claim.AttemptID, claim.Fence, digest[:], claim.LeaseExpiresAt, now).Scan(&userID, &parentRunID, &rootRunID, &childGroupID, &inheritedBudget)
 	if err != nil {
 		return CompletedRun{}, ErrExecutionRightConflict
+	}
+	isChild := parentRunID.Valid
+	if isChild != (command.Child != nil) || isChild && (!childGroupID.Valid || rootRunID == "" || inheritedBudget < 1) || !isChild && (childGroupID.Valid || rootRunID != claim.RunID || inheritedBudget != 0) {
+		return CompletedRun{}, ErrInvalidCommand
 	}
 	var attemptVersion uint64
 	err = tx.QueryRow(ctx, `SELECT version FROM agent.job_attempts WHERE id=$1 AND tenant_id=$2 AND job_id=$3 AND command_id=$4 AND status='running' AND fence=$5 AND lease_token_hash=$6 AND lease_expires_at=$7 AND lease_expires_at>$8 FOR UPDATE`, claim.AttemptID, claim.TenantID, claim.JobID, claim.CommandID, claim.Fence, digest[:], claim.LeaseExpiresAt, now).Scan(&attemptVersion)
@@ -154,7 +163,11 @@ func (store RunStore) CompleteRunTerminalInTx(ctx context.Context, tx pgx.Tx, co
 	}
 	attemptState, jobState := terminalExecutionStates(command.TargetState)
 	nextRunVersion := command.ExpectedRunVersion + 1
-	if tag, updateErr := tx.Exec(ctx, `UPDATE agent.runs SET status=$1,run_version=$2,active_command_id=NULL,active_attempt_id=NULL,lease_token_hash=NULL,lease_expires_at=NULL,updated_at=$3 WHERE id=$4 AND tenant_id=$5 AND status='executing' AND run_version=$6 AND active_command_id=$7 AND active_attempt_id=$8 AND current_fence=$9 AND lease_token_hash=$10 AND lease_expires_at=$11 AND lease_expires_at>$3`, command.TargetState, nextRunVersion, now, claim.RunID, claim.TenantID, command.ExpectedRunVersion, claim.CommandID, claim.AttemptID, claim.Fence, digest[:], claim.LeaseExpiresAt); updateErr != nil || tag.RowsAffected() != 1 {
+	var resultSummaryRef, resultSummaryHash any
+	if isChild {
+		resultSummaryRef, resultSummaryHash = command.Child.ResultSummary.Ref, command.Child.ResultSummary.Hash
+	}
+	if tag, updateErr := tx.Exec(ctx, `UPDATE agent.runs SET status=$1,run_version=$2,active_command_id=NULL,active_attempt_id=NULL,lease_token_hash=NULL,lease_expires_at=NULL,result_summary_ref=$3,result_summary_hash=$4,updated_at=$5 WHERE id=$6 AND tenant_id=$7 AND status='executing' AND run_version=$8 AND active_command_id=$9 AND active_attempt_id=$10 AND current_fence=$11 AND lease_token_hash=$12 AND lease_expires_at=$13 AND lease_expires_at>$5`, command.TargetState, nextRunVersion, resultSummaryRef, resultSummaryHash, now, claim.RunID, claim.TenantID, command.ExpectedRunVersion, claim.CommandID, claim.AttemptID, claim.Fence, digest[:], claim.LeaseExpiresAt); updateErr != nil || tag.RowsAffected() != 1 {
 		return CompletedRun{}, ErrExecutionRightConflict
 	}
 	if tag, updateErr := tx.Exec(ctx, `UPDATE agent.inbox SET status='completed',completed_at=$1,updated_at=$1 WHERE id=$2 AND tenant_id=$3 AND store_epoch=$4 AND consumer_name=$5 AND command_id=$6 AND request_hash=$7 AND status='running' AND owner_attempt_id=$8 AND fence=$9 AND lease_token_hash=$10 AND lease_expires_at=$11 AND lease_expires_at>$1`, now, claim.InboxID, claim.TenantID, claim.StoreEpoch, claim.ConsumerName, claim.CommandID, claim.RequestHash, claim.AttemptID, claim.Fence, digest[:], claim.LeaseExpiresAt); updateErr != nil || tag.RowsAffected() != 1 {
@@ -171,7 +184,16 @@ func (store RunStore) CompleteRunTerminalInTx(ctx context.Context, tx pgx.Tx, co
 		return CompletedRun{}, err
 	}
 	causationID := claim.CommandID
-	runEvent := eventpostgres.Input{Event: eventpostgres.Event{ID: eventIDs.runEvent, TenantID: claim.TenantID, UserID: userID, EventType: terminalRunEventType(command.TargetState), SchemaVersion: 1, AggregateKind: "run", AggregateID: claim.RunID, AggregateVersion: nextRunVersion, StoreEpoch: store.StoreEpoch, OccurredAt: now, Actor: command.Actor, CausationID: &causationID, CorrelationID: command.CorrelationID, PayloadRef: command.RunEvent.Ref, PayloadHash: command.RunEvent.Hash}, Commands: []eventpostgres.OutboxCommand{{ID: eventIDs.runOutbox, CommandID: eventIDs.runPublish, CommandType: "events.publish", PayloadRef: command.RunEvent.Ref, PayloadHash: command.RunEvent.Hash}}}
+	runEventType, runPointer := terminalRunEventType(command.TargetState), command.RunEvent
+	var join childJoinResult
+	if isChild {
+		runEventType, runPointer = "ChildRunCompleted", command.Child.CompletedEvent
+		join, err = store.joinCompletedChild(ctx, tx, childJoinInput{TenantID: claim.TenantID, UserID: userID, ChildRunID: claim.RunID, ParentRunID: parentRunID.String, RootRunID: rootRunID, GroupID: childGroupID.String, ChildEventID: eventIDs.runEvent, InheritedBudgetMicrounits: inheritedBudget, Actor: command.Actor, CorrelationID: command.CorrelationID, Completion: *command.Child, Now: now})
+		if err != nil {
+			return CompletedRun{}, err
+		}
+	}
+	runEvent := eventpostgres.Input{Event: eventpostgres.Event{ID: eventIDs.runEvent, TenantID: claim.TenantID, UserID: userID, EventType: runEventType, SchemaVersion: 1, AggregateKind: "run", AggregateID: claim.RunID, AggregateVersion: nextRunVersion, StoreEpoch: store.StoreEpoch, OccurredAt: now, Actor: command.Actor, CausationID: &causationID, CorrelationID: command.CorrelationID, PayloadRef: runPointer.Ref, PayloadHash: runPointer.Hash}, Commands: []eventpostgres.OutboxCommand{{ID: eventIDs.runOutbox, CommandID: eventIDs.runPublish, CommandType: "events.publish", PayloadRef: runPointer.Ref, PayloadHash: runPointer.Hash}}}
 	if _, err = store.Appender.Append(ctx, tx, runEvent); err != nil {
 		return CompletedRun{}, err
 	}
@@ -180,7 +202,17 @@ func (store RunStore) CompleteRunTerminalInTx(ctx context.Context, tx pgx.Tx, co
 	if _, err = store.Appender.Append(ctx, tx, attemptEvent); err != nil {
 		return CompletedRun{}, err
 	}
-	return CompletedRun{RunID: claim.RunID, RunVersion: nextRunVersion, Status: command.TargetState, AttemptStatus: attemptState, CompletedAt: now, RunEventID: eventIDs.runEvent, AttemptEventID: eventIDs.attemptEvent}, nil
+	if join.GroupEvent != nil {
+		if _, err = store.Appender.Append(ctx, tx, *join.GroupEvent); err != nil {
+			return CompletedRun{}, err
+		}
+	}
+	if join.ParentEvent != nil {
+		if _, err = store.Appender.Append(ctx, tx, *join.ParentEvent); err != nil {
+			return CompletedRun{}, err
+		}
+	}
+	return CompletedRun{RunID: claim.RunID, RunVersion: nextRunVersion, ParentRunVersion: join.ParentRunVersion, Status: command.TargetState, AttemptStatus: attemptState, CompletedAt: now, RunEventID: eventIDs.runEvent, AttemptEventID: eventIDs.attemptEvent, ChildGroupID: childGroupID.String, ContinuationID: join.ContinuationID, ResumeCommandID: join.ResumeCommandID, ParentResumed: join.Resumed}, nil
 }
 
 func lockRunInbox(ctx context.Context, tx pgx.Tx, claim RunClaim, digest []byte, now time.Time) error {
@@ -214,7 +246,10 @@ func validRunClaim(claim RunClaim) bool {
 }
 
 func validCompleteRun(command CompleteRunCommand) bool {
-	return command.ExpectedRunVersion == command.Claim.RunVersion && command.ResultHash != "" && validJSONObject(command.Actor) && command.CorrelationID != "" && validPointer(command.RunEvent) && validPointer(command.AttemptCompletedEvent)
+	base := command.ExpectedRunVersion == command.Claim.RunVersion && command.ResultHash != "" && validJSONObject(command.Actor) && command.CorrelationID != "" && validPointer(command.AttemptCompletedEvent)
+	root := command.Child == nil && validPointer(command.RunEvent)
+	child := command.Child != nil && command.RunEvent == (PayloadPointer{}) && validChildRunCompletion(*command.Child)
+	return base && (root || child)
 }
 
 func (store RunStore) requireClaimEpoch(ctx context.Context, expected string) error {
