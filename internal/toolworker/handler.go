@@ -19,6 +19,7 @@ import (
 	executionpostgres "github.com/langshift/lites/internal/execution/postgres"
 	"github.com/langshift/lites/internal/execution/statemachine"
 	"github.com/langshift/lites/internal/payload"
+	"github.com/langshift/lites/internal/toolreconciler"
 )
 
 const commandSchemaVersion = 1
@@ -133,6 +134,12 @@ type Handler struct {
 	Reconcile         Schedule
 	ReconcileDelay    time.Duration
 	Now               func() time.Time
+	Metrics           WorkerMetrics
+}
+
+type WorkerMetrics interface {
+	AddLeaseHeartbeats(context.Context, int64, string)
+	AddToolCall(context.Context, string, bool)
 }
 
 func (handler Handler) Handle(ctx context.Context, delivered eventpostgres.DeliveredCommand) error {
@@ -219,6 +226,9 @@ func (handler Handler) executeWithHeartbeat(ctx context.Context, execution Execu
 				return Outcome{}, claim, errors.Join(ErrHeartbeatLost, err)
 			}
 			claim = live
+			if handler.Metrics != nil {
+				handler.Metrics.AddLeaseHeartbeats(ctx, 1, "tool")
+			}
 		case <-ctx.Done():
 			return Outcome{}, claim, ctx.Err()
 		}
@@ -244,6 +254,10 @@ func (handler Handler) commit(ctx context.Context, command CommandPayload, decis
 		"effect_disposition": outcome.EffectDisposition,
 		"policy_snapshot_id": decision.SnapshotID, "policy_snapshot_hash": decision.SnapshotHash,
 		"overlay_version": decision.OverlayVersion,
+	}
+	if outcome.State == statemachine.ToolCallOutcomeUnknown && !isAutomaticallyReconcilable(claim.EffectClass) {
+		base["manual_review_required"] = true
+		base["manual_review_reason"] = "effect_class_requires_human_resolution"
 	}
 	toolEvent, err := handler.putEvent(ctx, claim.TenantID, claim.AttemptID+":tool-completed", base, "tool_call_completed")
 	if err != nil {
@@ -289,6 +303,7 @@ func (handler Handler) commit(ctx context.Context, command CommandPayload, decis
 	}
 	if claim.EffectClass == "read_only" {
 		_, err = handler.Tools.CompleteReadOnlyTool(ctx, complete)
+		handler.observeToolCall(ctx, claim, outcome, err)
 		return err
 	}
 	effect := executionpostgres.EffectCompletion{ExternalResourceRef: outcome.ExternalResourceRef}
@@ -297,17 +312,28 @@ func (handler Handler) commit(ctx context.Context, command CommandPayload, decis
 		if reconcileAfter <= 0 {
 			reconcileAfter = handler.ReconcileDelay
 		}
-		dueAt := handler.now().Add(reconcileAfter).UTC()
+		unknownAt := handler.now().UTC()
+		dueAt := unknownAt.Add(reconcileAfter).UTC()
+		effect.ReconciliationDueAt = dueAt
+		if !isAutomaticallyReconcilable(claim.EffectClass) {
+			_, err = handler.Tools.CompleteEffectTool(ctx, complete, effect)
+			handler.observeToolCall(ctx, claim, outcome, err)
+			return err
+		}
 		terminalVersion := claim.ToolCallVersion + 1
 		reconcileCommandID, idErr := executionpostgres.ReconcileToolEffectCommandID(handler.IDKey, claim.EffectID, terminalVersion)
 		if idErr != nil {
 			return idErr
 		}
-		reconcilePayload, marshalErr := json.Marshal(map[string]any{
-			"schema_version": 1, "tenant_id": claim.TenantID, "run_id": claim.RunID,
-			"tool_call_id": claim.ToolCallID, "effect_id": claim.EffectID,
-			"effect_class": claim.EffectClass, "provider_request_id": claim.ProviderRequestID,
-			"correlation_id": command.CorrelationID, "terminal_tool_version": terminalVersion,
+		reconcilePayload, marshalErr := json.Marshal(toolreconciler.CommandPayload{
+			SchemaVersion: 1, TenantID: claim.TenantID, RunID: claim.RunID,
+			ToolCallID: claim.ToolCallID, EffectID: claim.EffectID,
+			ToolName: command.ToolName, DescriptorSnapshotID: command.DescriptorSnapshotID,
+			DescriptorHash: command.DescriptorHash, EffectClass: claim.EffectClass,
+			EffectKey: command.EffectKey, EffectScope: command.EffectScope, ProviderID: command.ProviderID,
+			ProviderRequestID: claim.ProviderRequestID, RequestHash: command.RequestHash,
+			TerminalToolVersion: terminalVersion, ReconciliationDueAt: dueAt, OutcomeUnknownAt: unknownAt,
+			ReconciliationRound: 1, CorrelationID: command.CorrelationID,
 		})
 		if marshalErr != nil {
 			return marshalErr
@@ -316,7 +342,6 @@ func (handler Handler) commit(ctx context.Context, command CommandPayload, decis
 		if putErr != nil {
 			return putErr
 		}
-		effect.ReconciliationDueAt = dueAt
 		effect.ReconcileCommand = executionpostgres.PayloadPointer{Ref: manifest.Ref, Hash: manifest.Hash}
 		effect.ReconcileQueueClass = handler.Reconcile.QueueClass
 		effect.ReconcileResource = handler.Reconcile.ResourceClass
@@ -325,7 +350,26 @@ func (handler Handler) commit(ctx context.Context, command CommandPayload, decis
 		effect.ReconcileAttempts = handler.Reconcile.MaxAttempts
 	}
 	_, err = handler.Tools.CompleteEffectTool(ctx, complete, effect)
+	handler.observeToolCall(ctx, claim, outcome, err)
 	return err
+}
+
+func (handler Handler) observeToolCall(ctx context.Context, claim executionpostgres.ToolClaim, outcome Outcome, commitErr error) {
+	if handler.Metrics == nil || commitErr != nil {
+		return
+	}
+	value := "failed"
+	switch outcome.State {
+	case statemachine.ToolCallSucceeded:
+		value = "succeeded"
+	case statemachine.ToolCallOutcomeUnknown:
+		value = "unknown"
+	}
+	handler.Metrics.AddToolCall(ctx, value, claim.EffectClass != "read_only")
+}
+
+func isAutomaticallyReconcilable(effectClass string) bool {
+	return effectClass == "reconcilable_write"
 }
 
 type claimPointers struct {

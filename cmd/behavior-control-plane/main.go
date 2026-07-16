@@ -115,7 +115,7 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 	}
 	payloads := payload.EnvelopeStore{Keys: vaultkeys.Provider{KV: vaultReader, Prefix: configuration.vaultKeyPrefix}, Blobs: blobs}
 	store := behaviorpostgres.Store{
-		Pool: pool, Appender: eventpostgres.Appender{}, Epochs: authority, StoreEpoch: storeEpoch,
+		Pool: pool, Appender: eventpostgres.Appender{Observer: telemetry.AgentMetrics()}, Epochs: authority, StoreEpoch: storeEpoch,
 		PublicKeys: behaviorKeys, PublicKeyWindows: behaviorWindows, PublicKeyPurposes: behaviorPurposes,
 	}
 	service := behaviorpostgres.ControlService{

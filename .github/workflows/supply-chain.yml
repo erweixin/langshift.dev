@@ -10,6 +10,7 @@ on:
       - "contracts/database/**"
       - "deploy/**"
       - "Dockerfile"
+      - "Dockerfile.reference-tool-runtime"
       - ".dockerignore"
       - "scripts/verify-production-image.sh"
       - "scripts/verify-actions-pinned.mjs"
@@ -69,9 +70,10 @@ jobs:
         run: |
           out=gate-reports/stage-2/supply-chain
           cyclonedx-gomod mod -licenses -std -json -output "$out/module.cdx.json" .
-          for service in api-gateway identity-service realtime-gateway behavior-control-plane identity-import-worker identity-mail-worker outbox-publisher agent-scheduler store-epoch-authority lites-migrate runtime-host-agent runtime-sweeper run-cancellation-reconciler; do
+          for service in api-gateway identity-service realtime-gateway behavior-control-plane agent-control-plane identity-import-worker identity-mail-worker outbox-publisher agent-scheduler agent-worker tool-worker tool-reconciliation-worker store-epoch-authority lites-migrate lites-release-assets lites-reference-release runtime-host-agent runtime-sweeper run-cancellation-reconciler reference-capacity-controller reference-provider; do
             cyclonedx-gomod app -licenses -std -json -output "$out/$service.cdx.json" -main "cmd/$service" .
           done
+          cyclonedx-gomod app -licenses -std -json -output "$out/reference-tool-runtime.cdx.json" -main cmd/reference-tool-runner .
       - name: Scan source, dependencies, IaC, and secrets
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
@@ -104,15 +106,21 @@ jobs:
           - identity-service
           - realtime-gateway
           - behavior-control-plane
+          - agent-control-plane
           - identity-import-worker
           - identity-mail-worker
           - outbox-publisher
           - agent-scheduler
+          - agent-worker
+          - tool-worker
+          - tool-reconciliation-worker
           - store-epoch-authority
           - lites-migrate
           - runtime-host-agent
           - runtime-sweeper
           - run-cancellation-reconciler
+          - reference-capacity-controller
+          - reference-provider
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -158,6 +166,54 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
+  reference-runtime-security:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+        with:
+          version: ${{ env.BUILDX_VERSION }}
+          driver-opts: image=${{ env.BUILDKIT_IMAGE }}
+      - name: Build hermetic reference Runtime image
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: Dockerfile.reference-tool-runtime
+          load: true
+          push: false
+          platforms: linux/amd64
+          tags: lites/reference-tool-runtime:${{ github.sha }}
+          build-args: |
+            VERSION=sha-${{ github.sha }}
+            REVISION=${{ github.sha }}
+            SOURCE_URL=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=gha,scope=reference-tool-runtime-amd64
+          cache-to: type=gha,mode=max,scope=reference-tool-runtime-amd64
+      - name: Verify shell-free reference Runtime layout
+        run: ./scripts/verify-reference-tool-runtime-image.sh "lites/reference-tool-runtime:${GITHUB_SHA}"
+      - name: Scan reference Runtime image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: ${{ env.TRIVY_VERSION }}
+          image-ref: lites/reference-tool-runtime:${{ github.sha }}
+          scanners: vuln,misconfig,secret
+          severity: HIGH,CRITICAL
+          ignore-unfixed: false
+          exit-code: 1
+          format: json
+          output: gate-reports/stage-2/images/reference-tool-runtime-trivy.json
+      - name: Upload reference Runtime security evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: supply-chain-image-reference-tool-runtime
+          path: gate-reports/stage-2/images/
+          if-no-files-found: error
+          retention-days: 90
+
   publish-signed-images:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: [source-security, container-security]
@@ -175,15 +231,21 @@ jobs:
           - identity-service
           - realtime-gateway
           - behavior-control-plane
+          - agent-control-plane
           - identity-import-worker
           - identity-mail-worker
           - outbox-publisher
           - agent-scheduler
+          - agent-worker
+          - tool-worker
+          - tool-reconciliation-worker
           - store-epoch-authority
           - lites-migrate
           - runtime-host-agent
           - runtime-sweeper
           - run-cancellation-reconciler
+          - reference-capacity-controller
+          - reference-provider
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -254,5 +316,84 @@ jobs:
         with:
           name: signed-release-${{ matrix.service }}
           path: gate-reports/stage-2/releases/${{ matrix.service }}.json
+          if-no-files-found: error
+          retention-days: 365
+
+  publish-signed-reference-runtime:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [source-security, reference-runtime-security]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+        with:
+          version: ${{ env.BUILDX_VERSION }}
+          driver-opts: image=${{ env.BUILDKIT_IMAGE }}
+      - name: Normalize immutable Runtime image name
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}-reference-tool-runtime" >> "$GITHUB_ENV"
+      - name: Authenticate to GHCR
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push signed reference Runtime
+        id: build
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: Dockerfile.reference-tool-runtime
+          push: true
+          pull: true
+          platforms: linux/amd64,linux/arm64
+          tags: |
+            ${{ env.IMAGE }}:sha-${{ github.sha }}
+            ${{ env.IMAGE }}:main
+          build-args: |
+            VERSION=sha-${{ github.sha }}
+            REVISION=${{ github.sha }}
+            SOURCE_URL=${{ github.server_url }}/${{ github.repository }}
+          provenance: mode=max
+          sbom: true
+          cache-from: type=gha,scope=reference-tool-runtime-multiarch
+          cache-to: type=gha,mode=max,scope=reference-tool-runtime-multiarch
+      - name: Install pinned Cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: ${{ env.COSIGN_VERSION }}
+      - name: Sign and verify immutable Runtime digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          cosign sign --yes "$IMAGE@$DIGEST"
+          cosign verify \
+            --certificate-identity "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/.github/workflows/supply-chain.yml@refs/heads/main" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            "$IMAGE@$DIGEST"
+      - name: Record immutable Runtime coordinates
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          mkdir -p gate-reports/stage-2/releases
+          jq -n \
+            --arg service "reference-tool-runtime" \
+            --arg image "$IMAGE" \
+            --arg digest "$DIGEST" \
+            --arg commit "$GITHUB_SHA" \
+            --arg workflow_ref "$GITHUB_WORKFLOW_REF" \
+            '{schema_version:"1.0.0",service:$service,image:$image,digest:$digest,source_commit:$commit,workflow_ref:$workflow_ref,sbom_attested:true,provenance_mode:"max",cosign_keyless_signature_verified:true}' \
+            > gate-reports/stage-2/releases/reference-tool-runtime.json
+      - name: Upload signed Runtime release evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: signed-release-reference-tool-runtime
+          path: gate-reports/stage-2/releases/reference-tool-runtime.json
           if-no-files-found: error
           retention-days: 365

@@ -1,0 +1,145 @@
+{{- $name := "lites-reference-capacity" -}}
+{{- if eq .Values.gateway.url .Values.telemetry.endpoint }}{{ fail "gateway and telemetry endpoints must be distinct" }}{{ end }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $name }}
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}-profile
+data:
+  reference-capacity-profile.json: |
+{{ .Files.Get "files/reference-capacity-profile.json" | indent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels: {app.kubernetes.io/name: {{ $name }}}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app.kubernetes.io/name: {{ $name }}}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: {{ $name }}}
+      annotations:
+        checksum/profile: {{ .Files.Get "files/reference-capacity-profile.json" | sha256sum }}
+    spec:
+      serviceAccountName: {{ $name }}
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      priorityClassName: {{ .Values.priorityClassName | quote }}
+      terminationGracePeriodSeconds: 45
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile: {type: RuntimeDefault}
+      nodeSelector: {{ toJson .Values.nodeSelector }}
+      tolerations: {{ toJson .Values.tolerations }}
+      containers:
+        - name: controller
+          image: {{ printf "%s@%s" .Values.image.repository .Values.image.digest | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - {name: LITES_ENVIRONMENT, value: stage3-reference-production-v1}
+            - {name: LITES_SOURCE_COMMIT, value: {{ .Values.sourceCommit | quote }}}
+            - {name: LITES_VERSION, value: {{ .Values.version | quote }}}
+            - {name: LITES_REGION, value: {{ .Values.region | quote }}}
+            - {name: CAPACITY_PROFILE_FILE, value: /run/profile/reference-capacity-profile.json}
+            - {name: CAPACITY_DATASET_FILE, value: {{ .Values.dataset.file | quote }}}
+            - {name: CAPACITY_CONTROLLER_BEARER_TOKEN_FILE, value: /run/secrets/controller-token}
+            - {name: SERVER_TLS_CERT_FILE, value: /run/secrets/server-cert.pem}
+            - {name: SERVER_TLS_KEY_FILE, value: /run/secrets/server-key.pem}
+            - {name: SERVER_CLIENT_CA_FILE, value: /run/secrets/observer-ca.pem}
+            - {name: GATEWAY_URL, value: {{ .Values.gateway.url | quote }}}
+            - {name: GATEWAY_TLS_SERVER_NAME, value: {{ .Values.gateway.tlsServerName | quote }}}
+            - {name: GATEWAY_ROOT_CA_FILE, value: /run/secrets/gateway-ca.pem}
+            - {name: GATEWAY_CLIENT_CERT_FILE, value: /run/secrets/gateway-client-cert.pem}
+            - {name: GATEWAY_CLIENT_KEY_FILE, value: /run/secrets/gateway-client-key.pem}
+            - {name: PUBLIC_ORIGIN, value: {{ .Values.gateway.publicOrigin | quote }}}
+            - {name: CAPACITY_WARMUP_DURATION, value: {{ .Values.controller.warmupDuration | quote }}}
+            - {name: CAPACITY_REQUEST_TIMEOUT, value: {{ .Values.controller.requestTimeout | quote }}}
+            - {name: CAPACITY_MAX_INFLIGHT, value: {{ .Values.controller.maximumInflight | quote }}}
+            - {name: CAPACITY_MAX_ERROR_RATIO, value: {{ .Values.controller.maximumErrorRatio | quote }}}
+            - {name: OTLP_GRPC_ENDPOINT, value: {{ .Values.telemetry.endpoint | quote }}}
+            - {name: OTLP_TLS_SERVER_NAME, value: {{ .Values.telemetry.tlsServerName | quote }}}
+            - {name: OTLP_ROOT_CA_FILE, value: /run/secrets/otel-ca.pem}
+            - {name: OTLP_BEARER_TOKEN_FILE, value: /run/secrets/otel-token}
+            - {name: TRACE_SAMPLE_RATIO, value: {{ .Values.telemetry.traceSampleRatio | quote }}}
+          ports:
+            - {name: control, containerPort: {{ .Values.service.port }}}
+            - {name: metrics, containerPort: {{ .Values.service.metricsPort }}}
+          startupProbe: {httpGet: {path: /live, port: metrics}, failureThreshold: 30, periodSeconds: 2}
+          livenessProbe: {httpGet: {path: /live, port: metrics}, failureThreshold: 3, periodSeconds: 10}
+          readinessProbe: {httpGet: {path: /ready, port: metrics}, failureThreshold: 3, periodSeconds: 5}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          resources: {{ toJson .Values.resources }}
+          volumeMounts:
+            - {name: secrets, mountPath: /run/secrets, readOnly: true}
+            - {name: profile, mountPath: /run/profile, readOnly: true}
+            - {name: dataset, mountPath: /run/capacity, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: secrets
+          secret: {secretName: {{ .Values.existingSecret }}, defaultMode: 0440}
+        - name: profile
+          configMap: {name: {{ $name }}-profile, defaultMode: 0440}
+        - name: dataset
+          persistentVolumeClaim: {claimName: {{ .Values.dataset.existingPVC }}}
+        - name: tmp
+          emptyDir: {medium: Memory, sizeLimit: 64Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels: {app.kubernetes.io/name: {{ $name }}}
+spec:
+  selector: {app.kubernetes.io/name: {{ $name }}}
+  ports:
+    - {name: control, port: {{ .Values.service.port }}, targetPort: control}
+    - {name: metrics, port: {{ .Values.service.metricsPort }}, targetPort: metrics}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $name }}
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: {{ $name }}}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector: {matchLabels: {{ toJson .Values.observerNamespaceSelector }}}
+          podSelector: {matchLabels: {{ toJson .Values.observerPodSelector }}}
+      ports: [{port: {{ .Values.service.port }}, protocol: TCP}]
+    - from:
+        - namespaceSelector: {matchLabels: {{ toJson .Values.monitoringNamespaceSelector }}}
+          podSelector: {matchLabels: {{ toJson .Values.monitoringPodSelector }}}
+      ports: [{port: {{ .Values.service.metricsPort }}, protocol: TCP}]
+  egress:
+    - to:
+        - namespaceSelector: {matchLabels: {{ toJson .Values.dnsNamespaceSelector }}}
+          podSelector: {matchLabels: {{ toJson .Values.dnsPodSelector }}}
+      ports: [{port: 53, protocol: UDP}, {port: 53, protocol: TCP}]
+    - to:
+{{- range .Values.gatewayEgressCIDRs }}
+        - ipBlock: {cidr: {{ . | quote }}}
+{{- end }}
+      ports: [{port: 443, protocol: TCP}]
+    - to:
+{{- range .Values.telemetryEgressCIDRs }}
+        - ipBlock: {cidr: {{ . | quote }}}
+{{- end }}
+      ports: [{port: 4317, protocol: TCP}]

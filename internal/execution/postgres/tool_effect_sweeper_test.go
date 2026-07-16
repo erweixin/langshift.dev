@@ -13,13 +13,16 @@ func TestSweepExpiredToolEffectValidation(t *testing.T) {
 		t.Fatal("valid sweep rejected")
 	}
 	command.Candidate.EffectClass = "idempotent_write"
-	if validSweepExpiredToolEffect(command) {
-		t.Fatal("replay-safe effect accepted by unknown sweeper")
-	}
-	for _, effectClass := range []string{"compensatable_write", "irreversible_write"} {
+	automatic := command.Reconciliation
+	for _, effectClass := range []string{"idempotent_write", "compensatable_write", "irreversible_write"} {
 		command.Candidate.EffectClass = effectClass
+		command.Reconciliation = automatic
 		if validSweepExpiredToolEffect(command) {
-			t.Fatalf("%s bypassed Repair boundary", effectClass)
+			t.Fatalf("%s accepted an automatic reconciliation command", effectClass)
+		}
+		command.Reconciliation = EffectCompletion{ReconciliationDueAt: time.Now().Add(time.Minute)}
+		if !validSweepExpiredToolEffect(command) {
+			t.Fatalf("%s manual-review sweep rejected", effectClass)
 		}
 	}
 }

@@ -38,7 +38,7 @@ func TestPostgresRouteResourcesSelectsFundedBucketAndExactBYOKVersion(t *testing
 	}{
 		{`INSERT INTO identity.users(id,normalized_email,locale,status) VALUES($1,'route-resource@example.invalid','en','active')`, []any{userID}},
 		{`INSERT INTO identity.tenants(id,kind,name,status,region,owner_user_id) VALUES($1,'personal','Route Resource Tenant','active','US',$2)`, []any{tenantID, userID}},
-		{`INSERT INTO contracts.credit_buckets(id,tenant_id,bucket_kind,granted_units,starts_at,expires_at) VALUES($1,$2,'llm',100000,$3,$4)`, []any{bucketID, tenantID, now.Add(-time.Hour), now.Add(time.Hour)}},
+		{`INSERT INTO contracts.credit_buckets(id,tenant_id,bucket_kind,granted_units,starts_at,expires_at,created_at,updated_at) VALUES($1,$2,'llm',100000,$3,$4,$5,$5)`, []any{bucketID, tenantID, now.Add(-time.Hour), now.Add(time.Hour), now}},
 		{`INSERT INTO product.byok_credential_versions(tenant_id,credential_id,version,user_id,provider_id,bound_host,secret_ref,secret_version,status,last_validated_at) VALUES($1,$2,1,$3,'openai','api.openai.com','vault://byok/route/v1','1','active',$4)`, []any{tenantID, credentialID, userID, now}},
 		{`INSERT INTO product.byok_credentials(id,tenant_id,user_id,provider_id,bound_host,secret_ref,secret_version,status,last_validated_at) VALUES($1,$2,$3,'openai','api.openai.com','vault://byok/route/v1','1','active',$4)`, []any{credentialID, tenantID, userID, now}},
 		{`INSERT INTO product.byok_credential_versions(tenant_id,credential_id,version,user_id,provider_id,bound_host,secret_ref,secret_version,status,last_validated_at) VALUES($1,$2,2,$3,'openai','api.openai.com','vault://byok/route/v2','2','active',$4)`, []any{tenantID, credentialID, userID, now}},

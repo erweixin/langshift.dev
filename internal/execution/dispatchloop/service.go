@@ -41,14 +41,21 @@ type Service struct {
 	Interval   time.Duration
 	ErrorCode  func(error) string
 	Observe    func(Observation)
+	Now        func() time.Time
 }
 
 type Observation struct {
-	Resource  string
-	Planned   int
-	Published int
-	Deferred  int
-	Err       error
+	Resource   string
+	Planned    int
+	Published  int
+	Deferred   int
+	QueueWaits []QueueWait
+	Err        error
+}
+
+type QueueWait struct {
+	QueueClass string
+	Duration   time.Duration
 }
 
 func (service Service) Run(ctx context.Context) error {
@@ -131,10 +138,22 @@ func (service Service) Cycle(ctx context.Context) error {
 				continue
 			}
 			observation.Published++
+			wait := service.now().Sub(claim.Candidate.EnqueuedAt)
+			if wait < 0 {
+				wait = 0
+			}
+			observation.QueueWaits = append(observation.QueueWaits, QueueWait{QueueClass: string(claim.Candidate.QueueClass), Duration: wait})
 		}
 		service.observe(observation)
 	}
 	return errors.Join(cycleErrors...)
+}
+
+func (service Service) now() time.Time {
+	if service.Now != nil {
+		return service.Now()
+	}
+	return time.Now()
 }
 
 func (service Service) validate() error {

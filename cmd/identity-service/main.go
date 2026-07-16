@@ -143,6 +143,13 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 	if err != nil {
 		return errors.New("configure observability")
 	}
+	appender := eventpostgres.Appender{Observer: telemetry.AgentMetrics()}
+	service.Appender = appender
+	anonymousBootstrap.Appender = appender
+	onboarding.Appender = appender
+	onboarding.Anonymous = anonymousBootstrap
+	claimStore.Appender = appender
+	claimService.Store = claimStore
 	handler := identityapi.Handler{Service: service, Sessions: service, Passwords: service, Emails: service, Accounts: service, Invitations: service, Memberships: service, Onboarding: onboarding, Claims: claimService, AnonymousCSRFKey: secrets.AnonymousCSRFKey, RateLimiter: platformratelimit.Limiter{Client: valkeyClient, Namespace: "lites"}, RateLimitPepper: secrets.RateLimitPepper}
 	verifier := trustedcontext.Verifier{Issuer: configuration.trustedIssuer, Audience: configuration.trustedAudience, Keys: keys, KeyWindows: windows, MaximumTTL: 5 * time.Minute, ClockSkew: 5 * time.Second}
 	application := telemetry.WrapHTTP(serviceauth.Middleware{Verifier: verifier, RequireVerifiedClientCertificate: !configuration.allowInsecureDevelopment}.Wrap(handler))

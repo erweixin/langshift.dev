@@ -20,6 +20,19 @@ type blockingStore struct{}
 
 type blockingControlSink struct{}
 
+type realtimeMetricsStub struct {
+	connections int64
+	recoveries  int
+}
+
+func (metrics *realtimeMetricsStub) AddRealtimeConnections(_ context.Context, delta int64) {
+	metrics.connections += delta
+}
+
+func (metrics *realtimeMetricsStub) ObserveRealtimeGapRecovery(context.Context, time.Duration) {
+	metrics.recoveries++
+}
+
 func (blockingControlSink) Event(context.Context, realtimepostgres.Event) error { return nil }
 func (blockingControlSink) Control(ctx context.Context, _ Control) error {
 	<-ctx.Done()
@@ -138,8 +151,11 @@ func TestStreamSubscribesBeforeSnapshotAndDeliversExactlyOnceInOrder(t *testing.
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan error, 1)
+	metrics := &realtimeMetricsStub{}
+	stream := productionTestStream(store, wakes)
+	stream.Metrics = metrics
 	go func() {
-		done <- productionTestStream(store, wakes).Run(ctx, Session{TenantID: "tenant", UserID: "user", ExpiresAt: time.Now().Add(time.Hour)}, sink)
+		done <- stream.Run(ctx, Session{TenantID: "tenant", UserID: "user", ExpiresAt: time.Now().Add(time.Hour)}, sink)
 	}()
 
 	for expected := uint64(1); expected <= 3; expected++ {
@@ -183,6 +199,9 @@ func TestStreamSubscribesBeforeSnapshotAndDeliversExactlyOnceInOrder(t *testing.
 	cancel()
 	if err := <-done; err != nil {
 		t.Fatalf("Run() = %v", err)
+	}
+	if metrics.connections != 0 || metrics.recoveries < 1 {
+		t.Fatalf("metrics=%#v", metrics)
 	}
 }
 

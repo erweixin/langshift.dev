@@ -58,14 +58,15 @@ func (publisher *fakePublisher) Publish(_ context.Context, command eventpostgres
 }
 
 func TestCyclePublishesOnlyAdmittedClaimsAndDefersBrokerFailures(t *testing.T) {
+	now := time.Date(2026, 7, 16, 12, 0, 0, 0, time.UTC)
 	claim := func(id, resource string) executionpostgres.DispatchClaim {
-		return executionpostgres.DispatchClaim{Candidate: executionpostgres.SchedulerCandidate{Job: scheduler.Job{ID: id, TenantID: "tenant", ResourceClass: resource}, Command: eventpostgres.PublishedCommand{CommandID: id, QueueGeneration: 1, DispatchVersion: 1}}}
+		return executionpostgres.DispatchClaim{Candidate: executionpostgres.SchedulerCandidate{Job: scheduler.Job{ID: id, TenantID: "tenant", ResourceClass: resource, QueueClass: scheduler.QueueInteractive, EnqueuedAt: now.Add(-250 * time.Millisecond)}, Command: eventpostgres.PublishedCommand{CommandID: id, QueueGeneration: 1, DispatchVersion: 1}}}
 	}
 	store := &fakeStore{claims: []executionpostgres.DispatchClaim{claim("a", "llm"), claim("b", "llm"), claim("c", "tool")}}
 	publisher := &fakePublisher{fail: map[string]bool{"b": true}}
 	config := scheduler.Config{Resources: map[string]scheduler.ResourcePolicy{"llm": {HighPriorityThreshold: 90}, "tool": {HighPriorityThreshold: 80}}}
 	var observations []Observation
-	service := Service{Store: store, Publisher: publisher, Epochs: fakeEpoch{"epoch"}, Config: config, Owner: "scheduler-a", Resources: []string{"tool", "llm"}, BatchLimit: 10, Interval: time.Second, Observe: func(value Observation) { observations = append(observations, value) }}
+	service := Service{Store: store, Publisher: publisher, Epochs: fakeEpoch{"epoch"}, Config: config, Owner: "scheduler-a", Resources: []string{"tool", "llm"}, BatchLimit: 10, Interval: time.Second, Now: func() time.Time { return now }, Observe: func(value Observation) { observations = append(observations, value) }}
 	if err := service.Cycle(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -80,6 +81,12 @@ func TestCyclePublishesOnlyAdmittedClaimsAndDefersBrokerFailures(t *testing.T) {
 	}
 	if len(observations) != 2 || observations[0].Planned != 2 || observations[0].Published != 1 || observations[0].Deferred != 1 {
 		t.Fatalf("observations %#v", observations)
+	}
+	if waits := observations[0].QueueWaits; len(waits) != 1 || waits[0].QueueClass != "interactive" || waits[0].Duration != 250*time.Millisecond {
+		t.Fatalf("queue waits %#v", waits)
+	}
+	if waits := observations[1].QueueWaits; len(waits) != 1 || waits[0].Duration != 250*time.Millisecond {
+		t.Fatalf("tool queue waits %#v", waits)
 	}
 }
 

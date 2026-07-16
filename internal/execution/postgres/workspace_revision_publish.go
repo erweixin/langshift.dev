@@ -321,7 +321,7 @@ func validBeginWorkspacePublish(command BeginWorkspacePublishCommand) bool {
 }
 
 func validCompleteWorkspacePublish(command CompleteWorkspacePublishCommand, effect EffectCompletion) bool {
-	if command.RevisionID == "" || command.ExpectedRevisionVersion < 1 || command.Tool.Claim.EffectClass != "reconcilable_write" || !validPointer(command.CompletionEvent) || !validEffectCompletion(command.Tool.TargetState, effect) {
+	if command.RevisionID == "" || command.ExpectedRevisionVersion < 1 || command.Tool.Claim.EffectClass != "reconcilable_write" || !validPointer(command.CompletionEvent) || !validEffectCompletion(command.Tool.Claim.EffectClass, command.Tool.TargetState, effect) {
 		return false
 	}
 	switch command.Tool.TargetState {

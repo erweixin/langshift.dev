@@ -49,7 +49,16 @@ func LoadArtifact(path, expectedFileHash string) (Artifact, error) {
 	}
 	defer file.Close()
 	encoded, err := io.ReadAll(io.LimitReader(file, maximumArtifactBytes+1))
-	if err != nil || len(encoded) == 0 || len(encoded) > maximumArtifactBytes || hashBytes(encoded) != expectedFileHash {
+	if err != nil {
+		return Artifact{}, ErrArtifactInvalid
+	}
+	return DecodeArtifact(encoded, expectedFileHash)
+}
+
+// DecodeArtifact validates an in-memory release artifact with the same code
+// path used by production file loading.
+func DecodeArtifact(encoded []byte, expectedFileHash string) (Artifact, error) {
+	if len(encoded) == 0 || len(encoded) > maximumArtifactBytes || !digestPattern.MatchString(expectedFileHash) || hashBytes(encoded) != expectedFileHash {
 		return Artifact{}, ErrArtifactInvalid
 	}
 	var envelope artifactEnvelope

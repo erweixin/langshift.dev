@@ -1,16 +1,29 @@
 package postgres
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"testing"
 	"time"
 )
 
+type appendObservation struct {
+	outcome string
+}
+
+func (observation *appendObservation) ObserveEventAppend(_ context.Context, _ time.Duration, outcome string) {
+	observation.outcome = outcome
+}
+
 func TestAppenderRejectsIncompleteOrNonObjectEvents(t *testing.T) {
+	observation := &appendObservation{}
 	input := Input{Event: Event{ID: "e", TenantID: "t", UserID: "u", EventType: "Event", SchemaVersion: 1, AggregateKind: "user", AggregateID: "a", AggregateVersion: 1, StoreEpoch: "s", OccurredAt: time.Now(), Actor: json.RawMessage(`[]`), CorrelationID: "c", PayloadRef: "encrypted://event", PayloadHash: "hash"}, Commands: []OutboxCommand{{ID: "o", CommandID: "c", CommandType: "publish", PayloadRef: "encrypted://command", PayloadHash: "hash"}}}
-	if _, err := (Appender{}).Append(t.Context(), nil, input); !errors.Is(err, ErrInvalidAppend) {
+	if _, err := (Appender{Observer: observation}).Append(t.Context(), nil, input); !errors.Is(err, ErrInvalidAppend) {
 		t.Fatalf("error=%v", err)
+	}
+	if observation.outcome != "failed" {
+		t.Fatalf("invalid append observation=%q", observation.outcome)
 	}
 	input.Event.Actor = json.RawMessage(`{"kind":"user"}`)
 	input.Commands[0].CommandID = ""

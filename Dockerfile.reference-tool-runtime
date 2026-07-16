@@ -1,0 +1,30 @@
+# syntax=docker/dockerfile:1.18@sha256:dabfc0969b935b2080555ace70ee69a5261af8a8f1b4df97b9e7fbcf6722eddf
+FROM golang:1.25.12-alpine3.23@sha256:cc985ef6f9c3bf9ece7488129c9abe0a150388ccdfa428d886fc709dca0b230a AS build
+
+ARG TARGETOS=linux
+ARG TARGETARCH
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod,sharing=locked go mod download && go mod verify
+COPY internal ./internal
+COPY cmd/reference-tool-runner ./cmd/reference-tool-runner
+RUN --mount=type=cache,target=/go/pkg/mod,sharing=locked \
+    --mount=type=cache,target=/root/.cache/go-build,sharing=locked \
+    CGO_ENABLED=0 GOOS="${TARGETOS}" GOARCH="${TARGETARCH}" \
+    go build -trimpath -buildvcs=false -ldflags="-s -w -buildid=" \
+    -o /out/tool-runner ./cmd/reference-tool-runner
+
+FROM scratch
+ARG VERSION=dev
+ARG REVISION=unknown
+ARG SOURCE_URL=https://github.com/langshift/lites
+LABEL org.opencontainers.image.title="Lites reference artifact Runtime" \
+      org.opencontainers.image.description="Hermetic Stage 3 reference capacity tool" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${REVISION}" \
+      org.opencontainers.image.source="${SOURCE_URL}" \
+      org.opencontainers.image.licenses="AGPL-3.0-only"
+COPY --from=build /out/tool-runner /opt/lites/bin/tool-runner
+COPY LICENSE /LICENSE
+USER 65532:65532
+ENTRYPOINT ["/opt/lites/bin/tool-runner"]

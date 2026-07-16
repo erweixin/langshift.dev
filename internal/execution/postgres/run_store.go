@@ -38,6 +38,9 @@ type AcceptRunCommand struct {
 	DueAt                     time.Time
 	BehaviorProfile           behavior.Profile
 	BehaviorEnvironment       string
+	ExpectedProfileSnapshotID string
+	ExpectedBehaviorChannelID string
+	ExpectedBehaviorSequence  uint64
 	BudgetSnapshot            json.RawMessage
 	Actor                     json.RawMessage
 	AcceptedEvent             PayloadPointer
@@ -209,12 +212,30 @@ func (store RunStore) resolveBehavior(ctx context.Context, tx pgx.Tx, command Ac
 		if profile == nil || environment == nil || channelID == nil || sequence == nil || *sequence < 1 || behavior.Profile(*profile) != command.BehaviorProfile || *environment != command.BehaviorEnvironment {
 			return behavior.ChannelBinding{}, ErrRunConflict
 		}
-		return behavior.ChannelBinding{SnapshotID: snapshotID, Profile: behavior.Profile(*profile), Environment: *environment, ChannelID: *channelID, Sequence: uint64(*sequence)}, nil
+		binding := behavior.ChannelBinding{SnapshotID: snapshotID, Profile: behavior.Profile(*profile), Environment: *environment, ChannelID: *channelID, Sequence: uint64(*sequence)}
+		if !expectedBehaviorMatches(command, binding) {
+			return behavior.ChannelBinding{}, ErrRunConflict
+		}
+		return binding, nil
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return behavior.ChannelBinding{}, err
 	}
-	return store.Behavior.ResolveCurrent(ctx, tx, command.TenantID, command.BehaviorProfile, command.BehaviorEnvironment)
+	binding, err := store.Behavior.ResolveCurrent(ctx, tx, command.TenantID, command.BehaviorProfile, command.BehaviorEnvironment)
+	if err != nil {
+		return behavior.ChannelBinding{}, err
+	}
+	if !expectedBehaviorMatches(command, binding) {
+		return behavior.ChannelBinding{}, ErrRunConflict
+	}
+	return binding, nil
+}
+
+func expectedBehaviorMatches(command AcceptRunCommand, binding behavior.ChannelBinding) bool {
+	if command.ExpectedProfileSnapshotID == "" {
+		return command.ExpectedBehaviorChannelID == "" && command.ExpectedBehaviorSequence == 0
+	}
+	return command.ExpectedProfileSnapshotID == binding.SnapshotID && command.ExpectedBehaviorChannelID == binding.ChannelID && command.ExpectedBehaviorSequence == binding.Sequence
 }
 
 type runIdentifiers struct {
@@ -246,7 +267,8 @@ func (store RunStore) validCore() bool { return len(store.IDKey) >= 32 && store.
 func validAcceptRun(command AcceptRunCommand) bool {
 	orchestrationRoot := command.ParentRunID == "" && command.RootRunID == "" && command.SpawnToolCallID == "" && command.ChildGroupID == "" && command.Depth == 0 && command.InheritedBudgetMicrounits == 0
 	orchestrationChild := command.ParentRunID != "" && command.RootRunID != "" && command.SpawnToolCallID != "" && command.ChildGroupID != "" && command.Depth >= 1 && command.Depth <= 5 && command.InheritedBudgetMicrounits > 0
-	return command.RunID != "" && command.TenantID != "" && command.UserID != "" && command.ConversationID != "" && command.CorrelationID != "" && !command.DueAt.IsZero() && command.BehaviorProfile.Valid() && (command.BehaviorEnvironment == "staging" || command.BehaviorEnvironment == "production") && validJSONObject(command.BudgetSnapshot) && validJSONObject(command.Actor) && validPointer(command.AcceptedEvent) && validPointer(command.QueuedEvent) && validPointer(command.StartCommand) && (command.QueueClass == "interactive" || command.QueueClass == "background") && command.ResourceClass != "" && command.Priority >= 0 && command.Priority <= 1000 && command.CostUnits > 0 && command.CostUnits <= 1_000_000_000_000 && command.MaxAttempts > 0 && command.MaxAttempts <= 100 && (orchestrationRoot || orchestrationChild)
+	behaviorExpectation := command.ExpectedProfileSnapshotID == "" && command.ExpectedBehaviorChannelID == "" && command.ExpectedBehaviorSequence == 0 || command.ExpectedProfileSnapshotID != "" && command.ExpectedBehaviorChannelID != "" && command.ExpectedBehaviorSequence > 0
+	return command.RunID != "" && command.TenantID != "" && command.UserID != "" && command.ConversationID != "" && command.CorrelationID != "" && !command.DueAt.IsZero() && command.BehaviorProfile.Valid() && (command.BehaviorEnvironment == "staging" || command.BehaviorEnvironment == "production") && validJSONObject(command.BudgetSnapshot) && validJSONObject(command.Actor) && validPointer(command.AcceptedEvent) && validPointer(command.QueuedEvent) && validPointer(command.StartCommand) && (command.QueueClass == "interactive" || command.QueueClass == "background") && command.ResourceClass != "" && command.Priority >= 0 && command.Priority <= 1000 && command.CostUnits > 0 && command.CostUnits <= 1_000_000_000_000 && command.MaxAttempts > 0 && command.MaxAttempts <= 100 && (orchestrationRoot || orchestrationChild) && behaviorExpectation
 }
 
 func validPointer(pointer PayloadPointer) bool { return pointer.Ref != "" && pointer.Hash != "" }

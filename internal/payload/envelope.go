@@ -62,9 +62,15 @@ type Store interface {
 }
 
 type EnvelopeStore struct {
-	Keys   KeyProvider
-	Blobs  BlobStore
-	Random io.Reader
+	Keys    KeyProvider
+	Blobs   BlobStore
+	Random  io.Reader
+	Metrics Metrics
+}
+
+type Metrics interface {
+	AddArtifactBytes(context.Context, int64, string)
+	AddRetainedBytes(context.Context, int64)
 }
 
 type envelope struct {
@@ -115,6 +121,10 @@ func (store EnvelopeStore) Put(ctx context.Context, descriptor Descriptor, plain
 	if ref == "" {
 		return Manifest{}, ErrIntegrity
 	}
+	if store.Metrics != nil {
+		store.Metrics.AddArtifactBytes(ctx, int64(len(encoded)), "write")
+		store.Metrics.AddRetainedBytes(ctx, int64(len(encoded)))
+	}
 	return Manifest{Ref: ref, Hash: hash, KeyID: key.ID, AADHash: aadHash}, nil
 }
 
@@ -125,6 +135,9 @@ func (store EnvelopeStore) Get(ctx context.Context, descriptor Descriptor, manif
 	encoded, err := store.Blobs.Get(ctx, manifest.Ref)
 	if err != nil {
 		return nil, err
+	}
+	if store.Metrics != nil {
+		store.Metrics.AddArtifactBytes(ctx, int64(len(encoded)), "read")
 	}
 	if !hmac.Equal([]byte(sha256Hex(encoded)), []byte(manifest.Hash)) {
 		return nil, ErrIntegrity

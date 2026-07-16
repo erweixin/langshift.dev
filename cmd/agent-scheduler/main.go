@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -29,6 +30,7 @@ import (
 	"github.com/langshift/lites/internal/security/opaque"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+	"go.opentelemetry.io/otel/metric"
 )
 
 type config struct {
@@ -105,6 +107,23 @@ func run(parent context.Context, cfg config, logger *slog.Logger) error {
 	}
 	store := executionpostgres.SchedulerStore{Pool: pool, Epochs: authority, ResourceTokens: opaque.Manager{Purpose: "scheduler-resource-lease", Pepper: resourcePepper}, DispatchTokens: opaque.Manager{Purpose: "scheduler-dispatch-lease", Pepper: dispatchPepper}, ResourceLeaseTTL: cfg.resourceLeaseTTL, DispatchLeaseTTL: cfg.dispatchLeaseTTL, RedeliveryDelay: cfg.redeliveryDelay, RetryDelay: cfg.retryDelay}
 	meter := telemetry.Meter("github.com/langshift/lites/cmd/agent-scheduler")
+	activeRuns := &atomic.Int64{}
+	activeRunsObservedAt := &atomic.Int64{}
+	if err = refreshActiveRuns(parent, pool, activeRuns, activeRunsObservedAt); err != nil {
+		return fmt.Errorf("observe active runs: %w", err)
+	}
+	if _, err = meter.Int64ObservableGauge("runs.active", metric.WithUnit("{run}"), metric.WithInt64Callback(func(_ context.Context, observer metric.Int64Observer) error {
+		observer.Observe(activeRuns.Load())
+		return nil
+	})); err != nil {
+		return err
+	}
+	if _, err = meter.Int64ObservableGauge("runs.active_observed_at", metric.WithUnit("s"), metric.WithInt64Callback(func(_ context.Context, observer metric.Int64Observer) error {
+		observer.Observe(activeRunsObservedAt.Load())
+		return nil
+	})); err != nil {
+		return err
+	}
 	planned, _ := meter.Int64Counter("scheduler.dispatch.planned")
 	published, _ := meter.Int64Counter("scheduler.dispatch.published")
 	deferred, _ := meter.Int64Counter("scheduler.dispatch.deferred")
@@ -113,6 +132,9 @@ func run(parent context.Context, cfg config, logger *slog.Logger) error {
 		planned.Add(parent, int64(value.Planned))
 		published.Add(parent, int64(value.Published))
 		deferred.Add(parent, int64(value.Deferred))
+		for _, wait := range value.QueueWaits {
+			telemetry.AgentMetrics().ObserveQueueWait(parent, wait.Duration, wait.QueueClass)
+		}
 		if value.Err != nil {
 			failures.Add(parent, 1)
 			logger.Error("scheduler cycle", "resource", value.Resource, "error", value.Err)
@@ -123,6 +145,7 @@ func run(parent context.Context, cfg config, logger *slog.Logger) error {
 	server := healthServer(cfg.healthAddress, pool, connection, js, authority, telemetry.MetricsHandler())
 	ctx, stop := context.WithCancel(parent)
 	defer stop()
+	go observeActiveRuns(ctx, pool, activeRuns, activeRunsObservedAt, logger)
 	errs := make(chan error, 2)
 	go func() {
 		err := server.ListenAndServe()
@@ -146,6 +169,36 @@ func run(parent context.Context, cfg config, logger *slog.Logger) error {
 		runErr = err
 	}
 	return runErr
+}
+
+func refreshActiveRuns(parent context.Context, pool *pgxpool.Pool, value, observedAt *atomic.Int64) error {
+	ctx, cancel := context.WithTimeout(parent, 2*time.Second)
+	defer cancel()
+	var count int64
+	if err := pool.QueryRow(ctx, `SELECT agent.scheduler_active_run_count()`).Scan(&count); err != nil {
+		return err
+	}
+	if count < 0 {
+		return errors.New("active run observation returned a negative value")
+	}
+	value.Store(count)
+	observedAt.Store(time.Now().Unix())
+	return nil
+}
+
+func observeActiveRuns(ctx context.Context, pool *pgxpool.Pool, value, observedAt *atomic.Int64, logger *slog.Logger) {
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := refreshActiveRuns(ctx, pool, value, observedAt); err != nil && ctx.Err() == nil {
+				logger.Error("active run observation failed", "error", err)
+			}
+		}
+	}
 }
 
 func healthServer(address string, pool *pgxpool.Pool, nc *nats.Conn, js jetstream.JetStream, authority epoch.HTTPAuthority, metrics http.Handler) *http.Server {

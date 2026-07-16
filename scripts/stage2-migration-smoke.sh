@@ -3,6 +3,9 @@ set -euo pipefail
 
 cycles="${MIGRATION_SMOKE_CYCLES:-3}"
 [[ "${cycles}" =~ ^[0-9]+$ && "${cycles}" -ge 3 ]] || { echo "MIGRATION_SMOKE_CYCLES must be at least 3" >&2; exit 2; }
+latest_version="$(jq -er '.migrations[-1].version' deploy/migrations/manifest.json)"
+latest_verify="deploy/migrations/$(printf '900%03d_verify_current.sql' "${latest_version}")"
+[[ "${latest_version}" =~ ^[0-9]+$ && -f "${latest_verify}" ]] || { echo "migration manifest latest verification is invalid" >&2; exit 2; }
 
 go_cache="${GOCACHE:-/tmp/lites-go-build}"
 go_mod_cache="${GOMODCACHE:-/tmp/lites-go-mod}"
@@ -20,6 +23,9 @@ GOCACHE="${go_cache}" GOMODCACHE="${go_mod_cache}" GOTMPDIR="${go_tmp}" go build
 
 expected_data=""
 postgres_version=""
+table_count=""
+forced_rls_count=""
+append_only_trigger_count=""
 for cycle in $(seq 1 "${cycles}"); do
   current_container="lites-migration-smoke-${RANDOM}-${RANDOM}"
   docker run -d --name "${current_container}" -p 127.0.0.1::5432 \
@@ -35,7 +41,7 @@ for cycle in $(seq 1 "${cycles}"); do
   port="$(docker port "${current_container}" 5432/tcp | head -n 1 | sed 's/.*://')"
   database_url="postgres://postgres:migration_admin@127.0.0.1:${port}/lites?sslmode=disable"
   ALLOW_INSECURE_DEVELOPMENT=true DATABASE_URL="${database_url}" "${work}/lites-migrate" -direction up >/dev/null
-  docker cp deploy/migrations/900053_verify_current.sql "${current_container}:/tmp/verify.sql" >/dev/null
+  docker cp "${latest_verify}" "${current_container}:/tmp/verify.sql" >/dev/null
   verify_output="$(docker exec "${current_container}" psql -v ON_ERROR_STOP=1 -U postgres -d lites -Atf /tmp/verify.sql)"
   [[ "${verify_output}" == *'"status" : "passed"'* ]] || { printf '%s\n' "${verify_output}"; exit 1; }
   docker exec "${current_container}" psql -v ON_ERROR_STOP=1 -U postgres -d lites -Atc \
@@ -49,20 +55,23 @@ for cycle in $(seq 1 "${cycles}"); do
   ALLOW_INSECURE_DEVELOPMENT=true DATABASE_URL="${database_url}" "${work}/lites-migrate" -direction up >/dev/null
   data_after_up="$(docker exec "${current_container}" psql -v ON_ERROR_STOP=1 -U postgres -d lites -Atc "${data_query}")"
   [[ "${data_after_up}" == "${data_before}" ]] || exit 1
-  if ALLOW_INSECURE_DEVELOPMENT=true DATABASE_URL="${database_url}" "${work}/lites-migrate" -direction down -steps 53 >/dev/null 2>&1; then
+  if ALLOW_INSECURE_DEVELOPMENT=true DATABASE_URL="${database_url}" "${work}/lites-migrate" -direction down -steps "${latest_version}" >/dev/null 2>&1; then
     echo "irreversible baseline rollback unexpectedly succeeded" >&2
     exit 1
   fi
   status_output="$(ALLOW_INSECURE_DEVELOPMENT=true DATABASE_URL="${database_url}" "${work}/lites-migrate" -direction status)"
-  [[ "${status_output}" == *'"current_version":53'* ]] || { printf '%s\n' "${status_output}"; exit 1; }
+  [[ "${status_output}" == *"\"current_version\":${latest_version}"* ]] || { printf '%s\n' "${status_output}"; exit 1; }
   postgres_version="$(docker exec "${current_container}" psql -U postgres -d lites -Atc "SHOW server_version")"
+  table_count="$(docker exec "${current_container}" psql -U postgres -d lites -Atc "SELECT count(*) FROM information_schema.tables WHERE table_schema IN ('identity','product','agent','contracts') AND table_type='BASE TABLE'")"
+  forced_rls_count="$(docker exec "${current_container}" psql -U postgres -d lites -Atc "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname IN ('identity','product','agent','contracts') AND c.relkind='r' AND c.relforcerowsecurity")"
+  append_only_trigger_count="$(docker exec "${current_container}" psql -U postgres -d lites -Atc "SELECT count(*) FROM pg_trigger WHERE NOT tgisinternal AND tgname LIKE '%_append_only'")"
   docker rm -f "${current_container}" >/dev/null
   current_container=""
 done
 
 data_checksum="$(printf '%s' "${expected_data}" | shasum -a 256 | awk '{print $1}')"
 if [[ -n "${MIGRATION_REPORT_SOURCE_COMMIT:-}" ]]; then
-  node scripts/write-stage2-migration-report.mjs --source-commit "${MIGRATION_REPORT_SOURCE_COMMIT}" --cycles "${cycles}" --data-checksum "${data_checksum}" --postgres-version "${postgres_version}"
+  node scripts/write-stage2-migration-report.mjs --source-commit "${MIGRATION_REPORT_SOURCE_COMMIT}" --cycles "${cycles}" --data-checksum "${data_checksum}" --postgres-version "${postgres_version}" --latest-version "${latest_version}" --table-count "${table_count}" --forced-rls-count "${forced_rls_count}" --append-only-trigger-count "${append_only_trigger_count}"
 else
   printf 'stage-2 migration smoke: cycles=%s status=passed data=%s\n' "${cycles}" "${data_checksum}"
 fi

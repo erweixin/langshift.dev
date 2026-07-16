@@ -1,10 +1,68 @@
 package provider
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestEncodeRegistryIsCanonicalAndRuntimeLoadable(t *testing.T) {
+	var document RegistryDocument
+	if err := json.Unmarshal([]byte(registryFixture), &document); err != nil {
+		t.Fatal(err)
+	}
+	first, firstHash, err := EncodeRegistry(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	document.Providers[0], document.Providers[1] = document.Providers[1], document.Providers[0]
+	capabilities := document.Providers[1].Models[0].Capabilities
+	for left, right := 0, len(capabilities)-1; left < right; left, right = left+1, right-1 {
+		capabilities[left], capabilities[right] = capabilities[right], capabilities[left]
+	}
+	second, secondHash, err := EncodeRegistry(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(first) != string(second) || firstHash != secondHash {
+		t.Fatalf("registry encoding is not canonical: %s/%s", firstHash, secondHash)
+	}
+	registry, err := LoadRegistry(strings.NewReader(string(first)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, version, _ := registry.Snapshot(); version != 7 {
+		t.Fatalf("version=%d", version)
+	}
+	document.Providers[0].Endpoint = "http://api.anthropic.com/v1/"
+	if _, _, err = EncodeRegistry(document); !errors.Is(err, ErrRegistryInvalid) {
+		t.Fatalf("invalid registry encoded: %v", err)
+	}
+}
+
+func TestLoadRegistryFileRejectsDeploymentSubstitution(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "providers.json")
+	if err := os.WriteFile(path, []byte(registryFixture), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256([]byte(registryFixture))
+	fileHash := hex.EncodeToString(digest[:])
+	registry, err := LoadRegistryFile(path, fileHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id, version, hash := registry.Snapshot(); id == "" || version == 0 || hash == "" {
+		t.Fatalf("snapshot=%q/%d/%q", id, version, hash)
+	}
+	if _, err = LoadRegistryFile(path, strings.Repeat("f", 64)); !errors.Is(err, ErrRegistryInvalid) {
+		t.Fatalf("substitution error=%v", err)
+	}
+}
 
 const registryFixture = `{
   "schema_version":1,

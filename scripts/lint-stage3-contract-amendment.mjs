@@ -44,6 +44,8 @@ const v112Registry=await load("contracts/events/amendments/v1.12.0/registry.json
 const v112Fixtures=await load("contracts/events/amendments/v1.12.0/upcaster-fixtures.json");
 const v113Registry=await load("contracts/events/amendments/v1.13.0/registry.json");
 const v113Fixtures=await load("contracts/events/amendments/v1.13.0/upcaster-fixtures.json");
+const v114Registry=await load("contracts/events/amendments/v1.14.0/registry.json");
+const v114Fixtures=await load("contracts/events/amendments/v1.14.0/upcaster-fixtures.json");
 const snapshot=await load("gate-reports/stage-1/contract-snapshot.json");
 const eventNames=Object.keys(registry.schemas);
 const baseNames=new Set(Object.keys(baseRegistry.schemas));
@@ -287,12 +289,34 @@ const v113Amendment={
 };
 check("AMENDMENT-V1.13-CONTENT-ROOT",v113Amendment.baseAmendmentId===v112Amendment.amendmentId&&v113Amendment.baseAmendmentContentRootSha256===v112Amendment.contentRootSha256&&v113Amendment.contentRootSha256===v113RootHash,"v1.13 content root is anchored to the exact v1.12 execution amendment");
 
+const v114EventNames=Object.keys(v114Registry.schemas);
+check("AMENDMENT-V1.14-VERSION",v114Registry.amendmentVersion==="1.14.0"&&v114Registry.baseContractVersion===v113Registry.amendmentVersion&&v114Registry.compatibility==="additive","v1.14 additively extends the v1.13 execution contract chain");
+check("AMENDMENT-V1.14-EVENTS",JSON.stringify(v114EventNames)===JSON.stringify(["ConversationCreated"])&&!baseNames.has("ConversationCreated"),"ConversationCreated adds the missing durable conversation aggregate fact without replacing a frozen event");
+const conversationCreated=v114Registry.schemas.ConversationCreated;
+const conversationPayload=conversationCreated.properties.payload;
+check("CONVERSATION-CREATED-CLOSED",conversationCreated.additionalProperties===false&&conversationCreated["x-event-schema-version"]===1&&conversationPayload.additionalProperties===false&&conversationPayload.required.every(field=>field in conversationPayload.properties),"conversation creation envelope and payload reject undeclared fields");
+check("CONVERSATION-CREATED-BINDING",["conversation_id","conversation_version","mission_id","title","mode","status","created_at"].every(field=>conversationPayload.required.includes(field))&&conversationPayload.properties.conversation_version.const===1&&conversationPayload.properties.status.const==="active"&&JSON.stringify(conversationPayload.properties.mode.enum)===JSON.stringify(["coach","task","project"]),"conversation creation binds mission, immutable initial version, mode, title and activation time");
+check("AMENDMENT-V1.14-FIXTURES",v114Fixtures.baseFixtureVersion===v113Fixtures.fixtureVersion&&v114Fixtures.fixtures.length===1&&v114Fixtures.fixtures.every(fixture=>fixture.eventType==="ConversationCreated"&&fixture.fromVersion===1&&fixture.toVersion===1&&fixture.inputHash===sha256(fixture.input)&&fixture.expectedHash===sha256(fixture.expected)&&JSON.stringify(fixture.input)===JSON.stringify(fixture.expected)),"ConversationCreated has a deterministic canonical fixture");
+const v114Files=[];
+for(const path of ["contracts/events/amendments/v1.14.0/registry.json","contracts/events/amendments/v1.14.0/upcaster-fixtures.json"]) v114Files.push({path,sha256:sha256(await read(path))});
+const v114RootHash=sha256({baseAmendmentId:v113Amendment.amendmentId,files:v114Files});
+const v114Amendment={
+  amendmentVersion:"1.14.0",amendmentId:`contract-amendment-${v114RootHash.slice(0,20)}`,status:"draft",generatedAt:"2026-07-16T00:00:00.000Z",
+  baseSnapshotId:snapshot.snapshotId,baseContentRootSha256:snapshot.contentRootSha256,
+  baseAmendmentId:v113Amendment.amendmentId,baseAmendmentContentRootSha256:v113Amendment.contentRootSha256,
+  contentRootSha256:v114RootHash,files:v114Files,
+  reason:"Add the missing versioned conversation creation fact required before public Message admission can atomically bind a mission, conversation and Run.",
+  activationRule:"Backend, security, SRE and QA approval must bind this root after exact replay, RLS isolation, conversation version CAS and Message-to-Run atomicity gates pass."
+};
+check("AMENDMENT-V1.14-CONTENT-ROOT",v114Amendment.baseAmendmentId===v113Amendment.amendmentId&&v114Amendment.baseAmendmentContentRootSha256===v113Amendment.contentRootSha256&&v114Amendment.contentRootSha256===v114RootHash,"v1.14 content root is anchored to the exact v1.13 execution amendment");
+
 const failures=checks.filter(item=>item.status==="failed");
 const reportBase={reportVersion:"1.0.0",stage:3,kind:"contract-amendment-lint",status:failures.length?"failed":"passed",summary:{checks:checks.length,passed:checks.length-failures.length,failed:failures.length},results:checks};
 const report={...reportBase,reportHash:sha256(reportBase)};
 await writeFile(resolve(root,"gate-reports/stage-3/contract-amendment-v1.11.json"),`${JSON.stringify(v111Amendment,null,2)}\n`);
 await writeFile(resolve(root,"gate-reports/stage-3/contract-amendment-v1.12.json"),`${JSON.stringify(v112Amendment,null,2)}\n`);
 await writeFile(resolve(root,"gate-reports/stage-3/contract-amendment-v1.13.json"),`${JSON.stringify(v113Amendment,null,2)}\n`);
+await writeFile(resolve(root,"gate-reports/stage-3/contract-amendment-v1.14.json"),`${JSON.stringify(v114Amendment,null,2)}\n`);
 await writeFile(resolve(root,"gate-reports/stage-3/contract-amendment-lint.json"),`${JSON.stringify(report,null,2)}\n`);
 console.log(`${report.status}: ${report.summary.passed}/${report.summary.checks} Stage 3 amendment checks passed; report ${report.reportHash}`);
 if(failures.length) process.exitCode=1;

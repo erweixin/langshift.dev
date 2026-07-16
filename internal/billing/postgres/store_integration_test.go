@@ -38,7 +38,7 @@ func TestConcurrentReservationsEnforceHardCreditCapAndReplay(t *testing.T) {
 	}{
 		{`INSERT INTO identity.users(id,normalized_email,locale,status) VALUES($1,'billing-owner@example.invalid','en','active')`, []any{userID}},
 		{`INSERT INTO identity.tenants(id,kind,name,status,region,owner_user_id) VALUES($1,'personal','Billing Tenant','active','US',$2)`, []any{tenantID, userID}},
-		{`INSERT INTO contracts.credit_buckets(id,tenant_id,bucket_kind,granted_units,starts_at,expires_at) VALUES($1,$2,'llm',1000,$3,$4)`, []any{bucketID, tenantID, now.Add(-time.Hour), now.Add(24 * time.Hour)}},
+		{`INSERT INTO contracts.credit_buckets(id,tenant_id,bucket_kind,granted_units,starts_at,expires_at,created_at,updated_at) VALUES($1,$2,'llm',1000,$3,$4,$5,$5)`, []any{bucketID, tenantID, now.Add(-time.Hour), now.Add(24 * time.Hour), now}},
 	}
 	for _, statement := range setup {
 		if _, err := admin.Exec(ctx, statement.query, statement.args...); err != nil {

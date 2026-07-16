@@ -32,7 +32,7 @@ func (runtime *Runtime) WrapHTTP(next http.Handler) http.Handler {
 		recorder := &statusRecorder{ResponseWriter: writer, status: http.StatusOK}
 		next.ServeHTTP(recorder, request.WithContext(ctx))
 		statusClass := strconv.Itoa(recorder.status/100) + "xx"
-		measurementAttributes := append(attributes, attribute.String("http.response.status_class", statusClass))
+		measurementAttributes := append(attributes, attribute.String("http.response.status_class", statusClass), attribute.Bool("http.response.throttled", recorder.status == http.StatusTooManyRequests))
 		runtime.requests.Add(ctx, 1, metric.WithAttributes(measurementAttributes...))
 		runtime.duration.Record(ctx, time.Since(started).Seconds(), metric.WithAttributes(measurementAttributes...))
 		span.SetAttributes(attribute.Int("http.response.status_code", recorder.status))

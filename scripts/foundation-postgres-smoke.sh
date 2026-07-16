@@ -40,63 +40,11 @@ for _ in $(seq 1 30); do
 done
 docker exec "${container_name}" psql -U postgres -d lites_foundation -Atc 'SELECT 1' >/dev/null
 
-for migration in \
-  deploy/migrations/000002_schema_contract_metadata.up.sql \
-  deploy/migrations/000003_execution_kernel_constraints.up.sql \
-  deploy/migrations/000004_execution_ownership_constraints.up.sql \
-  deploy/migrations/000005_scheduler_job_metadata.up.sql \
-  deploy/migrations/000006_scheduler_dispatch_protocol.up.sql \
-  deploy/migrations/000007_parallel_group_contract.up.sql \
-  deploy/migrations/000008_tool_execution_contract.up.sql \
-  deploy/migrations/000009_tool_effect_ledger.up.sql \
-  deploy/migrations/000010_effect_reconciliation_contract.up.sql \
-  deploy/migrations/000011_effect_reconciliation_retry.up.sql \
-  deploy/migrations/000012_command_redelivery_protocol.up.sql \
-  deploy/migrations/000013_expired_effect_sweeper.up.sql \
-  deploy/migrations/000014_repair_resolution_contract.up.sql \
-  deploy/migrations/000015_repair_recovery_scan.up.sql \
-  deploy/migrations/000016_generalized_repair_targets.up.sql \
-  deploy/migrations/000017_repair_evidence_expiry.up.sql \
-  deploy/migrations/000018_approval_control_plane.up.sql \
-  deploy/migrations/000019_approval_scope_drift.up.sql \
-  deploy/migrations/000020_workspace_revision_protocol.up.sql \
-  deploy/migrations/000021_workspace_prepared_proposal.up.sql \
-  deploy/migrations/000022_workspace_publish_heartbeat.up.sql \
-  deploy/migrations/000023_workspace_reconciliation_lifecycle.up.sql \
-  deploy/migrations/000024_artifact_revision_protocol.up.sql \
-  deploy/migrations/000025_portfolio_export_protocol.up.sql \
-  deploy/migrations/000026_llm_provider_attempt_protocol.up.sql \
-  deploy/migrations/000027_usage_accounting_protocol.up.sql \
-  deploy/migrations/000028_memory_retrieval_protocol.up.sql \
-  deploy/migrations/000029_runtime_session_protocol.up.sql \
-  deploy/migrations/000030_runtime_host_capacity_protocol.up.sql \
-  deploy/migrations/000031_runtime_execution_right_lock.up.sql \
-  deploy/migrations/000032_runtime_hostless_termination.up.sql \
-  deploy/migrations/000033_runtime_epoch_authorization.up.sql \
-  deploy/migrations/000034_runtime_boot_receipt.up.sql \
-  deploy/migrations/000035_runtime_host_recovery_authority.up.sql \
-  deploy/migrations/000036_runtime_host_restart_recovery.up.sql \
-  deploy/migrations/000037_behavior_snapshot_promotion.up.sql \
-  deploy/migrations/000038_run_behavior_binding.up.sql \
-  deploy/migrations/000039_idempotency_prepared_event_payload.up.sql \
-  deploy/migrations/000040_run_cancellation_barrier.up.sql \
-  deploy/migrations/000041_run_cancellation_recovery_discovery.up.sql \
-  deploy/migrations/000042_runtime_run_cancellation_authority.up.sql \
-  deploy/migrations/000043_child_run_orchestration_contract.up.sql \
-  deploy/migrations/000044_run_cancellation_propagation.up.sql \
-  deploy/migrations/000045_child_group_remainder_cancellation.up.sql \
-  deploy/migrations/000046_scheduler_capacity_and_dispatch_fence.up.sql \
-  deploy/migrations/000047_run_context_source_protocol.up.sql \
-  deploy/migrations/000048_llm_context_prompt_binding.up.sql \
-  deploy/migrations/000049_direct_tool_approval_protocol.up.sql \
-  deploy/migrations/000050_tool_execution_overlay.up.sql \
-  deploy/migrations/000051_runtime_session_request_binding.up.sql \
-  deploy/migrations/000052_runtime_execution_ledger.up.sql \
-  deploy/migrations/000053_runtime_active_execution_authority.up.sql; do
+while IFS= read -r migration; do
   target="/tmp/$(basename "${migration}")"
   docker cp "${migration}" "${container_name}:${target}" >/dev/null
   docker exec "${container_name}" psql -v ON_ERROR_STOP=1 -U postgres -d lites_foundation -f "${target}" >/dev/null
-done
+done < <(jq -er '.migrations[] | select(.version > 1) | .up' deploy/migrations/manifest.json)
 
 docker exec "${container_name}" psql -v ON_ERROR_STOP=1 -U postgres -d lites_foundation -c \
   "CREATE ROLE lites_identity_service LOGIN PASSWORD 'foundation_service' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS; GRANT CONNECT ON DATABASE lites_foundation TO lites_identity_service; GRANT USAGE ON SCHEMA identity, product, agent TO lites_identity_service; GRANT SELECT, INSERT, UPDATE ON identity.users, identity.password_credentials, identity.email_verifications, identity.password_reset_requests, identity.sessions, identity.memberships, identity.membership_imports, identity.account_erasure_requests, identity.invitations, identity.invitation_imports, identity.anonymous_subjects, identity.onboarding_sessions, identity.onboarding_claims TO lites_identity_service; GRANT SELECT, INSERT ON identity.anonymous_erasure_receipts TO lites_identity_service; GRANT SELECT, INSERT ON identity.tenants TO lites_identity_service; GRANT INSERT ON identity.security_events TO lites_identity_service; GRANT EXECUTE ON FUNCTION identity.lookup_invitation_for_acceptance(text,bytea), identity.lock_active_tenant(uuid), agent.list_ready_outbox_tenants(uuid,uuid,integer,integer,integer) TO lites_identity_service; GRANT SELECT ON product.role_profiles TO lites_identity_service; GRANT SELECT, INSERT, UPDATE, DELETE ON product.missions, product.route_revisions TO lites_identity_service; GRANT SELECT, INSERT ON product.mission_imports TO lites_identity_service; GRANT SELECT, INSERT, UPDATE ON product.data_export_requests TO lites_identity_service; GRANT SELECT, INSERT, UPDATE ON agent.idempotency_responses, agent.event_cursors, agent.outbox, agent.inbox, agent.repair_commands TO lites_identity_service; GRANT DELETE ON agent.idempotency_responses TO lites_identity_service; GRANT SELECT, INSERT ON agent.events, agent.repair_approvals TO lites_identity_service;" >/dev/null
@@ -111,22 +59,25 @@ docker exec "${container_name}" psql -v ON_ERROR_STOP=1 -U postgres -d lites_fou
   "GRANT SELECT ON agent.behavior_snapshots,agent.behavior_channel_deployments TO lites_agent_service;" >/dev/null
 
 docker exec "${container_name}" psql -v ON_ERROR_STOP=1 -U postgres -d lites_foundation -c \
+  "GRANT SELECT,INSERT,UPDATE ON agent.conversations TO lites_agent_service; GRANT EXECUTE ON FUNCTION agent.lock_active_owned_mission(uuid,uuid,uuid) TO lites_agent_service;" >/dev/null
+
+docker exec "${container_name}" psql -v ON_ERROR_STOP=1 -U postgres -d lites_foundation -c \
   "GRANT SELECT ON agent.platform_tool_execution_overlays,agent.tenant_tool_execution_overlays,agent.runtime_policy_snapshots TO lites_agent_service; GRANT SELECT,INSERT ON agent.runtime_sessions TO lites_agent_service;" >/dev/null
 
 docker exec "${container_name}" psql -v ON_ERROR_STOP=1 -U postgres -d lites_foundation -c \
-  "CREATE ROLE lites_product_service LOGIN PASSWORD 'foundation_product_service' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS; GRANT CONNECT ON DATABASE lites_foundation TO lites_product_service; GRANT USAGE ON SCHEMA product,agent TO lites_product_service; GRANT SELECT,UPDATE ON product.projects,product.evidence TO lites_product_service; GRANT SELECT ON product.project_workspace_bindings TO lites_product_service; GRANT SELECT,INSERT,UPDATE ON product.artifacts,product.portfolio_exports TO lites_product_service; GRANT SELECT,INSERT ON product.artifact_revisions,product.artifact_revision_evidence,product.portfolio_export_artifacts,product.portfolio_export_evidence TO lites_product_service; GRANT SELECT,INSERT,UPDATE ON agent.runs,agent.jobs,agent.job_attempts,agent.inbox,agent.event_cursors,agent.outbox TO lites_product_service; GRANT SELECT,INSERT ON agent.events TO lites_product_service; GRANT EXECUTE ON FUNCTION agent.list_recoverable_portfolio_tenants(uuid,uuid,integer,integer,integer,timestamptz,timestamptz), agent.list_expirable_portfolio_tenants(uuid,uuid,integer,integer,integer,timestamptz) TO lites_product_service;" >/dev/null
+  "CREATE ROLE lites_product_service LOGIN PASSWORD 'foundation_product_service' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS; GRANT CONNECT ON DATABASE lites_foundation TO lites_product_service; GRANT USAGE ON SCHEMA product,agent TO lites_product_service; GRANT SELECT ON product.role_profiles TO lites_product_service; GRANT SELECT,INSERT,UPDATE ON product.missions,product.mission_focuses TO lites_product_service; GRANT SELECT,UPDATE ON product.projects,product.evidence TO lites_product_service; GRANT SELECT ON product.project_workspace_bindings TO lites_product_service; GRANT SELECT,INSERT,UPDATE ON product.artifacts,product.portfolio_exports TO lites_product_service; GRANT SELECT,INSERT ON product.artifact_revisions,product.artifact_revision_evidence,product.portfolio_export_artifacts,product.portfolio_export_evidence TO lites_product_service; GRANT SELECT,INSERT,UPDATE ON agent.runs,agent.jobs,agent.job_attempts,agent.inbox,agent.event_cursors,agent.outbox TO lites_product_service; GRANT SELECT,INSERT ON agent.events TO lites_product_service; GRANT EXECUTE ON FUNCTION agent.list_recoverable_portfolio_tenants(uuid,uuid,integer,integer,integer,timestamptz,timestamptz), agent.list_expirable_portfolio_tenants(uuid,uuid,integer,integer,integer,timestamptz) TO lites_product_service;" >/dev/null
 
 docker exec "${container_name}" psql -v ON_ERROR_STOP=1 -U postgres -d lites_foundation -c \
   "GRANT SELECT ON agent.behavior_snapshots,agent.behavior_channel_deployments TO lites_product_service;" >/dev/null
 
 docker exec "${container_name}" psql -v ON_ERROR_STOP=1 -U postgres -d lites_foundation -c \
-  "CREATE ROLE lites_scheduler_service LOGIN PASSWORD 'foundation_scheduler_service' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS; GRANT CONNECT ON DATABASE lites_foundation TO lites_scheduler_service; GRANT USAGE ON SCHEMA agent TO lites_scheduler_service; GRANT SELECT,UPDATE ON agent.jobs TO lites_scheduler_service; GRANT EXECUTE ON FUNCTION agent.scheduler_claim_resource(text,text,bytea,timestamptz,timestamptz), agent.scheduler_list_ready_jobs(text,text,bigint,bytea,uuid,timestamptz,integer), agent.scheduler_list_ready_jobs_v2(text,text,bigint,bytea,uuid,timestamptz,integer), agent.scheduler_active_counts(text,integer), agent.scheduler_commit_dispatch(text,text,bigint,bytea,jsonb,jsonb,timestamptz,timestamptz), agent.scheduler_abort_resource(text,text,bigint,bytea,timestamptz) TO lites_scheduler_service;" >/dev/null
+  "CREATE ROLE lites_scheduler_service LOGIN PASSWORD 'foundation_scheduler_service' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS; GRANT CONNECT ON DATABASE lites_foundation TO lites_scheduler_service; GRANT USAGE ON SCHEMA agent TO lites_scheduler_service; GRANT SELECT,UPDATE ON agent.jobs TO lites_scheduler_service; GRANT EXECUTE ON FUNCTION agent.scheduler_claim_resource(text,text,bytea,timestamptz,timestamptz), agent.scheduler_list_ready_jobs(text,text,bigint,bytea,uuid,timestamptz,integer), agent.scheduler_list_ready_jobs_v2(text,text,bigint,bytea,uuid,timestamptz,integer), agent.scheduler_active_counts(text,integer), agent.scheduler_active_run_count(), agent.scheduler_commit_dispatch(text,text,bigint,bytea,jsonb,jsonb,timestamptz,timestamptz), agent.scheduler_abort_resource(text,text,bigint,bytea,timestamptz) TO lites_scheduler_service;" >/dev/null
 
 docker exec "${container_name}" psql -v ON_ERROR_STOP=1 -U postgres -d lites_foundation -c \
   "CREATE ROLE lites_realtime_service LOGIN PASSWORD 'foundation_realtime_service' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS; GRANT CONNECT ON DATABASE lites_foundation TO lites_realtime_service; GRANT USAGE ON SCHEMA agent TO lites_realtime_service; GRANT SELECT ON agent.events,agent.event_cursors TO lites_realtime_service;" >/dev/null
 
 docker exec "${container_name}" psql -v ON_ERROR_STOP=1 -U postgres -d lites_foundation -c \
-  "CREATE ROLE lites_runtime_service LOGIN PASSWORD 'foundation_runtime_service' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS; GRANT CONNECT ON DATABASE lites_foundation TO lites_runtime_service; GRANT USAGE ON SCHEMA agent TO lites_runtime_service; GRANT SELECT ON agent.runs,agent.run_cancellations,agent.tool_calls,agent.events TO lites_runtime_service; GRANT SELECT(host_id,version,pool_key,status,architecture,availability_zone,firecracker_version,kernel_catalog_hash,rootfs_catalog_hash,scratch_template_digest,capacity_vcpu,capacity_memory_mib,capacity_disk_mib,capacity_sessions,allocated_vcpu,allocated_memory_mib,allocated_disk_mib,allocated_sessions,heartbeat_at,heartbeat_deadline,created_at,updated_at) ON agent.runtime_hosts TO lites_runtime_service; GRANT SELECT,INSERT ON agent.runtime_policy_snapshots TO lites_runtime_service; GRANT SELECT,INSERT,UPDATE ON agent.runtime_sessions,agent.runtime_allocations,agent.runtime_executions,agent.event_cursors,agent.outbox TO lites_runtime_service; GRANT INSERT ON agent.events TO lites_runtime_service; GRANT EXECUTE ON FUNCTION agent.list_runtime_recovery_tenants(uuid,uuid,integer,integer,integer,timestamptz),agent.runtime_register_host(text,text,text,text,text,text,text,bytea,integer,integer,integer,integer,timestamptz,timestamptz),agent.runtime_heartbeat_host(text,bigint,bytea,timestamptz,timestamptz),agent.runtime_set_host_status(text,bigint,bytea,text,timestamptz,timestamptz),agent.runtime_lock_execution_right(uuid,uuid,uuid,bigint,timestamptz),agent.runtime_lock_owned_machine(uuid,text,bytea,uuid,uuid,uuid,uuid,text,bigint),agent.runtime_lock_due_session(uuid,uuid,uuid,bigint,timestamptz),agent.runtime_lock_cancelled_run_session(uuid,uuid,uuid,uuid,uuid,bigint,timestamptz),agent.runtime_list_host_machines(uuid,text,bytea,uuid,integer) TO lites_runtime_service;" >/dev/null
+  "CREATE ROLE lites_runtime_service LOGIN PASSWORD 'foundation_runtime_service' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS; GRANT CONNECT ON DATABASE lites_foundation TO lites_runtime_service; GRANT USAGE ON SCHEMA agent TO lites_runtime_service; GRANT SELECT ON agent.runs,agent.run_cancellations,agent.tool_calls,agent.events TO lites_runtime_service; GRANT SELECT(host_id,version,pool_key,status,architecture,availability_zone,firecracker_version,kernel_catalog_hash,rootfs_catalog_hash,scratch_template_digest,capacity_vcpu,capacity_memory_mib,capacity_disk_mib,capacity_sessions,allocated_vcpu,allocated_memory_mib,allocated_disk_mib,allocated_sessions,heartbeat_at,heartbeat_deadline,created_at,updated_at) ON agent.runtime_hosts TO lites_runtime_service; GRANT SELECT,INSERT ON agent.runtime_policy_snapshots TO lites_runtime_service; GRANT SELECT,INSERT,UPDATE ON agent.runtime_sessions,agent.runtime_allocations,agent.runtime_executions,agent.event_cursors,agent.outbox TO lites_runtime_service; GRANT INSERT ON agent.events TO lites_runtime_service; GRANT EXECUTE ON FUNCTION agent.list_runtime_recovery_tenants(uuid,uuid,integer,integer,integer,timestamptz),agent.runtime_register_host(text,text,text,text,text,text,text,bytea,integer,integer,integer,integer,timestamptz,timestamptz),agent.runtime_heartbeat_host(text,bigint,bytea,timestamptz,timestamptz),agent.runtime_set_host_status(text,bigint,bytea,text,timestamptz,timestamptz),agent.runtime_lock_execution_right(uuid,uuid,uuid,bigint,timestamptz),agent.runtime_lock_owned_machine(uuid,text,bytea,uuid,uuid,uuid,uuid,text,bigint),agent.runtime_lock_due_session(uuid,uuid,uuid,bigint,timestamptz),agent.runtime_lock_cancelled_run_session(uuid,uuid,uuid,uuid,uuid,bigint,timestamptz),agent.runtime_list_host_machines(uuid,text,bytea,uuid,integer),agent.runtime_active_session_count() TO lites_runtime_service;" >/dev/null
 
 docker exec "${container_name}" psql -v ON_ERROR_STOP=1 -U postgres -d lites_foundation -c \
   "CREATE ROLE lites_runtime_sweeper_service LOGIN PASSWORD 'foundation_runtime_sweeper_service' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS; GRANT CONNECT ON DATABASE lites_foundation TO lites_runtime_sweeper_service; GRANT USAGE ON SCHEMA agent TO lites_runtime_sweeper_service; GRANT SELECT ON agent.runs,agent.run_cancellations,agent.events TO lites_runtime_sweeper_service; GRANT SELECT,INSERT,UPDATE ON agent.runtime_sessions,agent.runtime_allocations,agent.event_cursors,agent.outbox TO lites_runtime_sweeper_service; GRANT SELECT,UPDATE ON agent.runtime_executions TO lites_runtime_sweeper_service; GRANT INSERT ON agent.events TO lites_runtime_sweeper_service; GRANT EXECUTE ON FUNCTION agent.list_runtime_recovery_tenants(uuid,uuid,integer,integer,integer,timestamptz),agent.runtime_lock_due_session(uuid,uuid,uuid,bigint,timestamptz),agent.runtime_lock_cancelled_run_session(uuid,uuid,uuid,uuid,uuid,bigint,timestamptz) TO lites_runtime_sweeper_service;" >/dev/null
@@ -147,7 +98,11 @@ export LITES_TEST_RUNTIME_SWEEPER_DATABASE_URL="postgres://lites_runtime_sweeper
 export LITES_TEST_BEHAVIOR_DATABASE_URL="postgres://lites_behavior_service:foundation_behavior_service@127.0.0.1:${container_port}/lites_foundation?sslmode=disable"
 export GOCACHE="${go_cache}" GOMODCACHE="${go_mod_cache}" GOTMPDIR="${go_tmp}"
 if [[ -n "${LITES_FOUNDATION_TEST_JSON:-}" ]]; then
-  go test -p=1 -json -count=1 -timeout=60s -tags=integration ./internal/identity/postgres ./internal/identity/mail ./internal/eventstore/postgres ./internal/execution/postgres ./internal/product/postgres ./internal/billing/postgres ./internal/behavior/postgres ./internal/agentworker ./internal/toolworker ./internal/llmgateway/postgres ./internal/memory/postgres ./internal/realtime/postgres ./internal/runtime ./internal/runtime/sessionrequest ./internal/runtime/postgres ./internal/runtime/sweeper | tee "${LITES_FOUNDATION_TEST_JSON}"
+  if [[ "${LITES_FOUNDATION_TEST_QUIET:-false}" == "true" ]]; then
+    go test -p=1 -json -count=1 -timeout=60s -tags=integration ./internal/identity/postgres ./internal/identity/mail ./internal/eventbus/natsjs ./internal/eventstore/postgres ./internal/execution/postgres ./internal/product/postgres ./internal/billing/postgres ./internal/behavior/postgres ./internal/agentworker ./internal/toolworker ./internal/toolreconciler ./internal/llmgateway/postgres ./internal/memory/postgres ./internal/realtime/postgres ./internal/runtime ./internal/runtime/sessionrequest ./internal/runtime/postgres ./internal/runtime/sweeper >"${LITES_FOUNDATION_TEST_JSON}"
+  else
+    go test -p=1 -json -count=1 -timeout=60s -tags=integration ./internal/identity/postgres ./internal/identity/mail ./internal/eventbus/natsjs ./internal/eventstore/postgres ./internal/execution/postgres ./internal/product/postgres ./internal/billing/postgres ./internal/behavior/postgres ./internal/agentworker ./internal/toolworker ./internal/toolreconciler ./internal/llmgateway/postgres ./internal/memory/postgres ./internal/realtime/postgres ./internal/runtime ./internal/runtime/sessionrequest ./internal/runtime/postgres ./internal/runtime/sweeper | tee "${LITES_FOUNDATION_TEST_JSON}"
+  fi
 else
-  go test -p=1 -count=1 -timeout=60s -tags=integration ./internal/identity/postgres ./internal/identity/mail ./internal/eventstore/postgres ./internal/execution/postgres ./internal/product/postgres ./internal/billing/postgres ./internal/behavior/postgres ./internal/agentworker ./internal/toolworker ./internal/llmgateway/postgres ./internal/memory/postgres ./internal/realtime/postgres ./internal/runtime ./internal/runtime/sessionrequest ./internal/runtime/postgres ./internal/runtime/sweeper
+  go test -p=1 -count=1 -timeout=60s -tags=integration ./internal/identity/postgres ./internal/identity/mail ./internal/eventbus/natsjs ./internal/eventstore/postgres ./internal/execution/postgres ./internal/product/postgres ./internal/billing/postgres ./internal/behavior/postgres ./internal/agentworker ./internal/toolworker ./internal/toolreconciler ./internal/llmgateway/postgres ./internal/memory/postgres ./internal/realtime/postgres ./internal/runtime ./internal/runtime/sessionrequest ./internal/runtime/postgres ./internal/runtime/sweeper
 fi

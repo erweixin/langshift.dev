@@ -92,6 +92,19 @@ type Handler struct {
 	Actor             json.RawMessage
 	HeartbeatInterval time.Duration
 	MaximumCommand    int
+	Metrics           WorkerMetrics
+	Now               func() time.Time
+}
+
+type WorkerMetrics interface {
+	AddLeaseHeartbeats(context.Context, int64, string)
+	AddExecutingRuns(context.Context, int64, string)
+	AddRunReplays(context.Context, int64, string)
+	AddRunDeadlineTransition(context.Context, string, bool, string)
+	AddRunExecution(context.Context, string, string)
+	AddActiveProviderRequests(context.Context, int64, string)
+	AddProviderTokens(context.Context, int64, string, string)
+	ObserveFirstSafeToken(context.Context, time.Duration, string)
 }
 
 func (handler Handler) Handle(ctx context.Context, delivered eventpostgres.DeliveredCommand) error {
@@ -113,13 +126,35 @@ func (handler Handler) Handle(ctx context.Context, delivered eventpostgres.Deliv
 		AttemptExpiredEvent: claimPointers.expired,
 	})
 	if err != nil {
+		if errors.Is(err, executionpostgres.ErrClaimCompleted) && handler.Metrics != nil {
+			handler.Metrics.AddRunReplays(ctx, 1, "success")
+		}
 		return mapClaimError(err)
+	}
+	if handler.Metrics != nil {
+		handler.Metrics.AddExecutingRuns(ctx, 1, claim.QueueClass)
+		defer handler.Metrics.AddExecutingRuns(ctx, -1, claim.QueueClass)
+	}
+	executionOutcome := "failed"
+	if handler.Metrics != nil {
+		defer func() { handler.Metrics.AddRunExecution(ctx, claim.QueueClass, executionOutcome) }()
 	}
 	outcome, liveClaim, err := handler.executeWithHeartbeat(ctx, Execution{Command: delivered, Payload: command, Claim: claim, TurnIndex: 1})
 	if err != nil {
 		return err
 	}
-	return handler.commit(ctx, liveClaim, command, outcome)
+	err = handler.commit(ctx, liveClaim, command, outcome)
+	if err == nil {
+		executionOutcome = "success"
+	}
+	if err == nil && handler.Metrics != nil && isDeadlineTransition(outcome.State) {
+		handler.Metrics.AddRunDeadlineTransition(ctx, liveClaim.QueueClass, !handler.now().After(liveClaim.DueAt), "success")
+	}
+	return err
+}
+
+func isDeadlineTransition(state statemachine.RunState) bool {
+	return state == statemachine.RunWaitingTool || state == statemachine.RunWaitingChild || state == statemachine.RunWaitingApproval || statemachine.Runs.IsTerminal(state)
 }
 
 func (handler Handler) commit(ctx context.Context, claim executionpostgres.RunClaim, command CommandPayload, outcome Outcome) error {
@@ -246,10 +281,20 @@ func (handler Handler) executeWithHeartbeat(ctx context.Context, execution Execu
 				return Outcome{}, claim, errors.Join(ErrHeartbeatLost, err)
 			}
 			claim = live
+			if handler.Metrics != nil {
+				handler.Metrics.AddLeaseHeartbeats(ctx, 1, "run")
+			}
 		case <-ctx.Done():
 			return Outcome{}, claim, ctx.Err()
 		}
 	}
+}
+
+func (handler Handler) now() time.Time {
+	if handler.Now != nil {
+		return handler.Now().UTC()
+	}
+	return time.Now().UTC()
 }
 
 type claimEvidencePointers struct {

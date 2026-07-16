@@ -64,7 +64,17 @@ func LoadPromptArtifact(path, expectedFileHash string) (PromptArtifact, error) {
 	}
 	defer file.Close()
 	encoded, err := io.ReadAll(io.LimitReader(file, maximumPromptArtifactBytes+1))
-	if err != nil || len(encoded) == 0 || len(encoded) > maximumPromptArtifactBytes || sha256Prompt(encoded) != expectedFileHash {
+	if err != nil {
+		return PromptArtifact{}, ErrPromptArtifact
+	}
+	return DecodePromptArtifact(encoded, expectedFileHash)
+}
+
+// DecodePromptArtifact validates the exact bytes consumed by production. It is
+// shared with release assembly so an invalid artifact cannot be published and
+// only discovered during Worker startup.
+func DecodePromptArtifact(encoded []byte, expectedFileHash string) (PromptArtifact, error) {
+	if len(encoded) == 0 || len(encoded) > maximumPromptArtifactBytes || !policyDigestPattern.MatchString(expectedFileHash) || sha256Prompt(encoded) != expectedFileHash {
 		return PromptArtifact{}, ErrPromptArtifact
 	}
 	var envelope promptArtifactEnvelope

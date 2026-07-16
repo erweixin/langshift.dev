@@ -29,6 +29,7 @@ import (
 	"github.com/langshift/lites/internal/runtime/firecracker"
 	runtimepostgres "github.com/langshift/lites/internal/runtime/postgres"
 	"github.com/langshift/lites/internal/security/trustedcontext"
+	"go.opentelemetry.io/otel/metric"
 )
 
 func main() {
@@ -173,6 +174,28 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 	if err != nil {
 		return errors.New("configure observability")
 	}
+	meter := telemetry.Meter("github.com/langshift/lites/cmd/runtime-host-agent")
+	activeRuntimeSessions := &atomic.Int64{}
+	activeRuntimeSessionsObservedAt := &atomic.Int64{}
+	if err = refreshActiveRuntimeSessions(ctx, pool, activeRuntimeSessions, activeRuntimeSessionsObservedAt); err != nil {
+		return errors.New("observe active runtime sessions")
+	}
+	if _, err = meter.Int64ObservableGauge("runtime.sessions.active", metric.WithUnit("{session}"), metric.WithInt64Callback(func(_ context.Context, observer metric.Int64Observer) error {
+		observer.Observe(activeRuntimeSessions.Load())
+		return nil
+	})); err != nil {
+		return err
+	}
+	if _, err = meter.Int64ObservableGauge("runtime.sessions.active_observed_at", metric.WithUnit("s"), metric.WithInt64Callback(func(_ context.Context, observer metric.Int64Observer) error {
+		observer.Observe(activeRuntimeSessionsObservedAt.Load())
+		return nil
+	})); err != nil {
+		return err
+	}
+	store.Appender = eventpostgres.Appender{Observer: telemetry.AgentMetrics()}
+	payloadStore.Metrics = telemetry.AgentMetrics()
+	runtimeController.Payloads = payloadStore
+	runtimeController.Metrics = telemetry.AgentMetrics()
 	ready := &atomic.Bool{}
 	ready.Store(true)
 	serverTLS, err := serverTLSConfig(configuration.serverCertFile, configuration.serverKeyFile, configuration.serverClientCAFile, configuration.allowInsecureDevelopment)
@@ -191,6 +214,7 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 	go heartbeatLoop(ctx, store, fence, configuration, hostControlHash[:], errorsChannel)
 	go reconcileLoop(ctx, runtimeController, configuration, hostControlHash[:], errorsChannel)
 	go epochLoop(ctx, authority, storeEpoch, errorsChannel)
+	go observeActiveRuntimeSessions(ctx, pool, activeRuntimeSessions, activeRuntimeSessionsObservedAt, logger)
 	logger.Info("runtime host agent ready", "host_id", configuration.hostID, "store_epoch", storeEpoch, "adopted", recovered.Adopted, "terminated", recovered.Terminated, "cleaned", recovered.Cleaned)
 	var runErr error
 	select {
@@ -223,6 +247,36 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 		runErr = err
 	}
 	return runErr
+}
+
+func refreshActiveRuntimeSessions(parent context.Context, pool *pgxpool.Pool, value, observedAt *atomic.Int64) error {
+	ctx, cancel := context.WithTimeout(parent, 2*time.Second)
+	defer cancel()
+	var count int64
+	if err := pool.QueryRow(ctx, `SELECT agent.runtime_active_session_count()`).Scan(&count); err != nil {
+		return err
+	}
+	if count < 0 {
+		return errors.New("active runtime session observation returned a negative value")
+	}
+	value.Store(count)
+	observedAt.Store(time.Now().Unix())
+	return nil
+}
+
+func observeActiveRuntimeSessions(ctx context.Context, pool *pgxpool.Pool, value, observedAt *atomic.Int64, logger *slog.Logger) {
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := refreshActiveRuntimeSessions(ctx, pool, value, observedAt); err != nil && ctx.Err() == nil {
+				logger.Error("active runtime session observation failed", "error", err)
+			}
+		}
+	}
 }
 
 func (fence *versionFence) update(ctx context.Context, operation func(uint64) (uint64, error)) error {

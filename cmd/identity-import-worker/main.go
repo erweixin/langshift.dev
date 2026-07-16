@@ -122,10 +122,11 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 	}
 	deliveryErrors, _ := telemetry.Meter("github.com/langshift/lites/cmd/identity-import-worker").Int64Counter("identity.import.delivery.errors")
 	inbox := eventpostgres.InboxStore{Pool: pool, Epochs: authority, Tokens: opaque.Manager{Purpose: "identity-import-inbox-lease", Pepper: inboxPepper}, LeaseTTL: 15 * time.Minute}
-	service := identitypostgres.AuthService{Pool: pool, ImportSources: importSources, InvitationTokens: opaque.Manager{Purpose: "invitation", Pepper: invitationPepper}, StoreEpoch: storeEpoch, Payloads: payloadStore, Appender: eventpostgres.Appender{}}
+	appender := eventpostgres.Appender{Observer: telemetry.AgentMetrics()}
+	service := identitypostgres.AuthService{Pool: pool, ImportSources: importSources, InvitationTokens: opaque.Manager{Purpose: "invitation", Pepper: invitationPepper}, StoreEpoch: storeEpoch, Payloads: payloadStore, Appender: appender}
 	dispatcher := identitypostgres.IdentityImportDispatcher{Service: service, Inbox: inbox, ConsumerName: configuration.consumerName}
-	claimStore := identitypostgres.AnonymousClaimStore{Pool: pool, SystemTenantID: configuration.publicTenantID, IdentityKey: claimIdentityKey, Payloads: payloadStore, Appender: eventpostgres.Appender{}, StoreEpoch: storeEpoch}
-	claimService := anonymousclaim.Service{Store: claimStore, Destination: identitypostgres.AnonymousClaimDestination{Pool: pool, SystemTenantID: configuration.publicTenantID, IdentityKey: claimIdentityKey, Payloads: payloadStore, Appender: eventpostgres.Appender{}, StoreEpoch: storeEpoch}, Eraser: identitypostgres.AnonymousClaimEraser{Pool: pool, SystemTenantID: configuration.publicTenantID, IdentityKey: claimIdentityKey, Objects: payloadBlobs}}
+	claimStore := identitypostgres.AnonymousClaimStore{Pool: pool, SystemTenantID: configuration.publicTenantID, IdentityKey: claimIdentityKey, Payloads: payloadStore, Appender: appender, StoreEpoch: storeEpoch}
+	claimService := anonymousclaim.Service{Store: claimStore, Destination: identitypostgres.AnonymousClaimDestination{Pool: pool, SystemTenantID: configuration.publicTenantID, IdentityKey: claimIdentityKey, Payloads: payloadStore, Appender: appender, StoreEpoch: storeEpoch}, Eraser: identitypostgres.AnonymousClaimEraser{Pool: pool, SystemTenantID: configuration.publicTenantID, IdentityKey: claimIdentityKey, Objects: payloadBlobs}}
 	claimDispatcher := identitypostgres.AnonymousClaimDispatcher{Reconciler: claimService, Payloads: payloadStore, Inbox: inbox, StoreEpoch: storeEpoch, ConsumerName: configuration.consumerName}
 	consumer := natsjs.Consumer{Source: source, Handle: func(ctx context.Context, command eventpostgres.DeliveredCommand) error {
 		if command.CommandType == identitypostgres.AnonymousClaimReconcileCommand {

@@ -1,0 +1,83 @@
+{
+  "configVersion": "1.0.0",
+  "profileId": "stage3-reference-production-v1",
+  "sourceCommit": "0000000000000000000000000000000000000000",
+  "sampleIntervalSeconds": 15,
+  "maximumWarmupSeconds": 900,
+  "controller": {
+    "baseUrl": "https://capacity-controller.internal.example.com",
+    "bearerTokenFile": "/run/secrets/capacity-controller-token",
+    "caFile": "/run/secrets/internal-ca.pem",
+    "clientCertificateFile": "/run/secrets/capacity-observer-cert.pem",
+    "clientKeyFile": "/run/secrets/capacity-observer-key.pem"
+  },
+  "prometheus": {
+    "baseUrl": "https://prometheus.internal.example.com",
+    "bearerTokenFile": "/run/secrets/prometheus-token",
+    "caFile": "/run/secrets/internal-ca.pem",
+    "clientCertificateFile": "/run/secrets/capacity-observer-cert.pem",
+    "clientKeyFile": "/run/secrets/capacity-observer-key.pem"
+  },
+  "environment": {
+    "topology": "reference_production",
+    "deploymentEnvironment": "stage3-reference-production-v1",
+    "highAvailability": true,
+    "localFoundation": false,
+    "regions": ["us-east-2"],
+    "availabilityZones": ["us-east-2a", "us-east-2b", "us-east-2c"],
+    "deploymentManifestSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "imageDigestsSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "hardwareTopologySha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "providerEmulatorSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "runtimeImageDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "runtimeKernelDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "runtimeRootFSDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "agentReleaseBundleSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "behaviorDeploymentSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "datasetManifestSha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "queries": {
+    "vectors": {
+      "concurrentConnections": "sum(lites_realtime_connections{deployment_environment_name=\"{{profile_id}}\"})",
+      "apiRequestsPerSecond": "sum(rate(lites_http_server_requests_total{deployment_environment_name=\"{{profile_id}}\",service_name=\"api-gateway\"}[1m]))",
+      "eventAppendsPerSecond": "sum(rate(lites_event_appends_total{deployment_environment_name=\"{{profile_id}}\"}[1m]))",
+      "activeRuns": "sum(lites_runs_active{deployment_environment_name=\"{{profile_id}}\",service_name=\"agent-scheduler\"}) and (time() - max(lites_runs_active_observed_at_seconds{deployment_environment_name=\"{{profile_id}}\",service_name=\"agent-scheduler\"}) < 5)",
+      "concurrentProviderRequests": "sum(lites_provider_requests_active{deployment_environment_name=\"{{profile_id}}\"})",
+      "activeRuntimeSessions": "max(lites_runtime_sessions_active{deployment_environment_name=\"{{profile_id}}\",service_name=\"runtime-host-agent\"}) and (time() - max(lites_runtime_sessions_active_observed_at_seconds{deployment_environment_name=\"{{profile_id}}\",service_name=\"runtime-host-agent\"}) < 5)",
+      "tokensPerSecond": "sum(rate(lites_provider_tokens_total{deployment_environment_name=\"{{profile_id}}\"}[1m]))",
+      "artifactMiBPerSecond": "sum(rate(lites_artifact_bytes_total{deployment_environment_name=\"{{profile_id}}\"}[1m])) / 1048576",
+      "retentionTiBPerDay": "sum(rate(lites_retained_bytes_total{deployment_environment_name=\"{{profile_id}}\"}[1m])) * 86400 / 1099511627776",
+      "hotTenantCapacityPercent": "max(lites_capacity_hot_tenant_percent{deployment_environment_name=\"{{profile_id}}\"})",
+      "hotTenantUserEventAppendsPerSecond": "sum(rate(lites_capacity_hot_tenant_user_event_appends_total{deployment_environment_name=\"{{profile_id}}\"}[1m]))",
+      "leaseHeartbeatsPerSecond": "sum(rate(lites_lease_heartbeats_total{deployment_environment_name=\"{{profile_id}}\"}[1m]))",
+      "runReplaysPerSecond": "sum(rate(lites_run_replays_total{deployment_environment_name=\"{{profile_id}}\"}[1m]))"
+    },
+    "slos": {
+      "apiAvailabilityMinimum": "sum(rate(lites_http_server_requests_total{deployment_environment_name=\"{{profile_id}}\",service_name=\"api-gateway\",http_response_status_class=~\"[1-4]xx\",http_response_throttled=\"false\"}[1m])) / sum(rate(lites_http_server_requests_total{deployment_environment_name=\"{{profile_id}}\",service_name=\"api-gateway\"}[1m]))",
+      "apiLatencyP95MillisMaximum": "histogram_quantile(0.95, sum by (le) (rate(lites_http_server_duration_seconds_bucket{deployment_environment_name=\"{{profile_id}}\",service_name=\"api-gateway\"}[1m]))) * 1000",
+      "apiLatencyP99MillisMaximum": "histogram_quantile(0.99, sum by (le) (rate(lites_http_server_duration_seconds_bucket{deployment_environment_name=\"{{profile_id}}\",service_name=\"api-gateway\"}[1m]))) * 1000",
+      "eventAppendAvailabilityMinimum": "sum(rate(lites_event_appends_total{deployment_environment_name=\"{{profile_id}}\",outcome=~\"committed|replayed\"}[1m])) / sum(rate(lites_event_appends_total{deployment_environment_name=\"{{profile_id}}\"}[1m]))",
+      "eventAppendLatencyP99MillisMaximum": "histogram_quantile(0.99, sum by (le) (rate(lites_event_append_duration_seconds_bucket{deployment_environment_name=\"{{profile_id}}\"}[1m]))) * 1000",
+      "interactiveQueueWaitP95MillisMaximum": "histogram_quantile(0.95, sum by (le) (rate(lites_queue_wait_seconds_bucket{deployment_environment_name=\"{{profile_id}}\",queue_class=\"interactive\"}[1m]))) * 1000",
+      "interactiveQueueWaitP99MillisMaximum": "histogram_quantile(0.99, sum by (le) (rate(lites_queue_wait_seconds_bucket{deployment_environment_name=\"{{profile_id}}\",queue_class=\"interactive\"}[1m]))) * 1000",
+      "firstSafeTokenP95MillisMaximum": "histogram_quantile(0.95, sum by (le) (rate(lites_first_safe_token_seconds_bucket{deployment_environment_name=\"{{profile_id}}\"}[1m]))) * 1000",
+      "firstSafeTokenP99MillisMaximum": "histogram_quantile(0.99, sum by (le) (rate(lites_first_safe_token_seconds_bucket{deployment_environment_name=\"{{profile_id}}\"}[1m]))) * 1000",
+      "runDeadlineAdherenceMinimum": "sum(rate(lites_run_deadline_transitions_total{deployment_environment_name=\"{{profile_id}}\",deadline_adherent=\"true\"}[1m])) / sum(rate(lites_run_deadline_transitions_total{deployment_environment_name=\"{{profile_id}}\"}[1m]))",
+      "interactiveRunPlatformSuccessMinimum": "sum(rate(lites_run_executions_total{deployment_environment_name=\"{{profile_id}}\",queue_class=\"interactive\",platform_outcome=\"success\"}[1m])) / sum(rate(lites_run_executions_total{deployment_environment_name=\"{{profile_id}}\",queue_class=\"interactive\"}[1m]))",
+      "realtimeGapRecoveryP95MillisMaximum": "histogram_quantile(0.95, sum by (le) (rate(lites_realtime_gap_recovery_seconds_bucket{deployment_environment_name=\"{{profile_id}}\"}[1m]))) * 1000",
+      "realtimeGapRecoveryP99MillisMaximum": "histogram_quantile(0.99, sum by (le) (rate(lites_realtime_gap_recovery_seconds_bucket{deployment_environment_name=\"{{profile_id}}\"}[1m]))) * 1000",
+      "runtimeColdStartP95MillisMaximum": "histogram_quantile(0.95, sum by (le) (rate(lites_runtime_cold_start_seconds_bucket{deployment_environment_name=\"{{profile_id}}\"}[1m]))) * 1000",
+      "runtimeColdStartP99MillisMaximum": "histogram_quantile(0.99, sum by (le) (rate(lites_runtime_cold_start_seconds_bucket{deployment_environment_name=\"{{profile_id}}\"}[1m]))) * 1000",
+      "toolOutcomeUnknownRateMaximumExclusive": "sum(rate(lites_tool_calls_total{deployment_environment_name=\"{{profile_id}}\",outcome=\"unknown\"}[1m])) / sum(rate(lites_tool_calls_total{deployment_environment_name=\"{{profile_id}}\",effectful=\"true\"}[1m]))",
+      "toolOutcomeUnknownConverged15mMinimum": "sum(rate(lites_tool_unknown_total{deployment_environment_name=\"{{profile_id}}\",converged_15m=\"true\"}[1m])) / sum(rate(lites_tool_unknown_total{deployment_environment_name=\"{{profile_id}}\"}[1m]))",
+      "legitimateThrottleRateMaximumExclusive": "sum(rate(lites_http_server_requests_total{deployment_environment_name=\"{{profile_id}}\",service_name=\"api-gateway\",http_response_throttled=\"true\"}[1m])) / sum(rate(lites_http_server_requests_total{deployment_environment_name=\"{{profile_id}}\",service_name=\"api-gateway\"}[1m]))"
+    },
+    "zeroTolerance": {
+      "lost_event_facts": "sum(increase(lites_invariant_violations_total{deployment_environment_name=\"{{profile_id}}\",invariant=\"lost_event_fact\"}[1m]))",
+      "duplicate_external_effects": "sum(increase(lites_invariant_violations_total{deployment_environment_name=\"{{profile_id}}\",invariant=\"duplicate_external_effect\"}[1m]))",
+      "cross_tenant_accesses": "sum(increase(lites_invariant_violations_total{deployment_environment_name=\"{{profile_id}}\",invariant=\"cross_tenant_access\"}[1m]))",
+      "approval_bypasses": "sum(increase(lites_invariant_violations_total{deployment_environment_name=\"{{profile_id}}\",invariant=\"approval_bypass\"}[1m]))",
+      "terminal_state_regressions": "sum(increase(lites_invariant_violations_total{deployment_environment_name=\"{{profile_id}}\",invariant=\"terminal_state_regression\"}[1m]))"
+    }
+  }
+}

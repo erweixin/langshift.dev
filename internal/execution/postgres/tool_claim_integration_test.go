@@ -120,49 +120,52 @@ func TestToolClaimHeartbeatAndExpiredReclaimAreFenced(t *testing.T) {
 	if reconcileToolStatus != "executing" || reconcileFence != 1 || reconcileInboxStatus != "running" || reconcileAttemptStatus != "running" || reconcileEffectStatus != "executing" || reconcileEffectVersion != 2 || reconcileEffectAttempt != reconcileClaim.AttemptID || reconcileEffectFence != 1 || reconcileProviderRequest != reconcileClaim.ProviderRequestID || reconcileAttempts != 1 || reconcileAttemptEvents != 1 {
 		t.Fatalf("reconcilable tool=%s/f%d inbox=%s attempt=%s effect=%s/v%d/%s/f%d/provider=%s attempts=%d events=%d", reconcileToolStatus, reconcileFence, reconcileInboxStatus, reconcileAttemptStatus, reconcileEffectStatus, reconcileEffectVersion, reconcileEffectAttempt, reconcileEffectFence, reconcileProviderRequest, reconcileAttempts, reconcileAttemptEvents)
 	}
+	if _, err = admin.Exec(ctx, `UPDATE identity.memberships SET version=2,status='left',deactivated_at=$1,updated_at=$1 WHERE tenant_id=$2 AND id=$3`, current, tenantID, membershipID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.ClaimTool(ctx, claimCommand); !errors.Is(err, ErrToolNotClaimable) {
+		t.Fatalf("revoked membership reclaimed tool execution right: %v", err)
+	}
 
 	tenantIDs, err := store.ListExpiredEffectTenantIDs(ctx, storeEpoch, "", 10, 0, 1)
 	if err != nil || len(tenantIDs) != 1 || tenantIDs[0] != tenantID {
 		t.Fatalf("expired effect tenants=%v error=%v", tenantIDs, err)
 	}
 	candidates, err := store.ListExpiredEffectCandidates(ctx, tenantID, storeEpoch, "", 10)
-	if err != nil || len(candidates) != 1 || candidates[0].ToolCallID != reconcileTool.ToolCallID || candidates[0].EffectID != reconcileClaim.EffectID || candidates[0].AttemptID != reconcileClaim.AttemptID {
+	if err != nil || len(candidates) != 2 {
 		t.Fatalf("expired effect candidates=%#v error=%v", candidates, err)
 	}
-	reconcileDue := current.Add(time.Minute)
-	sweepCommand := SweepExpiredToolEffectCommand{Candidate: candidates[0], ResultHash: "worker-lease-expired-outcome-unknown", Actor: json.RawMessage(`{"kind":"service","name":"tool-effect-sweeper"}`), CorrelationID: correlationID, OutcomeUnknownEvent: PayloadPointer{Ref: "encrypted://tool-claim/swept-unknown", Hash: "swept-unknown"}, AttemptExpiredEvent: PayloadPointer{Ref: "encrypted://tool-claim/swept-attempt-expired", Hash: "swept-attempt-expired"}, Reconciliation: EffectCompletion{ReconciliationDueAt: reconcileDue, ReconcileCommand: PayloadPointer{Ref: "encrypted://tool-claim/swept-reconcile", Hash: "swept-reconcile"}, ReconcileQueueClass: "background", ReconcileResource: "tool-reconciliation", ReconcilePriority: 40, ReconcileCostUnits: 1, ReconcileAttempts: 8}}
-	sweepWinners := make(chan SweptToolEffect, 32)
-	sweepErrors := make(chan error, 32)
-	var sweepWait sync.WaitGroup
-	for range 32 {
-		sweepWait.Add(1)
-		go func() {
-			defer sweepWait.Done()
-			result, sweepErr := store.SweepExpiredToolEffect(ctx, sweepCommand)
-			if sweepErr != nil {
-				sweepErrors <- sweepErr
-				return
-			}
-			sweepWinners <- result
-		}()
-	}
-	sweepWait.Wait()
-	close(sweepWinners)
-	close(sweepErrors)
-	var swept SweptToolEffect
-	sweepSuccesses, sweepStale := 0, 0
-	for result := range sweepWinners {
-		swept = result
-		sweepSuccesses++
-	}
-	for sweepErr := range sweepErrors {
-		if !errors.Is(sweepErr, ErrToolEffectNotSweepable) {
-			t.Fatalf("unexpected sweep error=%v", sweepErr)
+	var manualCandidate, automaticCandidate ExpiredToolEffectCandidate
+	for _, candidate := range candidates {
+		switch candidate.EffectClass {
+		case "idempotent_write":
+			manualCandidate = candidate
+		case "reconcilable_write":
+			automaticCandidate = candidate
 		}
-		sweepStale++
 	}
-	if sweepSuccesses != 1 || sweepStale != 31 || swept.ToolVersion != reconcileClaim.ToolCallVersion+1 || swept.EffectVersion != candidates[0].EffectVersion+1 || swept.ReconcileCommandID == "" {
-		t.Fatalf("swept=%#v successes=%d stale=%d", swept, sweepSuccesses, sweepStale)
+	if manualCandidate.ToolCallID != tool.ToolCallID || manualCandidate.EffectID != reclaimed.EffectID || manualCandidate.AttemptID != reclaimed.AttemptID || automaticCandidate.ToolCallID != reconcileTool.ToolCallID || automaticCandidate.EffectID != reconcileClaim.EffectID || automaticCandidate.AttemptID != reconcileClaim.AttemptID {
+		t.Fatalf("manual=%#v automatic=%#v", manualCandidate, automaticCandidate)
+	}
+	manualDue := current.Add(time.Minute)
+	manualSweep := competeForEffectSweep(t, ctx, store, SweepExpiredToolEffectCommand{Candidate: manualCandidate, ResultHash: "idempotent-worker-lease-expired-manual-review", Actor: json.RawMessage(`{"kind":"service","name":"tool-effect-sweeper"}`), CorrelationID: correlationID, OutcomeUnknownEvent: PayloadPointer{Ref: "encrypted://tool-claim/manual-unknown", Hash: "manual-unknown"}, AttemptExpiredEvent: PayloadPointer{Ref: "encrypted://tool-claim/manual-attempt-expired", Hash: "manual-attempt-expired"}, Reconciliation: EffectCompletion{ReconciliationDueAt: manualDue}}, 32)
+	if manualSweep.ReconcileCommandID != "" || manualSweep.ToolVersion != reclaimed.ToolCallVersion+1 || manualSweep.EffectVersion != manualCandidate.EffectVersion+1 {
+		t.Fatalf("manual sweep=%#v", manualSweep)
+	}
+	var manualToolStatus, manualEffectStatus, manualInboxStatus, manualAttemptStatus, manualJobStatus string
+	var manualReconciliationJobs int
+	err = admin.QueryRow(ctx, `SELECT t.status,e.status,i.status,a.status,j.status,(SELECT count(*) FROM agent.jobs WHERE tenant_id=$1 AND resource_class='tool-reconciliation') FROM agent.tool_calls t JOIN agent.tool_effects e ON e.tool_call_id=t.id JOIN agent.inbox i ON i.id=$3 JOIN agent.job_attempts a ON a.id=$4 JOIN agent.jobs j ON j.id=$5 WHERE t.tenant_id=$1 AND t.id=$2`, tenantID, tool.ToolCallID, reclaimed.InboxID, reclaimed.AttemptID, reclaimed.JobID).Scan(&manualToolStatus, &manualEffectStatus, &manualInboxStatus, &manualAttemptStatus, &manualJobStatus, &manualReconciliationJobs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manualToolStatus != "outcome_unknown" || manualEffectStatus != "outcome_unknown" || manualInboxStatus != "completed" || manualAttemptStatus != "expired" || manualJobStatus != "succeeded" || manualReconciliationJobs != 0 {
+		t.Fatalf("manual route tool=%s effect=%s inbox=%s attempt=%s job=%s reconciliation_jobs=%d", manualToolStatus, manualEffectStatus, manualInboxStatus, manualAttemptStatus, manualJobStatus, manualReconciliationJobs)
+	}
+	reconcileDue := current.Add(time.Minute)
+	sweepCommand := SweepExpiredToolEffectCommand{Candidate: automaticCandidate, ResultHash: "worker-lease-expired-outcome-unknown", Actor: json.RawMessage(`{"kind":"service","name":"tool-effect-sweeper"}`), CorrelationID: correlationID, OutcomeUnknownEvent: PayloadPointer{Ref: "encrypted://tool-claim/swept-unknown", Hash: "swept-unknown"}, AttemptExpiredEvent: PayloadPointer{Ref: "encrypted://tool-claim/swept-attempt-expired", Hash: "swept-attempt-expired"}, Reconciliation: EffectCompletion{ReconciliationDueAt: reconcileDue, ReconcileCommand: PayloadPointer{Ref: "encrypted://tool-claim/swept-reconcile", Hash: "swept-reconcile"}, ReconcileQueueClass: "background", ReconcileResource: "tool-reconciliation", ReconcilePriority: 40, ReconcileCostUnits: 1, ReconcileAttempts: 8}}
+	swept := competeForEffectSweep(t, ctx, store, sweepCommand, 32)
+	if swept.ToolVersion != reconcileClaim.ToolCallVersion+1 || swept.EffectVersion != automaticCandidate.EffectVersion+1 || swept.ReconcileCommandID == "" {
+		t.Fatalf("swept=%#v", swept)
 	}
 	lateCompletion := CompleteToolCommand{Claim: reconcileClaim, ExpectedToolVersion: reconcileClaim.ToolCallVersion, TargetState: statemachine.ToolCallOutcomeUnknown, ResultHash: "late-worker-unknown", Actor: json.RawMessage(`{"kind":"service"}`), CorrelationID: correlationID, ToolCompletedEvent: PayloadPointer{Ref: "encrypted://tool-claim/late-unknown", Hash: "late-unknown"}, AttemptCompletedEvent: PayloadPointer{Ref: "encrypted://tool-claim/late-attempt", Hash: "late-attempt"}, GroupJoinedEvent: PayloadPointer{Ref: "encrypted://tool-claim/late-group", Hash: "late-group"}, RunResumeQueuedEvent: PayloadPointer{Ref: "encrypted://tool-claim/late-run", Hash: "late-run"}, ResumeCommand: PayloadPointer{Ref: "encrypted://tool-claim/late-resume", Hash: "late-resume"}, ResumeQueueClass: "interactive", ResumeResourceClass: "llm", ResumePriority: 50, ResumeCostUnits: 1, ResumeMaxAttempts: 5}
 	if _, err = store.CompleteEffectTool(ctx, lateCompletion, sweepCommand.Reconciliation); !errors.Is(err, ErrExecutionRightConflict) {
@@ -183,13 +186,44 @@ func TestToolClaimHeartbeatAndExpiredReclaimAreFenced(t *testing.T) {
 	if err != nil || reconciliationClaim.EffectID != swept.EffectID || reconciliationClaim.ProviderRequestID != reconcileClaim.ProviderRequestID || reconciliationClaim.Fence != 1 {
 		t.Fatalf("reconciliation after sweep=%#v error=%v", reconciliationClaim, err)
 	}
-	if _, err = admin.Exec(ctx, `UPDATE identity.memberships SET version=2,status='left',deactivated_at=$1,updated_at=$1 WHERE tenant_id=$2 AND id=$3`, current, tenantID, membershipID); err != nil {
-		t.Fatal(err)
+}
+
+func competeForEffectSweep(t *testing.T, ctx context.Context, store RunStore, command SweepExpiredToolEffectCommand, contenders int) SweptToolEffect {
+	t.Helper()
+	winners := make(chan SweptToolEffect, contenders)
+	failures := make(chan error, contenders)
+	var wait sync.WaitGroup
+	for range contenders {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			result, err := store.SweepExpiredToolEffect(ctx, command)
+			if err != nil {
+				failures <- err
+				return
+			}
+			winners <- result
+		}()
 	}
-	current = reclaimed.LeaseExpiresAt
-	if _, err = store.ClaimTool(ctx, claimCommand); !errors.Is(err, ErrToolNotClaimable) {
-		t.Fatalf("revoked membership reclaimed tool execution right: %v", err)
+	wait.Wait()
+	close(winners)
+	close(failures)
+	var winner SweptToolEffect
+	successes, stale := 0, 0
+	for result := range winners {
+		winner = result
+		successes++
 	}
+	for err := range failures {
+		if !errors.Is(err, ErrToolEffectNotSweepable) {
+			t.Fatalf("unexpected effect sweep error=%v", err)
+		}
+		stale++
+	}
+	if successes != 1 || stale != contenders-1 {
+		t.Fatalf("effect sweep successes=%d stale=%d", successes, stale)
+	}
+	return winner
 }
 
 func competeForToolClaim(t *testing.T, ctx context.Context, store RunStore, command ClaimToolCommand, contenders int) ToolClaim {

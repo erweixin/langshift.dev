@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/langshift/lites/internal/payload"
@@ -34,10 +35,13 @@ type RunCancellationDependencyConverger interface {
 
 type cancellationRecoverySnapshot struct {
 	cancellationID, runID, status, rootCancellationID string
+	runStatus, reason                                 string
 	propagationCursor, settlementRef, settlementHash  string
 	parentRunID, rootRunID, childGroupID              sql.NullString
 	version                                           uint64
+	runVersion, cancelGeneration                      uint64
 	inheritedBudget                                   int64
+	remainingBlockers                                 int
 	propagationComplete                               bool
 	tools                                             []cancellationRecoveryTool
 	children                                          []cancellationRecoveryChild
@@ -162,6 +166,13 @@ func (service RunCancellationReconcilerService) ReconcileDueCancellation(ctx con
 				return ReconciledRunCancellation{}, err
 			}
 		}
+		snapshot, err = service.loadSnapshot(ctx, tenantID, cancellationID, storeEpoch)
+		if err != nil {
+			return ReconciledRunCancellation{}, err
+		}
+		if snapshot.status == "settled" {
+			return service.Store.ReconcileCancellation(ctx, ReconcileRunCancellationCommand{CancellationID: cancellationID, TenantID: tenantID, StoreEpoch: storeEpoch, ExpectedCancellationVersion: snapshot.version, Actor: actor, CorrelationID: correlationID, ToolCancelledEvents: map[string]PayloadPointer{}})
+		}
 	}
 	pointers := make(map[string]PayloadPointer, len(snapshot.tools))
 	for _, tool := range snapshot.tools {
@@ -180,12 +191,30 @@ func (service RunCancellationReconcilerService) ReconcileDueCancellation(ctx con
 		pointers[tool.id] = pointer
 	}
 	var child *ChildRunCompletion
-	if snapshot.parentRunID.Valid {
+	settlement := PayloadPointer{}
+	settledAt := time.Time{}
+	if snapshot.remainingBlockers == 0 && snapshot.parentRunID.Valid {
 		completion, completionErr := service.materializeChildCompletion(ctx, tenantID, snapshot)
 		if completionErr != nil {
 			return ReconciledRunCancellation{}, completionErr
 		}
 		child = &completion
+	} else if snapshot.remainingBlockers == 0 {
+		identifiers, identifierErr := service.Store.cancellationIdentifiers(cancellationID)
+		if identifierErr != nil {
+			return ReconciledRunCancellation{}, identifierErr
+		}
+		settledAt = service.Store.claimNow()
+		settlement, err = service.putJSON(ctx, tenantID, identifiers.settlementEvent, map[string]any{
+			"subject_id": snapshot.runID, "subject_version": snapshot.runVersion + 1,
+			"previous_state": snapshot.runStatus, "new_state": "cancelled", "reason_code": snapshot.reason,
+			"command_id": nil, "run_id": snapshot.runID, "run_version": snapshot.runVersion + 1,
+			"cancellation_id": snapshot.cancellationID, "cancel_generation": snapshot.cancelGeneration,
+			"barrier_settled_at": settledAt,
+		})
+		if err != nil {
+			return ReconciledRunCancellation{}, err
+		}
 	}
 	return service.Store.ReconcileCancellation(ctx, ReconcileRunCancellationCommand{
 		CancellationID: cancellationID, TenantID: tenantID, StoreEpoch: storeEpoch,
@@ -193,6 +222,8 @@ func (service RunCancellationReconcilerService) ReconcileDueCancellation(ctx con
 		Actor:                       actor,
 		CorrelationID:               correlationID,
 		ToolCancelledEvents:         pointers,
+		SettlementEvent:             settlement,
+		SettlementAt:                settledAt,
 		Child:                       child,
 	})
 }
@@ -302,14 +333,14 @@ func (service RunCancellationReconcilerService) loadSnapshot(ctx context.Context
 		return cancellationRecoverySnapshot{}, err
 	}
 	var snapshot cancellationRecoverySnapshot
-	err = tx.QueryRow(ctx, `SELECT c.id::text,c.run_id::text,c.status,c.version,c.root_cancellation_id::text,COALESCE(c.propagation_cursor::text,''),c.propagation_complete,c.settlement_payload_ref,c.settlement_payload_hash,r.parent_run_id::text,r.root_run_id::text,r.child_group_id::text,r.inherited_budget_microunits
+	err = tx.QueryRow(ctx, `SELECT c.id::text,c.run_id::text,c.status,c.version,c.root_cancellation_id::text,c.reason,c.cancel_generation,COALESCE(c.propagation_cursor::text,''),c.propagation_complete,c.settlement_payload_ref,c.settlement_payload_hash,r.status,r.run_version,r.parent_run_id::text,r.root_run_id::text,r.child_group_id::text,r.inherited_budget_microunits
 		FROM agent.run_cancellations c
 		JOIN agent.runs r ON r.tenant_id=c.tenant_id AND r.id=c.run_id
 		JOIN agent.events e ON e.tenant_id=c.tenant_id AND e.aggregate_kind='run_cancellation'
 		  AND e.aggregate_id=c.id AND e.event_type='RunCancellationRequested' AND e.aggregate_version=1
 		WHERE c.tenant_id=$1 AND c.id=$2 AND c.store_epoch=$3 AND e.store_epoch=$3
 		  AND (c.status='settled' OR (c.status='terminating' AND c.reconciliation_due_at<=$4))`, tenantID, cancellationID, storeEpoch, service.Store.claimNow()).
-		Scan(&snapshot.cancellationID, &snapshot.runID, &snapshot.status, &snapshot.version, &snapshot.rootCancellationID, &snapshot.propagationCursor, &snapshot.propagationComplete, &snapshot.settlementRef, &snapshot.settlementHash, &snapshot.parentRunID, &snapshot.rootRunID, &snapshot.childGroupID, &snapshot.inheritedBudget)
+		Scan(&snapshot.cancellationID, &snapshot.runID, &snapshot.status, &snapshot.version, &snapshot.rootCancellationID, &snapshot.reason, &snapshot.cancelGeneration, &snapshot.propagationCursor, &snapshot.propagationComplete, &snapshot.settlementRef, &snapshot.settlementHash, &snapshot.runStatus, &snapshot.runVersion, &snapshot.parentRunID, &snapshot.rootRunID, &snapshot.childGroupID, &snapshot.inheritedBudget)
 	if err != nil {
 		return cancellationRecoverySnapshot{}, err
 	}
@@ -335,6 +366,17 @@ func (service RunCancellationReconcilerService) loadSnapshot(ctx context.Context
 		return cancellationRecoverySnapshot{}, err
 	}
 	rows.Close()
+	blockers, err := countCancellationBlockers(ctx, tx, tenantID, snapshot.runID)
+	if err != nil {
+		return cancellationRecoverySnapshot{}, err
+	}
+	// The reconciliation transaction cancels every ToolCall represented by
+	// snapshot.tools before evaluating the barrier, so they are not remaining
+	// blockers for payload-materialization purposes.
+	snapshot.remainingBlockers = blockers - len(snapshot.tools)
+	if snapshot.remainingBlockers < 0 {
+		return cancellationRecoverySnapshot{}, ErrRunConflict
+	}
 	if snapshot.status == "terminating" && !snapshot.propagationComplete {
 		rows, err = tx.Query(ctx, `SELECT id::text,status,run_version,active_cancellation_id::text,active_attempt_id::text FROM agent.runs WHERE tenant_id=$1 AND parent_run_id=$2 AND (NULLIF($3,'')::uuid IS NULL OR id>NULLIF($3,'')::uuid) ORDER BY id LIMIT $4`, tenantID, snapshot.runID, snapshot.propagationCursor, maximumCancellationPropagationBatch)
 		if err != nil {

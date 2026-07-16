@@ -92,7 +92,16 @@ func LoadRouteArtifact(path, expectedFileHash string) (RouteArtifact, error) {
 	}
 	defer file.Close()
 	encoded, err := io.ReadAll(io.LimitReader(file, maximumRouteArtifactBytes+1))
-	if err != nil || len(encoded) == 0 || len(encoded) > maximumRouteArtifactBytes || routeHash(encoded) != expectedFileHash {
+	if err != nil {
+		return RouteArtifact{}, ErrRouteArtifact
+	}
+	return DecodeRouteArtifact(encoded, expectedFileHash)
+}
+
+// DecodeRouteArtifact is the in-memory equivalent of LoadRouteArtifact and is
+// used by the release builder before an artifact reaches a deployment mount.
+func DecodeRouteArtifact(encoded []byte, expectedFileHash string) (RouteArtifact, error) {
+	if len(encoded) == 0 || len(encoded) > maximumRouteArtifactBytes || !policyDigestPattern.MatchString(expectedFileHash) || routeHash(encoded) != expectedFileHash {
 		return RouteArtifact{}, ErrRouteArtifact
 	}
 	var envelope routeArtifactEnvelope

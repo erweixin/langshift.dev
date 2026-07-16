@@ -9,7 +9,9 @@ import (
 	"io"
 	"net"
 	"net/url"
+	"os"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 )
@@ -75,6 +77,39 @@ type ResolvedProvider struct {
 	Model    ModelDefinition
 }
 
+// EncodeRegistry canonicalizes a release registry before it is signed and
+// mounted. Runtime loading remains strict and independently recomputes the
+// semantic snapshot hash.
+func EncodeRegistry(document RegistryDocument) ([]byte, string, error) {
+	canonical := document
+	canonical.Providers = append([]ProviderDefinition(nil), document.Providers...)
+	for index := range canonical.Providers {
+		definition := &canonical.Providers[index]
+		definition.Models = append([]ModelDefinition(nil), definition.Models...)
+		for modelIndex := range definition.Models {
+			definition.Models[modelIndex].Capabilities = append([]string(nil), definition.Models[modelIndex].Capabilities...)
+			sort.Strings(definition.Models[modelIndex].Capabilities)
+		}
+		sort.Slice(definition.Models, func(left, right int) bool {
+			return definition.Models[left].ID+"\x00"+definition.Models[left].Version < definition.Models[right].ID+"\x00"+definition.Models[right].Version
+		})
+	}
+	sort.Slice(canonical.Providers, func(left, right int) bool { return canonical.Providers[left].ID < canonical.Providers[right].ID })
+	encoded, err := json.Marshal(canonical)
+	if err != nil {
+		return nil, "", ErrRegistryInvalid
+	}
+	registry, err := LoadRegistry(bytes.NewReader(encoded))
+	if err != nil {
+		return nil, "", err
+	}
+	canonicalEncoded, err := json.Marshal(registry.document)
+	if err != nil {
+		return nil, "", ErrRegistryInvalid
+	}
+	return canonicalEncoded, hashBytes(canonicalEncoded), nil
+}
+
 func LoadRegistry(reader io.Reader) (Registry, error) {
 	if reader == nil {
 		return Registry{}, ErrRegistryInvalid
@@ -109,6 +144,25 @@ func LoadRegistry(reader io.Reader) (Registry, error) {
 	return Registry{document: document, providers: providers, hash: hex.EncodeToString(digest[:])}, nil
 }
 
+// LoadRegistryFile pins the deployed provider catalog by its release-manifest
+// file hash before parsing the canonical registry. This prevents replacing a
+// valid registry file with another valid but unauthorized catalog.
+func LoadRegistryFile(path, expectedFileHash string) (Registry, error) {
+	if path == "" || !registryDigestPattern.MatchString(expectedFileHash) {
+		return Registry{}, ErrRegistryInvalid
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return Registry{}, ErrRegistryInvalid
+	}
+	defer file.Close()
+	encoded, err := io.ReadAll(io.LimitReader(file, 4<<20+1))
+	if err != nil || len(encoded) == 0 || len(encoded) > 4<<20 || hashBytes(encoded) != expectedFileHash {
+		return Registry{}, ErrRegistryInvalid
+	}
+	return LoadRegistry(bytes.NewReader(encoded))
+}
+
 func (registry Registry) Snapshot() (string, uint64, string) {
 	return registry.document.SnapshotID, registry.document.Version, registry.hash
 }
@@ -140,7 +194,10 @@ func (resolved ResolvedProvider) Credential(byokRef, byokVersion string) (Manage
 	return credential, nil
 }
 
-var registryIDPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,127}$`)
+var (
+	registryIDPattern     = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,127}$`)
+	registryDigestPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
+)
 
 func validateProvider(definition *ProviderDefinition) error {
 	if definition == nil || !registryIDPattern.MatchString(definition.ID) || !registryIDPattern.MatchString(definition.Region) || len(definition.Models) == 0 || len(definition.Models) > 256 || definition.MaximumRequestBytes < 1024 || definition.MaximumRequestBytes > 64<<20 || definition.MaximumResponseBytes < 1024 || definition.MaximumResponseBytes > 64<<20 {

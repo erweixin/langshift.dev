@@ -104,7 +104,7 @@ func run(ctx context.Context, configuration config, logger *slog.Logger) error {
 	if err != nil {
 		return errors.New("configure observability")
 	}
-	store := runtimepostgres.Store{Pool: pool, Appender: eventpostgres.Appender{}, Epochs: authority, StoreEpoch: storeEpoch, IDKey: idKey, TokenPepper: tokenPepper}
+	store := runtimepostgres.Store{Pool: pool, Appender: eventpostgres.Appender{Observer: telemetry.AgentMetrics()}, Epochs: authority, StoreEpoch: storeEpoch, IDKey: idKey, TokenPepper: tokenPepper}
 	locker := sweeper.PostgresLocker{Pool: pool, UnlockTimeout: configuration.unlockTimeout}
 	coordinator := sweeper.Coordinator{Store: store, Payloads: payloadStore, Locker: locker, ShardCount: configuration.shardCount, TenantPage: configuration.tenantPage, SessionPage: configuration.sessionPage}
 	meter := telemetry.Meter("github.com/langshift/lites/cmd/runtime-sweeper")

@@ -14,7 +14,13 @@ const sourceCommit = options.get("source-commit");
 const cycles = Number(options.get("cycles"));
 const dataChecksum = options.get("data-checksum");
 const postgresVersion = options.get("postgres-version");
-if (!/^[0-9a-f]{40}$/.test(sourceCommit ?? "") || !Number.isInteger(cycles) || cycles < 3 || !/^[0-9a-f]{64}$/.test(dataChecksum ?? "") || !/^16\./.test(postgresVersion ?? "")) {
+const latestVersion = Number(options.get("latest-version"));
+const tableCount = Number(options.get("table-count"));
+const forcedRLSCount = Number(options.get("forced-rls-count"));
+const appendOnlyTriggerCount = Number(options.get("append-only-trigger-count"));
+const manifest = JSON.parse(fs.readFileSync(path.join("deploy", "migrations", "manifest.json"), "utf8"));
+const manifestLatestVersion = manifest?.migrations?.at(-1)?.version;
+if (!/^[0-9a-f]{40}$/.test(sourceCommit ?? "") || !Number.isInteger(cycles) || cycles < 3 || !/^[0-9a-f]{64}$/.test(dataChecksum ?? "") || !/^16\./.test(postgresVersion ?? "") || !Number.isInteger(latestVersion) || latestVersion < 1 || latestVersion !== manifestLatestVersion || !Number.isInteger(tableCount) || tableCount < 1 || !Number.isInteger(forcedRLSCount) || forcedRLSCount < 1 || forcedRLSCount > tableCount || !Number.isInteger(appendOnlyTriggerCount) || appendOnlyTriggerCount < 1) {
   throw new Error("migration report evidence is invalid");
 }
 const report = {
@@ -35,10 +41,10 @@ const report = {
   database: {
     engine: "PostgreSQL",
     version: postgresVersion,
-    latestVersion: 3,
-    tableCount: 92,
-    forcedRLSCount: 85,
-    appendOnlyTriggerCount: 21,
+    latestVersion,
+    tableCount,
+    forcedRLSCount,
+    appendOnlyTriggerCount,
   },
   dataChecksum,
   zeroToleranceFailures: [],

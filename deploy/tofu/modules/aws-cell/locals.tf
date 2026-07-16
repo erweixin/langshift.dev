@@ -10,6 +10,7 @@ locals {
     "identity-service",
     "realtime-gateway",
     "behavior-control-plane",
+    "agent-control-plane",
     "identity-import-worker",
     "identity-mail-worker",
     "outbox-publisher",

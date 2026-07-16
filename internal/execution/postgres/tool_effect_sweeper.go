@@ -22,7 +22,10 @@ var ErrToolEffectNotSweepable = errors.New("expired tool effect is no longer swe
 type ExpiredToolEffectCandidate struct {
 	TenantID, UserID, StoreEpoch, ToolCallID, RunID, EffectID string
 	CommandID, AttemptID, InboxID, ConsumerName, RequestHash  string
-	JobID, EffectClass, ProviderRequestID                     string
+	SourceCommandRef, SourceCommandHash, JobID                string
+	ToolName, DescriptorSnapshotID, ToolRequestHash           string
+	EffectClass, EffectKey, EffectScope, ProviderID           string
+	ProviderRequestID                                         string
 	ToolVersion, EffectVersion, AttemptVersion, Fence         uint64
 	LeaseExpiresAt                                            time.Time
 }
@@ -85,8 +88,8 @@ func (store RunStore) ListExpiredEffectCandidates(ctx context.Context, tenantID,
 	}
 	now := store.claimNow()
 	rows, err := tx.Query(ctx, `SELECT t.tenant_id::text,t.user_id::text,o.store_epoch::text,t.id::text,t.run_id::text,e.id::text,
-		t.active_command_id::text,t.active_attempt_id::text,i.id::text,i.consumer_name,i.request_hash,j.id::text,
-		t.effect_class,e.provider_request_id,t.tool_call_version,e.version,a.version,t.current_fence,t.lease_expires_at
+		t.active_command_id::text,t.active_attempt_id::text,i.id::text,i.consumer_name,i.request_hash,o.payload_ref,o.payload_hash,j.id::text,
+		t.tool_name,t.descriptor_snapshot_id,t.request_hash,t.effect_class,e.effect_key,e.effect_scope,e.provider_id,e.provider_request_id,t.tool_call_version,e.version,a.version,t.current_fence,t.lease_expires_at
 		FROM agent.tool_calls t
 		JOIN agent.tool_effects e ON e.tenant_id=t.tenant_id AND e.tool_call_id=t.id
 		JOIN agent.outbox o ON o.tenant_id=t.tenant_id AND o.command_id=t.active_command_id
@@ -94,7 +97,7 @@ func (store RunStore) ListExpiredEffectCandidates(ctx context.Context, tenantID,
 		JOIN agent.jobs j ON j.tenant_id=t.tenant_id AND j.command_id=t.active_command_id
 		JOIN agent.job_attempts a ON a.tenant_id=t.tenant_id AND a.id=t.active_attempt_id AND a.job_id=j.id AND a.command_id=j.command_id
 		WHERE t.tenant_id=$1 AND o.store_epoch=$2 AND t.status='executing'
-		  AND t.effect_class IN ('reconcilable_write','compensatable_write','irreversible_write') AND t.lease_expires_at<=$3
+		  AND t.effect_class IN ('idempotent_write','reconcilable_write','compensatable_write','irreversible_write') AND t.lease_expires_at<=$3
 		  AND e.status='executing' AND e.execution_attempt_id=t.active_attempt_id AND e.execution_fence=t.current_fence AND NULLIF(e.provider_request_id,'') IS NOT NULL
 		  AND i.status='running' AND i.fence=t.current_fence AND i.lease_expires_at=t.lease_expires_at AND i.lease_expires_at<=$3 AND i.request_hash=o.payload_hash
 		  AND j.status='running' AND a.status='running' AND a.fence=t.current_fence AND a.lease_expires_at=t.lease_expires_at AND a.lease_expires_at<=$3
@@ -107,7 +110,7 @@ func (store RunStore) ListExpiredEffectCandidates(ctx context.Context, tenantID,
 	result := make([]ExpiredToolEffectCandidate, 0, limit)
 	for rows.Next() {
 		var candidate ExpiredToolEffectCandidate
-		if err = rows.Scan(&candidate.TenantID, &candidate.UserID, &candidate.StoreEpoch, &candidate.ToolCallID, &candidate.RunID, &candidate.EffectID, &candidate.CommandID, &candidate.AttemptID, &candidate.InboxID, &candidate.ConsumerName, &candidate.RequestHash, &candidate.JobID, &candidate.EffectClass, &candidate.ProviderRequestID, &candidate.ToolVersion, &candidate.EffectVersion, &candidate.AttemptVersion, &candidate.Fence, &candidate.LeaseExpiresAt); err != nil {
+		if err = rows.Scan(&candidate.TenantID, &candidate.UserID, &candidate.StoreEpoch, &candidate.ToolCallID, &candidate.RunID, &candidate.EffectID, &candidate.CommandID, &candidate.AttemptID, &candidate.InboxID, &candidate.ConsumerName, &candidate.RequestHash, &candidate.SourceCommandRef, &candidate.SourceCommandHash, &candidate.JobID, &candidate.ToolName, &candidate.DescriptorSnapshotID, &candidate.ToolRequestHash, &candidate.EffectClass, &candidate.EffectKey, &candidate.EffectScope, &candidate.ProviderID, &candidate.ProviderRequestID, &candidate.ToolVersion, &candidate.EffectVersion, &candidate.AttemptVersion, &candidate.Fence, &candidate.LeaseExpiresAt); err != nil {
 			return nil, err
 		}
 		result = append(result, candidate)
@@ -158,9 +161,12 @@ func (store RunStore) sweepExpiredToolEffect(ctx context.Context, command SweepE
 	if err != nil {
 		return SweptToolEffect{}, err
 	}
-	reconcile, err := store.reconciliationIdentifiers(candidate.EffectID, nextToolVersion)
-	if err != nil {
-		return SweptToolEffect{}, err
+	var reconcile reconciliationIDs
+	if isAutomaticallyReconcilableEffectClass(candidate.EffectClass) {
+		reconcile, err = store.reconciliationIdentifiers(candidate.EffectID, nextToolVersion)
+		if err != nil {
+			return SweptToolEffect{}, err
+		}
 	}
 
 	tx, err := store.Pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
@@ -185,7 +191,7 @@ func (store RunStore) sweepExpiredToolEffect(ctx context.Context, command SweepE
 	var effectVersion, effectFence uint64
 	var effectStatus, effectClass, effectAttempt, providerRequestID string
 	err = tx.QueryRow(ctx, `SELECT version,status,effect_class,execution_attempt_id::text,execution_fence,provider_request_id FROM agent.tool_effects WHERE id=$1 AND tenant_id=$2 AND tool_call_id=$3 AND run_id=$4 FOR UPDATE`, candidate.EffectID, candidate.TenantID, candidate.ToolCallID, candidate.RunID).Scan(&effectVersion, &effectStatus, &effectClass, &effectAttempt, &effectFence, &providerRequestID)
-	if err != nil || effectVersion != candidate.EffectVersion || effectStatus != "executing" || effectClass != candidate.EffectClass || !isAutomaticallyReconcilableEffectClass(effectClass) || effectAttempt != candidate.AttemptID || effectFence != candidate.Fence || providerRequestID != candidate.ProviderRequestID {
+	if err != nil || effectVersion != candidate.EffectVersion || effectStatus != "executing" || effectClass != candidate.EffectClass || !isWriteEffectClass(effectClass) || effectAttempt != candidate.AttemptID || effectFence != candidate.Fence || providerRequestID != candidate.ProviderRequestID {
 		return SweptToolEffect{}, ErrToolEffectNotSweepable
 	}
 	var toolVersion, toolFence uint64
@@ -227,7 +233,11 @@ func (store RunStore) sweepExpiredToolEffect(ctx context.Context, command SweepE
 	}
 
 	causationID := candidate.CommandID
-	toolEvent := eventpostgres.Input{Event: eventpostgres.Event{ID: toolEventID, TenantID: candidate.TenantID, UserID: candidate.UserID, EventType: "ToolCallOutcomeUnknown", SchemaVersion: 1, AggregateKind: "tool_call", AggregateID: candidate.ToolCallID, AggregateVersion: nextToolVersion, StoreEpoch: candidate.StoreEpoch, OccurredAt: now, Actor: command.Actor, CausationID: &causationID, CorrelationID: command.CorrelationID, PayloadRef: command.OutcomeUnknownEvent.Ref, PayloadHash: command.OutcomeUnknownEvent.Hash}, Commands: []eventpostgres.OutboxCommand{{ID: toolOutboxID, CommandID: toolPublishID, CommandType: "events.publish", PayloadRef: command.OutcomeUnknownEvent.Ref, PayloadHash: command.OutcomeUnknownEvent.Hash}, {ID: reconcile.outbox, CommandID: reconcile.command, CommandType: "ReconcileToolEffect", PayloadRef: command.Reconciliation.ReconcileCommand.Ref, PayloadHash: command.Reconciliation.ReconcileCommand.Hash}}}
+	toolCommands := []eventpostgres.OutboxCommand{{ID: toolOutboxID, CommandID: toolPublishID, CommandType: "events.publish", PayloadRef: command.OutcomeUnknownEvent.Ref, PayloadHash: command.OutcomeUnknownEvent.Hash}}
+	if reconcile.command != "" {
+		toolCommands = append(toolCommands, eventpostgres.OutboxCommand{ID: reconcile.outbox, CommandID: reconcile.command, CommandType: "ReconcileToolEffect", PayloadRef: command.Reconciliation.ReconcileCommand.Ref, PayloadHash: command.Reconciliation.ReconcileCommand.Hash})
+	}
+	toolEvent := eventpostgres.Input{Event: eventpostgres.Event{ID: toolEventID, TenantID: candidate.TenantID, UserID: candidate.UserID, EventType: "ToolCallOutcomeUnknown", SchemaVersion: 1, AggregateKind: "tool_call", AggregateID: candidate.ToolCallID, AggregateVersion: nextToolVersion, StoreEpoch: candidate.StoreEpoch, OccurredAt: now, Actor: command.Actor, CausationID: &causationID, CorrelationID: command.CorrelationID, PayloadRef: command.OutcomeUnknownEvent.Ref, PayloadHash: command.OutcomeUnknownEvent.Hash}, Commands: toolCommands}
 	if _, err = store.Appender.Append(ctx, tx, toolEvent); err != nil {
 		return SweptToolEffect{}, err
 	}
@@ -236,11 +246,13 @@ func (store RunStore) sweepExpiredToolEffect(ctx context.Context, command SweepE
 			return SweptToolEffect{}, err
 		}
 	}
-	if tag, updateErr := tx.Exec(ctx, `UPDATE agent.outbox SET available_at=$1 WHERE id=$2 AND tenant_id=$3 AND command_id=$4 AND status='pending'`, command.Reconciliation.ReconciliationDueAt, reconcile.outbox, candidate.TenantID, reconcile.command); updateErr != nil || tag.RowsAffected() != 1 {
-		return SweptToolEffect{}, ErrExecutionRightConflict
-	}
-	if _, err = tx.Exec(ctx, `INSERT INTO agent.jobs(id,tenant_id,command_id,queue_class,resource_class,priority,cost_units,max_attempts,status,available_at,enqueued_at,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'pending',$9,$10,$10,$10)`, reconcile.job, candidate.TenantID, reconcile.command, command.Reconciliation.ReconcileQueueClass, command.Reconciliation.ReconcileResource, command.Reconciliation.ReconcilePriority, command.Reconciliation.ReconcileCostUnits, command.Reconciliation.ReconcileAttempts, command.Reconciliation.ReconciliationDueAt, now); err != nil {
-		return SweptToolEffect{}, err
+	if reconcile.command != "" {
+		if tag, updateErr := tx.Exec(ctx, `UPDATE agent.outbox SET available_at=$1 WHERE id=$2 AND tenant_id=$3 AND command_id=$4 AND status='pending'`, command.Reconciliation.ReconciliationDueAt, reconcile.outbox, candidate.TenantID, reconcile.command); updateErr != nil || tag.RowsAffected() != 1 {
+			return SweptToolEffect{}, ErrExecutionRightConflict
+		}
+		if _, err = tx.Exec(ctx, `INSERT INTO agent.jobs(id,tenant_id,command_id,queue_class,resource_class,priority,cost_units,max_attempts,status,available_at,enqueued_at,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'pending',$9,$10,$10,$10)`, reconcile.job, candidate.TenantID, reconcile.command, command.Reconciliation.ReconcileQueueClass, command.Reconciliation.ReconcileResource, command.Reconciliation.ReconcilePriority, command.Reconciliation.ReconcileCostUnits, command.Reconciliation.ReconcileAttempts, command.Reconciliation.ReconciliationDueAt, now); err != nil {
+			return SweptToolEffect{}, err
+		}
 	}
 	attemptCausationID := toolEventID
 	attemptEvent := eventpostgres.Input{Event: eventpostgres.Event{ID: attemptEventIDs.attemptEvent, TenantID: candidate.TenantID, UserID: candidate.UserID, EventType: "JobAttemptCompleted", SchemaVersion: 1, AggregateKind: "job_attempt", AggregateID: candidate.AttemptID, AggregateVersion: attemptVersion + 1, StoreEpoch: candidate.StoreEpoch, OccurredAt: now, Actor: command.Actor, CausationID: &attemptCausationID, CorrelationID: command.CorrelationID, PayloadRef: command.AttemptExpiredEvent.Ref, PayloadHash: command.AttemptExpiredEvent.Hash}, Commands: []eventpostgres.OutboxCommand{{ID: attemptEventIDs.attemptOutbox, CommandID: attemptEventIDs.attemptPublish, CommandType: "events.publish", PayloadRef: command.AttemptExpiredEvent.Ref, PayloadHash: command.AttemptExpiredEvent.Hash}}}
@@ -255,7 +267,7 @@ func (store RunStore) sweepExpiredToolEffect(ctx context.Context, command SweepE
 
 func validSweepExpiredToolEffect(command SweepExpiredToolEffectCommand) bool {
 	candidate := command.Candidate
-	return candidate.TenantID != "" && candidate.UserID != "" && candidate.StoreEpoch != "" && candidate.ToolCallID != "" && candidate.RunID != "" && candidate.EffectID != "" && candidate.CommandID != "" && candidate.AttemptID != "" && candidate.InboxID != "" && candidate.ConsumerName != "" && candidate.RequestHash != "" && candidate.JobID != "" && isAutomaticallyReconcilableEffectClass(candidate.EffectClass) && candidate.ProviderRequestID != "" && candidate.ToolVersion > 0 && candidate.EffectVersion > 0 && candidate.AttemptVersion > 0 && candidate.Fence > 0 && !candidate.LeaseExpiresAt.IsZero() && command.ResultHash != "" && validJSONObject(command.Actor) && command.CorrelationID != "" && validPointer(command.OutcomeUnknownEvent) && validPointer(command.AttemptExpiredEvent) && validEffectCompletion(statemachine.ToolCallOutcomeUnknown, command.Reconciliation)
+	return candidate.TenantID != "" && candidate.UserID != "" && candidate.StoreEpoch != "" && candidate.ToolCallID != "" && candidate.RunID != "" && candidate.EffectID != "" && candidate.CommandID != "" && candidate.AttemptID != "" && candidate.InboxID != "" && candidate.ConsumerName != "" && candidate.RequestHash != "" && candidate.JobID != "" && isWriteEffectClass(candidate.EffectClass) && candidate.ProviderRequestID != "" && candidate.ToolVersion > 0 && candidate.EffectVersion > 0 && candidate.AttemptVersion > 0 && candidate.Fence > 0 && !candidate.LeaseExpiresAt.IsZero() && command.ResultHash != "" && validJSONObject(command.Actor) && command.CorrelationID != "" && validPointer(command.OutcomeUnknownEvent) && validPointer(command.AttemptExpiredEvent) && validEffectCompletion(candidate.EffectClass, statemachine.ToolCallOutcomeUnknown, command.Reconciliation)
 }
 
 func isAutomaticallyReconcilableEffectClass(class string) bool {

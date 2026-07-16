@@ -152,3 +152,10 @@ func (store RunStore) reconciliationRetryIdentifiers(effectID string, effectVers
 	}
 	return reconciliationRetryIDs{values[0], values[1], values[2]}, nil
 }
+
+// ReconcileToolEffectRetryCommandID exposes the deterministic retry command
+// identifier so encrypted payload AAD is bound before the deferral commits.
+func ReconcileToolEffectRetryCommandID(idKey []byte, effectID string, nextEffectVersion uint64) (string, error) {
+	value, err := ids.DeterministicUUID(idKey, "reconcile-tool-effect-retry-command", fmt.Sprintf("%s\x00%d", effectID, nextEffectVersion))
+	return value, err
+}

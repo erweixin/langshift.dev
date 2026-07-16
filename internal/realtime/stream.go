@@ -58,6 +58,12 @@ type Stream struct {
 	SendTimeout     time.Duration
 	ReauthLead      time.Duration
 	Now             func() time.Time
+	Metrics         Metrics
+}
+
+type Metrics interface {
+	AddRealtimeConnections(context.Context, int64)
+	ObserveRealtimeGapRecovery(context.Context, time.Duration)
 }
 
 func (stream Stream) Run(ctx context.Context, session Session, sink Sink) error {
@@ -67,6 +73,10 @@ func (stream Stream) Run(ctx context.Context, session Session, sink Sink) error 
 	now := stream.now()
 	if !session.ExpiresAt.After(now) {
 		return ErrAuthExpired
+	}
+	if stream.Metrics != nil {
+		stream.Metrics.AddRealtimeConnections(ctx, 1)
+		defer stream.Metrics.AddRealtimeConnections(ctx, -1)
 	}
 	subscription, notifications := stream.subscribe(ctx, session)
 	defer func() {
@@ -150,6 +160,8 @@ func (stream Stream) catchUp(ctx context.Context, session Session, sink Sink, cu
 	if cursor > high {
 		return cursor, ErrCursorAhead
 	}
+	recoveryStarted := stream.now()
+	recovering := cursor < high
 	for cursor < high {
 		events, listErr := stream.Store.List(catchCtx, session.TenantID, session.UserID, cursor, high, stream.PageSize)
 		if listErr != nil {
@@ -176,6 +188,9 @@ func (stream Stream) catchUp(ctx context.Context, session Session, sink Sink, cu
 			}
 			cursor = event.Sequence
 		}
+	}
+	if recovering && stream.Metrics != nil {
+		stream.Metrics.ObserveRealtimeGapRecovery(ctx, stream.now().Sub(recoveryStarted))
 	}
 	return cursor, nil
 }

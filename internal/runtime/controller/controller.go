@@ -99,6 +99,7 @@ type Controller struct {
 	Now                      func() time.Time
 	OnError                  func(error)
 	MaximumExecutionDuration time.Duration
+	Metrics                  Metrics
 
 	stage        func(context.Context, firecracker.StageRequest) (stagedMachine, error)
 	start        func(context.Context, firecracker.Spec) (machineProcess, error)
@@ -110,6 +111,11 @@ type Controller struct {
 
 	mu     sync.Mutex
 	active map[string]*activeMachine
+}
+
+type Metrics interface {
+	AddOwnedRuntimeSessions(context.Context, int64, string)
+	ObserveRuntimeColdStart(context.Context, time.Duration, string)
 }
 
 type ProvisionRequest struct {
@@ -167,6 +173,7 @@ func (controller *Controller) Provision(ctx context.Context, request ProvisionRe
 	if controller.containsCommandMachine(request.Command.MachineID) {
 		return Provisioned{}, ErrNotOwned
 	}
+	startedAt := controller.now()
 	provision, err := controller.Store.BeginProvision(ctx, request.Command)
 	if err != nil {
 		return Provisioned{}, err
@@ -257,6 +264,10 @@ func (controller *Controller) Provision(ctx context.Context, request ProvisionRe
 		return Provisioned{}, errors.Join(ErrConfiguration, controller.abortProvision(ctx, request, provision, process, staged, &owner, "duplicate_machine_owner"))
 	}
 	controller.watch(provision.SessionID, active)
+	if controller.Metrics != nil {
+		controller.Metrics.AddOwnedRuntimeSessions(ctx, 1, provision.Policy.TrustTier)
+		controller.Metrics.ObserveRuntimeColdStart(ctx, controller.now().Sub(startedAt), provision.Policy.TrustTier)
+	}
 	return Provisioned{Provision: provision, Ready: ready}, nil
 }
 
@@ -365,6 +376,9 @@ func (controller *Controller) Terminate(ctx context.Context, sessionID, reason s
 	}
 	if completeErr == nil {
 		completeErr = controller.Ownership.Remove(active.owner)
+	}
+	if completeErr == nil && controller.Metrics != nil {
+		controller.Metrics.AddOwnedRuntimeSessions(ctx, -1, active.result.Policy.TrustTier)
 	}
 	return terminated, errors.Join(stopErr, completeErr)
 }

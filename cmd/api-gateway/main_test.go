@@ -48,3 +48,30 @@ func TestBehaviorRoutingIsExactAndCannotCaptureLookalikePaths(t *testing.T) {
 		})
 	}
 }
+
+func TestAgentRoutingIsExactAndCannotCaptureLookalikePaths(t *testing.T) {
+	tests := []struct {
+		path string
+		want bool
+	}{
+		{path: "/v1/conversations", want: true},
+		{path: "/v1/messages", want: true},
+		{path: "/v1/runs/run-1", want: true},
+		{path: "/v1/runs/run-1/cancel", want: true},
+		{path: "/v1/approvals/approval-1/decisions", want: true},
+		{path: "/v1/admin/approval-requests/approval-1/decisions", want: true},
+		{path: "/v1/admin/repair-commands", want: true},
+		{path: "/v1/admin/repair-commands/repair-1/decisions", want: true},
+		{path: "/v1/conversations/", want: false},
+		{path: "/v1/messages/export", want: false},
+		{path: "/v1/runs/run-1/cancel/extra", want: false},
+		{path: "/v1/approvals/approval-1", want: false},
+	}
+	for _, test := range tests {
+		t.Run(test.path, func(t *testing.T) {
+			if got := isAgentRoute(test.path); got != test.want {
+				t.Fatalf("isAgentRoute(%q) = %v, want %v", test.path, got, test.want)
+			}
+		})
+	}
+}

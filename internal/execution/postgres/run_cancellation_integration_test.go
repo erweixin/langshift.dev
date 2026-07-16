@@ -197,6 +197,29 @@ func TestRunCancellationBarrierIsEventBackedAndFencesWorkers(t *testing.T) {
 		if err = json.Unmarshal(plaintext, &eventPayload); err != nil || eventPayload["subject_id"] != toolID || eventPayload["previous_state"] != "requested" || eventPayload["new_state"] != "cancelled" || eventPayload["reason_code"] != "run_cancellation_requested" || eventPayload["command_id"] != tools.ToolCalls[0].CommandID {
 			t.Fatalf("invalid encrypted ToolCallCancelled payload=%s error=%v", plaintext, err)
 		}
+		var settlementPayloadRef, settlementPayloadHash string
+		var settlementOccurredAt time.Time
+		if err = admin.QueryRow(ctx, `SELECT payload_ref,payload_hash,occurred_at FROM agent.events WHERE tenant_id=$1 AND id=$2`, tenantID, reconciled.SettlementEventID).Scan(&settlementPayloadRef, &settlementPayloadHash, &settlementOccurredAt); err != nil {
+			t.Fatal(err)
+		}
+		settlementDescriptor := payload.Descriptor{TenantID: tenantID, ObjectID: reconciled.SettlementEventID, Class: cancellationRecoveryEventClass, ContentType: "application/json"}
+		settlementPlaintext, err := payloads.Get(ctx, settlementDescriptor, payload.Manifest{Ref: settlementPayloadRef, Hash: settlementPayloadHash})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var settlementPayload map[string]any
+		if err = json.Unmarshal(settlementPlaintext, &settlementPayload); err != nil {
+			t.Fatal(err)
+		}
+		settledAtValue, ok := settlementPayload["barrier_settled_at"].(string)
+		if !ok {
+			t.Fatalf("delayed RunCancelled payload has no timestamp: %s", settlementPlaintext)
+		}
+		settledAt, err := time.Parse(time.RFC3339Nano, settledAtValue)
+		expectedSettledAt := now.Add(cancellationReconciliationDelay)
+		if err != nil || !settledAt.Equal(expectedSettledAt) || !settlementOccurredAt.Equal(expectedSettledAt) || settledAt.Equal(now) || settlementPayload["subject_id"] != runID || settlementPayload["previous_state"] != "waiting_tool" || settlementPayload["new_state"] != "cancelled" {
+			t.Fatalf("invalid delayed RunCancelled payload=%s occurred_at=%s expected=%s error=%v", settlementPlaintext, settlementOccurredAt, expectedSettledAt, err)
+		}
 		var effectStatus string
 		if err = admin.QueryRow(ctx, `SELECT r.status,c.status,t.status,j.status,e.status,
 			(SELECT count(*) FROM agent.events WHERE tenant_id=$1 AND aggregate_kind='tool_call' AND aggregate_id=$3 AND event_type='ToolCallCancelled'),
@@ -236,9 +259,17 @@ func TestRunCancellationBarrierIsEventBackedAndFencesWorkers(t *testing.T) {
 		if err != nil || requestedCancellation.Settled {
 			t.Fatalf("requested cancellation=%#v error=%v", requestedCancellation, err)
 		}
-		reconciled, err := store.ReconcileCancellation(ctx, ReconcileRunCancellationCommand{CancellationID: cancellationID, TenantID: tenantID, StoreEpoch: storeEpoch, ExpectedCancellationVersion: 2, Actor: json.RawMessage(`{"kind":"service"}`), CorrelationID: correlationID, ToolCancelledEvents: map[string]PayloadPointer{}})
+		recoveryStore := store
+		recoveryStore.Now = func() time.Time { return now.Add(cancellationReconciliationDelay) }
+		blobs := &repairServiceBlobs{values: map[string][]byte{}}
+		payloads := payload.EnvelopeStore{Keys: repairServiceKeyProvider{key: payload.Key{ID: "run-cancellation-v1", Material: bytes.Repeat([]byte{0xc4}, 32)}}, Blobs: blobs}
+		reconciler := RunCancellationReconcilerService{Store: recoveryStore, Payloads: payloads, IDKey: store.IDKey}
+		reconciled, err := reconciler.ReconcileDueCancellation(ctx, tenantID, cancellationID, storeEpoch)
 		if err != nil || reconciled.Settled || reconciled.CancelledToolCalls != 0 || reconciled.RemainingBlockers != 1 || reconciled.CancellationVersion != 3 || !reconciled.NextAttemptAt.After(now) {
 			t.Fatalf("reconciled=%#v error=%v", reconciled, err)
+		}
+		if len(blobs.values) != 0 {
+			t.Fatalf("blocked cancellation materialized %d unreachable encrypted payloads", len(blobs.values))
 		}
 		var runStatus, cancellationStatus, toolStatus, effectStatus, attemptStatus string
 		var cancellationVersion, cancelledToolEvents, cancelledRunEvents int

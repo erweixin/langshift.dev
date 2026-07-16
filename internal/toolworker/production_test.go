@@ -33,6 +33,7 @@ func TestProductionRuntimeSharesContentPinnedRegistry(t *testing.T) {
 		Resume:                Schedule{QueueClass: "interactive", ResourceClass: "llm", Priority: 50, CostUnits: 4, MaxAttempts: 5},
 		Reconcile:             Schedule{QueueClass: "background", ResourceClass: "tool-reconciliation", Priority: 40, CostUnits: 1, MaxAttempts: 8},
 		DefaultReconcileAfter: time.Minute,
+		Metrics:               &toolMetricsStub{},
 	})
 	if err != nil || runtime.Artifact.RegistryHash == "" || runtime.Handler.Executor == nil || runtime.Handler.Policy == nil {
 		t.Fatalf("runtime=%#v error=%v", runtime, err)
@@ -46,7 +47,7 @@ func TestProductionRuntimeSharesContentPinnedRegistry(t *testing.T) {
 }
 
 func TestProductionRuntimeFailsClosedOnArtifactOrHandlerDrift(t *testing.T) {
-	configuration := ProductionConfig{Pool: &pgxpool.Pool{}, Payloads: &memoryPayloads{}, Tools: &toolStoreStub{}}
+	configuration := ProductionConfig{Pool: &pgxpool.Pool{}, Payloads: &memoryPayloads{}, Tools: &toolStoreStub{}, Metrics: &toolMetricsStub{}}
 	if _, err := NewProductionRuntime(configuration); !errors.Is(err, ErrProductionConfiguration) {
 		t.Fatalf("missing artifact error=%v", err)
 	}

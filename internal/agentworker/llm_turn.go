@@ -82,6 +82,7 @@ type LLMTurnExecutor struct {
 	CompletionTTL       time.Duration
 	ReconciliationDelay time.Duration
 	Now                 func() time.Time
+	Metrics             WorkerMetrics
 }
 
 func (executor LLMTurnExecutor) Execute(ctx context.Context, execution Execution) (TurnResult, error) {
@@ -159,6 +160,14 @@ func (executor LLMTurnExecutor) Execute(ctx context.Context, execution Execution
 		if putErr != nil {
 			return result, putErr
 		}
+		providerStartedAt := executor.now()
+		firstSafeTokenOrigin := execution.Claim.CreatedAt
+		if firstSafeTokenOrigin.IsZero() {
+			firstSafeTokenOrigin = providerStartedAt
+		}
+		if executor.Metrics != nil {
+			executor.Metrics.AddActiveProviderRequests(ctx, 1, candidate.Candidate.ProviderID)
+		}
 		providerExecution, callErr := executor.Gateway.Execute(ctx, llmgateway.ExecuteCommand{
 			Candidate: candidate.Candidate, Request: plan.Request, EstimatedInputTokens: plan.EstimatedInputTokens,
 			FailureEstimate: plan.FailureEstimate, Sink: plan.Sink,
@@ -168,6 +177,18 @@ func (executor LLMTurnExecutor) Execute(ctx context.Context, execution Execution
 				Actor: executor.Actor, DispatchEvent: dispatchEvent},
 			ReconciliationDueAt: now.Add(executor.CompletionTTL + executor.ReconciliationDelay),
 		})
+		if executor.Metrics != nil {
+			executor.Metrics.AddActiveProviderRequests(ctx, -1, candidate.Candidate.ProviderID)
+			if providerExecution.Durable {
+				tokens := providerExecution.Accounting.InputTokens + providerExecution.Accounting.OutputTokens
+				if tokens <= uint64(^uint64(0)>>1) {
+					executor.Metrics.AddProviderTokens(ctx, int64(tokens), candidate.Candidate.ProviderID, "custom")
+				}
+				if visible := providerExecution.ProviderResult.VisibleOutputStartedAt; visible != nil && !visible.Before(firstSafeTokenOrigin) {
+					executor.Metrics.ObserveFirstSafeToken(ctx, visible.Sub(firstSafeTokenOrigin), candidate.Candidate.ProviderID)
+				}
+			}
+		}
 		if !providerExecution.Durable {
 			return result, errors.Join(llmgateway.ErrResultNotRecorded, callErr)
 		}

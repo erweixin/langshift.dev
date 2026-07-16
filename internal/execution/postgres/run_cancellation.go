@@ -67,17 +67,34 @@ func (store RunStore) RequestCancellation(ctx context.Context, command RequestRu
 	if err := store.requireClaimEpoch(ctx, store.StoreEpoch); err != nil {
 		return RunCancellationResult{}, err
 	}
+	tx, err := store.Pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		return RunCancellationResult{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	result, err := store.RequestCancellationInTx(ctx, tx, command)
+	if err != nil {
+		return RunCancellationResult{}, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return RunCancellationResult{}, err
+	}
+	return result, nil
+}
+
+// RequestCancellationInTx lets the public API idempotency response and the
+// cancellation barrier share one commit. Epoch validation remains the
+// caller's responsibility and must happen before opening the transaction.
+func (store RunStore) RequestCancellationInTx(ctx context.Context, tx pgx.Tx, command RequestRunCancellationCommand) (RunCancellationResult, error) {
+	if tx == nil || !store.validClaimCore() || store.LeaseTTL <= 0 || !validRequestRunCancellation(command) {
+		return RunCancellationResult{}, ErrInvalidCommand
+	}
 	identifiers, err := store.cancellationIdentifiers(command.CancellationID)
 	if err != nil {
 		return RunCancellationResult{}, ErrConfiguration
 	}
 	now := store.claimNow()
 	reconcileAt := now.Add(cancellationReconciliationDelay).UTC().Truncate(time.Microsecond)
-	tx, err := store.Pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
-	if err != nil {
-		return RunCancellationResult{}, err
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
 	if _, err = tx.Exec(ctx, `SELECT set_config('lites.tenant_id',$1,true)`, command.TenantID); err != nil {
 		return RunCancellationResult{}, err
 	}
@@ -122,16 +139,10 @@ func (store RunStore) RequestCancellation(ctx context.Context, command RequestRu
 		if !exact {
 			return RunCancellationResult{}, ErrRunConflict
 		}
-		if err = tx.Commit(ctx); err != nil {
-			return RunCancellationResult{}, err
-		}
 		return result, nil
 	}
 	state := statemachine.RunState(runStatus)
 	if statemachine.Runs.IsTerminal(state) {
-		if err = tx.Commit(ctx); err != nil {
-			return RunCancellationResult{}, err
-		}
 		return RunCancellationResult{RunID: command.RunID, RunVersion: runVersion, RunStatus: state, UpdatedAt: now, Settled: true}, nil
 	}
 	if runVersion != command.ExpectedRunVersion || cancelGeneration == ^uint64(0) {
@@ -218,9 +229,6 @@ func (store RunStore) RequestCancellation(ctx context.Context, command RequestRu
 		if tag, updateErr := tx.Exec(ctx, `UPDATE agent.runs SET current_fence=$1,cancel_requested_at=$2,cancel_generation=$3,active_cancellation_id=$4,updated_at=$2 WHERE id=$5 AND tenant_id=$6 AND run_version=$7 AND cancel_requested_at IS NULL`, nextFence, now, nextGeneration, command.CancellationID, command.RunID, command.TenantID, runVersion); updateErr != nil || tag.RowsAffected() != 1 {
 			return RunCancellationResult{}, ErrRunConflict
 		}
-	}
-	if err = tx.Commit(ctx); err != nil {
-		return RunCancellationResult{}, err
 	}
 	result := RunCancellationResult{CancellationID: command.CancellationID, CancelGeneration: nextGeneration, CancellationStatus: cancellationStatus, RunID: command.RunID, RunVersion: nextRunVersion, RunStatus: state, RequestEventID: identifiers.requestEvent, UpdatedAt: now, Settled: settled}
 	if settled {

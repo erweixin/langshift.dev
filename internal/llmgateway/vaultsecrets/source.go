@@ -24,6 +24,36 @@ type Source struct {
 	Field  string
 }
 
+// MultiSource routes an immutable secret reference to exactly one configured
+// namespace. Ambiguous or unbound references fail closed before Vault is read.
+type MultiSource struct {
+	Sources []Source
+}
+
+func (multi MultiSource) Resolve(ctx context.Context, secretRef, secretVersion string) ([]byte, error) {
+	if ctx == nil || len(multi.Sources) == 0 || len(multi.Sources) > 16 {
+		return nil, ErrSecretUnavailable
+	}
+	var selected *Source
+	for index := range multi.Sources {
+		source := &multi.Sources[index]
+		if !validPrefix(source.Prefix) || source.KV == nil || source.Field != "api_key" {
+			return nil, ErrSecretUnavailable
+		}
+		if !validSecretRef(source.Prefix, secretRef) {
+			continue
+		}
+		if selected != nil {
+			return nil, ErrSecretUnavailable
+		}
+		selected = source
+	}
+	if selected == nil {
+		return nil, ErrSecretUnavailable
+	}
+	return selected.Resolve(ctx, secretRef, secretVersion)
+}
+
 func (source Source) Resolve(ctx context.Context, secretRef, secretVersion string) ([]byte, error) {
 	if ctx == nil || source.KV == nil || !validPrefix(source.Prefix) || source.Field != "api_key" || !validSecretRef(source.Prefix, secretRef) {
 		return nil, ErrSecretUnavailable

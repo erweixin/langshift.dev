@@ -83,11 +83,17 @@ func TestEffectCompletionValues(t *testing.T) {
 		t.Fatal("non-write effect class accepted")
 	}
 	unknown := EffectCompletion{ReconciliationDueAt: now.Add(time.Minute), ReconcileCommand: PayloadPointer{Ref: "encrypted://reconcile", Hash: "reconcile"}, ReconcileQueueClass: "background", ReconcileResource: "tool-reconciliation", ReconcilePriority: 50, ReconcileCostUnits: 1, ReconcileAttempts: 5}
-	if !validEffectCompletion(statemachine.ToolCallOutcomeUnknown, unknown) || validEffectCompletion(statemachine.ToolCallSucceeded, unknown) {
+	if !validEffectCompletion("reconcilable_write", statemachine.ToolCallOutcomeUnknown, unknown) || validEffectCompletion("reconcilable_write", statemachine.ToolCallSucceeded, unknown) {
 		t.Fatal("reconciliation command configuration boundary drifted")
 	}
-	if !validEffectCompletion(statemachine.ToolCallSucceeded, EffectCompletion{}) {
+	if !validEffectCompletion("reconcilable_write", statemachine.ToolCallSucceeded, EffectCompletion{}) {
 		t.Fatal("confirmed effect rejected empty reconciliation configuration")
+	}
+	manualUnknown := EffectCompletion{ReconciliationDueAt: now.Add(time.Minute)}
+	for _, class := range []string{"idempotent_write", "compensatable_write", "irreversible_write"} {
+		if !validEffectCompletion(class, statemachine.ToolCallOutcomeUnknown, manualUnknown) || validEffectCompletion(class, statemachine.ToolCallOutcomeUnknown, unknown) {
+			t.Fatalf("manual review routing drifted for %s", class)
+		}
 	}
 	reconcileFirst, err := store.reconciliationIdentifiers("effect", 3)
 	if err != nil {

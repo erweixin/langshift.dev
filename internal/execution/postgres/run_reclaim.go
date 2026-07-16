@@ -26,12 +26,13 @@ func (store RunStore) reclaimExpiredRun(ctx context.Context, tx pgx.Tx, command 
 	}
 	var userID string
 	var runVersion, lockedFence uint64
-	err := tx.QueryRow(ctx, `SELECT user_id::text,run_version,current_fence FROM agent.runs WHERE id=$1 AND tenant_id=$2 AND status='executing' AND active_command_id=$3 AND active_attempt_id=$4 AND current_fence=$5 AND lease_token_hash=$6 AND lease_expires_at=$7 AND lease_expires_at<=$8 AND cancel_requested_at IS NULL AND due_at>$8 FOR UPDATE`, command.Command.AggregateID, command.Command.TenantID, command.Command.CommandID, claim.oldAttemptID, claim.oldFence, claim.oldDigest, claim.oldExpiry, claim.now).Scan(&userID, &runVersion, &lockedFence)
+	var dueAt, createdAt time.Time
+	err := tx.QueryRow(ctx, `SELECT user_id::text,run_version,current_fence,due_at,created_at FROM agent.runs WHERE id=$1 AND tenant_id=$2 AND status='executing' AND active_command_id=$3 AND active_attempt_id=$4 AND current_fence=$5 AND lease_token_hash=$6 AND lease_expires_at=$7 AND lease_expires_at<=$8 AND cancel_requested_at IS NULL AND due_at>$8 FOR UPDATE`, command.Command.AggregateID, command.Command.TenantID, command.Command.CommandID, claim.oldAttemptID, claim.oldFence, claim.oldDigest, claim.oldExpiry, claim.now).Scan(&userID, &runVersion, &lockedFence, &dueAt, &createdAt)
 	if err != nil || lockedFence+1 != claim.newFence {
 		return RunClaim{}, ErrRunNotClaimable
 	}
-	var jobID string
-	if err = tx.QueryRow(ctx, `SELECT id::text FROM agent.jobs WHERE tenant_id=$1 AND command_id=$2 AND status='running' FOR UPDATE`, command.Command.TenantID, command.Command.CommandID).Scan(&jobID); err != nil {
+	var jobID, queueClass string
+	if err = tx.QueryRow(ctx, `SELECT id::text,queue_class FROM agent.jobs WHERE tenant_id=$1 AND command_id=$2 AND status='running' FOR UPDATE`, command.Command.TenantID, command.Command.CommandID).Scan(&jobID, &queueClass); err != nil {
 		return RunClaim{}, ErrRunNotClaimable
 	}
 	var oldAttemptVersion uint64
@@ -73,5 +74,5 @@ func (store RunStore) reclaimExpiredRun(ctx context.Context, tx pgx.Tx, command 
 	if _, err = store.Appender.Append(ctx, tx, started); err != nil {
 		return RunClaim{}, err
 	}
-	return RunClaim{RunID: command.Command.AggregateID, TenantID: command.Command.TenantID, UserID: userID, StoreEpoch: command.Command.StoreEpoch, RunVersion: runVersion, CommandID: command.Command.CommandID, ConsumerName: command.ConsumerName, RequestHash: command.Command.PayloadHash, JobID: jobID, InboxID: claim.inboxID, AttemptID: claim.newAttemptID, Fence: claim.newFence, LeaseToken: claim.newToken, LeaseExpiresAt: claim.newExpiry}, nil
+	return RunClaim{RunID: command.Command.AggregateID, TenantID: command.Command.TenantID, UserID: userID, StoreEpoch: command.Command.StoreEpoch, RunVersion: runVersion, CommandID: command.Command.CommandID, ConsumerName: command.ConsumerName, RequestHash: command.Command.PayloadHash, JobID: jobID, InboxID: claim.inboxID, AttemptID: claim.newAttemptID, Fence: claim.newFence, LeaseToken: claim.newToken, LeaseExpiresAt: claim.newExpiry, DueAt: dueAt, CreatedAt: createdAt, QueueClass: queueClass}, nil
 }

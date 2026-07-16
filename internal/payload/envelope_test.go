@@ -21,6 +21,22 @@ func (provider keyProviderStub) ByID(_ context.Context, _ string, id string) (Ke
 
 type blobStoreStub struct{ values map[string][]byte }
 
+type payloadMetricsStub struct {
+	read, write, retained int64
+}
+
+func (metrics *payloadMetricsStub) AddArtifactBytes(_ context.Context, count int64, direction string) {
+	if direction == "read" {
+		metrics.read += count
+	} else if direction == "write" {
+		metrics.write += count
+	}
+}
+
+func (metrics *payloadMetricsStub) AddRetainedBytes(_ context.Context, count int64) {
+	metrics.retained += count
+}
+
 func (store *blobStoreStub) Put(_ context.Context, key string, value []byte) (string, error) {
 	ref := "s3://restricted/" + key
 	if current, exists := store.values[ref]; exists {
@@ -42,7 +58,8 @@ func (store *blobStoreStub) Get(_ context.Context, ref string) ([]byte, error) {
 
 func TestEnvelopeStoreEncryptsBindsAndAuthenticatesRestrictedPayload(t *testing.T) {
 	blobs := &blobStoreStub{values: map[string][]byte{}}
-	store := EnvelopeStore{Keys: keyProviderStub{key: Key{ID: "vault-key-v1", Material: bytes.Repeat([]byte{0x42}, 32)}}, Blobs: blobs, Random: bytes.NewReader(bytes.Repeat([]byte{0x24}, 12))}
+	metrics := &payloadMetricsStub{}
+	store := EnvelopeStore{Keys: keyProviderStub{key: Key{ID: "vault-key-v1", Material: bytes.Repeat([]byte{0x42}, 32)}}, Blobs: blobs, Random: bytes.NewReader(bytes.Repeat([]byte{0x24}, 12)), Metrics: metrics}
 	descriptor := Descriptor{TenantID: "tenant-1", ObjectID: "verification-1", Class: "identity-email", ContentType: "application/json"}
 	plaintext := []byte(`{"email":"user@example.com","token":"raw-secret-token"}`)
 	manifest, err := store.Put(t.Context(), descriptor, plaintext)
@@ -50,6 +67,9 @@ func TestEnvelopeStoreEncryptsBindsAndAuthenticatesRestrictedPayload(t *testing.
 		t.Fatal(err)
 	}
 	stored := blobs.values[manifest.Ref]
+	if metrics.write != int64(len(stored)) || metrics.retained != int64(len(stored)) {
+		t.Fatalf("write metrics=%#v stored=%d", metrics, len(stored))
+	}
 	if bytes.Contains(stored, []byte("user@example.com")) || bytes.Contains(stored, []byte("raw-secret-token")) {
 		t.Fatal("restricted plaintext reached object storage")
 	}
@@ -60,6 +80,9 @@ func TestEnvelopeStoreEncryptsBindsAndAuthenticatesRestrictedPayload(t *testing.
 	minimalManifest := Manifest{Ref: manifest.Ref, Hash: manifest.Hash}
 	if _, err = store.Get(t.Context(), descriptor, minimalManifest); err != nil {
 		t.Fatalf("database ref/hash manifest: %v", err)
+	}
+	if metrics.read < 2*int64(len(stored)) {
+		t.Fatalf("read metrics=%#v stored=%d", metrics, len(stored))
 	}
 	wrongTenant := descriptor
 	wrongTenant.TenantID = "tenant-2"

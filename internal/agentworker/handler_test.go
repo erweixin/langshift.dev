@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -67,12 +68,18 @@ type runStoreStub struct {
 	approvals     executionpostgres.ProposeDirectToolsCommand
 	children      executionpostgres.SpawnChildRunsCommand
 	completionErr error
+	claimFunc     func(executionpostgres.ClaimRunCommand) (executionpostgres.RunClaim, error)
+	claimCalls    int
 }
 
 func (store *runStoreStub) ClaimStart(_ context.Context, command executionpostgres.ClaimRunCommand) (executionpostgres.RunClaim, error) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	store.claimCommand = command
+	store.claimCalls++
+	if store.claimFunc != nil {
+		return store.claimFunc(command)
+	}
 	return store.claim, store.claimErr
 }
 
@@ -125,6 +132,43 @@ func (store *runStoreStub) SpawnChildRuns(_ context.Context, command executionpo
 
 type runnerFunc func(context.Context, Execution) (Outcome, error)
 
+type agentMetricsStub struct {
+	heartbeats        int
+	active            int64
+	replays           int
+	completed         int
+	executions        int
+	executionOutcomes []string
+}
+
+func (metrics *agentMetricsStub) AddLeaseHeartbeats(_ context.Context, count int64, leaseKind string) {
+	if leaseKind == "run" {
+		metrics.heartbeats += int(count)
+	}
+}
+
+func (metrics *agentMetricsStub) AddExecutingRuns(_ context.Context, delta int64, _ string) {
+	metrics.active += delta
+}
+
+func (metrics *agentMetricsStub) AddRunReplays(_ context.Context, count int64, _ string) {
+	metrics.replays += int(count)
+}
+
+func (metrics *agentMetricsStub) AddRunDeadlineTransition(_ context.Context, _ string, _ bool, _ string) {
+	metrics.completed++
+}
+
+func (metrics *agentMetricsStub) AddRunExecution(_ context.Context, _, outcome string) {
+	metrics.executions++
+	metrics.executionOutcomes = append(metrics.executionOutcomes, outcome)
+}
+
+func (*agentMetricsStub) AddActiveProviderRequests(context.Context, int64, string) {}
+func (*agentMetricsStub) AddProviderTokens(context.Context, int64, string, string) {}
+func (*agentMetricsStub) ObserveFirstSafeToken(context.Context, time.Duration, string) {
+}
+
 func (function runnerFunc) Execute(ctx context.Context, execution Execution) (Outcome, error) {
 	return function(ctx, execution)
 }
@@ -146,12 +190,14 @@ func TestHandlerClaimsHeartbeatsAndCompletesRootRun(t *testing.T) {
 		}
 		return successfulOutcome("result-hash"), nil
 	}))
+	metrics := &agentMetricsStub{}
+	handler.Metrics = metrics
 	if err := handler.Handle(t.Context(), delivered); err != nil {
 		t.Fatal(err)
 	}
 	runs.mu.Lock()
 	defer runs.mu.Unlock()
-	if runs.heartbeats < 1 {
+	if runs.heartbeats < 1 || metrics.heartbeats != runs.heartbeats || metrics.active != 0 || metrics.completed != 1 || metrics.executions != 1 {
 		t.Fatal("long execution was not heartbeated")
 	}
 	if runs.claimCommand.Command.DispatchVersion != delivered.DispatchVersion || runs.claimCommand.RunEvent.Hash == "" || runs.claimCommand.AttemptExpiredEvent.Hash == "" {
@@ -173,6 +219,8 @@ func TestHandlerCancelsRunnerWhenHeartbeatIsLost(t *testing.T) {
 		close(cancelled)
 		return Outcome{}, ctx.Err()
 	}))
+	metrics := &agentMetricsStub{}
+	handler.Metrics = metrics
 	err := handler.Handle(t.Context(), delivered)
 	if !errors.Is(err, ErrHeartbeatLost) {
 		t.Fatalf("error=%v", err)
@@ -181,6 +229,9 @@ func TestHandlerCancelsRunnerWhenHeartbeatIsLost(t *testing.T) {
 	case <-cancelled:
 	case <-time.After(time.Second):
 		t.Fatal("runner did not observe lease-loss cancellation")
+	}
+	if metrics.active != 0 || metrics.executions != 1 || len(metrics.executionOutcomes) != 1 || metrics.executionOutcomes[0] != "failed" {
+		t.Fatalf("metrics=%#v", metrics)
 	}
 }
 
@@ -292,6 +343,91 @@ func TestHandlerMapsDurableClaimOutcomes(t *testing.T) {
 	}
 }
 
+func TestHandlerStartResumeCrashRedeliveryConverges100(t *testing.T) {
+	for repetition := 0; repetition < 100; repetition++ {
+		payloads := &memoryPayloads{}
+		start := deliveredCommand()
+		start.CommandID = fmt.Sprintf("10000000-0000-4000-8000-%012d", repetition+1000)
+		resume := start
+		resume.CommandID = fmt.Sprintf("20000000-0000-4000-8000-%012d", repetition+1000)
+		resume.CommandType = "ResumeAgentRun"
+		resume.QueueGeneration = 2
+		resume.DispatchVersion = 2
+		putCommand(t, payloads, &start, CommandPayload{SchemaVersion: 1, RunID: start.AggregateID, CorrelationID: "correlation-redelivery"})
+		putCommand(t, payloads, &resume, CommandPayload{SchemaVersion: 1, RunID: resume.AggregateID, CorrelationID: "correlation-redelivery"})
+
+		startClaims, resumeClaims := 0, 0
+		first := validClaim()
+		replacement := first
+		replacement.AttemptID = fmt.Sprintf("30000000-0000-4000-8000-%012d", repetition+1000)
+		replacement.Fence++
+		replacement.LeaseToken = "replacement-token"
+		resumed := replacement
+		resumed.AttemptID = fmt.Sprintf("40000000-0000-4000-8000-%012d", repetition+1000)
+		resumed.Fence++
+		resumed.RunVersion++
+		resumed.LeaseToken = "resume-token"
+		runs := &runStoreStub{}
+		runs.claimFunc = func(command executionpostgres.ClaimRunCommand) (executionpostgres.RunClaim, error) {
+			switch command.Command.CommandType {
+			case "StartAgentRun":
+				startClaims++
+				switch startClaims {
+				case 1:
+					return first, nil
+				case 2:
+					return executionpostgres.RunClaim{}, executionpostgres.ErrClaimBusy
+				case 3:
+					return replacement, nil
+				default:
+					return executionpostgres.RunClaim{}, executionpostgres.ErrClaimCompleted
+				}
+			case "ResumeAgentRun":
+				resumeClaims++
+				if resumeClaims == 1 {
+					return resumed, nil
+				}
+				return executionpostgres.RunClaim{}, executionpostgres.ErrClaimCompleted
+			default:
+				return executionpostgres.RunClaim{}, executionpostgres.ErrClaimConflict
+			}
+		}
+		runnerCalls := 0
+		handler := validHandler(payloads, runs, runnerFunc(func(_ context.Context, execution Execution) (Outcome, error) {
+			runnerCalls++
+			if execution.Command.CommandType == "StartAgentRun" && execution.Claim.Fence == first.Fence {
+				return Outcome{}, errors.New("injected process crash")
+			}
+			if execution.Command.CommandType == "StartAgentRun" {
+				outcome := successfulOutcome("")
+				outcome.State, outcome.ResultHash, outcome.RunEvent, outcome.AttemptEvent = statemachine.RunWaitingTool, "", nil, nil
+				outcome.Tools = &executionpostgres.RequestToolsCommand{PlanResultHash: "provider-result"}
+				return outcome, nil
+			}
+			return successfulOutcome("resume-result"), nil
+		}))
+		if err := handler.Handle(t.Context(), start); err == nil || errors.Is(err, eventpostgres.ErrDeliveryBusy) {
+			t.Fatalf("repetition %d injected crash error=%v", repetition, err)
+		}
+		if err := handler.Handle(t.Context(), start); !errors.Is(err, eventpostgres.ErrDeliveryBusy) {
+			t.Fatalf("repetition %d live lease redelivery error=%v", repetition, err)
+		}
+		if err := handler.Handle(t.Context(), start); err != nil {
+			t.Fatalf("repetition %d replacement claim error=%v", repetition, err)
+		}
+		if err := handler.Handle(t.Context(), resume); err != nil {
+			t.Fatalf("repetition %d resume error=%v", repetition, err)
+		}
+		if err := handler.Handle(t.Context(), resume); err != nil {
+			t.Fatalf("repetition %d completed duplicate error=%v", repetition, err)
+		}
+		if startClaims != 3 || resumeClaims != 2 || runnerCalls != 3 || runs.tools.Claim.Fence != replacement.Fence || runs.complete.Claim.Fence != resumed.Fence {
+			t.Fatalf("repetition %d claims=%d/%d runner=%d tool_fence=%d terminal_fence=%d", repetition, startClaims, resumeClaims, runnerCalls, runs.tools.Claim.Fence, runs.complete.Claim.Fence)
+		}
+	}
+	t.Log(`agent_handler_recovery={"repetitions":100,"duplicate_terminal_executions":0,"stale_fence_commits":0}`)
+}
+
 func TestHandlerBuildsCompleteChildJoinEvidence(t *testing.T) {
 	payloads := &memoryPayloads{}
 	delivered := deliveredCommand()
@@ -330,7 +466,8 @@ func deliveredCommand() eventpostgres.DeliveredCommand {
 }
 
 func validClaim() executionpostgres.RunClaim {
-	return executionpostgres.RunClaim{RunID: "run-1", TenantID: "tenant-1", UserID: "user-1", StoreEpoch: "epoch-1", RunVersion: 3, CommandID: "command-1", ConsumerName: "agent-worker", RequestHash: "request-hash", JobID: "job-1", InboxID: "inbox-1", AttemptID: "attempt-1", Fence: 1, LeaseToken: "lease-token", LeaseExpiresAt: time.Now().Add(time.Minute)}
+	now := time.Now()
+	return executionpostgres.RunClaim{RunID: "run-1", TenantID: "tenant-1", UserID: "user-1", StoreEpoch: "epoch-1", RunVersion: 3, CommandID: "command-1", ConsumerName: "agent-worker", RequestHash: "request-hash", JobID: "job-1", InboxID: "inbox-1", AttemptID: "attempt-1", Fence: 1, LeaseToken: "lease-token", LeaseExpiresAt: now.Add(time.Minute), DueAt: now.Add(time.Hour), CreatedAt: now.Add(-time.Second), QueueClass: "interactive"}
 }
 
 func validHandler(payloads payload.Store, runs RunStore, runner Runner) Handler {

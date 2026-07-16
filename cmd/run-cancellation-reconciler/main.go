@@ -135,7 +135,7 @@ func run(ctx context.Context, configuration config, logger *slog.Logger) error {
 		defer cancel()
 		_ = telemetry.Shutdown(shutdown)
 	}()
-	appender := eventpostgres.Appender{}
+	appender := eventpostgres.Appender{Observer: telemetry.AgentMetrics()}
 	billingStore := billingpostgres.Store{Pool: agentPool, Appender: appender, Epochs: authority, StoreEpoch: storeEpoch, IDKey: billingIDKey}
 	llmStore := llmpostgres.Store{Pool: agentPool, Appender: appender, Epochs: authority, StoreEpoch: storeEpoch, IDKey: llmIDKey, TokenPepper: llmPepper, Billing: billingStore}
 	runtimeStore := runtimepostgres.Store{Pool: runtimePool, Appender: appender, Epochs: authority, StoreEpoch: storeEpoch, IDKey: runtimeIDKey, TokenPepper: runtimePepper}

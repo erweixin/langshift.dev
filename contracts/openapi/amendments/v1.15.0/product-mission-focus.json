@@ -1,0 +1,130 @@
+{
+  "amendmentVersion": "1.15.0",
+  "baseContractVersion": "1.14.0",
+  "kind": "openapi-operation-version-extension",
+  "compatibility": "versioned-client-additive",
+  "operations": {
+    "missions.list.v2": {
+      "method": "GET",
+      "path": "/v1/missions",
+      "authentication": "gateway_signed_session",
+      "authorization": "tenant_user_owner_scope",
+      "responseContentType": "application/vnd.lites.missions.v2+json",
+      "responseSchema": "MissionListResponseV2",
+      "snapshotSemantics": "The Mission page and the single Focus pointer are read from one database transaction. Today, Coach and task generation consume the same pointer.",
+      "cachePolicy": "private_no_store"
+    },
+    "missions.get.v2": {
+      "method": "GET",
+      "path": "/v1/missions/{mission_id}",
+      "authentication": "gateway_signed_session",
+      "authorization": "tenant_user_owner_scope",
+      "responseContentType": "application/vnd.lites.mission.v2+json",
+      "responseSchema": "MissionResourceV2",
+      "cachePolicy": "private_no_store"
+    },
+    "missions.update.v2": {
+      "method": "PATCH",
+      "path": "/v1/missions/{mission_id}",
+      "authentication": "gateway_signed_session",
+      "authorization": "tenant_user_owner_scope",
+      "csrf": "required",
+      "idempotency": "required_encrypted_durable_response",
+      "requestContentType": "application/vnd.lites.mission-status.v2+json",
+      "requestSchema": "MissionStatusChangeRequestV2",
+      "responseSchema": "MissionMutationResponseV2",
+      "concurrency": "expected_mission_version and expected_focus_version must both match in the transaction.",
+      "replacementRule": "If the current Focus becomes non-active while another active Mission exists, replacement_mission_id is required and must identify an active owned Mission. If none exists it must be null."
+    },
+    "missions.focus.v2": {
+      "method": "PUT",
+      "path": "/v1/missions/{mission_id}/focus",
+      "authentication": "gateway_signed_session",
+      "authorization": "tenant_user_owner_scope",
+      "csrf": "required",
+      "idempotency": "required_encrypted_durable_response",
+      "requestContentType": "application/vnd.lites.mission-focus.v2+json",
+      "requestSchema": "MissionFocusChangeRequestV2",
+      "responseSchema": "MissionMutationResponseV2",
+      "concurrency": "expected_focus_version must match the single tenant-user Focus row; the path mission must be active.",
+      "legacyFieldRule": "The base-contract replacement_mission_id field remains required and must be null. The target Focus is exclusively the mission_id path parameter."
+    }
+  },
+  "schemas": {
+    "MissionStatusV2": {
+      "type": "string",
+      "enum": ["draft", "active", "paused", "completed", "archived"]
+    },
+    "MissionResourceV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version", "status", "source_role_profile_id", "target_role_profile_id", "current_route_revision_id", "focused", "created_at", "updated_at"],
+      "properties": {
+        "id": {"type": "string", "format": "uuid"},
+        "version": {"type": "integer", "minimum": 1},
+        "status": {"$ref": "#/schemas/MissionStatusV2"},
+        "source_role_profile_id": {"type": ["string", "null"], "format": "uuid"},
+        "target_role_profile_id": {"type": "string", "format": "uuid"},
+        "current_route_revision_id": {"type": ["string", "null"], "format": "uuid"},
+        "focused": {"type": "boolean"},
+        "created_at": {"type": "string", "format": "date-time"},
+        "updated_at": {"type": "string", "format": "date-time"}
+      }
+    },
+    "MissionFocusV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mission_id", "version"],
+      "properties": {
+        "mission_id": {"type": ["string", "null"], "format": "uuid"},
+        "version": {"type": "integer", "minimum": 0}
+      }
+    },
+    "MissionListResponseV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["items", "focus", "next_cursor"],
+      "properties": {
+        "items": {"type": "array", "items": {"$ref": "#/schemas/MissionResourceV2"}},
+        "focus": {"$ref": "#/schemas/MissionFocusV2"},
+        "next_cursor": {"type": ["string", "null"]}
+      }
+    },
+    "MissionStatusChangeRequestV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["request_id", "status", "replacement_mission_id", "expected_mission_version", "expected_focus_version"],
+      "properties": {
+        "request_id": {"type": "string", "minLength": 8, "maxLength": 256},
+        "status": {"$ref": "#/schemas/MissionStatusV2"},
+        "replacement_mission_id": {"type": ["string", "null"], "format": "uuid"},
+        "expected_mission_version": {"type": "integer", "minimum": 1},
+        "expected_focus_version": {"type": "integer", "minimum": 0}
+      }
+    },
+    "MissionFocusChangeRequestV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["request_id", "expected_focus_version", "replacement_mission_id"],
+      "properties": {
+        "request_id": {"type": "string", "minLength": 8, "maxLength": 256},
+        "expected_focus_version": {"type": "integer", "minimum": 0},
+        "replacement_mission_id": {"type": "null"}
+      }
+    },
+    "MissionMutationResponseV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mission", "focus", "event_ids", "replayed"],
+      "properties": {
+        "mission": {"$ref": "#/schemas/MissionResourceV2"},
+        "focus": {"$ref": "#/schemas/MissionFocusV2"},
+        "event_ids": {"type": "array", "minItems": 0, "maxItems": 2, "uniqueItems": true, "items": {"type": "string", "format": "uuid"}},
+        "replayed": {"type": "boolean"}
+      }
+    }
+  },
+  "atomicityRule": "Mission row, Focus row, EventStore facts, outbox rows and encrypted idempotency response commit or roll back together.",
+  "focusInvariant": "For a tenant-user, zero active Missions implies a null Focus; one or more active Missions implies exactly one Focus pointing to an active owned Mission.",
+  "staleReadRule": "Today, Coach and daily task generation never infer focus from update time and reject a supplied focus_version that no longer matches."
+}

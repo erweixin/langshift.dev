@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -106,6 +107,21 @@ func (function policyFunc) Evaluate(ctx context.Context, execution ProposedExecu
 
 type executorFunc func(context.Context, Execution) (Outcome, error)
 
+type toolMetricsStub struct {
+	heartbeats int
+	outcomes   []string
+}
+
+func (metrics *toolMetricsStub) AddLeaseHeartbeats(_ context.Context, count int64, leaseKind string) {
+	if leaseKind == "tool" {
+		metrics.heartbeats += int(count)
+	}
+}
+
+func (metrics *toolMetricsStub) AddToolCall(_ context.Context, outcome string, effectful bool) {
+	metrics.outcomes = append(metrics.outcomes, outcome+":"+fmt.Sprint(effectful))
+}
+
 func (function executorFunc) Execute(ctx context.Context, execution Execution) (Outcome, error) {
 	return function(ctx, execution)
 }
@@ -131,6 +147,8 @@ func TestHandlerBindsPolicyClaimsHeartbeatsAndCompletesRead(t *testing.T) {
 		}
 		return Outcome{State: statemachine.ToolCallSucceeded, Result: json.RawMessage(`{"ok":true}`)}, nil
 	}))
+	metrics := &toolMetricsStub{}
+	handler.Metrics = metrics
 	if err := handler.Handle(t.Context(), delivered); err != nil {
 		t.Fatal(err)
 	}
@@ -138,6 +156,9 @@ func TestHandlerBindsPolicyClaimsHeartbeatsAndCompletesRead(t *testing.T) {
 	defer tools.mu.Unlock()
 	if tools.heartbeats < 1 || tools.claimCommand.ExpectedBinding == nil || *tools.claimCommand.ExpectedBinding != claim.Binding {
 		t.Fatalf("claim was not bound or heartbeated: heartbeats=%d command=%#v", tools.heartbeats, tools.claimCommand)
+	}
+	if metrics.heartbeats != tools.heartbeats || len(metrics.outcomes) != 1 || metrics.outcomes[0] != "succeeded:false" {
+		t.Fatalf("metrics=%#v", metrics)
 	}
 	completion := tools.readCompletion
 	if completion.TargetState != statemachine.ToolCallSucceeded || completion.ResultHash != plaintextHash([]byte(`{"ok":true}`)) || !completion.Claim.LeaseExpiresAt.After(claim.LeaseExpiresAt) || completion.ToolCompletedEvent.Hash == "" || completion.ResumeCommand.Hash == "" {
@@ -215,6 +236,31 @@ func TestHandlerPersistsOutcomeUnknownAndSchedulesReconciliation(t *testing.T) {
 	defer tools.mu.Unlock()
 	if tools.effectCompletion.TargetState != statemachine.ToolCallOutcomeUnknown || tools.effect.ExternalResourceRef != "provider://request/42" || !tools.effect.ReconciliationDueAt.Equal(now.Add(handler.ReconcileDelay)) || tools.effect.ReconcileCommand.Hash == "" || tools.effect.ReconcileResource != handler.Reconcile.ResourceClass {
 		t.Fatalf("unknown outcome did not produce reconciliation: completion=%#v effect=%#v", tools.effectCompletion, tools.effect)
+	}
+}
+
+func TestHandlerRoutesNonAutomaticUnknownEffectsToManualReview(t *testing.T) {
+	now := time.Date(2026, time.July, 16, 3, 30, 0, 0, time.UTC)
+	for _, effectClass := range []string{"idempotent_write", "compensatable_write", "irreversible_write"} {
+		payloads := &memoryPayloads{}
+		delivered, command := putExecution(t, payloads, effectClass)
+		tools := &toolStoreStub{claim: validClaim(command)}
+		handler := validHandler(payloads, tools, policyFunc(func(context.Context, ProposedExecution) (PolicyDecision, error) {
+			return allowedPolicy(), nil
+		}), executorFunc(func(context.Context, Execution) (Outcome, error) {
+			return Outcome{State: statemachine.ToolCallOutcomeUnknown, Result: json.RawMessage(`{"status":"timeout_after_send"}`), EffectDisposition: EffectUnknown}, nil
+		}))
+		handler.Now = func() time.Time { return now }
+		if err := handler.Handle(t.Context(), delivered); err != nil {
+			t.Fatalf("class=%s err=%v", effectClass, err)
+		}
+		tools.mu.Lock()
+		effect := tools.effect
+		completion := tools.effectCompletion
+		tools.mu.Unlock()
+		if completion.TargetState != statemachine.ToolCallOutcomeUnknown || !effect.ReconciliationDueAt.Equal(now.Add(handler.ReconcileDelay)) || effect.ReconcileCommand != (executionpostgres.PayloadPointer{}) || effect.ReconcileResource != "" {
+			t.Fatalf("class=%s completion=%#v effect=%#v", effectClass, completion, effect)
+		}
 	}
 }
 

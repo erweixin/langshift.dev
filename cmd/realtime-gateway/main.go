@@ -84,7 +84,7 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 		return errors.New("configure observability")
 	}
 	reader := realtimepostgres.Reader{Pool: pool}
-	stream := realtime.Stream{Store: reader, Wakes: hub, PageSize: configuration.pageSize, Heartbeat: configuration.heartbeat, CatchUpInterval: configuration.catchUpInterval, WakeRetry: configuration.wakeRetry, SendTimeout: configuration.sendTimeout, ReauthLead: configuration.reauthLead}
+	stream := realtime.Stream{Store: reader, Wakes: hub, PageSize: configuration.pageSize, Heartbeat: configuration.heartbeat, CatchUpInterval: configuration.catchUpInterval, WakeRetry: configuration.wakeRetry, SendTimeout: configuration.sendTimeout, ReauthLead: configuration.reauthLead, Metrics: telemetry.AgentMetrics()}
 	handler := realtimeapi.Handler{Store: reader, Stream: stream, PageSize: configuration.pageSize}
 	verifier := trustedcontext.Verifier{Issuer: configuration.trustedIssuer, Audience: configuration.trustedAudience, Keys: keys, KeyWindows: windows, MaximumTTL: 5 * time.Minute, ClockSkew: 5 * time.Second}
 	application := telemetry.WrapHTTP(serviceauth.Middleware{Verifier: verifier, RequireVerifiedClientCertificate: !configuration.allowInsecureDevelopment}.Wrap(handler))

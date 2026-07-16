@@ -46,6 +46,9 @@ type RunClaim struct {
 	Fence          uint64
 	LeaseToken     string
 	LeaseExpiresAt time.Time
+	DueAt          time.Time
+	CreatedAt      time.Time
+	QueueClass     string
 	Completed      bool
 }
 
@@ -151,8 +154,8 @@ func (store RunStore) ClaimStart(ctx context.Context, command ClaimRunCommand) (
 	var userID, status, pendingCommand string
 	var runVersion, lockedFence uint64
 	var cancelRequested *time.Time
-	var dueAt time.Time
-	err = tx.QueryRow(ctx, `SELECT user_id::text,status,run_version,pending_command_id::text,current_fence,cancel_requested_at,due_at FROM agent.runs WHERE id=$1 AND tenant_id=$2 FOR UPDATE`, command.Command.AggregateID, command.Command.TenantID).Scan(&userID, &status, &runVersion, &pendingCommand, &lockedFence, &cancelRequested, &dueAt)
+	var dueAt, createdAt time.Time
+	err = tx.QueryRow(ctx, `SELECT user_id::text,status,run_version,pending_command_id::text,current_fence,cancel_requested_at,due_at,created_at FROM agent.runs WHERE id=$1 AND tenant_id=$2 FOR UPDATE`, command.Command.AggregateID, command.Command.TenantID).Scan(&userID, &status, &runVersion, &pendingCommand, &lockedFence, &cancelRequested, &dueAt, &createdAt)
 	if err != nil {
 		return RunClaim{}, err
 	}
@@ -164,8 +167,8 @@ func (store RunStore) ClaimStart(ctx context.Context, command ClaimRunCommand) (
 	if err != nil || tag.RowsAffected() != 1 {
 		return RunClaim{}, ErrRunNotClaimable
 	}
-	var jobID string
-	err = tx.QueryRow(ctx, `UPDATE agent.jobs SET status='running',dispatch_lease_hash=NULL,dispatch_lease_expires_at=NULL,updated_at=$1 WHERE tenant_id=$2 AND command_id=$3 AND status='pending' AND available_at<=$1 AND (due_at IS NULL OR due_at>$1) RETURNING id::text`, now, command.Command.TenantID, command.Command.CommandID).Scan(&jobID)
+	var jobID, queueClass string
+	err = tx.QueryRow(ctx, `UPDATE agent.jobs SET status='running',dispatch_lease_hash=NULL,dispatch_lease_expires_at=NULL,updated_at=$1 WHERE tenant_id=$2 AND command_id=$3 AND status='pending' AND available_at<=$1 AND (due_at IS NULL OR due_at>$1) RETURNING id::text,queue_class`, now, command.Command.TenantID, command.Command.CommandID).Scan(&jobID, &queueClass)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return RunClaim{}, ErrRunNotClaimable
 	}
@@ -192,7 +195,7 @@ func (store RunStore) ClaimStart(ctx context.Context, command ClaimRunCommand) (
 	if err = tx.Commit(ctx); err != nil {
 		return RunClaim{}, err
 	}
-	return RunClaim{RunID: command.Command.AggregateID, TenantID: command.Command.TenantID, UserID: userID, StoreEpoch: command.Command.StoreEpoch, RunVersion: nextVersion, CommandID: command.Command.CommandID, ConsumerName: command.ConsumerName, RequestHash: command.Command.PayloadHash, JobID: jobID, InboxID: inboxID, AttemptID: attemptID, Fence: candidateFence, LeaseToken: credential.Raw, LeaseExpiresAt: expiresAt}, nil
+	return RunClaim{RunID: command.Command.AggregateID, TenantID: command.Command.TenantID, UserID: userID, StoreEpoch: command.Command.StoreEpoch, RunVersion: nextVersion, CommandID: command.Command.CommandID, ConsumerName: command.ConsumerName, RequestHash: command.Command.PayloadHash, JobID: jobID, InboxID: inboxID, AttemptID: attemptID, Fence: candidateFence, LeaseToken: credential.Raw, LeaseExpiresAt: expiresAt, DueAt: dueAt, CreatedAt: createdAt, QueueClass: queueClass}, nil
 }
 
 type claimEventIDs struct{ runEvent, runOutbox, runPublish, attemptEvent, attemptOutbox, attemptPublish string }

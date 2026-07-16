@@ -61,8 +61,9 @@ spec:
           imagePullPolicy: {{ $.Values.global.imagePullPolicy }}
           env:
             {{- range $key, $value := $workload.env }}
+            {{- $publicSecretNamedSetting := has $key (list "PASSWORD_RANGE_ALLOWED_HOSTS" "ANONYMOUS_HANDLE_KEY_ID" "S3_KMS_KEY_ID" "RUNTIME_CAPABILITY_KEY_ID" "VAULT_PROVIDER_SECRET_PREFIX" "VAULT_BYOK_SECRET_PREFIX") }}
             {{- if regexMatch "(SECRET|TOKEN|PASSWORD|PEPPER|PRIVATE|CREDENTIAL|CACERT|_KEY)" $key }}
-            {{- if and (not (has $key (list "PASSWORD_RANGE_ALLOWED_HOSTS" "ANONYMOUS_HANDLE_KEY_ID" "S3_KMS_KEY_ID"))) (not (regexMatch "^/run/secrets/[A-Za-z0-9._-]+$" $value)) }}
+            {{- if and (not $publicSecretNamedSetting) (not (regexMatch "^/run/secrets/[A-Za-z0-9._-]+$" $value)) }}
             {{- fail (printf "workloads.%s.env.%s must reference a file below /run/secrets" $name $key) }}
             {{- end }}
             - name: {{ $key }}

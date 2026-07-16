@@ -58,9 +58,34 @@ type Result struct {
 	Replayed bool
 }
 
-type Appender struct{ Now func() time.Time }
+type AppendObserver interface {
+	ObserveEventAppend(context.Context, time.Duration, string)
+}
 
-func (appender Appender) Append(ctx context.Context, tx pgx.Tx, input Input) (Result, error) {
+type Appender struct {
+	Now      func() time.Time
+	Observer AppendObserver
+}
+
+func (appender Appender) Append(ctx context.Context, tx pgx.Tx, input Input) (result Result, resultErr error) {
+	started := time.Now()
+	defer func() {
+		if appender.Observer == nil {
+			return
+		}
+		outcome := "committed"
+		switch {
+		case errors.Is(resultErr, ErrVersionConflict):
+			outcome = "version_conflict"
+		case errors.Is(resultErr, ErrCommandConflict):
+			outcome = "command_conflict"
+		case resultErr != nil:
+			outcome = "failed"
+		case result.Replayed:
+			outcome = "replayed"
+		}
+		appender.Observer.ObserveEventAppend(ctx, time.Since(started), outcome)
+	}()
 	if tx == nil || !validInput(input) {
 		return Result{}, ErrInvalidAppend
 	}

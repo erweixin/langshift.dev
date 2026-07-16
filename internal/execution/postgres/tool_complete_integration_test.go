@@ -121,7 +121,7 @@ func TestConcurrentToolCompletionCreatesOneCommittedContinuation(t *testing.T) {
 	}
 }
 
-func TestEffectOutcomeUnknownCompletesAttemptWithoutJoiningGroup(t *testing.T) {
+func TestEffectOutcomeUnknownCanDeferThenEscalateToManualRepair(t *testing.T) {
 	ctx := context.Background()
 	admin := executionPool(t, ctx, "LITES_TEST_ADMIN_DATABASE_URL")
 	defer admin.Close()
@@ -227,23 +227,27 @@ func TestEffectOutcomeUnknownCompletesAttemptWithoutJoiningGroup(t *testing.T) {
 	if retryClaim.EffectVersion != 4 || retryClaim.ToolCallVersion != 3 || !retryClaim.ReconciliationDueAt.Equal(nextReconcileAt) {
 		t.Fatalf("retry claim=%#v", retryClaim)
 	}
-	resolved := competeForReconciliationCompletion(t, ctx, store, CompleteReconciliationCommand{Claim: retryClaim, ExpectedToolVersion: retryClaim.ToolCallVersion, ExpectedEffectVersion: retryClaim.EffectVersion, TargetState: statemachine.ToolCallSucceeded, ResultHash: "reconciled-confirmed", ExternalResourceRef: "stripe://refunds/re_42", Actor: json.RawMessage(`{"kind":"service"}`), CorrelationID: correlationID, ToolCompletedEvent: PayloadPointer{Ref: "encrypted://tool-unknown/reconciled", Hash: "reconciled"}, AttemptCompletedEvent: PayloadPointer{Ref: "encrypted://tool-unknown/reconcile-attempt-completed", Hash: "reconcile-attempt-completed"}, GroupJoinedEvent: PayloadPointer{Ref: "encrypted://tool-unknown/group-joined", Hash: "group-joined"}, RunResumeQueuedEvent: PayloadPointer{Ref: "encrypted://tool-unknown/resume-queued", Hash: "resume-queued"}, ResumeCommand: PayloadPointer{Ref: "encrypted://tool-unknown/resume", Hash: "resume"}, ResumeQueueClass: "interactive", ResumeResourceClass: "llm", ResumePriority: 50, ResumeCostUnits: 4, ResumeMaxAttempts: 5}, 32)
-	if !resolved.Resumed || resolved.Status != statemachine.ToolCallSucceeded || resolved.ToolCallVersion != 4 || resolved.RunVersion != 5 || resolved.ContinuationID == "" || resolved.ResumeCommandID == "" {
-		t.Fatalf("resolved=%#v", resolved)
+	var outboxBeforeEscalation int
+	if err = admin.QueryRow(ctx, `SELECT count(*) FROM agent.outbox WHERE tenant_id=$1`, tenantID).Scan(&outboxBeforeEscalation); err != nil {
+		t.Fatal(err)
+	}
+	escalated := competeForReconciliationEscalation(t, ctx, store, EscalateReconciliationCommand{Claim: retryClaim, ExpectedEffectVersion: retryClaim.EffectVersion, ResultHash: "manual-review-required", Actor: json.RawMessage(`{"kind":"service"}`), CorrelationID: correlationID, AttemptCompletedEvent: PayloadPointer{Ref: "encrypted://tool-unknown/manual-review-required", Hash: "manual-review-required"}}, 32)
+	if escalated.ToolCallID != tool.ToolCallID || escalated.EffectID != retryClaim.EffectID || escalated.AttemptID != retryClaim.AttemptID || escalated.ToolCallVersion != 3 || escalated.EffectVersion != 4 {
+		t.Fatalf("escalated=%#v", escalated)
 	}
 	if _, err = store.ClaimReconciliation(ctx, nextReconcileCommand); !errors.Is(err, ErrClaimCompleted) {
-		t.Fatalf("completed retry reconciliation redelivery error=%v", err)
+		t.Fatalf("escalated reconciliation redelivery error=%v", err)
 	}
-	var resolvedRunStatus, resolvedToolStatus, resolvedEffectStatus, resolvedInboxStatus, resolvedAttemptStatus, resolvedJobStatus, resolvedResource, finalToolEvent, finalEffectEvent string
-	var resolvedRunVersion, resolvedToolVersion, resolvedEffectVersion, finalContinuations, resolvedOutbox int
-	var resolvedJoined bool
-	var resolvedDue *time.Time
-	err = admin.QueryRow(ctx, `SELECT r.status,r.run_version,t.status,t.tool_call_version,t.result_event_id::text,e.status,e.version,e.result_event_id::text,e.external_resource_ref,e.reconciliation_due_at,i.status,a.status,j.status,g.joined,(SELECT count(*) FROM agent.continuations WHERE tenant_id=$1 AND group_id=$3),(SELECT count(*) FROM agent.outbox WHERE tenant_id=$1) FROM agent.runs r JOIN agent.tool_calls t ON t.run_id=r.id JOIN agent.tool_effects e ON e.tool_call_id=t.id JOIN agent.inbox i ON i.id=$4 JOIN agent.job_attempts a ON a.id=$5 JOIN agent.jobs j ON j.id=$6 JOIN agent.parallel_groups g ON g.id=$3 WHERE r.tenant_id=$1 AND r.id=$2`, tenantID, runID, requested.GroupID, retryClaim.InboxID, retryClaim.AttemptID, retryClaim.JobID).Scan(&resolvedRunStatus, &resolvedRunVersion, &resolvedToolStatus, &resolvedToolVersion, &finalToolEvent, &resolvedEffectStatus, &resolvedEffectVersion, &finalEffectEvent, &resolvedResource, &resolvedDue, &resolvedInboxStatus, &resolvedAttemptStatus, &resolvedJobStatus, &resolvedJoined, &finalContinuations, &resolvedOutbox)
+	var postEscalationRunStatus, postEscalationToolStatus, postEscalationEffectStatus, postEscalationInboxStatus, postEscalationAttemptStatus, postEscalationJobStatus, finalToolEvent, finalEffectEvent string
+	var postEscalationRunVersion, postEscalationToolVersion, postEscalationEffectVersion, finalContinuations, postEscalationOutbox, pendingReconciliationJobs int
+	var postEscalationJoined bool
+	var postEscalationDue *time.Time
+	err = admin.QueryRow(ctx, `SELECT r.status,r.run_version,t.status,t.tool_call_version,t.result_event_id::text,e.status,e.version,e.result_event_id::text,e.reconciliation_due_at,i.status,a.status,j.status,g.joined,(SELECT count(*) FROM agent.continuations WHERE tenant_id=$1 AND group_id=$3),(SELECT count(*) FROM agent.outbox WHERE tenant_id=$1),(SELECT count(*) FROM agent.jobs WHERE tenant_id=$1 AND resource_class='tool-reconciliation' AND status IN ('pending','running')) FROM agent.runs r JOIN agent.tool_calls t ON t.run_id=r.id JOIN agent.tool_effects e ON e.tool_call_id=t.id JOIN agent.inbox i ON i.id=$4 JOIN agent.job_attempts a ON a.id=$5 JOIN agent.jobs j ON j.id=$6 JOIN agent.parallel_groups g ON g.id=$3 WHERE r.tenant_id=$1 AND r.id=$2`, tenantID, runID, requested.GroupID, retryClaim.InboxID, retryClaim.AttemptID, retryClaim.JobID).Scan(&postEscalationRunStatus, &postEscalationRunVersion, &postEscalationToolStatus, &postEscalationToolVersion, &finalToolEvent, &postEscalationEffectStatus, &postEscalationEffectVersion, &finalEffectEvent, &postEscalationDue, &postEscalationInboxStatus, &postEscalationAttemptStatus, &postEscalationJobStatus, &postEscalationJoined, &finalContinuations, &postEscalationOutbox, &pendingReconciliationJobs)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resolvedRunStatus != "queued" || resolvedRunVersion != 5 || resolvedToolStatus != "succeeded" || resolvedToolVersion != 4 || finalToolEvent == toolResultEvent || finalToolEvent != finalEffectEvent || resolvedEffectStatus != "confirmed" || resolvedEffectVersion != 5 || resolvedResource != "stripe://refunds/re_42" || resolvedDue != nil || resolvedInboxStatus != "completed" || resolvedAttemptStatus != "succeeded" || resolvedJobStatus != "succeeded" || !resolvedJoined || finalContinuations != 1 || resolvedOutbox != 24 {
-		t.Fatalf("run=%s/v%d tool=%s/v%d event=%s old=%s effect=%s/v%d/event=%s resource=%s due=%v inbox=%s attempt=%s job=%s joined=%v continuations=%d outbox=%d", resolvedRunStatus, resolvedRunVersion, resolvedToolStatus, resolvedToolVersion, finalToolEvent, toolResultEvent, resolvedEffectStatus, resolvedEffectVersion, finalEffectEvent, resolvedResource, resolvedDue, resolvedInboxStatus, resolvedAttemptStatus, resolvedJobStatus, resolvedJoined, finalContinuations, resolvedOutbox)
+	if postEscalationRunStatus != "waiting_tool" || postEscalationRunVersion != 4 || postEscalationToolStatus != "outcome_unknown" || postEscalationToolVersion != 3 || finalToolEvent != toolResultEvent || finalToolEvent != finalEffectEvent || postEscalationEffectStatus != "outcome_unknown" || postEscalationEffectVersion != 4 || postEscalationDue == nil || !postEscalationDue.Equal(nextReconcileAt) || postEscalationInboxStatus != "completed" || postEscalationAttemptStatus != "succeeded" || postEscalationJobStatus != "succeeded" || postEscalationJoined || finalContinuations != 0 || postEscalationOutbox != outboxBeforeEscalation+1 || pendingReconciliationJobs != 0 {
+		t.Fatalf("run=%s/v%d tool=%s/v%d event=%s old=%s effect=%s/v%d/event=%s due=%v inbox=%s attempt=%s job=%s joined=%v continuations=%d outbox=%d/%d pending_reconcile=%d", postEscalationRunStatus, postEscalationRunVersion, postEscalationToolStatus, postEscalationToolVersion, finalToolEvent, toolResultEvent, postEscalationEffectStatus, postEscalationEffectVersion, finalEffectEvent, postEscalationDue, postEscalationInboxStatus, postEscalationAttemptStatus, postEscalationJobStatus, postEscalationJoined, finalContinuations, postEscalationOutbox, outboxBeforeEscalation, pendingReconciliationJobs)
 	}
 }
 
@@ -357,6 +361,44 @@ func competeForReconciliationDeferral(t *testing.T, ctx context.Context, store R
 	}
 	if successes != 1 || stale != contenders-1 {
 		t.Fatalf("reconciliation deferral successes=%d stale=%d", successes, stale)
+	}
+	return winner
+}
+
+func competeForReconciliationEscalation(t *testing.T, ctx context.Context, store RunStore, command EscalateReconciliationCommand, contenders int) EscalatedReconciliation {
+	t.Helper()
+	var wait sync.WaitGroup
+	winners := make(chan EscalatedReconciliation, contenders)
+	failures := make(chan error, contenders)
+	for range contenders {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			escalated, err := store.EscalateReconciliation(ctx, command)
+			if err != nil {
+				failures <- err
+				return
+			}
+			winners <- escalated
+		}()
+	}
+	wait.Wait()
+	close(winners)
+	close(failures)
+	var winner EscalatedReconciliation
+	successes, stale := 0, 0
+	for escalated := range winners {
+		winner = escalated
+		successes++
+	}
+	for err := range failures {
+		if !errors.Is(err, ErrExecutionRightConflict) {
+			t.Fatalf("unexpected reconciliation escalation error: %v", err)
+		}
+		stale++
+	}
+	if successes != 1 || stale != contenders-1 {
+		t.Fatalf("reconciliation escalation successes=%d stale=%d", successes, stale)
 	}
 	return winner
 }

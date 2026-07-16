@@ -75,3 +75,26 @@ func TestSourceMasksVaultFailure(t *testing.T) {
 		t.Fatalf("vault error escaped boundary: %v", err)
 	}
 }
+
+func TestMultiSourceRoutesOnlyExplicitNonOverlappingNamespace(t *testing.T) {
+	managed := &versionedReaderStub{secret: &api.KVSecret{Data: map[string]any{"api_key": "managed-secret"}, VersionMetadata: &api.KVVersionMetadata{Version: 2}}}
+	byok := &versionedReaderStub{secret: &api.KVSecret{Data: map[string]any{"api_key": "customer-secret"}, VersionMetadata: &api.KVVersionMetadata{Version: 2}}}
+	source := MultiSource{Sources: []Source{
+		{KV: managed, Prefix: "lites/providers", Field: "api_key"},
+		{KV: byok, Prefix: "lites/byok", Field: "api_key"},
+	}}
+	secret, err := source.Resolve(t.Context(), "lites/byok/tenant/credential", "2")
+	if err != nil || string(secret) != "customer-secret" || managed.calls != 0 || byok.calls != 1 {
+		t.Fatalf("secret=%q managed_calls=%d byok_calls=%d err=%v", secret, managed.calls, byok.calls, err)
+	}
+	if _, err = source.Resolve(t.Context(), "lites/admin/credential", "2"); !errors.Is(err, ErrSecretUnavailable) {
+		t.Fatalf("unbound namespace accepted: %v", err)
+	}
+	ambiguous := MultiSource{Sources: []Source{
+		{KV: managed, Prefix: "lites", Field: "api_key"},
+		{KV: byok, Prefix: "lites/byok", Field: "api_key"},
+	}}
+	if _, err = ambiguous.Resolve(t.Context(), "lites/byok/tenant/credential", "2"); !errors.Is(err, ErrSecretUnavailable) {
+		t.Fatalf("ambiguous namespace accepted: %v", err)
+	}
+}

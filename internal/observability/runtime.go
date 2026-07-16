@@ -62,6 +62,7 @@ type Runtime struct {
 	requests       metric.Int64Counter
 	duration       metric.Float64Histogram
 	inflight       metric.Int64UpDownCounter
+	agent          *AgentMetrics
 }
 
 func New(ctx context.Context, configuration Config) (*Runtime, error) {
@@ -73,7 +74,15 @@ func New(ctx context.Context, configuration Config) (*Runtime, error) {
 	}
 	registry := prometheus.NewRegistry()
 	registry.MustRegister(collectors.NewGoCollector(), collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
-	metricExporter, err := otelprom.New(otelprom.WithRegisterer(registry), otelprom.WithNamespace("lites"))
+	metricExporter, err := otelprom.New(
+		otelprom.WithRegisterer(registry),
+		otelprom.WithNamespace("lites"),
+		otelprom.WithResourceAsConstantLabels(attribute.NewAllowKeysFilter(
+			attribute.Key("service.name"),
+			attribute.Key("deployment.environment.name"),
+			attribute.Key("cloud.region"),
+		)),
+	)
 	if err != nil {
 		return nil, ErrExporter
 	}
@@ -102,7 +111,13 @@ func New(ctx context.Context, configuration Config) (*Runtime, error) {
 	if err != nil {
 		return nil, ErrExporter
 	}
-	return &Runtime{tracerProvider: tracerProvider, meterProvider: meterProvider, metrics: promhttp.HandlerFor(registry, promhttp.HandlerOpts{ErrorHandling: promhttp.HTTPErrorOnError}), propagator: propagation.TraceContext{}, tracer: tracerProvider.Tracer("github.com/langshift/lites/internal/observability"), requests: requests, duration: duration, inflight: inflight}, nil
+	agentMetrics, err := newAgentMetrics(meter)
+	if err != nil {
+		_ = tracerProvider.Shutdown(context.Background())
+		_ = meterProvider.Shutdown(context.Background())
+		return nil, ErrExporter
+	}
+	return &Runtime{tracerProvider: tracerProvider, meterProvider: meterProvider, metrics: promhttp.HandlerFor(registry, promhttp.HandlerOpts{ErrorHandling: promhttp.HTTPErrorOnError}), propagator: propagation.TraceContext{}, tracer: tracerProvider.Tracer("github.com/langshift/lites/internal/observability"), requests: requests, duration: duration, inflight: inflight, agent: agentMetrics}, nil
 }
 
 func (runtime *Runtime) MetricsHandler() http.Handler {
@@ -114,6 +129,13 @@ func (runtime *Runtime) MetricsHandler() http.Handler {
 
 func (runtime *Runtime) Meter(name string) metric.Meter {
 	return runtime.meterProvider.Meter(name)
+}
+
+func (runtime *Runtime) AgentMetrics() *AgentMetrics {
+	if runtime == nil {
+		return nil
+	}
+	return runtime.agent
 }
 
 func (runtime *Runtime) Shutdown(ctx context.Context) error {

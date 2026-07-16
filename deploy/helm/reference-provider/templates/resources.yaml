@@ -1,0 +1,144 @@
+{{- $name := "lites-reference-provider" -}}
+{{- if eq .Values.service.apiPort .Values.service.healthPort }}{{ fail "API and health ports must be distinct" }}{{ end }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: {{ $name }}}
+automountServiceAccountToken: false
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata: {name: {{ $name }}}
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels: {app.kubernetes.io/name: {{ $name }}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels: {app.kubernetes.io/name: {{ $name }}}
+spec:
+  replicas: {{ .Values.replicas }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxUnavailable: 1, maxSurge: 1}
+  selector:
+    matchLabels: {app.kubernetes.io/name: {{ $name }}}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: {{ $name }}}
+    spec:
+      serviceAccountName: {{ $name }}
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      priorityClassName: {{ .Values.priorityClassName | quote }}
+      terminationGracePeriodSeconds: 45
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile: {type: RuntimeDefault}
+      nodeSelector: {{ toJson .Values.nodeSelector }}
+      tolerations: {{ toJson .Values.tolerations }}
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels: {app.kubernetes.io/name: {{ $name }}}
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels: {app.kubernetes.io/name: {{ $name }}}
+      containers:
+        - name: provider
+          image: {{ printf "%s@%s" .Values.image.repository .Values.image.digest | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - {name: SERVER_ADDRESS, value: ":8443"}
+            - {name: HEALTH_ADDRESS, value: {{ printf ":%d" (int .Values.service.healthPort) | quote }}}
+            - {name: SERVER_TLS_CERT_FILE, value: /run/secrets/tls.crt}
+            - {name: SERVER_TLS_KEY_FILE, value: /run/secrets/tls.key}
+            - {name: REFERENCE_PROVIDER_BEARER_TOKEN_FILE, value: /run/secrets/provider-token}
+            - {name: REFERENCE_PROVIDER_MODEL, value: {{ .Values.model | quote }}}
+            - {name: REFERENCE_LOCAL_HOLD, value: {{ .Values.provider.localHold | quote }}}
+            - {name: REFERENCE_REPLAY_HOLD, value: {{ .Values.provider.replayHold | quote }}}
+            - {name: REFERENCE_REPLAY_RATE_NUMERATOR, value: {{ .Values.provider.replayRateNumerator | quote }}}
+            - {name: REFERENCE_RUNTIME_ARTIFACT_BYTES, value: {{ .Values.provider.runtimeArtifactBytes | quote }}}
+            - {name: REFERENCE_RUNTIME_HOLD_MILLISECONDS, value: {{ .Values.provider.runtimeHoldMilliseconds | quote }}}
+            - {name: REFERENCE_MAXIMUM_REQUEST_BYTES, value: {{ .Values.provider.maximumRequestBytes | quote }}}
+            - {name: REFERENCE_MAXIMUM_CONCURRENT_REQUESTS, value: {{ .Values.provider.maximumConcurrentRequests | quote }}}
+            - {name: LITES_SOURCE_COMMIT, value: {{ .Values.sourceCommit | quote }}}
+            - {name: LITES_VERSION, value: {{ .Values.version | quote }}}
+            - {name: LITES_ENVIRONMENT, value: stage3-reference-production-v1}
+            - {name: LITES_REGION, value: {{ .Values.region | quote }}}
+          ports:
+            - {name: https, containerPort: 8443}
+            - {name: health, containerPort: {{ .Values.service.healthPort }}}
+          startupProbe: {httpGet: {path: /readyz, port: health}, failureThreshold: 30, periodSeconds: 2}
+          livenessProbe: {httpGet: {path: /livez, port: health}, failureThreshold: 3, periodSeconds: 10}
+          readinessProbe: {httpGet: {path: /readyz, port: health}, failureThreshold: 3, periodSeconds: 5}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          resources: {{ toJson .Values.resources }}
+          volumeMounts:
+            - {name: secrets, mountPath: /run/secrets, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: secrets
+          secret: {secretName: {{ .Values.existingSecret }}, defaultMode: 0440}
+        - name: tmp
+          emptyDir: {medium: Memory, sizeLimit: 64Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  annotations: {{ toJson .Values.service.annotations }}
+spec:
+  type: LoadBalancer
+  {{- if .Values.service.loadBalancerClass }}
+  loadBalancerClass: {{ .Values.service.loadBalancerClass | quote }}
+  {{- end }}
+  loadBalancerSourceRanges: {{ toJson .Values.service.loadBalancerSourceRanges }}
+  externalTrafficPolicy: {{ .Values.service.externalTrafficPolicy }}
+  sessionAffinity: ClientIP
+  sessionAffinityConfig: {clientIP: {timeoutSeconds: 10800}}
+  selector: {app.kubernetes.io/name: {{ $name }}}
+  ports:
+    - {name: https, port: {{ .Values.service.apiPort }}, targetPort: https}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: {{ $name }}-health}
+spec:
+  selector: {app.kubernetes.io/name: {{ $name }}}
+  ports:
+    - {name: health, port: {{ .Values.service.healthPort }}, targetPort: health}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: {{ $name }}}
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: {{ $name }}}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector: {matchLabels: {{ toJson .Values.gatewayNamespaceSelector }}}
+          podSelector: {matchLabels: {{ toJson .Values.gatewayPodSelector }}}
+{{- range .Values.gatewayIngressCIDRs }}
+        - ipBlock: {cidr: {{ . | quote }}}
+{{- end }}
+      ports: [{port: 8443, protocol: TCP}]
+    - from:
+        - namespaceSelector: {matchLabels: {{ toJson .Values.monitoringNamespaceSelector }}}
+          podSelector: {matchLabels: {{ toJson .Values.monitoringPodSelector }}}
+      ports: [{port: {{ .Values.service.healthPort }}, protocol: TCP}]
+  egress: []

@@ -30,6 +30,7 @@ type ProductionConfig struct {
 	Resume                         Schedule
 	Reconcile                      Schedule
 	DefaultReconcileAfter          time.Duration
+	Metrics                        WorkerMetrics
 }
 
 type ProductionRuntime struct {
@@ -41,7 +42,7 @@ type ProductionRuntime struct {
 // content-pinned registry instance is shared by execution dispatch and the
 // current PostgreSQL overlay evaluator.
 func NewProductionRuntime(configuration ProductionConfig) (ProductionRuntime, error) {
-	if configuration.Pool == nil || configuration.Payloads == nil || configuration.Tools == nil {
+	if configuration.Pool == nil || configuration.Payloads == nil || configuration.Tools == nil || configuration.Metrics == nil {
 		return ProductionRuntime{}, ErrProductionConfiguration
 	}
 	artifact, err := toolregistry.LoadArtifact(configuration.ArtifactPath, configuration.ArtifactFileHash)
@@ -74,6 +75,7 @@ func NewProductionRuntime(configuration ProductionConfig) (ProductionRuntime, er
 		MaximumCommand:    configuration.MaximumCommand, MaximumInput: configuration.MaximumInput,
 		MaximumResult: configuration.MaximumResult, Resume: configuration.Resume,
 		Reconcile: configuration.Reconcile, ReconcileDelay: configuration.DefaultReconcileAfter,
+		Metrics: configuration.Metrics,
 	}
 	if err = handler.validate(); err != nil {
 		return ProductionRuntime{}, errors.Join(ErrProductionConfiguration, err)

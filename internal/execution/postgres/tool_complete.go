@@ -74,7 +74,7 @@ func (store RunStore) CompleteReadOnlyTool(ctx context.Context, command Complete
 // CompleteEffectTool atomically records the durable effect outcome, ToolCall
 // result, worker attempt, protected group join and any winning continuation.
 func (store RunStore) CompleteEffectTool(ctx context.Context, command CompleteToolCommand, effect EffectCompletion) (CompletedTool, error) {
-	if !isWriteEffectClass(command.Claim.EffectClass) || !validEffectCompletion(command.TargetState, effect) {
+	if !isWriteEffectClass(command.Claim.EffectClass) || !validEffectCompletion(command.Claim.EffectClass, command.TargetState, effect) {
 		return CompletedTool{}, ErrInvalidCommand
 	}
 	return store.completeTool(ctx, command, &effect, nil)
@@ -117,7 +117,7 @@ func (store RunStore) completeTool(ctx context.Context, command CompleteToolComm
 		return CompletedTool{}, err
 	}
 	var reconcile reconciliationIDs
-	if command.TargetState == statemachine.ToolCallOutcomeUnknown {
+	if command.TargetState == statemachine.ToolCallOutcomeUnknown && isAutomaticallyReconcilableEffectClass(claim.EffectClass) {
 		reconcile, err = store.reconciliationIdentifiers(claim.EffectID, command.ExpectedToolVersion+1)
 		if err != nil {
 			return CompletedTool{}, err
@@ -196,7 +196,7 @@ func (store RunStore) completeTool(ctx context.Context, command CompleteToolComm
 
 	causationID := claim.CommandID
 	toolCommands := []eventpostgres.OutboxCommand{{ID: toolOutbox, CommandID: toolPublish, CommandType: "events.publish", PayloadRef: command.ToolCompletedEvent.Ref, PayloadHash: command.ToolCompletedEvent.Hash}}
-	if effect != nil && command.TargetState == statemachine.ToolCallOutcomeUnknown {
+	if effect != nil && command.TargetState == statemachine.ToolCallOutcomeUnknown && reconcile.command != "" {
 		toolCommands = append(toolCommands, eventpostgres.OutboxCommand{ID: reconcile.outbox, CommandID: reconcile.command, CommandType: "ReconcileToolEffect", PayloadRef: effect.ReconcileCommand.Ref, PayloadHash: effect.ReconcileCommand.Hash})
 	}
 	toolEvent := eventpostgres.Input{Event: eventpostgres.Event{ID: toolEventID, TenantID: claim.TenantID, UserID: userID, EventType: toolCompletionEventType(command.TargetState), SchemaVersion: 1, AggregateKind: "tool_call", AggregateID: claim.ToolCallID, AggregateVersion: nextToolVersion, StoreEpoch: store.StoreEpoch, OccurredAt: now, Actor: command.Actor, CausationID: &causationID, CorrelationID: command.CorrelationID, PayloadRef: command.ToolCompletedEvent.Ref, PayloadHash: command.ToolCompletedEvent.Hash}, Commands: toolCommands}
@@ -208,7 +208,7 @@ func (store RunStore) completeTool(ctx context.Context, command CompleteToolComm
 			return CompletedTool{}, err
 		}
 	}
-	if effect != nil && command.TargetState == statemachine.ToolCallOutcomeUnknown {
+	if effect != nil && command.TargetState == statemachine.ToolCallOutcomeUnknown && reconcile.command != "" {
 		if tag, updateErr := tx.Exec(ctx, `UPDATE agent.outbox SET available_at=$1 WHERE id=$2 AND tenant_id=$3 AND command_id=$4 AND status='pending'`, effect.ReconciliationDueAt, reconcile.outbox, claim.TenantID, reconcile.command); updateErr != nil || tag.RowsAffected() != 1 {
 			return CompletedTool{}, ErrExecutionRightConflict
 		}
@@ -246,10 +246,16 @@ func isWriteEffectClass(class string) bool {
 	return class == "idempotent_write" || class == "reconcilable_write" || class == "compensatable_write" || class == "irreversible_write"
 }
 
-func validEffectCompletion(state statemachine.ToolCallState, effect EffectCompletion) bool {
+func validEffectCompletion(effectClass string, state statemachine.ToolCallState, effect EffectCompletion) bool {
 	reconcileConfigured := validPointer(effect.ReconcileCommand) && (effect.ReconcileQueueClass == "interactive" || effect.ReconcileQueueClass == "background") && effect.ReconcileResource != "" && effect.ReconcilePriority >= 0 && effect.ReconcilePriority <= 1000 && effect.ReconcileCostUnits > 0 && effect.ReconcileCostUnits <= 1_000_000_000_000 && effect.ReconcileAttempts > 0 && effect.ReconcileAttempts <= 100
 	if state == statemachine.ToolCallOutcomeUnknown {
-		return !effect.ReconciliationDueAt.IsZero() && reconcileConfigured
+		if effect.ReconciliationDueAt.IsZero() {
+			return false
+		}
+		if isAutomaticallyReconcilableEffectClass(effectClass) {
+			return reconcileConfigured
+		}
+		return isWriteEffectClass(effectClass) && effect.ReconcileCommand == (PayloadPointer{}) && effect.ReconcileQueueClass == "" && effect.ReconcileResource == "" && effect.ReconcilePriority == 0 && effect.ReconcileCostUnits == 0 && effect.ReconcileAttempts == 0
 	}
 	return effect.ReconciliationDueAt.IsZero() && effect.ReconcileCommand == (PayloadPointer{}) && effect.ReconcileQueueClass == "" && effect.ReconcileResource == "" && effect.ReconcilePriority == 0 && effect.ReconcileCostUnits == 0 && effect.ReconcileAttempts == 0
 }

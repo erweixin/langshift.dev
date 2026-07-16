@@ -68,7 +68,7 @@ func TestProviderDispatchIsAtMostOnceAndFallbackIsFullyAccounted(t *testing.T) {
 		{`INSERT INTO product.byok_credentials(id,tenant_id,user_id,provider_id,bound_host,secret_ref,secret_version,status,last_validated_at) VALUES($1,$2,$3,'openai','api.openai.com','vault://byok/c6/v1','1','active',$4)`, []any{credential, tenantID, userID, now}},
 		{`INSERT INTO product.byok_credential_versions(tenant_id,credential_id,version,user_id,provider_id,bound_host,secret_ref,secret_version,status,last_validated_at) VALUES($1,$2,2,$3,'openai','api.openai.com','vault://byok/c6/v2','2','active',$4)`, []any{tenantID, credential, userID, now}},
 		{`UPDATE product.byok_credentials SET version=2,secret_ref='vault://byok/c6/v2',secret_version='2',updated_at=$1 WHERE tenant_id=$2 AND id=$3`, []any{now, tenantID, credential}},
-		{`INSERT INTO contracts.credit_buckets(id,tenant_id,bucket_kind,granted_units,starts_at,expires_at) VALUES($1,$2,'llm',1000,$3,$4)`, []any{bucket, tenantID, now.Add(-time.Hour), now.Add(24 * time.Hour)}},
+		{`INSERT INTO contracts.credit_buckets(id,tenant_id,bucket_kind,granted_units,starts_at,expires_at,created_at,updated_at) VALUES($1,$2,'llm',1000,$3,$4,$5,$5)`, []any{bucket, tenantID, now.Add(-time.Hour), now.Add(24 * time.Hour), now}},
 		{`INSERT INTO agent.outbox(id,tenant_id,command_id,command_type,aggregate_kind,aggregate_id,store_epoch,payload_ref,payload_hash,status,available_at,published_at) VALUES('c6000000-0000-4000-8000-000000000012',$1,'c6000000-0000-4000-8000-000000000011','StartAgentRun','run',$2,$3,'encrypted://run/start','run-start-c6','published',$4,$4)`, []any{tenantID, runID, epoch, now}},
 		{`INSERT INTO agent.jobs(id,tenant_id,command_id,queue_class,resource_class,priority,cost_units,max_attempts,status,available_at,due_at,enqueued_at) VALUES('c6000000-0000-4000-8000-000000000013',$1,'c6000000-0000-4000-8000-000000000011','interactive','llm',100,1,5,'running',$2,$3,$2)`, []any{tenantID, now, now.Add(time.Hour)}},
 		{`INSERT INTO agent.job_attempts(id,tenant_id,job_id,command_id,fence,lease_token_hash,lease_expires_at,worker_id,status,started_at) VALUES($1,$2,'c6000000-0000-4000-8000-000000000013','c6000000-0000-4000-8000-000000000011',1,$3,$4,'llm-worker-c6','running',$5)`, []any{runAttempt, tenantID, bytes.Repeat([]byte{0xc6}, 32), now.Add(10 * time.Minute), now}},
@@ -305,8 +305,8 @@ func TestProviderDispatchIsAtMostOnceAndFallbackIsFullyAccounted(t *testing.T) {
 	}
 	if _, err = cancelTx.Exec(ctx, `INSERT INTO agent.run_cancellations(
 		id,tenant_id,run_id,root_cancellation_id,parent_cancellation_id,cancel_generation,status,requested_by,requested_at,reason,
-		store_epoch,request_hash,request_event_id,request_payload_ref,request_payload_hash,settlement_payload_ref,settlement_payload_hash,reconciliation_due_at
-	) VALUES($1,$2,$3,$1,NULL,1,'requested',$4,$5,'user_requested',$6,$7,$8,$9,$10,$11,$12,$5)`, cancellationID, tenantID, runID, userID, now, epoch, strings.Repeat("b", 64), cancelEventID, "encrypted://llm/cancellation/requested", strings.Repeat("a", 64), "encrypted://llm/cancellation/settled", strings.Repeat("c", 64)); err != nil {
+		store_epoch,request_hash,request_event_id,request_payload_ref,request_payload_hash,settlement_payload_ref,settlement_payload_hash,reconciliation_due_at,created_at,updated_at
+	) VALUES($1,$2,$3,$1,NULL,1,'requested',$4,$5,'user_requested',$6,$7,$8,$9,$10,$11,$12,$5,$5,$5)`, cancellationID, tenantID, runID, userID, now, epoch, strings.Repeat("b", 64), cancelEventID, "encrypted://llm/cancellation/requested", strings.Repeat("a", 64), "encrypted://llm/cancellation/settled", strings.Repeat("c", 64)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = cancelTx.Exec(ctx, `UPDATE agent.run_cancellations SET status='terminating',version=2,updated_at=$1 WHERE tenant_id=$2 AND id=$3`, now, tenantID, cancellationID); err != nil {
