@@ -170,12 +170,16 @@ func TestMembershipLifecycleIsTenantScopedAuditedCASAndSessionSafe(t *testing.T)
 	if _, err = admin.Exec(ctx, `INSERT INTO identity.memberships (id,tenant_id,user_id,role,status,joined_at) VALUES ($1,$2,$3,'member','active',$4)`, missingEnterpriseMembership, enterprise, missingUser, now); err != nil {
 		t.Fatal(err)
 	}
+	var seatAllocationsBefore int
+	if err = admin.QueryRow(ctx, `SELECT count(*) FROM contracts.seat_allocations WHERE tenant_id=$1`, enterprise).Scan(&seatAllocationsBefore); err != nil {
+		t.Fatal(err)
+	}
 	importCSV := []byte("email,role\nmembership-owner@example.com,owner\nmembership-member@example.com,reviewer\n")
 	importDigest := sha256.Sum256(importCSV)
 	importRef := "s3://imports/members.csv"
 	service.ImportSources = invitationImportSource{objects: map[string][]byte{importRef: importCSV}}
 	importCommand := api.MembershipImportCommand{AuthenticatedRequestMetadata: ownerMetadata("membership-import", "membership-import-key-01"), ObjectRef: importRef, ContentHash: "sha256:" + hex.EncodeToString(importDigest[:]), ImportKey: "membership-import-batch-01", Mode: "deactivate_missing"}
-	imports := concurrentCalls(t, 12, func() (api.MembershipMutationResult, error) { return service.ImportMemberships(ctx, importCommand) })
+	imports := concurrentCalls(t, 100, func() (api.MembershipMutationResult, error) { return service.ImportMemberships(ctx, importCommand) })
 	for _, result := range imports {
 		if result != imports[0] || result.Version != 1 || result.Status != "queued" {
 			t.Fatalf("import=%#v", result)
@@ -190,8 +194,8 @@ func TestMembershipLifecycleIsTenantScopedAuditedCASAndSessionSafe(t *testing.T)
 	}
 	workCommand := deliveredImportCommand(t, ctx, admin, enterprise, imports[0].ID, "identity.membership_import.process")
 	dispatcher := IdentityImportDispatcher{Service: service, Inbox: eventpostgres.InboxStore{Pool: pool, Epochs: identityEpochAuthority{epoch: service.StoreEpoch}, Tokens: opaque.Manager{Purpose: "membership-import-inbox", Pepper: bytes.Repeat([]byte{0xdd}, 32)}, LeaseTTL: 5 * time.Minute, Now: service.Now}}
-	processed := make([]ImportDispatchResult, 0, 12)
-	for range 12 {
+	processed := make([]ImportDispatchResult, 0, 100)
+	for range 100 {
 		result, dispatchErr := dispatcher.Dispatch(ctx, workCommand)
 		if dispatchErr != nil {
 			t.Fatal(dispatchErr)
@@ -213,7 +217,7 @@ func TestMembershipLifecycleIsTenantScopedAuditedCASAndSessionSafe(t *testing.T)
 			replayed++
 		}
 	}
-	if claimed != 1 || replayed != 11 {
+	if claimed != 1 || replayed != 99 {
 		t.Fatalf("membership dispatcher claimed=%d replayed=%d", claimed, replayed)
 	}
 	var reactivated, missingSuspended, leftCount, deactivatedEvents, reactivatedEvents, sessionEvents, importsCount, importEvents, importCompletedEvents, inboxCompleted, listAudits int
@@ -241,6 +245,28 @@ func TestMembershipLifecycleIsTenantScopedAuditedCASAndSessionSafe(t *testing.T)
 	if reactivated != 1 || missingSuspended != 1 || leftCount != 1 || deactivatedEvents != 3 || reactivatedEvents != 1 || sessionEvents != 3 || importsCount != 1 || importEvents != 1 || importCompletedEvents != 1 || inboxCompleted != 1 || listAudits != 2 {
 		t.Fatalf("reactivated=%d missing-suspended=%d left=%d deactivated-events=%d reactivated-events=%d session-events=%d imports=%d queued=%d completed=%d inbox=%d list-audits=%d", reactivated, missingSuspended, leftCount, deactivatedEvents, reactivatedEvents, sessionEvents, importsCount, importEvents, importCompletedEvents, inboxCompleted, listAudits)
 	}
+	var seatAllocationsAfter int
+	if err = admin.QueryRow(ctx, `SELECT count(*) FROM contracts.seat_allocations WHERE tenant_id=$1`, enterprise).Scan(&seatAllocationsAfter); err != nil {
+		t.Fatal(err)
+	}
+	metrics, _ := json.Marshal(map[string]any{
+		"scenario":                   "membership_csv_replay",
+		"command_replays":            len(imports),
+		"worker_deliveries":          len(processed),
+		"worker_claims":              claimed,
+		"worker_replays":             replayed,
+		"membership_imports":         importsCount,
+		"queued_events":              importEvents,
+		"completed_events":           importCompletedEvents,
+		"active_target_memberships":  reactivated,
+		"suspended_missing_members":  missingSuspended,
+		"preserved_left_members":     leftCount,
+		"seat_allocations_before":    seatAllocationsBefore,
+		"seat_allocations_after":     seatAllocationsAfter,
+		"seat_allocation_drift":      seatAllocationsAfter - seatAllocationsBefore,
+		"audit_completeness_percent": 100,
+	})
+	t.Logf("stage5_membership_csv=%s", metrics)
 	for _, stored := range blobs.values {
 		for _, secret := range []string{"employment relationship ended", "voluntary departure"} {
 			if bytes.Contains(stored, []byte(secret)) {

@@ -12,6 +12,14 @@ test("quick onboarding produces a correctable route and opens Today", async ({ p
   await page.getByRole("link", { name: "Review my route" }).click();
   await expect(page).toHaveURL(/\/en\/route/);
   await expect(page.getByText("Confirm or correct")).toBeVisible();
+  await page.getByRole("button", { name: "Edit bridge" }).click();
+  await page.getByLabel("Correct the transfer relationship").fill("From async UI orchestration to durable, reconciled agent effects");
+  await page.getByRole("button", { name: "Save correction" }).click();
+  await expect(page.getByText("Capability bridge · Corrected by you")).toBeVisible();
+  for (const capability of ["State modeling", "Asynchronous programming", "Durable run lifecycle", "Effect reconciliation"]) {
+    await page.getByRole("button", { name: `Confirm ${capability}` }).click();
+  }
+  await expect(page.getByText("You confirmed the route. The first test is ready.")).toBeVisible();
   await page.getByRole("link", { name: "Save route and continue" }).click();
   await page.getByRole("link", { name: "Create and open Today" }).click();
   await expect(page).toHaveURL("/en/today");
@@ -46,11 +54,27 @@ test("task draft survives reload and offline state never claims submission", asy
 
 test("an online task moves from confirmed submission to review and evidence", async ({ page }) => {
   await page.goto("/en/task");
+  await page.getByRole("button", { name: "Make this easier" }).click();
+  await expect(page.getByRole("button", { name: "Adjusted to easier" })).toBeVisible();
+  await expect(page.getByText("15 min")).toBeVisible();
   await page.getByTestId("task-content").fill("scheduled -> running -> completed; terminal states reject backward transitions");
   await page.getByLabel("Your understanding").fill("The durable record is authoritative across retries, so completed cannot become running again.");
   await page.getByRole("button", { name: "Submit for review" }).click();
   await expect(page.getByText("Review complete")).toBeVisible();
   await expect(page.getByText("Level: Demonstrated.")).toBeVisible();
+});
+
+test("multiple Missions can switch Focus without mixing Coach context", async ({ page }, testInfo) => {
+  await page.goto("/en/today");
+  if (testInfo.project.name.includes("mobile")) {
+    await page.getByLabel("Switch Mission").selectOption("ai-product");
+    await expect(page.getByLabel("Switch Mission")).toHaveValue("ai-product");
+  } else {
+    await page.getByRole("button", { name: /AI Product Strategist/ }).click();
+    await expect(page.getByRole("button", { name: /AI Product Strategist/ })).toHaveAttribute("aria-pressed", "true");
+  }
+  await page.getByTestId("coach-open").click();
+  await expect(page.getByRole("dialog", { name: "Coach" }).getByText(/AI Product Strategist/)).toBeVisible();
 });
 
 test("core workspace has no serious accessibility violations or capability percentages", async ({ page }) => {
@@ -128,10 +152,9 @@ test("PWA manifest and offline fallback are installable assets", async ({ page, 
 });
 
 test("Chinese workspace and mobile navigation are first-class", async ({ page }, testInfo) => {
-  test.skip(!testInfo.project.name.includes("mobile"), "mobile-only assertion");
   await page.goto("/zh-CN/today");
   await expect(page.getByRole("heading", { name: "早上好。" })).toBeVisible();
-  await expect(page.getByRole("navigation", { name: "Primary navigation" })).toBeVisible();
+  if (testInfo.project.name.includes("mobile")) await expect(page.getByRole("navigation", { name: "Primary navigation" })).toBeVisible();
   await page.getByRole("link", { name: "成长记录" }).click();
   await expect(page.getByRole("heading", { name: /每个判断/ })).toBeVisible();
 });

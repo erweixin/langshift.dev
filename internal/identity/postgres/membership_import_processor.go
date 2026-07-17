@@ -245,7 +245,7 @@ func (service AuthService) planMembershipImport(ctx context.Context, record memb
 	for _, row := range rows {
 		current, exists := snapshot.Memberships[row.Email]
 		user, userExists := snapshot.Users[row.Email]
-		if !userExists || !user.Verified || user.Status != "active" || (row.Role == "owner" && (!exists || current.Role != "owner")) || (exists && current.Role == "owner" && row.Role != "owner") {
+		if !userExists || !user.Verified || user.Status != "active" || (exists && current.Status == "left") || (row.Role == "owner" && (!exists || current.Role != "owner")) || (exists && current.Role == "owner" && row.Role != "owner") {
 			plan.RejectedRows++
 			continue
 		}

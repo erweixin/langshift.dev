@@ -6,7 +6,7 @@ export default defineConfig({
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? 2 : undefined,
-  reporter: [["list"], ["html", { open: "never" }]],
+  reporter: [["list"], ["html", { open: "never" }], ["json", { outputFile: "../../.tmp/stage4-web-e2e.json" }]],
   use: {
     baseURL: "http://127.0.0.1:3117",
     trace: "retain-on-failure",

@@ -1,6 +1,7 @@
 package postgres
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -64,6 +65,20 @@ func TestParseMembershipCSVRequiresExactHeader(t *testing.T) {
 		if _, _, err := parseMembershipCSV([]byte(value)); !errors.Is(err, ErrImportInvalid) {
 			t.Fatalf("value=%q err=%v", value, err)
 		}
+	}
+}
+
+func TestMembershipImportCannotReactivateVoluntaryDeparture(t *testing.T) {
+	const email = "departed@example.com"
+	plan, err := (AuthService{}).planMembershipImport(context.Background(), membershipImportRecord{Mode: "upsert"}, []membershipCSVRow{{Number: 2, Email: email, Role: "member"}}, 0, membershipImportSnapshot{
+		Memberships: map[string]membershipRow{email: {ID: "membership-1", UserID: "user-1", Email: email, Role: "member", Status: "left", Version: 2}},
+		Users:       map[string]membershipImportUser{email: {ID: "user-1", Email: email, Status: "active", Verified: true}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.AcceptedRows != 0 || plan.RejectedRows != 1 || len(plan.Actions) != 0 {
+		t.Fatalf("plan=%#v", plan)
 	}
 }
 

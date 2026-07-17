@@ -61,7 +61,7 @@ export function SettingsPanel({ locale }: { locale: Locale }) {
         if (reminder) {
           const updated = await apiRequest<{ id: string; version: number }>(`/v1/reminder-schedules/${reminder.id}`, {
             method: "PATCH", idempotencyKey: newIdempotencyKey(), ifMatch: `"${reminder.version}"`, contentType: "application/vnd.lites.reminder-update.v2+json",
-            body: { ...scheduleBody, action: "update", expected_schedule_version: reminder.version },
+            body: { ...scheduleBody, action: "replace", expected_schedule_version: reminder.version },
           });
           setReminder(updated);
         } else {

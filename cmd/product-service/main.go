@@ -138,6 +138,9 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 	projectTests := productpostgres.ProjectTestGenerationService{Pool: pool, Runs: runStore, Payloads: payloads, IDKey: secrets.IDKey, IdempotencyKeyPepper: secrets.IdempotencyPepper, RequestDigestPepper: secrets.RequestDigestPepper, BehaviorEnvironment: configuration.routeBehaviorEnvironment, RunTimeout: configuration.evaluatorRunTimeout, RunMaxSteps: configuration.evaluatorRunMaxSteps, RunMaxCostMicrounits: int64(configuration.evaluatorRunMaxCostMicrounits), RunMaxAttempts: configuration.evaluatorRunMaxAttempts, IdempotencyTTL: configuration.idempotencyTTL, Now: func() time.Time { return time.Now().UTC() }}
 	portfolioStore := productpostgres.PortfolioExportStore{Pool: pool, Appender: appender, IDKey: secrets.IDKey, StoreEpoch: storeEpoch, Epochs: authority, Behavior: behaviorStore, Now: func() time.Time { return time.Now().UTC() }}
 	portfolioExports := productpostgres.PortfolioExportService{Pool: pool, Store: portfolioStore, Payloads: payloads, IDKey: secrets.IDKey, IdempotencyKeyPepper: secrets.IdempotencyPepper, RequestDigestPepper: secrets.RequestDigestPepper, BehaviorEnvironment: configuration.routeBehaviorEnvironment, RunTimeout: configuration.artifactBuilderRunTimeout, RunMaxSteps: configuration.artifactBuilderRunMaxSteps, RunMaxCostMicrounits: int64(configuration.artifactBuilderRunMaxCostMicrounits), RunMaxAttempts: configuration.artifactBuilderRunMaxAttempts, IdempotencyTTL: configuration.idempotencyTTL, Now: func() time.Time { return time.Now().UTC() }}
+	shareGrants := productpostgres.ShareGrantService{Pool: pool, Appender: appender, Payloads: payloads, IDKey: secrets.IDKey, IdempotencyKeyPepper: secrets.IdempotencyPepper, RequestDigestPepper: secrets.RequestDigestPepper, StoreEpoch: storeEpoch, IdempotencyTTL: configuration.idempotencyTTL, Now: func() time.Time { return time.Now().UTC() }}
+	aggregateQueries := productpostgres.AggregateQueryService{Pool: pool, Payloads: payloads, IDKey: secrets.IDKey, IdempotencyKeyPepper: secrets.IdempotencyPepper, RequestDigestPepper: secrets.RequestDigestPepper, IdempotencyTTL: configuration.idempotencyTTL, Now: func() time.Time { return time.Now().UTC() }}
+	enterpriseAdmin := productpostgres.EnterpriseAdminService{Pool: pool, Appender: appender, Payloads: payloads, IDKey: secrets.IDKey, IdempotencyKeyPepper: secrets.IdempotencyPepper, RequestDigestPepper: secrets.RequestDigestPepper, StoreEpoch: storeEpoch, IdempotencyTTL: configuration.idempotencyTTL, Now: func() time.Time { return time.Now().UTC() }}
 	productMux := http.NewServeMux()
 	missionHandler := productapi.MissionHandler{Queries: queries, Creates: service, Mutations: service}
 	routeHandler := productapi.RouteHandler{Service: routes}
@@ -149,6 +152,9 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 	reminderHandler := productapi.ReminderHandler{Service: reminders}
 	projectHandler := productapi.ProjectHandler{Service: projects, Tests: projectTests}
 	portfolioHandler := productapi.PortfolioHandler{Service: portfolioExports}
+	shareGrantHandler := productapi.ShareGrantHandler{Service: shareGrants}
+	aggregateQueryHandler := productapi.AggregateQueryHandler{Service: aggregateQueries}
+	enterpriseAdminHandler := productapi.EnterpriseAdminHandler{Service: enterpriseAdmin}
 	productMux.Handle("/v1/missions", missionHandler)
 	productMux.Handle("/v1/missions/", missionHandler)
 	productMux.Handle("/v1/route-revisions", routeHandler)
@@ -166,6 +172,14 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 	productMux.Handle("/v1/projects/", projectHandler)
 	productMux.Handle("/v1/portfolio-exports", portfolioHandler)
 	productMux.Handle("/v1/portfolio-exports/", portfolioHandler)
+	productMux.Handle("/v1/share-grants", shareGrantHandler)
+	productMux.Handle("/v1/share-grants/", shareGrantHandler)
+	productMux.Handle("/v1/admin/aggregate-queries", aggregateQueryHandler)
+	productMux.Handle("/v1/admin/programs", enterpriseAdminHandler)
+	productMux.Handle("/v1/admin/programs/", enterpriseAdminHandler)
+	productMux.Handle("/v1/admin/cohorts", enterpriseAdminHandler)
+	productMux.Handle("/v1/admin/cohorts/", enterpriseAdminHandler)
+	productMux.Handle("/v1/admin/role-packs", enterpriseAdminHandler)
 	handler := serviceauth.Middleware{Verifier: trustedcontext.Verifier{Issuer: configuration.trustedIssuer, Audience: configuration.trustedAudience, Keys: trustedKeys, KeyWindows: trustedWindows, MaximumTTL: 2 * time.Minute, ClockSkew: 5 * time.Second}, Now: func() time.Time { return time.Now().UTC() }}.Wrap(productMux)
 	tlsConfig, err := serverTLSConfig(configuration)
 	if err != nil {
