@@ -284,6 +284,14 @@ func TestPublicIdentityRouteRequiresAllowedBrowserOriginAndCarriesNoIdentity(t *
 }
 
 func TestIdentityRoutePolicyFailsClosedForUnknownRoute(t *testing.T) {
+	publicStatus := httptest.NewRequest(http.MethodGet, "https://api.lites.dev/v1/public/status", nil)
+	if got := IdentityRoutePolicy(publicStatus); got != PublicAuthentication {
+		t.Fatalf("public status policy=%d want=%d", got, PublicAuthentication)
+	}
+	publicStatus.Method = http.MethodPost
+	if got := IdentityRoutePolicy(publicStatus); got != AuthenticationRequired {
+		t.Fatalf("public status mutation policy=%d want=%d", got, AuthenticationRequired)
+	}
 	for _, test := range []struct {
 		path string
 		want AuthenticationPolicy

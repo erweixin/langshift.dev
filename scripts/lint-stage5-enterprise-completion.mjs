@@ -1,0 +1,58 @@
+import { createHash } from "node:crypto";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
+
+const root = resolve(import.meta.dirname, "..");
+const readJSON = async (path) => JSON.parse(await readFile(resolve(root, path), "utf8"));
+const readText = async (path) => readFile(resolve(root, path), "utf8");
+const hash = (value) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
+const auditAPI = await readJSON("contracts/openapi/amendments/v1.28.0/audit-export.json");
+const taskAPI = await readJSON("contracts/openapi/amendments/v1.29.0/task-packs.json");
+const auditEvents = await readJSON("contracts/events/amendments/v1.22.0/registry.json");
+const auditFixtures = await readJSON("contracts/events/amendments/v1.22.0/upcaster-fixtures.json");
+const taskEvents = await readJSON("contracts/events/amendments/v1.23.0/registry.json");
+const taskFixtures = await readJSON("contracts/events/amendments/v1.23.0/upcaster-fixtures.json");
+const auditMigration = await readText("deploy/migrations/000082_audit_export_control_plane.up.sql");
+const taskMigration = await readText("deploy/migrations/000083_task_pack_control_plane.up.sql");
+const auditService = await readText("internal/contracts/postgres/control_audit_export.go");
+const taskService = await readText("internal/product/postgres/enterprise_admin_service.go");
+const auditIntegration = await readText("internal/contracts/postgres/control_service_integration_test.go");
+const taskIntegration = await readText("internal/product/postgres/enterprise_admin_service_integration_test.go");
+const gateway = await readText("cmd/api-gateway/main.go");
+const admin = await readText("apps/web/src/components/admin-console.tsx");
+const supportRunbook = await readText("docs/support-and-sla.md");
+const results = [];
+const check = (id, passed, details) => results.push({ id, status: passed ? "passed" : "failed", details });
+const auditRequest = auditAPI.operations["admin.audit-exports.request.v2"];
+const auditDownload = auditAPI.operations["admin.audit-exports.download.v2"];
+const taskPublish = taskAPI.operations["admin.task-packs.publish.v2"];
+
+check("OPENAPI-CHAIN", auditAPI.baseContractVersion === "1.27.0" && taskAPI.baseContractVersion === "1.28.0", "audit export and task packs extend the public status contract in order");
+check("AUDIT-REAUTH", auditRequest.authentication.includes("reauthentication_within_5_minutes") && auditDownload.authentication.includes("reauthentication_within_5_minutes") && auditService.includes("currentPrincipal"), "create and download recheck current role, session, and five-minute reauthentication");
+check("AUDIT-ENTITLEMENT", auditRequest.authorization.includes("active_audit_export_entitlement") && auditService.includes("auditExportEntitlementLimit"), "creation requires a current contracted entitlement and format/record limit");
+check("AUDIT-SNAPSHOT", auditAPI.integrity.includes("repeatable-read") && auditService.includes("queryAuditRecords") && auditService.includes("auditExportMaxRecords    = 100_000"), "exports are bounded deterministic database snapshots");
+check("AUDIT-PRIVACY", auditAPI.privacy.includes("never exports private conversations") && !auditService.includes("conversation") && auditService.includes("reason_hash"), "export is limited to management metadata and hashes");
+check("AUDIT-INTEGRITY", auditService.includes("Payloads.Put") && auditService.includes("Payloads.Get") && auditService.includes("ByteSize") && auditMigration.includes("content_hash ~ '^[0-9a-f]{64}$'"), "encrypted payload content is hash and size verified");
+check("AUDIT-RLS-APPEND", auditMigration.includes("FORCE ROW LEVEL SECURITY") && auditMigration.includes("audit_exports_append_only"), "audit export manifests are tenant-scoped append-only records");
+check("AUDIT-IDEMPOTENCY", auditRequest.idempotency === "required_encrypted_durable_response" && auditService.includes("LoadCompleted") && auditIntegration.includes("audit export replay"), "substitution-safe durable idempotency covers export creation");
+check("AUDIT-EVENT", auditEvents.baseContractVersion === "1.21.0" && auditEvents.schemas.AuditExportCreated["x-event-type"] === "AuditExportCreated" && auditFixtures.fixtures.every((fixture) => fixture.inputHash === hash(fixture.input) && fixture.expectedHash === hash(fixture.expected)), "AuditExportCreated has deterministic additive evidence");
+check("TASK-CLOSED-SCHEMA", taskPublish.path === "/v1/admin/task-packs" && taskAPI.schemas.TaskPackPublishV2.additionalProperties === false, "task pack publication has an exact closed API");
+check("TASK-TENANT-TEMPLATES", taskService.includes("FROM product.task_templates WHERE tenant_id=$1") && taskService.includes("tasks != len(command.TaskTemplateIDs)"), "every referenced template must be active in the same tenant");
+check("TASK-IMMUTABLE", taskMigration.includes("FORCE ROW LEVEL SECURITY") && taskMigration.includes("task_packs_append_only") && taskMigration.includes("UNIQUE (tenant_id,program_id,revision)"), "published task pack revisions cannot be rewritten or duplicated");
+check("TASK-IDEMPOTENCY", taskPublish.idempotency === "required_encrypted_durable_response" && taskService.includes("taskPackPublishOperation") && taskIntegration.includes("task pack replay"), "task pack publication has encrypted durable replay");
+check("TASK-EVENT", taskEvents.baseContractVersion === "1.22.0" && taskEvents.schemas.TaskPackPublished["x-event-type"] === "TaskPackPublished" && taskFixtures.fixtures.every((fixture) => fixture.inputHash === hash(fixture.input) && fixture.expectedHash === hash(fixture.expected)), "TaskPackPublished has deterministic additive evidence");
+check("EXACT-GATEWAY", gateway.includes('path == "/v1/admin/audit-exports"') && gateway.includes('"/v1/admin/audit-exports/"') && gateway.includes('path == "/v1/admin/task-packs"'), "gateway routes only exact audit and task pack surfaces");
+check("ADMIN-UI", admin.includes("requestAuditExport") && admin.includes("downloadAuditExport") && admin.includes("publishTaskPack") && admin.includes("publishRolePack"), "organization console exposes the real governed operations");
+check("SLA-RUNBOOK", supportRunbook.includes("support_tier") && supportRunbook.includes("72 小时") && supportRunbook.includes("冻结") && supportRunbook.includes("append-only"), "support and SLA behavior is operationally documented without an unearned blanket promise");
+
+const failures = results.filter((result) => result.status === "failed");
+const base = { reportVersion: "1.0.0", stage: 5, kind: "enterprise-completion-contract", generatedAt: new Date().toISOString(), status: failures.length ? "failed" : "passed", summary: { checks: results.length, passed: results.length - failures.length, failed: failures.length }, auditOpenAPIHash: hash(auditAPI), taskOpenAPIHash: hash(taskAPI), auditEventHash: hash(auditEvents), taskEventHash: hash(taskEvents), results };
+const report = { ...base, reportHash: hash(base) };
+const target = resolve(root, "gate-reports/stage-5/enterprise-completion-contract.json");
+await mkdir(dirname(target), { recursive: true });
+await writeFile(target, `${JSON.stringify(report, null, 2)}\n`);
+console.log(`${report.status}: ${report.summary.passed}/${report.summary.checks} checks; report ${report.reportHash}`);
+if (failures.length) {
+  for (const failure of failures) console.error(`${failure.id}: ${failure.details}`);
+  process.exitCode = 1;
+}

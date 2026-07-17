@@ -1,0 +1,84 @@
+{
+  "amendmentVersion": "1.24.0",
+  "baseContractVersion": "1.23.0",
+  "kind": "openapi-operation-version-extension",
+  "compatibility": "versioned-client-additive",
+  "operations": {
+    "admin.entitlements.propose.v2": {
+      "method": "POST",
+      "path": "/v1/admin/entitlements",
+      "authentication": "gateway_signed_session",
+      "authorization": "active_owner_or_contract_admin_with_reauthentication_within_5_minutes",
+      "csrf": "required",
+      "idempotency": "required_encrypted_durable_response",
+      "requiredHeaders": ["If-Match"],
+      "requestContentType": "application/vnd.lites.entitlement-proposal.v2+json",
+      "requestSchema": "EntitlementProposalRequestV2",
+      "responseContentType": "application/vnd.lites.admin-control-resource.v2+json",
+      "responseSchema": "AdminControlResourceV2",
+      "concurrency": "If-Match must equal the quoted expected_contract_version. The proposal binds the exact contract version, entitlement key, current entitlement version, canonical configuration hash, immutable proposal hash and five-minute expiry.",
+      "safety": "Only the frozen entitlement-key catalog is accepted. Tenant and actor identity come only from signed gateway context; direct entitlement insertion is forbidden and the initiator cannot approve."
+    },
+    "admin.entitlements.decide.v2": {
+      "method": "POST",
+      "path": "/v1/admin/entitlements/{proposal_id}/approval-decisions",
+      "authentication": "gateway_signed_session",
+      "authorization": "active_owner_or_contract_admin_with_reauthentication_within_5_minutes",
+      "csrf": "required",
+      "idempotency": "required_encrypted_durable_response",
+      "requiredHeaders": ["If-Match"],
+      "requestContentType": "application/vnd.lites.entitlement-decision.v2+json",
+      "requestSchema": "EntitlementDecisionRequestV2",
+      "responseContentType": "application/vnd.lites.admin-control-resource.v2+json",
+      "responseSchema": "AdminControlResourceV2",
+      "concurrency": "If-Match is required and must equal the quoted expected_proposal_version. Contract or entitlement version drift invalidates all prior approvals and returns a precondition conflict.",
+      "safety": "Exactly two distinct current approvers must approve the immutable proposal hash and exact contract and entitlement versions. Execution appends one entitlement version and an audit record containing exactly two approval event identifiers atomically."
+    }
+  },
+  "schemas": {
+    "EntitlementProposalRequestV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["request_id", "contract_id", "expected_contract_version", "entitlement_key", "expected_entitlement_version", "config", "reason"],
+      "properties": {
+        "request_id": {"type": "string", "minLength": 8, "maxLength": 200},
+        "contract_id": {"type": "string", "format": "uuid"},
+        "expected_contract_version": {"type": "integer", "minimum": 1},
+        "entitlement_key": {"enum": ["programs", "cohorts", "role_packs", "aggregate_analytics", "audit_export", "private_delivery", "commercial_license", "support_tier"]},
+        "expected_entitlement_version": {"type": "integer", "minimum": 0},
+        "limit_value": {"type": ["integer", "null"], "minimum": 0},
+        "config": {"type": "object", "x-maxSerializedBytes": 16384},
+        "reason": {"type": "string", "minLength": 1, "maxLength": 1000}
+      }
+    },
+    "EntitlementDecisionRequestV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["request_id", "decision", "proposal_hash", "target_contract_version", "target_entitlement_version", "expected_proposal_version"],
+      "properties": {
+        "request_id": {"type": "string", "minLength": 8, "maxLength": 200},
+        "decision": {"enum": ["approve", "reject"]},
+        "proposal_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "target_contract_version": {"type": "integer", "minimum": 1},
+        "target_entitlement_version": {"type": "integer", "minimum": 0},
+        "expected_proposal_version": {"const": 1}
+      }
+    },
+    "AdminControlResourceV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version", "status", "proposal_hash", "target_id", "target_version", "approval_count", "updated_at"],
+      "properties": {
+        "id": {"type": "string", "format": "uuid"},
+        "version": {"type": "integer", "minimum": 1, "maximum": 2},
+        "status": {"enum": ["proposed", "rejected", "executed"]},
+        "proposal_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "target_id": {"type": "string", "format": "uuid"},
+        "target_version": {"type": "integer", "minimum": 0},
+        "approval_count": {"type": "integer", "minimum": 0, "maximum": 2},
+        "updated_at": {"type": "string", "format": "date-time"},
+        "replayed": {"type": "boolean"}
+      }
+    }
+  }
+}

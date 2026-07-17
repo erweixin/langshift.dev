@@ -56,6 +56,15 @@ type PublishRolePackCommand struct {
 	RoleProfileIDs, TaskTemplateIDs []string
 }
 
+type PublishTaskPackCommand struct {
+	CommandMetadata
+	ProgramID       string
+	Revision        int
+	Name            string
+	TaskTemplateIDs []string
+	Assignment      json.RawMessage
+}
+
 type EnterpriseAdminService interface {
 	CreateProgram(context.Context, CreateProgramCommand) (EnterpriseResource, error)
 	UpdateProgram(context.Context, UpdateProgramCommand) (EnterpriseResource, error)
@@ -63,4 +72,5 @@ type EnterpriseAdminService interface {
 	EnrollCohort(context.Context, EnrollCohortCommand) (EnterpriseResource, error)
 	UnenrollCohort(context.Context, UnenrollCohortCommand) (EnterpriseResource, error)
 	PublishRolePack(context.Context, PublishRolePackCommand) (EnterpriseResource, error)
+	PublishTaskPack(context.Context, PublishTaskPackCommand) (EnterpriseResource, error)
 }

@@ -141,6 +141,130 @@ test("Settings covers locale, timezone, reminders, BYOK, Memory, export, and era
   await expect(page.getByRole("heading", { name: "你的工作区，由你掌控。" })).toBeVisible();
 });
 
+test("Organization console preserves privileged-action and sensitive-read boundaries", async ({ page }) => {
+  await page.route("**/api/v1/auth/reauthentication", async (route) => {
+    const request = route.request();
+    expect(request.method()).toBe("POST");
+    expect(request.headers()["idempotency-key"]).toBeTruthy();
+    expect((await request.postDataJSON()).password).toBe("current-password-value");
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ valid_until: "2026-07-17T12:05:00Z" }) });
+  });
+  await page.route("**/api/v1/admin/task-packs", async (route) => {
+    const request = route.request();
+    expect(request.method()).toBe("POST");
+    expect(request.headers()["content-type"]).toBe("application/vnd.lites.task-pack-publish.v2+json");
+    expect(await request.postDataJSON()).toMatchObject({ revision: 1, name: "Crash recovery lab", task_template_ids: ["e1000000-0000-4000-8000-000000000021"], assignment: { required: true } });
+    await route.fulfill({ status: 200, contentType: "application/vnd.lites.enterprise-resource.v2+json", body: JSON.stringify({ id: "e1000000-0000-4000-8000-000000000047", version: 1, status: "published", updated_at: "2026-07-17T12:00:00Z" }) });
+  });
+  const auditExportID = "78000000-0000-4000-8000-000000000060";
+  await page.route("**/api/v1/admin/audit-exports", async (route) => {
+    const request = route.request();
+    expect(request.method()).toBe("POST");
+    expect(request.headers()["content-type"]).toBe("application/vnd.lites.admin-audit-export-request.v2+json");
+    expect(await request.postDataJSON()).toMatchObject({ kinds: ["contract_change", "accounting_adjustment", "admin_read"], format: "jsonl", reason: "Annual compliance evidence" });
+    await route.fulfill({ status: 200, contentType: "application/vnd.lites.admin-audit-export.v2+json", body: JSON.stringify({ id: auditExportID, version: 1, status: "ready", format: "jsonl", record_count: 42, content_hash: "a".repeat(64), byte_size: 128, period_start: "2026-01-01T00:00:00Z", period_end: "2026-07-01T00:00:00Z", created_at: "2026-07-17T12:00:00Z", expires_at: "2026-08-16T12:00:00Z" }) });
+  });
+  await page.route(`**/api/v1/admin/audit-exports/${auditExportID}`, async (route) => {
+    expect(route.request().headers()["x-audit-reason"]).toBe("Quarterly renewal review");
+    await route.fulfill({ status: 200, contentType: "application/x-ndjson", headers: { "Content-Disposition": `attachment; filename="lites-audit-${auditExportID}.jsonl"`, Digest: "SHA-256=YWFh" }, body: '{"id":"record-1"}\n' });
+  });
+  await page.goto("/en/admin");
+  await expect(page.getByRole("heading", { name: "Govern people, access, and commercial terms." })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Organization", exact: true })).toHaveAttribute("aria-current", "page");
+
+  const usage = page.getByRole("button", { name: "Load usage" });
+  await expect(usage).toBeDisabled();
+  await page.getByLabel("Reason for this access").fill("Quarterly renewal review");
+  await expect(usage).toBeEnabled();
+
+  const password = page.getByLabel("Current password");
+  await password.fill("current-password-value");
+  await page.getByRole("button", { name: "Reauthenticate" }).click();
+  await expect(password).toHaveValue("");
+  await expect(page.getByText("This session is reauthenticated for five minutes.")).toBeVisible();
+
+  const taskPack = page.getByRole("heading", { name: "Publish a task pack" }).locator("xpath=ancestor::form");
+  await taskPack.getByLabel("Program ID").fill("e1000000-0000-4000-8000-000000000040");
+  await taskPack.getByLabel("Revision").fill("1");
+  await taskPack.getByLabel("Name").fill("Crash recovery lab");
+  await taskPack.getByLabel("Task template IDs").fill("e1000000-0000-4000-8000-000000000021");
+  await taskPack.getByRole("button", { name: "Publish task pack" }).click();
+  await expect(page.getByText("Task pack published as an immutable revision.")).toBeVisible();
+
+  const auditExport = page.getByRole("heading", { name: "Create a compliance audit export" }).locator("xpath=ancestor::form");
+  await auditExport.getByLabel("Period start").fill("2026-01-01T00:00");
+  await auditExport.getByLabel("Period end").fill("2026-07-01T00:00");
+  await auditExport.getByLabel("Export reason").fill("Annual compliance evidence");
+  await auditExport.getByRole("button", { name: "Create export" }).click();
+  await expect(page.getByText("Audit export created with 42 records.")).toBeVisible();
+  await auditExport.getByRole("button", { name: "Download export" }).click();
+  await expect(page.getByText("Downloaded; the sensitive access was recorded by the service.")).toBeVisible();
+
+  const results = await new AxeBuilder({ page }).disableRules(["color-contrast"]).analyze();
+  expect(results.violations.filter((violation) => ["serious", "critical"].includes(violation.impact ?? ""))).toEqual([]);
+});
+
+test("Support Center creates an encrypted case boundary and exposes frozen SLA clocks", async ({ page }) => {
+  await page.route("**/api/v1/support/cases", async (route) => {
+    const request = route.request();
+    expect(request.method()).toBe("POST");
+    expect(request.headers()["content-type"]).toBe("application/vnd.lites.support-case-create.v2+json");
+    expect(request.headers()["idempotency-key"]).toBeTruthy();
+    const body = await request.postDataJSON();
+    expect(body).toMatchObject({ category: "availability", priority: "urgent", subject: "Agent runs unavailable", body: "Runs stop before scheduling." });
+    await route.fulfill({ status: 201, contentType: "application/vnd.lites.support-case.v2+json", body: JSON.stringify({ id: "50000000-0000-4000-8000-000000000001", reference: "LTS-20260717-50000000", requester_user_id: "50000000-0000-4000-8000-000000000010", category: "availability", priority: "urgent", status: "open", subject: "Agent runs unavailable", support_tier: "enterprise", version: 1, response_due_at: "2026-07-17T13:30:00Z", resolution_due_at: "2026-07-17T17:00:00Z", first_responded_at: null, resolved_at: null, created_at: "2026-07-17T13:00:00Z", updated_at: "2026-07-17T13:00:00Z", messages: [{ id: "50000000-0000-4000-8000-000000000002", author_user_id: "50000000-0000-4000-8000-000000000010", author_kind: "customer", body: "Runs stop before scheduling.", created_at: "2026-07-17T13:00:00Z" }] }) });
+  });
+  await page.goto("/en/support");
+  await expect(page.getByRole("heading", { name: "Every issue has a record. Every promise has a clock." })).toBeVisible();
+  await page.getByLabel("Category").selectOption("availability");
+  await page.getByLabel("Urgency").selectOption("urgent");
+  await page.getByLabel("Subject").fill("Agent runs unavailable");
+  const details = page.getByLabel("Details");
+  await details.fill("Runs stop before scheduling.");
+  await page.getByRole("button", { name: "Submit securely" }).click();
+  await expect(details).toHaveValue("");
+  await expect(page.getByText("Case LTS-20260717-50000000 was submitted securely.")).toBeVisible();
+  await expect(page.getByText("First response")).toBeVisible();
+  await expect(page.getByText("Resolution target")).toBeVisible();
+
+  const results = await new AxeBuilder({ page }).disableRules(["color-contrast"]).analyze();
+  expect(results.violations.filter((violation) => ["serious", "critical"].includes(violation.impact ?? ""))).toEqual([]);
+});
+
+test("public Trust Center makes no unearned certification claim", async ({ page }) => {
+  await page.goto("/en/trust");
+  await expect(page.getByRole("heading", { name: "Trust comes from verifiable boundaries." })).toBeVisible();
+  await expect(page.getByRole("row", { name: /SOC 2 Type II Not claimed/ })).toBeVisible();
+  await expect(page.getByRole("row", { name: /ISO 27001 Not claimed/ })).toBeVisible();
+  await expect(page.getByRole("row", { name: /Penetration test Required before GA/ })).toBeVisible();
+  const results = await new AxeBuilder({ page }).disableRules(["color-contrast"]).analyze();
+  expect(results.violations.filter((violation) => ["serious", "critical"].includes(violation.impact ?? ""))).toEqual([]);
+});
+
+test("public status uses fresh evidence and fails stale evidence to unknown", async ({ page }) => {
+  const generatedAt = new Date(Date.now() - 5_000).toISOString();
+  const validUntil = new Date(Date.now() + 120_000).toISOString();
+  await page.route("**/api/v1/public/status", async (route) => {
+    expect(route.request().headers().accept).toBe("application/vnd.lites.public-status.v1+json");
+    await route.fulfill({ status: 200, contentType: "application/vnd.lites.public-status.v1+json", body: JSON.stringify({ schema_version: 1, overall: "operational", generated_at: generatedAt, valid_until: validUntil, components: [{ id: "api", name: "Cloud API", state: "operational" }], incidents: [] }) });
+  });
+  await page.goto("/en/status");
+  await expect(page.getByRole("heading", { name: "Operational" })).toBeVisible();
+  await expect(page.getByText("Cloud API")).toBeVisible();
+  let results = await new AxeBuilder({ page }).disableRules(["color-contrast"]).analyze();
+  expect(results.violations.filter((violation) => ["serious", "critical"].includes(violation.impact ?? ""))).toEqual([]);
+
+  await page.unroute("**/api/v1/public/status");
+  await page.route("**/api/v1/public/status", async (route) => {
+    await route.fulfill({ status: 200, contentType: "application/vnd.lites.public-status.v1+json", body: JSON.stringify({ schema_version: 1, overall: "operational", generated_at: new Date(Date.now() - 180_000).toISOString(), valid_until: new Date(Date.now() - 60_000).toISOString(), components: [{ id: "api", name: "Cloud API", state: "operational" }], incidents: [] }) });
+  });
+  await page.getByRole("button", { name: "Refresh" }).click();
+  await expect(page.getByRole("heading", { name: "Unknown" })).toBeVisible();
+  await expect(page.getByText("Status data unavailable")).toBeVisible();
+  results = await new AxeBuilder({ page }).disableRules(["color-contrast"]).analyze();
+  expect(results.violations.filter((violation) => ["serious", "critical"].includes(violation.impact ?? ""))).toEqual([]);
+});
+
 test("PWA manifest and offline fallback are installable assets", async ({ page, request }) => {
   await page.goto("/en/today");
   await expect(page.locator('link[rel="manifest"]')).toHaveAttribute("href", "/manifest.webmanifest");

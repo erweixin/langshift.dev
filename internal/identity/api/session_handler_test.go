@@ -23,10 +23,18 @@ import (
 )
 
 type sessionServiceStub struct {
-	logout       func(context.Context, LogoutCommand) (LogoutResult, error)
-	list         func(context.Context, SessionsQuery) (SessionsPage, error)
-	revoke       func(context.Context, RevokeSessionCommand) (SessionMutationResult, error)
-	revokeOthers func(context.Context, RevokeOtherSessionsCommand) (SessionMutationResult, error)
+	reauthenticate func(context.Context, ReauthenticateCommand) (ReauthenticationResult, error)
+	logout         func(context.Context, LogoutCommand) (LogoutResult, error)
+	list           func(context.Context, SessionsQuery) (SessionsPage, error)
+	revoke         func(context.Context, RevokeSessionCommand) (SessionMutationResult, error)
+	revokeOthers   func(context.Context, RevokeOtherSessionsCommand) (SessionMutationResult, error)
+}
+
+func (stub sessionServiceStub) Reauthenticate(ctx context.Context, command ReauthenticateCommand) (ReauthenticationResult, error) {
+	if stub.reauthenticate == nil {
+		return ReauthenticationResult{}, errors.New("unexpected reauthentication")
+	}
+	return stub.reauthenticate(ctx, command)
 }
 
 func (stub sessionServiceStub) Logout(ctx context.Context, command LogoutCommand) (LogoutResult, error) {
@@ -52,6 +60,19 @@ func (stub sessionServiceStub) RevokeOtherSessions(ctx context.Context, command 
 		return SessionMutationResult{}, errors.New("unexpected revoke other sessions")
 	}
 	return stub.revokeOthers(ctx, command)
+}
+
+func TestReauthenticationUsesTrustedSessionAndNeverReturnsPassword(t *testing.T) {
+	service := sessionServiceStub{reauthenticate: func(_ context.Context, command ReauthenticateCommand) (ReauthenticationResult, error) {
+		if command.UserID != "user-auth" || command.TenantID != "tenant-auth" || command.MembershipID != "membership-auth" || command.SessionID != "session-auth" || command.ClientRequestID != "client-reauth-001" || command.IdempotencyKey != "reauth-key-00000001" || command.Password != "current password value" {
+			t.Fatalf("command=%#v", command)
+		}
+		return ReauthenticationResult{SessionID: command.SessionID, SessionVersion: 4, ReauthenticatedAt: apiTestNow, ValidUntil: apiTestNow.Add(5 * time.Minute)}, nil
+	}}
+	recorder := serveAuthenticated(t, service, http.MethodPost, "/v1/auth/reauthentication", "reauth-key-00000001", "", `{"request_id":"client-reauth-001","password":"current password value"}`)
+	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), `"session_version":4`) || strings.Contains(recorder.Body.String(), "current password value") || recorder.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("status=%d headers=%v body=%s", recorder.Code, recorder.Header(), recorder.Body.String())
+	}
 }
 
 func TestAuthenticatedSessionListUsesTrustedPrincipalAndOpaqueCursor(t *testing.T) {

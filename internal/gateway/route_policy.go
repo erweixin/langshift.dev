@@ -17,6 +17,9 @@ var publicIdentityPaths = map[string]struct{}{
 // IdentityRoutePolicy is intentionally an exact allowlist. Any new route is
 // authenticated by default until its OpenAPI security review adds it here.
 func IdentityRoutePolicy(request *http.Request) AuthenticationPolicy {
+	if request.Method == http.MethodGet && request.URL.Path == "/v1/public/status" && len(request.URL.Query()) == 0 {
+		return PublicAuthentication
+	}
 	if _, ok := publicIdentityPaths[request.URL.Path]; ok {
 		return PublicAuthentication
 	}

@@ -31,6 +31,7 @@ const (
 	cohortEnrollOperation    = "admin.cohorts.enroll.v2"
 	cohortUnenrollOperation  = "admin.cohorts.unenroll.v2"
 	rolePackPublishOperation = "admin.role-packs.publish.v2"
+	taskPackPublishOperation = "admin.task-packs.publish.v2"
 )
 
 type EnterpriseAdminService struct {
@@ -227,6 +228,34 @@ func (service EnterpriseAdminService) PublishRolePack(ctx context.Context, comma
 		taskJSON, _ := json.Marshal(command.TaskTemplateIDs)
 		_, err := tx.Exec(ctx, `INSERT INTO product.role_packs(id,tenant_id,program_id,revision,status,role_profile_ids,task_template_ids,published_at,created_at,updated_at) VALUES($1,$2,$3,$4,'published',$5,$6,$7,$7,$7)`, rolePackID, command.TenantID, command.ProgramID, command.Revision, profileJSON, taskJSON, now)
 		return productapi.EnterpriseResource{ID: rolePackID, Version: 1, Status: "published", UpdatedAt: now}, err
+	}})
+}
+
+func (service EnterpriseAdminService) PublishTaskPack(ctx context.Context, command productapi.PublishTaskPackCommand) (productapi.EnterpriseResource, error) {
+	if !service.validCommand(command.CommandMetadata) || uuid.Validate(command.ProgramID) != nil || command.Revision < 1 || !validEnterpriseServiceName(command.Name) || !validEnterpriseServiceUUIDs(command.TaskTemplateIDs, 1, 500) || !validEnterpriseServiceJSON(command.Assignment) {
+		return productapi.EnterpriseResource{}, productapi.ErrValidation
+	}
+	command.TaskTemplateIDs = append([]string(nil), command.TaskTemplateIDs...)
+	sort.Strings(command.TaskTemplateIDs)
+	taskPackID, _ := ids.DeterministicUUID(service.IDKey, "enterprise-task-pack", command.TenantID+"\x00"+command.ProgramID+"\x00"+strconv.Itoa(command.Revision))
+	return service.execute(ctx, enterpriseMutation{Metadata: command.CommandMetadata, Operation: taskPackPublishOperation, Request: command, EventType: "TaskPackPublished", AggregateKind: "task_pack", EventBody: subjectEventBody(taskPackID, 1), Mutate: func(ctx context.Context, tx pgx.Tx, _ string, now time.Time) (productapi.EnterpriseResource, error) {
+		var program bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM product.programs WHERE tenant_id=$1 AND id=$2 AND status='active')`, command.TenantID, command.ProgramID).Scan(&program); err != nil {
+			return productapi.EnterpriseResource{}, err
+		}
+		if !program {
+			return productapi.EnterpriseResource{}, productapi.ErrResourceNotFound
+		}
+		var tasks int
+		if err := tx.QueryRow(ctx, `SELECT count(*) FROM product.task_templates WHERE tenant_id=$1 AND id=ANY($2::uuid[]) AND status='active'`, command.TenantID, command.TaskTemplateIDs).Scan(&tasks); err != nil {
+			return productapi.EnterpriseResource{}, err
+		}
+		if tasks != len(command.TaskTemplateIDs) {
+			return productapi.EnterpriseResource{}, productapi.ErrValidation
+		}
+		taskJSON, _ := json.Marshal(command.TaskTemplateIDs)
+		_, err := tx.Exec(ctx, `INSERT INTO product.task_packs(id,tenant_id,program_id,revision,name,status,task_template_ids,assignment,published_at,created_at,updated_at) VALUES($1,$2,$3,$4,$5,'published',$6,$7,$8,$8,$8)`, taskPackID, command.TenantID, command.ProgramID, command.Revision, command.Name, taskJSON, command.Assignment, now)
+		return productapi.EnterpriseResource{ID: taskPackID, Version: 1, Status: "published", UpdatedAt: now}, err
 	}})
 }
 

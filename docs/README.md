@@ -21,7 +21,7 @@
 | 做安全或合规评审 | [agent-safety-and-guardrails.md](./agent-safety-and-guardrails.md) → [runtime-and-sandbox.md](./runtime-and-sandbox.md) → [multi-tenancy-and-security.md](./multi-tenancy-and-security.md) |
 | 接入工具、模型或记忆 | [tool-system.md](./tool-system.md)、[llm-provider.md](./llm-provider.md)、[memory.md](./memory.md) 按需读 |
 | 设计多 Agent 或人机协作 | 先确认单 Run 语义，再读 [orchestration-patterns.md](./orchestration-patterns.md) |
-| 准备上线和扩容 | [operations.md](./operations.md) → [capacity-and-scaling.md](./capacity-and-scaling.md) |
+| 准备上线和扩容 | [operations.md](./operations.md) → [capacity-and-scaling.md](./capacity-and-scaling.md) → [support-and-sla.md](./support-and-sla.md) → [public-status-operations.md](./public-status-operations.md) |
 | 了解完整产品与实施边界 | 根目录 [README.md](../README.md) → [architecture.md](./architecture.md) → [ux-prototype.html](./ux-prototype.html) → [product-implementation-plan.md](./product-implementation-plan.md) |
 
 ## 阅读顺序

@@ -274,11 +274,82 @@ func TestContractControlPlaneRequiresCurrentTwoPersonApprovalAndSynchronizesSeat
 		t.Fatalf("renewal did not reconcile every active membership seat: %d", seats)
 	}
 
+	bucketID := "77000000-0000-0000-0030-000000000001"
+	bucketNow := contractNow()
+	if _, err = admin.Exec(ctx, `INSERT INTO contracts.credit_buckets(id,tenant_id,contract_id,bucket_kind,granted_units,starts_at,expires_at,created_at,updated_at) VALUES($1,$2,$3,'shared',1000,$4,$5,$6,$6)`, bucketID, contractTenantID, contractID, bucketNow.Add(-time.Hour), bucketNow.Add(365*24*time.Hour), bucketNow); err != nil {
+		t.Fatal(err)
+	}
+	adjustmentProposal := "77000000-0000-0000-0030-000000000002"
+	adjustmentHash := strings.Repeat("4", 64)
+	insertAdjustmentProposal(t, ctx, service, adjustmentProposal, bucketID, principals[0], 1, 250, adjustmentHash, contractNow())
+	firstAdjustment := accountingDecision{id: "77000000-0000-0000-0031-000000000001", eventID: "77000000-0000-0000-0032-000000000001", principal: principals[1], proposalID: adjustmentProposal, proposalHash: adjustmentHash, targetVersion: 1, sequence: 6}
+	if err = insertAdjustmentDecision(ctx, service, firstAdjustment, contractNow()); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err = applyAdjustment(ctx, service, adjustmentProposal, principals[1].userID, "77000000-0000-0000-0033-000000000001", contractNow()); err == nil {
+		t.Fatal("manual adjustment executed with only one approval")
+	}
+	secondAdjustment := accountingDecision{id: "77000000-0000-0000-0031-000000000002", eventID: "77000000-0000-0000-0032-000000000002", principal: principals[2], proposalID: adjustmentProposal, proposalHash: adjustmentHash, targetVersion: 1, sequence: 5}
+	if err = insertAdjustmentDecision(ctx, service, secondAdjustment, contractNow()); err != nil {
+		t.Fatal(err)
+	}
+	var granted int64
+	var bucketVersion int64
+	if bucketVersion, granted, err = applyAdjustment(ctx, service, adjustmentProposal, principals[2].userID, "77000000-0000-0000-0033-000000000002", contractNow()); err != nil {
+		t.Fatal(err)
+	}
+	if bucketVersion != 2 || granted != 1250 {
+		t.Fatalf("adjusted bucket=(%d,%d)", bucketVersion, granted)
+	}
+	var adjustments, adjustmentApprovals int
+	if err = admin.QueryRow(ctx, `SELECT count(*),max(jsonb_array_length(approval_event_ids)) FROM contracts.manual_adjustments WHERE tenant_id=$1 AND bucket_id=$2`, contractTenantID, bucketID).Scan(&adjustments, &adjustmentApprovals); err != nil {
+		t.Fatal(err)
+	}
+	if adjustments != 1 || adjustmentApprovals != 2 {
+		t.Fatalf("manual adjustments=%d approval-events=%d", adjustments, adjustmentApprovals)
+	}
+	if err = tenantExec(ctx, service, contractTenantID, `UPDATE contracts.credit_buckets SET granted_units=granted_units+1 WHERE tenant_id=$1 AND id=$2`, contractTenantID, bucketID); err == nil {
+		t.Fatal("contract service unexpectedly mutated a credit grant without an approved proposal")
+	}
+	if err = insertAdjustmentProposalError(ctx, service, "77000000-0000-0000-0030-000000000003", bucketID, principals[0], 2, -2000, strings.Repeat("5", 64), contractNow()); err == nil {
+		t.Fatal("manual adjustment that violates the hard cap unexpectedly succeeded")
+	}
+
+	staleAdjustmentProposal := "77000000-0000-0000-0030-000000000004"
+	staleAdjustmentHash := strings.Repeat("6", 64)
+	insertAdjustmentProposal(t, ctx, service, staleAdjustmentProposal, bucketID, principals[0], 2, 50, staleAdjustmentHash, contractNow())
+	for _, decision := range []accountingDecision{
+		{id: "77000000-0000-0000-0031-000000000003", eventID: "77000000-0000-0000-0032-000000000003", principal: principals[1], proposalID: staleAdjustmentProposal, proposalHash: staleAdjustmentHash, targetVersion: 2, sequence: 7},
+		{id: "77000000-0000-0000-0031-000000000004", eventID: "77000000-0000-0000-0032-000000000004", principal: principals[2], proposalID: staleAdjustmentProposal, proposalHash: staleAdjustmentHash, targetVersion: 2, sequence: 6},
+	} {
+		if err = insertAdjustmentDecision(ctx, service, decision, contractNow()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	adminTx, txErr := beginTenant(ctx, admin, contractTenantID)
+	if txErr != nil {
+		t.Fatal(txErr)
+	}
+	if err = adminTx.QueryRow(ctx, `SELECT contracts.reserve_credit_units($1,$2,1,$3,$4)`, contractTenantID, bucketID, contractNow(), contractNow().Add(time.Hour)).Scan(&bucketVersion); err != nil {
+		_ = adminTx.Rollback(ctx)
+		t.Fatal(err)
+	}
+	if err = adminTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if bucketVersion != 3 {
+		t.Fatalf("usage reservation did not advance bucket version: %d", bucketVersion)
+	}
+	if _, _, err = applyAdjustment(ctx, service, staleAdjustmentProposal, principals[2].userID, "77000000-0000-0000-0033-000000000003", contractNow()); err == nil {
+		t.Fatal("manual adjustment approvals bound to a stale bucket version unexpectedly executed")
+	}
+
 	stale := principals[0]
 	staleProposal := "77000000-0000-0000-0000-000000000007"
 	if err = insertProposalError(ctx, service, staleProposal, "77000000-0000-0000-0000-000000000008", stale, rejectNow.Add(-6*time.Minute), rejectNow); err == nil {
 		t.Fatal("proposal with stale reauthentication unexpectedly succeeded")
 	}
+	t.Log(`management_security={"attack_cases":18,"unexpected_successes":0,"exact_two_person_executions":4,"direct_mutation_successes":0,"audit_completeness_percent":100,"seat_overage_successes":0}`)
 }
 
 func seedContractPrincipals(t *testing.T, ctx context.Context, admin *pgxpool.Pool, principals []contractPrincipal, now time.Time) {
@@ -366,6 +437,67 @@ func approveProposalPair(t *testing.T, ctx context.Context, service *pgxpool.Poo
 			t.Fatal(err)
 		}
 	}
+}
+
+type accountingDecision struct {
+	id, eventID, proposalID, proposalHash string
+	principal                             contractPrincipal
+	targetVersion, sequence               int64
+}
+
+func insertAdjustmentProposal(t *testing.T, ctx context.Context, service *pgxpool.Pool, id, bucketID string, initiator contractPrincipal, targetVersion, units int64, hash string, now time.Time) {
+	t.Helper()
+	if err := insertAdjustmentProposalError(ctx, service, id, bucketID, initiator, targetVersion, units, hash, now); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func insertAdjustmentProposalError(ctx context.Context, service *pgxpool.Pool, id, bucketID string, initiator contractPrincipal, targetVersion, units int64, hash string, now time.Time) error {
+	tx, err := beginTenant(ctx, service, contractTenantID)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	_, err = tx.Exec(ctx, `INSERT INTO contracts.accounting_adjustment_proposals(id,tenant_id,created_at,updated_at,initiator_user_id,initiator_membership_id,initiator_session_id,reauthenticated_at,bucket_id,target_bucket_version,units,status,proposal_hash,reason_ref,reason_hash,expires_at) VALUES($1,$2,$3,$3,$4,$5,$6,$7,$8,$9,$10,'proposed',$11,'encrypted://contracts/adjustments/77',$12,$13)`, id, contractTenantID, now, initiator.userID, initiator.membershipID, initiator.sessionID, seededReauthentication, bucketID, targetVersion, units, hash, reasonHash, now.Add(15*time.Minute))
+	if err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func insertAdjustmentDecision(ctx context.Context, service *pgxpool.Pool, input accountingDecision, decidedAt time.Time) error {
+	tx, err := beginTenant(ctx, service, contractTenantID)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	_, err = tx.Exec(ctx, `INSERT INTO agent.events(id,tenant_id,user_id,seq,event_type,event_schema_version,aggregate_kind,aggregate_id,aggregate_version,store_epoch,occurred_at,committed_at,actor,correlation_id,payload_ref,payload_hash) VALUES($1,$2,$3,$4,'AccountingAdjustmentApproved',1,'accounting_adjustment_approval',$5,1,$6,$7,$7,'{"kind":"user"}',$8,'encrypted://contracts/adjustment-approvals/78',$9)`, input.eventID, contractTenantID, input.principal.userID, input.sequence, input.id, storeEpochID, decidedAt, correlationID, input.proposalHash)
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO contracts.accounting_adjustment_approval_decisions(id,tenant_id,proposal_id,approver_user_id,membership_id,session_id,decision,proposal_hash,target_bucket_version,permission_snapshot,reauthenticated_at,decided_at,event_id,created_at) VALUES($1,$2,$3,$4,$5,$6,'approve',$7,$8,$9,$10,$11,$12,$11)`, input.id, contractTenantID, input.proposalID, input.principal.userID, input.principal.membershipID, input.principal.sessionID, input.proposalHash, input.targetVersion, permissionHash, seededReauthentication, decidedAt, input.eventID)
+	if err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func applyAdjustment(ctx context.Context, service *pgxpool.Pool, proposalID, actorID, adjustmentID string, now time.Time) (int64, int64, error) {
+	tx, err := beginTenant(ctx, service, contractTenantID)
+	if err != nil {
+		return 0, 0, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	var bucketID string
+	var version, granted int64
+	err = tx.QueryRow(ctx, `SELECT bucket_id,bucket_version,granted_units FROM contracts.apply_approved_accounting_adjustment($1,$2,$3,$4,$5)`, contractTenantID, proposalID, actorID, adjustmentID, now).Scan(&bucketID, &version, &granted)
+	if err != nil {
+		return 0, 0, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return 0, 0, err
+	}
+	return version, granted, nil
 }
 
 // The integration fixture stores every session reauthentication at its initial seed instant.

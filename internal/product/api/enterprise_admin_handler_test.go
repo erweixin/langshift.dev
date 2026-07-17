@@ -21,6 +21,7 @@ type enterpriseAdminStub struct {
 	enrollCohort    func(EnrollCohortCommand) (EnterpriseResource, error)
 	unenrollCohort  func(UnenrollCohortCommand) (EnterpriseResource, error)
 	publishRolePack func(PublishRolePackCommand) (EnterpriseResource, error)
+	publishTaskPack func(PublishTaskPackCommand) (EnterpriseResource, error)
 }
 
 func (stub enterpriseAdminStub) CreateProgram(_ context.Context, command CreateProgramCommand) (EnterpriseResource, error) {
@@ -40,6 +41,9 @@ func (stub enterpriseAdminStub) UnenrollCohort(_ context.Context, command Unenro
 }
 func (stub enterpriseAdminStub) PublishRolePack(_ context.Context, command PublishRolePackCommand) (EnterpriseResource, error) {
 	return stub.publishRolePack(command)
+}
+func (stub enterpriseAdminStub) PublishTaskPack(_ context.Context, command PublishTaskPackCommand) (EnterpriseResource, error) {
+	return stub.publishTaskPack(command)
 }
 
 func TestEnterpriseAdminCreateProgramUsesStrictV2Boundary(t *testing.T) {
@@ -95,6 +99,12 @@ func TestEnterpriseAdminLifecycleRoutesCarryExactCAS(t *testing.T) {
 			}
 			return EnterpriseResource{ID: "c4000000-0000-4000-8000-000000000046", Version: 1, Status: "published", UpdatedAt: missionAPINow}, nil
 		},
+		publishTaskPack: func(command PublishTaskPackCommand) (EnterpriseResource, error) {
+			if command.ProgramID != programID || command.Revision != 3 || command.Name != "Crash recovery lab" || len(command.TaskTemplateIDs) != 1 || command.TaskTemplateIDs[0] != taskID || string(command.Assignment) != `{"required":true}` {
+				t.Fatalf("task pack=%#v", command)
+			}
+			return EnterpriseResource{ID: "c4000000-0000-4000-8000-000000000047", Version: 1, Status: "published", UpdatedAt: missionAPINow}, nil
+		},
 	}
 	tests := []struct {
 		name, method, path, media, body, etag string
@@ -105,6 +115,7 @@ func TestEnterpriseAdminLifecycleRoutesCarryExactCAS(t *testing.T) {
 		{"enroll", http.MethodPost, "/v1/admin/cohorts/" + cohortID + "/enrollments", "application/vnd.lites.cohort-enroll.v2+json", `{"request_id":"enterprise-client-0004","user_ids":["` + memberID + `"],"expected_cohort_version":1}`, `"1"`, `"2"`},
 		{"unenroll", http.MethodDelete, "/v1/admin/cohorts/" + cohortID + "/enrollments/" + memberID, "application/vnd.lites.cohort-unenroll.v2+json", `{"request_id":"enterprise-client-0005","reason":" Transferred team ","expected_cohort_version":2}`, `"2"`, `"3"`},
 		{"publish role pack", http.MethodPost, "/v1/admin/role-packs", "application/vnd.lites.role-pack-publish.v2+json", `{"request_id":"enterprise-client-0006","program_id":"` + programID + `","revision":2,"role_profile_ids":["` + roleID + `"],"task_template_ids":["` + taskID + `"]}`, "", `"1"`},
+		{"publish task pack", http.MethodPost, "/v1/admin/task-packs", "application/vnd.lites.task-pack-publish.v2+json", `{"request_id":"enterprise-client-0009","program_id":"` + programID + `","revision":3,"name":" Crash recovery lab ","task_template_ids":["` + taskID + `"],"assignment":{"required":true}}`, "", `"1"`},
 	}
 	for index, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

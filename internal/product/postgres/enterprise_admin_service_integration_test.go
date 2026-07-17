@@ -12,7 +12,7 @@ import (
 	productapi "github.com/langshift/lites/internal/product/api"
 )
 
-func TestEnterpriseAdminProgramCohortAndRolePackProtocol(t *testing.T) {
+func TestEnterpriseAdminProgramCohortRolePackAndTaskPackProtocol(t *testing.T) {
 	ctx := context.Background()
 	admin := artifactPool(t, ctx, "LITES_TEST_ADMIN_DATABASE_URL")
 	defer admin.Close()
@@ -20,18 +20,18 @@ func TestEnterpriseAdminProgramCohortAndRolePackProtocol(t *testing.T) {
 	defer pool.Close()
 
 	now := time.Date(2026, time.July, 17, 12, 0, 0, 0, time.UTC)
-	tenantID := "fa000000-0000-4000-8000-000000000001"
-	otherTenantID := "fa000000-0000-4000-8000-000000000002"
-	personalTenantID := "fa000000-0000-4000-8000-000000000003"
-	ownerID := "fa000000-0000-4000-8000-000000000010"
-	memberID := "fa000000-0000-4000-8000-000000000011"
-	learnerID := "fa000000-0000-4000-8000-000000000012"
-	inactiveID := "fa000000-0000-4000-8000-000000000013"
-	otherID := "fa000000-0000-4000-8000-000000000014"
-	personalOwnerID := "fa000000-0000-4000-8000-000000000015"
-	roleProfileID := "fa000000-0000-4000-8000-000000000020"
-	taskTemplateID := "fa000000-0000-4000-8000-000000000021"
-	epoch := "fa000000-0000-4000-8000-000000000022"
+	tenantID := "e1000000-0000-4000-8000-000000000001"
+	otherTenantID := "e1000000-0000-4000-8000-000000000002"
+	personalTenantID := "e1000000-0000-4000-8000-000000000003"
+	ownerID := "e1000000-0000-4000-8000-000000000010"
+	memberID := "e1000000-0000-4000-8000-000000000011"
+	learnerID := "e1000000-0000-4000-8000-000000000012"
+	inactiveID := "e1000000-0000-4000-8000-000000000013"
+	otherID := "e1000000-0000-4000-8000-000000000014"
+	personalOwnerID := "e1000000-0000-4000-8000-000000000015"
+	roleProfileID := "e1000000-0000-4000-8000-000000000020"
+	taskTemplateID := "e1000000-0000-4000-8000-000000000021"
+	epoch := "e1000000-0000-4000-8000-000000000022"
 
 	setup := []struct {
 		query string
@@ -49,12 +49,12 @@ func TestEnterpriseAdminProgramCohortAndRolePackProtocol(t *testing.T) {
 			($2,'enterprise','Other Enterprise','active','US'),
 			($3,'personal','Personal Tenant','active','US')`, []any{tenantID, otherTenantID, personalTenantID}},
 		{`INSERT INTO identity.memberships(id,tenant_id,user_id,role,status,joined_at) VALUES
-			('fa000000-0000-4000-8000-000000000030',$1,$2,'owner','active',$8),
-			('fa000000-0000-4000-8000-000000000031',$1,$3,'member','active',$8),
-			('fa000000-0000-4000-8000-000000000032',$1,$4,'member','active',$8),
-			('fa000000-0000-4000-8000-000000000033',$1,$5,'member','suspended',$8),
-			('fa000000-0000-4000-8000-000000000034',$6,$7,'owner','active',$8),
-			('fa000000-0000-4000-8000-000000000035',$9,$10,'owner','active',$8)`, []any{tenantID, ownerID, memberID, learnerID, inactiveID, otherTenantID, otherID, now, personalTenantID, personalOwnerID}},
+			('e1000000-0000-4000-8000-000000000030',$1,$2,'owner','active',$8),
+			('e1000000-0000-4000-8000-000000000031',$1,$3,'member','active',$8),
+			('e1000000-0000-4000-8000-000000000032',$1,$4,'member','active',$8),
+			('e1000000-0000-4000-8000-000000000033',$1,$5,'member','suspended',$8),
+			('e1000000-0000-4000-8000-000000000034',$6,$7,'owner','active',$8),
+			('e1000000-0000-4000-8000-000000000035',$9,$10,'owner','active',$8)`, []any{tenantID, ownerID, memberID, learnerID, inactiveID, otherTenantID, otherID, now, personalTenantID, personalOwnerID}},
 		{`INSERT INTO product.role_profiles(id,tenant_id,slug,revision,status,spec,locale,source_manifest) VALUES($1,$2,'enterprise-role',1,'active','{}','en','{}')`, []any{roleProfileID, tenantID}},
 		{`INSERT INTO product.task_templates(id,tenant_id,slug,revision,status,spec,practice_kind,estimated_minutes,instructions_ref,validation_spec) VALUES($1,$2,'enterprise-task',1,'active','{}','writing',30,'encrypted://enterprise-task','{}')`, []any{taskTemplateID, tenantID}},
 	}
@@ -71,7 +71,7 @@ func TestEnterpriseAdminProgramCohortAndRolePackProtocol(t *testing.T) {
 		StoreEpoch: epoch, IdempotencyTTL: 24 * time.Hour, Now: func() time.Time { return now },
 	}
 	metadata := func(userID, key, clientID string) productapi.CommandMetadata {
-		return productapi.CommandMetadata{RequestID: "fa000000-0000-4000-8000-000000000040", ClientRequestID: clientID, IdempotencyKey: key, TenantID: tenantID, UserID: userID, SessionID: "fa000000-0000-4000-8000-000000000041"}
+		return productapi.CommandMetadata{RequestID: "e1000000-0000-4000-8000-000000000040", ClientRequestID: clientID, IdempotencyKey: key, TenantID: tenantID, UserID: userID, SessionID: "e1000000-0000-4000-8000-000000000041"}
 	}
 
 	denied := productapi.CreateProgramCommand{CommandMetadata: metadata(memberID, "enterprise-admin-denied-key-0001", "enterprise-denied-client-0001"), Name: "Denied", Settings: []byte(`{}`)}
@@ -150,20 +150,38 @@ func TestEnterpriseAdminProgramCohortAndRolePackProtocol(t *testing.T) {
 	if _, err = service.PublishRolePack(ctx, duplicateRolePack); !errors.Is(err, productapi.ErrStateConflict) {
 		t.Fatalf("duplicate role pack error=%v", err)
 	}
+	taskPackCommand := productapi.PublishTaskPackCommand{CommandMetadata: metadata(ownerID, "enterprise-task-pack-key-0001", "enterprise-task-pack-client-0001"), ProgramID: program.ID, Revision: 1, Name: "Crash recovery lab", TaskTemplateIDs: []string{taskTemplateID}, Assignment: []byte(`{"required":true,"due_days":14}`)}
+	taskPack, err := service.PublishTaskPack(ctx, taskPackCommand)
+	if err != nil || taskPack.Version != 1 || taskPack.Status != "published" {
+		t.Fatalf("task pack=%#v err=%v", taskPack, err)
+	}
+	taskPackReplay, err := service.PublishTaskPack(ctx, taskPackCommand)
+	if err != nil || !taskPackReplay.Replayed || taskPackReplay.ID != taskPack.ID {
+		t.Fatalf("task pack replay=%#v err=%v", taskPackReplay, err)
+	}
+	duplicateTaskPack := taskPackCommand
+	duplicateTaskPack.CommandMetadata = metadata(ownerID, "enterprise-task-pack-key-0002", "enterprise-task-pack-client-0002")
+	if _, err = service.PublishTaskPack(ctx, duplicateTaskPack); !errors.Is(err, productapi.ErrStateConflict) {
+		t.Fatalf("duplicate task pack error=%v", err)
+	}
 
-	var programVersion, cohortVersion, activeEnrollments, leftEnrollments, rolePacks, events int
+	var programVersion, cohortVersion, activeEnrollments, leftEnrollments, rolePacks, taskPacks, events int
 	err = admin.QueryRow(ctx, `SELECT
 		(SELECT version FROM product.programs WHERE tenant_id=$1 AND id=$2),
 		(SELECT version FROM product.cohorts WHERE tenant_id=$1 AND id=$3),
 		(SELECT count(*) FROM product.enrollments WHERE tenant_id=$1 AND cohort_id=$3 AND status='active'),
 		(SELECT count(*) FROM product.enrollments WHERE tenant_id=$1 AND cohort_id=$3 AND status='left' AND left_at=$5),
 		(SELECT count(*) FROM product.role_packs WHERE tenant_id=$1 AND id=$4 AND status='published'),
-		(SELECT count(*) FROM agent.events WHERE tenant_id=$1 AND aggregate_id IN ($2,$3,$4) AND event_type IN ('ProgramCreated','ProgramUpdated','CohortCreated','EnrollmentChanged','RolePackPublished'))`, tenantID, program.ID, cohort.ID, rolePack.ID, now).Scan(&programVersion, &cohortVersion, &activeEnrollments, &leftEnrollments, &rolePacks, &events)
-	if err != nil || programVersion != 2 || cohortVersion != 3 || activeEnrollments != 0 || leftEnrollments != 1 || rolePacks != 1 || events != 6 {
-		t.Fatalf("program=%d cohort=%d active=%d left=%d packs=%d events=%d err=%v", programVersion, cohortVersion, activeEnrollments, leftEnrollments, rolePacks, events, err)
+		(SELECT count(*) FROM product.task_packs WHERE tenant_id=$1 AND id=$6 AND status='published' AND assignment='{"required":true,"due_days":14}'::jsonb),
+		(SELECT count(*) FROM agent.events WHERE tenant_id=$1 AND aggregate_id IN ($2,$3,$4,$6) AND event_type IN ('ProgramCreated','ProgramUpdated','CohortCreated','EnrollmentChanged','RolePackPublished','TaskPackPublished'))`, tenantID, program.ID, cohort.ID, rolePack.ID, now, taskPack.ID).Scan(&programVersion, &cohortVersion, &activeEnrollments, &leftEnrollments, &rolePacks, &taskPacks, &events)
+	if err != nil || programVersion != 2 || cohortVersion != 3 || activeEnrollments != 0 || leftEnrollments != 1 || rolePacks != 1 || taskPacks != 1 || events != 7 {
+		t.Fatalf("program=%d cohort=%d active=%d left=%d role_packs=%d task_packs=%d events=%d err=%v", programVersion, cohortVersion, activeEnrollments, leftEnrollments, rolePacks, taskPacks, events, err)
 	}
 	if _, err = admin.Exec(ctx, `UPDATE product.role_packs SET status='draft' WHERE id=$1`, rolePack.ID); err == nil {
 		t.Fatal("role pack append-only trigger accepted update")
+	}
+	if _, err = admin.Exec(ctx, `UPDATE product.task_packs SET status='draft' WHERE id=$1`, taskPack.ID); err == nil {
+		t.Fatal("task pack append-only trigger accepted update")
 	}
 	if _, err = admin.Exec(ctx, `DELETE FROM product.enrollments WHERE tenant_id=$1 AND cohort_id=$2 AND user_id=$3`, tenantID, cohort.ID, learnerID); err == nil {
 		t.Fatal("enrollment lifecycle accepted delete")

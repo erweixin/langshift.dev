@@ -10,7 +10,7 @@ if (!/^[0-9a-f]{40}$/.test(sourceCommit)) {
 const root = path.resolve("gate-reports/stage-2");
 const supplyRoot = path.join(root, "supply-chain");
 const imageRoot = path.join(root, "images");
-const services = ["web-app", "api-gateway", "identity-service", "realtime-gateway", "behavior-control-plane", "agent-control-plane", "product-service", "product-worker", "identity-import-worker", "identity-mail-worker", "outbox-publisher", "agent-scheduler", "agent-worker", "tool-worker", "tool-reconciliation-worker", "store-epoch-authority", "lites-migrate", "runtime-host-agent", "runtime-sweeper", "run-cancellation-reconciler", "reference-capacity-controller", "reference-provider", "reference-tool-runtime"];
+const services = ["web-app", "api-gateway", "identity-service", "realtime-gateway", "behavior-control-plane", "agent-control-plane", "product-service", "contract-service", "product-worker", "identity-import-worker", "identity-mail-worker", "outbox-publisher", "agent-scheduler", "agent-worker", "tool-worker", "tool-reconciliation-worker", "store-epoch-authority", "lites-migrate", "runtime-host-agent", "runtime-sweeper", "run-cancellation-reconciler", "reference-capacity-controller", "reference-provider", "reference-tool-runtime"];
 const goApplicationSBOMs = [...services.filter((service) => service !== "web-app"), "lites-release-assets", "lites-reference-release"];
 
 const sha256 = (contents) => createHash("sha256").update(contents).digest("hex");

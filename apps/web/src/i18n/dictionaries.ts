@@ -3,7 +3,7 @@ import type { Locale } from "./config";
 const dictionaries = {
   en: {
     brandTagline: "Move what you already know into what comes next.",
-    nav: { today: "Today", map: "Migration map", evidence: "Evidence", goals: "Goals", create: "Create", settings: "Settings" },
+    nav: { today: "Today", map: "Migration map", evidence: "Evidence", goals: "Goals", create: "Create", admin: "Organization", settings: "Settings" },
     coach: { title: "Coach", open: "Ask Coach", close: "Close Coach", hint: "Give me a hint, not the answer", why: "Why does this step matter?", check: "Check my understanding", placeholder: "Ask about this step…" },
     offline: "You are offline. Drafts stay on this device; nothing is marked submitted until the server confirms it.",
     reconnecting: "Connection restored. Checking for new events…",
@@ -11,7 +11,7 @@ const dictionaries = {
   },
   "zh-CN": {
     brandTagline: "把已经会的，迁移到下一段成长。",
-    nav: { today: "今日一步", map: "迁移地图", evidence: "成长记录", goals: "成长目标", create: "创造", settings: "设置" },
+    nav: { today: "今日一步", map: "迁移地图", evidence: "成长记录", goals: "成长目标", create: "创造", admin: "组织", settings: "设置" },
     coach: { title: "Coach", open: "问 Coach", close: "关闭 Coach", hint: "给我提示，不要答案", why: "这一步为什么重要？", check: "检查我的理解", placeholder: "问问当前这一步…" },
     offline: "当前离线。草稿只保存在本机；服务器确认前，任何写操作都不会显示为已提交。",
     reconnecting: "网络已恢复，正在补拉最新事件…",

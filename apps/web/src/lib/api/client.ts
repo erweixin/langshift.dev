@@ -24,6 +24,7 @@ type RequestOptions = {
   ifMatch?: string;
   accept?: string;
   contentType?: string;
+  auditReason?: string;
 };
 
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
@@ -35,8 +36,10 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   const headers = new Headers({ Accept: options.accept ?? "application/json" });
   if (options.body !== undefined) headers.set("Content-Type", options.contentType ?? "application/json");
   if (options.idempotencyKey) headers.set("Idempotency-Key", options.idempotencyKey);
-  if (options.csrfToken) headers.set("X-CSRF-Token", options.csrfToken);
+  const csrfToken = options.csrfToken ?? (method === "GET" ? undefined : csrfTokenFromCookie());
+  if (csrfToken) headers.set("X-CSRF-Token", csrfToken);
   if (options.ifMatch) headers.set("If-Match", options.ifMatch);
+  if (options.auditReason) headers.set("X-Audit-Reason", options.auditReason);
   const response = await fetch(`/api${path}`, {
     method,
     headers,
@@ -57,6 +60,41 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   }
   if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
+}
+
+export async function apiDownload(path: string, options: Pick<RequestOptions, "accept" | "auditReason" | "signal"> = {}) {
+  if (!path.startsWith("/v1/")) throw new Error("API path must be versioned");
+  const headers = new Headers({ Accept: options.accept ?? "application/octet-stream" });
+  if (options.auditReason) headers.set("X-Audit-Reason", options.auditReason);
+  const response = await fetch(`/api${path}`, { method: "GET", headers, credentials: "include", cache: "no-store", signal: options.signal });
+  if (!response.ok) {
+    let message = `request_failed_${response.status}`;
+    try {
+      const problem = (await response.json()) as { code?: string; title?: string };
+      message = problem.code ?? problem.title ?? message;
+    } catch {
+      // Preserve the status and request ID when the response is not a problem document.
+    }
+    throw new ApiError(message, response.status, response.headers.get("X-Request-ID"));
+  }
+  const disposition = response.headers.get("Content-Disposition") ?? "";
+  const filename = /filename="([^"]+)"/.exec(disposition)?.[1] ?? "lites-audit-export";
+  return { blob: await response.blob(), filename, digest: response.headers.get("Digest") };
+}
+
+export function csrfTokenFromCookie(cookieHeader = typeof document === "undefined" ? "" : document.cookie): string | undefined {
+  for (const part of cookieHeader.split(";")) {
+    const separator = part.indexOf("=");
+    if (separator < 0 || part.slice(0, separator).trim() !== "__Host-lites_csrf") continue;
+    const value = part.slice(separator + 1).trim();
+    if (!value) return undefined;
+    try {
+      return decodeURIComponent(value);
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
 }
 
 export function newIdempotencyKey(): string {

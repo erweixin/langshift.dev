@@ -1,0 +1,210 @@
+{
+  "amendmentVersion": "1.23.0",
+  "baseContractVersion": "1.22.0",
+  "kind": "openapi-operation-version-extension",
+  "compatibility": "versioned-client-additive",
+  "operations": {
+    "admin.contracts.propose.v2": {
+      "method": "POST",
+      "path": "/v1/admin/contracts",
+      "authentication": "gateway_signed_session",
+      "authorization": "active_owner_or_contract_admin_with_reauthentication_within_5_minutes",
+      "csrf": "required",
+      "idempotency": "required_encrypted_durable_response",
+      "requestContentType": "application/vnd.lites.contract-proposal.v2+json",
+      "requestSchema": "ContractProposalRequestV2",
+      "responseContentType": "application/vnd.lites.admin-control-resource.v2+json",
+      "responseSchema": "AdminControlResourceV2",
+      "concurrency": "The proposal binds the exact target contract version, immutable proposal hash, permission context and five-minute expiry. Replaying one idempotency key is side-effect free.",
+      "safety": "Tenant, user, membership and session come only from the signed gateway context. Contract state cannot change until exactly two distinct current approvers approve the exact hash; the initiator cannot approve."
+    },
+    "admin.contracts.decide.v2": {
+      "method": "POST",
+      "path": "/v1/admin/contracts/{proposal_id}/approval-decisions",
+      "authentication": "gateway_signed_session",
+      "authorization": "active_owner_or_contract_admin_with_reauthentication_within_5_minutes",
+      "csrf": "required",
+      "idempotency": "required_encrypted_durable_response",
+      "requestContentType": "application/vnd.lites.contract-decision.v2+json",
+      "requestSchema": "ContractDecisionRequestV2",
+      "responseContentType": "application/vnd.lites.admin-control-resource.v2+json",
+      "responseSchema": "AdminControlResourceV2",
+      "concurrency": "If-Match is required and must equal the quoted expected_proposal_version. A missing precondition returns 428 and a stale precondition returns 412 before service execution.",
+      "safety": "Every vote is bound to the immutable proposal hash, exact target version, current role and current session. Exactly two distinct approvals execute once; rejection is terminal."
+    },
+    "admin.usage.read.v2": {
+      "method": "GET",
+      "path": "/v1/admin/usage",
+      "authentication": "gateway_signed_session",
+      "authorization": "active_owner_or_contract_admin",
+      "csrf": "not_applicable",
+      "idempotency": "not_applicable",
+      "requiredHeaders": ["X-Audit-Reason"],
+      "responseContentType": "application/vnd.lites.usage-snapshot.v2+json",
+      "responseSchema": "UsageSnapshotV2",
+      "concurrency": "The response is one database snapshot and is private, no-store.",
+      "safety": "The tenant is derived only from the signed gateway context; raw private payloads and approval identities are never returned. A bounded audit reason and exact actor, membership, session and request identity are committed to an append-only audit row before the response succeeds."
+    },
+    "admin.usage.adjustments.propose.v2": {
+      "method": "POST",
+      "path": "/v1/admin/usage/adjustments",
+      "authentication": "gateway_signed_session",
+      "authorization": "active_owner_or_contract_admin_with_reauthentication_within_5_minutes",
+      "csrf": "required",
+      "idempotency": "required_encrypted_durable_response",
+      "requestContentType": "application/vnd.lites.accounting-adjustment-proposal.v2+json",
+      "requestSchema": "AccountingAdjustmentProposalRequestV2",
+      "responseContentType": "application/vnd.lites.admin-control-resource.v2+json",
+      "responseSchema": "AdminControlResourceV2",
+      "concurrency": "The proposal binds the exact credit bucket version, signed unit delta, encrypted reason reference, plaintext reason hash and five-minute expiry.",
+      "safety": "The granted balance cannot become non-positive or fall below already reserved and settled units. Direct granted-unit mutation is forbidden."
+    },
+    "admin.usage.adjustments.decide.v2": {
+      "method": "POST",
+      "path": "/v1/admin/usage/adjustments/{proposal_id}/approval-decisions",
+      "authentication": "gateway_signed_session",
+      "authorization": "active_owner_or_contract_admin_with_reauthentication_within_5_minutes",
+      "csrf": "required",
+      "idempotency": "required_encrypted_durable_response",
+      "requestContentType": "application/vnd.lites.accounting-adjustment-decision.v2+json",
+      "requestSchema": "AccountingAdjustmentDecisionRequestV2",
+      "responseContentType": "application/vnd.lites.admin-control-resource.v2+json",
+      "responseSchema": "AdminControlResourceV2",
+      "concurrency": "If-Match is required and must equal the quoted expected_proposal_version. Bucket version drift invalidates every prior approval.",
+      "safety": "The initiator cannot approve. Exactly two distinct current approvers bound to the exact proposal hash and bucket version are required; execution and its two approval event identifiers commit atomically."
+    },
+    "admin.audit.read.v2": {
+      "method": "GET",
+      "path": "/v1/admin/audit",
+      "authentication": "gateway_signed_session",
+      "authorization": "active_owner_or_contract_admin",
+      "csrf": "not_applicable",
+      "idempotency": "not_applicable",
+      "requiredHeaders": ["X-Audit-Reason"],
+      "requestQuery": {"limit": "optional_integer_1_to_200_default_100", "before": "optional_tenant_bound_signed_15_minute_cursor"},
+      "responseContentType": "application/vnd.lites.admin-audit-page.v2+json",
+      "responseSchema": "AdminAuditPageV2",
+      "concurrency": "Records are ordered by occurred_at and id descending. The signed cursor binds tenant, exact boundary and a fifteen-minute expiry; tampering, cross-tenant use and expiry are rejected.",
+      "safety": "Only contract changes, approved accounting adjustments and administrator reads are returned. Raw reasons and approval identities are omitted; reading the audit timeline itself commits an append-only actor, membership, session, request and reason audit row."
+    }
+  },
+  "schemas": {
+    "ContractProposalRequestV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["request_id", "action", "target_contract_id", "target_version", "contract_number", "starts_at", "ends_at", "seat_limit", "region", "license_kind", "reason"],
+      "properties": {
+        "request_id": {"type": "string", "minLength": 8, "maxLength": 200},
+        "action": {"enum": ["create", "renew", "suspend", "terminate"]},
+        "target_contract_id": {"type": "string", "maxLength": 36},
+        "target_version": {"type": "integer", "minimum": 0},
+        "contract_number": {"type": "string", "maxLength": 200},
+        "starts_at": {"type": ["string", "null"], "format": "date-time"},
+        "ends_at": {"type": ["string", "null"], "format": "date-time"},
+        "seat_limit": {"type": "integer", "minimum": 0},
+        "region": {"type": "string", "maxLength": 100},
+        "license_kind": {"type": "string", "enum": ["", "enterprise_cloud", "private_cloud", "commercial_self_hosted"]},
+        "reason": {"type": "string", "minLength": 1, "maxLength": 1000}
+      },
+      "allOf": [
+        {"if": {"properties": {"action": {"const": "create"}}}, "then": {"properties": {"target_contract_id": {"const": ""}, "target_version": {"const": 0}}}},
+        {"if": {"properties": {"action": {"enum": ["renew", "suspend", "terminate"]}}}, "then": {"properties": {"target_contract_id": {"type": "string", "format": "uuid"}, "target_version": {"type": "integer", "minimum": 1}}}},
+        {"if": {"properties": {"action": {"enum": ["suspend", "terminate"]}}}, "then": {"properties": {"contract_number": {"const": ""}, "starts_at": {"const": null}, "ends_at": {"const": null}, "seat_limit": {"const": 0}, "region": {"const": ""}, "license_kind": {"const": ""}}}},
+        {"if": {"properties": {"action": {"enum": ["create", "renew"]}}}, "then": {"properties": {"contract_number": {"type": "string", "minLength": 1, "maxLength": 200}, "starts_at": {"type": "string", "format": "date-time"}, "ends_at": {"type": "string", "format": "date-time"}, "seat_limit": {"type": "integer", "minimum": 1}, "region": {"type": "string", "minLength": 1, "maxLength": 100}, "license_kind": {"enum": ["enterprise_cloud", "private_cloud", "commercial_self_hosted"]}}}}
+      ]
+    },
+    "ContractDecisionRequestV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["request_id", "decision", "proposal_hash", "target_version", "expected_proposal_version"],
+      "properties": {
+        "request_id": {"type": "string", "minLength": 8, "maxLength": 200},
+        "decision": {"enum": ["approve", "reject"]},
+        "proposal_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "target_version": {"type": "integer", "minimum": 0},
+        "expected_proposal_version": {"const": 1}
+      }
+    },
+    "AccountingAdjustmentProposalRequestV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["request_id", "bucket_id", "target_version", "units", "reason"],
+      "properties": {
+        "request_id": {"type": "string", "minLength": 8, "maxLength": 200},
+        "bucket_id": {"type": "string", "format": "uuid"},
+        "target_version": {"type": "integer", "minimum": 1},
+        "units": {"type": "integer", "not": {"const": 0}},
+        "reason": {"type": "string", "minLength": 1, "maxLength": 1000}
+      }
+    },
+    "AccountingAdjustmentDecisionRequestV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["request_id", "decision", "proposal_hash", "target_version", "expected_proposal_version"],
+      "properties": {
+        "request_id": {"type": "string", "minLength": 8, "maxLength": 200},
+        "decision": {"enum": ["approve", "reject"]},
+        "proposal_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "target_version": {"type": "integer", "minimum": 1},
+        "expected_proposal_version": {"const": 1}
+      }
+    },
+    "AdminControlResourceV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version", "status", "proposal_hash", "target_id", "target_version", "approval_count", "updated_at"],
+      "properties": {
+        "id": {"type": "string", "format": "uuid"},
+        "version": {"type": "integer", "minimum": 1, "maximum": 2},
+        "status": {"enum": ["proposed", "rejected", "executed"]},
+        "proposal_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "target_id": {"type": "string", "format": "uuid"},
+        "target_version": {"type": "integer", "minimum": 0},
+        "approval_count": {"type": "integer", "minimum": 0, "maximum": 2},
+        "updated_at": {"type": "string", "format": "date-time"},
+        "replayed": {"type": "boolean"}
+      }
+    },
+    "UsageSnapshotV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tenant_id", "granted_units", "available_units", "reserved_units", "settled_units", "active_seats", "seat_limit", "as_of"],
+      "properties": {
+        "tenant_id": {"type": "string", "format": "uuid"},
+        "granted_units": {"type": "integer", "minimum": 0},
+        "available_units": {"type": "integer", "minimum": 0},
+        "reserved_units": {"type": "integer", "minimum": 0},
+        "settled_units": {"type": "integer", "minimum": 0},
+        "active_seats": {"type": "integer", "minimum": 0},
+        "seat_limit": {"type": "integer", "minimum": 0},
+        "as_of": {"type": "string", "format": "date-time"}
+      }
+    },
+    "AdminAuditRecordV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "action", "actor_user_id", "resource_kind", "resource_id", "reason_hash", "before_version", "after_version", "occurred_at"],
+      "properties": {
+        "id": {"type": "string", "format": "uuid"},
+        "kind": {"enum": ["contract_change", "accounting_adjustment", "admin_read"]},
+        "action": {"type": "string", "minLength": 1, "maxLength": 100},
+        "actor_user_id": {"type": "string", "format": "uuid"},
+        "resource_kind": {"type": "string", "minLength": 1, "maxLength": 100},
+        "resource_id": {"type": "string", "format": "uuid"},
+        "reason_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "before_version": {"type": ["integer", "null"], "minimum": 0},
+        "after_version": {"type": ["integer", "null"], "minimum": 1},
+        "occurred_at": {"type": "string", "format": "date-time"}
+      }
+    },
+    "AdminAuditPageV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["items"],
+      "properties": {
+        "items": {"type": "array", "maxItems": 200, "items": {"$ref": "AdminAuditRecordV2"}},
+        "next_before": {"type": "string", "minLength": 80, "maxLength": 2048}
+      }
+    }
+  }
+}

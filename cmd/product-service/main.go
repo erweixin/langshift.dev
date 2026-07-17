@@ -29,6 +29,7 @@ import (
 	productpostgres "github.com/langshift/lites/internal/product/postgres"
 	"github.com/langshift/lites/internal/security/trustedcontext"
 	"github.com/langshift/lites/internal/serviceauth"
+	"github.com/langshift/lites/internal/statuspage"
 )
 
 func main() {
@@ -141,6 +142,7 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 	shareGrants := productpostgres.ShareGrantService{Pool: pool, Appender: appender, Payloads: payloads, IDKey: secrets.IDKey, IdempotencyKeyPepper: secrets.IdempotencyPepper, RequestDigestPepper: secrets.RequestDigestPepper, StoreEpoch: storeEpoch, IdempotencyTTL: configuration.idempotencyTTL, Now: func() time.Time { return time.Now().UTC() }}
 	aggregateQueries := productpostgres.AggregateQueryService{Pool: pool, Payloads: payloads, IDKey: secrets.IDKey, IdempotencyKeyPepper: secrets.IdempotencyPepper, RequestDigestPepper: secrets.RequestDigestPepper, IdempotencyTTL: configuration.idempotencyTTL, Now: func() time.Time { return time.Now().UTC() }}
 	enterpriseAdmin := productpostgres.EnterpriseAdminService{Pool: pool, Appender: appender, Payloads: payloads, IDKey: secrets.IDKey, IdempotencyKeyPepper: secrets.IdempotencyPepper, RequestDigestPepper: secrets.RequestDigestPepper, StoreEpoch: storeEpoch, IdempotencyTTL: configuration.idempotencyTTL, Now: func() time.Time { return time.Now().UTC() }}
+	supportCases := productpostgres.SupportService{Pool: pool, Appender: appender, Payloads: payloads, IDKey: secrets.IDKey, CursorKey: secrets.CursorKey, IdempotencyKeyPepper: secrets.IdempotencyPepper, RequestDigestPepper: secrets.RequestDigestPepper, StoreEpoch: storeEpoch, IdempotencyTTL: configuration.idempotencyTTL, Now: func() time.Time { return time.Now().UTC() }}
 	productMux := http.NewServeMux()
 	missionHandler := productapi.MissionHandler{Queries: queries, Creates: service, Mutations: service}
 	routeHandler := productapi.RouteHandler{Service: routes}
@@ -155,6 +157,9 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 	shareGrantHandler := productapi.ShareGrantHandler{Service: shareGrants}
 	aggregateQueryHandler := productapi.AggregateQueryHandler{Service: aggregateQueries}
 	enterpriseAdminHandler := productapi.EnterpriseAdminHandler{Service: enterpriseAdmin}
+	supportHandler := productapi.SupportHandler{Service: supportCases}
+	publicStatusHandler := productapi.PublicStatusHandler{Reader: statuspage.FileReader{DocumentFile: configuration.publicStatusDocumentFile, KeyringFile: configuration.publicStatusKeyringFile}}
+	productMux.Handle("/v1/public/status", publicStatusHandler)
 	productMux.Handle("/v1/missions", missionHandler)
 	productMux.Handle("/v1/missions/", missionHandler)
 	productMux.Handle("/v1/route-revisions", routeHandler)
@@ -180,6 +185,9 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 	productMux.Handle("/v1/admin/cohorts", enterpriseAdminHandler)
 	productMux.Handle("/v1/admin/cohorts/", enterpriseAdminHandler)
 	productMux.Handle("/v1/admin/role-packs", enterpriseAdminHandler)
+	productMux.Handle("/v1/admin/task-packs", enterpriseAdminHandler)
+	productMux.Handle("/v1/support/cases", supportHandler)
+	productMux.Handle("/v1/support/cases/", supportHandler)
 	handler := serviceauth.Middleware{Verifier: trustedcontext.Verifier{Issuer: configuration.trustedIssuer, Audience: configuration.trustedAudience, Keys: trustedKeys, KeyWindows: trustedWindows, MaximumTTL: 2 * time.Minute, ClockSkew: 5 * time.Second}, Now: func() time.Time { return time.Now().UTC() }}.Wrap(productMux)
 	tlsConfig, err := serverTLSConfig(configuration)
 	if err != nil {

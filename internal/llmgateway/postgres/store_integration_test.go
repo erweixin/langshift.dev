@@ -27,36 +27,36 @@ func TestProviderDispatchIsAtMostOnceAndFallbackIsFullyAccounted(t *testing.T) {
 	defer pool.Close()
 	now := time.Date(2026, time.July, 15, 20, 0, 0, 0, time.UTC)
 	const (
-		userID         = "c6000000-0000-4000-8000-000000000001"
-		tenantID       = "c6000000-0000-4000-8000-000000000002"
-		runID          = "c6000000-0000-4000-8000-000000000003"
-		runAttempt     = "c6000000-0000-4000-8000-000000000004"
-		llmAttempt     = "c6000000-0000-4000-8000-000000000005"
-		first          = "c6000000-0000-4000-8000-000000000006"
-		second         = "c6000000-0000-4000-8000-000000000007"
-		epoch          = "c6000000-0000-4000-8000-000000000008"
-		correlation    = "c6000000-0000-4000-8000-000000000009"
-		credential     = "c6000000-0000-4000-8000-000000000014"
-		bucket         = "c6000000-0000-4000-8000-000000000015"
-		reservationOne = "c6000000-0000-4000-8000-000000000016"
-		reservationTwo = "c6000000-0000-4000-8000-000000000017"
-		unknownLLM     = "c6000000-0000-4000-8000-000000000018"
-		unknownAttempt = "c6000000-0000-4000-8000-000000000019"
-		unknownReserve = "c6000000-0000-4000-8000-000000000020"
-		abandonLLM     = "c6000000-0000-4000-8000-000000000021"
-		abandonAttempt = "c6000000-0000-4000-8000-000000000022"
-		abandonReserve = "c6000000-0000-4000-8000-000000000023"
-		fencedLLM      = "c6000000-0000-4000-8000-000000000024"
-		fencedAttempt  = "c6000000-0000-4000-8000-000000000025"
-		fencedReserve  = "c6000000-0000-4000-8000-000000000026"
-		lateLLM        = "c6000000-0000-4000-8000-000000000027"
-		lateAttempt    = "c6000000-0000-4000-8000-000000000028"
-		lateReserve    = "c6000000-0000-4000-8000-000000000029"
-		cancellationID = "c6000000-0000-4000-8000-000000000030"
-		cancelEventID  = "c6000000-0000-4000-8000-000000000031"
-		cancelOutboxID = "c6000000-0000-4000-8000-000000000032"
-		cancelPublish  = "c6000000-0000-4000-8000-000000000033"
-		cancelledStart = "c6000000-0000-4000-8000-000000000034"
+		userID         = "c7000000-0000-4000-8000-000000000001"
+		tenantID       = "c7000000-0000-4000-8000-000000000002"
+		runID          = "c7000000-0000-4000-8000-000000000003"
+		runAttempt     = "c7000000-0000-4000-8000-000000000004"
+		llmAttempt     = "c7000000-0000-4000-8000-000000000005"
+		first          = "c7000000-0000-4000-8000-000000000006"
+		second         = "c7000000-0000-4000-8000-000000000007"
+		epoch          = "c7000000-0000-4000-8000-000000000008"
+		correlation    = "c7000000-0000-4000-8000-000000000009"
+		credential     = "c7000000-0000-4000-8000-000000000014"
+		bucket         = "c7000000-0000-4000-8000-000000000015"
+		reservationOne = "c7000000-0000-4000-8000-000000000016"
+		reservationTwo = "c7000000-0000-4000-8000-000000000017"
+		unknownLLM     = "c7000000-0000-4000-8000-000000000018"
+		unknownAttempt = "c7000000-0000-4000-8000-000000000019"
+		unknownReserve = "c7000000-0000-4000-8000-000000000020"
+		abandonLLM     = "c7000000-0000-4000-8000-000000000021"
+		abandonAttempt = "c7000000-0000-4000-8000-000000000022"
+		abandonReserve = "c7000000-0000-4000-8000-000000000023"
+		fencedLLM      = "c7000000-0000-4000-8000-000000000024"
+		fencedAttempt  = "c7000000-0000-4000-8000-000000000025"
+		fencedReserve  = "c7000000-0000-4000-8000-000000000026"
+		lateLLM        = "c7000000-0000-4000-8000-000000000027"
+		lateAttempt    = "c7000000-0000-4000-8000-000000000028"
+		lateReserve    = "c7000000-0000-4000-8000-000000000029"
+		cancellationID = "c7000000-0000-4000-8000-000000000030"
+		cancelEventID  = "c7000000-0000-4000-8000-000000000031"
+		cancelOutboxID = "c7000000-0000-4000-8000-000000000032"
+		cancelPublish  = "c7000000-0000-4000-8000-000000000033"
+		cancelledStart = "c7000000-0000-4000-8000-000000000034"
 	)
 	setup := []struct {
 		query string
@@ -69,10 +69,10 @@ func TestProviderDispatchIsAtMostOnceAndFallbackIsFullyAccounted(t *testing.T) {
 		{`INSERT INTO product.byok_credential_versions(tenant_id,credential_id,version,user_id,provider_id,bound_host,secret_ref,secret_version,status,last_validated_at) VALUES($1,$2,2,$3,'openai','api.openai.com','vault://byok/c6/v2','2','active',$4)`, []any{tenantID, credential, userID, now}},
 		{`UPDATE product.byok_credentials SET version=2,secret_ref='vault://byok/c6/v2',secret_version='2',updated_at=$1 WHERE tenant_id=$2 AND id=$3`, []any{now, tenantID, credential}},
 		{`INSERT INTO contracts.credit_buckets(id,tenant_id,bucket_kind,granted_units,starts_at,expires_at,created_at,updated_at) VALUES($1,$2,'llm',1000,$3,$4,$5,$5)`, []any{bucket, tenantID, now.Add(-time.Hour), now.Add(24 * time.Hour), now}},
-		{`INSERT INTO agent.outbox(id,tenant_id,command_id,command_type,aggregate_kind,aggregate_id,store_epoch,payload_ref,payload_hash,status,available_at,published_at) VALUES('c6000000-0000-4000-8000-000000000012',$1,'c6000000-0000-4000-8000-000000000011','StartAgentRun','run',$2,$3,'encrypted://run/start','run-start-c6','published',$4,$4)`, []any{tenantID, runID, epoch, now}},
-		{`INSERT INTO agent.jobs(id,tenant_id,command_id,queue_class,resource_class,priority,cost_units,max_attempts,status,available_at,due_at,enqueued_at) VALUES('c6000000-0000-4000-8000-000000000013',$1,'c6000000-0000-4000-8000-000000000011','interactive','llm',100,1,5,'running',$2,$3,$2)`, []any{tenantID, now, now.Add(time.Hour)}},
-		{`INSERT INTO agent.job_attempts(id,tenant_id,job_id,command_id,fence,lease_token_hash,lease_expires_at,worker_id,status,started_at) VALUES($1,$2,'c6000000-0000-4000-8000-000000000013','c6000000-0000-4000-8000-000000000011',1,$3,$4,'llm-worker-c6','running',$5)`, []any{runAttempt, tenantID, bytes.Repeat([]byte{0xc6}, 32), now.Add(10 * time.Minute), now}},
-		{`INSERT INTO agent.runs(id,tenant_id,user_id,conversation_id,status,run_version,active_command_id,active_attempt_id,current_fence,lease_token_hash,lease_expires_at,due_at,profile_snapshot_id,budget_snapshot) VALUES($1,$2,$3,'c6000000-0000-4000-8000-000000000010','executing',3,'c6000000-0000-4000-8000-000000000011',$4,1,$5,$6,$7,'agent@c6','{}')`, []any{runID, tenantID, userID, runAttempt, bytes.Repeat([]byte{0xc6}, 32), now.Add(10 * time.Minute), now.Add(time.Hour)}},
+		{`INSERT INTO agent.outbox(id,tenant_id,command_id,command_type,aggregate_kind,aggregate_id,store_epoch,payload_ref,payload_hash,status,available_at,published_at) VALUES('c7000000-0000-4000-8000-000000000012',$1,'c7000000-0000-4000-8000-000000000011','StartAgentRun','run',$2,$3,'encrypted://run/start','run-start-c6','published',$4,$4)`, []any{tenantID, runID, epoch, now}},
+		{`INSERT INTO agent.jobs(id,tenant_id,command_id,queue_class,resource_class,priority,cost_units,max_attempts,status,available_at,due_at,enqueued_at) VALUES('c7000000-0000-4000-8000-000000000013',$1,'c7000000-0000-4000-8000-000000000011','interactive','llm',100,1,5,'running',$2,$3,$2)`, []any{tenantID, now, now.Add(time.Hour)}},
+		{`INSERT INTO agent.job_attempts(id,tenant_id,job_id,command_id,fence,lease_token_hash,lease_expires_at,worker_id,status,started_at) VALUES($1,$2,'c7000000-0000-4000-8000-000000000013','c7000000-0000-4000-8000-000000000011',1,$3,$4,'llm-worker-c6','running',$5)`, []any{runAttempt, tenantID, bytes.Repeat([]byte{0xc6}, 32), now.Add(10 * time.Minute), now}},
+		{`INSERT INTO agent.runs(id,tenant_id,user_id,conversation_id,status,run_version,active_command_id,active_attempt_id,current_fence,lease_token_hash,lease_expires_at,due_at,profile_snapshot_id,budget_snapshot) VALUES($1,$2,$3,'c7000000-0000-4000-8000-000000000010','executing',3,'c7000000-0000-4000-8000-000000000011',$4,1,$5,$6,$7,'agent@c6','{}')`, []any{runID, tenantID, userID, runAttempt, bytes.Repeat([]byte{0xc6}, 32), now.Add(10 * time.Minute), now.Add(time.Hour)}},
 	}
 	for _, statement := range setup {
 		if _, err := admin.Exec(ctx, statement.query, statement.args...); err != nil {

@@ -116,17 +116,18 @@ type Handler struct {
 }
 
 var (
-	registerIPLimit       = platformratelimit.Limit{Capacity: 20, Window: time.Hour}
-	registerSubjectLimit  = platformratelimit.Limit{Capacity: 5, Window: time.Hour}
-	loginIPLimit          = platformratelimit.Limit{Capacity: 60, Window: 15 * time.Minute}
-	loginSubjectLimit     = platformratelimit.Limit{Capacity: 10, Window: 15 * time.Minute}
-	passwordMailIPLimit   = platformratelimit.Limit{Capacity: 10, Window: time.Hour}
-	passwordMailUserLimit = platformratelimit.Limit{Capacity: 3, Window: time.Hour}
-	tokenAttemptLimit     = platformratelimit.Limit{Capacity: 5, Window: time.Hour}
-	mailActorLimit        = platformratelimit.Limit{Capacity: 100, Window: time.Hour}
-	mailTargetLimit       = platformratelimit.Limit{Capacity: 5, Window: 24 * time.Hour}
-	onboardingIPLimit     = platformratelimit.Limit{Capacity: 60, Window: time.Hour}
-	onboardingActorLimit  = platformratelimit.Limit{Capacity: 120, Window: time.Hour}
+	registerIPLimit              = platformratelimit.Limit{Capacity: 20, Window: time.Hour}
+	registerSubjectLimit         = platformratelimit.Limit{Capacity: 5, Window: time.Hour}
+	loginIPLimit                 = platformratelimit.Limit{Capacity: 60, Window: 15 * time.Minute}
+	loginSubjectLimit            = platformratelimit.Limit{Capacity: 10, Window: 15 * time.Minute}
+	reauthenticationSessionLimit = platformratelimit.Limit{Capacity: 10, Window: 15 * time.Minute}
+	passwordMailIPLimit          = platformratelimit.Limit{Capacity: 10, Window: time.Hour}
+	passwordMailUserLimit        = platformratelimit.Limit{Capacity: 3, Window: time.Hour}
+	tokenAttemptLimit            = platformratelimit.Limit{Capacity: 5, Window: time.Hour}
+	mailActorLimit               = platformratelimit.Limit{Capacity: 100, Window: time.Hour}
+	mailTargetLimit              = platformratelimit.Limit{Capacity: 5, Window: 24 * time.Hour}
+	onboardingIPLimit            = platformratelimit.Limit{Capacity: 60, Window: time.Hour}
+	onboardingActorLimit         = platformratelimit.Limit{Capacity: 120, Window: time.Hour}
 )
 
 func (handler Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
@@ -149,6 +150,12 @@ func (handler Handler) ServeHTTP(writer http.ResponseWriter, request *http.Reque
 			return
 		}
 		handler.login(writer, request)
+	case "/v1/auth/reauthentication":
+		if request.Method != http.MethodPost {
+			handler.methodNotAllowed(writer, request, http.MethodPost)
+			return
+		}
+		handler.reauthenticate(writer, request)
 	case "/v1/auth/password/forgot":
 		if request.Method != http.MethodPost {
 			handler.methodNotAllowed(writer, request, http.MethodPost)

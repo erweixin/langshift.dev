@@ -49,6 +49,8 @@ func (handler EnterpriseAdminHandler) ServeHTTP(writer http.ResponseWriter, requ
 		handler.unenroll(writer, request, metadata, parts[0], parts[1])
 	case path == "role-packs" && request.Method == http.MethodPost:
 		handler.publishRolePack(writer, request, metadata)
+	case path == "task-packs" && request.Method == http.MethodPost:
+		handler.publishTaskPack(writer, request, metadata)
 	case path == "programs":
 		handler.methodNotAllowed(writer, request, http.MethodPost)
 	case strings.HasPrefix(path, "programs/") && validSingleUUID(strings.TrimPrefix(path, "programs/")):
@@ -60,6 +62,8 @@ func (handler EnterpriseAdminHandler) ServeHTTP(writer http.ResponseWriter, requ
 	case strings.HasPrefix(path, "cohorts/") && strings.Contains(path, "/enrollments/"):
 		handler.methodNotAllowed(writer, request, http.MethodDelete)
 	case path == "role-packs":
+		handler.methodNotAllowed(writer, request, http.MethodPost)
+	case path == "task-packs":
 		handler.methodNotAllowed(writer, request, http.MethodPost)
 	default:
 		handler.problem(writer, request, 404, "resource_not_found", false)
@@ -171,6 +175,24 @@ func (handler EnterpriseAdminHandler) publishRolePack(w http.ResponseWriter, r *
 	}
 	m.ClientRequestID = body.RequestID
 	result, err := handler.Service.PublishRolePack(r.Context(), PublishRolePackCommand{CommandMetadata: m, ProgramID: body.ProgramID, Revision: body.Revision, RoleProfileIDs: body.RoleProfileIDs, TaskTemplateIDs: body.TaskTemplateIDs})
+	handler.finishResult(w, r, result, err)
+}
+
+func (handler EnterpriseAdminHandler) publishTaskPack(w http.ResponseWriter, r *http.Request, m CommandMetadata) {
+	var body struct {
+		RequestID       string          `json:"request_id"`
+		ProgramID       string          `json:"program_id"`
+		Revision        int             `json:"revision"`
+		Name            string          `json:"name"`
+		TaskTemplateIDs []string        `json:"task_template_ids"`
+		Assignment      json.RawMessage `json:"assignment"`
+	}
+	if !decodeEnterprise(w, r, "application/vnd.lites.task-pack-publish.v2+json", &body) || !validClientRequestID(body.RequestID) || !uuidPattern.MatchString(body.ProgramID) || body.Revision < 1 || !validEnterpriseName(body.Name) || !validUUIDSet(body.TaskTemplateIDs, 1, 500) || !validJSONObject(body.Assignment) {
+		handler.problem(w, r, 400, "validation_failed", false)
+		return
+	}
+	m.ClientRequestID = body.RequestID
+	result, err := handler.Service.PublishTaskPack(r.Context(), PublishTaskPackCommand{CommandMetadata: m, ProgramID: body.ProgramID, Revision: body.Revision, Name: strings.TrimSpace(body.Name), TaskTemplateIDs: body.TaskTemplateIDs, Assignment: body.Assignment})
 	handler.finishResult(w, r, result, err)
 }
 

@@ -1,0 +1,65 @@
+{
+  "amendmentVersion": "1.28.0",
+  "baseContractVersion": "1.27.0",
+  "kind": "openapi-operation-version-extension",
+  "compatibility": "versioned-client-additive",
+  "operations": {
+    "admin.audit-exports.request.v2": {
+      "method": "POST",
+      "path": "/v1/admin/audit-exports",
+      "authentication": "gateway_signed_active_session_plus_csrf_plus_reauthentication_within_5_minutes",
+      "authorization": "current_enterprise_owner_or_contract_admin_and_active_audit_export_entitlement",
+      "idempotency": "required_encrypted_durable_response",
+      "requestContentType": "application/vnd.lites.admin-audit-export-request.v2+json",
+      "requestSchema": "AdminAuditExportRequestV2",
+      "responseContentType": "application/vnd.lites.admin-audit-export.v2+json",
+      "responseSchema": "AdminAuditExportV2"
+    },
+    "admin.audit-exports.download.v2": {
+      "method": "GET",
+      "path": "/v1/admin/audit-exports/{export_id}",
+      "authentication": "gateway_signed_active_session_plus_reauthentication_within_5_minutes",
+      "authorization": "current_enterprise_owner_or_contract_admin",
+      "requiredHeaders": ["X-Audit-Reason"],
+      "responseContentType": "application/x-ndjson or text/csv",
+      "integrityHeaders": ["Digest"],
+      "cacheControl": "private, no-store"
+    }
+  },
+  "schemas": {
+    "AdminAuditExportRequestV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["request_id", "period_start", "period_end", "kinds", "format", "reason"],
+      "properties": {
+        "request_id": {"type": "string", "minLength": 8, "maxLength": 200},
+        "period_start": {"type": "string", "format": "date-time"},
+        "period_end": {"type": "string", "format": "date-time"},
+        "kinds": {"type": "array", "minItems": 1, "maxItems": 3, "uniqueItems": true, "items": {"enum": ["contract_change", "accounting_adjustment", "admin_read"]}},
+        "format": {"enum": ["jsonl", "csv"]},
+        "reason": {"type": "string", "minLength": 1, "maxLength": 500}
+      }
+    },
+    "AdminAuditExportV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version", "status", "format", "record_count", "content_hash", "byte_size", "period_start", "period_end", "created_at", "expires_at"],
+      "properties": {
+        "id": {"type": "string", "format": "uuid"},
+        "version": {"const": 1},
+        "status": {"const": "ready"},
+        "format": {"enum": ["jsonl", "csv"]},
+        "record_count": {"type": "integer", "minimum": 0, "maximum": 100000},
+        "content_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "byte_size": {"type": "integer", "minimum": 0},
+        "period_start": {"type": "string", "format": "date-time"},
+        "period_end": {"type": "string", "format": "date-time"},
+        "created_at": {"type": "string", "format": "date-time"},
+        "expires_at": {"type": "string", "format": "date-time"},
+        "replayed": {"type": "boolean"}
+      }
+    }
+  },
+  "privacy": "The export contains administrative metadata and reason hashes only. It never exports private conversations, reflections, evidence, Memory, Workspace content, plaintext management reasons, or support message bodies.",
+  "integrity": "A repeatable-read snapshot is materialized into the encrypted payload store, content addressed, recorded in an append-only RLS table, and emitted as AuditExportCreated. Downloads verify the payload hash and byte size."
+}

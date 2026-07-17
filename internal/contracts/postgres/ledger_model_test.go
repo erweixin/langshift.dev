@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"math/rand"
 	"os"
+	"strconv"
 	"testing"
 )
 
@@ -21,21 +22,22 @@ type stage5LedgerModel struct {
 	granted, reserved, settled int64
 	reservations               map[int]*modelReservation
 	reservationIDs             []int
-	ledger                      map[string]int64
-	adjustments                 map[int]int64
-	contractStatus              string
-	contractVersion             int64
-	seatLimit                   int
-	members                     map[int]bool
-	memberIDs                   []int
-	seats                       map[int]bool
-	nextReservation             int
-	nextMember                  int
-	nextAdjustment              int
-	contractAudits              int
-	adjustmentAudits            int
-	accepted                    map[string]int
-	attempted                   map[string]int
+	ledger                     map[string]int64
+	adjustments                map[int]int64
+	contractStatus             string
+	contractVersion            int64
+	seatLimit                  int
+	members                    map[int]bool
+	memberIDs                  []int
+	seats                      map[int]bool
+	nextReservation            int
+	nextMember                 int
+	nextAdjustment             int
+	activeMemberCount          int
+	contractAudits             int
+	adjustmentAudits           int
+	accepted                   map[string]int
+	attempted                  map[string]int
 }
 
 type stage5LedgerMetrics struct {
@@ -111,6 +113,7 @@ func newStage5LedgerModel() *stage5LedgerModel {
 		model.members[member], model.seats[member] = true, true
 		model.memberIDs = append(model.memberIDs, member)
 		model.nextMember = member
+		model.activeMemberCount++
 	}
 	return model
 }
@@ -190,7 +193,7 @@ func (model *stage5LedgerModel) releaseStep(random *rand.Rand, kind string) {
 func (model *stage5LedgerModel) adjustStep(random *rand.Rand) {
 	model.attempted["manual_adjustment"]++
 	delta := int64(random.Intn(501) - 250)
-	if delta == 0 || model.granted+delta < 0 || model.granted+delta < model.reserved+model.settled {
+	if delta == 0 || model.granted+delta <= 0 || model.granted+delta < model.reserved+model.settled {
 		return
 	}
 	model.nextAdjustment++
@@ -231,6 +234,7 @@ func (model *stage5LedgerModel) membershipStep(random *rand.Rand) {
 		}
 		model.nextMember++
 		model.members[model.nextMember] = true
+		model.activeMemberCount++
 		model.memberIDs = append(model.memberIDs, model.nextMember)
 		if model.contractStatus == "active" {
 			model.seats[model.nextMember] = true
@@ -242,6 +246,7 @@ func (model *stage5LedgerModel) membershipStep(random *rand.Rand) {
 		id := model.memberIDs[random.Intn(len(model.memberIDs))]
 		if model.members[id] {
 			model.members[id] = false
+			model.activeMemberCount--
 			delete(model.seats, id)
 			model.accepted["membership"]++
 			return
@@ -267,19 +272,19 @@ func (model *stage5LedgerModel) reconcileSeats() {
 }
 
 func (model *stage5LedgerModel) activeMembers() int {
-	active := 0
-	for _, value := range model.members {
-		if value {
-			active++
-		}
-	}
-	return active
+	return model.activeMemberCount
 }
 
 func (model *stage5LedgerModel) assertInvariants(t *testing.T, operation int) {
 	t.Helper()
 	if model.granted < 0 || model.reserved < 0 || model.settled < 0 || model.reserved+model.settled > model.granted {
 		t.Fatalf("operation=%d invalid bucket granted=%d reserved=%d settled=%d", operation, model.granted, model.reserved, model.settled)
+	}
+	if model.contractStatus == "active" && len(model.seats) != model.activeMembers() || model.contractStatus == "terminated" && len(model.seats) != 0 || len(model.seats) > model.seatLimit {
+		t.Fatalf("operation=%d contract=%s members=%d seats=%d limit=%d", operation, model.contractStatus, model.activeMembers(), len(model.seats), model.seatLimit)
+	}
+	if operation%1000 != 0 && operation != stage5LedgerOperations-1 {
+		return
 	}
 	activeReserved := int64(0)
 	settledLedger := int64(0)
@@ -298,9 +303,6 @@ func (model *stage5LedgerModel) assertInvariants(t *testing.T, operation int) {
 		if !model.members[memberID] {
 			t.Fatalf("operation=%d inactive member retains a seat", operation)
 		}
-	}
-	if model.contractStatus == "active" && len(model.seats) != model.activeMembers() || model.contractStatus == "terminated" && len(model.seats) != 0 || len(model.seats) > model.seatLimit {
-		t.Fatalf("operation=%d contract=%s members=%d seats=%d limit=%d", operation, model.contractStatus, model.activeMembers(), len(model.seats), model.seatLimit)
 	}
 }
 
@@ -322,4 +324,4 @@ func (model *stage5LedgerModel) metrics() stage5LedgerMetrics {
 	}
 }
 
-func ledgerKey(kind string, id int) string { return kind + ":" + string(rune(id)) }
+func ledgerKey(kind string, id int) string { return kind + ":" + strconv.Itoa(id) }

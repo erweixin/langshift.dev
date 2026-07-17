@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
-import { BriefcaseBusiness, CalendarCheck2, Compass, FileCheck2, FolderKanban, Goal, Settings } from "lucide-react";
+import { BriefcaseBusiness, Building2, CalendarCheck2, Compass, FileCheck2, FolderKanban, Goal, Settings } from "lucide-react";
 import type { Locale } from "@/i18n/config";
 import type { Dictionary } from "@/i18n/dictionaries";
 import { demoMission } from "@/lib/model";
@@ -24,6 +24,7 @@ export function AppShell({ locale, dictionary, children }: { locale: Locale; dic
     { key: "evidence", label: dictionary.nav.evidence, icon: FileCheck2 },
     { key: "goals", label: dictionary.nav.goals, icon: Goal },
     { key: "create", label: dictionary.nav.create, icon: FolderKanban },
+    { key: "admin", label: dictionary.nav.admin, icon: Building2 },
     { key: "settings", label: dictionary.nav.settings, icon: Settings },
   ];
   return (
@@ -47,7 +48,7 @@ export function AppShell({ locale, dictionary, children }: { locale: Locale; dic
           <Link href={`/${locale}/goals`} className="mission-manage">{locale === "zh-CN" ? "管理 Missions" : "Manage Missions"}</Link>
           <Link className="add-mission" href={`/${locale}/onboarding?new=mission`}>+ {dictionary.common.add}</Link>
         </section>
-        <footer className="sidebar-footer"><span>AGPL-3.0</span><Link href={`/${locale}/settings#legal`}>Legal notice</Link></footer>
+        <footer className="sidebar-footer"><Link href={`/${locale}/support`}>Support</Link><Link href={`/${locale}/settings#legal`}>Legal notice</Link></footer>
       </aside>
       <label className="mobile-mission-switcher"><span>Mission</span><select aria-label={locale === "zh-CN" ? "切换 Mission" : "Switch Mission"} value={activeMission} onChange={(event) => setActiveMission(event.target.value)}>{missions.map((mission) => <option value={mission.id} key={mission.id}>{mission.name}</option>)}</select></label>
       <main className="app-main" id="main-content" tabIndex={-1}>{children}</main>

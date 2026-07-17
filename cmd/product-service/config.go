@@ -22,6 +22,7 @@ type config struct {
 	serverCertificateFile, serverKeyFile, serverClientCAFile                                       string
 	trustedKeyringFile, trustedIssuer, trustedAudience                                             string
 	secretBundleFile                                                                               string
+	publicStatusDocumentFile, publicStatusKeyringFile                                              string
 	contentReleaseDirectory, routeBehaviorEnvironment                                              string
 	epochURL, epochTokenFile, epochCAFile, epochCertFile, epochKeyFile                             string
 	s3Region, s3Endpoint, payloadBucket, payloadPrefix, s3KMSKeyID                                 string
@@ -121,7 +122,8 @@ func loadConfig() (config, error) {
 		listenAddress: env("LISTEN_ADDRESS", ":8443"), healthAddress: env("HEALTH_ADDRESS", "127.0.0.1:8088"),
 		serverCertificateFile: os.Getenv("SERVER_TLS_CERT_FILE"), serverKeyFile: os.Getenv("SERVER_TLS_KEY_FILE"), serverClientCAFile: os.Getenv("SERVER_CLIENT_CA_FILE"),
 		trustedKeyringFile: os.Getenv("TRUSTED_CONTEXT_KEYRING_FILE"), trustedIssuer: env("TRUSTED_CONTEXT_ISSUER", "lites-gateway"), trustedAudience: env("TRUSTED_CONTEXT_AUDIENCE", "product-service"),
-		secretBundleFile:        os.Getenv("PRODUCT_SECRET_BUNDLE_FILE"),
+		secretBundleFile:         os.Getenv("PRODUCT_SECRET_BUNDLE_FILE"),
+		publicStatusDocumentFile: env("PUBLIC_STATUS_DOCUMENT_FILE", "/run/secrets/public-status.json"), publicStatusKeyringFile: env("PUBLIC_STATUS_KEYRING_FILE", "/run/secrets/public-status-keyring.json"),
 		contentReleaseDirectory: env("PRODUCT_CONTENT_RELEASE_DIR", "/app/product-content/releases/1.0.0"), routeBehaviorEnvironment: env("ROUTE_BEHAVIOR_ENVIRONMENT", "production"),
 		epochURL: os.Getenv("STORE_EPOCH_URL"), epochTokenFile: os.Getenv("STORE_EPOCH_TOKEN_FILE"), epochCAFile: os.Getenv("STORE_EPOCH_ROOT_CA_FILE"), epochCertFile: os.Getenv("STORE_EPOCH_CLIENT_CERT_FILE"), epochKeyFile: os.Getenv("STORE_EPOCH_CLIENT_KEY_FILE"),
 		s3Region: os.Getenv("S3_REGION"), s3Endpoint: os.Getenv("S3_ENDPOINT"), s3PathStyle: pathStyle, payloadBucket: os.Getenv("S3_PAYLOAD_BUCKET"), payloadPrefix: env("S3_PAYLOAD_PREFIX", "restricted"), s3Encryption: types.ServerSideEncryption(env("S3_SERVER_SIDE_ENCRYPTION", string(types.ServerSideEncryptionAes256))), s3KMSKeyID: os.Getenv("S3_KMS_KEY_ID"),
@@ -136,7 +138,7 @@ func loadConfig() (config, error) {
 }
 
 func (value config) validate() error {
-	required := []string{value.databaseURL, value.listenAddress, value.healthAddress, value.trustedKeyringFile, value.trustedIssuer, value.trustedAudience, value.secretBundleFile, value.contentReleaseDirectory, value.epochURL, value.s3Region, value.payloadBucket, value.vaultAddress, value.vaultMount, value.vaultKeyPrefix, value.environment, value.serviceVersion, value.region}
+	required := []string{value.databaseURL, value.listenAddress, value.healthAddress, value.trustedKeyringFile, value.trustedIssuer, value.trustedAudience, value.secretBundleFile, value.publicStatusDocumentFile, value.publicStatusKeyringFile, value.contentReleaseDirectory, value.epochURL, value.s3Region, value.payloadBucket, value.vaultAddress, value.vaultMount, value.vaultKeyPrefix, value.environment, value.serviceVersion, value.region}
 	for _, item := range required {
 		if item == "" {
 			return errors.New("required product service configuration is missing")

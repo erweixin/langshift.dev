@@ -28,20 +28,20 @@ const failures = [];
 const assert = (condition, message) => { if (!condition) failures.push(message); };
 const byKind = (kind) => documents.filter((document) => document.kind === kind);
 const expectedCounts = {
-  ConfigMap: 18,
-  Deployment: 18,
-  ExternalSecret: 18,
-  HorizontalPodAutoscaler: 14,
+  ConfigMap: 19,
+  Deployment: 19,
+  ExternalSecret: 19,
+  HorizontalPodAutoscaler: 15,
   Job: 1,
-  NetworkPolicy: 21,
-  PodDisruptionBudget: 18,
-  Service: 8,
-  ServiceAccount: 18,
+  NetworkPolicy: 22,
+  PodDisruptionBudget: 19,
+  Service: 9,
+  ServiceAccount: 19,
 };
 for (const [kind, count] of Object.entries(expectedCounts)) assert(byKind(kind).length === count, `${kind} count ${byKind(kind).length}, expected ${count}`);
-assert(documents.length === 134, `resource count ${documents.length}, expected 134`);
+assert(documents.length === 142, `resource count ${documents.length}, expected 142`);
 
-const components = ["web-app", "api-gateway", "identity-service", "realtime-gateway", "behavior-control-plane", "agent-control-plane", "product-service", "product-worker", "identity-import-worker", "identity-mail-worker", "outbox-publisher", "agent-scheduler", "agent-worker", "tool-worker", "tool-reconciliation-worker", "runtime-sweeper", "run-cancellation-reconciler", "store-epoch-authority"];
+const components = ["web-app", "api-gateway", "identity-service", "realtime-gateway", "behavior-control-plane", "agent-control-plane", "product-service", "contract-service", "product-worker", "identity-import-worker", "identity-mail-worker", "outbox-publisher", "agent-scheduler", "agent-worker", "tool-worker", "tool-reconciliation-worker", "runtime-sweeper", "run-cancellation-reconciler", "store-epoch-authority"];
 for (const component of components) {
   const deployment = byKind("Deployment").find((document) => document.name === `lites-${component}`);
   assert(Boolean(deployment), `missing Deployment for ${component}`);
@@ -89,6 +89,11 @@ assert(Boolean(webService) && /name:\s+http, port:\s+3000, targetPort:\s+health/
 const webPolicy = byKind("NetworkPolicy").find((document) => document.name === "lites-web-app");
 assert(Boolean(webPolicy) && /kubernetes\.io\/metadata\.name:\s+edge-system[\s\S]*?port:\s+3000/.test(webPolicy.body), "web app lacks edge-only ingress");
 assert(Boolean(webPolicy) && /app\.kubernetes\.io\/component:\s+api-gateway[\s\S]*?port:\s+8443/.test(webPolicy.body), "web app lacks selector-scoped API gateway egress");
+const contractPolicy = byKind("NetworkPolicy").find((document) => document.name === "lites-contract-service");
+assert(Boolean(contractPolicy) && /ingress:[\s\S]*?app\.kubernetes\.io\/component:\s+api-gateway[\s\S]*?port:\s+8443/.test(contractPolicy.body), "contract service lacks gateway-only ingress");
+assert(Boolean(contractPolicy) && /egress:[\s\S]*?app\.kubernetes\.io\/component:\s+store-epoch-authority[\s\S]*?port:\s+8443/.test(contractPolicy.body), "contract service lacks selector-scoped store epoch egress");
+const gatewayPolicy = byKind("NetworkPolicy").find((document) => document.name === "lites-api-gateway");
+assert(Boolean(gatewayPolicy) && /app\.kubernetes\.io\/component:\s+contract-service[\s\S]*?port:\s+8443/.test(gatewayPolicy.body), "API gateway lacks selector-scoped contract service egress");
 
 for (const pdb of byKind("PodDisruptionBudget")) assert(/minAvailable:\s+2/.test(pdb.body), `${pdb.name} does not preserve two replicas`);
 for (const hpa of byKind("HorizontalPodAutoscaler")) {
@@ -109,4 +114,4 @@ if (failures.length) {
   for (const failure of failures) console.error(failure);
   process.exit(1);
 }
-console.log(`stage-2 helm contract: resources=${documents.length} deployments=18 multi_az=18 external_secrets=18 default_deny=1 status=passed`);
+console.log(`stage-2 helm contract: resources=${documents.length} deployments=19 multi_az=19 external_secrets=19 default_deny=1 status=passed`);

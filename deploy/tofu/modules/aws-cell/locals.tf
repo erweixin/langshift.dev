@@ -11,6 +11,7 @@ locals {
     "realtime-gateway",
     "behavior-control-plane",
     "agent-control-plane",
+    "contract-service",
     "identity-import-worker",
     "identity-mail-worker",
     "outbox-publisher",

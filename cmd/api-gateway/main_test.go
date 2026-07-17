@@ -76,6 +76,42 @@ func TestAgentRoutingIsExactAndCannotCaptureLookalikePaths(t *testing.T) {
 	}
 }
 
+func TestContractRoutingIsExactAndCannotCaptureLookalikePaths(t *testing.T) {
+	id := "10000000-0000-4000-8000-000000000001"
+	tests := []struct {
+		path string
+		want bool
+	}{
+		{path: "/v1/admin/contracts", want: true},
+		{path: "/v1/admin/contracts/" + id + "/approval-decisions", want: true},
+		{path: "/v1/admin/entitlements", want: true},
+		{path: "/v1/admin/entitlements/" + id + "/approval-decisions", want: true},
+		{path: "/v1/admin/usage", want: true},
+		{path: "/v1/admin/usage/adjustments", want: true},
+		{path: "/v1/admin/audit", want: true},
+		{path: "/v1/admin/audit-exports", want: true},
+		{path: "/v1/admin/audit-exports/" + id, want: true},
+		{path: "/v1/admin/usage/adjustments/" + id + "/approval-decisions", want: true},
+		{path: "/v1/admin/contracts/", want: false},
+		{path: "/v1/admin/contracts/not-a-uuid/approval-decisions", want: false},
+		{path: "/v1/admin/contracts/" + id, want: false},
+		{path: "/v1/admin/contracts/" + id + "/approval-decisions/extra", want: false},
+		{path: "/v1/admin/entitlements/", want: false},
+		{path: "/v1/admin/entitlements/not-a-uuid/approval-decisions", want: false},
+		{path: "/v1/admin/usage/adjustments/", want: false},
+		{path: "/v1/admin/usage/export", want: false},
+		{path: "/v1/admin/audit-exports/", want: false},
+		{path: "/v1/admin/audit-exports/not-a-uuid", want: false},
+	}
+	for _, test := range tests {
+		t.Run(test.path, func(t *testing.T) {
+			if got := isContractRoute(test.path); got != test.want {
+				t.Fatalf("isContractRoute(%q) = %v, want %v", test.path, got, test.want)
+			}
+		})
+	}
+}
+
 func TestProductRoutingIsExactAndCannotCaptureLookalikePaths(t *testing.T) {
 	id := "10000000-0000-4000-8000-000000000001"
 	tests := []struct {
@@ -83,6 +119,7 @@ func TestProductRoutingIsExactAndCannotCaptureLookalikePaths(t *testing.T) {
 		want bool
 	}{
 		{path: "/v1/missions", want: true},
+		{path: "/v1/public/status", want: true},
 		{path: "/v1/missions/" + id, want: true},
 		{path: "/v1/missions/" + id + "/focus", want: true},
 		{path: "/v1/route-revisions", want: true},
@@ -96,7 +133,30 @@ func TestProductRoutingIsExactAndCannotCaptureLookalikePaths(t *testing.T) {
 		{path: "/v1/preferences", want: true},
 		{path: "/v1/reminder-schedules", want: true},
 		{path: "/v1/reminder-schedules/" + id, want: true},
+		{path: "/v1/projects", want: true},
+		{path: "/v1/projects/" + id, want: true},
+		{path: "/v1/projects/" + id + "/milestones", want: true},
+		{path: "/v1/projects/" + id + "/milestones/" + id, want: true},
+		{path: "/v1/projects/" + id + "/workspace", want: true},
+		{path: "/v1/projects/" + id + "/completion", want: true},
+		{path: "/v1/projects/" + id + "/test-runs", want: true},
+		{path: "/v1/portfolio-exports", want: true},
+		{path: "/v1/portfolio-exports/" + id, want: true},
+		{path: "/v1/share-grants", want: true},
+		{path: "/v1/share-grants/" + id, want: true},
+		{path: "/v1/support/cases", want: true},
+		{path: "/v1/support/cases/" + id, want: true},
+		{path: "/v1/support/cases/" + id + "/messages", want: true},
+		{path: "/v1/admin/aggregate-queries", want: true},
+		{path: "/v1/admin/programs", want: true},
+		{path: "/v1/admin/programs/" + id, want: true},
+		{path: "/v1/admin/cohorts", want: true},
+		{path: "/v1/admin/cohorts/" + id + "/enrollments", want: true},
+		{path: "/v1/admin/cohorts/" + id + "/enrollments/" + id, want: true},
+		{path: "/v1/admin/role-packs", want: true},
+		{path: "/v1/admin/task-packs", want: true},
 		{path: "/v1/missions/", want: false},
+		{path: "/v1/public/status/", want: false},
 		{path: "/v1/missions/not-a-uuid", want: false},
 		{path: "/v1/missions/" + id + "/focus/extra", want: false},
 		{path: "/v1/missions/" + id + "/archive", want: false},
@@ -111,6 +171,26 @@ func TestProductRoutingIsExactAndCannotCaptureLookalikePaths(t *testing.T) {
 		{path: "/v1/reminder-schedules/", want: false},
 		{path: "/v1/reminder-schedules/not-a-uuid", want: false},
 		{path: "/v1/reminder-schedules/" + id + "/extra", want: false},
+		{path: "/v1/projects/", want: false},
+		{path: "/v1/projects/not-a-uuid", want: false},
+		{path: "/v1/projects/" + id + "/unknown", want: false},
+		{path: "/v1/projects/" + id + "/workspace/extra", want: false},
+		{path: "/v1/projects/" + id + "/milestones/not-a-uuid", want: false},
+		{path: "/v1/portfolio-exports/", want: false},
+		{path: "/v1/portfolio-exports/" + id + "/extra", want: false},
+		{path: "/v1/share-grants/", want: false},
+		{path: "/v1/share-grants/" + id + "/extra", want: false},
+		{path: "/v1/support/cases/", want: false},
+		{path: "/v1/support/cases/not-a-uuid", want: false},
+		{path: "/v1/support/cases/" + id + "/messages/extra", want: false},
+		{path: "/v1/admin/aggregate-queries/", want: false},
+		{path: "/v1/admin/programs/", want: false},
+		{path: "/v1/admin/programs/not-a-uuid", want: false},
+		{path: "/v1/admin/cohorts/", want: false},
+		{path: "/v1/admin/cohorts/" + id, want: false},
+		{path: "/v1/admin/cohorts/" + id + "/enrollments/extra/extra", want: false},
+		{path: "/v1/admin/role-packs/", want: false},
+		{path: "/v1/admin/task-packs/", want: false},
 	}
 	for _, test := range tests {
 		t.Run(test.path, func(t *testing.T) {

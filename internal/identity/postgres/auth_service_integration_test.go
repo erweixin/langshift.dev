@@ -112,7 +112,7 @@ func TestAuthRegistrationVerificationAndLoginAreDurableIdempotentAndSecretSafe(t
 		VerificationTTL:         24 * time.Hour,
 		PasswordResetTTL:        30 * time.Minute,
 		EmailChangeTTL:          24 * time.Hour,
-		ReauthenticationTTL:     15 * time.Minute,
+		ReauthenticationTTL:     5 * time.Minute,
 		ErasureGracePeriod:      7 * 24 * time.Hour,
 		SessionTTL:              30 * 24 * time.Hour,
 		IdempotencyTTL:          24 * time.Hour,
@@ -211,6 +211,37 @@ func TestAuthRegistrationVerificationAndLoginAreDurableIdempotentAndSecretSafe(t
 	if err != nil || principal.UserID != userID || principal.TenantID != tenantID || principal.SessionID != firstLogin.SessionID || principal.Roles[0] != "owner" {
 		t.Fatalf("principal=%#v err=%v", principal, err)
 	}
+	reauthenticationMetadata := api.AuthenticatedRequestMetadata{RequestMetadata: api.RequestMetadata{RequestID: "server-reauth-failed", ClientRequestID: "client-reauth-failed", IdempotencyKey: "reauth-failed-key-0001", ClientIPHash: metadata.ClientIPHash, UserAgentHash: metadata.UserAgentHash}, UserID: userID, TenantID: tenantID, MembershipID: principal.MembershipID, SessionID: firstLogin.SessionID}
+	if _, err = service.Reauthenticate(ctx, api.ReauthenticateCommand{AuthenticatedRequestMetadata: reauthenticationMetadata, Password: "wrong password"}); !errors.Is(err, api.ErrInvalidCredentials) {
+		t.Fatalf("wrong reauthentication error=%v", err)
+	}
+	reauthenticationMetadata.RequestID, reauthenticationMetadata.ClientRequestID, reauthenticationMetadata.IdempotencyKey = "server-reauth-001", "client-reauth-001", "reauth-idempotency-0001"
+	reauthenticate := api.ReauthenticateCommand{AuthenticatedRequestMetadata: reauthenticationMetadata, Password: register.Password}
+	reauthenticationResults := concurrentCalls(t, 8, func() (api.ReauthenticationResult, error) { return service.Reauthenticate(ctx, reauthenticate) })
+	for _, result := range reauthenticationResults {
+		if result.SessionID != firstLogin.SessionID || result.SessionVersion != 2 || !result.ReauthenticatedAt.Equal(now) || !result.ValidUntil.Equal(now.Add(5*time.Minute)) {
+			t.Fatalf("reauthentication result=%#v", result)
+		}
+	}
+	conflictingReauthentication := reauthenticate
+	conflictingReauthentication.Password = "different password under reused key"
+	if _, err = service.Reauthenticate(ctx, conflictingReauthentication); !errors.Is(err, api.ErrIdempotencyConflict) {
+		t.Fatalf("reauthentication idempotency conflict=%v", err)
+	}
+	var reauthenticationEvents, reauthenticationSuccessAudits, reauthenticationFailureAudits, sessionVersion int
+	var reauthenticatedAt time.Time
+	if err = admin.QueryRow(ctx, `SELECT version,reauthenticated_at FROM identity.sessions WHERE id=$1`, firstLogin.SessionID).Scan(&sessionVersion, &reauthenticatedAt); err != nil {
+		t.Fatal(err)
+	}
+	if err = admin.QueryRow(ctx, `SELECT count(*) FROM agent.events WHERE aggregate_id=$1 AND event_type='SessionReauthenticated'`, firstLogin.SessionID).Scan(&reauthenticationEvents); err != nil {
+		t.Fatal(err)
+	}
+	if err = admin.QueryRow(ctx, `SELECT count(*) FILTER (WHERE event_type='session_reauthenticated'),count(*) FILTER (WHERE event_type='session_reauthentication_failed') FROM identity.security_events WHERE subject_user_id=$1`, userID).Scan(&reauthenticationSuccessAudits, &reauthenticationFailureAudits); err != nil {
+		t.Fatal(err)
+	}
+	if sessionVersion != 2 || !reauthenticatedAt.Equal(now) || reauthenticationEvents != 1 || reauthenticationSuccessAudits != 1 || reauthenticationFailureAudits != 1 {
+		t.Fatalf("session-version=%d reauthenticated-at=%s events=%d success-audits=%d failure-audits=%d", sessionVersion, reauthenticatedAt, reauthenticationEvents, reauthenticationSuccessAudits, reauthenticationFailureAudits)
+	}
 
 	var users, sessions, events, outbox, idempotencyRows, loginFailures int
 	if err = admin.QueryRow(ctx, `SELECT count(*) FROM identity.users WHERE normalized_email=$1`, register.NormalizedEmail).Scan(&users); err != nil {
@@ -231,7 +262,7 @@ func TestAuthRegistrationVerificationAndLoginAreDurableIdempotentAndSecretSafe(t
 	if err = admin.QueryRow(ctx, `SELECT count(*) FROM identity.security_events WHERE event_type='login_failed' AND tenant_id=$1`, authPublicTenantID).Scan(&loginFailures); err != nil {
 		t.Fatal(err)
 	}
-	if users != 1 || sessions != 1 || events != 4 || outbox != 5 || idempotencyRows != 3 || loginFailures != 2 {
+	if users != 1 || sessions != 1 || events != 5 || outbox != 6 || idempotencyRows != 3 || loginFailures != 2 {
 		t.Fatalf("users=%d sessions=%d events=%d outbox=%d idempotency=%d login-failures=%d", users, sessions, events, outbox, idempotencyRows, loginFailures)
 	}
 	var passwordHash, verificationHashBytes, sessionHash []byte

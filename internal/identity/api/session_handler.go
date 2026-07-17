@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/langshift/lites/internal/idempotency"
+	"github.com/langshift/lites/internal/identity/password"
 	"github.com/langshift/lites/internal/identity/session"
 	"github.com/langshift/lites/internal/security/transport"
 	"github.com/langshift/lites/internal/security/trustedcontext"
@@ -62,6 +63,19 @@ type RevokeSessionCommand struct {
 
 type RevokeOtherSessionsCommand struct{ AuthenticatedRequestMetadata }
 
+type ReauthenticateCommand struct {
+	AuthenticatedRequestMetadata
+	Password string
+}
+
+type ReauthenticationResult struct {
+	SessionID         string    `json:"session_id"`
+	SessionVersion    uint64    `json:"session_version"`
+	ReauthenticatedAt time.Time `json:"reauthenticated_at"`
+	ValidUntil        time.Time `json:"valid_until"`
+	Replayed          bool      `json:"replayed,omitempty"`
+}
+
 type SessionMutationResult struct {
 	ID        string    `json:"id"`
 	Version   uint64    `json:"version"`
@@ -70,10 +84,49 @@ type SessionMutationResult struct {
 }
 
 type SessionService interface {
+	Reauthenticate(context.Context, ReauthenticateCommand) (ReauthenticationResult, error)
 	Logout(context.Context, LogoutCommand) (LogoutResult, error)
 	ListSessions(context.Context, SessionsQuery) (SessionsPage, error)
 	RevokeSession(context.Context, RevokeSessionCommand) (SessionMutationResult, error)
 	RevokeOtherSessions(context.Context, RevokeOtherSessionsCommand) (SessionMutationResult, error)
+}
+
+func (handler Handler) reauthenticate(writer http.ResponseWriter, request *http.Request) {
+	if handler.Sessions == nil {
+		handler.internalError(writer, request)
+		return
+	}
+	metadata, ok := handler.authenticatedMetadata(writer, request, true)
+	if !ok {
+		return
+	}
+	var body struct {
+		RequestID string `json:"request_id"`
+		Password  string `json:"password"`
+	}
+	if !handler.decode(writer, request, &body) {
+		return
+	}
+	defer func() { body.Password = "" }()
+	if !validClientRequestID(body.RequestID) || password.ValidateForAuthentication(body.Password) != nil {
+		handler.validationFailed(writer, request)
+		return
+	}
+	if !handler.allowRequest(writer, request, "identity-reauthentication-session", reauthenticationSessionLimit, metadata.ClientIPHash, []byte(metadata.SessionID)) {
+		return
+	}
+	metadata.ClientRequestID = body.RequestID
+	result, err := handler.Sessions.Reauthenticate(request.Context(), ReauthenticateCommand{AuthenticatedRequestMetadata: metadata, Password: body.Password})
+	if err != nil {
+		handler.serviceError(writer, request, err)
+		return
+	}
+	if result.SessionID != metadata.SessionID || result.SessionVersion == 0 || result.ReauthenticatedAt.IsZero() || !result.ValidUntil.After(result.ReauthenticatedAt) {
+		handler.internalError(writer, request)
+		return
+	}
+	writer.Header().Set("Cache-Control", "private, no-store")
+	handler.writeJSON(writer, http.StatusOK, result)
 }
 
 func (handler Handler) logout(writer http.ResponseWriter, request *http.Request) {

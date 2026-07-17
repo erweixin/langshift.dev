@@ -1,0 +1,46 @@
+{
+  "amendmentVersion": "1.25.0",
+  "baseContractVersion": "1.24.0",
+  "kind": "openapi-operation-version-extension",
+  "compatibility": "versioned-client-additive",
+  "operations": {
+    "auth.reauthentication.create.v1": {
+      "method": "POST",
+      "path": "/v1/auth/reauthentication",
+      "authentication": "gateway_signed_active_session",
+      "authorization": "current_user_current_session",
+      "csrf": "required",
+      "idempotency": "required_encrypted_durable_response",
+      "rateLimit": "10 attempts per current session and client network subject per 15 minutes",
+      "requestContentType": "application/json",
+      "requestSchema": "SessionReauthenticationRequestV1",
+      "responseContentType": "application/json",
+      "responseSchema": "SessionReauthenticationResourceV1",
+      "concurrency": "The current session and password credential versions are locked and compared with the verified snapshot. One idempotency key can advance the current session version exactly once.",
+      "safety": "The password is accepted only in the request body, zeroed at the handler boundary, used with the stored Argon2id parameters and never returned, logged, placed in an event, or stored in an idempotency response. Success applies only to the signed current session and is valid for at most five minutes."
+    }
+  },
+  "schemas": {
+    "SessionReauthenticationRequestV1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["request_id", "password"],
+      "properties": {
+        "request_id": {"type": "string", "minLength": 8, "maxLength": 200},
+        "password": {"type": "string", "minLength": 1, "maxLength": 128, "writeOnly": true}
+      }
+    },
+    "SessionReauthenticationResourceV1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["session_id", "session_version", "reauthenticated_at", "valid_until"],
+      "properties": {
+        "session_id": {"type": "string", "format": "uuid"},
+        "session_version": {"type": "integer", "minimum": 2},
+        "reauthenticated_at": {"type": "string", "format": "date-time"},
+        "valid_until": {"type": "string", "format": "date-time"},
+        "replayed": {"type": "boolean"}
+      }
+    }
+  }
+}

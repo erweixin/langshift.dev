@@ -54,6 +54,7 @@ func setGatewayProductionEnvironment(t *testing.T) {
 		"BEHAVIOR_UPSTREAM_URL": "https://behavior.internal:8443", "BEHAVIOR_UPSTREAM_ROOT_CA_FILE": "/run/tls/ca.crt", "BEHAVIOR_UPSTREAM_CLIENT_CERT_FILE": "/run/tls/client.crt", "BEHAVIOR_UPSTREAM_CLIENT_KEY_FILE": "/run/tls/client.key", "BEHAVIOR_UPSTREAM_TLS_SERVER_NAME": "behavior.internal", "BEHAVIOR_TRUSTED_CONTEXT_AUDIENCE": "behavior-control-plane",
 		"AGENT_UPSTREAM_URL": "https://agent-control.internal:8443", "AGENT_UPSTREAM_ROOT_CA_FILE": "/run/tls/ca.crt", "AGENT_UPSTREAM_CLIENT_CERT_FILE": "/run/tls/client.crt", "AGENT_UPSTREAM_CLIENT_KEY_FILE": "/run/tls/client.key", "AGENT_UPSTREAM_TLS_SERVER_NAME": "agent-control.internal", "AGENT_TRUSTED_CONTEXT_AUDIENCE": "agent-control-plane",
 		"PRODUCT_UPSTREAM_URL": "https://product.internal:8443", "PRODUCT_UPSTREAM_ROOT_CA_FILE": "/run/tls/ca.crt", "PRODUCT_UPSTREAM_CLIENT_CERT_FILE": "/run/tls/client.crt", "PRODUCT_UPSTREAM_CLIENT_KEY_FILE": "/run/tls/client.key", "PRODUCT_UPSTREAM_TLS_SERVER_NAME": "product.internal", "PRODUCT_TRUSTED_CONTEXT_AUDIENCE": "product-service",
+		"CONTRACT_UPSTREAM_URL": "https://contract.internal:8443", "CONTRACT_UPSTREAM_ROOT_CA_FILE": "/run/tls/ca.crt", "CONTRACT_UPSTREAM_CLIENT_CERT_FILE": "/run/tls/client.crt", "CONTRACT_UPSTREAM_CLIENT_KEY_FILE": "/run/tls/client.key", "CONTRACT_UPSTREAM_TLS_SERVER_NAME": "contract.internal", "CONTRACT_TRUSTED_CONTEXT_AUDIENCE": "contract-service",
 		"GATEWAY_SECRET_BUNDLE_FILE": "/run/secrets/gateway.json", "TRUSTED_CONTEXT_KEYRING_FILE": "/run/config/gateway-keyring.json", "TRUSTED_PROXY_CIDRS": "10.0.0.0/8,192.168.0.0/16", "PUBLIC_ORIGINS": "https://app.lites.dev,https://admin.lites.dev",
 		"ALLOW_INSECURE_DEVELOPMENT": "false", "LITES_ENVIRONMENT": "production", "LITES_VERSION": "test", "LITES_REGION": "US",
 		"OTLP_GRPC_ENDPOINT": "otel.internal:4317", "OTLP_BEARER_TOKEN_FILE": "/run/secrets/otel-token",
@@ -111,6 +112,11 @@ func TestGatewayConfigAllowsExplicitLoopbackDevelopment(t *testing.T) {
 	t.Setenv("PRODUCT_UPSTREAM_CLIENT_CERT_FILE", "")
 	t.Setenv("PRODUCT_UPSTREAM_CLIENT_KEY_FILE", "")
 	t.Setenv("PRODUCT_UPSTREAM_TLS_SERVER_NAME", "")
+	t.Setenv("CONTRACT_UPSTREAM_URL", "http://127.0.0.1:8449")
+	t.Setenv("CONTRACT_UPSTREAM_ROOT_CA_FILE", "")
+	t.Setenv("CONTRACT_UPSTREAM_CLIENT_CERT_FILE", "")
+	t.Setenv("CONTRACT_UPSTREAM_CLIENT_KEY_FILE", "")
+	t.Setenv("CONTRACT_UPSTREAM_TLS_SERVER_NAME", "")
 	t.Setenv("OTLP_GRPC_ENDPOINT", "")
 	t.Setenv("OTLP_BEARER_TOKEN_FILE", "")
 	configuration, err := loadConfig()
@@ -132,6 +138,10 @@ func TestGatewayConfigAllowsExplicitLoopbackDevelopment(t *testing.T) {
 	productClient, productEndpoint, err := configuration.productUpstreamClient()
 	if err != nil || productClient.Timeout != 35*time.Second || productEndpoint.String() != "http://127.0.0.1:8448" {
 		t.Fatalf("product upstream client = %#v endpoint = %v error = %v", productClient, productEndpoint, err)
+	}
+	contractClient, contractEndpoint, err := configuration.contractUpstreamClient()
+	if err != nil || contractClient.Timeout != 35*time.Second || contractEndpoint.String() != "http://127.0.0.1:8449" {
+		t.Fatalf("contract upstream client = %#v endpoint = %v error = %v", contractClient, contractEndpoint, err)
 	}
 }
 
