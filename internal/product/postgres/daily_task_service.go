@@ -128,7 +128,7 @@ func (service DailyTaskService) List(ctx context.Context, query productapi.Daily
 }
 
 func (service DailyTaskService) Update(ctx context.Context, command productapi.UpdateDailyTaskCommand) (productapi.DailyTaskMutationResult, error) {
-	if !service.valid() || !validMissionMetadata(command.CommandMetadata) || command.TaskID == "" || command.ExpectedTaskVersion == 0 || command.Action != "start" && command.Action != "skip" && command.Action != "reschedule" {
+	if !service.valid() || !validMissionMetadata(command.CommandMetadata) || command.TaskID == "" || command.ExpectedTaskVersion == 0 || command.Action != "start" && command.Action != "skip" && command.Action != "reschedule" && command.Action != "lower_difficulty" {
 		return productapi.DailyTaskMutationResult{}, productapi.ErrValidation
 	}
 	canonical, err := json.Marshal(struct {
@@ -192,10 +192,19 @@ func (service DailyTaskService) Update(ctx context.Context, command productapi.U
 			current.ReviewID = *reviewID
 		}
 		current.Status, current.ScheduledFor = producttask.Status(status), scheduled
-		nextStatus := map[string]producttask.Status{"start": producttask.InProgress, "skip": producttask.Skipped, "reschedule": producttask.Rescheduled}[command.Action]
-		next, transitionErr := current.Transition(producttask.TransitionCommand{ExpectedVersion: command.ExpectedTaskVersion, Next: nextStatus, Now: service.now()})
-		if transitionErr != nil {
-			return idempotency.Response{}, ErrRouteConflict
+		next := current
+		if command.Action == "lower_difficulty" {
+			if current.Version != command.ExpectedTaskVersion || current.Status != producttask.Scheduled && current.Status != producttask.InProgress || difficulty == "easier" {
+				return idempotency.Response{}, ErrRouteConflict
+			}
+			next.Version++
+		} else {
+			nextStatus := map[string]producttask.Status{"start": producttask.InProgress, "skip": producttask.Skipped, "reschedule": producttask.Rescheduled}[command.Action]
+			var transitionErr error
+			next, transitionErr = current.Transition(producttask.TransitionCommand{ExpectedVersion: command.ExpectedTaskVersion, Next: nextStatus, Now: service.now()})
+			if transitionErr != nil {
+				return idempotency.Response{}, ErrRouteConflict
+			}
 		}
 		var rescheduled any
 		if command.Action == "reschedule" {
@@ -215,7 +224,12 @@ func (service DailyTaskService) Update(ctx context.Context, command productapi.U
 			return idempotency.Response{}, ErrInvalidCommand
 		}
 		now := service.now()
-		tag, execErr := tx.Exec(ctx, `UPDATE product.daily_tasks SET version=$1,status=$2,rescheduled_to=$3,updated_at=$4 WHERE tenant_id=$5 AND user_id=$6 AND id=$7 AND version=$8 AND status=$9`, next.Version, next.Status, rescheduled, now, command.TenantID, command.UserID, command.TaskID, current.Version, current.Status)
+		nextDifficulty, nextMinutes := difficulty, estimatedMinutes
+		if command.Action == "lower_difficulty" {
+			nextDifficulty = "easier"
+			nextMinutes = max(5, estimatedMinutes*2/3)
+		}
+		tag, execErr := tx.Exec(ctx, `UPDATE product.daily_tasks SET version=$1,status=$2,rescheduled_to=$3,difficulty=$4,estimated_minutes=$5,updated_at=$6 WHERE tenant_id=$7 AND user_id=$8 AND id=$9 AND version=$10 AND status=$11`, next.Version, next.Status, rescheduled, nextDifficulty, nextMinutes, now, command.TenantID, command.UserID, command.TaskID, current.Version, current.Status)
 		if execErr != nil || tag.RowsAffected() != 1 {
 			return idempotency.Response{}, ErrRouteConflict
 		}

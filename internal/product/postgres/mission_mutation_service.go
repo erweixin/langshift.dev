@@ -42,6 +42,7 @@ type MissionMutationService struct {
 	RequestDigestPepper  []byte
 	IdempotencyTTL       time.Duration
 	Now                  func() time.Time
+	Catalog              RoleProfileProjector
 }
 
 type observedMissionState struct {
@@ -110,6 +111,15 @@ func (service MissionMutationService) Create(ctx context.Context, command produc
 	}
 	executor := idempotencypostgres.Executor{Pool: service.Pool, KeyPepper: service.IdempotencyKeyPepper, TTL: service.IdempotencyTTL, Now: service.Now}
 	response, replayed, err := executor.Execute(ctx, input, func(ctx context.Context, tx pgx.Tx) (idempotency.Response, error) {
+		if service.Catalog != nil {
+			roleIDs := []string{command.TargetRoleProfileID}
+			if command.SourceRoleProfileID != "" {
+				roleIDs = append(roleIDs, command.SourceRoleProfileID)
+			}
+			if err := service.Catalog.EnsureRoleProfiles(ctx, tx, command.TenantID, roleIDs...); err != nil {
+				return idempotency.Response{}, err
+			}
+		}
 		if err := service.validateRoleProfiles(ctx, tx, command.TenantID, command.SourceRoleProfileID, command.TargetRoleProfileID); err != nil {
 			return idempotency.Response{}, err
 		}

@@ -4,12 +4,21 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
 type portfolioServiceStub struct {
 	request func(CreatePortfolioExportCommand) (PortfolioExportResult, error)
 	get     func(string, string, string) (PortfolioExportResult, error)
+}
+
+type portfolioDownloadStub struct {
+	download func(string, string, string) (PortfolioDownload, error)
+}
+
+func (stub portfolioDownloadStub) Download(_ context.Context, tenantID, userID, exportID string) (PortfolioDownload, error) {
+	return stub.download(tenantID, userID, exportID)
 }
 
 func (stub portfolioServiceStub) Request(_ context.Context, command CreatePortfolioExportCommand) (PortfolioExportResult, error) {
@@ -60,6 +69,22 @@ func TestPortfolioExportGetIsOwnerScopedAndReturnsLifecycleVersion(t *testing.T)
 	recorder := httptest.NewRecorder()
 	request.handler(PortfolioHandler{Service: service}).ServeHTTP(recorder, request.request)
 	if recorder.Code != http.StatusOK || recorder.Header().Get("ETag") != `"2"` || recorder.Header().Get("Cache-Control") != "private, no-store" {
+		t.Fatalf("status=%d headers=%v body=%s", recorder.Code, recorder.Header(), recorder.Body.String())
+	}
+}
+
+func TestPortfolioDownloadIsOwnerScopedAndIntegrityLabelled(t *testing.T) {
+	exportID := "f3000000-0000-4000-8000-000000000020"
+	downloads := portfolioDownloadStub{download: func(tenantID, userID, requestedID string) (PortfolioDownload, error) {
+		if tenantID == "" || userID == "" || requestedID != exportID {
+			t.Fatalf("scope tenant=%q user=%q export=%q", tenantID, userID, requestedID)
+		}
+		return PortfolioDownload{Filename: "lites-portfolio.zip", MediaType: "application/zip", ContentHash: strings.Repeat("a", 64), Body: []byte("verified export")}, nil
+	}}
+	request := authenticatedMissionRequest(t, http.MethodGet, "/v1/portfolio-exports/"+exportID+"/download", "", "", "", "", false)
+	recorder := httptest.NewRecorder()
+	request.handler(PortfolioHandler{Service: portfolioServiceStub{}, Downloads: downloads}).ServeHTTP(recorder, request.request)
+	if recorder.Code != http.StatusOK || recorder.Header().Get("Content-Disposition") != `attachment; filename="lites-portfolio.zip"` || recorder.Header().Get("Digest") == "" || recorder.Body.String() != "verified export" {
 		t.Fatalf("status=%d headers=%v body=%s", recorder.Code, recorder.Header(), recorder.Body.String())
 	}
 }

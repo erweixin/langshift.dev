@@ -19,9 +19,17 @@ import (
 
 type controlServiceStub struct {
 	createConversation func(CreateConversationCommand) (ConversationResult, error)
+	getConversation    func(GetConversationCommand) (ConversationDetailResult, error)
 	createMessage      func(CreateMessageCommand) (MessageResult, error)
 	getRun             func(GetRunCommand) (RunResult, error)
 	cancelRun          func(CancelRunCommand) (RunResult, error)
+}
+
+func (stub controlServiceStub) GetConversation(_ context.Context, command GetConversationCommand) (ConversationDetailResult, error) {
+	if stub.getConversation == nil {
+		return ConversationDetailResult{}, errors.New("unexpected GetConversation")
+	}
+	return stub.getConversation(command)
 }
 
 func (stub controlServiceStub) CreateConversation(_ context.Context, command CreateConversationCommand) (ConversationResult, error) {
@@ -64,6 +72,19 @@ func TestControlHandlerPublicContract(t *testing.T) {
 		}}}
 		response := serveControlRequest(t, handler, http.MethodPost, "/v1/conversations", `{"request_id":"client-conversation-1","mission_id":"mission-1","title":"Role transition","mode":"coach"}`, true, "", "control-key-0000000001")
 		if response.Code != http.StatusOK || response.Header().Get("ETag") != `"1"` || !strings.Contains(response.Body.String(), `"id":"conversation-1"`) {
+			t.Fatalf("status=%d headers=%v body=%s", response.Code, response.Header(), response.Body.String())
+		}
+	})
+
+	t.Run("get Conversation returns only service-projected messages", func(t *testing.T) {
+		handler := ControlHandler{Service: controlServiceStub{getConversation: func(command GetConversationCommand) (ConversationDetailResult, error) {
+			if command.ConversationID != "conversation-1" || command.TenantID != "tenant-1" || command.UserID != "user-1" || command.Limit != 25 || command.BeforeCreatedAt != nil {
+				t.Fatalf("command=%#v", command)
+			}
+			return ConversationDetailResult{ID: "conversation-1", MissionID: "mission-1", Version: 2, Mode: "coach", Status: "active", Messages: []ConversationMessageResult{{ID: "message-1", RunID: "run-1", Role: "assistant", Content: "Keep the scope narrow.", CreatedAt: now}}, UpdatedAt: now}, nil
+		}}}
+		response := serveControlRequest(t, handler, http.MethodGet, "/v1/conversations/conversation-1?limit=25", ``, false, "", "")
+		if response.Code != http.StatusOK || response.Header().Get("ETag") != `"2"` || !strings.Contains(response.Body.String(), `"content":"Keep the scope narrow."`) {
 			t.Fatalf("status=%d headers=%v body=%s", response.Code, response.Header(), response.Body.String())
 		}
 	})

@@ -7,6 +7,12 @@ on:
       - "go.sum"
       - "package.json"
       - "package-lock.json"
+      - "CLA.md"
+      - "CONTRIBUTING.md"
+      - "NOTICE"
+      - "SECURITY.md"
+      - "TRADEMARKS.md"
+      - "config/legal-governance.json"
       - "apps/web/**"
       - "cmd/**"
       - "internal/**"
@@ -21,6 +27,39 @@ on:
       - "scripts/verify-production-web-image.sh"
       - "scripts/verify-actions-pinned.mjs"
       - "scripts/write-stage2-supply-chain-report.mjs"
+      - "scripts/stage6-account-erasure-gate.sh"
+      - "scripts/write-stage6-account-erasure-report.mjs"
+      - "scripts/install-ga-release-candidate.sh"
+      - "scripts/test-ga-release-tools.mjs"
+      - "scripts/test-stage6-readiness-verifier.mjs"
+      - "scripts/write-stage6-deployment-report.mjs"
+      - "scripts/test-stage6-deployment-report.mjs"
+      - "scripts/write-stage6-capacity-report.mjs"
+      - "scripts/test-stage6-capacity-report.mjs"
+      - "scripts/write-stage6-recovery-report.mjs"
+      - "scripts/test-stage6-recovery-report.mjs"
+      - "scripts/write-stage6-profile-eval-report.mjs"
+      - "scripts/test-stage6-profile-eval-report.mjs"
+      - "scripts/stage6-approval-crypto.mjs"
+      - "scripts/sign-stage6-approval.mjs"
+      - "scripts/test-stage6-approval-crypto.mjs"
+      - "scripts/collect-stage6-release-issues.mjs"
+      - "scripts/write-stage6-release-issues-report.mjs"
+      - "scripts/test-stage6-release-issues-report.mjs"
+      - "scripts/write-stage6-pilot-equivalence-report.mjs"
+      - "scripts/test-stage6-pilot-equivalence-report.mjs"
+      - "scripts/write-stage6-penetration-report.mjs"
+      - "scripts/test-stage6-penetration-report.mjs"
+      - "scripts/write-stage6-pilot-report.mjs"
+      - "scripts/test-stage6-pilot-report.mjs"
+      - "pilot-protocols/**"
+      - "scripts/stage6-evidence-manifest.mjs"
+      - "scripts/write-stage6-final-approval.mjs"
+      - "scripts/test-stage6-final-approval.mjs"
+      - "scripts/verify-legal-governance.mjs"
+      - "scripts/test-legal-governance.mjs"
+      - "contracts/release/**"
+      - "scripts/write-stage6-ga-readiness-report.mjs"
       - ".github/workflows/**"
   push:
     branches: [main]
@@ -60,6 +99,23 @@ jobs:
         run: node scripts/verify-actions-pinned.mjs
       - name: Verify authenticated Go module contents
         run: go mod verify
+      - name: Verify GA release contracts and installer semantics
+        run: |
+          npm run legal:verify
+          npm run test:legal-governance
+          npm run contracts:lint:stage6
+          npm run test:release-tools
+          npm run test:stage6-readiness
+          npm run test:stage6-deployment-report
+          npm run test:stage6-capacity-report
+          npm run test:stage6-recovery-report
+          npm run test:stage6-profile-eval-report
+          npm run test:stage6-approval-crypto
+          npm run test:stage6-release-issues
+          npm run test:stage6-pilot-equivalence
+          npm run test:stage6-penetration-report
+          npm run test:stage6-pilot-report
+          npm run test:stage6-final-approval
       - name: Verify web dependencies and production build
         run: |
           npm ci --no-audit --no-fund
@@ -88,7 +144,7 @@ jobs:
         run: |
           out=gate-reports/stage-2/supply-chain
           cyclonedx-gomod mod -licenses -std -json -output "$out/module.cdx.json" .
-          for service in api-gateway identity-service realtime-gateway behavior-control-plane agent-control-plane product-service contract-service product-worker identity-import-worker identity-mail-worker outbox-publisher agent-scheduler agent-worker tool-worker tool-reconciliation-worker store-epoch-authority lites-migrate lites-release-assets lites-reference-release runtime-host-agent runtime-sweeper run-cancellation-reconciler reference-capacity-controller reference-provider; do
+          for service in api-gateway identity-service realtime-gateway behavior-control-plane agent-control-plane product-service contract-service product-worker identity-import-worker account-erasure-worker identity-mail-worker outbox-publisher agent-scheduler agent-worker tool-worker tool-reconciliation-worker store-epoch-authority lites-migrate lites-release-assets lites-reference-release runtime-host-agent runtime-sweeper run-cancellation-reconciler reference-capacity-controller reference-provider; do
             cyclonedx-gomod app -licenses -std -json -output "$out/$service.cdx.json" -main "cmd/$service" .
           done
           cyclonedx-gomod app -licenses -std -json -output "$out/reference-tool-runtime.cdx.json" -main cmd/reference-tool-runner .
@@ -130,6 +186,7 @@ jobs:
           - contract-service
           - product-worker
           - identity-import-worker
+          - account-erasure-worker
           - identity-mail-worker
           - outbox-publisher
           - agent-scheduler
@@ -306,6 +363,7 @@ jobs:
           - contract-service
           - product-worker
           - identity-import-worker
+          - account-erasure-worker
           - identity-mail-worker
           - outbox-publisher
           - agent-scheduler
@@ -554,15 +612,24 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: [publish-signed-images, publish-signed-reference-runtime, publish-signed-web-image]
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 30
     permissions:
       contents: read
+      issues: read
       id-token: write
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 1
           persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22.22.0"
+          cache: npm
       - name: Download every signed image coordinate
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
@@ -571,6 +638,7 @@ jobs:
           merge-multiple: true
       - name: Build commit-bound behavior and RC manifests
         run: |
+          npm run legal:verify:ga
           node scripts/build-product-behavior-manifest.mjs \
             --source-commit "$GITHUB_SHA" \
             --output rc-output/product-behavior-manifest.json
@@ -579,6 +647,23 @@ jobs:
             --releases rc-input/releases \
             --behavior-manifest rc-output/product-behavior-manifest.json \
             --output rc-output/ga-release-candidate.json
+      - name: Collect the complete release issue inventory
+        run: |
+          rc_hash="$(jq -er '.releaseCandidateHash' rc-output/ga-release-candidate.json)"
+          node scripts/collect-stage6-release-issues.mjs \
+            --source-commit "$GITHUB_SHA" \
+            --rc-hash "$rc_hash" \
+            --output rc-output/evidence/release-issues-snapshot.json
+          node scripts/write-stage6-release-issues-report.mjs \
+            --snapshot rc-output/evidence/release-issues-snapshot.json \
+            --output rc-output/release-issues.json
+      - name: Verify RC-bound account erasure and recovery
+        run: |
+          rc_hash="$(jq -er '.releaseCandidateHash' rc-output/ga-release-candidate.json)"
+          ./scripts/stage6-account-erasure-gate.sh "$GITHUB_SHA" "$rc_hash"
+          mkdir -p rc-output/evidence
+          cp gate-reports/stage-6/account-erasure-100.json rc-output/account-erasure-100.json
+          cp .tmp/account-erasure-integration.json .tmp/account-erasure-dependencies.json rc-output/evidence/
       - name: Install pinned Cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
         with:
@@ -593,6 +678,22 @@ jobs:
             --certificate-identity "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/.github/workflows/supply-chain.yml@refs/heads/main" \
             --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
             rc-output/ga-release-candidate.json
+          cosign sign-blob --yes \
+            --bundle rc-output/account-erasure-100.sigstore.json \
+            rc-output/account-erasure-100.json
+          cosign sign-blob --yes \
+            --bundle rc-output/release-issues.sigstore.json \
+            rc-output/release-issues.json
+          cosign verify-blob \
+            --bundle rc-output/release-issues.sigstore.json \
+            --certificate-identity "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/.github/workflows/supply-chain.yml@refs/heads/main" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            rc-output/release-issues.json
+          cosign verify-blob \
+            --bundle rc-output/account-erasure-100.sigstore.json \
+            --certificate-identity "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/.github/workflows/supply-chain.yml@refs/heads/main" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            rc-output/account-erasure-100.json
       - name: Upload the signed GA Release Candidate
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

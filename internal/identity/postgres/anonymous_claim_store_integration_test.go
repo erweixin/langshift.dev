@@ -69,8 +69,11 @@ func TestAnonymousClaimStoreConvergesWithRLSAndProtectsReservationFromExpiry(t *
 	if err != nil {
 		t.Fatal(err)
 	}
+	goalManifest, err := payloadStore.Put(ctx, payload.Descriptor{TenantID: systemTenant, ObjectID: sourceMissionID, Class: "mission-goal", ContentType: "application/json"}, []byte(`{"goal":"Become an AI product lead"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
 	bodyManifestJSON, _ := json.Marshal(bodyManifest)
-	routeManifestJSON, _ := json.Marshal(routeManifest)
 	for _, statement := range []struct {
 		query string
 		args  []any
@@ -84,8 +87,8 @@ func TestAnonymousClaimStoreConvergesWithRLSAndProtectsReservationFromExpiry(t *
 		{`INSERT INTO identity.sessions(id,user_id,active_tenant_id,token_hash,csrf_secret_hash,ip_hash,user_agent_hash,last_seen_at,expires_at,reauthenticated_at) VALUES($1,$2,$3,decode(repeat('11',32),'hex'),decode(repeat('12',32),'hex'),decode(repeat('13',32),'hex'),decode(repeat('14',32),'hex'),$7,$8,$7),($4,$5,$3,decode(repeat('21',32),'hex'),decode(repeat('22',32),'hex'),decode(repeat('23',32),'hex'),decode(repeat('24',32),'hex'),$7,$8,$7),($6,$9,$3,decode(repeat('31',32),'hex'),decode(repeat('32',32),'hex'),decode(repeat('33',32),'hex'),decode(repeat('34',32),'hex'),$7,$8,$7)`, []any{initiatorSession, targetUser, targetTenant, approverOneSession, approverOne, approverTwoSession, now, now.Add(time.Hour), approverTwo}},
 		{`INSERT INTO identity.anonymous_subjects(id,anonymous_subject_hash,ephemeral_user_id,system_tenant_id,expires_at) VALUES($1,decode(repeat('ab',32),'hex'),$2,$3,$4)`, []any{subjectID, ephemeralUser, systemTenant, now.Add(time.Hour)}},
 		{`INSERT INTO product.role_profiles(id,tenant_id,slug,revision,status,spec,locale,source_manifest) VALUES($1,$2,'ai-product-lead',1,'active','{}','en','{}')`, []any{roleProfileID, systemTenant}},
-		{`INSERT INTO product.missions(id,tenant_id,user_id,status,target_role_profile_id,route_version,claim_set_hash) VALUES($1,$2,$3,'draft',$4,1,'claim-set-hash-1')`, []any{sourceMissionID, systemTenant, ephemeralUser, roleProfileID}},
-		{`INSERT INTO product.route_revisions(id,tenant_id,user_id,mission_id,route_version,status,claim_set_hash,base_route_version,input_manifest,route_payload_ref,agent_profile_snapshot_id,ontology_snapshot_id,content_snapshot_id) VALUES($1,$2,$3,$4,1,'proposed','claim-set-hash-1',0,'{}',$5,'agent-v1','ontology-v1','content-v1')`, []any{sourceRouteID, systemTenant, ephemeralUser, sourceMissionID, string(routeManifestJSON)}},
+		{`INSERT INTO product.missions(id,tenant_id,user_id,status,target_role_profile_id,goal_payload_ref,goal_payload_hash,route_version,claim_set_hash) VALUES($1,$2,$3,'draft',$4,$5,$6,1,'claim-set-hash-1')`, []any{sourceMissionID, systemTenant, ephemeralUser, roleProfileID, goalManifest.Ref, goalManifest.Hash}},
+		{`INSERT INTO product.route_revisions(id,tenant_id,user_id,mission_id,route_version,status,claim_set_hash,base_route_version,input_manifest,route_payload_ref,route_payload_hash,agent_profile_snapshot_id,ontology_snapshot_id,content_snapshot_id) VALUES($1,$2,$3,$4,1,'proposed','claim-set-hash-1',0,'{}',$5,$6,'agent-v1','ontology-v1','content-v1')`, []any{sourceRouteID, systemTenant, ephemeralUser, sourceMissionID, routeManifest.Ref, routeManifest.Hash}},
 		{`INSERT INTO identity.onboarding_sessions(id,tenant_id,user_id,anonymous_subject_id,status,locale,current_role_input,target_role_input,experience_payload_ref,confirmed_claim_ids,route_revision_id,expires_at) VALUES($1,$2,$3,$4,'route_ready','en','{}','{}',$5,'[]',$6,$7)`, []any{sessionID, systemTenant, ephemeralUser, subjectID, string(bodyManifestJSON), sourceRouteID, now.Add(time.Hour)}},
 		{`INSERT INTO identity.onboarding_claims(id,tenant_id,user_id,anonymous_subject_id,onboarding_session_id,claim_key,status,source_route_revision_id,expires_at) VALUES($1,$2,$3,$4,$5,'claim-key-1','available',$6,$7)`, []any{claimID, systemTenant, ephemeralUser, subjectID, sessionID, sourceRouteID, now.Add(time.Hour)}},
 		{`INSERT INTO identity.anonymous_subjects(id,anonymous_subject_hash,ephemeral_user_id,system_tenant_id,expires_at) VALUES($1,decode(repeat('cd',32),'hex'),$2,$3,$4)`, []any{expiredSubjectID, expiredUserID, systemTenant, now.Add(-time.Second)}},
@@ -253,6 +256,9 @@ func TestAnonymousClaimStoreConvergesWithRLSAndProtectsReservationFromExpiry(t *
 	}
 	if _, routeErr := blobs.Get(ctx, routeManifest.Ref); routeErr == nil {
 		t.Fatal("anonymous route blob survived erasure")
+	}
+	if _, goalErr := blobs.Get(ctx, goalManifest.Ref); goalErr == nil {
+		t.Fatal("anonymous mission goal blob survived erasure")
 	}
 	var receiptCount, sourceMissions, sourceRoutes, targetMissions, targetRoutes, missionImports, destinationEvents, destinationOutbox, sourcePublishedOutbox, completedInbox int
 	var deletedAt *time.Time

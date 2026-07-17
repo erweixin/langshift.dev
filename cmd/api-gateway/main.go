@@ -257,6 +257,10 @@ func isAgentRoute(path string) bool {
 	if path == "/v1/conversations" || path == "/v1/messages" || path == "/v1/admin/repair-commands" {
 		return true
 	}
+	if strings.HasPrefix(path, "/v1/conversations/") {
+		value := strings.TrimPrefix(path, "/v1/conversations/")
+		return value != "" && !strings.Contains(value, "/")
+	}
 	for _, prefix := range []string{"/v1/runs/", "/v1/approvals/", "/v1/admin/approval-requests/", "/v1/admin/repair-commands/"} {
 		if strings.HasPrefix(path, prefix) {
 			value := strings.TrimPrefix(path, prefix)
@@ -294,7 +298,7 @@ func isContractRoute(path string) bool {
 var gatewayUUIDPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 
 func isProductRoute(path string) bool {
-	if path == "/v1/public/status" || path == "/v1/missions" || path == "/v1/route-revisions" || path == "/v1/daily-tasks" || path == "/v1/submissions" || path == "/v1/reviews" || path == "/v1/capability-evidence" || path == "/v1/preferences" || path == "/v1/reminder-schedules" || path == "/v1/projects" || path == "/v1/portfolio-exports" || path == "/v1/share-grants" || path == "/v1/support/cases" || path == "/v1/admin/aggregate-queries" || path == "/v1/admin/programs" || path == "/v1/admin/cohorts" || path == "/v1/admin/role-packs" || path == "/v1/admin/task-packs" {
+	if path == "/v1/public/status" || path == "/v1/catalog/roles" || path == "/v1/missions" || path == "/v1/route-revisions" || path == "/v1/daily-tasks" || path == "/v1/submissions" || path == "/v1/reviews" || path == "/v1/capability-evidence" || path == "/v1/preferences" || path == "/v1/reminder-schedules" || path == "/v1/projects" || path == "/v1/artifacts" || path == "/v1/portfolio-exports" || path == "/v1/share-grants" || path == "/v1/support/cases" || path == "/v1/admin/aggregate-queries" || path == "/v1/admin/programs" || path == "/v1/admin/cohorts" || path == "/v1/admin/role-packs" || path == "/v1/admin/task-packs" {
 		return true
 	}
 	if strings.HasPrefix(path, "/v1/missions/") {
@@ -327,7 +331,15 @@ func isProductRoute(path string) bool {
 		}
 		return len(parts) == 3 && gatewayUUIDPattern.MatchString(parts[0]) && parts[1] == "milestones" && gatewayUUIDPattern.MatchString(parts[2])
 	}
-	for _, prefix := range []string{"/v1/portfolio-exports/", "/v1/share-grants/", "/v1/admin/programs/"} {
+	if strings.HasPrefix(path, "/v1/artifacts/") {
+		parts := strings.Split(strings.TrimPrefix(path, "/v1/artifacts/"), "/")
+		return len(parts) == 2 && gatewayUUIDPattern.MatchString(parts[0]) && parts[1] == "revisions"
+	}
+	if strings.HasPrefix(path, "/v1/portfolio-exports/") {
+		parts := strings.Split(strings.TrimPrefix(path, "/v1/portfolio-exports/"), "/")
+		return len(parts) == 1 && gatewayUUIDPattern.MatchString(parts[0]) || len(parts) == 2 && gatewayUUIDPattern.MatchString(parts[0]) && parts[1] == "download"
+	}
+	for _, prefix := range []string{"/v1/share-grants/", "/v1/admin/programs/"} {
 		if strings.HasPrefix(path, prefix) {
 			return gatewayUUIDPattern.MatchString(strings.TrimPrefix(path, prefix))
 		}

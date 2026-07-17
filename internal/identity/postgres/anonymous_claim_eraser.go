@@ -77,7 +77,7 @@ func (eraser AnonymousClaimEraser) Erase(ctx context.Context, saga anonymousclai
 		if err != nil {
 			return anonymousclaim.DeletionReceipt{}, err
 		}
-		deleted, deleteErr := eraser.deleteManifest(ctx, encodedManifest)
+		deleted, deleteErr := eraser.deletePayload(ctx, encodedManifest, nil)
 		if deleteErr != nil {
 			return anonymousclaim.DeletionReceipt{}, deleteErr
 		}
@@ -88,8 +88,8 @@ func (eraser AnonymousClaimEraser) Erase(ctx context.Context, saga anonymousclai
 		details["projection_cleared"] = true
 	case "preview_projection":
 		var routeID, missionID string
-		var encodedManifest *string
-		err = tx.QueryRow(ctx, `SELECT r.id::text,r.mission_id::text,r.route_payload_ref FROM identity.onboarding_claims c JOIN product.route_revisions r ON r.id=c.source_route_revision_id AND r.tenant_id=c.tenant_id JOIN product.missions m ON m.id=r.mission_id AND m.tenant_id=r.tenant_id WHERE c.id=$1 AND c.tenant_id=$2 AND c.claim_key=$3 AND c.status='erasing' FOR UPDATE OF c,r,m`, saga.ID, eraser.SystemTenantID, saga.ClaimKey).Scan(&routeID, &missionID, &encodedManifest)
+		var routeRef, routeHash, goalRef, goalHash *string
+		err = tx.QueryRow(ctx, `SELECT r.id::text,r.mission_id::text,r.route_payload_ref,r.route_payload_hash,m.goal_payload_ref,m.goal_payload_hash FROM identity.onboarding_claims c JOIN product.route_revisions r ON r.id=c.source_route_revision_id AND r.tenant_id=c.tenant_id JOIN product.missions m ON m.id=r.mission_id AND m.tenant_id=r.tenant_id WHERE c.id=$1 AND c.tenant_id=$2 AND c.claim_key=$3 AND c.status='erasing' FOR UPDATE OF c,r,m`, saga.ID, eraser.SystemTenantID, saga.ClaimKey).Scan(&routeID, &missionID, &routeRef, &routeHash, &goalRef, &goalHash)
 		if errors.Is(err, pgx.ErrNoRows) {
 			// A previous attempt may have committed the projection deletion but
 			// failed before returning. The receipt must then already exist.
@@ -98,10 +98,15 @@ func (eraser AnonymousClaimEraser) Erase(ctx context.Context, saga anonymousclai
 		if err != nil {
 			return anonymousclaim.DeletionReceipt{}, err
 		}
-		deleted, deleteErr := eraser.deleteManifest(ctx, encodedManifest)
+		deleted, deleteErr := eraser.deletePayload(ctx, routeRef, routeHash)
 		if deleteErr != nil {
 			return anonymousclaim.DeletionReceipt{}, deleteErr
 		}
+		goalDeleted, deleteErr := eraser.deletePayload(ctx, goalRef, goalHash)
+		if deleteErr != nil {
+			return anonymousclaim.DeletionReceipt{}, deleteErr
+		}
+		deleted += goalDeleted
 		tag, deleteErr := tx.Exec(ctx, `DELETE FROM product.missions WHERE id=$1 AND tenant_id=$2`, missionID, eraser.SystemTenantID)
 		if deleteErr != nil || tag.RowsAffected() != 1 {
 			if deleteErr != nil {
@@ -140,15 +145,19 @@ func (eraser AnonymousClaimEraser) Erase(ctx context.Context, saga anonymousclai
 	return receipt, nil
 }
 
-func (eraser AnonymousClaimEraser) deleteManifest(ctx context.Context, encoded *string) (int, error) {
-	if encoded == nil || *encoded == "" {
+func (eraser AnonymousClaimEraser) deletePayload(ctx context.Context, ref, hash *string) (int, error) {
+	if ref == nil || *ref == "" {
 		return 0, nil
 	}
-	var manifest payload.Manifest
-	if err := json.Unmarshal([]byte(*encoded), &manifest); err != nil || manifest.Ref == "" || manifest.Hash == "" {
-		return 0, anonymousclaim.ErrInvariant
+	objectRef := *ref
+	if hash == nil || *hash == "" {
+		var manifest payload.Manifest
+		if err := json.Unmarshal([]byte(*ref), &manifest); err != nil || manifest.Ref == "" || manifest.Hash == "" {
+			return 0, anonymousclaim.ErrInvariant
+		}
+		objectRef = manifest.Ref
 	}
-	if err := eraser.Objects.Delete(ctx, manifest.Ref); err != nil {
+	if err := eraser.Objects.Delete(ctx, objectRef); err != nil {
 		return 0, err
 	}
 	return 1, nil

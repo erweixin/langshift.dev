@@ -16,7 +16,8 @@ import (
 
 type claimRouteSnapshot struct {
 	RouteID, MissionID, SourceRoleProfileID, TargetRoleProfileID  string
-	ClaimSetHash, RoutePayload, GoalPayload                       string
+	ClaimSetHash, RoutePayloadRef, RoutePayloadHash               string
+	GoalPayloadRef, GoalPayloadHash                               string
 	InputManifest                                                 json.RawMessage
 	AgentProfileSnapshotID, OntologySnapshotID, ContentSnapshotID string
 }
@@ -65,11 +66,11 @@ func (destination AnonymousClaimDestination) CommitDestination(ctx context.Conte
 	if err != nil {
 		return "", err
 	}
-	targetRoutePayload, err := destination.copyManifest(ctx, payload.Descriptor{TenantID: destination.SystemTenantID, ObjectID: snapshot.RouteID, Class: "route-revision", ContentType: "application/json"}, payload.Descriptor{TenantID: saga.TargetTenantID, ObjectID: routeID, Class: "route-revision", ContentType: "application/json"}, snapshot.RoutePayload, true)
+	targetRoutePayload, err := destination.copyManifest(ctx, payload.Descriptor{TenantID: destination.SystemTenantID, ObjectID: snapshot.RouteID, Class: "route-revision", ContentType: "application/json"}, payload.Descriptor{TenantID: saga.TargetTenantID, ObjectID: routeID, Class: "route-revision", ContentType: "application/json"}, snapshot.RoutePayloadRef, snapshot.RoutePayloadHash, true)
 	if err != nil {
 		return "", err
 	}
-	targetGoalPayload, err := destination.copyManifest(ctx, payload.Descriptor{TenantID: destination.SystemTenantID, ObjectID: snapshot.MissionID, Class: "mission-goal", ContentType: "application/json"}, payload.Descriptor{TenantID: saga.TargetTenantID, ObjectID: saga.MissionID, Class: "mission-goal", ContentType: "application/json"}, snapshot.GoalPayload, false)
+	targetGoalPayload, err := destination.copyManifest(ctx, payload.Descriptor{TenantID: destination.SystemTenantID, ObjectID: snapshot.MissionID, Class: "mission-goal", ContentType: "application/json"}, payload.Descriptor{TenantID: saga.TargetTenantID, ObjectID: saga.MissionID, Class: "mission-goal", ContentType: "application/json"}, snapshot.GoalPayloadRef, snapshot.GoalPayloadHash, false)
 	if err != nil {
 		return "", err
 	}
@@ -102,7 +103,7 @@ func (destination AnonymousClaimDestination) CommitDestination(ctx context.Conte
 	if existingEvent, found, loadErr := loadMissionImportTx(ctx, tx, saga); loadErr != nil || found {
 		return existingEvent, loadErr
 	}
-	missionTag, err := tx.Exec(ctx, `INSERT INTO product.missions(id,tenant_id,user_id,status,source_role_profile_id,target_role_profile_id,goal_payload_ref,route_version,claim_set_hash,current_route_revision_id) VALUES($1,$2,$3,'active',NULLIF($4,'')::uuid,$5,NULLIF($6,''),1,$7,$8) ON CONFLICT (id) DO NOTHING`, saga.MissionID, saga.TargetTenantID, saga.TargetUserID, snapshot.SourceRoleProfileID, snapshot.TargetRoleProfileID, targetGoalPayload, snapshot.ClaimSetHash, routeID)
+	missionTag, err := tx.Exec(ctx, `INSERT INTO product.missions(id,tenant_id,user_id,status,source_role_profile_id,target_role_profile_id,goal_payload_ref,goal_payload_hash,route_version,claim_set_hash,current_route_revision_id) VALUES($1,$2,$3,'active',NULLIF($4,'')::uuid,$5,NULLIF($6,''),NULLIF($7,''),1,$8,$9) ON CONFLICT (id) DO NOTHING`, saga.MissionID, saga.TargetTenantID, saga.TargetUserID, snapshot.SourceRoleProfileID, snapshot.TargetRoleProfileID, targetGoalPayload.Ref, targetGoalPayload.Hash, snapshot.ClaimSetHash, routeID)
 	if err != nil {
 		return "", err
 	}
@@ -115,7 +116,7 @@ func (destination AnonymousClaimDestination) CommitDestination(ctx context.Conte
 			return "", anonymousclaim.ErrInvariant
 		}
 	}
-	routeTag, err := tx.Exec(ctx, `INSERT INTO product.route_revisions(id,tenant_id,user_id,mission_id,route_version,status,claim_set_hash,base_route_version,input_manifest,route_payload_ref,agent_profile_snapshot_id,ontology_snapshot_id,content_snapshot_id,accepted_at) VALUES($1,$2,$3,$4,1,'accepted',$5,0,$6,$7,$8,$9,$10,$11) ON CONFLICT (id) DO NOTHING`, routeID, saga.TargetTenantID, saga.TargetUserID, saga.MissionID, snapshot.ClaimSetHash, snapshot.InputManifest, targetRoutePayload, snapshot.AgentProfileSnapshotID, snapshot.OntologySnapshotID, snapshot.ContentSnapshotID, now)
+	routeTag, err := tx.Exec(ctx, `INSERT INTO product.route_revisions(id,tenant_id,user_id,mission_id,route_version,status,claim_set_hash,base_route_version,input_manifest,route_payload_ref,route_payload_hash,agent_profile_snapshot_id,ontology_snapshot_id,content_snapshot_id,accepted_at) VALUES($1,$2,$3,$4,1,'accepted',$5,0,$6,$7,$8,$9,$10,$11,$12) ON CONFLICT (id) DO NOTHING`, routeID, saga.TargetTenantID, saga.TargetUserID, saga.MissionID, snapshot.ClaimSetHash, snapshot.InputManifest, targetRoutePayload.Ref, targetRoutePayload.Hash, snapshot.AgentProfileSnapshotID, snapshot.OntologySnapshotID, snapshot.ContentSnapshotID, now)
 	if err != nil {
 		return "", err
 	}
@@ -161,11 +162,11 @@ func (destination AnonymousClaimDestination) loadSource(ctx context.Context, sag
 		return claimRouteSnapshot{}, err
 	}
 	var snapshot claimRouteSnapshot
-	err = tx.QueryRow(ctx, `SELECT r.id::text,m.id::text,COALESCE(m.source_role_profile_id::text,''),m.target_role_profile_id::text,r.claim_set_hash,r.input_manifest,COALESCE(r.route_payload_ref,''),COALESCE(m.goal_payload_ref,''),r.agent_profile_snapshot_id,r.ontology_snapshot_id,r.content_snapshot_id FROM identity.onboarding_claims c JOIN product.route_revisions r ON r.id=c.source_route_revision_id AND r.tenant_id=c.tenant_id JOIN product.missions m ON m.id=r.mission_id AND m.tenant_id=r.tenant_id WHERE c.id=$1 AND c.tenant_id=$2 AND c.claim_key=$3 AND c.status='reserved'`, saga.ID, destination.SystemTenantID, saga.ClaimKey).Scan(&snapshot.RouteID, &snapshot.MissionID, &snapshot.SourceRoleProfileID, &snapshot.TargetRoleProfileID, &snapshot.ClaimSetHash, &snapshot.InputManifest, &snapshot.RoutePayload, &snapshot.GoalPayload, &snapshot.AgentProfileSnapshotID, &snapshot.OntologySnapshotID, &snapshot.ContentSnapshotID)
+	err = tx.QueryRow(ctx, `SELECT r.id::text,m.id::text,COALESCE(m.source_role_profile_id::text,''),m.target_role_profile_id::text,r.claim_set_hash,r.input_manifest,COALESCE(r.route_payload_ref,''),COALESCE(r.route_payload_hash,''),COALESCE(m.goal_payload_ref,''),COALESCE(m.goal_payload_hash,''),r.agent_profile_snapshot_id,r.ontology_snapshot_id,r.content_snapshot_id FROM identity.onboarding_claims c JOIN product.route_revisions r ON r.id=c.source_route_revision_id AND r.tenant_id=c.tenant_id JOIN product.missions m ON m.id=r.mission_id AND m.tenant_id=r.tenant_id WHERE c.id=$1 AND c.tenant_id=$2 AND c.claim_key=$3 AND c.status='reserved'`, saga.ID, destination.SystemTenantID, saga.ClaimKey).Scan(&snapshot.RouteID, &snapshot.MissionID, &snapshot.SourceRoleProfileID, &snapshot.TargetRoleProfileID, &snapshot.ClaimSetHash, &snapshot.InputManifest, &snapshot.RoutePayloadRef, &snapshot.RoutePayloadHash, &snapshot.GoalPayloadRef, &snapshot.GoalPayloadHash, &snapshot.AgentProfileSnapshotID, &snapshot.OntologySnapshotID, &snapshot.ContentSnapshotID)
 	if err != nil {
 		return claimRouteSnapshot{}, err
 	}
-	if snapshot.RoutePayload == "" || snapshot.ClaimSetHash == "" || snapshot.TargetRoleProfileID == "" {
+	if snapshot.RoutePayloadRef == "" || snapshot.ClaimSetHash == "" || snapshot.TargetRoleProfileID == "" {
 		return claimRouteSnapshot{}, anonymousclaim.ErrInvariant
 	}
 	if err = tx.Commit(ctx); err != nil {
@@ -208,27 +209,31 @@ func loadMissionImportTx(ctx context.Context, tx pgx.Tx, saga anonymousclaim.Sag
 	return eventID, true, nil
 }
 
-func (destination AnonymousClaimDestination) copyManifest(ctx context.Context, sourceDescriptor, targetDescriptor payload.Descriptor, encoded string, required bool) (string, error) {
-	if encoded == "" {
+func (destination AnonymousClaimDestination) copyManifest(ctx context.Context, sourceDescriptor, targetDescriptor payload.Descriptor, ref, hash string, required bool) (payload.Manifest, error) {
+	if ref == "" {
 		if required {
-			return "", anonymousclaim.ErrInvariant
+			return payload.Manifest{}, anonymousclaim.ErrInvariant
 		}
-		return "", nil
+		return payload.Manifest{}, nil
 	}
-	var source payload.Manifest
-	if err := json.Unmarshal([]byte(encoded), &source); err != nil || source.Ref == "" || source.Hash == "" {
-		return "", anonymousclaim.ErrInvariant
+	source := payload.Manifest{Ref: ref, Hash: hash}
+	// Migrations prior to payload-integrity columns stored a JSON-encoded
+	// manifest in the ref column. Continue to read those rows while all new
+	// writes use the canonical ref/hash columns.
+	if hash == "" {
+		if err := json.Unmarshal([]byte(ref), &source); err != nil || source.Ref == "" || source.Hash == "" {
+			return payload.Manifest{}, anonymousclaim.ErrInvariant
+		}
 	}
 	plaintext, err := destination.Payloads.Get(ctx, sourceDescriptor, source)
 	if err != nil {
-		return "", err
+		return payload.Manifest{}, err
 	}
 	target, err := destination.Payloads.Put(ctx, targetDescriptor, plaintext)
 	if err != nil {
-		return "", err
+		return payload.Manifest{}, err
 	}
-	result, err := json.Marshal(target)
-	return string(result), err
+	return target, nil
 }
 
 func (destination AnonymousClaimDestination) putJSON(ctx context.Context, descriptor payload.Descriptor, value any) (payload.Manifest, error) {

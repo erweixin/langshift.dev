@@ -19,6 +19,7 @@ var (
 	ErrConfiguration = errors.New("memory inline handler is not configured")
 	ErrInvalidWrite  = errors.New("memory write is invalid")
 	ErrPolicy        = errors.New("memory write is denied by policy")
+	ErrErased        = errors.New("memory write is denied for an erased subject")
 	ErrScope         = errors.New("memory scope is not writable")
 	ErrVersion       = errors.New("memory version conflicts with durable state")
 )
@@ -77,8 +78,19 @@ func (handler InlineWriteHandler) Commit(ctx context.Context, tx pgx.Tx, tool ex
 	if now.IsZero() || write.ExpiresAt != nil && !write.ExpiresAt.After(now) {
 		return ErrInvalidWrite
 	}
+	var erased bool
+	err := tx.QueryRow(ctx, `SELECT EXISTS (
+		SELECT 1 FROM identity.subject_erasure_tombstones
+		WHERE tenant_id=$1 AND (user_id=$2 OR user_id::text=ANY($3::text[]))
+	)`, tool.TenantID, tool.UserID, write.DataSubjectIDs).Scan(&erased)
+	if err != nil {
+		return fmt.Errorf("check memory erasure tombstone: %w", err)
+	}
+	if erased {
+		return ErrErased
+	}
 	var retentionDays *int
-	err := tx.QueryRow(ctx, `SELECT retention_days FROM product.memory_policies WHERE tenant_id=$1 AND user_id=$2 AND enabled AND version=$3 AND allowed_kinds ? $4`, tool.TenantID, tool.UserID, write.PolicyVersion, write.MemoryKind).Scan(&retentionDays)
+	err = tx.QueryRow(ctx, `SELECT retention_days FROM product.memory_policies WHERE tenant_id=$1 AND user_id=$2 AND enabled AND version=$3 AND allowed_kinds ? $4`, tool.TenantID, tool.UserID, write.PolicyVersion, write.MemoryKind).Scan(&retentionDays)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrPolicy

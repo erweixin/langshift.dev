@@ -40,6 +40,7 @@ const operations = [
   ["patch","/v1/onboarding-sessions/{id}","onboarding.update","anonymous_or_session+csrf","self_subject","version","mutation"],
   ["post","/v1/onboarding-sessions/{id}/route-preview","onboarding.route_preview","anonymous_or_session+csrf","self_subject","version","agent"],
   ["post","/v1/onboarding-sessions/{id}/claim","onboarding.claim","verified_session+csrf","self","version","security"],
+  ["get","/v1/catalog/roles","catalog.roles.list","public_or_anonymous_or_session","release_catalog","none","access"],
   ["get","/v1/missions","missions.list","session","member","none","access"],
   ["post","/v1/missions","missions.create","session+csrf","member","request","mutation"],
   ["get","/v1/missions/{id}","missions.get","session","owner_scope","none","access"],
@@ -71,6 +72,7 @@ const operations = [
   ["post","/v1/artifacts","artifacts.create","session+csrf","owner_scope","request","mutation"],
   ["post","/v1/artifacts/{id}/revisions","artifacts.revise","session+csrf","owner_scope","version","mutation"],
   ["post","/v1/portfolio-exports","portfolio.export","session+csrf","owner_scope","version","agent"],
+  ["get","/v1/portfolio-exports/{id}/download","portfolio.download","session","owner_scope","none","access"],
   ["post","/v1/share-grants","share_grants.create","session+csrf","owner_scope","request","security"],
   ["delete","/v1/share-grants/{id}","share_grants.revoke","session+csrf","owner_scope","version","security"],
   ["get","/v1/preferences","preferences.get","session","self","none","access"],
@@ -84,6 +86,7 @@ const operations = [
   ["get","/v1/memory-policy","memory_policy.get","session","self","none","access"],
   ["put","/v1/memory-policy","memory_policy.update","session+csrf","self","version","security"],
   ["post","/v1/conversations","conversations.create","session+csrf","member","request","mutation"],
+  ["get","/v1/conversations/{id}","conversations.get","session","owner_scope","none","access"],
   ["post","/v1/messages","messages.create","session+csrf","owner_scope","version","agent"],
   ["get","/v1/runs/{id}","runs.get","session","owner_scope","none","access"],
   ["post","/v1/runs/{id}/cancel","runs.cancel","session+csrf","owner_scope","version","mutation"],
@@ -156,7 +159,7 @@ const fieldHints = {
   "account.erasure.create": { confirmation:{const:"DELETE MY ACCOUNT"}, reason:{type:["string","null"],maxLength:1000} },
   "account.erasure.cancel": { expected_erasure_version:{type:"integer",minimum:1} },
   "onboarding.create": { current_role:{type:"string"}, target_role:{type:"string"}, experience_summary:{type:"string",maxLength:4000}, weekly_minutes:{type:"integer",minimum:30,maximum:2400} },
-  "onboarding.route_preview": { confirmed_claim_ids:{type:"array",items:{type:"string"}}, expected_onboarding_version:{type:"integer",minimum:1} },
+  "onboarding.route_preview": { source_role_profile_id:{type:["string","null"],format:"uuid"}, target_role_profile_id:{type:"string",format:"uuid"}, confirmed_claim_ids:{type:"array",maxItems:128,items:{type:"string",minLength:1,maxLength:128}}, expected_onboarding_version:{type:"integer",minimum:1} },
   "onboarding.claim": { target_tenant_id:{type:"string"}, expected_claim_version:{type:"integer",minimum:1} },
   "onboarding.update": { current_role:{type:["string","null"]}, target_role:{type:["string","null"]}, experience_summary:{type:["string","null"],maxLength:4000}, weekly_minutes:{type:["integer","null"],minimum:30,maximum:2400}, expected_onboarding_version:{type:"integer",minimum:1} },
   "missions.create": { source_role_profile_id:{type:["string","null"]}, target_role_profile_id:{type:"string"}, goal:{type:"string",minLength:1,maxLength:4000} },
@@ -179,7 +182,7 @@ const fieldHints = {
   "projects.test": { workspace_revision:{type:"string"}, validation_kind:{enum:["deterministic_test","rubric_review"]}, validation_spec:{type:"object"}, expected_project_version:{type:"integer",minimum:1} },
   "projects.complete": { reflection:{type:"string",minLength:1,maxLength:20000}, workspace_revision:{type:"string"}, expected_project_version:{type:"integer",minimum:1} },
   "artifacts.create": { project_id:{type:"string"}, artifact_kind:{type:"string"}, title:{type:"string",minLength:1,maxLength:200} },
-  "artifacts.revise": { content_ref:{type:"string"}, content_hash:{type:"string"}, evidence_ids:{type:"array",minItems:1,items:{type:"string"}}, expected_artifact_version:{type:"integer",minimum:1} },
+  "artifacts.revise": { content:{type:"string",minLength:1,maxLength:4194304}, media_type:{enum:["text/plain","text/markdown","application/json"]}, workspace_revision:{type:"string",minLength:1,maxLength:500}, evidence_ids:{type:"array",minItems:1,maxItems:100,uniqueItems:true,items:{type:"string",format:"uuid"}}, expected_artifact_version:{type:"integer",minimum:1} },
   "portfolio.export": { project_id:{type:"string"}, project_version:{type:"integer",minimum:1}, workspace_revision:{type:"string"}, artifact_revisions:{type:"array",minItems:1,items:{type:"string"}}, evidence_ids:{type:"array",minItems:1,items:{type:"string"}}, format:{enum:["html","pdf","zip"]} },
   "share_grants.create": { grantee_user_id:{type:"string"}, resource_kind:{enum:["evidence","workspace","artifact","project"]}, resource_id:{type:"string"}, resource_revision:{type:"string"}, scope:{type:"array",minItems:1,items:{enum:["read","review"]}}, expires_at:{type:["string","null"],format:"date-time"} },
   "share_grants.revoke": { reason:{type:"string",minLength:1,maxLength:1000}, expected_grant_version:{type:"integer",minimum:1} },
@@ -222,6 +225,11 @@ const fieldHints = {
 };
 const asyncOperationIds=new Set(["onboarding.route_preview","routes.generate","tasks.generate","reviews.generate","projects.test","portfolio.export","messages.create"]);
 const responseHints={
+	"conversations.get":{id:{type:"string",format:"uuid"},mission_id:{type:"string",format:"uuid"},version:{type:"integer",minimum:1},title:{type:["string","null"]},mode:{enum:["coach","task","project"]},status:{enum:["active","archived"]},messages:{type:"array",items:{type:"object",additionalProperties:false,required:["id","run_id","role","content","created_at"],properties:{id:{type:"string",format:"uuid"},run_id:{type:"string",format:"uuid"},role:{enum:["user","assistant"]},content:{type:"string",minLength:1},created_at:{type:"string",format:"date-time"}}}},next_cursor:{type:["string","null"]},updated_at:{type:"string",format:"date-time"}},
+	"artifacts.create":{id:{type:"string",format:"uuid"},version:{const:1},status:{const:"draft"},current_revision:{const:0},updated_at:{type:"string",format:"date-time"},replayed:{type:"boolean"}},
+	"artifacts.revise":{id:{type:"string",format:"uuid"},artifact_id:{type:"string",format:"uuid"},artifact_version:{type:"integer",minimum:2},revision:{type:"integer",minimum:1},status:{const:"ready"},content_hash:{type:"string",pattern:"^[0-9a-f]{64}$"},evidence_manifest_hash:{type:"string",pattern:"^[0-9a-f]{64}$"},updated_at:{type:"string",format:"date-time"},replayed:{type:"boolean"}},
+	"catalog.roles.list":{release_version:{type:"string",minLength:1},content_root_sha256:{type:"string",pattern:"^[0-9a-f]{64}$"},locale:{enum:["en","zh-CN"]},items:{type:"array",items:{type:"object",additionalProperties:false,required:["id","slug","revision","status","name"],properties:{id:{type:"string",format:"uuid"},slug:{type:"string",minLength:1},revision:{type:"integer",minimum:1},status:{const:"active"},name:{type:"string",minLength:1}}}},rubrics:{type:"array",items:{type:"object",additionalProperties:false,required:["id","slug","revision","status","practice_kind"],properties:{id:{type:"string",format:"uuid"},slug:{type:"string",minLength:1},revision:{type:"integer",minimum:1},status:{const:"active"},practice_kind:{enum:["code","writing","design"]}}}}},
+  "onboarding.get":{id:{type:"string",format:"uuid"},version:{type:"integer",minimum:1},status:{enum:["collecting","route_generating","route_ready","route_failed"]},mission_id:{type:["string","null"],format:"uuid"},route_revision_id:{type:["string","null"],format:"uuid"},route:{type:["object","null"]},claim_version:{type:["integer","null"],minimum:1},updated_at:{type:"string",format:"date-time"}},
   "auth.register":{user_id:{type:"string"},status:{const:"verification_required"},email_verification_expires_at:{type:"string",format:"date-time"}},
   "auth.verify_email":{user_id:{type:"string"},status:{const:"verified"},verified_at:{type:"string",format:"date-time"}},
   "auth.resend_verification":{status:{const:"accepted"},next_allowed_at:{type:"string",format:"date-time"}},
@@ -262,6 +270,9 @@ const openapi = {
       IfMatch: { name: "If-Match", in: "header", required: true, schema: { type: "string", pattern: "^\\\"[0-9]+\\\"$" } },
       Cursor: { name: "cursor", in: "query", required: false, schema: { type: "string" } },
       AfterSeq: { name: "after_seq", in: "query", required: false, schema: { type: "integer", minimum: 0 } }
+	  ,ConversationLimit: { name: "limit", in: "query", required: false, schema: { type: "integer", minimum: 1, maximum: 100, default: 50 } }
+	  ,ConversationBefore: { name: "before", in: "query", required: false, schema: { type: "string", minLength: 1, description: "Opaque cursor returned by next_cursor." } }
+	  ,Locale: { name: "locale", in: "query", required: false, schema: { enum: ["en", "zh-CN"], default: "en" } }
     },
     schemas: { Problem: problem, Resource: resource }
   }
@@ -277,9 +288,11 @@ for (const [method, path, operationId, authn, authz, concurrency, audit] of oper
   if (write) parameters.push({ $ref: "#/components/parameters/IdempotencyKey" });
   if (write && concurrency === "version") parameters.push({ $ref: "#/components/parameters/IfMatch" });
   if (operationId === "events.list") parameters.push({ $ref: "#/components/parameters/AfterSeq" });
+	else if(operationId === "conversations.get") parameters.push({$ref:"#/components/parameters/ConversationLimit"},{$ref:"#/components/parameters/ConversationBefore"});
+  else if(operationId === "catalog.roles.list") parameters.push({$ref:"#/components/parameters/Locale"});
   else if(operationId.endsWith(".list")) parameters.push({$ref:"#/components/parameters/Cursor"});
   const successStatus=asyncOperationIds.has(operationId)?"202":"200";
-  const successContent=operationId==="realtime.connect"?{"text/event-stream":{schema:{type:"string",description:"SSE stream; clients reconnect with last_seen_seq and backfill through events.list."}}}:{"application/json":{schema:{$ref:`#/components/schemas/${responseSchemaName}`}}};
+  const successContent=operationId==="realtime.connect"?{"text/event-stream":{schema:{type:"string",description:"SSE stream; clients reconnect with last_seen_seq and backfill through events.list."}}}:operationId==="portfolio.download"?{"application/octet-stream":{schema:{type:"string",format:"binary"}}}:operationId==="catalog.roles.list"?{"application/vnd.lites.role-catalog.v1+json":{schema:{$ref:`#/components/schemas/${responseSchemaName}`}}}:{"application/json":{schema:{$ref:`#/components/schemas/${responseSchemaName}`}}};
   const operationErrorCodes=["validation_failed","authentication_required","permission_denied","state_conflict","idempotency_conflict","rate_limited"];
   if(authn.includes("reauth")) operationErrorCodes.push("reauthentication_required");
   if(concurrency==="version") operationErrorCodes.push("version_conflict","precondition_required");
@@ -317,8 +330,10 @@ for (const [method, path, operationId, authn, authz, concurrency, audit] of oper
   if(write){op.responses["413"]=problemResponse("Payload too large");op.responses["415"]=problemResponse("Unsupported media type");}
   if(concurrency==="version") op.responses["428"]=problemResponse("If-Match precondition required");
   if(asyncOperationIds.has(operationId)) op.responses["503"]=problemResponse("Required model, tool or runtime dependency unavailable");
+	if(operationId === "catalog.roles.list") op.responses["503"]=problemResponse("Immutable product content release unavailable");
   if (write) op.requestBody = { required: true, content: { "application/json": { schema: { $ref: `#/components/schemas/${requestSchemaName}` } } } };
   if (authn === "service_identity") op.security = [{ serviceMtls: [] }];
+  else if (authn.startsWith("public_or_")) op.security = [{}, { sessionCookie: [] }];
   else if (authn !== "public" && authn !== "anonymous_or_session") op.security = [{ sessionCookie: [] }];
   openapi.paths[path] ??= {};
   openapi.paths[path][method] = op;
@@ -893,7 +908,9 @@ for(const path of snapshotPaths){const body=await readFile(resolve(root,path));s
 const contractContentRoot=sha256(snapshotFiles);
 const stage1SnapshotPath=resolve(root,"gate-reports/stage-1/contract-snapshot.json");
 let stage1Snapshot;
-try { stage1Snapshot=JSON.parse(await readFile(stage1SnapshotPath,"utf8")); } catch {
+try { stage1Snapshot=JSON.parse(await readFile(stage1SnapshotPath,"utf8")); } catch {}
+const refreshDraftSnapshot=process.env.LITES_REFRESH_DRAFT_CONTRACT_SNAPSHOT==="true"&&stage1Snapshot&&Object.values(stage1Snapshot.approvals??{}).every(approval=>approval===null);
+if(!stage1Snapshot||refreshDraftSnapshot){
   stage1Snapshot={
     snapshotVersion:"1.0.0",snapshotId:`contract-${contractContentRoot.slice(0,20)}`,status:"draft",generatedAt,
     contentRootSha256:contractContentRoot,files:snapshotFiles,

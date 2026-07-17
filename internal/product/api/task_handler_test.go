@@ -49,3 +49,19 @@ func TestDailyTaskUpdateRequiresCASAndCSRF(t *testing.T) {
 		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 }
+
+func TestDailyTaskAllowsAuditedDifficultyReduction(t *testing.T) {
+	taskID := "b9000000-0000-4000-8000-000000000002"
+	service := dailyTaskServiceStub{update: func(command UpdateDailyTaskCommand) (DailyTaskMutationResult, error) {
+		if command.TaskID != taskID || command.Action != "lower_difficulty" || command.ExpectedTaskVersion != 3 || command.RescheduleFor != "" {
+			t.Fatalf("command=%#v", command)
+		}
+		return DailyTaskMutationResult{ID: taskID, Version: 4, Status: "in_progress"}, nil
+	}}
+	request := authenticatedMissionRequest(t, http.MethodPatch, "/v1/daily-tasks/"+taskID, "application/vnd.lites.daily-task-update.v2+json", `{"request_id":"daily-task-easier-0001","action":"lower_difficulty","expected_task_version":3,"reschedule_for":""}`, "daily-task-key-0002", `"3"`, true)
+	recorder := httptest.NewRecorder()
+	request.handler(DailyTaskHandler{Service: service}).ServeHTTP(recorder, request.request)
+	if recorder.Code != http.StatusOK || recorder.Header().Get("ETag") != `"4"` {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}

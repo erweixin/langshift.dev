@@ -139,6 +139,7 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 	}
 	claimStore := identitypostgres.AnonymousClaimStore{Pool: pool, SystemTenantID: configuration.publicTenantID, IdentityKey: secrets.IdentityKey, Payloads: payloadStore, Appender: eventpostgres.Appender{}, StoreEpoch: storeEpoch}
 	claimService := identitypostgres.OnboardingClaimService{Pool: pool, Store: claimStore, SystemTenantID: configuration.publicTenantID, Payloads: payloadStore, IdentityKey: secrets.IdentityKey, IdempotencyKeyPepper: secrets.IdempotencyPepper, RequestDigestPepper: secrets.RequestDigestPepper, IdempotencyTTL: 24 * time.Hour}
+	routePreviewService := identitypostgres.OnboardingRouteService{Pool: pool, Payloads: payloadStore, Appender: eventpostgres.Appender{}, StoreEpoch: storeEpoch, IdentityKey: secrets.IdentityKey, IdempotencyKeyPepper: secrets.IdempotencyPepper, RequestDigestPepper: secrets.RequestDigestPepper, IdempotencyTTL: 24 * time.Hour, Now: func() time.Time { return time.Now().UTC() }}
 	telemetry, err := observability.New(ctx, observability.Config{ServiceName: "identity-service", ServiceVersion: configuration.serviceVersion, Environment: configuration.environment, Region: configuration.region, OTLPEndpoint: configuration.otlpEndpoint, OTLPRootCAFile: configuration.otlpCAFile, OTLPClientCertificateFile: configuration.otlpCertFile, OTLPClientKeyFile: configuration.otlpKeyFile, OTLPTLSServerName: configuration.otlpTLSName, OTLPBearerTokenFile: configuration.otlpBearerTokenFile, TraceSampleRatio: configuration.traceSampleRatio, AllowInsecureDevelopment: configuration.allowInsecureDevelopment})
 	if err != nil {
 		return errors.New("configure observability")
@@ -150,7 +151,8 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 	onboarding.Anonymous = anonymousBootstrap
 	claimStore.Appender = appender
 	claimService.Store = claimStore
-	handler := identityapi.Handler{Service: service, Sessions: service, Passwords: service, Emails: service, Accounts: service, Invitations: service, Memberships: service, Onboarding: onboarding, Claims: claimService, AnonymousCSRFKey: secrets.AnonymousCSRFKey, RateLimiter: platformratelimit.Limiter{Client: valkeyClient, Namespace: "lites"}, RateLimitPepper: secrets.RateLimitPepper}
+	routePreviewService.Appender = appender
+	handler := identityapi.Handler{Service: service, Sessions: service, Passwords: service, Emails: service, Accounts: service, Invitations: service, Memberships: service, Onboarding: onboarding, Claims: claimService, Routes: routePreviewService, AnonymousCSRFKey: secrets.AnonymousCSRFKey, RateLimiter: platformratelimit.Limiter{Client: valkeyClient, Namespace: "lites"}, RateLimitPepper: secrets.RateLimitPepper}
 	verifier := trustedcontext.Verifier{Issuer: configuration.trustedIssuer, Audience: configuration.trustedAudience, Keys: keys, KeyWindows: windows, MaximumTTL: 5 * time.Minute, ClockSkew: 5 * time.Second}
 	application := telemetry.WrapHTTP(serviceauth.Middleware{Verifier: verifier, RequireVerifiedClientCertificate: !configuration.allowInsecureDevelopment}.Wrap(handler))
 	tlsConfig, err := newServerTLSConfig(configuration)

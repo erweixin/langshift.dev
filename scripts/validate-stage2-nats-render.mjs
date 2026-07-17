@@ -53,7 +53,7 @@ for (const requirement of [
 assert(/cpu:\s+"?2"?[\s\S]*?memory:\s+8Gi/.test(statefulSet), "NATS production resource floor is missing");
 assert(/"jetstream":\s*\{[\s\S]*?"store_dir":\s*"\/data"/.test(configMap), "JetStream file store is not enabled");
 assert((configMap.match(/"min_version":\s*"1\.3"/g) ?? []).length === 2 && (configMap.match(/"verify":\s*true/g) ?? []).length >= 2 && /"verify_and_map":\s*true/.test(configMap), "NATS client and route mTLS 1.3 enforcement is incomplete");
-for (const identity of ["lites-outbox-publisher", "lites-agent-scheduler", "lites-agent-worker", "lites-tool-worker", "lites-tool-reconciliation-worker", "lites-identity-import-worker", "lites-product-worker", "lites-identity-mail-worker", "lites-realtime-gateway"]) assert(configMap.includes(`"user": "${identity}"`), `NATS certificate identity ${identity} is missing`);
+for (const identity of ["lites-outbox-publisher", "lites-agent-scheduler", "lites-agent-worker", "lites-tool-worker", "lites-tool-reconciliation-worker", "lites-identity-import-worker", "lites-account-erasure-worker", "lites-product-worker", "lites-identity-mail-worker", "lites-realtime-gateway"]) assert(configMap.includes(`"user": "${identity}"`), `NATS certificate identity ${identity} is missing`);
 for (const [identity, consumer] of [["lites-agent-worker", "AGENT_WORKER_V1"], ["lites-tool-worker", "TOOL_WORKER_V1"], ["lites-tool-reconciliation-worker", "TOOL_RECONCILIATION_WORKER_V1"], ["lites-product-worker", "PRODUCT_ROUTE_WORKER_V1"]]) {
   const identityEnd = configMap.indexOf(`"user": "${identity}"`);
   const permissionsStart = identityEnd < 0 ? -1 : configMap.lastIndexOf('"permissions":', identityEnd);

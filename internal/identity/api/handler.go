@@ -107,6 +107,7 @@ type Handler struct {
 	Memberships MembershipService
 	Onboarding  OnboardingService
 	Claims      OnboardingClaimService
+	Routes      OnboardingRouteService
 	RateLimiter RequestLimiter
 	// RateLimitPepper is purpose-separated from database, token, and password
 	// peppers. It ensures Valkey keys never contain public or authenticated PII.
@@ -244,6 +245,22 @@ func (handler Handler) ServeHTTP(writer http.ResponseWriter, request *http.Reque
 			handler.methodNotAllowed(writer, request, http.MethodGet, http.MethodDelete)
 		}
 	default:
+		if strings.HasPrefix(request.URL.Path, "/v1/onboarding-sessions/") && strings.HasSuffix(request.URL.Path, "/route-preview") {
+			if request.Method != http.MethodPost {
+				handler.methodNotAllowed(writer, request, http.MethodPost)
+				return
+			}
+			handler.onboardingRoutePreview(writer, request)
+			return
+		}
+		if strings.HasPrefix(request.URL.Path, "/v1/onboarding-sessions/") && !strings.Contains(strings.TrimPrefix(request.URL.Path, "/v1/onboarding-sessions/"), "/") {
+			if request.Method != http.MethodGet {
+				handler.methodNotAllowed(writer, request, http.MethodGet)
+				return
+			}
+			handler.onboardingRouteGet(writer, request)
+			return
+		}
 		if strings.HasPrefix(request.URL.Path, "/v1/onboarding-sessions/") && strings.HasSuffix(request.URL.Path, "/claim") {
 			if request.Method != http.MethodPost {
 				handler.methodNotAllowed(writer, request, http.MethodPost)

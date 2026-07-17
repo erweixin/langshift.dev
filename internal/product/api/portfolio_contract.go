@@ -5,6 +5,11 @@ import (
 	"time"
 )
 
+type PortfolioDownload struct {
+	Filename, MediaType, ContentHash string
+	Body                             []byte
+}
+
 type CreatePortfolioExportCommand struct {
 	CommandMetadata
 	ProjectID                       string
@@ -37,4 +42,8 @@ type PortfolioExportResult struct {
 type PortfolioExportService interface {
 	Request(context.Context, CreatePortfolioExportCommand) (PortfolioExportResult, error)
 	Get(context.Context, string, string, string) (PortfolioExportResult, error)
+}
+
+type PortfolioDownloadService interface {
+	Download(context.Context, string, string, string) (PortfolioDownload, error)
 }

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { readFile, writeFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
 
 const root=resolve(import.meta.dirname,"..");
 const sha256=value=>createHash("sha256").update(typeof value==="string"||Buffer.isBuffer(value)?value:JSON.stringify(value)).digest("hex");
@@ -9,6 +9,10 @@ const load=async path=>JSON.parse(await readFile(resolve(root,path),"utf8"));
 const loadOptional=async path=>{try{return await load(path);}catch{return null;}};
 const fileHash=async path=>sha256(await readFile(resolve(root,path)));
 const currentCommit=execFileSync("git",["rev-parse","HEAD"],{cwd:root,encoding:"utf8"}).trim();
+const worktreeDirty=execFileSync("git",["status","--porcelain=v1"],{cwd:root,encoding:"utf8"}).trim().length>0;
+const option=name=>{const index=process.argv.indexOf(name);return index>=0?process.argv[index+1]:undefined;};
+const reportOutput=resolve(root,option("--output")??"gate-reports/stage-1/gate-report.json");
+const statusOutput=resolve(root,option("--status-output")??"gate-reports/stage-1/gate-status.json");
 
 const snapshot=await load("gate-reports/stage-1/contract-snapshot.json");
 const gateStatus=await load("gate-reports/stage-1/gate-status.json");
@@ -67,10 +71,13 @@ const reportBase={
   results,failures,
   repairCommits:reviewIssues.resolvedOther.map(item=>({issueId:item.id,commit:item.fixCommit??(packetValid?packet.sourceCommit:null),evidence:item.evidence})),
   sourceCommit:packetValid?packet.sourceCommit:null,evidenceCommit:process.env.GITHUB_SHA?.match(/^[a-f0-9]{40}$/)?.[0]??currentCommit,
+  worktreeDirty,
   snapshot:{snapshotId:snapshot.snapshotId,contentRootSha256:snapshot.contentRootSha256,reviewPacketHash:packetValid?packet.packetHash:null},
   approvals,blockers
 };
 const report={...reportBase,reportHash:sha256(reportBase)};
-await writeFile(resolve(root,"gate-reports/stage-1/gate-report.json"),`${JSON.stringify(report,null,2)}\n`);
-await writeFile(resolve(root,"gate-reports/stage-1/gate-status.json"),`${JSON.stringify({...gateStatus,status:report.status,readiness:passed?"approved_for_stage_2":"technical_contract_ready_for_accountable_review",blockingEvidence:blockers},null,2)}\n`);
+await mkdir(dirname(reportOutput),{recursive:true});
+await mkdir(dirname(statusOutput),{recursive:true});
+await writeFile(reportOutput,`${JSON.stringify(report,null,2)}\n`);
+await writeFile(statusOutput,`${JSON.stringify({...gateStatus,status:report.status,readiness:passed?"approved_for_stage_2":"technical_contract_ready_for_accountable_review",blockingEvidence:blockers},null,2)}\n`);
 console.log(`stage-1 gate report: status=${report.status} results=${results.filter(item=>item.status==="passed").length}/${results.length} blockers=${blockers.length} report=${report.reportHash}`);

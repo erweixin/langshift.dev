@@ -168,6 +168,13 @@ func TestAgentControlServiceEncryptsAndAtomicallyReplaysConversationMessageRun(t
 	if err != nil || read.ID != first.RunID || read.Version != 2 || read.Status != "queued" || !read.UpdatedAt.Equal(now) {
 		t.Fatalf("Run read=%#v error=%v", read, err)
 	}
+	conversationPage, err := service.GetConversation(ctx, executionapi.GetConversationCommand{RequestID: requestID, TenantID: tenantID, UserID: userID, ConversationID: conversation.ID, Limit: 50})
+	if err != nil || conversationPage.ID != conversation.ID || conversationPage.MissionID != missionID || conversationPage.Version != 2 || len(conversationPage.Messages) != 1 || conversationPage.Messages[0].Role != "user" || conversationPage.Messages[0].Content != secretContent || conversationPage.NextCursor != nil {
+		t.Fatalf("Conversation read=%#v error=%v", conversationPage, err)
+	}
+	if _, err = service.GetConversation(ctx, executionapi.GetConversationCommand{RequestID: requestID, TenantID: tenantID, UserID: otherMissionID, ConversationID: conversation.ID, Limit: 50}); !errors.Is(err, executionapi.ErrResourceNotFound) {
+		t.Fatalf("cross-owner Conversation read error=%v", err)
+	}
 	cancel := executionapi.CancelRunCommand{
 		ControlMetadata: executionapi.ControlMetadata{RequestID: requestID, ClientRequestID: "client-cancel-0000001", IdempotencyKey: "cancel-key-00000000001", TenantID: tenantID, UserID: userID, SessionID: sessionID},
 		RunID:           first.RunID, Reason: "user_changed_direction", ExpectedRunVersion: 2,

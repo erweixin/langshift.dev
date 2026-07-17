@@ -2,6 +2,7 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { StatusPage } from "./status-page";
 import { TrustCenter } from "./trust-center";
+import { LegalNotice } from "./legal-notice";
 
 afterEach(() => {
   cleanup();
@@ -9,6 +10,16 @@ afterEach(() => {
 });
 
 describe("public trust surfaces", () => {
+  it("publishes the network-source offer and legal boundaries in both locales", () => {
+    const { rerender } = render(<LegalNotice locale="en" />);
+    const source = screen.getByRole("link", { name: /Get corresponding source/ });
+    expect(source.getAttribute("href")).toBe("https://github.com/erweixin/langshift.dev");
+    expect(screen.getByRole("heading", { name: "No warranty" })).toBeTruthy();
+    rerender(<LegalNotice locale="zh-CN" />);
+    expect(screen.getByRole("link", { name: /获取对应源代码/ })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "免责声明" })).toBeTruthy();
+  });
+
   it("labels unearned independent certifications instead of implying them", () => {
     render(<TrustCenter locale="en" />);
     expect(screen.getByText("SOC 2 Type II")).toBeTruthy();

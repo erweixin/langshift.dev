@@ -41,6 +41,6 @@ application workload receives its own client certificate and key through its
 separate workload secret bundle. Client certificates must use the DNS SAN
 `lites-outbox-publisher`, `lites-agent-scheduler`, `lites-agent-worker`,
 `lites-tool-worker`, `lites-tool-reconciliation-worker`, `lites-product-worker`,
-`lites-identity-import-worker`, `lites-identity-mail-worker`, or
+`lites-identity-import-worker`, `lites-account-erasure-worker`, `lites-identity-mail-worker`, or
 `lites-realtime-gateway`; `verify_and_map` maps that SAN to the corresponding
 least-privilege NATS user and its JetStream subject permissions.

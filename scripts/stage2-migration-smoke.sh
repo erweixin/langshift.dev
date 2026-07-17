@@ -40,6 +40,12 @@ for cycle in $(seq 1 "${cycles}"); do
   [[ "$(docker inspect --format '{{.State.Health.Status}}' "${current_container}")" == "healthy" ]] || { docker logs "${current_container}"; exit 1; }
   port="$(docker port "${current_container}" 5432/tcp | head -n 1 | sed 's/.*://')"
   database_url="postgres://postgres:migration_admin@127.0.0.1:${port}/lites?sslmode=disable"
+  host_ready=false
+  for _ in $(seq 1 30); do
+    if nc -z 127.0.0.1 "${port}" >/dev/null 2>&1; then host_ready=true; break; fi
+    sleep 1
+  done
+  [[ "${host_ready}" == "true" ]] || { docker logs "${current_container}"; echo "database host port did not become ready" >&2; exit 1; }
   ALLOW_INSECURE_DEVELOPMENT=true DATABASE_URL="${database_url}" "${work}/lites-migrate" -direction up >/dev/null
   docker cp "${latest_verify}" "${current_container}:/tmp/verify.sql" >/dev/null
   verify_output="$(docker exec "${current_container}" psql -v ON_ERROR_STOP=1 -U postgres -d lites -Atf /tmp/verify.sql)"

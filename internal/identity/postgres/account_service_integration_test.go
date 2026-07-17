@@ -141,7 +141,7 @@ func TestAccountExportAndErasureAreReauthenticatedIdempotentAndEvented(t *testin
 		t.Fatalf("overdue cancel=%v", err)
 	}
 	service.Now = func() time.Time { return now }
-	var exportsCount, erasuresCount, exportEvents, requestedEvents, cancelledEvents, exportWork, erasureWork int
+	var exportsCount, erasuresCount, exportEvents, requestedEvents, cancelledEvents, exportWork, erasureWork, delayedErasureWork int
 	var deletionRequestedAt *time.Time
 	if err = admin.QueryRow(ctx, `SELECT deletion_requested_at FROM identity.users WHERE id=$1`, userID).Scan(&deletionRequestedAt); err != nil {
 		t.Fatal(err)
@@ -157,14 +157,15 @@ func TestAccountExportAndErasureAreReauthenticatedIdempotentAndEvented(t *testin
 		{`SELECT count(*) FROM agent.events WHERE user_id='10000000-0000-0000-0000-000000001001' AND event_type='AccountErasureCancelled'`, &cancelledEvents},
 		{`SELECT count(*) FROM agent.outbox WHERE command_type='account.export.prepare'`, &exportWork},
 		{`SELECT count(*) FROM agent.outbox WHERE command_type='account.erasure.schedule'`, &erasureWork},
+		{`SELECT count(*) FROM agent.outbox o JOIN identity.account_erasure_requests r ON r.tenant_id=o.tenant_id AND r.id=o.aggregate_id WHERE o.command_type='account.erasure.schedule' AND o.available_at=r.scheduled_for`, &delayedErasureWork},
 	}
 	for _, check := range checks {
 		if err = admin.QueryRow(ctx, check.query).Scan(check.out); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if exportsCount != 1 || erasuresCount != 2 || exportEvents != 1 || requestedEvents != 2 || cancelledEvents != 1 || exportWork != 1 || erasureWork != 2 || deletionRequestedAt == nil {
-		t.Fatalf("exports=%d erasures=%d export-events=%d requested=%d cancelled=%d export-work=%d erasure-work=%d deletion=%v", exportsCount, erasuresCount, exportEvents, requestedEvents, cancelledEvents, exportWork, erasureWork, deletionRequestedAt)
+	if exportsCount != 1 || erasuresCount != 2 || exportEvents != 1 || requestedEvents != 2 || cancelledEvents != 1 || exportWork != 1 || erasureWork != 2 || delayedErasureWork != 2 || deletionRequestedAt == nil {
+		t.Fatalf("exports=%d erasures=%d export-events=%d requested=%d cancelled=%d export-work=%d erasure-work=%d delayed-erasure-work=%d deletion=%v", exportsCount, erasuresCount, exportEvents, requestedEvents, cancelledEvents, exportWork, erasureWork, delayedErasureWork, deletionRequestedAt)
 	}
 	var storedScope []byte
 	if err = admin.QueryRow(ctx, `SELECT scope FROM product.data_export_requests WHERE id=$1`, exports[0].ID).Scan(&storedScope); err != nil {

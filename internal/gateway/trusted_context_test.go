@@ -297,6 +297,7 @@ func TestIdentityRoutePolicyFailsClosedForUnknownRoute(t *testing.T) {
 		want AuthenticationPolicy
 	}{
 		{path: "/v1/auth/register", want: PublicAuthentication},
+		{path: "/v1/catalog/roles", want: PublicOrAnonymousOrSession},
 		{path: "/v1/onboarding-sessions", want: PublicOrAnonymousOrSession},
 		{path: "/v1/onboarding-sessions/session-1", want: AnonymousOrSession},
 		{path: "/v1/onboarding-sessions/session-1/route-preview", want: AnonymousOrSession},
@@ -306,7 +307,11 @@ func TestIdentityRoutePolicyFailsClosedForUnknownRoute(t *testing.T) {
 		{path: "/v1/auth/login/extra", want: AuthenticationRequired},
 		{path: "/v1/account", want: AuthenticationRequired},
 	} {
-		request := httptest.NewRequest(http.MethodPost, "https://api.lites.dev"+test.path, nil)
+		method := http.MethodPost
+		if test.path == "/v1/catalog/roles" {
+			method = http.MethodGet
+		}
+		request := httptest.NewRequest(method, "https://api.lites.dev"+test.path, nil)
 		if got := IdentityRoutePolicy(request); got != test.want {
 			t.Fatalf("path=%s policy=%d want=%d", test.path, got, test.want)
 		}

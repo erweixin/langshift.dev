@@ -1,6 +1,8 @@
 package api
 
 import (
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -15,10 +17,13 @@ import (
 
 const portfolioExportMediaType = "application/vnd.lites.portfolio-export.v2+json"
 
-type PortfolioHandler struct{ Service PortfolioExportService }
+type PortfolioHandler struct {
+	Service   PortfolioExportService
+	Downloads PortfolioDownloadService
+}
 
 func (handler PortfolioHandler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
-	id, ok := portfolioExportPath(request.URL.Path)
+	id, download, ok := portfolioExportPath(request.URL.Path)
 	if !ok {
 		handler.problem(writer, request, http.StatusNotFound, "resource_not_found", false)
 		return
@@ -32,12 +37,55 @@ func (handler PortfolioHandler) ServeHTTP(writer http.ResponseWriter, request *h
 		handler.create(writer, request)
 		return
 	}
+	if download {
+		if request.Method != http.MethodGet {
+			writer.Header().Set("Allow", http.MethodGet)
+			handler.problem(writer, request, http.StatusMethodNotAllowed, "method_not_allowed", false)
+			return
+		}
+		handler.download(writer, request, id)
+		return
+	}
 	if request.Method != http.MethodGet {
 		writer.Header().Set("Allow", http.MethodGet)
 		handler.problem(writer, request, http.StatusMethodNotAllowed, "method_not_allowed", false)
 		return
 	}
 	handler.get(writer, request, id)
+}
+
+func (handler PortfolioHandler) download(writer http.ResponseWriter, request *http.Request, id string) {
+	claims, ok := handler.claims(writer, request, false)
+	if !ok {
+		return
+	}
+	if handler.Downloads == nil || len(request.URL.Query()) != 0 {
+		if handler.Downloads == nil {
+			handler.problem(writer, request, http.StatusServiceUnavailable, "dependency_unavailable", true)
+		} else {
+			handler.problem(writer, request, http.StatusBadRequest, "validation_failed", false)
+		}
+		return
+	}
+	result, err := handler.Downloads.Download(request.Context(), claims.TenantID, claims.SubjectID, id)
+	if err != nil {
+		handler.finish(writer, request, err)
+		return
+	}
+	digest, err := hex.DecodeString(result.ContentHash)
+	if err != nil || len(result.Body) == 0 || len(digest) != 32 || result.Filename == "" || result.MediaType == "" {
+		handler.problem(writer, request, http.StatusServiceUnavailable, "dependency_unavailable", true)
+		return
+	}
+	writer.Header().Set("Content-Type", result.MediaType)
+	writer.Header().Set("Content-Disposition", `attachment; filename="`+result.Filename+`"`)
+	writer.Header().Set("Content-Length", strconv.Itoa(len(result.Body)))
+	writer.Header().Set("Digest", "sha-256="+base64.StdEncoding.EncodeToString(digest))
+	writer.Header().Set("ETag", `"`+result.ContentHash+`"`)
+	writer.Header().Set("Cache-Control", "private, no-store")
+	writer.Header().Set("X-Content-Type-Options", "nosniff")
+	writer.WriteHeader(http.StatusOK)
+	_, _ = writer.Write(result.Body)
 }
 
 func (handler PortfolioHandler) create(writer http.ResponseWriter, request *http.Request) {
@@ -154,13 +202,20 @@ func validPortfolioRevisionIDs(values []string) bool {
 	return true
 }
 
-func portfolioExportPath(path string) (string, bool) {
+func portfolioExportPath(path string) (id string, download, ok bool) {
 	if path == "/v1/portfolio-exports" {
-		return "", true
+		return "", false, true
 	}
 	value := strings.TrimPrefix(path, "/v1/portfolio-exports/")
-	if value == path || strings.Contains(value, "/") || !uuidPattern.MatchString(value) {
-		return "", false
+	if value == path {
+		return "", false, false
 	}
-	return value, true
+	parts := strings.Split(value, "/")
+	if len(parts) == 1 && uuidPattern.MatchString(parts[0]) {
+		return parts[0], false, true
+	}
+	if len(parts) == 2 && uuidPattern.MatchString(parts[0]) && parts[1] == "download" {
+		return parts[0], true, true
+	}
+	return "", false, false
 }

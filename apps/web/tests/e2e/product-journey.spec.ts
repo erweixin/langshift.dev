@@ -2,14 +2,83 @@ import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 
 test("quick onboarding produces a correctable route and opens Today", async ({ page }) => {
+  const onboardingID = "10000000-0000-4000-8000-000000000001";
+  const sessionID = "10000000-0000-4000-8000-000000000002";
+  const tenantID = "10000000-0000-4000-8000-000000000003";
+  const sourceRoleID = "10000000-0000-4000-8000-000000000005";
+  const targetRoleID = "10000000-0000-4000-8000-000000000006";
+  await page.route("**/api/v1/catalog/roles?locale=en", async (route) => {
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ release_version: "2026.07", content_root_sha256: "a".repeat(64), locale: "en", items: [
+      { id: sourceRoleID, slug: "role_frontend_developer", revision: 1, status: "active", name: "Frontend Developer" },
+      { id: targetRoleID, slug: "role_ai_application_engineer", revision: 1, status: "active", name: "AI Application Engineer" },
+    ] }) });
+  });
+  await page.route("**/api/v1/onboarding-sessions", async (route) => {
+    const request = route.request();
+    expect(request.method()).toBe("POST");
+    expect(request.headers()["idempotency-key"]).toBeTruthy();
+    expect(await request.postDataJSON()).toMatchObject({ current_role: "Frontend Developer", target_role: "AI Application Engineer", weekly_minutes: 180 });
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ id: onboardingID, version: 1, status: "collecting", updated_at: "2026-07-17T12:00:00Z" }) });
+  });
+  let routeRequested = false;
+  await page.route(`**/api/v1/onboarding-sessions/${onboardingID}/route-preview`, async (route) => {
+    const request = route.request();
+    expect(request.method()).toBe("POST");
+    expect(request.headers()["idempotency-key"]).toBeTruthy();
+    expect(request.headers()["if-match"]).toBe('"1"');
+    expect(await request.postDataJSON()).toMatchObject({ source_role_profile_id: sourceRoleID, target_role_profile_id: targetRoleID, confirmed_claim_ids: [], expected_onboarding_version: 1 });
+    routeRequested = true;
+    await route.fulfill({ status: 202, contentType: "application/json", body: JSON.stringify({ run_id: "10000000-0000-4000-8000-000000000007", status: "accepted", accepted_at: "2026-07-17T12:00:10Z" }) });
+  });
+  await page.route(`**/api/v1/onboarding-sessions/${onboardingID}`, async (route) => {
+    if (!routeRequested) {
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ id: onboardingID, version: 1, status: "collecting", mission_id: null, route_revision_id: null, route: null, claim_version: null, updated_at: "2026-07-17T12:00:00Z" }) });
+      return;
+    }
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ id: onboardingID, version: 3, status: "route_ready", mission_id: "10000000-0000-4000-8000-000000000007", route_revision_id: "10000000-0000-4000-8000-000000000008", claim_version: 1, updated_at: "2026-07-17T12:00:20Z", route: {
+      schema_version: 1,
+      summary: "A grounded transition from frontend systems to durable cloud agents.",
+      transferable_experience: [
+        { statement: "State modeling", capability_ids: ["state_modeling"], evidence_ids: [], confidence: "supported" },
+        { statement: "Asynchronous programming", capability_ids: ["async_programming"], evidence_ids: [], confidence: "supported" },
+      ],
+      gaps: [
+        { statement: "Durable run lifecycle", capability_ids: ["durable_runs"], evidence_ids: [], confidence: "inferred" },
+        { statement: "Effect reconciliation", capability_ids: ["effect_reconciliation"], evidence_ids: [], confidence: "inferred" },
+      ],
+      bridge: [{ id: "bridge_1", title: "From UI state to durable agent state", rationale: "Carry state-machine reasoning into crash recovery and side-effect reconciliation.", from_capability_ids: ["state_modeling"], to_capability_ids: ["durable_runs"] }],
+      stages: [
+        { id: "stage_1", title: "Durable foundations", outcome: "Model a recoverable run.", capability_ids: ["durable_runs"], evidence_required: ["reviewed state model"] },
+        { id: "stage_2", title: "Safe effects", outcome: "Reconcile an irreversible effect.", capability_ids: ["effect_reconciliation"], evidence_required: ["passing recovery test"] },
+      ],
+      first_task: { title: "Model a recoverable run", objective: "Define terminal states and retry invariants.", estimated_minutes: 30, difficulty: "standard", capability_ids: ["durable_runs"], success_criteria: ["The state model rejects invalid backward transitions"] },
+    } }) });
+  });
+  await page.route("**/api/v1/auth/register", async (route) => {
+    const body = await route.request().postDataJSON();
+    expect(body).toMatchObject({ email: "learner@example.com", locale: "en" });
+    expect(body.password.length).toBeGreaterThanOrEqual(15);
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ user_id: "10000000-0000-4000-8000-000000000004", status: "verification_required", email_verification_expires_at: "2026-07-18T12:00:00Z" }) });
+  });
+  await page.route("**/api/v1/auth/login", async (route) => {
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ user_id: "10000000-0000-4000-8000-000000000004", session_id: sessionID, expires_at: "2026-08-17T12:00:00Z" }) });
+  });
+  await page.route("**/api/v1/auth/sessions", async (route) => {
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ items: [{ id: sessionID, active_tenant_id: tenantID, current: true }], next_cursor: null }) });
+  });
+  await page.route(`**/api/v1/onboarding-sessions/${onboardingID}/claim`, async (route) => {
+    expect(route.request().headers()["if-match"]).toBe('"1"');
+    expect(await route.request().postDataJSON()).toMatchObject({ target_tenant_id: tenantID, expected_claim_version: 1 });
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ id: onboardingID, version: 2, status: "reserved", updated_at: "2026-07-17T12:01:00Z" }) });
+  });
   await page.goto("/en/onboarding");
   await expect(page.getByRole("heading", { name: /You are not starting over/ })).toBeVisible();
   await page.getByTestId("quick-onboarding").click();
   await page.getByRole("button", { name: "Continue" }).click();
   await page.getByRole("button", { name: "Continue" }).click();
   await page.getByRole("button", { name: "Build route" }).click();
-  await expect(page.getByRole("heading", { name: /Frontend engineering/ })).toBeVisible();
-  await page.getByRole("link", { name: "Review my route" }).click();
+  await expect(page.getByRole("heading", { name: /Frontend Developer/ })).toBeVisible();
+  await page.getByRole("button", { name: "Create and review route" }).click();
   await expect(page).toHaveURL(/\/en\/route/);
   await expect(page.getByText("Confirm or correct")).toBeVisible();
   await page.getByRole("button", { name: "Edit bridge" }).click();
@@ -19,21 +88,34 @@ test("quick onboarding produces a correctable route and opens Today", async ({ p
   for (const capability of ["State modeling", "Asynchronous programming", "Durable run lifecycle", "Effect reconciliation"]) {
     await page.getByRole("button", { name: `Confirm ${capability}` }).click();
   }
-  await expect(page.getByText("You confirmed the route. The first test is ready.")).toBeVisible();
+  await expect(page.getByText("You reviewed every judgment. After registration, the route is attached idempotently to your workspace.")).toBeVisible();
   await page.getByRole("link", { name: "Save route and continue" }).click();
-  await page.getByRole("link", { name: "Create and open Today" }).click();
+  await page.getByLabel("Email").fill("learner@example.com");
+  await page.getByLabel("Password").fill("a-production-password-2026");
+  await page.getByLabel(/I agree/).check();
+  await page.getByRole("button", { name: "Create and send verification" }).click();
+  await expect(page.getByText("Verification sent")).toBeVisible();
+  await page.getByRole("button", { name: "Verified — sign in" }).click();
+  await page.getByLabel("Password").fill("a-production-password-2026");
+  await page.getByRole("button", { name: "Sign in and continue" }).click();
   await expect(page).toHaveURL("/en/today");
   await expect(page.getByRole("heading", { name: "Good morning." })).toBeVisible();
 });
 
 test("natural-language onboarding stays editable until Coach structures it", async ({ page }) => {
+  await page.route("**/api/v1/catalog/roles?locale=en", async (route) => {
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ release_version: "2026.07", content_root_sha256: "a".repeat(64), locale: "en", items: [
+      { id: "10000000-0000-4000-8000-000000000005", slug: "role_frontend_developer", revision: 1, status: "active", name: "Frontend Developer" },
+      { id: "10000000-0000-4000-8000-000000000006", slug: "role_ai_application_engineer", revision: 1, status: "active", name: "AI Application Engineer" },
+    ] }) });
+  });
   await page.goto("/en/onboarding");
   await page.getByTestId("natural-onboarding").click();
   const story = page.getByLabel("Your story");
   await story.fill("I build frontend systems and want to learn how durable agents recover from crashes.");
   await expect(page.getByRole("button", { name: /Let Coach structure it/ })).toBeVisible();
   await page.getByRole("button", { name: /Let Coach structure it/ }).click();
-  await expect(page.getByText("Route draft ready")).toBeVisible();
+  await expect(page.getByText("Route input ready")).toBeVisible();
 });
 
 test("task draft survives reload and offline state never claims submission", async ({ page, context }) => {

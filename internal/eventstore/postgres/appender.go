@@ -46,6 +46,7 @@ type OutboxCommand struct {
 	TargetAggregateID   string
 	PayloadRef          string
 	PayloadHash         string
+	AvailableAt         time.Time
 }
 
 type Input struct {
@@ -135,7 +136,11 @@ func (appender Appender) Append(ctx context.Context, tx pgx.Tx, input Input) (re
 	}
 	for _, command := range input.Commands {
 		targetKind, targetID := commandTarget(input.Event, command)
-		tag, err = tx.Exec(ctx, `INSERT INTO agent.outbox (id,tenant_id,command_id,command_type,aggregate_kind,aggregate_id,store_epoch,payload_ref,payload_hash,status,available_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending',$10) ON CONFLICT DO NOTHING`, command.ID, input.Event.TenantID, command.CommandID, command.CommandType, targetKind, targetID, input.Event.StoreEpoch, command.PayloadRef, command.PayloadHash, now)
+		availableAt := now
+		if !command.AvailableAt.IsZero() {
+			availableAt = command.AvailableAt.UTC().Truncate(time.Microsecond)
+		}
+		tag, err = tx.Exec(ctx, `INSERT INTO agent.outbox (id,tenant_id,command_id,command_type,aggregate_kind,aggregate_id,store_epoch,payload_ref,payload_hash,status,available_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending',$10) ON CONFLICT DO NOTHING`, command.ID, input.Event.TenantID, command.CommandID, command.CommandType, targetKind, targetID, input.Event.StoreEpoch, command.PayloadRef, command.PayloadHash, availableAt)
 		if err != nil {
 			return Result{}, appender.rollback(ctx, tx, err)
 		}
@@ -155,7 +160,7 @@ func (appender Appender) Append(ctx context.Context, tx pgx.Tx, input Input) (re
 func loadCommandReplay(ctx context.Context, tx pgx.Tx, event Event, expected OutboxCommand) (bool, error) {
 	var actual OutboxCommand
 	var tenantID, aggregateKind, aggregateID, storeEpoch string
-	err := tx.QueryRow(ctx, `SELECT id::text,tenant_id::text,command_type,aggregate_kind,aggregate_id::text,store_epoch::text,payload_ref,payload_hash FROM agent.outbox WHERE command_id=$1`, expected.CommandID).Scan(&actual.ID, &tenantID, &actual.CommandType, &aggregateKind, &aggregateID, &storeEpoch, &actual.PayloadRef, &actual.PayloadHash)
+	err := tx.QueryRow(ctx, `SELECT id::text,tenant_id::text,command_type,aggregate_kind,aggregate_id::text,store_epoch::text,payload_ref,payload_hash,available_at FROM agent.outbox WHERE command_id=$1`, expected.CommandID).Scan(&actual.ID, &tenantID, &actual.CommandType, &aggregateKind, &aggregateID, &storeEpoch, &actual.PayloadRef, &actual.PayloadHash, &actual.AvailableAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}
@@ -163,7 +168,8 @@ func loadCommandReplay(ctx context.Context, tx pgx.Tx, event Event, expected Out
 		return false, err
 	}
 	expectedKind, expectedID := commandTarget(event, expected)
-	return actual.ID == expected.ID && tenantID == event.TenantID && actual.CommandType == expected.CommandType && aggregateKind == expectedKind && aggregateID == expectedID && storeEpoch == event.StoreEpoch && actual.PayloadRef == expected.PayloadRef && actual.PayloadHash == expected.PayloadHash, nil
+	availableMatches := expected.AvailableAt.IsZero() || actual.AvailableAt.Equal(expected.AvailableAt.UTC().Truncate(time.Microsecond))
+	return actual.ID == expected.ID && tenantID == event.TenantID && actual.CommandType == expected.CommandType && aggregateKind == expectedKind && aggregateID == expectedID && storeEpoch == event.StoreEpoch && actual.PayloadRef == expected.PayloadRef && actual.PayloadHash == expected.PayloadHash && availableMatches, nil
 }
 
 func (appender Appender) rollback(ctx context.Context, tx pgx.Tx, cause error) error {

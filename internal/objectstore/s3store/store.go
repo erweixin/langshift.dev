@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"path"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -43,6 +44,15 @@ type API interface {
 	HeadObject(context.Context, *s3.HeadObjectInput, ...func(*s3.Options)) (*s3.HeadObjectOutput, error)
 	DeleteObject(context.Context, *s3.DeleteObjectInput, ...func(*s3.Options)) (*s3.DeleteObjectOutput, error)
 	HeadBucket(context.Context, *s3.HeadBucketInput, ...func(*s3.Options)) (*s3.HeadBucketOutput, error)
+}
+
+type versionAPI interface {
+	ListObjectVersions(context.Context, *s3.ListObjectVersionsInput, ...func(*s3.Options)) (*s3.ListObjectVersionsOutput, error)
+}
+
+type PurgeReceipt struct {
+	VersionsDeleted int
+	Checksum        string
 }
 
 type VersionedObject struct {
@@ -267,6 +277,84 @@ func (store Store) Delete(ctx context.Context, ref string) error {
 		return ErrIntegrity
 	}
 	return nil
+}
+
+// Purge removes every retained version and delete marker for one exact object
+// key, then performs a second complete listing before issuing a receipt. It is
+// the only deletion primitive suitable for data-subject erasure on a versioned
+// bucket.
+func (store Store) Purge(ctx context.Context, ref string) (PurgeReceipt, error) {
+	if err := store.validate(); err != nil {
+		return PurgeReceipt{}, err
+	}
+	key, err := store.parseReference(ref)
+	if err != nil {
+		return PurgeReceipt{}, err
+	}
+	versions, ok := store.Client.(versionAPI)
+	if !ok {
+		return PurgeReceipt{}, ErrConfiguration
+	}
+	entries, err := store.listExactVersions(ctx, versions, key)
+	if err != nil {
+		return PurgeReceipt{}, err
+	}
+	sort.Strings(entries)
+	for _, entry := range entries {
+		separator := strings.IndexByte(entry, 0)
+		if separator < 1 || separator == len(entry)-1 {
+			return PurgeReceipt{}, ErrIntegrity
+		}
+		if _, err = store.Client.DeleteObject(ctx, &s3.DeleteObjectInput{Bucket: aws.String(store.Bucket), Key: aws.String(key), VersionId: aws.String(entry[separator+1:])}); err != nil {
+			return PurgeReceipt{}, err
+		}
+	}
+	remaining, err := store.listExactVersions(ctx, versions, key)
+	if err != nil {
+		return PurgeReceipt{}, err
+	}
+	if len(remaining) != 0 {
+		return PurgeReceipt{}, ErrIntegrity
+	}
+	digest := sha256.New()
+	_, _ = digest.Write([]byte("lites-s3-version-purge-v1\x00"))
+	_, _ = digest.Write([]byte(store.Bucket + "\x00" + key + "\x00"))
+	for _, entry := range entries {
+		_, _ = digest.Write([]byte(entry + "\x00"))
+	}
+	return PurgeReceipt{VersionsDeleted: len(entries), Checksum: hex.EncodeToString(digest.Sum(nil))}, nil
+}
+
+func (store Store) listExactVersions(ctx context.Context, api versionAPI, key string) ([]string, error) {
+	entries := make([]string, 0)
+	input := &s3.ListObjectVersionsInput{Bucket: aws.String(store.Bucket), Prefix: aws.String(key), MaxKeys: aws.Int32(1000)}
+	for {
+		output, err := api.ListObjectVersions(ctx, input)
+		if err != nil {
+			return nil, err
+		}
+		if output == nil {
+			return nil, ErrIntegrity
+		}
+		for _, version := range output.Versions {
+			if aws.ToString(version.Key) == key && aws.ToString(version.VersionId) != "" {
+				entries = append(entries, "version\x00"+aws.ToString(version.VersionId))
+			}
+		}
+		for _, marker := range output.DeleteMarkers {
+			if aws.ToString(marker.Key) == key && aws.ToString(marker.VersionId) != "" {
+				entries = append(entries, "marker\x00"+aws.ToString(marker.VersionId))
+			}
+		}
+		if !aws.ToBool(output.IsTruncated) {
+			return entries, nil
+		}
+		if aws.ToString(output.NextKeyMarker) == "" || aws.ToString(output.NextVersionIdMarker) == "" {
+			return nil, ErrIntegrity
+		}
+		input.KeyMarker = output.NextKeyMarker
+		input.VersionIdMarker = output.NextVersionIdMarker
+	}
 }
 
 func (store Store) validate() error {

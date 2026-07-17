@@ -69,12 +69,35 @@ func (handler RetrievalManifestHandler) Commit(ctx context.Context, tx pgx.Tx, b
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return err
 	}
+	var erased bool
+	if err = tx.QueryRow(ctx, `SELECT EXISTS (
+		SELECT 1 FROM identity.subject_erasure_tombstones
+		WHERE tenant_id=$1 AND user_id=$2
+	)`, binding.TenantID, binding.UserID).Scan(&erased); err != nil {
+		return fmt.Errorf("check retrieval erasure tombstone: %w", err)
+	}
+	if erased {
+		return ErrRetrievalConflict
+	}
 	if _, err = tx.Exec(ctx, `INSERT INTO agent.retrieval_manifests(id,tenant_id,user_id,llm_attempt_id,context_manifest_hash,query_hmac,retrieval_model_id,retrieval_model_version,policy_snapshot_id,guardrail_snapshot_id,index_generation,token_budget,committed_event_id,committed_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`, binding.ManifestID, binding.TenantID, binding.UserID, binding.AttemptID, binding.ContextManifestHash, manifest.QueryHMAC[:], manifest.RetrievalModelID, manifest.RetrievalModelVersion, manifest.PolicySnapshotID, manifest.GuardrailSnapshotID, manifest.IndexGeneration, manifest.TokenBudget, eventIDs.event, binding.Now); err != nil {
 		return ErrRetrievalConflict
 	}
 	for index, chunk := range manifest.Chunks {
 		var scopeKind, trustLabel string
-		err = tx.QueryRow(ctx, `SELECT d.scope_kind,r.trust_label FROM agent.memory_documents d JOIN agent.memory_document_revisions r ON r.tenant_id=d.tenant_id AND r.memory_id=d.id AND r.memory_version=$3 JOIN agent.memory_index_projections p ON p.tenant_id=r.tenant_id AND p.memory_id=r.memory_id AND p.memory_version=r.memory_version AND p.index_generation=$4 WHERE d.tenant_id=$1 AND d.id=$2 AND d.status='active' AND d.current_revision=$3 AND p.status='indexed'`, binding.TenantID, chunk.MemoryID, chunk.MemoryVersion, chunk.IndexGeneration).Scan(&scopeKind, &trustLabel)
+		err = tx.QueryRow(ctx, `WITH RECURSIVE erased_memory(memory_id,memory_version) AS (
+			SELECT base.memory_id,base.memory_version FROM (
+				SELECT r0.memory_id,r0.memory_version FROM agent.memory_document_revisions r0 JOIN identity.subject_erasure_tombstones t0 ON t0.tenant_id=r0.tenant_id AND t0.user_id=r0.user_id WHERE r0.tenant_id=$1
+				UNION
+				SELECT s0.memory_id,s0.memory_version FROM agent.memory_revision_subjects s0 JOIN identity.subject_erasure_tombstones t0 ON t0.tenant_id=s0.tenant_id AND t0.user_id=s0.data_subject_id WHERE s0.tenant_id=$1
+			) base
+			UNION
+			SELECT x.memory_id,x.memory_version FROM agent.memory_revision_derivations x JOIN erased_memory e ON e.memory_id=x.source_memory_id AND e.memory_version=x.source_memory_version WHERE x.tenant_id=$1
+		)
+		SELECT d.scope_kind,r.trust_label FROM agent.memory_documents d
+		JOIN agent.memory_document_revisions r ON r.tenant_id=d.tenant_id AND r.memory_id=d.id AND r.memory_version=$3
+		JOIN agent.memory_index_projections p ON p.tenant_id=r.tenant_id AND p.memory_id=r.memory_id AND p.memory_version=r.memory_version AND p.index_generation=$4
+		LEFT JOIN erased_memory e ON e.memory_id=r.memory_id AND e.memory_version=r.memory_version
+		WHERE d.tenant_id=$1 AND d.id=$2 AND d.status='active' AND d.current_revision=$3 AND p.status='indexed' AND e.memory_id IS NULL`, binding.TenantID, chunk.MemoryID, chunk.MemoryVersion, chunk.IndexGeneration).Scan(&scopeKind, &trustLabel)
 		if err != nil || trustLabel != chunk.TrustLabel {
 			return ErrRetrievalConflict
 		}

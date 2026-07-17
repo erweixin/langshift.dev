@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -174,6 +175,62 @@ func TestMemoryWriteCommitsAsInlinePlatformTool(t *testing.T) {
 	}
 	if rolledBackAttempts != 0 || rolledBackManifests != 0 {
 		t.Fatalf("tampered retrieval left partial state: attempts=%d manifests=%d", rolledBackAttempts, rolledBackManifests)
+	}
+}
+
+func TestErasedSubjectCannotWriteOrRetrieveMemory(t *testing.T) {
+	ctx := context.Background()
+	admin := memoryPool(t, ctx, "LITES_TEST_ADMIN_DATABASE_URL")
+	defer admin.Close()
+	pool := memoryPool(t, ctx, "LITES_TEST_AGENT_DATABASE_URL")
+	defer pool.Close()
+	const tenantID = "6e000000-0000-4000-8000-000000000001"
+	const userID = "6e000000-0000-4000-8000-000000000002"
+	const requestID = "6e000000-0000-4000-8000-000000000003"
+	now := time.Date(2026, time.July, 17, 9, 0, 0, 0, time.UTC)
+	if _, err := admin.Exec(ctx, `INSERT INTO identity.users(id,normalized_email,locale,status) VALUES($1,'erased-memory@example.invalid','en','erased')`, userID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := admin.Exec(ctx, `INSERT INTO identity.tenants(id,kind,name,status,region,owner_user_id) VALUES($1,'personal','Erased Memory','active','US',$2)`, tenantID, userID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := admin.Exec(ctx, `INSERT INTO identity.account_erasure_requests(id,tenant_id,user_id,status,requested_at,scheduled_for,completed_at) VALUES($1,$2,$3,'completed',$4,$4,$4)`, requestID, tenantID, userID, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := admin.Exec(ctx, `INSERT INTO identity.subject_erasure_tombstones(request_id,tenant_id,user_id,initial_recovery_epoch,receipt_manifest_hash,completed_at) VALUES($1,$2,$3,'6e000000-0000-4000-8000-000000000004',$4,$5)`, requestID, tenantID, userID, strings.Repeat("e", 64), now); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	if _, err = tx.Exec(ctx, `SELECT set_config('lites.tenant_id',$1,true)`, tenantID); err != nil {
+		t.Fatal(err)
+	}
+	write := MemoryWrite{
+		MemoryID: "6e000000-0000-4000-8000-000000000005", ScopeKind: "user", ScopeID: userID, MemoryKind: "preference",
+		ContentRef: "vault://payload/erased", ContentHMAC: [32]byte{1}, ContentType: "text", SensitivityLabels: []string{"private"},
+		SourceKind: "user_stated", TrustLabel: "user_asserted", Sources: []SourceReference{{Kind: "user_statement", Ref: "event:erased", Version: 1}},
+		DataSubjectIDs: []string{userID}, DerivationKind: "direct", Confidence: 1, EncryptionSubjectID: userID, KeyRef: "vault://transit/erased",
+		EmbeddingModelID: "embedding-v3", EmbeddingModelVersion: "2026-07-01", VectorDimensions: 1536, PolicyVersion: 1, IndexGeneration: 1,
+		GuardrailSnapshotID: "guardrail@sha256:erased", UpsertedEvent: executionpostgres.PayloadPointer{Ref: "encrypted://erased", Hash: "erased"},
+	}
+	writeErr := (InlineWriteHandler{IDKey: bytes.Repeat([]byte{0x6e}, 32)}).Commit(ctx, tx, executionpostgres.InlinePlatformToolContext{
+		TenantID: tenantID, UserID: userID, RunID: "6e000000-0000-4000-8000-000000000006", ToolCallID: "6e000000-0000-4000-8000-000000000007",
+		StoreEpoch: "6e000000-0000-4000-8000-000000000004", ToolCallVersion: 2, ToolSucceededEventID: "6e000000-0000-4000-8000-000000000008", CorrelationID: "6e000000-0000-4000-8000-000000000009", Now: now,
+	}, write)
+	if !errors.Is(writeErr, ErrErased) {
+		t.Fatalf("erased subject memory write error=%v", writeErr)
+	}
+	retrieval := RetrievalManifest{QueryHMAC: [32]byte{1}, RetrievalModelID: "retriever", RetrievalModelVersion: "2026-07-01", PolicySnapshotID: "policy:erased", GuardrailSnapshotID: "guardrail:erased", IndexGeneration: 1, TokenBudget: 1, CommittedEvent: EventPointer{Ref: "encrypted://retrieval-erased", Hash: "retrieval-erased"}}
+	retrievalErr := (RetrievalManifestHandler{IDKey: bytes.Repeat([]byte{0x6f}, 32)}).Commit(ctx, tx, llmpostgres.RetrievalManifestContext{
+		ManifestID: "6e000000-0000-4000-8000-00000000000a", AttemptID: "6e000000-0000-4000-8000-00000000000b", TenantID: tenantID, UserID: userID,
+		RunID: "6e000000-0000-4000-8000-000000000006", StoreEpoch: "6e000000-0000-4000-8000-000000000004", ContextManifestHash: "context-erased",
+		StartedEventID: "6e000000-0000-4000-8000-00000000000c", CorrelationID: "6e000000-0000-4000-8000-000000000009", Now: now,
+	}, retrieval)
+	if !errors.Is(retrievalErr, ErrRetrievalConflict) {
+		t.Fatalf("erased subject retrieval error=%v", retrievalErr)
 	}
 }
 

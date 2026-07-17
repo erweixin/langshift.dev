@@ -20,6 +20,9 @@ func IdentityRoutePolicy(request *http.Request) AuthenticationPolicy {
 	if request.Method == http.MethodGet && request.URL.Path == "/v1/public/status" && len(request.URL.Query()) == 0 {
 		return PublicAuthentication
 	}
+	if request.Method == http.MethodGet && request.URL.Path == "/v1/catalog/roles" {
+		return PublicOrAnonymousOrSession
+	}
 	if _, ok := publicIdentityPaths[request.URL.Path]; ok {
 		return PublicAuthentication
 	}

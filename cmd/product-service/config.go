@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -22,10 +23,11 @@ type config struct {
 	serverCertificateFile, serverKeyFile, serverClientCAFile                                       string
 	trustedKeyringFile, trustedIssuer, trustedAudience                                             string
 	secretBundleFile                                                                               string
+	publicTenantID                                                                                 string
 	publicStatusDocumentFile, publicStatusKeyringFile                                              string
 	contentReleaseDirectory, routeBehaviorEnvironment                                              string
 	epochURL, epochTokenFile, epochCAFile, epochCertFile, epochKeyFile                             string
-	s3Region, s3Endpoint, payloadBucket, payloadPrefix, s3KMSKeyID                                 string
+	s3Region, s3Endpoint, payloadBucket, payloadPrefix, artifactBucket, artifactPrefix, s3KMSKeyID string
 	s3PathStyle                                                                                    bool
 	s3Encryption                                                                                   types.ServerSideEncryption
 	vaultAddress, vaultNamespace, vaultMount, vaultTokenFile, vaultCAFile                          string
@@ -123,10 +125,11 @@ func loadConfig() (config, error) {
 		serverCertificateFile: os.Getenv("SERVER_TLS_CERT_FILE"), serverKeyFile: os.Getenv("SERVER_TLS_KEY_FILE"), serverClientCAFile: os.Getenv("SERVER_CLIENT_CA_FILE"),
 		trustedKeyringFile: os.Getenv("TRUSTED_CONTEXT_KEYRING_FILE"), trustedIssuer: env("TRUSTED_CONTEXT_ISSUER", "lites-gateway"), trustedAudience: env("TRUSTED_CONTEXT_AUDIENCE", "product-service"),
 		secretBundleFile:         os.Getenv("PRODUCT_SECRET_BUNDLE_FILE"),
+		publicTenantID:           os.Getenv("IDENTITY_PUBLIC_TENANT_ID"),
 		publicStatusDocumentFile: env("PUBLIC_STATUS_DOCUMENT_FILE", "/run/secrets/public-status.json"), publicStatusKeyringFile: env("PUBLIC_STATUS_KEYRING_FILE", "/run/secrets/public-status-keyring.json"),
 		contentReleaseDirectory: env("PRODUCT_CONTENT_RELEASE_DIR", "/app/product-content/releases/1.0.0"), routeBehaviorEnvironment: env("ROUTE_BEHAVIOR_ENVIRONMENT", "production"),
 		epochURL: os.Getenv("STORE_EPOCH_URL"), epochTokenFile: os.Getenv("STORE_EPOCH_TOKEN_FILE"), epochCAFile: os.Getenv("STORE_EPOCH_ROOT_CA_FILE"), epochCertFile: os.Getenv("STORE_EPOCH_CLIENT_CERT_FILE"), epochKeyFile: os.Getenv("STORE_EPOCH_CLIENT_KEY_FILE"),
-		s3Region: os.Getenv("S3_REGION"), s3Endpoint: os.Getenv("S3_ENDPOINT"), s3PathStyle: pathStyle, payloadBucket: os.Getenv("S3_PAYLOAD_BUCKET"), payloadPrefix: env("S3_PAYLOAD_PREFIX", "restricted"), s3Encryption: types.ServerSideEncryption(env("S3_SERVER_SIDE_ENCRYPTION", string(types.ServerSideEncryptionAes256))), s3KMSKeyID: os.Getenv("S3_KMS_KEY_ID"),
+		s3Region: os.Getenv("S3_REGION"), s3Endpoint: os.Getenv("S3_ENDPOINT"), s3PathStyle: pathStyle, payloadBucket: os.Getenv("S3_PAYLOAD_BUCKET"), payloadPrefix: env("S3_PAYLOAD_PREFIX", "restricted"), artifactBucket: os.Getenv("S3_ARTIFACT_BUCKET"), artifactPrefix: env("S3_ARTIFACT_PREFIX", "commercial"), s3Encryption: types.ServerSideEncryption(env("S3_SERVER_SIDE_ENCRYPTION", string(types.ServerSideEncryptionAes256))), s3KMSKeyID: os.Getenv("S3_KMS_KEY_ID"),
 		vaultAddress: os.Getenv("VAULT_ADDR"), vaultNamespace: os.Getenv("VAULT_NAMESPACE"), vaultMount: env("VAULT_PAYLOAD_KEY_MOUNT", "secret"), vaultTokenFile: os.Getenv("VAULT_TOKEN_FILE"), vaultCAFile: os.Getenv("VAULT_CACERT"), vaultCertFile: os.Getenv("VAULT_CLIENT_CERT_FILE"), vaultKeyFile: os.Getenv("VAULT_CLIENT_KEY_FILE"), vaultTLSName: os.Getenv("VAULT_TLS_SERVER_NAME"), vaultKeyPrefix: env("VAULT_PAYLOAD_KEY_PREFIX", "lites/payload-keys"),
 		environment: os.Getenv("LITES_ENVIRONMENT"), serviceVersion: os.Getenv("LITES_VERSION"), region: os.Getenv("LITES_REGION"),
 		otlpEndpoint: os.Getenv("OTLP_GRPC_ENDPOINT"), otlpCAFile: os.Getenv("OTLP_ROOT_CA_FILE"), otlpCertFile: os.Getenv("OTLP_CLIENT_CERT_FILE"), otlpKeyFile: os.Getenv("OTLP_CLIENT_KEY_FILE"), otlpTLSName: os.Getenv("OTLP_TLS_SERVER_NAME"), otlpBearerTokenFile: os.Getenv("OTLP_BEARER_TOKEN_FILE"),
@@ -138,13 +141,13 @@ func loadConfig() (config, error) {
 }
 
 func (value config) validate() error {
-	required := []string{value.databaseURL, value.listenAddress, value.healthAddress, value.trustedKeyringFile, value.trustedIssuer, value.trustedAudience, value.secretBundleFile, value.publicStatusDocumentFile, value.publicStatusKeyringFile, value.contentReleaseDirectory, value.epochURL, value.s3Region, value.payloadBucket, value.vaultAddress, value.vaultMount, value.vaultKeyPrefix, value.environment, value.serviceVersion, value.region}
+	required := []string{value.databaseURL, value.listenAddress, value.healthAddress, value.trustedKeyringFile, value.trustedIssuer, value.trustedAudience, value.secretBundleFile, value.publicTenantID, value.publicStatusDocumentFile, value.publicStatusKeyringFile, value.contentReleaseDirectory, value.epochURL, value.s3Region, value.payloadBucket, value.artifactBucket, value.vaultAddress, value.vaultMount, value.vaultKeyPrefix, value.environment, value.serviceVersion, value.region}
 	for _, item := range required {
 		if item == "" {
 			return errors.New("required product service configuration is missing")
 		}
 	}
-	if value.listenAddress == value.healthAddress || value.trustedAudience == value.trustedIssuer || value.routeBehaviorEnvironment != "staging" && value.routeBehaviorEnvironment != "production" || value.databaseMaxConnections < 8 || value.databaseMaxConnections > 256 || value.idempotencyTTL < time.Hour || value.idempotencyTTL > 7*24*time.Hour || value.evaluatorRunTimeout <= 0 || value.evaluatorRunMaxSteps < 1 || value.evaluatorRunMaxAttempts < 1 || value.evaluatorRunMaxCostMicrounits < 1 || value.artifactBuilderRunTimeout <= 0 || value.artifactBuilderRunMaxSteps < 1 || value.artifactBuilderRunMaxAttempts < 1 || value.artifactBuilderRunMaxCostMicrounits < 1 || value.traceSampleRatio < 0 || value.traceSampleRatio > 1 || (value.serverCertificateFile == "") != (value.serverKeyFile == "") || (value.epochCertFile == "") != (value.epochKeyFile == "") || (value.vaultCertFile == "") != (value.vaultKeyFile == "") || (value.otlpCertFile == "") != (value.otlpKeyFile == "") {
+	if value.listenAddress == value.healthAddress || value.trustedAudience == value.trustedIssuer || !productConfigUUIDPattern.MatchString(value.publicTenantID) || value.routeBehaviorEnvironment != "staging" && value.routeBehaviorEnvironment != "production" || value.databaseMaxConnections < 8 || value.databaseMaxConnections > 256 || value.idempotencyTTL < time.Hour || value.idempotencyTTL > 7*24*time.Hour || value.evaluatorRunTimeout <= 0 || value.evaluatorRunMaxSteps < 1 || value.evaluatorRunMaxAttempts < 1 || value.evaluatorRunMaxCostMicrounits < 1 || value.artifactBuilderRunTimeout <= 0 || value.artifactBuilderRunMaxSteps < 1 || value.artifactBuilderRunMaxAttempts < 1 || value.artifactBuilderRunMaxCostMicrounits < 1 || value.traceSampleRatio < 0 || value.traceSampleRatio > 1 || (value.serverCertificateFile == "") != (value.serverKeyFile == "") || (value.epochCertFile == "") != (value.epochKeyFile == "") || (value.vaultCertFile == "") != (value.vaultKeyFile == "") || (value.otlpCertFile == "") != (value.otlpKeyFile == "") {
 		return errors.New("product service configuration is invalid")
 	}
 	epochEndpoint, err := url.Parse(value.epochURL)
@@ -159,6 +162,8 @@ func (value config) validate() error {
 	}
 	return nil
 }
+
+var productConfigUUIDPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 
 func loadSecretBundle(path string) (secretBundle, error) {
 	file, err := os.Open(path)

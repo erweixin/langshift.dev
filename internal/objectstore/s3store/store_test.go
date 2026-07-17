@@ -70,6 +70,15 @@ func (client *memoryS3) DeleteObject(_ context.Context, input *s3.DeleteObjectIn
 	return &s3.DeleteObjectOutput{}, nil
 }
 
+func (client *memoryS3) ListObjectVersions(_ context.Context, input *s3.ListObjectVersionsInput, _ ...func(*s3.Options)) (*s3.ListObjectVersionsOutput, error) {
+	key := aws.ToString(input.Prefix)
+	version, found := client.version[key]
+	if !found {
+		return &s3.ListObjectVersionsOutput{}, nil
+	}
+	return &s3.ListObjectVersionsOutput{Versions: []types.ObjectVersion{{Key: aws.String(key), VersionId: aws.String(version)}}}, nil
+}
+
 func testStore(client *memoryS3) Store {
 	return Store{Client: client, Bucket: "lites-payloads", Prefix: "restricted", MaxBytes: 1024, ServerSideEncryption: types.ServerSideEncryptionAes256, RequireDigestMetadata: true}
 }
@@ -181,6 +190,42 @@ func TestDeleteIsIdempotentAndConfinedToStorePrefix(t *testing.T) {
 		if err = store.Delete(context.Background(), invalid); !errors.Is(err, ErrReference) {
 			t.Fatalf("ref=%q err=%v", invalid, err)
 		}
+	}
+}
+
+func TestPurgeDeletesAllVersionsAndReturnsVerifiedReceipt(t *testing.T) {
+	client := memoryClient()
+	store := testStore(client)
+	ref, err := store.PutVersioned(context.Background(), "tenant/artifact/id/file.pdf", "application/pdf", []byte("content"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt, err := store.Purge(context.Background(), ref.Reference)
+	if err != nil || receipt.VersionsDeleted != 1 || len(receipt.Checksum) != 64 {
+		t.Fatalf("receipt=%#v err=%v", receipt, err)
+	}
+	if _, found := client.objects["restricted/tenant/artifact/id/file.pdf"]; found {
+		t.Fatal("version survived verified purge")
+	}
+	replayed, err := store.Purge(context.Background(), ref.Reference)
+	if err != nil || replayed.VersionsDeleted != 0 || len(replayed.Checksum) != 64 {
+		t.Fatalf("replay=%#v err=%v", replayed, err)
+	}
+}
+
+func TestPurgeRouterRejectsUnknownBucketAndRoutesExactReference(t *testing.T) {
+	client := memoryClient()
+	store := testStore(client)
+	ref, err := store.Put(context.Background(), "tenant/payload/id", []byte("ciphertext"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	router := PurgeRouter{Stores: []Store{store}}
+	if _, err = router.Purge(context.Background(), ref); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = router.Purge(context.Background(), "s3://other/restricted/tenant/payload/id"); !errors.Is(err, ErrReference) {
+		t.Fatalf("unknown bucket err=%v", err)
 	}
 }
 

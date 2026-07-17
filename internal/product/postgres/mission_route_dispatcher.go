@@ -49,6 +49,8 @@ type missionRouteCommandDocument struct {
 	ExpectedRouteVersion uint64 `json:"expected_route_version"`
 	ExpectedClaimSetHash string `json:"expected_claim_set_hash"`
 	CorrelationID        string `json:"correlation_id"`
+	OnboardingSessionID  string `json:"onboarding_session_id,omitempty"`
+	AnonymousSubjectID   string `json:"anonymous_subject_id,omitempty"`
 }
 
 func (dispatcher MissionRouteDispatcher) Dispatch(ctx context.Context, command eventpostgres.DeliveredCommand) (MissionRouteDispatchResult, error) {
@@ -182,6 +184,12 @@ func (dispatcher MissionRouteDispatcher) startDelivery(ctx context.Context, clai
 	if err != nil {
 		return RouteResult{}, err
 	}
+	if document.OnboardingSessionID != "" {
+		tag, updateErr := tx.Exec(ctx, `UPDATE identity.onboarding_sessions SET route_revision_id=$1,updated_at=$2 WHERE tenant_id=$3 AND user_id=$4 AND id=$5 AND mission_id=$6 AND status='route_generating' AND route_revision_id IS NULL AND anonymous_subject_id IS NOT DISTINCT FROM NULLIF($7,'')::uuid`, result.RevisionID, now, claim.Command.TenantID, document.UserID, document.OnboardingSessionID, claim.Command.AggregateID, document.AnonymousSubjectID)
+		if updateErr != nil || tag.RowsAffected() != 1 {
+			return RouteResult{}, ErrRouteConflict
+		}
+	}
 	if err = dispatcher.Inbox.CompleteTx(ctx, tx, claim, now); err != nil {
 		return RouteResult{}, err
 	}
@@ -199,7 +207,7 @@ func (dispatcher MissionRouteDispatcher) loadCommand(ctx context.Context, comman
 	var document missionRouteCommandDocument
 	decoder := json.NewDecoder(bytes.NewReader(encoded))
 	decoder.DisallowUnknownFields()
-	if decoder.Decode(&document) != nil || !errors.Is(decoder.Decode(&struct{}{}), io.EOF) || document.SchemaVersion != 1 || document.MissionID != command.AggregateID || document.UserID == "" || !routeDigestPattern.MatchString(document.ExpectedClaimSetHash) || document.CorrelationID == "" {
+	if decoder.Decode(&document) != nil || !errors.Is(decoder.Decode(&struct{}{}), io.EOF) || document.SchemaVersion != 1 || document.MissionID != command.AggregateID || document.UserID == "" || !routeDigestPattern.MatchString(document.ExpectedClaimSetHash) || document.CorrelationID == "" || document.OnboardingSessionID == "" && document.AnonymousSubjectID != "" {
 		return missionRouteCommandDocument{}, ErrMissionRouteCommand
 	}
 	return document, nil

@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
@@ -44,6 +45,14 @@ type GetRunCommand struct {
 	RunID                       string
 }
 
+type GetConversationCommand struct {
+	RequestID, TenantID, UserID string
+	ConversationID              string
+	Limit                       int
+	BeforeCreatedAt             *time.Time
+	BeforeMessageID             string
+}
+
 type CancelRunCommand struct {
 	ControlMetadata
 	RunID              string
@@ -56,6 +65,26 @@ type ConversationResult struct {
 	Version   uint64    `json:"version"`
 	Status    string    `json:"status"`
 	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type ConversationMessageResult struct {
+	ID        string    `json:"id"`
+	RunID     string    `json:"run_id"`
+	Role      string    `json:"role"`
+	Content   string    `json:"content"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type ConversationDetailResult struct {
+	ID         string                      `json:"id"`
+	MissionID  string                      `json:"mission_id"`
+	Version    uint64                      `json:"version"`
+	Title      *string                     `json:"title"`
+	Mode       string                      `json:"mode"`
+	Status     string                      `json:"status"`
+	Messages   []ConversationMessageResult `json:"messages"`
+	NextCursor *string                     `json:"next_cursor"`
+	UpdatedAt  time.Time                   `json:"updated_at"`
 }
 
 type MessageResult struct {
@@ -74,6 +103,7 @@ type RunResult struct {
 
 type ControlService interface {
 	CreateConversation(context.Context, CreateConversationCommand) (ConversationResult, error)
+	GetConversation(context.Context, GetConversationCommand) (ConversationDetailResult, error)
 	CreateMessage(context.Context, CreateMessageCommand) (MessageResult, error)
 	GetRun(context.Context, GetRunCommand) (RunResult, error)
 	CancelRun(context.Context, CancelRunCommand) (RunResult, error)
@@ -98,6 +128,14 @@ func (handler ControlHandler) ServeHTTP(writer http.ResponseWriter, request *htt
 		}
 		handler.createMessage(writer, request)
 	default:
+		if conversationID, ok := controlConversationPath(request.URL.Path); ok {
+			if request.Method != http.MethodGet {
+				handler.methodNotAllowed(writer, request, http.MethodGet)
+				return
+			}
+			handler.getConversation(writer, request, conversationID)
+			return
+		}
 		runID, cancel, ok := controlRunPath(request.URL.Path)
 		if !ok {
 			RepairHandler{}.writeProblem(writer, request, http.StatusNotFound, "resource_not_found", "Resource not found", false)
@@ -117,6 +155,56 @@ func (handler ControlHandler) ServeHTTP(writer http.ResponseWriter, request *htt
 		}
 		handler.getRun(writer, request, runID)
 	}
+}
+
+func (handler ControlHandler) getConversation(writer http.ResponseWriter, request *http.Request, conversationID string) {
+	metadata, ok := handler.metadata(writer, request, false, false)
+	if !ok {
+		return
+	}
+	limit := 50
+	if raw := request.URL.Query().Get("limit"); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 1 || parsed > 100 {
+			RepairHandler{}.validationFailed(writer, request)
+			return
+		}
+		limit = parsed
+	}
+	var beforeAt *time.Time
+	var beforeID string
+	if raw := request.URL.Query().Get("before"); raw != "" {
+		decoded, err := base64.RawURLEncoding.DecodeString(raw)
+		var cursor struct {
+			CreatedAt time.Time `json:"created_at"`
+			ID        string    `json:"id"`
+		}
+		if err != nil || json.Unmarshal(decoded, &cursor) != nil || cursor.CreatedAt.IsZero() || cursor.ID == "" {
+			RepairHandler{}.validationFailed(writer, request)
+			return
+		}
+		value := cursor.CreatedAt.UTC()
+		beforeAt, beforeID = &value, cursor.ID
+	}
+	if len(request.URL.Query()) > 0 {
+		for key := range request.URL.Query() {
+			if key != "limit" && key != "before" {
+				RepairHandler{}.validationFailed(writer, request)
+				return
+			}
+		}
+	}
+	result, err := handler.Service.GetConversation(request.Context(), GetConversationCommand{RequestID: metadata.RequestID, TenantID: metadata.TenantID, UserID: metadata.UserID, ConversationID: conversationID, Limit: limit, BeforeCreatedAt: beforeAt, BeforeMessageID: beforeID})
+	if err != nil {
+		RepairHandler{}.serviceError(writer, request, err)
+		return
+	}
+	if result.ID == "" || result.MissionID == "" || result.Version == 0 || result.Mode == "" || result.Status == "" || result.Messages == nil || result.UpdatedAt.IsZero() {
+		RepairHandler{}.writeProblem(writer, request, http.StatusServiceUnavailable, "dependency_unavailable", "Dependency unavailable", true)
+		return
+	}
+	writer.Header().Set("ETag", `"`+strconv.FormatUint(result.Version, 10)+`"`)
+	writeControlJSON(writer, http.StatusOK, result)
 }
 
 func (handler ControlHandler) createConversation(writer http.ResponseWriter, request *http.Request) {
@@ -340,4 +428,12 @@ func controlRunPath(path string) (runID string, cancel, ok bool) {
 		return "", false, false
 	}
 	return value, cancel, true
+}
+
+func controlConversationPath(path string) (string, bool) {
+	if !strings.HasPrefix(path, "/v1/conversations/") {
+		return "", false
+	}
+	value := strings.TrimPrefix(path, "/v1/conversations/")
+	return value, value != "" && !strings.Contains(value, "/")
 }

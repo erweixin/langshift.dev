@@ -52,7 +52,7 @@ const reportBase = {
     testPackage: packageName,
     tests: requiredTests,
     testSource: "internal/identity/postgres/membership_service_integration_test.go",
-    database: "PostgreSQL 16 temporary isolated database with migrations through version 83",
+    database: "PostgreSQL 16 temporary isolated database with migrations through version 84",
     executionRole: "NOBYPASSRLS lites_identity_service",
   },
   results: metrics,

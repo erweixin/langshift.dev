@@ -364,6 +364,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/catalog/roles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** catalog roles list */
+        get: operations["catalog.roles.list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/missions": {
         parameters: {
             query?: never;
@@ -763,6 +780,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/portfolio-exports/{id}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** portfolio download */
+        get: operations["portfolio.download"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/share-grants": {
         parameters: {
             query?: never;
@@ -914,6 +948,23 @@ export interface paths {
         put?: never;
         /** conversations create */
         post: operations["conversations.create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/conversations/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** conversations get */
+        get: operations["conversations.get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1770,9 +1821,17 @@ export interface components {
             weekly_minutes: number;
         };
         OnboardingGetResponse: {
+            /** Format: uuid */
             id: string;
             version: number;
-            status: string;
+            /** @enum {unknown} */
+            status: "collecting" | "route_generating" | "route_ready" | "route_failed";
+            /** Format: uuid */
+            mission_id: string | null;
+            /** Format: uuid */
+            route_revision_id: string | null;
+            route: Record<string, never> | null;
+            claim_version: number | null;
             /** Format: date-time */
             updated_at: string;
         };
@@ -1800,6 +1859,10 @@ export interface components {
         };
         OnboardingRoutepreviewRequest: {
             request_id: string;
+            /** Format: uuid */
+            source_role_profile_id: string | null;
+            /** Format: uuid */
+            target_role_profile_id: string;
             confirmed_claim_ids: string[];
             expected_onboarding_version: number;
         };
@@ -1814,6 +1877,31 @@ export interface components {
             request_id: string;
             target_tenant_id: string;
             expected_claim_version: number;
+        };
+        CatalogRolesListResponse: {
+            release_version: string;
+            content_root_sha256: string;
+            /** @enum {unknown} */
+            locale: "en" | "zh-CN";
+            items: {
+                /** Format: uuid */
+                id: string;
+                slug: string;
+                revision: number;
+                /** @constant */
+                status: "active";
+                name: string;
+            }[];
+            rubrics: {
+                /** Format: uuid */
+                id: string;
+                slug: string;
+                revision: number;
+                /** @constant */
+                status: "active";
+                /** @enum {unknown} */
+                practice_kind: "code" | "writing" | "design";
+            }[];
         };
         MissionsListResponse: {
             items: components["schemas"]["Resource"][];
@@ -2132,11 +2220,17 @@ export interface components {
             expected_project_version: number;
         };
         ArtifactsCreateResponse: {
+            /** Format: uuid */
             id: string;
-            version: number;
-            status: string;
+            /** @constant */
+            version: 1;
+            /** @constant */
+            status: "draft";
+            /** @constant */
+            current_revision: 0;
             /** Format: date-time */
             updated_at: string;
+            replayed: boolean;
         };
         ArtifactsCreateRequest: {
             request_id: string;
@@ -2145,16 +2239,26 @@ export interface components {
             title: string;
         };
         ArtifactsReviseResponse: {
+            /** Format: uuid */
             id: string;
-            version: number;
-            status: string;
+            /** Format: uuid */
+            artifact_id: string;
+            artifact_version: number;
+            revision: number;
+            /** @constant */
+            status: "ready";
+            content_hash: string;
+            evidence_manifest_hash: string;
             /** Format: date-time */
             updated_at: string;
+            replayed: boolean;
         };
         ArtifactsReviseRequest: {
             request_id: string;
-            content_ref: string;
-            content_hash: string;
+            content: string;
+            /** @enum {unknown} */
+            media_type: "text/plain" | "text/markdown" | "application/json";
+            workspace_revision: string;
             evidence_ids: string[];
             expected_artifact_version: number;
         };
@@ -2174,6 +2278,13 @@ export interface components {
             evidence_ids: string[];
             /** @enum {unknown} */
             format: "html" | "pdf" | "zip";
+        };
+        PortfolioDownloadResponse: {
+            id: string;
+            version: number;
+            status: string;
+            /** Format: date-time */
+            updated_at: string;
         };
         SharegrantsCreateResponse: {
             id: string;
@@ -2332,6 +2443,32 @@ export interface components {
             title: string | null;
             /** @enum {unknown} */
             mode: "coach" | "task" | "project";
+        };
+        ConversationsGetResponse: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            mission_id: string;
+            version: number;
+            title: string | null;
+            /** @enum {unknown} */
+            mode: "coach" | "task" | "project";
+            /** @enum {unknown} */
+            status: "active" | "archived";
+            messages: {
+                /** Format: uuid */
+                id: string;
+                /** Format: uuid */
+                run_id: string;
+                /** @enum {unknown} */
+                role: "user" | "assistant";
+                content: string;
+                /** Format: date-time */
+                created_at: string;
+            }[];
+            next_cursor: string | null;
+            /** Format: date-time */
+            updated_at: string;
         };
         MessagesCreateResponse: {
             run_id: string;
@@ -2783,6 +2920,9 @@ export interface components {
         IfMatch: string;
         Cursor: string;
         AfterSeq: number;
+        ConversationLimit: number;
+        ConversationBefore: string;
+        Locale: "en" | "zh-CN";
     };
     requestBodies: never;
     headers: never;
@@ -5002,6 +5142,82 @@ export interface operations {
             };
             /** @description Rate or quota limit */
             429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "catalog.roles.list": {
+        parameters: {
+            query?: {
+                locale?: components["parameters"]["Locale"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful operation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/vnd.lites.role-catalog.v1+json": components["schemas"]["CatalogRolesListResponse"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Authentication or reauthentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Idempotency, state, focus, stale result, or version conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Rate or quota limit */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Immutable product content release unavailable */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -7937,6 +8153,82 @@ export interface operations {
             };
         };
     };
+    "portfolio.download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful operation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Authentication or reauthentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Resource not found in the authorized tenant scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Idempotency, state, focus, stale result, or version conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Rate or quota limit */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     "share_grants.create": {
         parameters: {
             query?: never;
@@ -9110,6 +9402,85 @@ export interface operations {
             };
             /** @description Unsupported media type */
             415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Rate or quota limit */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "conversations.get": {
+        parameters: {
+            query?: {
+                limit?: components["parameters"]["ConversationLimit"];
+                before?: components["parameters"]["ConversationBefore"];
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful operation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversationsGetResponse"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Authentication or reauthentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Resource not found in the authorized tenant scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Idempotency, state, focus, stale result, or version conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

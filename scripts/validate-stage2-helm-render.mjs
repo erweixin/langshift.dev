@@ -28,20 +28,20 @@ const failures = [];
 const assert = (condition, message) => { if (!condition) failures.push(message); };
 const byKind = (kind) => documents.filter((document) => document.kind === kind);
 const expectedCounts = {
-  ConfigMap: 19,
-  Deployment: 19,
-  ExternalSecret: 19,
-  HorizontalPodAutoscaler: 15,
+  ConfigMap: 20,
+  Deployment: 20,
+  ExternalSecret: 20,
+  HorizontalPodAutoscaler: 16,
   Job: 1,
-  NetworkPolicy: 22,
-  PodDisruptionBudget: 19,
+  NetworkPolicy: 23,
+  PodDisruptionBudget: 20,
   Service: 9,
-  ServiceAccount: 19,
+  ServiceAccount: 20,
 };
 for (const [kind, count] of Object.entries(expectedCounts)) assert(byKind(kind).length === count, `${kind} count ${byKind(kind).length}, expected ${count}`);
-assert(documents.length === 142, `resource count ${documents.length}, expected 142`);
+assert(documents.length === 149, `resource count ${documents.length}, expected 149`);
 
-const components = ["web-app", "api-gateway", "identity-service", "realtime-gateway", "behavior-control-plane", "agent-control-plane", "product-service", "contract-service", "product-worker", "identity-import-worker", "identity-mail-worker", "outbox-publisher", "agent-scheduler", "agent-worker", "tool-worker", "tool-reconciliation-worker", "runtime-sweeper", "run-cancellation-reconciler", "store-epoch-authority"];
+const components = ["web-app", "api-gateway", "identity-service", "realtime-gateway", "behavior-control-plane", "agent-control-plane", "product-service", "contract-service", "product-worker", "identity-import-worker", "account-erasure-worker", "identity-mail-worker", "outbox-publisher", "agent-scheduler", "agent-worker", "tool-worker", "tool-reconciliation-worker", "runtime-sweeper", "run-cancellation-reconciler", "store-epoch-authority"];
 for (const component of components) {
   const deployment = byKind("Deployment").find((document) => document.name === `lites-${component}`);
   assert(Boolean(deployment), `missing Deployment for ${component}`);
@@ -76,7 +76,7 @@ const defaultDeny = byKind("NetworkPolicy").find((document) => document.name ===
 assert(Boolean(defaultDeny) && /podSelector:\s+\{\}/.test(defaultDeny.body) && /policyTypes:\s+\[Ingress, Egress\]/.test(defaultDeny.body), "missing default deny ingress and egress");
 const dns = byKind("NetworkPolicy").find((document) => document.name === "lites-dns-egress");
 assert(Boolean(dns) && /protocol:\s+UDP, port:\s+53/.test(dns.body) && /protocol:\s+TCP, port:\s+53/.test(dns.body), "missing restricted DNS egress");
-for (const component of ["realtime-gateway", "identity-import-worker", "identity-mail-worker", "outbox-publisher", "agent-scheduler", "agent-worker", "tool-worker", "tool-reconciliation-worker"]) {
+for (const component of ["realtime-gateway", "identity-import-worker", "account-erasure-worker", "identity-mail-worker", "outbox-publisher", "agent-scheduler", "agent-worker", "tool-worker", "tool-reconciliation-worker"]) {
   const policy = byKind("NetworkPolicy").find((document) => document.name === `lites-${component}`);
   assert(Boolean(policy) && /kubernetes\.io\/metadata\.name:\s+data-system[\s\S]*?app\.kubernetes\.io\/instance:\s+lites-nats[\s\S]*?port:\s+4222/.test(policy.body), `${component} lacks selector-scoped NATS egress`);
 }

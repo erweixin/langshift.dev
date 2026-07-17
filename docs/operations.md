@@ -179,4 +179,6 @@ EventStore、payload/object、workspace revision、tool/profile/policy snapshot 
 | 租户/主体删除 | 加密载荷不可还原，memory/snapshot/search/artifact 派生物失效 |
 | 共享 Memory 同时含多个主体 | 根据 subject/derivation lineage 重派生非目标内容或整条删除；所有存储回执齐全后才完成 erasure |
 
+账户删除的生产权限、六面回执、对象全版本删除、Vault Transit 密钥销毁和 PITR 后重放步骤见 [account-erasure runbook](../runbooks/account-erasure.md)。任何一面缺少当前 Store Epoch 回执，都不得向用户宣告删除完成，也不得在恢复环境开放流量。
+
 `store_epoch` 的持久化合约定义在 [concurrency-and-durability.md](./concurrency-and-durability.md)。运维侧需要告警：非当前 epoch command 被拒绝、恢复时外部 epoch 未轮换、EventStore 尚未安装新 epoch 就启动消费者、publisher 发布非当前 epoch outbox row。PITR runbook 必须按“停入口与消费者 → 外部控制面 CAS 轮换 epoch → 恢复并安装 epoch → 重建合法 command → 灰度开放消费者 → 开放入口”的顺序演练。

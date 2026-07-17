@@ -19,7 +19,8 @@ func TestConfigurationFailsClosedAndAllowsExplicitLoopbackDevelopment(t *testing
 	values := map[string]string{
 		"ALLOW_INSECURE_DEVELOPMENT": "true", "DATABASE_URL": "postgres://product@127.0.0.1/lites?sslmode=disable", "STORE_EPOCH_URL": "http://127.0.0.1:8080/v1/store-epoch",
 		"TRUSTED_CONTEXT_KEYRING_FILE": "/tmp/trusted.json", "PRODUCT_SECRET_BUNDLE_FILE": "/tmp/product-secrets.json",
-		"S3_REGION": "us-east-1", "S3_PAYLOAD_BUCKET": "payloads", "VAULT_ADDR": "http://127.0.0.1:8200", "LITES_ENVIRONMENT": "test", "LITES_VERSION": "test", "LITES_REGION": "US",
+		"IDENTITY_PUBLIC_TENANT_ID": "00000000-0000-4000-8000-000000000099",
+		"S3_REGION":                 "us-east-1", "S3_PAYLOAD_BUCKET": "payloads", "S3_ARTIFACT_BUCKET": "artifacts", "VAULT_ADDR": "http://127.0.0.1:8200", "LITES_ENVIRONMENT": "test", "LITES_VERSION": "test", "LITES_REGION": "US",
 	}
 	for name, value := range values {
 		t.Setenv(name, value)
@@ -43,8 +44,9 @@ func TestProductionConfigurationRequiresAuthenticatedFileBackedDependencies(t *t
 		"ALLOW_INSECURE_DEVELOPMENT": "false", "DATABASE_URL": "", "DATABASE_URL_FILE": databaseFile,
 		"SERVER_TLS_CERT_FILE": "/run/tls/tls.crt", "SERVER_TLS_KEY_FILE": "/run/tls/tls.key", "SERVER_CLIENT_CA_FILE": "/run/tls/client-ca.crt",
 		"TRUSTED_CONTEXT_KEYRING_FILE": "/run/config/trusted.json", "PRODUCT_SECRET_BUNDLE_FILE": "/run/secrets/product.json",
-		"STORE_EPOCH_URL": "https://store-epoch.internal/v1/store-epoch", "STORE_EPOCH_ROOT_CA_FILE": "/run/tls/ca.crt", "STORE_EPOCH_TOKEN_FILE": "/run/secrets/epoch-token",
-		"S3_REGION": "us-east-1", "S3_PAYLOAD_BUCKET": "payloads", "VAULT_ADDR": "https://vault.internal", "VAULT_CACERT": "/run/tls/ca.crt", "VAULT_TOKEN_FILE": "/run/secrets/vault-token",
+		"IDENTITY_PUBLIC_TENANT_ID": "00000000-0000-4000-8000-000000000099",
+		"STORE_EPOCH_URL":           "https://store-epoch.internal/v1/store-epoch", "STORE_EPOCH_ROOT_CA_FILE": "/run/tls/ca.crt", "STORE_EPOCH_TOKEN_FILE": "/run/secrets/epoch-token",
+		"S3_REGION": "us-east-1", "S3_PAYLOAD_BUCKET": "payloads", "S3_ARTIFACT_BUCKET": "artifacts", "VAULT_ADDR": "https://vault.internal", "VAULT_CACERT": "/run/tls/ca.crt", "VAULT_TOKEN_FILE": "/run/secrets/vault-token",
 		"LITES_ENVIRONMENT": "production", "LITES_VERSION": "test", "LITES_REGION": "US", "OTLP_GRPC_ENDPOINT": "otel.internal:4317", "OTLP_BEARER_TOKEN_FILE": "/run/secrets/otel-token",
 	}
 	for name, value := range values {

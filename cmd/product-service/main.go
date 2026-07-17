@@ -99,6 +99,7 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 		return errors.New("configure object store")
 	}
 	blobs := s3store.Store{Client: s3Client, Bucket: configuration.payloadBucket, Prefix: configuration.payloadPrefix, MaxBytes: 4 << 20, ServerSideEncryption: configuration.s3Encryption, KMSKeyID: configuration.s3KMSKeyID, RequireDigestMetadata: true}
+	artifactObjects := s3store.Store{Client: s3Client, Bucket: configuration.artifactBucket, Prefix: configuration.artifactPrefix, MaxBytes: 64 << 20, ServerSideEncryption: configuration.s3Encryption, KMSKeyID: configuration.s3KMSKeyID, RequireDigestMetadata: true}
 	vaultReader, err := vaultkeys.NewClientReader(vaultkeys.ClientConfig{Address: configuration.vaultAddress, Namespace: configuration.vaultNamespace, Mount: configuration.vaultMount, TokenFile: configuration.vaultTokenFile, CACertificateFile: configuration.vaultCAFile, ClientCertificateFile: configuration.vaultCertFile, ClientKeyFile: configuration.vaultKeyFile, TLSServerName: configuration.vaultTLSName, AllowInsecureDevelopment: configuration.allowInsecureDevelopment})
 	if err != nil {
 		return errors.New("configure Vault")
@@ -122,7 +123,8 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 	payloads := payload.EnvelopeStore{Keys: vaultkeys.Provider{KV: vaultReader, Prefix: configuration.vaultKeyPrefix}, Blobs: blobs}
 	appender := eventpostgres.Appender{Observer: telemetry.AgentMetrics()}
 	store := productpostgres.MissionFocusStore{Pool: pool, Appender: appender, IDKey: secrets.IDKey, StoreEpoch: storeEpoch, Epochs: authority, Now: func() time.Time { return time.Now().UTC() }}
-	service := productpostgres.MissionMutationService{Pool: pool, Store: store, Payloads: payloads, IDKey: secrets.IDKey, IdempotencyKeyPepper: secrets.IdempotencyPepper, RequestDigestPepper: secrets.RequestDigestPepper, IdempotencyTTL: configuration.idempotencyTTL, Now: func() time.Time { return time.Now().UTC() }}
+	catalog := productpostgres.ContentCatalog{Pool: pool, Release: contentRelease, IDKey: secrets.IDKey}
+	service := productpostgres.MissionMutationService{Pool: pool, Store: store, Payloads: payloads, IDKey: secrets.IDKey, IdempotencyKeyPepper: secrets.IdempotencyPepper, RequestDigestPepper: secrets.RequestDigestPepper, IdempotencyTTL: configuration.idempotencyTTL, Now: func() time.Time { return time.Now().UTC() }, Catalog: catalog}
 	queries := productpostgres.MissionQueryService{Pool: pool, CursorKey: secrets.CursorKey}
 	routeStore := productpostgres.RouteStore{Pool: pool, Appender: appender, IDKey: secrets.IDKey, StoreEpoch: storeEpoch, Epochs: authority, Now: func() time.Time { return time.Now().UTC() }}
 	behaviorStore := behaviorpostgres.Store{Pool: pool, Appender: appender, StoreEpoch: storeEpoch, Epochs: authority, Now: func() time.Time { return time.Now().UTC() }}
@@ -137,8 +139,10 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 	projectStore := productpostgres.ProjectStore{Pool: pool, Appender: appender, IDKey: secrets.IDKey, StoreEpoch: storeEpoch, Epochs: authority, Now: func() time.Time { return time.Now().UTC() }}
 	projects := productpostgres.ProjectApplicationService{Pool: pool, Store: projectStore, Payloads: payloads, IDKey: secrets.IDKey, IdempotencyKeyPepper: secrets.IdempotencyPepper, RequestDigestPepper: secrets.RequestDigestPepper, CursorKey: secrets.CursorKey, IdempotencyTTL: configuration.idempotencyTTL, Now: func() time.Time { return time.Now().UTC() }}
 	projectTests := productpostgres.ProjectTestGenerationService{Pool: pool, Runs: runStore, Payloads: payloads, IDKey: secrets.IDKey, IdempotencyKeyPepper: secrets.IdempotencyPepper, RequestDigestPepper: secrets.RequestDigestPepper, BehaviorEnvironment: configuration.routeBehaviorEnvironment, RunTimeout: configuration.evaluatorRunTimeout, RunMaxSteps: configuration.evaluatorRunMaxSteps, RunMaxCostMicrounits: int64(configuration.evaluatorRunMaxCostMicrounits), RunMaxAttempts: configuration.evaluatorRunMaxAttempts, IdempotencyTTL: configuration.idempotencyTTL, Now: func() time.Time { return time.Now().UTC() }}
+	artifactStore := productpostgres.ArtifactStore{Pool: pool, Appender: appender, IDKey: secrets.IDKey, StoreEpoch: storeEpoch, Epochs: authority, Now: func() time.Time { return time.Now().UTC() }}
+	artifacts := productpostgres.ArtifactApplicationService{Pool: pool, Store: artifactStore, Payloads: payloads, Objects: artifactObjects, IDKey: secrets.IDKey, IdempotencyKeyPepper: secrets.IdempotencyPepper, RequestDigestPepper: secrets.RequestDigestPepper, IdempotencyTTL: configuration.idempotencyTTL, Now: func() time.Time { return time.Now().UTC() }}
 	portfolioStore := productpostgres.PortfolioExportStore{Pool: pool, Appender: appender, IDKey: secrets.IDKey, StoreEpoch: storeEpoch, Epochs: authority, Behavior: behaviorStore, Now: func() time.Time { return time.Now().UTC() }}
-	portfolioExports := productpostgres.PortfolioExportService{Pool: pool, Store: portfolioStore, Payloads: payloads, IDKey: secrets.IDKey, IdempotencyKeyPepper: secrets.IdempotencyPepper, RequestDigestPepper: secrets.RequestDigestPepper, BehaviorEnvironment: configuration.routeBehaviorEnvironment, RunTimeout: configuration.artifactBuilderRunTimeout, RunMaxSteps: configuration.artifactBuilderRunMaxSteps, RunMaxCostMicrounits: int64(configuration.artifactBuilderRunMaxCostMicrounits), RunMaxAttempts: configuration.artifactBuilderRunMaxAttempts, IdempotencyTTL: configuration.idempotencyTTL, Now: func() time.Time { return time.Now().UTC() }}
+	portfolioExports := productpostgres.PortfolioExportService{Pool: pool, Store: portfolioStore, Payloads: payloads, Objects: artifactObjects, IDKey: secrets.IDKey, IdempotencyKeyPepper: secrets.IdempotencyPepper, RequestDigestPepper: secrets.RequestDigestPepper, BehaviorEnvironment: configuration.routeBehaviorEnvironment, RunTimeout: configuration.artifactBuilderRunTimeout, RunMaxSteps: configuration.artifactBuilderRunMaxSteps, RunMaxCostMicrounits: int64(configuration.artifactBuilderRunMaxCostMicrounits), RunMaxAttempts: configuration.artifactBuilderRunMaxAttempts, IdempotencyTTL: configuration.idempotencyTTL, Now: func() time.Time { return time.Now().UTC() }}
 	shareGrants := productpostgres.ShareGrantService{Pool: pool, Appender: appender, Payloads: payloads, IDKey: secrets.IDKey, IdempotencyKeyPepper: secrets.IdempotencyPepper, RequestDigestPepper: secrets.RequestDigestPepper, StoreEpoch: storeEpoch, IdempotencyTTL: configuration.idempotencyTTL, Now: func() time.Time { return time.Now().UTC() }}
 	aggregateQueries := productpostgres.AggregateQueryService{Pool: pool, Payloads: payloads, IDKey: secrets.IDKey, IdempotencyKeyPepper: secrets.IdempotencyPepper, RequestDigestPepper: secrets.RequestDigestPepper, IdempotencyTTL: configuration.idempotencyTTL, Now: func() time.Time { return time.Now().UTC() }}
 	enterpriseAdmin := productpostgres.EnterpriseAdminService{Pool: pool, Appender: appender, Payloads: payloads, IDKey: secrets.IDKey, IdempotencyKeyPepper: secrets.IdempotencyPepper, RequestDigestPepper: secrets.RequestDigestPepper, StoreEpoch: storeEpoch, IdempotencyTTL: configuration.idempotencyTTL, Now: func() time.Time { return time.Now().UTC() }}
@@ -153,13 +157,16 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 	preferencesHandler := productapi.PreferencesHandler{Service: preferences}
 	reminderHandler := productapi.ReminderHandler{Service: reminders}
 	projectHandler := productapi.ProjectHandler{Service: projects, Tests: projectTests}
-	portfolioHandler := productapi.PortfolioHandler{Service: portfolioExports}
+	artifactHandler := productapi.ArtifactHandler{Service: artifacts}
+	portfolioHandler := productapi.PortfolioHandler{Service: portfolioExports, Downloads: portfolioExports}
 	shareGrantHandler := productapi.ShareGrantHandler{Service: shareGrants}
 	aggregateQueryHandler := productapi.AggregateQueryHandler{Service: aggregateQueries}
 	enterpriseAdminHandler := productapi.EnterpriseAdminHandler{Service: enterpriseAdmin}
 	supportHandler := productapi.SupportHandler{Service: supportCases}
 	publicStatusHandler := productapi.PublicStatusHandler{Reader: statuspage.FileReader{DocumentFile: configuration.publicStatusDocumentFile, KeyringFile: configuration.publicStatusKeyringFile}}
+	roleCatalogHandler := productapi.RoleCatalogHandler{Service: catalog, PublicTenantID: configuration.publicTenantID}
 	productMux.Handle("/v1/public/status", publicStatusHandler)
+	productMux.Handle("/v1/catalog/roles", roleCatalogHandler)
 	productMux.Handle("/v1/missions", missionHandler)
 	productMux.Handle("/v1/missions/", missionHandler)
 	productMux.Handle("/v1/route-revisions", routeHandler)
@@ -175,6 +182,8 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 	productMux.Handle("/v1/reminder-schedules/", reminderHandler)
 	productMux.Handle("/v1/projects", projectHandler)
 	productMux.Handle("/v1/projects/", projectHandler)
+	productMux.Handle("/v1/artifacts", artifactHandler)
+	productMux.Handle("/v1/artifacts/", artifactHandler)
 	productMux.Handle("/v1/portfolio-exports", portfolioHandler)
 	productMux.Handle("/v1/portfolio-exports/", portfolioHandler)
 	productMux.Handle("/v1/share-grants", shareGrantHandler)

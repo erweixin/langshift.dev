@@ -151,6 +151,7 @@ func run(parent context.Context, cfg config, logger *slog.Logger) error {
 	dispatcher := productpostgres.RoutePlannerDispatcher{Service: productpostgres.RoutePlannerService{Pool: pool, Routes: routes, Runs: runs, Payloads: payloads, IDKey: secrets.IDKey, RunTimeout: cfg.runTimeout, RunMaxSteps: cfg.runMaxSteps, RunMaxCostMicrounits: cfg.runMaxCostMicrounits, RunMaxAttempts: cfg.runMaxAttempts, QueuePriority: 100, Now: now}, Inbox: inbox, ConsumerName: cfg.consumerName}
 	missionDispatcher := productpostgres.MissionRouteDispatcher{Routes: routeService, Inbox: inbox, ConsumerName: cfg.consumerName}
 	reconciler := productpostgres.RoutePlannerReconciler{Pool: pool, Routes: routes, Payloads: payloads, IDKey: secrets.IDKey, Now: now}
+	onboardingRouteReconciler := productpostgres.OnboardingRouteReconciler{Pool: pool, Appender: appender, Payloads: payloads, IDKey: secrets.IDKey, StoreEpoch: storeEpoch, Now: now}
 	dailyDispatcher := productpostgres.DailyTaskPlannerDispatcher{Service: productpostgres.DailyTaskPlannerService{Pool: pool, Routes: routes, Runs: runs, Payloads: payloads, IDKey: secrets.IDKey, BehaviorEnvironment: cfg.routeBehaviorEnvironment, ContentSnapshotID: contentSnapshotID, RunTimeout: cfg.runTimeout, RunMaxSteps: cfg.runMaxSteps, RunMaxCostMicrounits: cfg.runMaxCostMicrounits, RunMaxAttempts: cfg.runMaxAttempts, QueuePriority: 100, Now: now}, Inbox: inbox, ConsumerName: cfg.consumerName}
 	dailyReconciler := productpostgres.DailyTaskPlannerReconciler{Pool: pool, Routes: routes, Payloads: payloads, IDKey: secrets.IDKey, Now: now}
 	reviewReconciler := productpostgres.ReviewReconciler{Pool: pool, Appender: appender, Payloads: payloads, IDKey: secrets.IDKey, StoreEpoch: storeEpoch, Now: now}
@@ -203,6 +204,9 @@ func run(parent context.Context, cfg config, logger *slog.Logger) error {
 	}()
 	go func() { errs <- consumer.Run(ctx) }()
 	go func() { errs <- reconcileLoop(ctx, reconciler, cfg, logger, func(n int64) { reconciled.Add(ctx, n) }) }()
+	go func() {
+		errs <- onboardingRouteReconcileLoop(ctx, onboardingRouteReconciler, cfg, logger, func(n int64) { reconciled.Add(ctx, n) })
+	}()
 	go func() {
 		errs <- dailyReconcileLoop(ctx, dailyReconciler, cfg, logger, func(n int64) { reconciled.Add(ctx, n) })
 	}()
@@ -431,6 +435,40 @@ func reconcileLoop(ctx context.Context, reconciler productpostgres.RoutePlannerR
 					if count > 0 {
 						observe(count)
 						logger.Info("route planner reconciliation", "tenant_id", tenant, "proposed", result.Proposed, "stale", result.Stale, "failed", result.Failed)
+					}
+				}
+				if len(tenants) < cfg.reconcileTenantBatch {
+					break
+				}
+				after = tenants[len(tenants)-1]
+			}
+		}
+	}
+}
+
+func onboardingRouteReconcileLoop(ctx context.Context, reconciler productpostgres.OnboardingRouteReconciler, cfg config, logger *slog.Logger, observe func(int64)) error {
+	ticker := time.NewTicker(cfg.reconcileInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+			after := ""
+			for {
+				tenants, err := reconciler.ListTenantIDs(ctx, after, cfg.reconcileTenantBatch)
+				if err != nil {
+					return err
+				}
+				for _, tenantID := range tenants {
+					result, reconcileErr := reconciler.ReconcileTenant(ctx, tenantID, cfg.reconcileRouteBatch)
+					if reconcileErr != nil {
+						return reconcileErr
+					}
+					count := int64(result.Ready + result.Failed)
+					if count > 0 {
+						observe(count)
+						logger.Info("onboarding route reconciliation", "tenant_id", tenantID, "ready", result.Ready, "failed", result.Failed)
 					}
 				}
 				if len(tenants) < cfg.reconcileTenantBatch {

@@ -13,6 +13,7 @@ const schema = await readText("deploy/helm/lites/values.schema.json");
 const workflow = await readText(".github/workflows/supply-chain.yml");
 const install = await readText("docs/private-delivery-installation.md");
 const migrationManifest = await readJSON("deploy/migrations/manifest.json");
+const legalConfig = await readJSON("config/legal-governance.json");
 const results = [];
 const check = (id, passed, details) => results.push({ id, status: passed ? "passed" : "failed", details });
 
@@ -29,13 +30,18 @@ check("SUPPLY-CHAIN-COVERAGE", manifest.releaseImages.every((service) => workflo
 check("DIGEST-INJECTION", schema.includes("sha256:[0-9a-f]{64}") && !values.includes(":latest"), "Helm accepts digest locks and contains no latest tag");
 check("PRODUCTION-REPLICAS", [...values.matchAll(/^    replicas: (\d+)$/gm)].every((match) => Number(match[1]) >= 3), "every in-cluster production workload starts with at least three replicas");
 check("SECURITY-EVIDENCE", ["cosign signature", "CycloneDX SBOM", "SLSA provenance", "Trivy HIGH/CRITICAL result"].every((item) => manifest.releaseEvidence.requiredPerImage.includes(item)), "the package requires signature, SBOM, provenance and blocking vulnerability evidence per image");
+const officialWorkflowIdentity = "https://github.com/erweixin/langshift.dev/.github/workflows/supply-chain.yml@refs/heads/main";
+const officialIssuer = "https://token.actions.githubusercontent.com";
+check("EVIDENCE-AUTHORITY", manifest.releaseEvidence.cosignCertificateIdentity === officialWorkflowIdentity && manifest.releaseEvidence.cosignCertificateOIDCIssuer === officialIssuer && manifest.stage6EvidenceAuthorities.automatedReports.length === 1 && manifest.stage6EvidenceAuthorities.automatedReports[0].certificateIdentity === officialWorkflowIdentity && manifest.stage6EvidenceAuthorities.automatedReports[0].certificateOIDCIssuer === officialIssuer && ["externalPenetration", "pilotReports", "finalApproval"].every((key) => Array.isArray(manifest.stage6EvidenceAuthorities[key]) && manifest.stage6EvidenceAuthorities[key].length === 0) && install.includes("fail closed"), "official automation identity is immutable and unassigned external authorities fail closed until a new source-bound RC");
 check("NO-PLAINTEXT-SECRETS", manifest.security.secrets.includes("no plaintext secret") && values.includes("externalSecretRemoteKey") && install.includes("Never copy plaintext application secrets"), "customer secrets stay in the customer secret manager and outside the delivery bundle");
 check("DEFAULT-DENY-MTLS", manifest.security.network.includes("default-deny") && manifest.security.transport.includes("mTLS") && await readText("deploy/helm/lites/templates/networkpolicies.yaml").then((text) => text.includes("policyTypes") && text.includes("Egress")), "delivery requires default-deny networking and workload mTLS");
 check("MACOS-EXEMPTION", manifest.supportedPlatform.developmentHost.includes("Firecracker installation and validation are skipped") && install.includes("intentionally not run on macOS") && (await readText("docs/development-macos.md")).includes("Firecracker"), "macOS development skips Firecracker while delivered sandbox hosts remain Linux-only");
 check("LIFECYCLE-RUNBOOK", ["Fresh installation", "Upgrade", "Backup and restore", "Rollback"].every((heading) => install.includes(`## ${heading}`)) && manifest.drillPolicy.requiredConsecutivePasses === 3 && manifest.drillPolicy.operations.length === 5, "install, upgrade, backup, restore and rollback are documented with three-run GA drills");
-check("MIGRATION-CLOSURE", migrationManifest.migrations.at(-1)?.version === 83 && install.includes("900xxx_verify_current.sql") && install.includes("migration lock"), "delivery binds the current migration chain and post-migration verifier");
+check("MIGRATION-CLOSURE", migrationManifest.migrations.at(-1)?.version === 87 && install.includes("900xxx_verify_current.sql") && install.includes("migration lock"), "delivery binds the current migration chain and post-migration verifier");
 check("COMMERCIAL-ENTITLEMENTS", JSON.stringify(manifest.commercialEntitlements) === JSON.stringify(["private_delivery", "commercial_license", "support_tier"]), "private delivery, commercial license and support tier are explicit contract entitlements");
 check("TELEMETRY-OPT-IN", manifest.security.telemetry.includes("disabled by default") && manifest.security.telemetry.includes("customer-owned endpoint"), "private delivery does not silently send vendor telemetry");
+const legalFiles = await Promise.all(["CLA.md", "CONTRIBUTING.md", "TRADEMARKS.md", "SECURITY.md", "NOTICE", "apps/web/src/components/legal-notice.tsx"].map(readText));
+check("LEGAL-GOVERNANCE", legalConfig.policyVersion === "1.0.0" && ["identity_required", "active"].includes(legalConfig.status) && legalConfig.claAcceptanceMethod === "signed_document" && legalFiles.every((text) => text.length > 0) && legalFiles.at(-1).includes("github.com/erweixin/langshift.dev") && (legalConfig.status === "active" || [legalConfig.rightsHolderLegalName, legalConfig.rightsHolderAddress, legalConfig.governingLaw, legalConfig.claSubmissionAddress].every((value) => value === null)), "legal policies and in-product source notice exist; an unassigned rights holder remains explicit and fail-closed for GA");
 
 const artifactHashes = {};
 let artifactsPresent = true;

@@ -17,6 +17,7 @@ import (
 	executionpostgres "github.com/langshift/lites/internal/execution/postgres"
 	"github.com/langshift/lites/internal/idempotency"
 	idempotencypostgres "github.com/langshift/lites/internal/idempotency/postgres"
+	"github.com/langshift/lites/internal/objectstore/s3store"
 	"github.com/langshift/lites/internal/payload"
 	"github.com/langshift/lites/internal/platform/ids"
 	productapi "github.com/langshift/lites/internal/product/api"
@@ -32,6 +33,7 @@ type PortfolioExportService struct {
 	Pool                                             *pgxpool.Pool
 	Store                                            PortfolioExportStore
 	Payloads                                         payload.Store
+	Objects                                          s3store.Store
 	IDKey, IdempotencyKeyPepper, RequestDigestPepper []byte
 	BehaviorEnvironment                              string
 	RunTimeout                                       time.Duration
@@ -154,6 +156,44 @@ func (service PortfolioExportService) Get(ctx context.Context, tenantID, userID,
 		return productapi.PortfolioExportResult{}, service.mapError(err)
 	}
 	return result, nil
+}
+
+// Download opens only a ready, unexpired owner-scoped export and verifies the
+// immutable object against the database receipt before returning any bytes.
+func (service PortfolioExportService) Download(ctx context.Context, tenantID, userID, exportID string) (productapi.PortfolioDownload, error) {
+	if tenantID == "" || userID == "" || exportID == "" || service.Pool == nil || service.Objects.Client == nil || service.Objects.Bucket == "" {
+		return productapi.PortfolioDownload{}, productapi.ErrValidation
+	}
+	tx, err := service.Pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return productapi.PortfolioDownload{}, service.mapError(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err = tx.Exec(ctx, `SELECT set_config('lites.tenant_id',$1,true)`, tenantID); err != nil {
+		return productapi.PortfolioDownload{}, service.mapError(err)
+	}
+	var status, format, objectRef, contentHash, mediaType string
+	var byteSize int64
+	var expiresAt time.Time
+	err = tx.QueryRow(ctx, `SELECT status,export_format,COALESCE(object_ref,''),COALESCE(content_hash,''),COALESCE(media_type,''),COALESCE(byte_size,0),expires_at FROM product.portfolio_exports WHERE tenant_id=$1 AND user_id=$2 AND id::text=$3`, tenantID, userID, exportID).Scan(&status, &format, &objectRef, &contentHash, &mediaType, &byteSize, &expiresAt)
+	if err != nil {
+		return productapi.PortfolioDownload{}, service.mapError(err)
+	}
+	if status != "ready" || !expiresAt.After(service.now()) || objectRef == "" || contentHash == "" || mediaType == "" || byteSize < 1 || byteSize > service.Objects.MaxBytes {
+		return productapi.PortfolioDownload{}, productapi.ErrStateConflict
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return productapi.PortfolioDownload{}, service.mapError(err)
+	}
+	body, err := service.Objects.Get(ctx, objectRef)
+	if err != nil {
+		return productapi.PortfolioDownload{}, service.mapError(err)
+	}
+	digest := sha256.Sum256(body)
+	if int64(len(body)) != byteSize || hex.EncodeToString(digest[:]) != contentHash {
+		return productapi.PortfolioDownload{}, productapi.ErrDependencyUnavailable
+	}
+	return productapi.PortfolioDownload{Filename: "lites-portfolio-" + exportID + "." + format, MediaType: mediaType, ContentHash: contentHash, Body: body}, nil
 }
 
 func (service PortfolioExportService) snapshot(ctx context.Context, command productapi.CreatePortfolioExportCommand) (portfolioExportSnapshot, []byte, error) {
@@ -372,3 +412,4 @@ func validPortfolioSelection(values []string) bool {
 }
 
 var _ productapi.PortfolioExportService = PortfolioExportService{}
+var _ productapi.PortfolioDownloadService = PortfolioExportService{}

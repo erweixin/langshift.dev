@@ -138,7 +138,7 @@ func (handler DailyTaskHandler) update(writer http.ResponseWriter, request *http
 		handler.problem(writer, request, http.StatusConflict, "version_conflict", true)
 		return
 	}
-	if body.Action != "start" && body.Action != "skip" && body.Action != "reschedule" || body.Action == "reschedule" && !validDate(body.RescheduleFor) || body.Action != "reschedule" && body.RescheduleFor != "" {
+	if body.Action != "start" && body.Action != "skip" && body.Action != "reschedule" && body.Action != "lower_difficulty" || body.Action == "reschedule" && !validDate(body.RescheduleFor) || body.Action != "reschedule" && body.RescheduleFor != "" {
 		handler.problem(writer, request, http.StatusBadRequest, "validation_failed", false)
 		return
 	}

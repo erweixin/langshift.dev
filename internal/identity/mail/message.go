@@ -155,6 +155,7 @@ func Render(command Command, appURL *url.URL) (Message, error) {
 		link := *appURL
 		link.Path = strings.TrimRight(link.Path, "/") + definition.path
 		query := url.Values{"token": []string{command.Token}}
+		query.Set("locale", command.Locale)
 		if command.InvitationID != "" {
 			query.Set("invitation_id", command.InvitationID)
 		}
