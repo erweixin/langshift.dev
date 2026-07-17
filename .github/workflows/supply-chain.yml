@@ -549,3 +549,54 @@ jobs:
           path: gate-reports/stage-2/releases/web-app.json
           if-no-files-found: error
           retention-days: 365
+
+  assemble-signed-ga-release-candidate:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [publish-signed-images, publish-signed-reference-runtime, publish-signed-web-image]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Download every signed image coordinate
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: signed-release-*
+          path: rc-input/releases
+          merge-multiple: true
+      - name: Build commit-bound behavior and RC manifests
+        run: |
+          node scripts/build-product-behavior-manifest.mjs \
+            --source-commit "$GITHUB_SHA" \
+            --output rc-output/product-behavior-manifest.json
+          node scripts/build-ga-release-candidate.mjs \
+            --source-commit "$GITHUB_SHA" \
+            --releases rc-input/releases \
+            --behavior-manifest rc-output/product-behavior-manifest.json \
+            --output rc-output/ga-release-candidate.json
+      - name: Install pinned Cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: ${{ env.COSIGN_VERSION }}
+      - name: Sign and verify the unique GA Release Candidate
+        run: |
+          cosign sign-blob --yes \
+            --bundle rc-output/ga-release-candidate.sigstore.json \
+            rc-output/ga-release-candidate.json
+          cosign verify-blob \
+            --bundle rc-output/ga-release-candidate.sigstore.json \
+            --certificate-identity "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/.github/workflows/supply-chain.yml@refs/heads/main" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            rc-output/ga-release-candidate.json
+      - name: Upload the signed GA Release Candidate
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ga-release-candidate-${{ github.sha }}
+          path: rc-output/
+          if-no-files-found: error
+          retention-days: 365

@@ -1,8 +1,11 @@
 import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
 const root = resolve(import.meta.dirname, "..");
+const sourceCommit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
+const worktreeDirty = execFileSync("git", ["status", "--porcelain=v1"], { cwd: root, encoding: "utf8" }).trim().length > 0;
 const hash = (value) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const evidenceFiles = [
   "enterprise-privacy-contract.json",
@@ -38,6 +41,8 @@ const base = {
   stage: 5,
   kind: "stage5-automated-gate",
   generatedAt: new Date().toISOString(),
+  sourceCommit,
+  worktreeDirty,
   status: failures.length ? "failed" : "passed",
   summary: { checks: results.length, passed: results.length - failures.length, failed: failures.length, evidenceReports: evidence.length },
   platformExceptions: [{ capability: "Firecracker local installation and validation", platform: "macOS development", status: "not_applicable", productionBoundary: "Linux runtime hosts remain required and validated by delivery evidence" }],
