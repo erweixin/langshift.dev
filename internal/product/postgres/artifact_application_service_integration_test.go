@@ -86,22 +86,20 @@ func TestArtifactApplicationServicePersistsScannedExactRevisionAndReplays(t *tes
 	pool := artifactPool(t, ctx, "LITES_TEST_PRODUCT_DATABASE_URL")
 	defer pool.Close()
 	now := time.Date(2026, time.July, 17, 12, 0, 0, 0, time.UTC)
-	const (
-		userID           = "e4000000-0000-4000-8000-000000000001"
-		tenantID         = "e4000000-0000-4000-8000-000000000002"
-		roleID           = "e4000000-0000-4000-8000-000000000003"
-		missionID        = "e4000000-0000-4000-8000-000000000004"
-		routeID          = "e4000000-0000-4000-8000-000000000005"
-		projectID        = "e4000000-0000-4000-8000-000000000006"
-		evidenceID       = "e4000000-0000-4000-8000-000000000007"
-		workspaceID      = "e4000000-0000-4000-8000-000000000008"
-		bindingID        = "e4000000-0000-4000-8000-000000000009"
-		projectEventID   = "e4000000-0000-4000-8000-000000000010"
-		workspaceEventID = "e4000000-0000-4000-8000-000000000011"
-		epoch            = "e4000000-0000-4000-8000-000000000012"
-		sessionID        = "e4000000-0000-4000-8000-000000000013"
-		requestID        = "e4000000-0000-4000-8000-000000000014"
-	)
+	userID := createFixtureUUID(t.Name(), "user")
+	tenantID := createFixtureUUID(t.Name(), "tenant")
+	roleID := createFixtureUUID(t.Name(), "role")
+	missionID := createFixtureUUID(t.Name(), "mission")
+	routeID := createFixtureUUID(t.Name(), "route")
+	projectID := createFixtureUUID(t.Name(), "project")
+	evidenceID := createFixtureUUID(t.Name(), "evidence")
+	workspaceID := createFixtureUUID(t.Name(), "workspace")
+	bindingID := createFixtureUUID(t.Name(), "binding")
+	projectEventID := createFixtureUUID(t.Name(), "project-event")
+	workspaceEventID := createFixtureUUID(t.Name(), "workspace-event")
+	epoch := createFixtureUUID(t.Name(), "epoch")
+	sessionID := createFixtureUUID(t.Name(), "session")
+	requestID := createFixtureUUID(t.Name(), "request")
 	setup := []struct {
 		query string
 		args  []any
@@ -139,7 +137,7 @@ func TestArtifactApplicationServicePersistsScannedExactRevisionAndReplays(t *tes
 	if err != nil || revision.ArtifactVersion != 2 || revision.Revision != 1 || revision.Status != "ready" || len(revision.ContentHash) != 64 || len(revision.EvidenceManifestHash) != 64 || revision.Replayed {
 		t.Fatalf("revision=%#v err=%v", revision, err)
 	}
-	revisionCommand.RequestID = "e4000000-0000-4000-8000-000000000015"
+	revisionCommand.RequestID = createFixtureUUID(t.Name(), "replay-request")
 	replayed, err := service.CreateRevision(ctx, revisionCommand)
 	if err != nil || !replayed.Replayed || replayed.ID != revision.ID || replayed.ContentHash != revision.ContentHash {
 		t.Fatalf("replayed=%#v err=%v", replayed, err)
