@@ -69,7 +69,7 @@ const base = {
   overallStage5Status: "in_progress",
   evidence: {
     databaseGoTestJsonSha256: createHash("sha256").update(raw).digest("hex"),
-    database: "PostgreSQL 16 isolated database with migrations through version 80",
+    database: "PostgreSQL 16 isolated database with migrations through version 83",
     serviceRole: "NOBYPASSRLS lites_contract_service",
     tests: requiredTests,
   },

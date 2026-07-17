@@ -20,6 +20,8 @@ const auditIntegration = await readText("internal/contracts/postgres/control_ser
 const taskIntegration = await readText("internal/product/postgres/enterprise_admin_service_integration_test.go");
 const gateway = await readText("cmd/api-gateway/main.go");
 const admin = await readText("apps/web/src/components/admin-console.tsx");
+const sharing = await readText("apps/web/src/components/evidence-sharing.tsx");
+const webJourney = await readText("apps/web/tests/e2e/product-journey.spec.ts");
 const supportRunbook = await readText("docs/support-and-sla.md");
 const results = [];
 const check = (id, passed, details) => results.push({ id, status: passed ? "passed" : "failed", details });
@@ -43,6 +45,10 @@ check("TASK-IDEMPOTENCY", taskPublish.idempotency === "required_encrypted_durabl
 check("TASK-EVENT", taskEvents.baseContractVersion === "1.22.0" && taskEvents.schemas.TaskPackPublished["x-event-type"] === "TaskPackPublished" && taskFixtures.fixtures.every((fixture) => fixture.inputHash === hash(fixture.input) && fixture.expectedHash === hash(fixture.expected)), "TaskPackPublished has deterministic additive evidence");
 check("EXACT-GATEWAY", gateway.includes('path == "/v1/admin/audit-exports"') && gateway.includes('"/v1/admin/audit-exports/"') && gateway.includes('path == "/v1/admin/task-packs"'), "gateway routes only exact audit and task pack surfaces");
 check("ADMIN-UI", admin.includes("requestAuditExport") && admin.includes("downloadAuditExport") && admin.includes("publishTaskPack") && admin.includes("publishRolePack"), "organization console exposes the real governed operations");
+check("ENTERPRISE-PEOPLE-UI", admin.includes("inviteMember") && admin.includes("importInvitations") && admin.includes("importMemberships") && admin.includes("deactivateMembership"), "organization console covers single invitation, governed CSV, deactivation, and tenant leave");
+check("ENTERPRISE-COHORT-UI", admin.includes("enrollCohort") && admin.includes("unenrollCohort") && admin.includes("application/vnd.lites.cohort-enroll.v2+json") && admin.includes("application/vnd.lites.cohort-unenroll.v2+json"), "cohort enrollment and removal preserve exact-version CAS");
+check("EXPLICIT-SHARING-UI", sharing.includes("application/vnd.lites.share-grant-create.v2+json") && sharing.includes("application/vnd.lites.share-grant-revoke.v2+json") && sharing.includes("expected_grant_version"), "owner-controlled sharing binds an exact revision and exposes immediate CAS revocation");
+check("ENTERPRISE-BROWSER-JOURNEY", webJourney.includes("enterprise primary lifecycle covers invitation, governed CSV, cohorts, sharing, revocation, and offboarding") && webJourney.includes("Start membership import") && webJourney.includes("Revoke and block new reads"), "desktop/mobile browser suite covers the complete enterprise primary lifecycle");
 check("SLA-RUNBOOK", supportRunbook.includes("support_tier") && supportRunbook.includes("72 小时") && supportRunbook.includes("冻结") && supportRunbook.includes("append-only"), "support and SLA behavior is operationally documented without an unearned blanket promise");
 
 const failures = results.filter((result) => result.status === "failed");

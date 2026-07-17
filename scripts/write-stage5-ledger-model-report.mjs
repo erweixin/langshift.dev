@@ -53,7 +53,7 @@ const reportBase = {
     databaseGoTestJsonSha256: createHash("sha256").update(databaseRaw).digest("hex"),
     referenceModelTest: "internal/contracts/postgres/ledger_model_test.go",
     databaseTests: requiredTests.map(([pkg, test]) => ({ package: pkg, test })),
-    database: "PostgreSQL 16 temporary isolated database with migrations through version 80",
+    database: "PostgreSQL 16 temporary isolated database with migrations through version 83",
     serviceRoles: ["NOBYPASSRLS lites_contract_service", "NOBYPASSRLS lites_agent_service"],
   },
   results: metrics,

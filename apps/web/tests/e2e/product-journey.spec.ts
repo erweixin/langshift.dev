@@ -204,6 +204,150 @@ test("Organization console preserves privileged-action and sensitive-read bounda
   expect(results.violations.filter((violation) => ["serious", "critical"].includes(violation.impact ?? ""))).toEqual([]);
 });
 
+test("enterprise primary lifecycle covers invitation, governed CSV, cohorts, sharing, revocation, and offboarding", async ({ page }) => {
+  const programID = "81000000-0000-4000-8000-000000000001";
+  const cohortID = "81000000-0000-4000-8000-000000000002";
+  const userID = "81000000-0000-4000-8000-000000000003";
+  const membershipID = "81000000-0000-4000-8000-000000000004";
+  const roleProfileID = "81000000-0000-4000-8000-000000000005";
+  const taskTemplateID = "81000000-0000-4000-8000-000000000006";
+  const grantID = "81000000-0000-4000-8000-000000000007";
+  const resourceID = "81000000-0000-4000-8000-000000000008";
+  const mutation = (id: string, version: number, status: string) => JSON.stringify({ id, version, status, updated_at: "2026-07-17T12:00:00Z" });
+
+  await page.route("**/api/v1/invitations", async (route) => {
+    const request = route.request();
+    expect(request.headers()["content-type"]).toBe("application/json");
+    expect(await request.postDataJSON()).toMatchObject({ email: "learner@example.com", role: "member", expires_in_days: 7 });
+    await route.fulfill({ status: 200, contentType: "application/json", body: mutation("invitation-1", 1, "pending") });
+  });
+  await page.route("**/api/v1/invitation-imports", async (route) => {
+    expect(await route.request().postDataJSON()).toMatchObject({ object_ref: "s3://imports/acme/invitations.csv", content_hash: `sha256:${"a".repeat(64)}`, import_key: "invitation-import-2026-01", default_role: "member" });
+    await route.fulfill({ status: 200, contentType: "application/json", body: mutation("invitation-import-1", 1, "queued") });
+  });
+  await page.route("**/api/v1/membership-imports", async (route) => {
+    expect(await route.request().postDataJSON()).toMatchObject({ object_ref: "s3://imports/acme/members.csv", content_hash: `sha256:${"b".repeat(64)}`, import_key: "membership-import-2026-01", mode: "deactivate_missing" });
+    await route.fulfill({ status: 200, contentType: "application/json", body: mutation("membership-import-1", 1, "queued") });
+  });
+  await page.route("**/api/v1/memberships", async (route) => {
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ items: [{ id: membershipID, user_id: userID, email: "learner@example.com", role: "member", status: "active", version: 2, joined_at: "2026-07-01T00:00:00Z", updated_at: "2026-07-01T00:00:00Z", deactivated_at: null }], next_cursor: null }) });
+  });
+  await page.route(`**/api/v1/memberships/${membershipID}`, async (route) => {
+    const request = route.request();
+    expect(request.method()).toBe("DELETE");
+    expect(request.headers()["if-match"]).toBe('"2"');
+    expect(await request.postDataJSON()).toMatchObject({ action: "deactivate", reason: "Employment ended", expected_membership_version: 2 });
+    await route.fulfill({ status: 200, contentType: "application/json", body: mutation(membershipID, 3, "deactivated") });
+  });
+  await page.route("**/api/v1/admin/programs", async (route) => {
+    expect(await route.request().postDataJSON()).toMatchObject({ name: "Agent operations", settings: {} });
+    await route.fulfill({ status: 200, contentType: "application/vnd.lites.enterprise-resource.v2+json", body: mutation(programID, 1, "active") });
+  });
+  await page.route("**/api/v1/admin/cohorts", async (route) => {
+    expect(await route.request().postDataJSON()).toMatchObject({ program_id: programID, name: "Q3 platform cohort" });
+    await route.fulfill({ status: 200, contentType: "application/vnd.lites.enterprise-resource.v2+json", body: mutation(cohortID, 1, "active") });
+  });
+  await page.route(`**/api/v1/admin/cohorts/${cohortID}/enrollments`, async (route) => {
+    expect(route.request().headers()["if-match"]).toBe('"1"');
+    expect(await route.request().postDataJSON()).toMatchObject({ user_ids: [userID], expected_cohort_version: 1 });
+    await route.fulfill({ status: 200, contentType: "application/vnd.lites.enterprise-resource.v2+json", body: mutation(cohortID, 2, "active") });
+  });
+  await page.route(`**/api/v1/admin/cohorts/${cohortID}/enrollments/${userID}`, async (route) => {
+    expect(route.request().headers()["if-match"]).toBe('"2"');
+    expect(await route.request().postDataJSON()).toMatchObject({ reason: "Moved to another cohort", expected_cohort_version: 2 });
+    await route.fulfill({ status: 200, contentType: "application/vnd.lites.enterprise-resource.v2+json", body: mutation(cohortID, 3, "active") });
+  });
+  await page.route("**/api/v1/admin/role-packs", async (route) => {
+    expect(await route.request().postDataJSON()).toMatchObject({ program_id: programID, revision: 1, role_profile_ids: [roleProfileID], task_template_ids: [taskTemplateID] });
+    await route.fulfill({ status: 200, contentType: "application/vnd.lites.enterprise-resource.v2+json", body: mutation("81000000-0000-4000-8000-000000000009", 1, "published") });
+  });
+
+  await page.goto("/en/admin");
+  const invitation = page.getByRole("heading", { name: "Invite one member" }).locator("xpath=ancestor::form");
+  await invitation.getByLabel("Work email").fill("learner@example.com");
+  await invitation.getByRole("button", { name: "Send invitation" }).click();
+  await expect(page.getByText(/Invitation created/)).toBeVisible();
+
+  const invitationImport = page.getByRole("heading", { name: "Import bulk invitations" }).locator("xpath=ancestor::form");
+  await invitationImport.getByLabel("Staged CSV object").fill("s3://imports/acme/invitations.csv");
+  await invitationImport.getByLabel("SHA-256").fill(`sha256:${"a".repeat(64)}`);
+  await invitationImport.getByLabel("Import key").fill("invitation-import-2026-01");
+  await invitationImport.getByRole("button", { name: "Start invitation import" }).click();
+  await expect(page.getByText(/Bulk invitations entered/)).toBeVisible();
+
+  const memberImport = page.getByRole("heading", { name: "Bulk synchronize or deactivate members" }).locator("xpath=ancestor::form");
+  await memberImport.getByLabel("Staged CSV object").fill("s3://imports/acme/members.csv");
+  await memberImport.getByLabel("SHA-256").fill(`sha256:${"b".repeat(64)}`);
+  await memberImport.getByLabel("Import key").fill("membership-import-2026-01");
+  await memberImport.getByLabel("Import mode").selectOption("deactivate_missing");
+  await memberImport.getByRole("button", { name: "Start membership import" }).click();
+  await expect(page.getByText(/Membership changes entered/)).toBeVisible();
+
+  const program = page.getByRole("heading", { name: "Create an organization program" }).locator("xpath=ancestor::form");
+  await program.getByLabel("Program name").fill("Agent operations");
+  await program.getByRole("button", { name: "Create program" }).click();
+  const cohort = page.getByRole("heading", { name: "Create a learning cohort" }).locator("xpath=ancestor::form");
+  await cohort.getByLabel("Program ID").fill(programID);
+  await cohort.getByLabel("Cohort name").fill("Q3 platform cohort");
+  await cohort.getByRole("button", { name: "Create cohort" }).click();
+
+  const enrollment = page.getByRole("heading", { name: "Enroll members in a cohort" }).locator("xpath=ancestor::form");
+  await enrollment.getByLabel("Cohort ID").fill(cohortID);
+  await enrollment.getByLabel("Current cohort version").fill("1");
+  await enrollment.getByLabel("User IDs").fill(userID);
+  await enrollment.getByRole("button", { name: "Enroll members" }).click();
+  await expect(page.getByText("Members enrolled against the exact cohort version.")).toBeVisible();
+
+  const removal = page.getByRole("heading", { name: "Remove a member from a cohort" }).locator("xpath=ancestor::form");
+  await removal.getByLabel("Cohort ID").fill(cohortID);
+  await removal.getByLabel("User ID").fill(userID);
+  await removal.getByLabel("Current cohort version").fill("2");
+  await removal.getByLabel("Removal reason").fill("Moved to another cohort");
+  await removal.getByRole("button", { name: "Remove member" }).click();
+  await expect(page.getByText(/Member removed from the cohort/)).toBeVisible();
+
+  const rolePack = page.getByRole("heading", { name: "Publish a role-path pack" }).locator("xpath=ancestor::form");
+  await rolePack.getByLabel("Program ID").fill(programID);
+  await rolePack.getByLabel("Revision").fill("1");
+  await rolePack.getByLabel("Role profile IDs").fill(roleProfileID);
+  await rolePack.getByLabel("Task template IDs").fill(taskTemplateID);
+  await rolePack.getByRole("button", { name: "Publish role pack" }).click();
+  await expect(page.getByText(/Role pack published/)).toBeVisible();
+
+  await page.getByRole("button", { name: "Load members" }).click();
+  await expect(page.getByText("learner@example.com")).toBeVisible();
+  const lifecycle = page.getByRole("heading", { name: "Deactivate a member or leave" }).locator("xpath=ancestor::form");
+  await lifecycle.getByLabel("Membership ID").fill(membershipID);
+  await lifecycle.getByLabel("Current membership version").fill("2");
+  await lifecycle.getByLabel("Lifecycle reason").fill("Employment ended");
+  await lifecycle.getByRole("button", { name: "Submit membership change" }).click();
+  await expect(page.getByText(/Membership deactivated/)).toBeVisible();
+
+  await page.route("**/api/v1/share-grants", async (route) => {
+    const request = route.request();
+    expect(request.headers()["content-type"]).toBe("application/vnd.lites.share-grant-create.v2+json");
+    expect(await request.postDataJSON()).toMatchObject({ grantee_user_id: userID, resource_kind: "evidence", resource_id: resourceID, resource_revision: "sha256:evidence-revision-7", scope: ["read", "review"] });
+    await route.fulfill({ status: 200, contentType: "application/vnd.lites.share-grant.v2+json", body: mutation(grantID, 1, "active") });
+  });
+  await page.route(`**/api/v1/share-grants/${grantID}`, async (route) => {
+    expect(route.request().headers()["if-match"]).toBe('"1"');
+    expect(await route.request().postDataJSON()).toMatchObject({ reason: "Reviewer engagement ended", expected_grant_version: 1 });
+    await route.fulfill({ status: 200, contentType: "application/vnd.lites.share-grant.v2+json", body: mutation(grantID, 2, "revoked") });
+  });
+  await page.goto("/en/evidence");
+  const share = page.getByRole("heading", { name: "Create a bounded share" }).locator("xpath=ancestor::form");
+  await share.getByLabel("Grantee user ID").fill(userID);
+  await share.getByLabel("Resource ID").fill(resourceID);
+  await share.getByLabel("Exact resource revision").fill("sha256:evidence-revision-7");
+  await share.getByLabel("review").check();
+  await share.getByRole("button", { name: "Create explicit share" }).click();
+  await expect(page.getByText(/Explicit share created/)).toBeVisible();
+  const revocation = page.getByRole("heading", { name: "Revoke a share" }).locator("xpath=ancestor::form");
+  await revocation.getByLabel("Revocation reason").fill("Reviewer engagement ended");
+  await revocation.getByRole("button", { name: "Revoke and block new reads" }).click();
+  await expect(page.getByText(/Share revoked/)).toBeVisible();
+});
+
 test("Support Center creates an encrypted case boundary and exposes frozen SLA clocks", async ({ page }) => {
   await page.route("**/api/v1/support/cases", async (route) => {
     const request = route.request();

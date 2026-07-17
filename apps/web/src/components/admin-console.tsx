@@ -12,6 +12,7 @@ type Membership = { id: string; user_id: string; email: string; role: string; st
 type Usage = { tenant_id: string; granted_units: number; available_units: number; reserved_units: number; settled_units: number; active_seats: number; seat_limit: number; as_of: string };
 type AuditRecord = { id: string; kind: string; action: string; actor_user_id: string; resource_kind: string; resource_id: string; reason_hash: string; before_version: number | null; after_version: number | null; occurred_at: string };
 type AuditExport = { id: string; version: 1; status: "ready"; format: "jsonl" | "csv"; record_count: number; content_hash: string; byte_size: number; period_start: string; period_end: string; created_at: string; expires_at: string; replayed?: boolean };
+type IdentityMutation = { id: string; version: number; status: string; updated_at: string };
 
 const idle: Operation = { status: "idle" };
 const enterpriseAccept = "application/vnd.lites.enterprise-resource.v2+json";
@@ -118,6 +119,56 @@ export function AdminConsole({ locale }: { locale: Locale }) {
     });
   }
 
+  async function inviteMember(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    await execute("invitation", async () => {
+      const requestID = newIdempotencyKey();
+      const result = await apiRequest<IdentityMutation>("/v1/invitations", { method: "POST", idempotencyKey: requestID, body: { request_id: requestID, email: requiredString(data, "email"), role: requiredString(data, "role"), expires_in_days: requiredNumber(data, "expires_in_days") } });
+      storeResource("invitation", result);
+      form.reset();
+      return zh ? "邀请已创建；邮件发送与 token 只保留安全审计。" : "Invitation created; mail delivery and the token remain inside the security boundary.";
+    });
+  }
+
+  async function importInvitations(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    await execute("invitation-import", async () => {
+      const requestID = newIdempotencyKey();
+      const result = await apiRequest<IdentityMutation>("/v1/invitation-imports", { method: "POST", idempotencyKey: requestID, body: { request_id: requestID, object_ref: requiredString(data, "object_ref"), content_hash: requiredString(data, "content_hash"), import_key: requiredString(data, "import_key"), default_role: requiredString(data, "default_role") } });
+      storeResource("invitation-import", result);
+      return zh ? "批量邀请已进入可重放的受控导入队列。" : "Bulk invitations entered the replay-safe governed import queue.";
+    });
+  }
+
+  async function importMemberships(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    await execute("membership-import", async () => {
+      const requestID = newIdempotencyKey();
+      const result = await apiRequest<IdentityMutation>("/v1/membership-imports", { method: "POST", idempotencyKey: requestID, body: { request_id: requestID, object_ref: requiredString(data, "object_ref"), content_hash: requiredString(data, "content_hash"), import_key: requiredString(data, "import_key"), mode: requiredString(data, "mode") } });
+      storeResource("membership-import", result);
+      return zh ? "成员变更已进入可重放的受控导入队列。" : "Membership changes entered the replay-safe governed import queue.";
+    });
+  }
+
+  async function deactivateMembership(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    await execute("membership-deactivate", async () => {
+      const requestID = newIdempotencyKey();
+      const membershipID = requiredString(data, "membership_id");
+      const version = requiredNumber(data, "membership_version");
+      const action = requiredString(data, "action");
+      const result = await apiRequest<IdentityMutation>(`/v1/memberships/${encodeURIComponent(membershipID)}`, { method: "DELETE", idempotencyKey: requestID, ifMatch: `"${version}"`, body: { request_id: requestID, action, reason: requiredString(data, "reason"), expected_membership_version: version } });
+      storeResource("membership-deactivate", result);
+      setMembers((current) => current?.map((member) => member.id === result.id ? { ...member, status: result.status, version: result.version, updated_at: result.updated_at, deactivated_at: result.updated_at } : member) ?? null);
+      return action === "leave" ? (zh ? "已退出组织；服务端已撤销本租户会话，不影响个人租户。" : "Left the organization; this tenant session is revoked without affecting the personal tenant.") : (zh ? "成员已停用，席位和会话撤销由服务端一致处理。" : "Membership deactivated; the service reconciles the seat and session revocation.");
+    });
+  }
+
   async function createProgram(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
@@ -137,6 +188,33 @@ export function AdminConsole({ locale }: { locale: Locale }) {
       const result = await apiRequest<EnterpriseResource>("/v1/admin/cohorts", { method: "POST", idempotencyKey: requestID, accept: enterpriseAccept, contentType: "application/vnd.lites.cohort-create.v2+json", body: { request_id: requestID, program_id: requiredString(data, "program_id"), name: requiredString(data, "name"), starts_at: asISO(data.get("starts_at")), ends_at: asISO(data.get("ends_at")) } });
       storeResource("cohort", result);
       return zh ? "学习群组已创建。" : "Cohort created.";
+    });
+  }
+
+  async function enrollCohort(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    await execute("cohort-enroll", async () => {
+      const requestID = newIdempotencyKey();
+      const cohortID = requiredString(data, "cohort_id");
+      const version = requiredNumber(data, "cohort_version");
+      const result = await apiRequest<EnterpriseResource>(`/v1/admin/cohorts/${encodeURIComponent(cohortID)}/enrollments`, { method: "POST", idempotencyKey: requestID, ifMatch: `"${version}"`, accept: enterpriseAccept, contentType: "application/vnd.lites.cohort-enroll.v2+json", body: { request_id: requestID, user_ids: identifierList(data, "user_ids"), expected_cohort_version: version } });
+      storeResource("cohort-enroll", result);
+      return zh ? "成员已按精确群组版本加入。" : "Members enrolled against the exact cohort version.";
+    });
+  }
+
+  async function unenrollCohort(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    await execute("cohort-unenroll", async () => {
+      const requestID = newIdempotencyKey();
+      const cohortID = requiredString(data, "cohort_id");
+      const userID = requiredString(data, "user_id");
+      const version = requiredNumber(data, "cohort_version");
+      const result = await apiRequest<EnterpriseResource>(`/v1/admin/cohorts/${encodeURIComponent(cohortID)}/enrollments/${encodeURIComponent(userID)}`, { method: "DELETE", idempotencyKey: requestID, ifMatch: `"${version}"`, accept: enterpriseAccept, contentType: "application/vnd.lites.cohort-unenroll.v2+json", body: { request_id: requestID, reason: requiredString(data, "reason"), expected_cohort_version: version } });
+      storeResource("cohort-unenroll", result);
+      return zh ? "成员已从群组移除，历史审计仍保留。" : "Member removed from the cohort; historical audit remains intact.";
     });
   }
 
@@ -275,8 +353,14 @@ export function AdminConsole({ locale }: { locale: Locale }) {
 
     <section id="admin-people" className="admin-section"><div className="admin-section-head"><div><p className="section-label"><UsersRound aria-hidden="true" /> {zh ? "人员与项目" : "People & programs"}</p><h2>{zh ? "以租户边界管理组织学习" : "Manage organizational learning within the tenant boundary"}</h2></div><button className="button" type="button" onClick={loadMembers} disabled={operation("members").status === "working"}><RefreshCw aria-hidden="true" />{zh ? "读取成员" : "Load members"}</button></div><OperationNote operation={operation("members")} zh={zh} />
       {members && <div className="admin-table-wrap"><table className="admin-table"><caption className="sr-only">{zh ? "组织成员" : "Organization members"}</caption><thead><tr><th>{zh ? "成员" : "Member"}</th><th>{zh ? "角色" : "Role"}</th><th>{zh ? "状态" : "Status"}</th><th>{zh ? "版本" : "Version"}</th><th>{zh ? "加入时间" : "Joined"}</th></tr></thead><tbody>{members.map((member) => <tr key={member.id}><td><strong>{member.email}</strong><small>{member.id}</small></td><td>{member.role}</td><td><span className="chip">{member.status}</span></td><td>{member.version}</td><td><time dateTime={member.joined_at}>{new Date(member.joined_at).toLocaleDateString(locale)}</time></td></tr>)}</tbody></table>{members.length === 0 && <p className="muted">{zh ? "此租户暂无成员。" : "This tenant has no members."}</p>}</div>}
+      <div className="admin-grid"><form className="card form-grid" onSubmit={inviteMember}><div><p className="section-label">Invitation</p><h3>{zh ? "邀请单个成员" : "Invite one member"}</h3></div><label className="field"><span>{zh ? "工作邮箱" : "Work email"}</span><input name="email" type="email" required autoComplete="off" /></label><div className="admin-form-pair"><label className="field"><span>{zh ? "租户角色" : "Tenant role"}</span><select name="role" defaultValue="member"><option value="member">member</option><option value="reviewer">reviewer</option><option value="program_manager">program_manager</option><option value="contract_admin">contract_admin</option><option value="admin">admin</option></select></label><label className="field"><span>{zh ? "有效天数" : "Expires in days"}</span><input name="expires_in_days" type="number" min="1" max="7" defaultValue="7" required /></label></div><button className="button primary" disabled={operation("invitation").status === "working"}>{zh ? "发送邀请" : "Send invitation"}</button><OperationNote operation={operation("invitation")} zh={zh} /><ResourceResult resource={resources.invitation ?? null} zh={zh} /></form>
+      <form className="card form-grid" onSubmit={importInvitations}><div><p className="section-label">Invitation CSV</p><h3>{zh ? "批量邀请成员" : "Import bulk invitations"}</h3><p className="muted">{zh ? "引用已进入受控导入桶并完成校验和计算的 CSV；服务端会重新验证哈希。" : "Reference a CSV staged in the governed import bucket with its checksum; the service verifies the hash again."}</p></div><label className="field"><span>{zh ? "已暂存 CSV 对象" : "Staged CSV object"}</span><input name="object_ref" required placeholder="s3://imports/tenant/invitations.csv" /></label><label className="field"><span>SHA-256</span><input name="content_hash" required pattern="sha256:[0-9a-f]{64}" placeholder="sha256:…" /></label><label className="field"><span>{zh ? "导入键" : "Import key"}</span><input name="import_key" required minLength={16} maxLength={200} /></label><label className="field"><span>{zh ? "默认角色" : "Default role"}</span><select name="default_role" defaultValue="member"><option value="member">member</option><option value="reviewer">reviewer</option><option value="program_manager">program_manager</option><option value="contract_admin">contract_admin</option><option value="admin">admin</option></select></label><button className="button primary" disabled={operation("invitation-import").status === "working"}>{zh ? "开始批量邀请" : "Start invitation import"}</button><OperationNote operation={operation("invitation-import")} zh={zh} /><ResourceResult resource={resources["invitation-import"] ?? null} zh={zh} /></form></div>
+      <div className="admin-grid"><form className="card form-grid" onSubmit={importMemberships}><div><p className="section-label">Membership CSV</p><h3>{zh ? "批量同步或停用成员" : "Bulk synchronize or deactivate members"}</h3><p className="muted">{zh ? "此操作需要最近重新认证；同一导入键与内容可安全重放。" : "Recent reauthentication is required; the same import key and content are safe to replay."}</p></div><label className="field"><span>{zh ? "已暂存 CSV 对象" : "Staged CSV object"}</span><input name="object_ref" required placeholder="s3://imports/tenant/members.csv" /></label><label className="field"><span>SHA-256</span><input name="content_hash" required pattern="sha256:[0-9a-f]{64}" placeholder="sha256:…" /></label><label className="field"><span>{zh ? "导入键" : "Import key"}</span><input name="import_key" required minLength={16} maxLength={200} /></label><label className="field"><span>{zh ? "处理模式" : "Import mode"}</span><select name="mode" defaultValue="upsert"><option value="upsert">upsert</option><option value="deactivate_missing">deactivate_missing</option></select></label><button className="button primary" disabled={operation("membership-import").status === "working"}>{zh ? "开始成员导入" : "Start membership import"}</button><OperationNote operation={operation("membership-import")} zh={zh} /><ResourceResult resource={resources["membership-import"] ?? null} zh={zh} /></form>
+      <form className="card form-grid" onSubmit={deactivateMembership}><div><p className="section-label">Membership lifecycle</p><h3>{zh ? "停用成员或退出组织" : "Deactivate a member or leave"}</h3><p className="muted">{zh ? "使用成员表中的 ID 与版本；过期版本会被拒绝。退出仅作用于当前企业租户。" : "Use the ID and version from the member table; stale versions are rejected. Leaving affects only the current enterprise tenant."}</p></div><label className="field"><span>{zh ? "操作" : "Membership action"}</span><select name="action" defaultValue="deactivate"><option value="deactivate">deactivate</option><option value="leave">leave</option></select></label><label className="field"><span>Membership ID</span><input name="membership_id" required /></label><label className="field"><span>{zh ? "当前成员版本" : "Current membership version"}</span><input name="membership_version" type="number" min="1" required /></label><label className="field"><span>{zh ? "变更理由" : "Lifecycle reason"}</span><textarea name="reason" required maxLength={1000} /></label><button className="button danger" disabled={operation("membership-deactivate").status === "working"}>{zh ? "提交成员变更" : "Submit membership change"}</button><OperationNote operation={operation("membership-deactivate")} zh={zh} /><ResourceResult resource={resources["membership-deactivate"] ?? null} zh={zh} /></form></div>
       <div className="admin-grid"><form className="card form-grid" onSubmit={createProgram}><div><p className="section-label">Program</p><h3>{zh ? "创建组织项目" : "Create an organization program"}</h3></div><label className="field"><span>{zh ? "项目名称" : "Program name"}</span><input name="name" required maxLength={200} /></label><label className="field"><span>{zh ? "设置（JSON 对象）" : "Settings (JSON object)"}</span><textarea name="settings" required defaultValue="{}" spellCheck={false} /></label><button className="button primary" disabled={operation("program").status === "working"}>{zh ? "创建项目" : "Create program"}</button><OperationNote operation={operation("program")} zh={zh} /><ResourceResult resource={resources.program ?? null} zh={zh} /></form>
       <form className="card form-grid" onSubmit={createCohort}><div><p className="section-label">Cohort</p><h3>{zh ? "创建学习群组" : "Create a learning cohort"}</h3></div><label className="field"><span>Program ID</span><input name="program_id" required autoComplete="off" /></label><label className="field"><span>{zh ? "群组名称" : "Cohort name"}</span><input name="name" required maxLength={200} /></label><div className="admin-form-pair"><label className="field"><span>{zh ? "开始" : "Starts"}</span><input name="starts_at" type="datetime-local" /></label><label className="field"><span>{zh ? "结束" : "Ends"}</span><input name="ends_at" type="datetime-local" /></label></div><button className="button primary" disabled={operation("cohort").status === "working"}>{zh ? "创建群组" : "Create cohort"}</button><OperationNote operation={operation("cohort")} zh={zh} /><ResourceResult resource={resources.cohort ?? null} zh={zh} /></form></div>
+      <div className="admin-grid"><form className="card form-grid" onSubmit={enrollCohort}><div><p className="section-label">Cohort enrollment</p><h3>{zh ? "将成员加入群组" : "Enroll members in a cohort"}</h3></div><label className="field"><span>Cohort ID</span><input name="cohort_id" required /></label><label className="field"><span>{zh ? "当前群组版本" : "Current cohort version"}</span><input name="cohort_version" type="number" min="1" required /></label><label className="field"><span>User IDs</span><textarea name="user_ids" required placeholder={zh ? "逗号或换行分隔 UUID" : "Comma or newline separated UUIDs"} /></label><button className="button primary" disabled={operation("cohort-enroll").status === "working"}>{zh ? "加入群组" : "Enroll members"}</button><OperationNote operation={operation("cohort-enroll")} zh={zh} /><ResourceResult resource={resources["cohort-enroll"] ?? null} zh={zh} /></form>
+      <form className="card form-grid" onSubmit={unenrollCohort}><div><p className="section-label">Cohort removal</p><h3>{zh ? "将成员移出群组" : "Remove a member from a cohort"}</h3></div><label className="field"><span>Cohort ID</span><input name="cohort_id" required /></label><label className="field"><span>User ID</span><input name="user_id" required /></label><label className="field"><span>{zh ? "当前群组版本" : "Current cohort version"}</span><input name="cohort_version" type="number" min="1" required /></label><label className="field"><span>{zh ? "移出理由" : "Removal reason"}</span><textarea name="reason" required maxLength={1000} /></label><button className="button" disabled={operation("cohort-unenroll").status === "working"}>{zh ? "移出群组" : "Remove member"}</button><OperationNote operation={operation("cohort-unenroll")} zh={zh} /><ResourceResult resource={resources["cohort-unenroll"] ?? null} zh={zh} /></form></div>
       <div className="admin-grid"><form className="card form-grid" onSubmit={publishRolePack}><div><p className="section-label">Role pack</p><h3>{zh ? "发布角色路径包" : "Publish a role-path pack"}</h3></div><label className="field"><span>Program ID</span><input name="program_id" required /></label><label className="field"><span>Revision</span><input name="revision" type="number" min="1" required /></label><label className="field"><span>Role profile IDs</span><textarea name="role_profile_ids" required placeholder={zh ? "逗号或换行分隔 UUID" : "Comma or newline separated UUIDs"} /></label><label className="field"><span>Task template IDs</span><textarea name="task_template_ids" required placeholder={zh ? "逗号或换行分隔 UUID" : "Comma or newline separated UUIDs"} /></label><button className="button primary" disabled={operation("role-pack").status === "working"}>{zh ? "发布角色包" : "Publish role pack"}</button><OperationNote operation={operation("role-pack")} zh={zh} /><ResourceResult resource={resources["role-pack"] ?? null} zh={zh} /></form>
       <form className="card form-grid" onSubmit={publishTaskPack}><div><p className="section-label">Task pack</p><h3>{zh ? "发布任务包" : "Publish a task pack"}</h3></div><label className="field"><span>Program ID</span><input name="program_id" required /></label><div className="admin-form-pair"><label className="field"><span>Revision</span><input name="revision" type="number" min="1" required /></label><label className="field"><span>{zh ? "名称" : "Name"}</span><input name="name" required maxLength={200} /></label></div><label className="field"><span>Task template IDs</span><textarea name="task_template_ids" required placeholder={zh ? "逗号或换行分隔 UUID" : "Comma or newline separated UUIDs"} /></label><label className="field"><span>{zh ? "分配策略（JSON 对象）" : "Assignment policy (JSON object)"}</span><textarea name="assignment" required defaultValue='{"required":true}' spellCheck={false} /></label><button className="button primary" disabled={operation("task-pack").status === "working"}>{zh ? "发布任务包" : "Publish task pack"}</button><OperationNote operation={operation("task-pack")} zh={zh} /><ResourceResult resource={resources["task-pack"] ?? null} zh={zh} /></form></div>
     </section>

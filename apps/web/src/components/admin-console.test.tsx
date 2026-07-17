@@ -71,4 +71,30 @@ describe("AdminConsole", () => {
     expect(options).toMatchObject({ method: "POST", accept: "application/vnd.lites.admin-control-resource.v2+json", contentType: "application/vnd.lites.contract-proposal.v2+json" });
     expect(options?.body).toMatchObject({ action: "create", target_contract_id: "", target_version: 0, contract_number: "ENT-2026-001", seat_limit: 250, region: "ap-southeast-1", license_kind: "enterprise_cloud", reason: "Annual enterprise agreement" });
   });
+
+  it("invites a member and enrolls the exact user set with cohort CAS", async () => {
+    request
+      .mockResolvedValueOnce({ id: "invitation-1", version: 1, status: "pending", updated_at: "2026-07-17T12:00:00Z" })
+      .mockResolvedValueOnce({ id: "cohort-1", version: 4, status: "active", updated_at: "2026-07-17T12:01:00Z" });
+    render(<AdminConsole locale="en" />);
+
+    const invitation = screen.getByRole("heading", { name: "Invite one member" }).closest("form")!;
+    fireEvent.change(invitation.querySelector('[name="email"]')!, { target: { value: "learner@example.com" } });
+    fireEvent.change(invitation.querySelector('[name="role"]')!, { target: { value: "reviewer" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send invitation" }));
+    await waitFor(() => expect(request).toHaveBeenCalledTimes(1));
+    expect(request).toHaveBeenNthCalledWith(1, "/v1/invitations", expect.objectContaining({ body: expect.objectContaining({ email: "learner@example.com", role: "reviewer", expires_in_days: 7 }) }));
+
+    const enrollment = screen.getByRole("heading", { name: "Enroll members in a cohort" }).closest("form")!;
+    fireEvent.change(enrollment.querySelector('[name="cohort_id"]')!, { target: { value: "71000000-0000-4000-8000-000000000001" } });
+    fireEvent.change(enrollment.querySelector('[name="cohort_version"]')!, { target: { value: "3" } });
+    fireEvent.change(enrollment.querySelector('[name="user_ids"]')!, { target: { value: "71000000-0000-4000-8000-000000000002\n71000000-0000-4000-8000-000000000003" } });
+    fireEvent.click(screen.getByRole("button", { name: "Enroll members" }));
+    await waitFor(() => expect(request).toHaveBeenCalledTimes(2));
+    expect(request).toHaveBeenNthCalledWith(2, "/v1/admin/cohorts/71000000-0000-4000-8000-000000000001/enrollments", expect.objectContaining({
+      ifMatch: '"3"',
+      contentType: "application/vnd.lites.cohort-enroll.v2+json",
+      body: expect.objectContaining({ user_ids: ["71000000-0000-4000-8000-000000000002", "71000000-0000-4000-8000-000000000003"], expected_cohort_version: 3 }),
+    }));
+  });
 });
